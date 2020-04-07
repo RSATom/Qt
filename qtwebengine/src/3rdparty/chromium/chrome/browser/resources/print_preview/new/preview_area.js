@@ -22,6 +22,9 @@ print_preview_new.PreviewAreaState = {
   INVALID_SETTINGS: 'invalid-settings',
   PREVIEW_FAILED: 'preview-failed',
   UNSUPPORTED_CLOUD_PRINTER: 'unsupported-cloud-printer',
+  // <if expr="chromeos">
+  NO_DESTINATIONS_FOUND: 'no-destinations-found',
+  // </if>
 };
 
 Polymer({
@@ -30,20 +33,25 @@ Polymer({
   behaviors: [WebUIListenerBehavior, SettingsBehavior, I18nBehavior],
 
   properties: {
-    /** @type {print_preview.DocumentInfo} */
-    documentInfo: Object,
-
     /** @type {print_preview.Destination} */
     destination: Object,
+
+    documentModifiable: Boolean,
+
+    /** @type {print_preview.Margins} */
+    margins: Object,
+
+    /** @type {?print_preview.MeasurementSystem} */
+    measurementSystem: Object,
+
+    /** @type {!print_preview.Size} */
+    pageSize: Object,
 
     /** @type {!print_preview_new.State} */
     state: {
       type: Number,
       observer: 'onStateChanged_',
     },
-
-    /** @type {?print_preview.MeasurementSystem} */
-    measurementSystem: Object,
 
     /** @private {boolean} Whether the plugin is loaded */
     pluginLoaded_: {
@@ -82,10 +90,11 @@ Polymer({
         'settings.fitToPage.value, settings.headerFooter.value, ' +
         'settings.layout.value, settings.ranges.value, ' +
         'settings.selectionOnly.value, settings.scaling.value, ' +
-        'settings.pagesPerSheet.value, settings.rasterize.value, destination)',
+        'settings.rasterize.value, destination)',
     'onMarginsChanged_(settings.margins.value)',
     'onCustomMarginsChanged_(settings.customMargins.value)',
     'onMediaSizeChanged_(settings.mediaSize.value)',
+    'onPagesPerSheetChanged_(settings.pagesPerSheet.value)',
     'pluginOrDocumentStatusChanged_(pluginLoaded_, documentReady_)',
   ],
 
@@ -117,10 +126,6 @@ Polymer({
   /** @override */
   attached: function() {
     this.nativeLayer_ = print_preview.NativeLayer.getInstance();
-    this.addWebUIListener(
-        'page-count-ready', this.onPageCountReady_.bind(this));
-    this.addWebUIListener(
-        'page-layout-ready', this.onPageLayoutReady_.bind(this));
     this.addWebUIListener(
         'page-preview-ready', this.onPagePreviewReady_.bind(this));
 
@@ -155,8 +160,9 @@ Polymer({
     const marginControlContainer = this.$.marginControlContainer;
     let fromElement = event.fromElement;
     while (fromElement != null) {
-      if (fromElement == marginControlContainer)
+      if (fromElement == marginControlContainer) {
         return;
+      }
 
       fromElement = fromElement.parentElement;
     }
@@ -173,8 +179,9 @@ Polymer({
     const marginControlContainer = this.$.marginControlContainer;
     let toElement = event.toElement;
     while (toElement != null) {
-      if (toElement == marginControlContainer)
+      if (toElement == marginControlContainer) {
         return;
+      }
 
       toElement = toElement.parentElement;
     }
@@ -192,8 +199,9 @@ Polymer({
 
   /** @private */
   pluginOrDocumentStatusChanged_: function() {
-    if (!this.pluginLoaded_ || !this.documentReady_)
+    if (!this.pluginLoaded_ || !this.documentReady_) {
       return;
+    }
 
     this.previewState = this.previewState ==
             print_preview_new.PreviewAreaState.OPEN_IN_PREVIEW_LOADING ?
@@ -243,19 +251,6 @@ Polymer({
   },
 
   /**
-   * @return {boolean} Whether the system dialog button should be shown.
-   * @private
-   */
-  displaySystemDialogButton_: function() {
-    return this.previewState ==
-        print_preview_new.PreviewAreaState.INVALID_SETTINGS ||
-        this.previewState ==
-        print_preview_new.PreviewAreaState.OPEN_IN_PREVIEW_LOADING ||
-        this.previewState ==
-        print_preview_new.PreviewAreaState.OPEN_IN_PREVIEW_LOADED;
-  },
-
-  /**
    * @return {boolean} Whether the "learn more" link to the cloud print help
    *     page should be shown.
    * @private
@@ -283,11 +278,21 @@ Polymer({
         return this.i18n('openingPDFInPreview');
       // </if>
       case print_preview_new.PreviewAreaState.INVALID_SETTINGS:
-        return this.i18n('invalidPrinterSettings');
+        return this.i18nAdvanced('invalidPrinterSettings', {
+          substitutions: [],
+          tags: ['BR'],
+        });
       case print_preview_new.PreviewAreaState.PREVIEW_FAILED:
         return this.i18n('previewFailed');
       case print_preview_new.PreviewAreaState.UNSUPPORTED_CLOUD_PRINTER:
-        return this.i18n('unsupportedCloudPrinter');
+        return this.i18nAdvanced('unsupportedCloudPrinter', {
+          substitutions: [],
+          tags: ['BR'],
+        });
+      // <if expr="chromeos">
+      case print_preview_new.PreviewAreaState.NO_DESTINATIONS_FOUND:
+        return this.i18n('noDestinationsMessage');
+      // </if>
       default:
         return '';
     }
@@ -299,8 +304,9 @@ Polymer({
     this.documentReady_ = false;
     this.getPreview_().then(
         previewUid => {
-          if (!this.documentInfo.isModifiable)
+          if (!this.documentModifiable) {
             this.onPreviewStart_(previewUid, -1);
+          }
           this.documentReady_ = true;
         },
         type => {
@@ -322,6 +328,13 @@ Polymer({
       this.requestPreviewWhenReady_ = false;
     }
   },
+
+  // <if expr="chromeos">
+  setNoDestinationsFound: function() {
+    this.previewState =
+        print_preview_new.PreviewAreaState.NO_DESTINATIONS_FOUND;
+  },
+  // </if>
 
   // <if expr="is_macosx">
   /** Set the preview state to display the "opening in preview" message. */
@@ -350,81 +363,27 @@ Polymer({
       plugin.setViewportChangedCallback(
           this.onPreviewVisualStateChange_.bind(this));
     }
+
     this.pluginLoaded_ = false;
     this.pluginProxy_.resetPrintPreviewMode(
         previewUid, index, !this.getSettingValue('color'),
-        /** @type {!Array<number>} */ (this.getSetting('pages').value),
-        this.documentInfo.isModifiable);
-  },
-
-  /**
-   * Called when the page layout of the document is ready. Always occurs
-   * as a result of a preview request.
-   * @param {{marginTop: number,
-   *          marginLeft: number,
-   *          marginBottom: number,
-   *          marginRight: number,
-   *          contentWidth: number,
-   *          contentHeight: number,
-   *          printableAreaX: number,
-   *          printableAreaY: number,
-   *          printableAreaWidth: number,
-   *          printableAreaHeight: number,
-   *        }} pageLayout Layout information about the document.
-   * @param {boolean} hasCustomPageSizeStyle Whether this document has a
-   *     custom page size or style to use.
-   * @private
-   */
-  onPageLayoutReady_: function(pageLayout, hasCustomPageSizeStyle) {
-    const origin = new print_preview.Coordinate2d(
-        pageLayout.printableAreaX, pageLayout.printableAreaY);
-    const size = new print_preview.Size(
-        pageLayout.printableAreaWidth, pageLayout.printableAreaHeight);
-
-    const margins = new print_preview.Margins(
-        Math.round(pageLayout.marginTop), Math.round(pageLayout.marginRight),
-        Math.round(pageLayout.marginBottom), Math.round(pageLayout.marginLeft));
-
-    const o = print_preview.ticket_items.CustomMarginsOrientation;
-    const pageSize = new print_preview.Size(
-        pageLayout.contentWidth + margins.get(o.LEFT) + margins.get(o.RIGHT),
-        pageLayout.contentHeight + margins.get(o.TOP) + margins.get(o.BOTTOM));
-
-    this.documentInfo.updatePageInfo(
-        new print_preview.PrintableArea(origin, size), pageSize,
-        hasCustomPageSizeStyle, margins);
-    this.notifyPath('documentInfo.printableArea');
-    this.notifyPath('documentInfo.pageSize');
-    this.notifyPath('documentInfo.margins');
-    this.notifyPath('documentInfo.hasCssMediaStyles');
-  },
-
-  /**
-   * Called when the document page count is received from the native layer.
-   * Always occurs as a result of a preview request.
-   * @param {number} pageCount The document's page count.
-   * @param {number} previewResponseId The request ID for this page count event.
-   * @param {number} fitToPageScaling The scaling required to fit the document
-   *     to page.
-   * @private
-   */
-  onPageCountReady_: function(pageCount, previewResponseId, fitToPageScaling) {
-    if (this.inFlightRequestId_ != previewResponseId)
-      return;
-    this.documentInfo.updatePageCount(pageCount);
-    this.documentInfo.updateFitToPageScaling(fitToPageScaling);
-    this.notifyPath('documentInfo.pageCount');
-    this.notifyPath('documentInfo.fitToPageScaling');
+        /** @type {!Array<number>} */ (this.getSettingValue('pages')),
+        this.documentModifiable);
   },
 
   /**
    * Called when the plugin loads. This is a consequence of calling
    * plugin.reload(). Certain plugin state can only be set after the plugin
    * has loaded.
+   * @param {boolean} success Whether the plugin load succeeded or not.
    * @private
    */
-  onPluginLoad_: function() {
-    this.pluginLoaded_ = true;
+  onPluginLoad_: function(success) {
+    if (success) {
+      this.pluginLoaded_ = true;
+    } else {
+      this.previewState = print_preview_new.PreviewAreaState.PREVIEW_FAILED;
+    }
   },
 
   /**
@@ -443,7 +402,7 @@ Polymer({
     this.$.marginControlContainer.updateTranslationTransform(
         new print_preview.Coordinate2d(pageX, pageY));
     this.$.marginControlContainer.updateScaleTransform(
-        pageWidth / this.documentInfo.pageSize.width);
+        pageWidth / this.pageSize.width);
     this.$.marginControlContainer.updateClippingMask(
         new print_preview.Size(viewportWidth, viewportHeight));
   },
@@ -457,14 +416,24 @@ Polymer({
    * @private
    */
   onPagePreviewReady_: function(pageIndex, previewUid, previewResponseId) {
-    if (this.inFlightRequestId_ != previewResponseId)
+    if (this.inFlightRequestId_ != previewResponseId) {
       return;
+    }
     const pageNumber = pageIndex + 1;
-    const index = this.getSettingValue('pages').indexOf(pageNumber);
-    if (index == 0)
+    let index = this.getSettingValue('pages').indexOf(pageNumber);
+    // When pagesPerSheet > 1, the backend will always return page indices 0 to
+    // N-1, where N is the total page count of the N-upped document.
+    const pagesPerSheet =
+        /** @type {number} */ (this.getSettingValue('pagesPerSheet'));
+    if (pagesPerSheet > 1) {
+      index = pageIndex;
+    }
+    if (index == 0) {
       this.onPreviewStart_(previewUid, pageIndex);
-    if (index != -1)
+    }
+    if (index != -1) {
       this.pluginProxy_.loadPreviewPage(previewUid, pageIndex, index);
+    }
   },
 
   /**
@@ -477,33 +446,31 @@ Polymer({
     // We only care about: PageUp, PageDown, Left, Up, Right, Down.
     // If the user is holding a modifier key, ignore.
     if (!this.pluginProxy_.pluginReady() ||
-        !arrayContains(
-            [
-              'PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp',
-              'ArrowDown'
-            ],
-            e.code) ||
+        !['PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp',
+          'ArrowDown']
+             .includes(e.code) ||
         hasKeyModifiers(e)) {
       return;
     }
 
     // Don't handle the key event for these elements.
-    const tagName = e.path[0].tagName;
-    if (['INPUT', 'SELECT', 'EMBED'].includes(tagName))
+    const tagName = e.composedPath()[0].tagName;
+    if (['INPUT', 'SELECT', 'EMBED'].includes(tagName)) {
       return;
+    }
 
     // For the most part, if any div of header was the last clicked element,
     // then the active element is the body. Starting with the last clicked
     // element, and work up the DOM tree to see if any element has a
     // scrollbar. If there exists a scrollbar, do not handle the key event
     // here.
-    let element = e.target;
-    while (element) {
-      if (element.scrollHeight > element.clientHeight ||
-          element.scrollWidth > element.clientWidth) {
+    const isEventHorizontal = ['ArrowLeft', 'ArrowRight'].includes(e.code);
+    for (let i = 0; i < e.composedPath().length; i++) {
+      const element = e.composedPath()[i];
+      if (element.scrollHeight > element.clientHeight && !isEventHorizontal ||
+          element.scrollWidth > element.clientWidth && isEventHorizontal) {
         return;
       }
-      element = element.parentElement;
     }
 
     // No scroll bar anywhere, or the active element is something else, like a
@@ -526,8 +493,9 @@ Polymer({
    * Called when dragging margins starts or stops.
    */
   onMarginDragChanged_: function(e) {
-    if (!this.pluginProxy_.pluginReady())
+    if (!this.pluginProxy_.pluginReady()) {
       return;
+    }
 
     // When hovering over the plugin (which may be in a separate iframe)
     // pointer events will be sent to the frame. When dragging the margins,
@@ -537,26 +505,53 @@ Polymer({
   },
 
   /**
-   * Called when the learn more link for a cloud destination with an invalid
-   * certificate is clicked. Calls nativeLayer to open a new tab with the help
-   * page.
+   * @param {!CustomEvent<{x: number, y: number}>} e Contains information about
+   *     where the plugin should scroll to.
    * @private
    */
-  onGcpErrorLearnMoreClick_: function() {
-    this.nativeLayer_.forceOpenNewTab(
-        this.i18n('gcpCertificateErrorLearnMoreURL'));
+  onTextFocusPosition_: function(e) {
+    // TODO(tkent): This is a workaround of a preview-area scrolling
+    // issue. Blink scrolls preview-area on focus, but we don't want it.  We
+    // should adjust scroll position of PDF preview and positions of
+    // MarginContgrols here, or restructure the HTML so that the PDF review
+    // and MarginControls are on the single scrollable container.
+    // crbug.com/601341
+    this.scrollTop = 0;
+    this.scrollLeft = 0;
+
+    const position = e.detail;
+    if (position.x === 0 && position.y === 0) {
+      return;
+    }
+
+    this.pluginProxy_.scrollPosition(position.x, position.y);
   },
 
   /** @private */
   onMarginsChanged_: function() {
     if (this.getSettingValue('margins') !=
         print_preview.ticket_items.MarginsTypeValue.CUSTOM) {
-      this.lastCustomMargins_ = null;
       this.onSettingsChanged_();
     } else {
-      this.lastCustomMargins_ =
+      const customMargins =
           /** @type {!print_preview.MarginsSetting} */ (
               this.getSettingValue('customMargins'));
+
+      for (const side of Object.values(
+               print_preview.ticket_items.CustomMarginsOrientation)) {
+        const key = print_preview_new.MARGIN_KEY_MAP.get(side);
+        // If custom margins are undefined, return and wait for them to be set.
+        if (customMargins[key] === undefined || !this.margins) {
+          return;
+        }
+
+        // Start a preview request if the margins actually changed.
+        if (this.margins.get(side) != customMargins[key]) {
+          this.onSettingsChanged_();
+          break;
+        }
+      }
+      this.lastCustomMargins_ = customMargins;
     }
   },
 
@@ -566,6 +561,7 @@ Polymer({
         /** @type {!print_preview.MarginsSetting} */ (
             this.getSettingValue('customMargins'));
     if (!!this.lastCustomMargins_ &&
+        this.lastCustomMargins_.marginTop !== undefined &&
         this.getSettingValue('margins') ==
             print_preview.ticket_items.MarginsTypeValue.CUSTOM &&
         (this.lastCustomMargins_.marginTop != newValue.marginTop ||
@@ -590,6 +586,21 @@ Polymer({
     this.lastMediaSize_ = newValue;
   },
 
+  /** @private */
+  onPagesPerSheetChanged_: function() {
+    const pagesPerSheet =
+        /** @type {number} */ (this.getSettingValue('pagesPerSheet'));
+
+    if (pagesPerSheet == 1 ||
+        this.getSettingValue('margins') ==
+            print_preview.ticket_items.MarginsTypeValue.DEFAULT) {
+      this.onSettingsChanged_();
+    } else {
+      this.setSetting(
+          'margins', print_preview.ticket_items.MarginsTypeValue.DEFAULT);
+    }
+  },
+
   /**
    * Requests a preview from the native layer.
    * @return {!Promise} Promise that resolves when the preview has been
@@ -612,7 +623,7 @@ Polymer({
       pagesPerSheet: this.getSettingValue('pagesPerSheet'),
       isFirstRequest: this.inFlightRequestId_ == 0,
       requestID: this.inFlightRequestId_,
-      previewModifiable: this.documentInfo.isModifiable,
+      previewModifiable: this.documentModifiable,
       fitToPageEnabled: this.getSettingValue('fitToPage'),
       scaleFactor: parseInt(this.getSettingValue('scaling'), 10),
       shouldPrintBackgrounds: this.getSettingValue('cssBackground'),
@@ -645,6 +656,8 @@ Polymer({
         print_preview.ticket_items.MarginsTypeValue.CUSTOM) {
       ticket.marginsCustom = this.getSettingValue('customMargins');
     }
+
+    this.fire('preview-start', this.inFlightRequestId_);
     return this.nativeLayer_.getPreview(JSON.stringify(ticket));
   },
 });

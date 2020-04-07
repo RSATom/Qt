@@ -6,7 +6,8 @@
  * found in the LICENSE file.
  */
 
-#include <Windows.h>
+#include "vk/GrVkVulkan.h"
+
 #include "WindowContextFactory_win.h"
 
 #include "../VulkanWindowContext.h"
@@ -16,6 +17,8 @@
 #include "vk/GrVkUtil.h"
 
 #include "vk/VkTestUtils.h"
+
+#include <Windows.h>
 
 namespace sk_app {
 namespace window_context_factory {

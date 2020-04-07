@@ -15,6 +15,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "cc/base/math_util.h"
 #include "cc/paint/filter_operations.h"
 #include "components/viz/common/display/renderer_settings.h"
@@ -26,6 +27,11 @@
 #include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/transform.h"
+
+// From GL/gl.h
+#ifndef GL_TEXTURE_2D
+#define GL_TEXTURE_2D 0x0DE1
+#endif
 
 namespace {
 
@@ -163,6 +169,63 @@ gfx::Rect DirectRenderer::MoveFromDrawToWindowSpace(
   return window_rect;
 }
 
+// static
+const TileDrawQuad* DirectRenderer::CanPassBeDrawnDirectly(
+    const RenderPass* pass,
+    bool is_using_vulkan,
+    DisplayResourceProvider* const resource_provider) {
+#if defined(OS_MACOSX)
+  // On Macs, this path can sometimes lead to all black output.
+  // TODO(enne): investigate this and remove this hack.
+  return nullptr;
+#endif
+
+  // Can only collapse a single tile quad.
+  if (pass->quad_list.size() != 1)
+    return nullptr;
+  // If we need copy requests, then render pass has to exist.
+  if (!pass->copy_requests.empty())
+    return nullptr;
+
+  const DrawQuad* quad = *pass->quad_list.BackToFrontBegin();
+  // Hack: this could be supported by concatenating transforms, but
+  // in practice if there is one quad, it is at the origin of the render pass
+  // and has the same size as the pass.
+  if (!quad->shared_quad_state->quad_to_target_transform.IsIdentity() ||
+      quad->rect != pass->output_rect)
+    return nullptr;
+  // The quad is expected to be the entire layer so that AA edges are correct.
+  if (quad->shared_quad_state->quad_layer_rect != quad->rect)
+    return nullptr;
+  if (quad->material != DrawQuad::TILED_CONTENT)
+    return nullptr;
+
+  // TODO(chrishtr): support could be added for opacity, but care needs
+  // to be taken to make sure it is correct w.r.t. non-commutative filters etc.
+  if (quad->shared_quad_state->opacity != 1.0f)
+    return nullptr;
+
+  const TileDrawQuad* tile_quad = TileDrawQuad::MaterialCast(quad);
+  // Hack: this could be supported by passing in a subrectangle to draw
+  // render pass, although in practice if there is only one quad there
+  // will be no border texels on the input.
+  if (tile_quad->tex_coord_rect != gfx::RectF(tile_quad->rect))
+    return nullptr;
+  // Tile quad features not supported in render pass shaders.
+  if (tile_quad->swizzle_contents || tile_quad->nearest_neighbor)
+    return nullptr;
+  if (!is_using_vulkan) {
+    // BUG=skia:3868, Skia currently doesn't support texture rectangle inputs.
+    // See also the DCHECKs about GL_TEXTURE_2D in DrawRenderPassQuad.
+    GLenum target =
+        resource_provider->GetResourceTextureTarget(tile_quad->resource_id());
+    if (target != GL_TEXTURE_2D)
+      return nullptr;
+  }
+
+  return tile_quad;
+}
+
 const TileDrawQuad* DirectRenderer::CanPassBeDrawnDirectly(
     const RenderPass* pass) {
   return nullptr;
@@ -203,7 +266,7 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
                                const gfx::Size& device_viewport_size) {
   DCHECK(visible_);
   TRACE_EVENT0("viz,benchmark", "DirectRenderer::DrawFrame");
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Renderer4.renderPassCount",
       base::saturated_cast<int>(render_passes_in_draw_order->size()));
 
@@ -262,11 +325,20 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
 
   BeginDrawingFrame();
 
+  // RenderPass owns filters, backdrop_filters, etc., and will outlive this
+  // function call. So it is safe to store pointers in these maps.
   for (const auto& pass : *render_passes_in_draw_order) {
     if (!pass->filters.IsEmpty())
       render_pass_filters_[pass->id] = &pass->filters;
-    if (!pass->background_filters.IsEmpty())
-      render_pass_background_filters_[pass->id] = &pass->background_filters;
+    if (!pass->backdrop_filters.IsEmpty()) {
+      render_pass_backdrop_filters_[pass->id] = &pass->backdrop_filters;
+      // |backdrop_filter_bounds| only apply if there is a non-empty
+      // backdrop-filter to apply.
+      if (!pass->backdrop_filter_bounds.IsEmpty()) {
+        render_pass_backdrop_filter_bounds_[pass->id] =
+            &pass->backdrop_filter_bounds;
+      }
+    }
   }
 
   // Create the overlay candidate for the output surface, and mark it as
@@ -288,7 +360,7 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
   overlay_processor_->ProcessForOverlays(
       resource_provider_, render_passes_in_draw_order,
       output_surface_->color_matrix(), render_pass_filters_,
-      render_pass_background_filters_, &current_frame()->overlay_list,
+      render_pass_backdrop_filters_, &current_frame()->overlay_list,
       &current_frame()->ca_layer_overlay_list,
       &current_frame()->dc_layer_overlay_list,
       &current_frame()->root_damage_rect,
@@ -330,24 +402,24 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
   if (!skip_drawing_root_render_pass)
     DrawRenderPassAndExecuteCopyRequests(root_render_pass);
 
-  // Use a fence to synchronize display of the overlays. Note that gpu_fence_id
-  // may have the special value 0 ("no fence") if fences are not supported. In
-  // that case synchronization will happen through other means on the service
-  // side. We are currently using the output surface fence for all the overlays,
-  // which is functionally correct due to the position of this fence in the
-  // command stream.
+  // Use a fence to synchronize display of the main fb used by the output
+  // surface. Note that gpu_fence_id may have the special value 0 ("no fence")
+  // if fences are not supported. In that case synchronization will happen
+  // through other means on the service side.
   // TODO(afrantzis): Consider using per-overlay fences instead of the one
   // associated with the output surface when possible.
   if (!current_frame()->overlay_list.empty()) {
-    auto gpu_fence_id = output_surface_->UpdateGpuFence();
-    for (auto& overlay : current_frame()->overlay_list)
-      overlay.gpu_fence_id = gpu_fence_id;
+    for (auto& overlay : current_frame()->overlay_list) {
+      if (overlay.use_output_surface_for_resource)
+        overlay.gpu_fence_id = output_surface_->UpdateGpuFence();
+    }
   }
 
   FinishDrawingFrame();
   render_passes_in_draw_order->clear();
   render_pass_filters_.clear();
-  render_pass_background_filters_.clear();
+  render_pass_backdrop_filters_.clear();
+  render_pass_backdrop_filter_bounds_.clear();
 
   current_frame_valid_ = false;
 }
@@ -437,8 +509,14 @@ const cc::FilterOperations* DirectRenderer::FiltersForPass(
 
 const cc::FilterOperations* DirectRenderer::BackgroundFiltersForPass(
     RenderPassId render_pass_id) const {
-  auto it = render_pass_background_filters_.find(render_pass_id);
-  return it == render_pass_background_filters_.end() ? nullptr : it->second;
+  auto it = render_pass_backdrop_filters_.find(render_pass_id);
+  return it == render_pass_backdrop_filters_.end() ? nullptr : it->second;
+}
+
+const gfx::RectF* DirectRenderer::BackgroundFilterBoundsForPass(
+    RenderPassId render_pass_id) const {
+  auto it = render_pass_backdrop_filter_bounds_.find(render_pass_id);
+  return it == render_pass_backdrop_filter_bounds_.end() ? nullptr : it->second;
 }
 
 void DirectRenderer::FlushPolygons(
@@ -468,17 +546,8 @@ void DirectRenderer::DrawRenderPassAndExecuteCopyRequests(
   for (int i = 0; i < settings_->slow_down_compositing_scale_factor; ++i)
     DrawRenderPass(render_pass);
 
-  bool first_request = true;
-  for (auto& copy_request : render_pass->copy_requests) {
-    // CopyDrawnRenderPass() can change the binding of the framebuffer target as
-    // a part of its usual scaling and readback operations. Therefore, make sure
-    // to restore the correct framebuffer between readbacks. (Even if it did
-    // not, a Mac-specific bug requires this workaround: http://crbug.com/99393)
-    if (!first_request)
-      UseRenderPass(render_pass);
+  for (auto& copy_request : render_pass->copy_requests)
     CopyDrawnRenderPass(std::move(copy_request));
-    first_request = false;
-  }
 }
 
 void DirectRenderer::DrawRenderPass(const RenderPass* render_pass) {

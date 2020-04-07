@@ -61,7 +61,7 @@ struct GFX_EXPORT NativePixmapHandle {
   std::vector<NativePixmapPlane> planes;
 };
 
-#if defined(OS_LINUX) && !defined(TOOLKIT_QT)
+#if defined(OS_LINUX)
 // Returns an instance of |handle| which can be sent over IPC. This duplicates
 // the file-handles, so that the IPC code take ownership of them, without
 // invalidating |handle|.

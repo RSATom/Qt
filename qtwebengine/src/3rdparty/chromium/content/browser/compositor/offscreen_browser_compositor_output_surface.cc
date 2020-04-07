@@ -18,7 +18,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
 
@@ -30,7 +30,7 @@ static viz::ResourceFormat kFboTextureFormat = viz::RGBA_8888;
 
 OffscreenBrowserCompositorOutputSurface::
     OffscreenBrowserCompositorOutputSurface(
-        scoped_refptr<ui::ContextProviderCommandBuffer> context,
+        scoped_refptr<ws::ContextProviderCommandBuffer> context,
         const UpdateVSyncParametersCallback& update_vsync_parameters_callback,
         std::unique_ptr<viz::CompositorOverlayCandidateValidator>
             overlay_candidate_validator)
@@ -160,8 +160,7 @@ void OffscreenBrowserCompositorOutputSurface::SwapBuffers(
       sync_token,
       base::BindOnce(
           &OffscreenBrowserCompositorOutputSurface::OnSwapBuffersComplete,
-          weak_ptr_factory_.GetWeakPtr(), frame.latency_info,
-          frame.need_presentation_feedback));
+          weak_ptr_factory_.GetWeakPtr(), frame.latency_info));
 }
 
 bool OffscreenBrowserCompositorOutputSurface::IsDisplayedAsOverlayPlane()
@@ -191,12 +190,10 @@ void OffscreenBrowserCompositorOutputSurface::OnReflectorChanged() {
 }
 
 void OffscreenBrowserCompositorOutputSurface::OnSwapBuffersComplete(
-    const std::vector<ui::LatencyInfo>& latency_info,
-    bool need_presentation_feedback) {
+    const std::vector<ui::LatencyInfo>& latency_info) {
   latency_tracker_.OnGpuSwapBuffersCompleted(latency_info);
   client_->DidReceiveSwapBuffersAck();
-  if (need_presentation_feedback)
-    client_->DidReceivePresentationFeedback(gfx::PresentationFeedback());
+  client_->DidReceivePresentationFeedback(gfx::PresentationFeedback());
 }
 
 #if BUILDFLAG(ENABLE_VULKAN)

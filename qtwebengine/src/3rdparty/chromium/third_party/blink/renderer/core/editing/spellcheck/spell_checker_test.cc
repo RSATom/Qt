@@ -21,7 +21,9 @@ namespace blink {
 
 class SpellCheckerTest : public SpellCheckTestBase {
  protected:
-  int LayoutCount() const { return Page().GetFrameView().LayoutCount(); }
+  unsigned LayoutCount() const {
+    return Page().GetFrameView().LayoutCountForTesting();
+  }
   DummyPageHolder& Page() const { return GetDummyPageHolder(); }
 
   void ForceLayout();
@@ -38,7 +40,7 @@ void SpellCheckerTest::ForceLayout() {
 
 TEST_F(SpellCheckerTest, AdvanceToNextMisspellingWithEmptyInputNoCrash) {
   SetBodyContent("<input placeholder='placeholder'>abc");
-  UpdateAllLifecyclePhases();
+  UpdateAllLifecyclePhasesForTest();
   Element* input = GetDocument().QuerySelector("input");
   input->focus();
   // Do not crash in advanceToNextMisspelling.
@@ -55,7 +57,7 @@ TEST_F(SpellCheckerTest, AdvanceToNextMisspellingWithImageInTableNoCrash) {
       "zz zz zz"
       "</div>");
   GetDocument().QuerySelector("div")->focus();
-  UpdateAllLifecyclePhases();
+  UpdateAllLifecyclePhasesForTest();
 
   // Do not crash in advanceToNextMisspelling.
   GetSpellChecker().AdvanceToNextMisspelling(false);
@@ -71,7 +73,7 @@ TEST_F(SpellCheckerTest, AdvancedToNextMisspellingWrapSearchNoCrash) {
       SelectionInDOMTree::Builder()
           .Collapse(Position::LastPositionInNode(*div))
           .Build());
-  UpdateAllLifecyclePhases();
+  UpdateAllLifecyclePhasesForTest();
 
   GetSpellChecker().AdvanceToNextMisspelling(false);
 }
@@ -91,7 +93,7 @@ TEST_F(SpellCheckerTest, SpellCheckDoesNotCauseUpdateLayout) {
 
   EXPECT_TRUE(GetSpellChecker().IsSpellCheckingEnabled());
   ForceLayout();
-  int start_count = LayoutCount();
+  unsigned start_count = LayoutCount();
   GetSpellChecker().RespondToChangedSelection();
   EXPECT_EQ(start_count, LayoutCount());
 }
@@ -147,7 +149,10 @@ TEST_F(SpellCheckerTest, GetSpellCheckMarkerUnderSelection_FirstCharSelected) {
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_NE(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(8u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest, GetSpellCheckMarkerUnderSelection_LastCharSelected) {
@@ -171,7 +176,10 @@ TEST_F(SpellCheckerTest, GetSpellCheckMarkerUnderSelection_LastCharSelected) {
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_NE(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(8u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest,
@@ -196,7 +204,10 @@ TEST_F(SpellCheckerTest,
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_NE(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(1u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest,
@@ -221,7 +232,10 @@ TEST_F(SpellCheckerTest,
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_EQ(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(1u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest,
@@ -246,7 +260,10 @@ TEST_F(SpellCheckerTest,
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_EQ(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(1u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest,
@@ -271,7 +288,10 @@ TEST_F(SpellCheckerTest,
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_EQ(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(8u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest,
@@ -296,7 +316,10 @@ TEST_F(SpellCheckerTest,
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_EQ(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(8u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest, GetSpellCheckMarkerUnderSelection_CaretMiddleOfWord) {
@@ -320,7 +343,10 @@ TEST_F(SpellCheckerTest, GetSpellCheckMarkerUnderSelection_CaretMiddleOfWord) {
           .GetFrame()
           ->GetSpellChecker()
           .GetSpellCheckMarkerUnderSelection();
-  EXPECT_NE(nullptr, result.first);
+  EXPECT_EQ(text, result.first);
+  ASSERT_NE(nullptr, result.second);
+  EXPECT_EQ(0u, result.second->StartOffset());
+  EXPECT_EQ(8u, result.second->EndOffset());
 }
 
 TEST_F(SpellCheckerTest,

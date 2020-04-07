@@ -37,9 +37,10 @@
 #if V8_TARGET_ARCH_MIPS64
 
 #include "src/base/cpu.h"
-#include "src/code-stubs.h"
 #include "src/deoptimizer.h"
 #include "src/mips64/assembler-mips64-inl.h"
+#include "src/objects/heap-number-inl.h"
+#include "src/string-constants.h"
 
 namespace v8 {
 namespace internal {
@@ -178,23 +179,6 @@ bool RelocInfo::IsInConstantPool() {
   return false;
 }
 
-int RelocInfo::GetDeoptimizationId(Isolate* isolate, DeoptimizeKind kind) {
-  DCHECK(IsRuntimeEntry(rmode_));
-  return Deoptimizer::GetDeoptimizationId(isolate, target_address(), kind);
-}
-
-void RelocInfo::set_js_to_wasm_address(Address address,
-                                       ICacheFlushMode icache_flush_mode) {
-  DCHECK_EQ(rmode_, JS_TO_WASM_CALL);
-  Assembler::set_target_address_at(pc_, constant_pool_, address,
-                                   icache_flush_mode);
-}
-
-Address RelocInfo::js_to_wasm_address() const {
-  DCHECK_EQ(rmode_, JS_TO_WASM_CALL);
-  return Assembler::target_address_at(pc_, constant_pool_);
-}
-
 uint32_t RelocInfo::wasm_call_tag() const {
   DCHECK(rmode_ == WASM_CALL || rmode_ == WASM_STUB_CALL);
   return static_cast<uint32_t>(
@@ -219,10 +203,10 @@ Operand Operand::EmbeddedNumber(double value) {
   return result;
 }
 
-Operand Operand::EmbeddedCode(CodeStub* stub) {
-  Operand result(0, RelocInfo::CODE_TARGET);
+Operand Operand::EmbeddedStringConstant(const StringConstantBase* str) {
+  Operand result(0, RelocInfo::EMBEDDED_OBJECT);
   result.is_heap_object_request_ = true;
-  result.value_.heap_object_request = HeapObjectRequest(stub);
+  result.value_.heap_object_request = HeapObjectRequest(str);
   return result;
 }
 
@@ -238,6 +222,7 @@ MemOperand::MemOperand(Register rm, int32_t unit, int32_t multiplier,
 }
 
 void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
+  DCHECK_IMPLIES(isolate == nullptr, heap_object_requests_.empty());
   for (auto& request : heap_object_requests_) {
     Handle<HeapObject> object;
     switch (request.kind()) {
@@ -245,12 +230,13 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
         object =
             isolate->factory()->NewHeapNumber(request.heap_number(), TENURED);
         break;
-      case HeapObjectRequest::kCodeStub:
-        request.code_stub()->set_isolate(isolate);
-        object = request.code_stub()->GetCode();
+      case HeapObjectRequest::kStringConstant:
+        const StringConstantBase* str = request.string();
+        CHECK_NOT_NULL(str);
+        object = str->AllocateStringConstant(isolate);
         break;
     }
-    Address pc = reinterpret_cast<Address>(buffer_) + request.offset();
+    Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
     set_target_value_at(pc, reinterpret_cast<uint64_t>(object.location()));
   }
 }
@@ -291,11 +277,11 @@ const Instr kLwSwInstrTypeMask = 0xFFE00000;
 const Instr kLwSwInstrArgumentMask  = ~kLwSwInstrTypeMask;
 const Instr kLwSwOffsetMask = kImm16Mask;
 
-Assembler::Assembler(const AssemblerOptions& options, void* buffer,
-                     int buffer_size)
-    : AssemblerBase(options, buffer, buffer_size),
+Assembler::Assembler(const AssemblerOptions& options,
+                     std::unique_ptr<AssemblerBuffer> buffer)
+    : AssemblerBase(options, std::move(buffer)),
       scratch_register_list_(at.bit()) {
-  reloc_info_writer.Reposition(buffer_ + buffer_size_, pc_);
+  reloc_info_writer.Reposition(buffer_start_ + buffer_->size(), pc_);
 
   last_trampoline_pool_end_ = 0;
   no_trampoline_pool_before_ = 0;
@@ -314,20 +300,24 @@ Assembler::Assembler(const AssemblerOptions& options, void* buffer,
 
 void Assembler::GetCode(Isolate* isolate, CodeDesc* desc) {
   EmitForbiddenSlotInstruction();
+
+  int code_comments_size = WriteCodeComments();
+
   DCHECK(pc_ <= reloc_info_writer.pos());  // No overlap.
 
   AllocateAndInstallRequestedHeapObjects(isolate);
 
   // Set up code descriptor.
-  desc->buffer = buffer_;
-  desc->buffer_size = buffer_size_;
+  desc->buffer = buffer_start_;
+  desc->buffer_size = buffer_->size();
   desc->instr_size = pc_offset();
-  desc->reloc_size =
-      static_cast<int>((buffer_ + buffer_size_) - reloc_info_writer.pos());
+  desc->reloc_size = static_cast<int>((buffer_start_ + desc->buffer_size) -
+                                      reloc_info_writer.pos());
   desc->origin = this;
   desc->constant_pool_size = 0;
   desc->unwinding_info_size = 0;
   desc->unwinding_info = nullptr;
+  desc->code_comments_size = code_comments_size;
 }
 
 
@@ -533,6 +523,12 @@ bool Assembler::IsBc(Instr instr) {
   return opcode == BC || opcode == BALC;
 }
 
+bool Assembler::IsNal(Instr instr) {
+  uint32_t opcode = GetOpcodeField(instr);
+  uint32_t rt_field = GetRtField(instr);
+  uint32_t rs_field = GetRsField(instr);
+  return opcode == REGIMM && rt_field == BLTZAL && rs_field == 0;
+}
 
 bool Assembler::IsBzc(Instr instr) {
   uint32_t opcode = GetOpcodeField(instr);
@@ -758,7 +754,7 @@ static inline int32_t AddBranchOffset(int pos, Instr instr) {
 
 int Assembler::target_at(int pos, bool is_internal) {
   if (is_internal) {
-    int64_t* p = reinterpret_cast<int64_t*>(buffer_ + pos);
+    int64_t* p = reinterpret_cast<int64_t*>(buffer_start_ + pos);
     int64_t address = *p;
     if (address == kEndOfJumpChain) {
       return kEndOfChain;
@@ -781,34 +777,63 @@ int Assembler::target_at(int pos, bool is_internal) {
      }
   }
   // Check we have a branch or jump instruction.
-  DCHECK(IsBranch(instr) || IsJ(instr) || IsJal(instr) || IsLui(instr));
+  DCHECK(IsBranch(instr) || IsJ(instr) || IsJal(instr) || IsLui(instr) ||
+         IsMov(instr, t8, ra));
   // Do NOT change this to <<2. We rely on arithmetic shifts here, assuming
   // the compiler uses arithmetic shifts for signed integers.
   if (IsBranch(instr)) {
     return AddBranchOffset(pos, instr);
-  } else if (IsLui(instr)) {
-    Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
-    Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
-    Instr instr_ori2 = instr_at(pos + 3 * Assembler::kInstrSize);
+  } else if (IsMov(instr, t8, ra)) {
+    int32_t imm32;
+    Instr instr_lui = instr_at(pos + 2 * kInstrSize);
+    Instr instr_ori = instr_at(pos + 3 * kInstrSize);
+    DCHECK(IsLui(instr_lui));
     DCHECK(IsOri(instr_ori));
-    DCHECK(IsOri(instr_ori2));
-
-    // TODO(plind) create named constants for shift values.
-    int64_t imm = static_cast<int64_t>(instr_lui & kImm16Mask) << 48;
-    imm |= static_cast<int64_t>(instr_ori & kImm16Mask) << 32;
-    imm |= static_cast<int64_t>(instr_ori2 & kImm16Mask) << 16;
-    // Sign extend address;
-    imm >>= 16;
-
-    if (imm == kEndOfJumpChain) {
+    imm32 = (instr_lui & static_cast<int32_t>(kImm16Mask)) << kLuiShift;
+    imm32 |= (instr_ori & static_cast<int32_t>(kImm16Mask));
+    if (imm32 == kEndOfJumpChain) {
       // EndOfChain sentinel is returned directly, not relative to pc or pos.
       return kEndOfChain;
+    }
+    return pos + Assembler::kLongBranchPCOffset + imm32;
+  } else if (IsLui(instr)) {
+    if (IsNal(instr_at(pos + kInstrSize))) {
+      int32_t imm32;
+      Instr instr_lui = instr_at(pos + 0 * kInstrSize);
+      Instr instr_ori = instr_at(pos + 2 * kInstrSize);
+      DCHECK(IsLui(instr_lui));
+      DCHECK(IsOri(instr_ori));
+      imm32 = (instr_lui & static_cast<int32_t>(kImm16Mask)) << kLuiShift;
+      imm32 |= (instr_ori & static_cast<int32_t>(kImm16Mask));
+      if (imm32 == kEndOfJumpChain) {
+        // EndOfChain sentinel is returned directly, not relative to pc or pos.
+        return kEndOfChain;
+      }
+      return pos + Assembler::kLongBranchPCOffset + imm32;
     } else {
-      uint64_t instr_address = reinterpret_cast<int64_t>(buffer_ + pos);
-      DCHECK(instr_address - imm < INT_MAX);
-      int delta = static_cast<int>(instr_address - imm);
-      DCHECK(pos > delta);
-      return pos - delta;
+      Instr instr_lui = instr_at(pos + 0 * kInstrSize);
+      Instr instr_ori = instr_at(pos + 1 * kInstrSize);
+      Instr instr_ori2 = instr_at(pos + 3 * kInstrSize);
+      DCHECK(IsOri(instr_ori));
+      DCHECK(IsOri(instr_ori2));
+
+      // TODO(plind) create named constants for shift values.
+      int64_t imm = static_cast<int64_t>(instr_lui & kImm16Mask) << 48;
+      imm |= static_cast<int64_t>(instr_ori & kImm16Mask) << 32;
+      imm |= static_cast<int64_t>(instr_ori2 & kImm16Mask) << 16;
+      // Sign extend address;
+      imm >>= 16;
+
+      if (imm == kEndOfJumpChain) {
+        // EndOfChain sentinel is returned directly, not relative to pc or pos.
+        return kEndOfChain;
+      } else {
+        uint64_t instr_address = reinterpret_cast<int64_t>(buffer_start_ + pos);
+        DCHECK(instr_address - imm < INT_MAX);
+        int delta = static_cast<int>(instr_address - imm);
+        DCHECK(pos > delta);
+        return pos - delta;
+      }
     }
   } else {
     DCHECK(IsJ(instr) || IsJal(instr));
@@ -842,15 +867,15 @@ static inline Instr SetBranchOffset(int32_t pos, int32_t target_pos,
 
 void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
   if (is_internal) {
-    uint64_t imm = reinterpret_cast<uint64_t>(buffer_) + target_pos;
-    *reinterpret_cast<uint64_t*>(buffer_ + pos) = imm;
+    uint64_t imm = reinterpret_cast<uint64_t>(buffer_start_) + target_pos;
+    *reinterpret_cast<uint64_t*>(buffer_start_ + pos) = imm;
     return;
   }
   Instr instr = instr_at(pos);
   if ((instr & ~kImm16Mask) == 0) {
     DCHECK(target_pos == kEndOfChain || target_pos >= 0);
     // Emitted label constant, not part of a branch.
-    // Make label relative to Code* of generated Code object.
+    // Make label relative to Code pointer of generated Code object.
     instr_at_put(pos, target_pos + (Code::kHeaderSize - kHeapObjectTag));
     return;
   }
@@ -859,28 +884,57 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
     instr = SetBranchOffset(pos, target_pos, instr);
     instr_at_put(pos, instr);
   } else if (IsLui(instr)) {
-    Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
-    Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
-    Instr instr_ori2 = instr_at(pos + 3 * Assembler::kInstrSize);
-    DCHECK(IsOri(instr_ori));
-    DCHECK(IsOri(instr_ori2));
+    if (IsNal(instr_at(pos + kInstrSize))) {
+      Instr instr_lui = instr_at(pos + 0 * kInstrSize);
+      Instr instr_ori = instr_at(pos + 2 * kInstrSize);
+      DCHECK(IsLui(instr_lui));
+      DCHECK(IsOri(instr_ori));
+      int32_t imm = target_pos - (pos + Assembler::kLongBranchPCOffset);
+      DCHECK_EQ(imm & 3, 0);
+      if (is_int16(imm + Assembler::kLongBranchPCOffset -
+                   Assembler::kBranchPCOffset)) {
+        // Optimize by converting to regular branch and link with 16-bit
+        // offset.
+        Instr instr_b = REGIMM | BGEZAL;  // Branch and link.
+        instr_b = SetBranchOffset(pos, target_pos, instr_b);
+        // Correct ra register to point to one instruction after jalr from
+        // TurboAssembler::BranchAndLinkLong.
+        Instr instr_a = DADDIU | ra.code() << kRsShift | ra.code() << kRtShift |
+                        kOptimizedBranchAndLinkLongReturnOffset;
 
-    uint64_t imm = reinterpret_cast<uint64_t>(buffer_) + target_pos;
-    DCHECK_EQ(imm & 3, 0);
+        instr_at_put(pos, instr_b);
+        instr_at_put(pos + 1 * kInstrSize, instr_a);
+      } else {
+        instr_lui &= ~kImm16Mask;
+        instr_ori &= ~kImm16Mask;
 
-    instr_lui &= ~kImm16Mask;
-    instr_ori &= ~kImm16Mask;
-    instr_ori2 &= ~kImm16Mask;
+        instr_at_put(pos + 0 * kInstrSize,
+                     instr_lui | ((imm >> kLuiShift) & kImm16Mask));
+        instr_at_put(pos + 2 * kInstrSize, instr_ori | (imm & kImm16Mask));
+      }
+    } else {
+      Instr instr_lui = instr_at(pos + 0 * kInstrSize);
+      Instr instr_ori = instr_at(pos + 1 * kInstrSize);
+      Instr instr_ori2 = instr_at(pos + 3 * kInstrSize);
+      DCHECK(IsOri(instr_ori));
+      DCHECK(IsOri(instr_ori2));
 
-    instr_at_put(pos + 0 * Assembler::kInstrSize,
-                 instr_lui | ((imm >> 32) & kImm16Mask));
-    instr_at_put(pos + 1 * Assembler::kInstrSize,
-                 instr_ori | ((imm >> 16) & kImm16Mask));
-    instr_at_put(pos + 3 * Assembler::kInstrSize,
-                 instr_ori2 | (imm & kImm16Mask));
+      uint64_t imm = reinterpret_cast<uint64_t>(buffer_start_) + target_pos;
+      DCHECK_EQ(imm & 3, 0);
+
+      instr_lui &= ~kImm16Mask;
+      instr_ori &= ~kImm16Mask;
+      instr_ori2 &= ~kImm16Mask;
+
+      instr_at_put(pos + 0 * kInstrSize,
+                   instr_lui | ((imm >> 32) & kImm16Mask));
+      instr_at_put(pos + 1 * kInstrSize,
+                   instr_ori | ((imm >> 16) & kImm16Mask));
+      instr_at_put(pos + 3 * kInstrSize, instr_ori2 | (imm & kImm16Mask));
+    }
   } else if (IsMov(instr, t8, ra)) {
-    Instr instr_lui = instr_at(pos + 4 * Assembler::kInstrSize);
-    Instr instr_ori = instr_at(pos + 5 * Assembler::kInstrSize);
+    Instr instr_lui = instr_at(pos + 2 * kInstrSize);
+    Instr instr_ori = instr_at(pos + 3 * kInstrSize);
     DCHECK(IsLui(instr_lui));
     DCHECK(IsOri(instr_ori));
 
@@ -892,8 +946,16 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
       Instr instr_b = BEQ;
       instr_b = SetBranchOffset(pos, target_pos, instr_b);
 
+      Instr instr_j = instr_at(pos + 5 * kInstrSize);
+      Instr instr_branch_delay;
+
+      if (IsJump(instr_j)) {
+        instr_branch_delay = instr_at(pos + 6 * kInstrSize);
+      } else {
+        instr_branch_delay = instr_at(pos + 7 * kInstrSize);
+      }
       instr_at_put(pos, instr_b);
-      instr_at_put(pos + 1 * Assembler::kInstrSize, 0);
+      instr_at_put(pos + 1 * kInstrSize, instr_branch_delay);
     } else {
       int32_t imm = target_pos - (pos + Assembler::kLongBranchPCOffset);
       DCHECK_EQ(imm & 3, 0);
@@ -901,10 +963,9 @@ void Assembler::target_at_put(int pos, int target_pos, bool is_internal) {
       instr_lui &= ~kImm16Mask;
       instr_ori &= ~kImm16Mask;
 
-      instr_at_put(pos + 4 * Assembler::kInstrSize,
-                   instr_lui | ((imm >> 16) & kImm16Mask));
-      instr_at_put(pos + 5 * Assembler::kInstrSize,
-                   instr_ori | (imm & kImm16Mask));
+      instr_at_put(pos + 2 * kInstrSize,
+                   instr_lui | ((imm >> kLuiShift) & kImm16Mask));
+      instr_at_put(pos + 3 * kInstrSize, instr_ori | (imm & kImm16Mask));
     }
   } else if (IsJ(instr) || IsJal(instr)) {
     int32_t imm28 = target_pos - pos;
@@ -989,7 +1050,7 @@ void Assembler::bind_to(Label* L, int pos) {
         target_at_put(fixup_pos, pos, false);
       } else {
         DCHECK(IsJ(instr) || IsJal(instr) || IsLui(instr) ||
-               IsEmittedConstant(instr));
+               IsEmittedConstant(instr) || IsMov(instr, t8, ra));
         target_at_put(fixup_pos, pos, false);
       }
     }
@@ -1377,7 +1438,7 @@ uint64_t Assembler::jump_address(Label* L) {
       return kEndOfJumpChain;
     }
   }
-  uint64_t imm = reinterpret_cast<uint64_t>(buffer_) + target_pos;
+  uint64_t imm = reinterpret_cast<uint64_t>(buffer_start_) + target_pos;
   DCHECK_EQ(imm & 3, 0);
 
   return imm;
@@ -1405,6 +1466,25 @@ uint64_t Assembler::jump_offset(Label* L) {
   return static_cast<uint64_t>(imm);
 }
 
+uint64_t Assembler::branch_long_offset(Label* L) {
+  int64_t target_pos;
+
+  if (L->is_bound()) {
+    target_pos = L->pos();
+  } else {
+    if (L->is_linked()) {
+      target_pos = L->pos();  // L's link.
+      L->link_to(pc_offset());
+    } else {
+      L->link_to(pc_offset());
+      return kEndOfJumpChain;
+    }
+  }
+  int64_t offset = target_pos - (pc_offset() + kLongBranchPCOffset);
+  DCHECK_EQ(offset & 3, 0);
+
+  return static_cast<uint64_t>(offset);
+}
 
 int32_t Assembler::branch_offset_helper(Label* L, OffsetSize bits) {
   int32_t target_pos;
@@ -1729,35 +1809,25 @@ void Assembler::bnezc(Register rs, int32_t offset) {
 
 
 void Assembler::j(int64_t target) {
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  GenInstrJump(J, static_cast<uint32_t>(target >> 2) & kImm26Mask);
-  BlockTrampolinePoolFor(1);  // For associated delay slot.
+  // Deprecated. Use PC-relative jumps instead.
+  UNREACHABLE();
 }
 
 
 void Assembler::j(Label* target) {
-  uint64_t imm = jump_offset(target);
-  if (target->is_bound()) {
-    BlockTrampolinePoolScope block_trampoline_pool(this);
-    GenInstrJump(static_cast<Opcode>(kJRawMark),
-                 static_cast<uint32_t>(imm >> 2) & kImm26Mask);
-    BlockTrampolinePoolFor(1);  // For associated delay slot.
-  } else {
-    j(imm);
-  }
+  // Deprecated. Use PC-relative jumps instead.
+  UNREACHABLE();
 }
 
 
 void Assembler::jal(Label* target) {
-  uint64_t imm = jump_offset(target);
-  if (target->is_bound()) {
-    BlockTrampolinePoolScope block_trampoline_pool(this);
-    GenInstrJump(static_cast<Opcode>(kJalRawMark),
-                 static_cast<uint32_t>(imm >> 2) & kImm26Mask);
-    BlockTrampolinePoolFor(1);  // For associated delay slot.
-  } else {
-    jal(imm);
-  }
+  // Deprecated. Use PC-relative jumps instead.
+  UNREACHABLE();
+}
+
+void Assembler::jal(int64_t target) {
+  // Deprecated. Use PC-relative jumps instead.
+  UNREACHABLE();
 }
 
 
@@ -1769,13 +1839,6 @@ void Assembler::jr(Register rs) {
   } else {
     jalr(rs, zero_reg);
   }
-}
-
-
-void Assembler::jal(int64_t target) {
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  GenInstrJump(JAL, static_cast<uint32_t>(target >> 2) & kImm26Mask);
-  BlockTrampolinePoolFor(1);  // For associated delay slot.
 }
 
 
@@ -2404,7 +2467,7 @@ void Assembler::scd(Register rd, const MemOperand& rs) {
 }
 
 void Assembler::lui(Register rd, int32_t j) {
-  DCHECK(is_uint16(j));
+  DCHECK(is_uint16(j) || is_int16(j));
   GenInstrImmediate(LUI, zero_reg, rd, j);
 }
 
@@ -3986,9 +4049,9 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, Address pc,
   Instr instr = instr_at(pc);
   DCHECK(RelocInfo::IsInternalReferenceEncoded(rmode));
   if (IsLui(instr)) {
-    Instr instr_lui = instr_at(pc + 0 * Assembler::kInstrSize);
-    Instr instr_ori = instr_at(pc + 1 * Assembler::kInstrSize);
-    Instr instr_ori2 = instr_at(pc + 3 * Assembler::kInstrSize);
+    Instr instr_lui = instr_at(pc + 0 * kInstrSize);
+    Instr instr_ori = instr_at(pc + 1 * kInstrSize);
+    Instr instr_ori2 = instr_at(pc + 3 * kInstrSize);
     DCHECK(IsOri(instr_ori));
     DCHECK(IsOri(instr_ori2));
     // TODO(plind): symbolic names for the shifts.
@@ -4008,12 +4071,9 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, Address pc,
     instr_ori &= ~kImm16Mask;
     instr_ori2 &= ~kImm16Mask;
 
-    instr_at_put(pc + 0 * Assembler::kInstrSize,
-                 instr_lui | ((imm >> 32) & kImm16Mask));
-    instr_at_put(pc + 1 * Assembler::kInstrSize,
-                 instr_ori | (imm >> 16 & kImm16Mask));
-    instr_at_put(pc + 3 * Assembler::kInstrSize,
-                 instr_ori2 | (imm & kImm16Mask));
+    instr_at_put(pc + 0 * kInstrSize, instr_lui | ((imm >> 32) & kImm16Mask));
+    instr_at_put(pc + 1 * kInstrSize, instr_ori | (imm >> 16 & kImm16Mask));
+    instr_at_put(pc + 3 * kInstrSize, instr_ori2 | (imm & kImm16Mask));
     return 4;  // Number of instructions patched.
   } else if (IsJ(instr) || IsJal(instr)) {
     // Regular j/jal relocation.
@@ -4046,48 +4106,40 @@ int Assembler::RelocateInternalReference(RelocInfo::Mode rmode, Address pc,
 
 
 void Assembler::GrowBuffer() {
-  if (!own_buffer_) FATAL("external code buffer is too small");
-
   // Compute new buffer size.
-  CodeDesc desc;  // the new buffer
-  if (buffer_size_ < 1 * MB) {
-    desc.buffer_size = 2*buffer_size_;
-  } else {
-    desc.buffer_size = buffer_size_ + 1*MB;
-  }
+  int old_size = buffer_->size();
+  int new_size = std::min(2 * old_size, old_size + 1 * MB);
 
   // Some internal data structures overflow for very large buffers,
   // they must ensure that kMaximalBufferSize is not too large.
-  if (desc.buffer_size > kMaximalBufferSize) {
+  if (new_size > kMaximalBufferSize) {
     V8::FatalProcessOutOfMemory(nullptr, "Assembler::GrowBuffer");
   }
 
   // Set up new buffer.
-  desc.buffer = NewArray<byte>(desc.buffer_size);
-  desc.origin = this;
-
-  desc.instr_size = pc_offset();
-  desc.reloc_size =
-      static_cast<int>((buffer_ + buffer_size_) - reloc_info_writer.pos());
+  std::unique_ptr<AssemblerBuffer> new_buffer = buffer_->Grow(new_size);
+  DCHECK_EQ(new_size, new_buffer->size());
+  byte* new_start = new_buffer->start();
 
   // Copy the data.
-  intptr_t pc_delta = desc.buffer - buffer_;
-  intptr_t rc_delta = (desc.buffer + desc.buffer_size) -
-      (buffer_ + buffer_size_);
-  MemMove(desc.buffer, buffer_, desc.instr_size);
-  MemMove(reloc_info_writer.pos() + rc_delta,
-              reloc_info_writer.pos(), desc.reloc_size);
+  intptr_t pc_delta = new_start - buffer_start_;
+  intptr_t rc_delta = (new_start + new_size) - (buffer_start_ + old_size);
+  size_t reloc_size = (buffer_start_ + old_size) - reloc_info_writer.pos();
+  MemMove(new_start, buffer_start_, pc_offset());
+  MemMove(reloc_info_writer.pos() + rc_delta, reloc_info_writer.pos(),
+          reloc_size);
 
   // Switch buffers.
-  DeleteArray(buffer_);
-  buffer_ = desc.buffer;
-  buffer_size_ = desc.buffer_size;
+  buffer_ = std::move(new_buffer);
+  buffer_start_ = new_start;
   pc_ += pc_delta;
   reloc_info_writer.Reposition(reloc_info_writer.pos() + rc_delta,
                                reloc_info_writer.last_pc() + pc_delta);
 
   // Relocate runtime entries.
-  for (RelocIterator it(desc); !it.done(); it.next()) {
+  Vector<byte> instructions{buffer_start_, pc_offset()};
+  Vector<const byte> reloc_info{reloc_info_writer.pos(), reloc_size};
+  for (RelocIterator it(instructions, reloc_info, 0); !it.done(); it.next()) {
     RelocInfo::Mode rmode = it.rinfo()->rmode();
     if (rmode == RelocInfo::INTERNAL_REFERENCE) {
       RelocateInternalReference(rmode, it.rinfo()->pc(), pc_delta);
@@ -4119,7 +4171,7 @@ void Assembler::dd(Label* label) {
   uint64_t data;
   CheckForEmitInForbiddenSlot();
   if (label->is_bound()) {
-    data = reinterpret_cast<uint64_t>(buffer_ + label->pos());
+    data = reinterpret_cast<uint64_t>(buffer_start_ + label->pos());
   } else {
     data = jump_address(label);
     unbound_labels_count_++;
@@ -4131,18 +4183,11 @@ void Assembler::dd(Label* label) {
 
 
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
+  if (!ShouldRecordRelocInfo(rmode)) return;
   // We do not try to reuse pool constants.
-  RelocInfo rinfo(reinterpret_cast<Address>(pc_), rmode, data, nullptr);
-  if (!RelocInfo::IsNone(rinfo.rmode())) {
-    if (options().disable_reloc_info_for_patching) return;
-    // Don't record external references unless the heap will be serialized.
-    if (RelocInfo::IsOnlyForSerializer(rmode) &&
-        !options().record_reloc_info_for_serialization && !emit_debug_code()) {
-      return;
-    }
-    DCHECK_GE(buffer_space(), kMaxRelocSize);  // Too late to grow buffer here.
-    reloc_info_writer.Write(&rinfo);
-  }
+  RelocInfo rinfo(reinterpret_cast<Address>(pc_), rmode, data, Code());
+  DCHECK_GE(buffer_space(), kMaxRelocSize);  // Too late to grow buffer here.
+  reloc_info_writer.Write(&rinfo);
 }
 
 
@@ -4185,22 +4230,17 @@ void Assembler::CheckTrampolinePool() {
 
       int pool_start = pc_offset();
       for (int i = 0; i < unbound_labels_count_; i++) {
-        {  // Buffer growth (and relocation) must be blocked for internal
-          // references until associated instructions are emitted and available
-          // to be patched.
+        {
           if (kArchVariant == kMips64r6) {
             bc(&after_pool);
             nop();
           } else {
-            Label find_pc;
             or_(t8, ra, zero_reg);
-            bal(&find_pc);
-            or_(t9, ra, zero_reg);
-            bind(&find_pc);
+            nal();       // Read PC into ra register.
+            lui(t9, 0);  // Branch delay slot.
+            ori(t9, t9, 0);
+            daddu(t9, ra, t9);
             or_(ra, t8, zero_reg);
-            lui(t8, 0);
-            ori(t8, t8, 0);
-            daddu(t9, t9, t8);
             // Instruction jr will take or_ from the next trampoline.
             // in its branch delay slot. This is the expected behavior
             // in order to decrease size of trampoline pool.
@@ -4255,10 +4295,9 @@ Address Assembler::target_address_at(Address pc) {
 // qNaN is a MIPS sNaN, and ia32 sNaN is MIPS qNaN. If running from a heap
 // snapshot generated on ia32, the resulting MIPS sNaN must be quieted.
 // OS::nan_value() returns a qNaN.
-void Assembler::QuietNaN(HeapObject* object) {
+void Assembler::QuietNaN(HeapObject object) {
   HeapNumber::cast(object)->set_value(std::numeric_limits<double>::quiet_NaN());
 }
-
 
 // On Mips64, a target address is stored in a 4-instruction sequence:
 //    0: lui(rd, (j.imm64_ >> 32) & kImm16Mask);
@@ -4303,7 +4342,7 @@ void Assembler::set_target_value_at(Address pc, uint64_t target,
              (target & kImm16Mask);
 
   if (icache_flush_mode != SKIP_ICACHE_FLUSH) {
-    Assembler::FlushICache(pc, 4 * Assembler::kInstrSize);
+    Assembler::FlushICache(pc, 4 * kInstrSize);
   }
 }
 

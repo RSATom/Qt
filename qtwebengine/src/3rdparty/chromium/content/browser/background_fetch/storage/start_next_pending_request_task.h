@@ -9,6 +9,7 @@
 #include "content/browser/background_fetch/background_fetch.pb.h"
 #include "content/browser/background_fetch/background_fetch_request_info.h"
 #include "content/browser/background_fetch/storage/database_task.h"
+#include "content/common/background_fetch/background_fetch_types.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 
 namespace content {
@@ -20,12 +21,12 @@ namespace background_fetch {
 class StartNextPendingRequestTask : public DatabaseTask {
  public:
   using NextRequestCallback =
-      base::OnceCallback<void(scoped_refptr<BackgroundFetchRequestInfo>)>;
+      base::OnceCallback<void(blink::mojom::BackgroundFetchError,
+                              scoped_refptr<BackgroundFetchRequestInfo>)>;
 
   StartNextPendingRequestTask(
       DatabaseTaskHost* host,
-      int64_t service_worker_registration_id,
-      std::unique_ptr<proto::BackgroundFetchMetadata> metadata,
+      const BackgroundFetchRegistrationId& registration_id,
       NextRequestCallback callback);
 
   ~StartNextPendingRequestTask() override;
@@ -42,24 +43,23 @@ class StartNextPendingRequestTask : public DatabaseTask {
   void DidFindActiveRequest(const std::vector<std::string>& data,
                             blink::ServiceWorkerStatusCode status);
 
-  void CreateAndStoreActiveRequest();
-
   void DidStoreActiveRequest(blink::ServiceWorkerStatusCode status);
-
-  void StartDownload();
 
   void DidDeletePendingRequest(blink::ServiceWorkerStatusCode status);
 
   void FinishWithError(blink::mojom::BackgroundFetchError error) override;
 
-  int64_t service_worker_registration_id_;
-  std::unique_ptr<proto::BackgroundFetchMetadata> metadata_;
+  std::string HistogramName() const override;
+
+  BackgroundFetchRegistrationId registration_id_;
   NextRequestCallback callback_;
 
   // protos don't support move semantics, so these class members will be used
   // to avoid unnecessary copying within callbacks.
   proto::BackgroundFetchPendingRequest pending_request_;
   proto::BackgroundFetchActiveRequest active_request_;
+
+  scoped_refptr<BackgroundFetchRequestInfo> next_request_;
 
   base::WeakPtrFactory<StartNextPendingRequestTask>
       weak_factory_;  // Keep as last.

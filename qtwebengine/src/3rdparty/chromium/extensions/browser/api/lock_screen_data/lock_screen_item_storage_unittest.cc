@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/files/file_path.h"
@@ -18,10 +19,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "base/values.h"
-#include "chromeos/login/login_state.h"
+#include "chromeos/login/login_state/login_state.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -1055,7 +1056,8 @@ TEST_F(LockScreenItemStorageTest, HandleFailure) {
 TEST_F(LockScreenItemStorageTest, DataItemsAvailableEventOnUnlock) {
   TestEventRouter* event_router = static_cast<TestEventRouter*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          browser_context(), &TestEventRouterFactoryFunction));
+          browser_context(),
+          base::BindRepeating(&TestEventRouterFactoryFunction)));
   ASSERT_TRUE(event_router);
 
   EXPECT_TRUE(event_router->was_locked_values().empty());
@@ -1114,7 +1116,8 @@ TEST_F(LockScreenItemStorageTest,
        NoDataItemsAvailableEventAfterFailedCreation) {
   TestEventRouter* event_router = static_cast<TestEventRouter*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          browser_context(), &TestEventRouterFactoryFunction));
+          browser_context(),
+          base::BindRepeating(&TestEventRouterFactoryFunction)));
   ASSERT_TRUE(event_router);
 
   lock_screen_item_storage()->SetSessionLocked(true);
@@ -1136,7 +1139,8 @@ TEST_F(LockScreenItemStorageTest,
 TEST_F(LockScreenItemStorageTest, DataItemsAvailableEventOnRestart) {
   TestEventRouter* event_router = static_cast<TestEventRouter*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          browser_context(), &TestEventRouterFactoryFunction));
+          browser_context(),
+          base::BindRepeating(&TestEventRouterFactoryFunction)));
   ASSERT_TRUE(event_router);
 
   EXPECT_TRUE(event_router->was_locked_values().empty());
@@ -1197,7 +1201,8 @@ TEST_F(LockScreenItemStorageTest,
        ClearOnUninstallWhileLockScreenItemStorageNotSet) {
   TestEventRouter* event_router = static_cast<TestEventRouter*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          browser_context(), &TestEventRouterFactoryFunction));
+          browser_context(),
+          base::BindRepeating(&TestEventRouterFactoryFunction)));
   ASSERT_TRUE(event_router);
 
   const DataItem* item = CreateItemWithContent({'x'});
@@ -1401,7 +1406,8 @@ TEST_F(LockScreenItemStorageTest,
        MigrationNotReAttemptedAfterSuccess_NoItemsMigrated) {
   TestEventRouter* event_router = static_cast<TestEventRouter*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          browser_context(), &TestEventRouterFactoryFunction));
+          browser_context(),
+          base::BindRepeating(&TestEventRouterFactoryFunction)));
   ASSERT_TRUE(event_router);
 
   EXPECT_FALSE(value_store_migrator());
@@ -1481,7 +1487,8 @@ TEST_F(LockScreenItemStorageTest,
        ItemAvailableEventNotSentIfItemsLostDuringMigration) {
   TestEventRouter* event_router = static_cast<TestEventRouter*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          browser_context(), &TestEventRouterFactoryFunction));
+          browser_context(),
+          base::BindRepeating(&TestEventRouterFactoryFunction)));
   ASSERT_TRUE(event_router);
 
   EXPECT_FALSE(value_store_migrator());

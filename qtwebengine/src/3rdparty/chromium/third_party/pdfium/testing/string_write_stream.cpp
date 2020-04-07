@@ -18,15 +18,15 @@ bool StringWriteStream::Flush() {
   return true;
 }
 
-bool StringWriteStream::WriteBlock(const void* pData,
-                                   FX_FILESIZE offset,
-                                   size_t size) {
+bool StringWriteStream::WriteBlockAtOffset(const void* pData,
+                                           FX_FILESIZE offset,
+                                           size_t size) {
   ASSERT(offset == 0);
   stream_.write(static_cast<const char*>(pData), size);
   return true;
 }
 
-bool StringWriteStream::WriteString(const ByteStringView& str) {
+bool StringWriteStream::WriteString(ByteStringView str) {
   stream_.write(str.unterminated_c_str(), str.GetLength());
   return true;
 }

@@ -4,103 +4,198 @@
 
 #include "components/metrics/call_stack_profile_builder.h"
 
+#include <algorithm>
+#include <string>
 #include <utility>
 
-#include "base/atomicops.h"
+#include "base/files/file_path.h"
+#include "base/lazy_instance.h"
 #include "base/logging.h"
-
-using StackSamplingProfiler = base::StackSamplingProfiler;
+#include "base/metrics/metrics_hashes.h"
+#include "base/no_destructor.h"
+#include "base/stl_util.h"
+#include "components/metrics/call_stack_profile_encoding.h"
 
 namespace metrics {
 
 namespace {
 
-// This global variables holds the current system state and is recorded with
-// every captured sample, done on a separate thread which is why updates to
-// this must be atomic. A PostTask to move the the updates to that thread
-// would skew the timing and a lock could result in deadlock if the thread
-// making a change was also being profiled and got stopped.
-static base::subtle::Atomic32 g_process_milestones = 0;
+// Only used by child processes.
+base::LazyInstance<ChildCallStackProfileCollector>::Leaky
+    g_child_call_stack_profile_collector = LAZY_INSTANCE_INITIALIZER;
 
-void ChangeAtomicFlags(base::subtle::Atomic32* flags,
-                       base::subtle::Atomic32 set,
-                       base::subtle::Atomic32 clear) {
-  DCHECK(set != 0 || clear != 0);
-  DCHECK_EQ(0, set & clear);
+base::RepeatingCallback<void(base::TimeTicks, SampledProfile)>&
+GetBrowserProcessReceiverCallbackInstance() {
+  static base::NoDestructor<
+      base::RepeatingCallback<void(base::TimeTicks, SampledProfile)>>
+      instance;
+  return *instance;
+}
 
-  base::subtle::Atomic32 bits = base::subtle::NoBarrier_Load(flags);
-  while (true) {
-    base::subtle::Atomic32 existing = base::subtle::NoBarrier_CompareAndSwap(
-        flags, bits, (bits | set) & ~clear);
-    if (existing == bits)
-      break;
-    bits = existing;
-  }
+// Convert |filename| to its MD5 hash.
+uint64_t HashModuleFilename(const base::FilePath& filename) {
+  const base::FilePath::StringType basename = filename.BaseName().value();
+  // Copy the bytes in basename into a string buffer.
+  size_t basename_length_in_bytes =
+      basename.size() * sizeof(base::FilePath::CharType);
+  std::string name_bytes(basename_length_in_bytes, '\0');
+  memcpy(&name_bytes[0], &basename[0], basename_length_in_bytes);
+  return base::HashMetricName(name_bytes);
 }
 
 }  // namespace
 
 CallStackProfileBuilder::CallStackProfileBuilder(
-    const CompletedCallback& callback)
-    : callback_(callback) {}
+    const CallStackProfileParams& profile_params,
+    const WorkIdRecorder* work_id_recorder,
+    base::OnceClosure completed_callback)
+    : work_id_recorder_(work_id_recorder),
+      profile_start_time_(base::TimeTicks::Now()) {
+  completed_callback_ = std::move(completed_callback);
+  sampled_profile_.set_process(
+      ToExecutionContextProcess(profile_params.process));
+  sampled_profile_.set_thread(ToExecutionContextThread(profile_params.thread));
+  sampled_profile_.set_trigger_event(
+      ToSampledProfileTriggerEvent(profile_params.trigger));
+}
 
 CallStackProfileBuilder::~CallStackProfileBuilder() = default;
 
-void CallStackProfileBuilder::RecordAnnotations() {
-  // The code inside this method must not do anything that could acquire a
-  // mutex, including allocating memory (which includes LOG messages) because
-  // that mutex could be held by a stopped thread, thus resulting in deadlock.
-  sample_.process_milestones =
-      base::subtle::NoBarrier_Load(&g_process_milestones);
+// This function is invoked on the profiler thread while the target thread is
+// suspended so must not take any locks, including indirectly through use of
+// heap allocation, LOG, CHECK, or DCHECK.
+void CallStackProfileBuilder::RecordMetadata() {
+  if (!work_id_recorder_)
+    return;
+  unsigned int work_id = work_id_recorder_->RecordWorkId();
+  // A work id of 0 indicates that the message loop has not yet started.
+  if (work_id == 0)
+    return;
+  is_continued_work_ = (last_work_id_ == work_id);
+  last_work_id_ = work_id;
 }
 
 void CallStackProfileBuilder::OnSampleCompleted(
-    std::vector<StackSamplingProfiler::InternalFrame> internal_frames) {
-  DCHECK(sample_.frames.empty());
+    std::vector<base::StackSamplingProfiler::Frame> frames) {
+  // Write CallStackProfile::Stack protobuf message.
+  CallStackProfile::Stack stack;
 
-  // Dedup modules and convert InternalFrames to Frames.
-  for (const auto& internal_frame : internal_frames) {
-    const StackSamplingProfiler::InternalModule& module(
-        internal_frame.internal_module);
-    if (!module.is_valid) {
-      sample_.frames.emplace_back(internal_frame.instruction_pointer,
-                                  base::kUnknownModuleIndex);
+  for (const auto& frame : frames) {
+    // keep the frame information even if its module is invalid so we have
+    // visibility into how often this issue is happening on the server.
+    CallStackProfile::Location* location = stack.add_frame();
+    if (!frame.module.is_valid)
       continue;
+
+    // Dedup modules.
+    const base::ModuleCache::Module& module = frame.module;
+    auto module_loc = module_index_.find(module.base_address);
+    if (module_loc == module_index_.end()) {
+      modules_.push_back(module);
+      size_t index = modules_.size() - 1;
+      module_loc = module_index_.emplace(module.base_address, index).first;
     }
 
-    auto loc = module_index_.find(module.base_address);
-    if (loc == module_index_.end()) {
-      profile_.modules.emplace_back(module.base_address, module.id,
-                                    module.filename);
-      size_t index = profile_.modules.size() - 1;
-      loc = module_index_.insert(std::make_pair(module.base_address, index))
-                .first;
-    }
-    sample_.frames.emplace_back(internal_frame.instruction_pointer,
-                                loc->second);
+    // Write CallStackProfile::Location protobuf message.
+    ptrdiff_t module_offset =
+        reinterpret_cast<const char*>(frame.instruction_pointer) -
+        reinterpret_cast<const char*>(module.base_address);
+    DCHECK_GE(module_offset, 0);
+    location->set_address(static_cast<uint64_t>(module_offset));
+    location->set_module_id_index(module_loc->second);
   }
 
-  profile_.samples.push_back(std::move(sample_));
-  sample_ = StackSamplingProfiler::Sample();
+  CallStackProfile* call_stack_profile =
+      sampled_profile_.mutable_call_stack_profile();
+
+  // Dedup Stacks.
+  auto stack_loc = stack_index_.find(&stack);
+  if (stack_loc == stack_index_.end()) {
+    *call_stack_profile->add_stack() = std::move(stack);
+    int stack_index = call_stack_profile->stack_size() - 1;
+    // It is safe to store the Stack pointer because the repeated message
+    // representation ensures pointer stability.
+    stack_loc = stack_index_
+                    .emplace(call_stack_profile->mutable_stack(stack_index),
+                             stack_index)
+                    .first;
+  }
+
+  // Write CallStackProfile::StackSample protobuf message.
+  CallStackProfile::StackSample* stack_sample_proto =
+      call_stack_profile->add_stack_sample();
+  stack_sample_proto->set_stack_index(stack_loc->second);
+  if (is_continued_work_)
+    stack_sample_proto->set_continued_work(is_continued_work_);
 }
 
 void CallStackProfileBuilder::OnProfileCompleted(
     base::TimeDelta profile_duration,
     base::TimeDelta sampling_period) {
-  profile_.profile_duration = profile_duration;
-  profile_.sampling_period = sampling_period;
+  // Build the SampledProfile protobuf message.
+  CallStackProfile* call_stack_profile =
+      sampled_profile_.mutable_call_stack_profile();
+  call_stack_profile->set_profile_duration_ms(
+      profile_duration.InMilliseconds());
+  call_stack_profile->set_sampling_period_ms(sampling_period.InMilliseconds());
 
-  // Run the associated callback, passing the collected profile.
-  callback_.Run(std::move(profile_));
+  // Write CallStackProfile::ModuleIdentifier protobuf message.
+  for (const auto& module : modules_) {
+    CallStackProfile::ModuleIdentifier* module_id =
+        call_stack_profile->add_module_id();
+    module_id->set_build_id(module.id);
+    module_id->set_name_md5_prefix(HashModuleFilename(module.filename));
+  }
+
+  PassProfilesToMetricsProvider(std::move(sampled_profile_));
+
+  // Run the completed callback if there is one.
+  if (!completed_callback_.is_null())
+    std::move(completed_callback_).Run();
+
+  // Clear the caches.
+  stack_index_.clear();
+  module_index_.clear();
+  modules_.clear();
 }
 
 // static
-void CallStackProfileBuilder::SetProcessMilestone(int milestone) {
-  DCHECK_LE(0, milestone);
-  DCHECK_GT(static_cast<int>(sizeof(g_process_milestones) * 8), milestone);
-  DCHECK_EQ(0, base::subtle::NoBarrier_Load(&g_process_milestones) &
-                   (1 << milestone));
-  ChangeAtomicFlags(&g_process_milestones, 1 << milestone, 0);
+void CallStackProfileBuilder::SetBrowserProcessReceiverCallback(
+    const base::RepeatingCallback<void(base::TimeTicks, SampledProfile)>&
+        callback) {
+  GetBrowserProcessReceiverCallbackInstance() = callback;
+}
+
+// static
+void CallStackProfileBuilder::SetParentProfileCollectorForChildProcess(
+    metrics::mojom::CallStackProfileCollectorPtr browser_interface) {
+  g_child_call_stack_profile_collector.Get().SetParentProfileCollector(
+      std::move(browser_interface));
+}
+
+void CallStackProfileBuilder::PassProfilesToMetricsProvider(
+    SampledProfile sampled_profile) {
+  if (sampled_profile.process() == BROWSER_PROCESS) {
+    GetBrowserProcessReceiverCallbackInstance().Run(profile_start_time_,
+                                                    std::move(sampled_profile));
+  } else {
+    g_child_call_stack_profile_collector.Get()
+        .ChildCallStackProfileCollector::Collect(profile_start_time_,
+                                                 std::move(sampled_profile));
+  }
+}
+
+bool CallStackProfileBuilder::StackComparer::operator()(
+    const CallStackProfile::Stack* stack1,
+    const CallStackProfile::Stack* stack2) const {
+  return std::lexicographical_compare(
+      stack1->frame().begin(), stack1->frame().end(), stack2->frame().begin(),
+      stack2->frame().end(),
+      [](const CallStackProfile::Location& loc1,
+         const CallStackProfile::Location& loc2) {
+        return std::make_pair(loc1.address(), loc1.module_id_index()) <
+               std::make_pair(loc2.address(), loc2.module_id_index());
+      });
 }
 
 }  // namespace metrics

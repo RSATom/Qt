@@ -45,7 +45,8 @@ private slots:
     void messages();
 };
 
-// All the tests below have been blacklisted in blacklisted/BLACKLIST
+// All the tests below except pass() have been blacklisted in blacklisted/BLACKLIST
+// Contrast with ../silent/, for the same tests without blacklisting but with -silent
 
 void tst_Blacklisted::pass()
 {

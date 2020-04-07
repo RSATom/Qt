@@ -1267,7 +1267,7 @@ void tst_QScriptValue::toVariant()
     {
         QVariant var = qobject.toVariant();
         QCOMPARE(var.userType(), int(QMetaType::QObjectStar));
-        QCOMPARE(qVariantValue<QObject*>(var), (QObject *)this);
+        QCOMPARE(qvariant_cast<QObject*>(var), (QObject *)this);
     }
 
     {

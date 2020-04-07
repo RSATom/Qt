@@ -439,7 +439,7 @@ void SkPathOpsDebug::DumpGlitchType(GlitchType glitchType) {
         case kAddCorruptCoin_Glitch: SkDebugf(" AddCorruptCoin"); break;
         case kAddExpandedCoin_Glitch: SkDebugf(" AddExpandedCoin"); break;
         case kAddExpandedFail_Glitch: SkDebugf(" AddExpandedFail"); break;
-        case kAddIfCollapsed_Glitch: SkDebugf(" AddIfCollapsed"); break;; break;
+        case kAddIfCollapsed_Glitch: SkDebugf(" AddIfCollapsed"); break;
         case kAddIfMissingCoin_Glitch: SkDebugf(" AddIfMissingCoin"); break;
         case kAddMissingCoin_Glitch: SkDebugf(" AddMissingCoin"); break;
         case kAddMissingExtend_Glitch: SkDebugf(" AddMissingExtend"); break;
@@ -1394,7 +1394,7 @@ void SkOpAngle::debugValidateNext() const {
     SkTDArray<const SkOpAngle*>(angles);
     do {
 //        SkASSERT_RELEASE(next->fSegment->debugContains(next));
-        angles.push(next);
+        angles.push_back(next);
         next = next->next();
         if (next == first) {
             break;

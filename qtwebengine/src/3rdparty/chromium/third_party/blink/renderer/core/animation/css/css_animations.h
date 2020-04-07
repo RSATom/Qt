@@ -140,7 +140,7 @@ class CSSAnimations final {
   };
 
   struct RunningTransition {
-    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+    DISALLOW_NEW();
 
    public:
     void Trace(blink::Visitor* visitor) { visitor->Trace(animation); }
@@ -165,6 +165,8 @@ class CSSAnimations final {
 
   struct TransitionUpdateState {
     STACK_ALLOCATED();
+
+   public:
     CSSAnimationUpdate& update;
     Member<const Element> animating_element;
     const ComputedStyle& old_style;
@@ -183,7 +185,8 @@ class CSSAnimations final {
   static void CalculateTransitionUpdateForStandardProperty(
       TransitionUpdateState&,
       const CSSTransitionData::TransitionProperty&,
-      size_t transition_index);
+      size_t transition_index,
+      const ComputedStyle&);
 
   static void CalculateTransitionUpdateForProperty(TransitionUpdateState&,
                                                    const PropertyHandle&,

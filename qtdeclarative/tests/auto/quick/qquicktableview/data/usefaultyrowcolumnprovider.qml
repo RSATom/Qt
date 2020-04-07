@@ -56,16 +56,14 @@ Item {
         delegate: tableViewDelegate
         columnSpacing: 1
         rowSpacing: 1
-        columnWidthProvider: function(column) { }
-        rowHeightProvider: function(row) { return 0 }
+        columnWidthProvider: function(column) { return "notAValidValue" }
+        rowHeightProvider: function(row) { return "notAValidValue" }
     }
 
     Component {
         id: tableViewDelegate
         Rectangle {
             objectName: "tableViewDelegate"
-            implicitWidth: 20
-            implicitHeight: 20
             color: "lightgray"
             border.width: 1
             Text {

@@ -30,7 +30,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/scroll/scrollbar_theme.h"
+#include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 
 namespace blink {
 
@@ -62,8 +62,7 @@ static const bool kDefaultSelectTrailingWhitespaceEnabled = false;
 #endif
 
 Settings::Settings()
-    : text_autosizing_enabled_(false),
-      is_shadow_page_(false) SETTINGS_INITIALIZER_LIST {}
+    : text_autosizing_enabled_(false) SETTINGS_INITIALIZER_LIST {}
 
 std::unique_ptr<Settings> Settings::Create() {
   return base::WrapUnique(new Settings);
@@ -88,7 +87,7 @@ void Settings::SetTextAutosizingEnabled(bool text_autosizing_enabled) {
   Invalidate(SettingsDelegate::kTextAutosizingChange);
 }
 
-// FIXME: Move to Settings.in once make_settings can understand IntSize.
+// TODO: Move to Settings.json5 once make_settings can understand IntSize.
 void Settings::SetTextAutosizingWindowSizeOverride(
     const IntSize& text_autosizing_window_size_override) {
   if (text_autosizing_window_size_override_ ==
@@ -105,10 +104,6 @@ void Settings::SetMockScrollbarsEnabled(bool flag) {
 
 bool Settings::MockScrollbarsEnabled() {
   return ScrollbarTheme::MockScrollbarsEnabled();
-}
-
-void Settings::SetIsShadowPage(bool flag) {
-  is_shadow_page_ = flag;
 }
 
 }  // namespace blink

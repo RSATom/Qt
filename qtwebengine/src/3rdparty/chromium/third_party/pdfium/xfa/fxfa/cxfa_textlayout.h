@@ -13,21 +13,23 @@
 #include "core/fxcrt/css/cfx_css.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
-#include "xfa/fgas/layout/cfx_rtfbreak.h"
+#include "xfa/fgas/layout/cfx_char.h"
 #include "xfa/fxfa/cxfa_textparser.h"
 
 class CFDE_RenderDevice;
 class CFX_CSSComputedStyle;
-class CFX_RenderDevice;
 class CFX_RTFBreak;
+class CFX_RenderDevice;
 class CFX_XMLNode;
 class CXFA_LinkUserData;
-class CXFA_LoaderContext;
 class CXFA_Node;
 class CXFA_PieceLine;
 class CXFA_TextPiece;
 class CXFA_TextProvider;
 class CXFA_TextTabstopsContext;
+class FXTEXT_CHARPOS;
+struct CXFA_LoaderContext;
+struct FX_RTFTEXTOBJ;
 
 class CXFA_TextLayout {
  public:
@@ -54,7 +56,7 @@ class CXFA_TextLayout {
     return &m_pieceLines;
   }
 
-  bool m_bHasBlock;
+  bool m_bHasBlock = false;
   std::vector<int32_t> m_Blocks;
 
  private:
@@ -65,22 +67,22 @@ class CXFA_TextLayout {
   void InitBreak(CFX_CSSComputedStyle* pStyle,
                  CFX_CSSDisplay eDisplay,
                  float fLineWidth,
-                 CFX_XMLNode* pXMLNode,
+                 const CFX_XMLNode* pXMLNode,
                  CFX_CSSComputedStyle* pParentStyle);
-  bool Loader(float textWidth, float* pLinePos, bool bSavePieces);
+  void Loader(float textWidth, float* pLinePos, bool bSavePieces);
   void LoadText(CXFA_Node* pNode,
                 float textWidth,
                 float* pLinePos,
                 bool bSavePieces);
-  bool LoadRichText(CFX_XMLNode* pXMLNode,
+  bool LoadRichText(const CFX_XMLNode* pXMLNode,
                     float textWidth,
                     float* pLinePos,
                     const RetainPtr<CFX_CSSComputedStyle>& pParentStyle,
                     bool bSavePieces,
                     RetainPtr<CXFA_LinkUserData> pLinkData,
-                    bool bEndBreak = true,
-                    bool bIsOl = false,
-                    int32_t iLiCount = 0);
+                    bool bEndBreak,
+                    bool bIsOl,
+                    int32_t iLiCount);
   bool AppendChar(const WideString& wsText,
                   float* pLinePos,
                   float fSpaceAbove,
@@ -88,10 +90,9 @@ class CXFA_TextLayout {
   void AppendTextLine(CFX_BreakType dwStatus,
                       float* pLinePos,
                       bool bSavePieces,
-                      bool bEndBreak = false);
+                      bool bEndBreak);
   void EndBreak(CFX_BreakType dwStatus, float* pLinePos, bool bDefault);
   bool IsEnd(bool bSavePieces);
-  void ProcessText(WideString& wsText);
   void UpdateAlign(float fHeight, float fBottom);
   void RenderString(CFX_RenderDevice* pDevice,
                     CXFA_PieceLine* pPieceLine,
@@ -103,26 +104,24 @@ class CXFA_TextLayout {
                   int32_t iPiece,
                   FXTEXT_CHARPOS* pCharPos,
                   const CFX_Matrix& tmDoc2Device);
-  int32_t GetDisplayPos(const CXFA_TextPiece* pPiece,
-                        FXTEXT_CHARPOS* pCharPos,
-                        bool bCharCode = false);
+  size_t GetDisplayPos(const CXFA_TextPiece* pPiece, FXTEXT_CHARPOS* pCharPos);
   bool ToRun(const CXFA_TextPiece* pPiece, FX_RTFTEXTOBJ* tr);
   void DoTabstops(CFX_CSSComputedStyle* pStyle, CXFA_PieceLine* pPieceLine);
   bool Layout(int32_t iBlock);
   int32_t CountBlocks() const;
 
-  UnownedPtr<CXFA_FFDoc> m_pDoc;
-  CXFA_TextProvider* m_pTextProvider;  // Raw, TextProvider owned by tree node.
-  CXFA_Node* m_pTextDataNode;          // Raw, this class owned by tree node.
-  bool m_bRichText;
+  bool m_bRichText = false;
+  bool m_bBlockContinue = true;
+  int32_t m_iLines = 0;
+  float m_fMaxWidth = 0;
+  UnownedPtr<CXFA_FFDoc> const m_pDoc;
+  CXFA_TextProvider* const m_pTextProvider;  // Raw, owned by tree node.
+  CXFA_Node* m_pTextDataNode = nullptr;      // Raw, owned by tree node.
   std::unique_ptr<CFX_RTFBreak> m_pBreak;
   std::unique_ptr<CXFA_LoaderContext> m_pLoader;
-  int32_t m_iLines;
-  float m_fMaxWidth;
   CXFA_TextParser m_textParser;
   std::vector<std::unique_ptr<CXFA_PieceLine>> m_pieceLines;
   std::unique_ptr<CXFA_TextTabstopsContext> m_pTabstopContext;
-  bool m_bBlockContinue;
 };
 
 #endif  // XFA_FXFA_CXFA_TEXTLAYOUT_H_

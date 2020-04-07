@@ -4,7 +4,7 @@
 
 #include "src/debug/debug-stack-trace-iterator.h"
 
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/debug/debug-evaluate.h"
 #include "src/debug/debug-scope-iterator.h"
 #include "src/debug/debug.h"
@@ -35,7 +35,7 @@ DebugStackTraceIterator::DebugStackTraceIterator(Isolate* isolate, int index)
   for (; !Done() && index > 0; --index) Advance();
 }
 
-DebugStackTraceIterator::~DebugStackTraceIterator() {}
+DebugStackTraceIterator::~DebugStackTraceIterator() = default;
 
 bool DebugStackTraceIterator::Done() const { return iterator_.done(); }
 
@@ -69,7 +69,7 @@ int DebugStackTraceIterator::GetContextId() const {
   DCHECK(!Done());
   Handle<Object> context = frame_inspector_->GetContext();
   if (context->IsContext()) {
-    Object* value =
+    Object value =
         Context::cast(*context)->native_context()->debug_context_id();
     if (value->IsSmi()) return Smi::ToInt(value);
   }
@@ -117,7 +117,9 @@ v8::MaybeLocal<v8::Value> DebugStackTraceIterator::GetReceiver() const {
 
 v8::Local<v8::Value> DebugStackTraceIterator::GetReturnValue() const {
   DCHECK(!Done());
-  if (frame_inspector_->IsWasm()) return v8::Local<v8::Value>();
+  if (frame_inspector_ && frame_inspector_->IsWasm()) {
+    return v8::Local<v8::Value>();
+  }
   bool is_optimized = iterator_.frame()->is_optimized();
   if (is_optimized || !is_top_frame_ ||
       !isolate_->debug()->IsBreakAtReturn(iterator_.javascript_frame())) {
@@ -173,8 +175,7 @@ v8::MaybeLocal<v8::Value> DebugStackTraceIterator::Evaluate(
     v8::Local<v8::String> source, bool throw_on_side_effect) {
   DCHECK(!Done());
   Handle<Object> value;
-  i::SafeForInterruptsScope safe_for_interrupt_scope(
-      isolate_, i::StackGuard::TERMINATE_EXECUTION);
+  i::SafeForInterruptsScope safe_for_interrupt_scope(isolate_);
   if (!DebugEvaluate::Local(isolate_, iterator_.frame()->id(),
                             inlined_frame_index_, Utils::OpenHandle(*source),
                             throw_on_side_effect)

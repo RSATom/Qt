@@ -17,7 +17,6 @@
 #include "SkOpts.h"
 #include "SkPath.h"
 #include "SkPathEffect.h"
-#include "SkPixelRef.h"
 #include "SkRefCnt.h"
 #include "SkResourceCache.h"
 #include "SkScalerContext.h"
@@ -27,7 +26,7 @@
 #include "SkTSearch.h"
 #include "SkTime.h"
 #include "SkTypefaceCache.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 
 #include <stdlib.h>
 

@@ -6,12 +6,10 @@
 
 #include "content/public/renderer/media_stream_renderer_factory.h"
 #include "media/base/renderer_factory.h"
-#include "third_party/blink/public/platform/modules/webmidi/web_midi_accessor.h"
 #include "third_party/blink/public/platform/web_audio_device.h"
 #include "third_party/blink/public/platform/web_media_stream_center.h"
 #include "third_party/blink/public/platform/web_rtc_peer_connection_handler.h"
 #include "third_party/blink/public/platform/web_speech_synthesizer.h"
-#include "third_party/blink/public/platform/websocket_handshake_throttle.h"
 #include "ui/gfx/icc_profile.h"
 #include "url/gurl.h"
 
@@ -23,6 +21,15 @@ SkBitmap* ContentRendererClient::GetSadPluginBitmap() {
 
 SkBitmap* ContentRendererClient::GetSadWebViewBitmap() {
   return nullptr;
+}
+
+bool ContentRendererClient::MaybeCreateMimeHandlerView(
+    RenderFrame* embedder_frame,
+    const blink::WebElement& owner_element,
+    const GURL& original_url,
+    const std::string& original_mime_type,
+    int32_t instance_id_to_use) {
+  return false;
 }
 
 bool ContentRendererClient::OverrideCreatePlugin(
@@ -58,18 +65,7 @@ bool ContentRendererClient::DeferMediaLoad(RenderFrame* render_frame,
   return false;
 }
 
-std::unique_ptr<blink::WebMIDIAccessor>
-ContentRendererClient::OverrideCreateMIDIAccessor(
-    blink::WebMIDIAccessorClient* client) {
-  return nullptr;
-}
-
 blink::WebThemeEngine* ContentRendererClient::OverrideThemeEngine() {
-  return nullptr;
-}
-
-std::unique_ptr<blink::WebSocketHandshakeThrottle>
-ContentRendererClient::CreateWebSocketHandshakeThrottle() {
   return nullptr;
 }
 
@@ -110,18 +106,13 @@ bool ContentRendererClient::HandleNavigation(
     bool is_redirect) {
   return false;
 }
-
-bool ContentRendererClient::ShouldUseMediaPlayerForURL(const GURL& url) {
-  return false;
-}
 #endif
 
 bool ContentRendererClient::ShouldFork(blink::WebLocalFrame* frame,
                                        const GURL& url,
                                        const std::string& http_method,
                                        bool is_initial_navigation,
-                                       bool is_server_redirect,
-                                       bool* send_referrer) {
+                                       bool is_server_redirect) {
   return false;
 }
 
@@ -152,9 +143,8 @@ ContentRendererClient::GetPrescientNetworking() {
   return nullptr;
 }
 
-bool ContentRendererClient::ShouldOverridePageVisibilityState(
-    const RenderFrame* render_frame,
-    blink::mojom::PageVisibilityState* override_state) {
+bool ContentRendererClient::IsPrerenderingFrame(
+    const RenderFrame* render_frame) {
   return false;
 }
 
@@ -168,10 +158,6 @@ bool ContentRendererClient::IsOriginIsolatedPepperPlugin(
   return false;
 }
 
-bool ContentRendererClient::AllowPepperMediaStreamAPI(const GURL& url) {
-  return false;
-}
-
 void ContentRendererClient::AddSupportedKeySystems(
     std::vector<std::unique_ptr<media::KeySystemProperties>>* key_systems) {}
 
@@ -179,16 +165,14 @@ bool ContentRendererClient::IsKeySystemsUpdateNeeded() {
   return false;
 }
 
-bool ContentRendererClient::IsSupportedAudioConfig(
-    const media::AudioConfig& config) {
+bool ContentRendererClient::IsSupportedAudioType(const media::AudioType& type) {
   // Defer to media's default support.
-  return ::media::IsSupportedAudioConfig(config);
+  return ::media::IsDefaultSupportedAudioType(type);
 }
 
-bool ContentRendererClient::IsSupportedVideoConfig(
-    const media::VideoConfig& config) {
+bool ContentRendererClient::IsSupportedVideoType(const media::VideoType& type) {
   // Defer to media's default support.
-  return ::media::IsSupportedVideoConfig(config);
+  return ::media::IsDefaultSupportedVideoType(type);
 }
 
 bool ContentRendererClient::IsSupportedBitstreamAudioCodec(
@@ -202,7 +186,7 @@ ContentRendererClient::CreateMediaStreamRendererFactory() {
 }
 
 bool ContentRendererClient::ShouldReportDetailedMessageForSource(
-    const base::string16& source) const {
+    const base::string16& source) {
   return false;
 }
 
@@ -214,10 +198,6 @@ ContentRendererClient::CreateWorkerContentSettingsClient(
 
 bool ContentRendererClient::IsPluginAllowedToUseCameraDeviceAPI(
     const GURL& url) {
-  return false;
-}
-
-bool ContentRendererClient::IsPluginAllowedToUseCompositorAPI(const GURL& url) {
   return false;
 }
 
@@ -233,8 +213,18 @@ BrowserPluginDelegate* ContentRendererClient::CreateBrowserPluginDelegate(
   return nullptr;
 }
 
+bool ContentRendererClient::IsExcludedHeaderForServiceWorkerFetchEvent(
+    const std::string& header_name) {
+  return false;
+}
+
 bool ContentRendererClient::ShouldEnforceWebRTCRoutingPreferences() {
   return true;
+}
+
+base::Optional<std::string>
+ContentRendererClient::WebRTCPlatformSpecificAudioProcessingConfiguration() {
+  return base::Optional<std::string>();
 }
 
 GURL ContentRendererClient::OverrideFlashEmbedWithHTML(const GURL& url) {
@@ -246,13 +236,17 @@ ContentRendererClient::GetTaskSchedulerInitParams() {
   return nullptr;
 }
 
-bool ContentRendererClient::AllowIdleMediaSuspend() {
+bool ContentRendererClient::IsIdleMediaSuspendEnabled() {
   return true;
 }
 
 bool ContentRendererClient::OverrideLegacySymantecCertConsoleMessage(
     const GURL& url,
     std::string* console_messsage) {
+  return false;
+}
+
+bool ContentRendererClient::SuppressLegacyTLSVersionConsoleMessage() {
   return false;
 }
 
@@ -267,5 +261,11 @@ blink::WebFrame* ContentRendererClient::FindFrame(
     const std::string& name) {
   return nullptr;
 }
+
+bool ContentRendererClient::IsSafeRedirectTarget(const GURL& url) {
+  return true;
+}
+
+void ContentRendererClient::DidSetUserAgent(const std::string& user_agent) {}
 
 }  // namespace content

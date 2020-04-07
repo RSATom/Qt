@@ -8,6 +8,7 @@
 #include "base/containers/flat_set.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
 #include "content/browser/background_sync/background_sync_context.h"
 #include "content/browser/background_sync/background_sync_manager.h"
 #include "content/browser/devtools/service_worker_devtools_agent_host.h"
@@ -22,12 +23,12 @@
 #include "content/browser/storage_partition_impl_map.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/push_event_payload.h"
 #include "content/public/common/push_messaging_status.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider_type.mojom.h"
@@ -90,8 +91,8 @@ void GetDevToolsRouteInfoOnIO(
     const base::Callback<void(int, int)>& callback) {
   if (content::ServiceWorkerVersion* version =
           context->GetLiveVersion(version_id)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(
             callback, version->embedded_worker()->process_id(),
             version->embedded_worker()->worker_devtools_agent_route_id()));
@@ -174,6 +175,7 @@ void ServiceWorkerHandler::SetRenderer(int process_host_id,
   storage_partition_ =
       static_cast<StoragePartitionImpl*>(process_host->GetStoragePartition());
   DCHECK(storage_partition_);
+  browser_context_ = process_host->GetBrowserContext();
   context_ = static_cast<ServiceWorkerContextWrapper*>(
       storage_partition_->GetServiceWorkerContext());
 }
@@ -244,8 +246,9 @@ Response ServiceWorkerHandler::StopWorker(const std::string& version_id) {
   int64_t id = 0;
   if (!base::StringToInt64(version_id, &id))
     return CreateInvalidVersionIdErrorResponse();
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                          base::BindOnce(&StopServiceWorkerOnIO, context_, id));
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&StopServiceWorkerOnIO, context_, id));
   return Response::OK();
 }
 
@@ -282,8 +285,8 @@ Response ServiceWorkerHandler::InspectWorker(const std::string& version_id) {
   int64_t id = blink::mojom::kInvalidServiceWorkerVersionId;
   if (!base::StringToInt64(version_id, &id))
     return CreateInvalidVersionIdErrorResponse();
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&GetDevToolsRouteInfoOnIO, context_, id,
                      base::Bind(&ServiceWorkerHandler::OpenNewDevToolsWindow,
                                 weak_factory_.GetWeakPtr())));
@@ -309,11 +312,11 @@ Response ServiceWorkerHandler::DeliverPushMessage(
   int64_t id = 0;
   if (!base::StringToInt64(registration_id, &id))
     return CreateInvalidVersionIdErrorResponse();
-  PushEventPayload payload;
+  base::Optional<std::string> payload;
   if (data.size() > 0)
-    payload.setData(data);
+    payload = data;
   BrowserContext::DeliverPushMessage(
-      browser_context_, GURL(origin), id, payload,
+      browser_context_, GURL(origin), id, std::move(payload),
       base::BindRepeating([](mojom::PushDeliveryStatus status) {}));
 
   return Response::OK();
@@ -335,10 +338,10 @@ Response ServiceWorkerHandler::DispatchSyncEvent(
   BackgroundSyncContext* sync_context =
       storage_partition_->GetBackgroundSyncContext();
 
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                          base::BindOnce(&DispatchSyncEventOnIO, context_,
-                                         base::WrapRefCounted(sync_context),
-                                         GURL(origin), id, tag, last_chance));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
+                           base::BindOnce(&DispatchSyncEventOnIO, context_,
+                                          base::WrapRefCounted(sync_context),
+                                          GURL(origin), id, tag, last_chance));
   return Response::OK();
 }
 
@@ -359,12 +362,12 @@ void ServiceWorkerHandler::OnWorkerRegistrationUpdated(
       protocol::Array<Registration>::create();
   for (const auto& registration : registrations) {
     result->addItem(Registration::Create()
-        .SetRegistrationId(
-            base::Int64ToString(registration.registration_id))
-        .SetScopeURL(registration.pattern.spec())
-        .SetIsDeleted(registration.delete_flag ==
-                      ServiceWorkerRegistrationInfo::IS_DELETED)
-        .Build());
+                        .SetRegistrationId(
+                            base::Int64ToString(registration.registration_id))
+                        .SetScopeURL(registration.scope.spec())
+                        .SetIsDeleted(registration.delete_flag ==
+                                      ServiceWorkerRegistrationInfo::IS_DELETED)
+                        .Build());
   }
   frontend_->WorkerRegistrationUpdated(std::move(result));
 }

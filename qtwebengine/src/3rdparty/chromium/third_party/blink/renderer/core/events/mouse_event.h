@@ -26,8 +26,11 @@
 
 #include "third_party/blink/public/platform/web_menu_source_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/events/mouse_event_init.h"
 #include "third_party/blink/renderer/core/events/ui_event_with_key_state.h"
+#include "third_party/blink/renderer/platform/geometry/double_point.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 class DataTransfer;
@@ -48,30 +51,38 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
     kPositionless,
   };
 
-  static MouseEvent* Create() { return new MouseEvent; }
+  static MouseEvent* Create() { return MakeGarbageCollected<MouseEvent>(); }
 
   static MouseEvent* Create(const AtomicString& event_type,
-                            const MouseEventInit&,
+                            const MouseEventInit*,
                             TimeTicks platform_time_stamp,
                             SyntheticEventType,
                             WebMenuSourceType);
 
   static MouseEvent* Create(ScriptState*,
                             const AtomicString& event_type,
-                            const MouseEventInit&);
+                            const MouseEventInit*);
 
   static MouseEvent* Create(const AtomicString& event_type,
                             AbstractView*,
                             Event* underlying_event,
                             SimulatedClickCreationScope);
 
+  MouseEvent(const AtomicString& type,
+             const MouseEventInit*,
+             TimeTicks platform_time_stamp,
+             SyntheticEventType = kRealOrIndistinguishable,
+             WebMenuSourceType = kMenuSourceNone);
+  MouseEvent(const AtomicString& type, const MouseEventInit* init)
+      : MouseEvent(type, init, CurrentTimeTicks()) {}
+  MouseEvent();
   ~MouseEvent() override;
 
   static unsigned short WebInputEventModifiersToButtons(unsigned modifiers);
   static void SetCoordinatesFromWebPointerProperties(
       const WebPointerProperties&,
       const LocalDOMWindow*,
-      MouseEventInit&);
+      MouseEventInit*);
 
   void initMouseEvent(ScriptState*,
                       const AtomicString& type,
@@ -159,8 +170,8 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   int layerX();
   int layerY();
 
-  int offsetX();
-  int offsetY();
+  virtual double offsetX();
+  virtual double offsetY();
 
   virtual double pageX() const {
     return (RuntimeEnabledFeatures::FractionalMouseEventEnabled())
@@ -182,8 +193,8 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   WebMenuSourceType GetMenuSourceType() const { return menu_source_type_; }
 
   // Page point in "absolute" coordinates (i.e. post-zoomed, page-relative
-  // coords, usable with LayoutObject::absoluteToLocal) relative to view(), i.e.
-  // the local frame.
+  // coords, usable with LayoutObject::absoluteToLocal) relative to view(),
+  // i.e. the local frame.
   const DoublePoint& AbsoluteLocation() const { return absolute_location_; }
 
   DispatchEventResult DispatchEvent(EventDispatcher&) override;
@@ -191,26 +202,20 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   void Trace(blink::Visitor*) override;
 
  protected:
-  MouseEvent(const AtomicString& type,
-             const MouseEventInit&,
-             TimeTicks platform_time_stamp,
-             SyntheticEventType = kRealOrIndistinguishable,
-             WebMenuSourceType = kMenuSourceNone);
-
-  MouseEvent(const AtomicString& type, const MouseEventInit& init)
-      : MouseEvent(type, init, CurrentTimeTicks()) {}
-
-  MouseEvent();
-
   short RawButton() const { return button_; }
 
   void ReceivedTarget() override;
 
-  // TODO(eirage): Move these coordinates back to private when MouseEvent
-  // fractional flag is removed.
+  // TODO(eirage): Move these coordinates related field back to private
+  // when MouseEvent fractional flag is removed.
+  void ComputeRelativePosition();
+
   DoublePoint screen_location_;
   DoublePoint client_location_;
-  DoublePoint page_location_;  // zoomed CSS pixels
+  DoublePoint page_location_;    // zoomed CSS pixels
+  DoublePoint offset_location_;  // zoomed CSS pixels
+
+  bool has_cached_relative_position_ = false;
 
  private:
   void InitMouseEventInternal(const AtomicString& type,
@@ -231,15 +236,12 @@ class CORE_EXPORT MouseEvent : public UIEventWithKeyState {
   void InitCoordinates(const double client_x, const double client_y);
 
   void ComputePageLocation();
-  void ComputeRelativePosition();
 
   DoublePoint movement_delta_;
 
   DoublePoint layer_location_;     // zoomed CSS pixels
-  DoublePoint offset_location_;    // zoomed CSS pixels
   DoublePoint absolute_location_;  // (un-zoomed) FrameView content space
   PositionType position_type_;
-  bool has_cached_relative_position_;
   short button_;
   unsigned short buttons_;
   Member<EventTarget> related_target_;

@@ -176,6 +176,7 @@ public:
 
             // Register the 5.11 types
             minor = 11;
+            qmlRegisterType<QGeoMapObject>();
             qmlRegisterType<QDeclarativeGeoManeuver, 11>(uri, major, minor, "RouteManeuver");
             qmlRegisterType<QDeclarativeGeoMap, 11>(uri, major, minor, "Map");
             qmlRegisterUncreatableType<QDeclarativeGeoMapItemBase, 11>(uri, major, minor, "GeoMapItemBase",
@@ -193,6 +194,11 @@ public:
             qmlRegisterType<QDeclarativeGeoMap, 12>(uri, major, minor, "Map");
             qmlRegisterType<QDeclarativeGeoRoute, 12>(uri, major, minor, "Route");
             qmlRegisterType<QDeclarativeGeoRouteLeg, 12>(uri, major, minor, "RouteLeg");
+
+            minor = 13;
+            qmlRegisterType<QDeclarativeGeoMap, 13>(uri, major, minor, "Map");
+            qmlRegisterType<QDeclarativeGeoRoute, 13>(uri, major, minor, "Route");
+            qmlRegisterType<QDeclarativeGeoRouteQuery, 13>(uri, major, minor, "RouteQuery");
 
             // Register the latest Qt version as QML type version
             qmlRegisterModule(uri, QT_VERSION_MAJOR, QT_VERSION_MINOR);
@@ -212,6 +218,6 @@ public:
     }
 };
 
-#include "location.moc"
-
 QT_END_NAMESPACE
+
+#include "location.moc"

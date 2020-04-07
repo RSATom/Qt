@@ -147,7 +147,7 @@ void QGeoSatelliteInfoSourceGeoclueMaster::updateSatelliteInfo(int timestamp, in
                                                                const QList<int> &usedPrn,
                                                                const QList<QGeoSatelliteInfo> &satInfos)
 {
-    Q_UNUSED(timestamp)
+    Q_UNUSED(timestamp);
 
     QList<QGeoSatelliteInfo> inUse;
 
@@ -216,8 +216,8 @@ void QGeoSatelliteInfoSourceGeoclueMaster::positionProviderChanged(const QString
                                                                    const QString &service,
                                                                    const QString &path)
 {
-    Q_UNUSED(name)
-    Q_UNUSED(description)
+    Q_UNUSED(name);
+    Q_UNUSED(description);
 
     cleanupSatelliteSource();
 

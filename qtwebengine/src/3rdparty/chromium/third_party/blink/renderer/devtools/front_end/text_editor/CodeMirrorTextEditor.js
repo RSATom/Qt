@@ -42,8 +42,6 @@ TextEditor.CodeMirrorTextEditor = class extends UI.VBox {
     this.registerRequiredCSS('cm/codemirror.css');
     this.registerRequiredCSS('text_editor/cmdevtools.css');
 
-    TextEditor.CodeMirrorUtils.appendThemeStyle(this.element);
-
     this._codeMirror = new CodeMirror(this.element, {
       lineNumbers: options.lineNumbers,
       matchBrackets: true,
@@ -74,7 +72,7 @@ TextEditor.CodeMirrorTextEditor = class extends UI.VBox {
       'Delete': 'delCharAfter',
       'Backspace': 'delCharBefore',
       'Tab': 'defaultTab',
-      'Shift-Tab': 'indentLess',
+      'Shift-Tab': 'indentLessOrPass',
       'Enter': 'newlineAndIndent',
       'Ctrl-Space': 'autocomplete',
       'Esc': 'dismiss',
@@ -162,7 +160,6 @@ TextEditor.CodeMirrorTextEditor = class extends UI.VBox {
 
     this._codeMirror.on('changes', this._changes.bind(this));
     this._codeMirror.on('beforeSelectionChange', this._beforeSelectionChange.bind(this));
-    this._codeMirror.on('keyHandled', this._onKeyHandled.bind(this));
 
     this.element.style.overflow = 'hidden';
     this._codeMirrorElement.classList.add('source-code');
@@ -374,8 +371,17 @@ TextEditor.CodeMirrorTextEditor = class extends UI.VBox {
     return this;
   }
 
-  _onKeyHandled() {
-    UI.shortcutRegistry.dismissPendingShortcutAction();
+  /**
+   * @override
+   * @param {string} placeholder
+   */
+  setPlaceholder(placeholder) {
+    if (!this._placeholderElement) {
+      this._placeholderElement = createElement('pre');
+      this._placeholderElement.classList.add('placeholder-text');
+    }
+    this._placeholderElement.textContent = placeholder || '';
+    this._updatePlaceholder();
   }
 
   /**
@@ -1326,6 +1332,20 @@ CodeMirror.commands.selectCamelRight = TextEditor.CodeMirrorTextEditor.moveCamel
 
 /**
  * @param {!CodeMirror} codeMirror
+ * @return {!Object|undefined}
+ */
+CodeMirror.commands.indentLessOrPass = function(codeMirror) {
+  const selections = codeMirror.listSelections();
+  if (selections.length === 1) {
+    const range = TextEditor.CodeMirrorUtils.toRange(selections[0].anchor, selections[0].head);
+    if (range.isEmpty() && !/^\s/.test(codeMirror.getLine(range.startLine)))
+      return CodeMirror.Pass;
+  }
+  codeMirror.execCommand('indentLess');
+};
+
+/**
+ * @param {!CodeMirror} codeMirror
  */
 CodeMirror.commands.gotoMatchingBracket = function(codeMirror) {
   const updatedSelections = [];
@@ -1371,6 +1391,7 @@ CodeMirror.commands.redoAndReveal = function(codemirror) {
 };
 
 /**
+ * @param {!CodeMirror} codemirror
  * @return {!Object|undefined}
  */
 CodeMirror.commands.dismiss = function(codemirror) {
@@ -1389,6 +1410,7 @@ CodeMirror.commands.dismiss = function(codemirror) {
 };
 
 /**
+ * @param {!CodeMirror} codemirror
  * @return {!Object|undefined}
  */
 CodeMirror.commands.goSmartPageUp = function(codemirror) {
@@ -1398,6 +1420,7 @@ CodeMirror.commands.goSmartPageUp = function(codemirror) {
 };
 
 /**
+ * @param {!CodeMirror} codemirror
  * @return {!Object|undefined}
  */
 CodeMirror.commands.goSmartPageDown = function(codemirror) {

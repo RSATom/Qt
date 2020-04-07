@@ -33,6 +33,15 @@ let LocalDataItem;
  */
 let LocalDataList;
 
+/**
+ * Number of cookies attached to a given domain / eTLD+1.
+ * @typedef {{
+ *   etldPlus1: string,
+ *   numCookies: number,
+ * }}
+ */
+let EtldPlus1CookieNumber;
+
 cr.define('settings', function() {
   /** @interface */
   class LocalDataBrowserProxy {
@@ -69,11 +78,11 @@ cr.define('settings', function() {
     getCookieDetails(site) {}
 
     /**
-     * Gets the number of cookies formatted in a plural string, given a site.
-     * @param {string} site The site to count cookies for.
+     * Gets the plural string for a given number of cookies.
+     * @param {number} numCookies The number of cookies.
      * @return {!Promise<string>}
      */
-    getNumCookiesString(site) {}
+    getNumCookiesString(numCookies) {}
 
     /**
      * Reloads all local data.
@@ -120,8 +129,8 @@ cr.define('settings', function() {
     }
 
     /** @override */
-    getNumCookiesString(site) {
-      return cr.sendWithPromise('localData.getNumCookiesString', site);
+    getNumCookiesString(numCookies) {
+      return cr.sendWithPromise('localData.getNumCookiesString', numCookies);
     }
 
     /** @override */

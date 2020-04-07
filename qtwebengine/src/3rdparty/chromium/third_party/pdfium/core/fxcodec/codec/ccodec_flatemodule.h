@@ -9,37 +9,39 @@
 
 #include <memory>
 
+#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_system.h"
+#include "third_party/base/span.h"
 
 class CCodec_ScanlineDecoder;
 
 class CCodec_FlateModule {
  public:
-  std::unique_ptr<CCodec_ScanlineDecoder> CreateDecoder(const uint8_t* src_buf,
-                                                        uint32_t src_size,
-                                                        int width,
-                                                        int height,
-                                                        int nComps,
-                                                        int bpc,
-                                                        int predictor,
-                                                        int Colors,
-                                                        int BitsPerComponent,
-                                                        int Columns);
+  std::unique_ptr<CCodec_ScanlineDecoder> CreateDecoder(
+      pdfium::span<const uint8_t> src_buf,
+      int width,
+      int height,
+      int nComps,
+      int bpc,
+      int predictor,
+      int Colors,
+      int BitsPerComponent,
+      int Columns);
+
   uint32_t FlateOrLZWDecode(bool bLZW,
-                            const uint8_t* src_buf,
-                            uint32_t src_size,
+                            pdfium::span<const uint8_t> src_buf,
                             bool bEarlyChange,
                             int predictor,
                             int Colors,
                             int BitsPerComponent,
                             int Columns,
                             uint32_t estimated_size,
-                            uint8_t** dest_buf,
+                            std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                             uint32_t* dest_size);
 
   bool Encode(const uint8_t* src_buf,
               uint32_t src_size,
-              uint8_t** dest_buf,
+              std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
               uint32_t* dest_size);
 };
 

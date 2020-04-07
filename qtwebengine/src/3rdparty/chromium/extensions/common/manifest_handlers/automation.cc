@@ -55,11 +55,14 @@ class AutomationManifestPermission : public ManifestPermission {
 
   std::unique_ptr<base::Value> ToValue() const override;
 
-  ManifestPermission* Diff(const ManifestPermission* rhs) const override;
+  std::unique_ptr<ManifestPermission> Diff(
+      const ManifestPermission* rhs) const override;
 
-  ManifestPermission* Union(const ManifestPermission* rhs) const override;
+  std::unique_ptr<ManifestPermission> Union(
+      const ManifestPermission* rhs) const override;
 
-  ManifestPermission* Intersect(const ManifestPermission* rhs) const override;
+  std::unique_ptr<ManifestPermission> Intersect(
+      const ManifestPermission* rhs) const override;
 
  private:
   std::unique_ptr<const AutomationInfo> automation_info_;
@@ -112,7 +115,7 @@ std::unique_ptr<base::Value> AutomationManifestPermission::ToValue() const {
   return AutomationInfo::ToValue(*automation_info_);
 }
 
-ManifestPermission* AutomationManifestPermission::Diff(
+std::unique_ptr<ManifestPermission> AutomationManifestPermission::Diff(
     const ManifestPermission* rhs) const {
   const AutomationManifestPermission* other =
       static_cast<const AutomationManifestPermission*>(rhs);
@@ -122,11 +125,11 @@ ManifestPermission* AutomationManifestPermission::Diff(
       automation_info_->interact && !other->automation_info_->interact;
   URLPatternSet matches = URLPatternSet::CreateDifference(
       automation_info_->matches, other->automation_info_->matches);
-  return new AutomationManifestPermission(
+  return std::make_unique<AutomationManifestPermission>(
       base::WrapUnique(new const AutomationInfo(desktop, matches, interact)));
 }
 
-ManifestPermission* AutomationManifestPermission::Union(
+std::unique_ptr<ManifestPermission> AutomationManifestPermission::Union(
     const ManifestPermission* rhs) const {
   const AutomationManifestPermission* other =
       static_cast<const AutomationManifestPermission*>(rhs);
@@ -136,11 +139,11 @@ ManifestPermission* AutomationManifestPermission::Union(
       automation_info_->interact || other->automation_info_->interact;
   URLPatternSet matches = URLPatternSet::CreateUnion(
       automation_info_->matches, other->automation_info_->matches);
-  return new AutomationManifestPermission(
+  return std::make_unique<AutomationManifestPermission>(
       base::WrapUnique(new const AutomationInfo(desktop, matches, interact)));
 }
 
-ManifestPermission* AutomationManifestPermission::Intersect(
+std::unique_ptr<ManifestPermission> AutomationManifestPermission::Intersect(
     const ManifestPermission* rhs) const {
   const AutomationManifestPermission* other =
       static_cast<const AutomationManifestPermission*>(rhs);
@@ -149,8 +152,9 @@ ManifestPermission* AutomationManifestPermission::Intersect(
   bool interact =
       automation_info_->interact && other->automation_info_->interact;
   URLPatternSet matches = URLPatternSet::CreateIntersection(
-      automation_info_->matches, other->automation_info_->matches);
-  return new AutomationManifestPermission(
+      automation_info_->matches, other->automation_info_->matches,
+      URLPatternSet::IntersectionBehavior::kStringComparison);
+  return std::make_unique<AutomationManifestPermission>(
       base::WrapUnique(new const AutomationInfo(desktop, matches, interact)));
 }
 
@@ -167,7 +171,7 @@ bool AutomationHandler::Parse(Extension* extension, base::string16* error) {
   if (!error->empty())
     return false;
 
-  extension->AddInstallWarnings(install_warnings);
+  extension->AddInstallWarnings(std::move(install_warnings));
 
   if (!info)
     return true;
@@ -178,7 +182,11 @@ bool AutomationHandler::Parse(Extension* extension, base::string16* error) {
 
 base::span<const char* const> AutomationHandler::Keys() const {
   static constexpr const char* kKeys[] = {keys::kAutomation};
+#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 ManifestPermission* AutomationHandler::CreatePermission() {
@@ -242,8 +250,7 @@ std::unique_ptr<AutomationInfo> AutomationInfo::FromValue(
     } else {
       specified_matches = true;
 
-      for (std::vector<std::string>::iterator it =
-               automation_object.matches->begin();
+      for (auto it = automation_object.matches->begin();
            it != automation_object.matches->end(); ++it) {
         // TODO(aboxhall): Refactor common logic from content_scripts_handler,
         // manifest_url_handler and user_script.cc into a single location and
@@ -252,7 +259,7 @@ std::unique_ptr<AutomationInfo> AutomationInfo::FromValue(
                            ~URLPattern::SCHEME_CHROMEUI);
         URLPattern::ParseResult parse_result = pattern.Parse(*it);
 
-        if (parse_result != URLPattern::PARSE_SUCCESS) {
+        if (parse_result != URLPattern::ParseResult::kSuccess) {
           install_warnings->push_back(
               InstallWarning(ErrorUtils::FormatErrorMessage(
                   automation_errors::kErrorInvalidMatch, *it,
@@ -301,7 +308,7 @@ AutomationInfo::AutomationInfo() : desktop(false), interact(false) {}
 AutomationInfo::AutomationInfo(bool desktop,
                                const URLPatternSet& matches,
                                bool interact)
-    : desktop(desktop), matches(matches), interact(interact) {}
+    : desktop(desktop), matches(matches.Clone()), interact(interact) {}
 
 AutomationInfo::~AutomationInfo() {}
 

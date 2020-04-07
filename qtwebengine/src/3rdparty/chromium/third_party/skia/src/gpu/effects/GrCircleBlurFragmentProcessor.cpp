@@ -283,7 +283,7 @@ public:
                 args.fUniformHandler->getUniformCStr(fCircleDataVar),
                 args.fUniformHandler->getUniformCStr(fCircleDataVar),
                 args.fUniformHandler->getUniformCStr(fCircleDataVar), args.fOutputColor,
-                args.fInputColor ? args.fInputColor : "half4(1)",
+                args.fInputColor,
                 fragBuilder->getProgramBuilder()->samplerVariable(args.fTexSamplers[0]).c_str(),
                 fragBuilder->getProgramBuilder()->samplerSwizzle(args.fTexSamplers[0]).c_str());
     }
@@ -299,7 +299,7 @@ private:
         auto solidRadius = _outer.solidRadius();
         (void)solidRadius;
         GrSurfaceProxy& blurProfileSamplerProxy = *_outer.textureSampler(0).proxy();
-        GrTexture& blurProfileSampler = *blurProfileSamplerProxy.priv().peekTexture();
+        GrTexture& blurProfileSampler = *blurProfileSamplerProxy.peekTexture();
         (void)blurProfileSampler;
         UniformHandle& circleData = fCircleDataVar;
         (void)circleData;
@@ -330,10 +330,14 @@ GrCircleBlurFragmentProcessor::GrCircleBlurFragmentProcessor(
         , fTextureRadius(src.fTextureRadius)
         , fSolidRadius(src.fSolidRadius)
         , fBlurProfileSampler(src.fBlurProfileSampler) {
-    this->addTextureSampler(&fBlurProfileSampler);
+    this->setTextureSamplerCnt(1);
 }
 std::unique_ptr<GrFragmentProcessor> GrCircleBlurFragmentProcessor::clone() const {
     return std::unique_ptr<GrFragmentProcessor>(new GrCircleBlurFragmentProcessor(*this));
+}
+const GrFragmentProcessor::TextureSampler& GrCircleBlurFragmentProcessor::onTextureSampler(
+        int index) const {
+    return IthTextureSampler(index, fBlurProfileSampler);
 }
 GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrCircleBlurFragmentProcessor);
 #if GR_TEST_UTILS

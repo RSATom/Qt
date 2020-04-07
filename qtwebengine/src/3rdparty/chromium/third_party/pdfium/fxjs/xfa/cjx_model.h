@@ -7,8 +7,8 @@
 #ifndef FXJS_XFA_CJX_MODEL_H_
 #define FXJS_XFA_CJX_MODEL_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Node;
 
@@ -17,14 +17,21 @@ class CJX_Model : public CJX_Node {
   explicit CJX_Model(CXFA_Node* obj);
   ~CJX_Model() override;
 
-  JS_METHOD(clearErrorList, CJX_Model);
-  JS_METHOD(createNode, CJX_Model);
-  JS_METHOD(isCompatibleNS, CJX_Model);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(aliasNode);
-  JS_PROP(context);
+  JSE_METHOD(clearErrorList);
+  JSE_METHOD(createNode);
+  JSE_METHOD(isCompatibleNS);
+
+  JSE_PROP(aliasNode);
+  JSE_PROP(context);
 
  private:
+  using Type__ = CJX_Model;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::Model;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

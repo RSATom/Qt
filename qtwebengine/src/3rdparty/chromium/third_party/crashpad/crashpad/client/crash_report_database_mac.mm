@@ -29,6 +29,7 @@
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/scoped_generic.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
@@ -141,7 +142,8 @@ class CrashReportDatabaseMac : public CrashReportDatabase {
   OperationStatus GetCompletedReports(std::vector<Report>* reports) override;
   OperationStatus GetReportForUploading(
       const UUID& uuid,
-      std::unique_ptr<const UploadReport>* report) override;
+      std::unique_ptr<const UploadReport>* report,
+      bool report_metrics) override;
   OperationStatus SkipReportUpload(const UUID& uuid,
                                    Metrics::CrashSkippedReason reason) override;
   OperationStatus DeleteReport(const UUID& uuid) override;
@@ -278,7 +280,7 @@ bool CrashReportDatabaseMac::Initialize(bool may_create) {
   }
 
   // Create the three processing directories for the database.
-  for (size_t i = 0; i < arraysize(kReportDirectories); ++i) {
+  for (size_t i = 0; i < base::size(kReportDirectories); ++i) {
     if (!CreateOrEnsureDirectoryExists(base_dir_.Append(kReportDirectories[i])))
       return false;
   }
@@ -422,7 +424,8 @@ CrashReportDatabaseMac::GetCompletedReports(
 CrashReportDatabase::OperationStatus
 CrashReportDatabaseMac::GetReportForUploading(
     const UUID& uuid,
-    std::unique_ptr<const UploadReport>* report) {
+    std::unique_ptr<const UploadReport>* report,
+    bool report_metrics) {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
 
   auto upload_report = std::make_unique<UploadReportMac>();
@@ -444,6 +447,7 @@ CrashReportDatabaseMac::GetReportForUploading(
 
   upload_report->database_ = this;
   upload_report->lock_fd.reset(lock.release());
+  upload_report->report_metrics_ = report_metrics;
   report->reset(upload_report.release());
   return kNoError;
 }
@@ -454,7 +458,9 @@ CrashReportDatabaseMac::RecordUploadAttempt(UploadReport* report,
                                             const std::string& id) {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
 
-  Metrics::CrashUploadAttempted(successful);
+  if (report->report_metrics_) {
+    Metrics::CrashUploadAttempted(successful);
+  }
 
   DCHECK(report);
   DCHECK(successful || id.empty());

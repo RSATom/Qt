@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
@@ -15,14 +16,14 @@
 #include "public/cpp/fpdf_scopers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
+#include "third_party/base/ptr_util.h"
 
-class CPDF_TestDocument : public CPDF_Document {
+class CPDF_TestDocument final : public CPDF_Document {
  public:
   CPDF_TestDocument() : CPDF_Document() {}
 
   void SetRoot(CPDF_Dictionary* root) {
     m_pRootDict = root;
-    GetRoot();
   }
 };
 

@@ -37,8 +37,6 @@
 **
 ****************************************************************************/
 
-#include "chromium_overrides.h"
-
 #include "ozone/gl_context_qt.h"
 #include "qtwebenginecoreglobal_p.h"
 #include "web_contents_view_qt.h"
@@ -52,6 +50,7 @@
 #include "ui/base/dragdrop/os_exchange_data_provider_factory.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/snapshot/snapshot.h"
 #include "ppapi/buildflags/buildflags.h"
 
 #include <QGuiApplication>
@@ -59,6 +58,7 @@
 #include <QWindow>
 #include <QFontDatabase>
 #include <QStringList>
+#include <QLibraryInfo>
 
 #if defined(USE_AURA) && !defined(USE_OZONE)
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -70,27 +70,6 @@
 #if defined(USE_OPENSSL_CERTS)
 #include "net/ssl/openssl_client_key_store.h"
 #endif
-
-namespace QtWebEngineCore {
-void GetScreenInfoFromNativeWindow(QWindow* window, content::ScreenInfo* results)
-{
-    QScreen* screen = window->screen();
-    if (!screen)
-        return;
-    content::ScreenInfo r;
-    r.device_scale_factor = screen->devicePixelRatio();
-    r.depth_per_component = 8;
-    r.depth = screen->depth();
-    r.is_monochrome = (r.depth == 1);
-
-    QRect screenGeometry = screen->geometry();
-    r.rect = gfx::Rect(screenGeometry.x(), screenGeometry.y(), screenGeometry.width(), screenGeometry.height());
-    QRect available = screen->availableGeometry();
-    r.available_rect = gfx::Rect(available.x(), available.y(), available.width(), available.height());
-    *results = r;
-}
-
-} // namespace QtWebEngineCore
 
 void *GetQtXDisplay()
 {
@@ -112,12 +91,13 @@ WebContentsView* CreateWebContentsView(WebContentsImpl *web_contents,
     return rv;
 }
 
-// static
-void WebContentsView::GetDefaultScreenInfo(content::ScreenInfo* results)
+#if defined(Q_OS_MACOS)
+std::string getQtPrefix()
 {
-    QWindow dummy;
-    QtWebEngineCore::GetScreenInfoFromNativeWindow(&dummy, results);
+    const QString prefix = QLibraryInfo::location(QLibraryInfo::PrefixPath);
+    return prefix.toStdString();
 }
+#endif
 
 } // namespace content
 
@@ -172,6 +152,53 @@ ActivationClient *GetActivationClient(aura::Window *)
 
 } // namespace wm
 #endif // defined(USE_AURA) || defined(USE_OZONE)
+
+#if defined(USE_AURA)
+namespace ui {
+
+bool GrabWindowSnapshot(gfx::NativeWindow window,
+                        const gfx::Rect& snapshot_bounds,
+                        gfx::Image* image)
+{
+    NOTIMPLEMENTED();
+    return false;
+}
+
+bool GrabViewSnapshot(gfx::NativeView view,
+                      const gfx::Rect& snapshot_bounds,
+                      gfx::Image* image)
+{
+    NOTIMPLEMENTED();
+    return false;
+}
+
+void GrabWindowSnapshotAndScaleAsync(gfx::NativeWindow window,
+                                     const gfx::Rect& source_rect,
+                                     const gfx::Size& target_size,
+                                     const GrabWindowSnapshotAsyncCallback& callback)
+{
+    NOTIMPLEMENTED();
+    callback.Run(gfx::Image());
+}
+
+void GrabWindowSnapshotAsync(gfx::NativeWindow window,
+                             const gfx::Rect& source_rect,
+                             const GrabWindowSnapshotAsyncCallback& callback)
+{
+    NOTIMPLEMENTED();
+    callback.Run(gfx::Image());
+}
+
+void GrabViewSnapshotAsync(gfx::NativeView view,
+                           const gfx::Rect& source_rect,
+                           const GrabWindowSnapshotAsyncCallback& callback)
+{
+    NOTIMPLEMENTED();
+    callback.Run(gfx::Image());
+}
+
+} // namespace ui
+#endif // defined(USE_AURA)
 
 std::unique_ptr<ui::OSExchangeData::Provider>
 ui::OSExchangeDataProviderFactory::CreateProvider() {

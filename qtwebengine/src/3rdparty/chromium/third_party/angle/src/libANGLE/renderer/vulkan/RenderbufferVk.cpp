@@ -24,31 +24,24 @@ constexpr VkClearColorValue kBlackClearColorValue                 = {{0}};
 }  // anonymous namespace
 
 RenderbufferVk::RenderbufferVk(const gl::RenderbufferState &state)
-    : RenderbufferImpl(state), mRenderTarget(&mImage, &mImageView, this)
-{
-}
+    : RenderbufferImpl(state), mRenderTarget(&mImage, &mImageView, 0, nullptr)
+{}
 
-RenderbufferVk::~RenderbufferVk()
-{
-}
+RenderbufferVk::~RenderbufferVk() {}
 
-gl::Error RenderbufferVk::onDestroy(const gl::Context *context)
+void RenderbufferVk::onDestroy(const gl::Context *context)
 {
     ContextVk *contextVk = vk::GetImpl(context);
     RendererVk *renderer = contextVk->getRenderer();
 
-    mImage.release(renderer->getCurrentQueueSerial(), renderer);
-    renderer->releaseObject(getStoredQueueSerial(), &mImageView);
-
-    onStateChange(context, angle::SubjectMessage::DEPENDENT_DIRTY_BITS);
-
-    return gl::NoError();
+    mImage.release(renderer);
+    renderer->releaseObject(renderer->getCurrentQueueSerial(), &mImageView);
 }
 
-gl::Error RenderbufferVk::setStorage(const gl::Context *context,
-                                     GLenum internalformat,
-                                     size_t width,
-                                     size_t height)
+angle::Result RenderbufferVk::setStorage(const gl::Context *context,
+                                         GLenum internalformat,
+                                         size_t width,
+                                         size_t height)
 {
     ContextVk *contextVk       = vk::GetImpl(context);
     RendererVk *renderer       = contextVk->getRenderer();
@@ -61,13 +54,12 @@ gl::Error RenderbufferVk::setStorage(const gl::Context *context,
             static_cast<GLsizei>(width) != mState.getWidth() ||
             static_cast<GLsizei>(height) != mState.getHeight())
         {
-            mImage.release(renderer->getCurrentQueueSerial(), renderer);
-            renderer->releaseObject(getStoredQueueSerial(), &mImageView);
-            onStateChange(context, angle::SubjectMessage::DEPENDENT_DIRTY_BITS);
+            mImage.release(renderer);
+            renderer->releaseObject(renderer->getCurrentQueueSerial(), &mImageView);
         }
     }
 
-    if (!mImage.valid() && (width != 0 || height != 0))
+    if (!mImage.valid() && (width != 0 && height != 0))
     {
         const angle::Format &textureFormat = vkFormat.textureFormat();
         bool isDepthOrStencilFormat = textureFormat.depthBits > 0 || textureFormat.stencilBits > 0;
@@ -78,23 +70,25 @@ gl::Error RenderbufferVk::setStorage(const gl::Context *context,
             (isDepthOrStencilFormat ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : 0);
 
         gl::Extents extents(static_cast<int>(width), static_cast<int>(height), 1);
-        ANGLE_TRY(mImage.init(contextVk, gl::TextureType::_2D, extents, vkFormat, 1, usage, 1));
+        ANGLE_TRY(mImage.init(contextVk, gl::TextureType::_2D, extents, vkFormat, 1, usage, 1, 1));
 
         VkMemoryPropertyFlags flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
         ANGLE_TRY(mImage.initMemory(contextVk, renderer->getMemoryProperties(), flags));
 
         VkImageAspectFlags aspect = vk::GetFormatAspectFlags(textureFormat);
 
+        // Note that LUMA textures are not color-renderable, so a read-view with swizzle is not
+        // needed.
         ANGLE_TRY(mImage.initImageView(contextVk, gl::TextureType::_2D, aspect, gl::SwizzleState(),
                                        &mImageView, 1));
 
         // TODO(jmadill): Fold this into the RenderPass load/store ops. http://anglebug.com/2361
         vk::CommandBuffer *commandBuffer = nullptr;
-        ANGLE_TRY(beginWriteResource(contextVk, &commandBuffer));
+        ANGLE_TRY(mImage.recordCommands(contextVk, &commandBuffer));
 
         if (isDepthOrStencilFormat)
         {
-            mImage.clearDepthStencil(aspect, kDefaultClearDepthStencilValue, commandBuffer);
+            mImage.clearDepthStencil(aspect, aspect, kDefaultClearDepthStencilValue, commandBuffer);
         }
         else
         {
@@ -102,40 +96,41 @@ gl::Error RenderbufferVk::setStorage(const gl::Context *context,
         }
     }
 
-    return gl::NoError();
+    return angle::Result::Continue;
 }
 
-gl::Error RenderbufferVk::setStorageMultisample(const gl::Context *context,
-                                                size_t samples,
-                                                GLenum internalformat,
-                                                size_t width,
-                                                size_t height)
+angle::Result RenderbufferVk::setStorageMultisample(const gl::Context *context,
+                                                    size_t samples,
+                                                    GLenum internalformat,
+                                                    size_t width,
+                                                    size_t height)
 {
-    UNIMPLEMENTED();
-    return gl::InternalError();
+    ANGLE_VK_UNREACHABLE(vk::GetImpl(context));
+    return angle::Result::Stop;
 }
 
-gl::Error RenderbufferVk::setStorageEGLImageTarget(const gl::Context *context, egl::Image *image)
+angle::Result RenderbufferVk::setStorageEGLImageTarget(const gl::Context *context,
+                                                       egl::Image *image)
 {
-    UNIMPLEMENTED();
-    return gl::InternalError();
+    ANGLE_VK_UNREACHABLE(vk::GetImpl(context));
+    return angle::Result::Stop;
 }
 
-gl::Error RenderbufferVk::getAttachmentRenderTarget(const gl::Context * /*context*/,
-                                                    GLenum /*binding*/,
-                                                    const gl::ImageIndex & /*imageIndex*/,
-                                                    FramebufferAttachmentRenderTarget **rtOut)
+angle::Result RenderbufferVk::getAttachmentRenderTarget(const gl::Context *context,
+                                                        GLenum binding,
+                                                        const gl::ImageIndex &imageIndex,
+                                                        FramebufferAttachmentRenderTarget **rtOut)
 {
     ASSERT(mImage.valid());
     *rtOut = &mRenderTarget;
-    return gl::NoError();
+    return angle::Result::Continue;
 }
 
-gl::Error RenderbufferVk::initializeContents(const gl::Context *context,
-                                             const gl::ImageIndex &imageIndex)
+angle::Result RenderbufferVk::initializeContents(const gl::Context *context,
+                                                 const gl::ImageIndex &imageIndex)
 {
     UNIMPLEMENTED();
-    return gl::NoError();
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

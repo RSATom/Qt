@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkGeometry.h"
@@ -16,7 +16,7 @@
 // #include "SkPathStroker.h"
 #include "SkPointPriv.h"
 #include "SkString.h"
-#include "SkView.h"
+#include "SkTextUtils.h"
 
 #if 0
 void SkStrokeSegment::dump() const {
@@ -491,7 +491,7 @@ struct ButtonPaints {
     static const int kMaxStateCount = 3;
     SkPaint fDisabled;
     SkPaint fStates[kMaxStateCount];
-    SkPaint fLabel;
+    SkFont  fLabelFont;
 
     ButtonPaints() {
         fStates[0].setAntiAlias(true);
@@ -501,10 +501,7 @@ struct ButtonPaints {
         fStates[1].setStrokeWidth(3);
         fStates[2] = fStates[1];
         fStates[2].setColor(0xFFcf0000);
-        fLabel.setAntiAlias(true);
-        fLabel.setTextSize(25.0f);
-        fLabel.setTextAlign(SkPaint::kCenter_Align);
-        fLabel.setStyle(SkPaint::kFill_Style);
+        fLabelFont.setSize(25.0f);
     }
 };
 
@@ -543,7 +540,8 @@ struct Button {
             return;
         }
         canvas->drawRect(fBounds, paints.fStates[fState]);
-        canvas->drawText(&fLabel, 1, fBounds.centerX(), fBounds.fBottom - 5, paints.fLabel);
+        SkTextUtils::Draw(canvas, &fLabel, 1, kUTF8_SkTextEncoding, fBounds.centerX(), fBounds.fBottom - 5,
+                          paints.fLabelFont, SkPaint(), SkTextUtils::kCenter_Align);
     }
 
     void toggle() {
@@ -564,6 +562,9 @@ struct ControlPaints {
     SkPaint fLabel;
     SkPaint fValue;
 
+    SkFont fLabelFont;
+    SkFont fValueFont;
+
     ControlPaints() {
         fOutline.setAntiAlias(true);
         fOutline.setStyle(SkPaint::kStroke_Style);
@@ -572,9 +573,9 @@ struct ControlPaints {
         fFill.setAntiAlias(true);
         fFill.setColor(0x7fff0000);
         fLabel.setAntiAlias(true);
-        fLabel.setTextSize(13.0f);
+        fLabelFont.setSize(13.0f);
         fValue.setAntiAlias(true);
-        fValue.setTextSize(11.0f);
+        fValueFont.setSize(11.0f);
     }
 };
 
@@ -610,9 +611,9 @@ struct UniControl {
         canvas->drawLine(fBounds.fLeft - 5, fYLo, fBounds.fRight + 5, fYLo, paints.fIndicator);
         SkString label;
         label.printf("%0.3g", fValLo);
-        canvas->drawString(label, fBounds.fLeft + 5, fYLo - 5, paints.fValue);
-        canvas->drawString(fName, fBounds.fLeft, fBounds.bottom() + 11,
-                paints.fLabel);
+        canvas->drawString(label, fBounds.fLeft + 5, fYLo - 5, paints.fValueFont, paints.fValue);
+        canvas->drawString(fName, fBounds.fLeft, fBounds.bottom() + 11, paints.fLabelFont,
+                           paints.fLabel);
     }
 };
 
@@ -638,14 +639,14 @@ struct BiControl : public UniControl {
         if (yPos < fYLo + 10) {
             yPos = fYLo + 10;
         }
-        canvas->drawString(label, fBounds.fLeft + 5, yPos - 5, paints.fValue);
+        canvas->drawString(label, fBounds.fLeft + 5, yPos - 5, paints.fValueFont, paints.fValue);
         SkRect fill = { fBounds.fLeft, fYLo, fBounds.fRight, yPos };
         canvas->drawRect(fill, paints.fFill);
     }
 };
 
 
-class MyClick : public SampleView::Click {
+class MyClick : public Sample::Click {
 public:
     enum ClickType {
         kInvalidType = -1,
@@ -684,7 +685,7 @@ public:
     SkPath::Verb fVerb;
     SkScalar fWeight;
 
-    MyClick(SkView* target, ClickType type, ControlType control)
+    MyClick(Sample* target, ClickType type, ControlType control)
         : Click(target)
         , fType(type)
         , fControl(control)
@@ -692,7 +693,7 @@ public:
         , fWeight(1) {
     }
 
-    MyClick(SkView* target, ClickType type, int index)
+    MyClick(Sample* target, ClickType type, int index)
         : Click(target)
         , fType(type)
         , fControl((ControlType) index)
@@ -700,7 +701,7 @@ public:
         , fWeight(1) {
     }
 
-    MyClick(SkView* target, ClickType type, int index, SkPath::Verb verb, SkScalar weight)
+    MyClick(Sample* target, ClickType type, int index, SkPath::Verb verb, SkScalar weight)
         : Click(target)
         , fType(type)
         , fControl((ControlType) index)
@@ -783,12 +784,12 @@ struct PathUndo {
     PathUndo* fNext;
 };
 
-class AAGeometryView : public SampleView {
+class AAGeometryView : public Sample {
     SkPaint fActivePaint;
     SkPaint fComplexPaint;
     SkPaint fCoveragePaint;
-    SkPaint fLegendLeftPaint;
-    SkPaint fLegendRightPaint;
+    SkFont fLegendLeftFont;
+    SkFont fLegendRightFont;
     SkPaint fPointPaint;
     SkPaint fSkeletonPaint;
     SkPaint fLightSkeletonPaint;
@@ -862,10 +863,8 @@ public:
         fActivePaint.setStrokeWidth(5);
         fComplexPaint = fActivePaint;
         fComplexPaint.setColor(SK_ColorBLUE);
-        fLegendLeftPaint.setAntiAlias(true);
-        fLegendLeftPaint.setTextSize(13);
-        fLegendRightPaint = fLegendLeftPaint;
-        fLegendRightPaint.setTextAlign(SkPaint::kRight_Align);
+        fLegendLeftFont.setSize(13);
+        fLegendRightFont = fLegendLeftFont;
         construct_path(fPath);
         fFillButton.fVisible = fSkeletonButton.fVisible = fFilterButton.fVisible
                 = fBisectButton.fVisible = fJoinButton.fVisible = fInOutButton.fVisible = true;
@@ -971,8 +970,7 @@ public:
 
     #undef SET_BUTTON
 
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override;
+    bool onQuery(Sample::Event* evt) override;
 
     void onSizeChange() override {
         setControlButtonsPos();
@@ -1611,7 +1609,7 @@ public:
         return -1;
     }
 
-    virtual SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    virtual Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
         SkPoint pt = {x, y};
         int ptHit = hittest_pt(pt);
         if (ptHit >= 0) {
@@ -1787,7 +1785,7 @@ public:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 static struct KeyCommand {
@@ -1813,26 +1811,24 @@ void AAGeometryView::draw_legend(SkCanvas* canvas) {
     SkScalar bottomOffset = this->height() - 10;
     for (int index = kKeyCommandCount - 1; index >= 0; --index) {
         bottomOffset -= 15;
-        canvas->drawString(kKeyCommandList[index].fDescriptionL,
-                this->width() - 160, bottomOffset,
-                fLegendLeftPaint);
-        canvas->drawString(kKeyCommandList[index].fDescriptionR,
+        SkTextUtils::DrawString(canvas, kKeyCommandList[index].fDescriptionL, this->width() - 160, bottomOffset,
+                                fLegendLeftFont, SkPaint());
+        SkTextUtils::DrawString(canvas, kKeyCommandList[index].fDescriptionR,
                 this->width() - 20, bottomOffset,
-                fLegendRightPaint);
+                fLegendRightFont, SkPaint(), SkTextUtils::kRight_Align);
     }
 }
 
-// overrides from SkEventSink
-bool AAGeometryView::onQuery(SkEvent* evt) {
-    if (SampleCode::TitleQ(*evt)) {
-        SampleCode::TitleR(evt, "AAGeometry");
+bool AAGeometryView::onQuery(Sample::Event* evt) {
+    if (Sample::TitleQ(*evt)) {
+        Sample::TitleR(evt, "AAGeometry");
         return true;
     }
     SkUnichar uni;
     if (false) {
         return this->INHERITED::onQuery(evt);
     }
-    if (SampleCode::CharQ(*evt, &uni)) {
+    if (Sample::CharQ(*evt, &uni)) {
         for (int index = 0; index < kButtonCount; ++index) {
             Button* button = kButtonList[index].fButton;
             if (button->fVisible && uni == button->fLabel) {

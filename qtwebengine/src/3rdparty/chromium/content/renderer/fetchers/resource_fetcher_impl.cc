@@ -71,7 +71,7 @@ class ResourceFetcherImpl::ClientImpl : public network::mojom::URLLoaderClient {
              const net::NetworkTrafficAnnotationTag& annotation_tag,
              scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
     status_ = Status::kStarted;
-    response_.SetURL(request.url);
+    response_.SetCurrentRequestUrl(request.url);
 
     network::mojom::URLLoaderClientPtr client;
     client_binding_.Bind(mojo::MakeRequest(&client), std::move(task_runner));
@@ -186,8 +186,8 @@ class ResourceFetcherImpl::ClientImpl : public network::mojom::URLLoaderClient {
       const net::RedirectInfo& redirect_info,
       const network::ResourceResponseHead& response_head) override {
     DCHECK_EQ(Status::kStarted, status_);
-    loader_->FollowRedirect(base::nullopt, base::nullopt);
-    response_.SetURL(redirect_info.new_url);
+    loader_->FollowRedirect({}, {}, base::nullopt);
+    response_.SetCurrentRequestUrl(redirect_info.new_url);
   }
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
@@ -285,7 +285,7 @@ void ResourceFetcherImpl::SetHeader(const std::string& header,
 
 void ResourceFetcherImpl::Start(
     blink::WebLocalFrame* frame,
-    blink::WebURLRequest::RequestContext request_context,
+    blink::mojom::RequestContextType request_context,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const net::NetworkTrafficAnnotationTag& annotation_tag,
     Callback callback,
@@ -302,7 +302,7 @@ void ResourceFetcherImpl::Start(
         << "GETs can't have bodies.";
   }
 
-  request_.fetch_request_context_type = request_context;
+  request_.fetch_request_context_type = static_cast<int>(request_context);
   request_.site_for_cookies = frame->GetDocument().SiteForCookies();
   if (!frame->GetDocument().GetSecurityOrigin().IsNull()) {
     request_.request_initiator =
@@ -310,7 +310,7 @@ void ResourceFetcherImpl::Start(
     SetHeader(kAccessControlAllowOriginHeader,
               blink::WebSecurityOrigin::CreateUnique().ToString().Ascii());
   }
-  request_.resource_type = WebURLRequestContextToResourceType(request_context);
+  request_.resource_type = RequestContextToResourceType(request_context);
 
   client_ = std::make_unique<ClientImpl>(
       this, std::move(callback), maximum_download_size,

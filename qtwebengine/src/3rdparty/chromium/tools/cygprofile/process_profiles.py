@@ -6,6 +6,7 @@
 """Lists all the reached symbols from an instrumentation dump."""
 
 import argparse
+import collections
 import logging
 import operator
 import os
@@ -15,6 +16,7 @@ _SRC_PATH = os.path.abspath(os.path.join(
     os.path.dirname(__file__), os.pardir, os.pardir))
 path = os.path.join(_SRC_PATH, 'tools', 'cygprofile')
 sys.path.append(path)
+import cygprofile_utils
 import symbol_extractor
 
 
@@ -42,8 +44,8 @@ class SymbolOffsetProcessor(object):
 
   In the function names below, "dump" is used to refer to arbitrary offsets in a
   binary (eg, from a profiling run), while "offset" refers to a symbol
-  offset. The dump offsets are relative to the start of text, as returned by
-  lightweight_cygprofile.cc.
+  offset. The dump offsets are relative to the start of text, as produced by
+  orderfile_instrumentation.cc.
 
   This class manages expensive operations like extracting symbols, so that
   higher-level operations can be done in different orders without the caller
@@ -56,6 +58,7 @@ class SymbolOffsetProcessor(object):
     self._name_to_symbol = None
     self._offset_to_primary = None
     self._offset_to_symbols = None
+    self._offset_to_symbol_info = None
 
   def SymbolInfos(self):
     """The symbols associated with this processor's binary.
@@ -125,16 +128,42 @@ class SymbolOffsetProcessor(object):
           self.SymbolInfos())
     return self._offset_to_symbols
 
-  def OffsetsPrimarySize(self, offsets):
-    """Computes the total primary size of a set of offsets.
+  def GetOrderedSymbols(self, offsets):
+    """Maps a list of offsets to symbol names, retaining ordering.
+
+    The symbol name is the primary symbol. This also deals with thumb
+    instruction (which have odd offsets).
+
+    Args::
+      offsets (int iterable) a set of offsets.
+
+    Returns
+      [str] list of symbol names.
+    """
+    symbols = []
+    not_found = 0
+    for o in offsets:
+      if o in self.OffsetToPrimaryMap():
+        symbols.append(self.OffsetToPrimaryMap()[o].name)
+      elif o % 2 and (o - 1) in self.OffsetToPrimaryMap():
+        symbols.append(self.OffsetToPrimaryMap()[o - 1].name)
+      else:
+        not_found += 1
+    if not_found:
+      logging.warning('%d offsets do not have matching symbol', not_found)
+    return symbols
+
+  def SymbolsSize(self, symbols):
+    """Computes the total size of a set of symbol names.
 
     Args:
-      offsets (int iterable) a set of offsets.
+      offsets (str iterable) a set of symbols.
 
     Returns
       int The sum of the primary size of the offsets.
     """
-    return sum(self.OffsetToPrimaryMap()[x].size for x in offsets)
+    name_map = self.NameToSymbolMap()
+    return sum(name_map[sym].size for sym in symbols)
 
   def GetReachedOffsetsFromDump(self, dump):
     """Find the symbol offsets from a list of binary offsets.
@@ -152,24 +181,14 @@ class SymbolOffsetProcessor(object):
     Returns:
       [int] Reached symbol offsets.
     """
-    dump_offset_to_symbol_info = self._GetDumpOffsetToSymbolInfo()
-    logging.info('Offset to Symbol size = %d', len(dump_offset_to_symbol_info))
-    assert max(dump) / 4 <= len(dump_offset_to_symbol_info)
-    already_seen = set()
     reached_offsets = []
-    reached_return_addresses_not_found = 0
-    for dump_offset in dump:
-      symbol_info = dump_offset_to_symbol_info[dump_offset / 4]
-      if symbol_info is None:
-        reached_return_addresses_not_found += 1
-        continue
-      if symbol_info.offset in already_seen:
-        continue
-      reached_offsets.append(symbol_info.offset)
-      already_seen.add(symbol_info.offset)
-    if reached_return_addresses_not_found:
-      logging.warning('%d return addresses don\'t map to any symbol',
-                      reached_return_addresses_not_found)
+    already_seen = set()
+    def update(_, symbol_offset):
+      if symbol_offset is None or symbol_offset in already_seen:
+        return
+      reached_offsets.append(symbol_offset)
+      already_seen.add(symbol_offset)
+    self._TranslateReachedOffsetsFromDump(dump, lambda x: x, update)
     return reached_offsets
 
   def MatchSymbolNames(self, symbol_names):
@@ -185,29 +204,80 @@ class SymbolOffsetProcessor(object):
     matched_names = our_symbol_names.intersection(set(symbol_names))
     return [self.NameToSymbolMap()[n] for n in matched_names]
 
-  def _GetDumpOffsetToSymbolInfo(self):
+  def TranslateAnnotatedSymbolOffsets(self, annotated_offsets):
+    """Merges offsets across run groups and translates to symbol offsets.
+
+    Like GetReachedOffsetsFromDump, but works with AnnotatedOffsets.
+
+    Args:
+      annotated_offsets (AnnotatedOffset iterable) List of annotated offsets,
+        eg from ProfileManager.GetAnnotatedOffsets(). This will be mutated to
+        translate raw offsets to symbol offsets.
+    """
+    self._TranslateReachedOffsetsFromDump(
+        annotated_offsets,
+        lambda o: o.Offset(),
+        lambda o, symbol_offset: o.SetOffset(symbol_offset))
+
+  def _TranslateReachedOffsetsFromDump(self, items, get, update):
+    """Translate raw binary offsets to symbol offsets.
+
+    See GetReachedOffsetsFromDump for details. This version calls
+    |get(i)| on each element |i| of |items|, then calls
+    |update(i, symbol_offset)| with the updated offset. If the offset is not
+    found, update will be called with None.
+
+    Args:
+      items: (iterable) Items containing offsets.
+      get: (lambda item) As described above.
+      update: (lambda item, int) As described above.
+    """
+    dump_offset_to_symbol_info = self.GetDumpOffsetToSymbolInfo()
+    for i in items:
+      dump_offset = get(i)
+      idx = dump_offset / 2
+      assert dump_offset >= 0 and idx < len(dump_offset_to_symbol_info), (
+          'Dump offset out of binary range')
+      symbol_info = dump_offset_to_symbol_info[idx]
+      assert symbol_info, ('A return address (offset = 0x{:08x}) does not map '
+          'to any symbol'.format(dump_offset))
+      update(i, symbol_info.offset)
+
+  def GetDumpOffsetToSymbolInfo(self):
     """Computes an array mapping each word in .text to a symbol.
 
     Returns:
       [symbol_extractor.SymbolInfo or None] For every 4 bytes of the .text
         section, maps it to a symbol, or None.
     """
-    min_offset = min(s.offset for s in self.SymbolInfos())
-    max_offset = max(s.offset + s.size for s in self.SymbolInfos())
-    text_length_words = (max_offset - min_offset) / 4
-    offset_to_symbol_info = [None for _ in xrange(text_length_words)]
-    for s in self.SymbolInfos():
-      offset = s.offset - min_offset
-      for i in range(offset / 4, (offset + s.size) / 4):
-        offset_to_symbol_info[i] = s
-    return offset_to_symbol_info
+    if self._offset_to_symbol_info is None:
+      start_syms = [s for s in self.SymbolInfos()
+                    if s.name == cygprofile_utils.START_OF_TEXT_SYMBOL]
+      assert len(start_syms) == 1, 'Can\'t find unique start of text symbol'
+      start_of_text = start_syms[0].offset
+      max_offset = max(s.offset + s.size for s in self.SymbolInfos())
+      text_length_halfwords = (max_offset - start_of_text) / 2
+      self._offset_to_symbol_info = [None] * text_length_halfwords
+      for sym in self.SymbolInfos():
+        offset = sym.offset - start_of_text
+        assert offset >= 0, ('Unexpected symbol before the start of text. '
+                             'Has the linker script broken?')
+        # The low bit of offset may be set to indicate a thumb instruction. The
+        # actual offset is still halfword aligned and so the low bit may be
+        # safely ignored in the division by two below.
+        for i in range(offset / 2, (offset + sym.size) / 2):
+          assert i < text_length_halfwords
+          other_symbol = self._offset_to_symbol_info[i]
+          # There may be overlapping symbols, for example fancy
+          # implementations for __ltsf2 and __gtsf2 (merging common tail
+          # code). In this case, keep the one that started first.
+          if other_symbol is None or other_symbol.offset > sym.offset:
+            self._offset_to_symbol_info[i] = sym
+    return self._offset_to_symbol_info
 
 
 class ProfileManager(object):
   """Manipulates sets of profiles.
-
-  The manager supports only lightweight-style profiles (see
-  lightweight_cygprofile.cc) and not the older cygprofile offset lists.
 
   A "profile set" refers to a set of data from an instrumented version of chrome
   that will be processed together, usually to produce a single orderfile. A
@@ -225,11 +295,11 @@ class ProfileManager(object):
   example the dump for the startup could be phase 0 and then the steady-state
   would be labeled phase 1.
 
-  We assume the files are named like *-TIMESTAMP.SUFFIX_PHASE, where TIMESTAMP
-  is in nanoseconds, SUFFIX is string without dashes, PHASE is an integer
-  numbering the phases as 0, 1, 2..., and the only dot is the one between
-  TIMESTAMP and SUFFIX. Note that the current dump filename also includes a
-  process id which is currently unused.
+  We assume the files are named like
+  profile-hitmap-PROCESS-PID-TIMESTAMP.SUFFIX_PHASE, where PROCESS is a possibly
+  empty string, PID is the process id, TIMESTAMP is in nanoseconds, SUFFIX is
+  string without dashes, PHASE is an integer numbering the phases as 0, 1, 2...,
+  and the only dot is the one between TIMESTAMP and SUFFIX.
 
   This manager supports several configurations of dumps.
 
@@ -245,6 +315,44 @@ class ProfileManager(object):
     time. This files can be grouped into run sets that are within 30 seconds of
     each other. Each run set is then grouped into phases as before.
   """
+  class AnnotatedOffset(object):
+    """Describes an offset with how it appeared in a profile set.
+
+    Each offset is annotated with the phase and process that it appeared in, and
+    can report how often it occurred in a specific phase and process.
+    """
+    def __init__(self, offset):
+      self._offset = offset
+      self._count = {}
+
+    def __str__(self):
+      return '{}: {}'.format(self._offset, self._count)
+
+    def __eq__(self, other):
+      if other is None:
+        return False
+      return (self._offset == other._offset and
+              self._count == other._count)
+
+    def Increment(self, phase, process):
+      key = (phase, process)
+      self._count[key] = self._count.setdefault(key, 0) + 1
+
+    def Count(self, phase, process):
+      return self._count.get((phase, process), 0)
+
+    def Processes(self):
+      return set(k[1] for k in self._count.iterkeys())
+
+    def Phases(self):
+      return set(k[0] for k in self._count.iterkeys())
+
+    def Offset(self):
+      return self._offset
+
+    def SetOffset(self, o):
+      self._offset = o
+
   class _RunGroup(object):
     RUN_GROUP_THRESHOLD_NS = 30e9
 
@@ -298,6 +406,29 @@ class ProfileManager(object):
     return self._GetOffsetsForGroup(f for f in self._filenames
                                     if self._Phase(f) == phase)
 
+  def GetAnnotatedOffsets(self):
+    """Merges offsets across run groups and annotates each one.
+
+    Returns:
+      [AnnotatedOffset]
+    """
+    offset_map = {}  # offset int -> AnnotatedOffset
+    for g in self._GetRunGroups():
+      for f in g:
+        phase = self._Phase(f)
+        process = self._ProcessName(f)
+        for offset in self._ReadOffsets(f):
+          offset_map.setdefault(offset, self.AnnotatedOffset(offset)).Increment(
+              phase, process)
+    return offset_map.values()
+
+  def GetProcessOffsetLists(self):
+    """Returns all symbol offsets lists, grouped by process."""
+    offsets_by_process = collections.defaultdict(list)
+    for f in self._filenames:
+      offsets_by_process[self._ProcessName(f)].append(self._ReadOffsets(f))
+    return offsets_by_process
+
   def GetRunGroupOffsets(self, phase=None):
     """Merges files from each run group and returns offset list for each.
 
@@ -326,10 +457,20 @@ class ProfileManager(object):
     return [g.Filenames(phase) for g in self._run_groups]
 
   @classmethod
+  def _ProcessName(cls, filename):
+    # The filename starts with 'profile-hitmap-' and ends with
+    # '-PID-TIMESTAMP.txt_X'. Anything in between is the process name. The
+    # browser has an empty process name, which is insterted here.
+    process_name_parts = os.path.basename(filename).split('-')[2:-2]
+    if not process_name_parts:
+      return 'browser'
+    return '-'.join(process_name_parts)
+
+  @classmethod
   def _Timestamp(cls, filename):
-      dash_index = filename.rindex('-')
-      dot_index = filename.rindex('.')
-      return int(filename[dash_index+1:dot_index])
+    dash_index = filename.rindex('-')
+    dot_index = filename.rindex('.')
+    return int(filename[dash_index+1:dot_index])
 
   @classmethod
   def _Phase(cls, filename):
@@ -349,6 +490,19 @@ class ProfileManager(object):
         g = self._RunGroup()
         g.Add(f)
         self._run_groups.append(g)
+
+    # Some sanity checks on the run groups.
+    assert self._run_groups
+    if len(self._run_groups) < 5:
+      return  # Small runs have too much variance for testing.
+    sizes = map(lambda g: len(g.Filenames()), self._run_groups)
+    avg_size = sum(sizes) / len(self._run_groups)
+    num_outliers = len([s for s in sizes
+                        if s > 1.5 * avg_size or s < 0.75 * avg_size])
+    expected_outliers = 0.1 * len(self._run_groups)
+    assert num_outliers < expected_outliers, (
+        'Saw {} outliers instead of at most {} for average of {}'.format(
+            num_outliers, expected_outliers, avg_size))
 
 
 def GetReachedOffsetsFromDumpFiles(dump_filenames, library_filename):

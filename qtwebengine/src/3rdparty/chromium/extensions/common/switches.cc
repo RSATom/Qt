@@ -41,6 +41,11 @@ const char kEnableExperimentalExtensionApis[] =
 // Enables extensions to hide bookmarks UI elements.
 const char kEnableOverrideBookmarksUI[] = "enable-override-bookmarks-ui";
 
+// Disable the net::URLRequestThrottlerManager functionality for
+// requests originating from extensions.
+const char kDisableExtensionsHttpThrottling[] =
+    "disable-extensions-http-throttling";
+
 // Enables tab for desktop sharing.
 const char kDisableTabForDesktopShare[] = "disable-tab-for-desktop-share";
 
@@ -59,6 +64,12 @@ const char kExtensionsOnChromeURLs[] = "extensions-on-chrome-urls";
 // Whether to force developer mode extensions highlighting.
 const char kForceDevModeHighlighting[] = "force-dev-mode-highlighting";
 
+// Whether |extensions_features::kBypassCorbAllowlistParamName| should always be
+// empty (i.e. ignoring hardcoded allowlist and the field trial param).  This
+// switch is useful for manually verifying if an extension would continue to
+// work fine after removing it from the allowlist.
+const char kForceEmptyCorbAllowlist[] = "force-empty-corb-allowlist";
+
 // Comma-separated list of paths to apps to load at startup. The first app in
 // the list will be launched.
 const char kLoadApps[] = "load-apps";
@@ -71,6 +82,10 @@ const char kLoadExtension[] = "load-extension";
 // This flag is available on Chromium for testing purposes.
 const char kPromptForExternalExtensions[] = "prompt-for-external-extensions";
 #endif
+
+// Set the parameters for ExtensionURLLoaderThrottleBrowserTest.
+const char kSetExtensionThrottleTestParams[] =
+    "set-extension-throttle-test-params";
 
 // Makes component extensions appear in chrome://settings/extensions.
 const char kShowComponentExtensionOptions[] =

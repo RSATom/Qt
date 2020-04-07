@@ -13,6 +13,7 @@
 #include "SkTypes.h"
 #include "../private/GrAuditTrail.h"
 #include "../private/GrSingleOwner.h"
+#include "../private/GrSkSLFPFactoryCache.h"
 #include "GrContextOptions.h"
 
 // We shouldn't need this but currently Android is relying on this being include transitively.
@@ -26,19 +27,15 @@ class GrContextPriv;
 class GrContextThreadSafeProxy;
 class GrContextThreadSafeProxyPriv;
 class GrDrawingManager;
-struct GrDrawOpAtlasConfig;
 class GrFragmentProcessor;
 struct GrGLInterface;
-class GrGlyphCache;
+class GrStrikeCache;
 class GrGpu;
-class GrIndexBuffer;
 struct GrMockOptions;
 class GrOpMemoryPool;
-class GrOvalRenderer;
 class GrPath;
 class GrProxyProvider;
 class GrRenderTargetContext;
-class GrResourceEntry;
 class GrResourceCache;
 class GrResourceProvider;
 class GrSamplerState;
@@ -47,8 +44,6 @@ class GrSwizzle;
 class GrTextBlobCache;
 class GrTextContext;
 class GrTextureProxy;
-class GrTextureStripAtlasManager;
-class GrVertexBuffer;
 struct GrVkBackendContext;
 
 class SkImage;
@@ -68,10 +63,8 @@ public:
     static sk_sp<GrContext> MakeGL(const GrContextOptions&);
     static sk_sp<GrContext> MakeGL();
 
-#ifdef SK_VULKAN
     static sk_sp<GrContext> MakeVulkan(const GrVkBackendContext&, const GrContextOptions&);
     static sk_sp<GrContext> MakeVulkan(const GrVkBackendContext&);
-#endif
 
 #ifdef SK_METAL
     /**
@@ -290,29 +283,36 @@ public:
 
     bool supportsDistanceFieldText() const;
 
+    void storeVkPipelineCacheData();
+
 protected:
-    GrContext(GrBackend, int32_t id = SK_InvalidGenID);
+    GrContext(GrBackendApi, int32_t id = SK_InvalidGenID);
 
     bool initCommon(const GrContextOptions&);
     virtual bool init(const GrContextOptions&) = 0; // must be called after the ctor!
 
     virtual GrAtlasManager* onGetAtlasManager() = 0;
 
-    const GrBackend                         fBackend;
+    const GrBackendApi                         fBackend;
     sk_sp<const GrCaps>                     fCaps;
     sk_sp<GrContextThreadSafeProxy>         fThreadSafeProxy;
+    sk_sp<GrSkSLFPFactoryCache>             fFPFactoryCache;
 
 private:
+    // fTaskGroup must appear before anything that uses it (e.g. fGpu), so that it is destroyed
+    // after all of its users. Clients of fTaskGroup will generally want to ensure that they call
+    // wait() on it as they are being destroyed, to avoid the possibility of pending tasks being
+    // invoked after objects they depend upon have already been destroyed.
+    std::unique_ptr<SkTaskGroup>            fTaskGroup;
     sk_sp<GrGpu>                            fGpu;
     GrResourceCache*                        fResourceCache;
     GrResourceProvider*                     fResourceProvider;
     GrProxyProvider*                        fProxyProvider;
-    std::unique_ptr<GrTextureStripAtlasManager> fTextureStripAtlasManager;
 
     // All the GrOp-derived classes use this pool.
     sk_sp<GrOpMemoryPool>                   fOpMemoryPool;
 
-    GrGlyphCache*                           fGlyphCache;
+    GrStrikeCache*                           fGlyphCache;
     std::unique_ptr<GrTextBlobCache>        fTextBlobCache;
 
     bool                                    fDisableGpuYUVConversion;
@@ -326,8 +326,6 @@ private:
     // GrRenderTargetContexts.  It is also passed to the GrResourceProvider and SkGpuDevice.
     mutable GrSingleOwner                   fSingleOwner;
 
-    std::unique_ptr<SkTaskGroup>            fTaskGroup;
-
     const uint32_t                          fUniqueID;
 
     std::unique_ptr<GrDrawingManager>       fDrawingManager;
@@ -340,18 +338,15 @@ private:
     friend class GrContextPriv;
 
     /**
-     * These functions create premul <-> unpremul effects. If the second argument is 'true', they
-     * use the specialized round-trip effects from GrConfigConversionEffect, otherwise they
-     * create effects that do naive multiply or divide.
+     * These functions create premul <-> unpremul effects, using the specialized round-trip effects
+     * from GrConfigConversionEffect.
      */
-    std::unique_ptr<GrFragmentProcessor> createPMToUPMEffect(std::unique_ptr<GrFragmentProcessor>,
-                                                             bool useConfigConversionEffect);
-    std::unique_ptr<GrFragmentProcessor> createUPMToPMEffect(std::unique_ptr<GrFragmentProcessor>,
-                                                             bool useConfigConversionEffect);
+    std::unique_ptr<GrFragmentProcessor> createPMToUPMEffect(std::unique_ptr<GrFragmentProcessor>);
+    std::unique_ptr<GrFragmentProcessor> createUPMToPMEffect(std::unique_ptr<GrFragmentProcessor>);
 
     /**
-     * Returns true if createPMtoUPMEffect and createUPMToPMEffect will succeed for non-sRGB 8888
-     * configs. In other words, did we find a pair of round-trip preserving conversion effects?
+     * Returns true if createPMToUPMEffect and createUPMToPMEffect will succeed. In other words,
+     * did we find a pair of round-trip preserving conversion effects?
      */
     bool validPMUPMConversionExists();
 
@@ -427,13 +422,15 @@ private:
     // DDL TODO: need to add unit tests for backend & maybe options
     GrContextThreadSafeProxy(sk_sp<const GrCaps> caps,
                              uint32_t uniqueID,
-                             GrBackend backend,
-                             const GrContextOptions& options);
+                             GrBackendApi backend,
+                             const GrContextOptions& options,
+                             sk_sp<GrSkSLFPFactoryCache> cache);
 
-    sk_sp<const GrCaps>    fCaps;
-    const uint32_t         fContextUniqueID;
-    const GrBackend        fBackend;
-    const GrContextOptions fOptions;
+    sk_sp<const GrCaps>         fCaps;
+    const uint32_t              fContextUniqueID;
+    const GrBackendApi             fBackend;
+    const GrContextOptions      fOptions;
+    sk_sp<GrSkSLFPFactoryCache> fFPFactoryCache;
 
     friend class GrDirectContext; // To construct this object
     friend class GrContextThreadSafeProxyPriv;

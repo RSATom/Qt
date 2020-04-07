@@ -13,7 +13,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "third_party/blink/public/platform/modules/payments/payment_request.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 namespace content {
 class RenderFrameHost;
@@ -70,6 +70,8 @@ class PaymentRequestWebContentsManager
   // these requests only get destroyed when the WebContents goes away, or when
   // the requests themselves call DestroyRequest().
   std::map<PaymentRequest*, std::unique_ptr<PaymentRequest>> payment_requests_;
+
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(PaymentRequestWebContentsManager);
 };

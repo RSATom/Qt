@@ -10,10 +10,10 @@
 #include "base/containers/span.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "media/base/cdm_proxy_context.h"
 #include "media/base/decryptor.h"
+#include "media/base/win/d3d11_create_device_cb.h"
+#include "media/cdm/cdm_proxy_context.h"
 #include "media/gpu/media_gpu_export.h"
-#include "media/gpu/windows/d3d11_create_device_cb.h"
 
 namespace media {
 
@@ -40,16 +40,10 @@ class MEDIA_GPU_EXPORT D3D11Decryptor : public Decryptor {
   void ResetDecoder(StreamType stream_type) final;
   void DeinitializeDecoder(StreamType stream_type) final;
 
-  void SetCreateDeviceCallbackForTesting(D3D11CreateDeviceCB callback) {
-    create_device_func_ = callback;
-  }
-
  private:
-  // Returns true if the decryption buffers have been initialized.
-  bool IsDecryptionBufferInitialized();
-
-  // Initialize the buffers for decryption.
-  bool InitializeDecryptionBuffer();
+  // Initialize the buffers for decryption from decryption context.
+  bool InitializeDecryptionBuffer(
+      const CdmProxyContext::D3D11DecryptContext& decrypt_context);
 
   // CTR mode decrypts |encrypted| data into |output|. |output| is always
   // cleared. Returns true on success.
@@ -68,6 +62,9 @@ class MEDIA_GPU_EXPORT D3D11Decryptor : public Decryptor {
 
   template <class T>
   using ComPtr = Microsoft::WRL::ComPtr<T>;
+
+  // After a successful InitializeDecryptionBuffer() call, these are set for the
+  // current Decrypt() call.
   ComPtr<ID3D11Device> device_;
   ComPtr<ID3D11DeviceContext> device_context_;
   ComPtr<ID3D11VideoContext> video_context_;
@@ -89,10 +86,6 @@ class MEDIA_GPU_EXPORT D3D11Decryptor : public Decryptor {
   // A CPU accessible buffer where the content of |decrypted_buffer_| is copied
   // to.
   ComPtr<ID3D11Buffer> cpu_accessible_buffer_;
-
-  // Can be set in tests via SetCreateDeviceCallbackForTesting().
-  // Is D3D11CreateDevice() when not mocked.
-  D3D11CreateDeviceCB create_device_func_;
 
   base::WeakPtrFactory<D3D11Decryptor> weak_factory_;
 

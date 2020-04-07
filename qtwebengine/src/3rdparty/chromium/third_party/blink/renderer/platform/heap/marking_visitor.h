@@ -15,7 +15,7 @@ namespace blink {
 class BasePage;
 
 // Visitor used to mark Oilpan objects.
-class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
+class PLATFORM_EXPORT MarkingVisitor : public Visitor {
  public:
   enum MarkingMode {
     // This is a default visitor. This is used for MarkingType=kAtomicMarking
@@ -51,13 +51,15 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
 
   // Marking implementation.
 
-  // Conservatively marks an object if pointed to by Address.
+  // Conservatively marks an object if pointed to by Address. The object may
+  // be in construction as the scan is conservative without relying on a
+  // Trace method.
   void ConservativelyMarkAddress(BasePage*, Address);
-#if DCHECK_IS_ON()
-  void ConservativelyMarkAddress(BasePage*,
-                                 Address,
-                                 MarkedPointerCallbackForTesting);
-#endif  // DCHECK_IS_ON()
+
+  // Marks an object dynamically using any address within its body and adds a
+  // tracing callback for processing of the object. The object is not allowed
+  // to be in construction.
+  void DynamicallyMarkAddress(Address);
 
   // Marks an object and adds a tracing callback for processing of the object.
   inline void MarkHeader(HeapObjectHeader*, TraceCallback);
@@ -98,8 +100,11 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
       // that lead to many recursions.
       DCHECK(Heap().GetStackFrameDepth().IsAcceptableStackUse());
       if (LIKELY(Heap().GetStackFrameDepth().IsSafeToRecurse())) {
-        if (MarkHeaderNoTracing(
-                HeapObjectHeader::FromPayload(desc.base_object_payload))) {
+        HeapObjectHeader* header =
+            HeapObjectHeader::FromPayload(desc.base_object_payload);
+        if (header->IsInConstruction()) {
+          not_fully_constructed_worklist_.Push(desc.base_object_payload);
+        } else if (MarkHeaderNoTracing(header)) {
           desc.callback(this, desc.base_object_payload);
         }
         return;
@@ -117,6 +122,12 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
                  void** object_slot,
                  TraceDescriptor desc,
                  WeakCallback callback) final {
+    // Filter out already marked values. The write barrier for WeakMember
+    // ensures that any newly set value after this point is kept alive and does
+    // not require the callback.
+    if (desc.base_object_payload != BlinkGC::kNotFullyConstructedObject &&
+        HeapObjectHeader::FromPayload(desc.base_object_payload)->IsMarked())
+      return;
     RegisterWeakCallback(object_slot, callback);
   }
 
@@ -124,6 +135,8 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
                                  void** object_slot,
                                  TraceDescriptor desc) final {
     RegisterBackingStoreReference(object_slot);
+    if (!object)
+      return;
     Visit(object, desc);
   }
 
@@ -133,6 +146,9 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
                                TraceDescriptor desc,
                                WeakCallback callback,
                                void* parameter) final {
+    RegisterBackingStoreReference(object_slot);
+    if (!object)
+      return;
     RegisterWeakCallback(parameter, callback);
   }
 
@@ -140,11 +156,13 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
   // processing. In this case, the contents are processed separately using
   // the corresponding traits but the backing store requires marking.
   void VisitBackingStoreOnly(void* object, void** object_slot) final {
-    MarkHeaderNoTracing(HeapObjectHeader::FromPayload(object));
     RegisterBackingStoreReference(object_slot);
+    if (!object)
+      return;
+    MarkHeaderNoTracing(HeapObjectHeader::FromPayload(object));
   }
 
-  void RegisterBackingStoreCallback(void* backing_store,
+  void RegisterBackingStoreCallback(void** slot,
                                     MovingObjectCallback,
                                     void* callback_data) final;
   bool RegisterWeakTable(const void* closure,
@@ -152,18 +170,16 @@ class PLATFORM_EXPORT MarkingVisitor final : public Visitor {
   void RegisterWeakCallback(void* closure, WeakCallback) final;
 
   // Unused cross-component visit methods.
-  void Visit(const TraceWrapperV8Reference<v8::Value>&) final {}
+  void Visit(const TraceWrapperV8Reference<v8::Value>&) override {}
   void Visit(DOMWrapperMap<ScriptWrappable>*,
-             const ScriptWrappable* key) final {}
+             const ScriptWrappable* key) override {}
 
  private:
   // Exact version of the marking write barriers.
   static void WriteBarrierSlow(void*);
   static void TraceMarkedBackingStoreSlow(void*);
 
-  void RegisterBackingStoreReference(void* slot);
-
-  void ConservativelyMarkHeader(HeapObjectHeader*);
+  void RegisterBackingStoreReference(void** slot);
 
   MarkingWorklist::View marking_worklist_;
   NotFullyConstructedWorklist::View not_fully_constructed_worklist_;
@@ -189,7 +205,9 @@ inline void MarkingVisitor::MarkHeader(HeapObjectHeader* header,
   DCHECK(header);
   DCHECK(callback);
 
-  if (MarkHeaderNoTracing(header)) {
+  if (header->IsInConstruction()) {
+    not_fully_constructed_worklist_.Push(header->Payload());
+  } else if (MarkHeaderNoTracing(header)) {
     marking_worklist_.Push(
         {reinterpret_cast<void*>(header->Payload()), callback});
   }

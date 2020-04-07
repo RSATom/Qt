@@ -8,8 +8,10 @@
 #include "src/ic/handler-configuration.h"
 
 #include "src/field-index-inl.h"
+#include "src/handles-inl.h"
 #include "src/objects-inl.h"
 #include "src/objects/data-handler-inl.h"
+#include "src/objects/smi.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -17,11 +19,12 @@
 namespace v8 {
 namespace internal {
 
-TYPE_CHECKER(LoadHandler, LOAD_HANDLER_TYPE)
+OBJECT_CONSTRUCTORS_IMPL(LoadHandler, DataHandler)
+
 CAST_ACCESSOR(LoadHandler)
 
 // Decodes kind from Smi-handler.
-LoadHandler::Kind LoadHandler::GetHandlerKind(Smi* smi_handler) {
+LoadHandler::Kind LoadHandler::GetHandlerKind(Smi smi_handler) {
   return KindBits::decode(smi_handler->value());
 }
 
@@ -110,7 +113,8 @@ Handle<Smi> LoadHandler::LoadIndexedString(Isolate* isolate,
   return handle(Smi::FromInt(config), isolate);
 }
 
-TYPE_CHECKER(StoreHandler, STORE_HANDLER_TYPE)
+OBJECT_CONSTRUCTORS_IMPL(StoreHandler, DataHandler)
+
 CAST_ACCESSOR(StoreHandler)
 
 Handle<Smi> StoreHandler::StoreGlobalProxy(Isolate* isolate) {

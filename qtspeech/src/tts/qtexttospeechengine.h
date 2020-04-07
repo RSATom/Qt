@@ -45,7 +45,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class QTEXTTOSPEECH_EXPORT QTextToSpeechEngine : public QObject
+class Q_TEXTTOSPEECH_EXPORT QTextToSpeechEngine : public QObject
 {
     Q_OBJECT
 

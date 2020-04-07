@@ -88,6 +88,8 @@
 #include <Qt3DRender/qproximityfilter.h>
 #include <Qt3DRender/qshaderprogrambuilder.h>
 #include <Qt3DRender/qblitframebuffer.h>
+#include <Qt3DRender/qsetfence.h>
+#include <Qt3DRender/qwaitfence.h>
 #include <Qt3DCore/qarmature.h>
 #include <Qt3DCore/qjoint.h>
 #include <Qt3DCore/qskeletonloader.h>
@@ -150,6 +152,8 @@
 #include <Qt3DRender/private/joint_p.h>
 #include <Qt3DRender/private/loadskeletonjob_p.h>
 #include <Qt3DRender/private/proximityfilter_p.h>
+#include <Qt3DRender/private/setfence_p.h>
+#include <Qt3DRender/private/waitfence_p.h>
 
 #include <private/qrenderpluginfactory_p.h>
 #include <private/qrenderplugin_p.h>
@@ -298,6 +302,8 @@ void QRenderAspectPrivate::registerBackendTypes()
     q->registerBackendType<QMemoryBarrier>(QSharedPointer<Render::FrameGraphNodeFunctor<Render::MemoryBarrier, QMemoryBarrier> >::create(m_renderer));
     q->registerBackendType<QProximityFilter>(QSharedPointer<Render::FrameGraphNodeFunctor<Render::ProximityFilter, QProximityFilter> >::create(m_renderer));
     q->registerBackendType<QBlitFramebuffer>(QSharedPointer<Render::FrameGraphNodeFunctor<Render::BlitFramebuffer, QBlitFramebuffer> >::create(m_renderer));
+    q->registerBackendType<QSetFence>(QSharedPointer<Render::FrameGraphNodeFunctor<Render::SetFence, QSetFence> >::create(m_renderer));
+    q->registerBackendType<QWaitFence>(QSharedPointer<Render::FrameGraphNodeFunctor<Render::WaitFence, QWaitFence> >::create(m_renderer));
 
     // Picking
     q->registerBackendType<QObjectPicker>(QSharedPointer<Render::NodeFunctor<Render::ObjectPicker, Render::ObjectPickerManager> >::create(m_renderer));
@@ -368,6 +374,8 @@ void QRenderAspectPrivate::unregisterBackendTypes()
     unregisterBackendType<QRenderCapture>();
     unregisterBackendType<QBufferCapture>();
     unregisterBackendType<QMemoryBarrier>();
+    unregisterBackendType<QSetFence>();
+    unregisterBackendType<QWaitFence>();
 
     // Picking
     unregisterBackendType<QObjectPicker>();
@@ -509,11 +517,8 @@ QVector<Qt3DCore::QAspectJobPtr> QRenderAspect::jobsToExecute(qint64 time)
         const QVector<QAspectJobPtr> geometryJobs = d->createGeometryRendererJobs();
         jobs.append(geometryJobs);
 
-
-        // Add all jobs to queue
-        // Note: the getter is also responsible for returning a job ready to run
-        jobs.append(d->m_renderer->pickBoundingVolumeJob());
-        jobs.append(d->m_renderer->rayCastingJob());
+        const QVector<QAspectJobPtr> preRenderingJobs = d->m_renderer->preRenderingJobs();
+        jobs.append(preRenderingJobs);
 
         // Don't spawn any rendering jobs, if the renderer decides to skip this frame
         // Note: this only affects rendering jobs (jobs that load buffers,
@@ -559,6 +564,7 @@ void QRenderAspect::onRegistered()
 
     // TO DO: Load proper Renderer class based on Qt configuration preferences
     d->m_renderer = new Render::Renderer(d->m_renderType);
+    d->m_renderer->setScreen(d->m_screen);
     d->m_renderer->setNodeManagers(d->m_nodeManagers);
 
     // Create a helper for deferring creation of an offscreen surface used during cleanup

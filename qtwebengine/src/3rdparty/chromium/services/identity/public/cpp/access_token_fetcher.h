@@ -10,9 +10,15 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/scoped_observer.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "google_apis/gaia/oauth2_token_service.h"
 #include "services/identity/public/cpp/access_token_info.h"
+#include "services/identity/public/cpp/scope_set.h"
+
+namespace network {
+class SharedURLLoaderFactory;
+}
 
 namespace identity {
 
@@ -22,6 +28,14 @@ namespace identity {
 class AccessTokenFetcher : public OAuth2TokenService::Observer,
                            public OAuth2TokenService::Consumer {
  public:
+  // Specifies how this instance should behave:
+  // |kImmediate|: Makes one-shot immediate request.
+  // |kWaitUntilRefreshTokenAvailable|: Waits for the account to have a refresh
+  // token before making the request.
+  // Note that using |kWaitUntilRefreshTokenAvailable| can result in waiting
+  // forever if the user is not signed in and doesn't sign in.
+  enum class Mode { kImmediate, kWaitUntilRefreshTokenAvailable };
+
   // Callback for when a request completes (successful or not). On successful
   // requests, |error| is NONE and |access_token_info| contains info of the
   // obtained OAuth2 access token. On failed requests, |error| contains the
@@ -39,16 +53,63 @@ class AccessTokenFetcher : public OAuth2TokenService::Observer,
   AccessTokenFetcher(const std::string& account_id,
                      const std::string& oauth_consumer_name,
                      OAuth2TokenService* token_service,
-                     const OAuth2TokenService::ScopeSet& scopes,
-                     TokenCallback callback);
+                     const identity::ScopeSet& scopes,
+                     TokenCallback callback,
+                     Mode mode);
+
+  // Instantiates a fetcher and immediately starts the process of obtaining an
+  // OAuth2 access token for |account_id| and |scopes|, allowing clients to pass
+  // a |url_loader_factory| of their choice. The |callback| is called
+  // once the request completes (successful or not). If the AccessTokenFetcher
+  // is destroyed before the process completes, the callback is not called.
+  AccessTokenFetcher(
+      const std::string& account_id,
+      const std::string& oauth_consumer_name,
+      OAuth2TokenService* token_service,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      const identity::ScopeSet& scopes,
+      TokenCallback callback,
+      Mode mode);
+
+  // Instantiates a fetcher and immediately starts the process of obtaining an
+  // OAuth2 access token for |account_id| and |scopes| using both the
+  // |client_id| and |client_secret| to identify the OAuth client app.
+  AccessTokenFetcher(const std::string& account_id,
+                     const std::string client_id,
+                     const std::string client_secret,
+                     const std::string& oauth_consumer_name,
+                     OAuth2TokenService* token_service,
+                     const identity::ScopeSet& scopes,
+                     TokenCallback callback,
+                     Mode mode);
 
   ~AccessTokenFetcher() override;
 
  private:
+  AccessTokenFetcher(
+      const std::string& account_id,
+      const std::string client_id,
+      const std::string client_secret,
+      const std::string& oauth_consumer_name,
+      OAuth2TokenService* token_service,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      const identity::ScopeSet& scopes,
+      TokenCallback callback,
+      Mode mode);
+
+  // Returns true iff a refresh token is available for |account_id_|. Should
+  // only be called in mode |kWaitUntilAvailable|.
+  bool IsRefreshTokenAvailable() const;
+
+  void StartAccessTokenRequest();
+
+  // OAuth2TokenService::Observer implementation.
+  void OnRefreshTokenAvailable(const std::string& account_id) override;
+
   // OAuth2TokenService::Consumer implementation.
-  void OnGetTokenSuccess(const OAuth2TokenService::Request* request,
-                         const std::string& access_token,
-                         const base::Time& expiration_time) override;
+  void OnGetTokenSuccess(
+      const OAuth2TokenService::Request* request,
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response) override;
   void OnGetTokenFailure(const OAuth2TokenService::Request* request,
                          const GoogleServiceAuthError& error) override;
 
@@ -59,14 +120,21 @@ class AccessTokenFetcher : public OAuth2TokenService::Observer,
   void RunCallbackAndMaybeDie(GoogleServiceAuthError error,
                               AccessTokenInfo access_token_info);
 
-  std::string account_id_;
+  const std::string account_id_;
+  const std::string client_id_;
+  const std::string client_secret_;
   OAuth2TokenService* token_service_;
-  OAuth2TokenService::ScopeSet scopes_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
+  const identity::ScopeSet scopes_;
+  const Mode mode_;
 
   // NOTE: This callback should only be invoked from |RunCallbackAndMaybeDie|,
   // as invoking it has the potential to destroy this object per this class's
   // contract.
   TokenCallback callback_;
+
+  ScopedObserver<OAuth2TokenService, AccessTokenFetcher>
+      token_service_observer_;
 
   std::unique_ptr<OAuth2TokenService::Request> access_token_request_;
 

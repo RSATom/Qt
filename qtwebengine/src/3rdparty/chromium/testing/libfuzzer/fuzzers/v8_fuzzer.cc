@@ -92,11 +92,11 @@ void terminate_execution(v8::Isolate* isolate,
 
 struct Environment {
   Environment() {
-    v8::Platform* platform = v8::platform::CreateDefaultPlatform(
+    platform_ = v8::platform::NewDefaultPlatform(
         0, v8::platform::IdleTaskSupport::kDisabled,
         v8::platform::InProcessStackDumping::kDisabled, nullptr);
 
-    v8::V8::InitializePlatform(platform);
+    v8::V8::InitializePlatform(platform_.get());
     v8::V8::Initialize();
     v8::Isolate::CreateParams create_params;
 
@@ -109,11 +109,16 @@ struct Environment {
   mutex mtx;
   std::thread terminator_thread;
   v8::Isolate* isolate;
+  std::unique_ptr<v8::Platform> platform_;
   time_point<steady_clock> start_time;
   bool is_running;
 };
 
-extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
+// Explicitly specify some attributes to avoid issues with the linker dead-
+// stripping the following function on macOS, as it is not called directly
+// by fuzz target. LibFuzzer runtime uses dlsym() to resolve that function.
+extern "C" __attribute__((used)) __attribute__((visibility("default"))) int
+LLVMFuzzerInitialize(int* argc, char*** argv) {
   v8::V8::InitializeICUDefaultLocation((*argv)[0]);
   v8::V8::InitializeExternalStartupData((*argv)[0]);
   v8::V8::SetFlagsFromCommandLine(argc, *argv, true);

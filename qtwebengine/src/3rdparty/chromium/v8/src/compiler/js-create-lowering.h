@@ -26,22 +26,20 @@ class JSGraph;
 class JSOperatorBuilder;
 class MachineOperatorBuilder;
 class SimplifiedOperatorBuilder;
-
+class SlackTrackingPrediction;
 
 // Lowers JSCreate-level operators to fast (inline) allocations.
 class V8_EXPORT_PRIVATE JSCreateLowering final
     : public NON_EXPORTED_BASE(AdvancedReducer) {
  public:
   JSCreateLowering(Editor* editor, CompilationDependencies* dependencies,
-                   JSGraph* jsgraph, const JSHeapBroker* js_heap_broker,
-                   Handle<Context> native_context, Zone* zone)
+                   JSGraph* jsgraph, JSHeapBroker* broker, Zone* zone)
       : AdvancedReducer(editor),
         dependencies_(dependencies),
         jsgraph_(jsgraph),
-        js_heap_broker_(js_heap_broker),
-        native_context_(native_context),
+        broker_(broker),
         zone_(zone) {}
-  ~JSCreateLowering() final {}
+  ~JSCreateLowering() final = default;
 
   const char* reducer_name() const override { return "JSCreateLowering"; }
 
@@ -52,6 +50,7 @@ class V8_EXPORT_PRIVATE JSCreateLowering final
   Reduction ReduceJSCreateArguments(Node* node);
   Reduction ReduceJSCreateArray(Node* node);
   Reduction ReduceJSCreateArrayIterator(Node* node);
+  Reduction ReduceJSCreateAsyncFunctionObject(Node* node);
   Reduction ReduceJSCreateCollectionIterator(Node* node);
   Reduction ReduceJSCreateBoundFunction(Node* node);
   Reduction ReduceJSCreateClosure(Node* node);
@@ -68,12 +67,18 @@ class V8_EXPORT_PRIVATE JSCreateLowering final
   Reduction ReduceJSCreateCatchContext(Node* node);
   Reduction ReduceJSCreateBlockContext(Node* node);
   Reduction ReduceJSCreateGeneratorObject(Node* node);
-  Reduction ReduceNewArray(Node* node, Node* length, Handle<Map> initial_map,
-                           PretenureFlag pretenure);
-  Reduction ReduceNewArray(Node* node, Node* length, int capacity,
-                           Handle<Map> initial_map, PretenureFlag pretenure);
-  Reduction ReduceNewArray(Node* node, std::vector<Node*> values,
-                           Handle<Map> initial_map, PretenureFlag pretenure);
+  Reduction ReduceNewArray(
+      Node* node, Node* length, MapRef initial_map, ElementsKind elements_kind,
+      PretenureFlag pretenure,
+      const SlackTrackingPrediction& slack_tracking_prediction);
+  Reduction ReduceNewArray(
+      Node* node, Node* length, int capacity, MapRef initial_map,
+      ElementsKind elements_kind, PretenureFlag pretenure,
+      const SlackTrackingPrediction& slack_tracking_prediction);
+  Reduction ReduceNewArray(
+      Node* node, std::vector<Node*> values, MapRef initial_map,
+      ElementsKind elements_kind, PretenureFlag pretenure,
+      const SlackTrackingPrediction& slack_tracking_prediction);
   Reduction ReduceJSCreateObject(Node* node);
 
   Node* AllocateArguments(Node* effect, Node* control, Node* frame_state);
@@ -104,24 +109,19 @@ class V8_EXPORT_PRIVATE JSCreateLowering final
   Node* AllocateLiteralRegExp(Node* effect, Node* control,
                               JSRegExpRef boilerplate);
 
-  Reduction ReduceNewArrayToStubCall(Node* node, Handle<AllocationSite> site);
-
   Factory* factory() const;
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
-  Isolate* isolate() const;
-  Handle<Context> native_context() const { return native_context_; }
-  NativeContextRef native_context_ref() const;
+  NativeContextRef native_context() const;
   CommonOperatorBuilder* common() const;
   SimplifiedOperatorBuilder* simplified() const;
   CompilationDependencies* dependencies() const { return dependencies_; }
-  const JSHeapBroker* js_heap_broker() const { return js_heap_broker_; }
+  JSHeapBroker* broker() const { return broker_; }
   Zone* zone() const { return zone_; }
 
   CompilationDependencies* const dependencies_;
   JSGraph* const jsgraph_;
-  const JSHeapBroker* const js_heap_broker_;
-  Handle<Context> const native_context_;
+  JSHeapBroker* const broker_;
   Zone* const zone_;
 };
 

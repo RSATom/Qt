@@ -23,6 +23,7 @@ intermediate-dir is optional, it specifies that there the additional directory
 between the root, and the tests/binary.
 """
 
+import errno
 import os
 import shutil
 import sys
@@ -33,13 +34,13 @@ def get_modified_times(path):
     filename:last_modified_time pairs for all files rooted at path.
     """
     output = []
-    for root, dirnames, filenames in os.walk(path):
+    for root, _, filenames in os.walk(path):
         for filename in filenames:
             fullpath = os.path.join(root, filename)
             output.append(
                 filename + ":" +
-                str(os.path.getmtime(os.path.join(root, filename))) + "\n")
-    return "".join(output)
+                str(os.path.getmtime(fullpath)) + "\n")
+    return "".join(sorted(output))
 
 
 def read_file(path):
@@ -73,8 +74,7 @@ def substitute_file(path, substitution):
 
 def substitute_files(path, substitution):
     """Runs substitute_file() on all files rooted at path."""
-    f_input = ""
-    for root, dirnames, filenames in os.walk(path):
+    for root, _, filenames in os.walk(path):
         for filename in filenames:
             substitute_file(os.path.join(root, filename), substitution)
 
@@ -85,9 +85,12 @@ def setup_directory(source, dest):
     """
     try:
         shutil.rmtree(dest)
-    except:
+    except OSError as e:
         # shutil will throw if it could not find the directory.
-        pass
+        if e.errno == errno.ENOENT:
+            pass
+        else:
+            raise
     shutil.copytree(source, dest)
 
 
@@ -106,9 +109,11 @@ def main():
     if intermediate_directory:
         target_location = "../" + target_location + intermediate_directory + "/"
     target_location = "EXE=" + target_location
+
     if src_glsl_stamp != old_glsl_stamp:
         setup_directory(glsl_src_dir, glsl_bin_dir)
-        substitute_file(os.path.join(glsl_bin_dir, "runtests"),
+        runtests_script = os.path.join(glsl_bin_dir, "runtests")
+        substitute_file(runtests_script,
                         ("EXE=../build/install/bin/", target_location))
         write_file(glsl_list_file, src_glsl_stamp)
 

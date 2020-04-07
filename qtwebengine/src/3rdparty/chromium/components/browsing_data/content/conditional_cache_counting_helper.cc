@@ -8,7 +8,9 @@
 
 #include "base/callback.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
@@ -79,8 +81,8 @@ void ConditionalCacheCountingHelper::Count(
             begin_time, end_time, storage_partition->GetURLRequestContext(),
             storage_partition->GetMediaURLRequestContext(),
             std::move(result_callback));
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(
             &ConditionalCacheCountingHelper::CountHttpCacheOnIOThread,
             base::Unretained(instance)));
@@ -110,7 +112,7 @@ void ConditionalCacheCountingHelper::CountHttpCacheOnIOThread() {
 // --> CacheState::PROCESS_MAIN --> CacheState::CREATE_MEDIA -->
 // CacheState::PROCESS_MEDIA --> CacheState::DONE.
 // On error, we jump directly to CacheState::DONE.
-void ConditionalCacheCountingHelper::DoCountCache(int rv) {
+void ConditionalCacheCountingHelper::DoCountCache(int64_t rv) {
   DCHECK_NE(CacheState::NONE, next_cache_state_);
   while (rv != net::ERR_IO_PENDING && next_cache_state_ != CacheState::NONE) {
     // On error, finish and return the error code. A valid result value might
@@ -142,8 +144,12 @@ void ConditionalCacheCountingHelper::DoCountCache(int rv) {
                                 : CacheState::COUNT_MEDIA;
 
         rv = http_cache->GetBackend(
-            &cache_, base::Bind(&ConditionalCacheCountingHelper::DoCountCache,
-                                base::Unretained(this)));
+            &cache_, base::BindOnce(
+                         [](ConditionalCacheCountingHelper* self, int rv) {
+                           self->DoCountCache(static_cast<int64_t>(rv));
+                         },
+                         base::Unretained(this)));
+
         break;
       }
       case CacheState::COUNT_MAIN:
@@ -156,18 +162,18 @@ void ConditionalCacheCountingHelper::DoCountCache(int rv) {
         if (cache_) {
           if (begin_time_.is_null() && end_time_.is_max()) {
             rv = cache_->CalculateSizeOfAllEntries(
-                base::Bind(&ConditionalCacheCountingHelper::DoCountCache,
-                           base::Unretained(this)));
+                base::BindOnce(&ConditionalCacheCountingHelper::DoCountCache,
+                               base::Unretained(this)));
           } else {
             rv = cache_->CalculateSizeOfEntriesBetween(
                 begin_time_, end_time_,
-                base::Bind(&ConditionalCacheCountingHelper::DoCountCache,
-                           base::Unretained(this)));
+                base::BindOnce(&ConditionalCacheCountingHelper::DoCountCache,
+                               base::Unretained(this)));
             if (rv == net::ERR_NOT_IMPLEMENTED) {
               is_upper_limit_ = true;
               rv = cache_->CalculateSizeOfAllEntries(
-                  base::Bind(&ConditionalCacheCountingHelper::DoCountCache,
-                             base::Unretained(this)));
+                  base::BindOnce(&ConditionalCacheCountingHelper::DoCountCache,
+                                 base::Unretained(this)));
             }
           }
           cache_ = nullptr;
@@ -178,10 +184,10 @@ void ConditionalCacheCountingHelper::DoCountCache(int rv) {
         cache_ = nullptr;
         next_cache_state_ = CacheState::NONE;
         // Notify the UI thread that we are done.
-        BrowserThread::PostTask(
-            BrowserThread::UI, FROM_HERE,
-            base::Bind(&ConditionalCacheCountingHelper::Finished,
-                       base::Unretained(this)));
+        base::PostTaskWithTraits(
+            FROM_HERE, {BrowserThread::UI},
+            base::BindOnce(&ConditionalCacheCountingHelper::Finished,
+                           base::Unretained(this)));
         return;
       }
       case CacheState::NONE: {

@@ -30,6 +30,8 @@ namespace perfetto {
 // messages when a proto is fragmented over several chunks. These patches are
 // sent out-of-band to the tracing service, after having returned the initial
 // chunks of the fragment.
+// TODO(crbug.com/904477): Re-disable the move constructors when all usses of
+// this class have been fixed.
 class Patch {
  public:
   using PatchContent = std::array<uint8_t, SharedMemoryABI::kPacketHeaderSize>;
@@ -53,9 +55,7 @@ class Patch {
   }
 
  private:
-  Patch& operator=(const Patch&) = default;
-  Patch(Patch&&) noexcept = delete;
-  Patch& operator=(Patch&&) = delete;
+  Patch& operator=(const Patch&) = delete;
 };
 
 // Note: the protozero::Message(s) will take pointers to the |size_field| of

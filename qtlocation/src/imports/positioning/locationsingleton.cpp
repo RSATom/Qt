@@ -97,7 +97,7 @@ QGeoCoordinate LocationSingleton::coordinate() const
 }
 
 /*!
-    \qmlmethod coordinate QtPositioning::coordinate(real latitude, real longitue, real altitude) const
+    \qmlmethod coordinate QtPositioning::coordinate(real latitude, real longitude, real altitude) const
 
     Constructs a coordinate with the specified \a latitude, \a longitude and optional \a altitude.
     Both \a latitude and \a longitude must be valid, otherwise an invalid coordinate is returned.
@@ -151,7 +151,7 @@ QGeoRectangle LocationSingleton::rectangle(const QGeoCoordinate &center,
     \qmlmethod georectangle QtPositioning::rectangle(coordinate topLeft, coordinate bottomRight) const
 
     Constructs a georectangle with its top left corner positioned at \a topLeft and its bottom
-    right corner positioned at \a {bottomLeft}.
+    right corner positioned at \a {bottomRight}.
 
     \sa {georectangle}
 */
@@ -214,6 +214,14 @@ QGeoPath LocationSingleton::path() const
     return QGeoPath();
 }
 
+/*!
+    \qmlmethod geopath QtPositioning::path(list<coordinate> coordinates, real width) const
+
+    Constructs a geopath from coordinates and width.
+
+    \sa {geopath}
+    \since 5.9
+*/
 QGeoPath LocationSingleton::path(const QJSValue &value, qreal width) const
 {
     QList<QGeoCoordinate> pathList;
@@ -368,8 +376,7 @@ QGeoCoordinate LocationSingleton::mercatorToCoord(const QPointF &mercator) const
 /*!
     \qmlmethod point QtPositioning::coordToMercator(coordinate coord) const
 
-    Converts a coordinate into a mercator coordinate.
-
+    Converts a coordinate \a coord into a mercator coordinate and returns it.
     \sa {mercatorToCoord}
     \since 5.12
 */

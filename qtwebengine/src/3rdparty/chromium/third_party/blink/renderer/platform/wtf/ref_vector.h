@@ -27,17 +27,26 @@ class RefVector : public RefCounted<RefVector<T>> {
   }
   scoped_refptr<RefVector> Copy() { return Create(GetVector()); }
 
-  const T& operator[](size_t i) const { return vector_[i]; }
-  T& operator[](size_t i) { return vector_[i]; }
-  const T& at(size_t i) const { return vector_.at(i); }
-  T& at(size_t i) { return vector_.at(i); }
+  const T& operator[](wtf_size_t i) const { return vector_[i]; }
+  T& operator[](wtf_size_t i) { return vector_[i]; }
+  const T& at(wtf_size_t i) const { return vector_.at(i); }
+  T& at(wtf_size_t i) { return vector_.at(i); }
+
+  T* begin() { return vector_.begin(); }
+  T* end() { return vector_.end(); }
+  const T* begin() const { return vector_.begin(); }
+  const T* end() const { return vector_.end(); }
 
   bool operator==(const RefVector& o) const { return vector_ == o.vector_; }
   bool operator!=(const RefVector& o) const { return vector_ != o.vector_; }
 
-  size_t size() const { return vector_.size(); }
+  wtf_size_t size() const { return vector_.size(); }
   bool IsEmpty() const { return !size(); }
   void push_back(const T& decoration) { vector_.push_back(decoration); }
+  template <typename... Args>
+  T& emplace_back(Args&&... args) {
+    return vector_.emplace_back(std::forward<Args>(args)...);
+  }
   const Vector<T>& GetVector() const { return vector_; }
   Vector<T>* GetMutableVector() { return &vector_; }
 

@@ -6,9 +6,6 @@
 
 #include "content/browser/media/android/media_player_renderer.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(
-    content::MediaPlayerRendererWebContentsObserver);
-
 namespace content {
 
 MediaPlayerRendererWebContentsObserver::MediaPlayerRendererWebContentsObserver(
@@ -43,5 +40,7 @@ void MediaPlayerRendererWebContentsObserver::WebContentsDestroyed() {
     player->OnWebContentsDestroyed();
   players_.clear();
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(MediaPlayerRendererWebContentsObserver)
 
 }  // namespace content

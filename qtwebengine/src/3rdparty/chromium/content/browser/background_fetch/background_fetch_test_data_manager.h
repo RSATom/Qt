@@ -16,9 +16,13 @@ namespace content {
 
 class BrowserContext;
 class CacheStorageManager;
+class ChromeBlobStorageContext;
 class MockQuotaManager;
 class ServiceWorkerContextWrapper;
 class StoragePartition;
+
+// Arbitrary quota that is large enough for test purposes.
+constexpr int64_t kBackgroundFetchMaxQuotaBytes = 42424242;
 
 // Test DataManager that sets up a CacheStorageManager suited for test
 // environments. Tests can also optionally override FillServiceWorkerResponse by
@@ -41,6 +45,7 @@ class BackgroundFetchTestDataManager : public BackgroundFetchDataManager {
   scoped_refptr<MockQuotaManager> mock_quota_manager_;
   BrowserContext* browser_context_;
   StoragePartition* storage_partition_;
+  scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
   bool mock_fill_response_;
 
   DISALLOW_COPY_AND_ASSIGN(BackgroundFetchTestDataManager);

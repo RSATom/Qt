@@ -36,6 +36,7 @@
 #include <QtQml/qqmlexpression.h>
 #include <QtQml/qqmlcomponent.h>
 #include <QtGui/qguiapplication.h>
+#include <private/qquickrectangle_p.h>
 #include <private/qquicktextedit_p.h>
 #include <private/qquicktextedit_p_p.h>
 #include <private/qquicktext_p.h>
@@ -212,6 +213,7 @@ private slots:
 
     void padding();
     void QTBUG_51115_readOnlyResetsSelection();
+    void keys_shortcutoverride();
 
 private:
     void simulateKeys(QWindow *window, const QList<Key> &keys);
@@ -1267,6 +1269,34 @@ void tst_qquicktextedit::persistentSelection()
     edit->setFocus(true);
     QCOMPARE(edit->property("selected").toString(), QLatin1String("ell"));
 
+    // QTBUG-50587 (persistentSelection with readOnly)
+    edit->setReadOnly(true);
+
+    edit->setPersistentSelection(false);
+    QCOMPARE(edit->persistentSelection(), false);
+    QCOMPARE(spy.count(), 2);
+
+    edit->select(1, 4);
+    QCOMPARE(edit->property("selected").toString(), QLatin1String("ell"));
+
+    edit->setFocus(false);
+    QCOMPARE(edit->property("selected").toString(), QString());
+
+    edit->setFocus(true);
+    QCOMPARE(edit->property("selected").toString(), QString());
+
+    edit->setPersistentSelection(true);
+    QCOMPARE(edit->persistentSelection(), true);
+    QCOMPARE(spy.count(), 3);
+
+    edit->select(1, 4);
+    QCOMPARE(edit->property("selected").toString(), QLatin1String("ell"));
+
+    edit->setFocus(false);
+    QCOMPARE(edit->property("selected").toString(), QLatin1String("ell"));
+
+    edit->setFocus(true);
+    QCOMPARE(edit->property("selected").toString(), QLatin1String("ell"));
 }
 
 void tst_qquicktextedit::selectionOnFocusOut()
@@ -2076,30 +2106,31 @@ void tst_qquicktextedit::mouseSelection()
     textEditObject->setFocus(focus);
     textEditObject->setFocusOnPress(focusOnPress);
 
+    // Avoid that the last click from the previous test data and the first click in the
+    // current test data happens so close in time that they are interpreted as a double click.
+    static const int moreThanDoubleClickInterval = QGuiApplication::styleHints()->mouseDoubleClickInterval() + 1;
+
     // press-and-drag-and-release from x1 to x2
     QPoint p1 = textEditObject->positionToRectangle(from).center().toPoint();
     QPoint p2 = textEditObject->positionToRectangle(to).center().toPoint();
     if (clicks == 2)
-        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, p1);
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, p1, moreThanDoubleClickInterval);
     else if (clicks == 3)
-        QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, p1);
+        QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, p1, moreThanDoubleClickInterval);
+    // cancel the 500ms delta QTestLib adds in order to properly synthesize a triple click within the required interval
+    QTest::lastMouseTimestamp -= QTest::mouseDoubleClickInterval;
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, p1);
-    if (clicks == 2) {
-        // QTBUG-50022: Since qtbase commit beef975, QTestLib avoids generating
-        // double click events by adding 500ms delta to release event timestamps.
-        // Send a double click event by hand to ensure the correct sequence:
-        // press, release, press, _dbl click_, move, release.
-        QMouseEvent dblClickEvent(QEvent::MouseButtonDblClick, p1, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-        QGuiApplication::sendEvent(textEditObject, &dblClickEvent);
-    }
     QTest::mouseMove(&window, p2);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p2);
     QTRY_COMPARE(textEditObject->selectedText(), selectedText);
 
     // Clicking and shift to clicking between the same points should select the same text.
     textEditObject->setCursorPosition(0);
-    if (clicks > 1)
+    if (clicks > 1) {
         QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, p1);
+        // cancel the 500ms delta QTestLib adds in order to properly synthesize a triple click within the required interval
+        QTest::lastMouseTimestamp -= QTest::mouseDoubleClickInterval;
+    }
     if (clicks != 2)
         QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, p1);
     QTest::mouseClick(&window, Qt::LeftButton, Qt::ShiftModifier, p2);
@@ -5725,6 +5756,36 @@ void tst_qquicktextedit::QTBUG_51115_readOnlyResetsSelection()
     QQuickTextEdit *obj = qobject_cast<QQuickTextEdit*>(view.rootObject());
 
     QCOMPARE(obj->selectedText(), QString());
+}
+
+void tst_qquicktextedit::keys_shortcutoverride()
+{
+    // Tests that QML TextEdit receives Keys.onShortcutOverride  (QTBUG-68711)
+    QQuickView view;
+    view.setSource(testFileUrl("keys_shortcutoverride.qml"));
+    view.show();
+    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    QObject *root = view.rootObject();
+    QVERIFY(root);
+
+    QQuickTextEdit *textEdit = root->findChild<QQuickTextEdit*>();
+    QVERIFY(textEdit);
+    QQuickRectangle *rectangle = root->findChild<QQuickRectangle*>(QLatin1String("rectangle"));
+    QVERIFY(rectangle);
+
+    // Precondition: check if its not already changed
+    QCOMPARE(root->property("who").value<QString>(), QLatin1String("nobody"));
+
+    // send Key_Escape to the Rectangle
+    QVERIFY(rectangle->hasActiveFocus());
+    QTest::keyPress(&view, Qt::Key_Escape);
+    QCOMPARE(root->property("who").value<QString>(), QLatin1String("Rectangle"));
+
+    // send Key_Escape to TextEdit
+    textEdit->setFocus(true);
+    QTest::keyPress(&view, Qt::Key_Escape);
+    QCOMPARE(root->property("who").value<QString>(), QLatin1String("TextEdit"));
 }
 
 QTEST_MAIN(tst_qquicktextedit)

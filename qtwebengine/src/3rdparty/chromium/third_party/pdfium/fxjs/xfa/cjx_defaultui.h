@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_DEFAULTUI_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_DefaultUi;
 
-class CJX_DefaultUi : public CJX_Node {
+class CJX_DefaultUi final : public CJX_Node {
  public:
   explicit CJX_DefaultUi(CXFA_DefaultUi* node);
   ~CJX_DefaultUi() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_DEFAULTUI_H_

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/containers/queue.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -26,7 +27,6 @@
 #include "media/base/cdm_context.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/limits.h"
-#include "media/base/media_log.h"
 #include "media/base/media_util.h"
 #include "media/base/video_decoder.h"
 #include "media/filters/ffmpeg_video_decoder.h"
@@ -35,7 +35,7 @@
 #include "media/video/picture.h"
 #include "media/video/video_decode_accelerator.h"
 #include "ppapi/c/pp_errors.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/skia/include/gpu/GrTypes.h"
 
 namespace content {
@@ -60,7 +60,7 @@ bool IsCodecSupported(media::VideoCodec codec) {
 // YUV->RGB converter class using a shader and FBO.
 class VideoDecoderShim::YUVConverter {
  public:
-  YUVConverter(scoped_refptr<ui::ContextProviderCommandBuffer>);
+  YUVConverter(scoped_refptr<ws::ContextProviderCommandBuffer>);
   ~YUVConverter();
   bool Initialize();
   void Convert(const scoped_refptr<media::VideoFrame>& frame, GLuint tex_out);
@@ -71,7 +71,7 @@ class VideoDecoderShim::YUVConverter {
   GLuint CreateProgram(const char* name, GLuint vshader, GLuint fshader);
   GLuint CreateTexture();
 
-  scoped_refptr<ui::ContextProviderCommandBuffer> context_provider_;
+  scoped_refptr<ws::ContextProviderCommandBuffer> context_provider_;
   gpu::gles2::GLES2Interface* gl_;
   GLuint frame_buffer_;
   GLuint vertex_buffer_;
@@ -101,7 +101,7 @@ class VideoDecoderShim::YUVConverter {
 };
 
 VideoDecoderShim::YUVConverter::YUVConverter(
-    scoped_refptr<ui::ContextProviderCommandBuffer> context_provider)
+    scoped_refptr<ws::ContextProviderCommandBuffer> context_provider)
     : context_provider_(std::move(context_provider)),
       gl_(context_provider_->ContextGL()),
       frame_buffer_(0),
@@ -390,16 +390,22 @@ void VideoDecoderShim::YUVConverter::Convert(
     };
 
     yuv_adjust = yuv_adjust_constrained;
+    // TODO(hubbe): Should default to 709
     yuv_matrix = yuv_to_rgb_rec601;
 
-    int result;
-    if (frame->metadata()->GetInteger(media::VideoFrameMetadata::COLOR_SPACE,
-                                      &result)) {
-      if (result == media::COLOR_SPACE_JPEG) {
-        yuv_matrix = yuv_to_rgb_jpeg;
-        yuv_adjust = yuv_adjust_full;
-      } else if (result == media::COLOR_SPACE_HD_REC709) {
-        yuv_matrix = yuv_to_rgb_rec709;
+    SkYUVColorSpace sk_yuv_color_space;
+    if (frame->ColorSpace().ToSkYUVColorSpace(&sk_yuv_color_space)) {
+      switch (sk_yuv_color_space) {
+        case kJPEG_SkYUVColorSpace:
+          yuv_matrix = yuv_to_rgb_jpeg;
+          yuv_adjust = yuv_adjust_full;
+          break;
+        case kRec709_SkYUVColorSpace:
+          yuv_matrix = yuv_to_rgb_rec709;
+          break;
+        case kRec601_SkYUVColorSpace:
+          // Current default.
+          break;
       }
     }
 
@@ -650,7 +656,7 @@ class VideoDecoderShim::DecoderImpl {
 
   // WeakPtr is bound to main_message_loop_. Use only in shim callbacks.
   base::WeakPtr<VideoDecoderShim> shim_;
-  media::MediaLog media_log_;
+  media::NullMediaLog media_log_;
   std::unique_ptr<media::VideoDecoder> decoder_;
   bool initialized_ = false;
   scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
@@ -705,7 +711,7 @@ void VideoDecoderShim::DecoderImpl::Initialize(
                  weak_ptr_factory_.GetWeakPtr()),
       base::Bind(&VideoDecoderShim::DecoderImpl::OnOutputComplete,
                  weak_ptr_factory_.GetWeakPtr()),
-      media::VideoDecoder::WaitingForDecryptionKeyCB());
+      base::NullCallback());
 #else
   OnInitDone(false);
 #endif  // BUILDFLAG(ENABLE_LIBVPX) || BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
@@ -842,7 +848,7 @@ VideoDecoderShim::VideoDecoderShim(
 VideoDecoderShim::~VideoDecoderShim() {
   DCHECK(RenderThreadImpl::current());
   // Delete any remaining textures.
-  TextureIdMap::iterator it = texture_id_map_.begin();
+  auto it = texture_id_map_.begin();
   for (; it != texture_id_map_.end(); ++it)
     DeleteTexture(it->second);
   texture_id_map_.clear();
@@ -886,7 +892,7 @@ bool VideoDecoderShim::Initialize(const Config& vda_config, Client* client) {
 
   media::VideoDecoderConfig video_decoder_config(
       codec, vda_config.profile, media::PIXEL_FORMAT_I420,
-      media::COLOR_SPACE_UNSPECIFIED, media::VIDEO_ROTATION_0,
+      media::VideoColorSpace(), media::VIDEO_ROTATION_0,
       gfx::Size(32, 24),  // Small sizes that won't fail.
       gfx::Rect(32, 24), gfx::Size(32, 24),
       // TODO(bbudge): Verify extra data isn't needed.
@@ -1018,9 +1024,8 @@ void VideoDecoderShim::OnOutputComplete(std::unique_ptr<PendingFrame> frame) {
            ++it) {
         textures_to_dismiss_.insert(it->first);
       }
-      for (TextureIdSet::const_iterator it = available_textures_.begin();
-           it != available_textures_.end();
-           ++it) {
+      for (auto it = available_textures_.begin();
+           it != available_textures_.end(); ++it) {
         DismissTexture(*it);
       }
       available_textures_.clear();
@@ -1043,7 +1048,7 @@ void VideoDecoderShim::SendPictures() {
   while (!pending_frames_.empty() && !available_textures_.empty()) {
     const std::unique_ptr<PendingFrame>& frame = pending_frames_.front();
 
-    TextureIdSet::iterator it = available_textures_.begin();
+    auto it = available_textures_.begin();
     uint32_t texture_id = *it;
     available_textures_.erase(it);
 

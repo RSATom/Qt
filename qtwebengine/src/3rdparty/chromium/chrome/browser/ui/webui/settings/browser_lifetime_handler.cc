@@ -30,9 +30,8 @@ void TriggerTPMFirmwareUpdate(
   using chromeos::tpm_firmware_update::Mode;
 
   // Decide which update mode to use.
-  // TODO(crbug.com/854576): Re-add Mode::kPreserveDeviceState after fixing
-  // interrupted update flow issue described in the bug.
-  for (Mode mode : {Mode::kPowerwash}) {
+  for (Mode mode :
+       {Mode::kPreserveDeviceState, Mode::kPowerwash, Mode::kCleanup}) {
     if (available_modes.count(mode) == 0) {
       continue;
     }
@@ -103,11 +102,14 @@ void BrowserLifetimeHandler::HandleFactoryReset(
     return;
   }
 
+  // TODO(crbug.com/891905): Centralize powerwash restriction checks.
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  bool allow_powerwash = !connector->IsEnterpriseManaged() &&
+  bool allow_powerwash =
+      !connector->IsEnterpriseManaged() &&
       !user_manager::UserManager::Get()->IsLoggedInAsGuest() &&
-      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser();
+      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser() &&
+      !user_manager::UserManager::Get()->IsLoggedInAsChildUser();
 
   if (!allow_powerwash)
     return;

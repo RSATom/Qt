@@ -8,10 +8,11 @@
 #include <string>
 
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "cc/base/completion_event.h"
 #include "cc/base/devtools_instrumentation.h"
 #include "cc/benchmarks/benchmark_instrumentation.h"
+#include "cc/paint/paint_worklet_layer_painter.h"
 #include "cc/resources/ui_resource_manager.h"
 #include "cc/trees/latency_info_swap_promise.h"
 #include "cc/trees/layer_tree_frame_sink.h"
@@ -36,7 +37,7 @@ ProxyMain::ProxyMain(LayerTreeHost* layer_tree_host,
       deferred_final_pipeline_stage_(NO_PIPELINE_STAGE),
       commit_waits_for_activation_(false),
       started_(false),
-      defer_commits_(false),
+      defer_main_frame_update_(false),
       frame_sink_bound_weak_factory_(this),
       weak_factory_(this) {
   TRACE_EVENT0("cc", "ProxyMain::ProxyMain");
@@ -138,27 +139,42 @@ void ProxyMain::BeginMainFrame(
       layer_tree_host_->GetSwapPromiseManager());
 
   // We need to issue image decode callbacks whether or not we will abort this
-  // commit, since the request ids are only stored in |begin_main_frame_state|.
+  // update and commit, since the request ids are only stored in
+  // |begin_main_frame_state|.
   layer_tree_host_->ImageDecodesFinished(
       std::move(begin_main_frame_state->completed_image_decode_requests));
+
+  // Visibility check needs to happen before setting
+  // max_requested_pipeline_stage_. Otherwise a requested commit could get lost
+  // after tab becomes visible again.
+  if (!layer_tree_host_->IsVisible()) {
+    TRACE_EVENT_INSTANT0("cc", "EarlyOut_NotVisible", TRACE_EVENT_SCOPE_THREAD);
+    std::vector<std::unique_ptr<SwapPromise>> empty_swap_promises;
+    ImplThreadTaskRunner()->PostTask(
+        FROM_HERE, base::BindOnce(&ProxyImpl::BeginMainFrameAbortedOnImpl,
+                                  base::Unretained(proxy_impl_.get()),
+                                  CommitEarlyOutReason::ABORTED_NOT_VISIBLE,
+                                  begin_main_frame_start_time,
+                                  base::Passed(&empty_swap_promises)));
+    return;
+  }
 
   final_pipeline_stage_ = max_requested_pipeline_stage_;
   max_requested_pipeline_stage_ = NO_PIPELINE_STAGE;
 
   // When we don't need to produce a CompositorFrame, there's also no need to
-  // paint or commit our updates. We still need to run layout though, as it can
+  // commit our updates. We still need to run layout and paint though, as it can
   // have side effects on page loading behavior.
-  bool skip_paint_and_commit =
-      begin_main_frame_state->begin_frame_args.animate_only;
+  bool skip_commit = begin_main_frame_state->begin_frame_args.animate_only;
 
-  // If commits are deferred, skip the entire pipeline.
-  bool skip_full_pipeline = defer_commits_;
+  // If main frame updates and commits are deferred, skip the entire pipeline.
+  bool skip_full_pipeline = defer_main_frame_update_;
 
   // We may have previously skipped paint and commit. If we should still skip it
   // now, and there was no intermediate request for a commit since the last
   // BeginMainFrame, we can skip the full pipeline.
   skip_full_pipeline |=
-      skip_paint_and_commit && final_pipeline_stage_ == NO_PIPELINE_STAGE;
+      skip_commit && final_pipeline_stage_ == NO_PIPELINE_STAGE;
 
   if (skip_full_pipeline) {
     TRACE_EVENT_INSTANT0("cc", "EarlyOut_DeferCommit",
@@ -180,18 +196,6 @@ void ProxyMain::BeginMainFrame(
   final_pipeline_stage_ =
       std::max(final_pipeline_stage_, deferred_final_pipeline_stage_);
   deferred_final_pipeline_stage_ = NO_PIPELINE_STAGE;
-
-  if (!layer_tree_host_->IsVisible()) {
-    TRACE_EVENT_INSTANT0("cc", "EarlyOut_NotVisible", TRACE_EVENT_SCOPE_THREAD);
-    std::vector<std::unique_ptr<SwapPromise>> empty_swap_promises;
-    ImplThreadTaskRunner()->PostTask(
-        FROM_HERE, base::BindOnce(&ProxyImpl::BeginMainFrameAbortedOnImpl,
-                                  base::Unretained(proxy_impl_.get()),
-                                  CommitEarlyOutReason::ABORTED_NOT_VISIBLE,
-                                  begin_main_frame_start_time,
-                                  base::Passed(&empty_swap_promises)));
-    return;
-  }
 
   current_pipeline_stage_ = ANIMATE_PIPELINE_STAGE;
 
@@ -221,16 +225,19 @@ void ProxyMain::BeginMainFrame(
   // See LayerTreeHostClient::MainFrameUpdate for more documentation on
   // what this does.
   layer_tree_host_->RequestMainFrameUpdate(
-      skip_paint_and_commit ? LayerTreeHost::VisualStateUpdate::kPrePaint
-                            : LayerTreeHost::VisualStateUpdate::kAll);
+      true /* record_main_frame_metrics */);
 
+  // TODO(schenney) This will be changed to defer_commits_ when we introduce
+  // the separation between deferring of main frame updates and deferring of
+  // commits.
   // At this point the main frame may have deferred commits to avoid committing
   // right now.
-  skip_paint_and_commit |= defer_commits_;
+  skip_commit |= defer_main_frame_update_;
 
-  if (skip_paint_and_commit) {
+  if (skip_commit) {
     TRACE_EVENT_INSTANT0("cc", "EarlyOut_DeferCommit_InsideBeginMainFrame",
                          TRACE_EVENT_SCOPE_THREAD);
+    layer_tree_host_->RecordEndOfFrameMetrics(begin_main_frame_start_time);
     std::vector<std::unique_ptr<SwapPromise>> empty_swap_promises;
     ImplThreadTaskRunner()->PostTask(
         FROM_HERE, base::BindOnce(&ProxyImpl::BeginMainFrameAbortedOnImpl,
@@ -277,6 +284,7 @@ void ProxyMain::BeginMainFrame(
   current_pipeline_stage_ = COMMIT_PIPELINE_STAGE;
   if (final_pipeline_stage_ < COMMIT_PIPELINE_STAGE) {
     TRACE_EVENT_INSTANT0("cc", "EarlyOut_NoUpdates", TRACE_EVENT_SCOPE_THREAD);
+    layer_tree_host_->RecordEndOfFrameMetrics(begin_main_frame_start_time);
     std::vector<std::unique_ptr<SwapPromise>> swap_promises =
         layer_tree_host_->GetSwapPromiseManager()->TakeSwapPromises();
     ImplThreadTaskRunner()->PostTask(
@@ -311,6 +319,7 @@ void ProxyMain::BeginMainFrame(
   // coordinated by the Scheduler.
   {
     TRACE_EVENT0("cc", "ProxyMain::BeginMainFrame::commit");
+    layer_tree_host_->RecordEndOfFrameMetrics(begin_main_frame_start_time);
 
     DebugScopedSetMainThreadBlocked main_thread_blocked(task_runner_provider_);
 
@@ -337,6 +346,11 @@ void ProxyMain::DidPresentCompositorFrame(
     const gfx::PresentationFeedback& feedback) {
   layer_tree_host_->DidPresentCompositorFrame(frame_token, std::move(callbacks),
                                               feedback);
+}
+
+void ProxyMain::DidGenerateLocalSurfaceIdAllocation(
+    const viz::LocalSurfaceIdAllocation& allocation) {
+  layer_tree_host_->DidGenerateLocalSurfaceIdAllocation(allocation);
 }
 
 bool ProxyMain::IsStarted() const {
@@ -429,21 +443,21 @@ void ProxyMain::NotifyInputThrottledUntilCommit() {
                                 base::Unretained(proxy_impl_.get()), true));
 }
 
-void ProxyMain::SetDeferCommits(bool defer_commits) {
+void ProxyMain::SetDeferMainFrameUpdate(bool defer_main_frame_update) {
   DCHECK(IsMainThread());
-  if (defer_commits_ == defer_commits)
+  if (defer_main_frame_update_ == defer_main_frame_update)
     return;
 
-  defer_commits_ = defer_commits;
-  if (defer_commits_)
-    TRACE_EVENT_ASYNC_BEGIN0("cc", "ProxyMain::SetDeferCommits", this);
+  defer_main_frame_update_ = defer_main_frame_update;
+  if (defer_main_frame_update_)
+    TRACE_EVENT_ASYNC_BEGIN0("cc", "ProxyMain::SetDeferMainFrameUpdate", this);
   else
-    TRACE_EVENT_ASYNC_END0("cc", "ProxyMain::SetDeferCommits", this);
+    TRACE_EVENT_ASYNC_END0("cc", "ProxyMain::SetDeferMainFrameUpdate", this);
 
   ImplThreadTaskRunner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&ProxyImpl::SetDeferCommitsOnImpl,
-                     base::Unretained(proxy_impl_.get()), defer_commits));
+      FROM_HERE, base::BindOnce(&ProxyImpl::SetDeferMainFrameUpdateOnImpl,
+                                base::Unretained(proxy_impl_.get()),
+                                defer_main_frame_update));
 }
 
 bool ProxyMain::CommitRequested() const {
@@ -508,6 +522,16 @@ void ProxyMain::SetMutator(std::unique_ptr<LayerTreeMutator> mutator) {
       FROM_HERE, base::BindOnce(&ProxyImpl::InitializeMutatorOnImpl,
                                 base::Unretained(proxy_impl_.get()),
                                 base::Passed(std::move(mutator))));
+}
+
+void ProxyMain::SetPaintWorkletLayerPainter(
+    std::unique_ptr<PaintWorkletLayerPainter> painter) {
+  TRACE_EVENT0("cc", "ThreadProxy::SetPaintWorkletLayerPainter");
+  ImplThreadTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ProxyImpl::InitializePaintWorkletLayerPainterOnImpl,
+                     base::Unretained(proxy_impl_.get()),
+                     base::Passed(std::move(painter))));
 }
 
 bool ProxyMain::SupportsImplScrolling() const {

@@ -9,9 +9,9 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "content/utility/utility_blink_platform_impl.h"
+#include "third_party/blink/public/platform/platform.h"
 
-#if defined(OS_POSIX) && !defined(OS_ANDROID)
+#if defined(OS_LINUX)
 #include "components/services/font/public/cpp/font_loader.h"  // nogncheck
 #include "third_party/skia/include/core/SkRefCnt.h"           // nogncheck
 #endif
@@ -28,8 +28,7 @@ namespace content {
 
 // This class extends from UtilityBlinkPlatformImpl with added blink web
 // sandbox support.
-class UtilityBlinkPlatformWithSandboxSupportImpl
-    : public UtilityBlinkPlatformImpl {
+class UtilityBlinkPlatformWithSandboxSupportImpl : public blink::Platform {
  public:
   UtilityBlinkPlatformWithSandboxSupportImpl() = delete;
   explicit UtilityBlinkPlatformWithSandboxSupportImpl(
@@ -40,9 +39,8 @@ class UtilityBlinkPlatformWithSandboxSupportImpl
   blink::WebSandboxSupport* GetSandboxSupport() override;
 
  private:
-#if defined(OS_POSIX) && !defined(OS_ANDROID)
-  class SandboxSupport;
-  std::unique_ptr<SandboxSupport> sandbox_support_;
+#if defined(OS_LINUX) || defined(OS_MACOSX)
+  std::unique_ptr<blink::WebSandboxSupport> sandbox_support_;
 #endif
 #if defined(OS_LINUX)
   sk_sp<font_service::FontLoader> font_loader_;

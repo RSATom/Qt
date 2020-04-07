@@ -3,6 +3,7 @@
 INCLUDEPATH += $$PWD
 
 HEADERS += \
+    $$PWD/glfence_p.h \
     $$PWD/graphicscontext_p.h \
     $$PWD/graphicshelperinterface_p.h \
     $$PWD/graphicshelperes2_p.h \

@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/values.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_proxy_client_socket_pool.h"
 #include "net/socket/socks_client_socket_pool.h"
@@ -29,10 +30,8 @@ void AddSocketPoolsToList(base::ListValue* list,
                           const MapType& socket_pools,
                           const std::string& type,
                           bool include_nested_pools) {
-  for (typename MapType::const_iterator it = socket_pools.begin();
-       it != socket_pools.end(); it++) {
-    list->Append(it->second->GetInfoAsValue(it->first.ToString(),
-                                            type,
+  for (auto it = socket_pools.begin(); it != socket_pools.end(); it++) {
+    list->Append(it->second->GetInfoAsValue(it->first.ToURI(), type,
                                             include_nested_pools));
   }
 }
@@ -43,7 +42,7 @@ ClientSocketPoolManagerImpl::ClientSocketPoolManagerImpl(
     NetLog* net_log,
     ClientSocketFactory* socket_factory,
     SocketPerformanceWatcherFactory* socket_performance_watcher_factory,
-    NetworkQualityProvider* network_quality_provider,
+    NetworkQualityEstimator* network_quality_estimator,
     HostResolver* host_resolver,
     CertVerifier* cert_verifier,
     ChannelIDService* channel_id_service,
@@ -53,11 +52,12 @@ ClientSocketPoolManagerImpl::ClientSocketPoolManagerImpl(
     const std::string& ssl_session_cache_shard,
     SSLConfigService* ssl_config_service,
     WebSocketEndpointLockManager* websocket_endpoint_lock_manager,
+    ProxyDelegate* proxy_delegate,
     HttpNetworkSession::SocketPoolType pool_type)
     : net_log_(net_log),
       socket_factory_(socket_factory),
       socket_performance_watcher_factory_(socket_performance_watcher_factory),
-      network_quality_provider_(network_quality_provider),
+      network_quality_estimator_(network_quality_estimator),
       host_resolver_(host_resolver),
       cert_verifier_(cert_verifier),
       channel_id_service_(channel_id_service),
@@ -66,6 +66,7 @@ ClientSocketPoolManagerImpl::ClientSocketPoolManagerImpl(
       ct_policy_enforcer_(ct_policy_enforcer),
       ssl_session_cache_shard_(ssl_session_cache_shard),
       ssl_config_service_(ssl_config_service),
+      proxy_delegate_(proxy_delegate),
       pool_type_(pool_type),
       transport_socket_pool_(pool_type ==
                                      HttpNetworkSession::WEBSOCKET_SOCKET_POOL
@@ -96,6 +97,7 @@ ClientSocketPoolManagerImpl::ClientSocketPoolManagerImpl(
                                                nullptr /* no socks proxy */,
                                                nullptr /* no http proxy */,
                                                ssl_config_service,
+                                               network_quality_estimator,
                                                net_log)) {
   CertDatabase::GetInstance()->AddObserver(this);
 }
@@ -214,7 +216,9 @@ SSLClientSocketPool* ClientSocketPoolManagerImpl::GetSSLSocketPool() {
 }
 
 SOCKSClientSocketPool* ClientSocketPoolManagerImpl::GetSocketPoolForSOCKSProxy(
-    const HostPortPair& socks_proxy) {
+    const ProxyServer& socks_proxy) {
+  DCHECK(socks_proxy.is_socks());
+
   SOCKSSocketPoolMap::const_iterator it = socks_socket_pools_.find(socks_proxy);
   if (it != socks_socket_pools_.end()) {
     DCHECK(base::ContainsKey(transport_socket_pools_for_socks_proxies_,
@@ -247,8 +251,10 @@ SOCKSClientSocketPool* ClientSocketPoolManagerImpl::GetSocketPoolForSOCKSProxy(
 }
 
 HttpProxyClientSocketPool*
-ClientSocketPoolManagerImpl::GetSocketPoolForHTTPProxy(
-    const HostPortPair& http_proxy) {
+ClientSocketPoolManagerImpl::GetSocketPoolForHTTPLikeProxy(
+    const ProxyServer& http_proxy) {
+  DCHECK(http_proxy.is_http_like());
+
   HTTPProxySocketPoolMap::const_iterator it =
       http_proxy_socket_pools_.find(http_proxy);
   if (it != http_proxy_socket_pools_.end()) {
@@ -296,7 +302,7 @@ ClientSocketPoolManagerImpl::GetSocketPoolForHTTPProxy(
               ssl_session_cache_shard_, socket_factory_,
               tcp_https_ret.first->second.get() /* https proxy */,
               nullptr /* no socks proxy */, nullptr /* no http proxy */,
-              ssl_config_service_, net_log_)));
+              ssl_config_service_, network_quality_estimator_, net_log_)));
   DCHECK(tcp_https_ret.second);
 
   std::pair<HTTPProxySocketPoolMap::iterator, bool> ret =
@@ -304,14 +310,14 @@ ClientSocketPoolManagerImpl::GetSocketPoolForHTTPProxy(
           http_proxy, std::make_unique<HttpProxyClientSocketPool>(
                           sockets_per_proxy_server, sockets_per_group,
                           tcp_http_ret.first->second.get(),
-                          ssl_https_ret.first->second.get(),
-                          network_quality_provider_, net_log_)));
+                          ssl_https_ret.first->second.get(), proxy_delegate_,
+                          network_quality_estimator_, net_log_)));
 
   return ret.first->second.get();
 }
 
 SSLClientSocketPool* ClientSocketPoolManagerImpl::GetSocketPoolForSSLWithProxy(
-    const HostPortPair& proxy_server) {
+    const ProxyServer& proxy_server) {
   SSLSocketPoolMap::const_iterator it =
       ssl_socket_pools_for_proxies_.find(proxy_server);
   if (it != ssl_socket_pools_for_proxies_.end())
@@ -330,9 +336,12 @@ SSLClientSocketPool* ClientSocketPoolManagerImpl::GetSocketPoolForSSLWithProxy(
               cert_transparency_verifier_, ct_policy_enforcer_,
               ssl_session_cache_shard_, socket_factory_,
               nullptr, /* no tcp pool, we always go through a proxy */
-              GetSocketPoolForSOCKSProxy(proxy_server),
-              GetSocketPoolForHTTPProxy(proxy_server), ssl_config_service_,
-              net_log_)));
+              proxy_server.is_socks() ? GetSocketPoolForSOCKSProxy(proxy_server)
+                                      : nullptr,
+              proxy_server.is_http_like()
+                  ? GetSocketPoolForHTTPLikeProxy(proxy_server)
+                  : nullptr,
+              ssl_config_service_, network_quality_estimator_, net_log_)));
 
   return ret.first->second.get();
 }

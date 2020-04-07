@@ -59,6 +59,7 @@
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
 #include <QtWaylandCompositor/private/qwaylandview_p.h>
 #include <QtWaylandCompositor/private/qwaylandseat_p.h>
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include <QtCore/private/qobject_p.h>
 
@@ -66,6 +67,7 @@
 #include <QtGui/QScreen>
 
 #include <QtCore/QDebug>
+#include <QtCore/QtMath>
 
 QT_BEGIN_NAMESPACE
 
@@ -234,20 +236,28 @@ void QWaylandSurfacePrivate::surface_commit(Resource *)
 
     // Needed in order to know whether we want to emit signals later
     QSize oldBufferSize = bufferSize;
+    QRectF oldSourceGeometry = sourceGeometry;
+    QSize oldDestinationSize = destinationSize;
     bool oldHasContent = hasContent;
     int oldBufferScale = bufferScale;
 
     // Update all internal state
     if (pending.buffer.hasBuffer() || pending.newlyAttached)
         bufferRef = pending.buffer;
-    bufferSize = bufferRef.size();
-    damage = pending.damage.intersected(QRect(QPoint(), bufferSize));
-    hasContent = bufferRef.hasContent();
     bufferScale = pending.bufferScale;
+    bufferSize = bufferRef.size();
+    QSize surfaceSize = bufferSize / bufferScale;
+    sourceGeometry = !pending.sourceGeometry.isValid() ? QRect(QPoint(), surfaceSize) : pending.sourceGeometry;
+    destinationSize = pending.destinationSize.isEmpty() ? sourceGeometry.size().toSize() : pending.destinationSize;
+    damage = pending.damage.intersected(QRect(QPoint(), destinationSize));
+    hasContent = bufferRef.hasContent();
     frameCallbacks << pendingFrameCallbacks;
-    inputRegion = pending.inputRegion.intersected(QRect(QPoint(), bufferSize));
-    opaqueRegion = pending.opaqueRegion.intersected(QRect(QPoint(), bufferSize));
+    inputRegion = pending.inputRegion.intersected(QRect(QPoint(), destinationSize));
+    opaqueRegion = pending.opaqueRegion.intersected(QRect(QPoint(), destinationSize));
     QPoint offsetForNextFrame = pending.offset;
+
+    if (viewport)
+        viewport->checkCommittedState();
 
     // Clear per-commit state
     pending.buffer = QWaylandBufferRef();
@@ -268,11 +278,21 @@ void QWaylandSurfacePrivate::surface_commit(Resource *)
 
     emit q->damaged(damage);
 
-    if (oldBufferSize != bufferSize)
+    if (oldBufferSize != bufferSize) {
+        emit q->bufferSizeChanged();
+#if QT_DEPRECATED_SINCE(5, 13)
         emit q->sizeChanged();
+#endif
+    }
 
     if (oldBufferScale != bufferScale)
         emit q->bufferScaleChanged();
+
+    if (oldDestinationSize != destinationSize)
+        emit q->destinationSizeChanged();
+
+    if (oldSourceGeometry != sourceGeometry)
+        emit q->sourceGeometryChanged();
 
     if (oldHasContent != hasContent)
         emit q->hasContentChanged();
@@ -431,9 +451,7 @@ QWaylandClient *QWaylandSurface::client() const
 }
 
 /*!
- * \property QWaylandSurface::waylandClient
- *
- * This property holds the \c wl_client using this QWaylandSurface.
+ * Holds the \c wl_client using this QWaylandSurface.
  */
 ::wl_client *QWaylandSurface::waylandClient() const
 {
@@ -461,21 +479,109 @@ bool QWaylandSurface::hasContent() const
 }
 
 /*!
- * \qmlproperty size QtWaylandCompositor::WaylandSurface::size
+ * \qmlproperty rect QtWaylandCompositor::WaylandSurface::sourceGeometry
+ * \since 5.13
  *
- * This property holds the WaylandSurface's size in pixels.
+ * This property describes the portion of the attached Wayland buffer that should
+ * be drawn on the screen. The coordinates are from the corner of the buffer and are
+ * scaled by \l bufferScale.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ * \sa destinationSize
  */
 
 /*!
- * \property QWaylandSurface::size
+ * \property QWaylandSurface::sourceGeometry
+ * \since 5.13
  *
- * This property holds the QWaylandSurface's size in pixels.
+ * This property describes the portion of the attached QWaylandBuffer that should
+ * be drawn on the screen. The coordinates are from the corner of the buffer and are
+ * scaled by \l bufferScale.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ * \sa destinationSize
  */
-QSize QWaylandSurface::size() const
+QRectF QWaylandSurface::sourceGeometry() const
+{
+    Q_D(const QWaylandSurface);
+    return d->sourceGeometry;
+}
+
+/*!
+ * \qmlproperty size QtWaylandCompositor::WaylandSurface::destinationSize
+ * \since 5.13
+ *
+ * This property holds the size of this WaylandSurface in surface coordinates.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ */
+
+/*!
+ * \property QWaylandSurface::destinationSize
+ * \since 5.13
+ *
+ * This property holds the size of this WaylandSurface in surface coordinates.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ */
+QSize QWaylandSurface::destinationSize() const
+{
+    Q_D(const QWaylandSurface);
+    return d->destinationSize;
+}
+
+/*!
+ * \qmlproperty size QtWaylandCompositor::WaylandSurface::bufferSize
+ *
+ * This property holds the size of the current buffer of this WaylandSurface in pixels,
+ * not in surface coordinates.
+ *
+ * For the size in surface coordinates, use \l destinationSize instead.
+ *
+ * \sa destinationSize
+ * \sa bufferScale
+ */
+
+/*!
+ * \property QWaylandSurface::bufferSize
+ *
+ * This property holds the size of the current buffer of this QWaylandSurface in pixels,
+ * not in surface coordinates.
+ *
+ * For the size in surface coordinates, use \l destinationSize instead.
+ *
+ * \sa destinationSize
+ * \sa bufferScale
+ */
+QSize QWaylandSurface::bufferSize() const
 {
     Q_D(const QWaylandSurface);
     return d->bufferSize;
 }
+
+#if QT_DEPRECATED_SINCE(5, 13)
+/*!
+ * \qmlproperty size QtWaylandCompositor::WaylandSurface::size
+ * \obsolete use bufferSize or destinationSize instead
+ *
+ * This property has been deprecated, use \l bufferSize or \l destinationSize instead.
+ */
+
+/*!
+ * \property QWaylandSurface::size
+ * \obsolete use bufferSize or destinationSize instead
+ *
+ * This property has been deprecated, use \l bufferSize or \l destinationSize instead.
+ */
+QSize QWaylandSurface::size() const
+{
+    return bufferSize();
+}
+#endif
 
 /*!
  * \qmlproperty size QtWaylandCompositor::WaylandSurface::bufferScale
@@ -599,6 +705,23 @@ bool QWaylandSurface::inputRegionContains(const QPoint &p) const
 {
     Q_D(const QWaylandSurface);
     return d->inputRegion.contains(p);
+}
+
+//TODO: Add appropriate \since version when this is made public.
+/*!
+ * Returns \c true if the QWaylandSurface's input region contains the point \a position.
+ * Otherwise returns \c false.
+ */
+bool QWaylandSurface::inputRegionContains(const QPointF &position) const
+{
+    Q_D(const QWaylandSurface);
+    // QRegion::contains operates in integers. If a region has a rect (0,0,10,10), (0,0) is
+    // inside while (10,10) is outside. Therefore, we can't use QPoint::toPoint(), which will
+    // round upwards, meaning the point (-0.25,-0.25) would be rounded to (0,0) and count as
+    // being inside the region, and similarly, a point (9.75,9.75) inside the region would be
+    // rounded upwards and count as being outside the region.
+    const QPoint floored(qFloor(position.x()), qFloor(position.y()));
+    return d->inputRegion.contains(floored);
 }
 
 /*!
@@ -740,12 +863,12 @@ QList<QWaylandView *> QWaylandSurface::views() const
 }
 
 /*!
- * Returns the QWaylandSurface corresponding to the Wayland resource \a res.
+ * Returns the QWaylandSurface corresponding to the Wayland resource \a resource.
  */
-QWaylandSurface *QWaylandSurface::fromResource(::wl_resource *res)
+QWaylandSurface *QWaylandSurface::fromResource(::wl_resource *resource)
 {
-    if (auto *r = QWaylandSurfacePrivate::Resource::fromResource(res))
-        return static_cast<QWaylandSurfacePrivate *>(r->surface_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandSurfacePrivate *>(resource))
+        return p->q_func();
     return nullptr;
 }
 
@@ -759,11 +882,12 @@ struct wl_resource *QWaylandSurface::resource() const
 }
 
 /*!
- * Sets a \a role on the surface. A role defines how a surface will be mapped on screen, without a role
- * a surface is supposed to be hidden. Only one role at all times can be set on a surface. Although
+ * Sets a \a role on the surface. A role defines how a surface will be mapped on screen; without a role
+ * a surface is supposed to be hidden. Only one role can be set on a surface, at all times. Although
  * setting the same role many times is allowed, attempting to change the role of a surface will trigger
  * a protocol error to the \a errorResource and send an \a errorCode to the client.
  *
+ * Returns true if a role can be assigned; false otherwise.
  */
 bool QWaylandSurface::setRole(QWaylandSurfaceRole *role, wl_resource *errorResource, uint32_t errorCode)
 {
@@ -902,6 +1026,23 @@ void QWaylandSurfacePrivate::Subsurface::subsurface_set_desync(wl_subsurface::Re
  * \fn void QWaylandSurface::dragStarted(QWaylandDrag *drag)
  *
  * This signal is emitted when a \a drag has started from this surface.
+ */
+
+/*!
+ * \fn void damaged(const QRegion &rect)
+ *
+ * This signal is emitted when the client tells the compositor that a particular part of, or
+ * possibly the entire surface has been updated, so the compositor can redraw that part.
+ *
+ * While the compositor APIs take care of redrawing automatically, this function may be useful
+ * if you require a specific, custom behavior.
+ */
+
+/*!
+ * \fn void parentChanged(QWaylandSurface *newParent, QWaylandSurface *oldParent)
+ *
+ * This signal is emitted when the client has requested that this surface should be a
+ * subsurface of \a newParent.
  */
 
 QT_END_NAMESPACE

@@ -36,6 +36,7 @@ class CastSocketServiceTest : public testing::Test {
   void TearDown() override { cast_socket_service_ = nullptr; }
 
  protected:
+  content::TestBrowserThreadBundle thread_bundle_;
   std::unique_ptr<CastSocketService> cast_socket_service_;
   base::MockCallback<CastSocket::OnOpenCallback> mock_on_open_callback_;
   MockCastSocketObserver mock_observer_;
@@ -91,9 +92,10 @@ TEST_F(CastSocketServiceTest, TestOpenChannel) {
   EXPECT_CALL(*mock_socket, AddObserver(_));
 
   cast_socket_service_->AddObserver(&mock_observer_);
-  CastSocketOpenParams open_param(ip_endpoint, nullptr /* net_log */,
+  CastSocketOpenParams open_param(ip_endpoint,
                                   base::TimeDelta::FromSeconds(20));
-  cast_socket_service_->OpenSocket(open_param, mock_on_open_callback_.Get());
+  cast_socket_service_->OpenSocket(CastSocketService::NetworkContextGetter(),
+                                   open_param, mock_on_open_callback_.Get());
 }
 
 }  // namespace cast_channel

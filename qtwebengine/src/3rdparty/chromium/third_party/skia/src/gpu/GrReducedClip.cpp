@@ -66,16 +66,19 @@ GrReducedClip::GrReducedClip(const SkClipStack& stack, const SkRect& queryBounds
         // "Is intersection of rects" means the clip is a single rect indicated by the stack bounds.
         // This should only be true if aa/non-aa status matches among all elements.
         SkASSERT(SkClipStack::kNormal_BoundsType == stackBoundsType);
+
+        if (GrClip::IsInsideClip(stackBounds, queryBounds)) {
+            fInitialState = InitialState::kAllIn;
+            return;
+        }
+
         SkClipStack::Iter iter(stack, SkClipStack::Iter::kTop_IterStart);
+
         if (!iter.prev()->isAA() || GrClip::IsPixelAligned(stackBounds)) {
             // The clip is a non-aa rect. Here we just implement the entire thing using fScissor.
             stackBounds.round(&fScissor);
             fHasScissor = true;
             fInitialState = fScissor.isEmpty() ? InitialState::kAllOut : InitialState::kAllIn;
-            return;
-        }
-        if (GrClip::IsInsideClip(stackBounds, queryBounds)) {
-            fInitialState = InitialState::kAllIn;
             return;
         }
 
@@ -747,7 +750,8 @@ bool GrReducedClip::drawAlphaClipMask(GrRenderTargetContext* rtc) const {
 
     // The scratch texture that we are drawing into can be substantially larger than the mask. Only
     // clear the part that we care about.
-    GrColor initialCoverage = InitialState::kAllIn == this->initialState() ? -1 : 0;
+    SkPMColor4f initialCoverage =
+        InitialState::kAllIn == this->initialState() ? SK_PMColor4fWHITE : SK_PMColor4fTRANSPARENT;
     rtc->priv().clear(clip, initialCoverage, GrRenderTargetContext::CanClearFullscreen::kYes);
 
     // Set the matrix so that rendered clip elements are transformed to mask space from clip space.
@@ -854,6 +858,7 @@ bool GrReducedClip::drawStencilClipMask(GrContext* context,
             canDrawArgs.fShape = &shape;
             canDrawArgs.fAAType = aaType;
             canDrawArgs.fHasUserStencilSettings = false;
+            canDrawArgs.fTargetIsWrappedVkSecondaryCB = renderTargetContext->wrapsVkSecondaryCB();
 
             GrDrawingManager* dm = context->contextPriv().drawingManager();
             pr = dm->getPathRenderer(canDrawArgs, false, GrPathRendererChain::DrawType::kStencil,

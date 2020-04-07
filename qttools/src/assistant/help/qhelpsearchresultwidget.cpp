@@ -234,9 +234,6 @@ private:
     bool isIndexing = false;
 };
 
-#include "qhelpsearchresultwidget.moc"
-
-
 /*!
     \class QHelpSearchResultWidget
     \since 4.4
@@ -257,12 +254,12 @@ QHelpSearchResultWidget::QHelpSearchResultWidget(QHelpSearchEngine *engine)
     , d(new QHelpSearchResultWidgetPrivate(engine))
 {
     QVBoxLayout *vLayout = new QVBoxLayout(this);
-    vLayout->setMargin(0);
+    vLayout->setContentsMargins(QMargins());
     vLayout->setSpacing(0);
 
     QHBoxLayout *hBoxLayout = new QHBoxLayout();
 #ifndef Q_OS_MAC
-    hBoxLayout->setMargin(0);
+    hBoxLayout->setContentsMargins(QMargins());
     hBoxLayout->setSpacing(0);
 #endif
     hBoxLayout->addWidget(d->firstResultPage = d->setupToolButton(
@@ -334,3 +331,5 @@ QUrl QHelpSearchResultWidget::linkAt(const QPoint &point)
 }
 
 QT_END_NAMESPACE
+
+#include "qhelpsearchresultwidget.moc"

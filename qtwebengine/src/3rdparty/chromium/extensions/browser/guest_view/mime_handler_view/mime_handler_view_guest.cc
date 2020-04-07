@@ -16,6 +16,7 @@
 #include "content/public/browser/stream_handle.h"
 #include "content/public/browser/stream_info.h"
 #include "content/public/common/child_process_host.h"
+#include "content/public/common/mime_handler_view_mode.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -66,7 +67,7 @@ StreamContainer::~StreamContainer() {
 }
 
 void StreamContainer::Abort(const base::Closure& callback) {
-  if (!stream_->handle) {
+  if (!stream_ || !stream_->handle) {
     callback.Run();
     return;
   }
@@ -101,10 +102,18 @@ MimeHandlerViewGuest::MimeHandlerViewGuest(WebContents* owner_web_contents)
       embedder_widget_routing_id_(MSG_ROUTING_NONE) {}
 
 MimeHandlerViewGuest::~MimeHandlerViewGuest() {
+  // Before attaching is complete, the instance ID is not valid.
+  if (content::MimeHandlerViewMode::UsesCrossProcessFrame() &&
+      element_instance_id() != guest_view::kInstanceIDNone) {
+    if (auto* embedder_frame = GetEmbedderFrame()) {
+      embedder_frame->Send(new ExtensionsGuestViewMsg_DestroyFrameContainer(
+          element_instance_id()));
+    }
+  }
 }
 
 bool MimeHandlerViewGuest::CanUseCrossProcessFrames() {
-  return false;
+  return content::MimeHandlerViewMode::UsesCrossProcessFrame();
 }
 
 content::RenderWidgetHost* MimeHandlerViewGuest::GetOwnerRenderWidgetHost() {
@@ -115,8 +124,7 @@ content::RenderWidgetHost* MimeHandlerViewGuest::GetOwnerRenderWidgetHost() {
 
 content::SiteInstance* MimeHandlerViewGuest::GetOwnerSiteInstance() {
   DCHECK_NE(embedder_frame_routing_id_, MSG_ROUTING_NONE);
-  content::RenderFrameHost* rfh = content::RenderFrameHost::FromID(
-      embedder_frame_process_id_, embedder_frame_routing_id_);
+  content::RenderFrameHost* rfh = GetEmbedderFrame();
   return rfh ? rfh->GetSiteInstance() : nullptr;
 }
 
@@ -131,8 +139,7 @@ void MimeHandlerViewGuest::SetEmbedderFrame(int process_id, int routing_id) {
   embedder_frame_process_id_ = process_id;
   embedder_frame_routing_id_ = routing_id;
 
-  content::RenderFrameHost* rfh =
-      content::RenderFrameHost::FromID(process_id, routing_id);
+  content::RenderFrameHost* rfh = GetEmbedderFrame();
 
   if (rfh && rfh->GetView()) {
     embedder_widget_routing_id_ =
@@ -362,6 +369,7 @@ bool MimeHandlerViewGuest::ShouldCreateWebContents(
   content::OpenURLParams open_params(target_url, content::Referrer(),
                                      WindowOpenDisposition::NEW_FOREGROUND_TAB,
                                      ui::PAGE_TRANSITION_LINK, true);
+  open_params.initiator_origin = opener->GetLastCommittedOrigin();
   // Extensions are allowed to open popups under circumstances covered by
   // running as a mime handler.
   open_params.user_gesture = true;
@@ -416,6 +424,11 @@ void MimeHandlerViewGuest::FuseBeforeUnloadControl(
 
   mojo::FuseInterface(std::move(request),
                       std::move(pending_before_unload_control_));
+}
+
+content::RenderFrameHost* MimeHandlerViewGuest::GetEmbedderFrame() const {
+  return content::RenderFrameHost::FromID(embedder_frame_process_id_,
+                                          embedder_frame_routing_id_);
 }
 
 }  // namespace extensions

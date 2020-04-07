@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/core/html/custom/element_internals.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
@@ -41,25 +42,24 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 inline HTMLLabelElement::HTMLLabelElement(Document& document)
-    : HTMLElement(labelTag, document), processing_click_(false) {}
+    : HTMLElement(kLabelTag, document), processing_click_(false) {}
 
 HTMLLabelElement* HTMLLabelElement::Create(Document& document) {
-  return new HTMLLabelElement(document);
+  return MakeGarbageCollected<HTMLLabelElement>(document);
 }
 
-LabelableElement* HTMLLabelElement::control() const {
-  const AtomicString& control_id = getAttribute(forAttr);
+HTMLElement* HTMLLabelElement::control() const {
+  // https://html.spec.whatwg.org/multipage/forms.html#labeled-control
+  const AtomicString& control_id = getAttribute(kForAttr);
   if (control_id.IsNull()) {
-    // Search the children and descendants of the label element for a form
-    // element.
-    // per http://dev.w3.org/html5/spec/Overview.html#the-label-element
-    // the form element must be "labelable form-associated element".
-    for (LabelableElement& element :
-         Traversal<LabelableElement>::DescendantsOf(*this)) {
-      if (element.SupportLabels()) {
+    // "If the for attribute is not specified, but the label element has a
+    // labelable element descendant, then the first such descendant in tree
+    // order is the label element's labeled control."
+    for (HTMLElement& element : Traversal<HTMLElement>::DescendantsOf(*this)) {
+      if (element.IsLabelable()) {
         if (!element.IsFormControlElement()) {
           UseCounter::Count(
               GetDocument(),
@@ -75,14 +75,15 @@ LabelableElement* HTMLLabelElement::control() const {
     return nullptr;
 
   if (Element* element = GetTreeScope().getElementById(control_id)) {
-    if (IsLabelableElement(*element) &&
-        ToLabelableElement(*element).SupportLabels()) {
-      if (!element->IsFormControlElement()) {
-        UseCounter::Count(
-            GetDocument(),
-            WebFeature::kHTMLLabelElementControlForNonFormAssociatedElement);
+    if (auto* html_element = ToHTMLElementOrNull(*element)) {
+      if (html_element->IsLabelable()) {
+        if (!html_element->IsFormControlElement()) {
+          UseCounter::Count(
+              GetDocument(),
+              WebFeature::kHTMLLabelElementControlForNonFormAssociatedElement);
+        }
+        return html_element;
       }
-      return ToLabelableElement(element);
     }
   }
 
@@ -90,10 +91,11 @@ LabelableElement* HTMLLabelElement::control() const {
 }
 
 HTMLFormElement* HTMLLabelElement::form() const {
-  if (LabelableElement* control = this->control()) {
-    return control->IsFormControlElement()
-               ? ToHTMLFormControlElement(control)->Form()
-               : nullptr;
+  if (HTMLElement* control = this->control()) {
+    if (auto* form_control_element = ToHTMLFormControlElementOrNull(control))
+      return form_control_element->Form();
+    if (control->IsFormAssociatedCustomElement())
+      return control->EnsureElementInternals().Form();
   }
   return nullptr;
 }
@@ -137,18 +139,18 @@ bool HTMLLabelElement::IsInInteractiveContent(Node* node) const {
   return false;
 }
 
-void HTMLLabelElement::DefaultEventHandler(Event* evt) {
-  if (evt->type() == EventTypeNames::click && !processing_click_) {
+void HTMLLabelElement::DefaultEventHandler(Event& evt) {
+  if (evt.type() == event_type_names::kClick && !processing_click_) {
     HTMLElement* element = control();
 
     // If we can't find a control or if the control received the click
     // event, then there's no need for us to do anything.
     if (!element ||
-        (evt->target() && element->IsShadowIncludingInclusiveAncestorOf(
-                              evt->target()->ToNode())))
+        (evt.target() &&
+         element->IsShadowIncludingInclusiveAncestorOf(evt.target()->ToNode())))
       return;
 
-    if (evt->target() && IsInInteractiveContent(evt->target()->ToNode()))
+    if (evt.target() && IsInInteractiveContent(evt.target()->ToNode()))
       return;
 
     //   Behaviour of label element is as follows:
@@ -167,7 +169,7 @@ void HTMLLabelElement::DefaultEventHandler(Event* evt) {
     // click event to control element.
     // Note: check if it is a MouseEvent because a click event may
     // not be an instance of a MouseEvent if created by document.createEvent().
-    if (evt->IsMouseEvent() && ToMouseEvent(evt)->HasPosition()) {
+    if (evt.IsMouseEvent() && ToMouseEvent(evt).HasPosition()) {
       if (LocalFrame* frame = GetDocument().GetFrame()) {
         // Check if there is a selection and click is not on the
         // selection.
@@ -178,7 +180,7 @@ void HTMLLabelElement::DefaultEventHandler(Event* evt) {
             !frame->GetEventHandler()
                  .GetSelectionController()
                  .MouseDownWasSingleClickInSelection() &&
-            evt->target()->ToNode()->CanStartSelection())
+            evt.target()->ToNode()->CanStartSelection())
           is_label_text_selected = true;
         // If selection is there and is single click i.e. text is
         // selected by dragging over label text, then return.
@@ -186,7 +188,7 @@ void HTMLLabelElement::DefaultEventHandler(Event* evt) {
         // should pass click event to control element.
         // Only in case of drag, *neither* we pass the click event,
         // *nor* we focus the control element.
-        if (is_label_text_selected && ToMouseEvent(evt)->ClickCount() == 1)
+        if (is_label_text_selected && ToMouseEvent(evt).ClickCount() == 1)
           return;
       }
     }
@@ -206,11 +208,11 @@ void HTMLLabelElement::DefaultEventHandler(Event* evt) {
     }
 
     // Click the corresponding control.
-    element->DispatchSimulatedClick(evt);
+    element->DispatchSimulatedClick(&evt);
 
     processing_click_ = false;
 
-    evt->SetDefaultHandled();
+    evt.SetDefaultHandled();
   }
 
   HTMLElement::DefaultEventHandler(evt);

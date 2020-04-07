@@ -105,6 +105,14 @@ public:
         else
             ed->insertFromMimeData(source);
     }
+    QVariant loadResource(int type, const QUrl &name) override {
+        auto *ed = qobject_cast<QTextEdit *>(parent());
+        if (!ed)
+            return QWidgetTextControl::loadResource(type, name);
+
+        QUrl resolvedName = ed->d_func()->resolveUrl(name);
+        return ed->loadResource(type, resolvedName);
+    }
 };
 
 QTextEditPrivate::QTextEditPrivate()
@@ -738,6 +746,7 @@ void QTextEdit::setAlignment(Qt::Alignment a)
     QTextCursor cursor = d->control->textCursor();
     cursor.mergeBlockFormat(fmt);
     d->control->setTextCursor(cursor);
+    d->relayoutDocument();
 }
 
 /*!
@@ -2538,6 +2547,27 @@ bool QTextEdit::find(const QString &exp, QTextDocument::FindFlags options)
 */
 #ifndef QT_NO_REGEXP
 bool QTextEdit::find(const QRegExp &exp, QTextDocument::FindFlags options)
+{
+    Q_D(QTextEdit);
+    return d->control->find(exp, options);
+}
+#endif
+
+/*!
+    \fn bool QTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
+
+    \since 5.13
+    \overload
+
+    Finds the next occurrence, matching the regular expression, \a exp, using the given
+    \a options. The QTextDocument::FindCaseSensitively option is ignored for this overload,
+    use QRegularExpression::CaseInsensitiveOption instead.
+
+    Returns \c true if a match was found and changes the cursor to select the match;
+    otherwise returns \c false.
+*/
+#if QT_CONFIG(regularexpression)
+bool QTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
 {
     Q_D(QTextEdit);
     return d->control->find(exp, options);

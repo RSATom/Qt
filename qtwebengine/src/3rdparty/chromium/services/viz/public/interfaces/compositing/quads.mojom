@@ -4,11 +4,17 @@
 
 module viz.mojom;
 
-import "services/viz/public/interfaces/compositing/surface_id.mojom";
+import "services/viz/public/interfaces/compositing/surface_range.mojom";
 import "services/viz/public/interfaces/compositing/shared_quad_state.mojom";
 import "ui/gfx/geometry/mojo/geometry.mojom";
 import "ui/gfx/mojo/color_space.mojom";
 import "ui/gfx/mojo/transform.mojom";
+
+enum ProtectedVideoState {
+  kClear,
+  kSoftwareProtected,
+  kHardwareProtected,
+};
 
 struct DebugBorderQuadState {
   // Debug border color.
@@ -41,6 +47,7 @@ struct RenderPassQuadState {
   gfx.mojom.RectF tex_coord_rect;
 
   bool force_anti_aliasing_off;
+  float backdrop_filter_quality;
 };
 
 struct SolidColorQuadState {
@@ -55,8 +62,7 @@ struct StreamVideoQuadState {
 };
 
 struct SurfaceQuadState {
-  SurfaceId primary_surface_id;
-  SurfaceId? fallback_surface_id;
+  SurfaceRange surface_range;
   uint32 default_background_color;
   bool stretch_content_to_fill_bounds;
 };
@@ -72,6 +78,7 @@ struct TextureQuadState {
   bool y_flipped;
   bool nearest_neighbor;
   bool secure_output_only;
+  ProtectedVideoState protected_video_type;
 };
 
 struct TileQuadState {
@@ -97,8 +104,7 @@ struct YUVVideoQuadState {
   float resource_multiplier;
   uint32 bits_per_channel;
   gfx.mojom.ColorSpace video_color_space;
-  bool require_overlay;
-  bool is_protected_video;
+  ProtectedVideoState protected_video_type;
 };
 
 union DrawQuadState {

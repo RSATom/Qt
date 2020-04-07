@@ -138,7 +138,11 @@
       name: "shouldClearDocumentBackground",
       initial: true,
     },
-
+    {
+      name: "HighlightAds",
+      initial: false,
+      invalidate: "HighlightAds"
+    },
     {
       name: "textAreasAreResizable",
       initial: false,
@@ -146,7 +150,7 @@
     },
     {
       name: "acceleratedCompositingEnabled",
-      initial: true,
+      initial: false,
       invalidate: "AcceleratedCompositing",
     },
 
@@ -221,7 +225,7 @@
     },
 
     {
-      name: "mediaPlaybackGestureWhitelistScope",
+      name: "webAppScope",
       type: "String",
     },
 
@@ -257,7 +261,7 @@
       invalidate: "Style",
     },
 
-    // Used in layout tests for gesture tap highlights. Makes the highlights square
+    // Used in web tests for gesture tap highlights. Makes the highlights square
     // (rather than rounded) to make it possible to reftest the results.
     {
       name: "mockGestureTapHighlightsEnabled",
@@ -498,7 +502,7 @@
       type: "double",
     },
 
-    // Only used by Layout Tests and inspector emulation.
+    // Only used by web tests and inspector emulation.
     {
       name: "mediaTypeOverride",
       initial: "\"\"",
@@ -555,6 +559,14 @@
       invalidate: "ViewportDescription",
     },
 
+    // When true, Blink will use the content width and viewport size to set the
+    // minimum scale factor such that the user can't zoom out into the area
+    // beyond the content.
+    {
+      name: "shrinksViewportContentToFit",
+      initial: false,
+    },
+
     {
       name: "dnsPrefetchingEnabled",
       initial: false,
@@ -575,11 +587,11 @@
       initial: false,
     },
 
-    // Set the timeout seconds of NetworkQuietTimers in FirstMeaningfulPainterDetector.
+    // Set the timeout seconds of the network-quiet timers in IdlenessDetector.
     // Used by embedders who want to change the timeout time in order to run web contents
     // on various embedded devices and changeable network bandwidths in different regions.
     {
-      name: "FMPNetworkQuietTimeout",
+      name: "NetworkQuietTimeout",
       initial: "0.5",
       type: "double",
     },
@@ -654,13 +666,6 @@
       initial: "kHoverTypeNone",
       invalidate: "MediaQuery",
       type: "HoverType",
-    },
-
-    // Whether accessibility support is enabled at all.
-    {
-      name: "accessibilityEnabled",
-      initial: false,
-      invalidate: "AccessibilityState",
     },
 
     // If true, the value in password fields is exposed to assistive technologies.
@@ -785,12 +790,6 @@
     },
 
     {
-      name: "savePreviousDocumentResources",
-      initial: "SavePreviousDocumentResources::kNever",
-      type: "SavePreviousDocumentResources",
-    },
-
-    {
       name: "historyEntryRequiresUserGesture",
       initial: false,
     },
@@ -831,14 +830,6 @@
       initial: false,
     },
 
-    // Whether data saver holdback is enabled when queried by the media APIs within Blink. If
-    // enabled, data saver appears as disabled to the media APIs even if it has been actually
-    // enabled by the user.
-    {
-      name: "dataSaverHoldbackMediaApi",
-      initial: false,
-    },
-
     // Whether to invalidate device-dependent media queries and restore scroll positions
     // on frame resize assuming device rotation.
     {
@@ -854,17 +845,6 @@
       name: "passiveListenerDefault",
       initial: "PassiveListenerDefault::kFalse",
       type: "PassiveListenerDefault",
-    },
-
-    // Whether the CSSPreloadScanner is used for externally CSS preloads. NoPreload
-    // indicates that the scanner will be used, but no preloads issued.
-    {
-      name: "cssExternalScannerNoPreload",
-      initial: false,
-    },
-    {
-      name: "cssExternalScannerPreload",
-      initial: false,
     },
 
     // Some platforms have media subsystems which are too buggy to allow preloading
@@ -890,12 +870,6 @@
     // Whether download UI should be hidden for the current page content.
     {
       name: "hideDownloadUI",
-      initial: false,
-    },
-
-    // Whether or not to issue range requests for images and show placeholders.
-    {
-      name: "fetchImagePlaceholders",
       initial: false,
     },
 
@@ -963,10 +937,14 @@
       type: "WebEffectiveConnectionType",
     },
     {
-      name: "shouldThrottlePushState",
+      name: "shouldProtectAgainstIpcFlooding",
       initial: true,
     },
 
+    {
+      name: "lazyLoadEnabled",
+      initial: false,
+    },
     //
     // Lazy frame loading distance-from-viewport thresholds for different effective connection types.
     //
@@ -999,6 +977,57 @@
       name: "lazyFrameLoadingDistanceThresholdPx4G",
       initial: 800,
       type: "int",
+    },
+
+    //
+    // Lazy image loading distance-from-viewport thresholds for different effective connection types.
+    //
+    {
+      name: "lazyImageLoadingDistanceThresholdPxUnknown",
+      initial: 800,
+      type: "int",
+    },
+    {
+      name: "lazyImageLoadingDistanceThresholdPxOffline",
+      initial: 800,
+      type: "int",
+    },
+    {
+      name: "lazyImageLoadingDistanceThresholdPxSlow2G",
+      initial: 800,
+      type: "int",
+    },
+    {
+      name: "lazyImageLoadingDistanceThresholdPx2G",
+      initial: 800,
+      type: "int",
+    },
+    {
+      name: "lazyImageLoadingDistanceThresholdPx3G",
+      initial: 800,
+      type: "int",
+    },
+    {
+      name: "lazyImageLoadingDistanceThresholdPx4G",
+      initial: 800,
+      type: "int",
+    },
+
+    // Preferred color scheme from the OS/application passed to the renderer for
+    // evaluating the prefers-color-scheme media query.
+    {
+      name: "preferredColorScheme",
+      initial: "WebColorScheme::kNoPreference",
+      invalidate: "MediaQuery",
+      type: "WebColorScheme",
+    },
+
+    // Preferred motion-reduction setting from the OS/application passed to the
+    // renderer for evaluating the prefers-reduced-motion media query.
+    {
+      name: "prefersReducedMotion",
+      initial: false,
+      invalidate: "MediaQuery",
     },
   ],
 }

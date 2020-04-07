@@ -21,13 +21,14 @@ namespace background_fetch {
 // download response in cache storage.
 class MarkRequestCompleteTask : public DatabaseTask {
  public:
-  using MarkedCompleteCallback = base::OnceCallback<void()>;
+  using MarkRequestCompleteCallback =
+      base::OnceCallback<void(blink::mojom::BackgroundFetchError)>;
 
   MarkRequestCompleteTask(
       DatabaseTaskHost* host,
-      BackgroundFetchRegistrationId registration_id,
+      const BackgroundFetchRegistrationId& registration_id,
       scoped_refptr<BackgroundFetchRequestInfo> request_info,
-      MarkedCompleteCallback callback);
+      MarkRequestCompleteCallback callback);
 
   ~MarkRequestCompleteTask() override;
 
@@ -37,10 +38,12 @@ class MarkRequestCompleteTask : public DatabaseTask {
  private:
   void StoreResponse(base::OnceClosure done_closure);
 
-  void PopulateResponseBody(ServiceWorkerResponse* response);
+  void PopulateResponseBody(blink::mojom::FetchAPIResponse* response);
 
-  void DidOpenCache(std::unique_ptr<ServiceWorkerResponse> response,
-                    base::OnceClosure done_closure,
+  void DidGetIsQuotaAvailable(base::OnceClosure done_closure,
+                              bool is_available);
+
+  void DidOpenCache(base::OnceClosure done_closure,
                     CacheStorageCacheHandle handle,
                     blink::mojom::CacheStorageError error);
 
@@ -67,12 +70,16 @@ class MarkRequestCompleteTask : public DatabaseTask {
 
   void FinishWithError(blink::mojom::BackgroundFetchError error) override;
 
+  std::string HistogramName() const override;
+
   BackgroundFetchRegistrationId registration_id_;
   scoped_refptr<BackgroundFetchRequestInfo> request_info_;
-  MarkedCompleteCallback callback_;
+  blink::mojom::FetchAPIResponsePtr response_;
+  MarkRequestCompleteCallback callback_;
 
   proto::BackgroundFetchCompletedRequest completed_request_;
-  bool is_response_successful_ = true;
+  proto::BackgroundFetchRegistration::BackgroundFetchFailureReason
+      failure_reason_ = proto::BackgroundFetchRegistration::NONE;
 
   base::WeakPtrFactory<MarkRequestCompleteTask> weak_factory_;  // Keep as last.
 

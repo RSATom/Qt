@@ -13,13 +13,15 @@
 #include "src/code-events.h"
 #include "src/contexts.h"
 #include "src/isolate.h"
-#include "src/unicode-cache.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
 namespace internal {
 
 // Forward declarations.
+class AstRawString;
+class BackgroundCompileTask;
+class IsCompiledScope;
 class JavaScriptFrame;
 class OptimizedCompilationInfo;
 class OptimizedCompilationJob;
@@ -27,8 +29,10 @@ class ParseInfo;
 class Parser;
 class ScriptData;
 struct ScriptStreamingData;
+class TimedHistogram;
 class UnoptimizedCompilationInfo;
 class UnoptimizedCompilationJob;
+class WorkerThreadRuntimeCallStats;
 
 typedef std::forward_list<std::unique_ptr<UnoptimizedCompilationJob>>
     UnoptimizedCompilationJobList;
@@ -54,26 +58,23 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
   // given function holds (except for live-edit, which compiles the world).
 
   static bool Compile(Handle<SharedFunctionInfo> shared,
-                      ClearExceptionFlag flag);
-  static bool Compile(Handle<JSFunction> function, ClearExceptionFlag flag);
+                      ClearExceptionFlag flag,
+                      IsCompiledScope* is_compiled_scope);
+  static bool Compile(Handle<JSFunction> function, ClearExceptionFlag flag,
+                      IsCompiledScope* is_compiled_scope);
   static bool CompileOptimized(Handle<JSFunction> function, ConcurrencyMode);
 
   V8_WARN_UNUSED_RESULT static MaybeHandle<SharedFunctionInfo>
   CompileForLiveEdit(ParseInfo* parse_info, Isolate* isolate);
 
-  // Creates a new task that when run will parse and compile the streamed
-  // script associated with |streaming_data| and can be finalized with
-  // Compiler::GetSharedFunctionInfoForStreamedScript.
-  // Note: does not take ownership of streaming_data.
-  static ScriptCompiler::ScriptStreamingTask* NewBackgroundCompileTask(
-      ScriptStreamingData* streaming_data, Isolate* isolate);
+  // Finalize and install code from previously run background compile task.
+  static bool FinalizeBackgroundCompileTask(
+      BackgroundCompileTask* task, Handle<SharedFunctionInfo> shared_info,
+      Isolate* isolate, ClearExceptionFlag flag);
 
-  // Generate and install code from previously queued compilation job.
-  static bool FinalizeCompilationJob(UnoptimizedCompilationJob* job,
-                                     Handle<SharedFunctionInfo> shared_info,
-                                     Isolate* isolate);
-  static bool FinalizeCompilationJob(OptimizedCompilationJob* job,
-                                     Isolate* isolate);
+  // Finalize and install optimized code from previously run job.
+  static bool FinalizeOptimizedCompilationJob(OptimizedCompilationJob* job,
+                                              Isolate* isolate);
 
   // Give the compiler a chance to perform low-latency initialization tasks of
   // the given {function} on its instantiation. Note that only the runtime will
@@ -101,9 +102,7 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
       Handle<String> source, Handle<SharedFunctionInfo> outer_info,
       Handle<Context> context, LanguageMode language_mode,
       ParseRestriction restriction, int parameters_end_pos,
-      int eval_scope_position, int eval_position, int line_offset = 0,
-      int column_offset = 0, Handle<Object> script_name = Handle<Object>(),
-      ScriptOriginOptions options = ScriptOriginOptions());
+      int eval_scope_position, int eval_position);
 
   struct ScriptDetails {
     ScriptDetails() : line_offset(0), column_offset(0) {}
@@ -139,9 +138,10 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
 
   // Create a shared function info object for a String source.
   static MaybeHandle<SharedFunctionInfo> GetSharedFunctionInfoForScript(
-      Handle<String> source, const ScriptDetails& script_details,
-      ScriptOriginOptions origin_options, v8::Extension* extension,
-      ScriptData* cached_data, ScriptCompiler::CompileOptions compile_options,
+      Isolate* isolate, Handle<String> source,
+      const ScriptDetails& script_details, ScriptOriginOptions origin_options,
+      v8::Extension* extension, ScriptData* cached_data,
+      ScriptCompiler::CompileOptions compile_options,
       ScriptCompiler::NoCacheReason no_cache_reason,
       NativesFlag is_natives_code);
 
@@ -151,8 +151,9 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
   // have been released, however the object itself isn't freed and is still
   // owned by the caller.
   static MaybeHandle<SharedFunctionInfo> GetSharedFunctionInfoForStreamedScript(
-      Handle<String> source, const ScriptDetails& script_details,
-      ScriptOriginOptions origin_options, ScriptStreamingData* streaming_data);
+      Isolate* isolate, Handle<String> source,
+      const ScriptDetails& script_details, ScriptOriginOptions origin_options,
+      ScriptStreamingData* streaming_data);
 
   // Create a shared function info object for the given function literal
   // node (the code may be lazily compiled).
@@ -190,7 +191,7 @@ class V8_EXPORT_PRIVATE CompilationJob {
 
   CompilationJob(uintptr_t stack_limit, State initial_state)
       : state_(initial_state), stack_limit_(stack_limit) {}
-  virtual ~CompilationJob() {}
+  virtual ~CompilationJob() = default;
 
   void set_stack_limit(uintptr_t stack_limit) { stack_limit_ = stack_limit; }
   uintptr_t stack_limit() const { return stack_limit_; }
@@ -317,6 +318,55 @@ class OptimizedCompilationJob : public CompilationJob {
   const char* compiler_name_;
 };
 
+class V8_EXPORT_PRIVATE BackgroundCompileTask {
+ public:
+  // Creates a new task that when run will parse and compile the streamed
+  // script associated with |data| and can be finalized with
+  // Compiler::GetSharedFunctionInfoForStreamedScript.
+  // Note: does not take ownership of |data|.
+  BackgroundCompileTask(ScriptStreamingData* data, Isolate* isolate);
+  ~BackgroundCompileTask();
+
+  // Creates a new task that when run will parse and compile the
+  // |function_literal| and can be finalized with
+  // Compiler::FinalizeBackgroundCompileTask.
+  BackgroundCompileTask(
+      AccountingAllocator* allocator, const ParseInfo* outer_parse_info,
+      const AstRawString* function_name,
+      const FunctionLiteral* function_literal,
+      WorkerThreadRuntimeCallStats* worker_thread_runtime_stats,
+      TimedHistogram* timer, int max_stack_size);
+
+  void Run();
+
+  ParseInfo* info() { return info_.get(); }
+  Parser* parser() { return parser_.get(); }
+  UnoptimizedCompilationJob* outer_function_job() {
+    return outer_function_job_.get();
+  }
+  UnoptimizedCompilationJobList* inner_function_jobs() {
+    return &inner_function_jobs_;
+  }
+
+ private:
+  // Data needed for parsing, and data needed to to be passed between thread
+  // between parsing and compilation. These need to be initialized before the
+  // compilation starts.
+  std::unique_ptr<ParseInfo> info_;
+  std::unique_ptr<Parser> parser_;
+
+  // Data needed for finalizing compilation after background compilation.
+  std::unique_ptr<UnoptimizedCompilationJob> outer_function_job_;
+  UnoptimizedCompilationJobList inner_function_jobs_;
+
+  int stack_size_;
+  WorkerThreadRuntimeCallStats* worker_thread_runtime_call_stats_;
+  AccountingAllocator* allocator_;
+  TimedHistogram* timer_;
+
+  DISALLOW_COPY_AND_ASSIGN(BackgroundCompileTask);
+};
+
 // Contains all data which needs to be transmitted between threads for
 // background parsing and compiling and finalizing it on the main thread.
 struct ScriptStreamingData {
@@ -329,18 +379,9 @@ struct ScriptStreamingData {
   // Internal implementation of v8::ScriptCompiler::StreamedSource.
   std::unique_ptr<ScriptCompiler::ExternalSourceStream> source_stream;
   ScriptCompiler::StreamedSource::Encoding encoding;
-  std::unique_ptr<ScriptCompiler::CachedData> cached_data;
 
-  // Data needed for parsing, and data needed to to be passed between thread
-  // between parsing and compilation. These need to be initialized before the
-  // compilation starts.
-  UnicodeCache unicode_cache;
-  std::unique_ptr<ParseInfo> info;
-  std::unique_ptr<Parser> parser;
-
-  // Data needed for finalizing compilation after background compilation.
-  std::unique_ptr<UnoptimizedCompilationJob> outer_function_job;
-  UnoptimizedCompilationJobList inner_function_jobs;
+  // Task that performs background parsing and compilation.
+  std::unique_ptr<BackgroundCompileTask> task;
 
   DISALLOW_COPY_AND_ASSIGN(ScriptStreamingData);
 };

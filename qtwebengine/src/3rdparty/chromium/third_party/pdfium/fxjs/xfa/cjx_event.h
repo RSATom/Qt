@@ -8,18 +8,14 @@
 #define FXJS_XFA_CJX_EVENT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Event;
 
-class CJX_Event : public CJX_Node {
+class CJX_Event final : public CJX_Node {
  public:
   explicit CJX_Event(CXFA_Event* node);
   ~CJX_Event() override;
-
-  JS_PROP(activity);
-  JS_PROP(ref);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_EVENT_H_

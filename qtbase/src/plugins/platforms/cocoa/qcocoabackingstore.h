@@ -49,21 +49,32 @@
 
 QT_BEGIN_NAMESPACE
 
-class QNSWindowBackingStore : public QRasterBackingStore
+class QCocoaBackingStore : public QRasterBackingStore
+{
+protected:
+    QCocoaBackingStore(QWindow *window);
+    QCFType<CGColorSpaceRef> colorSpace() const;
+    QMacNotificationObserver m_backingPropertiesObserver;
+    virtual void backingPropertiesChanged() = 0;
+};
+
+class QNSWindowBackingStore : public QCocoaBackingStore
 {
 public:
     QNSWindowBackingStore(QWindow *window);
     ~QNSWindowBackingStore();
 
+    void resize(const QSize &size, const QRegion &staticContents) override;
     void flush(QWindow *, const QRegion &, const QPoint &) override;
 
 private:
     bool windowHasUnifiedToolbar() const;
     QImage::Format format() const override;
     void redrawRoundedBottomCorners(CGRect) const;
+    void backingPropertiesChanged() override;
 };
 
-class QCALayerBackingStore : public QPlatformBackingStore
+class QCALayerBackingStore : public QCocoaBackingStore
 {
 public:
     QCALayerBackingStore(QWindow *window);
@@ -106,6 +117,8 @@ private:
     void ensureBackBuffer();
     bool recreateBackBufferIfNeeded();
     bool prepareForFlush();
+
+    void backingPropertiesChanged() override;
 
     std::list<std::unique_ptr<GraphicsBuffer>> m_buffers;
 };

@@ -11,7 +11,7 @@
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_restrictions.h"
@@ -73,7 +73,7 @@ class BlobRegistryImplTest : public testing::Test {
     delegate_ptr_ = delegate.get();
     registry_impl_->Bind(MakeRequest(&registry_), std::move(delegate));
 
-    mojo::core::SetDefaultProcessErrorCallback(base::Bind(
+    mojo::core::SetDefaultProcessErrorCallback(base::BindRepeating(
         &BlobRegistryImplTest::OnBadMessage, base::Unretained(this)));
 
     storage::BlobStorageLimits limits;

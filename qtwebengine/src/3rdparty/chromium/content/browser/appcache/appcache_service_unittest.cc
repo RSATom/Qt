@@ -5,23 +5,25 @@
 #include <stdint.h>
 
 #include <string>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/pickle.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/appcache/appcache_response.h"
 #include "content/browser/appcache/appcache_service_impl.h"
 #include "content/browser/appcache/mock_appcache_storage.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/http/http_response_headers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 namespace {
@@ -43,8 +45,7 @@ class MockResponseReader : public AppCacheResponseReader {
                      int info_size,
                      const char* data,
                      int data_size)
-      : AppCacheResponseReader(response_id,
-                               base::WeakPtr<AppCacheDiskCacheInterface>()),
+      : AppCacheResponseReader(response_id, /*disk_cache=*/nullptr),
         info_(info),
         info_size_(info_size),
         data_(data),
@@ -101,10 +102,7 @@ class AppCacheServiceImplTest : public testing::Test {
         kManifestUrl(kOriginURL.Resolve("manifest")),
         service_(new AppCacheServiceImpl(nullptr)),
         delete_result_(net::OK),
-        delete_completion_count_(0),
-        deletion_callback_(
-            base::Bind(&AppCacheServiceImplTest::OnDeleteAppCachesComplete,
-                       base::Unretained(this))) {
+        delete_completion_count_(0) {
     // Setup to use mock storage.
     service_->storage_.reset(new MockAppCacheStorage(service_.get()));
   }
@@ -142,7 +140,7 @@ class AppCacheServiceImplTest : public testing::Test {
     cache->AddEntry(
         kManifestUrl,
         AppCacheEntry(AppCacheEntry::MANIFEST, kMockResponseId,
-                      kMockInfoSize + kMockBodySize));
+                      kMockInfoSize + kMockBodySize, /*padding_size=*/0));
     cache->set_complete(true);
     group->AddCache(cache.get());
     mock_storage()->AddStoredGroup(group.get());
@@ -166,7 +164,7 @@ class AppCacheServiceImplTest : public testing::Test {
     info->response_time = base::Time::Now();
     info->was_cached = false;
     info->headers = new net::HttpResponseHeaders(
-        std::string(kMockHeaders, arraysize(kMockHeaders)));
+        std::string(kMockHeaders, base::size(kMockHeaders)));
     return info;
   }
 
@@ -183,6 +181,11 @@ class AppCacheServiceImplTest : public testing::Test {
     return pickle->size();
   }
 
+  net::CompletionOnceCallback deletion_callback() {
+    return base::BindOnce(&AppCacheServiceImplTest::OnDeleteAppCachesComplete,
+                          base::Unretained(this));
+  }
+
   const GURL kOriginURL;
   const url::Origin kOrigin;
   const GURL kManifestUrl;
@@ -191,12 +194,11 @@ class AppCacheServiceImplTest : public testing::Test {
   std::unique_ptr<AppCacheServiceImpl> service_;
   int delete_result_;
   int delete_completion_count_;
-  net::CompletionCallback deletion_callback_;
 };
 
 TEST_F(AppCacheServiceImplTest, DeleteAppCachesForOrigin) {
   // Without giving mock storage simiulated info, should fail.
-  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback_);
+  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback());
   EXPECT_EQ(0, delete_completion_count_);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, delete_completion_count_);
@@ -205,7 +207,7 @@ TEST_F(AppCacheServiceImplTest, DeleteAppCachesForOrigin) {
 
   // Should succeed given an empty info collection.
   mock_storage()->SimulateGetAllInfo(new content::AppCacheInfoCollection);
-  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback_);
+  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback());
   EXPECT_EQ(0, delete_completion_count_);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, delete_completion_count_);
@@ -215,19 +217,19 @@ TEST_F(AppCacheServiceImplTest, DeleteAppCachesForOrigin) {
   scoped_refptr<AppCacheInfoCollection> info(new AppCacheInfoCollection);
 
   // Should succeed given a non-empty info collection.
-  AppCacheInfo mock_manifest_1;
-  AppCacheInfo mock_manifest_2;
-  AppCacheInfo mock_manifest_3;
+  blink::mojom::AppCacheInfo mock_manifest_1;
+  blink::mojom::AppCacheInfo mock_manifest_2;
+  blink::mojom::AppCacheInfo mock_manifest_3;
   mock_manifest_1.manifest_url = kOriginURL.Resolve("manifest1");
   mock_manifest_2.manifest_url = kOriginURL.Resolve("manifest2");
   mock_manifest_3.manifest_url = kOriginURL.Resolve("manifest3");
-  AppCacheInfoVector info_vector;
+  std::vector<blink::mojom::AppCacheInfo> info_vector;
   info_vector.push_back(mock_manifest_1);
   info_vector.push_back(mock_manifest_2);
   info_vector.push_back(mock_manifest_3);
   info->infos_by_origin[kOrigin] = info_vector;
   mock_storage()->SimulateGetAllInfo(info.get());
-  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback_);
+  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback());
   EXPECT_EQ(0, delete_completion_count_);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, delete_completion_count_);
@@ -238,7 +240,7 @@ TEST_F(AppCacheServiceImplTest, DeleteAppCachesForOrigin) {
   info->infos_by_origin[kOrigin] = info_vector;
   mock_storage()->SimulateGetAllInfo(info.get());
   mock_storage()->SimulateMakeGroupObsoleteFailure();
-  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback_);
+  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback());
   EXPECT_EQ(0, delete_completion_count_);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, delete_completion_count_);
@@ -247,7 +249,7 @@ TEST_F(AppCacheServiceImplTest, DeleteAppCachesForOrigin) {
 
   // Should complete with abort error if the service is deleted
   // prior to a delete completion.
-  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback_);
+  service_->DeleteAppCachesForOrigin(kOrigin, deletion_callback());
   EXPECT_EQ(0, delete_completion_count_);
   service_.reset();  // kill it
   EXPECT_EQ(1, delete_completion_count_);

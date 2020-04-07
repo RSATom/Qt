@@ -17,6 +17,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/safe_browsing/base_ui_manager.h"
 #include "components/safe_browsing/browser/referrer_chain_provider.h"
@@ -25,6 +26,7 @@
 #include "components/safe_browsing/db/hit_report.h"
 #include "components/safe_browsing/features.h"
 #include "components/safe_browsing/web_ui/safe_browsing_ui.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -97,8 +99,21 @@ ClientSafeBrowsingReportRequest::ReportType GetReportTypeFromSBThreatType(
       return ClientSafeBrowsingReportRequest::URL_PASSWORD_PROTECTION_PHISHING;
     case SB_THREAT_TYPE_SUSPICIOUS_SITE:
       return ClientSafeBrowsingReportRequest::URL_SUSPICIOUS;
-    default:  // Gated by SafeBrowsingBlockingPage::ShouldReportThreatDetails.
-      NOTREACHED() << "We should not send report for threat type "
+    case SB_THREAT_TYPE_BILLING:
+      return ClientSafeBrowsingReportRequest::BILLING;
+    case SB_THREAT_TYPE_APK_DOWNLOAD:
+      return ClientSafeBrowsingReportRequest::APK_DOWNLOAD;
+    case SB_THREAT_TYPE_UNUSED:
+    case SB_THREAT_TYPE_SAFE:
+    case SB_THREAT_TYPE_URL_BINARY_MALWARE:
+    case SB_THREAT_TYPE_EXTENSION:
+    case SB_THREAT_TYPE_BLACKLISTED_RESOURCE:
+    case SB_THREAT_TYPE_API_ABUSE:
+    case SB_THREAT_TYPE_SUBRESOURCE_FILTER:
+    case SB_THREAT_TYPE_CSD_WHITELIST:
+    case DEPRECATED_SB_THREAT_TYPE_URL_PASSWORD_PROTECTION_PHISHING:
+      // Gated by SafeBrowsingBlockingPage::ShouldReportThreatDetails.
+      NOTREACHED() << "We should not send report for threat type: "
                    << threat_type;
       return ClientSafeBrowsingReportRequest::UNKNOWN;
   }
@@ -209,10 +224,11 @@ void TrimElements(const std::set<int> target_ids,
   // the immediate parent, the siblings, and the children of the target ids.
   // By keeping the parent of the target and all of its children, this covers
   // the target's siblings as well.
-  std::vector<int> ids_to_keep;
-  // Keep track of ids that were kept to avoid duplication. We still need the
-  // vector above for handling the children where it is used like a queue.
-  std::unordered_set<int> kept_ids;
+  std::vector<int> element_ids_to_keep;
+  // Resource IDs are also tracked so that we remember which resources are
+  // attached to elements that we are keeping. This avoids deleting resources
+  // that are shared between kept elements and trimmed elements.
+  std::vector<int> kept_resource_ids;
   for (int target_id : target_ids) {
     const int parent_id = element_id_to_parent_id[target_id];
     if (parent_id == kElementIdNoParent) {
@@ -225,36 +241,55 @@ void TrimElements(const std::set<int> target_ids,
     // Otherwise, insert the parent ID into the list of ids to keep. This will
     // capture the parent and siblings of the target element, as well as each of
     // their children.
-    if (kept_ids.count(parent_id) == 0) {
-      ids_to_keep.push_back(parent_id);
-      kept_ids.insert(parent_id);
+    if (!base::ContainsValue(element_ids_to_keep, parent_id)) {
+      element_ids_to_keep.push_back(parent_id);
+
+      // Check if this element has a resource. If so, remember to also keep the
+      // resource.
+      const HTMLElement& elem = *elements_by_id[parent_id];
+      if (elem.has_resource_id()) {
+        kept_resource_ids.push_back(elem.resource_id());
+      }
     }
   }
 
-  // Walk through |ids_to_keep| and append the children of each of element to
-  // |ids_to_keep|. This is effectively a breadth-first traversal of the tree.
-  // The list will stop growing when we reach the leaf nodes that have no more
-  // children.
-  for (size_t index = 0; index < ids_to_keep.size(); ++index) {
-    int cur_element_id = ids_to_keep[index];
+  // Walk through |element_ids_to_keep| and append the children of each of
+  // element to |element_ids_to_keep|. This is effectively a breadth-first
+  // traversal of the tree. The list will stop growing when we reach the leaf
+  // nodes that have no more children.
+  for (size_t index = 0; index < element_ids_to_keep.size(); ++index) {
+    int cur_element_id = element_ids_to_keep[index];
     const HTMLElement& element = *(elements_by_id[cur_element_id]);
+    if (element.has_resource_id()) {
+      kept_resource_ids.push_back(element.resource_id());
+    }
     for (int child_id : element.child_ids()) {
-      ids_to_keep.push_back(child_id);
+      element_ids_to_keep.push_back(child_id);
+
+      // Check if each child element has a resource. If so, remember to also
+      // keep the resource.
+      const HTMLElement& child_element = *elements_by_id[child_id];
+      if (child_element.has_resource_id()) {
+        kept_resource_ids.push_back(child_element.resource_id());
+      }
     }
   }
   // Sort the list for easier lookup below.
-  std::sort(ids_to_keep.begin(), ids_to_keep.end());
+  std::sort(element_ids_to_keep.begin(), element_ids_to_keep.end());
 
   // Now we know which elements we want to keep, scan through |elements| and
-  // erase anything that we aren't keeping. If an erased element refers to a
-  // resource then remove it from |resources| as well.
+  // erase anything that we aren't keeping.
   for (auto element_iter = elements->begin();
        element_iter != elements->end();) {
     const HTMLElement& element = *element_iter->second;
 
     // Delete any elements that we do not want to keep.
-    if (!base::ContainsValue(ids_to_keep, element.id())) {
-      if (element.has_resource_id()) {
+    if (!base::ContainsValue(element_ids_to_keep, element.id())) {
+      // If this element has a resource then maybe delete the resouce too. Some
+      // resources may be shared between kept and trimmed elements, and those
+      // ones should not be deleted.
+      if (element.has_resource_id() &&
+          !base::ContainsValue(kept_resource_ids, element.resource_id())) {
         const std::string& resource_url =
             resource_id_to_url[element.resource_id()];
         resources->erase(resource_url);
@@ -271,7 +306,7 @@ void TrimElements(const std::set<int> target_ids,
 // don't leak it.
 class ThreatDetailsFactoryImpl : public ThreatDetailsFactory {
  public:
-  ThreatDetails* CreateThreatDetails(
+  std::unique_ptr<ThreatDetails> CreateThreatDetails(
       BaseUIManager* ui_manager,
       WebContents* web_contents,
       const security_interstitials::UnsafeResource& unsafe_resource,
@@ -280,10 +315,15 @@ class ThreatDetailsFactoryImpl : public ThreatDetailsFactory {
       ReferrerChainProvider* referrer_chain_provider,
       bool trim_to_ad_tags,
       ThreatDetailsDoneCallback done_callback) override {
-    return new ThreatDetails(ui_manager, web_contents, unsafe_resource,
-                             url_loader_factory, history_service,
-                             referrer_chain_provider, trim_to_ad_tags,
-                             done_callback);
+    // We can't use make_unique due to the protected constructor. We can't
+    // directly use std::unique_ptr<ThreatDetails>(new ThreatDetails(...))
+    // due to presubmit errors. So we use base::WrapUnique:
+    auto threat_details = base::WrapUnique(new ThreatDetails(
+        ui_manager, web_contents, unsafe_resource, url_loader_factory,
+        history_service, referrer_chain_provider, trim_to_ad_tags,
+        done_callback));
+    threat_details->StartCollection();
+    return threat_details;
   }
 
  private:
@@ -299,7 +339,7 @@ static base::LazyInstance<ThreatDetailsFactoryImpl>::DestructorAtExit
 
 // Create a ThreatDetails for the given tab.
 /* static */
-ThreatDetails* ThreatDetails::NewThreatDetails(
+std::unique_ptr<ThreatDetails> ThreatDetails::NewThreatDetails(
     BaseUIManager* ui_manager,
     WebContents* web_contents,
     const UnsafeResource& resource,
@@ -340,11 +380,11 @@ ThreatDetails::ThreatDetails(
       cache_collector_(new ThreatDetailsCacheCollector),
       done_callback_(done_callback),
       all_done_expected_(false),
-      is_all_done_(false) {
+      is_all_done_(false),
+      weak_factory_(this) {
   redirects_collector_ = new ThreatDetailsRedirectsCollector(
       history_service ? history_service->AsWeakPtr()
                       : base::WeakPtr<history::HistoryService>());
-  StartCollection();
 }
 
 // TODO(lpz): Consider making this constructor delegate to the parameterized one
@@ -356,7 +396,8 @@ ThreatDetails::ThreatDetails()
       ambiguous_dom_(false),
       trim_to_ad_tags_(false),
       all_done_expected_(false),
-      is_all_done_(false) {}
+      is_all_done_(false),
+      weak_factory_(this) {}
 
 ThreatDetails::~ThreatDetails() {
   DCHECK(all_done_expected_ == is_all_done_);
@@ -420,8 +461,7 @@ ClientSafeBrowsingReportRequest::Resource* ThreatDetails::AddUrl(
     url_resource->set_parent_id(parent_resource->id());
   }
   if (children) {
-    for (std::vector<GURL>::const_iterator it = children->begin();
-         it != children->end(); ++it) {
+    for (auto it = children->begin(); it != children->end(); ++it) {
       // TODO(lpz): Should this first check if the child URL is reportable
       // before creating the resource?
       ClientSafeBrowsingReportRequest::Resource* child_resource =
@@ -569,8 +609,8 @@ void ThreatDetails::StartCollection() {
     // OnReceivedThreatDOMDetails will be called when the renderer replies.
     // TODO(mattm): In theory, if the user proceeds through the warning DOM
     // detail collection could be started once the page loads.
-    web_contents()->ForEachFrame(
-        base::BindRepeating(&ThreatDetails::RequestThreatDOMDetails, this));
+    web_contents()->ForEachFrame(base::BindRepeating(
+        &ThreatDetails::RequestThreatDOMDetails, GetWeakPtr()));
   }
 }
 
@@ -579,9 +619,10 @@ void ThreatDetails::RequestThreatDOMDetails(content::RenderFrameHost* frame) {
   frame->GetRemoteInterfaces()->GetInterface(&threat_reporter);
   safe_browsing::mojom::ThreatReporter* raw_threat_report =
       threat_reporter.get();
+  pending_render_frame_hosts_.push_back(frame);
   raw_threat_report->GetThreatDOMDetails(
-      base::BindOnce(&ThreatDetails::OnReceivedThreatDOMDetails, this,
-                     base::Passed(&threat_reporter), frame));
+      base::BindOnce(&ThreatDetails::OnReceivedThreatDOMDetails, GetWeakPtr(),
+                     std::move(threat_reporter), frame));
 }
 
 // When the renderer is done, this is called.
@@ -589,6 +630,16 @@ void ThreatDetails::OnReceivedThreatDOMDetails(
     mojom::ThreatReporterPtr threat_reporter,
     content::RenderFrameHost* sender,
     std::vector<mojom::ThreatDOMDetailsNodePtr> params) {
+  // If the RenderFrameHost was closed between sending the IPC and this callback
+  // running, |sender| will be invalid.
+  const auto sender_it = std::find(pending_render_frame_hosts_.begin(),
+                                   pending_render_frame_hosts_.end(), sender);
+  if (sender_it == pending_render_frame_hosts_.end()) {
+    return;
+  }
+
+  pending_render_frame_hosts_.erase(sender_it);
+
   // Lookup the FrameTreeNode ID of any child frames in the list of DOM nodes.
   const int sender_process_id = sender->GetProcess()->GetID();
   const int sender_frame_tree_node_id = sender->GetFrameTreeNodeId();
@@ -692,7 +743,8 @@ void ThreatDetails::FinishCollection(bool did_proceed, int num_visit) {
     urls.push_back(GURL(it->first));
   }
   redirects_collector_->StartHistoryCollection(
-      urls, base::Bind(&ThreatDetails::OnRedirectionCollectionReady, this));
+      urls,
+      base::Bind(&ThreatDetails::OnRedirectionCollectionReady, GetWeakPtr()));
 }
 
 void ThreatDetails::OnRedirectionCollectionReady() {
@@ -706,7 +758,7 @@ void ThreatDetails::OnRedirectionCollectionReady() {
   // Call the cache collector
   cache_collector_->StartCacheCollection(
       url_loader_factory_, &resources_, &cache_result_,
-      base::Bind(&ThreatDetails::OnCacheCollectionReady, this));
+      base::Bind(&ThreatDetails::OnCacheCollectionReady, GetWeakPtr()));
 }
 
 void ThreatDetails::AddRedirectUrlList(const std::vector<GURL>& urls) {
@@ -775,8 +827,8 @@ void ThreatDetails::OnCacheCollectionReady() {
     return;
   }
 
-  BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&WebUIInfoSingleton::AddToCSBRRsSent,
                      base::Unretained(WebUIInfoSingleton::GetInstance()),
                      std::move(report_)));
@@ -791,7 +843,8 @@ void ThreatDetails::MaybeFillReferrerChain() {
     return;
 
   if (!report_ ||
-      report_->type() != ClientSafeBrowsingReportRequest::URL_SUSPICIOUS) {
+      (report_->type() != ClientSafeBrowsingReportRequest::URL_SUSPICIOUS &&
+       report_->type() != ClientSafeBrowsingReportRequest::APK_DOWNLOAD)) {
     return;
   }
 
@@ -802,8 +855,27 @@ void ThreatDetails::MaybeFillReferrerChain() {
 
 void ThreatDetails::AllDone() {
   is_all_done_ = true;
-  BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
-      base::Bind(done_callback_, base::Unretained(web_contents())));
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
+      base::BindOnce(done_callback_, base::Unretained(web_contents())));
 }
+
+void ThreatDetails::FrameDeleted(RenderFrameHost* render_frame_host) {
+  auto render_frame_host_it =
+      std::find(pending_render_frame_hosts_.begin(),
+                pending_render_frame_hosts_.end(), render_frame_host);
+  if (render_frame_host_it != pending_render_frame_hosts_.end()) {
+    pending_render_frame_hosts_.erase(render_frame_host_it);
+  }
+}
+
+void ThreatDetails::RenderFrameHostChanged(RenderFrameHost* old_host,
+                                           RenderFrameHost* new_host) {
+  FrameDeleted(old_host);
+}
+
+base::WeakPtr<ThreatDetails> ThreatDetails::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
+}
+
 }  // namespace safe_browsing

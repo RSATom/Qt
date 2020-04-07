@@ -6,6 +6,8 @@
 
 #include "core/fxcrt/css/cfx_cssdeclaration.h"
 
+#include <utility>
+
 #include "core/fxcrt/css/cfx_csscolorvalue.h"
 #include "core/fxcrt/css/cfx_csscustomproperty.h"
 #include "core/fxcrt/css/cfx_cssenumvalue.h"
@@ -28,7 +30,9 @@ bool ParseCSSNumber(const wchar_t* pszValue,
                     int32_t iValueLen,
                     float& fValue,
                     CFX_CSSNumberType& eUnit) {
-  ASSERT(pszValue && iValueLen > 0);
+  ASSERT(pszValue);
+  ASSERT(iValueLen > 0);
+
   int32_t iUsedLen = 0;
   fValue = FXSYS_wcstof(pszValue, iValueLen, &iUsedLen);
   if (iUsedLen <= 0)
@@ -55,7 +59,9 @@ bool CFX_CSSDeclaration::ParseCSSString(const wchar_t* pszValue,
                                         int32_t iValueLen,
                                         int32_t* iOffset,
                                         int32_t* iLength) {
-  ASSERT(pszValue && iValueLen > 0);
+  ASSERT(pszValue);
+  ASSERT(iValueLen > 0);
+
   *iOffset = 0;
   *iLength = iValueLen;
   if (iValueLen >= 2) {
@@ -72,7 +78,8 @@ bool CFX_CSSDeclaration::ParseCSSString(const wchar_t* pszValue,
 bool CFX_CSSDeclaration::ParseCSSColor(const wchar_t* pszValue,
                                        int32_t iValueLen,
                                        FX_ARGB* dwColor) {
-  ASSERT(pszValue && iValueLen > 0);
+  ASSERT(pszValue);
+  ASSERT(iValueLen > 0);
   ASSERT(dwColor);
 
   if (*pszValue == '#') {
@@ -157,7 +164,7 @@ void CFX_CSSDeclaration::AddPropertyHolder(CFX_CSSProperty eProperty,
 }
 
 void CFX_CSSDeclaration::AddProperty(const CFX_CSSData::Property* property,
-                                     const WideStringView& value) {
+                                     WideStringView value) {
   ASSERT(!value.IsEmpty());
 
   const wchar_t* pszValue = value.unterminated_c_str();
@@ -173,17 +180,15 @@ void CFX_CSSDeclaration::AddProperty(const CFX_CSSData::Property* property,
   const uint32_t dwType = property->dwType;
   switch (dwType & 0x0F) {
     case CFX_CSSVALUETYPE_Primitive: {
-      static const uint32_t g_ValueGuessOrder[] = {
+      static constexpr CFX_CSSVALUETYPE kValueGuessOrder[] = {
           CFX_CSSVALUETYPE_MaybeNumber, CFX_CSSVALUETYPE_MaybeEnum,
           CFX_CSSVALUETYPE_MaybeColor, CFX_CSSVALUETYPE_MaybeString,
       };
-      static const int32_t g_ValueGuessCount =
-          sizeof(g_ValueGuessOrder) / sizeof(uint32_t);
-      for (int32_t i = 0; i < g_ValueGuessCount; ++i) {
-        const uint32_t dwMatch = dwType & g_ValueGuessOrder[i];
-        if (dwMatch == 0) {
+      for (uint32_t guess : kValueGuessOrder) {
+        const uint32_t dwMatch = dwType & guess;
+        if (dwMatch == 0)
           continue;
-        }
+
         RetainPtr<CFX_CSSValue> pCSSValue;
         switch (dwMatch) {
           case CFX_CSSVALUETYPE_MaybeNumber:
@@ -206,7 +211,7 @@ void CFX_CSSDeclaration::AddProperty(const CFX_CSSData::Property* property,
           return;
         }
 
-        if ((dwType & ~(g_ValueGuessOrder[i])) == CFX_CSSVALUETYPE_Primitive)
+        if ((dwType & ~guess) == CFX_CSSVALUETYPE_Primitive)
           return;
       }
       break;

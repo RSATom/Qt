@@ -31,40 +31,26 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_MEDIA_STREAM_SOURCE_H_
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_MEDIA_STREAM_SOURCE_H_
 
+#include <memory>
+
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/platform/web_vector.h"
 
 #include "third_party/blink/public/platform/web_private_ptr.h"
 #if INSIDE_BLINK
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"  // nogncheck
 #endif
 
 namespace blink {
 
 class MediaStreamSource;
 class WebAudioDestinationConsumer;
-class WebMediaConstraints;
+class WebPlatformMediaStreamSource;
 class WebString;
 
 class WebMediaStreamSource {
  public:
-  class ExtraData {
-   public:
-    ExtraData() : owner_(0) {}
-    virtual ~ExtraData() = default;
-
-    BLINK_PLATFORM_EXPORT WebMediaStreamSource Owner();
-#if INSIDE_BLINK
-    BLINK_PLATFORM_EXPORT void SetOwner(MediaStreamSource*);
-#endif
-
-   private:
-#if INSIDE_BLINK
-    GC_PLUGIN_IGNORE("http://crbug.com/409526")
-#endif
-    MediaStreamSource* owner_;
-  };
 
   enum Type { kTypeAudio, kTypeVideo };
 
@@ -79,14 +65,15 @@ class WebMediaStreamSource {
   struct Capabilities {
     // WebVector is used to store an optional range for the below numeric
     // fields. All of them should have 0 or 2 values representing min/max.
-    WebVector<long> width;
-    WebVector<long> height;
+    WebVector<uint32_t> width;
+    WebVector<uint32_t> height;
     WebVector<double> aspect_ratio;
     WebVector<double> frame_rate;
     WebVector<bool> echo_cancellation;
     WebVector<WebString> echo_cancellation_type;
     WebVector<bool> auto_gain_control;
     WebVector<bool> noise_suppression;
+    WebVector<int32_t> sample_size;
 
     WebMediaStreamTrack::FacingMode facing_mode =
         WebMediaStreamTrack::FacingMode::kNone;
@@ -126,19 +113,14 @@ class WebMediaStreamSource {
   BLINK_PLATFORM_EXPORT void SetReadyState(ReadyState);
   BLINK_PLATFORM_EXPORT ReadyState GetReadyState() const;
 
-  // Extra data associated with this object.
-  // If non-null, the extra data pointer will be deleted when the object is
-  // destroyed.  Setting the extra data pointer will cause any existing non-null
-  // extra data pointer to be deleted.
-  BLINK_PLATFORM_EXPORT ExtraData* GetExtraData() const;
-  BLINK_PLATFORM_EXPORT void SetExtraData(ExtraData*);
+  BLINK_PLATFORM_EXPORT WebPlatformMediaStreamSource* GetPlatformSource() const;
+  BLINK_PLATFORM_EXPORT void SetPlatformSource(
+      std::unique_ptr<WebPlatformMediaStreamSource>);
 
   BLINK_PLATFORM_EXPORT void SetAudioProcessingProperties(
       EchoCancellationMode echo_cancellation_mode,
       bool auto_gain_control,
       bool noise_supression);
-
-  BLINK_PLATFORM_EXPORT WebMediaConstraints Constraints();
 
   BLINK_PLATFORM_EXPORT void SetCapabilities(const Capabilities&);
 

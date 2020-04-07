@@ -311,7 +311,7 @@ IOThreadExtensionFunction* ExtensionFunction::AsIOThreadExtensionFunction() {
   return NULL;
 }
 
-bool ExtensionFunction::HasPermission() {
+bool ExtensionFunction::HasPermission() const {
   Feature::Availability availability =
       ExtensionAPI::GetSharedInstance()->IsAvailable(
           name_, extension_.get(), source_context_type_, source_url(),
@@ -485,12 +485,13 @@ void ExtensionFunction::SendResponseImpl(bool success) {
 UIThreadExtensionFunction::UIThreadExtensionFunction()
     : context_(nullptr),
       render_frame_host_(nullptr),
-      service_worker_version_id_(extensions::kInvalidServiceWorkerVersionId) {}
+      service_worker_version_id_(blink::mojom::kInvalidServiceWorkerVersionId) {
+}
 
 UIThreadExtensionFunction::~UIThreadExtensionFunction() {
   if (dispatcher() && (render_frame_host() || is_from_service_worker())) {
-    dispatcher()->OnExtensionFunctionCompleted(extension(),
-                                               is_from_service_worker());
+    dispatcher()->OnExtensionFunctionCompleted(
+        extension(), is_from_service_worker(), name());
   }
 
   // The extension function should always respond to avoid leaks in the

@@ -33,8 +33,8 @@
 #include "third_party/blink/renderer/core/clipboard/data_transfer_access_policy.h"
 #include "third_party/blink/renderer/core/clipboard/system_clipboard.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
@@ -49,6 +49,7 @@
 #include "third_party/blink/renderer/core/editing/commands/simplify_markup_command.h"
 #include "third_party/blink/renderer/core/editing/commands/typing_command.h"
 #include "third_party/blink/renderer/core/editing/commands/undo_stack.h"
+#include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editing_style_utilities.h"
 #include "third_party/blink/renderer/core/editing/editing_tri_state.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
@@ -66,7 +67,6 @@
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
 #include "third_party/blink/renderer/core/editing/writing_direction.h"
-#include "third_party/blink/renderer/core/event_names.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/events/text_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -93,13 +93,13 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 namespace {
 
 bool IsInPasswordFieldWithUnrevealedPassword(const Position& position) {
   if (auto* input = ToHTMLInputElementOrNull(EnclosingTextControl(position))) {
-    return (input->type() == InputTypeNames::password) &&
+    return (input->type() == input_type_names::kPassword) &&
            !input->ShouldRevealPassword();
   }
   return false;
@@ -237,9 +237,12 @@ bool Editor::CanCopy() const {
   FrameSelection& selection = GetFrameSelection();
   if (!selection.IsAvailable())
     return false;
-  return selection.ComputeVisibleSelectionInDOMTreeDeprecated().IsRange() &&
+  frame_->GetDocument()->UpdateStyleAndLayoutIgnorePendingStylesheets();
+  const VisibleSelectionInFlatTree& visible_selection =
+      selection.ComputeVisibleSelectionInFlatTree();
+  return visible_selection.IsRange() &&
          !IsInPasswordFieldWithUnrevealedPassword(
-             selection.ComputeVisibleSelectionInDOMTree().Start());
+             ToPositionInDOMTree(visible_selection.Start()));
 }
 
 bool Editor::CanPaste() const {
@@ -406,12 +409,9 @@ EphemeralRange Editor::SelectedRange() {
 }
 
 void Editor::RespondToChangedContents(const Position& position) {
-  if (GetFrame().GetSettings() &&
-      GetFrame().GetSettings()->GetAccessibilityEnabled()) {
-    Node* node = position.AnchorNode();
-    if (AXObjectCache* cache =
-            GetFrame().GetDocument()->ExistingAXObjectCache())
-      cache->HandleEditableTextContentChanged(node);
+  if (AXObjectCache* cache =
+          GetFrame().GetDocument()->ExistingAXObjectCache()) {
+    cache->HandleEditableTextContentChanged(position.AnchorNode());
   }
 
   GetSpellChecker().RespondToChangedContents();
@@ -447,7 +447,7 @@ void Editor::ApplyParagraphStyleToSelection(CSSPropertyValueSet* style,
 }
 
 Editor* Editor::Create(LocalFrame& frame) {
-  return new Editor(frame);
+  return MakeGarbageCollected<Editor>(frame);
 }
 
 Editor::Editor(LocalFrame& frame)
@@ -552,12 +552,12 @@ bool Editor::InsertParagraphSeparator() {
 }
 
 static void CountEditingEvent(ExecutionContext* execution_context,
-                              const Event* event,
+                              const Event& event,
                               WebFeature feature_on_input,
                               WebFeature feature_on_text_area,
                               WebFeature feature_on_content_editable,
                               WebFeature feature_on_non_node) {
-  EventTarget* event_target = event->target();
+  EventTarget* event_target = event.target();
   Node* node = event_target->ToNode();
   if (!node) {
     UseCounter::Count(execution_context, feature_on_non_node);
@@ -589,11 +589,11 @@ static void CountEditingEvent(ExecutionContext* execution_context,
 }
 
 void Editor::CountEvent(ExecutionContext* execution_context,
-                        const Event* event) {
+                        const Event& event) {
   if (!execution_context)
     return;
 
-  if (event->type() == EventTypeNames::textInput) {
+  if (event.type() == event_type_names::kTextInput) {
     CountEditingEvent(execution_context, event,
                       WebFeature::kTextInputEventOnInput,
                       WebFeature::kTextInputEventOnTextArea,
@@ -602,7 +602,7 @@ void Editor::CountEvent(ExecutionContext* execution_context,
     return;
   }
 
-  if (event->type() == EventTypeNames::webkitBeforeTextInserted) {
+  if (event.type() == event_type_names::kWebkitBeforeTextInserted) {
     CountEditingEvent(execution_context, event,
                       WebFeature::kWebkitBeforeTextInsertedOnInput,
                       WebFeature::kWebkitBeforeTextInsertedOnTextArea,
@@ -611,7 +611,7 @@ void Editor::CountEvent(ExecutionContext* execution_context,
     return;
   }
 
-  if (event->type() == EventTypeNames::webkitEditableContentChanged) {
+  if (event.type() == event_type_names::kWebkitEditableContentChanged) {
     CountEditingEvent(
         execution_context, event,
         WebFeature::kWebkitEditableContentChangedOnInput,
@@ -648,7 +648,7 @@ void Editor::SetBaseWritingDirection(WritingDirection direction) {
     if (direction == WritingDirection::kNatural)
       return;
     focused_element->setAttribute(
-        dirAttr, direction == WritingDirection::kLeftToRight ? "ltr" : "rtl");
+        kDirAttr, direction == WritingDirection::kLeftToRight ? "ltr" : "rtl");
     focused_element->DispatchInputEvent();
     return;
   }
@@ -896,7 +896,7 @@ void Editor::SetMarkedTextMatchesAreHighlighted(bool flag) {
 
   are_marked_text_matches_highlighted_ = flag;
   GetFrame().GetDocument()->Markers().RepaintMarkers(
-      DocumentMarker::kTextMatch);
+      DocumentMarker::MarkerTypes::TextMatch());
 }
 
 void Editor::RespondToChangedSelection() {
@@ -927,7 +927,7 @@ void Editor::ToggleOverwriteModeEnabled() {
 void Editor::ReplaceSelection(const String& text) {
   DCHECK(!GetFrame().GetDocument()->NeedsLayoutTreeUpdate());
   bool select_replacement = Behavior().ShouldSelectReplacement();
-  bool smart_replace = true;
+  bool smart_replace = false;
   ReplaceSelectionWithText(text, select_replacement, smart_replace,
                            InputEvent::InputType::kInsertReplacementText);
 }

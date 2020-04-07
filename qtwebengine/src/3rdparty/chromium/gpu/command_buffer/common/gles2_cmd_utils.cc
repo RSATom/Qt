@@ -11,10 +11,12 @@
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
 #include <GLES3/gl3.h>
+#include <GLES3/gl31.h>
 
 #include <sstream>
 
 #include "base/numerics/safe_math.h"
+#include "base/stl_util.h"
 
 namespace gpu {
 namespace gles2 {
@@ -279,6 +281,26 @@ int GLES2Util::GLGetNumValuesReturned(int id) const {
     case GL_UNIFORM_BUFFER_START:
       return 1;
     case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
+      return 1;
+
+    // ES31
+    case GL_ATOMIC_COUNTER_BUFFER_BINDING:
+      return 1;
+    case GL_ATOMIC_COUNTER_BUFFER_SIZE:
+      return 1;
+    case GL_ATOMIC_COUNTER_BUFFER_START:
+      return 1;
+    case GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS:
+      return 1;
+    case GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS:
+      return 1;
+    case GL_SHADER_STORAGE_BUFFER_BINDING:
+      return 1;
+    case GL_SHADER_STORAGE_BUFFER_SIZE:
+      return 1;
+    case GL_SHADER_STORAGE_BUFFER_START:
+      return 1;
+    case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT:
       return 1;
 
     // -- glGetBooleanv, glGetFloatv, glGetIntergerv with
@@ -574,7 +596,7 @@ uint32_t GLES2Util::ComputeImageGroupSize(int format, int type) {
   DCHECK_GE(8u, bytes_per_element);
   uint32_t elements_per_group = ElementsPerGroup(format, type);
   DCHECK_GE(4u, elements_per_group);
-  return  bytes_per_element * elements_per_group;
+  return bytes_per_element * elements_per_group;
 }
 
 bool GLES2Util::ComputeImageRowSizeHelper(int width,
@@ -1553,8 +1575,8 @@ std::string GLES2Util::GetStringError(uint32_t value) {
   static EnumToString string_table[] = {
     { GL_NONE, "GL_NONE" },
   };
-  return GLES2Util::GetQualifiedEnumString(
-      string_table, arraysize(string_table), value);
+  return GLES2Util::GetQualifiedEnumString(string_table,
+                                           base::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBool(uint32_t value) {
@@ -1646,6 +1668,8 @@ uint32_t GLES2Util::MapBufferTargetToBindingEnum(uint32_t target) {
   switch (target) {
     case GL_ARRAY_BUFFER:
       return GL_ARRAY_BUFFER_BINDING;
+    case GL_ATOMIC_COUNTER_BUFFER:
+      return GL_ATOMIC_COUNTER_BUFFER_BINDING;
     case GL_COPY_READ_BUFFER:
       return GL_COPY_READ_BUFFER_BINDING;
     case GL_COPY_WRITE_BUFFER:
@@ -1656,6 +1680,8 @@ uint32_t GLES2Util::MapBufferTargetToBindingEnum(uint32_t target) {
       return GL_PIXEL_PACK_BUFFER_BINDING;
     case GL_PIXEL_UNPACK_BUFFER:
       return GL_PIXEL_UNPACK_BUFFER_BINDING;
+    case GL_SHADER_STORAGE_BUFFER:
+      return GL_SHADER_STORAGE_BUFFER_BINDING;
     case GL_TRANSFORM_FEEDBACK_BUFFER:
       return GL_TRANSFORM_FEEDBACK_BUFFER_BINDING;
     case GL_UNIFORM_BUFFER:

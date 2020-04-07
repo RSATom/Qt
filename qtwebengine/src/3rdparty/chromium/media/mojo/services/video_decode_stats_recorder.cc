@@ -12,21 +12,15 @@
 namespace media {
 
 VideoDecodeStatsRecorder::VideoDecodeStatsRecorder(
-    const url::Origin& untrusted_top_frame_origin,
+    VideoDecodePerfHistory::SaveCallback save_cb,
+    ukm::SourceId source_id,
     bool is_top_frame,
-    uint64_t player_id,
-    VideoDecodePerfHistory::SaveCallback save_cb)
-    : untrusted_top_frame_origin_(untrusted_top_frame_origin),
+    uint64_t player_id)
+    : save_cb_(std::move(save_cb)),
+      source_id_(source_id),
       is_top_frame_(is_top_frame),
-      save_cb_(std::move(save_cb)),
       player_id_(player_id) {
-  // Only bother to make the recorder when able to save stats. Checking here
-  // instead of silently failing below.
-  CHECK(!save_cb_.is_null());
-
-  DVLOG(2) << __func__
-           << " untrusted_top_frame_origin:" << untrusted_top_frame_origin
-           << " is_top_frame:" << is_top_frame;
+  DCHECK(save_cb_);
 }
 
 VideoDecodeStatsRecorder::~VideoDecodeStatsRecorder() {
@@ -59,12 +53,11 @@ void VideoDecodeStatsRecorder::UpdateRecord(
   // Dropped can never exceed decoded.
   DCHECK_LE(targets->frames_dropped, targets->frames_decoded);
   // Power efficient frames can never exceed decoded frames.
-  DCHECK_LE(targets->frames_decoded_power_efficient, targets->frames_decoded);
+  DCHECK_LE(targets->frames_power_efficient, targets->frames_decoded);
   // Should never go backwards.
   DCHECK_GE(targets->frames_decoded, targets_.frames_decoded);
   DCHECK_GE(targets->frames_dropped, targets_.frames_dropped);
-  DCHECK_GE(targets->frames_decoded_power_efficient,
-            targets_.frames_decoded_power_efficient);
+  DCHECK_GE(targets->frames_power_efficient, targets_.frames_power_efficient);
 
   targets_ = *targets;
 }
@@ -80,13 +73,12 @@ void VideoDecodeStatsRecorder::FinalizeRecord() {
            << " fps:" << features_.frames_per_sec
            << " decoded:" << targets_.frames_decoded
            << " dropped:" << targets_.frames_dropped
-           << " power efficient decoded:"
-           << targets_.frames_decoded_power_efficient;
+           << " power efficient decoded:" << targets_.frames_power_efficient;
 
   // Final argument is an empty save-done-callback. No action to take if save
   // fails (DB already records UMAs on failure). Callback mainly used by tests.
-  save_cb_.Run(untrusted_top_frame_origin_, is_top_frame_, features_, targets_,
-               player_id_, base::OnceClosure());
+  save_cb_.Run(source_id_, is_top_frame_, features_, targets_, player_id_,
+               base::OnceClosure());
 }
 
 }  // namespace media

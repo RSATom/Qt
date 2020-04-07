@@ -38,11 +38,16 @@ typedef struct AudioFIRContext {
     float wet_gain;
     float dry_gain;
     float length;
-    int again;
+    int gtype;
+    float ir_gain;
+    int ir_format;
     float max_ir_len;
     int response;
     int w, h;
+    AVRational frame_rate;
     int ir_channel;
+    int minp;
+    int maxp;
 
     float gain;
 
@@ -61,15 +66,13 @@ typedef struct AudioFIRContext {
     int nb_coef_channels;
     int one2many;
     int nb_samples;
-    int want_skip;
-    int need_padding;
 
     RDFTContext **rdft, **irdft;
     float **sum;
     float **block;
     FFTComplex **coeff;
 
-    AVAudioFifo *fifo[2];
+    AVAudioFifo *fifo;
     AVFrame *in[2];
     AVFrame *buffer;
     AVFrame *video;

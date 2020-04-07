@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/presentation/presentation_promise_property.h"
+#include "third_party/blink/renderer/modules/presentation/presentation_request.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/noncopyable.h"
@@ -18,7 +19,8 @@ namespace blink {
 // depending on the availability result.
 // TODO(crbug.com/749327): Consider removing this class and have
 // PresentationAvailabilityState use PresentationAvailabilityProperty directly.
-class MODULES_EXPORT PresentationAvailabilityCallbacks {
+class MODULES_EXPORT PresentationAvailabilityCallbacks
+    : public GarbageCollectedFinalized<PresentationAvailabilityCallbacks> {
  public:
   PresentationAvailabilityCallbacks(PresentationAvailabilityProperty*,
                                     const WTF::Vector<KURL>&);
@@ -27,8 +29,10 @@ class MODULES_EXPORT PresentationAvailabilityCallbacks {
   virtual void Resolve(bool value);
   virtual void RejectAvailabilityNotSupported();
 
+  void Trace(blink::Visitor*);
+
  private:
-  Persistent<PresentationAvailabilityProperty> resolver_;
+  Member<PresentationAvailabilityProperty> resolver_;
   const WTF::Vector<KURL> urls_;
 
   WTF_MAKE_NONCOPYABLE(PresentationAvailabilityCallbacks);

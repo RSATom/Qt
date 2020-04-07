@@ -49,6 +49,7 @@ class GPU_GLES2_EXPORT ServiceTransferCache
   bool UnlockEntry(const EntryKey& key);
   bool DeleteEntry(const EntryKey& key);
   cc::ServiceTransferCacheEntry* GetEntry(const EntryKey& key);
+  void DeleteAllEntriesForDecoder(int decoder_id);
 
   void PurgeMemory(
       base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level);
@@ -62,11 +63,14 @@ class GPU_GLES2_EXPORT ServiceTransferCache
     cache_size_limit_ = cache_size_limit;
     EnforceLimits();
   }
+  void SetMaxCacheEntriesForTesting(size_t max_cache_entries) {
+    max_cache_entries_ = max_cache_entries;
+    EnforceLimits();
+  }
   size_t cache_size_for_testing() const { return total_size_; }
+  size_t entries_count_for_testing() const { return entries_.size(); }
 
  private:
-  void EnforceLimits();
-
   struct CacheEntryInternal {
     CacheEntryInternal(base::Optional<ServiceDiscardableHandle> handle,
                        std::unique_ptr<cc::ServiceTransferCacheEntry> entry);
@@ -88,6 +92,12 @@ class GPU_GLES2_EXPORT ServiceTransferCache
   };
 
   using EntryCache = base::MRUCache<EntryKey, CacheEntryInternal, EntryKeyComp>;
+
+  void EnforceLimits();
+
+  template <typename Iterator>
+  Iterator ForceDeleteEntry(Iterator it);
+
   EntryCache entries_;
 
   // Total size of all |entries_|. The same as summing
@@ -96,6 +106,9 @@ class GPU_GLES2_EXPORT ServiceTransferCache
 
   // The limit above which the cache will start evicting resources.
   size_t cache_size_limit_ = 0;
+
+  // The max number of entries we will hold in the cache.
+  size_t max_cache_entries_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceTransferCache);
 };

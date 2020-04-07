@@ -25,27 +25,7 @@ VideoCaptureJpegDecoderImpl::VideoCaptureJpegDecoderImpl(
       weak_ptr_factory_(this) {}
 
 VideoCaptureJpegDecoderImpl::~VideoCaptureJpegDecoderImpl() {
-  // |this| was set as |decoder_|'s client. |decoder_| has to be deleted on
-  // |decoder_task_runner_| before this destructor returns to ensure that it
-  // doesn't call back into its client.
-
-  if (!decoder_)
-    return;
-
-  if (decoder_task_runner_->RunsTasksInCurrentSequence()) {
-    decoder_.reset();
-    return;
-  }
-
-  base::WaitableEvent event(base::WaitableEvent::ResetPolicy::MANUAL,
-                            base::WaitableEvent::InitialState::NOT_SIGNALED);
-  // base::Unretained is safe because |this| will be valid until |event|
-  // is signaled.
-  decoder_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&VideoCaptureJpegDecoderImpl::DestroyDecoderOnIOThread,
-                     base::Unretained(this), &event));
-  event.Wait();
+  DCHECK(decoder_task_runner_->RunsTasksInCurrentSequence());
 }
 
 void VideoCaptureJpegDecoderImpl::Initialize() {
@@ -61,8 +41,7 @@ void VideoCaptureJpegDecoderImpl::Initialize() {
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
-VideoCaptureJpegDecoderImpl::STATUS VideoCaptureJpegDecoderImpl::GetStatus()
-    const {
+VideoCaptureJpegDecoder::STATUS VideoCaptureJpegDecoderImpl::GetStatus() const {
   base::AutoLock lock(lock_);
   return decoder_status_;
 }
@@ -153,6 +132,7 @@ void VideoCaptureJpegDecoderImpl::DecodeCapturedData(
   out_frame_info->coded_size = dimensions;
   out_frame_info->visible_rect = gfx::Rect(dimensions);
   out_frame_info->metadata = out_frame->metadata()->GetInternalValues().Clone();
+  out_frame_info->color_space = out_frame->ColorSpace();
 
   {
     base::AutoLock lock(lock_);

@@ -9,17 +9,21 @@
 #include <string>
 
 #include "base/synchronization/waitable_event.h"
-#include "content/common/service_worker/service_worker_provider.mojom.h"
 #include "content/common/service_worker/service_worker_types.h"
+#include "content/public/common/renderer_preference_watcher.mojom.h"
 #include "content/public/common/renderer_preferences.h"
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/interface_ptr_set.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/platform/web_application_cache_host.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_worker_fetch_context.h"
 #include "url/gurl.h"
 
@@ -29,7 +33,9 @@ class Message;
 
 namespace content {
 
+class FrameRequestBlocker;
 class ResourceDispatcher;
+class ServiceWorkerNetworkProvider;
 class ThreadSafeSender;
 class URLLoaderThrottleProvider;
 class WebSocketHandshakeThrottleProvider;
@@ -40,13 +46,14 @@ class WebSocketHandshakeThrottleProvider;
 // service workers, ServiceWorkerFetchContextImpl class is used instead.
 class CONTENT_EXPORT WebWorkerFetchContextImpl
     : public blink::WebWorkerFetchContext,
-      public mojom::ServiceWorkerWorkerClient {
+      public blink::mojom::ServiceWorkerWorkerClient,
+      public mojom::RendererPreferenceWatcher {
  public:
-  // |service_worker_client_request| is bound to |this| to receive
-  // OnControllerChanged() notifications.
-  // |service_worker_worker_client_registry_info| is a host pointer to register
-  // a new ServiceWorkerWorkerClient, which is needed when creating a nested
-  // worker. |loader_factory_info| is used for regular loading by the worker.
+  // Creates a new fetch context for a worker.
+  //
+  // |network_provider| is the ServiceWorkerNetworkProvider of the worker and is
+  // used to route requests to its controller service worker.
+  // |loader_factory_info| is used for regular loading by the worker.
   //
   // S13nServiceWorker:
   // If the worker is controlled by a service worker, this class makes another
@@ -60,30 +67,22 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   // |fallback_factory_info| might not be simply the direct network factory,
   // because it might additionally support non-NetworkService schemes (e.g.,
   // chrome-extension://).
-  WebWorkerFetchContextImpl(
+  static scoped_refptr<WebWorkerFetchContextImpl> Create(
+      ServiceWorkerNetworkProvider* network_provider,
       RendererPreferences renderer_preferences,
-      mojom::ServiceWorkerWorkerClientRequest service_worker_client_request,
-      mojom::ServiceWorkerWorkerClientRegistryPtrInfo
-          service_worker_worker_client_registry_info,
-      mojom::ServiceWorkerContainerHostPtrInfo
-          service_worker_container_host_info,
+      mojom::RendererPreferenceWatcherRequest watcher_request,
       std::unique_ptr<network::SharedURLLoaderFactoryInfo> loader_factory_info,
       std::unique_ptr<network::SharedURLLoaderFactoryInfo>
-          fallback_factory_info,
-      std::unique_ptr<URLLoaderThrottleProvider> throttle_provider,
-      std::unique_ptr<WebSocketHandshakeThrottleProvider>
-          websocket_handshake_throttle_provider,
-      ThreadSafeSender* thread_safe_sender,
-      std::unique_ptr<service_manager::Connector> service_manager_connection);
-  ~WebWorkerFetchContextImpl() override;
+          fallback_factory_info);
 
   // blink::WebWorkerFetchContext implementation:
-  std::unique_ptr<blink::WebWorkerFetchContext> CloneForNestedWorker() override;
+  scoped_refptr<blink::WebWorkerFetchContext> CloneForNestedWorker() override;
   void SetTerminateSyncLoadEvent(base::WaitableEvent*) override;
-  void InitializeOnWorkerThread() override;
-  std::unique_ptr<blink::WebURLLoaderFactory> CreateURLLoaderFactory() override;
+  void InitializeOnWorkerThread(blink::AcceptLanguagesWatcher*) override;
+  blink::WebURLLoaderFactory* GetURLLoaderFactory() override;
   std::unique_ptr<blink::WebURLLoaderFactory> WrapURLLoaderFactory(
       mojo::ScopedMessagePipeHandle url_loader_factory_handle) override;
+  std::unique_ptr<blink::CodeCacheLoader> CreateCodeCacheLoader() override;
   void WillSendRequest(blink::WebURLRequest&) override;
   blink::mojom::ControllerServiceWorkerMode IsControlledByServiceWorker()
       const override;
@@ -95,7 +94,6 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   void DidRunInsecureContent(const blink::WebSecurityOrigin&,
                              const blink::WebURL& insecure_url) override;
   void SetApplicationCacheHostID(int id) override;
-  int ApplicationCacheHostID() const override;
   void SetSubresourceFilterBuilder(
       std::unique_ptr<blink::WebDocumentSubresourceFilter::Builder>) override;
   std::unique_ptr<blink::WebDocumentSubresourceFilter> TakeSubresourceFilter()
@@ -103,7 +101,7 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   std::unique_ptr<blink::WebSocketHandshakeThrottle>
   CreateWebSocketHandshakeThrottle() override;
 
-  // mojom::ServiceWorkerWorkerClient implementation:
+  // blink::mojom::ServiceWorkerWorkerClient implementation:
   void OnControllerChanged(blink::mojom::ControllerServiceWorkerMode) override;
 
   // Sets the fetch context status copied from a frame. For dedicated workers,
@@ -114,6 +112,8 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   void set_is_controlled_by_service_worker(
       blink::mojom::ControllerServiceWorkerMode mode);
   void set_ancestor_frame_id(int id);
+  void set_frame_request_blocker(
+      scoped_refptr<FrameRequestBlocker> frame_request_blocker);
   void set_site_for_cookies(const blink::WebURL& site_for_cookies);
   // Sets whether the worker context is a secure context.
   // https://w3c.github.io/webappsec-secure-contexts/
@@ -124,8 +124,37 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   using RewriteURLFunction = blink::WebURL (*)(const std::string&, bool);
   static void InstallRewriteURLFunction(RewriteURLFunction rewrite_url);
 
+  blink::WebString GetAcceptLanguages() const override;
+
  private:
   class Factory;
+
+  // - |service_worker_client_request| is bound to |this| to receive
+  //   OnControllerChanged() notifications.
+  // - |service_worker_worker_client_registry_info| is a host pointer to
+  //   register a new ServiceWorkerWorkerClient, which is needed when creating a
+  //   nested worker.
+  //
+  // Regarding the rest of params, see the comments on Create().
+  WebWorkerFetchContextImpl(
+      RendererPreferences renderer_preferences,
+      mojom::RendererPreferenceWatcherRequest watcher_request,
+      blink::mojom::ServiceWorkerWorkerClientRequest
+          service_worker_client_request,
+      blink::mojom::ServiceWorkerWorkerClientRegistryPtrInfo
+          service_worker_worker_client_registry_info,
+      blink::mojom::ServiceWorkerContainerHostPtrInfo
+          service_worker_container_host_info,
+      std::unique_ptr<network::SharedURLLoaderFactoryInfo> loader_factory_info,
+      std::unique_ptr<network::SharedURLLoaderFactoryInfo>
+          fallback_factory_info,
+      std::unique_ptr<URLLoaderThrottleProvider> throttle_provider,
+      std::unique_ptr<WebSocketHandshakeThrottleProvider>
+          websocket_handshake_throttle_provider,
+      ThreadSafeSender* thread_safe_sender,
+      std::unique_ptr<service_manager::Connector> service_manager_connection);
+
+  ~WebWorkerFetchContextImpl() override;
 
   bool Send(IPC::Message* message);
 
@@ -136,18 +165,22 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   // controlled by a service worker.
   void ResetServiceWorkerURLLoaderFactory();
 
-  mojo::Binding<mojom::ServiceWorkerWorkerClient> binding_;
-  mojom::ServiceWorkerWorkerClientRegistryPtr
+  // Implements mojom::RendererPreferenceWatcher.
+  void NotifyUpdate(const RendererPreferences& new_prefs) override;
+
+  mojo::Binding<blink::mojom::ServiceWorkerWorkerClient> binding_;
+  blink::mojom::ServiceWorkerWorkerClientRegistryPtr
       service_worker_worker_client_registry_;
 
   // Bound to |this| on the worker thread.
-  mojom::ServiceWorkerWorkerClientRequest service_worker_client_request_;
+  blink::mojom::ServiceWorkerWorkerClientRequest service_worker_client_request_;
   // Consumed on the worker thread to create
   // |service_worker_worker_client_registry_|.
-  mojom::ServiceWorkerWorkerClientRegistryPtrInfo
+  blink::mojom::ServiceWorkerWorkerClientRegistryPtrInfo
       service_worker_worker_client_registry_info_;
   // Consumed on the worker thread to create |service_worker_container_host_|.
-  mojom::ServiceWorkerContainerHostPtrInfo service_worker_container_host_info_;
+  blink::mojom::ServiceWorkerContainerHostPtrInfo
+      service_worker_container_host_info_;
   // Consumed on the worker thread to create |loader_factory_|.
   std::unique_ptr<network::SharedURLLoaderFactoryInfo> loader_factory_info_;
   // Consumed on the worker thread to create |fallback_factory_|.
@@ -159,7 +192,7 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
 
   // S13nServiceWorker:
   // Initialized on the worker thread when InitializeOnWorkerThread() is called.
-  mojom::ServiceWorkerContainerHostPtr service_worker_container_host_;
+  blink::mojom::ServiceWorkerContainerHostPtr service_worker_container_host_;
 
   // S13nServiceWorker:
   // The Client#id value of the shared worker or dedicated worker (since
@@ -195,27 +228,40 @@ class CONTENT_EXPORT WebWorkerFetchContextImpl
   // workers, this is the shadow page.
   bool is_on_sub_frame_ = false;
   int ancestor_frame_id_ = MSG_ROUTING_NONE;
+  // Set to non-null if the ancestor frame has an associated RequestBlocker,
+  // which blocks requests from this worker too when the ancestor frame is
+  // blocked.
+  scoped_refptr<FrameRequestBlocker> frame_request_blocker_;
   GURL site_for_cookies_;
   bool is_secure_context_ = false;
   GURL origin_url_;
-  int appcache_host_id_ = blink::WebApplicationCacheHost::kAppCacheNoHostId;
+  int appcache_host_id_ = blink::mojom::kAppCacheNoHostId;
 
-  // TODO(crbug.com/862854): Propagate preference changes from the browser
-  // process.
   RendererPreferences renderer_preferences_;
+
+  // |watcher_binding_| and |child_preference_watchers_| are for keeping track
+  // of updates in the renderer preferences.
+  mojo::Binding<mojom::RendererPreferenceWatcher> preference_watcher_binding_;
+  // Kept while staring up the worker thread. Valid until
+  // InitializeOnWorkerThread().
+  mojom::RendererPreferenceWatcherRequest preference_watcher_request_;
+  mojo::InterfacePtrSet<mojom::RendererPreferenceWatcher>
+      child_preference_watchers_;
 
   // This is owned by ThreadedMessagingProxyBase on the main thread.
   base::WaitableEvent* terminate_sync_load_event_ = nullptr;
 
   // The blink::WebURLLoaderFactory which was created and passed to
-  // Blink by CreateURLLoaderFactory().
-  base::WeakPtr<Factory> web_loader_factory_;
+  // Blink by GetURLLoaderFactory().
+  std::unique_ptr<Factory> web_loader_factory_;
 
   std::unique_ptr<URLLoaderThrottleProvider> throttle_provider_;
   std::unique_ptr<WebSocketHandshakeThrottleProvider>
       websocket_handshake_throttle_provider_;
 
   std::unique_ptr<service_manager::Connector> service_manager_connection_;
+
+  blink::AcceptLanguagesWatcher* accept_languages_watcher_ = nullptr;
 };
 
 }  // namespace content

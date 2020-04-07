@@ -14,7 +14,7 @@ namespace identity {
 PrimaryAccountAccessTokenFetcher::PrimaryAccountAccessTokenFetcher(
     const std::string& oauth_consumer_name,
     IdentityManager* identity_manager,
-    const OAuth2TokenService::ScopeSet& scopes,
+    const identity::ScopeSet& scopes,
     AccessTokenFetcher::TokenCallback callback,
     Mode mode)
     : oauth_consumer_name_(oauth_consumer_name),
@@ -55,12 +55,18 @@ void PrimaryAccountAccessTokenFetcher::StartAccessTokenRequest() {
   // will generate an appropriate error code that we can return to the client.
   DCHECK(!access_token_fetcher_);
 
+  // NOTE: This class does not utilize AccessTokenFetcher in its
+  // |kWaitUntilRefreshTokenAvailable| mode because the PAATF semantics specify
+  // that when used in *its* |kWaitUntilAvailable| mode, the access token
+  // request should be started when the account is primary AND has a refresh
+  // token available. AccessTokenFetcher used in
+  // |kWaitUntilRefreshTokenAvailable| mode would guarantee only the latter.
   access_token_fetcher_ = identity_manager_->CreateAccessTokenFetcherForAccount(
-      identity_manager_->GetPrimaryAccountInfo().account_id,
-      oauth_consumer_name_, scopes_,
+      identity_manager_->GetPrimaryAccountId(), oauth_consumer_name_, scopes_,
       base::BindOnce(
           &PrimaryAccountAccessTokenFetcher::OnAccessTokenFetchComplete,
-          base::Unretained(this)));
+          base::Unretained(this)),
+      AccessTokenFetcher::Mode::kImmediate);
 }
 
 void PrimaryAccountAccessTokenFetcher::OnPrimaryAccountSet(
@@ -69,8 +75,7 @@ void PrimaryAccountAccessTokenFetcher::OnPrimaryAccountSet(
 }
 
 void PrimaryAccountAccessTokenFetcher::OnRefreshTokenUpdatedForAccount(
-    const AccountInfo& account_info,
-    bool is_valid) {
+    const AccountInfo& account_info) {
   ProcessSigninStateChange();
 }
 

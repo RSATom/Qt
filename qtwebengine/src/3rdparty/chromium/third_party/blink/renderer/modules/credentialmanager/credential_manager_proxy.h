@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CREDENTIALMANAGER_CREDENTIAL_MANAGER_PROXY_H_
 
 #include "third_party/blink/public/platform/modules/credentialmanager/credential_manager.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/webauth/authenticator.mojom-blink.h"
+#include "third_party/blink/public/platform/modules/webauthn/authenticator.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -35,7 +35,7 @@ class MODULES_EXPORT CredentialManagerProxy
  public:
   static const char kSupplementName[];
 
-  explicit CredentialManagerProxy(Document*);
+  explicit CredentialManagerProxy(Document&);
   virtual ~CredentialManagerProxy();
 
   mojom::blink::CredentialManager* CredentialManager() {
@@ -51,7 +51,7 @@ class MODULES_EXPORT CredentialManagerProxy
   // Both flavors must be called only with arguments representing a valid
   // context corresponding to an attached Document.
   static CredentialManagerProxy* From(ScriptState*);
-  static CredentialManagerProxy* From(Document*);
+  static CredentialManagerProxy* From(Document&);
 
  private:
   mojom::blink::AuthenticatorPtr authenticator_;

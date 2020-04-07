@@ -18,7 +18,6 @@
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "components/favicon/core/favicon_service.h"
-#include "components/ntp_tiles/constants.h"
 #include "components/ntp_tiles/most_visited_sites.h"
 #include "components/ntp_tiles/pref_names.h"
 #include "components/ntp_tiles/webui/ntp_tiles_internals_message_handler_client.h"
@@ -61,8 +60,7 @@ NTPTilesInternalsMessageHandler::NTPTilesInternalsMessageHandler(
       client_(nullptr),
       // 9 tiles are required for the custom links feature in order to balance
       // the Most Visited rows (this is due to an additional "Add" button).
-      // Otherwise, Most Visited should return the regular 8 tiles.
-      site_count_(IsCustomLinksEnabled() ? 9 : 8),
+      site_count_(9),
       weak_ptr_factory_(this) {}
 
 NTPTilesInternalsMessageHandler::~NTPTilesInternalsMessageHandler() = default;
@@ -262,7 +260,7 @@ void NTPTilesInternalsMessageHandler::SendTiles(
 
     auto icon_list = std::make_unique<base::ListValue>();
     for (const auto& entry : kIconTypesAndNames) {
-      FaviconResultMap::const_iterator it = result_map.find(
+      auto it = result_map.find(
           FaviconResultMap::key_type(tile.url, entry.type_enum));
 
       if (it != result_map.end()) {

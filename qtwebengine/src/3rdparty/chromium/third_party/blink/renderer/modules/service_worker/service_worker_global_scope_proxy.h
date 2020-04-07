@@ -38,7 +38,7 @@
 #include "third_party/blink/public/web/modules/service_worker/web_service_worker_context_proxy.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/heap/heap_allocator.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
@@ -48,7 +48,6 @@ namespace blink {
 class FetchEvent;
 class ParentExecutionContextTaskRunners;
 class ServiceWorkerGlobalScope;
-class WebDataConsumerHandle;
 class WebEmbeddedWorkerImpl;
 class WebServiceWorkerContextClient;
 struct WebServiceWorkerError;
@@ -74,31 +73,31 @@ class ServiceWorkerGlobalScopeProxy final
  public:
   static ServiceWorkerGlobalScopeProxy* Create(WebEmbeddedWorkerImpl&,
                                                WebServiceWorkerContextClient&);
+
+  ServiceWorkerGlobalScopeProxy(WebEmbeddedWorkerImpl&,
+                                WebServiceWorkerContextClient&);
   ~ServiceWorkerGlobalScopeProxy() override;
 
   // WebServiceWorkerContextProxy overrides:
+  void BindServiceWorkerHost(
+      mojo::ScopedInterfaceEndpointHandle service_worker_host) override;
+  void SetRegistration(WebServiceWorkerRegistrationObjectInfo info) override;
+  // Must be called after the above BindServiceWorkerHost() and
+  // SetRegistration() got called.
   void ReadyToEvaluateScript() override;
-  void SetRegistration(
-      std::unique_ptr<WebServiceWorkerRegistration::Handle>) override;
   void DispatchActivateEvent(int) override;
   void DispatchBackgroundFetchAbortEvent(
       int event_id,
-      const WebString& developer_id,
-      const WebString& unique_id,
-      const WebVector<WebBackgroundFetchSettledFetch>& fetches) override;
-  void DispatchBackgroundFetchClickEvent(int event_id,
-                                         const WebString& developer_id,
-                                         BackgroundFetchState) override;
+      const WebBackgroundFetchRegistration& registration) override;
+  void DispatchBackgroundFetchClickEvent(
+      int event_id,
+      const WebBackgroundFetchRegistration& registration) override;
   void DispatchBackgroundFetchFailEvent(
       int event_id,
-      const WebString& developer_id,
-      const WebString& unique_id,
-      const WebVector<WebBackgroundFetchSettledFetch>& fetches) override;
-  void DispatchBackgroundFetchedEvent(
+      const WebBackgroundFetchRegistration& registration) override;
+  void DispatchBackgroundFetchSuccessEvent(
       int event_id,
-      const WebString& developer_id,
-      const WebString& unique_id,
-      const WebVector<WebBackgroundFetchSettledFetch>& fetches) override;
+      const WebBackgroundFetchRegistration& registration) override;
   void DispatchCookieChangeEvent(
       int event_id,
       const WebCanonicalCookie& cookie,
@@ -108,11 +107,10 @@ class ServiceWorkerGlobalScopeProxy final
       TransferableMessage,
       const WebSecurityOrigin& source_origin,
       const WebServiceWorkerClientInfo&) override;
-  void DispatchExtendableMessageEvent(
-      int event_id,
-      TransferableMessage,
-      const WebSecurityOrigin& source_origin,
-      std::unique_ptr<WebServiceWorker::Handle>) override;
+  void DispatchExtendableMessageEvent(int event_id,
+                                      TransferableMessage,
+                                      const WebSecurityOrigin& source_origin,
+                                      WebServiceWorkerObjectInfo) override;
   void DispatchFetchEvent(int fetch_event_id,
                           const WebServiceWorkerRequest&,
                           bool navigation_preload_sent) override;
@@ -136,7 +134,7 @@ class ServiceWorkerGlobalScopeProxy final
   void OnNavigationPreloadResponse(
       int fetch_event_id,
       std::unique_ptr<WebURLResponse>,
-      std::unique_ptr<WebDataConsumerHandle>) override;
+      mojo::ScopedDataPipeConsumerHandle data_pipe) override;
   void OnNavigationPreloadError(
       int fetch_event_id,
       std::unique_ptr<WebServiceWorkerError>) override;
@@ -156,17 +154,18 @@ class ServiceWorkerGlobalScopeProxy final
                             MessageLevel,
                             const String& message,
                             SourceLocation*) override;
-  void PostMessageToPageInspector(int session_id, const String&) override;
   void DidCreateWorkerGlobalScope(WorkerOrWorkletGlobalScope*) override;
   void DidInitializeWorkerContext() override;
-  void DidLoadInstalledScript(
-      const ContentSecurityPolicyResponseHeaders&,
-      const String& referrer_policy_on_worker_thread) override;
+  void DidLoadInstalledScript() override;
+  void DidFailToLoadInstalledClassicScript() override;
+  void DidFailToFetchModuleScript() override;
   void WillEvaluateClassicScript(size_t script_size,
                                  size_t cached_metadata_size) override;
   void WillEvaluateImportedClassicScript(size_t script_size,
                                          size_t cached_metadata_size) override;
+  void WillEvaluateModuleScript() override;
   void DidEvaluateClassicScript(bool success) override;
+  void DidEvaluateModuleScript(bool success) override;
   void DidCloseWorkerGlobalScope() override;
   void WillDestroyWorkerGlobalScope() override;
   void DidTerminateWorkerThread() override;
@@ -183,9 +182,6 @@ class ServiceWorkerGlobalScopeProxy final
   void TerminateWorkerContext();
 
  private:
-  ServiceWorkerGlobalScopeProxy(WebEmbeddedWorkerImpl&,
-                                WebServiceWorkerContextClient&);
-
   WebServiceWorkerContextClient& Client() const;
   ServiceWorkerGlobalScope* WorkerGlobalScope() const;
 

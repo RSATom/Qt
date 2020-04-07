@@ -11,25 +11,29 @@
 #ifndef CALL_VIDEO_SEND_STREAM_H_
 #define CALL_VIDEO_SEND_STREAM_H_
 
+#include <stdint.h>
 #include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
+#include "absl/types/optional.h"
 #include "api/call/transport.h"
-#include "api/rtp_headers.h"
-#include "api/rtpparameters.h"
+#include "api/crypto/crypto_options.h"
+#include "api/media_transport_interface.h"
+#include "api/rtp_parameters.h"
+#include "api/video/video_content_type.h"
+#include "api/video/video_frame.h"
 #include "api/video/video_sink_interface.h"
 #include "api/video/video_source_interface.h"
+#include "api/video/video_stream_encoder_settings.h"
 #include "api/video_codecs/video_encoder_config.h"
-#include "api/video_codecs/video_encoder_factory.h"
 #include "call/rtp_config.h"
-#include "common_types.h"  // NOLINT(build/include)
-#include "common_video/include/frame_callback.h"
+#include "modules/rtp_rtcp/include/rtcp_statistics.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "rtc_base/platform_file.h"
 
 namespace webrtc {
+
+class FrameEncryptorInterface;
 
 class VideoSendStream {
  public:
@@ -94,6 +98,7 @@ class VideoSendStream {
    public:
     Config() = delete;
     Config(Config&&);
+    Config(Transport* send_transport, MediaTransportInterface* media_transport);
     explicit Config(Transport* send_transport);
 
     Config& operator=(Config&&);
@@ -106,34 +111,17 @@ class VideoSendStream {
 
     std::string ToString() const;
 
-    struct EncoderSettings {
-      EncoderSettings() = default;
-      std::string ToString() const;
-
-      // Enables the new method to estimate the cpu load from encoding, used for
-      // cpu adaptation.
-      bool experiment_cpu_load_estimator = false;
-
-      // Ownership stays with WebrtcVideoEngine (delegated from PeerConnection).
-      VideoEncoderFactory* encoder_factory = nullptr;
-    } encoder_settings;
+    VideoStreamEncoderSettings encoder_settings;
 
     RtpConfig rtp;
 
-    RtcpConfig rtcp;
+    // Time interval between RTCP report for video
+    int rtcp_report_interval_ms = 1000;
 
     // Transport for outgoing packets.
     Transport* send_transport = nullptr;
 
-    // Called for each I420 frame before encoding the frame. Can be used for
-    // effects, snapshots etc. 'nullptr' disables the callback.
-    rtc::VideoSinkInterface<VideoFrame>* pre_encode_callback = nullptr;
-
-    // Called for each encoded frame, e.g. used for file storage. 'nullptr'
-    // disables the callback. Also measures timing and passes the time
-    // spent on encoding. This timing will not fire if encoding takes longer
-    // than the measuring window, since the sample data will have been dropped.
-    EncodedFrameObserver* post_encode_callback = nullptr;
+    MediaTransportInterface* media_transport = nullptr;
 
     // Expected delay needed by the renderer, i.e. the frame will be delivered
     // this many milliseconds, if possible, earlier than expected render time.
@@ -154,6 +142,14 @@ class VideoSendStream {
 
     // Track ID as specified during track creation.
     std::string track_id;
+
+    // An optional custom frame encryptor that allows the entire frame to be
+    // encrypted in whatever way the caller chooses. This is not required by
+    // default.
+    rtc::scoped_refptr<webrtc::FrameEncryptorInterface> frame_encryptor;
+
+    // Per PeerConnection cryptography options.
+    CryptoOptions crypto_options;
 
    private:
     // Access to the copy constructor is private to force use of the Copy()
@@ -188,22 +184,6 @@ class VideoSendStream {
   virtual void ReconfigureVideoEncoder(VideoEncoderConfig config) = 0;
 
   virtual Stats GetStats() = 0;
-
-  // Takes ownership of each file, is responsible for closing them later.
-  // Calling this method will close and finalize any current logs.
-  // Some codecs produce multiple streams (VP8 only at present), each of these
-  // streams will log to a separate file. kMaxSimulcastStreams in common_types.h
-  // gives the max number of such streams. If there is no file for a stream, or
-  // the file is rtc::kInvalidPlatformFileValue, frames from that stream will
-  // not be logged.
-  // If a frame to be written would make the log too large the write fails and
-  // the log is closed and finalized. A |byte_limit| of 0 means no limit.
-  virtual void EnableEncodedFrameRecording(
-      const std::vector<rtc::PlatformFile>& files,
-      size_t byte_limit) = 0;
-  inline void DisableEncodedFrameRecording() {
-    EnableEncodedFrameRecording(std::vector<rtc::PlatformFile>(), 0);
-  }
 
  protected:
   virtual ~VideoSendStream() {}

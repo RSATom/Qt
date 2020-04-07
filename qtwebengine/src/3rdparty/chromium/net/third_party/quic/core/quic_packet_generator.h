@@ -1,7 +1,7 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
+
 // Responsible for generating packets on behalf of a QuicConnection.
 // Packets are serialized just-in-time.  Control frames are queued.
 // Ack and Feedback frames will be requested from the Connection
@@ -75,6 +75,8 @@ class QUIC_EXPORT_PRIVATE QuicPacketGenerator {
                       QuicFramer* framer,
                       QuicRandom* random_generator,
                       DelegateInterface* delegate);
+  QuicPacketGenerator(const QuicPacketGenerator&) = delete;
+  QuicPacketGenerator& operator=(const QuicPacketGenerator&) = delete;
 
   ~QuicPacketGenerator();
 
@@ -143,6 +145,20 @@ class QUIC_EXPORT_PRIVATE QuicPacketGenerator {
   // Creates a connectivity probing packet.
   OwningSerializedPacketPointer SerializeConnectivityProbingPacket();
 
+  // Create connectivity probing request and response packets using PATH
+  // CHALLENGE and PATH RESPONSE frames, respectively.
+  // SerializePathChallengeConnectivityProbingPacket will pad the packet to be
+  // MTU bytes long.
+  OwningSerializedPacketPointer SerializePathChallengeConnectivityProbingPacket(
+      QuicPathFrameBuffer* payload);
+
+  // If |is_padded| is true then SerializePathResponseConnectivityProbingPacket
+  // will pad the packet to be MTU bytes long, else it will not pad the packet.
+  // |payloads| is cleared.
+  OwningSerializedPacketPointer SerializePathResponseConnectivityProbingPacket(
+      const QuicDeque<QuicPathFrameBuffer>& payloads,
+      const bool is_padded);
+
   // Re-serializes frames with the original packet's packet number length.
   // Used for retransmitting packets to ensure they aren't too long.
   void ReserializeAllFrames(const QuicPendingRetransmission& retransmission,
@@ -192,8 +208,25 @@ class QUIC_EXPORT_PRIVATE QuicPacketGenerator {
   // Allow/Disallow setting transmission type of next constructed packets.
   void SetCanSetTransmissionType(bool can_set_transmission_type);
 
+  // Tries to add a message frame containing |message| and returns the status.
+  MessageStatus AddMessageFrame(QuicMessageId message_id,
+                                QuicStringPiece message);
+
+  // Returns the largest payload that will fit into a single MESSAGE frame.
+  QuicPacketLength GetLargestMessagePayload() const;
+
   void set_debug_delegate(QuicPacketCreator::DebugDelegate* debug_delegate) {
     packet_creator_.set_debug_delegate(debug_delegate);
+  }
+
+  bool should_send_ack() const { return should_send_ack_; }
+
+  void set_fully_pad_crypto_hadshake_packets(bool new_value) {
+    fully_pad_crypto_handshake_packets_ = new_value;
+  }
+
+  bool fully_pad_crypto_handshake_packets() const {
+    return fully_pad_crypto_handshake_packets_;
   }
 
  private:
@@ -224,6 +257,9 @@ class QUIC_EXPORT_PRIVATE QuicPacketGenerator {
   QuicPacketCreator packet_creator_;
   QuicFrames queued_control_frames_;
 
+  // Transmission type of the next serialized packet.
+  TransmissionType next_transmission_type_;
+
   // True if packet flusher is currently attached.
   bool flusher_attached_;
 
@@ -238,7 +274,8 @@ class QUIC_EXPORT_PRIVATE QuicPacketGenerator {
 
   QuicRandom* random_generator_;
 
-  DISALLOW_COPY_AND_ASSIGN(QuicPacketGenerator);
+  // Whether crypto handshake packets should be fully padded.
+  bool fully_pad_crypto_handshake_packets_;
 };
 
 }  // namespace quic

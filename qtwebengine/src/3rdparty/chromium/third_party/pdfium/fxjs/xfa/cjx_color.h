@@ -8,18 +8,14 @@
 #define FXJS_XFA_CJX_COLOR_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Color;
 
-class CJX_Color : public CJX_Node {
+class CJX_Color final : public CJX_Node {
  public:
   explicit CJX_Color(CXFA_Color* node);
   ~CJX_Color() override;
-
-  JS_PROP(cSpace);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(value);
 };
 
 #endif  // FXJS_XFA_CJX_COLOR_H_

@@ -6,7 +6,9 @@
 
 #include <memory>
 
+#include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "extensions/common/api/messaging/message.h"
 #include "extensions/common/api/messaging/port_id.h"
@@ -47,15 +49,13 @@ class OneTimeMessageHandlerTest : public NativeExtensionBindingsSystemUnittest {
     message_handler_ =
         std::make_unique<OneTimeMessageHandler>(bindings_system());
 
-    scoped_refptr<Extension> mutable_extension =
-        ExtensionBuilder("foo").Build();
-    RegisterExtension(mutable_extension);
-    extension_ = mutable_extension;
+    extension_ = ExtensionBuilder("foo").Build();
+    RegisterExtension(extension_);
 
     v8::HandleScope handle_scope(isolate());
     v8::Local<v8::Context> context = MainContext();
 
-    script_context_ = CreateScriptContext(context, mutable_extension.get(),
+    script_context_ = CreateScriptContext(context, extension_.get(),
                                           Feature::BLESSED_EXTENSION_CONTEXT);
     script_context_->set_url(extension_->url());
     bindings_system()->UpdateBindingsForContext(script_context_);
@@ -336,13 +336,13 @@ TEST_F(OneTimeMessageHandlerTest, TryReplyingMultipleTimes) {
                                     Message("\"hi\"", false)));
   EXPECT_CALL(*ipc_message_sender(),
               SendCloseMessagePort(MSG_ROUTING_NONE, port_id, true));
-  RunFunction(reply.As<v8::Function>(), context, arraysize(args), args);
+  RunFunction(reply.As<v8::Function>(), context, base::size(args), args);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
   EXPECT_FALSE(message_handler()->HasPort(script_context(), port_id));
 
   // Running the reply function a second time shouldn't do anything.
   // TODO(devlin): Add an error message.
-  RunFunction(reply.As<v8::Function>(), context, arraysize(args), args);
+  RunFunction(reply.As<v8::Function>(), context, base::size(args), args);
   EXPECT_FALSE(message_handler()->HasPort(script_context(), port_id));
 }
 

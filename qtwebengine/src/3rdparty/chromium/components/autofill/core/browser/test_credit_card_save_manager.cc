@@ -16,12 +16,7 @@ TestCreditCardSaveManager::TestCreditCardSaveManager(
     : CreditCardSaveManager(client,
                             payments_client,
                             "en-US",
-                            personal_data_manager),
-      test_payments_client_(payments_client) {
-  if (test_payments_client_) {
-    test_payments_client_->SetSaveDelegate(this);
-  }
-}
+                            personal_data_manager) {}
 
 TestCreditCardSaveManager::~TestCreditCardSaveManager() {}
 
@@ -36,6 +31,15 @@ void TestCreditCardSaveManager::SetCreditCardUploadEnabled(
 
 bool TestCreditCardSaveManager::CreditCardWasUploaded() {
   return credit_card_was_uploaded_;
+}
+
+void TestCreditCardSaveManager::set_show_save_prompt(bool show_save_prompt) {
+  show_save_prompt_ = show_save_prompt;
+}
+
+void TestCreditCardSaveManager::set_upload_request_card_number(
+    const base::string16& credit_card_number) {
+  upload_request_.card.SetNumber(credit_card_number);
 }
 
 void TestCreditCardSaveManager::OnDidUploadCard(

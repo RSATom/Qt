@@ -12,6 +12,7 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
@@ -153,7 +154,7 @@ const MockTransaction* FindMockTransaction(const GURL& url) {
     return it->second;
 
   // look for builtins:
-  for (size_t i = 0; i < arraysize(kBuiltinMockTransactions); ++i) {
+  for (size_t i = 0; i < base::size(kBuiltinMockTransactions); ++i) {
     if (url == GURL(kBuiltinMockTransactions[i]->url))
       return kBuiltinMockTransactions[i];
   }
@@ -227,7 +228,7 @@ void TestTransactionConsumer::DidFinish(int result) {
 
 void TestTransactionConsumer::Read() {
   state_ = READING;
-  read_buf_ = new IOBuffer(1024);
+  read_buf_ = base::MakeRefCounted<IOBuffer>(1024);
   int result = trans_->Read(read_buf_.get(),
                             1024,
                             base::Bind(&TestTransactionConsumer::OnIOComplete,
@@ -614,7 +615,7 @@ int ReadTransaction(HttpTransaction* trans, std::string* result) {
 
   std::string content;
   do {
-    scoped_refptr<IOBuffer> buf(new IOBuffer(256));
+    scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(256);
     rv = trans->Read(buf.get(), 256, callback.callback());
     if (rv == ERR_IO_PENDING) {
       rv = callback.WaitForResult();

@@ -15,11 +15,11 @@ class SkRasterPipeline;
 
 struct SkColorSpaceXformSteps {
     struct Flags {
-        bool unpremul;
-        bool linearize;
-        bool gamut_transform;
-        bool encode;
-        bool premul;
+        bool unpremul         = false;
+        bool linearize        = false;
+        bool gamut_transform  = false;
+        bool encode           = false;
+        bool premul           = false;
 
         uint32_t mask() const {
             return (unpremul        ?  1 : 0)
@@ -31,17 +31,14 @@ struct SkColorSpaceXformSteps {
     };
 
     SkColorSpaceXformSteps(SkColorSpace* src, SkAlphaType srcAT,
-                           SkColorSpace* dst);
-
-    static SkColorSpaceXformSteps UnpremulToUnpremul(SkColorSpace* src, SkColorSpace* dst) {
-        // The need to transform unpremul to unpremul comes up often enough that it's
-        // nice to centralize it here, especially because this use of kOpaque_SkAlphaType
-        // isn't the most intuitive.  We basically want to always skip unpremul and premul.
-        return SkColorSpaceXformSteps(src, kOpaque_SkAlphaType, dst);
-    }
+                           SkColorSpace* dst, SkAlphaType dstAT);
 
     void apply(float rgba[4]) const;
-    void apply(SkRasterPipeline*) const;
+    void apply(SkRasterPipeline*, bool src_is_normalized) const;
+
+    void apply(SkRasterPipeline* p, SkColorType srcCT) const {
+        this->apply(p, srcCT < kRGBA_F16_SkColorType);
+    }
 
     Flags flags;
 

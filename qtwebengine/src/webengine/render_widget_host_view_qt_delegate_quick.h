@@ -59,8 +59,8 @@ public:
     ~RenderWidgetHostViewQtDelegateQuick();
 
     void initAsPopup(const QRect&) override;
-    QRectF screenRect() const override;
-    QRectF contentsRect() const override;
+    QRectF viewGeometry() const override;
+    QRect windowGeometry() const override;
     void setKeyboardFocus() override;
     bool hasKeyboardFocus() override;
     void lockMouse() override;
@@ -113,7 +113,6 @@ private:
     RenderWidgetHostViewQtDelegateClient *m_client;
     QList<QMetaObject::Connection> m_windowConnections;
     bool m_isPopup;
-    QPointF m_lastGlobalPos;
     QQuickWebEngineView *m_view = nullptr;
 };
 

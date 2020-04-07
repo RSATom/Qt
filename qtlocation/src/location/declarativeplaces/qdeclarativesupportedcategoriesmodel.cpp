@@ -179,7 +179,7 @@ int QDeclarativeSupportedCategoriesModel::rowCount(const QModelIndex &parent) co
 */
 int QDeclarativeSupportedCategoriesModel::columnCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     return 1;
 }

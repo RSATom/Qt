@@ -167,22 +167,22 @@ Bindings.CompilerScriptMapping = class {
    * @param {!Workspace.UISourceCode} uiSourceCode
    * @param {number} lineNumber
    * @param {number} columnNumber
-   * @return {?SDK.DebuggerModel.Location}
+   * @return {!Array<!SDK.DebuggerModel.Location>}
    */
-  uiLocationToRawLocation(uiSourceCode, lineNumber, columnNumber) {
+  uiLocationToRawLocations(uiSourceCode, lineNumber, columnNumber) {
     const sourceMap = uiSourceCode[Bindings.CompilerScriptMapping._sourceMapSymbol];
     if (!sourceMap)
-      return null;
+      return [];
     const scripts = this._sourceMapManager.clientsForSourceMap(sourceMap);
-    const script = scripts.length ? scripts[0] : null;
-    if (!script)
-      return null;
+    if (!scripts.length)
+      return [];
     const entry = sourceMap.sourceLineMapping(uiSourceCode.url(), lineNumber, columnNumber);
     if (!entry)
-      return null;
-    return this._debuggerModel.createRawLocation(
-        script, entry.lineNumber + script.lineOffset,
-        !entry.lineNumber ? entry.columnNumber + script.columnOffset : entry.columnNumber);
+      return [];
+    return scripts.map(
+        script => this._debuggerModel.createRawLocation(
+            script, entry.lineNumber + script.lineOffset,
+            !entry.lineNumber ? entry.columnNumber + script.columnOffset : entry.columnNumber));
   }
 
   /**
@@ -211,9 +211,10 @@ Bindings.CompilerScriptMapping = class {
     const sourceMap = /** @type {!SDK.SourceMap} */ (event.data.sourceMap);
     this._removeStubUISourceCode(script);
 
-    if (Bindings.blackboxManager.isBlackboxedURL(script.sourceURL, script.isContentScript()))
+    if (Bindings.blackboxManager.isBlackboxedURL(script.sourceURL, script.isContentScript())) {
+      this._sourceMapAttachedForTest(sourceMap);
       return;
-    Bindings.blackboxManager.sourceMapLoaded(script, sourceMap);
+    }
 
     this._populateSourceMapSources(script, sourceMap);
     this._sourceMapAttachedForTest(sourceMap);
@@ -229,9 +230,11 @@ Bindings.CompilerScriptMapping = class {
     const bindings = script.isContentScript() ? this._contentScriptsBindings : this._regularBindings;
     for (const sourceURL of sourceMap.sourceURLs()) {
       const binding = bindings.get(sourceURL);
-      binding.removeSourceMap(sourceMap, frameId);
-      if (!binding._uiSourceCode)
-        bindings.delete(sourceURL);
+      if (binding) {
+        binding.removeSourceMap(sourceMap, frameId);
+        if (!binding._uiSourceCode)
+          bindings.delete(sourceURL);
+      }
     }
     this._debuggerWorkspaceBinding.updateLocations(script);
   }
@@ -242,16 +245,6 @@ Bindings.CompilerScriptMapping = class {
    */
   sourceMapForScript(script) {
     return this._sourceMapManager.sourceMapForClient(script);
-  }
-
-  /**
-   * @param {!SDK.Script} script
-   */
-  maybeLoadSourceMap(script) {
-    const sourceMap = this._sourceMapManager.sourceMapForClient(script);
-    if (!sourceMap)
-      return;
-    this._populateSourceMapSources(script, sourceMap);
   }
 
   /**

@@ -121,6 +121,9 @@
 #ifdef QT_SECURETRANSPORT
 #include "qsslsocket_mac_p.h"
 #endif
+#if QT_CONFIG(schannel)
+#include "qsslsocket_schannel_p.h"
+#endif
 
 #include "qssl_p.h"
 #include "qsslcertificate.h"
@@ -414,7 +417,7 @@ QByteArray QSslCertificate::digest(QCryptographicHash::Algorithm algorithm) cons
 /*!
     \fn Qt::HANDLE QSslCertificate::handle() const
     Returns a pointer to the native certificate handle, if there is
-    one, or a null pointer otherwise.
+    one, else \nullptr.
 
     You can use this handle, together with the native API, to access
     extended information about the certificate.

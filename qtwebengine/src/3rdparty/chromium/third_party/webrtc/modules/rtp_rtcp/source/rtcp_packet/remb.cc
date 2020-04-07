@@ -10,6 +10,7 @@
 
 #include "modules/rtp_rtcp/source/rtcp_packet/remb.h"
 
+#include <cstdint>
 #include <utility>
 
 #include "modules/rtp_rtcp/source/byte_io.h"
@@ -41,6 +42,8 @@ constexpr uint8_t Remb::kFeedbackMessageType;
 
 Remb::Remb() : bitrate_bps_(0) {}
 
+Remb::Remb(const Remb& rhs) = default;
+
 Remb::~Remb() = default;
 
 bool Remb::Parse(const CommonHeader& packet) {
@@ -54,7 +57,7 @@ bool Remb::Parse(const CommonHeader& packet) {
   }
   const uint8_t* const payload = packet.payload();
   if (kUniqueIdentifier != ByteReader<uint32_t>::ReadBigEndian(&payload[8])) {
-    RTC_LOG(LS_WARNING) << "REMB identifier not found, not a REMB packet.";
+    RTC_LOG(LS_INFO) << "REMB identifier not found, not a REMB packet.";
     return false;
   }
   uint8_t number_of_ssrcs = payload[12];

@@ -31,6 +31,36 @@ struct ScopedTypeRefTraits<CVDisplayLinkRef> {
 
 namespace ui {
 
+using DisplayLinkMap = std::map<CGDirectDisplayID, DisplayLinkMac*>;
+
+namespace {
+
+// The task runner to post tasks to from the display link thread. Note that this
+// is initialized with the very first DisplayLinkMac instance, and is never
+// changed (even, e.g, in tests that re-initialize the main thread task runner).
+// https://885329
+scoped_refptr<base::SingleThreadTaskRunner> GetMainThreadTaskRunner() {
+  static scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      base::ThreadTaskRunnerHandle::Get();
+  return task_runner;
+}
+
+// Each display link instance consumes a non-negligible number of cycles, so
+// make all display links on the same screen share the same object.
+//
+// Note that this is a weak map, holding non-owning pointers to the
+// DisplayLinkMac objects. DisplayLinkMac is a ref-counted class, and is
+// jointly owned by the various callers that got a copy by calling
+// GetForDisplay().
+//
+// ** This map may only be accessed from the main thread. **
+DisplayLinkMap& GetAllDisplayLinks() {
+  static base::NoDestructor<DisplayLinkMap> all_display_links;
+  return *all_display_links;
+}
+
+}  // namespace
+
 // static
 scoped_refptr<DisplayLinkMac> DisplayLinkMac::GetForDisplay(
     CGDirectDisplayID display_id) {
@@ -110,14 +140,16 @@ bool DisplayLinkMac::GetVSyncParameters(
     return false;
   }
 
+  // The vsync parameters skew over time (astonishingly quickly -- 0.1 msec per
+  // second). If too much time has elapsed since the last time the vsync
+  // parameters were calculated, re-calculate them (but still return the old
+  // parameters -- the update will be asynchronous).
+  if (base::TimeTicks::Now() >= recalculate_time_)
+    StartOrContinueDisplayLink();
+
   *timebase = timebase_;
   *interval = interval_;
   return true;
-}
-
-void DisplayLinkMac::NotifyCurrentTime(const base::TimeTicks& now) {
-  if (now >= recalculate_time_)
-    StartOrContinueDisplayLink();
 }
 
 // static
@@ -188,21 +220,6 @@ void DisplayLinkMac::StopDisplayLink() {
   CVReturn ret = CVDisplayLinkStop(display_link_);
   if (ret != kCVReturnSuccess)
     LOG(ERROR) << "CVDisplayLinkStop failed: " << ret;
-}
-
-// static
-DisplayLinkMac::DisplayLinkMap& DisplayLinkMac::GetAllDisplayLinks() {
-  DCHECK_EQ(base::ThreadTaskRunnerHandle::Get(), GetMainThreadTaskRunner());
-  static base::NoDestructor<DisplayLinkMac::DisplayLinkMap> all_display_links;
-  return *all_display_links;
-}
-
-// static
-scoped_refptr<base::SingleThreadTaskRunner>
-DisplayLinkMac::GetMainThreadTaskRunner() {
-  static scoped_refptr<base::SingleThreadTaskRunner> task_runner =
-      base::ThreadTaskRunnerHandle::Get();
-  return task_runner;
 }
 
 // static

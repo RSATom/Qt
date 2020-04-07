@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
 #include "third_party/blink/renderer/core/html/canvas/image_encode_options.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -28,10 +29,17 @@ class KURL;
 class StaticBitmapImage;
 
 class CORE_EXPORT CanvasRenderingContextHost : public CanvasResourceHost,
+                                               public CanvasImageSource,
                                                public GarbageCollectedMixin {
  public:
   CanvasRenderingContextHost();
 
+  enum HostType {
+    kCanvasHost,
+    kOffscreenCanvasHost,
+  };
+
+  void RecordCanvasSizeToUMA(const IntSize&, HostType);
   virtual void DetachContext() = 0;
 
   virtual void DidDraw(const FloatRect& rect) = 0;
@@ -64,8 +72,6 @@ class CORE_EXPORT CanvasRenderingContextHost : public CanvasResourceHost,
   virtual bool ShouldAccelerate2dContext() const = 0;
   virtual unsigned GetMSAASampleCountFor2dContext() const = 0;
 
-  // TODO(fserb): remove this.
-  virtual bool IsOffscreenCanvas() const { return false; }
   virtual bool IsNeutered() const { return false; }
 
   virtual void Commit(scoped_refptr<CanvasResource> canvas_resource,
@@ -73,17 +79,23 @@ class CORE_EXPORT CanvasRenderingContextHost : public CanvasResourceHost,
 
   bool IsPaintable() const;
 
+  // Required by template functions in WebGLRenderingContextBase
+  int width() const { return Size().Width(); }
+  int height() const { return Size().Height(); }
+
   // Partial CanvasResourceHost implementation
   void RestoreCanvasMatrixClipStack(cc::PaintCanvas*) const final;
-  CanvasResourceProvider* GetOrCreateCanvasResourceProvider(
+  CanvasResourceProvider* GetOrCreateCanvasResourceProviderImpl(
       AccelerationHint hint) final;
+  CanvasResourceProvider* GetOrCreateCanvasResourceProvider(
+      AccelerationHint hint) override;
 
   bool Is3d() const;
   bool Is2d() const;
   CanvasColorParams ColorParams() const;
 
   ScriptPromise convertToBlob(ScriptState*,
-                              const ImageEncodeOptions&,
+                              const ImageEncodeOptions*,
                               ExceptionState&) const;
 
  protected:
@@ -92,6 +104,7 @@ class CORE_EXPORT CanvasRenderingContextHost : public CanvasResourceHost,
   scoped_refptr<StaticBitmapImage> CreateTransparentImage(const IntSize&) const;
 
   bool did_fail_to_create_resource_provider_ = false;
+  bool did_record_canvas_size_to_uma_ = false;
 };
 
 }  // namespace blink

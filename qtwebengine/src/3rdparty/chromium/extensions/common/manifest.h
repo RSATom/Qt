@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/span.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/values.h"
@@ -24,13 +25,24 @@ struct InstallWarning;
 // properties of the manifest using ManifestFeatureProvider.
 class Manifest {
  public:
-  // What an extension was loaded from.
+  // Historically, where an extension was loaded from, and whether an
+  // extension's files were inside or outside of the profile's directory. In
+  // modern usage, a Location can be thought of as the installation source:
+  // whether an extension was explicitly installed by the user (through the
+  // UI), or implicitly installed by other means. For example, enterprise
+  // policy, being part of Chrome per se (but implemented as an extension), or
+  // installed as a side effect of installing third party software.
+  //
   // NOTE: These values are stored as integers in the preferences and used
   // in histograms so don't remove or reorder existing items.  Just append
   // to the end.
   enum Location {
     INVALID_LOCATION,
-    INTERNAL,           // A crx file from the internal Extensions directory.
+    INTERNAL,  // A crx file from the internal Extensions directory. This
+               // includes extensions explicitly installed by the user. It also
+               // includes installed-by-default extensions that are not part of
+               // Chrome itself (and thus not a COMPONENT), but are part of a
+               // larger system (such as Chrome OS).
     EXTERNAL_PREF,      // A crx file from an external directory (via prefs).
     EXTERNAL_REGISTRY,  // A crx file from an external directory (via eg the
                         // registry on Windows).
@@ -170,6 +182,9 @@ class Manifest {
 
   // These access the wrapped manifest value, returning false when the property
   // does not exist or if the manifest type can't access it.
+  // TODO(karandeepb): These methods should be changed to use base::StringPiece.
+  // Better, we should pass a list of path components instead of a unified
+  // |path| to do away with our usage of deprecated base::Value methods.
   bool HasKey(const std::string& key) const;
   bool HasPath(const std::string& path) const;
   bool Get(const std::string& path, const base::Value** out_value) const;
@@ -177,14 +192,24 @@ class Manifest {
   bool GetInteger(const std::string& path, int* out_value) const;
   bool GetString(const std::string& path, std::string* out_value) const;
   bool GetString(const std::string& path, base::string16* out_value) const;
+  // Deprecated: Use the GetDictionary() overload that accepts a base::Value
+  // output parameter instead.
   bool GetDictionary(const std::string& path,
                      const base::DictionaryValue** out_value) const;
+  bool GetDictionary(const std::string& path,
+                     const base::Value** out_value) const;
+  // Deprecated: Use the GetList() overload that accepts a base::Value output
+  // parameter instead.
   bool GetList(const std::string& path,
                const base::ListValue** out_value) const;
+  bool GetList(const std::string& path, const base::Value** out_value) const;
 
-  // Returns a new Manifest equal to this one, passing ownership to
-  // the caller.
-  Manifest* DeepCopy() const;
+  bool GetPathOfType(const std::string& path,
+                     base::Value::Type type,
+                     const base::Value** out_value) const;
+
+  // Returns a new Manifest equal to this one.
+  std::unique_ptr<Manifest> CreateDeepCopy() const;
 
   // Returns true if this equals the |other| manifest.
   bool Equals(const Manifest* other) const;
@@ -196,6 +221,7 @@ class Manifest {
  private:
   // Returns true if the extension can specify the given |path|.
   bool CanAccessPath(const std::string& path) const;
+  bool CanAccessPath(const base::span<const base::StringPiece> path) const;
   bool CanAccessKey(const std::string& key) const;
 
   // A persistent, globally unique ID. An extension's ID is used in things

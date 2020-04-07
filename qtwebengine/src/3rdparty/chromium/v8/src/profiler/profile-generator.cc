@@ -18,7 +18,8 @@
 namespace v8 {
 namespace internal {
 
-void SourcePositionTable::SetPosition(int pc_offset, int line) {
+void SourcePositionTable::SetPosition(int pc_offset, int line,
+                                      int inlining_id) {
   DCHECK_GE(pc_offset, 0);
   DCHECK_GT(line, 0);  // The 1-based number of the source line.
   // Check that we are inserting in ascending order, so that the vector remains
@@ -26,8 +27,9 @@ void SourcePositionTable::SetPosition(int pc_offset, int line) {
   DCHECK(pc_offsets_to_lines_.empty() ||
          pc_offsets_to_lines_.back().pc_offset < pc_offset);
   if (pc_offsets_to_lines_.empty() ||
-      pc_offsets_to_lines_.back().line_number != line) {
-    pc_offsets_to_lines_.push_back({pc_offset, line});
+      pc_offsets_to_lines_.back().line_number != line ||
+      pc_offsets_to_lines_.back().inlining_id != inlining_id) {
+    pc_offsets_to_lines_.push_back({pc_offset, line, inlining_id});
   }
 }
 
@@ -35,11 +37,31 @@ int SourcePositionTable::GetSourceLineNumber(int pc_offset) const {
   if (pc_offsets_to_lines_.empty()) {
     return v8::CpuProfileNode::kNoLineNumberInfo;
   }
-  auto it =
-      std::upper_bound(pc_offsets_to_lines_.begin(), pc_offsets_to_lines_.end(),
-                       PCOffsetAndLineNumber{pc_offset, 0});
+  auto it = std::lower_bound(
+      pc_offsets_to_lines_.begin(), pc_offsets_to_lines_.end(),
+      SourcePositionTuple{pc_offset, 0, SourcePosition::kNotInlined});
   if (it != pc_offsets_to_lines_.begin()) --it;
   return it->line_number;
+}
+
+int SourcePositionTable::GetInliningId(int pc_offset) const {
+  if (pc_offsets_to_lines_.empty()) {
+    return SourcePosition::kNotInlined;
+  }
+  auto it = std::lower_bound(
+      pc_offsets_to_lines_.begin(), pc_offsets_to_lines_.end(),
+      SourcePositionTuple{pc_offset, 0, SourcePosition::kNotInlined});
+  if (it != pc_offsets_to_lines_.begin()) --it;
+  return it->inlining_id;
+}
+
+void SourcePositionTable::print() const {
+  base::OS::Print(" - source position table at %p\n", this);
+  for (const SourcePositionTuple& pos_info : pc_offsets_to_lines_) {
+    base::OS::Print("    %d --> line_number: %d inlining_id: %d\n",
+                    pos_info.pc_offset, pos_info.line_number,
+                    pos_info.inlining_id);
+  }
 }
 
 const char* const CodeEntry::kWasmResourceNamePrefix = "wasm ";
@@ -66,34 +88,36 @@ base::LazyDynamicInstance<CodeEntry,
     CodeEntry::kUnresolvedEntry = LAZY_DYNAMIC_INSTANCE_INITIALIZER;
 
 CodeEntry* CodeEntry::ProgramEntryCreateTrait::Create() {
-  return new CodeEntry(Logger::FUNCTION_TAG, CodeEntry::kProgramEntryName);
+  return new CodeEntry(CodeEventListener::FUNCTION_TAG,
+                       CodeEntry::kProgramEntryName);
 }
 
 CodeEntry* CodeEntry::IdleEntryCreateTrait::Create() {
-  return new CodeEntry(Logger::FUNCTION_TAG, CodeEntry::kIdleEntryName);
+  return new CodeEntry(CodeEventListener::FUNCTION_TAG,
+                       CodeEntry::kIdleEntryName);
 }
 
 CodeEntry* CodeEntry::GCEntryCreateTrait::Create() {
-  return new CodeEntry(Logger::BUILTIN_TAG,
+  return new CodeEntry(CodeEventListener::BUILTIN_TAG,
                        CodeEntry::kGarbageCollectorEntryName);
 }
 
 CodeEntry* CodeEntry::UnresolvedEntryCreateTrait::Create() {
-  return new CodeEntry(Logger::FUNCTION_TAG,
+  return new CodeEntry(CodeEventListener::FUNCTION_TAG,
                        CodeEntry::kUnresolvedFunctionName);
 }
 
 uint32_t CodeEntry::GetHash() const {
-  uint32_t hash = ComputeIntegerHash(tag());
+  uint32_t hash = ComputeUnseededHash(tag());
   if (script_id_ != v8::UnboundScript::kNoScriptId) {
-    hash ^= ComputeIntegerHash(static_cast<uint32_t>(script_id_));
-    hash ^= ComputeIntegerHash(static_cast<uint32_t>(position_));
+    hash ^= ComputeUnseededHash(static_cast<uint32_t>(script_id_));
+    hash ^= ComputeUnseededHash(static_cast<uint32_t>(position_));
   } else {
-    hash ^= ComputeIntegerHash(
+    hash ^= ComputeUnseededHash(
         static_cast<uint32_t>(reinterpret_cast<uintptr_t>(name_)));
-    hash ^= ComputeIntegerHash(
+    hash ^= ComputeUnseededHash(
         static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource_name_)));
-    hash ^= ComputeIntegerHash(line_number_);
+    hash ^= ComputeUnseededHash(line_number_);
   }
   return hash;
 }
@@ -119,17 +143,25 @@ int CodeEntry::GetSourceLine(int pc_offset) const {
   return v8::CpuProfileNode::kNoLineNumberInfo;
 }
 
-void CodeEntry::AddInlineStack(
-    int pc_offset, std::vector<std::unique_ptr<CodeEntry>> inline_stack) {
-  EnsureRareData()->inline_locations_.insert(
-      std::make_pair(pc_offset, std::move(inline_stack)));
+void CodeEntry::SetInlineStacks(
+    std::unordered_set<std::unique_ptr<CodeEntry>, Hasher, Equals>
+        inline_entries,
+    std::unordered_map<int, std::vector<CodeEntryAndLineNumber>>
+        inline_stacks) {
+  EnsureRareData()->inline_entries_ = std::move(inline_entries);
+  rare_data_->inline_stacks_ = std::move(inline_stacks);
 }
 
-const std::vector<std::unique_ptr<CodeEntry>>* CodeEntry::GetInlineStack(
+const std::vector<CodeEntryAndLineNumber>* CodeEntry::GetInlineStack(
     int pc_offset) const {
-  if (!rare_data_) return nullptr;
-  auto it = rare_data_->inline_locations_.find(pc_offset);
-  return it != rare_data_->inline_locations_.end() ? &it->second : nullptr;
+  if (!line_info_) return nullptr;
+
+  int inlining_id = line_info_->GetInliningId(pc_offset);
+  if (inlining_id == SourcePosition::kNotInlined) return nullptr;
+  DCHECK(rare_data_);
+
+  auto it = rare_data_->inline_stacks_.find(inlining_id);
+  return it != rare_data_->inline_stacks_.end() ? &it->second : nullptr;
 }
 
 void CodeEntry::set_deopt_info(
@@ -142,9 +174,9 @@ void CodeEntry::set_deopt_info(
   rare_data->deopt_inlined_frames_ = std::move(inlined_frames);
 }
 
-void CodeEntry::FillFunctionInfo(SharedFunctionInfo* shared) {
+void CodeEntry::FillFunctionInfo(SharedFunctionInfo shared) {
   if (!shared->script()->IsScript()) return;
-  Script* script = Script::cast(shared->script());
+  Script script = Script::cast(shared->script());
   set_script_id(script->id());
   set_position(shared->StartPosition());
   if (shared->optimization_disabled()) {
@@ -172,6 +204,55 @@ CodeEntry::RareData* CodeEntry::EnsureRareData() {
     rare_data_.reset(new RareData());
   }
   return rare_data_.get();
+}
+
+void CodeEntry::print() const {
+  base::OS::Print("CodeEntry: at %p\n", this);
+
+  base::OS::Print(" - name: %s\n", name_);
+  base::OS::Print(" - resource_name: %s\n", resource_name_);
+  base::OS::Print(" - line_number: %d\n", line_number_);
+  base::OS::Print(" - column_number: %d\n", column_number_);
+  base::OS::Print(" - script_id: %d\n", script_id_);
+  base::OS::Print(" - position: %d\n", position_);
+  base::OS::Print(" - instruction_start: %p\n",
+                  reinterpret_cast<void*>(instruction_start_));
+
+  if (line_info_) {
+    line_info_->print();
+  }
+
+  if (rare_data_) {
+    base::OS::Print(" - deopt_reason: %s\n", rare_data_->deopt_reason_);
+    base::OS::Print(" - bailout_reason: %s\n", rare_data_->bailout_reason_);
+    base::OS::Print(" - deopt_id: %d\n", rare_data_->deopt_id_);
+
+    if (!rare_data_->inline_stacks_.empty()) {
+      base::OS::Print(" - inline stacks:\n");
+      for (auto it = rare_data_->inline_stacks_.begin();
+           it != rare_data_->inline_stacks_.end(); it++) {
+        base::OS::Print("    inlining_id: [%d]\n", it->first);
+        for (const auto& e : it->second) {
+          base::OS::Print("     %s --> %d\n", e.code_entry->name(),
+                          e.line_number);
+        }
+      }
+    } else {
+      base::OS::Print(" - inline stacks: (empty)\n");
+    }
+
+    if (!rare_data_->deopt_inlined_frames_.empty()) {
+      base::OS::Print(" - deopt inlined frames:\n");
+      for (const CpuProfileDeoptFrame& frame :
+           rare_data_->deopt_inlined_frames_) {
+        base::OS::Print("script_id: %d position: %zu\n", frame.script_id,
+                        frame.position);
+      }
+    } else {
+      base::OS::Print(" - deopt inlined frames: (empty)\n");
+    }
+  }
+  base::OS::Print("\n");
 }
 
 void ProfileNode::CollectDeoptInfo(CodeEntry* entry) {
@@ -529,6 +610,8 @@ void CodeMap::AddCode(Address addr, CodeEntry* entry, unsigned size) {
   ClearCodesInRange(addr, addr + size);
   unsigned index = AddCodeEntry(addr, entry);
   code_map_.emplace(addr, CodeEntryMapInfo{index, size});
+  DCHECK(entry->instruction_start() == kNullAddress ||
+         addr == entry->instruction_start());
 }
 
 void CodeMap::ClearCodesInRange(Address start, Address end) {
@@ -550,8 +633,14 @@ CodeEntry* CodeMap::FindEntry(Address addr) {
   auto it = code_map_.upper_bound(addr);
   if (it == code_map_.begin()) return nullptr;
   --it;
-  Address end_address = it->first + it->second.size;
-  return addr < end_address ? entry(it->second.index) : nullptr;
+  Address start_address = it->first;
+  Address end_address = start_address + it->second.size;
+  CodeEntry* ret = addr < end_address ? entry(it->second.index) : nullptr;
+  if (ret && ret->instruction_start() != kNullAddress) {
+    DCHECK_EQ(start_address, ret->instruction_start());
+    DCHECK(addr >= start_address && addr < end_address);
+  }
+  return ret;
 }
 
 void CodeMap::MoveCode(Address from, Address to) {
@@ -563,6 +652,9 @@ void CodeMap::MoveCode(Address from, Address to) {
   DCHECK(from + info.size <= to || to + info.size <= from);
   ClearCodesInRange(to, to + info.size);
   code_map_.emplace(to, info);
+
+  CodeEntry* entry = code_entries_[info.index].entry;
+  entry->set_instruction_start(to);
 }
 
 unsigned CodeMap::AddCodeEntry(Address start, CodeEntry* entry) {
@@ -693,26 +785,29 @@ void ProfileGenerator::RecordTickSample(const TickSample& sample) {
   if (sample.pc != nullptr) {
     if (sample.has_external_callback && sample.state == EXTERNAL) {
       // Don't use PC when in external callback code, as it can point
-      // inside callback's code, and we will erroneously report
+      // inside a callback's code, and we will erroneously report
       // that a callback calls itself.
       stack_trace.push_back(
           {FindEntry(reinterpret_cast<Address>(sample.external_callback_entry)),
            no_line_info});
     } else {
-      CodeEntry* pc_entry = FindEntry(reinterpret_cast<Address>(sample.pc));
-      // If there is no pc_entry we're likely in native code.
-      // Find out, if top of stack was pointing inside a JS function
-      // meaning that we have encountered a frameless invocation.
+      Address attributed_pc = reinterpret_cast<Address>(sample.pc);
+      CodeEntry* pc_entry = FindEntry(attributed_pc);
+      // If there is no pc_entry, we're likely in native code. Find out if the
+      // top of the stack (the return address) was pointing inside a JS
+      // function, meaning that we have encountered a frameless invocation.
       if (!pc_entry && !sample.has_external_callback) {
-        pc_entry = FindEntry(reinterpret_cast<Address>(sample.tos));
+        attributed_pc = reinterpret_cast<Address>(sample.tos);
+        pc_entry = FindEntry(attributed_pc);
       }
       // If pc is in the function code before it set up stack frame or after the
-      // frame was destroyed SafeStackFrameIterator incorrectly thinks that
-      // ebp contains return address of the current function and skips caller's
-      // frame. Check for this case and just skip such samples.
+      // frame was destroyed, SafeStackFrameIterator incorrectly thinks that
+      // ebp contains the return address of the current function and skips the
+      // caller's frame. Check for this case and just skip such samples.
       if (pc_entry) {
-        int pc_offset = static_cast<int>(reinterpret_cast<Address>(sample.pc) -
-                                         pc_entry->instruction_start());
+        int pc_offset =
+            static_cast<int>(attributed_pc - pc_entry->instruction_start());
+        // TODO(petermarshall): pc_offset can still be negative in some cases.
         src_line = pc_entry->GetSourceLine(pc_offset);
         if (src_line == v8::CpuProfileNode::kNoLineNumberInfo) {
           src_line = pc_entry->line_number();
@@ -744,15 +839,23 @@ void ProfileGenerator::RecordTickSample(const TickSample& sample) {
         // Find out if the entry has an inlining stack associated.
         int pc_offset =
             static_cast<int>(stack_pos - entry->instruction_start());
-        const std::vector<std::unique_ptr<CodeEntry>>* inline_stack =
+        // TODO(petermarshall): pc_offset can still be negative in some cases.
+        const std::vector<CodeEntryAndLineNumber>* inline_stack =
             entry->GetInlineStack(pc_offset);
         if (inline_stack) {
-          std::transform(
-              inline_stack->rbegin(), inline_stack->rend(),
-              std::back_inserter(stack_trace),
-              [=](const std::unique_ptr<CodeEntry>& ptr) {
-                return CodeEntryAndLineNumber{ptr.get(), no_line_info};
-              });
+          int most_inlined_frame_line_number = entry->GetSourceLine(pc_offset);
+          stack_trace.insert(stack_trace.end(), inline_stack->begin(),
+                             inline_stack->end());
+          // This is a bit of a messy hack. The line number for the most-inlined
+          // frame (the function at the end of the chain of function calls) has
+          // the wrong line number in inline_stack. The actual line number in
+          // this function is stored in the SourcePositionTable in entry. We fix
+          // up the line number for the most-inlined frame here.
+          // TODO(petermarshall): Remove this and use a tree with a node per
+          // inlining_id.
+          DCHECK(!inline_stack->empty());
+          size_t index = stack_trace.size() - inline_stack->size();
+          stack_trace[index].line_number = most_inlined_frame_line_number;
         }
         // Skip unresolved frames (e.g. internal frame) and get source line of
         // the first JS caller.
@@ -764,6 +867,12 @@ void ProfileGenerator::RecordTickSample(const TickSample& sample) {
           src_line_not_found = false;
         }
         line_number = entry->GetSourceLine(pc_offset);
+
+        // The inline stack contains the top-level function i.e. the same
+        // function as entry. We don't want to add it twice. The one from the
+        // inline stack has the correct line number for this particular inlining
+        // so we use it instead of pushing entry to stack_trace.
+        if (inline_stack) continue;
       }
       stack_trace.push_back({entry, line_number});
     }

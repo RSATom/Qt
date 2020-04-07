@@ -86,6 +86,9 @@ public:
 
     bool unsignedSupport() const { return fUnsignedSupport; }
 
+    // SkSL only.
+    bool builtinFMASupport() const { return fBuiltinFMASupport; }
+
     AdvBlendEqInteraction advBlendEqInteraction() const { return fAdvBlendEqInteraction; }
 
     bool mustEnableAdvBlendEqs() const {
@@ -123,6 +126,19 @@ public:
     // If true, short ints can't represent every integer in the 16-bit two's complement range as
     // required by the spec. SKSL will always emit full ints.
     bool incompleteShortIntPrecision() const { return fIncompleteShortIntPrecision; }
+
+    // If true, then conditions in for loops need "&& true" to work around driver bugs.
+    bool addAndTrueToLoopCondition() const { return fAddAndTrueToLoopCondition; }
+
+    // If true, then expressions such as "x && y" or "x || y" are rewritten as
+    // ternary to work around driver bugs.
+    bool unfoldShortCircuitAsTernary() const { return fUnfoldShortCircuitAsTernary; }
+
+    bool emulateAbsIntFunction() const { return fEmulateAbsIntFunction; }
+
+    bool rewriteDoWhileLoops() const { return fRewriteDoWhileLoops; }
+
+    bool removePowWithConstantExponent() const { return fRemovePowWithConstantExponent; }
 
     bool requiresLocalOutputColorForFBFetch() const { return fRequiresLocalOutputColorForFBFetch; }
 
@@ -196,22 +212,7 @@ public:
         return fImageLoadStoreExtensionString;
     }
 
-    int maxVertexSamplers() const { return fMaxVertexSamplers; }
-
-    int maxGeometrySamplers() const { return fMaxGeometrySamplers; }
-
     int maxFragmentSamplers() const { return fMaxFragmentSamplers; }
-
-    int maxCombinedSamplers() const { return fMaxCombinedSamplers; }
-
-    /**
-     * In general using multiple texture units for image rendering seems to be a win at smaller
-     * sizes of dst rects and a loss at larger sizes. Dst rects above this pixel area threshold will
-     * not use multitexturing.
-     */
-    size_t disableImageMultitexturingDstRectAreaThreshold() const {
-        return fDisableImageMultitexturingDstRectAreaThreshold;
-    }
 
     /**
      * Given a texture's config, this determines what swizzle must be appended to accesses to the
@@ -256,6 +257,9 @@ private:
     bool fHalfIs32Bits                      : 1;
     bool fUnsignedSupport                   : 1;
 
+    // Used by SkSL to know when to generate polyfills.
+    bool fBuiltinFMASupport : 1;
+
     // Used for specific driver bug work arounds
     bool fCanUseAnyFunctionInShader                   : 1;
     bool fCanUseMinAndAbsTogether                     : 1;
@@ -268,6 +272,11 @@ private:
     bool fMustGuardDivisionEvenAfterExplicitZeroCheck : 1;
     bool fCanUseFragCoord                             : 1;
     bool fIncompleteShortIntPrecision                 : 1;
+    bool fAddAndTrueToLoopCondition                   : 1;
+    bool fUnfoldShortCircuitAsTernary                 : 1;
+    bool fEmulateAbsIntFunction                       : 1;
+    bool fRewriteDoWhileLoops                         : 1;
+    bool fRemovePowWithConstantExponent               : 1;
 
     const char* fVersionDeclString;
 
@@ -284,10 +293,7 @@ private:
     const char* fFBFetchColorName;
     const char* fFBFetchExtensionString;
 
-    int fMaxVertexSamplers;
-    int fMaxGeometrySamplers;
     int fMaxFragmentSamplers;
-    int fMaxCombinedSamplers;
 
     size_t fDisableImageMultitexturingDstRectAreaThreshold;
 

@@ -7,7 +7,7 @@
 #include <limits.h>
 #include <stdint.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
@@ -95,6 +95,7 @@ typedef pthread_mutex_t* MutexHandle;
 #include "base/lazy_instance.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
@@ -115,7 +116,7 @@ VlogInfo* g_vlog_info = nullptr;
 VlogInfo* g_vlog_info_prev = nullptr;
 
 const char* const log_severity_names[] = {"INFO", "WARNING", "ERROR", "FATAL"};
-static_assert(LOG_NUM_SEVERITIES == arraysize(log_severity_names),
+static_assert(LOG_NUM_SEVERITIES == base::size(log_severity_names),
               "Incorrect number of log_severity_names");
 
 const char* log_severity_name(int severity) {
@@ -149,6 +150,7 @@ bool g_log_process_id = false;
 bool g_log_thread_id = false;
 bool g_log_timestamp = true;
 bool g_log_tickcount = false;
+const char* g_log_prefix = nullptr;
 
 // Should we pop up fatal debug messages in a dialog?
 bool show_error_dialogs = false;
@@ -333,9 +335,9 @@ bool InitializeLogFileHandle() {
       // try the current directory
       wchar_t system_buffer[MAX_PATH];
       system_buffer[0] = 0;
-      DWORD len = ::GetCurrentDirectory(arraysize(system_buffer),
-                                        system_buffer);
-      if (len == 0 || len > arraysize(system_buffer))
+      DWORD len =
+          ::GetCurrentDirectory(base::size(system_buffer), system_buffer);
+      if (len == 0 || len > base::size(system_buffer))
         return false;
 
       *g_log_file_name = system_buffer;
@@ -384,12 +386,12 @@ void CloseLogFileUnlocked() {
 
 }  // namespace
 
-#if DCHECK_IS_CONFIGURABLE
+#if defined(DCHECK_IS_CONFIGURABLE)
 // In DCHECK-enabled Chrome builds, allow the meaning of LOG_DCHECK to be
 // determined at run-time. We default it to INFO, to avoid it triggering
 // crashes before the run-time has explicitly chosen the behaviour.
 BASE_EXPORT logging::LogSeverity LOG_DCHECK = LOG_INFO;
-#endif  // DCHECK_IS_CONFIGURABLE
+#endif  // defined(DCHECK_IS_CONFIGURABLE)
 
 // This is never instantiated, it's just used for EAT_STREAM_PARAMETERS to have
 // an object of the correct type on the LHS of the unused part of the ternary
@@ -489,6 +491,12 @@ void SetLogItems(bool enable_process_id, bool enable_thread_id,
   g_log_tickcount = enable_tickcount;
 }
 
+void SetLogPrefix(const char* prefix) {
+  DCHECK(!prefix ||
+         base::ContainsOnlyChars(prefix, "abcdefghijklmnopqrstuvwxyz"));
+  g_log_prefix = prefix;
+}
+
 void SetShowErrorDialogs(bool enable_dialogs) {
   show_error_dialogs = enable_dialogs;
 }
@@ -547,15 +555,6 @@ void DisplayDebugMessageInDialog(const std::string& str) {
 #endif  // defined(OS_WIN)
 }
 #endif  // !defined(NDEBUG)
-
-#if defined(OS_WIN)
-LogMessage::SaveLastError::SaveLastError() : last_error_(::GetLastError()) {
-}
-
-LogMessage::SaveLastError::~SaveLastError() {
-  ::SetLastError(last_error_);
-}
-#endif  // defined(OS_WIN)
 
 LogMessage::LogMessage(const char* file, int line, LogSeverity severity)
     : severity_(severity), file_(file), line_(line) {
@@ -689,7 +688,7 @@ LogMessage::~LogMessage() {
       // By default, messages are only readable by the admin group. Explicitly
       // make them readable by the user generating the messages.
       char euid_string[12];
-      snprintf(euid_string, arraysize(euid_string), "%d", geteuid());
+      snprintf(euid_string, base::size(euid_string), "%d", geteuid());
       asl_set(asl_message.get(), ASL_KEY_READ_UID, euid_string);
 
       // Map Chrome log severities to ASL log levels.
@@ -772,8 +771,17 @@ LogMessage::~LogMessage() {
         priority = ANDROID_LOG_FATAL;
         break;
     }
+#if DCHECK_IS_ON()
+    // Split the output by new lines to prevent the Android system from
+    // truncating the log.
+    for (const auto& line : base::SplitString(
+             str_newline, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL))
+      __android_log_write(priority, "chromium", line.c_str());
+#else
+    // The Android system may truncate the string if it's too long.
     __android_log_write(priority, "chromium", str_newline.c_str());
 #endif
+#endif  // OS_ANDROID
     ignore_result(fwrite(str_newline.data(), str_newline.size(), 1, stderr));
     fflush(stderr);
   } else if (severity_ >= kAlwaysPrintErrorLevel) {
@@ -823,8 +831,17 @@ LogMessage::~LogMessage() {
       tracker->RecordLogMessage(str_newline);
 
     // Ensure the first characters of the string are on the stack so they
-    // are contained in minidumps for diagnostic purposes.
-    DEBUG_ALIAS_FOR_CSTR(str_stack, str_newline.c_str(), 1024);
+    // are contained in minidumps for diagnostic purposes. We place start
+    // and end marker values at either end, so we can scan captured stacks
+    // for the data easily.
+    struct {
+      uint32_t start_marker = 0xbedead01;
+      char data[1024];
+      uint32_t end_marker = 0x5050dead;
+    } str_stack;
+    base::strlcpy(str_stack.data, str_newline.data(),
+                  base::size(str_stack.data));
+    base::debug::Alias(&str_stack);
 
     if (log_assert_handler_stack.IsCreated() &&
         !log_assert_handler_stack.Get().empty()) {
@@ -871,6 +888,8 @@ void LogMessage::Init(const char* file, int line) {
   // TODO(darin): It might be nice if the columns were fixed width.
 
   stream_ <<  '[';
+  if (g_log_prefix)
+    stream_ << g_log_prefix << ':';
   if (g_log_process_id)
     stream_ << CurrentProcessId() << ':';
   if (g_log_thread_id)
@@ -944,7 +963,7 @@ BASE_EXPORT std::string SystemErrorCodeToString(SystemErrorCode error_code) {
   char msgbuf[kErrorMessageBufferSize];
   DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
   DWORD len = FormatMessageA(flags, nullptr, error_code, 0, msgbuf,
-                             arraysize(msgbuf), nullptr);
+                             base::size(msgbuf), nullptr);
   if (len) {
     // Messages returned by system end with line breaks.
     return base::CollapseWhitespaceASCII(msgbuf, true) +

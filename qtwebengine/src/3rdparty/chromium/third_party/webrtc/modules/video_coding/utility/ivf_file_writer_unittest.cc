@@ -10,15 +10,14 @@
 
 #include "modules/video_coding/utility/ivf_file_writer.h"
 
+#include <string.h>
 #include <memory>
+#include <string>
 
 #include "modules/rtp_rtcp/source/byte_io.h"
-#include "rtc_base/helpers.h"
-#include "rtc_base/logging.h"
-#include "rtc_base/thread.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/platform_file.h"
 #include "test/gtest.h"
-#include "test/testsupport/fileutils.h"
+#include "test/testsupport/file_utils.h"
 
 namespace webrtc {
 
@@ -42,15 +41,15 @@ class IvfFileWriterTest : public ::testing::Test {
                             int num_frames,
                             bool use_capture_tims_ms) {
     EncodedImage frame;
-    frame._buffer = dummy_payload;
+    frame.set_buffer(dummy_payload, sizeof(dummy_payload));
     frame._encodedWidth = width;
     frame._encodedHeight = height;
     for (int i = 1; i <= num_frames; ++i) {
-      frame._length = i % sizeof(dummy_payload);
+      frame.set_size(i % sizeof(dummy_payload));
       if (use_capture_tims_ms) {
         frame.capture_time_ms_ = i;
       } else {
-        frame._timeStamp = i;
+        frame.SetTimestamp(i);
       }
       if (!file_writer_->WriteFrame(frame, codec_type))
         return false;

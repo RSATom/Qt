@@ -26,8 +26,8 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/platform/fonts/font_selection_types.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
 #include "third_party/blink/renderer/platform/scroll/scroll_types.h"
 #include "third_party/blink/renderer/platform/theme_types.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -45,7 +45,7 @@ class HTMLInputElement;
 class LengthSize;
 class Locale;
 class Node;
-class PlatformChromeClient;
+class ChromeClient;
 class Theme;
 class ThemePainter;
 
@@ -190,7 +190,7 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   virtual int PopupInternalPaddingStart(const ComputedStyle&) const {
     return 0;
   }
-  virtual int PopupInternalPaddingEnd(const PlatformChromeClient*,
+  virtual int PopupInternalPaddingEnd(const ChromeClient*,
                                       const ComputedStyle&) const {
     return 0;
   }

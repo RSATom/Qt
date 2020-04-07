@@ -356,7 +356,7 @@ bool QGeoManeuverPrivate::valid() const
 
 void QGeoManeuverPrivate::setValid(bool valid)
 {
-    Q_UNUSED(valid)
+    Q_UNUSED(valid);
 }
 
 QString QGeoManeuverPrivate::id() const
@@ -366,7 +366,7 @@ QString QGeoManeuverPrivate::id() const
 
 void QGeoManeuverPrivate::setId(const QString id)
 {
-    Q_UNUSED(id)
+    Q_UNUSED(id);
 }
 
 QGeoCoordinate QGeoManeuverPrivate::position() const
@@ -376,7 +376,7 @@ QGeoCoordinate QGeoManeuverPrivate::position() const
 
 void QGeoManeuverPrivate::setPosition(const QGeoCoordinate &position)
 {
-    Q_UNUSED(position)
+    Q_UNUSED(position);
 }
 
 QString QGeoManeuverPrivate::text() const
@@ -386,7 +386,7 @@ QString QGeoManeuverPrivate::text() const
 
 void QGeoManeuverPrivate::setText(const QString &text)
 {
-    Q_UNUSED(text)
+    Q_UNUSED(text);
 }
 
 QGeoManeuver::InstructionDirection QGeoManeuverPrivate::direction() const
@@ -396,7 +396,7 @@ QGeoManeuver::InstructionDirection QGeoManeuverPrivate::direction() const
 
 void QGeoManeuverPrivate::setDirection(QGeoManeuver::InstructionDirection direction)
 {
-    Q_UNUSED(direction)
+    Q_UNUSED(direction);
 }
 
 int QGeoManeuverPrivate::timeToNextInstruction() const
@@ -406,7 +406,7 @@ int QGeoManeuverPrivate::timeToNextInstruction() const
 
 void QGeoManeuverPrivate::setTimeToNextInstruction(int timeToNextInstruction)
 {
-    Q_UNUSED(timeToNextInstruction)
+    Q_UNUSED(timeToNextInstruction);
 }
 
 qreal QGeoManeuverPrivate::distanceToNextInstruction() const
@@ -416,7 +416,7 @@ qreal QGeoManeuverPrivate::distanceToNextInstruction() const
 
 void QGeoManeuverPrivate::setDistanceToNextInstruction(qreal distanceToNextInstruction)
 {
-    Q_UNUSED(distanceToNextInstruction)
+    Q_UNUSED(distanceToNextInstruction);
 }
 
 QGeoCoordinate QGeoManeuverPrivate::waypoint() const
@@ -426,7 +426,7 @@ QGeoCoordinate QGeoManeuverPrivate::waypoint() const
 
 void QGeoManeuverPrivate::setWaypoint(const QGeoCoordinate &waypoint)
 {
-    Q_UNUSED(waypoint)
+    Q_UNUSED(waypoint);
 }
 
 QVariantMap QGeoManeuverPrivate::extendedAttributes() const
@@ -436,7 +436,7 @@ QVariantMap QGeoManeuverPrivate::extendedAttributes() const
 
 void QGeoManeuverPrivate::setExtendedAttributes(const QVariantMap &extendedAttributes)
 {
-    Q_UNUSED(extendedAttributes)
+    Q_UNUSED(extendedAttributes);
 }
 
 

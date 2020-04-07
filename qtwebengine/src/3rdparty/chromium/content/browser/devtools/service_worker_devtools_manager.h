@@ -16,7 +16,7 @@
 #include "base/observer_list.h"
 #include "base/unguessable_token.h"
 #include "content/common/content_export.h"
-#include "third_party/blink/public/web/devtools_agent.mojom.h"
+#include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
 #include "url/gurl.h"
 
 namespace network {
@@ -71,6 +71,7 @@ class CONTENT_EXPORT ServiceWorkerDevToolsManager {
   void WorkerReadyForInspection(
       int worker_process_id,
       int worker_route_id,
+      blink::mojom::DevToolsAgentHostAssociatedRequest host_request,
       blink::mojom::DevToolsAgentAssociatedPtrInfo devtools_agent_ptr_info);
   void WorkerVersionInstalled(int worker_process_id, int worker_route_id);
   void WorkerVersionDoomed(int worker_process_id, int worker_route_id);
@@ -109,7 +110,7 @@ class CONTENT_EXPORT ServiceWorkerDevToolsManager {
   ServiceWorkerDevToolsManager();
   ~ServiceWorkerDevToolsManager();
 
-  base::ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer>::Unchecked observer_list_;
   bool debug_service_worker_on_start_;
 
   // We retatin agent hosts as long as the service worker is alive.

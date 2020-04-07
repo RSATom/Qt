@@ -29,7 +29,7 @@
 //
 //   // The first argument is bound at callback creation; the remaining
 //   // two must be passed when calling Run() on the callback object.
-//   base::OnceCallback<void(int, long)> cb = base::BindOnce(
+//   base::OnceCallback<long(int, long)> cb = base::BindOnce(
 //       [](short x, int y, long z) { return x * y * z; }, 42);
 //
 // When binding to a method, the receiver object must also be specified at
@@ -216,10 +216,9 @@ BindOnce(Functor&& functor, Args&&... args) {
   PolymorphicInvoke invoke_func = &Invoker::RunOnce;
 
   using InvokeFuncStorage = internal::BindStateBase::InvokeFuncStorage;
-  return CallbackType(new BindState(
+  return CallbackType(BindState::Create(
       reinterpret_cast<InvokeFuncStorage>(invoke_func),
-      std::forward<Functor>(functor),
-      std::forward<Args>(args)...));
+      std::forward<Functor>(functor), std::forward<Args>(args)...));
 }
 
 // Bind as RepeatingCallback.
@@ -257,10 +256,9 @@ BindRepeating(Functor&& functor, Args&&... args) {
   PolymorphicInvoke invoke_func = &Invoker::Run;
 
   using InvokeFuncStorage = internal::BindStateBase::InvokeFuncStorage;
-  return CallbackType(new BindState(
+  return CallbackType(BindState::Create(
       reinterpret_cast<InvokeFuncStorage>(invoke_func),
-      std::forward<Functor>(functor),
-      std::forward<Args>(args)...));
+      std::forward<Functor>(functor), std::forward<Args>(args)...));
 }
 
 // Unannotated Bind.

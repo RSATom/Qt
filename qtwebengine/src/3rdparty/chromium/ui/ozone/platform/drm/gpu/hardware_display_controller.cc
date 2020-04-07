@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/libdrm/src/include/drm/drm_fourcc.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -19,9 +20,10 @@
 #include "ui/gfx/native_pixmap.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/gfx/swap_result.h"
+#include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
-#include "ui/ozone/platform/drm/gpu/drm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
+#include "ui/ozone/platform/drm/gpu/drm_dumb_buffer.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane.h"
 #include "ui/ozone/platform/drm/gpu/page_flip_request.h"
 
@@ -41,6 +43,16 @@ void CompletePageFlip(
   std::move(callback).Run(presentation_feedback);
 }
 
+void DrawCursor(DrmDumbBuffer* cursor, const SkBitmap& image) {
+  SkRect damage;
+  image.getBounds(&damage);
+
+  // Clear to transparent in case |image| is smaller than the canvas.
+  SkCanvas* canvas = cursor->GetCanvas();
+  canvas->clear(SK_ColorTRANSPARENT);
+  canvas->drawBitmapRect(image, damage, NULL);
+}
+
 }  // namespace
 
 HardwareDisplayController::HardwareDisplayController(
@@ -50,11 +62,10 @@ HardwareDisplayController::HardwareDisplayController(
       is_disabled_(controller->is_disabled()),
       weak_ptr_factory_(this) {
   AddCrtc(std::move(controller));
+  AllocateCursorBuffers();
 }
 
 HardwareDisplayController::~HardwareDisplayController() {
-  // Reset the cursor.
-  UnsetCursor();
 }
 
 bool HardwareDisplayController::Modeset(const DrmOverlayPlane& primary,
@@ -66,6 +77,7 @@ bool HardwareDisplayController::Modeset(const DrmOverlayPlane& primary,
     status &= controller->Modeset(primary, mode);
 
   is_disabled_ = false;
+  ResetCursor();
   OnModesetComplete(primary);
   return status;
 }
@@ -78,12 +90,14 @@ bool HardwareDisplayController::Enable(const DrmOverlayPlane& primary) {
     status &= controller->Modeset(primary, controller->mode());
 
   is_disabled_ = false;
+  ResetCursor();
   OnModesetComplete(primary);
   return status;
 }
 
 void HardwareDisplayController::Disable() {
   TRACE_EVENT0("drm", "HDC::Disable");
+
   for (const auto& controller : crtc_controllers_)
     controller->Disable();
 
@@ -201,36 +215,20 @@ HardwareDisplayController::GetFormatModifiersForModesetting(
   return filtered_modifiers;
 }
 
-bool HardwareDisplayController::SetCursor(
-    const scoped_refptr<ScanoutBuffer>& buffer) {
-  bool status = true;
-
-  if (is_disabled_)
-    return true;
-
-  for (const auto& controller : crtc_controllers_)
-    status &= controller->SetCursor(buffer);
-
-  return status;
+void HardwareDisplayController::MoveCursor(const gfx::Point& location) {
+  cursor_location_ = location;
+  UpdateCursorLocation();
 }
 
-bool HardwareDisplayController::UnsetCursor() {
-  bool status = true;
-  for (const auto& controller : crtc_controllers_)
-    status &= controller->SetCursor(nullptr);
+void HardwareDisplayController::SetCursor(SkBitmap bitmap) {
+  if (bitmap.drawsNothing()) {
+    current_cursor_ = nullptr;
+  } else {
+    current_cursor_ = NextCursorBuffer();
+    DrawCursor(current_cursor_, bitmap);
+  }
 
-  return status;
-}
-
-bool HardwareDisplayController::MoveCursor(const gfx::Point& location) {
-  if (is_disabled_)
-    return true;
-
-  bool status = true;
-  for (const auto& controller : crtc_controllers_)
-    status &= controller->MoveCursor(location);
-
-  return status;
+  UpdateCursorImage();
 }
 
 void HardwareDisplayController::AddCrtc(
@@ -312,13 +310,9 @@ gfx::Size HardwareDisplayController::GetModeSize() const {
                    crtc_controllers_[0]->mode().vdisplay);
 }
 
-uint32_t HardwareDisplayController::GetRefreshRate() const {
-  // If there are multiple CRTCs they should all have the same size.
-  return crtc_controllers_[0]->mode().vrefresh;
-}
-
 base::TimeDelta HardwareDisplayController::GetRefreshInterval() const {
-  uint32_t vrefresh = GetRefreshRate();
+  // If there are multiple CRTCs they should all have the same refresh rate.
+  float vrefresh = ModeRefreshRate(crtc_controllers_[0]->mode());
   return vrefresh ? base::TimeDelta::FromSeconds(1) / vrefresh
                   : base::TimeDelta();
 }
@@ -341,6 +335,8 @@ void HardwareDisplayController::OnPageFlipComplete(
     return;  // Modeset occured during this page flip.
   time_of_last_flip_ = presentation_feedback.timestamp;
   current_planes_ = std::move(pending_planes);
+  for (const auto& controller : crtc_controllers_)
+    controller->OnPageFlipComplete();
   page_flip_request_ = nullptr;
 }
 
@@ -354,6 +350,52 @@ void HardwareDisplayController::OnModesetComplete(
   current_planes_.clear();
   current_planes_.push_back(primary.Clone());
   time_of_last_flip_ = base::TimeTicks::Now();
+}
+
+void HardwareDisplayController::AllocateCursorBuffers() {
+  TRACE_EVENT0("drm", "HDC::AllocateCursorBuffers");
+  gfx::Size max_cursor_size = GetMaximumCursorSize(GetDrmDevice()->get_fd());
+  SkImageInfo info = SkImageInfo::MakeN32Premul(max_cursor_size.width(),
+                                                max_cursor_size.height());
+  for (size_t i = 0; i < base::size(cursor_buffers_); ++i) {
+    cursor_buffers_[i] = std::make_unique<DrmDumbBuffer>(GetDrmDevice());
+    // Don't register a framebuffer for cursors since they are special (they
+    // aren't modesetting buffers and drivers may fail to register them due to
+    // their small sizes).
+    if (!cursor_buffers_[i]->Initialize(info)) {
+      LOG(FATAL) << "Failed to initialize cursor buffer";
+      return;
+    }
+  }
+}
+
+DrmDumbBuffer* HardwareDisplayController::NextCursorBuffer() {
+  ++cursor_frontbuffer_;
+  cursor_frontbuffer_ %= base::size(cursor_buffers_);
+  return cursor_buffers_[cursor_frontbuffer_].get();
+}
+
+void HardwareDisplayController::UpdateCursorImage() {
+  uint32_t handle = 0;
+  gfx::Size size;
+
+  if (current_cursor_) {
+    handle = current_cursor_->GetHandle();
+    size = current_cursor_->GetSize();
+  }
+
+  for (const auto& controller : crtc_controllers_)
+    controller->SetCursor(handle, size);
+}
+
+void HardwareDisplayController::UpdateCursorLocation() {
+  for (const auto& controller : crtc_controllers_)
+    controller->MoveCursor(cursor_location_);
+}
+
+void HardwareDisplayController::ResetCursor() {
+  UpdateCursorLocation();
+  UpdateCursorImage();
 }
 
 }  // namespace ui

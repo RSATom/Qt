@@ -15,8 +15,12 @@ use_gold_linker: CONFIG += no_linker_version_script
 CONFIG -= precompile_header
 CONFIG += link_pkgconfig wayland-scanner
 
-qtConfig(xkbcommon): \
-    QMAKE_USE_PRIVATE += xkbcommon
+qtConfig(xkbcommon) {
+    QT_FOR_PRIVATE += xkbcommon_support-private
+}
+
+qtHaveModule(linuxaccessibility_support_private): \
+    QT_PRIVATE += linuxaccessibility_support_private
 
 QMAKE_USE += wayland-client
 
@@ -29,9 +33,7 @@ WAYLANDCLIENTSOURCES += \
             ../extensions/qt-windowmanager.xml \
             ../3rdparty/protocol/text-input-unstable-v2.xml \
             ../3rdparty/protocol/xdg-output-unstable-v1.xml \
-
-WAYLANDCLIENTSOURCES_SYSTEM += \
-            ../3rdparty/protocol/wayland.xml \
+            ../3rdparty/protocol/wayland.xml
 
 SOURCES +=  qwaylandintegration.cpp \
             qwaylandnativeinterface.cpp \
@@ -47,7 +49,6 @@ SOURCES +=  qwaylandintegration.cpp \
             qwaylandtouch.cpp \
             qwaylandqtkey.cpp \
             ../shared/qwaylandmimehelper.cpp \
-            ../shared/qwaylandxkb.cpp \
             ../shared/qwaylandinputmethodeventbuilder.cpp \
             qwaylandabstractdecoration.cpp \
             qwaylanddecorationfactory.cpp \
@@ -81,7 +82,6 @@ HEADERS +=  qwaylandintegration_p.h \
             qtwaylandclientglobal_p.h \
             ../shared/qwaylandinputmethodeventbuilder_p.h \
             ../shared/qwaylandmimehelper_p.h \
-            ../shared/qwaylandxkb_p.h \
             ../shared/qwaylandsharedmemoryformathelper_p.h \
 
 qtConfig(clipboard) {

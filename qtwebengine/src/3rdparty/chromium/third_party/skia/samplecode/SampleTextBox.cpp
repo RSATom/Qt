@@ -4,7 +4,7 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
+#include "Sample.h"
 
 #include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
@@ -23,8 +23,7 @@
 #include "SkTextBlob.h"
 #include "SkTime.h"
 #include "SkTypeface.h"
-#include "SkUtils.h"
-#include "SkView.h"
+#include "SkUTF.h"
 
 extern void skia_set_text_gamma(float blackGamma, float whiteGamma);
 
@@ -40,7 +39,7 @@ static const char gText[] =
     "a decent respect to the opinions of mankind requires that they should "
     "declare the causes which impel them to the separation.";
 
-class TextBoxView : public SampleView {
+class TextBoxView : public Sample {
 public:
     TextBoxView() {
 #if defined(SK_BUILD_FOR_WIN) && defined(SK_FONTHOST_WIN_GDI)
@@ -58,10 +57,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "TextBox");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "TextBox");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -78,16 +76,16 @@ protected:
         SkScalar margin = 20;
 
         SkPaint paint;
-        paint.setAntiAlias(true);
-        paint.setLCDRenderText(true);
         paint.setColor(fg);
 
         for (int i = 9; i < 24; i += 2) {
-            SkTextBlobBuilder builder;
-            paint.setTextSize(SkIntToScalar(i));
-            SkPoint end = shaper.shape(&builder, paint, gText, strlen(gText), true,
+            SkTextBlobBuilderRunHandler builder;
+            SkFont font(nullptr, SkIntToScalar(i));
+            font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+
+            SkPoint end = shaper.shape(&builder, font, gText, strlen(gText), true,
                                        { margin, margin }, w - margin);
-            canvas->drawTextBlob(builder.make(), 0, 0, paint);
+            canvas->drawTextBlob(builder.makeBlob(), 0, 0, paint);
 
             canvas->translate(0, end.y());
         }
@@ -105,10 +103,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new TextBoxView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new TextBoxView(); )

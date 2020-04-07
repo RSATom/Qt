@@ -22,7 +22,6 @@
   V(BOILERPLATE_PROPERTY_DICTIONARY_TYPE)        \
   V(BYTECODE_ARRAY_CONSTANT_POOL_TYPE)           \
   V(BYTECODE_ARRAY_HANDLER_TABLE_TYPE)           \
-  V(CODE_STUBS_TABLE_TYPE)                       \
   V(COW_ARRAY_TYPE)                              \
   V(DEOPTIMIZATION_DATA_TYPE)                    \
   V(DEPENDENT_CODE_TYPE)                         \
@@ -44,7 +43,7 @@
   V(GLOBAL_ELEMENTS_TYPE)                        \
   V(GLOBAL_PROPERTIES_TYPE)                      \
   V(JS_ARRAY_BOILERPLATE_TYPE)                   \
-  V(JS_COLLETION_TABLE_TYPE)                     \
+  V(JS_COLLECTION_TABLE_TYPE)                    \
   V(JS_OBJECT_BOILERPLATE_TYPE)                  \
   V(NOSCRIPT_SHARED_FUNCTION_INFOS_TYPE)         \
   V(NUMBER_STRING_CACHE_TYPE)                    \
@@ -58,11 +57,15 @@
   V(RETAINED_MAPS_TYPE)                          \
   V(SCRIPT_LIST_TYPE)                            \
   V(SCRIPT_SHARED_FUNCTION_INFOS_TYPE)           \
-  V(SCRIPT_SOURCE_EXTERNAL_TYPE)                 \
-  V(SCRIPT_SOURCE_NON_EXTERNAL_TYPE)             \
+  V(SCRIPT_SOURCE_EXTERNAL_ONE_BYTE_TYPE)        \
+  V(SCRIPT_SOURCE_EXTERNAL_TWO_BYTE_TYPE)        \
+  V(SCRIPT_SOURCE_NON_EXTERNAL_ONE_BYTE_TYPE)    \
+  V(SCRIPT_SOURCE_NON_EXTERNAL_TWO_BYTE_TYPE)    \
   V(SERIALIZED_OBJECTS_TYPE)                     \
   V(SINGLE_CHARACTER_STRING_CACHE_TYPE)          \
   V(STRING_SPLIT_CACHE_TYPE)                     \
+  V(STRING_EXTERNAL_RESOURCE_ONE_BYTE_TYPE)      \
+  V(STRING_EXTERNAL_RESOURCE_TWO_BYTE_TYPE)      \
   V(SOURCE_POSITION_TABLE_TYPE)                  \
   V(UNCOMPILED_JS_FUNCTION_TYPE)                 \
   V(UNCOMPILED_SHARED_FUNCTION_INFO_TYPE)        \

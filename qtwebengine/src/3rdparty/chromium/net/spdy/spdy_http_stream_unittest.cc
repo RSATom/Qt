@@ -131,6 +131,7 @@ class SpdyHttpStreamTest : public TestWithScopedTaskEnvironment {
         key_(host_port_pair_,
              ProxyServer::Direct(),
              PRIVACY_MODE_DISABLED,
+             SpdySessionKey::IsProxySession::kFalse,
              SocketTag()),
         ssl_(SYNCHRONOUS, OK) {
     session_deps_.net_log = &net_log_;
@@ -288,7 +289,7 @@ TEST_F(SpdyHttpStreamTest, RequestInfoDestroyedBeforeRead) {
   request.reset();
 
   // Read stream to completion.
-  scoped_refptr<IOBuffer> buf(new IOBuffer(1));
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(1);
   ASSERT_EQ(0,
             http_stream->ReadResponseBody(buf.get(), 1, callback.callback()));
 
@@ -384,7 +385,7 @@ TEST_F(SpdyHttpStreamTest, LoadTimingTwoRequests) {
 
   // Read stream 1 to completion, before making sure we can still read load
   // timing from both streams.
-  scoped_refptr<IOBuffer> buf1(new IOBuffer(1));
+  scoped_refptr<IOBuffer> buf1 = base::MakeRefCounted<IOBuffer>(1);
   ASSERT_EQ(
       0, http_stream1->ReadResponseBody(buf1.get(), 1, callback1.callback()));
 
@@ -595,7 +596,7 @@ TEST_F(SpdyHttpStreamTest, ConnectionClosedDuringChunkedPost) {
 // chunk becomes available while a write is pending.
 TEST_F(SpdyHttpStreamTest, DelayedSendChunkedPost) {
   const char kUploadData1[] = "12345678";
-  const int kUploadData1Size = arraysize(kUploadData1)-1;
+  const int kUploadData1Size = base::size(kUploadData1) - 1;
   spdy::SpdySerializedFrame req(
       spdy_util_.ConstructChunkedSpdyPost(nullptr, 0));
   spdy::SpdySerializedFrame chunk1(spdy_util_.ConstructSpdyDataFrame(1, false));
@@ -670,21 +671,24 @@ TEST_F(SpdyHttpStreamTest, DelayedSendChunkedPost) {
   ASSERT_THAT(http_stream->ReadResponseHeaders(callback.callback()), IsOk());
 
   // Check |chunk1| response.
-  scoped_refptr<IOBuffer> buf1(new IOBuffer(kUploadDataSize));
+  scoped_refptr<IOBuffer> buf1 =
+      base::MakeRefCounted<IOBuffer>(kUploadDataSize);
   ASSERT_EQ(kUploadDataSize,
             http_stream->ReadResponseBody(
                 buf1.get(), kUploadDataSize, callback.callback()));
   EXPECT_EQ(kUploadData, std::string(buf1->data(), kUploadDataSize));
 
   // Check |chunk2| response.
-  scoped_refptr<IOBuffer> buf2(new IOBuffer(kUploadData1Size));
+  scoped_refptr<IOBuffer> buf2 =
+      base::MakeRefCounted<IOBuffer>(kUploadData1Size);
   ASSERT_EQ(kUploadData1Size,
             http_stream->ReadResponseBody(
                 buf2.get(), kUploadData1Size, callback.callback()));
   EXPECT_EQ(kUploadData1, std::string(buf2->data(), kUploadData1Size));
 
   // Check |chunk3| response.
-  scoped_refptr<IOBuffer> buf3(new IOBuffer(kUploadDataSize));
+  scoped_refptr<IOBuffer> buf3 =
+      base::MakeRefCounted<IOBuffer>(kUploadDataSize);
   ASSERT_EQ(kUploadDataSize,
             http_stream->ReadResponseBody(
                 buf3.get(), kUploadDataSize, callback.callback()));
@@ -770,7 +774,8 @@ TEST_F(SpdyHttpStreamTest, DelayedSendChunkedPostWithEmptyFinalDataFrame) {
             http_stream->GetTotalReceivedBytes());
 
   // Check |chunk1| response.
-  scoped_refptr<IOBuffer> buf1(new IOBuffer(kUploadDataSize));
+  scoped_refptr<IOBuffer> buf1 =
+      base::MakeRefCounted<IOBuffer>(kUploadDataSize);
   ASSERT_EQ(kUploadDataSize,
             http_stream->ReadResponseBody(
                 buf1.get(), kUploadDataSize, callback.callback()));
@@ -847,7 +852,7 @@ TEST_F(SpdyHttpStreamTest, ChunkedPostWithEmptyPayload) {
   ASSERT_THAT(http_stream->ReadResponseHeaders(callback.callback()), IsOk());
 
   // Check |chunk| response.
-  scoped_refptr<IOBuffer> buf(new IOBuffer(1));
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(1);
   ASSERT_EQ(0,
             http_stream->ReadResponseBody(
                 buf.get(), 1, callback.callback()));
@@ -996,7 +1001,8 @@ TEST_F(SpdyHttpStreamTest, DelayedSendChunkedPostWithWindowUpdate) {
   ASSERT_THAT(http_stream->ReadResponseHeaders(callback.callback()), IsOk());
 
   // Check |chunk1| response.
-  scoped_refptr<IOBuffer> buf1(new IOBuffer(kUploadDataSize));
+  scoped_refptr<IOBuffer> buf1 =
+      base::MakeRefCounted<IOBuffer>(kUploadDataSize);
   ASSERT_EQ(kUploadDataSize,
             http_stream->ReadResponseBody(
                 buf1.get(), kUploadDataSize, callback.callback()));

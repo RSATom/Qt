@@ -221,6 +221,7 @@ bool CARendererLayerTree::ScheduleCALayer(const CARendererLayerParams& params) {
 void CARendererLayerTree::CommitScheduledCALayers(
     CALayer* superlayer,
     std::unique_ptr<CARendererLayerTree> old_tree,
+    const gfx::Size& pixel_size,
     float scale_factor) {
   TRACE_EVENT0("gpu", "CARendererLayerTree::CommitScheduledCALayers");
   RootLayer* old_root_layer = nullptr;
@@ -230,7 +231,7 @@ void CARendererLayerTree::CommitScheduledCALayers(
       old_root_layer = &old_tree->root_layer_;
   }
 
-  root_layer_.CommitToCA(superlayer, old_root_layer, scale_factor);
+  root_layer_.CommitToCA(superlayer, old_root_layer, pixel_size, scale_factor);
   // If there are any extra CALayers in |old_tree| that were not stolen by this
   // tree, they will be removed from the CALayer tree in this deallocation.
   old_tree.reset();
@@ -238,9 +239,7 @@ void CARendererLayerTree::CommitScheduledCALayers(
   scale_factor_ = scale_factor;
 }
 
-bool CARendererLayerTree::RootLayer::WantsFullcreenLowPowerBackdrop(
-    float scale_factor,
-    gfx::RectF* background_rect) {
+bool CARendererLayerTree::RootLayer::WantsFullcreenLowPowerBackdrop() const {
   bool found_video_layer = false;
   for (auto& clip_layer : clip_and_sorting_layers) {
     for (auto& transform_layer : clip_layer.transform_layers) {
@@ -251,7 +250,6 @@ bool CARendererLayerTree::RootLayer::WantsFullcreenLowPowerBackdrop(
 
         // See if this is the video layer.
         if (content_layer.use_av_layer) {
-          background_rect->Union(gfx::RectF(content_layer.rect));
           found_video_layer = true;
           if (!transform_layer.transform.IsPositiveScaleOrTranslation())
             return false;
@@ -264,16 +262,36 @@ bool CARendererLayerTree::RootLayer::WantsFullcreenLowPowerBackdrop(
         // solid black or transparent
         if (content_layer.io_surface)
           return false;
-        if (content_layer.background_color == SK_ColorBLACK) {
-          background_rect->Union(gfx::RectF(content_layer.rect));
-        } else if (content_layer.background_color != SK_ColorTRANSPARENT) {
+        if (content_layer.background_color != SK_ColorBLACK &&
+            content_layer.background_color != SK_ColorTRANSPARENT) {
           return false;
         }
       }
     }
   }
-  background_rect->Scale(1 / scale_factor);
   return found_video_layer;
+}
+
+void CARendererLayerTree::RootLayer::EnforceOnlyOneAVLayer() {
+  size_t video_layer_count = 0;
+  for (auto& clip_layer : clip_and_sorting_layers) {
+    for (auto& transform_layer : clip_layer.transform_layers) {
+      for (auto& content_layer : transform_layer.content_layers) {
+        if (content_layer.use_av_layer)
+          video_layer_count += 1;
+      }
+    }
+  }
+  if (video_layer_count <= 1)
+    return;
+  for (auto& clip_layer : clip_and_sorting_layers) {
+    for (auto& transform_layer : clip_layer.transform_layers) {
+      for (auto& content_layer : transform_layer.content_layers) {
+        if (content_layer.use_av_layer)
+          content_layer.use_av_layer = false;
+      }
+    }
+  }
 }
 
 id CARendererLayerTree::ContentsForSolidColorForTesting(SkColor color) {
@@ -555,6 +573,7 @@ void CARendererLayerTree::TransformLayer::AddContentLayer(
 
 void CARendererLayerTree::RootLayer::CommitToCA(CALayer* superlayer,
                                                 RootLayer* old_layer,
+                                                const gfx::Size& pixel_size,
                                                 float scale_factor) {
   if (old_layer) {
     DCHECK(old_layer->ca_layer);
@@ -570,8 +589,11 @@ void CARendererLayerTree::RootLayer::CommitToCA(CALayer* superlayer,
     DLOG(ERROR) << "CARendererLayerTree root layer not attached to tree.";
   }
 
-  gfx::RectF bg_rect;
-  if (WantsFullcreenLowPowerBackdrop(scale_factor, &bg_rect)) {
+  EnforceOnlyOneAVLayer();
+
+  if (WantsFullcreenLowPowerBackdrop()) {
+    const gfx::RectF bg_rect(
+        ScaleSize(gfx::SizeF(pixel_size), 1 / scale_factor));
     if (gfx::RectF([ca_layer frame]) != bg_rect)
       [ca_layer setFrame:bg_rect.ToCGRect()];
     if (![ca_layer backgroundColor])

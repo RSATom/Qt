@@ -300,7 +300,7 @@ QList<QGeoCoordinate> QGeoRoute::path() const
 }
 
 /*!
-    Sets the route legs for a multi-waypoint route.
+    Sets the route \a legs for a multi-waypoint route.
 
     \sa QGeoRouteLeg
     \since 5.12
@@ -319,6 +319,26 @@ void QGeoRoute::setRouteLegs(const QList<QGeoRouteLeg> &legs)
 QList<QGeoRouteLeg> QGeoRoute::routeLegs() const
 {
     return d_ptr->routeLegs();
+}
+
+/*!
+    Sets the extended attributes \a extendedAttributes associated with this route.
+
+    \since 5.13
+*/
+void QGeoRoute::setExtendedAttributes(const QVariantMap &extendedAttributes)
+{
+    d_ptr->setExtendedAttributes(extendedAttributes);
+}
+
+/*!
+    Returns the extended attributes associated with this route.
+
+    \since 5.13
+*/
+QVariantMap QGeoRoute::extendedAttributes() const
+{
+    return d_ptr->extendedAttributes();
 }
 
 /*******************************************************************************
@@ -361,7 +381,7 @@ bool QGeoRoutePrivate::equals(const QGeoRoutePrivate &other) const
         s2 = s2.nextRouteSegment();
     }
 
-    return ((id() == other.id())
+    return (   (id() == other.id())
             && (request() == other.request())
             && (bounds() == other.bounds())
             && (travelTime() == other.travelTime())
@@ -369,12 +389,13 @@ bool QGeoRoutePrivate::equals(const QGeoRoutePrivate &other) const
             && (travelMode() == other.travelMode())
             && (path() == other.path())
             && (metadata() == other.metadata())
-            && (routeLegs() == other.routeLegs()));
+            && (routeLegs() == other.routeLegs())
+            && (extendedAttributes() == other.extendedAttributes()) );
 }
 
 void QGeoRoutePrivate::setId(const QString &id)
 {
-    Q_UNUSED(id)
+    Q_UNUSED(id);
 }
 
 QString QGeoRoutePrivate::id() const
@@ -384,7 +405,7 @@ QString QGeoRoutePrivate::id() const
 
 void QGeoRoutePrivate::setRequest(const QGeoRouteRequest &request)
 {
-    Q_UNUSED(request)
+    Q_UNUSED(request);
 }
 
 QGeoRouteRequest QGeoRoutePrivate::request() const
@@ -394,7 +415,7 @@ QGeoRouteRequest QGeoRoutePrivate::request() const
 
 void QGeoRoutePrivate::setBounds(const QGeoRectangle &bounds)
 {
-    Q_UNUSED(bounds)
+    Q_UNUSED(bounds);
 }
 
 QGeoRectangle QGeoRoutePrivate::bounds() const
@@ -404,7 +425,7 @@ QGeoRectangle QGeoRoutePrivate::bounds() const
 
 void QGeoRoutePrivate::setTravelTime(int travelTime)
 {
-    Q_UNUSED(travelTime)
+    Q_UNUSED(travelTime);
 }
 
 int QGeoRoutePrivate::travelTime() const
@@ -414,7 +435,7 @@ int QGeoRoutePrivate::travelTime() const
 
 void QGeoRoutePrivate::setDistance(qreal distance)
 {
-    Q_UNUSED(distance)
+    Q_UNUSED(distance);
 }
 
 qreal QGeoRoutePrivate::distance() const
@@ -424,7 +445,7 @@ qreal QGeoRoutePrivate::distance() const
 
 void QGeoRoutePrivate::setTravelMode(QGeoRouteRequest::TravelMode mode)
 {
-    Q_UNUSED(mode)
+    Q_UNUSED(mode);
 }
 
 QGeoRouteRequest::TravelMode QGeoRoutePrivate::travelMode() const
@@ -434,7 +455,7 @@ QGeoRouteRequest::TravelMode QGeoRoutePrivate::travelMode() const
 
 void QGeoRoutePrivate::setPath(const QList<QGeoCoordinate> &path)
 {
-    Q_UNUSED(path)
+    Q_UNUSED(path);
 }
 
 QList<QGeoCoordinate> QGeoRoutePrivate::path() const
@@ -444,7 +465,7 @@ QList<QGeoCoordinate> QGeoRoutePrivate::path() const
 
 void QGeoRoutePrivate::setFirstSegment(const QGeoRouteSegment &firstSegment)
 {
-    Q_UNUSED(firstSegment)
+    Q_UNUSED(firstSegment);
 }
 
 QGeoRouteSegment QGeoRoutePrivate::firstSegment() const
@@ -470,6 +491,16 @@ void QGeoRoutePrivate::setRouteLegs(const QList<QGeoRouteLeg> &/*legs*/)
 QList<QGeoRouteLeg> QGeoRoutePrivate::routeLegs() const
 {
     return QList<QGeoRouteLeg>();
+}
+
+void QGeoRoutePrivate::setExtendedAttributes(const QVariantMap &/*extendedAttributes*/)
+{
+
+}
+
+QVariantMap QGeoRoutePrivate::extendedAttributes() const
+{
+    return QVariantMap();
 }
 
 void QGeoRoutePrivate::setLegIndex(int /*idx*/)
@@ -514,7 +545,8 @@ QGeoRoutePrivateDefault::QGeoRoutePrivateDefault(const QGeoRoutePrivateDefault &
       m_path(other.m_path),
       m_legs(other.m_legs),
       m_firstSegment(other.m_firstSegment),
-      m_numSegments(other.m_numSegments){}
+      m_numSegments(other.m_numSegments),
+      m_extendedAttributes(other.m_extendedAttributes) {} // Purposedly ignoring legIndex and parentRoute
 
 
 QGeoRoutePrivateDefault::~QGeoRoutePrivateDefault() {}
@@ -636,6 +668,16 @@ QList<QGeoRouteLeg> QGeoRoutePrivateDefault::routeLegs() const
     return m_legs;
 }
 
+void QGeoRoutePrivateDefault::setExtendedAttributes(const QVariantMap &extendedAttributes)
+{
+    m_extendedAttributes = extendedAttributes;
+}
+
+QVariantMap QGeoRoutePrivateDefault::extendedAttributes() const
+{
+    return m_extendedAttributes;
+}
+
 void QGeoRoutePrivateDefault::setLegIndex(int idx)
 {
     if (idx >= 0)
@@ -726,7 +768,7 @@ void QGeoRouteLeg::setOverallRoute(const QGeoRoute &route)
 }
 
 /*!
-    Returns the \a route that contains this route leg.
+    Returns the route that contains this route leg.
 */
 QGeoRoute QGeoRouteLeg::overallRoute() const
 {

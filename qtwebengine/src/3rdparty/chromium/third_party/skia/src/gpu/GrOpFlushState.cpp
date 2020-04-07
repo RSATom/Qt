@@ -15,15 +15,13 @@
 
 //////////////////////////////////////////////////////////////////////////////
 
-GrOpFlushState::GrOpFlushState(GrGpu* gpu,
-                               GrResourceProvider* resourceProvider,
-                               GrTokenTracker* tokenTracker)
-        : fVertexPool(gpu)
-        , fIndexPool(gpu)
+GrOpFlushState::GrOpFlushState(GrGpu* gpu, GrResourceProvider* resourceProvider,
+                               GrTokenTracker* tokenTracker, void* vertexSpace, void* indexSpace)
+        : fVertexPool(gpu, vertexSpace)
+        , fIndexPool(gpu, indexSpace)
         , fGpu(gpu)
         , fResourceProvider(resourceProvider)
-        , fTokenTracker(tokenTracker) {
-}
+        , fTokenTracker(tokenTracker) {}
 
 const GrCaps& GrOpFlushState::caps() const {
     return *fGpu->caps();
@@ -33,9 +31,9 @@ GrGpuRTCommandBuffer* GrOpFlushState::rtCommandBuffer() {
     return fCommandBuffer->asRTCommandBuffer();
 }
 
-void GrOpFlushState::executeDrawsAndUploadsForMeshDrawOp(uint32_t opID, const SkRect& opBounds) {
+void GrOpFlushState::executeDrawsAndUploadsForMeshDrawOp(const GrOp* op, const SkRect& opBounds) {
     SkASSERT(this->rtCommandBuffer());
-    while (fCurrDraw != fDraws.end() && fCurrDraw->fOpID == opID) {
+    while (fCurrDraw != fDraws.end() && fCurrDraw->fOp == op) {
         GrDeferredUploadToken drawToken = fTokenTracker->nextTokenToFlush();
         while (fCurrUpload != fInlineUploads.end() &&
                fCurrUpload->fUploadBeforeToken == drawToken) {
@@ -45,8 +43,7 @@ void GrOpFlushState::executeDrawsAndUploadsForMeshDrawOp(uint32_t opID, const Sk
         SkASSERT(fCurrDraw->fPipeline->proxy() == this->drawOpArgs().fProxy);
         this->rtCommandBuffer()->draw(*fCurrDraw->fGeometryProcessor, *fCurrDraw->fPipeline,
                                       fCurrDraw->fFixedDynamicState, fCurrDraw->fDynamicStateArrays,
-                                      fMeshes.begin() + fCurrMesh, fCurrDraw->fMeshCnt, opBounds);
-        fCurrMesh += fCurrDraw->fMeshCnt;
+                                      fCurrDraw->fMeshes, fCurrDraw->fMeshCnt, opBounds);
         fTokenTracker->flushToken();
         ++fCurrDraw;
     }
@@ -61,7 +58,6 @@ void GrOpFlushState::preExecuteDraws() {
     // Setup execution iterators.
     fCurrDraw = fDraws.begin();
     fCurrUpload = fInlineUploads.begin();
-    fCurrMesh = 0;
 }
 
 void GrOpFlushState::reset() {
@@ -73,8 +69,6 @@ void GrOpFlushState::reset() {
     fASAPUploads.reset();
     fInlineUploads.reset();
     fDraws.reset();
-    fMeshes.reset();
-    fCurrMesh = 0;
     fBaseDrawToken = GrDeferredUploadToken::AlreadyFlushedToken();
 }
 
@@ -83,7 +77,7 @@ void GrOpFlushState::doUpload(GrDeferredTextureUploadFn& upload) {
                                                      int width, int height,
                                                      GrColorType srcColorType, const void* buffer,
                                                      size_t rowBytes) {
-        GrSurface* dstSurface = dstProxy->priv().peekSurface();
+        GrSurface* dstSurface = dstProxy->peekSurface();
         if (!fGpu->caps()->surfaceSupportsWritePixels(dstSurface) &&
             fGpu->caps()->supportedWritePixelsColorType(dstSurface->config(), srcColorType) != srcColorType) {
             return false;
@@ -104,37 +98,33 @@ GrDeferredUploadToken GrOpFlushState::addASAPUpload(GrDeferredTextureUploadFn&& 
     return fTokenTracker->nextTokenToFlush();
 }
 
-void GrOpFlushState::draw(const GrGeometryProcessor* gp, const GrPipeline* pipeline,
+void GrOpFlushState::draw(sk_sp<const GrGeometryProcessor> gp, const GrPipeline* pipeline,
                           const GrPipeline::FixedDynamicState* fixedDynamicState,
-                          const GrMesh& mesh) {
+                          const GrPipeline::DynamicStateArrays* dynamicStateArrays,
+                          const GrMesh meshes[], int meshCnt) {
     SkASSERT(fOpArgs);
     SkASSERT(fOpArgs->fOp);
-    fMeshes.push_back(mesh);
     bool firstDraw = fDraws.begin() == fDraws.end();
-    if (!firstDraw) {
-        Draw& lastDraw = *fDraws.begin();
-        // If the last draw shares a geometry processor and pipeline and there are no intervening
-        // uploads, add this mesh to it.
-        // Note, we could attempt to convert fixed dynamic states into dynamic state arrays here
-        // if everything else is equal. Maybe it's better to rely on Ops to do that?
-        if (lastDraw.fGeometryProcessor == gp && lastDraw.fPipeline == pipeline &&
-            lastDraw.fFixedDynamicState == fixedDynamicState) {
-            if (fInlineUploads.begin() == fInlineUploads.end() ||
-                fInlineUploads.tail()->fUploadBeforeToken != fTokenTracker->nextDrawToken()) {
-                ++lastDraw.fMeshCnt;
-                return;
-            }
-        }
-    }
     auto& draw = fDraws.append(&fArena);
     GrDeferredUploadToken token = fTokenTracker->issueDrawToken();
-
-    draw.fGeometryProcessor.reset(gp);
+    if (fixedDynamicState && fixedDynamicState->fPrimitiveProcessorTextures) {
+        for (int i = 0; i < gp->numTextureSamplers(); ++i) {
+            fixedDynamicState->fPrimitiveProcessorTextures[i]->addPendingRead();
+        }
+    }
+    if (dynamicStateArrays && dynamicStateArrays->fPrimitiveProcessorTextures) {
+        int n = gp->numTextureSamplers() * meshCnt;
+        for (int i = 0; i < n; ++i) {
+            dynamicStateArrays->fPrimitiveProcessorTextures[i]->addPendingRead();
+        }
+    }
+    draw.fGeometryProcessor = std::move(gp);
     draw.fPipeline = pipeline;
     draw.fFixedDynamicState = fixedDynamicState;
-    draw.fDynamicStateArrays = nullptr;
-    draw.fMeshCnt = 1;
-    draw.fOpID = fOpArgs->fOp->uniqueID();
+    draw.fDynamicStateArrays = dynamicStateArrays;
+    draw.fMeshes = meshes;
+    draw.fMeshCnt = meshCnt;
+    draw.fOp = fOpArgs->fOp;
     if (firstDraw) {
         fBaseDrawToken = token;
     }
@@ -175,10 +165,27 @@ GrAppliedClip GrOpFlushState::detachAppliedClip() {
     return fOpArgs->fAppliedClip ? std::move(*fOpArgs->fAppliedClip) : GrAppliedClip();
 }
 
-GrGlyphCache* GrOpFlushState::glyphCache() const {
+GrStrikeCache* GrOpFlushState::glyphCache() const {
     return fGpu->getContext()->contextPriv().getGlyphCache();
 }
 
 GrAtlasManager* GrOpFlushState::atlasManager() const {
     return fGpu->getContext()->contextPriv().getAtlasManager();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+GrOpFlushState::Draw::~Draw() {
+    if (fFixedDynamicState && fFixedDynamicState->fPrimitiveProcessorTextures) {
+        for (int i = 0; i < fGeometryProcessor->numTextureSamplers(); ++i) {
+            fFixedDynamicState->fPrimitiveProcessorTextures[i]->completedRead();
+        }
+    }
+    if (fDynamicStateArrays && fDynamicStateArrays->fPrimitiveProcessorTextures) {
+        int n = fGeometryProcessor->numTextureSamplers() * fMeshCnt;
+        const auto* textures = fDynamicStateArrays->fPrimitiveProcessorTextures;
+        for (int i = 0; i < n; ++i) {
+            textures[i]->completedRead();
+        }
+    }
 }

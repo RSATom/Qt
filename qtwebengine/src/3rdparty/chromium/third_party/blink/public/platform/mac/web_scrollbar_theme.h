@@ -32,7 +32,6 @@
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_MAC_WEB_SCROLLBAR_THEME_H_
 
 #include "third_party/blink/public/platform/web_common.h"
-#include "third_party/blink/public/platform/web_scrollbar_buttons_placement.h"
 
 namespace blink {
 
@@ -49,15 +48,12 @@ class WebScrollbarTheme {
   // |preferredScrollerStyle| is the current value of +[NSScroller
   // preferredScrollerStyle].
   // |redraw| is true if the update requires a redraw to include the change.
-  // |WebScrollbarButtonsPlacement| is the current value of
-  // AppleScrollBarVariant. |jump_on_track_click| is the current value of
-  // AppleScrollerPagingBehavior.
+  // |jump_on_track_click| is the current value of AppleScrollerPagingBehavior.
   BLINK_EXPORT static void UpdateScrollbarsWithNSDefaults(
       float initial_button_delay,
       float autoscroll_button_delay,
       ScrollerStyle preferred_scroller_style,
       bool redraw,
-      WebScrollbarButtonsPlacement,
       bool jump_on_track_click);
 };
 

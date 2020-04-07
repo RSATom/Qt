@@ -28,11 +28,11 @@
 
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/heap/heap_allocator.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/bit_vector.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
@@ -75,6 +75,8 @@ class CORE_EXPORT UseCounter {
     kSVGImageContext,
     // Counters for extensions.
     kExtensionContext,
+    // Context for file:// URLs.
+    kFileContext,
     // Context when counters should be disabled (eg, internal pages such as
     // about, chrome-devtools, etc).
     kDisabledContext

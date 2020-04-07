@@ -8,17 +8,19 @@
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/router/media_router_factory.h"
+#include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
 #include "chrome/browser/media/router/test/media_router_mojo_test.h"
 #include "chrome/browser/media/router/test/mock_media_router.h"
 #include "chrome/browser/media/router/test/test_helper.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/media_router/media_router_ui_helper.h"
 #include "chrome/browser/ui/webui/media_router/media_router_webui_message_handler.h"
+#include "chrome/browser/ui/webui/media_router/web_contents_display_observer.h"
 #include "chrome/common/media_router/media_route.h"
 #include "chrome/common/media_router/media_source_helper.h"
+#include "chrome/common/media_router/mojo/media_router.mojom.h"
 #include "chrome/common/media_router/route_request_result.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -32,12 +34,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
-
-#if !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
-#include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
-#include "chrome/browser/ui/webui/media_router/web_contents_display_observer.h"
 #include "ui/display/display.h"
-#endif
 
 using content::WebContents;
 using testing::_;
@@ -81,7 +78,6 @@ class MockMediaRouterFileDialog : public MediaRouterFileDialog {
   MOCK_METHOD1(OpenFileDialog, void(Browser* browser));
 };
 
-#if !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
 class TestWebContentsDisplayObserver : public WebContentsDisplayObserver {
  public:
   explicit TestWebContentsDisplayObserver(const display::Display& display)
@@ -97,7 +93,6 @@ class TestWebContentsDisplayObserver : public WebContentsDisplayObserver {
  private:
   display::Display display_;
 };
-#endif  // !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
 
 class PresentationRequestCallbacks {
  public:
@@ -107,7 +102,9 @@ class PresentationRequestCallbacks {
       const blink::mojom::PresentationError& expected_error)
       : expected_error_(expected_error) {}
 
-  void Success(const blink::mojom::PresentationInfo&, const MediaRoute&) {}
+  void Success(const blink::mojom::PresentationInfo&,
+               mojom::RoutePresentationConnectionPtr,
+               const MediaRoute&) {}
 
   void Error(const blink::mojom::PresentationError& error) {
     EXPECT_EQ(expected_error_.error_type, error.error_type);
@@ -136,12 +133,7 @@ class MediaRouterUITest : public ChromeRenderViewHostTestHarness {
   MediaRouterUITest()
       : presentation_request_({0, 0},
                               {GURL("https://google.com/presentation")},
-                              url::Origin::Create(GURL("http://google.com"))) {
-    // enable and disable features
-    scoped_feature_list_.InitFromCommandLine(
-        "EnableCastLocalMedia" /* enabled features */,
-        std::string() /* disabled features */);
-  }
+                              url::Origin::Create(GURL("http://google.com"))) {}
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
@@ -231,7 +223,6 @@ class MediaRouterUITest : public ChromeRenderViewHostTestHarness {
   std::unique_ptr<MockMediaRouterWebUIMessageHandler> message_handler_;
   MockMediaRouterFileDialog* mock_file_dialog_ = nullptr;
   std::vector<MediaSinksObserver*> media_sinks_observers_;
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 class MediaRouterUIIncognitoTest : public MediaRouterUITest {
@@ -244,11 +235,11 @@ class MediaRouterUIIncognitoTest : public MediaRouterUITest {
 
 TEST_F(MediaRouterUITest, RouteCreationTimeoutForTab) {
   CreateMediaRouterUI(profile());
-  std::vector<MediaRouteResponseCallback> callbacks;
+  MediaRouteResponseCallback callback;
   EXPECT_CALL(mock_router_,
               CreateRouteInternal(_, _, _, _, _,
                                   base::TimeDelta::FromSeconds(60), false))
-      .WillOnce(SaveArgWithMove<4>(&callbacks));
+      .WillOnce(SaveArgWithMove<4>(&callback));
   media_router_ui_->CreateRoute(CreateSinkCompatibleWithAllSources().id(),
                                 MediaCastMode::TAB_MIRROR);
 
@@ -257,17 +248,16 @@ TEST_F(MediaRouterUITest, RouteCreationTimeoutForTab) {
   EXPECT_CALL(*message_handler_, UpdateIssue(IssueTitleEquals(expected_title)));
   std::unique_ptr<RouteRequestResult> result =
       RouteRequestResult::FromError("Timed out", RouteRequestResult::TIMED_OUT);
-  for (auto& callback : callbacks)
-    std::move(callback).Run(*result);
+  std::move(callback).Run(nullptr, *result);
 }
 
 TEST_F(MediaRouterUITest, RouteCreationTimeoutForDesktop) {
   CreateMediaRouterUI(profile());
-  std::vector<MediaRouteResponseCallback> callbacks;
+  MediaRouteResponseCallback callback;
   EXPECT_CALL(mock_router_,
               CreateRouteInternal(_, _, _, _, _,
                                   base::TimeDelta::FromSeconds(120), false))
-      .WillOnce(SaveArgWithMove<4>(&callbacks));
+      .WillOnce(SaveArgWithMove<4>(&callback));
   media_router_ui_->CreateRoute(CreateSinkCompatibleWithAllSources().id(),
                                 MediaCastMode::DESKTOP_MIRROR);
 
@@ -276,8 +266,7 @@ TEST_F(MediaRouterUITest, RouteCreationTimeoutForDesktop) {
   EXPECT_CALL(*message_handler_, UpdateIssue(IssueTitleEquals(expected_title)));
   std::unique_ptr<RouteRequestResult> result =
       RouteRequestResult::FromError("Timed out", RouteRequestResult::TIMED_OUT);
-  for (auto& callback : callbacks)
-    std::move(callback).Run(*result);
+  std::move(callback).Run(nullptr, *result);
 }
 
 TEST_F(MediaRouterUITest, RouteCreationTimeoutForPresentation) {
@@ -286,11 +275,11 @@ TEST_F(MediaRouterUITest, RouteCreationTimeoutForPresentation) {
       {0, 0}, {GURL("https://presentationurl.com")},
       url::Origin::Create(GURL("https://frameurl.fakeurl")));
   media_router_ui_->OnDefaultPresentationChanged(presentation_request);
-  std::vector<MediaRouteResponseCallback> callbacks;
+  MediaRouteResponseCallback callback;
   EXPECT_CALL(mock_router_,
               CreateRouteInternal(_, _, _, _, _,
                                   base::TimeDelta::FromSeconds(20), false))
-      .WillOnce(SaveArgWithMove<4>(&callbacks));
+      .WillOnce(SaveArgWithMove<4>(&callback));
   media_router_ui_->CreateRoute(CreateSinkCompatibleWithAllSources().id(),
                                 MediaCastMode::PRESENTATION);
 
@@ -300,8 +289,7 @@ TEST_F(MediaRouterUITest, RouteCreationTimeoutForPresentation) {
   EXPECT_CALL(*message_handler_, UpdateIssue(IssueTitleEquals(expected_title)));
   std::unique_ptr<RouteRequestResult> result =
       RouteRequestResult::FromError("Timed out", RouteRequestResult::TIMED_OUT);
-  for (auto& callback : callbacks)
-    std::move(callback).Run(*result);
+  std::move(callback).Run(nullptr, *result);
 }
 
 // Tests that if a local file CreateRoute call is made from a new tab, the
@@ -434,9 +422,9 @@ TEST_F(MediaRouterUITest, FilterNonDisplayRoutes) {
 
   media_router_ui_->OnRoutesUpdated(routes, std::vector<MediaRoute::Id>());
   ASSERT_EQ(2u, media_router_ui_->routes().size());
-  EXPECT_TRUE(display_route_1.Equals(media_router_ui_->routes()[0]));
+  EXPECT_EQ(display_route_1, media_router_ui_->routes()[0]);
   EXPECT_TRUE(media_router_ui_->routes()[0].for_display());
-  EXPECT_TRUE(display_route_2.Equals(media_router_ui_->routes()[1]));
+  EXPECT_EQ(display_route_2, media_router_ui_->routes()[1]);
   EXPECT_TRUE(media_router_ui_->routes()[1].for_display());
 }
 
@@ -495,9 +483,9 @@ TEST_F(MediaRouterUITest, UIMediaRoutesObserverAssignsCurrentCastModes) {
 
   const auto& filtered_routes = media_router_ui_->routes();
   ASSERT_EQ(2u, filtered_routes.size());
-  EXPECT_TRUE(display_route_1.Equals(filtered_routes[0]));
+  EXPECT_EQ(display_route_1, filtered_routes[0]);
   EXPECT_TRUE(filtered_routes[0].for_display());
-  EXPECT_TRUE(display_route_2.Equals(filtered_routes[1]));
+  EXPECT_EQ(display_route_2, filtered_routes[1]);
   EXPECT_TRUE(filtered_routes[1].for_display());
 
   const auto& current_cast_modes = media_router_ui_->routes_and_cast_modes();
@@ -543,9 +531,9 @@ TEST_F(MediaRouterUITest, UIMediaRoutesObserverSkipsUnavailableCastModes) {
 
   const auto& filtered_routes = media_router_ui_->routes();
   ASSERT_EQ(2u, filtered_routes.size());
-  EXPECT_TRUE(display_route_1.Equals(filtered_routes[0]));
+  EXPECT_EQ(display_route_1, filtered_routes[0]);
   EXPECT_TRUE(filtered_routes[0].for_display());
-  EXPECT_TRUE(display_route_2.Equals(filtered_routes[1]));
+  EXPECT_EQ(display_route_2, filtered_routes[1]);
   EXPECT_TRUE(filtered_routes[1].for_display());
 
   const auto& current_cast_modes = media_router_ui_->routes_and_cast_modes();
@@ -792,7 +780,7 @@ TEST_F(MediaRouterUITest, SetsForcedCastModeWithPresentationURLs) {
   media_router_ui_->InitForTest(
       &mock_router_, web_contents(), message_handler_.get(),
       std::move(start_presentation_context_), nullptr);
-  EXPECT_EQ(expected_modes, media_router_ui_->cast_modes());
+  EXPECT_EQ(expected_modes, media_router_ui_->GetCastModes());
   EXPECT_EQ(base::Optional<MediaCastMode>(MediaCastMode::PRESENTATION),
             media_router_ui_->forced_cast_mode());
   EXPECT_EQ("google.com", media_router_ui_->GetPresentationRequestSourceName());
@@ -801,7 +789,6 @@ TEST_F(MediaRouterUITest, SetsForcedCastModeWithPresentationURLs) {
   media_router_ui_.reset();
 }
 
-#if !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
 // A wired display sink should not be on the sinks list when the dialog is on
 // that display, to prevent showing a fullscreen presentation window over the
 // controlling window.
@@ -819,8 +806,7 @@ TEST_F(MediaRouterUITest, UpdateSinksWhenDialogMovesToAnotherDisplay) {
       std::make_unique<TestWebContentsDisplayObserver>(display1);
   TestWebContentsDisplayObserver* display_observer =
       display_observer_unique.get();
-  media_router_ui_->set_display_observer_for_test(
-      std::move(display_observer_unique));
+  media_router_ui_->display_observer_ = std::move(display_observer_unique);
 
   std::vector<MediaSinkWithCastModes> sinks;
   MediaSinkWithCastModes display_sink1(
@@ -862,6 +848,5 @@ TEST_F(MediaRouterUITest, UpdateSinksWhenDialogMovesToAnotherDisplay) {
   display_observer->set_display(display2);
   media_router_ui_->UpdateSinks();
 }
-#endif  // !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
 
 }  // namespace media_router

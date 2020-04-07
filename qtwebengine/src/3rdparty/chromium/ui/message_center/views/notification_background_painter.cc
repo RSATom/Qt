@@ -9,14 +9,15 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skia_util.h"
-#include "ui/message_center/public/cpp/message_center_constants.h"
 
 namespace message_center {
 
 NotificationBackgroundPainter::NotificationBackgroundPainter(int top_radius,
-                                                             int bottom_radius)
+                                                             int bottom_radius,
+                                                             SkColor color)
     : top_radius_(SkIntToScalar(top_radius)),
-      bottom_radius_(SkIntToScalar(bottom_radius)) {}
+      bottom_radius_(SkIntToScalar(bottom_radius)),
+      color_(color) {}
 
 NotificationBackgroundPainter::~NotificationBackgroundPainter() = default;
 
@@ -30,12 +31,14 @@ void NotificationBackgroundPainter::Paint(gfx::Canvas* canvas,
   SkScalar radii[8] = {top_radius_,    top_radius_,    top_radius_,
                        top_radius_,    bottom_radius_, bottom_radius_,
                        bottom_radius_, bottom_radius_};
-  path.addRoundRect(gfx::RectToSkRect(gfx::Rect(size)), radii);
+  gfx::Rect rect(size);
+  rect.Inset(insets_);
+  path.addRoundRect(gfx::RectToSkRect(rect), radii);
 
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
   flags.setStyle(cc::PaintFlags::kFill_Style);
-  flags.setColor(kNotificationBackgroundColor);
+  flags.setColor(color_);
   canvas->DrawPath(path, flags);
 }
 

@@ -29,9 +29,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_MARKERS_DOCUMENT_MARKER_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_MARKERS_DOCUMENT_MARKER_CONTROLLER_H_
 
+#include <utility>
+
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/synchronous_mutation_observer.h"
+#include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/editing/iterators/text_iterator.h"
 #include "third_party/blink/renderer/core/editing/markers/composition_marker.h"
 #include "third_party/blink/renderer/core/editing/markers/document_marker.h"
@@ -64,27 +67,29 @@ class CORE_EXPORT DocumentMarkerController final
   void AddTextMatchMarker(const EphemeralRange&, TextMatchMarker::MatchStatus);
   void AddCompositionMarker(const EphemeralRange&,
                             Color underline_color,
-                            ui::mojom::ImeTextSpanThickness,
+                            ws::mojom::ImeTextSpanThickness,
                             Color background_color);
   void AddActiveSuggestionMarker(const EphemeralRange&,
                                  Color underline_color,
-                                 ui::mojom::ImeTextSpanThickness,
+                                 ws::mojom::ImeTextSpanThickness,
                                  Color background_color);
   void AddSuggestionMarker(const EphemeralRange&,
                            const SuggestionMarkerProperties&);
 
-  void MoveMarkers(const Node* src_node, int length, const Node* dst_node);
+  void MoveMarkers(const Text& src_node, int length, const Text& dst_node);
 
   void PrepareForDestruction();
   void RemoveMarkersInRange(const EphemeralRange&, DocumentMarker::MarkerTypes);
   void RemoveMarkersOfTypes(DocumentMarker::MarkerTypes);
   void RemoveMarkersForNode(
-      const Node*,
-      DocumentMarker::MarkerTypes = DocumentMarker::AllMarkers());
+      const Text&,
+      DocumentMarker::MarkerTypes = DocumentMarker::MarkerTypes::All());
   void RemoveSpellingMarkersUnderWords(const Vector<String>& words);
-  void RemoveSuggestionMarkerByTag(const Node*, int32_t marker_tag);
+  void RemoveSuggestionMarkerByTag(const Text&, int32_t marker_tag);
+  // Removes suggestion marker with |RemoveOnFinishComposing::kRemove|.
+  void RemoveSuggestionMarkerInRangeOnFinish(const EphemeralRangeInFlatTree&);
   void RepaintMarkers(
-      DocumentMarker::MarkerTypes = DocumentMarker::AllMarkers());
+      DocumentMarker::MarkerTypes = DocumentMarker::MarkerTypes::All());
   // Returns true if markers within a range are found.
   bool SetTextMatchMarkersActive(const EphemeralRange&, bool);
   // Returns true if markers within a range defined by a node, |startOffset| and
@@ -93,11 +98,28 @@ class CORE_EXPORT DocumentMarkerController final
                                  unsigned start_offset,
                                  unsigned end_offset,
                                  bool);
-  bool HasMarkers(const Node* node) const { return markers_.Contains(node); }
 
   // TODO(rlanday): can these methods for retrieving markers be consolidated
   // without hurting efficiency?
 
+  // If the given position is either at the boundary or inside a word, expands
+  // the position to the surrounding word and then looks for a marker having the
+  // specified type. If the position is neither at the boundary or inside a
+  // word, expands the position to cover the space between the end of the
+  // previous and the start of the next words. If such a marker exists, this
+  // method will return one of them (no guarantees are provided as to which
+  // one). Otherwise, this method will return null.
+  DocumentMarker* FirstMarkerAroundPosition(const PositionInFlatTree&,
+                                            DocumentMarker::MarkerTypes);
+  // Looks for a marker in the specified EphemeralRange of the specified type
+  // whose interior has non-empty overlap with the bounds of the range.
+  // If the range is collapsed, it uses FirstMarkerAroundPosition to expand the
+  // range to the surrounding word.
+  // If such a marker exists, this method will return one of them (no guarantees
+  // are provided as to which one). Otherwise, this method will return null.
+  DocumentMarker* FirstMarkerIntersectingEphemeralRange(
+      const EphemeralRange&,
+      DocumentMarker::MarkerTypes);
   // Looks for a marker in the specified node of the specified type whose
   // interior has non-empty overlap with the range [start_offset, end_offset].
   // If the range is collapsed, this looks for a marker containing the offset of
@@ -117,11 +139,10 @@ class CORE_EXPORT DocumentMarkerController final
   MarkersIntersectingRange(const EphemeralRangeInFlatTree&,
                            DocumentMarker::MarkerTypes);
   DocumentMarkerVector MarkersFor(
-      const Node*,
-      DocumentMarker::MarkerTypes = DocumentMarker::AllMarkers());
-  DocumentMarkerVector Markers();
-  // TODO(yoichio): Make const by making PossiblyHasMarkers const.
-  DocumentMarkerVector ComputeMarkersToPaint(const Node&);
+      const Text&,
+      DocumentMarker::MarkerTypes = DocumentMarker::MarkerTypes::All()) const;
+  DocumentMarkerVector Markers() const;
+  DocumentMarkerVector ComputeMarkersToPaint(const Text&) const;
 
   Vector<IntRect> LayoutRectsForTextMatchMarkers();
   void InvalidateRectsForAllTextMatchMarkers();
@@ -145,20 +166,24 @@ class CORE_EXPORT DocumentMarkerController final
   void AddMarkerInternal(
       const EphemeralRange&,
       std::function<DocumentMarker*(int, int)> create_marker_from_offsets);
-  void AddMarkerToNode(const Node&, DocumentMarker*);
+  void AddMarkerToNode(const Text&, DocumentMarker*);
 
   using MarkerLists = HeapVector<Member<DocumentMarkerList>,
                                  DocumentMarker::kMarkerTypeIndexesCount>;
-  using MarkerMap = HeapHashMap<WeakMember<const Node>, Member<MarkerLists>>;
+  using MarkerMap = HeapHashMap<WeakMember<const Text>, Member<MarkerLists>>;
   static Member<DocumentMarkerList>& ListForType(MarkerLists*,
                                                  DocumentMarker::MarkerType);
-  bool PossiblyHasMarkers(DocumentMarker::MarkerTypes);
+  bool PossiblyHasMarkers(DocumentMarker::MarkerTypes) const;
+  bool PossiblyHasMarkers(DocumentMarker::MarkerType) const;
   void RemoveMarkersFromList(MarkerMap::iterator, DocumentMarker::MarkerTypes);
   void RemoveMarkers(TextIterator&, DocumentMarker::MarkerTypes);
-  void RemoveMarkersInternal(const Node&,
+  void RemoveMarkersInternal(const Text&,
                              unsigned start_offset,
                              int length,
                              DocumentMarker::MarkerTypes);
+
+  // Called after weak processing of |markers_| is done.
+  void DidProcessMarkerMap(Visitor* visitor);
 
   MarkerMap markers_;
   // Provide a quick way to determine whether a particular marker type is absent

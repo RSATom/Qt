@@ -14,7 +14,6 @@
 #include "src/arm64/utils-arm64.h"
 #include "src/base/platform/platform.h"
 #include "src/disasm.h"
-#include "src/macro-assembler.h"
 
 namespace v8 {
 namespace internal {
@@ -3744,7 +3743,7 @@ int DisassemblingDecoder::SubstituteImmediateField(Instruction* instr,
             uint64_t imm8 = instr->ImmNEONabcdefgh();
             uint64_t imm = 0;
             for (int i = 0; i < 8; ++i) {
-              if (imm8 & (1 << i)) {
+              if (imm8 & (1ULL << i)) {
                 imm |= (UINT64_C(0xFF) << (8 * i));
               }
             }
@@ -3892,10 +3891,9 @@ int DisassemblingDecoder::SubstitutePCRelAddressField(Instruction* instr,
 
   char sign = '+';
   if (offset < 0) {
-    offset = -offset;
     sign = '-';
   }
-  AppendToOutput("#%c0x%x (addr %p)", sign, offset,
+  AppendToOutput("#%c0x%x (addr %p)", sign, Abs(offset),
                  instr->InstructionAtOffset(offset, Instruction::NO_CHECK));
   return 13;
 }
@@ -3917,7 +3915,7 @@ int DisassemblingDecoder::SubstituteBranchTargetField(Instruction* instr,
     case 'e': offset = instr->ImmTestBranch(); break;
     default: UNREACHABLE();
   }
-  offset <<= kInstructionSizeLog2;
+  offset <<= kInstrSizeLog2;
   char sign = '+';
   if (offset < 0) {
     sign = '-';
@@ -4106,21 +4104,15 @@ class BufferDisassembler : public v8::internal::DisassemblingDecoder {
   v8::internal::Vector<char> out_buffer_;
 };
 
-Disassembler::Disassembler(const NameConverter& converter)
-    : converter_(converter) {}
-
-
-Disassembler::~Disassembler() { USE(converter_); }
-
-
 int Disassembler::InstructionDecode(v8::internal::Vector<char> buffer,
                                     byte* instr) {
+  USE(converter_);  // avoid unused field warning
   v8::internal::Decoder<v8::internal::DispatchingDecoderVisitor> decoder;
   BufferDisassembler disasm(buffer);
   decoder.AppendVisitor(&disasm);
 
   decoder.Decode(reinterpret_cast<v8::internal::Instruction*>(instr));
-  return v8::internal::kInstructionSize;
+  return v8::internal::kInstrSize;
 }
 
 
@@ -4129,13 +4121,13 @@ int Disassembler::ConstantPoolSizeAt(byte* instr) {
       reinterpret_cast<v8::internal::Instruction*>(instr));
 }
 
-
-void Disassembler::Disassemble(FILE* file, byte* start, byte* end) {
+void Disassembler::Disassemble(FILE* file, byte* start, byte* end,
+                               UnimplementedOpcodeAction) {
   v8::internal::Decoder<v8::internal::DispatchingDecoderVisitor> decoder;
   v8::internal::PrintDisassembler disasm(file);
   decoder.AppendVisitor(&disasm);
 
-  for (byte* pc = start; pc < end; pc += v8::internal::kInstructionSize) {
+  for (byte* pc = start; pc < end; pc += v8::internal::kInstrSize) {
     decoder.Decode(reinterpret_cast<v8::internal::Instruction*>(pc));
   }
 }

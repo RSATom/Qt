@@ -22,6 +22,7 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/common/service_worker/service_worker_types.h"
+#include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "url/gurl.h"
@@ -67,6 +68,10 @@ void DidUnregisterServiceWorker(base::Closure quit_closure,
   std::move(quit_closure).Run();
 }
 
+GURL GetScopeForId(int64_t id) {
+  return GURL(kTestOrigin + base::IntToString(id));
+}
+
 }  // namespace
 
 BackgroundFetchTestBase::BackgroundFetchTestBase()
@@ -99,7 +104,7 @@ int64_t BackgroundFetchTestBase::RegisterServiceWorker() {
 
   {
     blink::mojom::ServiceWorkerRegistrationOptions options;
-    options.scope = origin_.GetURL();
+    options.scope = GetScopeForId(next_pattern_id_++);
     base::RunLoop run_loop;
     embedded_worker_test_helper_.context()->RegisterServiceWorker(
         script_url, options,
@@ -142,15 +147,16 @@ int64_t BackgroundFetchTestBase::RegisterServiceWorker() {
   return service_worker_registration_id;
 }
 
-void BackgroundFetchTestBase::UnregisterServiceWorker() {
+void BackgroundFetchTestBase::UnregisterServiceWorker(
+    int64_t service_worker_registration_id) {
   base::RunLoop run_loop;
   embedded_worker_test_helper_.context()->UnregisterServiceWorker(
-      origin_.GetURL(),
+      GetScopeForId(service_worker_registration_id),
       base::BindOnce(&DidUnregisterServiceWorker, run_loop.QuitClosure()));
   run_loop.Run();
 }
 
-ServiceWorkerFetchRequest
+blink::mojom::FetchAPIRequestPtr
 BackgroundFetchTestBase::CreateRequestWithProvidedResponse(
     const std::string& method,
     const GURL& url,
@@ -158,9 +164,26 @@ BackgroundFetchTestBase::CreateRequestWithProvidedResponse(
   // Register the |response| with the faked delegate.
   delegate_->RegisterResponse(url, std::move(response));
 
-  // Create a ServiceWorkerFetchRequest request with the same information.
-  return ServiceWorkerFetchRequest(url, method, ServiceWorkerHeaderMap(),
-                                   Referrer(), false /* is_reload */);
+  // Create a blink::mojom::FetchAPIRequestPtr request with the same
+  // information.
+  auto request = blink::mojom::FetchAPIRequest::New();
+  request->url = url;
+  request->method = method;
+  request->is_reload = false;
+  request->referrer = blink::mojom::Referrer::New();
+  request->headers = {};
+  return request;
+}
+
+blink::mojom::BackgroundFetchRegistrationPtr
+BackgroundFetchTestBase::CreateBackgroundFetchRegistration(
+    const std::string& developer_id,
+    const std::string& unique_id,
+    blink::mojom::BackgroundFetchResult result,
+    blink::mojom::BackgroundFetchFailureReason failure_reason) {
+  return blink::mojom::BackgroundFetchRegistration::New(
+      developer_id, unique_id, /* upload_total= */ 0, /* uploaded= */ 0,
+      /* download_total= */ 0, /* downloaded= */ 0, result, failure_reason);
 }
 
 }  // namespace content

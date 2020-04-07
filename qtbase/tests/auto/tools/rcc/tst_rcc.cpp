@@ -55,8 +55,12 @@ private slots:
 
     void rcc_data();
     void rcc();
+
     void binary_data();
     void binary();
+
+    void readback_data();
+    void readback();
 
     void cleanupTestCase();
 
@@ -126,6 +130,13 @@ void tst_rcc::rcc_data()
     if (dataPath.isEmpty())
         QFAIL("data path not found");
     QTest::newRow("images") << dataPath << "images.qrc" << "images.expected";
+
+    QString sizesPath = QFINDTESTDATA("data/sizes/");
+    if (sizesPath.isEmpty())
+        QFAIL("data path not found");
+    QTest::newRow("size-0") << sizesPath << "size-0.qrc" << "size-0.expected";
+    QTest::newRow("size-1") << sizesPath << "size-1.qrc" << "size-1.expected";
+    QTest::newRow("size-2-0-35-1") << sizesPath << "size-2-0-35-1.qrc" << "size-2-0-35-1.expected";
 }
 
 void tst_rcc::rcc()
@@ -148,9 +159,10 @@ void tst_rcc::rcc()
         return;
     }
 
-    // Launch
+    // Launch; force no compression, otherwise the output would be different
+    // depending on the compression algorithm we're using
     QProcess process;
-    process.start(m_rcc, QStringList(qrcfile));
+    process.start(m_rcc, { "-no-compress", qrcfile });
     if (!process.waitForFinished()) {
         const QString path = QString::fromLocal8Bit(qgetenv("PATH"));
         QString message = QString::fromLatin1("'%1' could not be found when run from '%2'. Path: '%3' ").
@@ -185,8 +197,9 @@ static void createRccBinaryData(const QString &rcc, const QString &baseDir,
     QString currentDir = QDir::currentPath();
     QDir::setCurrent(baseDir);
 
+    // same as above: force no compression
     QProcess rccProcess;
-    rccProcess.start(rcc, QStringList() << "-binary" << "-o" << rccFileName << qrcFileName);
+    rccProcess.start(rcc, { "-binary", "-no-compress", "-o", rccFileName, qrcFileName });
     bool ok = rccProcess.waitForFinished();
     if (!ok) {
         QString errorString = QString::fromLatin1("Could not start rcc (is it in PATH?): %1").arg(rccProcess.errorString());
@@ -353,6 +366,42 @@ void tst_rcc::binary()
     QLocale::setDefault(oldDefaultLocale);
 }
 
+void tst_rcc::readback_data()
+{
+    QTest::addColumn<QString>("resourceName");
+    QTest::addColumn<QString>("fileSystemName");
+
+    QTest::newRow("data-0")   << ":data/data-0.txt"            << "sizes/data/data-0.txt";
+    QTest::newRow("data-1")   << ":data/data-1.txt"            << "sizes/data/data-1.txt";
+    QTest::newRow("data-2")   << ":data/data-2.txt"            << "sizes/data/data-2.txt";
+    QTest::newRow("data-35")  << ":data/data-35.txt"           << "sizes/data/data-35.txt";
+    QTest::newRow("circle")   << ":images/circle.png"          << "images/images/circle.png";
+    QTest::newRow("square")   << ":images/square.png"          << "images/images/square.png";
+    QTest::newRow("triangle") << ":images/subdir/triangle.png"
+                                  << "images/images/subdir/triangle.png";
+}
+
+void tst_rcc::readback()
+{
+    QFETCH(QString, resourceName);
+    QFETCH(QString, fileSystemName);
+
+    QString dataPath = QFINDTESTDATA("data/");
+    if (dataPath.isEmpty())
+        QFAIL("data path not found");
+
+    QFile resourceFile(resourceName);
+    QVERIFY(resourceFile.open(QIODevice::ReadOnly));
+    QByteArray resourceData = resourceFile.readAll();
+    resourceFile.close();
+
+    QFile fileSystemFile(dataPath + fileSystemName);
+    QVERIFY(fileSystemFile.open(QIODevice::ReadOnly));
+    QByteArray fileSystemData = fileSystemFile.readAll();
+    fileSystemFile.close();
+
+    QCOMPARE(resourceData, fileSystemData);
+}
 
 void tst_rcc::cleanupTestCase()
 {

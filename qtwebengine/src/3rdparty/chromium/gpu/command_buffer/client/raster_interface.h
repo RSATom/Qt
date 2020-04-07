@@ -7,7 +7,9 @@
 
 #include <GLES2/gl2.h>
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "components/viz/common/resources/resource_format.h"
+#include "gpu/command_buffer/common/sync_token.h"
 
 namespace cc {
 class DisplayItemList;
@@ -16,6 +18,7 @@ struct RasterColorSpace;
 }  // namespace cc
 
 namespace gfx {
+class ColorSpace;
 class Rect;
 class Size;
 class Vector2dF;
@@ -26,6 +29,9 @@ extern "C" typedef struct _ClientBuffer* ClientBuffer;
 extern "C" typedef struct _GLColorSpace* GLColorSpace;
 
 namespace gpu {
+
+struct Mailbox;
+
 namespace raster {
 
 enum RasterTexStorageFlags { kNone = 0, kOverlay = (1 << 0) };
@@ -35,12 +41,20 @@ class RasterInterface {
   RasterInterface() {}
   virtual ~RasterInterface() {}
 
+  virtual void CopySubTexture(const gpu::Mailbox& source_mailbox,
+                              const gpu::Mailbox& dest_mailbox,
+                              GLenum dest_target,
+                              GLint xoffset,
+                              GLint yoffset,
+                              GLint x,
+                              GLint y,
+                              GLsizei width,
+                              GLsizei height) = 0;
   // OOP-Raster
   virtual void BeginRasterCHROMIUM(
       GLuint sk_color,
       GLuint msaa_sample_count,
       GLboolean can_use_lcd_text,
-      GLint pixel_config,
       const cc::RasterColorSpace& raster_color_space,
       const GLbyte* mailbox) = 0;
   virtual void RasterCHROMIUM(const cc::DisplayItemList* list,
@@ -52,7 +66,19 @@ class RasterInterface {
                               GLfloat post_scale,
                               bool requires_clear) = 0;
 
+  // Schedules a hardware-accelerated image decode and a sync token that's
+  // released when the image decode is complete. If the decode could not be
+  // scheduled, an empty sync token is returned.
+  virtual SyncToken ScheduleImageDecode(
+      base::span<const uint8_t> encoded_data,
+      const gfx::Size& output_size,
+      uint32_t transfer_cache_entry_id,
+      const gfx::ColorSpace& target_color_space,
+      bool needs_mips) = 0;
+
   // Raster via GrContext.
+  virtual GLuint CreateAndConsumeForGpuRaster(const GLbyte* mailbox) = 0;
+  virtual void DeleteGpuRasterTexture(GLuint texture) = 0;
   virtual void BeginGpuRaster() = 0;
   virtual void EndGpuRaster() = 0;
 

@@ -5,8 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "bookmaker.h"
 #include "SkOSPath.h"
+
+#include "definition.h"
+#include "textParser.h"
 
 #ifdef CONST
 #undef CONST
@@ -39,7 +41,6 @@ enum class OpType : int8_t {
     kVoid,
     kBool,
     kChar,
-    kFloat,
     kInt,
     kScalar,
     kSizeT,
@@ -117,7 +118,9 @@ const struct OperatorParser {
                                     {{ BLANK,  OpType::kThis,   OpMod::kMove, }}},
     { DEFOP::kMultiply, "*", "multiply", BLANK, OpType::kThis, OpMod::kNone,         CONST,
                                     {{ BLANK,  OpType::kScalar, OpMod::kNone, }}},
-    { DEFOP::kMultiply, "*", "multiply1", BLANK, OpType::kThis, OpMod::kNone,         BLANK,
+    { DEFOP::kMultiply, "*", "multiply1", BLANK, OpType::kThis, OpMod::kNone,         CONST,
+                                    {{ CONST,  OpType::kThis,   OpMod::kReference, }}},
+    { DEFOP::kMultiply, "*", "multiply2", BLANK, OpType::kThis, OpMod::kNone,         BLANK,
                                     {{ CONST,  OpType::kThis,   OpMod::kReference, },
                                      { CONST,  OpType::kThis,   OpMod::kReference, }}},
     { DEFOP::kMultiplyBy, "*=", "multiplyby", BLANK,  OpType::kThis, OpMod::kReference, BLANK,
@@ -144,7 +147,10 @@ OpType lookup_type(string typeWord, string name) {
                          || (typeWord == "SkVector" && name == "SkPoint")) {
         return OpType::kThis;
     }
-    const char* keyWords[] = { "void", "bool", "char", "float", "int", "SkScalar", "size_t" };
+    if ("float" == typeWord || "double" == typeWord) {
+        return OpType::kScalar;
+    }
+    const char* keyWords[] = { "void", "bool", "char", "int", "SkScalar", "size_t" };
     for (unsigned i = 0; i < SK_ARRAY_COUNT(keyWords); ++i) {
         if (typeWord == keyWords[i]) {
             return (OpType) (i + 1);
@@ -179,11 +185,8 @@ bool Definition::parseOperator(size_t doubleColons, string& result) {
     string className(fName, 0, doubleColons - 2);
     TextParser iParser(fFileName, fStart, fContentStart, fLineCount);
     SkAssertResult(iParser.skipWord("#Method"));
-    iParser.skipExact("SK_API");
     iParser.skipWhiteSpace();
     bool isStatic = iParser.skipExact("static");
-    iParser.skipWhiteSpace();
-    iParser.skipExact("SK_API");
     iParser.skipWhiteSpace();
     bool returnsConst = iParser.skipExact("const");
     if (returnsConst) {
@@ -272,7 +275,7 @@ bool Definition::parseOperator(size_t doubleColons, string& result) {
             continue;
         }
         iParser.next();
-        bool constMethod = iParser.skipExact("_const");
+        bool constMethod = iParser.skipExact(" const");
         if (parser.fConstMethod != ANY && (parser.fConstMethod == CONST) != constMethod) {
             continue;
         }
@@ -284,40 +287,6 @@ bool Definition::parseOperator(size_t doubleColons, string& result) {
     }
     SkASSERT(0); // incomplete
     return false;
-#if 0
-    if ('!' == fName[opPos]) {
-        SkASSERT('=' == fName[opPos + 1]);
-        result += "not_equal_operator";
-    } else if ('=' == fName[opPos]) {
-        if ('(' == fName[opPos + 1]) {
-            result += isMove ? "move_" : "copy_";
-            result += "assignment_operator";
-        } else {
-            SkASSERT('=' == fName[opPos + 1]);
-            result += "equal_operator";
-        }
-    } else if ('[' == fName[opPos]) {
-        result += "subscript_operator";
-        const char* end = fContentStart;
-        while (end > fStart && ' ' >= end[-1]) {
-            --end;
-        }
-        string constCheck(fStart, end - fStart);
-        size_t constPos = constCheck.rfind("const");
-        if (constCheck.length() == constPos + 5) {
-            result += "_const";
-        }
-    } else if ('*' == fName[opPos]) {
-        result += "multiply_operator";
-    } else if ('-' == fName[opPos]) {
-        result += "subtract_operator";
-    } else if ('+' == fName[opPos]) {
-        result += "add_operator";
-    } else {
-        SkASSERT(0);  // todo: incomplete
-    }
-#endif
-    return true;
 }
 
 #undef CONST
@@ -339,7 +308,7 @@ bool Definition::boilerplateIfDef() {
 // for now, just handle paint -- maybe fiddle will loosen naming restrictions
 void Definition::setCanonicalFiddle() {
     fMethodType = Definition::MethodType::kNone;
-    size_t doubleColons = fName.find("::", 0);
+    size_t doubleColons = fName.rfind("::");
     SkASSERT(string::npos != doubleColons);
     string base = fName.substr(0, doubleColons);
     string result = base + "_";
@@ -462,10 +431,9 @@ bool Definition::checkMethod() const {
     }
     bool expectReturn = this->methodHasReturn(name, &methodParser);
     bool foundReturn = false;
-    bool foundException = false;
+    bool foundPopulate = false;
     for (auto& child : fChildren) {
-        foundException |= MarkType::kDeprecated == child->fMarkType
-                || MarkType::kExperimental == child->fMarkType;
+        foundPopulate |= MarkType::kPopulate == child->fMarkType;
         if (MarkType::kReturn != child->fMarkType) {
             if (MarkType::kParam == child->fMarkType) {
                 child->fVisited = false;
@@ -480,7 +448,7 @@ bool Definition::checkMethod() const {
         }
         foundReturn = true;
     }
-    if (expectReturn && !foundReturn && !foundException) {
+    if (expectReturn && !foundReturn && !foundPopulate) {
         return methodParser.reportError<bool>("missing #Return marker");
     }
     const char* paren = methodParser.strnchr('(', methodParser.fEnd);
@@ -514,7 +482,7 @@ bool Definition::checkMethod() const {
             foundParam = true;
 
         }
-        if (!foundParam && !foundException) {
+        if (!foundParam && !foundPopulate) {
             return methodParser.reportError<bool>("no #Param found");
         }
         if (')' == nextEnd[0]) {
@@ -535,6 +503,7 @@ bool Definition::checkMethod() const {
     const char* descEnd = nullptr;
     const Definition* defEnd = nullptr;
     const Definition* priorDef = nullptr;
+    bool incomplete = false;
     for (auto& child : fChildren) {
         if (MarkType::kAnchor == child->fMarkType) {
             continue;
@@ -543,14 +512,13 @@ bool Definition::checkMethod() const {
             priorDef = child;
             continue;
         }
-        if (MarkType::kDeprecated == child->fMarkType) {
-            return true;
-        }
-        if (MarkType::kExperimental == child->fMarkType) {
-            return true;
-        }
         if (MarkType::kFormula == child->fMarkType) {
             continue;
+        }
+        if (MarkType::kLine == child->fMarkType) {
+            SkASSERT(child->fChildren.size() > 0);
+            TextParser childDesc(child->fChildren[0]);
+            incomplete |= childDesc.startsWith("incomplete");
         }
         if (MarkType::kList == child->fMarkType) {
             priorDef = child;
@@ -561,9 +529,6 @@ bool Definition::checkMethod() const {
         }
         if (MarkType::kPhraseRef == child->fMarkType) {
             continue;
-        }
-        if (MarkType::kPrivate == child->fMarkType) {
-            return true;
         }
         TextParser emptyCheck(fFileName, descStart, child->fStart, child->fLineCount);
         if (!emptyCheck.eof() && emptyCheck.skipWhiteSpace()) {
@@ -577,7 +542,8 @@ bool Definition::checkMethod() const {
         priorDef = nullptr;
     }
     if (!descEnd) {
-        return methodParser.reportError<bool>("missing description");
+        return incomplete || foundPopulate ? true :
+                methodParser.reportError<bool>("missing description");
     }
     TextParser description(fFileName, descStart, descEnd, fLineCount);
     // expect first word capitalized and pluralized. expect a trailing period
@@ -586,7 +552,9 @@ bool Definition::checkMethod() const {
         description.reportWarning("expected capital");
     } else if ('.' != descEnd[-1]) {
         if (!defEnd || defEnd->fTerminator != descEnd) {
-            description.reportWarning("expected period");
+            if (!incomplete) {
+                description.reportWarning("expected period");
+            }
         }
     } else {
         if (!description.startsWith("For use by Android")) {
@@ -595,7 +563,9 @@ bool Definition::checkMethod() const {
                 --description.fChar;
             }
             if ('s' != description.fChar[-1]) {
-                description.reportWarning("expected plural");
+                if (!incomplete) {
+                    description.reportWarning("expected plural");
+                }
             }
         }
     }
@@ -637,13 +607,12 @@ const char* Definition::methodEnd() const {
     return tokenEnd;
 }
 
-bool Definition::crossCheckInside(const char* start, const char* end,
-        const Definition& includeToken) const {
-    TextParser def(fFileName, start, end, fLineCount);
-    const char* tokenEnd = includeToken.methodEnd();
-    TextParser inc("", includeToken.fContentStart, tokenEnd, 0);
+bool Definition::SkipImplementationWords(TextParser& inc) {
     if (inc.startsWith("SK_API")) {
         inc.skipWord("SK_API");
+    }
+    if (inc.startsWith("inline")) {
+        inc.skipWord("inline");
     }
     if (inc.startsWith("friend")) {
         inc.skipWord("friend");
@@ -651,7 +620,23 @@ bool Definition::crossCheckInside(const char* start, const char* end,
     if (inc.startsWith("SK_API")) {
         inc.skipWord("SK_API");
     }
-    inc.skipExact("SkDEBUGCODE(");
+    return inc.skipExact("SkDEBUGCODE(");
+}
+
+bool Definition::crossCheckInside(const char* start, const char* end,
+        const Definition& includeToken) const {
+    TextParser def(fFileName, start, end, fLineCount);
+    const char* tokenEnd = includeToken.methodEnd();
+    TextParser inc("", includeToken.fContentStart, tokenEnd, 0);
+    if (inc.startsWith("static")) {
+        def.skipWhiteSpace();
+        if (!def.startsWith("static")) {
+            return false;
+        }
+        inc.skipWord("static");
+        def.skipWord("static");
+    }
+    (void) Definition::SkipImplementationWords(inc);
     do {
         bool defEof;
         bool incEof;
@@ -690,6 +675,9 @@ bool Definition::crossCheckInside(const char* start, const char* end,
         char defCh;
         do {
             defCh = def.next();
+            if (inc.skipExact("SK_WARN_UNUSED_RESULT")) {
+                inc.skipSpace();
+            }
             char incCh = inc.next();
             if (' ' >= defCh && ' ' >= incCh) {
                 break;
@@ -790,8 +778,12 @@ string Definition::formatFunction(Format format) const {
             if (lastStart[0] != ' ') {
                 space_pad(&methodStr);
             }
-            methodStr += string(lastStart, (size_t) (lastEnd - lastStart));
-            written += (size_t) (lastEnd - lastStart);
+            string addon(lastStart, (size_t) (lastEnd - lastStart));
+            if (" const" == addon) {
+                addon = "const";
+            }
+            methodStr += addon;
+            written += addon.length();
         }
         if (delimiter) {
             if (nextEnd - nextStart >= (ptrdiff_t) (limit - written)) {
@@ -867,7 +859,7 @@ const Definition* Definition::hasChild(MarkType markType) const {
     return nullptr;
 }
 
-const Definition* Definition::hasParam(string ref) const {
+Definition* Definition::hasParam(string ref) {
     SkASSERT(MarkType::kMethod == fMarkType);
     for (auto iter : fChildren) {
         if (MarkType::kParam != iter->fMarkType) {
@@ -876,7 +868,18 @@ const Definition* Definition::hasParam(string ref) const {
         if (iter->fName == ref) {
             return &*iter;
         }
-
+    }
+    for (auto& iter : fTokens) {
+        if (MarkType::kComment != iter.fMarkType) {
+            continue;
+        }
+        TextParser parser(&iter);
+        if (!parser.skipExact("@param ")) {
+            continue;
+        }
+        if (parser.skipExact(ref.c_str()) && ' ' == parser.peek()) {
+            return &iter;
+        }
     }
     return nullptr;
 }
@@ -891,31 +894,6 @@ bool Definition::hasMatch(string name) const {
         }
     }
     return false;
-}
-
-string Definition::incompleteMessage(DetailsType detailsType) const {
-    SkASSERT(!IncompleteAllowed(fMarkType));
-    auto iter = std::find_if(fChildren.begin(), fChildren.end(),
-            [](const Definition* test) { return IncompleteAllowed(test->fMarkType); });
-    SkASSERT(fChildren.end() != iter);
-    SkASSERT(Details::kNone == (*iter)->fDetails);
-    string message = MarkType::kExperimental == (*iter)->fMarkType ?
-            "Experimental." : "Deprecated.";
-    if (Details::kDoNotUse_Experiment == fDetails) {
-        message += " Do not use.";
-    } else if (Details::kNotReady_Experiment == fDetails) {
-        message += " Not ready for general use.";
-    } else if (Details::kSoonToBe_Deprecated == fDetails) {
-        message = "To be deprecated soon.";
-    } else if (Details::kTestingOnly_Experiment == fDetails) {
-        message += " For testing only.";
-    }
-    if (DetailsType::kPhrase == detailsType) {
-        message = message.substr(0, message.length() - 1);  // remove trailing period
-        std::replace(message.begin(), message.end(), '.', ':');
-        std::transform(message.begin(), message.end(), message.begin(), ::tolower);
-    }
-    return message;
 }
 
 bool Definition::isStructOrClass() const {
@@ -999,14 +977,14 @@ bool Definition::nextMethodParam(TextParser* methodParser, const char** nextEndP
             return methodParser->reportError<bool>("#Method function missing close paren");
         }
         char ch = methodParser->peek();
-        if ('(' == ch) {
+        if ('(' == ch || '{' == ch) {
             ++parenCount;
         }
         if (parenCount == 0 && (')' == ch || ',' == ch)) {
             *nextEndPtr = methodParser->fChar;
             break;
         }
-        if (')' == ch) {
+        if (')' == ch || '}' == ch) {
             if (0 > --parenCount) {
                 return this->reportError<bool>("mismatched parentheses");
             }
@@ -1167,6 +1145,13 @@ bool Definition::paramsMatch(string matchFormatted, string name) const {
     return !def.eof() && ')' == def.peek() && !m.eof() && ')' == m.peek();
 }
 
+
+void Definition::trimEnd() {
+    while (fContentEnd > fContentStart && ' ' >= fContentEnd[-1]) {
+        --fContentEnd;
+    }
+}
+
 void RootDefinition::clearVisited() {
     fVisited = false;
     for (auto& leaf : fLeaves) {
@@ -1186,10 +1171,6 @@ bool RootDefinition::dumpUnVisited() {
             if ("SkBitmap::validate()" == leaf.first) {
                 continue;
             }
-            // SkPath::pathRefIsValid in #ifdef ; prefer to remove chrome dependency to fix
-            if ("SkPath::pathRefIsValid" == leaf.first) {
-                continue;
-            }
             // FIXME: end of long tail bugs
             SkDebugf("defined in bmh but missing in include: %s\n", leaf.first.c_str());
             success = false;
@@ -1206,11 +1187,27 @@ Definition* RootDefinition::find(string ref, AllowParens allowParens) {
     if (leafIter != fLeaves.end()) {
         return &leafIter->second;
     }
-    if (AllowParens::kYes == allowParens && string::npos == ref.find("()")) {
-        string withParens = ref + "()";
-        const auto parensIter = fLeaves.find(withParens);
-        if (parensIter != fLeaves.end()) {
-            return &parensIter->second;
+    if (AllowParens::kYes == allowParens) {
+        size_t leftParen = ref.find('(');
+        if (string::npos == leftParen
+                || (leftParen + 1 < ref.length() && ')' != ref[leftParen + 1])) {
+            string withParens = ref + "()";
+            const auto parensIter = fLeaves.find(withParens);
+            if (parensIter != fLeaves.end()) {
+                return &parensIter->second;
+            }
+        }
+        if (string::npos != leftParen) {
+            string name = ref.substr(0, leftParen);
+            size_t posInDefName = fName.find(name);
+            if (string::npos != posInDefName && posInDefName > 2
+                    && "::" == fName.substr(posInDefName - 2, 2)) {
+                string fullRef = fName + "::" + ref;
+                const auto fullIter = fLeaves.find(fullRef);
+                if (fullIter != fLeaves.end()) {
+                    return &fullIter->second;
+                }
+            }
         }
     }
     const auto branchIter = fBranches.find(ref);

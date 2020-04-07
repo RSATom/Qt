@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
@@ -19,9 +20,7 @@
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/browser/service_worker/service_worker_version.h"
-#include "content/common/service_worker/service_worker_messages.h"
 #include "content/common/url_schemes.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -62,7 +61,7 @@ class ServiceWorkerTestContentBrowserClient : public TestContentBrowserClient {
       const GURL& scope,
       const GURL& first_party,
       content::ResourceContext* context,
-      const base::Callback<WebContents*(void)>& wc_getter) override {
+      base::RepeatingCallback<WebContents*()> wc_getter) override {
     logs_.emplace_back(scope, first_party);
     return false;
   }
@@ -134,26 +133,26 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
   ServiceWorkerRemoteProviderEndpoint PrepareServiceWorkerProviderHost(
       const GURL& document_url) {
     ServiceWorkerRemoteProviderEndpoint remote_endpoint;
-    GURL topmost_frame_url = document_url;
-    CreateProviderHostInternal(document_url, topmost_frame_url,
+    GURL site_for_cookies = document_url;
+    CreateProviderHostInternal(document_url, site_for_cookies,
                                &remote_endpoint);
     return remote_endpoint;
   }
 
   ServiceWorkerRemoteProviderEndpoint
-  PrepareServiceWorkerProviderHostWithTopmostFrameUrl(
+  PrepareServiceWorkerProviderHostWithSiteForCookies(
       const GURL& document_url,
-      const GURL& topmost_frame_url) {
+      const GURL& site_for_cookies) {
     ServiceWorkerRemoteProviderEndpoint remote_endpoint;
-    CreateProviderHostInternal(document_url, topmost_frame_url,
+    CreateProviderHostInternal(document_url, site_for_cookies,
                                &remote_endpoint);
     return remote_endpoint;
   }
 
   ServiceWorkerProviderHost* CreateProviderHost(const GURL& document_url) {
-    GURL topmost_frame_url = document_url;
+    GURL site_for_cookies = document_url;
     remote_endpoints_.emplace_back();
-    return CreateProviderHostInternal(document_url, document_url,
+    return CreateProviderHostInternal(document_url, site_for_cookies,
                                       &remote_endpoints_.back());
   }
 
@@ -166,16 +165,16 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
             false /* is_parent_frame_secure */, helper_->context()->AsWeakPtr(),
             &remote_endpoints_.back());
     ServiceWorkerProviderHost* host_raw = host.get();
-    host->SetDocumentUrl(document_url);
+    host->UpdateUrls(document_url, document_url);
     context_->AddProviderHost(std::move(host));
     return host_raw;
   }
 
   void FinishNavigation(ServiceWorkerProviderHost* host,
-                        mojom::ServiceWorkerProviderHostInfoPtr info) {
+                        blink::mojom::ServiceWorkerProviderHostInfoPtr info) {
     // In production code, the loader/request handler does this.
-    host->SetDocumentUrl(GURL("https://www.example.com/page"));
-    host->SetTopmostFrameUrl(GURL("https://www.example.com/page"));
+    const GURL url("https://www.example.com/page");
+    host->UpdateUrls(url, url);
 
     // In production code, the OnProviderCreated IPC is received which
     // does this.
@@ -184,13 +183,13 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
   }
 
   blink::mojom::ServiceWorkerErrorType Register(
-      mojom::ServiceWorkerContainerHost* container_host,
-      GURL pattern,
+      blink::mojom::ServiceWorkerContainerHost* container_host,
+      GURL scope,
       GURL worker_url) {
     blink::mojom::ServiceWorkerErrorType error =
         blink::mojom::ServiceWorkerErrorType::kUnknown;
     auto options = blink::mojom::ServiceWorkerRegistrationOptions::New();
-    options->scope = pattern;
+    options->scope = scope;
     container_host->Register(
         worker_url, std::move(options),
         base::BindOnce([](blink::mojom::ServiceWorkerErrorType* out_error,
@@ -204,7 +203,7 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
   }
 
   blink::mojom::ServiceWorkerErrorType GetRegistration(
-      mojom::ServiceWorkerContainerHost* container_host,
+      blink::mojom::ServiceWorkerContainerHost* container_host,
       GURL document_url,
       blink::mojom::ServiceWorkerRegistrationObjectInfoPtr* out_info =
           nullptr) {
@@ -229,7 +228,7 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
   }
 
   blink::mojom::ServiceWorkerErrorType GetRegistrations(
-      mojom::ServiceWorkerContainerHost* container_host) {
+      blink::mojom::ServiceWorkerContainerHost* container_host) {
     blink::mojom::ServiceWorkerErrorType error =
         blink::mojom::ServiceWorkerErrorType::kUnknown;
     container_host->GetRegistrations(base::BindOnce(
@@ -250,8 +249,7 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
   bool CanFindClientProviderHost(ServiceWorkerProviderHost* host) {
     for (std::unique_ptr<ServiceWorkerContextCore::ProviderHostIterator> it =
              context_->GetClientProviderHostIterator(
-                 host->document_url().GetOrigin(),
-                 false /* include_reserved_clients */);
+                 host->url().GetOrigin(), false /* include_reserved_clients */);
          !it->IsAtEnd(); it->Advance()) {
       if (host == it->GetProviderHost())
         return true;
@@ -298,20 +296,18 @@ class ServiceWorkerProviderHostTest : public testing::TestWithParam<bool> {
  private:
   ServiceWorkerProviderHost* CreateProviderHostInternal(
       const GURL& document_url,
-      const GURL& topmost_frame_url,
+      const GURL& site_for_cookies,
       ServiceWorkerRemoteProviderEndpoint* remote_endpoint) {
     base::WeakPtr<ServiceWorkerProviderHost> host =
         ServiceWorkerProviderHost::PreCreateNavigationHost(
-            helper_->context()->AsWeakPtr(), true,
-            base::Callback<WebContents*(void)>());
-    mojom::ServiceWorkerProviderHostInfoPtr info =
+            helper_->context()->AsWeakPtr(), true, base::NullCallback());
+    blink::mojom::ServiceWorkerProviderHostInfoPtr info =
         CreateProviderHostInfoForWindow(host->provider_id(), 1 /* route_id */);
     remote_endpoint->BindWithProviderHostInfo(&info);
 
     host->CompleteNavigationInitialized(helper_->mock_render_process_id(),
                                         std::move(info));
-    host->SetDocumentUrl(document_url);
-    host->SetTopmostFrameUrl(topmost_frame_url);
+    host->UpdateUrls(document_url, site_for_cookies);
     return host.get();
   }
 
@@ -332,13 +328,15 @@ TEST_P(ServiceWorkerProviderHostTest, MatchRegistration) {
   ASSERT_EQ(nullptr, provider_host1->MatchRegistration());
 
   // SetDocumentUrl sets all of matching registrations
-  provider_host1->SetDocumentUrl(GURL("https://www.example.com/example1"));
+  provider_host1->UpdateUrls(GURL("https://www.example.com/example1"),
+                             GURL("https://www.example.com/example1"));
   ASSERT_EQ(registration2_, provider_host1->MatchRegistration());
   provider_host1->RemoveMatchingRegistration(registration2_.get());
   ASSERT_EQ(registration1_, provider_host1->MatchRegistration());
 
   // SetDocumentUrl with another origin also updates matching registrations
-  provider_host1->SetDocumentUrl(GURL("https://other.example.com/example"));
+  provider_host1->UpdateUrls(GURL("https://other.example.com/example"),
+                             GURL("https://other.example.com/example"));
   ASSERT_EQ(registration3_, provider_host1->MatchRegistration());
   provider_host1->RemoveMatchingRegistration(registration3_.get());
   ASSERT_EQ(nullptr, provider_host1->MatchRegistration());
@@ -352,16 +350,19 @@ TEST_P(ServiceWorkerProviderHostTest, ContextSecurity) {
           GURL("https://www.example.com/example1.html"));
 
   // Insecure document URL.
-  provider_host_secure_parent->SetDocumentUrl(GURL("http://host"));
+  provider_host_secure_parent->UpdateUrls(GURL("http://host"),
+                                          GURL("http://host"));
   EXPECT_FALSE(provider_host_secure_parent->IsContextSecureForServiceWorker());
 
   // Insecure parent frame.
-  provider_host_insecure_parent->SetDocumentUrl(GURL("https://host"));
+  provider_host_insecure_parent->UpdateUrls(GURL("https://host"),
+                                            GURL("https://host"));
   EXPECT_FALSE(
       provider_host_insecure_parent->IsContextSecureForServiceWorker());
 
   // Secure URL and parent frame.
-  provider_host_secure_parent->SetDocumentUrl(GURL("https://host"));
+  provider_host_secure_parent->UpdateUrls(GURL("https://host"),
+                                          GURL("https://host"));
   EXPECT_TRUE(provider_host_secure_parent->IsContextSecureForServiceWorker());
 
   // Exceptional service worker scheme.
@@ -369,13 +370,48 @@ TEST_P(ServiceWorkerProviderHostTest, ContextSecurity) {
   EXPECT_TRUE(url.is_valid());
   EXPECT_FALSE(IsOriginSecure(url));
   EXPECT_TRUE(OriginCanAccessServiceWorkers(url));
-  provider_host_secure_parent->SetDocumentUrl(url);
+  provider_host_secure_parent->UpdateUrls(url, url);
   EXPECT_TRUE(provider_host_secure_parent->IsContextSecureForServiceWorker());
 
   // Exceptional service worker scheme with insecure parent frame.
-  provider_host_insecure_parent->SetDocumentUrl(url);
+  provider_host_insecure_parent->UpdateUrls(url, url);
   EXPECT_FALSE(
       provider_host_insecure_parent->IsContextSecureForServiceWorker());
+}
+
+TEST_P(ServiceWorkerProviderHostTest, UpdateUrls_SameOriginRedirect) {
+  const GURL url1("https://origin1.example.com/page1.html");
+  const GURL url2("https://origin1.example.com/page2.html");
+
+  ServiceWorkerProviderHost* host = CreateProviderHost(url1);
+  const std::string uuid1 = host->client_uuid();
+  EXPECT_EQ(url1, host->url());
+  EXPECT_EQ(url1, host->site_for_cookies());
+
+  host->UpdateUrls(url2, url2);
+  EXPECT_EQ(url2, host->url());
+  EXPECT_EQ(url2, host->site_for_cookies());
+  EXPECT_EQ(uuid1, host->client_uuid());
+
+  EXPECT_EQ(host, context_->GetProviderHostByClientID(host->client_uuid()));
+}
+
+TEST_P(ServiceWorkerProviderHostTest, UpdateUrls_CrossOriginRedirect) {
+  const GURL url1("https://origin1.example.com/page1.html");
+  const GURL url2("https://origin2.example.com/page2.html");
+
+  ServiceWorkerProviderHost* host = CreateProviderHost(url1);
+  const std::string uuid1 = host->client_uuid();
+  EXPECT_EQ(url1, host->url());
+  EXPECT_EQ(url1, host->site_for_cookies());
+
+  host->UpdateUrls(url2, url2);
+  EXPECT_EQ(url2, host->url());
+  EXPECT_EQ(url2, host->site_for_cookies());
+  EXPECT_NE(uuid1, host->client_uuid());
+
+  EXPECT_FALSE(context_->GetProviderHostByClientID(uuid1));
+  EXPECT_EQ(host, context_->GetProviderHostByClientID(host->client_uuid()));
 }
 
 class MockServiceWorkerRegistration : public ServiceWorkerRegistration {
@@ -420,17 +456,18 @@ TEST_P(ServiceWorkerProviderHostTest, RemoveProvider) {
   EXPECT_FALSE(context_->GetProviderHost(process_id, provider_id));
 }
 
-class MockServiceWorkerContainer : public mojom::ServiceWorkerContainer {
+class MockServiceWorkerContainer : public blink::mojom::ServiceWorkerContainer {
  public:
   explicit MockServiceWorkerContainer(
-      mojom::ServiceWorkerContainerAssociatedRequest request)
+      blink::mojom::ServiceWorkerContainerAssociatedRequest request)
       : binding_(this, std::move(request)) {}
 
   ~MockServiceWorkerContainer() override = default;
 
-  void SetController(mojom::ControllerServiceWorkerInfoPtr controller_info,
-                     const std::vector<blink::mojom::WebFeature>& used_features,
-                     bool should_notify_controllerchange) override {
+  void SetController(
+      blink::mojom::ControllerServiceWorkerInfoPtr controller_info,
+      const std::vector<blink::mojom::WebFeature>& used_features,
+      bool should_notify_controllerchange) override {
     was_set_controller_called_ = true;
   }
   void PostMessageToClient(blink::mojom::ServiceWorkerObjectInfoPtr controller,
@@ -441,7 +478,7 @@ class MockServiceWorkerContainer : public mojom::ServiceWorkerContainer {
 
  private:
   bool was_set_controller_called_ = false;
-  mojo::AssociatedBinding<mojom::ServiceWorkerContainer> binding_;
+  mojo::AssociatedBinding<blink::mojom::ServiceWorkerContainer> binding_;
 };
 
 TEST_P(ServiceWorkerProviderHostTest, Controller) {
@@ -449,8 +486,8 @@ TEST_P(ServiceWorkerProviderHostTest, Controller) {
   base::WeakPtr<ServiceWorkerProviderHost> host =
       ServiceWorkerProviderHost::PreCreateNavigationHost(
           helper_->context()->AsWeakPtr(), true /* are_ancestors_secure */,
-          base::Callback<WebContents*(void)>());
-  mojom::ServiceWorkerProviderHostInfoPtr info =
+          base::NullCallback());
+  blink::mojom::ServiceWorkerProviderHostInfoPtr info =
       CreateProviderHostInfoForWindow(host->provider_id(), 1 /* route_id */);
   remote_endpoints_.emplace_back();
   remote_endpoints_.back().BindWithProviderHostInfo(&info);
@@ -460,7 +497,8 @@ TEST_P(ServiceWorkerProviderHostTest, Controller) {
   // Create an active version and then start the navigation.
   scoped_refptr<ServiceWorkerVersion> version = new ServiceWorkerVersion(
       registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -468,24 +506,24 @@ TEST_P(ServiceWorkerProviderHostTest, Controller) {
 
   // Finish the navigation.
   FinishNavigation(host.get(), std::move(info));
-  host->AssociateRegistration(registration1_.get(),
-                              false /* notify_controllerchange */);
+  host->SetControllerRegistration(registration1_,
+                                  false /* notify_controllerchange */);
   base::RunLoop().RunUntilIdle();
 
   // The page should be controlled since there was an active version at the
   // time navigation started. The SetController IPC should have been sent.
-  EXPECT_TRUE(host->active_version());
-  EXPECT_EQ(host->active_version(), host->controller());
+  EXPECT_TRUE(host->controller());
   EXPECT_TRUE(container->was_set_controller_called());
+  EXPECT_EQ(registration1_.get(), host->MatchRegistration());
 }
 
-TEST_P(ServiceWorkerProviderHostTest, ActiveIsNotController) {
+TEST_P(ServiceWorkerProviderHostTest, UncontrolledWithMatchingRegistration) {
   // Create a host.
   base::WeakPtr<ServiceWorkerProviderHost> host =
       ServiceWorkerProviderHost::PreCreateNavigationHost(
           helper_->context()->AsWeakPtr(), true /* are_ancestors_secure */,
-          base::Callback<WebContents*(void)>());
-  mojom::ServiceWorkerProviderHostInfoPtr info =
+          base::NullCallback());
+  blink::mojom::ServiceWorkerProviderHostInfoPtr info =
       CreateProviderHostInfoForWindow(host->provider_id(), 1 /* route_id */);
   remote_endpoints_.emplace_back();
   remote_endpoints_.back().BindWithProviderHostInfo(&info);
@@ -495,14 +533,12 @@ TEST_P(ServiceWorkerProviderHostTest, ActiveIsNotController) {
   // Create an installing version and then start the navigation.
   scoped_refptr<ServiceWorkerVersion> version = new ServiceWorkerVersion(
       registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+      helper_->context()->AsWeakPtr());
   registration1_->SetInstallingVersion(version);
-
 
   // Finish the navigation.
   FinishNavigation(host.get(), std::move(info));
-  host->AssociateRegistration(registration1_.get(),
-                              false /* notify_controllerchange */);
   // Promote the worker to active while navigation is still happening.
   registration1_->SetActiveVersion(version);
   base::RunLoop().RunUntilIdle();
@@ -510,9 +546,11 @@ TEST_P(ServiceWorkerProviderHostTest, ActiveIsNotController) {
   // The page should not be controlled since there was no active version at the
   // time navigation started. Furthermore, no SetController IPC should have been
   // sent.
-  EXPECT_TRUE(host->active_version());
   EXPECT_FALSE(host->controller());
   EXPECT_FALSE(container->was_set_controller_called());
+  // However, the host should know the registration is its best match, for
+  // .ready and claim().
+  EXPECT_EQ(registration1_.get(), host->MatchRegistration());
 }
 
 TEST_P(ServiceWorkerProviderHostTest,
@@ -522,7 +560,7 @@ TEST_P(ServiceWorkerProviderHostTest,
       SetBrowserClientForTesting(&test_browser_client);
 
   ServiceWorkerRemoteProviderEndpoint remote_endpoint =
-      PrepareServiceWorkerProviderHostWithTopmostFrameUrl(
+      PrepareServiceWorkerProviderHostWithSiteForCookies(
           GURL("https://www.example.com/foo"),
           GURL("https://www.example.com/top"));
 
@@ -561,7 +599,8 @@ TEST_P(ServiceWorkerProviderHostTest, AllowsServiceWorker) {
   scoped_refptr<ServiceWorkerVersion> version =
       base::MakeRefCounted<ServiceWorkerVersion>(
           registration1_.get(), GURL("https://www.example.com/sw.js"),
-          1 /* version_id */, helper_->context()->AsWeakPtr());
+          blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+          helper_->context()->AsWeakPtr());
   registration1_->SetActiveVersion(version);
 
   ServiceWorkerRemoteProviderEndpoint remote_endpoint;
@@ -774,7 +813,7 @@ TEST_P(ServiceWorkerProviderHostTest, GetRegistration_Success) {
   EXPECT_EQ(blink::mojom::ServiceWorkerErrorType::kNone,
             GetRegistration(remote_endpoint.host_ptr()->get(), kScope, &info));
   ASSERT_TRUE(info);
-  EXPECT_EQ(kScope, info->options->scope);
+  EXPECT_EQ(kScope, info->scope);
 }
 
 TEST_P(ServiceWorkerProviderHostTest,
@@ -843,13 +882,14 @@ TEST_P(ServiceWorkerProviderHostTest,
 TEST_P(ServiceWorkerProviderHostTest,
        ReservedClientsAreNotExposedToClientsAPI) {
   {
-    auto provider_info = mojom::ServiceWorkerProviderInfoForSharedWorker::New();
+    auto provider_info =
+        blink::mojom::ServiceWorkerProviderInfoForSharedWorker::New();
     base::WeakPtr<ServiceWorkerProviderHost> host =
         ServiceWorkerProviderHost::PreCreateForSharedWorker(
             context_->AsWeakPtr(), helper_->mock_render_process_id(),
             &provider_info);
     const GURL url("https://www.example.com/shared_worker.js");
-    host->SetTopmostFrameUrl(url);
+    host->UpdateUrls(url, url);
     EXPECT_FALSE(CanFindClientProviderHost(host.get()));
     host->CompleteSharedWorkerPreparation();
     EXPECT_TRUE(CanFindClientProviderHost(host.get()));
@@ -860,100 +900,67 @@ TEST_P(ServiceWorkerProviderHostTest,
         ServiceWorkerProviderHost::PreCreateNavigationHost(
             helper_->context()->AsWeakPtr(), true,
             base::RepeatingCallback<WebContents*(void)>());
-    mojom::ServiceWorkerProviderHostInfoPtr info =
+    blink::mojom::ServiceWorkerProviderHostInfoPtr info =
         CreateProviderHostInfoForWindow(host->provider_id(), 1 /* route_id */);
     ServiceWorkerRemoteProviderEndpoint remote_endpoint;
     remote_endpoint.BindWithProviderHostInfo(&info);
-    host->SetDocumentUrl(GURL("https://www.example.com/page"));
+    GURL url = GURL("https://www.example.com/page");
+    host->UpdateUrls(url, url);
+    FinishNavigation(host.get(), std::move(info));
     EXPECT_FALSE(CanFindClientProviderHost(host.get()));
 
-    FinishNavigation(host.get(), std::move(info));
+    base::RunLoop run_loop;
+    host->AddExecutionReadyCallback(run_loop.QuitClosure());
+    remote_endpoint.host_ptr()->get()->OnExecutionReady();
+    run_loop.Run();
     EXPECT_TRUE(CanFindClientProviderHost(host.get()));
   }
 }
 
-// Regression test for https://crbug.com/860106. When a provider host
-// is destroyed, it removes itself as a controllee from its controller.
-// This can trigger the waiting version starting to activate. The
-// destructing host shouldn't try to change its controller to the new
-// active version.
-TEST_P(ServiceWorkerProviderHostTest, DontSetControllerInDestructor) {
-  // This test requires the idle timeout mechanism of S13nSW to exercise the
-  // desired code path.
-  if (!IsServiceWorkerServicificationEnabled())
-    return;
+// Tests the client phase transitions for a navigation.
+TEST_P(ServiceWorkerProviderHostTest, ClientPhaseForWindow) {
+  base::WeakPtr<ServiceWorkerProviderHost> host =
+      ServiceWorkerProviderHost::PreCreateNavigationHost(
+          helper_->context()->AsWeakPtr(), true,
+          base::RepeatingCallback<WebContents*(void)>());
+  EXPECT_FALSE(host->is_response_committed());
+  EXPECT_FALSE(host->is_execution_ready());
 
-  // Make a window.
-  ServiceWorkerProviderHost* provider_host1 =
-      CreateProviderHost(GURL("https://www.example.com/example1.html"));
+  blink::mojom::ServiceWorkerProviderHostInfoPtr info =
+      CreateProviderHostInfoForWindow(host->provider_id(), 1 /* route_id */);
+  ServiceWorkerRemoteProviderEndpoint remote_endpoint;
+  remote_endpoint.BindWithProviderHostInfo(&info);
+  GURL url = GURL("https://www.example.com/page");
+  host->UpdateUrls(url, url);
+  FinishNavigation(host.get(), std::move(info));
+  EXPECT_TRUE(host->is_response_committed());
+  EXPECT_FALSE(host->is_execution_ready());
 
-  // Make an active version.
-  auto version1 = base::MakeRefCounted<ServiceWorkerVersion>(
-      registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
-  version1->set_fetch_handler_existence(
-      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
-  version1->SetStatus(ServiceWorkerVersion::ACTIVATED);
-  registration1_->SetActiveVersion(version1);
+  base::RunLoop run_loop;
+  host->AddExecutionReadyCallback(run_loop.QuitClosure());
+  remote_endpoint.host_ptr()->get()->OnExecutionReady();
+  run_loop.Run();
+  EXPECT_TRUE(host->is_response_committed());
+  EXPECT_TRUE(host->is_execution_ready());
+}
 
-  // Make the registration findable via storage functions. This allows
-  // the service worker to start, which will be needed later.
-  base::RunLoop loop;
-  helper_->context()->storage()->LazyInitializeForTest(loop.QuitClosure());
-  loop.Run();
-  std::vector<ServiceWorkerDatabase::ResourceRecord> records;
-  records.push_back(WriteToDiskCacheSync(
-      helper_->context()->storage(), version1->script_url(),
-      helper_->context()->storage()->NewResourceId(), {} /* headers */,
-      "I'm the body", "I'm the meta data"));
-  version1->script_cache_map()->SetResources(records);
-  version1->SetMainScriptHttpResponseInfo(
-      EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
-  base::Optional<blink::ServiceWorkerStatusCode> status;
-  helper_->context()->storage()->StoreRegistration(
-      registration1_.get(), version1.get(),
-      CreateReceiverOnCurrentThread(&status));
-  base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, status.value());
+// Tests the client phase transitions for a shared worker.
+TEST_P(ServiceWorkerProviderHostTest, ClientPhaseForSharedWorker) {
+  auto provider_info =
+      blink::mojom::ServiceWorkerProviderInfoForSharedWorker::New();
+  base::WeakPtr<ServiceWorkerProviderHost> host =
+      ServiceWorkerProviderHost::PreCreateForSharedWorker(
+          context_->AsWeakPtr(), helper_->mock_render_process_id(),
+          &provider_info);
+  EXPECT_FALSE(host->is_response_committed());
+  EXPECT_FALSE(host->is_execution_ready());
 
-  // Make the active worker the controller and give it an ongoing request. This
-  // way when a waiting worker calls SkipWaiting(), activation won't trigger
-  // until we're ready.
-  provider_host1->AssociateRegistration(registration1_.get(), false);
-  EXPECT_EQ(version1.get(), provider_host1->controller());
-  // The worker must be running to have a request.
-  version1->StartWorker(ServiceWorkerMetrics::EventType::PUSH,
-                        base::DoNothing());
-  base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(EmbeddedWorkerStatus::RUNNING, version1->running_status());
-  int request = version1->StartRequest(ServiceWorkerMetrics::EventType::PUSH,
-                                       base::DoNothing());
+  const GURL url("https://www.example.com/shared_worker.js");
+  host->UpdateUrls(url, url);
+  host->CompleteSharedWorkerPreparation();
 
-  // Make the waiting worker and have it call SkipWaiting().
-  auto version2 = base::MakeRefCounted<ServiceWorkerVersion>(
-      registration1_.get(), GURL("https://www.example.com/sw.js"),
-      2 /* version_id */, helper_->context()->AsWeakPtr());
-  version2->set_fetch_handler_existence(
-      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
-  version2->SetStatus(ServiceWorkerVersion::INSTALLED);
-  registration1_->SetWaitingVersion(version2);
-  version2->SkipWaiting(base::DoNothing());
-
-  // Finish the request. Activation won't yet occur until as
-  // |idle_time_fired_in_renderer_| isn't true.
-  version1->FinishRequest(request, true, base::Time::Now());
-
-  // Destroy the provider host. This triggers activation, and since
-  // SkipWaiting() was called, the provider host is in danger
-  // of receiving an OnSkippedWaiting() call during destruction.
-  ASSERT_TRUE(remote_endpoints_.back().host_ptr()->is_bound());
-  remote_endpoints_.back().host_ptr()->reset();
-  base::RunLoop().RunUntilIdle();
-
-  // No crash should occur, and the new version should be the active
-  // one.
-  EXPECT_EQ(version2.get(), registration1_->active_version());
-  EXPECT_FALSE(version2->HasControllee());
+  EXPECT_TRUE(host->is_response_committed());
+  EXPECT_TRUE(host->is_execution_ready());
 }
 
 // Tests that the service worker involved with a navigation (via
@@ -971,7 +978,8 @@ TEST_P(ServiceWorkerProviderHostTest, UpdateServiceWorkerOnDestruction) {
   // Make an active version.
   auto version1 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version1->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version1->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -979,7 +987,8 @@ TEST_P(ServiceWorkerProviderHostTest, UpdateServiceWorkerOnDestruction) {
 
   auto version2 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration2_.get(), GURL("https://www.example.com/sw.js"),
-      2 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 2 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version2->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version2->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -1010,7 +1019,8 @@ TEST_P(ServiceWorkerProviderHostTest, HintToUpdateServiceWorker) {
   // Make an active version.
   auto version1 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version1->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version1->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -1027,7 +1037,7 @@ TEST_P(ServiceWorkerProviderHostTest, HintToUpdateServiceWorker) {
   EXPECT_TRUE(HasVersionToUpdate(host));
 
   // Send the hint from the renderer. Update should be scheduled.
-  mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr =
+  blink::mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr =
       remote_endpoints_.back().host_ptr();
   (*host_ptr)->HintToUpdateServiceWorker();
   base::RunLoop().RunUntilIdle();
@@ -1051,7 +1061,8 @@ TEST_P(ServiceWorkerProviderHostTest,
   // Make an active version.
   auto version1 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version1->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version1->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -1065,7 +1076,7 @@ TEST_P(ServiceWorkerProviderHostTest,
 
   // Send the hint from the renderer. Update should not be scheduled, since
   // AddServiceWorkerToUpdate() was not called.
-  mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr =
+  blink::mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr =
       remote_endpoints_.back().host_ptr();
   (*host_ptr)->HintToUpdateServiceWorker();
   base::RunLoop().RunUntilIdle();
@@ -1081,7 +1092,8 @@ TEST_P(ServiceWorkerProviderHostTest, HintToUpdateServiceWorkerMultiple) {
   // Make active versions.
   auto version1 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration1_.get(), GURL("https://www.example.com/sw.js"),
-      1 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 1 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version1->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version1->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -1089,7 +1101,8 @@ TEST_P(ServiceWorkerProviderHostTest, HintToUpdateServiceWorkerMultiple) {
 
   auto version2 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration2_.get(), GURL("https://www.example.com/sw.js"),
-      2 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 2 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version2->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version2->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -1097,7 +1110,8 @@ TEST_P(ServiceWorkerProviderHostTest, HintToUpdateServiceWorkerMultiple) {
 
   auto version3 = base::MakeRefCounted<ServiceWorkerVersion>(
       registration3_.get(), GURL("https://other.example.com/sw.js"),
-      3 /* version_id */, helper_->context()->AsWeakPtr());
+      blink::mojom::ScriptType::kClassic, 3 /* version_id */,
+      helper_->context()->AsWeakPtr());
   version3->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   version3->SetStatus(ServiceWorkerVersion::ACTIVATED);
@@ -1122,7 +1136,7 @@ TEST_P(ServiceWorkerProviderHostTest, HintToUpdateServiceWorkerMultiple) {
 
   // Send the hint from the renderer. Update should be scheduled except for
   // |version3| as it's being used by another page.
-  mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr =
+  blink::mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr =
       remote_endpoints_.back().host_ptr();
   (*host_ptr)->HintToUpdateServiceWorker();
   base::RunLoop().RunUntilIdle();

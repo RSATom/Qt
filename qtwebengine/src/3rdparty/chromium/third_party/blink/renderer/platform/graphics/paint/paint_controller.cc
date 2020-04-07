@@ -25,15 +25,13 @@ PaintController::PaintController(Usage usage)
 }
 
 PaintController::~PaintController() {
-  // New display items should be committed before PaintController is destroyed.
-  DCHECK(new_display_item_list_.IsEmpty());
+  // New display items should be committed before PaintController is destroyed,
+  // except for transient paint controllers.
+  DCHECK(usage_ == kTransient || new_display_item_list_.IsEmpty());
 }
 
-bool PaintController::UseCachedDrawingIfPossible(
-    const DisplayItemClient& client,
-    DisplayItem::Type type) {
-  DCHECK(DisplayItem::IsDrawingType(type));
-
+bool PaintController::UseCachedItemIfPossible(const DisplayItemClient& client,
+                                              DisplayItem::Type type) {
   if (usage_ == kTransient)
     return false;
 
@@ -202,40 +200,24 @@ void PaintController::EndSubsequence(const DisplayItemClient& client,
   new_cached_subsequences_.insert(&client, SubsequenceMarkers(start, end));
 }
 
-const DisplayItem* PaintController::LastDisplayItem(unsigned offset) {
-  if (offset < new_display_item_list_.size())
-    return &new_display_item_list_[new_display_item_list_.size() - offset - 1];
-  return nullptr;
-}
-
 void PaintController::ProcessNewItem(DisplayItem& display_item) {
   DCHECK(!construction_disabled_);
 
-  if (IsSkippingCache()) {
-    DCHECK_EQ(usage_, kMultiplePaints);
+  if (IsSkippingCache() && usage_ == kMultiplePaints) {
     display_item.Client().Invalidate(PaintInvalidationReason::kUncacheable);
+    display_item.SetUncacheable();
   }
 
-#if DCHECK_IS_ON()
-  bool chunk_added =
-#endif
-      new_paint_chunks_.IncrementDisplayItemIndex(display_item);
-  auto& last_chunk = new_paint_chunks_.LastChunk();
+  bool chunk_added = new_paint_chunks_.IncrementDisplayItemIndex(display_item);
 
 #if DCHECK_IS_ON()
-  if (chunk_added && last_chunk.is_cacheable) {
-    AddToIndicesByClientMap(last_chunk.id.client,
+  if (chunk_added && CurrentPaintChunk().is_cacheable) {
+    AddToIndicesByClientMap(CurrentPaintChunk().id.client,
                             new_paint_chunks_.LastChunkIndex(),
                             new_paint_chunk_indices_by_client_);
   }
-#endif
 
-  last_chunk.outset_for_raster_effects =
-      std::max(last_chunk.outset_for_raster_effects,
-               display_item.OutsetForRasterEffects());
-
-#if DCHECK_IS_ON()
-  if (usage_ == kMultiplePaints && !IsSkippingCache()) {
+  if (usage_ == kMultiplePaints && display_item.IsCacheable()) {
     size_t index = FindMatchingItemFromIndex(
         display_item.GetId(), new_display_item_indices_by_client_,
         new_display_item_list_);
@@ -251,7 +233,9 @@ void PaintController::ProcessNewItem(DisplayItem& display_item) {
                             new_display_item_list_.size() - 1,
                             new_display_item_indices_by_client_);
   }
-#endif  // DCHECK_IS_ON()
+#else  // DCHECK_IS_ON()
+  std::ignore = chunk_added;
+#endif
 
   if (usage_ == kMultiplePaints &&
       RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled())
@@ -274,12 +258,12 @@ DisplayItem& PaintController::MoveItemFromCurrentListToNewList(size_t index) {
 }
 
 void PaintController::InvalidateAll() {
-  DCHECK(!RuntimeEnabledFeatures::SlimmingPaintV2Enabled());
+  DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
   InvalidateAllInternal();
 }
 
 void PaintController::InvalidateAllInternal() {
-  // TODO(wangxianzhu): Rename this to InvalidateAllForTesting() for SPv2.
+  // TODO(wangxianzhu): Rename this to InvalidateAllForTesting() for CAP.
   // Can only be called during layout/paintInvalidation, not during painting.
   DCHECK(new_display_item_list_.IsEmpty());
   current_paint_artifact_ = PaintArtifact::Empty();
@@ -288,7 +272,7 @@ void PaintController::InvalidateAllInternal() {
 }
 
 bool PaintController::CacheIsAllInvalid() const {
-  DCHECK(!RuntimeEnabledFeatures::SlimmingPaintV2Enabled());
+  DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
   DCHECK(!cache_is_all_invalid_ || current_paint_artifact_->IsEmpty());
   return cache_is_all_invalid_;
 }
@@ -459,9 +443,8 @@ void PaintController::CopyCachedSubsequence(size_t begin_index,
 #endif
 
     ProcessNewItem(MoveItemFromCurrentListToNewList(current_index));
-    DCHECK((!new_paint_chunks_.LastChunk().is_cacheable &&
-            !cached_chunk->is_cacheable) ||
-           new_paint_chunks_.LastChunk().Matches(*cached_chunk));
+    DCHECK((!CurrentPaintChunk().is_cacheable && !cached_chunk->is_cacheable) ||
+           CurrentPaintChunk().Matches(*cached_chunk));
   }
 
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
@@ -564,6 +547,19 @@ void PaintController::FinishCycle() {
 #endif
 }
 
+void PaintController::ClearPropertyTreeChangedStateTo(
+    const PropertyTreeState& to) {
+  DCHECK(RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled());
+
+  // Calling |ClearChangedTo| for every chunk is O(|property nodes|^2) and
+  // could be optimized by caching which nodes that have already been cleared.
+  for (const auto& chunk : current_paint_artifact_->PaintChunks()) {
+    chunk.properties.Transform()->ClearChangedTo(to.Transform());
+    chunk.properties.Clip()->ClearChangedTo(to.Clip());
+    chunk.properties.Effect()->ClearChangedTo(to.Effect());
+  }
+}
+
 size_t PaintController::ApproximateUnsharedMemoryUsage() const {
   size_t memory_usage = sizeof(*this);
 
@@ -589,35 +585,12 @@ size_t PaintController::ApproximateUnsharedMemoryUsage() const {
   return memory_usage;
 }
 
-namespace {
-
-class DebugDrawingClient final : public DisplayItemClient {
- public:
-  DebugDrawingClient() { Invalidate(PaintInvalidationReason::kUncacheable); }
-  String DebugName() const final { return "DebugDrawing"; }
-  LayoutRect VisualRect() const final {
-    return LayoutRect(LayoutRect::InfiniteIntRect());
-  }
-};
-
-}  // anonymous namespace
-
 void PaintController::AppendDebugDrawingAfterCommit(
     sk_sp<const PaintRecord> record,
     const PropertyTreeState& property_tree_state) {
-  DEFINE_STATIC_LOCAL(DebugDrawingClient, debug_drawing_client, ());
-
-  DCHECK(!RuntimeEnabledFeatures::SlimmingPaintV2Enabled());
+  DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
   DCHECK(new_display_item_list_.IsEmpty());
-  auto& display_item_list = current_paint_artifact_->GetDisplayItemList();
-  auto& display_item =
-      display_item_list.AllocateAndConstruct<DrawingDisplayItem>(
-          debug_drawing_client, DisplayItem::kDebugDrawing, std::move(record));
-
-  // Create a PaintChunk for the debug drawing.
-  current_paint_artifact_->PaintChunks().emplace_back(
-      display_item_list.size() - 1, display_item_list.size(),
-      display_item.GetId(), property_tree_state);
+  current_paint_artifact_->AppendDebugDrawing(record, property_tree_state);
 }
 
 void PaintController::ShowUnderInvalidationError(
@@ -743,6 +716,9 @@ FrameFirstPaint PaintController::EndFrame(const void* frame) {
 #if DCHECK_IS_ON()
 void PaintController::CheckDuplicatePaintChunkId(const PaintChunk::Id& id) {
   if (IsSkippingCache())
+    return;
+
+  if (DisplayItem::IsForeignLayerType(id.type))
     return;
 
   auto it = new_paint_chunk_indices_by_client_.find(&id.client);

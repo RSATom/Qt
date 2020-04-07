@@ -1389,6 +1389,7 @@ void QSensorReading::copyValuesFrom(QSensorReading *other)
     \sa DECLARE_READING()
 */
 
-#include "moc_qsensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qsensor.cpp"
 

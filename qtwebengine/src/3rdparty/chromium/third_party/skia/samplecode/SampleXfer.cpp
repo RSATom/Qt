@@ -5,10 +5,9 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
 #include "SkDrawable.h"
-#include "SkView.h"
 #include "SkCanvas.h"
 #include "SkDrawable.h"
 #include "SkPath.h"
@@ -16,6 +15,7 @@
 #include "SkRSXform.h"
 #include "SkString.h"
 #include "SkSurface.h"
+#include "SkTextUtils.h"
 #include "SkGradientShader.h"
 
 const SkBlendMode gModes[] = {
@@ -52,10 +52,11 @@ public:
         canvas->drawRoundRect(fRect, 8, 8, paint);
 
         paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(16);
-        paint.setTextAlign(SkPaint::kCenter_Align);
-        paint.setLCDRenderText(true);
-        canvas->drawString(fLabel, fRect.centerX(), fRect.fTop + 0.68f * fRect.height(), paint);
+        SkFont font;
+        font.setSize(16);
+        font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+        SkTextUtils::DrawString(canvas, fLabel.c_str(), fRect.centerX(), fRect.fTop + 0.68f * fRect.height(),
+                                font, paint, SkTextUtils::kCenter_Align);
     }
 
     bool hitTest(SkScalar x, SkScalar y) {
@@ -103,7 +104,7 @@ protected:
     }
 };
 
-class XferDemo : public SampleView {
+class XferDemo : public Sample {
     enum {
         N = 4
     };
@@ -137,9 +138,9 @@ public:
     }
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "XferDemo");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "XferDemo");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -167,7 +168,7 @@ protected:
         canvas->restore();
     }
 
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
         // Check mode buttons first
         for (int i = 0; i < N_Modes; ++i) {
             if (fModeButtons[i].hitTest(x, y)) {
@@ -200,7 +201,7 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////

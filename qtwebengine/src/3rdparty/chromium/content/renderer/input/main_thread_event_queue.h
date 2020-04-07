@@ -8,6 +8,7 @@
 #include "base/feature_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
+#include "base/timer/timer.h"
 #include "cc/input/touch_action.h"
 #include "content/common/content_export.h"
 #include "content/common/input/input_event_dispatch_type.h"
@@ -100,6 +101,9 @@ class CONTENT_EXPORT MainThreadEventQueue
 
   void ClearClient();
   void SetNeedsLowLatency(bool low_latency);
+  void SetNeedsUnbufferedInputForDebugger(bool unbuffered);
+
+  void HasPointerRawMoveEventHandlers(bool has_handlers);
 
   // Request unbuffered input events until next pointerup.
   void RequestUnbufferedInputEvents();
@@ -126,6 +130,10 @@ class CONTENT_EXPORT MainThreadEventQueue
                                const ui::LatencyInfo& latency,
                                HandledEventCallback handled_callback);
 
+  bool IsRawMoveEvent(
+      const std::unique_ptr<MainThreadEventQueueTask>& item) const;
+  bool ShouldFlushQueue(
+      const std::unique_ptr<MainThreadEventQueueTask>& item) const;
   bool IsRafAlignedEvent(
       const std::unique_ptr<MainThreadEventQueueTask>& item) const;
   void RafFallbackTimerFired();
@@ -141,8 +149,10 @@ class CONTENT_EXPORT MainThreadEventQueue
   bool last_touch_start_forced_nonblocking_due_to_fling_;
   bool enable_fling_passive_listener_flag_;
   bool needs_low_latency_;
+  bool needs_unbuffered_input_for_debugger_;
   bool allow_raf_aligned_input_;
   bool needs_low_latency_until_pointer_up_ = false;
+  bool has_pointerrawmove_handlers_ = false;
 
   // Contains data to be shared between main thread and compositor thread.
   struct SharedState {

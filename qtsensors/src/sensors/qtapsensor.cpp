@@ -269,6 +269,6 @@ void QTapSensor::setReturnDoubleTapEvents(bool returnDoubleTapEvents)
     }
 }
 
-#include "moc_qtapsensor.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qtapsensor.cpp"

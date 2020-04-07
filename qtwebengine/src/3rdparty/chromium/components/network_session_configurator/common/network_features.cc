@@ -8,12 +8,6 @@
 
 namespace features {
 
-const base::Feature kTokenBinding{"token-binding",
-                                  base::FEATURE_DISABLED_BY_DEFAULT};
-
-// TODO(nharper): Disable kChannelID on all platforms in M69.
-const base::Feature kChannelID{"channel-id", base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kDnsOverHttps{"dns-over-https",
                                   base::FEATURE_DISABLED_BY_DEFAULT};
 

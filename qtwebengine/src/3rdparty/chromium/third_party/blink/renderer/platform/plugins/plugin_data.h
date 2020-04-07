@@ -68,9 +68,9 @@ class PLATFORM_EXPORT PluginInfo final
   void AddMimeType(MimeClassInfo*);
 
   const HeapVector<Member<MimeClassInfo>>& Mimes() const { return mimes_; }
-  const MimeClassInfo* GetMimeClassInfo(size_t index) const;
+  const MimeClassInfo* GetMimeClassInfo(wtf_size_t index) const;
   const MimeClassInfo* GetMimeClassInfo(const String& type) const;
-  size_t GetMimeClassInfoSize() const;
+  wtf_size_t GetMimeClassInfoSize() const;
 
   const String& Name() const { return name_; }
   const String& Filename() const { return filename_; }
@@ -96,7 +96,9 @@ class PLATFORM_EXPORT PluginData final
  public:
   void Trace(blink::Visitor*);
 
-  static PluginData* Create() { return new PluginData(); }
+  static PluginData* Create() { return MakeGarbageCollected<PluginData>(); }
+
+  PluginData() = default;
 
   const HeapVector<Member<PluginInfo>>& Plugins() const { return plugins_; }
   const HeapVector<Member<MimeClassInfo>>& Mimes() const { return mimes_; }
@@ -112,8 +114,6 @@ class PLATFORM_EXPORT PluginData final
   static void RefreshBrowserSidePluginCache();
 
  private:
-  PluginData() = default;
-
   HeapVector<Member<PluginInfo>> plugins_;
   HeapVector<Member<MimeClassInfo>> mimes_;
   scoped_refptr<const SecurityOrigin> main_frame_origin_;

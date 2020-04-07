@@ -7,6 +7,7 @@
 
 #include "base/macros.h"
 #include "base/synchronization/lock.h"
+#include "base/synchronization/waitable_event.h"
 #include "net/third_party/quic/platform/api/quic_export.h"
 
 #ifndef EXCLUSIVE_LOCK_FUNCTION
@@ -48,7 +49,7 @@
 namespace quic {
 
 // A class wrapping a non-reentrant mutex.
-class QUIC_EXPORT_PRIVATE QuicLockImpl {
+class LOCKABLE QUIC_EXPORT_PRIVATE QuicLockImpl {
  public:
   QuicLockImpl() = default;
 
@@ -71,6 +72,26 @@ class QUIC_EXPORT_PRIVATE QuicLockImpl {
   base::Lock lock_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicLockImpl);
+};
+
+// A Notification allows threads to receive notification of a single occurrence
+// of a single event.
+class QUIC_EXPORT_PRIVATE QuicNotificationImpl {
+ public:
+  QuicNotificationImpl()
+      : event_(base::WaitableEvent::ResetPolicy::MANUAL,
+               base::WaitableEvent::InitialState::NOT_SIGNALED) {}
+  QuicNotificationImpl(const QuicNotificationImpl&) = delete;
+  QuicNotificationImpl& operator=(const QuicNotificationImpl&) = delete;
+
+  bool HasBeenNotified() { return event_.IsSignaled(); }
+
+  void Notify() { event_.Signal(); }
+
+  void WaitForNotification() { event_.Wait(); }
+
+ private:
+  base::WaitableEvent event_;
 };
 
 }  // namespace quic

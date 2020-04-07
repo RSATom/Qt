@@ -2,14 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromecast_build.gni")
+import("//build/config/features.gni")
+import("//services/service_manager/public/service_manifest.gni")
+
 # There should be only one tracing service. It is currently
 # in the browser process. So, only //content/browser should link to this target.
 # Others modules should only need the public targets.
-import("//build/config/features.gni")
-import("//services/catalog/public/tools/catalog.gni")
-import("//services/service_manager/public/cpp/service.gni")
-import("//services/service_manager/public/service_manifest.gni")
-import("//services/service_manager/public/tools/test/service_test.gni")
 
 source_set("lib") {
   sources = [
@@ -23,13 +22,16 @@ source_set("lib") {
     "tracing_service.h",
   ]
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   public_deps = [
     "//base",
     "//mojo/public/cpp/bindings",
+    "//services/service_manager/public/cpp",
     "//services/tracing/public/cpp",
   ]
 
-  if ((is_mac || is_linux || is_android || is_win) && !use_qt) {
+  if ((is_mac || is_linux || is_android || is_win || is_fuchsia) && !use_qt) {
     sources += [
       "perfetto/json_trace_exporter.cc",
       "perfetto/json_trace_exporter.h",
@@ -47,21 +49,22 @@ source_set("lib") {
 
     public_deps += [ "//third_party/perfetto:libperfetto" ]
   }
+
+  if (is_chromecast) {
+    defines = [ "IS_CHROMECAST" ]
+  }
 }
 
-service_manifest("manifest") {
-  name = "tracing"
-  source = "manifest.json"
-}
-
-service("tracing") {
+source_set("manifest") {
   sources = [
-    "service_main.cc",
+    "manifest.cc",
+    "manifest.h",
   ]
 
   deps = [
-    ":lib",
-    "//mojo/public/cpp/system",
+    "//base",
+    "//services/service_manager/public/cpp",
+    "//services/tracing/public/mojom",
   ]
 }
 
@@ -77,8 +80,11 @@ source_set("tests") {
     "test_util.h",
   ]
 
-  if ((is_mac || is_linux || is_android) && !use_qt) {
-    sources += [ "public/cpp/perfetto/trace_event_data_source_unittest.cc" ]
+  if ((is_mac || is_linux || is_android || is_win || is_fuchsia) && !use_qt) {
+    sources += [
+      "public/cpp/perfetto/trace_event_data_source_unittest.cc",
+      "public/cpp/perfetto/traced_value_proto_writer_unittest.cc",
+    ]
   }
 
   if (!is_android) {
@@ -91,39 +97,30 @@ source_set("tests") {
     "//base/test:test_support",
     "//mojo/public/cpp/bindings",
     "//services/service_manager/public/cpp",
-    "//services/service_manager/public/cpp:service_test_support",
+    "//services/service_manager/public/cpp/test:test_support",
     "//services/service_manager/public/mojom",
     "//services/tracing:lib",
     "//testing/gmock",
     "//testing/gtest",
   ]
 
-  if ((is_mac || is_linux || is_android) && !use_qt) {
+  if ((is_mac || is_linux || is_android || is_win || is_fuchsia) && !use_qt) {
     sources += [
       "perfetto/json_trace_exporter_unittest.cc",
       "perfetto/perfetto_integration_unittest.cc",
+      "perfetto/test_utils.cc",
+      "perfetto/test_utils.h",
     ]
 
     deps += [
       "//third_party/perfetto/include/perfetto/protozero:protozero",
-      "//third_party/perfetto/protos/perfetto/common",
+      "//third_party/perfetto/protos/perfetto/common:lite",
       "//third_party/perfetto/protos/perfetto/trace:lite",
       "//third_party/perfetto/protos/perfetto/trace/chrome:lite",
     ]
   }
 
-  data_deps = [
-    ":tracing",
-  ]
-}
-
-service_manifest("unittest_manifest") {
-  name = "tracing_unittests"
-  source = "unittest_manifest.json"
-}
-
-catalog("tests_catalog") {
-  testonly = true
-  embedded_services = [ ":unittest_manifest" ]
-  standalone_services = [ ":manifest" ]
+  if (is_chromecast) {
+    defines = [ "IS_CHROMECAST" ]
+  }
 }

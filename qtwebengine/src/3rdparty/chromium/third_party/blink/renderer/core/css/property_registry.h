@@ -11,18 +11,38 @@
 
 namespace blink {
 
-class PropertyRegistry : public GarbageCollected<PropertyRegistry> {
+class CORE_EXPORT PropertyRegistry : public GarbageCollected<PropertyRegistry> {
  public:
-  static PropertyRegistry* Create() { return new PropertyRegistry(); }
+  using RegistrationMap =
+      HeapHashMap<AtomicString, Member<PropertyRegistration>>;
+
+  static PropertyRegistry* Create() {
+    return MakeGarbageCollected<PropertyRegistry>();
+  }
 
   void RegisterProperty(const AtomicString&, PropertyRegistration&);
   const PropertyRegistration* Registration(const AtomicString&) const;
   size_t RegistrationCount() const { return registrations_.size(); }
 
+  RegistrationMap::const_iterator begin() const;
+  RegistrationMap::const_iterator end() const;
+
   void Trace(blink::Visitor* visitor) { visitor->Trace(registrations_); }
 
+  // Parse the incoming value and return the parsed result, if:
+  //  1. A registration with the specified name exists, and
+  //  2. The incoming value is a CSSCustomPropertyDeclaration, has no
+  //     unresolved var-references and matches the registered syntax.
+  // Otherwise the incoming value is returned.
+  static const CSSValue* ParseIfRegistered(const Document& document,
+                                           const AtomicString& property_name,
+                                           const CSSValue*);
+
+  void MarkReferenced(const AtomicString&) const;
+  bool WasReferenced(const AtomicString&) const;
+
  private:
-  HeapHashMap<AtomicString, Member<PropertyRegistration>> registrations_;
+  RegistrationMap registrations_;
 };
 
 }  // namespace blink

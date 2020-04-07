@@ -137,7 +137,7 @@ QGeoCodeReply *QGeoCodingManagerEngineMapbox::geocode(const QGeoAddress &address
 
 QGeoCodeReply *QGeoCodingManagerEngineMapbox::geocode(const QString &address, int limit, int offset, const QGeoShape &bounds)
 {
-    Q_UNUSED(offset)
+    Q_UNUSED(offset);
 
     QUrlQuery queryItems;
     queryItems.addQueryItem(QStringLiteral("type"), allAddressTypes);

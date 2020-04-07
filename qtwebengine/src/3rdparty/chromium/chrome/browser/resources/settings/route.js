@@ -11,10 +11,13 @@
  *   ACCESSIBILITY: (undefined|!settings.Route),
  *   ACCOUNTS: (undefined|!settings.Route),
  *   ADVANCED: (undefined|!settings.Route),
+ *   ADDRESSES: (undefined|!settings.Route),
  *   ANDROID_APPS: (undefined|!settings.Route),
  *   ANDROID_APPS_DETAILS: (undefined|!settings.Route),
  *   CROSTINI: (undefined|!settings.Route),
  *   CROSTINI_DETAILS: (undefined|!settings.Route),
+ *   CROSTINI_SHARED_PATHS: (undefined|!settings.Route),
+ *   CROSTINI_SHARED_USB_DEVICES: (undefined|!settings.Route),
  *   APPEARANCE: (undefined|!settings.Route),
  *   AUTOFILL: (undefined|!settings.Route),
  *   BASIC: (undefined|!settings.Route),
@@ -47,7 +50,6 @@
  *   LANGUAGES: (undefined|!settings.Route),
  *   LOCK_SCREEN: (undefined|!settings.Route),
  *   MANAGE_ACCESSIBILITY: (undefined|!settings.Route),
- *   MANAGE_PASSWORDS: (undefined|!settings.Route),
  *   MANAGE_PROFILE: (undefined|!settings.Route),
  *   MANAGE_TTS_SETTINGS: (undefined|!settings.Route),
  *   MULTIDEVICE: (undefined|!settings.Route),
@@ -55,6 +57,7 @@
  *   NETWORK_DETAIL: (undefined|!settings.Route),
  *   ON_STARTUP: (undefined|!settings.Route),
  *   PASSWORDS: (undefined|!settings.Route),
+ *   PAYMENTS: (undefined|!settings.Route),
  *   PEOPLE: (undefined|!settings.Route),
  *   POINTERS: (undefined|!settings.Route),
  *   POWER: (undefined|!settings.Route),
@@ -93,10 +96,12 @@
  *   SITE_SETTINGS_UNSANDBOXED_PLUGINS: (undefined|!settings.Route),
  *   SITE_SETTINGS_USB_DEVICES: (undefined|!settings.Route),
  *   SITE_SETTINGS_ZOOM_LEVELS: (undefined|!settings.Route),
+ *   SMART_LOCK: (undefined|!settings.Route),
  *   SMB_SHARES: (undefined|!settings.Route),
  *   STORAGE: (undefined|!settings.Route),
  *   STYLUS: (undefined|!settings.Route),
  *   SYNC: (undefined|!settings.Route),
+ *   SYNC_ADVANCED: (undefined|!settings.Route),
  *   SYSTEM: (undefined|!settings.Route),
  *   TRIGGERED_RESET_DIALOG: (undefined|!settings.Route),
  * }}
@@ -185,8 +190,9 @@ cr.define('settings', function() {
      */
     contains(route) {
       for (let r = route; r != null; r = r.parent) {
-        if (this == r)
+        if (this == r) {
           return true;
+        }
       }
       return false;
     }
@@ -211,10 +217,6 @@ cr.define('settings', function() {
     /** @type {!SettingsRoutes} */
     const r = {};
 
-    const autofillHomeEnabled =
-        loadTimeData.valueExists('autofillHomeEnabled') &&
-        loadTimeData.getBoolean('autofillHomeEnabled');
-
     // Root pages.
     r.BASIC = new Route('/');
     r.ABOUT = new Route('/help');
@@ -237,11 +239,20 @@ cr.define('settings', function() {
 
     r.MULTIDEVICE = r.BASIC.createSection('/multidevice', 'multidevice');
     r.MULTIDEVICE_FEATURES = r.MULTIDEVICE.createChild('/multidevice/features');
+    r.SMART_LOCK =
+        r.MULTIDEVICE_FEATURES.createChild('/multidevice/features/smartLock');
     // </if>
 
     if (pageVisibility.appearance !== false) {
       r.APPEARANCE = r.BASIC.createSection('/appearance', 'appearance');
       r.FONTS = r.APPEARANCE.createChild('/fonts');
+    }
+
+    if (pageVisibility.autofill !== false) {
+      r.AUTOFILL = r.BASIC.createSection('/autofill', 'autofill');
+      r.PASSWORDS = r.AUTOFILL.createChild('/passwords');
+      r.PAYMENTS = r.AUTOFILL.createChild('/payments');
+      r.ADDRESSES = r.AUTOFILL.createChild('/addresses');
     }
 
     if (pageVisibility.defaultBrowser !== false) {
@@ -261,6 +272,9 @@ cr.define('settings', function() {
         loadTimeData.getBoolean('showCrostini')) {
       r.CROSTINI = r.BASIC.createSection('/crostini', 'crostini');
       r.CROSTINI_DETAILS = r.CROSTINI.createChild('/crostini/details');
+      r.CROSTINI_SHARED_PATHS = r.CROSTINI.createChild('/crostini/sharedPaths');
+      r.CROSTINI_SHARED_USB_DEVICES =
+          r.CROSTINI.createChild('/crostini/sharedUsbDevices');
     }
     // </if>
 
@@ -272,10 +286,7 @@ cr.define('settings', function() {
     if (pageVisibility.people !== false) {
       r.PEOPLE = r.BASIC.createSection('/people', 'people');
       r.SYNC = r.PEOPLE.createChild('/syncSetup');
-      if (autofillHomeEnabled) {
-        r.AUTOFILL = r.PEOPLE.createChild('/autofill');
-        r.MANAGE_PASSWORDS = r.PEOPLE.createChild('/passwords');
-      }
+      r.SYNC_ADVANCED = r.SYNC.createChild('/syncSetup/advanced');
       // <if expr="not chromeos">
       r.MANAGE_PROFILE = r.PEOPLE.createChild('/manageProfile');
       // </if>
@@ -369,13 +380,6 @@ cr.define('settings', function() {
             r.DATETIME.createChild('/dateTime/timeZone');
       }
       // </if>
-
-      if (!autofillHomeEnabled && pageVisibility.passwordsAndForms !== false) {
-        r.PASSWORDS =
-            r.ADVANCED.createSection('/passwordsAndForms', 'passwordsAndForms');
-        r.AUTOFILL = r.PASSWORDS.createChild('/autofill');
-        r.MANAGE_PASSWORDS = r.PASSWORDS.createChild('/passwords');
-      }
 
       r.LANGUAGES = r.ADVANCED.createSection('/languages', 'languages');
       // <if expr="chromeos">
@@ -537,8 +541,9 @@ cr.define('settings', function() {
     navigateTo(route, opt_dynamicParameters, opt_removeSearch) {
       // The ADVANCED route only serves as a parent of subpages, and should not
       // be possible to navigate to it directly.
-      if (route == this.routes_.ADVANCED)
+      if (route == this.routes_.ADVANCED) {
         route = /** @type {!settings.Route} */ (this.routes_.BASIC);
+      }
 
       const params = opt_dynamicParameters || new URLSearchParams();
       const removeSearch = !!opt_removeSearch;
@@ -546,13 +551,15 @@ cr.define('settings', function() {
       const oldSearchParam = this.getQueryParameters().get('search') || '';
       const newSearchParam = params.get('search') || '';
 
-      if (!removeSearch && oldSearchParam && !newSearchParam)
+      if (!removeSearch && oldSearchParam && !newSearchParam) {
         params.append('search', oldSearchParam);
+      }
 
       let url = route.path;
       const queryString = params.toString();
-      if (queryString)
+      if (queryString) {
         url += '?' + queryString;
+      }
 
       // History serializes the state, so we don't push the actual route object.
       window.history.pushState(this.currentRoute.path, '', url);
@@ -569,12 +576,13 @@ cr.define('settings', function() {
           assert(this.getRouteForPath(
               /** @type {string} */ (window.history.state)));
 
-      if (previousRoute && previousRoute.depth <= this.currentRoute.depth)
+      if (previousRoute && previousRoute.depth <= this.currentRoute.depth) {
         window.history.back();
-      else
+      } else {
         this.navigateTo(
             this.currentRoute.parent ||
             /** @type {!settings.Route} */ (this.routes_.BASIC));
+      }
     }
 
     /**

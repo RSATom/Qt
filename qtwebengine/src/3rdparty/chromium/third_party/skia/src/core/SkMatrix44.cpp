@@ -496,7 +496,7 @@ bool SkMatrix44::invert(SkMatrix44* storage) const {
         return true;
     }
 
-    SkMatrix44 tmp(kUninitialized_Constructor);
+    SkMatrix44 tmp;
     // Use storage if it's available and distinct from this matrix.
     SkMatrix44* inverse = (storage && storage != this) ? storage : &tmp;
     if (this->isScaleTranslate()) {
@@ -998,7 +998,7 @@ SkMatrix44& SkMatrix44::operator=(const SkMatrix& src) {
 SkMatrix44::operator SkMatrix() const {
     SkMatrix dst;
 
-    dst[SkMatrix::kMScaleX]  = SkMScalarToScalar(fMat[0][0]);
+    dst[SkMatrix::kMScaleX] = SkMScalarToScalar(fMat[0][0]);
     dst[SkMatrix::kMSkewX]  = SkMScalarToScalar(fMat[1][0]);
     dst[SkMatrix::kMTransX] = SkMScalarToScalar(fMat[3][0]);
 

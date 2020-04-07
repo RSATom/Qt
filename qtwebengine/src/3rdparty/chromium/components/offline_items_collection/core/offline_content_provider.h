@@ -11,12 +11,14 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/optional.h"
+#include "components/offline_items_collection/core/launch_location.h"
 #include "url/gurl.h"
 
 namespace offline_items_collection {
 
 struct ContentId;
 struct OfflineItem;
+struct OfflineItemShareInfo;
 struct OfflineItemVisuals;
 
 // A provider of a set of OfflineItems that are meant to be exposed to the UI.
@@ -24,8 +26,11 @@ class OfflineContentProvider {
  public:
   using OfflineItemList = std::vector<OfflineItem>;
   using VisualsCallback =
-      base::Callback<void(const ContentId&,
-                          std::unique_ptr<OfflineItemVisuals>)>;
+      base::OnceCallback<void(const ContentId&,
+                              std::unique_ptr<OfflineItemVisuals>)>;
+  using ShareCallback =
+      base::OnceCallback<void(const ContentId&,
+                              std::unique_ptr<OfflineItemShareInfo>)>;
   using MultipleItemCallback = base::OnceCallback<void(const OfflineItemList&)>;
   using SingleItemCallback =
       base::OnceCallback<void(const base::Optional<OfflineItem>&)>;
@@ -38,7 +43,10 @@ class OfflineContentProvider {
   class Observer {
    public:
     // Called when one or more OfflineItems have been added and should be shown
-    // in the UI.
+    // in the UI.  This should only be called for actual new items that are
+    // added during this session.  Existing items that are loaded on startup do
+    // not need to trigger this.  Most UI surfaces should query the existing
+    // list of items if they want to get the current state of the world.
     // If Observer maintains a cache of items, the specified items may already
     // be in the cache, in which case this call has to be ignored.
     virtual void OnItemsAdded(const OfflineItemList& items) = 0;
@@ -61,8 +69,9 @@ class OfflineContentProvider {
     virtual ~Observer() = default;
   };
 
-  // Called to trigger opening an OfflineItem represented by |id|.
-  virtual void OpenItem(const ContentId& id) = 0;
+  // Called to trigger opening an OfflineItem represented by |id|. |location|
+  // denotes where it is opened and is used for logging purpose.
+  virtual void OpenItem(LaunchLocation location, const ContentId& id) = 0;
 
   // Called to trigger removal of an OfflineItem represented by |id|.
   virtual void RemoveItem(const ContentId& id) = 0;
@@ -92,8 +101,19 @@ class OfflineContentProvider {
   // |id| or |nullptr| if one doesn't exist.  The implementer should post any
   // replies even if the results are available immediately to prevent reentrancy
   // and for consistent behavior.
+  // |callback| should be called no matter what (error, unavailable content,
+  // etc.).
   virtual void GetVisualsForItem(const ContentId& id,
-                                 const VisualsCallback& callback) = 0;
+                                 VisualsCallback callback) = 0;
+
+  // Asks for the right URI to use to share an OfflineItem represented by |id|
+  // or |nullptr| if there is no associated information to use to share the
+  // item.  Implementer should post any replies even if the results are
+  // available immediately to prevent reentrancy and for consistent behavior.
+  // |callback| should be called no matter what (error, unavailable content,
+  // etc.).
+  virtual void GetShareInfoForItem(const ContentId& id,
+                                   ShareCallback callback) = 0;
 
   // Adds an observer that should be notified of OfflineItem list modifications.
   virtual void AddObserver(Observer* observer) = 0;

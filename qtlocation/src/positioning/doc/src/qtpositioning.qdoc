@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -69,9 +69,9 @@ Currently the API is supported on \l {Qt for Android}{Android}, \l {Qt for iOS}{
 \l {Qt for Linux/X11}{Linux} (using
 \l {http://www.freedesktop.org/wiki/Software/GeoClue}{GeoClue version 0.12.99}),
 \l {Qt for Windows}{Windows} (with GPS receivers exposed as a serial port providing NMEA sentences),
-and \l {Qt for WinRT}{WinRT} (using Windows.Devices.Geolocation). Note that the \l {Qt for WinRT}{WinRT}
-implementation can also be used in Win32 Desktop uses cases if the underlying platform is Windows 10
-or later.
+and \l {Qt for UWP}{UWP (Universal Windows Platform)} (using \c {Windows.Devices.Geolocation}).
+The Qt for UWP implementation can also be used in Win32 Desktop use cases if the underlying
+platform is Windows 10, or later.
 
 \section1 Overview
 

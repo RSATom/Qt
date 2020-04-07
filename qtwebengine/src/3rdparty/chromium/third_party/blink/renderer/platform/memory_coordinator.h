@@ -7,9 +7,9 @@
 
 #include "third_party/blink/public/platform/web_memory_pressure_level.h"
 #include "third_party/blink/public/platform/web_memory_state.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/noncopyable.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
@@ -38,7 +38,7 @@ class PLATFORM_EXPORT MemoryCoordinator final
   static MemoryCoordinator& Instance();
 
   // Whether the device Blink runs on is a low-end device.
-  // Can be overridden in layout tests via internals.
+  // Can be overridden in web tests via internals.
   static bool IsLowEndDevice();
 
   // Returns true when available memory is low.
@@ -52,8 +52,10 @@ class PLATFORM_EXPORT MemoryCoordinator final
   // the heap size.
   static void Initialize();
 
-  void RegisterThread(WebThread*) LOCKS_EXCLUDED(web_threads_mutex_);
-  void UnregisterThread(WebThread*) LOCKS_EXCLUDED(web_threads_mutex_);
+  MemoryCoordinator();
+
+  void RegisterThread(Thread*) LOCKS_EXCLUDED(threads_mutex_);
+  void UnregisterThread(Thread*) LOCKS_EXCLUDED(threads_mutex_);
 
   void RegisterClient(MemoryCoordinatorClient*);
   void UnregisterClient(MemoryCoordinatorClient*);
@@ -73,16 +75,14 @@ class PLATFORM_EXPORT MemoryCoordinator final
 
   static void SetIsLowEndDeviceForTesting(bool);
 
-  MemoryCoordinator();
-
   void ClearMemory();
   static void ClearThreadSpecificMemory();
 
   static bool is_low_end_device_;
 
   HeapHashSet<WeakMember<MemoryCoordinatorClient>> clients_;
-  HashSet<WebThread*> web_threads_;
-  Mutex web_threads_mutex_;
+  HashSet<Thread*> threads_;
+  Mutex threads_mutex_;
 };
 
 }  // namespace blink

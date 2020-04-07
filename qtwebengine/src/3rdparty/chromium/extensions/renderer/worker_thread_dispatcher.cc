@@ -142,6 +142,8 @@ void WorkerThreadDispatcher::OnDispatchEvent(
   DCHECK(data);
   data->bindings_system()->DispatchEventInContext(
       params.event_name, &event_args, &params.filtering_info, data->context());
+  Send(new ExtensionHostMsg_EventAckWorker(data->service_worker_version_id(),
+                                           params.event_id));
 }
 
 void WorkerThreadDispatcher::AddWorkerData(
@@ -163,6 +165,21 @@ void WorkerThreadDispatcher::AddWorkerData(
     CHECK(task_runner);
     task_runner_map_[worker_thread_id] = task_runner;
   }
+}
+
+void WorkerThreadDispatcher::DidStartContext(
+    int64_t service_worker_version_id) {
+  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
+  DCHECK_EQ(service_worker_version_id, data->service_worker_version_id());
+  Send(new ExtensionHostMsg_DidStartServiceWorkerContext(
+      data->context()->GetExtensionID(), service_worker_version_id));
+}
+
+void WorkerThreadDispatcher::DidStopContext(int64_t service_worker_version_id) {
+  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
+  DCHECK_EQ(service_worker_version_id, data->service_worker_version_id());
+  Send(new ExtensionHostMsg_DidStopServiceWorkerContext(
+      data->context()->GetExtensionID(), service_worker_version_id));
 }
 
 void WorkerThreadDispatcher::RemoveWorkerData(

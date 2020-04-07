@@ -272,6 +272,8 @@ bool QTiffHandlerPrivate::readHeaders(QIODevice *device)
         format = QImage::Format_Mono;
     else if (photometric == PHOTOMETRIC_MINISBLACK && bitPerSample == 8 && samplesPerPixel == 1)
         format = QImage::Format_Grayscale8;
+    else if (photometric == PHOTOMETRIC_MINISBLACK && bitPerSample == 16 && samplesPerPixel == 1)
+        format = QImage::Format_Grayscale16;
     else if ((grayscale || photometric == PHOTOMETRIC_PALETTE) && bitPerSample == 8 && samplesPerPixel == 1)
         format = QImage::Format_Indexed8;
     else if (samplesPerPixel < 4)
@@ -402,9 +404,11 @@ bool QTiffHandler::read(QImage *image)
         }
     }
     bool format8bit = (format == QImage::Format_Mono || format == QImage::Format_Indexed8 || format == QImage::Format_Grayscale8);
+    bool format16bit = (format == QImage::Format_Grayscale16);
     bool format64bit = (format == QImage::Format_RGBX64 || format == QImage::Format_RGBA64 || format == QImage::Format_RGBA64_Premultiplied);
 
-    if (format8bit || format64bit) {
+    // Formats we read directly, instead of over RGBA32:
+    if (format8bit || format16bit || format64bit) {
         int bytesPerPixel = image->depth() / 8;
         if (format == QImage::Format_RGBX64)
             bytesPerPixel = 6;
@@ -513,6 +517,7 @@ static QVector<QRgb> effectiveColorTable(const QImage &image)
             colors[i] = qRgba(0, 0, 0, i);
         break;
     case QImage::Format_Grayscale8:
+    case QImage::Format_Grayscale16:
         colors.resize(256);
         for (int i = 0; i < 256; ++i)
             colors[i] = qRgb(i, i, i);
@@ -602,8 +607,8 @@ bool QTiffHandler::write(const QImage &image)
         }
 
         // try to do the conversion in chunks no greater than 16 MB
-        int chunks = (width * height / (1024 * 1024 * 16)) + 1;
-        int chunkHeight = qMax(height / chunks, 1);
+        const int chunks = int(image.sizeInBytes() / (1024 * 1024 * 16)) + 1;
+        const int chunkHeight = qMax(height / chunks, 1);
 
         int y = 0;
         while (y < height) {
@@ -622,6 +627,7 @@ bool QTiffHandler::write(const QImage &image)
         TIFFClose(tiff);
     } else if (format == QImage::Format_Indexed8
                || format == QImage::Format_Grayscale8
+               || format == QImage::Format_Grayscale16
                || format == QImage::Format_Alpha8) {
         QVector<QRgb> colorTable = effectiveColorTable(image);
         bool isGrayscale = checkGrayscale(colorTable);
@@ -631,7 +637,7 @@ bool QTiffHandler::write(const QImage &image)
                 photometric = PHOTOMETRIC_MINISWHITE;
             if (!TIFFSetField(tiff, TIFFTAG_PHOTOMETRIC, photometric)
                     || !TIFFSetField(tiff, TIFFTAG_COMPRESSION, compression == NoCompression ? COMPRESSION_NONE : COMPRESSION_LZW)
-                    || !TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, 8)
+                    || !TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, image.depth())
                     || !TIFFSetField(tiff, TIFFTAG_ROWSPERSTRIP, defaultStripSize(tiff))) {
                 TIFFClose(tiff);
                 return false;
@@ -669,22 +675,10 @@ bool QTiffHandler::write(const QImage &image)
         }
 
         //// write the data
-        // try to do the conversion in chunks no greater than 16 MB
-        int chunks = (width * height/ (1024 * 1024 * 16)) + 1;
-        int chunkHeight = qMax(height / chunks, 1);
-
-        int y = 0;
-        while (y < height) {
-            QImage chunk = image.copy(0, y, width, qMin(chunkHeight, height - y));
-
-            int chunkStart = y;
-            int chunkEnd = y + chunk.height();
-            while (y < chunkEnd) {
-                if (TIFFWriteScanline(tiff, reinterpret_cast<uint32 *>(chunk.scanLine(y - chunkStart)), y) != 1) {
-                    TIFFClose(tiff);
-                    return false;
-                }
-                ++y;
+        for (int y = 0; y < height; ++y) {
+            if (TIFFWriteScanline(tiff, const_cast<uchar *>(image.scanLine(y)), y) != 1) {
+                TIFFClose(tiff);
+                return false;
             }
         }
         TIFFClose(tiff);
@@ -742,7 +736,7 @@ bool QTiffHandler::write(const QImage &image)
             return false;
         }
         // try to do the RGB888 conversion in chunks no greater than 16 MB
-        const int chunks = (width * height * 3 / (1024 * 1024 * 16)) + 1;
+        const int chunks = int(image.sizeInBytes() / (1024 * 1024 * 16)) + 1;
         const int chunkHeight = qMax(height / chunks, 1);
 
         int y = 0;
@@ -774,7 +768,7 @@ bool QTiffHandler::write(const QImage &image)
             return false;
         }
         // try to do the RGBA8888 conversion in chunks no greater than 16 MB
-        const int chunks = (width * height * 4 / (1024 * 1024 * 16)) + 1;
+        const int chunks = int(image.sizeInBytes() / (1024 * 1024 * 16)) + 1;
         const int chunkHeight = qMax(height / chunks, 1);
 
         const QImage::Format format = premultiplied ? QImage::Format_RGBA8888_Premultiplied
@@ -799,10 +793,12 @@ bool QTiffHandler::write(const QImage &image)
     return true;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 QByteArray QTiffHandler::name() const
 {
     return "tiff";
 }
+#endif
 
 QVariant QTiffHandler::option(ImageOption option) const
 {

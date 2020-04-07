@@ -66,6 +66,7 @@ QT_FORWARD_DECLARE_CLASS(QKeyEvent)
 QT_FORWARD_DECLARE_CLASS(QVariant)
 QT_FORWARD_DECLARE_CLASS(QWebEngineQuotaRequest)
 QT_FORWARD_DECLARE_CLASS(QWebEngineRegisterProtocolHandlerRequest)
+QT_FORWARD_DECLARE_CLASS(QWebEngineUrlRequestInfo)
 
 namespace content {
 struct DropData;
@@ -81,6 +82,8 @@ class JavaScriptDialogController;
 class RenderWidgetHostViewQt;
 class RenderWidgetHostViewQtDelegate;
 class RenderWidgetHostViewQtDelegateClient;
+class TouchHandleDrawableClient;
+class TouchSelectionMenuController;
 class WebContentsAdapter;
 class WebContentsDelegateQt;
 class WebEngineSettings;
@@ -340,7 +343,7 @@ private:
 };
 
 
-class QWEBENGINECORE_PRIVATE_EXPORT WebContentsAdapterClient {
+class Q_WEBENGINECORE_PRIVATE_EXPORT WebContentsAdapterClient {
 public:
     // This must match window_open_disposition_list.h.
     enum WindowOpenDisposition {
@@ -421,7 +424,6 @@ public:
     virtual void selectionChanged() = 0;
     virtual void recentlyAudibleChanged(bool recentlyAudible) = 0;
     virtual QRectF viewportRect() const = 0;
-    virtual qreal dpiScale() const = 0;
     virtual QColor backgroundColor() const = 0;
     virtual void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) = 0;
     virtual void loadCommitted() = 0;
@@ -444,7 +446,7 @@ public:
     virtual void didFetchDocumentMarkup(quint64 requestId, const QString& result) = 0;
     virtual void didFetchDocumentInnerText(quint64 requestId, const QString& result) = 0;
     virtual void didFindText(quint64 requestId, int matchCount) = 0;
-    virtual void didPrintPage(quint64 requestId, const QByteArray &result) = 0;
+    virtual void didPrintPage(quint64 requestId, QSharedPointer<QByteArray>) = 0;
     virtual void didPrintPageToPdf(const QString &filePath, bool success) = 0;
     virtual bool passOnFocus(bool reverse) = 0;
     // returns the last QObject (QWidget/QQuickItem) based object in the accessibility
@@ -457,6 +459,7 @@ public:
     virtual void runMouseLockPermissionRequest(const QUrl &securityOrigin) = 0;
     virtual void runQuotaRequest(QWebEngineQuotaRequest) = 0;
     virtual void runRegisterProtocolHandlerRequest(QWebEngineRegisterProtocolHandlerRequest) = 0;
+    virtual void runUserNotificationPermissionRequest(const QUrl &securityOrigin) = 0;
     virtual WebEngineSettings *webEngineSettings() const = 0;
     RenderProcessTerminationStatus renderProcessExitStatus(int);
     virtual void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus, int exitCode) = 0;
@@ -466,6 +469,7 @@ public:
     virtual void updateScrollPosition(const QPointF &position) = 0;
     virtual void updateContentsSize(const QSizeF &size) = 0;
     virtual void updateNavigationActions() = 0;
+    virtual void updateEditActions() = 0;
     virtual void startDragging(const content::DropData &dropData, Qt::DropActions allowedActions,
                                const QPixmap &pixmap, const QPoint &offset) = 0;
     virtual bool supportsDragging() const = 0;
@@ -475,6 +479,10 @@ public:
     virtual ClientType clientType() = 0;
     virtual void printRequested() = 0;
     virtual void widgetChanged(RenderWidgetHostViewQtDelegate *newWidget) = 0;
+    virtual void interceptRequest(QWebEngineUrlRequestInfo &) { }
+    virtual TouchHandleDrawableClient *createTouchHandle(const QMap<int, QImage> &images) = 0;
+    virtual void showTouchSelectionMenu(TouchSelectionMenuController *menuController, const QRect &bounds, const QSize &handleSize) = 0;
+    virtual void hideTouchSelectionMenu() = 0;
 
     virtual ProfileAdapter *profileAdapter() = 0;
     virtual WebContentsAdapter* webContentsAdapter() = 0;

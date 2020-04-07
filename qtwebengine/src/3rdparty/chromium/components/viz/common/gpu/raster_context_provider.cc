@@ -4,13 +4,18 @@
 
 #include "components/viz/common/gpu/raster_context_provider.h"
 
+#include "gpu/command_buffer/client/raster_interface.h"
+
 namespace viz {
 
 RasterContextProvider::ScopedRasterContextLock::ScopedRasterContextLock(
-    RasterContextProvider* context_provider)
+    RasterContextProvider* context_provider,
+    const char* url)
     : context_provider_(context_provider),
       context_lock_(*context_provider_->GetLock()) {
   busy_ = context_provider_->CacheController()->ClientBecameBusy();
+  if (url)
+    RasterInterface()->SetActiveURLCHROMIUM(url);
 }
 
 RasterContextProvider::ScopedRasterContextLock::~ScopedRasterContextLock() {

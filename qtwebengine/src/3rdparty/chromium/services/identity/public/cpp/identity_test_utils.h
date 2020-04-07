@@ -10,17 +10,8 @@
 #include "build/build_config.h"
 #include "components/signin/core/browser/account_info.h"
 
-class AccountTrackerService;
-class FakeSigninManagerBase;
-class FakeSigninManager;
-class ProfileOAuth2TokenService;
-class SigninManagerBase;
-
-#if defined(OS_CHROMEOS)
-using SigninManagerForTest = FakeSigninManagerBase;
-#else
-using SigninManagerForTest = FakeSigninManager;
-#endif  // OS_CHROMEOS
+class FakeGaiaCookieManagerService;
+class GoogleServiceAuthError;
 
 // Test-related utilities that don't fit in either IdentityTestEnvironment or
 // IdentityManager itself. NOTE: Using these utilities directly is discouraged,
@@ -32,90 +23,125 @@ using SigninManagerForTest = FakeSigninManager;
 // code to use IdentityTestEnvironment.
 namespace identity {
 
+// Controls whether to keep or remove accounts when clearing the primary
+// account.
+enum class ClearPrimaryAccountPolicy {
+  // Use the default internal policy.
+  DEFAULT,
+  // Explicitly keep all accounts.
+  KEEP_ALL_ACCOUNTS,
+  // Explicitly remove all accounts.
+  REMOVE_ALL_ACCOUNTS
+};
+
+struct CookieParams {
+  std::string email;
+  std::string gaia_id;
+};
+
 class IdentityManager;
 
-// Sets the primary account for the given email address, generating a GAIA ID
-// that corresponds uniquely to that email address. On non-ChromeOS, results in
-// the firing of the IdentityManager and SigninManager callbacks for signin
-// success. Blocks until the primary account is set. Returns the AccountInfo
-// of the newly-set account.
+// Sets the primary account (which must not already be set) to the given email
+// address, generating a GAIA ID that corresponds uniquely to that email
+// address. On non-ChromeOS, results in the firing of the IdentityManager and
+// SigninManager callbacks for signin success. Blocks until the primary account
+// is set. Returns the AccountInfo of the newly-set account.
 // NOTE: See disclaimer at top of file re: direct usage.
-AccountInfo SetPrimaryAccount(SigninManagerBase* signin_manager,
-                              IdentityManager* identity_manager,
+AccountInfo SetPrimaryAccount(IdentityManager* identity_manager,
                               const std::string& email);
 
 // Sets a refresh token for the primary account (which must already be set).
-// Blocks until the refresh token is set.
+// Blocks until the refresh token is set. If |token_value| is empty a default
+// value will be used instead.
 // NOTE: See disclaimer at top of file re: direct usage.
-void SetRefreshTokenForPrimaryAccount(ProfileOAuth2TokenService* token_service,
-                                      IdentityManager* identity_manager);
+void SetRefreshTokenForPrimaryAccount(
+    IdentityManager* identity_manager,
+    const std::string& token_value = std::string());
 
 // Sets a special invalid refresh token for the primary account (which must
-// already be set). Blocks until the refresh token is set. NOTE: See disclaimer
-// at top of file re: direct usage.
+// already be set). Blocks until the refresh token is set.
+// NOTE: See disclaimer at top of file re: direct usage.
 void SetInvalidRefreshTokenForPrimaryAccount(
-    ProfileOAuth2TokenService* token_service,
     IdentityManager* identity_manager);
 
-// Removes any refresh token for the primary account (which must already be
-// set). Blocks until the refresh token is removed. NOTE: See disclaimer at top
-// of file re: direct usage.
+// Removes any refresh token for the primary account, if present. Blocks until
+// the refresh token is removed.
+// NOTE: See disclaimer at top of file re: direct usage.
 void RemoveRefreshTokenForPrimaryAccount(
-    ProfileOAuth2TokenService* token_service,
     IdentityManager* identity_manager);
 
-// Makes the primary account available for the given email address, generating a
-// GAIA ID and refresh token that correspond uniquely to that email address. On
-// non-ChromeOS, results in the firing of the IdentityManager and SigninManager
-// callbacks for signin success. Blocks until the primary account is available.
-// Returns the AccountInfo of the newly-available account.
+// Makes the primary account (which must not already be set) available for the
+// given email address, generating a GAIA ID and refresh token that correspond
+// uniquely to that email address. On non-ChromeOS, results in the firing of the
+// IdentityManager and SigninManager callbacks for signin success. Blocks until
+// the primary account is available. Returns the AccountInfo of the
+// newly-available account.
 // NOTE: See disclaimer at top of file re: direct usage.
 AccountInfo MakePrimaryAccountAvailable(
-    SigninManagerBase* signin_manager,
-    ProfileOAuth2TokenService* token_service,
     IdentityManager* identity_manager,
     const std::string& email);
 
-// Clears the primary account. On non-ChromeOS, results in the firing of the
-// IdentityManager and SigninManager callbacks for signout. Blocks until the
-// primary account is cleared.
-// Note that this function requires FakeSigninManager, as it internally invokes
-// functionality of the fake. If a use case emerges for invoking this
-// functionality with a production SigninManager, contact blundell@chromium.org.
+// Clears the primary account if present, with |policy| used to determine
+// whether to keep or remove all accounts. On non-ChromeOS, results in the
+// firing of the IdentityManager and SigninManager callbacks for signout. Blocks
+// until the primary account is cleared.
 // NOTE: See disclaimer at top of file re: direct usage.
-void ClearPrimaryAccount(SigninManagerForTest* signin_manager,
-                         IdentityManager* identity_manager);
+void ClearPrimaryAccount(
+    IdentityManager* identity_manager,
+    ClearPrimaryAccountPolicy policy = ClearPrimaryAccountPolicy::DEFAULT);
 
 // Makes an account available for the given email address, generating a GAIA ID
 // and refresh token that correspond uniquely to that email address. Blocks
 // until the account is available. Returns the AccountInfo of the
 // newly-available account.
 // NOTE: See disclaimer at top of file re: direct usage.
-AccountInfo MakeAccountAvailable(AccountTrackerService* account_tracker_service,
-                                 ProfileOAuth2TokenService* token_service,
-                                 IdentityManager* identity_manager,
+AccountInfo MakeAccountAvailable(IdentityManager* identity_manager,
                                  const std::string& email);
 
 // Sets a refresh token for the given account (which must already be available).
-// Blocks until the refresh token is set.
+// Blocks until the refresh token is set. If |token_value| is empty a default
+// value will be used instead.
 // NOTE: See disclaimer at top of file re: direct usage.
-void SetRefreshTokenForAccount(ProfileOAuth2TokenService* token_service,
-                               IdentityManager* identity_manager,
-                               const std::string& account_id);
+void SetRefreshTokenForAccount(IdentityManager* identity_manager,
+                               const std::string& account_id,
+                               const std::string& token_value = std::string());
 
 // Sets a special invalid refresh token for the given account (which must
 // already be available). Blocks until the refresh token is set.
 // NOTE: See disclaimer at top of file re: direct usage.
-void SetInvalidRefreshTokenForAccount(ProfileOAuth2TokenService* token_service,
-                                      IdentityManager* identity_manager,
+void SetInvalidRefreshTokenForAccount(IdentityManager* identity_manager,
                                       const std::string& account_id);
 
-// Removes any refresh token for the given account (which must already be
-// available). Blocks until the refresh token is removed. NOTE: See disclaimer
-// at top of file re: direct usage.
-void RemoveRefreshTokenForAccount(ProfileOAuth2TokenService* token_service,
-                                  IdentityManager* identity_manager,
+// Removes any refresh token that is present for the given account. Blocks until
+// the refresh token is removed. Is a no-op if no refresh token is present for
+// the given account.
+// NOTE: See disclaimer at top of file re: direct usage.
+void RemoveRefreshTokenForAccount(IdentityManager* identity_manager,
                                   const std::string& account_id);
+
+// Puts the given accounts into the Gaia cookie, replacing any previous
+// accounts. Blocks until the accounts have been set.
+// NOTE: See disclaimer at top of file re: direct usage.
+void SetCookieAccounts(FakeGaiaCookieManagerService* cookie_manager,
+                       IdentityManager* identity_manager,
+                       const std::vector<CookieParams>& cookie_accounts);
+
+// Updates the info for |account_info.account_id|, which must be a known
+// account.
+void UpdateAccountInfoForAccount(IdentityManager* identity_manager,
+                                 AccountInfo account_info);
+
+std::string GetTestGaiaIdForEmail(const std::string& email);
+
+// Updates the persistent auth error set on |account_id| which must be a known
+// account, i.e., an account with a refresh token.
+void UpdatePersistentErrorOfRefreshTokenForAccount(
+    IdentityManager* identity_manager,
+    const std::string& account_id,
+    const GoogleServiceAuthError& auth_error);
+
+// Disables internal retries of failed access token fetches.
+void DisableAccessTokenFetchRetries(IdentityManager* identity_manager);
 
 }  // namespace identity
 

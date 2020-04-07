@@ -26,8 +26,7 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Author: wan@google.com (Zhanyong Wan)
+
 
 // Google Mock - a framework for writing C++ mock classes.
 //
@@ -94,8 +93,8 @@ GTEST_API_ std::string ConvertIdentifierNameToWords(const char* id_name) {
 // use Google Mock with a testing framework other than Google Test.
 class GoogleTestFailureReporter : public FailureReporterInterface {
  public:
-  virtual void ReportFailure(FailureType type, const char* file, int line,
-                             const std::string& message) {
+  void ReportFailure(FailureType type, const char* file, int line,
+                     const std::string& message) override {
     AssertHelper(type == kFatal ?
                  TestPartResult::kFatalFailure :
                  TestPartResult::kNonFatalFailure,
@@ -154,9 +153,6 @@ GTEST_API_ void Log(LogSeverity severity, const std::string& message,
 
   // Ensures that logs from different threads don't interleave.
   MutexLock l(&g_log_mutex);
-
-  // "using ::std::cout;" doesn't work with Symbian's STLport, where cout is a
-  // macro.
 
   if (severity == kWarning) {
     // Prints a GMOCK WARNING marker to make the warnings easily searchable.

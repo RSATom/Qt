@@ -7,6 +7,13 @@
 
 #include <stddef.h>
 
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "base/callback_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -426,7 +433,7 @@ class TemplateURLService : public WebDataServiceConsumer,
                            ResolveSyncKeywordConflict);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLServiceSyncTest, PreSyncDeletes);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLServiceSyncTest, MergeInSyncTemplateURL);
-  FRIEND_TEST_ALL_PREFIXES(ToolbarModelTest, GoogleBaseURL);
+  FRIEND_TEST_ALL_PREFIXES(LocationBarModelTest, GoogleBaseURL);
 
   friend class InstantUnitTestBase;
   friend class Scoper;
@@ -750,7 +757,7 @@ class TemplateURLService : public WebDataServiceConsumer,
 
   OwnedTemplateURLVector template_urls_;
 
-  base::ObserverList<TemplateURLServiceObserver> model_observers_;
+  base::ObserverList<TemplateURLServiceObserver>::Unchecked model_observers_;
 
   // Maps from host to set of TemplateURLs whose search url host is host.
   std::unique_ptr<SearchHostToURLsMap> provider_map_ =

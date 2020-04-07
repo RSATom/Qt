@@ -15,12 +15,10 @@ const CXFA_Node::AttributeData kMdpAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::SignatureType, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Filter},
+     (void*)XFA_AttributeValue::Filter},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Permissions, XFA_AttributeType::Integer, (void*)2},
     {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
-
-constexpr wchar_t kMdpName[] = L"mdp";
 
 }  // namespace
 
@@ -32,7 +30,6 @@ CXFA_Mdp::CXFA_Mdp(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Mdp,
                 nullptr,
                 kMdpAttributeData,
-                kMdpName,
                 pdfium::MakeUnique<CJX_Mdp>(this)) {}
 
-CXFA_Mdp::~CXFA_Mdp() {}
+CXFA_Mdp::~CXFA_Mdp() = default;

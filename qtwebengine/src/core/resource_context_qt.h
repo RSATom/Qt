@@ -42,6 +42,21 @@
 
 #include "content/public/browser/resource_context.h"
 
+#include "extensions/buildflags/buildflags.h"
+
+namespace net {
+class URLRequestContext;
+class URLRequestContextGetter;
+}
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+namespace extensions {
+class ExtensionSystemQt;
+}
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
+
+class GURL;
+
 namespace QtWebEngineCore {
 
 class ProfileIODataQt;
@@ -50,8 +65,8 @@ class ResourceContextQt : public content::ResourceContext
 {
 public:
     ResourceContextQt(ProfileIODataQt *io_data);
-    net::URLRequestContext *GetRequestContext() override;
 private:
+    friend class ProfileIODataQt;
     ProfileIODataQt* m_io_data;
     DISALLOW_COPY_AND_ASSIGN(ResourceContextQt);
 };

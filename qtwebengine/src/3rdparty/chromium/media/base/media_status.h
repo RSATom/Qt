@@ -6,6 +6,7 @@
 #define MEDIA_BASE_MEDIA_STATUS_H_
 
 #include "base/time/time.h"
+#include "media/base/media_export.h"
 
 namespace media {
 
@@ -13,9 +14,16 @@ namespace media {
 // interface. This is a copy of the media_router.mojom.MediaStatus interface,
 // without the cast specific portions.
 // TODO(https://crbug.com/820277): Deduplicate media_router::MediaStatus.
-struct MediaStatus {
+struct MEDIA_EXPORT MediaStatus {
  public:
-  enum class PlayState { PLAYING, PAUSED, BUFFERING };
+  enum class State {
+    UNKNOWN,
+    PLAYING,
+    PAUSED,
+    BUFFERING,
+    STOPPED,
+    STATE_MAX = STOPPED,
+  };
 
   MediaStatus();
   MediaStatus(const MediaStatus& other);
@@ -40,7 +48,7 @@ struct MediaStatus {
   // If this is true, the media's current playback position can be changed.
   bool can_seek = false;
 
-  PlayState play_state = PlayState::PLAYING;
+  State state = State::UNKNOWN;
 
   bool is_muted = false;
 
@@ -55,6 +63,9 @@ struct MediaStatus {
 
   // Current playback position. Must be less than or equal to |duration|.
   base::TimeDelta current_time;
+
+  // True if we have reached the end of stream.
+  bool reached_end_of_stream = false;
 };
 
 }  // namespace media

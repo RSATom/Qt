@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/html/html_content_element.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
@@ -29,16 +30,17 @@ TEST_F(HTMLContentElementTest, FallbackRecalcForReattach) {
 
   Element* host = GetDocument().getElementById("host");
   ShadowRoot& root = host->CreateV0ShadowRootForTesting();
-  GetDocument().View()->UpdateAllLifecyclePhases();
+  GetDocument().View()->UpdateAllLifecyclePhases(
+      DocumentLifecycle::LifecycleUpdateReason::kTest);
 
-  auto* content = GetDocument().CreateRawElement(HTMLNames::contentTag);
-  auto* fallback = GetDocument().CreateRawElement(HTMLNames::spanTag);
+  auto* content = GetDocument().CreateRawElement(html_names::kContentTag);
+  auto* fallback = GetDocument().CreateRawElement(html_names::kSpanTag);
   content->AppendChild(fallback);
   root.AppendChild(content);
 
   GetDocument().UpdateDistributionForLegacyDistributedNodes();
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
-  GetDocument().documentElement()->RecalcStyle(kNoChange);
+  GetDocument().GetStyleEngine().RecalcStyle(kNoChange);
 
   EXPECT_TRUE(fallback->GetNonAttachedStyle());
 }

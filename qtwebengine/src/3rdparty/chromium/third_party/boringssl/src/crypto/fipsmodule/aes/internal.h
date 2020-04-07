@@ -26,12 +26,12 @@ extern "C" {
 
 #if !defined(OPENSSL_NO_ASM)
 
-#if defined(OPENSSL_X86_64)
+#if defined(OPENSSL_X86) || defined(OPENSSL_X86_64)
 #define HWAES
 #define HWAES_ECB
 
 static int hwaes_capable(void) {
-  return (OPENSSL_ia32cap_P[1] & (1 << (57 - 32))) != 0;
+  return (OPENSSL_ia32cap_get()[1] & (1 << (57 - 32))) != 0;
 }
 #elif defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64)
 #define HWAES

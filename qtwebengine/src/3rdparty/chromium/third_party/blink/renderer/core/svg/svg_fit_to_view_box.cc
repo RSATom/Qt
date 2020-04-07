@@ -32,19 +32,17 @@ namespace blink {
 class SVGAnimatedViewBoxRect : public SVGAnimatedRect {
  public:
   static SVGAnimatedRect* Create(SVGElement* context_element) {
-    return new SVGAnimatedViewBoxRect(context_element);
+    return MakeGarbageCollected<SVGAnimatedViewBoxRect>(context_element);
   }
 
-  SVGParsingError SetBaseValueAsString(const String&) override;
-
- protected:
   SVGAnimatedViewBoxRect(SVGElement* context_element)
-      : SVGAnimatedRect(context_element, SVGNames::viewBoxAttr) {}
+      : SVGAnimatedRect(context_element, svg_names::kViewBoxAttr) {}
+
+  SVGParsingError AttributeChanged(const String&) override;
 };
 
-SVGParsingError SVGAnimatedViewBoxRect::SetBaseValueAsString(
-    const String& value) {
-  SVGParsingError parse_status = SVGAnimatedRect::SetBaseValueAsString(value);
+SVGParsingError SVGAnimatedViewBoxRect::AttributeChanged(const String& value) {
+  SVGParsingError parse_status = SVGAnimatedRect::AttributeChanged(value);
 
   if (parse_status == SVGParseStatus::kNoError &&
       (BaseValue()->Width() < 0 || BaseValue()->Height() < 0)) {
@@ -58,7 +56,7 @@ SVGFitToViewBox::SVGFitToViewBox(SVGElement* element)
     : view_box_(SVGAnimatedViewBoxRect::Create(element)),
       preserve_aspect_ratio_(SVGAnimatedPreserveAspectRatio::Create(
           element,
-          SVGNames::preserveAspectRatioAttr)) {
+          svg_names::kPreserveAspectRatioAttr)) {
   DCHECK(element);
   element->AddToPropertyMap(view_box_);
   element->AddToPropertyMap(preserve_aspect_ratio_);
@@ -84,8 +82,8 @@ AffineTransform SVGFitToViewBox::ViewBoxToViewTransform(
 }
 
 bool SVGFitToViewBox::IsKnownAttribute(const QualifiedName& attr_name) {
-  return attr_name == SVGNames::viewBoxAttr ||
-         attr_name == SVGNames::preserveAspectRatioAttr;
+  return attr_name == svg_names::kViewBoxAttr ||
+         attr_name == svg_names::kPreserveAspectRatioAttr;
 }
 
 }  // namespace blink

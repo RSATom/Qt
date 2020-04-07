@@ -49,9 +49,7 @@ class CORE_EXPORT StyleImage : public GarbageCollectedFinalized<StyleImage> {
  public:
   virtual ~StyleImage() = default;
 
-  bool operator==(const StyleImage& other) const {
-    return Data() == other.Data();
-  }
+  bool operator==(const StyleImage& other) const { return IsEqual(other); }
 
   // Returns a CSSValue representing the origin <image> value. May not be the
   // actual CSSValue from which this StyleImage was originally created if the
@@ -139,6 +137,10 @@ class CORE_EXPORT StyleImage : public GarbageCollectedFinalized<StyleImage> {
   }
   ALWAYS_INLINE bool IsPaintImage() const { return is_paint_image_; }
 
+  bool IsLazyloadPossiblyDeferred() const {
+    return is_lazyload_possibly_deferred_;
+  }
+
   virtual void Trace(blink::Visitor* visitor) {}
 
  protected:
@@ -147,12 +149,16 @@ class CORE_EXPORT StyleImage : public GarbageCollectedFinalized<StyleImage> {
         is_pending_image_(false),
         is_generated_image_(false),
         is_image_resource_set_(false),
-        is_paint_image_(false) {}
+        is_paint_image_(false),
+        is_lazyload_possibly_deferred_(false) {}
   bool is_image_resource_ : 1;
   bool is_pending_image_ : 1;
   bool is_generated_image_ : 1;
   bool is_image_resource_set_ : 1;
   bool is_paint_image_ : 1;
+  bool is_lazyload_possibly_deferred_ : 1;
+
+  virtual bool IsEqual(const StyleImage&) const = 0;
 
   FloatSize ApplyZoom(const FloatSize&, float multiplier) const;
   FloatSize ImageSizeForSVGImage(SVGImage*,

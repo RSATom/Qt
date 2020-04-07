@@ -50,13 +50,6 @@
 #include <QtGui/qvector4d.h>
 #include <QtGui/qmatrix4x4.h>
 
-#if defined(Q_CLANG_QDOC)
-#undef GLint
-typedef int GLint;
-#undef GLfloat
-typedef double GLfloat;
-#endif
-
 QT_BEGIN_NAMESPACE
 
 
@@ -80,7 +73,7 @@ public:
     Q_DECLARE_FLAGS(ShaderType, ShaderTypeBit)
 
     explicit QOpenGLShader(QOpenGLShader::ShaderType type, QObject *parent = nullptr);
-    virtual ~QOpenGLShader();
+    ~QOpenGLShader();
 
     QOpenGLShader::ShaderType shaderType() const;
 
@@ -115,7 +108,7 @@ class Q_GUI_EXPORT QOpenGLShaderProgram : public QObject
     Q_OBJECT
 public:
     explicit QOpenGLShaderProgram(QObject *parent = nullptr);
-    virtual ~QOpenGLShaderProgram();
+    ~QOpenGLShaderProgram();
 
     bool addShader(QOpenGLShader *shader);
     void removeShader(QOpenGLShader *shader);

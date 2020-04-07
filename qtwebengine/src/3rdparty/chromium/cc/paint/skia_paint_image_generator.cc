@@ -10,10 +10,12 @@ namespace cc {
 
 SkiaPaintImageGenerator::SkiaPaintImageGenerator(
     sk_sp<PaintImageGenerator> paint_image_generator,
-    size_t frame_index)
+    size_t frame_index,
+    PaintImage::GeneratorClientId client_id)
     : SkImageGenerator(paint_image_generator->GetSkImageInfo()),
       paint_image_generator_(std::move(paint_image_generator)),
-      frame_index_(frame_index) {}
+      frame_index_(frame_index),
+      client_id_(client_id) {}
 
 SkiaPaintImageGenerator::~SkiaPaintImageGenerator() = default;
 
@@ -25,19 +27,23 @@ bool SkiaPaintImageGenerator::onGetPixels(const SkImageInfo& info,
                                           void* pixels,
                                           size_t row_bytes,
                                           const Options& options) {
-  return paint_image_generator_->GetPixels(info, pixels, row_bytes,
-                                           frame_index_, uniqueID());
+  return paint_image_generator_->GetPixels(
+      info, pixels, row_bytes, frame_index_, client_id_, uniqueID());
 }
 
-bool SkiaPaintImageGenerator::onQueryYUV8(SkYUVSizeInfo* size_info,
-                                          SkYUVColorSpace* color_space) const {
-  return paint_image_generator_->QueryYUV8(size_info, color_space);
+bool SkiaPaintImageGenerator::onQueryYUVA8(
+    SkYUVASizeInfo* size_info,
+    SkYUVAIndex indices[SkYUVAIndex::kIndexCount],
+    SkYUVColorSpace* color_space) const {
+  return paint_image_generator_->QueryYUVA8(size_info, indices, color_space);
 }
 
-bool SkiaPaintImageGenerator::onGetYUV8Planes(const SkYUVSizeInfo& size_info,
-                                              void* planes[3]) {
-  return paint_image_generator_->GetYUV8Planes(size_info, planes, frame_index_,
-                                               uniqueID());
+bool SkiaPaintImageGenerator::onGetYUVA8Planes(
+    const SkYUVASizeInfo& size_info,
+    const SkYUVAIndex indices[SkYUVAIndex::kIndexCount],
+    void* planes[4]) {
+  return paint_image_generator_->GetYUVA8Planes(size_info, indices, planes,
+                                                frame_index_, uniqueID());
 }
 
 }  // namespace cc

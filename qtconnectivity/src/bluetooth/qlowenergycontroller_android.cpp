@@ -940,7 +940,7 @@ static QAndroidJniObject createJavaAdvertiseData(const QLowEnergyAdvertisingData
         env->SetByteArrayRegion(nativeData, 0, nativeSize,
                                 reinterpret_cast<const jbyte*>(data.manufacturerData().constData()));
         builder = builder.callObjectMethod("addManufacturerData",
-                                       "(I[B])Landroid/bluetooth/le/AdvertiseData$Builder;",
+                                       "(I[B)Landroid/bluetooth/le/AdvertiseData$Builder;",
                                        data.manufacturerId(), nativeData);
         env->DeleteLocalRef(nativeData);
 

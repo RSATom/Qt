@@ -4,49 +4,24 @@
 
 #include "components/unified_consent/feature.h"
 
-#include <memory>
-
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/unified_consent/scoped_unified_consent.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace unified_consent {
 
-TEST(UnifiedConsentFeatureTest, UnifiedConsent) {
+TEST(UnifiedConsentFeatureTest, FeatureState) {
   // Unified consent is disabled by default.
-  EXPECT_EQ(UnifiedConsentFeatureState::kDisabled,
-            internal::GetUnifiedConsentFeatureState());
-
-  for (UnifiedConsentFeatureState state :
-       {UnifiedConsentFeatureState::kDisabled,
-        UnifiedConsentFeatureState::kEnabledNoBump,
-        UnifiedConsentFeatureState::kEnabledWithBump}) {
-    ScopedUnifiedConsent scoped_state(state);
-    EXPECT_EQ(state, internal::GetUnifiedConsentFeatureState());
-  }
-}
-
-TEST(UnifiedConsentFeatureTest, SyncUserConsentSeparateTypeDisabled) {
-  // Enable kSyncUserConsentSeparateType
-  base::test::ScopedFeatureList scoped_sync_user_consent_separate_type_feature;
-  scoped_sync_user_consent_separate_type_feature.InitAndDisableFeature(
-      switches::kSyncUserConsentSeparateType);
+  EXPECT_FALSE(IsUnifiedConsentFeatureEnabled());
 
   {
-    base::test::ScopedFeatureList unified_consent_feature_list_;
-    unified_consent_feature_list_.InitAndEnableFeature(kUnifiedConsent);
-    EXPECT_EQ(UnifiedConsentFeatureState::kDisabled,
-              internal::GetUnifiedConsentFeatureState());
+    ScopedUnifiedConsent scoped_disabled(UnifiedConsentFeatureState::kDisabled);
+    EXPECT_FALSE(IsUnifiedConsentFeatureEnabled());
   }
 
   {
-    std::map<std::string, std::string> feature_params;
-    feature_params[kUnifiedConsentShowBumpParameter] = "true";
-    base::test::ScopedFeatureList unified_consent_feature_list_;
-    unified_consent_feature_list_.InitAndEnableFeatureWithParameters(
-        kUnifiedConsent, feature_params);
-    EXPECT_EQ(UnifiedConsentFeatureState::kDisabled,
-              internal::GetUnifiedConsentFeatureState());
+    ScopedUnifiedConsent scoped_enabled(UnifiedConsentFeatureState::kEnabled);
+    EXPECT_TRUE(IsUnifiedConsentFeatureEnabled());
   }
 }
 

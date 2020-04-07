@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "src/allocation.h"
-#include "src/assembler.h"
 #include "src/base/atomicops.h"
 #include "src/base/hashmap.h"
 #include "src/base/platform/platform.h"
@@ -30,6 +29,7 @@ namespace internal {
 
 // Forward declarations.
 class DebugScope;
+class JSGeneratorObject;
 
 // Step actions. NOTE: These values are in macros.py as well.
 enum StepAction : int8_t {
@@ -92,7 +92,7 @@ class BreakLocation {
 
   debug::BreakLocationType type() const;
 
-  JSGeneratorObject* GetGeneratorObjectForSuspendedFrame(
+  JSGeneratorObject GetGeneratorObjectForSuspendedFrame(
       JavaScriptFrame* frame) const;
 
  private:
@@ -152,7 +152,7 @@ class BreakIterator {
  private:
   int BreakIndexFromPosition(int position);
 
-  Isolate* isolate() { return debug_info_->GetIsolate(); }
+  Isolate* isolate();
 
   DebugBreakType GetDebugBreakType();
 
@@ -170,7 +170,7 @@ class BreakIterator {
 // weak handles to avoid a debug info object to keep a function alive.
 class DebugInfoListNode {
  public:
-  DebugInfoListNode(Isolate* isolate, DebugInfo* debug_info);
+  DebugInfoListNode(Isolate* isolate, DebugInfo debug_info);
   ~DebugInfoListNode();
 
   DebugInfoListNode* next() { return next_; }
@@ -179,7 +179,7 @@ class DebugInfoListNode {
 
  private:
   // Global (weak) handle to the debug info object.
-  DebugInfo** debug_info_;
+  Address* debug_info_;
 
   // Next pointer for linked list.
   DebugInfoListNode* next_;
@@ -314,8 +314,9 @@ class Debug {
   static int ArchiveSpacePerThread();
   void FreeThreadResources() { }
   void Iterate(RootVisitor* v);
+  void InitThread(const ExecutionAccess& lock) { ThreadInit(); }
 
-  bool CheckExecutionState() { return is_active() && break_id() != 0; }
+  bool CheckExecutionState() { return is_active(); }
 
   void StartSideEffectCheckMode();
   void StopSideEffectCheckMode();
@@ -325,16 +326,15 @@ class Debug {
 
   bool PerformSideEffectCheck(Handle<JSFunction> function,
                               Handle<Object> receiver);
-  bool PerformSideEffectCheckForCallback(Handle<Object> callback_info);
+
+  enum AccessorKind { kNotAccessor, kGetter, kSetter };
+  bool PerformSideEffectCheckForCallback(Handle<Object> callback_info,
+                                         Handle<Object> receiver,
+                                         AccessorKind accessor_kind);
   bool PerformSideEffectCheckAtBytecode(InterpretedFrame* frame);
   bool PerformSideEffectCheckForObject(Handle<Object> object);
 
   // Flags and states.
-  DebugScope* debugger_entry() {
-    return reinterpret_cast<DebugScope*>(
-        base::Relaxed_Load(&thread_local_.current_debug_scope_));
-  }
-
   inline bool is_active() const { return is_active_; }
   inline bool in_debug_scope() const {
     return !!base::Relaxed_Load(&thread_local_.current_debug_scope_);
@@ -347,13 +347,10 @@ class Debug {
   bool break_points_active() const { return break_points_active_; }
 
   StackFrame::Id break_frame_id() { return thread_local_.break_frame_id_; }
-  int break_id() { return thread_local_.break_id_; }
 
-  Handle<Object> return_value_handle() {
-    return handle(thread_local_.return_value_, isolate_);
-  }
-  Object* return_value() { return thread_local_.return_value_; }
-  void set_return_value(Object* value) { thread_local_.return_value_ = value; }
+  Handle<Object> return_value_handle();
+  Object return_value() { return thread_local_.return_value_; }
+  void set_return_value(Object value) { thread_local_.return_value_ = value; }
 
   // Support for embedding into generated code.
   Address is_active_address() {
@@ -370,6 +367,9 @@ class Debug {
 
   Address restart_fp_address() {
     return reinterpret_cast<Address>(&thread_local_.restart_fp_);
+  }
+  bool will_restart() const {
+    return thread_local_.restart_fp_ != kNullAddress;
   }
 
   StepAction last_step_action() { return thread_local_.last_step_action_; }
@@ -393,9 +393,6 @@ class Debug {
   void UpdateState();
   void UpdateHookOnFunctionCall();
   void Unload();
-  void SetNextBreakId() {
-    thread_local_.break_id_ = ++thread_local_.break_count_;
-  }
 
   // Return the number of virtual frames below debugger entry.
   int CurrentFrameCount();
@@ -416,7 +413,8 @@ class Debug {
 
   bool IsExceptionBlackboxed(bool uncaught);
 
-  void OnException(Handle<Object> exception, Handle<Object> promise);
+  void OnException(Handle<Object> exception, Handle<Object> promise,
+                   v8::debug::ExceptionType exception_type);
 
   void ProcessCompileEvent(bool has_compile_error, Handle<Script> script);
 
@@ -457,7 +455,7 @@ class Debug {
 
   // Wraps logic for clearing and maybe freeing all debug infos.
   typedef std::function<void(Handle<DebugInfo>)> DebugInfoClearFunction;
-  void ClearAllDebugInfos(DebugInfoClearFunction clear_function);
+  void ClearAllDebugInfos(const DebugInfoClearFunction& clear_function);
 
   void FindDebugInfo(Handle<DebugInfo> debug_info, DebugInfoListNode** prev,
                      DebugInfoListNode** curr);
@@ -503,12 +501,6 @@ class Debug {
     // Top debugger entry.
     base::AtomicWord current_debug_scope_;
 
-    // Counter for generating next break id.
-    int break_count_;
-
-    // Current break id.
-    int break_id_;
-
     // Frame id for the frame of the current break.
     StackFrame::Id break_frame_id_;
 
@@ -517,7 +509,7 @@ class Debug {
 
     // If set, next PrepareStepIn will ignore this function until stepped into
     // another function, at which point this will be cleared.
-    Object* ignore_step_into_function_;
+    Object ignore_step_into_function_;
 
     // If set then we need to repeat StepOut action at return.
     bool fast_forward_to_return_;
@@ -532,10 +524,10 @@ class Debug {
     int target_frame_count_;
 
     // Value of the accumulator at the point of entering the debugger.
-    Object* return_value_;
+    Object return_value_;
 
     // The suspended generator object to track when stepping.
-    Object* suspended_generator_;
+    Object suspended_generator_;
 
     // The new frame pointer to drop to when restarting a frame.
     Address restart_fp_;
@@ -567,7 +559,7 @@ class Debug {
 
 // This scope is used to load and enter the debug context and create a new
 // break state.  Leaving the scope will restore the previous state.
-class DebugScope BASE_EMBEDDED {
+class DebugScope {
  public:
   explicit DebugScope(Debug* debug);
   ~DebugScope();
@@ -578,8 +570,7 @@ class DebugScope BASE_EMBEDDED {
   Debug* debug_;
   DebugScope* prev_;               // Previous scope if entered recursively.
   StackFrame::Id break_frame_id_;  // Previous break frame id.
-  int break_id_;                   // Previous break id.
-  PostponeInterruptsScope no_termination_exceptons_;
+  PostponeInterruptsScope no_interrupts_;
 };
 
 // This scope is used to handle return values in nested debug break points.
@@ -597,7 +588,7 @@ class ReturnValueScope {
 };
 
 // Stack allocated class for disabling break.
-class DisableBreak BASE_EMBEDDED {
+class DisableBreak {
  public:
   explicit DisableBreak(Debug* debug, bool disable = true)
       : debug_(debug), previous_break_disabled_(debug->break_disabled_) {
@@ -613,8 +604,7 @@ class DisableBreak BASE_EMBEDDED {
   DISALLOW_COPY_AND_ASSIGN(DisableBreak);
 };
 
-
-class SuppressDebug BASE_EMBEDDED {
+class SuppressDebug {
  public:
   explicit SuppressDebug(Debug* debug)
       : debug_(debug), old_state_(debug->is_suppressed_) {

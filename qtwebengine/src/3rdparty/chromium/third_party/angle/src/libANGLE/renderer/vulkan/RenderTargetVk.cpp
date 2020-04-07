@@ -10,6 +10,7 @@
 #include "libANGLE/renderer/vulkan/RenderTargetVk.h"
 
 #include "libANGLE/renderer/vulkan/CommandGraph.h"
+#include "libANGLE/renderer/vulkan/TextureVk.h"
 #include "libANGLE/renderer/vulkan/vk_format_utils.h"
 #include "libANGLE/renderer/vulkan/vk_helpers.h"
 
@@ -17,16 +18,21 @@ namespace rx
 {
 RenderTargetVk::RenderTargetVk(vk::ImageHelper *image,
                                vk::ImageView *imageView,
-                               vk::CommandGraphResource *resource)
-    : mImage(image), mImageView(imageView), mResource(resource)
-{
-}
+                               size_t layerIndex,
+                               TextureVk *owner)
+    : mImage(image), mImageView(imageView), mLayerIndex(layerIndex), mOwner(owner)
+{}
 
-RenderTargetVk::~RenderTargetVk()
-{
-}
+RenderTargetVk::~RenderTargetVk() {}
 
-void RenderTargetVk::onColorDraw(vk::CommandGraphResource *framebufferVk,
+RenderTargetVk::RenderTargetVk(RenderTargetVk &&other)
+    : mImage(other.mImage),
+      mImageView(other.mImageView),
+      mLayerIndex(other.mLayerIndex),
+      mOwner(other.mOwner)
+{}
+
+void RenderTargetVk::onColorDraw(vk::FramebufferHelper *framebufferVk,
                                  vk::CommandBuffer *commandBuffer,
                                  vk::RenderPassDesc *renderPassDesc)
 {
@@ -34,7 +40,7 @@ void RenderTargetVk::onColorDraw(vk::CommandGraphResource *framebufferVk,
     ASSERT(!mImage->getFormat().textureFormat().hasDepthOrStencilBits());
 
     // Store the attachment info in the renderPassDesc.
-    renderPassDesc->packColorAttachment(*mImage);
+    renderPassDesc->packAttachment(mImage->getFormat());
 
     // TODO(jmadill): Use automatic layout transition. http://anglebug.com/2361
     mImage->changeLayoutWithStages(VK_IMAGE_ASPECT_COLOR_BIT,
@@ -43,10 +49,10 @@ void RenderTargetVk::onColorDraw(vk::CommandGraphResource *framebufferVk,
                                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, commandBuffer);
 
     // Set up dependencies between the RT resource and the Framebuffer.
-    mResource->addWriteDependency(framebufferVk);
+    mImage->addWriteDependency(framebufferVk);
 }
 
-void RenderTargetVk::onDepthStencilDraw(vk::CommandGraphResource *framebufferVk,
+void RenderTargetVk::onDepthStencilDraw(vk::FramebufferHelper *framebufferVk,
                                         vk::CommandBuffer *commandBuffer,
                                         vk::RenderPassDesc *renderPassDesc)
 {
@@ -54,7 +60,7 @@ void RenderTargetVk::onDepthStencilDraw(vk::CommandGraphResource *framebufferVk,
     ASSERT(mImage->getFormat().textureFormat().hasDepthOrStencilBits());
 
     // Store the attachment info in the renderPassDesc.
-    renderPassDesc->packDepthStencilAttachment(*mImage);
+    renderPassDesc->packAttachment(mImage->getFormat());
 
     // TODO(jmadill): Use automatic layout transition. http://anglebug.com/2361
     const angle::Format &format    = mImage->getFormat().textureFormat();
@@ -65,7 +71,13 @@ void RenderTargetVk::onDepthStencilDraw(vk::CommandGraphResource *framebufferVk,
                                    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, commandBuffer);
 
     // Set up dependencies between the RT resource and the Framebuffer.
-    mResource->addWriteDependency(framebufferVk);
+    mImage->addWriteDependency(framebufferVk);
+}
+
+vk::ImageHelper &RenderTargetVk::getImage()
+{
+    ASSERT(mImage && mImage->valid());
+    return *mImage;
 }
 
 const vk::ImageHelper &RenderTargetVk::getImage() const
@@ -74,15 +86,15 @@ const vk::ImageHelper &RenderTargetVk::getImage() const
     return *mImage;
 }
 
-vk::ImageView *RenderTargetVk::getImageView() const
+vk::ImageView *RenderTargetVk::getDrawImageView() const
 {
     ASSERT(mImageView && mImageView->valid());
     return mImageView;
 }
 
-vk::CommandGraphResource *RenderTargetVk::getResource() const
+vk::ImageView *RenderTargetVk::getReadImageView() const
 {
-    return mResource;
+    return getDrawImageView();
 }
 
 const vk::Format &RenderTargetVk::getImageFormat() const
@@ -102,6 +114,7 @@ void RenderTargetVk::updateSwapchainImage(vk::ImageHelper *image, vk::ImageView 
     ASSERT(image && image->valid() && imageView && imageView->valid());
     mImage     = image;
     mImageView = imageView;
+    mOwner     = nullptr;
 }
 
 vk::ImageHelper *RenderTargetVk::getImageForRead(vk::CommandGraphResource *readingResource,
@@ -111,7 +124,7 @@ vk::ImageHelper *RenderTargetVk::getImageForRead(vk::CommandGraphResource *readi
     ASSERT(mImage && mImage->valid());
 
     // TODO(jmadill): Better simultaneous resource access. http://anglebug.com/2679
-    mResource->addWriteDependency(readingResource);
+    mImage->addWriteDependency(readingResource);
 
     mImage->changeLayoutWithStages(mImage->getAspectFlags(), layout,
                                    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
@@ -123,8 +136,17 @@ vk::ImageHelper *RenderTargetVk::getImageForRead(vk::CommandGraphResource *readi
 vk::ImageHelper *RenderTargetVk::getImageForWrite(vk::CommandGraphResource *writingResource) const
 {
     ASSERT(mImage && mImage->valid());
-    mResource->addWriteDependency(writingResource);
+    mImage->addWriteDependency(writingResource);
     return mImage;
+}
+
+angle::Result RenderTargetVk::ensureImageInitialized(ContextVk *contextVk)
+{
+    if (mOwner)
+    {
+        return mOwner->ensureImageInitialized(contextVk);
+    }
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

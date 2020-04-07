@@ -28,10 +28,10 @@
 
 #include <memory>
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_destination_node.h"
 #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 
 namespace blink {
 
@@ -44,7 +44,7 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
   static scoped_refptr<OfflineAudioDestinationHandler> Create(
       AudioNode&,
       unsigned number_of_channels,
-      size_t frames_to_process,
+      uint32_t frames_to_process,
       float sample_rate);
   ~OfflineAudioDestinationHandler() override;
 
@@ -62,14 +62,16 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
   // AudioDestinationHandler
   void StartRendering() override;
   void StopRendering() override;
-  unsigned long MaxChannelCount() const override;
+  void Pause() override;
+  void Resume() override;
+  uint32_t MaxChannelCount() const override;
 
   void RestartRendering() override;
 
   double SampleRate() const override { return sample_rate_; }
 
   size_t RenderQuantumFrames() const {
-    return AudioUtilities::kRenderQuantumFrames;
+    return audio_utilities::kRenderQuantumFrames;
   }
 
   // This is called when rendering of the offline context is started
@@ -86,7 +88,7 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
  private:
   OfflineAudioDestinationHandler(AudioNode&,
                                  unsigned number_of_channels,
-                                 size_t frames_to_process,
+                                 uint32_t frames_to_process,
                                  float sample_rate);
 
   // Set up the rendering and start. After setting the context up, it will
@@ -113,7 +115,7 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
   // Otherwise, it returns false after rendering one quantum.
   bool RenderIfNotSuspended(AudioBus* source_bus,
                             AudioBus* destination_bus,
-                            size_t number_of_frames);
+                            uint32_t number_of_frames);
 
   // Prepares a task runner for the rendering based on the operation mode
   // (i.e. non-AudioWorklet or AudioWorklet). This is called when the
@@ -133,7 +135,7 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
   // These variables are for counting the number of frames for the current
   // progress and the remaining frames to be processed.
   size_t frames_processed_;
-  size_t frames_to_process_;
+  uint32_t frames_to_process_;
 
   // This flag is necessary to distinguish the state of the context between
   // 'created' and 'suspended'. If this flag is false and the current state
@@ -145,7 +147,7 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
 
   // The rendering thread for the non-AudioWorklet mode. For the AudioWorklet
   // node, AudioWorkletThread will drive the rendering.
-  std::unique_ptr<WebThread> render_thread_;
+  std::unique_ptr<Thread> render_thread_;
 
   scoped_refptr<base::SingleThreadTaskRunner> render_thread_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
@@ -155,13 +157,12 @@ class OfflineAudioDestinationNode final : public AudioDestinationNode {
  public:
   static OfflineAudioDestinationNode* Create(BaseAudioContext*,
                                              unsigned number_of_channels,
-                                             size_t frames_to_process,
+                                             uint32_t frames_to_process,
                                              float sample_rate);
 
- private:
   OfflineAudioDestinationNode(BaseAudioContext&,
                               unsigned number_of_channels,
-                              size_t frames_to_process,
+                              uint32_t frames_to_process,
                               float sample_rate);
 };
 

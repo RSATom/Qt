@@ -409,8 +409,8 @@ static void bn_mul_recursive(BN_ULONG *r, const BN_ULONG *a, const BN_ULONG *b,
   BN_ULONG c_neg = c - bn_sub_words(&t[n2 * 2], t, &t[n2], n2);
   BN_ULONG c_pos = c + bn_add_words(&t[n2], t, &t[n2], n2);
   bn_select_words(&t[n2], neg, &t[n2 * 2], &t[n2], n2);
-  OPENSSL_COMPILE_ASSERT(sizeof(BN_ULONG) <= sizeof(crypto_word_t),
-                         crypto_word_t_too_small);
+  OPENSSL_STATIC_ASSERT(sizeof(BN_ULONG) <= sizeof(crypto_word_t),
+                        "crypto_word_t is too small");
   c = constant_time_select_w(neg, c_neg, c_pos);
 
   // We now have our three components. Add them together.
@@ -523,8 +523,8 @@ static void bn_mul_part_recursive(BN_ULONG *r, const BN_ULONG *a,
   BN_ULONG c_neg = c - bn_sub_words(&t[n2 * 2], t, &t[n2], n2);
   BN_ULONG c_pos = c + bn_add_words(&t[n2], t, &t[n2], n2);
   bn_select_words(&t[n2], neg, &t[n2 * 2], &t[n2], n2);
-  OPENSSL_COMPILE_ASSERT(sizeof(BN_ULONG) <= sizeof(crypto_word_t),
-                         crypto_word_t_too_small);
+  OPENSSL_STATIC_ASSERT(sizeof(BN_ULONG) <= sizeof(crypto_word_t),
+                        "crypto_word_t is too small");
   c = constant_time_select_w(neg, c_neg, c_pos);
 
   // We now have our three components. Add them together.
@@ -559,7 +559,7 @@ static int bn_mul_impl(BIGNUM *r, const BIGNUM *a, const BIGNUM *b,
   BN_CTX_start(ctx);
   if (r == a || r == b) {
     rr = BN_CTX_get(ctx);
-    if (r == NULL) {
+    if (rr == NULL) {
       goto err;
     }
   } else {

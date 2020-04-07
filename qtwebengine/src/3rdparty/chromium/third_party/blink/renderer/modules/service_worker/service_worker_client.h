@@ -6,9 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_SERVICE_WORKER_SERVICE_WORKER_CLIENT_H_
 
 #include <memory>
+#include "third_party/blink/public/mojom/service_worker/service_worker_client.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_clients_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -16,20 +16,19 @@
 
 namespace blink {
 
-class ScriptPromiseResolver;
+class PostMessageOptions;
 class ScriptState;
 
 class MODULES_EXPORT ServiceWorkerClient : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  // To be used by CallbackPromiseAdapter.
-  using WebType = std::unique_ptr<WebServiceWorkerClientInfo>;
-
-  static ServiceWorkerClient* Take(ScriptPromiseResolver*,
-                                   std::unique_ptr<WebServiceWorkerClientInfo>);
   static ServiceWorkerClient* Create(const WebServiceWorkerClientInfo&);
+  static ServiceWorkerClient* Create(
+      const mojom::blink::ServiceWorkerClientInfo&);
 
+  explicit ServiceWorkerClient(const WebServiceWorkerClientInfo&);
+  explicit ServiceWorkerClient(const mojom::blink::ServiceWorkerClientInfo&);
   ~ServiceWorkerClient() override;
 
   // Client.idl
@@ -38,15 +37,15 @@ class MODULES_EXPORT ServiceWorkerClient : public ScriptWrappable {
   String frameType(ScriptState*) const;
   String id() const { return uuid_; }
   void postMessage(ScriptState*,
-                   scoped_refptr<SerializedScriptValue> message,
-                   const MessagePortArray&,
+                   const ScriptValue& message,
+                   Vector<ScriptValue>& transfer,
+                   ExceptionState&);
+  void postMessage(ScriptState*,
+                   const ScriptValue& message,
+                   const PostMessageOptions*,
                    ExceptionState&);
 
-  static bool CanTransferArrayBuffersAndImageBitmaps() { return false; }
-
  protected:
-  explicit ServiceWorkerClient(const WebServiceWorkerClientInfo&);
-
   String Uuid() const { return uuid_; }
 
  private:

@@ -2,7 +2,6 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="en-GB">
 <translation id="1018939186200882850">menu item</translation>
-<translation id="1020833440720551630">mute audio track</translation>
 <translation id="10623998915015855">toggle button</translation>
 <translation id="1088086359088493902">Seconds</translation>
 <translation id="1171774979989969504">Please enter an email address.</translation>
@@ -16,11 +15,11 @@
 <translation id="1335095011850992622">credits</translation>
 <translation id="1342835525016946179">article</translation>
 <translation id="1359897965706325498">banner</translation>
-<translation id="1548116112524424341">play video in picture-in-picture mode</translation>
 <translation id="1589122976691792535">region</translation>
 <translation id="1591562245178063882">This month</translation>
 <translation id="1637811476055996098">Choose Files</translation>
 <translation id="1650423536718072820">pullquote</translation>
+<translation id="1727886345390570319">hide closed captions menu</translation>
 <translation id="1729654308190250600">Please enter a non-empty email address.</translation>
 <translation id="1758486001363313524">Other...</translation>
 <translation id="1806710327868736751">alert_dialogue</translation>
@@ -98,11 +97,13 @@
 <translation id="4413860115965805769">menu button</translation>
 <translation id="4446524499724042288">glossary reference</translation>
 <translation id="4522570452068850558">Details</translation>
+<translation id="4542388879936266156">remaining time: <ph name="REMAINING_TIME" /></translation>
 <translation id="4597532268155981612">form</translation>
 <translation id="4661075872484491155">tree</translation>
 <translation id="4664250907885839816">A part following '<ph name="ATSIGN" />' should not contain the symbol '<ph name="INVALIDCHARACTER" />'.</translation>
 <translation id="4668956016107839909">appendix</translation>
 <translation id="4742539557769756338">cover</translation>
+<translation id="4748357248530471599">toggle display cutout full screen</translation>
 <translation id="4757246831282535685">tab panel</translation>
 <translation id="4763480195061959176">video</translation>
 <translation id="479989351350248267">search</translation>
@@ -129,7 +130,6 @@
 <translation id="561939826962581046">time</translation>
 <translation id="5630795885300617244">Double-tap left or right to skip 10s</translation>
 <translation id="5631759159893697722">abstract</translation>
-<translation id="5641012560118721995">pause playback</translation>
 <translation id="5643186887447432888">button</translation>
 <translation id="5677946354068040947">more options</translation>
 <translation id="576709008726043716">introduction</translation>
@@ -140,15 +140,16 @@
 <translation id="5939518447894949180">Reset</translation>
 <translation id="5966707198760109579">Week</translation>
 <translation id="5987525920412732405">spin button</translation>
+<translation id="6011459053400940133">volume slider</translation>
 <translation id="6015796118275082299">Year</translation>
 <translation id="6023896073578205740">list box</translation>
-<translation id="6101327004457443354">un-mute audio track</translation>
 <translation id="6150588977291308318">bibliography</translation>
 <translation id="6164829606128959761">meter</translation>
 <translation id="6166809985690652833">afterword</translation>
 <translation id="6213469881011901533">glossary</translation>
 <translation id="6398862346408813489">Show month selection panel</translation>
 <translation id="6404546809543547843">audio time scrubber</translation>
+<translation id="6443871981718447451">show closed captions menu</translation>
 <translation id="6453774872122745852">acknowledgements</translation>
 <translation id="648732519525291180">time picker</translation>
 <translation id="6550675742724504774">Options</translation>
@@ -164,7 +165,6 @@
 <translation id="6820355525329141109">Couldn't load plug-in.</translation>
 <translation id="6820615603175220800">bibliography reference</translation>
 <translation id="6843725295806269523">mute</translation>
-<translation id="6853785296079745596">hide closed captions</translation>
 <translation id="6885760532393684712">directory</translation>
 <translation id="689129560213475294">colophon</translation>
 <translation id="6934078000481955284">blockquote</translation>
@@ -173,7 +173,6 @@
 <translation id="6989848892321993519">Please lengthen this text to <ph name="MIN_CHARACTERS" /> characters or more (you are currently using 1 character).</translation>
 <translation id="709897737746224366">Please match the format requested.</translation>
 <translation id="7139483182332611405">preface</translation>
-<translation id="7223624360433298498">elapsed time</translation>
 <translation id="7263440858009898357">Please select an item in the list.</translation>
 <translation id="727747134524199931">column header</translation>
 <translation id="7353453495576941748">credit</translation>
@@ -188,8 +187,6 @@
 <translation id="7661956066982048809">graphics document</translation>
 <translation id="7673697353781729403">Hours</translation>
 <translation id="7681220483256441252">index</translation>
-<translation id="7720026100085573005">remaining time</translation>
-<translation id="7740016676195725605">stop displaying closed captions</translation>
 <translation id="7740050170769002709">HTML content</translation>
 <translation id="7750228210027921155">Picture-in-picture</translation>
 <translation id="7789962463072032349">pause</translation>
@@ -200,12 +197,11 @@
 <translation id="8053789581856978548">search text field</translation>
 <translation id="8057695513531652401">notice</translation>
 <translation id="8105797009065549151">note reference</translation>
-<translation id="8115662671911883373">start displaying closed captions</translation>
 <translation id="8117451130807776954">This week</translation>
-<translation id="819205353528511139">play film in full screen mode</translation>
 <translation id="8199524924445686405">yyyy</translation>
 <translation id="8284326494547611709">Captions</translation>
 <translation id="835897206747267392">Invalid value.</translation>
+<translation id="8403857369060869934">elapsed time: <ph name="ELAPSED_TIME" /></translation>
 <translation id="8415319359811155763">part</translation>
 <translation id="8433900881053900389">toolbar</translation>
 <translation id="8444882422881193423"><ph name="NUMBER_OF_FILES" /> files</translation>
@@ -222,7 +218,6 @@
 <translation id="8613126697340063924">control remote playback</translation>
 <translation id="862370744433916922">subtitle</translation>
 <translation id="8750798805984357768">Please select one of these options.</translation>
-<translation id="8785498733064193001">begin playback</translation>
 <translation id="8808573423886751634">chapter</translation>
 <translation id="8845239796550121995">Now casting to your TV</translation>
 <translation id="8851136666856101339">main</translation>
@@ -231,7 +226,6 @@
 <translation id="8987927404178983737">Month</translation>
 <translation id="901493112792887934">current time in seconds</translation>
 <translation id="9048119486235211610">navigation</translation>
-<translation id="9050748414552849310">show closed captions</translation>
 <translation id="9062295712474918030">document</translation>
 <translation id="9093215626363556771">exit picture-in-picture</translation>
 <translation id="9108370397979208512">math</translation>

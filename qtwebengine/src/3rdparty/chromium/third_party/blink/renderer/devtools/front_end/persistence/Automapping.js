@@ -114,8 +114,7 @@ Persistence.Automapping = class {
   _onUISourceCodeAdded(uiSourceCode) {
     const project = uiSourceCode.project();
     if (project.type() === Workspace.projectTypes.FileSystem) {
-      // Never do bindings to filesystems that are typed to another client.
-      if (Persistence.FileSystemWorkspaceBinding.fileSystemType(project))
+      if (!Persistence.FileSystemWorkspaceBinding.fileSystemSupportsAutomapping(project))
         return;
       this._filesIndex.addPath(uiSourceCode.url());
       this._fileSystemUISourceCodes.set(uiSourceCode.url(), uiSourceCode);
@@ -167,6 +166,8 @@ Persistence.Automapping = class {
     if (networkSourceCode[Persistence.Automapping._processingPromise] ||
         networkSourceCode[Persistence.Automapping._status])
       return;
+    if (networkSourceCode.url().startsWith('wasm://'))
+      return;
     const createBindingPromise =
         this._createBinding(networkSourceCode).then(validateStatus.bind(this)).then(onStatus.bind(this));
     networkSourceCode[Persistence.Automapping._processingPromise] = createBindingPromise;
@@ -178,6 +179,8 @@ Persistence.Automapping = class {
      */
     async function validateStatus(status) {
       if (!status)
+        return null;
+      if (networkSourceCode[Persistence.Automapping._processingPromise] !== createBindingPromise)
         return null;
       if (status.network.contentType().isFromSourceMap() || !status.fileSystem.contentType().isTextType())
         return status;
@@ -216,7 +219,7 @@ Persistence.Automapping = class {
 
       const target = Bindings.NetworkProject.targetForUISourceCode(status.network);
       let isValid = false;
-      if (target && target.isNodeJS()) {
+      if (target && target.type() === SDK.Target.Type.Node) {
         const rewrappedNetworkContent =
             Persistence.Persistence.rewrapNodeJSContent(status.fileSystem, fileSystemContent, networkContent);
         isValid = fileSystemContent === rewrappedNetworkContent;
@@ -297,7 +300,7 @@ Persistence.Automapping = class {
    * @return {!Promise<?Persistence.AutomappingStatus>}
    */
   _createBinding(networkSourceCode) {
-    if (networkSourceCode.url().startsWith('file://')) {
+    if (networkSourceCode.url().startsWith('file://') || networkSourceCode.url().startsWith('snippet://')) {
       const fileSourceCode = this._fileSystemUISourceCodes.get(networkSourceCode.url());
       const status =
           fileSourceCode ? new Persistence.AutomappingStatus(networkSourceCode, fileSourceCode, false) : null;

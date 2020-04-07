@@ -84,9 +84,9 @@ XMLDocument* DOMImplementation::createDocument(
   XMLDocument* doc = nullptr;
   DocumentInit init =
       DocumentInit::Create().WithContextDocument(document_->ContextDocument());
-  if (namespace_uri == SVGNames::svgNamespaceURI) {
+  if (namespace_uri == svg_names::kNamespaceURI) {
     doc = XMLDocument::CreateSVG(init);
-  } else if (namespace_uri == HTMLNames::xhtmlNamespaceURI) {
+  } else if (namespace_uri == html_names::xhtmlNamespaceURI) {
     doc = XMLDocument::CreateXHTML(
         init.WithRegistrationContext(document_->RegistrationContext()));
   } else {
@@ -262,8 +262,10 @@ Document* DOMImplementation::createDocument(const String& type,
         init, plugin_data->PluginBackgroundColorForMimeType(type));
   }
   // multipart/x-mixed-replace is only supported for images.
-  if (Image::SupportsType(type) || type == "multipart/x-mixed-replace")
+  if (MIMETypeRegistry::IsSupportedImageResourceMIMEType(type) ||
+      type == "multipart/x-mixed-replace") {
     return ImageDocument::Create(init);
+  }
 
   // Check to see if the type can be played by our media player, if so create a
   // MediaDocument
@@ -290,7 +292,7 @@ Document* DOMImplementation::createDocument(const String& type,
   return HTMLDocument::Create(init);
 }
 
-void DOMImplementation::Trace(blink::Visitor* visitor) {
+void DOMImplementation::Trace(Visitor* visitor) {
   visitor->Trace(document_);
   ScriptWrappable::Trace(visitor);
 }

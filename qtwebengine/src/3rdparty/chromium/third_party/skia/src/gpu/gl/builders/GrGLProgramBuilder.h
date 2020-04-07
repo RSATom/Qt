@@ -36,6 +36,7 @@ public:
      * @return true if generation was successful.
      */
     static GrGLProgram* CreateProgram(const GrPrimitiveProcessor&,
+                                      const GrTextureProxy* const primProcProxies[],
                                       const GrPipeline&,
                                       GrProgramDesc*,
                                       GrGLGpu*);
@@ -46,8 +47,9 @@ public:
 
 private:
     GrGLProgramBuilder(GrGLGpu*, const GrPipeline&, const GrPrimitiveProcessor&,
-                       GrProgramDesc*);
+                       const GrTextureProxy* const primProcProxies[], GrProgramDesc*);
 
+    void addInputVars(const SkSL::Program::Inputs& inputs);
     bool compileAndAttachShaders(const char* glsl,
                                  int length,
                                  GrGLuint programId,
@@ -64,6 +66,8 @@ private:
                                  SkSL::Program::Inputs* outInputs);
     void computeCountsAndStrides(GrGLuint programID, const GrPrimitiveProcessor& primProc,
                                  bool bindAttribLocations);
+    void storeShaderInCache(const SkSL::Program::Inputs& inputs, GrGLuint programID,
+                            const SkSL::String& glsl);
     GrGLProgram* finalize();
     void bindProgramResourceLocations(GrGLuint programID);
     bool checkLinkStatus(GrGLuint programID);

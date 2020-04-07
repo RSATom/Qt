@@ -13,7 +13,8 @@
 #include "components/exo/wm_helper.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
-#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
@@ -25,7 +26,6 @@
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/dip_util.h"
-#include "ui/gfx/path.h"
 #include "ui/gfx/presentation_feedback.h"
 
 namespace exo {
@@ -80,23 +80,25 @@ class CustomWindowTargeter : public aura::WindowTargeter {
 // SurfaceTreeHost, public:
 
 SurfaceTreeHost::SurfaceTreeHost(const std::string& window_name)
-    : host_window_(std::make_unique<aura::Window>(nullptr)) {
-  host_window_->SetType(aura::client::WINDOW_TYPE_CONTROL);
+    : host_window_(
+          std::make_unique<aura::Window>(nullptr,
+                                         aura::client::WINDOW_TYPE_CONTROL,
+                                         WMHelper::GetInstance()->env())) {
   host_window_->SetName(window_name);
   host_window_->Init(ui::LAYER_SOLID_COLOR);
   host_window_->set_owned_by_parent(false);
   // The host window is a container of surface tree. It doesn't handle pointer
   // events.
   host_window_->SetEventTargetingPolicy(
-      ui::mojom::EventTargetingPolicy::DESCENDANTS_ONLY);
+      ws::mojom::EventTargetingPolicy::DESCENDANTS_ONLY);
   host_window_->SetEventTargeter(std::make_unique<CustomWindowTargeter>(this));
   layer_tree_frame_sink_holder_ = std::make_unique<LayerTreeFrameSinkHolder>(
       this, host_window_->CreateLayerTreeFrameSink());
-  aura::Env::GetInstance()->context_factory()->AddObserver(this);
+  WMHelper::GetInstance()->env()->context_factory()->AddObserver(this);
 }
 
 SurfaceTreeHost::~SurfaceTreeHost() {
-  aura::Env::GetInstance()->context_factory()->RemoveObserver(this);
+  WMHelper::GetInstance()->env()->context_factory()->RemoveObserver(this);
   SetRootSurface(nullptr);
   LayerTreeFrameSinkHolder::DeleteWhenLastResourceHasBeenReclaimed(
       std::move(layer_tree_frame_sink_holder_));
@@ -106,10 +108,11 @@ void SurfaceTreeHost::SetRootSurface(Surface* root_surface) {
   if (root_surface == root_surface_)
     return;
 
-  // This method applies multiple changes to the window tree. Use
-  // ScopedPauseOcclusionTracking to ensure that occlusion isn't recomputed
-  // before all changes have been applied.
-  aura::WindowOcclusionTracker::ScopedPauseOcclusionTracking pause_occlusion;
+  // This method applies multiple changes to the window tree. Use ScopedPause to
+  // ensure that occlusion isn't recomputed before all changes have been
+  // applied.
+  aura::WindowOcclusionTracker::ScopedPause pause_occlusion(
+      host_window_->env());
 
   if (root_surface_) {
     root_surface_->window()->Hide();
@@ -151,7 +154,7 @@ bool SurfaceTreeHost::HasHitTestRegion() const {
   return root_surface_ && root_surface_->HasHitTestRegion();
 }
 
-void SurfaceTreeHost::GetHitTestMask(gfx::Path* mask) const {
+void SurfaceTreeHost::GetHitTestMask(SkPath* mask) const {
   if (root_surface_)
     root_surface_->GetHitTestMask(mask);
 }
@@ -167,7 +170,8 @@ void SurfaceTreeHost::DidPresentCompositorFrame(
     uint32_t presentation_token,
     const gfx::PresentationFeedback& feedback) {
   auto it = active_presentation_callbacks_.find(presentation_token);
-  DCHECK(it != active_presentation_callbacks_.end());
+  if (it == active_presentation_callbacks_.end())
+    return;
   for (auto callback : it->second)
     callback.Run(feedback);
   active_presentation_callbacks_.erase(it);
@@ -214,15 +218,13 @@ void SurfaceTreeHost::SubmitCompositorFrame() {
       viz::BeginFrameAck::CreateManualAckWithDamage();
   root_surface_->AppendSurfaceHierarchyCallbacks(&frame_callbacks_,
                                                  &presentation_callbacks_);
+  frame.metadata.frame_token = ++next_token_;
   if (!presentation_callbacks_.empty()) {
-    // If overflow happens, we increase it again.
-    if (!++presentation_token_)
-      ++presentation_token_;
-    frame.metadata.frame_token = presentation_token_;
-    frame.metadata.request_presentation_feedback = true;
-    DCHECK_EQ(active_presentation_callbacks_.count(presentation_token_), 0u);
-    active_presentation_callbacks_[presentation_token_] =
+    DCHECK_EQ(active_presentation_callbacks_.count(*next_token_), 0u);
+    active_presentation_callbacks_[*next_token_] =
         std::move(presentation_callbacks_);
+  } else {
+    active_presentation_callbacks_[*next_token_] = PresentationCallbacks();
   }
   frame.render_pass_list.push_back(viz::RenderPass::Create());
   const std::unique_ptr<viz::RenderPass>& render_pass =
@@ -244,20 +246,20 @@ void SurfaceTreeHost::SubmitCompositorFrame() {
   render_pass->SetNew(kRenderPassId, gfx::Rect(output_surface_size_in_pixels),
                       gfx::Rect(), gfx::Transform());
   frame.metadata.device_scale_factor = device_scale_factor;
+  frame.metadata.local_surface_id_allocation_time =
+      host_window()->GetLocalSurfaceIdAllocation().allocation_time();
   root_surface_->AppendSurfaceHierarchyContentsToFrame(
       root_surface_origin_, device_scale_factor,
       layer_tree_frame_sink_holder_.get(), &frame);
 
-  if (WMHelper::GetInstance()->AreVerifiedSyncTokensNeeded()) {
-    std::vector<GLbyte*> sync_tokens;
-    for (auto& resource : frame.resource_list)
-      sync_tokens.push_back(resource.mailbox_holder.sync_token.GetData());
-    ui::ContextFactory* context_factory =
-        aura::Env::GetInstance()->context_factory();
-    gpu::gles2::GLES2Interface* gles2 =
-        context_factory->SharedMainThreadContextProvider()->ContextGL();
-    gles2->VerifySyncTokensCHROMIUM(sync_tokens.data(), sync_tokens.size());
-  }
+  std::vector<GLbyte*> sync_tokens;
+  for (auto& resource : frame.resource_list)
+    sync_tokens.push_back(resource.mailbox_holder.sync_token.GetData());
+  ui::ContextFactory* context_factory =
+      WMHelper::GetInstance()->env()->context_factory();
+  gpu::gles2::GLES2Interface* gles2 =
+      context_factory->SharedMainThreadContextProvider()->ContextGL();
+  gles2->VerifySyncTokensCHROMIUM(sync_tokens.data(), sync_tokens.size());
 
   layer_tree_frame_sink_holder_->SubmitCompositorFrame(std::move(frame));
 }
@@ -266,10 +268,11 @@ void SurfaceTreeHost::SubmitCompositorFrame() {
 // SurfaceTreeHost, private:
 
 void SurfaceTreeHost::UpdateHostWindowBounds() {
-  // This method applies multiple changes to the window tree. Use
-  // ScopedPauseOcclusionTracking to ensure that occlusion isn't recomputed
-  // before all changes have been applied.
-  aura::WindowOcclusionTracker::ScopedPauseOcclusionTracking pause_occlusion;
+  // This method applies multiple changes to the window tree. Use ScopedPause
+  // to ensure that occlusion isn't recomputed before all changes have been
+  // applied.
+  aura::WindowOcclusionTracker::ScopedPause pause_occlusion(
+      host_window_->env());
 
   gfx::Rect bounds = root_surface_->surface_hierarchy_content_bounds();
   host_window_->SetBounds(

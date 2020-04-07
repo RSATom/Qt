@@ -596,6 +596,7 @@ public:
     QAxBasePrivate()
         : useEventSink(true), useMetaObject(true), useClassInfo(true),
         cachedMetaObject(false), initialized(false), tryCache(false),
+        classContext(CLSCTX_SERVER),
         ptr(0), disp(0), metaobj(0)
     {
         // protect initialization
@@ -639,6 +640,7 @@ public:
     uint cachedMetaObject   :1;
     uint initialized        :1;
     uint tryCache           :1;
+    unsigned long classContext;
 
     IUnknown *ptr;
     mutable IDispatch *disp;
@@ -990,6 +992,8 @@ QAxMetaObject *QAxBase::internalMetaObject() const
 
     The control's read function always returns the control's UUID, if provided including the license
     key, and the name of the server, but not including the username, the domain or the password.
+
+    \sa setClassContext()
 */
 bool QAxBase::setControl(const QString &c)
 {
@@ -1065,6 +1069,34 @@ QString QAxBase::control() const
 void QAxBase::disableEventSink()
 {
     d->useEventSink = false;
+}
+
+/*!
+    \since 5.13
+
+    \return the context the ActiveX control will run in (default CLSCTX_SERVER).
+*/
+unsigned long QAxBase::classContext() const
+{
+    return d->classContext;
+}
+
+/*!
+    \since 5.13
+
+    Sets the context the ActiveX control will run in to \a classContext
+
+    Affects the "dwClsContext" argument when calling CoCreateInstance.
+    This can be used to control in-proc vs. out-of-proc startup for controls
+    supporting both alternatives. Also, it can be used to modify/reduce control
+    permissions when used with CLSCTX_ENABLE_CLOAKING and an impersonation token.
+
+    Note that this function must be called before setControl() to have any
+    effect.
+*/
+void QAxBase::setClassContext(unsigned long classContext)
+{
+    d->classContext = classContext;
 }
 
 /*!
@@ -1238,7 +1270,7 @@ bool QAxBase::initialize(IUnknown **ptr)
         res = initializeFromFile(ptr);
 
     if (!res) { // standard
-        HRESULT hres = CoCreateInstance(QUuid(ctrl), 0, CLSCTX_SERVER, IID_IUnknown,
+        HRESULT hres = CoCreateInstance(QUuid(ctrl), 0, d->classContext, IID_IUnknown,
                                         reinterpret_cast<void **>(ptr));
         res = S_OK == hres;
 #ifndef QT_NO_DEBUG

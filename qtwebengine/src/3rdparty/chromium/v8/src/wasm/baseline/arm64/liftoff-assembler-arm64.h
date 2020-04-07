@@ -41,8 +41,8 @@ namespace liftoff {
 //  -----+--------------------+  <-- stack ptr (sp)
 //
 
-constexpr int32_t kInstanceOffset = 2 * kPointerSize;
-constexpr int32_t kFirstStackSlotOffset = kInstanceOffset + kPointerSize;
+constexpr int32_t kInstanceOffset = 2 * kSystemPointerSize;
+constexpr int32_t kFirstStackSlotOffset = kInstanceOffset + kSystemPointerSize;
 constexpr int32_t kConstantStackSpace = 0;
 
 inline MemOperand GetStackSlot(uint32_t index) {
@@ -148,7 +148,8 @@ void LiftoffAssembler::PatchPrepareStackFrame(int offset,
     return;
   }
 #endif
-  PatchingAssembler patching_assembler(AssemblerOptions{}, buffer_ + offset, 1);
+  PatchingAssembler patching_assembler(AssemblerOptions{},
+                                       buffer_start_ + offset, 1);
   patching_assembler.PatchSubSp(bytes);
 }
 
@@ -188,12 +189,26 @@ void LiftoffAssembler::LoadFromInstance(Register dst, uint32_t offset,
   }
 }
 
+void LiftoffAssembler::LoadTaggedPointerFromInstance(Register dst,
+                                                     uint32_t offset) {
+  LoadFromInstance(dst, offset, kTaggedSize);
+}
+
 void LiftoffAssembler::SpillInstance(Register instance) {
   Str(instance, liftoff::GetInstanceOperand());
 }
 
 void LiftoffAssembler::FillInstanceInto(Register dst) {
   Ldr(dst, liftoff::GetInstanceOperand());
+}
+
+void LiftoffAssembler::LoadTaggedPointer(Register dst, Register src_addr,
+                                         Register offset_reg,
+                                         uint32_t offset_imm,
+                                         LiftoffRegList pinned) {
+  STATIC_ASSERT(kTaggedSize == kInt64Size);
+  Load(LiftoffRegister(dst), src_addr, offset_reg, offset_imm,
+       LoadType::kI64Load, pinned);
 }
 
 void LiftoffAssembler::Load(LiftoffRegister dst, Register src_addr,
@@ -281,17 +296,6 @@ void LiftoffAssembler::Store(Register dst_addr, Register offset_reg,
   }
 }
 
-void LiftoffAssembler::ChangeEndiannessLoad(LiftoffRegister dst, LoadType type,
-                                            LiftoffRegList pinned) {
-  // Nop.
-}
-
-void LiftoffAssembler::ChangeEndiannessStore(LiftoffRegister src,
-                                             StoreType type,
-                                             LiftoffRegList pinned) {
-  // Nop.
-}
-
 void LiftoffAssembler::LoadCallerFrameSlot(LiftoffRegister dst,
                                            uint32_t caller_slot_idx,
                                            ValueType type) {
@@ -360,7 +364,7 @@ void LiftoffAssembler::Fill(LiftoffRegister reg, uint32_t index,
   Ldr(liftoff::GetRegFromType(reg, type), src);
 }
 
-void LiftoffAssembler::FillI64Half(Register, uint32_t half_index) {
+void LiftoffAssembler::FillI64Half(Register, uint32_t index, RegPairHalf) {
   UNREACHABLE();
 }
 
@@ -383,6 +387,11 @@ void LiftoffAssembler::FillI64Half(Register, uint32_t half_index) {
   void LiftoffAssembler::emit_##name(DoubleRegister dst, DoubleRegister src) { \
     instruction(dst.S(), src.S());                                             \
   }
+#define FP32_UNOP_RETURN_TRUE(name, instruction)                               \
+  bool LiftoffAssembler::emit_##name(DoubleRegister dst, DoubleRegister src) { \
+    instruction(dst.S(), src.S());                                             \
+    return true;                                                               \
+  }
 #define FP64_BINOP(name, instruction)                                        \
   void LiftoffAssembler::emit_##name(DoubleRegister dst, DoubleRegister lhs, \
                                      DoubleRegister rhs) {                   \
@@ -402,10 +411,23 @@ void LiftoffAssembler::FillI64Half(Register, uint32_t half_index) {
                                      Register amount, LiftoffRegList pinned) { \
     instruction(dst.W(), src.W(), amount.W());                                 \
   }
+#define I32_SHIFTOP_I(name, instruction)                                       \
+  I32_SHIFTOP(name, instruction)                                               \
+  void LiftoffAssembler::emit_##name(Register dst, Register src, int amount) { \
+    DCHECK(is_uint5(amount));                                                  \
+    instruction(dst.W(), src.W(), amount);                                     \
+  }
 #define I64_SHIFTOP(name, instruction)                                         \
   void LiftoffAssembler::emit_##name(LiftoffRegister dst, LiftoffRegister src, \
                                      Register amount, LiftoffRegList pinned) { \
     instruction(dst.gp().X(), src.gp().X(), amount.X());                       \
+  }
+#define I64_SHIFTOP_I(name, instruction)                                       \
+  I64_SHIFTOP(name, instruction)                                               \
+  void LiftoffAssembler::emit_##name(LiftoffRegister dst, LiftoffRegister src, \
+                                     int amount) {                             \
+    DCHECK(is_uint6(amount));                                                  \
+    instruction(dst.gp().X(), src.gp().X(), amount);                           \
   }
 
 I32_BINOP(i32_add, Add)
@@ -416,7 +438,7 @@ I32_BINOP(i32_or, Orr)
 I32_BINOP(i32_xor, Eor)
 I32_SHIFTOP(i32_shl, Lsl)
 I32_SHIFTOP(i32_sar, Asr)
-I32_SHIFTOP(i32_shr, Lsr)
+I32_SHIFTOP_I(i32_shr, Lsr)
 I64_BINOP(i64_add, Add)
 I64_BINOP(i64_sub, Sub)
 I64_BINOP(i64_mul, Mul)
@@ -425,7 +447,7 @@ I64_BINOP(i64_or, Orr)
 I64_BINOP(i64_xor, Eor)
 I64_SHIFTOP(i64_shl, Lsl)
 I64_SHIFTOP(i64_sar, Asr)
-I64_SHIFTOP(i64_shr, Lsr)
+I64_SHIFTOP_I(i64_shr, Lsr)
 FP32_BINOP(f32_add, Fadd)
 FP32_BINOP(f32_sub, Fsub)
 FP32_BINOP(f32_mul, Fmul)
@@ -434,10 +456,10 @@ FP32_BINOP(f32_min, Fmin)
 FP32_BINOP(f32_max, Fmax)
 FP32_UNOP(f32_abs, Fabs)
 FP32_UNOP(f32_neg, Fneg)
-FP32_UNOP(f32_ceil, Frintp)
-FP32_UNOP(f32_floor, Frintm)
-FP32_UNOP(f32_trunc, Frintz)
-FP32_UNOP(f32_nearest_int, Frintn)
+FP32_UNOP_RETURN_TRUE(f32_ceil, Frintp)
+FP32_UNOP_RETURN_TRUE(f32_floor, Frintm)
+FP32_UNOP_RETURN_TRUE(f32_trunc, Frintz)
+FP32_UNOP_RETURN_TRUE(f32_nearest_int, Frintn)
 FP32_UNOP(f32_sqrt, Fsqrt)
 FP64_BINOP(f64_add, Fadd)
 FP64_BINOP(f64_sub, Fsub)
@@ -461,7 +483,9 @@ FP64_UNOP(f64_sqrt, Fsqrt)
 #undef FP64_UNOP
 #undef FP64_UNOP_RETURN_TRUE
 #undef I32_SHIFTOP
+#undef I32_SHIFTOP_I
 #undef I64_SHIFTOP
+#undef I64_SHIFTOP_I
 
 bool LiftoffAssembler::emit_i32_clz(Register dst, Register src) {
   Clz(dst.W(), src.W());
@@ -622,6 +646,28 @@ void LiftoffAssembler::emit_i32_to_intptr(Register dst, Register src) {
   Sxtw(dst, src);
 }
 
+void LiftoffAssembler::emit_f32_copysign(DoubleRegister dst, DoubleRegister lhs,
+                                         DoubleRegister rhs) {
+  UseScratchRegisterScope temps(this);
+  DoubleRegister scratch = temps.AcquireD();
+  Ushr(scratch.V2S(), rhs.V2S(), 31);
+  if (dst != lhs) {
+    Fmov(dst.S(), lhs.S());
+  }
+  Sli(dst.V2S(), scratch.V2S(), 31);
+}
+
+void LiftoffAssembler::emit_f64_copysign(DoubleRegister dst, DoubleRegister lhs,
+                                         DoubleRegister rhs) {
+  UseScratchRegisterScope temps(this);
+  DoubleRegister scratch = temps.AcquireD();
+  Ushr(scratch.V1D(), rhs.V1D(), 63);
+  if (dst != lhs) {
+    Fmov(dst.D(), lhs.D());
+  }
+  Sli(dst.V1D(), scratch.V1D(), 63);
+}
+
 bool LiftoffAssembler::emit_type_conversion(WasmOpcode opcode,
                                             LiftoffRegister dst,
                                             LiftoffRegister src, Label* trap) {
@@ -758,6 +804,29 @@ bool LiftoffAssembler::emit_type_conversion(WasmOpcode opcode,
     default:
       UNREACHABLE();
   }
+}
+
+void LiftoffAssembler::emit_i32_signextend_i8(Register dst, Register src) {
+  sxtb(dst, src);
+}
+
+void LiftoffAssembler::emit_i32_signextend_i16(Register dst, Register src) {
+  sxth(dst, src);
+}
+
+void LiftoffAssembler::emit_i64_signextend_i8(LiftoffRegister dst,
+                                              LiftoffRegister src) {
+  sxtb(dst.gp(), src.gp());
+}
+
+void LiftoffAssembler::emit_i64_signextend_i16(LiftoffRegister dst,
+                                               LiftoffRegister src) {
+  sxth(dst.gp(), src.gp());
+}
+
+void LiftoffAssembler::emit_i64_signextend_i32(LiftoffRegister dst,
+                                               LiftoffRegister src) {
+  sxtw(dst.gp(), src.gp());
 }
 
 void LiftoffAssembler::emit_jump(Label* label) { B(label); }

@@ -37,7 +37,6 @@ QT_BEGIN_NAMESPACE
 
 class QAction;
 class QComboBox;
-class QFileSystemWatcher;
 class QLineEdit;
 class QMenu;
 
@@ -45,10 +44,7 @@ class CentralWidget;
 class CmdLineParser;
 class ContentWindow;
 class IndexWindow;
-class OpenPagesWindow;
 class QtDocInstaller;
-class QHelpEngineCore;
-class QHelpEngine;
 class SearchWidget;
 
 class MainWindow : public QMainWindow
@@ -94,7 +90,7 @@ private slots:
     void showNewAddress(const QUrl &url);
     void showTopicChooser(const QMap<QString, QUrl> &links, const QString &keyword);
     void updateApplicationFont();
-    void filterDocumentation(const QString &customFilter);
+    void filterDocumentation(int filterIndex);
     void setupFilterCombo();
     void lookForNewQtDocumentation();
     void indexingStarted();

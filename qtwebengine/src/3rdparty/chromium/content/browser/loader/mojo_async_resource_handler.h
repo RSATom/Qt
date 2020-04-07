@@ -28,6 +28,7 @@ class GURL;
 
 namespace base {
 class Location;
+class OneShotTimer;
 }
 
 namespace net {
@@ -83,16 +84,17 @@ class CONTENT_EXPORT MojoAsyncResourceHandler
       std::unique_ptr<ResourceController> controller) override;
 
   // network::mojom::URLLoader implementation:
-  void FollowRedirect(const base::Optional<std::vector<std::string>>&
-                          to_be_removed_request_headers,
-                      const base::Optional<net::HttpRequestHeaders>&
-                          modified_request_headers) override;
+  void FollowRedirect(const std::vector<std::string>& removed_headers,
+                      const net::HttpRequestHeaders& modified_headers,
+                      const base::Optional<GURL>& new_url) override;
   void ProceedWithResponse() override;
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override;
   void PauseReadingBodyFromNet() override;
   void ResumeReadingBodyFromNet() override;
 
+  void set_report_transfer_size_async_timer_for_testing(
+      std::unique_ptr<base::OneShotTimer> timer);
   void OnWritableForTesting();
   static void SetAllocationSizeForTesting(size_t size);
   static constexpr size_t kDefaultAllocationSize = 512 * 1024;
@@ -123,6 +125,8 @@ class CONTENT_EXPORT MojoAsyncResourceHandler
   // |reported_total_received_bytes_|, returns it, and updates
   // |reported_total_received_bytes_|.
   int64_t CalculateRecentlyReceivedBytes();
+  void SendTransferSizeUpdate();
+  void EnsureTransferSizeUpdate();
 
   // These functions can be overriden only for tests.
   virtual void ReportBadMessage(const std::string& error);
@@ -143,16 +147,15 @@ class CONTENT_EXPORT MojoAsyncResourceHandler
   bool has_checked_for_sufficient_resources_ = false;
   bool sent_received_response_message_ = false;
   bool is_using_io_buffer_not_from_writer_ = false;
+  bool was_proceed_with_response_called_ = false;
   // True if OnWillRead was deferred, in order to wait to be able to allocate a
   // buffer.
   bool did_defer_on_will_read_ = false;
   bool did_defer_on_writing_ = false;
   bool did_defer_on_redirect_ = false;
   bool did_defer_on_response_started_ = false;
+  bool did_check_for_intermediary_buffer_ = false;
 
-  // The time transfer size should be reported next.
-  base::TimeTicks time_transfer_size_next_report_;
-  int64_t reported_total_received_bytes_ = 0;
   int64_t total_written_bytes_ = 0;
 
   // Pointer to parent's information about the read buffer. Only non-null while
@@ -170,6 +173,14 @@ class CONTENT_EXPORT MojoAsyncResourceHandler
   mojo::ScopedDataPipeConsumerHandle response_body_consumer_handle_;
 
   std::unique_ptr<network::UploadProgressTracker> upload_progress_tracker_;
+
+  // Timer to report transfer size after a read is completed but not reported.
+  // Gurantees that all received bytes will be reported eventually, regardless
+  // of read rate or completion, as long as the client is alive.
+  std::unique_ptr<base::OneShotTimer> report_transfer_size_async_timer_;
+  // The time transfer size should be reported next.
+  base::TimeTicks earliest_time_next_transfer_size_report_;
+  int64_t reported_total_received_bytes_ = 0;
 
   base::WeakPtrFactory<MojoAsyncResourceHandler> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(MojoAsyncResourceHandler);

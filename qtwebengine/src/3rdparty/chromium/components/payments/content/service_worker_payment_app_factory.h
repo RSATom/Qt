@@ -14,7 +14,7 @@
 #include "base/macros.h"
 #include "components/payments/content/web_app_manifest.h"
 #include "content/public/browser/payment_app_provider.h"
-#include "third_party/blink/public/platform/modules/payments/payment_request.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 class GURL;
 
@@ -84,7 +84,7 @@ class ServiceWorkerPaymentAppFactory {
   // Should be used only in tests.
   // Should be called before every call to GetAllPaymentApps() (because the test
   // downloader is moved into the SelfDeletingServiceWorkerPaymentAppFactory).
-  void SetDownloaderAndIgnorePortInAppScopeForTesting(
+  void SetDownloaderAndIgnorePortInOriginComparisonForTesting(
       std::unique_ptr<PaymentManifestDownloader> downloader);
 
   std::unique_ptr<PaymentManifestDownloader> test_downloader_;

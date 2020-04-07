@@ -8,11 +8,11 @@
 #include <stdint.h>
 
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/containers/flat_set.h"
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -98,6 +98,8 @@ class FaviconServiceImpl : public FaviconService {
   void TouchOnDemandFavicon(const GURL& icon_url) override;
   void SetImportedFavicons(
       const favicon_base::FaviconUsageDataList& favicon_usage) override;
+  void AddPageNoVisitForBookmark(const GURL& url,
+                                 const base::string16& title) override;
   void MergeFavicon(const GURL& page_url,
                     const GURL& icon_url,
                     favicon_base::IconType icon_type,
@@ -157,7 +159,7 @@ class FaviconServiceImpl : public FaviconService {
       const std::vector<favicon_base::FaviconRawBitmapResult>&
           favicon_bitmap_results);
 
-  base::hash_set<MissingFaviconURLHash> missing_favicon_urls_;
+  std::unordered_set<MissingFaviconURLHash> missing_favicon_urls_;
   std::unique_ptr<FaviconClient> favicon_client_;
   history::HistoryService* history_service_;
 

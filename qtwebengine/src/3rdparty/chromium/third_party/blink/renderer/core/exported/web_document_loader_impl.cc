@@ -48,20 +48,38 @@
 
 namespace blink {
 
-WebDocumentLoaderImpl* WebDocumentLoaderImpl::Create(
-    LocalFrame* frame,
-    const ResourceRequest& request,
-    const SubstituteData& data,
-    ClientRedirectPolicy client_redirect_policy,
-    const base::UnguessableToken& devtools_navigation_token) {
-  DCHECK(frame);
-
-  return new WebDocumentLoaderImpl(frame, request, data, client_redirect_policy,
-                                   devtools_navigation_token);
+// static
+bool WebDocumentLoader::WillLoadUrlAsEmpty(const WebURL& url) {
+  return DocumentLoader::WillLoadUrlAsEmpty(url);
 }
 
-const WebURLRequest& WebDocumentLoaderImpl::OriginalRequest() const {
-  return original_request_wrapper_;
+WebURL WebDocumentLoaderImpl::OriginalUrl() const {
+  return DocumentLoader::OriginalUrl();
+}
+
+WebString WebDocumentLoaderImpl::OriginalReferrer() const {
+  return DocumentLoader::OriginalReferrer();
+}
+
+WebURL WebDocumentLoaderImpl::GetUrl() const {
+  return request_wrapper_.Url();
+}
+
+WebString WebDocumentLoaderImpl::HttpMethod() const {
+  return request_wrapper_.HttpMethod();
+}
+
+mojom::FetchCacheMode WebDocumentLoaderImpl::GetCacheMode() const {
+  return request_wrapper_.GetCacheMode();
+}
+
+WebString WebDocumentLoaderImpl::Referrer() const {
+  return DocumentLoader::Referrer();
+}
+
+network::mojom::ReferrerPolicy WebDocumentLoaderImpl::GetReferrerPolicy()
+    const {
+  return request_wrapper_.GetReferrerPolicy();
 }
 
 const WebURLRequest& WebDocumentLoaderImpl::GetRequest() const {
@@ -111,17 +129,10 @@ void WebDocumentLoaderImpl::SetExtraData(
 
 WebDocumentLoaderImpl::WebDocumentLoaderImpl(
     LocalFrame* frame,
-    const ResourceRequest& request,
-    const SubstituteData& data,
-    ClientRedirectPolicy client_redirect_policy,
-    const base::UnguessableToken& devtools_navigation_token)
-    : DocumentLoader(frame,
-                     request,
-                     data,
-                     client_redirect_policy,
-                     devtools_navigation_token),
-      original_request_wrapper_(DocumentLoader::OriginalRequest()),
-      request_wrapper_(DocumentLoader::GetRequest()),
+    WebNavigationType navigation_type,
+    std::unique_ptr<WebNavigationParams> navigation_params)
+    : DocumentLoader(frame, navigation_type, std::move(navigation_params)),
+      request_wrapper_(request_),
       response_wrapper_(DocumentLoader::GetResponse()) {}
 
 WebDocumentLoaderImpl::~WebDocumentLoaderImpl() {
@@ -129,8 +140,8 @@ WebDocumentLoaderImpl::~WebDocumentLoaderImpl() {
   DCHECK(!extra_data_);
 }
 
-void WebDocumentLoaderImpl::DetachFromFrame() {
-  DocumentLoader::DetachFromFrame();
+void WebDocumentLoaderImpl::DetachFromFrame(bool flush_microtask_queue) {
+  DocumentLoader::DetachFromFrame(flush_microtask_queue);
   extra_data_.reset();
 }
 
@@ -150,22 +161,6 @@ WebDocumentLoaderImpl::GetServiceWorkerNetworkProvider() {
   return DocumentLoader::GetServiceWorkerNetworkProvider();
 }
 
-void WebDocumentLoaderImpl::SetSourceLocation(
-    const WebSourceLocation& source_location) {
-  std::unique_ptr<SourceLocation> location =
-      SourceLocation::Create(source_location.url, source_location.line_number,
-                             source_location.column_number, nullptr);
-  DocumentLoader::SetSourceLocation(std::move(location));
-}
-
-void WebDocumentLoaderImpl::ResetSourceLocation() {
-  DocumentLoader::SetSourceLocation(nullptr);
-}
-
-void WebDocumentLoaderImpl::SetUserActivated() {
-  DocumentLoader::SetUserActivated();
-}
-
 void WebDocumentLoaderImpl::BlockParser() {
   DocumentLoader::BlockParser();
 }
@@ -181,6 +176,14 @@ bool WebDocumentLoaderImpl::IsArchive() const {
 WebArchiveInfo WebDocumentLoaderImpl::GetArchiveInfo() const {
   const MHTMLArchive* archive = Fetcher()->Archive();
   return {archive->MainResource()->Url(), archive->Date()};
+}
+
+bool WebDocumentLoaderImpl::HadUserGesture() const {
+  return DocumentLoader::had_transient_activation();
+}
+
+bool WebDocumentLoaderImpl::IsListingFtpDirectory() const {
+  return DocumentLoader::IsListingFtpDirectory();
 }
 
 void WebDocumentLoaderImpl::Trace(blink::Visitor* visitor) {

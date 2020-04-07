@@ -16,6 +16,7 @@
 #include "base/mac/mac_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
+#include "base/strings/sys_string_conversions.h"
 #include "media/base/timestamp_constants.h"
 #include "media/capture/video/mac/video_capture_device_mac.h"
 #include "media/capture/video_capture_types.h"
@@ -87,8 +88,8 @@ void MaybeWriteUma(int number_of_devices, int number_of_suspended_devices) {
   std::string model = base::mac::GetModelIdentifier();
   if (base::StartsWith(model, "MacBook",
                        base::CompareCase::INSENSITIVE_ASCII)) {
-    UMA_HISTOGRAM_COUNTS("Media.VideoCapture.MacBook.NumberOfDevices",
-                         number_of_devices + number_of_suspended_devices);
+    UMA_HISTOGRAM_COUNTS_1M("Media.VideoCapture.MacBook.NumberOfDevices",
+                            number_of_devices + number_of_suspended_devices);
     if (number_of_devices + number_of_suspended_devices == 0) {
       UMA_HISTOGRAM_ENUMERATION(
           "Media.VideoCapture.MacBook.HardwareVersionWhenNoCamera",
@@ -170,7 +171,7 @@ void ExtractBaseAddressAndLength(char** base_address,
   NSArray* devices = [AVCaptureDevice devices];
   AVCaptureDevice* device = nil;
   for (device in devices) {
-    if ([[device uniqueID] UTF8String] == descriptor.device_id)
+    if (base::SysNSStringToUTF8([device uniqueID]) == descriptor.device_id)
       break;
   }
   if (device == nil)
@@ -498,10 +499,13 @@ void ExtractBaseAddressAndLength(char** base_address,
 }
 
 - (void)sendErrorString:(NSString*)error {
-  DLOG(ERROR) << [error UTF8String];
+  DLOG(ERROR) << base::SysNSStringToUTF8(error);
   base::AutoLock lock(lock_);
   if (frameReceiver_)
-    frameReceiver_->ReceiveError(FROM_HERE, [error UTF8String]);
+    frameReceiver_->ReceiveError(
+        media::VideoCaptureError::
+            kMacAvFoundationReceivedAVCaptureSessionRuntimeErrorNotification,
+        FROM_HERE, base::SysNSStringToUTF8(error));
 }
 
 @end

@@ -57,6 +57,10 @@ public:
         return k400_GrGLSLGeneration;
     }
 
+    bool atan2ImplementedAsAtanYOverX() const {
+        return false;
+    }
+
     bool canUseMinAndAbsTogether() const {
         return true;
     }
@@ -109,6 +113,10 @@ public:
         return true;
     }
 
+    bool mustDoOpBetweenFloorAndAbs() const {
+        return false;
+    }
+
     bool mustEnableAdvBlendEqs() const {
         return false;
     }
@@ -127,6 +135,10 @@ public:
 
     bool integerSupport() const {
         return false;
+    }
+
+    bool builtinFMASupport() const {
+        return true;
     }
 
     const char* shaderDerivativeExtensionString() const {
@@ -174,6 +186,26 @@ public:
     }
 
     bool incompleteShortIntPrecision() const {
+        return false;
+    }
+
+    bool addAndTrueToLoopCondition() const {
+        return false;
+    }
+
+    bool unfoldShortCircuitAsTernary() const {
+        return false;
+    }
+
+    bool emulateAbsIntFunction() const {
+        return false;
+    }
+
+    bool rewriteDoWhileLoops() const {
+        return false;
+    }
+
+    bool removePowWithConstantExponent() const {
         return false;
     }
 
@@ -318,6 +350,41 @@ public:
         result->fVersionDeclString = "#version 310es";
         result->fUsesPrecisionModifiers = true;
         result->fIncompleteShortIntPrecision = true;
+        return result;
+    }
+
+    static sk_sp<GrShaderCaps> AddAndTrueToLoopCondition() {
+        sk_sp<GrShaderCaps> result = sk_make_sp<GrShaderCaps>(GrContextOptions());
+        result->fVersionDeclString = "#version 400";
+        result->fAddAndTrueToLoopCondition = true;
+        return result;
+    }
+
+    static sk_sp<GrShaderCaps> UnfoldShortCircuitAsTernary() {
+        sk_sp<GrShaderCaps> result = sk_make_sp<GrShaderCaps>(GrContextOptions());
+        result->fVersionDeclString = "#version 400";
+        result->fUnfoldShortCircuitAsTernary = true;
+        return result;
+    }
+
+    static sk_sp<GrShaderCaps> EmulateAbsIntFunction() {
+        sk_sp<GrShaderCaps> result = sk_make_sp<GrShaderCaps>(GrContextOptions());
+        result->fVersionDeclString = "#version 400";
+        result->fEmulateAbsIntFunction = true;
+        return result;
+    }
+
+    static sk_sp<GrShaderCaps> RewriteDoWhileLoops() {
+        sk_sp<GrShaderCaps> result = sk_make_sp<GrShaderCaps>(GrContextOptions());
+        result->fVersionDeclString = "#version 400";
+        result->fRewriteDoWhileLoops = true;
+        return result;
+    }
+
+    static sk_sp<GrShaderCaps> RemovePowWithConstantExponent() {
+        sk_sp<GrShaderCaps> result = sk_make_sp<GrShaderCaps>(GrContextOptions());
+        result->fVersionDeclString = "#version 400";
+        result->fRemovePowWithConstantExponent = true;
         return result;
     }
 };

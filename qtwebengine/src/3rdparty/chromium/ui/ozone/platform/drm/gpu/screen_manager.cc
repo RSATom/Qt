@@ -10,44 +10,40 @@
 
 #include "base/files/platform_file.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkSurface.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/skia_util.h"
+#include "ui/ozone/common/linux/gbm_buffer.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
-#include "ui/ozone/platform/drm/gpu/drm_console_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
+#include "ui/ozone/platform/drm/gpu/drm_dumb_buffer.h"
+#include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_window.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_controller.h"
-#include "ui/ozone/platform/drm/gpu/scanout_buffer.h"
-#include "ui/ozone/platform/drm/gpu/scanout_buffer_generator.h"
 
 namespace ui {
 
 namespace {
 
 // Copies the contents of the saved framebuffer from the CRTCs in |controller|
-// to the new modeset buffer |buffer|.
-void FillModesetBuffer(const scoped_refptr<DrmDevice>& drm,
+// to the surface for the new modeset buffer |surface|.
+bool FillModesetBuffer(const scoped_refptr<DrmDevice>& drm,
                        HardwareDisplayController* controller,
-                       ScanoutBuffer* buffer) {
-  DrmConsoleBuffer modeset_buffer(drm, buffer->GetOpaqueFramebufferId());
-  if (!modeset_buffer.Initialize()) {
-    VLOG(2) << "Failed to grab framebuffer " << buffer->GetOpaqueFramebufferId();
-    return;
-  }
-
+                       SkSurface* surface,
+                       uint32_t fourcc_format) {
   DCHECK(!controller->crtc_controllers().empty());
   CrtcController* first_crtc = controller->crtc_controllers()[0].get();
   ScopedDrmCrtcPtr saved_crtc(drm->GetCrtc(first_crtc->crtc()));
   if (!saved_crtc || !saved_crtc->buffer_id) {
     VLOG(2) << "Crtc has no saved state or wasn't modeset";
-    return;
+    return false;
   }
 
-  uint32_t fourcc_format = buffer->GetFramebufferPixelFormat();
   const auto& modifiers = controller->GetFormatModifiers(fourcc_format);
   for (const uint64_t modifier : modifiers) {
     // A value of 0 means DRM_FORMAT_MOD_NONE. If the CRTC has any other
@@ -56,30 +52,32 @@ void FillModesetBuffer(const scoped_refptr<DrmDevice>& drm,
     if (modifier) {
       VLOG(2) << "Crtc has a modifier and we might not know how to interpret "
                  "the fb.";
-      return;
+      return false;
     }
   }
 
   // If the display controller is in mirror mode, the CRTCs should be sharing
   // the same framebuffer.
-  DrmConsoleBuffer saved_buffer(drm, saved_crtc->buffer_id);
-  if (!saved_buffer.Initialize()) {
+  DrmDumbBuffer saved_buffer(drm);
+  if (!saved_buffer.InitializeFromFramebuffer(saved_crtc->buffer_id)) {
     VLOG(2) << "Failed to grab saved framebuffer " << saved_crtc->buffer_id;
-    return;
+    return false;
   }
 
   // Don't copy anything if the sizes mismatch. This can happen when the user
   // changes modes.
-  if (saved_buffer.canvas()->getBaseLayerSize() !=
-      modeset_buffer.canvas()->getBaseLayerSize()) {
+  if (saved_buffer.GetCanvas()->getBaseLayerSize() !=
+      surface->getCanvas()->getBaseLayerSize()) {
     VLOG(2) << "Previous buffer has a different size than modeset buffer";
-    return;
+    return false;
   }
 
   SkPaint paint;
   // Copy the source buffer. Do not perform any blending.
   paint.setBlendMode(SkBlendMode::kSrc);
-  modeset_buffer.canvas()->drawImage(saved_buffer.image(), 0, 0, &paint);
+  surface->getCanvas()->drawImage(saved_buffer.surface()->makeImageSnapshot(),
+                                  0, 0, &paint);
+  return true;
 }
 
 CrtcController* GetCrtcController(HardwareDisplayController* controller,
@@ -96,9 +94,7 @@ CrtcController* GetCrtcController(HardwareDisplayController* controller,
 
 }  // namespace
 
-ScreenManager::ScreenManager(ScanoutBufferGenerator* buffer_generator)
-    : buffer_generator_(buffer_generator) {
-}
+ScreenManager::ScreenManager() {}
 
 ScreenManager::~ScreenManager() {
   DCHECK(window_map_.empty());
@@ -347,8 +343,8 @@ void ScreenManager::UpdateControllerToWindowMapping() {
     if (it != window_to_controller_map.end())
       controller = it->second;
 
-    bool should_enable =
-        controller && pair.second->GetController() != controller;
+    bool should_enable = controller && pair.second->GetController() &&
+                         pair.second->GetController() != controller;
     pair.second->SetController(controller);
 
     // If we're moving windows between controllers modeset the controller
@@ -372,8 +368,8 @@ DrmOverlayPlane ScreenManager::GetModesetBuffer(
   if (window) {
     const DrmOverlayPlane* primary = window->GetLastModesetBuffer();
     const DrmDevice* drm = controller->GetDrmDevice().get();
-    if (primary && primary->buffer->GetSize() == bounds.size() &&
-        primary->buffer->GetGbmDeviceLinux() == drm->AsGbmDeviceLinux()) {
+    if (primary && primary->buffer->size() == bounds.size() &&
+        primary->buffer->drm_device() == drm) {
       // If the controller doesn't advertise modifiers, wont have a
       // modifier either and we can reuse the buffer. Otherwise, check
       // to see if the controller supports the buffers format
@@ -381,24 +377,38 @@ DrmOverlayPlane ScreenManager::GetModesetBuffer(
       if (modifiers.empty())
         return primary->Clone();
       for (const uint64_t modifier : modifiers) {
-        if (modifier == primary->buffer->GetFormatModifier())
+        if (modifier == primary->buffer->format_modifier())
           return primary->Clone();
       }
     }
   }
 
   scoped_refptr<DrmDevice> drm = controller->GetDrmDevice();
-  scoped_refptr<ScanoutBuffer> buffer =
-      buffer_generator_->Create(drm, fourcc_format, modifiers, bounds.size());
+  std::unique_ptr<GbmBuffer> buffer =
+      drm->gbm_device()->CreateBufferWithModifiers(
+          fourcc_format, bounds.size(), GBM_BO_USE_SCANOUT, modifiers);
   if (!buffer) {
     LOG(ERROR) << "Failed to create scanout buffer";
-    return DrmOverlayPlane(nullptr, 0, gfx::OVERLAY_TRANSFORM_INVALID,
-                           gfx::Rect(), gfx::RectF(), /* enable_blend */ true,
-                           /* gpu_fence */ nullptr);
+    return DrmOverlayPlane::Error();
   }
 
-  FillModesetBuffer(drm, controller, buffer.get());
-  return DrmOverlayPlane(buffer, nullptr);
+  scoped_refptr<DrmFramebuffer> framebuffer =
+      DrmFramebuffer::AddFramebuffer(drm, buffer.get());
+  if (!framebuffer) {
+    LOG(ERROR) << "Failed to add framebuffer for scanout buffer";
+    return DrmOverlayPlane::Error();
+  }
+
+  sk_sp<SkSurface> surface = buffer->GetSurface();
+  if (!surface) {
+    VLOG(2) << "Can't get a SkSurface from the modeset gbm buffer.";
+  } else if (!FillModesetBuffer(drm, controller, surface.get(),
+                                buffer->GetFormat())) {
+    // If we fail to fill the modeset buffer, clear it black to avoid displaying
+    // an uninitialized framebuffer.
+    surface->getCanvas()->clear(SK_ColorBLACK);
+  }
+  return DrmOverlayPlane(framebuffer, nullptr);
 }
 
 bool ScreenManager::EnableController(HardwareDisplayController* controller) {

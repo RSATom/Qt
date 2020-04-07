@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import contextlib
+import copy
 import hashlib
 import json
 import logging
@@ -126,6 +127,7 @@ class LocalDeviceInstrumentationTestRun(
         env, test_instance)
     self._flag_changers = {}
     self._replace_package_contextmanager = None
+    self._shared_prefs_to_restore = []
 
   #override
   def TestPackage(self):
@@ -153,7 +155,11 @@ class LocalDeviceInstrumentationTestRun(
           self._replace_package_contextmanager = system_app.ReplaceSystemApp(
               dev, self._test_instance.replace_system_package.package,
               self._test_instance.replace_system_package.replacement_apk)
+          # Pylint is not smart enough to realize that this field has
+          # an __enter__ method, and will complain loudly.
+          # pylint: disable=no-member
           self._replace_package_contextmanager.__enter__()
+          # pylint: enable=no-member
 
         steps.append(replace_package)
 
@@ -222,8 +228,25 @@ class LocalDeviceInstrumentationTestRun(
           shared_pref = shared_prefs.SharedPrefs(
               dev, setting['package'], setting['filename'],
               use_encrypted_path=setting.get('supports_encrypted_path', False))
+          pref_to_restore = copy.copy(shared_pref)
+          pref_to_restore.Load()
+          self._shared_prefs_to_restore.append(pref_to_restore)
+
           shared_preference_utils.ApplySharedPreferenceSetting(
               shared_pref, setting)
+
+      @trace_event.traced
+      def set_vega_permissions(dev):
+        # Normally, installation of VrCore automatically grants storage
+        # permissions. However, since VrCore is part of the system image on
+        # the Vega standalone headset, we don't install the APK as part of test
+        # setup. Instead, grant the permissions here so that it can take
+        # screenshots.
+        if dev.product_name == 'vega':
+          dev.GrantPermissions('com.google.vr.vrcore', [
+              'android.permission.WRITE_EXTERNAL_STORAGE',
+              'android.permission.READ_EXTERNAL_STORAGE'
+          ])
 
       @instrumentation_tracing.no_tracing
       def push_test_data(dev):
@@ -252,8 +275,10 @@ class LocalDeviceInstrumentationTestRun(
         valgrind_tools.SetChromeTimeoutScale(
             dev, self._test_instance.timeout_scale)
 
-      steps += [set_debug_app, edit_shared_prefs, push_test_data,
-                create_flag_changer]
+      steps += [
+          set_debug_app, edit_shared_prefs, push_test_data, create_flag_changer,
+          set_vega_permissions
+      ]
 
       def bind_crash_handler(step, dev):
         return lambda: crash_handler.RetryOnSystemCrash(step, dev)
@@ -288,13 +313,22 @@ class LocalDeviceInstrumentationTestRun(
         individual_device_set_up,
         self._test_instance.GetDataDependencies())
     if self._test_instance.wait_for_java_debugger:
+      apk = self._test_instance.apk_under_test or self._test_instance.test_apk
       logging.warning('*' * 80)
       logging.warning('Waiting for debugger to attach to process: %s',
-                      self._test_instance.apk_under_test.GetPackageName())
+                      apk.GetPackageName())
       logging.warning('*' * 80)
 
   #override
   def TearDown(self):
+    # By default, teardown will invoke ADB. When receiving SIGTERM due to a
+    # timeout, there's a high probability that ADB is non-responsive. In these
+    # cases, sending an ADB command will potentially take a long time to time
+    # out. Before this happens, the process will be hard-killed for not
+    # responding to SIGTERM fast enough.
+    if self._received_sigterm:
+      return
+
     @local_device_environment.handle_shard_failures_with(
         self._env.BlacklistDevice)
     @trace_event.traced
@@ -307,15 +341,33 @@ class LocalDeviceInstrumentationTestRun(
 
       valgrind_tools.SetChromeTimeoutScale(dev, None)
 
+      # Restore any shared preference files that we stored during setup.
+      # This should be run sometime before the replace package contextmanager
+      # gets exited so we don't have to special case restoring files of
+      # replaced system apps.
+      for pref_to_restore in self._shared_prefs_to_restore:
+        pref_to_restore.Commit(force_commit=True)
+
       if self._replace_package_contextmanager:
+        # See pylint-related commend above with __enter__()
+        # pylint: disable=no-member
         self._replace_package_contextmanager.__exit__(*sys.exc_info())
+        # pylint: enable=no-member
 
     self._env.parallel_devices.pMap(individual_device_tear_down)
 
   def _CreateFlagChangerIfNeeded(self, device):
-    if not str(device) in self._flag_changers:
+    if str(device) not in self._flag_changers:
+      cmdline_file = 'test-cmdline-file'
+      if self._test_instance.use_apk_under_test_flags_file:
+        if self._test_instance.package_info:
+          cmdline_file = self._test_instance.package_info.cmdline_file
+        else:
+          logging.warning(
+              'No PackageInfo found, falling back to using flag file %s',
+              cmdline_file)
       self._flag_changers[str(device)] = flag_changer.FlagChanger(
-        device, "test-cmdline-file")
+          device, cmdline_file)
 
   #override
   def _CreateShards(self, tests):
@@ -679,7 +731,8 @@ class LocalDeviceInstrumentationTestRun(
             host_file = os.path.join(host_dir, 'list_tests.json')
             dev.PullFile(dev_test_list_json.name, host_file)
             with open(host_file, 'r') as host_file:
-                return json.load(host_file)
+              return json.load(host_file)
+
       return crash_handler.RetryOnSystemCrash(_run, d)
 
     raw_test_lists = self._env.parallel_devices.pMap(list_tests).pGet(None)
@@ -757,19 +810,19 @@ class LocalDeviceInstrumentationTestRun(
 
   def _SaveScreenshot(self, device, screenshot_device_file, test_name, results,
                       link_name):
-      screenshot_filename = '%s-%s.png' % (
-          test_name, time.strftime('%Y%m%dT%H%M%S-UTC', time.gmtime()))
-      if device.FileExists(screenshot_device_file.name):
-        with self._env.output_manager.ArchivedTempfile(
-            screenshot_filename, 'screenshot',
-            output_manager.Datatype.PNG) as screenshot_host_file:
-          try:
-            device.PullFile(screenshot_device_file.name,
-                            screenshot_host_file.name)
-          finally:
-            screenshot_device_file.close()
-        for result in results:
-          result.SetLink(link_name, screenshot_host_file.Link())
+    screenshot_filename = '%s-%s.png' % (
+        test_name, time.strftime('%Y%m%dT%H%M%S-UTC', time.gmtime()))
+    if device.FileExists(screenshot_device_file.name):
+      with self._env.output_manager.ArchivedTempfile(
+          screenshot_filename, 'screenshot',
+          output_manager.Datatype.PNG) as screenshot_host_file:
+        try:
+          device.PullFile(screenshot_device_file.name,
+                          screenshot_host_file.name)
+        finally:
+          screenshot_device_file.close()
+      for result in results:
+        result.SetLink(link_name, screenshot_host_file.Link())
 
   def _ProcessRenderTestResults(
       self, device, render_tests_device_output_dir, results):

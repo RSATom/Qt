@@ -43,6 +43,7 @@
 #include "third_party/blink/renderer/core/layout/view_fragmentation_context.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/page/scrolling/root_scroller_controller.h"
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator_context.h"
 #include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -111,6 +112,13 @@ LayoutView::LayoutView(Document* document)
   SetPreferredLogicalWidthsDirty(kMarkOnlyThis);
 
   SetPositionState(EPosition::kAbsolute);  // to 0,0 :)
+
+  // Update the cached bit here since the Document is made the effective root
+  // scroller before we've created the layout tree.
+  if (GetDocument().GetRootScrollerController().EffectiveRootScroller() ==
+      GetDocument()) {
+    SetIsEffectiveRootScroller(true);
+  }
 }
 
 LayoutView::~LayoutView() = default;
@@ -121,7 +129,7 @@ bool LayoutView::HitTest(const HitTestLocation& location,
   // hit test recurses into a child document, it could trigger a layout on the
   // parent document, which can destroy PaintLayer that are higher up in the
   // call stack, leading to crashes.
-  // Note that Document::updateLayout calls its parent's updateLayout.
+  // Note that Document::UpdateLayout calls its parent's UpdateLayout.
   // Note that if an iframe has its render pipeline throttled, it will not
   // update layout here, and it will also not propagate the hit test into the
   // iframe's inner document.
@@ -136,8 +144,6 @@ bool LayoutView::HitTestNoLifecycleUpdate(const HitTestLocation& location,
                                           HitTestResult& result) {
   TRACE_EVENT_BEGIN0("blink,devtools.timeline", "HitTest");
   hit_test_count_++;
-
-  DCHECK(!location.IsRectBasedTest() || result.GetHitTestRequest().ListBased());
 
   uint64_t dom_tree_version = GetDocument().DomTreeVersion();
   HitTestResult cache_result = result;
@@ -191,8 +197,8 @@ bool LayoutView::HitTestNoLifecycleUpdate(const HitTestLocation& location,
   }
 
   TRACE_EVENT_END1("blink,devtools.timeline", "HitTest", "endData",
-                   InspectorHitTestEvent::EndData(result.GetHitTestRequest(),
-                                                  location, result));
+                   inspector_hit_test_event::EndData(result.GetHitTestRequest(),
+                                                     location, result));
   return hit_layer;
 }
 
@@ -223,8 +229,6 @@ bool LayoutView::CanHaveChildren() const {
   FrameOwner* owner = GetFrame()->Owner();
   if (!owner)
     return true;
-  if (!RuntimeEnabledFeatures::DisplayNoneIFrameCreatesNoLayoutObjectEnabled())
-    return true;
   // Although it is not spec compliant, many websites intentionally call
   // Window.print() on display:none iframes. https://crbug.com/819327.
   if (GetDocument().Printing())
@@ -245,21 +249,20 @@ void LayoutView::CheckLayoutState() {
 }
 #endif
 
-void LayoutView::SetShouldDoFullPaintInvalidationOnResizeIfNeeded(
-    bool width_changed,
-    bool height_changed) {
-  // When background-attachment is 'fixed', we treat the viewport (instead of
-  // the 'root' i.e. html or body) as the background positioning area, and we
-  // should fully invalidate on viewport resize if the background image is not
-  // composited and needs full paint invalidation on background positioning area
-  // resize.
-  if (Style()->HasFixedBackgroundImage()) {
-    if ((width_changed && MustInvalidateFillLayersPaintOnWidthChange(
-                              Style()->BackgroundLayers())) ||
-        (height_changed && MustInvalidateFillLayersPaintOnHeightChange(
-                               Style()->BackgroundLayers())))
-      SetShouldDoFullPaintInvalidation(PaintInvalidationReason::kBackground);
+bool LayoutView::ShouldPlaceBlockDirectionScrollbarOnLogicalLeft() const {
+  LocalFrame& frame = GetFrameView()->GetFrame();
+  // See crbug.com/249860
+  if (frame.IsMainFrame())
+    return false;
+  // <body> inherits 'direction' from <html>, so checking style on the body is
+  // sufficient.
+  if (Element* body = GetDocument().body()) {
+    if (LayoutObject* body_layout_object = body->GetLayoutObject()) {
+      return body_layout_object->StyleRef()
+          .ShouldPlaceBlockDirectionScrollbarOnLogicalLeft();
+    }
   }
+  return false;
 }
 
 void LayoutView::UpdateBlockLayout(bool relayout_children) {
@@ -280,9 +283,9 @@ void LayoutView::UpdateBlockLayout(bool relayout_children) {
         continue;
 
       if ((child->IsBox() && ToLayoutBox(child)->HasRelativeLogicalHeight()) ||
-          child->Style()->LogicalHeight().IsPercentOrCalc() ||
-          child->Style()->LogicalMinHeight().IsPercentOrCalc() ||
-          child->Style()->LogicalMaxHeight().IsPercentOrCalc())
+          child->StyleRef().LogicalHeight().IsPercentOrCalc() ||
+          child->StyleRef().LogicalMinHeight().IsPercentOrCalc() ||
+          child->StyleRef().LogicalMaxHeight().IsPercentOrCalc())
         layout_scope.SetChildNeedsLayout(child);
     }
 
@@ -301,11 +304,6 @@ void LayoutView::UpdateBlockLayout(bool relayout_children) {
 void LayoutView::UpdateLayout() {
   if (!GetDocument().Printing())
     SetPageLogicalHeight(LayoutUnit());
-
-  // TODO(wangxianzhu): Move this into ViewPaintInvalidator.
-  SetShouldDoFullPaintInvalidationOnResizeIfNeeded(
-      OffsetWidth() != GetLayoutSize(kIncludeScrollbars).Width(),
-      OffsetHeight() != GetLayoutSize(kIncludeScrollbars).Height());
 
   if (PageLogicalHeight() && ShouldUsePrintingLayout()) {
     min_preferred_logical_width_ = max_preferred_logical_width_ =
@@ -374,7 +372,8 @@ void LayoutView::MapLocalToAncestor(const LayoutBoxModelObject* ancestor,
   if (mode & kTraverseDocumentBoundaries) {
     auto* parent_doc_layout_object = GetFrame()->OwnerLayoutObject();
     if (parent_doc_layout_object) {
-      transform_state.Move(parent_doc_layout_object->ContentBoxOffset());
+      transform_state.Move(
+          parent_doc_layout_object->PhysicalContentBoxOffset());
       parent_doc_layout_object->MapLocalToAncestor(ancestor, transform_state,
                                                    mode);
     } else {
@@ -391,7 +390,7 @@ const LayoutObject* LayoutView::PushMappingToContainer(
 
   if (geometry_map.GetMapCoordinatesFlags() & kTraverseDocumentBoundaries) {
     if (auto* parent_doc_layout_object = GetFrame()->OwnerLayoutObject()) {
-      offset += parent_doc_layout_object->ContentBoxOffset();
+      offset += parent_doc_layout_object->PhysicalContentBoxOffset();
       container = parent_doc_layout_object;
     }
   }
@@ -423,7 +422,8 @@ void LayoutView::MapAncestorToLocal(const LayoutBoxModelObject* ancestor,
       parent_doc_layout_object->MapAncestorToLocal(ancestor, transform_state,
                                                    mode & ~kIsFixed);
 
-      transform_state.Move(parent_doc_layout_object->ContentBoxOffset());
+      transform_state.Move(
+          parent_doc_layout_object->PhysicalContentBoxOffset());
     }
   } else {
     DCHECK(this == ancestor || !ancestor);
@@ -462,14 +462,14 @@ static void SetShouldDoFullPaintInvalidationForViewAndAllDescendantsInternal(
 }
 
 void LayoutView::SetShouldDoFullPaintInvalidationForViewAndAllDescendants() {
-  if (RuntimeEnabledFeatures::SlimmingPaintV2Enabled())
-    SetShouldDoFullPaintInvalidationIncludingNonCompositingDescendants();
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    SetSubtreeShouldDoFullPaintInvalidation();
   else
     SetShouldDoFullPaintInvalidationForViewAndAllDescendantsInternal(this);
 }
 
 void LayoutView::InvalidatePaintForViewAndCompositedLayers() {
-  SetShouldDoFullPaintInvalidationIncludingNonCompositingDescendants();
+  SetSubtreeShouldDoFullPaintInvalidation();
 
   // The only way we know how to hit these ASSERTS below this point is via the
   // Chromium OS login screen.
@@ -552,7 +552,7 @@ bool LayoutView::MapToVisualRectInAncestorSpaceInternal(
     rect = LayoutRect(EnclosingIntRect(rect));
 
     // Adjust for frame border.
-    rect.Move(obj->ContentBoxOffset());
+    rect.Move(obj->PhysicalContentBoxOffset());
     transform_state.SetQuad(FloatQuad(FloatRect(rect)));
 
     return obj->MapToVisualRectInAncestorSpaceInternal(
@@ -580,10 +580,6 @@ void LayoutView::AbsoluteQuads(Vector<FloatQuad>& quads,
       FloatRect(FloatPoint(), FloatSize(Layer()->Size())), mode));
 }
 
-void LayoutView::ClearSelection() {
-  frame_view_->GetFrame().Selection().ClearLayoutSelection();
-}
-
 void LayoutView::CommitPendingSelection() {
   TRACE_EVENT0("blink", "LayoutView::commitPendingSelection");
   DCHECK(!NeedsLayout());
@@ -608,9 +604,10 @@ LayoutRect LayoutView::OverflowClipRect(
     const LayoutPoint& location,
     OverlayScrollbarClipBehavior overlay_scrollbar_clip_behavior) const {
   LayoutRect rect = ViewRect();
-  if (rect.IsEmpty())
+  if (rect.IsEmpty()) {
     return LayoutBox::OverflowClipRect(location,
                                        overlay_scrollbar_clip_behavior);
+  }
 
   rect.SetLocation(location);
   if (HasOverflowClip())
@@ -656,7 +653,7 @@ void LayoutView::CalculateScrollbarModes(ScrollbarMode& h_mode,
   Document& document = GetDocument();
   if (Node* body = document.body()) {
     // Framesets can't scroll.
-    if (IsHTMLFrameSetElement(body) && body->GetLayoutObject())
+    if (body->GetLayoutObject() && body->GetLayoutObject()->IsFrameSet())
       RETURN_SCROLLBAR_MODE(kScrollbarAlwaysOff);
   }
 
@@ -723,9 +720,10 @@ void LayoutView::CalculateScrollbarModes(ScrollbarMode& h_mode,
 #undef RETURN_SCROLLBAR_MODE
 }
 
-void LayoutView::DispatchFakeMouseMoveEventSoon(EventHandler& event_handler) {
-  event_handler.DispatchFakeMouseMoveEventSoon(
-      MouseEventManager::FakeMouseMoveReason::kDuringScroll);
+void LayoutView::MayUpdateHoverWhenContentUnderMouseChanged(
+    EventHandler& event_handler) {
+  event_handler.MayUpdateHoverWhenContentUnderMouseChanged(
+      MouseEventManager::UpdateHoverReason::kScrollOffsetChanged);
 }
 
 IntRect LayoutView::DocumentRect() const {
@@ -751,14 +749,14 @@ IntSize LayoutView::GetLayoutSize(
 
 int LayoutView::ViewLogicalWidth(
     IncludeScrollbarsInRect scrollbar_inclusion) const {
-  return Style()->IsHorizontalWritingMode() ? ViewWidth(scrollbar_inclusion)
-                                            : ViewHeight(scrollbar_inclusion);
+  return StyleRef().IsHorizontalWritingMode() ? ViewWidth(scrollbar_inclusion)
+                                              : ViewHeight(scrollbar_inclusion);
 }
 
 int LayoutView::ViewLogicalHeight(
     IncludeScrollbarsInRect scrollbar_inclusion) const {
-  return Style()->IsHorizontalWritingMode() ? ViewHeight(scrollbar_inclusion)
-                                            : ViewWidth(scrollbar_inclusion);
+  return StyleRef().IsHorizontalWritingMode() ? ViewHeight(scrollbar_inclusion)
+                                              : ViewWidth(scrollbar_inclusion);
 }
 
 LayoutUnit LayoutView::ViewLogicalHeightForPercentages() const {
@@ -861,10 +859,10 @@ void LayoutView::UpdateFromStyle() {
     SetHasBoxDecorationBackground(true);
 }
 
-bool LayoutView::RecalcOverflowAfterStyleChange() {
-  if (!NeedsOverflowRecalcAfterStyleChange())
+bool LayoutView::RecalcLayoutOverflow() {
+  if (!NeedsLayoutOverflowRecalc())
     return false;
-  bool result = LayoutBlockFlow::RecalcOverflowAfterStyleChange();
+  bool result = LayoutBlockFlow::RecalcLayoutOverflow();
   if (result) {
     // Changing overflow should notify scrolling coordinator to ensures that it
     // updates non-fast scroll rects even if there is no layout.
@@ -876,7 +874,7 @@ bool LayoutView::RecalcOverflowAfterStyleChange() {
     if (NeedsLayout())
       return result;
     if (GetFrameView()->VisualViewportSuppliesScrollbars())
-      SetMayNeedPaintInvalidation();
+      SetShouldCheckForPaintInvalidation();
     GetFrameView()->AdjustViewSize();
     SetNeedsPaintPropertyUpdate();
   }
@@ -893,12 +891,6 @@ LayoutRect LayoutView::DebugRect() const {
   rect.SetHeight(LayoutUnit(ViewHeight(kIncludeScrollbars)));
 
   return rect;
-}
-
-IntSize LayoutView::ScrolledContentOffset() const {
-  DCHECK(HasOverflowClip());
-  // FIXME: Return DoubleSize here. crbug.com/414283.
-  return GetScrollableArea()->ScrollOffsetInt();
 }
 
 bool LayoutView::UpdateLogicalWidthAndColumnWidth() {

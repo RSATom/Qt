@@ -11,13 +11,14 @@
 #include "base/memory/ptr_util.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/core/css/css_variable_data.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 
 namespace blink {
 
-class StyleNonInheritedVariables {
+class CORE_EXPORT StyleNonInheritedVariables {
  public:
   static std::unique_ptr<StyleNonInheritedVariables> Create() {
     return base::WrapUnique(new StyleNonInheritedVariables);
@@ -34,6 +35,9 @@ class StyleNonInheritedVariables {
 
   void SetVariable(const AtomicString& name,
                    scoped_refptr<CSSVariableData> value) {
+    needs_resolution_ =
+        needs_resolution_ || (value && (value->NeedsVariableResolution() ||
+                                        value->NeedsUrlResolution()));
     data_.Set(name, std::move(value));
   }
   CSSVariableData* GetVariable(const AtomicString& name) const;
@@ -41,19 +45,23 @@ class StyleNonInheritedVariables {
 
   void SetRegisteredVariable(const AtomicString&, const CSSValue*);
   const CSSValue* RegisteredVariable(const AtomicString& name) const {
-    return registered_data_.at(name);
+    return registered_data_->at(name);
   }
 
   HashSet<AtomicString> GetCustomPropertyNames() const;
 
+  bool NeedsResolution() const { return needs_resolution_; }
+  void ClearNeedsResolution() { needs_resolution_ = false; }
+
  private:
-  StyleNonInheritedVariables() = default;
+  StyleNonInheritedVariables();
   StyleNonInheritedVariables(StyleNonInheritedVariables&);
 
   friend class CSSVariableResolver;
 
   HashMap<AtomicString, scoped_refptr<CSSVariableData>> data_;
-  PersistentHeapHashMap<AtomicString, Member<CSSValue>> registered_data_;
+  Persistent<HeapHashMap<AtomicString, Member<CSSValue>>> registered_data_;
+  bool needs_resolution_;
 };
 
 }  // namespace blink

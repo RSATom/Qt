@@ -155,14 +155,28 @@ private Q_SLOTS:
     void getToken_data();
     void getToken();
 
+    void prepareRequestSignature_data();
+    void prepareRequestSignature();
+
     void grant_data();
     void grant();
 
     void authenticatedCalls_data();
     void authenticatedCalls();
 
+    void prepareRequestCalls_data();
+    void prepareRequestCalls();
+
     void secondTemporaryToken();
 };
+
+const auto oauthVersion = QStringLiteral("oauth_version");
+const auto oauthConsumerKey = QStringLiteral("oauth_consumer_key");
+const auto oauthNonce = QStringLiteral("oauth_nonce");
+const auto oauthSignatureMethod = QStringLiteral("oauth_signature_method");
+const auto oauthTimestamp = QStringLiteral("oauth_timestamp");
+const auto oauthToken = QStringLiteral("oauth_token");
+const auto oauthSignature = QStringLiteral("oauth_signature");
 
 bool hostReachable(const QLatin1String &host)
 {
@@ -476,6 +490,118 @@ void tst_OAuth1::getToken()
     QCOMPARE(oauthHeaders["oauth_signature"], expectedSignature);
 }
 
+void tst_OAuth1::prepareRequestSignature_data()
+{
+    QTest::addColumn<QString>("consumerKey");
+    QTest::addColumn<QString>("consumerSecret");
+    QTest::addColumn<QString>("accessKey");
+    QTest::addColumn<QString>("accessKeySecret");
+    QTest::addColumn<QNetworkRequest>("request");
+    QTest::addColumn<QByteArray>("operation");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QVariantMap>("extraParams");
+
+    QTest::newRow("get_simple")
+            << "key"
+            << "secret"
+            << "accesskey"
+            << "accesssecret"
+            << QNetworkRequest(QUrl("http://term.ie/oauth/example/echo_api.php"))
+            << QByteArray("GET")
+            << QByteArray()
+            << QVariantMap();
+
+    QTest::newRow("get_params")
+            << "key"
+            << "secret"
+            << "accesskey"
+            << "accesssecret"
+            << QNetworkRequest(QUrl("http://term.ie/oauth/example/echo_api.php?"
+                                    "first=first&second=second"))
+            << QByteArray("GET")
+            << QByteArray()
+            << QVariantMap();
+
+    QNetworkRequest postRequest(QUrl("http://term.ie/oauth/example/echo_api.php"));
+    postRequest.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QByteArray("application/x-www-form-urlencoded"));
+    QTest::newRow("post_params")
+            << "key"
+            << "secret"
+            << "accesskey"
+            << "accesssecret"
+            << postRequest
+            << QByteArray("POST")
+            << QByteArray("first=first&second=second")
+            << QVariantMap({
+                               {"first", "first"},
+                               {"second", "second"}
+                           });
+
+    QTest::newRow("patch_param")
+            << "key"
+            << "secret"
+            << "accesskey"
+            << "accesssecret"
+            << QNetworkRequest(QUrl("http://term.ie/oauth/example/echo_api.php?"
+                                    "first=first&second=second"))
+            << QByteArray("PATCH")
+            << QByteArray()
+            << QVariantMap();
+}
+
+void tst_OAuth1::prepareRequestSignature()
+{
+    QFETCH(QString, consumerKey);
+    QFETCH(QString, consumerSecret);
+    QFETCH(QString, accessKey);
+    QFETCH(QString, accessKeySecret);
+    QFETCH(QNetworkRequest, request);
+    QFETCH(QByteArray, operation);
+    QFETCH(QByteArray, body);
+    QFETCH(QVariantMap, extraParams);
+
+    QOAuth1 o1;
+    o1.setClientCredentials(consumerKey, consumerSecret);
+    o1.setTokenCredentials(accessKey, accessKeySecret);
+
+    o1.prepareRequest(&request, operation, body);
+
+    // extract oauth parameters from the headers
+    QVariantMap authArgs;
+    const auto authHeader = request.rawHeader("Authorization");
+    QCOMPARE(authHeader.mid(0, 6), "OAuth ");
+    const auto values = authHeader.mid(6).split(',');
+    for (const auto &pair : values) {
+        const auto argPair = pair.split('=');
+        QCOMPARE(argPair.size(), 2);
+        QCOMPARE(argPair[1].front(), '\"');
+        QCOMPARE(argPair[1].back(), '\"');
+        authArgs.insert(argPair[0], argPair[1].mid(1, argPair[1].size() - 2));
+    }
+
+    //compare known parameters
+    QCOMPARE(authArgs.value(oauthConsumerKey).toByteArray(), consumerKey);
+    QCOMPARE(authArgs.value(oauthToken).toByteArray(), accessKey);
+    QCOMPARE(authArgs.value(oauthSignatureMethod).toByteArray(), QByteArray("HMAC-SHA1"));
+    QCOMPARE(authArgs.value(oauthVersion).toByteArray(), QByteArray("1.0"));
+    QVERIFY(authArgs.contains(oauthNonce));
+    QVERIFY(authArgs.contains(oauthTimestamp));
+    QVERIFY(authArgs.contains(oauthSignature));
+
+    // verify the signature
+    const auto sigString = QUrl::fromPercentEncoding(authArgs.take(oauthSignature)
+                                                     .toByteArray()).toUtf8();
+    QOAuth1Signature signature(request.url(),
+                               consumerSecret,
+                               accessKeySecret,
+                               QOAuth1Signature::HttpRequestMethod::Custom,
+                               authArgs.unite(extraParams));
+    signature.setCustomMethodString(operation);
+    const auto signatureData = signature.hmacSha1();
+    QCOMPARE(signatureData.toBase64(), sigString);
+}
+
 void tst_OAuth1::grant_data()
 {
     QTest::addColumn<QString>("consumerKey");
@@ -510,28 +636,6 @@ void tst_OAuth1::grant_data()
                                     << QUrl("http://term.ie/oauth/example/access_token.php")
                                     << QUrl("http://term.ie/oauth/example/echo_api.php")
                                     << QNetworkAccessManager::PostOperation;
-    }
-    if (hostReachable(QLatin1String("oauthbin.com"))) {
-        QTest::newRow("oauthbin.com_get") << "key"
-                                        << "secret"
-                                        << "requestkey"
-                                        << "requestsecret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/request-token")
-                                        << QUrl("http://oauthbin.com/v1/access-token")
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << QNetworkAccessManager::GetOperation;
-        QTest::newRow("oauthbin.com_post") << "key"
-                                        << "secret"
-                                        << "requestkey"
-                                        << "requestsecret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/request-token")
-                                        << QUrl("http://oauthbin.com/v1/access-token")
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << QNetworkAccessManager::PostOperation;
     }
 }
 
@@ -635,30 +739,8 @@ void tst_OAuth1::authenticatedCalls_data()
             << QUrl("http://term.ie/oauth/example/echo_api.php?key=%40value+1%2B2=3")
             << parameters
             << QNetworkAccessManager::GetOperation;
-    }
-    if (hostReachable(QLatin1String("oauthbin.com"))) {
-        QTest::newRow("oauthbin.com_get") << "key"
-                                        << "secret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << parameters
-                                        << QNetworkAccessManager::GetOperation;
-        QTest::newRow("oauthbin.com_post") << "key"
-                                        << "secret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << parameters
-                                        << QNetworkAccessManager::PostOperation;
-        QTest::newRow("oauthbin.com_percent_encoded_query")
-            << "key"
-            << "secret"
-            << "accesskey"
-            << "accesssecret"
-            << QUrl("http://oauthbin.com/v1/echo?key=%40value+1%2B2=3")
-            << parameters
-            << QNetworkAccessManager::GetOperation;
+    } else {
+        QSKIP("Skipping test due to unreacahble term.ie host");
     }
 }
 
@@ -699,6 +781,120 @@ void tst_OAuth1::authenticatedCalls()
         reply.reset(o1.get(url, parameters));
     else if (operation == QNetworkAccessManager::PostOperation)
         reply.reset(o1.post(url, parameters));
+    QVERIFY(!reply.isNull());
+    QVERIFY(!reply->isFinished());
+
+    connect(&networkAccessManager, &QNetworkAccessManager::finished,
+            [&](QNetworkReply *reply) {
+        QByteArray data = reply->readAll();
+        QUrlQuery query(QString::fromUtf8(data));
+        receivedData = query.toString(QUrl::FullyDecoded);
+    });
+    QVERIFY(waitForFinish(reply) == Success);
+    QCOMPARE(receivedData, parametersString);
+    reply.clear();
+}
+
+void tst_OAuth1::prepareRequestCalls_data()
+{
+    QTest::addColumn<QString>("consumerKey");
+    QTest::addColumn<QString>("consumerSecret");
+    QTest::addColumn<QString>("accessKey");
+    QTest::addColumn<QString>("accessKeySecret");
+    QTest::addColumn<QUrl>("url");
+    QTest::addColumn<QVariantMap>("parameters");
+    QTest::addColumn<QByteArray>("operation");
+
+    const QVariantMap parameters { { QStringLiteral("first"), QStringLiteral("first") },
+                                   { QStringLiteral("second"), QStringLiteral("second") },
+                                   { QStringLiteral("third"), QStringLiteral("third") },
+                                   { QStringLiteral("c2&a3"), QStringLiteral("2=%$&@q") }
+                                 };
+
+    if (hostReachable(QLatin1String("term.ie"))) {
+        QTest::newRow("term.ie_get") << "key"
+                                     << "secret"
+                                     << "accesskey"
+                                     << "accesssecret"
+                                     << QUrl("http://term.ie/oauth/example/echo_api.php")
+                                     << parameters
+                                     << QByteArray("GET");
+        QTest::newRow("term.ie_post") << "key"
+                                      << "secret"
+                                      << "accesskey"
+                                      << "accesssecret"
+                                      << QUrl("http://term.ie/oauth/example/echo_api.php")
+                                      << parameters
+                                      << QByteArray("POST");
+        QTest::newRow("term.ie_percent_encoded_query")
+            << "key"
+            << "secret"
+            << "accesskey"
+            << "accesssecret"
+            << QUrl("http://term.ie/oauth/example/echo_api.php?key=%40value+1%2B2=3")
+            << parameters
+            << QByteArray("GET");
+    } else {
+        QSKIP("Skipping test due to unreacahble term.ie host");
+    }
+}
+
+void tst_OAuth1::prepareRequestCalls()
+{
+    QFETCH(QString, consumerKey);
+    QFETCH(QString, consumerSecret);
+    QFETCH(QString, accessKey);
+    QFETCH(QString, accessKeySecret);
+    QFETCH(QUrl, url);
+    QFETCH(QVariantMap, parameters);
+    QFETCH(QByteArray, operation);
+
+    QNetworkAccessManager networkAccessManager;
+    QNetworkReplyPtr reply;
+    QString receivedData;
+    QString parametersString;
+    {
+        if (url.hasQuery()) {
+            parametersString = url.query(QUrl::FullyDecoded);
+            if (!parameters.empty())
+                parametersString.append(QLatin1Char('&'));
+        }
+        bool first = true;
+        for (auto it = parameters.begin(), end = parameters.end(); it != end; ++it) {
+            if (first)
+                first = false;
+            else
+                parametersString += QLatin1Char('&');
+            parametersString += it.key() + QLatin1Char('=') + it.value().toString();
+        }
+    }
+
+    QOAuth1 o1(&networkAccessManager);
+    o1.setClientCredentials(consumerKey, consumerSecret);
+    o1.setTokenCredentials(accessKey, accessKeySecret);
+
+    if (operation != "POST") {
+        QUrlQuery query(url.query());
+        for (auto it = parameters.begin(), end = parameters.end(); it != end; ++it)
+            query.addQueryItem(it.key(), it.value().toString());
+        url.setQuery(query);
+    }
+    QNetworkRequest request(url);
+    QByteArray body;
+    if (operation == "POST") {
+        QUrlQuery query(url.query());
+        for (auto it = parameters.begin(), end = parameters.end(); it != end; ++it)
+            query.addQueryItem(it.key(), it.value().toString());
+        body = query.toString().toUtf8();
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QByteArray("application/x-www-form-urlencoded"));
+    }
+
+    o1.prepareRequest(&request, operation, body);
+    if (body.isEmpty())
+        reply.reset(o1.networkAccessManager()->sendCustomRequest(request, operation));
+    else
+        reply.reset(o1.networkAccessManager()->sendCustomRequest(request, operation, body));
     QVERIFY(!reply.isNull());
     QVERIFY(!reply->isFinished());
 

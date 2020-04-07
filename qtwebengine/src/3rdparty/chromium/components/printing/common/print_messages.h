@@ -11,13 +11,13 @@
 #include <string>
 #include <vector>
 
-#include "base/memory/shared_memory.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/printing/common/printing_param_traits_macros.h"
 #include "ipc/ipc_message_macros.h"
 #include "printing/buildflags/buildflags.h"
-#include "printing/common/pdf_metafile_utils.h"
+#include "printing/common/metafile_utils.h"
 #include "printing/page_range.h"
 #include "printing/page_size_margins.h"
 #include "printing/print_job_constants.h"
@@ -26,7 +26,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
 #include "ui/gfx/ipc/skia/gfx_skia_param_traits.h"
-#include "ui/gfx/native_widget_types.h"
 
 #ifndef INTERNAL_COMPONENTS_PRINTING_COMMON_PRINT_MESSAGES_H_
 #define INTERNAL_COMPONENTS_PRINTING_COMMON_PRINT_MESSAGES_H_
@@ -268,35 +267,35 @@ IPC_STRUCT_TRAITS_BEGIN(PrintMsg_PrintFrame_Params)
 IPC_STRUCT_TRAITS_END()
 
 // Holds the printed content information.
-// The printed content is in shared memory, and passed by its handle
-// and data size.
+// The printed content is in shared memory, and passed as a region.
 // A map on out-of-process subframe contents is also included so the printed
 // content can be composited as needed.
 IPC_STRUCT_BEGIN(PrintHostMsg_DidPrintContent_Params)
-  // A shared memory handle to metafile data.
-  IPC_STRUCT_MEMBER(base::SharedMemoryHandle, metafile_data_handle)
-
-  // Size of metafile data.
-  IPC_STRUCT_MEMBER(uint32_t, data_size)
+  // A shared memory region for the metafile data.
+  IPC_STRUCT_MEMBER(base::ReadOnlySharedMemoryRegion, metafile_data_region)
 
   // Content id to render frame proxy id mapping for out-of-process subframes.
   IPC_STRUCT_MEMBER(printing::ContentToProxyIdMap, subframe_content_info)
 IPC_STRUCT_END()
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-// Parameters to describe a rendered document.
-IPC_STRUCT_BEGIN(PrintHostMsg_DidPreviewDocument_Params)
-  // Document's content including metafile data and subframe info.
-  IPC_STRUCT_MEMBER(PrintHostMsg_DidPrintContent_Params, content)
+// Parameters to describe the to-be-rendered preview document.
+IPC_STRUCT_BEGIN(PrintHostMsg_DidStartPreview_Params)
+  // Total page count for the rendered preview. (Not the number of pages the
+  // user selected to print.)
+  IPC_STRUCT_MEMBER(int, page_count)
 
-  // Cookie for the document to ensure correctness.
-  IPC_STRUCT_MEMBER(int, document_cookie)
+  // The list of 0-based page numbers that will be rendered.
+  IPC_STRUCT_MEMBER(std::vector<int>, pages_to_render)
 
-  // Store the expected pages count.
-  IPC_STRUCT_MEMBER(int, expected_pages_count)
+  // number of pages per sheet and should be greater or equal to 1.
+  IPC_STRUCT_MEMBER(int, pages_per_sheet)
 
-  // Whether the preview can be modified.
-  IPC_STRUCT_MEMBER(bool, modifiable)
+  // Physical size of the page, including non-printable margins.
+  IPC_STRUCT_MEMBER(gfx::Size, page_size)
+
+  // Scaling % to fit to page
+  IPC_STRUCT_MEMBER(int, fit_to_page_scaling)
 IPC_STRUCT_END()
 
 // Parameters to describe a rendered preview page.
@@ -311,13 +310,16 @@ IPC_STRUCT_BEGIN(PrintHostMsg_DidPreviewPage_Params)
   IPC_STRUCT_MEMBER(int, document_cookie)
 IPC_STRUCT_END()
 
-// Parameters sent along with the page count.
-IPC_STRUCT_BEGIN(PrintHostMsg_DidGetPreviewPageCount_Params)
-  // Total page count.
-  IPC_STRUCT_MEMBER(int, page_count)
+// Parameters to describe the final rendered preview document.
+IPC_STRUCT_BEGIN(PrintHostMsg_DidPreviewDocument_Params)
+  // Document's content including metafile data and subframe info.
+  IPC_STRUCT_MEMBER(PrintHostMsg_DidPrintContent_Params, content)
 
-  // Scaling % to fit to page
-  IPC_STRUCT_MEMBER(int, fit_to_page_scaling)
+  // Cookie for the document to ensure correctness.
+  IPC_STRUCT_MEMBER(int, document_cookie)
+
+  // Store the expected pages count.
+  IPC_STRUCT_MEMBER(int, expected_pages_count)
 IPC_STRUCT_END()
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
@@ -337,7 +339,6 @@ IPC_STRUCT_BEGIN(PrintHostMsg_DidPrintDocument_Params)
 
   // The physical offsets of the printer in DPI. Used for PS printing.
   IPC_STRUCT_MEMBER(gfx::Point, physical_offsets)
-
 IPC_STRUCT_END()
 
 // TODO(dgn) Rename *ScriptedPrint messages because they are not called only
@@ -442,27 +443,14 @@ IPC_SYNC_MESSAGE_ROUTED1_1(PrintHostMsg_ScriptedPrint,
                            PrintMsg_PrintPages_Params
                                /* settings chosen by the user*/)
 
-#if defined(OS_ANDROID)
-// Asks the browser to create a temporary file for the renderer to fill
-// in resulting PdfMetafileSkia in printing.
-IPC_SYNC_MESSAGE_CONTROL1_2(PrintHostMsg_AllocateTempFileForPrinting,
-                            int /* render_frame_id */,
-                            base::FileDescriptor /* temp file fd */,
-                            int /* fd in browser*/)
-IPC_MESSAGE_CONTROL3(PrintHostMsg_TempFileForPrintingWritten,
-                     int /* render_frame_id */,
-                     int /* fd in browser */,
-                     int /* page count */)
-#endif  // defined(OS_ANDROID)
-
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 // Asks the browser to do print preview.
 IPC_MESSAGE_ROUTED1(PrintHostMsg_RequestPrintPreview,
                     PrintHostMsg_RequestPrintPreview_Params /* params */)
 
-// Notify the browser the number of pages in the print preview document.
-IPC_MESSAGE_ROUTED2(PrintHostMsg_DidGetPreviewPageCount,
-                    PrintHostMsg_DidGetPreviewPageCount_Params /* params */,
+// Notify the browser the about the to-be-rendered print preview document.
+IPC_MESSAGE_ROUTED2(PrintHostMsg_DidStartPreview,
+                    PrintHostMsg_DidStartPreview_Params /* params */,
                     PrintHostMsg_PreviewIds /* ids */)
 
 // Notify the browser of the default page layout according to the currently

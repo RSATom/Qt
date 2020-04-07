@@ -13,12 +13,13 @@
 #include <utility>
 
 #include "base/feature_list.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_variant.h"
 #include "media/base/media_switches.h"
 #include "media/base/timestamp_constants.h"
+#include "media/capture/mojom/image_capture_types.h"
 #include "media/capture/video/blob_utils.h"
 #include "media/capture/video/win/metrics.h"
 #include "media/capture/video/win/video_capture_device_utils_win.h"
@@ -339,7 +340,7 @@ VideoPixelFormat VideoCaptureDeviceWin::TranslateMediaSubtypeToPixelFormat(
   }
 #ifndef NDEBUG
   WCHAR guid_str[128];
-  StringFromGUID2(sub_type, guid_str, arraysize(guid_str));
+  StringFromGUID2(sub_type, guid_str, base::size(guid_str));
   DVLOG(2) << "Device (also) supports an unknown media type " << guid_str;
 #endif
   return PIXEL_FORMAT_UNKNOWN;
@@ -524,14 +525,18 @@ void VideoCaptureDeviceWin::AllocateAndStart(
   ComPtr<IAMStreamConfig> stream_config;
   HRESULT hr = output_capture_pin_.CopyTo(stream_config.GetAddressOf());
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Can't get the Capture format settings", hr);
+    SetErrorState(
+        media::VideoCaptureError::kWinDirectShowCantGetCaptureFormatSettings,
+        FROM_HERE, "Can't get the Capture format settings", hr);
     return;
   }
 
   int count = 0, size = 0;
   hr = stream_config->GetNumberOfCapabilities(&count, &size);
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Failed to GetNumberOfCapabilities", hr);
+    SetErrorState(
+        media::VideoCaptureError::kWinDirectShowFailedToGetNumberOfCapabilities,
+        FROM_HERE, "Failed to GetNumberOfCapabilities", hr);
     return;
   }
 
@@ -544,7 +549,9 @@ void VideoCaptureDeviceWin::AllocateAndStart(
   hr = stream_config->GetStreamCaps(found_capability.media_type_index,
                                     media_type.Receive(), caps.get());
   if (hr != S_OK) {
-    SetErrorState(FROM_HERE, "Failed to get capture device capabilities", hr);
+    SetErrorState(media::VideoCaptureError::
+                      kWinDirectShowFailedToGetCaptureDeviceCapabilities,
+                  FROM_HERE, "Failed to get capture device capabilities", hr);
     return;
   }
   if (media_type->formattype == FORMAT_VideoInfo) {
@@ -560,7 +567,9 @@ void VideoCaptureDeviceWin::AllocateAndStart(
   // Order the capture device to use this format.
   hr = stream_config->SetFormat(media_type.get());
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Failed to set capture device output format", hr);
+    SetErrorState(media::VideoCaptureError::
+                      kWinDirectShowFailedToSetCaptureDeviceOutputFormat,
+                  FROM_HERE, "Failed to set capture device output format", hr);
     return;
   }
   capture_format_ = found_capability.supported_format;
@@ -578,20 +587,26 @@ void VideoCaptureDeviceWin::AllocateAndStart(
   }
 
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Failed to connect the Capture graph.", hr);
+    SetErrorState(
+        media::VideoCaptureError::kWinDirectShowFailedToConnectTheCaptureGraph,
+        FROM_HERE, "Failed to connect the Capture graph.", hr);
     return;
   }
 
   hr = media_control_->Pause();
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Failed to pause the Capture device", hr);
+    SetErrorState(
+        media::VideoCaptureError::kWinDirectShowFailedToPauseTheCaptureDevice,
+        FROM_HERE, "Failed to pause the Capture device", hr);
     return;
   }
 
   // Start capturing.
   hr = media_control_->Run();
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Failed to start the Capture device.", hr);
+    SetErrorState(
+        media::VideoCaptureError::kWinDirectShowFailedToStartTheCaptureDevice,
+        FROM_HERE, "Failed to start the Capture device.", hr);
     return;
   }
 
@@ -606,7 +621,9 @@ void VideoCaptureDeviceWin::StopAndDeAllocate() {
 
   HRESULT hr = media_control_->Stop();
   if (FAILED(hr)) {
-    SetErrorState(FROM_HERE, "Failed to stop the capture graph.", hr);
+    SetErrorState(
+        media::VideoCaptureError::kWinDirectShowFailedToStopTheCaptureGraph,
+        FROM_HERE, "Failed to stop the capture graph.", hr);
     return;
   }
 
@@ -637,7 +654,7 @@ void VideoCaptureDeviceWin::GetPhotoState(GetPhotoStateCallback callback) {
       return;
   }
 
-  auto photo_capabilities = mojom::PhotoState::New();
+  auto photo_capabilities = mojo::CreateEmptyPhotoState();
 
   photo_capabilities->exposure_compensation = RetrieveControlRangeAndCurrent(
       [this](auto... args) {
@@ -890,6 +907,10 @@ void VideoCaptureDeviceWin::FrameReceived(const uint8_t* buffer,
   }
 }
 
+void VideoCaptureDeviceWin::FrameDropped(VideoCaptureFrameDropReason reason) {
+  client_->OnFrameDropped(reason);
+}
+
 bool VideoCaptureDeviceWin::CreateCapabilityMap() {
   DCHECK(thread_checker_.CalledOnValidThread());
   GetPinCapabilityList(capture_filter_, output_capture_pin_,
@@ -928,12 +949,13 @@ void VideoCaptureDeviceWin::SetAntiFlickerInCaptureFilter(
   }
 }
 
-void VideoCaptureDeviceWin::SetErrorState(const base::Location& from_here,
+void VideoCaptureDeviceWin::SetErrorState(media::VideoCaptureError error,
+                                          const base::Location& from_here,
                                           const std::string& reason,
                                           HRESULT hr) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DLOG_IF_FAILED_WITH_HRESULT(reason, hr);
   state_ = kError;
-  client_->OnError(from_here, reason);
+  client_->OnError(error, from_here, reason);
 }
 }  // namespace media

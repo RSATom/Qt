@@ -142,7 +142,7 @@ NSAttributedString* AttributedSubstringFromRange(const EphemeralRange& range,
 WebPoint GetBaselinePoint(LocalFrameView* frame_view,
                           const EphemeralRange& range,
                           NSAttributedString* string) {
-  IntRect string_rect = frame_view->FrameToViewport(ComputeTextRect(range));
+  IntRect string_rect = frame_view->FrameToViewport(FirstRectForRange(range));
   IntPoint string_point = string_rect.MinXMaxYCorner();
 
   // Adjust for the font's descender. AppKit wants the baseline point.
@@ -161,7 +161,7 @@ NSAttributedString* WebSubstringUtil::AttributedWordAtPoint(
     WebPoint point,
     WebPoint& baseline_point) {
   HitTestResult result = static_cast<WebFrameWidgetBase*>(frame_widget)
-                             ->CoreHitTestResultAt(point);
+                             ->CoreHitTestResultAt(IntPoint(point));
 
   if (!result.InnerNode())
     return nil;

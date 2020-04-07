@@ -6,10 +6,12 @@
 
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <vector>
 
 #include "src/base/functional.h"
 #include "src/base/logging.h"
 #include "src/base/platform/platform.h"
+#include "src/memcopy.h"
 
 namespace v8 {
 namespace internal {
@@ -200,82 +202,61 @@ char* ReadLine(const char* prompt) {
   return result;
 }
 
+namespace {
 
-char* ReadCharsFromFile(FILE* file,
-                        int* size,
-                        int extra_space,
-                        bool verbose,
-                        const char* filename) {
+std::vector<char> ReadCharsFromFile(FILE* file, bool* exists, bool verbose,
+                                    const char* filename) {
   if (file == nullptr || fseek(file, 0, SEEK_END) != 0) {
     if (verbose) {
       base::OS::PrintError("Cannot read from file %s.\n", filename);
     }
-    return nullptr;
+    *exists = false;
+    return std::vector<char>();
   }
 
   // Get the size of the file and rewind it.
-  *size = static_cast<int>(ftell(file));
+  ptrdiff_t size = ftell(file);
   rewind(file);
 
-  char* result = NewArray<char>(*size + extra_space);
-  for (int i = 0; i < *size && feof(file) == 0;) {
-    int read = static_cast<int>(fread(&result[i], 1, *size - i, file));
-    if (read != (*size - i) && ferror(file) != 0) {
+  std::vector<char> result(size);
+  for (ptrdiff_t i = 0; i < size && feof(file) == 0;) {
+    ptrdiff_t read = fread(result.data() + i, 1, size - i, file);
+    if (read != (size - i) && ferror(file) != 0) {
       fclose(file);
-      DeleteArray(result);
-      return nullptr;
+      *exists = false;
+      return std::vector<char>();
     }
     i += read;
   }
+  *exists = true;
   return result;
 }
 
-
-char* ReadCharsFromFile(const char* filename,
-                        int* size,
-                        int extra_space,
-                        bool verbose) {
+std::vector<char> ReadCharsFromFile(const char* filename, bool* exists,
+                                    bool verbose) {
   FILE* file = base::OS::FOpen(filename, "rb");
-  char* result = ReadCharsFromFile(file, size, extra_space, verbose, filename);
+  std::vector<char> result = ReadCharsFromFile(file, exists, verbose, filename);
   if (file != nullptr) fclose(file);
   return result;
 }
 
-
-byte* ReadBytes(const char* filename, int* size, bool verbose) {
-  char* chars = ReadCharsFromFile(filename, size, 0, verbose);
-  return reinterpret_cast<byte*>(chars);
-}
-
-
-static Vector<const char> SetVectorContents(char* chars,
-                                            int size,
-                                            bool* exists) {
-  if (!chars) {
-    *exists = false;
-    return Vector<const char>::empty();
+std::string VectorToString(const std::vector<char>& chars) {
+  if (chars.size() == 0) {
+    return std::string();
   }
-  chars[size] = '\0';
-  *exists = true;
-  return Vector<const char>(chars, size);
+  return std::string(chars.begin(), chars.end());
 }
 
+}  // namespace
 
-Vector<const char> ReadFile(const char* filename,
-                            bool* exists,
-                            bool verbose) {
-  int size;
-  char* result = ReadCharsFromFile(filename, &size, 1, verbose);
-  return SetVectorContents(result, size, exists);
+std::string ReadFile(const char* filename, bool* exists, bool verbose) {
+  std::vector<char> result = ReadCharsFromFile(filename, exists, verbose);
+  return VectorToString(result);
 }
 
-
-Vector<const char> ReadFile(FILE* file,
-                            bool* exists,
-                            bool verbose) {
-  int size;
-  char* result = ReadCharsFromFile(file, &size, 1, verbose, "");
-  return SetVectorContents(result, size, exists);
+std::string ReadFile(FILE* file, bool* exists, bool verbose) {
+  std::vector<char> result = ReadCharsFromFile(file, exists, verbose, "");
+  return VectorToString(result);
 }
 
 
@@ -355,81 +336,9 @@ void StringBuilder::AddFormattedList(const char* format, va_list list) {
   }
 }
 
-#if V8_TARGET_ARCH_IA32
-static void MemMoveWrapper(void* dest, const void* src, size_t size) {
-  memmove(dest, src, size);
-}
-
-
-// Initialize to library version so we can call this at any time during startup.
-static MemMoveFunction memmove_function = &MemMoveWrapper;
-
-// Defined in codegen-ia32.cc.
-MemMoveFunction CreateMemMoveFunction(Isolate* isolate);
-
-// Copy memory area to disjoint memory area.
-void MemMove(void* dest, const void* src, size_t size) {
-  if (size == 0) return;
-  // Note: here we rely on dependent reads being ordered. This is true
-  // on all architectures we currently support.
-  (*memmove_function)(dest, src, size);
-}
-
-#elif V8_OS_POSIX && V8_HOST_ARCH_ARM
-void MemCopyUint16Uint8Wrapper(uint16_t* dest, const uint8_t* src,
-                               size_t chars) {
-  uint16_t* limit = dest + chars;
-  while (dest < limit) {
-    *dest++ = static_cast<uint16_t>(*src++);
-  }
-}
-
-V8_EXPORT_PRIVATE MemCopyUint8Function memcopy_uint8_function =
-    &MemCopyUint8Wrapper;
-MemCopyUint16Uint8Function memcopy_uint16_uint8_function =
-    &MemCopyUint16Uint8Wrapper;
-// Defined in codegen-arm.cc.
-MemCopyUint8Function CreateMemCopyUint8Function(Isolate* isolate,
-                                                MemCopyUint8Function stub);
-MemCopyUint16Uint8Function CreateMemCopyUint16Uint8Function(
-    Isolate* isolate, MemCopyUint16Uint8Function stub);
-
-#elif V8_OS_POSIX && V8_HOST_ARCH_MIPS
-V8_EXPORT_PRIVATE MemCopyUint8Function memcopy_uint8_function =
-    &MemCopyUint8Wrapper;
-// Defined in codegen-mips.cc.
-MemCopyUint8Function CreateMemCopyUint8Function(Isolate* isolate,
-                                                MemCopyUint8Function stub);
-#endif
-
-
-static bool g_memcopy_functions_initialized = false;
-
-
-void init_memcopy_functions(Isolate* isolate) {
-  if (g_memcopy_functions_initialized) return;
-  g_memcopy_functions_initialized = true;
-#if V8_TARGET_ARCH_IA32
-  MemMoveFunction generated_memmove = CreateMemMoveFunction(isolate);
-  if (generated_memmove != nullptr) {
-    memmove_function = generated_memmove;
-  }
-#elif V8_OS_POSIX && V8_HOST_ARCH_ARM
-  memcopy_uint8_function =
-      CreateMemCopyUint8Function(isolate, &MemCopyUint8Wrapper);
-  memcopy_uint16_uint8_function =
-      CreateMemCopyUint16Uint8Function(isolate, &MemCopyUint16Uint8Wrapper);
-#elif V8_OS_POSIX && V8_HOST_ARCH_MIPS
-  memcopy_uint8_function =
-      CreateMemCopyUint8Function(isolate, &MemCopyUint8Wrapper);
-#endif
-}
-
-
+// Returns false iff d is NaN, +0, or -0.
 bool DoubleToBoolean(double d) {
-  // NaN, +0, and -0 should return the false object
   IeeeDoubleArchType u;
-
   u.d = d;
   if (u.bits.exp == 2047) {
     // Detect NaN for IEEE double precision floating point.
@@ -440,6 +349,14 @@ bool DoubleToBoolean(double d) {
     if ((u.bits.man_low | u.bits.man_high) == 0) return false;
   }
   return true;
+}
+
+uintptr_t GetCurrentStackPosition() {
+#if V8_CC_MSVC
+  return reinterpret_cast<uintptr_t>(_AddressOfReturnAddress());
+#else
+  return reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
+#endif
 }
 
 // The filter is a pattern that matches function names in this way:

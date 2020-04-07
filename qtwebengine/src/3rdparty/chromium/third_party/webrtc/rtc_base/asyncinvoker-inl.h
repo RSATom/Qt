@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,51 +11,9 @@
 #ifndef RTC_BASE_ASYNCINVOKER_INL_H_
 #define RTC_BASE_ASYNCINVOKER_INL_H_
 
-#include "rtc_base/bind.h"
-#include "rtc_base/criticalsection.h"
-#include "rtc_base/event.h"
-#include "rtc_base/messagehandler.h"
-#include "rtc_base/refcountedobject.h"
-#include "rtc_base/scoped_ref_ptr.h"
-#include "rtc_base/sigslot.h"
-#include "rtc_base/thread.h"
-#include "rtc_base/thread_annotations.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
-
-class AsyncInvoker;
-
-// Helper class for AsyncInvoker. Runs a task and triggers a callback
-// on the calling thread if necessary.
-class AsyncClosure {
- public:
-  explicit AsyncClosure(AsyncInvoker* invoker);
-  virtual ~AsyncClosure();
-  // Runs the asynchronous task, and triggers a callback to the calling
-  // thread if needed. Should be called from the target thread.
-  virtual void Execute() = 0;
-
- protected:
-  AsyncInvoker* invoker_;
-  // Reference counted so that if the AsyncInvoker destructor finishes before
-  // an AsyncClosure's destructor that's about to call
-  // "invocation_complete_->Set()", it's not dereferenced after being
-  // destroyed.
-  scoped_refptr<RefCountedObject<Event>> invocation_complete_;
-};
-
-// Simple closure that doesn't trigger a callback for the calling thread.
-template <class FunctorT>
-class FireAndForgetAsyncClosure : public AsyncClosure {
- public:
-  explicit FireAndForgetAsyncClosure(AsyncInvoker* invoker, FunctorT&& functor)
-      : AsyncClosure(invoker), functor_(std::forward<FunctorT>(functor)) {}
-  virtual void Execute() { functor_(); }
-
- private:
-  typename std::decay<FunctorT>::type functor_;
-};
-
-}  // namespace rtc
+#include "rtc_base/async_invoker_inl.h"
 
 #endif  // RTC_BASE_ASYNCINVOKER_INL_H_

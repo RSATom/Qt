@@ -212,7 +212,7 @@ QMetalRoughMaterial::~QMetalRoughMaterial()
     color value or a texture. By default the value of this property is "grey".
 */
 /*!
-    \qmlproperty color Qt3D.Extras::MetalRoughMaterial::baseColor
+    \qmlproperty variant Qt3D.Extras::MetalRoughMaterial::baseColor
 
     Holds the current base color of the material. This can be either a plain
     color value or a texture. By default the value of this property is "grey".
@@ -232,7 +232,7 @@ QVariant QMetalRoughMaterial::baseColor() const
     property is 0.
 */
 /*!
-    \qmlproperty real Qt3D.Extras::MetalRoughMaterial::metalness
+    \qmlproperty variant Qt3D.Extras::MetalRoughMaterial::metalness
 
     Holds the current metalness level of the material, as a value between
     0 (purely dielectric, the default) and 1 (purely metallic). This can be
@@ -253,7 +253,7 @@ QVariant QMetalRoughMaterial::metalness() const
     0.
 */
 /*!
-    \qmlproperty real Qt3D.Extras::MetalRoughMaterial::roughness
+    \qmlproperty variant Qt3D.Extras::MetalRoughMaterial::roughness
 
     Holds the current roughness level of the material. This can be either a
     plain uniform value or a texture. By default the value of this property is
@@ -306,12 +306,20 @@ QVariant QMetalRoughMaterial::normal() const
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with QTextureWrapMode::Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 /*!
     \qmlproperty real Qt3D.Extras::MetalRoughMaterial::textureScale
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 float QMetalRoughMaterial::textureScale() const
 {

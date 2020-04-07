@@ -5,27 +5,35 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
 #include "SkCanvas.h"
-#include "SkGlyphCache.h"
 #include "SkPaint.h"
 #include "SkPath.h"
 #include "SkRandom.h"
+#include "SkStrike.h"
 #include "SkStrikeCache.h"
 #include "SkTaskGroup.h"
 #include "sk_tool_utils.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Static text from paths.
-class PathText : public SampleView {
+class PathText : public Sample {
 public:
     constexpr static int kNumPaths = 1500;
     virtual const char* getName() const { return "PathText"; }
 
-    PathText() {
-        SkPaint defaultPaint;
-        auto cache = SkStrikeCache::FindOrCreateStrikeExclusive(defaultPaint);
+    PathText() {}
+
+    virtual void reset() {
+        for (Glyph& glyph : fGlyphs) {
+            glyph.reset(fRand, this->width(), this->height());
+        }
+    }
+
+    void onOnceBeforeDraw() final {
+        SkFont defaultFont;
+        auto cache = SkStrikeCache::FindOrCreateStrikeWithNoDeviceExclusive(defaultFont);
         SkPath glyphPaths[52];
         for (int i = 0; i < 52; ++i) {
             // I and l are rects on OS X ...
@@ -38,24 +46,19 @@ public:
             const SkPath& p = glyphPaths[i % 52];
             fGlyphs[i].init(fRand, p);
         }
-    }
 
-    virtual void reset() {
-        for (Glyph& glyph : fGlyphs) {
-            glyph.reset(fRand, this->width(), this->height());
-        }
+        this->INHERITED::onOnceBeforeDraw();
+        this->reset();
     }
-
-    void onOnceBeforeDraw() final { this->INHERITED::onOnceBeforeDraw(); this->reset(); }
     void onSizeChange() final { this->INHERITED::onSizeChange(); this->reset(); }
 
-    bool onQuery(SkEvent* evt) final {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, this->getName());
+    bool onQuery(Sample::Event* evt) final {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, this->getName());
             return true;
         }
         SkUnichar unichar;
-        if (SampleCode::CharQ(*evt, &unichar)) {
+        if (Sample::CharQ(*evt, &unichar)) {
             if (unichar == 'X') {
                 fDoClip = !fDoClip;
                 return true;
@@ -106,7 +109,7 @@ protected:
     SkPath     fClipPath = sk_tool_utils::make_star(SkRect{0,0,1,1}, 11, 3);
     bool       fDoClip = false;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 void PathText::Glyph::init(SkRandom& rand, const SkPath& path) {
@@ -418,7 +421,7 @@ SkPoint WavyPathText::Waves::apply(float tsec, const Sk2f matrix[3], const SkPoi
 
     float offsetY[4], offsetX[4];
     (dy + SkNx_shuffle<2,3,0,1>(dy)).store(offsetY); // accumulate.
-    (dx + SkNx_shuffle<2,3,0,1>(dx)).store(offsetX);;
+    (dx + SkNx_shuffle<2,3,0,1>(dx)).store(offsetX);
 
     return {devicePt[0] + offsetY[0] + offsetY[1], devicePt[1] - offsetX[0] - offsetX[1]};
 }

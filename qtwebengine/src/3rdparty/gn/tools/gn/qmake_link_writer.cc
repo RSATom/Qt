@@ -44,6 +44,7 @@
 #include "tools/gn/qmake_link_writer.h"
 #include "tools/gn/deps_iterator.h"
 #include "tools/gn/ninja_binary_target_writer.h"
+#include "tools/gn/ninja_target_command_util.h"
 #include "tools/gn/output_file.h"
 #include "tools/gn/settings.h"
 #include "tools/gn/target.h"
@@ -98,13 +99,21 @@ void QMakeLinkWriter::Run() {
   object_files.reserve(target_->sources().size());
 
   for (const auto& source : target_->sources()) {
-      Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
-      if (!target_->GetOutputFilesForSource(source, &tool_type, &tool_outputs)) {
-        if (GetSourceFileType(source) == SOURCE_DEF)
-          other_files.push_back(source);
-        continue;  // No output for this source.
-      }
-      object_files.push_back(tool_outputs[0].AsSourceFile(settings->build_settings()));
+    Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
+    if (!target_->GetOutputFilesForSource(source, &tool_type, &tool_outputs)) {
+      if (GetSourceFileType(source) == SOURCE_DEF)
+        other_files.push_back(source);
+      continue;  // No output for this source.
+    }
+    object_files.push_back(tool_outputs[0].AsSourceFile(settings->build_settings()));
+  }
+  if (target_->config_values().has_precompiled_headers()) {
+    const Tool* tool = target_->toolchain()->GetTool(Toolchain::TYPE_CXX);
+    if (tool && tool->precompiled_header_type() == Tool::PCH_MSVC) {
+      GetPCHOutputFiles(target_, Toolchain::TYPE_CXX, &tool_outputs);
+      if (!tool_outputs.empty())
+        object_files.push_back(tool_outputs[0].AsSourceFile(settings->build_settings()));
+    }
   }
 
   UniqueVector<OutputFile> extra_object_files;

@@ -160,7 +160,7 @@ void tst_QStyleSheetStyle::numinstances()
     QCOMPARE(QStyleSheetStyle::numinstances, 0);
     qApp->setStyleSheet("* { color: red; }");
     QCOMPARE(QStyleSheetStyle::numinstances, 1);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(QStyleSheetStyle::numinstances, 0);
 
     // set and unset application stylesheet+widget
@@ -169,9 +169,9 @@ void tst_QStyleSheetStyle::numinstances()
     QCOMPARE(QStyleSheetStyle::numinstances, 2);
     w.setStyle(style);
     QCOMPARE(QStyleSheetStyle::numinstances, 2);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(QStyleSheetStyle::numinstances, 1);
-    w.setStyleSheet("");
+    w.setStyleSheet(QString());
     QCOMPARE(QStyleSheetStyle::numinstances, 0);
 
     // set and unset widget stylesheet
@@ -180,7 +180,7 @@ void tst_QStyleSheetStyle::numinstances()
     QCOMPARE(QStyleSheetStyle::numinstances, 1);
     c.setStyle(style);
     QCOMPARE(QStyleSheetStyle::numinstances, 2);
-    w.setStyleSheet("");
+    w.setStyleSheet(QString());
     QCOMPARE(QStyleSheetStyle::numinstances, 0);
 }
 
@@ -193,9 +193,9 @@ void tst_QStyleSheetStyle::widgetsBeforeAppStyleSheet()
     QCOMPARE(COLOR(w1), red);
     w1.setStyleSheet("color: white");
     QCOMPARE(COLOR(w1), white);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(COLOR(w1), white);
-    w1.setStyleSheet("");
+    w1.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
 }
 
@@ -218,17 +218,17 @@ void tst_QStyleSheetStyle::widgetsAfterAppStyleSheet()
     QCOMPARE(COLOR(w1), white);
     QCOMPARE(COLOR(spin), red);
     QCOMPARE(COLOR(*spin.lineEdit()), red);
-    w1.setStyleSheet("");
+    w1.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), red);
     QCOMPARE(COLOR(spin), red);
     QCOMPARE(COLOR(*spin.lineEdit()), red);
     w1.setStyleSheet("color: white");
     QCOMPARE(COLOR(w1), white);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(COLOR(w1), white);
     QCOMPARE(COLOR(spin), APPCOLOR(spin));
     QCOMPARE(COLOR(*spin.lineEdit()), APPCOLOR(*spin.lineEdit()));
-    w1.setStyleSheet("");
+    w1.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
     // QCOMPARE(FONTSIZE(w1), APPFONTSIZE(w1));  //### task 244261
     QCOMPARE(FONTSIZE(spin), APPFONTSIZE(spin));
@@ -244,7 +244,7 @@ void tst_QStyleSheetStyle::applicationStyleSheet()
     QCOMPARE(COLOR(w1), red);
     qApp->setStyleSheet("* { color: white; }");
     QCOMPARE(COLOR(w1), white);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
     qApp->setStyleSheet("* { color: red }");
     QCOMPARE(COLOR(w1), red);
@@ -255,21 +255,21 @@ void tst_QStyleSheetStyle::windowStyleSheet()
     const QColor red(Qt::red);
     const QColor white(Qt::white);
     QPushButton w1;
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     w1.setStyleSheet("* { color: red; }");
     QCOMPARE(COLOR(w1), red);
     w1.setStyleSheet("* { color: white; }");
     QCOMPARE(COLOR(w1), white);
-    w1.setStyleSheet("");
+    w1.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
     w1.setStyleSheet("* { color: red }");
     QCOMPARE(COLOR(w1), red);
 
     qApp->setStyleSheet("* { color: green }");
     QCOMPARE(COLOR(w1), red);
-    w1.setStyleSheet("");
+    w1.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), QColor("green"));
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
 }
 
@@ -282,7 +282,7 @@ void tst_QStyleSheetStyle::widgetStyleSheet()
     QPushButton *pb = new QPushButton(&w1);
     QPushButton &w2 = *pb;
 
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     w1.setStyleSheet("* { color: red }");
     QCOMPARE(COLOR(w1), red);
     QCOMPARE(COLOR(w2), red);
@@ -294,11 +294,11 @@ void tst_QStyleSheetStyle::widgetStyleSheet()
     QCOMPARE(COLOR(w1), blue);
     QCOMPARE(COLOR(w2), white);
 
-    w1.setStyleSheet("");
+    w1.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
     QCOMPARE(COLOR(w2), white);
 
-    w2.setStyleSheet("");
+    w2.setStyleSheet(QString());
     QCOMPARE(COLOR(w1), APPCOLOR(w1));
     QCOMPARE(COLOR(w2), APPCOLOR(w2));
 }
@@ -312,7 +312,7 @@ void tst_QStyleSheetStyle::reparentWithNoChildStyleSheet()
     QPushButton *pb = new QPushButton(&p1);
     QPushButton &c1 = *pb; // child with no stylesheet
 
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     p1.setStyleSheet("* { color: red }");
     QCOMPARE(COLOR(c1), red);
     c1.setParent(&p2);
@@ -334,7 +334,7 @@ void tst_QStyleSheetStyle::reparentWithChildStyleSheet()
 {
     const QColor gray("gray");
     const QColor white(Qt::white);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QPushButton p1, p2;
     QPushButton *pb = new QPushButton(&p1);
     QPushButton &c1 = *pb;
@@ -354,7 +354,7 @@ void tst_QStyleSheetStyle::repolish()
 {
     const QColor red(Qt::red);
     const QColor white(Qt::white);
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QPushButton p1;
     p1.setStyleSheet("color: red; background: white");
     QCOMPARE(BACKGROUND(p1), white);
@@ -363,7 +363,7 @@ void tst_QStyleSheetStyle::repolish()
     p1.setStyleSheet("color: red");
     QCOMPARE(COLOR(p1), red);
     QCOMPARE(BACKGROUND(p1), APPBACKGROUND(p1));
-    p1.setStyleSheet("");
+    p1.setStyleSheet(QString());
     QCOMPARE(COLOR(p1), APPCOLOR(p1));
     QCOMPARE(BACKGROUND(p1), APPBACKGROUND(p1));
 }
@@ -390,7 +390,7 @@ void tst_QStyleSheetStyle::repolish_without_crashing()
 
 void tst_QStyleSheetStyle::widgetStyle()
 {
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
 
     QWidget *window1 = new QWidget;
     window1->setObjectName("window1");
@@ -450,7 +450,7 @@ void tst_QStyleSheetStyle::widgetStyle()
 
     // Remove the stylesheet
     proxy = (QStyleSheetStyle *)window1->style();
-    window1->setStyleSheet("");
+    window1->setStyleSheet(QString());
     QVERIFY(proxy.isNull()); // should have disappeared
     QCOMPARE(window1->style(), style1.data()); // its restored
 
@@ -478,7 +478,7 @@ void tst_QStyleSheetStyle::widgetStyle()
     QCOMPARE(proxy->baseStyle(), style1.data());
 
     // Style Sheet propagation on a child widget with a custom style already set
-    window2->setStyleSheet("");
+    window2->setStyleSheet(QString());
     QCOMPARE(window2->style(), style2.data());
     QCOMPARE(widget2->style(), style1.data());
     widget2->setStyle(0);
@@ -491,9 +491,9 @@ void tst_QStyleSheetStyle::widgetStyle()
 
     // clean everything out
     window1->setStyle(0);
-    window1->setStyleSheet("");
+    window1->setStyleSheet(QString());
     window2->setStyle(0);
-    window2->setStyleSheet("");
+    window2->setStyleSheet(QString());
     qApp->setStyle(0);
 
     qApp->setStyleSheet("may_insanity_prevail { }"); // app has stylesheet
@@ -510,14 +510,14 @@ void tst_QStyleSheetStyle::widgetStyle()
     QCOMPARE(proxy->baseStyle(), newStyle); // magic ;) the widget still follows the application
     QCOMPARE(static_cast<QStyle *>(proxy), widget1->style()); // child still follows...
 
-    window1->setStyleSheet(""); // remove stylesheet
+    window1->setStyleSheet(QString()); // remove stylesheet
     QCOMPARE(window1->style(), qApp->style()); // is this cool or what
     QCOMPARE(widget1->style(), qApp->style()); // annoying child follows...
     QScopedPointer<QStyle> wndStyle(QStyleFactory::create("Windows"));
     window1->setStyle(wndStyle.data());
     QCOMPARE(window1->style()->metaObject()->className(), "QStyleSheetStyle"); // auto wraps it
     QCOMPARE(widget1->style(), window1->style()); // and auto propagates to child
-    qApp->setStyleSheet(""); // remove the app stylesheet
+    qApp->setStyleSheet(QString()); // remove the app stylesheet
     QCOMPARE(window1->style(), wndStyle.data()); // auto dewrap
     QCOMPARE(widget1->style(), qApp->style()); // and child state is restored
     window1->setStyle(0); // let sanity prevail
@@ -532,7 +532,7 @@ void tst_QStyleSheetStyle::widgetStyle()
 
 void tst_QStyleSheetStyle::appStyle()
 {
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     // qApp style can never be 0
     QVERIFY(QApplication::style() != 0);
     QPointer<QStyle> style1 = QStyleFactory::create("Windows");
@@ -565,11 +565,11 @@ void tst_QStyleSheetStyle::appStyle()
     QCOMPARE(sss->baseStyle(), style1.data());
 
     // Revert the stylesheet
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QVERIFY(sss.isNull()); // should have disappeared
     QCOMPARE(QApplication::style(), style1.data());
 
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QCOMPARE(QApplication::style(), style1.data());
 }
 
@@ -765,7 +765,7 @@ void tst_QStyleSheetStyle::fontPropagation()
     window.setStyleSheet("* { font-size: 9pt }");
     pb.setParent(&window);
     QCOMPARE(FONTSIZE(pb), 9);
-    window.setStyleSheet("");
+    window.setStyleSheet(QString());
     QCOMPARE(FONTSIZE(pb), buttonFontSize);
 
     QTabWidget tw;
@@ -778,7 +778,7 @@ void tst_QStyleSheetStyle::fontPropagation()
 
 void tst_QStyleSheetStyle::onWidgetDestroyed()
 {
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
     QLabel *l = new QLabel;
     l->setStyleSheet("QLabel { color: red }");
     QPointer<QStyleSheetStyle> ss = (QStyleSheetStyle *) l->style();
@@ -799,14 +799,14 @@ void tst_QStyleSheetStyle::fontPrecedence()
     font.setPointSize(16);
     edit.setFont(font);
     QCOMPARE(FONTSIZE(edit), 22);
-    edit.setStyleSheet("");
+    edit.setStyleSheet(QString());
     QCOMPARE(FONTSIZE(edit), 16);
     font.setPointSize(18);
     edit.setFont(font);
     QCOMPARE(FONTSIZE(edit), 18);
     edit.setStyleSheet("QLineEdit { font-size: 20pt; }");
     QCOMPARE(FONTSIZE(edit), 20);
-    edit.setStyleSheet("");
+    edit.setStyleSheet(QString());
     QCOMPARE(FONTSIZE(edit), 18);
     edit.hide();
 
@@ -1210,7 +1210,7 @@ void tst_QStyleSheetStyle::transparent()
     QPushButton *p3=new QPushButton(&w);
     p1->setStyleSheet("background:transparent");
     p2->setStyleSheet("background-color:transparent");
-    p3->setStyleSheet("background:rgb(0,0,0,0)");
+    p3->setStyleSheet("background:rgba(0,0,0,0)");
     QCOMPARE(BACKGROUND(*p1) , QColor(0,0,0,0));
     QCOMPARE(BACKGROUND(*p2) , QColor(0,0,0,0));
     QCOMPARE(BACKGROUND(*p3) , QColor(0,0,0,0));
@@ -2072,7 +2072,7 @@ void tst_QStyleSheetStyle::styleSheetTargetAttribute()
     QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), true);
     QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), false);
 
-    qApp->setStyleSheet("");
+    qApp->setStyleSheet(QString());
 
     gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
     QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), false);
@@ -2087,7 +2087,7 @@ void tst_QStyleSheetStyle::unpolish()
     w.setStyleSheet("QWidget { min-width: 100; }");
     w.ensurePolished();
     QCOMPARE(w.minimumWidth(), 100);
-    w.setStyleSheet("");
+    w.setStyleSheet(QString());
     QCOMPARE(w.minimumWidth(), 0);
 }
 

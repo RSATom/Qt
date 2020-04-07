@@ -46,7 +46,20 @@ namespace {
 void KernelLogWrite(const char* s) {
   PERFETTO_DCHECK(*s && s[strlen(s) - 1] == '\n');
   if (FtraceProcfs::g_kmesg_fd != -1)
-    base::ignore_result(write(FtraceProcfs::g_kmesg_fd, s, strlen(s)));
+    base::ignore_result(base::WriteAll(FtraceProcfs::g_kmesg_fd, s, strlen(s)));
+}
+
+bool WriteFileInternal(const std::string& path,
+                       const std::string& str,
+                       int flags) {
+  base::ScopedFile fd = base::OpenFile(path, flags);
+  if (!fd)
+    return false;
+  ssize_t written = base::WriteAll(fd.get(), str.c_str(), str.length());
+  ssize_t length = static_cast<ssize_t>(str.length());
+  // This should either fail or write fully.
+  PERFETTO_CHECK(written == length || written == -1);
+  return written == length;
 }
 
 }  // namespace
@@ -68,13 +81,19 @@ FtraceProcfs::~FtraceProcfs() = default;
 bool FtraceProcfs::EnableEvent(const std::string& group,
                                const std::string& name) {
   std::string path = root_ + "events/" + group + "/" + name + "/enable";
-  return WriteToFile(path, "1");
+  if (WriteToFile(path, "1"))
+    return true;
+  path = root_ + "set_event";
+  return AppendToFile(path, group + ":" + name);
 }
 
 bool FtraceProcfs::DisableEvent(const std::string& group,
                                 const std::string& name) {
   std::string path = root_ + "events/" + group + "/" + name + "/enable";
-  return WriteToFile(path, "0");
+  if (WriteToFile(path, "0"))
+    return true;
+  path = root_ + "set_event";
+  return AppendToFile(path, "!" + group + ":" + name);
 }
 
 bool FtraceProcfs::DisableAllEvents() {
@@ -185,7 +204,7 @@ std::set<std::string> FtraceProcfs::AvailableClocks() {
   size_t start = 0;
   size_t end = 0;
 
-  while (true) {
+  for (;;) {
     end = s.find(' ', start);
     if (end == std::string::npos)
       end = s.size();
@@ -221,14 +240,12 @@ bool FtraceProcfs::WriteNumberToFile(const std::string& path, size_t value) {
 
 bool FtraceProcfs::WriteToFile(const std::string& path,
                                const std::string& str) {
-  base::ScopedFile fd = base::OpenFile(path, O_WRONLY);
-  if (!fd)
-    return false;
-  ssize_t written = PERFETTO_EINTR(write(fd.get(), str.c_str(), str.length()));
-  ssize_t length = static_cast<ssize_t>(str.length());
-  // This should either fail or write fully.
-  PERFETTO_CHECK(written == length || written == -1);
-  return written == length;
+  return WriteFileInternal(path, str, O_WRONLY);
+}
+
+bool FtraceProcfs::AppendToFile(const std::string& path,
+                                const std::string& str) {
+  return WriteFileInternal(path, str, O_WRONLY | O_APPEND);
 }
 
 base::ScopedFile FtraceProcfs::OpenPipeForCpu(size_t cpu) {
@@ -259,6 +276,33 @@ std::string FtraceProcfs::ReadFileIntoString(const std::string& path) const {
   if (!base::ReadFile(path, &str))
     return "";
   return str;
+}
+
+const std::set<std::string> FtraceProcfs::GetEventNamesForGroup(
+    const std::string& path) const {
+  std::set<std::string> names;
+  std::string full_path = root_ + path;
+  base::ScopedDir dir(opendir(full_path.c_str()));
+  if (!dir) {
+    PERFETTO_DLOG("Unable to read events from %s", full_path.c_str());
+    return names;
+  }
+  struct dirent* ent;
+  while ((ent = readdir(*dir)) != nullptr) {
+    if (strncmp(ent->d_name, ".", 1) == 0 ||
+        strncmp(ent->d_name, "..", 2) == 0) {
+      continue;
+    }
+    // Check ent is a directory.
+    struct stat statbuf;
+    std::string dir_path = full_path + "/" + ent->d_name;
+    if (stat(dir_path.c_str(), &statbuf) == 0) {
+      if (S_ISDIR(statbuf.st_mode)) {
+        names.insert(ent->d_name);
+      }
+    }
+  }
+  return names;
 }
 
 // static

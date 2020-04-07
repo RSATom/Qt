@@ -71,7 +71,7 @@ Loader {
                      : __column && __column.delegate ? __column.delegate : __itemDelegate
 
     // All these properties are internal
-    property int __index
+    property int __index: index
     property Item __rowItem: null
     property var __model: __rowItem ? __rowItem.itemModel : undefined
     property var __modelData: __rowItem ? __rowItem.itemModelData : undefined

@@ -102,6 +102,7 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedMarkedByNormalize) {
     MarkNodeContents(parent);
     EXPECT_EQ(2u, MarkerController().Markers().size());
     parent->normalize();
+    UpdateAllLifecyclePhasesForTest();
   }
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
@@ -114,6 +115,7 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedMarkedByRemoveChildren) {
   MarkNodeContents(parent);
   EXPECT_EQ(1u, MarkerController().Markers().size());
   parent->RemoveChildren();
+  UpdateAllLifecyclePhasesForTest();
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
   EXPECT_EQ(0u, MarkerController().Markers().size());
@@ -127,6 +129,7 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedByRemoveMarked) {
     MarkNodeContents(parent);
     EXPECT_EQ(1u, MarkerController().Markers().size());
     parent->RemoveChild(parent->firstChild());
+    UpdateAllLifecyclePhasesForTest();
   }
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
@@ -141,6 +144,7 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedMarkedByRemoveAncestor) {
     MarkNodeContents(parent);
     EXPECT_EQ(1u, MarkerController().Markers().size());
     parent->parentNode()->parentNode()->RemoveChild(parent->parentNode());
+    UpdateAllLifecyclePhasesForTest();
   }
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
@@ -155,6 +159,7 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedMarkedByRemoveParent) {
     MarkNodeContents(parent);
     EXPECT_EQ(1u, MarkerController().Markers().size());
     parent->parentNode()->RemoveChild(parent);
+    UpdateAllLifecyclePhasesForTest();
   }
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
@@ -169,6 +174,7 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedMarkedByReplaceChild) {
     MarkNodeContents(parent);
     EXPECT_EQ(1u, MarkerController().Markers().size());
     parent->ReplaceChild(CreateTextNode("bar"), parent->firstChild());
+    UpdateAllLifecyclePhasesForTest();
   }
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
@@ -183,16 +189,15 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedBySetInnerHTML) {
     MarkNodeContents(parent);
     EXPECT_EQ(1u, MarkerController().Markers().size());
     SetBodyContent("");
+    UpdateAllLifecyclePhasesForTest();
   }
   // No more reference to marked node.
   ThreadState::Current()->CollectAllGarbage();
   EXPECT_EQ(0u, MarkerController().Markers().size());
 }
 
-// TODO(crbug.com/862900): Fix DocumentMarkerController::DidUpdateCharacterData
-//                         and enable this test.
-TEST_F(DocumentMarkerControllerTest,
-       DISABLED_SynchronousMutationNotificationAfterGC) {
+// For http://crbug.com/862900
+TEST_F(DocumentMarkerControllerTest, SynchronousMutationNotificationAfterGC) {
   SetBodyContent("<b><i>foo</i></b>");
   Persistent<Text> sibling_text = CreateTextNode("bar");
   {
@@ -202,6 +207,7 @@ TEST_F(DocumentMarkerControllerTest,
     MarkNodeContents(parent);
     EXPECT_EQ(1u, MarkerController().Markers().size());
     parent->parentNode()->RemoveChild(parent);
+    UpdateAllLifecyclePhasesForTest();
   }
 
   // GC the marked node, so it disappears from WeakMember collections.
@@ -221,7 +227,7 @@ TEST_F(DocumentMarkerControllerTest, UpdateRenderedRects) {
       MarkerController().LayoutRectsForTextMatchMarkers();
   EXPECT_EQ(1u, rendered_rects.size());
 
-  div->setAttribute(HTMLNames::styleAttr, "margin: 200px");
+  div->setAttribute(html_names::kStyleAttr, "margin: 200px");
   GetDocument().UpdateStyleAndLayout();
   Vector<IntRect> new_rendered_rects =
       MarkerController().LayoutRectsForTextMatchMarkers();
@@ -234,10 +240,10 @@ TEST_F(DocumentMarkerControllerTest, CompositionMarkersNotMerged) {
   Node* text = GetDocument().body()->firstChild()->firstChild();
   MarkerController().AddCompositionMarker(
       EphemeralRange(Position(text, 0), Position(text, 1)), Color::kTransparent,
-      ui::mojom::ImeTextSpanThickness::kThin, Color::kBlack);
+      ws::mojom::ImeTextSpanThickness::kThin, Color::kBlack);
   MarkerController().AddCompositionMarker(
       EphemeralRange(Position(text, 1), Position(text, 3)), Color::kTransparent,
-      ui::mojom::ImeTextSpanThickness::kThick, Color::kBlack);
+      ws::mojom::ImeTextSpanThickness::kThick, Color::kBlack);
 
   EXPECT_EQ(2u, MarkerController().Markers().size());
 }
@@ -273,8 +279,8 @@ TEST_F(DocumentMarkerControllerTest, RemoveStartOfMarker) {
 
   // Remove markers that overlap "a"
   marker_range = EphemeralRange(Position(text, 0), Position(text, 1));
-  GetDocument().Markers().RemoveMarkersInRange(marker_range,
-                                               DocumentMarker::AllMarkers());
+  GetDocument().Markers().RemoveMarkersInRange(
+      marker_range, DocumentMarker::MarkerTypes::All());
 
   EXPECT_EQ(0u, MarkerController().Markers().size());
 }
@@ -292,8 +298,8 @@ TEST_F(DocumentMarkerControllerTest, RemoveMiddleOfMarker) {
 
   // Remove markers that overlap "b"
   marker_range = EphemeralRange(Position(text, 1), Position(text, 2));
-  GetDocument().Markers().RemoveMarkersInRange(marker_range,
-                                               DocumentMarker::AllMarkers());
+  GetDocument().Markers().RemoveMarkersInRange(
+      marker_range, DocumentMarker::MarkerTypes::All());
 
   EXPECT_EQ(0u, MarkerController().Markers().size());
 }
@@ -311,8 +317,8 @@ TEST_F(DocumentMarkerControllerTest, RemoveEndOfMarker) {
 
   // Remove markers that overlap "c"
   marker_range = EphemeralRange(Position(text, 2), Position(text, 3));
-  GetDocument().Markers().RemoveMarkersInRange(marker_range,
-                                               DocumentMarker::AllMarkers());
+  GetDocument().Markers().RemoveMarkersInRange(
+      marker_range, DocumentMarker::MarkerTypes::All());
 
   EXPECT_EQ(0u, MarkerController().Markers().size());
 }
@@ -368,7 +374,46 @@ TEST_F(DocumentMarkerControllerTest, RemoveSuggestionMarkerByTag) {
   ASSERT_EQ(1u, MarkerController().Markers().size());
   const SuggestionMarker& marker =
       *ToSuggestionMarker(MarkerController().Markers()[0]);
-  MarkerController().RemoveSuggestionMarkerByTag(text, marker.Tag());
+  MarkerController().RemoveSuggestionMarkerByTag(*ToText(text), marker.Tag());
+  EXPECT_EQ(0u, MarkerController().Markers().size());
+}
+
+TEST_F(DocumentMarkerControllerTest, RemoveSuggestionMarkerInRangeOnFinish) {
+  SetBodyContent("<div contenteditable>foo</div>");
+  Element* div = GetDocument().QuerySelector("div");
+  Node* text = div->firstChild();
+
+  // Add a regular suggestion marker, RemoveSuggestionMarkerInRangeOnFinish()
+  // should not remove it.
+  MarkerController().AddSuggestionMarker(
+      EphemeralRange(Position(text, 0), Position(text, 2)),
+      SuggestionMarkerProperties());
+
+  ASSERT_EQ(1u, MarkerController().Markers().size());
+  MarkerController().RemoveSuggestionMarkerInRangeOnFinish(
+      EphemeralRangeInFlatTree(PositionInFlatTree(text, 0),
+                               PositionInFlatTree(text, 2)));
+
+  EXPECT_EQ(1u, MarkerController().Markers().size());
+
+  const SuggestionMarker& marker =
+      *ToSuggestionMarker(MarkerController().Markers()[0]);
+  MarkerController().RemoveSuggestionMarkerByTag(*ToText(text), marker.Tag());
+  ASSERT_EQ(0u, MarkerController().Markers().size());
+
+  // Add a suggestion marker which need to be removed after finish composing,
+  // RemoveSuggestionMarkerInRangeOnFinish() should remove it.
+  MarkerController().AddSuggestionMarker(
+      EphemeralRange(Position(text, 0), Position(text, 2)),
+      SuggestionMarkerProperties::Builder()
+          .SetRemoveOnFinishComposing(true)
+          .Build());
+
+  ASSERT_EQ(1u, MarkerController().Markers().size());
+
+  MarkerController().RemoveSuggestionMarkerInRangeOnFinish(
+      EphemeralRangeInFlatTree(PositionInFlatTree(text, 0),
+                               PositionInFlatTree(text, 2)));
   EXPECT_EQ(0u, MarkerController().Markers().size());
 }
 
@@ -385,7 +430,7 @@ TEST_F(DocumentMarkerControllerTest, FirstMarkerIntersectingOffsetRange) {
   // Query for a spellcheck marker intersecting "3456"
   const DocumentMarker* const result =
       MarkerController().FirstMarkerIntersectingOffsetRange(
-          *text, 2, 6, DocumentMarker::MisspellingMarkers());
+          *text, 2, 6, DocumentMarker::MarkerTypes::Misspelling());
 
   EXPECT_EQ(DocumentMarker::kSpelling, result->GetType());
   EXPECT_EQ(0u, result->StartOffset());
@@ -406,7 +451,7 @@ TEST_F(DocumentMarkerControllerTest,
   // Query for a spellcheck marker containing the position between "1" and "2"
   const DocumentMarker* const result =
       MarkerController().FirstMarkerIntersectingOffsetRange(
-          *text, 1, 1, DocumentMarker::MisspellingMarkers());
+          *text, 1, 1, DocumentMarker::MarkerTypes::Misspelling());
 
   EXPECT_EQ(DocumentMarker::kSpelling, result->GetType());
   EXPECT_EQ(0u, result->StartOffset());
@@ -435,7 +480,7 @@ TEST_F(DocumentMarkerControllerTest, MarkersIntersectingRange) {
       MarkerController().MarkersIntersectingRange(
           EphemeralRangeInFlatTree(PositionInFlatTree(text, 2),
                                    PositionInFlatTree(text, 6)),
-          DocumentMarker::MisspellingMarkers());
+          DocumentMarker::MarkerTypes::Misspelling());
 
   EXPECT_EQ(1u, results.size());
   EXPECT_EQ(DocumentMarker::kSpelling, results[0].second->GetType());
@@ -457,7 +502,7 @@ TEST_F(DocumentMarkerControllerTest, MarkersIntersectingCollapsedRange) {
       MarkerController().MarkersIntersectingRange(
           EphemeralRangeInFlatTree(PositionInFlatTree(text, 1),
                                    PositionInFlatTree(text, 1)),
-          DocumentMarker::MisspellingMarkers());
+          DocumentMarker::MarkerTypes::Misspelling());
 
   EXPECT_EQ(1u, results.size());
   EXPECT_EQ(DocumentMarker::kSpelling, results[0].second->GetType());
@@ -496,7 +541,7 @@ TEST_F(DocumentMarkerControllerTest, MarkersIntersectingRangeWithShadowDOM) {
       MarkerController().MarkersIntersectingRange(
           EphemeralRangeInFlatTree(PositionInFlatTree(not_shadow_text, 9),
                                    PositionInFlatTree(shadow1_text, 1)),
-          DocumentMarker::kTextMatch);
+          DocumentMarker::MarkerTypes::TextMatch());
   EXPECT_EQ(1u, results.size());
 }
 

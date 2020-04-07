@@ -8,6 +8,15 @@
 #include "GrMtlUtil.h"
 
 #include "GrTypesPriv.h"
+#include "GrSurface.h"
+#include "mtl/GrMtlGpu.h"
+#include "mtl/GrMtlTexture.h"
+#include "mtl/GrMtlRenderTarget.h"
+#include "SkSLCompiler.h"
+
+#import <Metal/Metal.h>
+
+#define PRINT_MSL 0 // print out the MSL code generated
 
 bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
     MTLPixelFormat dontCare;
@@ -23,6 +32,9 @@ bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
             return true;
         case kRGB_888_GrPixelConfig:
             // TODO: MTLPixelFormatRGB8Unorm
+            return false;
+        case kRG_88_GrPixelConfig:
+            // TODO: MTLPixelFormatRG8Unorm
             return false;
         case kBGRA_8888_GrPixelConfig:
             *format = MTLPixelFormatBGRA8Unorm;
@@ -75,6 +87,13 @@ bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
         case kAlpha_half_as_Red_GrPixelConfig:
             *format = MTLPixelFormatR16Float;
             return true;
+        case kRGB_ETC1_GrPixelConfig:
+#ifdef SK_BUILD_FOR_IOS
+            *format = MTLPixelFormatETC2_RGB8;
+            return true;
+#else
+            return false;
+#endif
     }
     SK_ABORT("Unexpected config");
     return false;
@@ -98,6 +117,8 @@ GrPixelConfig GrMTLFormatToPixelConfig(MTLPixelFormat format) {
         case MTLPixelFormatABGR4Unorm:
             return kRGBA_4444_GrPixelConfig;
 #endif
+        case MTLPixelFormatRG8Unorm:
+            return kRG_88_GrPixelConfig;
         case MTLPixelFormatR8Unorm:
             // We currently set this to be Alpha_8 and have no way to go to Gray_8
             return kAlpha_8_GrPixelConfig;
@@ -109,6 +130,10 @@ GrPixelConfig GrMTLFormatToPixelConfig(MTLPixelFormat format) {
             return kRGBA_half_GrPixelConfig;
         case MTLPixelFormatR16Float:
             return kAlpha_half_GrPixelConfig;
+#ifdef SK_BUILD_FOR_IOS
+        case MTLPixelFormatETC2_RGB8:
+            return kRGB_ETC1_GrPixelConfig;
+#endif
         default:
             return kUnknown_GrPixelConfig;
     }
@@ -142,4 +167,89 @@ MTLTextureDescriptor* GrGetMTLTextureDescriptor(id<MTLTexture> mtlTexture) {
     texDesc.sampleCount = mtlTexture.sampleCount;
     texDesc.usage = mtlTexture.usage;
     return texDesc;
+}
+
+#if PRINT_MSL
+void print_msl(const char* source) {
+    SkTArray<SkString> lines;
+    SkStrSplit(source, "\n", kStrict_SkStrSplitMode, &lines);
+    for (int i = 0; i < lines.count(); i++) {
+        SkString& line = lines[i];
+        line.prependf("%4i\t", i + 1);
+        SkDebugf("%s\n", line.c_str());
+    }
+}
+#endif
+
+id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
+                                         const char* shaderString,
+                                         SkSL::Program::Kind kind,
+                                         const SkSL::Program::Settings& settings,
+                                         SkSL::Program::Inputs* outInputs) {
+    std::unique_ptr<SkSL::Program> program =
+            gpu->shaderCompiler()->convertProgram(kind,
+                                                  SkSL::String(shaderString),
+                                                  settings);
+
+    if (!program) {
+        SkDebugf("SkSL error:\n%s\n", gpu->shaderCompiler()->errorText().c_str());
+        SkASSERT(false);
+    }
+
+    *outInputs = program->fInputs;
+    SkSL::String code;
+    if (!gpu->shaderCompiler()->toMetal(*program, &code)) {
+        SkDebugf("%s\n", gpu->shaderCompiler()->errorText().c_str());
+        SkASSERT(false);
+        return nil;
+    }
+    NSString* mtlCode = [[NSString alloc] initWithCString: code.c_str()
+                                                 encoding: NSASCIIStringEncoding];
+#if PRINT_MSL
+    print_msl([mtlCode cStringUsingEncoding: NSASCIIStringEncoding]);
+#endif
+
+    MTLCompileOptions* defaultOptions = [[MTLCompileOptions alloc] init];
+    NSError* error = nil;
+    id<MTLLibrary> compiledLibrary = [gpu->device() newLibraryWithSource: mtlCode
+                                                                 options: defaultOptions
+                                                                   error: &error];
+    if (error) {
+        SkDebugf("Error compiling MSL shader: %s\n",
+                 [[error localizedDescription] cStringUsingEncoding: NSASCIIStringEncoding]);
+        return nil;
+    }
+    return compiledLibrary;
+}
+
+id<MTLTexture> GrGetMTLTextureFromSurface(GrSurface* surface, bool doResolve) {
+    id<MTLTexture> mtlTexture = nil;
+
+    GrMtlRenderTarget* renderTarget = static_cast<GrMtlRenderTarget*>(surface->asRenderTarget());
+    GrMtlTexture* texture;
+    if (renderTarget) {
+        if (doResolve) {
+            // TODO: do resolve and set mtlTexture to resolved texture. As of now, we shouldn't
+            // have any multisampled render targets.
+            SkASSERT(false);
+        } else {
+            mtlTexture = renderTarget->mtlRenderTexture();
+        }
+    } else {
+        texture = static_cast<GrMtlTexture*>(surface->asTexture());
+        if (texture) {
+            mtlTexture = texture->mtlTexture();
+        }
+    }
+    return mtlTexture;
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
+// CPP Utils
+
+GrMTLPixelFormat GrGetMTLPixelFormatFromMtlTextureInfo(const GrMtlTextureInfo& info) {
+    id<MTLTexture> mtlTexture = GrGetMTLTexture(info.fTexture,
+                                                GrWrapOwnership::kBorrow_GrWrapOwnership);
+    return static_cast<GrMTLPixelFormat>(mtlTexture.pixelFormat);
 }

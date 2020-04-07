@@ -22,11 +22,14 @@ BeforeInstallPromptEvent::BeforeInstallPromptEvent(
     : Event(name, Bubbles::kNo, Cancelable::kYes),
       ContextClient(&frame),
       banner_service_(std::move(service_ptr)),
-      binding_(this, std::move(event_request)),
+      binding_(this,
+               std::move(event_request),
+               frame.GetTaskRunner(TaskType::kApplicationLifeCycle)),
       platforms_(platforms),
-      user_choice_(new UserChoiceProperty(frame.GetDocument(),
-                                          this,
-                                          UserChoiceProperty::kUserChoice)),
+      user_choice_(MakeGarbageCollected<UserChoiceProperty>(
+          frame.GetDocument(),
+          this,
+          UserChoiceProperty::kUserChoice)),
       require_gesture_(require_gesture) {
   DCHECK(banner_service_);
   DCHECK(binding_.is_bound());
@@ -36,13 +39,13 @@ BeforeInstallPromptEvent::BeforeInstallPromptEvent(
 BeforeInstallPromptEvent::BeforeInstallPromptEvent(
     ExecutionContext* execution_context,
     const AtomicString& name,
-    const BeforeInstallPromptEventInit& init)
+    const BeforeInstallPromptEventInit* init)
     : Event(name, init),
       ContextClient(execution_context),
       binding_(this),
       require_gesture_(true) {
-  if (init.hasPlatforms())
-    platforms_ = init.platforms();
+  if (init->hasPlatforms())
+    platforms_ = init->platforms();
 }
 
 BeforeInstallPromptEvent::~BeforeInstallPromptEvent() = default;
@@ -80,9 +83,10 @@ ScriptPromise BeforeInstallPromptEvent::prompt(ScriptState* script_state) {
   }
 
   ExecutionContext* context = ExecutionContext::From(script_state);
-  Document* doc = ToDocumentOrNull(context);
-  if (require_gesture_ &&
-      !Frame::HasTransientUserActivation(doc ? doc->GetFrame() : nullptr)) {
+  Document* doc = To<Document>(context);
+
+  if (require_gesture_ && !LocalFrame::ConsumeTransientUserActivation(
+                              doc ? doc->GetFrame() : nullptr)) {
     return ScriptPromise::RejectWithDOMException(
         script_state,
         DOMException::Create(
@@ -96,7 +100,7 @@ ScriptPromise BeforeInstallPromptEvent::prompt(ScriptState* script_state) {
 }
 
 const AtomicString& BeforeInstallPromptEvent::InterfaceName() const {
-  return EventNames::BeforeInstallPromptEvent;
+  return event_interface_names::kBeforeInstallPromptEvent;
 }
 
 void BeforeInstallPromptEvent::preventDefault() {
@@ -113,16 +117,16 @@ bool BeforeInstallPromptEvent::HasPendingActivity() const {
 }
 
 void BeforeInstallPromptEvent::BannerAccepted(const String& platform) {
-  AppBannerPromptResult result;
-  result.setPlatform(platform);
-  result.setOutcome("accepted");
+  AppBannerPromptResult* result = AppBannerPromptResult::Create();
+  result->setPlatform(platform);
+  result->setOutcome("accepted");
   user_choice_->Resolve(result);
 }
 
 void BeforeInstallPromptEvent::BannerDismissed() {
-  AppBannerPromptResult result;
-  result.setPlatform(g_empty_atom);
-  result.setOutcome("dismissed");
+  AppBannerPromptResult* result = AppBannerPromptResult::Create();
+  result->setPlatform(g_empty_atom);
+  result->setOutcome("dismissed");
   user_choice_->Resolve(result);
 }
 

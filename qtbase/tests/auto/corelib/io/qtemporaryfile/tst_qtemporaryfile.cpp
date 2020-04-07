@@ -376,7 +376,7 @@ void tst_QTemporaryFile::io()
     before.setSecsSinceEpoch(before.toSecsSinceEpoch());
 
     QVERIFY(file.open());
-    QVERIFY(file.readLink().isEmpty()); // it's not a link!
+    QVERIFY(file.symLinkTarget().isEmpty()); // it's not a link!
     QFile::Permissions perm = file.permissions();
     QVERIFY(perm & QFile::ReadOwner);
     QVERIFY(file.setPermissions(perm));
@@ -569,13 +569,7 @@ void tst_QTemporaryFile::rename()
 
 void tst_QTemporaryFile::renameFdLeak()
 {
-#ifdef Q_OS_UNIX
-
-#  if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
-    ChdirOnReturn cor(QDir::currentPath());
-    QDir::setCurrent(QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
-#  endif
-
+#if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
     const QByteArray sourceFile = QFile::encodeName(QFINDTESTDATA(__FILE__));
     QVERIFY(!sourceFile.isEmpty());
     // Test this on Unix only

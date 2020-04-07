@@ -6,13 +6,15 @@
 
 // Posix_system_utils.cpp: Implementation of OS-specific functions for Posix systems
 
-#include "system_utils.h"
+#include "util/system_utils.h"
 
-#include <sys/resource.h>
 #include <dlfcn.h>
 #include <sched.h>
+#include <sys/resource.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "common/platform.h"
 
 namespace angle
 {
@@ -27,9 +29,8 @@ void Sleep(unsigned int milliseconds)
     }
     else
     {
-        timespec sleepTime =
-        {
-            .tv_sec = milliseconds / 1000,
+        timespec sleepTime = {
+            .tv_sec  = milliseconds / 1000,
             .tv_nsec = (milliseconds % 1000) * 1000000,
         };
 
@@ -44,7 +45,40 @@ void SetLowPriorityProcess()
 
 void WriteDebugMessage(const char *format, ...)
 {
-    // TODO(jmadill): Implement this
+    va_list vararg;
+    va_start(vararg, format);
+    vfprintf(stderr, format, vararg);
+    va_end(vararg);
 }
 
-} // namespace angle
+bool StabilizeCPUForBenchmarking()
+{
+    bool success = true;
+    errno        = 0;
+    setpriority(PRIO_PROCESS, getpid(), -20);
+    if (errno)
+    {
+        // A friendly warning in case the test was run without appropriate permission.
+        perror(
+            "Warning: setpriority failed in StabilizeCPUForBenchmarking. Process will retain "
+            "default priority");
+        success = false;
+    }
+#if ANGLE_PLATFORM_LINUX
+    cpu_set_t affinity;
+    CPU_SET(0, &affinity);
+    errno = 0;
+    if (sched_setaffinity(getpid(), sizeof(affinity), &affinity))
+    {
+        perror(
+            "Warning: sched_setaffinity failed in StabilizeCPUForBenchmarking. Process will retain "
+            "default affinity");
+        success = false;
+    }
+#else
+    // TODO(jmadill): Implement for non-linux. http://anglebug.com/2923
+#endif
+
+    return success;
+}
+}  // namespace angle

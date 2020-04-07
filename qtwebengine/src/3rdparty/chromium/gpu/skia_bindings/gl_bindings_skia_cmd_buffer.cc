@@ -79,6 +79,8 @@ sk_sp<GrGLInterface> CreateGLES2InterfaceBindings(
       gles_bind(&GLES2Interface::BindBuffer, impl, context_support);
   functions->fBindTexture =
       gles_bind(&GLES2Interface::BindTexture, impl, context_support);
+  functions->fBindSampler =
+      gles_bind(&GLES2Interface::BindSampler, impl, context_support);
   functions->fBindVertexArray =
       gles_bind(&GLES2Interface::BindVertexArrayOES, impl, context_support);
   functions->fBlendBarrier =
@@ -120,6 +122,8 @@ sk_sp<GrGLInterface> CreateGLES2InterfaceBindings(
       gles_bind(&GLES2Interface::DeleteBuffers, impl, context_support);
   functions->fDeleteProgram =
       gles_bind(&GLES2Interface::DeleteProgram, impl, context_support);
+  functions->fDeleteSamplers =
+      gles_bind(&GLES2Interface::DeleteSamplers, impl, context_support);
   functions->fDeleteShader =
       gles_bind(&GLES2Interface::DeleteShader, impl, context_support);
   functions->fDeleteSync =
@@ -165,6 +169,8 @@ sk_sp<GrGLInterface> CreateGLES2InterfaceBindings(
       gles_bind(&GLES2Interface::FrontFace, impl, context_support);
   functions->fGenBuffers =
       gles_bind(&GLES2Interface::GenBuffers, impl, context_support);
+  functions->fGenSamplers =
+      gles_bind(&GLES2Interface::GenSamplers, impl, context_support);
   functions->fGenTextures =
       gles_bind(&GLES2Interface::GenTextures, impl, context_support);
   functions->fGenVertexArrays =
@@ -224,6 +230,10 @@ sk_sp<GrGLInterface> CreateGLES2InterfaceBindings(
       gles_bind(&GLES2Interface::ReadBuffer, impl, context_support);
   functions->fReadPixels =
       gles_bind(&GLES2Interface::ReadPixels, impl, context_support);
+  functions->fSamplerParameteri =
+      gles_bind(&GLES2Interface::SamplerParameteri, impl, context_support);
+  functions->fSamplerParameteriv =
+      gles_bind(&GLES2Interface::SamplerParameteriv, impl, context_support);
   functions->fScissor =
       gles_bind(&GLES2Interface::Scissor, impl, context_support);
   functions->fShaderSource =
@@ -242,6 +252,10 @@ sk_sp<GrGLInterface> CreateGLES2InterfaceBindings(
       gles_bind(&GLES2Interface::StencilOpSeparate, impl, context_support);
   functions->fTexImage2D =
       gles_bind(&GLES2Interface::TexImage2D, impl, context_support);
+  functions->fTexParameterf =
+      gles_bind(&GLES2Interface::TexParameterf, impl, context_support);
+  functions->fTexParameterfv =
+      gles_bind(&GLES2Interface::TexParameterfv, impl, context_support);
   functions->fTexParameteri =
       gles_bind(&GLES2Interface::TexParameteri, impl, context_support);
   functions->fTexParameteriv =
@@ -418,6 +432,19 @@ sk_sp<GrGLInterface> CreateGLES2InterfaceBindings(
       &GLES2Interface::CoverageModulationCHROMIUM, impl, context_support);
   functions->fWindowRectangles =
       gles_bind(&GLES2Interface::WindowRectanglesEXT, impl, context_support);
+  // Skia should not use program binaries over the command buffer. Allowing
+  // clients to submit them would be unsafe, and we already cache program
+  // binaries internally anyway.
+  functions->fGetProgramBinary = [](GLuint, GLsizei, GLsizei*, GLenum*, void*) {
+    LOG(FATAL) << "Skia shouldn't use program binaries over the command buffer";
+  };
+  functions->fProgramBinary = [](GLuint, GLenum, const void*, GLsizei) {
+    LOG(FATAL) << "Skia shouldn't use program binaries over the command buffer";
+  };
+  functions->fProgramParameteri = [](GLuint, GLenum pname, GLint) {
+    // This method is only used for GL_PROGRAM_BINARY_RETRIEVABLE_HINT in ES3.
+    LOG(FATAL) << "Skia shouldn't use program binaries over the command buffer";
+  };
   return interface;
 }
 

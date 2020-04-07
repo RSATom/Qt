@@ -8,17 +8,19 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/optional.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "content/browser/notifications/platform_notification_context_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_storage.h"
-#include "content/common/platform_notification_param_traits.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
-#include "content/public/common/platform_notification_data.h"
+#include "content/public/common/persistent_notification_status.h"
+#include "third_party/blink/public/common/notifications/platform_notification_data.h"
 
 namespace content {
 namespace {
@@ -40,8 +42,8 @@ void NotificationEventFinished(
     PersistentNotificationStatus status) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                          base::BindOnce(dispatch_complete_callback, status));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                           base::BindOnce(dispatch_complete_callback, status));
 }
 
 // To be called when a notification event has finished with a
@@ -58,13 +60,13 @@ void ServiceWorkerNotificationEventFinished(
             << blink::ServiceWorkerStatusToString(service_worker_status);
 #endif
 
-  PersistentNotificationStatus status = PERSISTENT_NOTIFICATION_STATUS_SUCCESS;
+  PersistentNotificationStatus status = PersistentNotificationStatus::kSuccess;
   switch (service_worker_status) {
     case blink::ServiceWorkerStatusCode::kOk:
       // Success status was initialized above.
       break;
     case blink::ServiceWorkerStatusCode::kErrorEventWaitUntilRejected:
-      status = PERSISTENT_NOTIFICATION_STATUS_EVENT_WAITUNTIL_REJECTED;
+      status = PersistentNotificationStatus::kWaitUntilRejected;
       break;
     case blink::ServiceWorkerStatusCode::kErrorFailed:
     case blink::ServiceWorkerStatusCode::kErrorAbort:
@@ -83,7 +85,8 @@ void ServiceWorkerNotificationEventFinished(
     case blink::ServiceWorkerStatusCode::kErrorDiskCache:
     case blink::ServiceWorkerStatusCode::kErrorRedundant:
     case blink::ServiceWorkerStatusCode::kErrorDisallowed:
-      status = PERSISTENT_NOTIFICATION_STATUS_SERVICE_WORKER_ERROR;
+    case blink::ServiceWorkerStatusCode::kErrorInvalidArguments:
+      status = PersistentNotificationStatus::kServiceWorkerError;
       break;
   }
   NotificationEventFinished(dispatch_complete_callback, status);
@@ -115,10 +118,10 @@ void DispatchNotificationEventOnRegistration(
     return;
   }
 
-  PersistentNotificationStatus status = PERSISTENT_NOTIFICATION_STATUS_SUCCESS;
+  PersistentNotificationStatus status = PersistentNotificationStatus::kSuccess;
   switch (service_worker_status) {
     case blink::ServiceWorkerStatusCode::kErrorNotFound:
-      status = PERSISTENT_NOTIFICATION_STATUS_NO_SERVICE_WORKER;
+      status = PersistentNotificationStatus::kServiceWorkerMissing;
       break;
     case blink::ServiceWorkerStatusCode::kErrorFailed:
     case blink::ServiceWorkerStatusCode::kErrorAbort:
@@ -137,15 +140,16 @@ void DispatchNotificationEventOnRegistration(
     case blink::ServiceWorkerStatusCode::kErrorDiskCache:
     case blink::ServiceWorkerStatusCode::kErrorRedundant:
     case blink::ServiceWorkerStatusCode::kErrorDisallowed:
-      status = PERSISTENT_NOTIFICATION_STATUS_SERVICE_WORKER_ERROR;
+    case blink::ServiceWorkerStatusCode::kErrorInvalidArguments:
+      status = PersistentNotificationStatus::kServiceWorkerError;
       break;
     case blink::ServiceWorkerStatusCode::kOk:
       NOTREACHED();
       break;
   }
 
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                          base::BindOnce(dispatch_error_callback, status));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                           base::BindOnce(dispatch_error_callback, status));
 }
 
 // Finds the ServiceWorkerRegistration associated with the |origin| and
@@ -167,10 +171,10 @@ void FindServiceWorkerRegistration(
   LOG(INFO) << "Lookup for ServiceWoker Registration: success: " << success;
 #endif
   if (!success) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(dispatch_error_callback,
-                       PERSISTENT_NOTIFICATION_STATUS_DATABASE_ERROR));
+                       PersistentNotificationStatus::kDatabaseError));
     return;
   }
 
@@ -260,10 +264,10 @@ void OnPersistentNotificationDataDeleted(
                                            service_worker_status);
     return;
   }
-  NotificationEventFinished(
-      dispatch_complete_callback,
-      success ? PERSISTENT_NOTIFICATION_STATUS_SUCCESS
-              : PERSISTENT_NOTIFICATION_STATUS_DATABASE_ERROR);
+  NotificationEventFinished(dispatch_complete_callback,
+                            success
+                                ? PersistentNotificationStatus::kSuccess
+                                : PersistentNotificationStatus::kDatabaseError);
 }
 
 // Called when the persistent notification close event has been handled
@@ -351,8 +355,8 @@ void DispatchNotificationEvent(
   scoped_refptr<PlatformNotificationContext> notification_context =
       partition->GetPlatformNotificationContext();
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
           &ReadNotificationDatabaseData, notification_id, origin, interaction,
           service_worker_context, notification_context,
@@ -422,16 +426,6 @@ void NotificationEventDispatcherImpl::DispatchNotificationCloseEvent(
 void NotificationEventDispatcherImpl::RegisterNonPersistentNotificationListener(
     const std::string& notification_id,
     blink::mojom::NonPersistentNotificationListenerPtr event_listener_ptr) {
-  if (non_persistent_notification_listeners_.count(notification_id)) {
-    // Dispatch the close event for any previously displayed notification with
-    // the same notification id. This happens whenever a non-persistent
-    // notification is replaced (by creating another with the same tag), since
-    // from the JavaScript point of view there will be two notification objects,
-    // and the old one needs to receive a close event before the new one
-    // receives a show event.
-    DispatchNonPersistentCloseEvent(notification_id, base::DoNothing());
-  }
-
   // Observe connection errors, which occur when the JavaScript object or the
   // renderer hosting them goes away. (For example through navigation.) The
   // listener gets freed together with |this|, thus the Unretained is safe.
@@ -439,6 +433,22 @@ void NotificationEventDispatcherImpl::RegisterNonPersistentNotificationListener(
       &NotificationEventDispatcherImpl::
           HandleConnectionErrorForNonPersistentNotificationListener,
       base::Unretained(this), notification_id));
+
+  if (non_persistent_notification_listeners_.count(notification_id)) {
+    // Dispatch the close event for any previously displayed notification with
+    // the same notification id. This happens whenever a non-persistent
+    // notification is replaced (by creating another with the same tag), since
+    // from the JavaScript point of view there will be two notification objects,
+    // and the old one needs to receive a close event before the new one
+    // receives a show event.
+    DispatchNonPersistentCloseEvent(
+        notification_id,
+        base::BindOnce(&NotificationEventDispatcherImpl::
+                           ReplaceNonPersistentNotificationListener,
+                       base::Unretained(this), notification_id,
+                       std::move(event_listener_ptr)));
+    return;
+  }
 
   non_persistent_notification_listeners_.emplace(notification_id,
                                                  std::move(event_listener_ptr));
@@ -483,6 +493,13 @@ void NotificationEventDispatcherImpl::OnNonPersistentCloseComplete(
     base::OnceClosure completed_closure) {
   non_persistent_notification_listeners_.erase(notification_id);
   std::move(completed_closure).Run();
+}
+
+void NotificationEventDispatcherImpl::ReplaceNonPersistentNotificationListener(
+    const std::string& notification_id,
+    blink::mojom::NonPersistentNotificationListenerPtr event_listener_ptr) {
+  non_persistent_notification_listeners_.emplace(notification_id,
+                                                 std::move(event_listener_ptr));
 }
 
 void NotificationEventDispatcherImpl::

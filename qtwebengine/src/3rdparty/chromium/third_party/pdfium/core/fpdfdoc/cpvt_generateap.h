@@ -7,15 +7,12 @@
 #ifndef CORE_FPDFDOC_CPVT_GENERATEAP_H_
 #define CORE_FPDFDOC_CPVT_GENERATEAP_H_
 
-#include <memory>
-
 #include "core/fpdfdoc/cpdf_annot.h"
 #include "core/fpdfdoc/cpdf_defaultappearance.h"
 #include "core/fpdfdoc/cpdf_variabletext.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxge/cfx_color.h"
 
 class CPDF_Dictionary;
 class CPDF_Document;

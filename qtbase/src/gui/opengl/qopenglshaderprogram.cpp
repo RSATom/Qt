@@ -3667,7 +3667,8 @@ QVector<float> QOpenGLShaderProgram::defaultInnerTessellationLevels() const
     Language (GLSL) are supported on this system; false otherwise.
 
     The \a context is used to resolve the GLSL extensions.
-    If \a context is null, then QOpenGLContext::currentContext() is used.
+    If \a context is \nullptr, then QOpenGLContext::currentContext()
+    is used.
 */
 bool QOpenGLShaderProgram::hasOpenGLShaderPrograms(QOpenGLContext *context)
 {
@@ -3694,7 +3695,8 @@ void QOpenGLShaderProgram::shaderDestroyed()
     this system; false otherwise.
 
     The \a context is used to resolve the GLSL extensions.
-    If \a context is null, then QOpenGLContext::currentContext() is used.
+    If \a context is \nullptr, then QOpenGLContext::currentContext()
+    is used.
 */
 bool QOpenGLShader::hasOpenGLShaders(ShaderType type, QOpenGLContext *context)
 {
@@ -3753,8 +3755,14 @@ QOpenGLProgramBinarySupportCheck::QOpenGLProgramBinarySupportCheck(QOpenGLContex
     if (ctx) {
         if (ctx->isOpenGLES()) {
             qCDebug(DBG_SHADER_CACHE, "OpenGL ES v%d context", ctx->format().majorVersion());
-            if (ctx->format().majorVersion() >= 3)
+            if (ctx->format().majorVersion() >= 3) {
                 m_supported = true;
+            } else {
+                const bool hasExt = ctx->hasExtension("GL_OES_get_program_binary");
+                qCDebug(DBG_SHADER_CACHE, "GL_OES_get_program_binary support = %d", hasExt);
+                if (hasExt)
+                    m_supported = true;
+            }
         } else {
             const bool hasExt = ctx->hasExtension("GL_ARB_get_program_binary");
             qCDebug(DBG_SHADER_CACHE, "GL_ARB_get_program_binary support = %d", hasExt);

@@ -66,6 +66,8 @@
 namespace QtWebEngineCore {
 class RenderWidgetHostViewQtDelegate;
 class RenderWidgetHostViewQtDelegateWidget;
+class TouchHandleDrawableClient;
+class TouchSelectionMenuController;
 class WebContentsAdapter;
 }
 
@@ -98,7 +100,6 @@ public:
     void selectionChanged() override;
     void recentlyAudibleChanged(bool recentlyAudible) override;
     QRectF viewportRect() const override;
-    qreal dpiScale() const override;
     QColor backgroundColor() const override;
     void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) override;
     void loadCommitted() override { }
@@ -124,7 +125,7 @@ public:
     void didFetchDocumentMarkup(quint64 requestId, const QString& result) override;
     void didFetchDocumentInnerText(quint64 requestId, const QString& result) override;
     void didFindText(quint64 requestId, int matchCount) override;
-    void didPrintPage(quint64 requestId, const QByteArray &result) override;
+    void didPrintPage(quint64 requestId, QSharedPointer<QByteArray> result) override;
     void didPrintPageToPdf(const QString &filePath, bool success) override;
     bool passOnFocus(bool reverse) override;
     void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level, const QString& message, int lineNumber, const QString& sourceID) override;
@@ -132,6 +133,7 @@ public:
     void releaseProfile() override;
     void runMediaAccessPermissionRequest(const QUrl &securityOrigin, MediaRequestFlags requestFlags) override;
     void runGeolocationPermissionRequest(const QUrl &securityOrigin) override;
+    void runUserNotificationPermissionRequest(const QUrl &securityOrigin) override;
     void runMouseLockPermissionRequest(const QUrl &securityOrigin) override;
     void runQuotaRequest(QWebEngineQuotaRequest) override;
     void runRegisterProtocolHandlerRequest(QWebEngineRegisterProtocolHandlerRequest) override;
@@ -144,14 +146,19 @@ public:
     void updateScrollPosition(const QPointF &position) override;
     void updateContentsSize(const QSizeF &size) override;
     void updateNavigationActions() override;
+    void updateEditActions() override;
     void startDragging(const content::DropData &dropData, Qt::DropActions allowedActions,
                        const QPixmap &pixmap, const QPoint &offset) override;
     bool supportsDragging() const override;
     bool isEnabled() const override;
     void setToolTip(const QString &toolTipText) override;
     void printRequested() override;
+    QtWebEngineCore::TouchHandleDrawableClient *createTouchHandle(const QMap<int, QImage> &) override { return nullptr; }
+    void showTouchSelectionMenu(QtWebEngineCore::TouchSelectionMenuController *, const QRect &, const QSize &) override { }
+    void hideTouchSelectionMenu() override { }
     const QObject *holdingQObject() const override;
     ClientType clientType() override { return QtWebEngineCore::WebContentsAdapterClient::WidgetsClient; }
+    void interceptRequest(QWebEngineUrlRequestInfo &) override;
     void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegate *newWidget) override;
 
     QtWebEngineCore::ProfileAdapter *profileAdapter() override;
@@ -194,6 +201,7 @@ public:
     bool defaultAudioMuted;
     qreal defaultZoomFactor;
     QTimer wasShownTimer;
+    QWebEngineUrlRequestInterceptor *requestInterceptor;
     QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *widget = nullptr;
 
     mutable QtWebEngineCore::CallbackDirectory m_callbacks;

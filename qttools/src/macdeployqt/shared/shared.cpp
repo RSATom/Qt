@@ -418,7 +418,8 @@ QStringList findAppFrameworkNames(const QString &appBundlePath)
     // populate the frameworks list with QtFoo.framework etc,
     // as found in /Contents/Frameworks/
     QString searchPath = appBundlePath + "/Contents/Frameworks/";
-    QDirIterator iter(searchPath, QStringList() << QString::fromLatin1("*.framework"), QDir::Dirs);
+    QDirIterator iter(searchPath, QStringList() << QString::fromLatin1("*.framework"),
+                      QDir::Dirs | QDir::NoSymLinks);
     while (iter.hasNext()) {
         iter.next();
         frameworks << iter.fileInfo().fileName();
@@ -431,7 +432,8 @@ QStringList findAppFrameworkPaths(const QString &appBundlePath)
 {
     QStringList frameworks;
     QString searchPath = appBundlePath + "/Contents/Frameworks/";
-    QDirIterator iter(searchPath, QStringList() << QString::fromLatin1("*.framework"), QDir::Dirs);
+    QDirIterator iter(searchPath, QStringList() << QString::fromLatin1("*.framework"),
+                      QDir::Dirs | QDir::NoSymLinks);
     while (iter.hasNext()) {
         iter.next();
         frameworks << iter.fileInfo().filePath();
@@ -445,8 +447,7 @@ QStringList findAppLibraries(const QString &appBundlePath)
     QStringList result;
     // dylibs
     QDirIterator iter(appBundlePath, QStringList() << QString::fromLatin1("*.dylib"),
-            QDir::Files, QDirIterator::Subdirectories);
-
+            QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
     while (iter.hasNext()) {
         iter.next();
         result << iter.fileInfo().filePath();
@@ -1228,11 +1229,12 @@ static bool importLessThan(const QVariant &v1, const QVariant &v2)
 }
 
 // Scan qml files in qmldirs for import statements, deploy used imports from Qml2ImportsPath to Contents/Resources/qml.
-bool deployQmlImports(const QString &appBundlePath, DeploymentInfo deploymentInfo, QStringList &qmlDirs)
+bool deployQmlImports(const QString &appBundlePath, DeploymentInfo deploymentInfo, QStringList &qmlDirs, QStringList &qmlImportPaths)
 {
     LogNormal() << "";
     LogNormal() << "Deploying QML imports ";
-    LogNormal() << "Application QML file search path(s) is" << qmlDirs;
+    LogNormal() << "Application QML file path(s) is" << qmlDirs;
+    LogNormal() << "QML module search path(s) is" << qmlImportPaths;
 
     // Use qmlimportscanner from QLibraryInfo::BinariesPath
     QString qmlImportScannerPath = QDir::cleanPath(QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlimportscanner");
@@ -1255,6 +1257,8 @@ bool deployQmlImports(const QString &appBundlePath, DeploymentInfo deploymentInf
         argumentList.append("-rootPath");
         argumentList.append(qmlDir);
     }
+    for (const QString &importPath : qmlImportPaths)
+        argumentList << "-importPath" << importPath;
     QString qmlImportsPath = QLibraryInfo::location(QLibraryInfo::Qml2ImportsPath);
     argumentList.append( "-importPath");
     argumentList.append(qmlImportsPath);

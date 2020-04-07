@@ -5,7 +5,7 @@
 #include "third_party/blink/renderer/platform/image-decoders/image_frame.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/skia/include/core/SkColorSpaceXform.h"
+#include "third_party/skia/third_party/skcms/skcms.h"
 
 namespace blink {
 namespace {
@@ -26,20 +26,16 @@ class ImageFrameTest : public testing::Test {
     src_8888 = SkPackARGB32(src_8888_a, src_8888_r, src_8888_g, src_8888_b);
     dst_8888 = SkPackARGB32(0xA0, 0x60, 0x70, 0x80);
 
-    typedef SkColorSpaceXform::ColorFormat ColorFormat;
-    color_format_8888 = ColorFormat::kBGRA_8888_ColorFormat;
+    pixel_format_n32 = skcms_PixelFormat_RGBA_8888;
     if (kN32_SkColorType == kRGBA_8888_SkColorType)
-      color_format_8888 = ColorFormat::kRGBA_8888_ColorFormat;
-    color_format_f16 = ColorFormat::kRGBA_F16_ColorFormat;
-    color_format_f32 = ColorFormat::kRGBA_F32_ColorFormat;
+      pixel_format_n32 = skcms_PixelFormat_BGRA_8888;
 
-    sk_sp<SkColorSpace> srgb_linear = SkColorSpace::MakeSRGBLinear();
-    SkColorSpaceXform::Apply(srgb_linear.get(), color_format_f16, &src_f16,
-                             srgb_linear.get(), color_format_8888, &src_8888, 1,
-                             SkColorSpaceXform::AlphaOp::kPreserve_AlphaOp);
-    SkColorSpaceXform::Apply(srgb_linear.get(), color_format_f16, &dst_f16,
-                             srgb_linear.get(), color_format_8888, &dst_8888, 1,
-                             SkColorSpaceXform::AlphaOp::kPreserve_AlphaOp);
+    skcms_Transform(&src_8888, pixel_format_n32, skcms_AlphaFormat_Unpremul,
+                    nullptr, &src_f16, skcms_PixelFormat_RGBA_hhhh,
+                    skcms_AlphaFormat_Unpremul, nullptr, 1);
+    skcms_Transform(&dst_8888, pixel_format_n32, skcms_AlphaFormat_Unpremul,
+                    nullptr, &dst_f16, skcms_PixelFormat_RGBA_hhhh,
+                    skcms_AlphaFormat_Unpremul, nullptr, 1);
   }
 
  protected:
@@ -47,97 +43,21 @@ class ImageFrameTest : public testing::Test {
   unsigned src_8888_a, src_8888_r, src_8888_g, src_8888_b;
   ImageFrame::PixelData src_8888, dst_8888;
   ImageFrame::PixelDataF16 src_f16, dst_f16;
-  SkColorSpaceXform::ColorFormat color_format_8888, color_format_f16,
-      color_format_f32;
+  skcms_PixelFormat pixel_format_n32;
 
   void ConvertN32ToF32(float* dst, ImageFrame::PixelData src) {
-    sk_sp<SkColorSpace> srgb_linear = SkColorSpace::MakeSRGBLinear();
-    SkColorSpaceXform::Apply(srgb_linear.get(), color_format_f32, dst,
-                             srgb_linear.get(), color_format_8888, &src, 1,
-                             SkColorSpaceXform::AlphaOp::kPreserve_AlphaOp);
+    skcms_Transform(&src, pixel_format_n32, skcms_AlphaFormat_Unpremul, nullptr,
+                    dst, skcms_PixelFormat_RGBA_ffff,
+                    skcms_AlphaFormat_Unpremul, nullptr, 1);
   }
 
   void ConvertF16ToF32(float* dst, ImageFrame::PixelDataF16 src) {
-    sk_sp<SkColorSpace> srgb_linear = SkColorSpace::MakeSRGBLinear();
-    SkColorSpaceXform::Apply(srgb_linear.get(), color_format_f32, dst,
-                             srgb_linear.get(), color_format_f16, &src, 1,
-                             SkColorSpaceXform::AlphaOp::kPreserve_AlphaOp);
+    skcms_Transform(&src, skcms_PixelFormat_RGBA_hhhh,
+                    skcms_AlphaFormat_Unpremul, nullptr, dst,
+                    skcms_PixelFormat_RGBA_ffff, skcms_AlphaFormat_Unpremul,
+                    nullptr, 1);
   }
 };
-
-TEST_F(ImageFrameTest, TestF16API) {
-  ImageFrame::PixelFormat kN32 = ImageFrame::PixelFormat::kN32;
-  ImageFrame::PixelFormat kRGBA_F16 = ImageFrame::PixelFormat::kRGBA_F16;
-
-  ImageFrame frame_no_pixel_format;
-  ASSERT_EQ(kN32, frame_no_pixel_format.GetPixelFormat());
-
-  ImageFrame frame_pixel_format_n32(kN32);
-  ASSERT_EQ(kN32, frame_pixel_format_n32.GetPixelFormat());
-
-  ImageFrame frame_pixel_format_f16(kRGBA_F16);
-  ASSERT_EQ(kRGBA_F16, frame_pixel_format_f16.GetPixelFormat());
-
-  ImageFrame frame_copy_ctor_n32(frame_pixel_format_n32);
-  ASSERT_EQ(kN32, frame_copy_ctor_n32.GetPixelFormat());
-
-  ImageFrame frame_copy_ctor_f16(frame_pixel_format_f16);
-  ASSERT_EQ(kRGBA_F16, frame_copy_ctor_f16.GetPixelFormat());
-
-  ImageFrame frame_test_assignment;
-  frame_test_assignment = frame_pixel_format_n32;
-  ASSERT_EQ(kN32, frame_test_assignment.GetPixelFormat());
-  frame_test_assignment = frame_pixel_format_f16;
-  ASSERT_EQ(kRGBA_F16, frame_test_assignment.GetPixelFormat());
-
-  SkBitmap bitmap(frame_pixel_format_f16.Bitmap());
-  ASSERT_EQ(0, bitmap.width());
-  ASSERT_EQ(0, bitmap.height());
-  ASSERT_EQ(nullptr, bitmap.colorSpace());
-
-  TestAllocator allocator;
-  frame_pixel_format_f16.SetMemoryAllocator(&allocator);
-  sk_sp<SkColorSpace> srgb_linear = SkColorSpace::MakeSRGBLinear();
-
-  ASSERT_TRUE(frame_pixel_format_f16.AllocatePixelData(2, 2, srgb_linear));
-  bitmap = frame_pixel_format_f16.Bitmap();
-  ASSERT_EQ(2, bitmap.width());
-  ASSERT_EQ(2, bitmap.height());
-  ASSERT_TRUE(SkColorSpace::Equals(srgb_linear.get(), bitmap.colorSpace()));
-}
-
-TEST_F(ImageFrameTest, SetRGBAPremultiplyF16Buffer) {
-  ImageFrame::PixelDataF16 premul_f16;
-  ImageFrame::SetRGBAPremultiplyF16Buffer(&premul_f16, &src_f16, 1);
-
-  float f32_from_src_f16[4];
-  ConvertF16ToF32(f32_from_src_f16, src_f16);
-  for (int i = 0; i < 3; i++)
-    f32_from_src_f16[i] *= f32_from_src_f16[3];
-
-  float f32_from_premul_f16[4];
-  ConvertF16ToF32(f32_from_premul_f16, premul_f16);
-
-  for (int i = 0; i < 4; i++) {
-    ASSERT_TRUE(fabs(f32_from_src_f16[i] - f32_from_premul_f16[i]) <
-                color_compoenent_tolerance);
-  }
-}
-
-TEST_F(ImageFrameTest, SetPixelsOpaqueF16Buffer) {
-  ImageFrame::PixelDataF16 opaque_f16;
-  ImageFrame::SetPixelsOpaqueF16Buffer(&opaque_f16, &src_f16, 1);
-
-  float f32_from_src_f16[4];
-  ConvertF16ToF32(f32_from_src_f16, src_f16);
-
-  float f32_from_opaque_f16[4];
-  ConvertF16ToF32(f32_from_opaque_f16, opaque_f16);
-
-  for (int i = 0; i < 3; i++)
-    ASSERT_EQ(f32_from_src_f16[i], f32_from_opaque_f16[i]);
-  ASSERT_EQ(1.0f, f32_from_opaque_f16[3]);
-}
 
 TEST_F(ImageFrameTest, BlendRGBARawF16Buffer) {
   ImageFrame::PixelData blended_8888(dst_8888);

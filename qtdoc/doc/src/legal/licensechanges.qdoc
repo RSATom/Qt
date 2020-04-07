@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -34,6 +34,86 @@
     Changes in Qt and \l{Licenses Used in Qt}{Third Party Modules}
     released with Qt that are relevant to licensing.
 
+    \section1 Qt 5.13.2
+
+    \section2 Qt GUI Module
+
+    \list
+        \li \l{X Server helper} was added under X11 License and Historical Permission Notice and Disclaimer license.
+        \li \l{Adobe Glyph List For New Fonts} version 1.7 was added under BSD 3-Clause \"New\" or \"Revised\" License.
+    \endlist
+
+    \section2 Qt SQL Module
+
+    \l{SQLite} got updated to upstream version 3.29.0.
+
+    \section1 Qt 5.13.1
+
+    \section2 Qt Core Module
+
+    \l{Unicode Common Locale Data Repository (CLDR)} got updated to
+            upstream version v35.1
+
+    \section2 Qt Image Formats
+
+    \l{WebP (libwebp)} got updated to upstream version 1.0.3.
+
+    \section1 Qt 5.13.0
+
+    \section2 Qt Core Module
+
+    \list
+        \li The copy of the \l{The Public Suffix List} got updated on 2019-02-20.
+        The upstream license is now MPL 2.0.
+        \li \l{PCRE2} got updated to upstream version 10.33.
+        \li \l{PCRE2 - Stack-less Just-In-Time Compiler} got updated to upstream version 10.33.
+    \endlist
+
+    \section2 Qt SQL Module
+
+    \l{SQLite} got updated to upstream version 3.28.0.
+
+    \section2 Qt GUI Module
+
+    \list
+        \li \l{LibJPEG-turbo} got updated to upstream version 2.0.2.
+        \li \l{LibPNG} got updated to upstream version 1.6.37.
+    \endlist
+
+    \section2 Qt DBUS Module
+
+    The \l{libdus-1 headers} got updated to upstream version 1.12.12.
+
+    \section2 Qt Wayland
+
+    \list
+        \li The fullscreen-shell-unstable-v1 version 1 was added under the MIT
+        License.
+        \li The linux-dmabuf-unstable-v1 protocol version 3 was added under the
+        MIT License.
+        \li The wayland protocol got updated to version 1.16.0.
+        \li The wl-scaler protocol version 2 was added under the MIT License.
+        \li The wp-viewporter protocol version 1 was added under the MIT
+        License.
+    \endlist
+
+    \section1 Qt 5.12.6
+
+    \section2 Qt SQL Module
+
+    \l{SQLite} got updated to upstream version 3.29.0.
+
+    \section1 Qt 5.12.5
+
+    \section2 Qt GUI Module
+
+    Use of \l{Adobe Glyph List For New Fonts} under the \e{BSD-3-Clause}
+    license is now documented.
+
+    \section2 Qt Image Formats
+
+    \l{WebP (libwebp)} got updated to upstream version 1.0.3.
+
     \section1 Qt 5.12.4
 
     \section2 Qt GUI Module
@@ -60,6 +140,10 @@
 
     The license of \l{Wintab API} was now classified as 'Custom' instead of
     'Public Domain'.
+
+    \section2 Qt SQL Module
+
+    \l{SQLite} got updated to upstream version 3.27.1.
 
     \section1 Qt 5.12.2
 
@@ -316,7 +400,7 @@
         \li \l{Perfetto} got added under a \e{Apache 2} license.
         \li \e{The library to input, validate, and display addresses} got
             removed.
-        \li \l{content_shell_fonts} got added under
+        \li \e{content_shell_fonts} got added under
             \e{SIL OPEN FONT LICENSE, GPL v2, Bitstream Vera Fonts Copyright}.
         \li \e{libcxx} got removed.
         \li \e{libcxxabi} got removed.

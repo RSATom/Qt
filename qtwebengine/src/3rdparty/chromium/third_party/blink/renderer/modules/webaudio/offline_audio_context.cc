@@ -50,13 +50,12 @@ OfflineAudioContext* OfflineAudioContext::Create(
     float sample_rate,
     ExceptionState& exception_state) {
   // FIXME: add support for workers.
-  if (!context || !context->IsDocument()) {
+  auto* document = DynamicTo<Document>(context);
+  if (!document) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "Workers are not supported.");
     return nullptr;
   }
-
-  Document* document = ToDocument(context);
 
   if (!number_of_frames) {
     exception_state.ThrowDOMException(
@@ -78,21 +77,22 @@ OfflineAudioContext* OfflineAudioContext::Create(
     return nullptr;
   }
 
-  if (!AudioUtilities::IsValidAudioBufferSampleRate(sample_rate)) {
+  if (!audio_utilities::IsValidAudioBufferSampleRate(sample_rate)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
         ExceptionMessages::IndexOutsideRange(
             "sampleRate", sample_rate,
-            AudioUtilities::MinAudioBufferSampleRate(),
+            audio_utilities::MinAudioBufferSampleRate(),
             ExceptionMessages::kInclusiveBound,
-            AudioUtilities::MaxAudioBufferSampleRate(),
+            audio_utilities::MaxAudioBufferSampleRate(),
             ExceptionMessages::kInclusiveBound));
     return nullptr;
   }
 
   OfflineAudioContext* audio_context =
-      new OfflineAudioContext(document, number_of_channels, number_of_frames,
-                              sample_rate, exception_state);
+      MakeGarbageCollected<OfflineAudioContext>(document, number_of_channels,
+                                                number_of_frames, sample_rate,
+                                                exception_state);
   audio_context->PauseIfNeeded();
 
 #if DEBUG_AUDIONODE_REFERENCES
@@ -107,8 +107,8 @@ OfflineAudioContext* OfflineAudioContext::Create(
                       ("WebAudio.OfflineAudioContext.Length", 1, 1000000, 50));
   // The limits are the min and max AudioBuffer sample rates currently
   // supported.  We use explicit values here instead of
-  // AudioUtilities::minAudioBufferSampleRate() and
-  // AudioUtilities::maxAudioBufferSampleRate().  The number of buckets is
+  // audio_utilities::minAudioBufferSampleRate() and
+  // audio_utilities::maxAudioBufferSampleRate().  The number of buckets is
   // fairly arbitrary.
   DEFINE_STATIC_LOCAL(
       CustomCountHistogram, offline_context_sample_rate_histogram,
@@ -123,18 +123,18 @@ OfflineAudioContext* OfflineAudioContext::Create(
 
 OfflineAudioContext* OfflineAudioContext::Create(
     ExecutionContext* context,
-    const OfflineAudioContextOptions& options,
+    const OfflineAudioContextOptions* options,
     ExceptionState& exception_state) {
   OfflineAudioContext* offline_context =
-      Create(context, options.numberOfChannels(), options.length(),
-             options.sampleRate(), exception_state);
+      Create(context, options->numberOfChannels(), options->length(),
+             options->sampleRate(), exception_state);
 
   return offline_context;
 }
 
 OfflineAudioContext::OfflineAudioContext(Document* document,
                                          unsigned number_of_channels,
-                                         size_t number_of_frames,
+                                         uint32_t number_of_frames,
                                          float sample_rate,
                                          ExceptionState& exception_state)
     : BaseAudioContext(document, kOfflineContext),
@@ -222,12 +222,6 @@ ScriptPromise OfflineAudioContext::startOfflineRendering(
   return complete_resolver_->Promise();
 }
 
-ScriptPromise OfflineAudioContext::suspendContext(ScriptState* script_state) {
-  LOG(FATAL) << "This CANNOT be called on OfflineAudioContext; this is only to "
-                "implement the pure virtual interface from BaseAudioContext.";
-  return ScriptPromise();
-}
-
 ScriptPromise OfflineAudioContext::suspendContext(ScriptState* script_state,
                                                   double when) {
   DCHECK(IsMainThread());
@@ -274,7 +268,8 @@ ScriptPromise OfflineAudioContext::suspendContext(ScriptState* script_state,
 
   // The specified suspend time is in the past; reject the promise.
   if (frame < CurrentSampleFrame()) {
-    size_t current_frame_clamped = std::min(CurrentSampleFrame(), length());
+    size_t current_frame_clamped =
+        std::min(CurrentSampleFrame(), static_cast<size_t>(length()));
     double current_time_clamped =
         std::min(currentTime(), length() / static_cast<double>(sampleRate()));
     resolver->Reject(DOMException::Create(
@@ -369,7 +364,7 @@ void OfflineAudioContext::FireCompletionEvent() {
 
     // Call the offline rendering completion event listener and resolve the
     // promise too.
-    DispatchEvent(OfflineAudioCompletionEvent::Create(rendered_buffer));
+    DispatchEvent(*OfflineAudioCompletionEvent::Create(rendered_buffer));
     complete_resolver_->Resolve(rendered_buffer);
   } else {
     // The resolver should be rejected when the execution context is gone.
@@ -379,6 +374,8 @@ void OfflineAudioContext::FireCompletionEvent() {
   }
 
   is_rendering_started_ = false;
+
+  PerformCleanupOnMainThread();
 }
 
 bool OfflineAudioContext::HandlePreOfflineRenderTasks() {

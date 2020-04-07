@@ -11,23 +11,29 @@
 #ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_REMOTE_BITRATE_ESTIMATOR_SINGLE_STREAM_H_
 #define MODULES_REMOTE_BITRATE_ESTIMATOR_REMOTE_BITRATE_ESTIMATOR_SINGLE_STREAM_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <map>
 #include <memory>
 #include <vector>
 
 #include "modules/remote_bitrate_estimator/aimd_rate_control.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/rate_statistics.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
+
+class Clock;
+struct RTPHeader;
 
 class RemoteBitrateEstimatorSingleStream : public RemoteBitrateEstimator {
  public:
   RemoteBitrateEstimatorSingleStream(RemoteBitrateObserver* observer,
                                      const Clock* clock);
-  virtual ~RemoteBitrateEstimatorSingleStream();
+  ~RemoteBitrateEstimatorSingleStream() override;
 
   void IncomingPacket(int64_t arrival_time_ms,
                       size_t payload_size,

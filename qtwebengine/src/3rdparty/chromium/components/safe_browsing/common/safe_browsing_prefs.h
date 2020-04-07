@@ -25,45 +25,45 @@ extern const char kSafeBrowsingEnabled[];
 extern const char kSafeBrowsingExtendedReportingOptInAllowed[];
 
 // A dictionary mapping incident types to a dict of incident key:digest pairs.
+// The key is a string: a filename or pref name. Digests are 4 bytes. This pref
+// is only set/updated if Chrome (Windows only) notices certain security
+// incidents, e.g. the user downloaded binaries with invalid signatures.
 extern const char kSafeBrowsingIncidentsSent[];
 
 // Boolean that is true when the SafeBrowsing interstitial should not allow
 // users to proceed anyway.
 extern const char kSafeBrowsingProceedAnywayDisabled[];
 
-// Boolean indicating whether the user has ever seen a security interstitial
-// containing the legacy Extended Reporting opt-in.
-extern const char kSafeBrowsingSawInterstitialExtendedReporting[];
-
-// Boolean indicating whether the user has ever seen a security interstitial
-// containing the new Scout opt-in.
+// Boolean indicating whether the user has ever seen a security interstitial.
 extern const char kSafeBrowsingSawInterstitialScoutReporting[];
-
-// Boolean indicating whether the Scout reporting workflow is enabled. This
-// affects which of SafeBrowsingExtendedReporting or SafeBrowsingScoutReporting
-// is used.
-extern const char kSafeBrowsingScoutGroupSelected[];
 
 // Boolean indicating whether Safe Browsing Scout reporting is enabled, which
 // collects data for malware detection.
 extern const char kSafeBrowsingScoutReportingEnabled[];
 
 // Dictionary containing safe browsing triggers and the list of times they have
-// fired recently.
+// fired recently. The keys are TriggerTypes (4-byte ints) and the values are
+// lists of doubles.
 extern const char kSafeBrowsingTriggerEventTimestamps[];
 
 // Dictionary that records the origin and navigation ID pairs of unhandled sync
-// password reuses.
+// password reuses. The keys are origin strings and the ID values are 8-byte
+// ints. Only set/update if a Chrome Sync user reuses their Gaia password on
+// phishing site.
 extern const char kSafeBrowsingUnhandledSyncPasswordReuses[];
+
+// Integer timestamp of next time the PasswordCaptured event should be logged.
+extern const char kSafeBrowsingNextPasswordCaptureEventLogTime[];
 
 // List of domains where Safe Browsing should trust. That means Safe Browsing
 // won't check for malware/phishing/Uws on resources on these domains, or
-// trigger warnings.
+// trigger warnings. Used for enterprise only.
 extern const char kSafeBrowsingWhitelistDomains[];
 
 // String indicating the URL where password protection service should send user
 // to change their password if they've been phished. Password protection service
-// also captures new password on this page in a change password event.
+// also captures new password on this page in a change password event. Used for
+// enterprise only.
 extern const char kPasswordProtectionChangePasswordURL[];
 
 // List of string indicating the URL(s) users use to log in. Password protection
@@ -76,14 +76,13 @@ extern const char kPasswordProtectionLoginURLs[];
 // by enterprise policy and has no effect on users who are not managed by
 // enterprise policy.
 extern const char kPasswordProtectionWarningTrigger[];
+
+// Last time Chrome refreshes advanced protection status for sign-in users (in
+// microseconds);
+extern const char kAdvancedProtectionLastRefreshInUs[];
 }
 
 namespace safe_browsing {
-
-// When this feature is enabled, the Scout opt-in text will be displayed as of
-// the next security incident. Until then, the legacy SBER text will appear.
-// TODO: this is temporary (crbug.com/662944)
-extern const base::Feature kCanShowScoutOptIn;
 
 // Enumerates the level of Safe Browsing Extended Reporting that is currently
 // available.
@@ -128,33 +127,12 @@ enum PasswordProtectionTrigger {
   PASSWORD_PROTECTION_TRIGGER_MAX,
 };
 
-// Determines which opt-in text should be used based on the currently active
-// preference. Will return either |extended_reporting_pref| if the legacy
-// Extended Reporting pref is active, or |scout_pref| if the Scout pref is
-// active. Used for Android.
-std::string ChooseOptInTextPreference(
-    const PrefService& prefs,
-    const std::string& extended_reporting_pref,
-    const std::string& scout_pref);
-
-// Determines which opt-in text should be used based on the currently active
-// preference. Will return either |extended_reporting_resource| if the legacy
-// Extended Reporting pref is active, or |scout_resource| if the Scout pref is
-// active.
-int ChooseOptInTextResource(const PrefService& prefs,
-                            int extended_reporting_resource,
-                            int scout_resource);
-
 // Returns whether the currently active Safe Browsing Extended Reporting
 // preference exists (eg: has been set before).
 bool ExtendedReportingPrefExists(const PrefService& prefs);
 
 // Returns the level of reporting available for the current user.
 ExtendedReportingLevel GetExtendedReportingLevel(const PrefService& prefs);
-
-// Returns the name of the Safe Browsing Extended Reporting pref that is
-// currently in effect. The specific pref in-use may change through experiments.
-const char* GetExtendedReportingPrefName(const PrefService& prefs);
 
 // Returns whether the user is able to modify the Safe Browsing Extended
 // Reporting opt-in.
@@ -168,9 +146,6 @@ bool IsExtendedReportingEnabled(const PrefService& prefs);
 // Returns whether the active Extended Reporting pref is currently managed by
 // enterprise policy, meaning the user can't change it.
 bool IsExtendedReportingPolicyManaged(const PrefService& prefs);
-
-// Returns whether the currently-active Extended Reporting pref is Scout.
-bool IsScout(const PrefService& prefs);
 
 // Updates UMA metrics about Safe Browsing Extended Reporting states.
 void RecordExtendedReportingMetrics(const PrefService& prefs);

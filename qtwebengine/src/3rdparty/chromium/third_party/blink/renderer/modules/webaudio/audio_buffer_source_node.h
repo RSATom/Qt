@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_AUDIO_BUFFER_SOURCE_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_AUDIO_BUFFER_SOURCE_NODE_H_
 
+#include <atomic>
 #include <memory>
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
@@ -55,7 +56,7 @@ class AudioBufferSourceHandler final : public AudioScheduledSourceHandler {
   ~AudioBufferSourceHandler() override;
 
   // AudioHandler
-  void Process(size_t frames_to_process) override;
+  void Process(uint32_t frames_to_process) override;
 
   // setBuffer() is called on the main thread. This is the buffer we use for
   // playback.
@@ -110,12 +111,12 @@ class AudioBufferSourceHandler final : public AudioScheduledSourceHandler {
   // Returns true on success.
   bool RenderFromBuffer(AudioBus*,
                         unsigned destination_frame_offset,
-                        size_t number_of_frames);
+                        uint32_t number_of_frames);
 
   // Render silence starting from "index" frame in AudioBus.
   inline bool RenderSilenceAndFinishIfNotLooping(AudioBus*,
                                                  unsigned index,
-                                                 size_t frames_to_process);
+                                                 uint32_t frames_to_process);
 
   // Clamps grain parameters to the duration of the given AudioBuffer.
   void ClampGrainParameters(const AudioBuffer*);
@@ -133,10 +134,12 @@ class AudioBufferSourceHandler final : public AudioScheduledSourceHandler {
   scoped_refptr<AudioParamHandler> playback_rate_;
   scoped_refptr<AudioParamHandler> detune_;
 
-  bool DidSetLooping() const { return AcquireLoad(&did_set_looping_); }
+  bool DidSetLooping() const {
+    return did_set_looping_.load(std::memory_order_acquire);
+  }
   void SetDidSetLooping(bool loop) {
-    bool new_looping = DidSetLooping() || loop;
-    ReleaseStore(&did_set_looping_, new_looping);
+    if (loop)
+      did_set_looping_.store(true, std::memory_order_release);
   }
 
   // If m_isLooping is false, then this node will be done playing and become
@@ -146,7 +149,7 @@ class AudioBufferSourceHandler final : public AudioScheduledSourceHandler {
   bool is_looping_;
 
   // True if the source .loop attribute was ever set.
-  int did_set_looping_;
+  std::atomic_bool did_set_looping_;
 
   double loop_start_;
   double loop_end_;
@@ -191,8 +194,9 @@ class AudioBufferSourceNode final : public AudioScheduledSourceNode {
  public:
   static AudioBufferSourceNode* Create(BaseAudioContext&, ExceptionState&);
   static AudioBufferSourceNode* Create(BaseAudioContext*,
-                                       AudioBufferSourceOptions&,
+                                       AudioBufferSourceOptions*,
                                        ExceptionState&);
+  AudioBufferSourceNode(BaseAudioContext&);
   void Trace(blink::Visitor*) override;
   AudioBufferSourceHandler& GetAudioBufferSourceHandler() const;
 
@@ -216,8 +220,6 @@ class AudioBufferSourceNode final : public AudioScheduledSourceNode {
              ExceptionState&);
 
  private:
-  AudioBufferSourceNode(BaseAudioContext&);
-
   Member<AudioParam> playback_rate_;
   Member<AudioParam> detune_;
 };

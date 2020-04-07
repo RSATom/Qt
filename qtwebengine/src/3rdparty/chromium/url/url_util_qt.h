@@ -20,7 +20,7 @@ namespace url {
 //
 // To implement the required semantics, the lists are accessed not only from the
 // url library but all over the codebase (grep CustomScheme).
-struct URL_EXPORT CustomScheme {
+struct COMPONENT_EXPORT(URL) CustomScheme {
   enum Flag {
     Secure = 0x1,
     Local = 0x2,

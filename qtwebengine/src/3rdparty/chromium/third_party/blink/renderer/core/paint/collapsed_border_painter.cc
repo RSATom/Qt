@@ -4,10 +4,10 @@
 
 #include "third_party/blink/renderer/core/paint/collapsed_border_painter.h"
 
-#include "third_party/blink/renderer/core/paint/adjust_paint_offset_scope.h"
 #include "third_party/blink/renderer/core/paint/block_painter.h"
 #include "third_party/blink/renderer/core/paint/object_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
+#include "third_party/blink/renderer/core/paint/scoped_paint_state.h"
 #include "third_party/blink/renderer/core/paint/table_cell_painter.h"
 
 namespace blink {
@@ -48,7 +48,7 @@ void CollapsedBorderPainter::SetupBorders() {
   }
 
   // At first, let all borders paint the joints. This is to keep the current
-  // behavior for layout tests e.g. css2.1/t170602-bdr-conflict-w-01-d.html.
+  // behavior for web tests e.g. css2.1/t170602-bdr-conflict-w-01-d.html.
   // TODO(crbug.com/672216): Determine the best way to deal with this.
   if (start_.value && before_.value) {
     start_.begin_outset = before_.outer_width;
@@ -335,7 +335,7 @@ static EBorderStyle CollapsedBorderStyle(EBorderStyle style) {
 
 void CollapsedBorderPainter::PaintCollapsedBorders(
     const PaintInfo& paint_info) {
-  if (cell_.Style()->Visibility() != EVisibility::kVisible)
+  if (cell_.StyleRef().Visibility() != EVisibility::kVisible)
     return;
 
   if (!cell_.GetCollapsedBorderValues())
@@ -350,10 +350,10 @@ void CollapsedBorderPainter::PaintCollapsedBorders(
   // Now left=start_, right=end_, before_=top, after_=bottom.
 
   // Collapsed borders are half inside and half outside of |rect|.
-  AdjustPaintOffsetScope adjustment(cell_, paint_info);
+  ScopedPaintState paint_state(cell_, paint_info);
   IntRect rect = PixelSnappedIntRect(
       TableCellPainter(cell_).PaintRectNotIncludingVisualOverflow(
-          adjustment.PaintOffset()));
+          paint_state.PaintOffset()));
   // |paint_rect| covers the whole collapsed borders.
   IntRect paint_rect = rect;
   paint_rect.Expand(IntRectOutsets(before_.outer_width, end_.outer_width,

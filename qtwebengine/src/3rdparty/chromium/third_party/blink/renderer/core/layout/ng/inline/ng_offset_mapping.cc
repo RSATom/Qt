@@ -6,8 +6,11 @@
 
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/position.h"
+#include "third_party/blink/renderer/core/layout/layout_text_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_caret_navigator.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
 #include "third_party/blink/renderer/platform/text/character.h"
@@ -15,6 +18,11 @@
 namespace blink {
 
 namespace {
+
+// Note: LayoutFlowThread, used for multicol, can't provide offset mapping.
+bool CanUseNGOffsetMapping(const LayoutObject& object) {
+  return object.IsLayoutBlockFlow() && !object.IsLayoutFlowThread();
+}
 
 // Returns true if |node| has style 'display:inline' and can have descendants
 // in the inline layout.
@@ -53,22 +61,27 @@ std::pair<const Node&, unsigned> ToNodeOffsetPair(const Position& position) {
 
 }  // namespace
 
-const LayoutBlockFlow* NGInlineFormattingContextOf(const Position& position) {
+LayoutBlockFlow* NGInlineFormattingContextOf(const Position& position) {
   if (!RuntimeEnabledFeatures::LayoutNGEnabled())
     return nullptr;
-  if (!NGOffsetMapping::AcceptsPosition(position))
+  LayoutBlockFlow* block_flow =
+      NGOffsetMapping::GetInlineFormattingContextOf(position);
+  if (!block_flow || !block_flow->IsLayoutNGMixin())
+    return nullptr;
+  return block_flow;
+}
+
+// static
+LayoutBlockFlow* NGOffsetMapping::GetInlineFormattingContextOf(
+    const Position& position) {
+  if (!AcceptsPosition(position))
     return nullptr;
   const auto node_offset_pair = ToNodeOffsetPair(position);
   const LayoutObject* layout_object =
       AssociatedLayoutObjectOf(node_offset_pair.first, node_offset_pair.second);
-  // For an atomic inline, EnclosingNGBlockFlow() may return itself. Example:
-  // <div><span style='display: inline-block'>foo</span></div>
-  // EnclosingNGBlockFlow() on SPAN returns SPAN itself. However, the inline
-  // formatting context of SPAN@Before/After is DIV, not SPAN.
-  // Therefore, we return its parent's EnclosingNGBlockFlow() instead.
-  if (layout_object->IsAtomicInlineLevel())
-    layout_object = layout_object->Parent();
-  return layout_object->EnclosingNGBlockFlow();
+  if (!layout_object)
+    return nullptr;
+  return GetInlineFormattingContextOf(*layout_object);
 }
 
 NGOffsetMappingUnit::NGOffsetMappingUnit(NGOffsetMappingUnitType type,
@@ -85,6 +98,28 @@ NGOffsetMappingUnit::NGOffsetMappingUnit(NGOffsetMappingUnitType type,
       text_content_end_(text_content_end) {}
 
 NGOffsetMappingUnit::~NGOffsetMappingUnit() = default;
+
+bool NGOffsetMappingUnit::Concatenate(const NGOffsetMappingUnit& other) {
+  if (owner_ != other.owner_)
+    return false;
+  if (type_ != other.type_ || type_ == NGOffsetMappingUnitType::kExpanded)
+    return false;
+  if (dom_end_ != other.dom_start_)
+    return false;
+  if (text_content_end_ != other.text_content_start_)
+    return false;
+  // Don't merge first letter and remaining text
+  if (const LayoutTextFragment* text_fragment =
+          ToLayoutTextFragmentOrNull(owner_->GetLayoutObject())) {
+    // TODO(layout-dev): Fix offset calculation for text-transform
+    if (text_fragment->IsRemainingTextLayoutObject() &&
+        other.dom_start_ == text_fragment->TextStartOffset())
+      return false;
+  }
+  dom_end_ = other.dom_end_;
+  text_content_end_ = other.text_content_end_;
+  return true;
+}
 
 unsigned NGOffsetMappingUnit::ConvertDOMOffsetToTextContent(
     unsigned offset) const {
@@ -151,7 +186,10 @@ const NGOffsetMapping* NGOffsetMapping::GetFor(const Position& position) {
     return nullptr;
   if (!NGOffsetMapping::AcceptsPosition(position))
     return nullptr;
-  return GetFor(NGInlineFormattingContextOf(position));
+  LayoutBlockFlow* context = NGInlineFormattingContextOf(position);
+  if (!context)
+    return nullptr;
+  return NGInlineNode::GetOffsetMapping(context, nullptr);
 }
 
 // static
@@ -161,27 +199,39 @@ const NGOffsetMapping* NGOffsetMapping::GetFor(
     return nullptr;
   if (!layout_object)
     return nullptr;
-  LayoutBlockFlow* block_flow = layout_object->EnclosingNGBlockFlow();
-  if (!block_flow || !block_flow->ChildrenInline())
+  LayoutBlockFlow* context = layout_object->ContainingNGBlockFlow();
+  if (!context)
     return nullptr;
-  NGBlockNode block_node = NGBlockNode(block_flow);
-  if (!block_node.CanUseNewLayout())
-    return nullptr;
-  NGLayoutInputNode node = block_node.FirstChild();
-  if (node && node.IsInline())
-    return ToNGInlineNode(node).ComputeOffsetMappingIfNeeded();
+  return NGInlineNode::GetOffsetMapping(context, nullptr);
+}
+
+// static
+LayoutBlockFlow* NGOffsetMapping::GetInlineFormattingContextOf(
+    const LayoutObject& object) {
+  for (LayoutObject* runner = object.Parent(); runner;
+       runner = runner->Parent()) {
+    if (!CanUseNGOffsetMapping(*runner))
+      continue;
+    return ToLayoutBlockFlow(runner);
+  }
   return nullptr;
 }
 
 NGOffsetMapping::NGOffsetMapping(NGOffsetMapping&& other)
     : NGOffsetMapping(std::move(other.units_),
                       std::move(other.ranges_),
-                      other.text_) {}
+                      other.text_,
+                      std::move(other.caret_navigator_)) {}
 
-NGOffsetMapping::NGOffsetMapping(UnitVector&& units,
-                                 RangeMap&& ranges,
-                                 String text)
-    : units_(units), ranges_(ranges), text_(text) {}
+NGOffsetMapping::NGOffsetMapping(
+    UnitVector&& units,
+    RangeMap&& ranges,
+    String text,
+    std::unique_ptr<NGCaretNavigator> caret_navigator)
+    : units_(std::move(units)),
+      ranges_(std::move(ranges)),
+      text_(text),
+      caret_navigator_(std::move(caret_navigator)) {}
 
 NGOffsetMapping::~NGOffsetMapping() = default;
 
@@ -245,6 +295,42 @@ NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForDOMRange(
                          return offset < unit.DOMStart();
                        });
 
+  return {result_begin, result_end};
+}
+
+NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForNode(
+    const Node& node) const {
+  const auto it = ranges_.find(&node);
+  if (it == ranges_.end()) {
+    NOTREACHED() << node;
+    return NGMappingUnitRange();
+  }
+  return {units_.begin() + it->value.first, units_.begin() + it->value.second};
+}
+
+NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForTextContentOffsetRange(
+    unsigned start,
+    unsigned end) const {
+  DCHECK_LE(start, end);
+  if (units_.front().TextContentStart() >= end ||
+      units_.back().TextContentEnd() <= start)
+    return {};
+
+  // Find the first unit where unit.text_content_end > start
+  const NGOffsetMappingUnit* result_begin =
+      std::lower_bound(units_.begin(), units_.end(), start,
+                       [](const NGOffsetMappingUnit& unit, unsigned offset) {
+                         return unit.TextContentEnd() <= offset;
+                       });
+  if (result_begin == units_.end() || result_begin->TextContentStart() >= end)
+    return {};
+
+  // Find the next of the last unit where unit.text_content_start < end
+  const NGOffsetMappingUnit* result_end =
+      std::upper_bound(units_.begin(), units_.end(), end,
+                       [](unsigned offset, const NGOffsetMappingUnit& unit) {
+                         return offset <= unit.TextContentStart();
+                       });
   return {result_begin, result_end};
 }
 
@@ -384,6 +470,16 @@ Position NGOffsetMapping::GetLastPosition(unsigned offset) const {
   const Node& node = result->GetOwner();
   const unsigned dom_offset = result->ConvertTextContentToLastDOMOffset(offset);
   return CreatePositionForOffsetMapping(node, dom_offset);
+}
+
+PositionWithAffinity NGOffsetMapping::GetPositionWithAffinity(
+    const NGCaretNavigator::Position& position) const {
+  if (position.IsBeforeCharacter()) {
+    return PositionWithAffinity(GetLastPosition(position.index),
+                                TextAffinity::kDownstream);
+  }
+  return PositionWithAffinity(GetLastPosition(position.index + 1),
+                              TextAffinity::kUpstream);
 }
 
 bool NGOffsetMapping::HasBidiControlCharactersOnly(unsigned start,

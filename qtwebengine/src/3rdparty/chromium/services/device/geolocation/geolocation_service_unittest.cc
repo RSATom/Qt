@@ -37,12 +37,14 @@ class GeolocationServiceUnitTest : public DeviceServiceTestBase {
 
  protected:
   void SetUp() override {
-    DeviceServiceTestBase::SetUp();
-
 #if defined(OS_CHROMEOS)
     chromeos::DBusThreadManager::Initialize();
     chromeos::NetworkHandler::Initialize();
 #endif
+
+    // We need to initialize the above *before* the base fixture instantiates
+    // the device service.
+    DeviceServiceTestBase::SetUp();
 
     connector()->BindInterface(mojom::kServiceName, &geolocation_control_);
     geolocation_control_->UserDidOptIntoLocationServices();
@@ -102,7 +104,13 @@ TEST_F(GeolocationServiceUnitTest, UrlWithApiKey) {
 }
 #endif
 
-TEST_F(GeolocationServiceUnitTest, GeolocationConfig) {
+// TODO(https://crbug.com/912057): Flaky on Chrome OS / Fails often on *San.
+#if defined(OS_CHROMEOS)
+#define MAYBE_GeolocationConfig DISABLED_GeolocationConfig
+#else
+#define MAYBE_GeolocationConfig GeolocationConfig
+#endif
+TEST_F(GeolocationServiceUnitTest, MAYBE_GeolocationConfig) {
   BindGeolocationConfig();
   {
     base::RunLoop run_loop;

@@ -4,17 +4,6 @@
 
 
 /**
- * Alias for document.getElementById.
- * @param {string} id The ID of the element to find.
- * @return {HTMLElement} The found element or null if not found.
- */
-function $(id) {
-  // eslint-disable-next-line no-restricted-properties
-  return document.getElementById(id);
-}
-
-
-/**
  * Enum for ids.
  * @enum {string}
  * @const
@@ -36,24 +25,14 @@ const IDS = {
 
 
 /**
- * Enum for classes.
- * @enum {string}
- * @const
- */
-const CLASSES = {
-  // Applied if the input field has been modified.
-  TEXT_MODIFIED: 'text-modified',
-};
-
-
-/**
  * Enum for key codes.
- * @enum {int}
+ * @enum {number}
  * @const
  */
 const KEYCODES = {
   ENTER: 13,
   ESC: 27,
+  SPACE: 32,
   TAB: 9,
 };
 
@@ -106,61 +85,30 @@ let deleteLinkTitle = '';
 
 
 /**
- * True if keyboard navigation should start at the first input field.
- * @type {boolean}
- */
-let startKeyboardAtFirstField = false;
-
-
-/**
- * True if the provided url is valid.
- * @type {string}
- */
-function isValidURL(url) {
-  let a = document.createElement('a');
-  a.href = url;
-  // Invalid URLs will not match the current host.
-  let isValid = a.host && a.host != window.location.host;
-  return isValid;
-}
-
-
-/**
  * Handler for the 'linkData' message from the host page. Pre-populates the url
  * and title fields with link's data obtained using the rid. Called if we are
  * editing an existing link.
  * @param {number} rid Restricted id of the link to be edited.
  */
 function prepopulateFields(rid) {
-  if (!isFinite(rid))
+  if (!isFinite(rid)) {
     return;
+  }
 
   // Grab the link data from the embeddedSearch API.
   let data = chrome.embeddedSearch.newTabPage.getMostVisitedItemData(rid);
-  if (!data)
+  if (!data) {
     return;
+  }
   prepopulatedLink.rid = rid;
   $(IDS.TITLE_FIELD).value = prepopulatedLink.title = data.title;
+  $(IDS.TITLE_FIELD).dir = data.direction || 'ltr';
   $(IDS.URL_FIELD).value = prepopulatedLink.url = data.url;
-  $(IDS.URL_FIELD).classList.add(CLASSES.TEXT_MODIFIED);
 
   // Set accessibility names.
   $(IDS.DELETE).setAttribute('aria-label', deleteLinkTitle + ' ' + data.title);
   $(IDS.DONE).setAttribute('aria-label', editLinkTitle + ' ' + data.title);
   $(IDS.DONE).title = editLinkTitle;
-}
-
-
-/**
- * Disables the "Done" button until the URL field is modified.
- */
-function disableSubmitUntilTextInput() {
-  $(IDS.DONE).disabled = true;
-  let reenable = (event) => {
-    $(IDS.DONE).disabled = false;
-    $(IDS.URL_FIELD).removeEventListener('input', reenable);
-  };
-  $(IDS.URL_FIELD).addEventListener('input', reenable);
 }
 
 
@@ -182,20 +130,26 @@ function showInvalidUrlUntilTextInput() {
  * completed. If the fields were unchanged, does not update the link data.
  */
 function finishEditLink() {
-  // Show error message for invalid urls.
-  if (!isValidURL($(IDS.URL_FIELD).value)) {
-    showInvalidUrlUntilTextInput();
-    disableSubmitUntilTextInput();
-    return;
-  }
-
   let newUrl = '';
   let newTitle = '';
-  if ($(IDS.URL_FIELD).value != prepopulatedLink.url &&
-      $(IDS.URL_FIELD).value != 'https://')
-    newUrl = $(IDS.URL_FIELD).value;
-  if ($(IDS.TITLE_FIELD).value != prepopulatedLink.title)
-    newTitle = $(IDS.TITLE_FIELD).value;
+
+  const urlValue = $(IDS.URL_FIELD).value;
+  if (urlValue != prepopulatedLink.url) {
+    newUrl = chrome.embeddedSearch.newTabPage.fixupAndValidateUrl(urlValue);
+    // Show error message for invalid urls.
+    if (!newUrl || (newUrl && !utils.isSchemeAllowed(newUrl))) {
+      showInvalidUrlUntilTextInput();
+      $(IDS.DONE).disabled = true;  // Disable submit until text input.
+      return;
+    }
+  }
+
+  const titleValue = $(IDS.TITLE_FIELD).value;
+  if (!titleValue) {  // Set the URL input as the title if no title is provided.
+    newTitle = urlValue;
+  } else if (titleValue != prepopulatedLink.title) {
+    newTitle = titleValue;
+  }
 
   // Update the link only if a field was changed.
   if (!!newUrl || !!newTitle) {
@@ -222,18 +176,35 @@ function deleteLink(event) {
  */
 function closeDialog() {
   window.parent.postMessage({cmd: 'closeDialog'}, DOMAIN_ORIGIN);
-  // Small delay to allow the dialog close before cleaning up.
-  window.setTimeout(function() {
+  // Small delay to allow the dialog to close before cleaning up.
+  window.setTimeout(() => {
     $(IDS.FORM).reset();
+    $(IDS.TITLE_FIELD).dir = null;
     $(IDS.URL_FIELD_CONTAINER).classList.remove('invalid');
-    $(IDS.URL_FIELD).classList.remove(CLASSES.TEXT_MODIFIED);
     $(IDS.DELETE).disabled = false;
     $(IDS.DONE).disabled = false;
     prepopulatedLink.rid = -1;
     prepopulatedLink.title = '';
     prepopulatedLink.url = '';
-    startKeyboardAtFirstField = false;
   }, 10);
+}
+
+
+/**
+ * Send a message to refocus the edited tile's three dot menu or the add
+ * shortcut tile after the cancel button is clicked.
+ * @param {Event} event The keydown event
+ */
+function focusBackOnCancel(event) {
+  if (event.keyCode === KEYCODES.ENTER || event.keyCode === KEYCODES.SPACE) {
+    let message = {
+      cmd: 'focusMenu',
+      tid: prepopulatedLink.rid
+    };
+    window.parent.postMessage(message, DOMAIN_ORIGIN);
+    event.preventDefault();
+    closeDialog();
+  }
 }
 
 
@@ -245,7 +216,6 @@ function handlePostMessage(event) {
   let cmd = event.data.cmd;
   let args = event.data;
   if (cmd === 'linkData') {
-    startKeyboardAtFirstField = true;
     if (args.tid) {  // We are editing a link, prepopulate the link data.
       document.title = editLinkTitle;
       $(IDS.DIALOG_TITLE).textContent = editLinkTitle;
@@ -254,28 +224,17 @@ function handlePostMessage(event) {
       document.title = addLinkTitle;
       $(IDS.DIALOG_TITLE).textContent = addLinkTitle;
       $(IDS.DELETE).disabled = true;
-      disableSubmitUntilTextInput();
+      $(IDS.DONE).disabled = true;
       // Set accessibility names.
       $(IDS.DONE).setAttribute('aria-label', addLinkTitle);
       $(IDS.DONE).title = addLinkTitle;
     }
+    // Timeout is required to allow the iframe to become visible before focusing
+    // the first input field.
+    window.setTimeout(() => {
+      $(IDS.TITLE_FIELD).select();
+    }, 10);
   }
-}
-
-
-/**
- * Disables the focus outline for |element| on mousedown.
- * @param {Element} element The element to remove the focus outline from.
- */
-function disableOutlineOnMouseClick(element) {
-  element.addEventListener('mousedown', (event) => {
-    element.classList.add('mouse-navigation');
-    let resetOutline = (event) => {
-      element.classList.remove('mouse-navigation');
-      element.removeEventListener('blur', resetOutline);
-    };
-    element.addEventListener('blur', resetOutline);
-  });
 }
 
 
@@ -288,18 +247,22 @@ function init() {
   queryArgs = {};
   for (let i = 0; i < query.length; ++i) {
     let val = query[i].split('=');
-    if (val[0] == '')
+    if (val[0] == '') {
       continue;
+    }
     queryArgs[decodeURIComponent(val[0])] = decodeURIComponent(val[1]);
   }
 
   document.title = queryArgs['editTitle'];
 
   // Enable RTL.
-  // TODO(851293): Add RTL formatting.
   if (queryArgs['rtl'] == '1') {
-    let html = document.querySelector('html');
-    html.dir = 'rtl';
+    document.documentElement.setAttribute('dir', 'rtl');
+  }
+
+  // Enable dark mode.
+  if (queryArgs['enableDarkMode'] == '1') {
+    document.documentElement.setAttribute('darkmode', true);
   }
 
   // Populate text content.
@@ -323,20 +286,11 @@ function init() {
       // Close the iframe instead of just this dialog.
       event.preventDefault();
       closeDialog();
-    } else if (event.keyCode === KEYCODES.TAB && startKeyboardAtFirstField) {
-      // Start keyboard navigation at the first input field when the dialog
-      // opens.
-      event.preventDefault();
-      $(IDS.TITLE_FIELD).focus();
-      startKeyboardAtFirstField = false;
     }
   };
-  $(IDS.URL_FIELD).addEventListener('input', (event) => {
-    if (!$(IDS.URL_FIELD).classList.contains(CLASSES.TEXT_MODIFIED))
-      $(IDS.URL_FIELD).classList.add(CLASSES.TEXT_MODIFIED);
-  });
   $(IDS.DELETE).addEventListener('click', deleteLink);
   $(IDS.CANCEL).addEventListener('click', closeDialog);
+  $(IDS.CANCEL).addEventListener('keydown', focusBackOnCancel);
   $(IDS.FORM).addEventListener('submit', (event) => {
     // Prevent the form from submitting and modifying the URL.
     event.preventDefault();
@@ -345,17 +299,18 @@ function init() {
   let finishEditOrClose = (event) => {
     if (event.keyCode === KEYCODES.ENTER) {
       event.preventDefault();
-      if ($(IDS.DONE).disabled)
-        closeDialog();
-      else
+      if (!$(IDS.DONE).disabled) {
         finishEditLink();
+      }
     }
   };
   $(IDS.TITLE_FIELD).onkeydown = finishEditOrClose;
   $(IDS.URL_FIELD).onkeydown = finishEditOrClose;
-  disableOutlineOnMouseClick($(IDS.DELETE));
-  disableOutlineOnMouseClick($(IDS.CANCEL));
-  disableOutlineOnMouseClick($(IDS.DONE));
+  utils.disableOutlineOnMouseClick($(IDS.DELETE));
+  utils.disableOutlineOnMouseClick($(IDS.CANCEL));
+  utils.disableOutlineOnMouseClick($(IDS.DONE));
+
+  animations.addRippleAnimations();
 
   // Change input field name to blue on input field focus.
   let changeColor = (fieldTitle) => {
@@ -369,6 +324,9 @@ function init() {
       .addEventListener('focusin', () => changeColor(IDS.URL_FIELD_NAME));
   $(IDS.URL_FIELD)
       .addEventListener('blur', () => changeColor(IDS.URL_FIELD_NAME));
+  // Disables the "Done" button when the URL field is empty.
+  $(IDS.URL_FIELD).addEventListener('input',
+      () => $(IDS.DONE).disabled = ($(IDS.URL_FIELD).value.trim() === ''));
 
   $(IDS.EDIT_DIALOG).showModal();
 

@@ -10,11 +10,11 @@
 
 #include "modules/desktop_capture/desktop_frame.h"
 
+#include <string.h>
 #include <utility>
 
-#include <string.h>
-
 #include "absl/memory/memory.h"
+#include "modules/desktop_capture/desktop_capture_types.h"
 #include "modules/desktop_capture/desktop_geometry.h"
 #include "rtc_base/checks.h"
 
@@ -98,7 +98,7 @@ void DesktopFrame::MoveFrameInfoFrom(DesktopFrame* other) {
 BasicDesktopFrame::BasicDesktopFrame(DesktopSize size)
     : DesktopFrame(size,
                    kBytesPerPixel * size.width(),
-                   new uint8_t[kBytesPerPixel * size.width() * size.height()],
+                   new uint8_t[kBytesPerPixel * size.width() * size.height()](),
                    nullptr) {}
 
 BasicDesktopFrame::~BasicDesktopFrame() {

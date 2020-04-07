@@ -1,8 +1,10 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qttools.qdocconf)
 
 project          = QDoc
 description      = QDoc Manual
 version          = $QT_VERSION
+moduleheader     =
 
 sourcedirs = ..
 
@@ -61,7 +63,6 @@ depends += \
     qttestlib \
     qtuitools \
     qtwidgets \
-    qtxml \
-    qtxmlpatterns
+    qtxml
 
 navigation.landingpage = "QDoc Manual"

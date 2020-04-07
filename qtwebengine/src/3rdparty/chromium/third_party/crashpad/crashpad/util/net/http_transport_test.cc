@@ -137,7 +137,7 @@ class HTTPTransportTestFixture : public MultiprocessExec {
 
     std::string response_body;
     bool success = transport->ExecuteSynchronously(&response_body);
-    if (response_code_ == 200) {
+    if (response_code_ >= 200 && response_code_ <= 203) {
       EXPECT_TRUE(success);
       std::string expect_response_body = random_string + "\r\n";
       EXPECT_EQ(response_body, expect_response_body);
@@ -364,7 +364,8 @@ TEST_P(HTTPTransport, Upload33k_LengthUnknown) {
   RunUpload33k(GetParam(), false);
 }
 
-#if defined(CRASHPAD_USE_BORINGSSL)
+// This should be on for Fuchsia, but DX-382. Debug and re-enabled.
+#if defined(CRASHPAD_USE_BORINGSSL) && !defined(OS_FUCHSIA)
 // The test server requires BoringSSL or OpenSSL, so https in tests can only be
 // enabled where that's readily available. Additionally on Linux, the bots fail
 // lacking libcrypto.so.1.1, so disabled there for now. On Mac, they could also

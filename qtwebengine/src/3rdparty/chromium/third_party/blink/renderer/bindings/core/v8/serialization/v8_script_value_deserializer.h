@@ -17,6 +17,8 @@
 
 namespace blink {
 
+class DOMRectReadOnly;
+class ExceptionState;
 class File;
 class UnpackedSerializedScriptValue;
 
@@ -45,7 +47,7 @@ class CORE_EXPORT V8ScriptValueDeserializer
   v8::Local<v8::Value> Deserialize();
 
  protected:
-  virtual ScriptWrappable* ReadDOMObject(SerializationTag);
+  virtual ScriptWrappable* ReadDOMObject(SerializationTag, ExceptionState&);
 
   ScriptState* GetScriptState() const { return script_state_; }
 
@@ -65,6 +67,7 @@ class CORE_EXPORT V8ScriptValueDeserializer
     return deserializer_.ReadRawBytes(size, data);
   }
   bool ReadUTF8String(String* string_out);
+  DOMRectReadOnly* ReadDOMRectReadOnly();
 
   template <typename E>
   bool ReadUint32Enum(E* value) {
@@ -97,8 +100,8 @@ class CORE_EXPORT V8ScriptValueDeserializer
 
   // v8::ValueDeserializer::Delegate
   v8::MaybeLocal<v8::Object> ReadHostObject(v8::Isolate*) override;
-  v8::MaybeLocal<v8::WasmCompiledModule> GetWasmModuleFromId(v8::Isolate*,
-                                                             uint32_t) override;
+  v8::MaybeLocal<v8::WasmModuleObject> GetWasmModuleFromId(v8::Isolate*,
+                                                           uint32_t) override;
   v8::MaybeLocal<v8::SharedArrayBuffer> GetSharedArrayBufferFromId(
       v8::Isolate*,
       uint32_t) override;
@@ -110,6 +113,8 @@ class CORE_EXPORT V8ScriptValueDeserializer
 
   // Message ports which were transferred in.
   const MessagePortArray* transferred_message_ports_ = nullptr;
+
+  Member<MessagePortArray> transferred_stream_ports_;
 
   // Blob info for blobs stored by index.
   const WebBlobInfoArray* blob_info_array_ = nullptr;

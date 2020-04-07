@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/scheduled_action.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
-#include "third_party/blink/renderer/core/CoreProbeSink.h"
+#include "third_party/blink/renderer/core/core_probe_sink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event_listener.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -56,9 +56,10 @@ void PerformanceMonitor::ReportGenericViolation(
 // static
 PerformanceMonitor* PerformanceMonitor::Monitor(
     const ExecutionContext* context) {
-  if (!context || !context->IsDocument())
+  const auto* document = DynamicTo<Document>(context);
+  if (!document)
     return nullptr;
-  LocalFrame* frame = ToDocument(context)->GetFrame();
+  LocalFrame* frame = document->GetFrame();
   if (!frame)
     return nullptr;
   return frame->GetPerformanceMonitor();
@@ -74,7 +75,7 @@ PerformanceMonitor* PerformanceMonitor::InstrumentingMonitor(
 PerformanceMonitor::PerformanceMonitor(LocalFrame* local_root)
     : local_root_(local_root) {
   std::fill(std::begin(thresholds_), std::end(thresholds_), base::TimeDelta());
-  Platform::Current()->CurrentThread()->AddTaskTimeObserver(this);
+  Thread::Current()->AddTaskTimeObserver(this);
   local_root_->GetProbeSink()->addPerformanceMonitor(this);
 }
 
@@ -88,7 +89,7 @@ void PerformanceMonitor::Subscribe(Violation violation,
   DCHECK(violation < kAfterLast);
   ClientThresholds* client_thresholds = subscriptions_.at(violation);
   if (!client_thresholds) {
-    client_thresholds = new ClientThresholds();
+    client_thresholds = MakeGarbageCollected<ClientThresholds>();
     subscriptions_.Set(violation, client_thresholds);
   }
   client_thresholds->Set(client, threshold);
@@ -106,7 +107,7 @@ void PerformanceMonitor::Shutdown() {
     return;
   subscriptions_.clear();
   UpdateInstrumentation();
-  Platform::Current()->CurrentThread()->RemoveTaskTimeObserver(this);
+  Thread::Current()->RemoveTaskTimeObserver(this);
   local_root_->GetProbeSink()->removePerformanceMonitor(this);
   local_root_ = nullptr;
 }
@@ -146,10 +147,11 @@ void PerformanceMonitor::DidExecuteScript() {
 
 void PerformanceMonitor::UpdateTaskAttribution(ExecutionContext* context) {
   // If |context| is not a document, unable to attribute a frame context.
-  if (!context || !context->IsDocument())
+  auto* document = DynamicTo<Document>(context);
+  if (!document)
     return;
 
-  UpdateTaskShouldBeReported(ToDocument(context)->GetFrame());
+  UpdateTaskShouldBeReported(document->GetFrame());
   if (!task_execution_context_)
     task_execution_context_ = context;
   else if (task_execution_context_ != context)
@@ -208,7 +210,7 @@ void PerformanceMonitor::Did(const probe::ExecuteScript& probe) {
   if (probe.Duration() <= kLongTaskSubTaskThreshold)
     return;
   std::unique_ptr<SubTaskAttribution> sub_task_attribution =
-      SubTaskAttribution::Create(String("script-run"),
+      SubTaskAttribution::Create(AtomicString("script-run"),
                                  probe.context->Url().GetString(),
                                  probe.CaptureStartTime(), probe.Duration());
   sub_task_attributions_.push_back(std::move(sub_task_attribution));
@@ -266,7 +268,7 @@ void PerformanceMonitor::Did(const probe::V8Compile& probe) {
 
   std::unique_ptr<SubTaskAttribution> sub_task_attribution =
       SubTaskAttribution::Create(
-          String("script-compile"),
+          AtomicString("script-compile"),
           String::Format("%s(%d, %d)", probe.file_name.Utf8().data(),
                          probe.line, probe.column),
           v8_compile_start_time_, v8_compile_duration);

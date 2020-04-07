@@ -5,16 +5,21 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_TTS_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_TTS_HANDLER_H_
 
-#include "chrome/browser/speech/tts_controller.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
+#include "content/public/browser/tts_controller.h"
+
+class Profile;
 
 namespace settings {
 
 // Chrome "/manageAccessibility/tts/*" settings page UI handler.
-class TtsHandler : public SettingsPageUIHandler, public VoicesChangedDelegate {
+class TtsHandler : public SettingsPageUIHandler,
+                   public content::VoicesChangedDelegate,
+                   public content::UtteranceEventDelegate {
  public:
-  TtsHandler() = default;
-  ~TtsHandler() override = default;
+  TtsHandler();
+  ~TtsHandler() override;
 
   void HandleGetAllTtsVoiceData(const base::ListValue* args);
   void HandleGetTtsExtensions(const base::ListValue* args);
@@ -28,9 +33,19 @@ class TtsHandler : public SettingsPageUIHandler, public VoicesChangedDelegate {
   // VoicesChangedDelegate implementation.
   void OnVoicesChanged() override;
 
+  // UtteranceEventDelegate implementation.
+  void OnTtsEvent(content::TtsUtterance* utterance,
+                  content::TtsEventType event_type,
+                  int char_index,
+                  const std::string& error_message) override;
+
  private:
-  int GetVoiceLangMatchScore(const VoiceData* voice,
+  void WakeTtsEngine(const base::ListValue* args);
+  void OnTtsEngineAwake(bool success);
+  int GetVoiceLangMatchScore(const content::VoiceData* voice,
                              const std::string& app_locale);
+
+  base::WeakPtrFactory<TtsHandler> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(TtsHandler);
 };

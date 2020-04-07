@@ -21,6 +21,7 @@ uint32_t RoundDown(uint32_t size) {
   return size & ~(FencedAllocator::kAllocAlignment - 1);
 }
 
+// Round up to the smallest multiple of kAllocAlignment no smaller than |size|.
 base::CheckedNumeric<uint32_t> RoundUp(uint32_t size) {
   return (base::CheckedNumeric<uint32_t>(size) +
           (FencedAllocator::kAllocAlignment - 1)) &
@@ -62,7 +63,7 @@ FencedAllocator::Offset FencedAllocator::Alloc(uint32_t size) {
 
   // Try first to allocate in a free block.
   for (uint32_t i = 0; i < blocks_.size(); ++i) {
-     Block &block = blocks_[i];
+    Block &block = blocks_[i];
     if (block.state == FREE && block.size >= aligned_size) {
       return AllocInBlock(i, aligned_size);
     }

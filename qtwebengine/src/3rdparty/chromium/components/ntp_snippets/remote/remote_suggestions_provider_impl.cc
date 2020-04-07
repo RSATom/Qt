@@ -535,9 +535,9 @@ void RemoteSuggestionsProviderImpl::FetchSuggestionsWithLoadingIndicator(
     // any).
     fetch_timeout_timer_->Start(
         FROM_HERE, GetTimeoutForLoadingIndicator(),
-        base::Bind(&RemoteSuggestionsProviderImpl::
-                       NotifyFetchWithLoadingIndicatorFailedOrTimeouted,
-                   base::Unretained(this)));
+        base::BindOnce(&RemoteSuggestionsProviderImpl::
+                           NotifyFetchWithLoadingIndicatorFailedOrTimeouted,
+                       base::Unretained(this)));
   }
 
   FetchStatusCallback callback_wrapped =
@@ -1084,8 +1084,8 @@ void RemoteSuggestionsProviderImpl::OnFetchFinished(
   base::UmaHistogramSparse("NewTabPage.Snippets.NumArticles",
                            content.suggestions.size());
   if (content.suggestions.empty() && !content.dismissed.empty()) {
-    UMA_HISTOGRAM_COUNTS("NewTabPage.Snippets.NumArticlesZeroDueToDiscarded",
-                         content.dismissed.size());
+    UMA_HISTOGRAM_COUNTS_1M("NewTabPage.Snippets.NumArticlesZeroDueToDiscarded",
+                            content.dismissed.size());
   }
 
   if (callback) {

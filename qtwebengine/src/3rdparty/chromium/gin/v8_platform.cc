@@ -15,10 +15,10 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_scheduler.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
+#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/task_traits.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "gin/per_isolate_data.h"
@@ -28,6 +28,9 @@ namespace gin {
 namespace {
 
 base::LazyInstance<V8Platform>::Leaky g_v8_platform = LAZY_INSTANCE_INITIALIZER;
+
+constexpr base::TaskTraits kLowPriorityTaskTraits = {
+    base::TaskPriority::BEST_EFFORT};
 
 constexpr base::TaskTraits kDefaultTaskTraits = {
     base::TaskPriority::USER_VISIBLE};
@@ -60,7 +63,14 @@ class ConvertableToTraceFormatWrapper final
 class EnabledStateObserverImpl final
     : public base::trace_event::TraceLog::EnabledStateObserver {
  public:
-  EnabledStateObserverImpl() = default;
+  EnabledStateObserverImpl() {
+    base::trace_event::TraceLog::GetInstance()->AddEnabledStateObserver(this);
+  }
+
+  ~EnabledStateObserverImpl() override {
+    base::trace_event::TraceLog::GetInstance()->RemoveEnabledStateObserver(
+        this);
+  }
 
   void OnTraceLogEnabled() final {
     base::AutoLock lock(mutex_);
@@ -80,12 +90,9 @@ class EnabledStateObserverImpl final
     {
       base::AutoLock lock(mutex_);
       DCHECK(!observers_.count(observer));
-      if (observers_.empty()) {
-        base::trace_event::TraceLog::GetInstance()->AddEnabledStateObserver(
-            this);
-      }
       observers_.insert(observer);
     }
+
     // Fire the observer if recording is already in progress.
     if (base::trace_event::TraceLog::GetInstance()->IsEnabled())
       observer->OnTraceEnabled();
@@ -95,10 +102,6 @@ class EnabledStateObserverImpl final
     base::AutoLock lock(mutex_);
     DCHECK(observers_.count(observer) == 1);
     observers_.erase(observer);
-    if (observers_.empty()) {
-      base::trace_event::TraceLog::GetInstance()->RemoveEnabledStateObserver(
-          this);
-    }
   }
 
  private:
@@ -114,12 +117,22 @@ base::LazyInstance<EnabledStateObserverImpl>::Leaky g_trace_state_dispatcher =
 // TODO(skyostil): Deduplicate this with the clamper in Blink.
 class TimeClamper {
  public:
-  static constexpr double kResolutionSeconds = 0.001;
+// As site isolation is enabled on desktop platforms, we can safely provide
+// more timing resolution. Jittering is still enabled everywhere.
+#if defined(OS_ANDROID)
+  static constexpr double kResolutionSeconds = 100e-6;
+#else
+  static constexpr double kResolutionSeconds = 5e-6;
+#endif
 
   TimeClamper() : secret_(base::RandUint64()) {}
 
   double ClampTimeResolution(double time_seconds) const {
-    DCHECK_GE(time_seconds, 0);
+    bool was_negative = false;
+    if (time_seconds < 0) {
+      was_negative = true;
+      time_seconds = -time_seconds;
+    }
     // For each clamped time interval, compute a pseudorandom transition
     // threshold. The reported time will either be the start of that interval or
     // the next one depending on which side of the threshold |time_seconds| is.
@@ -128,7 +141,9 @@ class TimeClamper {
     double tick_threshold = ThresholdFor(clamped_time);
 
     if (time_seconds >= tick_threshold)
-      return (interval + 1) * kResolutionSeconds;
+      clamped_time = (interval + 1) * kResolutionSeconds;
+    if (was_negative)
+      clamped_time = -clamped_time;
     return clamped_time;
   }
 
@@ -233,9 +248,14 @@ class PageAllocator : public v8::PageAllocator {
       base::DecommitSystemPages(address, length);
       return true;
     } else {
-      return base::SetSystemPagesAccess(address, length,
-                                        GetPageConfig(permissions));
+      return base::TrySetSystemPagesAccess(address, length,
+                                           GetPageConfig(permissions));
     }
+  }
+
+  bool DiscardSystemPages(void* address, size_t size) override {
+    base::DiscardSystemPages(address, size);
+    return true;
   }
 };
 
@@ -356,6 +376,12 @@ void V8Platform::CallOnWorkerThread(std::unique_ptr<v8::Task> task) {
 void V8Platform::CallBlockingTaskOnWorkerThread(
     std::unique_ptr<v8::Task> task) {
   base::PostTaskWithTraits(FROM_HERE, kBlockingTaskTraits,
+                           base::BindOnce(&v8::Task::Run, std::move(task)));
+}
+
+void V8Platform::CallLowPriorityTaskOnWorkerThread(
+    std::unique_ptr<v8::Task> task) {
+  base::PostTaskWithTraits(FROM_HERE, kLowPriorityTaskTraits,
                            base::BindOnce(&v8::Task::Run, std::move(task)));
 }
 

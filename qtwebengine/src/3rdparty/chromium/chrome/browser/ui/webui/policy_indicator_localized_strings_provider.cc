@@ -4,20 +4,26 @@
 
 #include "chrome/browser/ui/webui/policy_indicator_localized_strings_provider.h"
 
+#include "base/stl_util.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/webui/localized_string.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/web_ui_data_source.h"
 
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#endif
+
 namespace policy_indicator {
 
-struct LocalizedString {
-  const char* name;
-  int id;
-};
-
 void AddLocalizedStrings(content::WebUIDataSource* html_source) {
+  int controlled_setting_policy_id = IDS_CONTROLLED_SETTING_POLICY;
+#if defined(OS_CHROMEOS)
+  if (chromeos::DemoSession::IsDeviceInDemoMode())
+    controlled_setting_policy_id = IDS_CONTROLLED_SETTING_DEMO_SESSION;
+#endif
   LocalizedString localized_strings[] = {
-    {"controlledSettingPolicy", IDS_CONTROLLED_SETTING_POLICY},
+    {"controlledSettingPolicy", controlled_setting_policy_id},
     {"controlledSettingRecommendedMatches", IDS_CONTROLLED_SETTING_RECOMMENDED},
     {"controlledSettingRecommendedDiffers",
      IDS_CONTROLLED_SETTING_HAS_RECOMMENDATION},
@@ -29,10 +35,8 @@ void AddLocalizedStrings(content::WebUIDataSource* html_source) {
     {"controlledSettingOwner", IDS_CONTROLLED_SETTING_OWNER},
 #endif
   };
-
-  for (size_t i = 0; i < arraysize(localized_strings); i++)
-    html_source->AddLocalizedString(localized_strings[i].name,
-                                    localized_strings[i].id);
+  AddLocalizedStringsBulk(html_source, localized_strings,
+                          base::size(localized_strings));
 }
 
 }  // namespace policy_indicator

@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
+#include "components/crash/content/browser/crash_memory_metrics_collector_android.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/child_process_termination_info.h"
@@ -65,7 +66,15 @@ ChildExitObserver* ChildExitObserver::GetInstance() {
   return g_instance.Pointer();
 }
 
-ChildExitObserver::ChildExitObserver() {
+ChildExitObserver::ChildExitObserver()
+    : notification_registrar_(),
+      registered_clients_lock_(),
+      registered_clients_(),
+      process_host_id_to_pid_(),
+      browser_child_process_info_(),
+      crash_signals_lock_(),
+      child_pid_to_crash_signal_(),
+      scoped_observer_(this) {
   notification_registrar_.Add(this,
                               content::NOTIFICATION_RENDERER_PROCESS_CREATED,
                               content::NotificationService::AllSources());
@@ -76,6 +85,7 @@ ChildExitObserver::ChildExitObserver() {
                               content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
                               content::NotificationService::AllSources());
   BrowserChildProcessObserver::Add(this);
+  scoped_observer_.Add(crashpad::CrashHandlerHost::Get());
 }
 
 ChildExitObserver::~ChildExitObserver() {
@@ -88,22 +98,26 @@ void ChildExitObserver::RegisterClient(std::unique_ptr<Client> client) {
   registered_clients_.push_back(std::move(client));
 }
 
-void ChildExitObserver::OnChildExit(const TerminationInfo& info) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  std::vector<Client*> registered_clients_copy;
-  {
-    base::AutoLock auto_lock(registered_clients_lock_);
-    for (auto& client : registered_clients_)
-      registered_clients_copy.push_back(client.get());
-  }
-  for (auto* client : registered_clients_copy) {
-    client->OnChildExit(info);
-  }
+void ChildExitObserver::ChildReceivedCrashSignal(base::ProcessId pid,
+                                                 int signo) {
+  base::AutoLock lock(crash_signals_lock_);
+  bool result =
+      child_pid_to_crash_signal_.insert(std::make_pair(pid, signo)).second;
+  DCHECK(result);
 }
 
-void ChildExitObserver::BrowserChildProcessStarted(
-    int process_host_id,
-    content::PosixFileDescriptorInfo* mappings) {
+void ChildExitObserver::OnChildExit(TerminationInfo* info) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  {
+    base::AutoLock lock(crash_signals_lock_);
+    auto pid_and_signal = child_pid_to_crash_signal_.find(info->pid);
+    if (pid_and_signal != child_pid_to_crash_signal_.end()) {
+      info->crash_signo = pid_and_signal->second;
+      child_pid_to_crash_signal_.erase(pid_and_signal);
+    }
+  }
+
   std::vector<Client*> registered_clients_copy;
   {
     base::AutoLock auto_lock(registered_clients_lock_);
@@ -111,7 +125,7 @@ void ChildExitObserver::BrowserChildProcessStarted(
       registered_clients_copy.push_back(client.get());
   }
   for (auto* client : registered_clients_copy) {
-    client->OnChildStart(process_host_id, mappings);
+    client->OnChildExit(*info);
   }
 }
 
@@ -125,12 +139,12 @@ void ChildExitObserver::BrowserChildProcessHostDisconnected(
     browser_child_process_info_.erase(it);
   } else {
     info.process_host_id = data.id;
-    info.pid = data.handle;
+    info.pid = data.GetProcess().Pid();
     info.process_type = static_cast<content::ProcessType>(data.process_type);
     info.app_state = base::android::ApplicationStatusListener::GetState();
     info.normal_termination = true;
   }
-  OnChildExit(info);
+  OnChildExit(&info);
 }
 
 void ChildExitObserver::BrowserChildProcessKilled(
@@ -140,9 +154,10 @@ void ChildExitObserver::BrowserChildProcessKilled(
   DCHECK(!base::ContainsKey(browser_child_process_info_, data.id));
   TerminationInfo info;
   info.process_host_id = data.id;
-  info.pid = data.handle;
+  info.pid = data.GetProcess().Pid();
   info.process_type = static_cast<content::ProcessType>(data.process_type);
   info.app_state = base::android::ApplicationStatusListener::GetState();
+  info.normal_termination = content_info.clean_exit;
   PopulateTerminationInfo(content_info, &info);
   browser_child_process_info_.emplace(data.id, info);
   // Subsequent BrowserChildProcessHostDisconnected will call OnChildExit.
@@ -161,6 +176,17 @@ void ChildExitObserver::Observe(int type,
   info.app_state = base::android::APPLICATION_STATE_UNKNOWN;
   info.renderer_has_visible_clients = rph->VisibleClientCount() > 0;
   info.renderer_was_subframe = rph->GetFrameDepth() > 0u;
+  CrashMemoryMetricsCollector* collector =
+      CrashMemoryMetricsCollector::GetFromRenderProcessHost(rph);
+
+  // CrashMemoryMetircsCollector is created in chrome_content_browser_client,
+  // and does not exist in non-chrome platforms such as android webview /
+  // chromecast.
+  if (collector) {
+    // SharedMemory creation / Map() might fail.
+    DCHECK(collector->MemoryMetrics());
+    info.blink_oom_metrics = *collector->MemoryMetrics();
+  }
   switch (type) {
     case content::NOTIFICATION_RENDERER_PROCESS_TERMINATED: {
       // NOTIFICATION_RENDERER_PROCESS_TERMINATED is sent when the renderer
@@ -190,13 +216,19 @@ void ChildExitObserver::Observe(int type,
       return;
   }
   const auto& iter = process_host_id_to_pid_.find(rph->GetID());
-  if (iter != process_host_id_to_pid_.end()) {
-    if (info.pid == base::kNullProcessHandle) {
-      info.pid = iter->second;
-    }
-    process_host_id_to_pid_.erase(iter);
+  // NOTIFICATION_RENDERER_PROCESS_CLOSED corresponds to death of an underlying
+  // RenderProcess. NOTIFICATION_RENDERER_PROCESS_TERMINATED corresponds to when
+  // the RenderProcessHost's lifetime is ending. Ideally, we'd only listen to
+  // the former, but if the RenderProcessHost is destroyed before the
+  // RenderProcess, then the former is never sent.
+  if (iter == process_host_id_to_pid_.end()) {
+    return;
   }
-  OnChildExit(info);
+  if (info.pid == base::kNullProcessHandle) {
+    info.pid = iter->second;
+  }
+  process_host_id_to_pid_.erase(iter);
+  OnChildExit(&info);
 }
 
 }  // namespace crash_reporter

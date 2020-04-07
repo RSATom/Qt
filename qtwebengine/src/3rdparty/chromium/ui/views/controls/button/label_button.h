@@ -28,9 +28,6 @@ class LabelButtonLabel;
 // LabelButton is a button with text and an icon, it's not focusable by default.
 class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
  public:
-  // The length of the hover fade animation.
-  static const int kHoverAnimationDurationMs;
-
   static const char kViewClassName[];
 
   // Creates a LabelButton with ButtonPressed() events sent to |listener| and
@@ -98,9 +95,7 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   void EnableCanvasFlippingForRTLUI(bool flip) override;
   void AddInkDropLayer(ui::Layer* ink_drop_layer) override;
   void RemoveInkDropLayer(ui::Layer* ink_drop_layer) override;
-  std::unique_ptr<InkDrop> CreateInkDrop() override;
-  std::unique_ptr<InkDropRipple> CreateInkDropRipple() const override;
-  std::unique_ptr<InkDropHighlight> CreateInkDropHighlight() const override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
  protected:
   ImageView* image() const { return image_; }
@@ -116,10 +111,6 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // Returns the available area for the label and image. Subclasses can change
   // these bounds if they need room to do manual painting.
   virtual gfx::Rect GetChildAreaBounds();
-
-  // Returns true if the CreateInkDrop*() methods should create flood fill ink
-  // drop components.
-  virtual bool ShouldUseFloodFillInkDrop() const;
 
   // View:
   void OnFocus() override;

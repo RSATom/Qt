@@ -14,7 +14,7 @@
 
 import("../../gn/perfetto.gni")
 
-if (!build_with_chromium) {
+if (perfetto_build_standalone) {
   action_foreach("configs") {
     testonly = true
     script = "$root_out_dir/protoc_helper"
@@ -24,12 +24,15 @@ if (!build_with_chromium) {
     ]
 
     sources = [
+      "android_log.cfg",
       "atrace.cfg",
       "ftrace.cfg",
       "ftrace_largebuffer.cfg",
+      "heapprofd.cfg",
       "long_trace.cfg",
       "processes.cfg",
       "summary.cfg",
+      "sys_stats.cfg",
     ]
 
     outputs = [

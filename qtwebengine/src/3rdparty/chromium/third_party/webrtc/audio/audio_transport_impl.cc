@@ -17,7 +17,7 @@
 #include "audio/remix_resample.h"
 #include "audio/utility/audio_frame_operations.h"
 #include "call/audio_send_stream.h"
-#include "rtc_base/logging.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -50,8 +50,6 @@ void ProcessCaptureFrame(uint32_t delay_ms,
                          AudioFrame* audio_frame) {
   RTC_DCHECK(audio_processing);
   RTC_DCHECK(audio_frame);
-  RTC_DCHECK(
-      !audio_processing->echo_cancellation()->is_drift_compensation_enabled());
   audio_processing->set_stream_delay_ms(delay_ms);
   audio_processing->set_stream_key_pressed(key_pressed);
   int error = audio_processing->ProcessStream(audio_frame);
@@ -135,9 +133,9 @@ int32_t AudioTransportImpl::RecordedDataIsAvailable(
 
   // Typing detection (utilizes the APM/VAD decision). We let the VAD determine
   // if we're using this feature or not.
-  // TODO(solenberg): is_enabled() takes a lock. Work around that.
+  // TODO(solenberg): GetConfig() takes a lock. Work around that.
   bool typing_detected = false;
-  if (audio_processing_->voice_detection()->is_enabled()) {
+  if (audio_processing_->GetConfig().voice_detection.enabled) {
     if (audio_frame->vad_activity_ != AudioFrame::kVadUnknown) {
       bool vad_active = audio_frame->vad_activity_ == AudioFrame::kVadActive;
       typing_detected = typing_detection_.Process(key_pressed, vad_active);

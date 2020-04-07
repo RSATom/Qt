@@ -35,8 +35,6 @@
 #include "ppapi/c/ppb_audio_buffer.h"
 #include "ppapi/c/ppb_audio_config.h"
 #include "ppapi/c/ppb_audio_encoder.h"
-#include "ppapi/c/ppb_compositor.h"
-#include "ppapi/c/ppb_compositor_layer.h"
 #include "ppapi/c/ppb_console.h"
 #include "ppapi/c/ppb_core.h"
 #include "ppapi/c/ppb_file_io.h"
@@ -82,7 +80,6 @@
 #include "ppapi/c/private/ppb_find_private.h"
 #include "ppapi/c/private/ppb_flash.h"
 #include "ppapi/c/private/ppb_flash_clipboard.h"
-#include "ppapi/c/private/ppb_flash_device_id.h"
 #include "ppapi/c/private/ppb_flash_drm.h"
 #include "ppapi/c/private/ppb_flash_file.h"
 #include "ppapi/c/private/ppb_flash_font_file.h"
@@ -99,8 +96,6 @@
 #include "ppapi/c/private/ppb_testing_private.h"
 #include "ppapi/c/private/ppb_udp_socket_private.h"
 #include "ppapi/c/private/ppb_uma_private.h"
-#include "ppapi/c/private/ppb_video_destination_private.h"
-#include "ppapi/c/private/ppb_video_source_private.h"
 #include "ppapi/c/private/ppb_x509_certificate_private.h"
 #include "ppapi/c/trusted/ppb_broker_trusted.h"
 #include "ppapi/c/trusted/ppb_browser_font_trusted.h"
@@ -185,6 +180,7 @@ InterfaceList::InterfaceList() {
              INTERFACE_THUNK_NAME(iface_struct)(), \
              current_required_permission);
 
+  // clang-format off
   {
     Permission current_required_permission = PERMISSION_NONE;
     #include "ppapi/thunk/interfaces_ppb_private_no_permissions.h"
@@ -212,9 +208,14 @@ InterfaceList::InterfaceList() {
     Permission current_required_permission = PERMISSION_DEV_CHANNEL;
     #include "ppapi/thunk/interfaces_ppb_public_dev_channel.h"
   }
+  {
+    Permission current_required_permission = PERMISSION_SOCKET;
+    #include "ppapi/thunk/interfaces_ppb_public_socket.h"
+  }
+  // clang-format on
 
-  #undef PROXIED_API
-  #undef PROXIED_IFACE
+#undef PROXIED_API
+#undef PROXIED_IFACE
 
   // Manually add some special proxies. Some of these don't have interfaces
   // that they support, so aren't covered by the macros above, but have proxies

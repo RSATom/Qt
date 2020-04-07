@@ -4,13 +4,12 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/demo_setup_screen_handler.h"
 
-#include "base/command_line.h"
-#include "base/values.h"
+#include "base/strings/string16.h"
+#include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/screens/demo_setup_screen.h"
-#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/chromeos_switches.h"
 #include "components/login/localized_values_builder.h"
 
 namespace {
@@ -42,9 +41,19 @@ void DemoSetupScreenHandler::Bind(DemoSetupScreen* screen) {
   BaseScreenHandler::SetBaseScreen(screen);
 }
 
-void DemoSetupScreenHandler::OnSetupFinished(bool is_success,
-                                             const std::string& message) {
-  CallJS("onSetupFinished", is_success, message);
+void DemoSetupScreenHandler::OnSetupFailed(
+    const DemoSetupController::DemoSetupError& error) {
+  // TODO(wzang): Consider customization for RecoveryMethod::kReboot as well.
+  CallJS("login.DemoSetupScreen.onSetupFailed",
+         base::JoinString({error.GetLocalizedErrorMessage(),
+                           error.GetLocalizedRecoveryMessage()},
+                          base::UTF8ToUTF16(" ")),
+         error.recovery_method() ==
+             DemoSetupController::DemoSetupError::RecoveryMethod::kPowerwash);
+}
+
+void DemoSetupScreenHandler::OnSetupSucceeded() {
+  CallJS("login.DemoSetupScreen.onSetupSucceeded");
 }
 
 void DemoSetupScreenHandler::Initialize() {}
@@ -55,18 +64,10 @@ void DemoSetupScreenHandler::DeclareLocalizedValues(
                IDS_OOBE_DEMO_SETUP_PROGRESS_SCREEN_TITLE);
   builder->Add("demoSetupErrorScreenTitle",
                IDS_OOBE_DEMO_SETUP_ERROR_SCREEN_TITLE);
-  builder->Add("demoSetupErrorScreenSubtitle",
-               IDS_OOBE_DEMO_SETUP_ERROR_SCREEN_SUBTITLE);
   builder->Add("demoSetupErrorScreenRetryButtonLabel",
                IDS_OOBE_DEMO_SETUP_ERROR_SCREEN_RETRY_BUTTON_LABEL);
-}
-
-void DemoSetupScreenHandler::GetAdditionalParameters(
-    base::DictionaryValue* dict) {
-  const bool is_offline_demo_mode_enabled =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableOfflineDemoMode);
-  dict->SetBoolean("offlineDemoModeEnabled", is_offline_demo_mode_enabled);
+  builder->Add("demoSetupErrorScreenPowerwashButtonLabel",
+               IDS_LOCAL_STATE_ERROR_POWERWASH_BUTTON);
 }
 
 }  // namespace chromeos

@@ -3,6 +3,7 @@ TEMPLATE = lib
 
 include(core_common.pri)
 
+
 linking_pri = $$OUT_PWD/$$getConfigDir()/$${TARGET}.pri
 
 !include($$linking_pri) {

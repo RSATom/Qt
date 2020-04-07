@@ -101,8 +101,8 @@ QGeoProjection::~QGeoProjection()
 
 QGeoCoordinate QGeoProjection::anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint) const
 {
-    Q_UNUSED(coordinate)
-    Q_UNUSED(anchorPoint)
+    Q_UNUSED(coordinate);
+    Q_UNUSED(anchorPoint);
     return QGeoCoordinate();
 }
 
@@ -113,8 +113,8 @@ QGeoShape QGeoProjection::visibleRegion() const
 
 bool QGeoProjection::setBearing(qreal bearing, const QGeoCoordinate &coordinate)
 {
-    Q_UNUSED(bearing)
-    Q_UNUSED(coordinate)
+    Q_UNUSED(bearing);
+    Q_UNUSED(coordinate);
     return false;
 }
 

@@ -89,10 +89,6 @@ struct InsertedRow
         : m_index(index)
         , m_start(start)
         , m_end(end){}
-    InsertedRow(const InsertedRow &other)
-        : m_index(other.m_index)
-        , m_start(other.m_start)
-        , m_end(other.m_end){}
     bool match(const QList<QVariant> &signal) const
     {
         if (signal.size() != 3)
@@ -1018,7 +1014,7 @@ void TestModelView::testServerInsertDataTree()
 }
 
 #ifdef SLOW_MODELTEST
-#define MODELTEST_WAIT_TIME 15000
+#define MODELTEST_WAIT_TIME 25000
 #else
 #define MODELTEST_WAIT_TIME
 #endif

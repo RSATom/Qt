@@ -61,6 +61,7 @@ void QWebEngineViewPrivate::pageChanged(QWebEnginePage *oldPage, QWebEnginePage 
     Q_Q(QWebEngineView);
 
     if (oldPage) {
+        oldPage->d_ptr->wasHidden();
         oldPage->disconnect(q);
     }
 
@@ -74,6 +75,8 @@ void QWebEngineViewPrivate::pageChanged(QWebEnginePage *oldPage, QWebEnginePage 
         QObject::connect(newPage, &QWebEnginePage::loadFinished, q, &QWebEngineView::loadFinished);
         QObject::connect(newPage, &QWebEnginePage::selectionChanged, q, &QWebEngineView::selectionChanged);
         QObject::connect(newPage, &QWebEnginePage::renderProcessTerminated, q, &QWebEngineView::renderProcessTerminated);
+        if (q->isVisible())
+            newPage->d_ptr->wasShown();
     }
 
     auto oldUrl = oldPage ? oldPage->url() : QUrl();
@@ -119,7 +122,7 @@ static QAccessibleInterface *webAccessibleFactory(const QString &, QObject *obje
 {
     if (QWebEngineView *v = qobject_cast<QWebEngineView*>(object))
         return new QWebEngineViewAccessible(v);
-    return Q_NULLPTR;
+    return nullptr;
 }
 #endif // QT_NO_ACCESSIBILITY
 
@@ -461,7 +464,7 @@ QAccessibleInterface *QWebEngineViewAccessible::child(int index) const
 {
     if (index == 0 && view() && view()->page())
         return view()->page()->d_func()->adapter->browserAccessible();
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 int QWebEngineViewAccessible::indexOfChild(const QAccessibleInterface *c) const

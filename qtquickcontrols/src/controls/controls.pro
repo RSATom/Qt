@@ -78,7 +78,7 @@ INCLUDED_RESOURCE_FILES += $$SHADER_FILES
 
 controls.files = $$INCLUDED_RESOURCE_FILES
 controls.prefix = /QtQuick/Controls
-RESOURCES += controls
+!static:RESOURCES += controls
 
 CONFIG += no_cxx_module
 load(qml_plugin)

@@ -48,28 +48,6 @@
 
 namespace blink {
 
-namespace {
-
-class URLResponseExtraDataContainer : public ResourceResponse::ExtraData {
- public:
-  static scoped_refptr<URLResponseExtraDataContainer> Create(
-      WebURLResponse::ExtraData* extra_data) {
-    return base::AdoptRef(new URLResponseExtraDataContainer(extra_data));
-  }
-
-  ~URLResponseExtraDataContainer() override = default;
-
-  WebURLResponse::ExtraData* GetExtraData() const { return extra_data_.get(); }
-
- private:
-  explicit URLResponseExtraDataContainer(WebURLResponse::ExtraData* extra_data)
-      : extra_data_(base::WrapUnique(extra_data)) {}
-
-  std::unique_ptr<WebURLResponse::ExtraData> extra_data_;
-};
-
-}  // namespace
-
 WebURLResponse::~WebURLResponse() = default;
 
 WebURLResponse::WebURLResponse()
@@ -81,8 +59,9 @@ WebURLResponse::WebURLResponse(const WebURLResponse& r)
           std::make_unique<ResourceResponse>(*r.resource_response_)),
       resource_response_(owned_resource_response_.get()) {}
 
-WebURLResponse::WebURLResponse(const WebURL& url) : WebURLResponse() {
-  SetURL(url);
+WebURLResponse::WebURLResponse(const WebURL& current_request_url)
+    : WebURLResponse() {
+  SetCurrentRequestUrl(current_request_url);
 }
 
 WebURLResponse& WebURLResponse::operator=(const WebURLResponse& r) {
@@ -99,12 +78,16 @@ bool WebURLResponse::IsNull() const {
   return resource_response_->IsNull();
 }
 
-WebURL WebURLResponse::Url() const {
-  return resource_response_->Url();
+WebURL WebURLResponse::CurrentRequestUrl() const {
+  return resource_response_->CurrentRequestUrl();
 }
 
-void WebURLResponse::SetURL(const WebURL& url) {
-  resource_response_->SetURL(url);
+void WebURLResponse::SetCurrentRequestUrl(const WebURL& url) {
+  resource_response_->SetCurrentRequestUrl(url);
+}
+
+WebURL WebURLResponse::ResponseUrl() const {
+  return resource_response_->ResponseUrl();
 }
 
 void WebURLResponse::SetConnectionID(unsigned connection_id) {
@@ -157,6 +140,14 @@ WebURLResponse::HTTPVersion WebURLResponse::HttpVersion() const {
 void WebURLResponse::SetHTTPVersion(HTTPVersion version) {
   resource_response_->SetHTTPVersion(
       static_cast<ResourceResponse::HTTPVersion>(version));
+}
+
+int WebURLResponse::RequestId() const {
+  return resource_response_->RequestId();
+}
+
+void WebURLResponse::SetRequestId(int request_id) {
+  resource_response_->SetRequestId(request_id);
 }
 
 int WebURLResponse::HttpStatusCode() const {
@@ -241,7 +232,7 @@ void WebURLResponse::SetCTPolicyCompliance(
       resource_response_->SetCTPolicyCompliance(
           ResourceResponse::kCTPolicyComplies);
       break;
-    case net::ct::CTPolicyCompliance::CT_POLICY_MAX:
+    case net::ct::CTPolicyCompliance::CT_POLICY_COUNT:
       NOTREACHED();
       resource_response_->SetCTPolicyCompliance(
           ResourceResponse::kCTPolicyComplianceDetailsNotAvailable);
@@ -251,6 +242,10 @@ void WebURLResponse::SetCTPolicyCompliance(
 
 void WebURLResponse::SetIsLegacySymantecCert(bool value) {
   resource_response_->SetIsLegacySymantecCert(value);
+}
+
+void WebURLResponse::SetIsLegacyTLSVersion(bool value) {
+  resource_response_->SetIsLegacyTLSVersion(value);
 }
 
 void WebURLResponse::SetSecurityStyle(WebSecurityStyle security_style) {
@@ -326,14 +321,12 @@ void WebURLResponse::SetWasFallbackRequiredByServiceWorker(bool value) {
   resource_response_->SetWasFallbackRequiredByServiceWorker(value);
 }
 
-void WebURLResponse::SetResponseTypeViaServiceWorker(
-    network::mojom::FetchResponseType value) {
-  resource_response_->SetResponseTypeViaServiceWorker(value);
+void WebURLResponse::SetType(network::mojom::FetchResponseType value) {
+  resource_response_->SetType(value);
 }
 
-network::mojom::FetchResponseType WebURLResponse::ResponseTypeViaServiceWorker()
-    const {
-  return resource_response_->ResponseTypeViaServiceWorker();
+network::mojom::FetchResponseType WebURLResponse::GetType() const {
+  return resource_response_->GetType();
 }
 
 void WebURLResponse::SetURLListViaServiceWorker(
@@ -345,12 +338,10 @@ void WebURLResponse::SetURLListViaServiceWorker(
   resource_response_->SetURLListViaServiceWorker(url_list);
 }
 
-WebURL WebURLResponse::OriginalURLViaServiceWorker() const {
-  return resource_response_->OriginalURLViaServiceWorker();
-}
-
-void WebURLResponse::SetMultipartBoundary(const char* bytes, size_t size) {
-  resource_response_->SetMultipartBoundary(bytes, size);
+bool WebURLResponse::HasUrlListViaServiceWorker() const {
+  DCHECK(resource_response_->UrlListViaServiceWorker().size() == 0 ||
+         WasFetchedViaServiceWorker());
+  return resource_response_->UrlListViaServiceWorker().size() > 0;
 }
 
 void WebURLResponse::SetCacheStorageCacheName(
@@ -393,24 +384,10 @@ void WebURLResponse::SetEncodedDataLength(long long length) {
   resource_response_->SetEncodedDataLength(length);
 }
 
-WebURLResponse::ExtraData* WebURLResponse::GetExtraData() const {
-  scoped_refptr<ResourceResponse::ExtraData> data =
-      resource_response_->GetExtraData();
-  if (!data)
-    return nullptr;
-  return static_cast<URLResponseExtraDataContainer*>(data.get())
-      ->GetExtraData();
-}
-
-void WebURLResponse::SetExtraData(WebURLResponse::ExtraData* extra_data) {
-  if (extra_data != GetExtraData()) {
-    resource_response_->SetExtraData(
-        URLResponseExtraDataContainer::Create(extra_data));
-  }
-}
-
-void WebURLResponse::AppendRedirectResponse(const WebURLResponse& response) {
-  resource_response_->AppendRedirectResponse(response.ToResourceResponse());
+void WebURLResponse::SetIsSignedExchangeInnerResponse(
+    bool is_signed_exchange_inner_response) {
+  resource_response_->SetIsSignedExchangeInnerResponse(
+      is_signed_exchange_inner_response);
 }
 
 WebString WebURLResponse::AlpnNegotiatedProtocol() const {
@@ -433,6 +410,10 @@ void WebURLResponse::SetConnectionInfo(
 
 void WebURLResponse::SetAsyncRevalidationRequested(bool requested) {
   resource_response_->SetAsyncRevalidationRequested(requested);
+}
+
+void WebURLResponse::SetNetworkAccessed(bool network_accessed) {
+  resource_response_->SetNetworkAccessed(network_accessed);
 }
 
 WebURLResponse::WebURLResponse(ResourceResponse& r) : resource_response_(&r) {}

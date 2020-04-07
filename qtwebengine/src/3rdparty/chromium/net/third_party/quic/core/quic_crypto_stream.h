@@ -34,6 +34,8 @@ class QuicSession;
 class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
  public:
   explicit QuicCryptoStream(QuicSession* session);
+  QuicCryptoStream(const QuicCryptoStream&) = delete;
+  QuicCryptoStream& operator=(const QuicCryptoStream&) = delete;
 
   ~QuicCryptoStream() override;
 
@@ -54,18 +56,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
                             size_t result_len,
                             QuicString* result) const;
 
-  // Performs key extraction for Token Binding. Unlike ExportKeyingMaterial,
-  // this function can be called before forward-secure encryption is
-  // established. Returns false if initial encryption has not been established,
-  // and true on success.
-  //
-  // Since this depends only on the initial keys, a signature over it can be
-  // repurposed by an attacker who obtains the client's or server's DH private
-  // value.
-  bool ExportTokenBindingKeyingMaterial(QuicString* result) const;
-
-  // Writes |data| to the QuicStream.
-  virtual void WriteCryptoData(const QuicStringPiece& data);
+  // Writes |data| to the QuicStream at level |level|.
+  virtual void WriteCryptoData(EncryptionLevel level, QuicStringPiece data);
 
   // Returns appropriate long header type when sending data starts at |offset|.
   virtual QuicLongHeaderType GetLongHeaderType(
@@ -108,8 +100,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // TODO(fayang): This is not needed once switching from QUIC crypto to
   // TLS 1.3, which never encrypts crypto data.
   QuicIntervalSet<QuicStreamOffset> bytes_consumed_[NUM_ENCRYPTION_LEVELS];
-
-  DISALLOW_COPY_AND_ASSIGN(QuicCryptoStream);
 };
 
 }  // namespace quic

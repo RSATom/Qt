@@ -8,7 +8,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/timer/elapsed_timer.h"
 #include "content/public/browser/browser_thread.h"
 #include "crypto/secure_hash.h"
@@ -61,8 +61,8 @@ ContentVerifyJob::ContentVerifyJob(const ExtensionId& extension_id,
       failed_(false) {}
 
 ContentVerifyJob::~ContentVerifyJob() {
-  UMA_HISTOGRAM_COUNTS("ExtensionContentVerifyJob.TimeSpentUS",
-                       time_spent_.InMicroseconds());
+  UMA_HISTOGRAM_COUNTS_1M("ExtensionContentVerifyJob.TimeSpentUS",
+                          time_spent_.InMicroseconds());
 }
 
 void ContentVerifyJob::Start(ContentVerifier* verifier) {
@@ -75,7 +75,7 @@ void ContentVerifyJob::Start(ContentVerifier* verifier) {
 }
 
 void ContentVerifyJob::DidGetContentHashOnIO(
-    const scoped_refptr<const ContentHash>& content_hash) {
+    scoped_refptr<const ContentHash> content_hash) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   base::AutoLock auto_lock(lock_);
   if (g_content_verify_job_test_observer)

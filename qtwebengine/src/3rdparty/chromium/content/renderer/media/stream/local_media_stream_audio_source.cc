@@ -12,7 +12,7 @@ namespace content {
 
 LocalMediaStreamAudioSource::LocalMediaStreamAudioSource(
     int consumer_render_frame_id,
-    const MediaStreamDevice& device,
+    const blink::MediaStreamDevice& device,
     bool hotword_enabled,
     bool disable_local_echo,
     const ConstraintsCallback& started_callback)
@@ -27,15 +27,8 @@ LocalMediaStreamAudioSource::LocalMediaStreamAudioSource(
   // If the device buffer size was not provided, use a default.
   int frames_per_buffer = device.input.frames_per_buffer();
   if (frames_per_buffer <= 0) {
-// TODO(miu): Like in ProcessedLocalAudioSource::GetBufferSize(), we should
-// re-evaluate whether Android needs special treatment here. Or, perhaps we
-// should just DCHECK_GT(device...frames_per_buffer, 0)?
-// http://crbug.com/638081
-#if defined(OS_ANDROID)
-    frames_per_buffer = device.input.sample_rate() / 50;  // 20 ms
-#else
-    frames_per_buffer = device.input.sample_rate() / 100;  // 10 ms
-#endif
+    frames_per_buffer =
+        (device.input.sample_rate() * kFallbackAudioLatencyMs) / 1000;
   }
 
   SetFormat(media::AudioParameters(
@@ -50,10 +43,20 @@ LocalMediaStreamAudioSource::~LocalMediaStreamAudioSource() {
 }
 
 bool LocalMediaStreamAudioSource::EnsureSourceIsStarted() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   if (source_)
     return true;
+
+  std::string str = base::StringPrintf(
+      "LocalMediaStreamAudioSource::EnsureSourceIsStarted. render_frame_id=%d"
+      ", channel_layout=%d, sample_rate=%d, buffer_size=%d"
+      ", session_id=%d, effects=%d. ",
+      consumer_render_frame_id_, device().input.channel_layout(),
+      device().input.sample_rate(), device().input.frames_per_buffer(),
+      device().session_id, device().input.effects());
+  WebRtcLogMessage(str);
+  DVLOG(1) << str;
 
   // Sanity-check that the consuming RenderFrame still exists. This is required
   // by AudioDeviceFactory.
@@ -66,14 +69,15 @@ bool LocalMediaStreamAudioSource::EnsureSourceIsStarted() {
           << GetAudioParameters().AsHumanReadableString() << "}.";
 
   source_ = AudioDeviceFactory::NewAudioCapturerSource(
-      consumer_render_frame_id_, device().session_id);
+      consumer_render_frame_id_,
+      media::AudioSourceParameters(device().session_id));
   source_->Initialize(GetAudioParameters(), this);
   source_->Start();
   return true;
 }
 
 void LocalMediaStreamAudioSource::EnsureSourceIsStopped() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   if (!source_)
     return;
@@ -88,7 +92,7 @@ void LocalMediaStreamAudioSource::EnsureSourceIsStopped() {
 }
 
 void LocalMediaStreamAudioSource::OnCaptureStarted() {
-  started_callback_.Run(this, MEDIA_DEVICE_OK, "");
+  started_callback_.Run(this, blink::MEDIA_DEVICE_OK, "");
 }
 
 void LocalMediaStreamAudioSource::Capture(const media::AudioBus* audio_bus,
@@ -98,7 +102,7 @@ void LocalMediaStreamAudioSource::Capture(const media::AudioBus* audio_bus,
   DCHECK(audio_bus);
   // TODO(miu): Plumbing is needed to determine the actual capture timestamp
   // of the audio, instead of just snapshotting TimeTicks::Now(), for proper
-  // audio/video sync. http://crbug.com/335335
+  // audio/video sync. https://crbug.com/335335
   DeliverDataToTracks(
       *audio_bus, base::TimeTicks::Now() - base::TimeDelta::FromMilliseconds(
                                                audio_delay_milliseconds));
@@ -111,6 +115,16 @@ void LocalMediaStreamAudioSource::OnCaptureError(const std::string& why) {
 
 void LocalMediaStreamAudioSource::OnCaptureMuted(bool is_muted) {
   SetMutedState(is_muted);
+}
+
+void LocalMediaStreamAudioSource::ChangeSourceImpl(
+    const blink::MediaStreamDevice& new_device) {
+  WebRtcLogMessage(
+      "LocalMediaStreamAudioSource::ChangeSourceImpl(new_device = " +
+      new_device.id + ")");
+  EnsureSourceIsStopped();
+  SetDevice(new_device);
+  EnsureSourceIsStarted();
 }
 
 }  // namespace content

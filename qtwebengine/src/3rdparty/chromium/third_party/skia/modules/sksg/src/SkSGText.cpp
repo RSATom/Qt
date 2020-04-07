@@ -11,7 +11,6 @@
 #include "SkPaint.h"
 #include "SkPath.h"
 #include "SkTArray.h"
-#include "SkTextBlob.h"
 #include "SkTypeface.h"
 
 namespace sksg {
@@ -26,43 +25,52 @@ Text::Text(sk_sp<SkTypeface> tf, const SkString& text)
 
 Text::~Text() = default;
 
+SkPoint Text::alignedPosition(SkScalar advance) const {
+    auto aligned = fPosition;
+
+    switch (fAlign) {
+    case SkTextUtils::kLeft_Align:
+        break;
+    case SkTextUtils::kCenter_Align:
+        aligned.offset(-advance / 2, 0);
+        break;
+    case SkTextUtils::kRight_Align:
+        aligned.offset(-advance, 0);
+        break;
+    }
+
+    return aligned;
+}
+
 SkRect Text::onRevalidate(InvalidationController*, const SkMatrix&) {
     // TODO: we could potentially track invals which don't require rebuilding the blob.
 
-    SkPaint font;
-    font.setFlags(fFlags);
+    SkFont font;
     font.setTypeface(fTypeface);
-    font.setTextSize(fSize);
-    font.setTextScaleX(fScaleX);
-    font.setTextSkewX(fSkewX);
-    font.setTextAlign(fAlign);
+    font.setSize(fSize);
+    font.setScaleX(fScaleX);
+    font.setSkewX(fSkewX);
+    font.setEdging(fEdging);
     font.setHinting(fHinting);
 
-    // First, convert to glyphIDs.
-    font.setTextEncoding(SkPaint::kUTF8_TextEncoding);
-    SkSTArray<256, SkGlyphID, true> glyphs;
-    glyphs.reset(font.textToGlyphs(fText.c_str(), fText.size(), nullptr));
-    SkAssertResult(font.textToGlyphs(fText.c_str(), fText.size(), glyphs.begin()) == glyphs.count());
-    font.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
+    // N.B.: fAlign is applied externally (in alignedPosition()), because
+    //  1) SkTextBlob has some trouble computing accurate bounds with alignment.
+    //  2) SkPaint::Align is slated for deprecation.
 
-    // Next, build the cached blob.
-    SkTextBlobBuilder builder;
-    const auto& buf = builder.allocRun(font, glyphs.count(), 0, 0, nullptr);
-    if (!buf.glyphs) {
-        fBlob.reset();
+    fBlob = SkTextBlob::MakeFromText(fText.c_str(), fText.size(), font, kUTF8_SkTextEncoding);
+    if (!fBlob) {
         return SkRect::MakeEmpty();
     }
 
-    memcpy(buf.glyphs, glyphs.begin(), glyphs.count() * sizeof(SkGlyphID));
+    const auto& bounds = fBlob->bounds();
+    const auto aligned_pos = this->alignedPosition(bounds.width());
 
-    fBlob = builder.make();
-    return fBlob
-        ? fBlob->bounds().makeOffset(fPosition.x(), fPosition.y())
-        : SkRect::MakeEmpty();
+    return bounds.makeOffset(aligned_pos.x(), aligned_pos.y());
 }
 
 void Text::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
-    canvas->drawTextBlob(fBlob, fPosition.x(), fPosition.y(), paint);
+    const auto aligned_pos = this->alignedPosition(this->bounds().width());
+    canvas->drawTextBlob(fBlob, aligned_pos.x(), aligned_pos.y(), paint);
 }
 
 SkPath Text::onAsPath() const {
@@ -71,6 +79,32 @@ SkPath Text::onAsPath() const {
 }
 
 void Text::onClip(SkCanvas* canvas, bool antiAlias) const {
+    canvas->clipPath(this->asPath(), antiAlias);
+}
+
+sk_sp<TextBlob> TextBlob::Make(sk_sp<SkTextBlob> blob) {
+    return sk_sp<TextBlob>(new TextBlob(std::move(blob)));
+}
+
+TextBlob::TextBlob(sk_sp<SkTextBlob> blob)
+    : fBlob(std::move(blob)) {}
+
+TextBlob::~TextBlob() = default;
+
+SkRect TextBlob::onRevalidate(InvalidationController*, const SkMatrix&) {
+    return fBlob ? fBlob->bounds() : SkRect::MakeEmpty();
+}
+
+void TextBlob::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
+    canvas->drawTextBlob(fBlob, fPosition.x(), fPosition.y(), paint);
+}
+
+SkPath TextBlob::onAsPath() const {
+    // TODO
+    return SkPath();
+}
+
+void TextBlob::onClip(SkCanvas* canvas, bool antiAlias) const {
     canvas->clipPath(this->asPath(), antiAlias);
 }
 

@@ -53,6 +53,7 @@ QtObject {
         var newWindow = browserWindowComponent.createObject(root)
         newWindow.currentWebView.profile = profile
         profile.downloadRequested.connect(newWindow.onDownloadRequested)
+        profile.presentNotification.connect(newWindow.onPresentNotification)
         return newWindow
     }
     function createDialog(profile) {

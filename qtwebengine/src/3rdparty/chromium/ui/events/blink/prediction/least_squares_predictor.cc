@@ -4,18 +4,18 @@
 
 #include "ui/events/blink/prediction/least_squares_predictor.h"
 
-#include <cmath>
+#include "base/trace_event/trace_event.h"
 
 namespace ui {
 
 namespace {
 
-constexpr double kEpsilon = std::numeric_limits<double>::epsilon();
-
 // Solve XB = y.
 static bool SolveLeastSquares(const gfx::Matrix3F& x,
                               const std::deque<double>& y,
                               gfx::Vector3dF& result) {
+  constexpr double kEpsilon = std::numeric_limits<double>::epsilon();
+
   // return last point if y didn't change.
   if (std::abs(y[0] - y[1]) < kEpsilon && std::abs(y[1] - y[2]) < kEpsilon) {
     result = gfx::Vector3dF(y[2], 0, 0);
@@ -40,6 +40,10 @@ LeastSquaresPredictor::LeastSquaresPredictor() {}
 
 LeastSquaresPredictor::~LeastSquaresPredictor() {}
 
+const char* LeastSquaresPredictor::GetName() const {
+  return "LSQ";
+}
+
 void LeastSquaresPredictor::Reset() {
   x_queue_.clear();
   y_queue_.clear();
@@ -47,12 +51,11 @@ void LeastSquaresPredictor::Reset() {
 }
 
 void LeastSquaresPredictor::Update(const InputData& cur_input) {
-  // Reset curve if last point is 50 milliseconds away.
-  constexpr double max_interval_millisecond = 50.0;
-  if (!time_.empty() &&
-      (cur_input.time_stamp - time_.back()).InMillisecondsF() >
-          max_interval_millisecond)
-    Reset();
+  if (!time_.empty()) {
+    // When last point is kMaxTimeDelta away, consider it is incontinuous.
+    if (cur_input.time_stamp - time_.back() > kMaxTimeDelta)
+      Reset();
+  }
 
   x_queue_.push_back(cur_input.pos.x());
   y_queue_.push_back(cur_input.pos.y());
@@ -76,14 +79,14 @@ gfx::Matrix3F LeastSquaresPredictor::GetXMatrix() const {
   return x;
 }
 
-bool LeastSquaresPredictor::GeneratePrediction(base::TimeTicks frame_time,
+bool LeastSquaresPredictor::GeneratePrediction(base::TimeTicks predict_time,
                                                InputData* result) const {
-  if (!HasPrediction())
+  if (!HasPrediction() || predict_time - time_.back() > kMaxResampleTime)
     return false;
 
   gfx::Matrix3F time_matrix = GetXMatrix();
 
-  double dt = (frame_time - time_[0]).InMillisecondsF();
+  double dt = (predict_time - time_[0]).InMillisecondsF();
   if (dt > 0) {
     gfx::Vector3dF b1, b2;
     if (SolveLeastSquares(time_matrix, x_queue_, b1) &&

@@ -17,7 +17,6 @@
 #include "chromeos/account_manager/account_manager.h"
 #include "chromeos/account_manager/account_manager_factory.h"
 #include "components/signin/core/browser/account_tracker_service.h"
-#include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
@@ -45,7 +44,7 @@ class SigninHelper : public GaiaAuthConsumer {
         close_dialog_closure_(close_dialog_closure),
         email_(email),
         gaia_auth_fetcher_(this,
-                           GaiaConstants::kChromeSource,
+                           gaia::GaiaSource::kChrome,
                            url_loader_factory) {
     account_key_ = chromeos::AccountManager::AccountKey{
         gaia_id, chromeos::account_manager::AccountType::ACCOUNT_TYPE_GAIA};
@@ -118,15 +117,16 @@ void InlineLoginHandlerChromeOS::SetExtraInitParams(
   params.SetKey("flow", base::Value("addaccount"));
 }
 
-void InlineLoginHandlerChromeOS::CompleteLogin(const base::ListValue* args) {
-  const base::DictionaryValue* auth_data = nullptr;
-  CHECK(args->GetDictionary(0, &auth_data));
-
-  const std::string& auth_code = auth_data->FindKey("authCode")->GetString();
+void InlineLoginHandlerChromeOS::CompleteLogin(const std::string& email,
+                                               const std::string& password,
+                                               const std::string& gaia_id,
+                                               const std::string& auth_code,
+                                               bool skip_for_now,
+                                               bool trusted,
+                                               bool trusted_found,
+                                               bool choose_what_to_sync) {
   CHECK(!auth_code.empty());
-  const std::string& gaia_id = auth_data->FindKey("gaiaId")->GetString();
   CHECK(!gaia_id.empty());
-  const std::string& email = auth_data->FindKey("email")->GetString();
   CHECK(!email.empty());
 
   // TODO(sinhak): Do not depend on Profile unnecessarily.

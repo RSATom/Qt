@@ -36,7 +36,7 @@ Handle<String> RegExpUtils::GenericCaptureGetter(
 
 namespace {
 
-V8_INLINE bool HasInitialRegExpMap(Isolate* isolate, Handle<JSReceiver> recv) {
+V8_INLINE bool HasInitialRegExpMap(Isolate* isolate, JSReceiver recv) {
   return recv->map() == isolate->regexp_function()->initial_map();
 }
 
@@ -47,7 +47,7 @@ MaybeHandle<Object> RegExpUtils::SetLastIndex(Isolate* isolate,
                                               uint64_t value) {
   Handle<Object> value_as_object =
       isolate->factory()->NewNumberFromInt64(value);
-  if (HasInitialRegExpMap(isolate, recv)) {
+  if (HasInitialRegExpMap(isolate, *recv)) {
     JSRegExp::cast(*recv)->set_last_index(*value_as_object, SKIP_WRITE_BARRIER);
     return recv;
   } else {
@@ -59,7 +59,7 @@ MaybeHandle<Object> RegExpUtils::SetLastIndex(Isolate* isolate,
 
 MaybeHandle<Object> RegExpUtils::GetLastIndex(Isolate* isolate,
                                               Handle<JSReceiver> recv) {
-  if (HasInitialRegExpMap(isolate, recv)) {
+  if (HasInitialRegExpMap(isolate, *recv)) {
     return handle(JSRegExp::cast(*recv)->last_index(), isolate);
   } else {
     return Object::GetProperty(isolate, recv,
@@ -131,43 +131,65 @@ Maybe<bool> RegExpUtils::IsRegExp(Isolate* isolate, Handle<Object> object) {
                             isolate->factory()->match_symbol()),
       Nothing<bool>());
 
-  if (!match->IsUndefined(isolate)) return Just(match->BooleanValue(isolate));
+  if (!match->IsUndefined(isolate)) {
+    const bool match_as_boolean = match->BooleanValue(isolate);
+
+    if (match_as_boolean && !object->IsJSRegExp()) {
+      isolate->CountUsage(v8::Isolate::kRegExpMatchIsTrueishOnNonJSRegExp);
+    } else if (!match_as_boolean && object->IsJSRegExp()) {
+      isolate->CountUsage(v8::Isolate::kRegExpMatchIsFalseishOnJSRegExp);
+    }
+
+    return Just(match_as_boolean);
+  }
+
   return Just(object->IsJSRegExp());
 }
 
 bool RegExpUtils::IsUnmodifiedRegExp(Isolate* isolate, Handle<Object> obj) {
-  // TODO(ishell): Update this check once map changes for constant field
-  // tracking are landing.
-
 #ifdef V8_ENABLE_FORCE_SLOW_PATH
   if (isolate->force_slow_path()) return false;
 #endif
 
   if (!obj->IsJSReceiver()) return false;
 
-  JSReceiver* recv = JSReceiver::cast(*obj);
+  JSReceiver recv = JSReceiver::cast(*obj);
 
-  // Check the receiver's map.
-  Handle<JSFunction> regexp_function = isolate->regexp_function();
-  if (recv->map() != regexp_function->initial_map()) return false;
+  if (!HasInitialRegExpMap(isolate, recv)) return false;
 
   // Check the receiver's prototype's map.
-  Object* proto = recv->map()->prototype();
+  Object proto = recv->map()->prototype();
   if (!proto->IsJSReceiver()) return false;
 
   Handle<Map> initial_proto_initial_map = isolate->regexp_prototype_map();
-  if (JSReceiver::cast(proto)->map() != *initial_proto_initial_map) {
+  Map proto_map = JSReceiver::cast(proto)->map();
+  if (proto_map != *initial_proto_initial_map) {
     return false;
   }
 
+  // Check that the "exec" method is unmodified.
+  if (FLAG_track_constant_fields) {
+    // Check that the index refers to "exec" method (this has to be consistent
+    // with the init order in the bootstrapper).
+    DCHECK_EQ(*(isolate->factory()->exec_string()),
+              proto_map->instance_descriptors()->GetKey(
+                  JSRegExp::kExecFunctionDescriptorIndex));
+    if (proto_map->instance_descriptors()
+            ->GetDetails(JSRegExp::kExecFunctionDescriptorIndex)
+            .constness() != PropertyConstness::kConst) {
+      return false;
+    }
+  }
+
+  if (!isolate->IsRegExpSpeciesLookupChainIntact()) return false;
+
   // The smi check is required to omit ToLength(lastIndex) calls with possible
   // user-code execution on the fast path.
-  Object* last_index = JSRegExp::cast(recv)->last_index();
+  Object last_index = JSRegExp::cast(recv)->last_index();
   return last_index->IsSmi() && Smi::ToInt(last_index) >= 0;
 }
 
-uint64_t RegExpUtils::AdvanceStringIndex(Isolate* isolate,
-                                         Handle<String> string, uint64_t index,
+uint64_t RegExpUtils::AdvanceStringIndex(Handle<String> string, uint64_t index,
                                          bool unicode) {
   DCHECK_LE(static_cast<double>(index), kMaxSafeInteger);
   const uint64_t string_length = static_cast<uint64_t>(string->length());
@@ -199,7 +221,7 @@ MaybeHandle<Object> RegExpUtils::SetAdvancedStringIndex(
                              Object::ToLength(isolate, last_index_obj), Object);
   const uint64_t last_index = PositiveNumberToUint64(*last_index_obj);
   const uint64_t new_last_index =
-      AdvanceStringIndex(isolate, string, last_index, unicode);
+      AdvanceStringIndex(string, last_index, unicode);
 
   return SetLastIndex(isolate, regexp, new_last_index);
 }

@@ -4,11 +4,11 @@
 
 #include "components/metrics/single_sample_metrics_factory_impl.h"
 
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/dummy_histogram.h"
 #include "base/run_loop.h"
 #include "base/test/gtest_util.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
 #include "components/metrics/single_sample_metrics.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -45,8 +45,9 @@ class SingleSampleMetricsFactoryImplTest : public testing::Test {
   void ShutdownThread() {
     thread_.task_runner()->PostTask(
         FROM_HERE,
-        base::Bind(&SingleSampleMetricsFactoryImpl::DestroyProviderForTesting,
-                   base::Unretained(factory_)));
+        base::BindOnce(
+            &SingleSampleMetricsFactoryImpl::DestroyProviderForTesting,
+            base::Unretained(factory_)));
     thread_.Stop();
   }
 
@@ -60,8 +61,9 @@ class SingleSampleMetricsFactoryImplTest : public testing::Test {
     base::RunLoop run_loop;
     thread_.task_runner()->PostTaskAndReply(
         FROM_HERE,
-        base::Bind(&SingleSampleMetricsFactoryImplTest::CreateAndStoreMetric,
-                   base::Unretained(this), &metric),
+        base::BindOnce(
+            &SingleSampleMetricsFactoryImplTest::CreateAndStoreMetric,
+            base::Unretained(this), &metric),
         run_loop.QuitClosure());
     run_loop.Run();
     return metric;
@@ -72,7 +74,7 @@ class SingleSampleMetricsFactoryImplTest : public testing::Test {
                                                  kBucketCount);
   }
 
-  base::MessageLoop message_looqp_;
+  base::test::ScopedTaskEnvironment task_environment_;
   SingleSampleMetricsFactoryImpl* factory_;
   base::Thread thread_;
   size_t provider_count_ = 0;
@@ -163,8 +165,8 @@ TEST_F(SingleSampleMetricsFactoryImplTest, MultithreadedMetrics) {
     base::RunLoop run_loop;
     thread_.task_runner()->PostTaskAndReply(
         FROM_HERE,
-        base::Bind(&base::SingleSampleMetric::SetSample,
-                   base::Unretained(threaded_metric.get()), kSample),
+        base::BindOnce(&base::SingleSampleMetric::SetSample,
+                       base::Unretained(threaded_metric.get()), kSample),
         run_loop.QuitClosure());
     run_loop.Run();
   }

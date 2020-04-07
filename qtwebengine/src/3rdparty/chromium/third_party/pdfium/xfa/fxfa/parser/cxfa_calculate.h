@@ -11,12 +11,12 @@
 
 class CXFA_Script;
 
-class CXFA_Calculate : public CXFA_Node {
+class CXFA_Calculate final : public CXFA_Node {
  public:
   CXFA_Calculate(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_Calculate() override;
 
-  XFA_AttributeEnum GetOverride();
+  XFA_AttributeValue GetOverride();
   CXFA_Script* GetScriptIfExists();
   WideString GetMessageText();
 };

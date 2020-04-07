@@ -12,17 +12,32 @@
 
 #include <utility>
 
+#include "absl/memory/memory.h"
 #include "modules/audio_device/audio_device_buffer.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/refcountedobject.h"
-#include "rtc_base/stringutils.h"
+#include "rtc_base/ref_counted_object.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/thread_checker.h"
 
 namespace webrtc {
 namespace webrtc_win {
 namespace {
+
+#define RETURN_IF_OUTPUT_RESTARTS(...) \
+  do {                                 \
+    if (output_->Restarting()) {       \
+      return __VA_ARGS__;              \
+    }                                  \
+  } while (0)
+
+#define RETURN_IF_INPUT_RESTARTS(...) \
+  do {                                \
+    if (input_->Restarting()) {       \
+      return __VA_ARGS__;             \
+    }                                 \
+  } while (0)
 
 // This class combines a generic instance of an AudioInput and a generic
 // instance of an AudioOutput to create an AudioDeviceModule. This is mostly
@@ -34,7 +49,7 @@ namespace {
 // i.e., all public methods must also be called on the same thread. A thread
 // checker will RTC_DCHECK if any method is called on an invalid thread.
 // TODO(henrika): is thread checking needed in AudioInput and AudioOutput?
-class WindowsAudioDeviceModule : public AudioDeviceModule {
+class WindowsAudioDeviceModule : public AudioDeviceModuleForTest {
  public:
   enum class InitStatus {
     OK = 0,
@@ -81,6 +96,8 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
   int32_t Init() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
+    RETURN_IF_INPUT_RESTARTS(0);
     if (initialized_) {
       return 0;
     }
@@ -106,6 +123,8 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
   int32_t Terminate() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
+    RETURN_IF_INPUT_RESTARTS(0);
     if (!initialized_)
       return 0;
     int32_t err = input_->Terminate();
@@ -123,12 +142,14 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
   int16_t PlayoutDevices() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
     return output_->NumDevices();
   }
 
   int16_t RecordingDevices() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_INPUT_RESTARTS(0);
     return input_->NumDevices();
   }
 
@@ -137,6 +158,7 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
                             char guid[kAdmMaxGuidSize]) override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
     std::string name_str, guid_str;
     int ret = -1;
     if (guid != nullptr) {
@@ -153,6 +175,7 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
                               char guid[kAdmMaxGuidSize]) override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_INPUT_RESTARTS(0);
     std::string name_str, guid_str;
     int ret = -1;
     if (guid != nullptr) {
@@ -168,6 +191,7 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
   int32_t SetPlayoutDevice(uint16_t index) override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
     return output_->SetDevice(index);
   }
 
@@ -175,6 +199,7 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
       AudioDeviceModule::WindowsDeviceType device) override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
     return output_->SetDevice(device);
   }
   int32_t SetRecordingDevice(uint16_t index) override {
@@ -200,12 +225,14 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
   int32_t InitPlayout() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
     return output_->InitPlayout();
   }
 
   bool PlayoutIsInitialized() const override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(true);
     return output_->PlayoutIsInitialized();
   }
 
@@ -219,47 +246,55 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
   int32_t InitRecording() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_INPUT_RESTARTS(0);
     return input_->InitRecording();
   }
 
   bool RecordingIsInitialized() const override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_INPUT_RESTARTS(true);
     return input_->RecordingIsInitialized();
   }
 
   int32_t StartPlayout() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
     return output_->StartPlayout();
   }
 
   int32_t StopPlayout() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(-1);
     return output_->StopPlayout();
   }
 
   bool Playing() const override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(true);
     return output_->Playing();
   }
 
   int32_t StartRecording() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_INPUT_RESTARTS(0);
     return input_->StartRecording();
   }
 
   int32_t StopRecording() override {
     RTC_LOG(INFO) << __FUNCTION__;
     RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_INPUT_RESTARTS(-1);
     return input_->StopRecording();
   }
 
   bool Recording() const override {
     RTC_LOG(INFO) << __FUNCTION__;
+    RETURN_IF_INPUT_RESTARTS(true);
     return input_->Recording();
   }
 
@@ -388,6 +423,31 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
     return 0;
   }
 
+  int RestartPlayoutInternally() override {
+    RTC_DLOG(INFO) << __FUNCTION__;
+    RTC_DCHECK_RUN_ON(&thread_checker_);
+    RETURN_IF_OUTPUT_RESTARTS(0);
+    return output_->RestartPlayout();
+  }
+
+  int RestartRecordingInternally() override {
+    RTC_DLOG(INFO) << __FUNCTION__;
+    RTC_DCHECK_RUN_ON(&thread_checker_);
+    return input_->RestartRecording();
+  }
+
+  int SetPlayoutSampleRate(uint32_t sample_rate) override {
+    RTC_DLOG(INFO) << __FUNCTION__;
+    RTC_DCHECK_RUN_ON(&thread_checker_);
+    return output_->SetSampleRate(sample_rate);
+  }
+
+  int SetRecordingSampleRate(uint32_t sample_rate) override {
+    RTC_DLOG(INFO) << __FUNCTION__;
+    RTC_DCHECK_RUN_ON(&thread_checker_);
+    return input_->SetSampleRate(sample_rate);
+  }
+
  private:
   // Ensures that the class is used on the same thread as it is constructed
   // and destroyed on.
@@ -410,7 +470,7 @@ class WindowsAudioDeviceModule : public AudioDeviceModule {
 
 }  // namespace
 
-rtc::scoped_refptr<AudioDeviceModule>
+rtc::scoped_refptr<AudioDeviceModuleForTest>
 CreateWindowsCoreAudioAudioDeviceModuleFromInputAndOutput(
     std::unique_ptr<AudioInput> audio_input,
     std::unique_ptr<AudioOutput> audio_output) {

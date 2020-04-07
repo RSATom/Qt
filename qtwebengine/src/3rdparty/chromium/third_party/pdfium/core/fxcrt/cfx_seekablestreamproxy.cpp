@@ -16,10 +16,8 @@
 #include <utility>
 #include <vector>
 
-#include "core/fxcrt/cfx_memorystream.h"
 #include "core/fxcrt/fx_codepage.h"
 #include "core/fxcrt/fx_extension.h"
-#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 namespace {
@@ -29,7 +27,8 @@ std::pair<size_t, size_t> UTF8Decode(const char* pSrc,
                                      size_t srcLen,
                                      wchar_t* pDst,
                                      size_t dstLen) {
-  ASSERT(pDst && dstLen > 0);
+  ASSERT(pDst);
+  ASSERT(dstLen > 0);
 
   if (srcLen < 1)
     return {0, 0};
@@ -204,14 +203,15 @@ void CFX_SeekableStreamProxy::SetCodePage(uint16_t wCodePage) {
 }
 
 size_t CFX_SeekableStreamProxy::ReadData(uint8_t* pBuffer, size_t iBufferSize) {
-  ASSERT(pBuffer && iBufferSize > 0);
+  ASSERT(pBuffer);
+  ASSERT(iBufferSize > 0);
 
   iBufferSize =
       std::min(iBufferSize, static_cast<size_t>(GetSize() - m_iPosition));
   if (iBufferSize <= 0)
     return 0;
 
-  if (!m_pStream->ReadBlock(pBuffer, m_iPosition, iBufferSize))
+  if (!m_pStream->ReadBlockAtOffset(pBuffer, m_iPosition, iBufferSize))
     return 0;
 
   pdfium::base::CheckedNumeric<FX_FILESIZE> new_pos = m_iPosition;
@@ -259,9 +259,9 @@ size_t CFX_SeekableStreamProxy::ReadBlock(void* pStr, size_t size) {
   return size;
 }
 
-bool CFX_SeekableStreamProxy::ReadBlock(void* pStr,
-                                        FX_FILESIZE offset,
-                                        size_t size) {
+bool CFX_SeekableStreamProxy::ReadBlockAtOffset(void* pStr,
+                                                FX_FILESIZE offset,
+                                                size_t size) {
   NOTREACHED();
   return false;
 }

@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_ASSIST_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Assist;
 
-class CJX_Assist : public CJX_Node {
+class CJX_Assist final : public CJX_Node {
  public:
   explicit CJX_Assist(CXFA_Assist* node);
   ~CJX_Assist() override;
-
-  JS_PROP(role);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_ASSIST_H_

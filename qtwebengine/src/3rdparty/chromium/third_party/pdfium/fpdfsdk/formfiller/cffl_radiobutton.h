@@ -13,14 +13,15 @@
 
 class CPWL_RadioButton;
 
-class CFFL_RadioButton : public CFFL_Button {
+class CFFL_RadioButton final : public CFFL_Button {
  public:
   CFFL_RadioButton(CPDFSDK_FormFillEnvironment* pApp, CPDFSDK_Widget* pWidget);
   ~CFFL_RadioButton() override;
 
   // CFFL_Button:
-  std::unique_ptr<CPWL_Wnd> NewPDFWindow(
-      const CPWL_Wnd::CreateParams& cp) override;
+  std::unique_ptr<CPWL_Wnd> NewPWLWindow(
+      const CPWL_Wnd::CreateParams& cp,
+      std::unique_ptr<CPWL_Wnd::PrivateData> pAttachedData) override;
   bool OnKeyDown(CPDFSDK_Annot* pAnnot,
                  uint32_t nKeyCode,
                  uint32_t nFlags) override;

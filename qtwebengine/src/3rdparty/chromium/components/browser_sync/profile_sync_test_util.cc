@@ -7,26 +7,23 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/bookmarks/browser/bookmark_model.h"
-#include "components/history/core/browser/history_model_worker.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/history/core/browser/sync/history_model_worker.h"
 #include "components/pref_registry/pref_registry_syncable.h"
-#include "components/signin/core/browser/signin_manager_base.h"
 #include "components/sync/base/sync_prefs.h"
-#include "components/sync/driver/signin_manager_wrapper.h"
+#include "components/sync/device_info/local_device_info_provider_impl.h"
 #include "components/sync/engine/passive_model_worker.h"
 #include "components/sync/engine/sequenced_model_worker.h"
 #include "components/sync/engine/ui_model_worker.h"
 #include "components/sync/model/model_type_store_test_util.h"
-#include "components/sync_sessions/local_session_event_router.h"
-#include "net/url_request/url_request_test_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_network_connection_tracker.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -34,26 +31,15 @@ namespace browser_sync {
 
 namespace {
 
-class DummyRouter : public sync_sessions::LocalSessionEventRouter {
- public:
-  DummyRouter() {}
-  ~DummyRouter() override {}
-  void StartRoutingTo(
-      sync_sessions::LocalSessionEventHandler* handler) override {}
-  void Stop() override {}
-};
-
 class BundleSyncClient : public syncer::FakeSyncClient {
  public:
   BundleSyncClient(syncer::SyncApiComponentFactory* factory,
                    PrefService* pref_service,
                    syncer::ModelTypeStoreService* model_type_store_service,
-                   sync_sessions::SyncSessionsClient* sync_sessions_client,
+                   syncer::DeviceInfoSyncService* device_info_sync_service,
                    autofill::PersonalDataManager* personal_data_manager,
                    const base::Callback<base::WeakPtr<syncer::SyncableService>(
                        syncer::ModelType type)>& get_syncable_service_callback,
-                   const base::Callback<syncer::SyncService*(void)>&
-                       get_sync_service_callback,
                    const base::Callback<bookmarks::BookmarkModel*(void)>&
                        get_bookmark_model_callback,
                    scoped_refptr<base::SequencedTaskRunner> db_thread,
@@ -63,12 +49,11 @@ class BundleSyncClient : public syncer::FakeSyncClient {
   ~BundleSyncClient() override;
 
   PrefService* GetPrefService() override;
-  sync_sessions::SyncSessionsClient* GetSyncSessionsClient() override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   base::WeakPtr<syncer::SyncableService> GetSyncableServiceForType(
       syncer::ModelType type) override;
-  syncer::SyncService* GetSyncService() override;
   syncer::ModelTypeStoreService* GetModelTypeStoreService() override;
+  syncer::DeviceInfoSyncService* GetDeviceInfoSyncService() override;
   scoped_refptr<syncer::ModelSafeWorker> CreateModelWorkerForGroup(
       syncer::ModelSafeGroup group) override;
   history::HistoryService* GetHistoryService() override;
@@ -77,12 +62,11 @@ class BundleSyncClient : public syncer::FakeSyncClient {
  private:
   PrefService* const pref_service_;
   syncer::ModelTypeStoreService* const model_type_store_service_;
-  sync_sessions::SyncSessionsClient* const sync_sessions_client_;
+  syncer::DeviceInfoSyncService* const device_info_sync_service_;
   autofill::PersonalDataManager* const personal_data_manager_;
   const base::Callback<base::WeakPtr<syncer::SyncableService>(
       syncer::ModelType type)>
       get_syncable_service_callback_;
-  const base::Callback<syncer::SyncService*(void)> get_sync_service_callback_;
   const base::Callback<bookmarks::BookmarkModel*(void)>
       get_bookmark_model_callback_;
   // These task runners, if not null, are used in CreateModelWorkerForGroup.
@@ -95,11 +79,10 @@ BundleSyncClient::BundleSyncClient(
     syncer::SyncApiComponentFactory* factory,
     PrefService* pref_service,
     syncer::ModelTypeStoreService* model_type_store_service,
-    sync_sessions::SyncSessionsClient* sync_sessions_client,
+    syncer::DeviceInfoSyncService* device_info_sync_service,
     autofill::PersonalDataManager* personal_data_manager,
     const base::Callback<base::WeakPtr<syncer::SyncableService>(
         syncer::ModelType type)>& get_syncable_service_callback,
-    const base::Callback<syncer::SyncService*(void)>& get_sync_service_callback,
     const base::Callback<bookmarks::BookmarkModel*(void)>&
         get_bookmark_model_callback,
     scoped_refptr<base::SequencedTaskRunner> db_thread,
@@ -108,10 +91,9 @@ BundleSyncClient::BundleSyncClient(
     : syncer::FakeSyncClient(factory),
       pref_service_(pref_service),
       model_type_store_service_(model_type_store_service),
-      sync_sessions_client_(sync_sessions_client),
+      device_info_sync_service_(device_info_sync_service),
       personal_data_manager_(personal_data_manager),
       get_syncable_service_callback_(get_syncable_service_callback),
-      get_sync_service_callback_(get_sync_service_callback),
       get_bookmark_model_callback_(get_bookmark_model_callback),
       db_thread_(db_thread),
       file_thread_(file_thread),
@@ -125,10 +107,6 @@ PrefService* BundleSyncClient::GetPrefService() {
   return pref_service_;
 }
 
-sync_sessions::SyncSessionsClient* BundleSyncClient::GetSyncSessionsClient() {
-  return sync_sessions_client_;
-}
-
 autofill::PersonalDataManager* BundleSyncClient::GetPersonalDataManager() {
   return personal_data_manager_;
 }
@@ -138,12 +116,6 @@ BundleSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
   if (get_syncable_service_callback_.is_null())
     return syncer::FakeSyncClient::GetSyncableServiceForType(type);
   return get_syncable_service_callback_.Run(type);
-}
-
-syncer::SyncService* BundleSyncClient::GetSyncService() {
-  if (get_sync_service_callback_.is_null())
-    return syncer::FakeSyncClient::GetSyncService();
-  return get_sync_service_callback_.Run();
 }
 
 scoped_refptr<syncer::ModelSafeWorker>
@@ -177,6 +149,10 @@ syncer::ModelTypeStoreService* BundleSyncClient::GetModelTypeStoreService() {
   return model_type_store_service_;
 }
 
+syncer::DeviceInfoSyncService* BundleSyncClient::GetDeviceInfoSyncService() {
+  return device_info_sync_service_;
+}
+
 history::HistoryService* BundleSyncClient::GetHistoryService() {
   if (history_service_)
     return history_service_;
@@ -190,14 +166,6 @@ bookmarks::BookmarkModel* BundleSyncClient::GetBookmarkModel() {
 }
 
 }  // namespace
-
-void RegisterPrefsForProfileSyncService(
-    user_prefs::PrefRegistrySyncable* registry) {
-  syncer::SyncPrefs::RegisterProfilePrefs(registry);
-  AccountTrackerService::RegisterPrefs(registry);
-  SigninManagerBase::RegisterProfilePrefs(registry);
-  SigninManagerBase::RegisterPrefs(registry);
-}
 
 ProfileSyncServiceBundle::SyncClientBuilder::~SyncClientBuilder() = default;
 
@@ -217,13 +185,6 @@ void ProfileSyncServiceBundle::SyncClientBuilder::SetSyncableServiceCallback(
   get_syncable_service_callback_ = get_syncable_service_callback;
 }
 
-// The client will call this callback to produce the service.
-void ProfileSyncServiceBundle::SyncClientBuilder::SetSyncServiceCallback(
-    const base::Callback<syncer::SyncService*(void)>&
-        get_sync_service_callback) {
-  get_sync_service_callback_ = get_sync_service_callback;
-}
-
 void ProfileSyncServiceBundle::SyncClientBuilder::SetHistoryService(
     history::HistoryService* history_service) {
   history_service_ = history_service;
@@ -239,9 +200,9 @@ std::unique_ptr<syncer::FakeSyncClient>
 ProfileSyncServiceBundle::SyncClientBuilder::Build() {
   return std::make_unique<BundleSyncClient>(
       bundle_->component_factory(), bundle_->pref_service(),
-      &bundle_->model_type_store_service_, bundle_->sync_sessions_client(),
+      &bundle_->model_type_store_service_, &bundle_->device_info_sync_service_,
       personal_data_manager_, get_syncable_service_callback_,
-      get_sync_service_callback_, get_bookmark_model_callback_,
+      get_bookmark_model_callback_,
       activate_model_creation_ ? bundle_->db_thread() : nullptr,
       activate_model_creation_ ? base::SequencedTaskRunnerHandle::Get()
                                : nullptr,
@@ -250,31 +211,20 @@ ProfileSyncServiceBundle::SyncClientBuilder::Build() {
 
 ProfileSyncServiceBundle::ProfileSyncServiceBundle()
     : db_thread_(base::SequencedTaskRunnerHandle::Get()),
-      signin_client_(&pref_service_),
-#if defined(OS_CHROMEOS)
-      signin_manager_(&signin_client_, &account_tracker_),
-#else
-      signin_manager_(&signin_client_,
-                      &auth_service_,
-                      &account_tracker_,
-                      nullptr),
-#endif
-      gaia_cookie_manager_service_(&auth_service_,
-                                   "profile_sync_service_bundle",
-                                   &signin_client_),
-      identity_manager_(&signin_manager_,
-                        &auth_service_,
-                        &account_tracker_,
-                        &gaia_cookie_manager_service_),
-      url_request_context_(new net::TestURLRequestContextGetter(
-          base::ThreadTaskRunnerHandle::Get())) {
-  RegisterPrefsForProfileSyncService(pref_service_.registry());
-  auth_service_.set_auto_post_fetch_response_on_message_loop(true);
-  account_tracker_.Initialize(&signin_client_);
-  signin_manager_.Initialize(&pref_service_);
-  local_session_event_router_ = std::make_unique<DummyRouter>();
-  ON_CALL(sync_sessions_client_, GetLocalSessionEventRouter())
-      .WillByDefault(testing::Return(local_session_event_router_.get()));
+      device_info_sync_service_(
+          model_type_store_service_.GetStoreFactory(),
+          std::make_unique<syncer::LocalDeviceInfoProviderImpl>(
+              version_info::Channel::UNKNOWN,
+              "someversion",
+              /*is_tablet=*/false,
+              /*signin_scoped_device_id_callback=*/base::BindRepeating([]() {
+                return std::string();
+              }))),
+      identity_test_env_(&test_url_loader_factory_, &pref_service_) {
+  syncer::SyncPrefs::RegisterProfilePrefs(pref_service_.registry());
+  identity_test_env_.SetAutomaticIssueOfAccessTokens(true);
+  identity_provider_ = std::make_unique<invalidation::ProfileIdentityProvider>(
+      identity_manager());
 }
 
 ProfileSyncServiceBundle::~ProfileSyncServiceBundle() {}
@@ -286,17 +236,16 @@ ProfileSyncService::InitParams ProfileSyncServiceBundle::CreateBasicInitParams(
 
   init_params.start_behavior = start_behavior;
   init_params.sync_client = std::move(sync_client);
-  init_params.signin_wrapper = std::make_unique<SigninManagerWrapper>(
-      identity_manager(), signin_manager());
-  init_params.signin_scoped_device_id_callback =
-      base::BindRepeating([]() { return std::string(); });
+  init_params.identity_manager = identity_manager();
+  init_params.invalidations_identity_providers.push_back(
+      identity_provider_.get());
   init_params.network_time_update_callback = base::DoNothing();
-  init_params.url_request_context = url_request_context();
   init_params.url_loader_factory =
       base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
           &test_url_loader_factory_);
+  init_params.network_connection_tracker =
+      network::TestNetworkConnectionTracker::GetInstance();
   init_params.debug_identifier = "dummyDebugName";
-  init_params.channel = version_info::Channel::UNKNOWN;
 
   return init_params;
 }

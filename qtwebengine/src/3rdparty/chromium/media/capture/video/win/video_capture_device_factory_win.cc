@@ -15,7 +15,6 @@
 
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -30,11 +29,6 @@
 #include "media/capture/video/win/metrics.h"
 #include "media/capture/video/win/video_capture_device_mf_win.h"
 #include "media/capture/video/win/video_capture_device_win.h"
-
-using namespace ABI::Windows::Devices::Enumeration;
-using namespace ABI::Windows::Foundation;
-using namespace ABI::Windows::Foundation::Collections;
-using namespace Microsoft::WRL;
 
 using Descriptor = media::VideoCaptureDeviceDescriptor;
 using Descriptors = media::VideoCaptureDeviceDescriptors;
@@ -80,14 +74,19 @@ const char* const kBlacklistedCameraNames[] = {
     // The following software WebCams cause crashes.
     "IP Camera [JPEG/MJPEG]", "CyberLink Webcam Splitter", "EpocCam",
 };
-static_assert(arraysize(kBlacklistedCameraNames) == BLACKLISTED_CAMERA_MAX + 1,
+static_assert(base::size(kBlacklistedCameraNames) == BLACKLISTED_CAMERA_MAX + 1,
               "kBlacklistedCameraNames should be same size as "
               "BlacklistedCameraNames enum");
 
 const char* const kModelIdsBlacklistedForMediaFoundation[] = {
     // Devices using Empia 2860 or 2820 chips, see https://crbug.com/849636.
-    "eb1a:2860", "eb1a:2820",
-};
+    "eb1a:2860", "eb1a:2820", "1ce6:2820",
+    // Elgato HD60 Pro
+    "12ab:0380",
+    // Sensoray 2253
+    "1943:2253",
+    // Dell E5440
+    "0c45:64d0", "0c45:64d2"};
 
 const std::pair<VideoCaptureApi, std::vector<std::pair<GUID, GUID>>>
     kMfAttributes[] = {{VideoCaptureApi::WIN_MEDIA_FOUNDATION,
@@ -119,7 +118,7 @@ bool LoadMediaFoundationDlls() {
 
   for (const wchar_t* kMfDLL : kMfDLLs) {
     wchar_t path[MAX_PATH] = {0};
-    ExpandEnvironmentStringsW(kMfDLL, path, arraysize(path));
+    ExpandEnvironmentStringsW(kMfDLL, path, base::size(path));
     if (!LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH))
       return false;
   }
@@ -152,7 +151,7 @@ bool CreateVideoCaptureDeviceMediaFoundation(const Descriptor& descriptor,
                                              IMFMediaSource** source) {
   ComPtr<IMFAttributes> attributes;
   static_assert(
-      arraysize(kMfAttributes) == 2,
+      base::size(kMfAttributes) == 2,
       "Implementation here asumes that kMfAttributes has size of two.");
   DCHECK_EQ(kMfAttributes[0].first, VideoCaptureApi::WIN_MEDIA_FOUNDATION);
   const auto& attributes_data =
@@ -174,8 +173,8 @@ bool CreateVideoCaptureDeviceMediaFoundation(const Descriptor& descriptor,
 
 bool IsDeviceBlackListed(const std::string& name) {
   DCHECK_EQ(BLACKLISTED_CAMERA_MAX + 1,
-            static_cast<int>(arraysize(kBlacklistedCameraNames)));
-  for (size_t i = 0; i < arraysize(kBlacklistedCameraNames); ++i) {
+            static_cast<int>(base::size(kBlacklistedCameraNames)));
+  for (size_t i = 0; i < base::size(kBlacklistedCameraNames); ++i) {
     if (base::StartsWith(name, kBlacklistedCameraNames[i],
                          base::CompareCase::INSENSITIVE_ASCII)) {
       DVLOG(1) << "Enumerated blacklisted device: " << name;
@@ -378,7 +377,11 @@ VideoCaptureDeviceFactoryWin::VideoCaptureDeviceFactoryWin()
   }
 }
 
-VideoCaptureDeviceFactoryWin::~VideoCaptureDeviceFactoryWin() = default;
+VideoCaptureDeviceFactoryWin::~VideoCaptureDeviceFactoryWin() {
+  if (com_thread_.IsRunning()) {
+    com_thread_.Stop();
+  }
+}
 
 std::unique_ptr<VideoCaptureDevice> VideoCaptureDeviceFactoryWin::CreateDevice(
     const Descriptor& device_descriptor) {
@@ -465,8 +468,10 @@ void VideoCaptureDeviceFactoryWin::EnumerateDevicesUWP(
       base::Unretained(factory), base::Passed(&device_descriptors),
       base::Passed(&result_callback));
   auto callback =
-      Callback<IAsyncOperationCompletedHandler<DeviceInformationCollection*>>(
-          [factory, com_thread_runner, device_info_callback](
+      Microsoft::WRL::Callback<
+          ABI::Windows::Foundation::IAsyncOperationCompletedHandler<
+              DeviceInformationCollection*>>(
+          [com_thread_runner, device_info_callback](
               IAsyncOperation<DeviceInformationCollection*>* operation,
               AsyncStatus status) -> HRESULT {
             com_thread_runner->PostTask(
@@ -475,9 +480,10 @@ void VideoCaptureDeviceFactoryWin::EnumerateDevicesUWP(
             return S_OK;
           });
 
-  ComPtr<IDeviceInformationStatics> dev_info_statics;
+  ComPtr<ABI::Windows::Devices::Enumeration::IDeviceInformationStatics>
+      dev_info_statics;
   HRESULT hr = GetActivationFactory<
-      IDeviceInformationStatics,
+      ABI::Windows::Devices::Enumeration::IDeviceInformationStatics,
       RuntimeClass_Windows_Devices_Enumeration_DeviceInformation>(
       &dev_info_statics);
   if (FAILED(hr)) {
@@ -486,8 +492,8 @@ void VideoCaptureDeviceFactoryWin::EnumerateDevicesUWP(
   }
 
   IAsyncOperation<DeviceInformationCollection*>* async_op;
-  hr = dev_info_statics->FindAllAsyncDeviceClass(DeviceClass_VideoCapture,
-                                                 &async_op);
+  hr = dev_info_statics->FindAllAsyncDeviceClass(
+      ABI::Windows::Devices::Enumeration::DeviceClass_VideoCapture, &async_op);
   if (FAILED(hr)) {
     UWP_ENUM_ERROR_HANDLER(hr, "Find all devices asynchronously failed: ");
     return;
@@ -517,14 +523,18 @@ void VideoCaptureDeviceFactoryWin::FoundAllDevicesUWP(
     return;
   }
 
-  ComPtr<IVectorView<DeviceInformation*>> devices;
+  ComPtr<ABI::Windows::Foundation::Collections::IVectorView<
+      ABI::Windows::Devices::Enumeration::DeviceInformation*>>
+      devices;
   operation->GetResults(devices.GetAddressOf());
 
   unsigned int count = 0;
-  devices->get_Size(&count);
+  if (devices) {
+    devices->get_Size(&count);
+  }
 
   for (unsigned int j = 0; j < count; ++j) {
-    ComPtr<IDeviceInformation> device_info;
+    ComPtr<ABI::Windows::Devices::Enumeration::IDeviceInformation> device_info;
     HRESULT hr = devices->GetAt(j, device_info.GetAddressOf());
     if (SUCCEEDED(hr)) {
       HSTRING id;
@@ -535,7 +545,8 @@ void VideoCaptureDeviceFactoryWin::FoundAllDevicesUWP(
                 ::tolower);
       const std::string model_id = GetDeviceModelId(device_id);
 
-      ComPtr<IEnclosureLocation> enclosure_location;
+      ComPtr<ABI::Windows::Devices::Enumeration::IEnclosureLocation>
+          enclosure_location;
       hr =
           device_info->get_EnclosureLocation(enclosure_location.GetAddressOf());
       if (FAILED(hr)) {
@@ -544,16 +555,16 @@ void VideoCaptureDeviceFactoryWin::FoundAllDevicesUWP(
 
       VideoFacingMode facing = VideoFacingMode::MEDIA_VIDEO_FACING_NONE;
       if (enclosure_location) {
-        Panel panel;
+        ABI::Windows::Devices::Enumeration::Panel panel;
         enclosure_location->get_Panel(&panel);
         switch (panel) {
-          case Panel_Unknown:
+          case ABI::Windows::Devices::Enumeration::Panel_Unknown:
             facing = VideoFacingMode::MEDIA_VIDEO_FACING_NONE;
             break;
-          case Panel_Front:
+          case ABI::Windows::Devices::Enumeration::Panel_Front:
             facing = VideoFacingMode::MEDIA_VIDEO_FACING_USER;
             break;
-          case Panel_Back:
+          case ABI::Windows::Devices::Enumeration::Panel_Back:
             facing = VideoFacingMode::MEDIA_VIDEO_FACING_ENVIRONMENT;
             break;
           default:
@@ -589,7 +600,7 @@ void VideoCaptureDeviceFactoryWin::DeviceInfoReady(
     com_thread_.Stop();
   }
 
-  base::ResetAndReturn(&result_callback).Run(std::move(device_descriptors));
+  std::move(result_callback).Run(std::move(device_descriptors));
 }
 
 void VideoCaptureDeviceFactoryWin::GetDeviceDescriptorsMediaFoundation(

@@ -46,7 +46,7 @@ UI.TabbedPane = class extends UI.VBox {
     this._tabsElement.addEventListener('keydown', this._keyDown.bind(this), false);
     this._contentElement = this.contentElement.createChild('div', 'tabbed-pane-content');
     this._contentElement.setAttribute('role', 'tabpanel');
-    this._contentElement.createChild('content');
+    this._contentElement.createChild('slot');
     /** @type {!Array.<!UI.TabbedPaneTab>} */
     this._tabs = [];
     /** @type {!Array.<!UI.TabbedPaneTab>} */
@@ -265,15 +265,6 @@ UI.TabbedPane = class extends UI.VBox {
    */
   hasTab(tabId) {
     return this._tabsById.has(tabId);
-  }
-
-  /**
-   * @return {!Array.<string>}
-   */
-  allTabs() {
-    return this._tabs.map(function(tab) {
-      return tab.id;
-    });
   }
 
   /**
@@ -560,6 +551,8 @@ UI.TabbedPane = class extends UI.VBox {
   _createDropDownButton() {
     const dropDownContainer = createElementWithClass('div', 'tabbed-pane-header-tabs-drop-down-container');
     const chevronIcon = UI.Icon.create('largeicon-chevron', 'chevron-icon');
+    UI.ARIAUtils.markAsButton(dropDownContainer);
+    UI.ARIAUtils.setAccessibleName(dropDownContainer, ls`More tabs`);
     dropDownContainer.appendChild(chevronIcon);
     dropDownContainer.addEventListener('click', this._dropDownClicked.bind(this));
     dropDownContainer.addEventListener('mousedown', event => {
@@ -842,7 +835,7 @@ UI.TabbedPane = class extends UI.VBox {
     if (oldIndex < index)
       --index;
     this._tabs.splice(index, 0, tab);
-    this.dispatchEventToListeners(UI.TabbedPane.Events.TabOrderChanged, this._tabs);
+    this.dispatchEventToListeners(UI.TabbedPane.Events.TabOrderChanged, {tabId: tab.id});
   }
 
   /**
@@ -1192,7 +1185,7 @@ UI.TabbedPaneTab = class {
      * @this {UI.TabbedPaneTab}
      */
     function closeAll() {
-      this._closeTabs(this._tabbedPane.allTabs());
+      this._closeTabs(this._tabbedPane.tabIds());
     }
 
     /**

@@ -116,15 +116,12 @@
 #include <assert.h>
 #include <string.h>
 
+#if defined(BORINGSSL_CONSTANT_TIME_VALIDATION)
+#include <valgrind/memcheck.h>
+#endif
+
 #if !defined(__cplusplus)
-#if defined(__GNUC__) && \
-    (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__) < 40800
-// |alignas| and |alignof| were added in C11. GCC added support in version 4.8.
-// Testing for __STDC_VERSION__/__cplusplus doesn't work because 4.7 already
-// reports support for C11.
-#define alignas(x) __attribute__ ((aligned (x)))
-#define alignof(x) __alignof__ (x)
-#elif defined(_MSC_VER)
+#if defined(_MSC_VER)
 #define alignas(x) __declspec(align(x))
 #define alignof __alignof
 #else
@@ -132,13 +129,13 @@
 #endif
 #endif
 
-#if !defined(OPENSSL_NO_THREADS) && \
+#if defined(OPENSSL_THREADS) && \
     (!defined(OPENSSL_WINDOWS) || defined(__MINGW32__))
 #include <pthread.h>
 #define OPENSSL_PTHREADS
 #endif
 
-#if !defined(OPENSSL_NO_THREADS) && !defined(OPENSSL_PTHREADS) && \
+#if defined(OPENSSL_THREADS) && !defined(OPENSSL_PTHREADS) && \
     defined(OPENSSL_WINDOWS)
 #define OPENSSL_WINDOWS_THREADS
 OPENSSL_MSVC_PRAGMA(warning(push, 3))
@@ -155,6 +152,14 @@ extern "C" {
     defined(OPENSSL_AARCH64) || defined(OPENSSL_PPC64LE)
 // OPENSSL_cpuid_setup initializes the platform-specific feature cache.
 void OPENSSL_cpuid_setup(void);
+#endif
+
+#if (defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64)) && \
+    !defined(OPENSSL_STATIC_ARMCAP)
+// OPENSSL_get_armcap_pointer_for_test returns a pointer to |OPENSSL_armcap_P|
+// for unit tests. Any modifications to the value must be made after
+// |CRYPTO_library_init| but before any other function call in BoringSSL.
+OPENSSL_EXPORT uint32_t *OPENSSL_get_armcap_pointer_for_test(void);
 #endif
 
 
@@ -364,10 +369,30 @@ static inline int constant_time_select_int(crypto_word_t mask, int a, int b) {
                                       (crypto_word_t)(b)));
 }
 
+#if defined(BORINGSSL_CONSTANT_TIME_VALIDATION)
+
+// CONSTTIME_SECRET takes a pointer and a number of bytes and marks that region
+// of memory as secret. Secret data is tracked as it flows to registers and
+// other parts of a memory. If secret data is used as a condition for a branch,
+// or as a memory index, it will trigger warnings in valgrind.
+#define CONSTTIME_SECRET(x, y) VALGRIND_MAKE_MEM_UNDEFINED(x, y)
+
+// CONSTTIME_DECLASSIFY takes a pointer and a number of bytes and marks that
+// region of memory as public. Public data is not subject to constant-time
+// rules.
+#define CONSTTIME_DECLASSIFY(x, y) VALGRIND_MAKE_MEM_DEFINED(x, y)
+
+#else
+
+#define CONSTTIME_SECRET(x, y)
+#define CONSTTIME_DECLASSIFY(x, y)
+
+#endif  // BORINGSSL_CONSTANT_TIME_VALIDATION
+
 
 // Thread-safe initialisation.
 
-#if defined(OPENSSL_NO_THREADS)
+#if !defined(OPENSSL_THREADS)
 typedef uint32_t CRYPTO_once_t;
 #define CRYPTO_ONCE_INIT 0
 #elif defined(OPENSSL_WINDOWS_THREADS)
@@ -423,7 +448,7 @@ OPENSSL_EXPORT int CRYPTO_refcount_dec_and_test_zero(CRYPTO_refcount_t *count);
 // thread.h as a structure large enough to fit the real type. The global lock is
 // a different type so it may be initialized with platform initializer macros.
 
-#if defined(OPENSSL_NO_THREADS)
+#if !defined(OPENSSL_THREADS)
 struct CRYPTO_STATIC_MUTEX {
   char padding;  // Empty structs have different sizes in C and C++.
 };
@@ -488,7 +513,7 @@ OPENSSL_EXPORT void CRYPTO_STATIC_MUTEX_unlock_write(
 #if defined(__cplusplus)
 extern "C++" {
 
-namespace bssl {
+BSSL_NAMESPACE_BEGIN
 
 namespace internal {
 
@@ -516,7 +541,7 @@ using MutexWriteLock =
 using MutexReadLock =
     internal::MutexLockBase<CRYPTO_MUTEX_lock_read, CRYPTO_MUTEX_unlock_read>;
 
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 }  // extern "C++"
 #endif  // defined(__cplusplus)

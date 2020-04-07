@@ -21,7 +21,8 @@ namespace content {
 
 namespace {
 
-using WorkerThreadObservers = base::ObserverList<WorkerThread::Observer>;
+using WorkerThreadObservers =
+    base::ObserverList<WorkerThread::Observer>::Unchecked;
 using ThreadLocalWorkerThreadObservers =
     base::ThreadLocalPointer<WorkerThreadObservers>;
 
@@ -128,7 +129,7 @@ base::TaskRunner* WorkerThreadRegistry::GetTaskRunnerFor(int worker_id) {
 bool WorkerThreadRegistry::PostTask(int id, base::OnceClosure closure) {
   DCHECK(id > 0);
   base::AutoLock locker(task_runner_map_lock_);
-  IDToTaskRunnerMap::iterator found = task_runner_map_.find(id);
+  auto found = task_runner_map_.find(id);
   if (found == task_runner_map_.end())
     return false;
   return found->second->PostTask(FROM_HERE, std::move(closure));

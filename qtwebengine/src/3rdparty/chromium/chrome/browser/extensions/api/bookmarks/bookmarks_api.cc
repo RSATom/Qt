@@ -21,7 +21,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_html_writer.h"
@@ -741,9 +741,9 @@ void BookmarksIOFunction::ShowSelectFileDialog(
   ui::SelectFileDialog::FileTypeInfo file_type_info;
   file_type_info.extensions.resize(1);
   file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("html"));
-  gfx::NativeWindow owning_window = web_contents ?
-      platform_util::GetTopLevel(web_contents->GetNativeView())
-          : NULL;
+  gfx::NativeWindow owning_window =
+      web_contents ? platform_util::GetTopLevel(web_contents->GetNativeView())
+                   : gfx::kNullNativeWindow;
   // |web_contents| can be NULL (for background pages), which is fine. In such
   // a case if file-selection dialogs are forbidden by policy, we will not
   // show an InfoBar, which is better than letting one appear out of the blue.

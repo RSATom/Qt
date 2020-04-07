@@ -80,7 +80,7 @@ void GetDefaultBlackPoint(float* pPoints) {
 
 void GetBlackPoint(const CPDF_Dictionary* pDict, float* pPoints) {
   const CPDF_Array* pParam = pDict->GetArrayFor("BlackPoint");
-  if (!pParam || pParam->GetCount() != kBlackWhitePointCount) {
+  if (!pParam || pParam->size() != kBlackWhitePointCount) {
     GetDefaultBlackPoint(pPoints);
     return;
   }
@@ -97,7 +97,7 @@ void GetBlackPoint(const CPDF_Dictionary* pDict, float* pPoints) {
 
 bool GetWhitePoint(const CPDF_Dictionary* pDict, float* pPoints) {
   const CPDF_Array* pParam = pDict->GetArrayFor("WhitePoint");
-  if (!pParam || pParam->GetCount() != kBlackWhitePointCount)
+  if (!pParam || pParam->size() != kBlackWhitePointCount)
     return false;
 
   for (size_t i = 0; i < kBlackWhitePointCount; ++i)
@@ -105,7 +105,7 @@ bool GetWhitePoint(const CPDF_Dictionary* pDict, float* pPoints) {
   return pPoints[0] > 0.0f && pPoints[1] == 1.0f && pPoints[2] > 0.0f;
 }
 
-class CPDF_CalGray : public CPDF_ColorSpace {
+class CPDF_CalGray final : public CPDF_ColorSpace {
  public:
   explicit CPDF_CalGray(CPDF_Document* pDoc);
   ~CPDF_CalGray() override {}
@@ -130,7 +130,7 @@ class CPDF_CalGray : public CPDF_ColorSpace {
   float m_BlackPoint[kBlackWhitePointCount];
 };
 
-class CPDF_CalRGB : public CPDF_ColorSpace {
+class CPDF_CalRGB final : public CPDF_ColorSpace {
  public:
   explicit CPDF_CalRGB(CPDF_Document* pDoc);
   ~CPDF_CalRGB() override {}
@@ -160,7 +160,7 @@ class CPDF_CalRGB : public CPDF_ColorSpace {
   bool m_bMatrix = false;
 };
 
-class CPDF_LabCS : public CPDF_ColorSpace {
+class CPDF_LabCS final : public CPDF_ColorSpace {
  public:
   explicit CPDF_LabCS(CPDF_Document* pDoc);
   ~CPDF_LabCS() override {}
@@ -190,7 +190,7 @@ class CPDF_LabCS : public CPDF_ColorSpace {
   float m_Ranges[kRangesCount];
 };
 
-class CPDF_ICCBasedCS : public CPDF_ColorSpace {
+class CPDF_ICCBasedCS final : public CPDF_ColorSpace {
  public:
   explicit CPDF_ICCBasedCS(CPDF_Document* pDoc);
   ~CPDF_ICCBasedCS() override;
@@ -226,7 +226,7 @@ class CPDF_ICCBasedCS : public CPDF_ColorSpace {
   std::vector<float> m_pRanges;
 };
 
-class CPDF_IndexedCS : public CPDF_ColorSpace {
+class CPDF_IndexedCS final : public CPDF_ColorSpace {
  public:
   explicit CPDF_IndexedCS(CPDF_Document* pDoc);
   ~CPDF_IndexedCS() override;
@@ -248,7 +248,7 @@ class CPDF_IndexedCS : public CPDF_ColorSpace {
   std::vector<float> m_pCompMinMax;
 };
 
-class CPDF_SeparationCS : public CPDF_ColorSpace {
+class CPDF_SeparationCS final : public CPDF_ColorSpace {
  public:
   explicit CPDF_SeparationCS(CPDF_Document* pDoc);
   ~CPDF_SeparationCS() override;
@@ -270,7 +270,7 @@ class CPDF_SeparationCS : public CPDF_ColorSpace {
   enum { None, All, Colorant } m_Type;
 };
 
-class CPDF_DeviceNCS : public CPDF_ColorSpace {
+class CPDF_DeviceNCS final : public CPDF_ColorSpace {
  public:
   explicit CPDF_DeviceNCS(CPDF_Document* pDoc);
   ~CPDF_DeviceNCS() override;
@@ -461,7 +461,8 @@ std::unique_ptr<CPDF_ColorSpace> CPDF_ColorSpace::Load(
     if (!pDict)
       return nullptr;
 
-    for (const auto& it : *pDict) {
+    CPDF_DictionaryLocker locker(pDict);
+    for (const auto& it : locker) {
       std::unique_ptr<CPDF_ColorSpace> pRet;
       CPDF_Object* pValue = it.second.get();
       if (ToName(pValue))
@@ -481,7 +482,7 @@ std::unique_ptr<CPDF_ColorSpace> CPDF_ColorSpace::Load(
     return nullptr;
 
   ByteString familyname = pFamilyObj->GetString();
-  if (pArray->GetCount() == 1)
+  if (pArray->size() == 1)
     return pdfium::WrapUnique(ColorspaceFromName(familyname));
 
   std::unique_ptr<CPDF_ColorSpace> pCS;
@@ -1101,7 +1102,7 @@ CPDF_IndexedCS::~CPDF_IndexedCS() {
 uint32_t CPDF_IndexedCS::v_Load(CPDF_Document* pDoc,
                                 const CPDF_Array* pArray,
                                 std::set<const CPDF_Object*>* pVisited) {
-  if (pArray->GetCount() < 4)
+  if (pArray->size() < 4)
     return 0;
 
   const CPDF_Object* pBaseObj = pArray->GetDirectObjectAt(1);
@@ -1299,7 +1300,7 @@ uint32_t CPDF_DeviceNCS::v_Load(CPDF_Document* pDoc,
   if (m_pFunc->CountOutputs() < m_pAltCS->CountComponents())
     return 0;
 
-  return pObj->GetCount();
+  return pObj->size();
 }
 
 bool CPDF_DeviceNCS::GetRGB(const float* pBuf,

@@ -244,7 +244,7 @@ MimeSniffingResourceHandlerTest::TestAcceptHeaderSettingWithURLRequest(
 
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::move(scoped_test_handler), nullptr, nullptr, nullptr, request,
-      REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      blink::mojom::RequestContextType::UNSPECIFIED);
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
   EXPECT_EQ(MockResourceLoader::Status::IDLE,
@@ -290,7 +290,7 @@ bool MimeSniffingResourceHandlerTest::TestStreamIsIntercepted(
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::unique_ptr<ResourceHandler>(std::move(scoped_test_handler)), &host,
       &plugin_service, intercepting_handler.get(), request.get(),
-      REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      blink::mojom::RequestContextType::UNSPECIFIED);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
@@ -357,7 +357,7 @@ void MimeSniffingResourceHandlerTest::TestHandlerSniffing(
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::move(scoped_test_handler), &host, &plugin_service,
       intercepting_handler.get(), request.get(),
-      REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      blink::mojom::RequestContextType::UNSPECIFIED);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
@@ -473,6 +473,8 @@ void MimeSniffingResourceHandlerTest::TestHandlerSniffing(
   EXPECT_EQ(1, test_handler->on_will_read_called());
   EXPECT_EQ(1, test_handler->on_read_completed_called());
 
+  EXPECT_TRUE(test_handler->resource_response()->head.did_mime_sniff);
+
   // Process all messages to ensure proper test teardown.
   content::RunAllPendingInMessageLoop();
 }
@@ -519,7 +521,7 @@ void MimeSniffingResourceHandlerTest::TestHandlerNoSniffing(
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::move(scoped_test_handler), &host, &plugin_service,
       intercepting_handler.get(), request.get(),
-      REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      blink::mojom::RequestContextType::UNSPECIFIED);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
@@ -600,6 +602,8 @@ void MimeSniffingResourceHandlerTest::TestHandlerNoSniffing(
   EXPECT_EQ(1, test_handler->on_response_started_called());
   EXPECT_EQ(1, test_handler->on_will_read_called());
   EXPECT_EQ(1, test_handler->on_read_completed_called());
+
+  EXPECT_FALSE(test_handler->resource_response()->head.did_mime_sniff);
 
   if (!read_completed) {
     EXPECT_EQ(MockResourceLoader::Status::CANCELED, mock_loader.status());
@@ -850,7 +854,7 @@ TEST_F(MimeSniffingResourceHandlerTest, 304Handling) {
       std::unique_ptr<ResourceHandler>(new TestResourceHandler()), &host,
       &plugin_service,
       static_cast<InterceptingResourceHandler*>(intercepting_handler.get()),
-      request.get(), REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      request.get(), blink::mojom::RequestContextType::UNSPECIFIED);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
@@ -903,7 +907,8 @@ TEST_F(MimeSniffingResourceHandlerTest, FetchShouldDisableMimeSniffing) {
   scoped_test_handler->set_on_response_started_result(false);
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::move(scoped_test_handler), &host, &plugin_service,
-      intercepting_handler.get(), request.get(), REQUEST_CONTEXT_TYPE_FETCH);
+      intercepting_handler.get(), request.get(),
+      blink::mojom::RequestContextType::FETCH);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
@@ -963,7 +968,7 @@ TEST_F(MimeSniffingResourceHandlerTest, NonEmptyPayloadEndsBeforeDecision) {
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::move(scoped_test_handler), &host, &plugin_service,
       intercepting_handler.get(), request.get(),
-      REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      blink::mojom::RequestContextType::UNSPECIFIED);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 
@@ -1041,7 +1046,7 @@ TEST_F(MimeSniffingResourceHandlerTest, EmptyPayload) {
   MimeSniffingResourceHandler mime_sniffing_handler(
       std::move(scoped_test_handler), &host, &plugin_service,
       intercepting_handler.get(), request.get(),
-      REQUEST_CONTEXT_TYPE_UNSPECIFIED);
+      blink::mojom::RequestContextType::UNSPECIFIED);
 
   MockResourceLoader mock_loader(&mime_sniffing_handler);
 

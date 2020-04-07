@@ -40,6 +40,9 @@ class AudioRendererSinkCacheTest : public testing::Test {
             base::BindRepeating(&AudioRendererSinkCacheTest::CreateSink,
                                 base::Unretained(this)),
             kDeleteTimeout)) {}
+  ~AudioRendererSinkCacheTest() override {
+    task_env_.FastForwardUntilNoTasksRemain();
+  }
 
   void GetSink(int render_frame_id,
                const std::string& device_id,
@@ -55,10 +58,9 @@ class AudioRendererSinkCacheTest : public testing::Test {
 
   scoped_refptr<media::AudioRendererSink> CreateSink(
       int render_frame_id,
-      int session_id,
-      const std::string& device_id) {
+      const media::AudioSinkParameters& params) {
     return new testing::NiceMock<media::MockAudioRendererSink>(
-        device_id, (device_id == kUnhealthyDeviceId)
+        params.device_id, (params.device_id == kUnhealthyDeviceId)
                        ? media::OUTPUT_DEVICE_STATUS_ERROR_INTERNAL
                        : media::OUTPUT_DEVICE_STATUS_OK);
   }
@@ -246,14 +248,15 @@ TEST_F(AudioRendererSinkCacheTest, UnhealthySinkIsStopped) {
       new media::MockAudioRendererSink(
           kUnhealthyDeviceId, media::OUTPUT_DEVICE_STATUS_ERROR_INTERNAL);
 
+  cache_.reset();  // Destruct first so there's only one cache at a time.
   cache_ = std::make_unique<AudioRendererSinkCacheImpl>(
       task_env_.GetMainThreadTaskRunner(),
       base::BindRepeating(
           [](scoped_refptr<media::AudioRendererSink> sink, int render_frame_id,
-             int session_id, const std::string& device_id) {
+             const media::AudioSinkParameters& params) {
             EXPECT_EQ(kRenderFrameId, render_frame_id);
-            EXPECT_EQ(0, session_id);
-            EXPECT_EQ(kUnhealthyDeviceId, device_id);
+            EXPECT_EQ(0, params.session_id);
+            EXPECT_EQ(kUnhealthyDeviceId, params.device_id);
             return sink;
           },
           sink),
@@ -272,14 +275,15 @@ TEST_F(AudioRendererSinkCacheTest, UnhealthySinkUsingSessionIdIsStopped) {
       new media::MockAudioRendererSink(
           kUnhealthyDeviceId, media::OUTPUT_DEVICE_STATUS_ERROR_INTERNAL);
 
+  cache_.reset();  // Destruct first so there's only one cache at a time.
   cache_ = std::make_unique<AudioRendererSinkCacheImpl>(
       task_env_.GetMainThreadTaskRunner(),
       base::BindRepeating(
           [](scoped_refptr<media::AudioRendererSink> sink, int render_frame_id,
-             int session_id, const std::string& device_id) {
+             const media::AudioSinkParameters& params) {
             EXPECT_EQ(kRenderFrameId, render_frame_id);
-            EXPECT_EQ(kNonZeroSessionId, session_id);
-            EXPECT_TRUE(device_id.empty());
+            EXPECT_EQ(kNonZeroSessionId, params.session_id);
+            EXPECT_TRUE(params.device_id.empty());
             return sink;
           },
           sink),

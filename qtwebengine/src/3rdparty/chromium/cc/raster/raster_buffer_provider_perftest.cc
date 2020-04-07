@@ -86,7 +86,7 @@ class PerfContextProvider
     capabilities_.sync_query = true;
 
     raster_context_ = std::make_unique<gpu::raster::RasterImplementationGLES>(
-        context_gl_.get(), nullptr, capabilities_);
+        context_gl_.get());
   }
 
   // viz::ContextProvider implementation.
@@ -116,6 +116,12 @@ class PerfContextProvider
       test_context_provider_ = viz::TestContextProvider::Create();
     }
     return test_context_provider_->GrContext();
+  }
+  gpu::SharedImageInterface* SharedImageInterface() override {
+    if (!test_context_provider_) {
+      test_context_provider_ = viz::TestContextProvider::Create();
+    }
+    return test_context_provider_->SharedImageInterface();
   }
   viz::ContextCacheController* CacheController() override {
     return &cache_controller_;
@@ -305,7 +311,7 @@ class RasterBufferProviderPerfTestBase {
 
       for (auto& decode_task : raster_task->dependencies()) {
         // Add decode task if it doesn't already exist in graph.
-        TaskGraph::Node::Vector::iterator decode_it =
+        auto decode_it =
             std::find_if(graph->nodes.begin(), graph->nodes.end(),
                          [decode_task](const TaskGraph::Node& node) {
                            return node.task == decode_task;

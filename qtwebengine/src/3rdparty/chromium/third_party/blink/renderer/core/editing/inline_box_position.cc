@@ -45,6 +45,8 @@ namespace blink {
 
 namespace {
 
+const int kBlockFlowAdjustmentMaxRecursionDepth = 1024;
+
 bool IsNonTextLeafChild(LayoutObject* object) {
   if (object->SlowFirstChild())
     return false;
@@ -59,8 +61,10 @@ InlineTextBox* SearchAheadForBetterMatch(const LayoutText* layout_object) {
        next = next->NextInPreOrder(container)) {
     if (next->IsLayoutBlock())
       return nullptr;
-    if (next->IsBR())
-      return nullptr;
+    if (next->IsBR()) {
+      if (!RuntimeEnabledFeatures::BidiCaretAffinityEnabled())
+        return nullptr;
+    }
     if (IsNonTextLeafChild(next))
       return nullptr;
     if (next->IsText()) {
@@ -102,14 +106,14 @@ PositionTemplate<Strategy> UpstreamIgnoringEditingBoundaries(
   return position;
 }
 
-InlineBoxPosition AdjustInlineBoxPositionForTextDirection(
-    InlineBox* inline_box,
-    int caret_offset,
-    UnicodeBidi unicode_bidi) {
+InlineBoxPosition AdjustInlineBoxPositionForTextDirection(InlineBox* inline_box,
+                                                          int caret_offset) {
   DCHECK(caret_offset == inline_box->CaretLeftmostOffset() ||
          caret_offset == inline_box->CaretRightmostOffset());
+  if (RuntimeEnabledFeatures::BidiCaretAffinityEnabled())
+    return InlineBoxPosition(inline_box, caret_offset);
   return BidiAdjustment::AdjustForCaretPositionResolution(
-      InlineBoxPosition(inline_box, caret_offset), unicode_bidi);
+      InlineBoxPosition(inline_box, caret_offset));
 }
 
 // Returns true if |caret_offset| is at edge of |box| based on |affinity|.
@@ -123,6 +127,8 @@ bool IsCaretAtEdgeOfInlineTextBox(int caret_offset,
   DCHECK_EQ(caret_offset, box.CaretMaxOffset());
   if (affinity == TextAffinity::kUpstream)
     return true;
+  if (RuntimeEnabledFeatures::BidiCaretAffinityEnabled())
+    return false;
   return box.NextLeafChild() && box.NextLeafChild()->IsLineBreak();
 }
 
@@ -136,13 +142,38 @@ InlineBoxPosition ComputeInlineBoxPositionForTextNode(
   InlineBox* inline_box = nullptr;
   InlineTextBox* candidate = nullptr;
 
+  // Used only with bidi caret affinity enabled, in which case, we may receive
+  // positions like "foo |   CBA"/downstream, which should be resolved at "|CBA"
+  // instead of "foo |".
+  InlineTextBox* closest_out_of_range_box = nullptr;
+
   for (InlineTextBox* box : text_layout_object->TextBoxes()) {
     int caret_min_offset = box->CaretMinOffset();
     int caret_max_offset = box->CaretMaxOffset();
 
     if (caret_offset < caret_min_offset || caret_offset > caret_max_offset ||
-        (caret_offset == caret_max_offset && box->IsLineBreak()))
+        (caret_offset == caret_max_offset && box->IsLineBreak())) {
+      if (!RuntimeEnabledFeatures::BidiCaretAffinityEnabled())
+        continue;
+      // For downstream, find the closest box starting after |caret_offset|.
+      if (affinity == TextAffinity::kDownstream) {
+        if (caret_offset >= caret_min_offset)
+          continue;
+        if (!closest_out_of_range_box ||
+            caret_min_offset < closest_out_of_range_box->CaretMinOffset()) {
+          closest_out_of_range_box = box;
+        }
+        continue;
+      }
+      // For upstream, find the closest box ending before |caret_offset|.
+      if (caret_offset <= caret_max_offset)
+        continue;
+      if (!closest_out_of_range_box ||
+          caret_max_offset > closest_out_of_range_box->CaretMaxOffset()) {
+        closest_out_of_range_box = box;
+      }
       continue;
+    }
 
     if (caret_offset > caret_min_offset && caret_offset < caret_max_offset)
       return InlineBoxPosition(box, caret_offset);
@@ -154,8 +185,29 @@ InlineBoxPosition ComputeInlineBoxPositionForTextNode(
 
     candidate = box;
   }
+
+  if (!inline_box && closest_out_of_range_box) {
+    if (caret_offset < closest_out_of_range_box->CaretMinOffset()) {
+      DCHECK_EQ(affinity, TextAffinity::kDownstream);
+      return InlineBoxPosition(closest_out_of_range_box,
+                               closest_out_of_range_box->CaretMinOffset());
+    }
+    DCHECK_GT(caret_offset, closest_out_of_range_box->CaretMaxOffset());
+    // When the input is upstream after a line break, we should try to find a
+    // caret position in the next line instead of resolving here.
+    if (!closest_out_of_range_box->IsLineBreak()) {
+      DCHECK_EQ(affinity, TextAffinity::kUpstream);
+      return InlineBoxPosition(closest_out_of_range_box,
+                               closest_out_of_range_box->CaretMaxOffset());
+    }
+    // No proper out-of-range box to use. Fall through.
+  }
+
+  // TODO(editing-dev): The fixup below seems hacky. It may also be incorrect in
+  // non-ltr text. Make it saner.
   if (candidate && candidate == text_layout_object->LastTextBox() &&
-      affinity == TextAffinity::kDownstream) {
+      affinity == TextAffinity::kDownstream &&
+      caret_offset == candidate->CaretMaxOffset()) {
     inline_box = SearchAheadForBetterMatch(text_layout_object);
     if (inline_box)
       caret_offset = inline_box->CaretMinOffset();
@@ -165,8 +217,7 @@ InlineBoxPosition ComputeInlineBoxPositionForTextNode(
 
   if (!inline_box)
     return InlineBoxPosition();
-  return AdjustInlineBoxPositionForTextDirection(
-      inline_box, caret_offset, text_layout_object->Style()->GetUnicodeBidi());
+  return AdjustInlineBoxPositionForTextDirection(inline_box, caret_offset);
 }
 
 InlineBoxPosition ComputeInlineBoxPositionForAtomicInline(
@@ -181,17 +232,24 @@ InlineBoxPosition ComputeInlineBoxPositionForAtomicInline(
   if ((caret_offset > inline_box->CaretMinOffset() &&
        caret_offset < inline_box->CaretMaxOffset()))
     return InlineBoxPosition(inline_box, caret_offset);
-  return AdjustInlineBoxPositionForTextDirection(
-      inline_box, caret_offset, layout_object->Style()->GetUnicodeBidi());
+  return AdjustInlineBoxPositionForTextDirection(inline_box, caret_offset);
 }
 
 template <typename Strategy>
 PositionWithAffinityTemplate<Strategy> ComputeInlineAdjustedPositionAlgorithm(
-    const PositionWithAffinityTemplate<Strategy>&);
+    const PositionWithAffinityTemplate<Strategy>&,
+    int recursion_depth);
 
 template <typename Strategy>
 PositionWithAffinityTemplate<Strategy> AdjustBlockFlowPositionToInline(
-    const PositionTemplate<Strategy>& position) {
+    const PositionTemplate<Strategy>& position,
+    int recursion_depth) {
+  if (recursion_depth >= kBlockFlowAdjustmentMaxRecursionDepth) {
+    // TODO(editing-dev): This function enters infinite recursion in some cases.
+    // Find the root cause and fix it. See https://crbug.com/857266
+    return PositionWithAffinityTemplate<Strategy>();
+  }
+
   // Try a visually equivalent position with possibly opposite editability. This
   // helps in case |position| is in an editable block but surrounded by
   // non-editable positions. It acts to negate the logic at the beginning of
@@ -201,7 +259,8 @@ PositionWithAffinityTemplate<Strategy> AdjustBlockFlowPositionToInline(
   if (downstream_equivalent != position) {
     return ComputeInlineAdjustedPositionAlgorithm(
         PositionWithAffinityTemplate<Strategy>(downstream_equivalent,
-                                               TextAffinity::kUpstream));
+                                               TextAffinity::kUpstream),
+        recursion_depth + 1);
   }
   const PositionTemplate<Strategy>& upstream_equivalent =
       UpstreamIgnoringEditingBoundaries(position);
@@ -211,12 +270,14 @@ PositionWithAffinityTemplate<Strategy> AdjustBlockFlowPositionToInline(
 
   return ComputeInlineAdjustedPositionAlgorithm(
       PositionWithAffinityTemplate<Strategy>(upstream_equivalent,
-                                             TextAffinity::kUpstream));
+                                             TextAffinity::kUpstream),
+      recursion_depth + 1);
 }
 
 template <typename Strategy>
 PositionWithAffinityTemplate<Strategy> ComputeInlineAdjustedPositionAlgorithm(
-    const PositionWithAffinityTemplate<Strategy>& position) {
+    const PositionWithAffinityTemplate<Strategy>& position,
+    int recursion_depth) {
   // TODO(yoichio): We don't assume |position| is canonicalized no longer and
   // there are few cases failing to compute. Fix it: crbug.com/812535.
   DCHECK(!position.AnchorNode()->IsShadowRoot()) << position;
@@ -233,7 +294,8 @@ PositionWithAffinityTemplate<Strategy> ComputeInlineAdjustedPositionAlgorithm(
   if (layout_object.IsLayoutBlockFlow() &&
       CanHaveChildrenForEditing(position.AnchorNode()) &&
       HasRenderedNonAnonymousDescendantsWithHeight(&layout_object)) {
-    return AdjustBlockFlowPositionToInline(position.GetPosition());
+    return AdjustBlockFlowPositionToInline(position.GetPosition(),
+                                           recursion_depth);
   }
 
   // TODO(crbug.com/567964): Change the second operand to DCHECK once fixed.
@@ -269,12 +331,7 @@ bool NeedsLineEndAdjustment(
 // Returns the first InlineBoxPosition at next line of last InlineBoxPosition
 // in |layout_object| if it exists to avoid making InlineBoxPosition at end of
 // line.
-template <typename Strategy>
-InlineBoxPosition NextLinePositionOf(
-    const PositionWithAffinityTemplate<Strategy>& adjusted) {
-  const PositionTemplate<Strategy>& position = adjusted.GetPosition();
-  const LayoutText& layout_text =
-      ToLayoutTextOrDie(*position.AnchorNode()->GetLayoutObject());
+InlineBoxPosition NextLinePositionOf(const LayoutText& layout_text) {
   InlineTextBox* const last = layout_text.LastTextBox();
   if (!last)
     return InlineBoxPosition();
@@ -286,17 +343,31 @@ InlineBoxPosition NextLinePositionOf(
       continue;
 
     return AdjustInlineBoxPositionForTextDirection(
-        inline_box, inline_box->CaretMinOffset(),
-        layout_text.Style()->GetUnicodeBidi());
+        inline_box, inline_box->CaretMinOffset());
   }
   return InlineBoxPosition();
+}
+
+template <typename Strategy>
+InlineBoxPosition ComputeInlineBoxPositionForLineEnd(
+    const PositionWithAffinityTemplate<Strategy>& adjusted) {
+  const LayoutText& layout_text = ToLayoutText(
+      *adjusted.GetPosition().AnchorNode()->GetLayoutObject());
+  const InlineBoxPosition next_line_position = NextLinePositionOf(layout_text);
+  if (next_line_position.inline_box)
+    return next_line_position;
+  // |adjusted| is after line end and no layout object after the position.
+  // Fall back to previous position.
+  DCHECK_GE(layout_text.TextLength(), 1u);
+  return ComputeInlineBoxPositionForTextNode(
+      &layout_text, layout_text.TextLength() - 1u, adjusted.Affinity());
 }
 
 template <typename Strategy>
 InlineBoxPosition ComputeInlineBoxPositionForInlineAdjustedPositionAlgorithm(
     const PositionWithAffinityTemplate<Strategy>& adjusted) {
   if (NeedsLineEndAdjustment(adjusted))
-    return NextLinePositionOf(adjusted);
+    return ComputeInlineBoxPositionForLineEnd(adjusted);
 
   const PositionTemplate<Strategy>& position = adjusted.GetPosition();
   DCHECK(!position.AnchorNode()->IsShadowRoot()) << adjusted;
@@ -350,19 +421,19 @@ InlineBoxPosition ComputeInlineBoxPosition(const VisiblePosition& position) {
 
 PositionWithAffinity ComputeInlineAdjustedPosition(
     const PositionWithAffinity& position) {
-  return ComputeInlineAdjustedPositionAlgorithm(position);
+  return ComputeInlineAdjustedPositionAlgorithm(position, 0);
 }
 
 PositionInFlatTreeWithAffinity ComputeInlineAdjustedPosition(
     const PositionInFlatTreeWithAffinity& position) {
-  return ComputeInlineAdjustedPositionAlgorithm(position);
+  return ComputeInlineAdjustedPositionAlgorithm(position, 0);
 }
 
 PositionWithAffinity ComputeInlineAdjustedPosition(
     const VisiblePosition& position) {
   DCHECK(position.IsValid()) << position;
   return ComputeInlineAdjustedPositionAlgorithm(
-      position.ToPositionWithAffinity());
+      position.ToPositionWithAffinity(), 0);
 }
 
 InlineBoxPosition ComputeInlineBoxPositionForInlineAdjustedPosition(

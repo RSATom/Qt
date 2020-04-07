@@ -7,26 +7,21 @@
 #include <inttypes.h>
 
 #include "base/bind.h"
-#include "base/memory/memory_coordinator_client_registry.h"
 #include "base/strings/stringprintf.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "cc/paint/image_transfer_cache_entry.h"
+#include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "ui/gl/trace_util.h"
 
 namespace gpu {
 namespace {
 
-size_t CacheSizeLimit() {
-  size_t memory_usage = 128 * 1024 * 1024;
-  if (base::SysInfo::IsLowEndDevice()) {
-    // Based on the 512KB limit used for discardable images in non-OOP-R, but
-    // gives an extra 256KB to allow for additional (non-image) cache items.
-    memory_usage = 768 * 1024;
-  }
-  return memory_usage;
-}
+// Put an arbitrary (high) limit on number of cache entries to prevent
+// unbounded handle growth with tiny entries.
+static size_t kMaxCacheEntries = 2000;
 
 // TODO(ericrk): Move this into ServiceImageTransferCacheEntry - here for now
 // due to ui/gl dependency.
@@ -73,7 +68,9 @@ ServiceTransferCache::CacheEntryInternal::operator=(
     CacheEntryInternal&& other) = default;
 
 ServiceTransferCache::ServiceTransferCache()
-    : entries_(EntryCache::NO_AUTO_EVICT), cache_size_limit_(CacheSizeLimit()) {
+    : entries_(EntryCache::NO_AUTO_EVICT),
+      cache_size_limit_(DiscardableCacheSizeLimit()),
+      max_cache_entries_(kMaxCacheEntries) {
   // In certain cases, ThreadTaskRunnerHandle isn't set (Android Webview).
   // Don't register a dump provider in these cases.
   if (base::ThreadTaskRunnerHandle::IsSet()) {
@@ -135,15 +132,22 @@ bool ServiceTransferCache::UnlockEntry(const EntryKey& key) {
   return true;
 }
 
+template <typename Iterator>
+Iterator ServiceTransferCache::ForceDeleteEntry(Iterator it) {
+  if (it->second.handle)
+    it->second.handle->ForceDelete();
+
+  DCHECK_GE(total_size_, it->second.entry->CachedSize());
+  total_size_ -= it->second.entry->CachedSize();
+  return entries_.Erase(it);
+}
+
 bool ServiceTransferCache::DeleteEntry(const EntryKey& key) {
   auto found = entries_.Peek(key);
   if (found == entries_.end())
     return false;
 
-  if (found->second.handle)
-    found->second.handle->ForceDelete();
-  total_size_ -= found->second.entry->CachedSize();
-  entries_.Erase(found);
+  ForceDeleteEntry(found);
   return true;
 }
 
@@ -157,7 +161,8 @@ cc::ServiceTransferCacheEntry* ServiceTransferCache::GetEntry(
 
 void ServiceTransferCache::EnforceLimits() {
   for (auto it = entries_.rbegin(); it != entries_.rend();) {
-    if (total_size_ <= cache_size_limit_) {
+    if (total_size_ <= cache_size_limit_ &&
+        entries_.size() <= max_cache_entries_) {
       return;
     }
     if (it->second.handle && !it->second.handle->Delete()) {
@@ -186,7 +191,17 @@ void ServiceTransferCache::PurgeMemory(
   }
 
   EnforceLimits();
-  cache_size_limit_ = CacheSizeLimit();
+  cache_size_limit_ = DiscardableCacheSizeLimit();
+}
+
+void ServiceTransferCache::DeleteAllEntriesForDecoder(int decoder_id) {
+  for (auto it = entries_.rbegin(); it != entries_.rend();) {
+    if (it->first.decoder_id != decoder_id) {
+      ++it;
+      continue;
+    }
+    it = ForceDeleteEntry(it);
+  }
 }
 
 bool ServiceTransferCache::OnMemoryDump(
@@ -208,7 +223,6 @@ bool ServiceTransferCache::OnMemoryDump(
   }
 
   for (auto it = entries_.begin(); it != entries_.end(); it++) {
-    uint32_t entry_id = it->first.entry_id;
     auto entry_type = it->first.entry_type;
     const auto* entry = it->second.entry.get();
     const cc::ServiceImageTransferCacheEntry* image_entry = nullptr;
@@ -220,13 +234,15 @@ bool ServiceTransferCache::OnMemoryDump(
 
     if (image_entry && image_entry->fits_on_gpu()) {
       std::string dump_name = base::StringPrintf(
-          "gpu/transfer_cache/cache_0x%" PRIXPTR "/gpu/entry_%d",
-          reinterpret_cast<uintptr_t>(this), entry_id);
+          "gpu/transfer_cache/cache_0x%" PRIXPTR "/gpu/entry_0x%" PRIXPTR,
+          reinterpret_cast<uintptr_t>(this),
+          reinterpret_cast<uintptr_t>(entry));
       DumpMemoryForImageTransferCacheEntry(pmd, dump_name, image_entry);
     } else {
       std::string dump_name = base::StringPrintf(
-          "gpu/transfer_cache/cache_0x%" PRIXPTR "/cpu/entry_%d",
-          reinterpret_cast<uintptr_t>(this), entry_id);
+          "gpu/transfer_cache/cache_0x%" PRIXPTR "/cpu/entry_0x%" PRIXPTR,
+          reinterpret_cast<uintptr_t>(this),
+          reinterpret_cast<uintptr_t>(entry));
       MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(dump_name);
       dump->AddScalar(MemoryAllocatorDump::kNameSize,
                       MemoryAllocatorDump::kUnitsBytes, entry->CachedSize());

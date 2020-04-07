@@ -10,8 +10,12 @@ QMAKE_DOCS = $$PWD/doc/qthelp.qdocconf
 DEFINES -= QT_ASCII_CAST_WARNINGS
 
 RESOURCES += helpsystem.qrc
-SOURCES += qhelpenginecore.cpp \
+SOURCES += \
+    qcompressedhelpinfo.cpp \
+    qhelpenginecore.cpp \
     qhelpengine.cpp \
+    qhelpfilterdata.cpp \
+    qhelpfilterengine.cpp \
     qhelpdbreader.cpp \
     qhelpcontentwidget.cpp \
     qhelpindexwidget.cpp \
@@ -24,9 +28,13 @@ SOURCES += qhelpenginecore.cpp \
     qhelpsearchindexreader.cpp \
     qhelp_global.cpp
 
-HEADERS += qhelpenginecore.h \
+HEADERS += \
+    qcompressedhelpinfo.h \
+    qhelpenginecore.h \
     qhelpengine.h \
     qhelpengine_p.h \
+    qhelpfilterdata.h \
+    qhelpfilterengine.h \
     qhelp_global.h \
     qhelpdbreader_p.h \
     qhelpcontentwidget.h \

@@ -66,8 +66,8 @@ public:
     virtual void setCoordinate(const QGeoCoordinate &coordinate) = 0;
     virtual QVariant content() const = 0;
     virtual void setContent(const QVariant &content) = 0;
-    virtual QSizeF size() const = 0;
-    virtual void setSize(const QSizeF &size) = 0;
+    virtual QSizeF iconSize() const = 0;
+    virtual void setIconSize(const QSizeF &size) = 0;
 
     // QGeoMapObjectPrivate interface
     bool equals(const QGeoMapObjectPrivate &other) const override;
@@ -85,16 +85,19 @@ public:
     void setCoordinate(const QGeoCoordinate &coordinate) override;
     QVariant content() const override;
     void setContent(const QVariant &content) override;
-    virtual QSizeF size() const override;
-    virtual void setSize(const QSizeF &size) override;
+    virtual QSizeF iconSize() const override;
+    virtual void setIconSize(const QSizeF &size) override;
 
-    // QMapIconObjectPrivate interface
+    // QGeoMapObjectPrivate interface
     QGeoMapObjectPrivate *clone() override;
+    QGeoShape geoShape() const override;
+    void setGeoShape(const QGeoShape &shape) override;
 
 public:
     QVariant m_content;
     QGeoCoordinate m_coordinate;
-    QSizeF m_size;
+    QSizeF m_iconSize;
+    qreal m_radius = 100.0; // can be set only via setGeoShape, will be used only by
 
 private:
     QMapIconObjectPrivateDefault(const QMapIconObjectPrivateDefault &other) = delete;

@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
 #include "SkColor.h"
 #include "SkRandom.h"
@@ -75,7 +75,7 @@ void update_pos(const sk_sp<sksg::RRect>& rr, const SkPoint& pos) {
 
 } // anonymous ns
 
-class PongView final : public SampleView {
+class PongView final : public Sample {
 public:
     PongView() = default;
 
@@ -140,25 +140,25 @@ protected:
         group->addChild(sksg::Draw::Make(fBall.objectNode, ball_paint));
 
         // Handle everything in a normalized 1x1 space.
-        fContentMatrix = sksg::Matrix::Make(
+        fContentMatrix = sksg::Matrix<SkMatrix>::Make(
             SkMatrix::MakeRectToRect(SkRect::MakeWH(1, 1),
                                      SkRect::MakeIWH(this->width(), this->height()),
                                      SkMatrix::kFill_ScaleToFit));
-        auto root = sksg::Transform::Make(std::move(group), fContentMatrix);
+        auto root = sksg::TransformEffect::Make(std::move(group), fContentMatrix);
         fScene = sksg::Scene::Make(std::move(root), sksg::AnimatorList());
 
         // Off we go.
         this->updatePaddleStrategy();
     }
 
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "SGPong");
+    bool onQuery(Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "SGPong");
             return true;
         }
 
         SkUnichar uni;
-        if (SampleCode::CharQ(*evt, &uni)) {
+        if (Sample::CharQ(*evt, &uni)) {
             switch (uni) {
                 case '[':
                     fTimeScale = SkTPin(fTimeScale - 0.1f, kTimeScaleMin, kTimeScaleMax);
@@ -283,17 +283,16 @@ private:
         catcher->spd.fY = (yIntercept - catcher->pos.fY) / t;
     }
 
-    std::unique_ptr<sksg::Scene> fScene;
-    sk_sp<sksg::Matrix>          fContentMatrix;
-    Object                       fPaddle0, fPaddle1, fBall;
-    SkRandom                     fRand;
+    std::unique_ptr<sksg::Scene>  fScene;
+    sk_sp<sksg::Matrix<SkMatrix>> fContentMatrix;
+    Object                        fPaddle0, fPaddle1, fBall;
+    SkRandom                      fRand;
 
-    SkMSec                       fLastTick  = 0;
-    SkScalar                     fTimeScale = 1.0f;
-    bool                         fShowInval = false;
+    SkMSec                        fLastTick  = 0;
+    SkScalar                      fTimeScale = 1.0f;
+    bool                          fShowInval = false;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
-static SkView* PongFactory() { return new PongView; }
-static SkViewRegister reg(PongFactory);
+DEF_SAMPLE( return new PongView(); )

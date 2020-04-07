@@ -11,6 +11,7 @@
 
 #include "common/PackedEnums.h"
 #include "libANGLE/Error.h"
+#include "libANGLE/Texture.h"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -31,6 +32,7 @@ class Display;
 class Image;
 class Stream;
 class Surface;
+class Sync;
 class Thread;
 class LabeledObject;
 
@@ -41,6 +43,7 @@ Error ValidateConfig(const Display *display, const Config *config);
 Error ValidateContext(const Display *display, const gl::Context *context);
 Error ValidateImage(const Display *display, const Image *image);
 Error ValidateDevice(const Device *device);
+Error ValidateSync(const Device *device, const Sync *sync);
 
 // Return the requested object only if it is valid (otherwise nullptr)
 const Thread *GetThreadIfValid(const Thread *thread);
@@ -50,12 +53,17 @@ const Image *GetImageIfValid(const Display *display, const Image *image);
 const Stream *GetStreamIfValid(const Display *display, const Stream *stream);
 const gl::Context *GetContextIfValid(const Display *display, const gl::Context *context);
 const Device *GetDeviceIfValid(const Device *device);
+const Sync *GetSyncIfValid(const Display *display, const Sync *sync);
 LabeledObject *GetLabeledObjectIfValid(Thread *thread,
                                        const Display *display,
                                        ObjectType objectType,
                                        EGLObjectKHR object);
 
 // Entry point validation
+Error ValidateInitialize(const Display *display);
+
+Error ValidateTerminate(const Display *display);
+
 Error ValidateCreateContext(Display *display,
                             Config *configuration,
                             gl::Context *shareContext,
@@ -88,6 +96,42 @@ Error ValidateCreateDeviceANGLE(EGLint device_type,
                                 void *native_device,
                                 const EGLAttrib *attrib_list);
 Error ValidateReleaseDeviceANGLE(Device *device);
+
+Error ValidateCreateSyncBase(const Display *display,
+                             EGLenum type,
+                             const AttributeMap &attribs,
+                             const Display *currentDisplay,
+                             const gl::Context *currentContext,
+                             bool isExt);
+Error ValidateGetSyncAttribBase(const Display *display, const Sync *sync, EGLint attribute);
+
+Error ValidateCreateSyncKHR(const Display *display,
+                            EGLenum type,
+                            const AttributeMap &attribs,
+                            const Display *currentDisplay,
+                            const gl::Context *currentContext);
+Error ValidateCreateSync(const Display *display,
+                         EGLenum type,
+                         const AttributeMap &attribs,
+                         const Display *currentDisplay,
+                         const gl::Context *currentContext);
+Error ValidateDestroySync(const Display *display, const Sync *sync);
+Error ValidateClientWaitSync(const Display *display,
+                             const Sync *sync,
+                             EGLint flags,
+                             EGLTime timeout);
+Error ValidateWaitSync(const Display *display,
+                       const gl::Context *context,
+                       const Sync *sync,
+                       EGLint flags);
+Error ValidateGetSyncAttribKHR(const Display *display,
+                               const Sync *sync,
+                               EGLint attribute,
+                               EGLint *value);
+Error ValidateGetSyncAttrib(const Display *display,
+                            const Sync *sync,
+                            EGLint attribute,
+                            EGLAttrib *value);
 
 Error ValidateCreateStreamKHR(const Display *display, const AttributeMap &attributes);
 Error ValidateDestroyStreamKHR(const Display *display, const Stream *stream);
@@ -130,14 +174,50 @@ Error ValidateGetSyncValuesCHROMIUM(const Display *display,
                                     const EGLuint64KHR *msc,
                                     const EGLuint64KHR *sbc);
 
+Error ValidateDestroySurface(const Display *display,
+                             const Surface *surface,
+                             const EGLSurface eglSurface);
+
+Error ValidateDestroyContext(const Display *display,
+                             const gl::Context *glCtx,
+                             const EGLContext eglCtx);
+
+Error ValidateSwapBuffers(Thread *thread, const Display *display, const Surface *surface);
+
+Error ValidateWaitNative(const Display *display, const EGLint engine);
+
+Error ValidateCopyBuffers(Display *display, const Surface *surface);
+
 Error ValidateSwapBuffersWithDamageKHR(const Display *display,
                                        const Surface *surface,
                                        EGLint *rects,
                                        EGLint n_rects);
 
+Error ValidateBindTexImage(const Display *display,
+                           const Surface *surface,
+                           const EGLSurface eglSurface,
+                           const EGLint buffer,
+                           const gl::Context *context,
+                           gl::Texture **textureObject);
+
+Error ValidateReleaseTexImage(const Display *display,
+                              const Surface *surface,
+                              const EGLSurface eglSurface,
+                              const EGLint buffer);
+
+Error ValidateSwapInterval(const Display *display,
+                           const Surface *draw_surface,
+                           const gl::Context *context);
+
+Error ValidateBindAPI(const EGLenum api);
+
 Error ValidatePresentationTimeANDROID(const Display *display,
                                       const Surface *surface,
                                       EGLnsecsANDROID time);
+
+Error ValidateSetBlobCacheANDROID(const Display *display,
+                                  EGLSetBlobFuncANDROID set,
+                                  EGLGetBlobFuncANDROID get);
 
 Error ValidateGetConfigAttrib(const Display *display, const Config *config, EGLint attribute);
 Error ValidateChooseConfig(const Display *display,
@@ -208,6 +288,32 @@ Error ValidateLabelObjectKHR(Thread *thread,
                              ObjectType objectType,
                              EGLObjectKHR object,
                              EGLLabelKHR label);
+
+// ANDROID_get_frame_timestamps
+Error ValidateGetCompositorTimingSupportedANDROID(const Display *display,
+                                                  const Surface *surface,
+                                                  CompositorTiming name);
+
+Error ValidateGetCompositorTimingANDROID(const Display *display,
+                                         const Surface *surface,
+                                         EGLint numTimestamps,
+                                         const EGLint *names,
+                                         EGLnsecsANDROID *values);
+
+Error ValidateGetNextFrameIdANDROID(const Display *display,
+                                    const Surface *surface,
+                                    EGLuint64KHR *frameId);
+
+Error ValidateGetFrameTimestampSupportedANDROID(const Display *display,
+                                                const Surface *surface,
+                                                Timestamp timestamp);
+
+Error ValidateGetFrameTimestampsANDROID(const Display *display,
+                                        const Surface *surface,
+                                        EGLuint64KHR frameId,
+                                        EGLint numTimestamps,
+                                        const EGLint *timestamps,
+                                        EGLnsecsANDROID *values);
 
 }  // namespace egl
 

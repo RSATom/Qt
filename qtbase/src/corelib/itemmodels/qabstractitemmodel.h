@@ -163,6 +163,7 @@ typedef QList<QModelIndex> QModelIndexList;
 
 class QMimeData;
 class QAbstractItemModelPrivate;
+class QTransposeProxyModelPrivate;
 template <class Key, class T> class QMap;
 
 
@@ -173,6 +174,7 @@ class Q_CORE_EXPORT QAbstractItemModel : public QObject
     friend class QPersistentModelIndexData;
     friend class QAbstractItemViewPrivate;
     friend class QIdentityProxyModel;
+    friend class QTransposeProxyModelPrivate;
 public:
 
     explicit QAbstractItemModel(QObject *parent = nullptr);
@@ -300,7 +302,9 @@ public Q_SLOTS:
     virtual void revert();
 
 protected Q_SLOTS:
-    // Qt 6: Make virtual
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    virtual
+#endif
     void resetInternalData();
 
 protected:

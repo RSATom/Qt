@@ -30,17 +30,14 @@
 
 #if V8_TARGET_ARCH_ARM
 
+#include "src/arm/assembler-arm.h"
 #include "src/arm/constants-arm.h"
 #include "src/base/bits.h"
 #include "src/base/platform/platform.h"
 #include "src/disasm.h"
-#include "src/macro-assembler.h"
-
 
 namespace v8 {
 namespace internal {
-
-const auto GetRegConfig = RegisterConfiguration::Default;
 
 //------------------------------------------------------------------------------
 
@@ -669,7 +666,7 @@ int Decoder::FormatOption(Instruction* instr, const char* format) {
     case 'A': {
       // Print pc-relative address.
       int offset = instr->Offset12Value();
-      byte* pc = reinterpret_cast<byte*>(instr) + Instruction::kPCReadOffset;
+      byte* pc = reinterpret_cast<byte*>(instr) + Instruction::kPcLoadDelta;
       byte* addr;
       switch (instr->PUField()) {
         case db_x: {
@@ -685,8 +682,9 @@ int Decoder::FormatOption(Instruction* instr, const char* format) {
           return -1;
         }
       }
-      out_buffer_pos_ += SNPrintF(out_buffer_ + out_buffer_pos_, "%p",
-                                  static_cast<void*>(addr));
+      out_buffer_pos_ +=
+          SNPrintF(out_buffer_ + out_buffer_pos_, "0x%08" PRIxPTR,
+                   reinterpret_cast<uintptr_t>(addr));
       return 1;
     }
     case 'S':
@@ -786,6 +784,9 @@ void Decoder::DecodeType01(Instruction* instr) {
               case 0:
                 Format(instr, "ldrex'cond 'rt, ['rn]");
                 break;
+              case 1:
+                Format(instr, "ldrexd'cond 'rt, ['rn]");
+                break;
               case 2:
                 Format(instr, "ldrexb'cond 'rt, ['rn]");
                 break;
@@ -803,6 +804,9 @@ void Decoder::DecodeType01(Instruction* instr) {
             switch (instr->Bits(22, 21)) {
               case 0:
                 Format(instr, "strex'cond 'rd, 'rm, ['rn]");
+                break;
+              case 1:
+                Format(instr, "strexd'cond 'rd, 'rm, ['rn]");
                 break;
               case 2:
                 Format(instr, "strexb'cond 'rd, 'rm, ['rn]");
@@ -1194,6 +1198,9 @@ void Decoder::DecodeType3(Instruction* instr) {
                     }
                   }
                 }
+              } else if (instr->Bits(27, 16) == 0x6BF &&
+                         instr->Bits(11, 4) == 0xF3) {
+                Format(instr, "rev'cond 'rd, 'rm");
               } else {
                 UNREACHABLE();
               }
@@ -1416,7 +1423,7 @@ int Decoder::DecodeType7(Instruction* instr) {
         break;
     }
   }
-  return Instruction::kInstrSize;
+  return kInstrSize;
 }
 
 
@@ -2599,14 +2606,14 @@ int Decoder::InstructionDecode(byte* instr_ptr) {
                               instr->InstructionBits());
   if (instr->ConditionField() == kSpecialCondition) {
     DecodeSpecialCondition(instr);
-    return Instruction::kInstrSize;
+    return kInstrSize;
   }
   int instruction_bits = *(reinterpret_cast<int*>(instr_ptr));
   if ((instruction_bits & kConstantPoolMarkerMask) == kConstantPoolMarker) {
     out_buffer_pos_ += SNPrintF(out_buffer_ + out_buffer_pos_,
                                 "constant pool begin (length %d)",
                                 DecodeConstantPoolLength(instruction_bits));
-    return Instruction::kInstrSize;
+    return kInstrSize;
   }
   switch (instr->TypeValue()) {
     case 0:
@@ -2643,7 +2650,7 @@ int Decoder::InstructionDecode(byte* instr_ptr) {
       break;
     }
   }
-  return Instruction::kInstrSize;
+  return kInstrSize;
 }
 
 
@@ -2668,7 +2675,7 @@ const char* NameConverter::NameOfConstant(byte* addr) const {
 
 
 const char* NameConverter::NameOfCPURegister(int reg) const {
-  return v8::internal::GetRegConfig()->GetGeneralRegisterName(reg);
+  return RegisterName(i::Register::from_code(reg));
 }
 
 
@@ -2693,13 +2700,6 @@ const char* NameConverter::NameInCode(byte* addr) const {
 
 //------------------------------------------------------------------------------
 
-Disassembler::Disassembler(const NameConverter& converter)
-    : converter_(converter) {}
-
-
-Disassembler::~Disassembler() {}
-
-
 int Disassembler::InstructionDecode(v8::internal::Vector<char> buffer,
                                     byte* instruction) {
   v8::internal::Decoder d(converter_, buffer);
@@ -2711,10 +2711,10 @@ int Disassembler::ConstantPoolSizeAt(byte* instruction) {
   return v8::internal::Decoder::ConstantPoolSizeAt(instruction);
 }
 
-
-void Disassembler::Disassemble(FILE* f, byte* begin, byte* end) {
+void Disassembler::Disassemble(FILE* f, byte* begin, byte* end,
+                               UnimplementedOpcodeAction unimplemented_action) {
   NameConverter converter;
-  Disassembler d(converter);
+  Disassembler d(converter, unimplemented_action);
   for (byte* pc = begin; pc < end;) {
     v8::internal::EmbeddedVector<char, 128> buffer;
     buffer[0] = '\0';
@@ -2724,7 +2724,6 @@ void Disassembler::Disassemble(FILE* f, byte* begin, byte* end) {
                          *reinterpret_cast<int32_t*>(prev_pc), buffer.start());
   }
 }
-
 
 }  // namespace disasm
 

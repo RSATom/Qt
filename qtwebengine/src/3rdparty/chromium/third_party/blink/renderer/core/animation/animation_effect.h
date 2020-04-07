@@ -32,6 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_ANIMATION_EFFECT_H_
 
 #include "base/optional.h"
+#include "third_party/blink/renderer/core/animation/animation_time_delta.h"
 #include "third_party/blink/renderer/core/animation/timing.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -81,6 +82,12 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
     kPhaseAfter,
     kPhaseNone,
   };
+  // Represents the animation direction from the Web Animations spec, see
+  // https://drafts.csswg.org/web-animations-1/#animation-direction.
+  enum AnimationDirection {
+    kForwards,
+    kBackwards,
+  };
 
   class EventDelegate : public GarbageCollectedFinalized<EventDelegate> {
    public:
@@ -112,19 +119,17 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
     return EnsureCalculated().time_to_reverse_effect_change;
   }
 
-  double IterationDuration() const;
-  double ActiveDurationInternal() const;
+  AnimationTimeDelta IterationDuration() const;
+  double RepeatedDuration() const;
   double EndTimeInternal() const;
 
   const Timing& SpecifiedTiming() const { return timing_; }
   void UpdateSpecifiedTiming(const Timing&);
   EventDelegate* GetEventDelegate() { return event_delegate_; }
 
-  void getTiming(EffectTiming&) const;
-  EffectTiming getTiming() const;
-  void getComputedTiming(ComputedEffectTiming&) const;
-  ComputedEffectTiming getComputedTiming() const;
-  void updateTiming(OptionalEffectTiming&,
+  EffectTiming* getTiming() const;
+  ComputedEffectTiming* getComputedTiming() const;
+  void updateTiming(OptionalEffectTiming*,
                     ExceptionState& = ASSERT_NO_EXCEPTION);
 
   // Attach/Detach the AnimationEffect from its owning animation.
@@ -152,10 +157,10 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   }
   void ClearEventDelegate() { event_delegate_ = nullptr; }
 
-  double RepeatedDuration() const;
-
   virtual void UpdateChildrenAndEffects() const = 0;
-  virtual double IntrinsicIterationDuration() const { return 0; }
+  virtual AnimationTimeDelta IntrinsicIterationDuration() const {
+    return AnimationTimeDelta();
+  }
   virtual double CalculateTimeToEffectChange(
       bool forwards,
       double local_time,

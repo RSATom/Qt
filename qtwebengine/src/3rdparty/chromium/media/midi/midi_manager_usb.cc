@@ -24,37 +24,18 @@ MidiManagerUsb::MidiManagerUsb(MidiService* service,
     : MidiManager(service), device_factory_(std::move(factory)) {}
 
 MidiManagerUsb::~MidiManagerUsb() {
-  // TODO(toyoshim): Remove following DCHECKs once the dynamic instantiation
-  // mode is enabled by default.
-  base::AutoLock lock(lock_);
-  DCHECK(device_factory_);
-  DCHECK(devices_.empty());
-  DCHECK(output_streams_.empty());
-  DCHECK(!input_stream_);
-  DCHECK(input_jack_dictionary_.empty());
+  if (!service()->task_service()->UnbindInstance())
+    return;
+
+  // Finalization steps should be implemented after the UnbindInstance() call
+  // above, if we need.
 }
 
 void MidiManagerUsb::StartInitialization() {
-  bool result = service()->task_service()->BindInstance();
-  DCHECK(result);
+  if (!service()->task_service()->BindInstance())
+    return CompleteInitialization(Result::INITIALIZATION_ERROR);
 
   Initialize();
-}
-
-void MidiManagerUsb::Finalize() {
-  bool result = service()->task_service()->UnbindInstance();
-  DCHECK(result);
-
-  // TODO(toyoshim): Remove following code once the dynamic instantiation mode
-  // is enabled by default.
-  base::AutoLock lock(lock_);
-  devices_.clear();
-  output_streams_.clear();
-  input_stream_.reset();
-  input_jack_dictionary_.clear();
-
-  // Do not reset |device_factory_| here because it is set on the thread on
-  // which the constructor runs.
 }
 
 void MidiManagerUsb::Initialize() {
@@ -178,13 +159,13 @@ bool MidiManagerUsb::AddPorts(UsbMidiDevice* device, int device_id) {
     if (jacks[j].direction() == UsbMidiJack::DIRECTION_OUT) {
       output_streams_.push_back(
           std::make_unique<UsbMidiOutputStream>(jacks[j]));
-      AddOutputPort(MidiPortInfo(id, manufacturer, product_name, version,
-                                 PortState::OPENED));
+      AddOutputPort(mojom::PortInfo(id, manufacturer, product_name, version,
+                                    PortState::OPENED));
     } else {
       DCHECK_EQ(jacks[j].direction(), UsbMidiJack::DIRECTION_IN);
       input_stream_->Add(jacks[j]);
-      AddInputPort(MidiPortInfo(id, manufacturer, product_name, version,
-                                PortState::OPENED));
+      AddInputPort(mojom::PortInfo(id, manufacturer, product_name, version,
+                                   PortState::OPENED));
     }
   }
   return true;

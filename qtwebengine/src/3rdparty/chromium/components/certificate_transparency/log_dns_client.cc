@@ -11,6 +11,8 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -22,10 +24,10 @@
 #include "net/base/sys_addrinfo.h"
 #include "net/cert/merkle_audit_proof.h"
 #include "net/dns/dns_client.h"
-#include "net/dns/dns_config_service.h"
-#include "net/dns/dns_protocol.h"
+#include "net/dns/dns_config.h"
 #include "net/dns/dns_response.h"
 #include "net/dns/dns_transaction.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/dns/record_parsed.h"
 #include "net/dns/record_rdata.h"
 
@@ -43,6 +45,20 @@ void LogQueryDuration(net::Error error, const base::TimeDelta& duration) {
   }
 }
 
+void LogQueryResult(const std::string& name,
+                    net::Error error,
+                    const net::DnsResponse* response) {
+  base::UmaHistogramSparse(
+      base::StrCat({"Net.CertificateTransparency.DnsQuery", name, "Error"}),
+      -error);
+
+  if (response) {
+    base::UmaHistogramSparse(
+        base::StrCat({"Net.CertificateTransparency.DnsQuery", name, "Rcode"}),
+        response->rcode());
+  }
+}
+
 // Returns an EDNS option that disables the client subnet extension, as
 // described in https://tools.ietf.org/html/rfc7871. This is to avoid the
 // privacy issues caused by this extension being enabled in recursive resolvers
@@ -53,7 +69,7 @@ net::OptRecordRdata::Opt OptToDisableClientSubnetExtension() {
   const uint16_t kIanaAddressFamilyIpV4 = 1;
 
   char buf[4];
-  base::BigEndianWriter writer(buf, arraysize(buf));
+  base::BigEndianWriter writer(buf, base::size(buf));
   // family - address is empty so the value of this is irrelevant, so long as
   // it's valid (see https://tools.ietf.org/html/rfc7871#section-7.1.2).
   writer.WriteU16(kIanaAddressFamilyIpV4);
@@ -64,7 +80,7 @@ net::OptRecordRdata::Opt OptToDisableClientSubnetExtension() {
   // no address - don't want a client subnet in the query.
 
   return net::OptRecordRdata::Opt(kClientSubnetExtensionCode,
-                                  base::StringPiece(buf, arraysize(buf)));
+                                  base::StringPiece(buf, base::size(buf)));
 }
 
 // Parses the DNS response and extracts a single string from the TXT RDATA.
@@ -250,6 +266,7 @@ AuditProofQueryImpl::AuditProofQueryImpl(net::DnsClient* dns_client,
     : next_state_(State::NONE),
       domain_for_log_(domain_for_log),
       dns_client_(dns_client),
+      last_dns_response_(nullptr),
       net_log_(net_log),
       weak_ptr_factory_(this) {
   DCHECK(dns_client_);
@@ -297,10 +314,8 @@ net::Error AuditProofQueryImpl::DoLoop(net::Error result) {
         break;
       case State::REQUEST_LEAF_INDEX_COMPLETE:
         result = RequestLeafIndexComplete(result);
-        if (result == net::OK) {
-          base::UmaHistogramSparse(
-              "Net.CertificateTransparency.DnsQueryLeafIndexError", net::OK);
-        }
+        if (result == net::OK)
+          LogQueryResult("LeafIndex", net::OK, last_dns_response_);
         break;
       case State::REQUEST_AUDIT_PROOF_NODES:
         result = RequestAuditProofNodes();
@@ -321,14 +336,12 @@ net::Error AuditProofQueryImpl::DoLoop(net::Error result) {
       case State::REQUEST_LEAF_INDEX:
       case State::REQUEST_LEAF_INDEX_COMPLETE:
         // An error must have occurred if the query completed in this state.
-        base::UmaHistogramSparse(
-            "Net.CertificateTransparency.DnsQueryLeafIndexError", -result);
+        LogQueryResult("LeafIndex", result, last_dns_response_);
         break;
       case State::REQUEST_AUDIT_PROOF_NODES:
       case State::REQUEST_AUDIT_PROOF_NODES_COMPLETE:
         // The query may have completed successfully.
-        base::UmaHistogramSparse(
-            "Net.CertificateTransparency.DnsQueryAuditProofError", -result);
+        LogQueryResult("AuditProof", result, last_dns_response_);
         break;
       case State::NONE:
         NOTREACHED();
@@ -453,6 +466,7 @@ bool AuditProofQueryImpl::StartDnsTransaction(const std::string& qname) {
     return false;
   }
 
+  last_dns_response_ = nullptr;
   current_dns_transaction_ = factory->CreateTransaction(
       qname, net::dns_protocol::kTypeTXT,
       base::BindOnce(&AuditProofQueryImpl::OnDnsTransactionComplete,

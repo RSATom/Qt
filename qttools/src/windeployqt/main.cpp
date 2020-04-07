@@ -174,6 +174,10 @@ static QtModuleEntry qtModuleEntries[] = {
     { QtWebViewModule, "webview", "Qt5WebView", nullptr }
 };
 
+enum QtPlugin {
+    QtVirtualKeyboardPlugin = 0x1
+};
+
 static const char webKitProcessC[] = "QtWebProcess";
 static const char webEngineProcessC[] = "QtWebEngineProcess";
 
@@ -260,6 +264,7 @@ struct Options {
     bool translations = true;
     bool systemD3dCompiler = true;
     bool compilerRunTime = false;
+    unsigned disabledPlugins = 0;
     AngleDetection angleDetection = AngleDetectionAuto;
     bool softwareRasterizer = true;
     Platform platform = WindowsDesktop;
@@ -267,6 +272,7 @@ struct Options {
     quint64 disabledLibraries = 0;
     unsigned updateFileFlags = 0;
     QStringList qmlDirectories; // Project's QML files.
+    QStringList qmlImportPaths; // Custom QML module locations.
     QString directory;
     QString translationsDirectory; // Translations target directory
     QString libraryDirectory;
@@ -382,6 +388,11 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
                                     QStringLiteral("directory"));
     parser->addOption(qmlDirOption);
 
+    QCommandLineOption qmlImportOption(QStringLiteral("qmlimport"),
+                                       QStringLiteral("Add the given path to the QML module search locations."),
+                                       QStringLiteral("directory"));
+    parser->addOption(qmlImportOption);
+
     QCommandLineOption noQuickImportOption(QStringLiteral("no-quick-import"),
                                            QStringLiteral("Skip deployment of Qt Quick imports."));
     parser->addOption(noQuickImportOption);
@@ -398,6 +409,10 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
     QCommandLineOption compilerRunTimeOption(QStringLiteral("compiler-runtime"),
                                              QStringLiteral("Deploy compiler runtime (Desktop only)."));
     parser->addOption(compilerRunTimeOption);
+
+    QCommandLineOption noVirtualKeyboardOption(QStringLiteral("no-virtualkeyboard"),
+                                               QStringLiteral("Disable deployment of the Virtual Keyboard."));
+    parser->addOption(noVirtualKeyboardOption);
 
     QCommandLineOption noCompilerRunTimeOption(QStringLiteral("no-compiler-runtime"),
                                              QStringLiteral("Do not deploy compiler runtime (Desktop only)."));
@@ -492,6 +507,9 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
         *errorMessage = QStringLiteral("Deployment of the compiler runtime is implemented for Desktop only.");
         return CommandLineParseError;
     }
+
+    if (parser->isSet(noVirtualKeyboardOption))
+        options->disabledPlugins |= QtVirtualKeyboardPlugin;
 
     if (parser->isSet(releaseWithDebugInfoOption))
         std::wcerr << "Warning: " << releaseWithDebugInfoOption.names().first() << " is obsolete.";
@@ -594,6 +612,9 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
 
     if (parser->isSet(qmlDirOption))
         options->qmlDirectories = parser->values(qmlDirOption);
+
+    if (parser->isSet(qmlImportOption))
+        options->qmlImportPaths = parser->values(qmlImportOption);
 
     const QString &file = posArgs.front();
     const QFileInfo fi(QDir::cleanPath(file));
@@ -869,6 +890,7 @@ static quint64 qtModule(QString module, const QString &infix)
 }
 
 QStringList findQtPlugins(quint64 *usedQtModules, quint64 disabledQtModules,
+                          unsigned disabledPlugins,
                           const QString &qtPluginsDirName, const QString &libraryLocation,
                           const QString &infix,
                           DebugMatchMode debugMatchModeIn, Platform platform, QString *platformPlugin)
@@ -888,6 +910,8 @@ QStringList findQtPlugins(quint64 *usedQtModules, quint64 disabledQtModules,
                 : debugMatchModeIn;
             QDir subDir(subDirFi.absoluteFilePath());
             // Filter out disabled plugins
+            if ((disabledPlugins & QtVirtualKeyboardPlugin) && subDirName == QLatin1String("virtualkeyboard"))
+                continue;
             if (disabledQtModules & QtQmlToolingModule && subDirName == QLatin1String("qmltooling"))
                 continue;
             // Filter for platform or any.
@@ -916,6 +940,11 @@ QStringList findQtPlugins(quint64 *usedQtModules, quint64 disabledQtModules,
             }
             const QStringList plugins = findSharedLibraries(subDir, platform, debugMatchMode, filter);
             for (const QString &plugin : plugins) {
+                // Filter out disabled plugins
+                if ((disabledPlugins & QtVirtualKeyboardPlugin)
+                    && plugin.startsWith(QLatin1String("qtvirtualkeyboardplugin"))) {
+                    continue;
+                }
                 const QString pluginPath = subDir.absoluteFilePath(plugin);
                 if (isPlatformPlugin)
                     *platformPlugin = pluginPath;
@@ -1201,7 +1230,7 @@ static DeployResult deploy(const Options &options,
     const QString libraryLocation = options.platform == Unix ? qmakeVariables.value(QStringLiteral("QT_INSTALL_LIBS")) : qtBinDir;
     const QString infix = qmakeVariables.value(QLatin1String(qmakeInfixKey));
     const int version = qtVersion(qmakeVariables);
-    Q_UNUSED(version)
+    Q_UNUSED(version);
 
     if (optVerboseLevel > 1)
         std::wcout << "Qt binaries in " << QDir::toNativeSeparators(qtBinDir) << '\n';
@@ -1289,6 +1318,10 @@ static DeployResult deploy(const Options &options,
     // Scan Quick2 imports
     QmlImportScanResult qmlScanResult;
     if (options.quickImports && usesQml2) {
+        // Custom list of import paths provided by user
+        QStringList qmlImportPaths = options.qmlImportPaths;
+        // Qt's own QML modules
+        qmlImportPaths << qmakeVariables.value(QStringLiteral("QT_INSTALL_QML"));
         QStringList qmlDirectories = options.qmlDirectories;
         if (qmlDirectories.isEmpty()) {
             const QString qmlDirectory = findQmlDirectory(options.platform, options.directory);
@@ -1299,7 +1332,7 @@ static DeployResult deploy(const Options &options,
             if (optVerboseLevel >= 1)
                 std::wcout << "Scanning " << QDir::toNativeSeparators(qmlDirectory) << ":\n";
             const QmlImportScanResult scanResult =
-                runQmlImportScanner(qmlDirectory, qmakeVariables.value(QStringLiteral("QT_INSTALL_QML")),
+                runQmlImportScanner(qmlDirectory, qmlImportPaths,
                                     result.directlyUsedQtLibraries & QtWidgetsModule,
                                     options.platform, debugMatchMode, errorMessage);
             if (!scanResult.ok)
@@ -1342,6 +1375,7 @@ static DeployResult deploy(const Options &options,
         findQtPlugins(&result.deployedQtLibraries,
                       // For non-QML applications, disable QML to prevent it from being pulled in by the qtaccessiblequick plugin.
                       options.disabledLibraries | (usesQml2 ? 0 : (QtQmlModule | QtQuickModule)),
+                      options.disabledPlugins,
                       qmakeVariables.value(QStringLiteral("QT_INSTALL_PLUGINS")), libraryLocation, infix,
                       debugMatchMode, options.platform, &platformPlugin);
 

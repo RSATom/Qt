@@ -32,13 +32,13 @@ const char kPepperInsecureOriginMessage[] =
     "secure origin, such as HTTPS. See https://goo.gl/rStTGz for more "
     "details.";
 
-PP_DeviceType_Dev FromMediaDeviceType(MediaDeviceType type) {
+PP_DeviceType_Dev FromMediaDeviceType(blink::MediaDeviceType type) {
   switch (type) {
-    case MEDIA_DEVICE_TYPE_AUDIO_INPUT:
+    case blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT:
       return PP_DEVICETYPE_DEV_AUDIOCAPTURE;
-    case MEDIA_DEVICE_TYPE_VIDEO_INPUT:
+    case blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT:
       return PP_DEVICETYPE_DEV_VIDEOCAPTURE;
-    case MEDIA_DEVICE_TYPE_AUDIO_OUTPUT:
+    case blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT:
       return PP_DEVICETYPE_DEV_AUDIOOUTPUT;
     default:
       NOTREACHED();
@@ -46,22 +46,23 @@ PP_DeviceType_Dev FromMediaDeviceType(MediaDeviceType type) {
   }
 }
 
-MediaDeviceType ToMediaDeviceType(PP_DeviceType_Dev type) {
+blink::MediaDeviceType ToMediaDeviceType(PP_DeviceType_Dev type) {
   switch (type) {
     case PP_DEVICETYPE_DEV_AUDIOCAPTURE:
-      return MEDIA_DEVICE_TYPE_AUDIO_INPUT;
+      return blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT;
     case PP_DEVICETYPE_DEV_VIDEOCAPTURE:
-      return MEDIA_DEVICE_TYPE_VIDEO_INPUT;
+      return blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT;
     case PP_DEVICETYPE_DEV_AUDIOOUTPUT:
-      return MEDIA_DEVICE_TYPE_AUDIO_OUTPUT;
+      return blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT;
     default:
       NOTREACHED();
-      return MEDIA_DEVICE_TYPE_AUDIO_OUTPUT;
+      return blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT;
   }
 }
 
-ppapi::DeviceRefData FromMediaDeviceInfo(MediaDeviceType type,
-                                         const MediaDeviceInfo& info) {
+ppapi::DeviceRefData FromMediaDeviceInfo(
+    blink::MediaDeviceType type,
+    const blink::WebMediaDeviceInfo& info) {
   ppapi::DeviceRefData data;
   data.id = info.device_id;
   // Some Flash content can't handle an empty string, so stick a space in to
@@ -72,8 +73,8 @@ ppapi::DeviceRefData FromMediaDeviceInfo(MediaDeviceType type,
 }
 
 std::vector<ppapi::DeviceRefData> FromMediaDeviceInfoArray(
-    MediaDeviceType type,
-    const MediaDeviceInfoArray& device_infos) {
+    blink::MediaDeviceType type,
+    const blink::WebMediaDeviceInfoArray& device_infos) {
   std::vector<ppapi::DeviceRefData> devices;
   devices.reserve(device_infos.size());
   for (const auto& device_info : device_infos)
@@ -119,7 +120,7 @@ void PepperMediaDeviceManager::EnumerateDevices(
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&PepperMediaDeviceManager::DevicesEnumerated,
                                 AsWeakPtr(), callback, ToMediaDeviceType(type),
-                                std::vector<MediaDeviceInfoArray>(),
+                                std::vector<blink::WebMediaDeviceInfoArray>(),
                                 std::vector<blink::mojom::VideoInputDeviceCapabilitiesPtr>()));
 #endif
 }
@@ -178,9 +179,9 @@ int PepperMediaDeviceManager::OpenDevice(PP_DeviceType_Dev type,
                                         kPepperInsecureOriginMessage);
     }
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&PepperMediaDeviceManager::OnDeviceOpened, AsWeakPtr(),
-                       request_id, false, std::string(), MediaStreamDevice()));
+        FROM_HERE, base::BindOnce(&PepperMediaDeviceManager::OnDeviceOpened,
+                                  AsWeakPtr(), request_id, false, std::string(),
+                                  blink::MediaStreamDevice()));
     return request_id;
   }
 
@@ -193,8 +194,8 @@ int PepperMediaDeviceManager::OpenDevice(PP_DeviceType_Dev type,
 #else
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&PepperMediaDeviceManager::OnDeviceOpened, AsWeakPtr(),
-                 request_id, false, std::string(), MediaStreamDevice()));
+      base::BindOnce(&PepperMediaDeviceManager::OnDeviceOpened, AsWeakPtr(),
+                     request_id, false, std::string(), blink::MediaStreamDevice()));
 #endif
 
   return request_id;
@@ -235,24 +236,24 @@ int PepperMediaDeviceManager::GetSessionID(PP_DeviceType_Dev type,
 }
 
 // static
-MediaStreamType PepperMediaDeviceManager::FromPepperDeviceType(
+blink::MediaStreamType PepperMediaDeviceManager::FromPepperDeviceType(
     PP_DeviceType_Dev type) {
   switch (type) {
     case PP_DEVICETYPE_DEV_INVALID:
-      return MEDIA_NO_SERVICE;
+      return blink::MEDIA_NO_SERVICE;
     case PP_DEVICETYPE_DEV_AUDIOCAPTURE:
-      return MEDIA_DEVICE_AUDIO_CAPTURE;
+      return blink::MEDIA_DEVICE_AUDIO_CAPTURE;
     case PP_DEVICETYPE_DEV_VIDEOCAPTURE:
-      return MEDIA_DEVICE_VIDEO_CAPTURE;
+      return blink::MEDIA_DEVICE_VIDEO_CAPTURE;
     default:
       NOTREACHED();
-      return MEDIA_NO_SERVICE;
+      return blink::MEDIA_NO_SERVICE;
   }
 }
 
 void PepperMediaDeviceManager::OnDevicesChanged(
-    MediaDeviceType type,
-    const MediaDeviceInfoArray& device_infos) {
+    blink::MediaDeviceType type,
+    const blink::WebMediaDeviceInfoArray& device_infos) {
   std::vector<ppapi::DeviceRefData> devices =
       FromMediaDeviceInfoArray(type, device_infos);
   SubscriptionList& subscriptions = device_change_subscriptions_[type];
@@ -260,11 +261,12 @@ void PepperMediaDeviceManager::OnDevicesChanged(
     subscription.second.Run(devices);
 }
 
-void PepperMediaDeviceManager::OnDeviceOpened(int request_id,
-                                              bool success,
-                                              const std::string& label,
-                                              const MediaStreamDevice& device) {
-  OpenCallbackMap::iterator iter = open_callbacks_.find(request_id);
+void PepperMediaDeviceManager::OnDeviceOpened(
+    int request_id,
+    bool success,
+    const std::string& label,
+    const blink::MediaStreamDevice& device) {
+  auto iter = open_callbacks_.find(request_id);
   if (iter == open_callbacks_.end()) {
     // The callback may have been unregistered.
     return;
@@ -283,14 +285,14 @@ void PepperMediaDeviceManager::OnDeviceOpened(int request_id,
 
 void PepperMediaDeviceManager::DevicesEnumerated(
     const DevicesCallback& client_callback,
-    MediaDeviceType type,
-    const std::vector<MediaDeviceInfoArray>& enumeration,
+    blink::MediaDeviceType type,
+    const std::vector<blink::WebMediaDeviceInfoArray>& enumeration,
     std::vector<blink::mojom::VideoInputDeviceCapabilitiesPtr>
         video_input_capabilities) {
   client_callback.Run(FromMediaDeviceInfoArray(type, enumeration[type]));
 }
 
-const mojom::MediaStreamDispatcherHostPtr&
+const blink::mojom::MediaStreamDispatcherHostPtr&
 PepperMediaDeviceManager::GetMediaStreamDispatcherHost() {
   if (!dispatcher_host_) {
     CHECK(render_frame());

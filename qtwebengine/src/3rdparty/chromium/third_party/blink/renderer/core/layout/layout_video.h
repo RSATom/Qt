@@ -48,16 +48,17 @@ class LayoutVideo final : public LayoutMedia {
 
   const char* GetName() const override { return "LayoutVideo"; }
 
+  void IntrinsicSizeChanged() override;
+
+  void UpdateAfterLayout() override;
+
  private:
   void UpdateFromElement() override;
 
-  void IntrinsicSizeChanged() override;
   LayoutSize CalculateIntrinsicSize();
   void UpdateIntrinsicSize();
 
-  void ImageChanged(WrappedImagePtr,
-                    CanDeferInvalidation,
-                    const IntRect*) override;
+  void ImageChanged(WrappedImagePtr, CanDeferInvalidation) override;
 
   bool IsOfType(LayoutObjectType type) const override {
     return type == kLayoutObjectVideo || LayoutMedia::IsOfType(type);

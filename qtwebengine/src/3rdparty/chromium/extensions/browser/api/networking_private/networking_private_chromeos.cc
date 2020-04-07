@@ -13,7 +13,7 @@
 #include "base/values.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/shill_manager_client.h"
-#include "chromeos/login/login_state.h"
+#include "chromeos/login/login_state/login_state.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/managed_network_configuration_handler.h"
 #include "chromeos/network/network_activation_handler.h"
@@ -159,6 +159,10 @@ void AppendDeviceState(
       sim_lock_status->retries_left.reset(new int(device->sim_retries_left()));
       properties->sim_lock_status = std::move(sim_lock_status);
     }
+  }
+  if (device && type == ::onc::network_config::kWiFi) {
+    properties->managed_network_available = std::make_unique<bool>(
+        GetStateHandler()->GetAvailableManagedWifiNetwork());
   }
   device_state_list->push_back(std::move(properties));
 }
@@ -847,7 +851,8 @@ void NetworkingPrivateChromeOS::GetPropertiesCallback(
     const DictionaryCallback& callback,
     const std::string& service_path,
     const base::DictionaryValue& dictionary) {
-  std::unique_ptr<base::DictionaryValue> dictionary_copy(dictionary.DeepCopy());
+  std::unique_ptr<base::DictionaryValue> dictionary_copy =
+      dictionary.CreateDeepCopy();
   AppendThirdPartyProviderName(dictionary_copy.get());
   if (managed)
     SetManagedActiveProxyValues(guid, dictionary_copy.get());

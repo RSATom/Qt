@@ -10,8 +10,9 @@
 
 #include "media/engine/apm_helpers.h"
 
-#include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_processing/include/audio_processing.h"
+#include "modules/audio_processing/include/gain_control.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -25,9 +26,6 @@ void Init(AudioProcessing* apm) {
 
   // This is the initialization which used to happen in VoEBase::Init(), but
   // which is not covered by the WVoE::ApplyOptions().
-  if (apm->echo_cancellation()->enable_drift_compensation(false) != 0) {
-    RTC_DLOG(LS_ERROR) << "Failed to disable drift compensation.";
-  }
   GainControl* gc = apm->gain_control();
   if (gc->set_analog_level_limits(kMinVolumeLevel, kMaxVolumeLevel) != 0) {
     RTC_DLOG(LS_ERROR) << "Failed to set analog level limits with minimum: "
@@ -84,55 +82,12 @@ void SetAgcStatus(AudioProcessing* apm, bool enable) {
 void SetEcStatus(AudioProcessing* apm, bool enable, EcModes mode) {
   RTC_DCHECK(apm);
   RTC_DCHECK(mode == kEcConference || mode == kEcAecm) << "mode: " << mode;
-  EchoCancellation* ec = apm->echo_cancellation();
-  EchoControlMobile* ecm = apm->echo_control_mobile();
-  if (mode == kEcConference) {
-    // Disable the AECM before enabling the AEC.
-    if (enable && ecm->is_enabled() && ecm->Enable(false) != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to disable AECM.";
-      return;
-    }
-    if (ec->Enable(enable) != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to enable/disable AEC: " << enable;
-      return;
-    }
-    if (ec->set_suppression_level(EchoCancellation::kHighSuppression) != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to set high AEC aggressiveness.";
-      return;
-    }
-  } else {
-    // Disable the AEC before enabling the AECM.
-    if (enable && ec->is_enabled() && ec->Enable(false) != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to disable AEC.";
-      return;
-    }
-    if (ecm->Enable(enable) != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to enable/disable AECM: " << enable;
-      return;
-    }
-  }
+  AudioProcessing::Config apm_config = apm->GetConfig();
+  apm_config.echo_canceller.enabled = enable;
+  apm_config.echo_canceller.mobile_mode = (mode == kEcAecm);
+  apm_config.echo_canceller.legacy_moderate_suppression_level = false;
+  apm->ApplyConfig(apm_config);
   RTC_LOG(LS_INFO) << "Echo control set to " << enable << " with mode " << mode;
-}
-
-void SetEcMetricsStatus(AudioProcessing* apm, bool enable) {
-  RTC_DCHECK(apm);
-  if ((apm->echo_cancellation()->enable_metrics(enable) != 0) ||
-      (apm->echo_cancellation()->enable_delay_logging(enable) != 0)) {
-    RTC_LOG(LS_ERROR) << "Failed to enable/disable EC metrics: " << enable;
-    return;
-  }
-  RTC_LOG(LS_INFO) << "EC metrics set to " << enable;
-}
-
-void SetAecmMode(AudioProcessing* apm, bool enable) {
-  RTC_DCHECK(apm);
-  EchoControlMobile* ecm = apm->echo_control_mobile();
-  RTC_DCHECK_EQ(EchoControlMobile::kSpeakerphone, ecm->routing_mode());
-  if (ecm->enable_comfort_noise(enable) != 0) {
-    RTC_LOG(LS_ERROR) << "Failed to enable/disable CNG: " << enable;
-    return;
-  }
-  RTC_LOG(LS_INFO) << "CNG set to " << enable;
 }
 
 void SetNsStatus(AudioProcessing* apm, bool enable) {
@@ -147,20 +102,6 @@ void SetNsStatus(AudioProcessing* apm, bool enable) {
     return;
   }
   RTC_LOG(LS_INFO) << "NS set to " << enable;
-}
-
-void SetTypingDetectionStatus(AudioProcessing* apm, bool enable) {
-  RTC_DCHECK(apm);
-  VoiceDetection* vd = apm->voice_detection();
-  if (vd->Enable(enable)) {
-    RTC_LOG(LS_ERROR) << "Failed to enable/disable VAD: " << enable;
-    return;
-  }
-  if (vd->set_likelihood(VoiceDetection::kVeryLowLikelihood)) {
-    RTC_LOG(LS_ERROR) << "Failed to set low VAD likelihood.";
-    return;
-  }
-  RTC_LOG(LS_INFO) << "VAD set to " << enable << " for typing detection.";
 }
 }  // namespace apm_helpers
 }  // namespace webrtc

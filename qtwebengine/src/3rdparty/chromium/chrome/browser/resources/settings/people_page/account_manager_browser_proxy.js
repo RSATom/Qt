@@ -12,6 +12,10 @@ cr.exportPath('settings');
 /**
  * Information for an account managed by Chrome OS AccountManager.
  * @typedef {{
+ *   id: string,
+ *   accountType: number,
+ *   isDeviceAccount: boolean,
+ *   isSignedIn: boolean,
  *   fullName: string,
  *   email: string,
  *   pic: string,
@@ -32,6 +36,24 @@ cr.define('settings', function() {
      * Triggers the 'Add account' flow.
      */
     addAccount() {}
+
+    /**
+     * Triggers the re-authentication flow for the account pointed to by
+     * |account_email|.
+     * @param {!string} account_email
+     */
+    reauthenticateAccount(account_email) {}
+
+    /**
+     * Removes |account| from Account Manager.
+     * @param {?settings.Account} account
+     */
+    removeAccount(account) {}
+
+    /**
+     * Displays the Account Manager welcome dialog if required.
+     */
+    showWelcomeDialogIfRequired() {}
   }
 
   /**
@@ -46,6 +68,21 @@ cr.define('settings', function() {
     /** @override */
     addAccount() {
       chrome.send('addAccount');
+    }
+
+    /** @override */
+    reauthenticateAccount(account_email) {
+      chrome.send('reauthenticateAccount', [account_email]);
+    }
+
+    /** @override */
+    removeAccount(account) {
+      chrome.send('removeAccount', [account]);
+    }
+
+    /** @override */
+    showWelcomeDialogIfRequired() {
+      chrome.send('showWelcomeDialogIfRequired');
     }
   }
 

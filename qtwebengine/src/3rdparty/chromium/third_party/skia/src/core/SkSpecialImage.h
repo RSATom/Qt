@@ -69,11 +69,14 @@ public:
      */
     void draw(SkCanvas*, SkScalar x, SkScalar y, const SkPaint*) const;
 
-    static sk_sp<SkSpecialImage> MakeFromImage(const SkIRect& subset,
+    static sk_sp<SkSpecialImage> MakeFromImage(GrContext*,
+                                               const SkIRect& subset,
                                                sk_sp<SkImage>,
-                                               SkColorSpace* dstColorSpace,
                                                const SkSurfaceProps* = nullptr);
     static sk_sp<SkSpecialImage> MakeFromRaster(const SkIRect& subset,
+                                                const SkBitmap&,
+                                                const SkSurfaceProps* = nullptr);
+    static sk_sp<SkSpecialImage> CopyFromRaster(const SkIRect& subset,
                                                 const SkBitmap&,
                                                 const SkSurfaceProps* = nullptr);
 #if SK_SUPPORT_GPU
@@ -91,7 +94,8 @@ public:
      */
     sk_sp<SkSpecialSurface> makeSurface(const SkImageFilter::OutputProperties& outProps,
                                         const SkISize& size,
-                                        SkAlphaType at = kPremul_SkAlphaType) const;
+                                        SkAlphaType at = kPremul_SkAlphaType,
+                                        const SkSurfaceProps* props = nullptr) const;
 
     /**
      * Create a new surface with a backend that is compatible with this special image.

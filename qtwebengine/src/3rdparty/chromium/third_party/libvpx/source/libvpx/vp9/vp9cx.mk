@@ -64,6 +64,7 @@ VP9_CX_SRCS-yes += encoder/vp9_ratectrl.c
 VP9_CX_SRCS-yes += encoder/vp9_rd.c
 VP9_CX_SRCS-yes += encoder/vp9_rdopt.c
 VP9_CX_SRCS-yes += encoder/vp9_pickmode.c
+VP9_CX_SRCS-yes += encoder/vp9_partition_models.h
 VP9_CX_SRCS-yes += encoder/vp9_segmentation.c
 VP9_CX_SRCS-yes += encoder/vp9_segmentation.h
 VP9_CX_SRCS-yes += encoder/vp9_speed_features.c
@@ -74,6 +75,7 @@ VP9_CX_SRCS-yes += encoder/vp9_svc_layercontext.c
 VP9_CX_SRCS-yes += encoder/vp9_resize.c
 VP9_CX_SRCS-yes += encoder/vp9_resize.h
 VP9_CX_SRCS-$(CONFIG_INTERNAL_STATS) += encoder/vp9_blockiness.c
+VP9_CX_SRCS-$(CONFIG_INTERNAL_STATS) += encoder/vp9_blockiness.h
 
 VP9_CX_SRCS-yes += encoder/vp9_tokenize.c
 VP9_CX_SRCS-yes += encoder/vp9_treewriter.c

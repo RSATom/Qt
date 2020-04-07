@@ -6,6 +6,7 @@
 #define SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_PROCESS_RESOURCE_COORDINATOR_H_
 
 #include "base/memory/weak_ptr.h"
+#include "base/process/process.h"
 #include "base/threading/thread_checker.h"
 #include "services/resource_coordinator/public/cpp/frame_resource_coordinator.h"
 #include "services/resource_coordinator/public/cpp/resource_coordinator_interface.h"
@@ -13,27 +14,23 @@
 
 namespace resource_coordinator {
 
-class SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_EXPORT ProcessResourceCoordinator
-    : public ResourceCoordinatorInterface<
-          mojom::ProcessCoordinationUnitPtr,
-          mojom::ProcessCoordinationUnitRequest> {
+class COMPONENT_EXPORT(SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP)
+    ProcessResourceCoordinator : public ResourceCoordinatorInterface<
+                                     mojom::ProcessCoordinationUnitPtr,
+                                     mojom::ProcessCoordinationUnitRequest> {
  public:
   ProcessResourceCoordinator(service_manager::Connector* connector);
   ~ProcessResourceCoordinator() override;
 
-  void SetCPUUsage(double usage);
-  void SetLaunchTime(base::Time launch_time);
-  void SetPID(int64_t pid);
+  // Must be called immediately after the process is launched.
+  void OnProcessLaunched(const base::Process& process);
 
-  void AddFrame(const FrameResourceCoordinator& frame);
-  void RemoveFrame(const FrameResourceCoordinator& frame);
+  void SetCPUUsage(double usage);
+  void SetProcessExitStatus(int32_t exit_status);
 
  private:
   void ConnectToService(mojom::CoordinationUnitProviderPtr& provider,
                         const CoordinationUnitID& cu_id) override;
-
-  void AddFrameByID(const CoordinationUnitID& cu_id);
-  void RemoveFrameByID(const CoordinationUnitID& cu_id);
 
   THREAD_CHECKER(thread_checker_);
 

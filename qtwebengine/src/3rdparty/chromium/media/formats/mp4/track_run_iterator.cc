@@ -9,9 +9,9 @@
 #include <limits>
 #include <memory>
 
-#include "base/macros.h"
 #include "base/numerics/checked_math.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "media/base/demuxer_memory_limit.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/media_util.h"
@@ -467,10 +467,11 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
           // If we don't have a per-sample IV, get the constant IV.
           bool is_encrypted = index == 0 ? track_encryption->is_encrypted
                                          : info_entry->is_encrypted;
-          // We only support setting the pattern values in the 'tenc' box for
-          // the track (not varying on per sample group basis).
-          // Thus we need to verify that the settings in the sample group match
-          // those in the 'tenc'.
+#if defined(IS_CHROMECAST)
+          // On Chromecast, we only support setting the pattern values in the
+          // 'tenc' box for the track (not varying on per sample group basis).
+          // Thus we need to verify that the settings in the sample group
+          // match those in the 'tenc'.
           if (is_encrypted && index != 0) {
             RCHECK_MEDIA_LOGGED(info_entry->crypt_byte_block ==
                                     track_encryption->default_crypt_byte_block,
@@ -485,6 +486,7 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
                                 "sample group does not match that in the tenc "
                                 "box . This is not currently supported.");
           }
+#endif  // defined(IS_CHROMECAST)
           if (is_encrypted && !iv_size) {
             const uint8_t constant_iv_size =
                 index == 0 ? track_encryption->default_constant_iv_size
@@ -495,7 +497,7 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
                            : info_entry->constant_iv;
             memcpy(entry.initialization_vector, constant_iv, constant_iv_size);
           }
-#endif
+#endif  // BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
         }
       }
       runs_.push_back(tri);
@@ -617,7 +619,7 @@ int64_t TrackRunIterator::GetMaxClearOffset() {
       offset = std::min(offset, aux_info_offset());
   }
   if (run_itr_ != runs_.end()) {
-    std::vector<TrackRunInfo>::const_iterator next_run = run_itr_ + 1;
+    auto next_run = run_itr_ + 1;
     if (next_run != runs_.end()) {
       offset = std::min(offset, next_run->sample_start_offset);
       if (next_run->aux_info_total_size)
@@ -719,7 +721,7 @@ std::unique_ptr<DecryptConfig> TrackRunIterator::GetDecryptConfig() {
     if (ApplyConstantIv(sample_idx, &sample_encryption_entry)) {
       std::string iv(reinterpret_cast<const char*>(
                          sample_encryption_entry.initialization_vector),
-                     arraysize(sample_encryption_entry.initialization_vector));
+                     base::size(sample_encryption_entry.initialization_vector));
       switch (run_itr_->encryption_scheme.mode()) {
         case EncryptionScheme::CIPHER_MODE_UNENCRYPTED:
           return nullptr;
@@ -742,7 +744,7 @@ std::unique_ptr<DecryptConfig> TrackRunIterator::GetDecryptConfig() {
       run_itr_->sample_encryption_entries[sample_idx];
   std::string iv(reinterpret_cast<const char*>(
                      sample_encryption_entry.initialization_vector),
-                 arraysize(sample_encryption_entry.initialization_vector));
+                 base::size(sample_encryption_entry.initialization_vector));
 
   size_t total_size = 0;
   if (!sample_encryption_entry.subsamples.empty() &&

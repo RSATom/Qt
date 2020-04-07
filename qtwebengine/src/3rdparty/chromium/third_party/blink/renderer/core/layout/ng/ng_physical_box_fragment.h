@@ -13,37 +13,45 @@
 
 namespace blink {
 
+class NGBoxFragmentBuilder;
+enum class NGOutlineType;
+
 class CORE_EXPORT NGPhysicalBoxFragment final
     : public NGPhysicalContainerFragment {
  public:
-  // This modifies the passed-in children vector.
-  NGPhysicalBoxFragment(LayoutObject* layout_object,
-                        const ComputedStyle& style,
-                        NGStyleVariant style_variant,
-                        NGPhysicalSize size,
-                        Vector<scoped_refptr<NGPhysicalFragment>>& children,
-                        const NGPixelSnappedPhysicalBoxStrut& padding,
-                        const NGPhysicalOffsetRect& contents_ink_overflow,
-                        Vector<NGBaseline>& baselines,
-                        NGBoxType box_type,
-                        bool is_old_layout_root,
-                        unsigned,  // NGBorderEdges::Physical
-                        scoped_refptr<NGBreakToken> break_token = nullptr);
+  static scoped_refptr<const NGPhysicalBoxFragment> Create(
+      NGBoxFragmentBuilder* builder,
+      WritingMode block_or_line_writing_mode);
 
-  // True if this is an anonymous inline box for ::first-line.
-  bool IsFirstLineAnonymousInlineBox() const;
+  ~NGPhysicalBoxFragment() {
+    for (const NGLinkStorage& child : Children())
+      child.fragment->Release();
+  }
 
-  const NGBaseline* Baseline(const NGBaselineRequest&) const;
+  ChildLinkList Children() const final {
+    return ChildLinkList(num_children_, &children_[0]);
+  }
 
-  const NGPixelSnappedPhysicalBoxStrut& Padding() const { return padding_; }
+  base::Optional<LayoutUnit> Baseline(const NGBaselineRequest& request) const {
+    return baselines_.Offset(request);
+  }
+
+  const NGPhysicalBoxStrut Borders() const { return borders_; }
+
+  const NGPhysicalBoxStrut Padding() const { return padding_; }
+
+  NGPixelSnappedPhysicalBoxStrut PixelSnappedPadding() const {
+    return padding_.SnapToDevicePixels();
+  }
 
   bool HasSelfPaintingLayer() const;
-  bool ChildrenInline() const;
+  bool ChildrenInline() const { return children_inline_; }
 
   // True if overflow != 'visible', except for certain boxes that do not allow
   // overflow clip; i.e., AllowOverflowClip() returns false.
   bool HasOverflowClip() const;
   bool ShouldClipOverflow() const;
+  bool HasControlClip() const;
 
   NGPhysicalOffsetRect ScrollableOverflow() const;
 
@@ -63,24 +71,39 @@ class CORE_EXPORT NGPhysicalBoxFragment final
   // Ink overflow including contents, in the local coordinates.
   NGPhysicalOffsetRect InkOverflow(bool apply_clip) const;
 
-  void AddSelfOutlineRects(Vector<LayoutRect>*,
-                           const LayoutPoint& additional_offset) const;
+  // Ink overflow of children in local coordinates.
+  NGPhysicalOffsetRect ContentsInkOverflow() const;
 
-  UBiDiLevel BidiLevel() const override;
+  NGPhysicalOffsetRect ComputeContentsInkOverflow() const;
 
-  scoped_refptr<NGPhysicalFragment> CloneWithoutOffset() const;
+  // Fragment offset is this fragment's offset from parent.
+  // Needed to compensate for LayoutInline Legacy code offsets.
+  void AddSelfOutlineRects(Vector<LayoutRect>* outline_rects,
+                           const LayoutPoint& additional_offset,
+                           NGOutlineType include_block_overflows) const;
+
+  UBiDiLevel BidiLevel() const;
+
+  scoped_refptr<const NGPhysicalFragment> CloneWithoutOffset() const;
 
  private:
-  Vector<NGBaseline> baselines_;
-  NGPixelSnappedPhysicalBoxStrut padding_;
-  NGPhysicalOffsetRect descendant_outlines_;
+  NGPhysicalBoxFragment(NGBoxFragmentBuilder* builder,
+                        WritingMode block_or_line_writing_mode);
+
+  NGBaselineList baselines_;
+  NGPhysicalBoxStrut borders_;
+  NGPhysicalBoxStrut padding_;
+  NGLinkStorage children_[];
 };
 
-DEFINE_TYPE_CASTS(NGPhysicalBoxFragment,
-                  NGPhysicalFragment,
-                  fragment,
-                  fragment->Type() == NGPhysicalFragment::kFragmentBox,
-                  fragment.Type() == NGPhysicalFragment::kFragmentBox);
+DEFINE_TYPE_CASTS(
+    NGPhysicalBoxFragment,
+    NGPhysicalFragment,
+    fragment,
+    (fragment->Type() == NGPhysicalFragment::kFragmentBox ||
+     fragment->Type() == NGPhysicalFragment::kFragmentRenderedLegend),
+    (fragment.Type() == NGPhysicalFragment::kFragmentBox ||
+     fragment.Type() == NGPhysicalFragment::kFragmentRenderedLegend));
 
 }  // namespace blink
 

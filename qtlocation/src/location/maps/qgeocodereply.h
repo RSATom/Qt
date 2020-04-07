@@ -85,6 +85,7 @@ Q_SIGNALS:
 
 protected:
     explicit QGeoCodeReply(QObject *parent = nullptr);
+    explicit QGeoCodeReply(QGeoCodeReplyPrivate &dd, QObject *parent = nullptr);
 
     void setError(Error error, const QString &errorString);
     void setFinished(bool finished);
@@ -99,6 +100,7 @@ protected:
 private:
     QGeoCodeReplyPrivate *d_ptr;
     Q_DISABLE_COPY(QGeoCodeReply)
+    friend class QGeoCodeReplyPrivate;
 };
 
 QT_END_NAMESPACE

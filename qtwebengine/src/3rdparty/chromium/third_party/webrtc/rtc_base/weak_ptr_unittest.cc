@@ -8,12 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
 #include <string>
 
+#include "absl/memory/memory.h"
 #include "rtc_base/event.h"
-#include "rtc_base/gunit.h"
 #include "rtc_base/task_queue.h"
 #include "rtc_base/weak_ptr.h"
+#include "test/gtest.h"
 
 namespace rtc {
 
@@ -202,7 +204,7 @@ template <class T>
 std::unique_ptr<T> NewObjectCreatedOnTaskQueue() {
   std::unique_ptr<T> obj;
   TaskQueue queue("NewObjectCreatedOnTaskQueue");
-  Event event(false, false);
+  Event event;
   queue.PostTask([&event, &obj] {
     obj.reset(new T());
     event.Set();
@@ -229,7 +231,7 @@ TEST(WeakPtrTest, WeakPtrInitiateAndUseOnDifferentThreads) {
   // Create weak ptr on main thread
   WeakPtr<Target> weak_ptr = target->factory.GetWeakPtr();
   rtc::TaskQueue queue("queue");
-  rtc::Event done(false, false);
+  rtc::Event done;
   queue.PostTask([&] {
     // Dereference and invalide weak_ptr on another thread.
     EXPECT_EQ(weak_ptr.get(), target.get());

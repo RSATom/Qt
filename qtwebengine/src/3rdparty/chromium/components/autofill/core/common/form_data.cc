@@ -17,7 +17,7 @@ namespace autofill {
 
 namespace {
 
-const int kPickleVersion = 6;
+const int kFormDataPickleVersion = 6;
 
 bool ReadGURL(base::PickleIterator* iter, GURL* url) {
   std::string spec;
@@ -72,12 +72,14 @@ FormData::FormData() : is_form_tag(true), is_formless_checkout(false) {}
 
 FormData::FormData(const FormData& data)
     : name(data.name),
+      button_titles(data.button_titles),
       origin(data.origin),
       action(data.action),
       main_frame_origin(data.main_frame_origin),
       is_form_tag(data.is_form_tag),
       is_formless_checkout(data.is_formless_checkout),
       unique_renderer_id(data.unique_renderer_id),
+      submission_event(data.submission_event),
       fields(data.fields),
       username_predictions(data.username_predictions) {}
 
@@ -123,6 +125,7 @@ bool FormData::DynamicallySameFormAs(const FormData& form) const {
 bool FormData::operator==(const FormData& form) const {
   return name == form.name && origin == form.origin && action == form.action &&
          unique_renderer_id == form.unique_renderer_id &&
+         submission_event == form.submission_event &&
          is_form_tag == form.is_form_tag &&
          is_formless_checkout == form.is_formless_checkout &&
          fields == form.fields &&
@@ -152,7 +155,7 @@ std::ostream& operator<<(std::ostream& os, const FormData& form) {
 }
 
 void SerializeFormData(const FormData& form_data, base::Pickle* pickle) {
-  pickle->WriteInt(kPickleVersion);
+  pickle->WriteInt(kFormDataPickleVersion);
   pickle->WriteString16(form_data.name);
   pickle->WriteString(form_data.origin.spec());
   pickle->WriteString(form_data.action.spec());
@@ -179,7 +182,7 @@ bool DeserializeFormData(base::PickleIterator* iter, FormData* form_data) {
     return false;
   }
 
-  if (version < 1 || version > kPickleVersion) {
+  if (version < 1 || version > kFormDataPickleVersion) {
     DVLOG(1) << "Unknown FormData pickle version " << version;
     return false;
   }

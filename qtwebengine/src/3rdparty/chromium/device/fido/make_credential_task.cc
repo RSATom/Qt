@@ -9,9 +9,6 @@
 #include "base/bind.h"
 #include "device/base/features.h"
 #include "device/fido/ctap2_device_operation.h"
-#include "device/fido/ctap_empty_authenticator_request.h"
-#include "device/fido/device_response_converter.h"
-#include "device/fido/fido_parsing_utils.h"
 #include "device/fido/u2f_command_constructor.h"
 #include "device/fido/u2f_register_operation.h"
 
@@ -28,10 +25,11 @@ namespace {
 // is not required and the device supports U2F protocol.
 // TODO(hongjunchoi): Remove this once ClientPin command is implemented.
 // See: https://crbug.com/870892
-bool IsClientPinOptionCompatible(const FidoDevice* device,
-                                 const CtapMakeCredentialRequest& request) {
-  if (request.user_verification_required())
-    return true;
+bool ShouldUseU2fBecauseCtapRequiresClientPin(
+    const FidoDevice* device,
+    const CtapMakeCredentialRequest& request) {
+  if (request.user_verification() == UserVerificationRequirement::kRequired)
+    return false;
 
   DCHECK(device && device->device_info());
   bool client_pin_set =
@@ -39,7 +37,7 @@ bool IsClientPinOptionCompatible(const FidoDevice* device,
       AuthenticatorSupportedOptions::ClientPinAvailability::kSupportedAndPinSet;
   bool supports_u2f = base::ContainsKey(device->device_info()->versions(),
                                         ProtocolVersion::kU2f);
-  return !client_pin_set || !supports_u2f;
+  return client_pin_set && supports_u2f;
 }
 
 }  // namespace
@@ -56,11 +54,12 @@ MakeCredentialTask::MakeCredentialTask(
 MakeCredentialTask::~MakeCredentialTask() = default;
 
 void MakeCredentialTask::StartTask() {
-  if (base::FeatureList::IsEnabled(kNewCtap2Device) &&
-      device()->supported_protocol() == ProtocolVersion::kCtap &&
-      IsClientPinOptionCompatible(device(), request_parameter_)) {
+  if (device()->supported_protocol() == ProtocolVersion::kCtap &&
+      !request_parameter_.is_u2f_only() &&
+      !ShouldUseU2fBecauseCtapRequiresClientPin(device(), request_parameter_)) {
     MakeCredential();
   } else {
+    device()->set_supported_protocol(ProtocolVersion::kU2f);
     U2fRegister();
   }
 }
@@ -68,10 +67,9 @@ void MakeCredentialTask::StartTask() {
 void MakeCredentialTask::MakeCredential() {
   register_operation_ = std::make_unique<Ctap2DeviceOperation<
       CtapMakeCredentialRequest, AuthenticatorMakeCredentialResponse>>(
-      device(), request_parameter_,
-      base::BindOnce(&MakeCredentialTask::OnCtapMakeCredentialResponseReceived,
-                     weak_factory_.GetWeakPtr()),
-      base::BindOnce(&ReadCTAPMakeCredentialResponse));
+      device(), request_parameter_, std::move(callback_),
+      base::BindOnce(&ReadCTAPMakeCredentialResponse,
+                     device()->DeviceTransport()));
   register_operation_->Start();
 }
 
@@ -82,33 +80,10 @@ void MakeCredentialTask::U2fRegister() {
     return;
   }
 
+  DCHECK_EQ(ProtocolVersion::kU2f, device()->supported_protocol());
   register_operation_ = std::make_unique<U2fRegisterOperation>(
-      device(), request_parameter_,
-      base::BindOnce(&MakeCredentialTask::OnCtapMakeCredentialResponseReceived,
-                     weak_factory_.GetWeakPtr()));
+      device(), request_parameter_, std::move(callback_));
   register_operation_->Start();
-}
-
-void MakeCredentialTask::OnCtapMakeCredentialResponseReceived(
-    CtapDeviceResponseCode return_code,
-    base::Optional<AuthenticatorMakeCredentialResponse> response_data) {
-  if (return_code != CtapDeviceResponseCode::kSuccess) {
-    std::move(callback_).Run(return_code, base::nullopt);
-    return;
-  }
-
-  const auto rp_id_hash =
-      fido_parsing_utils::CreateSHA256Hash(request_parameter_.rp().rp_id());
-
-  // TODO(martinkr): CheckRpIdHash invocation needs to move into the Request
-  // handler. See https://crbug.com/863988.
-  if (!response_data || response_data->GetRpIdHash() != rp_id_hash) {
-    std::move(callback_).Run(CtapDeviceResponseCode::kCtap2ErrOther,
-                             base::nullopt);
-    return;
-  }
-
-  std::move(callback_).Run(return_code, std::move(response_data));
 }
 
 }  // namespace device

@@ -28,6 +28,7 @@ using GrGLBindRenderbufferFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrG
 using GrGLBindTextureFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLuint texture);
 using GrGLBindFragDataLocationFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint program, GrGLuint colorNumber, const GrGLchar* name);
 using GrGLBindFragDataLocationIndexedFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint program, GrGLuint colorNumber, GrGLuint index, const GrGLchar* name);
+using GrGLBindSamplerFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint unit, GrGLuint sampler);
 using GrGLBindVertexArrayFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint array);
 using GrGLBlendBarrierFn = GrGLvoid GR_GL_FUNCTION_TYPE();
 using GrGLBlendColorFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLclampf red, GrGLclampf green, GrGLclampf blue, GrGLclampf alpha);
@@ -55,6 +56,7 @@ using GrGLDeleteFramebuffersFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, const
 using GrGLDeleteProgramFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint program);
 using GrGLDeleteQueriesFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, const GrGLuint* ids);
 using GrGLDeleteRenderbuffersFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, const GrGLuint* renderbuffers);
+using GrGLDeleteSamplersFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei count, const GrGLuint* samplers);
 using GrGLDeleteShaderFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint shader);
 using GrGLDeleteTexturesFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, const GrGLuint* textures);
 using GrGLDeleteVertexArraysFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, const GrGLuint* arrays);
@@ -85,6 +87,7 @@ using GrGLGenFramebuffersFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, GrGLuint
 using GrGLGenerateMipmapFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target);
 using GrGLGenQueriesFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, GrGLuint* ids);
 using GrGLGenRenderbuffersFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, GrGLuint* renderbuffers);
+using GrGLGenSamplersFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei count, GrGLuint* samplers);
 using GrGLGenTexturesFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, GrGLuint* textures);
 using GrGLGenVertexArraysFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei n, GrGLuint* arrays);
 using GrGLGetBufferParameterivFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum pname, GrGLint* params);
@@ -135,15 +138,12 @@ using GrGLReadPixelsFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLint x, GrGLint y, GrGL
 using GrGLRenderbufferStorageFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum internalformat, GrGLsizei width, GrGLsizei height);
 using GrGLRenderbufferStorageMultisampleFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLsizei samples, GrGLenum internalformat, GrGLsizei width, GrGLsizei height);
 using GrGLResolveMultisampleFramebufferFn = GrGLvoid GR_GL_FUNCTION_TYPE();
+using GrGLSamplerParameteriFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint sampler, GrGLenum pname, GrGLint params);
+using GrGLSamplerParameterivFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint sampler, GrGLenum pname, const GrGLint* params);
 using GrGLScissorFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLint x, GrGLint y, GrGLsizei width, GrGLsizei height);
 // GL_CHROMIUM_bind_uniform_location
 using GrGLBindUniformLocationFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint program, GrGLint location, const char* name);
-
-#if GR_GL_USE_NEW_SHADER_SOURCE_SIGNATURE
 using GrGLShaderSourceFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint shader, GrGLsizei count, const char* const* str, const GrGLint* length);
-#else
-using GrGLShaderSourceFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint shader, GrGLsizei count, const char** str, const GrGLint* length);
-#endif
 using GrGLStencilFuncFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum func, GrGLint ref, GrGLuint mask);
 using GrGLStencilFuncSeparateFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum face, GrGLenum func, GrGLint ref, GrGLuint mask);
 using GrGLStencilMaskFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint mask);
@@ -153,6 +153,8 @@ using GrGLStencilOpSeparateFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum face, GrGL
 using GrGLTexBufferFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum internalformat, GrGLuint buffer);
 using GrGLTexBufferRangeFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum internalformat, GrGLuint buffer, GrGLintptr offset, GrGLsizeiptr size);
 using GrGLTexImage2DFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLint level, GrGLint internalformat, GrGLsizei width, GrGLsizei height, GrGLint border, GrGLenum format, GrGLenum type, const GrGLvoid* pixels);
+using GrGLTexParameterfFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum pname, GrGLfloat param);
+using GrGLTexParameterfvFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum pname, const GrGLfloat* params);
 using GrGLTexParameteriFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum pname, GrGLint param);
 using GrGLTexParameterivFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum pname, const GrGLint* params);
 using GrGLTexStorage2DFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLsizei levels, GrGLenum internalformat, GrGLsizei width, GrGLsizei height);
@@ -229,9 +231,6 @@ using GrGLCoverageModulationFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum component
 using GrGLMultiDrawArraysIndirectFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum mode, const GrGLvoid* indirect, GrGLsizei drawcount, GrGLsizei stride);
 using GrGLMultiDrawElementsIndirectFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum mode, GrGLenum type, const GrGLvoid* indirect, GrGLsizei drawcount, GrGLsizei stride);
 
-/* ARB_sample_shading */
-using GrGLMinSampleShadingFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLfloat value);
-
 /* ARB_sync */
 using GrGLFenceSyncFn = GrGLsync GR_GL_FUNCTION_TYPE(GrGLenum condition, GrGLbitfield flags);
 using GrGLIsSyncFn = GrGLboolean GR_GL_FUNCTION_TYPE(GrGLsync sync);
@@ -260,9 +259,6 @@ using GrEGLGetCurrentDisplayFn = GrEGLDisplay GR_GL_FUNCTION_TYPE();
 using GrEGLCreateImageFn = GrEGLImage GR_GL_FUNCTION_TYPE(GrEGLDisplay dpy, GrEGLContext ctx, GrEGLenum target, GrEGLClientBuffer buffer, const GrEGLint* attrib_list);
 using GrEGLDestroyImageFn = GrEGLBoolean GR_GL_FUNCTION_TYPE(GrEGLDisplay dpy, GrEGLImage image);
 }  // extern "C"
-
-// Legacy name used in Chrome. TODO: Remove when removed from Chrome.
-using GrGLGetStringProc = GrGLGetStringFn;
 
 // This is a lighter-weight std::function, trying to reduce code size and compile time
 // by only supporting the exact use cases we require.
@@ -303,9 +299,6 @@ public:
         };
     }
 
-    // See other (temporary) specialization below.
-    GrGLFunction(const GrGLFunction<R(*)(Args...)>& that);
-
     R operator()(Args... args) const {
         SkASSERT(fCall);
         return fCall(fBuf, std::forward<Args>(args)...);
@@ -320,23 +313,5 @@ private:
     Call* fCall = nullptr;
     size_t fBuf[4];
 };
-
-/**
- * Chrome instantiates GrGLFunctions on function pointers that don't include GR_GL_FUNCTION_TYPE.
- * This can go away after Chrome is updated to use the above specialization.
- */
-template <typename R, typename... Args>
-class GrGLFunction<R (*)(Args...)> : public GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> {
-public:
-    template <typename Closure>
-    GrGLFunction(Closure closure)
-            : GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)>(std::move(closure)) {}
-};
-
-template <typename R, typename... Args>
-GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)>::GrGLFunction(const GrGLFunction<R (*)(Args...)>& that)
-        : fCall(that.fCall) {
-    memcpy(fBuf, that.fBuf, sizeof(fBuf));
-}
 
 #endif

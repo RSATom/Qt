@@ -8,16 +8,17 @@
 #include "src/objects/module.h"
 
 #include "src/accessors.h"
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/ast/modules.h"
 #include "src/objects-inl.h"
+#include "src/objects/cell-inl.h"
 #include "src/objects/hash-table-inl.h"
+#include "src/objects/js-generator-inl.h"
 #include "src/objects/module-inl.h"
+#include "src/ostreams.h"
 
 namespace v8 {
 namespace internal {
-
-namespace {
 
 struct ModuleHandleHash {
   V8_INLINE size_t operator()(Handle<Module> module) const {
@@ -81,8 +82,6 @@ class UnorderedStringMap
                 zone)) {}
 };
 
-}  // anonymous namespace
-
 class Module::ResolveSet
     : public std::unordered_map<
           Handle<Module>, UnorderedStringSet*, ModuleHandleHash,
@@ -105,21 +104,17 @@ class Module::ResolveSet
   Zone* zone_;
 };
 
-namespace {
-
-int ExportIndex(int cell_index) {
+int Module::ExportIndex(int cell_index) {
   DCHECK_EQ(ModuleDescriptor::GetCellIndexKind(cell_index),
             ModuleDescriptor::kExport);
   return cell_index - 1;
 }
 
-int ImportIndex(int cell_index) {
+int Module::ImportIndex(int cell_index) {
   DCHECK_EQ(ModuleDescriptor::GetCellIndexKind(cell_index),
             ModuleDescriptor::kImport);
   return -cell_index - 1;
 }
-
-}  // anonymous namespace
 
 void Module::CreateIndirectExport(Isolate* isolate, Handle<Module> module,
                                   Handle<String> name,
@@ -146,9 +141,9 @@ void Module::CreateExport(Isolate* isolate, Handle<Module> module,
   module->set_exports(*exports);
 }
 
-Cell* Module::GetCell(int cell_index) {
+Cell Module::GetCell(int cell_index) {
   DisallowHeapAllocation no_gc;
-  Object* cell;
+  Object cell;
   switch (ModuleDescriptor::GetCellIndexKind(cell_index)) {
     case ModuleDescriptor::kImport:
       cell = regular_imports()->get(ImportIndex(cell_index));
@@ -176,7 +171,7 @@ void Module::StoreVariable(Handle<Module> module, int cell_index,
 }
 
 #ifdef DEBUG
-void Module::PrintStatusTransition(Isolate* isolate, Status new_status) {
+void Module::PrintStatusTransition(Status new_status) {
   if (FLAG_trace_module_status) {
     StdoutStream os;
     os << "Changing module status from " << status() << " to " << new_status
@@ -189,12 +184,12 @@ void Module::PrintStatusTransition(Isolate* isolate, Status new_status) {
 }
 #endif  // DEBUG
 
-void Module::SetStatus(Isolate* isolate, Status new_status) {
+void Module::SetStatus(Status new_status) {
   DisallowHeapAllocation no_alloc;
   DCHECK_LE(status(), new_status);
   DCHECK_NE(new_status, Module::kErrored);
 #ifdef DEBUG
-  PrintStatusTransition(isolate, new_status);
+  PrintStatusTransition(new_status);
 #endif  // DEBUG
   set_status(new_status);
 }
@@ -240,7 +235,7 @@ void Module::Reset(Isolate* isolate, Handle<Module> module) {
     module->set_code(JSFunction::cast(module->code())->shared());
   }
 #ifdef DEBUG
-  module->PrintStatusTransition(isolate, kUninstantiated);
+  module->PrintStatusTransition(kUninstantiated);
 #endif  // DEBUG
   module->set_status(kUninstantiated);
   module->set_exports(*exports);
@@ -254,25 +249,25 @@ void Module::Reset(Isolate* isolate, Handle<Module> module) {
 void Module::RecordError(Isolate* isolate) {
   DisallowHeapAllocation no_alloc;
   DCHECK(exception()->IsTheHole(isolate));
-  Object* the_exception = isolate->pending_exception();
+  Object the_exception = isolate->pending_exception();
   DCHECK(!the_exception->IsTheHole(isolate));
 
   set_code(info());
 #ifdef DEBUG
-  PrintStatusTransition(isolate, Module::kErrored);
+  PrintStatusTransition(Module::kErrored);
 #endif  // DEBUG
   set_status(Module::kErrored);
   set_exception(the_exception);
 }
 
-Object* Module::GetException() {
+Object Module::GetException() {
   DisallowHeapAllocation no_alloc;
   DCHECK_EQ(status(), Module::kErrored);
   DCHECK(!exception()->IsTheHole());
   return exception();
 }
 
-SharedFunctionInfo* Module::GetSharedFunctionInfo() const {
+SharedFunctionInfo Module::GetSharedFunctionInfo() const {
   DisallowHeapAllocation no_alloc;
   DCHECK_NE(status(), Module::kEvaluating);
   DCHECK_NE(status(), Module::kEvaluated);
@@ -476,7 +471,7 @@ bool Module::PrepareInstantiate(Isolate* isolate, Handle<Module> module,
   DCHECK_NE(module->status(), kEvaluating);
   DCHECK_NE(module->status(), kInstantiating);
   if (module->status() >= kPreInstantiating) return true;
-  module->SetStatus(isolate, kPreInstantiating);
+  module->SetStatus(kPreInstantiating);
   STACK_CHECK(isolate, false);
 
   // Obtain requested modules.
@@ -571,7 +566,7 @@ bool Module::MaybeTransitionComponent(Isolate* isolate, Handle<Module> module,
       if (new_status == kInstantiated) {
         if (!RunInitializationCode(isolate, ancestor)) return false;
       }
-      ancestor->SetStatus(isolate, new_status);
+      ancestor->SetStatus(new_status);
     } while (*ancestor != *module);
   }
   return true;
@@ -593,7 +588,7 @@ bool Module::FinishInstantiate(Isolate* isolate, Handle<Module> module,
       isolate->factory()->NewFunctionFromSharedFunctionInfo(
           shared, isolate->native_context());
   module->set_code(*function);
-  module->SetStatus(isolate, kInstantiating);
+  module->SetStatus(kInstantiating);
   module->set_dfs_index(*dfs_index);
   module->set_dfs_ancestor_index(*dfs_index);
   stack->push_front(module);
@@ -715,7 +710,7 @@ MaybeHandle<Object> Module::Evaluate(Isolate* isolate, Handle<Module> module,
                                       isolate);
   module->set_code(
       generator->function()->shared()->scope_info()->ModuleDescriptorInfo());
-  module->SetStatus(isolate, kEvaluating);
+  module->SetStatus(kEvaluating);
   module->set_dfs_index(*dfs_index);
   module->set_dfs_ancestor_index(*dfs_index);
   stack->push_front(module);
@@ -752,14 +747,10 @@ MaybeHandle<Object> Module::Evaluate(Isolate* isolate, Handle<Module> module,
   ASSIGN_RETURN_ON_EXCEPTION(
       isolate, result, Execution::Call(isolate, resume, generator, 0, nullptr),
       Object);
-  DCHECK(static_cast<JSIteratorResult*>(JSObject::cast(*result))
-             ->done()
-             ->BooleanValue(isolate));
+  DCHECK(JSIteratorResult::cast(*result)->done()->BooleanValue(isolate));
 
   CHECK(MaybeTransitionComponent(isolate, module, stack, kEvaluated));
-  return handle(
-      static_cast<JSIteratorResult*>(JSObject::cast(*result))->value(),
-      isolate);
+  return handle(JSIteratorResult::cast(*result)->value(), isolate);
 }
 
 namespace {
@@ -802,7 +793,7 @@ void FetchStarExports(Isolate* isolate, Handle<Module> module, Zone* zone,
     Handle<ObjectHashTable> requested_exports(requested_module->exports(),
                                               isolate);
     for (int i = 0, n = requested_exports->Capacity(); i < n; ++i) {
-      Object* key;
+      Object key;
       if (!requested_exports->ToKey(roots, i, &key)) continue;
       Handle<String> name(String::cast(key), isolate);
 
@@ -863,7 +854,7 @@ Handle<JSModuleNamespace> Module::GetModuleNamespace(Isolate* isolate,
   ZoneVector<Handle<String>> names(&zone);
   names.reserve(exports->NumberOfElements());
   for (int i = 0, n = exports->Capacity(); i < n; ++i) {
-    Object* key;
+    Object key;
     if (!exports->ToKey(roots, i, &key)) continue;
     names.push_back(handle(String::cast(key), isolate));
   }
@@ -899,7 +890,10 @@ Handle<JSModuleNamespace> Module::GetModuleNamespace(Isolate* isolate,
   // - We can store a pointer from the map back to the namespace object.
   //   Turbofan can use this for inlining the access.
   JSObject::OptimizeAsPrototype(ns);
-  Map::GetOrCreatePrototypeWeakCell(ns, isolate);
+
+  Handle<PrototypeInfo> proto_info =
+      Map::GetOrCreatePrototypeInfo(Handle<JSObject>::cast(ns), isolate);
+  proto_info->set_module_namespace(*ns);
   return ns;
 }
 

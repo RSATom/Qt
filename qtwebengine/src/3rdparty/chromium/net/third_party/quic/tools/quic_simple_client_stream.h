@@ -5,7 +5,7 @@
 #ifndef NET_THIRD_PARTY_QUIC_TOOLS_QUIC_SIMPLE_CLIENT_STREAM_H_
 #define NET_THIRD_PARTY_QUIC_TOOLS_QUIC_SIMPLE_CLIENT_STREAM_H_
 
-#include "net/third_party/quic/core/quic_spdy_client_stream.h"
+#include "net/third_party/quic/core/http/quic_spdy_client_stream.h"
 
 namespace quic {
 
@@ -13,14 +13,21 @@ class QuicSimpleClientStream : public QuicSpdyClientStream {
  public:
   QuicSimpleClientStream(QuicStreamId id,
                          QuicSpdyClientSession* session,
+                         StreamType type,
                          bool drop_response_body)
-      : QuicSpdyClientStream(id, session),
-        drop_response_body_(drop_response_body) {}
+      : QuicSpdyClientStream(id, session, type),
+        drop_response_body_(drop_response_body),
+        last_stop_sending_code_(0) {}
+  void OnBodyAvailable() override;
+  void OnStopSending(uint16_t code) override;
 
-  void OnDataAvailable() override;
+  uint16_t last_stop_sending_code() { return last_stop_sending_code_; }
 
  private:
   const bool drop_response_body_;
+  // Application code value that was in the most recently received
+  // STOP_SENDING frame for this stream.
+  uint16_t last_stop_sending_code_;
 };
 
 }  // namespace quic

@@ -4,8 +4,9 @@
 
 #include "src/accessors.h"
 
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/contexts.h"
+#include "src/counters.h"
 #include "src/deoptimizer.h"
 #include "src/execution.h"
 #include "src/frames-inl.h"
@@ -13,6 +14,7 @@
 #include "src/isolate-inl.h"
 #include "src/messages.h"
 #include "src/objects/api-callbacks.h"
+#include "src/objects/js-array-inl.h"
 #include "src/objects/module-inl.h"
 #include "src/property-details.h"
 #include "src/prototype.h"
@@ -30,7 +32,8 @@ Handle<AccessorInfo> Accessors::MakeAccessor(
   info->set_is_special_data_property(true);
   info->set_is_sloppy(false);
   info->set_replace_on_access(false);
-  info->set_has_no_side_effect(false);
+  info->set_getter_side_effect_type(SideEffectType::kHasSideEffect);
+  info->set_setter_side_effect_type(SideEffectType::kHasSideEffect);
   name = factory->InternalizeName(name);
   info->set_name(*name);
   Handle<Object> get = v8::FromCData(isolate, getter);
@@ -69,7 +72,7 @@ bool Accessors::IsJSObjectFieldAccessor(Isolate* isolate, Handle<Map> map,
     default:
       if (map->instance_type() < FIRST_NONSTRING_TYPE) {
         return CheckForName(isolate, name, isolate->factory()->length_string(),
-                            String::kLengthOffset, FieldIndex::kTagged, index);
+                            String::kLengthOffset, FieldIndex::kWord32, index);
       }
 
       return false;
@@ -77,8 +80,7 @@ bool Accessors::IsJSObjectFieldAccessor(Isolate* isolate, Handle<Map> map,
 }
 
 V8_WARN_UNUSED_RESULT MaybeHandle<Object>
-Accessors::ReplaceAccessorWithDataProperty(Isolate* isolate,
-                                           Handle<Object> receiver,
+Accessors::ReplaceAccessorWithDataProperty(Handle<Object> receiver,
                                            Handle<JSObject> holder,
                                            Handle<Name> name,
                                            Handle<Object> value) {
@@ -112,8 +114,8 @@ void Accessors::ReconfigureToDataProperty(
       Handle<JSObject>::cast(Utils::OpenHandle(*info.Holder()));
   Handle<Name> name = Utils::OpenHandle(*key);
   Handle<Object> value = Utils::OpenHandle(*val);
-  MaybeHandle<Object> result = Accessors::ReplaceAccessorWithDataProperty(
-      isolate, receiver, holder, name, value);
+  MaybeHandle<Object> result =
+      Accessors::ReplaceAccessorWithDataProperty(receiver, holder, name, value);
   if (result.is_null()) {
     isolate->OptionalRescheduleException(false);
   } else {
@@ -132,7 +134,7 @@ void Accessors::ArgumentsIteratorGetter(
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   DisallowHeapAllocation no_allocation;
   HandleScope scope(isolate);
-  Object* result = isolate->native_context()->array_values_iterator();
+  Object result = isolate->native_context()->array_values_iterator();
   info.GetReturnValue().Set(Utils::ToLocal(Handle<Object>(result, isolate)));
 }
 
@@ -155,8 +157,8 @@ void Accessors::ArrayLengthGetter(
                               RuntimeCallCounterId::kArrayLengthGetter);
   DisallowHeapAllocation no_allocation;
   HandleScope scope(isolate);
-  JSArray* holder = JSArray::cast(*Utils::OpenHandle(*info.Holder()));
-  Object* result = holder->length();
+  JSArray holder = JSArray::cast(*Utils::OpenHandle(*info.Holder()));
+  Object result = holder->length();
   info.GetReturnValue().Set(Utils::ToLocal(Handle<Object>(result, isolate)));
 }
 
@@ -234,7 +236,7 @@ void Accessors::ModuleNamespaceEntryGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   HandleScope scope(isolate);
-  JSModuleNamespace* holder =
+  JSModuleNamespace holder =
       JSModuleNamespace::cast(*Utils::OpenHandle(*info.Holder()));
   Handle<Object> result;
   if (!holder
@@ -290,13 +292,13 @@ void Accessors::StringLengthGetter(
   // v8::Object, but internally we have callbacks on entities which are higher
   // in the hierarchy, in this case for String values.
 
-  Object* value = *Utils::OpenHandle(*v8::Local<v8::Value>(info.This()));
+  Object value = *Utils::OpenHandle(*v8::Local<v8::Value>(info.This()));
   if (!value->IsString()) {
     // Not a string value. That means that we either got a String wrapper or
     // a Value with a String wrapper in its prototype chain.
     value = JSValue::cast(*Utils::OpenHandle(*info.Holder()))->value();
   }
-  Object* result = Smi::FromInt(String::cast(value)->length());
+  Object result = Smi::FromInt(String::cast(value)->length());
   info.GetReturnValue().Set(Utils::ToLocal(Handle<Object>(result, isolate)));
 }
 
@@ -327,6 +329,7 @@ void Accessors::FunctionPrototypeGetter(
   HandleScope scope(isolate);
   Handle<JSFunction> function =
       Handle<JSFunction>::cast(Utils::OpenHandle(*info.Holder()));
+  DCHECK(function->has_prototype_property());
   Handle<Object> result = GetFunctionPrototype(isolate, function);
   info.GetReturnValue().Set(Utils::ToLocal(result));
 }
@@ -341,6 +344,7 @@ void Accessors::FunctionPrototypeSetter(
   Handle<Object> value = Utils::OpenHandle(*val);
   Handle<JSFunction> object =
       Handle<JSFunction>::cast(Utils::OpenHandle(*info.Holder()));
+  DCHECK(object->has_prototype_property());
   JSFunction::SetPrototype(object, value);
   info.GetReturnValue().Set(true);
 }
@@ -493,7 +497,7 @@ Handle<JSObject> GetFrameArguments(Isolate* isolate,
   // Copy the parameters to the arguments object.
   DCHECK(array->length() == length);
   for (int i = 0; i < length; i++) {
-    Object* value = frame->GetParameter(i);
+    Object value = frame->GetParameter(i);
     if (value->IsTheHole(isolate)) {
       // Generators currently use holes as dummy arguments when resuming.  We
       // must not leak those.
@@ -557,12 +561,10 @@ Handle<AccessorInfo> Accessors::MakeFunctionArgumentsInfo(Isolate* isolate) {
 // Accessors::FunctionCaller
 //
 
-
-static inline bool AllowAccessToFunction(Context* current_context,
-                                         JSFunction* function) {
+static inline bool AllowAccessToFunction(Context current_context,
+                                         JSFunction function) {
   return current_context->HasSameSecurityTokenAs(function->context());
 }
-
 
 class FrameFunctionIterator {
  public:
@@ -792,7 +794,7 @@ MaybeHandle<JSReceiver> ClearInternalStackTrace(Isolate* isolate,
                                                 Handle<JSObject> error) {
   RETURN_ON_EXCEPTION(
       isolate,
-      JSReceiver::SetProperty(
+      Object::SetProperty(
           isolate, error, isolate->factory()->stack_trace_symbol(),
           isolate->factory()->undefined_value(), LanguageMode::kStrict),
       JSReceiver);
@@ -857,8 +859,8 @@ void Accessors::ErrorStackGetter(
       Utils::OpenHandle(*v8::Local<v8::Value>(info.This()));
   Handle<Name> name = Utils::OpenHandle(*key);
   if (IsAccessor(receiver, name, holder)) {
-    result = Accessors::ReplaceAccessorWithDataProperty(
-        isolate, receiver, holder, name, formatted_stack_trace);
+    result = Accessors::ReplaceAccessorWithDataProperty(receiver, holder, name,
+                                                        formatted_stack_trace);
     if (result.is_null()) {
       isolate->OptionalRescheduleException(false);
       return;

@@ -63,7 +63,7 @@ class tst_QSslKey : public QObject
 
     QList<KeyInfo> keyInfoList;
 
-    void createPlainTestRows(bool filter = false, QSsl::EncodingFormat format = QSsl::EncodingFormat::Pem);
+    void createPlainTestRows(bool pemOnly = false);
 
 public slots:
     void initTestCase();
@@ -111,13 +111,14 @@ void tst_QSslKey::initTestCase()
 
     QDir dir(testDataDir + "keys");
     const QFileInfoList fileInfoList = dir.entryInfoList(QDir::Files | QDir::Readable);
-    QRegExp rx(QLatin1String("^(rsa|dsa|ec)-(pub|pri)-(\\d+)-?[\\w-]*\\.(pem|der)$"));
+    QRegExp rx(QLatin1String("^(rsa|dsa|dh|ec)-(pub|pri)-(\\d+)-?[\\w-]*\\.(pem|der)$"));
     for (const QFileInfo &fileInfo : fileInfoList) {
         if (rx.indexIn(fileInfo.fileName()) >= 0) {
             keyInfoList << KeyInfo(
                 fileInfo,
                 rx.cap(1) == QLatin1String("rsa") ? QSsl::Rsa :
-                (rx.cap(1) == QLatin1String("dsa") ? QSsl::Dsa : QSsl::Ec),
+                rx.cap(1) == QLatin1String("dsa") ? QSsl::Dsa :
+                rx.cap(1) == QLatin1String("dh") ? QSsl::Dh : QSsl::Ec,
                 rx.cap(2) == QLatin1String("pub") ? QSsl::PublicKey : QSsl::PrivateKey,
                 rx.cap(3).toInt(),
                 rx.cap(4) == QLatin1String("pem") ? QSsl::Pem : QSsl::Der);
@@ -154,7 +155,7 @@ Q_DECLARE_METATYPE(QSsl::KeyAlgorithm)
 Q_DECLARE_METATYPE(QSsl::KeyType)
 Q_DECLARE_METATYPE(QSsl::EncodingFormat)
 
-void tst_QSslKey::createPlainTestRows(bool filter, QSsl::EncodingFormat format)
+void tst_QSslKey::createPlainTestRows(bool pemOnly)
 {
     QTest::addColumn<QString>("absFilePath");
     QTest::addColumn<QSsl::KeyAlgorithm>("algorithm");
@@ -162,11 +163,11 @@ void tst_QSslKey::createPlainTestRows(bool filter, QSsl::EncodingFormat format)
     QTest::addColumn<int>("length");
     QTest::addColumn<QSsl::EncodingFormat>("format");
     foreach (KeyInfo keyInfo, keyInfoList) {
-        if (filter && keyInfo.format != format)
+        if (pemOnly && keyInfo.format != QSsl::EncodingFormat::Pem)
             continue;
-#ifdef Q_OS_WINRT
+#if defined(Q_OS_WINRT) || QT_CONFIG(schannel)
         if (keyInfo.fileInfo.fileName().contains("RC2-64"))
-            continue; // WinRT treats RC2 as 128 bit
+            continue; // WinRT/Schannel treats RC2 as 128 bit
 #endif
 #if !defined(QT_NO_SSL) && defined(QT_NO_OPENSSL) // generic backend
         if (keyInfo.fileInfo.fileName().contains(QRegularExpression("-aes\\d\\d\\d-")))
@@ -598,11 +599,11 @@ void tst_QSslKey::encrypt()
     QFETCH(QByteArray, cipherText);
     QByteArray iv("abcdefgh");
 
-#ifdef Q_OS_WINRT
-    QEXPECT_FAIL("RC2-40-CBC, length 0", "WinRT treats RC2 as 128-bit", Abort);
-    QEXPECT_FAIL("RC2-40-CBC, length 8", "WinRT treats RC2 as 128-bit", Abort);
-    QEXPECT_FAIL("RC2-64-CBC, length 0", "WinRT treats RC2 as 128-bit", Abort);
-    QEXPECT_FAIL("RC2-64-CBC, length 8", "WinRT treats RC2 as 128-bit", Abort);
+#if defined(Q_OS_WINRT) || QT_CONFIG(schannel)
+    QEXPECT_FAIL("RC2-40-CBC, length 0", "WinRT/Schannel treats RC2 as 128-bit", Abort);
+    QEXPECT_FAIL("RC2-40-CBC, length 8", "WinRT/Schannel treats RC2 as 128-bit", Abort);
+    QEXPECT_FAIL("RC2-64-CBC, length 0", "WinRT/Schannel treats RC2 as 128-bit", Abort);
+    QEXPECT_FAIL("RC2-64-CBC, length 8", "WinRT/Schannel treats RC2 as 128-bit", Abort);
 #endif
     QByteArray encrypted = QSslKeyPrivate::encrypt(cipher, plainText, key, iv);
     QCOMPARE(encrypted, cipherText);

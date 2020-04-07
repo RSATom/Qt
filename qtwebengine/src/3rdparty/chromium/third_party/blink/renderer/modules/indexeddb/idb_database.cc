@@ -25,13 +25,13 @@
 
 #include "third_party/blink/renderer/modules/indexeddb/idb_database.h"
 
+#include <limits>
+#include <memory>
+
 #include "base/atomic_sequence_num.h"
 #include "base/optional.h"
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_database_callbacks.h"
+#include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/public/platform/modules/indexeddb/web_idb_database_exception.h"
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_key_path.h"
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_observation.h"
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_binding_for_modules.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_idb_observer_callback.h"
@@ -45,16 +45,12 @@
 #include "third_party/blink/renderer/modules/indexeddb/idb_observer_changes.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_tracing.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_version_change_event.h"
+#include "third_party/blink/renderer/modules/indexeddb/web_idb_database_callbacks.h"
 #include "third_party/blink/renderer/modules/indexeddb/web_idb_database_callbacks_impl.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
-#include "third_party/blink/renderer/platform/wtf/atomics.h"
-
-#include <limits>
-#include <memory>
-
-using blink::WebIDBDatabase;
+#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
 
@@ -99,7 +95,8 @@ IDBDatabase* IDBDatabase::Create(ExecutionContext* context,
                                  std::unique_ptr<WebIDBDatabase> database,
                                  IDBDatabaseCallbacks* callbacks,
                                  v8::Isolate* isolate) {
-  return new IDBDatabase(context, std::move(database), callbacks, isolate);
+  return MakeGarbageCollected<IDBDatabase>(context, std::move(database),
+                                           callbacks, isolate);
 }
 
 IDBDatabase::IDBDatabase(ExecutionContext* context,
@@ -189,13 +186,10 @@ void IDBDatabase::OnComplete(int64_t transaction_id) {
 
 void IDBDatabase::OnChanges(
     const WebIDBDatabaseCallbacks::ObservationIndexMap& observation_index_map,
-    WebVector<WebIDBObservation> web_observations,
+    Vector<Persistent<IDBObservation>> observations,
     const WebIDBDatabaseCallbacks::TransactionMap& transactions) {
-  HeapVector<Member<IDBObservation>> observations;
-  observations.ReserveInitialCapacity(web_observations.size());
-  for (WebIDBObservation& web_observation : web_observations) {
-    observations.emplace_back(
-        IDBObservation::Create(std::move(web_observation), isolate_));
+  for (const auto& observation : observations) {
+    observation->SetIsolate(isolate_);
   }
 
   for (const auto& map_entry : observation_index_map) {
@@ -206,7 +200,7 @@ void IDBDatabase::OnChanges(
       IDBTransaction* transaction = nullptr;
       auto it = transactions.find(map_entry.first);
       if (it != transactions.end()) {
-        const std::pair<int64_t, std::vector<int64_t>>& obs_txn = it->second;
+        const std::pair<int64_t, Vector<int64_t>>& obs_txn = it->second;
         HashSet<String> stores;
         for (int64_t store_id : obs_txn.second) {
           stores.insert(metadata_.object_stores.at(store_id)->name);
@@ -217,9 +211,8 @@ void IDBDatabase::OnChanges(
       }
 
       observer->Callback()->InvokeAndReportException(
-          observer,
-          IDBObserverChanges::Create(this, transaction, web_observations,
-                                     observations, map_entry.second));
+          observer, IDBObserverChanges::Create(this, transaction, observations,
+                                               map_entry.second));
       if (transaction)
         transaction->SetActive(false);
     }
@@ -246,7 +239,7 @@ int32_t IDBDatabase::AddObserver(
     bool include_transaction,
     bool no_records,
     bool values,
-    const std::bitset<kWebIDBOperationTypeCount>& operation_types) {
+    std::bitset<blink::kIDBOperationTypeCount> operation_types) {
   int32_t observer_id = NextObserverId();
   observers_.Set(observer_id, observer);
   Backend()->AddObserver(transaction_id, observer_id, include_transaction,
@@ -265,7 +258,6 @@ IDBObjectStore* IDBDatabase::createObjectStore(
     bool auto_increment,
     ExceptionState& exception_state) {
   IDB_TRACE("IDBDatabase::createObjectStore");
-  RecordApiCallsHistogram(kIDBCreateObjectStoreCall);
 
   if (!version_change_transaction_) {
     exception_state.ThrowDOMException(
@@ -294,9 +286,9 @@ IDBObjectStore* IDBDatabase::createObjectStore(
     return nullptr;
   }
 
-  if (auto_increment && ((key_path.GetType() == IDBKeyPath::kStringType &&
+  if (auto_increment && ((key_path.GetType() == mojom::IDBKeyPathType::String &&
                           key_path.GetString().IsEmpty()) ||
-                         key_path.GetType() == IDBKeyPath::kArrayType)) {
+                         key_path.GetType() == mojom::IDBKeyPathType::Array)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidAccessError,
         "The autoIncrement option was set but the "
@@ -331,7 +323,6 @@ IDBObjectStore* IDBDatabase::createObjectStore(
 void IDBDatabase::deleteObjectStore(const String& name,
                                     ExceptionState& exception_state) {
   IDB_TRACE("IDBDatabase::deleteObjectStore");
-  RecordApiCallsHistogram(kIDBDeleteObjectStoreCall);
   if (!version_change_transaction_) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidStateError,
@@ -371,7 +362,6 @@ IDBTransaction* IDBDatabase::transaction(
     const String& mode_string,
     ExceptionState& exception_state) {
   IDB_TRACE("IDBDatabase::transaction");
-  RecordApiCallsHistogram(kIDBTransactionCall);
 
   HashSet<String> scope;
   if (store_names.IsString()) {
@@ -420,9 +410,9 @@ IDBTransaction* IDBDatabase::transaction(
     object_store_ids.push_back(object_store_id);
   }
 
-  WebIDBTransactionMode mode = IDBTransaction::StringToMode(mode_string);
-  if (mode != kWebIDBTransactionModeReadOnly &&
-      mode != kWebIDBTransactionModeReadWrite) {
+  mojom::IDBTransactionMode mode = IDBTransaction::StringToMode(mode_string);
+  if (mode != mojom::IDBTransactionMode::ReadOnly &&
+      mode != mojom::IDBTransactionMode::ReadWrite) {
     exception_state.ThrowTypeError(
         "The mode provided ('" + mode_string +
         "') is not one of 'readonly' or 'readwrite'.");
@@ -440,7 +430,7 @@ void IDBDatabase::ForceClose() {
   for (const auto& it : transactions_)
     it.value->abort(IGNORE_EXCEPTION_FOR_TESTING);
   this->close();
-  EnqueueEvent(Event::Create(EventTypeNames::close));
+  EnqueueEvent(Event::Create(event_type_names::kClose));
 }
 
 void IDBDatabase::close() {
@@ -494,25 +484,25 @@ void IDBDatabase::OnVersionChange(int64_t old_version, int64_t new_version) {
     new_version_nullable = new_version;
   }
   EnqueueEvent(IDBVersionChangeEvent::Create(
-      EventTypeNames::versionchange, old_version, new_version_nullable));
+      event_type_names::kVersionchange, old_version, new_version_nullable));
 }
 
 void IDBDatabase::EnqueueEvent(Event* event) {
   DCHECK(GetExecutionContext());
   event->SetTarget(this);
-  event_queue_->EnqueueEvent(FROM_HERE, event);
+  event_queue_->EnqueueEvent(FROM_HERE, *event);
 }
 
-DispatchEventResult IDBDatabase::DispatchEventInternal(Event* event) {
+DispatchEventResult IDBDatabase::DispatchEventInternal(Event& event) {
   IDB_TRACE("IDBDatabase::dispatchEvent");
   if (!GetExecutionContext())
     return DispatchEventResult::kCanceledBeforeDispatch;
-  DCHECK(event->type() == EventTypeNames::versionchange ||
-         event->type() == EventTypeNames::close);
+  DCHECK(event.type() == event_type_names::kVersionchange ||
+         event.type() == event_type_names::kClose);
 
   DispatchEventResult dispatch_result =
       EventTarget::DispatchEventInternal(event);
-  if (event->type() == EventTypeNames::versionchange && !close_pending_ &&
+  if (event.type() == event_type_names::kVersionchange && !close_pending_ &&
       backend_)
     backend_->VersionChangeIgnored();
   return dispatch_result;
@@ -591,18 +581,11 @@ void IDBDatabase::ContextDestroyed(ExecutionContext*) {
 }
 
 const AtomicString& IDBDatabase::InterfaceName() const {
-  return EventTargetNames::IDBDatabase;
+  return event_target_names::kIDBDatabase;
 }
 
 ExecutionContext* IDBDatabase::GetExecutionContext() const {
   return ContextLifecycleObserver::GetExecutionContext();
-}
-
-void IDBDatabase::RecordApiCallsHistogram(IndexedDatabaseMethods method) {
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(
-      EnumerationHistogram, api_calls_histogram,
-      ("WebCore.IndexedDB.FrontEndAPICalls", kIDBMethodsMax));
-  api_calls_histogram.Count(method);
 }
 
 STATIC_ASSERT_ENUM(kWebIDBDatabaseExceptionUnknownError,

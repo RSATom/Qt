@@ -47,7 +47,7 @@ class CPDF_Document : public Observable<CPDF_Document>,
   // Type from which the XFA extension can subclass itself.
   class Extension {
    public:
-    virtual ~Extension() {}
+    virtual ~Extension() = default;
     virtual CPDF_Document* GetPDFDoc() const = 0;
     virtual int GetPageCount() const = 0;
     virtual void DeletePage(int page_index) = 0;
@@ -90,7 +90,7 @@ class CPDF_Document : public Observable<CPDF_Document>,
   // |pFontDict| must not be null.
   CPDF_Font* LoadFont(CPDF_Dictionary* pFontDict);
   CPDF_ColorSpace* LoadColorSpace(const CPDF_Object* pCSObj,
-                                  const CPDF_Dictionary* pResources = nullptr);
+                                  const CPDF_Dictionary* pResources);
 
   CPDF_Pattern* LoadPattern(CPDF_Object* pObj,
                             bool bShading,
@@ -109,9 +109,11 @@ class CPDF_Document : public Observable<CPDF_Document>,
   CPDF_Parser::Error LoadLinearizedDoc(
       const RetainPtr<CPDF_ReadValidator>& validator,
       const char* password);
+  bool has_valid_cross_reference_table() const {
+    return m_bHasValidCrossReferenceTable;
+  }
 
   void LoadPages();
-
   void CreateNewDoc();
   CPDF_Dictionary* CreateNewPage(int iPage);
 
@@ -119,17 +121,22 @@ class CPDF_Document : public Observable<CPDF_Document>,
   uint32_t GetParsedPageCountForTesting() { return m_ParsedPageCount; }
 
   CPDF_Font* AddStandardFont(const char* font, CPDF_FontEncoding* pEncoding);
-  CPDF_Font* AddFont(CFX_Font* pFont, int charset, bool bVert);
+  CPDF_Font* AddFont(CFX_Font* pFont, int charset);
+
 #if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
-  CPDF_Font* AddWindowsFont(LOGFONTA* pLogFont,
-                            bool bVert,
-                            bool bTranslateName = false);
-  CPDF_Font* AddWindowsFont(LOGFONTW* pLogFont,
-                            bool bVert,
-                            bool bTranslateName = false);
+  CPDF_Font* AddWindowsFont(LOGFONTA* pLogFont);
 #endif
 
  protected:
+  class StockFontClearer {
+   public:
+    explicit StockFontClearer(CPDF_Document* pDoc);
+    ~StockFontClearer();
+
+   private:
+    UnownedPtr<CPDF_Document> const m_pDoc;
+  };
+
   // Retrieve page count information by getting count value from the tree nodes
   int RetrievePageCount();
   // When this method is called, m_pTreeTraversal[level] exists.
@@ -138,16 +145,14 @@ class CPDF_Document : public Observable<CPDF_Document>,
                     uint32_t* skip_count,
                     uint32_t objnum,
                     int* index,
-                    int level = 0) const;
+                    int level) const;
   std::unique_ptr<CPDF_Object> ParseIndirectObject(uint32_t objnum) override;
-  void LoadDocInternal();
   size_t CalculateEncodingDict(int charset, CPDF_Dictionary* pBaseDict);
   const CPDF_Dictionary* GetPagesDict() const;
   CPDF_Dictionary* GetPagesDict();
   CPDF_Dictionary* ProcessbCJK(
       CPDF_Dictionary* pBaseDict,
       int charset,
-      bool bVert,
       ByteString basefont,
       std::function<void(wchar_t, wchar_t, CPDF_Array*)> Insert);
   bool InsertDeletePDFPage(CPDF_Dictionary* pPages,
@@ -158,6 +163,7 @@ class CPDF_Document : public Observable<CPDF_Document>,
   bool InsertNewPage(int iPage, CPDF_Dictionary* pPageDict);
   void ResetTraversal();
   void SetParser(std::unique_ptr<CPDF_Parser> pParser);
+  CPDF_Parser::Error HandleLoadResult(CPDF_Parser::Error error);
 
   std::unique_ptr<CPDF_Parser> m_pParser;
   UnownedPtr<CPDF_Dictionary> m_pRootDict;
@@ -169,15 +175,24 @@ class CPDF_Document : public Observable<CPDF_Document>,
   // of the child being processed within the dictionary's /Kids array.
   std::vector<std::pair<CPDF_Dictionary*, size_t>> m_pTreeTraversal;
 
+  // True if the CPDF_Parser succeeded without having to rebuild the cross
+  // reference table.
+  bool m_bHasValidCrossReferenceTable = false;
+
   // Index of the next page that will be traversed from the page tree.
-  int m_iNextPageToTraverse = 0;
   bool m_bReachedMaxPageLevel = false;
+  int m_iNextPageToTraverse = 0;
   uint32_t m_ParsedPageCount = 0;
   std::unique_ptr<CPDF_DocPageData> m_pDocPage;
   std::unique_ptr<CPDF_DocRenderData> m_pDocRender;
   std::unique_ptr<JBig2_DocumentContext> m_pCodecContext;
   std::unique_ptr<CPDF_LinkList> m_pLinksContext;
   std::vector<uint32_t> m_PageList;  // Page number to page's dict objnum.
+
+  // Must be second to last.
+  StockFontClearer m_StockFontClearer;
+
+  // Must be last. Destroy the extension before any non-extension teardown.
   std::unique_ptr<Extension> m_pExtension;
 };
 

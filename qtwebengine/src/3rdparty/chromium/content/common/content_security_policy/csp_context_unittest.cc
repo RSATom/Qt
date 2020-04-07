@@ -57,9 +57,10 @@ class CSPContextTest : public CSPContext {
 ContentSecurityPolicy BuildPolicy(CSPDirective::Name directive_name,
                                   std::vector<CSPSource> sources) {
   return ContentSecurityPolicy(
-      ContentSecurityPolicyHeader(std::string(),  // header
-                                  blink::kWebContentSecurityPolicyTypeEnforce,
-                                  blink::kWebContentSecurityPolicySourceHTTP),
+      ContentSecurityPolicyHeader(
+          std::string(),  // header
+          blink::mojom::ContentSecurityPolicyType::kEnforce,
+          blink::kWebContentSecurityPolicySourceHTTP),
       {CSPDirective(directive_name,
                     CSPSourceList(false, false, false, sources))},
       std::vector<std::string>(), false);  // report_end_points
@@ -202,7 +203,7 @@ TEST(CSPContextTest, CheckCSPDisposition) {
   // Add a report-only policy.
   ContentSecurityPolicy report_only =
       BuildPolicy(CSPDirective::DefaultSrc, {source});
-  report_only.header.type = blink::kWebContentSecurityPolicyTypeReport;
+  report_only.header.type = blink::mojom::ContentSecurityPolicyType::kReport;
   context.AddContentSecurityPolicy(report_only);
 
   // With CHECK_ALL_CSP, both policies should be checked and violations should
@@ -277,6 +278,23 @@ TEST(CSPContextTest, ModifyRequestUrlForCsp) {
   context.ModifyRequestUrlForCsp(&test_url);
   EXPECT_EQ(GURL("https://example-weird-port.com:8088"), test_url);
 
+  // Trusted Non-HTTPS URLs don't need to be modified.
+  test_url = GURL("http://127.0.0.1");
+  context.ModifyRequestUrlForCsp(&test_url);
+  EXPECT_EQ(GURL("http://127.0.0.1"), test_url);
+
+  test_url = GURL("http://127.0.0.8");
+  context.ModifyRequestUrlForCsp(&test_url);
+  EXPECT_EQ(GURL("http://127.0.0.8"), test_url);
+
+  test_url = GURL("http://localhost");
+  context.ModifyRequestUrlForCsp(&test_url);
+  EXPECT_EQ(GURL("http://localhost"), test_url);
+
+  test_url = GURL("http://sub.localhost");
+  context.ModifyRequestUrlForCsp(&test_url);
+  EXPECT_EQ(GURL("http://sub.localhost"), test_url);
+
   // Non-HTTP URLs don't need to be modified.
   test_url = GURL("https://example.com");
   context.ModifyRequestUrlForCsp(&test_url);
@@ -285,6 +303,10 @@ TEST(CSPContextTest, ModifyRequestUrlForCsp) {
   test_url = GURL("data:text/html,<html></html>");
   context.ModifyRequestUrlForCsp(&test_url);
   EXPECT_EQ(GURL("data:text/html,<html></html>"), test_url);
+
+  test_url = GURL("weird-scheme://this.is.a.url");
+  context.ModifyRequestUrlForCsp(&test_url);
+  EXPECT_EQ(GURL("weird-scheme://this.is.a.url"), test_url);
 }
 
 }  // namespace content

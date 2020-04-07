@@ -37,6 +37,7 @@
 #include <QtGui/qopenglcontext.h>
 #include <QtGui/qopenglfunctions.h>
 #include <QtGui/qopengltextureblitter.h>
+#include <QtGui/qoffscreensurface.h>
 #include <QtGui/qpainter.h>
 #include <private/qpixmapcache_p.h>
 
@@ -56,8 +57,9 @@ QWasmCompositedWindow::QWasmCompositedWindow()
 {
 }
 
-QWasmCompositor::QWasmCompositor()
-    : m_frameBuffer(nullptr)
+QWasmCompositor::QWasmCompositor(QWasmScreen *screen)
+    :QObject(screen)
+    , m_frameBuffer(nullptr)
     , m_blitter(new QOpenGLTextureBlitter)
     , m_needComposit(false)
     , m_inFlush(false)
@@ -70,6 +72,28 @@ QWasmCompositor::QWasmCompositor()
 QWasmCompositor::~QWasmCompositor()
 {
     delete m_frameBuffer;
+    destroy();
+}
+
+void QWasmCompositor::destroy()
+{
+    // Destroy OpenGL resources. This is done here in a separate function
+    // which can be called while screen() still returns a valid screen
+    // (which it might not, during destruction). A valid QScreen is
+    // a requirement for QOffscreenSurface on Wasm since the native
+    // context is tied to a single canvas.
+    if (m_context) {
+        QOffscreenSurface offScreenSurface(screen()->screen());
+        offScreenSurface.setFormat(m_context->format());
+        offScreenSurface.create();
+        m_context->makeCurrent(&offScreenSurface);
+        for (QWasmWindow *window : m_windowStack)
+            window->destroy();
+        m_blitter.reset(nullptr);
+        m_context.reset(nullptr);
+    }
+
+    m_isEnabled = false; // prevent frame() from creating a new m_context
 }
 
 void QWasmCompositor::setEnabled(bool enabled)
@@ -105,11 +129,6 @@ void QWasmCompositor::removeWindow(QWasmWindow *window)
     m_compositedWindows.remove(window);
 
     notifyTopWindowChanged(window);
-}
-
-void QWasmCompositor::setScreen(QWasmScreen *screen)
-{
-    m_screen = screen;
 }
 
 void QWasmCompositor::setVisible(QWasmWindow *window, bool visible)
@@ -197,7 +216,7 @@ void QWasmCompositor::requestRedraw()
     QCoreApplication::postEvent(this, new QEvent(QEvent::UpdateRequest));
 }
 
-QWindow *QWasmCompositor::windowAt(QPoint p, int padding) const
+QWindow *QWasmCompositor::windowAt(QPoint globalPoint, int padding) const
 {
     int index = m_windowStack.count() - 1;
     // qDebug() << "window at" << "point" << p << "window count" << index;
@@ -209,7 +228,7 @@ QWindow *QWasmCompositor::windowAt(QPoint p, int padding) const
         QRect geometry = compositedWindow.window->windowFrameGeometry()
                          .adjusted(-padding, -padding, padding, padding);
 
-        if (compositedWindow.visible && geometry.contains(p))
+        if (compositedWindow.visible && geometry.contains(globalPoint))
             return m_windowStack.at(index)->window();
         --index;
     }
@@ -255,10 +274,13 @@ void QWasmCompositor::blit(QOpenGLTextureBlitter *blitter, QWasmScreen *screen, 
 void QWasmCompositor::drawWindowContent(QOpenGLTextureBlitter *blitter, QWasmScreen *screen, QWasmWindow *window)
 {
     QWasmBackingStore *backingStore = window->backingStore();
+    if (!backingStore)
+        return;
 
     QOpenGLTexture const *texture = backingStore->getUpdatedTexture();
-
-    blit(blitter, screen, texture, window->geometry());
+    QPoint windowCanvasPosition = window->geometry().topLeft() - screen->geometry().topLeft();
+    QRect windowCanvasGeometry = QRect(windowCanvasPosition, window->geometry().size());
+    blit(blitter, screen, texture, windowCanvasGeometry);
 }
 
 QPalette QWasmCompositor::makeWindowPalette()
@@ -654,7 +676,7 @@ void QWasmCompositor::frame()
 
     m_needComposit = false;
 
-    if (m_windowStack.empty() || !m_screen)
+    if (!m_isEnabled || m_windowStack.empty() || !screen())
         return;
 
     QWasmWindow *someWindow = nullptr;
@@ -673,17 +695,19 @@ void QWasmCompositor::frame()
     if (m_context.isNull()) {
         m_context.reset(new QOpenGLContext());
         //mContext->setFormat(mScreen->format());
-        m_context->setScreen(m_screen->screen());
+        m_context->setScreen(screen()->screen());
         m_context->create();
     }
 
-    m_context->makeCurrent(someWindow->window());
+    bool ok = m_context->makeCurrent(someWindow->window());
+    if (!ok)
+        return;
 
     if (!m_blitter->isCreated())
         m_blitter->create();
 
-    qreal dpr = m_screen->devicePixelRatio();
-    glViewport(0, 0, m_screen->geometry().width() * dpr, m_screen->geometry().height() * dpr);
+    qreal dpr = screen()->devicePixelRatio();
+    glViewport(0, 0, screen()->geometry().width() * dpr, screen()->geometry().height() * dpr);
 
     m_context->functions()->glClearColor(0.2, 0.2, 0.2, 1.0);
     m_context->functions()->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -697,7 +721,7 @@ void QWasmCompositor::frame()
         if (!compositedWindow.visible)
             continue;
 
-        drawWindow(m_blitter.data(), m_screen, window);
+        drawWindow(m_blitter.data(), screen(), window);
     }
 
     m_blitter->release();
@@ -718,4 +742,9 @@ void QWasmCompositor::notifyTopWindowChanged(QWasmWindow *window)
 
     requestRedraw();
     QWindowSystemInterface::handleWindowActivated(window->window());
+}
+
+QWasmScreen *QWasmCompositor::screen()
+{
+    return static_cast<QWasmScreen *>(parent());
 }

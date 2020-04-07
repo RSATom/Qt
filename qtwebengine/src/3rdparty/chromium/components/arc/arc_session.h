@@ -59,9 +59,6 @@ class ArcSession {
     UpgradeParams(UpgradeParams&& other);
     UpgradeParams& operator=(UpgradeParams&& other);
 
-    // Whether the account is a child.
-    bool is_child;
-
     // The supervision transition state for this account. Indicates whether
     // child account should become regular, regular account should become child
     // or neither.
@@ -120,7 +117,7 @@ class ArcSession {
  protected:
   ArcSession();
 
-  base::ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer>::Unchecked observer_list_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ArcSession);

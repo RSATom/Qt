@@ -5,12 +5,14 @@
 #include "components/heap_profiling/client_connection_manager.h"
 
 #include "base/rand_util.h"
+#include "base/task/post_task.h"
 #include "components/services/heap_profiling/public/cpp/controller.h"
 #include "components/services/heap_profiling/public/cpp/settings.h"
 #include "components/services/heap_profiling/public/mojom/heap_profiling_client.mojom.h"
 #include "components/services/heap_profiling/public/mojom/heap_profiling_service.mojom.h"
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/browser/browser_child_process_host_iterator.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -85,6 +87,16 @@ bool ShouldProfileNonRendererProcessType(Mode mode, int process_type) {
       // Renderer logic is handled in ClientConnectionManager::Observe.
       return false;
 
+    case Mode::kUtilitySampling:
+      // Sample each utility process with 1/3 probability.
+      if (process_type == content::ProcessType::PROCESS_TYPE_UTILITY)
+        return (base::RandUint64() % 3) < 1;
+      return false;
+
+    case Mode::kUtilityAndBrowser:
+      return process_type == content::ProcessType::PROCESS_TYPE_UTILITY ||
+             process_type == content::ProcessType::PROCESS_TYPE_BROWSER;
+
     case Mode::kNone:
       return false;
 
@@ -99,8 +111,7 @@ bool ShouldProfileNonRendererProcessType(Mode mode, int process_type) {
 
 void StartProfilingNonRendererChildOnIOThread(
     base::WeakPtr<Controller> controller,
-    const content::ChildProcessData& data,
-    base::ProcessId pid) {
+    const content::ChildProcessData& data) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
 
   if (!controller)
@@ -118,7 +129,8 @@ void StartProfilingNonRendererChildOnIOThread(
 
   // Tell the child process to start profiling.
   ProfilingClientBinder client(host);
-  controller->StartProfilingClient(client.take(), pid, process_type);
+  controller->StartProfilingClient(client.take(), data.GetProcess().Pid(),
+                                   process_type);
 }
 
 void StartProfilingClientOnIOThread(base::WeakPtr<Controller> controller,
@@ -165,8 +177,8 @@ void StartProfilingPidOnIOThread(base::WeakPtr<Controller> controller,
   for (content::BrowserChildProcessHostIterator browser_child_iter;
        !browser_child_iter.Done(); ++browser_child_iter) {
     const content::ChildProcessData& data = browser_child_iter.GetData();
-    if (base::GetProcId(data.handle) == pid) {
-      StartProfilingNonRendererChildOnIOThread(controller, data, pid);
+    if (data.GetProcess().Pid() == pid) {
+      StartProfilingNonRendererChildOnIOThread(controller, data);
       return;
     }
   }
@@ -188,9 +200,8 @@ void StartProfilingNonRenderersIfNecessaryOnIOThread(
        !browser_child_iter.Done(); ++browser_child_iter) {
     const content::ChildProcessData& data = browser_child_iter.GetData();
     if (ShouldProfileNonRendererProcessType(mode, data.process_type) &&
-        data.handle != base::kNullProcessHandle) {
-      StartProfilingNonRendererChildOnIOThread(controller, data,
-                                               base::GetProcId(data.handle));
+        data.GetProcess().IsValid()) {
+      StartProfilingNonRendererChildOnIOThread(controller, data);
     }
   }
 }
@@ -238,7 +249,7 @@ void ClientConnectionManager::StartProfilingProcess(base::ProcessId pid) {
   }
 
   // The BrowserChildProcessHostIterator iterator must be used on the IO thread.
-  content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)
+  base::CreateSingleThreadTaskRunnerWithTraits({content::BrowserThread::IO})
       ->PostTask(FROM_HERE, base::BindOnce(&StartProfilingPidOnIOThread,
                                            controller_, pid));
 }
@@ -259,7 +270,7 @@ void ClientConnectionManager::StartProfilingExistingProcessesIfNecessary() {
   // Start profiling the current process.
   if (ShouldProfileNonRendererProcessType(
           mode_, content::ProcessType::PROCESS_TYPE_BROWSER)) {
-    content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)
+    base::CreateSingleThreadTaskRunnerWithTraits({content::BrowserThread::IO})
         ->PostTask(FROM_HERE,
                    base::BindOnce(&StartProfilingBrowserProcessOnIOThread,
                                   controller_));
@@ -275,7 +286,7 @@ void ClientConnectionManager::StartProfilingExistingProcessesIfNecessary() {
     }
   }
 
-  content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)
+  base::CreateSingleThreadTaskRunnerWithTraits({content::BrowserThread::IO})
       ->PostTask(
           FROM_HERE,
           base::BindOnce(&StartProfilingNonRenderersIfNecessaryOnIOThread,
@@ -299,11 +310,10 @@ void ClientConnectionManager::BrowserChildProcessLaunchedAndConnected(
 void ClientConnectionManager::StartProfilingNonRendererChild(
     const content::ChildProcessData& data) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)
-      ->PostTask(
-          FROM_HERE,
-          base::BindOnce(&StartProfilingNonRendererChildOnIOThread, controller_,
-                         data, base::GetProcId(data.handle)));
+  base::CreateSingleThreadTaskRunnerWithTraits({content::BrowserThread::IO})
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(&StartProfilingNonRendererChildOnIOThread,
+                                controller_, data.Duplicate()));
 }
 
 void ClientConnectionManager::Observe(
@@ -358,7 +368,7 @@ void ClientConnectionManager::StartProfilingRenderer(
   // Tell the child process to start profiling.
   ProfilingClientBinder client(host);
 
-  content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)
+  base::CreateSingleThreadTaskRunnerWithTraits({content::BrowserThread::IO})
       ->PostTask(FROM_HERE,
                  base::BindOnce(&StartProfilingClientOnIOThread, controller_,
                                 std::move(client), host->GetProcess().Pid(),

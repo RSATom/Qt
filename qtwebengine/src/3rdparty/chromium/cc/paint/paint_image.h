@@ -9,10 +9,11 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/logging.h"
+#include "base/memory/scoped_refptr.h"
 #include "cc/paint/frame_metadata.h"
 #include "cc/paint/image_animation_count.h"
 #include "cc/paint/paint_export.h"
-#include "cc/paint/skia_paint_image_generator.h"
+#include "cc/paint/paint_worklet_input.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -22,9 +23,23 @@ class PaintImageGenerator;
 class PaintOpBuffer;
 using PaintRecord = PaintOpBuffer;
 
-// A representation of an image for the compositor.
-// Note that aside from default construction, it can only be constructed using a
-// PaintImageBuilder, or copied/moved into using operator=.
+// A representation of an image for the compositor.  This is the most abstract
+// form of images, and represents what is known at paint time.  Note that aside
+// from default construction, it can only be constructed using a
+// PaintImageBuilder, or copied/moved into using operator=.  PaintImage can
+// be backed by different kinds of content, such as a lazy generator, a paint
+// record, a bitmap, or a texture.
+//
+// If backed by a generator, this image may not be decoded and information like
+// the animation frame, the target colorspace, or the scale at which it will be
+// used are not known yet.  A DrawImage is a PaintImage with those decisions
+// known but that might not have been decoded yet.  A DecodedDrawImage is a
+// DrawImage that has been decoded/scaled/uploaded with all of those parameters
+// applied.
+//
+// The PaintImage -> DrawImage -> DecodedDrawImage -> PaintImage (via SkImage)
+// path can be used to create a PaintImage that is snapshotted at a particular
+// scale or animation frame.
 class CC_PAINT_EXPORT PaintImage {
  public:
   using Id = int;
@@ -36,6 +51,19 @@ class CC_PAINT_EXPORT PaintImage {
   // backing encoded data for this image changes. For instance, in the case of
   // images which can be progressively updated as more encoded data is received.
   using ContentId = int;
+
+  // A GeneratorClientId can be used to namespace different clients that are
+  // using the output of a PaintImageGenerator.
+  //
+  // This is used to allow multiple compositors to simultaneously decode the
+  // same image. Each compositor is assigned a unique GeneratorClientId which is
+  // passed through to the decoder from PaintImage::Decode. Internally the
+  // decoder ensures that requestes from different clients are executed in
+  // parallel. This is particularly important for animated images, where
+  // compositors displaying the same image can request decodes for different
+  // frames from this image.
+  using GeneratorClientId = int;
+  static const GeneratorClientId kDefaultGeneratorClientId;
 
   // The default frame index to use if no index is provided. For multi-frame
   // images, this would imply the first frame of the animation.
@@ -50,7 +78,7 @@ class CC_PAINT_EXPORT PaintImage {
     bool operator==(const FrameKey& other) const;
     bool operator!=(const FrameKey& other) const;
 
-    uint64_t hash() const { return hash_; }
+    size_t hash() const { return hash_; }
     std::string ToString() const;
     size_t frame_index() const { return frame_index_; }
     ContentId content_id() const { return content_id_; }
@@ -93,6 +121,7 @@ class CC_PAINT_EXPORT PaintImage {
 
   static Id GetNextId();
   static ContentId GetNextContentId();
+  static GeneratorClientId GetNextGeneratorClientId();
 
   // Creates a PaintImage wrapping |bitmap|. Note that the pixels will be copied
   // unless the bitmap is marked immutable.
@@ -128,16 +157,17 @@ class CC_PAINT_EXPORT PaintImage {
   bool Decode(void* memory,
               SkImageInfo* info,
               sk_sp<SkColorSpace> color_space,
-              size_t frame_index) const;
+              size_t frame_index,
+              GeneratorClientId client_id) const;
 
   Id stable_id() const { return id_; }
   const sk_sp<SkImage>& GetSkImage() const;
   AnimationType animation_type() const { return animation_type_; }
   CompletionState completion_state() const { return completion_state_; }
   bool is_multipart() const { return is_multipart_; }
+  bool is_high_bit_depth() const { return is_high_bit_depth_; }
   int repetition_count() const { return repetition_count_; }
   bool ShouldAnimate() const;
-  size_t frame_index() const { return frame_index_; }
   AnimationSequenceId reset_animation_sequence_id() const {
     return reset_animation_sequence_id_;
   }
@@ -145,12 +175,35 @@ class CC_PAINT_EXPORT PaintImage {
   PaintImage::ContentId content_id() const { return content_id_; }
 
   // TODO(vmpstr): Don't get the SkImage here if you don't need to.
-  uint32_t unique_id() const { return GetSkImage()->uniqueID(); }
-  explicit operator bool() const { return !!GetSkImage(); }
-  bool IsLazyGenerated() const { return GetSkImage()->isLazyGenerated(); }
-  int width() const { return GetSkImage()->width(); }
-  int height() const { return GetSkImage()->height(); }
-  SkColorSpace* color_space() const { return GetSkImage()->colorSpace(); }
+  uint32_t unique_id() const {
+    return paint_worklet_input_ ? 0 : GetSkImage()->uniqueID();
+  }
+  explicit operator bool() const {
+    return paint_worklet_input_ || !!GetSkImage();
+  }
+  bool IsLazyGenerated() const {
+    return paint_worklet_input_ ? false : GetSkImage()->isLazyGenerated();
+  }
+  bool IsPaintWorklet() const { return !!paint_worklet_input_; }
+  bool IsTextureBacked() const {
+    return paint_worklet_input_ ? false : GetSkImage()->isTextureBacked();
+  }
+  int width() const {
+    return paint_worklet_input_
+               ? static_cast<int>(paint_worklet_input_->GetSize().width())
+               : GetSkImage()->width();
+  }
+  int height() const {
+    return paint_worklet_input_
+               ? static_cast<int>(paint_worklet_input_->GetSize().height())
+               : GetSkImage()->height();
+  }
+  SkColorSpace* color_space() const {
+    return paint_worklet_input_ ? nullptr : GetSkImage()->colorSpace();
+  }
+
+  // Returns the color type of this image.
+  SkColorType GetColorType() const;
 
   // Returns a unique id for the pixel data for the frame at |frame_index|.
   FrameKey GetKeyForFrame(size_t frame_index) const;
@@ -163,7 +216,12 @@ class CC_PAINT_EXPORT PaintImage {
   size_t FrameCount() const;
 
   // Returns an SkImage for the frame at |index|.
-  sk_sp<SkImage> GetSkImageForFrame(size_t index) const;
+  sk_sp<SkImage> GetSkImageForFrame(size_t index,
+                                    GeneratorClientId client_id) const;
+
+  PaintWorkletInput* paint_worklet_input() const {
+    return paint_worklet_input_.get();
+  }
 
   std::string ToString() const;
 
@@ -179,11 +237,13 @@ class CC_PAINT_EXPORT PaintImage {
   bool DecodeFromGenerator(void* memory,
                            SkImageInfo* info,
                            sk_sp<SkColorSpace> color_space,
-                           size_t frame_index) const;
+                           size_t frame_index,
+                           GeneratorClientId client_id) const;
   bool DecodeFromSkImage(void* memory,
                          SkImageInfo* info,
                          sk_sp<SkColorSpace> color_space,
-                         size_t frame_index) const;
+                         size_t frame_index,
+                         GeneratorClientId client_id) const;
   void CreateSkImage();
   PaintImage MakeSubset(const gfx::Rect& subset) const;
 
@@ -204,11 +264,11 @@ class CC_PAINT_EXPORT PaintImage {
   // at the origin.
   gfx::Rect subset_rect_;
 
-  // The frame index to use when rasterizing this image.
-  size_t frame_index_ = kDefaultFrameIndex;
-
   // Whether the data fetched for this image is a part of a multpart response.
   bool is_multipart_ = false;
+
+  // Whether this image has more than 8 bits per color channel.
+  bool is_high_bit_depth_ = false;
 
   // An incrementing sequence number maintained by the painter to indicate if
   // this animation should be reset in the compositor. Incrementing this number
@@ -225,6 +285,9 @@ class CC_PAINT_EXPORT PaintImage {
   //    skia's cache.
   // 2) Ensures that accesses to it are thread-safe.
   sk_sp<SkImage> cached_sk_image_;
+
+  // The input parameters that are needed to execute the JS paint callback.
+  scoped_refptr<PaintWorkletInput> paint_worklet_input_;
 };
 
 }  // namespace cc

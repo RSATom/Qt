@@ -980,7 +980,7 @@ class BlockedByClient_NetworkObserver_Test
   std::map<std::string, std::string> urls_by_id_;
 };
 
-HEADLESS_ASYNC_DEVTOOLED_TEST_F(BlockedByClient_NetworkObserver_Test);
+DISABLED_HEADLESS_ASYNC_DEVTOOLED_TEST_F(BlockedByClient_NetworkObserver_Test);
 
 class DevToolsSetCookieTest : public HeadlessAsyncDevTooledBrowserTest,
                               public network::Observer {
@@ -1087,6 +1087,8 @@ class DevtoolsInterceptionWithAuthProxyTest
     std::unique_ptr<net::ProxyConfig> proxy_config(new net::ProxyConfig);
     proxy_config->proxy_rules().ParseFromString(
         proxy_server_.host_port_pair().ToString());
+    // TODO(https://crbug.com/901896): Don't rely on proxying localhost.
+    proxy_config->proxy_rules().bypass_rules.AddRulesToSubtractImplicit();
     builder.SetProxyConfig(std::move(proxy_config));
   }
 

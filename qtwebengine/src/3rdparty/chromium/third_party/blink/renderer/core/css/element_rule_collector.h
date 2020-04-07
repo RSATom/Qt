@@ -43,19 +43,19 @@ class SelectorFilter;
 class StaticCSSRuleList;
 class StyleRuleUsageTracker;
 
-// TODO(kochi): CascadeOrder is used only for Shadow DOM V0 bug-compatible
-// cascading order. Once Shadow DOM V0 implementation is gone, remove this
-// completely.
-using CascadeOrder = unsigned;
-const CascadeOrder kIgnoreCascadeOrder = 0;
+// TODO(kochi): ShadowV0CascadeOrder is used only for Shadow DOM V0
+// bug-compatible cascading order. Once Shadow DOM V0 implementation is gone,
+// remove this completely.
+using ShadowV0CascadeOrder = unsigned;
+const ShadowV0CascadeOrder kIgnoreCascadeOrder = 0;
 
 class MatchedRule {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   MatchedRule(const RuleData* rule_data,
               unsigned specificity,
-              CascadeOrder cascade_order,
+              ShadowV0CascadeOrder cascade_order,
               unsigned style_sheet_index,
               const CSSStyleSheet* parent_style_sheet)
       : rule_data_(rule_data),
@@ -76,14 +76,13 @@ class MatchedRule {
     return GetRuleData()->Specificity() + specificity_;
   }
   const CSSStyleSheet* ParentStyleSheet() const { return parent_style_sheet_; }
-  void Trace(blink::Visitor* visitor) { visitor->Trace(parent_style_sheet_); }
+  void Trace(blink::Visitor* visitor) {
+    visitor->Trace(parent_style_sheet_);
+    visitor->Trace(rule_data_);
+  }
 
  private:
-  // TODO(Oilpan): RuleData is in the oilpan heap and this pointer
-  // really should be traced. However, RuleData objects are
-  // allocated inside larger TerminatedArray objects and we cannot
-  // trace a raw rule data pointer at this point.
-  const RuleData* rule_data_;
+  Member<const RuleData> rule_data_;
   unsigned specificity_;
   uint64_t position_;
   Member<const CSSStyleSheet> parent_style_sheet_;
@@ -129,13 +128,15 @@ class ElementRuleCollector {
   CSSRuleList* MatchedCSSRuleList();
 
   void CollectMatchingRules(const MatchRequest&,
-                            CascadeOrder = kIgnoreCascadeOrder,
+                            ShadowV0CascadeOrder = kIgnoreCascadeOrder,
                             bool matching_tree_boundary_rules = false);
-  void CollectMatchingShadowHostRules(const MatchRequest&,
-                                      CascadeOrder = kIgnoreCascadeOrder);
-  void CollectMatchingPartPseudoRules(const MatchRequest&,
-                                      PartNames&,
-                                      CascadeOrder = kIgnoreCascadeOrder);
+  void CollectMatchingShadowHostRules(
+      const MatchRequest&,
+      ShadowV0CascadeOrder = kIgnoreCascadeOrder);
+  void CollectMatchingPartPseudoRules(
+      const MatchRequest&,
+      PartNames&,
+      ShadowV0CascadeOrder = kIgnoreCascadeOrder);
   void SortAndTransferMatchedRules();
   void ClearMatchedRules();
   void AddElementStyleProperties(const CSSPropertyValueSet*,
@@ -158,13 +159,13 @@ class ElementRuleCollector {
  private:
   template <typename RuleDataListType>
   void CollectMatchingRulesForList(const RuleDataListType*,
-                                   CascadeOrder,
+                                   ShadowV0CascadeOrder,
                                    const MatchRequest&,
                                    PartNames* = nullptr);
 
-  void DidMatchRule(const RuleData&,
+  void DidMatchRule(const RuleData*,
                     const SelectorChecker::MatchResult&,
-                    CascadeOrder,
+                    ShadowV0CascadeOrder,
                     const MatchRequest&);
 
   template <class CSSRuleCollection>

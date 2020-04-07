@@ -13,6 +13,7 @@
 #include "SkTo.h"
 #include "SkTypes.h"
 
+#include <initializer_list>
 #include <utility>
 
 template <typename T> class SkTDArray {
@@ -29,6 +30,7 @@ public:
             fReserve = fCount = count;
         }
     }
+    SkTDArray(const std::initializer_list<T>& list) : SkTDArray(list.begin(), list.size()) {}
     SkTDArray(const SkTDArray<T>& src) : fArray(nullptr), fReserve(0), fCount(0) {
         SkTDArray<T> tmp(src.fArray, src.fCount);
         this->swap(tmp);
@@ -77,11 +79,13 @@ public:
     }
 
     bool isEmpty() const { return fCount == 0; }
+    bool empty() const { return this->isEmpty(); }
 
     /**
      *  Return the number of elements in the array
      */
     int count() const { return fCount; }
+    size_t size() const { return fCount; }
 
     /**
      *  Return the total number of elements allocated.
@@ -95,9 +99,9 @@ public:
      */
     size_t bytes() const { return fCount * sizeof(T); }
 
-    T*  begin() { return fArray; }
+    T*        begin() { return fArray; }
     const T*  begin() const { return fArray; }
-    T*  end() { return fArray ? fArray + fCount : nullptr; }
+    T*        end() { return fArray ? fArray + fCount : nullptr; }
     const T*  end() const { return fArray ? fArray + fCount : nullptr; }
 
     T&  operator[](int index) {
@@ -112,9 +116,7 @@ public:
     T&  getAt(int index)  {
         return (*this)[index];
     }
-    const T&  getAt(int index) const {
-        return (*this)[index];
-    }
+
 
     void reset() {
         if (fArray) {
@@ -151,6 +153,10 @@ public:
             this->resizeStorageToAtLeast(reserve);
         }
     }
+    void reserve(size_t n) {
+        SkASSERT_RELEASE(SkTFitsIn<int>(n));
+        this->setReserve(SkToInt(n));
+    }
 
     T* prepend() {
         this->adjustCount(1);
@@ -173,12 +179,6 @@ public:
             }
         }
         return fArray + oldCount;
-    }
-
-    T* appendClear() {
-        T* result = this->append();
-        *result = 0;
-        return result;
     }
 
     T* insert(int index) {
@@ -263,8 +263,8 @@ public:
     }
 
     // routines to treat the array like a stack
-    T*       push() { return this->append(); }
-    void     push(const T& elem) { *this->append() = elem; }
+    void push_back(const T& v) { *this->append() = v; }
+    T*      push() { return this->append(); }
     const T& top() const { return (*this)[fCount - 1]; }
     T&       top() { return (*this)[fCount - 1]; }
     void     pop(T* elem) { SkASSERT(fCount > 0); if (elem) *elem = (*this)[fCount - 1]; --fCount; }
@@ -308,15 +308,6 @@ public:
             iter += 1;
         }
         this->reset();
-    }
-
-    void visitAll(void visitor(T&)) {
-        T* stop = this->end();
-        for (T* curr = this->begin(); curr < stop; curr++) {
-            if (*curr) {
-                visitor(*curr);
-            }
-        }
     }
 
 #ifdef SK_DEBUG

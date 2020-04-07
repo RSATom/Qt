@@ -5,6 +5,7 @@
 #include "extensions/browser/api/messaging/extension_message_port.h"
 
 #include "base/scoped_observer.h"
+#include "base/strings/strcat.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_handle.h"
@@ -18,6 +19,15 @@
 #include "extensions/common/api/messaging/message.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+
+namespace {
+
+std::string PortIdToString(const extensions::PortId& port_id) {
+  return base::StrCat({port_id.GetChannelId().first.ToString(), ":",
+                       base::NumberToString(port_id.GetChannelId().second)});
+}
+
+}  // namespace
 
 namespace extensions {
 
@@ -173,8 +183,7 @@ void ExtensionMessagePort::RevalidatePort() {
 void ExtensionMessagePort::RemoveCommonFrames(const MessagePort& port) {
   // Avoid overlap in the set of frames to make sure that it does not matter
   // when UnregisterFrame is called.
-  for (std::set<content::RenderFrameHost*>::iterator it = frames_.begin();
-       it != frames_.end();) {
+  for (auto it = frames_.begin(); it != frames_.end();) {
     if (port.HasFrame(*it)) {
       frames_.erase(it++);
     } else {
@@ -199,8 +208,7 @@ void ExtensionMessagePort::DispatchOnConnect(
     int guest_render_frame_routing_id,
     const std::string& source_extension_id,
     const std::string& target_extension_id,
-    const GURL& source_url,
-    const std::string& tls_channel_id) {
+    const GURL& source_url) {
   ExtensionMsg_TabConnectionInfo source;
   if (source_tab)
     source.tab.Swap(source_tab.get());
@@ -214,7 +222,7 @@ void ExtensionMessagePort::DispatchOnConnect(
   info.guest_render_frame_routing_id = guest_render_frame_routing_id;
 
   SendToPort(std::make_unique<ExtensionMsg_DispatchOnConnect>(
-      MSG_ROUTING_NONE, port_id_, channel_name, source, info, tls_channel_id));
+      MSG_ROUTING_NONE, port_id_, channel_name, source, info));
 }
 
 void ExtensionMessagePort::DispatchOnDisconnect(
@@ -232,7 +240,8 @@ void ExtensionMessagePort::IncrementLazyKeepaliveCount() {
   ProcessManager* pm = ProcessManager::Get(browser_context_);
   ExtensionHost* host = pm->GetBackgroundHostForExtension(extension_id_);
   if (host && BackgroundInfo::HasLazyBackgroundPage(host->extension()))
-    pm->IncrementLazyKeepaliveCount(host->extension());
+    pm->IncrementLazyKeepaliveCount(host->extension(), Activity::MESSAGE_PORT,
+                                    PortIdToString(port_id_));
 
   // Keep track of the background host, so when we decrement, we only do so if
   // the host hasn't reloaded.
@@ -243,7 +252,8 @@ void ExtensionMessagePort::DecrementLazyKeepaliveCount() {
   ProcessManager* pm = ProcessManager::Get(browser_context_);
   ExtensionHost* host = pm->GetBackgroundHostForExtension(extension_id_);
   if (host && host == background_host_ptr_)
-    pm->DecrementLazyKeepaliveCount(host->extension());
+    pm->DecrementLazyKeepaliveCount(host->extension(), Activity::MESSAGE_PORT,
+                                    PortIdToString(port_id_));
 }
 
 void ExtensionMessagePort::OpenPort(int process_id, int routing_id) {

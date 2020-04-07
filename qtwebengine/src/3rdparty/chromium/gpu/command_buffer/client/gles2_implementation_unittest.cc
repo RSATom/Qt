@@ -17,6 +17,7 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
+#include "base/stl_util.h"
 #include "gpu/command_buffer/client/client_test_helper.h"
 #include "gpu/command_buffer/client/gles2_cmd_helper.h"
 #include "gpu/command_buffer/client/mock_transfer_buffer.h"
@@ -177,7 +178,7 @@ class GLES2ImplementationTest : public testing::Test {
 
   class TestContext {
    public:
-    TestContext() : commands_(NULL), token_(0) {}
+    TestContext() : commands_(nullptr), token_(0) {}
 
     bool Initialize(ShareGroup* share_group,
                     bool bind_generates_resource_client,
@@ -304,15 +305,14 @@ class GLES2ImplementationTest : public testing::Test {
     Capabilities capabilities_;
   };
 
-  GLES2ImplementationTest() : commands_(NULL) {}
+  GLES2ImplementationTest() : commands_(nullptr) {}
 
   void SetUp() override;
   void TearDown() override;
 
   bool NoCommandsWritten() {
     scoped_refptr<Buffer> ring_buffer = helper_->get_ring_buffer();
-    const uint8_t* cmds =
-        reinterpret_cast<const uint8_t*>(ring_buffer->memory());
+    const uint8_t* cmds = static_cast<const uint8_t*>(ring_buffer->memory());
     const uint8_t* end = cmds + ring_buffer->size();
     for (; cmds < end; ++cmds) {
       if (*cmds != kInitialValue) {
@@ -853,9 +853,9 @@ TEST_F(GLES2ImplementationTest, DrawArraysClientSideBuffers) {
   const GLint kFirst = 1;
   const GLsizei kCount = 2;
   const GLsizei kSize1 =
-      arraysize(verts) * kNumComponents1 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents1 * sizeof(verts[0][0]);
   const GLsizei kSize2 =
-      arraysize(verts) * kNumComponents2 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents2 * sizeof(verts[0][0]);
   const GLsizei kEmuOffset1 = 0;
   const GLsizei kEmuOffset2 = kSize1;
   const GLsizei kTotalSize = kSize1 + kSize2;
@@ -921,7 +921,7 @@ TEST_F(GLES2ImplementationTest, DrawArraysInstancedANGLEClientSideBuffers) {
   const GLsizei kCount = 2;
   const GLuint kDivisor = 1;
   const GLsizei kSize1 =
-      arraysize(verts) * kNumComponents1 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents1 * sizeof(verts[0][0]);
   const GLsizei kSize2 =
       1 * kNumComponents2 * sizeof(verts[0][0]);
   const GLsizei kEmuOffset1 = 0;
@@ -999,9 +999,9 @@ TEST_F(GLES2ImplementationTest, DrawElementsClientSideBuffers) {
   const GLsizei kClientStride = sizeof(verts[0]);
   const GLsizei kCount = 2;
   const GLsizei kSize1 =
-      arraysize(verts) * kNumComponents1 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents1 * sizeof(verts[0][0]);
   const GLsizei kSize2 =
-      arraysize(verts) * kNumComponents2 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents2 * sizeof(verts[0][0]);
   const GLsizei kEmuOffset1 = 0;
   const GLsizei kEmuOffset2 = kSize1;
   const GLsizei kTotalSize = kSize1 + kSize2;
@@ -1083,9 +1083,9 @@ TEST_F(GLES2ImplementationTest, DrawElementsClientSideBuffersIndexUint) {
   const GLsizei kClientStride = sizeof(verts[0]);
   const GLsizei kCount = 2;
   const GLsizei kSize1 =
-      arraysize(verts) * kNumComponents1 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents1 * sizeof(verts[0][0]);
   const GLsizei kSize2 =
-      arraysize(verts) * kNumComponents2 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents2 * sizeof(verts[0][0]);
   const GLsizei kEmuOffset1 = 0;
   const GLsizei kEmuOffset2 = kSize1;
   const GLsizei kTotalSize = kSize1 + kSize2;
@@ -1192,9 +1192,9 @@ TEST_F(GLES2ImplementationTest,
   const GLsizei kClientStride = sizeof(verts[0]);
   const GLsizei kCount = 2;
   const GLsizei kSize1 =
-      arraysize(verts) * kNumComponents1 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents1 * sizeof(verts[0][0]);
   const GLsizei kSize2 =
-      arraysize(verts) * kNumComponents2 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents2 * sizeof(verts[0][0]);
   const GLsizei kEmuOffset1 = 0;
   const GLsizei kEmuOffset2 = kSize1;
   const GLsizei kTotalSize = kSize1 + kSize2;
@@ -1281,7 +1281,7 @@ TEST_F(GLES2ImplementationTest, DrawElementsInstancedANGLEClientSideBuffers) {
   const GLsizei kClientStride = sizeof(verts[0]);
   const GLsizei kCount = 2;
   const GLsizei kSize1 =
-      arraysize(verts) * kNumComponents1 * sizeof(verts[0][0]);
+      base::size(verts) * kNumComponents1 * sizeof(verts[0][0]);
   const GLsizei kSize2 =
       1 * kNumComponents2 * sizeof(verts[0][0]);
   const GLuint kDivisor = 1;
@@ -1361,8 +1361,8 @@ TEST_F(GLES2ImplementationTest, GetVertexBufferPointerv) {
                            GL_FLOAT, GL_FALSE, kStride2,
                            reinterpret_cast<const void*>(kOffset2));
   // now get them both.
-  void* ptr1 = NULL;
-  void* ptr2 = NULL;
+  void* ptr1 = nullptr;
+  void* ptr2 = nullptr;
 
   gl_->GetVertexAttribPointerv(
       kAttribIndex1, GL_VERTEX_ATTRIB_ARRAY_POINTER, &ptr1);
@@ -1586,7 +1586,7 @@ TEST_F(GLES2ImplementationTest, FreeUnusedSharedMemory) {
 
   void* mem = gl_->MapBufferSubDataCHROMIUM(
       kTarget, kOffset, kSize, GL_WRITE_ONLY);
-  ASSERT_TRUE(mem != NULL);
+  ASSERT_TRUE(mem != nullptr);
   gl_->UnmapBufferSubDataCHROMIUM(mem);
   EXPECT_CALL(*command_buffer(), DestroyTransferBuffer(_))
       .Times(1)
@@ -1612,7 +1612,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapBufferSubDataCHROMIUM) {
 
   void* mem = gl_->MapBufferSubDataCHROMIUM(
       kTarget, kOffset, kSize, GL_WRITE_ONLY);
-  ASSERT_TRUE(mem != NULL);
+  ASSERT_TRUE(mem != nullptr);
   gl_->UnmapBufferSubDataCHROMIUM(mem);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
@@ -1641,13 +1641,13 @@ TEST_F(GLES2ImplementationTest, MapUnmapBufferSubDataCHROMIUMBadArgs) {
 
   void* mem;
   mem = gl_->MapBufferSubDataCHROMIUM(kTarget, -1, kSize, GL_WRITE_ONLY);
-  ASSERT_TRUE(mem == NULL);
+  ASSERT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapBufferSubDataCHROMIUM(kTarget, kOffset, -1, GL_WRITE_ONLY);
-  ASSERT_TRUE(mem == NULL);
+  ASSERT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapBufferSubDataCHROMIUM(kTarget, kOffset, kSize, GL_READ_ONLY);
-  ASSERT_TRUE(mem == NULL);
+  ASSERT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_ENUM), gl_->GetError());
   const char* kPtr = "something";
   gl_->UnmapBufferSubDataCHROMIUM(kPtr);
@@ -1685,7 +1685,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUM) {
       kFormat,
       kType,
       GL_WRITE_ONLY);
-  ASSERT_TRUE(mem != NULL);
+  ASSERT_TRUE(mem != nullptr);
   gl_->UnmapTexSubImage2DCHROMIUM(mem);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
@@ -1736,7 +1736,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
     kFormat,
     kType,
     GL_WRITE_ONLY);
-  EXPECT_TRUE(mem == NULL);
+  EXPECT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapTexSubImage2DCHROMIUM(
     GL_TEXTURE_2D,
@@ -1748,7 +1748,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
     kFormat,
     kType,
     GL_WRITE_ONLY);
-  EXPECT_TRUE(mem == NULL);
+  EXPECT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapTexSubImage2DCHROMIUM(
     GL_TEXTURE_2D,
@@ -1760,7 +1760,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
     kFormat,
     kType,
     GL_WRITE_ONLY);
-  EXPECT_TRUE(mem == NULL);
+  EXPECT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapTexSubImage2DCHROMIUM(
     GL_TEXTURE_2D,
@@ -1772,7 +1772,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
     kFormat,
     kType,
     GL_WRITE_ONLY);
-  EXPECT_TRUE(mem == NULL);
+  EXPECT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapTexSubImage2DCHROMIUM(
     GL_TEXTURE_2D,
@@ -1784,7 +1784,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
     kFormat,
     kType,
     GL_WRITE_ONLY);
-  EXPECT_TRUE(mem == NULL);
+  EXPECT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   mem = gl_->MapTexSubImage2DCHROMIUM(
     GL_TEXTURE_2D,
@@ -1796,7 +1796,7 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
     kFormat,
     kType,
     GL_READ_ONLY);
-  EXPECT_TRUE(mem == NULL);
+  EXPECT_TRUE(mem == nullptr);
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_ENUM), gl_->GetError());
   const char* kPtr = "something";
   gl_->UnmapTexSubImage2DCHROMIUM(kPtr);
@@ -1900,7 +1900,7 @@ TEST_F(GLES2ImplementationTest, GetProgramInfoCHROMIUMBadArgs) {
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   ClearCommands();
   // try no size ptr.
-  gl_->GetProgramInfoCHROMIUM(kProgramId, sizeof(buf), NULL, &buf);
+  gl_->GetProgramInfoCHROMIUM(kProgramId, sizeof(buf), nullptr, &buf);
   EXPECT_TRUE(NoCommandsWritten());
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
 }
@@ -2002,7 +2002,7 @@ TEST_F(GLES2ImplementationTest, GetUniformBlocksCHROMIUMBadArgs) {
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
   ClearCommands();
   // try no size ptr.
-  gl_->GetUniformBlocksCHROMIUM(kProgramId, sizeof(buf), NULL, &buf);
+  gl_->GetUniformBlocksCHROMIUM(kProgramId, sizeof(buf), nullptr, &buf);
   EXPECT_TRUE(NoCommandsWritten());
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
 }
@@ -2278,12 +2278,12 @@ TEST_F(GLES2ImplementationTest, TexImage2DViaTexSubImage2D) {
       &size, &unpadded_row_size, &padded_row_size));
   const GLsizei kHeight = (MaxTransferBufferSize() / padded_row_size) * 2;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment,
-      &size, NULL, NULL));
+      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment, &size,
+      nullptr, nullptr));
   uint32_t half_size = 0;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
       kWidth, kHeight / 2, 1, kFormat, kType, kPixelStoreUnpackAlignment,
-      &half_size, NULL, NULL));
+      &half_size, nullptr, nullptr));
 
   std::unique_ptr<uint8_t[]> pixels(new uint8_t[size]);
   for (uint32_t ii = 0; ii < size; ++ii) {
@@ -2373,7 +2373,7 @@ TEST_F(GLES2ImplementationTest, SubImage2DUnpack) {
   }
 
   for (int sub = 0; sub < 2; ++sub) {
-    for (size_t a = 0; a < arraysize(unpack_alignments); ++a) {
+    for (size_t a = 0; a < base::size(unpack_alignments); ++a) {
       const void* commands = GetPut();
 
       GLint alignment = unpack_alignments[a];
@@ -2514,7 +2514,7 @@ TEST_F(GLES3ImplementationTest, SubImage3DUnpack) {
   }
 
   for (int sub = 0; sub < 2; ++sub) {
-    for (size_t a = 0; a < arraysize(unpack_alignments); ++a) {
+    for (size_t a = 0; a < base::size(unpack_alignments); ++a) {
       const void* commands = GetPut();
 
       GLint alignment = unpack_alignments[a];
@@ -2675,11 +2675,10 @@ TEST_F(GLES2ImplementationTest, TextureInvalidArguments) {
   // to (runtime-detected) compression formats. Try to infer the error with an
   // aux check.
   const GLenum kCompressedFormat = GL_ETC1_RGB8_OES;
-  gl_->CompressedTexImage2D(
-      kTarget, kLevel, kCompressedFormat, kWidth, kHeight, kBorder,
-      arraysize(pixels), pixels);
+  gl_->CompressedTexImage2D(kTarget, kLevel, kCompressedFormat, kWidth, kHeight,
+                            kBorder, base::size(pixels), pixels);
 
-  // In the above, kCompressedFormat and arraysize(pixels) are possibly wrong
+  // In the above, kCompressedFormat and base::size(pixels) are possibly wrong
   // values. First ensure that these do not cause failures at the client. If
   // this check ever fails, it probably means that client checks more than at
   // the time of writing of this test. In this case, more code needs to be
@@ -2690,9 +2689,8 @@ TEST_F(GLES2ImplementationTest, TextureInvalidArguments) {
 
   // Changing border to invalid border should make the call fail at the client
   // checks.
-  gl_->CompressedTexImage2D(
-      kTarget, kLevel, kCompressedFormat, kWidth, kHeight, kInvalidBorder,
-      arraysize(pixels), pixels);
+  gl_->CompressedTexImage2D(kTarget, kLevel, kCompressedFormat, kWidth, kHeight,
+                            kInvalidBorder, base::size(pixels), pixels);
   EXPECT_TRUE(NoCommandsWritten());
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 }
@@ -2720,7 +2718,7 @@ TEST_F(GLES2ImplementationTest, TexImage3DSingleCommand) {
   const GLsizei kHeight = MaxTransferBufferSize() / padded_row_size / kDepth;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
       kWidth, kHeight, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
-      &size, NULL, NULL));
+      &size, nullptr, nullptr));
 
   std::unique_ptr<uint8_t[]> pixels(new uint8_t[size]);
   for (uint32_t ii = 0; ii < size; ++ii) {
@@ -2773,7 +2771,7 @@ TEST_F(GLES2ImplementationTest, TexImage3DViaMappedMem) {
   const GLsizei kHeight = kMaxHeight * 2;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
       kWidth, kHeight, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
-      &size, NULL, NULL));
+      &size, nullptr, nullptr));
 
   std::unique_ptr<uint8_t[]> pixels(new uint8_t[size]);
   for (uint32_t ii = 0; ii < size; ++ii) {
@@ -2824,8 +2822,8 @@ TEST_F(GLES2ImplementationTest, TexImage3DViaTexSubImage3D) {
   // Makes sure the data is more than one command can hold.
   const GLsizei kHeight = MaxTransferBufferSize() / padded_row_size + 3;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment,
-      &size, NULL, NULL));
+      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment, &size,
+      nullptr, nullptr));
   uint32_t first_size = padded_row_size * (kHeight - 3);
   uint32_t second_size =
       padded_row_size * 3 - (padded_row_size - unpadded_row_size);
@@ -2885,7 +2883,7 @@ TEST_F(GLES2ImplementationTest, TexSubImage3D4Writes) {
   const GLsizei kHeight = MaxTransferBufferSize() / padded_row_size + 2;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
       kWidth, kHeight, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
-      &size, NULL, NULL));
+      &size, nullptr, nullptr));
   uint32_t first_size = (kHeight - 2) * padded_row_size;
   uint32_t second_size = 2 * padded_row_size;
   uint32_t third_size = first_size;
@@ -3074,15 +3072,48 @@ TEST_F(GLES2ImplementationTest, BufferDataLargerThanTransferBuffer) {
   ExpectedMemoryInfo mem2 = GetExpectedMemory(kUsableSize);
 
   Cmds expected;
-  expected.set_size.Init(
-      GL_ARRAY_BUFFER, arraysize(buf), 0, 0, GL_DYNAMIC_DRAW);
+  expected.set_size.Init(GL_ARRAY_BUFFER, base::size(buf), 0, 0,
+                         GL_DYNAMIC_DRAW);
   expected.copy_data1.Init(
       GL_ARRAY_BUFFER, 0, kUsableSize, mem1.id, mem1.offset);
   expected.set_token1.Init(GetNextToken());
   expected.copy_data2.Init(
       GL_ARRAY_BUFFER, kUsableSize, kUsableSize, mem2.id, mem2.offset);
   expected.set_token2.Init(GetNextToken());
-  gl_->BufferData(GL_ARRAY_BUFFER, arraysize(buf), buf, GL_DYNAMIC_DRAW);
+  gl_->BufferData(GL_ARRAY_BUFFER, base::size(buf), buf, GL_DYNAMIC_DRAW);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, MultiDrawArraysWEBGLLargerThanTransferBuffer) {
+  struct Cmds {
+    cmds::MultiDrawBeginCHROMIUM begin;
+    cmds::MultiDrawArraysCHROMIUM draw1;
+    cmd::SetToken set_token1;
+    cmds::MultiDrawArraysCHROMIUM draw2;
+    cmd::SetToken set_token2;
+    cmds::MultiDrawEndCHROMIUM end;
+  };
+  const unsigned kUsableSize =
+      kTransferBufferSize - GLES2Implementation::kStartingOffset;
+  const unsigned kDrawCount = kUsableSize / sizeof(int);
+  const unsigned kChunkDrawCount = kDrawCount / 2;
+  const unsigned kCountsOffset = kChunkDrawCount * sizeof(int);
+  GLint firsts[kDrawCount] = {0};
+  GLsizei counts[kDrawCount] = {0};
+
+  ExpectedMemoryInfo mem1 = GetExpectedMemory(kUsableSize);
+  ExpectedMemoryInfo mem2 = GetExpectedMemory(kUsableSize);
+
+  Cmds expected;
+  expected.begin.Init(kDrawCount);
+  expected.draw1.Init(GL_TRIANGLES, mem1.id, mem1.offset, mem1.id,
+                      mem1.offset + kCountsOffset, kChunkDrawCount);
+  expected.set_token1.Init(GetNextToken());
+  expected.draw2.Init(GL_TRIANGLES, mem2.id, mem2.offset, mem2.id,
+                      mem2.offset + kCountsOffset, kChunkDrawCount);
+  expected.set_token2.Init(GetNextToken());
+  expected.end.Init();
+  gl_->MultiDrawArraysWEBGL(GL_TRIANGLES, firsts, counts, kDrawCount);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
@@ -3103,7 +3134,7 @@ TEST_F(GLES2ImplementationTest, CapabilitiesAreCached) {
   };
   Cmds expected;
 
-  for (size_t ii = 0; ii < arraysize(kStates); ++ii) {
+  for (size_t ii = 0; ii < base::size(kStates); ++ii) {
     GLenum state = kStates[ii];
     expected.enable_cmd.Init(state);
     GLboolean result = gl_->IsEnabled(state);
@@ -3152,9 +3183,11 @@ TEST_F(GLES2ImplementationTest, BeginEndQueryEXT) {
     GLuint data[2];
   };
   GenCmds expected_gen_cmds;
-  expected_gen_cmds.gen.Init(arraysize(expected_ids), &expected_ids[0]);
-  GLuint ids[arraysize(expected_ids)] = { 0, };
-  gl_->GenQueriesEXT(arraysize(expected_ids), &ids[0]);
+  expected_gen_cmds.gen.Init(base::size(expected_ids), &expected_ids[0]);
+  GLuint ids[base::size(expected_ids)] = {
+      0,
+  };
+  gl_->GenQueriesEXT(base::size(expected_ids), &ids[0]);
   EXPECT_EQ(0, memcmp(
       &expected_gen_cmds, commands_, sizeof(expected_gen_cmds)));
   GLuint id1 = ids[0];
@@ -3174,7 +3207,7 @@ TEST_F(GLES2ImplementationTest, BeginEndQueryEXT) {
   const void* commands = GetPut();
   gl_->BeginQueryEXT(GL_ANY_SAMPLES_PASSED_EXT, id1);
   QueryTracker::Query* query = GetQuery(id1);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   expected_begin_cmds.begin_query.Init(
       GL_ANY_SAMPLES_PASSED_EXT, id1, query->shm_id(), query->shm_offset());
   EXPECT_EQ(0, memcmp(
@@ -3339,9 +3372,11 @@ TEST_F(GLES2ImplementationTest, QueryCounterEXT) {
     GLuint data[2];
   };
   GenCmds expected_gen_cmds;
-  expected_gen_cmds.gen.Init(arraysize(expected_ids), &expected_ids[0]);
-  GLuint ids[arraysize(expected_ids)] = { 0, };
-  gl_->GenQueriesEXT(arraysize(expected_ids), &ids[0]);
+  expected_gen_cmds.gen.Init(base::size(expected_ids), &expected_ids[0]);
+  GLuint ids[base::size(expected_ids)] = {
+      0,
+  };
+  gl_->GenQueriesEXT(base::size(expected_ids), &ids[0]);
   EXPECT_EQ(0, memcmp(
       &expected_gen_cmds, commands_, sizeof(expected_gen_cmds)));
   GLuint id1 = ids[0];
@@ -3372,7 +3407,7 @@ TEST_F(GLES2ImplementationTest, QueryCounterEXT) {
   gl_->QueryCounterEXT(id1, GL_TIMESTAMP_EXT);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
   QueryTracker::Query* query = GetQuery(id1);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   expected_query_counter_cmds.query_counter.Init(
       id1, GL_TIMESTAMP_EXT, query->shm_id(), query->shm_offset(),
       query->submit_count());
@@ -3385,7 +3420,7 @@ TEST_F(GLES2ImplementationTest, QueryCounterEXT) {
   gl_->QueryCounterEXT(id2, GL_TIMESTAMP_EXT);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
   QueryTracker::Query* query2 = GetQuery(id2);
-  ASSERT_TRUE(query2 != NULL);
+  ASSERT_TRUE(query2 != nullptr);
   expected_query_counter_cmds.query_counter.Init(
       id2, GL_TIMESTAMP_EXT, query2->shm_id(), query2->shm_offset(),
       query2->submit_count());
@@ -3428,7 +3463,7 @@ TEST_F(GLES2ImplementationTest, ErrorQuery) {
   gl_->BeginQueryEXT(GL_GET_ERROR_QUERY_CHROMIUM, id);
   EXPECT_TRUE(NoCommandsWritten());
   QueryTracker::Query* query = GetQuery(id);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
 
   // Test EndQueryEXT sends both begin and end command
   struct EndCmds {
@@ -3486,7 +3521,7 @@ TEST_F(GLES2ImplementationTest, VertexArrays) {
   gl_->BindVertexArrayOES(id);
 
   // Test that VertexAttribPointer cannot be called with a bound buffer of 0
-  // unless the offset is NULL
+  // unless the offset is nullptr
   gl_->BindBuffer(GL_ARRAY_BUFFER, 0);
 
   gl_->VertexAttribPointer(
@@ -3494,8 +3529,8 @@ TEST_F(GLES2ImplementationTest, VertexArrays) {
       reinterpret_cast<const void*>(4));
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
 
-  gl_->VertexAttribPointer(
-      kAttribIndex1, kNumComponents1, GL_FLOAT, GL_FALSE, kClientStride, NULL);
+  gl_->VertexAttribPointer(kAttribIndex1, kNumComponents1, GL_FLOAT, GL_FALSE,
+                           kClientStride, nullptr);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 }
 #endif
@@ -3540,6 +3575,20 @@ TEST_F(GLES2ImplementationTest, CreateAndConsumeTextureCHROMIUM) {
   Cmds expected;
   expected.cmd.Init(kTexturesStartId, mailbox.name);
   GLuint id = gl_->CreateAndConsumeTextureCHROMIUM(mailbox.name);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_EQ(kTexturesStartId, id);
+}
+
+TEST_F(GLES2ImplementationTest, CreateAndTexStorage2DSharedImageCHROMIUM) {
+  struct Cmds {
+    cmds::CreateAndTexStorage2DSharedImageINTERNALImmediate cmd;
+    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
+  };
+
+  Mailbox mailbox = Mailbox::Generate();
+  Cmds expected;
+  expected.cmd.Init(kTexturesStartId, mailbox.name);
+  GLuint id = gl_->CreateAndTexStorage2DSharedImageCHROMIUM(mailbox.name);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_EQ(kTexturesStartId, id);
 }
@@ -3609,25 +3658,25 @@ TEST_F(GLES2ImplementationTest, LimitSizeAndOffsetTo32Bit) {
   // Call MapBufferSubDataCHROMIUM() should succeed with legal paramaters.
   void* mem =
       gl_->MapBufferSubDataCHROMIUM(GL_ARRAY_BUFFER, 0, 1, GL_WRITE_ONLY);
-  EXPECT_TRUE(NULL != mem);
+  EXPECT_TRUE(nullptr != mem);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
   gl_->UnmapBufferSubDataCHROMIUM(mem);
 
   // MapBufferSubDataCHROMIUM: offset
-  EXPECT_TRUE(NULL == gl_->MapBufferSubDataCHROMIUM(
-      GL_ARRAY_BUFFER, offset, 1, GL_WRITE_ONLY));
+  EXPECT_TRUE(nullptr == gl_->MapBufferSubDataCHROMIUM(GL_ARRAY_BUFFER, offset,
+                                                       1, GL_WRITE_ONLY));
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
   EXPECT_STREQ(kOffsetOverflowMessage, GetLastError().c_str());
 
   // MapBufferSubDataCHROMIUM: size
   EXPECT_EQ(GL_NO_ERROR, CheckError());
-  EXPECT_TRUE(NULL == gl_->MapBufferSubDataCHROMIUM(
-      GL_ARRAY_BUFFER, 0, size, GL_WRITE_ONLY));
+  EXPECT_TRUE(nullptr == gl_->MapBufferSubDataCHROMIUM(GL_ARRAY_BUFFER, 0, size,
+                                                       GL_WRITE_ONLY));
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
   EXPECT_STREQ(kSizeOverflowMessage, GetLastError().c_str());
 
   // Call DrawElements() should succeed with legal paramaters.
-  gl_->DrawElements(GL_POINTS, 1, GL_UNSIGNED_BYTE, NULL);
+  gl_->DrawElements(GL_POINTS, 1, GL_UNSIGNED_BYTE, nullptr);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
   // DrawElements: offset
@@ -3637,7 +3686,7 @@ TEST_F(GLES2ImplementationTest, LimitSizeAndOffsetTo32Bit) {
   EXPECT_STREQ(kOffsetOverflowMessage, GetLastError().c_str());
 
   // Call DrawElementsInstancedANGLE() should succeed with legal paramaters.
-  gl_->DrawElementsInstancedANGLE(GL_POINTS, 1, GL_UNSIGNED_BYTE, NULL, 1);
+  gl_->DrawElementsInstancedANGLE(GL_POINTS, 1, GL_UNSIGNED_BYTE, nullptr, 1);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
   // DrawElementsInstancedANGLE: offset
@@ -3649,8 +3698,8 @@ TEST_F(GLES2ImplementationTest, LimitSizeAndOffsetTo32Bit) {
   // Call VertexAttribPointer() should succeed with legal paramaters.
   const GLuint kAttribIndex = 1;
   const GLsizei kStride = 4;
-  gl_->VertexAttribPointer(
-      kAttribIndex, 1, GL_FLOAT, GL_FALSE, kStride, NULL);
+  gl_->VertexAttribPointer(kAttribIndex, 1, GL_FLOAT, GL_FALSE, kStride,
+                           nullptr);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
   // VertexAttribPointer: offset
@@ -3706,6 +3755,42 @@ TEST_F(GLES2ImplementationTest, TraceBeginCHROMIUM) {
   expected.name_size2.Init(kNameBucketId, 0);
 
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, SetActiveURLCHROMIUM) {
+  const uint32_t kURLBucketId = GLES2Implementation::kResultBucketId;
+  const std::string url = "chrome://test";
+  const size_t kPaddedStringSize =
+      transfer_buffer_->RoundToAlignment(url.size());
+
+  gl_->SetActiveURLCHROMIUM(url.c_str());
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  struct Cmds {
+    cmd::SetBucketSize url_size;
+    cmd::SetBucketData url_data;
+    cmd::SetToken set_token;
+    cmds::SetActiveURLCHROMIUM set_url_call;
+    cmd::SetBucketSize url_size_end;
+  };
+
+  ExpectedMemoryInfo mem = GetExpectedMemory(kPaddedStringSize);
+  EXPECT_EQ(0,
+            memcmp(url.c_str(), reinterpret_cast<char*>(mem.ptr), url.size()));
+
+  Cmds expected;
+  expected.url_size.Init(kURLBucketId, url.size());
+  expected.url_data.Init(kURLBucketId, 0, url.size(), mem.id, mem.offset);
+  expected.set_token.Init(GetNextToken());
+  expected.set_url_call.Init(kURLBucketId);
+  expected.url_size_end.Init(kURLBucketId, 0);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+
+  // Same URL shouldn't make any commands.
+  EXPECT_FALSE(NoCommandsWritten());
+  ClearCommands();
+  gl_->SetActiveURLCHROMIUM(url.c_str());
+  EXPECT_TRUE(NoCommandsWritten());
 }
 
 TEST_F(GLES2ImplementationTest, AllowNestedTracesCHROMIUM) {
@@ -3833,7 +3918,7 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM) {
   EXPECT_CALL(*gpu_control_, CanWaitUnverifiedSyncToken(sync_token))
       .WillOnce(Return(true));
   EXPECT_CALL(*gpu_control_, EnsureWorkVisible());
-  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, arraysize(sync_token_datas));
+  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, base::size(sync_token_datas));
   EXPECT_TRUE(NoCommandsWritten());
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
@@ -3890,7 +3975,7 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM_Sequence) {
       .InSequence(sequence)
       .WillOnce(Return(true));
   EXPECT_CALL(*gpu_control_, EnsureWorkVisible()).InSequence(sequence);
-  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, arraysize(sync_token_datas));
+  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, base::size(sync_token_datas));
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
   EXPECT_TRUE(sync_token1.verified_flush());
@@ -3913,7 +3998,7 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM_EmptySyncToken) {
   // Ensure proper sequence of checking and validating.
   EXPECT_CALL(*gpu_control_, CanWaitUnverifiedSyncToken(_)).Times(0);
   EXPECT_CALL(*gpu_control_, EnsureWorkVisible()).Times(0);
-  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, arraysize(sync_token_datas));
+  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, base::size(sync_token_datas));
   EXPECT_TRUE(NoCommandsWritten());
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
@@ -3932,12 +4017,9 @@ TEST_F(GLES2ImplementationTest, WaitSyncTokenCHROMIUM) {
 
   struct Cmds {
     cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
-    cmds::WaitSyncTokenCHROMIUM wait_sync_token;
   };
   Cmds expected;
   expected.insert_fence_sync.Init(kFenceSync);
-  expected.wait_sync_token.Init(kNamespaceId, kCommandBufferId.GetUnsafeValue(),
-                                kFenceSync);
 
   EXPECT_CALL(*gpu_control_, GetNamespaceID()).WillOnce(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
@@ -3947,7 +4029,7 @@ TEST_F(GLES2ImplementationTest, WaitSyncTokenCHROMIUM) {
   EXPECT_CALL(*gpu_control_, EnsureWorkVisible());
   gl_->GenSyncTokenCHROMIUM(sync_token_data);
 
-  EXPECT_CALL(*gpu_control_, WaitSyncTokenHint(sync_token));
+  EXPECT_CALL(*gpu_control_, WaitSyncToken(sync_token));
   gl_->WaitSyncTokenCHROMIUM(sync_token_data);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
@@ -4439,6 +4521,15 @@ TEST_F(GLES2ImplementationTest, ReentrantErrorCallbacksShouldNotCrash) {
   gl_->ShaderBinary(-1, nullptr, 0, nullptr, 0);
   EXPECT_EQ(2, counter.num_calls);
   ResetErrorMessageCallback();
+}
+
+TEST_F(GLES2ImplementationTest, DeleteZero) {
+  gl_->DeleteProgram(0);
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+  gl_->DeleteShader(0);
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+  gl_->DeleteSync(0);
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
 }
 
 #include "base/macros.h"

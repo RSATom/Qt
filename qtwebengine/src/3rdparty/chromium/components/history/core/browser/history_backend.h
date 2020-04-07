@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <list>
 #include <memory>
 #include <set>
 #include <string>
@@ -16,7 +17,6 @@
 
 #include "base/cancelable_callback.h"
 #include "base/containers/flat_set.h"
-#include "base/containers/hash_tables.h"
 #include "base/containers/mru_cache.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
@@ -33,8 +33,8 @@
 #include "components/history/core/browser/history_backend_notifier.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/keyword_id.h"
+#include "components/history/core/browser/sync/typed_url_sync_bridge.h"
 #include "components/history/core/browser/thumbnail_database.h"
-#include "components/history/core/browser/typed_url_sync_bridge.h"
 #include "components/history/core/browser/visit_tracker.h"
 #include "sql/init_status.h"
 
@@ -43,6 +43,10 @@ class TestingProfile;
 
 namespace base {
 class SingleThreadTaskRunner;
+}
+
+namespace syncer {
+class ModelTypeControllerDelegate;
 }
 
 namespace history {
@@ -206,26 +210,12 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   void ClearCachedDataForContextID(ContextID context_id);
 
-  // Computes the |num_hosts| most-visited hostnames in the past 30 days. See
-  // history_service.h for details. Returns an empty list if db_ is not
-  // initialized.
-  //
-  // As a side effect, caches the list of top hosts for the purposes of
-  // generating internal metrics.
-  TopHostsList TopHosts(size_t num_hosts) const;
-
   // Gets the counts and last last time of URLs that belong to |origins| in the
   // history database. Origins that are not in the history database will be in
   // the map with a count and time of 0.
   // Returns an empty map if db_ is not initialized.
   OriginCountAndLastVisitMap GetCountsAndLastVisitForOrigins(
       const std::set<GURL>& origins) const;
-
-  // Returns, for the given URL, a 0-based index into the list produced by
-  // TopHosts(), corresponding to that URL's host. If TopHosts() has not
-  // previously been run, or the host is not in the top kMaxTopHosts, returns
-  // kMaxTopHosts.
-  int HostRankIfAvailable(const GURL& url) const;
 
   // Navigation ----------------------------------------------------------------
 
@@ -283,6 +273,9 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   // time.
   HistoryCountResult GetHistoryCount(const base::Time& begin_time,
                                      const base::Time& end_time);
+
+  // Returns the number of hosts visited in the last month.
+  HistoryCountResult CountUniqueHostsVisitedLastMonth();
 
   // Favicon -------------------------------------------------------------------
 
@@ -415,9 +408,10 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   bool GetURLByID(URLID url_id, URLRow* url_row);
 
-  // Returns the sync bridge for syncing typed urls. The returned service
-  // is owned by |this| object.
-  TypedURLSyncBridge* GetTypedURLSyncBridge() const;
+  // Returns the sync controller delegate for syncing typed urls. The returned
+  // delegate is owned by |this| object.
+  base::WeakPtr<syncer::ModelTypeControllerDelegate>
+  GetTypedURLSyncControllerDelegate();
 
   // Deleting ------------------------------------------------------------------
 
@@ -428,7 +422,8 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   // Calls ExpireHistoryBackend::ExpireHistoryBetween and commits the change.
   void ExpireHistoryBetween(const std::set<GURL>& restrict_urls,
                             base::Time begin_time,
-                            base::Time end_time);
+                            base::Time end_time,
+                            bool user_initiated);
 
   // Finds the URLs visited at |times| and expires all their visits within
   // [|begin_time|, |end_time|). All times in |times| should be in
@@ -595,8 +590,6 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, TopHosts_OnlyLast30Days);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, TopHosts_MaxNumHosts);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, TopHosts_IgnoreUnusualURLs);
-  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, HostRankIfAvailable);
-  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, RecordTopHostsMetrics);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, GetCountsAndLastVisitForOrigins);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, UpdateVisitDuration);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, ExpireHistoryForTimes);
@@ -829,10 +822,9 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
                         const URLRow& row,
                         const RedirectList& redirects,
                         base::Time visit_time) override;
-  void NotifyURLsModified(const URLRows& rows) override;
+  void NotifyURLsModified(const URLRows& changed_urls,
+                          bool is_from_expiration) override;
   void NotifyURLsDeleted(DeletionInfo deletion_info) override;
-
-  void RecordTopHostsMetrics(const GURL& url);
 
   // Deleting all history ------------------------------------------------------
 
@@ -933,12 +925,8 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   // when a catastrophic error occurs.
   std::string db_diagnostics_;
 
-  // Map from host to index in the TopHosts list. It is updated only by
-  // TopHosts(), so it's usually stale.
-  mutable base::hash_map<std::string, int> host_ranks_;
-
   // List of observers
-  base::ObserverList<HistoryBackendObserver> observers_;
+  base::ObserverList<HistoryBackendObserver>::Unchecked observers_;
 
   // Used to manage syncing of the typed urls datatype. It will be null before
   // HistoryBackend::Init is called. Defined after observers_ because

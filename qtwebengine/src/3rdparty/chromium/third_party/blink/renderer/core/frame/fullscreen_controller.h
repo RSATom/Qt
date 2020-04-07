@@ -34,15 +34,16 @@
 #include <memory>
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 
 namespace blink {
 
 class Element;
 class FullscreenOptions;
-class LocalFrame;
 class WebViewImpl;
 
 // FullscreenController is a per-WebView class that manages the transition into
@@ -54,7 +55,7 @@ class CORE_EXPORT FullscreenController {
 
   // Called by Fullscreen (via ChromeClient) to request entering or exiting
   // fullscreen.
-  void EnterFullscreen(LocalFrame&, const FullscreenOptions&);
+  void EnterFullscreen(LocalFrame&, const FullscreenOptions*);
   void ExitFullscreen(LocalFrame&);
 
   // Called by content::RenderWidget (via WebWidget) to notify that we've
@@ -71,39 +72,29 @@ class CORE_EXPORT FullscreenController {
 
   void UpdateSize();
 
-  void DidUpdateLayout();
-
  protected:
   explicit FullscreenController(WebViewImpl*);
 
  private:
-  void UpdatePageScaleConstraints(bool remove_constraints);
+  void UpdatePageScaleConstraints(bool reset_constraints);
   void RestoreBackgroundColorOverride();
 
   WebViewImpl* web_view_base_;
 
-  // State is used to avoid unnecessary enter/exit requests, and to restore the
-  // initial*_ after the first layout upon exiting fullscreen. Typically, the
-  // state goes through every state from Initial to NeedsScrollAndScaleRestore
-  // and then back to Initial, but the are two exceptions:
-  //  1. DidExitFullscreen() can transition from any non-Initial state to
-  //     NeedsScrollAndScaleRestore, in case of a browser-intiated exit.
-  //  2. EnterFullscreen() can transition from NeedsScrollAndScaleRestore to
-  //     EnteringFullscreen, in case of a quick exit+enter.
+  // State is used to avoid unnecessary enter/exit requests.
   enum class State {
     kInitial,
     kEnteringFullscreen,
     kFullscreen,
     kExitingFullscreen,
-    kNeedsScrollAndScaleRestore
   };
   State state_ = State::kInitial;
 
-  float initial_page_scale_factor_ = 0.0f;
-  IntSize initial_scroll_offset_;
-  FloatPoint initial_visual_viewport_offset_;
   bool initial_background_color_override_enabled_ = false;
   RGBA32 initial_background_color_override_ = Color::kTransparent;
+
+  using PendingFullscreenSet = HeapLinkedHashSet<WeakMember<LocalFrame>>;
+  Persistent<PendingFullscreenSet> pending_frames_;
 };
 
 }  // namespace blink

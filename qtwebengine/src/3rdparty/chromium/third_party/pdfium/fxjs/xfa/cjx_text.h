@@ -8,19 +8,26 @@
 #define FXJS_XFA_CJX_TEXT_H_
 
 #include "fxjs/xfa/cjx_content.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Text;
 
-class CJX_Text : public CJX_Content {
+class CJX_Text final : public CJX_Content {
  public:
   explicit CJX_Text(CXFA_Text* node);
   ~CJX_Text() override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(maxChars);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(value);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(value);
+
+ private:
+  using Type__ = CJX_Text;
+  using ParentType__ = CJX_Content;
+
+  static const TypeTag static_type__ = TypeTag::Text;
 };
 
 #endif  // FXJS_XFA_CJX_TEXT_H_

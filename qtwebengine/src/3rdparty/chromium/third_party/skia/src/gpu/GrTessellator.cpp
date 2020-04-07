@@ -9,6 +9,7 @@
 
 #include "GrDefaultGeoProcFactory.h"
 #include "GrPathUtils.h"
+#include "GrVertexWriter.h"
 
 #include "SkArenaAlloc.h"
 #include "SkGeometry.h"
@@ -174,11 +175,6 @@ struct Vertex {
 
 /***************************************************************************************/
 
-struct AAParams {
-    bool fTweakAlpha;
-    GrColor fColor;
-};
-
 typedef bool (*CompareFunc)(const SkPoint& a, const SkPoint& b);
 
 bool sweep_lt_horiz(const SkPoint& a, const SkPoint& b) {
@@ -198,42 +194,32 @@ struct Comparator {
     Direction fDirection;
 };
 
-inline void* emit_vertex(Vertex* v, const AAParams* aaParams, void* data) {
-    if (!aaParams) {
-        SkPoint* d = static_cast<SkPoint*>(data);
-        *d++ = v->fPoint;
-        return d;
+inline void* emit_vertex(Vertex* v, bool emitCoverage, void* data) {
+    GrVertexWriter verts{data};
+    verts.write(v->fPoint);
+
+    if (emitCoverage) {
+        verts.write(GrNormalizeByteToFloat(v->fAlpha));
     }
-    if (aaParams->fTweakAlpha) {
-        auto d = static_cast<GrDefaultGeoProcFactory::PositionColorAttr*>(data);
-        d->fPosition = v->fPoint;
-        d->fColor = SkAlphaMulQ(aaParams->fColor, SkAlpha255To256(v->fAlpha));
-        d++;
-        return d;
-    }
-    auto d = static_cast<GrDefaultGeoProcFactory::PositionColorCoverageAttr*>(data);
-    d->fPosition = v->fPoint;
-    d->fColor = aaParams->fColor;
-    d->fCoverage = GrNormalizeByteToFloat(v->fAlpha);
-    d++;
-    return d;
+
+    return verts.fPtr;
 }
 
-void* emit_triangle(Vertex* v0, Vertex* v1, Vertex* v2, const AAParams* aaParams, void* data) {
+void* emit_triangle(Vertex* v0, Vertex* v1, Vertex* v2, bool emitCoverage, void* data) {
     LOG("emit_triangle %g (%g, %g) %d\n", v0->fID, v0->fPoint.fX, v0->fPoint.fY, v0->fAlpha);
     LOG("              %g (%g, %g) %d\n", v1->fID, v1->fPoint.fX, v1->fPoint.fY, v1->fAlpha);
     LOG("              %g (%g, %g) %d\n", v2->fID, v2->fPoint.fX, v2->fPoint.fY, v2->fAlpha);
 #if TESSELLATOR_WIREFRAME
-    data = emit_vertex(v0, aaParams, data);
-    data = emit_vertex(v1, aaParams, data);
-    data = emit_vertex(v1, aaParams, data);
-    data = emit_vertex(v2, aaParams, data);
-    data = emit_vertex(v2, aaParams, data);
-    data = emit_vertex(v0, aaParams, data);
+    data = emit_vertex(v0, emitCoverage, data);
+    data = emit_vertex(v1, emitCoverage, data);
+    data = emit_vertex(v1, emitCoverage, data);
+    data = emit_vertex(v2, emitCoverage, data);
+    data = emit_vertex(v2, emitCoverage, data);
+    data = emit_vertex(v0, emitCoverage, data);
 #else
-    data = emit_vertex(v0, aaParams, data);
-    data = emit_vertex(v1, aaParams, data);
-    data = emit_vertex(v2, aaParams, data);
+    data = emit_vertex(v0, emitCoverage, data);
+    data = emit_vertex(v1, emitCoverage, data);
+    data = emit_vertex(v2, emitCoverage, data);
 #endif
     return data;
 }
@@ -559,7 +545,7 @@ struct Poly {
             }
         }
 
-        void* emit(const AAParams* aaParams, void* data) {
+        void* emit(bool emitCoverage, void* data) {
             Edge* e = fFirstEdge;
             VertexList vertices;
             vertices.append(e->fTop);
@@ -582,14 +568,14 @@ struct Poly {
                 Vertex* curr = v;
                 Vertex* next = v->fNext;
                 if (count == 3) {
-                    return emit_triangle(prev, curr, next, aaParams, data);
+                    return emit_triangle(prev, curr, next, emitCoverage, data);
                 }
                 double ax = static_cast<double>(curr->fPoint.fX) - prev->fPoint.fX;
                 double ay = static_cast<double>(curr->fPoint.fY) - prev->fPoint.fY;
                 double bx = static_cast<double>(next->fPoint.fX) - curr->fPoint.fX;
                 double by = static_cast<double>(next->fPoint.fY) - curr->fPoint.fY;
                 if (ax * by - ay * bx >= 0.0) {
-                    data = emit_triangle(prev, curr, next, aaParams, data);
+                    data = emit_triangle(prev, curr, next, emitCoverage, data);
                     v->fPrev->fNext = v->fNext;
                     v->fNext->fPrev = v->fPrev;
                     count--;
@@ -646,13 +632,13 @@ struct Poly {
         }
         return poly;
     }
-    void* emit(const AAParams* aaParams, void *data) {
+    void* emit(bool emitCoverage, void *data) {
         if (fCount < 3) {
             return data;
         }
         LOG("emit() %d, size %d\n", fID, fCount);
         for (MonotonePoly* m = fHead; m != nullptr; m = m->fNext) {
-            data = m->emit(aaParams, data);
+            data = m->emit(emitCoverage, data);
         }
         return data;
     }
@@ -1051,30 +1037,40 @@ void merge_edges_below(Edge* edge, Edge* other, EdgeList* activeEdges, Vertex** 
     }
 }
 
+bool top_collinear(Edge* left, Edge* right) {
+    if (!left || !right) {
+        return false;
+    }
+    return left->fTop->fPoint == right->fTop->fPoint ||
+           !left->isLeftOf(right->fTop) || !right->isRightOf(left->fTop);
+}
+
+bool bottom_collinear(Edge* left, Edge* right) {
+    if (!left || !right) {
+        return false;
+    }
+    return left->fBottom->fPoint == right->fBottom->fPoint ||
+           !left->isLeftOf(right->fBottom) || !right->isRightOf(left->fBottom);
+}
+
 void merge_collinear_edges(Edge* edge, EdgeList* activeEdges, Vertex** current, Comparator& c) {
     for (;;) {
-        const SkPoint& top = edge->fTop->fPoint;
-        const SkPoint& bottom = edge->fBottom->fPoint;
-        if (edge->fPrevEdgeAbove && (edge->fPrevEdgeAbove->fTop->fPoint == top ||
-                                     !edge->fPrevEdgeAbove->isLeftOf(edge->fTop))) {
+        if (top_collinear(edge->fPrevEdgeAbove, edge)) {
             merge_edges_above(edge->fPrevEdgeAbove, edge, activeEdges, current, c);
-        } else if (edge->fNextEdgeAbove && (edge->fNextEdgeAbove->fTop->fPoint == top ||
-                                            !edge->isLeftOf(edge->fNextEdgeAbove->fTop))) {
+        } else if (top_collinear(edge, edge->fNextEdgeAbove)) {
             merge_edges_above(edge->fNextEdgeAbove, edge, activeEdges, current, c);
-        } else if (edge->fPrevEdgeBelow && (edge->fPrevEdgeBelow->fBottom->fPoint == bottom ||
-                                     !edge->fPrevEdgeBelow->isLeftOf(edge->fBottom))) {
+        } else if (bottom_collinear(edge->fPrevEdgeBelow, edge)) {
             merge_edges_below(edge->fPrevEdgeBelow, edge, activeEdges, current, c);
-        } else if (edge->fNextEdgeBelow && (edge->fNextEdgeBelow->fBottom->fPoint == bottom ||
-                                            !edge->isLeftOf(edge->fNextEdgeBelow->fBottom))) {
+        } else if (bottom_collinear(edge, edge->fNextEdgeBelow)) {
             merge_edges_below(edge->fNextEdgeBelow, edge, activeEdges, current, c);
         } else {
             break;
         }
     }
-    SkASSERT(!edge->fPrevEdgeAbove || edge->fPrevEdgeAbove->isLeftOf(edge->fTop));
-    SkASSERT(!edge->fPrevEdgeBelow || edge->fPrevEdgeBelow->isLeftOf(edge->fBottom));
-    SkASSERT(!edge->fNextEdgeAbove || edge->fNextEdgeAbove->isRightOf(edge->fTop));
-    SkASSERT(!edge->fNextEdgeBelow || edge->fNextEdgeBelow->isRightOf(edge->fBottom));
+    SkASSERT(!top_collinear(edge->fPrevEdgeAbove, edge));
+    SkASSERT(!top_collinear(edge, edge->fNextEdgeAbove));
+    SkASSERT(!bottom_collinear(edge->fPrevEdgeBelow, edge));
+    SkASSERT(!bottom_collinear(edge, edge->fNextEdgeBelow));
 }
 
 bool split_edge(Edge* edge, Vertex* v, EdgeList* activeEdges, Vertex** current, Comparator& c,
@@ -1714,11 +1710,13 @@ void simplify_boundary(EdgeList* boundary, Comparator& c, SkArenaAlloc& alloc) {
     for (Edge* e = boundary->fHead; e != nullptr;) {
         Vertex* prev = prevEdge->fWinding == 1 ? prevEdge->fTop : prevEdge->fBottom;
         Vertex* next = e->fWinding == 1 ? e->fBottom : e->fTop;
-        double dist = e->dist(prev->fPoint);
+        double distPrev = e->dist(prev->fPoint);
+        double distNext = prevEdge->dist(next->fPoint);
         SkVector normal;
         get_edge_normal(e, &normal);
-        double denom = 0.0625f;
-        if (prevNormal.dot(normal) < 0.0 && (dist * dist) <= denom) {
+        constexpr double kQuarterPixelSq = 0.25f * 0.25f;
+        if (prev != next && prevNormal.dot(normal) < 0.0 &&
+            (distPrev * distPrev <= kQuarterPixelSq || distNext * distNext <= kQuarterPixelSq)) {
             Edge* join = new_edge(prev, next, Edge::Type::kInner, c, alloc);
             if (prev->fPoint != next->fPoint) {
                 join->fLine.normalize();
@@ -2160,11 +2158,10 @@ Poly* contours_to_polys(VertexList* contours, int contourCnt, SkPath::FillType f
 }
 
 // Stage 6: Triangulate the monotone polygons into a vertex buffer.
-void* polys_to_triangles(Poly* polys, SkPath::FillType fillType, const AAParams* aaParams,
-                         void* data) {
+void* polys_to_triangles(Poly* polys, SkPath::FillType fillType, bool emitCoverage, void* data) {
     for (Poly* poly = polys; poly; poly = poly->fNext) {
         if (apply_fill_type(fillType, poly)) {
-            data = poly->emit(aaParams, data);
+            data = poly->emit(emitCoverage, data);
         }
     }
     return data;
@@ -2213,15 +2210,15 @@ int64_t count_outer_mesh_points(const VertexList& outerMesh) {
     return count;
 }
 
-void* outer_mesh_to_triangles(const VertexList& outerMesh, const AAParams* aaParams, void* data) {
+void* outer_mesh_to_triangles(const VertexList& outerMesh, bool emitCoverage, void* data) {
     for (Vertex* v = outerMesh.fHead; v; v = v->fNext) {
         for (Edge* e = v->fFirstEdgeBelow; e; e = e->fNextEdgeBelow) {
             Vertex* v0 = e->fTop;
             Vertex* v1 = e->fBottom;
             Vertex* v2 = e->fBottom->fPartner;
             Vertex* v3 = e->fTop->fPartner;
-            data = emit_triangle(v0, v1, v2, aaParams, data);
-            data = emit_triangle(v0, v2, v3, aaParams, data);
+            data = emit_triangle(v0, v1, v2, emitCoverage, data);
+            data = emit_triangle(v0, v2, v3, emitCoverage, data);
         }
     }
     return data;
@@ -2234,8 +2231,7 @@ namespace GrTessellator {
 // Stage 6: Triangulate the monotone polygons into a vertex buffer.
 
 int PathToTriangles(const SkPath& path, SkScalar tolerance, const SkRect& clipBounds,
-                    VertexAllocator* vertexAllocator, bool antialias, const GrColor& color,
-                    bool canTweakAlphaForCoverage, bool* isLinear) {
+                    VertexAllocator* vertexAllocator, bool antialias, bool* isLinear) {
     int contourCnt = get_contour_count(path, tolerance);
     if (contourCnt <= 0) {
         *isLinear = true;
@@ -2262,12 +2258,9 @@ int PathToTriangles(const SkPath& path, SkScalar tolerance, const SkRect& clipBo
     }
 
     LOG("emitting %d verts\n", count);
-    AAParams aaParams;
-    aaParams.fTweakAlpha = canTweakAlphaForCoverage;
-    aaParams.fColor = color;
+    void* end = polys_to_triangles(polys, fillType, antialias, verts);
+    end = outer_mesh_to_triangles(outerMesh, true, end);
 
-    void* end = polys_to_triangles(polys, fillType, antialias ? &aaParams : nullptr, verts);
-    end = outer_mesh_to_triangles(outerMesh, &aaParams, end);
     int actualCount = static_cast<int>((static_cast<uint8_t*>(end) - static_cast<uint8_t*>(verts))
                                        / vertexAllocator->stride());
     SkASSERT(actualCount <= count);
@@ -2301,7 +2294,7 @@ int PathToVertices(const SkPath& path, SkScalar tolerance, const SkRect& clipBou
     for (Poly* poly = polys; poly; poly = poly->fNext) {
         if (apply_fill_type(fillType, poly)) {
             SkPoint* start = pointsEnd;
-            pointsEnd = static_cast<SkPoint*>(poly->emit(nullptr, pointsEnd));
+            pointsEnd = static_cast<SkPoint*>(poly->emit(false, pointsEnd));
             while (start != pointsEnd) {
                 vertsEnd->fPos = *start;
                 vertsEnd->fWinding = poly->fWinding;

@@ -10,18 +10,22 @@
 #include "rtc_base/event_tracer.h"
 
 #include <inttypes.h>
-
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include <string>
 #include <vector>
 
-#include "rtc_base/atomicops.h"
+#include "rtc_base/atomic_ops.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/platform_thread.h"
-#include "rtc_base/stringutils.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/platform_thread_types.h"
+#include "rtc_base/thread_annotations.h"
+#include "rtc_base/thread_checker.h"
+#include "rtc_base/time_utils.h"
 #include "rtc_base/trace_event.h"
 
 // This is a guesstimate that should be enough in most cases.
@@ -86,8 +90,7 @@ class EventLogger final {
       : logging_thread_(EventTracingThreadFunc,
                         this,
                         "EventTracingThread",
-                        kLowPriority),
-        shutdown_event_(false, false) {}
+                        kLowPriority) {}
   ~EventLogger() { RTC_DCHECK(thread_checker_.CalledOnValidThread()); }
 
   void AddTraceEvent(const char* name,
@@ -286,19 +289,19 @@ class EventLogger final {
           }
           break;
         case TRACE_VALUE_TYPE_UINT:
-          print_length = sprintfn(&output[0], kTraceArgBufferLength, "%llu",
+          print_length = snprintf(&output[0], kTraceArgBufferLength, "%llu",
                                   arg.value.as_uint);
           break;
         case TRACE_VALUE_TYPE_INT:
-          print_length = sprintfn(&output[0], kTraceArgBufferLength, "%lld",
+          print_length = snprintf(&output[0], kTraceArgBufferLength, "%lld",
                                   arg.value.as_int);
           break;
         case TRACE_VALUE_TYPE_DOUBLE:
-          print_length = sprintfn(&output[0], kTraceArgBufferLength, "%f",
+          print_length = snprintf(&output[0], kTraceArgBufferLength, "%f",
                                   arg.value.as_double);
           break;
         case TRACE_VALUE_TYPE_POINTER:
-          print_length = sprintfn(&output[0], kTraceArgBufferLength, "\"%p\"",
+          print_length = snprintf(&output[0], kTraceArgBufferLength, "\"%p\"",
                                   arg.value.as_pointer);
           break;
       }

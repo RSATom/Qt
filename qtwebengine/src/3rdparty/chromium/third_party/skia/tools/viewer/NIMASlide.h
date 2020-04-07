@@ -12,23 +12,14 @@
 
 #include "SkCanvas.h"
 #include "SkVertices.h"
-#include <nima/Actor.hpp>
-#include <nima/ActorImage.hpp>
-#include <nima/Animation/ActorAnimationInstance.hpp>
-#include <nima/Vec2D.hpp>
-
-class NIMAActor;
-class NIMAActorImage;
-
-enum RenderMode {
-    kBackend_RenderMode   = 0,
-    kImmediate_RenderMode = 1,
-};
+#include "nima/NimaActor.h"
 
 class NIMASlide : public Slide {
 public:
     NIMASlide(const SkString& name, const SkString& path);
     ~NIMASlide() override;
+
+    SkISize getDimensions() const override;
 
     void draw(SkCanvas* canvas) override;
     void load(SkScalar winWidth, SkScalar winHeight) override;
@@ -46,14 +37,12 @@ private:
 
 private:
     std::string                fBasePath;
-    std::unique_ptr<NIMAActor> fActor;
+    std::unique_ptr<NimaActor> fActor;
+    int                        fAnimationIndex;
 
     bool fPlaying;
     float fTime;
-    RenderMode fRenderMode;
-
-    nima::ActorAnimationInstance* fAnimation;
-    int                           fAnimationIndex;
+    uint32_t fRenderFlags;
 };
 
 #endif

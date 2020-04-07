@@ -40,16 +40,14 @@ class DemoWindow : public PlatformWindowDelegate {
   void OnClosed() override;
   void OnWindowStateChanged(PlatformWindowState new_state) override;
   void OnLostCapture() override;
-  void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget,
-                                    float device_pixel_ratio) override;
-  void OnAcceleratedWidgetDestroying() override;
+  void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) override;
   void OnAcceleratedWidgetDestroyed() override;
   void OnActivationChanged(bool active) override;
 
  private:
   // Since we pretend to have a GPU process, we should also pretend to
   // initialize the GPU resources via a posted task.
-  void StartOnGpu();
+  void StartRendererIfNecessary();
 
   WindowManager* window_manager_;      // Not owned.
   RendererFactory* renderer_factory_;  // Not owned.

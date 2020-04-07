@@ -11,8 +11,9 @@
 
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "cc/raster/raster_source.h"
 #include "cc/trees/layer_tree_frame_sink.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
@@ -27,8 +28,13 @@ class BitmapSoftwareBacking : public ResourcePool::SoftwareBacking {
     frame_sink->DidDeleteSharedBitmap(shared_bitmap_id);
   }
 
-  base::UnguessableToken SharedMemoryGuid() override {
-    return shared_memory->mapped_id();
+  void OnMemoryDump(
+      base::trace_event::ProcessMemoryDump* pmd,
+      const base::trace_event::MemoryAllocatorDumpGuid& buffer_dump_guid,
+      uint64_t tracing_process_id,
+      int importance) const override {
+    pmd->CreateSharedMemoryOwnershipEdge(
+        buffer_dump_guid, shared_memory->mapped_id(), importance);
   }
 
   LayerTreeFrameSink* frame_sink;
@@ -50,13 +56,13 @@ class BitmapRasterBufferImpl : public RasterBuffer {
   }
 
   // Overridden from RasterBuffer:
-  void Playback(
-      const RasterSource* raster_source,
-      const gfx::Rect& raster_full_rect,
-      const gfx::Rect& raster_dirty_rect,
-      uint64_t new_content_id,
-      const gfx::AxisTransform2d& transform,
-      const RasterSource::PlaybackSettings& playback_settings) override {
+  void Playback(const RasterSource* raster_source,
+                const gfx::Rect& raster_full_rect,
+                const gfx::Rect& raster_dirty_rect,
+                uint64_t new_content_id,
+                const gfx::AxisTransform2d& transform,
+                const RasterSource::PlaybackSettings& playback_settings,
+                const GURL& url) override {
     TRACE_EVENT0("cc", "BitmapRasterBuffer::Playback");
     gfx::Rect playback_rect = raster_full_rect;
     if (resource_has_previous_content_) {
@@ -150,12 +156,16 @@ bool BitmapRasterBufferProvider::IsResourceReadyToDraw(
 
 uint64_t BitmapRasterBufferProvider::SetReadyToDrawCallback(
     const std::vector<const ResourcePool::InUsePoolResource*>& resources,
-    const base::Closure& callback,
+    base::OnceClosure callback,
     uint64_t pending_callback_id) const {
   // Bitmap resources are immediately ready to draw.
   return 0;
 }
 
 void BitmapRasterBufferProvider::Shutdown() {}
+
+bool BitmapRasterBufferProvider::CheckRasterFinishedQueries() {
+  return false;
+}
 
 }  // namespace cc

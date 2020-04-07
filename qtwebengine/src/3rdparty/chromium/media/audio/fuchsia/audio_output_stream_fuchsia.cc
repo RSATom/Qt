@@ -13,6 +13,11 @@
 
 namespace media {
 
+// Current AudioRenderer implementation allows only one buffer with id=0.
+// TODO(sergeyu): Replace with an incrementing buffer id once AddPayloadBuffer()
+// and RemovePayloadBuffer() are implemented properly in AudioRenderer.
+const uint32_t kBufferId = 0;
+
 AudioOutputStreamFuchsia::AudioOutputStreamFuchsia(
     AudioManagerFuchsia* manager,
     const AudioParameters& parameters)
@@ -32,16 +37,16 @@ bool AudioOutputStreamFuchsia::Open() {
   fuchsia::media::AudioPtr audio_server =
       base::fuchsia::ComponentContext::GetDefault()
           ->ConnectToService<fuchsia::media::Audio>();
-  audio_server->CreateRendererV2(audio_renderer_.NewRequest());
+  audio_server->CreateAudioRenderer(audio_renderer_.NewRequest());
   audio_renderer_.set_error_handler(
       fit::bind_member(this, &AudioOutputStreamFuchsia::OnRendererError));
 
   // Inform the |audio_renderer_| of the format required by the caller.
-  fuchsia::media::AudioPcmFormat format;
+  fuchsia::media::AudioStreamType format;
   format.sample_format = fuchsia::media::AudioSampleFormat::FLOAT;
   format.channels = parameters_.channels();
   format.frames_per_second = parameters_.sample_rate();
-  audio_renderer_->SetPcmFormat(std::move(format));
+  audio_renderer_->SetPcmStreamType(std::move(format));
 
   // Use number of samples to specify media position.
   audio_renderer_->SetPtsUnits(parameters_.sample_rate(), 1);
@@ -70,7 +75,8 @@ void AudioOutputStreamFuchsia::Start(AudioSourceCallback* callback) {
 void AudioOutputStreamFuchsia::Stop() {
   callback_ = nullptr;
   reference_time_ = base::TimeTicks();
-  audio_renderer_->FlushNoReply();
+  audio_renderer_->PauseNoReply();
+  audio_renderer_->DiscardAllPacketsNoReply();
   timer_.Stop();
 }
 
@@ -119,8 +125,8 @@ bool AudioOutputStreamFuchsia::InitializePayloadBuffer() {
   }
 
   payload_buffer_pos_ = 0;
-  audio_renderer_->SetPayloadBuffer(
-      zx::vmo(payload_buffer_.handle().Duplicate().GetHandle()));
+  audio_renderer_->AddPayloadBuffer(
+      kBufferId, zx::vmo(payload_buffer_.handle().Duplicate().GetHandle()));
 
   return true;
 }
@@ -139,10 +145,16 @@ void AudioOutputStreamFuchsia::OnMinLeadTimeChanged(int64_t min_lead_time) {
   }
 }
 
-void AudioOutputStreamFuchsia::OnRendererError() {
+void AudioOutputStreamFuchsia::OnRendererError(zx_status_t status) {
   LOG(WARNING) << "AudioRenderer has failed.";
-  Stop();
-  callback_->OnError();
+  ReportError();
+}
+
+void AudioOutputStreamFuchsia::ReportError() {
+  reference_time_ = base::TimeTicks();
+  timer_.Stop();
+  if (callback_)
+    callback_->OnError();
 }
 
 void AudioOutputStreamFuchsia::PumpSamples() {
@@ -150,8 +162,7 @@ void AudioOutputStreamFuchsia::PumpSamples() {
 
   // Allocate payload buffer if necessary.
   if (!payload_buffer_.mapped_size() && !InitializePayloadBuffer()) {
-    Stop();
-    callback_->OnError();
+    ReportError();
     return;
   }
 
@@ -172,47 +183,42 @@ void AudioOutputStreamFuchsia::PumpSamples() {
     delay = stream_time - now;
   }
 
+  // Start playback if the stream was previously stopped.
+  if (reference_time_.is_null()) {
+    stream_position_samples_ = 0;
+    reference_time_ = now + min_lead_time_;
+    audio_renderer_->PlayNoReply(reference_time_.ToZxTime(),
+                                 stream_position_samples_);
+  }
+
+  // Request more samples from |callback_|.
   int frames_filled = callback_->OnMoreData(delay, now, 0, audio_bus_.get());
   DCHECK_EQ(frames_filled, audio_bus_->frames());
 
   audio_bus_->Scale(volume_);
 
+  // Save samples to the |payload_buffer_|.
   size_t packet_size = parameters_.GetBytesPerBuffer(kSampleFormatF32);
   DCHECK_LE(payload_buffer_pos_ + packet_size, payload_buffer_.mapped_size());
-
   audio_bus_->ToInterleaved<media::Float32SampleTypeTraits>(
       audio_bus_->frames(),
-      reinterpret_cast<float*>(
-          reinterpret_cast<uint8_t*>(payload_buffer_.memory()) +
-          payload_buffer_pos_));
+      reinterpret_cast<float*>(static_cast<uint8_t*>(payload_buffer_.memory()) +
+                               payload_buffer_pos_));
 
-  fuchsia::media::AudioPacket packet;
-  packet.timestamp = stream_position_samples_;
+  // Send a new packet.
+  fuchsia::media::StreamPacket packet;
+  packet.pts = stream_position_samples_;
+  packet.payload_buffer_id = kBufferId;
   packet.payload_offset = payload_buffer_pos_;
   packet.payload_size = packet_size;
   packet.flags = 0;
-
   audio_renderer_->SendPacketNoReply(std::move(packet));
 
   stream_position_samples_ += frames_filled;
   payload_buffer_pos_ =
       (payload_buffer_pos_ + packet_size) % payload_buffer_.mapped_size();
 
-  if (reference_time_.is_null()) {
-    audio_renderer_->Play(
-        fuchsia::media::kNoTimestamp, stream_position_samples_ - frames_filled,
-        [this](int64_t reference_time, int64_t media_time) {
-          if (!callback_)
-            return;
-
-          reference_time_ = base::TimeTicks::FromZxTime(reference_time);
-          stream_position_samples_ = media_time;
-
-          SchedulePumpSamples(base::TimeTicks::Now());
-        });
-  } else {
-    SchedulePumpSamples(now);
-  }
+  SchedulePumpSamples(now);
 }
 
 void AudioOutputStreamFuchsia::SchedulePumpSamples(base::TimeTicks now) {

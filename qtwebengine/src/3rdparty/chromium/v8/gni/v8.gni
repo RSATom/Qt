@@ -32,7 +32,7 @@ declare_args() {
   v8_enable_backtrace = ""
 
   # Enable the snapshot feature, for fast context creation.
-  # http://v8project.blogspot.com/2015/09/custom-startup-snapshots.html
+  # https://v8.dev/blog/custom-startup-snapshots
   # TODO(thakis): Make snapshots work in 64-bit win/cross builds,
   # https://803591
   v8_use_snapshot = !(is_win && host_os != "win" && target_cpu == "x64")
@@ -143,7 +143,15 @@ template("v8_source_set") {
     }
   }
   target(link_target_type, target_name) {
-    forward_variables_from(invoker, "*", [ "configs" ])
+    forward_variables_from(invoker,
+                           "*",
+                           [
+                             "configs",
+                             "remove_configs",
+                           ])
+    if (defined(invoker.remove_configs)) {
+      configs -= invoker.remove_configs
+    }
     configs += invoker.configs
     configs -= v8_remove_configs
     configs += v8_add_configs

@@ -8,14 +8,17 @@
 #include <string>
 #include <vector>
 
+#include "base/optional.h"
 #include "components/download/public/common/download_create_info.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/download_source.h"
 #include "components/download/public/common/download_stream.mojom.h"
 #include "components/download/public/common/download_url_parameters.h"
+#include "components/download/public/common/download_utils.h"
 #include "net/cert/cert_status_flags.h"
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
+#include "url/origin.h"
 
 namespace download {
 
@@ -34,6 +37,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadResponseHandler
         mojom::DownloadStreamHandlePtr stream_handle) = 0;
     virtual void OnReceiveRedirect() = 0;
     virtual void OnResponseCompleted() = 0;
+    virtual bool CanRequestURL(const GURL& url) = 0;
+    virtual void OnUploadProgress(uint64_t bytes_uploaded) = 0;
   };
 
   DownloadResponseHandler(
@@ -91,8 +96,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadResponseHandler
   DownloadSource download_source_;
   net::CertStatus cert_status_;
   bool has_strong_validators_;
-  GURL origin_;
+  base::Optional<url::Origin> request_initiator_;
   bool is_partial_request_;
+  bool completed_;
 
   // The abort reason if this class decides to block the download.
   DownloadInterruptReason abort_reason_;

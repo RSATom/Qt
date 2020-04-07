@@ -9,19 +9,21 @@
 
 // We use relative includes here to make this compatible with both the
 // Chromium OS and Chromium environment.
-#include "apmanager/dbus-constants.h"
 #include "authpolicy/dbus-constants.h"
 #include "biod/dbus-constants.h"
 #include "cecservice/dbus-constants.h"
 #include "cros-disks/dbus-constants.h"
 #include "cryptohome/dbus-constants.h"
 #include "debugd/dbus-constants.h"
+#include "diagnosticsd/dbus-constants.h"
 #include "drivefs/dbus-constants.h"
 #include "hammerd/dbus-constants.h"
 #include "login_manager/dbus-constants.h"
 #include "lorgnette/dbus-constants.h"
+#include "oobe_config/dbus-constants.h"
 #include "permission_broker/dbus-constants.h"
 #include "power_manager/dbus-constants.h"
+#include "runtime_probe/dbus-constants.h"
 #include "seneschal/dbus-constants.h"
 #include "shill/dbus-constants.h"
 #include "smbprovider/dbus-constants.h"
@@ -29,6 +31,7 @@
 #include "vm_applications/dbus-constants.h"
 #include "vm_cicerone/dbus-constants.h"
 #include "vm_concierge/dbus-constants.h"
+#include "vm_plugin_dispatcher/dbus-constants.h"
 
 namespace dbus {
 const char kDBusInterface[] = "org.freedesktop.DBus";
@@ -75,9 +78,12 @@ const char kLoadComponentAtPath[] = "LoadComponentAtPath";
 const char kGetComponentVersion[] = "GetComponentVersion";
 const char kRemoveComponent[] = "RemoveComponent";
 const char kUnmountComponent[] = "UnmountComponent";
+const char kLoadDlcImage[] = "LoadDlcImage";
 // Constants
 const char kBadResult[] = "";
 const char kTerminaComponentName[] = "cros-termina";
+const char kSlotNameA[] = "Dlc-A";
+const char kSlotNameB[] = "Dlc-B";
 }  // namespace imageloader
 
 namespace dlcservice {
@@ -123,6 +129,12 @@ const char kLivenessServicePath[] = "/org/chromium/LivenessService";
 const char kLivenessServiceInterface[] =
     "org.chromium.LivenessServiceInterface";
 const char kLivenessServiceCheckLivenessMethod[] = "CheckLiveness";
+
+const char kMetricsEventServiceName[] = "org.chromium.MetricsEventService";
+const char kMetricsEventServicePath[] = "/org/chromium/MetricsEventService";
+const char kMetricsEventServiceInterface[] =
+    "org.chromium.MetricsEventServiceInterface";
+const char kMetricsEventServiceChromeEventSignal[] = "ChromeEvent";
 
 const char kComponentUpdaterServiceName[] =
     "org.chromium.ComponentUpdaterService";
@@ -177,14 +189,31 @@ const char kChromeFeaturesServiceName[] = "org.chromium.ChromeFeaturesService";
 const char kChromeFeaturesServicePath[] = "/org/chromium/ChromeFeaturesService";
 const char kChromeFeaturesServiceInterface[] =
     "org.chromium.ChromeFeaturesServiceInterface";
+const char kChromeFeaturesServiceIsFeatureEnabledMethod[] =
+    "IsFeatureEnabled";
 const char kChromeFeaturesServiceIsCrostiniEnabledMethod[] =
     "IsCrostiniEnabled";
+const char kChromeFeaturesServiceIsPluginVmEnabledMethod[] =
+    "IsPluginVmEnabled";
+const char kChromeFeaturesServiceIsUsbguardEnabledMethod[] =
+    "IsUsbguardEnabled";
+const char kChromeFeaturesServiceIsShillSandboxingEnabledMethod[] =
+    "IsShillSandboxingEnabled";
+const char kChromeFeaturesServiceIsFsNosymfollowEnabledMethod[] =
+    "IsFsNosymfollowEnabled";
 
 const char kUrlHandlerServiceName[] = "org.chromium.UrlHandlerService";
 const char kUrlHandlerServicePath[] = "/org/chromium/UrlHandlerService";
 const char kUrlHandlerServiceInterface[] =
     "org.chromium.UrlHandlerServiceInterface";
 const char kUrlHandlerServiceOpenUrlMethod[] = "OpenUrl";
+
+const char kPluginVmServiceName[] = "org.chromium.PluginVmService";
+const char kPluginVmServicePath[] = "/org/chromium/PluginVmService";
+const char kPluginVmServiceInterface[] =
+    "org.chromium.PluginVmServiceInterface";
+const char kPluginVmServiceGetLicenseDataMethod[] =
+    "GetLicenseData";
 
 }  // namespace chromeos
 
@@ -328,10 +357,12 @@ const char kDiscoverableTimeoutProperty[] = "DiscoverableTimeout";
 const char kDiscoveringProperty[] = "Discovering";
 const char kUUIDsProperty[] = "UUIDs";
 const char kModaliasProperty[] = "Modalias";
+const char kStackSyncQuittingProperty[] = "StackSyncQuitting";
 
 // Bluetooth Adapter errors.
 const char kErrorNotReady[] = "org.bluez.Error.NotReady";
 const char kErrorFailed[] = "org.bluez.Error.Failed";
+const char kErrorInProgress[] = "org.bluez.Error.InProgress";
 const char kErrorNotAuthorized[] = "org.bluez.Error.NotAuthorized";
 const char kErrorInvalidArguments[] = "org.bluez.Error.InvalidArguments";
 const char kErrorAlreadyExists[] = "org.bluez.Error.AlreadyExists";
@@ -427,12 +458,14 @@ const char kServiceDataProperty[] = "ServiceData";
 const char kServicesResolvedProperty[] = "ServicesResolved";
 const char kAdvertisingDataFlagsProperty[] = "AdvertisingFlags";
 const char kMTUProperty[] = "MTU";
+const char kEIRProperty[] = "EIR";
 
 // Bluetooth Device errors.
 const char kErrorNotReady[] = "org.bluez.Error.NotReady";
 const char kErrorFailed[] = "org.bluez.Error.Failed";
 const char kErrorInProgress[] = "org.bluez.Error.InProgress";
 const char kErrorAlreadyConnected[] = "org.bluez.Error.AlreadyConnected";
+const char kErrorAlreadyExists[] = "org.bluez.Error.AlreadyExists";
 const char kErrorNotConnected[] = "org.bluez.Error.NotConnected";
 const char kErrorDoesNotExist[] = "org.bluez.Error.DoesNotExist";
 const char kErrorInvalidArguments[] = "org.bluez.Error.InvalidArguments";
@@ -756,6 +789,9 @@ const char kUnregisterAdvertisement[] = "UnregisterAdvertisement";
 const char kSetAdvertisingIntervals[] = "SetAdvertisingIntervals";
 const char kResetAdvertising[] = "ResetAdvertising";
 
+// Bluetooth LE Advertising Manager properties.
+const char kIsTXPowerSupportedProperty[] = "IsTXPowerSupported";
+
 // Bluetooth LE Advertising Manager errors.
 const char kErrorAlreadyExists[] = "org.bluez.Error.AlreadyExists";
 const char kErrorDoesNotExist[] = "org.bluez.Error.DoesNotExist";
@@ -763,189 +799,6 @@ const char kErrorFailed[] = "org.bluez.Error.Failed";
 const char kErrorInvalidArguments[] = "org.bluez.Error.InvalidArguments";
 const char kErrorInvalidLength[] = "org.bluez.Error.InvalidLength";
 }  // namespace bluetooth_advertising_manager
-
-namespace nfc_adapter {
-// NFC Adapter service identifiers.
-const char kNfcAdapterServiceName[] = "org.neard";
-const char kNfcAdapterInterface[] = "org.neard.Adapter";
-
-// NFC Adapter methods.
-const char kStartEmulation[] = "StartEmulation";
-const char kStartPollLoop[] = "StartPollLoop";
-const char kStopEmulation[] = "StopEmulation";
-const char kStopPollLoop[] = "StopPollLoop";
-
-// NFC Adapter signals.
-const char kTagFoundSignal[] = "TagFound";
-const char kTagLostSignal[] = "TagLost";
-
-// NFC Adapter properties.
-const char kDevicesProperty[] = "Devices";
-const char kModeProperty[] = "Mode";
-const char kPollingProperty[] = "Polling";
-const char kPoweredProperty[] = "Powered";
-const char kProtocolsProperty[] = "Protocols";
-const char kTagsProperty[] = "Tags";
-
-// NFC Adapter mode values.
-const char kModeInitiator[] = "Initiator";
-const char kModeTarget[] = "Target";
-const char kModeIdle[] = "Idle";
-
-}  // namespace nfc_adapter
-
-namespace nfc_device {
-// NFC Device service identifiers.
-const char kNfcDeviceServiceName[] = "org.neard";
-const char kNfcDeviceInterface[] = "org.neard.Device";
-
-// NFC Device methods.
-const char kPush[] = "Push";
-
-// NFC Device properties.
-const char kRecordsProperty[] = "Records";
-
-}  // namespace nfc_device
-
-namespace nfc_manager {
-// NFC Manager service identifiers.
-const char kNfcManagerServiceName[] = "org.neard";
-const char kNfcManagerServicePath[] = "/";
-const char kNfcManagerInterface[] = "org.neard.Manager";
-
-// NFC Manager methods.
-const char kRegisterHandoverAgent[] = "RegisterHandoverAgent";
-const char kUnregisterHandoverAgent[] = "UnregisterHandoverAgent";
-const char kRegisterNDEFAgent[] = "RegisterNDEFAgent";
-const char kUnregisterNDEFAgent[] = "UnregisterNDEFAgent";
-
-// NFC Manager signals.
-const char kAdapterAddedSignal[] = "AdapterAdded";
-const char kAdapterRemovedSignal[] = "AdapterRemoved";
-
-// NFC Manager properties.
-const char kAdaptersProperty[] = "Adapters";
-
-// NFC Manager handover carrier values.
-const char kCarrierBluetooth[] = "bluetooth";
-const char kCarrierWifi[] = "wifi";
-}  // namespace nfc_manager
-
-namespace nfc_tag {
-// NFC Tag service identifiers.
-const char kNfcTagServiceName[] = "org.neard";
-const char kNfcTagInterface[] = "org.neard.Tag";
-
-// NFC Tag methods.
-const char kWrite[] = "Write";
-
-// NFC Tag properties.
-const char kProtocolProperty[] = "Protocol";
-const char kReadOnlyProperty[] = "ReadOnly";
-const char kRecordsProperty[] = "Records";
-const char kTypeProperty[] = "Type";
-
-// NFC Tag type values.
-const char kTagType1[] = "Type 1";
-const char kTagType2[] = "Type 2";
-const char kTagType3[] = "Type 3";
-const char kTagType4[] = "Type 4";
-
-}  // namespace nfc_tag
-
-namespace nfc_record {
-// NFC Record service identifiers.
-const char kNfcRecordServiceName[] = "org.neard";
-const char kNfcRecordInterface[] = "org.neard.Record";
-
-// NFC Record properties.
-const char kTypeProperty[] = "Type";
-const char kEncodingProperty[] = "Encoding";
-const char kLanguageProperty[] = "Language";
-const char kRepresentationProperty[] = "Representation";
-const char kUriProperty[] = "URI";
-const char kMimeTypeProperty[] = "MIMEType";
-const char kSizeProperty[] = "Size";
-const char kActionProperty[] = "Action";
-
-// NFC Record type values.
-const char kTypeSmartPoster[] = "SmartPoster";
-const char kTypeText[] = "Text";
-const char kTypeUri[] = "URI";
-const char kTypeHandoverRequest[] = "HandoverRequest";
-const char kTypeHandoverSelect[] = "HandoverSelect";
-const char kTypeHandoverCarrier[] = "HandoverCarrier";
-
-// NFC Record encoding values.
-const char kEncodingUtf8[] = "UTF-8";
-const char kEncodingUtf16[] = "UTF-16";
-}  // namespace nfc_record
-
-namespace nfc_handover_agent {
-// NFC Handover Agent service identifiers.
-// TODO(armansito): Add the correct service name once the HandoverAgent feature
-// is fully implemented.
-const char kNfcHandoverAgentServiceName[] = "";
-const char kNfcHandoverInterface[] = "org.neard.HandoverAgent";
-
-// NFC Handover Agent methods.
-const char kRequestOOB[] = "RequestOOB";
-const char kPushOOB[] = "PushOOB";
-const char kRelease[] = "Release";
-
-// NFC Handover Agent properties.
-const char kEIRProperty[] = "EIR";
-const char kNokiaDotComBtProperty[] = "nokia.com:bt";
-const char kWSCProperty[] = "WSC";
-const char kStateProperty[] = "State";
-}  // namespace nfc_handover_agent
-
-namespace nfc_ndef_agent {
-// NFC NDEF Agent service identifiers.
-// TODO(armansito): Add the correct service name once the NDEFAgent feature
-// is fully implemented.
-const char kNfcNdefAgentServiceName[] = "";
-const char kNfcNdefAgentInterface[] = "org.neard.NDEFAgent";
-
-// NFC NDEF Agent methods.
-const char kGetNDEF[] = "GetNDEF";
-const char kRelease[] = "Release";
-
-// NFC NDEF properties.
-const char kNDEFProperty[] = "NDEF";
-const char kRecordProperty[] = "Record";
-}  // namespace nfc_ndef_agent
-
-namespace nfc_common {
-// NFC Adapter/Tag protocol values.
-const char kProtocolFelica[] = "Felica";
-const char kProtocolMifare[] = "MIFARE";
-const char kProtocolJewel[] = "Jewel";
-const char kProtocolIsoDep[] = "ISO-DEP";
-const char kProtocolNfcDep[] = "NFC-DEP";
-
-// Common methods for NFC property access and signals.
-const char kGetProperties[] = "GetProperties";
-const char kSetProperty[] = "SetProperty";
-const char kPropertyChangedSignal[] = "PropertyChanged";
-}  // namespace nfc_common
-
-namespace nfc_error {
-// NFC errors.
-const char kAlreadyExists[] = "org.neard.Error.AlreadyExists";
-const char kDoesNotExist[] = "org.neard.Error.DoesNotExist";
-const char kFailed[] = "org.neard.Error.Failed";
-const char kInProgress[] = "org.neard.Error.InProgress";
-const char kInvalidArguments[] = "org.neard.Error.InvalidArguments";
-const char kNotReady[] = "org.neard.Error.NotReady";
-const char kNotSupported[] = "org.neard.Error.NotSupported";
-const char kPermissionDenied[] = "org.neard.Error.PermissionDenied";
-
-// NFC Handover Agent errors.
-const char kHandoverAgentFailed[] = "org.neard.HandoverAgent.Error.Failed";
-const char kHandoverAgentInProgress[] =
-    "org.neard.HandoverAgent.Error.InProgress";
-}  // namespace nfc_error
 
 namespace mtpd {
 const char kMtpdInterface[] = "org.chromium.Mtpd";
@@ -1028,6 +881,7 @@ const char kGetNumberOfActiveOutputStreams[] = "GetNumberOfActiveOutputStreams";
 const char kIsAudioOutputActive[] = "IsAudioOutputActive";
 const char kSetGlobalOutputChannelRemix[] = "SetGlobalOutputChannelRemix";
 const char kGetSystemAecSupported[] = "GetSystemAecSupported";
+const char kGetSystemAecGroupId[] = "GetSystemAecGroupId";
 
 // Names of properties returned by GetNodes()
 const char kIsInputProperty[] = "IsInput";
@@ -1108,13 +962,17 @@ constexpr char kBootstrapMojoConnectionMethod[] = "BootstrapMojoConnection";
 }  // namespace midis
 
 namespace ml {
-constexpr char kMlServiceName[] = "org.chromium.Ml";
-constexpr char kMlServicePath[] = "/org/chromium/Ml";
-constexpr char kMlInterfaceName[] = "org.chromium.Ml";
+constexpr char kMachineLearningServiceName[] = "org.chromium.MachineLearning";
+constexpr char kMachineLearningServicePath[] = "/org/chromium/MachineLearning";
+constexpr char kMachineLearningInterfaceName[] = "org.chromium.MachineLearning";
 // Methods
 constexpr char kBootstrapMojoConnectionMethod[] = "BootstrapMojoConnection";
 // Token identifying the primordial Mojo pipe passed to BootstrapMojoConnection.
 constexpr char kBootstrapMojoConnectionChannelToken[] = "ml-service-bootstrap";
+// Deprecated, use longer names above:
+constexpr char kMlServiceName[] = "org.chromium.MachineLearning";
+constexpr char kMlServicePath[] = "/org/chromium/MachineLearning";
+constexpr char kMlInterfaceName[] = "org.chromium.MachineLearning";
 }  // namespace ml
 
 namespace virtual_file_provider {
@@ -1138,6 +996,14 @@ constexpr char kRemoveHostnameIpMappingMethod[] = "RemoveHostnameIpMapping";
 }
 
 namespace arc {
+
+namespace keymaster {
+constexpr char kArcKeymasterServiceName[] = "org.chromium.ArcKeymaster";
+constexpr char kArcKeymasterServicePath[] = "/org/chromium/ArcKeymaster";
+constexpr char kArcKeymasterInterfaceName[] = "org.chromium.ArcKeymaster";
+// Methods
+constexpr char kBootstrapMojoConnectionMethod[] = "BootstrapMojoConnection";
+}  // namespace keymaster
 
 namespace obb_mounter {
 // D-Bus service constants.
@@ -1167,5 +1033,13 @@ constexpr char kOpenFileMethod[] = "OpenFile";
 }  // namespace appfuse
 
 }  // namespace arc
+
+namespace anomaly_collector {
+const char kAnomalyEventServiceName[] = "org.chromium.AnomalyEventService";
+const char kAnomalyEventServicePath[] = "/org/chromium/AnomalyEventService";
+const char kAnomalyEventServiceInterface[] =
+    "org.chromium.AnomalyEventServiceInterface";
+const char kAnomalyEventSignalName[] = "AnomalyEvent";
+}  // namespace anomaly_collector
 
 #endif  // SYSTEM_API_DBUS_SERVICE_CONSTANTS_H_

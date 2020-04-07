@@ -1,5 +1,5 @@
 /*
- *  Copyright 2015 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,61 +11,9 @@
 #ifndef RTC_BASE_LOGSINKS_H_
 #define RTC_BASE_LOGSINKS_H_
 
-#include <memory>
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/filerotatingstream.h"
-#include "rtc_base/logging.h"
-
-namespace rtc {
-
-// Log sink that uses a FileRotatingStream to write to disk.
-// Init() must be called before adding this sink.
-class FileRotatingLogSink : public LogSink {
- public:
-  // |num_log_files| must be greater than 1 and |max_log_size| must be greater
-  // than 0.
-  FileRotatingLogSink(const std::string& log_dir_path,
-                      const std::string& log_prefix,
-                      size_t max_log_size,
-                      size_t num_log_files);
-  ~FileRotatingLogSink() override;
-
-  // Writes the message to the current file. It will spill over to the next
-  // file if needed.
-  void OnLogMessage(const std::string& message) override;
-  void OnLogMessage(const std::string& message,
-                    LoggingSeverity sev,
-                    const char* tag) override;
-
-  // Deletes any existing files in the directory and creates a new log file.
-  virtual bool Init();
-
-  // Disables buffering on the underlying stream.
-  bool DisableBuffering();
-
- protected:
-  explicit FileRotatingLogSink(FileRotatingStream* stream);
-
- private:
-  std::unique_ptr<FileRotatingStream> stream_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(FileRotatingLogSink);
-};
-
-// Log sink that uses a CallSessionFileRotatingStream to write to disk.
-// Init() must be called before adding this sink.
-class CallSessionFileRotatingLogSink : public FileRotatingLogSink {
- public:
-  CallSessionFileRotatingLogSink(const std::string& log_dir_path,
-                                 size_t max_total_log_size);
-  ~CallSessionFileRotatingLogSink() override;
-
- private:
-  RTC_DISALLOW_COPY_AND_ASSIGN(CallSessionFileRotatingLogSink);
-};
-
-}  // namespace rtc
+#include "rtc_base/log_sinks.h"
 
 #endif  // RTC_BASE_LOGSINKS_H_

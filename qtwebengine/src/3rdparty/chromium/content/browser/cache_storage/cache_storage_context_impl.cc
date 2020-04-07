@@ -7,12 +7,12 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/cache_storage/cache_storage_manager.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/quota/special_storage_policy.h"
@@ -36,7 +36,7 @@ void CacheStorageContextImpl::Init(
   is_incognito_ = user_data_directory.empty();
   scoped_refptr<base::SequencedTaskRunner> cache_task_runner =
       base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 
   // This thread-hopping antipattern is needed here for some unit tests, where
@@ -49,8 +49,8 @@ void CacheStorageContextImpl::Init(
     return;
   }
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&CacheStorageContextImpl::CreateCacheStorageManager, this,
                      user_data_directory, cache_task_runner,
                      std::move(quota_manager_proxy)));
@@ -59,8 +59,8 @@ void CacheStorageContextImpl::Init(
 void CacheStorageContextImpl::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&CacheStorageContextImpl::ShutdownOnIO, this));
 }
 
@@ -70,28 +70,28 @@ CacheStorageManager* CacheStorageContextImpl::cache_manager() const {
 }
 
 void CacheStorageContextImpl::SetBlobParametersForCache(
-    net::URLRequestContextGetter* request_context_getter,
     ChromeBlobStorageContext* blob_storage_context) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  if (cache_manager_ && request_context_getter && blob_storage_context) {
+  if (cache_manager_ && blob_storage_context) {
     cache_manager_->SetBlobParametersForCache(
-        request_context_getter, blob_storage_context->context()->AsWeakPtr());
+        blob_storage_context->context()->AsWeakPtr());
   }
 }
 
 void CacheStorageContextImpl::GetAllOriginsInfo(
-    const CacheStorageContext::GetUsageInfoCallback& callback) {
+    CacheStorageContext::GetUsageInfoCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!cache_manager_) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(callback, std::vector<CacheStorageUsageInfo>()));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
+        base::BindOnce(std::move(callback), std::vector<StorageUsageInfo>()));
     return;
   }
 
-  cache_manager_->GetAllOriginsUsage(CacheStorageOwner::kCacheAPI, callback);
+  cache_manager_->GetAllOriginsUsage(CacheStorageOwner::kCacheAPI,
+                                     std::move(callback));
 }
 
 void CacheStorageContextImpl::DeleteForOrigin(const GURL& origin) {

@@ -9,14 +9,6 @@
 namespace base {
 namespace fuchsia {
 
-TestInterfaceImpl::TestInterfaceImpl() = default;
-TestInterfaceImpl::~TestInterfaceImpl() = default;
-
-// TestInterface implementation.
-void TestInterfaceImpl::Add(int32_t a, int32_t b, AddCallback callback) {
-  callback(a + b);
-}
-
 ServiceDirectoryTestBase::ServiceDirectoryTestBase() {
   zx::channel service_directory_channel;
   EXPECT_EQ(zx::channel::create(0, &service_directory_channel,
@@ -27,7 +19,7 @@ ServiceDirectoryTestBase::ServiceDirectoryTestBase() {
   service_directory_ =
       std::make_unique<ServiceDirectory>(std::move(service_directory_channel));
   service_binding_ =
-      std::make_unique<ScopedServiceBinding<test_fidl::TestInterface>>(
+      std::make_unique<ScopedServiceBinding<testfidl::TestInterface>>(
           service_directory_.get(), &test_service_);
 
   ConnectClientContextToDirectory("public");
@@ -53,14 +45,14 @@ void ServiceDirectoryTestBase::ConnectClientContextToDirectory(
 }
 
 void ServiceDirectoryTestBase::VerifyTestInterface(
-    fidl::InterfacePtr<test_fidl::TestInterface>* stub,
-    bool expect_error) {
+    fidl::InterfacePtr<testfidl::TestInterface>* stub,
+    zx_status_t expected_error) {
   // Call the service and wait for response.
   base::RunLoop run_loop;
-  bool error = false;
+  zx_status_t actual_error = ZX_OK;
 
-  stub->set_error_handler([&run_loop, &error]() {
-    error = true;
+  stub->set_error_handler([&run_loop, &actual_error](zx_status_t status) {
+    actual_error = status;
     run_loop.Quit();
   });
 
@@ -71,11 +63,11 @@ void ServiceDirectoryTestBase::VerifyTestInterface(
 
   run_loop.Run();
 
-  EXPECT_EQ(error, expect_error);
+  EXPECT_EQ(expected_error, actual_error);
 
   // Reset error handler because the current one captures |run_loop| and
   // |error| references which are about to be destroyed.
-  stub->set_error_handler([]() {});
+  stub->set_error_handler(nullptr);
 }
 
 }  // namespace fuchsia

@@ -1,5 +1,7 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Copyright 2016 Google Inc.
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+   Copyright 2018 Google LLC
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,6 +15,19 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 -->
+
 <resources>
-    <string name="app_name">HelloSkAR Java</string>
+    <string name="app_name">Hello CanvasAR</string>
+
+    <!-- Palette Strings -->
+    <string name="palette_red">Red</string>
+    <string name="palette_green">Green</string>
+    <string name="palette_reset">Reset Painting</string>
+
+    <!-- Main Menu Strings -->
+    <string name="menu_painting_smooth">Smooth Painting</string>
+    <string name="menu_drawable_circle">Circle</string>
+    <string name="menu_drawable_rect">Rect</string>
+    <string name="menu_drawable_text">Text</string>
+    <string name="menu_drawable_animation">Animation</string>
 </resources>

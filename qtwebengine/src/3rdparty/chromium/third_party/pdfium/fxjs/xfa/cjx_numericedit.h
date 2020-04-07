@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_NUMERICEDIT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_NumericEdit;
 
-class CJX_NumericEdit : public CJX_Node {
+class CJX_NumericEdit final : public CJX_Node {
  public:
   explicit CJX_NumericEdit(CXFA_NumericEdit* node);
   ~CJX_NumericEdit() override;
-
-  JS_PROP(hScrollPolicy);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_NUMERICEDIT_H_

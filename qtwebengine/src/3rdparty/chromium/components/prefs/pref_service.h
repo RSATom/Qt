@@ -16,11 +16,11 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
@@ -28,13 +28,13 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/prefs/persistent_pref_store.h"
+#include "components/prefs/pref_value_store.h"
 #include "components/prefs/prefs_export.h"
 
 class PrefNotifier;
 class PrefNotifierImpl;
 class PrefObserver;
 class PrefRegistry;
-class PrefValueStore;
 class PrefStore;
 
 namespace base {
@@ -176,13 +176,16 @@ class COMPONENTS_PREFS_EXPORT PrefService {
   virtual ~PrefService();
 
   // Lands pending writes to disk. This should only be used if we need to save
-  // immediately (basically, during shutdown).
-  void CommitPendingWrite();
-
-  // Lands pending writes to disk. This should only be used if we need to save
-  // immediately. |done_callback| will be invoked when changes have been
-  // written.
-  void CommitPendingWrite(base::OnceClosure done_callback);
+  // immediately (basically, during shutdown). |reply_callback| will be posted
+  // to the current sequence when changes have been written.
+  // |synchronous_done_callback| on the other hand will be invoked right away
+  // wherever the writes complete (could even be invoked synchronously if no
+  // writes need to occur); this is useful when the current thread cannot pump
+  // messages to observe the reply (e.g. nested loops banned on main thread
+  // during shutdown). |synchronous_done_callback| must be thread-safe.
+  void CommitPendingWrite(
+      base::OnceClosure reply_callback = base::OnceClosure(),
+      base::OnceClosure synchronous_done_callback = base::OnceClosure());
 
   // Schedule a write if there is any lossy data pending. Unlike
   // CommitPendingWrite() this does not immediately sync to disk, instead it
@@ -334,6 +337,21 @@ class COMPONENTS_PREFS_EXPORT PrefService {
   // to tangentially cleanup data it may have saved outside the store.
   void OnStoreDeletionFromDisk();
 
+  // Add new pref stores to the existing PrefValueStore. Only adding new
+  // stores are allowed. If a corresponding store already exists, calling this
+  // will cause DCHECK failures. If the newly added stores already contain
+  // values, PrefNotifier associated with this object will be notified with
+  // these values. |delegate| can be passed to observe events of the new
+  // PrefValueStore.
+  // TODO(qinmin): packaging all the input params in a struct, and do the same
+  // for the constructor.
+  void ChangePrefValueStore(
+      PrefStore* managed_prefs,
+      PrefStore* supervised_user_prefs,
+      PrefStore* extension_prefs,
+      PrefStore* recommended_prefs,
+      std::unique_ptr<PrefValueStore::Delegate> delegate = nullptr);
+
   // A low level function for registering an observer for every single
   // preference changed notification. The caller must ensure that the observer
   // remains valid as long as it is registered. Pointer ownership is not
@@ -357,7 +375,7 @@ class COMPONENTS_PREFS_EXPORT PrefService {
 
   // The PrefValueStore provides prioritized preference values. It is owned by
   // this PrefService. Subclasses may access it for unit testing.
-  const std::unique_ptr<PrefValueStore> pref_value_store_;
+  std::unique_ptr<PrefValueStore> pref_value_store_;
 
   // Pref Stores and profile that we passed to the PrefValueStore.
   const scoped_refptr<PersistentPrefStore> user_pref_store_;
@@ -372,7 +390,7 @@ class COMPONENTS_PREFS_EXPORT PrefService {
   // string comparisons. Order is unimportant, and deletions are rare.
   // Confirmed on Android where this speeded Chrome startup by roughly 50ms
   // vs. std::map, and by roughly 180ms vs. std::set of Preference pointers.
-  typedef base::hash_map<std::string, Preference> PreferenceMap;
+  typedef std::unordered_map<std::string, Preference> PreferenceMap;
 
   // Give access to ReportUserPrefChanged() and GetMutableUserPref().
   friend class subtle::ScopedUserPrefUpdateBase;

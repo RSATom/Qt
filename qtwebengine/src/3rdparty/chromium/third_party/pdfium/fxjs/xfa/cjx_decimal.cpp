@@ -12,38 +12,18 @@ CJX_Decimal::CJX_Decimal(CXFA_Decimal* node) : CJX_Content(node) {}
 
 CJX_Decimal::~CJX_Decimal() = default;
 
-void CJX_Decimal::use(CFXJSE_Value* pValue,
-                      bool bSetting,
-                      XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Decimal::fracDigits(CFXJSE_Value* pValue,
-                             bool bSetting,
-                             XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+bool CJX_Decimal::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
 void CJX_Decimal::defaultValue(CFXJSE_Value* pValue,
                                bool bSetting,
                                XFA_Attribute eAttribute) {
-  Script_Som_DefaultValue(pValue, bSetting, eAttribute);
-}
-
-void CJX_Decimal::usehref(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomDefaultValue(pValue, bSetting, eAttribute);
 }
 
 void CJX_Decimal::value(CFXJSE_Value* pValue,
                         bool bSetting,
                         XFA_Attribute eAttribute) {
-  Script_Som_DefaultValue(pValue, bSetting, eAttribute);
-}
-
-void CJX_Decimal::leadDigits(CFXJSE_Value* pValue,
-                             bool bSetting,
-                             XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomDefaultValue(pValue, bSetting, eAttribute);
 }

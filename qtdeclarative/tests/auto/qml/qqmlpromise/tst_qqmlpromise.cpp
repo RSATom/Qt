@@ -82,6 +82,8 @@ private slots:
     void then_fulfilled_non_callable();
     void then_reject_non_callable();
     void then_resolve_multiple_then();
+    void promiseChain();
+    void promiseHandlerThrows();
 
 private:
     void execute_test(QString testName);
@@ -268,6 +270,31 @@ void tst_qqmlpromise::execute_test(QString testName)
     component.completeCreate();
 
     QTRY_COMPARE(object->property("wasTestSuccessful").toBool(), true);
+}
+
+void tst_qqmlpromise::promiseChain()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("promisechain.qml"));
+    QVERIFY(component.isReady());
+    QTest::ignoreMessage(QtDebugMsg, "1");
+    QTest::ignoreMessage(QtDebugMsg, "2");
+    QTest::ignoreMessage(QtDebugMsg, "3");
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(root);
+    QTRY_VERIFY(root->property("x") == 42);
+
+}
+
+void tst_qqmlpromise::promiseHandlerThrows()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("promisehandlerthrows.qml"));
+    QVERIFY(component.isReady());
+    QTest::ignoreMessage(QtDebugMsg, "Rethrowing err");
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(root);
+    QTRY_VERIFY(root->property("errorMessage") == QLatin1String("Some error"));
 }
 
 

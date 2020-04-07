@@ -23,7 +23,7 @@ IntType FXSYS_StrToInt(const CharType* str) {
     str++;
 
   IntType num = 0;
-  while (*str && FXSYS_isDecimalDigit(*str)) {
+  while (*str && FXSYS_IsDecimalDigit(*str)) {
     IntType val = FXSYS_DecimalCharToInt(*str);
     if (num > (std::numeric_limits<IntType>::max() - val) / 10) {
       if (neg && std::numeric_limits<IntType>::is_signed) {
@@ -203,6 +203,7 @@ int FXSYS_WideCharToMultiByte(uint32_t codepage,
   }
   return len;
 }
+
 int FXSYS_MultiByteToWideChar(uint32_t codepage,
                               uint32_t dwFlags,
                               const char* bstr,
@@ -211,9 +212,8 @@ int FXSYS_MultiByteToWideChar(uint32_t codepage,
                               int buflen) {
   int wlen = 0;
   for (int i = 0; i < blen; i++) {
-    if (buf && wlen < buflen) {
-      buf[wlen] = bstr[i];
-    }
+    if (buf && wlen < buflen)
+      buf[wlen] = reinterpret_cast<const uint8_t*>(bstr)[i];
     wlen++;
   }
   return wlen;

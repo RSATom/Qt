@@ -30,7 +30,7 @@
 #include "third_party/blink/public/platform/web_rtc_data_channel_handler.h"
 #include "third_party/blink/public/platform/web_rtc_data_channel_handler_client.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
-#include "third_party/blink/renderer/core/dom/pausable_object.h"
+#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -51,7 +51,7 @@ class MODULES_EXPORT RTCDataChannel final
     : public EventTargetWithInlineData,
       public WebRTCDataChannelHandlerClient,
       public ActiveScriptWrappable<RTCDataChannel>,
-      public PausableObject {
+      public ContextLifecycleObserver {
   USING_GARBAGE_COLLECTED_MIXIN(RTCDataChannel);
   DEFINE_WRAPPERTYPEINFO();
   USING_PRE_FINALIZER(RTCDataChannel, Dispose);
@@ -64,6 +64,8 @@ class MODULES_EXPORT RTCDataChannel final
                                 const String& label,
                                 const WebRTCDataChannelInit&,
                                 ExceptionState&);
+
+  RTCDataChannel(ExecutionContext*, std::unique_ptr<WebRTCDataChannelHandler>);
   ~RTCDataChannel() override;
 
   ReadyState GetHandlerState() const;
@@ -95,19 +97,17 @@ class MODULES_EXPORT RTCDataChannel final
 
   void close();
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(open);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(bufferedamountlow);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(error);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(close);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(message);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(open, kOpen);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(bufferedamountlow, kBufferedamountlow);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(error, kError);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(close, kClose);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(message, kMessage);
 
   // EventTarget
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
 
-  // PausableObject
-  void Pause() override;
-  void Unpause() override;
+  // ContextLifecycleObserver
   void ContextDestroyed(ExecutionContext*) override;
 
   // ScriptWrappable
@@ -123,7 +123,6 @@ class MODULES_EXPORT RTCDataChannel final
   void DidDetectError() override;
 
  private:
-  RTCDataChannel(ExecutionContext*, std::unique_ptr<WebRTCDataChannelHandler>);
   void Dispose();
 
   void ScheduleDispatchEvent(Event*);

@@ -11,6 +11,7 @@
         "options": {
             "webengine-alsa": "boolean",
             "webengine-embedded-build": "boolean",
+            "webengine-full-debug-info": "boolean",
             "webengine-icu": { "type": "enum", "name": "webengine-system-icu", "values": { "system": "yes", "qt": "no" } },
             "webengine-ffmpeg": { "type": "enum", "name": "webengine-system-ffmpeg", "values": { "system": "yes", "qt": "no" } },
             "webengine-opus": { "type": "enum", "name": "webengine-system-opus", "values": { "system": "yes", "qt": "no" } },
@@ -21,11 +22,14 @@
             "webengine-pulseaudio": "boolean",
             "webengine-spellchecker": "boolean",
             "webengine-native-spellchecker": "boolean",
+            "webengine-extensions": "boolean",
             "webengine-webrtc": "boolean",
             "webengine-geolocation": "boolean",
             "webengine-v8-snapshot": "boolean",
             "webengine-webchannel": "boolean",
             "webengine-kerberos": "boolean",
+            "webengine-widgets": "boolean",
+            "webengine-qml": "boolean",
             "alsa": { "type": "boolean", "name": "webengine-alsa" },
             "pulseaudio": { "type": "boolean", "name": "webengine-pulseaudio" },
             "ffmpeg": { "type": "enum", "name": "webengine-system-ffmpeg", "values": { "system": "yes", "qt": "no" } },
@@ -35,6 +39,7 @@
             "printing-and-pdf": { "type": "boolean", "name": "webengine-printing-and-pdf" },
             "proprietary-codecs": { "type": "boolean", "name": "webengine-proprietary-codecs" },
             "spellchecker": { "type": "boolean", "name": "webengine-spellchecker" },
+            "extensions": { "type": "boolean", "name": "webengine-extensions" },
             "webrtc": { "type": "boolean", "name": "webengine-webrtc" }
         }
     },
@@ -83,9 +88,9 @@
             ]
         },
         "webengine-harfbuzz": {
-            "label": "harfbuzz >= 1.4.2",
+            "label": "harfbuzz >= 2.2.0",
             "sources": [
-                { "type": "pkgConfig", "args": "harfbuzz >= 1.4.2" }
+                { "type": "pkgConfig", "args": "harfbuzz >= 2.2.0" }
             ]
         },
         "webengine-glib": {
@@ -143,9 +148,9 @@
             ]
         },
         "webengine-icu": {
-            "label": "icu >= 53",
+            "label": "icu >= 63",
             "sources": [
-                { "type": "pkgConfig", "args": "icu-uc >= 53 icu-i18n >= 53" }
+                { "type": "pkgConfig", "args": "icu-uc >= 63 icu-i18n >= 63" }
             ]
         },
         "webengine-ffmpeg": {
@@ -309,7 +314,8 @@
         },
         "webengine-glibc": {
             "label": "glibc > 2.16",
-            "type": "detectGlibc"
+            "type": "compile",
+            "test": "glibc"
         },
         "webengine-libxml2-compatible": {
             "label" : "compatible system libxml2",
@@ -552,14 +558,13 @@
             "condition": "config.macos && features.webengine-spellchecker",
             "output": [ "publicFeature" ]
         },
-        "webengine-ui-delegates": {
-            "label": "UI Delegates",
-            "output": [ "privateFeature" ]
-        },
-        "webengine-testsupport": {
-            "label": "Test Support",
-            "autoDetect": "features.private_tests || call.isTestsInBuildParts",
-            "output": [ "privateFeature" ]
+        "webengine-extensions": {
+            "label": "Extensions",
+            "purpose": "Enables Chromium extensions within certain limits. Currently used for enabling the pdf viewer.",
+            "section": "WebEngine",
+            "condition": "features.webengine-printing-and-pdf",
+            "autoDetect": "features.webengine-printing-and-pdf",
+            "output": [ "publicFeature" ]
         },
         "webengine-webrtc": {
             "label": "WebRTC",
@@ -642,6 +647,17 @@
             "condition": "config.unix && libs.webengine-x11",
             "output": [ "privateFeature" ]
         },
+        "webengine-ozone-x11" : {
+             "label": "Support qpa-xcb",
+             "condition": "config.unix
+                          && features.webengine-system-x11
+                          && features.webengine-system-libdrm
+                          && features.webengine-system-xcomposite
+                          && features.webengine-system-xcursor
+                          && features.webengine-system-xi
+                          && features.webengine-system-xtst",
+             "output": [ "privateFeature" ]
+        },
         "webengine-sanitizer" : {
             "label": "Sanitizer",
             "autoDetect": "config.sanitizer && tests.webengine-sanitizer",
@@ -663,6 +679,29 @@
             "label": "Thumb instruction set",
             "condition": "config.linux && features.webengine-embedded-build && arch.arm && tests.webengine-arm-thumb",
             "output": [ "privateFeature" ]
+        },
+        "webengine-widgets": {
+            "label": "Qt WebEngine Widgets",
+            "purpose": "Provides WebEngine Widgets support.",
+            "section": "WebEngine",
+            "condition": "module.widgets",
+            "output": [ "privateFeature" ]
+        },
+        "webengine-qml": {
+            "label": "Qt WebEngine Qml",
+            "purpose": "Provides WebEngine Qml support.",
+            "section": "WebEngine",
+            "output": [ "privateFeature" ]
+        },
+        "webengine-full-debug-info": {
+            "label": "Full debug information",
+            "purpose": "Enables debug information for Blink and V8.",
+            "autoDetect": false,
+            "condition": "config.debug || features.debug_and_release || features.force_debug_info",
+            "output": [
+              { "type": "privateConfig", "name": "v8base_debug" },
+              { "type": "privateConfig", "name": "webcore_debug" }
+            ]
         },
         "webengine-noexecstack": {
             "label": "linker supports -z noexecstack",
@@ -716,9 +755,12 @@
 
     "summary": [
         {
-            "section": "Qt WebEngine",
+            "section": "Qt WebEngineCore",
             "entries": [
+                "webengine-widgets",
+                "webengine-qml",
                 "webengine-embedded-build",
+                "webengine-full-debug-info",
                 "webengine-pepper-plugins",
                 "webengine-printing-and-pdf",
                 "webengine-proprietary-codecs",
@@ -730,6 +772,12 @@
                 "webengine-webchannel",
                 "webengine-v8-snapshot",
                 "webengine-kerberos",
+                "webengine-extensions",
+                {
+                    "type": "feature",
+                    "args": "webengine-ozone-x11",
+                    "condition": "config.unix"
+                },
                 {
                     "type": "feature",
                     "args": "webengine-v8-snapshot-support",
@@ -802,8 +850,7 @@
                         "webengine-system-png",
                         "webengine-system-jpeg",
                         "webengine-system-harfbuzz",
-                        "webengine-system-freetype",
-                        "webengine-system-x11"
+                        "webengine-system-freetype"
                     ]
                 },
                 {
@@ -821,6 +868,7 @@
                    "section": "Required system libraries for qpa-xcb",
                    "condition": "config.unix && !config.macos",
                    "entries": [
+                        "webengine-system-x11",
                         "webengine-system-libdrm",
                         "webengine-system-xcomposite",
                         "webengine-system-xcursor",

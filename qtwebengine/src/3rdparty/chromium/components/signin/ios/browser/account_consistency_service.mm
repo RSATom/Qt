@@ -10,11 +10,11 @@
 #import "base/mac/foundation_util.h"
 #include "base/macros.h"
 #include "base/strings/sys_string_conversions.h"
-#include "components/google/core/browser/google_util.h"
-#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/google/core/common/google_util.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/signin/core/browser/account_consistency_method.h"
 #include "components/signin/core/browser/account_reconcilor.h"
-#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "ios/web/public/browser_state.h"
@@ -221,19 +221,19 @@ AccountConsistencyService::AccountConsistencyService(
     scoped_refptr<content_settings::CookieSettings> cookie_settings,
     GaiaCookieManagerService* gaia_cookie_manager_service,
     SigninClient* signin_client,
-    SigninManager* signin_manager)
+    identity::IdentityManager* identity_manager)
     : browser_state_(browser_state),
       account_reconcilor_(account_reconcilor),
       cookie_settings_(cookie_settings),
       gaia_cookie_manager_service_(gaia_cookie_manager_service),
       signin_client_(signin_client),
-      signin_manager_(signin_manager),
+      identity_manager_(identity_manager),
       applying_cookie_requests_(false) {
   gaia_cookie_manager_service_->AddObserver(this);
-  signin_manager_->AddObserver(this);
+  identity_manager_->AddObserver(this);
   ActiveStateManager::FromBrowserState(browser_state_)->AddObserver(this);
   LoadFromPrefs();
-  if (signin_manager_->IsAuthenticated()) {
+  if (identity_manager_->HasPrimaryAccount()) {
     AddChromeConnectedCookies();
   } else {
     RemoveChromeConnectedCookies(base::OnceClosure());
@@ -246,8 +246,7 @@ AccountConsistencyService::~AccountConsistencyService() {
 }
 
 // static
-void AccountConsistencyService::RegisterPrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
+void AccountConsistencyService::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(
       AccountConsistencyService::kDomainsWithCookiePref);
 }
@@ -334,7 +333,7 @@ void AccountConsistencyService::LoadFromPrefs() {
 
 void AccountConsistencyService::Shutdown() {
   gaia_cookie_manager_service_->RemoveObserver(this);
-  signin_manager_->RemoveObserver(this);
+  identity_manager_->RemoveObserver(this);
   ActiveStateManager::FromBrowserState(browser_state_)->RemoveObserver(this);
   ResetWKWebView();
   web_state_handlers_.clear();
@@ -364,7 +363,7 @@ void AccountConsistencyService::ApplyCookieRequests() {
   switch (cookie_requests_.front().request_type) {
     case ADD_CHROME_CONNECTED_COOKIE:
       cookie_value = signin::BuildMirrorRequestCookieIfPossible(
-          url, signin_manager_->GetAuthenticatedAccountInfo().gaia,
+          url, identity_manager_->GetPrimaryAccountInfo().gaia,
           signin::AccountConsistencyMethod::kMirror, cookie_settings_.get(),
           signin::PROFILE_MODE_DEFAULT);
       if (cookie_value.empty()) {
@@ -491,14 +490,13 @@ void AccountConsistencyService::OnGaiaAccountsInCookieUpdated(
   AddChromeConnectedCookies();
 }
 
-void AccountConsistencyService::GoogleSigninSucceeded(
-    const std::string& account_id,
-    const std::string& username) {
+void AccountConsistencyService::OnPrimaryAccountSet(
+    const AccountInfo& account_info) {
   AddChromeConnectedCookies();
 }
 
-void AccountConsistencyService::GoogleSignedOut(const std::string& account_id,
-                                                const std::string& username) {
+void AccountConsistencyService::OnPrimaryAccountCleared(
+    const AccountInfo& previous_account_info) {
   // There is not need to remove CHROME_CONNECTED cookies on |GoogleSignedOut|
   // events as these cookies will be removed by the GaiaCookieManagerServer
   // right before fetching the Gaia logout request.

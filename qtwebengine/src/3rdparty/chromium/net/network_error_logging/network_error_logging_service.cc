@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
+#include "base/stl_util.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
@@ -67,8 +68,8 @@ const char kHttpErrorType[] = "http.error";
 
 const struct {
   Error error;
-  const char* phase;
-  const char* type;
+  const char* phase = nullptr;
+  const char* type = nullptr;
 } kErrorTypes[] = {
     {OK, kApplicationPhase, "ok"},
 
@@ -76,7 +77,10 @@ const struct {
     {ERR_NAME_NOT_RESOLVED, kDnsPhase, "dns.name_not_resolved"},
     {ERR_NAME_RESOLUTION_FAILED, kDnsPhase, "dns.failed"},
     {ERR_DNS_TIMED_OUT, kDnsPhase, "dns.timed_out"},
+    {ERR_DNS_MALFORMED_RESPONSE, kDnsPhase, "dns.protocol"},
+    {ERR_DNS_SERVER_FAILED, kDnsPhase, "dns.server"},
 
+    {ERR_TIMED_OUT, kConnectionPhase, "tcp.timed_out"},
     {ERR_CONNECTION_TIMED_OUT, kConnectionPhase, "tcp.timed_out"},
     {ERR_CONNECTION_CLOSED, kConnectionPhase, "tcp.closed"},
     {ERR_CONNECTION_RESET, kConnectionPhase, "tcp.reset"},
@@ -90,21 +94,44 @@ const struct {
      "tls.version_or_cipher_mismatch"},
     {ERR_BAD_SSL_CLIENT_AUTH_CERT, kConnectionPhase,
      "tls.bad_client_auth_cert"},
+    {ERR_CERT_INVALID, kConnectionPhase, "tls.cert.invalid"},
     {ERR_CERT_COMMON_NAME_INVALID, kConnectionPhase, "tls.cert.name_invalid"},
     {ERR_CERT_DATE_INVALID, kConnectionPhase, "tls.cert.date_invalid"},
     {ERR_CERT_AUTHORITY_INVALID, kConnectionPhase,
      "tls.cert.authority_invalid"},
-    {ERR_CERT_INVALID, kConnectionPhase, "tls.cert.invalid"},
     {ERR_CERT_REVOKED, kConnectionPhase, "tls.cert.revoked"},
     {ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN, kConnectionPhase,
      "tls.cert.pinned_key_not_in_cert_chain"},
     {ERR_SSL_PROTOCOL_ERROR, kConnectionPhase, "tls.protocol.error"},
+    {ERR_INSECURE_RESPONSE, kConnectionPhase, "tls.failed"},
+    {ERR_SSL_UNRECOGNIZED_NAME_ALERT, kConnectionPhase,
+     "tls.unrecognized_name_alert"},
     // tls.failed?
 
+    {ERR_SPDY_PING_FAILED, kApplicationPhase, "h2.ping_failed"},
+    {ERR_SPDY_PROTOCOL_ERROR, kConnectionPhase, "h2.protocol.error"},
+
+    {ERR_QUIC_PROTOCOL_ERROR, kConnectionPhase, "h3.protocol.error"},
+
     // http.protocol.error?
-    {ERR_INVALID_HTTP_RESPONSE, kApplicationPhase, "http.response.invalid"},
     {ERR_TOO_MANY_REDIRECTS, kApplicationPhase, "http.response.redirect_loop"},
-    {ERR_EMPTY_RESPONSE, kApplicationPhase, "http.response.empty"},
+    {ERR_INVALID_RESPONSE, kApplicationPhase, "http.response.invalid"},
+    {ERR_INVALID_HTTP_RESPONSE, kApplicationPhase, "http.response.invalid"},
+    {ERR_EMPTY_RESPONSE, kApplicationPhase, "http.response.invalid.empty"},
+    {ERR_CONTENT_LENGTH_MISMATCH, kApplicationPhase,
+     "http.response.invalid.content_length_mismatch"},
+    {ERR_INCOMPLETE_CHUNKED_ENCODING, kApplicationPhase,
+     "http.response.invalid.incomplete_chunked_encoding"},
+    {ERR_INVALID_CHUNKED_ENCODING, kApplicationPhase,
+     "http.response.invalid.invalid_chunked_encoding"},
+    {ERR_REQUEST_RANGE_NOT_SATISFIABLE, kApplicationPhase,
+     "http.request.range_not_satisfiable"},
+    {ERR_RESPONSE_HEADERS_TRUNCATED, kApplicationPhase,
+     "http.response.headers.truncated"},
+    {ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION, kApplicationPhase,
+     "http.response.headers.multiple_content_disposition"},
+    {ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH, kApplicationPhase,
+     "http.response.headers.multiple_content_length"},
     // http.failed?
 
     {ERR_ABORTED, kApplicationPhase, "abandoned"},
@@ -113,71 +140,36 @@ const struct {
     // TODO(juliatuttle): Surely there are more errors we want here.
 };
 
-bool GetPhaseAndTypeFromNetError(Error error,
+void GetPhaseAndTypeFromNetError(Error error,
                                  std::string* phase_out,
                                  std::string* type_out) {
-  for (size_t i = 0; i < arraysize(kErrorTypes); ++i) {
+  for (size_t i = 0; i < base::size(kErrorTypes); ++i) {
+    DCHECK(kErrorTypes[i].phase != nullptr);
+    DCHECK(kErrorTypes[i].type != nullptr);
     if (kErrorTypes[i].error == error) {
       *phase_out = kErrorTypes[i].phase;
       *type_out = kErrorTypes[i].type;
-      return true;
+      return;
     }
   }
-  return false;
+  *phase_out = IsCertificateError(error) ? kConnectionPhase : kApplicationPhase;
+  *type_out = "unknown";
 }
 
 bool IsHttpError(const NetworkErrorLoggingService::RequestDetails& request) {
   return request.status_code >= 400 && request.status_code < 600;
 }
 
-enum class HeaderOutcome {
-  DISCARDED_NO_NETWORK_ERROR_LOGGING_SERVICE = 0,
-  DISCARDED_INVALID_SSL_INFO = 1,
-  DISCARDED_CERT_STATUS_ERROR = 2,
-
-  DISCARDED_INSECURE_ORIGIN = 3,
-
-  DISCARDED_JSON_TOO_BIG = 4,
-  DISCARDED_JSON_INVALID = 5,
-  DISCARDED_NOT_DICTIONARY = 6,
-  DISCARDED_TTL_MISSING = 7,
-  DISCARDED_TTL_NOT_INTEGER = 8,
-  DISCARDED_TTL_NEGATIVE = 9,
-  DISCARDED_REPORT_TO_MISSING = 10,
-  DISCARDED_REPORT_TO_NOT_STRING = 11,
-
-  REMOVED = 12,
-  SET = 13,
-
-  DISCARDED_MISSING_REMOTE_ENDPOINT = 14,
-
-  MAX
-};
-
-void RecordHeaderOutcome(HeaderOutcome outcome) {
-  UMA_HISTOGRAM_ENUMERATION("Net.NetworkErrorLogging.HeaderOutcome", outcome,
-                            HeaderOutcome::MAX);
+void RecordHeaderOutcome(NetworkErrorLoggingService::HeaderOutcome outcome) {
+  UMA_HISTOGRAM_ENUMERATION(NetworkErrorLoggingService::kHeaderOutcomeHistogram,
+                            outcome,
+                            NetworkErrorLoggingService::HeaderOutcome::MAX);
 }
 
-enum class RequestOutcome {
-  DISCARDED_NO_NETWORK_ERROR_LOGGING_SERVICE = 0,
-
-  DISCARDED_NO_REPORTING_SERVICE = 1,
-  DISCARDED_INSECURE_ORIGIN = 2,
-  DISCARDED_NO_ORIGIN_POLICY = 3,
-  DISCARDED_UNMAPPED_ERROR = 4,
-  DISCARDED_REPORTING_UPLOAD = 5,
-  DISCARDED_UNSAMPLED_SUCCESS = 6,
-  DISCARDED_UNSAMPLED_FAILURE = 7,
-  QUEUED = 8,
-  DISCARDED_NON_DNS_SUBDOMAIN_REPORT = 9,
-
-  MAX
-};
-
-void RecordRequestOutcome(RequestOutcome outcome) {
-  UMA_HISTOGRAM_ENUMERATION("Net.NetworkErrorLogging.RequestOutcome", outcome,
-                            RequestOutcome::MAX);
+void RecordRequestOutcome(NetworkErrorLoggingService::RequestOutcome outcome) {
+  UMA_HISTOGRAM_ENUMERATION(
+      NetworkErrorLoggingService::kRequestOutcomeHistogram, outcome,
+      NetworkErrorLoggingService::RequestOutcome::MAX);
 }
 
 class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
@@ -211,7 +203,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
     if (outcome != HeaderOutcome::SET && outcome != HeaderOutcome::REMOVED)
       return;
 
-    PolicyMap::iterator it = policies_.find(origin);
+    auto it = policies_.find(origin);
     if (it != policies_.end()) {
       MaybeRemoveWildcardPolicy(origin, &it->second);
       policies_.erase(it);
@@ -220,6 +212,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
     if (policy.expires.is_null())
       return;
 
+    DVLOG(1) << "Received NEL policy for " << origin;
     auto inserted = policies_.insert(std::make_pair(origin, policy));
     DCHECK(inserted.second);
     MaybeAddWildcardPolicy(origin, &inserted.first->second);
@@ -231,14 +224,8 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
       return;
     }
 
-    // NEL is only available to secure origins, so ignore network errors from
-    // insecure origins. (The check in OnHeader prevents insecure origins from
-    // setting policies, but this check is needed to ensure that insecure
-    // origins can't match wildcard policies from secure origins.)
-    if (!details.uri.SchemeIsCryptographic()) {
-      RecordRequestOutcome(RequestOutcome::DISCARDED_INSECURE_ORIGIN);
-      return;
-    }
+    // This method is only called on secure requests.
+    DCHECK(details.uri.SchemeIsCryptographic());
 
     auto report_origin = url::Origin::Create(details.uri);
     const OriginPolicy* policy = FindPolicyForOrigin(report_origin);
@@ -260,10 +247,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
 
     std::string phase_string;
     std::string type_string;
-    if (!GetPhaseAndTypeFromNetError(type, &phase_string, &type_string)) {
-      RecordRequestOutcome(RequestOutcome::DISCARDED_UNMAPPED_ERROR);
-      return;
-    }
+    GetPhaseAndTypeFromNetError(type, &phase_string, &type_string);
 
     if (IsHttpError(details)) {
       phase_string = kApplicationPhase;
@@ -308,6 +292,10 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
       return;
     }
 
+    DVLOG(1) << "Created NEL report (" << type_string
+             << ", status=" << details.status_code
+             << ", depth=" << details.reporting_upload_depth << ") for "
+             << details.uri;
     reporting_service_->QueueReport(
         details.uri, details.user_agent, policy->report_to, kReportType,
         CreateReportBody(phase_string, type_string, sampling_fraction, details),
@@ -472,7 +460,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
 
   const OriginPolicy* FindPolicyForOrigin(const url::Origin& origin) const {
     // TODO(juliatuttle): Clean out expired policies sometime/somewhere.
-    PolicyMap::const_iterator it = policies_.find(origin);
+    auto it = policies_.find(origin);
     if (it != policies_.end() && tick_clock_->NowTicks() < it->second.expires)
       return &it->second;
 
@@ -490,7 +478,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
       const std::string& domain) const {
     DCHECK(!domain.empty());
 
-    WildcardPolicyMap::const_iterator it = wildcard_policies_.find(domain);
+    auto it = wildcard_policies_.find(domain);
     if (it == wildcard_policies_.end())
       return nullptr;
 
@@ -503,8 +491,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
                    << "choosing one arbitrarily.";
     }
 
-    for (std::set<const OriginPolicy*>::const_iterator jt = it->second.begin();
-         jt != it->second.end(); ++jt) {
+    for (auto jt = it->second.begin(); jt != it->second.end(); ++jt) {
       if (tick_clock_->NowTicks() < (*jt)->expires)
         return *jt;
     }
@@ -532,8 +519,7 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
     if (!policy->include_subdomains)
       return;
 
-    WildcardPolicyMap::iterator wildcard_it =
-        wildcard_policies_.find(origin.host());
+    auto wildcard_it = wildcard_policies_.find(origin.host());
     DCHECK(wildcard_it != wildcard_policies_.end());
 
     size_t erased = wildcard_it->second.erase(policy);
@@ -565,8 +551,6 @@ class NetworkErrorLoggingServiceImpl : public NetworkErrorLoggingService {
 
 }  // namespace
 
-// static:
-
 NetworkErrorLoggingService::RequestDetails::RequestDetails() = default;
 
 NetworkErrorLoggingService::RequestDetails::RequestDetails(
@@ -574,11 +558,15 @@ NetworkErrorLoggingService::RequestDetails::RequestDetails(
 
 NetworkErrorLoggingService::RequestDetails::~RequestDetails() = default;
 
-// static:
-
 const char NetworkErrorLoggingService::kHeaderName[] = "NEL";
 
 const char NetworkErrorLoggingService::kReportType[] = "network-error";
+
+const char NetworkErrorLoggingService::kHeaderOutcomeHistogram[] =
+    "Net.NetworkErrorLogging.HeaderOutcome";
+
+const char NetworkErrorLoggingService::kRequestOutcomeHistogram[] =
+    "Net.NetworkErrorLogging.RequestOutcome";
 
 // Allow NEL reports on regular requests, plus NEL reports on Reporting uploads
 // containing only regular requests, but do not allow NEL reports on Reporting
@@ -627,6 +615,11 @@ void NetworkErrorLoggingService::
     RecordRequestDiscardedForNoNetworkErrorLoggingService() {
   RecordRequestOutcome(
       RequestOutcome::DISCARDED_NO_NETWORK_ERROR_LOGGING_SERVICE);
+}
+
+// static
+void NetworkErrorLoggingService::RecordRequestDiscardedForInsecureOrigin() {
+  RecordRequestOutcome(RequestOutcome::DISCARDED_INSECURE_ORIGIN);
 }
 
 // static

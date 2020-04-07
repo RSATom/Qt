@@ -11,15 +11,15 @@
 
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/test/test_mock_time_task_runner.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/unguessable_token.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/channel_layout.h"
-#include "services/audio/group_coordinator.h"
-#include "services/audio/group_member.h"
+#include "services/audio/loopback_coordinator.h"
+#include "services/audio/loopback_group_member.h"
 #include "services/audio/test/fake_consumer.h"
-#include "services/audio/test/fake_group_member.h"
+#include "services/audio/test/fake_loopback_group_member.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,7 +31,7 @@ using testing::StrictMock;
 namespace audio {
 namespace {
 
-// Volume settings for the FakeGroupMember (source) and LoopbackStream.
+// Volume settings for the FakeLoopbackGroupMember (source) and LoopbackStream.
 constexpr double kSnoopVolume = 0.25;
 constexpr double kLoopbackVolume = 0.5;
 
@@ -120,15 +120,7 @@ class FakeSyncWriter : public FakeConsumer, public InputController::SyncWriter {
 
 class LoopbackStreamTest : public testing::Test {
  public:
-  LoopbackStreamTest()
-      : task_runner_(base::MakeRefCounted<base::TestMockTimeTaskRunner>(
-            base::Time(),
-            // The starting TimeTicks value is "huge" to ensure time
-            // calculations are being tested for overflow cases.
-            base::TimeTicks() +
-                base::TimeDelta::FromMicroseconds(INT64_C(1) << 62),
-            base::TestMockTimeTaskRunner::Type::kBoundToThread)),
-        group_id_(base::UnguessableToken::Create()) {}
+  LoopbackStreamTest() : group_id_(base::UnguessableToken::Create()) {}
 
   ~LoopbackStreamTest() override = default;
 
@@ -136,35 +128,34 @@ class LoopbackStreamTest : public testing::Test {
     stream_ = nullptr;
 
     for (const auto& source : sources_) {
-      coordinator_.UnregisterGroupMember(source.get());
+      coordinator_.UnregisterMember(group_id_, source.get());
     }
     sources_.clear();
 
-    task_runner_->FastForwardUntilNoTasksRemain();
+    scoped_task_environment_.FastForwardUntilNoTasksRemain();
   }
 
   MockClientAndObserver* client() { return &client_; }
   LoopbackStream* stream() { return stream_.get(); }
   FakeSyncWriter* consumer() { return consumer_; }
 
-  void RunMojoTasks() { task_runner_->RunUntilIdle(); }
+  void RunMojoTasks() { scoped_task_environment_.RunUntilIdle(); }
 
-  FakeGroupMember* AddSource(int channels, int sample_rate) {
-    sources_.emplace_back(std::make_unique<FakeGroupMember>(
-        group_id_,
+  FakeLoopbackGroupMember* AddSource(int channels, int sample_rate) {
+    sources_.emplace_back(std::make_unique<FakeLoopbackGroupMember>(
         media::AudioParameters(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
                                media::GuessChannelLayout(channels), sample_rate,
                                (sample_rate * kBufferDuration) /
                                    base::TimeDelta::FromSeconds(1))));
-    coordinator_.RegisterGroupMember(sources_.back().get());
+    coordinator_.RegisterMember(group_id_, sources_.back().get());
     return sources_.back().get();
   }
 
-  void RemoveSource(FakeGroupMember* source) {
+  void RemoveSource(FakeLoopbackGroupMember* source) {
     const auto it = std::find_if(sources_.begin(), sources_.end(),
                                  base::MatchesUniquePtr(source));
     if (it != sources_.end()) {
-      coordinator_.UnregisterGroupMember(source);
+      coordinator_.UnregisterMember(group_id_, source);
       sources_.erase(it);
     }
   }
@@ -185,9 +176,9 @@ class LoopbackStreamTest : public testing::Test {
         base::BindOnce([](LoopbackStreamTest* self,
                           LoopbackStream* stream) { self->stream_ = nullptr; },
                        this),
-        task_runner_, mojo::MakeRequest(&input_stream_ptr_),
-        std::move(client_ptr), std::move(observer_ptr),
-        GetLoopbackStreamParams(),
+        scoped_task_environment_.GetMainThreadTaskRunner(),
+        mojo::MakeRequest(&input_stream_ptr_), std::move(client_ptr),
+        std::move(observer_ptr), GetLoopbackStreamParams(),
         // The following argument is the |shared_memory_count|, which does not
         // matter because the SyncWriter will be overridden with FakeSyncWriter
         // below.
@@ -195,7 +186,7 @@ class LoopbackStreamTest : public testing::Test {
 
     // Override the clock used by the LoopbackStream so that everything is
     // single-threaded and synchronized with the driving code in these tests.
-    stream_->set_clock_for_testing(task_runner_->GetMockTickClock());
+    stream_->set_clock_for_testing(scoped_task_environment_.GetMockTickClock());
 
     // Redirect the output of the LoopbackStream to a FakeSyncWriter.
     // LoopbackStream takes ownership of the FakeSyncWriter.
@@ -236,14 +227,14 @@ class LoopbackStreamTest : public testing::Test {
       // Render audio meant for local output at some point in the near
       // future.
       const base::TimeTicks output_timestamp =
-          task_runner_->NowTicks() + kDelayUntilOutput;
+          scoped_task_environment_.NowTicks() + kDelayUntilOutput;
       for (const auto& source : sources_) {
         source->RenderMoreAudio(output_timestamp);
       }
 
       // Move the task runner forward, which will cause the FlowNetwork's
       // delayed tasks to run, which will generate output for the consumer.
-      task_runner_->FastForwardBy(kBufferDuration);
+      scoped_task_environment_.FastForwardBy(kBufferDuration);
     } while (consumer_->GetRecordedFrameCount() < min_frames_to_record);
   }
 
@@ -253,10 +244,11 @@ class LoopbackStreamTest : public testing::Test {
   }
 
  private:
-  scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
-  GroupCoordinator coordinator_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::MOCK_TIME};
+  LoopbackCoordinator coordinator_;
   const base::UnguessableToken group_id_;
-  std::vector<std::unique_ptr<FakeGroupMember>> sources_;
+  std::vector<std::unique_ptr<FakeLoopbackGroupMember>> sources_;
   NiceMock<MockClientAndObserver> client_;
   std::unique_ptr<LoopbackStream> stream_;
   FakeSyncWriter* consumer_ = nullptr;  // Owned by |stream_|.
@@ -327,7 +319,8 @@ TEST_F(LoopbackStreamTest, ProducesSilenceWhenNoMembersArePresent) {
   }
 
 TEST_F(LoopbackStreamTest, ProducesAudioFromASingleSource) {
-  FakeGroupMember* const source = AddSource(1, 48000);  // Monaural, 48 kHz.
+  FakeLoopbackGroupMember* const source =
+      AddSource(1, 48000);  // Monaural, 48 kHz.
   source->SetChannelTone(0, kMiddleAFreq);
   source->SetVolume(kSnoopVolume);
 
@@ -346,7 +339,7 @@ TEST_F(LoopbackStreamTest, ProducesAudioFromTwoSources) {
   // Start the first source (of a middle-A note) before creating the loopback
   // stream.
   const int channels = GetLoopbackStreamParams().channels();
-  FakeGroupMember* const source1 = AddSource(channels, 48000);
+  FakeLoopbackGroupMember* const source1 = AddSource(channels, 48000);
   source1->SetChannelTone(0, kMiddleAFreq);
   source1->SetVolume(kSnoopVolume);
 
@@ -357,7 +350,7 @@ TEST_F(LoopbackStreamTest, ProducesAudioFromTwoSources) {
 
   // Start the second source (of a middle-C note) while the loopback stream is
   // running. The second source has a different sample rate than the first.
-  FakeGroupMember* const source2 = AddSource(channels, 44100);
+  FakeLoopbackGroupMember* const source2 = AddSource(channels, 44100);
   source2->SetChannelTone(1, kMiddleCFreq);
   source2->SetVolume(kSnoopVolume);
 
@@ -380,7 +373,8 @@ TEST_F(LoopbackStreamTest, ProducesAudioFromTwoSources) {
 }
 
 TEST_F(LoopbackStreamTest, AudioChangesVolume) {
-  FakeGroupMember* const source = AddSource(1, 48000);  // Monaural, 48 kHz.
+  FakeLoopbackGroupMember* const source =
+      AddSource(1, 48000);  // Monaural, 48 kHz.
   source->SetChannelTone(0, kMiddleAFreq);
   source->SetVolume(kSnoopVolume);
 

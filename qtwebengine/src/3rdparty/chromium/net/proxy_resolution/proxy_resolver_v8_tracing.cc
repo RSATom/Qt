@@ -49,6 +49,9 @@
 // known.
 namespace net {
 
+class ScopedAllowThreadJoinForProxyResolverV8Tracing
+    : public base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope {};
+
 namespace {
 
 // Upper bound on how many *unique* DNS resolves a PAC script is allowed
@@ -560,7 +563,7 @@ void Job::ExecuteNonBlocking() {
 }
 
 int Job::ExecuteProxyResolver() {
-  TRACE_EVENT0(kNetTracingCategory, "Job::ExecuteProxyResolver");
+  TRACE_EVENT0(NetTracingCategory(), "Job::ExecuteProxyResolver");
   int result = ERR_UNEXPECTED;  // Initialized to silence warnings.
 
   switch (operation_) {
@@ -815,8 +818,7 @@ void Job::SaveDnsToLocalCache(const std::string& host,
     cache_value = addresses.front().ToStringWithoutPort();
   } else {
     // The *Ex versions are expected to return a semi-colon separated list.
-    for (AddressList::const_iterator iter = addresses.begin();
-         iter != addresses.end(); ++iter) {
+    for (auto iter = addresses.begin(); iter != addresses.end(); ++iter) {
       if (!cache_value.empty())
         cache_value += ";";
       cache_value += iter->ToStringWithoutPort();
@@ -831,16 +833,16 @@ HostResolver::RequestInfo Job::MakeDnsRequestInfo(const std::string& host,
                                                   ResolveDnsOperation op) {
   HostPortPair host_port = HostPortPair(host, 80);
   if (op == MY_IP_ADDRESS || op == MY_IP_ADDRESS_EX) {
+    // TODO(eroman): Remove the need for hostname. This is currently relied on
+    // for the cache key (is_my_ip_address isn't part of it).
     host_port.set_host(GetHostName());
   }
 
   HostResolver::RequestInfo info(host_port);
   // Flag myIpAddress requests.
-  if (op == MY_IP_ADDRESS || op == MY_IP_ADDRESS_EX) {
-    // TODO: Provide a RequestInfo construction mechanism that does not
-    // require a hostname and sets is_my_ip_address to true instead of this.
+  if (op == MY_IP_ADDRESS || op == MY_IP_ADDRESS_EX)
     info.set_is_my_ip_address(true);
-  }
+
   // The non-ex flavors are limited to IPv4 results.
   if (op == MY_IP_ADDRESS || op == DNS_RESOLVE) {
     info.set_address_family(ADDRESS_FAMILY_IPV4);
@@ -944,7 +946,7 @@ ProxyResolverV8TracingImpl::~ProxyResolverV8TracingImpl() {
   CHECK_EQ(0, num_outstanding_callbacks_);
 
   // Join the worker thread. See http://crbug.com/69710.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowThreadJoinForProxyResolverV8Tracing allow_thread_join;
   thread_.reset();
 }
 
@@ -1061,7 +1063,7 @@ class ProxyResolverV8TracingFactoryImpl::CreateJob
 
   void StopWorkerThread() {
     // Join the worker thread. See http://crbug.com/69710.
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    ScopedAllowThreadJoinForProxyResolverV8Tracing allow_thread_join;
     thread_.reset();
   }
 

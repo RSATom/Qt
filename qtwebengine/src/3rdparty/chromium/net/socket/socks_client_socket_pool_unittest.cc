@@ -22,6 +22,8 @@
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/socket_tag.h"
 #include "net/socket/socket_test_util.h"
+#include "net/socket/socks_connect_job.h"
+#include "net/socket/transport_connect_job.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
@@ -38,33 +40,9 @@ namespace {
 const int kMaxSockets = 32;
 const int kMaxSocketsPerGroup = 6;
 
-// Make sure |handle|'s load times are set correctly.  Only connect times should
-// be set.
-void TestLoadTimingInfo(const ClientSocketHandle& handle) {
-  LoadTimingInfo load_timing_info;
-  EXPECT_TRUE(handle.GetLoadTimingInfo(false, &load_timing_info));
-
-  // None of these tests use a NetLog.
-  EXPECT_EQ(NetLogSource::kInvalidId, load_timing_info.socket_log_id);
-
-  EXPECT_FALSE(load_timing_info.socket_reused);
-
-  ExpectConnectTimingHasTimes(load_timing_info.connect_timing,
-                              CONNECT_TIMING_HAS_CONNECT_TIMES_ONLY);
-  ExpectLoadTimingHasOnlyConnectionTimes(load_timing_info);
-}
-
-
 scoped_refptr<TransportSocketParams> CreateProxyHostParams() {
-  return new TransportSocketParams(
-      HostPortPair("proxy", 80), false, OnHostResolutionCallback(),
-      TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT);
-}
-
-scoped_refptr<SOCKSSocketParams> CreateSOCKSv4Params() {
-  return new SOCKSSocketParams(CreateProxyHostParams(), false /* socks_v5 */,
-                               HostPortPair("host", 80),
-                               TRAFFIC_ANNOTATION_FOR_TESTS);
+  return new TransportSocketParams(HostPortPair("proxy", 80), false,
+                                   OnHostResolutionCallback());
 }
 
 scoped_refptr<SOCKSSocketParams> CreateSOCKSv5Params() {
@@ -145,148 +123,10 @@ TEST_F(SOCKSClientSocketPoolTest, Simple) {
   ClientSocketHandle handle;
   int rv = handle.Init("a", CreateSOCKSv5Params(), LOW, SocketTag(),
                        ClientSocketPool::RespectLimits::ENABLED,
-                       CompletionCallback(), &pool_, NetLogWithSource());
+                       CompletionOnceCallback(), &pool_, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.is_initialized());
   EXPECT_TRUE(handle.socket());
-  TestLoadTimingInfo(handle);
-}
-
-// Make sure that SOCKSConnectJob passes on its priority to its
-// socket request on Init.
-TEST_F(SOCKSClientSocketPoolTest, SetSocketRequestPriorityOnInit) {
-  for (int i = MINIMUM_PRIORITY; i <= MAXIMUM_PRIORITY; ++i) {
-    RequestPriority priority = static_cast<RequestPriority>(i);
-    SOCKS5MockData data(SYNCHRONOUS);
-    data.data_provider()->set_connect_data(MockConnect(SYNCHRONOUS, OK));
-    transport_client_socket_factory_.AddSocketDataProvider(
-        data.data_provider());
-
-    ClientSocketHandle handle;
-    EXPECT_EQ(OK,
-              handle.Init("a", CreateSOCKSv5Params(), priority, SocketTag(),
-                          ClientSocketPool::RespectLimits::ENABLED,
-                          CompletionCallback(), &pool_, NetLogWithSource()));
-    EXPECT_EQ(priority, transport_socket_pool_.last_request_priority());
-    handle.socket()->Disconnect();
-  }
-}
-
-// Make sure that SOCKSConnectJob passes on its priority to its
-// HostResolver request (for non-SOCKS5) on Init.
-TEST_F(SOCKSClientSocketPoolTest, SetResolvePriorityOnInit) {
-  for (int i = MINIMUM_PRIORITY; i <= MAXIMUM_PRIORITY; ++i) {
-    RequestPriority priority = static_cast<RequestPriority>(i);
-    SOCKS5MockData data(SYNCHRONOUS);
-    data.data_provider()->set_connect_data(MockConnect(SYNCHRONOUS, OK));
-    transport_client_socket_factory_.AddSocketDataProvider(
-        data.data_provider());
-
-    ClientSocketHandle handle;
-    EXPECT_EQ(ERR_IO_PENDING,
-              handle.Init("a", CreateSOCKSv4Params(), priority, SocketTag(),
-                          ClientSocketPool::RespectLimits::ENABLED,
-                          CompletionCallback(), &pool_, NetLogWithSource()));
-    EXPECT_EQ(priority, transport_socket_pool_.last_request_priority());
-    EXPECT_EQ(priority, host_resolver_.last_request_priority());
-    EXPECT_TRUE(handle.socket() == NULL);
-  }
-}
-
-TEST_F(SOCKSClientSocketPoolTest, Async) {
-  SOCKS5MockData data(ASYNC);
-  transport_client_socket_factory_.AddSocketDataProvider(data.data_provider());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", CreateSOCKSv5Params(), LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool_, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(handle.is_initialized());
-  EXPECT_TRUE(handle.socket());
-  TestLoadTimingInfo(handle);
-}
-
-TEST_F(SOCKSClientSocketPoolTest, TransportConnectError) {
-  StaticSocketDataProvider socket_data;
-  socket_data.set_connect_data(MockConnect(SYNCHRONOUS,
-                                           ERR_CONNECTION_REFUSED));
-  transport_client_socket_factory_.AddSocketDataProvider(&socket_data);
-
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", CreateSOCKSv5Params(), LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       CompletionCallback(), &pool_, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_PROXY_CONNECTION_FAILED));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-}
-
-TEST_F(SOCKSClientSocketPoolTest, AsyncTransportConnectError) {
-  StaticSocketDataProvider socket_data;
-  socket_data.set_connect_data(MockConnect(ASYNC, ERR_CONNECTION_REFUSED));
-  transport_client_socket_factory_.AddSocketDataProvider(&socket_data);
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", CreateSOCKSv5Params(), LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool_, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsError(ERR_PROXY_CONNECTION_FAILED));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-}
-
-TEST_F(SOCKSClientSocketPoolTest, SOCKSConnectError) {
-  MockRead failed_read[] = {
-    MockRead(SYNCHRONOUS, 0),
-  };
-  StaticSocketDataProvider socket_data(failed_read, base::span<MockWrite>());
-  socket_data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
-  transport_client_socket_factory_.AddSocketDataProvider(&socket_data);
-
-  ClientSocketHandle handle;
-  EXPECT_EQ(0, transport_socket_pool_.release_count());
-  int rv = handle.Init("a", CreateSOCKSv5Params(), LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       CompletionCallback(), &pool_, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_SOCKS_CONNECTION_FAILED));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-  EXPECT_EQ(1, transport_socket_pool_.release_count());
-}
-
-TEST_F(SOCKSClientSocketPoolTest, AsyncSOCKSConnectError) {
-  MockRead failed_read[] = {
-    MockRead(ASYNC, 0),
-  };
-  StaticSocketDataProvider socket_data(failed_read, base::span<MockWrite>());
-  socket_data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
-  transport_client_socket_factory_.AddSocketDataProvider(&socket_data);
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  EXPECT_EQ(0, transport_socket_pool_.release_count());
-  int rv = handle.Init("a", CreateSOCKSv5Params(), LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool_, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsError(ERR_SOCKS_CONNECTION_FAILED));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-  EXPECT_EQ(1, transport_socket_pool_.release_count());
 }
 
 TEST_F(SOCKSClientSocketPoolTest, CancelDuringTransportConnect) {
@@ -358,8 +198,6 @@ TEST_F(SOCKSClientSocketPoolTest, CancelDuringSOCKSConnect) {
   (*requests())[1]->handle()->Reset();
 }
 
-// It would be nice to also test the timeouts in SOCKSClientSocketPool.
-
 // Test that SocketTag passed into SOCKSClientSocketPool is applied to returned
 // sockets.
 #if defined(OS_ANDROID)
@@ -372,8 +210,7 @@ TEST_F(SOCKSClientSocketPoolTest, Tag) {
   SocketTag tag1(SocketTag::UNSET_UID, 0x12345678);
   SocketTag tag2(getuid(), 0x87654321);
   scoped_refptr<TransportSocketParams> tcp_params(new TransportSocketParams(
-      HostPortPair("proxy", 80), false, OnHostResolutionCallback(),
-      TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT));
+      HostPortPair("proxy", 80), false, OnHostResolutionCallback()));
   scoped_refptr<SOCKSSocketParams> params(new SOCKSSocketParams(
       tcp_params, true /* socks_v5 */, HostPortPair("host", 80),
       TRAFFIC_ANNOTATION_FOR_TESTS));
@@ -385,7 +222,7 @@ TEST_F(SOCKSClientSocketPoolTest, Tag) {
   ClientSocketHandle handle;
   int rv = handle.Init("a", params, LOW, tag1,
                        ClientSocketPool::RespectLimits::ENABLED,
-                       CompletionCallback(), &pool, NetLogWithSource());
+                       CompletionOnceCallback(), &pool, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.is_initialized());
   EXPECT_TRUE(handle.socket());
@@ -398,7 +235,7 @@ TEST_F(SOCKSClientSocketPoolTest, Tag) {
   handle.Reset();
   rv = handle.Init("a", params, LOW, tag2,
                    ClientSocketPool::RespectLimits::ENABLED,
-                   CompletionCallback(), &pool, NetLogWithSource());
+                   CompletionOnceCallback(), &pool, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.socket());
   EXPECT_TRUE(handle.socket()->IsConnected());
@@ -427,7 +264,7 @@ TEST_F(SOCKSClientSocketPoolTest, Tag) {
   handle.Reset();
   rv = handle.Init("a", params, LOW, tag2,
                    ClientSocketPool::RespectLimits::ENABLED,
-                   CompletionCallback(), &pool, NetLogWithSource());
+                   CompletionOnceCallback(), &pool, NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.socket());
   EXPECT_TRUE(handle.socket()->IsConnected());

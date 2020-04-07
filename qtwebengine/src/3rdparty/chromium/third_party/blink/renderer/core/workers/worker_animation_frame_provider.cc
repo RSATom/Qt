@@ -22,6 +22,10 @@ WorkerAnimationFrameProvider::WorkerAnimationFrameProvider(
 
 int WorkerAnimationFrameProvider::RegisterCallback(
     FrameRequestCallbackCollection::FrameCallback* callback) {
+  if (!begin_frame_provider_->IsValidFrameProvider()) {
+    return WorkerAnimationFrameProvider::kInvalidCallbackId;
+  }
+
   FrameRequestCallbackCollection::CallbackId id =
       callback_collection_.RegisterCallback(callback);
   begin_frame_provider_->RequestBeginFrame();
@@ -60,7 +64,7 @@ void WorkerAnimationFrameProvider::RegisterOffscreenCanvas(
 
 void WorkerAnimationFrameProvider::DeregisterOffscreenCanvas(
     OffscreenCanvas* offscreen_canvas) {
-  size_t pos = offscreen_canvases_.Find(offscreen_canvas);
+  wtf_size_t pos = offscreen_canvases_.Find(offscreen_canvas);
   if (pos != kNotFound) {
     offscreen_canvases_.EraseAt(pos);
   }

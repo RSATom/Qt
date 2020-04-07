@@ -933,6 +933,10 @@
         <translation>Falscher Zugriff auf gruppierte Eigenschaft</translation>
     </message>
     <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
+        <translation>Falscher Zugriff auf gruppierte Eigenschaft &quot;%1&quot; des Typs &quot;%2&quot;, der kein Wert-Typ ist</translation>
+    </message>
+    <message>
         <source>Cannot assign to non-existent default property</source>
         <translation>Es kann keine Zuweisung an eine nicht existierende Vorgabe-Eigenschaft erfolgen</translation>
     </message>
@@ -951,6 +955,10 @@
     <message>
         <source>Invalid property assignment: unknown enumeration</source>
         <translation>Ungültige Zuweisung bei Eigenschaft: Unbekannter Aufzählungswert</translation>
+    </message>
+    <message>
+        <source> - Assigning null to incompatible properties in QML is deprecated. This will become a compile error in future versions of Qt.</source>
+        <translation> - Die Zuweisung von null zu inkompatiblen Eigenschaften in QML ist überholt (deprecated). In zukünftigen Versionen von Qt wird dies einen Compile-Fehler verursachen.</translation>
     </message>
     <message>
         <source>Invalid property assignment: string expected</source>
@@ -1575,31 +1583,6 @@ Installieren Sie einen Treiber, der OpenGL 2.0 oder neuer bereitstellt, oder ste
     <message>
         <source>Conflicting properties &apos;visible&apos; and &apos;visibility&apos;</source>
         <translation>Widersprüchliche Eigenschaften &apos;visible&apos; und &apos;visibility&apos;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModel</name>
-    <message>
-        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
-        <translation>&quot;%1&quot; ist bereits als Name einer Rolle vergeben und wird daher deaktiviert.</translation>
-    </message>
-    <message>
-        <source>invalid query: &quot;%1&quot;</source>
-        <translation>Ungültige Abfrage: &quot;%1&quot;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModelRole</name>
-    <message>
-        <source>An XmlRole query must not start with &apos;/&apos;</source>
-        <translation>Eine XmlRole-Abfrage darf nicht mit &apos;/&apos; beginnen</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlRoleList</name>
-    <message>
-        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
-        <translation>Eine XmlListModel-Abfrage muss mit &apos;/&apos; oder &quot;//&quot; beginnen</translation>
     </message>
 </context>
 <context>

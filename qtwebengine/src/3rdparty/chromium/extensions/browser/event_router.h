@@ -12,14 +12,15 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/scoped_observer.h"
 #include "base/values.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "extensions/browser/event_listener_map.h"
+#include "extensions/browser/events/event_ack_data.h"
 #include "extensions/browser/events/lazy_event_dispatch_util.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "extensions/browser/extension_registry_observer.h"
@@ -82,6 +83,14 @@ class EventRouter : public KeyedService,
     virtual ~Observer() {}
   };
 
+  // A test observer to monitor event dispatching.
+  class TestObserver {
+   public:
+    virtual ~TestObserver() = default;
+    virtual void OnWillDispatchEvent(const Event& event) = 0;
+    virtual void OnDidDispatchEventToProcess(const Event& event) = 0;
+  };
+
   // Gets the EventRouter for |browser_context|.
   static EventRouter* Get(content::BrowserContext* browser_context);
 
@@ -127,6 +136,7 @@ class EventRouter : public KeyedService,
                                      content::RenderProcessHost* process,
                                      const ExtensionId& extension_id,
                                      const GURL& service_worker_scope,
+                                     int64_t service_worker_version_id,
                                      int worker_thread_id);
   void RemoveEventListener(const std::string& event_name,
                            content::RenderProcessHost* process,
@@ -135,6 +145,7 @@ class EventRouter : public KeyedService,
                                         content::RenderProcessHost* process,
                                         const ExtensionId& extension_id,
                                         const GURL& service_worker_scope,
+                                        int64_t service_worker_version_id,
                                         int worker_thread_id);
 
   // Add or remove a URL as an event listener for |event_name|.
@@ -154,6 +165,10 @@ class EventRouter : public KeyedService,
 
   // Unregisters an observer from all events.
   void UnregisterObserver(Observer* observer);
+
+  // Adds/removes test observers.
+  void AddObserverForTesting(TestObserver* observer);
+  void RemoveObserverForTesting(TestObserver* observer);
 
   // Add or remove the extension as having a lazy background page that listens
   // to the event. The difference from the above methods is that these will be
@@ -215,7 +230,8 @@ class EventRouter : public KeyedService,
 
   // Record the Event Ack from the renderer. (One less event in-flight.)
   void OnEventAck(content::BrowserContext* context,
-                  const std::string& extension_id);
+                  const std::string& extension_id,
+                  const std::string& event_name);
 
   // Returns whether or not the given extension has any registered events.
   bool HasRegisteredEvents(const ExtensionId& extension_id) const;
@@ -235,6 +251,8 @@ class EventRouter : public KeyedService,
   LazyEventDispatchUtil* lazy_event_dispatch_util() {
     return &lazy_event_dispatch_util_;
   }
+
+  EventAckData* event_ack_data() { return &event_ack_data_; }
 
   // Returns true if there is a registered lazy/non-lazy listener for the given
   // |event_name|.
@@ -286,15 +304,16 @@ class EventRouter : public KeyedService,
   // empty, the event is broadcast.  An event that just came off the pending
   // list may not be delayed again.
   void DispatchEventImpl(const std::string& restrict_to_extension_id,
-                         const linked_ptr<Event>& event);
+                         std::unique_ptr<Event> event);
 
   // Dispatches the event to the specified extension or URL running in
   // |process|.
   void DispatchEventToProcess(const std::string& extension_id,
                               const GURL& listener_url,
                               content::RenderProcessHost* process,
+                              int64_t service_worker_version_id,
                               int worker_thread_id,
-                              const linked_ptr<Event>& event,
+                              Event* event,
                               const base::DictionaryValue* listener_filter,
                               bool did_enqueue);
 
@@ -332,7 +351,7 @@ class EventRouter : public KeyedService,
       const std::string& event_name);
 
   void DispatchPendingEvent(
-      const linked_ptr<Event>& event,
+      std::unique_ptr<Event> event,
       std::unique_ptr<LazyContextTaskQueue::ContextInfo> params);
 
   // Implementation of EventListenerMap::Delegate.
@@ -360,9 +379,13 @@ class EventRouter : public KeyedService,
   using ObserverMap = std::unordered_map<std::string, Observer*>;
   ObserverMap observers_;
 
+  base::ObserverList<TestObserver>::Unchecked test_observers_;
+
   std::set<content::RenderProcessHost*> observed_process_set_;
 
   LazyEventDispatchUtil lazy_event_dispatch_util_;
+
+  EventAckData event_ack_data_;
 
   base::WeakPtrFactory<EventRouter> weak_factory_;
 
@@ -373,10 +396,10 @@ struct Event {
   // This callback should return true if the event should be dispatched to the
   // given context and extension, and false otherwise.
   using WillDispatchCallback =
-      base::Callback<bool(content::BrowserContext*,
-                          const Extension*,
-                          Event*,
-                          const base::DictionaryValue*)>;
+      base::RepeatingCallback<bool(content::BrowserContext*,
+                                   const Extension*,
+                                   Event*,
+                                   const base::DictionaryValue*)>;
 
   // The identifier for the event, for histograms. In most cases this
   // correlates 1:1 with |event_name|, in some cases events will generate
@@ -438,9 +461,8 @@ struct Event {
 
   ~Event();
 
-  // Makes a deep copy of this instance. Ownership is transferred to the
-  // caller.
-  Event* DeepCopy();
+  // Makes a deep copy of this instance.
+  std::unique_ptr<Event> DeepCopy() const;
 };
 
 struct EventListenerInfo {

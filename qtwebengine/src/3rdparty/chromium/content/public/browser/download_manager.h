@@ -34,6 +34,7 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/optional.h"
 #include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
@@ -45,6 +46,7 @@
 #include "net/base/net_errors.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "storage/browser/blob/blob_data_handle.h"
+#include "url/origin.h"
 
 class GURL;
 
@@ -172,6 +174,7 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
       const GURL& site_url,
       const GURL& tab_url,
       const GURL& tab_referrer_url,
+      const base::Optional<url::Origin>& request_initiator,
       const std::string& mime_type,
       const std::string& original_mime_type,
       base::Time start_time,
@@ -239,6 +242,11 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
   // Get the download item for |guid|.
   virtual download::DownloadItem* GetDownloadByGuid(
       const std::string& guid) = 0;
+
+  using GetNextIdCallback = base::OnceCallback<void(uint32_t)>;
+  // Called to get an ID for a new download. |callback| may be called
+  // synchronously.
+  virtual void GetNextId(GetNextIdCallback callback) = 0;
 };
 
 }  // namespace content

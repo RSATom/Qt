@@ -8,7 +8,7 @@
 ##
 ## Top level settings
 ##
-version_id: 21
+version_id: 33
 sampled_ping_probability: 0.01
 max_archived_binaries_to_report: 10
 default_file_type {
@@ -190,6 +190,7 @@ file_types {
   uma_value: 181
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: DMG
 }
 file_types {
   extension: "lha"
@@ -280,186 +281,220 @@ file_types {
   uma_value: 195
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r01"
   uma_value: 196
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r02"
   uma_value: 197
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r03"
   uma_value: 198
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r04"
   uma_value: 199
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r05"
   uma_value: 200
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r06"
   uma_value: 201
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r07"
   uma_value: 202
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r08"
   uma_value: 203
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r09"
   uma_value: 204
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r10"
   uma_value: 205
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r11"
   uma_value: 206
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r12"
   uma_value: 207
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r13"
   uma_value: 208
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r14"
   uma_value: 209
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r15"
   uma_value: 210
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r16"
   uma_value: 211
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r17"
   uma_value: 212
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r18"
   uma_value: 213
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r19"
   uma_value: 214
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r20"
   uma_value: 215
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r21"
   uma_value: 216
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r22"
   uma_value: 217
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r23"
   uma_value: 218
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r24"
   uma_value: 219
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r25"
   uma_value: 220
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r26"
   uma_value: 221
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r27"
   uma_value: 222
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r28"
   uma_value: 223
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "r29"
   uma_value: 224
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
 }
 file_types {
   extension: "rar"
   uma_value: 8
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: RAR
+  platform_settings {
+    max_file_size_to_analyze: 52428800 # 50MB
+  }
 }
 file_types {
   extension: "squashfs"
@@ -600,6 +635,10 @@ file_types {
   uma_value: 7
   is_archive: true
   ping_setting: FULL_PING
+  inspection_type: ZIP
+  platform_settings {
+    max_file_size_to_analyze: 52428800 # 50MB
+  }
 }
 file_types {
   extension: "zipx"
@@ -702,6 +741,50 @@ file_types {
 file_types {
   extension: "pyc"
   uma_value: 131
+  ping_setting: FULL_PING
+  platform_settings {
+    platform: PLATFORM_LINUX
+    danger_level: ALLOW_ON_USER_GESTURE
+    auto_open_hint: DISALLOW_AUTO_OPEN
+  }
+  platform_settings {
+    platform: PLATFORM_MAC
+    danger_level: ALLOW_ON_USER_GESTURE
+    auto_open_hint: DISALLOW_AUTO_OPEN
+  }
+  platform_settings {
+    platform: PLATFORM_WINDOWS
+    danger_level: ALLOW_ON_USER_GESTURE
+    auto_open_hint: DISALLOW_AUTO_OPEN
+  }
+}
+file_types {
+  # Equivalent of a DLL, for python libraries
+  # Added with crbug.com/902234
+  extension: "pyd"
+  uma_value: 318
+  ping_setting: FULL_PING
+  platform_settings {
+    platform: PLATFORM_LINUX
+    danger_level: DANGEROUS
+    auto_open_hint: DISALLOW_AUTO_OPEN
+  }
+  platform_settings {
+    platform: PLATFORM_MAC
+    danger_level: DANGEROUS
+    auto_open_hint: DISALLOW_AUTO_OPEN
+  }
+  platform_settings {
+    platform: PLATFORM_WINDOWS
+    danger_level: DANGEROUS
+    auto_open_hint: DISALLOW_AUTO_OPEN
+  }
+}
+file_types {
+  # Compiled python code
+  # Added with crbug.com/902234
+  extension: "pyo"
+  uma_value: 319
   ping_setting: FULL_PING
   platform_settings {
     platform: PLATFORM_LINUX
@@ -1172,6 +1255,18 @@ file_types {
     platform: PLATFORM_WINDOWS
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
+  }
+}
+file_types {
+  # Control Panel Item. Executable used for adding icons to Control Panel.
+  # Added in crbug.com/914400
+  extension: "cpi"
+  uma_value: 321
+  ping_setting: FULL_PING
+  platform_settings {
+    platform: PLATFORM_WINDOWS
+    danger_level: ALLOW_ON_USER_GESTURE
+    auto_open_hint: DISALLOW_AUTO_OPEN
   }
 }
 
@@ -2307,7 +2402,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
   }
-  # TODO(nparker): Unpack these as ZIP files. https://crbug.com/628796
+  inspection_type: ZIP
 }
 file_types {
   # A Visio file type. Added in https://crbug.com/771469
@@ -2319,7 +2414,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
   }
-  # TODO(nparker): Unpack these as ZIP files. https://crbug.com/628796
+  inspection_type: ZIP
 }
 file_types {
   # A Visio file type. Added in https://crbug.com/771469
@@ -2331,7 +2426,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
   }
-  # TODO(nparker): Unpack these as ZIP files. https://crbug.com/628796
+  inspection_type: ZIP
 }
 file_types {
   # A Visio file type. Added in https://crbug.com/771469
@@ -2343,7 +2438,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
   }
-  # TODO(nparker): Unpack these as ZIP files. https://crbug.com/628796
+  inspection_type: ZIP
 }
 file_types {
   # A Visio file type. Added in https://crbug.com/771469
@@ -2355,7 +2450,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
   }
-  # TODO(nparker): Unpack these as ZIP files. https://crbug.com/628796
+  inspection_type: ZIP
 }
 file_types {
   # A Visio file type. Added in https://crbug.com/771469
@@ -2367,7 +2462,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: ALLOW_AUTO_OPEN
   }
-  # TODO(nparker): Unpack these as ZIP files. https://crbug.com/628796
+  inspection_type: ZIP
 }
 file_types {
   # An older Visio file type. See https://crbug.com/771469
@@ -2479,6 +2574,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "dart"
@@ -2489,6 +2585,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "dc42"
@@ -2499,6 +2596,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "diskcopy42"
@@ -2509,6 +2607,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "dmg"
@@ -2520,6 +2619,7 @@ file_types {
     auto_open_hint: DISALLOW_AUTO_OPEN
     max_file_size_to_analyze: 52428800 # 50MB
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "dmgpart"
@@ -2530,6 +2630,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "dvdr"
@@ -2540,6 +2641,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "img"
@@ -2550,6 +2652,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "imgpart"
@@ -2560,6 +2663,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "ndif"
@@ -2570,6 +2674,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "smi"
@@ -2580,6 +2685,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "sparsebundle"
@@ -2590,6 +2696,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "sparseimage"
@@ -2600,6 +2707,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "toast"
@@ -2610,6 +2718,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 file_types {
   extension: "udif"
@@ -2620,6 +2729,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: DMG
 }
 
 # Other MacOS files
@@ -2644,6 +2754,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: ZIP
 }
 file_types {
   # Opened as a .gz on Mac. http://crbug.com/600907
@@ -2656,6 +2767,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: ZIP
 }
 file_types {
   extension: "command"
@@ -2749,6 +2861,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: ZIP
 }
 file_types {
   # Automator workflow
@@ -2771,6 +2884,7 @@ file_types {
     danger_level: ALLOW_ON_USER_GESTURE
     auto_open_hint: DISALLOW_AUTO_OPEN
   }
+  inspection_type: ZIP
 }
 
 
@@ -2955,6 +3069,18 @@ file_types {
     platform: PLATFORM_WINDOWS
     danger_level: NOT_DANGEROUS
     auto_open_hint: ALLOW_AUTO_OPEN
+  }
+}
+file_types {
+  # .desktop file is a shortcut that runs other files.
+  # Added in crbug/904182
+  extension: "desktop"
+  uma_value: 320
+  ping_setting: FULL_PING
+  platform_settings {
+    platform: PLATFORM_LINUX
+    danger_level: ALLOW_ON_USER_GESTURE
+    auto_open_hint: DISALLOW_AUTO_OPEN
   }
 }
 

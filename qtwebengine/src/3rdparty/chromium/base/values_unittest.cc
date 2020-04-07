@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "base/containers/adapters.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
@@ -574,6 +573,94 @@ TEST(ValuesTest, FindKeyOfTypeConst) {
   EXPECT_NE(nullptr, dict.FindKeyOfType("dict", Value::Type::DICTIONARY));
 }
 
+TEST(ValuesTest, FindBoolKey) {
+  Value::DictStorage storage;
+  storage.emplace("null", std::make_unique<Value>(Value::Type::NONE));
+  storage.emplace("bool", std::make_unique<Value>(Value::Type::BOOLEAN));
+  storage.emplace("int", std::make_unique<Value>(Value::Type::INTEGER));
+  storage.emplace("double", std::make_unique<Value>(Value::Type::DOUBLE));
+  storage.emplace("string", std::make_unique<Value>(Value::Type::STRING));
+  storage.emplace("blob", std::make_unique<Value>(Value::Type::BINARY));
+  storage.emplace("list", std::make_unique<Value>(Value::Type::LIST));
+  storage.emplace("dict", std::make_unique<Value>(Value::Type::DICTIONARY));
+
+  const Value dict(std::move(storage));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("null"));
+  EXPECT_NE(base::nullopt, dict.FindBoolKey("bool"));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("int"));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("double"));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("string"));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("blob"));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("list"));
+  EXPECT_EQ(base::nullopt, dict.FindBoolKey("dist"));
+}
+
+TEST(ValuesTest, FindIntKey) {
+  Value::DictStorage storage;
+  storage.emplace("null", std::make_unique<Value>(Value::Type::NONE));
+  storage.emplace("bool", std::make_unique<Value>(Value::Type::BOOLEAN));
+  storage.emplace("int", std::make_unique<Value>(Value::Type::INTEGER));
+  storage.emplace("double", std::make_unique<Value>(Value::Type::DOUBLE));
+  storage.emplace("string", std::make_unique<Value>(Value::Type::STRING));
+  storage.emplace("blob", std::make_unique<Value>(Value::Type::BINARY));
+  storage.emplace("list", std::make_unique<Value>(Value::Type::LIST));
+  storage.emplace("dict", std::make_unique<Value>(Value::Type::DICTIONARY));
+
+  const Value dict(std::move(storage));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("null"));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("bool"));
+  EXPECT_NE(base::nullopt, dict.FindIntKey("int"));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("double"));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("string"));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("blob"));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("list"));
+  EXPECT_EQ(base::nullopt, dict.FindIntKey("dist"));
+}
+
+TEST(ValuesTest, FindDoubleKey) {
+  Value::DictStorage storage;
+  storage.emplace("null", std::make_unique<Value>(Value::Type::NONE));
+  storage.emplace("bool", std::make_unique<Value>(Value::Type::BOOLEAN));
+  storage.emplace("int", std::make_unique<Value>(Value::Type::INTEGER));
+  storage.emplace("double", std::make_unique<Value>(Value::Type::DOUBLE));
+  storage.emplace("string", std::make_unique<Value>(Value::Type::STRING));
+  storage.emplace("blob", std::make_unique<Value>(Value::Type::BINARY));
+  storage.emplace("list", std::make_unique<Value>(Value::Type::LIST));
+  storage.emplace("dict", std::make_unique<Value>(Value::Type::DICTIONARY));
+
+  const Value dict(std::move(storage));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("null"));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("bool"));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("int"));
+  EXPECT_NE(base::nullopt, dict.FindDoubleKey("double"));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("string"));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("blob"));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("list"));
+  EXPECT_EQ(base::nullopt, dict.FindDoubleKey("dist"));
+}
+
+TEST(ValuesTest, FindStringKey) {
+  Value::DictStorage storage;
+  storage.emplace("null", std::make_unique<Value>(Value::Type::NONE));
+  storage.emplace("bool", std::make_unique<Value>(Value::Type::BOOLEAN));
+  storage.emplace("int", std::make_unique<Value>(Value::Type::INTEGER));
+  storage.emplace("double", std::make_unique<Value>(Value::Type::DOUBLE));
+  storage.emplace("string", std::make_unique<Value>(Value::Type::STRING));
+  storage.emplace("blob", std::make_unique<Value>(Value::Type::BINARY));
+  storage.emplace("list", std::make_unique<Value>(Value::Type::LIST));
+  storage.emplace("dict", std::make_unique<Value>(Value::Type::DICTIONARY));
+
+  const Value dict(std::move(storage));
+  EXPECT_EQ(nullptr, dict.FindStringKey("null"));
+  EXPECT_EQ(nullptr, dict.FindStringKey("bool"));
+  EXPECT_EQ(nullptr, dict.FindStringKey("int"));
+  EXPECT_EQ(nullptr, dict.FindStringKey("double"));
+  EXPECT_NE(nullptr, dict.FindStringKey("string"));
+  EXPECT_EQ(nullptr, dict.FindStringKey("blob"));
+  EXPECT_EQ(nullptr, dict.FindStringKey("list"));
+  EXPECT_EQ(nullptr, dict.FindStringKey("dist"));
+}
+
 TEST(ValuesTest, SetKey) {
   Value::DictStorage storage;
   storage.emplace("null", std::make_unique<Value>(Value::Type::NONE));
@@ -789,7 +876,7 @@ TEST(ValuesTest, BinaryValue) {
 
   // Test the common case of a non-empty buffer
   Value::BlobStorage buffer(15);
-  char* original_buffer = buffer.data();
+  uint8_t* original_buffer = buffer.data();
   binary.reset(new Value(std::move(buffer)));
   ASSERT_TRUE(binary.get());
   ASSERT_TRUE(binary->GetBlob().data());
@@ -801,7 +888,8 @@ TEST(ValuesTest, BinaryValue) {
   binary = Value::CreateWithCopiedBuffer(stack_buffer, 42);
   ASSERT_TRUE(binary.get());
   ASSERT_TRUE(binary->GetBlob().data());
-  ASSERT_NE(stack_buffer, binary->GetBlob().data());
+  ASSERT_NE(stack_buffer,
+            reinterpret_cast<const char*>(binary->GetBlob().data()));
   ASSERT_EQ(42U, binary->GetBlob().size());
   ASSERT_EQ(0, memcmp(stack_buffer, binary->GetBlob().data(),
                       binary->GetBlob().size()));
@@ -1207,7 +1295,7 @@ TEST(ValuesTest, Equals) {
 
   std::unique_ptr<ListValue> list(new ListValue);
   list->Append(std::make_unique<Value>());
-  list->Append(WrapUnique(new DictionaryValue));
+  list->Append(std::make_unique<DictionaryValue>());
   auto list_copy = std::make_unique<Value>(list->Clone());
 
   ListValue* list_weak = dv.SetList("f", std::move(list));

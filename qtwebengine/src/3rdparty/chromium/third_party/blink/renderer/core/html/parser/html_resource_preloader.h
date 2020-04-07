@@ -29,7 +29,6 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "third_party/blink/renderer/core/html/parser/css_preload_scanner.h"
 #include "third_party/blink/renderer/core/html/parser/preload_request.h"
 #include "third_party/blink/renderer/core/html/parser/resource_preloader.h"
 #include "third_party/blink/renderer/core/loader/network_hints_interface.h"
@@ -48,18 +47,17 @@ class CORE_EXPORT HTMLResourcePreloader
 
  public:
   static HTMLResourcePreloader* Create(Document&);
-  int CountPreloads();
-  Document* GetDocument() { return document_.Get(); }
-  void Trace(blink::Visitor*);
+
+  explicit HTMLResourcePreloader(Document&);
+
+  void Trace(Visitor*);
 
  protected:
   void Preload(std::unique_ptr<PreloadRequest>,
                const NetworkHintsInterface&) override;
-  explicit HTMLResourcePreloader(Document&);
 
  private:
   Member<Document> document_;
-  HeapHashMap<String, Member<CSSPreloaderResourceClient>> css_preloaders_;
 
   DISALLOW_COPY_AND_ASSIGN(HTMLResourcePreloader);
 };

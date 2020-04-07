@@ -8,21 +8,36 @@
 #include "base/macros.h"
 #include "ui/views/event_monitor.h"
 
+namespace aura {
+class Env;
+}
+
 namespace ui {
 class EventTarget;
 }
 
 namespace views {
 
+// Observes events by installing a pre-target handler on the ui::EventTarget.
 class EventMonitorAura : public EventMonitor {
  public:
-  EventMonitorAura(ui::EventHandler* event_handler,
-                   ui::EventTarget* event_target);
+  EventMonitorAura(aura::Env* env,
+                   ui::EventObserver* event_observer,
+                   ui::EventTarget* event_target,
+                   const std::set<ui::EventType>& types);
   ~EventMonitorAura() override;
 
+  // EventMonitor:
+  gfx::Point GetLastMouseLocation() override;
+
+ protected:
+  // Removes the pre-target handler. Called by window monitors on window close.
+  void TearDown();
+
  private:
-  ui::EventHandler* event_handler_;  // Weak. Owned by our owner.
-  ui::EventTarget* event_target_;    // Weak.
+  aura::Env* env_;                     // Weak.
+  ui::EventObserver* event_observer_;  // Weak. Owned by our owner.
+  ui::EventTarget* event_target_;      // Weak.
 
   DISALLOW_COPY_AND_ASSIGN(EventMonitorAura);
 };

@@ -81,6 +81,9 @@ QT_END_NAMESPACE
 #ifdef QT_WINRT_BLUETOOTH
 #include <QtCore/QPointer>
 #include <QtCore/QTimer>
+
+using ManufacturerData = QHash<quint16, QByteArray>;
+Q_DECLARE_METATYPE(ManufacturerData)
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -167,6 +170,8 @@ private:
 #ifdef QT_WINRT_BLUETOOTH
 private slots:
     void registerDevice(const QBluetoothDeviceInfo &info);
+    void updateDeviceData(const QBluetoothAddress &address, QBluetoothDeviceInfo::Fields fields,
+                          qint16 rssi, ManufacturerData manufacturerData);
     void onScanFinished();
 
 private:

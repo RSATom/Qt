@@ -24,9 +24,10 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/posix/unix_domain_socket.h"
+#include "base/stl_util.h"
+#include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "sandbox/linux/syscall_broker/broker_client.h"
 #include "sandbox/linux/tests/scoped_temporary_file.h"
@@ -535,7 +536,7 @@ SANDBOX_TEST_ALLOW_NOISE(BrokerProcess, MAYBE_RecvMsgDescriptorLeak) {
 
   // Save one FD to send to the broker later, and close the others.
   base::ScopedFD message_fd(available_fds[0]);
-  for (size_t i = 1; i < arraysize(available_fds); i++) {
+  for (size_t i = 1; i < base::size(available_fds); i++) {
     SANDBOX_ASSERT(0 == IGNORE_EINTR(close(available_fds[i])));
   }
 
@@ -544,9 +545,8 @@ SANDBOX_TEST_ALLOW_NOISE(BrokerProcess, MAYBE_RecvMsgDescriptorLeak) {
   // descriptors a process can have: it only limits the highest value that can
   // be assigned to newly-created descriptors allocated by the process.)
   const rlim_t fd_limit =
-      1 +
-      *std::max_element(available_fds,
-                        available_fds + arraysize(available_fds));
+      1 + *std::max_element(available_fds,
+                            available_fds + base::size(available_fds));
 
   struct rlimit rlim;
   SANDBOX_ASSERT(0 == getrlimit(RLIMIT_NOFILE, &rlim));
@@ -1450,6 +1450,86 @@ TEST(BrokerProcess, UnlinkClient) {
 
 TEST(BrokerProcess, UnlinkHost) {
   TestUnlinkHelper(false);
+}
+
+TEST(BrokerProcess, IsSyscallAllowed) {
+  const struct {
+    int sysno;
+    BrokerCommand command;
+  } kSyscallToCommandMap[] = {
+#if defined(__NR_access)
+    {__NR_access, COMMAND_ACCESS},
+#endif
+    {__NR_faccessat, COMMAND_ACCESS},
+#if defined(__NR_mkdir)
+    {__NR_mkdir, COMMAND_MKDIR},
+#endif
+    {__NR_mkdirat, COMMAND_MKDIR},
+#if defined(__NR_open)
+    {__NR_open, COMMAND_OPEN},
+#endif
+    {__NR_openat, COMMAND_OPEN},
+#if defined(__NR_readlink)
+    {__NR_readlink, COMMAND_READLINK},
+#endif
+    {__NR_readlinkat, COMMAND_READLINK},
+#if defined(__NR_rename)
+    {__NR_rename, COMMAND_RENAME},
+#endif
+    {__NR_renameat, COMMAND_RENAME},
+#if defined(__NR_rmdir)
+    {__NR_rmdir, COMMAND_RMDIR},
+#endif
+#if defined(__NR_stat)
+    {__NR_stat, COMMAND_STAT},
+#endif
+#if defined(__NR_lstat)
+    {__NR_lstat, COMMAND_STAT},
+#endif
+#if defined(__NR_fstatat)
+    {__NR_fstatat, COMMAND_STAT},
+#endif
+#if defined(__NR_newfstatat)
+    {__NR_newfstatat, COMMAND_STAT},
+#endif
+#if defined(__NR_stat64)
+    {__NR_stat64, COMMAND_STAT},
+#endif
+#if defined(__NR_lstat64)
+    {__NR_lstat64, COMMAND_STAT},
+#endif
+#if defined(__NR_unlink)
+    {__NR_unlink, COMMAND_UNLINK},
+#endif
+    {__NR_unlinkat, COMMAND_UNLINK},
+  };
+
+  for (const auto& test : kSyscallToCommandMap) {
+    // Test with fast_check_in_client.
+    {
+      SCOPED_TRACE(base::StringPrintf("fast check, sysno=%d", test.sysno));
+      BrokerProcess process(ENOSYS, MakeBrokerCommandSet({test.command}), {},
+                            true, true);
+      EXPECT_TRUE(process.IsSyscallAllowed(test.sysno));
+      for (const auto& other : kSyscallToCommandMap) {
+        SCOPED_TRACE(base::StringPrintf("others test, sysno=%d", other.sysno));
+        EXPECT_EQ(other.command == test.command,
+                  process.IsSyscallAllowed(other.sysno));
+      }
+    }
+
+    // Test without fast_check_in_client.
+    {
+      SCOPED_TRACE(base::StringPrintf("no fast check, sysno=%d", test.sysno));
+      BrokerProcess process(ENOSYS, MakeBrokerCommandSet({test.command}), {},
+                            false, true);
+      EXPECT_TRUE(process.IsSyscallAllowed(test.sysno));
+      for (const auto& other : kSyscallToCommandMap) {
+        SCOPED_TRACE(base::StringPrintf("others test, sysno=%d", other.sysno));
+        EXPECT_TRUE(process.IsSyscallAllowed(other.sysno));
+      }
+    }
+  }
 }
 
 }  // namespace syscall_broker

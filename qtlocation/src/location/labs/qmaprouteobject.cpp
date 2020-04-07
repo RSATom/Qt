@@ -100,7 +100,7 @@ QGeoRoute QMapRouteObjectPrivate::route() const
 
 void QMapRouteObjectPrivate::setRoute(const QDeclarativeGeoRoute *route)
 {
-    Q_UNUSED(route)
+    Q_UNUSED(route);
 }
 
 bool QMapRouteObjectPrivate::equals(const QGeoMapObjectPrivate &other) const
@@ -116,6 +116,16 @@ bool QMapRouteObjectPrivate::equals(const QGeoMapObjectPrivate &other) const
 QGeoMapObjectPrivate *QMapRouteObjectPrivate::clone()
 {
     return new QMapRouteObjectPrivate(*this);
+}
+
+QGeoShape QMapRouteObjectPrivate::geoShape() const
+{
+    return route().bounds();
+}
+
+void QMapRouteObjectPrivate::setGeoShape(const QGeoShape &/*shape*/)
+{
+    // Not supported for MapRouteObject
 }
 
 
@@ -172,7 +182,7 @@ void QMapRouteObject::setMap(QGeoMap *map)
     if (!map) {
         // Map was set, now it has ben re-set to NULL, but not inside d_ptr.
         // so m_map inside d_ptr can still be used to remove itself, inside the destructor.
-        d_ptr = new QMapRouteObjectPrivate(*d);
+        d_ptr = new QMapRouteObjectPrivate(*d);  // This is not losing data: check MapRouteObjectPrivate::declarativeGeoRoute()
         // Old pimpl deleted implicitly by QExplicitlySharedDataPointer
     }
 }

@@ -55,6 +55,8 @@
 
 #if QT_HAS_INCLUDE(<variant>) && __cplusplus >= 201703L
 #include <variant>
+#elif defined(Q_CLANG_QDOC)
+namespace std { template<typename...> struct variant; }
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -365,7 +367,7 @@ class Q_CORE_EXPORT QVariant
     static inline QVariant fromValue(const T &value)
     { return qVariantFromValue(value); }
 
-#if defined(Q_CLANG_QDOC) || (QT_HAS_INCLUDE(<variant>) && __cplusplus >= 201703L)
+#if (QT_HAS_INCLUDE(<variant>) && __cplusplus >= 201703L) || defined(Q_CLANG_QDOC)
     template<typename... Types>
     static inline QVariant fromStdVariant(const std::variant<Types...> &value)
     {
@@ -396,10 +398,13 @@ class Q_CORE_EXPORT QVariant
             : type(variantType), is_shared(false), is_null(false)
         {}
 
-        inline Private(const Private &other) Q_DECL_NOTHROW
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+        Private(const Private &other) Q_DECL_NOTHROW
             : data(other.data), type(other.type),
               is_shared(other.is_shared), is_null(other.is_null)
         {}
+        Private &operator=(const Private &other) Q_DECL_NOTHROW = default;
+#endif
         union Data
         {
             char c;

@@ -34,15 +34,18 @@ class GlobalFetchImpl final
     GlobalFetchImpl* supplement =
         Supplement<T>::template From<GlobalFetchImpl>(supplementable);
     if (!supplement) {
-      supplement = new GlobalFetchImpl(execution_context);
+      supplement = MakeGarbageCollected<GlobalFetchImpl>(execution_context);
       Supplement<T>::ProvideTo(supplementable, supplement);
     }
     return supplement;
   }
 
+  explicit GlobalFetchImpl(ExecutionContext* execution_context)
+      : fetch_manager_(FetchManager::Create(execution_context)) {}
+
   ScriptPromise Fetch(ScriptState* script_state,
                       const RequestInfo& input,
-                      const RequestInit& init,
+                      const RequestInit* init,
                       ExceptionState& exception_state) override {
     ExecutionContext* execution_context = fetch_manager_->GetExecutionContext();
     if (!script_state->ContextIsValid() || !execution_context) {
@@ -59,9 +62,12 @@ class GlobalFetchImpl final
       return ScriptPromise();
 
     probe::willSendXMLHttpOrFetchNetworkRequest(execution_context, r->url());
-    auto promise = fetch_manager_->Fetch(
-        script_state, r->PassRequestData(script_state, exception_state),
-        r->signal(), exception_state);
+    FetchRequestData* request_data =
+        r->PassRequestData(script_state, exception_state);
+    if (exception_state.HadException())
+      return ScriptPromise();
+    auto promise = fetch_manager_->Fetch(script_state, request_data,
+                                         r->signal(), exception_state);
     if (exception_state.HadException())
       return ScriptPromise();
 
@@ -75,9 +81,6 @@ class GlobalFetchImpl final
   }
 
  private:
-  explicit GlobalFetchImpl(ExecutionContext* execution_context)
-      : fetch_manager_(FetchManager::Create(execution_context)) {}
-
   Member<FetchManager> fetch_manager_;
 };
 
@@ -106,7 +109,7 @@ void GlobalFetch::ScopedFetcher::Trace(blink::Visitor* visitor) {}
 ScriptPromise GlobalFetch::fetch(ScriptState* script_state,
                                  LocalDOMWindow& window,
                                  const RequestInfo& input,
-                                 const RequestInit& init,
+                                 const RequestInit* init,
                                  ExceptionState& exception_state) {
   UseCounter::Count(window.GetExecutionContext(), WebFeature::kFetch);
   if (!window.GetFrame()) {
@@ -120,7 +123,7 @@ ScriptPromise GlobalFetch::fetch(ScriptState* script_state,
 ScriptPromise GlobalFetch::fetch(ScriptState* script_state,
                                  WorkerGlobalScope& worker,
                                  const RequestInfo& input,
-                                 const RequestInit& init,
+                                 const RequestInit* init,
                                  ExceptionState& exception_state) {
   UseCounter::Count(worker.GetExecutionContext(), WebFeature::kFetch);
   return ScopedFetcher::From(worker)->Fetch(script_state, input, init,

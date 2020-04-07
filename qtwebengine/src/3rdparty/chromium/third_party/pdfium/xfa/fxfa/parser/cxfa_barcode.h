@@ -7,9 +7,11 @@
 #ifndef XFA_FXFA_PARSER_CXFA_BARCODE_H_
 #define XFA_FXFA_PARSER_CXFA_BARCODE_H_
 
+#include "fxbarcode/BC_Library.h"
+#include "third_party/base/optional.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Barcode : public CXFA_Node {
+class CXFA_Barcode final : public CXFA_Node {
  public:
   CXFA_Barcode(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_Barcode() override;

@@ -16,6 +16,8 @@
 #include "base/pickle.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/posix/unix_domain_socket.h"
+#include "base/stl_util.h"
+#include "content/public/common/child_process_host.h"
 #include "services/service_manager/embedder/result_codes.h"
 #include "services/service_manager/embedder/switches.h"
 #include "services/service_manager/sandbox/switches.h"
@@ -223,8 +225,8 @@ void ZygoteCommunication::Init(
     base::OnceCallback<pid_t(base::CommandLine*, base::ScopedFD*)> launcher) {
   CHECK(!init_);
 
-  base::FilePath chrome_path;
-  CHECK(base::PathService::Get(base::FILE_EXE, &chrome_path));
+  base::FilePath chrome_path = content::ChildProcessHost::GetChildPath(
+      content::ChildProcessHost::CHILD_NORMAL);
 
   base::CommandLine cmd_line(chrome_path);
   cmd_line.AppendSwitchASCII(switches::kProcessType, switches::kZygoteProcess);
@@ -244,7 +246,7 @@ void ZygoteCommunication::Init(
       service_manager::switches::kNoSandbox,
   };
   cmd_line.CopySwitchesFrom(browser_command_line, kForwardSwitches,
-                            arraysize(kForwardSwitches));
+                            base::size(kForwardSwitches));
 
   pid_ = std::move(launcher).Run(&cmd_line, &control_fd_);
 
@@ -282,7 +284,7 @@ base::TerminationStatus ZygoteCommunication::GetTerminationStatus(
   int status = base::TERMINATION_STATUS_NORMAL_TERMINATION;
 
   if (len == -1) {
-    LOG(WARNING) << "Error reading message from zygote: " << errno;
+    PLOG(WARNING) << "Error reading message from zygote";
   } else if (len == 0) {
     LOG(WARNING) << "Socket closed prematurely.";
   } else {

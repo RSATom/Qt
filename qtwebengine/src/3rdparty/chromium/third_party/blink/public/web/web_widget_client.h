@@ -31,13 +31,13 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_WIDGET_CLIENT_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_WIDGET_CLIENT_H_
 
+#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_intrinsic_sizing_info.h"
 #include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/public/platform/web_point.h"
 #include "third_party/blink/public/platform/web_rect.h"
-#include "third_party/blink/public/platform/web_referrer_policy.h"
 #include "third_party/blink/public/platform/web_screen_info.h"
 #include "third_party/blink/public/platform/web_touch_action.h"
 #include "third_party/blink/public/web/web_meaningful_layout.h"
@@ -46,8 +46,11 @@
 
 class SkBitmap;
 
-namespace blink {
+namespace gfx {
+class Point;
+}
 
+namespace blink {
 class WebDragData;
 class WebGestureEvent;
 class WebString;
@@ -56,6 +59,7 @@ struct WebCursorInfo;
 struct WebFloatPoint;
 struct WebFloatRect;
 struct WebFloatSize;
+class WebLocalFrame;
 
 class WebWidgetClient {
  public:
@@ -64,16 +68,17 @@ class WebWidgetClient {
   // Called when a region of the WebWidget needs to be re-painted.
   virtual void DidInvalidateRect(const WebRect&) {}
 
-  // Attempt to initialize compositing view for this widget. If successful,
-  // returns a valid WebLayerTreeView which is owned by the
-  // WebWidgetClient.
-  virtual WebLayerTreeView* InitializeLayerTreeView() { return nullptr; }
-
-  // FIXME: Remove all overrides of this.
-  virtual bool AllowsBrokenNullLayerTreeView() const { return false; }
-
-  // Called when a call to WebWidget::animate is required
+  // Called to request a BeginMainFrame from the compositor. For tests with
+  // single thread and no scheduler, the impl should schedule a task to run
+  // a synchronous composite.
   virtual void ScheduleAnimation() {}
+
+  // Show or hide compositor debug visualizations.
+  virtual void SetShowFPSCounter(bool) {}
+  virtual void SetShowPaintRects(bool) {}
+  virtual void SetShowDebugBorders(bool) {}
+  virtual void SetShowScrollBottleneckRects(bool) {}
+  virtual void SetShowHitTestBorders(bool) {}
 
   // A notification callback for when the intrinsic sizing of the
   // widget changed. This is only called for SVG within a remote frame.
@@ -93,8 +98,11 @@ class WebWidgetClient {
   virtual void AutoscrollFling(const WebFloatSize& velocity) {}
   virtual void AutoscrollEnd() {}
 
-  // Called when the widget should be closed.  WebWidget::close() should
-  // be called asynchronously as a result of this notification.
+  // Called when the window for this top-level widget should be closed.
+  // WebWidget::Close() should be called asynchronously as a result of this
+  // notification.
+  // TODO(danakj): Move this to WebView::CloseWindowSoon(), so we can call
+  // it when the main frame is remote and there is no top-level widget.
   virtual void CloseWidgetSoon() {}
 
   // Called to show the widget according to the given policy.
@@ -113,16 +121,14 @@ class WebWidgetClient {
   // Called when a tooltip should be shown at the current cursor position.
   virtual void SetToolTipText(const WebString&, WebTextDirection hint) {}
 
-  // Called to query information about the screen where this widget is
-  // displayed.
-  virtual WebScreenInfo GetScreenInfo() { return WebScreenInfo(); }
-
-  // Requests to lock the mouse cursor. If true is returned, the success
-  // result will be asynchronously returned via a single call to
-  // WebWidget::didAcquirePointerLock() or
+  // Requests to lock the mouse cursor for the |requester_frame| in the
+  // widget. If true is returned, the success result will be asynchronously
+  // returned via a single call to WebWidget::didAcquirePointerLock() or
   // WebWidget::didNotAcquirePointerLock().
   // If false, the request has been denied synchronously.
-  virtual bool RequestPointerLock() { return false; }
+  virtual bool RequestPointerLock(WebLocalFrame* requester_frame) {
+    return false;
+  }
 
   // Cause the pointer lock to be released. This may be called at any time,
   // including when a lock is pending but not yet acquired.
@@ -144,6 +150,9 @@ class WebWidgetClient {
                              const WebFloatSize& velocity_in_viewport,
                              const cc::OverscrollBehavior& behavior) {}
 
+  // Called to update if pointerrawmove events should be sent.
+  virtual void HasPointerRawMoveEventHandlers(bool) {}
+
   // Called to update if touch events should be sent.
   virtual void HasTouchEventHandlers(bool) {}
 
@@ -153,6 +162,10 @@ class WebWidgetClient {
   // Requests unbuffered (ie. low latency) input until a pointerup
   // event occurs.
   virtual void RequestUnbufferedInputEvents() {}
+
+  // Requests unbuffered (ie. low latency) input due to debugger being
+  // attached. Debugger needs to paint when stopped in the event handler.
+  virtual void SetNeedsUnbufferedInputForDebugger(bool) {}
 
   // Called during WebWidget::HandleInputEvent for a TouchStart event to inform
   // the embedder of the touch actions that are permitted for this touch.
@@ -177,11 +190,18 @@ class WebWidgetClient {
   virtual void ConvertWindowToViewport(WebFloatRect* rect) {}
 
   // Called when a drag-and-drop operation should begin.
-  virtual void StartDragging(WebReferrerPolicy,
+  virtual void StartDragging(network::mojom::ReferrerPolicy,
                              const WebDragData&,
                              WebDragOperationsMask,
                              const SkBitmap& drag_image,
-                             const WebPoint& drag_image_offset) {}
+                             const gfx::Point& drag_image_offset) {}
+
+  // Double tap zooms a rect in the main-frame renderer.
+  virtual void AnimateDoubleTapZoomInMainFrame(const blink::WebPoint& point,
+                                               const blink::WebRect& bounds) {}
+
+  // Find in page zooms a rect in the main-frame renderer.
+  virtual void ZoomToFindInPageRectInMainFrame(const blink::WebRect& rect) {}
 };
 
 }  // namespace blink

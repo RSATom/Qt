@@ -5,10 +5,9 @@
 #include "components/exo/shell_surface.h"
 
 #include "ash/accessibility/accessibility_delegate.h"
-#include "ash/frame/custom_frame_view_ash.h"
+#include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
-#include "ash/shell_port.h"
 #include "ash/shell_test_api.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
@@ -19,12 +18,14 @@
 #include "components/exo/buffer.h"
 #include "components/exo/client_controlled_shell_surface.h"
 #include "components/exo/display.h"
+#include "components/exo/shell_surface_util.h"
 #include "components/exo/sub_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/test/exo_test_base.h"
 #include "components/exo/test/exo_test_helper.h"
 #include "components/exo/wm_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/aura/client/capture_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/base/hit_test.h"
@@ -36,7 +37,6 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/views/widget/widget.h"
-#include "ui/wm/core/capture_controller.h"
 #include "ui/wm/core/window_util.h"
 
 namespace exo {
@@ -187,11 +187,12 @@ TEST_F(ShellSurfaceTest, Minimize) {
 
   EXPECT_TRUE(shell_surface->CanMinimize());
 
-  // Minimizing can be performed before the surface is committed.
+  // Minimizing can be performed before the surface is committed, but
+  // widget creation will be deferred.
   shell_surface->Minimize();
-  EXPECT_TRUE(shell_surface->GetWidget()->IsMinimized());
+  EXPECT_FALSE(shell_surface->GetWidget());
 
-  // Confirm that attaching and commiting doesn't reset the state.
+  // Attaching the buffer will create a widget with minimized state.
   surface->Attach(buffer.get());
   surface->Commit();
   EXPECT_TRUE(shell_surface->GetWidget()->IsMinimized());
@@ -283,12 +284,40 @@ TEST_F(ShellSurfaceTest, SetApplicationId) {
   surface->Attach(buffer.get());
   surface->Commit();
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_EQ("pre-widget-id", *ShellSurface::GetApplicationId(window));
+  EXPECT_EQ("pre-widget-id", *GetShellApplicationId(window));
   shell_surface->SetApplicationId("test");
-  EXPECT_EQ("test", *ShellSurface::GetApplicationId(window));
+  EXPECT_EQ("test", *GetShellApplicationId(window));
+  EXPECT_FALSE(ash::wm::GetWindowState(window)->allow_set_bounds_direct());
 
   shell_surface->SetApplicationId(nullptr);
-  EXPECT_EQ(nullptr, ShellSurface::GetApplicationId(window));
+  EXPECT_EQ(nullptr, GetShellApplicationId(window));
+}
+
+TEST_F(ShellSurfaceTest, EmulateOverrideRedirect) {
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+
+  EXPECT_FALSE(shell_surface->GetWidget());
+  surface->Attach(buffer.get());
+  surface->Commit();
+  aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
+  EXPECT_FALSE(ash::wm::GetWindowState(window)->allow_set_bounds_direct());
+
+  // Only surface with no app id with parent surface is considered
+  // override redirect.
+  std::unique_ptr<Surface> child_surface(new Surface);
+  std::unique_ptr<ShellSurface> child_shell_surface(
+      new ShellSurface(child_surface.get()));
+
+  child_surface->SetParent(surface.get(), gfx::Point());
+  child_surface->Attach(buffer.get());
+  child_surface->Commit();
+  aura::Window* child_window =
+      child_shell_surface->GetWidget()->GetNativeWindow();
+  EXPECT_TRUE(ash::wm::GetWindowState(child_window)->allow_set_bounds_direct());
 }
 
 TEST_F(ShellSurfaceTest, SetStartupId) {
@@ -304,12 +333,12 @@ TEST_F(ShellSurfaceTest, SetStartupId) {
   surface->Attach(buffer.get());
   surface->Commit();
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_EQ("pre-widget-id", *ShellSurface::GetStartupId(window));
+  EXPECT_EQ("pre-widget-id", *GetShellStartupId(window));
   shell_surface->SetStartupId("test");
-  EXPECT_EQ("test", *ShellSurface::GetStartupId(window));
+  EXPECT_EQ("test", *GetShellStartupId(window));
 
   shell_surface->SetStartupId(nullptr);
-  EXPECT_EQ(nullptr, ShellSurface::GetStartupId(window));
+  EXPECT_EQ(nullptr, GetShellStartupId(window));
 }
 
 TEST_F(ShellSurfaceTest, StartMove) {
@@ -433,7 +462,7 @@ TEST_F(ShellSurfaceTest, SurfaceDestroyedCallback) {
   std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
 
   shell_surface->set_surface_destroyed_callback(
-      base::Bind(&DestroyShellSurface, base::Unretained(&shell_surface)));
+      base::BindOnce(&DestroyShellSurface, base::Unretained(&shell_surface)));
 
   surface->Commit();
 
@@ -474,17 +503,41 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
       base::Bind(&Configure, base::Unretained(&suggested_size),
                  base::Unretained(&has_state_type),
                  base::Unretained(&is_resizing), base::Unretained(&is_active)));
+
+  gfx::Rect geometry(16, 16, 32, 32);
+  shell_surface->SetGeometry(geometry);
+
   // Commit without contents should result in a configure callback with empty
   // suggested size as a mechanims to ask the client size itself.
   surface->Commit();
-  EXPECT_EQ(gfx::Size(), suggested_size);
+  EXPECT_TRUE(suggested_size.IsEmpty());
 
+  // Geometry should not be committed until surface has contents.
+  EXPECT_TRUE(shell_surface->CalculatePreferredSize().IsEmpty());
+
+  // Widget creation is deferred until the surface has contents.
   shell_surface->Maximize();
   shell_surface->AcknowledgeConfigure(0);
-  EXPECT_EQ(CurrentContext()->bounds().width(), suggested_size.width());
+
+  EXPECT_FALSE(shell_surface->GetWidget());
+  EXPECT_TRUE(suggested_size.IsEmpty());
+  EXPECT_EQ(ash::mojom::WindowStateType::NORMAL, has_state_type);
+
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  surface->Attach(buffer.get());
+  surface->Commit();
+
+  gfx::Rect maximized_bounds =
+      display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
+  EXPECT_TRUE(shell_surface->GetWidget());
+  EXPECT_EQ(maximized_bounds.size(), suggested_size);
   EXPECT_EQ(ash::mojom::WindowStateType::MAXIMIZED, has_state_type);
   shell_surface->Restore();
   shell_surface->AcknowledgeConfigure(0);
+  // It should be restored to the original geometry size.
+  EXPECT_EQ(geometry.size(), shell_surface->CalculatePreferredSize());
 
   shell_surface->SetFullscreen(true);
   shell_surface->AcknowledgeConfigure(0);
@@ -493,12 +546,8 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
   EXPECT_EQ(ash::mojom::WindowStateType::FULLSCREEN, has_state_type);
   shell_surface->SetFullscreen(false);
   shell_surface->AcknowledgeConfigure(0);
+  EXPECT_EQ(geometry.size(), shell_surface->CalculatePreferredSize());
 
-  gfx::Size buffer_size(64, 64);
-  std::unique_ptr<Buffer> buffer(
-      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
-  surface->Attach(buffer.get());
-  surface->Commit();
   shell_surface->GetWidget()->Activate();
   shell_surface->AcknowledgeConfigure(0);
   EXPECT_TRUE(is_active);
@@ -559,8 +608,8 @@ TEST_F(ShellSurfaceTest, FrameColors) {
   shell_surface->OnSetFrameColors(SK_ColorRED, SK_ColorTRANSPARENT);
   surface->Commit();
 
-  const ash::CustomFrameViewAsh* frame =
-      static_cast<const ash::CustomFrameViewAsh*>(
+  const ash::NonClientFrameViewAsh* frame =
+      static_cast<const ash::NonClientFrameViewAsh*>(
           shell_surface->GetWidget()->non_client_view()->frame_view());
 
   // Test if colors set before initial commit are set.
@@ -627,7 +676,7 @@ TEST_F(ShellSurfaceTest, Popup) {
   // Verify that created shell surface is popup and has capture.
   EXPECT_EQ(aura::client::WINDOW_TYPE_POPUP,
             popup_shell_surface->GetWidget()->GetNativeWindow()->type());
-  EXPECT_EQ(wm::CaptureController::Get()->GetCaptureWindow(),
+  EXPECT_EQ(WMHelper::GetInstance()->GetCaptureClient()->GetCaptureWindow(),
             popup_shell_surface->GetWidget()->GetNativeWindow());
 
   // Setting frame type on popup should have no effect.
@@ -647,7 +696,7 @@ TEST_F(ShellSurfaceTest, Popup) {
             sub_popup_shell_surface->GetWidget()->GetWindowBoundsInScreen());
 
   // The capture should be on sub_popup_shell_surface.
-  EXPECT_EQ(wm::CaptureController::Get()->GetCaptureWindow(),
+  EXPECT_EQ(WMHelper::GetInstance()->GetCaptureClient()->GetCaptureWindow(),
             sub_popup_shell_surface->GetWidget()->GetNativeWindow());
   EXPECT_EQ(aura::client::WINDOW_TYPE_POPUP,
             sub_popup_shell_surface->GetWidget()->GetNativeWindow()->type());
@@ -656,34 +705,30 @@ TEST_F(ShellSurfaceTest, Popup) {
     // Mouse is on the top most popup.
     ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(0, 0),
                          gfx::Point(100, 50), ui::EventTimeForNow(), 0, 0);
-    EXPECT_EQ(sub_popup_surface.get(),
-              ShellSurfaceBase::GetTargetSurfaceForLocatedEvent(&event));
+    EXPECT_EQ(sub_popup_surface.get(), GetTargetSurfaceForLocatedEvent(&event));
   }
   {
     // Move the mouse to the parent popup.
     ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(-25, 0),
                          gfx::Point(75, 50), ui::EventTimeForNow(), 0, 0);
-    EXPECT_EQ(popup_surface.get(),
-              ShellSurfaceBase::GetTargetSurfaceForLocatedEvent(&event));
+    EXPECT_EQ(popup_surface.get(), GetTargetSurfaceForLocatedEvent(&event));
   }
   {
     // Move the mouse to the main window.
     ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(-25, -25),
                          gfx::Point(75, 25), ui::EventTimeForNow(), 0, 0);
-    EXPECT_EQ(surface.get(),
-              ShellSurfaceBase::GetTargetSurfaceForLocatedEvent(&event));
+    EXPECT_EQ(surface.get(), GetTargetSurfaceForLocatedEvent(&event));
   }
 
   // Removing top most popup moves the grab to parent popup.
   sub_popup_shell_surface.reset();
-  EXPECT_EQ(wm::CaptureController::Get()->GetCaptureWindow(),
+  EXPECT_EQ(WMHelper::GetInstance()->GetCaptureClient()->GetCaptureWindow(),
             popup_shell_surface->GetWidget()->GetNativeWindow());
   {
     // Targetting should still work.
     ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(0, 0),
                          gfx::Point(50, 50), ui::EventTimeForNow(), 0, 0);
-    EXPECT_EQ(popup_surface.get(),
-              ShellSurfaceBase::GetTargetSurfaceForLocatedEvent(&event));
+    EXPECT_EQ(popup_surface.get(), GetTargetSurfaceForLocatedEvent(&event));
   }
 }
 

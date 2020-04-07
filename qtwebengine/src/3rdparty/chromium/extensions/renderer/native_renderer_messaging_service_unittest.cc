@@ -6,6 +6,8 @@
 
 #include <memory>
 
+#include "base/macros.h"
+#include "base/stl_util.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/common/child_process_host.h"
 #include "extensions/common/extension.h"
@@ -34,15 +36,13 @@ class NativeRendererMessagingServiceTest
     messaging_service_ =
         std::make_unique<NativeRendererMessagingService>(bindings_system());
 
-    scoped_refptr<Extension> mutable_extension =
-        ExtensionBuilder("foo").Build();
-    RegisterExtension(mutable_extension);
-    extension_ = mutable_extension;
+    extension_ = ExtensionBuilder("foo").Build();
+    RegisterExtension(extension_);
 
     v8::HandleScope handle_scope(isolate());
     v8::Local<v8::Context> context = MainContext();
 
-    script_context_ = CreateScriptContext(context, mutable_extension.get(),
+    script_context_ = CreateScriptContext(context, extension_.get(),
                                           Feature::BLESSED_EXTENSION_CONTEXT);
     script_context_->set_url(extension_->url());
     bindings_system()->UpdateBindingsForContext(script_context_);
@@ -131,9 +131,9 @@ TEST_F(NativeRendererMessagingServiceTest, OpenMessagePort) {
 
   EXPECT_CALL(*ipc_message_sender(),
               SendOpenMessagePort(MSG_ROUTING_NONE, port_id));
-  messaging_service()->DispatchOnConnect(
-      *script_context_set(), port_id, channel_name, tab_connection_info,
-      external_connection_info, std::string(), nullptr);
+  messaging_service()->DispatchOnConnect(*script_context_set(), port_id,
+                                         channel_name, tab_connection_info,
+                                         external_connection_info, nullptr);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
 
   ASSERT_TRUE(
@@ -178,14 +178,14 @@ TEST_F(NativeRendererMessagingServiceTest, DeliverMessageToPort) {
     v8::Local<v8::Function> add_on_message_listener = FunctionFromString(
         context, base::StringPrintf(kOnMessageListenerTemplate, kPort1Message));
     v8::Local<v8::Value> args[] = {port1.ToV8()};
-    RunFunctionOnGlobal(add_on_message_listener, context, arraysize(args),
+    RunFunctionOnGlobal(add_on_message_listener, context, base::size(args),
                         args);
   }
   {
     v8::Local<v8::Function> add_on_message_listener = FunctionFromString(
         context, base::StringPrintf(kOnMessageListenerTemplate, kPort2Message));
     v8::Local<v8::Value> args[] = {port2.ToV8()};
-    RunFunctionOnGlobal(add_on_message_listener, context, arraysize(args),
+    RunFunctionOnGlobal(add_on_message_listener, context, base::size(args),
                         args);
   }
 
@@ -235,7 +235,7 @@ TEST_F(NativeRendererMessagingServiceTest, DisconnectMessagePort) {
         context,
         base::StringPrintf(kOnDisconnectListenerTemplate, kPort1Disconnect));
     v8::Local<v8::Value> args[] = {port1.ToV8()};
-    RunFunctionOnGlobal(add_on_disconnect_listener, context, arraysize(args),
+    RunFunctionOnGlobal(add_on_disconnect_listener, context, base::size(args),
                         args);
   }
   {
@@ -243,7 +243,7 @@ TEST_F(NativeRendererMessagingServiceTest, DisconnectMessagePort) {
         context,
         base::StringPrintf(kOnDisconnectListenerTemplate, kPort2Disconnect));
     v8::Local<v8::Value> args[] = {port2.ToV8()};
-    RunFunctionOnGlobal(add_on_disconnect_listener, context, arraysize(args),
+    RunFunctionOnGlobal(add_on_disconnect_listener, context, base::size(args),
                         args);
   }
 
@@ -284,7 +284,7 @@ TEST_F(NativeRendererMessagingServiceTest, PostMessageFromJS) {
   EXPECT_CALL(*ipc_message_sender(),
               SendPostMessageToPort(MSG_ROUTING_NONE, port_id,
                                     Message(R"({"data":"hello"})", false)));
-  RunFunctionOnGlobal(post_message, context, arraysize(args), args);
+  RunFunctionOnGlobal(post_message, context, base::size(args), args);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
 }
 
@@ -309,7 +309,7 @@ TEST_F(NativeRendererMessagingServiceTest, DisconnectFromJS) {
 
   EXPECT_CALL(*ipc_message_sender(),
               SendCloseMessagePort(MSG_ROUTING_NONE, port_id, true));
-  RunFunctionOnGlobal(post_message, context, arraysize(args), args);
+  RunFunctionOnGlobal(post_message, context, base::size(args), args);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
 }
 
@@ -416,9 +416,9 @@ TEST_F(NativeRendererMessagingServiceTest, ReceiveOneTimeMessage) {
   // Open a receiver for the message.
   EXPECT_CALL(*ipc_message_sender(),
               SendOpenMessagePort(MSG_ROUTING_NONE, port_id));
-  messaging_service()->DispatchOnConnect(
-      *script_context_set(), port_id, kChannel, tab_connection_info,
-      external_connection_info, std::string(), nullptr);
+  messaging_service()->DispatchOnConnect(*script_context_set(), port_id,
+                                         kChannel, tab_connection_info,
+                                         external_connection_info, nullptr);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
   EXPECT_TRUE(
       messaging_service()->HasPortForTesting(script_context(), port_id));
@@ -465,8 +465,7 @@ TEST_F(NativeRendererMessagingServiceTest, TestExternalOneTimeMessages) {
   const PortId on_message_external_port_id(other_context_id, ++next_port_id,
                                            false);
 
-  auto open_port = [this, &other_context_id](const PortId& port_id,
-                                             const ExtensionId& source_id) {
+  auto open_port = [this](const PortId& port_id, const ExtensionId& source_id) {
     ExtensionMsg_TabConnectionInfo tab_connection_info;
     tab_connection_info.frame_id = 0;
     const int tab_id = 10;
@@ -487,7 +486,7 @@ TEST_F(NativeRendererMessagingServiceTest, TestExternalOneTimeMessages) {
                 SendOpenMessagePort(MSG_ROUTING_NONE, port_id));
     messaging_service()->DispatchOnConnect(
         *script_context_set(), port_id, messaging_util::kSendMessageChannel,
-        tab_connection_info, external_connection_info, std::string(), nullptr);
+        tab_connection_info, external_connection_info, nullptr);
     ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
     EXPECT_TRUE(
         messaging_service()->HasPortForTesting(script_context(), port_id));

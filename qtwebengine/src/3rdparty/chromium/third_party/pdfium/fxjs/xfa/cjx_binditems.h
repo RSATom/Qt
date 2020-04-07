@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_BINDITEMS_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_BindItems;
 
-class CJX_BindItems : public CJX_Node {
+class CJX_BindItems final : public CJX_Node {
  public:
   explicit CJX_BindItems(CXFA_BindItems* node);
   ~CJX_BindItems() override;
-
-  JS_PROP(connection);
-  JS_PROP(labelRef);
-  JS_PROP(valueRef);
 };
 
 #endif  // FXJS_XFA_CJX_BINDITEMS_H_

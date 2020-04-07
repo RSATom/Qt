@@ -44,12 +44,14 @@
         \li \l{HTTP/2 Protocol}
         \li \l{Native Dialogs}
         \li \l{Pepper Plugin API}
+        \li \l{PDF File Viewing}
         \li \l{Print to PDF}
         \li \l{Process Models}
         \li \l{Spellchecker}
         \li \l{Touch}
         \li \l{View Source}
         \li \l{WebRTC}
+        \li \l{Web Notifications}
     \endlist
 
     \section1 Audio and Video Codecs
@@ -124,7 +126,9 @@
     so uniquely identifies the user and might violate privacy expectations.
 
     To activate support for client certificates, an application needs to listen to
-    the QWebEnginePage::selectClientCertificate signal and select one of the offered
+    the QWebEnginePage::selectClientCertificate or
+    \l{WebEnginePage::selectClientCertificate}{WebEnginePage.selectClientCertificate}
+    signals and select one of the offered
     certificates. For applications that can navigate to untrusted web sites, it is
     recommended to always give the user a choice before uniquely identifying them
     to a remote server.
@@ -317,6 +321,21 @@
     plugin is installed and plugins are enabled in the browser. To test the
     feature, the \c https://helpx.adobe.com/flash-player.html page can be opened
     in the browser.
+
+    \section1 PDF File Viewing
+
+    \QWE supports viewing PDF documents by navigating to them. This feature uses the Chromium
+    extensions API and PDF viewer plugin to display the PDF documents.
+    It can be tested in \l{WebEngine Widgets Simple Browser Example}{Simple Browser} or
+    \l{WebEngine Quick Nano Browser}{Nano Browser}.
+
+    Loading plugins needs to be enabled using QWebEngineSettings::PluginsEnabled or
+    WebEngineSettings::pluginsEnabled in order to use this feature.
+
+    This feature can be turned on (default) or off via the QWebEngineSettings::PdfViewerEnabled or
+    WebEngineSettings::pdfViewerEnabled setting.
+
+    Support for this feature was added in Qt 5.13.0.
 
     \section1 Print to PDF
 
@@ -511,4 +530,13 @@
     This feature can be tested by setting up a webcam or microphone and then
     opening \c https://test.webrtc.org/ in \l{WebEngine Widgets Simple Browser
     Example}{Simple Browser} or \l{WebEngine Quick Nano Browser}{Nano Browser}.
+
+    \section1 Web Notifications
+
+    Qt WebEngine supports JavaScript \l{Web Notifications API}.
+    The application has to explicitly allow the feature by using
+    QWebEnginePage::Notifications or \l{WebEngineView::Feature}
+    {WebEngineView.Notifications}.
+
+    Support for this feature was added in Qt 5.13.0.
 */

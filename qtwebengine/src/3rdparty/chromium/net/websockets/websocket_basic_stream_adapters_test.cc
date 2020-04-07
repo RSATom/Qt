@@ -25,6 +25,7 @@
 #include "net/socket/socket_test_util.h"
 #include "net/socket/ssl_client_socket_pool.h"
 #include "net/socket/transport_client_socket_pool.h"
+#include "net/socket/transport_connect_job.h"
 #include "net/socket/websocket_endpoint_lock_manager.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_key.h"
@@ -69,19 +70,19 @@ class WebSocketClientSocketHandleAdapterTest
             "test_shard",
             nullptr,
             &websocket_endpoint_lock_manager_,
+            nullptr,
             HttpNetworkSession::NORMAL_SOCKET_POOL)),
         transport_params_(base::MakeRefCounted<TransportSocketParams>(
             host_port_pair_,
             false,
-            OnHostResolutionCallback(),
-            TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT)),
-        ssl_params_(base::MakeRefCounted<SSLSocketParams>(transport_params_,
-                                                          nullptr,
-                                                          nullptr,
-                                                          host_port_pair_,
-                                                          SSLConfig(),
-                                                          PRIVACY_MODE_DISABLED,
-                                                          0)) {}
+            OnHostResolutionCallback())),
+        ssl_params_(
+            base::MakeRefCounted<SSLSocketParams>(transport_params_,
+                                                  nullptr,
+                                                  nullptr,
+                                                  host_port_pair_,
+                                                  SSLConfig(),
+                                                  PRIVACY_MODE_DISABLED)) {}
 
   ~WebSocketClientSocketHandleAdapterTest() override = default;
 
@@ -163,7 +164,7 @@ TEST_F(WebSocketClientSocketHandleAdapterTest, Read) {
   // Buffer larger than each MockRead.
   const int kReadBufSize = 1024;
   auto read_buf = base::MakeRefCounted<IOBuffer>(kReadBufSize);
-  int rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  int rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(3, rv);
   EXPECT_EQ("foo", base::StringPiece(read_buf->data(), rv));
 
@@ -194,11 +195,11 @@ TEST_F(WebSocketClientSocketHandleAdapterTest, ReadIntoSmallBuffer) {
   // Buffer smaller than each MockRead.
   const int kReadBufSize = 2;
   auto read_buf = base::MakeRefCounted<IOBuffer>(kReadBufSize);
-  int rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  int rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(2, rv);
   EXPECT_EQ("fo", base::StringPiece(read_buf->data(), rv));
 
-  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(1, rv);
   EXPECT_EQ("o", base::StringPiece(read_buf->data(), rv));
 
@@ -209,7 +210,7 @@ TEST_F(WebSocketClientSocketHandleAdapterTest, ReadIntoSmallBuffer) {
   ASSERT_EQ(2, rv);
   EXPECT_EQ("ba", base::StringPiece(read_buf->data(), rv));
 
-  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(1, rv);
   EXPECT_EQ("r", base::StringPiece(read_buf->data(), rv));
 
@@ -231,8 +232,9 @@ TEST_F(WebSocketClientSocketHandleAdapterTest, Write) {
   EXPECT_TRUE(adapter.is_initialized());
 
   auto write_buf1 = base::MakeRefCounted<StringIOBuffer>("foo");
-  int rv = adapter.Write(write_buf1.get(), write_buf1->size(),
-                         CompletionCallback(), TRAFFIC_ANNOTATION_FOR_TESTS);
+  int rv =
+      adapter.Write(write_buf1.get(), write_buf1->size(),
+                    CompletionOnceCallback(), TRAFFIC_ANNOTATION_FOR_TESTS);
   ASSERT_EQ(3, rv);
 
   auto write_buf2 = base::MakeRefCounted<StringIOBuffer>("bar");
@@ -301,6 +303,7 @@ class WebSocketSpdyStreamAdapterTest : public TestWithScopedTaskEnvironment {
         key_(HostPortPair::FromURL(url_),
              ProxyServer::Direct(),
              PRIVACY_MODE_DISABLED,
+             SpdySessionKey::IsProxySession::kFalse,
              SocketTag()),
         session_(SpdySessionDependencies::SpdyCreateSession(&session_deps_)),
         ssl_(SYNCHRONOUS, OK) {}
@@ -667,11 +670,11 @@ TEST_F(WebSocketSpdyStreamAdapterTest, Read) {
   EXPECT_FALSE(stream);
 
   // Two socket reads are concatenated by WebSocketSpdyStreamAdapter.
-  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(3, rv);
   EXPECT_EQ("bar", base::StringPiece(read_buf->data(), rv));
 
-  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(3, rv);
   EXPECT_EQ("baz", base::StringPiece(read_buf->data(), rv));
 
@@ -736,7 +739,7 @@ TEST_F(WebSocketSpdyStreamAdapterTest, CallDelegateOnCloseShouldNotCrash) {
   EXPECT_FALSE(stream);
 
   // Read remaining buffered data.  This will PostTask CallDelegateOnClose().
-  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  rv = adapter.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   ASSERT_EQ(3, rv);
   EXPECT_EQ("bar", base::StringPiece(read_buf->data(), rv));
 

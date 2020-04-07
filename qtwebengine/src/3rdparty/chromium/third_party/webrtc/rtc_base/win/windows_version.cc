@@ -14,7 +14,7 @@
 #include <memory>
 
 #include "rtc_base/checks.h"
-#include "rtc_base/stringutils.h"
+#include "rtc_base/string_utils.h"
 
 #if !defined(__clang__) && _MSC_FULL_VER < 191125507
 #error VS 2017 Update 3.2 or higher is required
@@ -27,6 +27,8 @@
 // https://developercommunity.visualstudio.com/content/problem/42961/15063-sdk-is-broken-bitsh-indirectly-references-no.html
 #error Creators Update SDK (10.0.15063.468) required.
 #endif
+
+#if !defined(WINUWP)
 
 namespace {
 
@@ -171,6 +173,8 @@ class RegKey {
 
 }  // namespace
 
+#endif  // !defined(WINUWP)
+
 namespace rtc {
 namespace rtc_win {
 namespace {
@@ -221,6 +225,10 @@ Version MajorMinorBuildToVersion(int major, int minor, int build) {
 // this undocumented value appears to be similar to a patch number.
 // Returns 0 if the value does not exist or it could not be read.
 int GetUBR() {
+#if defined(WINUWP)
+  // The registry is not accessible for WinUWP sandboxed store applications.
+  return 0;
+#else
   // The values under the CurrentVersion registry hive are mirrored under
   // the corresponding Wow6432 hive.
   static constexpr wchar_t kRegKeyWindowsNTCurrentVersion[] =
@@ -236,6 +244,7 @@ int GetUBR() {
   key.ReadValueDW(L"UBR", &ubr);
 
   return static_cast<int>(ubr);
+#endif  // defined(WINUWP)
 }
 
 }  // namespace
@@ -261,6 +270,12 @@ OSInfo::OSInfo()
       architecture_(OTHER_ARCHITECTURE),
       wow64_status_(GetWOW64StatusForProcess(GetCurrentProcess())) {
   OSVERSIONINFOEX version_info = {sizeof version_info};
+  // Applications not manifested for Windows 8.1 or Windows 10 will return the
+  // Windows 8 OS version value (6.2). Once an application is manifested for a
+  // given operating system version, GetVersionEx() will always return the
+  // version that the application is manifested for in future releases.
+  // https://docs.microsoft.com/en-us/windows/desktop/SysInfo/targeting-your-application-at-windows-8-1.
+  // https://www.codeproject.com/Articles/678606/Part-Overcoming-Windows-s-deprecation-of-GetVe.
   ::GetVersionEx(reinterpret_cast<OSVERSIONINFO*>(&version_info));
   version_number_.major = version_info.dwMajorVersion;
   version_number_.minor = version_info.dwMinorVersion;
@@ -288,6 +303,7 @@ OSInfo::OSInfo()
   processors_ = system_info.dwNumberOfProcessors;
   allocation_granularity_ = system_info.dwAllocationGranularity;
 
+#if !defined(WINUWP)
   GetProductInfoPtr get_product_info;
   DWORD os_type;
 
@@ -360,11 +376,21 @@ OSInfo::OSInfo()
     // Windows is pre XP so we don't care but pick a safe default.
     version_type_ = SUITE_HOME;
   }
+#else
+  // WinUWP sandboxed store apps do not have a mechanism to determine
+  // product suite thus the most restricted suite is chosen.
+  version_type_ = SUITE_HOME;
+#endif  // !defined(WINUWP)
 }
 
 OSInfo::~OSInfo() {}
 
 std::string OSInfo::processor_model_name() {
+#if defined(WINUWP)
+  // WinUWP sandboxed store apps do not have the ability to
+  // probe the name of the current processor.
+  return "Unknown Processor (UWP)";
+#else
   if (processor_model_name_.empty()) {
     const wchar_t kProcessorNameString[] =
         L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
@@ -374,18 +400,24 @@ std::string OSInfo::processor_model_name() {
     processor_model_name_ = rtc::ToUtf8(value);
   }
   return processor_model_name_;
+#endif  // defined(WINUWP)
 }
 
 // static
 OSInfo::WOW64Status OSInfo::GetWOW64StatusForProcess(HANDLE process_handle) {
+  BOOL is_wow64;
+#if defined(WINUWP)
+  if (!IsWow64Process(process_handle, &is_wow64))
+    return WOW64_UNKNOWN;
+#else
   typedef BOOL(WINAPI * IsWow64ProcessFunc)(HANDLE, PBOOL);
   IsWow64ProcessFunc is_wow64_process = reinterpret_cast<IsWow64ProcessFunc>(
       GetProcAddress(GetModuleHandle(L"kernel32.dll"), "IsWow64Process"));
   if (!is_wow64_process)
     return WOW64_DISABLED;
-  BOOL is_wow64 = FALSE;
   if (!(*is_wow64_process)(process_handle, &is_wow64))
     return WOW64_UNKNOWN;
+#endif  // defined(WINUWP)
   return is_wow64 ? WOW64_ENABLED : WOW64_DISABLED;
 }
 

@@ -8,8 +8,27 @@ import("//third_party/libjpeg.gni")
 
 assert(!is_ios, "This is not used on iOS, don't drag it in unintentionally")
 
+if (use_system_libjpeg) {
+  import("//build/config/linux/pkg_config.gni")
+  import("//build/shim_headers.gni")
+  pkg_config("system_libjpeg") {
+    packages = [ "libjpeg" ]
+  }
+  shim_headers("libjpeg_shim") {
+    root_path = "libjpeg"
+    headers = [
+      "jpeglib.h"
+    ]
+  }
+  source_set("libjpeg") {
+    deps = [ ":libjpeg_shim" ]
+    public_configs = [ ":system_libjpeg",
+                       ":system_libjpeg_config"
+    ]
+  }
+}
+
 config("system_libjpeg_config") {
-  libs = [ "jpeg" ]
   defines = [ "USE_SYSTEM_LIBJPEG" ]
 }
 
@@ -22,7 +41,7 @@ config("libjpeg_turbo_config") {
 # declared in this file.
 group("jpeg") {
   if (use_system_libjpeg) {
-    public_configs = [ ":system_libjpeg_config" ]
+    public_deps = [ ":libjpeg" ]
   } else if (use_libjpeg_turbo) {
     public_deps = [
       "//third_party/libjpeg_turbo:libjpeg",
@@ -41,7 +60,7 @@ group("jpeg") {
 # need to reference libjpeg without explicitly building it.
 group("jpeg_includes") {
   if (use_system_libjpeg) {
-    public_configs = [ ":system_libjpeg_config" ]
+    public_configs = [ ":system_libjpeg_config", ":system_libjpeg" ]
   } else if (use_libjpeg_turbo) {
     public_configs = [ "//third_party/libjpeg_turbo:libjpeg_config" ]
   } else {

@@ -16,10 +16,6 @@
 #include "glsl/GrGLSLProgramBuilder.h"
 #include "glsl/GrGLSLVarying.h"
 
-// Slightly undershoot an AA bloat radius of 0.5 so vertices that fall on integer boundaries don't
-// accidentally reach into neighboring path masks within the atlas.
-constexpr float kAABloatRadius = 0.491111f;
-
 // Paths are drawn as octagons. Each point on the octagon is the intersection of two lines: one edge
 // from the path's bounding box and one edge from its 45-degree bounding box. The below inputs
 // define a vertex by the two edges that need to be intersected. Normals point out of the octagon,
@@ -79,28 +75,19 @@ sk_sp<const GrBuffer> GrCCPathProcessor::FindIndexBuffer(GrOnFlushResourceProvid
     }
 }
 
-GrCCPathProcessor::GrCCPathProcessor(GrResourceProvider* resourceProvider,
-                                     sk_sp<GrTextureProxy> atlas,
+GrCCPathProcessor::GrCCPathProcessor(const GrTextureProxy* atlas,
                                      const SkMatrix& viewMatrixIfUsingLocalCoords)
         : INHERITED(kGrCCPathProcessor_ClassID)
-        , fAtlasAccess(std::move(atlas), GrSamplerState::Filter::kNearest,
-                       GrSamplerState::WrapMode::kClamp, kFragment_GrShaderFlag) {
-    this->setInstanceAttributeCnt(kNumInstanceAttribs);
-    // Check that instance attributes exactly match Instance struct layout.
-    SkASSERT(!strcmp(this->instanceAttribute(0).name(), "devbounds"));
-    SkASSERT(!strcmp(this->instanceAttribute(1).name(), "devbounds45"));
-    SkASSERT(!strcmp(this->instanceAttribute(2).name(), "dev_to_atlas_offset"));
-    SkASSERT(!strcmp(this->instanceAttribute(3).name(), "color"));
-    SkASSERT(this->debugOnly_instanceAttributeOffset(0) == offsetof(Instance, fDevBounds));
-    SkASSERT(this->debugOnly_instanceAttributeOffset(1) == offsetof(Instance, fDevBounds45));
-    SkASSERT(this->debugOnly_instanceAttributeOffset(2) == offsetof(Instance, fDevToAtlasOffset));
-    SkASSERT(this->debugOnly_instanceAttributeOffset(3) == offsetof(Instance, fColor));
-    SkASSERT(this->debugOnly_instanceStride() == sizeof(Instance));
+        , fAtlasAccess(atlas->textureType(), atlas->config(), GrSamplerState::Filter::kNearest,
+                       GrSamplerState::WrapMode::kClamp)
+        , fAtlasSize(atlas->isize())
+        , fAtlasOrigin(atlas->origin()) {
+    // TODO: Can we just assert that atlas has GrCCAtlas::kTextureOrigin and remove fAtlasOrigin?
+    this->setInstanceAttributes(kInstanceAttribs, kNumInstanceAttribs);
+    SkASSERT(this->instanceStride() == sizeof(Instance));
 
-    this->setVertexAttributeCnt(1);
-
-    fAtlasAccess.instantiate(resourceProvider);
-    this->addTextureSampler(&fAtlasAccess);
+    this->setVertexAttributes(&kEdgeNormsAttrib, 1);
+    this->setTextureSamplerCnt(1);
 
     if (!viewMatrixIfUsingLocalCoords.invert(&fLocalMatrix)) {
         fLocalMatrix.setIdentity();
@@ -115,8 +102,8 @@ private:
     void setData(const GrGLSLProgramDataManager& pdman, const GrPrimitiveProcessor& primProc,
                  FPCoordTransformIter&& transformIter) override {
         const GrCCPathProcessor& proc = primProc.cast<GrCCPathProcessor>();
-        pdman.set2f(fAtlasAdjustUniform, 1.0f / proc.atlas()->width(),
-                    1.0f / proc.atlas()->height());
+        pdman.set2f(fAtlasAdjustUniform, 1.0f / proc.atlasSize().fWidth,
+                    1.0f / proc.atlasSize().fHeight);
         this->setTransformDataHelper(proc.localMatrix(), pdman, &transformIter);
     }
 
@@ -192,7 +179,6 @@ void GLSLPathProcessor::onEmitCode(EmitArgs& args, GrGPArgs* gpArgs) {
     v->codeAppend ("float2 refpt = (0 == sk_VertexID >> 2)"
                            "? float2(min(devbounds.x, devbounds.z), devbounds.y)"
                            ": float2(max(devbounds.x, devbounds.z), devbounds.w);");
-    v->codeAppendf("refpt += N[0] * %f;", kAABloatRadius); // bloat for AA.
 
     // N[1] is the normal for the edge we are intersecting from the 45-degree bounding box, pointing
     // out of the octagon.
@@ -200,20 +186,29 @@ void GLSLPathProcessor::onEmitCode(EmitArgs& args, GrGPArgs* gpArgs) {
                    proc.getInstanceAttrib(InstanceAttribs::kDevBounds45).name(),
                    proc.getInstanceAttrib(InstanceAttribs::kDevBounds45).name());
     v->codeAppendf("refpt45 *= float2x2(.5,.5,-.5,.5);"); // transform back to device space.
-    v->codeAppendf("refpt45 += N[1] * %f;", kAABloatRadius); // bloat for AA.
 
     v->codeAppend ("float2 K = float2(dot(N[0], refpt), dot(N[1], refpt45));");
     v->codeAppendf("float2 octocoord = K * inverse(N);");
+
+    // Round the octagon out to ensure we rasterize every pixel the path might touch. (Positive
+    // bloatdir means we should take the "ceil" and negative means to take the "floor".)
+    //
+    // NOTE: If we were just drawing a rect, ceil/floor would be enough. But since there are also
+    // diagonals in the octagon that cross through pixel centers, we need to outset by another
+    // quarter px to ensure those pixels get rasterized.
+    v->codeAppend ("float2 bloatdir = (0 != N[0].x) "
+                           "? half2(N[0].x, N[1].y) : half2(N[1].x, N[0].y);");
+    v->codeAppend ("octocoord = (ceil(octocoord * bloatdir - 1e-4) + 0.25) * bloatdir;");
 
     gpArgs->fPositionVar.set(kFloat2_GrSLType, "octocoord");
 
     // Convert to atlas coordinates in order to do our texture lookup.
     v->codeAppendf("float2 atlascoord = octocoord + float2(%s);",
                    proc.getInstanceAttrib(InstanceAttribs::kDevToAtlasOffset).name());
-    if (kTopLeft_GrSurfaceOrigin == proc.atlasProxy()->origin()) {
+    if (kTopLeft_GrSurfaceOrigin == proc.atlasOrigin()) {
         v->codeAppendf("%s.xy = atlascoord * %s;", texcoord.vsOut(), atlasAdjust);
     } else {
-        SkASSERT(kBottomLeft_GrSurfaceOrigin == proc.atlasProxy()->origin());
+        SkASSERT(kBottomLeft_GrSurfaceOrigin == proc.atlasOrigin());
         v->codeAppendf("%s.xy = float2(atlascoord.x * %s.x, 1 - atlascoord.y * %s.y);",
                        texcoord.vsOut(), atlasAdjust, atlasAdjust);
     }

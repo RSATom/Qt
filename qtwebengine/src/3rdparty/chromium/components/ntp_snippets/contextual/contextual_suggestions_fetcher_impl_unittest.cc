@@ -412,6 +412,21 @@ TEST_F(ContextualSuggestionsFetcherTest, RequestHeaderSetCorrectly) {
       "ContextualSuggestions.FetchRequestProtoSizeKB", 1);
 }
 
+TEST_F(ContextualSuggestionsFetcherTest, CredentialsExcluded) {
+  network::ResourceRequest last_resource_request;
+
+  test_factory()->SetInterceptor(
+      base::BindLambdaForTesting([&](const network::ResourceRequest& request) {
+        last_resource_request = request;
+      }));
+
+  SetFakeResponse(SerializedResponseProto("Peek Text", DefaultClusters()));
+
+  MockClustersCallback callback;
+  SendAndAwaitResponse(GURL("http://www.article.com/"), &callback);
+  EXPECT_FALSE(last_resource_request.allow_credentials);
+}
+
 TEST_F(ContextualSuggestionsFetcherTest, ProtocolError) {
   MockClustersCallback callback;
   MockMetricsCallback metrics_callback;

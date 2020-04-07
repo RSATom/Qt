@@ -164,6 +164,9 @@ private slots:
     void preserveTexts_data();
     void preserveTexts();
 
+    void devicePixelRatio_data();
+    void devicePixelRatio();
+
 private:
     QString prefix;
     QTemporaryDir m_temporaryDir;
@@ -525,7 +528,7 @@ void tst_QImageReader::imageFormat_data()
     QTest::newRow("png") << QString("kollada.png") << QByteArray("png") << QImage::Format_ARGB32;
     QTest::newRow("png-2") << QString("YCbCr_cmyk.png") << QByteArray("png") << QImage::Format_RGB32;
     QTest::newRow("png-3") << QString("kollada-16bpc.png") << QByteArray("png") << QImage::Format_RGBA64;
-    QTest::newRow("png-4") << QString("basn0g16.png") << QByteArray("png") << QImage::Format_RGBX64; // Grayscale16
+    QTest::newRow("png-4") << QString("basn0g16.png") << QByteArray("png") << QImage::Format_Grayscale16;
     QTest::newRow("png-5") << QString("basn2c16.png") << QByteArray("png") << QImage::Format_RGBX64;
     QTest::newRow("png-6") << QString("basn4a16.png") << QByteArray("png") << QImage::Format_RGBA64; // Grayscale16Alpha16
     QTest::newRow("png-7") << QString("basn6a16.png") << QByteArray("png") << QImage::Format_RGBA64;
@@ -1976,6 +1979,28 @@ void tst_QImageReader::preserveTexts()
     QCOMPARE(r.text(key3), text3.simplified());
 }
 
+void tst_QImageReader::devicePixelRatio_data()
+{
+    QTest::addColumn<QString>("fileName");
+    QTest::addColumn<QSize>("size");
+    QTest::addColumn<qreal>("dpr");
+
+    QTest::newRow("1x") << "qticon16.png" << QSize(16, 16) << 1.0;
+    QTest::newRow("2x") << "qticon16@2x.png" << QSize(32, 32) << 2.0;
+    QTest::newRow("3x") << "qticon16@3x.png" << QSize(48, 48) << 3.0;
+}
+
+void tst_QImageReader::devicePixelRatio()
+{
+    QFETCH(QString, fileName);
+    QFETCH(QSize, size);
+    QFETCH(qreal, dpr);
+
+    QImageReader r(":/images/" + fileName);
+    QImage img = r.read();
+    QCOMPARE(img.size(), size);
+    QCOMPARE(img.devicePixelRatio(), dpr);
+}
 
 QTEST_MAIN(tst_QImageReader)
 #include "tst_qimagereader.moc"

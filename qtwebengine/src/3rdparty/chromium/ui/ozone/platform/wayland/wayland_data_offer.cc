@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 
 namespace ui {
 
@@ -29,9 +30,12 @@ void CreatePipe(base::ScopedFD* read_pipe, base::ScopedFD* write_pipe) {
 }  // namespace
 
 WaylandDataOffer::WaylandDataOffer(wl_data_offer* data_offer)
-    : data_offer_(data_offer) {
+    : data_offer_(data_offer),
+      source_actions_(WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE),
+      dnd_action_(WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE) {
   static const struct wl_data_offer_listener kDataOfferListener = {
-      WaylandDataOffer::OnOffer};
+      WaylandDataOffer::OnOffer, WaylandDataOffer::OnSourceAction,
+      WaylandDataOffer::OnAction};
   wl_data_offer_add_listener(data_offer, &kDataOfferListener, this);
 }
 
@@ -39,9 +43,25 @@ WaylandDataOffer::~WaylandDataOffer() {
   data_offer_.reset();
 }
 
+void WaylandDataOffer::SetAction(uint32_t dnd_actions,
+                                 uint32_t preferred_action) {
+  if (wl_data_offer_get_version(data_offer_.get()) >=
+      WL_DATA_OFFER_SET_ACTIONS_SINCE_VERSION) {
+    wl_data_offer_set_actions(data_offer_.get(), dnd_actions, preferred_action);
+  }
+}
+
+void WaylandDataOffer::Accept(uint32_t serial, const std::string& mime_type) {
+  wl_data_offer_accept(data_offer_.get(), serial, mime_type.c_str());
+}
+
+void WaylandDataOffer::Reject(uint32_t serial) {
+  // Passing a null MIME type means "reject."
+  wl_data_offer_accept(data_offer_.get(), serial, nullptr);
+}
+
 void WaylandDataOffer::EnsureTextMimeTypeIfNeeded() {
-  if (std::find(mime_types_.begin(), mime_types_.end(), kTextPlain) !=
-      mime_types_.end())
+  if (base::ContainsValue(mime_types_, kTextPlain))
     return;
 
   if (std::any_of(mime_types_.begin(), mime_types_.end(),
@@ -56,8 +76,7 @@ void WaylandDataOffer::EnsureTextMimeTypeIfNeeded() {
 }
 
 base::ScopedFD WaylandDataOffer::Receive(const std::string& mime_type) {
-  if (std::find(mime_types_.begin(), mime_types_.end(), mime_type) ==
-      mime_types_.end())
+  if (!base::ContainsValue(mime_types_, mime_type))
     return base::ScopedFD();
 
   base::ScopedFD read_fd;
@@ -77,12 +96,40 @@ base::ScopedFD WaylandDataOffer::Receive(const std::string& mime_type) {
   return read_fd;
 }
 
+void WaylandDataOffer::FinishOffer() {
+  if (wl_data_offer_get_version(data_offer_.get()) >=
+      WL_DATA_OFFER_FINISH_SINCE_VERSION)
+    wl_data_offer_finish(data_offer_.get());
+}
+
+uint32_t WaylandDataOffer::source_actions() const {
+  return source_actions_;
+}
+
+uint32_t WaylandDataOffer::dnd_action() const {
+  return dnd_action_;
+}
+
 // static
 void WaylandDataOffer::OnOffer(void* data,
                                wl_data_offer* data_offer,
                                const char* mime_type) {
   auto* self = static_cast<WaylandDataOffer*>(data);
   self->mime_types_.push_back(mime_type);
+}
+
+void WaylandDataOffer::OnSourceAction(void* data,
+                                      wl_data_offer* offer,
+                                      uint32_t source_actions) {
+  auto* self = static_cast<WaylandDataOffer*>(data);
+  self->source_actions_ = source_actions;
+}
+
+void WaylandDataOffer::OnAction(void* data,
+                                wl_data_offer* offer,
+                                uint32_t dnd_action) {
+  auto* self = static_cast<WaylandDataOffer*>(data);
+  self->dnd_action_ = dnd_action;
 }
 
 }  // namespace ui

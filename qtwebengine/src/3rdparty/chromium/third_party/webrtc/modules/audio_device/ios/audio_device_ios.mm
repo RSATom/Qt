@@ -17,22 +17,22 @@
 
 #include "api/array_view.h"
 #include "modules/audio_device/fine_audio_buffer.h"
-#include "rtc_base/atomicops.h"
+#include "rtc_base/atomic_ops.h"
 #include "rtc_base/bind.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
-#include "rtc_base/timeutils.h"
-#include "sdk/objc/Framework/Classes/Common/helpers.h"
+#include "rtc_base/time_utils.h"
+#include "sdk/objc/native/src/audio/helpers.h"
 #include "system_wrappers/include/metrics.h"
 
-#import "WebRTC/RTCLogging.h"
 #import "modules/audio_device/ios/objc/RTCAudioSessionDelegateAdapter.h"
-#import "sdk/objc/Framework/Classes/Audio/RTCAudioSession+Private.h"
-#import "sdk/objc/Framework/Headers/WebRTC/RTCAudioSession.h"
-#import "sdk/objc/Framework/Headers/WebRTC/RTCAudioSessionConfiguration.h"
+#import "sdk/objc/base/RTCLogging.h"
+#import "sdk/objc/components/audio/RTCAudioSession+Private.h"
+#import "sdk/objc/components/audio/RTCAudioSession.h"
+#import "sdk/objc/components/audio/RTCAudioSessionConfiguration.h"
 
 namespace webrtc {
 
@@ -846,6 +846,7 @@ bool AudioDeviceIOS::InitPlayOrRecord() {
   if (![session beginWebRTCSession:&error]) {
     [session unlockForConfiguration];
     RTCLogError(@"Failed to begin WebRTC session: %@", error.localizedDescription);
+    audio_unit_.reset();
     return false;
   }
 
@@ -857,6 +858,7 @@ bool AudioDeviceIOS::InitPlayOrRecord() {
       // audio session during or after a Media Services failure.
       // See AVAudioSessionErrorCodeMediaServicesFailed for details.
       [session unlockForConfiguration];
+      audio_unit_.reset();
       return false;
     }
     SetupAudioBuffersForActiveAudioSession();
@@ -901,12 +903,6 @@ void AudioDeviceIOS::PrepareForNewStart() {
   // which means that we must detach thread checkers here to be prepared for an
   // upcoming new audio stream.
   io_thread_checker_.DetachFromThread();
-  // The audio device buffer must also be informed about the interrupted
-  // state so it can detach its thread checkers as well.
-  if (audio_device_buffer_) {
-    audio_device_buffer_->NativeAudioPlayoutInterrupted();
-    audio_device_buffer_->NativeAudioRecordingInterrupted();
-  }
 }
 
 }  // namespace webrtc

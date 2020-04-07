@@ -172,16 +172,16 @@ class WinTool(object):
   def ExecAsmWrapper(self, arch, *args):
     """Filter logo banner from invocations of asm.exe."""
     env = self._GetEnv(arch)
+    if sys.platform == 'win32':
+      # Windows ARM64 uses clang-cl as assembler which has '/' as path
+      # separator, convert it to '\\' when running on Windows.
+      args = list(args) # *args is a tuple by default, which is read-only
+      args[0] = args[0].replace('/', '\\')
     popen = subprocess.Popen(args, shell=True, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out, _ = popen.communicate()
     for line in out.splitlines():
-      # Split to avoid triggering license checks:
-      if (not line.startswith('Copy' + 'right (C' +
-                              ') Microsoft Corporation') and
-          not line.startswith('Microsoft (R) Macro Assembler') and
-          not line.startswith(' Assembling: ') and
-          line):
+      if not line.startswith(' Assembling: '):
         print line
     return popen.returncode
 
@@ -189,6 +189,7 @@ class WinTool(object):
     """Filter logo banner from invocations of rc.exe. Older versions of RC
     don't support the /nologo flag."""
     env = self._GetEnv(arch)
+
     popen = subprocess.Popen(args, shell=True, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out, _ = popen.communicate()

@@ -17,13 +17,15 @@ class CPDFSDK_CustomAccess final : public IFX_SeekableReadStream {
 
   // IFX_SeekableReadStream
   FX_FILESIZE GetSize() override;
-  bool ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
+  bool ReadBlockAtOffset(void* buffer,
+                         FX_FILESIZE offset,
+                         size_t size) override;
 
  private:
   explicit CPDFSDK_CustomAccess(FPDF_FILEACCESS* pFileAccess);
   ~CPDFSDK_CustomAccess() override;
 
-  FPDF_FILEACCESS m_FileAccess;
+  UnownedPtr<FPDF_FILEACCESS> const m_pFileAccess;
 };
 
 #endif  // FPDFSDK_CPDFSDK_CUSTOMACCESS_H_

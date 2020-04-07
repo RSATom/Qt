@@ -8,14 +8,14 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/task/post_task.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_storage.h"
-#include "content/common/service_worker/service_worker_messages.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
-#include "content/public/common/push_event_payload.h"
 #include "content/public/common/push_messaging_status.mojom.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 
@@ -27,8 +27,8 @@ void RunDeliverCallback(
     const PushMessagingRouter::DeliverMessageCallback& deliver_message_callback,
     mojom::PushDeliveryStatus delivery_status) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(deliver_message_callback, delivery_status));
 }
 
@@ -39,7 +39,7 @@ void PushMessagingRouter::DeliverMessage(
     BrowserContext* browser_context,
     const GURL& origin,
     int64_t service_worker_registration_id,
-    const PushEventPayload& payload,
+    base::Optional<std::string> payload,
     const DeliverMessageCallback& deliver_message_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   StoragePartition* partition =
@@ -47,10 +47,10 @@ void PushMessagingRouter::DeliverMessage(
   scoped_refptr<ServiceWorkerContextWrapper> service_worker_context =
       static_cast<ServiceWorkerContextWrapper*>(
           partition->GetServiceWorkerContext());
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&PushMessagingRouter::FindServiceWorkerRegistration,
-                     origin, service_worker_registration_id, payload,
+                     origin, service_worker_registration_id, std::move(payload),
                      deliver_message_callback, service_worker_context));
 }
 
@@ -58,7 +58,7 @@ void PushMessagingRouter::DeliverMessage(
 void PushMessagingRouter::FindServiceWorkerRegistration(
     const GURL& origin,
     int64_t service_worker_registration_id,
-    const PushEventPayload& payload,
+    base::Optional<std::string> payload,
     const DeliverMessageCallback& deliver_message_callback,
     scoped_refptr<ServiceWorkerContextWrapper> service_worker_context) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -67,13 +67,13 @@ void PushMessagingRouter::FindServiceWorkerRegistration(
   service_worker_context->FindReadyRegistrationForId(
       service_worker_registration_id, origin,
       base::BindOnce(
-          &PushMessagingRouter::FindServiceWorkerRegistrationCallback, payload,
-          deliver_message_callback));
+          &PushMessagingRouter::FindServiceWorkerRegistrationCallback,
+          std::move(payload), deliver_message_callback));
 }
 
 // static
 void PushMessagingRouter::FindServiceWorkerRegistrationCallback(
-    const PushEventPayload& payload,
+    base::Optional<std::string> payload,
     const DeliverMessageCallback& deliver_message_callback,
     blink::ServiceWorkerStatusCode service_worker_status,
     scoped_refptr<ServiceWorkerRegistration> service_worker_registration) {
@@ -102,14 +102,14 @@ void PushMessagingRouter::FindServiceWorkerRegistrationCallback(
       ServiceWorkerMetrics::EventType::PUSH,
       base::BindOnce(&PushMessagingRouter::DeliverMessageToWorker,
                      base::WrapRefCounted(version), service_worker_registration,
-                     payload, deliver_message_callback));
+                     std::move(payload), deliver_message_callback));
 }
 
 // static
 void PushMessagingRouter::DeliverMessageToWorker(
     const scoped_refptr<ServiceWorkerVersion>& service_worker,
     const scoped_refptr<ServiceWorkerRegistration>& service_worker_registration,
-    const PushEventPayload& payload,
+    base::Optional<std::string> payload,
     const DeliverMessageCallback& deliver_message_callback,
     blink::ServiceWorkerStatusCode start_worker_status) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -123,7 +123,7 @@ void PushMessagingRouter::DeliverMessageToWorker(
       ServiceWorkerMetrics::EventType::PUSH,
       base::BindOnce(&PushMessagingRouter::DeliverMessageEnd,
                      deliver_message_callback, service_worker_registration),
-      base::TimeDelta::FromSeconds(mojom::kPushEventTimeoutSeconds),
+      base::TimeDelta::FromSeconds(blink::mojom::kPushEventTimeoutSeconds),
       ServiceWorkerVersion::KILL_ON_TIMEOUT);
 
   service_worker->endpoint()->DispatchPushEvent(
@@ -168,6 +168,7 @@ void PushMessagingRouter::DeliverMessageEnd(
     case blink::ServiceWorkerStatusCode::kErrorNetwork:
     case blink::ServiceWorkerStatusCode::kErrorSecurity:
     case blink::ServiceWorkerStatusCode::kErrorState:
+    case blink::ServiceWorkerStatusCode::kErrorInvalidArguments:
       NOTREACHED() << "Got unexpected error code: "
                    << static_cast<uint32_t>(service_worker_status) << " "
                    << blink::ServiceWorkerStatusToString(service_worker_status);

@@ -108,33 +108,36 @@ public:
                                          std::unique_ptr<content::ClientCertificateDelegate> delegate) override;
     std::unique_ptr<net::ClientCertStore> CreateClientCertStore(content::ResourceContext *resource_context) override;
     content::DevToolsManagerDelegate *GetDevToolsManagerDelegate() override;
+    content::PlatformNotificationService *GetPlatformNotificationService() override;
 
     std::string GetApplicationLocale() override;
     std::string GetAcceptLangs(content::BrowserContext* context) override;
     void AppendExtraCommandLineSwitches(base::CommandLine* command_line, int child_process_id) override;
+
+    void GetAdditionalViewSourceSchemes(std::vector<std::string>* additional_schemes) override;
     void GetAdditionalWebUISchemes(std::vector<std::string>* additional_schemes) override;
 
     void BindInterfaceRequestFromFrame(content::RenderFrameHost* render_frame_host,
                                        const std::string& interface_name,
                                        mojo::ScopedMessagePipeHandle interface_pipe) override;
-    void RegisterInProcessServices(StaticServiceMap* services, content::ServiceManagerConnection* connection) override;
+    void RegisterIOThreadServiceHandlers(content::ServiceManagerConnection *connection) override;
     void RegisterOutOfProcessServices(OutOfProcessServiceMap* services) override;
-    std::vector<ServiceManifestInfo> GetExtraServiceManifests() override;
-    std::unique_ptr<base::Value> GetServiceManifestOverlay(base::StringPiece name) override;
-    bool CanCreateWindow(
-        content::RenderFrameHost* opener,
-        const GURL& opener_url,
-        const GURL& opener_top_level_frame_url,
-        const GURL& source_origin,
-        content::mojom::WindowContainerType container_type,
-        const GURL& target_url,
-        const content::Referrer& referrer,
-        const std::string& frame_name,
-        WindowOpenDisposition disposition,
-        const blink::mojom::WindowFeatures& features,
-        bool user_gesture,
-        bool opener_suppressed,
-        bool* no_javascript_access) override;
+    std::vector<service_manager::Manifest> GetExtraServiceManifests() override;
+    base::Optional<service_manager::Manifest> GetServiceManifestOverlay(base::StringPiece name) override;
+    bool CanCreateWindow(content::RenderFrameHost *opener,
+                         const GURL &opener_url,
+                         const GURL &opener_top_level_frame_url,
+                         const url::Origin &source_origin,
+                         content::mojom::WindowContainerType container_type,
+                         const GURL &target_url,
+                         const content::Referrer &referrer,
+                         const std::string &frame_name,
+                         WindowOpenDisposition disposition,
+                         const blink::mojom::WindowFeatures &features,
+                         bool user_gesture,
+                         bool opener_suppressed,
+                         bool *no_javascript_access) override;
+    bool ShouldEnableStrictSiteIsolation() override;
 
     bool AllowGetCookie(const GURL& url,
                         const GURL& first_party,
@@ -157,21 +160,22 @@ public:
     bool AllowServiceWorker(const GURL& scope,
                             const GURL& first_party,
                             content::ResourceContext* context,
-                            const base::Callback<content::WebContents*(void)>& wc_getter) override;
+                            base::RepeatingCallback<content::WebContents*()> wc_getter) override;
 
     void AllowWorkerFileSystem(const GURL &url,
                                content::ResourceContext *context,
-                               const std::vector<std::pair<int, int> > &render_frames,
+                               const std::vector<content::GlobalFrameRoutingId> &render_frames,
                                base::Callback<void(bool)> callback) override;
 
     bool AllowWorkerIndexedDB(const GURL &url,
-                              const base::string16 &name,
                               content::ResourceContext *context,
-                              const std::vector<std::pair<int, int> > &render_frames) override;
+                              const std::vector<content::GlobalFrameRoutingId> &render_frames) override;
 
 #if QT_CONFIG(webengine_geolocation)
     std::unique_ptr<device::LocationProvider> OverrideSystemLocationProvider() override;
 #endif
+    bool ShouldIsolateErrorPage(bool in_main_frame) override;
+    bool ShouldUseProcessPerSite(content::BrowserContext* browser_context, const GURL& effective_url) override;
 
 #if defined(Q_OS_LINUX)
     void GetAdditionalMappedFilesForChildProcess(const base::CommandLine& command_line, int child_process_id, content::PosixFileDescriptorInfo* mappings) override;
@@ -194,10 +198,17 @@ public:
             const GURL &url,
             content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
             int child_id,
-            content::NavigationUIData  *navigation_data,
+            content::NavigationUIData *navigation_data,
             bool is_main_frame,
             ui::PageTransition page_transition,
-            bool has_user_gesture) override;
+            bool has_user_gesture,
+            const std::string &method,
+            const net::HttpRequestHeaders &headers) override;
+
+    static std::string getUserAgent();
+
+    std::string GetUserAgent() const override { return getUserAgent(); }
+    std::string GetProduct() const override;
 
 private:
     void InitFrameInterfaces();
@@ -205,6 +216,7 @@ private:
 
     BrowserMainPartsQt* m_browserMainParts;
     std::unique_ptr<content::ResourceDispatcherHostDelegate> m_resourceDispatcherHostDelegate;
+    std::unique_ptr<content::PlatformNotificationService> m_platformNotificationService;
     scoped_refptr<ShareGroupQtQuick> m_shareGroupQtQuick;
     std::unique_ptr<service_manager::BinderRegistry> m_frameInterfaces;
     std::unique_ptr<service_manager::BinderRegistryWithArgs<content::RenderFrameHost*>> m_frameInterfacesParameterized;

@@ -255,14 +255,9 @@ Item {
 
         function toMercator(coord)
         {
-            var pi = Math.PI
-            var lon = coord.longitude / 360.0 + 0.5;
-
-            var lat = coord.latitude;
-            lat = 0.5 - (Math.log(Math.tan((pi / 4.0) + (pi / 2.0) * lat / 180.0)) / pi) / 2.0;
-            lat = Math.max(0.0, lat);
-            lat = Math.min(1.0, lat);
-
+            var p = QtPositioning.coordToMercator(coord)
+            var lat = p.y
+            var lon = p.x
             return {'latitude': lat, 'longitude': lon};
         }
 
@@ -280,6 +275,7 @@ Item {
             tryCompare(coordinateAnimationStopSpy,"count",1)
 
             //check correct start position
+            verify(coordinateItem.coordinateList.length != 0)
             compare(coordinateItem.coordinateList[0], from)
             //check correct end position
             compare(coordinateItem.coordinateList[coordinateItem.coordinateList.length - 1],to)
@@ -297,16 +293,17 @@ Item {
                 //check that each step has moved in the right direction
 
                 if (lastLongitude) {
+                    var errorMessage = "movingEast: " + movingEast + "; From: " + from + "; To: " + to + "; i: " + i + "; crdList: " + coordinateItem.coordinateList
                     if (movingEast) {
                         if (coordinate.longitude > 0 && lastLongitude < 0)
-                            verify(coordinate.longitude < lastLongitude + 360)
+                            verify(coordinate.longitude < lastLongitude + 360, errorMessage)
                         else
-                            verify(coordinate.longitude < lastLongitude)
+                            verify(coordinate.longitude < lastLongitude, errorMessage)
                     } else {
                         if (coordinate.longitude < 0 && lastLongitude > 0)
-                            verify(coordinate.longitude + 360 > lastLongitude)
+                            verify(coordinate.longitude + 360 > lastLongitude, errorMessage)
                         else
-                            verify(coordinate.longitude > lastLongitude)
+                            verify(coordinate.longitude > lastLongitude, errorMessage)
                     }
                 }
                 lastLongitude = coordinate.longitude

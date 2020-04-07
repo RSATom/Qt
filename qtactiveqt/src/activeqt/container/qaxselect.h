@@ -61,9 +61,17 @@ class QAxSelect : public QDialog
 {
     Q_OBJECT
 public:
+    enum SandboxingLevel {
+        SandboxingNone = 0,
+        SandboxingProcess,
+        SandboxingLowIntegrity,
+    };
+
     explicit QAxSelect(QWidget *parent = nullptr, Qt::WindowFlags flags = Qt::WindowFlags());
     ~QAxSelect() override;
+
     QString clsid() const;
+    SandboxingLevel sandboxingLevel() const;
 
 private Q_SLOTS:
     void onActiveXListCurrentChanged(const QModelIndex &);

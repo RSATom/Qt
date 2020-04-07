@@ -29,9 +29,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WEBORIGIN_SECURITY_POLICY_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WEBORIGIN_SECURITY_POLICY_H_
 
+#include "services/network/public/mojom/cors_origin_pattern.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/weborigin/referrer.h"
-#include "third_party/blink/renderer/platform/weborigin/referrer_policy.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -61,38 +62,30 @@ class PLATFORM_EXPORT SecurityPolicy {
   // Returns the referrer modified according to the referrer policy for a
   // navigation to a given URL. If the referrer returned is empty, the
   // referrer header should be omitted.
-  static Referrer GenerateReferrer(ReferrerPolicy,
+  static Referrer GenerateReferrer(network::mojom::ReferrerPolicy,
                                    const KURL&,
                                    const String& referrer);
 
-  static void AddOriginAccessWhitelistEntry(const SecurityOrigin& source_origin,
-                                            const String& destination_protocol,
-                                            const String& destination_domain,
-                                            bool allow_destination_subdomains);
-  static void RemoveOriginAccessWhitelistEntry(
+  static void AddOriginAccessAllowListEntry(
       const SecurityOrigin& source_origin,
       const String& destination_protocol,
       const String& destination_domain,
-      bool allow_destination_subdomains);
-  static void RemoveAllOriginAccessWhitelistEntriesForOrigin(
+      bool allow_destination_subdomains,
+      const network::mojom::CorsOriginAccessMatchPriority priority);
+  static void AddOriginAccessBlockListEntry(
+      const SecurityOrigin& source_origin,
+      const String& destination_protocol,
+      const String& destination_domain,
+      bool allow_destination_subdomains,
+      const network::mojom::CorsOriginAccessMatchPriority priority);
+  static void ClearOriginAccessListForOrigin(
       const SecurityOrigin& source_origin);
-  static void ResetOriginAccessWhitelists();
+  static void ClearOriginAccessList();
 
-  static void AddOriginAccessBlacklistEntry(const SecurityOrigin& source_origin,
-                                            const String& destination_protocol,
-                                            const String& destination_domain,
-                                            bool allow_destination_subdomains);
-  static void RemoveOriginAccessBlacklistEntry(
-      const SecurityOrigin& source_origin,
-      const String& destination_protocol,
-      const String& destination_domain,
-      bool allow_destination_subdomains);
-  static void ResetOriginAccessBlacklists();
-
-  static bool IsAccessWhiteListed(const SecurityOrigin* active_origin,
-                                  const SecurityOrigin* target_origin);
-  static bool IsAccessToURLWhiteListed(const SecurityOrigin* active_origin,
-                                       const KURL&);
+  static bool IsOriginAccessAllowed(const SecurityOrigin* active_origin,
+                                    const SecurityOrigin* target_origin);
+  static bool IsOriginAccessToURLAllowed(const SecurityOrigin* active_origin,
+                                         const KURL&);
 
   static void AddOriginTrustworthyWhiteList(const String&);
   static bool IsOriginWhiteListedTrustworthy(const SecurityOrigin&);
@@ -100,11 +93,12 @@ class PLATFORM_EXPORT SecurityPolicy {
 
   static bool ReferrerPolicyFromString(const String& policy,
                                        ReferrerPolicyLegacyKeywordsSupport,
-                                       ReferrerPolicy* result);
+                                       network::mojom::ReferrerPolicy* result);
 
-  static bool ReferrerPolicyFromHeaderValue(const String& header_value,
-                                            ReferrerPolicyLegacyKeywordsSupport,
-                                            ReferrerPolicy* result);
+  static bool ReferrerPolicyFromHeaderValue(
+      const String& header_value,
+      ReferrerPolicyLegacyKeywordsSupport,
+      network::mojom::ReferrerPolicy* result);
 };
 
 }  // namespace blink

@@ -20,31 +20,21 @@ namespace headless {
 
 namespace {
 // Product name for building the default user agent string.
-const char kProductName[] = "HeadlessChrome";
+const char kHeadlessProductName[] = "HeadlessChrome";
 constexpr gfx::Size kDefaultWindowSize(800, 600);
 
 constexpr gfx::FontRenderParams::Hinting kDefaultFontRenderHinting =
     gfx::FontRenderParams::Hinting::HINTING_FULL;
 
 std::string GetProductNameAndVersion() {
-  return std::string(kProductName) + "/" + PRODUCT_VERSION;
+  return std::string(kHeadlessProductName) + "/" + PRODUCT_VERSION;
 }
 }  // namespace
 
 Options::Options(int argc, const char** argv)
     : argc(argc),
       argv(argv),
-#if defined(USE_OZONE)
-      // TODO(skyostil): Implement SwiftShader backend for headless ozone.
-      gl_implementation("osmesa"),
-#elif defined(OS_WIN)
-      // TODO(skyostil): Enable SwiftShader on Windows (crbug.com/729961).
-      gl_implementation("osmesa"),
-#elif !defined(OS_MACOSX)
       gl_implementation("swiftshader-webgl"),
-#else
-      gl_implementation("any"),
-#endif
       product_name_and_version(GetProductNameAndVersion()),
       user_agent(content::BuildUserAgentFromProduct(product_name_and_version)),
       window_size(kDefaultWindowSize),
@@ -106,11 +96,6 @@ Builder& Builder::SetMessagePump(base::MessagePump* message_pump) {
 Builder& Builder::SetProxyConfig(
     std::unique_ptr<net::ProxyConfig> proxy_config) {
   options_.proxy_config = std::move(proxy_config);
-  return *this;
-}
-
-Builder& Builder::SetHostResolverRules(const std::string& host_resolver_rules) {
-  options_.host_resolver_rules = host_resolver_rules;
   return *this;
 }
 

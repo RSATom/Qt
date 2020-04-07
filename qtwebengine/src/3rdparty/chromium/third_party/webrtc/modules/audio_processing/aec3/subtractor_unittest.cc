@@ -18,6 +18,7 @@
 #include "modules/audio_processing/aec3/render_delay_buffer.h"
 #include "modules/audio_processing/test/echo_canceller_test_tools.h"
 #include "rtc_base/random.h"
+#include "rtc_base/strings/string_builder.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -25,13 +26,15 @@ namespace {
 
 float RunSubtractorTest(int num_blocks_to_process,
                         int delay_samples,
-                        int filter_length_blocks,
+                        int main_filter_length_blocks,
+                        int shadow_filter_length_blocks,
                         bool uncorrelated_inputs,
                         const std::vector<int>& blocks_with_echo_path_changes) {
   ApmDataDumper data_dumper(42);
   EchoCanceller3Config config;
-  config.filter.main.length_blocks = config.filter.shadow.length_blocks =
-      filter_length_blocks;
+  config.filter.main.length_blocks = main_filter_length_blocks;
+  config.filter.shadow.length_blocks = shadow_filter_length_blocks;
+
   Subtractor subtractor(config, &data_dumper, DetectOptimization());
   absl::optional<DelayEstimate> delay_estimate;
   std::vector<std::vector<float>> x(3, std::vector<float>(kBlockSize, 0.f));
@@ -41,7 +44,7 @@ float RunSubtractorTest(int num_blocks_to_process,
   config.delay.min_echo_path_delay_blocks = 0;
   config.delay.default_delay = 1;
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create(config, 3));
+      RenderDelayBuffer::Create2(config, 3));
   RenderSignalAnalyzer render_signal_analyzer(config);
   Random random_generator(42U);
   Aec3Fft fft;
@@ -100,10 +103,10 @@ float RunSubtractorTest(int num_blocks_to_process,
 }
 
 std::string ProduceDebugText(size_t delay, int filter_length_blocks) {
-  std::ostringstream ss;
+  rtc::StringBuilder ss;
   ss << "Delay: " << delay << ", ";
   ss << "Length: " << filter_length_blocks;
-  return ss.str();
+  return ss.Release();
 }
 
 }  // namespace
@@ -124,7 +127,7 @@ TEST(Subtractor, DISABLED_NullOutput) {
   EchoCanceller3Config config;
   Subtractor subtractor(config, &data_dumper, DetectOptimization());
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create(config, 3));
+      RenderDelayBuffer::Create2(config, 3));
   RenderSignalAnalyzer render_signal_analyzer(config);
   std::vector<float> y(kBlockSize, 0.f);
 
@@ -140,7 +143,7 @@ TEST(Subtractor, WrongCaptureSize) {
   EchoCanceller3Config config;
   Subtractor subtractor(config, &data_dumper, DetectOptimization());
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create(config, 3));
+      RenderDelayBuffer::Create2(config, 3));
   RenderSignalAnalyzer render_signal_analyzer(config);
   std::vector<float> y(kBlockSize - 1, 0.f);
   SubtractorOutput output;
@@ -160,9 +163,9 @@ TEST(Subtractor, Convergence) {
     for (size_t delay_samples : {0, 64, 150, 200, 301}) {
       SCOPED_TRACE(ProduceDebugText(delay_samples, filter_length_blocks));
 
-      float echo_to_nearend_power =
-          RunSubtractorTest(400, delay_samples, filter_length_blocks, false,
-                            blocks_with_echo_path_changes);
+      float echo_to_nearend_power = RunSubtractorTest(
+          400, delay_samples, filter_length_blocks, filter_length_blocks, false,
+          blocks_with_echo_path_changes);
 
       // Use different criteria to take overmodelling into account.
       if (filter_length_blocks == 12) {
@@ -174,6 +177,24 @@ TEST(Subtractor, Convergence) {
   }
 }
 
+// Verifies that the subtractor is able to handle the case when the main filter
+// is longer than the shadow filter.
+TEST(Subtractor, MainFilterLongerThanShadowFilter) {
+  std::vector<int> blocks_with_echo_path_changes;
+  float echo_to_nearend_power =
+      RunSubtractorTest(400, 64, 20, 15, false, blocks_with_echo_path_changes);
+  EXPECT_GT(0.5f, echo_to_nearend_power);
+}
+
+// Verifies that the subtractor is able to handle the case when the shadow
+// filter is longer than the main filter.
+TEST(Subtractor, ShadowFilterLongerThanMainFilter) {
+  std::vector<int> blocks_with_echo_path_changes;
+  float echo_to_nearend_power =
+      RunSubtractorTest(400, 64, 15, 20, false, blocks_with_echo_path_changes);
+  EXPECT_GT(0.5f, echo_to_nearend_power);
+}
+
 // Verifies that the subtractor does not converge on uncorrelated signals.
 TEST(Subtractor, NonConvergenceOnUncorrelatedSignals) {
   std::vector<int> blocks_with_echo_path_changes;
@@ -181,27 +202,10 @@ TEST(Subtractor, NonConvergenceOnUncorrelatedSignals) {
     for (size_t delay_samples : {0, 64, 150, 200, 301}) {
       SCOPED_TRACE(ProduceDebugText(delay_samples, filter_length_blocks));
 
-      float echo_to_nearend_power =
-          RunSubtractorTest(300, delay_samples, filter_length_blocks, true,
-                            blocks_with_echo_path_changes);
+      float echo_to_nearend_power = RunSubtractorTest(
+          300, delay_samples, filter_length_blocks, filter_length_blocks, true,
+          blocks_with_echo_path_changes);
       EXPECT_NEAR(1.f, echo_to_nearend_power, 0.1);
-    }
-  }
-}
-
-// Verifies that the subtractor is properly reset when there is an echo path
-// change.
-TEST(Subtractor, EchoPathChangeReset) {
-  std::vector<int> blocks_with_echo_path_changes;
-  blocks_with_echo_path_changes.push_back(99);
-  for (size_t filter_length_blocks : {12, 20, 30}) {
-    for (size_t delay_samples : {0, 64, 150, 200, 301}) {
-      SCOPED_TRACE(ProduceDebugText(delay_samples, filter_length_blocks));
-
-      float echo_to_nearend_power =
-          RunSubtractorTest(100, delay_samples, filter_length_blocks, false,
-                            blocks_with_echo_path_changes);
-      EXPECT_NEAR(1.f, echo_to_nearend_power, 0.0000001f);
     }
   }
 }

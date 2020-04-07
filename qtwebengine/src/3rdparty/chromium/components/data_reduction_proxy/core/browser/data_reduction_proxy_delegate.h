@@ -9,17 +9,11 @@
 
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
-#include "net/base/network_change_notifier.h"
 #include "net/base/proxy_delegate.h"
 #include "net/proxy_resolution/proxy_retry_info.h"
 #include "url/gurl.h"
 
-namespace base {
-class TickClock;
-}
-
 namespace net {
-class NetLog;
 class ProxyInfo;
 class ProxyServer;
 }
@@ -29,20 +23,15 @@ namespace data_reduction_proxy {
 class DataReductionProxyBypassStats;
 class DataReductionProxyConfig;
 class DataReductionProxyConfigurator;
-class DataReductionProxyEventCreator;
 class DataReductionProxyIOData;
 
-class DataReductionProxyDelegate
-    : public net::ProxyDelegate,
-      public net::NetworkChangeNotifier::NetworkChangeObserver {
+class DataReductionProxyDelegate : public net::ProxyDelegate {
  public:
   // ProxyDelegate instance is owned by io_thread. |auth_handler| and |config|
   // outlives this class instance.
   DataReductionProxyDelegate(DataReductionProxyConfig* config,
                              const DataReductionProxyConfigurator* configurator,
-                             DataReductionProxyEventCreator* event_creator,
-                             DataReductionProxyBypassStats* bypass_stats,
-                             net::NetLog* net_log);
+                             DataReductionProxyBypassStats* bypass_stats);
 
   ~DataReductionProxyDelegate() override;
 
@@ -55,8 +44,11 @@ class DataReductionProxyDelegate
                       const net::ProxyRetryInfoMap& proxy_retry_info,
                       net::ProxyInfo* result) override;
   void OnFallback(const net::ProxyServer& bad_proxy, int net_error) override;
-
-  void SetTickClockForTesting(const base::TickClock* tick_clock);
+  void OnBeforeTunnelRequest(const net::ProxyServer& proxy_server,
+                             net::HttpRequestHeaders* extra_headers) override {}
+  net::Error OnTunnelHeadersReceived(
+      const net::ProxyServer& proxy_server,
+      const net::HttpResponseHeaders& response_headers) override;
 
  protected:
   // Protected so that it can be overridden during testing.
@@ -77,10 +69,6 @@ class DataReductionProxyDelegate
   // Records the availability status of data reduction proxy.
   void RecordQuicProxyStatus(QuicProxyStatus status) const;
 
-  // NetworkChangeNotifier::NetworkChangeObserver:
-  void OnNetworkChanged(
-      net::NetworkChangeNotifier::ConnectionType type) override;
-
   // Checks if the first proxy server in |result| supports QUIC and if so
   // adds an alternative proxy configuration to |result|.
   void GetAlternativeProxy(const GURL& url,
@@ -89,19 +77,9 @@ class DataReductionProxyDelegate
 
   const DataReductionProxyConfig* config_;
   const DataReductionProxyConfigurator* configurator_;
-  DataReductionProxyEventCreator* event_creator_;
   DataReductionProxyBypassStats* bypass_stats_;
 
-  // Tick clock used for obtaining the current time.
-  const base::TickClock* tick_clock_;
-
-  // Set to the time when last IP address change event was received, or the time
-  // of initialization of |this|, whichever is later.
-  base::TimeTicks last_network_change_time_;
-
   DataReductionProxyIOData* io_data_;
-
-  net::NetLog* net_log_;
 
   base::ThreadChecker thread_checker_;
 

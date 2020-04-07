@@ -9,16 +9,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/user_actions/user_actions_ui_handler.h"
 #include "chrome/common/url_constants.h"
+#include "components/grit/components_resources.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_data_source.h"
-
-#if defined(TOOLKIT_QT)
-#include "qtwebengine/grit/qt_webengine_resources.h"
-#else
-#include "chrome/grit/browser_resources.h"
-#endif
-
 
 UserActionsUI::UserActionsUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {

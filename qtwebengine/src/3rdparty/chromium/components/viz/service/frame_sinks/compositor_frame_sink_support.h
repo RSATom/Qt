@@ -10,6 +10,7 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/time/time.h"
@@ -79,6 +80,11 @@ class VIZ_SERVICE_EXPORT CompositorFrameSinkSupport
 
   FrameSinkManagerImpl* frame_sink_manager() { return frame_sink_manager_; }
 
+  const base::flat_map<uint32_t, gfx::PresentationFeedback>&
+  presentation_feedbacks() {
+    return presentation_feedbacks_;
+  }
+
   // Viz hit-test setup is only called when |is_root_| is true (except on
   // android webview).
   void SetUpHitTest(
@@ -127,7 +133,9 @@ class VIZ_SERVICE_EXPORT CompositorFrameSinkSupport
                                const SharedBitmapId& id);
   void DidDeleteSharedBitmap(const SharedBitmapId& id);
 
-  void EvictLastActivatedSurface();
+  // Mark |id| and all surfaces with smaller ids for destruction. Note that |id|
+  // doesn't have to exist at the time of calling.
+  void EvictSurface(const LocalSurfaceId& id);
 
   // Attempts to submit a new CompositorFrame to |local_surface_id| and returns
   // whether the frame was accepted or the reason why it was rejected. If
@@ -166,8 +174,23 @@ class VIZ_SERVICE_EXPORT CompositorFrameSinkSupport
   // string.
   static const char* GetSubmitResultAsString(SubmitResult result);
 
+  const std::vector<
+      std::pair<LocalSurfaceId, std::unique_ptr<CopyOutputRequest>>>&
+  copy_output_requests_for_testing() const {
+    return copy_output_requests_;
+  }
+
  private:
+  friend class CompositorFrameSinkSupportTest;
+  friend class DisplayTest;
   friend class FrameSinkManagerTest;
+
+  SubmitResult MaybeSubmitCompositorFrameInternal(
+      const LocalSurfaceId& local_surface_id,
+      CompositorFrame frame,
+      base::Optional<HitTestRegionList> hit_test_region_list,
+      uint64_t submit_time,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback);
 
   // Creates a surface reference from the top-level root to |surface_id|.
   SurfaceReference MakeTopLevelRootReference(const SurfaceId& surface_id);
@@ -177,7 +200,6 @@ class VIZ_SERVICE_EXPORT CompositorFrameSinkSupport
                                  const gfx::PresentationFeedback& feedback);
   void DidRejectCompositorFrame(
       uint32_t presentation_token,
-      bool request_presentation_feedback,
       std::vector<TransferableResource> frame_resource_list);
 
   // Update the display root reference with |surface|.
@@ -190,13 +212,18 @@ class VIZ_SERVICE_EXPORT CompositorFrameSinkSupport
   bool WantsAnimateOnlyBeginFrames() const override;
 
   void UpdateNeedsBeginFramesInternal();
-  Surface* CreateSurface(const SurfaceInfo& surface_info);
+  Surface* CreateSurface(const SurfaceInfo& surface_info,
+                         bool block_activation_on_parent);
 
   // For the sync API calls, if we are blocking a client callback, runs it once
   // BeginFrame and FrameAck are done.
   void HandleCallback();
 
   int64_t ComputeTraceId();
+
+  void MaybeEvictSurfaces();
+  void EvictLastActiveSurface();
+  bool ShouldSendBeginFrame(base::TimeTicks timestamp);
 
   mojom::CompositorFrameSinkClient* const client_;
 
@@ -276,6 +303,11 @@ class VIZ_SERVICE_EXPORT CompositorFrameSinkSupport
   bool callback_received_begin_frame_ = true;
   bool callback_received_receive_ack_ = true;
   uint32_t trace_sequence_ = 0;
+
+  base::flat_map<uint32_t, gfx::PresentationFeedback> presentation_feedbacks_;
+  uint32_t last_evicted_parent_sequence_number_ = 0;
+
+  base::TimeTicks last_frame_time_;
 
   base::WeakPtrFactory<CompositorFrameSinkSupport> weak_factory_;
 

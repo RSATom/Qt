@@ -50,12 +50,10 @@ QMapCircleObjectPrivateQSG::QMapCircleObjectPrivateQSG(const QMapCircleObjectPri
     : QMapCircleObjectPrivateDefault(other)
 {
     // Data already cloned by the *Default copy constructor, but necessary
-    // update operations triggered by setters overrides
-    setCenter(center());
-    setRadius(radius());
-    setColor(color());
-    setBorderColor(borderColor());
-    setBorderWidth(borderWidth());
+    // update operations triggered only by setters overrides
+    updateGeometry();
+    if (m_map)
+        emit m_map->sgNodeChanged();
 }
 
 QMapCircleObjectPrivateQSG::~QMapCircleObjectPrivateQSG()
@@ -77,7 +75,7 @@ void QMapCircleObjectPrivateQSG::updateCirclePath()
 void QMapCircleObjectPrivateQSG::updateGeometry()
 {
     if (!m_map || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator
-            || !qIsFinite(m_radius) || !m_center.isValid())
+            || !qIsFinite(radius()) || !center().isValid())
         return;
 
     const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
@@ -153,7 +151,7 @@ QSGNode *QMapCircleObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
                                                          QSGNode *root,
                                                          QQuickWindow * /*window*/)
 {
-//    Q_UNUSED(visibleNode) // coz of -Werror=unused-but-set-parameter
+//    Q_UNUSED(visibleNode); // coz of -Werror=unused-but-set-parameter
     MapPolygonNode *node = static_cast<MapPolygonNode *>(oldNode);
 
     bool created = false;
@@ -182,7 +180,7 @@ QSGNode *QMapCircleObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
 
 void QMapCircleObjectPrivateQSG::setCenter(const QGeoCoordinate &center)
 {
-    m_center = center;
+    QMapCircleObjectPrivateDefault::setCenter(center);
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -190,7 +188,7 @@ void QMapCircleObjectPrivateQSG::setCenter(const QGeoCoordinate &center)
 
 void QMapCircleObjectPrivateQSG::setRadius(qreal radius)
 {
-    m_radius = radius;
+    QMapCircleObjectPrivateDefault::setRadius(radius);
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -198,7 +196,7 @@ void QMapCircleObjectPrivateQSG::setRadius(qreal radius)
 
 void QMapCircleObjectPrivateQSG::setColor(const QColor &color)
 {
-    m_fillColor = color;
+    QMapCircleObjectPrivateDefault::setColor(color);
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -206,7 +204,7 @@ void QMapCircleObjectPrivateQSG::setColor(const QColor &color)
 
 void QMapCircleObjectPrivateQSG::setBorderColor(const QColor &color)
 {
-    m_borderColor = color;
+    QMapCircleObjectPrivateDefault::setBorderColor(color);
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -214,7 +212,7 @@ void QMapCircleObjectPrivateQSG::setBorderColor(const QColor &color)
 
 void QMapCircleObjectPrivateQSG::setBorderWidth(qreal width)
 {
-    m_borderWidth = width;
+    QMapCircleObjectPrivateDefault::setBorderWidth(width);
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();

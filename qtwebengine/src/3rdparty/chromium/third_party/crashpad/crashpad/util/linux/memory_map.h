@@ -17,6 +17,7 @@
 
 #include <sys/types.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -76,20 +77,55 @@ class MemoryMap {
   //!     it was obtained from.
   const Mapping* FindMappingWithName(const std::string& name) const;
 
-  //! \brief Find the first Mapping in a series of mappings for the same file.
+  //! \brief An abstract base class for iterating over ordered sets of mappings
+  //!   in a MemoryMap.
+  class Iterator {
+   public:
+    virtual ~Iterator() = default;
+
+    //! \return the mapping pointed to by the iterator and advance the iterator
+    //!     to the next mapping. If there are no more mappings, this method
+    //!     returns `nullptr` on all subsequent invocations.
+    virtual const Mapping* Next() = 0;
+
+    //! \return the number of mappings remaining.
+    virtual unsigned int Count() = 0;
+
+   protected:
+    Iterator() = default;
+  };
+
+  //! \brief Find possible initial mappings of files mapped over several
+  //!     segments.
   //!
   //! Executables and libaries are typically loaded into several mappings with
-  //! varying permissions for different segments. This method searches for the
-  //! mapping with the highest address at or below \a mapping, which maps the
-  //! same file as \a mapping from file offset 0.
+  //! varying permissions for different segments. Portions of an ELF file may
+  //! be mapped multiple times as part of loading the file, for example, when
+  //! initializing GNU_RELRO segments.
   //!
-  //! If \a mapping is not found, `nullptr` is returned. If \a mapping is found
-  //! but does not map a file, \a mapping is returned.
+  //! This method searches for mappings at or below \a mapping in memory that
+  //! are mapped from the same file as \a mapping from offset 0.
+  //!
+  //! On Android, ELF modules may be loaded from within a zipfile, so this
+  //! method may return mappings whose offset is not 0.
+  //!
+  //! This method is intended to help identify the possible base address for
+  //! loaded modules, but it is the caller's responsibility to determine which
+  //! returned mapping is correct.
+  //!
+  //! If \a mapping does not refer to a valid mapping, an empty vector will be
+  //! returned and a message will be logged. If \a mapping is found but does not
+  //! map a file, \a mapping is returned in \a possible_starts.
   //!
   //! \param[in] mapping A Mapping whose series to find the start of.
-  //! \return The first Mapping in the series or `nullptr` on failure with a
-  //!     message logged.
-  const Mapping* FindFileMmapStart(const Mapping& mapping) const;
+  //! \return a reverse iterator over the possible mapping starts, starting from
+  //!     the mapping with highest base address.
+  std::unique_ptr<Iterator> FindFilePossibleMmapStarts(
+      const Mapping& mapping) const;
+
+  //! \return A reverse iterator over all mappings in the MemoryMap from \a
+  //!     mapping to the start of the MemoryMap.
+  std::unique_ptr<Iterator> ReverseIteratorFrom(const Mapping& mapping) const;
 
  private:
   std::vector<Mapping> mappings_;

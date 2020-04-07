@@ -19,7 +19,6 @@
 #include "net/third_party/quic/core/congestion_control/rtt_stats.h"
 #include "net/third_party/quic/core/congestion_control/send_algorithm_interface.h"
 #include "net/third_party/quic/core/proto/cached_network_parameters.pb.h"
-#include "net/third_party/quic/core/quic_debug_info_provider_interface.h"
 #include "net/third_party/quic/core/quic_packets.h"
 #include "net/third_party/quic/core/quic_pending_retransmission.h"
 #include "net/third_party/quic/core/quic_sustained_bandwidth_recorder.h"
@@ -46,8 +45,7 @@ struct QuicConnectionStats;
 // retransmittable data associated with each packet. If a packet is
 // retransmitted, it will keep track of each version of a packet so that if a
 // previous transmission is acked, the data will not be retransmitted.
-class QUIC_EXPORT_PRIVATE QuicSentPacketManager
-    : public QuicDebugInfoProviderInterface {
+class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
  public:
   // Interface which gets callbacks from the QuicSentPacketManager at
   // interesting points.  Implementations must not mutate the state of
@@ -70,6 +68,11 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
     virtual void OnPacketLoss(QuicPacketNumber lost_packet_number,
                               TransmissionType transmission_type,
                               QuicTime detection_time) {}
+
+    virtual void OnApplicationLimited() {}
+
+    virtual void OnAdjustNetworkParameters(QuicBandwidth bandwidth,
+                                           QuicTime::Delta rtt) {}
   };
 
   // Interface which gets callbacks from the QuicSentPacketManager when
@@ -91,18 +94,9 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
                         QuicConnectionStats* stats,
                         CongestionControlType congestion_control_type,
                         LossDetectionType loss_type);
-
-  QuicSentPacketManager(Perspective perspective,
-                        const QuicClock* clock,
-                        QuicConnectionStats* stats,
-                        CongestionControlType congestion_control_type,
-                        LossDetectionType loss_type,
-                        QuicDebugInfoProviderInterface* debug_info_provider);
-
+  QuicSentPacketManager(const QuicSentPacketManager&) = delete;
+  QuicSentPacketManager& operator=(const QuicSentPacketManager&) = delete;
   virtual ~QuicSentPacketManager();
-
-  // From QuicDebugInfoProviderInterface
-  QuicString DebugStringForAckProcessing() const override;
 
   virtual void SetFromConfig(const QuicConfig& config);
 
@@ -158,13 +152,14 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
   // there are pending retransmissions prior to calling this function.
   QuicPendingRetransmission NextPendingRetransmission();
 
-  bool HasUnackedPackets() const {
-    return unacked_packets_.HasUnackedPackets();
-  }
-
   // Returns true if there's outstanding crypto data.
   bool HasUnackedCryptoPackets() const {
     return unacked_packets_.HasPendingCryptoPackets();
+  }
+
+  // Returns true if there are packets in flight expecting to be acknowledged.
+  bool HasInFlightPackets() const {
+    return unacked_packets_.HasInFlightPackets();
   }
 
   // Returns the smallest packet number of a serialized packet which has not
@@ -264,6 +259,10 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
   // with newly acked packets.
   void OnAckRange(QuicPacketNumber start, QuicPacketNumber end);
 
+  // Called when a timestamp is processed.  If it's present in packets_acked_,
+  // the timestamp field is set.  Otherwise, the timestamp is ignored.
+  void OnAckTimestamp(QuicPacketNumber packet_number, QuicTime timestamp);
+
   // Called when an ack frame is parsed completely. Returns true if a previously
   // -unacked packet is acked.
   bool OnAckFrameEnd(QuicTime ack_receive_time);
@@ -340,6 +339,16 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
   const QuicUnackedPacketMap& unacked_packets() const {
     return unacked_packets_;
   }
+
+  // Sets the send algorithm to the given congestion control type and points the
+  // pacing sender at |send_algorithm_|. Can be called any number of times.
+  void SetSendAlgorithm(CongestionControlType congestion_control_type);
+
+  // Sets the send algorithm to |send_algorithm| and points the pacing sender at
+  // |send_algorithm_|. Takes ownership of |send_algorithm|. Can be called any
+  // number of times.
+  // Setting the send algorithm once the connection is underway is dangerous.
+  void SetSendAlgorithm(SendAlgorithmInterface* send_algorithm);
 
  private:
   friend class test::QuicConnectionPeer;
@@ -435,6 +444,12 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
   void MarkForRetransmission(QuicPacketNumber packet_number,
                              TransmissionType transmission_type);
 
+  // Performs whatever work is need to retransmit the data correctly, either
+  // by retransmitting the frames directly or by notifying that the frames
+  // are lost.
+  void HandleRetransmission(TransmissionType transmission_type,
+                            QuicTransmissionInfo* transmission_info);
+
   // Called after packets have been marked handled with last received ack frame.
   void PostProcessAfterMarkingPacketHandled(
       const QuicAckFrame& ack_frame,
@@ -452,15 +467,6 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
   // QuicTransmissionInfo |info|.
   void RecordSpuriousRetransmissions(const QuicTransmissionInfo& info,
                                      QuicPacketNumber acked_packet_number);
-
-  // Sets the send algorithm to the given congestion control type and points the
-  // pacing sender at |send_algorithm_|. Can be called any number of times.
-  void SetSendAlgorithm(CongestionControlType congestion_control_type);
-
-  // Sets the send algorithm to |send_algorithm| and points the pacing sender at
-  // |send_algorithm_|. Takes ownership of |send_algorithm|. Can be called any
-  // number of times.
-  void SetSendAlgorithm(SendAlgorithmInterface* send_algorithm);
 
   // Sets the initial RTT of the connection.
   void SetInitialRtt(QuicTime::Delta rtt);
@@ -561,15 +567,15 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager
   // Record whether RTT gets updated by last largest acked..
   bool rtt_updated_;
 
-  // Latched value of quic_reloadable_flag_quic_extra_checks_in_ack_processing.
-  const bool extra_checks_in_ack_processing_;
-  QuicDebugInfoProviderInterface* debug_info_provider_;
-
   // A reverse iterator of last_ack_frame_.packets. This is reset in
   // OnAckRangeStart, and gradually moves in OnAckRange..
   PacketNumberQueue::const_reverse_iterator acked_packets_iter_;
 
-  DISALLOW_COPY_AND_ASSIGN(QuicSentPacketManager);
+  // Latched value of quic_aggregate_acked_stream_frames_2 flag.
+  const bool aggregate_acked_stream_frames_;
+
+  // Latched value of quic_fix_mark_for_loss_retransmission flag.
+  const bool fix_mark_for_loss_retransmission_;
 };
 
 }  // namespace quic

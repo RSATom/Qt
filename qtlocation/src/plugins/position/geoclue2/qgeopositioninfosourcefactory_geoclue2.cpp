@@ -53,13 +53,13 @@ QGeoPositionInfoSource *QGeoPositionInfoSourceFactoryGeoclue2::positionInfoSourc
 
 QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactoryGeoclue2::satelliteInfoSource(QObject *parent)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return nullptr;
 }
 
 QGeoAreaMonitorSource *QGeoPositionInfoSourceFactoryGeoclue2::areaMonitor(QObject *parent)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return nullptr;
 }
 

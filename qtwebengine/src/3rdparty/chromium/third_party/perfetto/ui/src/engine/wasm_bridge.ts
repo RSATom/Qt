@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// tslint:disable:no-any
-
-import {defer, Deferred} from '../base/deferred';
+import {defer} from '../base/deferred';
+import {assertExists, assertTrue} from '../base/logging';
 import * as init_trace_processor from '../gen/trace_processor';
 
 function writeToUIConsole(line: string) {
@@ -35,125 +34,61 @@ export interface WasmBridgeResponse {
 }
 
 export class WasmBridge {
-  private deferredRuntimeInitialized: Deferred<void>;
-  private deferredHaveBlob: Deferred<void>;
-  private deferredInitialized: Deferred<void>;
-  private deferredReady: Deferred<void>;
-  private fileReader: any;
-  private blob: Blob|null;
-  private callback: (_: WasmBridgeResponse) => void;
-  private replyCount: number;
+  // When this promise has resolved it is safe to call callWasm.
+  whenInitialized: Promise<void>;
+
   private aborted: boolean;
-  private outstandingRequests: Set<number>;
+  private currentRequestResult: WasmBridgeResponse|null;
+  private connection: init_trace_processor.Module;
 
-  connection: init_trace_processor.Module;
-
-  constructor(
-      init: init_trace_processor.InitWasm,
-      callback: (_: WasmBridgeResponse) => void, fileReader: any) {
-    this.replyCount = 0;
-    this.deferredRuntimeInitialized = defer<void>();
-    this.deferredHaveBlob = defer<void>();
-    this.deferredInitialized = defer<void>();
-    this.deferredReady = defer<void>();
-    this.fileReader = fileReader;
-    this.callback = callback;
-    this.blob = null;
+  constructor(init: init_trace_processor.InitWasm) {
     this.aborted = false;
-    this.outstandingRequests = new Set();
+    this.currentRequestResult = null;
 
+    const deferredRuntimeInitialized = defer<void>();
     this.connection = init({
       locateFile: (s: string) => s,
       print: writeToUIConsole,
       printErr: writeToUIConsole,
-      onRuntimeInitialized: () => this.deferredRuntimeInitialized.resolve(),
-      onAbort: () => this.onAbort(),
+      onRuntimeInitialized: () => deferredRuntimeInitialized.resolve(),
+      onAbort: () => this.aborted = true,
+    });
+    this.whenInitialized = deferredRuntimeInitialized.then(() => {
+      const fn = this.connection.addFunction(this.onReply.bind(this), 'viiii');
+      this.connection.ccall('Initialize', 'void', ['number'], [fn]);
     });
   }
 
-  onAbort() {
-    this.aborted = true;
-    for (const id of this.outstandingRequests) {
-      this.abortRequest(id);
-    }
-    this.outstandingRequests.clear();
-  }
-
-  onRead(offset: number, length: number, dstPtr: number): number {
-    if (this.blob === null) {
-      throw new Error('No blob set');
-    }
-    const slice = this.blob.slice(offset, offset + length);
-    const buf: ArrayBuffer = this.fileReader.readAsArrayBuffer(slice);
-    const buf8 = new Uint8Array(buf);
-    this.connection.HEAPU8.set(buf8, dstPtr);
-    return buf.byteLength;
-  }
-
-  onReply(reqId: number, success: boolean, heapPtr: number, size: number) {
-    // The first reply (from Initialize) is special. It has no proto payload
-    // and no associated callback.
-    if (this.replyCount === 0) {
-      this.replyCount++;
-      this.deferredInitialized.resolve();
-      return;
-    }
-    if (!this.outstandingRequests.has(reqId)) {
-      throw new Error(`Unknown request id: "${reqId}"`);
-    }
-    this.outstandingRequests.delete(reqId);
-    this.replyCount++;
-    const data = this.connection.HEAPU8.slice(heapPtr, heapPtr + size);
-    this.callback({
-      id: reqId,
-      success,
-      data,
-    });
-  }
-
-  abortRequest(requestId: number) {
-    this.callback({
-      id: requestId,
-      success: false,
-      data: undefined,
-    });
-  }
-
-  setBlob(blob: Blob) {
-    if (this.blob !== null) throw new Error('Blob set twice.');
-    this.blob = blob;
-    this.deferredHaveBlob.resolve();
-  }
-
-  async callWasm(req: WasmBridgeRequest): Promise<void> {
-    await this.deferredReady;
+  callWasm(req: WasmBridgeRequest): WasmBridgeResponse {
     if (this.aborted) {
-      this.abortRequest(req.id);
-      return;
+      return {
+        id: req.id,
+        success: false,
+        data: undefined,
+      };
     }
 
-    this.outstandingRequests.add(req.id);
     this.connection.ccall(
         `${req.serviceName}_${req.methodName}`,  // C method name.
         'void',                                  // Return type.
         ['number', 'array', 'number'],           // Input args.
         [req.id, req.data, req.data.length]      // Args.
         );
+
+    const result = assertExists(this.currentRequestResult);
+    assertTrue(req.id === result.id);
+    this.currentRequestResult = null;
+    return result;
   }
 
-  async initialize(): Promise<void> {
-    await this.deferredRuntimeInitialized;
-    await this.deferredHaveBlob;
-    const readTraceFn =
-        this.connection.addFunction(this.onRead.bind(this), 'iiii');
-    const replyFn =
-        this.connection.addFunction(this.onReply.bind(this), 'viiii');
-    this.connection.ccall(
-        'Initialize',
-        'void',
-        ['number', 'number', 'number'],
-        [0, readTraceFn, replyFn]);
-    await this.deferredInitialized;
-    this.deferredReady.resolve();
+  // This is invoked from ccall in the same call stack as callWasm.
+  private onReply(
+      reqId: number, success: boolean, heapPtr: number, size: number) {
+    const data = this.connection.HEAPU8.slice(heapPtr, heapPtr + size);
+    this.currentRequestResult = {
+      id: reqId,
+      success,
+      data,
+    };
   }
 }

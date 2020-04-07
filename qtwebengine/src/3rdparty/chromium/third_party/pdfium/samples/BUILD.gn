@@ -20,12 +20,6 @@ config("pdfium_samples_config") {
     "PNG_USE_READ_MACROS",
   ]
   include_dirs = [ ".." ]
-  if (pdf_enable_v8) {
-    defines += [ "PDF_ENABLE_V8" ]
-  }
-  if (pdf_enable_xfa) {
-    defines += [ "PDF_ENABLE_XFA" ]
-  }
   if (pdf_use_skia) {
     defines += [ "PDF_ENABLE_SKIA" ]
   }
@@ -50,19 +44,19 @@ executable("pdfium_test") {
     "pdfium_test_write_helper.h",
   ]
   deps = [
-    "../:image_diff",
     "../:pdfium",
-    "../:test_support",
+    "../testing/:test_support",
+    "../testing/image_diff",
     "//build/win:default_exe_manifest",
   ]
   configs += [ ":pdfium_samples_config" ]
 
   if (pdf_enable_v8) {
-    deps += [ "//v8:v8_libplatform" ]
-    include_dirs = [
-      "//v8",
-      "//v8/include",
+    deps += [
+      "//v8:v8_headers",
+      "//v8:v8_libplatform",
     ]
+    include_dirs = [ "//v8" ]
     configs += [ "//v8:external_startup_data" ]
   }
   if (pdf_use_skia || pdf_use_skia_paths) {

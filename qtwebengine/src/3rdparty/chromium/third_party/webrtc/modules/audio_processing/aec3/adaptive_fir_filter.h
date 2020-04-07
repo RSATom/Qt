@@ -11,8 +11,8 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_ADAPTIVE_FIR_FILTER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_ADAPTIVE_FIR_FILTER_H_
 
+#include <stddef.h>
 #include <array>
-#include <memory>
 #include <vector>
 
 #include "api/array_view.h"
@@ -21,7 +21,8 @@
 #include "modules/audio_processing/aec3/fft_data.h"
 #include "modules/audio_processing/aec3/render_buffer.h"
 #include "modules/audio_processing/logging/apm_data_dumper.h"
-#include "rtc_base/constructormagic.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/system/arch.h"
 
 namespace webrtc {
 namespace aec3 {
@@ -163,6 +164,7 @@ class AdaptiveFirFilter {
   void UpdateSize();
 
   ApmDataDumper* const data_dumper_;
+  const bool use_partial_filter_reset_;
   const Aec3Fft fft_;
   const Aec3Optimization optimization_;
   const size_t max_size_partitions_;

@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "extensions/browser/api/dns/host_resolver_wrapper.h"
-#include "extensions/browser/api/dns/mock_host_resolver_creator.h"
 #include "extensions/browser/api/socket/socket_api.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/common/extension.h"
@@ -19,7 +17,8 @@ class SocketApiTest : public AppShellTest {};
 IN_PROC_BROWSER_TEST_F(SocketApiTest, SocketUDPCreateGood) {
   scoped_refptr<extensions::SocketCreateFunction> socket_create_function(
       new extensions::SocketCreateFunction());
-  scoped_refptr<Extension> empty_extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> empty_extension =
+      ExtensionBuilder("Test").Build();
 
   socket_create_function->set_extension(empty_extension.get());
   socket_create_function->set_has_callback(true);
@@ -36,7 +35,8 @@ IN_PROC_BROWSER_TEST_F(SocketApiTest, SocketUDPCreateGood) {
 IN_PROC_BROWSER_TEST_F(SocketApiTest, SocketTCPCreateGood) {
   scoped_refptr<extensions::SocketCreateFunction> socket_create_function(
       new extensions::SocketCreateFunction());
-  scoped_refptr<Extension> empty_extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> empty_extension =
+      ExtensionBuilder("Test").Build();
 
   socket_create_function->set_extension(empty_extension.get());
   socket_create_function->set_has_callback(true);
@@ -53,7 +53,8 @@ IN_PROC_BROWSER_TEST_F(SocketApiTest, SocketTCPCreateGood) {
 IN_PROC_BROWSER_TEST_F(SocketApiTest, GetNetworkList) {
   scoped_refptr<extensions::SocketGetNetworkListFunction> socket_function(
       new extensions::SocketGetNetworkListFunction());
-  scoped_refptr<Extension> empty_extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> empty_extension =
+      ExtensionBuilder("Test").Build();
 
   socket_function->set_extension(empty_extension.get());
   socket_function->set_has_callback(true);

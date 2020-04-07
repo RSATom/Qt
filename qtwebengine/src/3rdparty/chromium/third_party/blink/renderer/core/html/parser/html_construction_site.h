@@ -39,7 +39,7 @@
 namespace blink {
 
 struct HTMLConstructionSiteTask {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   enum Operation {
@@ -53,7 +53,7 @@ struct HTMLConstructionSiteTask {
   explicit HTMLConstructionSiteTask(Operation op)
       : operation(op), self_closing(false) {}
 
-  void Trace(blink::Visitor* visitor) {
+  void Trace(Visitor* visitor) {
     visitor->Trace(parent);
     visitor->Trace(next_child);
     visitor->Trace(child);
@@ -111,7 +111,7 @@ class HTMLConstructionSite final {
                        Document&,
                        ParserContentPolicy);
   ~HTMLConstructionSite();
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   void InitFragmentParsing(DocumentFragment*, Element* context_element);
 
@@ -264,7 +264,7 @@ class HTMLConstructionSite final {
 
   CustomElementDefinition* LookUpCustomElementDefinition(
       Document&,
-      AtomicHTMLToken*,
+      const QualifiedName&,
       const AtomicString& is);
 
   HTMLParserReentryPermit* reentry_permit_;
@@ -324,7 +324,7 @@ class HTMLConstructionSite final {
       return string_builder.IsEmpty();
     }
 
-    void Trace(blink::Visitor*);
+    void Trace(Visitor*);
 
     Member<ContainerNode> parent;
     Member<Node> next_child;

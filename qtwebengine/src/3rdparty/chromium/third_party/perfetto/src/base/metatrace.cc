@@ -20,6 +20,7 @@
 #include <stdlib.h>
 
 #include "perfetto/base/build_config.h"
+#include "perfetto/base/file_utils.h"
 #include "perfetto/base/time.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
@@ -29,41 +30,31 @@
 namespace perfetto {
 namespace base {
 
+namespace {
 int MaybeOpenTraceFile() {
   static const char* tracing_path = getenv("PERFETTO_METATRACE_FILE");
   if (tracing_path == nullptr)
     return -1;
-  static int fd = open(tracing_path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+  static int fd = open(tracing_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   return fd;
 }
+}  // namespace
 
-template <>
-std::string FormatJSON<std::string>(std::string value) {
-  return "\"" + value + "\"";
-}
-
-template <>
-std::string FormatJSON<const char*>(const char* value) {
-  return std::string("\"") + value + "\"";
-}
-
-void MetaTrace::WriteEvent(std::string type) {
+void MetaTrace::WriteEvent(char type, const char* evt_name, size_t cpu) {
   int fd = MaybeOpenTraceFile();
   if (fd == -1)
     return;
 
-  std::string data = "{";
-  data.reserve(128);
-  for (size_t i = 0; i < trace_.size(); ++i) {
-    const std::pair<std::string, std::string>& p = trace_[i];
-    data += p.first;
-    data += ": ";
-    data += p.second;
-    data += ", ";
-  }
-  data += "\"ts\": " + std::to_string(GetWallTimeNs().count() / 1000.) +
-          ", \"cat\": \"PERF\", \"ph\": \"" + type + "\"},\n";
-  ignore_result(write(fd, data.c_str(), data.size()));
+  // The JSON event format expects both "pid" and "tid" fields to create
+  // per-process tracks. Here what we really want to achieve is having one track
+  // per cpu. So we just pretend that each CPU is its own process with
+  // pid == tid == cpu.
+  char json[256];
+  int len = sprintf(json,
+                    "{\"ts\": %f, \"cat\": \"PERF\", \"ph\": \"%c\", \"name\": "
+                    "\"%s\", \"pid\": %zu, \"tid\": %zu},\n",
+                    GetWallTimeNs().count() / 1000.0, type, evt_name, cpu, cpu);
+  ignore_result(WriteAll(fd, json, static_cast<size_t>(len)));
 }
 
 }  // namespace base

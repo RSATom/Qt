@@ -4,7 +4,9 @@
 
 #include "gpu/vulkan/x/vulkan_implementation_x11.h"
 
+#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
+#include "base/logging.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
 #include "gpu/vulkan/vulkan_instance.h"
 #include "gpu/vulkan/vulkan_surface.h"
@@ -34,10 +36,8 @@ bool VulkanImplementationX11::InitializeVulkanInstance() {
   if (!vulkan_function_pointers->vulkan_loader_library_)
     return false;
 
-  if (!vulkan_instance_.Initialize(required_extensions)) {
-    vulkan_instance_.Destroy();
+  if (!vulkan_instance_.Initialize(required_extensions, {}))
     return false;
-  }
 
   // Initialize platform function pointers
   vkGetPhysicalDeviceXlibPresentationSupportKHR_ =
@@ -46,7 +46,7 @@ bool VulkanImplementationX11::InitializeVulkanInstance() {
               vulkan_instance_.vk_instance(),
               "vkGetPhysicalDeviceXlibPresentationSupportKHR"));
   if (!vkGetPhysicalDeviceXlibPresentationSupportKHR_) {
-    vulkan_instance_.Destroy();
+    LOG(ERROR) << "vkGetPhysicalDeviceXlibPresentationSupportKHR not found";
     return false;
   }
 
@@ -54,7 +54,7 @@ bool VulkanImplementationX11::InitializeVulkanInstance() {
       reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(vkGetInstanceProcAddr(
           vulkan_instance_.vk_instance(), "vkCreateXlibSurfaceKHR"));
   if (!vkCreateXlibSurfaceKHR_) {
-    vulkan_instance_.Destroy();
+    LOG(ERROR) << "vkCreateXlibSurfaceKHR not found";
     return false;
   }
 

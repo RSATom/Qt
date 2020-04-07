@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/service/display/display_client.h"
@@ -46,9 +47,12 @@ class RootCompositorFrameSinkImpl : public mojom::CompositorFrameSink,
   void SetDisplayColorSpace(const gfx::ColorSpace& blending_color_space,
                             const gfx::ColorSpace& device_color_space) override;
   void SetOutputIsSecure(bool secure) override;
-  void SetAuthoritativeVSyncInterval(base::TimeDelta interval) override;
   void SetDisplayVSyncParameters(base::TimeTicks timebase,
                                  base::TimeDelta interval) override;
+  void ForceImmediateDrawAndSwapIfPossible() override;
+#if defined(OS_ANDROID)
+  void SetVSyncPaused(bool paused) override;
+#endif
 
   // mojom::CompositorFrameSink:
   void SetNeedsBeginFrame(bool needs_begin_frame) override;
@@ -86,7 +90,7 @@ class RootCompositorFrameSinkImpl : public mojom::CompositorFrameSink,
   // DisplayClient:
   void DisplayOutputSurfaceLost() override;
   void DisplayWillDrawAndSwap(bool will_draw_and_swap,
-                              const RenderPassList& render_passes) override;
+                              RenderPassList* render_passes) override;
   void DisplayDidDrawAndSwap() override;
   void DisplayDidReceiveCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override;

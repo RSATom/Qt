@@ -20,6 +20,12 @@ class TestInstance(object):
   def TestType(self):
     raise NotImplementedError
 
+  # pylint: disable=no-self-use
+  def GetPreferredAbis(self):
+    return None
+
+  # pylint: enable=no-self-use
+
   def SetUp(self):
     raise NotImplementedError
 
@@ -32,4 +38,3 @@ class TestInstance(object):
 
   def __exit__(self, _exc_type, _exc_val, _exc_tb):
     self.TearDown()
-

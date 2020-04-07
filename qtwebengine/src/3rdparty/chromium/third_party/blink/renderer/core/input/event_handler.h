@@ -60,7 +60,6 @@ class DataTransfer;
 class PaintLayer;
 class Element;
 class Event;
-class EventTarget;
 template <typename EventType>
 class EventWithHitTestResults;
 class FloatQuad;
@@ -78,6 +77,7 @@ class WebGestureEvent;
 class WebMouseEvent;
 class WebMouseWheelEvent;
 
+// Handles events for Pointers (Mouse/Touch), HitTests, DragAndDrop, etc.
 class CORE_EXPORT EventHandler final
     : public GarbageCollectedFinalized<EventHandler> {
  public:
@@ -96,8 +96,9 @@ class CORE_EXPORT EventHandler final
 
   void StopAutoscroll();
 
-  void DispatchFakeMouseMoveEventSoon(MouseEventManager::FakeMouseMoveReason);
-  void DispatchFakeMouseMoveEventSoonInQuad(const FloatQuad&);
+  void MayUpdateHoverWhenContentUnderMouseChanged(
+      MouseEventManager::UpdateHoverReason);
+  void MayUpdateHoverAfterScroll(const FloatQuad&);
 
   HitTestResult HitTestResultAtLocation(
       const HitTestLocation&,
@@ -111,8 +112,8 @@ class CORE_EXPORT EventHandler final
     return mouse_event_manager_->IsMousePositionUnknown();
   }
   void ClearMouseEventManager() const { mouse_event_manager_->Clear(); }
-  void SetCapturingMouseEventsNode(
-      Node*);  // A caller is responsible for resetting capturing node to 0.
+  void SetCapturingMouseEventsElement(
+      Element*);  // A caller is responsible for resetting capturing node to 0.
 
   WebInputEventResult UpdateDragAndDrop(const WebMouseEvent&, DataTransfer*);
   void CancelDragAndDrop(const WebMouseEvent&, DataTransfer*);
@@ -146,18 +147,28 @@ class CORE_EXPORT EventHandler final
 
   WebInputEventResult HandleMouseMoveEvent(
       const WebMouseEvent&,
-      const Vector<WebMouseEvent>& coalesced_events);
+      const Vector<WebMouseEvent>& coalesced_events,
+      const Vector<WebMouseEvent>& predicted_events);
   void HandleMouseLeaveEvent(const WebMouseEvent&);
 
   WebInputEventResult HandlePointerEvent(
       const WebPointerEvent&,
-      const Vector<WebPointerEvent>& coalesced_events);
+      const Vector<WebPointerEvent>& coalesced_events,
+      const Vector<WebPointerEvent>& predicted_events);
 
   WebInputEventResult DispatchBufferedTouchEvents();
 
   WebInputEventResult HandleMousePressEvent(const WebMouseEvent&);
   WebInputEventResult HandleMouseReleaseEvent(const WebMouseEvent&);
   WebInputEventResult HandleWheelEvent(const WebMouseWheelEvent&);
+
+  WebInputEventResult HandleTargetedMouseEvent(
+      Node* target,
+      const WebMouseEvent&,
+      const AtomicString& event_type,
+      const Vector<WebMouseEvent>& coalesced_events,
+      const Vector<WebMouseEvent>& predicted_events,
+      const String& canvas_node_id = String());
 
   // Called on the local root frame exactly once per gesture event.
   WebInputEventResult HandleGestureEvent(const WebGestureEvent&);
@@ -201,22 +212,21 @@ class CORE_EXPORT EventHandler final
 
   WebInputEventResult SendContextMenuEvent(
       const WebMouseEvent&,
-      Node* override_target_node = nullptr);
+      Element* override_target_element = nullptr);
   WebInputEventResult ShowNonLocatedContextMenu(
       Element* override_target_element = nullptr,
       WebMenuSourceType = kMenuSourceNone);
 
   // Returns whether pointerId is active or not
-  bool IsPointerEventActive(int);
+  bool IsPointerEventActive(PointerId);
 
-  void SetPointerCapture(int, EventTarget*);
-  void ReleasePointerCapture(int, EventTarget*);
+  void SetPointerCapture(PointerId, Element*);
+  void ReleasePointerCapture(PointerId, Element*);
   void ReleaseMousePointerCapture();
-  bool HasPointerCapture(int, const EventTarget*) const;
-  bool HasProcessedPointerCapture(int, const EventTarget*) const;
+  bool HasPointerCapture(PointerId, const Element*) const;
   void ProcessPendingPointerCaptureForPointerLock(const WebMouseEvent&);
 
-  void ElementRemoved(EventTarget*);
+  void ElementRemoved(Element*);
 
   void SetMouseDownMayStartAutoscroll();
 
@@ -262,7 +272,7 @@ class CORE_EXPORT EventHandler final
                      ScrollGranularity,
                      Node* start_node = nullptr);
 
-  bool IsTouchPointerIdActiveOnFrame(int, LocalFrame*) const;
+  bool IsTouchPointerIdActiveOnFrame(PointerId, LocalFrame*) const;
 
   // Clears drag target and related states. It is called when drag is done or
   // canceled.
@@ -273,6 +283,8 @@ class CORE_EXPORT EventHandler final
   }
 
   void AnimateSnapFling(base::TimeTicks monotonic_time);
+
+  void RecomputeMouseHoverState();
 
  private:
   enum NoCursorChangeType { kNoCursorChange };
@@ -296,7 +308,8 @@ class CORE_EXPORT EventHandler final
 
   WebInputEventResult HandleMouseMoveOrLeaveEvent(
       const WebMouseEvent&,
-      const Vector<WebMouseEvent>&,
+      const Vector<WebMouseEvent>& coalesced_events,
+      const Vector<WebMouseEvent>& predicted_events,
       HitTestResult* hovered_node = nullptr,
       HitTestLocation* hit_test_location = nullptr,
       bool only_update_scrollbars = false,
@@ -338,23 +351,26 @@ class CORE_EXPORT EventHandler final
 
   ScrollableArea* AssociatedScrollableArea(const PaintLayer*) const;
 
-  Node* EffectiveMouseEventTargetNode(Node*);
+  Element* EffectiveMouseEventTargetElement(Element*);
 
   // Dispatches ME after corresponding PE provided the PE has not been canceled.
   // The |mouse_event_type| arg must be one of {mousedown, mousemove, mouseup}.
   WebInputEventResult DispatchMousePointerEvent(
       const WebInputEvent::Type,
-      Node* target,
+      Element* target,
       const String& canvas_region_id,
       const WebMouseEvent&,
-      const Vector<WebMouseEvent>& coalesced_events);
+      const Vector<WebMouseEvent>& coalesced_events,
+      const Vector<WebMouseEvent>& predicted_events,
+      bool skip_click_dispatch = false);
 
   WebInputEventResult PassMousePressEventToSubframe(
       MouseEventWithHitTestResults&,
       LocalFrame* subframe);
   WebInputEventResult PassMouseMoveEventToSubframe(
       MouseEventWithHitTestResults&,
-      const Vector<WebMouseEvent>&,
+      const Vector<WebMouseEvent>& coalesced_events,
+      const Vector<WebMouseEvent>& predicted_events,
       LocalFrame* subframe,
       HitTestResult* hovered_node = nullptr,
       HitTestLocation* hit_test_location = nullptr);
@@ -379,7 +395,9 @@ class CORE_EXPORT EventHandler final
 
   bool ShouldBrowserControlsConsumeScroll(FloatSize) const;
 
-  bool RootFrameTouchPointerActiveInCurrentFrame(int pointer_id) const;
+  bool RootFrameTouchPointerActiveInCurrentFrame(PointerId pointer_id) const;
+
+  void CaptureMouseEventsToWidget(bool);
 
   // NOTE: If adding a new field to this class please ensure that it is
   // cleared in |EventHandler::clear()|.
@@ -395,8 +413,12 @@ class CORE_EXPORT EventHandler final
   // crbug.com/449649
   TaskRunnerTimer<EventHandler> cursor_update_timer_;
 
-  Member<Node> capturing_mouse_events_node_;
+  Member<Element> capturing_mouse_events_element_;
   bool event_handler_will_reset_capturing_mouse_events_node_;
+
+  // Indicates whether the current widget is capturing mouse input.
+  // Only used for local frame root EventHandlers.
+  bool is_widget_capturing_mouse_events_ = false;
 
   Member<LocalFrame> last_mouse_move_event_subframe_;
   Member<Scrollbar> last_scrollbar_under_mouse_;

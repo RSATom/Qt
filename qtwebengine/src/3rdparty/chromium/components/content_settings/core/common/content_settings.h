@@ -7,7 +7,6 @@
 
 #include <stddef.h>
 
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -65,6 +64,10 @@ struct ContentSettingPatternSource {
 typedef std::vector<ContentSettingPatternSource> ContentSettingsForOneType;
 
 struct RendererContentSettingRules {
+  // Returns true if |content_type| is a type that is contained in this class.
+  // Any new type added below must also update this method.
+  static bool IsRendererContentSetting(ContentSettingsType content_type);
+
   RendererContentSettingRules();
   ~RendererContentSettingRules();
   ContentSettingsForOneType image_rules;

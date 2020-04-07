@@ -135,6 +135,15 @@ private slots:
 
     void stream_QByteArray2();
 
+    void stream_QJsonDocument();
+    void stream_QJsonArray();
+    void stream_QJsonObject();
+    void stream_QJsonValue();
+
+    void stream_QCborArray();
+    void stream_QCborMap();
+    void stream_QCborValue();
+
     void setVersion_data();
     void setVersion();
 
@@ -2094,6 +2103,138 @@ void tst_QDataStream::stream_QByteArray2()
         QVERIFY(res.isEmpty());
         QVERIFY(res.isNull());
     }
+}
+
+void tst_QDataStream::stream_QJsonDocument()
+{
+    QByteArray buffer;
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << QByteArrayLiteral("invalidJson");
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonDocument doc;
+        load >> doc;
+        QVERIFY(doc.isEmpty());
+        QVERIFY(load.status() != QDataStream::Ok);
+        QCOMPARE(load.status(), QDataStream::ReadCorruptData);
+    }
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        QJsonDocument docSave(QJsonArray{1,2,3});
+        save << docSave;
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonDocument docLoad;
+        load >> docLoad;
+        QCOMPARE(docLoad, docSave);
+    }
+}
+
+void tst_QDataStream::stream_QJsonArray()
+{
+    QByteArray buffer;
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << QByteArrayLiteral("invalidJson");
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonArray array;
+        load >> array;
+        QVERIFY(array.isEmpty());
+        QVERIFY(load.status() != QDataStream::Ok);
+        QCOMPARE(load.status(), QDataStream::ReadCorruptData);
+    }
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        QJsonArray arraySave(QJsonArray{1,2,3});
+        save << arraySave;
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonArray arrayLoad;
+        load >> arrayLoad;
+        QCOMPARE(arrayLoad, arraySave);
+    }
+}
+
+void tst_QDataStream::stream_QJsonObject()
+{
+    QByteArray buffer;
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << QByteArrayLiteral("invalidJson");
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonObject object;
+        load >> object;
+        QVERIFY(object.isEmpty());
+        QVERIFY(load.status() != QDataStream::Ok);
+        QCOMPARE(load.status(), QDataStream::ReadCorruptData);
+    }
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        QJsonObject objSave{{"foo", 1}, {"bar", 2}};
+        save << objSave;
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonObject objLoad;
+        load >> objLoad;
+        QCOMPARE(objLoad, objSave);
+    }
+}
+
+void tst_QDataStream::stream_QJsonValue()
+{
+    QByteArray buffer;
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << quint8(42);
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonValue value;
+        load >> value;
+        QVERIFY(value.isUndefined());
+        QVERIFY(load.status() != QDataStream::Ok);
+        QCOMPARE(load.status(), QDataStream::ReadCorruptData);
+    }
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        QJsonValue valueSave{42};
+        save << valueSave;
+        QDataStream load(&buffer, QIODevice::ReadOnly);
+        QJsonValue valueLoad;
+        load >> valueLoad;
+        QCOMPARE(valueLoad, valueSave);
+    }
+}
+
+void tst_QDataStream::stream_QCborArray()
+{
+    QByteArray buffer;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    QCborArray arraySave({1, 2, 3});
+    save << arraySave;
+    QDataStream load(&buffer, QIODevice::ReadOnly);
+    QCborArray arrayLoad;
+    load >> arrayLoad;
+    QCOMPARE(arrayLoad, arraySave);
+}
+
+void tst_QDataStream::stream_QCborMap()
+{
+    QByteArray buffer;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    QCborMap objSave{{"foo", 1}, {"bar", 2}};
+    save << objSave;
+    QDataStream load(&buffer, QIODevice::ReadOnly);
+    QCborMap objLoad;
+    load >> objLoad;
+    QCOMPARE(objLoad, objSave);
+}
+
+void tst_QDataStream::stream_QCborValue()
+{
+    QByteArray buffer;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    QCborValue valueSave{42};
+    save << valueSave;
+    QDataStream load(&buffer, QIODevice::ReadOnly);
+    QCborValue valueLoad;
+    load >> valueLoad;
+    QCOMPARE(valueLoad, valueSave);
 }
 
 void tst_QDataStream::setVersion_data()

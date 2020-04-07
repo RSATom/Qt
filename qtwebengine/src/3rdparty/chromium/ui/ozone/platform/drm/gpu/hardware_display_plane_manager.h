@@ -46,19 +46,6 @@ struct HardwareDisplayPlaneList {
     uint32_t crtc_id;
     uint32_t framebuffer;
     CrtcController* crtc;
-
-    struct Plane {
-      Plane(int plane,
-            int framebuffer,
-            const gfx::Rect& bounds,
-            const gfx::Rect& src_rect);
-      ~Plane();
-      int plane;
-      int framebuffer;
-      gfx::Rect bounds;
-      gfx::Rect src_rect;
-    };
-    std::vector<Plane> planes;
   };
   // In the case of non-atomic operation, this info will be used for
   // pageflipping.
@@ -69,12 +56,12 @@ struct HardwareDisplayPlaneList {
 
 class HardwareDisplayPlaneManager {
  public:
-  HardwareDisplayPlaneManager();
+  HardwareDisplayPlaneManager(DrmDevice* drm);
   virtual ~HardwareDisplayPlaneManager();
 
   // This parses information from the drm driver, adding any new planes
   // or crtcs found.
-  bool Initialize(DrmDevice* drm);
+  bool Initialize();
 
   // Clears old frame state out. Must be called before any AssignOverlayPlanes
   // calls.
@@ -83,6 +70,9 @@ class HardwareDisplayPlaneManager {
   // Sets the color transform matrix (a 3x3 matrix represented in vector form)
   // on the CRTC with ID |crtc_id|.
   bool SetColorMatrix(uint32_t crtc_id, const std::vector<float>& color_matrix);
+
+  // Sets the background color on the CRTC object with ID |crtc_id|.
+  void SetBackgroundColor(uint32_t crtc_id, const uint64_t background_color);
 
   // Sets the degamma/gamma luts on the CRTC object with ID |crtc_id|.
   bool SetGammaCorrection(
@@ -154,9 +144,28 @@ class HardwareDisplayPlaneManager {
     DrmDevice::Property degamma_lut;
     DrmDevice::Property degamma_lut_size;
     DrmDevice::Property out_fence_ptr;
+    DrmDevice::Property background_color;
   };
 
-  bool InitializeCrtcProperties(DrmDevice* drm);
+  struct CrtcState {
+    CrtcState();
+    ~CrtcState();
+    CrtcState(CrtcState&&);
+
+    CrtcProperties properties = {};
+
+    // Cached blobs for the properties since the CRTC properties are applied on
+    // the next page flip and we need to keep the properties valid until then.
+    ScopedDrmPropertyBlob ctm_blob;
+    ScopedDrmPropertyBlob gamma_lut_blob;
+    ScopedDrmPropertyBlob degamma_lut_blob;
+
+    DISALLOW_COPY_AND_ASSIGN(CrtcState);
+  };
+
+  bool InitializeCrtcState();
+
+  virtual bool InitializePlanes() = 0;
 
   virtual bool SetPlaneData(HardwareDisplayPlaneList* plane_list,
                             HardwareDisplayPlane* hw_plane,
@@ -194,10 +203,12 @@ class HardwareDisplayPlaneManager {
 
   // Object containing the connection to the graphics device and wraps the API
   // calls to control it. Not owned.
-  DrmDevice* drm_;
+  DrmDevice* const drm_;
+
+  bool has_universal_planes_ = false;
 
   std::vector<std::unique_ptr<HardwareDisplayPlane>> planes_;
-  std::vector<CrtcProperties> crtc_properties_;
+  std::vector<CrtcState> crtc_state_;
   std::vector<uint32_t> supported_formats_;
 
   DISALLOW_COPY_AND_ASSIGN(HardwareDisplayPlaneManager);

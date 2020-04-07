@@ -5,7 +5,9 @@
  * found in the LICENSE file.
  */
 #include "SkArenaAlloc.h"
+#include "SkBlendModePriv.h"
 #include "SkBlurDrawLooper.h"
+#include "SkColorSpacePriv.h"
 #include "SkMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkColorSpaceXformer.h"
@@ -46,17 +48,16 @@ SkLayerDrawLooper::makeContext(SkCanvas* canvas, SkArenaAlloc* alloc) const {
     return alloc->make<LayerDrawLooperContext>(this);
 }
 
-static SkColor xferColor(SkColor src, SkColor dst, SkBlendMode mode) {
+static SkColor4f xferColor(const SkColor4f& src, const SkColor4f& dst, SkBlendMode mode) {
     switch (mode) {
         case SkBlendMode::kSrc:
             return src;
         case SkBlendMode::kDst:
             return dst;
         default: {
-            SkPMColor pmS = SkPreMultiplyColor(src);
-            SkPMColor pmD = SkPreMultiplyColor(dst);
-            SkXfermode::Peek(mode)->xfer32(&pmD, &pmS, 1, nullptr);
-            return SkUnPreMultiply::PMColorToColor(pmD);
+            SkPMColor4f pmS = src.premul();
+            SkPMColor4f pmD = dst.premul();
+            return SkBlendMode_Apply(mode, pmS, pmD).unpremul();
         }
     }
 }
@@ -66,30 +67,31 @@ static SkColor xferColor(SkColor src, SkColor dst, SkBlendMode mode) {
 // text/length parameters of a draw[Pos]Text call.
 void SkLayerDrawLooper::LayerDrawLooperContext::ApplyInfo(
         SkPaint* dst, const SkPaint& src, const LayerInfo& info) {
-    SkColor srcColor = src.getColor();
+    SkColor4f srcColor = src.getColor4f();
 #ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
     // The framework may respect the alpha value on the original paint.
     // Match this legacy behavior.
-    if (SkColorGetA(srcColor) == 255) {
-        srcColor = SkColorSetA(srcColor, dst->getAlpha());
+    if (src.getAlpha() == 255) {
+        srcColor.fA = dst->getColor4f().fA;
     }
 #endif
-    dst->setColor(xferColor(srcColor, dst->getColor(), (SkBlendMode)info.fColorMode));
+    dst->setColor4f(xferColor(srcColor, dst->getColor4f(), (SkBlendMode)info.fColorMode),
+                    sk_srgb_singleton());
 
     BitFlags bits = info.fPaintBits;
-    SkPaint::TextEncoding encoding = dst->getTextEncoding();
 
     if (0 == bits) {
         return;
     }
     if (kEntirePaint_Bits == bits) {
         // we've already computed these, so save it from the assignment
-        uint32_t f = dst->getFlags();
-        SkColor c = dst->getColor();
+        bool aa = dst->isAntiAlias();
+        bool di = dst->isDither();
+        SkColor4f c = dst->getColor4f();
         *dst = src;
-        dst->setFlags(f);
-        dst->setColor(c);
-        dst->setTextEncoding(encoding);
+        dst->setAntiAlias(aa);
+        dst->setDither(di);
+        dst->setColor4f(c, sk_srgb_singleton());
         return;
     }
 
@@ -99,10 +101,6 @@ void SkLayerDrawLooper::LayerDrawLooperContext::ApplyInfo(
         dst->setStrokeMiter(src.getStrokeMiter());
         dst->setStrokeCap(src.getStrokeCap());
         dst->setStrokeJoin(src.getStrokeJoin());
-    }
-
-    if (bits & kTextSkewX_Bit) {
-        dst->setTextSkewX(src.getTextSkewX());
     }
 
     if (bits & kPathEffect_Bit) {
@@ -202,6 +200,7 @@ bool SkLayerDrawLooper::asABlurShadow(BlurShadowRec* bsRec) const {
     if (bsRec) {
         bsRec->fSigma = maskBlur.fSigma;
         bsRec->fOffset = fRecs->fInfo.fOffset;
+        // TODO: Update BlurShadowRec to use SkColor4f?
         bsRec->fColor = fRecs->fPaint.getColor();
         bsRec->fStyle = maskBlur.fStyle;
     }
@@ -271,7 +270,7 @@ sk_sp<SkFlattenable> SkLayerDrawLooper::CreateProc(SkReadBuffer& buffer) {
         info.fColorMode = (SkBlendMode)buffer.readInt();
         buffer.readPoint(&info.fOffset);
         info.fPostTranslate = buffer.readBool();
-        buffer.readPaint(builder.addLayerOnTop(info));
+        buffer.readPaint(builder.addLayerOnTop(info), nullptr);
         if (!buffer.isValid()) {
             return nullptr;
         }
@@ -346,6 +345,12 @@ sk_sp<SkDrawLooper> SkLayerDrawLooper::Builder::detach() {
 
 sk_sp<SkDrawLooper> SkBlurDrawLooper::Make(SkColor color, SkScalar sigma, SkScalar dx, SkScalar dy)
 {
+    return Make(SkColor4f::FromColor(color), sk_srgb_singleton(), sigma, dx, dy);
+}
+
+sk_sp<SkDrawLooper> SkBlurDrawLooper::Make(SkColor4f color, SkColorSpace* cs,
+        SkScalar sigma, SkScalar dx, SkScalar dy)
+{
     sk_sp<SkMaskFilter> blur = nullptr;
     if (sigma > 0.0f) {
         blur = SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma, true);
@@ -364,7 +369,7 @@ sk_sp<SkDrawLooper> SkBlurDrawLooper::Make(SkColor color, SkScalar sigma, SkScal
     blurInfo.fOffset = SkVector::Make(dx, dy);
     SkPaint* paint = builder.addLayer(blurInfo);
     paint->setMaskFilter(std::move(blur));
-    paint->setColor(color);
+    paint->setColor4f(color, cs);
 
     return builder.detach();
 }

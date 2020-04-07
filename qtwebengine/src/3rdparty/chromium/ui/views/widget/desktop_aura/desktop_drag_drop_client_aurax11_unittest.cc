@@ -354,8 +354,7 @@ void TestDragDropClient::SetTopmostXWindowAndMoveMouse(::Window xid) {
 }
 
 void TestDragDropClient::SendXClientEvent(::Window xid, XEvent* event) {
-  std::map< ::Window, ClientMessageEventCollector*>::iterator it =
-      collectors_.find(xid);
+  auto it = collectors_.find(xid);
   if (it != collectors_.end())
     it->second->RecordEvent(event->xclient);
 }
@@ -364,10 +363,8 @@ void TestDragDropClient::SendXClientEvent(::Window xid, XEvent* event) {
 
 class DesktopDragDropClientAuraX11Test : public ViewsTestBase {
  public:
-  DesktopDragDropClientAuraX11Test() {
-  }
-
-  ~DesktopDragDropClientAuraX11Test() override {}
+  DesktopDragDropClientAuraX11Test() = default;
+  ~DesktopDragDropClientAuraX11Test() override = default;
 
   int StartDragAndDrop() {
     ui::OSExchangeData data;
@@ -389,14 +386,14 @@ class DesktopDragDropClientAuraX11Test : public ViewsTestBase {
 
   // ViewsTestBase:
   void SetUp() override {
+    set_native_widget_type(NativeWidgetType::kDesktop);
+
     ViewsTestBase::SetUp();
-    test_views_delegate()->set_use_desktop_native_widgets(true);
 
     // Create widget to initiate the drags.
     widget_.reset(new Widget);
     Widget::InitParams params(Widget::InitParams::TYPE_WINDOW);
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    params.native_widget = new DesktopNativeWidgetAura(widget_.get());
     params.bounds = gfx::Rect(100, 100);
     widget_->Init(params);
     widget_->Show();

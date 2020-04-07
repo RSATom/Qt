@@ -142,9 +142,11 @@ extern "C" {
 // BN_ULONG is the native word size when working with big integers.
 //
 // Note: on some platforms, inttypes.h does not define print format macros in
-// C++ unless |__STDC_FORMAT_MACROS| defined. As this is a public header, bn.h
-// does not define |__STDC_FORMAT_MACROS| itself. C++ source files which use the
-// FMT macros must define it externally.
+// C++ unless |__STDC_FORMAT_MACROS| defined. This is due to text in C99 which
+// was never adopted in any C++ standard and explicitly overruled in C++11. As
+// this is a public header, bn.h does not define |__STDC_FORMAT_MACROS| itself.
+// Projects which use |BN_*_FMT*| with outdated C headers may need to define it
+// externally.
 #if defined(OPENSSL_64_BIT)
 #define BN_ULONG uint64_t
 #define BN_BITS2 64
@@ -158,7 +160,7 @@ extern "C" {
 #define BN_DEC_FMT1 "%" PRIu32
 #define BN_DEC_FMT2 "%09" PRIu32
 #define BN_HEX_FMT1 "%" PRIx32
-#define BN_HEX_FMT2 "%08" PRIx64
+#define BN_HEX_FMT2 "%08" PRIx32
 #else
 #error "Must define either OPENSSL_32_BIT or OPENSSL_64_BIT"
 #endif
@@ -630,9 +632,12 @@ OPENSSL_EXPORT int BN_rand_range_ex(BIGNUM *r, BN_ULONG min_inclusive,
 // BN_pseudo_rand_range is an alias for BN_rand_range.
 OPENSSL_EXPORT int BN_pseudo_rand_range(BIGNUM *rnd, const BIGNUM *range);
 
-// BN_GENCB holds a callback function that is used by generation functions that
-// can take a very long time to complete. Use |BN_GENCB_set| to initialise a
-// |BN_GENCB| structure.
+#define BN_GENCB_GENERATED 0
+#define BN_GENCB_PRIME_TEST 1
+
+// bn_gencb_st, or |BN_GENCB|, holds a callback function that is used by
+// generation functions that can take a very long time to complete. Use
+// |BN_GENCB_set| to initialise a |BN_GENCB| structure.
 //
 // The callback receives the address of that |BN_GENCB| structure as its last
 // argument and the user is free to put an arbitrary pointer in |arg|. The other
@@ -648,9 +653,6 @@ OPENSSL_EXPORT int BN_pseudo_rand_range(BIGNUM *rnd, const BIGNUM *range);
 //
 // When other code needs to call a BN generation function it will often take a
 // BN_GENCB argument and may call the function with other argument values.
-#define BN_GENCB_GENERATED 0
-#define BN_GENCB_PRIME_TEST 1
-
 struct bn_gencb_st {
   void *arg;        // callback-specific data
   int (*callback)(int event, int n, struct bn_gencb_st *);
@@ -987,7 +989,7 @@ OPENSSL_EXPORT unsigned BN_num_bits_word(BN_ULONG l);
 #if !defined(BORINGSSL_NO_CXX)
 extern "C++" {
 
-namespace bssl {
+BSSL_NAMESPACE_BEGIN
 
 BORINGSSL_MAKE_DELETER(BIGNUM, BN_free)
 BORINGSSL_MAKE_DELETER(BN_CTX, BN_CTX_free)
@@ -1005,7 +1007,7 @@ class BN_CTXScope {
   BN_CTXScope &operator=(BN_CTXScope &) = delete;
 };
 
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 }  // extern C++
 #endif

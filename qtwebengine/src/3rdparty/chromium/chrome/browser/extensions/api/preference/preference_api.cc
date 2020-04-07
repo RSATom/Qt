@@ -11,8 +11,8 @@
 #include <utility>
 
 #include "base/lazy_instance.h"
-#include "base/macros.h"
 #include "base/memory/singleton.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -25,7 +25,7 @@
 #include "chrome/browser/net/prediction_options.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "components/autofill/core/common/autofill_pref_names.h"
+#include "components/autofill/core/common/autofill_prefs.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
@@ -94,7 +94,11 @@ const PrefMappingEntry kPrefMapping[] = {
      APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
     {"alternateErrorPagesEnabled", prefs::kAlternateErrorPagesEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
-    {"autofillEnabled", autofill::prefs::kAutofillEnabled,
+    {"autofillEnabled", autofill::prefs::kAutofillEnabledDeprecated,
+     APIPermission::kPrivacy, APIPermission::kPrivacy},
+    {"autofillAddressEnabled", autofill::prefs::kAutofillProfileEnabled,
+     APIPermission::kPrivacy, APIPermission::kPrivacy},
+    {"autofillCreditCardEnabled", autofill::prefs::kAutofillCreditCardEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"hyperlinkAuditingEnabled", prefs::kEnableHyperlinkAuditing,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
@@ -244,7 +248,7 @@ class PrefMapping {
                                        std::string* browser_pref,
                                        APIPermission::ID* read_permission,
                                        APIPermission::ID* write_permission) {
-    PrefMap::iterator it = mapping_.find(extension_pref);
+    auto it = mapping_.find(extension_pref);
     if (it != mapping_.end()) {
       *browser_pref = it->second.pref_name;
       *read_permission = it->second.read_permission;
@@ -257,7 +261,7 @@ class PrefMapping {
   bool FindEventForBrowserPref(const std::string& browser_pref,
                                std::string* event_name,
                                APIPermission::ID* permission) {
-    PrefMap::iterator it = event_mapping_.find(browser_pref);
+    auto it = event_mapping_.find(browser_pref);
     if (it != event_mapping_.end()) {
       *event_name = it->second.pref_name;
       *permission = it->second.read_permission;
@@ -287,8 +291,8 @@ class PrefMapping {
       event_mapping_[pref.browser_pref] =
           PrefMapData(event_name, pref.read_permission, pref.write_permission);
     }
-    DCHECK_EQ(arraysize(kPrefMapping), mapping_.size());
-    DCHECK_EQ(arraysize(kPrefMapping), event_mapping_.size());
+    DCHECK_EQ(base::size(kPrefMapping), mapping_.size());
+    DCHECK_EQ(base::size(kPrefMapping), event_mapping_.size());
     RegisterPrefTransformer(proxy_config::prefs::kProxy,
                             std::make_unique<ProxyPrefTransformer>());
     RegisterPrefTransformer(prefs::kBlockThirdPartyCookies,
@@ -784,9 +788,24 @@ ExtensionFunction::ResponseAction SetPreferenceFunction::Run() {
       transformer->BrowserToExtensionPref(browser_pref_value.get()));
   EXTENSION_FUNCTION_VALIDATE(extension_pref_value);
 
-  PreferenceAPI::Get(browser_context())
-      ->SetExtensionControlledPref(extension_id(), browser_pref, scope,
-                                   browser_pref_value.release());
+  PreferenceAPI* preference_api = PreferenceAPI::Get(browser_context());
+
+  // Set the new Autofill prefs if the extension sets the deprecated pref in
+  // order to maintain backward compatibility in the extensions preference API.
+  // TODO(crbug.com/870328): Remove this once the deprecated pref is retired.
+  if (autofill::prefs::kAutofillEnabledDeprecated == browser_pref) {
+    // |SetExtensionControlledPref| takes ownership of the base::Value pointer.
+    preference_api->SetExtensionControlledPref(
+        extension_id(), autofill::prefs::kAutofillCreditCardEnabled, scope,
+        new base::Value(browser_pref_value->GetBool()));
+    preference_api->SetExtensionControlledPref(
+        extension_id(), autofill::prefs::kAutofillProfileEnabled, scope,
+        new base::Value(browser_pref_value->GetBool()));
+  }
+
+  preference_api->SetExtensionControlledPref(
+      extension_id(), browser_pref, scope, browser_pref_value.release());
+
   return RespondNow(NoArguments());
 }
 

@@ -58,7 +58,7 @@ class QAbstractSeries;
 class ChartTheme;
 class ChartElement;
 
-class QT_CHARTS_PRIVATE_EXPORT QAbstractAxisPrivate : public QObject
+class Q_CHARTS_PRIVATE_EXPORT QAbstractAxisPrivate : public QObject
 {
     Q_OBJECT
 public:
@@ -117,6 +117,7 @@ private:
     QPen m_minorGridLinePen;
 
     bool m_labelsVisible;
+    bool m_labelsEditable;
     QBrush m_labelsBrush;
     QFont m_labelsFont;
     int m_labelsAngle;

@@ -9,9 +9,12 @@
 
 #include <vector>
 
+#include "core/fxcrt/fx_string.h"
+#include "xfa/fxfa/fxfa_basic.h"
 #include "xfa/fxfa/parser/xfa_resolvenode_rs.h"
 
 class CFXJSE_Engine;
+class CXFA_Node;
 
 enum XFA_LOGIC_TYPE {
   XFA_LOGIC_NoTransparent,
@@ -23,41 +26,25 @@ class CXFA_NodeHelper {
   CXFA_NodeHelper();
   ~CXFA_NodeHelper();
 
-  CXFA_Node* ResolveNodes_GetOneChild(CXFA_Node* parent,
-                                      const wchar_t* pwsName,
-                                      bool bIsClassName = false);
-  CXFA_Node* ResolveNodes_GetParent(
-      CXFA_Node* pNode,
-      XFA_LOGIC_TYPE eLogicType = XFA_LOGIC_NoTransparent);
+  CXFA_Node* GetOneChildNamed(CXFA_Node* parent, WideStringView wsName);
+  CXFA_Node* GetOneChildOfClass(CXFA_Node* parent, WideStringView wsClass);
 
-  int32_t NodeAcc_TraverseSiblings(CXFA_Node* parent,
-                                   uint32_t dNameHash,
-                                   std::vector<CXFA_Node*>* pSiblings,
-                                   XFA_LOGIC_TYPE eLogicType,
-                                   bool bIsClassName = false,
-                                   bool bIsFindProperty = true);
-  int32_t NodeAcc_TraverseAnySiblings(CXFA_Node* parent,
-                                      uint32_t dNameHash,
-                                      std::vector<CXFA_Node*>* pSiblings,
-                                      bool bIsClassName = false);
+  CXFA_Node* GetParent(CXFA_Node* pNode, XFA_LOGIC_TYPE eLogicType);
   int32_t CountSiblings(CXFA_Node* pNode,
                         XFA_LOGIC_TYPE eLogicType,
                         std::vector<CXFA_Node*>* pSiblings,
-                        bool bIsClassName = false);
+                        bool bIsClassName);
   int32_t GetIndex(CXFA_Node* pNode,
-                   XFA_LOGIC_TYPE eLogicType = XFA_LOGIC_NoTransparent,
-                   bool bIsProperty = false,
-                   bool bIsClassIndex = false);
-  WideString GetNameExpression(
-      CXFA_Node* refNode,
-      bool bIsAllPath,
-      XFA_LOGIC_TYPE eLogicType = XFA_LOGIC_NoTransparent);
+                   XFA_LOGIC_TYPE eLogicType,
+                   bool bIsProperty,
+                   bool bIsClassIndex);
+  WideString GetNameExpression(CXFA_Node* refNode, bool bIsAllPath);
   bool NodeIsTransparent(CXFA_Node* refNode);
-  bool ResolveNodes_CreateNode(WideString wsName,
-                               WideString wsCondition,
-                               bool bLastNode,
-                               CFXJSE_Engine* pScriptContext);
-  bool CreateNode_ForCondition(WideString& wsCondition);
+  bool CreateNode(const WideString& wsName,
+                  const WideString& wsCondition,
+                  bool bLastNode,
+                  CFXJSE_Engine* pScriptContext);
+  bool CreateNodeForCondition(const WideString& wsCondition);
   void SetCreateNodeType(CXFA_Node* refNode);
   bool NodeIsProperty(CXFA_Node* refNode);
 
@@ -67,6 +54,22 @@ class CXFA_NodeHelper {
   int32_t m_iCurAllStart = -1;
   UnownedPtr<CXFA_Node> m_pCreateParent;
   UnownedPtr<CXFA_Node> m_pAllStartParent;
+
+ private:
+  CXFA_Node* FindFirstSiblingNamed(CXFA_Node* parent, uint32_t dNameHash);
+  CXFA_Node* FindFirstSiblingNamedInList(CXFA_Node* parent,
+                                         uint32_t dwNameHash,
+                                         uint32_t dwFilter);
+  CXFA_Node* FindFirstSiblingOfClass(CXFA_Node* parent, XFA_Element element);
+  CXFA_Node* FindFirstSiblingOfClassInList(CXFA_Node* parent,
+                                           XFA_Element element,
+                                           uint32_t dwFilter);
+  int32_t TraverseSiblings(CXFA_Node* parent,
+                           uint32_t dNameHash,
+                           std::vector<CXFA_Node*>* pSiblings,
+                           XFA_LOGIC_TYPE eLogicType,
+                           bool bIsClassName,
+                           bool bIsFindProperty);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_NODEHELPER_H_

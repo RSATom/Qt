@@ -27,6 +27,7 @@ class Rect;
 namespace cc {
 class LayerTreeFrameSink;
 class LayerTreeMutator;
+class PaintWorkletLayerPainter;
 class RenderFrameMetadataObserver;
 
 // Abstract interface responsible for proxying commands from the main-thread
@@ -36,6 +37,9 @@ class CC_EXPORT Proxy {
   virtual ~Proxy() {}
 
   virtual bool IsStarted() const = 0;
+
+  // This function retruns true if the commits go directly to active tree by
+  // skipping commit to pending tree.
   virtual bool CommitToActiveTree() const = 0;
 
   virtual void SetLayerTreeFrameSink(
@@ -56,9 +60,9 @@ class CC_EXPORT Proxy {
 
   virtual void NotifyInputThrottledUntilCommit() = 0;
 
-  // Defers commits until it is reset. It is only supported when using a
-  // scheduler.
-  virtual void SetDeferCommits(bool defer_commits) = 0;
+  // Defers LayerTreeHost::BeginMainFrameUpdate and commits until it is
+  // reset. It is only supported when using a scheduler.
+  virtual void SetDeferMainFrameUpdate(bool defer_main_frame_update) = 0;
 
   virtual bool CommitRequested() const = 0;
 
@@ -68,6 +72,9 @@ class CC_EXPORT Proxy {
   virtual void Stop() = 0;
 
   virtual void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) = 0;
+
+  virtual void SetPaintWorkletLayerPainter(
+      std::unique_ptr<PaintWorkletLayerPainter> painter) = 0;
 
   virtual bool SupportsImplScrolling() const = 0;
 

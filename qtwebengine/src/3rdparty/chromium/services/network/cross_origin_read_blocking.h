@@ -14,6 +14,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_piece_forward.h"
+#include "services/network/initiator_lock_compatibility.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -49,6 +51,17 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
     kInvalidMimeType = kMax,
   };
 
+  enum class CorbResultVsInitiatorLockCompatibility {
+    // Note that these values are used in histograms, and must not change.
+    kNoBlocking = 0,
+    kBenignBlocking = 1,
+    kBlockingWhenIncorrectLock = 2,
+    kBlockingWhenCompatibleLock = 3,
+    kBlockingWhenOtherLock = 4,
+
+    kMaxValue = kBlockingWhenOtherLock
+  };
+
   // An instance for tracking the state of analyzing a single response
   // and deciding whether CORB should block the response.
   class COMPONENT_EXPORT(NETWORK_SERVICE) ResponseAnalyzer {
@@ -57,7 +70,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
     // ResponseAnalyzer will decide whether |response| needs to be blocked.
     ResponseAnalyzer(const net::URLRequest& request,
                      const ResourceResponse& response,
-                     base::StringPiece excluded_initiator_scheme);
+                     base::Optional<url::Origin> request_initiator_site_lock,
+                     mojom::FetchRequestMode fetch_request_mode);
 
     ~ResponseAnalyzer();
 
@@ -120,9 +134,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
       kNeedToSniffMore,
     };
     BlockingDecision ShouldBlockBasedOnHeaders(
+        mojom::FetchRequestMode fetch_request_mode,
         const net::URLRequest& request,
-        const ResourceResponse& response,
-        base::StringPiece excluded_initiator_scheme);
+        const ResourceResponse& response);
 
     // Populates |sniffers_| container based on |canonical_mime_type_|.  Called
     // if ShouldBlockBasedOnHeaders returns kNeedToSniffMore
@@ -146,6 +160,15 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
     // resource request.
     int http_response_code_ = 0;
 
+    // Whether |request_initiator| was compatible with
+    // |request_initiator_site_lock|.  For safety initialized to kIncorrectLock,
+    // but in practice it will always be explicitly set by the constructor.
+    InitiatorLockCompatibility initiator_compatibility_ =
+        InitiatorLockCompatibility::kIncorrectLock;
+
+    // Propagated from URLLoaderFactoryParams::request_initiator_site_lock;
+    base::Optional<url::Origin> request_initiator_site_lock_;
+
     // The sniffers to be used.
     std::vector<std::unique_ptr<ConfirmationSniffer>> sniffers_;
 
@@ -160,14 +183,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
   // Used to strip response headers if a decision to block has been made.
   static void SanitizeBlockedResponse(
       const scoped_refptr<network::ResourceResponse>& response);
-
-  // Returns explicitly named headers from
-  // https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name.
-  //
-  // Note that CORB doesn't block responses allowed through CORS - this means
-  // that the list of allowed headers below doesn't have to consider header
-  // names listed in the Access-Control-Expose-Headers header.
-  static std::vector<std::string> GetCorsSafelistedHeadersForTesting();
 
   // This enum backs a histogram, so do not change the order of entries or
   // remove entries. When adding new entries update |kMaxValue| and enums.xml
@@ -205,6 +220,23 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
     kYes,
   };
 
+  // Notifies CORB that |process_id| is proxying requests on behalf of a
+  // universal-access plugin and therefore CORB should stop blocking requests
+  // marked as RESOURCE_TYPE_PLUGIN_RESOURCE.
+  //
+  // TODO(lukasza, laforge): https://crbug.com/702995: Remove the static
+  // ...ForPlugin methods once Flash support is removed from Chromium (probably
+  // around 2020 - see https://www.chromium.org/flash-roadmap).
+  static void AddExceptionForPlugin(int process_id);
+
+  // Returns true if CORB should ignore a request initiated by a universal
+  // access plugin - i.e. if |process_id| has been previously passed to
+  // AddExceptionForPlugin.
+  static bool ShouldAllowForPlugin(int process_id);
+
+  // Reverts AddExceptionForPlugin.
+  static void RemoveExceptionForPlugin(int process_id);
+
  private:
   CrossOriginReadBlocking();  // Not instantiable.
 
@@ -227,6 +259,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CrossOriginReadBlocking {
   // not allowed by actual CORS rules by ignoring 1) credentials and 2)
   // methods. Preflight requests don't matter here since they are not used to
   // decide whether to block a response or not on the client side.
+  // TODO(crbug.com/736308) Remove this check once the kOutOfBlinkCors feature
+  // is shipped.
   static bool IsValidCorsHeaderSet(const url::Origin& frame_origin,
                                    const std::string& access_control_origin);
   FRIEND_TEST_ALL_PREFIXES(CrossOriginReadBlockingTest, IsValidCorsHeaderSet);

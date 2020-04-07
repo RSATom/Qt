@@ -10,7 +10,7 @@
 #include "components/autofill/core/browser/address_normalizer.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/payments/core/payment_instrument.h"
-#include "third_party/blink/public/platform/modules/payments/payment_request.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 namespace payments {
 
@@ -45,6 +45,9 @@ class PaymentResponseHelper
       const std::string& method_name,
       const std::string& stringified_details) override;
   void OnInstrumentDetailsError() override {}
+
+  mojom::PayerDetailPtr GeneratePayerDetail(
+      const autofill::AutofillProfile* selected_contact_profile) const;
 
  private:
   // Generates the Payment Response and sends it to the delegate.

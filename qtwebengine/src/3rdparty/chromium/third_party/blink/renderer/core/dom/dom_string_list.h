@@ -40,7 +40,11 @@ class CORE_EXPORT DOMStringList final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static DOMStringList* Create() { return new DOMStringList(); }
+  static DOMStringList* Create() {
+    return MakeGarbageCollected<DOMStringList>();
+  }
+
+  explicit DOMStringList() = default;
 
   bool IsEmpty() const { return strings_.IsEmpty(); }
   void clear() { strings_.clear(); }
@@ -48,16 +52,14 @@ class CORE_EXPORT DOMStringList final : public ScriptWrappable {
   void Sort();
 
   // Implements the IDL.
-  size_t length() const { return strings_.size(); }
+  uint32_t length() const { return strings_.size(); }
 
-  String item(unsigned index) const;
+  String item(uint32_t index) const;
   bool contains(const String&) const;
 
   operator const Vector<String>&() const { return strings_; }
 
  private:
-  explicit DOMStringList() = default;
-
   Vector<String> strings_;
 };
 

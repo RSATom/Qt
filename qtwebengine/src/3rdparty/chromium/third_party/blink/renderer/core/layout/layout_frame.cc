@@ -41,10 +41,8 @@ FrameEdgeInfo LayoutFrame::EdgeInfo() const {
   return FrameEdgeInfo(element->NoResize(), element->HasFrameBorder());
 }
 
-void LayoutFrame::ImageChanged(WrappedImagePtr image,
-                               CanDeferInvalidation,
-                               const IntRect*) {
-  if (const CursorList* cursors = Style()->Cursors()) {
+void LayoutFrame::ImageChanged(WrappedImagePtr image, CanDeferInvalidation) {
+  if (const CursorList* cursors = StyleRef().Cursors()) {
     for (const CursorData& cursor : *cursors) {
       if (cursor.GetImage() && cursor.GetImage()->CachedImage() == image) {
         if (LocalFrame* frame = GetFrame()) {

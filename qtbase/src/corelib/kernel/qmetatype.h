@@ -570,6 +570,7 @@ public:
 
     inline bool isValid() const;
     inline bool isRegistered() const;
+    inline int id() const;
     inline int sizeOf() const;
     inline TypeFlags flags() const;
     inline const QMetaObject *metaObject() const;
@@ -1976,7 +1977,9 @@ QT_FOR_EACH_STATIC_WIDGETS_CLASS(QT_FORWARD_DECLARE_STATIC_TYPES_ITER)
 typedef QList<QVariant> QVariantList;
 typedef QMap<QString, QVariant> QVariantMap;
 typedef QHash<QString, QVariant> QVariantHash;
-#ifndef Q_CLANG_QDOC
+#ifdef Q_CLANG_QDOC
+class QByteArrayList;
+#else
 typedef QList<QByteArray> QByteArrayList;
 #endif
 
@@ -2219,6 +2222,11 @@ inline bool QMetaType::isValid() const
 inline bool QMetaType::isRegistered() const
 {
     return isValid();
+}
+
+inline int QMetaType::id() const
+{
+    return m_typeId;
 }
 
 inline void *QMetaType::create(const void *copy) const

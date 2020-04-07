@@ -76,9 +76,9 @@
 namespace {
 
 const uint qtQmlMajorVersion = 2;
-const uint qtQmlMinorVersion = QT_VERSION_MINOR;
+const uint qtQmlMinorVersion = 0;
 const uint qtQuickMajorVersion = 2;
-const uint qtQuickMinorVersion = QT_VERSION_MINOR;
+const uint qtQuickMinorVersion = 0;
 
 const QString qtQuickQualifiedName = QString::fromLatin1("QtQuick %1.%2")
         .arg(qtQuickMajorVersion)
@@ -479,8 +479,12 @@ public:
             }
         }
 
-        for (const QMetaObject *meta : qAsConst(objectsToMerge))
+        for (const QMetaObject *meta : qAsConst(objectsToMerge)) {
+            for (int index = meta->enumeratorOffset(); index < meta->enumeratorCount(); ++index)
+                dump(meta->enumerator(index));
+
             writeMetaContent(meta, &knownAttributes);
+        }
 
         qml->writeEndObject();
     }
@@ -1136,8 +1140,7 @@ int main(int argc, char *argv[])
             QRegularExpressionMatchIterator i = re.globalMatch(merge[1]);
             while (i.hasNext()) {
                 QRegularExpressionMatch m = i.next();
-                QString d = m.captured(1);
-                mergeDependencies  << m.captured(1);
+                mergeDependencies << m.captured(1);
             }
             mergeComponents = merge [2];
         }

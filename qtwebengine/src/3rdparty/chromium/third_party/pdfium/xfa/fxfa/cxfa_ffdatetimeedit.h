@@ -20,13 +20,13 @@ class CFWL_DateTimePicker;
 class CFWL_Event;
 class CFWL_Widget;
 
-class CXFA_FFDateTimeEdit : public CXFA_FFTextEdit {
+class CXFA_FFDateTimeEdit final : public CXFA_FFTextEdit {
  public:
   explicit CXFA_FFDateTimeEdit(CXFA_Node* pNode);
   ~CXFA_FFDateTimeEdit() override;
 
   // CXFA_FFTextEdit
-  CFX_RectF GetBBox(uint32_t dwStatus, bool bDrawFocus = false) override;
+  CFX_RectF GetBBox(uint32_t dwStatus, FocusOption focus) override;
   bool LoadWidget() override;
   void UpdateWidgetProperty() override;
   void OnProcessEvent(CFWL_Event* pEvent) override;

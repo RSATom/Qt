@@ -81,7 +81,7 @@ public:
     FxViewItem *snapItemAt(qreal pos);
 
     void init() override;
-    void clear() override;
+    void clear(bool onDestruction) override;
 
     bool addVisibleItems(qreal fillFrom, qreal fillTo, qreal bufferFrom, qreal bufferTo, bool doBuffer) override;
     bool removeNonVisibleItems(qreal bufferFrom, qreal bufferTo) override;
@@ -98,7 +98,7 @@ public:
     void adjustFirstItem(qreal forwards, qreal backwards, int) override;
     void updateSizeChangesBeforeVisiblePos(FxViewItem *item, ChangeResult *removeResult) override;
 
-    void createHighlight() override;
+    void createHighlight(bool onDestruction = false) override;
     void updateHighlight() override;
     void resetHighlightPosition() override;
     bool movingFromHighlight() override;
@@ -575,7 +575,7 @@ void QQuickListViewPrivate::init()
     ::memset(sectionCache, 0, sizeof(QQuickItem*) * sectionCacheSize);
 }
 
-void QQuickListViewPrivate::clear()
+void QQuickListViewPrivate::clear(bool onDestruction)
 {
     for (int i = 0; i < sectionCacheSize; ++i) {
         delete sectionCache[i];
@@ -587,7 +587,7 @@ void QQuickListViewPrivate::clear()
     releaseSectionItem(nextSectionItem);
     nextSectionItem = nullptr;
     lastVisibleSection = QString();
-    QQuickItemViewPrivate::clear();
+    QQuickItemViewPrivate::clear(onDestruction);
 }
 
 FxViewItem *QQuickListViewPrivate::newViewItem(int modelIndex, QQuickItem *item)
@@ -634,7 +634,7 @@ void QQuickListViewPrivate::initializeViewItem(FxViewItem *item)
 bool QQuickListViewPrivate::releaseItem(FxViewItem *item)
 {
     if (!item || !model)
-        return true;
+        return QQuickItemViewPrivate::releaseItem(item);
 
     QPointer<QQuickItem> it = item->item;
     QQuickListViewAttached *att = static_cast<QQuickListViewAttached*>(item->attached);
@@ -876,9 +876,8 @@ void QQuickListViewPrivate::updateSizeChangesBeforeVisiblePos(FxViewItem *item, 
         QQuickItemViewPrivate::updateSizeChangesBeforeVisiblePos(item, removeResult);
 }
 
-void QQuickListViewPrivate::createHighlight()
+void QQuickListViewPrivate::createHighlight(bool onDestruction)
 {
-    Q_Q(QQuickListView);
     bool changed = false;
     if (highlight) {
         if (trackedItem == highlight)
@@ -896,6 +895,10 @@ void QQuickListViewPrivate::createHighlight()
         changed = true;
     }
 
+    if (onDestruction)
+        return;
+
+    Q_Q(QQuickListView);
     if (currentItem) {
         QQuickItem *item = createHighlightItem();
         if (item) {
@@ -2724,7 +2727,7 @@ void QQuickListView::setFooterPositioning(QQuickListView::FooterPositioning posi
 
     \list
     \li The view is first created
-    \li The view's \l model changes
+    \li The view's \l model changes in such a way that the visible delegates are completely replaced
     \li The view's \l model is \l {QAbstractItemModel::reset()}{reset}, if the model is a QAbstractItemModel subclass
     \endlist
 
@@ -2741,6 +2744,27 @@ void QQuickListView::setFooterPositioning(QQuickListView::FooterPositioning posi
 
     When the view is initialized, the view will create all the necessary items for the view,
     then animate them to their correct positions within the view over one second.
+
+    However when scrolling the view later, the populate transition does not
+    run, even though delegates are being instantiated as they become visible.
+    When the model changes in a way that new delegates become visible, the
+    \l add transition is the one that runs. So you should not depend on the
+    \c populate transition to initialize properties in the delegate, because it
+    does not apply to every delegate. If your animation sets the \c to value of
+    a property, the property should initially have the \c to value, and the
+    animation should set the \c from value in case it is animated:
+
+    \code
+    ListView {
+        ...
+        delegate: Rectangle {
+            opacity: 1 // not necessary because it's the default
+        }
+        populate: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 1000 }
+        }
+    }
+    \endcode
 
     For more details and examples on how to use view transitions, see the ViewTransition
     documentation.
@@ -3515,6 +3539,20 @@ void QQuickListViewPrivate::translateAndTransitionItemsAfter(int afterModelIndex
     whether an item will exist at that point when scrolled into view.
 
     \b Note: methods should only be called after the Component has completed.
+*/
+
+/*!
+    \qmlmethod Item QtQuick::ListView::itemAtIndex(int index)
+
+    Returns the item for \a index. If there is no item for that index, for example
+    because it has not been created yet, or because it has been panned out of
+    the visible area and removed from the cache, null is returned.
+
+    \b Note: this method should only be called after the Component has completed.
+    The returned value should also not be stored since it can turn to null
+    as soon as control goes out of the calling scope, if the view releases that item.
+
+    \since 5.13
 */
 
 /*!

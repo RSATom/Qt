@@ -22,7 +22,6 @@ const char kAboutSrcDocURL[] = "about:srcdoc";
 
 const char kChromeUIAppCacheInternalsHost[] = "appcache-internals";
 const char kChromeUIIndexedDBInternalsHost[] = "indexeddb-internals";
-const char kChromeUIAccessibilityHost[] = "accessibility";
 const char kChromeUIBlobInternalsHost[] = "blob-internals";
 const char kChromeUIBrowserCrashHost[] = "inducebrowsercrashforrealz";
 const char kChromeUIDinoHost[] = "dino";
@@ -59,6 +58,11 @@ const char kChromeUIProcessInternalsURL[] = "chrome://process-internals";
 #if defined(OS_ANDROID)
 const char kChromeUIGpuJavaCrashURL[] = "chrome://gpu-java-crash/";
 #endif
+#if defined(OS_WIN)
+const char kChromeUIBrowserHeapCorruptionURL[] =
+    "chrome://inducebrowserheapcorruption/";
+const char kChromeUIHeapCorruptionCrashURL[] = "chrome://heapcorruptioncrash/";
+#endif
 #if defined(ADDRESS_SANITIZER)
 const char kChromeUICrashHeapOverflowURL[] = "chrome://crash/heap-overflow";
 const char kChromeUICrashHeapUnderflowURL[] = "chrome://crash/heap-underflow";
@@ -78,6 +82,8 @@ const char kChromeUICrashDcheckURL[] = "chrome://crash/dcheck";
 // This error URL is loaded in normal web renderer processes, so it should not
 // have a chrome:// scheme that might let it be confused with a WebUI page.
 const char kUnreachableWebDataURL[] = "chrome-error://chromewebdata/";
+
+const char kBlockedURL[] = "about:blank#blocked";
 
 const char kChromeUIResourcesURL[] = "chrome://resources/";
 const char kChromeUIShorthangURL[] = "chrome://shorthang/";

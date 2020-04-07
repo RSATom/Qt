@@ -13,31 +13,21 @@
 #include "build/build_config.h"
 #include "media/cast/net/cast_transport_defines.h"
 #include "media/cast/net/rtcp/sender_rtcp_session.h"
+#include "media/cast/net/transport_util.h"
 #include "net/base/net_errors.h"
+
+using media::cast::transport_util::kOptionPacerMaxBurstSize;
+using media::cast::transport_util::kOptionPacerTargetBurstSize;
+using media::cast::transport_util::LookupOptionWithDefault;
 
 namespace media {
 namespace cast {
 
 namespace {
 
-// Options for PaceSender.
-const char kOptionPacerMaxBurstSize[] = "pacer_max_burst_size";
-const char kOptionPacerTargetBurstSize[] = "pacer_target_burst_size";
-
 // Wifi options.
 const char kOptionWifiDisableScan[] = "disable_wifi_scan";
 const char kOptionWifiMediaStreamingMode[] = "media_streaming_mode";
-
-int LookupOptionWithDefault(const base::DictionaryValue& options,
-                            const std::string& path,
-                            int default_value) {
-  int ret;
-  if (options.GetInteger(path, &ret)) {
-    return ret;
-  } else {
-    return default_value;
-  }
-}
 
 }  // namespace
 
@@ -138,8 +128,9 @@ CastTransportImpl::CastTransportImpl(
   DCHECK(transport_task_runner_);
   if (logging_flush_interval_ > base::TimeDelta()) {
     transport_task_runner_->PostDelayedTask(
-        FROM_HERE, base::Bind(&CastTransportImpl::SendRawEvents,
-                              weak_factory_.GetWeakPtr()),
+        FROM_HERE,
+        base::BindOnce(&CastTransportImpl::SendRawEvents,
+                       weak_factory_.GetWeakPtr()),
         logging_flush_interval_);
   }
   transport_->StartReceiving(

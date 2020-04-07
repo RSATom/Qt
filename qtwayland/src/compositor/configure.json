@@ -28,6 +28,7 @@
             "test": {
                 "tail": [
                     "extern \"C\" {",
+                    "#include <math.h> /* may fail because of 'private:' in c++ type_traits.h */",
                     "#define private priv",
                     "#include <wayland-kms.h>",
                     "#undef private",
@@ -80,6 +81,17 @@
             "type": "compile",
             "test": "dmabuf_server_buffer",
             "use": "egl"
+        },
+        "dmabuf-client-buffer": {
+            "label": "Linux Client dma-buf Buffer Sharing",
+            "type": "compile",
+            "test": "dmabuf_client_buffer",
+            "use": "egl"
+        },
+        "vulkan-server-buffer": {
+            "label": "Vulkan Buffer Sharing",
+            "type": "compile",
+            "test": "vulkan_server_buffer"
         }
     },
 
@@ -128,6 +140,21 @@
             "condition": "features.wayland-server && features.opengl && features.egl && tests.dmabuf-server-buffer",
             "output": [ "privateFeature" ]
         },
+        "wayland-dmabuf-client-buffer": {
+            "label": "Linux dma-buf client buffer integration",
+            "condition": "features.wayland-server && features.opengl && features.egl && tests.dmabuf-client-buffer",
+            "output": [ "privateFeature" ]
+        },
+        "wayland-compositor-texture-sharing-experimental" : {
+            "label": "Texture sharing (experimental)",
+            "autoDetect": "false",
+            "output": [ "privateFeature" ]
+        },
+        "wayland-vulkan-server-buffer": {
+            "label": "Vulkan-based server buffer integration",
+            "condition": "features.wayland-server && features.opengl && features.egl && tests.vulkan-server-buffer && features.wayland-compositor-texture-sharing-experimental",
+            "output": [ "privateFeature" ]
+        },
         "wayland-shm-emulation-server-buffer": {
             "label": "Shm emulation server buffer",
             "condition": "features.wayland-server && features.opengl",
@@ -137,6 +164,12 @@
             "label": "VSP2 hardware layer integration",
             "condition": "features.wayland-server && features.eglfs_vsp2 && libs.wayland-kms",
             "output": [ "privateFeature" ]
+        },
+        "wayland-compositor-quick": {
+            "label": "QtQuick integration for wayland compositor",
+            "purpose": "Allows QtWayland compositor types to be used with QtQuick",
+            "condition": "features.wayland-server && module.quick && features.opengl",
+            "output": [ "publicFeature" ]
         }
     },
 

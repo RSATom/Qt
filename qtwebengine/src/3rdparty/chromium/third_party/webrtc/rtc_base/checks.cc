@@ -35,6 +35,27 @@
 
 #include "rtc_base/checks.h"
 
+namespace {
+#if defined(__GNUC__)
+__attribute__((__format__(__printf__, 2, 3)))
+#endif
+  void AppendFormat(std::string* s, const char* fmt, ...) {
+  va_list args, copy;
+  va_start(args, fmt);
+  va_copy(copy, args);
+  const int predicted_length = std::vsnprintf(nullptr, 0, fmt, copy);
+  va_end(copy);
+
+  if (predicted_length > 0) {
+    const size_t size = s->size();
+    s->resize(size + predicted_length);
+    // Pass "+ 1" to vsnprintf to include space for the '\0'.
+    std::vsnprintf(&((*s)[size]), predicted_length + 1, fmt, args);
+  }
+  va_end(args);
+}
+}
+
 namespace rtc {
 
 // MSVC doesn't like complex extern templates and DLLs.
@@ -60,55 +81,59 @@ RTC_NORETURN void FatalLog(const char* file,
   va_list args;
   va_start(args, fmt);
 
-  std::ostringstream ss;  // no-presubmit-check TODO(webrtc:8982)
-  ss << "\n\n#\n# Fatal error in: " << file << ", line " << line
-     << "\n# last system error: " << LAST_SYSTEM_ERROR
-     << "\n# Check failed: " << message << "\n# ";
+  std::string s;
+  AppendFormat(&s,
+               "\n\n"
+               "#\n"
+               "# Fatal error in: %s, line %d\n"
+               "# last system error: %u\n"
+               "# Check failed: %s",
+               file, line, LAST_SYSTEM_ERROR, message);
 
   for (; *fmt != CheckArgType::kEnd; ++fmt) {
     switch (*fmt) {
       case CheckArgType::kInt:
-        ss << va_arg(args, int);
+        AppendFormat(&s, "%d", va_arg(args, int));
         break;
       case CheckArgType::kLong:
-        ss << va_arg(args, long);
+        AppendFormat(&s, "%ld", va_arg(args, long));
         break;
       case CheckArgType::kLongLong:
-        ss << va_arg(args, long long);
+        AppendFormat(&s, "%lld", va_arg(args, long long));
         break;
       case CheckArgType::kUInt:
-        ss << va_arg(args, unsigned);
+        AppendFormat(&s, "%u", va_arg(args, unsigned));
         break;
       case CheckArgType::kULong:
-        ss << va_arg(args, unsigned long);
+        AppendFormat(&s, "%lu", va_arg(args, unsigned long));
         break;
       case CheckArgType::kULongLong:
-        ss << va_arg(args, unsigned long long);
+        AppendFormat(&s, "%llu", va_arg(args, unsigned long long));
         break;
       case CheckArgType::kDouble:
-        ss << va_arg(args, double);
+        AppendFormat(&s, "%g", va_arg(args, double));
         break;
       case CheckArgType::kLongDouble:
-        ss << va_arg(args, long double);
+        AppendFormat(&s, "%Lg", va_arg(args, long double));
         break;
       case CheckArgType::kCharP:
-        ss << va_arg(args, const char*);
+        s.append(va_arg(args, const char*));
         break;
       case CheckArgType::kStdString:
-        ss << *va_arg(args, const std::string*);
+        s.append(*va_arg(args, const std::string*));
         break;
       case CheckArgType::kVoidP:
-        ss << va_arg(args, const void*);
+        AppendFormat(&s, "%p", va_arg(args, const void*));
         break;
       default:
-        ss << "[Invalid CheckArgType:" << static_cast<int8_t>(*fmt) << "]";
+        s.append("[Invalid CheckArgType]");
         goto processing_loop_end;
     }
   }
+
 processing_loop_end:
   va_end(args);
 
-  std::string s = ss.str();
   const char* output = s.c_str();
 
 #if defined(WEBRTC_ANDROID)

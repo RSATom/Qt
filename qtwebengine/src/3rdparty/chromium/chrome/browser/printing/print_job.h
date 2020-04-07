@@ -8,10 +8,10 @@
 #include <memory>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -20,7 +20,6 @@
 namespace base {
 class Location;
 class RefCountedMemory;
-class SequencedTaskRunner;
 }
 
 namespace printing {
@@ -104,10 +103,6 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob>,
   // Access the current printed document. Warning: may be NULL.
   PrintedDocument* document() const;
 
-  // Returns true if tasks posted to this TaskRunner are sequenced
-  // with this call.
-  bool RunsTasksInCurrentSequence() const;
-
   // Posts the given task to be run.
   bool PostTask(const base::Location& from_here, base::OnceClosure task);
 
@@ -147,9 +142,6 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob>,
   // Terminates the worker thread in a very controlled way, to work around any
   // eventual deadlock.
   void ControlledWorkerShutdown();
-
-  // Called at shutdown when running a nested run loop.
-  void Quit();
 
   void HoldUntilStopIsCalled();
 
@@ -193,11 +185,11 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob>,
   scoped_refptr<PrintedDocument> document_;
 
   // Is the worker thread printing.
-  bool is_job_pending_;
+  bool is_job_pending_ = false;
 
   // Is Canceling? If so, try to not cause recursion if on FAILED notification,
   // the notified calls Cancel() again.
-  bool is_canceling_;
+  bool is_canceling_ = false;
 
 #if defined(OS_WIN) && !defined(TOOLKIT_QT)
   class PdfConversionState;
@@ -205,12 +197,8 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob>,
   std::vector<int> pdf_page_mapping_;
 #endif  // defined(OS_WIN) && !defined(TOOLKIT_QT)
 
-  // Task runner reference. Used to send notifications in the right
-  // thread.
-  scoped_refptr<base::SequencedTaskRunner> task_runner_;
-
-  // Used at shutdown so that we can quit a nested run loop.
-  base::WeakPtrFactory<PrintJob> quit_factory_;
+  // Holds the quit closure while running a nested RunLoop to flush tasks.
+  base::OnceClosure quit_closure_;
 
   DISALLOW_COPY_AND_ASSIGN(PrintJob);
 };

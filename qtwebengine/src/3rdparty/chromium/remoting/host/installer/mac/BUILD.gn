@@ -36,6 +36,10 @@ action("remoting_me2me_host_archive") {
 
   script = "//remoting/host/installer/build-installer-archive.py"
 
+  sources = [
+    "//build/android/gyp/util/build_utils.py",
+  ]
+
   args = [
            rebase_path("$target_gen_dir/remoting_installation", root_build_dir),
            rebase_path(zip_path, root_build_dir),
@@ -51,6 +55,8 @@ action("remoting_me2me_host_archive") {
            "remoting_host_uninstaller.app",
            "remoting/com.google.chrome.remote_desktop.json",
            "remoting/com.google.chrome.remote_assistance.json",
+           "remoting/com.google.chrome.remote_desktop-firefox.json",
+           "remoting/com.google.chrome.remote_assistance-firefox.json",
            "--generated-files-dst",
            "PrivilegedHelperTools/$host_bundle_name",
            "PrivilegedHelperTools/$host_bundle_name/Contents/MacOS/$native_messaging_host_bundle_name",
@@ -58,6 +64,8 @@ action("remoting_me2me_host_archive") {
            "Applications/$host_uninstaller_name.app",
            "Config/com.google.chrome.remote_desktop.json",
            "Config/com.google.chrome.remote_assistance.json",
+           "Config/Firefox/com.google.chrome.remote_desktop.json",
+           "Config/Firefox/com.google.chrome.remote_assistance.json",
            "--defs",
            "VERSION=$chrome_version_full",
            "VERSION_SHORT=$chrome_version_major.$chrome_version_minor.$chrome_version_build",
@@ -111,7 +119,7 @@ mac_app_bundle("remoting_host_uninstaller") {
     "BUNDLE_ID=$uninstaller_bundle_id",
     "VERSION_FULL=$remoting_version_full",
     "VERSION_SHORT=$remoting_version_short",
-    "MACOSX_DEPLOYMENT_TARGET=10.7",
+    "MACOSX_DEPLOYMENT_TARGET=10.10",
   ]
 
   sources = [
@@ -133,6 +141,7 @@ mac_app_bundle("remoting_host_uninstaller") {
     "//base",
     "//remoting/host:remoting_infoplist_strings",
     "//remoting/host/mac:constants",
+    "//ui/base:base",
   ]
   foreach(locale, remoting_locales_with_underscores) {
     deps += [ ":remoting_uninstaller_strings_${locale}_bundle_data" ]

@@ -88,7 +88,6 @@ ifeq ($(CONFIG_VP9_ENCODER),yes)
   CODEC_EXPORTS-yes += $(addprefix $(VP9_PREFIX),$(VP9_CX_EXPORTS))
   CODEC_SRCS-yes += $(VP9_PREFIX)vp9cx.mk vpx/vp8.h vpx/vp8cx.h
   INSTALL-LIBS-yes += include/vpx/vp8.h include/vpx/vp8cx.h
-  INSTALL-LIBS-yes += include/vpx/svc_context.h
   INSTALL_MAPS += include/vpx/% $(SRC_PATH_BARE)/$(VP9_PREFIX)/%
   CODEC_DOC_SRCS += vpx/vp8.h vpx/vp8cx.h
   CODEC_DOC_SECTIONS += vp9 vp9_encoder
@@ -112,13 +111,6 @@ endif
 ifeq ($(CONFIG_DECODERS),yes)
   CODEC_DOC_SECTIONS += decoder
 endif
-
-# Suppress -Wextra warnings in third party code.
-$(BUILD_PFX)third_party/googletest/%.cc.o: CXXFLAGS += -Wno-missing-field-initializers
-# Suppress -Wextra warnings in first party code pending investigation.
-# https://bugs.chromium.org/p/webm/issues/detail?id=1069
-$(BUILD_PFX)vp8/encoder/onyx_if.c.o: CFLAGS += -Wno-unknown-warning-option -Wno-clobbered
-$(BUILD_PFX)vp8/decoder/onyxd_if.c.o: CFLAGS += -Wno-unknown-warning-option -Wno-clobbered
 
 ifeq ($(CONFIG_MSVS),yes)
 CODEC_LIB=$(if $(CONFIG_STATIC_MSVCRT),vpxmt,vpxmd)

@@ -148,13 +148,13 @@ class ResourceSizesDiff(BaseDiff):
     return self._ResultLines()
 
   def Summary(self):
-    header_lines = [
+    footer_lines = [
+        '',
         'For an explanation of these metrics, see:',
         ('https://chromium.googlesource.com/chromium/src/+/master/docs/speed/'
-         'binary_size/metrics.md#Metrics-for-Android'),
-        '']
-    return header_lines + self._ResultLines(
-        include_sections=ResourceSizesDiff._SUMMARY_SECTIONS)
+         'binary_size/metrics.md#Metrics-for-Android')]
+    return self._ResultLines(
+        include_sections=ResourceSizesDiff._SUMMARY_SECTIONS) + footer_lines
 
   def ProduceDiff(self, before_dir, after_dir):
     before = self._LoadResults(before_dir)
@@ -313,7 +313,6 @@ class _BuildHelper(object):
 
   def _GenGnCmd(self):
     gn_args = 'is_official_build=true'
-    gn_args += ' symbol_level=0'
     # Variables often become unused when experimenting with macros to reduce
     # size, so don't fail on warnings.
     gn_args += ' treat_warnings_as_errors=false'
@@ -446,9 +445,6 @@ class _DiffArchiveManager(object):
     self.diffs = diffs
     self.subrepo = subrepo
     self._summary_stats = []
-
-  def IterArchives(self):
-    return iter(self.build_archives)
 
   def MaybeDiff(self, before_id, after_id):
     """Perform diffs given two build archives."""
@@ -585,7 +581,7 @@ def _RunCmd(cmd, verbose=False, exit_on_failure=True):
   cmd_str = ' '.join(c for c in cmd)
   logging.debug('Running: %s', cmd_str)
   proc_stdout = proc_stderr = subprocess.PIPE
-  if verbose and logging.getLogger().getEffectiveLevel() < logging.INFO:
+  if verbose:
     proc_stdout, proc_stderr = sys.stdout, subprocess.STDOUT
 
   proc = subprocess.Popen(cmd, stdout=proc_stdout, stderr=proc_stderr)
@@ -848,32 +844,6 @@ def _SetRestoreFunc(subrepo):
   atexit.register(_GenRestoreFunc(subrepo))
 
 
-# Used by binary size trybot.
-def _DiffMain(args):
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--before-dir', required=True)
-  parser.add_argument('--after-dir', required=True)
-  parser.add_argument('--apk-name', required=True)
-  parser.add_argument('--diff-type', required=True, choices=['native', 'sizes'])
-  parser.add_argument('--diff-output', required=True)
-  args = parser.parse_args(args)
-
-  is_native_diff = args.diff_type == 'native'
-  if is_native_diff:
-    supersize_path = os.path.join(_BINARY_SIZE_DIR, 'supersize')
-    diff = NativeDiff(args.apk_name + '.size', supersize_path)
-  else:
-    diff = ResourceSizesDiff(args.apk_name)
-
-  diff.ProduceDiff(args.before_dir, args.after_dir)
-  lines = diff.DetailedResults() if is_native_diff else diff.Summary()
-
-  with open(args.diff_output, 'w') as f:
-    f.writelines(l + '\n' for l in lines)
-    stat = diff.summary_stat
-    f.write('\n{}={}\n'.format(*stat[:2]))
-
-
 def main():
   parser = argparse.ArgumentParser(
       description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -966,8 +936,6 @@ def main():
   if len(sys.argv) == 1:
     parser.print_help()
     return 1
-  if sys.argv[1] == 'diff':
-    return _DiffMain(sys.argv[2:])
 
   args = parser.parse_args()
   log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -1007,7 +975,7 @@ def main():
                                     subrepo, args.include_slow_options,
                                     args.unstripped)
     consecutive_failures = 0
-    for i, archive in enumerate(diff_mngr.IterArchives()):
+    for i, archive in enumerate(diff_mngr.build_archives):
       if archive.Exists():
         step = 'download' if build.IsCloud() else 'build'
         logging.info('Found matching metadata for %s, skipping %s step.',
@@ -1024,7 +992,9 @@ def main():
                 'Build failed for %s, diffs using this rev will be skipped.',
                 archive.rev)
             consecutive_failures += 1
-            if consecutive_failures > _ALLOWED_CONSECUTIVE_FAILURES:
+            if len(diff_mngr.build_archives) <= 2:
+              _Die('Stopping due to build failure.')
+            elif consecutive_failures > _ALLOWED_CONSECUTIVE_FAILURES:
               _Die('%d builds failed in a row, last failure was %s.',
                    consecutive_failures, archive.rev)
           else:

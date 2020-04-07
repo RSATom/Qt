@@ -52,42 +52,28 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickImageTextureProvider : public QSGTextureProvider
+QQuickImageTextureProvider::QQuickImageTextureProvider()
+    : m_texture(nullptr)
+    , m_smooth(false)
 {
-    Q_OBJECT
-public:
-    QQuickImageTextureProvider()
-        : m_texture(nullptr)
-        , m_smooth(false)
-    {
+}
+
+void QQuickImageTextureProvider::updateTexture(QSGTexture *texture) {
+    if (m_texture == texture)
+        return;
+    m_texture = texture;
+    emit textureChanged();
+}
+
+QSGTexture *QQuickImageTextureProvider::texture() const {
+    if (m_texture) {
+        m_texture->setFiltering(m_smooth ? QSGTexture::Linear : QSGTexture::Nearest);
+        m_texture->setMipmapFiltering(m_mipmap ? QSGTexture::Linear : QSGTexture::None);
+        m_texture->setHorizontalWrapMode(QSGTexture::ClampToEdge);
+        m_texture->setVerticalWrapMode(QSGTexture::ClampToEdge);
     }
-
-    void updateTexture(QSGTexture *texture) {
-        if (m_texture == texture)
-            return;
-        m_texture = texture;
-        emit textureChanged();
-    }
-
-    QSGTexture *texture() const override {
-        if (m_texture) {
-            m_texture->setFiltering(m_smooth ? QSGTexture::Linear : QSGTexture::Nearest);
-            m_texture->setMipmapFiltering(m_mipmap ? QSGTexture::Linear : QSGTexture::None);
-            m_texture->setHorizontalWrapMode(QSGTexture::ClampToEdge);
-            m_texture->setVerticalWrapMode(QSGTexture::ClampToEdge);
-        }
-        return m_texture;
-    }
-
-    friend class QQuickImage;
-
-    QSGTexture *m_texture;
-    bool m_smooth;
-    bool m_mipmap;
-};
-
-#include "qquickimage.moc"
-#include "moc_qquickimage_p.cpp"
+    return m_texture;
+}
 
 QQuickImagePrivate::QQuickImagePrivate()
     : fillMode(QQuickImage::Stretch)
@@ -146,6 +132,7 @@ QQuickImagePrivate::QQuickImagePrivate()
     \list
     \li \c PKM (since Qt 5.10)
     \li \c KTX (since Qt 5.11)
+    \li \c ASTC (since Qt 5.13)
     \endlist
 
     \note Semi-transparent original images require alpha pre-multiplication
@@ -153,7 +140,7 @@ QQuickImagePrivate::QQuickImagePrivate()
     Quick. This can be done with the following ImageMagick command
     line:
     \badcode
-    convert MYORIGIMAGE \( +clone -alpha Extract \) -channel RGB -compose Multiply -composite MYPMIMAGE
+    convert foo.png \( +clone -alpha Extract \) -channel RGB -compose Multiply -composite foo_pm.png
     \endcode
 
     \section1 Automatic Detection of File Extension
@@ -689,13 +676,13 @@ QSGNode *QQuickImage::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     int xOffset = 0;
     if (d->hAlign == QQuickImage::AlignHCenter)
-        xOffset = qCeil((width() - pixWidth) / 2.);
+        xOffset = (width() - pixWidth) / 2;
     else if (d->hAlign == QQuickImage::AlignRight)
         xOffset = qCeil(width() - pixWidth);
 
     int yOffset = 0;
     if (d->vAlign == QQuickImage::AlignVCenter)
-        yOffset = qCeil((height() - pixHeight) / 2.);
+        yOffset = (height() - pixHeight) / 2;
     else if (d->vAlign == QQuickImage::AlignBottom)
         yOffset = qCeil(height() - pixHeight);
 

@@ -10,13 +10,11 @@
 #include "core/fxge/agg/fx_agg_driver.h"
 #endif
 
-#include "core/fxcrt/fx_memory.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/fx_freetype.h"
-#include "third_party/base/ptr_util.h"
 
 #include "core/fxge/apple/apple_int.h"
 #ifndef CGFLOAT_IS_DOUBLE
@@ -79,20 +77,14 @@ bool CQuartz2D::drawGraphicsString(void* graphics,
                                    uint16_t* glyphIndices,
                                    CGPoint* glyphPositions,
                                    int32_t charsCount,
-                                   FX_ARGB argb,
-                                   CFX_Matrix* matrix) {
+                                   FX_ARGB argb) {
   if (!graphics)
     return false;
+
   CGContextRef context = (CGContextRef)graphics;
   CGContextSetFont(context, (CGFontRef)font);
   CGContextSetFontSize(context, fontSize);
-  if (matrix) {
-    CGAffineTransform m = CGContextGetTextMatrix(context);
-    m = CGAffineTransformConcat(
-        m, CGAffineTransformMake(matrix->a, matrix->b, matrix->c, matrix->d,
-                                 matrix->e, matrix->f));
-    CGContextSetTextMatrix(context, m);
-  }
+
   int32_t a;
   int32_t r;
   int32_t g;

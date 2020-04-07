@@ -17,16 +17,20 @@
 class CJBig2_ArithDecoder;
 class CJBig2_BitStream;
 class CJBig2_Image;
+class JBig2ArithCtx;
 class PauseIndicatorIface;
-struct JBig2ArithCtx;
 
 class CJBig2_GRDProc {
  public:
-  struct ProgressiveArithDecodeState {
+  class ProgressiveArithDecodeState {
+   public:
+    ProgressiveArithDecodeState();
+    ~ProgressiveArithDecodeState();
+
     std::unique_ptr<CJBig2_Image>* pImage;
-    CJBig2_ArithDecoder* pArithDecoder;
-    JBig2ArithCtx* gbContext;
-    PauseIndicatorIface* pPause;
+    UnownedPtr<CJBig2_ArithDecoder> pArithDecoder;
+    UnownedPtr<JBig2ArithCtx> gbContext;
+    UnownedPtr<PauseIndicatorIface> pPause;
   };
 
   CJBig2_GRDProc();
@@ -42,12 +46,12 @@ class CJBig2_GRDProc {
   const FX_RECT& GetReplaceRect() const { return m_ReplaceRect; }
 
   bool MMR;
-  uint32_t GBW;
-  uint32_t GBH;
-  uint8_t GBTEMPLATE;
   bool TPGDON;
   bool USESKIP;
-  CJBig2_Image* SKIP;
+  uint8_t GBTEMPLATE;
+  uint32_t GBW;
+  uint32_t GBH;
+  UnownedPtr<CJBig2_Image> SKIP;
   int8_t GBAT[8];
 
  private:
@@ -77,15 +81,10 @@ class CJBig2_GRDProc {
       CJBig2_ArithDecoder* pArithDecoder,
       JBig2ArithCtx* gbContext,
       int OPT);
-  std::unique_ptr<CJBig2_Image> DecodeArithTemplate0Unopt(
+  std::unique_ptr<CJBig2_Image> DecodeArithTemplateUnopt(
       CJBig2_ArithDecoder* pArithDecoder,
-      JBig2ArithCtx* gbContext);
-  std::unique_ptr<CJBig2_Image> DecodeArithTemplate1Unopt(
-      CJBig2_ArithDecoder* pArithDecoder,
-      JBig2ArithCtx* gbContext);
-  std::unique_ptr<CJBig2_Image> DecodeArithTemplate2Unopt(
-      CJBig2_ArithDecoder* pArithDecoder,
-      JBig2ArithCtx* gbContext);
+      JBig2ArithCtx* gbContext,
+      int UNOPT);
   std::unique_ptr<CJBig2_Image> DecodeArithTemplate3Opt3(
       CJBig2_ArithDecoder* pArithDecoder,
       JBig2ArithCtx* gbContext);

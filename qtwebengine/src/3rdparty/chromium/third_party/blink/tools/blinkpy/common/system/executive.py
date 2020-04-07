@@ -111,8 +111,13 @@ class Executive(object):
 
         Will fail silently if pid does not exist or insufficient permissions.
         """
-        # According to http://docs.python.org/library/os.html
-        # os.kill isn't available on Windows.
+        # This method behaves differently on Windows and Linux. On Windows, it
+        # kills the process as well as all of its subprocesses (because of the
+        # '/t' flag). Some call sites depend on this behaviour (e.g. to kill all
+        # worker processes of wptserve on Windows).
+        # TODO(robertma): Replicate the behaviour on POSIX by calling setsid()
+        # in Popen's preexec_fn hook, and perhaps rename the method to
+        # kill_process_tree.
         if sys.platform == 'win32':
             # Workaround for race condition that occurs when the browser is
             # killed as it's launching a process. This sometimes leaves a child
@@ -369,7 +374,12 @@ class Executive(object):
         if sys.platform == 'win32' and sys.version < '3':
             return True
 
-        return False
+        # On other (POSIX) platforms, we need to encode arguments if the system
+        # does not use UTF-8 encoding. Otherwise, subprocess.Popen will raise
+        # TypeError. Note that macOS always uses UTF-8, while on UNIX it
+        # depends on user locale (LC_CTYPE) and sys.getfilesystemencoding() may
+        # fail and return None.
+        return (sys.getfilesystemencoding() or '').lower() != 'utf-8'
 
     def _encode_argument_if_needed(self, argument):
         if not self._should_encode_child_process_arguments():

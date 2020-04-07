@@ -6,6 +6,7 @@
 
 #include "core/fxcodec/codec/ccodec_gifmodule.h"
 
+#include "core/fxcodec/codec/cfx_codec_memory.h"
 #include "core/fxcodec/codec/codec_int.h"
 #include "core/fxcodec/fx_codec.h"
 #include "core/fxcodec/gif/cfx_gif.h"
@@ -17,7 +18,7 @@ CCodec_GifModule::CCodec_GifModule() {}
 
 CCodec_GifModule::~CCodec_GifModule() {}
 
-std::unique_ptr<CCodec_GifModule::Context> CCodec_GifModule::Start(
+std::unique_ptr<CodecModuleIface::Context> CCodec_GifModule::Start(
     Delegate* pDelegate) {
   return pdfium::MakeUnique<CFX_GifContext>(this, pDelegate);
 }
@@ -66,15 +67,14 @@ CFX_GifDecodeStatus CCodec_GifModule::LoadFrame(Context* pContext,
   return CFX_GifDecodeStatus::Success;
 }
 
-uint32_t CCodec_GifModule::GetAvailInput(Context* pContext,
-                                         uint8_t** avail_buf_ptr) {
-  auto* context = static_cast<CFX_GifContext*>(pContext);
-  return context->GetAvailInput(avail_buf_ptr);
+FX_FILESIZE CCodec_GifModule::GetAvailInput(Context* pContext) const {
+  return static_cast<CFX_GifContext*>(pContext)->GetAvailInput();
 }
 
-void CCodec_GifModule::Input(Context* pContext,
-                             const uint8_t* src_buf,
-                             uint32_t src_size) {
-  auto* context = static_cast<CFX_GifContext*>(pContext);
-  context->SetInputBuffer((uint8_t*)src_buf, src_size);
+bool CCodec_GifModule::Input(Context* pContext,
+                             RetainPtr<CFX_CodecMemory> codec_memory,
+                             CFX_DIBAttribute*) {
+  auto* ctx = static_cast<CFX_GifContext*>(pContext);
+  ctx->SetInputBuffer(std::move(codec_memory));
+  return true;
 }

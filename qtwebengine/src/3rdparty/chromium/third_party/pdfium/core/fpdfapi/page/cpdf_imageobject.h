@@ -7,14 +7,12 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_IMAGEOBJECT_H_
 #define CORE_FPDFAPI_PAGE_CPDF_IMAGEOBJECT_H_
 
-#include <memory>
-
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fxcrt/fx_coordinates.h"
 
 class CPDF_Image;
 
-class CPDF_ImageObject : public CPDF_PageObject {
+class CPDF_ImageObject final : public CPDF_PageObject {
  public:
   explicit CPDF_ImageObject(int32_t content_stream);
   CPDF_ImageObject();

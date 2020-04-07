@@ -30,21 +30,19 @@
 
 #include "third_party/blink/renderer/core/svg/svg_animated_integer_optional_integer.h"
 
-#include "third_party/blink/renderer/core/svg/svg_element.h"
-
 namespace blink {
 
 SVGAnimatedIntegerOptionalInteger::SVGAnimatedIntegerOptionalInteger(
     SVGElement* context_element,
     const QualifiedName& attribute_name,
-    float initial_first_value,
-    float initial_second_value)
+    int initial_value)
     : SVGAnimatedPropertyCommon<SVGIntegerOptionalInteger>(
           context_element,
           attribute_name,
-          SVGIntegerOptionalInteger::Create(
-              SVGInteger::Create(initial_first_value),
-              SVGInteger::Create(initial_second_value))),
+          SVGIntegerOptionalInteger::Create(SVGInteger::Create(initial_value),
+                                            SVGInteger::Create(initial_value)),
+          CSSPropertyInvalid,
+          initial_value),
       first_integer_(SVGAnimatedInteger::Create(context_element,
                                                 attribute_name,
                                                 BaseValue()->FirstInteger())),
@@ -75,7 +73,7 @@ void SVGAnimatedIntegerOptionalInteger::AnimationEnded() {
   second_integer_->AnimationEnded();
 }
 
-bool SVGAnimatedIntegerOptionalInteger::NeedsSynchronizeAttribute() {
+bool SVGAnimatedIntegerOptionalInteger::NeedsSynchronizeAttribute() const {
   return first_integer_->NeedsSynchronizeAttribute() ||
          second_integer_->NeedsSynchronizeAttribute();
 }

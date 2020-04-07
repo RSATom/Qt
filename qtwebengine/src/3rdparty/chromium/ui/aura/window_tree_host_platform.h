@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/client/window_types.h"
+#include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/platform_window/platform_window.h"
@@ -24,14 +25,15 @@ struct PlatformWindowInitProperties;
 
 namespace aura {
 
-class WindowPort;
-
 // The unified WindowTreeHost implementation for platforms
 // that implement PlatformWindow.
 class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
                                            public ui::PlatformWindowDelegate {
  public:
-  explicit WindowTreeHostPlatform(ui::PlatformWindowInitProperties properties);
+  // See Compositor() for details on |trace_environment_name|.
+  explicit WindowTreeHostPlatform(ui::PlatformWindowInitProperties properties,
+                                  std::unique_ptr<Window> = nullptr,
+                                  const char* trace_environment_name = nullptr);
   ~WindowTreeHostPlatform() override;
 
   // WindowTreeHost:
@@ -41,7 +43,8 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   void HideImpl() override;
   gfx::Rect GetBoundsInPixels() const override;
   void SetBoundsInPixels(const gfx::Rect& bounds,
-                         const viz::LocalSurfaceId& local_surface_id) override;
+                         const viz::LocalSurfaceIdAllocation&
+                             local_surface_id_allocation) override;
   gfx::Point GetLocationOnScreenInPixels() const override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -51,10 +54,9 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   void OnCursorVisibilityChangedNative(bool show) override;
 
  protected:
-  // NOTE: neither of these calls CreateCompositor(); subclasses must call
+  // NOTE: this does not call CreateCompositor(); subclasses must call
   // CreateCompositor() at the appropriate time.
-  WindowTreeHostPlatform();
-  explicit WindowTreeHostPlatform(std::unique_ptr<WindowPort> window_port);
+  explicit WindowTreeHostPlatform(std::unique_ptr<Window> window = nullptr);
 
   // Creates a ui::PlatformWindow appropriate for the current platform and
   // installs it at as the PlatformWindow for this WindowTreeHostPlatform.
@@ -74,9 +76,7 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   void OnClosed() override;
   void OnWindowStateChanged(ui::PlatformWindowState new_state) override;
   void OnLostCapture() override;
-  void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget,
-                                    float device_pixel_ratio) override;
-  void OnAcceleratedWidgetDestroying() override;
+  void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) override;
   void OnAcceleratedWidgetDestroyed() override;
   void OnActivationChanged(bool active) override;
 
@@ -87,6 +87,9 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   bool IsKeyLocked(ui::DomCode dom_code) override;
   base::flat_map<std::string, std::string> GetKeyboardLayoutMap() override;
 
+  // This function is only for test purpose.
+  gfx::NativeCursor* GetCursorNative() { return &current_cursor_; }
+
  private:
   gfx::AcceleratedWidget widget_;
   std::unique_ptr<ui::PlatformWindow> platform_window_;
@@ -95,12 +98,12 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
 
   std::unique_ptr<ui::KeyboardHook> keyboard_hook_;
 
-  // |pending_local_surface_id_| and |pending_size_| are set when the
-  // PlatformWindow instance is requested to adopt a new size (in
+  // |pending_local_surface_id_allocation_|, and |pending_size_| are set when
+  // the PlatformWindow instance is requested to adopt a new size (in
   // SetBoundsInPixels()). When the platform confirms the new size (by way of
-  // OnBoundsChanged() callback), the LocalSurfaceId is set on the compositor,
-  // by WindowTreeHost.
-  viz::LocalSurfaceId pending_local_surface_id_;
+  // OnBoundsChanged() callback), the LocalSurfaceIdAllocation is set on the
+  // compositor, by WindowTreeHost.
+  viz::LocalSurfaceIdAllocation pending_local_surface_id_allocation_;
   gfx::Size pending_size_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowTreeHostPlatform);

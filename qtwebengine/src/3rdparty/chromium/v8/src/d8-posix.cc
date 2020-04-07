@@ -204,7 +204,7 @@ class ExecArgs {
         return;
       }
       delete [] exec_args_[i];
-      exec_args_[i] = 0;
+      exec_args_[i] = nullptr;
     }
   }
   static const unsigned kMaxArgs = 1000;
@@ -342,7 +342,7 @@ static Local<Value> GetStdout(Isolate* isolate, int child_fd,
       Local<String> addition =
           String::NewFromUtf8(isolate, buffer, NewStringType::kNormal, length)
               .ToLocalChecked();
-      accumulator = String::Concat(accumulator, addition);
+      accumulator = String::Concat(isolate, accumulator, addition);
       fullness = bytes_read + fullness - length;
       memcpy(buffer, buffer + length, fullness);
     }

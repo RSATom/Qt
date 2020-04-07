@@ -4,6 +4,8 @@
 
 #include "ui/aura/mus/window_tree_host_mus.h"
 
+#include <limits>
+
 #include "ui/aura/env.h"
 #include "ui/aura/mus/input_method_mus.h"
 #include "ui/aura/mus/window_port_mus.h"
@@ -12,13 +14,17 @@
 #include "ui/aura/mus/window_tree_host_mus_init_params.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/aura/window_tracker.h"
 #include "ui/aura/window_tree_host_observer.h"
 #include "ui/base/class_property.h"
+#include "ui/base/hit_test.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
+#include "ui/events/gestures/gesture_recognizer.h"
+#include "ui/events/gestures/gesture_recognizer_observer.h"
 #include "ui/platform_window/stub/stub_window.h"
 
 DEFINE_UI_CLASS_PROPERTY_TYPE(aura::WindowTreeHostMus*);
@@ -30,7 +36,66 @@ namespace {
 DEFINE_UI_CLASS_PROPERTY_KEY(
     WindowTreeHostMus*, kWindowTreeHostMusKey, nullptr);
 
-static uint32_t accelerated_widget_count = 1;
+// Start at the max and decrease as in SingleProcessMash these values must not
+// overlap with values assigned by Ozone's PlatformWindow (which starts at 1
+// and increases).
+uint32_t next_accelerated_widget_id = std::numeric_limits<uint32_t>::max();
+
+// ScopedTouchTransferController controls the transfer of touch events for
+// window move loop. It transfers touches before the window move starts, and
+// then transfers them back to the original window when the window move ends.
+// However this transferring back to the original shouldn't happen if the client
+// wants to continue the dragging on another window (like attaching the dragged
+// tab to another window).
+class ScopedTouchTransferController : public ui::GestureRecognizerObserver {
+ public:
+  ScopedTouchTransferController(Window* source, Window* dest)
+      : tracker_({source, dest}),
+        gesture_recognizer_(source->env()->gesture_recognizer()) {
+    gesture_recognizer_->TransferEventsTo(
+        source, dest, ui::TransferTouchesBehavior::kDontCancel);
+    gesture_recognizer_->AddObserver(this);
+  }
+  ~ScopedTouchTransferController() override {
+    gesture_recognizer_->RemoveObserver(this);
+    if (tracker_.windows().size() == 2) {
+      Window* source = tracker_.Pop();
+      Window* dest = tracker_.Pop();
+      gesture_recognizer_->TransferEventsTo(
+          dest, source, ui::TransferTouchesBehavior::kDontCancel);
+    }
+  }
+
+ private:
+  // ui::GestureRecognizerObserver:
+  void OnActiveTouchesCanceledExcept(
+      ui::GestureConsumer* not_cancelled) override {}
+  void OnEventsTransferred(
+      ui::GestureConsumer* current_consumer,
+      ui::GestureConsumer* new_consumer,
+      ui::TransferTouchesBehavior transfer_touches_behavior) override {
+    if (tracker_.windows().size() <= 1)
+      return;
+    Window* dest = tracker_.windows()[1];
+    if (current_consumer == dest)
+      tracker_.Remove(dest);
+  }
+  void OnActiveTouchesCanceled(ui::GestureConsumer* consumer) override {}
+
+  WindowTracker tracker_;
+
+  ui::GestureRecognizer* gesture_recognizer_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedTouchTransferController);
+};
+
+void OnPerformWindowMoveDone(
+    std::unique_ptr<ScopedTouchTransferController> controller,
+    base::OnceCallback<void(bool)> callback,
+    bool success) {
+  controller.reset();
+  std::move(callback).Run(success);
+}
 
 }  // namespace
 
@@ -38,19 +103,15 @@ static uint32_t accelerated_widget_count = 1;
 // WindowTreeHostMus, public:
 
 WindowTreeHostMus::WindowTreeHostMus(WindowTreeHostMusInitParams init_params)
-    : WindowTreeHostPlatform(std::move(init_params.window_port)),
+    : WindowTreeHostPlatform(
+          std::make_unique<Window>(nullptr,
+                                   std::move(init_params.window_port))),
       display_id_(init_params.display_id),
       delegate_(init_params.window_tree_client) {
   gfx::Rect bounds_in_pixels;
-  display_init_params_ = std::move(init_params.display_init_params);
-  if (display_init_params_) {
-    bounds_in_pixels = display_init_params_->viewport_metrics.bounds_in_pixels;
-    if (display_init_params_->display)
-      DCHECK_EQ(display_id_, display_init_params_->display->id());
-  }
   window()->SetProperty(kWindowTreeHostMusKey, this);
-  // TODO(sky): find a cleaner way to set this! Better solution is to likely
-  // have constructor take aura::Window.
+  // TODO(sky): find a cleaner way to set this! Revisit this now that
+  // constructor takes a Window.
   WindowPortMus* window_mus = WindowPortMus::Get(window());
   window_mus->window_ = window();
   // Apply the properties before initializing the window, that way the server
@@ -61,24 +122,22 @@ WindowTreeHostMus::WindowTreeHostMus(WindowTreeHostMusInitParams init_params)
   // In other cases, let a valid FrameSinkId be selected by
   // context_factory_private().
   const bool force_software_compositor = false;
-  const bool external_begin_frames_enabled = false;
-  const bool are_events_in_pixels =
-      init_params.window_tree_client->is_using_pixels();
+  ui::ExternalBeginFrameClient* external_begin_frame_client = nullptr;
+  const bool are_events_in_pixels = false;
   CreateCompositor(window_mus->GenerateFrameSinkIdFromServerId(),
-                   force_software_compositor, external_begin_frames_enabled,
+                   force_software_compositor, external_begin_frame_client,
                    are_events_in_pixels);
   gfx::AcceleratedWidget accelerated_widget;
 // We need accelerated widget numbers to be different for each window and
 // fit in the smallest sizeof(AcceleratedWidget) uint32_t has this property.
 #if defined(OS_WIN) || defined(OS_ANDROID)
   accelerated_widget =
-      reinterpret_cast<gfx::AcceleratedWidget>(accelerated_widget_count++);
+      reinterpret_cast<gfx::AcceleratedWidget>(next_accelerated_widget_id--);
 #else
   accelerated_widget =
-      static_cast<gfx::AcceleratedWidget>(accelerated_widget_count++);
+      static_cast<gfx::AcceleratedWidget>(next_accelerated_widget_id--);
 #endif
-  OnAcceleratedWidgetAvailable(accelerated_widget,
-                               GetDisplay().device_scale_factor());
+  OnAcceleratedWidgetAvailable(accelerated_widget);
 
   delegate_->OnWindowTreeHostCreated(this);
 
@@ -126,7 +185,10 @@ void WindowTreeHostMus::SetBoundsFromServerInPixels(
     const gfx::Rect& bounds_in_pixels,
     const viz::LocalSurfaceId& local_surface_id) {
   base::AutoReset<bool> resetter(&in_set_bounds_from_server_, true);
-  SetBoundsInPixels(bounds_in_pixels, local_surface_id);
+  // TODO(jonross): Update Mus to pass the correct allocation time.
+  SetBoundsInPixels(
+      bounds_in_pixels,
+      viz::LocalSurfaceIdAllocation(local_surface_id, base::TimeTicks::Now()));
 }
 
 void WindowTreeHostMus::SetClientArea(
@@ -152,51 +214,32 @@ void WindowTreeHostMus::StackAtTop() {
   delegate_->OnWindowTreeHostStackAtTop(this);
 }
 
-void WindowTreeHostMus::PerformWmAction(const std::string& action) {
-  delegate_->OnWindowTreeHostPerformWmAction(this, action);
-}
-
 void WindowTreeHostMus::PerformWindowMove(
-    ui::mojom::MoveLoopSource mus_source,
+    Window* content_window,
+    ws::mojom::MoveLoopSource mus_source,
     const gfx::Point& cursor_location,
-    const base::Callback<void(bool)>& callback) {
+    base::OnceCallback<void(bool)> callback) {
+  DCHECK(window()->Contains(content_window));
+  std::unique_ptr<ScopedTouchTransferController> scoped_controller;
+  if (content_window != window()) {
+    scoped_controller = std::make_unique<ScopedTouchTransferController>(
+        content_window, window());
+  }
+  content_window->ReleaseCapture();
   delegate_->OnWindowTreeHostPerformWindowMove(
-      this, mus_source, cursor_location, callback);
+      this, mus_source, cursor_location,
+      base::BindOnce(&OnPerformWindowMoveDone, std::move(scoped_controller),
+                     std::move(callback)));
 }
 
 void WindowTreeHostMus::CancelWindowMove() {
   delegate_->OnWindowTreeHostCancelWindowMove(this);
 }
 
-void WindowTreeHostMus::ConfineCursorToBounds(
-    const gfx::Rect& bounds_in_pixels) {
-  delegate_->OnWindowTreeHostConfineCursorToBounds(bounds_in_pixels,
-                                                   display_id_);
-}
-
 display::Display WindowTreeHostMus::GetDisplay() const {
   display::Display display;
   display::Screen::GetScreen()->GetDisplayWithDisplayId(display_id_, &display);
   return display;
-}
-
-void WindowTreeHostMus::OverrideAcceleratedWidget(
-    gfx::AcceleratedWidget widget) {
-  bool was_visible = compositor()->IsVisible();
-  if (was_visible)
-    compositor()->SetVisible(false);
-  compositor()->ReleaseAcceleratedWidget();
-  OnAcceleratedWidgetAvailable(widget, GetDisplay().device_scale_factor());
-  if (was_visible)
-    compositor()->SetVisible(true);
-
-  for (WindowTreeHostObserver& observer : observers())
-    observer.OnAcceleratedWidgetOverridden(this);
-}
-
-std::unique_ptr<DisplayInitParams>
-WindowTreeHostMus::ReleaseDisplayInitParams() {
-  return std::move(display_init_params_);
 }
 
 void WindowTreeHostMus::HideImpl() {
@@ -206,10 +249,11 @@ void WindowTreeHostMus::HideImpl() {
 
 void WindowTreeHostMus::SetBoundsInPixels(
     const gfx::Rect& bounds,
-    const viz::LocalSurfaceId& local_surface_id) {
+    const viz::LocalSurfaceIdAllocation& local_surface_id_allocation) {
   if (!in_set_bounds_from_server_)
     delegate_->OnWindowTreeHostBoundsWillChange(this, bounds);
-  WindowTreeHostPlatform::SetBoundsInPixels(bounds, local_surface_id);
+  WindowTreeHostPlatform::SetBoundsInPixels(bounds,
+                                            local_surface_id_allocation);
 }
 
 void WindowTreeHostMus::DispatchEvent(ui::Event* event) {
@@ -230,27 +274,6 @@ void WindowTreeHostMus::OnActivationChanged(bool active) {
 
 void WindowTreeHostMus::OnCloseRequest() {
   OnHostCloseRequested();
-}
-
-void WindowTreeHostMus::MoveCursorToScreenLocationInPixels(
-    const gfx::Point& location_in_pixels) {
-  // |location_in_pixels| is relative to the display.
-  delegate_->OnWindowTreeHostMoveCursorToDisplayLocation(location_in_pixels,
-                                                         display_id_);
-}
-
-gfx::Transform WindowTreeHostMus::GetRootTransformForLocalEventCoordinates()
-    const {
-  if (WindowMus::Get(window())->window_mus_type() !=
-      WindowMusType::DISPLAY_MANUALLY_CREATED) {
-    return WindowTreeHost::GetRootTransformForLocalEventCoordinates();
-  }
-  // Local events already have the transform set on the window applied, so
-  // don't apply it again.
-  gfx::Transform transform;
-  const float scale = window()->layer()->device_scale_factor();
-  transform.Scale(scale, scale);
-  return transform;
 }
 
 int64_t WindowTreeHostMus::GetDisplayId() {

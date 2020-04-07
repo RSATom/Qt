@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "components/download/public/common//download_stats.h"
+#include "components/download/public/common/download_stats.h"
 
 #include <map>
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "net/http/http_content_disposition.h"
@@ -58,6 +58,8 @@ enum ContentDispositionCountTypes {
 
   CONTENT_DISPOSITION_HAS_NAME_ONLY,  // Obsolete; kept for UMA compatiblity.
 
+  CONTENT_DISPOSITION_HAS_SINGLE_QUOTED_FILENAME,
+
   CONTENT_DISPOSITION_LAST_ENTRY
 };
 
@@ -81,165 +83,327 @@ void RecordContentDispositionCountFlag(
 // TODO(asanka): Replace this enum with calls to FileTypePolicies and move the
 // UMA metrics for dangerous/malicious downloads to //chrome/browser/download.
 constexpr const base::FilePath::CharType* kDangerousFileTypes[] = {
-    FILE_PATH_LITERAL(".ad"),          FILE_PATH_LITERAL(".ade"),
-    FILE_PATH_LITERAL(".adp"),         FILE_PATH_LITERAL(".ah"),
-    FILE_PATH_LITERAL(".apk"),         FILE_PATH_LITERAL(".app"),
-    FILE_PATH_LITERAL(".application"), FILE_PATH_LITERAL(".asp"),
-    FILE_PATH_LITERAL(".asx"),         FILE_PATH_LITERAL(".bas"),
-    FILE_PATH_LITERAL(".bash"),        FILE_PATH_LITERAL(".bat"),
-    FILE_PATH_LITERAL(".cfg"),         FILE_PATH_LITERAL(".chi"),
-    FILE_PATH_LITERAL(".chm"),         FILE_PATH_LITERAL(".class"),
-    FILE_PATH_LITERAL(".cmd"),         FILE_PATH_LITERAL(".com"),
-    FILE_PATH_LITERAL(".command"),     FILE_PATH_LITERAL(".crt"),
-    FILE_PATH_LITERAL(".crx"),         FILE_PATH_LITERAL(".csh"),
-    FILE_PATH_LITERAL(".deb"),         FILE_PATH_LITERAL(".dex"),
-    FILE_PATH_LITERAL(".dll"),         FILE_PATH_LITERAL(".drv"),
-    FILE_PATH_LITERAL(".exe"),         FILE_PATH_LITERAL(".fxp"),
-    FILE_PATH_LITERAL(".grp"),         FILE_PATH_LITERAL(".hlp"),
-    FILE_PATH_LITERAL(".hta"),         FILE_PATH_LITERAL(".htm"),
-    FILE_PATH_LITERAL(".html"),        FILE_PATH_LITERAL(".htt"),
-    FILE_PATH_LITERAL(".inf"),         FILE_PATH_LITERAL(".ini"),
-    FILE_PATH_LITERAL(".ins"),         FILE_PATH_LITERAL(".isp"),
-    FILE_PATH_LITERAL(".jar"),         FILE_PATH_LITERAL(".jnlp"),
-    FILE_PATH_LITERAL(".user.js"),     FILE_PATH_LITERAL(".js"),
-    FILE_PATH_LITERAL(".jse"),         FILE_PATH_LITERAL(".ksh"),
-    FILE_PATH_LITERAL(".lnk"),         FILE_PATH_LITERAL(".local"),
-    FILE_PATH_LITERAL(".mad"),         FILE_PATH_LITERAL(".maf"),
-    FILE_PATH_LITERAL(".mag"),         FILE_PATH_LITERAL(".mam"),
-    FILE_PATH_LITERAL(".manifest"),    FILE_PATH_LITERAL(".maq"),
-    FILE_PATH_LITERAL(".mar"),         FILE_PATH_LITERAL(".mas"),
-    FILE_PATH_LITERAL(".mat"),         FILE_PATH_LITERAL(".mau"),
-    FILE_PATH_LITERAL(".mav"),         FILE_PATH_LITERAL(".maw"),
-    FILE_PATH_LITERAL(".mda"),         FILE_PATH_LITERAL(".mdb"),
-    FILE_PATH_LITERAL(".mde"),         FILE_PATH_LITERAL(".mdt"),
-    FILE_PATH_LITERAL(".mdw"),         FILE_PATH_LITERAL(".mdz"),
-    FILE_PATH_LITERAL(".mht"),         FILE_PATH_LITERAL(".mhtml"),
-    FILE_PATH_LITERAL(".mmc"),         FILE_PATH_LITERAL(".mof"),
-    FILE_PATH_LITERAL(".msc"),         FILE_PATH_LITERAL(".msh"),
-    FILE_PATH_LITERAL(".mshxml"),      FILE_PATH_LITERAL(".msi"),
-    FILE_PATH_LITERAL(".msp"),         FILE_PATH_LITERAL(".mst"),
-    FILE_PATH_LITERAL(".ocx"),         FILE_PATH_LITERAL(".ops"),
-    FILE_PATH_LITERAL(".pcd"),         FILE_PATH_LITERAL(".pif"),
-    FILE_PATH_LITERAL(".pkg"),         FILE_PATH_LITERAL(".pl"),
-    FILE_PATH_LITERAL(".plg"),         FILE_PATH_LITERAL(".prf"),
-    FILE_PATH_LITERAL(".prg"),         FILE_PATH_LITERAL(".pst"),
-    FILE_PATH_LITERAL(".py"),          FILE_PATH_LITERAL(".pyc"),
-    FILE_PATH_LITERAL(".pyw"),         FILE_PATH_LITERAL(".rb"),
-    FILE_PATH_LITERAL(".reg"),         FILE_PATH_LITERAL(".rpm"),
-    FILE_PATH_LITERAL(".scf"),         FILE_PATH_LITERAL(".scr"),
-    FILE_PATH_LITERAL(".sct"),         FILE_PATH_LITERAL(".sh"),
-    FILE_PATH_LITERAL(".shar"),        FILE_PATH_LITERAL(".shb"),
-    FILE_PATH_LITERAL(".shs"),         FILE_PATH_LITERAL(".shtm"),
-    FILE_PATH_LITERAL(".shtml"),       FILE_PATH_LITERAL(".spl"),
-    FILE_PATH_LITERAL(".svg"),         FILE_PATH_LITERAL(".swf"),
-    FILE_PATH_LITERAL(".sys"),         FILE_PATH_LITERAL(".tcsh"),
-    FILE_PATH_LITERAL(".url"),         FILE_PATH_LITERAL(".vb"),
-    FILE_PATH_LITERAL(".vbe"),         FILE_PATH_LITERAL(".vbs"),
-    FILE_PATH_LITERAL(".vsd"),         FILE_PATH_LITERAL(".vsmacros"),
-    FILE_PATH_LITERAL(".vss"),         FILE_PATH_LITERAL(".vst"),
-    FILE_PATH_LITERAL(".vsw"),         FILE_PATH_LITERAL(".ws"),
-    FILE_PATH_LITERAL(".wsc"),         FILE_PATH_LITERAL(".wsf"),
-    FILE_PATH_LITERAL(".wsh"),         FILE_PATH_LITERAL(".xbap"),
-    FILE_PATH_LITERAL(".xht"),         FILE_PATH_LITERAL(".xhtm"),
-    FILE_PATH_LITERAL(".xhtml"),       FILE_PATH_LITERAL(".xml"),
-    FILE_PATH_LITERAL(".xsl"),         FILE_PATH_LITERAL(".xslt"),
-    FILE_PATH_LITERAL(".website"),     FILE_PATH_LITERAL(".msh1"),
-    FILE_PATH_LITERAL(".msh2"),        FILE_PATH_LITERAL(".msh1xml"),
-    FILE_PATH_LITERAL(".msh2xml"),     FILE_PATH_LITERAL(".ps1"),
-    FILE_PATH_LITERAL(".ps1xml"),      FILE_PATH_LITERAL(".ps2"),
-    FILE_PATH_LITERAL(".ps2xml"),      FILE_PATH_LITERAL(".psc1"),
-    FILE_PATH_LITERAL(".psc2"),        FILE_PATH_LITERAL(".xnk"),
-    FILE_PATH_LITERAL(".appref-ms"),   FILE_PATH_LITERAL(".gadget"),
-    FILE_PATH_LITERAL(".efi"),         FILE_PATH_LITERAL(".fon"),
-    FILE_PATH_LITERAL(".partial"),     FILE_PATH_LITERAL(".svg"),
-    FILE_PATH_LITERAL(".xml"),         FILE_PATH_LITERAL(".xrm_ms"),
-    FILE_PATH_LITERAL(".xsl"),         FILE_PATH_LITERAL(".action"),
-    FILE_PATH_LITERAL(".bin"),         FILE_PATH_LITERAL(".inx"),
-    FILE_PATH_LITERAL(".ipa"),         FILE_PATH_LITERAL(".isu"),
-    FILE_PATH_LITERAL(".job"),         FILE_PATH_LITERAL(".out"),
-    FILE_PATH_LITERAL(".pad"),         FILE_PATH_LITERAL(".paf"),
-    FILE_PATH_LITERAL(".rgs"),         FILE_PATH_LITERAL(".u3p"),
-    FILE_PATH_LITERAL(".vbscript"),    FILE_PATH_LITERAL(".workflow"),
-    FILE_PATH_LITERAL(".001"),         FILE_PATH_LITERAL(".7z"),
-    FILE_PATH_LITERAL(".ace"),         FILE_PATH_LITERAL(".arc"),
-    FILE_PATH_LITERAL(".arj"),         FILE_PATH_LITERAL(".b64"),
-    FILE_PATH_LITERAL(".balz"),        FILE_PATH_LITERAL(".bhx"),
-    FILE_PATH_LITERAL(".bz"),          FILE_PATH_LITERAL(".bz2"),
-    FILE_PATH_LITERAL(".bzip2"),       FILE_PATH_LITERAL(".cab"),
-    FILE_PATH_LITERAL(".cpio"),        FILE_PATH_LITERAL(".fat"),
-    FILE_PATH_LITERAL(".gz"),          FILE_PATH_LITERAL(".gzip"),
-    FILE_PATH_LITERAL(".hfs"),         FILE_PATH_LITERAL(".hqx"),
-    FILE_PATH_LITERAL(".iso"),         FILE_PATH_LITERAL(".lha"),
-    FILE_PATH_LITERAL(".lpaq1"),       FILE_PATH_LITERAL(".lpaq5"),
-    FILE_PATH_LITERAL(".lpaq8"),       FILE_PATH_LITERAL(".lzh"),
-    FILE_PATH_LITERAL(".lzma"),        FILE_PATH_LITERAL(".mim"),
-    FILE_PATH_LITERAL(".ntfs"),        FILE_PATH_LITERAL(".paq8f"),
-    FILE_PATH_LITERAL(".paq8jd"),      FILE_PATH_LITERAL(".paq8l"),
-    FILE_PATH_LITERAL(".paq8o"),       FILE_PATH_LITERAL(".pea"),
-    FILE_PATH_LITERAL(".quad"),        FILE_PATH_LITERAL(".r00"),
-    FILE_PATH_LITERAL(".r01"),         FILE_PATH_LITERAL(".r02"),
-    FILE_PATH_LITERAL(".r03"),         FILE_PATH_LITERAL(".r04"),
-    FILE_PATH_LITERAL(".r05"),         FILE_PATH_LITERAL(".r06"),
-    FILE_PATH_LITERAL(".r07"),         FILE_PATH_LITERAL(".r08"),
-    FILE_PATH_LITERAL(".r09"),         FILE_PATH_LITERAL(".r10"),
-    FILE_PATH_LITERAL(".r11"),         FILE_PATH_LITERAL(".r12"),
-    FILE_PATH_LITERAL(".r13"),         FILE_PATH_LITERAL(".r14"),
-    FILE_PATH_LITERAL(".r15"),         FILE_PATH_LITERAL(".r16"),
-    FILE_PATH_LITERAL(".r17"),         FILE_PATH_LITERAL(".r18"),
-    FILE_PATH_LITERAL(".r19"),         FILE_PATH_LITERAL(".r20"),
-    FILE_PATH_LITERAL(".r21"),         FILE_PATH_LITERAL(".r22"),
-    FILE_PATH_LITERAL(".r23"),         FILE_PATH_LITERAL(".r24"),
-    FILE_PATH_LITERAL(".r25"),         FILE_PATH_LITERAL(".r26"),
-    FILE_PATH_LITERAL(".r27"),         FILE_PATH_LITERAL(".r28"),
-    FILE_PATH_LITERAL(".r29"),         FILE_PATH_LITERAL(".rar"),
-    FILE_PATH_LITERAL(".squashfs"),    FILE_PATH_LITERAL(".swm"),
-    FILE_PATH_LITERAL(".tar"),         FILE_PATH_LITERAL(".taz"),
-    FILE_PATH_LITERAL(".tbz"),         FILE_PATH_LITERAL(".tbz2"),
-    FILE_PATH_LITERAL(".tgz"),         FILE_PATH_LITERAL(".tpz"),
-    FILE_PATH_LITERAL(".txz"),         FILE_PATH_LITERAL(".tz"),
-    FILE_PATH_LITERAL(".udf"),         FILE_PATH_LITERAL(".uu"),
-    FILE_PATH_LITERAL(".uue"),         FILE_PATH_LITERAL(".vhd"),
-    FILE_PATH_LITERAL(".vmdk"),        FILE_PATH_LITERAL(".wim"),
-    FILE_PATH_LITERAL(".wrc"),         FILE_PATH_LITERAL(".xar"),
-    FILE_PATH_LITERAL(".xxe"),         FILE_PATH_LITERAL(".xz"),
-    FILE_PATH_LITERAL(".z"),           FILE_PATH_LITERAL(".zip"),
-    FILE_PATH_LITERAL(".zipx"),        FILE_PATH_LITERAL(".zpaq"),
-    FILE_PATH_LITERAL(".cdr"),         FILE_PATH_LITERAL(".dart"),
-    FILE_PATH_LITERAL(".dc42"),        FILE_PATH_LITERAL(".diskcopy42"),
-    FILE_PATH_LITERAL(".dmg"),         FILE_PATH_LITERAL(".dmgpart"),
-    FILE_PATH_LITERAL(".dvdr"),        FILE_PATH_LITERAL(".img"),
-    FILE_PATH_LITERAL(".imgpart"),     FILE_PATH_LITERAL(".ndif"),
-    FILE_PATH_LITERAL(".smi"),         FILE_PATH_LITERAL(".sparsebundle"),
-    FILE_PATH_LITERAL(".sparseimage"), FILE_PATH_LITERAL(".toast"),
-    FILE_PATH_LITERAL(".udif"),        FILE_PATH_LITERAL(".run"),        // 262
-    FILE_PATH_LITERAL(".mpkg"),        FILE_PATH_LITERAL(".as"),         // 264
-    FILE_PATH_LITERAL(".cpgz"),        FILE_PATH_LITERAL(".pax"),        // 266
-    FILE_PATH_LITERAL(".xip"),         FILE_PATH_LITERAL(".docx"),       // 268
-    FILE_PATH_LITERAL(".docm"),        FILE_PATH_LITERAL(".dott"),       // 270
-    FILE_PATH_LITERAL(".dotm"),        FILE_PATH_LITERAL(".docb"),       // 272
-    FILE_PATH_LITERAL(".xlsx"),        FILE_PATH_LITERAL(".xlsm"),       // 274
-    FILE_PATH_LITERAL(".xltx"),        FILE_PATH_LITERAL(".xltm"),       // 276
-    FILE_PATH_LITERAL(".pptx"),        FILE_PATH_LITERAL(".pptm"),       // 278
-    FILE_PATH_LITERAL(".potx"),        FILE_PATH_LITERAL(".ppam"),       // 280
-    FILE_PATH_LITERAL(".ppsx"),        FILE_PATH_LITERAL(".sldx"),       // 282
-    FILE_PATH_LITERAL(".sldm"),        FILE_PATH_LITERAL(".htm"),        // 284
-    FILE_PATH_LITERAL(".html"),        FILE_PATH_LITERAL(".xht"),        // 286
-    FILE_PATH_LITERAL(".xhtm"),        FILE_PATH_LITERAL(".xhtml"),      // 288
-    FILE_PATH_LITERAL(".vdx"),         FILE_PATH_LITERAL(".vsx"),        // 290
-    FILE_PATH_LITERAL(".vtx"),         FILE_PATH_LITERAL(".vsdx"),       // 292
-    FILE_PATH_LITERAL(".vssx"),        FILE_PATH_LITERAL(".vstx"),       // 294
-    FILE_PATH_LITERAL(".vsdm"),        FILE_PATH_LITERAL(".vssm"),       // 296
-    FILE_PATH_LITERAL(".vstm"),        FILE_PATH_LITERAL(".btapp"),      // 298
-    FILE_PATH_LITERAL(".btskin"),      FILE_PATH_LITERAL(".btinstall"),  // 300
-    FILE_PATH_LITERAL(".btkey"),       FILE_PATH_LITERAL(".btsearch"),   // 302
-    FILE_PATH_LITERAL(".dhtml"),       FILE_PATH_LITERAL(".dhtm"),       // 304
-    FILE_PATH_LITERAL(".dht"),         FILE_PATH_LITERAL(".shtml"),      // 306
-    FILE_PATH_LITERAL(".shtm"),        FILE_PATH_LITERAL(".sht"),        // 308
-    FILE_PATH_LITERAL(".slk"),                                           // 309
-    FILE_PATH_LITERAL(".applescript"), FILE_PATH_LITERAL(".scpt"),       // 311
-    FILE_PATH_LITERAL(".scptd"),       FILE_PATH_LITERAL(".seplugin"),   // 313
-    FILE_PATH_LITERAL(".osas"),        FILE_PATH_LITERAL(".osax"),       // 315
-    FILE_PATH_LITERAL(".settingcontent-ms"), FILE_PATH_LITERAL(".oxt"),  // 317
+    FILE_PATH_LITERAL(".ad"),
+    FILE_PATH_LITERAL(".ade"),
+    FILE_PATH_LITERAL(".adp"),
+    FILE_PATH_LITERAL(".ah"),
+    FILE_PATH_LITERAL(".apk"),
+    FILE_PATH_LITERAL(".app"),
+    FILE_PATH_LITERAL(".application"),
+    FILE_PATH_LITERAL(".asp"),
+    FILE_PATH_LITERAL(".asx"),
+    FILE_PATH_LITERAL(".bas"),
+    FILE_PATH_LITERAL(".bash"),
+    FILE_PATH_LITERAL(".bat"),
+    FILE_PATH_LITERAL(".cfg"),
+    FILE_PATH_LITERAL(".chi"),
+    FILE_PATH_LITERAL(".chm"),
+    FILE_PATH_LITERAL(".class"),
+    FILE_PATH_LITERAL(".cmd"),
+    FILE_PATH_LITERAL(".com"),
+    FILE_PATH_LITERAL(".command"),
+    FILE_PATH_LITERAL(".crt"),
+    FILE_PATH_LITERAL(".crx"),
+    FILE_PATH_LITERAL(".csh"),
+    FILE_PATH_LITERAL(".deb"),
+    FILE_PATH_LITERAL(".dex"),
+    FILE_PATH_LITERAL(".dll"),
+    FILE_PATH_LITERAL(".drv"),
+    FILE_PATH_LITERAL(".exe"),
+    FILE_PATH_LITERAL(".fxp"),
+    FILE_PATH_LITERAL(".grp"),
+    FILE_PATH_LITERAL(".hlp"),
+    FILE_PATH_LITERAL(".hta"),
+    FILE_PATH_LITERAL(".htm"),
+    FILE_PATH_LITERAL(".html"),
+    FILE_PATH_LITERAL(".htt"),
+    FILE_PATH_LITERAL(".inf"),
+    FILE_PATH_LITERAL(".ini"),
+    FILE_PATH_LITERAL(".ins"),
+    FILE_PATH_LITERAL(".isp"),
+    FILE_PATH_LITERAL(".jar"),
+    FILE_PATH_LITERAL(".jnlp"),
+    FILE_PATH_LITERAL(".user.js"),
+    FILE_PATH_LITERAL(".js"),
+    FILE_PATH_LITERAL(".jse"),
+    FILE_PATH_LITERAL(".ksh"),
+    FILE_PATH_LITERAL(".lnk"),
+    FILE_PATH_LITERAL(".local"),
+    FILE_PATH_LITERAL(".mad"),
+    FILE_PATH_LITERAL(".maf"),
+    FILE_PATH_LITERAL(".mag"),
+    FILE_PATH_LITERAL(".mam"),
+    FILE_PATH_LITERAL(".manifest"),
+    FILE_PATH_LITERAL(".maq"),
+    FILE_PATH_LITERAL(".mar"),
+    FILE_PATH_LITERAL(".mas"),
+    FILE_PATH_LITERAL(".mat"),
+    FILE_PATH_LITERAL(".mau"),
+    FILE_PATH_LITERAL(".mav"),
+    FILE_PATH_LITERAL(".maw"),
+    FILE_PATH_LITERAL(".mda"),
+    FILE_PATH_LITERAL(".mdb"),
+    FILE_PATH_LITERAL(".mde"),
+    FILE_PATH_LITERAL(".mdt"),
+    FILE_PATH_LITERAL(".mdw"),
+    FILE_PATH_LITERAL(".mdz"),
+    FILE_PATH_LITERAL(".mht"),
+    FILE_PATH_LITERAL(".mhtml"),
+    FILE_PATH_LITERAL(".mmc"),
+    FILE_PATH_LITERAL(".mof"),
+    FILE_PATH_LITERAL(".msc"),
+    FILE_PATH_LITERAL(".msh"),
+    FILE_PATH_LITERAL(".mshxml"),
+    FILE_PATH_LITERAL(".msi"),
+    FILE_PATH_LITERAL(".msp"),
+    FILE_PATH_LITERAL(".mst"),
+    FILE_PATH_LITERAL(".ocx"),
+    FILE_PATH_LITERAL(".ops"),
+    FILE_PATH_LITERAL(".pcd"),
+    FILE_PATH_LITERAL(".pif"),
+    FILE_PATH_LITERAL(".pkg"),
+    FILE_PATH_LITERAL(".pl"),
+    FILE_PATH_LITERAL(".plg"),
+    FILE_PATH_LITERAL(".prf"),
+    FILE_PATH_LITERAL(".prg"),
+    FILE_PATH_LITERAL(".pst"),
+    FILE_PATH_LITERAL(".py"),
+    FILE_PATH_LITERAL(".pyc"),
+    FILE_PATH_LITERAL(".pyw"),
+    FILE_PATH_LITERAL(".rb"),
+    FILE_PATH_LITERAL(".reg"),
+    FILE_PATH_LITERAL(".rpm"),
+    FILE_PATH_LITERAL(".scf"),
+    FILE_PATH_LITERAL(".scr"),
+    FILE_PATH_LITERAL(".sct"),
+    FILE_PATH_LITERAL(".sh"),
+    FILE_PATH_LITERAL(".shar"),
+    FILE_PATH_LITERAL(".shb"),
+    FILE_PATH_LITERAL(".shs"),
+    FILE_PATH_LITERAL(".shtm"),
+    FILE_PATH_LITERAL(".shtml"),
+    FILE_PATH_LITERAL(".spl"),
+    FILE_PATH_LITERAL(".svg"),
+    FILE_PATH_LITERAL(".swf"),
+    FILE_PATH_LITERAL(".sys"),
+    FILE_PATH_LITERAL(".tcsh"),
+    FILE_PATH_LITERAL(".url"),
+    FILE_PATH_LITERAL(".vb"),
+    FILE_PATH_LITERAL(".vbe"),
+    FILE_PATH_LITERAL(".vbs"),
+    FILE_PATH_LITERAL(".vsd"),
+    FILE_PATH_LITERAL(".vsmacros"),
+    FILE_PATH_LITERAL(".vss"),
+    FILE_PATH_LITERAL(".vst"),
+    FILE_PATH_LITERAL(".vsw"),
+    FILE_PATH_LITERAL(".ws"),
+    FILE_PATH_LITERAL(".wsc"),
+    FILE_PATH_LITERAL(".wsf"),
+    FILE_PATH_LITERAL(".wsh"),
+    FILE_PATH_LITERAL(".xbap"),
+    FILE_PATH_LITERAL(".xht"),
+    FILE_PATH_LITERAL(".xhtm"),
+    FILE_PATH_LITERAL(".xhtml"),
+    FILE_PATH_LITERAL(".xml"),
+    FILE_PATH_LITERAL(".xsl"),
+    FILE_PATH_LITERAL(".xslt"),
+    FILE_PATH_LITERAL(".website"),
+    FILE_PATH_LITERAL(".msh1"),
+    FILE_PATH_LITERAL(".msh2"),
+    FILE_PATH_LITERAL(".msh1xml"),
+    FILE_PATH_LITERAL(".msh2xml"),
+    FILE_PATH_LITERAL(".ps1"),
+    FILE_PATH_LITERAL(".ps1xml"),
+    FILE_PATH_LITERAL(".ps2"),
+    FILE_PATH_LITERAL(".ps2xml"),
+    FILE_PATH_LITERAL(".psc1"),
+    FILE_PATH_LITERAL(".psc2"),
+    FILE_PATH_LITERAL(".xnk"),
+    FILE_PATH_LITERAL(".appref-ms"),
+    FILE_PATH_LITERAL(".gadget"),
+    FILE_PATH_LITERAL(".efi"),
+    FILE_PATH_LITERAL(".fon"),
+    FILE_PATH_LITERAL(".partial"),
+    FILE_PATH_LITERAL(".svg"),
+    FILE_PATH_LITERAL(".xml"),
+    FILE_PATH_LITERAL(".xrm_ms"),
+    FILE_PATH_LITERAL(".xsl"),
+    FILE_PATH_LITERAL(".action"),
+    FILE_PATH_LITERAL(".bin"),
+    FILE_PATH_LITERAL(".inx"),
+    FILE_PATH_LITERAL(".ipa"),
+    FILE_PATH_LITERAL(".isu"),
+    FILE_PATH_LITERAL(".job"),
+    FILE_PATH_LITERAL(".out"),
+    FILE_PATH_LITERAL(".pad"),
+    FILE_PATH_LITERAL(".paf"),
+    FILE_PATH_LITERAL(".rgs"),
+    FILE_PATH_LITERAL(".u3p"),
+    FILE_PATH_LITERAL(".vbscript"),
+    FILE_PATH_LITERAL(".workflow"),
+    FILE_PATH_LITERAL(".001"),
+    FILE_PATH_LITERAL(".7z"),
+    FILE_PATH_LITERAL(".ace"),
+    FILE_PATH_LITERAL(".arc"),
+    FILE_PATH_LITERAL(".arj"),
+    FILE_PATH_LITERAL(".b64"),
+    FILE_PATH_LITERAL(".balz"),
+    FILE_PATH_LITERAL(".bhx"),
+    FILE_PATH_LITERAL(".bz"),
+    FILE_PATH_LITERAL(".bz2"),
+    FILE_PATH_LITERAL(".bzip2"),
+    FILE_PATH_LITERAL(".cab"),
+    FILE_PATH_LITERAL(".cpio"),
+    FILE_PATH_LITERAL(".fat"),
+    FILE_PATH_LITERAL(".gz"),
+    FILE_PATH_LITERAL(".gzip"),
+    FILE_PATH_LITERAL(".hfs"),
+    FILE_PATH_LITERAL(".hqx"),
+    FILE_PATH_LITERAL(".iso"),
+    FILE_PATH_LITERAL(".lha"),
+    FILE_PATH_LITERAL(".lpaq1"),
+    FILE_PATH_LITERAL(".lpaq5"),
+    FILE_PATH_LITERAL(".lpaq8"),
+    FILE_PATH_LITERAL(".lzh"),
+    FILE_PATH_LITERAL(".lzma"),
+    FILE_PATH_LITERAL(".mim"),
+    FILE_PATH_LITERAL(".ntfs"),
+    FILE_PATH_LITERAL(".paq8f"),
+    FILE_PATH_LITERAL(".paq8jd"),
+    FILE_PATH_LITERAL(".paq8l"),
+    FILE_PATH_LITERAL(".paq8o"),
+    FILE_PATH_LITERAL(".pea"),
+    FILE_PATH_LITERAL(".quad"),
+    FILE_PATH_LITERAL(".r00"),
+    FILE_PATH_LITERAL(".r01"),
+    FILE_PATH_LITERAL(".r02"),
+    FILE_PATH_LITERAL(".r03"),
+    FILE_PATH_LITERAL(".r04"),
+    FILE_PATH_LITERAL(".r05"),
+    FILE_PATH_LITERAL(".r06"),
+    FILE_PATH_LITERAL(".r07"),
+    FILE_PATH_LITERAL(".r08"),
+    FILE_PATH_LITERAL(".r09"),
+    FILE_PATH_LITERAL(".r10"),
+    FILE_PATH_LITERAL(".r11"),
+    FILE_PATH_LITERAL(".r12"),
+    FILE_PATH_LITERAL(".r13"),
+    FILE_PATH_LITERAL(".r14"),
+    FILE_PATH_LITERAL(".r15"),
+    FILE_PATH_LITERAL(".r16"),
+    FILE_PATH_LITERAL(".r17"),
+    FILE_PATH_LITERAL(".r18"),
+    FILE_PATH_LITERAL(".r19"),
+    FILE_PATH_LITERAL(".r20"),
+    FILE_PATH_LITERAL(".r21"),
+    FILE_PATH_LITERAL(".r22"),
+    FILE_PATH_LITERAL(".r23"),
+    FILE_PATH_LITERAL(".r24"),
+    FILE_PATH_LITERAL(".r25"),
+    FILE_PATH_LITERAL(".r26"),
+    FILE_PATH_LITERAL(".r27"),
+    FILE_PATH_LITERAL(".r28"),
+    FILE_PATH_LITERAL(".r29"),
+    FILE_PATH_LITERAL(".rar"),
+    FILE_PATH_LITERAL(".squashfs"),
+    FILE_PATH_LITERAL(".swm"),
+    FILE_PATH_LITERAL(".tar"),
+    FILE_PATH_LITERAL(".taz"),
+    FILE_PATH_LITERAL(".tbz"),
+    FILE_PATH_LITERAL(".tbz2"),
+    FILE_PATH_LITERAL(".tgz"),
+    FILE_PATH_LITERAL(".tpz"),
+    FILE_PATH_LITERAL(".txz"),
+    FILE_PATH_LITERAL(".tz"),
+    FILE_PATH_LITERAL(".udf"),
+    FILE_PATH_LITERAL(".uu"),
+    FILE_PATH_LITERAL(".uue"),
+    FILE_PATH_LITERAL(".vhd"),
+    FILE_PATH_LITERAL(".vmdk"),
+    FILE_PATH_LITERAL(".wim"),
+    FILE_PATH_LITERAL(".wrc"),
+    FILE_PATH_LITERAL(".xar"),
+    FILE_PATH_LITERAL(".xxe"),
+    FILE_PATH_LITERAL(".xz"),
+    FILE_PATH_LITERAL(".z"),
+    FILE_PATH_LITERAL(".zip"),
+    FILE_PATH_LITERAL(".zipx"),
+    FILE_PATH_LITERAL(".zpaq"),
+    FILE_PATH_LITERAL(".cdr"),
+    FILE_PATH_LITERAL(".dart"),
+    FILE_PATH_LITERAL(".dc42"),
+    FILE_PATH_LITERAL(".diskcopy42"),
+    FILE_PATH_LITERAL(".dmg"),
+    FILE_PATH_LITERAL(".dmgpart"),
+    FILE_PATH_LITERAL(".dvdr"),
+    FILE_PATH_LITERAL(".img"),
+    FILE_PATH_LITERAL(".imgpart"),
+    FILE_PATH_LITERAL(".ndif"),
+    FILE_PATH_LITERAL(".smi"),
+    FILE_PATH_LITERAL(".sparsebundle"),
+    FILE_PATH_LITERAL(".sparseimage"),
+    FILE_PATH_LITERAL(".toast"),
+    FILE_PATH_LITERAL(".udif"),
+    FILE_PATH_LITERAL(".run"),  // 262
+    FILE_PATH_LITERAL(".mpkg"),
+    FILE_PATH_LITERAL(".as"),  // 264
+    FILE_PATH_LITERAL(".cpgz"),
+    FILE_PATH_LITERAL(".pax"),  // 266
+    FILE_PATH_LITERAL(".xip"),
+    FILE_PATH_LITERAL(".docx"),  // 268
+    FILE_PATH_LITERAL(".docm"),
+    FILE_PATH_LITERAL(".dott"),  // 270
+    FILE_PATH_LITERAL(".dotm"),
+    FILE_PATH_LITERAL(".docb"),  // 272
+    FILE_PATH_LITERAL(".xlsx"),
+    FILE_PATH_LITERAL(".xlsm"),  // 274
+    FILE_PATH_LITERAL(".xltx"),
+    FILE_PATH_LITERAL(".xltm"),  // 276
+    FILE_PATH_LITERAL(".pptx"),
+    FILE_PATH_LITERAL(".pptm"),  // 278
+    FILE_PATH_LITERAL(".potx"),
+    FILE_PATH_LITERAL(".ppam"),  // 280
+    FILE_PATH_LITERAL(".ppsx"),
+    FILE_PATH_LITERAL(".sldx"),  // 282
+    FILE_PATH_LITERAL(".sldm"),
+    FILE_PATH_LITERAL(".htm"),  // 284
+    FILE_PATH_LITERAL(".html"),
+    FILE_PATH_LITERAL(".xht"),  // 286
+    FILE_PATH_LITERAL(".xhtm"),
+    FILE_PATH_LITERAL(".xhtml"),  // 288
+    FILE_PATH_LITERAL(".vdx"),
+    FILE_PATH_LITERAL(".vsx"),  // 290
+    FILE_PATH_LITERAL(".vtx"),
+    FILE_PATH_LITERAL(".vsdx"),  // 292
+    FILE_PATH_LITERAL(".vssx"),
+    FILE_PATH_LITERAL(".vstx"),  // 294
+    FILE_PATH_LITERAL(".vsdm"),
+    FILE_PATH_LITERAL(".vssm"),  // 296
+    FILE_PATH_LITERAL(".vstm"),
+    FILE_PATH_LITERAL(".btapp"),  // 298
+    FILE_PATH_LITERAL(".btskin"),
+    FILE_PATH_LITERAL(".btinstall"),  // 300
+    FILE_PATH_LITERAL(".btkey"),
+    FILE_PATH_LITERAL(".btsearch"),  // 302
+    FILE_PATH_LITERAL(".dhtml"),
+    FILE_PATH_LITERAL(".dhtm"),  // 304
+    FILE_PATH_LITERAL(".dht"),
+    FILE_PATH_LITERAL(".shtml"),  // 306
+    FILE_PATH_LITERAL(".shtm"),
+    FILE_PATH_LITERAL(".sht"),  // 308
+    FILE_PATH_LITERAL(".slk"),  // 309
+    FILE_PATH_LITERAL(".applescript"),
+    FILE_PATH_LITERAL(".scpt"),  // 311
+    FILE_PATH_LITERAL(".scptd"),
+    FILE_PATH_LITERAL(".seplugin"),  // 313
+    FILE_PATH_LITERAL(".osas"),
+    FILE_PATH_LITERAL(".osax"),  // 315
+    FILE_PATH_LITERAL(".settingcontent-ms"),
+    FILE_PATH_LITERAL(".oxt"),  // 317
+    FILE_PATH_LITERAL(".pyd"),
+    FILE_PATH_LITERAL(".pyo"),      // 319
+    FILE_PATH_LITERAL(".desktop"),  // 320
+    FILE_PATH_LITERAL(".cpi"),      // 321
     // NOTE! When you add a type here, please add the UMA value as a comment.
     // These must all match DownloadItem.DangerousFileType in
     // enums.xml. From 263 onward, they should also match
@@ -254,7 +418,7 @@ const int64_t kHighBandwidthBytesPerSecond = 30 * 1024 * 1024;
 
 // Maps extensions to their matching UMA histogram int value.
 int GetDangerousFileType(const base::FilePath& file_path) {
-  for (size_t i = 0; i < arraysize(kDangerousFileTypes); ++i) {
+  for (size_t i = 0; i < base::size(kDangerousFileTypes); ++i) {
     if (file_path.MatchesExtension(kDangerousFileTypes[i]))
       return i + 1;
   }
@@ -310,6 +474,9 @@ std::string CreateHistogramNameWithSuffix(const std::string& name,
     case DownloadSource::CONTEXT_MENU:
       suffix = "ContextMenu";
       break;
+    case DownloadSource::RETRY:
+      suffix = "Retry";
+      break;
   }
 
   return name + "." + suffix;
@@ -331,12 +498,10 @@ void RecordDownloadCountWithSource(DownloadCountTypes type,
   base::UmaHistogramEnumeration(name, type, DOWNLOAD_COUNT_TYPES_LAST_ENTRY);
 }
 
-void RecordDownloadCompleted(const base::TimeTicks& start,
-                             int64_t download_len,
+void RecordDownloadCompleted(int64_t download_len,
                              bool is_parallelizable,
                              DownloadSource download_source) {
   RecordDownloadCountWithSource(COMPLETED_COUNT, download_source);
-  UMA_HISTOGRAM_LONG_TIMES("Download.Time", (base::TimeTicks::Now() - start));
   int64_t max = 1024 * 1024 * 1024;  // One Terabyte.
   download_len /= 1024;              // In Kilobytes
   UMA_HISTOGRAM_CUSTOM_COUNTS("Download.DownloadSize", download_len, 1, max,
@@ -451,8 +616,6 @@ void RecordDownloadInterrupted(DownloadInterruptReason reason,
       }
     }
   }
-
-  UMA_HISTOGRAM_BOOLEAN("Download.InterruptedUnknownSize", unknown_size);
 }
 
 void RecordMaliciousDownloadClassified(DownloadDangerType danger_type) {
@@ -493,27 +656,6 @@ void RecordDangerousDownloadDiscard(DownloadDiscardReason reason,
       break;
     default:
       NOTREACHED();
-  }
-}
-
-void RecordAcceptsRanges(const std::string& accepts_ranges,
-                         int64_t download_len,
-                         bool has_strong_validator) {
-  int64_t max = 1024 * 1024 * 1024;  // One Terabyte.
-  download_len /= 1024;              // In Kilobytes
-  static const int kBuckets = 50;
-
-  if (base::LowerCaseEqualsASCII(accepts_ranges, "none")) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("Download.AcceptRangesNone.KBytes",
-                                download_len, 1, max, kBuckets);
-  } else if (base::LowerCaseEqualsASCII(accepts_ranges, "bytes")) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("Download.AcceptRangesBytes.KBytes",
-                                download_len, 1, max, kBuckets);
-    if (has_strong_validator)
-      RecordDownloadCount(STRONG_VALIDATOR_AND_ACCEPTS_RANGES);
-  } else {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("Download.AcceptRangesMissingOrInvalid.KBytes",
-                                download_len, 1, max, kBuckets);
   }
 }
 
@@ -804,21 +946,14 @@ void RecordDownloadContentDisposition(
   RecordContentDispositionCountFlag(
       CONTENT_DISPOSITION_HAS_RFC2047_ENCODED_STRINGS, result,
       net::HttpContentDisposition::HAS_RFC2047_ENCODED_STRINGS);
+  RecordContentDispositionCountFlag(
+      CONTENT_DISPOSITION_HAS_SINGLE_QUOTED_FILENAME, result,
+      net::HttpContentDisposition::HAS_SINGLE_QUOTED_FILENAME);
 }
 
-void RecordFileThreadReceiveBuffers(size_t num_buffers) {
-  UMA_HISTOGRAM_CUSTOM_COUNTS("Download.FileThreadReceiveBuffers", num_buffers,
-                              1, 100, 100);
-}
-
-void RecordOpen(const base::Time& end, bool first) {
-  if (!end.is_null()) {
+void RecordOpen(const base::Time& end) {
+  if (!end.is_null())
     UMA_HISTOGRAM_LONG_TIMES("Download.OpenTime", (base::Time::Now() - end));
-    if (first) {
-      UMA_HISTOGRAM_LONG_TIMES("Download.FirstOpenTime",
-                               (base::Time::Now() - end));
-    }
-  }
 }
 
 void RecordOpensOutstanding(int size) {
@@ -826,32 +961,10 @@ void RecordOpensOutstanding(int size) {
                               (1 << 10) /*max*/, 64 /*num_buckets*/);
 }
 
-void RecordContiguousWriteTime(base::TimeDelta time_blocked) {
-  UMA_HISTOGRAM_TIMES("Download.FileThreadBlockedTime", time_blocked);
-}
-
-// Record what percentage of the time we have the network flow controlled.
-void RecordNetworkBlockage(base::TimeDelta resource_handler_lifetime,
-                           base::TimeDelta resource_handler_blocked_time) {
-  int percentage = 0;
-  // Avoid division by zero errors.
-  if (!resource_handler_blocked_time.is_zero()) {
-    percentage =
-        resource_handler_blocked_time * 100 / resource_handler_lifetime;
-  }
-
-  UMA_HISTOGRAM_COUNTS_100("Download.ResourceHandlerBlockedPercentage",
-                           percentage);
-}
-
 void RecordFileBandwidth(size_t length,
-                         base::TimeDelta disk_write_time,
                          base::TimeDelta elapsed_time) {
   RecordBandwidthMetric("Download.BandwidthOverallBytesPerSecond",
                         CalculateBandwidthBytesPerSecond(length, elapsed_time));
-  RecordBandwidthMetric(
-      "Download.BandwidthDiskBytesPerSecond",
-      CalculateBandwidthBytesPerSecond(length, disk_write_time));
 }
 
 void RecordParallelizableDownloadCount(DownloadCountTypes type,
@@ -922,23 +1035,6 @@ void RecordParallelizableDownloadStats(
                        1000.0 * bytes_downloaded_with_parallel_streams /
                        bandwidth_without_parallel_streams) -
                    time_with_parallel_streams;
-      int bandwidth_ratio_percentage =
-          (100.0 * bandwidth_with_parallel_streams) /
-          bandwidth_without_parallel_streams;
-      UMA_HISTOGRAM_CUSTOM_COUNTS(
-          "Download.ParallelDownload.BandwidthRatioPercentage",
-          bandwidth_ratio_percentage, 0, 400, 101);
-      base::TimeDelta total_time =
-          time_with_parallel_streams + time_without_parallel_streams;
-      size_t total_size = bytes_downloaded_with_parallel_streams +
-                          bytes_downloaded_without_parallel_streams;
-      base::TimeDelta non_parallel_time = base::TimeDelta::FromSecondsD(
-          static_cast<double>(total_size) / bandwidth_without_parallel_streams);
-      int time_ratio_percentage =
-          100.0 * total_time.InSecondsF() / non_parallel_time.InSecondsF();
-      UMA_HISTOGRAM_CUSTOM_COUNTS(
-          "Download.ParallelDownload.TotalTimeRatioPercentage",
-          time_ratio_percentage, 0, 200, 101);
     }
   }
 
@@ -984,63 +1080,14 @@ void RecordParallelDownloadCreationEvent(ParallelDownloadCreationEvent event) {
                             ParallelDownloadCreationEvent::COUNT);
 }
 
-void RecordDownloadFileRenameResultAfterRetry(
-    base::TimeDelta time_since_first_failure,
-    DownloadInterruptReason interrupt_reason) {
-  if (interrupt_reason == DOWNLOAD_INTERRUPT_REASON_NONE) {
-    UMA_HISTOGRAM_TIMES("Download.TimeToRenameSuccessAfterInitialFailure",
-                        time_since_first_failure);
-  } else {
-    UMA_HISTOGRAM_TIMES("Download.TimeToRenameFailureAfterInitialFailure",
-                        time_since_first_failure);
-  }
-}
-
 void RecordSavePackageEvent(SavePackageEvent event) {
   UMA_HISTOGRAM_ENUMERATION("Download.SavePackage", event,
                             SAVE_PACKAGE_LAST_ENTRY);
 }
 
-void RecordOriginStateOnResumption(bool is_partial,
-                                   OriginStateOnResumption state) {
-  if (is_partial)
-    UMA_HISTOGRAM_ENUMERATION("Download.OriginStateOnPartialResumption", state,
-                              ORIGIN_STATE_ON_RESUMPTION_MAX);
-  else
-    UMA_HISTOGRAM_ENUMERATION("Download.OriginStateOnFullResumption", state,
-                              ORIGIN_STATE_ON_RESUMPTION_MAX);
-}
-
-namespace {
-
-// Enumeration for histogramming purposes.
-// These values are written to logs.  New enum values can be added, but existing
-// enums must never be renumbered or deleted and reused.
-enum DownloadConnectionSecurity {
-  DOWNLOAD_SECURE = 0,  // Final download url and its redirects all use https
-  DOWNLOAD_TARGET_INSECURE =
-      1,  // Final download url uses http, redirects are all
-          // https
-  DOWNLOAD_REDIRECT_INSECURE =
-      2,  // Final download url uses https, but at least
-          // one redirect uses http
-  DOWNLOAD_REDIRECT_TARGET_INSECURE =
-      3,                      // Final download url uses http, and at
-                              // least one redirect uses http
-  DOWNLOAD_TARGET_OTHER = 4,  // Final download url uses a scheme not present in
-                              // this enumeration
-  DOWNLOAD_TARGET_BLOB = 5,   // Final download url uses blob scheme
-  DOWNLOAD_TARGET_DATA = 6,   //  Final download url uses data scheme
-  DOWNLOAD_TARGET_FILE = 7,   //  Final download url uses file scheme
-  DOWNLOAD_TARGET_FILESYSTEM = 8,  //  Final download url uses filesystem scheme
-  DOWNLOAD_TARGET_FTP = 9,         // Final download url uses ftp scheme
-  DOWNLOAD_CONNECTION_SECURITY_MAX
-};
-
-}  // namespace
-
-void RecordDownloadConnectionSecurity(const GURL& download_url,
-                                      const std::vector<GURL>& url_chain) {
+DownloadConnectionSecurity CheckDownloadConnectionSecurity(
+    const GURL& download_url,
+    const std::vector<GURL>& url_chain) {
   DownloadConnectionSecurity state = DOWNLOAD_TARGET_OTHER;
   if (download_url.SchemeIsHTTPOrHTTPS()) {
     bool is_final_download_secure = download_url.SchemeIsCryptographic();
@@ -1069,9 +1116,15 @@ void RecordDownloadConnectionSecurity(const GURL& download_url,
   } else if (download_url.SchemeIs(url::kFtpScheme)) {
     state = DOWNLOAD_TARGET_FTP;
   }
+  return state;
+}
 
-  UMA_HISTOGRAM_ENUMERATION("Download.TargetConnectionSecurity", state,
-                            DOWNLOAD_CONNECTION_SECURITY_MAX);
+void RecordDownloadConnectionSecurity(const GURL& download_url,
+                                      const std::vector<GURL>& url_chain) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Download.TargetConnectionSecurity",
+      CheckDownloadConnectionSecurity(download_url, url_chain),
+      DOWNLOAD_CONNECTION_SECURITY_MAX);
 }
 
 void RecordDownloadContentTypeSecurity(
@@ -1116,6 +1169,10 @@ void RecordDownloadHttpResponseCode(int response_code) {
       "Download.HttpResponseCode",
       net::HttpUtil::MapStatusCodeForHistogram(response_code),
       net::HttpUtil::GetStatusCodesForHistogram());
+}
+
+void RecordInProgressDBCount(InProgressDBCountTypes type) {
+  UMA_HISTOGRAM_ENUMERATION("Download.InProgressDB.Counts", type);
 }
 
 }  // namespace download

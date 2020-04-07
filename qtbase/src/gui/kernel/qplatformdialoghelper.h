@@ -80,6 +80,7 @@ class Q_GUI_EXPORT QPlatformDialogHelper : public QObject
     Q_OBJECT
 public:
     enum StyleHint {
+        DialogIsQtWindow
     };
     enum DialogCode { Rejected, Accepted };
 
@@ -153,7 +154,7 @@ public:
     Q_ENUM(ButtonLayout)
 
     QPlatformDialogHelper();
-    virtual ~QPlatformDialogHelper();
+    ~QPlatformDialogHelper();
 
     virtual QVariant styleHint(StyleHint hint) const;
 
@@ -413,7 +414,7 @@ public:
     void setOptions(const QSharedPointer<QFileDialogOptions> &options);
 
     static QStringList cleanFilterList(const QString &filter);
-    static const char *filterRegExp;
+    static const char filterRegExp[];
 
 Q_SIGNALS:
     void fileSelected(const QUrl &file);

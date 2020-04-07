@@ -32,7 +32,7 @@ static void AdjustAlongAxis(float dst_origin,
     *origin = std::min(dst_origin + dst_size, *origin + *size) - *size;
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_MACOSX) || defined(OS_IOS)
 RectF::RectF(const CGRect& r)
     : origin_(r.origin.x, r.origin.y), size_(r.size.width, r.size.height) {
 }
@@ -181,6 +181,10 @@ void RectF::ClampToCenteredSize(const SizeF& size) {
   float new_x = x() + (width() - new_width) / 2;
   float new_y = y() + (height() - new_height) / 2;
   SetRect(new_x, new_y, new_width, new_height);
+}
+
+void RectF::Transpose() {
+  SetRect(y(), x(), height(), width());
 }
 
 void RectF::SplitVertically(RectF* left_half, RectF* right_half) const {

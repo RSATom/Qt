@@ -7,12 +7,13 @@
 
 #include "SkBlurMask.h"
 
-#include "SkTo.h"
 #include "SkColorPriv.h"
+#include "SkEndian.h"
 #include "SkMaskBlurFilter.h"
 #include "SkMath.h"
+#include "SkMathPriv.h"
 #include "SkTemplates.h"
-#include "SkEndian.h"
+#include "SkTo.h"
 
 // This constant approximates the scaling done in the software path's
 // "high quality" mode, in SkBlurMask::Blur() (1 / sqrt(3)).
@@ -181,7 +182,7 @@ bool SkBlurMask::BoxBlur(SkMask* dst, const SkMask& src, SkScalar sigma, SkBlurS
                 } break;
                 default:
                     SK_ABORT("Unhandled format.");
-            };
+            }
         } break;
         case kOuter_SkBlurStyle: {
             auto dstStart = &dst->fImage[border.x() + border.y() * dst->fRowBytes];
@@ -214,7 +215,7 @@ bool SkBlurMask::BoxBlur(SkMask* dst, const SkMask& src, SkScalar sigma, SkBlurS
                 } break;
                 default:
                     SK_ABORT("Unhandled format.");
-            };
+            }
         } break;
         case kInner_SkBlurStyle: {
             // now we allocate the "real" dst, mirror the size of src
@@ -261,7 +262,7 @@ bool SkBlurMask::BoxBlur(SkMask* dst, const SkMask& src, SkScalar sigma, SkBlurS
                 } break;
                 default:
                     SK_ABORT("Unhandled format.");
-            };
+            }
         } break;
     }
 
@@ -650,7 +651,7 @@ bool SkBlurMask::BlurGroundTruth(SkScalar sigma, SkMask* dst, const SkMask& src,
                     dst->fRowBytes, srcWidth, srcHeight);
                 SkMask::FreeImage(dstPixels);
             } break;
-        };
+        }
         autoFreeDstPixels.release();
     }
 

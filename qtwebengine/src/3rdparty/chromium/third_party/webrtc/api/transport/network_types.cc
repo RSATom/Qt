@@ -38,7 +38,7 @@ std::vector<PacketResult> TransportPacketsFeedback::ReceivedWithSendInfo()
     const {
   std::vector<PacketResult> res;
   for (const PacketResult& fb : packet_feedbacks) {
-    if (fb.receive_time.IsFinite() && fb.sent_packet.has_value()) {
+    if (fb.receive_time.IsFinite()) {
       res.push_back(fb);
     }
   }
@@ -48,7 +48,7 @@ std::vector<PacketResult> TransportPacketsFeedback::ReceivedWithSendInfo()
 std::vector<PacketResult> TransportPacketsFeedback::LostWithSendInfo() const {
   std::vector<PacketResult> res;
   for (const PacketResult& fb : packet_feedbacks) {
-    if (fb.receive_time.IsInfinite() && fb.sent_packet.has_value()) {
+    if (fb.receive_time.IsPlusInfinity()) {
       res.push_back(fb);
     }
   }
@@ -80,5 +80,9 @@ bool PacedPacketInfo::operator==(const PacedPacketInfo& rhs) const {
          probe_cluster_min_probes == rhs.probe_cluster_min_probes &&
          probe_cluster_min_bytes == rhs.probe_cluster_min_bytes;
 }
+
+ProcessInterval::ProcessInterval() = default;
+ProcessInterval::ProcessInterval(const ProcessInterval&) = default;
+ProcessInterval::~ProcessInterval() = default;
 
 }  // namespace webrtc

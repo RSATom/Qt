@@ -14,9 +14,9 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
@@ -51,7 +51,7 @@ base::LazyInstance<GURL>::Leaky g_download_url_for_testing =
 
 // Close the file.
 void CloseDictionary(base::File file) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   file.Close();
 }
 
@@ -59,7 +59,7 @@ void CloseDictionary(base::File file) {
 // returns false.
 bool SaveDictionaryData(std::unique_ptr<std::string> data,
                         const base::FilePath& path) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   size_t bytes_written =
       base::WriteFile(path, data->data(), data->length());
@@ -320,7 +320,7 @@ void SpellcheckHunspellDictionary::DownloadDictionary(GURL url) {
 // static
 SpellcheckHunspellDictionary::DictionaryFile
 SpellcheckHunspellDictionary::OpenDictionaryFile(const base::FilePath& path) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   // The default_dictionary_file can either come from the standard list of
   // hunspell dictionaries (determined in InitializeDictionaryLocation), or it
@@ -374,7 +374,7 @@ SpellcheckHunspellDictionary::OpenDictionaryFile(const base::FilePath& path) {
 SpellcheckHunspellDictionary::DictionaryFile
 SpellcheckHunspellDictionary::InitializeDictionaryLocation(
     const std::string& language) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   // The default place where the spellcheck dictionary resides is
   // chrome::DIR_APP_DICTIONARIES.

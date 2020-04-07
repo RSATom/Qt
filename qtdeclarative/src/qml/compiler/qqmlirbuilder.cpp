@@ -1082,6 +1082,9 @@ void IRBuilder::setBindingValue(QV4::CompiledData::Binding *binding, QQmlJS::AST
                 binding->type = QV4::CompiledData::Binding::Type_Number;
                 binding->value.constantValueIndex = jsGenerator->registerConstant(QV4::Encode(-lit->value));
             }
+        } else if (QQmlJS::AST::cast<QQmlJS::AST::NullExpression *>(expr)) {
+            binding->type = QV4::CompiledData::Binding::Type_Null;
+            binding->value.nullMarker = 0;
         }
     }
 
@@ -1610,7 +1613,7 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
     uint nextOffset = objectOffset + objectOffsetTableSize;
     for (Object *o : qAsConst(output.objects)) {
         objectOffsets.insert(o, nextOffset);
-        nextOffset += QV4::CompiledData::Object::calculateSizeExcludingSignalsAndEnums(o->functionCount(), o->propertyCount(), o->aliasCount(), o->enumCount(), o->signalCount(), o->bindingCount(), o->namedObjectsInComponent.count);
+        nextOffset += QV4::CompiledData::Object::calculateSizeExcludingSignalsAndEnums(o->functionCount(), o->propertyCount(), o->aliasCount(), o->enumCount(), o->signalCount(), o->bindingCount(), o->namedObjectsInComponent.size());
 
         int signalTableSize = 0;
         for (const Signal *s = o->firstSignal(); s; s = s->next)
@@ -1685,7 +1688,7 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
         objectToWrite->offsetToBindings = nextOffset;
         nextOffset += objectToWrite->nBindings * sizeof(QV4::CompiledData::Binding);
 
-        objectToWrite->nNamedObjectsInComponent = o->namedObjectsInComponent.count;
+        objectToWrite->nNamedObjectsInComponent = o->namedObjectsInComponent.size();
         objectToWrite->offsetToNamedObjectsInComponent = nextOffset;
         nextOffset += objectToWrite->nNamedObjectsInComponent * sizeof(quint32);
 
@@ -1757,7 +1760,7 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
         }
 
         quint32_le *namedObjectInComponentPtr = reinterpret_cast<quint32_le *>(objectPtr + objectToWrite->offsetToNamedObjectsInComponent);
-        for (int i = 0; i < o->namedObjectsInComponent.count; ++i) {
+        for (int i = 0; i < o->namedObjectsInComponent.size(); ++i) {
             *namedObjectInComponentPtr++ = o->namedObjectsInComponent.at(i);
         }
     }
@@ -2096,8 +2099,6 @@ QmlIR::Object *IRLoader::loadObject(const QV4::CompiledData::Object *serializedO
         f->index = functionIndices.count() - 1;
         f->location = compiledFunction->location;
         f->nameIndex = compiledFunction->nameIndex;
-
-        const QString name = unit->stringAtInternal(compiledFunction->nameIndex);
 
         f->formals.allocate(pool, int(compiledFunction->nFormals));
         const quint32_le *formalNameIdx = compiledFunction->formalsTable();

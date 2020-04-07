@@ -50,6 +50,9 @@ const char kSettingDeviceName[] = "deviceName";
 // Option to disable scaling. True if scaling is disabled else false.
 const char kSettingDisableScaling[] = "disableScaling";
 
+// Default DPI
+const char kSettingDpiDefault[] = "dpiDefault";
+
 // Horizontal DPI
 const char kSettingDpiHorizontal[] = "dpiHorizontal";
 
@@ -138,6 +141,9 @@ const char kSettingPageRangeTo[] = "to";
 const char kSettingPageWidth[] = "pageWidth";
 const char kSettingPageHeight[] = "pageHeight";
 
+// Policies affecting printing destination.
+const char kSettingPolicies[] = "policies";
+
 const char kSettingPreviewModifiable[] = "previewModifiable";
 
 // Keys that specifies the printable area details.
@@ -154,6 +160,9 @@ const char kSettingPrinterDescription[] = "printerDescription";
 
 // Additional printer options.
 const char kSettingPrinterOptions[] = "printerOptions";
+
+// Print to Google Drive option: true if selected, false if not.
+const char kSettingPrintToGoogleDrive[] = "printToGoogleDrive";
 
 // Print to PDF option: true if selected, false if not.
 const char kSettingPrintToPDF[] = "printToPDF";

@@ -29,7 +29,7 @@ package perfetto.protos;
 // It contains the general config for the logging buffer(s) and the configs for
 // all the data source being enabled.
 //
-// Next id: 12.
+// Next id: 15.
 message TraceConfig {
   message BufferConfig {
     optional uint32 size_kb = 1;
@@ -107,6 +107,8 @@ message TraceConfig {
     optional int32 triggering_config_uid = 2;
     // The identifier of the config which triggered the alert.
     optional int64 triggering_config_id = 3;
+    // The identifier of the subscription which triggered this trace.
+    optional int64 triggering_subscription_id = 4;
   }
 
   // Statsd-specific metadata.
@@ -135,4 +137,25 @@ message TraceConfig {
   }
 
   optional GuardrailOverrides guardrail_overrides = 11;
+
+  // When true, data sources are not started until an explicit call to
+  // StartTracing() on the consumer port. This is to support early
+  // initialization and fast trace triggering. This can be used only when the
+  // Consumer explicitly triggers the StartTracing() method.
+  // This should not be used in a remote trace config via statsd, doing so will
+  // result in a hung trace session.
+  optional bool deferred_start = 12;
+
+  // When set, it periodically issues a Flush() to all data source, forcing them
+  // to commit their data into the tracing service. This can be used for
+  // quasi-real-time streaming mode and to guarantee some partial ordering of
+  // events in the trace in windows of X ms.
+  optional uint32 flush_period_ms = 13;
+
+  // Wait for this long for producers to acknowledge flush requests.
+  // Default 5s.
+  optional uint32 flush_timeout_ms = 14;
+
+  // Disable emitting clock timestamps into the trace.
+  optional bool disable_clock_snapshotting = 15;
 }

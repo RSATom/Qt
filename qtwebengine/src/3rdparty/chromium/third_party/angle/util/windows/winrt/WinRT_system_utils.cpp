@@ -19,4 +19,9 @@ void SetLowPriorityProcess()
     // No equivalent to this in WinRT
 }
 
+bool StabilizeCPUForBenchmarking()
+{
+    // No equivalent to this in WinRT
+    return true;
+}
 }  // namespace angle

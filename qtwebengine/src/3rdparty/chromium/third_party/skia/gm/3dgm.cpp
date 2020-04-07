@@ -6,7 +6,9 @@
  */
 
 #include "gm.h"
+
 #include "Sk3D.h"
+#include "SkFont.h"
 #include "SkPath.h"
 #include "SkPoint3.h"
 
@@ -43,7 +45,7 @@ public:
 
 protected:
     void onOnceBeforeDraw() override {
-        if (auto stream = GetResourceAsStream("skotty/skotty_sample_2.json")) {
+        if (auto stream = GetResourceAsStream("skottie/skottie_sample_2.json")) {
             fAnim = skottie::Animation::Make(stream.get());
         }
 
@@ -84,7 +86,7 @@ protected:
             canvas->restore();
         };
 
-        SkMatrix44 tmp(SkMatrix44::kIdentity_Constructor);
+        SkMatrix44 tmp;
 
         proc(0x400000FF, m4);
         tmp.setTranslate(0, 0, 1);
@@ -103,9 +105,9 @@ protected:
         if (!fAnim) {
             return;
         }
-        SkMatrix44  camera(SkMatrix44::kIdentity_Constructor),
-                    perspective(SkMatrix44::kIdentity_Constructor),
-                    mv(SkMatrix44::kIdentity_Constructor);
+        SkMatrix44  camera,
+                    perspective,
+                    mv;
         SkMatrix    viewport;
 
         {
@@ -128,6 +130,8 @@ protected:
 
         SkPaint paint;
         paint.setStyle(SkPaint::kStroke_Style);
+        SkFont font;
+        font.setEdging(SkFont::Edging::kAlias);
 
         SkPath cube;
 
@@ -158,13 +162,13 @@ protected:
             mv.setConcat(perspective, camera);
             Sk3MapPts(dst, mv, src, 4);
             viewport.mapPoints(dst, 4);
-            const char str[] = "XYZ";
+            const char* str[3] = { "X", "Y", "Z" };
             for (int i = 1; i <= 3; ++i) {
                 canvas->drawLine(dst[0], dst[i], paint);
             }
 
-            for (int i = 1; i <= 3; ++i) {
-                canvas->drawText(&str[i-1], 1, dst[i].fX, dst[i].fY, paint);
+            for (int i = 0; i < 3; ++i) {
+                canvas->drawString(str[i], dst[i + 1].fX, dst[i + 1].fY, font, paint);
             }
         }
 

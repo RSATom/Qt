@@ -44,6 +44,8 @@ enum EffectiveConnectionType {
     unsigned long getResourcePriority (DOMString url, Document document);
     DOMString getResourceHeader (DOMString url, DOMString header, Document document);
 
+    bool doesWindowHaveUrlFragment(Window window);
+
     CSSStyleDeclaration computedStyleIncludingVisitedInfo(Node node);
 
     ShadowRoot createUserAgentShadowRoot(Element host);
@@ -159,7 +161,7 @@ enum EffectiveConnectionType {
     unsigned long touchStartOrMoveEventHandlerCount(Document document);
     unsigned long touchEndOrCancelEventHandlerCount(Document document);
     unsigned long pointerEventHandlerCount(Document document);
-    [RaisesException] LayerRectList touchEventTargetLayerRects(Document document);
+    [RaisesException] HitTestLayerRectList touchEventTargetLayerRects(Document document);
 
     [RaisesException] boolean executeCommand(Document document, DOMString name, DOMString value);
 
@@ -307,15 +309,15 @@ enum EffectiveConnectionType {
 
     [RaisesException] void setShouldRevealPassword(Element element, boolean reveal);
 
-    [CallWith=ScriptState] Promise createResolvedPromise(any value);
-    [CallWith=ScriptState] Promise createRejectedPromise(any reason);
-    [CallWith=ScriptState] Promise addOneToPromise(Promise promise);
-    [CallWith=ScriptState, RaisesException] Promise promiseCheck(long arg1, boolean arg2, Dictionary arg3, DOMString arg4, sequence<DOMString> arg5);
-    [CallWith=ScriptState] Promise promiseCheckWithoutExceptionState(Dictionary arg1, DOMString arg2, DOMString... variadic);
-    [CallWith=ScriptState] Promise promiseCheckRange([EnforceRange] octet arg1);
-    [CallWith=ScriptState] Promise promiseCheckOverload(Location arg1);
-    [CallWith=ScriptState] Promise promiseCheckOverload(Document arg1);
-    [CallWith=ScriptState] Promise promiseCheckOverload(Location arg1, long arg2, long arg3);
+    [CallWith=ScriptState] Promise<any> createResolvedPromise(any value);
+    [CallWith=ScriptState] Promise<any> createRejectedPromise(any reason);
+    [CallWith=ScriptState] Promise<any> addOneToPromise(Promise<any> promise);
+    [CallWith=ScriptState, RaisesException] Promise<any> promiseCheck(long arg1, boolean arg2, object arg3, DOMString arg4, sequence<DOMString> arg5);
+    [CallWith=ScriptState] Promise<any> promiseCheckWithoutExceptionState(object arg1, DOMString arg2, DOMString... variadic);
+    [CallWith=ScriptState] Promise<any> promiseCheckRange([EnforceRange] octet arg1);
+    [CallWith=ScriptState] Promise<any> promiseCheckOverload(Location arg1);
+    [CallWith=ScriptState] Promise<any> promiseCheckOverload(Document arg1);
+    [CallWith=ScriptState] Promise<any> promiseCheckOverload(Location arg1, long arg2, long arg3);
 
     void setValueForUser(HTMLInputElement element, DOMString value);
 
@@ -323,6 +325,11 @@ enum EffectiveConnectionType {
     void setInitialFocus(boolean reverse);
 
     boolean ignoreLayoutWithPendingStylesheets(Document document);
+
+    // When the FocuslessSpatialNavigation feature is enabled, spatial
+    // navigation moves "interest" around a page, rather than focus. This
+    // attribute returns the currently interested element on the page.
+    readonly attribute Element? interestedElement;
 
     // These functions are for testing NetInfo. You must call clearNetworkConnectionInfoOverride() at the end.
     [RaisesException] void setNetworkConnectionInfoOverride(boolean onLine, DOMString type, EffectiveConnectionType effective_type, unsigned long http_rtt_msec, double downlink_max_mbps);
@@ -362,7 +369,7 @@ enum EffectiveConnectionType {
     // Returns a promise that is resolved when |feature| is counted on
     // |document|'s UseCounter. When |feature| was already counted, it's
     // immediately resolved.
-    [CallWith=ScriptState] Promise<bool> observeUseCounter(Document document, unsigned long feature);
+    [CallWith=ScriptState] Promise<boolean> observeUseCounter(Document document, unsigned long feature);
 
     readonly attribute unsigned long length;
     getter long (unsigned long index);
@@ -371,8 +378,6 @@ enum EffectiveConnectionType {
     [Unscopable] readonly attribute DOMString unscopableAttribute;
     [Unscopable] DOMString unscopableMethod();
 
-    DOMRectList focusRingRects(Element element);
-    DOMRectList outlineRects(Element element);
     void setCapsLockState(boolean enabled);
 
     // Returns whether the scrollbar was able to be shown or hidden; not all platforms
@@ -380,6 +385,7 @@ enum EffectiveConnectionType {
     boolean setScrollbarVisibilityInScrollableArea(Node node, boolean visible);
 
     [RaisesException] double monotonicTimeToZeroBasedDocumentTime(double platformTime);
+    long long currentTimeTicks();
 
     DOMString getScrollAnimationState(Node node);
 
@@ -407,4 +413,18 @@ enum EffectiveConnectionType {
     // PerformanceMonitor for testing. "PerformanceObserver should be observing
     // 'longtask' while calling BypassLongCompileThresholdOnce.
     [RaisesException] void BypassLongCompileThresholdOnce();
+
+    // The number of calls to update the blink lifecycle (see:
+    // LocalFrameView::UpdateLifecyclePhasesInternal).
+    unsigned long LifecycleUpdateCount();
+
+    // Disable the 'delay' option for IntersectionObserver, so that observations
+    // are recomputed on every frame.  This eliminates the need to add
+    // setTimeout(..., delay_ms) calls to web tests to wait for notifications
+    // to be generated.
+    void DisableIntersectionObserverThrottleDelay();
+
+    // Declare that the given |name| is in use by the embedder via the custom
+    // element mechanism.
+    [RaisesException] void addEmbedderCustomElementName(DOMString name);
 };

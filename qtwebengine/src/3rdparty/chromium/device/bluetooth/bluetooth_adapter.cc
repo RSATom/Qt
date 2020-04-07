@@ -58,6 +58,10 @@ bool BluetoothAdapter::HasObserver(BluetoothAdapter::Observer* observer) {
   return observers_.HasObserver(observer);
 }
 
+bool BluetoothAdapter::CanPower() const {
+  return IsPresent();
+}
+
 void BluetoothAdapter::SetPowered(bool powered,
                                   const base::Closure& callback,
                                   const ErrorCallback& error_callback) {
@@ -167,7 +171,7 @@ void BluetoothAdapter::AddPairingDelegate(
   RemovePairingDelegate(pairing_delegate);
 
   // Find the first point with a lower priority, or the end of the list.
-  std::list<PairingDelegatePair>::iterator iter = pairing_delegates_.begin();
+  auto iter = pairing_delegates_.begin();
   while (iter != pairing_delegates_.end() && iter->second >= priority)
     ++iter;
 
@@ -176,8 +180,8 @@ void BluetoothAdapter::AddPairingDelegate(
 
 void BluetoothAdapter::RemovePairingDelegate(
     BluetoothDevice::PairingDelegate* pairing_delegate) {
-  for (std::list<PairingDelegatePair>::iterator iter =
-       pairing_delegates_.begin(); iter != pairing_delegates_.end(); ++iter) {
+  for (auto iter = pairing_delegates_.begin(); iter != pairing_delegates_.end();
+       ++iter) {
     if (iter->first == pairing_delegate) {
       RemovePairingDelegateInternal(pairing_delegate);
       pairing_delegates_.erase(iter);
@@ -191,6 +195,11 @@ BluetoothDevice::PairingDelegate* BluetoothAdapter::DefaultPairingDelegate() {
     return NULL;
 
   return pairing_delegates_.front().first;
+}
+
+std::vector<BluetoothAdvertisement*>
+BluetoothAdapter::GetPendingAdvertisementsForTesting() const {
+  return {};
 }
 
 void BluetoothAdapter::NotifyAdapterPoweredChanged(bool powered) {
@@ -321,13 +330,12 @@ BluetoothAdapter::~BluetoothAdapter() {
   }
 }
 
-void BluetoothAdapter::DidChangePoweredState() {
+void BluetoothAdapter::RunPendingPowerCallbacks() {
   if (set_powered_callbacks_) {
     // Move into a local variable to clear out both callbacks at the end of the
     // scope and to allow scheduling another SetPowered() call in either of the
     // callbacks.
-    std::unique_ptr<SetPoweredCallbacks> callbacks =
-        std::move(set_powered_callbacks_);
+    auto callbacks = std::move(set_powered_callbacks_);
     callbacks->powered == IsPowered() ? std::move(callbacks->callback).Run()
                                       : callbacks->error_callback.Run();
   }
@@ -361,9 +369,7 @@ void BluetoothAdapter::MarkDiscoverySessionsAsInactive() {
   // |discovery_sessions_|. To avoid invalidating the iterator, make a copy
   // here.
   std::set<BluetoothDiscoverySession*> temp(discovery_sessions_);
-  for (std::set<BluetoothDiscoverySession*>::iterator
-          iter = temp.begin();
-       iter != temp.end(); ++iter) {
+  for (auto iter = temp.begin(); iter != temp.end(); ++iter) {
     (*iter)->MarkAsInactive();
   }
 }

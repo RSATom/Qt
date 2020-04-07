@@ -419,13 +419,15 @@ void QFormLayoutPrivate::updateSizes()
             if (label) {
                 maxMinLblWidth = qMax(maxMinLblWidth, label->minSize.width());
                 maxShLblWidth = qMax(maxShLblWidth, label->sizeHint.width());
-                if (field) {
+            }
+            if (field) {
+                if (field->fullRow) {
+                    maxMinIfldWidth = qMax(maxMinIfldWidth, field->minSize.width());
+                    maxShIfldWidth = qMax(maxShIfldWidth, field->sizeHint.width());
+                } else {
                     maxMinFldWidth = qMax(maxMinFldWidth, field->minSize.width() + field->sbsHSpace);
                     maxShFldWidth = qMax(maxShFldWidth, field->sizeHint.width() + field->sbsHSpace);
                 }
-            } else if (field) {
-                maxMinIfldWidth = qMax(maxMinIfldWidth, field->minSize.width());
-                maxShIfldWidth = qMax(maxShIfldWidth, field->sizeHint.width());
             }
 
             prevLbl = label;
@@ -2207,8 +2209,11 @@ void QFormLayoutPrivate::arrangeWidgets(const QVector<QLayoutStruct>& layouts, Q
 
             QSize sz(qMin(label->layoutWidth, label->sizeHint.width()), height);
             int x = leftOffset + rect.x() + label->layoutPos;
-            if (fixedAlignment(q->labelAlignment(), layoutDirection) & Qt::AlignRight)
+            const auto fAlign = fixedAlignment(q->labelAlignment(), layoutDirection);
+            if (fAlign & Qt::AlignRight)
                 x += label->layoutWidth - sz.width();
+            else if (fAlign & Qt::AlignHCenter)
+                x += label->layoutWidth / 2 - sz.width() / 2;
             QPoint p(x, layouts.at(label->vLayoutIndex).pos);
             // ### expansion & sizepolicy stuff
 

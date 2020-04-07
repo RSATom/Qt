@@ -17,7 +17,7 @@
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_ui.h"
 
@@ -114,8 +114,8 @@ void ProtocolHandlersHandler::UpdateHandlerList() {
   registry->GetRegisteredProtocols(&protocols);
 
   base::ListValue handlers;
-  for (std::vector<std::string>::iterator protocol = protocols.begin();
-       protocol != protocols.end(); protocol++) {
+  for (auto protocol = protocols.begin(); protocol != protocols.end();
+       protocol++) {
     std::unique_ptr<base::DictionaryValue> handler_value(
         new base::DictionaryValue());
     GetHandlersForProtocol(*protocol, handler_value.get());

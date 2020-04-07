@@ -68,6 +68,7 @@ class QHelpIndexModel;
 class QHelpIndexWidget;
 class QHelpSearchEngine;
 class QHelpCollectionHandler;
+class QHelpFilterEngine;
 
 class QHelpEngineCorePrivate : public QObject
 {
@@ -79,14 +80,15 @@ public:
     virtual void init(const QString &collectionFile,
         QHelpEngineCore *helpEngineCore);
 
-    void emitReadersAboutToBeInvalidated();
     bool setup();
 
     QHelpCollectionHandler *collectionHandler = nullptr;
+    QHelpFilterEngine *filterEngine = nullptr;
     QString currentFilter;
     QString error;
     bool needsSetup = true;
     bool autoSaveFilter = true;
+    bool usesFilterEngine = false;
 
 protected:
     QHelpEngineCore *q;
@@ -111,8 +113,6 @@ public:
     QHelpIndexWidget *indexWidget = nullptr;
 
     QHelpSearchEngine *searchEngine = nullptr;
-
-    void stopDataCollection();
 
     friend class QHelpContentProvider;
     friend class QHelpContentModel;

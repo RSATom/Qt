@@ -67,6 +67,7 @@
             "commercial": "void",
             "compile-examples": { "type": "boolean", "name": "compile_examples" },
             "confirm-license": "void",
+            "coverage": "coverage",
             "dbus": { "type": "optionalString", "values": [ "no", "yes", "linked", "runtime" ] },
             "dbus-linked": { "type": "void", "name": "dbus", "value": "linked" },
             "dbus-runtime": { "type": "void", "name": "dbus", "value": "runtime" },
@@ -81,7 +82,7 @@
             "force-pkg-config": { "type": "void", "name": "pkg-config" },
             "framework": "boolean",
             "gc-binaries": { "type": "boolean", "name": "gc_binaries" },
-            "gdb-index": { "type": "boolean", "name": "gdb_index" },
+            "gdb-index": { "type": "boolean", "name": "enable_gdb_index" },
             "gcc-sysroot": "boolean",
             "gcov": "boolean",
             "gnumake": { "type": "boolean", "name": "GNUmake" },
@@ -89,6 +90,7 @@
             "headersclean": "boolean",
             "incredibuild-xge": { "type": "boolean", "name": "incredibuild_xge" },
             "libudev": "boolean",
+            "linker": { "type": "optionalString", "values": [ "bfd", "gold", "lld" ] },
             "ltcg": "boolean",
             "make": { "type": "addString", "values": [ "examples", "libs", "tests", "tools" ] },
             "make-tool": "string",
@@ -130,12 +132,13 @@
             "syncqt": "boolean",
             "sysroot": "string",
             "testcocoon": "boolean",
-            "use-gold-linker": { "type": "boolean", "name": "use_gold_linker" },
+            "use-gold-linker": { "type": "boolean", "name": "use_gold_linker_alias" },
             "warnings-are-errors": { "type": "boolean", "name": "warnings_are_errors" },
             "Werror": { "type": "boolean", "name": "warnings_are_errors" },
             "widgets": "boolean",
             "xplatform": "string",
-            "zlib": { "type": "enum", "name": "system-zlib", "values": { "system": "yes", "qt": "no" } }
+            "zlib": { "type": "enum", "name": "system-zlib", "values": { "system": "yes", "qt": "no" } },
+            "zstd": "boolean"
         },
         "prefix": {
             "D": "defines",
@@ -164,6 +167,21 @@
                 { "libs": "-lzlib", "condition": "config.msvc" },
                 { "libs": "-lz", "condition": "!config.msvc" },
                 { "libs": "-s USE_ZLIB=1", "condition": "config.wasm" }
+            ]
+        },
+        "zstd": {
+            "label": "Zstandard",
+            "test": {
+                "include": "zstd.h",
+                "main": [
+                    "(void) ZSTD_compress(NULL, 0, NULL, 0, 1);",
+                    "unsigned long long n = ZSTD_getFrameContentSize(NULL, 0);",
+                    "(void) ZSTD_decompress(NULL, 0, NULL, n);"
+                ]
+            },
+            "sources": [
+                { "type": "pkgConfig", "args": "libzstd >= 1.3" },
+                "-lzstd"
             ]
         },
         "dbus": {
@@ -207,8 +225,8 @@
     },
 
     "testTypeDependencies": {
-        "linkerSupportsFlag": [ "use_gold_linker" ],
-        "verifySpec": [ "shared", "use_gold_linker", "compiler-flags", "qmakeargs", "commit" ],
+        "linkerSupportsFlag": [ "use_bfd_linker", "use_gold_linker", "use_lld_linker" ],
+        "verifySpec": [ "shared", "use_bfd_linker", "use_gold_linker", "use_lld_linker", "compiler-flags", "qmakeargs", "commit" ],
         "compile": [ "verifyspec" ],
         "detectPkgConfig": [ "cross_compile", "machineTuple" ],
         "library": [ "pkg-config", "compiler-flags" ],
@@ -233,12 +251,14 @@
             "label": "target architecture",
             "type": "architecture",
             "test": "arch",
+            "output": "arch",
             "log": "arch"
         },
         "host_architecture": {
             "label": "host architecture",
             "type": "architecture",
             "test": "arch",
+            "output": "arch_host",
             "host": true,
             "pro": "arch_host.pro",
             "log": "arch"
@@ -301,7 +321,7 @@
             }
         },
         "c++1z": {
-            "label": "C++1z support",
+            "label": "C++17 support",
             "type": "compile",
             "test": {
                 "head": [
@@ -319,6 +339,20 @@
                     "std::visit([](const auto &) { return 1; }, v);"
                 ],
                 "qmake": "CONFIG += c++11 c++14 c++1z"
+            }
+        },
+        "c++2a": {
+            "label": "C++2a support",
+            "type": "compile",
+            "test": {
+                "head": [
+                    "#if __cplusplus > 201703L",
+                    "// Compiler claims to support experimental C++2a, trust it",
+                    "#else",
+                    "#  error __cplusplus must be > 201703L (the value for C++17)",
+                    "#endif"
+                ],
+                "qmake": "CONFIG += c++11 c++14 c++1z c++2a"
             }
         },
         "precompile_header": {
@@ -340,10 +374,20 @@
                 ]
             }
         },
+        "use_bfd_linker": {
+            "label": "bfd linker",
+            "type": "compilerSupportsFlag",
+            "flag": "-fuse-ld=bfd"
+        },
         "use_gold_linker": {
             "label": "gold linker",
             "type": "compilerSupportsFlag",
             "flag": "-fuse-ld=gold"
+        },
+        "use_lld_linker" : {
+            "label": "lld linker",
+            "type": "compilerSupportsFlag",
+            "flag": "-fuse-ld=lld"
         },
         "optimize_debug": {
             "label": "-Og support",
@@ -632,13 +676,37 @@
             "output": [ "qmakeArgs" ],
             "condition": "input.qmakeArgs != ''"
         },
+        "use_bfd_linker": {
+            "label": "bfd",
+            "autoDetect": "false",
+            "enable" : "input.linker == 'bfd'",
+            "disable" : "input.linker == 'gold' || input.linker == 'lld'",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_bfd_linker",
+            "output": [ "privateConfig", "useBFDLinker" ]
+        },
+        "use_gold_linker_alias": {
+            "autoDetect": "false",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_gold_linker"
+        },
         "use_gold_linker": {
-            "label": "Using gold linker",
+            "label": "gold",
+            "autoDetect": "false",
+            "enable" : "input.linker == 'gold' || features.use_gold_linker_alias" ,
+            "disable" : "input.linker == 'bfd' || input.linker == 'lld'",
             "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_gold_linker",
             "output": [ "privateConfig", "useGoldLinker" ]
         },
+        "use_lld_linker": {
+            "label": "lld",
+            "autoDetect": "false",
+            "enable" : "input.linker == 'lld'",
+            "disable" : "input.linker == 'bfd' || input.linker == 'gold'",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_lld_linker",
+            "output": [ "privateConfig", "useLLDLinker" ]
+        },
         "optimize_debug": {
             "label": "Optimize debug build",
+            "autoDetect": "!features.developer-build",
             "condition": "!config.msvc && !config.clang && (features.debug || features.debug_and_release) && tests.optimize_debug",
             "output": [ "privateConfig" ]
         },
@@ -805,6 +873,16 @@
             "condition": "features.sanitize_address || features.sanitize_thread || features.sanitize_memory || features.sanitize_undefined",
             "output": [ "sanitizer", "publicConfig" ]
         },
+        "coverage_trace_pc_guard": {
+            "label": "trace-pc-guard",
+            "autoDetect": false,
+            "output": [ "publicConfig" ]
+        },
+        "coverage": {
+            "label": "Code Coverage Instrumentation",
+            "condition": "features.coverage_trace_pc_guard",
+            "output": [ "publicConfig" ]
+        },
         "GNUmake": {
             "label": "GNU make",
             "autoDetect": false,
@@ -846,8 +924,14 @@
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "c++1z": {
-            "label": "C++1z",
+            "label": "C++17",
             "condition": "features.c++14 && tests.c++1z",
+            "output": [ "publicFeature", "publicQtConfig" ]
+        },
+        "c++2a": {
+            "label": "C++2a",
+            "autoDetect": false,
+            "condition": "features.c++1z && tests.c++2a",
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "c89": {
@@ -1129,11 +1213,16 @@
             "condition": "libs.zlib",
             "output": [ "privateFeature" ]
         },
+        "zstd": {
+            "label": "Zstandard support",
+            "condition": "libs.zstd",
+            "output": [ "privateFeature" ]
+        },
         "thread": {
             "label": "Thread support",
             "purpose": "Provides QThread and related classes.",
             "section": "Kernel",
-            "condition": "!config.wasm",
+            "autoDetect": "!config.wasm",
             "output": [ "publicFeature" ]
         },
         "future": {
@@ -1229,7 +1318,7 @@
         "ccache": {
             "label": "Using ccache",
             "autoDetect": false,
-            "condition": "config.unix && tests.ccache",
+            "condition": "tests.ccache",
             "output": [ "privateConfig" ]
         },
         "msvc_mp": {
@@ -1283,6 +1372,11 @@ Qt can be built in release mode with separate debug information, so
             "type": "error",
             "condition": "(features.rpath || features.rpath_dir) && var.QMAKE_LFLAGS_RPATH == ''",
             "message": "This platform does not support RPATH"
+        },
+        {
+            "type": "error",
+            "condition": "features.coverage && !config.clang",
+            "message": "Command line option -coverage is only supported with clang compilers."
         }
     ],
 
@@ -1342,14 +1436,19 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                 {
                     "message": "Using C++ standard",
                     "type": "firstAvailableFeature",
-                    "args": "c++1z c++14 c++11"
+                    "args": "c++2a c++1z c++14 c++11"
                 },
                 {
                     "type": "feature",
                     "args": "ccache",
                     "condition": "config.unix"
                 },
-                "use_gold_linker",
+                {
+                    "message": "Linker",
+                    "type": "firstAvailableFeature",
+                    "args": "use_bfd_linker use_gold_linker use_lld_linker",
+                    "condition": "features.use_bfd_linker || features.use_gold_linker || features.use_lld_linker"
+                },
                 {
                     "type": "feature",
                     "args": "enable_new_dtags",
@@ -1417,6 +1516,12 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                     "entries": [ "sanitize_address", "sanitize_thread", "sanitize_memory", "sanitize_undefined" ]
                 },
                 {
+                    "message": "Code Coverage Instrumentation",
+                    "type": "firstAvailableFeature",
+                    "args": "coverage_trace_pc_guard",
+                    "condition": "features.coverage"
+                },
+                {
                     "message": "Build parts",
                     "type": "buildParts"
                 },
@@ -1444,7 +1549,8 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
             "entries": [
                 "pkg-config",
                 "libudev",
-                "system-zlib"
+                "system-zlib",
+                "zstd"
             ]
         }
     ]

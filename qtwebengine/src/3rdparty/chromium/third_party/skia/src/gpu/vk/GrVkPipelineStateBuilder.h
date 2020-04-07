@@ -15,8 +15,7 @@
 #include "GrVkVaryingHandler.h"
 #include "SkSLCompiler.h"
 #include "glsl/GrGLSLProgramBuilder.h"
-
-#include "vk/GrVkDefines.h"
+#include "vk/GrVkTypes.h"
 
 class GrVkGpu;
 class GrVkRenderPass;
@@ -43,9 +42,13 @@ public:
                           const GrPipeline&,
                           const GrStencilSettings&,
                           GrPrimitiveType primitiveType,
-                          const GrShaderCaps&);
+                          GrVkGpu* gpu);
+
+        size_t shaderKeyLength() const { return fShaderKeyLength; }
 
     private:
+        size_t fShaderKeyLength;
+
         typedef GrProgramDesc INHERITED;
     };
 
@@ -59,11 +62,12 @@ public:
     */
     static GrVkPipelineState* CreatePipelineState(GrVkGpu*,
                                                   const GrPrimitiveProcessor&,
+                                                  const GrTextureProxy* const primProcProxies[],
                                                   const GrPipeline&,
                                                   const GrStencilSettings&,
                                                   GrPrimitiveType,
                                                   Desc*,
-                                                  const GrVkRenderPass& renderPass);
+                                                  VkRenderPass compatibleRenderPass);
 
     const GrCaps* caps() const override;
 
@@ -76,19 +80,43 @@ private:
     GrVkPipelineStateBuilder(GrVkGpu*,
                              const GrPipeline&,
                              const GrPrimitiveProcessor&,
+                             const GrTextureProxy* const primProcProxies[],
                              GrProgramDesc*);
 
     GrVkPipelineState* finalize(const GrStencilSettings&,
                                 GrPrimitiveType primitiveType,
-                                const GrVkRenderPass& renderPass,
+                                VkRenderPass compatibleRenderPass,
                                 Desc*);
+
+    // returns number of shader stages
+    int loadShadersFromCache(const SkData& cached,
+                             VkShaderModule* outVertShaderModule,
+                             VkShaderModule* outFragShaderModule,
+                             VkShaderModule* outGeomShaderModule,
+                             VkPipelineShaderStageCreateInfo* outStageInfo);
+
+    void storeShadersInCache(const SkSL::String& vert,
+                             const SkSL::Program::Inputs& vertInputs,
+                             const SkSL::String& frag,
+                             const SkSL::Program::Inputs& fragInputs,
+                             const SkSL::String& geom,
+                             const SkSL::Program::Inputs& geomInputs);
 
     bool createVkShaderModule(VkShaderStageFlagBits stage,
                               const GrGLSLShaderBuilder& builder,
                               VkShaderModule* shaderModule,
                               VkPipelineShaderStageCreateInfo* stageInfo,
                               const SkSL::Program::Settings& settings,
-                              Desc* desc);
+                              Desc* desc,
+                              SkSL::String* outSPIRV,
+                              SkSL::Program::Inputs* outInputs);
+
+    bool installVkShaderModule(VkShaderStageFlagBits stage,
+                               const GrGLSLShaderBuilder& builder,
+                               VkShaderModule* shaderModule,
+                               VkPipelineShaderStageCreateInfo* stageInfo,
+                               SkSL::String spirv,
+                               SkSL::Program::Inputs inputs);
 
     GrGLSLUniformHandler* uniformHandler() override { return &fUniformHandler; }
     const GrGLSLUniformHandler* uniformHandler() const override { return &fUniformHandler; }

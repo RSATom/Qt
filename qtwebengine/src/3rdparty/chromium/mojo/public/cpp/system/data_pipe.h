@@ -132,6 +132,12 @@ inline MojoResult CreateDataPipe(
 }
 
 // A wrapper class that automatically creates a data pipe and owns both handles.
+//
+// Note that this class is not safe to use in production code, as there is no
+// way for it to report failure while creating the pipe, while in practice
+// creating a new data pipe does fail every now and then. Instead just call
+// CreateDataPipe directly and check its return value.
+//
 // TODO(vtl): Make an even more friendly version? (Maybe templatized for a
 // particular type instead of some "element"? Maybe functions that take
 // vectors?)
@@ -149,8 +155,7 @@ class DataPipe {
 inline DataPipe::DataPipe() {
   MojoResult result =
       CreateDataPipe(nullptr, &producer_handle, &consumer_handle);
-  ALLOW_UNUSED_LOCAL(result);
-  DCHECK_EQ(MOJO_RESULT_OK, result);
+  CHECK_EQ(MOJO_RESULT_OK, result);
 }
 
 inline DataPipe::DataPipe(uint32_t capacity_num_bytes) {
@@ -159,18 +164,15 @@ inline DataPipe::DataPipe(uint32_t capacity_num_bytes) {
   options.flags = MOJO_CREATE_DATA_PIPE_FLAG_NONE;
   options.element_num_bytes = 1;
   options.capacity_num_bytes = capacity_num_bytes;
-  mojo::DataPipe data_pipe(options);
   MojoResult result =
       CreateDataPipe(&options, &producer_handle, &consumer_handle);
-  ALLOW_UNUSED_LOCAL(result);
-  DCHECK_EQ(MOJO_RESULT_OK, result);
+  CHECK_EQ(MOJO_RESULT_OK, result);
 }
 
 inline DataPipe::DataPipe(const MojoCreateDataPipeOptions& options) {
   MojoResult result =
       CreateDataPipe(&options, &producer_handle, &consumer_handle);
-  ALLOW_UNUSED_LOCAL(result);
-  DCHECK_EQ(MOJO_RESULT_OK, result);
+  CHECK_EQ(MOJO_RESULT_OK, result);
 }
 
 inline DataPipe::~DataPipe() {

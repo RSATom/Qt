@@ -33,10 +33,8 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink.h"
-#include "third_party/blink/renderer/platform/cross_thread_copier.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_info.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
-#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -59,11 +57,11 @@ enum SynchronousPolicy : uint8_t {
   kRequestAsynchronously
 };
 
-// Used by the DocumentThreadableLoader to turn off part of the CORS handling
+// Used by the ThreadableLoader to turn off part of the CORS handling
 // logic in the ResourceFetcher to use its own CORS handling logic.
-enum CORSHandlingByResourceFetcher {
-  kDisableCORSHandlingByResourceFetcher,
-  kEnableCORSHandlingByResourceFetcher,
+enum CorsHandlingByResourceFetcher {
+  kDisableCorsHandlingByResourceFetcher,
+  kEnableCorsHandlingByResourceFetcher,
 };
 
 // Was the request generated from a "parser-inserted" element?
@@ -75,6 +73,7 @@ enum CacheAwareLoadingEnabled : uint8_t {
   kIsCacheAwareLoadingEnabled
 };
 
+// This class is thread-bound. Do not copy/pass an instance across threads.
 struct ResourceLoaderOptions {
   USING_FAST_MALLOC(ResourceLoaderOptions);
 
@@ -84,15 +83,12 @@ struct ResourceLoaderOptions {
         content_security_policy_option(kCheckContentSecurityPolicy),
         request_initiator_context(kDocumentContext),
         synchronous_policy(kRequestAsynchronously),
-        cors_handling_by_resource_fetcher(kEnableCORSHandlingByResourceFetcher),
+        cors_handling_by_resource_fetcher(kEnableCorsHandlingByResourceFetcher),
         cors_flag(false),
         parser_disposition(kParserInserted),
         cache_aware_loading_enabled(kNotCacheAwareLoadingEnabled) {}
 
   FetchInitiatorInfo initiator_info;
-
-  // ATTENTION: When adding members, update
-  // CrossThreadResourceLoaderOptionsData, too.
 
   DataBufferingPolicy data_buffering_policy;
 
@@ -100,15 +96,14 @@ struct ResourceLoaderOptions {
   RequestInitiatorContext request_initiator_context;
   SynchronousPolicy synchronous_policy;
 
-  // When set to kDisableCORSHandlingByResourceFetcher, the ResourceFetcher
+  // When set to kDisableCorsHandlingByResourceFetcher, the ResourceFetcher
   // suppresses part of its CORS handling logic.
-  // Used by DocumentThreadableLoader which does CORS handling by itself.
-  CORSHandlingByResourceFetcher cors_handling_by_resource_fetcher;
+  // Used by ThreadableLoader which does CORS handling by itself.
+  CorsHandlingByResourceFetcher cors_handling_by_resource_fetcher;
 
   // Corresponds to the CORS flag in the Fetch spec.
   bool cors_flag;
 
-  scoped_refptr<const SecurityOrigin> security_origin;
   String content_security_policy_nonce;
   IntegrityMetadataSet integrity_metadata;
   ParserDisposition parser_disposition;
@@ -120,88 +115,6 @@ struct ResourceLoaderOptions {
   scoped_refptr<
       base::RefCountedData<network::mojom::blink::URLLoaderFactoryPtr>>
       url_loader_factory;
-};
-
-// Encode AtomicString (in FetchInitiatorInfo) as String to cross threads.
-struct CrossThreadResourceLoaderOptionsData {
-  DISALLOW_NEW();
-  explicit CrossThreadResourceLoaderOptionsData(
-      const ResourceLoaderOptions& options)
-      : data_buffering_policy(options.data_buffering_policy),
-        content_security_policy_option(options.content_security_policy_option),
-        initiator_info(options.initiator_info),
-        request_initiator_context(options.request_initiator_context),
-        synchronous_policy(options.synchronous_policy),
-        cors_handling_by_resource_fetcher(
-            options.cors_handling_by_resource_fetcher),
-        cors_flag(options.cors_flag),
-        security_origin(options.security_origin
-                            ? options.security_origin->IsolatedCopy()
-                            : nullptr),
-        content_security_policy_nonce(
-            options.content_security_policy_nonce.IsolatedCopy()),
-        integrity_metadata(options.integrity_metadata),
-        parser_disposition(options.parser_disposition),
-        cache_aware_loading_enabled(options.cache_aware_loading_enabled) {
-    if (options.url_loader_factory) {
-      DCHECK(options.url_loader_factory->data.is_bound());
-      url_loader_factory = base::MakeRefCounted<base::RefCountedData<
-          network::mojom::blink::URLLoaderFactoryPtrInfo>>();
-      options.url_loader_factory->data->Clone(
-          MakeRequest(&url_loader_factory->data));
-    }
-  }
-
-  operator ResourceLoaderOptions() const {
-    ResourceLoaderOptions options;
-    options.data_buffering_policy = data_buffering_policy;
-    options.content_security_policy_option = content_security_policy_option;
-    options.initiator_info = initiator_info;
-    options.request_initiator_context = request_initiator_context;
-    options.synchronous_policy = synchronous_policy;
-    options.cors_handling_by_resource_fetcher =
-        cors_handling_by_resource_fetcher;
-    options.cors_flag = cors_flag;
-    options.security_origin = security_origin;
-    options.content_security_policy_nonce = content_security_policy_nonce;
-    options.integrity_metadata = integrity_metadata;
-    options.parser_disposition = parser_disposition;
-    options.cache_aware_loading_enabled = cache_aware_loading_enabled;
-    if (url_loader_factory) {
-      DCHECK(url_loader_factory->data.is_valid());
-      options.url_loader_factory = base::MakeRefCounted<
-          base::RefCountedData<network::mojom::blink::URLLoaderFactoryPtr>>(
-          network::mojom::blink::URLLoaderFactoryPtr(
-              std::move(url_loader_factory->data)));
-    }
-    return options;
-  }
-
-  DataBufferingPolicy data_buffering_policy;
-  ContentSecurityPolicyDisposition content_security_policy_option;
-  CrossThreadFetchInitiatorInfoData initiator_info;
-  RequestInitiatorContext request_initiator_context;
-  SynchronousPolicy synchronous_policy;
-
-  CORSHandlingByResourceFetcher cors_handling_by_resource_fetcher;
-  bool cors_flag;
-  scoped_refptr<const SecurityOrigin> security_origin;
-
-  String content_security_policy_nonce;
-  IntegrityMetadataSet integrity_metadata;
-  ParserDisposition parser_disposition;
-  CacheAwareLoadingEnabled cache_aware_loading_enabled;
-  scoped_refptr<
-      base::RefCountedData<network::mojom::blink::URLLoaderFactoryPtrInfo>>
-      url_loader_factory;
-};
-
-template <>
-struct CrossThreadCopier<ResourceLoaderOptions> {
-  using Type = CrossThreadResourceLoaderOptionsData;
-  static Type Copy(const ResourceLoaderOptions& options) {
-    return CrossThreadResourceLoaderOptionsData(options);
-  }
 };
 
 }  // namespace blink

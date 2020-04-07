@@ -1,8 +1,10 @@
 TEMPLATE = subdirs
 
-QT_FOR_CONFIG += core-private gui-private
+QT_FOR_CONFIG += core-private gui-private printsupport
+
 include($$OUT_PWD/corelib/qtcore-config.pri)
 include($$OUT_PWD/gui/qtgui-config.pri)
+include($$OUT_PWD/printsupport/qtprintsupport-config.pri)
 
 force_bootstrap|!qtConfig(commandlineparser): \
     CONFIG += force_dbus_bootstrap
@@ -68,7 +70,7 @@ src_winmain.depends = sub-corelib  # just for the module .pri file
 
 src_corelib.subdir = $$PWD/corelib
 src_corelib.target = sub-corelib
-src_corelib.depends = src_tools_moc src_tools_rcc src_tools_qfloat16_tables
+src_corelib.depends = src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qfloat16_tables
 
 src_xml.subdir = $$PWD/xml
 src_xml.target = sub-xml
@@ -155,17 +157,12 @@ src_android.subdir = $$PWD/android
         src_3rdparty_freetype.depends += src_corelib
     }
 }
-SUBDIRS += src_tools_bootstrap src_tools_moc src_tools_rcc src_tools_qfloat16_tables
+SUBDIRS += src_tools_bootstrap src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qfloat16_tables
 qtConfig(regularexpression):pcre2 {
     SUBDIRS += src_3rdparty_pcre2
     src_corelib.depends += src_3rdparty_pcre2
 }
-TOOLS = src_tools_moc src_tools_rcc src_tools_qlalr src_tools_qfloat16_tables
-!force_bootstrap:if(qtConfig(lttng)|qtConfig(etw)) {
-    SUBDIRS += src_tools_tracegen
-    src_corelib.depends += src_tools_tracegen
-    TOOLS += src_tools_tracegen
-}
+TOOLS = src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qlalr src_tools_qfloat16_tables
 SUBDIRS += src_corelib src_tools_qlalr
 win32:SUBDIRS += src_winmain
 qtConfig(network) {
@@ -221,11 +218,13 @@ qtConfig(gui) {
     src_testlib.depends += src_gui      # if QtGui is enabled, QtTest requires QtGui's headers
     qtConfig(widgets) {
         SUBDIRS += src_tools_uic src_widgets
-        !android-embedded: SUBDIRS += src_printsupport
         TOOLS += src_tools_uic
         src_plugins.depends += src_widgets
-        !android-embedded: src_plugins.depends += src_printsupport
         src_testlib.depends += src_widgets        # if QtWidgets is enabled, QtTest requires QtWidgets's headers
+        qtConfig(printer) {
+            SUBDIRS += src_printsupport
+            src_plugins.depends += src_printsupport
+        }
         qtConfig(opengl) {
             SUBDIRS += src_opengl
             src_plugins.depends += src_opengl

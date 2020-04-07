@@ -11,7 +11,7 @@
 #include "media/capture/video/video_capture_system.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/service_manager/public/cpp/service_context_ref.h"
-#include "services/video_capture/public/mojom/device_factory.mojom.h"
+#include "services/video_capture/device_factory.h"
 
 namespace video_capture {
 
@@ -21,16 +21,17 @@ class DeviceMediaToMojoAdapter;
 // mojom::DeviceFactory interface. Keeps track of device instances that have
 // been created to ensure that it does not create more than one instance of the
 // same media::VideoCaptureDevice at the same time.
-class DeviceFactoryMediaToMojoAdapter : public mojom::DeviceFactory {
+class DeviceFactoryMediaToMojoAdapter : public DeviceFactory {
  public:
   DeviceFactoryMediaToMojoAdapter(
-      std::unique_ptr<service_manager::ServiceContextRef> service_ref,
       std::unique_ptr<media::VideoCaptureSystem> capture_system,
       media::MojoJpegDecodeAcceleratorFactoryCB jpeg_decoder_factory_callback,
       scoped_refptr<base::SequencedTaskRunner> jpeg_decoder_task_runner);
   ~DeviceFactoryMediaToMojoAdapter() override;
 
-  // mojom::DeviceFactory implementation.
+  // DeviceFactory implementation.
+  void SetServiceRef(
+      std::unique_ptr<service_manager::ServiceContextRef> service_ref) override;
   void GetDeviceInfos(GetDeviceInfosCallback callback) override;
   void CreateDevice(const std::string& device_id,
                     mojom::DeviceRequest device_request,
@@ -43,6 +44,9 @@ class DeviceFactoryMediaToMojoAdapter : public mojom::DeviceFactory {
   void AddTextureVirtualDevice(
       const media::VideoCaptureDeviceInfo& device_info,
       mojom::TextureVirtualDeviceRequest virtual_device) override;
+  void RegisterVirtualDevicesChangedObserver(
+      mojom::DevicesChangedObserverPtr observer,
+      bool raise_event_if_virtual_devices_already_present) override;
 
  private:
   struct ActiveDeviceEntry {
@@ -63,7 +67,7 @@ class DeviceFactoryMediaToMojoAdapter : public mojom::DeviceFactory {
                              CreateDeviceCallback callback);
   void OnClientConnectionErrorOrClose(const std::string& device_id);
 
-  const std::unique_ptr<service_manager::ServiceContextRef> service_ref_;
+  std::unique_ptr<service_manager::ServiceContextRef> service_ref_;
   const std::unique_ptr<media::VideoCaptureSystem> capture_system_;
   const media::MojoJpegDecodeAcceleratorFactoryCB
       jpeg_decoder_factory_callback_;

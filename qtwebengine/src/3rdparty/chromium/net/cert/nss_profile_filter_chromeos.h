@@ -42,27 +42,6 @@ class NET_EXPORT NSSProfileFilterChromeOS {
   bool IsModuleAllowed(PK11SlotInfo* slot) const;
   bool IsCertAllowed(CERTCertificate* cert) const;
 
-  // TODO(mattm): remove these predicates and use labmdas instead.
-  class CertNotAllowedForProfilePredicate {
-   public:
-    explicit CertNotAllowedForProfilePredicate(
-        const NSSProfileFilterChromeOS& filter);
-    bool operator()(const ScopedCERTCertificate& cert) const;
-
-   private:
-    const NSSProfileFilterChromeOS& filter_;
-  };
-
-  class ModuleNotAllowedForProfilePredicate {
-   public:
-    explicit ModuleNotAllowedForProfilePredicate(
-        const NSSProfileFilterChromeOS& filter);
-    bool operator()(const crypto::ScopedPK11Slot& module) const;
-
-   private:
-    const NSSProfileFilterChromeOS& filter_;
-  };
-
  private:
   crypto::ScopedPK11Slot public_slot_;
   crypto::ScopedPK11Slot private_slot_;

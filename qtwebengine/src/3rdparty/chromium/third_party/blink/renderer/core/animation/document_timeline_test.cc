@@ -63,7 +63,7 @@ class AnimationDocumentTimelineTest : public PageTestBase {
     document = &GetDocument();
     GetAnimationClock().ResetTimeForTesting();
     element = Element::Create(QualifiedName::Null(), document.Get());
-    platform_timing = new MockPlatformTiming;
+    platform_timing = MakeGarbageCollected<MockPlatformTiming>();
     timeline =
         DocumentTimeline::Create(document.Get(), TimeDelta(), platform_timing);
     timeline->ResetForTesting();
@@ -148,6 +148,27 @@ TEST_F(AnimationDocumentTimelineTest, ZeroTime) {
   EXPECT_EQ(200, timeline->CurrentTimeInternal());
   EXPECT_EQ(200, timeline->CurrentTimeInternal(is_null));
   EXPECT_FALSE(is_null);
+}
+
+// EffectiveTime is identical to CurrentTimeInternal except that it returns 0
+// when the timeline is inactive.
+TEST_F(AnimationDocumentTimelineTest, EffectiveTime) {
+  GetAnimationClock().UpdateTime(base::TimeTicks() +
+                                 base::TimeDelta::FromSecondsD(200));
+  EXPECT_EQ(200, timeline->EffectiveTime());
+  EXPECT_EQ(200, timeline->CurrentTimeInternal());
+  bool is_null;
+  EXPECT_EQ(200, timeline->CurrentTimeInternal(is_null));
+  EXPECT_FALSE(is_null);
+
+  Document* document_without_frame = Document::CreateForTest();
+  DocumentTimeline* inactive_timeline = DocumentTimeline::Create(
+      document_without_frame, TimeDelta(), platform_timing);
+
+  EXPECT_EQ(0, inactive_timeline->EffectiveTime());
+  is_null = false;
+  inactive_timeline->CurrentTimeInternal(is_null);
+  EXPECT_TRUE(is_null);
 }
 
 TEST_F(AnimationDocumentTimelineTest, PlaybackRateNormal) {
@@ -387,7 +408,7 @@ TEST_F(AnimationDocumentTimelineTest, PauseForTesting) {
 }
 
 TEST_F(AnimationDocumentTimelineTest, DelayBeforeAnimationStart) {
-  timing.iteration_duration = 2;
+  timing.iteration_duration = AnimationTimeDelta::FromSecondsD(2);
   timing.start_delay = 5;
 
   KeyframeEffect* keyframe_effect =
@@ -419,7 +440,7 @@ TEST_F(AnimationDocumentTimelineTest, UseAnimationAfterTimelineDeref) {
 }
 
 TEST_F(AnimationDocumentTimelineTest, PlayAfterDocumentDeref) {
-  timing.iteration_duration = 2;
+  timing.iteration_duration = AnimationTimeDelta::FromSecondsD(2);
   timing.start_delay = 5;
 
   timeline = &document->Timeline();

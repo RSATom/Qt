@@ -1,5 +1,5 @@
 /*
- *  Copyright 2012 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,46 +11,9 @@
 #ifndef RTC_BASE_SSLFINGERPRINT_H_
 #define RTC_BASE_SSLFINGERPRINT_H_
 
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "rtc_base/copyonwritebuffer.h"
-#include "rtc_base/rtccertificate.h"
-#include "rtc_base/sslidentity.h"
-
-namespace rtc {
-
-class SSLCertificate;
-
-struct SSLFingerprint {
-  static SSLFingerprint* Create(const std::string& algorithm,
-                                const rtc::SSLIdentity* identity);
-
-  static SSLFingerprint* Create(const std::string& algorithm,
-                                const rtc::SSLCertificate* cert);
-
-  static SSLFingerprint* CreateFromRfc4572(const std::string& algorithm,
-                                           const std::string& fingerprint);
-
-  // Creates a fingerprint from a certificate, using the same digest algorithm
-  // as the certificate's signature.
-  static SSLFingerprint* CreateFromCertificate(const RTCCertificate* cert);
-
-  SSLFingerprint(const std::string& algorithm,
-                 const uint8_t* digest_in,
-                 size_t digest_len);
-
-  SSLFingerprint(const SSLFingerprint& from);
-
-  bool operator==(const SSLFingerprint& other) const;
-
-  std::string GetRfc4572Fingerprint() const;
-
-  std::string ToString() const;
-
-  std::string algorithm;
-  rtc::CopyOnWriteBuffer digest;
-};
-
-}  // namespace rtc
+#include "rtc_base/ssl_fingerprint.h"
 
 #endif  // RTC_BASE_SSLFINGERPRINT_H_

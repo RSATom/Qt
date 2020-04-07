@@ -181,7 +181,7 @@ QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(con
 
 QBluetoothDeviceDiscoveryAgentPrivate::~QBluetoothDeviceDiscoveryAgentPrivate()
 {
-    if (inquiryLE && agentState != NonActive) {
+    if (inquiryLE.data() && agentState != NonActive) {
         // We want the LE scan to stop as soon as possible.
         if (dispatch_queue_t leQueue = OSXBluetooth::qt_LE_queue()) {
             // Local variable to be retained ...
@@ -195,7 +195,7 @@ QBluetoothDeviceDiscoveryAgentPrivate::~QBluetoothDeviceDiscoveryAgentPrivate()
 
 bool QBluetoothDeviceDiscoveryAgentPrivate::isValid() const
 {
-    return hostController && [hostController powerState] == kBluetoothHCIPowerStateON;
+    return hostController.data() && [hostController powerState] == kBluetoothHCIPowerStateON;
 }
 
 bool QBluetoothDeviceDiscoveryAgentPrivate::isActive() const
@@ -292,7 +292,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startLE()
 
     // Check queue and create scanner:
     inquiryLE.reset([[LEDeviceInquiryObjC alloc] initWithNotifier:notifier.data()]);
-    if (inquiryLE)
+    if (inquiryLE.data())
         notifier.take(); // Whatever happens next, inquiryLE is already the owner ...
 
     dispatch_queue_t leQueue(qt_LE_queue());
@@ -423,8 +423,8 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFound(IOBluetoothDeviceInquiry
     deviceInfo.setCoreConfigurations(QBluetoothDeviceInfo::BaseRateCoreConfiguration);
     deviceInfo.setRssi(device.RSSI);
 
-    const QList<QBluetoothUuid> uuids(OSXBluetooth::extract_services_uuids(device));
-    deviceInfo.setServiceUuids(uuids, QBluetoothDeviceInfo::DataIncomplete);
+    const QVector<QBluetoothUuid> uuids(OSXBluetooth::extract_services_uuids(device));
+    deviceInfo.setServiceUuids(uuids);
 
     deviceFound(deviceInfo);
 }
@@ -525,14 +525,53 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFound(const QBluetoothDeviceIn
     const bool isLE = newDeviceInfo.coreConfigurations() == QBluetoothDeviceInfo::LowEnergyCoreConfiguration;
 
     for (int i = 0, e = discoveredDevices.size(); i < e; ++i) {
-        if (isLE ? discoveredDevices[i].deviceUuid() == newDeviceInfo.deviceUuid():
-                   discoveredDevices[i].address() == newDeviceInfo.address()) {
-            if (discoveredDevices[i] == newDeviceInfo && (!isLE || lowEnergySearchTimeout > 0))
-                return;
+        if (isLE) {
+            if (discoveredDevices[i].deviceUuid() == newDeviceInfo.deviceUuid()) {
+                QBluetoothDeviceInfo::Fields updatedFields = QBluetoothDeviceInfo::Field::None;
+                if (discoveredDevices[i].rssi() != newDeviceInfo.rssi()) {
+                    qCDebug(QT_BT_OSX) << "Updating RSSI for" << newDeviceInfo.address()
+                                       << newDeviceInfo.rssi();
+                    discoveredDevices[i].setRssi(newDeviceInfo.rssi());
+                    updatedFields.setFlag(QBluetoothDeviceInfo::Field::RSSI);
+                }
 
-            discoveredDevices.replace(i, newDeviceInfo);
-            emit q_ptr->deviceDiscovered(newDeviceInfo);
-            return;
+                if (discoveredDevices[i].manufacturerData() != newDeviceInfo.manufacturerData()) {
+                    qCDebug(QT_BT_OSX) << "Updating manufacturer data for" << newDeviceInfo.address();
+                    const QVector<quint16> keys = newDeviceInfo.manufacturerIds();
+                    for (auto key: keys)
+                        discoveredDevices[i].setManufacturerData(key, newDeviceInfo.manufacturerData(key));
+                    updatedFields.setFlag(QBluetoothDeviceInfo::Field::ManufacturerData);
+                }
+
+                if (lowEnergySearchTimeout > 0) {
+                    if (discoveredDevices[i] != newDeviceInfo) {
+                        discoveredDevices.replace(i, newDeviceInfo);
+                        emit q_ptr->deviceDiscovered(newDeviceInfo);
+                    } else {
+                        if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
+                            emit q_ptr->deviceUpdated(discoveredDevices[i], updatedFields);
+                    }
+
+                    return;
+                }
+
+                discoveredDevices.replace(i, newDeviceInfo);
+                emit q_ptr->deviceDiscovered(newDeviceInfo);
+
+                if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
+                    emit q_ptr->deviceUpdated(discoveredDevices[i], updatedFields);
+
+                return;
+            }
+        } else {
+            if (discoveredDevices[i].address() == newDeviceInfo.address()) {
+                if (discoveredDevices[i] == newDeviceInfo)
+                    return;
+
+                discoveredDevices.replace(i, newDeviceInfo);
+                emit q_ptr->deviceDiscovered(newDeviceInfo);
+                return;
+            }
         }
     }
 

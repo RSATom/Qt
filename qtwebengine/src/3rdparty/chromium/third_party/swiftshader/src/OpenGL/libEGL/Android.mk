@@ -1,5 +1,7 @@
 LOCAL_PATH:= $(call my-dir)
 
+COMMON_SWIFTSHADER_RELATIVE_PATH := $(if $(BOARD_SWIFTSHADER_RELATIVE_PATH),$(BOARD_SWIFTSHADER_RELATIVE_PATH),egl)
+
 COMMON_CFLAGS := \
 	-DLOG_TAG=\"libEGL_swiftshader\" \
 	-std=c++11 \
@@ -11,6 +13,7 @@ COMMON_CFLAGS := \
 	-Wno-unused-function \
 	-Wno-unused-parameter \
 	-Wno-implicit-exception-spec-mismatch \
+	-Wno-implicit-fallthrough \
 	-Wno-overloaded-virtual \
 	-Wno-attributes \
 	-Wno-unknown-attributes \
@@ -29,7 +32,8 @@ COMMON_SRC_FILES := \
 	Display.cpp \
 	Surface.cpp \
 	libEGL.cpp \
-	main.cpp
+	main.cpp \
+	../../Common/SharedLibrary.cpp
 
 COMMON_C_INCLUDES := \
 	bionic \
@@ -75,9 +79,9 @@ LOCAL_MULTILIB := first
 endif
 
 ifeq (HasRelativePath,$(shell test $(PLATFORM_SDK_VERSION) -ge 21 && echo HasRelativePath))
-LOCAL_MODULE_RELATIVE_PATH := egl
+LOCAL_MODULE_RELATIVE_PATH := $(COMMON_SWIFTSHADER_RELATIVE_PATH)
 else
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/$(COMMON_SWIFTSHADER_RELATIVE_PATH)
 endif
 
 LOCAL_VENDOR_MODULE := true
@@ -100,9 +104,9 @@ LOCAL_MULTILIB := first
 endif
 
 ifeq (HasRelativePath,$(shell test $(PLATFORM_SDK_VERSION) -ge 21 && echo HasRelativePath))
-LOCAL_MODULE_RELATIVE_PATH := egl
+LOCAL_MODULE_RELATIVE_PATH := $(COMMON_SWIFTSHADER_RELATIVE_PATH)
 else
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/$(COMMON_SWIFTSHADER_RELATIVE_PATH)
 endif
 
 LOCAL_VENDOR_MODULE := true

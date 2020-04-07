@@ -369,7 +369,8 @@ void QStrokerOps::strokeEllipse(const QRectF &rect, void *data, const QTransform
 QStroker::QStroker()
     : m_capStyle(SquareJoin), m_joinStyle(FlatJoin),
       m_back1X(0), m_back1Y(0),
-      m_back2X(0), m_back2Y(0)
+      m_back2X(0), m_back2Y(0),
+      m_forceOpen(false)
 {
     m_strokeWidth = qt_real_to_fixed(1);
     m_miterLimit = qt_real_to_fixed(2);
@@ -524,7 +525,7 @@ void QStroker::joinPoints(qfixed focal_x, qfixed focal_y, const QLineF &nextLine
 
             QLineF shortCut(prevLine.p2(), nextLine.p1());
             qreal angle = shortCut.angleTo(prevLine);
-            if (type == QLineF::BoundedIntersection || (angle > 90 && !qFuzzyCompare(angle, (qreal)90))) {
+            if ((type == QLineF::BoundedIntersection || (angle > qreal(90.01))) && nextLine.length() > offset) {
                 emitLineTo(focal_x, focal_y);
                 emitLineTo(qt_real_to_fixed(nextLine.x1()), qt_real_to_fixed(nextLine.y1()));
                 return;
@@ -749,7 +750,7 @@ template <class Iterator> bool qt_stroke_side(Iterator *it,
         }
     }
 
-    if (start == prev) {
+    if (start == prev && !stroker->forceOpen()) {
         // closed subpath, join first and last point
 #ifdef QPP_STROKE_DEBUG
         qDebug("\n ---> (side) closed subpath");

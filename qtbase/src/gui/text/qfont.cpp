@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -116,7 +116,17 @@ bool QFontDef::exactMatch(const QFontDef &other) const
     if (stretch != 0 && other.stretch != 0 && stretch != other.stretch)
         return false;
 
+    if (families.size() != other.families.size())
+        return false;
+
     QString this_family, this_foundry, other_family, other_foundry;
+    for (int i = 0; i < families.size(); ++i) {
+        QFontDatabase::parseFontName(families.at(i), this_foundry, this_family);
+        QFontDatabase::parseFontName(other.families.at(i), other_foundry, other_family);
+        if (this_family != other_family || this_foundry != other_foundry)
+            return false;
+    }
+
     QFontDatabase::parseFontName(family, this_foundry, this_family);
     QFontDatabase::parseFontName(other.family, other_foundry, other_family);
 
@@ -261,6 +271,9 @@ void QFontPrivate::resolve(uint mask, const QFontPrivate *other)
     if (! (mask & QFont::FamilyResolved))
         request.family = other->request.family;
 
+    if (!(mask & QFont::FamiliesResolved))
+        request.families = other->request.families;
+
     if (! (mask & QFont::StyleNameResolved))
         request.styleName = other->request.styleName;
 
@@ -340,7 +353,7 @@ QFontEngineData::~QFontEngineData()
     \class QFont
     \reentrant
 
-    \brief The QFont class specifies a font used for drawing text.
+    \brief The QFont class specifies a query for a font used for drawing text.
 
     \ingroup painting
     \ingroup appearance
@@ -348,6 +361,7 @@ QFontEngineData::~QFontEngineData()
     \ingroup richtext-processing
     \inmodule QtGui
 
+    QFont can be regarded as a query for one or more fonts on the system.
 
     When you create a QFont object you specify various attributes that
     you want the font to have. Qt will use the font with the specified
@@ -355,8 +369,14 @@ QFontEngineData::~QFontEngineData()
     matching installed font. The attributes of the font that is
     actually used are retrievable from a QFontInfo object. If the
     window system provides an exact match exactMatch() returns \c true.
-    Use QFontMetrics to get measurements, e.g. the pixel length of a
+    Use QFontMetricsF to get measurements, e.g. the pixel length of a
     string using QFontMetrics::width().
+
+    Attributes which are not specifically set will not affect the font
+    selection algorithm, and default values will be preferred instead.
+
+    To load a specific physical font, typically represented by a single file,
+    use QRawFont instead.
 
     Note that a QGuiApplication instance must exist before a QFont can be
     used. You can set the application's default font with
@@ -390,8 +410,6 @@ QFontEngineData::~QFontEngineData()
     setStyleHint(). The default family (corresponding to the current
     style hint) is returned by defaultFamily().
 
-    The font-matching algorithm has a lastResortFamily() and
-    lastResortFont() in cases where a suitable match cannot be found.
     You can provide substitutions for font family names using
     insertSubstitution() and insertSubstitutions(). Substitutions can
     be removed with removeSubstitutions(). Use substitute() to retrieve
@@ -419,18 +437,21 @@ QFontEngineData::~QFontEngineData()
     \target fontmatching
     The font matching algorithm works as follows:
     \list 1
-    \li The specified font family is searched for.
-    \li If not found, the styleHint() is used to select a replacement
-       family.
-    \li Each replacement font family is searched for.
-    \li If none of these are found or there was no styleHint(), "helvetica"
-       will be searched for.
-    \li If "helvetica" isn't found Qt will try the lastResortFamily().
-    \li If the lastResortFamily() isn't found Qt will try the
-       lastResortFont() which will always return a name of some kind.
+    \li The specified font families (set by setFamilies()) are searched for.
+    \li If not found, then if set the specified font family exists and can be used to represent
+        the writing system in use, it will be selected.
+    \li If not, a replacement font that supports the writing system is
+        selected. The font matching algorithm will try to find the
+        best match for all the properties set in the QFont. How this is
+        done varies from platform to platform.
+    \li If no font exists on the system that can support the text,
+        then special "missing character" boxes will be shown in its place.
     \endlist
 
-    Note that the actual font matching algorithm varies from platform to platform.
+    \note If the selected font, though supporting the writing system in general,
+    is missing glyphs for one or more specific characters, then Qt will try to
+    find a fallback font for this or these particular characters. This feature
+    can be disabled using QFont::NoFontMerging style strategy.
 
     In Windows a request for the "Courier" font is automatically changed to
     "Courier New", an improved version of Courier that allows for smooth scaling.
@@ -499,6 +520,7 @@ QFontEngineData::~QFontEngineData()
     individually and then considered resolved.
 
     \value FamilyResolved
+    \value FamiliesResolved
     \value SizeResolved
     \value StyleHintResolved
     \value StyleStrategyResolved
@@ -540,14 +562,25 @@ QFontEngineData::~QFontEngineData()
     \since 5.2
 */
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
+  \obsolete
   Constructs a font from \a font for use on the paint device \a pd.
 */
 QFont::QFont(const QFont &font, QPaintDevice *pd)
+    : QFont(font, static_cast<const QPaintDevice*>(pd))
+{}
+#endif
+
+/*!
+  \since 5.13
+  Constructs a font from \a font for use on the paint device \a pd.
+*/
+QFont::QFont(const QFont &font, const QPaintDevice *pd)
     : resolve_mask(font.resolve_mask)
 {
-    Q_ASSERT(pd != 0);
-    int dpi = pd->logicalDpiY();
+    Q_ASSERT(pd);
+    const int dpi = pd->logicalDpiY();
     const int screen = 0;
     if (font.d->dpi != dpi || font.d->screen != screen ) {
         d = new QFontPrivate(*font.d);
@@ -1684,6 +1717,7 @@ bool QFont::operator<(const QFont &f) const
     if (r1.stretch != r2.stretch) return r1.stretch < r2.stretch;
     if (r1.styleHint != r2.styleHint) return r1.styleHint < r2.styleHint;
     if (r1.styleStrategy != r2.styleStrategy) return r1.styleStrategy < r2.styleStrategy;
+    if (r1.families != r2.families) return r1.families < r2.families;
     if (r1.family != r2.family) return r1.family < r2.family;
     if (f.d->capital != d->capital) return f.d->capital < d->capital;
 
@@ -2064,10 +2098,11 @@ uint qHash(const QFont &font, uint seed) Q_DECL_NOTHROW
  */
 bool QFont::fromString(const QString &descrip)
 {
-    const auto l = descrip.splitRef(QLatin1Char(','));
-
-    int count = l.count();
-    if (!count || (count > 2 && count < 9) || count > 11) {
+    const QStringRef sr = QStringRef(&descrip).trimmed();
+    const auto l = sr.split(QLatin1Char(','));
+    const int count = l.count();
+    if (!count || (count > 2 && count < 9) || count > 11 ||
+        l.first().isEmpty()) {
         qWarning("QFont::fromString: Invalid description '%s'",
                  descrip.isEmpty() ? "(empty)" : descrip.toLatin1().data());
         return false;
@@ -2133,21 +2168,22 @@ void QFont::cacheStatistics()
 {
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QString QFont::lastResortFamily() const
 
-    Returns the "last resort" font family name.
+    \obsolete
 
-    The current implementation tries a wide variety of common fonts,
-    returning the first one it finds. Is is possible that no family is
-    found in which case an empty string is returned.
+    This function is deprecated and is not in use by the font
+    selection algorithm in Qt 5. It always returns "helvetica".
 
     \sa lastResortFont()
 */
 QString QFont::lastResortFamily() const
 {
-    return QString::fromLatin1("helvetica");
+    return QStringLiteral("helvetica");
 }
+#endif
 
 extern QStringList qt_fallbacksForFamily(const QString &family, QFont::Style style,
                                          QFont::StyleHint styleHint, QChar::Script script);
@@ -2169,33 +2205,65 @@ QString QFont::defaultFamily() const
     return QString();
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QString QFont::lastResortFont() const
 
-    Returns a "last resort" font name for the font matching algorithm.
-    This is used if the last resort family is not available. It will
-    always return a name, if necessary returning something like
-    "fixed" or "system".
+    \obsolete
 
-    The current implementation tries a wide variety of common fonts,
-    returning the first one it finds. The implementation may change
-    at any time, but this function will always return a string
-    containing something.
-
-    It is theoretically possible that there really isn't a
-    lastResortFont() in which case Qt will abort with an error
-    message. We have not been able to identify a case where this
-    happens. Please \l{bughowto.html}{report it as a bug} if
-    it does, preferably with a list of the fonts you have installed.
-
-    \sa lastResortFamily()
+    Deprecated function. Since Qt 5.0, this is not used by the font selection algorithm. For
+    compatibility it remains in the API, but will always return the same value as lastResortFamily().
 */
 QString QFont::lastResortFont() const
 {
-    qFatal("QFont::lastResortFont: Cannot find any reasonable font");
-    // Shut compiler up
-    return QString();
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+    return lastResortFamily();
+QT_WARNING_POP
 }
+#endif
+
+/*!
+    \since 5.13
+
+    Returns the requested font family names, i.e. the names set in the last
+    setFamilies() call or via the constructor. Otherwise it returns an
+    empty list.
+
+    \sa setFamily(), setFamilies(), family(), substitutes(), substitute()
+*/
+
+QStringList QFont::families() const
+{
+    return d->request.families;
+}
+
+/*!
+    \since 5.13
+
+    Sets the list of family names for the font. The names are case
+    insensitive and may include a foundry name. The first family in
+    \a families will be set as the main family for the font.
+
+    Each family name entry in \a families may optionally also include a
+    foundry name, e.g. "Helvetica [Cronyx]". If the family is
+    available from more than one foundry and the foundry isn't
+    specified, an arbitrary foundry is chosen. If the family isn't
+    available a family will be set using the \l{QFont}{font matching}
+    algorithm.
+
+    \sa family(), families(), setFamily(), setStyleHint(), QFontInfo
+*/
+
+void QFont::setFamilies(const QStringList &families)
+{
+    if ((resolve_mask & QFont::FamiliesResolved) && d->request.families == families)
+        return;
+    detach();
+    d->request.families = families;
+    resolve_mask |= QFont::FamiliesResolved;
+}
+
 
 /*****************************************************************************
   QFont stream functions
@@ -2261,6 +2329,8 @@ QDataStream &operator<<(QDataStream &s, const QFont &font)
         s << (quint8)font.d->request.hintingPreference;
     if (s.version() >= QDataStream::Qt_5_6)
         s << (quint8)font.d->capital;
+    if (s.version() >= QDataStream::Qt_5_13)
+        s << font.d->request.families;
     return s;
 }
 
@@ -2355,6 +2425,11 @@ QDataStream &operator>>(QDataStream &s, QFont &font)
         quint8 value;
         s >> value;
         font.d->capital = QFont::Capitalization(value);
+    }
+    if (s.version() >= QDataStream::Qt_5_13) {
+        QStringList value;
+        s >> value;
+        font.d->request.families = value;
     }
     return s;
 }
@@ -2879,9 +2954,9 @@ void QFontCache::insertEngine(const Key &key, QFontEngine *engine, bool insertMu
     data.timestamp = ++current_timestamp;
 
     if (insertMulti)
-        engineCache.insertMulti(key, data);
-    else
         engineCache.insert(key, data);
+    else
+        engineCache.replace(key, data);
     // only increase the cost if this is the first time we insert the engine
     if (++engineCacheCount[engine] == 1)
         increaseCost(engine->cache_cost);
@@ -2970,7 +3045,7 @@ void QFontCache::decreaseCache()
                      it.value().data->ref.load(), engineCacheCount.value(it.value().data),
                      it.value().data->cache_cost);
 
-            if (it.value().data->ref.load() != 0)
+            if (it.value().data->ref.load() > engineCacheCount.value(it.value().data))
                 in_use_cost += it.value().data->cache_cost / engineCacheCount.value(it.value().data);
         }
 

@@ -95,6 +95,12 @@ static inline int &rperp(Qt::Orientation o, QPoint &pos)
 static inline int &rperp(Qt::Orientation o, QSize &size)
 { return o == Qt::Vertical ? size.rwidth() : size.rheight(); }
 
+static inline int pick(Qt::Orientation o, const QMargins &m)
+{ return o == Qt::Horizontal ? (m.left() + m.right()) : (m.top() + m.bottom()); }
+
+static inline int perp(Qt::Orientation o, const QMargins &m)
+{ return o == Qt::Vertical ? (m.left() + m.right()) : (m.top() + m.bottom()); }
+
 class QTornOffMenu;
 class QEventLoop;
 
@@ -115,7 +121,7 @@ private:
 
 class QMenuSloppyState
 {
-    Q_DISABLE_COPY(QMenuSloppyState)
+    Q_DISABLE_COPY_MOVE(QMenuSloppyState)
 public:
     QMenuSloppyState()
         : m_enabled(false)
@@ -509,6 +515,8 @@ public:
     bool tearoffHighlighted : 1;
     //menu fading/scrolling effects
     bool doChildEffects : 1;
+
+    int popupScreen = -1;
 };
 
 QT_END_NAMESPACE

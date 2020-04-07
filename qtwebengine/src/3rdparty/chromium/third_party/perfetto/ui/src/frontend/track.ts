@@ -12,37 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as m from 'mithril';
-import {TrackShell} from './track_shell';
-import {VirtualCanvasContext} from './virtual_canvas_context';
+import {TrackState} from '../common/state';
+import {globals} from './globals';
 
-export const Track = {
-  view({attrs}) {
-    if (attrs.trackContext.isOnCanvas()) {
-      attrs.trackContext.fillStyle = '#ccc';
-      attrs.trackContext.fillRect(0, 0, attrs.width, 73);
+/**
+ * This interface forces track implementations to have some static properties.
+ * Typescript does not have abstract static members, which is why this needs to
+ * be in a seperate interface.
+ */
+export interface TrackCreator {
+  // Store the kind explicitly as a string as opposed to using class.kind in
+  // case we ever minify our code.
+  readonly kind: string;
 
-      attrs.trackContext.font = '16px Arial';
-      attrs.trackContext.fillStyle = '#000';
-      attrs.trackContext.fillText(
-          attrs.name + ' rendered by canvas', Math.round(attrs.width / 2), 20);
-    }
+  // We need the |create| method because the stored value in the registry is an
+  // abstract class, and we cannot call 'new' on an abstract class.
+  create(TrackState: TrackState): Track;
+}
 
-    return m(
-        '.track',
-        {
-          style: {
-            position: 'absolute',
-            top: attrs.top.toString() + 'px',
-            left: 0,
-            width: '100%'
-          }
-        },
-        m(TrackShell, attrs));
+/**
+ * The abstract class that needs to be implemented by all tracks.
+ */
+export abstract class Track<Config = {}, Data = {}> {
+  constructor(protected trackState: TrackState) {}
+  abstract renderCanvas(ctx: CanvasRenderingContext2D): void;
+
+  get config(): Config {
+    return this.trackState.config as Config;
   }
-} as m.Component<{
-  name: string,
-  trackContext: VirtualCanvasContext,
-  top: number,
-  width: number
-}>;
+
+  data(): Data|undefined {
+    return globals.trackDataStore.get(this.trackState.id) as Data;
+  }
+
+  getHeight(): number {
+    return 40;
+  }
+
+  onMouseMove(_position: {x: number, y: number}) {}
+
+  onMouseOut() {}
+}

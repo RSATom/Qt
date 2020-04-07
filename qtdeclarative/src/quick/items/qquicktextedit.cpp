@@ -1065,7 +1065,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode = TextEdit.SelectCharacters)
+    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode)
 
     Moves the cursor to \a position and updates the selection according to the optional \a mode
     parameter. (To only move the cursor, set the \l cursorPosition property.)
@@ -1076,7 +1076,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
     text range.
 
     The selection mode specifies whether the selection is updated on a per character or a per word
-    basis.  If not specified the selection mode will default to TextEdit.SelectCharacters.
+    basis. If not specified the selection mode will default to \c {TextEdit.SelectCharacters}.
 
     \list
     \li TextEdit.SelectCharacters - Sets either the selectionStart or selectionEnd (whichever was at
@@ -1641,7 +1641,8 @@ bool QQuickTextEdit::event(QEvent *event)
     Q_D(QQuickTextEdit);
     if (event->type() == QEvent::ShortcutOverride) {
         d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
-        return event->isAccepted();
+        if (event->isAccepted())
+            return true;
     }
     return QQuickImplicitSizeItem::event(event);
 }
@@ -2705,6 +2706,12 @@ void QQuickTextEditPrivate::handleFocusEvent(QFocusEvent *event)
         q->disconnect(QGuiApplication::inputMethod(), SIGNAL(inputDirectionChanged(Qt::LayoutDirection)),
                    q, SLOT(q_updateAlignment()));
 #endif
+        if (event->reason() != Qt::ActiveWindowFocusReason
+                && event->reason() != Qt::PopupFocusReason
+                && control->textCursor().hasSelection()
+                && !persistentSelection)
+            q->deselect();
+
         emit q->editingFinished();
     }
 }
@@ -2794,7 +2801,7 @@ QString QQuickTextEdit::getFormattedText(int start, int end) const
 /*!
     \qmlmethod QtQuick::TextEdit::insert(int position, string text)
 
-    Inserts \a text into the TextEdit at position.
+    Inserts \a text into the TextEdit at \a position.
 */
 void QQuickTextEdit::insert(int position, const QString &text)
 {

@@ -4,16 +4,17 @@
 
 #include "services/video_capture/device_factory_provider_impl.h"
 
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "media/capture/video/create_video_capture_device_factory.h"
 #include "media/capture/video/fake_video_capture_device_factory.h"
 #include "media/capture/video/video_capture_buffer_pool.h"
 #include "media/capture/video/video_capture_buffer_tracker.h"
 #include "media/capture/video/video_capture_system_impl.h"
-#include "services/ui/public/cpp/gpu/gpu.h"
 #include "services/video_capture/device_factory_media_to_mojo_adapter.h"
+#include "services/video_capture/video_source_provider_impl.h"
 #include "services/video_capture/virtual_device_enabled_device_factory.h"
+#include "services/ws/public/cpp/gpu/gpu.h"
 
 namespace video_capture {
 
@@ -26,7 +27,7 @@ class DeviceFactoryProviderImpl::GpuDependenciesContext {
  public:
   GpuDependenciesContext() : weak_factory_for_gpu_io_thread_(this) {
     gpu_io_task_runner_ = base::CreateSequencedTaskRunnerWithTraits(
-        {base::TaskPriority::BACKGROUND, base::MayBlock()});
+        {base::TaskPriority::BEST_EFFORT, base::MayBlock()});
   }
 
   ~GpuDependenciesContext() {
@@ -68,8 +69,14 @@ class DeviceFactoryProviderImpl::GpuDependenciesContext {
 };
 
 DeviceFactoryProviderImpl::DeviceFactoryProviderImpl(
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref)
-    : service_ref_(std::move(service_ref)) {}
+    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner)
+    : ui_task_runner_(std::move(ui_task_runner)) {
+  // Unretained |this| is safe because |factory_bindings_| is owned by
+  // |this|.
+  factory_bindings_.set_connection_error_handler(base::BindRepeating(
+      &DeviceFactoryProviderImpl::OnFactoryClientDisconnected,
+      base::Unretained(this)));
+}
 
 DeviceFactoryProviderImpl::~DeviceFactoryProviderImpl() {
   factory_bindings_.CloseAllBindings();
@@ -78,6 +85,11 @@ DeviceFactoryProviderImpl::~DeviceFactoryProviderImpl() {
     gpu_dependencies_context_->GetTaskRunner()->DeleteSoon(
         FROM_HERE, std::move(gpu_dependencies_context_));
   }
+}
+
+void DeviceFactoryProviderImpl::SetServiceRef(
+    std::unique_ptr<service_manager::ServiceContextRef> service_ref) {
+  service_ref_ = std::move(service_ref);
 }
 
 void DeviceFactoryProviderImpl::InjectGpuDependencies(
@@ -91,8 +103,18 @@ void DeviceFactoryProviderImpl::InjectGpuDependencies(
 
 void DeviceFactoryProviderImpl::ConnectToDeviceFactory(
     mojom::DeviceFactoryRequest request) {
+  DCHECK(service_ref_);
   LazyInitializeDeviceFactory();
+  if (factory_bindings_.empty())
+    device_factory_->SetServiceRef(service_ref_->Clone());
   factory_bindings_.AddBinding(device_factory_.get(), std::move(request));
+}
+
+void DeviceFactoryProviderImpl::ConnectToVideoSourceProvider(
+    mojom::VideoSourceProviderRequest request) {
+  LazyInitializeVideoSourceProvider();
+  video_source_provider_bindings_.AddBinding(video_source_provider_.get(),
+                                             std::move(request));
 }
 
 void DeviceFactoryProviderImpl::LazyInitializeGpuDependenciesContext() {
@@ -111,19 +133,39 @@ void DeviceFactoryProviderImpl::LazyInitializeDeviceFactory() {
   // happen on a "UI thread equivalent", e.g. obtaining screen rotation on
   // Chrome OS.
   std::unique_ptr<media::VideoCaptureDeviceFactory> media_device_factory =
-      media::CreateVideoCaptureDeviceFactory(
-          base::ThreadTaskRunnerHandle::Get());
+      media::CreateVideoCaptureDeviceFactory(ui_task_runner_);
+  DCHECK(media_device_factory);
+
   auto video_capture_system = std::make_unique<media::VideoCaptureSystemImpl>(
       std::move(media_device_factory));
 
   device_factory_ = std::make_unique<VirtualDeviceEnabledDeviceFactory>(
-      service_ref_->Clone(),
       std::make_unique<DeviceFactoryMediaToMojoAdapter>(
-          service_ref_->Clone(), std::move(video_capture_system),
+          std::move(video_capture_system),
           base::BindRepeating(
               &GpuDependenciesContext::CreateJpegDecodeAccelerator,
               gpu_dependencies_context_->GetWeakPtr()),
           gpu_dependencies_context_->GetTaskRunner()));
+}
+
+void DeviceFactoryProviderImpl::LazyInitializeVideoSourceProvider() {
+  if (video_source_provider_)
+    return;
+
+  LazyInitializeDeviceFactory();
+
+  video_source_provider_ =
+      std::make_unique<VideoSourceProviderImpl>(device_factory_.get());
+}
+
+void DeviceFactoryProviderImpl::OnFactoryClientDisconnected() {
+  // If last client has disconnected, release service ref so that service
+  // shutdown timeout starts if no other references are still alive.
+  // We keep the |device_factory_| instance alive in order to avoid
+  // losing state that would be expensive to reinitialize, e.g. having
+  // already enumerated the available devices.
+  if (factory_bindings_.empty())
+    device_factory_->SetServiceRef(nullptr);
 }
 
 }  // namespace video_capture

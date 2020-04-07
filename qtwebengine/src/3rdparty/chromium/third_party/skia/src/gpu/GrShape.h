@@ -52,8 +52,7 @@ public:
         this->attemptToSimplifyPath();
     }
 
-    GrShape(const SkRRect& rrect, const GrStyle& style)
-        : fStyle(style) {
+    GrShape(const SkRRect& rrect, const GrStyle& style) : fStyle(style) {
         this->initType(Type::kRRect);
         fRRectData.fRRect = rrect;
         fRRectData.fInverted = false;
@@ -82,8 +81,7 @@ public:
         this->attemptToSimplifyRRect();
     }
 
-    GrShape(const SkRect& rect, const GrStyle& style)
-        : fStyle(style) {
+    GrShape(const SkRect& rect, const GrStyle& style) : fStyle(style) {
         this->initType(Type::kRRect);
         fRRectData.fRRect = SkRRect::MakeRect(rect);
         fRRectData.fInverted = false;
@@ -97,8 +95,7 @@ public:
         this->attemptToSimplifyPath();
     }
 
-    GrShape(const SkRRect& rrect, const SkPaint& paint)
-        : fStyle(paint) {
+    GrShape(const SkRRect& rrect, const SkPaint& paint) : fStyle(paint) {
         this->initType(Type::kRRect);
         fRRectData.fRRect = rrect;
         fRRectData.fInverted = false;
@@ -107,8 +104,7 @@ public:
         this->attemptToSimplifyRRect();
     }
 
-    GrShape(const SkRect& rect, const SkPaint& paint)
-        : fStyle(paint) {
+    GrShape(const SkRect& rect, const SkPaint& paint) : fStyle(paint) {
         this->initType(Type::kRRect);
         fRRectData.fRRect = SkRRect::MakeRect(rect);
         fRRectData.fInverted = false;
@@ -153,6 +149,14 @@ public:
      */
     GrShape applyStyle(GrStyle::Apply apply, SkScalar scale) const {
         return GrShape(*this, apply, scale);
+    }
+
+    bool isRect() const {
+        if (Type::kRRect != fType) {
+            return false;
+        }
+
+        return fRRectData.fRRect.isRect();
     }
 
     /** Returns the unstyled geometry as a rrect if possible. */
@@ -237,6 +241,51 @@ public:
                 *out = this->path();
                 break;
         }
+    }
+
+    // Can this shape be drawn as a pair of filled nested rectangles?
+    bool asNestedRects(SkRect rects[2]) const {
+        if (Type::kPath != fType) {
+            return false;
+        }
+
+        // TODO: it would be better two store DRRects natively in the shape rather than converting
+        // them to a path and then reextracting the nested rects
+        if (this->path().isInverseFillType()) {
+            return false;
+        }
+
+        SkPath::Direction dirs[2];
+        if (!this->path().isNestedFillRects(rects, dirs)) {
+            return false;
+        }
+
+        if (SkPath::kWinding_FillType == this->path().getFillType() && dirs[0] == dirs[1]) {
+            // The two rects need to be wound opposite to each other
+            return false;
+        }
+
+        // Right now, nested rects where the margin is not the same width
+        // all around do not render correctly
+        const SkScalar* outer = rects[0].asScalars();
+        const SkScalar* inner = rects[1].asScalars();
+
+        bool allEq = true;
+
+        SkScalar margin = SkScalarAbs(outer[0] - inner[0]);
+        bool allGoE1 = margin >= SK_Scalar1;
+
+        for (int i = 1; i < 4; ++i) {
+            SkScalar temp = SkScalarAbs(outer[i] - inner[i]);
+            if (temp < SK_Scalar1) {
+                allGoE1 = false;
+            }
+            if (!SkScalarNearlyEqual(margin, temp)) {
+                allEq = false;
+            }
+        }
+
+        return allEq || allGoE1;
     }
 
     /**

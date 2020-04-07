@@ -403,8 +403,15 @@ public class QtBluetoothLE {
                         descriptor.getUuid().toString(), descriptor.getValue());
             } else {
                 if (isServiceDiscoveryRun) {
-                    //ignore
-                    Log.w(TAG, "onDescriptorcRead during discovery error: " + status);
+                    // Cannot read but still advertise the fact that we found a descriptor
+                    // The value will be empty.
+                    Log.w(TAG, "onDescriptorRead during discovery error: " + status);
+                    Log.d(TAG, "Non-readable descriptor " + descriptor.getUuid() +
+                          " for characteristic "  + descriptor.getCharacteristic().getUuid() +
+                          " for service " + descriptor.getCharacteristic().getService().getUuid());
+                    leDescriptorRead(qtObject, descriptor.getCharacteristic().getService().getUuid().toString(),
+                        descriptor.getCharacteristic().getUuid().toString(), foundHandle + 1,
+                        descriptor.getUuid().toString(), descriptor.getValue());
                 } else {
                     // This must be in sync with QLowEnergyService::DescriptorReadError
                     final int descriptorReadError = 6;

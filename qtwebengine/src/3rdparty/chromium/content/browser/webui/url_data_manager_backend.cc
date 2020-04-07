@@ -8,12 +8,9 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/command_line.h"
-#include "base/compiler_specific.h"
-#include "base/debug/alias.h"
-#include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/single_thread_task_runner.h"
@@ -21,7 +18,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
@@ -31,6 +28,7 @@
 #include "content/browser/webui/url_data_source_impl.h"
 #include "content/browser/webui/web_ui_data_source_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_process_host.h"
@@ -128,13 +126,6 @@ class URLRequestChromeJob : public net::URLRequestJob {
   // (This pattern is shared by most net::URLRequestJob implementations.)
   void StartAsync();
 
-  // Due to a race condition, DevTools relies on a legacy thread hop to the UI
-  // thread before calling StartAsync.
-  // TODO(caseq): Fix the race condition and remove this thread hop in
-  // https://crbug.com/616641.
-  static void DelayStartForDevTools(
-      const base::WeakPtr<URLRequestChromeJob>& job);
-
   // Post a task to copy |data_| to |buf_| on a worker thread, to avoid browser
   // jank. (|data_| might be mem-mapped, so a memcpy can trigger file ops).
   int PostReadTask(scoped_refptr<net::IOBuffer> buf, int buf_size);
@@ -192,18 +183,6 @@ URLRequestChromeJob::~URLRequestChromeJob() {
 
 void URLRequestChromeJob::Start() {
   const GURL url = request_->url();
-
-  // Due to a race condition, DevTools relies on a legacy thread hop to the UI
-  // thread before calling StartAsync.
-  // TODO(caseq): Fix the race condition and remove this thread hop in
-  // https://crbug.com/616641.
-  if (url.SchemeIs(kChromeDevToolsScheme)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::BindOnce(&URLRequestChromeJob::DelayStartForDevTools,
-                       weak_factory_.GetWeakPtr()));
-    return;
-  }
 
   // Start reading asynchronously so that all error reporting and data
   // callbacks happen as they would for network requests.
@@ -267,12 +246,29 @@ std::unique_ptr<net::SourceStream> URLRequestChromeJob::SetUpSourceStream() {
 
 void URLRequestChromeJob::MimeTypeAvailable(const std::string& mime_type) {
   mime_type_ = mime_type;
-  NotifyHeadersComplete();
 }
 
 void URLRequestChromeJob::DataAvailable(base::RefCountedMemory* bytes) {
   TRACE_EVENT_ASYNC_END0("browser", "DataManager:Request", this);
   DCHECK(!data_);
+
+  if (!bytes) {
+    NotifyStartError(
+        net::URLRequestStatus(net::URLRequestStatus::FAILED, net::ERR_FAILED));
+    return;
+  }
+
+  if (bytes)
+    set_expected_content_size(bytes->size());
+
+  // We notify headers are complete unusually late for these jobs, because we
+  // need to have |bytes| first to report an accurate expected content size.
+  // Otherwise, we cannot support <video> streaming.
+  NotifyHeadersComplete();
+
+  // The job can be cancelled after sending the headers.
+  if (is_done())
+    return;
 
   // All further requests will be satisfied from the passed-in data.
   data_ = bytes;
@@ -326,13 +322,6 @@ int URLRequestChromeJob::PostReadTask(scoped_refptr<net::IOBuffer> buf,
   data_offset_ += buf_size;
 
   return net::ERR_IO_PENDING;
-}
-
-void URLRequestChromeJob::DelayStartForDevTools(
-    const base::WeakPtr<URLRequestChromeJob>& job) {
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::BindOnce(&URLRequestChromeJob::StartAsync, job));
 }
 
 void URLRequestChromeJob::StartAsync() {
@@ -416,9 +405,8 @@ class ChromeProtocolHandler
 URLDataManagerBackend::URLDataManagerBackend()
     : next_request_id_(0), weak_factory_(this) {
   URLDataSource* shared_source = new SharedResourcesDataSource();
-  URLDataSourceImpl* source_impl =
-      new URLDataSourceImpl(shared_source->GetSource(), shared_source);
-  AddDataSource(source_impl);
+  AddDataSource(new URLDataSourceImpl(shared_source->GetSource(),
+                                      base::WrapUnique(shared_source)));
 }
 
 URLDataManagerBackend::~URLDataManagerBackend() = default;
@@ -437,7 +425,7 @@ void URLDataManagerBackend::AddDataSource(
     URLDataSourceImpl* source) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!source->source()->ShouldReplaceExistingSource()) {
-    DataSourceMap::iterator i = data_sources_.find(source->source_name());
+    auto i = data_sources_.find(source->source_name());
     if (i != data_sources_.end())
       return;
   }
@@ -448,7 +436,7 @@ void URLDataManagerBackend::AddDataSource(
 void URLDataManagerBackend::UpdateWebUIDataSource(
     const std::string& source_name,
     const base::DictionaryValue& update) {
-  DataSourceMap::iterator it = data_sources_.find(source_name);
+  auto it = data_sources_.find(source_name);
   if (it == data_sources_.end() || !it->second->IsWebUIDataSourceImpl()) {
     NOTREACHED();
     return;
@@ -459,8 +447,7 @@ void URLDataManagerBackend::UpdateWebUIDataSource(
 
 bool URLDataManagerBackend::HasPendingJob(
     URLRequestChromeJob* job) const {
-  for (PendingRequestMap::const_iterator i = pending_requests_.begin();
-       i != pending_requests_.end(); ++i) {
+  for (auto i = pending_requests_.begin(); i != pending_requests_.end(); ++i) {
     if (i->second == job)
       return true;
   }
@@ -500,7 +487,6 @@ bool URLDataManagerBackend::StartRequest(const net::URLRequest* request,
   if (mime_type == "text/html")
     job->SetSource(source);
 
-  // Also notifies that the headers are complete.
   job->MimeTypeAvailable(mime_type);
 
   // Look up additional request info to pass down.
@@ -533,7 +519,7 @@ URLDataSourceImpl* URLDataManagerBackend::GetDataSourceFromURL(
     const GURL& url) {
   // The input usually looks like: chrome://source_name/extra_bits?foo
   // so do a lookup using the host of the URL.
-  DataSourceMap::iterator i = data_sources_.find(url.host());
+  auto i = data_sources_.find(url.host());
   if (i != data_sources_.end())
     return i->second.get();
 
@@ -562,8 +548,7 @@ void URLDataManagerBackend::RemoveRequest(URLRequestChromeJob* job) {
   // Remove the request from our list of pending requests.
   // If/when the source sends the data that was requested, the data will just
   // be thrown away.
-  for (PendingRequestMap::iterator i = pending_requests_.begin();
-       i != pending_requests_.end(); ++i) {
+  for (auto i = pending_requests_.begin(); i != pending_requests_.end(); ++i) {
     if (i->second == job) {
       pending_requests_.erase(i);
       return;
@@ -574,7 +559,7 @@ void URLDataManagerBackend::RemoveRequest(URLRequestChromeJob* job) {
 void URLDataManagerBackend::DataAvailable(RequestID request_id,
                                           base::RefCountedMemory* bytes) {
   // Forward this data on to the pending net::URLRequest, if it exists.
-  PendingRequestMap::iterator i = pending_requests_.find(request_id);
+  auto i = pending_requests_.find(request_id);
   if (i != pending_requests_.end()) {
     URLRequestChromeJob* job = i->second;
     pending_requests_.erase(i);
@@ -589,8 +574,8 @@ scoped_refptr<net::HttpResponseHeaders> URLDataManagerBackend::GetHeaders(
   // Set the headers so that requests serviced by ChromeURLDataManager return a
   // status code of 200. Without this they return a 0, which makes the status
   // indistiguishable from other error types. Instant relies on getting a 200.
-  scoped_refptr<net::HttpResponseHeaders> headers(
-      new net::HttpResponseHeaders("HTTP/1.1 200 OK"));
+  auto headers =
+      base::MakeRefCounted<net::HttpResponseHeaders>("HTTP/1.1 200 OK");
   if (!source_impl)
     return headers;
 

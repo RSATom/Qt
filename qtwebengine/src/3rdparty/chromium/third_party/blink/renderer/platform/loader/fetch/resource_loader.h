@@ -33,6 +33,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/single_thread_task_runner.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
@@ -46,6 +47,7 @@
 
 namespace blink {
 
+class ConsoleLogger;
 class FetchContext;
 class ResourceError;
 class ResourceFetcher;
@@ -67,6 +69,12 @@ class PLATFORM_EXPORT ResourceLoader final
                                 ResourceLoadScheduler*,
                                 Resource*,
                                 uint32_t inflight_keepalive_bytes = 0);
+
+  // Assumes ResourceFetcher and Resource are non-null.
+  ResourceLoader(ResourceFetcher*,
+                 ResourceLoadScheduler*,
+                 Resource*,
+                 uint32_t inflight_keepalive_bytes);
   ~ResourceLoader() override;
   void Trace(blink::Visitor*) override;
 
@@ -102,13 +110,15 @@ class PLATFORM_EXPORT ResourceLoader final
   // A failed load is indicated by 1 DidFail(), which can occur at any time
   // before DidFinishLoading(), including synchronous inside one of the other
   // callbacks via ResourceLoader::cancel()
-  bool WillFollowRedirect(const WebURL& new_url,
-                          const WebURL& new_site_for_cookies,
-                          const WebString& new_referrer,
-                          WebReferrerPolicy new_referrer_policy,
-                          const WebString& new_method,
-                          const WebURLResponse& passed_redirect_response,
-                          bool& report_raw_headers) override;
+  bool WillFollowRedirect(
+      const WebURL& new_url,
+      const WebURL& new_site_for_cookies,
+      const base::Optional<WebSecurityOrigin>& new_top_frame_origin,
+      const WebString& new_referrer,
+      network::mojom::ReferrerPolicy new_referrer_policy,
+      const WebString& new_method,
+      const WebURLResponse& passed_redirect_response,
+      bool& report_raw_headers) override;
   void DidSendData(unsigned long long bytes_sent,
                    unsigned long long total_bytes_to_be_sent) override;
   void DidReceiveResponse(const WebURLResponse&) override;
@@ -119,36 +129,39 @@ class PLATFORM_EXPORT ResourceLoader final
   void DidReceiveTransferSizeUpdate(int transfer_size_diff) override;
   void DidStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
-  void DidFinishLoading(TimeTicks finish_time,
-                        int64_t encoded_data_length,
-                        int64_t encoded_body_length,
-                        int64_t decoded_body_length,
-                        bool should_report_corb_blocking) override;
+  void DidFinishLoading(
+      TimeTicks finish_time,
+      int64_t encoded_data_length,
+      int64_t encoded_body_length,
+      int64_t decoded_body_length,
+      bool should_report_corb_blocking,
+      const std::vector<network::cors::PreflightTimingInfo>&) override;
   void DidFail(const WebURLError&,
                int64_t encoded_data_length,
                int64_t encoded_body_length,
                int64_t decoded_body_length) override;
+  void SetContinueNavigationRequestCallback(base::OnceClosure) override;
+
+  blink::mojom::CodeCacheType GetCodeCacheType() const;
+  void SendCachedCodeToResource(const char* data, int size);
+  void ClearCachedCode();
 
   void HandleError(const ResourceError&);
 
   void DidFinishLoadingFirstPartInMultipart();
 
-  // ResourceLoadSchedulerClient.
-  void Run() override;
-
   scoped_refptr<base::SingleThreadTaskRunner> GetLoadingTaskRunner();
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(ResourceLoaderTest, DetermineCORSStatus);
-
   friend class SubresourceIntegrityTest;
+  friend class ResourceLoaderIsolatedCodeCacheTest;
+  class CodeCacheRequest;
 
-  // Assumes ResourceFetcher and Resource are non-null.
-  ResourceLoader(ResourceFetcher*,
-                 ResourceLoadScheduler*,
-                 Resource*,
-                 uint32_t inflight_keepalive_bytes);
+  // ResourceLoadSchedulerClient.
+  void Run() override;
+  ConsoleLogger* GetConsoleLogger() override;
 
+  bool ShouldFetchCodeCache();
   void StartWith(const ResourceRequest&);
 
   void Release(ResourceLoadScheduler::ReleaseOption,
@@ -160,9 +173,6 @@ class PLATFORM_EXPORT ResourceLoader final
   void Restart(const ResourceRequest&);
 
   FetchContext& Context() const;
-  scoped_refptr<const SecurityOrigin> GetSourceOrigin() const;
-
-  CORSStatus DetermineCORSStatus(const ResourceResponse&, StringBuilder&) const;
 
   void CancelForRedirectAccessCheckError(const KURL&,
                                          ResourceRequestBlockedReason);
@@ -174,19 +184,30 @@ class PLATFORM_EXPORT ResourceLoader final
   void OnProgress(uint64_t delta) override;
   void FinishedCreatingBlob(const scoped_refptr<BlobDataHandle>&);
 
+  bool GetCorsFlag() const { return resource_->Options().cors_flag; }
+
   base::Optional<ResourceRequestBlockedReason> CheckResponseNosniff(
-      WebURLRequest::RequestContext,
-      const ResourceResponse&) const;
+      mojom::RequestContextType,
+      const ResourceResponse&);
+
+  bool ShouldCheckCorsInResourceLoader() const;
 
   std::unique_ptr<WebURLLoader> loader_;
   ResourceLoadScheduler::ClientId scheduler_client_id_;
   Member<ResourceFetcher> fetcher_;
   Member<ResourceLoadScheduler> scheduler_;
   Member<Resource> resource_;
+  // code_cache_request_ is created only if required. It is required to check
+  // if it is valid before using it.
+  std::unique_ptr<CodeCacheRequest> code_cache_request_;
 
+  // https://fetch.spec.whatwg.org/#concept-request-response-tainting
+  network::mojom::FetchResponseType response_tainting_ =
+      network::mojom::FetchResponseType::kBasic;
   uint32_t inflight_keepalive_bytes_;
   bool is_cache_aware_loading_activated_;
 
+  bool should_use_isolated_code_cache_ = false;
   bool is_downloading_to_blob_ = false;
   mojo::AssociatedBinding<mojom::blink::ProgressClient> progress_binding_;
   bool blob_finished_ = false;

@@ -8,6 +8,7 @@
 #include "third_party/blink/public/platform/web_computed_ax_tree.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/core/accessibility/ax_context.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
@@ -23,6 +24,8 @@ class ComputedAccessibleNodePromiseResolver final
     : public GarbageCollectedFinalized<ComputedAccessibleNodePromiseResolver> {
  public:
   static ComputedAccessibleNodePromiseResolver* Create(ScriptState*, Element&);
+
+  ComputedAccessibleNodePromiseResolver(ScriptState*, Element&);
   ~ComputedAccessibleNodePromiseResolver() {}
 
   ScriptPromise Promise();
@@ -31,7 +34,6 @@ class ComputedAccessibleNodePromiseResolver final
   void Trace(blink::Visitor*);
 
  private:
-  ComputedAccessibleNodePromiseResolver(ScriptState*, Element&);
   void UpdateTreeAndResolve();
   class RequestAnimationFrameCallback;
 
@@ -39,6 +41,7 @@ class ComputedAccessibleNodePromiseResolver final
   Member<Element> element_;
   Member<ScriptPromiseResolver> resolver_;
   bool resolve_with_node_;
+  std::unique_ptr<AXContext> ax_context_;
 };
 
 class ComputedAccessibleNode : public ScriptWrappable {
@@ -46,6 +49,8 @@ class ComputedAccessibleNode : public ScriptWrappable {
 
  public:
   static ComputedAccessibleNode* Create(AXID, WebComputedAXTree*, LocalFrame*);
+
+  ComputedAccessibleNode(AXID, WebComputedAXTree*, LocalFrame*);
   ~ComputedAccessibleNode() override;
 
   void Trace(Visitor*) override;
@@ -94,7 +99,6 @@ class ComputedAccessibleNode : public ScriptWrappable {
   ScriptPromise ensureUpToDate(ScriptState*);
 
  private:
-  ComputedAccessibleNode(AXID, WebComputedAXTree*, LocalFrame*);
   bool GetBoolAttribute(WebAOMBoolAttribute, bool& is_null) const;
   int32_t GetIntAttribute(WebAOMIntAttribute, bool& is_null) const;
   float GetFloatAttribute(WebAOMFloatAttribute, bool& is_null) const;
@@ -105,6 +109,7 @@ class ComputedAccessibleNode : public ScriptWrappable {
   // This tree is owned by the RenderFrame.
   blink::WebComputedAXTree* tree_;
   Member<LocalFrame> frame_;
+  std::unique_ptr<AXContext> ax_context_;
 };
 
 }  // namespace blink

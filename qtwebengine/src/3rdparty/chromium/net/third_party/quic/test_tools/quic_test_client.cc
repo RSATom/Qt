@@ -9,33 +9,31 @@
 #include <vector>
 
 #include "net/third_party/quic/core/crypto/proof_verifier.h"
+#include "net/third_party/quic/core/http/quic_spdy_client_stream.h"
+#include "net/third_party/quic/core/http/spdy_utils.h"
 #include "net/third_party/quic/core/quic_epoll_connection_helper.h"
 #include "net/third_party/quic/core/quic_packet_writer_wrapper.h"
 #include "net/third_party/quic/core/quic_server_id.h"
-#include "net/third_party/quic/core/quic_spdy_client_stream.h"
 #include "net/third_party/quic/core/quic_utils.h"
-#include "net/third_party/quic/core/spdy_utils.h"
 #include "net/third_party/quic/platform/api/quic_flags.h"
 #include "net/third_party/quic/platform/api/quic_logging.h"
 #include "net/third_party/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quic/platform/api/quic_stack_trace.h"
 #include "net/third_party/quic/platform/api/quic_text_utils.h"
-#include "net/third_party/quic/platform/api/quic_url.h"
 #include "net/third_party/quic/test_tools/crypto_test_utils.h"
 #include "net/third_party/quic/test_tools/quic_client_peer.h"
 #include "net/third_party/quic/test_tools/quic_connection_peer.h"
 #include "net/third_party/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quic/test_tools/quic_stream_peer.h"
 #include "net/third_party/quic/test_tools/quic_test_utils.h"
-
-using std::string;
+#include "net/third_party/quic/tools/quic_url.h"
 
 namespace quic {
 namespace test {
 namespace {
 
 // RecordingProofVerifier accepts any certificate chain and records the common
-// name of the leaf and then delegates the actual verfication to an actual
+// name of the leaf and then delegates the actual verification to an actual
 // verifier. If no optional verifier is provided, then VerifyProof will return
 // success.
 class RecordingProofVerifier : public ProofVerifier {
@@ -45,16 +43,16 @@ class RecordingProofVerifier : public ProofVerifier {
 
   // ProofVerifier interface.
   QuicAsyncStatus VerifyProof(
-      const string& hostname,
+      const QuicString& hostname,
       const uint16_t port,
-      const string& server_config,
+      const QuicString& server_config,
       QuicTransportVersion transport_version,
       QuicStringPiece chlo_hash,
-      const std::vector<string>& certs,
-      const string& cert_sct,
-      const string& signature,
+      const std::vector<QuicString>& certs,
+      const QuicString& cert_sct,
+      const QuicString& signature,
       const ProofVerifyContext* context,
-      string* error_details,
+      QuicString* error_details,
       std::unique_ptr<ProofVerifyDetails>* details,
       std::unique_ptr<ProofVerifierCallback> callback) override {
     common_name_.clear();
@@ -89,23 +87,27 @@ class RecordingProofVerifier : public ProofVerifier {
   }
 
   QuicAsyncStatus VerifyCertChain(
-      const std::string& hostname,
-      const std::vector<std::string>& certs,
+      const QuicString& hostname,
+      const std::vector<QuicString>& certs,
       const ProofVerifyContext* context,
-      std::string* error_details,
+      QuicString* error_details,
       std::unique_ptr<ProofVerifyDetails>* details,
       std::unique_ptr<ProofVerifierCallback> callback) override {
     return QUIC_SUCCESS;
   }
 
-  const string& common_name() const { return common_name_; }
+  std::unique_ptr<ProofVerifyContext> CreateDefaultContext() override {
+    return verifier_->CreateDefaultContext();
+  }
 
-  const string& cert_sct() const { return cert_sct_; }
+  const QuicString& common_name() const { return common_name_; }
+
+  const QuicString& cert_sct() const { return cert_sct_; }
 
  private:
   std::unique_ptr<ProofVerifier> verifier_;
-  string common_name_;
-  string cert_sct_;
+  QuicString common_name_;
+  QuicString cert_sct_;
 };
 }  // namespace
 
@@ -202,7 +204,7 @@ MockableQuicClient::MockableQuicClient(
                                                                this),
           QuicWrapUnique(
               new RecordingProofVerifier(std::move(proof_verifier)))),
-      override_connection_id_(0) {}
+      override_connection_id_(EmptyQuicConnectionId()) {}
 
 MockableQuicClient::~MockableQuicClient() {
   if (connected()) {
@@ -223,8 +225,9 @@ MockableQuicClient::mockable_network_helper() const {
 }
 
 QuicConnectionId MockableQuicClient::GenerateNewConnectionId() {
-  return override_connection_id_ ? override_connection_id_
-                                 : QuicClient::GenerateNewConnectionId();
+  return !override_connection_id_.IsEmpty()
+             ? override_connection_id_
+             : QuicClient::GenerateNewConnectionId();
 }
 
 void MockableQuicClient::UseConnectionId(QuicConnectionId connection_id) {
@@ -249,7 +252,7 @@ void MockableQuicClient::set_track_last_incoming_packet(bool track) {
 
 QuicTestClient::QuicTestClient(
     QuicSocketAddress server_address,
-    const string& server_hostname,
+    const QuicString& server_hostname,
     const ParsedQuicVersionVector& supported_versions)
     : QuicTestClient(server_address,
                      server_hostname,
@@ -258,7 +261,7 @@ QuicTestClient::QuicTestClient(
 
 QuicTestClient::QuicTestClient(
     QuicSocketAddress server_address,
-    const string& server_hostname,
+    const QuicString& server_hostname,
     const QuicConfig& config,
     const ParsedQuicVersionVector& supported_versions)
     : client_(new MockableQuicClient(
@@ -272,7 +275,7 @@ QuicTestClient::QuicTestClient(
 
 QuicTestClient::QuicTestClient(
     QuicSocketAddress server_address,
-    const string& server_hostname,
+    const QuicString& server_hostname,
     const QuicConfig& config,
     const ParsedQuicVersionVector& supported_versions,
     std::unique_ptr<ProofVerifier> proof_verifier)
@@ -309,11 +312,11 @@ void QuicTestClient::Initialize() {
   }
 }
 
-void QuicTestClient::SetUserAgentID(const string& user_agent_id) {
+void QuicTestClient::SetUserAgentID(const QuicString& user_agent_id) {
   client_->SetUserAgentID(user_agent_id);
 }
 
-ssize_t QuicTestClient::SendRequest(const string& uri) {
+ssize_t QuicTestClient::SendRequest(const QuicString& uri) {
   spdy::SpdyHeaderBlock headers;
   if (!PopulateHeaderBlockFromUrl(uri, &headers)) {
     return 0;
@@ -321,7 +324,7 @@ ssize_t QuicTestClient::SendRequest(const string& uri) {
   return SendMessage(headers, "");
 }
 
-ssize_t QuicTestClient::SendRequestAndRstTogether(const string& uri) {
+ssize_t QuicTestClient::SendRequestAndRstTogether(const QuicString& uri) {
   spdy::SpdyHeaderBlock headers;
   if (!PopulateHeaderBlockFromUrl(uri, &headers)) {
     return 0;
@@ -333,14 +336,15 @@ ssize_t QuicTestClient::SendRequestAndRstTogether(const string& uri) {
   ssize_t ret = SendMessage(headers, "", /*fin=*/true, /*flush=*/false);
 
   QuicStreamId stream_id =
-      QuicSpdySessionPeer::GetNthClientInitiatedStreamId(*session, 0);
+      QuicSpdySessionPeer::GetNthClientInitiatedBidirectionalStreamId(*session,
+                                                                      0);
   session->SendRstStream(stream_id, QUIC_STREAM_CANCELLED, 0);
   return ret;
 }
 
 void QuicTestClient::SendRequestsAndWaitForResponses(
-    const std::vector<string>& url_list) {
-  for (const string& url : url_list) {
+    const std::vector<QuicString>& url_list) {
+  for (const QuicString& url : url_list) {
     SendRequest(url);
   }
   while (client()->WaitForEvents()) {
@@ -386,7 +390,7 @@ ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
     ret = stream->SendRequest(std::move(spdy_headers), body, fin);
     ++num_requests_;
   } else {
-    stream->WriteOrBufferBody(string(body), fin, ack_listener);
+    stream->WriteOrBufferBody(QuicString(body), fin, ack_listener);
     ret = body.length();
   }
   if (GetQuicReloadableFlag(enable_quic_stateless_reject_support)) {
@@ -428,12 +432,12 @@ ssize_t QuicTestClient::SendMessage(const spdy::SpdyHeaderBlock& headers,
   return ret;
 }
 
-ssize_t QuicTestClient::SendData(const string& data, bool last_data) {
+ssize_t QuicTestClient::SendData(const QuicString& data, bool last_data) {
   return SendData(data, last_data, nullptr);
 }
 
 ssize_t QuicTestClient::SendData(
-    const string& data,
+    const QuicString& data,
     bool last_data,
     QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   return GetOrCreateStreamAndSendRequest(nullptr, QuicStringPiece(data),
@@ -456,13 +460,13 @@ void QuicTestClient::set_buffer_body(bool buffer_body) {
   buffer_body_ = buffer_body;
 }
 
-const string& QuicTestClient::response_body() const {
+const QuicString& QuicTestClient::response_body() const {
   return response_;
 }
 
-string QuicTestClient::SendCustomSynchronousRequest(
+QuicString QuicTestClient::SendCustomSynchronousRequest(
     const spdy::SpdyHeaderBlock& headers,
-    const string& body) {
+    const QuicString& body) {
   // Clear connection state here and only track this synchronous request.
   ClearPerConnectionState();
   if (SendMessage(headers, body) == 0) {
@@ -476,7 +480,7 @@ string QuicTestClient::SendCustomSynchronousRequest(
   return response_;
 }
 
-string QuicTestClient::SendSynchronousRequest(const string& uri) {
+QuicString QuicTestClient::SendSynchronousRequest(const QuicString& uri) {
   spdy::SpdyHeaderBlock headers;
   if (!PopulateHeaderBlockFromUrl(uri, &headers)) {
     return "";
@@ -528,12 +532,12 @@ MockableQuicClient* QuicTestClient::client() {
   return client_.get();
 }
 
-const string& QuicTestClient::cert_common_name() const {
+const QuicString& QuicTestClient::cert_common_name() const {
   return reinterpret_cast<RecordingProofVerifier*>(client_->proof_verifier())
       ->common_name();
 }
 
-const string& QuicTestClient::cert_sct() const {
+const QuicString& QuicTestClient::cert_sct() const {
   return reinterpret_cast<RecordingProofVerifier*>(client_->proof_verifier())
       ->cert_sct();
 }
@@ -630,7 +634,7 @@ bool QuicTestClient::WaitUntil(int timeout_ms, std::function<bool()> trigger) {
 }
 
 ssize_t QuicTestClient::Send(const void* buffer, size_t size) {
-  return SendData(string(static_cast<const char*>(buffer), size), false);
+  return SendData(QuicString(static_cast<const char*>(buffer), size), false);
 }
 
 bool QuicTestClient::response_headers_complete() const {
@@ -676,8 +680,8 @@ int64_t QuicTestClient::response_size() const {
 
 size_t QuicTestClient::bytes_read() const {
   for (std::pair<QuicStreamId, QuicSpdyClientStream*> stream : open_streams_) {
-    size_t bytes_read =
-        stream.second->stream_bytes_read() + stream.second->header_bytes_read();
+    size_t bytes_read = stream.second->total_body_bytes_read() +
+                        stream.second->header_bytes_read();
     if (bytes_read > 0) {
       return bytes_read;
     }
@@ -723,7 +727,7 @@ void QuicTestClient::OnClose(QuicSpdyStream* stream) {
           (buffer_body() ? client_stream->data() : ""),
           client_stream->received_trailers(),
           // Use NumBytesConsumed to avoid counting retransmitted stream frames.
-          QuicStreamPeer::sequencer(client_stream)->NumBytesConsumed() +
+          client_stream->total_body_bytes_read() +
               client_stream->header_bytes_read(),
           client_stream->stream_bytes_written() +
               client_stream->header_bytes_written(),
@@ -742,7 +746,7 @@ void QuicTestClient::OnRendezvousResult(QuicSpdyStream* stream) {
       std::move(push_promise_data_to_resend_);
   SetLatestCreatedStream(static_cast<QuicSpdyClientStream*>(stream));
   if (stream) {
-    stream->OnDataAvailable();
+    stream->OnBodyAvailable();
   } else if (data_to_resend) {
     data_to_resend->Resend();
   }
@@ -822,7 +826,7 @@ QuicTestClient::PerStreamState::PerStreamState(
     bool response_headers_complete,
     const spdy::SpdyHeaderBlock& response_headers,
     const spdy::SpdyHeaderBlock& preliminary_headers,
-    const string& response,
+    const QuicString& response,
     const spdy::SpdyHeaderBlock& response_trailers,
     uint64_t bytes_read,
     uint64_t bytes_written,
@@ -841,9 +845,9 @@ QuicTestClient::PerStreamState::PerStreamState(
 QuicTestClient::PerStreamState::~PerStreamState() = default;
 
 bool QuicTestClient::PopulateHeaderBlockFromUrl(
-    const string& uri,
+    const QuicString& uri,
     spdy::SpdyHeaderBlock* headers) {
-  string url;
+  QuicString url;
   if (QuicTextUtils::StartsWith(uri, "https://") ||
       QuicTextUtils::StartsWith(uri, "http://")) {
     url = uri;

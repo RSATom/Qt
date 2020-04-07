@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "base/stl_util.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "base/trace_event/trace_event.h"
@@ -42,13 +43,11 @@ class MediaStreamAudioDeliverer {
   // is not destroyed until after calling RemoveConsumer(consumer). This method
   // must be called on the main thread.
   void AddConsumer(Consumer* consumer) {
-    DCHECK(thread_checker_.CalledOnValidThread());
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
     DCHECK(consumer);
     base::AutoLock auto_lock(consumers_lock_);
-    DCHECK(std::find(consumers_.begin(), consumers_.end(), consumer) ==
-           consumers_.end());
-    DCHECK(std::find(pending_consumers_.begin(), pending_consumers_.end(),
-                     consumer) == pending_consumers_.end());
+    DCHECK(!base::ContainsValue(consumers_, consumer));
+    DCHECK(!base::ContainsValue(pending_consumers_, consumer));
     pending_consumers_.push_back(consumer);
   }
 
@@ -57,7 +56,7 @@ class MediaStreamAudioDeliverer {
   // further calls will be made to OnSetFormat() or OnData() on any thread.
   // This method must be called on the main thread.
   bool RemoveConsumer(Consumer* consumer) {
-    DCHECK(thread_checker_.CalledOnValidThread());
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
     base::AutoLock auto_lock(consumers_lock_);
     const bool had_consumers =
         !consumers_.empty() || !pending_consumers_.empty();
@@ -77,7 +76,7 @@ class MediaStreamAudioDeliverer {
   // send a notification to all consumers. This method must be called on the
   // main thread.
   void GetConsumerList(std::vector<Consumer*>* consumer_list) const {
-    DCHECK(thread_checker_.CalledOnValidThread());
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
     base::AutoLock auto_lock(consumers_lock_);
     *consumer_list = consumers_;
     consumer_list->insert(consumer_list->end(),
@@ -129,7 +128,7 @@ class MediaStreamAudioDeliverer {
  private:
   // In debug builds, check that all methods that could cause object graph or
   // data flow changes are being called on the main thread.
-  base::ThreadChecker thread_checker_;
+  THREAD_CHECKER(thread_checker_);
 
   // Protects concurrent access to |pending_consumers_| and |consumers_|.
   mutable base::Lock consumers_lock_;

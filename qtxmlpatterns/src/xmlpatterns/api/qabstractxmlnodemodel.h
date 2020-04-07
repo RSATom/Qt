@@ -127,6 +127,8 @@ public:
     {
     }
 
+    QXmlNodeModelIndex &operator=(const QXmlNodeModelIndex &) = default;
+
     bool operator==(const QXmlNodeModelIndex &other) const;
     bool operator!=(const QXmlNodeModelIndex &other) const;
 

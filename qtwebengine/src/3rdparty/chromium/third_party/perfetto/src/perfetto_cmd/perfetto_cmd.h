@@ -24,6 +24,7 @@
 #include <time.h>
 
 #include "perfetto/base/build_config.h"
+#include "perfetto/base/event.h"
 #include "perfetto/base/scoped_file.h"
 #include "perfetto/base/unix_task_runner.h"
 #include "perfetto/tracing/core/consumer.h"
@@ -32,10 +33,9 @@
 
 #include "src/perfetto_cmd/perfetto_cmd_state.pb.h"
 
-#if defined(PERFETTO_OS_ANDROID)
+#if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
 #include "perfetto/base/android_task_runner.h"
-#endif  // defined(PERFETTO_OS_ANDROID)
-
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
 
 namespace perfetto {
 
@@ -43,7 +43,7 @@ namespace perfetto {
 // created by the system by setting setprop persist.traced.enable=1.
 extern const char* kTempDropBoxTraceDir;
 
-#if defined(PERFETTO_OS_ANDROID)
+#if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
 using PlatformTaskRunner = base::AndroidTaskRunner;
 #else
 using PlatformTaskRunner = base::UnixTaskRunner;
@@ -58,8 +58,11 @@ class PerfettoCmd : public Consumer {
   void OnDisconnect() override;
   void OnTracingDisabled() override;
   void OnTraceData(std::vector<TracePacket>, bool has_more) override;
+  void OnDetach(bool) override;
+  void OnAttach(bool, const TraceConfig&) override;
+  void OnTraceStats(bool, const TraceStats&) override;
 
-  int ctrl_c_pipe_wr() const { return *ctrl_c_pipe_wr_; }
+  void SignalCtrlC() { ctrl_c_evt_.Notify(); }
 
  private:
   bool OpenOutputFile();
@@ -67,6 +70,8 @@ class PerfettoCmd : public Consumer {
   void FinalizeTraceAndExit();
   int PrintUsage(const char* argv0);
   void OnTimeout();
+  bool is_detach() const { return !detach_key_.empty(); }
+  bool is_attach() const { return !attach_key_.empty(); }
 
   PlatformTaskRunner task_runner_;
   std::unique_ptr<perfetto::TracingService::ConsumerEndpoint>
@@ -74,11 +79,14 @@ class PerfettoCmd : public Consumer {
   std::unique_ptr<TraceConfig> trace_config_;
   base::ScopedFstream trace_out_stream_;
   std::string trace_out_path_;
-  base::ScopedFile ctrl_c_pipe_wr_;
-  base::ScopedFile ctrl_c_pipe_rd_;
+  base::Event ctrl_c_evt_;
   std::string dropbox_tag_;
   bool did_process_full_trace_ = false;
-  size_t bytes_uploaded_to_dropbox_ = 0;
+  uint64_t bytes_written_ = 0;
+  std::string detach_key_;
+  std::string attach_key_;
+  bool stop_trace_once_attached_ = false;
+  bool redetach_once_attached_ = false;
 };
 
 }  // namespace perfetto

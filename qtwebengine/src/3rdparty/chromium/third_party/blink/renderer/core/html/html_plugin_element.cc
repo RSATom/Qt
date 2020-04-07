@@ -25,7 +25,7 @@
 #include "services/network/public/mojom/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/node.h"
@@ -57,7 +57,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 namespace {
 
@@ -68,6 +68,16 @@ enum PluginRequestObjectResult {
   // Keep at the end.
   kPluginRequestObjectResultMax
 };
+
+String GetMIMETypeFromURL(const KURL& url) {
+  String filename = url.LastPathComponent();
+  int extension_pos = filename.ReverseFind('.');
+  if (extension_pos >= 0) {
+    String extension = filename.Substring(extension_pos + 1);
+    return MIMETypeRegistry::GetWellKnownMIMETypeForExtension(extension);
+  }
+  return String();
+}
 
 }  // anonymous namespace
 
@@ -90,7 +100,7 @@ void PluginParameters::AppendNameWithValue(const String& name,
 }
 
 int PluginParameters::FindStringInNames(const String& str) {
-  for (size_t i = 0; i < names_.size(); ++i) {
+  for (wtf_size_t i = 0; i < names_.size(); ++i) {
     if (DeprecatedEqualIgnoringCase(names_[i], str))
       return i;
   }
@@ -104,10 +114,10 @@ HTMLPlugInElement::HTMLPlugInElement(
     PreferPlugInsForImagesOption prefer_plug_ins_for_images_option)
     : HTMLFrameOwnerElement(tag_name, doc),
       is_delaying_load_event_(false),
-      // m_needsPluginUpdate(!createdByParser) allows HTMLObjectElement to delay
-      // EmbeddedContentView updates until after all children are parsed. For
-      // HTMLEmbedElement this delay is unnecessary, but it is simpler to make
-      // both classes share the same codepath in this class.
+      // needs_plugin_update_(!IsCreatedByParser) allows HTMLObjectElement to
+      // delay EmbeddedContentView updates until after all children are
+      // parsed. For HTMLEmbedElement this delay is unnecessary, but it is
+      // simpler to make both classes share the same codepath in this class.
       needs_plugin_update_(!flags.IsCreatedByParser()),
       should_prefer_plug_ins_for_images_(prefer_plug_ins_for_images_option ==
                                          kShouldPreferPlugInsForImages) {
@@ -119,7 +129,7 @@ HTMLPlugInElement::~HTMLPlugInElement() {
   DCHECK(!is_delaying_load_event_);
 }
 
-void HTMLPlugInElement::Trace(blink::Visitor* visitor) {
+void HTMLPlugInElement::Trace(Visitor* visitor) {
   visitor->Trace(image_loader_);
   visitor->Trace(persisted_plugin_);
   HTMLFrameOwnerElement::Trace(visitor);
@@ -148,6 +158,12 @@ void HTMLPlugInElement::SetFocused(bool focused, WebFocusType focus_type) {
 
 bool HTMLPlugInElement::RequestObjectInternal(
     const PluginParameters& plugin_params) {
+  if (handled_externally_) {
+    // TODO(ekaramad): Fix this once we know what to do with frames inside
+    // plugins (https://crbug.com/776510).
+    return true;
+  }
+
   if (url_.IsEmpty() && service_type_.IsEmpty())
     return false;
 
@@ -159,9 +175,32 @@ bool HTMLPlugInElement::RequestObjectInternal(
   if (!AllowedToLoadObject(completed_url, service_type_))
     return false;
 
+  handled_externally_ =
+      GetDocument().GetFrame()->Client()->IsPluginHandledExternally(
+          *this, completed_url,
+          service_type_.IsEmpty() ? GetMIMETypeFromURL(completed_url)
+                                  : service_type_);
+  if (handled_externally_) {
+    // This is a temporary placeholder and the logic around
+    // |handled_externally_| might change as MimeHandlerView is moving towards
+    // depending on OOPIFs instead of WebPlugin (https://crbug.com/659750).
+    completed_url = BlankURL();
+  }
   ObjectContentType object_type = GetObjectContentType();
   if (object_type == ObjectContentType::kFrame ||
-      object_type == ObjectContentType::kImage) {
+      object_type == ObjectContentType::kImage || handled_externally_) {
+    if (ContentFrame() && ContentFrame()->IsRemoteFrame()) {
+      // During lazy reattaching, the plugin element loses EmbeddedContentView.
+      // Since the ContentFrame() is not torn down the options here are to
+      // either re-create a new RemoteFrameView or reuse the old one. The former
+      // approach requires CommitNavigation for OOPF to be sent back here in
+      // the parent process. It is easier to just reuse the current FrameView
+      // instead until plugin element issue are properly resolved (for context
+      // see https://crbug.com/781880).
+      DCHECK(!OwnedEmbeddedContentView());
+      SetEmbeddedContentView(ContentFrame()->View());
+      DCHECK(OwnedEmbeddedContentView());
+    }
     // If the plugin element already contains a subframe,
     // loadOrRedirectSubframe will re-use it. Otherwise, it will create a
     // new frame and set it as the LayoutEmbeddedContent's EmbeddedContentView,
@@ -240,7 +279,7 @@ void HTMLPlugInElement::AttachLayoutTree(AttachContext& context) {
 void HTMLPlugInElement::IntrinsicSizingInfoChanged() {
   if (auto* layout_object = GetLayoutObject()) {
     layout_object->SetNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
-        LayoutInvalidationReason::kUnknown);
+        layout_invalidation_reason::kUnknown);
   }
 }
 
@@ -252,7 +291,7 @@ void HTMLPlugInElement::UpdatePlugin() {
   }
 }
 
-void HTMLPlugInElement::RemovedFrom(ContainerNode* insertion_point) {
+void HTMLPlugInElement::RemovedFrom(ContainerNode& insertion_point) {
   // If we've persisted the plugin and we're removed from the tree then
   // make sure we cleanup the persistance pointer.
   if (persisted_plugin_) {
@@ -272,15 +311,15 @@ bool HTMLPlugInElement::ShouldAccelerate() const {
 ParsedFeaturePolicy HTMLPlugInElement::ConstructContainerPolicy(
     Vector<String>*) const {
   // Plugin elements (<object> and <embed>) are not allowed to enable the
-  // fullscreen feature. Add an empty whitelist for the fullscreen feature so
+  // fullscreen feature. Add an empty allowlist for the fullscreen feature so
   // that the nested browsing context is unable to use the API, regardless of
   // origin.
   // https://fullscreen.spec.whatwg.org/#model
   ParsedFeaturePolicy container_policy;
-  ParsedFeaturePolicyDeclaration whitelist;
-  whitelist.feature = mojom::FeaturePolicyFeature::kFullscreen;
-  whitelist.matches_all_origins = false;
-  container_policy.push_back(whitelist);
+  ParsedFeaturePolicyDeclaration allowlist;
+  allowlist.feature = mojom::FeaturePolicyFeature::kFullscreen;
+  allowlist.matches_all_origins = false;
+  container_policy.push_back(allowlist);
   return container_policy;
 }
 
@@ -381,8 +420,8 @@ WebPluginContainerImpl* HTMLPlugInElement::OwnedPlugin() const {
 
 bool HTMLPlugInElement::IsPresentationAttribute(
     const QualifiedName& name) const {
-  if (name == widthAttr || name == heightAttr || name == vspaceAttr ||
-      name == hspaceAttr || name == alignAttr)
+  if (name == kWidthAttr || name == kHeightAttr || name == kVspaceAttr ||
+      name == kHspaceAttr || name == kAlignAttr)
     return true;
   return HTMLFrameOwnerElement::IsPresentationAttribute(name);
 }
@@ -391,17 +430,17 @@ void HTMLPlugInElement::CollectStyleForPresentationAttribute(
     const QualifiedName& name,
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
-  if (name == widthAttr) {
+  if (name == kWidthAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyWidth, value);
-  } else if (name == heightAttr) {
+  } else if (name == kHeightAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyHeight, value);
-  } else if (name == vspaceAttr) {
+  } else if (name == kVspaceAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyMarginTop, value);
     AddHTMLLengthToStyle(style, CSSPropertyMarginBottom, value);
-  } else if (name == hspaceAttr) {
+  } else if (name == kHspaceAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyMarginLeft, value);
     AddHTMLLengthToStyle(style, CSSPropertyMarginRight, value);
-  } else if (name == alignAttr) {
+  } else if (name == kAlignAttr) {
     ApplyAlignmentAttributeToStyle(value, style);
   } else {
     HTMLFrameOwnerElement::CollectStyleForPresentationAttribute(name, value,
@@ -409,7 +448,7 @@ void HTMLPlugInElement::CollectStyleForPresentationAttribute(
   }
 }
 
-void HTMLPlugInElement::DefaultEventHandler(Event* event) {
+void HTMLPlugInElement::DefaultEventHandler(Event& event) {
   // Firefox seems to use a fake event listener to dispatch events to plugin
   // (tested with mouse events only). This is observable via different order
   // of events - in Firefox, event listeners specified in HTML attributes
@@ -431,7 +470,7 @@ void HTMLPlugInElement::DefaultEventHandler(Event* event) {
   if (!plugin)
     return;
   plugin->HandleEvent(event);
-  if (event->DefaultHandled())
+  if (event.DefaultHandled())
     return;
   HTMLFrameOwnerElement::DefaultEventHandler(event);
 }
@@ -489,13 +528,7 @@ HTMLPlugInElement::ObjectContentType HTMLPlugInElement::GetObjectContentType()
   KURL url = GetDocument().CompleteURL(url_);
   if (mime_type.IsEmpty()) {
     // Try to guess the MIME type based off the extension.
-    String filename = url.LastPathComponent();
-    int extension_pos = filename.ReverseFind('.');
-    if (extension_pos >= 0) {
-      String extension = filename.Substring(extension_pos + 1);
-      mime_type = MIMETypeRegistry::GetWellKnownMIMETypeForExtension(extension);
-    }
-
+    mime_type = GetMIMETypeFromURL(url);
     if (mime_type.IsEmpty())
       return ObjectContentType::kFrame;
   }
@@ -521,7 +554,7 @@ HTMLPlugInElement::ObjectContentType HTMLPlugInElement::GetObjectContentType()
 bool HTMLPlugInElement::IsImageType() const {
   if (GetDocument().GetFrame())
     return GetObjectContentType() == ObjectContentType::kImage;
-  return Image::SupportsType(service_type_);
+  return MIMETypeRegistry::IsSupportedImageResourceMIMEType(service_type_);
 }
 
 LayoutEmbeddedObject* HTMLPlugInElement::GetLayoutEmbeddedObject() const {
@@ -532,7 +565,7 @@ LayoutEmbeddedObject* HTMLPlugInElement::GetLayoutEmbeddedObject() const {
   return ToLayoutEmbeddedObject(GetLayoutObject());
 }
 
-// We don't use m_url, as it may not be the final URL that the object loads,
+// We don't use url_, as it may not be the final URL that the object loads,
 // depending on <param> values.
 bool HTMLPlugInElement::AllowedToLoadFrameURL(const String& url) {
   KURL complete_url = GetDocument().CompleteURL(url);
@@ -615,11 +648,12 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
 }
 
 void HTMLPlugInElement::DispatchErrorEvent() {
-  if (GetDocument().IsPluginDocument() && GetDocument().LocalOwner())
+  if (GetDocument().IsPluginDocument() && GetDocument().LocalOwner()) {
     GetDocument().LocalOwner()->DispatchEvent(
-        Event::Create(EventTypeNames::error));
-  else
-    DispatchEvent(Event::Create(EventTypeNames::error));
+        *Event::Create(event_type_names::kError));
+  } else {
+    DispatchEvent(*Event::Create(event_type_names::kError));
+  }
 }
 
 bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
@@ -635,7 +669,7 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   if (MIMETypeRegistry::IsJavaAppletMIMEType(mime_type))
     return false;
 
-  AtomicString declared_mime_type = FastGetAttribute(HTMLNames::typeAttr);
+  AtomicString declared_mime_type = FastGetAttribute(html_names::kTypeAttr);
   if (!GetDocument().GetContentSecurityPolicy()->AllowObjectFromSource(url) ||
       !GetDocument().GetContentSecurityPolicy()->AllowPluginTypeForDocument(
           GetDocument(), mime_type, declared_mime_type, url)) {
@@ -650,7 +684,7 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   // is specified.
   return (!mime_type.IsEmpty() && url.IsEmpty()) ||
          !MixedContentChecker::ShouldBlockFetch(
-             frame, WebURLRequest::kRequestContextObject,
+             frame, mojom::RequestContextType::OBJECT,
              network::mojom::RequestContextFrameType::kNone,
              ResourceRequest::RedirectStatus::kNoRedirect, url);
 }

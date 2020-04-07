@@ -603,9 +603,9 @@ JBig2_Result CJBig2_Context::ParseSymbolDict(CJBig2_Segment* pSegment) {
   }
   if (wFlags & 0x0200) {
     if (bUseGbContext)
-      pSegment->m_SymbolDict->SetGbContext(gbContext);
+      pSegment->m_SymbolDict->SetGbContext(std::move(gbContext));
     if (bUseGrContext)
-      pSegment->m_SymbolDict->SetGrContext(grContext);
+      pSegment->m_SymbolDict->SetGrContext(std::move(grContext));
   }
   return JBig2_Result::kSuccess;
 }
@@ -817,7 +817,6 @@ JBig2_Result CJBig2_Context::ParseTextRegion(CJBig2_Segment* pSegment) {
   if (pTRD->SBREFINE == 1) {
     const size_t size = GetRefAggContextSize(pTRD->SBRTEMPLATE);
     grContext.reset(FX_Alloc(JBig2ArithCtx, size));
-    memset(grContext.get(), 0, sizeof(JBig2ArithCtx) * size);
   }
   if (pTRD->SBHUFF == 0) {
     auto pArithDecoder =
@@ -871,7 +870,6 @@ JBig2_Result CJBig2_Context::ParsePatternDict(CJBig2_Segment* pSegment,
     const size_t size = GetHuffContextSize(pPDD->HDTEMPLATE);
     std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> gbContext(
         FX_Alloc(JBig2ArithCtx, size));
-    memset(gbContext.get(), 0, sizeof(JBig2ArithCtx) * size);
     auto pArithDecoder =
         pdfium::MakeUnique<CJBig2_ArithDecoder>(m_pStream.get());
     pSegment->m_PatternDict =
@@ -940,7 +938,6 @@ JBig2_Result CJBig2_Context::ParseHalftoneRegion(CJBig2_Segment* pSegment,
     const size_t size = GetHuffContextSize(pHRD->HTEMPLATE);
     std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> gbContext(
         FX_Alloc(JBig2ArithCtx, size));
-    memset(gbContext.get(), 0, sizeof(JBig2ArithCtx) * size);
     auto pArithDecoder =
         pdfium::MakeUnique<CJBig2_ArithDecoder>(m_pStream.get());
     pSegment->m_Image =
@@ -1013,29 +1010,32 @@ JBig2_Result CJBig2_Context::ParseGenericRegion(CJBig2_Segment* pSegment,
       m_pArithDecoder =
           pdfium::MakeUnique<CJBig2_ArithDecoder>(m_pStream.get());
     }
-    CJBig2_GRDProc::ProgressiveArithDecodeState state;
-    state.pImage = &pSegment->m_Image;
-    state.pArithDecoder = m_pArithDecoder.get();
-    state.gbContext = m_gbContext.data();
-    state.pPause = pPause;
-    m_ProcessingStatus = bStart ? m_pGRD->StartDecodeArith(&state)
-                                : m_pGRD->ContinueDecode(&state);
-    if (m_ProcessingStatus == FXCODEC_STATUS_DECODE_TOBECONTINUE) {
-      if (pSegment->m_cFlags.s.type != 36) {
-        if (!m_bBufSpecified) {
-          const auto& pPageInfo = m_PageInfoList.back();
-          if ((pPageInfo->m_bIsStriped == 1) &&
-              (m_ri.y + m_ri.height > m_pPage->height())) {
-            m_pPage->Expand(m_ri.y + m_ri.height,
-                            (pPageInfo->m_cFlags & 4) ? 1 : 0);
+    {
+      // |state.gbContext| can't exist when m_gbContext.clear() called below.
+      CJBig2_GRDProc::ProgressiveArithDecodeState state;
+      state.pImage = &pSegment->m_Image;
+      state.pArithDecoder = m_pArithDecoder.get();
+      state.gbContext = m_gbContext.data();
+      state.pPause = pPause;
+      m_ProcessingStatus = bStart ? m_pGRD->StartDecodeArith(&state)
+                                  : m_pGRD->ContinueDecode(&state);
+      if (m_ProcessingStatus == FXCODEC_STATUS_DECODE_TOBECONTINUE) {
+        if (pSegment->m_cFlags.s.type != 36) {
+          if (!m_bBufSpecified) {
+            const auto& pPageInfo = m_PageInfoList.back();
+            if ((pPageInfo->m_bIsStriped == 1) &&
+                (m_ri.y + m_ri.height > m_pPage->height())) {
+              m_pPage->Expand(m_ri.y + m_ri.height,
+                              (pPageInfo->m_cFlags & 4) ? 1 : 0);
+            }
           }
+          const FX_RECT& rect = m_pGRD->GetReplaceRect();
+          m_pPage->ComposeFromWithRect(m_ri.x + rect.left, m_ri.y + rect.top,
+                                       pSegment->m_Image.get(), rect,
+                                       (JBig2ComposeOp)(m_ri.flags & 0x03));
         }
-        const FX_RECT& rect = m_pGRD->GetReplaceRect();
-        m_pPage->ComposeFromWithRect(m_ri.x + rect.left, m_ri.y + rect.top,
-                                     pSegment->m_Image.get(), rect,
-                                     (JBig2ComposeOp)(m_ri.flags & 0x03));
+        return JBig2_Result::kSuccess;
       }
-      return JBig2_Result::kSuccess;
     }
     m_pArithDecoder.reset();
     m_gbContext.clear();
@@ -1120,7 +1120,6 @@ JBig2_Result CJBig2_Context::ParseGenericRefinementRegion(
   const size_t size = GetRefAggContextSize(pGRRD->GRTEMPLATE);
   std::unique_ptr<JBig2ArithCtx, FxFreeDeleter> grContext(
       FX_Alloc(JBig2ArithCtx, size));
-  memset(grContext.get(), 0, sizeof(JBig2ArithCtx) * size);
   auto pArithDecoder = pdfium::MakeUnique<CJBig2_ArithDecoder>(m_pStream.get());
   pSegment->m_nResultType = JBIG2_IMAGE_POINTER;
   pSegment->m_Image = pGRRD->Decode(pArithDecoder.get(), grContext.get());
@@ -1259,6 +1258,7 @@ bool CJBig2_Context::HuffmanAssignCode(JBig2HuffmanCode* SBSYMCODES,
   std::vector<int> FIRSTCODE(LENMAX + 1);
   for (uint32_t i = 0; i < NTEMP; ++i)
     ++LENCOUNT[SBSYMCODES[i].codelen];
+  LENCOUNT[0] = 0;
 
   for (int i = 1; i <= LENMAX; ++i) {
     pdfium::base::CheckedNumeric<int> shifted = FIRSTCODE[i - 1];

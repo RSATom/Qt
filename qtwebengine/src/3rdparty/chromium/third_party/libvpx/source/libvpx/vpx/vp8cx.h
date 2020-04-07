@@ -7,8 +7,8 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef VPX_VP8CX_H_
-#define VPX_VP8CX_H_
+#ifndef VPX_VPX_VP8CX_H_
+#define VPX_VPX_VP8CX_H_
 
 /*!\defgroup vp8_encoder WebM VP8/VP9 Encoder
  * \ingroup vp8
@@ -154,7 +154,7 @@ enum vp8e_enc_control_id {
    */
   VP8E_SET_CPUUSED = 13,
 
-  /*!\brief Codec control function to enable automatic set and use alf frames.
+  /*!\brief Codec control function to enable automatic use of arf frames.
    *
    * Supported in codecs: VP8, VP9
    */
@@ -169,7 +169,10 @@ enum vp8e_enc_control_id {
    */
   VP8E_SET_NOISE_SENSITIVITY,
 
-  /*!\brief Codec control function to set sharpness.
+  /*!\brief Codec control function to set higher sharpness at the expense
+   * of a lower PSNR.
+   *
+   * \note Valid range: 0..7
    *
    * Supported in codecs: VP8, VP9
    */
@@ -227,8 +230,8 @@ enum vp8e_enc_control_id {
 
   /*!\brief Codec control function to set constrained quality level.
    *
-   * \attention For this value to be used vpx_codec_enc_cfg_t::g_usage must be
-   *            set to #VPX_CQ.
+   * \attention For this value to be used vpx_codec_enc_cfg_t::rc_end_usage must
+   *            be set to #VPX_CQ
    * \note Valid range: 0..63
    *
    * Supported in codecs: VP8, VP9
@@ -652,6 +655,24 @@ enum vp8e_enc_control_id {
    * Supported in codecs: VP9
    */
   VP9E_SET_SVC_SPATIAL_LAYER_SYNC,
+
+  /*!\brief Codec control function to enable temporal dependency model.
+   *
+   * Vp9 allows the encoder to run temporal dependency model and use it to
+   * improve the compression performance. To enable, set this parameter to be
+   * 1. The default value is set to be 1.
+   */
+  VP9E_SET_TPL,
+
+  /*!\brief Codec control function to enable postencode frame drop.
+   *
+   * This will allow encoder to drop frame after it's encoded.
+   *
+   * 0: Off (default), 1: Enabled
+   *
+   * Supported in codecs: VP9
+   */
+  VP9E_SET_POSTENCODE_DROP,
 };
 
 /*!\brief vpx 1-D scaling mode
@@ -776,8 +797,10 @@ typedef enum { VP8_TUNE_PSNR, VP8_TUNE_SSIM } vp8e_tuning;
  *
  */
 typedef struct vpx_svc_layer_id {
-  int spatial_layer_id;  /**< Spatial layer id number. */
+  int spatial_layer_id; /**< First spatial layer to start encoding. */
+  // TODO(jianj): Deprecated, to be removed.
   int temporal_layer_id; /**< Temporal layer id number. */
+  int temporal_layer_id_per_spatial[VPX_SS_MAX_LAYERS]; /**< Temp layer id. */
 } vpx_svc_layer_id_t;
 
 /*!\brief vp9 svc frame flag parameters.
@@ -789,18 +812,18 @@ typedef struct vpx_svc_layer_id {
  *
  */
 typedef struct vpx_svc_ref_frame_config {
-  // TODO(jianj/marpan): Remove the usage of frame_flags, instead use the
-  // update and reference flags.
-  int frame_flags[VPX_SS_MAX_LAYERS];       /**< Frame flags. */
-  int lst_fb_idx[VPX_SS_MAX_LAYERS];        /**< Last buffer index. */
-  int gld_fb_idx[VPX_SS_MAX_LAYERS];        /**< Golden buffer index. */
-  int alt_fb_idx[VPX_SS_MAX_LAYERS];        /**< Altref buffer index. */
+  int lst_fb_idx[VPX_SS_MAX_LAYERS];         /**< Last buffer index. */
+  int gld_fb_idx[VPX_SS_MAX_LAYERS];         /**< Golden buffer index. */
+  int alt_fb_idx[VPX_SS_MAX_LAYERS];         /**< Altref buffer index. */
+  int update_buffer_slot[VPX_SS_MAX_LAYERS]; /**< Update reference frames. */
+  // TODO(jianj): Remove update_last/golden/alt_ref, these are deprecated.
   int update_last[VPX_SS_MAX_LAYERS];       /**< Update last. */
   int update_golden[VPX_SS_MAX_LAYERS];     /**< Update golden. */
   int update_alt_ref[VPX_SS_MAX_LAYERS];    /**< Update altref. */
-  int reference_last[VPX_SS_MAX_LAYERS];    /**< Last as eference. */
+  int reference_last[VPX_SS_MAX_LAYERS];    /**< Last as reference. */
   int reference_golden[VPX_SS_MAX_LAYERS];  /**< Golden as reference. */
   int reference_alt_ref[VPX_SS_MAX_LAYERS]; /**< Altref as reference. */
+  int64_t duration[VPX_SS_MAX_LAYERS];      /**< Duration per spatial layer. */
 } vpx_svc_ref_frame_config_t;
 
 /*!\brief VP9 svc frame dropping mode.
@@ -817,7 +840,7 @@ typedef enum {
 
 /*!\brief vp9 svc frame dropping parameters.
  *
- * This defines the frame drop thresholds for each spatial layer, and the
+ * This defines the frame drop thresholds for each spatial layer, and
  * the frame dropping mode: 0 = layer based frame dropping (default),
  * 1 = constrained dropping where current layer drop forces all upper
  * spatial layers to drop.
@@ -897,6 +920,9 @@ VPX_CTRL_USE_TYPE(VP9E_SET_TILE_COLUMNS, int)
 #define VPX_CTRL_VP9E_SET_TILE_COLUMNS
 VPX_CTRL_USE_TYPE(VP9E_SET_TILE_ROWS, int)
 #define VPX_CTRL_VP9E_SET_TILE_ROWS
+
+VPX_CTRL_USE_TYPE(VP9E_SET_TPL, int)
+#define VPX_CTRL_VP9E_SET_TPL
 
 VPX_CTRL_USE_TYPE(VP8E_GET_LAST_QUANTIZER, int *)
 #define VPX_CTRL_VP8E_GET_LAST_QUANTIZER
@@ -989,10 +1015,13 @@ VPX_CTRL_USE_TYPE(VP9E_SET_SVC_SPATIAL_LAYER_SYNC,
                   vpx_svc_spatial_layer_sync_t *)
 #define VPX_CTRL_VP9E_SET_SVC_SPATIAL_LAYER_SYNC
 
+VPX_CTRL_USE_TYPE(VP9E_SET_POSTENCODE_DROP, unsigned int)
+#define VPX_CTRL_VP9E_SET_POSTENCODE_DROP
+
 /*!\endcond */
 /*! @} - end defgroup vp8_encoder */
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // VPX_VP8CX_H_
+#endif  // VPX_VPX_VP8CX_H_

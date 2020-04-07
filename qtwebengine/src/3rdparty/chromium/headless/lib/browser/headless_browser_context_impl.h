@@ -13,21 +13,16 @@
 #include "base/files/file_path.h"
 #include "base/unguessable_token.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/resource_context.h"
 #include "headless/lib/browser/headless_browser_context_options.h"
-#include "headless/lib/browser/headless_network_conditions.h"
-#include "headless/lib/browser/headless_url_request_context_getter.h"
+#include "headless/lib/browser/headless_request_context_manager.h"
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_browser_context.h"
 #include "headless/public/headless_export.h"
 
-namespace net {
-class NetLog;
-}
-
 namespace headless {
 class HeadlessBrowserImpl;
-class HeadlessResourceContext;
 class HeadlessWebContentsImpl;
 
 class HEADLESS_EXPORT HeadlessBrowserContextImpl final
@@ -69,10 +64,12 @@ class HEADLESS_EXPORT HeadlessBrowserContextImpl final
   content::ResourceContext* GetResourceContext() override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
   content::BrowserPluginGuestManager* GetGuestManager() override;
-  storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
+  ::storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
   content::PermissionControllerDelegate* GetPermissionControllerDelegate()
+      override;
+  content::ClientHintsControllerDelegate* GetClientHintsControllerDelegate()
       override;
   content::BackgroundFetchDelegate* GetBackgroundFetchDelegate() override;
   content::BackgroundSyncController* GetBackgroundSyncController() override;
@@ -112,8 +109,9 @@ class HEADLESS_EXPORT HeadlessBrowserContextImpl final
   const base::UnguessableToken* GetDevToolsFrameTokenForFrameTreeNodeId(
       int frame_tree_node_id) const;
 
-  void SetNetworkConditions(HeadlessNetworkConditions conditions);
-  HeadlessNetworkConditions GetNetworkConditions() override;
+  ::network::mojom::NetworkContextPtr CreateNetworkContext(
+      bool in_memory,
+      const base::FilePath& relative_partition_path);
 
  private:
   HeadlessBrowserContextImpl(
@@ -126,8 +124,6 @@ class HEADLESS_EXPORT HeadlessBrowserContextImpl final
 
   HeadlessBrowserImpl* browser_;  // Not owned.
   std::unique_ptr<HeadlessBrowserContextOptions> context_options_;
-  std::unique_ptr<HeadlessResourceContext> resource_context_;
-  scoped_refptr<HeadlessURLRequestContextGetter> url_request_getter_;
   base::FilePath path_;
 
   std::unordered_map<std::string, std::unique_ptr<HeadlessWebContents>>
@@ -138,16 +134,15 @@ class HEADLESS_EXPORT HeadlessBrowserContextImpl final
   // TODO(alexclarke): Remove if we can add DevTools frame token ID to
   // ResourceRequestInfo. See https://crbug.com/715541
   mutable base::Lock devtools_frame_token_map_lock_;
-  base::flat_map<std::pair<int, int>, base::UnguessableToken>
+  base::flat_map<content::GlobalFrameRoutingId, base::UnguessableToken>
       devtools_frame_token_map_;
   base::flat_map<int, base::UnguessableToken>
       frame_tree_node_id_to_devtools_frame_token_map_;
 
   std::unique_ptr<content::PermissionControllerDelegate>
       permission_controller_delegate_;
-  std::unique_ptr<net::NetLog> net_log_;
 
-  HeadlessNetworkConditions network_conditions_;
+  std::unique_ptr<HeadlessRequestContextManager> request_context_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessBrowserContextImpl);
 };

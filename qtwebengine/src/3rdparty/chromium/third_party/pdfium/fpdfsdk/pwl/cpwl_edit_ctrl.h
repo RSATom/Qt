@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "core/fxcrt/fx_codepage.h"
 #include "core/fxcrt/fx_string.h"
 #include "fpdfsdk/pwl/cpwl_wnd.h"
 
@@ -22,7 +23,8 @@ enum PWL_EDIT_ALIGNFORMAT_V { PEAV_TOP = 0, PEAV_CENTER, PEAV_BOTTOM };
 
 class CPWL_EditCtrl : public CPWL_Wnd {
  public:
-  CPWL_EditCtrl();
+  CPWL_EditCtrl(const CreateParams& cp,
+                std::unique_ptr<PrivateData> pAttachedData);
   ~CPWL_EditCtrl() override;
 
   void SetSelection(int32_t nStartChar, int32_t nEndChar);
@@ -44,7 +46,6 @@ class CPWL_EditCtrl : public CPWL_Wnd {
   void SetReadyToInput();
 
   // CPWL_Wnd:
-  void OnCreate(CreateParams* pParamsToAdjust) override;
   void OnCreated() override;
   bool OnKeyDown(uint16_t nChar, uint32_t nFlag) override;
   bool OnChar(uint16_t nChar, uint32_t nFlag) override;
@@ -73,24 +74,20 @@ class CPWL_EditCtrl : public CPWL_Wnd {
   void CutText();
   void InsertWord(uint16_t word, int32_t nCharset);
   void InsertReturn();
-
   bool IsWndHorV();
-
   void Delete();
   void Backspace();
-
   void GetCaretInfo(CFX_PointF* ptHead, CFX_PointF* ptFoot) const;
-
   void SetEditCaret(bool bVisible);
 
-  std::unique_ptr<CPWL_EditImpl> m_pEdit;
-  CPWL_Caret* m_pEditCaret;
-  bool m_bMouseDown;
+  std::unique_ptr<CPWL_EditImpl> const m_pEdit;
+  CPWL_Caret* m_pEditCaret = nullptr;
+  bool m_bMouseDown = false;
 
  private:
   void CreateEditCaret(const CreateParams& cp);
 
-  int32_t m_nCharSet;
+  int32_t m_nCharSet = FX_CHARSET_Default;
 };
 
 #endif  // FPDFSDK_PWL_CPWL_EDIT_CTRL_H_

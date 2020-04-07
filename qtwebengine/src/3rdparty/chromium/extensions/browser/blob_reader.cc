@@ -32,7 +32,7 @@ void BlobReader::SetByteRange(int64_t offset, int64_t length) {
   CHECK_GT(length, 0);
   CHECK_LE(offset, std::numeric_limits<int64_t>::max() - length);
 
-  read_range_ = Range{offset, length};
+  read_range_ = Range{uint64_t(offset), uint64_t(length)};
 }
 
 void BlobReader::Start() {

@@ -136,8 +136,11 @@ Build options:
                          for example, -sanitize address cannot be combined with
                          -sanitize thread.
 
-  -c++std <edition> .... Select C++ standard <edition> [c++1z/c++14/c++11]
-                         (Not supported with MSVC)
+  -coverage {trace-pc-guard}
+                         Add code coverage instrumentation (Clang only)
+
+  -c++std <edition> .... Select C++ standard <edition> [c++2a/c++17/c++14/c++11]
+                         (Not supported with MSVC 2015)
 
   -sse2 ................ Use SSE2 instructions [auto]
   -sse3/-ssse3/-sse4.1/-sse4.2/-avx/-avx2/-avx512
@@ -164,7 +167,8 @@ Build options:
 
   -pch ................. Use precompiled headers [auto]
   -ltcg ................ Use Link Time Code Generation [no]
-  -use-gold-linker ..... Use the GNU gold linker [auto]
+  -linker [bfd,gold,lld] Force use of the GNU ld, GNU gold or LLVM/LLD linker
+                         instead of default one (GCC only)
   -incredibuild-xge .... Use the IncrediBuild XGE [no] (Windows only)
   -ccache .............. Use the ccache compiler cache [no] (Unix only)
   -make-tool <tool> .... Use <tool> to build qmake [nmake] (Windows only)
@@ -199,7 +203,7 @@ Build environment:
   -android-ndk-host .... Set Android NDK host (linux-x86, linux-x86_64, etc.)
                          [$ANDROID_NDK_HOST]
   -android-arch ........ Set Android architecture (armeabi, armeabi-v7a,
-                         arm64-v8a, x86, x86_64, mips, mips64)
+                         arm64-v8a, x86, x86_64)
   -android-toolchain-version ... Set Android toolchain version
   -android-style-assets  Automatically extract style assets from the device at
                          run time. This option makes the Android style behave
@@ -277,6 +281,7 @@ Gui, printing, widget options:
                          es2 (default on Windows), desktop (default on Unix),
                          dynamic (Windows only)
   -opengles3 ........... Enable OpenGL ES 3.x support instead of ES 2.x [auto]
+  -egl ................. Enable EGL support [auto]
   -angle ............... Use bundled ANGLE to support OpenGL ES 2.0 [auto]
                          (Windows only)
   -combined-angle-lib .. Merge LibEGL and LibGLESv2 into LibANGLE (Windows only)

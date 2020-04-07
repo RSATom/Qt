@@ -15,17 +15,15 @@
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfdoc/cpdf_occontext.h"
 #include "core/fxcrt/observable.h"
-#include "fpdfsdk/cfx_systemhandler.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "public/fpdf_formfill.h"
-#include "public/fpdf_fwlevent.h"
 
 class CFFL_InteractiveFormFiller;
 class CFX_SystemHandler;
 class CPDFSDK_ActionHandler;
 class CPDFSDK_AnnotHandlerMgr;
-class CPDFSDK_InterForm;
+class CPDFSDK_InteractiveForm;
 class CPDFSDK_PageView;
 class IJS_Runtime;
 
@@ -44,25 +42,21 @@ FPDF_WIDESTRING AsFPDFWideString(ByteString* bsUTF16LE);
 // hierarcy back to the form fill environment itself, so as to flag any
 // lingering lifetime issues via the memory tools.
 
-class CPDFSDK_FormFillEnvironment
+class CPDFSDK_FormFillEnvironment final
     : public Observable<CPDFSDK_FormFillEnvironment> {
  public:
   CPDFSDK_FormFillEnvironment(CPDF_Document* pDoc, FPDF_FORMFILLINFO* pFFinfo);
   ~CPDFSDK_FormFillEnvironment();
 
-  static bool IsSHIFTKeyDown(uint32_t nFlag) {
-    return !!(nFlag & FWL_EVENTFLAG_ShiftKey);
-  }
-  static bool IsCTRLKeyDown(uint32_t nFlag) {
-    return !!(nFlag & FWL_EVENTFLAG_ControlKey);
-  }
-  static bool IsALTKeyDown(uint32_t nFlag) {
-    return !!(nFlag & FWL_EVENTFLAG_AltKey);
-  }
+  static bool IsSHIFTKeyDown(uint32_t nFlag);
+  static bool IsCTRLKeyDown(uint32_t nFlag);
+  static bool IsALTKeyDown(uint32_t nFlag);
 
   CPDFSDK_PageView* GetPageView(IPDF_Page* pPage, bool renew);
   CPDFSDK_PageView* GetPageView(int nIndex);
+#ifdef PDF_ENABLE_V8
   CPDFSDK_PageView* GetCurrentView();
+#endif
   void RemovePageView(IPDF_Page* pPage);
   void UpdateAllViews(CPDFSDK_PageView* pSender, CPDFSDK_Annot* pAnnot);
 
@@ -97,8 +91,9 @@ class CPDFSDK_FormFillEnvironment
   int SetTimer(int uElapse, TimerCallback lpTimerFunc);
   void KillTimer(int nTimerID);
 
-  FX_SYSTEMTIME GetLocalTime() const;
+#ifdef PDF_ENABLE_V8
   FPDF_PAGE GetCurrentPage() const;
+#endif
 
   void OnChange();
   void ExecuteNamedAction(const char* namedAction);
@@ -113,9 +108,10 @@ class CPDFSDK_FormFillEnvironment
 
   CPDF_Document* GetPDFDocument() const { return m_pCPDFDoc.Get(); }
 
+#ifdef PDF_ENABLE_V8
 #ifdef PDF_ENABLE_XFA
   CPDFXFA_Context* GetXFAContext() const;
-  int GetPageViewCount() const { return m_PageMap.size(); }
+  int GetPageViewCount() const;
 
   void DisplayCaret(CPDFXFA_Page* page,
                     FPDF_BOOL bVisible,
@@ -131,7 +127,7 @@ class CPDFSDK_FormFillEnvironment
 
   WideString GetPlatform();
   void GotoURL(const WideString& wsURL);
-  void GetPageViewRect(CPDFXFA_Page* page, FS_RECTF& dstRect);
+  FS_RECTF GetPageViewRect(CPDFXFA_Page* page);
   bool PopupMenu(CPDFXFA_Page* page,
                  FPDF_WIDGET hWidget,
                  int menuFlag,
@@ -176,8 +172,6 @@ class CPDFSDK_FormFillEnvironment
                      int length);
   void JS_appBeep(int nType);
   WideString JS_fieldBrowse();
-  WideString JS_docGetFilePath();
-  void JS_docSubmitForm(void* formData, int length, const WideString& URL);
   void JS_docmailForm(void* mailData,
                       int length,
                       FPDF_BOOL bUI,
@@ -195,9 +189,15 @@ class CPDFSDK_FormFillEnvironment
                    FPDF_BOOL bReverse,
                    FPDF_BOOL bAnnotations);
   void JS_docgotoPage(int nPageNum);
+#endif  // PDF_ENABLE_V8
 
   bool IsJSPlatformPresent() const { return m_pInfo && m_pInfo->m_pJsPlatform; }
-  ByteString GetAppName() const { return ""; }
+
+  // TODO(tsepez): required even if !V8, investigate.
+  WideString JS_docGetFilePath();
+  void JS_docSubmitForm(void* formData, int length, const WideString& URL);
+
+  ByteString GetAppName() const { return ByteString(); }
   CFX_SystemHandler* GetSysHandler() const { return m_pSysHandler.get(); }
   FPDF_FORMFILLINFO* GetFormFillInfo() const { return m_pInfo; }
 
@@ -206,10 +206,7 @@ class CPDFSDK_FormFillEnvironment
   CPDFSDK_AnnotHandlerMgr* GetAnnotHandlerMgr();  // Creates if not present.
   IJS_Runtime* GetIJSRuntime();                   // Creates if not present.
   CPDFSDK_ActionHandler* GetActionHandler();      // Creates if not present.
-  CPDFSDK_InterForm* GetInterForm();              // Creates if not present.
-
-  void SetSaveCalled(FORM_SAVECALLED callback) { m_SaveCalled = callback; }
-  void SaveCalled();
+  CPDFSDK_InteractiveForm* GetInteractiveForm();  // Creates if not present.
 
  private:
   IPDF_Page* GetPage(int nIndex);
@@ -219,14 +216,13 @@ class CPDFSDK_FormFillEnvironment
   std::unique_ptr<CPDFSDK_ActionHandler> m_pActionHandler;
   std::unique_ptr<IJS_Runtime> m_pIJSRuntime;
   std::map<IPDF_Page*, std::unique_ptr<CPDFSDK_PageView>> m_PageMap;
-  std::unique_ptr<CPDFSDK_InterForm> m_pInterForm;
+  std::unique_ptr<CPDFSDK_InteractiveForm> m_pInteractiveForm;
   CPDFSDK_Annot::ObservedPtr m_pFocusAnnot;
   UnownedPtr<CPDF_Document> const m_pCPDFDoc;
   std::unique_ptr<CFFL_InteractiveFormFiller> m_pFormFiller;
   std::unique_ptr<CFX_SystemHandler> m_pSysHandler;
-  bool m_bChangeMask;
-  bool m_bBeingDestroyed;
-  FORM_SAVECALLED m_SaveCalled;
+  bool m_bChangeMask = false;
+  bool m_bBeingDestroyed = false;
 };
 
 #endif  // FPDFSDK_CPDFSDK_FORMFILLENVIRONMENT_H_

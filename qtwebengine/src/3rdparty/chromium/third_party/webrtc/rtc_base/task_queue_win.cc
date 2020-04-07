@@ -29,14 +29,14 @@
 
 #include "rtc_base/arraysize.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/platform_thread.h"
-#include "rtc_base/refcount.h"
-#include "rtc_base/refcountedobject.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/ref_count.h"
+#include "rtc_base/ref_counted_object.h"
+#include "rtc_base/time_utils.h"
 
 namespace rtc {
 namespace {
@@ -190,10 +190,6 @@ class TaskQueue::Impl : public RefCountInterface {
   }
 
   void PostTask(std::unique_ptr<QueuedTask> task);
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                        std::unique_ptr<QueuedTask> reply,
-                        TaskQueue::Impl* reply_queue);
-
   void PostDelayedTask(std::unique_ptr<QueuedTask> task, uint32_t milliseconds);
 
   void RunPendingTasks();
@@ -320,24 +316,6 @@ void TaskQueue::Impl::PostDelayedTask(std::unique_ptr<QueuedTask> task,
                            reinterpret_cast<LPARAM>(task_info))) {
     delete task_info;
   }
-}
-
-void TaskQueue::Impl::PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                                       std::unique_ptr<QueuedTask> reply,
-                                       TaskQueue::Impl* reply_queue) {
-  QueuedTask* task_ptr = task.release();
-  QueuedTask* reply_task_ptr = reply.release();
-  DWORD reply_thread_id = reply_queue->thread_.GetThreadRef();
-  PostTask([task_ptr, reply_task_ptr, reply_thread_id]() {
-    if (task_ptr->Run())
-      delete task_ptr;
-    // If the thread's message queue is full, we can't queue the task and will
-    // have to drop it (i.e. delete).
-    if (!::PostThreadMessage(reply_thread_id, WM_RUN_TASK, 0,
-                             reinterpret_cast<LPARAM>(reply_task_ptr))) {
-      delete reply_task_ptr;
-    }
-  });
 }
 
 void TaskQueue::Impl::RunPendingTasks() {
@@ -498,19 +476,6 @@ bool TaskQueue::IsCurrent() const {
 
 void TaskQueue::PostTask(std::unique_ptr<QueuedTask> task) {
   return TaskQueue::impl_->PostTask(std::move(task));
-}
-
-void TaskQueue::PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                                 std::unique_ptr<QueuedTask> reply,
-                                 TaskQueue* reply_queue) {
-  return TaskQueue::impl_->PostTaskAndReply(std::move(task), std::move(reply),
-                                            reply_queue->impl_.get());
-}
-
-void TaskQueue::PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                                 std::unique_ptr<QueuedTask> reply) {
-  return TaskQueue::impl_->PostTaskAndReply(std::move(task), std::move(reply),
-                                            impl_.get());
 }
 
 void TaskQueue::PostDelayedTask(std::unique_ptr<QueuedTask> task,

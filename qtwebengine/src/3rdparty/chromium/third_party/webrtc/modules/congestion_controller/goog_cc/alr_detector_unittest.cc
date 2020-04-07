@@ -10,6 +10,7 @@
 
 #include "modules/congestion_controller/goog_cc/alr_detector.h"
 
+#include "rtc_base/checks.h"
 #include "rtc_base/experiments/alr_experiment.h"
 #include "test/field_trial.h"
 #include "test/gtest.h"
@@ -21,8 +22,6 @@ constexpr int kEstimatedBitrateBps = 300000;
 }  // namespace
 
 namespace webrtc {
-namespace webrtc_cc {
-
 namespace {
 class SimulateOutgoingTrafficIn {
  public:
@@ -173,5 +172,4 @@ TEST_F(AlrDetectorTest, ParseActiveFieldTrial) {
   EXPECT_EQ(1, parsed_params->group_id);
 }
 
-}  // namespace webrtc_cc
 }  // namespace webrtc

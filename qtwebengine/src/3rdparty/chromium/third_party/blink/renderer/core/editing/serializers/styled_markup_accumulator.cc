@@ -40,8 +40,8 @@ namespace blink {
 
 namespace {
 
-size_t TotalLength(const Vector<String>& strings) {
-  size_t length = 0;
+wtf_size_t TotalLength(const Vector<String>& strings) {
+  wtf_size_t length = 0;
   for (const auto& string : strings)
     length += string.length();
   return length;
@@ -49,7 +49,7 @@ size_t TotalLength(const Vector<String>& strings) {
 
 }  // namespace
 
-using namespace HTMLNames;
+using namespace html_names;
 
 StyledMarkupAccumulator::StyledMarkupAccumulator(
     EAbsoluteURLs should_resolve_urls,
@@ -116,7 +116,7 @@ void StyledMarkupAccumulator::AppendTextWithInlineStyle(
     AppendText(text);
   } else {
     const bool use_rendered_text = !EnclosingElementWithTag(
-        Position::FirstPositionInNode(text), selectTag);
+        Position::FirstPositionInNode(text), kSelectTag);
     String content =
         use_rendered_text ? RenderedText(text) : StringValueForRange(text);
     StringBuilder buffer;
@@ -143,7 +143,7 @@ void StyledMarkupAccumulator::AppendElementWithInlineStyle(
   AttributeCollection attributes = element.Attributes();
   for (const auto& attribute : attributes) {
     // We'll handle the style attribute separately, below.
-    if (attribute.GetName() == styleAttr)
+    if (attribute.GetName() == kStyleAttr)
       continue;
     formatter_.AppendAttribute(out, element, attribute, nullptr);
   }
@@ -191,7 +191,7 @@ String StyledMarkupAccumulator::TakeResults() {
   result.ReserveCapacity(TotalLength(reversed_preceding_markup_) +
                          result_.length());
 
-  for (size_t i = reversed_preceding_markup_.size(); i > 0; --i)
+  for (wtf_size_t i = reversed_preceding_markup_.size(); i > 0; --i)
     result.Append(reversed_preceding_markup_[i - 1]);
 
   result.Append(result_);

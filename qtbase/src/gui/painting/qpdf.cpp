@@ -856,7 +856,6 @@ void QPdfEngine::drawRects (const QRectF *rects, int rectCount)
     if (!d->hasPen && !d->hasBrush)
         return;
 
-    QBrush penBrush = d->pen.brush();
     if (d->simplePen || !d->hasPen) {
         // draw strokes natively in this case for better output
         if(!d->simplePen && !d->stroker.matrix.isIdentity())
@@ -949,7 +948,8 @@ void QPdfEngine::drawPixmap (const QRectF &rectangle, const QPixmap &pixmap, con
     QPixmap pm = sourceRect != pixmap.rect() ? pixmap.copy(sourceRect) : pixmap;
     QImage image = pm.toImage();
     bool bitmap = true;
-    const int object = d->addImage(image, &bitmap, pm.cacheKey());
+    const bool lossless = painter()->testRenderHint(QPainter::LosslessImageRendering);
+    const int object = d->addImage(image, &bitmap, lossless, pm.cacheKey());
     if (object < 0)
         return;
 
@@ -988,7 +988,8 @@ void QPdfEngine::drawImage(const QRectF &rectangle, const QImage &image, const Q
     QRect sourceRect = sr.toRect();
     QImage im = sourceRect != image.rect() ? image.copy(sourceRect) : image;
     bool bitmap = true;
-    const int object = d->addImage(im, &bitmap, im.cacheKey());
+    const bool lossless = painter()->testRenderHint(QPainter::LosslessImageRendering);
+    const int object = d->addImage(im, &bitmap, lossless, im.cacheKey());
     if (object < 0)
         return;
 
@@ -1541,7 +1542,7 @@ bool QPdfEngine::end()
     Q_D(QPdfEngine);
     d->writeTail();
 
-    d->stream->unsetDevice();
+    d->stream->setDevice(nullptr);
 
     qDeleteAll(d->fonts);
     d->fonts.clear();
@@ -2633,6 +2634,8 @@ int QPdfEnginePrivate::addConstantAlphaObject(int brushAlpha, int penAlpha)
 
 int QPdfEnginePrivate::addBrushPattern(const QTransform &m, bool *specifyColor, int *gStateObject)
 {
+    Q_Q(QPdfEngine);
+
     int paintType = 2; // Uncolored tiling
     int w = 8;
     int h = 8;
@@ -2662,7 +2665,8 @@ int QPdfEnginePrivate::addBrushPattern(const QTransform &m, bool *specifyColor, 
             return 0;
         QImage image = brush.textureImage();
         bool bitmap = true;
-        imageObject = addImage(image, &bitmap, image.cacheKey());
+        const bool lossless = q->painter()->testRenderHint(QPainter::LosslessImageRendering);
+        imageObject = addImage(image, &bitmap, lossless, image.cacheKey());
         if (imageObject != -1) {
             QImage::Format f = image.format();
             if (f != QImage::Format_MonoLSB && f != QImage::Format_Mono) {
@@ -2724,7 +2728,7 @@ static inline bool is_monochrome(const QVector<QRgb> &colorTable)
 /*!
  * Adds an image to the pdf and return the pdf-object id. Returns -1 if adding the image failed.
  */
-int QPdfEnginePrivate::addImage(const QImage &img, bool *bitmap, qint64 serial_no)
+int QPdfEnginePrivate::addImage(const QImage &img, bool *bitmap, bool lossless, qint64 serial_no)
 {
     if (img.isNull())
         return -1;
@@ -2785,7 +2789,7 @@ int QPdfEnginePrivate::addImage(const QImage &img, bool *bitmap, qint64 serial_n
         bool hasAlpha = false;
         bool hasMask = false;
 
-        if (QImageWriter::supportedImageFormats().contains("jpeg") && !grayscale) {
+        if (QImageWriter::supportedImageFormats().contains("jpeg") && !grayscale && !lossless) {
             QBuffer buffer(&imageData);
             QImageWriter writer(&buffer, "jpeg");
             writer.setQuality(94);

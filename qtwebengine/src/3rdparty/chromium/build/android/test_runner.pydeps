@@ -13,6 +13,7 @@
 ../../third_party/catapult/common/py_utils/py_utils/cloud_storage_global_lock.py
 ../../third_party/catapult/common/py_utils/py_utils/contextlib_ext.py
 ../../third_party/catapult/common/py_utils/py_utils/lock.py
+../../third_party/catapult/common/py_utils/py_utils/modules_util.py
 ../../third_party/catapult/common/py_utils/py_utils/tempfile_ext.py
 ../../third_party/catapult/dependency_manager/dependency_manager/__init__.py
 ../../third_party/catapult/dependency_manager/dependency_manager/archive_info.py
@@ -195,6 +196,7 @@ pylib/utils/logging_utils.py
 pylib/utils/proguard.py
 pylib/utils/repo_utils.py
 pylib/utils/shared_preference_utils.py
+pylib/utils/test_filter.py
 pylib/utils/time_profile.py
 pylib/valgrind_tools.py
 test_runner.py

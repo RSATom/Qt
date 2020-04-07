@@ -160,7 +160,7 @@ void tst_dialogs::dialogButtonHandler()
     root->setProperty("mustBlock", mustBlock);
 
     QQuickWindow *window = root->findChild<QQuickWindow*>();
-    QTest::qWaitForWindowExposed(window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     /* Hack to find the created buttons: since they are created by a
      * QQuickRepeater, they don't appear on the hierarchy tree; therefore, we
@@ -243,7 +243,7 @@ void tst_dialogs::dialogKeyHandler()
     root->setProperty("mustBlock", mustBlock);
 
     QQuickWindow *window = root->findChild<QQuickWindow*>();
-    QTest::qWaitForWindowExposed(window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QTest::keyClick(window, Qt::Key(key));
     QTRY_VERIFY(root->property("handlerWasCalled").toBool());

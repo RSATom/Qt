@@ -26,7 +26,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""A helper class for reading in and dealing with tests expectations for layout tests."""
+"""A helper class for reading in and dealing with tests expectations for web tests."""
 
 from collections import defaultdict
 
@@ -44,7 +44,7 @@ _log = logging.getLogger(__name__)
 # FIXME: range() starts with 0 which makes if expectation checks harder
 # as PASS is 0.
 (PASS, FAIL, TEXT, IMAGE, IMAGE_PLUS_TEXT, AUDIO, TIMEOUT, CRASH, LEAK, SKIP, WONTFIX,
- SLOW, REBASELINE, NEEDS_REBASELINE_UNUSED, NEEDS_MANUAL_REBASELINE, MISSING, FLAKY, NOW, NONE) = range(19)
+ SLOW, MISSING, FLAKY, NOW, NONE) = range(16)
 
 WEBKIT_BUG_PREFIX = 'webkit.org/b/'
 CHROMIUM_BUG_PREFIX = 'crbug.com/'
@@ -68,12 +68,29 @@ class ParseError(Exception):
         return 'ParseError(warnings=%s)' % self.warnings
 
 
+_PLATFORM_TOKENS_LIST = [
+    'Android',
+    'Fuchsia',
+    'Linux',
+    'Mac', 'Mac10.10', 'Mac10.11', 'Retina', 'Mac10.12', 'Mac10.13',
+    'Win', 'Win7', 'Win10'
+]
+
+_BUILD_TYPE_TOKEN_LIST = [
+    'Release',
+    'Debug',
+]
+
+_SPECIFIER_GROUPS = [
+    set(s.upper() for s in _PLATFORM_TOKENS_LIST),
+    set(s.upper() for s in _BUILD_TYPE_TOKEN_LIST)
+]
+
 class TestExpectationParser(object):
     """Provides parsing facilities for lines in the test_expectation.txt file."""
 
     # FIXME: Rename these to *_KEYWORD as in MISSING_KEYWORD above, but make
     # the case studdly-caps to match the actual file contents.
-    REBASELINE_MODIFIER = 'rebaseline'
     PASS_EXPECTATION = 'pass'
     SKIP_MODIFIER = 'skip'
     SLOW_MODIFIER = 'slow'
@@ -103,7 +120,23 @@ class TestExpectationParser(object):
             test_expectation = TestExpectationLine.tokenize_line(filename, line, line_number)
             self._parse_line(test_expectation)
             expectation_lines.append(test_expectation)
+
+        if self._is_lint_mode:
+            self._validate_specifiers(expectation_lines)
         return expectation_lines
+
+    def _validate_specifiers(self, expectation_lines):
+        errors = []
+        for el in expectation_lines:
+            for s in _SPECIFIER_GROUPS:
+                if len(s.intersection(el.specifiers)) > 2:
+                    errors.append('Expectation line contain more than one exclusive '
+                                  'specifiers: %s (%s:%s). Please split this test '
+                                  'expectation into multiple lines, each has one specifier.' % (
+                        el.original_string, el.filename, el.line_numbers))
+                    break
+        if errors:
+            raise ParseError(errors)
 
     def _create_expectation_line(self, test_name, expectations, file_name):
         expectation_line = TestExpectationLine()
@@ -160,12 +193,7 @@ class TestExpectationParser(object):
         expectations = [expectation.lower() for expectation in expectation_line.expectations]
         if not expectation_line.bugs and self.WONTFIX_MODIFIER not in expectations:
             expectation_line.warnings.append(self.MISSING_BUG_WARNING)
-        if self.REBASELINE_MODIFIER in expectations:
-            expectation_line.warnings.append('REBASELINE should only be used for running rebaseline.py. Cannot be checked in.')
-
         specifiers = [specifier.lower() for specifier in expectation_line.specifiers]
-        if self.REBASELINE_MODIFIER in expectations and ('debug' in specifiers or 'release' in specifiers):
-            expectation_line.warnings.append('A test cannot be rebaselined for Debug/Release.')
 
     def _parse_expectations(self, expectation_line):
         result = set()
@@ -184,7 +212,7 @@ class TestExpectationParser(object):
         if not self._port.test_exists(expectation_line.name) and not self._port.test_exists(expectation_line.name + '-disabled'):
             # Log a warning here since you hit this case any
             # time you update TestExpectations without syncing
-            # the LayoutTests directory
+            # the web_tests directory
             expectation_line.warnings.append('Path does not exist.')
             return False
         return True
@@ -275,16 +303,7 @@ class TestExpectationLine(object):
         return not self.original_string.strip()
 
     # FIXME: Update the original specifiers and remove this once the old syntax is gone.
-    _configuration_tokens_list = [
-        'Android',
-        'Fuchsia',
-        'Linux',
-        'Mac', 'Mac10.10', 'Mac10.11', 'Retina', 'Mac10.12', 'Mac10.13',
-        'Win', 'Win7', 'Win10',
-
-        'Release',
-        'Debug',
-    ]
+    _configuration_tokens_list = _PLATFORM_TOKENS_LIST + _BUILD_TYPE_TOKEN_LIST
 
     _configuration_tokens = dict((token, token.upper()) for token in _configuration_tokens_list)
     _inverted_configuration_tokens = dict((value, name) for name, value in _configuration_tokens.iteritems())
@@ -296,7 +315,6 @@ class TestExpectationLine(object):
         'Failure': 'FAIL',
         MISSING_KEYWORD: 'MISSING',
         'Pass': 'PASS',
-        'Rebaseline': 'REBASELINE',
         'Skip': 'SKIP',
         'Slow': 'SLOW',
         'Timeout': 'TIMEOUT',
@@ -714,7 +732,7 @@ class TestExpectationsModel(object):
         return ' '.join(retval)
 
     def remove_expectation_line(self, test):
-        if not self.has_test(test.name):
+        if not self.has_test(test):
             return
         self._clear_expectations_for_test(test)
         del self._test_to_expectation_line[test]
@@ -862,21 +880,21 @@ class TestExpectationsModel(object):
 
 class TestExpectations(object):
     """Test expectations consist of lines with specifications of what
-    to expect from layout test cases. The test cases can be directories
+    to expect from web test cases. The test cases can be directories
     in which case the expectations apply to all test cases in that
     directory and any subdirectory. The format is along the lines of:
 
-      LayoutTests/fast/js/fixme.js [ Failure ]
-      LayoutTests/fast/js/flaky.js [ Failure Pass ]
-      LayoutTests/fast/js/crash.js [ Crash Failure Pass Timeout ]
+      fast/js/fixme.js [ Failure ]
+      fast/js/flaky.js [ Failure Pass ]
+      fast/js/crash.js [ Crash Failure Pass Timeout ]
       ...
 
     To add specifiers:
-      LayoutTests/fast/js/no-good.js
-      [ Debug ] LayoutTests/fast/js/no-good.js [ Pass Timeout ]
-      [ Debug ] LayoutTests/fast/js/no-good.js [ Pass Skip Timeout ]
-      [ Linux Debug ] LayoutTests/fast/js/no-good.js [ Pass Skip Timeout ]
-      [ Linux Win ] LayoutTests/fast/js/no-good.js [ Pass Skip Timeout ]
+      fast/js/no-good.js
+      [ Debug ] fast/js/no-good.js [ Pass Timeout ]
+      [ Debug ] fast/js/no-good.js [ Pass Skip Timeout ]
+      [ Linux Debug ] fast/js/no-good.js [ Pass Skip Timeout ]
+      [ Linux Win ] fast/js/no-good.js [ Pass Skip Timeout ]
 
     Skip: Doesn't run the test.
     Slow: The test takes a long time to run, but does not timeout indefinitely.
@@ -904,7 +922,6 @@ class TestExpectations(object):
         TestExpectationParser.SKIP_MODIFIER: SKIP,
         TestExpectationParser.WONTFIX_MODIFIER: WONTFIX,
         TestExpectationParser.SLOW_MODIFIER: SLOW,
-        TestExpectationParser.REBASELINE_MODIFIER: REBASELINE,
     }
 
     EXPECTATIONS_TO_STRING = {k: v.upper() for (v, k) in EXPECTATIONS.iteritems()}
@@ -923,8 +940,6 @@ class TestExpectations(object):
         TIMEOUT: 'timeouts',
         MISSING: 'missing results',
     }
-
-    NON_TEST_OUTCOME_EXPECTATIONS = (REBASELINE, SKIP, SLOW, WONTFIX)
 
     BUILD_TYPES = ('debug', 'release')
 
@@ -955,40 +970,28 @@ class TestExpectations(object):
             raise ValueError(expectation)
 
     @staticmethod
-    def result_was_expected(result, expected_results, test_needs_rebaselining):
+    def result_was_expected(result, expected_results):
         """Returns whether we got a result we were expecting.
         Args:
             result: actual result of a test execution
             expected_results: set of results listed in test_expectations
-            test_needs_rebaselining: whether test was marked as REBASELINE
         """
-        if not set(expected_results) - set(TestExpectations.NON_TEST_OUTCOME_EXPECTATIONS):
-            expected_results = set([PASS])
+        local_expected = set(expected_results)
+        if WONTFIX in local_expected:
+            # WontFix should be treated as if we expected a Skip.
+            local_expected.add(SKIP)
 
-        if result in expected_results:
+        # Make sure we have at least one result type that may actually happen.
+        local_expected.discard(WONTFIX)
+        local_expected.discard(SLOW)
+        if not local_expected:
+            local_expected = {PASS}
+
+        if result in local_expected:
             return True
-        if result in (PASS, TEXT, IMAGE, IMAGE_PLUS_TEXT, AUDIO, MISSING) and NEEDS_MANUAL_REBASELINE in expected_results:
-            return True
-        if result in (TEXT, IMAGE, IMAGE_PLUS_TEXT, AUDIO) and FAIL in expected_results:
-            return True
-        if result == MISSING and test_needs_rebaselining:
-            return True
-        if result == SKIP:
+        if result in (TEXT, IMAGE, IMAGE_PLUS_TEXT, AUDIO) and FAIL in local_expected:
             return True
         return False
-
-    @staticmethod
-    def remove_pixel_failures(expected_results):
-        """Returns a copy of the expected results for a test, except that we
-        drop any pixel failures and return the remaining expectations. For example,
-        if we're not running pixel tests, then tests expected to fail as IMAGE
-        will PASS.
-        """
-        expected_results = expected_results.copy()
-        if IMAGE in expected_results:
-            expected_results.remove(IMAGE)
-            expected_results.add(PASS)
-        return expected_results
 
     @staticmethod
     def remove_non_sanitizer_failures(expected_results):
@@ -1014,7 +1017,7 @@ class TestExpectations(object):
         return set(suffixes)
 
     @staticmethod
-    # test_result is an instance of blinkpy.common.net.layout_test_results.LayoutTestResult
+    # test_result is an instance of blinkpy.common.net.web_test_results.WebTestResult
     def suffixes_for_test_result(test_result):
         suffixes = set()
         actual_results = test_result.actual_results()
@@ -1085,9 +1088,6 @@ class TestExpectations(object):
     def expectations(self):
         return self._expectations
 
-    def get_rebaselining_failures(self):
-        return self._model.get_test_set(REBASELINE)
-
     # FIXME: Change the callsites to use TestExpectationsModel and remove.
     def get_expectations(self, test):
         return self._model.get_expectations(test)
@@ -1107,16 +1107,11 @@ class TestExpectations(object):
     def get_expectations_string(self, test):
         return self._model.get_expectations_string(test)
 
-    def matches_an_expected_result(self, test, result, pixel_tests_are_enabled, sanitizer_is_enabled):
+    def matches_an_expected_result(self, test, result, sanitizer_is_enabled):
         expected_results = self._model.get_expectations(test)
         if sanitizer_is_enabled:
             expected_results = self.remove_non_sanitizer_failures(expected_results)
-        elif not pixel_tests_are_enabled:
-            expected_results = self.remove_pixel_failures(expected_results)
-        return self.result_was_expected(result, expected_results, self.is_rebaselining(test))
-
-    def is_rebaselining(self, test):
-        return REBASELINE in self._model.get_expectations(test)
+        return self.result_was_expected(result, expected_results)
 
     def _shorten_filename(self, filename):
         finder = PathFinder(self._port.host.filesystem)

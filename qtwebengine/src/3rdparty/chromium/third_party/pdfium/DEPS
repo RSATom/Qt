@@ -7,35 +7,34 @@ vars = {
   # purposes.
   'checkout_configuration': 'default',
 
-  # TODO(dpranke): change to != "small" once != is supported.
-  'checkout_instrumented_libraries': 'checkout_linux and checkout_configuration == "default"',
+  'checkout_instrumented_libraries': 'checkout_linux and checkout_configuration != "small"',
 
   'chromium_git': 'https://chromium.googlesource.com',
   'pdfium_git': 'https://pdfium.googlesource.com',
 
-  'android_ndk_revision': '5cd86312e794bdf542a3685c6f10cbb96072990b',
-  'binutils_revision': 'e146228c20af6af922887d0be2d3641cbffb33c5',
-  'build_revision': '7ac293430bfc16826dc27680c6c3c60911f10759',
-  'buildtools_revision': '893eb86b02b2571894e328f05551112b96df1cce',
-  'catapult_revision': 'c61a0380486a3c952109d0024cf77dac8a05bbb5',
-  'clang_revision': 'dec27d726d78471325a143a49863846e91d39df8',
-  'code_coverage_revision': '14b8501b7d9f41826d632254a1df8bc664edeec7',
+  'android_ndk_revision': '4e2cea441bfd43f0863d14f57b1e1844260b9884',
+  'binutils_revision': '2be73f7fbf783d7a0b288e174a5773b67c7656bc',
+  'build_revision': '67630827e138177ecf803577b07b7582a115827b',
+  'buildtools_revision': '0e1cbc4eab6861b0c84bf2ed9a3c4b7aa2063819',
+  'catapult_revision': '7c1d51b169edfb62a3e2f88730f1182240cfe981',
+  'clang_revision': '2cf76f56cb0f9cb84105f00bbc742416729b905d',
+  'code_coverage_revision': '16298755a926f419babc4a11ccfeae0035f48c3f',
   'cygwin_revision': 'c89e446b273697fadf3a10ff1007a97c0b7de6df',
-  'depot_tools_revision': '5484b866dc936fd1e148385fa1575b0369eec820',
-  'freetype_revision': 'b532d7ce708cb5ca9bf88abaa2eb213ddcf9babb',
-  'gtest_revision': 'ce468a17c434e4e79724396ee1b51d86bfc8a88b',
-  'icu_revision': 'e4194dc7bbb3305d84cbb1b294274ca70d230721',
-  'instrumented_lib_revision': '323cf32193caecbf074d1a0cb5b02b905f163e0f',
+  'depot_tools_revision': 'ddbeac1c06a9c0ffa100f6f2af672af83f980fcb',
+  'freetype_revision': '1e7a8f30c231bace001c617099e78f78743dd3b4',
+  'gtest_revision': '879ac092fde0a19e1b3a61b2546b2a422b1528bc',
+  'icu_revision': '07e7295d964399ee7bee16a3ac7ca5a053b2cf0a',
+  'instrumented_lib_revision': 'a959e4f0cb643003f2d75d179cede449979e3e77',
   'jinja2_revision': '45571de473282bd1d8b63a8dfcb1fd268d0635d2',
-  'jpeg_turbo_revision': '7260e4d8b8e1e40b17f03fafdf1cd83296900f76',
+  'jpeg_turbo_revision': '61a2bbaa9aec89cb2c882d87ace6aba9aee49bb9',
   'markupsafe_revision': '8f45f5cfa0009d2a70589bcda0349b8cb2b72783',
-  'pdfium_tests_revision': '9b7ff5b879ce578f4f186ad546f45fc9fb592943',
-  'skia_revision': '588f879677d4f36e16a42dd96876534f104c2e2f',
+  'pdfium_tests_revision': '5a68e87859476eb75d3e068bd406c4921a6be8e2',
+  'skia_revision': '36b85be4944363139562664c964d6fde749babdb',
   'tools_memory_revision': 'f7b00daf4df7f6c469f5fbc68d7f40f6bd15d6e6',
   'trace_event_revision': '211b3ed9d0481b4caddbee1322321b86a483ca1f',
-  'v8_revision': '9cf8abb7ce7e3a3152fb71d0e87678e64f7ab0c8',
+  'v8_revision': '817547547ebebdb1d53edddd745bf5f1c16f525d',
   'yasm_source_revision': '720b70524a4424b15fc57e82263568c8ba0496ad',
-  'zlib_revision': '39b4a6260702da4c089eca57136abf40a39667e9',
+  'zlib_revision': 'e080c76be8c127cd977e49d64246fd98e67b35e6',
 }
 
 deps = {
@@ -107,11 +106,6 @@ deps = {
     Var('chromium_git') + "/chromium/src/tools/code_coverage.git@" +
         Var('code_coverage_revision'),
 
-  # TODO(GYP): Remove this when no tools rely on GYP anymore.
-  "tools/gyp":
-    Var('chromium_git') + '/external/gyp.git@' +
-        'eb296f67da078ec01f5e3a9ea9cdc6d26d680161',
-
   "tools/memory":
     Var('chromium_git') + "/chromium/src/tools/memory@" +
         Var('tools_memory_revision'),
@@ -125,9 +119,7 @@ deps_os = {
     "third_party/android_ndk":
       Var('chromium_git') + "/android_ndk.git@" + Var('android_ndk_revision'),
     "third_party/catapult":
-      Var('chromium_git') +
-          "/external/github.com/catapult-project/catapult.git@" +
-          Var('catapult_revision'),
+      Var('chromium_git') + '/catapult.git' + '@' + Var('catapult_revision'),
   },
   "win": {
     "v8/third_party/cygwin":
@@ -323,5 +315,12 @@ hooks = [
                 "--bucket", "chromium-instrumented-libraries",
                 "-s", "pdfium/third_party/instrumented_libraries/binaries/msan-no-origins-trusty.tgz.sha1",
               ],
+  },
+  {
+    # Update LASTCHANGE.
+    'name': 'lastchange',
+    'pattern': '.',
+    'action': ['python', 'pdfium/build/util/lastchange.py',
+               '-o', 'pdfium/build/util/LASTCHANGE'],
   },
 ]

@@ -3,8 +3,10 @@ TARGET = tst_qquickxmllistmodel
 macos:CONFIG -= app_bundle
 
 SOURCES += tst_qquickxmllistmodel.cpp \
-           ../../../../src/imports/xmllistmodel/qqmlxmllistmodel.cpp
-HEADERS +=  ../../../../src/imports/xmllistmodel/qqmlxmllistmodel_p.h
+           $$PWD/../../../src/imports/xmllistmodel/qqmlxmllistmodel.cpp
+HEADERS +=  $$PWD/../../../src/imports/xmllistmodel/qqmlxmllistmodel_p.h
+
+INCLUDEPATH *= $$PWD/../../../src/imports/xmllistmodel
 
 include (../../shared/util.pri)
 

@@ -175,7 +175,7 @@ NewFormWidget::NewFormWidget(QDesignerFormEditorInterface *core, QWidget *parent
     // Open parent, select and make visible
     if (selectedItem) {
         m_ui->treeWidget->setCurrentItem(selectedItem);
-        m_ui->treeWidget->setItemSelected(selectedItem, true);
+        selectedItem->setSelected(true);
         m_ui->treeWidget->scrollToItem(selectedItem->parent());
     }
     // Fill profile combo
@@ -465,7 +465,7 @@ void NewFormWidget::loadFrom(const QString &title, const QStringList &nameList,
 void NewFormWidget::on_treeWidget_itemPressed(QTreeWidgetItem *item)
 {
     if (item && !item->parent())
-        m_ui->treeWidget->setItemExpanded(item, !m_ui->treeWidget->isItemExpanded(item));
+        item->setExpanded(!item->isExpanded());
 }
 
 QSize NewFormWidget::templateSize() const

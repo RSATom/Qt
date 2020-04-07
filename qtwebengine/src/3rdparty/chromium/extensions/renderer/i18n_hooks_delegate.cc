@@ -4,6 +4,7 @@
 
 #include "extensions/renderer/i18n_hooks_delegate.h"
 
+#include "base/stl_util.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
 #include "extensions/common/extension.h"
@@ -77,9 +78,9 @@ RequestResult I18nHooksDelegate::HandleGetMessage(
   DCHECK(script_context->extension());
   DCHECK(parsed_arguments[0]->IsString());
   v8::Local<v8::Value> message = i18n_hooks::GetI18nMessage(
-      gin::V8ToString(parsed_arguments[0]), script_context->extension()->id(),
-      parsed_arguments[1], script_context->GetRenderFrame(),
-      script_context->v8_context());
+      gin::V8ToString(script_context->isolate(), parsed_arguments[0]),
+      script_context->extension()->id(), parsed_arguments[1],
+      script_context->GetRenderFrame(), script_context->v8_context());
 
   RequestResult result(RequestResult::HANDLED);
   result.return_value = message;
@@ -104,14 +105,15 @@ RequestResult I18nHooksDelegate::HandleDetectLanguage(
   v8::Local<v8::Context> v8_context = script_context->v8_context();
 
   v8::Local<v8::Value> detected_languages = i18n_hooks::DetectTextLanguage(
-      v8_context, gin::V8ToString(parsed_arguments[0]));
+      v8_context,
+      gin::V8ToString(script_context->isolate(), parsed_arguments[0]));
 
   // NOTE(devlin): The JS bindings make this callback asynchronous through a
   // setTimeout, but it shouldn't be necessary.
   v8::Local<v8::Value> callback_args[] = {detected_languages};
   JSRunner::Get(v8_context)
       ->RunJSFunction(parsed_arguments[1].As<v8::Function>(),
-                      script_context->v8_context(), arraysize(callback_args),
+                      script_context->v8_context(), base::size(callback_args),
                       callback_args);
 
   return RequestResult(RequestResult::HANDLED);

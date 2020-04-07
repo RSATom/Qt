@@ -68,7 +68,7 @@ qint32 main(qint32 argc, char **argv)
         return -1;
     }
 
-    QFile fid(argv[1]);
+    QFile fid(QFile::decodeName(argv[1]));
     if (!fid.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qWarning() << "Abort: Failed to open/create file" << fid.fileName();
         return -1;
@@ -79,6 +79,7 @@ qint32 main(qint32 argc, char **argv)
     fid.write("#include <QtCore/qfloat16.h>\n\n");
 
     fid.write("QT_BEGIN_NAMESPACE\n\n");
+    fid.write("#if !defined(__ARM_FP16_FORMAT_IEEE)\n\n");
 
     fid.write("const quint32 qfloat16::mantissatable[2048] = {\n");
     fid.write("0,\n");
@@ -155,6 +156,7 @@ qint32 main(qint32 argc, char **argv)
 
     fid.write("};\n\n");
 
+    fid.write("#endif // !__ARM_FP16_FORMAT_IEEE\n\n");
     fid.write("QT_END_NAMESPACE\n");
     fid.close();
     return 0;

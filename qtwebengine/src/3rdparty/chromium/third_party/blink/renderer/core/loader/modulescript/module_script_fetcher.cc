@@ -43,7 +43,7 @@ bool ModuleScriptFetcher::WasModuleLoadSuccessful(
 
   const auto& response = resource->GetResponse();
   // - response's status is not an ok status
-  if (response.IsHTTP() && !CORS::IsOkStatus(response.HttpStatusCode())) {
+  if (response.IsHTTP() && !cors::IsOkStatus(response.HttpStatusCode())) {
     return false;
   }
 
@@ -64,7 +64,8 @@ bool ModuleScriptFetcher::WasModuleLoadSuccessful(
         "HTML spec.";
     error_messages->push_back(ConsoleMessage::CreateForRequest(
         kJSMessageSource, kErrorMessageLevel, message,
-        response.Url().GetString(), nullptr, resource->Identifier()));
+        response.CurrentRequestUrl().GetString(), nullptr,
+        resource->Identifier()));
     return false;
   }
 

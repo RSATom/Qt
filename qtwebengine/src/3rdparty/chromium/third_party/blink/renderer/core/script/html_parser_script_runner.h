@@ -28,7 +28,6 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_reentry_permit.h"
 #include "third_party/blink/renderer/core/script/pending_script.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
@@ -64,8 +63,13 @@ class HTMLParserScriptRunner final
   static HTMLParserScriptRunner* Create(HTMLParserReentryPermit* reentry_permit,
                                         Document* document,
                                         HTMLParserScriptRunnerHost* host) {
-    return new HTMLParserScriptRunner(reentry_permit, document, host);
+    return MakeGarbageCollected<HTMLParserScriptRunner>(reentry_permit,
+                                                        document, host);
   }
+
+  HTMLParserScriptRunner(HTMLParserReentryPermit*,
+                         Document*,
+                         HTMLParserScriptRunnerHost*);
   ~HTMLParserScriptRunner() override;
 
   // Invoked when the parser is detached.
@@ -103,15 +107,11 @@ class HTMLParserScriptRunner final
   }
 
  private:
-  HTMLParserScriptRunner(HTMLParserReentryPermit*,
-                         Document*,
-                         HTMLParserScriptRunnerHost*);
-
   // PendingScriptClient
   void PendingScriptFinished(PendingScript*) override;
 
-  void ExecutePendingScriptAndDispatchEvent(PendingScript*,
-                                            ScriptStreamer::Type);
+  void ExecutePendingParserBlockingScriptAndDispatchEvent();
+  void ExecutePendingDeferredScriptAndDispatchEvent(PendingScript*);
   void ExecuteParsingBlockingScripts();
 
   void RequestParsingBlockingScript(ScriptLoader*);

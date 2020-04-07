@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef INCLUDED_FROM_MACRO_ASSEMBLER_H
+#error This header must be included via macro-assembler.h
+#endif
+
 #ifndef V8_ARM64_MACRO_ASSEMBLER_ARM64_H_
 #define V8_ARM64_MACRO_ASSEMBLER_ARM64_H_
 
@@ -11,7 +15,6 @@
 #include "src/bailout-reason.h"
 #include "src/base/bits.h"
 #include "src/globals.h"
-#include "src/turbo-assembler.h"
 
 // Simulator specific helpers.
 #if USE_SIMULATOR
@@ -40,30 +43,6 @@
 
 namespace v8 {
 namespace internal {
-
-// Give alias names to registers for calling conventions.
-constexpr Register kReturnRegister0 = x0;
-constexpr Register kReturnRegister1 = x1;
-constexpr Register kReturnRegister2 = x2;
-constexpr Register kJSFunctionRegister = x1;
-constexpr Register kContextRegister = cp;
-constexpr Register kAllocateSizeRegister = x1;
-constexpr Register kSpeculationPoisonRegister = x18;
-constexpr Register kInterpreterAccumulatorRegister = x0;
-constexpr Register kInterpreterBytecodeOffsetRegister = x19;
-constexpr Register kInterpreterBytecodeArrayRegister = x20;
-constexpr Register kInterpreterDispatchTableRegister = x21;
-
-constexpr Register kJavaScriptCallArgCountRegister = x0;
-constexpr Register kJavaScriptCallCodeStartRegister = x2;
-constexpr Register kJavaScriptCallTargetRegister = kJSFunctionRegister;
-constexpr Register kJavaScriptCallNewTargetRegister = x3;
-constexpr Register kJavaScriptCallExtraArg1Register = x2;
-
-constexpr Register kOffHeapTrampolineRegister = ip0;
-constexpr Register kRuntimeCallFunctionRegister = x1;
-constexpr Register kRuntimeCallArgCountRegister = x0;
-constexpr Register kWasmInstanceRegister = x7;
 
 #define LS_MACRO_LIST(V)                                     \
   V(Ldrb, Register&, rt, LDRB_w)                             \
@@ -177,34 +156,11 @@ enum PreShiftImmMode {
   kAnyShift          // Allow any pre-shift.
 };
 
-class TurboAssembler : public TurboAssemblerBase {
+class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
  public:
-  TurboAssembler(Isolate* isolate, const AssemblerOptions& options,
-                 void* buffer, int buffer_size,
-                 CodeObjectRequired create_code_object)
-      : TurboAssemblerBase(isolate, options, buffer, buffer_size,
-                           create_code_object) {}
-
-  // The Abort method should call a V8 runtime function, but the CallRuntime
-  // mechanism depends on CEntry. If use_real_aborts is false, Abort will
-  // use a simpler abort mechanism that doesn't depend on CEntry.
-  //
-  // The purpose of this is to allow Aborts to be compiled whilst CEntry is
-  // being generated.
-  bool use_real_aborts() const { return use_real_aborts_; }
-
-  class NoUseRealAbortsScope {
-   public:
-    explicit NoUseRealAbortsScope(TurboAssembler* tasm)
-        : saved_(tasm->use_real_aborts_), tasm_(tasm) {
-      tasm_->use_real_aborts_ = false;
-    }
-    ~NoUseRealAbortsScope() { tasm_->use_real_aborts_ = saved_; }
-
-   private:
-    bool saved_;
-    TurboAssembler* tasm_;
-  };
+  template <typename... Args>
+  explicit TurboAssembler(Args&&... args)
+      : TurboAssemblerBase(std::forward<Args>(args)...) {}
 
 #if DEBUG
   void set_allow_macro_instructions(bool value) {
@@ -213,13 +169,13 @@ class TurboAssembler : public TurboAssemblerBase {
   bool allow_macro_instructions() const { return allow_macro_instructions_; }
 #endif
 
-  // We should not use near calls or jumps for JS->WASM calls and calls to
-  // external references, since the code spaces are not guaranteed to be close
-  // to each other.
+  // We should not use near calls or jumps for calls to external references,
+  // since the code spaces are not guaranteed to be close to each other.
   bool CanUseNearCallOrJump(RelocInfo::Mode rmode) {
-    return rmode != RelocInfo::JS_TO_WASM_CALL &&
-           rmode != RelocInfo::EXTERNAL_REFERENCE;
+    return rmode != RelocInfo::EXTERNAL_REFERENCE;
   }
+
+  static bool IsNearCallOffset(int64_t offset);
 
   // Activation support.
   void EnterFrame(StackFrame::Type type);
@@ -233,14 +189,13 @@ class TurboAssembler : public TurboAssemblerBase {
 
   void Mov(const Register& rd, const Operand& operand,
            DiscardMoveMode discard_mode = kDontDiscardForSameWReg);
-  void Mov(const Register& rd, ExternalReference reference);
   void Mov(const Register& rd, uint64_t imm);
-  inline void Mov(const Register& rd, const Register& rm);
   void Mov(const VRegister& vd, int vd_index, const VRegister& vn,
            int vn_index) {
     DCHECK(allow_macro_instructions());
     mov(vd, vd_index, vn, vn_index);
   }
+  void Mov(const Register& rd, Smi smi);
   void Mov(const VRegister& vd, const VRegister& vn, int index) {
     DCHECK(allow_macro_instructions());
     mov(vd, vn, index);
@@ -256,9 +211,7 @@ class TurboAssembler : public TurboAssemblerBase {
 
   // This is required for compatibility with architecture independent code.
   // Remove if not needed.
-  void Move(Register dst, Register src);
-  void Move(Register dst, Handle<HeapObject> value);
-  void Move(Register dst, Smi* src);
+  void Move(Register dst, Smi src);
 
   // Register swap. Note that the register operands should be distinct.
   void Swap(Register lhs, Register rhs);
@@ -564,9 +517,6 @@ class TurboAssembler : public TurboAssemblerBase {
   inline void Isb();
   inline void Csdb();
 
-  bool AllowThisStubCall(CodeStub* stub);
-  void CallStubDelayed(CodeStub* stub);
-
   // Call a runtime routine. This expects {centry} to contain a fitting CEntry
   // builtin for the target runtime function and uses an indirect call.
   void CallRuntimeWithCEntry(Runtime::FunctionId fid, Register centry);
@@ -780,7 +730,7 @@ class TurboAssembler : public TurboAssemblerBase {
 
   // This is a convenience method for pushing a single Handle<Object>.
   inline void Push(Handle<HeapObject> object);
-  inline void Push(Smi* smi);
+  inline void Push(Smi smi);
 
   // Aliases of Push and Pop, required for V8 compatibility.
   inline void push(Register src) { Push(src); }
@@ -792,6 +742,9 @@ class TurboAssembler : public TurboAssemblerBase {
   void CallRecordWriteStub(Register object, Register address,
                            RememberedSetAction remembered_set_action,
                            SaveFPRegsMode fp_mode);
+  void CallRecordWriteStub(Register object, Register address,
+                           RememberedSetAction remembered_set_action,
+                           SaveFPRegsMode fp_mode, Address wasm_target);
 
   // Alternative forms of Push and Pop, taking a RegList or CPURegList that
   // specifies the registers that are to be pushed or popped. Higher-numbered
@@ -832,15 +785,6 @@ class TurboAssembler : public TurboAssemblerBase {
 
   void CheckPageFlagClear(const Register& object, const Register& scratch,
                           int mask, Label* if_all_clear);
-
-  // Perform necessary maintenance operations before a push or after a pop.
-  //
-  // Note that size is specified in bytes.
-  void PushPreamble(Operand total_size);
-  void PopPostamble(Operand total_size);
-
-  void PushPreamble(int count, int size);
-  void PopPostamble(int count, int size);
 
   // Test the bits of register defined by bit_pattern, and branch if ANY of
   // those bits are set. May corrupt the status flags.
@@ -897,15 +841,18 @@ class TurboAssembler : public TurboAssemblerBase {
   // Generate an indirect call (for when a direct call's range is not adequate).
   void IndirectCall(Address target, RelocInfo::Mode rmode);
 
-  void CallForDeoptimization(Address target, int deopt_id,
-                             RelocInfo::Mode rmode);
+  void CallBuiltinPointer(Register builtin_pointer) override;
 
-  // For every Call variant, there is a matching CallSize function that returns
-  // the size (in bytes) of the call sequence.
-  static int CallSize(Register target);
-  int CallSize(Address target, RelocInfo::Mode rmode);
-  int CallSize(Handle<Code> code,
-               RelocInfo::Mode rmode = RelocInfo::CODE_TARGET);
+  void LoadCodeObjectEntry(Register destination, Register code_object) override;
+  void CallCodeObject(Register code_object) override;
+  void JumpCodeObject(Register code_object) override;
+
+  // Generates an instruction sequence s.t. the return address points to the
+  // instruction following the call.
+  // The return address on the stack is used by frame iteration.
+  void StoreReturnAddressAndCall(Register target);
+
+  void CallForDeoptimization(Address target, int deopt_id);
 
   // Calls a C function.
   // The called function is not allowed to trigger a
@@ -979,6 +926,7 @@ class TurboAssembler : public TurboAssemblerBase {
   inline void Fmin(const VRegister& fd, const VRegister& fn,
                    const VRegister& fm);
   inline void Rbit(const Register& rd, const Register& rn);
+  inline void Rev(const Register& rd, const Register& rn);
 
   enum AdrHint {
     // The target must be within the immediate range of adr.
@@ -1165,7 +1113,7 @@ class TurboAssembler : public TurboAssemblerBase {
 #undef DECLARE_FUNCTION
 
   // Load an object from the root table.
-  void LoadRoot(Register destination, Heap::RootListIndex index) override;
+  void LoadRoot(Register destination, RootIndex index) override;
 
   inline void Ret(const Register& xn = lr);
 
@@ -1176,8 +1124,6 @@ class TurboAssembler : public TurboAssemblerBase {
   //
   // On successful conversion, the least significant 32 bits of the result are
   // equivalent to the ECMA-262 operation "ToInt32".
-  //
-  // Only public for the test code in test-code-stubs-arm64.cc.
   void TryConvertDoubleToInt64(Register result, DoubleRegister input,
                                Label* done);
 
@@ -1269,12 +1215,9 @@ class TurboAssembler : public TurboAssemblerBase {
   bool allow_macro_instructions_ = true;
 #endif
 
-
   // Scratch registers available for use by the MacroAssembler.
   CPURegList tmp_list_ = DefaultTmpList();
   CPURegList fptmp_list_ = DefaultFPTmpList();
-
-  bool use_real_aborts_ = true;
 
   // Helps resolve branching to labels potentially out of range.
   // If the label is not bound, it registers the information necessary to later
@@ -1297,18 +1240,19 @@ class TurboAssembler : public TurboAssemblerBase {
   void LoadStorePairMacro(const CPURegister& rt, const CPURegister& rt2,
                           const MemOperand& addr, LoadStorePairOp op);
 
-  static bool IsNearCallOffset(int64_t offset);
   void JumpHelper(int64_t offset, RelocInfo::Mode rmode, Condition cond = al);
+
+  void CallRecordWriteStub(Register object, Register address,
+                           RememberedSetAction remembered_set_action,
+                           SaveFPRegsMode fp_mode, Handle<Code> code_target,
+                           Address wasm_target);
 };
 
-class MacroAssembler : public TurboAssembler {
+class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
  public:
-  MacroAssembler(Isolate* isolate, void* buffer, int size,
-                 CodeObjectRequired create_code_object)
-      : MacroAssembler(isolate, AssemblerOptions::Default(isolate), buffer,
-                       size, create_code_object) {}
-  MacroAssembler(Isolate* isolate, const AssemblerOptions& options,
-                 void* buffer, int size, CodeObjectRequired create_code_object);
+  template <typename... Args>
+  explicit MacroAssembler(Args&&... args)
+      : TurboAssembler(std::forward<Args>(args)...) {}
 
   // Instruction set functions ------------------------------------------------
   // Logical macros.
@@ -1609,7 +1553,7 @@ class MacroAssembler : public TurboAssembler {
   // register sizes and types.
   class PushPopQueue {
    public:
-    explicit PushPopQueue(MacroAssembler* masm) : masm_(masm), size_(0) { }
+    explicit PushPopQueue(MacroAssembler* masm) : masm_(masm), size_(0) {}
 
     ~PushPopQueue() {
       DCHECK(queued_.empty());
@@ -1620,11 +1564,7 @@ class MacroAssembler : public TurboAssembler {
       queued_.push_back(rt);
     }
 
-    enum PreambleDirective {
-      WITH_PREAMBLE,
-      SKIP_PREAMBLE
-    };
-    void PushQueued(PreambleDirective preamble_directive = WITH_PREAMBLE);
+    void PushQueued();
     void PopQueued();
 
    private:
@@ -1765,9 +1705,6 @@ class MacroAssembler : public TurboAssembler {
 
   // ---- Calling / Jumping helpers ----
 
-  void CallStub(CodeStub* stub);
-  void TailCallStub(CodeStub* stub);
-
   void CallRuntime(const Runtime::Function* f,
                    int num_arguments,
                    SaveFPRegsMode save_doubles = kDontSaveFPRegs);
@@ -1866,17 +1803,13 @@ class MacroAssembler : public TurboAssembler {
   void LoadElementsKindFromMap(Register result, Register map);
 
   // Compare the object in a register to a value from the root list.
-  void CompareRoot(const Register& obj, Heap::RootListIndex index);
+  void CompareRoot(const Register& obj, RootIndex index);
 
   // Compare the object in a register to a value and jump if they are equal.
-  void JumpIfRoot(const Register& obj,
-                  Heap::RootListIndex index,
-                  Label* if_equal);
+  void JumpIfRoot(const Register& obj, RootIndex index, Label* if_equal);
 
   // Compare the object in a register to a value and jump if they are not equal.
-  void JumpIfNotRoot(const Register& obj,
-                     Heap::RootListIndex index,
-                     Label* if_not_equal);
+  void JumpIfNotRoot(const Register& obj, RootIndex index, Label* if_not_equal);
 
   // Compare the contents of a register with an operand, and branch to true,
   // false or fall through, depending on condition.
@@ -1938,9 +1871,7 @@ class MacroAssembler : public TurboAssembler {
                       const Register& scratch2);
 
   // Load the global proxy from the current context.
-  void LoadGlobalProxy(Register dst) {
-    LoadNativeContextSlot(Context::GLOBAL_PROXY_INDEX, dst);
-  }
+  void LoadGlobalProxy(Register dst);
 
   // ---------------------------------------------------------------------------
   // In-place weak references.
@@ -1989,7 +1920,7 @@ class MacroAssembler : public TurboAssembler {
   // Debugging.
 
   void AssertRegisterIsRoot(
-      Register reg, Heap::RootListIndex index,
+      Register reg, RootIndex index,
       AbortReason reason = AbortReason::kRegisterDidNotMatchExpectedRoot);
 
   // Abort if the specified register contains the invalid color bit pattern.
@@ -2063,6 +1994,8 @@ class MacroAssembler : public TurboAssembler {
   // branch isntructions with a range of +-128MB. If that becomes too little
   // (!), the mechanism can be extended to generate special veneers for really
   // far targets.
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(MacroAssembler);
 };
 
 
@@ -2070,13 +2003,13 @@ class MacroAssembler : public TurboAssembler {
 // instructions. This scope prevents the MacroAssembler from being called and
 // literal pools from being emitted. It also asserts the number of instructions
 // emitted is what you specified when creating the scope.
-class InstructionAccurateScope BASE_EMBEDDED {
+class InstructionAccurateScope {
  public:
   explicit InstructionAccurateScope(TurboAssembler* tasm, size_t count = 0)
       : tasm_(tasm)
 #ifdef DEBUG
         ,
-        size_(count * kInstructionSize)
+        size_(count * kInstrSize)
 #endif
   {
     // Before blocking the const pool, see if it needs to be emitted.

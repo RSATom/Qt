@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
+#include "base/stl_util.h"
 #include "base/sys_byteorder.h"
 #include "net/base/io_buffer.h"
 #include "net/log/net_log.h"
@@ -185,6 +186,26 @@ int SOCKSClientSocket::Read(IOBuffer* buf,
   return rv;
 }
 
+int SOCKSClientSocket::ReadIfReady(IOBuffer* buf,
+                                   int buf_len,
+                                   CompletionOnceCallback callback) {
+  DCHECK(completed_handshake_);
+  DCHECK_EQ(STATE_NONE, next_state_);
+  DCHECK(user_callback_.is_null());
+  DCHECK(!callback.is_null());
+
+  // Pass |callback| directly instead of wrapping it with OnReadWriteComplete.
+  // This is to avoid setting |was_ever_used_| unless data is actually read.
+  int rv = transport_->socket()->ReadIfReady(buf, buf_len, std::move(callback));
+  if (rv > 0)
+    was_ever_used_ = true;
+  return rv;
+}
+
+int SOCKSClientSocket::CancelReadIfReady() {
+  return transport_->socket()->CancelReadIfReady();
+}
+
 // Write is called by the transport layer. This can only be done if the
 // SOCKS handshake is complete.
 int SOCKSClientSocket::Write(
@@ -328,7 +349,7 @@ const std::string SOCKSClientSocket::BuildHandshakeWriteBuffer() const {
 
   std::string handshake_data(reinterpret_cast<char*>(&request),
                              sizeof(request));
-  handshake_data.append(kEmptyUserId, arraysize(kEmptyUserId));
+  handshake_data.append(kEmptyUserId, base::size(kEmptyUserId));
 
   return handshake_data;
 }
@@ -344,7 +365,7 @@ int SOCKSClientSocket::DoHandshakeWrite() {
 
   int handshake_buf_len = buffer_.size() - bytes_sent_;
   DCHECK_GT(handshake_buf_len, 0);
-  handshake_buf_ = new IOBuffer(handshake_buf_len);
+  handshake_buf_ = base::MakeRefCounted<IOBuffer>(handshake_buf_len);
   memcpy(handshake_buf_->data(), &buffer_[bytes_sent_],
          handshake_buf_len);
   return transport_->socket()->Write(
@@ -381,7 +402,7 @@ int SOCKSClientSocket::DoHandshakeRead() {
   }
 
   int handshake_buf_len = kReadHeaderSize - bytes_received_;
-  handshake_buf_ = new IOBuffer(handshake_buf_len);
+  handshake_buf_ = base::MakeRefCounted<IOBuffer>(handshake_buf_len);
   return transport_->socket()->Read(
       handshake_buf_.get(),
       handshake_buf_len,

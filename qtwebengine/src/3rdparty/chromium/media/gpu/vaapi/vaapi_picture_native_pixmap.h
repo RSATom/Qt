@@ -8,9 +8,11 @@
 #include <stdint.h>
 
 #include "base/memory/ref_counted.h"
+#include "media/gpu/vaapi/va_surface.h"
 #include "media/gpu/vaapi/vaapi_picture.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/gpu_memory_buffer.h"
 
 namespace gl {
 class GLImage;
@@ -22,6 +24,7 @@ class NativePixmap;
 
 namespace media {
 
+class VideoFrame;
 class VaapiWrapper;
 
 // Implementation of VaapiPicture based on NativePixmaps.
@@ -38,11 +41,13 @@ class VaapiPictureNativePixmap : public VaapiPicture {
       uint32_t texture_target);
   ~VaapiPictureNativePixmap() override;
 
+  static gfx::GpuMemoryBufferHandle CreateGpuMemoryBufferHandleFromVideoFrame(
+      const VideoFrame* const video_frame);
+
   // VaapiPicture implementation.
   bool DownloadFromSurface(const scoped_refptr<VASurface>& va_surface) override;
   bool AllowOverlay() const override;
-
-  unsigned BufferFormatToInternalFormat(gfx::BufferFormat format) const;
+  VASurfaceID va_surface_id() const override;
 
  protected:
   // Ozone buffer, the storage of the EGLImage and the VASurface.

@@ -17,7 +17,7 @@ Polymer({
       value: 0,
     },
 
-    /** @type {!Array<!Certificate>} */
+    /** @type {!Array<!CertificatesOrgGroup>} */
     personalCerts: {
       type: Array,
       value: function() {
@@ -25,7 +25,7 @@ Polymer({
       },
     },
 
-    /** @type {!Array<!Certificate>} */
+    /** @type {!Array<!CertificatesOrgGroup>} */
     serverCerts: {
       type: Array,
       value: function() {
@@ -33,7 +33,7 @@ Polymer({
       },
     },
 
-    /** @type {!Array<!Certificate>} */
+    /** @type {!Array<!CertificatesOrgGroup>} */
     caCerts: {
       type: Array,
       value: function() {
@@ -41,7 +41,7 @@ Polymer({
       },
     },
 
-    /** @type {!Array<!Certificate>} */
+    /** @type {!Array<!CertificatesOrgGroup>} */
     otherCerts: {
       type: Array,
       value: function() {
@@ -160,7 +160,8 @@ Polymer({
     });
 
     this.addEventListener('certificates-error', event => {
-      var detail = /** @type {!CertificatesErrorEventDetail} */ (event.detail);
+      const detail =
+          /** @type {!CertificatesErrorEventDetail} */ (event.detail);
       this.errorDialogModel_ = detail.error;
       this.openDialog_(
           'certificates-error-dialog', 'showErrorDialog_', detail.anchor);
@@ -184,11 +185,12 @@ Polymer({
    * @private
    */
   openDialog_: function(dialogTagName, domIfBooleanName, anchor) {
-    if (anchor)
+    if (anchor) {
       this.activeDialogAnchor_ = anchor;
+    }
     this.set(domIfBooleanName, true);
     this.async(() => {
-      var dialog = this.$$(dialogTagName);
+      const dialog = this.$$(dialogTagName);
       dialog.addEventListener('close', () => {
         this.set(domIfBooleanName, false);
         cr.ui.focusWithoutInk(assert(this.activeDialogAnchor_));

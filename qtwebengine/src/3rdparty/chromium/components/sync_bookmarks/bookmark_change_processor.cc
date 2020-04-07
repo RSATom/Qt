@@ -20,7 +20,6 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/favicon/core/favicon_service.h"
-#include "components/history/core/browser/history_service.h"
 #include "components/sync/driver/sync_client.h"
 #include "components/sync/syncable/change_record.h"
 #include "components/sync/syncable/entry.h"  // TODO(tim): Investigating bug 121587.
@@ -731,8 +730,7 @@ void BookmarkChangeProcessor::ApplyChangesFromSyncModel(
   // When we added or updated bookmarks in the previous loop, we placed them to
   // the far right position.  Now we iterate over all these modified items in
   // sync order, left to right, moving them into their proper positions.
-  for (std::multimap<int, const BookmarkNode*>::iterator it =
-       to_reposition.begin(); it != to_reposition.end(); ++it) {
+  for (auto it = to_reposition.begin(); it != to_reposition.end(); ++it) {
     const BookmarkNode* parent = it->second->parent();
     model->Move(it->second, parent, it->first);
   }
@@ -777,7 +775,7 @@ void BookmarkChangeProcessor::UpdateBookmarkWithSyncData(
         node,
         base::Time::FromInternalValue(specifics.creation_time_us()));
   }
-  SetBookmarkFavicon(&sync_node, node, model, sync_client);
+  SetBookmarkFavicon(&sync_node, node, sync_client);
   model->SetNodeMetaInfoMap(node, *GetBookmarkMetaInfo(&sync_node));
 }
 
@@ -836,7 +834,7 @@ const BookmarkNode* BookmarkChangeProcessor::CreateBookmarkNode(
         parent, index, title, url, create_time,
         GetBookmarkMetaInfo(sync_node).get());
     if (node)
-      SetBookmarkFavicon(sync_node, node, model, sync_client);
+      SetBookmarkFavicon(sync_node, node, sync_client);
   }
 
   return node;
@@ -847,7 +845,6 @@ const BookmarkNode* BookmarkChangeProcessor::CreateBookmarkNode(
 void BookmarkChangeProcessor::SetBookmarkFavicon(
     const syncer::BaseNode* sync_node,
     const BookmarkNode* bookmark_node,
-    BookmarkModel* bookmark_model,
     syncer::SyncClient* sync_client) {
   const sync_pb::BookmarkSpecifics& specifics =
       sync_node->GetBookmarkSpecifics();
@@ -894,8 +891,7 @@ void BookmarkChangeProcessor::SetSyncNodeMetaInfo(
     size_t index = 0;
     for (; index < size; index++) {
       const sync_pb::MetaInfo& meta_info = specifics.meta_info(index);
-      BookmarkNode::MetaInfoMap::const_iterator it =
-          meta_info_map->find(meta_info.key());
+      auto it = meta_info_map->find(meta_info.key());
       if (it == meta_info_map->end() || it->second != meta_info.value()) {
         // One of original meta info entries is missing in |meta_info_map| or
         // different.
@@ -912,8 +908,7 @@ void BookmarkChangeProcessor::SetSyncNodeMetaInfo(
   // Clear and reset meta info in bookmark specifics.
   specifics.clear_meta_info();
   if (meta_info_map) {
-    for (BookmarkNode::MetaInfoMap::const_iterator it = meta_info_map->begin();
-        it != meta_info_map->end(); ++it) {
+    for (auto it = meta_info_map->begin(); it != meta_info_map->end(); ++it) {
       sync_pb::MetaInfo* meta_info = specifics.add_meta_info();
       meta_info->set_key(it->first);
       meta_info->set_value(it->second);
@@ -929,16 +924,14 @@ void BookmarkChangeProcessor::ApplyBookmarkFavicon(
     syncer::SyncClient* sync_client,
     const GURL& icon_url,
     const scoped_refptr<base::RefCountedMemory>& bitmap_data) {
-  history::HistoryService* history = sync_client->GetHistoryService();
   favicon::FaviconService* favicon_service = sync_client->GetFaviconService();
 
   // Some tests (that use FakeSyncClient) use no services.
-  if (history == nullptr)
+  if (favicon_service == nullptr)
     return;
 
-  DCHECK(favicon_service);
-  history->AddPageNoVisitForBookmark(bookmark_node->url(),
-                                     bookmark_node->GetTitle());
+  favicon_service->AddPageNoVisitForBookmark(bookmark_node->url(),
+                                             bookmark_node->GetTitle());
 
   GURL icon_url_to_use = icon_url;
 

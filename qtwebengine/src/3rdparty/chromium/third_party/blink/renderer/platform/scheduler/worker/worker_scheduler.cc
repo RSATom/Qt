@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
 
-#include "third_party/blink/renderer/platform/scheduler/child/task_queue_with_task_type.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/wake_up_budget_pool.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
@@ -13,12 +12,25 @@
 namespace blink {
 namespace scheduler {
 
+WorkerScheduler::PauseHandle::PauseHandle(
+    base::WeakPtr<WorkerScheduler> scheduler)
+    : scheduler_(scheduler) {
+  scheduler_->PauseImpl();
+}
+
+WorkerScheduler::PauseHandle::~PauseHandle() {
+  if (scheduler_)
+    scheduler_->ResumeImpl();
+}
+
 WorkerScheduler::WorkerScheduler(WorkerThreadScheduler* worker_thread_scheduler,
                                  WorkerSchedulerProxy* proxy)
     : throttleable_task_queue_(
-          worker_thread_scheduler->CreateTaskRunner("worker_throttleable_tq")),
-      unthrottleable_task_queue_(worker_thread_scheduler->CreateTaskRunner(
-          "worker_unthrottleable_tq")),
+          worker_thread_scheduler->CreateTaskQueue("worker_throttleable_tq")),
+      pausable_task_queue_(
+          worker_thread_scheduler->CreateTaskQueue("worker_pausable_tq")),
+      unpausable_task_queue_(
+          worker_thread_scheduler->CreateTaskQueue("worker_unpausable_tq")),
       thread_scheduler_(worker_thread_scheduler),
       weak_factory_(this) {
   thread_scheduler_->RegisterWorkerScheduler(this);
@@ -35,9 +47,33 @@ base::WeakPtr<WorkerScheduler> WorkerScheduler::GetWeakPtr() {
 }
 
 WorkerScheduler::~WorkerScheduler() {
-#if DCHECK_IS_ON()
   DCHECK(is_disposed_);
-#endif
+  DCHECK_EQ(0u, paused_count_);
+}
+
+std::unique_ptr<WorkerScheduler::PauseHandle> WorkerScheduler::Pause() {
+  thread_scheduler_->helper()->CheckOnValidThread();
+  if (is_disposed_)
+    return nullptr;
+  return std::make_unique<PauseHandle>(GetWeakPtr());
+}
+
+void WorkerScheduler::PauseImpl() {
+  thread_scheduler_->helper()->CheckOnValidThread();
+  paused_count_++;
+  if (paused_count_ == 1) {
+    throttleable_task_queue_->SetPaused(true);
+    pausable_task_queue_->SetPaused(true);
+  }
+}
+
+void WorkerScheduler::ResumeImpl() {
+  thread_scheduler_->helper()->CheckOnValidThread();
+  paused_count_--;
+  if (paused_count_ == 0 && !is_disposed_) {
+    throttleable_task_queue_->SetPaused(false);
+    pausable_task_queue_->SetPaused(false);
+  }
 }
 
 void WorkerScheduler::SetUpThrottling() {
@@ -79,12 +115,11 @@ void WorkerScheduler::Dispose() {
 
   thread_scheduler_->UnregisterWorkerScheduler(this);
 
-  unthrottleable_task_queue_->ShutdownTaskQueue();
+  unpausable_task_queue_->ShutdownTaskQueue();
+  pausable_task_queue_->ShutdownTaskQueue();
   throttleable_task_queue_->ShutdownTaskQueue();
 
-#if DCHECK_IS_ON()
   is_disposed_ = true;
-#endif
 }
 
 scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
@@ -93,8 +128,7 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kJavascriptTimer:
     case TaskType::kPostedMessage:
     case TaskType::kWorkerAnimation:
-      return TaskQueueWithTaskType::Create(throttleable_task_queue_, type);
-    case TaskType::kDeprecatedNone:
+      return throttleable_task_queue_->CreateTaskRunner(type);
     case TaskType::kDOMManipulation:
     case TaskType::kUserInteraction:
     case TaskType::kNetworking:
@@ -116,23 +150,33 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kWebGL:
     case TaskType::kIdleTask:
     case TaskType::kMiscPlatformAPI:
+    case TaskType::kFontLoading:
+    case TaskType::kApplicationLifeCycle:
+    case TaskType::kBackgroundFetch:
+    case TaskType::kPermission:
     case TaskType::kInternalDefault:
     case TaskType::kInternalLoading:
-    case TaskType::kInternalTest:
     case TaskType::kInternalWebCrypto:
     case TaskType::kInternalIndexedDB:
     case TaskType::kInternalMedia:
     case TaskType::kInternalMediaRealTime:
-    case TaskType::kInternalIPC:
     case TaskType::kInternalUserInteraction:
-    case TaskType::kInternalInspector:
-    case TaskType::kInternalWorker:
     case TaskType::kInternalIntersectionObserver:
       // UnthrottledTaskRunner is generally discouraged in future.
       // TODO(nhiroki): Identify which tasks can be throttled / suspendable and
       // move them into other task runners. See also comments in
       // Get(LocalFrame). (https://crbug.com/670534)
-      return TaskQueueWithTaskType::Create(unthrottleable_task_queue_, type);
+      return pausable_task_queue_->CreateTaskRunner(type);
+    case TaskType::kDeprecatedNone:
+    case TaskType::kInternalIPC:
+    case TaskType::kInternalInspector:
+    case TaskType::kInternalWorker:
+    case TaskType::kInternalTest:
+      // UnthrottledTaskRunner is generally discouraged in future.
+      // TODO(nhiroki): Identify which tasks can be throttled / suspendable and
+      // move them into other task runners. See also comments in
+      // Get(LocalFrame). (https://crbug.com/670534)
+      return unpausable_task_queue_->CreateTaskRunner(type);
     case TaskType::kMainThreadTaskQueueV8:
     case TaskType::kMainThreadTaskQueueCompositor:
     case TaskType::kMainThreadTaskQueueDefault:
@@ -140,11 +184,15 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kMainThreadTaskQueueIdle:
     case TaskType::kMainThreadTaskQueueIPC:
     case TaskType::kMainThreadTaskQueueControl:
+    case TaskType::kMainThreadTaskQueueCleanup:
     case TaskType::kCompositorThreadTaskQueueDefault:
     case TaskType::kCompositorThreadTaskQueueInput:
     case TaskType::kWorkerThreadTaskQueueDefault:
     case TaskType::kWorkerThreadTaskQueueV8:
     case TaskType::kWorkerThreadTaskQueueCompositor:
+    case TaskType::kExperimentalWebSchedulingUserInteraction:
+    case TaskType::kExperimentalWebSchedulingBestEffort:
+    case TaskType::kInternalTranslation:
     case TaskType::kCount:
       NOTREACHED();
       break;
@@ -171,13 +219,15 @@ void WorkerScheduler::OnLifecycleStateChanged(
   NotifyLifecycleObservers();
 }
 
-scoped_refptr<base::sequence_manager::TaskQueue>
-WorkerScheduler::UnthrottleableTaskQueue() {
-  return unthrottleable_task_queue_.get();
+scoped_refptr<NonMainThreadTaskQueue> WorkerScheduler::UnpausableTaskQueue() {
+  return unpausable_task_queue_.get();
 }
 
-scoped_refptr<base::sequence_manager::TaskQueue>
-WorkerScheduler::ThrottleableTaskQueue() {
+scoped_refptr<NonMainThreadTaskQueue> WorkerScheduler::PausableTaskQueue() {
+  return pausable_task_queue_.get();
+}
+
+scoped_refptr<NonMainThreadTaskQueue> WorkerScheduler::ThrottleableTaskQueue() {
   return throttleable_task_queue_.get();
 }
 

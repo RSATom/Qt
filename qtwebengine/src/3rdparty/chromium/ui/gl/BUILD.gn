@@ -4,19 +4,20 @@
 
 import("//build/buildflag_header.gni")
 import("//build/config/chrome_build.gni")
+import("//build/config/jumbo.gni")
 import("//build/config/linux/pkg_config.gni")
 import("//build/config/ui.gni")
+import("//testing/test.gni")
 import("//ui/gl/features.gni")
 import("//ui/ozone/ozone.gni")
-import("//testing/test.gni")
 
 if (is_android) {
   import("//build/config/android/config.gni")
   import("//build/config/android/rules.gni")
 }
 
-buildflag_header("gl_features") {
-  header = "gl_features.h"
+buildflag_header("buildflags") {
+  header = "buildflags.h"
   use_egl_on_mac = use_egl && is_mac
   flags = [
     "ENABLE_SWIFTSHADER=$enable_swiftshader",
@@ -38,10 +39,12 @@ config("gl_config") {
   }
 }
 
-component("gl") {
+jumbo_component("gl") {
   output_name = "gl_wrapper"  # Avoid colliding with OS X"s libGL.dylib.
 
   sources = [
+    "android/android_surface_control_compat.cc",
+    "android/android_surface_control_compat.h",
     "android/scoped_java_surface.cc",
     "android/scoped_java_surface.h",
     "android/surface_texture.cc",
@@ -52,16 +55,13 @@ component("gl") {
     "ca_renderer_layer_params.h",
     "dc_renderer_layer_params.cc",
     "dc_renderer_layer_params.h",
+    "egl_timestamps.h",
     "gl_bindings.cc",
     "gl_bindings.h",
     "gl_bindings_autogen_gl.cc",
     "gl_bindings_autogen_gl.h",
-    "gl_bindings_autogen_osmesa.cc",
-    "gl_bindings_autogen_osmesa.h",
     "gl_context.cc",
     "gl_context.h",
-    "gl_context_osmesa.cc",
-    "gl_context_osmesa.h",
     "gl_context_stub.cc",
     "gl_context_stub.h",
     "gl_enums.cc",
@@ -90,8 +90,6 @@ component("gl") {
     "gl_image_stub.h",
     "gl_implementation.cc",
     "gl_implementation.h",
-    "gl_osmesa_api_implementation.cc",
-    "gl_osmesa_api_implementation.h",
     "gl_share_group.cc",
     "gl_share_group.h",
     "gl_state_restorer.cc",
@@ -105,8 +103,6 @@ component("gl") {
     "gl_surface.h",
     "gl_surface_format.cc",
     "gl_surface_format.h",
-    "gl_surface_osmesa.cc",
-    "gl_surface_osmesa.h",
     "gl_surface_overlay.cc",
     "gl_surface_overlay.h",
     "gl_surface_presentation_helper.cc",
@@ -124,6 +120,7 @@ component("gl") {
     "gpu_switching_manager.h",
     "gpu_timing.cc",
     "gpu_timing.h",
+    "progress_reporter.h",
     "scoped_binders.cc",
     "scoped_binders.h",
     "scoped_make_current.cc",
@@ -136,15 +133,18 @@ component("gl") {
 
   configs += [ "//build/config:precompiled_headers" ]
   defines = [ "GL_IMPLEMENTATION" ]
+  if (enable_gpu_service_logging) {
+    defines += [ "GPU_ENABLE_SERVICE_LOGGING" ]
+  }
 
-  include_dirs = [ "//third_party/mesa/src/include" ]
+  include_dirs = [ "//third_party/mesa_headers" ]
 
   all_dependent_configs = [ ":gl_config" ]
 
   public_configs = [ "//third_party/khronos:khronos_headers" ]
 
   deps = [
-    ":gl_features",
+    ":buildflags",
     "//base/third_party/dynamic_annotations",
 
     # ANGLE includes are used cross-platform.
@@ -152,7 +152,7 @@ component("gl") {
   ]
   public_deps = [
     "//base",
-    "//third_party/mesa:mesa_headers",
+    "//third_party/mesa_headers",
     "//ui/events/platform",
     "//ui/gfx",
     "//ui/gfx/geometry",
@@ -193,11 +193,9 @@ component("gl") {
       sources += [
         "gl_image_ahardwarebuffer.cc",
         "gl_image_ahardwarebuffer.h",
+        "gl_surface_egl_surface_control.cc",
+        "gl_surface_egl_surface_control.h",
       ]
-
-      if (use_static_angle) {
-        deps += [ "//third_party/angle:libEGL_static" ]
-      }
     }
 
     if (is_posix && !is_fuchsia && !is_mac) {
@@ -221,21 +219,12 @@ component("gl") {
     ]
   }
 
-  # TODO(camurcu): Windows/Ozone uses OSMesa for now. Will be updated.
-  if (is_android || is_linux || is_fuchsia || (is_win && use_ozone)) {
-    sources += [
-      "gl_implementation_osmesa.cc",
-      "gl_implementation_osmesa.h",
-    ]
-  }
   if (use_x11) {
     sources += [
       "gl_surface_egl_x11.cc",
       "gl_surface_egl_x11.h",
       "gl_surface_glx_x11.cc",
       "gl_surface_glx_x11.h",
-      "gl_surface_osmesa_x11.cc",
-      "gl_surface_osmesa_x11.h",
     ]
 
     deps += [ "//ui/base/x" ]
@@ -256,11 +245,16 @@ component("gl") {
       "gl_glx_api_implementation.h",
       "gl_image_glx.cc",
       "gl_image_glx.h",
-      "gl_surface_glx.cc",
-      "gl_surface_glx.h",
       "gl_visual_picker_glx.cc",
       "gl_visual_picker_glx.h",
     ]
+
+    if (!use_qt) {
+      sources += [
+        "gl_surface_glx.cc",
+        "gl_surface_glx.h",
+      ]
+    }
 
     configs += [
       "//build/config/linux:x11",
@@ -280,8 +274,6 @@ component("gl") {
       "gl_context_wgl.h",
       "gl_image_dxgi.cc",
       "gl_image_dxgi.h",
-      "gl_surface_osmesa_win.cc",
-      "gl_surface_osmesa_win.h",
       "gl_surface_wgl.cc",
       "gl_surface_wgl.h",
       "gl_wgl_api_implementation.cc",
@@ -297,7 +289,6 @@ component("gl") {
     data_deps += [
       "//third_party/angle:libEGL",
       "//third_party/angle:libGLESv2",
-      "//third_party/mesa:osmesa",
     ]
     if (enable_swiftshader) {
       data_deps += [ "//third_party/swiftshader" ]
@@ -331,8 +322,11 @@ component("gl") {
       data_deps += [
         "//third_party/angle:libEGL",
         "//third_party/angle:libGLESv2",
-        "//third_party/swiftshader",
+        "//third_party/mesa_headers",
       ]
+      if (enable_swiftshader) {
+        data_deps += [ "//third_party/swiftshader" ]
+      }
     }
   }
   if (is_android) {
@@ -358,11 +352,6 @@ component("gl") {
         "//third_party/angle:libGLESv2",
       ]
     }
-    if (is_win) {
-      data_deps -= [
-        "//third_party/mesa:osmesa",
-      ]
-    }
     if (is_linux || is_win) {
       sources -= [
         "gl_surface_egl.cc",
@@ -373,8 +362,6 @@ component("gl") {
       sources -= [
         "gl_surface_egl_x11.cc",
         "gl_surface_egl_x11.h",
-        "gl_surface_glx.cc",
-        "gl_surface_glx.h",
       ]
     }
   }
@@ -400,22 +387,24 @@ if (is_mac && use_egl) {
     ]
   }
 
-  copy("swiftshader_library_copy") {
-    sources = [
-      "$root_out_dir/libswiftshader_libEGL.dylib",
-      "$root_out_dir/libswiftshader_libGLESv2.dylib",
-    ]
-    outputs = [
-      "$root_out_dir/egl_intermediates/{{source_file_part}}",
-    ]
-    deps = [
-      "//third_party/swiftshader/src/OpenGL/libEGL:swiftshader_libEGL",
-      "//third_party/swiftshader/src/OpenGL/libGLESv2:swiftshader_libGLESv2",
-    ]
+  if (enable_swiftshader) {
+    copy("swiftshader_library_copy") {
+      sources = [
+        "$root_out_dir/libswiftshader_libEGL.dylib",
+        "$root_out_dir/libswiftshader_libGLESv2.dylib",
+      ]
+      outputs = [
+        "$root_out_dir/egl_intermediates/{{source_file_part}}",
+      ]
+      deps = [
+        "//third_party/swiftshader/src/OpenGL/libEGL:swiftshader_libEGL",
+        "//third_party/swiftshader/src/OpenGL/libGLESv2:swiftshader_libGLESv2",
+      ]
+    }
   }
 }
 
-static_library("gl_unittest_utils") {
+jumbo_static_library("gl_unittest_utils") {
   testonly = true
   sources = [
     "egl_bindings_autogen_mock.cc",
@@ -441,7 +430,7 @@ static_library("gl_unittest_utils") {
   ]
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "test/gl_image_test_support.cc",
@@ -495,6 +484,7 @@ source_set("run_all_unittests") {
     deps += [
       "//mojo/core/embedder",
       "//services/service_manager/public/cpp/test:test_support",
+      "//services/ws/public/mojom:constants",
       "//ui/ozone",
     ]
   }
@@ -564,7 +554,7 @@ test("gl_unittests") {
   ]
 
   data_deps = [
-    "//third_party/mesa:osmesa",
+    "//third_party/mesa_headers",
   ]
 
   if (use_x11) {

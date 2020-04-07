@@ -33,6 +33,8 @@ class StatelessRejector {
                     QuicByteCount chlo_packet_size,
                     const QuicSocketAddress& client_address,
                     const QuicSocketAddress& server_address);
+  StatelessRejector(const StatelessRejector&) = delete;
+  StatelessRejector& operator=(const StatelessRejector&) = delete;
 
   ~StatelessRejector();
 
@@ -53,6 +55,9 @@ class StatelessRejector {
   // made.
   static void Process(std::unique_ptr<StatelessRejector> rejector,
                       std::unique_ptr<ProcessDoneCallback> done_cb);
+
+  // Return the version of the CHLO.
+  ParsedQuicVersion version() const { return version_; }
 
   // Returns the state of the rejector after OnChlo() has been called.
   State state() const { return state_; }
@@ -110,8 +115,6 @@ class StatelessRejector {
   CryptoFramer crypto_framer_;
   QuicReferenceCountedPointer<QuicSignedServerConfig> signed_config_;
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters> params_;
-
-  DISALLOW_COPY_AND_ASSIGN(StatelessRejector);
 };
 
 }  // namespace quic

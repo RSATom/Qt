@@ -14,10 +14,6 @@
 #include "services/resource_coordinator/public/cpp/coordination_unit_id.h"
 #include "services/resource_coordinator/public/cpp/coordination_unit_types.h"
 
-namespace service_manager {
-class ServiceContextRef;
-}
-
 namespace resource_coordinator {
 
 MockSinglePageInSingleProcessCoordinationUnitGraph::
@@ -31,8 +27,10 @@ MockSinglePageInSingleProcessCoordinationUnitGraph::
           graph)),
       page(TestCoordinationUnitWrapper<PageCoordinationUnitImpl>::Create(
           graph)) {
+  frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
   page->AddFrame(frame->id());
-  process->AddFrame(frame->id());
+  frame->SetProcess(process->id());
   process->SetPID(1);
 }
 
@@ -48,8 +46,10 @@ MockMultiplePagesInSingleProcessCoordinationUnitGraph::
               graph)),
       other_page(TestCoordinationUnitWrapper<PageCoordinationUnitImpl>::Create(
           graph)) {
+  other_frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
   other_page->AddFrame(other_frame->id());
-  process->AddFrame(other_frame->id());
+  other_frame->SetProcess(process->id());
 }
 
 MockMultiplePagesInSingleProcessCoordinationUnitGraph::
@@ -65,9 +65,11 @@ MockSinglePageWithMultipleProcessesCoordinationUnitGraph::
       other_process(
           TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl>::Create(
               graph)) {
+  child_frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
   frame->AddChildFrame(child_frame->id());
   page->AddFrame(child_frame->id());
-  other_process->AddFrame(child_frame->id());
+  child_frame->SetProcess(other_process->id());
   other_process->SetPID(2);
 }
 
@@ -84,9 +86,11 @@ MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph::
       other_process(
           TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl>::Create(
               graph)) {
+  child_frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
   other_frame->AddChildFrame(child_frame->id());
   other_page->AddFrame(child_frame->id());
-  other_process->AddFrame(child_frame->id());
+  child_frame->SetProcess(other_process->id());
   other_process->SetPID(2);
 }
 

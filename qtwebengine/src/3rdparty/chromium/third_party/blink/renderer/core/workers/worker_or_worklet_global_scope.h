@@ -9,6 +9,7 @@
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
@@ -16,16 +17,20 @@
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/workers/worker_clients.h"
+#include "third_party/blink/renderer/core/workers/worker_navigator.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/bit_vector.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
+class FetchClientSettingsObject;
 class FetchClientSettingsObjectSnapshot;
 class Modulator;
 class ModuleTreeClient;
 class ResourceFetcher;
-class V8AbstractEventListener;
+class SubresourceFilter;
+class WebWorkerFetchContext;
 class WorkerOrWorkletScriptController;
 class WorkerReportingProxy;
 class WorkerThread;
@@ -39,6 +44,7 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   WorkerOrWorkletGlobalScope(v8::Isolate*,
                              WorkerClients*,
+                             scoped_refptr<WebWorkerFetchContext>,
                              WorkerReportingProxy&);
   ~WorkerOrWorkletGlobalScope() override;
 
@@ -73,9 +79,6 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   // sub-classes to perform any cleanup needed.
   virtual void Dispose();
 
-  void RegisterEventListener(V8AbstractEventListener*);
-  void DeregisterEventListener(V8AbstractEventListener*);
-
   void SetModulator(Modulator*);
 
   // Called from UseCounter to record API use in this execution context.
@@ -86,11 +89,25 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   void CountDeprecation(WebFeature);
 
   // May return nullptr if this global scope is not threaded (i.e.,
-  // MainThreadWorkletGlobalScope) or after dispose() is called.
+  // WorkletGlobalScope for the main thread) or after Dispose() is called.
   virtual WorkerThread* GetThread() const = 0;
+
+  // Returns nullptr if this global scope is a WorkletGlobalScope
+  virtual WorkerNavigator* navigator() const { return nullptr; }
 
   ResourceFetcher* Fetcher() const override;
   ResourceFetcher* EnsureFetcher();
+
+  // ResourceFetcher for off-the-main-thread worker top-level script fetching,
+  // corresponding to "outside" fetch client's settings object.
+  // CreateOutsideSettingsFetcher() is called for each invocation of top-level
+  // script fetch, which can occur multiple times in worklets.
+  // TODO(hiroshige, nhiroki): Currently this outside ResourceFetcher and its
+  // WorkerFetchContext is mostly the copy of the insideSettings
+  // ResourceFetcher, and have dependencies to WorkerOrWorkletGlobalScope. Plumb
+  // more data to the outside ResourceFetcher to fix the behavior and reduce the
+  // dependencies.
+  ResourceFetcher* CreateOutsideSettingsFetcher(FetchClientSettingsObject*);
 
   WorkerClients* Clients() const { return worker_clients_.Get(); }
 
@@ -113,19 +130,48 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   void FetchModuleScript(
       const KURL& module_url_record,
       FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-      WebURLRequest::RequestContext destination,
+      mojom::RequestContextType destination,
       network::mojom::FetchCredentialsMode,
       ModuleScriptCustomFetchType,
       ModuleTreeClient*);
 
+  void TasksWerePaused() override;
+  void TasksWereUnpaused() override;
+
+  virtual mojom::RequestContextType GetDestinationForMainScript() = 0;
+
  private:
+  void InitializeWebFetchContextIfNeeded();
+  ResourceFetcher* CreateFetcherInternal(FetchClientSettingsObject*);
+
+  bool web_fetch_context_initialized_ = false;
+
   CrossThreadPersistent<WorkerClients> worker_clients_;
-  Member<ResourceFetcher> resource_fetcher_;
+
+  Member<ResourceFetcher> inside_settings_resource_fetcher_;
+
+  // Keeps track of all ResourceFetchers (including
+  // |inside_settings_resource_fetcher_|) for disposing and pausing/unpausing.
+  HeapHashSet<WeakMember<ResourceFetcher>> resource_fetchers_;
+
+  // A WorkerOrWorkletGlobalScope has one WebWorkerFetchContext and one
+  // corresponding SubresourceFilter, which are shared by all
+  // WorkerFetchContexts of |this| global scope, i.e. those behind
+  // ResourceFetchers created by EnsureFetcher() and
+  // CreateOutsideSettingsFetcher().
+  // As all references to |web_worker_fetch_context_| are on the context
+  // thread, |web_worker_fetch_context_| is destructed on the context
+  // thread.
+  //
+  // TODO(crbug/903579): Consider putting WebWorkerFetchContext-originated
+  // things at a single place. Currently they are placed here and subclasses of
+  // WebWorkerFetchContext.
+  scoped_refptr<WebWorkerFetchContext> web_worker_fetch_context_;
+  Member<SubresourceFilter> subresource_filter_;
+
   Member<WorkerOrWorkletScriptController> script_controller_;
 
   WorkerReportingProxy& reporting_proxy_;
-
-  HeapHashSet<Member<V8AbstractEventListener>> event_listeners_;
 
   // This is the set of features that this worker has used.
   BitVector used_features_;
@@ -135,12 +181,12 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   TraceWrapperMember<Modulator> modulator_;
 };
 
-DEFINE_TYPE_CASTS(
-    WorkerOrWorkletGlobalScope,
-    ExecutionContext,
-    context,
-    (context->IsWorkerGlobalScope() || context->IsWorkletGlobalScope()),
-    (context.IsWorkerGlobalScope() || context.IsWorkletGlobalScope()));
+template <>
+struct DowncastTraits<WorkerOrWorkletGlobalScope> {
+  static bool AllowFrom(const ExecutionContext& context) {
+    return context.IsWorkerGlobalScope() || context.IsWorkletGlobalScope();
+  }
+};
 
 }  // namespace blink
 

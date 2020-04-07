@@ -5,6 +5,7 @@
 #include "content/common/input/synthetic_web_input_event_builders.h"
 
 #include "base/logging.h"
+#include "content/common/input/web_mouse_wheel_event_traits.h"
 #include "content/common/input/web_touch_event_traits.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
@@ -47,26 +48,31 @@ WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(
   WebMouseWheelEvent result(WebInputEvent::kMouseWheel,
                             WebInputEvent::kNoModifiers, ui::EventTimeForNow());
   result.phase = phase;
+  result.event_action = WebMouseWheelEventTraits::GetEventAction(result);
   return result;
 }
 
-WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(float x,
-                                                             float y,
-                                                             float dx,
-                                                             float dy,
-                                                             int modifiers,
-                                                             bool precise) {
-  return Build(x, y, 0, 0, dx, dy, modifiers, precise);
+WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(
+    float x,
+    float y,
+    float dx,
+    float dy,
+    int modifiers,
+    bool precise,
+    bool scroll_by_page) {
+  return Build(x, y, 0, 0, dx, dy, modifiers, precise, scroll_by_page);
 }
 
-WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(float x,
-                                                             float y,
-                                                             float global_x,
-                                                             float global_y,
-                                                             float dx,
-                                                             float dy,
-                                                             int modifiers,
-                                                             bool precise) {
+WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(
+    float x,
+    float y,
+    float global_x,
+    float global_y,
+    float dx,
+    float dy,
+    int modifiers,
+    bool precise,
+    bool scroll_by_page) {
   WebMouseWheelEvent result(WebInputEvent::kMouseWheel, modifiers,
                             ui::EventTimeForNow());
   result.SetPositionInScreen(global_x, global_y);
@@ -78,6 +84,8 @@ WebMouseWheelEvent SyntheticWebMouseWheelEventBuilder::Build(float x,
   if (dy)
     result.wheel_ticks_y = dy > 0.0f ? 1.0f : -1.0f;
   result.has_precise_scrolling_deltas = precise;
+  result.scroll_by_page = scroll_by_page;
+  result.event_action = WebMouseWheelEventTraits::GetEventAction(result);
   return result;
 }
 
@@ -102,10 +110,10 @@ WebGestureEvent SyntheticWebGestureEventBuilder::Build(
     result.data.tap.tap_count = 1;
     result.data.tap.width = 10;
     result.data.tap.height = 10;
-  } else if (WebInputEvent::IsPinchGestureEventType(type)) {
-    result.SetNeedsWheelEvent(source_device ==
-                              blink::kWebGestureDeviceTouchpad);
   }
+
+  result.SetNeedsWheelEvent(result.IsTouchpadZoomEvent());
+
   return result;
 }
 
@@ -162,6 +170,7 @@ WebGestureEvent SyntheticWebGestureEventBuilder::BuildFling(
 SyntheticWebTouchEvent::SyntheticWebTouchEvent() : WebTouchEvent() {
   unique_touch_event_id = ui::GetNextTouchEventId();
   SetTimestamp(ui::EventTimeForNow());
+  pointer_id_ = 0;
 }
 
 void SyntheticWebTouchEvent::ResetPoints() {
@@ -198,7 +207,7 @@ int SyntheticWebTouchEvent::PressPoint(float x, float y) {
   if (index == -1)
     return -1;
   WebTouchPoint& point = touches[index];
-  point.id = index;
+  point.id = pointer_id_++;
   point.SetPositionInWidget(x, y);
   point.SetPositionInScreen(x, y);
   point.state = WebTouchPoint::kStatePressed;
@@ -210,7 +219,7 @@ int SyntheticWebTouchEvent::PressPoint(float x, float y) {
   point.pointer_type = blink::WebPointerProperties::PointerType::kTouch;
   ++touches_length;
   WebTouchEventTraits::ResetType(WebInputEvent::kTouchStart, TimeStamp(), this);
-  return point.id;
+  return index;
 }
 
 void SyntheticWebTouchEvent::MovePoint(int index, float x, float y) {

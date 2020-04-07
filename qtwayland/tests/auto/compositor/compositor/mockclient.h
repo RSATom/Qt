@@ -26,14 +26,16 @@
 **
 ****************************************************************************/
 
-#include <wayland-client.h>
-#include <qwayland-xdg-shell-unstable-v5.h>
+#include "wayland-wayland-client-protocol.h"
+#include <qwayland-xdg-shell.h>
 #include <wayland-ivi-application-client-protocol.h>
+#include "wayland-viewporter-client-protocol.h"
 
 #include <QObject>
 #include <QImage>
 #include <QRect>
 #include <QList>
+#include <QtCore/QMap>
 #include <QWaylandOutputMode>
 
 class MockSeat;
@@ -60,6 +62,7 @@ public:
     wl_surface *createSurface();
     wl_shell_surface *createShellSurface(wl_surface *surface);
     xdg_surface *createXdgSurface(wl_surface *surface);
+    xdg_toplevel *createXdgToplevel(xdg_surface *xdgSurface);
     ivi_surface *createIviSurface(wl_surface *surface, uint iviId);
 
     wl_display *display = nullptr;
@@ -68,7 +71,8 @@ public:
     wl_shm *shm = nullptr;
     wl_registry *registry = nullptr;
     wl_shell *wlshell = nullptr;
-    xdg_shell *xdgShell = nullptr;
+    xdg_wm_base *xdgWmBase = nullptr;
+    wp_viewporter *viewporter = nullptr;
     ivi_application *iviApplication = nullptr;
 
     QList<MockSeat *> m_seats;

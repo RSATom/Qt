@@ -57,7 +57,7 @@ SkTArray<GrXPFactoryTestFactory*, true>* GrXPFactoryTestFactory::GetFactories() 
  * we verify the count is as expected.  If a new factory is added, then these numbers must be
  * manually adjusted.
  */
-static const int kFPFactoryCount = 37;
+static const int kFPFactoryCount = 36;
 static const int kGPFactoryCount = 14;
 static const int kXPFactoryCount = 4;
 
@@ -124,85 +124,4 @@ void* GrProcessor::operator new(size_t size) { return MemoryPoolAccessor().pool(
 
 void GrProcessor::operator delete(void* target) {
     return MemoryPoolAccessor().pool()->release(target);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-void GrResourceIOProcessor::addTextureSampler(const TextureSampler* access) {
-    fTextureSamplers.push_back(access);
-}
-
-void GrResourceIOProcessor::addPendingIOs() const {
-    for (const auto& sampler : fTextureSamplers) {
-        sampler->programProxy()->markPendingIO();
-    }
-}
-
-void GrResourceIOProcessor::removeRefs() const {
-    for (const auto& sampler : fTextureSamplers) {
-        sampler->programProxy()->removeRef();
-    }
-}
-
-void GrResourceIOProcessor::pendingIOComplete() const {
-    for (const auto& sampler : fTextureSamplers) {
-        sampler->programProxy()->pendingIOComplete();
-    }
-}
-
-bool GrResourceIOProcessor::instantiate(GrResourceProvider* resourceProvider) const {
-    for (const auto& sampler : fTextureSamplers) {
-        if (!sampler->instantiate(resourceProvider)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool GrResourceIOProcessor::hasSameSamplers(const GrResourceIOProcessor& that) const {
-    if (this->numTextureSamplers() != that.numTextureSamplers()) {
-        return false;
-    }
-    for (int i = 0; i < this->numTextureSamplers(); ++i) {
-        if (this->textureSampler(i) != that.textureSampler(i)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-GrResourceIOProcessor::TextureSampler::TextureSampler() {}
-
-GrResourceIOProcessor::TextureSampler::TextureSampler(sk_sp<GrTextureProxy> proxy,
-                                                      const GrSamplerState& samplerState) {
-    this->reset(std::move(proxy), samplerState);
-}
-
-GrResourceIOProcessor::TextureSampler::TextureSampler(sk_sp<GrTextureProxy> proxy,
-                                                      GrSamplerState::Filter filterMode,
-                                                      GrSamplerState::WrapMode wrapXAndY,
-                                                      GrShaderFlags visibility) {
-    this->reset(std::move(proxy), filterMode, wrapXAndY, visibility);
-}
-
-void GrResourceIOProcessor::TextureSampler::reset(sk_sp<GrTextureProxy> proxy,
-                                                  const GrSamplerState& samplerState,
-                                                  GrShaderFlags visibility) {
-    fSamplerState = samplerState;
-    fProxyRef.setProxy(std::move(proxy), kRead_GrIOType);
-    fSamplerState.setFilterMode(SkTMin(samplerState.filter(), this->proxy()->highestFilterMode()));
-    fVisibility = visibility;
-}
-
-void GrResourceIOProcessor::TextureSampler::reset(sk_sp<GrTextureProxy> proxy,
-                                                  GrSamplerState::Filter filterMode,
-                                                  GrSamplerState::WrapMode wrapXAndY,
-                                                  GrShaderFlags visibility) {
-    fProxyRef.setProxy(std::move(proxy), kRead_GrIOType);
-    filterMode = SkTMin(filterMode, this->proxy()->highestFilterMode());
-    fSamplerState = GrSamplerState(wrapXAndY, filterMode);
-    fVisibility = visibility;
 }

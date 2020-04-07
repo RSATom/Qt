@@ -368,7 +368,7 @@ QDataStream::~QDataStream()
 /*!
     \fn QIODevice *QDataStream::device() const
 
-    Returns the I/O device currently set, or 0 if no
+    Returns the I/O device currently set, or \nullptr if no
     device is currently set.
 
     \sa setDevice()
@@ -377,7 +377,7 @@ QDataStream::~QDataStream()
 /*!
     void QDataStream::setDevice(QIODevice *d)
 
-    Sets the I/O device to \a d, which can be 0
+    Sets the I/O device to \a d, which can be \nullptr
     to unset to current I/O device.
 
     \sa device()
@@ -392,17 +392,18 @@ void QDataStream::setDevice(QIODevice *d)
     dev = d;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
     Unsets the I/O device.
-    Use setDevice(0) instead.
+    Use setDevice(nullptr) instead.
 */
 
 void QDataStream::unsetDevice()
 {
-    setDevice(0);
+    setDevice(nullptr);
 }
-
+#endif
 
 /*!
     \fn bool QDataStream::atEnd() const
@@ -559,6 +560,7 @@ void QDataStream::setByteOrder(ByteOrder bo)
     \value Qt_5_10 Same as Qt_5_6
     \value Qt_5_11 Same as Qt_5_6
     \value Qt_5_12 Version 18 (Qt 5.12)
+    \value Qt_5_13 Version 19 (Qt 5.13)
     \omitvalue Qt_DefaultCompiledVersion
 
     \sa setVersion(), version()
@@ -1026,8 +1028,7 @@ QDataStream &QDataStream::operator>>(char *&s)
     \c{delete []} operator.
 
     The \a l parameter is set to the length of the buffer. If the
-    string read is empty, \a l is set to 0 and \a s is set to
-    a null pointer.
+    string read is empty, \a l is set to 0 and \a s is set to \nullptr.
 
     The serialization format is a quint32 length specifier first,
     then \a l bytes of data.

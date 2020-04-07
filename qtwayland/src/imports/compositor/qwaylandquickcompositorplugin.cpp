@@ -59,6 +59,7 @@
 #include <QtWaylandCompositor/QWaylandResource>
 
 #include <QtWaylandCompositor/QWaylandQtWindowManager>
+#include <QtWaylandCompositor/QWaylandWlScaler>
 #include <QtWaylandCompositor/QWaylandWlShell>
 #include <QtWaylandCompositor/QWaylandTextInputManager>
 #include <QtWaylandCompositor/QWaylandXdgShellV5>
@@ -76,6 +77,7 @@ QT_BEGIN_NAMESPACE
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CONTAINER_CLASS(QWaylandQuickCompositor)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandQtWindowManager)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandIviApplication)
+Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandWlScaler)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandWlShell)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandXdgShellV5)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandXdgShellV6)
@@ -128,12 +130,18 @@ public:
 
     static void defineModule(const char *uri)
     {
+        // This is needed so to guarantee that the import is available with the current
+        // Qt minor version even if no new types have been added since the last release.
+        qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
+
         qmlRegisterType<QWaylandQuickCompositorQuickExtensionContainer>(uri, 1, 0, "WaylandCompositor");
         qmlRegisterType<QWaylandQuickItem>(uri, 1, 0, "WaylandQuickItem");
+        qmlRegisterType<QWaylandQuickItem, 13>(uri, 1, 13, "WaylandQuickItem");
         qmlRegisterType<QWaylandQuickHardwareLayer>(uri, 1, 2, "WaylandHardwareLayer");
         qmlRegisterType<QWaylandMouseTracker>(uri, 1, 0, "WaylandMouseTracker");
         qmlRegisterType<QWaylandQuickOutput>(uri, 1, 0, "WaylandOutput");
         qmlRegisterType<QWaylandQuickSurface>(uri, 1, 0, "WaylandSurface");
+        qmlRegisterType<QWaylandQuickSurface, 13>(uri, 1, 13, "WaylandSurface");
         qmlRegisterType<QWaylandKeymap>(uri, 1, 0, "WaylandKeymap");
 
         qmlRegisterUncreatableType<QWaylandCompositorExtension>(uri, 1, 0, "WaylandExtension", QObject::tr("Cannot create instance of WaylandExtension"));
@@ -173,6 +181,8 @@ public:
         qmlRegisterUncreatableType<QWaylandXdgPopup>(uri, 1, 3, "XdgPopup", QObject::tr("Cannot create instance of XdgShellPopup"));
 
         qmlRegisterType<QWaylandXdgDecorationManagerV1QuickExtension>(uri, 1, 3, "XdgDecorationManagerV1");
+
+        qmlRegisterType<QWaylandWlScalerQuickExtension>(uri, 1, 13, "WlScaler");
     }
 };
 //![class decl]

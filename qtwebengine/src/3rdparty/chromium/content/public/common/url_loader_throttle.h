@@ -57,6 +57,13 @@ class CONTENT_EXPORT URLLoaderThrottle {
 
     virtual void SetPriority(net::RequestPriority priority);
 
+    // Updates the response head which is deferred to be sent. This method needs
+    // to be called when the response is deferred on
+    // URLLoaderThrottle::WillProcessResponse() and before calling
+    // Delegate::Resume().
+    virtual void UpdateDeferredResponseHead(
+        const network::ResourceResponseHead& new_response_head);
+
     // Pauses/resumes reading response body if the resource is fetched from
     // network.
     virtual void PauseReadingBodyFromNet();
@@ -70,6 +77,20 @@ class CONTENT_EXPORT URLLoaderThrottle {
         network::mojom::URLLoaderPtr* original_loader,
         network::mojom::URLLoaderClientRequest* original_client_request);
 
+    // Restarts the URL loader using |additional_load_flags|.
+    //
+    // Restarting is only valid while executing within
+    // BeforeWillProcessResponse(), or during its deferred handling (before
+    // having called Resume()).
+    //
+    // When a URL loader is restarted, throttles will NOT have their
+    // WillStartRequest() method called again - that is only called for the
+    // initial request start.
+    //
+    // If multiple throttles call RestartWithFlags() then the URL loader will be
+    // restarted using a combined value of all of the |additional_load_flags|.
+    virtual void RestartWithFlags(int additional_load_flags);
+
    protected:
     virtual ~Delegate();
   };
@@ -82,23 +103,62 @@ class CONTENT_EXPORT URLLoaderThrottle {
   virtual void DetachFromCurrentSequence();
 
   // Called before the resource request is started.
+  // |request| needs to be modified before the callback returns (i.e.
+  // asynchronously touching the pointer in defer case is not valid)
+  // When |request->url| is modified it will make an internal redirect, which
+  // might have some side-effects: drop upload streams data might be dropped,
+  // redirect count may be reached, and cross-origin redirect are not supported
+  // (at least until we have the demand).
+  //
+  // Implementations should be aware that throttling can happen multiple times
+  // for the same |request|, even after one instance of the same throttle
+  // subclass already modified the request. This happens, e.g., when a service
+  // worker initially elects to handle a request but then later falls back to
+  // network, so new throttles are created for another URLLoaderFactory to
+  // handle the request.
   virtual void WillStartRequest(network::ResourceRequest* request, bool* defer);
 
   // Called when the request was redirected.  |redirect_info| contains the
   // redirect responses's HTTP status code and some information about the new
   // request that will be sent if the redirect is followed, including the new
   // URL and new method.
+  //
+  // Request headers added to |to_be_removed_request_headers| will be removed
+  // before the redirect is followed. Headers added to
+  // |modified_request_headers| will be merged into the existing request headers
+  // before the redirect is followed.
+  //
+  // If |redirect_info->new_url| is modified by a throttle, the request will be
+  // redirected to the new URL. Only one throttle can update this and it must
+  // have the same origin as |redirect_info->new_url|. See the comments for
+  // WillStartRequest on possible side-effects.
   virtual void WillRedirectRequest(
-      const net::RedirectInfo& redirect_info,
+      net::RedirectInfo* redirect_info,
       const network::ResourceResponseHead& response_head,
       bool* defer,
-      std::vector<std::string>* to_be_removed_request_headers);
+      std::vector<std::string>* to_be_removed_request_headers,
+      net::HttpRequestHeaders* modified_request_headers);
 
   // Called when the response headers and meta data are available.
   // TODO(776312): Migrate this URL to ResourceResponseHead.
-  virtual void WillProcessResponse(
+  virtual void WillProcessResponse(const GURL& response_url,
+                                   network::ResourceResponseHead* response_head,
+                                   bool* defer);
+
+  // Called prior WillProcessResponse() to allow throttles to restart the URL
+  // load by calling delegate_->RestartWithFlags().
+  //
+  // Having this method separate from WillProcessResponse() ensures that
+  // WillProcessResponse() is called at most once even in the presence of
+  // restarts.
+  virtual void BeforeWillProcessResponse(
       const GURL& response_url,
       const network::ResourceResponseHead& response_head,
+      bool* defer);
+
+  // Called if there is a non-OK net::Error in the completion status.
+  virtual void WillOnCompleteWithError(
+      const network::URLLoaderCompletionStatus& status,
       bool* defer);
 
   void set_delegate(Delegate* delegate) { delegate_ = delegate; }

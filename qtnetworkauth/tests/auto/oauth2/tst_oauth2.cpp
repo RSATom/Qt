@@ -41,6 +41,7 @@ private Q_SLOTS:
     void getToken();
     void refreshToken();
     void getAndRefreshToken();
+    void prepareRequest();
 };
 
 struct ReplyHandler : QAbstractOAuthReplyHandler
@@ -163,6 +164,16 @@ void tst_OAuth2::getAndRefreshToken()
     oauth2.refreshAccessToken();
     QTRY_COMPARE(grantedSpy.count(), 1);
     QCOMPARE(oauth2.token(), QLatin1String("refresh_token"));
+}
+
+void tst_OAuth2::prepareRequest()
+{
+    QOAuth2AuthorizationCodeFlow oauth2;
+    oauth2.setToken(QStringLiteral("access_token"));
+
+    QNetworkRequest request(QUrl("http://localhost"));
+    oauth2.prepareRequest(&request, QByteArray());
+    QCOMPARE(request.rawHeader("Authorization"), QByteArray("Bearer access_token"));
 }
 
 QTEST_MAIN(tst_OAuth2)

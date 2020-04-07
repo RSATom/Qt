@@ -9,26 +9,43 @@ source_set("app_shim") {
   sources = [
     "app_shim_handler_mac.cc",
     "app_shim_handler_mac.h",
+    "app_shim_host_bootstrap_mac.cc",
+    "app_shim_host_bootstrap_mac.h",
     "app_shim_host_mac.cc",
     "app_shim_host_mac.h",
     "app_shim_host_manager_mac.h",
     "app_shim_host_manager_mac.mm",
     "apps_page_shim_handler.h",
     "apps_page_shim_handler.mm",
-    "extension_app_shim_handler_mac.cc",
-    "extension_app_shim_handler_mac.h",
     "unix_domain_socket_acceptor.cc",
     "unix_domain_socket_acceptor.h",
   ]
 
   deps = [
+    "//chrome/common",
+    "//chrome/common:app_mode_app_support",
+    "//chrome/common:constants",
     "//chrome/common:mojo_bindings",
+    "//chrome/common:non_code_constants",
+    "//components/crx_file",
+    "//components/version_info",
     "//content/public/browser",
     "//content/public/common",
+    "//ui/views:views",
   ]
 
   if (enable_extensions) {
+    sources += [
+      "extension_app_shim_handler_mac.cc",
+      "extension_app_shim_handler_mac.h",
+    ]
+
     deps += [
+      "//apps",
+      "//chrome/browser/apps/platform_apps",
+      "//chrome/browser/extensions",
+      "//chrome/browser/web_applications/components",
+      "//chrome/browser/web_applications/extensions",
       "//extensions/browser",
       "//extensions/common",
     ]

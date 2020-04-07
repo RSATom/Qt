@@ -52,6 +52,7 @@
 #include <QtLocation/private/qgeomapobject_p_p.h>
 #include <QGeoCoordinate>
 #include <QColor>
+#include <QGeoPolygon>
 
 QT_BEGIN_NAMESPACE
 
@@ -74,6 +75,8 @@ public:
 
     // QGeoMapObjectPrivate interface
     bool equals(const QGeoMapObjectPrivate &other) const override;
+    virtual QGeoShape geoShape() const override;
+    virtual void setGeoShape(const QGeoShape &shape) override;
 };
 
 class Q_LOCATION_PRIVATE_EXPORT QMapPolygonObjectPrivateDefault : public QMapPolygonObjectPrivate
@@ -95,9 +98,11 @@ public:
 
     // QGeoMapObjectPrivate interface
     QGeoMapObjectPrivate *clone() override;
+    virtual QGeoShape geoShape() const override;
+    virtual void setGeoShape(const QGeoShape &shape) override;
 
 public:
-    QList<QGeoCoordinate> m_path;
+    QGeoPolygon m_path; // small overhead compared to plain QList<QGeoCoordinate>
     QColor m_borderColor;
     QColor m_fillColor = Qt::transparent;
     qreal m_borderWidth = 0;

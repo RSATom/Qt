@@ -1231,7 +1231,7 @@ QSplitterHandle *QSplitter::createHandle()
 
 /*!
     Returns the handle to the left of (or above) the item in the
-    splitter's layout at the given \a index, or \c nullptr if there is no such item.
+    splitter's layout at the given \a index, or \nullptr if there is no such item.
     The handle at index 0 is always hidden.
 
     For right-to-left languages such as Arabic and Hebrew, the layout
@@ -1250,7 +1250,7 @@ QSplitterHandle *QSplitter::handle(int index) const
 
 /*!
     Returns the widget at the given \a index in the splitter's layout,
-    or \c nullptr if there is no such widget.
+    or \nullptr if there is no such widget.
 
     \sa count(), handle(), indexOf(), insertWidget()
 */
@@ -1783,6 +1783,7 @@ void QSplitter::setStretchFactor(int index, int stretch)
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \relates QSplitter
     \obsolete
@@ -1813,6 +1814,7 @@ QTextStream& operator>>(QTextStream& ts, QSplitter& splitter)
     splitter.restoreState(std::move(line).toLatin1());
     return ts;
 }
+#endif
 
 QT_END_NAMESPACE
 

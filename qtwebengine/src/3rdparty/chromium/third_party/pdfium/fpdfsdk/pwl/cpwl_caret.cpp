@@ -7,21 +7,18 @@
 #include "fpdfsdk/pwl/cpwl_caret.h"
 
 #include <sstream>
+#include <utility>
 
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/pwl/cpwl_wnd.h"
 
-#define PWL_CARET_FLASHINTERVAL 500
+CPWL_Caret::CPWL_Caret(const CreateParams& cp,
+                       std::unique_ptr<PrivateData> pAttachedData)
+    : CPWL_Wnd(cp, std::move(pAttachedData)) {}
 
-CPWL_Caret::CPWL_Caret() : m_bFlash(false), m_fWidth(0.4f), m_nDelay(0) {}
-
-CPWL_Caret::~CPWL_Caret() {}
-
-ByteString CPWL_Caret::GetClassName() const {
-  return "CPWL_Caret";
-}
+CPWL_Caret::~CPWL_Caret() = default;
 
 void CPWL_Caret::DrawThisAppearance(CFX_RenderDevice* pDevice,
                                     const CFX_Matrix& mtUser2Device) {
@@ -54,11 +51,6 @@ void CPWL_Caret::DrawThisAppearance(CFX_RenderDevice* pDevice,
 }
 
 void CPWL_Caret::TimerProc() {
-  if (m_nDelay > 0) {
-    --m_nDelay;
-    return;
-  }
-
   m_bFlash = !m_bFlash;
   InvalidateRect(nullptr);
   // Note, |this| may no longer be viable at this point. If more work needs
@@ -88,10 +80,12 @@ void CPWL_Caret::SetCaret(bool bVisible,
   }
 
   if (!IsVisible()) {
+    static constexpr int32_t kCaretFlashIntervalMs = 500;
+
     m_ptHead = ptHead;
     m_ptFoot = ptFoot;
     EndTimer();
-    BeginTimer(PWL_CARET_FLASHINTERVAL);
+    BeginTimer(kCaretFlashIntervalMs);
 
     if (!CPWL_Wnd::SetVisible(true))
       return;

@@ -184,6 +184,7 @@
     <messages fallback_to_english="true">
       <part file="app_modal_strings.grdp" />
       <part file="autofill_strings.grdp" />
+      <part file="autofill_assistant_strings.grdp" />
       <part file="bookmark_bar_strings.grdp" />
       <part file="bookmark_component_strings.grdp" />
       <part file="browsing_data_strings.grdp" />
@@ -196,7 +197,6 @@
       <part file="history_strings.grdp" />
       <part file="login_dialog_strings.grdp" />
       <part file="new_or_sad_tab_strings.grdp" />
-      <part file="nux_google_apps_strings.grdp" />
       <part file="ntp_snippets_strings.grdp" />
       <part file="omnibox_strings.grdp" />
       <part file="page_info_strings.grdp" />
@@ -215,6 +215,10 @@
       <part file="translate_strings.grdp" />
       <part file="undo_strings.grdp" />
       <part file="version_ui_strings.grdp" />
+
+      <if expr="not is_android and not is_ios">
+        <part file="management_strings.grdp" />
+      </if>
 
       <!-- Generic terms -->
       <message name="IDS_CANCEL" desc="Used for Cancel on buttons">
@@ -238,6 +242,14 @@
       <message name="IDS_SAVE" desc="Used on a button to save information you are editing.">
         Save
       </message>
+      <if expr="is_android">
+        <message name="IDS_SHOW" desc="Generic label to show content for a feature. [CHAR-LIMIT=20]" formatter_data="android_java">
+          Show
+        </message>
+        <message name="IDS_HIDE" desc="Generic label to hide content for a feature. [CHAR-LIMIT=20]" formatter_data="android_java">
+          Hide
+        </message>
+      </if>
       <if expr="not use_titlecase">
         <message name="IDS_NO_THANKS" desc="Used to dismiss various prompts.">
           No thanks

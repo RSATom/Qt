@@ -6,14 +6,13 @@
 
 #include "xfa/fxfa/parser/cscript_eventpseudomodel.h"
 
-#include "fxjs/xfa/cjx_object.h"
+#include "fxjs/xfa/cjx_eventpseudomodel.h"
 #include "third_party/base/ptr_util.h"
 
 CScript_EventPseudoModel::CScript_EventPseudoModel(CXFA_Document* pDocument)
     : CXFA_Object(pDocument,
                   XFA_ObjectType::Object,
                   XFA_Element::EventPseudoModel,
-                  WideStringView(L"eventPseudoModel"),
                   pdfium::MakeUnique<CJX_EventPseudoModel>(this)) {}
 
-CScript_EventPseudoModel::~CScript_EventPseudoModel() {}
+CScript_EventPseudoModel::~CScript_EventPseudoModel() = default;

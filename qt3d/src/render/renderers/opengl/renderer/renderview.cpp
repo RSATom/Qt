@@ -603,10 +603,7 @@ QVector<RenderCommand *> RenderView::buildDrawRenderCommands(const QVector<Entit
                 RenderPass *pass = passData.pass;
                 if (pass->hasRenderStates()) {
                     command->m_stateSet = new RenderStateSet();
-                    addToRenderStateSet(command->m_stateSet, pass->renderStates(), m_manager->renderStateManager());
-
-                    // Merge per pass stateset with global stateset
-                    // so that the local stateset only overrides
+                    addStatesToRenderStateSet(command->m_stateSet, pass->renderStates(), m_manager->renderStateManager());
                     if (m_stateSet != nullptr)
                         command->m_stateSet->merge(m_stateSet);
                     command->m_changeCost = m_renderer->defaultRenderState()->changeCost(command->m_stateSet);
@@ -715,21 +712,37 @@ QVector<RenderCommand *> RenderView::buildComputeRenderCommands(const QVector<En
         if ((computeJob = entity->renderComponent<ComputeCommand>()) != nullptr
                 && computeJob->isEnabled()) {
 
+            // Note: if frameCount has reached 0 in the previous frame, isEnabled
+            // would be false
+            if (computeJob->runType() == QComputeCommand::Manual)
+                computeJob->updateFrameCount();
+
             const Qt3DCore::QNodeId materialComponentId = entity->componentUuid<Material>();
             const  QVector<RenderPassParameterData> renderPassData = m_parameters.value(materialComponentId);
 
             // 1 RenderCommand per RenderPass pass on an Entity with a Mesh
             for (const RenderPassParameterData &passData : renderPassData) {
                 // Add the RenderPass Parameters
-                ParameterInfoList globalParameters = passData.parameterInfo;
-                RenderPass *pass = passData.pass;
-                parametersFromParametersProvider(&globalParameters, m_manager->parameterManager(), pass);
-
                 RenderCommand *command = new RenderCommand();
+                RenderPass *pass = passData.pass;
+
+                if (pass->hasRenderStates()) {
+                    command->m_stateSet = new RenderStateSet();
+                    addStatesToRenderStateSet(command->m_stateSet, pass->renderStates(), m_manager->renderStateManager());
+
+                    // Merge per pass stateset with global stateset
+                    // so that the local stateset only overrides
+                    if (m_stateSet != nullptr)
+                        command->m_stateSet->merge(m_stateSet);
+                    command->m_changeCost = m_renderer->defaultRenderState()->changeCost(command->m_stateSet);
+                }
+
                 command->m_type = RenderCommand::Compute;
                 command->m_workGroups[0] = std::max(m_workGroups[0], computeJob->x());
                 command->m_workGroups[1] = std::max(m_workGroups[1], computeJob->y());
                 command->m_workGroups[2] = std::max(m_workGroups[2], computeJob->z());
+
+                ParameterInfoList globalParameters = passData.parameterInfo;
                 setShaderAndUniforms(command,
                                      pass,
                                      globalParameters,

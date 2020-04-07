@@ -84,8 +84,7 @@ void WlShellIntegration::handleStartResize(QWaylandSeat *seat, QWaylandWlShellSu
     grabberState = GrabberState::Resize;
     resizeState.seat = seat;
     resizeState.resizeEdges = edges;
-    float scaleFactor = m_item->view()->output()->scaleFactor();
-    resizeState.initialSize = m_shellSurface->surface()->size() / scaleFactor;
+    resizeState.initialSize = m_shellSurface->surface()->destinationSize();
     resizeState.initialized = false;
 }
 
@@ -217,9 +216,7 @@ void WlShellIntegration::handleSetPopup(QWaylandSeat *seat, QWaylandSurface *par
         t.clear(&t);
         m_item->setRotation(0);
         m_item->setScale(1.0);
-        auto scaleFactor = m_item->output()->scaleFactor() / devicePixelRatio();
-        m_item->setX(relativeToParent.x() * scaleFactor);
-        m_item->setY(relativeToParent.y() * scaleFactor);
+        m_item->setPosition(m_item->mapFromSurface(relativeToParent));
         m_item->setParentItem(parentItem);
     }
 
@@ -267,7 +264,7 @@ void WlShellIntegration::handleShellSurfaceDestroyed()
 
 void WlShellIntegration::handleSurfaceHasContentChanged()
 {
-    if (m_shellSurface && m_shellSurface->surface()->size().isEmpty()
+    if (m_shellSurface && m_shellSurface->surface()->destinationSize().isEmpty()
             && m_shellSurface->windowType() == Qt::WindowType::Popup) {
         handlePopupClosed();
     }
@@ -287,9 +284,8 @@ void WlShellIntegration::adjustOffsetForNextFrame(const QPointF &offset)
     if (!m_item->view()->isPrimary())
         return;
 
-    float scaleFactor = m_item->view()->output()->scaleFactor();
     QQuickItem *moveItem = m_item->moveItem();
-    moveItem->setPosition(moveItem->position() + offset * scaleFactor / devicePixelRatio());
+    moveItem->setPosition(moveItem->position() + m_item->mapFromSurface(offset));
 }
 
 bool WlShellIntegration::mouseMoveEvent(QMouseEvent *event)

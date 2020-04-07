@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/core/layout/layout_multi_column_flow_thread.h"
 #include "third_party/blink/renderer/core/layout/multi_column_fragmentainer_group.h"
 #include "third_party/blink/renderer/core/paint/multi_column_set_painter.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 
 namespace blink {
 
@@ -346,7 +347,7 @@ bool LayoutMultiColumnSet::HeightIsAuto() const {
     // 'balance' - in accordance with the spec).
     // Pretending that column-fill is auto also matches the old multicol
     // implementation, which has no support for this property.
-    if (MultiColumnBlockFlow()->Style()->GetColumnFill() ==
+    if (MultiColumnBlockFlow()->StyleRef().GetColumnFill() ==
         EColumnFill::kBalance)
       return true;
     if (LayoutBox* next = NextSiblingBox()) {
@@ -492,12 +493,12 @@ PositionWithAffinity LayoutMultiColumnSet::PositionForPoint(
 LayoutUnit LayoutMultiColumnSet::ColumnGap() const {
   LayoutBlockFlow* parent_block = MultiColumnBlockFlow();
 
-  if (parent_block->Style()->ColumnGap().IsNormal()) {
+  if (parent_block->StyleRef().ColumnGap().IsNormal()) {
     // "1em" is recommended as the normal gap setting. Matches <p> margins.
     return LayoutUnit(
-        parent_block->Style()->GetFontDescription().ComputedPixelSize());
+        parent_block->StyleRef().GetFontDescription().ComputedPixelSize());
   }
-  return ValueForLength(parent_block->Style()->ColumnGap().GetLength(),
+  return ValueForLength(parent_block->StyleRef().ColumnGap().GetLength(),
                         AvailableLogicalWidth());
 }
 
@@ -520,7 +521,40 @@ LayoutRect LayoutMultiColumnSet::FragmentsBoundingBox(
   return result;
 }
 
-void LayoutMultiColumnSet::AddOverflowFromChildren() {
+void LayoutMultiColumnSet::ComputeVisualOverflow(
+    bool recompute_floats) {
+  LayoutRect previous_visual_overflow_rect = VisualOverflowRect();
+  ClearVisualOverflow();
+  AddVisualOverflowFromChildren();
+
+  AddVisualEffectOverflow();
+  AddVisualOverflowFromTheme();
+
+  if (recompute_floats || CreatesNewFormattingContext() ||
+      HasSelfPaintingLayer())
+    AddVisualOverflowFromFloats();
+
+  if (VisualOverflowRect() != previous_visual_overflow_rect) {
+    SetShouldCheckForPaintInvalidation();
+    GetFrameView()->SetIntersectionObservationState(LocalFrameView::kDesired);
+  }
+}
+
+void LayoutMultiColumnSet::AddVisualOverflowFromChildren() {
+  // It's useless to calculate overflow if we haven't determined the page
+  // logical height yet.
+  if (!IsPageLogicalHeightKnown())
+    return;
+  LayoutRect overflow_rect;
+  for (const auto& group : fragmentainer_groups_) {
+    LayoutRect rect = group.CalculateOverflow();
+    rect.Move(group.OffsetFromColumnSet());
+    overflow_rect.Unite(rect);
+  }
+  AddContentsVisualOverflow(overflow_rect);
+}
+
+void LayoutMultiColumnSet::AddLayoutOverflowFromChildren() {
   // It's useless to calculate overflow if we haven't determined the page
   // logical height yet.
   if (!IsPageLogicalHeightKnown())
@@ -532,7 +566,6 @@ void LayoutMultiColumnSet::AddOverflowFromChildren() {
     overflow_rect.Unite(rect);
   }
   AddLayoutOverflow(overflow_rect);
-  AddContentsVisualOverflow(overflow_rect);
 }
 
 void LayoutMultiColumnSet::InsertedIntoTree() {
@@ -591,7 +624,7 @@ bool LayoutMultiColumnSet::ComputeColumnRuleBounds(
   if (col_count <= 1)
     return false;
 
-  bool left_to_right = Style()->IsLeftToRightDirection();
+  bool left_to_right = StyleRef().IsLeftToRightDirection();
   LayoutUnit curr_logical_left_offset =
       left_to_right ? LayoutUnit() : ContentLogicalWidth();
   LayoutUnit rule_add = BorderAndPaddingLogicalLeft();
@@ -652,7 +685,7 @@ void LayoutMultiColumnSet::UpdateFromNG() {
   DCHECK_EQ(fragmentainer_groups_.size(), 1U);
   auto& group = fragmentainer_groups_[0];
   group.UpdateFromNG(LogicalHeight());
-  ComputeOverflow(LogicalHeight());
+  ComputeLayoutOverflow(LogicalHeight());
 }
 
 }  // namespace blink

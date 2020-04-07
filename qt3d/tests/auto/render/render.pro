@@ -59,6 +59,7 @@ qtConfig(private_tests) {
         qparameter \
         parameter \
         qtextureloader \
+        qsharedgltexture \
         qtextureimage \
         qabstracttexture \
         qabstracttextureimage \
@@ -98,7 +99,11 @@ qtConfig(private_tests) {
         raycaster \
         qscreenraycaster \
         raycastingjob \
-        qcamera
+        qcamera \
+        qsetfence \
+        qwaitfence \
+        setfence \
+        waitfence
 
     QT_FOR_CONFIG = 3dcore-private
     # TO DO: These could be restored to be executed in all cases
@@ -153,5 +158,5 @@ qtConfig(qt3d-opengl-renderer):qtConfig(private_tests) {
     !macos: SUBDIRS += graphicshelpergl4
 
     qtConfig(qt3d-simd-avx2): SUBDIRS += alignedresourcesmanagers-avx
-    qtConfig(qt3d-simd-sse2): SUBDIRS += alignedresourcesmanagers-sse
+    qtConfig(qt3d-simd-sse2):!qtConfig(qt3d-simd-avx2): SUBDIRS += alignedresourcesmanagers-sse
 }

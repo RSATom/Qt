@@ -180,7 +180,7 @@ GradientEditor::GradientEditor(QWidget *parent)
 {
     QVBoxLayout *vbox = new QVBoxLayout(this);
     vbox->setSpacing(1);
-    vbox->setMargin(1);
+    vbox->setContentsMargins(1, 1, 1, 1);
 
     m_red_shade = new ShadeWidget(ShadeWidget::RedShade, this);
     m_green_shade = new ShadeWidget(ShadeWidget::GreenShade, this);
@@ -421,7 +421,7 @@ GradientWidget::GradientWidget(QWidget *parent)
     m_renderer->loadSourceFile(":res/gradients/gradients.cpp");
     m_renderer->loadDescription(":res/gradients/gradients.html");
 
-    QTimer::singleShot(50, this, SLOT(setDefault1()));
+    QTimer::singleShot(50, this, &GradientWidget::setDefault1);
 }
 
 void GradientWidget::setDefault(int config)

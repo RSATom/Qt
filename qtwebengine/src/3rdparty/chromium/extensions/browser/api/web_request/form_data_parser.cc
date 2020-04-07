@@ -10,7 +10,7 @@
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "net/base/escape.h"
@@ -27,7 +27,7 @@ namespace extensions {
 namespace {
 
 const char kContentDisposition[] = "content-disposition:";
-const size_t kContentDispositionLength = arraysize(kContentDisposition) - 1;
+const size_t kContentDispositionLength = base::size(kContentDisposition) - 1;
 // kCharacterPattern is an allowed character in a URL encoding. Definition is
 // from RFC 1738, end of section 2.2.
 const char kCharacterPattern[] =
@@ -395,9 +395,11 @@ bool FormDataParserUrlEncoded::GetNextNameValue(Result* result) {
     const net::UnescapeRule::Type kUnescapeRules =
         net::UnescapeRule::REPLACE_PLUS_WITH_SPACE;
 
-    result->set_name(net::UnescapeBinaryURLComponent(name_, kUnescapeRules));
-    const std::string unescaped_value =
-        net::UnescapeBinaryURLComponent(value_, kUnescapeRules);
+    std::string unescaped_name;
+    net::UnescapeBinaryURLComponent(name_, kUnescapeRules, &unescaped_name);
+    result->set_name(unescaped_name);
+    std::string unescaped_value;
+    net::UnescapeBinaryURLComponent(value_, kUnescapeRules, &unescaped_value);
     const base::StringPiece unescaped_data(unescaped_value.data(),
                                            unescaped_value.length());
     if (base::IsStringUTF8(unescaped_data)) {
@@ -546,7 +548,8 @@ bool FormDataParserMultipart::GetNextNameValue(Result* result) {
     return_value = FinishReadingPart(value_assigned ? nullptr : &value);
   }
 
-  std::string unescaped_name = net::UnescapeBinaryURLComponent(name);
+  std::string unescaped_name;
+  net::UnescapeBinaryURLComponent(name.as_string(), &unescaped_name);
   result->set_name(unescaped_name);
   if (value_assigned) {
     // Hold filename as value.

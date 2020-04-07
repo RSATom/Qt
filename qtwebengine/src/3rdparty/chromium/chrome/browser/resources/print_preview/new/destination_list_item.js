@@ -50,15 +50,15 @@ Polymer({
     // </if>
   },
 
-  hostAttributes: {
-    tabindex: 0,
-  },
-
   observers: [
     'onDestinationPropertiesChange_(' +
         'destination.displayName, destination.isOfflineOrInvalid, ' +
         'destination.isExtension)',
+    'updateHighlightsAndHint_(destination, searchQuery)',
   ],
+
+  /** @private {!Array<!Node>} */
+  highlights_: [],
 
   /** @private */
   onDestinationPropertiesChange_: function() {
@@ -72,12 +72,6 @@ Polymer({
           'url(chrome://extension-icon/' + this.destination.extensionId +
           '/48/1) 2x)';
     }
-  },
-
-  /** @private */
-  onLearnMoreLinkClick_: function() {
-    print_preview.NativeLayer.getInstance().forceOpenNewTab(
-        loadTimeData.getString('gcpCertificateErrorLearnMoreURL'));
   },
 
   // <if expr="chromeos">
@@ -114,22 +108,22 @@ Polymer({
   },
   // </if>
 
-  /**
-   * @return {!print_preview.HighlightResults} The highlight wrappers and
-   *     search bubbles that were created.
-   */
-  update: function() {
+  /** @private */
+  updateHighlightsAndHint_: function() {
     this.updateSearchHint_();
-    return this.updateHighlighting_();
+    cr.search_highlight_utils.removeHighlights(this.highlights_);
+    this.highlights_ = this.updateHighlighting_().highlights;
   },
 
   /** @private */
   updateSearchHint_: function() {
-    this.searchHint_ = !this.searchQuery ?
-        '' :
-        this.destination.extraPropertiesToMatch
-            .filter(p => p.match(this.searchQuery))
-            .join(' ');
+    const matches = !this.searchQuery ?
+        [] :
+        this.destination.extraPropertiesToMatch.filter(
+            p => p.match(this.searchQuery));
+    this.searchHint_ = matches.length === 0 ?
+        (this.destination.extraPropertiesToMatch.find(p => !!p) || '') :
+        matches.join(' ');
   },
 
   /**
@@ -139,5 +133,17 @@ Polymer({
    */
   updateHighlighting_: function() {
     return print_preview.updateHighlights(this, this.searchQuery);
+  },
+
+  /**
+   * @return {string} A tooltip for the extension printer icon.
+   * @private
+   */
+  getExtensionPrinterTooltip_: function() {
+    if (!this.destination.isExtension) {
+      return '';
+    }
+    return loadTimeData.getStringF(
+        'extensionDestinationIconTooltip', this.destination.extensionName);
   },
 });

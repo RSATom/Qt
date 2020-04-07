@@ -37,7 +37,7 @@ namespace blink {
 
 class Document;
 class Element;
-class IdleSpellCheckCallback;
+class IdleSpellCheckController;
 class LocalFrame;
 class HTMLElement;
 class SpellCheckMarker;
@@ -50,6 +50,8 @@ class WebTextCheckClient;
 class CORE_EXPORT SpellChecker final : public GarbageCollected<SpellChecker> {
  public:
   static SpellChecker* Create(LocalFrame&);
+
+  explicit SpellChecker(LocalFrame&);
 
   void Trace(blink::Visitor*);
 
@@ -85,8 +87,8 @@ class CORE_EXPORT SpellChecker final : public GarbageCollected<SpellChecker> {
   SpellCheckRequester& GetSpellCheckRequester() const {
     return *spell_check_requester_;
   }
-  IdleSpellCheckCallback& GetIdleSpellCheckCallback() const {
-    return *idle_spell_check_callback_;
+  IdleSpellCheckController& GetIdleSpellCheckController() const {
+    return *idle_spell_check_controller_;
   }
 
   // The leak detector will report leaks should queued requests be posted
@@ -95,13 +97,14 @@ class CORE_EXPORT SpellChecker final : public GarbageCollected<SpellChecker> {
   //
   // Hence allow the leak detector to effectively stop the spell checker to
   // ensure leak reporting stability.
+  //
+  // TODO(xiaochengh): Now that there's no strong reference to SpellCheckRequest
+  // from outside Blink, this function may have become redundant. Investigate.
   void PrepareForLeakDetection();
 
-  void DocumentAttached(Document*);
+  void DidAttachDocument(Document*);
 
  private:
-  explicit SpellChecker(LocalFrame&);
-
   LocalFrame& GetFrame() const {
     DCHECK(frame_);
     return *frame_;
@@ -116,7 +119,7 @@ class CORE_EXPORT SpellChecker final : public GarbageCollected<SpellChecker> {
   Member<LocalFrame> frame_;
 
   const Member<SpellCheckRequester> spell_check_requester_;
-  const Member<IdleSpellCheckCallback> idle_spell_check_callback_;
+  const Member<IdleSpellCheckController> idle_spell_check_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(SpellChecker);
 };

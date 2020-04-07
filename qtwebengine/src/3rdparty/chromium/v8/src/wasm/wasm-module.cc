@@ -5,12 +5,13 @@
 #include <functional>
 #include <memory>
 
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/assembler-inl.h"
 #include "src/compiler/wasm-compiler.h"
 #include "src/debug/interface-types.h"
 #include "src/frames-inl.h"
 #include "src/objects.h"
+#include "src/objects/js-array-inl.h"
 #include "src/property-descriptor.h"
 #include "src/simulator.h"
 #include "src/snapshot/snapshot.h"
@@ -26,21 +27,12 @@ namespace v8 {
 namespace internal {
 namespace wasm {
 
-// static
-const WasmExceptionSig WasmException::empty_sig_(0, 0, nullptr);
-
-// static
-constexpr const char* WasmException::kRuntimeIdStr;
-
-// static
-constexpr const char* WasmException::kRuntimeValuesStr;
-
 WireBytesRef WasmModule::LookupFunctionName(const ModuleWireBytes& wire_bytes,
                                             uint32_t function_index) const {
   if (!function_names) {
     function_names.reset(new std::unordered_map<uint32_t, WireBytesRef>());
-    wasm::DecodeFunctionNames(wire_bytes.start(), wire_bytes.end(),
-                              function_names.get());
+    DecodeFunctionNames(wire_bytes.start(), wire_bytes.end(),
+                        function_names.get());
   }
   auto it = function_names->find(function_index);
   if (it == function_names->end()) return WireBytesRef();
@@ -53,20 +45,6 @@ void WasmModule::AddFunctionNameForTesting(int function_index,
     function_names.reset(new std::unordered_map<uint32_t, WireBytesRef>());
   }
   function_names->insert(std::make_pair(function_index, name));
-}
-
-// Get a string stored in the module bytes representing a name.
-WasmName ModuleWireBytes::GetName(WireBytesRef ref) const {
-  if (ref.is_empty()) return {"<?>", 3};  // no name.
-  CHECK(BoundsCheck(ref.offset(), ref.length()));
-  return WasmName::cast(
-      module_bytes_.SubVector(ref.offset(), ref.end_offset()));
-}
-
-// Get a string stored in the module bytes representing a function name.
-WasmName ModuleWireBytes::GetName(const WasmFunction* function,
-                                  const WasmModule* module) const {
-  return GetName(module->LookupFunctionName(*this, function->func_index));
 }
 
 // Get a string stored in the module bytes representing a name.
@@ -96,8 +74,8 @@ std::ostream& operator<<(std::ostream& os, const WasmFunctionName& name) {
   return os;
 }
 
-WasmModule::WasmModule(std::unique_ptr<Zone> owned)
-    : signature_zone(std::move(owned)) {}
+WasmModule::WasmModule(std::unique_ptr<Zone> signature_zone)
+    : signature_zone(std::move(signature_zone)) {}
 
 bool IsWasmCodegenAllowed(Isolate* isolate, Handle<Context> context) {
   // TODO(wasm): Once wasm has its own CSP policy, we should introduce a
@@ -128,6 +106,7 @@ Handle<JSArray> GetImports(Isolate* isolate,
   Handle<String> table_string = factory->InternalizeUtf8String("table");
   Handle<String> memory_string = factory->InternalizeUtf8String("memory");
   Handle<String> global_string = factory->InternalizeUtf8String("global");
+  Handle<String> exception_string = factory->InternalizeUtf8String("exception");
 
   // Create the result array.
   const WasmModule* module = module_object->module();
@@ -159,6 +138,9 @@ Handle<JSArray> GetImports(Isolate* isolate,
         break;
       case kExternalGlobal:
         import_kind = global_string;
+        break;
+      case kExternalException:
+        import_kind = exception_string;
         break;
       default:
         UNREACHABLE();
@@ -195,6 +177,7 @@ Handle<JSArray> GetExports(Isolate* isolate,
   Handle<String> table_string = factory->InternalizeUtf8String("table");
   Handle<String> memory_string = factory->InternalizeUtf8String("memory");
   Handle<String> global_string = factory->InternalizeUtf8String("global");
+  Handle<String> exception_string = factory->InternalizeUtf8String("exception");
 
   // Create the result array.
   const WasmModule* module = module_object->module();
@@ -224,6 +207,9 @@ Handle<JSArray> GetExports(Isolate* isolate,
         break;
       case kExternalGlobal:
         export_kind = global_string;
+        break;
+      case kExternalException:
+        export_kind = exception_string;
         break;
       default:
         UNREACHABLE();
@@ -274,7 +260,8 @@ Handle<JSArray> GetCustomSections(Isolate* isolate,
       thrower->RangeError("out of memory allocating custom section data");
       return Handle<JSArray>();
     }
-    Handle<JSArrayBuffer> buffer = isolate->factory()->NewJSArrayBuffer();
+    Handle<JSArrayBuffer> buffer =
+        isolate->factory()->NewJSArrayBuffer(SharedFlag::kNotShared);
     constexpr bool is_external = false;
     JSArrayBuffer::Setup(buffer, isolate, is_external, memory, size);
     memcpy(memory, wire_bytes.start() + section.payload.offset(),
@@ -326,15 +313,15 @@ inline size_t VectorSize(const std::vector<T>& vector) {
 }
 }  // namespace
 
-size_t EstimateWasmModuleSize(const WasmModule* module) {
-  size_t estimate =
-      sizeof(WasmModule) + VectorSize(module->signatures) +
-      VectorSize(module->signature_ids) + VectorSize(module->functions) +
-      VectorSize(module->data_segments) + VectorSize(module->tables) +
-      VectorSize(module->import_table) + VectorSize(module->export_table) +
-      VectorSize(module->exceptions) + VectorSize(module->table_inits);
-  // TODO(wasm): include names table and wire bytes in size estimate
-  return estimate;
+size_t EstimateStoredSize(const WasmModule* module) {
+  return sizeof(WasmModule) + VectorSize(module->globals) +
+         (module->signature_zone ? module->signature_zone->allocation_size()
+                                 : 0) +
+         VectorSize(module->signatures) + VectorSize(module->signature_ids) +
+         VectorSize(module->functions) + VectorSize(module->data_segments) +
+         VectorSize(module->tables) + VectorSize(module->import_table) +
+         VectorSize(module->export_table) + VectorSize(module->exceptions) +
+         VectorSize(module->elem_segments);
 }
 }  // namespace wasm
 }  // namespace internal

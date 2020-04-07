@@ -23,7 +23,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
@@ -120,8 +120,8 @@ class NaClDomHandler : public WebUIMessageHandler {
   // Adds the information relevant to NaCl to list.
   void AddNaClInfo(base::ListValue* list);
 
-  // Whether the page has requested data.
-  bool page_has_requested_data_;
+  // The callback ID for requested data.
+  std::string callback_id_;
 
   // Whether the plugin information is ready.
   bool has_plugin_info_;
@@ -139,8 +139,7 @@ class NaClDomHandler : public WebUIMessageHandler {
 };
 
 NaClDomHandler::NaClDomHandler()
-    : page_has_requested_data_(false),
-      has_plugin_info_(false),
+    : has_plugin_info_(false),
       pnacl_path_validated_(false),
       pnacl_path_exists_(false),
       weak_ptr_factory_(this) {
@@ -282,11 +281,15 @@ void NaClDomHandler::AddNaClInfo(base::ListValue* list) {
 }
 
 void NaClDomHandler::HandleRequestNaClInfo(const base::ListValue* args) {
-  page_has_requested_data_ = true;
+  CHECK(callback_id_.empty());
+  CHECK_EQ(1U, args->GetSize());
+  callback_id_ = args->GetList()[0].GetString();
+
   // Force re-validation of PNaCl's path in the next call to
   // MaybeRespondToPage(), in case PNaCl went from not-installed
   // to installed since the request.
   pnacl_path_validated_ = false;
+  AllowJavascript();
   MaybeRespondToPage();
 }
 
@@ -349,13 +352,13 @@ bool CheckPathAndVersion(std::string* version) {
 void NaClDomHandler::MaybeRespondToPage() {
   // Don't reply until everything is ready.  The page will show a 'loading'
   // message until then.
-  if (!page_has_requested_data_ || !has_plugin_info_)
+  if (callback_id_.empty() || !has_plugin_info_)
     return;
 
   if (!pnacl_path_validated_) {
     std::string* version_string = new std::string;
     base::PostTaskWithTraitsAndReplyWithResult(
-        FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::Bind(&CheckPathAndVersion, version_string),
         base::Bind(&NaClDomHandler::DidCheckPathAndVersion,
                    weak_ptr_factory_.GetWeakPtr(),
@@ -365,7 +368,8 @@ void NaClDomHandler::MaybeRespondToPage() {
 
   base::DictionaryValue naclInfo;
   PopulatePageInformation(&naclInfo);
-  web_ui()->CallJavascriptFunctionUnsafe("nacl.returnNaClInfo", naclInfo);
+  ResolveJavascriptCallback(base::Value(callback_id_), naclInfo);
+  callback_id_.clear();
 }
 
 }  // namespace

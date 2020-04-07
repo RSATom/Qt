@@ -106,7 +106,10 @@ source_set("geolocation") {
     ]
   }
   if (is_chromeos) {
-    deps += [ "//chromeos" ]
+    deps += [
+      "//chromeos/dbus",
+      "//chromeos/network",
+    ]
   }
 
   if (is_mac) {
@@ -141,6 +144,7 @@ if (is_android) {
       "$google_play_services_package:google_play_services_basement_java",
       "$google_play_services_package:google_play_services_location_java",
       "//base:base_java",
+      "//components/location/android:location_java",
       "//services/device/public/java:geolocation_java",
     ]
   }

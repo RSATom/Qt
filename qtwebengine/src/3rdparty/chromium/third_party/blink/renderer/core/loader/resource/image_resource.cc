@@ -24,8 +24,11 @@
 #include "third_party/blink/renderer/core/loader/resource/image_resource.h"
 
 #include <stdint.h>
+#include <algorithm>
 #include <memory>
+#include <utility>
 
+#include "base/numerics/safe_conversions.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_info.h"
@@ -41,6 +44,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loading_log.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
+#include "third_party/blink/renderer/platform/network/network_utils.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -74,7 +78,8 @@ class ImageResource::ImageResourceInfoImpl final
   USING_GARBAGE_COLLECTED_MIXIN(ImageResourceInfoImpl);
 
  public:
-  ImageResourceInfoImpl(ImageResource* resource) : resource_(resource) {
+  explicit ImageResourceInfoImpl(ImageResource* resource)
+      : resource_(resource) {
     DCHECK(resource_);
   }
   void Trace(blink::Visitor* visitor) override {
@@ -93,6 +98,9 @@ class ImageResource::ImageResourceInfoImpl final
   bool ShouldShowPlaceholder() const override {
     return resource_->ShouldShowPlaceholder();
   }
+  bool ShouldShowLazyImagePlaceholder() const override {
+    return resource_->ShouldShowLazyImagePlaceholder();
+  }
   bool IsCacheValidator() const override {
     return resource_->IsCacheValidator();
   }
@@ -101,11 +109,10 @@ class ImageResource::ImageResourceInfoImpl final
            resource_->ShouldReloadBrokenPlaceholder();
   }
   bool IsAccessAllowed(
-      const SecurityOrigin* security_origin,
       DoesCurrentFrameHaveSingleSecurityOrigin
           does_current_frame_has_single_security_origin) const override {
     return resource_->IsAccessAllowed(
-        security_origin, does_current_frame_has_single_security_origin);
+        does_current_frame_has_single_security_origin);
   }
   bool HasCacheControlNoStoreHeader() const override {
     return resource_->HasCacheControlNoStoreHeader();
@@ -127,9 +134,16 @@ class ImageResource::ImageResourceInfoImpl final
       ResourceFetcher* fetcher,
       const KURL& url,
       const AtomicString& initiator_name) override {
-    fetcher->EmulateLoadStartedForInspector(resource_.Get(), url,
-                                            WebURLRequest::kRequestContextImage,
-                                            initiator_name);
+    fetcher->EmulateLoadStartedForInspector(
+        resource_.Get(), url, mojom::RequestContextType::IMAGE, initiator_name);
+  }
+
+  void LoadDeferredImage(ResourceFetcher* fetcher) override {
+    if (resource_->GetType() == ResourceType::kImage &&
+        resource_->StillNeedsLoad() &&
+        !fetcher->ShouldDeferImageLoad(resource_->Url())) {
+      fetcher->StartLoad(resource_);
+    }
   }
 
   const Member<ImageResource> resource_;
@@ -139,16 +153,16 @@ class ImageResource::ImageResourceFactory : public NonTextResourceFactory {
   STACK_ALLOCATED();
 
  public:
-  ImageResourceFactory(const FetchParameters& fetch_params)
-      : NonTextResourceFactory(Resource::kImage),
+  explicit ImageResourceFactory(const FetchParameters& fetch_params)
+      : NonTextResourceFactory(ResourceType::kImage),
         fetch_params_(&fetch_params) {}
 
   Resource* Create(const ResourceRequest& request,
                    const ResourceLoaderOptions& options) const override {
-    return new ImageResource(request, options,
-                             ImageResourceContent::CreateNotStarted(),
-                             fetch_params_->GetPlaceholderImageRequestType() ==
-                                 FetchParameters::kAllowPlaceholder);
+    return MakeGarbageCollected<ImageResource>(
+        request, options, ImageResourceContent::CreateNotStarted(),
+        fetch_params_->GetImageRequestOptimization() ==
+            FetchParameters::kAllowPlaceholder);
   }
 
  private:
@@ -159,8 +173,8 @@ class ImageResource::ImageResourceFactory : public NonTextResourceFactory {
 ImageResource* ImageResource::Fetch(FetchParameters& params,
                                     ResourceFetcher* fetcher) {
   if (params.GetResourceRequest().GetRequestContext() ==
-      WebURLRequest::kRequestContextUnspecified) {
-    params.SetRequestContext(WebURLRequest::kRequestContextImage);
+      mojom::RequestContextType::UNSPECIFIED) {
+    params.SetRequestContext(mojom::RequestContextType::IMAGE);
   }
 
   ImageResource* resource = ToImageResource(
@@ -168,22 +182,23 @@ ImageResource* ImageResource::Fetch(FetchParameters& params,
 
   // If the fetch originated from user agent CSS we should mark it as a user
   // agent resource.
-  if (params.Options().initiator_info.name == FetchInitiatorTypeNames::uacss)
+  if (params.Options().initiator_info.name ==
+      fetch_initiator_type_names::kUacss)
     resource->FlagAsUserAgentResource();
   return resource;
 }
 
-bool ImageResource::CanReuse(
-    const FetchParameters& params,
-    scoped_refptr<const SecurityOrigin> new_source_origin) const {
+Resource::MatchStatus ImageResource::CanReuse(
+    const FetchParameters& params) const {
   // If the image is a placeholder, but this fetch doesn't allow a
   // placeholder, then do not reuse this resource.
-  if (params.GetPlaceholderImageRequestType() !=
+  if (params.GetImageRequestOptimization() !=
           FetchParameters::kAllowPlaceholder &&
-      placeholder_option_ != PlaceholderOption::kDoNotReloadPlaceholder)
-    return false;
+      placeholder_option_ != PlaceholderOption::kDoNotReloadPlaceholder) {
+    return MatchStatus::kImagePlaceholder;
+  }
 
-  return Resource::CanReuse(params, std::move(new_source_origin));
+  return Resource::CanReuse(params);
 }
 
 bool ImageResource::CanUseCacheValidator() const {
@@ -198,8 +213,8 @@ bool ImageResource::CanUseCacheValidator() const {
 
 ImageResource* ImageResource::Create(const ResourceRequest& request) {
   ResourceLoaderOptions options;
-  return new ImageResource(request, options,
-                           ImageResourceContent::CreateNotStarted(), false);
+  return MakeGarbageCollected<ImageResource>(
+      request, options, ImageResourceContent::CreateNotStarted(), false);
 }
 
 ImageResource* ImageResource::CreateForTest(const KURL& url) {
@@ -211,15 +226,17 @@ ImageResource::ImageResource(const ResourceRequest& resource_request,
                              const ResourceLoaderOptions& options,
                              ImageResourceContent* content,
                              bool is_placeholder)
-    : Resource(resource_request, kImage, options),
+    : Resource(resource_request, ResourceType::kImage, options),
       content_(content),
       is_scheduling_reload_(false),
       placeholder_option_(
           is_placeholder ? PlaceholderOption::kShowAndReloadPlaceholderAlways
                          : PlaceholderOption::kDoNotReloadPlaceholder) {
   DCHECK(GetContent());
-  RESOURCE_LOADING_DVLOG(1) << "new ImageResource(ResourceRequest) " << this;
-  GetContent()->SetImageResourceInfo(new ImageResourceInfoImpl(this));
+  RESOURCE_LOADING_DVLOG(1)
+      << "MakeGarbageCollected<ImageResource>(ResourceRequest) " << this;
+  GetContent()->SetImageResourceInfo(
+      MakeGarbageCollected<ImageResourceInfoImpl>(this));
 }
 
 ImageResource::~ImageResource() {
@@ -234,9 +251,8 @@ void ImageResource::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
   Resource::OnMemoryDump(level_of_detail, memory_dump);
   const String name = GetMemoryDumpName() + "/image_content";
   auto* dump = memory_dump->CreateMemoryAllocatorDump(name);
-  size_t encoded_size =
-      content_->HasImage() ? content_->GetImage()->Data()->size() : 0;
-  dump->AddScalar("size", "bytes", encoded_size);
+  if (content_->HasImage() && content_->GetImage()->Data())
+    dump->AddScalar("size", "bytes", content_->GetImage()->Data()->size());
 }
 
 void ImageResource::Trace(blink::Visitor* visitor) {
@@ -282,8 +298,9 @@ void ImageResource::DestroyDecodedDataIfPossible() {
   GetContent()->DestroyDecodedData();
   if (GetContent()->HasImage() && !IsUnusedPreload() &&
       GetContent()->IsRefetchableDataFromDiskCache()) {
-    UMA_HISTOGRAM_MEMORY_KB("Memory.Renderer.EstimatedDroppableEncodedSize",
-                            EncodedSize() / 1024);
+    UMA_HISTOGRAM_MEMORY_KB(
+        "Memory.Renderer.EstimatedDroppableEncodedSize",
+        base::saturated_cast<base::Histogram::Sample>(EncodedSize() / 1024));
   }
 }
 
@@ -296,16 +313,7 @@ void ImageResource::AllClientsAndObserversRemoved() {
   // TODO(hiroshige): Make the CHECK condition cleaner.
   CHECK(is_during_finish_as_error_ || !GetContent()->HasImage() ||
         !ErrorOccurred());
-  // If possible, delay the resetting until back at the event loop. Doing so
-  // after a conservative GC prevents resetAnimation() from upsetting ongoing
-  // animation updates (crbug.com/613709)
-  if (!ThreadHeap::WillObjectBeLazilySwept(this)) {
-    Platform::Current()->CurrentThread()->GetTaskRunner()->PostTask(
-        FROM_HERE, WTF::Bind(&ImageResourceContent::DoResetAnimation,
-                             WrapWeakPersistent(GetContent())));
-  } else {
-    GetContent()->DoResetAnimation();
-  }
+  GetContent()->DoResetAnimation();
   if (multipart_parser_)
     multipart_parser_->Cancel();
   Resource::AllClientsAndObserversRemoved();
@@ -320,12 +328,19 @@ scoped_refptr<const SharedBuffer> ImageResource::ResourceBuffer() const {
 void ImageResource::AppendData(const char* data, size_t length) {
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(length);
   if (multipart_parser_) {
-    multipart_parser_->AppendData(data, length);
+    multipart_parser_->AppendData(data, SafeCast<wtf_size_t>(length));
   } else {
     Resource::AppendData(data, length);
 
     // Update the image immediately if needed.
-    if (GetContent()->ShouldUpdateImageImmediately()) {
+    //
+    // ImageLoader is not available when this image is loaded via ImageDocument.
+    // In this case, as the task runner is not available, update the image
+    // immediately.
+    //
+    // TODO(hajimehoshi): updating/flushing image should be throttled when
+    // necessary, so such tasks should be done on a throttleable task runner.
+    if (GetContent()->ShouldUpdateImageImmediately() || !Loader()) {
       UpdateImage(Data(), ImageResourceContent::kUpdateImage, false);
       return;
     }
@@ -335,7 +350,7 @@ void ImageResource::AppendData(const char* data, size_t length) {
     // inform the clients which causes an invalidation of this image. In other
     // words, we only invalidate this image every |kFlushDelay| seconds
     // while loading.
-    if (Loader() && !is_pending_flushing_) {
+    if (!is_pending_flushing_) {
       scoped_refptr<base::SingleThreadTaskRunner> task_runner =
           Loader()->GetLoadingTaskRunner();
       TimeTicks now = CurrentTimeTicks();
@@ -380,7 +395,9 @@ void ImageResource::DecodeError(bool all_data_received) {
   if (!all_data_received && Loader()) {
     // Observers are notified via ImageResource::finish().
     // TODO(hiroshige): Do not call didFinishLoading() directly.
-    Loader()->DidFinishLoading(CurrentTimeTicks(), size, size, size, false);
+    Loader()->DidFinishLoading(
+        CurrentTimeTicks(), size, size, size, false,
+        std::vector<network::cors::PreflightTimingInfo>());
   } else {
     auto result = GetContent()->UpdateImage(
         nullptr, GetStatus(),
@@ -457,10 +474,14 @@ void ImageResource::ResponseReceived(
     std::unique_ptr<WebDataConsumerHandle> handle) {
   DCHECK(!handle);
   DCHECK(!multipart_parser_);
-  // If there's no boundary, just handle the request normally.
-  if (response.IsMultipart() && !response.MultipartBoundary().IsEmpty()) {
-    multipart_parser_ = new MultipartImageResourceParser(
-        response, response.MultipartBoundary(), this);
+  if (response.MimeType() == "multipart/x-mixed-replace") {
+    Vector<char> boundary = network_utils::ParseMultipartBoundary(
+        response.HttpHeaderField(http_names::kContentType));
+    // If there's no boundary, just handle the request normally.
+    if (!boundary.IsEmpty()) {
+      multipart_parser_ = MakeGarbageCollected<MultipartImageResourceParser>(
+          response, boundary, this);
+    }
   }
 
   // Notify the base class that a response has been received. Note that after
@@ -535,6 +556,21 @@ bool ImageResource::ShouldShowPlaceholder() const {
   return false;
 }
 
+bool ImageResource::ShouldShowLazyImagePlaceholder() const {
+  switch (placeholder_option_) {
+    case PlaceholderOption::kShowAndReloadPlaceholderAlways:
+    case PlaceholderOption::kShowAndDoNotReloadPlaceholder:
+      return RuntimeEnabledFeatures::LazyImageLoadingEnabled() &&
+             (GetResourceRequest().GetPreviewsState() &
+              WebURLRequest::kLazyImageLoadDeferred);
+    case PlaceholderOption::kReloadPlaceholderOnDecodeError:
+    case PlaceholderOption::kDoNotReloadPlaceholder:
+      return false;
+  }
+  NOTREACHED();
+  return false;
+}
+
 bool ImageResource::ShouldReloadBrokenPlaceholder() const {
   switch (placeholder_option_) {
     case PlaceholderOption::kShowAndReloadPlaceholderAlways:
@@ -573,7 +609,10 @@ void ImageResource::ReloadIfLoFiOrPlaceholderImage(
   DCHECK(!is_scheduling_reload_);
   is_scheduling_reload_ = true;
 
-  SetCachePolicyBypassingCache();
+  if (GetResourceRequest().GetPreviewsState() &
+      (WebURLRequest::kClientLoFiOn | WebURLRequest::kServerLoFiOn)) {
+    SetCachePolicyBypassingCache();
+  }
 
   // The reloaded image should not use any previews transformations.
   WebURLRequest::PreviewsState previews_state_for_reload =
@@ -629,8 +668,7 @@ void ImageResource::OnePartInMultipartReceived(
   if (!GetResponse().IsNull()) {
     CHECK_EQ(GetResponse().WasFetchedViaServiceWorker(),
              response.WasFetchedViaServiceWorker());
-    CHECK_EQ(GetResponse().ResponseTypeViaServiceWorker(),
-             response.ResponseTypeViaServiceWorker());
+    CHECK_EQ(GetResponse().GetType(), response.GetType());
   }
 
   SetResponse(response);
@@ -661,21 +699,13 @@ void ImageResource::MultipartDataReceived(const char* bytes, size_t size) {
 }
 
 bool ImageResource::IsAccessAllowed(
-    const SecurityOrigin* security_origin,
     ImageResourceInfo::DoesCurrentFrameHaveSingleSecurityOrigin
         does_current_frame_has_single_security_origin) const {
-  if (GetResponse().WasFetchedViaServiceWorker())
-    return GetCORSStatus() != CORSStatus::kServiceWorkerOpaque;
-
   if (does_current_frame_has_single_security_origin !=
       ImageResourceInfo::kHasSingleSecurityOrigin)
     return false;
 
-  DCHECK(security_origin);
-  if (PassesAccessControlCheck(*security_origin))
-    return true;
-
-  return security_origin->CanReadContent(GetResponse().Url());
+  return GetResponse().IsCorsSameOrigin();
 }
 
 ImageResourceContent* ImageResource::GetContent() {

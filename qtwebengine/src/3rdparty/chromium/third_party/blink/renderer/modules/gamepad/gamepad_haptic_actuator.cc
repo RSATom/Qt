@@ -52,15 +52,17 @@ String ResultToString(GamepadHapticsResult result) {
 namespace blink {
 
 // static
-GamepadHapticActuator* GamepadHapticActuator::Create(int pad_index) {
-  return new GamepadHapticActuator(
-      pad_index, device::GamepadHapticActuatorType::kDualRumble);
+GamepadHapticActuator* GamepadHapticActuator::Create(ExecutionContext* context,
+                                                     int pad_index) {
+  return MakeGarbageCollected<GamepadHapticActuator>(
+      context, pad_index, device::GamepadHapticActuatorType::kDualRumble);
 }
 
 GamepadHapticActuator::GamepadHapticActuator(
+    ExecutionContext* context,
     int pad_index,
     device::GamepadHapticActuatorType type)
-    : pad_index_(pad_index) {
+    : ContextClient(context), pad_index_(pad_index) {
   SetType(type);
 }
 
@@ -82,19 +84,19 @@ void GamepadHapticActuator::SetType(device::GamepadHapticActuatorType type) {
 ScriptPromise GamepadHapticActuator::playEffect(
     ScriptState* script_state,
     const String& type,
-    const GamepadEffectParameters& params) {
+    const GamepadEffectParameters* params) {
   ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
 
-  if (params.duration() < 0.0 || params.startDelay() < 0.0 ||
-      params.strongMagnitude() < 0.0 || params.strongMagnitude() > 1.0 ||
-      params.weakMagnitude() < 0.0 || params.weakMagnitude() > 1.0) {
+  if (params->duration() < 0.0 || params->startDelay() < 0.0 ||
+      params->strongMagnitude() < 0.0 || params->strongMagnitude() > 1.0 ||
+      params->weakMagnitude() < 0.0 || params->weakMagnitude() > 1.0) {
     ScriptPromise promise = resolver->Promise();
     resolver->Resolve(kGamepadHapticsResultInvalidParameter);
     return promise;
   }
 
   // Limit the total effect duration.
-  double effect_duration = params.duration() + params.startDelay();
+  double effect_duration = params->duration() + params->startDelay();
   if (effect_duration >
       device::GamepadHapticActuator::kMaxEffectDurationMillis) {
     ScriptPromise promise = resolver->Promise();
@@ -102,14 +104,17 @@ ScriptPromise GamepadHapticActuator::playEffect(
     return promise;
   }
 
+  // Avoid resetting vibration for a preempted effect.
+  should_reset_ = false;
+
   auto callback = WTF::Bind(&GamepadHapticActuator::OnPlayEffectCompleted,
                             WrapPersistent(this), WrapPersistent(resolver));
 
   GamepadDispatcher::Instance().PlayVibrationEffectOnce(
       pad_index_, EffectTypeFromString(type),
       device::mojom::blink::GamepadEffectParameters::New(
-          params.duration(), params.startDelay(), params.strongMagnitude(),
-          params.weakMagnitude()),
+          params->duration(), params->startDelay(), params->strongMagnitude(),
+          params->weakMagnitude()),
       std::move(callback));
 
   return resolver->Promise();
@@ -121,8 +126,35 @@ void GamepadHapticActuator::OnPlayEffectCompleted(
   if (result == GamepadHapticsResult::GamepadHapticsResultError) {
     resolver->Reject();
     return;
+  } else if (result == GamepadHapticsResult::GamepadHapticsResultComplete) {
+    should_reset_ = true;
+    ExecutionContext* context = GetExecutionContext();
+    if (context) {
+      // Post a delayed task to stop vibration. The task will be run after all
+      // callbacks have run for the effect Promise, and may be ignored by
+      // setting |should_reset_| to false. The intention is to only stop
+      // vibration if the user did not chain another vibration effect in the
+      // Promise callback.
+      context->GetTaskRunner(TaskType::kMiscPlatformAPI)
+          ->PostTask(
+              FROM_HERE,
+              WTF::Bind(&GamepadHapticActuator::ResetVibrationIfNotPreempted,
+                        WrapPersistent(this)));
+    } else {
+      // The execution context is gone, meaning no new effects can be issued by
+      // the page. Stop vibration without waiting for Promise callbacks.
+      ResetVibrationIfNotPreempted();
+    }
   }
   resolver->Resolve(ResultToString(result));
+}
+
+void GamepadHapticActuator::ResetVibrationIfNotPreempted() {
+  if (should_reset_) {
+    should_reset_ = false;
+    GamepadDispatcher::Instance().ResetVibrationActuator(pad_index_,
+                                                         base::DoNothing());
+  }
 }
 
 ScriptPromise GamepadHapticActuator::reset(ScriptState* script_state) {
@@ -149,6 +181,7 @@ void GamepadHapticActuator::OnResetCompleted(
 
 void GamepadHapticActuator::Trace(blink::Visitor* visitor) {
   ScriptWrappable::Trace(visitor);
+  ContextClient::Trace(visitor);
 }
 
 }  // namespace blink

@@ -20,7 +20,7 @@ class CPDFSDK_PageView;
 class CXFA_FFWidget;
 class CXFA_FFWidgetHandler;
 
-class CPDFSDK_XFAWidgetHandler : public IPDFSDK_AnnotHandler {
+class CPDFSDK_XFAWidgetHandler final : public IPDFSDK_AnnotHandler {
  public:
   explicit CPDFSDK_XFAWidgetHandler(CPDFSDK_FormFillEnvironment* pApp);
   ~CPDFSDK_XFAWidgetHandler() override;
@@ -45,7 +45,7 @@ class CPDFSDK_XFAWidgetHandler : public IPDFSDK_AnnotHandler {
   void OnDraw(CPDFSDK_PageView* pPageView,
               CPDFSDK_Annot* pAnnot,
               CFX_RenderDevice* pDevice,
-              CFX_Matrix* pUser2Device,
+              const CFX_Matrix& mtUser2Device,
               bool bDrawAnnots) override;
   void OnLoad(CPDFSDK_Annot* pAnnot) override;
   void OnMouseEnter(CPDFSDK_PageView* pPageView,

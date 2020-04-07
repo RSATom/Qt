@@ -11,13 +11,15 @@
 #include "src/heap/factory.h"
 #include "src/ic/stub-cache.h"
 #include "src/isolate.h"
-#include "src/macro-assembler.h"
-#include "src/messages.h"
+#include "src/message-template.h"
 #include "src/objects/map.h"
 #include "src/objects/maybe-object.h"
+#include "src/objects/smi.h"
 
 namespace v8 {
 namespace internal {
+
+enum class NamedPropertyType : bool { kNotOwn, kOwn };
 
 //
 // IC is the base class for LoadIC, StoreIC, KeyedLoadIC, and KeyedStoreIC.
@@ -35,8 +37,9 @@ class IC {
 
   // Construct the IC structure with the given number of extra
   // JavaScript frames on the stack.
-  IC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot);
-  virtual ~IC() {}
+  IC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot,
+     FeedbackSlotKind kind);
+  virtual ~IC() = default;
 
   State state() const { return state_; }
   inline Address address() const;
@@ -59,15 +62,15 @@ class IC {
            IsKeyedStoreIC() || IsStoreInArrayLiteralICKind(kind());
   }
 
-  static inline bool IsHandler(MaybeObject* object);
+  static inline bool IsHandler(MaybeObject object);
 
   // Nofity the IC system that a feedback has changed.
-  static void OnFeedbackChanged(Isolate* isolate, FeedbackVector* vector,
-                                FeedbackSlot slot, JSFunction* host_function,
+  static void OnFeedbackChanged(Isolate* isolate, FeedbackVector vector,
+                                FeedbackSlot slot, JSFunction host_function,
                                 const char* reason);
 
   static void OnFeedbackChanged(Isolate* isolate, FeedbackNexus* nexus,
-                                JSFunction* host_function, const char* reason);
+                                JSFunction host_function, const char* reason);
 
  protected:
   Address fp() const { return fp_; }
@@ -78,21 +81,19 @@ class IC {
   Isolate* isolate() const { return isolate_; }
 
   // Get the caller function object.
-  JSFunction* GetHostFunction() const;
+  JSFunction GetHostFunction() const;
 
   inline bool AddressIsDeoptimizedCode() const;
   inline static bool AddressIsDeoptimizedCode(Isolate* isolate,
                                               Address address);
 
   bool is_vector_set() { return vector_set_; }
-  bool vector_needs_update() {
-    return (!vector_set_ &&
-            (state() != MEGAMORPHIC ||
-             Smi::ToInt(nexus()->GetFeedbackExtra()->ToSmi()) != ELEMENT));
-  }
+  inline bool vector_needs_update();
 
   // Configure for most states.
   bool ConfigureVectorState(IC::State new_state, Handle<Object> key);
+  // Configure the vector for PREMONOMORPHIC.
+  void ConfigureVectorState(Handle<Map> map);
   // Configure the vector for MONOMORPHIC.
   void ConfigureVectorState(Handle<Name> name, Handle<Map> map,
                             Handle<Object> handler);
@@ -107,8 +108,8 @@ class IC {
   void TraceIC(const char* type, Handle<Object> name, State old_state,
                State new_state);
 
-  MaybeHandle<Object> TypeError(MessageTemplate::Template,
-                                Handle<Object> object, Handle<Object> key);
+  MaybeHandle<Object> TypeError(MessageTemplate, Handle<Object> object,
+                                Handle<Object> key);
   MaybeHandle<Object> ReferenceError(Handle<Name> name);
 
   void TraceHandlerCacheHitStats(LookupIterator* lookup);
@@ -121,7 +122,7 @@ class IC {
   StubCache* stub_cache();
 
   void CopyICToMegamorphicCache(Handle<Name> name);
-  bool IsTransitionOfMonomorphicTarget(Map* source_map, Map* target_map);
+  bool IsTransitionOfMonomorphicTarget(Map source_map, Map target_map);
   void PatchCache(Handle<Name> name, Handle<Object> handler);
   void PatchCache(Handle<Name> name, const MaybeObjectHandle& handler);
   FeedbackSlotKind kind() const { return kind_; }
@@ -140,13 +141,7 @@ class IC {
   bool ShouldRecomputeHandler(Handle<String> name);
 
   Handle<Map> receiver_map() { return receiver_map_; }
-  void update_receiver_map(Handle<Object> receiver) {
-    if (receiver->IsSmi()) {
-      receiver_map_ = isolate_->factory()->heap_number_map();
-    } else {
-      receiver_map_ = handle(HeapObject::cast(*receiver)->map(), isolate_);
-    }
-  }
+  inline void update_receiver_map(Handle<Object> receiver);
 
   void TargetMaps(MapHandles* list) {
     FindTargetMaps();
@@ -155,9 +150,9 @@ class IC {
     }
   }
 
-  Map* FirstTargetMap() {
+  Map FirstTargetMap() {
     FindTargetMaps();
-    return !target_maps_.empty() ? *target_maps_[0] : nullptr;
+    return !target_maps_.empty() ? *target_maps_[0] : Map();
   }
 
   State saved_state() const {
@@ -212,8 +207,9 @@ class IC {
 
 class LoadIC : public IC {
  public:
-  LoadIC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot)
-      : IC(isolate, vector, slot) {
+  LoadIC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot,
+         FeedbackSlotKind kind)
+      : IC(isolate, vector, slot, kind) {
     DCHECK(IsAnyLoad());
   }
 
@@ -247,8 +243,8 @@ class LoadIC : public IC {
 class LoadGlobalIC : public LoadIC {
  public:
   LoadGlobalIC(Isolate* isolate, Handle<FeedbackVector> vector,
-               FeedbackSlot slot)
-      : LoadIC(isolate, vector, slot) {}
+               FeedbackSlot slot, FeedbackSlotKind kind)
+      : LoadIC(isolate, vector, slot, kind) {}
 
   V8_WARN_UNUSED_RESULT MaybeHandle<Object> Load(Handle<Name> name);
 
@@ -261,8 +257,8 @@ class LoadGlobalIC : public LoadIC {
 class KeyedLoadIC : public LoadIC {
  public:
   KeyedLoadIC(Isolate* isolate, Handle<FeedbackVector> vector,
-              FeedbackSlot slot)
-      : LoadIC(isolate, vector, slot) {}
+              FeedbackSlot slot, FeedbackSlotKind kind)
+      : LoadIC(isolate, vector, slot, kind) {}
 
   V8_WARN_UNUSED_RESULT MaybeHandle<Object> Load(Handle<Object> object,
                                                  Handle<Object> key);
@@ -291,20 +287,20 @@ class KeyedLoadIC : public LoadIC {
 
 class StoreIC : public IC {
  public:
-  StoreIC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot)
-      : IC(isolate, vector, slot) {
+  StoreIC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot,
+          FeedbackSlotKind kind, LanguageMode language_mode)
+      : IC(isolate, vector, slot, kind), language_mode_(language_mode) {
     DCHECK(IsAnyStore());
   }
 
-  LanguageMode language_mode() const { return nexus()->GetLanguageMode(); }
+  LanguageMode language_mode() const { return language_mode_; }
 
   V8_WARN_UNUSED_RESULT MaybeHandle<Object> Store(
       Handle<Object> object, Handle<Name> name, Handle<Object> value,
-      JSReceiver::StoreFromKeyed store_mode =
-          JSReceiver::CERTAINLY_NOT_STORE_FROM_KEYED);
+      StoreOrigin store_origin = StoreOrigin::kNamed);
 
   bool LookupForWrite(LookupIterator* it, Handle<Object> value,
-                      JSReceiver::StoreFromKeyed store_mode);
+                      StoreOrigin store_origin);
 
  protected:
   // Stub accessors.
@@ -316,7 +312,12 @@ class StoreIC : public IC {
   // Update the inline cache and the global stub cache based on the
   // lookup result.
   void UpdateCaches(LookupIterator* lookup, Handle<Object> value,
-                    JSReceiver::StoreFromKeyed store_mode);
+                    StoreOrigin store_origin);
+
+  // TODO(v8:8580): Instead of storing the language mode, compute it lazily
+  // from the closure and context when needed. We only need it when throwing
+  // exceptions, so it is OK to be slow.
+  LanguageMode language_mode_;
 
  private:
   MaybeObjectHandle ComputeHandler(LookupIterator* lookup);
@@ -327,8 +328,9 @@ class StoreIC : public IC {
 class StoreGlobalIC : public StoreIC {
  public:
   StoreGlobalIC(Isolate* isolate, Handle<FeedbackVector> vector,
-                FeedbackSlot slot)
-      : StoreIC(isolate, vector, slot) {}
+                FeedbackSlot slot, FeedbackSlotKind kind,
+                LanguageMode language_mode)
+      : StoreIC(isolate, vector, slot, kind, language_mode) {}
 
   V8_WARN_UNUSED_RESULT MaybeHandle<Object> Store(Handle<Name> name,
                                                   Handle<Object> value);
@@ -352,8 +354,9 @@ class KeyedStoreIC : public StoreIC {
   }
 
   KeyedStoreIC(Isolate* isolate, Handle<FeedbackVector> vector,
-               FeedbackSlot slot)
-      : StoreIC(isolate, vector, slot) {}
+               FeedbackSlot slot, FeedbackSlotKind kind,
+               LanguageMode language_mode)
+      : StoreIC(isolate, vector, slot, kind, language_mode) {}
 
   V8_WARN_UNUSED_RESULT MaybeHandle<Object> Store(Handle<Object> object,
                                                   Handle<Object> name,
@@ -386,7 +389,9 @@ class StoreInArrayLiteralIC : public KeyedStoreIC {
  public:
   StoreInArrayLiteralIC(Isolate* isolate, Handle<FeedbackVector> vector,
                         FeedbackSlot slot)
-      : KeyedStoreIC(isolate, vector, slot) {
+      : KeyedStoreIC(isolate, vector, slot,
+                     FeedbackSlotKind::kStoreInArrayLiteral,
+                     LanguageMode::kStrict) {
     DCHECK(IsStoreInArrayLiteralICKind(kind()));
   }
 

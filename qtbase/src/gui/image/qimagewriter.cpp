@@ -407,8 +407,8 @@ void QImageWriter::setDevice(QIODevice *device)
 }
 
 /*!
-    Returns the device currently assigned to QImageWriter, or 0 if no
-    device has been assigned.
+    Returns the device currently assigned to QImageWriter, or \nullptr
+    if no device has been assigned.
 */
 QIODevice *QImageWriter::device() const
 {
@@ -648,6 +648,7 @@ QImageIOHandler::Transformations QImageWriter::transformation() const
     return d->transformation;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -679,6 +680,7 @@ QString QImageWriter::description() const
 {
     return d->description;
 }
+#endif
 
 /*!
     \since 4.1

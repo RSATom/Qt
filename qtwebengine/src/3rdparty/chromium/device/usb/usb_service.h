@@ -19,7 +19,7 @@
 #include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/task_traits.h"
 
 namespace device {
 
@@ -79,18 +79,10 @@ class UsbService {
   void GetTestDevices(std::vector<scoped_refptr<UsbDevice>>* devices);
 
  protected:
-  UsbService(scoped_refptr<base::SequencedTaskRunner> blocking_task_runner);
+  UsbService();
 
   void NotifyDeviceAdded(scoped_refptr<UsbDevice> device);
   void NotifyDeviceRemoved(scoped_refptr<UsbDevice> device);
-
-  const scoped_refptr<base::SingleThreadTaskRunner>& task_runner() const {
-    return task_runner_;
-  }
-
-  const scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner() const {
-    return blocking_task_runner_;
-  }
 
   std::unordered_map<std::string, scoped_refptr<UsbDevice>>& devices() {
     return devices_;
@@ -99,11 +91,9 @@ class UsbService {
   SEQUENCE_CHECKER(sequence_checker_);
 
  private:
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-  scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
   std::unordered_map<std::string, scoped_refptr<UsbDevice>> devices_;
   std::unordered_set<std::string> testing_devices_;
-  base::ObserverList<Observer, true> observer_list_;
+  base::ObserverList<Observer, true>::Unchecked observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(UsbService);
 };

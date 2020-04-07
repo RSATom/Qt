@@ -36,17 +36,17 @@ static_library("app") {
     sources += [ "crashpad.cc" ]
   }
 
-  if (is_android || is_linux) {
-    # Want these files on both Linux and Android.
+  if (is_android || (is_linux && !is_chromeos)) {
     set_sources_assignment_filter([])
+    sources += [ "crashpad_linux.cc" ]
+  }
+
+  if (is_linux) {
     sources += [
       "breakpad_linux.cc",
       "breakpad_linux.h",
       "breakpad_linux_impl.h",
     ]
-    if (!is_chromeos) {
-      sources += [ "crashpad_linux.cc" ]
-    }
   }
 
   defines = [ "CRASH_IMPLEMENTATION" ]
@@ -61,9 +61,12 @@ static_library("app") {
   if (is_mac || is_win || is_android || (is_linux && !is_chromeos)) {
     deps += [
       "//third_party/crashpad/crashpad/client",
-      "//third_party/crashpad/crashpad/snapshot:snapshot_api",
       "//third_party/crashpad/crashpad/util",
     ]
+  }
+
+  if (is_android) {
+    deps += [ "//components/crash/android:jni_headers" ]
   }
 
   if (is_android || is_linux) {
@@ -73,14 +76,12 @@ static_library("app") {
       "//content/public/common:content_descriptors",
       "//content/public/common:result_codes",
       "//sandbox",
-      "//third_party/breakpad:client",
       "//third_party/crashpad/crashpad/snapshot",
     ]
 
-    # Clang's -mstackrealign doesn't work well with
-    # linux_syscall_support.h hand written asm syscalls.
-    # See https://crbug.com/556393
-    configs -= [ "//build/config/compiler:clang_stackrealign" ]
+    if (is_linux) {
+      deps += [ "//third_party/breakpad:client" ]
+    }
   }
 
   if (is_win) {
@@ -131,6 +132,7 @@ if (is_win) {
     deps = [
       "//base",
       "//components/browser_watcher:crash_stability",
+      "//components/gwp_asan/crash_handler",
       "//third_party/crashpad/crashpad/client",
       "//third_party/crashpad/crashpad/handler",
       "//third_party/crashpad/crashpad/minidump",
@@ -204,23 +206,6 @@ source_set("test_support") {
 # TODO(crbug.com/565771): This target and :deprecated_breakpad_win should be
 # removed.
 if (is_win) {
-  source_set("lib_breakpad") {
-    visibility = [ ":*" ]
-
-    sources = [
-      "crash_keys_win.cc",
-      "crash_keys_win.h",
-    ]
-
-    deps = [
-      ":lib",
-      "//base",
-      "//third_party/breakpad:breakpad_handler",
-    ]
-
-    include_dirs = [ "../../../../third_party/breakpad/breakpad/src" ]
-  }
-
   static_library("deprecated_breakpad_win") {
     visibility = [ "//components/nacl/broker:nacl64" ]
 
@@ -235,7 +220,6 @@ if (is_win) {
 
     deps = [
       ":lib",
-      ":lib_breakpad",
       "//base",
       "//base:base_static",
       "//components/crash/core/common",
@@ -245,6 +229,8 @@ if (is_win) {
       "//third_party/breakpad:client",
     ]
 
+    include_dirs = [ "../../../../third_party/breakpad/breakpad/src" ]
+
     libs = [ "userenv.lib" ]
   }
 }
@@ -252,7 +238,6 @@ if (is_win) {
 source_set("unit_tests") {
   testonly = true
   sources = [
-    "crash_keys_win_unittest.cc",
     "fallback_crash_handler_launcher_win_unittest.cc",
     "fallback_crash_handler_win_unittest.cc",
     "fallback_crash_handling_win_unittest.cc",
@@ -267,7 +252,6 @@ source_set("unit_tests") {
 
   if (is_win) {
     deps += [
-      ":lib_breakpad",
       ":run_as_crashpad_handler",
       "//third_party/breakpad:client",
       "//third_party/crashpad/crashpad/client:client",

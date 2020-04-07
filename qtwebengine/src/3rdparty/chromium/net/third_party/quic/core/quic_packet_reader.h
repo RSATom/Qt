@@ -31,6 +31,8 @@ const int kNumPacketsPerReadMmsgCall = 16;
 class QuicPacketReader {
  public:
   QuicPacketReader();
+  QuicPacketReader(const QuicPacketReader&) = delete;
+  QuicPacketReader& operator=(const QuicPacketReader&) = delete;
 
   virtual ~QuicPacketReader();
 
@@ -79,13 +81,11 @@ class QuicPacketReader {
     // cbuf is used for ancillary data from the kernel on recvmmsg.
     char cbuf[kCmsgSpaceForReadPacket];
     // buf is used for the data read from the kernel on recvmmsg.
-    char buf[kMaxPacketSize];
+    char buf[kMaxV4PacketSize];
   };
   PacketData packets_[kNumPacketsPerReadMmsgCall];
   mmsghdr mmsg_hdr_[kNumPacketsPerReadMmsgCall];
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(QuicPacketReader);
 };
 
 }  // namespace quic

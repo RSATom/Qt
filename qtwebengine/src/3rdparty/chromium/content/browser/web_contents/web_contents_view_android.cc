@@ -28,6 +28,7 @@
 #include "jni/DragEvent_jni.h"
 #include "ui/android/overscroll_refresh_handler.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/display/screen.h"
 #include "ui/events/android/drag_event_android.h"
 #include "ui/events/android/gesture_event_android.h"
@@ -105,11 +106,6 @@ WebContentsViewAndroid::~WebContentsViewAndroid() {
 void WebContentsViewAndroid::SetContentUiEventHandler(
     std::unique_ptr<ContentUiEventHandler> handler) {
   content_ui_event_handler_ = std::move(handler);
-}
-
-void WebContentsViewAndroid::SetSelectPopup(
-    std::unique_ptr<SelectPopup> select_popup) {
-  select_popup_ = std::move(select_popup);
 }
 
 void WebContentsViewAndroid::SetOverscrollRefreshHandler(
@@ -197,7 +193,7 @@ void WebContentsViewAndroid::Focus() {
 
 void WebContentsViewAndroid::SetInitialFocus() {
   if (web_contents_->FocusLocationBarByDefault())
-    web_contents_->SetFocusToLocationBar(false);
+    web_contents_->SetFocusToLocationBar();
   else
     Focus();
 }
@@ -260,7 +256,7 @@ RenderWidgetHostViewBase* WebContentsViewAndroid::CreateViewForWidget(
   return rwhv;
 }
 
-RenderWidgetHostViewBase* WebContentsViewAndroid::CreateViewForPopupWidget(
+RenderWidgetHostViewBase* WebContentsViewAndroid::CreateViewForChildWidget(
     RenderWidgetHost* render_widget_host) {
   RenderWidgetHostImpl* rwhi = RenderWidgetHostImpl::From(render_widget_host);
   return new RenderWidgetHostViewAndroid(rwhi, nullptr);
@@ -323,6 +319,12 @@ void WebContentsViewAndroid::ShowContextMenu(
     delegate_->ShowContextMenu(render_frame_host, params);
 }
 
+SelectPopup* WebContentsViewAndroid::GetSelectPopup() {
+  if (!select_popup_)
+    select_popup_ = std::make_unique<SelectPopup>(web_contents_);
+  return select_popup_.get();
+}
+
 void WebContentsViewAndroid::ShowPopupMenu(
     RenderFrameHost* render_frame_host,
     const gfx::Rect& bounds,
@@ -332,15 +334,12 @@ void WebContentsViewAndroid::ShowPopupMenu(
     const std::vector<MenuItem>& items,
     bool right_aligned,
     bool allow_multiple_selection) {
-  if (select_popup_) {
-    select_popup_->ShowMenu(render_frame_host, bounds, items, selected_item,
-                            allow_multiple_selection, right_aligned);
-  }
+  GetSelectPopup()->ShowMenu(render_frame_host, bounds, items, selected_item,
+                             allow_multiple_selection, right_aligned);
 }
 
 void WebContentsViewAndroid::HidePopupMenu() {
-  if (select_popup_)
-    select_popup_->HideMenu();
+  GetSelectPopup()->HideMenu();
 }
 
 void WebContentsViewAndroid::StartDragging(
@@ -415,9 +414,9 @@ bool WebContentsViewAndroid::OnDragEvent(const ui::DragEventAndroid& event) {
       base::string16 drop_content =
           ConvertJavaStringToUTF16(env, event.GetJavaContent());
       for (const base::string16& mime_type : event.mime_types()) {
-        if (base::EqualsASCII(mime_type, ui::Clipboard::kMimeTypeURIList)) {
+        if (base::EqualsASCII(mime_type, ui::kMimeTypeURIList)) {
           drop_data.url = GURL(drop_content);
-        } else if (base::EqualsASCII(mime_type, ui::Clipboard::kMimeTypeText)) {
+        } else if (base::EqualsASCII(mime_type, ui::kMimeTypeText)) {
           drop_data.text = base::NullableString16(drop_content, false);
         } else {
           drop_data.html = base::NullableString16(drop_content, false);
@@ -523,9 +522,10 @@ int WebContentsViewAndroid::GetBottomControlsHeight() const {
   return delegate ? delegate->GetBottomControlsHeight() : 0;
 }
 
-bool WebContentsViewAndroid::DoBrowserControlsShrinkBlinkSize() const {
+bool WebContentsViewAndroid::DoBrowserControlsShrinkRendererSize() const {
   auto* delegate = web_contents_->GetDelegate();
-  return delegate ? delegate->DoBrowserControlsShrinkBlinkSize() : false;
+  return delegate &&
+         delegate->DoBrowserControlsShrinkRendererSize(web_contents_);
 }
 
 bool WebContentsViewAndroid::OnTouchEvent(const ui::MotionEventAndroid& event) {

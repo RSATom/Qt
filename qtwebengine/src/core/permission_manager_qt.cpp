@@ -61,8 +61,13 @@ ProfileAdapter::PermissionType toQt(content::PermissionType type)
         return ProfileAdapter::AudioCapturePermission;
     case content::PermissionType::VIDEO_CAPTURE:
         return ProfileAdapter::VideoCapturePermission;
-    case content::PermissionType::FLASH:
+    case content::PermissionType::CLIPBOARD_READ:
+        return ProfileAdapter::ClipboardRead;
+    case content::PermissionType::CLIPBOARD_WRITE:
+        return ProfileAdapter::ClipboardWrite;
     case content::PermissionType::NOTIFICATIONS:
+        return ProfileAdapter::NotificationPermission;
+    case content::PermissionType::FLASH:
     case content::PermissionType::MIDI_SYSEX:
     case content::PermissionType::PROTECTED_MEDIA_IDENTIFIER:
     case content::PermissionType::MIDI:
@@ -70,13 +75,11 @@ ProfileAdapter::PermissionType toQt(content::PermissionType type)
     case content::PermissionType::BACKGROUND_SYNC:
     case content::PermissionType::SENSORS:
     case content::PermissionType::ACCESSIBILITY_EVENTS:
-        break;
-    case content::PermissionType::CLIPBOARD_READ:
-        return ProfileAdapter::ClipboardRead;
-    case content::PermissionType::CLIPBOARD_WRITE:
-        return ProfileAdapter::ClipboardWrite;
     case content::PermissionType::PAYMENT_HANDLER:
+    case content::PermissionType::BACKGROUND_FETCH:
+    case content::PermissionType::IDLE_DETECTION:
     case content::PermissionType::NUM:
+        NOTIMPLEMENTED() << "Unsupported permission type: " << static_cast<int>(type);
         break;
     }
     return ProfileAdapter::UnsupportedPermission;
@@ -187,6 +190,9 @@ int PermissionManagerQt::RequestPermission(content::PermissionType permission,
     m_requests.insert(request_id, request);
     if (permissionType == ProfileAdapter::GeolocationPermission)
         contentsDelegate->requestGeolocationPermission(request.origin);
+    else if (permissionType == ProfileAdapter::NotificationPermission)
+        contentsDelegate->requestUserNotificationPermission(request.origin);
+
     return request_id;
 }
 
@@ -235,6 +241,8 @@ int PermissionManagerQt::RequestPermissions(const std::vector<content::Permissio
         const ProfileAdapter::PermissionType permissionType = toQt(permission);
         if (permissionType == ProfileAdapter::GeolocationPermission)
             contentsDelegate->requestGeolocationPermission(request.origin);
+        else if (permissionType == ProfileAdapter::NotificationPermission)
+            contentsDelegate->requestUserNotificationPermission(request.origin);
     }
     return request_id;
 }
@@ -294,8 +302,8 @@ void PermissionManagerQt::ResetPermission(
 
 int PermissionManagerQt::SubscribePermissionStatusChange(
     content::PermissionType permission,
+    content::RenderFrameHost * /* render_frame_host */,
     const GURL& requesting_origin,
-    const GURL& /*embedding_origin*/,
     const base::Callback<void(blink::mojom::PermissionStatus)>& callback)
 {
     int subscriber_id = ++m_subscriberIdCount;
@@ -311,7 +319,7 @@ int PermissionManagerQt::SubscribePermissionStatusChange(
 void PermissionManagerQt::UnsubscribePermissionStatusChange(int subscription_id)
 {
     if (!m_subscribers.remove(subscription_id))
-        qWarning() << "PermissionManagerQt::UnsubscribePermissionStatusChange called on unknown subscription id" << subscription_id;
+        LOG(WARNING) << "PermissionManagerQt::UnsubscribePermissionStatusChange called on unknown subscription id" << subscription_id;
 }
 
 } // namespace QtWebEngineCore

@@ -15,6 +15,8 @@ config("components_download_implementation") {
 
 component("public") {
   sources = [
+    "auto_resumption_handler.cc",
+    "auto_resumption_handler.h",
     "base_file.h",
     "download_content.h",
     "download_create_info.h",
@@ -46,6 +48,7 @@ component("public") {
     "download_task_runner.h",
     "download_ukm_helper.h",
     "download_url_loader_factory_getter.h",
+    "download_url_loader_factory_getter_impl.h",
     "download_url_parameters.cc",
     "download_url_parameters.h",
     "download_utils.h",
@@ -64,6 +67,9 @@ component("public") {
 
   public_deps = [
     ":interfaces",
+    "//components/download/network",
+    "//components/download/public/background_service:public",
+    "//services/network/public/cpp",
   ]
 
   deps = [
@@ -90,13 +96,14 @@ if (is_android) {
 
     deps = [
       "//base:base_java",
-      "//third_party/android_tools:android_support_annotations_java",
+      "//third_party/android_deps:android_support_annotations_java",
     ]
   }
 
   java_cpp_enum("jni_enums") {
     sources = [
       "download_item.h",
+      "resume_mode.h",
     ]
   }
 }
@@ -131,5 +138,23 @@ source_set("test_support") {
     "//net",
     "//testing/gmock",
     "//url",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  sources = [
+    "auto_resumption_handler_unittest.cc",
+  ]
+
+  deps = [
+    ":public",
+    ":test_support",
+    "//base/test:test_support",
+    "//components/download/public/task:test_support",
+    "//services/network:test_support",
+    "//testing/gmock",
+    "//testing/gtest",
   ]
 }

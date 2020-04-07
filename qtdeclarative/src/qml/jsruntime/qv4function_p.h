@@ -64,9 +64,23 @@ struct QQmlSourceLocation;
 
 namespace QV4 {
 
-struct Q_QML_EXPORT Function {
-    const CompiledData::Function *compiledFunction;
+struct Q_QML_EXPORT FunctionData {
     CompiledData::CompilationUnit *compilationUnit;
+
+    FunctionData(CompiledData::CompilationUnit *compilationUnit)
+        : compilationUnit(compilationUnit)
+    {}
+};
+// Make sure this class can be accessed through offsetof (done by the assemblers):
+Q_STATIC_ASSERT(std::is_standard_layout< FunctionData >::value);
+
+struct Q_QML_EXPORT Function : public FunctionData {
+private:
+    Function(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function);
+    ~Function();
+
+public:
+    const CompiledData::Function *compiledFunction;
 
     ReturnedValue call(const Value *thisObject, const Value *argv, int argc, const ExecutionContext *context);
 
@@ -82,15 +96,18 @@ struct Q_QML_EXPORT Function {
     int interpreterCallCount = 0;
     bool isEval = false;
 
-    Function(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function);
-    ~Function();
+    static Function *create(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function);
+    void destroy();
 
     // used when dynamically assigning signal handlers (QQmlConnection)
     void updateInternalClass(ExecutionEngine *engine, const QList<QByteArray> &parameters);
 
-    inline Heap::String *name() {
+    inline Heap::String *name() const {
         return compilationUnit->runtimeStrings[compiledFunction->nameIndex];
     }
+
+    static QString prettyName(const Function *function, const void *address);
+
     inline QString sourceFile() const { return compilationUnit->fileName(); }
     inline QUrl finalUrl() const { return compilationUnit->finalUrl(); }
 
@@ -105,6 +122,31 @@ struct Q_QML_EXPORT Function {
         if (compiledFunction->nestedFunctionIndex == std::numeric_limits<uint32_t>::max())
             return nullptr;
         return compilationUnit->runtimeFunctions[compiledFunction->nestedFunctionIndex];
+    }
+
+    Q_NEVER_INLINE QString traceInfoToString();
+
+    quint8 *traceInfo(uint i)
+    {
+#if QT_CONFIG(qml_tracing)
+        Q_ASSERT((tracingEnabled() && i < traceInfoCount()) || (i == 0));
+        return reinterpret_cast<quint8 *>(this) + sizeof(Function) + i;
+#else
+        Q_UNUSED(i);
+        return nullptr;
+#endif
+    }
+
+    quint32 traceInfoCount() const
+    { return compiledFunction->nTraceInfos; }
+
+    bool tracingEnabled() const
+    {
+#if QT_CONFIG(qml_tracing)
+        return traceInfoCount() != CompiledData::Function::NoTracing();
+#else
+        return false;
+#endif
     }
 };
 

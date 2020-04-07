@@ -96,13 +96,13 @@ class CPWL_EditImpl_Undo {
 
 class IFX_Edit_UndoItem {
  public:
-  virtual ~IFX_Edit_UndoItem() {}
+  virtual ~IFX_Edit_UndoItem() = default;
 
   virtual void Undo() = 0;
   virtual void Redo() = 0;
 };
 
-class CFXEU_InsertWord : public IFX_Edit_UndoItem {
+class CFXEU_InsertWord final : public IFX_Edit_UndoItem {
  public:
   CFXEU_InsertWord(CPWL_EditImpl* pEdit,
                    const CPVT_WordPlace& wpOldPlace,
@@ -124,7 +124,7 @@ class CFXEU_InsertWord : public IFX_Edit_UndoItem {
   int32_t m_nCharset;
 };
 
-class CFXEU_InsertReturn : public IFX_Edit_UndoItem {
+class CFXEU_InsertReturn final : public IFX_Edit_UndoItem {
  public:
   CFXEU_InsertReturn(CPWL_EditImpl* pEdit,
                      const CPVT_WordPlace& wpOldPlace,
@@ -142,7 +142,7 @@ class CFXEU_InsertReturn : public IFX_Edit_UndoItem {
   CPVT_WordPlace m_wpNew;
 };
 
-class CFXEU_Backspace : public IFX_Edit_UndoItem {
+class CFXEU_Backspace final : public IFX_Edit_UndoItem {
  public:
   CFXEU_Backspace(CPWL_EditImpl* pEdit,
                   const CPVT_WordPlace& wpOldPlace,
@@ -164,7 +164,7 @@ class CFXEU_Backspace : public IFX_Edit_UndoItem {
   int32_t m_nCharset;
 };
 
-class CFXEU_Delete : public IFX_Edit_UndoItem {
+class CFXEU_Delete final : public IFX_Edit_UndoItem {
  public:
   CFXEU_Delete(CPWL_EditImpl* pEdit,
                const CPVT_WordPlace& wpOldPlace,
@@ -188,7 +188,7 @@ class CFXEU_Delete : public IFX_Edit_UndoItem {
   bool m_bSecEnd;
 };
 
-class CFXEU_Clear : public IFX_Edit_UndoItem {
+class CFXEU_Clear final : public IFX_Edit_UndoItem {
  public:
   CFXEU_Clear(CPWL_EditImpl* pEdit,
               const CPVT_WordRange& wrSel,
@@ -206,7 +206,7 @@ class CFXEU_Clear : public IFX_Edit_UndoItem {
   WideString m_swText;
 };
 
-class CFXEU_InsertText : public IFX_Edit_UndoItem {
+class CFXEU_InsertText final : public IFX_Edit_UndoItem {
  public:
   CFXEU_InsertText(CPWL_EditImpl* pEdit,
                    const CPVT_WordPlace& wpOldPlace,
@@ -303,7 +303,6 @@ class CPWL_EditImpl {
   int32_t GetCharArray() const;
   CFX_FloatRect GetContentRect() const;
   WideString GetRangeText(const CPVT_WordRange& range) const;
-  int32_t GetHorzScale() const;
   float GetCharSpace() const;
   void SetSelection(int32_t nStartChar, int32_t nEndChar);
   void GetSelection(int32_t& nStartChar, int32_t& nEndChar) const;
@@ -374,10 +373,10 @@ class CPWL_EditImpl {
 
   void AddEditUndoItem(std::unique_ptr<IFX_Edit_UndoItem> pEditUndoItem);
 
-  std::unique_ptr<CPDF_VariableText> m_pVT;
+  std::unique_ptr<CPWL_EditImpl_Provider> m_pVTProvider;
+  std::unique_ptr<CPDF_VariableText> m_pVT;  // Must outlive |m_pVTProvider|.
   UnownedPtr<CPWL_EditCtrl> m_pNotify;
   UnownedPtr<CPWL_Edit> m_pOperationNotify;
-  std::unique_ptr<CPWL_EditImpl_Provider> m_pVTProvider;
   CPVT_WordPlace m_wpCaret;
   CPVT_WordPlace m_wpOldCaret;
   CPWL_EditImpl_Select m_SelState;
@@ -415,7 +414,7 @@ class CPWL_EditImpl_Iterator {
   CPDF_VariableText::Iterator* m_pVTIterator;
 };
 
-class CPWL_EditImpl_Provider : public CPDF_VariableText::Provider {
+class CPWL_EditImpl_Provider final : public CPDF_VariableText::Provider {
  public:
   explicit CPWL_EditImpl_Provider(IPVT_FontMap* pFontMap);
   ~CPWL_EditImpl_Provider() override;

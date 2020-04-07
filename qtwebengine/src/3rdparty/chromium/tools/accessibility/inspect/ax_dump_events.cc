@@ -3,14 +3,20 @@
 // found in the LICENSE file.
 
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "tools/accessibility/inspect/ax_event_server.h"
 
-char kPidSwitch[] = "pid";
+namespace {
+
+constexpr char kPidSwitch[] = "pid";
+constexpr char kPatternSwitch[] = "pattern";
 
 // Convert from string to int, whether in 0x hex format or decimal format.
 bool StringToInt(std::string str, int* result) {
@@ -22,23 +28,43 @@ bool StringToInt(std::string str, int* result) {
                 : base::StringToInt(str, result);
 }
 
+bool AXDumpEventsLogMessageHandler(int severity,
+                                   const char* file,
+                                   int line,
+                                   size_t message_start,
+                                   const std::string& str) {
+  printf("%s", str.substr(message_start).c_str());
+  return true;
+}
+}  // namespace
+
 int main(int argc, char** argv) {
-  base::AtExitManager at_exit_manager;
-  // TODO(aleventhal) Want callback after Ctrl+C or some global keystroke:
-  // base::AtExitManager::RegisterCallback(content::OnExit, nullptr);
+  logging::SetLogMessageHandler(AXDumpEventsLogMessageHandler);
 
   base::CommandLine::Init(argc, argv);
-  std::string pid_str =
+
+  const std::string pid_str =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kPidSwitch);
-  int pid;
-  if (!pid_str.empty()) {
-    if (StringToInt(pid_str, &pid)) {
-      std::unique_ptr<content::AXEventServer> server(
-          new content::AXEventServer(pid));
-    }
-  } else {
-    std::cout << "* Error: No process id provided via --pid=[process-id].";
+  const std::string pattern_str =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          kPatternSwitch);
+  if (pid_str.empty() && pattern_str.empty()) {
+    LOG(ERROR) << "* Error: No process id provided via --pid=[process-id] or"
+                  " application name pattern via --pattern=[pattern].";
+    return 1;
   }
 
+  int pid = 0;
+  if (!pid_str.empty()) {
+    if (!StringToInt(pid_str, &pid)) {
+      LOG(ERROR) << "* Error: Could not convert process id to integer.";
+      return 1;
+    }
+  }
+
+  base::AtExitManager exit_manager;
+  base::MessageLoopForUI message_loop;
+  const auto server = std::make_unique<tools::AXEventServer>(pid, pattern_str);
+  base::RunLoop().Run();
   return 0;
 }

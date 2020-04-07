@@ -18,15 +18,15 @@
 namespace device {
 namespace test {
 
-// A FidoDiscovery that always vends a single |VirtualFidoDevice|.
+// A FidoDeviceDiscovery that always vends a single |VirtualFidoDevice|.
 class VirtualFidoDeviceDiscovery
-    : public FidoDiscovery,
+    : public FidoDeviceDiscovery,
       public base::SupportsWeakPtr<VirtualFidoDeviceDiscovery> {
  public:
   explicit VirtualFidoDeviceDiscovery(
       scoped_refptr<VirtualFidoDevice::State> state,
       ProtocolVersion supported_protocol)
-      : FidoDiscovery(FidoTransportProtocol::kUsbHumanInterfaceDevice),
+      : FidoDeviceDiscovery(FidoTransportProtocol::kUsbHumanInterfaceDevice),
         state_(std::move(state)),
         supported_protocol_(supported_protocol) {}
   ~VirtualFidoDeviceDiscovery() override = default;
@@ -58,14 +58,14 @@ ScopedVirtualFidoDevice::~ScopedVirtualFidoDevice() = default;
 
 void ScopedVirtualFidoDevice::SetSupportedProtocol(
     ProtocolVersion supported_protocol) {
-  supported_protocol_ = ProtocolVersion::kCtap;
+  supported_protocol_ = supported_protocol;
 }
 
 VirtualFidoDevice::State* ScopedVirtualFidoDevice::mutable_state() {
   return state_.get();
 }
 
-std::unique_ptr<FidoDiscovery> ScopedVirtualFidoDevice::CreateFidoDiscovery(
+std::unique_ptr<FidoDiscoveryBase> ScopedVirtualFidoDevice::CreateFidoDiscovery(
     FidoTransportProtocol transport,
     ::service_manager::Connector* connector) {
   if (transport != FidoTransportProtocol::kUsbHumanInterfaceDevice) {

@@ -8,18 +8,26 @@
 #define FXJS_XFA_CJX_PICTURE_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Picture;
 
-class CJX_Picture : public CJX_Node {
+class CJX_Picture final : public CJX_Node {
  public:
   explicit CJX_Picture(CXFA_Picture* node);
   ~CJX_Picture() override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(value);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(value);
+
+ private:
+  using Type__ = CJX_Picture;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::Picture;
 };
 
 #endif  // FXJS_XFA_CJX_PICTURE_H_

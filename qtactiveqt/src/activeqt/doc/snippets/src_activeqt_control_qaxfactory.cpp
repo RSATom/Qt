@@ -117,23 +117,6 @@ QAXFACTORY_END()
 //! [1]
 
 
-//! [2]
-#include <qapplication.h>
-#include <qaxfactory.h>
-
-#include "theactivex.h"
-
-QAXFACTORY_DEFAULT(
-    TheActiveX,                               // widget class
-    "{01234567-89AB-CDEF-0123-456789ABCDEF}", // class ID
-    "{01234567-89AB-CDEF-0123-456789ABCDEF}", // interface ID
-    "{01234567-89AB-CDEF-0123-456789ABCDEF}", // event interface ID
-    "{01234567-89AB-CDEF-0123-456789ABCDEF}", // type library ID
-    "{01234567-89AB-CDEF-0123-456789ABCDEF}"  // application ID
-)
-//! [2]
-
-
 //! [3]
 settings->setValue("/CLSID/" + classID(key)
                    + "/Implemented Categories/"

@@ -8,14 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <algorithm>
-#include <vector>
+#include <stdint.h>
+#include <memory>
 
 #include "logging/rtc_event_log/mock/mock_rtc_event_log.h"
 #include "modules/bitrate_controller/include/bitrate_controller.h"
-#include "modules/pacing/mock/mock_paced_sender.h"
+#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/pacing/paced_sender.h"
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "system_wrappers/include/clock.h"
 #include "test/field_trial.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
 
 using ::testing::Exactly;
@@ -169,7 +173,7 @@ TEST_F(BitrateControllerTest, OneBitrateObserverOneRtcpObserver) {
   EXPECT_EQ(300000, bitrate_observer_.last_bitrate_);
 
   // Test that a low delay-based estimate limits the combined estimate.
-  webrtc::DelayBasedBwe::Result result(false, 280000);
+  webrtc::DelayBasedBwe::Result result(false, webrtc::DataRate::kbps(280));
   controller_->OnDelayBasedBweResult(result);
   EXPECT_EQ(280000, bitrate_observer_.last_bitrate_);
 
@@ -350,56 +354,6 @@ TEST_F(BitrateControllerTest, OneBitrateObserverMultipleReportBlocks) {
   sequence_number[0] += 20;
   sequence_number[1] += 1;
   report_blocks.clear();
-}
-
-TEST_F(BitrateControllerTest, SetReservedBitrate) {
-  // Receive successively lower REMBs, verify the reserved bitrate is deducted.
-  controller_->SetReservedBitrate(0);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(400000);
-  EXPECT_EQ(200000, bitrate_observer_.last_bitrate_);
-  controller_->SetReservedBitrate(50000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(400000);
-  EXPECT_EQ(150000, bitrate_observer_.last_bitrate_);
-
-  controller_->SetReservedBitrate(0);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(250000);
-  EXPECT_EQ(200000, bitrate_observer_.last_bitrate_);
-  controller_->SetReservedBitrate(50000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(250000);
-  EXPECT_EQ(150000, bitrate_observer_.last_bitrate_);
-
-  controller_->SetReservedBitrate(0);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(200000);
-  EXPECT_EQ(200000, bitrate_observer_.last_bitrate_);
-  controller_->SetReservedBitrate(30000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(200000);
-  EXPECT_EQ(170000, bitrate_observer_.last_bitrate_);
-
-  controller_->SetReservedBitrate(0);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(160000);
-  EXPECT_EQ(160000, bitrate_observer_.last_bitrate_);
-  controller_->SetReservedBitrate(30000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(160000);
-  EXPECT_EQ(130000, bitrate_observer_.last_bitrate_);
-
-  controller_->SetReservedBitrate(0);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(120000);
-  EXPECT_EQ(120000, bitrate_observer_.last_bitrate_);
-  controller_->SetReservedBitrate(10000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(120000);
-  EXPECT_EQ(110000, bitrate_observer_.last_bitrate_);
-
-  controller_->SetReservedBitrate(0);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(120000);
-  EXPECT_EQ(120000, bitrate_observer_.last_bitrate_);
-  controller_->SetReservedBitrate(50000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(120000);
-  // Limited by min bitrate.
-  EXPECT_EQ(100000, bitrate_observer_.last_bitrate_);
-
-  controller_->SetReservedBitrate(10000);
-  bandwidth_observer_->OnReceivedEstimatedBitrate(1);
-  EXPECT_EQ(100000, bitrate_observer_.last_bitrate_);
 }
 
 TEST_F(BitrateControllerTest, TimeoutsWithoutFeedback) {

@@ -20,6 +20,14 @@ qtConfig(proxymodel) {
     SOURCES += \
         itemmodels/qabstractproxymodel.cpp
 
+    qtConfig(concatenatetablesproxymodel) {
+        HEADERS += \
+            itemmodels/qconcatenatetablesproxymodel.h
+
+        SOURCES += \
+            itemmodels/qconcatenatetablesproxymodel.cpp
+    }
+
     qtConfig(identityproxymodel) {
         HEADERS += \
             itemmodels/qidentityproxymodel.h
@@ -34,6 +42,15 @@ qtConfig(proxymodel) {
 
         SOURCES += \
             itemmodels/qsortfilterproxymodel.cpp
+    }
+
+    qtConfig(transposeproxymodel) {
+        HEADERS += \
+            itemmodels/qtransposeproxymodel.h \
+            itemmodels/qtransposeproxymodel_p.h
+
+        SOURCES += \
+            itemmodels/qtransposeproxymodel.cpp
     }
 }
 

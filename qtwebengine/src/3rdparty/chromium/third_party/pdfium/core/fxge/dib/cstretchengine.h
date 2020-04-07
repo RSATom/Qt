@@ -14,6 +14,7 @@
 #include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/fx_dib.h"
 
+class CFX_DIBBase;
 class PauseIndicatorIface;
 class ScanlineComposerIface;
 
@@ -24,8 +25,8 @@ class CStretchEngine {
                  int dest_width,
                  int dest_height,
                  const FX_RECT& clip_rect,
-                 const RetainPtr<CFX_DIBSource>& pSrcBitmap,
-                 int flags);
+                 const RetainPtr<CFX_DIBBase>& pSrcBitmap,
+                 const FXDIB_ResampleOptions& options);
   ~CStretchEngine();
 
   bool Continue(PauseIndicatorIface* pPause);
@@ -45,8 +46,14 @@ class CStretchEngine {
               int src_len,
               int src_min,
               int src_max,
-              int flags);
-    PixelWeight* GetPixelWeight(int pixel) const;
+              const FXDIB_ResampleOptions& options);
+
+    const PixelWeight* GetPixelWeight(int pixel) const;
+    PixelWeight* GetPixelWeight(int pixel) {
+      return const_cast<PixelWeight*>(
+          static_cast<const CWeightTable*>(this)->GetPixelWeight(pixel));
+    }
+
     int* GetValueFromPixelWeight(PixelWeight* pWeight, int index) const;
     size_t GetPixelWeightSize() const;
 
@@ -74,7 +81,7 @@ class CStretchEngine {
   const int m_DestBpp;
   const int m_SrcBpp;
   const int m_bHasAlpha;
-  RetainPtr<CFX_DIBSource> const m_pSource;
+  RetainPtr<CFX_DIBBase> const m_pSource;
   const uint32_t* m_pSrcPalette;
   const int m_SrcWidth;
   const int m_SrcHeight;
@@ -89,7 +96,7 @@ class CStretchEngine {
   FX_RECT m_SrcClip;
   int m_InterPitch;
   int m_ExtraMaskPitch;
-  int m_Flags;
+  FXDIB_ResampleOptions m_ResampleOptions;
   TransformMethod m_TransMethod;
   State m_State = State::kInitial;
   int m_CurRow;

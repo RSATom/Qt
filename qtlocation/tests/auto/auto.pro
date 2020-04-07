@@ -80,6 +80,9 @@ SUBDIRS += \
            qgeolocation \
            qgeopositioninfo \
            qgeosatelliteinfo \
+           qgeosatelliteinfosource \
+           qgeojson \
+           qnmeapositioninfosource
 
 !android: SUBDIRS += \
             positionplugin \

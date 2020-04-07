@@ -52,6 +52,7 @@ typedef QMap<QString, QVariant> QVariantMap;
 template <class Key, class T> class QHash;
 typedef QHash<QString, QVariant> QVariantHash;
 class QJsonObject;
+class QDataStream;
 
 class QCborContainerPrivate;
 class Q_CORE_EXPORT QCborMap
@@ -117,6 +118,8 @@ public:
         QCborValueRef item;     // points to the value
         friend class Iterator;
         friend class QCborMap;
+        friend class QCborValue;
+        friend class QCborValueRef;
         ConstIterator(QCborContainerPrivate *dd, qsizetype ii) : item(dd, ii) {}
     public:
         typedef std::random_access_iterator_tag iterator_category;
@@ -170,7 +173,7 @@ public:
         : QCborMap()
     {
         detach(args.size());
-        for (auto pair : args)
+        for (const auto &pair : args)
            insert(pair.first, pair.second);
     }
     ~QCborMap();
@@ -322,9 +325,10 @@ public:
     QJsonObject toJsonObject() const;
 
 private:
+    friend class QCborValue;
+    friend class QCborValueRef;
     void detach(qsizetype reserve = 0);
 
-    friend QCborValue;
     explicit QCborMap(QCborContainerPrivate &dd) noexcept;
     QExplicitlySharedDataPointer<QCborContainerPrivate> d;
 };
@@ -351,6 +355,12 @@ Q_CORE_EXPORT uint qHash(const QCborMap &map, uint seed = 0);
 #if !defined(QT_NO_DEBUG_STREAM)
 Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborMap &m);
 #endif
+
+#ifndef QT_NO_DATASTREAM
+Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QCborMap &);
+Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QCborMap &);
+#endif
+
 
 QT_END_NAMESPACE
 

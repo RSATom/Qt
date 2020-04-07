@@ -9,7 +9,6 @@
  */
 #include "api/video_codecs/video_encoder_config.h"
 
-#include <algorithm>
 #include <string>
 
 #include "rtc_base/checks.h"
@@ -47,7 +46,7 @@ std::string VideoStream::ToString() const {
 }
 
 VideoEncoderConfig::VideoEncoderConfig()
-    : codec_type(kVideoCodecUnknown),
+    : codec_type(kVideoCodecGeneric),
       video_format("Unset"),
       content_type(ContentType::kRealtimeVideo),
       encoder_specific_settings(nullptr),

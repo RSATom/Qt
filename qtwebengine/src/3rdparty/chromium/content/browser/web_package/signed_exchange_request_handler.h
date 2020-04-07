@@ -12,10 +12,6 @@
 #include "content/public/common/resource_type.h"
 #include "url/origin.h"
 
-namespace net {
-class URLRequestContextGetter;
-}  // namespace net
-
 namespace network {
 class SharedURLLoaderFactory;
 }  // namespace network
@@ -24,6 +20,7 @@ namespace content {
 
 class URLLoaderThrottle;
 class SignedExchangeLoader;
+class SignedExchangePrefetchMetricRecorder;
 
 class SignedExchangeRequestHandler final : public NavigationLoaderInterceptor {
  public:
@@ -33,31 +30,31 @@ class SignedExchangeRequestHandler final : public NavigationLoaderInterceptor {
   static bool IsSupportedMimeType(const std::string& mime_type);
 
   SignedExchangeRequestHandler(
-      url::Origin request_initiator,
-      const GURL& url,
       uint32_t url_loader_options,
       int frame_tree_node_id,
       const base::UnguessableToken& devtools_navigation_token,
-      const base::Optional<base::UnguessableToken>& throttling_profile_id,
-      bool report_raw_headers,
-      int load_flags,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       URLLoaderThrottlesGetter url_loader_throttles_getter,
-      scoped_refptr<net::URLRequestContextGetter> request_context_getter);
+      scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder);
   ~SignedExchangeRequestHandler() override;
 
   // NavigationLoaderInterceptor implementation
-  void MaybeCreateLoader(const network::ResourceRequest& resource_request,
-                         ResourceContext* resource_context,
-                         LoaderCallback callback) override;
+  void MaybeCreateLoader(
+      const network::ResourceRequest& tentative_resource_request,
+      ResourceContext* resource_context,
+      LoaderCallback callback,
+      FallbackCallback fallback_callback) override;
   bool MaybeCreateLoaderForResponse(
+      const network::ResourceRequest& request,
       const network::ResourceResponseHead& response,
       network::mojom::URLLoaderPtr* loader,
       network::mojom::URLLoaderClientRequest* client_request,
-      ThrottlingURLLoader* url_loader) override;
+      ThrottlingURLLoader* url_loader,
+      bool* skip_other_interceptors) override;
 
  private:
-  void StartResponse(network::mojom::URLLoaderRequest request,
+  void StartResponse(const network::ResourceRequest& resource_request,
+                     network::mojom::URLLoaderRequest request,
                      network::mojom::URLLoaderClientPtr client);
 
   // Valid after MaybeCreateLoaderForResponse intercepts the request and until
@@ -65,17 +62,13 @@ class SignedExchangeRequestHandler final : public NavigationLoaderInterceptor {
   // StartResponse.
   std::unique_ptr<SignedExchangeLoader> signed_exchange_loader_;
 
-  url::Origin request_initiator_;
-  GURL url_;
   const uint32_t url_loader_options_;
   const int frame_tree_node_id_;
-  base::Optional<const base::UnguessableToken> devtools_navigation_token_;
-  const base::Optional<base::UnguessableToken> throttling_profile_id_;
-  const bool report_raw_headers_;
-  const int load_flags_;
+  const base::UnguessableToken devtools_navigation_token_;
+
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   URLLoaderThrottlesGetter url_loader_throttles_getter_;
-  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder_;
 
   base::WeakPtrFactory<SignedExchangeRequestHandler> weak_factory_;
 

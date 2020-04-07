@@ -3,11 +3,12 @@ qtHaveModule(widgets) {
     SUBDIRS = \
         qsvgdevice \
         qsvggenerator \
-        qsvgrenderer \
         qsvgplugin \
         qicon_svg \
         cmake \
         installed_cmake
+
+    !android: SUBDIRS += qsvgrenderer
 
     installed_cmake.depends = cmake
 }

@@ -9,15 +9,15 @@
 #include <memory>
 
 #include "base/containers/flat_set.h"
-#include "base/optional.h"
-#include "components/services/pdf_compositor/public/cpp/pdf_service_mojo_types.h"
 #include "components/services/pdf_compositor/public/interfaces/pdf_compositor.mojom.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
-#include "printing/common/pdf_metafile_utils.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 struct PrintHostMsg_DidPrintContent_Params;
+
+namespace service_manager {
+class Connector;
+}
 
 namespace printing {
 
@@ -49,9 +49,6 @@ class PrintCompositeClient
                                  int document_cookie,
                                  content::RenderFrameHost* subframe_host);
 
-  // NOTE: |handle| must be a READ-ONLY base::SharedMemoryHandle, i.e. one
-  // acquired by base::SharedMemory::GetReadOnlyHandle().
-
   // Printing single pages is only used by print preview for early return of
   // rendered results. In this case, the pages share the content with printed
   // document. The entire document will always be printed and sent at the end.
@@ -59,10 +56,7 @@ class PrintCompositeClient
   void DoCompositePageToPdf(
       int cookie,
       content::RenderFrameHost* render_frame_host,
-      int page_num,
-      base::SharedMemoryHandle handle,
-      uint32_t data_size,
-      const ContentToProxyIdMap& subframe_content_info,
+      const PrintHostMsg_DidPrintContent_Params& content,
       mojom::PdfCompositor::CompositePageToPdfCallback callback);
 
   // Used for compositing the entire document for print preview or actual
@@ -70,37 +64,23 @@ class PrintCompositeClient
   void DoCompositeDocumentToPdf(
       int cookie,
       content::RenderFrameHost* render_frame_host,
-      base::SharedMemoryHandle handle,
-      uint32_t data_size,
-      const ContentToProxyIdMap& subframe_content_info,
+      const PrintHostMsg_DidPrintContent_Params& content,
       mojom::PdfCompositor::CompositeDocumentToPdfCallback callback);
 
-  // Converts a ContentToProxyIdMap to ContentToFrameMap.
-  // ContentToProxyIdMap maps content id to its corresponding render frame proxy
-  // routing id. This is generated when the content holder was created;
-  // ContentToFrameMap maps content id to its render frame's global unique id.
-  // The global unique id has the render process id concatenated with render
-  // frame routing id, which can uniquely identify a render frame.
-  static ContentToFrameMap ConvertContentInfoMap(
-      content::WebContents* web_contents,
-      content::RenderFrameHost* render_frame_host,
-      const ContentToProxyIdMap& content_proxy_map);
+  void SetUserAgent(const std::string& user_agent) { user_agent_ = user_agent; }
 
  private:
-  // Since page number is always non-negative, use this value to indicate it is
-  // for the whole document -- no page number specified.
-  static constexpr int kPageNumForWholeDoc = -1;
-
+  friend class content::WebContentsUserData<PrintCompositeClient>;
   // Callback functions for getting the replies.
-  void OnDidCompositePageToPdf(
-      printing::mojom::PdfCompositor::CompositePageToPdfCallback callback,
-      printing::mojom::PdfCompositor::Status status,
+  static void OnDidCompositePageToPdf(
+      mojom::PdfCompositor::CompositePageToPdfCallback callback,
+      mojom::PdfCompositor::Status status,
       base::ReadOnlySharedMemoryRegion region);
 
   void OnDidCompositeDocumentToPdf(
       int document_cookie,
-      printing::mojom::PdfCompositor::CompositeDocumentToPdfCallback callback,
-      printing::mojom::PdfCompositor::Status status,
+      mojom::PdfCompositor::CompositeDocumentToPdfCallback callback,
+      mojom::PdfCompositor::Status status,
       base::ReadOnlySharedMemoryRegion region);
 
   // Get the request or create a new one if none exists.
@@ -126,6 +106,10 @@ class PrintCompositeClient
   // Stores the mapping between document cookie and all the printed subframes
   // for that document.
   std::map<int, base::flat_set<uint64_t>> printed_subframes_;
+
+  std::string user_agent_;
+
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(PrintCompositeClient);
 };

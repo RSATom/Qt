@@ -15,7 +15,26 @@
 
 namespace cloud_print {
 
-std::unique_ptr<base::DictionaryValue> PrinterSemanticCapsAndDefaultsToCdd(
+namespace {
+
+cloud_devices::printer::DuplexType ToCloudDuplexType(
+    printing::DuplexMode mode) {
+  switch (mode) {
+    case printing::SIMPLEX:
+      return cloud_devices::printer::NO_DUPLEX;
+    case printing::LONG_EDGE:
+      return cloud_devices::printer::LONG_EDGE;
+    case printing::SHORT_EDGE:
+      return cloud_devices::printer::SHORT_EDGE;
+    default:
+      NOTREACHED();
+  }
+  return cloud_devices::printer::NO_DUPLEX;
+}
+
+}  // namespace
+
+base::Value PrinterSemanticCapsAndDefaultsToCdd(
     const printing::PrinterSemanticCapsAndDefaults& semantic_info) {
   using namespace cloud_devices::printer;
   cloud_devices::CloudDeviceDescription description;
@@ -35,14 +54,12 @@ std::unique_ptr<base::DictionaryValue> PrinterSemanticCapsAndDefaultsToCdd(
     copies.SaveTo(&description);
   }
 
-  if (semantic_info.duplex_capable) {
+  if (semantic_info.duplex_modes.size() > 1) {
     DuplexCapability duplex;
-    duplex.AddDefaultOption(NO_DUPLEX,
-                            semantic_info.duplex_default == printing::SIMPLEX);
-    duplex.AddDefaultOption(
-        LONG_EDGE, semantic_info.duplex_default == printing::LONG_EDGE);
-    duplex.AddDefaultOption(
-        SHORT_EDGE, semantic_info.duplex_default == printing::SHORT_EDGE);
+    for (printing::DuplexMode mode : semantic_info.duplex_modes) {
+      duplex.AddDefaultOption(ToCloudDuplexType(mode),
+                              semantic_info.duplex_default == mode);
+    }
     duplex.SaveTo(&description);
   }
 
@@ -123,7 +140,7 @@ std::unique_ptr<base::DictionaryValue> PrinterSemanticCapsAndDefaultsToCdd(
   orientation.AddOption(AUTO_ORIENTATION);
   orientation.SaveTo(&description);
 
-  return base::WrapUnique(description.root().DeepCopy());
+  return std::move(description).ToValue();
 }
 
 }  // namespace cloud_print

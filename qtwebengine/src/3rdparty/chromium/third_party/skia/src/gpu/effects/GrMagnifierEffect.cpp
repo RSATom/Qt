@@ -77,13 +77,13 @@ private:
                    const GrFragmentProcessor& _proc) override {
         const GrMagnifierEffect& _outer = _proc.cast<GrMagnifierEffect>();
         {
-            pdman.set1f(fXInvZoomVar, _outer.xInvZoom());
-            pdman.set1f(fYInvZoomVar, _outer.yInvZoom());
-            pdman.set1f(fXInvInsetVar, _outer.xInvInset());
-            pdman.set1f(fYInvInsetVar, _outer.yInvInset());
+            pdman.set1f(fXInvZoomVar, (_outer.xInvZoom()));
+            pdman.set1f(fYInvZoomVar, (_outer.yInvZoom()));
+            pdman.set1f(fXInvInsetVar, (_outer.xInvInset()));
+            pdman.set1f(fYInvInsetVar, (_outer.yInvInset()));
         }
         GrSurfaceProxy& srcProxy = *_outer.textureSampler(0).proxy();
-        GrTexture& src = *srcProxy.priv().peekTexture();
+        GrTexture& src = *srcProxy.peekTexture();
         (void)src;
         auto bounds = _outer.bounds();
         (void)bounds;
@@ -161,11 +161,14 @@ GrMagnifierEffect::GrMagnifierEffect(const GrMagnifierEffect& src)
         , fXInvInset(src.fXInvInset)
         , fYInvInset(src.fYInvInset)
         , fSrcCoordTransform(src.fSrcCoordTransform) {
-    this->addTextureSampler(&fSrc);
+    this->setTextureSamplerCnt(1);
     this->addCoordTransform(&fSrcCoordTransform);
 }
 std::unique_ptr<GrFragmentProcessor> GrMagnifierEffect::clone() const {
     return std::unique_ptr<GrFragmentProcessor>(new GrMagnifierEffect(*this));
+}
+const GrFragmentProcessor::TextureSampler& GrMagnifierEffect::onTextureSampler(int index) const {
+    return IthTextureSampler(index, fSrc);
 }
 GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrMagnifierEffect);
 #if GR_TEST_UTILS

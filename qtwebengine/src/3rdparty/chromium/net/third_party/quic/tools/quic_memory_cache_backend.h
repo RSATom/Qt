@@ -10,14 +10,14 @@
 #include <memory>
 #include <vector>
 
-#include "net/third_party/quic/core/spdy_utils.h"
+#include "net/third_party/quic/core/http/spdy_utils.h"
 #include "net/third_party/quic/platform/api/quic_containers.h"
 #include "net/third_party/quic/platform/api/quic_mutex.h"
 #include "net/third_party/quic/platform/api/quic_string_piece.h"
-#include "net/third_party/quic/platform/api/quic_url.h"
 #include "net/third_party/quic/tools/quic_backend_response.h"
 #include "net/third_party/quic/tools/quic_simple_server_backend.h"
-#include "net/third_party/spdy/core/spdy_framer.h"
+#include "net/third_party/quic/tools/quic_url.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_framer.h"
 
 namespace quic {
 
@@ -33,6 +33,8 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
   class ResourceFile {
    public:
     explicit ResourceFile(const QuicString& file_name);
+    ResourceFile(const ResourceFile&) = delete;
+    ResourceFile& operator=(const ResourceFile&) = delete;
     virtual ~ResourceFile();
 
     void Read();
@@ -68,11 +70,11 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
     QuicStringPiece host_;
     QuicStringPiece path_;
     QuicMemoryCacheBackend* cache_;
-
-    DISALLOW_COPY_AND_ASSIGN(ResourceFile);
   };
 
   QuicMemoryCacheBackend();
+  QuicMemoryCacheBackend(const QuicMemoryCacheBackend&) = delete;
+  QuicMemoryCacheBackend& operator=(const QuicMemoryCacheBackend&) = delete;
   ~QuicMemoryCacheBackend() override;
 
   // Retrieve a response from this cache for a given host and path..
@@ -124,6 +126,12 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
       QuicStringPiece response_body,
       QuicBackendResponse::SpecialResponseType response_type);
 
+  void AddStopSendingResponse(QuicStringPiece host,
+                              QuicStringPiece path,
+                              spdy::SpdyHeaderBlock response_headers,
+                              QuicStringPiece response_body,
+                              uint16_t stop_sending_code);
+
   // Sets a default response in case of cache misses.  Takes ownership of
   // 'response'.
   void AddDefaultResponse(QuicBackendResponse* response);
@@ -152,7 +160,8 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
                        QuicBackendResponse::SpecialResponseType response_type,
                        spdy::SpdyHeaderBlock response_headers,
                        QuicStringPiece response_body,
-                       spdy::SpdyHeaderBlock response_trailers);
+                       spdy::SpdyHeaderBlock response_trailers,
+                       uint16_t stop_sending_code);
 
   QuicString GetKey(QuicStringPiece host, QuicStringPiece path) const;
 
@@ -184,8 +193,6 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
   // server threads accessing those responses.
   mutable QuicMutex response_mutex_;
   bool cache_initialized_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicMemoryCacheBackend);
 };
 
 }  // namespace quic

@@ -185,9 +185,9 @@ bool SendBeaconCommon(LocalFrame* frame,
   }
 
   ResourceRequest request(url);
-  request.SetHTTPMethod(HTTPNames::POST);
+  request.SetHTTPMethod(http_names::kPOST);
   request.SetKeepalive(true);
-  request.SetRequestContext(WebURLRequest::kRequestContextBeacon);
+  request.SetRequestContext(mojom::RequestContextType::BEACON);
   beacon.Serialize(request);
   FetchParameters params(request);
   // The spec says:
@@ -196,7 +196,8 @@ bool SendBeaconCommon(LocalFrame* frame,
   //     Content-Type header, set corsMode to "no-cors".
   // As we don't support requests with non CORS-safelisted Content-Type, the
   // mode should always be "no-cors".
-  params.MutableOptions().initiator_info.name = FetchInitiatorTypeNames::beacon;
+  params.MutableOptions().initiator_info.name =
+      fetch_initiator_type_names::kBeacon;
 
   frame->Client()->DidDispatchPingLoader(request.Url());
   Resource* resource =
@@ -214,27 +215,30 @@ void PingLoader::SendLinkAuditPing(LocalFrame* frame,
     return;
 
   ResourceRequest request(ping_url);
-  request.SetHTTPMethod(HTTPNames::POST);
+  request.SetHTTPMethod(http_names::kPOST);
   request.SetHTTPContentType("text/ping");
   request.SetHTTPBody(EncodedFormData::Create("PING"));
-  request.SetHTTPHeaderField(HTTPNames::Cache_Control, "max-age=0");
-  request.SetHTTPHeaderField(HTTPNames::Ping_To,
+  request.SetHTTPHeaderField(http_names::kCacheControl, "max-age=0");
+  request.SetHTTPHeaderField(http_names::kPingTo,
                              AtomicString(destination_url.GetString()));
   scoped_refptr<const SecurityOrigin> ping_origin =
       SecurityOrigin::Create(ping_url);
   if (ProtocolIs(frame->GetDocument()->Url().GetString(), "http") ||
       frame->GetDocument()->GetSecurityOrigin()->CanAccess(ping_origin.get())) {
     request.SetHTTPHeaderField(
-        HTTPNames::Ping_From,
+        http_names::kPingFrom,
         AtomicString(frame->GetDocument()->Url().GetString()));
   }
 
   request.SetKeepalive(true);
-  request.SetHTTPReferrer(
-      Referrer(Referrer::NoReferrer(), kReferrerPolicyNever));
-  request.SetRequestContext(WebURLRequest::kRequestContextPing);
+  // TODO(domfarolino): Add WPTs ensuring that pings do not have a referrer
+  // header.
+  request.SetReferrerString(Referrer::NoReferrer());
+  request.SetReferrerPolicy(network::mojom::ReferrerPolicy::kNever);
+  request.SetRequestContext(mojom::RequestContextType::PING);
   FetchParameters params(request);
-  params.MutableOptions().initiator_info.name = FetchInitiatorTypeNames::ping;
+  params.MutableOptions().initiator_info.name =
+      fetch_initiator_type_names::kPing;
 
   frame->Client()->DidDispatchPingLoader(request.Url());
   RawResource::Fetch(params, frame->GetDocument()->Fetcher(), nullptr);
@@ -245,7 +249,7 @@ void PingLoader::SendViolationReport(LocalFrame* frame,
                                      scoped_refptr<EncodedFormData> report,
                                      ViolationReportType type) {
   ResourceRequest request(report_url);
-  request.SetHTTPMethod(HTTPNames::POST);
+  request.SetHTTPMethod(http_names::kPOST);
   switch (type) {
     case kContentSecurityPolicyViolationReport:
       request.SetHTTPContentType("application/csp-report");
@@ -258,13 +262,12 @@ void PingLoader::SendViolationReport(LocalFrame* frame,
   request.SetHTTPBody(std::move(report));
   request.SetFetchCredentialsMode(
       network::mojom::FetchCredentialsMode::kSameOrigin);
-  request.SetRequestContext(WebURLRequest::kRequestContextCSPReport);
+  request.SetRequestContext(mojom::RequestContextType::CSP_REPORT);
+  request.SetRequestorOrigin(frame->GetDocument()->GetSecurityOrigin());
   request.SetFetchRedirectMode(network::mojom::FetchRedirectMode::kError);
   FetchParameters params(request);
   params.MutableOptions().initiator_info.name =
-      FetchInitiatorTypeNames::violationreport;
-  params.MutableOptions().security_origin =
-      frame->GetDocument()->GetSecurityOrigin();
+      fetch_initiator_type_names::kViolationreport;
 
   frame->Client()->DidDispatchPingLoader(request.Url());
   RawResource::Fetch(params, frame->GetDocument()->Fetcher(), nullptr);

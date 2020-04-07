@@ -33,7 +33,7 @@ class GL_EXPORT GLContextEGL : public GLContextReal {
   void ReleaseCurrent(GLSurface* surface) override;
   bool IsCurrent(GLSurface* surface) override;
   void* GetHandle() override;
-  bool WasAllocatedUsingRobustnessExtension() override;
+  unsigned int CheckStickyGraphicsResetStatus() override;
   void SetUnbindFboOnMakeCurrent() override;
   YUVToRGBConverter* GetYUVToRGBConverter(
       const gfx::ColorSpace& color_space) override;
@@ -45,10 +45,12 @@ class GL_EXPORT GLContextEGL : public GLContextReal {
   void Destroy();
   void ReleaseYUVToRGBConverters();
 
-  EGLContext context_;
-  EGLDisplay display_;
-  EGLConfig config_;
-  bool unbind_fbo_on_makecurrent_;
+  EGLContext context_ = nullptr;
+  EGLDisplay display_ = nullptr;
+  EGLConfig config_ = nullptr;
+  unsigned int graphics_reset_status_ = 0;  // GL_NO_ERROR;
+  bool unbind_fbo_on_makecurrent_ = false;
+  bool lost_ = false;
   std::map<gfx::ColorSpace, std::unique_ptr<YUVToRGBConverter>>
       yuv_to_rgb_converters_;
 

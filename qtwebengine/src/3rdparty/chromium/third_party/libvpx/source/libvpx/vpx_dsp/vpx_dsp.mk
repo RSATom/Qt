@@ -69,6 +69,7 @@ DSP_SRCS-$(HAVE_MSA) += mips/deblock_msa.c
 DSP_SRCS-$(HAVE_NEON) += arm/deblock_neon.c
 DSP_SRCS-$(HAVE_SSE2) += x86/add_noise_sse2.asm
 DSP_SRCS-$(HAVE_SSE2) += x86/deblock_sse2.asm
+DSP_SRCS-$(HAVE_SSE2) += x86/post_proc_sse2.c
 DSP_SRCS-$(HAVE_VSX) += ppc/deblock_vsx.c
 endif # CONFIG_POSTPROC
 
@@ -88,10 +89,12 @@ DSP_SRCS-yes += vpx_convolve.h
 DSP_SRCS-yes += vpx_filter.h
 
 DSP_SRCS-$(ARCH_X86)$(ARCH_X86_64) += x86/convolve.h
-DSP_SRCS-$(ARCH_X86)$(ARCH_X86_64) += x86/vpx_asm_stubs.c
+
+DSP_SRCS-$(HAVE_SSE2) += x86/convolve_sse2.h
 DSP_SRCS-$(HAVE_SSSE3) += x86/convolve_ssse3.h
 DSP_SRCS-$(HAVE_AVX2) += x86/convolve_avx2.h
 DSP_SRCS-$(HAVE_SSE2)  += x86/vpx_subpixel_8t_sse2.asm
+DSP_SRCS-$(HAVE_SSE2)  += x86/vpx_subpixel_4t_intrin_sse2.c
 DSP_SRCS-$(HAVE_SSE2)  += x86/vpx_subpixel_bilinear_sse2.asm
 DSP_SRCS-$(HAVE_SSSE3) += x86/vpx_subpixel_8t_ssse3.asm
 DSP_SRCS-$(HAVE_SSSE3) += x86/vpx_subpixel_bilinear_ssse3.asm
@@ -110,11 +113,20 @@ endif
 DSP_SRCS-$(HAVE_SSE2)  += x86/vpx_convolve_copy_sse2.asm
 DSP_SRCS-$(HAVE_NEON)  += arm/vpx_scaled_convolve8_neon.c
 
+
 ifeq ($(HAVE_NEON_ASM),yes)
 DSP_SRCS-yes += arm/vpx_convolve_copy_neon_asm$(ASM)
-DSP_SRCS-yes += arm/vpx_convolve8_avg_neon_asm$(ASM)
-DSP_SRCS-yes += arm/vpx_convolve8_neon_asm$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_horiz_filter_type2_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_vert_filter_type2_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_horiz_filter_type1_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_vert_filter_type1_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_avg_horiz_filter_type2_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_avg_vert_filter_type2_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_avg_horiz_filter_type1_neon$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_avg_vert_filter_type1_neon$(ASM)
 DSP_SRCS-yes += arm/vpx_convolve_avg_neon_asm$(ASM)
+DSP_SRCS-yes += arm/vpx_convolve8_neon_asm.c
+DSP_SRCS-yes += arm/vpx_convolve8_neon_asm.h
 DSP_SRCS-yes += arm/vpx_convolve_neon.c
 else
 ifeq ($(HAVE_NEON),yes)
@@ -283,9 +295,10 @@ ifeq ($(CONFIG_VP9_ENCODER),yes)
 DSP_SRCS-yes            += quantize.c
 DSP_SRCS-yes            += quantize.h
 
-DSP_SRCS-$(HAVE_SSE2)   += x86/quantize_x86.h
 DSP_SRCS-$(HAVE_SSE2)   += x86/quantize_sse2.c
+DSP_SRCS-$(HAVE_SSE2)   += x86/quantize_sse2.h
 DSP_SRCS-$(HAVE_SSSE3)  += x86/quantize_ssse3.c
+DSP_SRCS-$(HAVE_SSSE3)  += x86/quantize_ssse3.h
 DSP_SRCS-$(HAVE_AVX)    += x86/quantize_avx.c
 DSP_SRCS-$(HAVE_NEON)   += arm/quantize_neon.c
 DSP_SRCS-$(HAVE_VSX)    += ppc/quantize_vsx.c

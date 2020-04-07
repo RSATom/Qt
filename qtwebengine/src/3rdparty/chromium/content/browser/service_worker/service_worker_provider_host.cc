@@ -11,6 +11,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/interface_provider_filtering.h"
@@ -26,9 +27,11 @@
 #include "content/browser/service_worker/service_worker_type_converters.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/browser/url_loader_factory_getter.h"
+#include "content/browser/web_contents/web_contents_getter_registry.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
@@ -37,11 +40,13 @@
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/origin_util.h"
+#include "mojo/public/cpp/bindings/message.h"
 #include "mojo/public/cpp/bindings/strong_associated_binding.h"
 #include "net/base/url_util.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "storage/browser/blob/blob_storage_context.h"
-#include "third_party/blink/public/common/message_port/message_port_channel.h"
+#include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/public/common/service_worker/service_worker_utils.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_client.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
@@ -84,20 +89,22 @@ class ServiceWorkerURLTrackingRequestHandler
     if (!provider_host_)
       return nullptr;
     const GURL stripped_url = net::SimplifyUrlForRequest(request->url());
-    provider_host_->SetDocumentUrl(stripped_url);
-    provider_host_->SetTopmostFrameUrl(request->site_for_cookies());
+    provider_host_->UpdateUrls(stripped_url, request->site_for_cookies());
     return nullptr;
   }
 
-  void MaybeCreateLoader(const network::ResourceRequest& resource_request,
-                         ResourceContext*,
-                         LoaderCallback callback) override {
+  void MaybeCreateLoader(
+      const network::ResourceRequest& tentative_resource_request,
+      ResourceContext*,
+      LoaderCallback callback,
+      FallbackCallback fallback_callback) override {
     // |provider_host_| may have been deleted when the request is resumed.
     if (!provider_host_)
       return;
-    const GURL stripped_url = net::SimplifyUrlForRequest(resource_request.url);
-    provider_host_->SetDocumentUrl(stripped_url);
-    provider_host_->SetTopmostFrameUrl(resource_request.site_for_cookies);
+    const GURL stripped_url =
+        net::SimplifyUrlForRequest(tentative_resource_request.url);
+    provider_host_->UpdateUrls(stripped_url,
+                               tentative_resource_request.site_for_cookies);
     // Fall back to network.
     std::move(callback).Run({});
   }
@@ -136,13 +143,20 @@ void GetInterfaceImpl(const std::string& interface_name,
 }
 
 ServiceWorkerMetrics::EventType PurposeToEventType(
-    mojom::ControllerServiceWorkerPurpose purpose) {
+    blink::mojom::ControllerServiceWorkerPurpose purpose) {
   switch (purpose) {
-    case mojom::ControllerServiceWorkerPurpose::FETCH_SUB_RESOURCE:
+    case blink::mojom::ControllerServiceWorkerPurpose::FETCH_SUB_RESOURCE:
       return ServiceWorkerMetrics::EventType::FETCH_SUB_RESOURCE;
   }
   NOTREACHED();
   return ServiceWorkerMetrics::EventType::UNKNOWN;
+}
+
+void RunCallbacks(
+    std::vector<ServiceWorkerProviderHost::ExecutionReadyCallback> callbacks) {
+  for (auto& callback : callbacks) {
+    std::move(callback).Run();
+  }
 }
 
 }  // anonymous namespace
@@ -187,17 +201,17 @@ base::WeakPtr<ServiceWorkerProviderHost>
 ServiceWorkerProviderHost::PreCreateNavigationHost(
     base::WeakPtr<ServiceWorkerContextCore> context,
     bool are_ancestors_secure,
-    const WebContentsGetter& web_contents_getter) {
+    WebContentsGetter web_contents_getter) {
   DCHECK(context);
   auto host = base::WrapUnique(new ServiceWorkerProviderHost(
       ChildProcessHost::kInvalidUniqueID,
-      mojom::ServiceWorkerProviderHostInfo::New(
+      blink::mojom::ServiceWorkerProviderHostInfo::New(
           NextBrowserProvidedProviderId(), MSG_ROUTING_NONE,
           blink::mojom::ServiceWorkerProviderType::kForWindow,
           are_ancestors_secure, nullptr /* host_request */,
           nullptr /* client_ptr_info */),
       context));
-  host->web_contents_getter_ = web_contents_getter;
+  host->web_contents_getter_ = std::move(web_contents_getter);
 
   auto weak_ptr = host->AsWeakPtr();
   context->AddProviderHost(std::move(host));
@@ -209,10 +223,11 @@ base::WeakPtr<ServiceWorkerProviderHost>
 ServiceWorkerProviderHost::PreCreateForController(
     base::WeakPtr<ServiceWorkerContextCore> context,
     scoped_refptr<ServiceWorkerVersion> version,
-    mojom::ServiceWorkerProviderInfoForStartWorkerPtr* out_provider_info) {
+    blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr*
+        out_provider_info) {
   auto host = base::WrapUnique(new ServiceWorkerProviderHost(
       ChildProcessHost::kInvalidUniqueID,
-      mojom::ServiceWorkerProviderHostInfo::New(
+      blink::mojom::ServiceWorkerProviderHostInfo::New(
           NextBrowserProvidedProviderId(), MSG_ROUTING_NONE,
           blink::mojom::ServiceWorkerProviderType::kForServiceWorker,
           true /* is_parent_frame_secure */, nullptr /* host_request */,
@@ -238,10 +253,11 @@ base::WeakPtr<ServiceWorkerProviderHost>
 ServiceWorkerProviderHost::PreCreateForSharedWorker(
     base::WeakPtr<ServiceWorkerContextCore> context,
     int process_id,
-    mojom::ServiceWorkerProviderInfoForSharedWorkerPtr* out_provider_info) {
+    blink::mojom::ServiceWorkerProviderInfoForSharedWorkerPtr*
+        out_provider_info) {
   auto host = base::WrapUnique(new ServiceWorkerProviderHost(
       ChildProcessHost::kInvalidUniqueID,
-      mojom::ServiceWorkerProviderHostInfo::New(
+      blink::mojom::ServiceWorkerProviderHostInfo::New(
           NextBrowserProvidedProviderId(), MSG_ROUTING_NONE,
           blink::mojom::ServiceWorkerProviderType::kForSharedWorker,
           true /* is_parent_frame_secure */, nullptr /* host_request */,
@@ -264,17 +280,22 @@ ServiceWorkerProviderHost::PreCreateForSharedWorker(
 // static
 std::unique_ptr<ServiceWorkerProviderHost> ServiceWorkerProviderHost::Create(
     int process_id,
-    mojom::ServiceWorkerProviderHostInfoPtr info,
+    blink::mojom::ServiceWorkerProviderHostInfoPtr info,
     base::WeakPtr<ServiceWorkerContextCore> context) {
+  // This function seems to be for legacy purposes. It is a renderer-side
+  // created provider, that will probably never be used and never have a valid
+  // URL.
+  // TODO(falken): Try to remove this code path.
   auto host = base::WrapUnique(
       new ServiceWorkerProviderHost(process_id, std::move(info), context));
-  host->is_execution_ready_ = true;
+  host->TransitionToClientPhase(ClientPhase::kResponseCommitted);
+  host->TransitionToClientPhase(ClientPhase::kExecutionReady);
   return host;
 }
 
 ServiceWorkerProviderHost::ServiceWorkerProviderHost(
     int render_process_id,
-    mojom::ServiceWorkerProviderHostInfoPtr info,
+    blink::mojom::ServiceWorkerProviderHostInfoPtr info,
     base::WeakPtr<ServiceWorkerContextCore> context)
     : client_uuid_(base::GenerateGUID()),
       create_time_(base::TimeTicks::Now()),
@@ -282,7 +303,6 @@ ServiceWorkerProviderHost::ServiceWorkerProviderHost(
       render_thread_id_(kDocumentMainThreadId),
       info_(std::move(info)),
       context_(context),
-      allow_association_(true),
       binding_(this),
       interface_provider_binding_(this) {
   DCHECK_NE(blink::mojom::ServiceWorkerProviderType::kUnknown, info_->type);
@@ -319,9 +339,13 @@ ServiceWorkerProviderHost::~ServiceWorkerProviderHost() {
     context_->UnregisterProviderHostByClientID(client_uuid_);
   if (controller_)
     controller_->RemoveControllee(client_uuid_);
+  if (fetch_request_window_id_)
+    WebContentsGetterRegistry::GetInstance()->Remove(fetch_request_window_id_);
 
   // Remove |this| as an observer of ServiceWorkerRegistrations.
   // TODO(falken): Use ScopedObserver instead of this explicit call.
+  controller_.reset();
+  controller_registration_.reset();
   RemoveAllMatchingRegistrations();
 
   // Explicitly destroy the ServiceWorkerObjectHosts and
@@ -340,6 +364,9 @@ ServiceWorkerProviderHost::~ServiceWorkerProviderHost() {
   // PendingVersionUpdate objects decrement the hint count upon destruction.
   DCHECK(versions_to_update_.empty() ||
          blink::ServiceWorkerUtils::IsServicificationEnabled());
+
+  // Ensure callbacks awaiting execution ready are notified.
+  RunExecutionReadyCallbacks();
 }
 
 int ServiceWorkerProviderHost::frame_id() const {
@@ -349,13 +376,11 @@ int ServiceWorkerProviderHost::frame_id() const {
 }
 
 bool ServiceWorkerProviderHost::IsContextSecureForServiceWorker() const {
-  // |document_url_| may be empty if loading has not begun, or
-  // ServiceWorkerRequestHandler didn't handle the load (because e.g. another
-  // handler did first, or the initial request URL was such that
-  // OriginCanAccessServiceWorkers returned false).
-  if (!document_url_.is_valid())
+  DCHECK(IsProviderForClient());
+
+  if (!url_.is_valid())
     return false;
-  if (!OriginCanAccessServiceWorkers(document_url_))
+  if (!OriginCanAccessServiceWorkers(url_))
     return false;
 
   if (is_parent_frame_secure())
@@ -364,7 +389,7 @@ bool ServiceWorkerProviderHost::IsContextSecureForServiceWorker() const {
   std::set<std::string> schemes;
   GetContentClient()->browser()->GetSchemesBypassingSecureContextCheckWhitelist(
       &schemes);
-  return schemes.find(document_url().scheme()) != schemes.end();
+  return schemes.find(url_.scheme()) != schemes.end();
 }
 
 blink::mojom::ControllerServiceWorkerMode
@@ -387,11 +412,11 @@ ServiceWorkerProviderHost::GetControllerMode() const {
 
 void ServiceWorkerProviderHost::OnVersionAttributesChanged(
     ServiceWorkerRegistration* registration,
-    ChangedVersionAttributesMask changed_mask,
+    blink::mojom::ChangedServiceWorkerObjectsMaskPtr changed_mask,
     const ServiceWorkerRegistrationInfo& /* info */) {
   if (!get_ready_callback_ || get_ready_callback_->is_null())
     return;
-  if (changed_mask.active_changed() && registration->active_version()) {
+  if (changed_mask->active && registration->active_version()) {
     // Wait until the state change so we don't send the get for ready
     // registration complete message before set version attributes message.
     registration->active_version()->RegisterStatusChangeCallback(base::BindOnce(
@@ -402,8 +427,6 @@ void ServiceWorkerProviderHost::OnVersionAttributesChanged(
 
 void ServiceWorkerProviderHost::OnRegistrationFailed(
     ServiceWorkerRegistration* registration) {
-  if (associated_registration_ == registration)
-    DisassociateRegistration();
   RemoveMatchingRegistration(registration);
 }
 
@@ -414,21 +437,18 @@ void ServiceWorkerProviderHost::OnRegistrationFinishedUninstalling(
 
 void ServiceWorkerProviderHost::OnSkippedWaiting(
     ServiceWorkerRegistration* registration) {
-  if (associated_registration_ != registration)
+  if (controller_registration_ != registration)
     return;
-  // A client is "using" a registration if it is controlled by the active
-  // worker of the registration. skipWaiting doesn't cause a client to start
-  // using the registration.
-  if (!controller_)
-    return;
-  ServiceWorkerVersion* active_version = registration->active_version();
-  DCHECK(active_version);
-  DCHECK_EQ(active_version->status(), ServiceWorkerVersion::ACTIVATING);
-  SetControllerVersionAttribute(active_version,
-                                true /* notify_controllerchange */);
+
+  DCHECK(controller());
+  ServiceWorkerVersion* active = controller_registration_->active_version();
+  DCHECK(active);
+  DCHECK_NE(active, controller());
+  DCHECK_EQ(active->status(), ServiceWorkerVersion::ACTIVATING);
+  UpdateController(true /* notify_controllerchange */);
 }
 
-mojom::ControllerServiceWorkerPtr
+blink::mojom::ControllerServiceWorkerPtr
 ServiceWorkerProviderHost::GetControllerServiceWorkerPtr() {
   DCHECK(blink::ServiceWorkerUtils::IsServicificationEnabled());
   DCHECK(controller_);
@@ -436,31 +456,74 @@ ServiceWorkerProviderHost::GetControllerServiceWorkerPtr() {
       ServiceWorkerVersion::FetchHandlerExistence::DOES_NOT_EXIST) {
     return nullptr;
   }
-  mojom::ControllerServiceWorkerPtr controller_ptr;
+  blink::mojom::ControllerServiceWorkerPtr controller_ptr;
   controller_->controller()->Clone(mojo::MakeRequest(&controller_ptr));
   return controller_ptr;
 }
 
-void ServiceWorkerProviderHost::SetDocumentUrl(const GURL& url) {
+void ServiceWorkerProviderHost::UpdateUrls(const GURL& url,
+                                           const GURL& site_for_cookies) {
+  DCHECK(IsProviderForClient());
   DCHECK(!url.has_ref());
-  document_url_ = url;
+  DCHECK(!controller());
+
+  GURL previous_url = url_;
+  url_ = url;
+  site_for_cookies_ = site_for_cookies;
+  if (previous_url != url) {
+    // Revoke the token on URL change since any service worker holding the token
+    // may no longer be the potential controller of this frame and shouldn't
+    // have the power to display SSL dialogs for it.
+    if (info_->type == blink::mojom::ServiceWorkerProviderType::kForWindow) {
+      auto* registry = WebContentsGetterRegistry::GetInstance();
+      registry->Remove(fetch_request_window_id_);
+      fetch_request_window_id_ = base::UnguessableToken::Create();
+      registry->Add(fetch_request_window_id_, web_contents_getter());
+    }
+  }
+
+  auto previous_origin = url::Origin::Create(previous_url);
+  auto new_origin = url::Origin::Create(url_);
+  // Update client id on cross origin redirects. This corresponds to the HTML
+  // standard's "process a navigation fetch" algorithm's step for discarding
+  // |reservedEnvironment|.
+  // https://html.spec.whatwg.org/multipage/browsing-the-web.html#process-a-navigate-fetch
+  // "If |reservedEnvironment| is not null and |currentURL|'s origin is not the
+  // same as |reservedEnvironment|'s creation URL's origin, then:
+  //    1. Run the environment discarding steps for |reservedEnvironment|.
+  //    2. Set |reservedEnvironment| to null."
+  if (previous_url.is_valid() &&
+      !new_origin.IsSameOriginWith(previous_origin)) {
+    // Remove old controller since we know the controller is definitely
+    // changed. We need to remove |this| from |controller_|'s controllee before
+    // updating UUID since ServiceWorkerVersion has a map from uuid to provider
+    // hosts.
+    SetControllerRegistration(nullptr, false /* notify_controllerchange */);
+    // Set UUID to the new one.
+    context_->UnregisterProviderHostByClientID(client_uuid_);
+    client_uuid_ = base::GenerateGUID();
+    context_->RegisterProviderHostByClientID(client_uuid_, this);
+  }
+
+  SyncMatchingRegistrations();
+}
+
+const GURL& ServiceWorkerProviderHost::url() const {
   if (IsProviderForClient())
-    SyncMatchingRegistrations();
+    return url_;
+  return running_hosted_version_->script_url();
 }
 
-void ServiceWorkerProviderHost::SetTopmostFrameUrl(const GURL& url) {
-  DCHECK(IsProviderForClient());
-  topmost_frame_url_ = url;
+const GURL& ServiceWorkerProviderHost::site_for_cookies() const {
+  if (IsProviderForClient())
+    return site_for_cookies_;
+  return running_hosted_version_->script_url();
 }
 
-const GURL& ServiceWorkerProviderHost::topmost_frame_url() const {
-  DCHECK(IsProviderForClient());
-  return topmost_frame_url_;
-}
-
-void ServiceWorkerProviderHost::SetControllerVersionAttribute(
-    ServiceWorkerVersion* version,
-    bool notify_controllerchange) {
+void ServiceWorkerProviderHost::UpdateController(bool notify_controllerchange) {
+  ServiceWorkerVersion* version =
+      controller_registration_ ? controller_registration_->active_version()
+                               : nullptr;
   CHECK(!version || IsContextSecureForServiceWorker());
   if (version == controller_.get())
     return;
@@ -470,20 +533,15 @@ void ServiceWorkerProviderHost::SetControllerVersionAttribute(
 
   if (version)
     version->AddControllee(this);
-
-  if (previous_version.get())
+  if (previous_version)
     previous_version->RemoveControllee(client_uuid_);
 
   // SetController message should be sent only for clients.
   DCHECK(IsProviderForClient());
-  // If there is no connection to the renderer yet, |this| is hosting a reserved
-  // client undergoing navigation. The controller will be sent on navigation
-  // commit. See CommitNavigation in frame.mojom.
-  if (!container_.is_bound()) {
-    DCHECK_EQ(blink::mojom::ServiceWorkerClientType::kWindow, client_type());
-    DCHECK(!is_execution_ready_);
+
+  if (!IsControllerDecided())
     return;
-  }
+
   SendSetControllerServiceWorker(notify_controllerchange);
 }
 
@@ -521,33 +579,29 @@ blink::mojom::ServiceWorkerClientType ServiceWorkerProviderHost::client_type()
   return blink::mojom::ServiceWorkerClientType::kWindow;
 }
 
-void ServiceWorkerProviderHost::AssociateRegistration(
-    ServiceWorkerRegistration* registration,
+void ServiceWorkerProviderHost::SetControllerRegistration(
+    scoped_refptr<ServiceWorkerRegistration> controller_registration,
     bool notify_controllerchange) {
-  CHECK(IsContextSecureForServiceWorker());
   DCHECK(IsProviderForClient());
-  DCHECK(CanAssociateRegistration(registration));
-  associated_registration_ = registration;
-  AddMatchingRegistration(registration);
-  SetControllerVersionAttribute(registration->active_version(),
-                                notify_controllerchange);
-}
 
-void ServiceWorkerProviderHost::DisassociateRegistration() {
-  DCHECK(IsProviderForClient());
-  if (!associated_registration_.get())
-    return;
-  associated_registration_ = nullptr;
-  SetControllerVersionAttribute(nullptr, false /* notify_controllerchange */);
+  if (controller_registration) {
+    CHECK(IsContextSecureForServiceWorker());
+    DCHECK(controller_registration->active_version());
+#if DCHECK_IS_ON()
+    DCHECK(IsMatchingRegistration(controller_registration.get()));
+#endif  // DCHECK_IS_ON()
+  }
+
+  controller_registration_ = controller_registration;
+  UpdateController(notify_controllerchange);
 }
 
 void ServiceWorkerProviderHost::AddMatchingRegistration(
     ServiceWorkerRegistration* registration) {
-  DCHECK(
-      ServiceWorkerUtils::ScopeMatches(registration->pattern(), document_url_));
+  DCHECK(ServiceWorkerUtils::ScopeMatches(registration->scope(), url_));
   if (!IsContextSecureForServiceWorker())
     return;
-  size_t key = registration->pattern().spec().size();
+  size_t key = registration->scope().spec().size();
   if (base::ContainsKey(matching_registrations_, key))
     return;
   registration->AddListener(this);
@@ -557,16 +611,19 @@ void ServiceWorkerProviderHost::AddMatchingRegistration(
 
 void ServiceWorkerProviderHost::RemoveMatchingRegistration(
     ServiceWorkerRegistration* registration) {
-  size_t key = registration->pattern().spec().size();
-  DCHECK(base::ContainsKey(matching_registrations_, key));
+  DCHECK_NE(controller_registration_, registration);
+#if DCHECK_IS_ON()
+  DCHECK(IsMatchingRegistration(registration));
+#endif  // DCHECK_IS_ON()
+
   registration->RemoveListener(this);
+  size_t key = registration->scope().spec().size();
   matching_registrations_.erase(key);
 }
 
 ServiceWorkerRegistration*
 ServiceWorkerProviderHost::MatchRegistration() const {
-  ServiceWorkerRegistrationMap::const_reverse_iterator it =
-      matching_registrations_.rbegin();
+  auto it = matching_registrations_.rbegin();
   for (; it != matching_registrations_.rend(); ++it) {
     if (it->second->is_uninstalled())
       continue;
@@ -593,14 +650,13 @@ void ServiceWorkerProviderHost::RemoveServiceWorkerObjectHost(
 bool ServiceWorkerProviderHost::AllowServiceWorker(const GURL& scope) {
   DCHECK(IsContextAlive());
   return GetContentClient()->browser()->AllowServiceWorker(
-      scope, IsProviderForClient() ? topmost_frame_url() : document_url(),
-      context_->wrapper()->resource_context(),
-      base::Bind(&WebContentsImpl::FromRenderFrameHostID, render_process_id_,
-                 frame_id()));
+      scope, site_for_cookies(), context_->wrapper()->resource_context(),
+      base::BindRepeating(&WebContentsImpl::FromRenderFrameHostID,
+                          render_process_id_, frame_id()));
 }
 
 void ServiceWorkerProviderHost::NotifyControllerLost() {
-  SetControllerVersionAttribute(nullptr, true /* notify_controllerchange */);
+  SetControllerRegistration(nullptr, true /* notify_controllerchange */);
 }
 
 void ServiceWorkerProviderHost::AddServiceWorkerToUpdate(
@@ -622,7 +678,7 @@ ServiceWorkerProviderHost::CreateRequestHandler(
     const std::string& integrity,
     bool keepalive,
     ResourceType resource_type,
-    RequestContextType request_context_type,
+    blink::mojom::RequestContextType request_context_type,
     network::mojom::RequestContextFrameType frame_type,
     base::WeakPtr<storage::BlobStorageContext> blob_storage_context,
     scoped_refptr<network::ResourceRequestBody> body,
@@ -675,17 +731,6 @@ ServiceWorkerProviderHost::GetOrCreateServiceWorkerObjectHost(
   return service_worker_object_hosts_[version_id]->AsWeakPtr();
 }
 
-bool ServiceWorkerProviderHost::CanAssociateRegistration(
-    ServiceWorkerRegistration* registration) {
-  if (!context_)
-    return false;
-  if (running_hosted_version_.get())
-    return false;
-  if (!registration || associated_registration_.get() || !allow_association_)
-    return false;
-  return true;
-}
-
 void ServiceWorkerProviderHost::PostMessageToClient(
     ServiceWorkerVersion* version,
     blink::TransferableMessage message) {
@@ -700,35 +745,37 @@ void ServiceWorkerProviderHost::PostMessageToClient(
 }
 
 void ServiceWorkerProviderHost::CountFeature(blink::mojom::WebFeature feature) {
-  // CountFeature message should be sent only for clients.
+  // CountFeature is a message about the client's controller. It should be sent
+  // only for clients.
   DCHECK(IsProviderForClient());
-  // If there is no connection to the renderer yet, |this| is hosting a reserved
-  // client undergoing navigation. The use counter will be sent correctly in
-  // CompleteNavigationInitialized() later.
-  if (!container_.is_bound()) {
-    DCHECK_EQ(blink::mojom::ServiceWorkerClientType::kWindow, client_type());
-    DCHECK(!is_execution_ready_);
+
+  // And only when loading finished so the controller is really settled.
+  if (!IsControllerDecided())
     return;
-  }
 
   container_->CountFeature(feature);
 }
 
 void ServiceWorkerProviderHost::ClaimedByRegistration(
-    ServiceWorkerRegistration* registration) {
+    scoped_refptr<ServiceWorkerRegistration> registration) {
   DCHECK(registration->active_version());
-  if (registration == associated_registration_) {
-    SetControllerVersionAttribute(registration->active_version(),
-                                  true /* notify_controllerchange */);
-  } else if (allow_association_) {
-    DisassociateRegistration();
-    AssociateRegistration(registration, true /* notify_controllerchange */);
+  // TODO(falken): This should just early return, or DCHECK. claim() should have
+  // no effect on a page that's already using the registration.
+  if (registration == controller_registration_) {
+    UpdateController(true /* notify_controllerchange */);
+    return;
   }
+
+  // TODO(crbug.com/866353): It shouldn't be necesary to check
+  // |allow_set_controller_registration_|. See the comment for
+  // AllowSetControllerRegistration().
+  if (allow_set_controller_registration_)
+    SetControllerRegistration(registration, true /* notify_controllerchange */);
 }
 
 void ServiceWorkerProviderHost::CompleteNavigationInitialized(
     int process_id,
-    mojom::ServiceWorkerProviderHostInfoPtr info) {
+    blink::mojom::ServiceWorkerProviderHostInfoPtr info) {
   DCHECK_EQ(ChildProcessHost::kInvalidUniqueID, render_process_id_);
   DCHECK_EQ(blink::mojom::ServiceWorkerProviderType::kForWindow, info_->type);
   DCHECK_EQ(kDocumentMainThreadId, render_thread_id_);
@@ -737,9 +784,9 @@ void ServiceWorkerProviderHost::CompleteNavigationInitialized(
   DCHECK_EQ(info_->provider_id, info->provider_id);
   DCHECK_NE(MSG_ROUTING_NONE, info->route_id);
 
-  is_execution_ready_ = true;
+  TransitionToClientPhase(ClientPhase::kResponseCommitted);
 
-  // Connect with the mojom::ServiceWorkerContainer on the renderer.
+  // Connect with the blink::mojom::ServiceWorkerContainer on the renderer.
   DCHECK(!container_.is_bound());
   DCHECK(!binding_.is_bound());
   container_.Bind(std::move(info->client_ptr_info));
@@ -761,11 +808,11 @@ void ServiceWorkerProviderHost::CompleteNavigationInitialized(
   SendSetControllerServiceWorker(false /* notify_controllerchange */);
 }
 
-mojom::ServiceWorkerProviderInfoForStartWorkerPtr
+blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr
 ServiceWorkerProviderHost::CompleteStartWorkerPreparation(
     int process_id,
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
-    mojom::ServiceWorkerProviderInfoForStartWorkerPtr provider_info) {
+    blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr provider_info) {
   DCHECK(context_);
   DCHECK_EQ(kInvalidEmbeddedWorkerThreadId, render_thread_id_);
   DCHECK_EQ(ChildProcessHost::kInvalidUniqueID, render_process_id_);
@@ -788,7 +835,7 @@ ServiceWorkerProviderHost::CompleteStartWorkerPreparation(
   }
 
   interface_provider_binding_.Bind(FilterRendererExposedInterfaces(
-      mojom::kNavigation_ServiceWorkerSpec, process_id,
+      blink::mojom::kNavigation_ServiceWorkerSpec, process_id,
       mojo::MakeRequest(&provider_info->interface_provider)));
 
   return provider_info;
@@ -797,23 +844,42 @@ ServiceWorkerProviderHost::CompleteStartWorkerPreparation(
 void ServiceWorkerProviderHost::CompleteSharedWorkerPreparation() {
   DCHECK_EQ(blink::mojom::ServiceWorkerProviderType::kForSharedWorker,
             provider_type());
-  is_execution_ready_ = true;
+  TransitionToClientPhase(ClientPhase::kResponseCommitted);
+  SetExecutionReady();
 }
 
 void ServiceWorkerProviderHost::SyncMatchingRegistrations() {
   DCHECK(context_);
+  DCHECK(!controller_registration());
+
   RemoveAllMatchingRegistrations();
   const auto& registrations = context_->GetLiveRegistrations();
   for (const auto& key_registration : registrations) {
     ServiceWorkerRegistration* registration = key_registration.second;
     if (!registration->is_uninstalled() &&
-        ServiceWorkerUtils::ScopeMatches(registration->pattern(),
-                                         document_url_))
+        ServiceWorkerUtils::ScopeMatches(registration->scope(), url_)) {
       AddMatchingRegistration(registration);
+    }
   }
 }
 
+#if DCHECK_IS_ON()
+bool ServiceWorkerProviderHost::IsMatchingRegistration(
+    ServiceWorkerRegistration* registration) const {
+  std::string spec = registration->scope().spec();
+  size_t key = spec.size();
+
+  auto iter = matching_registrations_.find(key);
+  if (iter == matching_registrations_.end())
+    return false;
+  if (iter->second.get() != registration)
+    return false;
+  return true;
+}
+#endif  // DCHECK_IS_ON()
+
 void ServiceWorkerProviderHost::RemoveAllMatchingRegistrations() {
+  DCHECK(!controller_registration());
   for (const auto& it : matching_registrations_) {
     ServiceWorkerRegistration* registration = it.second.get();
     registration->RemoveListener(this);
@@ -849,8 +915,12 @@ void ServiceWorkerProviderHost::SendSetControllerServiceWorker(
     bool notify_controllerchange) {
   DCHECK(IsProviderForClient());
 
-  auto controller_info = mojom::ControllerServiceWorkerInfo::New();
+  auto controller_info = blink::mojom::ControllerServiceWorkerInfo::New();
   controller_info->client_id = client_uuid();
+  if (fetch_request_window_id_) {
+    controller_info->fetch_request_window_id =
+        base::make_optional(fetch_request_window_id_);
+  }
 
   if (!controller_) {
     container_->SetController(std::move(controller_info),
@@ -858,8 +928,8 @@ void ServiceWorkerProviderHost::SendSetControllerServiceWorker(
     return;
   }
 
-  DCHECK(associated_registration_);
-  DCHECK_EQ(associated_registration_->active_version(), controller_.get());
+  DCHECK(controller_registration());
+  DCHECK_EQ(controller_registration_->active_version(), controller_.get());
 
   controller_info->mode = GetControllerMode();
 
@@ -885,6 +955,51 @@ void ServiceWorkerProviderHost::SendSetControllerServiceWorker(
                             notify_controllerchange);
 }
 
+bool ServiceWorkerProviderHost::IsControllerDecided() const {
+  DCHECK(IsProviderForClient());
+
+  if (is_response_committed())
+    return true;
+
+  // TODO(falken): This function just becomes |is_response_committed()|
+  // when NetworkService is enabled, so remove/simplify it when
+  // non-NetworkService code is removed.
+
+  switch (client_type()) {
+    case blink::mojom::ServiceWorkerClientType::kWindow:
+      // |this| is hosting a reserved client undergoing navigation. Don't send
+      // the controller since it can be changed again before the final
+      // response. The controller will be sent on navigation commit. See
+      // CommitNavigation in frame.mojom.
+      return false;
+    case blink::mojom::ServiceWorkerClientType::kSharedWorker:
+      // NetworkService (PlzWorker):
+      if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+        // When PlzWorker is enabled, the controller will be sent when the
+        // response is committed to the renderer at SharedWorkerHost::Start().
+        return false;
+      }
+      return true;
+    case blink::mojom::ServiceWorkerClientType::kAll:
+      NOTREACHED();
+  }
+
+  NOTREACHED();
+  return true;
+}
+
+#if DCHECK_IS_ON()
+void ServiceWorkerProviderHost::CheckControllerConsistency() const {
+  if (!controller_) {
+    DCHECK(!controller_registration_);
+    return;
+  }
+  DCHECK(IsProviderForClient());
+  DCHECK(controller_registration_);
+  DCHECK_EQ(controller_->registration_id(), controller_registration_->id());
+}
+#endif
+
 void ServiceWorkerProviderHost::Register(
     const GURL& script_url,
     blink::mojom::ServiceWorkerRegistrationOptionsPtr options,
@@ -894,31 +1009,36 @@ void ServiceWorkerProviderHost::Register(
                                     nullptr)) {
     return;
   }
-
-  std::string error_message;
-  if (!IsValidRegisterMessage(script_url, *options, &error_message)) {
-    mojo::ReportBadMessage(error_message);
+  if (client_type() != blink::mojom::ServiceWorkerClientType::kWindow) {
+    mojo::ReportBadMessage(ServiceWorkerConsts::kBadMessageFromNonWindow);
+    std::move(callback).Run(blink::mojom::ServiceWorkerErrorType::kUnknown,
+                            std::string(), nullptr);
+    return;
+  }
+  std::vector<GURL> urls = {url(), options->scope, script_url};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
+    mojo::ReportBadMessage(ServiceWorkerConsts::kBadMessageImproperOrigins);
     // ReportBadMessage() will kill the renderer process, but Mojo complains if
     // the callback is not run. Just run it with nonsense arguments.
     std::move(callback).Run(blink::mojom::ServiceWorkerErrorType::kUnknown,
                             std::string(), nullptr);
     return;
   }
-
   int64_t trace_id = base::TimeTicks::Now().since_origin().InMicroseconds();
   TRACE_EVENT_ASYNC_BEGIN2(
       "ServiceWorker", "ServiceWorkerProviderHost::Register", trace_id, "Scope",
       options->scope.spec(), "Script URL", script_url.spec());
   context_->RegisterServiceWorker(
       script_url, *options,
-      base::AdaptCallbackForRepeating(
-          base::BindOnce(&ServiceWorkerProviderHost::RegistrationComplete,
-                         AsWeakPtr(), std::move(callback), trace_id)));
+      base::BindOnce(&ServiceWorkerProviderHost::RegistrationComplete,
+                     AsWeakPtr(), std::move(callback), trace_id,
+                     mojo::GetBadMessageCallback()));
 }
 
 void ServiceWorkerProviderHost::RegistrationComplete(
     RegisterCallback callback,
     int64_t trace_id,
+    mojo::ReportBadMessageCallback bad_message_callback,
     blink::ServiceWorkerStatusCode status,
     const std::string& status_message,
     int64_t registration_id) {
@@ -926,6 +1046,16 @@ void ServiceWorkerProviderHost::RegistrationComplete(
                          trace_id, "Status",
                          blink::ServiceWorkerStatusToString(status),
                          "Registration ID", registration_id);
+  // kErrorInvalidArguments means the renderer gave unexpectedly bad arguments,
+  // so terminate it.
+  if (status == blink::ServiceWorkerStatusCode::kErrorInvalidArguments) {
+    std::move(bad_message_callback).Run(status_message);
+    // |bad_message_callback| will kill the renderer process, but Mojo complains
+    // if the callback is not run. Just run it with nonsense arguments.
+    std::move(callback).Run(blink::mojom::ServiceWorkerErrorType::kUnknown,
+                            std::string(), nullptr);
+    return;
+  }
   if (!IsContextAlive()) {
     std::move(callback).Run(
         blink::mojom::ServiceWorkerErrorType::kAbort,
@@ -960,7 +1090,7 @@ void ServiceWorkerProviderHost::RegistrationComplete(
 void ServiceWorkerProviderHost::GetRegistration(
     const GURL& client_url,
     GetRegistrationCallback callback) {
-  if (!CanServeContainerHostMethods(&callback, document_url(),
+  if (!CanServeContainerHostMethods(&callback, url(),
                                     kServiceWorkerGetRegistrationErrorPrefix,
                                     nullptr)) {
     return;
@@ -988,7 +1118,7 @@ void ServiceWorkerProviderHost::GetRegistration(
 
 void ServiceWorkerProviderHost::GetRegistrations(
     GetRegistrationsCallback callback) {
-  if (!CanServeContainerHostMethods(&callback, document_url(),
+  if (!CanServeContainerHostMethods(&callback, url(),
                                     kServiceWorkerGetRegistrationsErrorPrefix,
                                     base::nullopt)) {
     return;
@@ -1008,7 +1138,7 @@ void ServiceWorkerProviderHost::GetRegistrations(
   TRACE_EVENT_ASYNC_BEGIN0(
       "ServiceWorker", "ServiceWorkerProviderHost::GetRegistrations", trace_id);
   context_->storage()->GetRegistrationsForOrigin(
-      document_url().GetOrigin(),
+      url().GetOrigin(),
       base::AdaptCallbackForRepeating(
           base::BindOnce(&ServiceWorkerProviderHost::GetRegistrationsComplete,
                          AsWeakPtr(), std::move(callback), trace_id)));
@@ -1120,7 +1250,7 @@ void ServiceWorkerProviderHost::GetRegistrationForReady(
 }
 
 void ServiceWorkerProviderHost::StartControllerComplete(
-    mojom::ControllerServiceWorkerRequest controller_request,
+    blink::mojom::ControllerServiceWorkerRequest controller_request,
     blink::ServiceWorkerStatusCode status) {
   DCHECK(blink::ServiceWorkerUtils::IsServicificationEnabled());
   if (status == blink::ServiceWorkerStatusCode::kOk)
@@ -1128,8 +1258,8 @@ void ServiceWorkerProviderHost::StartControllerComplete(
 }
 
 void ServiceWorkerProviderHost::EnsureControllerServiceWorker(
-    mojom::ControllerServiceWorkerRequest controller_request,
-    mojom::ControllerServiceWorkerPurpose purpose) {
+    blink::mojom::ControllerServiceWorkerRequest controller_request,
+    blink::mojom::ControllerServiceWorkerPurpose purpose) {
   // TODO(kinuko): Log the reasons we drop the request.
   if (!IsContextAlive() || !controller_)
     return;
@@ -1141,11 +1271,10 @@ void ServiceWorkerProviderHost::EnsureControllerServiceWorker(
                      AsWeakPtr(), std::move(controller_request)));
 }
 
-void ServiceWorkerProviderHost::CloneForWorker(
-    mojom::ServiceWorkerContainerHostRequest container_host_request) {
+void ServiceWorkerProviderHost::CloneContainerHost(
+    blink::mojom::ServiceWorkerContainerHostRequest container_host_request) {
   DCHECK(blink::ServiceWorkerUtils::IsServicificationEnabled());
-  bindings_for_worker_threads_.AddBinding(this,
-                                          std::move(container_host_request));
+  additional_bindings_.AddBinding(this, std::move(container_host_request));
 }
 
 void ServiceWorkerProviderHost::Ping(PingCallback callback) {
@@ -1163,29 +1292,23 @@ void ServiceWorkerProviderHost::HintToUpdateServiceWorker() {
   versions_to_update_.clear();
 }
 
-bool ServiceWorkerProviderHost::IsValidRegisterMessage(
-    const GURL& script_url,
-    const blink::mojom::ServiceWorkerRegistrationOptions& options,
-    std::string* out_error) const {
-  if (client_type() != blink::mojom::ServiceWorkerClientType::kWindow) {
-    *out_error = ServiceWorkerConsts::kBadMessageFromNonWindow;
-    return false;
-  }
-  if (!options.scope.is_valid() || !script_url.is_valid()) {
-    *out_error = ServiceWorkerConsts::kBadMessageInvalidURL;
-    return false;
-  }
-  if (ServiceWorkerUtils::ContainsDisallowedCharacter(options.scope, script_url,
-                                                      out_error)) {
-    return false;
-  }
-  std::vector<GURL> urls = {document_url(), options.scope, script_url};
-  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
-    *out_error = ServiceWorkerConsts::kBadMessageImproperOrigins;
-    return false;
+void ServiceWorkerProviderHost::OnExecutionReady() {
+  if (!IsProviderForClient()) {
+    mojo::ReportBadMessage("SWPH_OER_NOT_CLIENT");
+    return;
   }
 
-  return true;
+  if (is_execution_ready()) {
+    // We can get here for providers that were created via Create() instead of
+    // being precreated, i.e., shared workers in the non-S13nServiceWorker path
+    // and for renderer-initiated navigations. Just ignore if this is already
+    // execution ready.
+    // TODO(falken): See if this can turn into a ReportBadMessage after the
+    // non-S13nServiceWorker path or Create() is removed.
+    return;
+  }
+
+  SetExecutionReady();
 }
 
 bool ServiceWorkerProviderHost::IsValidGetRegistrationMessage(
@@ -1199,7 +1322,7 @@ bool ServiceWorkerProviderHost::IsValidGetRegistrationMessage(
     *out_error = ServiceWorkerConsts::kBadMessageInvalidURL;
     return false;
   }
-  std::vector<GURL> urls = {document_url(), client_url};
+  std::vector<GURL> urls = {url(), client_url};
   if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
     *out_error = ServiceWorkerConsts::kBadMessageImproperOrigins;
     return false;
@@ -1214,7 +1337,7 @@ bool ServiceWorkerProviderHost::IsValidGetRegistrationsMessage(
     *out_error = ServiceWorkerConsts::kBadMessageFromNonWindow;
     return false;
   }
-  if (!OriginCanAccessServiceWorkers(document_url())) {
+  if (!OriginCanAccessServiceWorkers(url())) {
     *out_error = ServiceWorkerConsts::kBadMessageImproperOrigins;
     return false;
   }
@@ -1244,8 +1367,8 @@ void ServiceWorkerProviderHost::GetInterface(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_NE(kDocumentMainThreadId, render_thread_id_);
   DCHECK(IsProviderForServiceWorker());
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(
           &GetInterfaceImpl, interface_name, std::move(interface_pipe),
           running_hosted_version_->script_origin(), render_process_id_));
@@ -1282,7 +1405,7 @@ bool ServiceWorkerProviderHost::CanServeContainerHostMethods(
 
   // TODO(falken): This check can be removed once crbug.com/439697 is fixed.
   // (Also see crbug.com/776408)
-  if (document_url().is_empty()) {
+  if (url().is_empty()) {
     std::move(*callback).Run(
         blink::mojom::ServiceWorkerErrorType::kSecurity,
         std::string(error_prefix) +
@@ -1301,6 +1424,60 @@ bool ServiceWorkerProviderHost::CanServeContainerHostMethods(
   }
 
   return true;
+}
+
+void ServiceWorkerProviderHost::AddExecutionReadyCallback(
+    ExecutionReadyCallback callback) {
+  DCHECK(!is_execution_ready());
+  execution_ready_callbacks_.push_back(std::move(callback));
+}
+
+bool ServiceWorkerProviderHost::is_response_committed() const {
+  DCHECK(IsProviderForClient());
+  switch (client_phase_) {
+    case ClientPhase::kInitial:
+      return false;
+    case ClientPhase::kResponseCommitted:
+    case ClientPhase::kExecutionReady:
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+bool ServiceWorkerProviderHost::is_execution_ready() const {
+  DCHECK(IsProviderForClient());
+  return client_phase_ == ClientPhase::kExecutionReady;
+}
+
+void ServiceWorkerProviderHost::SetExecutionReady() {
+  DCHECK(!is_execution_ready());
+  TransitionToClientPhase(ClientPhase::kExecutionReady);
+  RunExecutionReadyCallbacks();
+}
+
+void ServiceWorkerProviderHost::RunExecutionReadyCallbacks() {
+  std::vector<ExecutionReadyCallback> callbacks;
+  execution_ready_callbacks_.swap(callbacks);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(&RunCallbacks, std::move(callbacks)));
+}
+
+void ServiceWorkerProviderHost::TransitionToClientPhase(ClientPhase new_phase) {
+  if (client_phase_ == new_phase)
+    return;
+  switch (client_phase_) {
+    case ClientPhase::kInitial:
+      DCHECK_EQ(new_phase, ClientPhase::kResponseCommitted);
+      break;
+    case ClientPhase::kResponseCommitted:
+      DCHECK_EQ(new_phase, ClientPhase::kExecutionReady);
+      break;
+    case ClientPhase::kExecutionReady:
+      NOTREACHED();
+      break;
+  }
+  client_phase_ = new_phase;
 }
 
 }  // namespace content

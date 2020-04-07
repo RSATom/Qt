@@ -17,6 +17,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
@@ -30,7 +31,7 @@
 #include "net/spdy/spdy_session_key.h"
 #include "net/ssl/ssl_config_service.h"
 #include "net/third_party/quic/core/quic_versions.h"
-#include "net/third_party/spdy/core/spdy_protocol.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 
 namespace base {
 namespace trace_event {
@@ -45,6 +46,7 @@ class HostResolver;
 class HttpServerProperties;
 class HttpStreamRequest;
 class NetLogWithSource;
+class NetworkQualityEstimator;
 class SpdySession;
 class TransportSecurityState;
 
@@ -56,6 +58,16 @@ class NET_EXPORT SpdySessionPool
  public:
   typedef base::TimeTicks (*TimeFunc)(void);
 
+  // Struct to hold randomly generated frame parameters to be used for sending
+  // frames on the wire to "grease" frame type.  Frame type has to be one of
+  // the reserved values defined in
+  // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00.
+  struct GreasedHttp2Frame {
+    uint8_t type;
+    uint8_t flags;
+    std::string payload;
+  };
+
   SpdySessionPool(
       HostResolver* host_resolver,
       SSLConfigService* ssl_config_service,
@@ -66,7 +78,9 @@ class NET_EXPORT SpdySessionPool
       bool support_ietf_format_quic_altsvc,
       size_t session_max_recv_window_size,
       const spdy::SettingsMap& initial_settings,
-      SpdySessionPool::TimeFunc time_func);
+      const base::Optional<GreasedHttp2Frame>& greased_http2_frame,
+      SpdySessionPool::TimeFunc time_func,
+      NetworkQualityEstimator* network_quality_estimator);
   ~SpdySessionPool() override;
 
   // In the functions below, a session is "available" if this pool has
@@ -194,6 +208,11 @@ class NET_EXPORT SpdySessionPool
   // not have a SpdySessionKey.
   void RemoveRequestFromSpdySessionRequestMap(HttpStreamRequest* request);
 
+  void set_network_quality_estimator(
+      NetworkQualityEstimator* network_quality_estimator) {
+    network_quality_estimator_ = network_quality_estimator;
+  }
+
  private:
   friend class SpdySessionPoolPeer;  // For testing.
 
@@ -276,6 +295,11 @@ class NET_EXPORT SpdySessionPool
   // and maximum HPACK dynamic table size.
   const spdy::SettingsMap initial_settings_;
 
+  // If set, an HTTP/2 frame with a reserved frame type will be sent after every
+  // valid HTTP/2 frame.  See
+  // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00.
+  const base::Optional<GreasedHttp2Frame> greased_http2_frame_;
+
   // TODO(xunjieli): Merge these two.
   SpdySessionRequestMap spdy_session_request_map_;
   typedef std::map<SpdySessionKey, std::list<base::Closure>>
@@ -284,6 +308,8 @@ class NET_EXPORT SpdySessionPool
 
   TimeFunc time_func_;
   ServerPushDelegate* push_delegate_;
+
+  NetworkQualityEstimator* network_quality_estimator_;
 
   DISALLOW_COPY_AND_ASSIGN(SpdySessionPool);
 };

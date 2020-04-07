@@ -8,22 +8,14 @@
 #define FXJS_XFA_CJX_RECORDSET_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_RecordSet;
 
-class CJX_RecordSet : public CJX_Node {
+class CJX_RecordSet final : public CJX_Node {
  public:
   explicit CJX_RecordSet(CXFA_RecordSet* node);
   ~CJX_RecordSet() override;
-
-  JS_PROP(bofAction);
-  JS_PROP(cursorLocation);
-  JS_PROP(cursorType);
-  JS_PROP(eofAction);
-  JS_PROP(lockType);
-  JS_PROP(max);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_RECORDSET_H_

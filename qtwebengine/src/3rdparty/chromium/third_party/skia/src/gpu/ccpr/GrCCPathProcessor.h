@@ -56,25 +56,25 @@ public:
         SkRect fDevBounds45;  // Bounding box in "| 1  -1 | * devCoords" space.
                               //                  | 1   1 |
         SkIVector fDevToAtlasOffset;  // Translation from device space to location in atlas.
-        GrColor fColor;
+        uint64_t fColor;  // Color always stored as 4 x fp16
 
         void set(const SkRect& devBounds, const SkRect& devBounds45,
-                 const SkIVector& devToAtlasOffset, GrColor, DoEvenOddFill = DoEvenOddFill::kNo);
-        void set(const GrCCPathCacheEntry&, const SkIVector& shift, GrColor,
+                 const SkIVector& devToAtlasOffset, uint64_t, DoEvenOddFill = DoEvenOddFill::kNo);
+        void set(const GrCCPathCacheEntry&, const SkIVector& shift, uint64_t,
                  DoEvenOddFill = DoEvenOddFill::kNo);
     };
 
-    GR_STATIC_ASSERT(4 * 11 == sizeof(Instance));
+    GR_STATIC_ASSERT(4 * 12 == sizeof(Instance));
 
     static sk_sp<const GrBuffer> FindVertexBuffer(GrOnFlushResourceProvider*);
     static sk_sp<const GrBuffer> FindIndexBuffer(GrOnFlushResourceProvider*);
 
-    GrCCPathProcessor(GrResourceProvider*, sk_sp<GrTextureProxy> atlas,
+    GrCCPathProcessor(const GrTextureProxy* atlas,
                       const SkMatrix& viewMatrixIfUsingLocalCoords = SkMatrix::I());
 
     const char* name() const override { return "GrCCPathProcessor"; }
-    const GrSurfaceProxy* atlasProxy() const { return fAtlasAccess.proxy(); }
-    const GrTexture* atlas() const { return fAtlasAccess.peekTexture(); }
+    const SkISize& atlasSize() const { return fAtlasSize; }
+    GrSurfaceOrigin atlasOrigin() const { return fAtlasOrigin; }
     const SkMatrix& localMatrix() const { return fLocalMatrix; }
     const Attribute& getInstanceAttrib(InstanceAttribs attribID) const {
         int idx = static_cast<int>(attribID);
@@ -91,24 +91,27 @@ public:
                    const SkRect& bounds) const;
 
 private:
-    const Attribute& onVertexAttribute(int i) const override { return kEdgeNormsAttrib; }
-    const Attribute& onInstanceAttribute(int i) const override { return kInstanceAttribs[i]; }
+    const TextureSampler& onTextureSampler(int) const override { return fAtlasAccess; }
 
     const TextureSampler fAtlasAccess;
+    SkISize fAtlasSize;
+    GrSurfaceOrigin fAtlasOrigin;
+
     SkMatrix fLocalMatrix;
     static constexpr Attribute kInstanceAttribs[kNumInstanceAttribs] = {
-            {"devbounds", kFloat4_GrVertexAttribType},
-            {"devbounds45", kFloat4_GrVertexAttribType},
-            {"dev_to_atlas_offset", kInt2_GrVertexAttribType},
-            {"color", kUByte4_norm_GrVertexAttribType}
+            {"devbounds", kFloat4_GrVertexAttribType, kFloat4_GrSLType},
+            {"devbounds45", kFloat4_GrVertexAttribType, kFloat4_GrSLType},
+            {"dev_to_atlas_offset", kInt2_GrVertexAttribType, kInt2_GrSLType},
+            {"color", kHalf4_GrVertexAttribType, kHalf4_GrSLType}
     };
-    static constexpr Attribute kEdgeNormsAttrib = {"edge_norms", kFloat4_GrVertexAttribType};
+    static constexpr Attribute kEdgeNormsAttrib = {"edge_norms", kFloat4_GrVertexAttribType,
+                                                                 kFloat4_GrSLType};
 
     typedef GrGeometryProcessor INHERITED;
 };
 
 inline void GrCCPathProcessor::Instance::set(const SkRect& devBounds, const SkRect& devBounds45,
-                                             const SkIVector& devToAtlasOffset, GrColor color,
+                                             const SkIVector& devToAtlasOffset, uint64_t color,
                                              DoEvenOddFill doEvenOddFill) {
     if (DoEvenOddFill::kYes == doEvenOddFill) {
         // "right < left" indicates even-odd fill type.

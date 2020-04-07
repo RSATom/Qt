@@ -122,7 +122,7 @@ public:
 
     void setProgramSource(const QQuickOpenGLShaderEffectMaterialKey &source);
     void updateTextures() const;
-    void invalidateTextureProvider(QSGTextureProvider *provider);
+    void invalidateTextureProvider(const QObject *provider);
 
     static void cleanupMaterialCache();
 

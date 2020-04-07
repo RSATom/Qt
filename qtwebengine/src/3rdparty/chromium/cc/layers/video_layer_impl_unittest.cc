@@ -61,6 +61,10 @@ TEST(VideoLayerImplTest, Occlusion) {
 
     LayerTestCommon::VerifyQuadsExactlyCoverRect(impl.quad_list(),
                                                  gfx::Rect(layer_size));
+
+    LayerTestCommon::VerifyQuadsExactlyCoverRect(
+        impl.quad_list(),
+        impl.quad_list().cbegin()->shared_quad_state->visible_quad_layer_rect);
     EXPECT_EQ(1u, impl.quad_list().size());
   }
 
@@ -81,6 +85,9 @@ TEST(VideoLayerImplTest, Occlusion) {
     size_t partially_occluded_count = 0;
     LayerTestCommon::VerifyQuadsAreOccluded(
         impl.quad_list(), occluded, &partially_occluded_count);
+    LayerTestCommon::VerifyQuadsExactlyCoverRect(
+        impl.quad_list(),
+        impl.quad_list().cbegin()->shared_quad_state->visible_quad_layer_rect);
     // The layer outputs one quad, which is partially occluded.
     EXPECT_EQ(1u, impl.quad_list().size());
     EXPECT_EQ(1u, partially_occluded_count);
@@ -92,7 +99,7 @@ TEST(VideoLayerImplTest, OccludesOtherLayers) {
   gfx::Rect visible(layer_size);
 
   LayerTestCommon::LayerImplTest impl;
-  impl.host_impl()->SetViewportSize(layer_size);
+  impl.host_impl()->active_tree()->SetDeviceViewportSize(layer_size);
   DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
   auto* active_tree = impl.host_impl()->active_tree();
 
@@ -292,8 +299,6 @@ TEST(VideoLayerImplTest, Rotated270) {
   EXPECT_EQ(gfx::Point3F(0, 0, 0), p2);
 }
 
-void EmptyCallback(const gpu::SyncToken& sync_token) {}
-
 TEST(VideoLayerImplTest, SoftwareVideoFrameGeneratesYUVQuad) {
   gfx::Size layer_size(1000, 1000);
 
@@ -381,14 +386,12 @@ TEST(VideoLayerImplTest, NativeYUVFrameGeneratesYUVQuad) {
 
   scoped_refptr<media::VideoFrame> video_frame =
       media::VideoFrame::WrapNativeTextures(
-          media::PIXEL_FORMAT_I420, mailbox_holders, base::Bind(EmptyCallback),
+          media::PIXEL_FORMAT_I420, mailbox_holders, base::DoNothing(),
           gfx::Size(10, 10), gfx::Rect(10, 10), gfx::Size(10, 10),
           base::TimeDelta());
   ASSERT_TRUE(video_frame);
   video_frame->metadata()->SetBoolean(media::VideoFrameMetadata::ALLOW_OVERLAY,
                                       true);
-  video_frame->metadata()->SetBoolean(
-      media::VideoFrameMetadata::REQUIRE_OVERLAY, true);
   FakeVideoFrameProvider provider;
   provider.set_frame(video_frame);
 
@@ -412,7 +415,6 @@ TEST(VideoLayerImplTest, NativeYUVFrameGeneratesYUVQuad) {
             (yuv_draw_quad->ya_tex_size.height() + 1) / 2);
   EXPECT_EQ(yuv_draw_quad->uv_tex_size.width(),
             (yuv_draw_quad->ya_tex_size.width() + 1) / 2);
-  EXPECT_TRUE(yuv_draw_quad->require_overlay);
 }
 
 TEST(VideoLayerImplTest, NativeARGBFrameGeneratesTextureQuad) {
@@ -428,7 +430,7 @@ TEST(VideoLayerImplTest, NativeARGBFrameGeneratesTextureQuad) {
   gfx::Size resource_size = gfx::Size(10, 10);
   scoped_refptr<media::VideoFrame> video_frame =
       media::VideoFrame::WrapNativeTextures(
-          media::PIXEL_FORMAT_ARGB, mailbox_holders, base::Bind(EmptyCallback),
+          media::PIXEL_FORMAT_ARGB, mailbox_holders, base::DoNothing(),
           resource_size, gfx::Rect(10, 10), resource_size, base::TimeDelta());
   ASSERT_TRUE(video_frame);
   video_frame->metadata()->SetBoolean(media::VideoFrameMetadata::ALLOW_OVERLAY,

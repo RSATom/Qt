@@ -66,7 +66,7 @@ jumbo_component("wm") {
 
   deps = [
     "//base",
-    "//services/ui/public/interfaces",
+    "//services/ws/public/mojom",
     "//skia",
     "//ui/aura",
     "//ui/base",
@@ -98,7 +98,7 @@ jumbo_component("wm") {
   }
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "test/testing_cursor_client_observer.cc",
@@ -110,8 +110,10 @@ static_library("test_support") {
   deps = [
     ":wm",
     "//services/service_manager/public/cpp",
-    "//services/ui/public/cpp/input_devices",
-    "//services/ui/public/interfaces",
+    "//services/ws/public/cpp",
+    "//services/ws/public/cpp/input_devices",
+    "//services/ws/public/mojom",
+    "//services/ws/test_ws:mojom",
     "//skia",
     "//ui/aura",
     "//ui/aura:test_support",
@@ -129,7 +131,6 @@ test("wm_unittests") {
     "core/compound_event_filter_unittest.cc",
     "core/coordinate_conversion_unittest.cc",
     "core/cursor_manager_unittest.cc",
-    "core/easy_resize_window_targeter_unittest.cc",
     "core/focus_controller_unittest.cc",
     "core/shadow_controller_unittest.cc",
     "core/transient_window_manager_unittest.cc",

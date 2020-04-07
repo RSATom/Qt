@@ -33,6 +33,7 @@
 
 #include <memory>
 
+#include "third_party/blink/public/mojom/filesystem/file_system.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_void_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_entry_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_error_callback.h"
@@ -43,7 +44,6 @@
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
 #include "third_party/blink/renderer/modules/filesystem/entry_heap_vector.h"
 #include "third_party/blink/renderer/platform/async_file_system_callbacks.h"
-#include "third_party/blink/renderer/platform/file_system_type.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -59,6 +59,7 @@ class File;
 class FileMetadata;
 class FileWriterBase;
 class Metadata;
+class ScriptPromiseResolver;
 
 // Passed to DOMFileSystem implementations that may report errors. Subclasses
 // may capture the error for throwing on return to script (for synchronous APIs)
@@ -67,7 +68,7 @@ class ErrorCallbackBase : public GarbageCollectedFinalized<ErrorCallbackBase> {
  public:
   virtual ~ErrorCallbackBase() {}
   virtual void Trace(blink::Visitor* visitor) {}
-  virtual void Invoke(FileError::ErrorCode) = 0;
+  virtual void Invoke(base::File::Error error) = 0;
 };
 
 class FileSystemCallbacksBase : public AsyncFileSystemCallbacks {
@@ -75,7 +76,7 @@ class FileSystemCallbacksBase : public AsyncFileSystemCallbacks {
   ~FileSystemCallbacksBase() override;
 
   // For ErrorCallback.
-  void DidFail(int code) final;
+  void DidFail(base::File::Error error) final;
 
   // Other callback methods are implemented by each subclass.
 
@@ -107,14 +108,25 @@ class FileSystemCallbacksBase : public AsyncFileSystemCallbacks {
 class ScriptErrorCallback final : public ErrorCallbackBase {
  public:
   static ScriptErrorCallback* Wrap(V8ErrorCallback*);
+
+  explicit ScriptErrorCallback(V8ErrorCallback*);
   ~ScriptErrorCallback() override {}
   void Trace(blink::Visitor*) override;
 
-  void Invoke(FileError::ErrorCode) override;
+  void Invoke(base::File::Error error) override;
 
  private:
-  explicit ScriptErrorCallback(V8ErrorCallback*);
   Member<V8PersistentCallbackInterface<V8ErrorCallback>> callback_;
+};
+
+class PromiseErrorCallback final : public ErrorCallbackBase {
+ public:
+  explicit PromiseErrorCallback(ScriptPromiseResolver*);
+  void Trace(Visitor*) override;
+  void Invoke(base::File::Error error) override;
+
+ private:
+  Member<ScriptPromiseResolver> resolver_;
 };
 
 class EntryCallbacks final : public FileSystemCallbacksBase {
@@ -133,16 +145,28 @@ class EntryCallbacks final : public FileSystemCallbacksBase {
   class OnDidGetEntryV8Impl : public OnDidGetEntryCallback {
    public:
     static OnDidGetEntryV8Impl* Create(V8EntryCallback* callback) {
-      return callback ? new OnDidGetEntryV8Impl(callback) : nullptr;
+      return callback ? MakeGarbageCollected<OnDidGetEntryV8Impl>(callback)
+                      : nullptr;
     }
+
+    OnDidGetEntryV8Impl(V8EntryCallback* callback)
+        : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
     void Trace(blink::Visitor*) override;
     void OnSuccess(Entry*) override;
 
    private:
-    OnDidGetEntryV8Impl(V8EntryCallback* callback)
-        : callback_(ToV8PersistentCallbackInterface(callback)) {}
-
     Member<V8PersistentCallbackInterface<V8EntryCallback>> callback_;
+  };
+
+  class OnDidGetEntryPromiseImpl : public OnDidGetEntryCallback {
+   public:
+    explicit OnDidGetEntryPromiseImpl(ScriptPromiseResolver*);
+    void Trace(Visitor*) override;
+    void OnSuccess(Entry*) override;
+
+   private:
+    Member<ScriptPromiseResolver> resolver_;
   };
 
   static std::unique_ptr<AsyncFileSystemCallbacks> Create(
@@ -216,32 +240,45 @@ class FileSystemCallbacks final : public FileSystemCallbacksBase {
   class OnDidOpenFileSystemV8Impl : public OnDidOpenFileSystemCallback {
    public:
     static OnDidOpenFileSystemV8Impl* Create(V8FileSystemCallback* callback) {
-      return callback ? new OnDidOpenFileSystemV8Impl(callback) : nullptr;
+      return callback
+                 ? MakeGarbageCollected<OnDidOpenFileSystemV8Impl>(callback)
+                 : nullptr;
     }
+
+    OnDidOpenFileSystemV8Impl(V8FileSystemCallback* callback)
+        : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
     void Trace(blink::Visitor*) override;
     void OnSuccess(DOMFileSystem*) override;
 
    private:
-    OnDidOpenFileSystemV8Impl(V8FileSystemCallback* callback)
-        : callback_(ToV8PersistentCallbackInterface(callback)) {}
-
     Member<V8PersistentCallbackInterface<V8FileSystemCallback>> callback_;
+  };
+
+  class OnDidOpenFileSystemPromiseImpl : public OnDidOpenFileSystemCallback {
+   public:
+    explicit OnDidOpenFileSystemPromiseImpl(ScriptPromiseResolver*);
+    void Trace(Visitor*) override;
+    void OnSuccess(DOMFileSystem*) override;
+
+   private:
+    Member<ScriptPromiseResolver> resolver_;
   };
 
   static std::unique_ptr<AsyncFileSystemCallbacks> Create(
       OnDidOpenFileSystemCallback*,
       ErrorCallbackBase*,
       ExecutionContext*,
-      FileSystemType);
+      mojom::blink::FileSystemType);
   void DidOpenFileSystem(const String& name, const KURL& root_url) override;
 
  private:
   FileSystemCallbacks(OnDidOpenFileSystemCallback*,
                       ErrorCallbackBase*,
                       ExecutionContext*,
-                      FileSystemType);
+                      mojom::blink::FileSystemType);
   Persistent<OnDidOpenFileSystemCallback> success_callback_;
-  FileSystemType type_;
+  mojom::blink::FileSystemType type_;
 };
 
 class ResolveURICallbacks final : public FileSystemCallbacksBase {
@@ -253,7 +290,7 @@ class ResolveURICallbacks final : public FileSystemCallbacksBase {
   Create(OnDidGetEntryCallback*, ErrorCallbackBase*, ExecutionContext*);
   void DidResolveURL(const String& name,
                      const KURL& root_url,
-                     FileSystemType,
+                     mojom::blink::FileSystemType,
                      const String& file_path,
                      bool is_directry) override;
 
@@ -280,15 +317,17 @@ class MetadataCallbacks final : public FileSystemCallbacksBase {
   class OnDidReadMetadataV8Impl : public OnDidReadMetadataCallback {
    public:
     static OnDidReadMetadataV8Impl* Create(V8MetadataCallback* callback) {
-      return callback ? new OnDidReadMetadataV8Impl(callback) : nullptr;
+      return callback ? MakeGarbageCollected<OnDidReadMetadataV8Impl>(callback)
+                      : nullptr;
     }
+
+    OnDidReadMetadataV8Impl(V8MetadataCallback* callback)
+        : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
     void Trace(blink::Visitor*) override;
     void OnSuccess(Metadata*) override;
 
    private:
-    OnDidReadMetadataV8Impl(V8MetadataCallback* callback)
-        : callback_(ToV8PersistentCallbackInterface(callback)) {}
-
     Member<V8PersistentCallbackInterface<V8MetadataCallback>> callback_;
   };
 
@@ -323,15 +362,18 @@ class FileWriterCallbacks final : public FileSystemCallbacksBase {
   class OnDidCreateFileWriterV8Impl : public OnDidCreateFileWriterCallback {
    public:
     static OnDidCreateFileWriterV8Impl* Create(V8FileWriterCallback* callback) {
-      return callback ? new OnDidCreateFileWriterV8Impl(callback) : nullptr;
+      return callback
+                 ? MakeGarbageCollected<OnDidCreateFileWriterV8Impl>(callback)
+                 : nullptr;
     }
+
+    OnDidCreateFileWriterV8Impl(V8FileWriterCallback* callback)
+        : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
     void Trace(blink::Visitor*) override;
     void OnSuccess(FileWriterBase*) override;
 
    private:
-    OnDidCreateFileWriterV8Impl(V8FileWriterCallback* callback)
-        : callback_(ToV8PersistentCallbackInterface(callback)) {}
-
     Member<V8PersistentCallbackInterface<V8FileWriterCallback>> callback_;
   };
 
@@ -340,8 +382,7 @@ class FileWriterCallbacks final : public FileSystemCallbacksBase {
       OnDidCreateFileWriterCallback*,
       ErrorCallbackBase*,
       ExecutionContext*);
-  void DidCreateFileWriter(std::unique_ptr<WebFileWriter>,
-                           long long length) override;
+  void DidCreateFileWriter(const KURL& path, long long length) override;
 
  private:
   FileWriterCallbacks(FileWriterBase*,
@@ -368,15 +409,18 @@ class SnapshotFileCallback final : public FileSystemCallbacksBase {
   class OnDidCreateSnapshotFileV8Impl : public OnDidCreateSnapshotFileCallback {
    public:
     static OnDidCreateSnapshotFileV8Impl* Create(V8FileCallback* callback) {
-      return callback ? new OnDidCreateSnapshotFileV8Impl(callback) : nullptr;
+      return callback
+                 ? MakeGarbageCollected<OnDidCreateSnapshotFileV8Impl>(callback)
+                 : nullptr;
     }
+
+    OnDidCreateSnapshotFileV8Impl(V8FileCallback* callback)
+        : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
     void Trace(blink::Visitor*) override;
     void OnSuccess(File*) override;
 
    private:
-    OnDidCreateSnapshotFileV8Impl(V8FileCallback* callback)
-        : callback_(ToV8PersistentCallbackInterface(callback)) {}
-
     Member<V8PersistentCallbackInterface<V8FileCallback>> callback_;
   };
 
@@ -418,16 +462,28 @@ class VoidCallbacks final : public FileSystemCallbacksBase {
   class OnDidSucceedV8Impl : public OnDidSucceedCallback {
    public:
     static OnDidSucceedV8Impl* Create(V8VoidCallback* callback) {
-      return callback ? new OnDidSucceedV8Impl(callback) : nullptr;
+      return callback ? MakeGarbageCollected<OnDidSucceedV8Impl>(callback)
+                      : nullptr;
     }
+
+    OnDidSucceedV8Impl(V8VoidCallback* callback)
+        : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
     void Trace(blink::Visitor*) override;
     void OnSuccess(ExecutionContext* dummy_arg_for_sync_helper) override;
 
    private:
-    OnDidSucceedV8Impl(V8VoidCallback* callback)
-        : callback_(ToV8PersistentCallbackInterface(callback)) {}
-
     Member<V8PersistentCallbackInterface<V8VoidCallback>> callback_;
+  };
+
+  class OnDidSucceedPromiseImpl : public OnDidSucceedCallback {
+   public:
+    OnDidSucceedPromiseImpl(ScriptPromiseResolver*);
+    void Trace(Visitor*) override;
+    void OnSuccess(ExecutionContext*) override;
+
+   private:
+    Member<ScriptPromiseResolver> resolver_;
   };
 
   static std::unique_ptr<AsyncFileSystemCallbacks> Create(OnDidSucceedCallback*,

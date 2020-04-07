@@ -1,13 +1,12 @@
 CONFIG += testcase
 TARGET = tst_qqmldebugjs
-QT += qml testlib gui-private core-private
+QT += testlib gui-private core-private
 macos:CONFIG -= app_bundle
 
 SOURCES += tst_qqmldebugjs.cpp
 
 INCLUDEPATH += ../shared
 include(../shared/debugutil.pri)
-include(../shared/qqmlenginedebugclient.pri)
 
 TESTDATA = data/*
 

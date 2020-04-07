@@ -27,9 +27,11 @@
 #include "third_party/blink/renderer/core/dom/events/tree_scope_event_context.h"
 
 #include "third_party/blink/renderer/core/dom/events/event_path.h"
+#include "third_party/blink/renderer/core/dom/events/window_event_context.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/static_node_list.h"
 #include "third_party/blink/renderer/core/events/touch_event_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 
 namespace blink {
 
@@ -65,7 +67,7 @@ HeapVector<Member<EventTarget>>& TreeScopeEventContext::EnsureEventPath(
   if (event_path_)
     return *event_path_;
 
-  event_path_ = new HeapVector<Member<EventTarget>>();
+  event_path_ = MakeGarbageCollected<HeapVector<Member<EventTarget>>>();
   LocalDOMWindow* window = path.GetWindowEventContext().Window();
   event_path_->ReserveCapacity(path.size() + (window ? 1 : 0));
 
@@ -78,14 +80,14 @@ HeapVector<Member<EventTarget>>& TreeScopeEventContext::EnsureEventPath(
   return *event_path_;
 }
 
-TouchEventContext* TreeScopeEventContext::EnsureTouchEventContext() {
+TouchEventContext& TreeScopeEventContext::EnsureTouchEventContext() {
   if (!touch_event_context_)
     touch_event_context_ = TouchEventContext::Create();
-  return touch_event_context_.Get();
+  return *touch_event_context_;
 }
 
 TreeScopeEventContext* TreeScopeEventContext::Create(TreeScope& tree_scope) {
-  return new TreeScopeEventContext(tree_scope);
+  return MakeGarbageCollected<TreeScopeEventContext>(tree_scope);
 }
 
 TreeScopeEventContext::TreeScopeEventContext(TreeScope& tree_scope)
@@ -94,7 +96,7 @@ TreeScopeEventContext::TreeScopeEventContext(TreeScope& tree_scope)
       pre_order_(-1),
       post_order_(-1) {}
 
-void TreeScopeEventContext::Trace(blink::Visitor* visitor) {
+void TreeScopeEventContext::Trace(Visitor* visitor) {
   visitor->Trace(tree_scope_);
   visitor->Trace(target_);
   visitor->Trace(related_target_);

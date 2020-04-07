@@ -10,21 +10,22 @@
 
 #include <memory>
 
-#include "rtc_base/asyncinvoker.h"
-#include "rtc_base/asyncudpsocket.h"
+#include "rtc_base/async_invoker.h"
+#include "rtc_base/async_udp_socket.h"
 #include "rtc_base/event.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/nullsocketserver.h"
-#include "rtc_base/physicalsocketserver.h"
-#include "rtc_base/sigslot.h"
-#include "rtc_base/socketaddress.h"
+#include "rtc_base/null_socket_server.h"
+#include "rtc_base/physical_socket_server.h"
+#include "rtc_base/socket_address.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 
 #if defined(WEBRTC_WIN)
 #include <comdef.h>  // NOLINT
 #endif
 
-using namespace rtc;
+namespace rtc {
+namespace {
 
 // Generates a sequence of numbers (collaboratively).
 class TestGenerator {
@@ -69,7 +70,7 @@ class SocketClient : public TestGenerator, public sigslot::has_slots<> {
                 const char* buf,
                 size_t size,
                 const SocketAddress& remote_addr,
-                const PacketTime& packet_time) {
+                const int64_t& packet_time_us) {
     EXPECT_EQ(size, sizeof(uint32_t));
     uint32_t prev = reinterpret_cast<const uint32_t*>(buf)[0];
     uint32_t result = Next(prev);
@@ -470,9 +471,9 @@ TEST_F(AsyncInvokeTest, KillInvokerDuringExecute) {
   // Use these events to get in a state where the functor is in the middle of
   // executing, and then to wait for it to finish, ensuring the "EXPECT_FALSE"
   // is run.
-  Event functor_started(false, false);
-  Event functor_continue(false, false);
-  Event functor_finished(false, false);
+  Event functor_started;
+  Event functor_continue;
+  Event functor_finished;
 
   auto thread = Thread::CreateWithSocketServer();
   thread->Start();
@@ -507,7 +508,7 @@ TEST_F(AsyncInvokeTest, KillInvokerDuringExecute) {
 // destroyed. This shouldn't deadlock or crash; this second invocation should
 // just be ignored.
 TEST_F(AsyncInvokeTest, KillInvokerDuringExecuteWithReentrantInvoke) {
-  Event functor_started(false, false);
+  Event functor_started;
   // Flag used to verify that the recursively invoked task never actually runs.
   bool reentrant_functor_run = false;
 
@@ -669,3 +670,6 @@ TEST_F(GuardedAsyncInvokeTest, FlushWithIds) {
   EXPECT_FALSE(flag1.get());
   EXPECT_TRUE(flag2.get());
 }
+
+}  // namespace
+}  // namespace rtc

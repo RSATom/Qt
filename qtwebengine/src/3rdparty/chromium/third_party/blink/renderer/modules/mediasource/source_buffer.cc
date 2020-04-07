@@ -56,6 +56,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/network/mime/content_type.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 #ifndef BLINK_SBLOG
@@ -108,16 +109,14 @@ SourceBuffer* SourceBuffer::Create(
     std::unique_ptr<WebSourceBuffer> web_source_buffer,
     MediaSource* source,
     EventQueue* async_event_queue) {
-  SourceBuffer* source_buffer =
-      new SourceBuffer(std::move(web_source_buffer), source, async_event_queue);
-  source_buffer->PauseIfNeeded();
-  return source_buffer;
+  return MakeGarbageCollected<SourceBuffer>(std::move(web_source_buffer),
+                                            source, async_event_queue);
 }
 
 SourceBuffer::SourceBuffer(std::unique_ptr<WebSourceBuffer> web_source_buffer,
                            MediaSource* source,
                            EventQueue* async_event_queue)
-    : PausableObject(source->GetExecutionContext()),
+    : ContextLifecycleObserver(source->GetExecutionContext()),
       web_source_buffer_(std::move(web_source_buffer)),
       source_(source),
       track_defaults_(TrackDefaultList::Create()),
@@ -129,16 +128,8 @@ SourceBuffer::SourceBuffer(std::unique_ptr<WebSourceBuffer> web_source_buffer,
       append_window_end_(std::numeric_limits<double>::infinity()),
       first_initialization_segment_received_(false),
       pending_append_data_offset_(0),
-      append_buffer_async_part_runner_(AsyncMethodRunner<SourceBuffer>::Create(
-          this,
-          &SourceBuffer::AppendBufferAsyncPart,
-          GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent))),
       pending_remove_start_(-1),
-      pending_remove_end_(-1),
-      remove_async_part_runner_(AsyncMethodRunner<SourceBuffer>::Create(
-          this,
-          &SourceBuffer::RemoveAsyncPart,
-          GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent))) {
+      pending_remove_end_(-1) {
   BLINK_SBLOG << __func__ << " this=" << this;
 
   DCHECK(web_source_buffer_);
@@ -171,7 +162,7 @@ const AtomicString& SourceBuffer::SequenceKeyword() {
 
 void SourceBuffer::setMode(const AtomicString& new_mode,
                            ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " newMode=" << new_mode;
+  BLINK_SBLOG << __func__ << " this=" << this << " new_mode=" << new_mode;
   // Section 3.1 On setting mode attribute steps.
   // https://www.w3.org/TR/media-source/#dom-sourcebuffer-mode
   // 1. If this object has been removed from the sourceBuffers attribute of the
@@ -508,13 +499,16 @@ void SourceBuffer::remove(double start,
 
   // 7.4. Queue a task to fire a simple event named updatestart at this
   //      SourceBuffer object.
-  ScheduleEvent(EventTypeNames::updatestart);
+  ScheduleEvent(event_type_names::kUpdatestart);
 
   // 7.5. Return control to the caller and run the rest of the steps
   //      asynchronously.
   pending_remove_start_ = start;
   pending_remove_end_ = end;
-  remove_async_part_runner_->RunAsync();
+  remove_async_task_handle_ = PostCancellableTask(
+      *GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent),
+      FROM_HERE,
+      WTF::Bind(&SourceBuffer::RemoveAsyncPart, WrapPersistent(this)));
 }
 
 void SourceBuffer::changeType(const String& type,
@@ -604,14 +598,14 @@ void SourceBuffer::setTrackDefaults(TrackDefaultList* track_defaults,
 void SourceBuffer::CancelRemove() {
   DCHECK(updating_);
   DCHECK_NE(pending_remove_start_, -1);
-  remove_async_part_runner_->Stop();
+  remove_async_task_handle_.Cancel();
   pending_remove_start_ = -1;
   pending_remove_end_ = -1;
   updating_ = false;
 
   if (!RuntimeEnabledFeatures::MediaSourceNewAbortAndDurationEnabled()) {
-    ScheduleEvent(EventTypeNames::abort);
-    ScheduleEvent(EventTypeNames::updateend);
+    ScheduleEvent(event_type_names::kAbort);
+    ScheduleEvent(event_type_names::kUpdateend);
   }
 
   TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::remove", this);
@@ -630,7 +624,7 @@ void SourceBuffer::AbortIfUpdating() {
 
   // 4.1. Abort the buffer append and stream append loop algorithms if they are
   //      running.
-  append_buffer_async_part_runner_->Stop();
+  append_buffer_async_task_handle_.Cancel();
   pending_append_data_.clear();
   pending_append_data_offset_ = 0;
 
@@ -639,11 +633,11 @@ void SourceBuffer::AbortIfUpdating() {
 
   // 4.3. Queue a task to fire a simple event named abort at this SourceBuffer
   //      object.
-  ScheduleEvent(EventTypeNames::abort);
+  ScheduleEvent(event_type_names::kAbort);
 
   // 4.4. Queue a task to fire a simple event named updateend at this
   //      SourceBuffer object.
-  ScheduleEvent(EventTypeNames::updateend);
+  ScheduleEvent(event_type_names::kUpdateend);
 
   TRACE_EVENT_ASYNC_END0("media", trace_event_name, this);
 }
@@ -724,7 +718,7 @@ void SourceBuffer::RemoveMediaTracks() {
   //     to fire a simple event named change at the HTMLMediaElement audioTracks
   //     list.
   if (removed_enabled_audio_track) {
-    Event* event = Event::Create(EventTypeNames::change);
+    Event* event = Event::Create(event_type_names::kChange);
     event->SetTarget(&media_element->audioTracks());
     media_element->ScheduleEvent(event);
   }
@@ -764,7 +758,7 @@ void SourceBuffer::RemoveMediaTracks() {
   //     to fire a simple event named change at the HTMLMediaElement videoTracks
   //     list.
   if (removed_selected_video_track) {
-    Event* event = Event::Create(EventTypeNames::change);
+    Event* event = Event::Create(event_type_names::kChange);
     event->SetTarget(&media_element->videoTracks());
     media_element->ScheduleEvent(event);
   }
@@ -939,7 +933,7 @@ bool SourceBuffer::InitializationSegmentReceived(
     //   tracks), then the Track IDs match the ones in the first initialization
     //   segment.
     if (tracks_match_first_init_segment && new_audio_tracks.size() > 1) {
-      for (size_t i = 0; i < new_audio_tracks.size(); ++i) {
+      for (wtf_size_t i = 0; i < new_audio_tracks.size(); ++i) {
         const String& new_track_id = new_video_tracks[i].id;
         if (new_track_id !=
             String(audioTracks().AnonymousIndexedGetter(i)->id())) {
@@ -950,7 +944,7 @@ bool SourceBuffer::InitializationSegmentReceived(
     }
 
     if (tracks_match_first_init_segment && new_video_tracks.size() > 1) {
-      for (size_t i = 0; i < new_video_tracks.size(); ++i) {
+      for (wtf_size_t i = 0; i < new_video_tracks.size(); ++i) {
         const String& new_track_id = new_video_tracks[i].id;
         if (new_track_id !=
             String(videoTracks().AnonymousIndexedGetter(i)->id())) {
@@ -1152,30 +1146,23 @@ void SourceBuffer::NotifyParseWarning(const ParseWarning warning) {
 }
 
 bool SourceBuffer::HasPendingActivity() const {
-  return source_;
-}
-
-void SourceBuffer::Pause() {
-  append_buffer_async_part_runner_->Pause();
-  remove_async_part_runner_->Pause();
-}
-
-void SourceBuffer::Unpause() {
-  append_buffer_async_part_runner_->Unpause();
-  remove_async_part_runner_->Unpause();
+  return updating_ || append_buffer_async_task_handle_.IsActive() ||
+         remove_async_task_handle_.IsActive() ||
+         (async_event_queue_ && async_event_queue_->HasPendingEvents());
 }
 
 void SourceBuffer::ContextDestroyed(ExecutionContext*) {
-  append_buffer_async_part_runner_->Stop();
-  remove_async_part_runner_->Stop();
+  append_buffer_async_task_handle_.Cancel();
+  remove_async_task_handle_.Cancel();
+  updating_ = false;
 }
 
 ExecutionContext* SourceBuffer::GetExecutionContext() const {
-  return PausableObject::GetExecutionContext();
+  return ContextLifecycleObserver::GetExecutionContext();
 }
 
 const AtomicString& SourceBuffer::InterfaceName() const {
-  return EventTargetNames::SourceBuffer;
+  return event_target_names::kSourceBuffer;
 }
 
 bool SourceBuffer::IsRemoved() const {
@@ -1188,7 +1175,7 @@ void SourceBuffer::ScheduleEvent(const AtomicString& event_name) {
   Event* event = Event::Create(event_name);
   event->SetTarget(this);
 
-  async_event_queue_->EnqueueEvent(FROM_HERE, event);
+  async_event_queue_->EnqueueEvent(FROM_HERE, *event);
 }
 
 bool SourceBuffer::PrepareAppend(double media_time,
@@ -1294,10 +1281,13 @@ void SourceBuffer::AppendBufferInternal(double media_time,
 
   // 4. Queue a task to fire a simple event named updatestart at this
   //    SourceBuffer object.
-  ScheduleEvent(EventTypeNames::updatestart);
+  ScheduleEvent(event_type_names::kUpdatestart);
 
   // 5. Asynchronously run the buffer append algorithm.
-  append_buffer_async_part_runner_->RunAsync();
+  append_buffer_async_task_handle_ = PostCancellableTask(
+      *GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent),
+      FROM_HERE,
+      WTF::Bind(&SourceBuffer::AppendBufferAsyncPart, WrapPersistent(this)));
 
   TRACE_EVENT_ASYNC_STEP_INTO0("media", "SourceBuffer::appendBuffer", this,
                                "initialDelay");
@@ -1312,7 +1302,7 @@ void SourceBuffer::AppendBufferAsyncPart() {
   // 1. Run the segment parser loop algorithm.
   // Step 2 doesn't apply since we run Step 1 synchronously here.
   DCHECK_GE(pending_append_data_.size(), pending_append_data_offset_);
-  size_t append_size =
+  wtf_size_t append_size =
       pending_append_data_.size() - pending_append_data_offset_;
 
   // Impose an arbitrary max size for a single append() call so that an append
@@ -1320,13 +1310,12 @@ void SourceBuffer::AppendBufferAsyncPart() {
   // by looking at YouTube SourceBuffer usage across a variety of bitrates.
   // This value allows relatively large appends while keeping append() call
   // duration in the  ~5-15ms range.
-  const size_t kMaxAppendSize = 128 * 1024;
+  const wtf_size_t kMaxAppendSize = 128 * 1024;
   if (append_size > kMaxAppendSize)
     append_size = kMaxAppendSize;
 
   TRACE_EVENT_ASYNC_STEP_INTO1("media", "SourceBuffer::appendBuffer", this,
-                               "appending", "appendSize",
-                               static_cast<unsigned>(append_size));
+                               "appending", "appendSize", append_size);
 
   // |zero| is used for 0 byte appends so we always have a valid pointer.
   // We need to convey all appends, even 0 byte ones to |m_webSourceBuffer|
@@ -1347,7 +1336,11 @@ void SourceBuffer::AppendBufferAsyncPart() {
     pending_append_data_offset_ += append_size;
 
     if (pending_append_data_offset_ < pending_append_data_.size()) {
-      append_buffer_async_part_runner_->RunAsync();
+      append_buffer_async_task_handle_ = PostCancellableTask(
+          *GetExecutionContext()->GetTaskRunner(TaskType::kMediaElementEvent),
+          FROM_HERE,
+          WTF::Bind(&SourceBuffer::AppendBufferAsyncPart,
+                    WrapPersistent(this)));
       TRACE_EVENT_ASYNC_STEP_INTO0("media", "SourceBuffer::appendBuffer", this,
                                    "nextPieceDelay");
       return;
@@ -1360,11 +1353,11 @@ void SourceBuffer::AppendBufferAsyncPart() {
 
     // 4. Queue a task to fire a simple event named update at this SourceBuffer
     //    object.
-    ScheduleEvent(EventTypeNames::update);
+    ScheduleEvent(event_type_names::kUpdate);
 
     // 5. Queue a task to fire a simple event named updateend at this
     //    SourceBuffer object.
-    ScheduleEvent(EventTypeNames::updateend);
+    ScheduleEvent(event_type_names::kUpdateend);
   }
 
   TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::appendBuffer", this);
@@ -1393,11 +1386,11 @@ void SourceBuffer::RemoveAsyncPart() {
 
   // 11. Queue a task to fire a simple event named update at this SourceBuffer
   //     object.
-  ScheduleEvent(EventTypeNames::update);
+  ScheduleEvent(event_type_names::kUpdate);
 
   // 12. Queue a task to fire a simple event named updateend at this
   //     SourceBuffer object.
-  ScheduleEvent(EventTypeNames::updateend);
+  ScheduleEvent(event_type_names::kUpdateend);
 }
 
 void SourceBuffer::AppendError() {
@@ -1413,11 +1406,11 @@ void SourceBuffer::AppendError() {
 
   // 3. Queue a task to fire a simple event named error at this SourceBuffer
   //    object.
-  ScheduleEvent(EventTypeNames::error);
+  ScheduleEvent(event_type_names::kError);
 
   // 4. Queue a task to fire a simple event named updateend at this SourceBuffer
   //    object.
-  ScheduleEvent(EventTypeNames::updateend);
+  ScheduleEvent(event_type_names::kUpdateend);
 
   // 5. If decode error is true, then run the end of stream algorithm with the
   // error parameter set to "decode".
@@ -1428,12 +1421,10 @@ void SourceBuffer::Trace(blink::Visitor* visitor) {
   visitor->Trace(source_);
   visitor->Trace(track_defaults_);
   visitor->Trace(async_event_queue_);
-  visitor->Trace(append_buffer_async_part_runner_);
-  visitor->Trace(remove_async_part_runner_);
   visitor->Trace(audio_tracks_);
   visitor->Trace(video_tracks_);
   EventTargetWithInlineData::Trace(visitor);
-  PausableObject::Trace(visitor);
+  ContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

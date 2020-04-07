@@ -45,8 +45,8 @@
 #include "third_party/blink/renderer/modules/webdatabase/quota_tracker.h"
 #include "third_party/blink/renderer/modules/webdatabase/sqlite/sqlite_file_system.h"
 #include "third_party/blink/renderer/platform/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "third_party/blink/renderer/platform/weborigin/security_origin_hash.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -215,8 +215,7 @@ void DatabaseTracker::ForEachOpenDatabaseInPage(Page* page,
     for (auto& name_database_set : *origin_map.value) {
       for (Database* database : *name_database_set.value) {
         ExecutionContext* context = database->GetExecutionContext();
-        DCHECK(context->IsDocument());
-        if (ToDocument(context)->GetFrame()->GetPage() == page)
+        if (To<Document>(context)->GetPage() == page)
           callback.Run(database);
       }
     }

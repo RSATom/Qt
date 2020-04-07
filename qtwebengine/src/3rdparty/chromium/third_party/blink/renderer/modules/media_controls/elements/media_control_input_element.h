@@ -25,6 +25,8 @@ class MODULES_EXPORT MediaControlInputElement : public HTMLInputElement,
   // Creates an overflow menu element with the given button as a child.
   HTMLElement* CreateOverflowElement(MediaControlInputElement*);
 
+  bool OverflowElementIsWanted();
+
   // Implements MediaControlElementBase.
   void SetOverflowElementIsWanted(bool) final;
   void MaybeRecordDisplayed() final;
@@ -53,7 +55,7 @@ class MODULES_EXPORT MediaControlInputElement : public HTMLInputElement,
   virtual WebLocalizedString::Name GetOverflowStringName() const;
 
   // Implements a default event handler to record interaction on click.
-  void DefaultEventHandler(Event*) override;
+  void DefaultEventHandler(Event&) override;
 
   // Implements MediaControlElementBase.
   void UpdateShownState() override;

@@ -8,9 +8,10 @@
 #include <stdint.h>
 
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -22,7 +23,7 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
-namespace ui {
+namespace ws {
 class ContextProviderCommandBuffer;
 }
 
@@ -79,15 +80,15 @@ class VideoDecoderShim : public media::VideoDecodeAccelerator {
 
   PepperVideoDecoderHost* host_;
   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
-  scoped_refptr<ui::ContextProviderCommandBuffer> context_provider_;
+  scoped_refptr<ws::ContextProviderCommandBuffer> context_provider_;
 
   // The current decoded frame size.
   gfx::Size texture_size_;
   // Map that takes the plugin's GL texture id to the renderer's GL texture id.
-  using TextureIdMap = base::hash_map<uint32_t, uint32_t>;
+  using TextureIdMap = std::unordered_map<uint32_t, uint32_t>;
   TextureIdMap texture_id_map_;
   // Available textures (these are plugin ids.)
-  using TextureIdSet = base::hash_set<uint32_t>;
+  using TextureIdSet = std::unordered_set<uint32_t>;
   TextureIdSet available_textures_;
   // Track textures that are no longer needed (these are plugin ids.)
   TextureIdSet textures_to_dismiss_;

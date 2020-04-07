@@ -16,11 +16,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/string_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/timer/elapsed_timer.h"
+#include "base/task/post_task.h"
 #include "components/safe_browsing/db/v4_feature_list.h"
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "crypto/sha2.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -33,10 +32,6 @@ namespace {
 
 const ThreatSeverity kLeastSeverity =
     std::numeric_limits<ThreatSeverity>::max();
-
-const char* const kV4UnusedStoreFileExists =
-    "SafeBrowsing.V4UnusedStoreFileExists";
-const char* const kV3Suffix = ".V3.";
 
 // The list of the name of any store files that are no longer used and can be
 // safely deleted from the disk. There's no overlap allowed between the files
@@ -80,6 +75,8 @@ ListInfos GetListInfos() {
       ListInfo(kSyncOnlyOnChromeBuilds, "ChromeUrlClientIncident.store",
                GetChromeUrlClientIncidentId(),
                SB_THREAT_TYPE_BLACKLISTED_RESOURCE),
+      ListInfo(kSyncAlways, "UrlBilling.store", GetUrlBillingId(),
+               SB_THREAT_TYPE_BILLING),
       ListInfo(kSyncOnlyOnChromeBuilds, "UrlCsdDownloadWhitelist.store",
                GetUrlCsdDownloadWhitelistId(), SB_THREAT_TYPE_UNUSED),
       ListInfo(kSyncOnlyOnChromeBuilds, "UrlCsdWhitelist.store",
@@ -113,6 +110,8 @@ ThreatSeverity GetThreatSeverity(const ListIdentifier& list_id) {
       return 3;
     case SUSPICIOUS:
       return 4;
+    case BILLING:
+      return 15;
     default:
       NOTREACHED() << "Unexpected ThreatType encountered: "
                    << list_id.threat_type();
@@ -135,6 +134,9 @@ ListIdentifier GetUrlIdFromSBThreatType(SBThreatType sb_threat_type) {
     case SB_THREAT_TYPE_SUSPICIOUS_SITE:
       return GetUrlSuspiciousSiteId();
 
+    case SB_THREAT_TYPE_BILLING:
+      return GetUrlBillingId();
+
     default:
       NOTREACHED();
       // Compiler requires a return statement here.
@@ -151,27 +153,25 @@ StoresToCheck CreateStoresToCheckFromSBThreatTypeSet(
   return stores_to_check;
 }
 
-const char* const kPVer3FileNameSuffixesToDelete[] = {
-    "Bloom",
-    "Bloom Prefix Set",
-    "Csd Whitelist",
-    "Download",
-    "Download Whitelist",
-    "Extension Blacklist",
-    "IP Blacklist",
-    "Inclusion Whitelist",
-    "Module Whitelist",
-    "Resource Blacklist",
-    "Side-Effect Free Whitelist",
-    "UwS List",
-    "UwS List Prefix Set"};
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum StoreAvailabilityResult {
+  // Unknown availability. This is unexpected.
+  UNKNOWN = 0,
 
-std::string GetUmaSuffixForPVer3FileNameSuffix(const std::string& suffix) {
-  DCHECK(!suffix.empty());
-  std::string uma_suffix;
-  base::RemoveChars(suffix, base::kWhitespaceASCII, &uma_suffix);
-  return uma_suffix;
-}
+  // The local database is not enabled.
+  NOT_ENABLED = 1,
+
+  // The database is still being loaded.
+  DATABASE_UNAVAILABLE = 2,
+
+  // The requested store is unavailable.
+  STORE_UNAVAILABLE = 3,
+
+  // The store is available.
+  AVAILABLE = 4,
+  COUNT,
+};
 
 }  // namespace
 
@@ -253,7 +253,6 @@ V4LocalDatabaseManager::V4LocalDatabaseManager(
   DCHECK(!list_infos_.empty());
 
   DeleteUnusedStoreFiles();
-  DeletePVer3StoreFiles();
 
   DVLOG(1) << "V4LocalDatabaseManager::V4LocalDatabaseManager: "
            << "base_path_: " << base_path_.AsUTF8Unsafe();
@@ -433,6 +432,7 @@ bool V4LocalDatabaseManager::MatchDownloadWhitelistUrl(const GURL& url) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   StoresToCheck stores_to_check({GetUrlCsdDownloadWhitelistId()});
+
   if (!AreAllStoresAvailableNow(stores_to_check) || !CanCheckUrl(url)) {
     // Fail close: Whitelist nothing. This may generate download-protection
     // pings for whitelisted domains, but that's fine.
@@ -524,6 +524,7 @@ void V4LocalDatabaseManager::DatabaseReadyForChecks(
   // The following check is needed because it is possible that by the time the
   // database is ready, StopOnIOThread has been called.
   if (enabled_) {
+    V4Database::Destroy(std::move(v4_database_));
     v4_database_ = std::move(v4_database);
 
     v4_database_->RecordFileSizeHistograms();
@@ -561,36 +562,10 @@ void V4LocalDatabaseManager::DatabaseUpdated() {
     v4_database_->RecordFileSizeHistograms();
     UpdateListClientStates(GetStoreStateMap());
 
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(
-            &V4LocalDatabaseManager::PostUpdateNotificationOnUIThread, this));
-  }
-}
-
-void V4LocalDatabaseManager::PostUpdateNotificationOnUIThread() {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  update_complete_callback_list_.Notify();
-}
-
-void V4LocalDatabaseManager::DeletePVer3StoreFiles() {
-  // PVer3 files are directly in the profile directory, whereas PVer4 files are
-  // under "Safe Browsing" directory, so we need to look in the DirName() of
-  // base_path_.
-  for (auto* const pver3_store_suffix : kPVer3FileNameSuffixesToDelete) {
-    const base::FilePath store_path = base_path_.DirName().AppendASCII(
-        std::string("Safe Browsing ") + pver3_store_suffix);
-    bool path_exists = base::PathExists(store_path);
-    base::UmaHistogramBoolean(
-        std::string(kV4UnusedStoreFileExists) + kV3Suffix +
-            GetUmaSuffixForPVer3FileNameSuffix(pver3_store_suffix),
-        path_exists);
-    if (!path_exists) {
-      continue;
-    }
-    task_runner_->PostTask(
-        FROM_HERE, base::Bind(base::IgnoreResult(&base::DeleteFile), store_path,
-                              false /* recursive */));
+            &SafeBrowsingDatabaseManager::NotifyDatabaseUpdateFinished, this));
   }
 }
 
@@ -605,15 +580,15 @@ void V4LocalDatabaseManager::DeleteUnusedStoreFiles() {
       const base::FilePath store_path =
           base_path_.AppendASCII(store_filename_to_delete);
       bool path_exists = base::PathExists(store_path);
-      base::UmaHistogramBoolean(
-          kV4UnusedStoreFileExists + GetUmaSuffixForStore(store_path),
-          path_exists);
+      base::UmaHistogramBoolean("SafeBrowsing.V4UnusedStoreFileExists" +
+                                    GetUmaSuffixForStore(store_path),
+                                path_exists);
       if (!path_exists) {
         continue;
       }
-      task_runner_->PostTask(FROM_HERE,
-                             base::Bind(base::IgnoreResult(&base::DeleteFile),
-                                        store_path, false /* recursive */));
+      task_runner_->PostTask(
+          FROM_HERE, base::BindOnce(base::IgnoreResult(&base::DeleteFile),
+                                    store_path, false /* recursive */));
     } else {
       NOTREACHED() << "Trying to delete a store file that's in use: "
                    << store_filename_to_delete;
@@ -625,11 +600,8 @@ bool V4LocalDatabaseManager::GetPrefixMatches(
     const std::unique_ptr<PendingCheck>& check,
     FullHashToStoreAndHashPrefixesMap* full_hash_to_store_and_hash_prefixes) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
   DCHECK(enabled_);
-  DCHECK(v4_database_);
 
-  base::ElapsedTimer timer;
   full_hash_to_store_and_hash_prefixes->clear();
   for (const auto& full_hash : check->full_hashes) {
     StoreAndHashPrefixes matched_store_and_hash_prefixes;
@@ -641,11 +613,6 @@ bool V4LocalDatabaseManager::GetPrefixMatches(
     }
   }
 
-  // NOTE(vakh): This doesn't distinguish which stores it's searching through.
-  // However, the vast majority of the entries in this histogram will be from
-  // searching the three CHECK_BROWSE_URL stores.
-  UMA_HISTOGRAM_COUNTS_10M("SafeBrowsing.V4GetPrefixMatches.TimeUs",
-                           timer.Elapsed().InMicroseconds());
   return !full_hash_to_store_and_hash_prefixes->empty();
 }
 
@@ -752,8 +719,8 @@ void V4LocalDatabaseManager::ScheduleFullHashCheck(
   pending_checks_.insert(check.get());
 
   // Post on the IO thread to enforce async behavior.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&V4LocalDatabaseManager::PerformFullHashCheck,
                      weak_factory_.GetWeakPtr(), std::move(check),
                      full_hash_to_store_and_hash_prefixes));
@@ -941,8 +908,19 @@ void V4LocalDatabaseManager::UpdateRequestCompleted(
 
 bool V4LocalDatabaseManager::AreAllStoresAvailableNow(
     const StoresToCheck& stores_to_check) const {
-  return enabled_ && v4_database_ &&
-         v4_database_->AreAllStoresAvailable(stores_to_check);
+  StoreAvailabilityResult result = StoreAvailabilityResult::AVAILABLE;
+  if (!enabled_) {
+    result = StoreAvailabilityResult::NOT_ENABLED;
+  } else if (!v4_database_) {
+    result = StoreAvailabilityResult::DATABASE_UNAVAILABLE;
+  } else if (!v4_database_->AreAllStoresAvailable(stores_to_check)) {
+    result = StoreAvailabilityResult::STORE_UNAVAILABLE;
+  }
+
+  UMA_HISTOGRAM_ENUMERATION(
+      "SafeBrowsing.V4LocalDatabaseManager.AreAllStoresAvailableNow", result,
+      StoreAvailabilityResult::COUNT);
+  return (result == StoreAvailabilityResult::AVAILABLE);
 }
 
 bool V4LocalDatabaseManager::AreAnyStoresAvailableNow(

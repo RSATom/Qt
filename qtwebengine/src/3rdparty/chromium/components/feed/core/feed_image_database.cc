@@ -7,14 +7,16 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/sequenced_task_runner.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/clock.h"
+#include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "components/feed/core/proto/cached_image.pb.h"
 #include "components/feed/core/time_serialization.h"
-#include "components/leveldb_proto/proto_database_impl.h"
+#include "components/leveldb_proto/public/proto_database_provider.h"
 
 namespace feed {
 
@@ -34,17 +36,20 @@ const size_t kDatabaseWriteBufferSizeBytesForLowEndDevice = 128 * 1024;
 FeedImageDatabase::FeedImageDatabase(const base::FilePath& database_dir)
     : FeedImageDatabase(
           database_dir,
-          std::make_unique<leveldb_proto::ProtoDatabaseImpl<CachedImageProto>>(
-              base::CreateSequencedTaskRunnerWithTraits(
-                  {base::MayBlock(), base::TaskPriority::BACKGROUND,
-                   base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN}))) {}
+          leveldb_proto::ProtoDatabaseProvider::CreateUniqueDB<
+              CachedImageProto>(base::CreateSequencedTaskRunnerWithTraits(
+              {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+               base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
+          base::DefaultClock::GetInstance()) {}
 
 FeedImageDatabase::FeedImageDatabase(
     const base::FilePath& database_dir,
     std::unique_ptr<leveldb_proto::ProtoDatabase<CachedImageProto>>
-        image_database)
+        image_database,
+    base::Clock* clock)
     : database_status_(UNINITIALIZED),
       image_database_(std::move(image_database)),
+      clock_(clock),
       weak_ptr_factory_(this) {
   leveldb_env::Options options = leveldb_proto::CreateSimpleOptions();
   if (base::SysInfo::IsLowEndDevice()) {
@@ -76,7 +81,7 @@ void FeedImageDatabase::SaveImage(const std::string& url,
   CachedImageProto image_proto;
   image_proto.set_url(url);
   image_proto.set_data(image_data);
-  image_proto.set_last_used_time(ToDatabaseTime(base::Time::Now()));
+  image_proto.set_last_used_time(ToDatabaseTime(clock_->Now()));
 
   SaveImageImpl(url, image_proto);
 }
@@ -167,7 +172,7 @@ void FeedImageDatabase::OnImageLoaded(std::string url,
   std::move(callback).Run(entry->data());
 
   // Update timestamp for image.
-  entry->set_last_used_time(ToDatabaseTime(base::Time::Now()));
+  entry->set_last_used_time(ToDatabaseTime(clock_->Now()));
   SaveImageImpl(std::move(url), *entry);
 }
 

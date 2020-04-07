@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,44 +11,9 @@
 #ifndef SDK_ANDROID_SRC_JNI_PC_MEDIASTREAM_H_
 #define SDK_ANDROID_SRC_JNI_PC_MEDIASTREAM_H_
 
-#include <jni.h>
-#include <memory>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "api/mediastreaminterface.h"
-#include "pc/mediastreamobserver.h"
-#include "sdk/android/src/jni/jni_helpers.h"
-
-namespace webrtc {
-namespace jni {
-
-class JavaMediaStream : public sigslot::has_slots<> {
- public:
-  explicit JavaMediaStream(
-      JNIEnv* env,
-      rtc::scoped_refptr<MediaStreamInterface> media_stream);
-  ~JavaMediaStream();
-
-  const ScopedJavaGlobalRef<jobject>& j_media_stream() {
-    return j_media_stream_;
-  }
-
- private:
-  void OnAudioTrackAddedToStream(AudioTrackInterface* track,
-                                 MediaStreamInterface* stream);
-  void OnVideoTrackAddedToStream(VideoTrackInterface* track,
-                                 MediaStreamInterface* stream);
-  void OnAudioTrackRemovedFromStream(AudioTrackInterface* track,
-                                     MediaStreamInterface* stream);
-  void OnVideoTrackRemovedFromStream(VideoTrackInterface* track,
-                                     MediaStreamInterface* stream);
-
-  ScopedJavaGlobalRef<jobject> j_media_stream_;
-  std::unique_ptr<MediaStreamObserver> observer_;
-};
-
-jclass GetMediaStreamClass(JNIEnv* env);
-
-}  // namespace jni
-}  // namespace webrtc
+#include "sdk/android/src/jni/pc/media_stream.h"
 
 #endif  // SDK_ANDROID_SRC_JNI_PC_MEDIASTREAM_H_

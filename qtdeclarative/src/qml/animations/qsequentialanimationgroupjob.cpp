@@ -204,6 +204,15 @@ int QSequentialAnimationGroupJob::duration() const
     return ret;
 }
 
+void QSequentialAnimationGroupJob::clear()
+{
+    m_previousLoop = 0;
+    QAnimationGroupJob::clear();
+
+    // clear() should call removeAnimation(), which will clear m_currentAnimation, eventually.
+    Q_ASSERT(m_currentAnimation == nullptr);
+}
+
 void QSequentialAnimationGroupJob::updateCurrentTime(int currentTime)
 {
     if (!m_currentAnimation)

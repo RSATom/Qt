@@ -84,7 +84,7 @@ SkDebugCanvas::~SkDebugCanvas() {
 }
 
 void SkDebugCanvas::addDrawCommand(SkDrawCommand* command) {
-    fCommandVector.push(command);
+    fCommandVector.push_back(command);
 }
 
 void SkDebugCanvas::draw(SkCanvas* canvas) {
@@ -357,6 +357,11 @@ void SkDebugCanvas::onDrawImageNine(const SkImage* image, const SkIRect& center,
     this->addDrawCommand(new SkDrawImageNineCommand(image, center, dst, paint));
 }
 
+void SkDebugCanvas::onDrawImageSet(const SkCanvas::ImageSetEntry set[], int count,
+                                   SkFilterQuality filterQuality, SkBlendMode mode) {
+    this->addDrawCommand(new SkDrawImageSetCommand(set, count, filterQuality, mode));
+}
+
 void SkDebugCanvas::onDrawOval(const SkRect& oval, const SkPaint& paint) {
     this->addDrawCommand(new SkDrawOvalCommand(oval, paint));
 }
@@ -392,20 +397,14 @@ void SkDebugCanvas::onDrawPoints(PointMode mode, size_t count,
     this->addDrawCommand(new SkDrawPointsCommand(mode, count, pts, paint));
 }
 
-void SkDebugCanvas::onDrawPosText(const void* text, size_t byteLength, const SkPoint pos[],
-                                  const SkPaint& paint) {
-    this->addDrawCommand(new SkDrawPosTextCommand(text, byteLength, pos, paint));
-}
-
-void SkDebugCanvas::onDrawPosTextH(const void* text, size_t byteLength, const SkScalar xpos[],
-                                   SkScalar constY, const SkPaint& paint) {
-    this->addDrawCommand(
-        new SkDrawPosTextHCommand(text, byteLength, xpos, constY, paint));
-}
-
 void SkDebugCanvas::onDrawRect(const SkRect& rect, const SkPaint& paint) {
     // NOTE(chudy): Messing up when renamed to DrawRect... Why?
     addDrawCommand(new SkDrawRectCommand(rect, paint));
+}
+
+void SkDebugCanvas::onDrawEdgeAARect(const SkRect& rect, SkCanvas::QuadAAFlags aa, SkColor color,
+                                     SkBlendMode mode) {
+    this->addDrawCommand(new SkDrawEdgeAARectCommand(rect, aa, color, mode));
 }
 
 void SkDebugCanvas::onDrawRRect(const SkRRect& rrect, const SkPaint& paint) {
@@ -415,22 +414,6 @@ void SkDebugCanvas::onDrawRRect(const SkRRect& rrect, const SkPaint& paint) {
 void SkDebugCanvas::onDrawDRRect(const SkRRect& outer, const SkRRect& inner,
                                  const SkPaint& paint) {
     this->addDrawCommand(new SkDrawDRRectCommand(outer, inner, paint));
-}
-
-void SkDebugCanvas::onDrawText(const void* text, size_t byteLength, SkScalar x, SkScalar y,
-                               const SkPaint& paint) {
-    this->addDrawCommand(new SkDrawTextCommand(text, byteLength, x, y, paint));
-}
-
-void SkDebugCanvas::onDrawTextOnPath(const void* text, size_t byteLength, const SkPath& path,
-                                     const SkMatrix* matrix, const SkPaint& paint) {
-    this->addDrawCommand(
-        new SkDrawTextOnPathCommand(text, byteLength, path, matrix, paint));
-}
-
-void SkDebugCanvas::onDrawTextRSXform(const void* text, size_t byteLength, const SkRSXform xform[],
-                                      const SkRect* cull, const SkPaint& paint) {
-    this->addDrawCommand(new SkDrawTextRSXformCommand(text, byteLength, xform, cull, paint));
 }
 
 void SkDebugCanvas::onDrawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,
@@ -445,7 +428,7 @@ void SkDebugCanvas::onDrawPatch(const SkPoint cubics[12], const SkColor colors[4
     this->addDrawCommand(new SkDrawPatchCommand(cubics, colors, texCoords, bmode, paint));
 }
 
-void SkDebugCanvas::onDrawVerticesObject(const SkVertices* vertices, const SkMatrix* bones,
+void SkDebugCanvas::onDrawVerticesObject(const SkVertices* vertices, const SkVertices::Bone bones[],
                                          int boneCount, SkBlendMode bmode, const SkPaint& paint) {
     // TODO: ANIMATION NOT LOGGED
     this->addDrawCommand(new SkDrawVerticesCommand(sk_ref_sp(const_cast<SkVertices*>(vertices)),
@@ -482,6 +465,11 @@ SkCanvas::SaveLayerStrategy SkDebugCanvas::getSaveLayerStrategy(const SaveLayerR
     (void)this->INHERITED::getSaveLayerStrategy(rec);
     // No need for a full layer.
     return kNoLayer_SaveLayerStrategy;
+}
+
+bool SkDebugCanvas::onDoSaveBehind(const SkRect* subset) {
+    // TODO
+    return false;
 }
 
 void SkDebugCanvas::didSetMatrix(const SkMatrix& matrix) {

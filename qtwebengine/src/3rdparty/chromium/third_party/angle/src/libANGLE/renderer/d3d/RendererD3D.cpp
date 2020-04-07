@@ -39,14 +39,10 @@ RendererD3D::RendererD3D(egl::Display *display)
       mCapsInitialized(false),
       mWorkaroundsInitialized(false),
       mDisjoint(false),
-      mDeviceLost(false),
-      mWorkerThreadPool(4)
-{
-}
+      mDeviceLost(false)
+{}
 
-RendererD3D::~RendererD3D()
-{
-}
+RendererD3D::~RendererD3D() {}
 
 bool RendererD3D::skipDraw(const gl::State &glState, gl::PrimitiveMode drawMode)
 {
@@ -171,11 +167,6 @@ const gl::Limitations &RendererD3D::getNativeLimitations() const
     return mNativeLimitations;
 }
 
-angle::WorkerThreadPool *RendererD3D::getWorkerThreadPool()
-{
-    return &mWorkerThreadPool;
-}
-
 Serial RendererD3D::generateSerial()
 {
     return mSerialFactory.generate();
@@ -187,14 +178,10 @@ bool InstancedPointSpritesActive(ProgramD3D *programD3D, gl::PrimitiveMode mode)
            mode == gl::PrimitiveMode::Points;
 }
 
-gl::Error RendererD3D::initRenderTarget(RenderTargetD3D *renderTarget)
+angle::Result RendererD3D::initRenderTarget(const gl::Context *context,
+                                            RenderTargetD3D *renderTarget)
 {
-    return clearRenderTarget(renderTarget, gl::ColorF(0, 0, 0, 0), 1, 0);
-}
-
-void RendererD3D::onDirtyUniformBlockBinding(GLuint /*uniformBlockIndex*/)
-{
-    // No-op by default. Only implemented in D3D11.
+    return clearRenderTarget(context, renderTarget, gl::ColorF(0, 0, 0, 0), 1, 0);
 }
 
 unsigned int GetBlendSampleMask(const gl::State &glState, int samples)
@@ -238,4 +225,15 @@ unsigned int GetBlendSampleMask(const gl::State &glState, int samples)
     return mask;
 }
 
+GLenum DefaultGLErrorCode(HRESULT hr)
+{
+    switch (hr)
+    {
+        case D3DERR_OUTOFVIDEOMEMORY:
+        case E_OUTOFMEMORY:
+            return GL_OUT_OF_MEMORY;
+        default:
+            return GL_INVALID_OPERATION;
+    }
+}
 }  // namespace rx

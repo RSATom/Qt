@@ -60,6 +60,7 @@
 #include <Qt3DRender/qattribute.h>
 #include <Qt3DRender/private/handle_types_p.h>
 #include <Qt3DRender/private/shadercache_p.h>
+#include <Qt3DRender/private/glfence_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -146,6 +147,14 @@ public:
     void    clearColor(const QColor &color);
     void    clearDepthValue(float depth);
     void    clearStencilValue(int stencil);
+
+
+    // Fences
+    GLFence fenceSync();
+    void    clientWaitSync(GLFence sync, GLuint64 nanoSecTimeout);
+    void    waitSync(GLFence sync);
+    bool    wasSyncSignaled(GLFence sync);
+    void    deleteSync(GLFence sync);
 
 private:
     void initialize();

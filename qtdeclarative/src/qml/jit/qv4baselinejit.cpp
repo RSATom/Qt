@@ -63,7 +63,9 @@ void BaselineJIT::generate()
 //    qDebug()<<"jitting" << function->name()->toQString();
     const char *code = function->codeData;
     uint len = function->compiledFunction->codeSize;
-    labels = collectLabelsInBytecode(code, len);
+
+    for (unsigned i = 0, ei = function->compiledFunction->nLabelInfos; i != ei; ++i)
+        labels.insert(int(function->compiledFunction->labelInfoTable()[i]));
 
     as->generatePrologue();
     decode(code, len);
@@ -75,6 +77,7 @@ void BaselineJIT::generate()
 
 #define STORE_IP() as->storeInstructionPointer(nextInstructionOffset())
 #define STORE_ACC() as->saveAccumulatorInFrame()
+#define LOAD_ACC() as->loadAccumulatorFromFrame()
 #define BASELINEJIT_GENERATE_RUNTIME_CALL(function, destination) \
     as->GENERATE_RUNTIME_CALL(function, destination)
 #define BASELINEJIT_GENERATE_TAIL_CALL(function) \
@@ -149,7 +152,7 @@ void BaselineJIT::generate_LoadImport(int index)
     as->loadImport(index);
 }
 
-void BaselineJIT::generate_LoadLocal(int index)
+void BaselineJIT::generate_LoadLocal(int index, int /*traceSlot*/)
 {
     as->loadLocal(index);
 }
@@ -160,7 +163,7 @@ void BaselineJIT::generate_StoreLocal(int index)
     as->storeLocal(index);
 }
 
-void BaselineJIT::generate_LoadScopedLocal(int scope, int index)
+void BaselineJIT::generate_LoadScopedLocal(int scope, int index, int /*traceSlot*/)
 {
     as->loadLocal(index, scope);
 }
@@ -193,7 +196,7 @@ void BaselineJIT::generate_LoadClosure(int value)
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_closure, CallResultDestination::InAccumulator);
 }
 
-void BaselineJIT::generate_LoadName(int name)
+void BaselineJIT::generate_LoadName(int name, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(2);
@@ -203,7 +206,7 @@ void BaselineJIT::generate_LoadName(int name)
     as->checkException();
 }
 
-void BaselineJIT::generate_LoadGlobalLookup(int index)
+void BaselineJIT::generate_LoadGlobalLookup(int index, int /*traceSlot*/)
 {
     as->prepareCallWithArgCount(3);
     as->passInt32AsArg(index, 2);
@@ -213,7 +216,7 @@ void BaselineJIT::generate_LoadGlobalLookup(int index)
     as->checkException();
 }
 
-void BaselineJIT::generate_LoadQmlContextPropertyLookup(int index)
+void BaselineJIT::generate_LoadQmlContextPropertyLookup(int index, int /*traceSlot*/)
 {
     as->prepareCallWithArgCount(3);
     as->passInt32AsArg(index, 2);
@@ -233,6 +236,7 @@ void BaselineJIT::generate_StoreNameSloppy(int name)
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_storeNameSloppy, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
 void BaselineJIT::generate_StoreNameStrict(int name)
@@ -245,9 +249,10 @@ void BaselineJIT::generate_StoreNameStrict(int name)
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_storeNameStrict, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
-void BaselineJIT::generate_LoadElement(int base)
+void BaselineJIT::generate_LoadElement(int base, int /*traceSlot*/)
 {
     STORE_IP();
     STORE_ACC();
@@ -259,7 +264,7 @@ void BaselineJIT::generate_LoadElement(int base)
     as->checkException();
 }
 
-void BaselineJIT::generate_StoreElement(int base, int index)
+void BaselineJIT::generate_StoreElement(int base, int index, int /*traceSlot*/)
 {
     STORE_IP();
     STORE_ACC();
@@ -270,9 +275,10 @@ void BaselineJIT::generate_StoreElement(int base, int index)
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_storeElement, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
-void BaselineJIT::generate_LoadProperty(int name)
+void BaselineJIT::generate_LoadProperty(int name, int /*traceSlot*/)
 {
     STORE_IP();
     STORE_ACC();
@@ -284,7 +290,7 @@ void BaselineJIT::generate_LoadProperty(int name)
     as->checkException();
 }
 
-void BaselineJIT::generate_GetLookup(int index)
+void BaselineJIT::generate_GetLookup(int index, int /*traceSlot*/)
 {
     STORE_IP();
     STORE_ACC();
@@ -308,6 +314,7 @@ void BaselineJIT::generate_StoreProperty(int name, int base)
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_storeProperty, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
 void BaselineJIT::generate_SetLookup(int index, int base)
@@ -327,7 +334,6 @@ void BaselineJIT::generate_SetLookup(int index, int base)
 void BaselineJIT::generate_LoadSuperProperty(int property)
 {
     STORE_IP();
-    STORE_ACC();
     as->prepareCallWithArgCount(2);
     as->passJSSlotAsArg(property, 1);
     as->passEngineAsArg(0);
@@ -345,6 +351,7 @@ void BaselineJIT::generate_StoreSuperProperty(int property)
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_storeSuperProperty, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
 void BaselineJIT::generate_Yield()
@@ -365,7 +372,7 @@ void BaselineJIT::generate_Resume(int)
     Q_UNREACHABLE();
 }
 
-void BaselineJIT::generate_CallValue(int name, int argc, int argv)
+void BaselineJIT::generate_CallValue(int name, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(4);
@@ -377,7 +384,7 @@ void BaselineJIT::generate_CallValue(int name, int argc, int argv)
     as->checkException();
 }
 
-void BaselineJIT::generate_CallWithReceiver(int name, int thisObject, int argc, int argv)
+void BaselineJIT::generate_CallWithReceiver(int name, int thisObject, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(5);
@@ -390,7 +397,7 @@ void BaselineJIT::generate_CallWithReceiver(int name, int thisObject, int argc, 
     as->checkException();
 }
 
-void BaselineJIT::generate_CallProperty(int name, int base, int argc, int argv)
+void BaselineJIT::generate_CallProperty(int name, int base, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(5);
@@ -403,7 +410,7 @@ void BaselineJIT::generate_CallProperty(int name, int base, int argc, int argv)
     as->checkException();
 }
 
-void BaselineJIT::generate_CallPropertyLookup(int lookupIndex, int base, int argc, int argv)
+void BaselineJIT::generate_CallPropertyLookup(int lookupIndex, int base, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(5);
@@ -416,7 +423,7 @@ void BaselineJIT::generate_CallPropertyLookup(int lookupIndex, int base, int arg
     as->checkException();
 }
 
-void BaselineJIT::generate_CallElement(int base, int index, int argc, int argv)
+void BaselineJIT::generate_CallElement(int base, int index, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(5);
@@ -429,7 +436,7 @@ void BaselineJIT::generate_CallElement(int base, int index, int argc, int argv)
     as->checkException();
 }
 
-void BaselineJIT::generate_CallName(int name, int argc, int argv)
+void BaselineJIT::generate_CallName(int name, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(4);
@@ -441,7 +448,7 @@ void BaselineJIT::generate_CallName(int name, int argc, int argv)
     as->checkException();
 }
 
-void BaselineJIT::generate_CallPossiblyDirectEval(int argc, int argv)
+void BaselineJIT::generate_CallPossiblyDirectEval(int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(3);
@@ -452,7 +459,7 @@ void BaselineJIT::generate_CallPossiblyDirectEval(int argc, int argv)
     as->checkException();
 }
 
-void BaselineJIT::generate_CallGlobalLookup(int index, int argc, int argv)
+void BaselineJIT::generate_CallGlobalLookup(int index, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(4);
@@ -464,7 +471,8 @@ void BaselineJIT::generate_CallGlobalLookup(int index, int argc, int argv)
     as->checkException();
 }
 
-void BaselineJIT::generate_CallQmlContextPropertyLookup(int index, int argc, int argv)
+void BaselineJIT::generate_CallQmlContextPropertyLookup(int index, int argc, int argv,
+                                                        int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(4);
@@ -476,7 +484,7 @@ void BaselineJIT::generate_CallQmlContextPropertyLookup(int index, int argc, int
     as->checkException();
 }
 
-void BaselineJIT::generate_CallWithSpread(int func, int thisObject, int argc, int argv)
+void BaselineJIT::generate_CallWithSpread(int func, int thisObject, int argc, int argv, int /*traceSlot*/)
 {
     STORE_IP();
     as->prepareCallWithArgCount(5);
@@ -526,7 +534,7 @@ void BaselineJIT::generate_ConstructWithSpread(int func, int argc, int argv)
 void BaselineJIT::generate_SetUnwindHandler(int offset)
 {
     if (offset)
-        as->setUnwindHandler(absoluteOffsetForJump(offset));
+        labels.insert(as->setUnwindHandler(absoluteOffset(offset)));
     else
         as->clearUnwindHandler();
 }
@@ -538,7 +546,7 @@ void BaselineJIT::generate_UnwindDispatch()
 
 void BaselineJIT::generate_UnwindToLabel(int level, int offset)
 {
-    as->unwindToLabel(level, absoluteOffsetForJump(offset));
+    labels.insert(as->unwindToLabel(level, absoluteOffset(offset)));
 }
 
 void BaselineJIT::generate_DeadTemporalZoneCheck(int name)
@@ -589,6 +597,7 @@ void BaselineJIT::generate_PushBlockContext(int index)
     as->passInt32AsArg(index, 1);
     as->passJSSlotAsArg(0, 0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::pushBlockContext, CallResultDestination::Ignore);
+    as->loadAccumulatorFromFrame();
 }
 
 void BaselineJIT::generate_CloneBlockContext()
@@ -597,6 +606,7 @@ void BaselineJIT::generate_CloneBlockContext()
     as->prepareCallWithArgCount(1);
     as->passJSSlotAsArg(CallData::Context, 0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::cloneBlockContext, CallResultDestination::Ignore);
+    as->loadAccumulatorFromFrame();
 }
 
 void BaselineJIT::generate_PushScriptContext(int index)
@@ -607,6 +617,7 @@ void BaselineJIT::generate_PushScriptContext(int index)
     as->passEngineAsArg(1);
     as->passJSSlotAsArg(0, 0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::pushScriptContext, CallResultDestination::Ignore);
+    as->loadAccumulatorFromFrame();
 }
 
 void BaselineJIT::generate_PopScriptContext()
@@ -616,6 +627,7 @@ void BaselineJIT::generate_PopScriptContext()
     as->passEngineAsArg(1);
     as->passJSSlotAsArg(0, 0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::popScriptContext, CallResultDestination::Ignore);
+    as->loadAccumulatorFromFrame();
 }
 
 void BaselineJIT::generate_PopContext() { as->popContext(); }
@@ -716,11 +728,13 @@ void BaselineJIT::generate_TypeofValue()
 
 void BaselineJIT::generate_DeclareVar(int varName, int isDeletable)
 {
+    STORE_ACC();
     as->prepareCallWithArgCount(3);
     as->passInt32AsArg(varName, 2);
     as->passInt32AsArg(isDeletable, 1);
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Runtime::method_declareVar, CallResultDestination::Ignore);
+    LOAD_ACC();
 }
 
 void BaselineJIT::generate_DefineArray(int argc, int args)
@@ -778,11 +792,13 @@ void BaselineJIT::generate_CreateRestParameter(int argIndex)
 
 void BaselineJIT::generate_ConvertThisToObject()
 {
+    STORE_ACC();
     as->prepareCallWithArgCount(2);
     as->passJSSlotAsArg(CallData::This, 1);
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::convertThisToObject, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
 void BaselineJIT::generate_LoadSuperConstructor()
@@ -805,11 +821,30 @@ void BaselineJIT::generate_ToObject()
 
 }
 
-void BaselineJIT::generate_Jump(int offset) { as->jump(absoluteOffsetForJump(offset)); }
-void BaselineJIT::generate_JumpTrue(int offset) { as->jumpTrue(absoluteOffsetForJump(offset)); }
-void BaselineJIT::generate_JumpFalse(int offset) { as->jumpFalse(absoluteOffsetForJump(offset)); }
-void BaselineJIT::generate_JumpNoException(int offset) { as->jumpNoException(absoluteOffsetForJump(offset)); }
-void BaselineJIT::generate_JumpNotUndefined(int offset) { as->jumpNotUndefined(absoluteOffsetForJump(offset)); }
+void BaselineJIT::generate_Jump(int offset)
+{
+    labels.insert(as->jump(absoluteOffset(offset)));
+}
+
+void BaselineJIT::generate_JumpTrue(int /*traceSlot*/, int offset)
+{
+    labels.insert(as->jumpTrue(absoluteOffset(offset)));
+}
+
+void BaselineJIT::generate_JumpFalse(int /*traceSlot*/, int offset)
+{
+    labels.insert(as->jumpFalse(absoluteOffset(offset)));
+}
+
+void BaselineJIT::generate_JumpNoException(int offset)
+{
+    labels.insert(as->jumpNoException(absoluteOffset(offset)));
+}
+
+void BaselineJIT::generate_JumpNotUndefined(int offset)
+{
+    labels.insert(as->jumpNotUndefined(absoluteOffset(offset)));
+}
 
 void BaselineJIT::generate_CmpEqNull() { as->cmpeqNull(); }
 void BaselineJIT::generate_CmpNeNull() { as->cmpneNull(); }
@@ -848,11 +883,11 @@ void BaselineJIT::generate_CmpInstanceOf(int lhs)
 
 void BaselineJIT::generate_UNot() { as->unot(); }
 void BaselineJIT::generate_UPlus() { as->toNumber(); }
-void BaselineJIT::generate_UMinus() { as->uminus(); }
+void BaselineJIT::generate_UMinus(int /*traceSlot*/) { as->uminus(); }
 void BaselineJIT::generate_UCompl() { as->ucompl(); }
-void BaselineJIT::generate_Increment() { as->inc(); }
-void BaselineJIT::generate_Decrement() { as->dec(); }
-void BaselineJIT::generate_Add(int lhs) { as->add(lhs); }
+void BaselineJIT::generate_Increment(int /*traceSlot*/) { as->inc(); }
+void BaselineJIT::generate_Decrement(int /*traceSlot*/) { as->dec(); }
+void BaselineJIT::generate_Add(int lhs, int /*traceSlot*/) { as->add(lhs); }
 
 void BaselineJIT::generate_BitAnd(int lhs) { as->bitAnd(lhs); }
 void BaselineJIT::generate_BitOr(int lhs) { as->bitOr(lhs); }
@@ -877,10 +912,10 @@ void BaselineJIT::generate_Exp(int lhs) {
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::exp, CallResultDestination::InAccumulator);
     as->checkException();
 }
-void BaselineJIT::generate_Mul(int lhs) { as->mul(lhs); }
+void BaselineJIT::generate_Mul(int lhs, int /*traceSlot*/) { as->mul(lhs); }
 void BaselineJIT::generate_Div(int lhs) { as->div(lhs); }
-void BaselineJIT::generate_Mod(int lhs) { as->mod(lhs); }
-void BaselineJIT::generate_Sub(int lhs) { as->sub(lhs); }
+void BaselineJIT::generate_Mod(int lhs, int /*traceSlot*/) { as->mod(lhs); }
+void BaselineJIT::generate_Sub(int lhs, int /*traceSlot*/) { as->sub(lhs); }
 
 //void BaselineJIT::generate_BinopContext(int alu, int lhs)
 //{
@@ -909,11 +944,11 @@ void BaselineJIT::generate_ThrowOnNullOrUndefined()
     as->passEngineAsArg(0);
     BASELINEJIT_GENERATE_RUNTIME_CALL(Helpers::throwOnNullOrUndefined, CallResultDestination::Ignore);
     as->checkException();
+    LOAD_ACC();
 }
 
 void BaselineJIT::generate_GetTemplateObject(int index)
 {
-    STORE_ACC();
     as->prepareCallWithArgCount(2);
     as->passInt32AsArg(index, 1);
     as->passFunctionAsArg(0);
@@ -923,7 +958,7 @@ void BaselineJIT::generate_GetTemplateObject(int index)
 
 void BaselineJIT::startInstruction(Instr::Type /*instr*/)
 {
-    if (hasLabel())
+    if (labels.contains(currentInstructionOffset()))
         as->addLabel(currentInstructionOffset());
 }
 

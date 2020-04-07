@@ -18,7 +18,7 @@
             "className": "Elements.ElementsPanel.ContextMenuProvider"
         },
         {
-            "type": "@Common.Renderer",
+            "type": "@UI.Renderer",
             "contextTypes": [
                 "SDK.DOMNode",
                 "SDK.DeferredDOMNode"
@@ -257,6 +257,13 @@
             ]
         },
         {
+            "type": "action",
+            "actionId": "elements.capture-area-screenshot",
+            "className": "Elements.InspectElementModeController.ToggleSearchActionDelegate",
+            "title": "Capture area screenshot",
+            "category": "Screenshot"
+        },
+        {
             "type": "@UI.ToolbarItem.Provider",
             "actionId": "elements.toggle-element-search",
             "location": "main-toolbar-left",
@@ -289,7 +296,7 @@
         }
     ],
     "dependencies": [
-        "browser_components",
+        "components",
         "extensions",
         "inline_editor",
         "color_picker",

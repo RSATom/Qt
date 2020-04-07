@@ -13,12 +13,13 @@
 #include "base/files/file_path.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "ui/base/clipboard/clipboard_types.h"
 #include "url/gurl.h"
 
 #if defined(TOOLKIT_VIEWS)
-#include "ui/base/clipboard/clipboard.h"
+#include "ui/base/clipboard/clipboard_format_type.h"
 #endif
 
 namespace base {
@@ -88,16 +89,21 @@ struct BookmarkNodeData {
    private:
     friend struct BookmarkNodeData;
 
+#if !defined(OS_MACOSX)
     // For reading/writing this Element.
     void WriteToPickle(base::Pickle* pickle) const;
     bool ReadFromPickle(base::PickleIterator* iterator);
+#endif
 
     // ID of the node.
     int64_t id_;
   };
 
-  // The MIME type for the clipboard format for BookmarkNodeData.
+#if !defined(OS_MACOSX)
+  // The MIME type for the clipboard format for BookmarkNodeData. This type is
+  // not used on the Mac.
   static const char kClipboardFormatString[];
+#endif
 
   BookmarkNodeData();
   BookmarkNodeData(const BookmarkNodeData& other);
@@ -109,7 +115,7 @@ struct BookmarkNodeData {
   ~BookmarkNodeData();
 
 #if defined(TOOLKIT_VIEWS)
-  static const ui::Clipboard::FormatType& GetBookmarkFormatType();
+  static const ui::ClipboardFormatType& GetBookmarkFormatType();
 #endif
 
   static bool ClipboardContainsBookmarks();
@@ -121,7 +127,7 @@ struct BookmarkNodeData {
   bool ReadFromTuple(const GURL& url, const base::string16& title);
 
   // Writes bookmarks to the specified clipboard.
-  void WriteToClipboard(ui::ClipboardType type);
+  void WriteToClipboard();
 
   // Reads bookmarks from the specified clipboard. Prefers data written via
   // WriteToClipboard() but will also attempt to read a plain bookmark.
@@ -140,12 +146,14 @@ struct BookmarkNodeData {
   bool Read(const ui::OSExchangeData& data);
 #endif
 
+#if !defined(OS_MACOSX)
   // Writes the data for a drag to |pickle|.
   void WriteToPickle(const base::FilePath& profile_path,
                      base::Pickle* pickle) const;
 
   // Reads the data for a drag from a |pickle|.
   bool ReadFromPickle(base::Pickle* pickle);
+#endif
 
   // Returns the nodes represented by this DragData. If this DragData was
   // created from the same profile then the nodes from the model are returned.

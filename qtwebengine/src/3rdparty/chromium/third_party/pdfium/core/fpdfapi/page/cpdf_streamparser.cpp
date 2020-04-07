@@ -29,75 +29,75 @@
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
 #include "core/fxcodec/codec/ccodec_jpegmodule.h"
 #include "core/fxcodec/codec/ccodec_scanlinedecoder.h"
+#include "core/fxcodec/fx_codec.h"
 #include "core/fxcrt/fx_extension.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
 const uint32_t kMaxNestedParsingLevel = 512;
 const size_t kMaxStringLength = 32767;
 
-uint32_t DecodeAllScanlines(std::unique_ptr<CCodec_ScanlineDecoder> pDecoder,
-                            uint8_t** dest_buf,
-                            uint32_t* dest_size) {
+uint32_t DecodeAllScanlines(std::unique_ptr<CCodec_ScanlineDecoder> pDecoder) {
   if (!pDecoder)
     return FX_INVALID_OFFSET;
+
   int ncomps = pDecoder->CountComps();
   int bpc = pDecoder->GetBPC();
   int width = pDecoder->GetWidth();
   int height = pDecoder->GetHeight();
-  int pitch = (width * ncomps * bpc + 7) / 8;
-  if (height == 0 || pitch > (1 << 30) / height)
+  if (width <= 0 || height <= 0)
     return FX_INVALID_OFFSET;
 
-  *dest_buf = FX_Alloc2D(uint8_t, pitch, height);
-  *dest_size = pitch * height;  // Safe since checked alloc returned.
-  for (int row = 0; row < height; ++row) {
-    const uint8_t* pLine = pDecoder->GetScanline(row);
-    if (!pLine)
-      break;
+  FX_SAFE_UINT32 size = CalculatePitch8(bpc, ncomps, width);
+  size *= height;
+  if (size.ValueOrDefault(0) == 0)
+    return FX_INVALID_OFFSET;
 
-    memcpy(*dest_buf + row * pitch, pLine, pitch);
+  for (int row = 0; row < height; ++row) {
+    if (!pDecoder->GetScanline(row))
+      break;
   }
   return pDecoder->GetSrcOffset();
 }
 
-uint32_t DecodeInlineStream(const uint8_t* src_buf,
-                            uint32_t limit,
+uint32_t DecodeInlineStream(pdfium::span<const uint8_t> src_span,
                             int width,
                             int height,
                             const ByteString& decoder,
                             CPDF_Dictionary* pParam,
-                            uint8_t** dest_buf,
-                            uint32_t* dest_size) {
-  if (decoder == "CCITTFaxDecode" || decoder == "CCF") {
-    std::unique_ptr<CCodec_ScanlineDecoder> pDecoder =
-        FPDFAPI_CreateFaxDecoder(src_buf, limit, width, height, pParam);
-    return DecodeAllScanlines(std::move(pDecoder), dest_buf, dest_size);
-  }
-  if (decoder == "ASCII85Decode" || decoder == "A85")
-    return A85Decode(src_buf, limit, dest_buf, dest_size);
-  if (decoder == "ASCIIHexDecode" || decoder == "AHx")
-    return HexDecode(src_buf, limit, dest_buf, dest_size);
+                            uint32_t orig_size) {
+  std::unique_ptr<uint8_t, FxFreeDeleter> ignored_result;
+  uint32_t ignored_size;
   if (decoder == "FlateDecode" || decoder == "Fl") {
-    return FPDFAPI_FlateOrLZWDecode(false, src_buf, limit, pParam, *dest_size,
-                                    dest_buf, dest_size);
+    return FlateOrLZWDecode(false, src_span, pParam, orig_size, &ignored_result,
+                            &ignored_size);
   }
   if (decoder == "LZWDecode" || decoder == "LZW") {
-    return FPDFAPI_FlateOrLZWDecode(true, src_buf, limit, pParam, 0, dest_buf,
-                                    dest_size);
+    return FlateOrLZWDecode(true, src_span, pParam, 0, &ignored_result,
+                            &ignored_size);
   }
   if (decoder == "DCTDecode" || decoder == "DCT") {
     std::unique_ptr<CCodec_ScanlineDecoder> pDecoder =
         CPDF_ModuleMgr::Get()->GetJpegModule()->CreateDecoder(
-            src_buf, limit, width, height, 0,
+            src_span, width, height, 0,
             !pParam || pParam->GetIntegerFor("ColorTransform", 1));
-    return DecodeAllScanlines(std::move(pDecoder), dest_buf, dest_size);
+    return DecodeAllScanlines(std::move(pDecoder));
   }
+  if (decoder == "CCITTFaxDecode" || decoder == "CCF") {
+    std::unique_ptr<CCodec_ScanlineDecoder> pDecoder =
+        CreateFaxDecoder(src_span, width, height, pParam);
+    return DecodeAllScanlines(std::move(pDecoder));
+  }
+
+  if (decoder == "ASCII85Decode" || decoder == "A85")
+    return A85Decode(src_span, &ignored_result, &ignored_size);
+  if (decoder == "ASCIIHexDecode" || decoder == "AHx")
+    return HexDecode(src_span, &ignored_result, &ignored_size);
   if (decoder == "RunLengthDecode" || decoder == "RL")
-    return RunLengthDecode(src_buf, limit, dest_buf, dest_size);
-  *dest_size = 0;
-  *dest_buf = 0;
-  return 0xFFFFFFFF;
+    return RunLengthDecode(src_span, &ignored_result, &ignored_size);
+
+  return FX_INVALID_OFFSET;
 }
 
 }  // namespace
@@ -141,7 +141,7 @@ std::unique_ptr<CPDF_Stream> CPDF_StreamParser::ReadInlineStream(
   if (pCSObj) {
     uint32_t bpc = pDict->GetIntegerFor("BitsPerComponent");
     uint32_t nComponents = 1;
-    CPDF_ColorSpace* pCS = pDoc->LoadColorSpace(pCSObj);
+    CPDF_ColorSpace* pCS = pDoc->LoadColorSpace(pCSObj, nullptr);
     if (pCS) {
       nComponents = pCS->CountComponents();
       pDoc->GetPageData()->ReleaseColorSpace(pCSObj);
@@ -179,16 +179,13 @@ std::unique_ptr<CPDF_Stream> CPDF_StreamParser::ReadInlineStream(
     if (OrigSize > m_pBuf.size() - m_Pos)
       OrigSize = m_pBuf.size() - m_Pos;
     pData.reset(FX_Alloc(uint8_t, OrigSize));
-    memcpy(pData.get(), &m_pBuf[m_Pos], OrigSize);
+    auto copy_span = m_pBuf.subspan(m_Pos, OrigSize);
+    memcpy(pData.get(), copy_span.data(), copy_span.size());
     dwStreamSize = OrigSize;
     m_Pos += OrigSize;
   } else {
-    uint8_t* pIgnore = nullptr;
-    uint32_t dwDestSize = OrigSize;
-    dwStreamSize =
-        DecodeInlineStream(&m_pBuf[m_Pos], m_pBuf.size() - m_Pos, width, height,
-                           Decoder, pParam, &pIgnore, &dwDestSize);
-    FX_Free(pIgnore);
+    dwStreamSize = DecodeInlineStream(m_pBuf.subspan(m_Pos), width, height,
+                                      Decoder, pParam, OrigSize);
     if (static_cast<int>(dwStreamSize) < 0)
       return nullptr;
 
@@ -212,7 +209,8 @@ std::unique_ptr<CPDF_Stream> CPDF_StreamParser::ReadInlineStream(
     }
     m_Pos = dwSavePos;
     pData.reset(FX_Alloc(uint8_t, dwStreamSize));
-    memcpy(pData.get(), &m_pBuf[m_Pos], dwStreamSize);
+    auto copy_span = m_pBuf.subspan(m_Pos, dwStreamSize);
+    memcpy(pData.get(), copy_span.data(), copy_span.size());
     m_Pos += dwStreamSize;
   }
   pDict->SetNewFor<CPDF_Number>("Length", static_cast<int>(dwStreamSize));
@@ -495,7 +493,7 @@ ByteString CPDF_StreamParser::ReadString() {
         }
         break;
       case 1:
-        if (ch >= '0' && ch <= '7') {
+        if (FXSYS_IsOctalDigit(ch)) {
           iEscCode = FXSYS_DecimalCharToInt(static_cast<char>(ch));
           status = 2;
           break;
@@ -522,7 +520,7 @@ ByteString CPDF_StreamParser::ReadString() {
         status = 0;
         break;
       case 2:
-        if (ch >= '0' && ch <= '7') {
+        if (FXSYS_IsOctalDigit(ch)) {
           iEscCode =
               iEscCode * 8 + FXSYS_DecimalCharToInt(static_cast<char>(ch));
           status = 3;
@@ -533,7 +531,7 @@ ByteString CPDF_StreamParser::ReadString() {
         }
         break;
       case 3:
-        if (ch >= '0' && ch <= '7') {
+        if (FXSYS_IsOctalDigit(ch)) {
           iEscCode =
               iEscCode * 8 + FXSYS_DecimalCharToInt(static_cast<char>(ch));
           buf << static_cast<char>(iEscCode);

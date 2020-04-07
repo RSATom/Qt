@@ -25,9 +25,52 @@
 #include <vector>
 
 #include "perfetto/base/logging.h"
+#include "perfetto/base/optional.h"
+#include "perfetto/base/string_view.h"
+#include "perfetto/base/utils.h"
+#include "src/trace_processor/ftrace_utils.h"
+#include "src/trace_processor/stats.h"
 
 namespace perfetto {
 namespace trace_processor {
+
+// UniquePid is an offset into |unique_processes_|. This is necessary because
+// Unix pids are reused and thus not guaranteed to be unique over a long
+// period of time.
+using UniquePid = uint32_t;
+
+// UniqueTid is an offset into |unique_threads_|. Necessary because tids can
+// be reused.
+using UniqueTid = uint32_t;
+
+// StringId is an offset into |string_pool_|.
+using StringId = uint32_t;
+
+// Identifiers for all the tables in the database.
+enum TableId : uint8_t {
+  // Intentionally don't have TableId == 0 so that RowId == 0 can refer to an
+  // invalid row id.
+  kCounters = 1,
+  kRawEvents = 2,
+  kInstants = 3,
+};
+
+// The top 8 bits are set to the TableId and the bottom 32 to the row of the
+// table.
+using RowId = int64_t;
+
+static const RowId kInvalidRowId = 0;
+
+enum RefType {
+  kRefNoRef = 0,
+  kRefUtid = 1,
+  kRefCpuId = 2,
+  kRefIrq = 3,
+  kRefSoftIrq = 4,
+  kRefUpid = 5,
+  kRefUtidLookupUpid = 6,
+  kRefMax
+};
 
 // Stores a data inside a trace file in a columnar form. This makes it efficient
 // to read or search across a single field of the trace (e.g. all the thread
@@ -35,176 +78,501 @@ namespace trace_processor {
 class TraceStorage {
  public:
   TraceStorage();
-
-  constexpr static size_t kMaxCpus = 128;
-
-  // StringId is an offset into |string_pool_|.
-  using StringId = size_t;
-
-  // UniquePid is an offset into |unique_processes_|. This is necessary because
-  // Unix pids are reused and thus not guaranteed to be unique over a long
-  // period of time.
-  using UniquePid = uint32_t;
-  using UniqueProcessIterator =
-      std::multimap<uint32_t, UniquePid>::const_iterator;
-  using UniqueProcessRange =
-      std::pair<UniqueProcessIterator, UniqueProcessIterator>;
-
-  // UniqueTid is an offset into |unique_threads_|. Necessary because tids can
-  // be reused.
-  using UniqueTid = uint32_t;
-  using UniqueThreadIterator =
-      std::multimap<uint32_t, UniqueTid>::const_iterator;
-  using UniqueThreadRange =
-      std::pair<UniqueThreadIterator, UniqueThreadIterator>;
-
-  class SlicesPerCpu {
-   public:
-    inline void AddSlice(uint64_t start_ns,
-                         uint64_t duration_ns,
-                         uint32_t tid,
-                         StringId thread_name_id) {
-      start_ns_.emplace_back(start_ns);
-      durations_.emplace_back(duration_ns);
-
-      auto pair_it = storage_->tids_.equal_range(tid);
-      // If there is a previous utid for that tid, use that.
-      if (pair_it.first != pair_it.second) {
-        UniqueTid prev_utid = std::prev(pair_it.second)->second;
-        utids_.emplace_back(prev_utid);
-      } else {
-        // If none exist, assign a new utid and store it.
-        Thread new_thread;
-        new_thread.name_id = thread_name_id;
-        new_thread.start_ns = start_ns;
-        new_thread.upid = 0;
-        storage_->tids_.emplace(tid, storage_->unique_threads_.size());
-        utids_.emplace_back(storage_->unique_threads_.size());
-        storage_->unique_threads_.emplace_back(std::move(new_thread));
-      }
-    }
-
-    size_t slice_count() const { return start_ns_.size(); }
-
-    const std::deque<uint64_t>& start_ns() const { return start_ns_; }
-
-    const std::deque<uint64_t>& durations() const { return durations_; }
-
-    const std::deque<UniqueTid>& utids() const { return utids_; }
-
-    void InitalizeSlices(TraceStorage* storage) { storage_ = storage; }
-
-   private:
-    // Each vector below has the same number of entries (the number of slices
-    // in the trace for the CPU).
-    std::deque<uint64_t> start_ns_;
-    std::deque<uint64_t> durations_;
-    std::deque<UniqueTid> utids_;
-
-    TraceStorage* storage_;
-  };
-
-  struct Stats {
-    uint64_t mismatched_sched_switch_tids_ = 0;
-  };
+  TraceStorage(const TraceStorage&) = delete;
 
   virtual ~TraceStorage();
 
   // Information about a unique process seen in a trace.
   struct Process {
-    uint64_t start_ns = 0;
-    uint64_t end_ns = 0;
-    StringId name_id;
+    explicit Process(uint32_t p) : pid(p) {}
+    int64_t start_ns = 0;
+    int64_t end_ns = 0;
+    StringId name_id = 0;
+    uint32_t pid = 0;
   };
 
   // Information about a unique thread seen in a trace.
   struct Thread {
-    uint64_t start_ns = 0;
-    uint64_t end_ns = 0;
-    StringId name_id;
-    UniquePid upid;
+    explicit Thread(uint32_t t) : tid(t) {}
+    int64_t start_ns = 0;
+    int64_t end_ns = 0;
+    StringId name_id = 0;
+    base::Optional<UniquePid> upid;
+    uint32_t tid = 0;
   };
 
-  // Adds a sched slice for a given cpu.
+  // Generic key value storage which can be referenced by other tables.
+  class Args {
+   public:
+    // Variadic type representing the possible values for the args table.
+    struct Variadic {
+      enum Type { kInt, kString, kReal };
+
+      static Variadic Integer(int64_t int_value) {
+        Variadic variadic;
+        variadic.type = Type::kInt;
+        variadic.int_value = int_value;
+        return variadic;
+      }
+
+      static Variadic String(StringId string_id) {
+        Variadic variadic;
+        variadic.type = Type::kString;
+        variadic.string_value = string_id;
+        return variadic;
+      }
+
+      static Variadic Real(double real_value) {
+        Variadic variadic;
+        variadic.type = Type::kReal;
+        variadic.real_value = real_value;
+        return variadic;
+      }
+
+      Type type;
+      union {
+        int64_t int_value;
+        StringId string_value;
+        double real_value;
+      };
+    };
+
+    const std::deque<RowId>& ids() const { return ids_; }
+    const std::deque<StringId>& flat_keys() const { return flat_keys_; }
+    const std::deque<StringId>& keys() const { return keys_; }
+    const std::deque<Variadic>& arg_values() const { return arg_values_; }
+    const std::multimap<RowId, uint32_t>& args_for_id() const {
+      return args_for_id_;
+    }
+    size_t args_count() const { return ids_.size(); }
+
+    void AddArg(RowId id, StringId flat_key, StringId key, Variadic value) {
+      // TODO(b/123252504): disable this code to stop blow-ups in ingestion time
+      // and memory.
+      perfetto::base::ignore_result(id);
+      perfetto::base::ignore_result(flat_key);
+      perfetto::base::ignore_result(key);
+      perfetto::base::ignore_result(value);
+      /*
+      if (id == kInvalidRowId)
+        return;
+
+      ids_.emplace_back(id);
+      flat_keys_.emplace_back(flat_key);
+      keys_.emplace_back(key);
+      arg_values_.emplace_back(value);
+      args_for_id_.emplace(id, static_cast<uint32_t>(args_count() - 1));
+      */
+    }
+
+   private:
+    std::deque<RowId> ids_;
+    std::deque<StringId> flat_keys_;
+    std::deque<StringId> keys_;
+    std::deque<Variadic> arg_values_;
+    std::multimap<RowId, uint32_t> args_for_id_;
+  };
+
+  class Slices {
+   public:
+    inline size_t AddSlice(uint32_t cpu,
+                           int64_t start_ns,
+                           int64_t duration_ns,
+                           UniqueTid utid,
+                           ftrace_utils::TaskState end_state,
+                           int32_t priority) {
+      cpus_.emplace_back(cpu);
+      start_ns_.emplace_back(start_ns);
+      durations_.emplace_back(duration_ns);
+      utids_.emplace_back(utid);
+      end_states_.emplace_back(end_state);
+      priorities_.emplace_back(priority);
+      rows_for_utids_.emplace(utid, slice_count() - 1);
+      return slice_count() - 1;
+    }
+
+    void set_duration(size_t index, int64_t duration_ns) {
+      durations_[index] = duration_ns;
+    }
+
+    void set_end_state(size_t index, ftrace_utils::TaskState end_state) {
+      end_states_[index] = end_state;
+    }
+
+    size_t slice_count() const { return start_ns_.size(); }
+
+    const std::deque<uint32_t>& cpus() const { return cpus_; }
+
+    const std::deque<int64_t>& start_ns() const { return start_ns_; }
+
+    const std::deque<int64_t>& durations() const { return durations_; }
+
+    const std::deque<UniqueTid>& utids() const { return utids_; }
+
+    const std::deque<ftrace_utils::TaskState>& end_state() const {
+      return end_states_;
+    }
+
+    const std::deque<int32_t>& priorities() const { return priorities_; }
+
+    const std::multimap<UniqueTid, uint32_t>& rows_for_utids() const {
+      return rows_for_utids_;
+    }
+
+   private:
+    // Each deque below has the same number of entries (the number of slices
+    // in the trace for the CPU).
+    std::deque<uint32_t> cpus_;
+    std::deque<int64_t> start_ns_;
+    std::deque<int64_t> durations_;
+    std::deque<UniqueTid> utids_;
+    std::deque<ftrace_utils::TaskState> end_states_;
+    std::deque<int32_t> priorities_;
+    std::multimap<UniqueTid, uint32_t> rows_for_utids_;
+  };
+
+  class NestableSlices {
+   public:
+    inline size_t AddSlice(int64_t start_ns,
+                           int64_t duration_ns,
+                           UniqueTid utid,
+                           StringId cat,
+                           StringId name,
+                           uint8_t depth,
+                           int64_t stack_id,
+                           int64_t parent_stack_id) {
+      start_ns_.emplace_back(start_ns);
+      durations_.emplace_back(duration_ns);
+      utids_.emplace_back(utid);
+      cats_.emplace_back(cat);
+      names_.emplace_back(name);
+      depths_.emplace_back(depth);
+      stack_ids_.emplace_back(stack_id);
+      parent_stack_ids_.emplace_back(parent_stack_id);
+      return slice_count() - 1;
+    }
+
+    void set_duration(size_t index, int64_t duration_ns) {
+      durations_[index] = duration_ns;
+    }
+
+    void set_stack_id(size_t index, int64_t stack_id) {
+      stack_ids_[index] = stack_id;
+    }
+
+    size_t slice_count() const { return start_ns_.size(); }
+    const std::deque<int64_t>& start_ns() const { return start_ns_; }
+    const std::deque<int64_t>& durations() const { return durations_; }
+    const std::deque<UniqueTid>& utids() const { return utids_; }
+    const std::deque<StringId>& cats() const { return cats_; }
+    const std::deque<StringId>& names() const { return names_; }
+    const std::deque<uint8_t>& depths() const { return depths_; }
+    const std::deque<int64_t>& stack_ids() const { return stack_ids_; }
+    const std::deque<int64_t>& parent_stack_ids() const {
+      return parent_stack_ids_;
+    }
+
+   private:
+    std::deque<int64_t> start_ns_;
+    std::deque<int64_t> durations_;
+    std::deque<UniqueTid> utids_;
+    std::deque<StringId> cats_;
+    std::deque<StringId> names_;
+    std::deque<uint8_t> depths_;
+    std::deque<int64_t> stack_ids_;
+    std::deque<int64_t> parent_stack_ids_;
+  };
+
+  class Counters {
+   public:
+    inline size_t AddCounter(int64_t timestamp,
+                             int64_t duration,
+                             StringId name_id,
+                             double value,
+                             int64_t ref,
+                             RefType type) {
+      timestamps_.emplace_back(timestamp);
+      durations_.emplace_back(duration);
+      name_ids_.emplace_back(name_id);
+      values_.emplace_back(value);
+      refs_.emplace_back(ref);
+      types_.emplace_back(type);
+      return counter_count() - 1;
+    }
+
+    void set_duration(size_t index, int64_t duration) {
+      durations_[index] = duration;
+    }
+
+    size_t counter_count() const { return timestamps_.size(); }
+
+    const std::deque<int64_t>& timestamps() const { return timestamps_; }
+
+    const std::deque<int64_t>& durations() const { return durations_; }
+
+    const std::deque<StringId>& name_ids() const { return name_ids_; }
+
+    const std::deque<double>& values() const { return values_; }
+
+    const std::deque<int64_t>& refs() const { return refs_; }
+
+    const std::deque<RefType>& types() const { return types_; }
+
+   private:
+    std::deque<int64_t> timestamps_;
+    std::deque<int64_t> durations_;
+    std::deque<StringId> name_ids_;
+    std::deque<double> values_;
+    std::deque<int64_t> refs_;
+    std::deque<RefType> types_;
+  };
+
+  class SqlStats {
+   public:
+    static constexpr size_t kMaxLogEntries = 100;
+    void RecordQueryBegin(const std::string& query,
+                          int64_t time_queued,
+                          int64_t time_started);
+    void RecordQueryEnd(int64_t time_ended);
+    size_t size() const { return queries_.size(); }
+    const std::deque<std::string>& queries() const { return queries_; }
+    const std::deque<int64_t>& times_queued() const { return times_queued_; }
+    const std::deque<int64_t>& times_started() const { return times_started_; }
+    const std::deque<int64_t>& times_ended() const { return times_ended_; }
+
+   private:
+    std::deque<std::string> queries_;
+    std::deque<int64_t> times_queued_;
+    std::deque<int64_t> times_started_;
+    std::deque<int64_t> times_ended_;
+  };
+
+  class Instants {
+   public:
+    inline uint32_t AddInstantEvent(int64_t timestamp,
+                                    StringId name_id,
+                                    double value,
+                                    int64_t ref,
+                                    RefType type) {
+      timestamps_.emplace_back(timestamp);
+      name_ids_.emplace_back(name_id);
+      values_.emplace_back(value);
+      refs_.emplace_back(ref);
+      types_.emplace_back(type);
+      return static_cast<uint32_t>(instant_count() - 1);
+    }
+
+    size_t instant_count() const { return timestamps_.size(); }
+
+    const std::deque<int64_t>& timestamps() const { return timestamps_; }
+
+    const std::deque<StringId>& name_ids() const { return name_ids_; }
+
+    const std::deque<double>& values() const { return values_; }
+
+    const std::deque<int64_t>& refs() const { return refs_; }
+
+    const std::deque<RefType>& types() const { return types_; }
+
+   private:
+    std::deque<int64_t> timestamps_;
+    std::deque<StringId> name_ids_;
+    std::deque<double> values_;
+    std::deque<int64_t> refs_;
+    std::deque<RefType> types_;
+  };
+
+  class RawEvents {
+   public:
+    inline RowId AddRawEvent(int64_t timestamp,
+                             StringId name_id,
+                             uint32_t cpu,
+                             UniqueTid utid) {
+      timestamps_.emplace_back(timestamp);
+      name_ids_.emplace_back(name_id);
+      cpus_.emplace_back(cpu);
+      utids_.emplace_back(utid);
+      return CreateRowId(TableId::kRawEvents,
+                         static_cast<uint32_t>(raw_event_count() - 1));
+    }
+
+    size_t raw_event_count() const { return timestamps_.size(); }
+
+    const std::deque<int64_t>& timestamps() const { return timestamps_; }
+
+    const std::deque<StringId>& name_ids() const { return name_ids_; }
+
+    const std::deque<uint32_t>& cpus() const { return cpus_; }
+
+    const std::deque<UniqueTid>& utids() const { return utids_; }
+
+   private:
+    std::deque<int64_t> timestamps_;
+    std::deque<StringId> name_ids_;
+    std::deque<uint32_t> cpus_;
+    std::deque<UniqueTid> utids_;
+  };
+
+  class AndroidLogs {
+   public:
+    inline size_t AddLogEvent(int64_t timestamp,
+                              UniqueTid utid,
+                              uint8_t prio,
+                              StringId tag_id,
+                              StringId msg_id) {
+      timestamps_.emplace_back(timestamp);
+      utids_.emplace_back(utid);
+      prios_.emplace_back(prio);
+      tag_ids_.emplace_back(tag_id);
+      msg_ids_.emplace_back(msg_id);
+      return size() - 1;
+    }
+
+    size_t size() const { return timestamps_.size(); }
+
+    const std::deque<int64_t>& timestamps() const { return timestamps_; }
+    const std::deque<UniqueTid>& utids() const { return utids_; }
+    const std::deque<uint8_t>& prios() const { return prios_; }
+    const std::deque<StringId>& tag_ids() const { return tag_ids_; }
+    const std::deque<StringId>& msg_ids() const { return msg_ids_; }
+
+   private:
+    std::deque<int64_t> timestamps_;
+    std::deque<UniqueTid> utids_;
+    std::deque<uint8_t> prios_;
+    std::deque<StringId> tag_ids_;
+    std::deque<StringId> msg_ids_;
+  };
+
+  struct Stats {
+    using IndexMap = std::map<int, int64_t>;
+    int64_t value = 0;
+    IndexMap indexed_values;
+  };
+  using StatsMap = std::array<Stats, stats::kNumKeys>;
+
+  void ResetStorage();
+
+  UniqueTid AddEmptyThread(uint32_t tid) {
+    unique_threads_.emplace_back(tid);
+    return static_cast<UniqueTid>(unique_threads_.size() - 1);
+  }
+
+  UniquePid AddEmptyProcess(uint32_t pid) {
+    unique_processes_.emplace_back(pid);
+    return static_cast<UniquePid>(unique_processes_.size() - 1);
+  }
+
+  // Return an unqiue identifier for the contents of each string.
+  // The string is copied internally and can be destroyed after this called.
   // Virtual for testing.
-  virtual void PushSchedSwitch(uint32_t cpu,
-                               uint64_t timestamp,
-                               uint32_t prev_pid,
-                               uint32_t prev_state,
-                               const char* prev_comm,
-                               size_t prev_comm_len,
-                               uint32_t next_pid);
+  virtual StringId InternString(base::StringView);
 
-  // Adds a process entry for a given pid.
-  virtual void PushProcess(uint32_t pid,
-                           const char* process_name,
-                           size_t process_name_len);
+  Process* GetMutableProcess(UniquePid upid) {
+    PERFETTO_DCHECK(upid < unique_processes_.size());
+    return &unique_processes_[upid];
+  }
 
-  // Adds a thread entry for the tid.
-  virtual void MatchThreadToProcess(uint32_t tid, uint32_t tgid);
+  Thread* GetMutableThread(UniqueTid utid) {
+    PERFETTO_DCHECK(utid < unique_threads_.size());
+    return &unique_threads_[utid];
+  }
 
-  // Returns the bounds of a range that includes all UniquePids that have the
-  // requested pid.
-  UniqueProcessRange UpidsForPid(uint32_t pid);
+  // Example usage: SetStats(stats::android_log_num_failed, 42);
+  void SetStats(size_t key, int64_t value) {
+    PERFETTO_DCHECK(key < stats::kNumKeys);
+    PERFETTO_DCHECK(stats::kTypes[key] == stats::kSingle);
+    stats_[key].value = value;
+  }
 
-  // Returns the bounds of a range that includes all UniqueTids that have the
-  // requested tid.
-  UniqueThreadRange UtidsForTid(uint32_t tid);
+  // Example usage: IncrementStats(stats::android_log_num_failed, -1);
+  void IncrementStats(size_t key, int64_t increment = 1) {
+    PERFETTO_DCHECK(key < stats::kNumKeys);
+    PERFETTO_DCHECK(stats::kTypes[key] == stats::kSingle);
+    stats_[key].value += increment;
+  }
+
+  // Example usage: SetIndexedStats(stats::cpu_failure, 1, 42);
+  void SetIndexedStats(size_t key, int index, int64_t value) {
+    PERFETTO_DCHECK(key < stats::kNumKeys);
+    PERFETTO_DCHECK(stats::kTypes[key] == stats::kIndexed);
+    stats_[key].indexed_values[index] = value;
+  }
 
   // Reading methods.
-  const SlicesPerCpu& SlicesForCpu(uint32_t cpu) const {
-    PERFETTO_CHECK(cpu < cpu_events_.size());
-    return cpu_events_[cpu];
+  const std::string& GetString(StringId id) const {
+    PERFETTO_DCHECK(id < string_pool_.size());
+    return string_pool_[id];
   }
 
   const Process& GetProcess(UniquePid upid) const {
-    PERFETTO_CHECK(upid < unique_processes_.size());
+    PERFETTO_DCHECK(upid < unique_processes_.size());
     return unique_processes_[upid];
   }
 
   const Thread& GetThread(UniqueTid utid) const {
-    PERFETTO_CHECK(utid < unique_threads_.size());
+    // Allow utid == 0 for idle thread retrieval.
+    PERFETTO_DCHECK(utid < unique_threads_.size());
     return unique_threads_[utid];
   }
 
-  const std::string& GetString(StringId id) const {
-    PERFETTO_CHECK(id < string_pool_.size());
-    return string_pool_[id];
+  static RowId CreateRowId(TableId table, uint32_t row) {
+    static constexpr uint8_t kRowIdTableShift = 32;
+    return (static_cast<RowId>(table) << kRowIdTableShift) | row;
   }
+
+  const Slices& slices() const { return slices_; }
+  Slices* mutable_slices() { return &slices_; }
+
+  const NestableSlices& nestable_slices() const { return nestable_slices_; }
+  NestableSlices* mutable_nestable_slices() { return &nestable_slices_; }
+
+  const Counters& counters() const { return counters_; }
+  Counters* mutable_counters() { return &counters_; }
+
+  const SqlStats& sql_stats() const { return sql_stats_; }
+  SqlStats* mutable_sql_stats() { return &sql_stats_; }
+
+  const Instants& instants() const { return instants_; }
+  Instants* mutable_instants() { return &instants_; }
+
+  const AndroidLogs& android_logs() const { return android_log_; }
+  AndroidLogs* mutable_android_log() { return &android_log_; }
+
+  const StatsMap& stats() const { return stats_; }
+
+  const Args& args() const { return args_; }
+  Args* mutable_args() { return &args_; }
+
+  const RawEvents& raw_events() const { return raw_events_; }
+  RawEvents* mutable_raw_events() { return &raw_events_; }
+
+  const std::deque<std::string>& string_pool() const { return string_pool_; }
 
   // |unique_processes_| always contains at least 1 element becuase the 0th ID
   // is reserved to indicate an invalid process.
-  size_t process_count() const { return unique_processes_.size() - 1; }
+  size_t process_count() const { return unique_processes_.size(); }
+
   // |unique_threads_| always contains at least 1 element becuase the 0th ID
   // is reserved to indicate an invalid thread.
-  size_t thread_count() const { return unique_threads_.size() - 1; }
+  size_t thread_count() const { return unique_threads_.size(); }
+
+  // Number of interned strings in the pool. Includes the empty string w/ ID=0.
+  size_t string_count() const { return string_pool_.size(); }
 
  private:
-  using StringHash = uint32_t;
+  TraceStorage& operator=(const TraceStorage&) = default;
 
-  struct SchedSwitchEvent {
-    uint64_t cpu = 0;
-    uint64_t timestamp = 0;
-    uint32_t prev_pid = 0;
-    uint32_t prev_state = 0;
-    StringId prev_thread_name_id = 0;
-    uint32_t next_pid = 0;
+  using StringHash = uint64_t;
 
-    bool valid() const { return timestamp != 0; }
-  };
-
-  // Return an unqiue identifier for the contents of each string.
-  // The string is copied internally and can be destroyed after this called.
-  StringId InternString(const char* data, size_t length);
-
-  // Metadata counters for events being added.
-  Stats stats_;
+  // Stats about parsing the trace.
+  StatsMap stats_{};
 
   // One entry for each CPU in the trace.
-  std::array<SchedSwitchEvent, kMaxCpus> last_sched_per_cpu_;
+  Slices slices_;
 
-  // One entry for each CPU in the trace.
-  std::array<SlicesPerCpu, kMaxCpus> cpu_events_;
+  // Args for all other tables.
+  Args args_;
 
   // One entry for each unique string in the trace.
   std::deque<std::string> string_pool_;
@@ -212,19 +580,32 @@ class TraceStorage {
   // One entry for each unique string in the trace.
   std::unordered_map<StringHash, StringId> string_index_;
 
-  // Each pid can have multiple UniquePid entries, a new UniquePid is assigned
-  // each time a process is seen in the trace.
-  std::multimap<uint32_t, UniquePid> pids_;
-
   // One entry for each UniquePid, with UniquePid as the index.
   std::deque<Process> unique_processes_;
 
-  // Each tid can have multiple UniqueTid entries, a new UniqueTid is assigned
-  // each time a thread is seen in the trace.
-  std::multimap<uint32_t, UniqueTid> tids_;
-
   // One entry for each UniqueTid, with UniqueTid as the index.
   std::deque<Thread> unique_threads_;
+
+  // Slices coming from userspace events (e.g. Chromium TRACE_EVENT macros).
+  NestableSlices nestable_slices_;
+
+  // Counter events from the trace. This includes CPU frequency events as well
+  // systrace trace_marker counter events.
+  Counters counters_;
+
+  SqlStats sql_stats_;
+
+  // These are instantaneous events in the trace. They have no duration
+  // and do not have a value that make sense to track over time.
+  // e.g. signal events
+  Instants instants_;
+
+  // Raw events are every ftrace event in the trace. The raw event includes
+  // the timestamp and the pid. The args for the raw event will be in the
+  // args table. This table can be used to generate a text version of the
+  // trace.
+  RawEvents raw_events_;
+  AndroidLogs android_log_;
 };
 
 }  // namespace trace_processor

@@ -26,7 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VALIDATION_MESSAGE_CLIENT_IMPL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VALIDATION_MESSAGE_CLIENT_IMPL_H_
 
-#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/popup_opening_observer.h"
 #include "third_party/blink/renderer/core/page/validation_message_client.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
@@ -37,28 +37,29 @@
 namespace blink {
 
 class LocalFrameView;
-class PageOverlay;
+class FrameOverlay;
 class ValidationMessageOverlayDelegate;
-class WebViewImpl;
 
-class CORE_EXPORT ValidationMessageClientImpl final
+class ValidationMessageClientImpl final
     : public GarbageCollectedFinalized<ValidationMessageClientImpl>,
       public ValidationMessageClient,
       private PopupOpeningObserver {
   USING_GARBAGE_COLLECTED_MIXIN(ValidationMessageClientImpl);
 
  public:
-  static ValidationMessageClientImpl* Create(WebViewImpl&);
+  static ValidationMessageClientImpl* Create(Page&);
+
+  ValidationMessageClientImpl(Page&);
   ~ValidationMessageClientImpl() override;
 
   void Trace(blink::Visitor*) override;
 
  private:
-  ValidationMessageClientImpl(WebViewImpl&);
   void CheckAnchorStatus(TimerBase*);
   LocalFrameView* CurrentView();
   void HideValidationMessageImmediately(const Element& anchor);
   void Reset(TimerBase*);
+  void ValidationMessageVisibilityChanged(const Element& anchor);
 
   void ShowValidationMessage(const Element& anchor,
                              const String& message,
@@ -71,18 +72,20 @@ class CORE_EXPORT ValidationMessageClientImpl final
   void WillBeDestroyed() override;
   void LayoutOverlay() override;
   void PaintOverlay() override;
+  void PaintOverlay(GraphicsContext&) override;
 
   // PopupOpeningObserver function
   void WillOpenPopup() override;
 
-  WebViewImpl& web_view_;
+  Member<Page> page_;
   Member<const Element> current_anchor_;
   String message_;
   TimeTicks finish_time_;
   std::unique_ptr<TimerBase> timer_;
-  std::unique_ptr<PageOverlay> overlay_;
+  std::unique_ptr<FrameOverlay> overlay_;
   // Raw pointer. This pointer is valid unless overlay_ is nullptr.
   ValidationMessageOverlayDelegate* overlay_delegate_ = nullptr;
+  bool allow_initial_empty_anchor_ = false;
 };
 
 }  // namespace blink

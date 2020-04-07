@@ -24,7 +24,7 @@
 namespace crashpad {
 class CrashpadClient;
 class CrashReportDatabase;
-}
+}  // namespace crashpad
 
 namespace crash_reporter {
 
@@ -69,6 +69,20 @@ void InitializeCrashpadWithEmbeddedHandler(bool initial_client,
                                            const std::string& process_type,
                                            const std::string& user_data_dir,
                                            const base::FilePath& exe_path);
+
+// This version of InitializeCrashpadWithEmbeddedHandler is used to call an
+// embedded crash handler that comes from an entry point in a DLL. The command
+// line for these kind of embedded handlers is usually:
+// C:\Windows\System32\rundll.exe <path to dll>,<entrypoint> ...
+// In this situation the exe_path is not sufficient to allow spawning a crash
+// handler through the DLL so |initial_arguments| needs to be passed to
+// specify the DLL entry point.
+void InitializeCrashpadWithDllEmbeddedHandler(
+    bool initial_client,
+    const std::string& process_type,
+    const std::string& user_data_dir,
+    const base::FilePath& exe_path,
+    const std::vector<std::string>& initial_arguments);
 #endif  // OS_WIN
 
 // Returns the CrashpadClient for this process. This will lazily create it if
@@ -116,6 +130,12 @@ void RequestSingleCrashUpload(const std::string& local_id);
 
 void DumpWithoutCrashing();
 
+#if defined(OS_LINUX) || defined(OS_ANDROID)
+// Logs message and immediately crashes the current process without triggering a
+// crash dump.
+void CrashWithoutDumping(const std::string& message);
+#endif  // defined(OS_LINUX) || defined(OS_ANDROID)
+
 // Returns the Crashpad database path, only valid in the browser.
 base::FilePath GetCrashpadDatabasePath();
 
@@ -133,6 +153,14 @@ base::FilePath::StringType::const_pointer GetCrashpadDatabasePathImpl();
 // in the current crash report database.
 void DumpProcessWithoutCrashing(task_t task_port);
 #endif
+
+#if defined(OS_ANDROID)
+// This is used by WebView to generate a dump on behalf of the embedding app.
+// This function can only be called from the browser process. Returns `true` on
+// success.
+class CrashReporterClient;
+bool DumpWithoutCrashingForClient(CrashReporterClient* client);
+#endif  // OS_ANDROID
 
 namespace internal {
 
@@ -155,14 +183,9 @@ void UnregisterNonABICompliantCodeRangeImpl(void* start);
 #endif  // defined(OS_WIN)
 
 #if defined(OS_LINUX) || defined(OS_ANDROID)
-// Sets parameters to appropriate values to launch Crashpad's handler process.
-// Returns true on success, otherwise false.
-bool BuildHandlerArgs(base::FilePath* handler_path,
-                      base::FilePath* database_path,
-                      base::FilePath* metrics_path,
-                      std::string* url,
-                      std::map<std::string, std::string>* process_annotations,
-                      std::vector<std::string>* arguments);
+// Starts the handler process with an initial client connected on fd.
+// Returns `true` on success.
+bool StartHandlerForClient(int fd);
 #endif  // OS_LINUX || OS_ANDROID
 
 // The platform-specific portion of InitializeCrashpad(). On Windows, if
@@ -170,11 +193,13 @@ bool BuildHandlerArgs(base::FilePath* handler_path,
 // handler process for use by Chrome Crashpad extensions; if |exe_path| is
 // non-empty, it specifies the path to the executable holding the embedded
 // handler. Returns the database path, if initializing in the browser process.
-base::FilePath PlatformCrashpadInitialization(bool initial_client,
-                                              bool browser_process,
-                                              bool embedded_handler,
-                                              const std::string& user_data_dir,
-                                              const base::FilePath& exe_path);
+base::FilePath PlatformCrashpadInitialization(
+    bool initial_client,
+    bool browser_process,
+    bool embedded_handler,
+    const std::string& user_data_dir,
+    const base::FilePath& exe_path,
+    const std::vector<std::string>& initial_arguments);
 
 // Returns the current crash report database object, or null if it has not
 // been initialized yet.

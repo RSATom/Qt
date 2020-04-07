@@ -1,12 +1,14 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtquickcontrols2.qdocconf)
 include(manifest-meta.qdocconf)
+
+moduleheader            = QtQuickControls2
 
 project                 = QtQuickControls
 description             = Qt Quick Controls Reference Documentation
 version                 = $QT_VERSION
 
 qhp.projects            = QtQuickControls
-moduleheader            = QtQuickControls2
 
 qhp.QtQuickControls.file          = qtquickcontrols.qhp
 qhp.QtQuickControls.namespace     = org.qt-project.qtquickcontrols.$QT_VERSION_TAG
@@ -31,7 +33,7 @@ qhp.QtQuickControls.subprojects.examples.title = Examples
 qhp.QtQuickControls.subprojects.examples.indexTitle = Qt Quick Controls Examples
 qhp.QtQuickControls.subprojects.examples.selectors = fake:example
 
-depends = qtcore qtgui qtdoc qtqml qtquick qtquickdialogs qtquickcontrols1 qtquickextras qmake qtsql qtwidgets qtlabscalendar qtlabsplatform
+depends = qtcore qtgui qtdoc qtqml qtquick qtquickdialogs qtquickcontrols1 qtquickextras qmake qtsql qtwidgets qtlabscalendar qtlabsplatform qtgraphicaleffects
 
 # Specify the install path under QT_INSTALL_EXAMPLES
 # Note: paths passed to \example command must contain the parent directory, e.g.

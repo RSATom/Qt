@@ -37,7 +37,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 DateTimeFieldElement::FieldOwner::~FieldOwner() = default;
 
@@ -45,7 +45,7 @@ DateTimeFieldElement::DateTimeFieldElement(Document& document,
                                            FieldOwner& field_owner)
     : HTMLSpanElement(document), field_owner_(&field_owner) {}
 
-void DateTimeFieldElement::Trace(blink::Visitor* visitor) {
+void DateTimeFieldElement::Trace(Visitor* visitor) {
   visitor->Trace(field_owner_);
   HTMLSpanElement::Trace(visitor);
 }
@@ -55,12 +55,12 @@ float DateTimeFieldElement::ComputeTextWidth(const ComputedStyle& style,
   return style.GetFont().Width(ConstructTextRun(style.GetFont(), text, style));
 }
 
-void DateTimeFieldElement::DefaultEventHandler(Event* event) {
-  if (event->IsKeyboardEvent()) {
-    KeyboardEvent* keyboard_event = ToKeyboardEvent(event);
+void DateTimeFieldElement::DefaultEventHandler(Event& event) {
+  if (event.IsKeyboardEvent()) {
+    auto& keyboard_event = ToKeyboardEvent(event);
     if (!IsDisabled() && !IsFieldOwnerDisabled() && !IsFieldOwnerReadOnly()) {
       HandleKeyboardEvent(keyboard_event);
-      if (keyboard_event->DefaultHandled()) {
+      if (keyboard_event.DefaultHandled()) {
         if (field_owner_)
           field_owner_->FieldDidChangeValueByKeyboard();
         return;
@@ -69,7 +69,7 @@ void DateTimeFieldElement::DefaultEventHandler(Event* event) {
     DefaultKeyboardEventHandler(keyboard_event);
     if (field_owner_)
       field_owner_->FieldDidChangeValueByKeyboard();
-    if (keyboard_event->DefaultHandled())
+    if (keyboard_event.DefaultHandled())
       return;
   }
 
@@ -77,14 +77,14 @@ void DateTimeFieldElement::DefaultEventHandler(Event* event) {
 }
 
 void DateTimeFieldElement::DefaultKeyboardEventHandler(
-    KeyboardEvent* keyboard_event) {
-  if (keyboard_event->type() != EventTypeNames::keydown)
+    KeyboardEvent& keyboard_event) {
+  if (keyboard_event.type() != event_type_names::kKeydown)
     return;
 
   if (IsDisabled() || IsFieldOwnerDisabled())
     return;
 
-  const String& key = keyboard_event->key();
+  const String& key = keyboard_event.key();
 
   if (key == "ArrowLeft") {
     if (!field_owner_)
@@ -92,7 +92,7 @@ void DateTimeFieldElement::DefaultKeyboardEventHandler(
     // FIXME: We'd like to use FocusController::advanceFocus(FocusDirectionLeft,
     // ...) but it doesn't work for shadow nodes. webkit.org/b/104650
     if (!LocaleForOwner().IsRTL() && field_owner_->FocusOnPreviousField(*this))
-      keyboard_event->SetDefaultHandled();
+      keyboard_event.SetDefaultHandled();
     return;
   }
 
@@ -103,7 +103,7 @@ void DateTimeFieldElement::DefaultKeyboardEventHandler(
     // FocusController::advanceFocus(FocusDirectionRight, ...)
     // but it doesn't work for shadow nodes. webkit.org/b/104650
     if (!LocaleForOwner().IsRTL() && field_owner_->FocusOnNextField(*this))
-      keyboard_event->SetDefaultHandled();
+      keyboard_event.SetDefaultHandled();
     return;
   }
 
@@ -111,21 +111,21 @@ void DateTimeFieldElement::DefaultKeyboardEventHandler(
     return;
 
   if (key == "ArrowDown") {
-    if (keyboard_event->getModifierState("Alt"))
+    if (keyboard_event.getModifierState("Alt"))
       return;
-    keyboard_event->SetDefaultHandled();
+    keyboard_event.SetDefaultHandled();
     StepDown();
     return;
   }
 
   if (key == "ArrowUp") {
-    keyboard_event->SetDefaultHandled();
+    keyboard_event.SetDefaultHandled();
     StepUp();
     return;
   }
 
   if (key == "Backspace" || key == "Delete") {
-    keyboard_event->SetDefaultHandled();
+    keyboard_event.SetDefaultHandled();
     SetEmptyValue(kDispatchEvent);
     return;
   }
@@ -154,12 +154,12 @@ void DateTimeFieldElement::Initialize(const AtomicString& pseudo,
                                       int ax_minimum,
                                       int ax_maximum) {
   // On accessibility, DateTimeFieldElement acts like spin button.
-  setAttribute(roleAttr, AtomicString("spinbutton"));
-  setAttribute(aria_placeholderAttr, AtomicString(Placeholder()));
-  setAttribute(aria_valueminAttr, AtomicString::Number(ax_minimum));
-  setAttribute(aria_valuemaxAttr, AtomicString::Number(ax_maximum));
+  setAttribute(kRoleAttr, AtomicString("spinbutton"));
+  setAttribute(kAriaPlaceholderAttr, AtomicString(Placeholder()));
+  setAttribute(kAriaValueminAttr, AtomicString::Number(ax_minimum));
+  setAttribute(kAriaValuemaxAttr, AtomicString::Number(ax_maximum));
 
-  setAttribute(aria_labelAttr, AtomicString(ax_help_text));
+  setAttribute(kAriaLabelAttr, AtomicString(ax_help_text));
   SetShadowPseudoId(pseudo);
   AppendChild(Text::Create(GetDocument(), VisibleValue()));
 }
@@ -177,7 +177,7 @@ bool DateTimeFieldElement::IsFieldOwnerReadOnly() const {
 }
 
 bool DateTimeFieldElement::IsDisabled() const {
-  return FastHasAttribute(disabledAttr);
+  return FastHasAttribute(kDisabledAttr);
 }
 
 Locale& DateTimeFieldElement::LocaleForOwner() const {
@@ -195,11 +195,11 @@ float DateTimeFieldElement::MaximumWidth(const ComputedStyle&) {
 
 void DateTimeFieldElement::SetDisabled() {
   // Set HTML attribute disabled to change apperance.
-  SetBooleanAttribute(disabledAttr, true);
-  SetNeedsStyleRecalc(
-      kSubtreeStyleChange,
-      StyleChangeReasonForTracing::CreateWithExtraData(
-          StyleChangeReason::kPseudoClass, StyleChangeExtraData::g_disabled));
+  SetBooleanAttribute(kDisabledAttr, true);
+  SetNeedsStyleRecalc(kSubtreeStyleChange,
+                      StyleChangeReasonForTracing::CreateWithExtraData(
+                          style_change_reason::kPseudoClass,
+                          style_change_extra_data::g_disabled));
 }
 
 bool DateTimeFieldElement::SupportsFocus() const {
@@ -216,12 +216,12 @@ void DateTimeFieldElement::UpdateVisibleValue(EventBehavior event_behavior) {
 
   text_node->ReplaceWholeText(new_visible_value);
   if (HasValue()) {
-    setAttribute(aria_valuenowAttr,
+    setAttribute(kAriaValuenowAttr,
                  AtomicString::Number(ValueForARIAValueNow()));
-    setAttribute(aria_valuetextAttr, AtomicString(new_visible_value));
+    setAttribute(kAriaValuetextAttr, AtomicString(new_visible_value));
   } else {
-    removeAttribute(aria_valuenowAttr);
-    removeAttribute(aria_valuetextAttr);
+    removeAttribute(kAriaValuenowAttr);
+    removeAttribute(kAriaValuetextAttr);
   }
 
   if (event_behavior == kDispatchEvent && field_owner_)

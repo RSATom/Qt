@@ -12,16 +12,13 @@
 #include "ui/gfx/switches.h"
 #include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_types.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_egl_api_implementation.h"
-#include "ui/gl/gl_features.h"
 #include "ui/gl/gl_gl_api_implementation.h"
 #include "ui/gl/gl_glx_api_implementation.h"
-#include "ui/gl/gl_implementation_osmesa.h"
-#include "ui/gl/gl_osmesa_api_implementation.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_surface_glx.h"
-#include "ui/gl/gl_surface_osmesa_x11.h"
 #include "ui/gl/gl_switches.h"
 
 namespace gl {
@@ -145,23 +142,10 @@ bool InitializeStaticEGLInternal(GLImplementation implementation) {
 
 #if !defined(TOOLKIT_QT)
 bool InitializeGLOneOffPlatform() {
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kHeadless) &&
-      command_line->GetSwitchValueASCII(switches::kUseGL) ==
-          kGLImplementationOSMesaName)
-    return true;
-
   switch (GetGLImplementation()) {
     case kGLImplementationDesktopGL:
       if (!GLSurfaceGLX::InitializeOneOff()) {
         LOG(ERROR) << "GLSurfaceGLX::InitializeOneOff failed.";
-        return false;
-      }
-      return true;
-    case kGLImplementationOSMesaGL:
-      if (!GLSurfaceOSMesaX11::InitializeOneOff()) {
-        LOG(ERROR) << "GLSurfaceOSMesaX11::InitializeOneOff failed.";
         return false;
       }
       return true;
@@ -190,8 +174,6 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
   base::ThreadRestrictions::ScopedAllowIO allow_io;
 
   switch (implementation) {
-    case kGLImplementationOSMesaGL:
-      return InitializeStaticGLBindingsOSMesaGL();
     case kGLImplementationDesktopGL:
       return InitializeStaticGLXInternal();
     case kGLImplementationSwiftShaderGL:
@@ -214,7 +196,6 @@ void InitializeDebugGLBindings() {
   InitializeDebugGLBindingsEGL();
   InitializeDebugGLBindingsGL();
   InitializeDebugGLBindingsGLX();
-  InitializeDebugGLBindingsOSMESA();
 }
 
 void ShutdownGLPlatform() {
@@ -223,7 +204,6 @@ void ShutdownGLPlatform() {
   ClearBindingsEGL();
   ClearBindingsGL();
   ClearBindingsGLX();
-  ClearBindingsOSMESA();
 }
 
 }  // namespace init

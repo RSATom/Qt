@@ -14,18 +14,22 @@
 #include "core/fxcrt/maybe_owned.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
+#include "third_party/base/span.h"
 
-class CFX_DIBSource;
+class CFX_DIBBase;
 class CFX_DIBitmap;
 class CPDF_Document;
 class CPDF_Page;
 class PauseIndicatorIface;
 class IFX_SeekableReadStream;
 
-class CPDF_Image : public Retainable {
+class CPDF_Image final : public Retainable {
  public:
   template <typename T, typename... Args>
   friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+
+  static bool IsValidJpegComponent(int32_t comps);
+  static bool IsValidJpegBitsPerComponent(int32_t bpc);
 
   void ConvertStreamToIndirectObject();
 
@@ -41,29 +45,29 @@ class CPDF_Image : public Retainable {
   bool IsMask() const { return m_bIsMask; }
   bool IsInterpol() const { return m_bInterpolate; }
 
-  RetainPtr<CFX_DIBSource> LoadDIBSource() const;
+  RetainPtr<CFX_DIBBase> LoadDIBBase() const;
 
   void SetImage(const RetainPtr<CFX_DIBitmap>& pDIBitmap);
   void SetJpegImage(const RetainPtr<IFX_SeekableReadStream>& pFile);
   void SetJpegImageInline(const RetainPtr<IFX_SeekableReadStream>& pFile);
 
-  void ResetCache(CPDF_Page* pPage, const RetainPtr<CFX_DIBitmap>& pDIBitmap);
+  void ResetCache(CPDF_Page* pPage);
 
   // Returns whether to Continue() or not.
-  bool StartLoadDIBSource(const CPDF_Dictionary* pFormResource,
-                          CPDF_Dictionary* pPageResource,
-                          bool bStdCS = false,
-                          uint32_t GroupFamily = 0,
-                          bool bLoadMask = false);
+  bool StartLoadDIBBase(const CPDF_Dictionary* pFormResource,
+                        CPDF_Dictionary* pPageResource,
+                        bool bStdCS,
+                        uint32_t GroupFamily,
+                        bool bLoadMask);
 
   // Returns whether to Continue() or not.
   bool Continue(PauseIndicatorIface* pPause);
 
-  RetainPtr<CFX_DIBSource> DetachBitmap();
-  RetainPtr<CFX_DIBSource> DetachMask();
+  RetainPtr<CFX_DIBBase> DetachBitmap();
+  RetainPtr<CFX_DIBBase> DetachMask();
 
-  RetainPtr<CFX_DIBSource> m_pDIBSource;
-  RetainPtr<CFX_DIBSource> m_pMask;
+  RetainPtr<CFX_DIBBase> m_pDIBBase;
+  RetainPtr<CFX_DIBBase> m_pMask;
   uint32_t m_MatteColor = 0;
 
  private:
@@ -73,7 +77,7 @@ class CPDF_Image : public Retainable {
   ~CPDF_Image() override;
 
   void FinishInitialization(CPDF_Dictionary* pStreamDict);
-  std::unique_ptr<CPDF_Dictionary> InitJPEG(uint8_t* pData, uint32_t size);
+  std::unique_ptr<CPDF_Dictionary> InitJPEG(pdfium::span<uint8_t> src_span);
 
   int32_t m_Height = 0;
   int32_t m_Width = 0;

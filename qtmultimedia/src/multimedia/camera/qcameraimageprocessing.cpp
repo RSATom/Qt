@@ -130,7 +130,7 @@ void QCameraImageProcessingPrivate::initControls()
     if (service)
         imageControl = qobject_cast<QCameraImageProcessingControl *>(service->requestControl(QCameraImageProcessingControl_iid));
 
-    available = (imageControl != 0);
+    available = (imageControl != nullptr);
 
     if (!imageControl)
         imageControl = new QCameraImageProcessingFakeControl(q_ptr);
@@ -400,6 +400,6 @@ bool QCameraImageProcessing::isColorFilterSupported(QCameraImageProcessing::Colo
 
 }
 
+QT_END_NAMESPACE
 
 #include "moc_qcameraimageprocessing.cpp"
-QT_END_NAMESPACE

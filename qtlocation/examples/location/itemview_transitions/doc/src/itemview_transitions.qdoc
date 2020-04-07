@@ -29,7 +29,7 @@
 \example itemview_transitions
 \title MapItemView Transitions (QML)
 \ingroup qtlocation-examples
-\brief How to use transitions together with MapItemView
+\brief How to use transitions together with MapItemView.
 \image itemview_transitions.jpg
 
 \e {MapItemView Transitions} demonstrates how to use the \l{Map} item to render a map.

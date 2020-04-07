@@ -16,6 +16,7 @@
 #include "components/guest_view/common/guest_view_messages.h"
 #include "components/zoom/page_zoom.h"
 #include "components/zoom/zoom_controller.h"
+#include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/guest_mode.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -108,13 +109,6 @@ class GuestViewBase::OwnerContentsObserver : public WebContentsObserver {
     }
   }
 
-  void OnPageScaleFactorChanged(float page_scale_factor) override {
-    if (destroyed_)
-      return;
-
-    guest_->web_contents()->SetPageScale(page_scale_factor);
-  }
-
   void DidUpdateAudioMutingState(bool muted) override {
     if (destroyed_)
       return;
@@ -136,7 +130,16 @@ class GuestViewBase::OwnerContentsObserver : public WebContentsObserver {
     if (destroyed_)
       return;
     destroyed_ = true;
-    guest_->Destroy(true);
+
+    bool also_delete = true;
+    WebContents* guest_web_contents = guest_->web_contents();
+    if (content::GuestMode::IsCrossProcessFrameGuest(guest_web_contents)) {
+      // The outer WebContents have ownership of attached OOPIF-based guests, so
+      // we are not responsible for their deletion.
+      if (guest_web_contents->GetOuterWebContents())
+        also_delete = false;
+    }
+    guest_->Destroy(also_delete);
   }
 
   DISALLOW_COPY_AND_ASSIGN(OwnerContentsObserver);
@@ -204,7 +207,7 @@ void GuestViewBase::Init(const base::DictionaryValue& create_params,
   CreateWebContents(create_params,
                     base::BindOnce(&GuestViewBase::CompleteInit,
                                    weak_ptr_factory_.GetWeakPtr(),
-                                   base::Passed(&params), std::move(callback)));
+                                   std::move(params), std::move(callback)));
 }
 
 void GuestViewBase::InitWithWebContents(
@@ -467,8 +470,6 @@ void GuestViewBase::Destroy(bool also_delete) {
   StopTrackingEmbedderZoomLevel();
   owner_web_contents_ = nullptr;
 
-  element_instance_id_ = kInstanceIDNone;
-
   DCHECK(web_contents());
 
   // Give the derived class an opportunity to perform some cleanup.
@@ -516,16 +517,16 @@ void GuestViewBase::SetGuestHost(content::GuestHost* guest_host) {
 void GuestViewBase::WillAttach(WebContents* embedder_web_contents,
                                int element_instance_id,
                                bool is_full_page_plugin,
-                               const base::Closure& completion_callback) {
-  WillAttach(embedder_web_contents, element_instance_id, is_full_page_plugin,
-             base::OnceClosure(), completion_callback);
+                               base::OnceClosure completion_callback) {
+  WillAttach(embedder_web_contents, nullptr, element_instance_id,
+             is_full_page_plugin, std::move(completion_callback));
 }
 
 void GuestViewBase::WillAttach(WebContents* embedder_web_contents,
+                               content::RenderFrameHost* outer_contents_frame,
                                int element_instance_id,
                                bool is_full_page_plugin,
-                               base::OnceClosure perform_attach,
-                               const base::Closure& completion_callback) {
+                               base::OnceClosure completion_callback) {
   // Stop tracking the old embedder's zoom level.
   if (owner_web_contents())
     StopTrackingEmbedderZoomLevel();
@@ -546,18 +547,27 @@ void GuestViewBase::WillAttach(WebContents* embedder_web_contents,
 
   WillAttachToEmbedder();
 
-  if (perform_attach)
-    std::move(perform_attach).Run();
-
+  if (content::GuestMode::IsCrossProcessFrameGuest(web_contents())) {
+    web_contents()->AttachToOuterWebContentsFrame(
+        base::WrapUnique<WebContents>(web_contents()), outer_contents_frame);
+    // TODO(ekaramad): MimeHandlerViewGuest might not need this ACK
+    // (https://crbug.com/659750).
+    // We don't ACK until after AttachToOuterWebContentsFrame, so that
+    // |outer_contents_frame| gets swapped before the AttachIframeGuest callback
+    // is run. We also need to send the ACK before queued events are sent in
+    // DidAttach.
+    embedder_web_contents->GetMainFrame()->Send(
+        new GuestViewMsg_AttachToEmbedderFrame_ACK(element_instance_id));
+  }
   // Completing attachment will resume suspended resource loads and then send
   // queued events.
-  SignalWhenReady(completion_callback);
+  SignalWhenReady(std::move(completion_callback));
 }
 
-void GuestViewBase::SignalWhenReady(const base::Closure& callback) {
+void GuestViewBase::SignalWhenReady(base::OnceClosure callback) {
   // The default behavior is to call the |callback| immediately. Derived classes
   // can implement an alternative signal for readiness.
-  callback.Run();
+  std::move(callback).Run();
 }
 
 int GuestViewBase::LogicalPixelsToPhysicalPixels(double logical_pixels) const {
@@ -626,20 +636,20 @@ void GuestViewBase::ContentsMouseEvent(WebContents* source,
 }
 
 void GuestViewBase::ContentsZoomChange(bool zoom_in) {
-  zoom::PageZoom::Zoom(embedder_web_contents(), zoom_in
-                                                    ? content::PAGE_ZOOM_IN
-                                                    : content::PAGE_ZOOM_OUT);
+  if (!attached() || !embedder_web_contents()->GetDelegate())
+    return;
+  embedder_web_contents()->GetDelegate()->ContentsZoomChange(zoom_in);
 }
 
-void GuestViewBase::HandleKeyboardEvent(
+bool GuestViewBase::HandleKeyboardEvent(
     WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
   if (!attached())
-    return;
+    return false;
 
   // Send the keyboard events back to the embedder to reprocess them.
-  embedder_web_contents()->GetDelegate()->
-      HandleKeyboardEvent(embedder_web_contents(), event);
+  return embedder_web_contents()->GetDelegate()->HandleKeyboardEvent(
+      embedder_web_contents(), event);
 }
 
 void GuestViewBase::LoadingStateChanged(WebContents* source,
@@ -667,13 +677,17 @@ void GuestViewBase::ResizeDueToAutoResize(WebContents* web_contents,
   UpdateGuestSize(new_size, auto_size_enabled_);
 }
 
-void GuestViewBase::RunFileChooser(content::RenderFrameHost* render_frame_host,
-                                   const content::FileChooserParams& params) {
-  if (!attached() || !embedder_web_contents()->GetDelegate())
+void GuestViewBase::RunFileChooser(
+    content::RenderFrameHost* render_frame_host,
+    std::unique_ptr<content::FileSelectListener> listener,
+    const blink::mojom::FileChooserParams& params) {
+  if (!attached() || !embedder_web_contents()->GetDelegate()) {
+    listener->FileSelectionCanceled();
     return;
+  }
 
-  embedder_web_contents()->GetDelegate()->RunFileChooser(render_frame_host,
-                                                         params);
+  embedder_web_contents()->GetDelegate()->RunFileChooser(
+      render_frame_host, std::move(listener), params);
 }
 
 bool GuestViewBase::ShouldFocusPageAfterCrash() {
@@ -683,7 +697,13 @@ bool GuestViewBase::ShouldFocusPageAfterCrash() {
 
 bool GuestViewBase::PreHandleGestureEvent(WebContents* source,
                                           const blink::WebGestureEvent& event) {
-  return blink::WebInputEvent::IsPinchGestureEventType(event.GetType());
+  // Pinch events which cause a scale change should not be routed to a guest.
+  // We still allow synthetic wheel events for touchpad pinch to go to the page.
+  DCHECK(!blink::WebInputEvent::IsPinchGestureEventType(event.GetType()) ||
+         (event.SourceDevice() ==
+              blink::WebGestureDevice::kWebGestureDeviceTouchpad &&
+          event.NeedsWheelEvent()));
+  return false;
 }
 
 void GuestViewBase::UpdatePreferredSize(WebContents* target_web_contents,
@@ -730,6 +750,18 @@ content::SiteInstance* GuestViewBase::GetOwnerSiteInstance() {
   if (auto* owner_contents = GetOwnerWebContents())
     return owner_contents->GetSiteInstance();
   return nullptr;
+}
+
+void GuestViewBase::AttachToOuterWebContentsFrame(
+    content::RenderFrameHost* embedder_frame,
+    int32_t element_instance_id,
+    bool is_full_page_plugin) {
+  auto completion_callback =
+      base::BindOnce(&GuestViewBase::DidAttach, weak_ptr_factory_.GetWeakPtr(),
+                     MSG_ROUTING_NONE);
+  WillAttach(WebContents::FromRenderFrameHost(embedder_frame), embedder_frame,
+             element_instance_id, is_full_page_plugin,
+             std::move(completion_callback));
 }
 
 void GuestViewBase::OnZoomChanged(

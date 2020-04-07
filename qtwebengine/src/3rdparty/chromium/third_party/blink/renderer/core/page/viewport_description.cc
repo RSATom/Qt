@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/core/page/viewport_description.h"
 
 #include "build/build_config.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -85,7 +86,7 @@ float ViewportDescription::ResolveViewportLength(
 
 PageScaleConstraints ViewportDescription::Resolve(
     const FloatSize& initial_viewport_size,
-    Length legacy_fallback_width) const {
+    const Length& legacy_fallback_width) const {
   float result_width = kValueAuto;
 
   Length copy_max_width = max_width;
@@ -301,7 +302,9 @@ void ViewportDescription::ReportMobilePageStats(
 }
 
 bool ViewportDescription::MatchesHeuristicsForGpuRasterization() const {
-  return IsSpecifiedByAuthor();
+  bool enable_viewport_restriction = base::FeatureList::IsEnabled(
+      features::kEnableGpuRasterizationViewportRestriction);
+  return !enable_viewport_restriction || IsSpecifiedByAuthor();
 }
 
 }  // namespace blink

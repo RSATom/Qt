@@ -7,18 +7,42 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "content/browser/indexed_db/indexed_db_leveldb_coding.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
 
 namespace content {
+
+// static
+void IndexedDBBlobInfo::ConvertBlobInfo(
+    const std::vector<IndexedDBBlobInfo>& blob_info,
+    std::vector<blink::mojom::IDBBlobInfoPtr>* blob_or_file_info) {
+  blob_or_file_info->reserve(blob_info.size());
+  for (const auto& iter : blob_info) {
+    if (!iter.mark_used_callback().is_null())
+      iter.mark_used_callback().Run();
+
+    auto info = blink::mojom::IDBBlobInfo::New();
+    info->mime_type = iter.type();
+    info->size = iter.size();
+    if (iter.is_file()) {
+      info->file = blink::mojom::IDBFileInfo::New();
+      info->file->name = iter.file_name();
+      info->file->path = iter.file_path();
+      info->file->last_modified = iter.last_modified();
+    }
+    blob_or_file_info->push_back(std::move(info));
+  }
+}
 
 IndexedDBBlobInfo::IndexedDBBlobInfo()
     : is_file_(false), size_(-1), key_(DatabaseMetaDataKey::kInvalidBlobKey) {
 }
 
-IndexedDBBlobInfo::IndexedDBBlobInfo(const std::string& uuid,
-                                     const base::string16& type,
-                                     int64_t size)
+IndexedDBBlobInfo::IndexedDBBlobInfo(
+    std::unique_ptr<storage::BlobDataHandle> blob_handle,
+    const base::string16& type,
+    int64_t size)
     : is_file_(false),
-      uuid_(uuid),
+      blob_handle_(*blob_handle),
       type_(type),
       size_(size),
       key_(DatabaseMetaDataKey::kInvalidBlobKey) {}
@@ -28,18 +52,18 @@ IndexedDBBlobInfo::IndexedDBBlobInfo(const base::string16& type,
                                      int64_t key)
     : is_file_(false), type_(type), size_(size), key_(key) {}
 
-IndexedDBBlobInfo::IndexedDBBlobInfo(const std::string& uuid,
-                                     const base::FilePath& file_path,
-                                     const base::string16& file_name,
-                                     const base::string16& type)
+IndexedDBBlobInfo::IndexedDBBlobInfo(
+    std::unique_ptr<storage::BlobDataHandle> blob_handle,
+    const base::FilePath& file_path,
+    const base::string16& file_name,
+    const base::string16& type)
     : is_file_(true),
-      uuid_(uuid),
+      blob_handle_(*blob_handle),
       type_(type),
       size_(-1),
       file_name_(file_name),
       file_path_(file_path),
-      key_(DatabaseMetaDataKey::kInvalidBlobKey) {
-}
+      key_(DatabaseMetaDataKey::kInvalidBlobKey) {}
 
 IndexedDBBlobInfo::IndexedDBBlobInfo(int64_t key,
                                      const base::string16& type,
@@ -60,12 +84,6 @@ IndexedDBBlobInfo& IndexedDBBlobInfo::operator=(
 void IndexedDBBlobInfo::set_size(int64_t size) {
   DCHECK_EQ(-1, size_);
   size_ = size;
-}
-
-void IndexedDBBlobInfo::set_uuid(const std::string& uuid) {
-  DCHECK(uuid_.empty());
-  uuid_ = uuid;
-  DCHECK(!uuid_.empty());
 }
 
 void IndexedDBBlobInfo::set_file_path(const base::FilePath& file_path) {

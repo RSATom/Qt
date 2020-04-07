@@ -1,7 +1,7 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
+
 // The pure virtual class for send side congestion control algorithm.
 
 #ifndef NET_THIRD_PARTY_QUIC_CORE_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_
@@ -106,7 +106,9 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
 
   // True when the congestion control is probing for more bandwidth and needs
   // enough data to not be app-limited to do so.
-  virtual bool IsProbingForMoreBandwidth() const = 0;
+  // TODO(ianswett): In the future, this API may want to indicate the size of
+  // the probing packet.
+  virtual bool ShouldSendProbingPacket() const = 0;
 
   // Returns the size of the slow start congestion window in bytes,
   // aka ssthresh.  Only defined for Cubic and Reno, other algorithms return 0.

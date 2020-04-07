@@ -43,7 +43,9 @@
 #include "qtextcodec.h"
 #endif
 #include "qbuffer.h"
-#include "qregexp.h"
+#if QT_CONFIG(regularexpression)
+#include "qregularexpression.h"
+#endif
 #include "qmap.h"
 #include "qhash.h"
 #include "qstack.h"
@@ -193,19 +195,23 @@ static const signed char charLookupTable[256]={
 */
 static bool stripTextDecl(QString& str)
 {
-    QString textDeclStart(QLatin1String("<?xml"));
+    QLatin1String textDeclStart("<?xml");
     if (str.startsWith(textDeclStart)) {
-        QRegExp textDecl(QString::fromLatin1(
+#if QT_CONFIG(regularexpression)
+        QRegularExpression textDecl(QString::fromLatin1(
             "^<\\?xml\\s+"
             "(version\\s*=\\s*((['\"])[-a-zA-Z0-9_.:]+\\3))?"
             "\\s*"
             "(encoding\\s*=\\s*((['\"])[A-Za-z][-a-zA-Z0-9_.]*\\6))?"
             "\\s*\\?>"
-       ));
+        ));
         QString strTmp = str.replace(textDecl, QLatin1String(""));
         if (strTmp.length() != str.length())
             return false; // external entity has wrong TextDecl
         str = strTmp;
+#else
+        return false;
+#endif
     }
     return true;
 }
@@ -2365,7 +2371,7 @@ bool QXmlDefaultHandler::unparsedEntityDecl(const QString&, const QString&,
 /*!
     \reimp
 
-    Sets \a ret to 0, so that the reader uses the system identifier
+    Sets \a ret to \nullptr, so that the reader uses the system identifier
     provided in the XML document.
 */
 bool QXmlDefaultHandler::resolveEntity(const QString&, const QString&,
@@ -2607,8 +2613,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
     is returned. If no such feature exists the return value is
     undefined.
 
-    If \a ok is not 0: \c{*}\a{ok}  is set to true if the reader has the
-    feature called \a name; otherwise \c{*}\a{ok} is set to false.
+    If \a ok is not \nullptr: \c{*}\a{ok}  is set to true if the
+    reader has the feature called \a name; otherwise \c{*}\a{ok} is
+    set to false.
 
     \sa setFeature(), hasFeature()
 */
@@ -2637,7 +2644,7 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
     If the reader has the property \a name, this function returns the
     value of the property; otherwise the return value is undefined.
 
-    If \a ok is not 0: if the reader has the \a name property
+    If \a ok is not \nullptr: if the reader has the \a name property
     \c{*}\a{ok} is set to true; otherwise \c{*}\a{ok} is set to false.
 
     \sa setProperty(), hasProperty()
@@ -2670,9 +2677,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
 */
 
 /*!
-    \fn QXmlEntityResolver* QXmlReader::entityResolver() const
+    \fn QXmlEntityResolver *QXmlReader::entityResolver() const
 
-    Returns the entity resolver or 0 if none was set.
+    Returns the entity resolver or \nullptr if none was set.
 
     \sa setEntityResolver()
 */
@@ -2686,9 +2693,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
 */
 
 /*!
-    \fn QXmlDTDHandler* QXmlReader::DTDHandler() const
+    \fn QXmlDTDHandler *QXmlReader::DTDHandler() const
 
-    Returns the DTD handler or 0 if none was set.
+    Returns the DTD handler or \nullptr if none was set.
 
     \sa setDTDHandler()
 */
@@ -2702,9 +2709,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
 */
 
 /*!
-    \fn QXmlContentHandler* QXmlReader::contentHandler() const
+    \fn QXmlContentHandler *QXmlReader::contentHandler() const
 
-    Returns the content handler or 0 if none was set.
+    Returns the content handler or \nullptr if none was set.
 
     \sa setContentHandler()
 */
@@ -2719,9 +2726,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
 */
 
 /*!
-    \fn QXmlErrorHandler* QXmlReader::errorHandler() const
+    \fn QXmlErrorHandler *QXmlReader::errorHandler() const
 
-    Returns the error handler or 0 if none is set.
+    Returns the error handler or \nullptr if none is set.
 
     \sa setErrorHandler()
 */
@@ -2735,9 +2742,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
 */
 
 /*!
-    \fn QXmlLexicalHandler* QXmlReader::lexicalHandler() const
+    \fn QXmlLexicalHandler *QXmlReader::lexicalHandler() const
 
-    Returns the lexical handler or 0 if none was set.
+    Returns the lexical handler or \nullptr if none was set.
 
     \sa setLexicalHandler()
 */
@@ -2751,9 +2758,9 @@ void QXmlSimpleReaderPrivate::initIncrementalParsing()
 */
 
 /*!
-    \fn QXmlDeclHandler* QXmlReader::declHandler() const
+    \fn QXmlDeclHandler *QXmlReader::declHandler() const
 
-    Returns the declaration handler or 0 if none was set.
+    Returns the declaration handler or \nullptr if none was set.
 
     \sa setDeclHandler()
 */

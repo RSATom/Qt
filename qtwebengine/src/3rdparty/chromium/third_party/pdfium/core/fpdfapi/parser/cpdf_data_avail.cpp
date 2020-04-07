@@ -25,7 +25,6 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
-#include "core/fxcrt/cfx_memorystream.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "third_party/base/compiler_specific.h"
@@ -310,7 +309,8 @@ bool CPDF_DataAvail::CheckPage() {
     }
     CPDF_Array* pArray = ToArray(pObj.get());
     if (pArray) {
-      for (const auto& pArrayObj : *pArray) {
+      CPDF_ArrayLocker locker(pArray);
+      for (const auto& pArrayObj : locker) {
         if (CPDF_Reference* pRef = ToReference(pArrayObj.get()))
           UnavailObjList.push_back(pRef->GetRefObjNum());
       }
@@ -352,12 +352,12 @@ bool CPDF_DataAvail::GetPageKids(CPDF_Object* pPages) {
     return true;
 
   switch (pKids->GetType()) {
-    case CPDF_Object::REFERENCE:
+    case CPDF_Object::kReference:
       m_PageObjList.push_back(pKids->AsReference()->GetRefObjNum());
       break;
-    case CPDF_Object::ARRAY: {
+    case CPDF_Object::kArray: {
       CPDF_Array* pKidsArray = pKids->AsArray();
-      for (size_t i = 0; i < pKidsArray->GetCount(); ++i) {
+      for (size_t i = 0; i < pKidsArray->size(); ++i) {
         if (CPDF_Reference* pRef = ToReference(pKidsArray->GetObjectAt(i)))
           m_PageObjList.push_back(pRef->GetRefObjNum());
       }
@@ -437,29 +437,16 @@ bool CPDF_DataAvail::CheckFirstPage() {
 }
 
 bool CPDF_DataAvail::CheckHintTables() {
-  if (m_pLinearized->GetPageCount() <= 1) {
-    m_docStatus = PDF_DATAAVAIL_DONE;
+  const CPDF_ReadValidator::Session read_session(GetValidator().Get());
+  m_pHintTables =
+      CPDF_HintTables::Parse(GetSyntaxParser(), m_pLinearized.get());
+
+  if (GetValidator()->read_error()) {
+    m_docStatus = PDF_DATAAVAIL_ERROR;
     return true;
   }
-  if (!m_pLinearized->HasHintTable()) {
-    m_docStatus = PDF_DATAAVAIL_ERROR;
+  if (GetValidator()->has_unavailable_data())
     return false;
-  }
-
-  const FX_FILESIZE szHintStart = m_pLinearized->GetHintStart();
-  const uint32_t szHintLength = m_pLinearized->GetHintLength();
-
-  if (!GetValidator()->CheckDataRangeAndRequestIfUnavailable(szHintStart,
-                                                             szHintLength))
-    return false;
-
-  auto pHintTables = pdfium::MakeUnique<CPDF_HintTables>(GetValidator().Get(),
-                                                         m_pLinearized.get());
-  std::unique_ptr<CPDF_Object> pHintStream =
-      ParseIndirectObjectAt(szHintStart, 0);
-  CPDF_Stream* pStream = ToStream(pHintStream.get());
-  if (pStream && pHintTables->LoadHintStream(pStream))
-    m_pHintTables = std::move(pHintTables);
 
   m_docStatus = PDF_DATAAVAIL_DONE;
   return true;
@@ -499,14 +486,15 @@ CPDF_DataAvail::DocAvailStatus CPDF_DataAvail::CheckHeaderAndLinearized() {
     return DocAvailStatus::DataAvailable;
 
   const CPDF_ReadValidator::Session read_session(GetValidator().Get());
-  const int32_t header_offset = GetHeaderOffset(GetValidator());
+  const Optional<FX_FILESIZE> header_offset = GetHeaderOffset(GetValidator());
   if (GetValidator()->has_read_problems())
     return DocAvailStatus::DataNotAvailable;
 
-  if (header_offset == kInvalidHeaderOffset)
+  if (!header_offset)
     return DocAvailStatus::DataError;
 
-  m_parser.m_pSyntax->InitParserWithValidator(GetValidator(), header_offset);
+  m_parser.m_pSyntax =
+      pdfium::MakeUnique<CPDF_SyntaxParser>(GetValidator(), *header_offset);
   m_pLinearized = m_parser.ParseLinearizedHeader();
   if (GetValidator()->has_read_problems())
     return DocAvailStatus::DataNotAvailable;
@@ -557,7 +545,7 @@ bool CPDF_DataAvail::CheckArrayPageNode(uint32_t dwPageNo,
   }
 
   pPageNode->m_type = PDF_PAGENODE_PAGES;
-  for (size_t i = 0; i < pArray->GetCount(); ++i) {
+  for (size_t i = 0; i < pArray->size(); ++i) {
     CPDF_Reference* pKid = ToReference(pArray->GetObjectAt(i));
     if (!pKid)
       continue;
@@ -613,16 +601,16 @@ bool CPDF_DataAvail::CheckUnknownPageNode(uint32_t dwPageNo,
   }
 
   switch (pKids->GetType()) {
-    case CPDF_Object::REFERENCE: {
+    case CPDF_Object::kReference: {
       CPDF_Reference* pKid = pKids->AsReference();
       auto pNode = pdfium::MakeUnique<PageNode>();
       pNode->m_dwPageNo = pKid->GetRefObjNum();
       pPageNode->m_ChildNodes.push_back(std::move(pNode));
       break;
     }
-    case CPDF_Object::ARRAY: {
+    case CPDF_Object::kArray: {
       CPDF_Array* pKidsArray = pKids->AsArray();
-      for (size_t i = 0; i < pKidsArray->GetCount(); ++i) {
+      for (size_t i = 0; i < pKidsArray->size(); ++i) {
         CPDF_Reference* pKid = ToReference(pKidsArray->GetObjectAt(i));
         if (!pKid)
           continue;

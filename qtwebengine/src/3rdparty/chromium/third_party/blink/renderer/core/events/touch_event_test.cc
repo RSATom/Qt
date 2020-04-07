@@ -8,6 +8,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
@@ -46,7 +47,7 @@ class ConsoleCapturingChromeClient : public EmptyChromeClient {
 class TouchEventTest : public PageTestBase {
  public:
   void SetUp() override {
-    chrome_client_ = new ConsoleCapturingChromeClient();
+    chrome_client_ = MakeGarbageCollected<ConsoleCapturingChromeClient>();
     Page::PageClients clients;
     FillWithEmptyClients(clients);
     clients.chrome_client = chrome_client_.Get();

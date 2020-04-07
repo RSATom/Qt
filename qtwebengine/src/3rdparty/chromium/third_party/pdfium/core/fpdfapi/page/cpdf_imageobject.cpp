@@ -44,8 +44,8 @@ const CPDF_ImageObject* CPDF_ImageObject::AsImage() const {
 }
 
 void CPDF_ImageObject::CalcBoundingBox() {
-  std::tie(m_Left, m_Right, m_Top, m_Bottom) =
-      m_Matrix.TransformRect(0.f, 1.f, 1.f, 0.f);
+  static constexpr CFX_FloatRect kRect(0.0f, 0.0f, 1.0f, 1.0f);
+  SetRect(m_Matrix.TransformRect(kRect));
 }
 
 void CPDF_ImageObject::SetImage(const RetainPtr<CPDF_Image>& pImage) {
@@ -57,11 +57,7 @@ void CPDF_ImageObject::MaybePurgeCache() {
   if (!m_pImage)
     return;
 
-  CPDF_Document* pDocument = m_pImage->GetDocument();
-  if (!pDocument)
-    return;
-
-  CPDF_DocPageData* pPageData = pDocument->GetPageData();
+  CPDF_DocPageData* pPageData = m_pImage->GetDocument()->GetPageData();
   if (!pPageData)
     return;
 

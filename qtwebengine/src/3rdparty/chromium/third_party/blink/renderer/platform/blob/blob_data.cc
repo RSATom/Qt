@@ -46,10 +46,8 @@
 #include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/text/line_ending.h"
 #include "third_party/blink/renderer/platform/uuid.h"
-#include "third_party/blink/renderer/platform/web_task_runner.h"
 #include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -216,8 +214,7 @@ void BlobData::AppendText(const String& text,
                           bool do_normalize_line_endings_to_native) {
   DCHECK_EQ(file_composition_, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
       << "Blobs with a unknown-size file cannot have other items.";
-  CString utf8_text =
-      UTF8Encoding().Encode(text, WTF::kEntitiesForUnencodables);
+  CString utf8_text = UTF8Encoding().Encode(text, WTF::kNoUnencodables);
 
   if (do_normalize_line_endings_to_native) {
     if (utf8_text.length() >

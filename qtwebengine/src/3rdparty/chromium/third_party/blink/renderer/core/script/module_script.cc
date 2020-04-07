@@ -11,17 +11,16 @@
 
 namespace blink {
 
-// https://html.spec.whatwg.org/multipage/webappapis.html#creating-a-module-script
-ModuleScript* ModuleScript::Create(const MovableString& original_source_text,
+// <specdef href="https://html.spec.whatwg.org/#creating-a-module-script">
+ModuleScript* ModuleScript::Create(const ParkableString& original_source_text,
                                    Modulator* modulator,
                                    const KURL& source_url,
                                    const KURL& base_url,
                                    const ScriptFetchOptions& options,
-                                   AccessControlStatus access_control_status,
                                    const TextPosition& start_position) {
   // <spec step="1">If scripting is disabled for settings's responsible browsing
   // context, then set source to the empty string.</spec>
-  MovableString source_text;
+  ParkableString source_text;
   if (!modulator->IsScriptingDisabled())
     source_text = original_source_text;
 
@@ -40,9 +39,9 @@ ModuleScript* ModuleScript::Create(const MovableString& original_source_text,
   ExceptionState exception_state(isolate, ExceptionState::kExecutionContext,
                                  "ModuleScript", "Create");
 
-  ScriptModule result = ScriptModule::Compile(
-      isolate, source_text.ToString(), source_url, base_url, options,
-      access_control_status, start_position, exception_state);
+  ScriptModule result =
+      ScriptModule::Compile(isolate, source_text.ToString(), source_url,
+                            base_url, options, start_position, exception_state);
 
   // CreateInternal processes Steps 4 and 8-10.
   //
@@ -72,7 +71,7 @@ ModuleScript* ModuleScript::Create(const MovableString& original_source_text,
   for (const auto& requested :
        modulator->ModuleRequestsFromScriptModule(result)) {
     // <spec step="9.1">Let url be the result of resolving a module specifier
-    // given script and requested.</spec>
+    // given script's base URL and requested.</spec>
     //
     // <spec step="9.2">If url is failure, then:</spec>
     String failure_reason;
@@ -101,14 +100,14 @@ ModuleScript* ModuleScript::CreateForTest(Modulator* modulator,
                                           ScriptModule record,
                                           const KURL& base_url,
                                           const ScriptFetchOptions& options) {
-  MovableString dummy_source_text(String("").ReleaseImpl());
+  ParkableString dummy_source_text(String("").ReleaseImpl());
   KURL dummy_source_url;
   return CreateInternal(dummy_source_text, modulator, record, dummy_source_url,
                         base_url, options, TextPosition::MinimumPosition());
 }
 
-// https://html.spec.whatwg.org/multipage/webappapis.html#creating-a-module-script
-ModuleScript* ModuleScript::CreateInternal(const MovableString& source_text,
+// <specdef href="https://html.spec.whatwg.org/#creating-a-module-script">
+ModuleScript* ModuleScript::CreateInternal(const ParkableString& source_text,
                                            Modulator* modulator,
                                            ScriptModule result,
                                            const KURL& source_url,
@@ -125,9 +124,9 @@ ModuleScript* ModuleScript::CreateInternal(const MovableString& source_text,
   // <spec step="5">Set script's fetch options to options.</spec>
   //
   // [nospec] |source_text| is saved for CSP checks.
-  ModuleScript* module_script =
-      new ModuleScript(modulator, result, source_url, base_url, options,
-                       source_text, start_position);
+  ModuleScript* module_script = MakeGarbageCollected<ModuleScript>(
+      modulator, result, source_url, base_url, options, source_text,
+      start_position);
 
   // Step 7, a part of ParseModule(): Passing script as the last parameter
   // here ensures result.[[HostDefined]] will be script.
@@ -141,7 +140,7 @@ ModuleScript::ModuleScript(Modulator* settings_object,
                            const KURL& source_url,
                            const KURL& base_url,
                            const ScriptFetchOptions& fetch_options,
-                           const MovableString& source_text,
+                           const ParkableString& source_text,
                            const TextPosition& start_position)
     : Script(fetch_options, base_url),
       settings_object_(settings_object),

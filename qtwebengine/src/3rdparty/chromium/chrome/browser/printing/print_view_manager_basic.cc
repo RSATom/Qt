@@ -11,8 +11,6 @@
 #include "printing/printing_context_android.h"
 #endif
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(printing::PrintViewManagerBasic);
-
 namespace printing {
 
 PrintViewManagerBasic::PrintViewManagerBasic(content::WebContents* web_contents)
@@ -23,7 +21,15 @@ PrintViewManagerBasic::PrintViewManagerBasic(content::WebContents* web_contents)
 #endif
 }
 
-PrintViewManagerBasic::~PrintViewManagerBasic() {
+PrintViewManagerBasic::~PrintViewManagerBasic() = default;
+
+#if defined(OS_ANDROID)
+void PrintViewManagerBasic::PdfWritingDone(int page_count) {
+  if (pdf_writing_done_callback_)
+    pdf_writing_done_callback_.Run(page_count);
 }
+#endif
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(PrintViewManagerBasic)
 
 }  // namespace printing

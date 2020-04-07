@@ -4,6 +4,7 @@
 
 // Event management for WebView.
 
+var $Document = require('safeMethods').SafeMethods.$Document;
 var CreateEvent = require('guestViewEvents').CreateEvent;
 var DCHECK = requireNative('logging').DCHECK;
 var DeclarativeWebRequestSchema =
@@ -23,7 +24,6 @@ function WebViewEvents(webViewImpl) {
   $Function.call(GuestViewEvents, this, webViewImpl);
 
   this.setupWebRequestEvents();
-  this.view.maybeSetupContextMenus();
 }
 
 var jsEvent;
@@ -197,6 +197,11 @@ WebViewEvents.EVENTS = {
   }
 };
 
+WebViewEvents.EVENTS.__proto__ = null;
+for (var eventName in WebViewEvents.EVENTS) {
+  WebViewEvents.EVENTS[eventName].__proto__ = null;
+}
+
 WebViewEvents.prototype.setupWebRequestEvents = function() {
   var request = {};
   var createWebRequestEvent = $Function.bind(function(webRequestEvent) {
@@ -250,10 +255,15 @@ WebViewEvents.prototype.setupWebRequestEvents = function() {
 
   // Populate the WebRequest events from the API definition.
   for (var i = 0; i < WebRequestSchema.events.length; ++i) {
-    var webRequestEvent = createWebRequestEvent(WebRequestSchema.events[i]);
+    var eventSchema = WebRequestSchema.events[i];
+
+    // Skip "onActionIgnored" which is not relevant for webviews.
+    if (eventSchema.name === 'onActionIgnored')
+      continue;
+
+    var webRequestEvent = createWebRequestEvent(eventSchema);
     $Object.defineProperty(
-        request, WebRequestSchema.events[i].name,
-        {get: webRequestEvent, enumerable: true});
+        request, eventSchema.name, {get: webRequestEvent, enumerable: true});
   }
 
   this.view.setRequestPropertyOnWebViewElement(request);
@@ -273,7 +283,7 @@ WebViewEvents.prototype.handleFrameNameChangedEvent = function(event) {
 };
 
 WebViewEvents.prototype.handleFullscreenExitEvent = function(event, eventName) {
-  document.webkitCancelFullScreen();
+  $Document.webkitCancelFullScreen(document);
 };
 
 WebViewEvents.prototype.handleLoadAbortEvent = function(event, eventName) {

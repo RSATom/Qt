@@ -36,13 +36,17 @@ ManifestPermission* BluetoothManifestHandler::CreateInitialRequiredPermission(
     const Extension* extension) {
   BluetoothManifestData* data = BluetoothManifestData::Get(extension);
   if (data)
-    return data->permission()->Clone();
+    return data->permission()->Clone().release();
   return NULL;
 }
 
 base::span<const char* const> BluetoothManifestHandler::Keys() const {
   static constexpr const char* kKeys[] = {manifest_keys::kBluetooth};
+#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 }  // namespace extensions

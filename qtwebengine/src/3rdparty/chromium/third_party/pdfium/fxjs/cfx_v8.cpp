@@ -15,12 +15,11 @@ CFX_V8::~CFX_V8() = default;
 
 v8::Local<v8::Value> CFX_V8::GetObjectProperty(
     v8::Local<v8::Object> pObj,
-    const WideString& wsPropertyName) {
+    ByteStringView bsUTF8PropertyName) {
   if (pObj.IsEmpty())
     return v8::Local<v8::Value>();
   v8::Local<v8::Value> val;
-  if (!pObj->Get(m_pIsolate->GetCurrentContext(),
-                 NewString(wsPropertyName.AsStringView()))
+  if (!pObj->Get(m_pIsolate->GetCurrentContext(), NewString(bsUTF8PropertyName))
            .ToLocal(&val))
     return v8::Local<v8::Value>();
   return val;
@@ -45,12 +44,12 @@ std::vector<WideString> CFX_V8::GetObjectPropertyNames(
 }
 
 void CFX_V8::PutObjectProperty(v8::Local<v8::Object> pObj,
-                               const WideString& wsPropertyName,
+                               ByteStringView bsUTF8PropertyName,
                                v8::Local<v8::Value> pPut) {
   if (pObj.IsEmpty())
     return;
-  pObj->Set(m_pIsolate->GetCurrentContext(),
-            NewString(wsPropertyName.AsStringView()), pPut)
+  pObj->Set(m_pIsolate->GetCurrentContext(), NewString(bsUTF8PropertyName),
+            pPut)
       .FromJust();
 }
 
@@ -109,14 +108,14 @@ v8::Local<v8::Boolean> CFX_V8::NewBoolean(bool b) {
   return v8::Boolean::New(GetIsolate(), b);
 }
 
-v8::Local<v8::String> CFX_V8::NewString(const ByteStringView& str) {
+v8::Local<v8::String> CFX_V8::NewString(ByteStringView str) {
   v8::Isolate* pIsolate = m_pIsolate ? GetIsolate() : v8::Isolate::GetCurrent();
   return v8::String::NewFromUtf8(pIsolate, str.unterminated_c_str(),
                                  v8::NewStringType::kNormal, str.GetLength())
       .ToLocalChecked();
 }
 
-v8::Local<v8::String> CFX_V8::NewString(const WideStringView& str) {
+v8::Local<v8::String> CFX_V8::NewString(WideStringView str) {
   // Conversion from pdfium's wchar_t wide-strings to v8's uint16_t
   // wide-strings isn't handled by v8, so use UTF8 as a common
   // intermediate format.
@@ -150,11 +149,7 @@ int CFX_V8::ToInt32(v8::Local<v8::Value> pValue) {
 bool CFX_V8::ToBoolean(v8::Local<v8::Value> pValue) {
   if (pValue.IsEmpty())
     return false;
-  v8::Local<v8::Context> context = m_pIsolate->GetCurrentContext();
-  v8::MaybeLocal<v8::Boolean> maybe_boolean = pValue->ToBoolean(context);
-  if (maybe_boolean.IsEmpty())
-    return false;
-  return maybe_boolean.ToLocalChecked()->Value();
+  return pValue->BooleanValue(m_pIsolate.Get());
 }
 
 double CFX_V8::ToDouble(v8::Local<v8::Value> pValue) {
@@ -206,20 +201,17 @@ v8::Local<v8::Array> CFX_V8::ToArray(v8::Local<v8::Value> pValue) {
 void* CFX_V8ArrayBufferAllocator::Allocate(size_t length) {
   if (length > kMaxAllowedBytes)
     return nullptr;
-  void* p = AllocateUninitialized(length);
-  if (p)
-    memset(p, 0, length);
-  return p;
+  return GetArrayBufferPartitionAllocator().root()->AllocFlags(
+      pdfium::base::PartitionAllocZeroFill, length, "CFX_V8ArrayBuffer");
 }
 
 void* CFX_V8ArrayBufferAllocator::AllocateUninitialized(size_t length) {
   if (length > kMaxAllowedBytes)
     return nullptr;
-  return pdfium::base::PartitionAllocGeneric(
-      gArrayBufferPartitionAllocator.root(), length, "CFX_V8ArrayBuffer");
+  return GetArrayBufferPartitionAllocator().root()->Alloc(length,
+                                                          "CFX_V8ArrayBuffer");
 }
 
 void CFX_V8ArrayBufferAllocator::Free(void* data, size_t length) {
-  pdfium::base::PartitionFreeGeneric(gArrayBufferPartitionAllocator.root(),
-                                     data);
+  GetArrayBufferPartitionAllocator().root()->Free(data);
 }

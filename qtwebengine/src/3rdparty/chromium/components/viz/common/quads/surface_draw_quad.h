@@ -9,7 +9,7 @@
 
 #include "base/optional.h"
 #include "components/viz/common/quads/draw_quad.h"
-#include "components/viz/common/surfaces/surface_id.h"
+#include "components/viz/common/surfaces/surface_range.h"
 #include "components/viz/common/viz_common_export.h"
 #include "third_party/skia/include/core/SkColor.h"
 
@@ -26,24 +26,26 @@ class VIZ_COMMON_EXPORT SurfaceDrawQuad : public DrawQuad {
   void SetNew(const SharedQuadState* shared_quad_state,
               const gfx::Rect& rect,
               const gfx::Rect& visible_rect,
-              const SurfaceId& primary_surface_id,
-              const base::Optional<SurfaceId>& fallback_surface_id,
+              const SurfaceRange& surface_range,
               SkColor default_background_color,
-              bool stretch_content_to_fill_bounds);
+              bool stretch_content_to_fill_bounds,
+              bool ignores_input_event);
 
   void SetAll(const SharedQuadState* shared_quad_state,
               const gfx::Rect& rect,
               const gfx::Rect& visible_rect,
               bool needs_blending,
-              const SurfaceId& primary_surface_id,
-              const base::Optional<SurfaceId>& fallback_surface_id,
+              const SurfaceRange& surface_range,
               SkColor default_background_color,
-              bool stretch_content_to_fill_bounds);
+              bool stretch_content_to_fill_bounds,
+              bool ignores_input_event);
 
-  SurfaceId primary_surface_id;
-  base::Optional<SurfaceId> fallback_surface_id;
+  SurfaceRange surface_range;
   SkColor default_background_color = SK_ColorWHITE;
   bool stretch_content_to_fill_bounds = false;
+  // TODO(crbug.com/914530): Remove once VizHitTestSurfaceLayer is enabled by
+  // default.
+  bool ignores_input_event = false;
 
   static const SurfaceDrawQuad* MaterialCast(const DrawQuad* quad);
 

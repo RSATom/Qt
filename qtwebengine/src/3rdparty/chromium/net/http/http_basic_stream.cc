@@ -106,8 +106,14 @@ int64_t HttpBasicStream::GetTotalSentBytes() const {
 
 bool HttpBasicStream::GetLoadTimingInfo(
     LoadTimingInfo* load_timing_info) const {
-  return state_.connection()->GetLoadTimingInfo(IsConnectionReused(),
-                                                load_timing_info);
+  if (!state_.connection()->GetLoadTimingInfo(IsConnectionReused(),
+                                              load_timing_info) ||
+      !parser()) {
+    return false;
+  }
+
+  load_timing_info->receive_headers_start = parser()->response_start_time();
+  return true;
 }
 
 bool HttpBasicStream::GetAlternativeService(
@@ -129,12 +135,6 @@ bool HttpBasicStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
     return false;
 
   return state_.connection()->socket()->GetPeerAddress(endpoint) == OK;
-}
-
-Error HttpBasicStream::GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                                TokenBindingType tb_type,
-                                                std::vector<uint8_t>* out) {
-  return parser()->GetTokenBindingSignature(key, tb_type, out);
 }
 
 void HttpBasicStream::Drain(HttpNetworkSession* session) {

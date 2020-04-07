@@ -58,7 +58,7 @@ Node* ProxiesCodeStubAssembler::AllocateProxy(Node* target, Node* handler,
   Node* proxy = Allocate(JSProxy::kSize);
   StoreMapNoWriteBarrier(proxy, map.value());
   StoreObjectFieldRoot(proxy, JSProxy::kPropertiesOrHashOffset,
-                       Heap::kEmptyPropertyDictionaryRootIndex);
+                       RootIndex::kEmptyPropertyDictionary);
   StoreObjectFieldNoWriteBarrier(proxy, JSProxy::kTargetOffset, target);
   StoreObjectFieldNoWriteBarrier(proxy, JSProxy::kHandlerOffset, handler);
 
@@ -81,24 +81,24 @@ Node* ProxiesCodeStubAssembler::AllocateJSArrayForCodeStubArguments(
                                                   kAllowLargeObjectAllocation);
     elements.Bind(allocated_elements);
 
-    VARIABLE(index, MachineType::PointerRepresentation(),
-             IntPtrConstant(FixedArrayBase::kHeaderSize - kHeapObjectTag));
-    VariableList list({&index}, zone());
+    TVARIABLE(IntPtrT, offset,
+              IntPtrConstant(FixedArrayBase::kHeaderSize - kHeapObjectTag));
+    VariableList list({&offset}, zone());
 
     GotoIf(SmiGreaterThan(length, SmiConstant(FixedArray::kMaxRegularLength)),
            &if_large_object);
-    args.ForEach(list, [=, &index](Node* arg) {
+    args.ForEach(list, [=, &offset](Node* arg) {
       StoreNoWriteBarrier(MachineRepresentation::kTagged, allocated_elements,
-                          index.value(), arg);
-      Increment(&index, kPointerSize);
+                          offset.value(), arg);
+      Increment(&offset, kTaggedSize);
     });
     Goto(&allocate_js_array);
 
     BIND(&if_large_object);
     {
-      args.ForEach(list, [=, &index](Node* arg) {
-        Store(allocated_elements, index.value(), arg);
-        Increment(&index, kPointerSize);
+      args.ForEach(list, [=, &offset](Node* arg) {
+        Store(allocated_elements, offset.value(), arg);
+        Increment(&offset, kTaggedSize);
       });
       Goto(&allocate_js_array);
     }
@@ -113,8 +113,10 @@ Node* ProxiesCodeStubAssembler::AllocateJSArrayForCodeStubArguments(
   BIND(&allocate_js_array);
   // Allocate the result JSArray.
   Node* native_context = LoadNativeContext(context);
-  Node* array_map = LoadJSArrayElementsMap(PACKED_ELEMENTS, native_context);
-  Node* array = AllocateUninitializedJSArrayWithoutElements(array_map, length);
+  TNode<Map> array_map =
+      LoadJSArrayElementsMap(PACKED_ELEMENTS, native_context);
+  TNode<JSArray> array =
+      AllocateUninitializedJSArrayWithoutElements(array_map, length);
   StoreObjectFieldNoWriteBarrier(array, JSObject::kElementsOffset,
                                  elements.value());
 
@@ -124,7 +126,7 @@ Node* ProxiesCodeStubAssembler::AllocateJSArrayForCodeStubArguments(
 Node* ProxiesCodeStubAssembler::CreateProxyRevokeFunctionContext(
     Node* proxy, Node* native_context) {
   Node* const context = Allocate(FixedArray::SizeFor(kProxyContextLength));
-  StoreMapNoWriteBarrier(context, Heap::kFunctionContextMapRootIndex);
+  StoreMapNoWriteBarrier(context, RootIndex::kFunctionContextMap);
   InitializeFunctionContext(native_context, context, kProxyContextLength);
   StoreContextElementNoWriteBarrier(context, kProxySlot, proxy);
   return context;
@@ -230,9 +232,9 @@ TF_BUILTIN(ProxyRevocable, ProxiesCodeStubAssembler) {
       native_context, Context::PROXY_REVOCABLE_RESULT_MAP_INDEX);
   StoreMapNoWriteBarrier(result, result_map);
   StoreObjectFieldRoot(result, JSProxyRevocableResult::kPropertiesOrHashOffset,
-                       Heap::kEmptyFixedArrayRootIndex);
+                       RootIndex::kEmptyFixedArray);
   StoreObjectFieldRoot(result, JSProxyRevocableResult::kElementsOffset,
-                       Heap::kEmptyFixedArrayRootIndex);
+                       RootIndex::kEmptyFixedArray);
   StoreObjectFieldNoWriteBarrier(result, JSProxyRevocableResult::kProxyOffset,
                                  proxy);
   StoreObjectFieldNoWriteBarrier(result, JSProxyRevocableResult::kRevokeOffset,
@@ -460,7 +462,7 @@ TF_BUILTIN(ProxyHasProperty, ProxiesCodeStubAssembler) {
   BIND(&trap_undefined);
   {
     // 7.a. Return ? target.[[HasProperty]](P).
-    TailCallBuiltin(Builtins::kHasProperty, context, name, target);
+    TailCallBuiltin(Builtins::kHasProperty, context, target, name);
   }
 
   BIND(&return_false);

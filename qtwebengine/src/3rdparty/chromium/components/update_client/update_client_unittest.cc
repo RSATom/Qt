@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
@@ -15,14 +16,15 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/test/scoped_path_override.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "components/crx_file/crx_verifier.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/update_client/component_unpacker.h"
 #include "components/update_client/crx_update_item.h"
@@ -109,14 +111,14 @@ class MockPingManagerImpl : public PingManager {
 
   const std::vector<PingData>& ping_data() const;
 
-  const std::vector<std::string>& events() const;
+  const std::vector<base::Value>& events() const;
 
  protected:
   ~MockPingManagerImpl() override;
 
  private:
   std::vector<PingData> ping_data_;
-  std::vector<std::string> events_;
+  std::vector<base::Value> events_;
   DISALLOW_COPY_AND_ASSIGN(MockPingManagerImpl);
 };
 
@@ -139,8 +141,7 @@ void MockPingManagerImpl::SendPing(const Component& component,
   ping_data.diff_update_failed = component.diff_update_failed();
   ping_data_.push_back(ping_data);
 
-  const auto& events = component.events();
-  events_.insert(events_.end(), events.begin(), events.end());
+  events_ = component.GetEvents();
 
   std::move(callback).Run(0, "");
 }
@@ -150,7 +151,7 @@ MockPingManagerImpl::ping_data() const {
   return ping_data_;
 }
 
-const std::vector<std::string>& MockPingManagerImpl::events() const {
+const std::vector<base::Value>& MockPingManagerImpl::events() const {
   return events_;
 }
 
@@ -215,15 +216,15 @@ base::FilePath UpdateClientTest::TestFilePath(const char* file) {
 TEST_F(UpdateClientTest, OneCrxNoUpdate) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.9");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      std::vector<base::Optional<CrxComponent>> component = {crx};
       return component;
     }
   };
@@ -244,12 +245,13 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
       EXPECT_TRUE(enabled_component_updates);
       EXPECT_EQ(1u, ids_to_check.size());
@@ -278,7 +280,7 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -326,24 +328,23 @@ TEST_F(UpdateClientTest, OneCrxNoUpdate) {
 TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx1 = std::make_unique<CrxComponent>();
-      crx1->name = "test_jebg";
-      crx1->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx1->version = base::Version("0.9");
-      crx1->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx1;
+      crx1.name = "test_jebg";
+      crx1.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx1.version = base::Version("0.9");
+      crx1.installer = base::MakeRefCounted<TestInstaller>();
+      crx1.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::unique_ptr<CrxComponent> crx2 = std::make_unique<CrxComponent>();
-      crx2->name = "test_abag";
-      crx2->pk_hash.assign(abag_hash, abag_hash + base::size(abag_hash));
-      crx2->version = base::Version("2.2");
-      crx2->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx2;
+      crx2.name = "test_abag";
+      crx2.pk_hash.assign(abag_hash, abag_hash + base::size(abag_hash));
+      crx2.version = base::Version("2.2");
+      crx2.installer = base::MakeRefCounted<TestInstaller>();
+      crx2.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx1));
-      component.push_back(std::move(crx2));
-      return component;
+      return {crx1, crx2};
     }
   };
 
@@ -363,12 +364,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -443,7 +445,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -466,12 +468,10 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
       Result result;
       result.error = 0;
       result.response = path;
-      result.downloaded_bytes = 1843;
-      result.total_bytes = 1843;
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -545,24 +545,23 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoUpdate) {
 TEST_F(UpdateClientTest, TwoCrxUpdateFirstServerIgnoresSecond) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx1 = std::make_unique<CrxComponent>();
-      crx1->name = "test_jebg";
-      crx1->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx1->version = base::Version("0.9");
-      crx1->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx1;
+      crx1.name = "test_jebg";
+      crx1.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx1.version = base::Version("0.9");
+      crx1.installer = base::MakeRefCounted<TestInstaller>();
+      crx1.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::unique_ptr<CrxComponent> crx2 = std::make_unique<CrxComponent>();
-      crx2->name = "test_abag";
-      crx2->pk_hash.assign(abag_hash, abag_hash + base::size(abag_hash));
-      crx2->version = base::Version("2.2");
-      crx2->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx2;
+      crx2.name = "test_abag";
+      crx2.pk_hash.assign(abag_hash, abag_hash + base::size(abag_hash));
+      crx2.version = base::Version("2.2");
+      crx2.installer = base::MakeRefCounted<TestInstaller>();
+      crx2.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx1));
-      component.push_back(std::move(crx2));
-      return component;
+      return {crx1, crx2};
     }
   };
 
@@ -582,12 +581,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateFirstServerIgnoresSecond) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -646,7 +646,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateFirstServerIgnoresSecond) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -669,12 +669,10 @@ TEST_F(UpdateClientTest, TwoCrxUpdateFirstServerIgnoresSecond) {
       Result result;
       result.error = 0;
       result.response = path;
-      result.downloaded_bytes = 1843;
-      result.total_bytes = 1843;
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -734,7 +732,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateFirstServerIgnoresSecond) {
         .Times(1)
         .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
           CrxUpdateItem item;
-          update_client->GetCrxUpdateState(id, &item);
+          EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
           EXPECT_EQ(ComponentState::kUpdateError, item.state);
           EXPECT_EQ(5, static_cast<int>(item.error_category));
           EXPECT_EQ(-10004, item.error_code);
@@ -763,18 +761,15 @@ TEST_F(UpdateClientTest, TwoCrxUpdateFirstServerIgnoresSecond) {
 TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentData) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      component.push_back(std::move(nullptr));
-      return component;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.9");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      return {crx, base::nullopt};
     }
   };
 
@@ -794,12 +789,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentData) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -858,7 +854,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentData) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -882,15 +878,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentData) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 1843;
-        result.total_bytes = 1843;
       } else {
         NOTREACHED();
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -962,12 +956,9 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentData) {
 TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentDataAtAll) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(nullptr));
-      component.push_back(std::move(nullptr));
-      return component;
+      return {base::nullopt, base::nullopt};
     }
   };
 
@@ -987,12 +978,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentDataAtAll) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       NOTREACHED();
     }
   };
@@ -1001,7 +993,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentDataAtAll) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -1057,24 +1049,23 @@ TEST_F(UpdateClientTest, TwoCrxUpdateNoCrxComponentDataAtAll) {
 TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx1 = std::make_unique<CrxComponent>();
-      crx1->name = "test_jebg";
-      crx1->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx1->version = base::Version("0.9");
-      crx1->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx1;
+      crx1.name = "test_jebg";
+      crx1.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx1.version = base::Version("0.9");
+      crx1.installer = base::MakeRefCounted<TestInstaller>();
+      crx1.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::unique_ptr<CrxComponent> crx2 = std::make_unique<CrxComponent>();
-      crx2->name = "test_ihfo";
-      crx2->pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
-      crx2->version = base::Version("0.8");
-      crx2->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx2;
+      crx2.name = "test_ihfo";
+      crx2.pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
+      crx2.version = base::Version("0.8");
+      crx2.installer = base::MakeRefCounted<TestInstaller>();
+      crx2.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx1));
-      component.push_back(std::move(crx2));
-      return component;
+      return {crx1, crx2};
     }
   };
 
@@ -1094,12 +1085,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -1191,7 +1183,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -1212,8 +1204,6 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
 
         // The result must not include a file path in the case of errors.
         result.error = -118;
-        result.downloaded_bytes = 0;
-        result.total_bytes = 0;
       } else if (url.path() ==
                  "/download/ihfokbkgjpifnbbojhneepfflplebdkc_1.crx") {
         download_metrics.url = url;
@@ -1228,15 +1218,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 53638;
-        result.total_bytes = 53638;
       } else {
         NOTREACHED();
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -1287,7 +1275,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
         .Times(1)
         .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
           CrxUpdateItem item;
-          update_client->GetCrxUpdateState(id, &item);
+          EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
           EXPECT_EQ(ComponentState::kUpdateError, item.state);
           EXPECT_EQ(1, static_cast<int>(item.error_category));
           EXPECT_EQ(-118, item.error_code);
@@ -1329,7 +1317,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateDownloadTimeout) {
 TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
       static int num_calls = 0;
 
@@ -1339,21 +1327,20 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
 
       ++num_calls;
 
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_ihfo";
-      crx->pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
-      crx->installer = installer;
+      CrxComponent crx;
+      crx.name = "test_ihfo";
+      crx.pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
+      crx.installer = installer;
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
       if (num_calls == 1) {
-        crx->version = base::Version("0.8");
+        crx.version = base::Version("0.8");
       } else if (num_calls == 2) {
-        crx->version = base::Version("1.0");
+        crx.version = base::Version("1.0");
       } else {
         NOTREACHED();
       }
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      return {crx};
     }
   };
 
@@ -1373,12 +1360,13 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
 
       static int num_call = 0;
@@ -1486,7 +1474,7 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -1510,8 +1498,6 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 53638;
-        result.total_bytes = 53638;
       } else if (url.path() ==
                  "/download/ihfokbkgjpifnbbojhneepfflplebdkc_1to2.crx") {
         download_metrics.url = url;
@@ -1526,15 +1512,13 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdate) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 2105;
-        result.total_bytes = 2105;
       } else {
         NOTREACHED();
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -1668,7 +1652,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
 
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
       scoped_refptr<MockInstaller> installer =
           base::MakeRefCounted<MockInstaller>();
@@ -1678,15 +1662,14 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
       EXPECT_CALL(*installer, GetInstalledFile(_, _)).Times(0);
       EXPECT_CALL(*installer, Uninstall()).Times(0);
 
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = installer;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.9");
+      crx.installer = installer;
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      return {crx};
     }
   };
 
@@ -1706,12 +1689,13 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -1764,7 +1748,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -1787,12 +1771,10 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
       Result result;
       result.error = 0;
       result.response = path;
-      result.downloaded_bytes = 1843;
-      result.total_bytes = 1843;
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -1856,7 +1838,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
 TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
       static int num_calls = 0;
 
@@ -1866,21 +1848,20 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 
       ++num_calls;
 
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_ihfo";
-      crx->pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
-      crx->installer = installer;
+      CrxComponent crx;
+      crx.name = "test_ihfo";
+      crx.pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
+      crx.installer = installer;
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
       if (num_calls == 1) {
-        crx->version = base::Version("0.8");
+        crx.version = base::Version("0.8");
       } else if (num_calls == 2) {
-        crx->version = base::Version("1.0");
+        crx.version = base::Version("1.0");
       } else {
         NOTREACHED();
       }
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      return {crx};
     }
   };
 
@@ -1900,12 +1881,13 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
 
       static int num_call = 0;
@@ -2015,7 +1997,7 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -2039,8 +2021,6 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 53638;
-        result.total_bytes = 53638;
       } else if (url.path() ==
                  "/download/ihfokbkgjpifnbbojhneepfflplebdkc_1to2.crx") {
         // A download error is injected on this execution path.
@@ -2053,8 +2033,6 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 
         // The response must not include a file path in the case of errors.
         result.error = -1;
-        result.downloaded_bytes = 0;
-        result.total_bytes = 2105;
       } else if (url.path() ==
                  "/download/ihfokbkgjpifnbbojhneepfflplebdkc_2.crx") {
         download_metrics.url = url;
@@ -2069,13 +2047,11 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 53855;
-        result.total_bytes = 53855;
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -2173,16 +2149,15 @@ TEST_F(UpdateClientTest, OneCrxDiffUpdateFailsFullUpdateSucceeds) {
 TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.9");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      return {crx};
     }
   };
 
@@ -2207,12 +2182,13 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
       EXPECT_TRUE(enabled_component_updates);
       EXPECT_EQ(1u, ids_to_check.size());
@@ -2240,7 +2216,7 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -2294,17 +2270,15 @@ TEST_F(UpdateClientTest, OneCrxNoUpdateQueuedCall) {
 TEST_F(UpdateClientTest, OneCrxInstall) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.0");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.0");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      return {crx};
     }
   };
 
@@ -2324,12 +2298,13 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -2388,7 +2363,7 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -2412,15 +2387,13 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 1843;
-        result.total_bytes = 1843;
       } else {
         NOTREACHED();
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -2482,11 +2455,9 @@ TEST_F(UpdateClientTest, OneCrxInstall) {
 TEST_F(UpdateClientTest, OneCrxInstallNoCrxComponentData) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(nullptr);
-      return component;
+      return {base::nullopt};
     }
   };
 
@@ -2506,12 +2477,13 @@ TEST_F(UpdateClientTest, OneCrxInstallNoCrxComponentData) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       NOTREACHED();
     }
   };
@@ -2520,7 +2492,7 @@ TEST_F(UpdateClientTest, OneCrxInstallNoCrxComponentData) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -2550,7 +2522,20 @@ TEST_F(UpdateClientTest, OneCrxInstallNoCrxComponentData) {
   InSequence seq;
   EXPECT_CALL(observer, OnEvent(Events::COMPONENT_UPDATE_ERROR,
                                 "jebgalgnebhfojomionfpkfelancnnkf"))
-      .Times(1);
+      .Times(1)
+      .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
+        // Tests that the state of the component when the CrxComponent data
+        // is not provided. In this case, the optional |item.component| instance
+        // is not present.
+        CrxUpdateItem item;
+        EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
+        EXPECT_EQ(ComponentState::kUpdateError, item.state);
+        EXPECT_STREQ("jebgalgnebhfojomionfpkfelancnnkf", item.id.c_str());
+        EXPECT_FALSE(item.component);
+        EXPECT_EQ(ErrorCategory::kService, item.error_category);
+        EXPECT_EQ(static_cast<int>(Error::CRX_NOT_FOUND), item.error_code);
+        EXPECT_EQ(0, item.extra_code1);
+      }));
 
   update_client->AddObserver(&observer);
 
@@ -2568,16 +2553,15 @@ TEST_F(UpdateClientTest, OneCrxInstallNoCrxComponentData) {
 TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.0");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.0");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      return {crx};
     }
   };
 
@@ -2608,12 +2592,13 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
       EXPECT_TRUE(enabled_component_updates);
       EXPECT_EQ(1u, ids_to_check.size());
@@ -2641,7 +2626,7 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -2695,7 +2680,7 @@ TEST_F(UpdateClientTest, ConcurrentInstallSameCRX) {
 TEST_F(UpdateClientTest, EmptyIdList) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
       return {};
     }
@@ -2717,12 +2702,13 @@ TEST_F(UpdateClientTest, EmptyIdList) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       NOTREACHED();
     }
   };
@@ -2731,7 +2717,7 @@ TEST_F(UpdateClientTest, EmptyIdList) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -2778,12 +2764,13 @@ TEST_F(UpdateClientTest, SendUninstallPing) {
       return nullptr;
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       NOTREACHED();
     }
   };
@@ -2792,7 +2779,7 @@ TEST_F(UpdateClientTest, SendUninstallPing) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return nullptr;
     }
 
@@ -2834,16 +2821,15 @@ TEST_F(UpdateClientTest, SendUninstallPing) {
 TEST_F(UpdateClientTest, RetryAfter) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.9");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      return {crx};
     }
   };
 
@@ -2883,12 +2869,13 @@ TEST_F(UpdateClientTest, RetryAfter) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
 
       static int num_call = 0;
@@ -2924,7 +2911,7 @@ TEST_F(UpdateClientTest, RetryAfter) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -3028,25 +3015,24 @@ TEST_F(UpdateClientTest, RetryAfter) {
 TEST_F(UpdateClientTest, TwoCrxUpdateOneUpdateDisabled) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx1 = std::make_unique<CrxComponent>();
-      crx1->name = "test_jebg";
-      crx1->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx1->version = base::Version("0.9");
-      crx1->installer = base::MakeRefCounted<TestInstaller>();
-      crx1->supports_group_policy_enable_component_updates = true;
+      CrxComponent crx1;
+      crx1.name = "test_jebg";
+      crx1.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx1.version = base::Version("0.9");
+      crx1.installer = base::MakeRefCounted<TestInstaller>();
+      crx1.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      crx1.supports_group_policy_enable_component_updates = true;
 
-      std::unique_ptr<CrxComponent> crx2 = std::make_unique<CrxComponent>();
-      crx2->name = "test_ihfo";
-      crx2->pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
-      crx2->version = base::Version("0.8");
-      crx2->installer = base::MakeRefCounted<TestInstaller>();
+      CrxComponent crx2;
+      crx2.name = "test_ihfo";
+      crx2.pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
+      crx2.version = base::Version("0.8");
+      crx2.installer = base::MakeRefCounted<TestInstaller>();
+      crx2.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
 
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx1));
-      component.push_back(std::move(crx2));
-      return component;
+      return {crx1, crx2};
     }
   };
 
@@ -3066,12 +3052,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateOneUpdateDisabled) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -3167,7 +3154,7 @@ TEST_F(UpdateClientTest, TwoCrxUpdateOneUpdateDisabled) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -3191,15 +3178,13 @@ TEST_F(UpdateClientTest, TwoCrxUpdateOneUpdateDisabled) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 53638;
-        result.total_bytes = 53638;
       } else {
         NOTREACHED();
       }
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadProgress,
-                                    base::Unretained(this), result));
+                                    base::Unretained(this)));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&MockCrxDownloader::OnDownloadComplete,
@@ -3286,16 +3271,15 @@ TEST_F(UpdateClientTest, TwoCrxUpdateOneUpdateDisabled) {
 TEST_F(UpdateClientTest, OneCrxUpdateCheckFails) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      std::vector<std::unique_ptr<CrxComponent>> component;
-      component.push_back(std::move(crx));
-      return component;
+      CrxComponent crx;
+      crx.name = "test_jebg";
+      crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+      crx.version = base::Version("0.9");
+      crx.installer = base::MakeRefCounted<TestInstaller>();
+      crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+      return {crx};
     }
   };
 
@@ -3315,12 +3299,13 @@ TEST_F(UpdateClientTest, OneCrxUpdateCheckFails) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
       EXPECT_TRUE(enabled_component_updates);
       EXPECT_EQ(1u, ids_to_check.size());
@@ -3338,7 +3323,7 @@ TEST_F(UpdateClientTest, OneCrxUpdateCheckFails) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -3372,7 +3357,7 @@ TEST_F(UpdateClientTest, OneCrxUpdateCheckFails) {
       .Times(1)
       .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
         CrxUpdateItem item;
-        update_client->GetCrxUpdateState(id, &item);
+        EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
         EXPECT_EQ(ComponentState::kUpdateError, item.state);
         EXPECT_EQ(5, static_cast<int>(item.error_category));
         EXPECT_EQ(-1, item.error_code);
@@ -3396,38 +3381,45 @@ TEST_F(UpdateClientTest, OneCrxUpdateCheckFails) {
 TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
   class DataCallbackMock {
    public:
-    static std::vector<std::unique_ptr<CrxComponent>> Callback(
+    static std::vector<base::Optional<CrxComponent>> Callback(
         const std::vector<std::string>& ids) {
-      std::vector<std::unique_ptr<CrxComponent>> component;
-
-      std::unique_ptr<CrxComponent> crx = std::make_unique<CrxComponent>();
-      crx->name = "test_jebg";
-      crx->pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
-      crx->version = base::Version("0.9");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      component.push_back(std::move(crx));
-
-      crx = std::make_unique<CrxComponent>();
-      crx->name = "test_abag";
-      crx->pk_hash.assign(abag_hash, abag_hash + base::size(abag_hash));
-      crx->version = base::Version("0.1");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      component.push_back(std::move(crx));
-
-      crx = std::make_unique<CrxComponent>();
-      crx->name = "test_ihfo";
-      crx->pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
-      crx->version = base::Version("0.2");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      component.push_back(std::move(crx));
-
-      crx = std::make_unique<CrxComponent>();
-      crx->name = "test_gjpm";
-      crx->pk_hash.assign(gjpm_hash, gjpm_hash + base::size(gjpm_hash));
-      crx->version = base::Version("0.3");
-      crx->installer = base::MakeRefCounted<TestInstaller>();
-      component.push_back(std::move(crx));
-
+      std::vector<base::Optional<CrxComponent>> component;
+      {
+        CrxComponent crx;
+        crx.name = "test_jebg";
+        crx.pk_hash.assign(jebg_hash, jebg_hash + base::size(jebg_hash));
+        crx.version = base::Version("0.9");
+        crx.installer = base::MakeRefCounted<TestInstaller>();
+        crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+        component.push_back(crx);
+      }
+      {
+        CrxComponent crx;
+        crx.name = "test_abag";
+        crx.pk_hash.assign(abag_hash, abag_hash + base::size(abag_hash));
+        crx.version = base::Version("0.1");
+        crx.installer = base::MakeRefCounted<TestInstaller>();
+        crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+        component.push_back(crx);
+      }
+      {
+        CrxComponent crx;
+        crx.name = "test_ihfo";
+        crx.pk_hash.assign(ihfo_hash, ihfo_hash + base::size(ihfo_hash));
+        crx.version = base::Version("0.2");
+        crx.installer = base::MakeRefCounted<TestInstaller>();
+        crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+        component.push_back(crx);
+      }
+      {
+        CrxComponent crx;
+        crx.name = "test_gjpm";
+        crx.pk_hash.assign(gjpm_hash, gjpm_hash + base::size(gjpm_hash));
+        crx.version = base::Version("0.3");
+        crx.installer = base::MakeRefCounted<TestInstaller>();
+        crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+        component.push_back(crx);
+      }
       return component;
     }
   };
@@ -3448,12 +3440,13 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       EXPECT_FALSE(session_id.empty());
       EXPECT_TRUE(enabled_component_updates);
       EXPECT_EQ(4u, ids_to_check.size());
@@ -3471,12 +3464,12 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
           R"( status="error-foobarApp"/>)"
           R"(</response>)";
 
-      ProtocolParser parser;
-      EXPECT_TRUE(parser.Parse(update_response));
+      const auto parser = ProtocolParser::Create();
+      EXPECT_TRUE(parser->Parse(update_response));
 
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
-          base::BindOnce(std::move(update_check_callback), parser.results(),
+          base::BindOnce(std::move(update_check_callback), parser->results(),
                          ErrorCategory::kNone, 0, 0));
     }
   };
@@ -3485,7 +3478,7 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -3520,7 +3513,7 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
         .Times(1)
         .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
           CrxUpdateItem item;
-          update_client->GetCrxUpdateState(id, &item);
+          EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
           EXPECT_EQ(ComponentState::kUpdateError, item.state);
           EXPECT_EQ(5, static_cast<int>(item.error_category));
           EXPECT_EQ(-10006, item.error_code);  // UNKNOWN_APPPLICATION.
@@ -3537,7 +3530,7 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
         .Times(1)
         .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
           CrxUpdateItem item;
-          update_client->GetCrxUpdateState(id, &item);
+          EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
           EXPECT_EQ(ComponentState::kUpdateError, item.state);
           EXPECT_EQ(5, static_cast<int>(item.error_category));
           EXPECT_EQ(-10007, item.error_code);  // RESTRICTED_APPLICATION.
@@ -3554,7 +3547,7 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
         .Times(1)
         .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
           CrxUpdateItem item;
-          update_client->GetCrxUpdateState(id, &item);
+          EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
           EXPECT_EQ(ComponentState::kUpdateError, item.state);
           EXPECT_EQ(5, static_cast<int>(item.error_category));
           EXPECT_EQ(-10008, item.error_code);  // INVALID_APPID.
@@ -3571,7 +3564,7 @@ TEST_F(UpdateClientTest, OneCrxErrorUnknownApp) {
         .Times(1)
         .WillOnce(Invoke([&update_client](Events event, const std::string& id) {
           CrxUpdateItem item;
-          update_client->GetCrxUpdateState(id, &item);
+          EXPECT_TRUE(update_client->GetCrxUpdateState(id, &item));
           EXPECT_EQ(ComponentState::kUpdateError, item.state);
           EXPECT_EQ(5, static_cast<int>(item.error_category));
           EXPECT_EQ(-10004, item.error_code);  // UPDATE_RESPONSE_NOT_FOUND.
@@ -3605,12 +3598,13 @@ TEST_F(UpdateClientTest, ActionRun_Install) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -3669,7 +3663,7 @@ TEST_F(UpdateClientTest, ActionRun_Install) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -3693,8 +3687,6 @@ TEST_F(UpdateClientTest, ActionRun_Install) {
 
         result.error = 0;
         result.response = path;
-        result.downloaded_bytes = 1843;
-        result.total_bytes = 1843;
       } else {
         NOTREACHED();
       }
@@ -3713,23 +3705,40 @@ TEST_F(UpdateClientTest, ActionRun_Install) {
 
    protected:
     ~MockPingManager() override {
-      const auto& events = MockPingManagerImpl::events();
-      EXPECT_EQ(3u, events.size());
-      EXPECT_STREQ(
-          "<event eventtype=\"14\" eventresult=\"1\" downloader=\"unknown\" "
-          "url=\"http://localhost/download/"
-          "runaction_test_win.crx3\" downloaded=\"1843\" "
-          "total=\"1843\" download_time_ms=\"1000\" previousversion=\"0.0\" "
-          "nextversion=\"1.0\"/>",
-          events[0].c_str());
-      EXPECT_STREQ(
-          "<event eventtype=\"42\" eventresult=\"1\" "
-          "errorcode=\"1877345072\"/>",
-          events[1].c_str());
-      EXPECT_STREQ(
-          "<event eventtype=\"3\" eventresult=\"1\" previousversion=\"0.0\" "
-          "nextversion=\"1.0\"/>",
-          events[2].c_str());
+      EXPECT_EQ(3u, events().size());
+
+      /*
+      "<event eventtype="14" eventresult="1" downloader="unknown" "
+      "url="http://localhost/download/runaction_test_win.crx3"
+      "downloaded=1843 "
+      "total=1843 download_time_ms="1000" previousversion="0.0" "
+      "nextversion="1.0"/>"
+      */
+      const auto& event0 = events()[0];
+      EXPECT_EQ(14, event0.FindKey("eventtype")->GetInt());
+      EXPECT_EQ(1, event0.FindKey("eventresult")->GetInt());
+      EXPECT_EQ("unknown", event0.FindKey("downloader")->GetString());
+      EXPECT_EQ("http://localhost/download/runaction_test_win.crx3",
+                event0.FindKey("url")->GetString());
+      EXPECT_EQ(1843, event0.FindKey("downloaded")->GetDouble());
+      EXPECT_EQ(1843, event0.FindKey("total")->GetDouble());
+      EXPECT_EQ(1000, event0.FindKey("download_time_ms")->GetDouble());
+      EXPECT_EQ("0.0", event0.FindKey("previousversion")->GetString());
+      EXPECT_EQ("1.0", event0.FindKey("nextversion")->GetString());
+
+      // "<event eventtype="42" eventresult="1" errorcode="1877345072"/>"
+      const auto& event1 = events()[1];
+      EXPECT_EQ(42, event1.FindKey("eventtype")->GetInt());
+      EXPECT_EQ(1, event1.FindKey("eventresult")->GetInt());
+      EXPECT_EQ(1877345072, event1.FindKey("errorcode")->GetInt());
+
+      // "<event eventtype=\"3\" eventresult=\"1\" previousversion=\"0.0\" "
+      // "nextversion=\"1.0\"/>",
+      const auto& event2 = events()[2];
+      EXPECT_EQ(3, event2.FindKey("eventtype")->GetInt());
+      EXPECT_EQ(1, event1.FindKey("eventresult")->GetInt());
+      EXPECT_EQ("0.0", event0.FindKey("previousversion")->GetString());
+      EXPECT_EQ("1.0", event0.FindKey("nextversion")->GetString());
     }
   };
 
@@ -3742,14 +3751,13 @@ TEST_F(UpdateClientTest, ActionRun_Install) {
   update_client->Install(
       std::string("gjpmebpgbhcamgdgjcmnjfhggjpgcimm"),
       base::BindOnce([](const std::vector<std::string>& ids) {
-        auto crx = std::make_unique<CrxComponent>();
-        crx->name = "test_niea";
-        crx->pk_hash.assign(gjpm_hash, gjpm_hash + base::size(gjpm_hash));
-        crx->version = base::Version("0.0");
-        crx->installer = base::MakeRefCounted<VersionedTestInstaller>();
-        std::vector<std::unique_ptr<CrxComponent>> component;
-        component.push_back(std::move(crx));
-        return component;
+        CrxComponent crx;
+        crx.name = "test_niea";
+        crx.pk_hash.assign(gjpm_hash, gjpm_hash + base::size(gjpm_hash));
+        crx.version = base::Version("0.0");
+        crx.installer = base::MakeRefCounted<VersionedTestInstaller>();
+        crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+        return std::vector<base::Optional<CrxComponent>>{crx};
       }),
       base::BindOnce(
           [](base::OnceClosure quit_closure, Error error) {
@@ -3772,12 +3780,13 @@ TEST_F(UpdateClientTest, ActionRun_NoUpdate) {
       return std::make_unique<MockUpdateChecker>();
     }
 
-    void CheckForUpdates(const std::string& session_id,
-                         const std::vector<std::string>& ids_to_check,
-                         const IdToComponentPtrMap& components,
-                         const std::string& additional_attributes,
-                         bool enabled_component_updates,
-                         UpdateCheckCallback update_check_callback) override {
+    void CheckForUpdates(
+        const std::string& session_id,
+        const std::vector<std::string>& ids_to_check,
+        const IdToComponentPtrMap& components,
+        const base::flat_map<std::string, std::string>& additional_attributes,
+        bool enabled_component_updates,
+        UpdateCheckCallback update_check_callback) override {
       /*
       Mock the following response:
 
@@ -3816,7 +3825,7 @@ TEST_F(UpdateClientTest, ActionRun_NoUpdate) {
    public:
     static std::unique_ptr<CrxDownloader> Create(
         bool is_background_download,
-        scoped_refptr<net::URLRequestContextGetter> context_getter) {
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
       return std::make_unique<MockCrxDownloader>();
     }
 
@@ -3833,12 +3842,13 @@ TEST_F(UpdateClientTest, ActionRun_NoUpdate) {
 
    protected:
     ~MockPingManager() override {
-      const auto& events = MockPingManagerImpl::events();
-      EXPECT_EQ(1u, events.size());
-      EXPECT_STREQ(
-          "<event eventtype=\"42\" eventresult=\"1\" "
-          "errorcode=\"1877345072\"/>",
-          events[0].c_str());
+      EXPECT_EQ(1u, events().size());
+
+      // "<event eventtype="42" eventresult="1" errorcode="1877345072"/>"
+      const auto& event = events()[0];
+      EXPECT_EQ(42, event.FindKey("eventtype")->GetInt());
+      EXPECT_EQ(1, event.FindKey("eventresult")->GetInt());
+      EXPECT_EQ(1877345072, event.FindKey("errorcode")->GetInt());
     }
   };
 
@@ -3853,7 +3863,8 @@ TEST_F(UpdateClientTest, ActionRun_NoUpdate) {
     auto component_unpacker = base::MakeRefCounted<ComponentUnpacker>(
         std::vector<uint8_t>(std::begin(gjpm_hash), std::end(gjpm_hash)),
         TestFilePath("runaction_test_win.crx3"), nullptr,
-        config->CreateServiceManagerConnector());
+        config->CreateServiceManagerConnector(),
+        crx_file::VerifierFormat::CRX2_OR_CRX3);
 
     component_unpacker->Unpack(base::BindOnce(
         [](base::FilePath* unpack_path, base::OnceClosure quit_closure,
@@ -3890,15 +3901,14 @@ TEST_F(UpdateClientTest, ActionRun_NoUpdate) {
       base::BindOnce(
           [](const base::FilePath& unpack_path,
              const std::vector<std::string>& ids) {
-            auto crx = std::make_unique<CrxComponent>();
-            crx->name = "test_niea";
-            crx->pk_hash.assign(gjpm_hash, gjpm_hash + base::size(gjpm_hash));
-            crx->version = base::Version("1.0");
-            crx->installer =
+            CrxComponent crx;
+            crx.name = "test_niea";
+            crx.pk_hash.assign(gjpm_hash, gjpm_hash + base::size(gjpm_hash));
+            crx.version = base::Version("1.0");
+            crx.installer =
                 base::MakeRefCounted<ReadOnlyTestInstaller>(unpack_path);
-            std::vector<std::unique_ptr<CrxComponent>> component;
-            component.push_back(std::move(crx));
-            return component;
+            crx.crx_format_requirement = crx_file::VerifierFormat::CRX2_OR_CRX3;
+            return std::vector<base::Optional<CrxComponent>>{crx};
           },
           unpack_path),
       false,

@@ -5,7 +5,7 @@
 #ifndef NET_THIRD_PARTY_QUIC_TOOLS_QUIC_SIMPLE_CLIENT_SESSION_H_
 #define NET_THIRD_PARTY_QUIC_TOOLS_QUIC_SIMPLE_CLIENT_SESSION_H_
 
-#include "net/third_party/quic/core/quic_spdy_client_session.h"
+#include "net/third_party/quic/core/http/quic_spdy_client_session.h"
 #include "net/third_party/quic/tools/quic_simple_client_stream.h"
 
 namespace quic {
@@ -13,12 +13,14 @@ namespace quic {
 class QuicSimpleClientSession : public QuicSpdyClientSession {
  public:
   QuicSimpleClientSession(const QuicConfig& config,
+                          const ParsedQuicVersionVector& supported_versions,
                           QuicConnection* connection,
                           const QuicServerId& server_id,
                           QuicCryptoClientConfig* crypto_config,
                           QuicClientPushPromiseIndex* push_promise_index,
                           bool drop_response_body)
       : QuicSpdyClientSession(config,
+                              supported_versions,
                               connection,
                               server_id,
                               crypto_config,

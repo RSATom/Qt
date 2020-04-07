@@ -838,6 +838,8 @@ HeapSnapshotWorker.HeapSnapshot = class {
     this._samples = null;
     /** @type {!Array.<string>} */
     this.strings = profile.strings;
+    /** @type {!Array.<number>} */
+    this._locations = profile.locations;
     this._progress = progress;
 
     this._noDistance = -5;
@@ -890,6 +892,14 @@ HeapSnapshotWorker.HeapSnapshot = class {
     this._edgeWeakType = this._edgeTypes.indexOf('weak');
     this._edgeInvisibleType = this._edgeTypes.indexOf('invisible');
 
+    const location_fields = meta.location_fields || [];
+
+    this._locationIndexOffset = location_fields.indexOf('object_index');
+    this._locationScriptIdOffset = location_fields.indexOf('script_id');
+    this._locationLineOffset = location_fields.indexOf('line');
+    this._locationColumnOffset = location_fields.indexOf('column');
+    this._locationFieldCount = location_fields.length;
+
     this.nodeCount = this.nodes.length / this._nodeFieldCount;
     this._edgeCount = this.containmentEdges.length / this._edgeFieldsCount;
 
@@ -924,6 +934,8 @@ HeapSnapshotWorker.HeapSnapshot = class {
     this.calculateStatistics();
     this._progress.updateStatus('Calculating samples\u2026');
     this._buildSamples();
+    this._progress.updateStatus('Building locations\u2026');
+    this._buildLocationMap();
     this._progress.updateStatus('Finished processing.');
 
     if (this._profile.snapshot.trace_function_count) {
@@ -1270,18 +1282,6 @@ HeapSnapshotWorker.HeapSnapshot = class {
   }
 
   /**
-   * @param {function(!HeapSnapshotWorker.HeapSnapshotNode)} action
-   * @param {boolean=} userRootsOnly
-   */
-  forEachRoot(action, userRootsOnly) {
-    for (let iter = this.rootNode().edges(); iter.hasNext(); iter.next()) {
-      const node = iter.edge.node();
-      if (!userRootsOnly || this.isUserRoot(node))
-        action(node);
-    }
-  }
-
-  /**
    * @param {function(!HeapSnapshotWorker.HeapSnapshotNode,!HeapSnapshotWorker.HeapSnapshotEdge):boolean=} filter
    */
   calculateDistances(filter) {
@@ -1294,24 +1294,20 @@ HeapSnapshotWorker.HeapSnapshot = class {
     const nodesToVisit = new Uint32Array(this.nodeCount);
     let nodesToVisitLength = 0;
 
-    /**
-     * @param {number} distance
-     * @param {!HeapSnapshotWorker.HeapSnapshotNode} node
-     */
-    function enqueueNode(distance, node) {
-      const ordinal = node.ordinal();
-      if (distances[ordinal] !== noDistance)
-        return;
-      distances[ordinal] = distance;
-      nodesToVisit[nodesToVisitLength++] = node.nodeIndex;
+    // BFS for user root objects.
+    for (let iter = this.rootNode().edges(); iter.hasNext(); iter.next()) {
+      const node = iter.edge.node();
+      if (this.isUserRoot(node)) {
+        distances[node.ordinal()] = 1;
+        nodesToVisit[nodesToVisitLength++] = node.nodeIndex;
+      }
     }
-
-    this.forEachRoot(enqueueNode.bind(null, 1), true);
     this._bfs(nodesToVisit, nodesToVisitLength, distances, filter);
 
-    // bfs for the rest of objects
-    nodesToVisitLength = 0;
-    this.forEachRoot(enqueueNode.bind(null, HeapSnapshotModel.baseSystemDistance), false);
+    // BFS for objects not reached from user roots.
+    distances[this.rootNode().ordinal()] = HeapSnapshotModel.baseSystemDistance;
+    nodesToVisit[0] = this.rootNode().nodeIndex;
+    nodesToVisitLength = 1;
     this._bfs(nodesToVisit, nodesToVisitLength, distances, filter);
   }
 
@@ -1868,6 +1864,30 @@ HeapSnapshotWorker.HeapSnapshot = class {
       sizeForRange[rangeIndex] += node.selfSize();
     }
     this._samples = new HeapSnapshotModel.Samples(timestamps, lastAssignedIds, sizeForRange);
+  }
+
+  _buildLocationMap() {
+    /** @type {!Map<number, !HeapSnapshotModel.Location>} */
+    const map = new Map();
+    const locations = this._locations;
+
+    for (let i = 0; i < locations.length; i += this._locationFieldCount) {
+      const nodeIndex = locations[i + this._locationIndexOffset];
+      const scriptId = locations[i + this._locationScriptIdOffset];
+      const line = locations[i + this._locationLineOffset];
+      const col = locations[i + this._locationColumnOffset];
+      map.set(nodeIndex, new HeapSnapshotModel.Location(scriptId, line, col));
+    }
+
+    this._locationMap = map;
+  }
+
+  /**
+   * @param {number} nodeIndex
+   * @return {?HeapSnapshotModel.Location}
+   */
+  getLocation(nodeIndex) {
+    return this._locationMap.get(nodeIndex) || null;
   }
 
   /**
@@ -2543,60 +2563,6 @@ HeapSnapshotWorker.JSHeapSnapshot = class extends HeapSnapshotWorker.HeapSnapsho
    */
   isUserRoot(node) {
     return node.isUserRoot() || node.isDocumentDOMTreesRoot();
-  }
-
-  /**
-   * @override
-   * @param {function(!HeapSnapshotWorker.HeapSnapshotNode)} action
-   * @param {boolean=} userRootsOnly
-   */
-  forEachRoot(action, userRootsOnly) {
-    /**
-     * @param {!HeapSnapshotWorker.HeapSnapshotNode} node
-     * @param {string} name
-     * @return {?HeapSnapshotWorker.HeapSnapshotNode}
-     */
-    function getChildNodeByName(node, name) {
-      for (let iter = node.edges(); iter.hasNext(); iter.next()) {
-        const child = iter.edge.node();
-        if (child.name() === name)
-          return child;
-      }
-      return null;
-    }
-
-    const visitedNodes = {};
-    /**
-     * @param {!HeapSnapshotWorker.HeapSnapshotNode} node
-     */
-    function doAction(node) {
-      const ordinal = node.ordinal();
-      if (!visitedNodes[ordinal]) {
-        action(node);
-        visitedNodes[ordinal] = true;
-      }
-    }
-
-    const gcRoots = getChildNodeByName(this.rootNode(), '(GC roots)');
-    if (!gcRoots)
-      return;
-
-    if (userRootsOnly) {
-      for (let iter = this.rootNode().edges(); iter.hasNext(); iter.next()) {
-        const node = iter.edge.node();
-        if (this.isUserRoot(node))
-          doAction(node);
-      }
-    } else {
-      for (let iter = gcRoots.edges(); iter.hasNext(); iter.next()) {
-        const subRoot = iter.edge.node();
-        for (let iter2 = subRoot.edges(); iter2.hasNext(); iter2.next())
-          doAction(iter2.edge.node());
-        doAction(subRoot);
-      }
-      for (let iter = this.rootNode().edges(); iter.hasNext(); iter.next())
-        doAction(iter.edge.node());
-    }
   }
 
   /**

@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//build/config/jumbo.gni")
 import("//chrome/common/features.gni")
 import("//components/nacl/features.gni")
 import("//components/offline_pages/buildflags/features.gni")
@@ -10,6 +11,7 @@ import("//components/spellcheck/spellcheck_build_features.gni")
 import("//extensions/buildflags/buildflags.gni")
 import("//media/media_options.gni")
 import("//ppapi/buildflags/buildflags.gni")
+import("//third_party/widevine/cdm/widevine.gni")
 import("//tools/grit/grit_rule.gni")
 
 grit("resources") {
@@ -30,13 +32,16 @@ grit("resources") {
   deps = [
     "//chrome/common/media_router/mojo:media_controller_js",
     "//chrome/common/media_router/mojo:media_router_js",
-    "//net/interfaces:interfaces_js",
+    "//services/network/public/mojom:mojom_js",
     "//url/mojom:url_mojom_gurl_js",
     "//url/mojom:url_mojom_origin_js",
   ]
+  if (is_chromeos) {
+    deps += [ "//chromeos/services/ime/public/mojom:mojom_js" ]
+  }
 }
 
-static_library("renderer") {
+jumbo_static_library("renderer") {
   sources = [
     "app_categorizer.cc",
     "app_categorizer.h",
@@ -60,6 +65,8 @@ static_library("renderer") {
     "media/chrome_key_systems.h",
     "media/chrome_key_systems_provider.cc",
     "media/chrome_key_systems_provider.h",
+    "media/flash_embed_rewrite.cc",
+    "media/flash_embed_rewrite.h",
     "net/net_error_helper.cc",
     "net/net_error_helper.h",
     "net/net_error_helper_core.cc",
@@ -120,12 +127,14 @@ static_library("renderer") {
     "//chrome/common/net",
     "//components/autofill/content/renderer",
     "//components/cdm/renderer",
-    "//components/contextual_search:renderer",
+    "//components/contextual_search/content:renderer",
+    "//components/data_reduction_proxy/content/common",
     "//components/data_reduction_proxy/content/renderer",
     "//components/data_reduction_proxy/core/common",
     "//components/dom_distiller/content/renderer",
     "//components/network_hints/renderer",
     "//components/omnibox/common",
+    "//components/page_image_annotation/content/renderer",
     "//components/plugins/renderer",
     "//components/rappor/public/interfaces",
     "//components/resources:components_resources",
@@ -164,7 +173,7 @@ static_library("renderer") {
     "//third_party/blink/public:scaled_resources",
     "//third_party/icu",
     "//third_party/re2",
-    "//third_party/widevine/cdm:headers",
+    "//third_party/widevine/cdm:buildflags",
     "//ui/surface",
     "//v8:v8",
   ]
@@ -222,6 +231,10 @@ static_library("renderer") {
     if (is_linux) {
       deps += [ "//components/services/font/public/cpp" ]
     }
+  }
+
+  if (enable_widevine_cdm_component) {
+    deps += [ "//third_party/widevine/cdm:headers" ]
   }
 
   if (safe_browsing_mode != 0) {
@@ -296,8 +309,6 @@ static_library("renderer") {
       "extensions/sync_file_system_custom_bindings.h",
       "extensions/tabs_hooks_delegate.cc",
       "extensions/tabs_hooks_delegate.h",
-      "extensions/webstore_bindings.cc",
-      "extensions/webstore_bindings.h",
       "media/cast_ipc_dispatcher.cc",
       "media/cast_ipc_dispatcher.h",
       "media/cast_receiver_audio_valve.cc",
@@ -348,6 +359,7 @@ static_library("renderer") {
       "//media/cast:net",
       "//media/cast:receiver",
       "//media/cast:sender",
+      "//services/network/public/cpp",
     ]
     public_deps = [
       "//ipc",
@@ -425,9 +437,27 @@ static_library("renderer") {
       "searchbox/searchbox_extension.h",
     ]
   }
+
+  if (is_android) {
+    sources += [
+      "net/available_offline_content_helper.cc",
+      "net/available_offline_content_helper.h",
+      "net/page_auto_fetcher_helper_android.cc",
+      "net/page_auto_fetcher_helper_android.h",
+    ]
+  }
+
+  if (is_chromeos) {
+    sources += [
+      "chromeos_delayed_callback_group.cc",
+      "chromeos_delayed_callback_group.h",
+      "chromeos_merge_session_loader_throttle.cc",
+      "chromeos_merge_session_loader_throttle.h",
+    ]
+  }
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   visibility = [ "//chrome/test:test_support" ]
 

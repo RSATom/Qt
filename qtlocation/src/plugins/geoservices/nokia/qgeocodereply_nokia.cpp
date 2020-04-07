@@ -99,7 +99,7 @@ void QGeoCodeReplyNokia::networkFinished()
 
 void QGeoCodeReplyNokia::networkError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
 
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     reply->deleteLater();
@@ -118,7 +118,7 @@ void QGeoCodeReplyNokia::appendResults(const QList<QGeoLocation> &locations)
 
 void QGeoCodeReplyNokia::parseError(const QString &errorString)
 {
-    Q_UNUSED(errorString)
+    Q_UNUSED(errorString);
 
     setError(QGeoCodeReply::ParseError,
              QCoreApplication::translate(NOKIA_PLUGIN_CONTEXT_NAME, RESPONSE_NOT_RECOGNIZABLE));

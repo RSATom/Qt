@@ -34,9 +34,9 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_source_location_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/bindings/parkable_string.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/wtf/text/movable_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -46,7 +46,7 @@ class ScriptResource;
 class SingleCachedMetadataHandler;
 
 class CORE_EXPORT ScriptSourceCode final {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   // For inline scripts.
@@ -57,23 +57,31 @@ class CORE_EXPORT ScriptSourceCode final {
       const KURL& = KURL(),
       const TextPosition& = TextPosition::MinimumPosition());
 
-  ScriptSourceCode(
-      const MovableString& source,
-      ScriptSourceLocationType = ScriptSourceLocationType::kUnknown,
-      SingleCachedMetadataHandler* cache_handler = nullptr,
-      const KURL& = KURL(),
-      const TextPosition& start_position = TextPosition::MinimumPosition());
-
   // For external scripts.
   //
   // We lose the encoding information from ScriptResource.
   // Not sure if that matters.
-  ScriptSourceCode(ScriptStreamer*, ScriptResource*);
+  ScriptSourceCode(ScriptStreamer*,
+                   ScriptResource*,
+                   ScriptStreamer::NotStreamingReason);
+
+  // For (external) worker scripts. Leaves url fragment intact.
+  //
+  // If we move worker top-level script fetch to the worker thread, this could
+  // probably be merged in to the main external script constructor.
+  //
+  // NOTE: It is import to keep the url fragment in this case so that errors in
+  // worker scripts can include the fragment when reporting the location of the
+  // failure. This is enforced by several tests in
+  // external/wpt/workers/interfaces/WorkerGlobalScope/onerror/.
+  ScriptSourceCode(const String& source,
+                   SingleCachedMetadataHandler*,
+                   const KURL&);
 
   ~ScriptSourceCode();
   void Trace(blink::Visitor*);
 
-  const MovableString& Source() const { return source_; }
+  const ParkableString& Source() const { return source_; }
   SingleCachedMetadataHandler* CacheHandler() const { return cache_handler_; }
   const KURL& Url() const { return url_; }
   const TextPosition& StartPosition() const { return start_position_; }
@@ -83,11 +91,22 @@ class CORE_EXPORT ScriptSourceCode final {
   const String& SourceMapUrl() const { return source_map_url_; }
 
   ScriptStreamer* Streamer() const { return streamer_; }
+  ScriptStreamer::NotStreamingReason NotStreamingReason() const {
+    return not_streaming_reason_;
+  }
 
  private:
-  const MovableString source_;
+  ScriptSourceCode(
+      const ParkableString& source,
+      ScriptSourceLocationType = ScriptSourceLocationType::kUnknown,
+      SingleCachedMetadataHandler* cache_handler = nullptr,
+      const KURL& = KURL(),
+      const TextPosition& start_position = TextPosition::MinimumPosition());
+
+  const ParkableString source_;
   Member<SingleCachedMetadataHandler> cache_handler_;
   Member<ScriptStreamer> streamer_;
+  ScriptStreamer::NotStreamingReason not_streaming_reason_;
 
   // The URL of the source code, which is primarily intended for DevTools
   // javascript debugger.

@@ -44,11 +44,11 @@ class ChooserOnlyTemporalInputTypeView final
  public:
   static ChooserOnlyTemporalInputTypeView* Create(HTMLInputElement&,
                                                   BaseTemporalInputType&);
+  ChooserOnlyTemporalInputTypeView(HTMLInputElement&, BaseTemporalInputType&);
   ~ChooserOnlyTemporalInputTypeView() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
-  ChooserOnlyTemporalInputTypeView(HTMLInputElement&, BaseTemporalInputType&);
   void CloseDateTimeChooser();
 
   // InputTypeView functions:
@@ -56,7 +56,7 @@ class ChooserOnlyTemporalInputTypeView final
   void ClosePopupView() override;
   void ValueAttributeChanged() override;
   void DidSetValue(const String&, bool value_changed) override;
-  void HandleDOMActivateEvent(Event*) override;
+  void HandleDOMActivateEvent(Event&) override;
   void UpdateView() override;
 
   // DateTimeChooserClient functions:

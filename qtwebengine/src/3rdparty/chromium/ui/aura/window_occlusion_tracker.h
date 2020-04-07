@@ -5,12 +5,18 @@
 #ifndef UI_AURA_WINDOW_OCCLUSION_TRACKER_H_
 #define UI_AURA_WINDOW_OCCLUSION_TRACKER_H_
 
+#include <memory>
+#include <utility>
+
+#include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
+#include "base/scoped_observer.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
+#include "ui/aura/window_tree_host_observer.h"
 #include "ui/compositor/layer_animation_observer.h"
 
 struct SkIRect;
@@ -26,10 +32,13 @@ namespace test {
 class WindowOcclusionTrackerTestApi;
 }
 
+class Env;
+class WindowOcclusionChangeBuilder;
+
 // Notifies tracked Windows when their occlusion state change.
 //
 // To start tracking the occlusion state of a Window, call
-// WindowOcclusionTracker::Track().
+//   aura::Window::TrackOcclusionState()
 //
 // A Window is occluded if its bounds and transform are not animated and one of
 // these conditions is true:
@@ -39,26 +48,71 @@ class WindowOcclusionTrackerTestApi;
 // Note that an occluded window may be drawn on the screen by window switching
 // features such as "Alt-Tab" or "Overview".
 class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
-                                           public WindowObserver {
+                                           public WindowObserver,
+                                           public WindowTreeHostObserver {
  public:
   // Prevents window occlusion state computations within its scope. If an event
   // that could cause window occlusion states to change occurs within the scope
-  // of a ScopedPauseOcclusionTracking, window occlusion state computations are
-  // delayed until all ScopedPauseOcclusionTracking objects have been destroyed.
-  class AURA_EXPORT ScopedPauseOcclusionTracking {
+  // of a ScopedPause, window occlusion state computations are delayed until all
+  // ScopedPause objects have been destroyed.
+  // TODO(crbug.com/867150): Pause the tracker in Window Service under mus.
+  class AURA_EXPORT ScopedPause {
    public:
-    ScopedPauseOcclusionTracking();
-    ~ScopedPauseOcclusionTracking();
+    explicit ScopedPause(Env* env);
+    ~ScopedPause();
 
    private:
-    DISALLOW_COPY_AND_ASSIGN(ScopedPauseOcclusionTracking);
+    Env* const env_;
+    DISALLOW_COPY_AND_ASSIGN(ScopedPause);
+  };
+
+  // Exclude the window from occlusion tracking so that a window behind the
+  // given window is still considered visible. The excluded window itself and
+  // its descendant windows, if tracked, are considered visible. This is useful
+  // for a window being dragged or resized to avoid unnecessary occlusion state
+  // change triggered by these operation, because the window bounds are
+  // temporary until it is finished.
+  // Note that this is intended to be used by window manager and not by mus
+  // client process.
+  class AURA_EXPORT ScopedExclude : public WindowObserver {
+   public:
+    explicit ScopedExclude(Window* window);
+    ~ScopedExclude() override;
+
+    Window* window() { return window_; }
+
+   private:
+    // aura::WindowObserver:
+    void OnWindowDestroying(aura::Window* window) override;
+
+    void Shutdown();
+
+    Window* window_;
+    DISALLOW_COPY_AND_ASSIGN(ScopedExclude);
   };
 
   // Start tracking the occlusion state of |window|.
-  static void Track(Window* window);
+  void Track(Window* window);
+
+  // Set a callback to determine whether a window has content to draw in
+  // addition to layer type check (window layer type != ui::LAYER_NOT_DRAWN).
+  using WindowHasContentCallback = base::RepeatingCallback<bool(const Window*)>;
+  void set_window_has_content_callback(WindowHasContentCallback callback) {
+    window_has_content_callback_ = std::move(callback);
+  }
+
+  // Set the factory to create WindowOcclusionChangeBuilder.
+  using OcclusionChangeBuilderFactory =
+      base::RepeatingCallback<std::unique_ptr<WindowOcclusionChangeBuilder>()>;
+  void set_occlusion_change_builder_factory(
+      OcclusionChangeBuilderFactory factory) {
+    occlusion_change_builder_factory_ = std::move(factory);
+  }
 
  private:
   friend class test::WindowOcclusionTrackerTestApi;
+  friend class Env;
+  friend std::unique_ptr<WindowOcclusionTracker>::deleter_type;
 
   struct RootWindowState {
     // Number of Windows whose occlusion state is tracked under this root
@@ -69,14 +123,24 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
     bool dirty = false;
   };
 
+  // Holds occlusion related information for tracked windows.
+  struct OcclusionData {
+    // Occlusion state for a tracked window.
+    Window::OcclusionState occlusion_state = Window::OcclusionState::UNKNOWN;
+    // Region in root window coordinates that is occluded.
+    SkRegion occluded_region;
+  };
+
   WindowOcclusionTracker();
   ~WindowOcclusionTracker() override;
 
-  static WindowOcclusionTracker* GetInstance();
+  // Returns true iff the occlusion states in |tracked_windows| match those
+  // returned by Window::occlusion_state().
+  static bool OcclusionStatesMatch(
+      const base::flat_map<Window*, OcclusionData>& tracked_windows);
 
   // Recomputes the occlusion state of tracked windows under roots marked as
-  // dirty in |root_windows_| if there are no active
-  // ScopedPauseOcclusionTracking instance.
+  // dirty in |root_windows_| if there are no active ScopedPause instance.
   void MaybeComputeOcclusion();
 
   // Recomputes the occlusion state of |window| and its descendants.
@@ -91,6 +155,13 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
       const SkIRect* clipped_bounds,
       SkRegion* occluded_region);
 
+  // Returns true if |window| opaquely fills its bounds. |window| must be
+  // visible.
+  bool VisibleWindowIsOpaque(Window* window) const;
+
+  // Returns true if |window| has content.
+  bool WindowHasContent(Window* window) const;
+
   // Removes windows whose bounds and transform are not animated from
   // |animated_windows_|. Marks the root of those windows as dirty.
   void CleanupAnimatedWindows();
@@ -104,15 +175,21 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
   void SetWindowAndDescendantsAreOccluded(Window* window, bool is_occluded);
 
   // Updates the occlusion state of |window| in |tracked_windows_|, based on
-  // |is_occluded| and window->IsVisible(). No-op if |window| is not in
+  // |is_occluded| and window->IsVisible(). Updates the occluded region of
+  // |window| using |occluded_region|. No-op if |window| is not in
   // |tracked_windows_|.
-  void SetOccluded(Window* window, bool is_occluded);
+  void SetOccluded(Window* window,
+                   bool is_occluded,
+                   const SkRegion& occluded_region);
 
   // Returns true if |window| is in |tracked_windows_|.
   bool WindowIsTracked(Window* window) const;
 
   // Returns true if |window| is in |animated_windows_|.
   bool WindowIsAnimated(Window* window) const;
+
+  // Returns true if |window| is in |excluded_windows_|.
+  bool WindowIsExcluded(Window* window) const;
 
   // If the root of |window| is not dirty and |predicate| is true, marks the
   // root of |window| as dirty. Then, calls MaybeComputeOcclusion().
@@ -122,8 +199,12 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
   void MarkRootWindowAsDirtyAndMaybeComputeOcclusionIf(Window* window,
                                                        Predicate predicate);
 
-  // Marks |root_window| as dirty.
-  void MarkRootWindowAsDirty(RootWindowState* root_window_state);
+  // Marks |root_window_state| as dirty.
+  void MarkRootWindowStateAsDirty(RootWindowState* root_window_state);
+
+  // Marks |root_window| as dirty. Returns false if none of the descendent
+  // windows in |root_window| are tracked.
+  bool MarkRootWindowAsDirty(aura::Window* root_window);
 
   // Returns true if |window| or one of its parents is in |animated_windows_|.
   bool WindowOrParentIsAnimated(Window* window) const;
@@ -140,6 +221,10 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
   bool WindowOrDescendantIsOpaque(Window* window,
                                   bool assume_parent_opaque = false,
                                   bool assume_window_opaque = false) const;
+
+  // Returns true if changing the opacity or alpha state of |window| could
+  // affect the occlusion state of a tracked window.
+  bool WindowOpacityChangeMayAffectOcclusionStates(Window* window) const;
 
   // Returns true if changing the transform, bounds or stacking order of
   // |window| could affect the occlusion state of a tracked window.
@@ -158,6 +243,15 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
   // Add |this| to the observer list of |window| and its descendants.
   void AddObserverToWindowAndDescendants(Window* window);
 
+  // Pauses/unpauses the occlusion state computation.
+  void Pause();
+  void Unpause();
+
+  // Exclucde/Unexclude a window from occlusion tracking. See comment on
+  // ScopedExclude.
+  void Exclude(Window* window);
+  void Unexclude(Window* window);
+
   // ui::LayerAnimationObserver:
   void OnLayerAnimationEnded(ui::LayerAnimationSequence* sequence) override;
   void OnLayerAnimationAborted(ui::LayerAnimationSequence* sequence) override;
@@ -174,6 +268,7 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
                              ui::PropertyChangeReason reason) override;
   void OnWindowOpacitySet(Window* window,
                           ui::PropertyChangeReason reason) override;
+  void OnWindowAlphaShapeSet(Window* window) override;
   void OnWindowTransformed(Window* window,
                            ui::PropertyChangeReason reason) override;
   void OnWindowStackingChanged(Window* window) override;
@@ -183,8 +278,12 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
                                       Window* new_root) override;
   void OnWindowLayerRecreated(Window* window) override;
 
-  // Windows whose occlusion state is tracked.
-  base::flat_map<Window*, Window::OcclusionState> tracked_windows_;
+  // WindowTreeHostObserver
+  void OnOcclusionStateChanged(WindowTreeHost* host,
+                               Window::OcclusionState new_state) override;
+
+  // Windows whose occlusion data is tracked.
+  base::flat_map<Window*, OcclusionData> tracked_windows_;
 
   // Windows whose bounds or transform are animated.
   //
@@ -194,6 +293,10 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
   // computed after it was animated. It is removed when the animation ends or is
   // aborted.
   base::flat_set<Window*> animated_windows_;
+
+  // Windows that are excluded from occlustion tracking. See comment on
+  // ScopedExclude.
+  base::flat_set<Window*> excluded_windows_;
 
   // Root Windows of Windows in |tracked_windows_|.
   base::flat_map<Window*, RootWindowState> root_windows_;
@@ -206,10 +309,17 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
   // recomputed occlusion states. Always 0 when not in MaybeComputeOcclusion().
   int num_times_occlusion_recomputed_in_current_step_ = 0;
 
-  // Set to true when occlusion is recomputed too many times before it becomes
-  // stable. Reset in
-  // WindowOcclusionTrackerTestApi::WasOcclusionRecomputedTooManyTimes().
-  bool was_occlusion_recomputed_too_many_times_ = false;
+  // Counter of the current occlusion tracking pause.
+  int num_pause_occlusion_tracking_ = 0;
+
+  // Tracks the observed windows.
+  ScopedObserver<Window, WindowObserver> window_observer_{this};
+
+  // Callback to be invoked for additional window has content check.
+  WindowHasContentCallback window_has_content_callback_;
+
+  // Optional factory to create occlusion change builder.
+  OcclusionChangeBuilderFactory occlusion_change_builder_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowOcclusionTracker);
 };

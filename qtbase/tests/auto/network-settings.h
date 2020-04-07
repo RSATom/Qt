@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -143,7 +143,7 @@ public:
         return true;
     }
 
-    static bool verifyConnection(QString serverName, quint16 port, quint32 retry = 10)
+    static bool verifyConnection(QString serverName, quint16 port, quint32 retry = 60)
     {
         QTcpSocket socket;
         for (quint32 i = 1; i < retry; i++) {
@@ -176,7 +176,7 @@ public:
 
     static QString ftpServerName()
     {
-#ifdef QT_TEST_SERVER
+#ifdef QT_TEST_SERVER_NAME
         return QString("vsftpd.") % serverDomainName();
 #else
         return serverName();
@@ -184,7 +184,7 @@ public:
     }
     static QString ftpProxyServerName()
     {
-#ifdef QT_TEST_SERVER
+#ifdef QT_TEST_SERVER_NAME
         return QString("ftp-proxy.") % serverDomainName();
 #else
         return serverName();
@@ -192,7 +192,7 @@ public:
     }
     static QString httpServerName()
     {
-#ifdef QT_TEST_SERVER
+#ifdef QT_TEST_SERVER_NAME
         return QString("apache2.") % serverDomainName();
 #else
         return serverName();
@@ -200,7 +200,7 @@ public:
     }
     static QString httpProxyServerName()
     {
-#ifdef QT_TEST_SERVER
+#ifdef QT_TEST_SERVER_NAME
         return QString("squid.") % serverDomainName();
 #else
         return serverName();
@@ -208,7 +208,7 @@ public:
     }
     static QString socksProxyServerName()
     {
-#ifdef QT_TEST_SERVER
+#ifdef QT_TEST_SERVER_NAME
         return QString("danted.") % serverDomainName();
 #else
         return serverName();

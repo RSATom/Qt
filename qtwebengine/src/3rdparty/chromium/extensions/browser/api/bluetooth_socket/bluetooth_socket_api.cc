@@ -5,8 +5,11 @@
 #include "extensions/browser/api/bluetooth_socket/bluetooth_socket_api.h"
 
 #include <stdint.h>
+#include <unordered_set>
 #include <utility>
 
+#include "base/hash.h"
+#include "base/metrics/histogram_functions.h"
 #include "content/public/browser/browser_context.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -160,7 +163,7 @@ void BluetoothSocketAsyncApiFunction::RemoveSocket(int api_resource_id) {
   manager_->Remove(extension_id(), api_resource_id);
 }
 
-base::hash_set<int>* BluetoothSocketAsyncApiFunction::GetSocketIds() {
+std::unordered_set<int>* BluetoothSocketAsyncApiFunction::GetSocketIds() {
   return manager_->GetResourceIds(extension_id());
 }
 
@@ -246,8 +249,8 @@ bool BluetoothSocketListenFunction::PreRunValidation(std::string* error) {
 
 ExtensionFunction::ResponseAction BluetoothSocketListenFunction::Run() {
   DCHECK_CURRENTLY_ON(work_thread_id());
-  device::BluetoothAdapterFactory::GetAdapter(
-      base::Bind(&BluetoothSocketListenFunction::OnGetAdapter, this));
+  device::BluetoothAdapterFactory::GetClassicAdapter(
+      base::BindOnce(&BluetoothSocketListenFunction::OnGetAdapter, this));
   return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
@@ -422,8 +425,8 @@ bool BluetoothSocketAbstractConnectFunction::PreRunValidation(
 ExtensionFunction::ResponseAction
 BluetoothSocketAbstractConnectFunction::Run() {
   DCHECK_CURRENTLY_ON(work_thread_id());
-  device::BluetoothAdapterFactory::GetAdapter(
-      base::Bind(&BluetoothSocketAbstractConnectFunction::OnGetAdapter, this));
+  device::BluetoothAdapterFactory::GetClassicAdapter(base::BindOnce(
+      &BluetoothSocketAbstractConnectFunction::OnGetAdapter, this));
   return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
@@ -549,7 +552,8 @@ ExtensionFunction::ResponseAction BluetoothSocketSendFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params_.get());
 
   io_buffer_size_ = params_->data.size();
-  io_buffer_ = new net::WrappedIOBuffer(params_->data.data());
+  io_buffer_ = base::MakeRefCounted<net::WrappedIOBuffer>(
+      reinterpret_cast<const char*>(params_->data.data()));
 
   BluetoothApiSocket* socket = GetSocket(params_->socket_id);
   if (!socket)
@@ -596,7 +600,7 @@ BluetoothSocketGetSocketsFunction::~BluetoothSocketGetSocketsFunction() {}
 
 ExtensionFunction::ResponseAction BluetoothSocketGetSocketsFunction::Run() {
   std::vector<bluetooth_socket::SocketInfo> socket_infos;
-  base::hash_set<int>* resource_ids = GetSocketIds();
+  std::unordered_set<int>* resource_ids = GetSocketIds();
   if (resource_ids) {
     for (int socket_id : *resource_ids) {
       BluetoothApiSocket* socket = GetSocket(socket_id);

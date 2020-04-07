@@ -12,9 +12,19 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "content/browser/background_fetch/background_fetch.pb.h"
 #include "content/browser/background_fetch/background_fetch_registration_id.h"
 #include "content/browser/cache_storage/cache_storage_manager.h"
-#include "third_party/blink/public/platform/modules/background_fetch/background_fetch.mojom.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom.h"
+
+namespace storage {
+class QuotaManagerProxy;
+}  // namespace storage
+
+namespace url {
+class Origin;
+}  // namespace url
 
 namespace content {
 
@@ -40,13 +50,10 @@ class DatabaseTaskHost {
   virtual BackgroundFetchDataManager* data_manager() = 0;
   virtual ~DatabaseTaskHost();
 
-  base::WeakPtr<DatabaseTaskHost> GetWeakPtr();
+  virtual base::WeakPtr<DatabaseTaskHost> GetWeakPtr() = 0;
 
  protected:
   DatabaseTaskHost();
-
- private:
-  base::WeakPtrFactory<DatabaseTaskHost> weak_factory_;
 };
 
 // A DatabaseTask is an asynchronous "transaction" that needs to read/write the
@@ -62,11 +69,24 @@ class DatabaseTaskHost {
 // as they are added, and cannot outlive the parent DatabaseTask.
 class DatabaseTask : public DatabaseTaskHost {
  public:
+  using IsQuotaAvailableCallback = base::OnceCallback<void(bool is_available)>;
+  using StorageVersionCallback =
+      base::OnceCallback<void(proto::BackgroundFetchStorageVersion)>;
+
   ~DatabaseTask() override;
 
   virtual void Start() = 0;
 
  protected:
+  // This enum is append-only since it is used by UMA.
+  enum class BackgroundFetchStorageError {
+    kNone,
+    kServiceWorkerStorageError,
+    kCacheStorageError,
+    kStorageError,
+    kMaxValue = kStorageError
+  };
+
   explicit DatabaseTask(DatabaseTaskHost* host);
 
   // Each task MUST call this once finished, even if exceptions occur, to
@@ -80,24 +100,56 @@ class DatabaseTask : public DatabaseTaskHost {
   // Abandon all fetches for a given service worker.
   void AbandonFetches(int64_t service_worker_registration_id);
 
+  // Getters.
   ServiceWorkerContextWrapper* service_worker_context();
-
   CacheStorageManager* cache_manager();
-
   std::set<std::string>& ref_counted_unique_ids();
-
   ChromeBlobStorageContext* blob_storage_context();
+  storage::QuotaManagerProxy* quota_manager_proxy();
 
   // DatabaseTaskHost implementation.
   void OnTaskFinished(DatabaseTask* finished_subtask) override;
   BackgroundFetchDataManager* data_manager() override;
 
+  // UMA reporting.
+  void SetStorageError(BackgroundFetchStorageError error);
+  void SetStorageErrorAndFinish(BackgroundFetchStorageError error);
+  void ReportStorageError();
+  bool HasStorageError();
+
+  // Quota.
+  void IsQuotaAvailable(const url::Origin& origin,
+                        int64_t size,
+                        IsQuotaAvailableCallback callback);
+
+  void GetStorageVersion(int64_t service_worker_registration_id,
+                         const std::string& unique_id,
+                         StorageVersionCallback callback);
+
+  CacheStorageHandle GetOrOpenCacheStorage(
+      const BackgroundFetchRegistrationId& registration_id);
+  CacheStorageHandle GetOrOpenCacheStorage(const url::Origin& origin,
+                                           const std::string& unique_id);
+
+  // Release the CacheStorageHandle for the given |unique_id|, if
+  // it's open.  DoomCache should be called prior to releasing the handle.
+  void ReleaseCacheStorage(const std::string& unique_id);
+
  private:
   // Each task must override this function and perform the following steps:
-  // 1) Report error (UMA) if applicable.
+  // 1) Report storage error (UMA) if applicable.
   // 2) Run the provided callback.
   // 3) Call Finished().
   virtual void FinishWithError(blink::mojom::BackgroundFetchError error) = 0;
+
+  // The Histogram name to report with the Error.
+  virtual std::string HistogramName() const;
+
+  void DidGetStorageVersion(StorageVersionCallback callback,
+                            const std::vector<std::string>& data,
+                            blink::ServiceWorkerStatusCode status);
+
+  base::WeakPtr<DatabaseTaskHost> GetWeakPtr() override;
 
   DatabaseTaskHost* host_;
 
@@ -107,6 +159,12 @@ class DatabaseTask : public DatabaseTaskHost {
 
   // Map the raw pointer to its unique_ptr, to make lookups easier.
   std::map<DatabaseTask*, std::unique_ptr<DatabaseTask>> active_subtasks_;
+
+  // The storage error to report.
+  BackgroundFetchStorageError storage_error_ =
+      BackgroundFetchStorageError::kNone;
+
+  base::WeakPtrFactory<DatabaseTask> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DatabaseTask);
 };

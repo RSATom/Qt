@@ -71,6 +71,8 @@ private:
     QNetworkAccessManager *m_networkManager;
     QByteArray m_userAgent;
     QString m_urlPrefix;
+    bool m_debugQuery = false;
+    bool m_includeExtraData = false;
 };
 
 QT_END_NAMESPACE

@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/scoped_refptr.h"
@@ -54,11 +55,10 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // |job_settings|. Runs |callback| with an error string on failure and with an
   // empty string if the print job is started successfully. |rfh| is the render
   // frame host for the preview initiator contents respectively.
-  void PrintForPrintPreview(
-      std::unique_ptr<base::DictionaryValue> job_settings,
-      const scoped_refptr<base::RefCountedMemory>& print_data,
-      content::RenderFrameHost* rfh,
-      PrinterHandler::PrintCallback callback);
+  void PrintForPrintPreview(base::Value job_settings,
+                            scoped_refptr<base::RefCountedMemory> print_data,
+                            content::RenderFrameHost* rfh,
+                            PrinterHandler::PrintCallback callback);
 #endif
 
   // Whether printing is enabled or not.
@@ -115,7 +115,9 @@ class PrintViewManagerBase : public content::NotificationObserver,
                           const PrintHostMsg_DidPrintDocument_Params& params);
 
   // IPC message handlers for service.
-  void OnComposePdfDone(const PrintHostMsg_DidPrintDocument_Params& params,
+  void OnComposePdfDone(const gfx::Size& page_size,
+                        const gfx::Rect& content_area,
+                        const gfx::Point& physical_offsets,
                         mojom::PdfCompositor::Status status,
                         base::ReadOnlySharedMemoryRegion region);
 
@@ -198,10 +200,10 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // Indication of success of the print job.
   bool printing_succeeded_;
 
-  // Running an inner message loop inside RenderAllMissingPagesNow(). This means
-  // we are _blocking_ until all the necessary pages have been rendered or the
-  // print settings are being loaded.
-  bool inside_inner_message_loop_;
+  // Set while running an inner message loop inside RenderAllMissingPagesNow().
+  // This means we are _blocking_ until all the necessary pages have been
+  // rendered or the print settings are being loaded.
+  base::OnceClosure quit_inner_loop_;
 
   // Whether printing is enabled.
   BooleanPrefMember printing_enabled_;

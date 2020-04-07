@@ -8,31 +8,30 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <assert.h>
+#include <string.h>
 
-#include "modules/audio_device/audio_device_config.h"
 #include "modules/audio_device/linux/audio_device_pulse_linux.h"
+#include "modules/audio_device/linux/latebindingsymboltable_linux.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "system_wrappers/include/event_wrapper.h"
 
-webrtc::adm_linux_pulse::PulseAudioSymbolTable PaSymbolTable;
+WebRTCPulseSymbolTable* GetPulseSymbolTable() {
+  static WebRTCPulseSymbolTable* pulse_symbol_table =
+      new WebRTCPulseSymbolTable();
+  return pulse_symbol_table;
+}
 
 // Accesses Pulse functions through our late-binding symbol table instead of
 // directly. This way we don't have to link to libpulse, which means our binary
 // will work on systems that don't have it.
-#define LATE(sym)                                                             \
-  LATESYM_GET(webrtc::adm_linux_pulse::PulseAudioSymbolTable, &PaSymbolTable, \
-              sym)
+#define LATE(sym)                                             \
+  LATESYM_GET(webrtc::adm_linux_pulse::PulseAudioSymbolTable, \
+              GetPulseSymbolTable(), sym)
 
 namespace webrtc {
 
 AudioDeviceLinuxPulse::AudioDeviceLinuxPulse()
     : _ptrAudioBuffer(NULL),
-      _timeEventRec(*EventWrapper::Create()),
-      _timeEventPlay(*EventWrapper::Create()),
-      _recStartEvent(*EventWrapper::Create()),
-      _playStartEvent(*EventWrapper::Create()),
       _inputDeviceIndex(0),
       _outputDeviceIndex(0),
       _inputDeviceIsSpecified(false),
@@ -109,11 +108,6 @@ AudioDeviceLinuxPulse::~AudioDeviceLinuxPulse() {
     delete[] _recDeviceName;
     _recDeviceName = NULL;
   }
-
-  delete &_recStartEvent;
-  delete &_playStartEvent;
-  delete &_timeEventRec;
-  delete &_timeEventPlay;
 }
 
 void AudioDeviceLinuxPulse::AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) {
@@ -155,12 +149,14 @@ AudioDeviceGeneric::InitStatus AudioDeviceLinuxPulse::Init() {
     return InitStatus::OTHER_ERROR;
   }
 
+#if defined(WEBRTC_USE_X11)
   // Get X display handle for typing detection
   _XDisplay = XOpenDisplay(NULL);
   if (!_XDisplay) {
     RTC_LOG(LS_WARNING)
         << "failed to open X display, typing detection will not work";
   }
+#endif
 
   // RECORDING
   _ptrThreadRec.reset(new rtc::PlatformThread(
@@ -212,10 +208,12 @@ int32_t AudioDeviceLinuxPulse::Terminate() {
     return -1;
   }
 
+#if defined(WEBRTC_USE_X11)
   if (_XDisplay) {
     XCloseDisplay(_XDisplay);
     _XDisplay = NULL;
   }
+#endif
 
   _initialized = false;
   _outputDeviceIsSpecified = false;
@@ -1059,7 +1057,7 @@ int32_t AudioDeviceLinuxPulse::StartRecording() {
 
   // The audio thread will signal when recording has started.
   _timeEventRec.Set();
-  if (kEventTimeout == _recStartEvent.Wait(10000)) {
+  if (!_recStartEvent.Wait(10000)) {
     {
       rtc::CritScope lock(&_critSect);
       _startRec = false;
@@ -1174,7 +1172,7 @@ int32_t AudioDeviceLinuxPulse::StartPlayout() {
 
   // The audio thread will signal when playout has started.
   _timeEventPlay.Set();
-  if (kEventTimeout == _playStartEvent.Wait(10000)) {
+  if (!_playStartEvent.Wait(10000)) {
     {
       rtc::CritScope lock(&_critSect);
       _startPlay = false;
@@ -1543,7 +1541,7 @@ int32_t AudioDeviceLinuxPulse::InitPulseAudio() {
   int retVal = 0;
 
   // Load libpulse
-  if (!PaSymbolTable.Load()) {
+  if (!GetPulseSymbolTable()->Load()) {
     // Most likely the Pulse library and sound server are not installed on
     // this system
     RTC_LOG(LS_ERROR) << "failed to load symbol table";
@@ -1654,7 +1652,7 @@ int32_t AudioDeviceLinuxPulse::InitPulseAudio() {
 
 int32_t AudioDeviceLinuxPulse::TerminatePulseAudio() {
   // Do nothing if the instance doesn't exist
-  // likely PaSymbolTable.Load() fails
+  // likely GetPulseSymbolTable.Load() fails
   if (!_paMainloop) {
     return 0;
   }
@@ -1988,14 +1986,8 @@ bool AudioDeviceLinuxPulse::RecThreadFunc(void* pThis) {
 }
 
 bool AudioDeviceLinuxPulse::PlayThreadProcess() {
-  switch (_timeEventPlay.Wait(1000)) {
-    case kEventSignaled:
-      break;
-    case kEventError:
-      RTC_LOG(LS_WARNING) << "EventWrapper::Wait() failed";
-      return true;
-    case kEventTimeout:
-      return true;
+  if (!_timeEventPlay.Wait(1000)) {
+    return true;
   }
 
   rtc::CritScope lock(&_critSect);
@@ -2162,14 +2154,8 @@ bool AudioDeviceLinuxPulse::PlayThreadProcess() {
 }
 
 bool AudioDeviceLinuxPulse::RecThreadProcess() {
-  switch (_timeEventRec.Wait(1000)) {
-    case kEventSignaled:
-      break;
-    case kEventError:
-      RTC_LOG(LS_WARNING) << "EventWrapper::Wait() failed";
-      return true;
-    case kEventTimeout:
-      return true;
+  if (!_timeEventRec.Wait(1000)) {
+    return true;
   }
 
   rtc::CritScope lock(&_critSect);
@@ -2280,6 +2266,7 @@ bool AudioDeviceLinuxPulse::RecThreadProcess() {
 }
 
 bool AudioDeviceLinuxPulse::KeyPressed() const {
+#if defined(WEBRTC_USE_X11)
   char szKey[32];
   unsigned int i = 0;
   char state = 0;
@@ -2297,5 +2284,8 @@ bool AudioDeviceLinuxPulse::KeyPressed() const {
   // Save old state
   memcpy((char*)_oldKeyState, (char*)szKey, sizeof(_oldKeyState));
   return (state != 0);
+#else
+  return false;
+#endif
 }
 }  // namespace webrtc

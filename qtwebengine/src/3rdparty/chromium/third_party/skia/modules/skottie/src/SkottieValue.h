@@ -8,21 +8,32 @@
 #ifndef SkottieValue_DEFINED
 #define SkottieValue_DEFINED
 
+#include "SkColor.h"
+#include "SkPaint.h"
 #include "SkPath.h"
 #include "SkScalar.h"
+#include "SkString.h"
+#include "SkTextUtils.h"
+#include "SkTypeface.h"
 
 #include <vector>
 
-namespace  skottie {
+namespace skjson { class Value; }
+
+namespace skottie {
+namespace internal {
+class AnimationBuilder;
+} // namespace internal
 
 template <typename T>
 struct ValueTraits {
-    static size_t Cardinality(const T&);
+    static bool FromJSON(const skjson::Value&, const internal::AnimationBuilder*, T*);
 
     template <typename U>
     static U As(const T&);
 
-    static T Lerp(const T&, const T&, float);
+    static bool CanLerp(const T&, const T&);
+    static void Lerp(const T&, const T&, float, T*);
 };
 
 using ScalarValue = SkScalar;
@@ -57,6 +68,32 @@ struct ShapeValue {
     }
 
     bool operator!=(const ShapeValue& other) const { return !(*this == other); }
+};
+
+struct TextValue {
+    sk_sp<SkTypeface> fTypeface;
+    SkString          fText;
+    float             fTextSize    = 0,
+                      fStrokeWidth = 0;
+    SkTextUtils::Align fAlign       = SkTextUtils::kLeft_Align;
+    SkColor           fFillColor   = SK_ColorTRANSPARENT,
+                      fStrokeColor = SK_ColorTRANSPARENT;
+    bool              fHasFill   : 1,
+                      fHasStroke : 1;
+
+    bool operator==(const TextValue& other) const {
+        return fTypeface == other.fTypeface
+            && fText == other.fText
+            && fTextSize == other.fTextSize
+            && fStrokeWidth == other.fStrokeWidth
+            && fAlign == other.fAlign
+            && fFillColor == other.fFillColor
+            && fStrokeColor == other.fStrokeColor
+            && fHasFill == other.fHasFill
+            && fHasStroke == other.fHasStroke;
+    }
+
+    bool operator!=(const TextValue& other) const { return !(*this == other); }
 };
 
 } // namespace skottie

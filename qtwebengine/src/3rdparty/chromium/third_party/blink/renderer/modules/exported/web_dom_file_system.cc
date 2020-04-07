@@ -45,7 +45,7 @@
 namespace blink {
 
 WebDOMFileSystem WebDOMFileSystem::FromV8Value(v8::Local<v8::Value> value) {
-  if (!V8DOMFileSystem::hasInstance(value, v8::Isolate::GetCurrent()))
+  if (!V8DOMFileSystem::HasInstance(value, v8::Isolate::GetCurrent()))
     return WebDOMFileSystem();
   v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(value);
   DOMFileSystem* dom_file_system = V8DOMFileSystem::ToImpl(object);
@@ -70,7 +70,7 @@ WebDOMFileSystem WebDOMFileSystem::Create(WebLocalFrame* frame,
   DCHECK(ToWebLocalFrameImpl(frame)->GetFrame());
   DOMFileSystem* dom_file_system = DOMFileSystem::Create(
       ToWebLocalFrameImpl(frame)->GetFrame()->GetDocument(), name,
-      static_cast<FileSystemType>(type), root_url);
+      static_cast<mojom::blink::FileSystemType>(type), root_url);
   if (serializable_type == kSerializableTypeSerializable)
     dom_file_system->MakeClonable();
   return WebDOMFileSystem(dom_file_system);
@@ -89,20 +89,20 @@ WebString WebDOMFileSystem::GetName() const {
   return private_->name();
 }
 
-WebFileSystem::Type WebDOMFileSystem::GetType() const {
+WebFileSystemType WebDOMFileSystem::GetType() const {
   DCHECK(private_.Get());
   switch (private_->GetType()) {
-    case kFileSystemTypeTemporary:
-      return WebFileSystem::kTypeTemporary;
-    case kFileSystemTypePersistent:
-      return WebFileSystem::kTypePersistent;
-    case kFileSystemTypeIsolated:
-      return WebFileSystem::kTypeIsolated;
-    case kFileSystemTypeExternal:
-      return WebFileSystem::kTypeExternal;
+    case blink::mojom::FileSystemType::kTemporary:
+      return WebFileSystemType::kWebFileSystemTypeTemporary;
+    case blink::mojom::FileSystemType::kPersistent:
+      return WebFileSystemType::kWebFileSystemTypePersistent;
+    case blink::mojom::FileSystemType::kIsolated:
+      return WebFileSystemType::kWebFileSystemTypeIsolated;
+    case blink::mojom::FileSystemType::kExternal:
+      return WebFileSystemType::kWebFileSystemTypeExternal;
     default:
       NOTREACHED();
-      return WebFileSystem::kTypeTemporary;
+      return WebFileSystemType::kWebFileSystemTypeTemporary;
   }
 }
 

@@ -50,7 +50,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_management_switches.h"
+#include "components/signin/core/browser/account_consistency_method.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/storage_partition.h"
@@ -351,8 +351,8 @@ void UserManagerScreenHandler::HandleAuthenticatedLaunchUser(
     if (!oauth_client_) {
       oauth_client_.reset(new gaia::GaiaOAuthClient(
           content::BrowserContext::GetDefaultStoragePartition(
-              web_ui()->GetWebContents()->GetBrowserContext())->
-                  GetURLRequestContext()));
+              web_ui()->GetWebContents()->GetBrowserContext())
+              ->GetURLLoaderFactoryForBrowserProcess()));
     }
 
     const std::string token = entry->GetPasswordChangeDetectionToken();
@@ -370,9 +370,8 @@ void UserManagerScreenHandler::HandleAuthenticatedLaunchUser(
     // password token, the user must perform a full online reauth.
     RecordAuthenticatedLaunchUserEvent(
         AuthenticatedLaunchUserEvent::GAIA_REAUTH_DIALOG);
-    UserManagerProfileDialog::ShowReauthDialogWithProfilePath(
-        browser_context, email_address_, profile_path,
-        signin_metrics::Reason::REASON_UNLOCK);
+    UserManagerProfileDialog::ShowUnlockDialogWithProfilePath(
+        browser_context, email_address_, profile_path);
   } else if (entry->IsSigninRequired() && entry->IsSupervised()) {
     // Supervised profile will only be locked when force-sign-in is enabled
     // and it shouldn't be unlocked. Display the error message directly via
@@ -398,13 +397,11 @@ void UserManagerScreenHandler::HandleAuthenticatedLaunchUser(
         web_ui()->GetWebContents()->GetBrowserContext());
   } else {
     // Fresh sign in via user manager without existing email address.
+    DCHECK(signin_util::IsForceSigninEnabled());
     RecordAuthenticatedLaunchUserEvent(
         AuthenticatedLaunchUserEvent::FORCED_PRIMARY_SIGNIN_DIALOG);
-    UserManagerProfileDialog::ShowSigninDialog(
-        browser_context, profile_path,
-        signin_util::IsForceSigninEnabled()
-            ? signin_metrics::Reason::REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT
-            : signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT);
+    UserManagerProfileDialog::ShowForceSigninDialog(browser_context,
+                                                    profile_path);
   }
 }
 
@@ -496,13 +493,6 @@ void UserManagerScreenHandler::HandleLaunchUser(const base::ListValue* args) {
       ProfileMetrics::SWITCH_PROFILE_MANAGER);
 }
 
-void UserManagerScreenHandler::HandleHardlockUserPod(
-    const base::ListValue* args) {
-  std::string email;
-  CHECK(args->GetString(0, &email));
-  const AccountId account_id = AccountId::FromUserEmail(email);
-}
-
 void UserManagerScreenHandler::HandleRemoveUserWarningLoadStats(
     const base::ListValue* args) {
   const base::Value* profile_path_value;
@@ -571,9 +561,8 @@ void UserManagerScreenHandler::OnOAuthError() {
   // Password has changed.  Go through online signin flow.
   DCHECK(!email_address_.empty());
   oauth_client_.reset();
-  UserManagerProfileDialog::ShowReauthDialog(
-      web_ui()->GetWebContents()->GetBrowserContext(), email_address_,
-      signin_metrics::Reason::REASON_UNLOCK);
+  UserManagerProfileDialog::ShowUnlockDialog(
+      web_ui()->GetWebContents()->GetBrowserContext(), email_address_);
 }
 
 void UserManagerScreenHandler::OnNetworkError(int response_code) {
@@ -729,36 +718,25 @@ void UserManagerScreenHandler::GetLocalizedValues(
 
   // Strings needed for the user_pod_template public account div, but not ever
   // actually displayed for desktop users.
-  localized_strings->SetString("publicAccountReminder", base::string16());
-  localized_strings->SetString("publicSessionLanguageAndInput",
-                               base::string16());
-  localized_strings->SetString("publicAccountEnter", base::string16());
-  localized_strings->SetString("publicAccountEnterAccessibleName",
-                               base::string16());
-  localized_strings->SetString("publicAccountMonitoringWarning",
-                               base::string16());
-  localized_strings->SetString("publicAccountLearnMore", base::string16());
-  localized_strings->SetString("publicAccountMonitoringInfo", base::string16());
-  localized_strings->SetString("publicAccountMonitoringInfoItem1",
-                               base::string16());
-  localized_strings->SetString("publicAccountMonitoringInfoItem2",
-                               base::string16());
-  localized_strings->SetString("publicAccountMonitoringInfoItem3",
-                               base::string16());
-  localized_strings->SetString("publicAccountMonitoringInfoItem4",
-                               base::string16());
-  localized_strings->SetString("publicSessionSelectLanguage", base::string16());
-  localized_strings->SetString("publicSessionSelectKeyboard", base::string16());
-  localized_strings->SetString("signinBannerText", base::string16());
-  localized_strings->SetString("launchAppButton", base::string16());
-  localized_strings->SetString("multiProfilesRestrictedPolicyTitle",
-                               base::string16());
-  localized_strings->SetString("multiProfilesNotAllowedPolicyMsg",
-                                base::string16());
-  localized_strings->SetString("multiProfilesPrimaryOnlyPolicyMsg",
-                                base::string16());
-  localized_strings->SetString("multiProfilesOwnerPrimaryOnlyMsg",
-                                base::string16());
+  localized_strings->SetString("publicAccountReminder", "");
+  localized_strings->SetString("publicSessionLanguageAndInput", "");
+  localized_strings->SetString("publicAccountEnter", "");
+  localized_strings->SetString("publicAccountEnterAccessibleName", "");
+  localized_strings->SetString("publicAccountMonitoringWarning", "");
+  localized_strings->SetString("publicAccountLearnMore", "");
+  localized_strings->SetString("publicAccountMonitoringInfo", "");
+  localized_strings->SetString("publicAccountMonitoringInfoItem1", "");
+  localized_strings->SetString("publicAccountMonitoringInfoItem2", "");
+  localized_strings->SetString("publicAccountMonitoringInfoItem3", "");
+  localized_strings->SetString("publicAccountMonitoringInfoItem4", "");
+  localized_strings->SetString("publicSessionSelectLanguage", "");
+  localized_strings->SetString("publicSessionSelectKeyboard", "");
+  localized_strings->SetString("signinBannerText", "");
+  localized_strings->SetString("launchAppButton", "");
+  localized_strings->SetString("multiProfilesRestrictedPolicyTitle", "");
+  localized_strings->SetString("multiProfilesNotAllowedPolicyMsg", "");
+  localized_strings->SetString("multiProfilesPrimaryOnlyPolicyMsg", "");
+  localized_strings->SetString("multiProfilesOwnerPrimaryOnlyMsg", "");
 
   // Error message when trying to add a profile while all profiles are locked.
   localized_strings->SetString("addProfileAllProfilesLockedError",
@@ -796,8 +774,8 @@ void UserManagerScreenHandler::SendUserList() {
     profile_value->SetString(kKeyEmailAddress, entry->GetUserName());
     profile_value->SetString(kKeyDisplayName,
                              profiles::GetAvatarNameForProfile(profile_path));
-    profile_value->Set(kKeyProfilePath,
-                       base::CreateFilePathValue(profile_path));
+    profile_value->SetKey(kKeyProfilePath,
+                          base::CreateFilePathValue(profile_path));
     profile_value->SetBoolean(kKeyPublicAccount, false);
     profile_value->SetBoolean(kKeyLegacySupervisedUser,
                               entry->IsLegacySupervised());

@@ -102,6 +102,8 @@ public:
 
     void codeAppend(const char* str) { this->code().append(str); }
 
+    void codeAppend(const char* str, size_t length) { this->code().append(str, length); }
+
     void codePrependf(const char format[], ...) SK_PRINTF_LIKE(2, 3) {
        va_list args;
        va_start(args, format);
@@ -245,5 +247,6 @@ protected:
     friend class GrGLSLVaryingHandler; // to access noperspective interpolation feature.
     friend class GrGLPathProgramBuilder; // to access fInputs.
     friend class GrVkPipelineStateBuilder;
+    friend class GrMtlPipelineStateBuilder;
 };
 #endif

@@ -4,18 +4,23 @@
 
 #include "content/common/service_worker/service_worker_loader_helpers.h"
 
+#include <limits>
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/strings/stringprintf.h"
-#include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/content_features.h"
+#include "content/public/common/resource_type.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/http/http_util.h"
+#include "net/url_request/redirect_util.h"
 #include "services/network/loader_util.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/cpp/resource_response.h"
+#include "third_party/blink/public/common/blob/blob_utils.h"
 #include "ui/base/page_transition_types.h"
 
 namespace content {
@@ -46,7 +51,7 @@ class BlobCompleteCaller : public blink::mojom::BlobReaderClient {
 void ServiceWorkerLoaderHelpers::SaveResponseHeaders(
     const int status_code,
     const std::string& status_text,
-    const ServiceWorkerHeaderMap& headers,
+    const base::flat_map<std::string, std::string>& headers,
     network::ResourceResponseHead* out_head) {
   // Build a string instead of using HttpResponseHeaders::AddHeader on
   // each header, since AddHeader has O(n^2) performance.
@@ -64,15 +69,11 @@ void ServiceWorkerLoaderHelpers::SaveResponseHeaders(
       net::HttpUtil::AssembleRawHeaders(buf.c_str(), buf.size()));
 
   // Populate |out_head|'s MIME type with the value from the HTTP response
-  // headers. If there is none, set a default value.
-  // TODO(crbug.com/771118): Make the MIME sniffer work for SW controlled page
-  // loads, so we don't need to set a simple default value.
+  // headers.
   if (out_head->mime_type.empty()) {
     std::string mime_type;
-    out_head->headers->GetMimeType(&mime_type);
-    if (mime_type.empty())
-      mime_type = "text/plain";
-    out_head->mime_type = mime_type;
+    if (out_head->headers->GetMimeType(&mime_type))
+      out_head->mime_type = mime_type;
   }
 
   // Populate |out_head|'s charset with the value from the HTTP response
@@ -82,19 +83,29 @@ void ServiceWorkerLoaderHelpers::SaveResponseHeaders(
     if (out_head->headers->GetCharset(&charset))
       out_head->charset = charset;
   }
+
+  // Populate |out_head|'s content length with the value from the HTTP response
+  // headers.
+  if (out_head->content_length == -1)
+    out_head->content_length = out_head->headers->GetContentLength();
 }
 
 // static
 void ServiceWorkerLoaderHelpers::SaveResponseInfo(
-    const ServiceWorkerResponse& response,
+    const blink::mojom::FetchAPIResponse& response,
     network::ResourceResponseHead* out_head) {
   out_head->was_fetched_via_service_worker = true;
   out_head->was_fallback_required_by_service_worker = false;
   out_head->url_list_via_service_worker = response.url_list;
-  out_head->response_type_via_service_worker = response.response_type;
+  out_head->response_type = response.response_type;
   out_head->response_time = response.response_time;
-  out_head->is_in_cache_storage = response.is_in_cache_storage;
-  out_head->cache_storage_cache_name = response.cache_storage_cache_name;
+  out_head->is_in_cache_storage =
+      response.response_source ==
+      network::mojom::FetchResponseSource::kCacheStorage;
+  if (response.cache_storage_cache_name)
+    out_head->cache_storage_cache_name = *(response.cache_storage_cache_name);
+  else
+    out_head->cache_storage_cache_name.clear();
   out_head->cors_exposed_header_names = response.cors_exposed_header_names;
   out_head->did_service_worker_navigation_preload = false;
 }
@@ -103,8 +114,7 @@ void ServiceWorkerLoaderHelpers::SaveResponseInfo(
 base::Optional<net::RedirectInfo>
 ServiceWorkerLoaderHelpers::ComputeRedirectInfo(
     const network::ResourceRequest& original_request,
-    const network::ResourceResponseHead& response_head,
-    bool token_binding_negotiated) {
+    const network::ResourceResponseHead& response_head) {
   std::string new_location;
   if (!response_head.headers->IsRedirect(&new_location))
     return base::nullopt;
@@ -117,44 +127,37 @@ ServiceWorkerLoaderHelpers::ComputeRedirectInfo(
           : net::URLRequest::NEVER_CHANGE_FIRST_PARTY_URL;
   return net::RedirectInfo::ComputeRedirectInfo(
       original_request.method, original_request.url,
-      original_request.site_for_cookies, first_party_url_policy,
-      original_request.referrer_policy,
+      original_request.site_for_cookies, original_request.top_frame_origin,
+      first_party_url_policy, original_request.referrer_policy,
       network::ComputeReferrer(original_request.referrer),
-      response_head.headers.get(), response_head.headers->response_code(),
-      original_request.url.Resolve(new_location), false,
-      token_binding_negotiated);
+      response_head.headers->response_code(),
+      original_request.url.Resolve(new_location),
+      net::RedirectUtil::GetReferrerPolicyHeader(response_head.headers.get()),
+      false /* insecure_scheme_was_upgraded */);
 }
 
 int ServiceWorkerLoaderHelpers::ReadBlobResponseBody(
     blink::mojom::BlobPtr* blob,
-    const net::HttpRequestHeaders& headers,
+    uint64_t blob_size,
     base::OnceCallback<void(int)> on_blob_read_complete,
     mojo::ScopedDataPipeConsumerHandle* handle_out) {
-  bool byte_range_set = false;
-  uint64_t offset = 0;
-  uint64_t length = 0;
-  // We don't support multiple range requests in one single URL request,
-  // because we need to do multipart encoding here.
-  // TODO(falken): Support multipart byte range requests.
-  if (!ServiceWorkerUtils::ExtractSinglePartHttpRange(headers, &byte_range_set,
-                                                      &offset, &length)) {
-    return net::ERR_REQUEST_RANGE_NOT_SATISFIABLE;
-  }
+  MojoCreateDataPipeOptions options;
+  options.struct_size = sizeof(MojoCreateDataPipeOptions);
+  options.flags = MOJO_CREATE_DATA_PIPE_FLAG_NONE;
+  options.element_num_bytes = 1;
+  options.capacity_num_bytes = blink::BlobUtils::GetDataPipeCapacity(blob_size);
 
-  mojo::DataPipe data_pipe;
+  mojo::ScopedDataPipeProducerHandle producer_handle;
+  MojoResult rv = mojo::CreateDataPipe(&options, &producer_handle, handle_out);
+  if (rv != MOJO_RESULT_OK)
+    return net::ERR_FAILED;
+
   blink::mojom::BlobReaderClientPtr blob_reader_client;
   mojo::MakeStrongBinding(
       std::make_unique<BlobCompleteCaller>(std::move(on_blob_read_complete)),
       mojo::MakeRequest(&blob_reader_client));
 
-  if (byte_range_set) {
-    (*blob)->ReadRange(offset, length, std::move(data_pipe.producer_handle),
-                       std::move(blob_reader_client));
-  } else {
-    (*blob)->ReadAll(std::move(data_pipe.producer_handle),
-                     std::move(blob_reader_client));
-  }
-  *handle_out = std::move(data_pipe.consumer_handle);
+  (*blob)->ReadAll(std::move(producer_handle), std::move(blob_reader_client));
   return net::OK;
 }
 

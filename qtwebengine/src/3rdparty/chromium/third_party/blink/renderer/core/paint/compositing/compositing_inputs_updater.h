@@ -11,15 +11,12 @@
 namespace blink {
 
 class PaintLayer;
-class CompositingReasonFinder;
 
 class CompositingInputsUpdater {
   STACK_ALLOCATED();
 
  public:
-  explicit CompositingInputsUpdater(
-      PaintLayer* root_layer,
-      CompositingReasonFinder& compositing_reason_finder);
+  explicit CompositingInputsUpdater(PaintLayer* root_layer);
   ~CompositingInputsUpdater();
 
   void Update();
@@ -35,7 +32,12 @@ class CompositingInputsUpdater {
   };
 
   struct AncestorInfo {
-    PaintLayer* enclosing_composited_layer = nullptr;
+    // The ancestor composited PaintLayer which is also a stacking context.
+    PaintLayer* enclosing_stacking_composited_layer = nullptr;
+    // A "squashing composited layer" is a PaintLayer that owns a squashing
+    // layer. This variable stores the squashing composited layer for the
+    // nearest PaintLayer ancestor which is squashed.
+    PaintLayer* enclosing_squashing_composited_layer = nullptr;
     PaintLayer* last_overflow_clip_layer = nullptr;
 
     PaintLayer* clip_chain_parent_for_absolute = nullptr;
@@ -57,6 +59,8 @@ class CompositingInputsUpdater {
     bool needs_reparent_scroll = false;
     bool needs_reparent_scroll_for_absolute = false;
     bool needs_reparent_scroll_for_fixed = false;
+
+    bool is_under_video = false;
   };
 
   void UpdateRecursive(PaintLayer*, UpdateType, AncestorInfo);
@@ -65,7 +69,6 @@ class CompositingInputsUpdater {
 
   LayoutGeometryMap geometry_map_;
   PaintLayer* root_layer_;
-  CompositingReasonFinder& compositing_reason_finder_;
 };
 
 }  // namespace blink

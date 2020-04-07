@@ -11,9 +11,8 @@
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "components/storage_monitor/removable_device_constants.h"
 #include "components/storage_monitor/storage_monitor.h"
@@ -44,12 +43,9 @@ base::FilePath::StringType FindRemovableStorageLocationById(
 
 void FilterAttachedDevicesOnBackgroundSequence(
     MediaStorageUtil::DeviceIdSet* devices) {
-  base::AssertBlockingAllowed();
   MediaStorageUtil::DeviceIdSet missing_devices;
 
-  for (MediaStorageUtil::DeviceIdSet::const_iterator it = devices->begin();
-       it != devices->end();
-       ++it) {
+  for (auto it = devices->begin(); it != devices->end(); ++it) {
     StorageInfo::Type type;
     std::string unique_id;
     if (!StorageInfo::CrackDeviceId(*it, &type, &unique_id)) {
@@ -67,10 +63,7 @@ void FilterAttachedDevicesOnBackgroundSequence(
       missing_devices.insert(*it);
   }
 
-  for (MediaStorageUtil::DeviceIdSet::const_iterator it =
-           missing_devices.begin();
-       it != missing_devices.end();
-       ++it) {
+  for (auto it = missing_devices.begin(); it != missing_devices.end(); ++it) {
     devices->erase(*it);
   }
 }
@@ -79,7 +72,6 @@ void FilterAttachedDevicesOnBackgroundSequence(
 
 // static
 bool MediaStorageUtil::HasDcim(const base::FilePath& mount_point) {
-  base::AssertBlockingAllowed();
   base::FilePath::StringType dcim_dir(kDCIMDirectoryName);
   if (!base::DirectoryExists(mount_point.Append(dcim_dir))) {
     // Check for lowercase 'dcim' as well.
@@ -110,9 +102,10 @@ void MediaStorageUtil::FilterAttachedDevices(DeviceIdSet* devices,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   base::PostTaskWithTraitsAndReply(
       FROM_HERE,
-      {base::TaskPriority::BACKGROUND, base::MayBlock(),
+      {base::TaskPriority::BEST_EFFORT, base::MayBlock(),
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::Bind(&FilterAttachedDevicesOnBackgroundSequence, devices), done);
+      base::BindOnce(&FilterAttachedDevicesOnBackgroundSequence, devices),
+      done);
 }
 
 // TODO(kmadhusu) Write unit tests for GetDeviceInfoFromPath().

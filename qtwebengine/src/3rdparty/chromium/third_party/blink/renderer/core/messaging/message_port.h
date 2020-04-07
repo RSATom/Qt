@@ -32,7 +32,7 @@
 #include "base/single_thread_task_runner.h"
 #include "mojo/public/cpp/bindings/connector.h"
 #include "mojo/public/cpp/bindings/message.h"
-#include "third_party/blink/public/common/message_port/message_port_channel.h"
+#include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
@@ -46,8 +46,8 @@ namespace blink {
 
 class ExceptionState;
 class ExecutionContext;
+class PostMessageOptions;
 class ScriptState;
-class SerializedScriptValue;
 
 class CORE_EXPORT MessagePort : public EventTargetWithInlineData,
                                 public mojo::MessageReceiver,
@@ -58,13 +58,18 @@ class CORE_EXPORT MessagePort : public EventTargetWithInlineData,
 
  public:
   static MessagePort* Create(ExecutionContext&);
+
+  explicit MessagePort(ExecutionContext&);
   ~MessagePort() override;
 
   void postMessage(ScriptState*,
-                   scoped_refptr<SerializedScriptValue> message,
-                   const MessagePortArray&,
+                   const ScriptValue& message,
+                   Vector<ScriptValue>& transfer,
                    ExceptionState&);
-  static bool CanTransferArrayBuffersAndImageBitmaps() { return true; }
+  void postMessage(ScriptState*,
+                   const ScriptValue& message,
+                   const PostMessageOptions*,
+                   ExceptionState&);
 
   void start();
   void close();
@@ -100,19 +105,19 @@ class CORE_EXPORT MessagePort : public EventTargetWithInlineData,
   void ContextDestroyed(ExecutionContext*) override { close(); }
 
   void setOnmessage(EventListener* listener) {
-    SetAttributeEventListener(EventTypeNames::message, listener);
+    SetAttributeEventListener(event_type_names::kMessage, listener);
     start();
   }
   EventListener* onmessage() {
-    return GetAttributeEventListener(EventTypeNames::message);
+    return GetAttributeEventListener(event_type_names::kMessage);
   }
 
   void setOnmessageerror(EventListener* listener) {
-    SetAttributeEventListener(EventTypeNames::messageerror, listener);
+    SetAttributeEventListener(event_type_names::kMessageerror, listener);
     start();
   }
   EventListener* onmessageerror() {
-    return GetAttributeEventListener(EventTypeNames::messageerror);
+    return GetAttributeEventListener(event_type_names::kMessageerror);
   }
 
   // A port starts out its life entangled, and remains entangled until it is
@@ -124,23 +129,23 @@ class CORE_EXPORT MessagePort : public EventTargetWithInlineData,
   bool IsNeutered() const { return !connector_ || !connector_->is_valid(); }
 
   // For testing only: allows inspection of the entangled channel.
-  MojoHandle EntangledHandleForTesting() const;
+  ::MojoHandle EntangledHandleForTesting() const;
 
   void Trace(blink::Visitor*) override;
-
- protected:
-  explicit MessagePort(ExecutionContext&);
 
  private:
   // mojo::MessageReceiver implementation.
   bool Accept(mojo::Message*) override;
   void ResetMessageCount();
+  bool ShouldYieldAfterNewMessage();
 
   std::unique_ptr<mojo::Connector> connector_;
   int messages_in_current_task_ = 0;
 
   bool started_ = false;
   bool closed_ = false;
+
+  base::Optional<base::TimeTicks> task_start_time_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 };

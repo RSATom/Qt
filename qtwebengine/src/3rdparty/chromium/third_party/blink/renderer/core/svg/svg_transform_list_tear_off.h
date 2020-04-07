@@ -47,23 +47,19 @@ class SVGTransformListTearOff final
  public:
   static SVGTransformListTearOff* Create(
       SVGTransformList* target,
-      SVGElement* context_element,
-      PropertyIsAnimValType property_is_anim_val,
-      const QualifiedName& attribute_name) {
-    return new SVGTransformListTearOff(target, context_element,
-                                       property_is_anim_val, attribute_name);
+      SVGAnimatedPropertyBase* binding,
+      PropertyIsAnimValType property_is_anim_val) {
+    return MakeGarbageCollected<SVGTransformListTearOff>(target, binding,
+                                                         property_is_anim_val);
   }
 
+  SVGTransformListTearOff(SVGTransformList*,
+                          SVGAnimatedPropertyBase* binding,
+                          PropertyIsAnimValType);
   ~SVGTransformListTearOff() override;
 
   SVGTransformTearOff* createSVGTransformFromMatrix(SVGMatrixTearOff*) const;
   SVGTransformTearOff* consolidate(ExceptionState&);
-
- private:
-  SVGTransformListTearOff(SVGTransformList*,
-                          SVGElement*,
-                          PropertyIsAnimValType,
-                          const QualifiedName&);
 };
 
 }  // namespace blink

@@ -11,17 +11,20 @@
 #ifndef CALL_RTP_CONFIG_H_
 #define CALL_RTP_CONFIG_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 
 #include "api/rtp_headers.h"
-#include "api/rtpparameters.h"
+#include "api/rtp_parameters.h"
 
 namespace webrtc {
 // Currently only VP8/VP9 specific.
 struct RtpPayloadState {
   int16_t picture_id = -1;
   uint8_t tl0_pic_idx = 0;
+  int64_t shared_frame_id = 0;
 };
 // Settings for NACK, see RFC 4585 for details.
 struct NackConfig {
@@ -63,6 +66,14 @@ struct RtpConfig {
 
   std::vector<uint32_t> ssrcs;
 
+  // The Rtp Stream Ids (aka RIDs) to send in the RID RTP header extension
+  // if the extension is included in the list of extensions.
+  // If rids are specified, they should correspond to the |ssrcs| vector.
+  // This means that:
+  // 1. rids.size() == 0 || rids.size() == ssrcs.size().
+  // 2. If rids is not empty, then |rids[i]| should use |ssrcs[i]|.
+  std::vector<std::string> rids;
+
   // The value to send in the MID RTP header extension if the extension is
   // included in the list of extensions.
   std::string mid;
@@ -72,6 +83,9 @@ struct RtpConfig {
 
   // Max RTP packet size delivered to send transport from VideoEngine.
   size_t max_packet_size = kDefaultMaxPacketSize;
+
+  // Corresponds to the SDP attribute extmap-allow-mixed.
+  bool extmap_allow_mixed = false;
 
   // RTP header extensions to use for this send stream.
   std::vector<RtpExtension> extensions;
@@ -127,18 +141,6 @@ struct RtpConfig {
 
   // RTCP CNAME, see RFC 3550.
   std::string c_name;
-};
-
-struct RtcpConfig {
-  RtcpConfig();
-  RtcpConfig(const RtcpConfig&);
-  ~RtcpConfig();
-  std::string ToString() const;
-
-  // Time interval between RTCP report for video
-  int64_t video_report_interval_ms = 1000;
-  // Time interval between RTCP report for audio
-  int64_t audio_report_interval_ms = 5000;
 };
 }  // namespace webrtc
 #endif  // CALL_RTP_CONFIG_H_

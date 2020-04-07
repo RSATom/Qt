@@ -9,7 +9,9 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
+#include "base/test/bind_test_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
@@ -50,7 +52,7 @@ class ImageDataFetcherTest : public testing::Test {
                void(const std::string&, const RequestMetadata&));
 
  protected:
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
 
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> shared_factory_;
@@ -83,6 +85,42 @@ TEST_F(ImageDataFetcherTest, FetchImageData) {
   EXPECT_TRUE(pending_load_flags & net::LOAD_DO_NOT_SEND_COOKIES);
   EXPECT_TRUE(pending_load_flags & net::LOAD_DO_NOT_SAVE_COOKIES);
   EXPECT_TRUE(pending_load_flags & net::LOAD_DO_NOT_SEND_AUTH_DATA);
+
+  network::ResourceResponseHead head;
+  std::string raw_header =
+      "HTTP/1.1 200 OK\n"
+      "Content-type: image/png\n\n";
+  head.headers = new net::HttpResponseHeaders(
+      net::HttpUtil::AssembleRawHeaders(raw_header.c_str(), raw_header.size()));
+  head.mime_type = "image/png";
+  network::URLLoaderCompletionStatus status;
+  status.decoded_body_length = content.size();
+  test_url_loader_factory_.AddResponse(GURL(kImageURL), head, content, status);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(ImageDataFetcherTest, FetchImageDataWithCookies) {
+  std::string content = kURLResponseData;
+
+  image_data_fetcher_.FetchImageData(
+      GURL(kImageURL),
+      base::BindOnce(&ImageDataFetcherTest::OnImageDataFetched,
+                     base::Unretained(this)),
+      TRAFFIC_ANNOTATION_FOR_TESTS, true);
+
+  RequestMetadata expected_metadata;
+  expected_metadata.mime_type = std::string("image/png");
+  expected_metadata.http_response_code = net::HTTP_OK;
+  EXPECT_CALL(*this, OnImageDataFetched(content, expected_metadata));
+
+  // Check to make sure the request is pending with proper flags, and
+  // provide a response.
+  int pending_load_flags = 0;
+  EXPECT_TRUE(
+      test_url_loader_factory_.IsPending(kImageURL, &pending_load_flags));
+  EXPECT_FALSE(pending_load_flags & net::LOAD_DO_NOT_SEND_COOKIES);
+  EXPECT_FALSE(pending_load_flags & net::LOAD_DO_NOT_SAVE_COOKIES);
+  EXPECT_FALSE(pending_load_flags & net::LOAD_DO_NOT_SEND_AUTH_DATA);
 
   network::ResourceResponseHead head;
   std::string raw_header =
@@ -226,6 +264,22 @@ TEST_F(ImageDataFetcherTest, FetchImageData_CancelFetchIfImageExceedsMaxSize) {
 
   EXPECT_TRUE(test_url_loader_factory_.IsPending(kImageURL));
   test_url_loader_factory_.AddResponse(kImageURL, oversize_download);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(ImageDataFetcherTest, DeleteFromCallback) {
+  // Test to make sure that deleting an ImageDataFetcher from the callback
+  // passed to its FetchImageData() does not crash.
+  auto heap_fetcher = std::make_unique<ImageDataFetcher>(shared_factory_);
+  heap_fetcher->FetchImageData(
+      GURL(kImageURL),
+      base::BindLambdaForTesting(
+          [&](const std::string&, const RequestMetadata&) {
+            heap_fetcher = nullptr;
+          }),
+      TRAFFIC_ANNOTATION_FOR_TESTS);
+
+  test_url_loader_factory_.AddResponse(kImageURL, "");
   base::RunLoop().RunUntilIdle();
 }
 

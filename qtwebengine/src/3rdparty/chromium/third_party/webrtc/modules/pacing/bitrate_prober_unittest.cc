@@ -8,8 +8,6 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <limits>
-
 #include "modules/pacing/bitrate_prober.h"
 #include "test/gtest.h"
 
@@ -134,6 +132,24 @@ TEST(BitrateProberTest, ScaleBytesUsedForProbing) {
   constexpr int kBitrateBps = 10000000;  // 10 Mbps
   constexpr int kPacketSizeBytes = 1000;
   constexpr int kExpectedBytesSent = kBitrateBps * 15 / 8000;
+
+  prober.CreateProbeCluster(kBitrateBps, 0);
+  prober.OnIncomingPacket(kPacketSizeBytes);
+  int bytes_sent = 0;
+  while (bytes_sent < kExpectedBytesSent) {
+    ASSERT_TRUE(prober.IsProbing());
+    prober.ProbeSent(0, kPacketSizeBytes);
+    bytes_sent += kPacketSizeBytes;
+  }
+
+  EXPECT_FALSE(prober.IsProbing());
+}
+
+TEST(BitrateProberTest, HighBitrateProbing) {
+  BitrateProber prober;
+  constexpr int kBitrateBps = 1000000000;  // 1 Gbps.
+  constexpr int kPacketSizeBytes = 1000;
+  constexpr int kExpectedBytesSent = (kBitrateBps / 8000) * 15;
 
   prober.CreateProbeCluster(kBitrateBps, 0);
   prober.OnIncomingPacket(kPacketSizeBytes);

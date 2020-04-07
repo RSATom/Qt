@@ -22,10 +22,10 @@
 #include "content/public/browser/browser_associated_interface.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/widget_type.h"
 #include "gpu/config/gpu_info.h"
 #include "ipc/message_filter.h"
-#include "third_party/blink/public/platform/modules/cache_storage/cache_storage.mojom.h"
-#include "third_party/blink/public/web/web_popup_type.h"
+#include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/native_widget_types.h"
@@ -41,19 +41,8 @@ namespace media {
 struct MediaLogEvent;
 }
 
-namespace net {
-class IOBuffer;
-class URLRequestContextGetter;
-}
-
-namespace url {
-class Origin;
-}
-
 namespace content {
 class BrowserContext;
-class CacheStorageContextImpl;
-class CacheStorageCacheHandle;
 class MediaInternals;
 class RenderWidgetHelper;
 class ResourceContext;
@@ -69,10 +58,8 @@ class CONTENT_EXPORT RenderMessageFilter
   // Create the filter.
   RenderMessageFilter(int render_process_id,
                       BrowserContext* browser_context,
-                      net::URLRequestContextGetter* request_context,
                       RenderWidgetHelper* render_widget_helper,
-                      MediaInternals* media_internals,
-                      CacheStorageContextImpl* cache_storage_context);
+                      MediaInternals* media_internals);
 
   // BrowserMessageFilter methods:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -94,21 +81,11 @@ class CONTENT_EXPORT RenderMessageFilter
   // mojom::RenderMessageFilter:
   void GenerateRoutingID(GenerateRoutingIDCallback routing_id) override;
   void CreateNewWidget(int32_t opener_id,
-                       blink::WebPopupType popup_type,
                        mojom::WidgetPtr widget,
                        CreateNewWidgetCallback callback) override;
   void CreateFullscreenWidget(int opener_id,
                               mojom::WidgetPtr widget,
                               CreateFullscreenWidgetCallback callback) override;
-  void DidGenerateCacheableMetadata(const GURL& url,
-                                    base::Time expected_response_time,
-                                    const std::vector<uint8_t>& data) override;
-  void DidGenerateCacheableMetadataInCacheStorage(
-      const GURL& url,
-      base::Time expected_response_time,
-      const std::vector<uint8_t>& data,
-      const url::Origin& cache_storage_origin,
-      const std::string& cache_storage_cache_name) override;
   void HasGpuProcess(HasGpuProcessCallback callback) override;
 #if defined(OS_LINUX)
   void SetThreadPriority(int32_t ns_tid,
@@ -122,12 +99,6 @@ class CONTENT_EXPORT RenderMessageFilter
                                      base::ThreadPriority priority);
 #endif
 
-  void OnCacheStorageOpenCallback(const GURL& url,
-                                  base::Time expected_response_time,
-                                  scoped_refptr<net::IOBuffer> buf,
-                                  int buf_len,
-                                  CacheStorageCacheHandle cache_handle,
-                                  blink::mojom::CacheStorageError error);
   void OnMediaLogEvents(const std::vector<media::MediaLogEvent>&);
 
   bool CheckBenchmarkingEnabled() const;
@@ -138,9 +109,6 @@ class CONTENT_EXPORT RenderMessageFilter
   // than we do.
   ResourceDispatcherHostImpl* resource_dispatcher_host_;
 
-  // Contextual information to be used for requests created here.
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
-
   // The ResourceContext which is to be used on the IO thread.
   ResourceContext* resource_context_;
 
@@ -149,7 +117,6 @@ class CONTENT_EXPORT RenderMessageFilter
   int render_process_id_;
 
   MediaInternals* media_internals_;
-  CacheStorageContextImpl* cache_storage_context_;
 
   base::WeakPtrFactory<RenderMessageFilter> weak_ptr_factory_;
 

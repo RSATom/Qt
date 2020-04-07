@@ -6,7 +6,7 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -106,7 +106,7 @@ TEST(BluetoothUUIDTest, GetCanonicalValueAsGUID) {
   const char kValid128Bit0[] = "12345678-1234-5678-9abc-def123456789";
   GUID guid = BluetoothUUID::GetCanonicalValueAsGUID(kValid128Bit0);
 
-  EXPECT_EQ(0x12345678, guid.Data1);
+  EXPECT_EQ(0x12345678u, guid.Data1);
   EXPECT_EQ(0x1234, guid.Data2);
   EXPECT_EQ(0x5678, guid.Data3);
   EXPECT_EQ(0x9a, guid.Data4[0]);
@@ -141,7 +141,7 @@ TEST(BluetoothUUIDTest, BluetoothUUID_CaseInsensitive) {
     { "00001aBc-0000-1000-8000-00805F9b34fB", k128Bit },
   };
 
-  for (size_t i = 0; i < arraysize(test_cases); ++i) {
+  for (size_t i = 0; i < base::size(test_cases); ++i) {
     SCOPED_TRACE("Input UUID: " + test_cases[i].input_uuid);
     BluetoothUUID uuid(test_cases[i].input_uuid);
     EXPECT_TRUE(uuid.IsValid());

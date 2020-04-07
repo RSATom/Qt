@@ -66,7 +66,7 @@ template <> struct QListSpecialMethods<QString>
 {
 #ifndef Q_QDOC
 protected:
-    ~QListSpecialMethods() {}
+    ~QListSpecialMethods() = default;
 #endif
 public:
     inline void sort(Qt::CaseSensitivity cs = Qt::CaseSensitive);
@@ -131,6 +131,12 @@ public:
     { *this += l; return *this; }
     inline QStringList &operator<<(const QList<QString> &l)
     { *this += l; return *this; }
+
+    inline int indexOf(QStringView str, int from = 0) const;
+    inline int indexOf(QLatin1String str, int from = 0) const;
+
+    inline int lastIndexOf(QStringView str, int from = -1) const;
+    inline int lastIndexOf(QLatin1String str, int from = -1) const;
 
 #ifndef QT_NO_REGEXP
     inline int indexOf(const QRegExp &rx, int from = 0) const;
@@ -247,6 +253,26 @@ inline QStringList operator+(const QList<QString> &one, const QStringList &other
     QStringList n = one;
     n += other;
     return n;
+}
+
+inline int QStringList::indexOf(QStringView string, int from) const
+{
+    return QtPrivate::indexOf<QString, QStringView>(*this, string, from);
+}
+
+inline int QStringList::indexOf(QLatin1String string, int from) const
+{
+    return QtPrivate::indexOf<QString, QLatin1String>(*this, string, from);
+}
+
+inline int QStringList::lastIndexOf(QStringView string, int from) const
+{
+    return QtPrivate::lastIndexOf<QString, QStringView>(*this, string, from);
+}
+
+inline int QStringList::lastIndexOf(QLatin1String string, int from) const
+{
+    return QtPrivate::lastIndexOf<QString, QLatin1String>(*this, string, from);
 }
 
 #ifndef QT_NO_REGEXP

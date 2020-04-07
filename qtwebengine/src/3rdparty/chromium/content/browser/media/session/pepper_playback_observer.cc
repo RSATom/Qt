@@ -75,8 +75,9 @@ void PepperPlaybackObserver::PepperStartsPlayback(
 
   MediaSessionImpl::Get(contents_)->AddPlayer(
       players_map_[id].get(), PepperPlayerDelegate::kPlayerId,
-      media::IsAudioFocusDuckFlashEnabled() ? media::MediaContentType::Pepper
-                                            : media::MediaContentType::OneShot);
+      base::FeatureList::IsEnabled(media::kAudioFocusDuckFlash)
+          ? media::MediaContentType::Pepper
+          : media::MediaContentType::OneShot);
 }
 
 void PepperPlaybackObserver::PepperStopsPlayback(

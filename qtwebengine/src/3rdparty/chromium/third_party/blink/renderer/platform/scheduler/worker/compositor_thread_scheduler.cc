@@ -13,8 +13,7 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/renderer/platform/scheduler/child/features.h"
-#include "third_party/blink/renderer/platform/scheduler/child/task_queue_with_task_type.h"
+#include "third_party/blink/renderer/platform/scheduler/common/features.h"
 #include "third_party/blink/renderer/platform/scheduler/common/scheduler_helper.h"
 
 namespace blink {
@@ -33,10 +32,8 @@ WebThreadScheduler* WebThreadScheduler::CompositorThreadScheduler() {
 
 CompositorThreadScheduler::CompositorThreadScheduler(
     std::unique_ptr<base::sequence_manager::SequenceManager> sequence_manager)
-    : NonMainThreadSchedulerImpl(std::make_unique<NonMainThreadSchedulerHelper>(
-          std::move(sequence_manager),
-          this,
-          TaskType::kCompositorThreadTaskQueueDefault)),
+    : NonMainThreadSchedulerImpl(std::move(sequence_manager),
+                                 TaskType::kCompositorThreadTaskQueueDefault),
       input_task_queue_(
           base::FeatureList::IsEnabled(kHighPriorityInputOnCompositorThread)
               ? helper()->NewTaskQueue(
@@ -44,8 +41,7 @@ CompositorThreadScheduler::CompositorThreadScheduler(
                         .SetShouldMonitorQuiescence(true))
               : nullptr),
       input_task_runner_(input_task_queue_
-                             ? TaskQueueWithTaskType::Create(
-                                   input_task_queue_,
+                             ? input_task_queue_->CreateTaskRunner(
                                    TaskType::kCompositorThreadTaskQueueInput)
                              : nullptr),
       compositor_metrics_helper_(helper()->HasCPUTimingForEachTask()) {
@@ -71,7 +67,7 @@ void CompositorThreadScheduler::InitImpl() {}
 
 void CompositorThreadScheduler::OnTaskCompleted(
     NonMainThreadTaskQueue* worker_task_queue,
-    const base::sequence_manager::TaskQueue::Task& task,
+    const base::sequence_manager::Task& task,
     const base::sequence_manager::TaskQueue::TaskTiming& task_timing) {
   compositor_metrics_helper_.RecordTaskMetrics(worker_task_queue, task,
                                                task_timing);
@@ -102,6 +98,12 @@ CompositorThreadScheduler::V8TaskRunner() {
 
 scoped_refptr<base::SingleThreadTaskRunner>
 CompositorThreadScheduler::CompositorTaskRunner() {
+  NOTREACHED();
+  return nullptr;
+}
+
+scoped_refptr<base::SingleThreadTaskRunner>
+CompositorThreadScheduler::IPCTaskRunner() {
   NOTREACHED();
   return nullptr;
 }

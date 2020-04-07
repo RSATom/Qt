@@ -10,8 +10,12 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fetch/blob_bytes_consumer.h"
+#include "third_party/blink/renderer/core/fetch/form_data_bytes_consumer.h"
+#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -34,8 +38,10 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
  public:
   TeeHelper(ExecutionContext* execution_context, BytesConsumer* consumer)
       : src_(consumer),
-        destination1_(new Destination(execution_context, this)),
-        destination2_(new Destination(execution_context, this)) {
+        destination1_(
+            MakeGarbageCollected<Destination>(execution_context, this)),
+        destination2_(
+            MakeGarbageCollected<Destination>(execution_context, this)) {
     consumer->SetClient(this);
     // As no client is set to either destinations, Destination::notify() is
     // no-op in this function.
@@ -60,7 +66,8 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
       }
       Chunk* chunk = nullptr;
       if (result == Result::kOk) {
-        chunk = new Chunk(buffer, available);
+        chunk = MakeGarbageCollected<Chunk>(buffer,
+                                            SafeCast<wtf_size_t>(available));
         result = src_->EndRead(available);
       }
       switch (result) {
@@ -74,6 +81,10 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
           NOTREACHED();
           return;
         case Result::kDone:
+          if (chunk) {
+            destination1_->Enqueue(chunk);
+            destination2_->Enqueue(chunk);
+          }
           if (destination1_was_empty)
             destination1_->Notify();
           if (destination2_was_empty)
@@ -113,7 +124,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
   using Result = BytesConsumer::Result;
   class Chunk final : public GarbageCollectedFinalized<Chunk> {
    public:
-    Chunk(const char* data, size_t size) {
+    Chunk(const char* data, wtf_size_t size) {
       buffer_.ReserveInitialCapacity(size);
       buffer_.Append(data, size);
       // Report buffer size to V8 so GC can be triggered appropriately.
@@ -125,7 +136,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
           -static_cast<int64_t>(buffer_.size()));
     }
     const char* data() const { return buffer_.data(); }
-    size_t size() const { return buffer_.size(); }
+    wtf_size_t size() const { return buffer_.size(); }
 
     void Trace(blink::Visitor* visitor) {}
 
@@ -300,7 +311,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
     destination2_->Notify();
   }
 
-  Member<BytesConsumer> src_;
+  TraceWrapperMember<BytesConsumer> src_;
   Member<Destination> destination1_;
   Member<Destination> destination2_;
 };
@@ -363,23 +374,36 @@ void BytesConsumer::Tee(ExecutionContext* execution_context,
       src->DrainAsBlobDataHandle(BlobSizePolicy::kAllowBlobWithInvalidSize);
   if (blob_data_handle) {
     // Register a client in order to be consistent.
-    src->SetClient(new NoopClient);
-    *dest1 = new BlobBytesConsumer(execution_context, blob_data_handle);
-    *dest2 = new BlobBytesConsumer(execution_context, blob_data_handle);
+    src->SetClient(MakeGarbageCollected<NoopClient>());
+    *dest1 = MakeGarbageCollected<BlobBytesConsumer>(execution_context,
+                                                     blob_data_handle);
+    *dest2 = MakeGarbageCollected<BlobBytesConsumer>(execution_context,
+                                                     blob_data_handle);
     return;
   }
 
-  TeeHelper* tee = new TeeHelper(execution_context, src);
+  auto form_data = src->DrainAsFormData();
+  if (form_data) {
+    // Register a client in order to be consistent.
+    src->SetClient(MakeGarbageCollected<NoopClient>());
+    *dest1 = MakeGarbageCollected<FormDataBytesConsumer>(execution_context,
+                                                         form_data);
+    *dest2 = MakeGarbageCollected<FormDataBytesConsumer>(execution_context,
+                                                         form_data);
+    return;
+  }
+
+  TeeHelper* tee = MakeGarbageCollected<TeeHelper>(execution_context, src);
   *dest1 = tee->Destination1();
   *dest2 = tee->Destination2();
 }
 
 BytesConsumer* BytesConsumer::CreateErrored(const BytesConsumer::Error& error) {
-  return new ErroredBytesConsumer(error);
+  return MakeGarbageCollected<ErroredBytesConsumer>(error);
 }
 
 BytesConsumer* BytesConsumer::CreateClosed() {
-  return new ClosedBytesConsumer();
+  return MakeGarbageCollected<ClosedBytesConsumer>();
 }
 
 }  // namespace blink

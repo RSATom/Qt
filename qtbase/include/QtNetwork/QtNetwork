@@ -37,6 +37,9 @@
 #include "qnetworkreply.h"
 #include "qnetworkrequest.h"
 #include "qnetworksession.h"
+#if QT_CONFIG(ssl)
+#include "qocspresponse.h"
+#endif
 #include "qpassworddigestor.h"
 #include "qsctpserver.h"
 #include "qsctpsocket.h"

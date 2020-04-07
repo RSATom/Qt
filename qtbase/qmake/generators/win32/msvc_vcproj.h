@@ -57,15 +57,16 @@ public:
     ~VcprojGenerator();
 
     QString defaultMakefile() const;
-    QString precompH, precompHFilename, precompCPP,
+    QString precompH, precompHFilename, precompSource,
             precompObj, precompPch;
-    bool autogenPrecompCPP;
+    bool autogenPrecompSource;
     static bool hasBuiltinCompiler(const QString &file);
 
     QHash<QString, QStringList> extraCompilerSources;
     QHash<QString, QString> extraCompilerOutputs;
     const QString customBuildToolFilterFileSuffix;
     bool usePCH;
+    bool pchIsCFile = false;
     VCProjectWriter *projectWriter;
 
 protected:
@@ -73,6 +74,8 @@ protected:
     bool doDepends() const override { return false; } // Never necessary
     using Win32MakefileGenerator::replaceExtraCompilerVariables;
     QString replaceExtraCompilerVariables(const QString &, const QStringList &, const QStringList &, ReplaceFor) override;
+    QString extraCompilerName(const ProString &extraCompiler, const QStringList &inputs,
+                              const QStringList &outputs);
     bool supportsMetaBuild() override { return true; }
     bool supportsMergedBuilds() override { return true; }
     bool mergeBuildProject(MakefileGenerator *other) override;

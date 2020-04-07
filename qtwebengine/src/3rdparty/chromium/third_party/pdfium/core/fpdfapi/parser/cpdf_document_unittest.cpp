@@ -17,7 +17,6 @@
 #include "core/fpdfapi/parser/cpdf_parser.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fxcrt/fx_memory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/base/ptr_util.h"
 
@@ -33,7 +32,7 @@ CPDF_Dictionary* CreatePageTreeNode(std::unique_ptr<CPDF_Array> kids,
   pageNode->SetNewFor<CPDF_String>("Type", "Pages", false);
   pageNode->SetNewFor<CPDF_Reference>("Kids", pDoc, pUnowned->GetObjNum());
   pageNode->SetNewFor<CPDF_Number>("Count", count);
-  for (size_t i = 0; i < pUnowned->GetCount(); i++) {
+  for (size_t i = 0; i < pUnowned->size(); i++) {
     pUnowned->GetDictAt(i)->SetNewFor<CPDF_Reference>("Parent", pDoc,
                                                       pageNode->GetObjNum());
   }
@@ -47,7 +46,7 @@ std::unique_ptr<CPDF_Dictionary> CreateNumberedPage(size_t number) {
   return page;
 }
 
-class CPDF_TestDocumentForPages : public CPDF_Document {
+class CPDF_TestDocumentForPages final : public CPDF_Document {
  public:
   CPDF_TestDocumentForPages() : CPDF_Document() {
     // Set up test
@@ -99,7 +98,7 @@ class CPDF_TestDocumentForPages : public CPDF_Document {
   }
 };
 
-class CPDF_TestDocumentWithPageWithoutPageNum : public CPDF_Document {
+class CPDF_TestDocumentWithPageWithoutPageNum final : public CPDF_Document {
  public:
   CPDF_TestDocumentWithPageWithoutPageNum() : CPDF_Document() {
     // Set up test
@@ -124,13 +123,13 @@ class CPDF_TestDocumentWithPageWithoutPageNum : public CPDF_Document {
   const CPDF_Object* inlined_page_;
 };
 
-class TestLinearized : public CPDF_LinearizedHeader {
+class TestLinearized final : public CPDF_LinearizedHeader {
  public:
   explicit TestLinearized(CPDF_Dictionary* dict)
       : CPDF_LinearizedHeader(dict, 0) {}
 };
 
-class CPDF_TestDocPagesWithoutKids : public CPDF_Document {
+class CPDF_TestDocPagesWithoutKids final : public CPDF_Document {
  public:
   CPDF_TestDocPagesWithoutKids() : CPDF_Document() {
     CPDF_Dictionary* pagesDict = NewIndirect<CPDF_Dictionary>();
@@ -143,7 +142,7 @@ class CPDF_TestDocPagesWithoutKids : public CPDF_Document {
   }
 };
 
-class CPDF_TestDocumentAllowSetParser : public CPDF_Document {
+class CPDF_TestDocumentAllowSetParser final : public CPDF_Document {
  public:
   using CPDF_Document::SetParser;
 };

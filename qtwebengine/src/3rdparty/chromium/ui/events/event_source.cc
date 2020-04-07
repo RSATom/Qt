@@ -34,14 +34,19 @@ void EventSource::AddEventRewriter(EventRewriter* rewriter) {
 }
 
 void EventSource::RemoveEventRewriter(EventRewriter* rewriter) {
-  EventRewriterList::iterator find =
-      std::find(rewriter_list_.begin(), rewriter_list_.end(), rewriter);
+  auto find = std::find(rewriter_list_.begin(), rewriter_list_.end(), rewriter);
   if (find != rewriter_list_.end())
     rewriter_list_.erase(find);
 }
 
 EventDispatchDetails EventSource::SendEventToSink(Event* event) {
   return SendEventToSinkFromRewriter(event, nullptr);
+}
+
+EventDispatchDetails EventSource::DeliverEventToSink(Event* event) {
+  EventSink* sink = GetEventSink();
+  CHECK(sink);
+  return sink->OnEventFromSource(event);
 }
 
 EventDispatchDetails EventSource::SendEventToSinkFromRewriter(
@@ -72,7 +77,9 @@ EventDispatchDetails EventSource::SendEventToSinkFromRewriter(
     status = (*it)->RewriteEvent(*event_for_rewriting, &rewritten_event);
     if (status == EVENT_REWRITE_DISCARD) {
       CHECK(!rewritten_event);
-      return EventDispatchDetails();
+      EventDispatchDetails details;
+      details.event_discarded = true;
+      return details;
     }
     if (status == EVENT_REWRITE_CONTINUE) {
       CHECK(!rewritten_event);
@@ -99,12 +106,6 @@ EventDispatchDetails EventSource::SendEventToSinkFromRewriter(
     rewritten_event = std::move(new_event);
   }
   return EventDispatchDetails();
-}
-
-EventDispatchDetails EventSource::DeliverEventToSink(Event* event) {
-  EventSink* sink = GetEventSink();
-  CHECK(sink);
-  return sink->OnEventFromSource(event);
 }
 
 }  // namespace ui

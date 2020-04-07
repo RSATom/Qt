@@ -44,7 +44,6 @@
 #include "third_party/blink/renderer/platform/heap/marking_visitor.h"
 #include "third_party/blink/renderer/platform/heap/page_memory.h"
 #include "third_party/blink/renderer/platform/heap/page_pool.h"
-#include "third_party/blink/renderer/platform/heap/safe_point.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
@@ -143,29 +142,6 @@ Address ThreadHeap::CheckAndMarkPointer(MarkingVisitor* visitor,
   return nullptr;
 }
 
-#if DCHECK_IS_ON()
-// To support unit testing of the marking of off-heap root references
-// into the heap, provide a checkAndMarkPointer() version with an
-// extra notification argument.
-Address ThreadHeap::CheckAndMarkPointer(
-    MarkingVisitor* visitor,
-    Address address,
-    MarkedPointerCallbackForTesting callback) {
-  DCHECK(thread_state_->InAtomicMarkingPause());
-
-  if (BasePage* page = LookupPageForAddress(address)) {
-    DCHECK(page->Contains(address));
-    DCHECK(!address_cache_->Lookup(address));
-    DCHECK(&visitor->Heap() == &page->Arena()->GetThreadState()->Heap());
-    visitor->ConservativelyMarkAddress(page, address, callback);
-    return address;
-  }
-  if (!address_cache_->Lookup(address))
-    address_cache_->AddEntry(address);
-  return nullptr;
-}
-#endif  // DCHECK_IS_ON()
-
 void ThreadHeap::RegisterWeakTable(void* table,
                                    EphemeronCallback iteration_callback) {
   DCHECK(thread_state_->InAtomicMarkingPause());
@@ -181,15 +157,39 @@ void ThreadHeap::RegisterWeakTable(void* table,
 void ThreadHeap::CommitCallbackStacks() {
   marking_worklist_.reset(new MarkingWorklist());
   not_fully_constructed_worklist_.reset(new NotFullyConstructedWorklist());
+  previously_not_fully_constructed_worklist_.reset(
+      new NotFullyConstructedWorklist());
   weak_callback_worklist_.reset(new WeakCallbackWorklist());
   DCHECK(ephemeron_callbacks_.IsEmpty());
 }
 
 void ThreadHeap::DecommitCallbackStacks() {
   marking_worklist_.reset(nullptr);
-  not_fully_constructed_worklist_.reset(nullptr);
+  previously_not_fully_constructed_worklist_.reset(nullptr);
   weak_callback_worklist_.reset(nullptr);
   ephemeron_callbacks_.clear();
+
+  // The fixed point iteration may have found not-fully-constructed objects.
+  // Such objects should have already been found through the stack scan though
+  // and should thus already be marked.
+  if (!not_fully_constructed_worklist_->IsGlobalEmpty()) {
+#if DCHECK_IS_ON()
+    NotFullyConstructedItem item;
+    while (not_fully_constructed_worklist_->Pop(WorklistTaskId::MainThread,
+                                                &item)) {
+      BasePage* const page = PageFromObject(item);
+      HeapObjectHeader* const header =
+          page->IsLargeObjectPage()
+              ? static_cast<LargeObjectPage*>(page)->ObjectHeader()
+              : static_cast<NormalPage*>(page)->FindHeaderFromAddress(
+                    reinterpret_cast<Address>(const_cast<void*>(item)));
+      DCHECK(header->IsMarked());
+    }
+#else
+    not_fully_constructed_worklist_->Clear();
+#endif
+  }
+  not_fully_constructed_worklist_.reset(nullptr);
 }
 
 HeapCompact* ThreadHeap::Compaction() {
@@ -199,25 +199,25 @@ HeapCompact* ThreadHeap::Compaction() {
 }
 
 void ThreadHeap::RegisterMovingObjectReference(MovableReference* slot) {
-  DCHECK(slot);
-  DCHECK(*slot);
   Compaction()->RegisterMovingObjectReference(slot);
 }
 
-void ThreadHeap::RegisterMovingObjectCallback(MovableReference reference,
+void ThreadHeap::RegisterMovingObjectCallback(MovableReference* slot,
                                               MovingObjectCallback callback,
                                               void* callback_data) {
-  DCHECK(reference);
-  Compaction()->RegisterMovingObjectCallback(reference, callback,
-                                             callback_data);
+  Compaction()->RegisterMovingObjectCallback(slot, callback, callback_data);
 }
 
-void ThreadHeap::ProcessMarkingStack(Visitor* visitor) {
-  bool complete = AdvanceMarkingStackProcessing(visitor, TimeTicks::Max());
-  CHECK(complete);
+void ThreadHeap::FlushNotFullyConstructedObjects() {
+  if (!not_fully_constructed_worklist_->IsGlobalEmpty()) {
+    not_fully_constructed_worklist_->FlushToGlobal(WorklistTaskId::MainThread);
+    previously_not_fully_constructed_worklist_->MergeGlobalPool(
+        not_fully_constructed_worklist_.get());
+  }
+  DCHECK(not_fully_constructed_worklist_->IsGlobalEmpty());
 }
 
-void ThreadHeap::MarkNotFullyConstructedObjects(Visitor* visitor) {
+void ThreadHeap::MarkNotFullyConstructedObjects(MarkingVisitor* visitor) {
   DCHECK(!thread_state_->IsIncrementalMarking());
   ThreadHeapStatsCollector::Scope stats_scope(
       stats_collector(),
@@ -227,8 +227,7 @@ void ThreadHeap::MarkNotFullyConstructedObjects(Visitor* visitor) {
   while (
       not_fully_constructed_worklist_->Pop(WorklistTaskId::MainThread, &item)) {
     BasePage* const page = PageFromObject(item);
-    reinterpret_cast<MarkingVisitor*>(visitor)->ConservativelyMarkAddress(
-        page, reinterpret_cast<Address>(item));
+    visitor->ConservativelyMarkAddress(page, reinterpret_cast<Address>(item));
   }
 }
 
@@ -256,10 +255,33 @@ void ThreadHeap::InvokeEphemeronCallbacks(Visitor* visitor) {
   ephemeron_callbacks_ = std::move(final_set);
 }
 
-bool ThreadHeap::AdvanceMarkingStackProcessing(Visitor* visitor,
-                                               TimeTicks deadline) {
+namespace {
+
+template <typename Worklist, typename Callback>
+bool DrainWorklistWithDeadline(TimeTicks deadline,
+                               Worklist* worklist,
+                               Callback callback) {
   const size_t kDeadlineCheckInterval = 2500;
+
   size_t processed_callback_count = 0;
+  typename Worklist::EntryType item;
+  while (worklist->Pop(WorklistTaskId::MainThread, &item)) {
+    callback(item);
+    processed_callback_count++;
+    if (++processed_callback_count == kDeadlineCheckInterval) {
+      if (deadline <= CurrentTimeTicks()) {
+        return false;
+      }
+      processed_callback_count = 0;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+bool ThreadHeap::AdvanceMarking(MarkingVisitor* visitor, TimeTicks deadline) {
+  bool finished;
   // Ephemeron fixed point loop.
   do {
     {
@@ -267,16 +289,27 @@ bool ThreadHeap::AdvanceMarkingStackProcessing(Visitor* visitor,
       // currently pushed onto the marking worklist.
       ThreadHeapStatsCollector::Scope stats_scope(
           stats_collector(), ThreadHeapStatsCollector::kMarkProcessWorklist);
-      MarkingItem item;
-      while (marking_worklist_->Pop(WorklistTaskId::MainThread, &item)) {
-        item.callback(visitor, item.object);
-        processed_callback_count++;
-        if (processed_callback_count % kDeadlineCheckInterval == 0) {
-          if (deadline <= CurrentTimeTicks()) {
-            return false;
-          }
-        }
-      }
+
+      finished = DrainWorklistWithDeadline(
+          deadline, marking_worklist_.get(),
+          [visitor](const MarkingItem& item) {
+            DCHECK(!HeapObjectHeader::FromPayload(item.object)
+                        ->IsInConstruction());
+            item.callback(visitor, item.object);
+          });
+      if (!finished)
+        return false;
+
+      // Iteratively mark all objects that were previously discovered while
+      // being in construction. The objects can be processed incrementally once
+      // a safepoint was reached.
+      finished = DrainWorklistWithDeadline(
+          deadline, previously_not_fully_constructed_worklist_.get(),
+          [visitor](const NotFullyConstructedItem& item) {
+            visitor->DynamicallyMarkAddress(reinterpret_cast<Address>(item));
+          });
+      if (!finished)
+        return false;
     }
 
     InvokeEphemeronCallbacks(visitor);
@@ -324,25 +357,7 @@ size_t ThreadHeap::ObjectPayloadSizeForTesting() {
   return object_payload_size;
 }
 
-void ThreadHeap::VisitPersistentRoots(Visitor* visitor) {
-  ThreadHeapStatsCollector::Scope stats_scope(
-      stats_collector(), ThreadHeapStatsCollector::kVisitPersistentRoots);
-  DCHECK(thread_state_->InAtomicMarkingPause());
-  thread_state_->VisitPersistents(visitor);
-}
-
-void ThreadHeap::VisitStackRoots(MarkingVisitor* visitor) {
-  ThreadHeapStatsCollector::Scope stats_scope(
-      stats_collector(), ThreadHeapStatsCollector::kVisitStackRoots);
-  DCHECK(thread_state_->InAtomicMarkingPause());
-  address_cache_->FlushIfDirty();
-  address_cache_->EnableLookup();
-  thread_state_->VisitStack(visitor);
-  address_cache_->DisableLookup();
-}
-
 BasePage* ThreadHeap::LookupPageForAddress(Address address) {
-  DCHECK(thread_state_->InAtomicMarkingPause());
   if (PageMemoryRegion* region = region_tree_->Lookup(address)) {
     return region->PageFromAddress(address);
   }
@@ -430,8 +445,8 @@ int ThreadHeap::ArenaIndexOfVectorArenaLeastRecentlyExpanded(
   return arena_index_with_min_arena_age;
 }
 
-BaseArena* ThreadHeap::ExpandedVectorBackingArena(size_t gc_info_index) {
-  size_t entry_index = gc_info_index & kLikelyToBePromptlyFreedArrayMask;
+BaseArena* ThreadHeap::ExpandedVectorBackingArena(uint32_t gc_info_index) {
+  uint32_t entry_index = gc_info_index & kLikelyToBePromptlyFreedArrayMask;
   --likely_to_be_promptly_freed_[entry_index];
   int arena_index = vector_backing_arena_index_;
   arena_ages_[arena_index] = ++current_arena_ages_;
@@ -448,9 +463,9 @@ void ThreadHeap::AllocationPointAdjusted(int arena_index) {
   }
 }
 
-void ThreadHeap::PromptlyFreed(size_t gc_info_index) {
+void ThreadHeap::PromptlyFreed(uint32_t gc_info_index) {
   DCHECK(thread_state_->CheckThread());
-  size_t entry_index = gc_info_index & kLikelyToBePromptlyFreedArrayMask;
+  uint32_t entry_index = gc_info_index & kLikelyToBePromptlyFreedArrayMask;
   // See the comment in vectorBackingArena() for why this is +3.
   likely_to_be_promptly_freed_[entry_index] += 3;
 }
@@ -550,7 +565,7 @@ void ThreadHeap::TakeSnapshot(SnapshotType type) {
   size_t total_dead_count = 0;
   size_t total_live_size = 0;
   size_t total_dead_size = 0;
-  for (size_t gc_info_index = 1;
+  for (uint32_t gc_info_index = 1;
        gc_info_index <= GCInfoTable::Get().GcInfoIndex(); ++gc_info_index) {
     total_live_count += info.live_count[gc_info_index];
     total_dead_count += info.dead_count[gc_info_index];
@@ -605,6 +620,12 @@ void ThreadHeap::WriteBarrier(void* value) {
                 reinterpret_cast<Address>(const_cast<void*>(value)));
   if (header->IsMarked())
     return;
+
+  if (header->IsInConstruction()) {
+    not_fully_constructed_worklist_->Push(WorklistTaskId::MainThread,
+                                          header->Payload());
+    return;
+  }
 
   // Mark and push trace callback.
   header->Mark();

@@ -43,17 +43,32 @@
 
 #include "login_delegate_qt.h"
 
+#include "base/task/post_task.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/resource_request_info.h"
+#include "content/public/browser/stream_info.h"
+#include "extensions/buildflags/buildflags.h"
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "extensions/browser/info_map.h"
+#include "extensions/common/extension.h"
+#include "extensions/common/manifest_handlers/mime_types_handler.h"
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
+
 #include "net/url_request/url_request.h"
 
 #include "authentication_dialog_controller.h"
 #include "authentication_dialog_controller_p.h"
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "extensions/extension_system_qt.h"
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
+#include "resource_context_qt.h"
 #include "type_conversion.h"
 #include "web_contents_view_qt.h"
+#include "web_engine_context.h"
 
 namespace QtWebEngineCore {
 
@@ -66,19 +81,21 @@ LoginDelegateQt::LoginDelegateQt(
     : m_authInfo(authInfo)
     , m_url(url)
     , m_auth_required_callback(std::move(auth_required_callback))
+    , m_webContentsGetter(web_contents_getter)
 {
     Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-
-    content::BrowserThread::PostTask(
-            content::BrowserThread::UI, FROM_HERE,
-            base::Bind(&LoginDelegateQt::triggerDialog,
-                       this,
-                       web_contents_getter));
 }
 
 LoginDelegateQt::~LoginDelegateQt()
 {
     Q_ASSERT(m_dialogController.isNull());
+}
+
+void LoginDelegateQt::triggerDialog()
+{
+    base::PostTaskWithTraits(
+            FROM_HERE, { content::BrowserThread::UI },
+            base::BindOnce(&LoginDelegateQt::triggerDialogOnUI, this));
 }
 
 void LoginDelegateQt::OnRequestCancelled()
@@ -102,16 +119,34 @@ QString LoginDelegateQt::host() const
     return QString::fromStdString(m_authInfo->challenger.host());
 }
 
+int LoginDelegateQt::port() const
+{
+    return m_authInfo->challenger.port();
+}
+
 bool LoginDelegateQt::isProxy() const
 {
     return m_authInfo->is_proxy;
 }
 
-void LoginDelegateQt::triggerDialog(const content::ResourceRequestInfo::WebContentsGetter &webContentsGetter)
+void LoginDelegateQt::triggerDialogOnUI()
 {
     Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+
+    if (isProxy()) {
+        // workaround for 'ws' redefined symbols when including QNetworkProxy
+        auto authentication = WebEngineContext::qProxyNetworkAuthentication(host(), port());
+        if (std::get<0>(authentication)) {
+            base::PostTaskWithTraits(
+                    FROM_HERE, { content::BrowserThread::IO },
+                    base::BindOnce(&LoginDelegateQt::sendAuthToRequester, this, true,
+                                   std::get<1>(authentication), std::get<2>(authentication)));
+
+            return;
+        }
+    }
     content::WebContentsImpl *webContents =
-            static_cast<content::WebContentsImpl *>(webContentsGetter.Run());
+            static_cast<content::WebContentsImpl *>(m_webContentsGetter.Run());
     if (!webContents)
         return;
     WebContentsAdapterClient *client = WebContentsViewQt::from(webContents->GetView())->client();

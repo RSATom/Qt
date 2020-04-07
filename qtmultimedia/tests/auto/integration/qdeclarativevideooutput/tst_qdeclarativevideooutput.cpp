@@ -106,6 +106,7 @@ public slots:
 
 private slots:
     void fillMode();
+    void flushMode();
     void orientation();
     void surfaceSource();
     void sourceRect();
@@ -152,6 +153,7 @@ void tst_QDeclarativeVideoOutput::initTestCase()
 }
 
 Q_DECLARE_METATYPE(QDeclarativeVideoOutput::FillMode)
+Q_DECLARE_METATYPE(QDeclarativeVideoOutput::FlushMode)
 
 tst_QDeclarativeVideoOutput::tst_QDeclarativeVideoOutput()
     : m_mappingComponent(0)
@@ -188,6 +190,24 @@ void tst_QDeclarativeVideoOutput::fillMode()
     QCOMPARE(propSpy.count(), 2);
 
     delete videoOutput;
+}
+
+void tst_QDeclarativeVideoOutput::flushMode()
+{
+    QQmlComponent component(&m_engine);
+    component.loadUrl(QUrl("qrc:/main.qml"));
+
+    QObject *videoOutput = component.create();
+    QVERIFY(videoOutput != 0);
+
+    QSignalSpy propSpy(videoOutput, SIGNAL(flushModeChanged()));
+
+    QCOMPARE(videoOutput->property("flushMode").value<QDeclarativeVideoOutput::FlushMode>(), QDeclarativeVideoOutput::EmptyFrame);
+    QCOMPARE(propSpy.count(), 0);
+
+    videoOutput->setProperty("flushMode", QVariant(int(QDeclarativeVideoOutput::FirstFrame)));
+    QCOMPARE(videoOutput->property("fillMode").value<QDeclarativeVideoOutput::FlushMode>(), QDeclarativeVideoOutput::FirstFrame);
+    QCOMPARE(propSpy.count(), 1);
 }
 
 void tst_QDeclarativeVideoOutput::orientation()

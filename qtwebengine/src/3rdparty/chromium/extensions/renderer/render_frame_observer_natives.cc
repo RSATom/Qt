@@ -8,6 +8,7 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_frame_observer.h"
@@ -59,8 +60,8 @@ RenderFrameObserverNatives::~RenderFrameObserverNatives() {}
 void RenderFrameObserverNatives::AddRoutes() {
   RouteHandlerFunction(
       "OnDocumentElementCreated", "app.window",
-      base::Bind(&RenderFrameObserverNatives::OnDocumentElementCreated,
-                 base::Unretained(this)));
+      base::BindRepeating(&RenderFrameObserverNatives::OnDocumentElementCreated,
+                          base::Unretained(this)));
 }
 
 void RenderFrameObserverNatives::Invalidate() {
@@ -74,7 +75,7 @@ void RenderFrameObserverNatives::OnDocumentElementCreated(
   CHECK(args[0]->IsInt32());
   CHECK(args[1]->IsFunction());
 
-  int frame_id = args[0]->Int32Value();
+  int frame_id = args[0].As<v8::Int32>()->Value();
 
   content::RenderFrame* frame = content::RenderFrame::FromRoutingID(frame_id);
   if (!frame) {
@@ -107,7 +108,7 @@ void RenderFrameObserverNatives::InvokeCallback(
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Value> args[] = {v8::Boolean::New(isolate, succeeded)};
   context()->SafeCallFunction(v8::Local<v8::Function>::New(isolate, callback),
-                              arraysize(args), args);
+                              base::size(args), args);
 }
 
 }  // namespace extensions

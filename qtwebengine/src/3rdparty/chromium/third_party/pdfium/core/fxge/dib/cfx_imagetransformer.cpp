@@ -10,11 +10,13 @@
 #include <memory>
 #include <utility>
 
+#include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/cfx_imagestretcher.h"
 #include "core/fxge/fx_dib.h"
 #include "third_party/base/compiler_specific.h"
 #include "third_party/base/numerics/safe_conversions.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/stl_util.h"
 
 namespace {
 
@@ -99,7 +101,7 @@ void bicubic_get_pos_weight(int pos_pixel[],
   v_w[3] = SDP_Table[512 - res_y];
 }
 
-FXDIB_Format GetTransformedFormat(const RetainPtr<CFX_DIBSource>& pDrc) {
+FXDIB_Format GetTransformedFormat(const RetainPtr<CFX_DIBBase>& pDrc) {
   if (pDrc->IsAlphaMask())
     return FXDIB_8bppMask;
 
@@ -180,7 +182,7 @@ class CPDF_FixedMatrix {
   const int f;
 };
 
-class CFX_BilinearMatrix : public CPDF_FixedMatrix {
+class CFX_BilinearMatrix final : public CPDF_FixedMatrix {
  public:
   explicit CFX_BilinearMatrix(const CFX_Matrix& src) : CPDF_FixedMatrix(src) {}
 
@@ -200,66 +202,74 @@ class CFX_BilinearMatrix : public CPDF_FixedMatrix {
 
 }  // namespace
 
-CFX_ImageTransformer::CFX_ImageTransformer(const RetainPtr<CFX_DIBSource>& pSrc,
-                                           const CFX_Matrix* pMatrix,
-                                           int flags,
+CFX_ImageTransformer::CFX_ImageTransformer(const RetainPtr<CFX_DIBBase>& pSrc,
+                                           const CFX_Matrix& matrix,
+                                           const FXDIB_ResampleOptions& options,
                                            const FX_RECT* pClip)
-    : m_pSrc(pSrc),
-      m_pMatrix(pMatrix),
-      m_pClip(pClip),
-      m_Flags(flags),
-      m_Status(0) {
-  FX_RECT result_rect = m_pMatrix->GetUnitRect().GetClosestRect();
+    : m_pSrc(pSrc), m_matrix(matrix), m_ResampleOptions(options) {
+  FX_RECT result_rect = m_matrix.GetUnitRect().GetClosestRect();
   FX_RECT result_clip = result_rect;
-  if (m_pClip)
-    result_clip.Intersect(*m_pClip);
+  if (pClip)
+    result_clip.Intersect(*pClip);
 
   if (result_clip.IsEmpty())
     return;
 
   m_result = result_clip;
-  if (fabs(m_pMatrix->a) < fabs(m_pMatrix->b) / 20 &&
-      fabs(m_pMatrix->d) < fabs(m_pMatrix->c) / 20 &&
-      fabs(m_pMatrix->a) < 0.5f && fabs(m_pMatrix->d) < 0.5f) {
+  if (fabs(m_matrix.a) < fabs(m_matrix.b) / 20 &&
+      fabs(m_matrix.d) < fabs(m_matrix.c) / 20 && fabs(m_matrix.a) < 0.5f &&
+      fabs(m_matrix.d) < 0.5f) {
     int dest_width = result_rect.Width();
     int dest_height = result_rect.Height();
     result_clip.Offset(-result_rect.left, -result_rect.top);
     result_clip = FXDIB_SwapClipBox(result_clip, dest_width, dest_height,
-                                    m_pMatrix->c > 0, m_pMatrix->b < 0);
+                                    m_matrix.c > 0, m_matrix.b < 0);
     m_Stretcher = pdfium::MakeUnique<CFX_ImageStretcher>(
-        &m_Storer, m_pSrc, dest_height, dest_width, result_clip, m_Flags);
+        &m_Storer, m_pSrc, dest_height, dest_width, result_clip,
+        m_ResampleOptions);
     m_Stretcher->Start();
     m_Status = 1;
     return;
   }
-  if (fabs(m_pMatrix->b) < kFix16 && fabs(m_pMatrix->c) < kFix16) {
-    int dest_width = static_cast<int>(m_pMatrix->a > 0 ? ceil(m_pMatrix->a)
-                                                       : floor(m_pMatrix->a));
-    int dest_height = static_cast<int>(m_pMatrix->d > 0 ? -ceil(m_pMatrix->d)
-                                                        : -floor(m_pMatrix->d));
+  if (fabs(m_matrix.b) < kFix16 && fabs(m_matrix.c) < kFix16) {
+    int dest_width =
+        static_cast<int>(m_matrix.a > 0 ? ceil(m_matrix.a) : floor(m_matrix.a));
+    int dest_height = static_cast<int>(m_matrix.d > 0 ? -ceil(m_matrix.d)
+                                                      : -floor(m_matrix.d));
     result_clip.Offset(-result_rect.left, -result_rect.top);
     m_Stretcher = pdfium::MakeUnique<CFX_ImageStretcher>(
-        &m_Storer, m_pSrc, dest_width, dest_height, result_clip, m_Flags);
+        &m_Storer, m_pSrc, dest_width, dest_height, result_clip,
+        m_ResampleOptions);
     m_Stretcher->Start();
     m_Status = 2;
     return;
   }
-  int stretch_width =
-      static_cast<int>(ceil(FXSYS_sqrt2(m_pMatrix->a, m_pMatrix->b)));
-  int stretch_height =
-      static_cast<int>(ceil(FXSYS_sqrt2(m_pMatrix->c, m_pMatrix->d)));
-  CFX_Matrix stretch2dest(1.0f, 0.0f, 0.0f, -1.0f, 0.0f, stretch_height);
-  stretch2dest.Concat(
-      CFX_Matrix(m_pMatrix->a / stretch_width, m_pMatrix->b / stretch_width,
-                 m_pMatrix->c / stretch_height, m_pMatrix->d / stretch_height,
-                 m_pMatrix->e, m_pMatrix->f));
-  m_dest2stretch = stretch2dest.GetInverse();
 
-  m_StretchClip =
-      m_dest2stretch.TransformRect(CFX_FloatRect(result_clip)).GetOuterRect();
-  m_StretchClip.Intersect(0, 0, stretch_width, stretch_height);
+  int stretch_width =
+      static_cast<int>(ceil(FXSYS_sqrt2(m_matrix.a, m_matrix.b)));
+  int stretch_height =
+      static_cast<int>(ceil(FXSYS_sqrt2(m_matrix.c, m_matrix.d)));
+  CFX_Matrix stretch_to_dest(1.0f, 0.0f, 0.0f, -1.0f, 0.0f, stretch_height);
+  stretch_to_dest.Concat(
+      CFX_Matrix(m_matrix.a / stretch_width, m_matrix.b / stretch_width,
+                 m_matrix.c / stretch_height, m_matrix.d / stretch_height,
+                 m_matrix.e, m_matrix.f));
+  CFX_Matrix dest_to_strech = stretch_to_dest.GetInverse();
+
+  FX_RECT stretch_clip =
+      dest_to_strech.TransformRect(CFX_FloatRect(result_clip)).GetOuterRect();
+  if (!stretch_clip.Valid())
+    return;
+
+  stretch_clip.Intersect(0, 0, stretch_width, stretch_height);
+  if (!stretch_clip.Valid())
+    return;
+
+  m_dest2stretch = dest_to_strech;
+  m_StretchClip = stretch_clip;
   m_Stretcher = pdfium::MakeUnique<CFX_ImageStretcher>(
-      &m_Storer, m_pSrc, stretch_width, stretch_height, m_StretchClip, m_Flags);
+      &m_Storer, m_pSrc, stretch_width, stretch_height, m_StretchClip,
+      m_ResampleOptions);
   m_Stretcher->Start();
   m_Status = 3;
 }
@@ -273,7 +283,7 @@ bool CFX_ImageTransformer::Continue(PauseIndicatorIface* pPause) {
 
     if (m_Storer.GetBitmap()) {
       m_Storer.Replace(
-          m_Storer.GetBitmap()->SwapXY(m_pMatrix->c > 0, m_pMatrix->b < 0));
+          m_Storer.GetBitmap()->SwapXY(m_matrix.c > 0, m_matrix.b < 0));
     }
     return false;
   }
@@ -465,6 +475,14 @@ void CFX_ImageTransformer::CalcColor(const CalcData& cdata,
   }
 }
 
+bool CFX_ImageTransformer::IsBilinear() const {
+  return !m_ResampleOptions.bInterpolateDownsample && !IsBiCubic();
+}
+
+bool CFX_ImageTransformer::IsBiCubic() const {
+  return m_ResampleOptions.bInterpolateBicubic;
+}
+
 void CFX_ImageTransformer::AdjustCoords(int* col, int* row) const {
   int& src_col = *col;
   int& src_row = *row;
@@ -480,7 +498,7 @@ void CFX_ImageTransformer::DoBilinearLoop(
     std::function<void(const BilinearData&, uint8_t*)> func) {
   CFX_BilinearMatrix matrix_fix(cdata.matrix);
   for (int row = 0; row < m_result.Height(); row++) {
-    uint8_t* dest = const_cast<uint8_t*>(cdata.bitmap->GetScanline(row));
+    uint8_t* dest = cdata.bitmap->GetWritableScanline(row);
     for (int col = 0; col < m_result.Width(); col++) {
       BilinearData d;
       d.res_x = 0;
@@ -509,7 +527,7 @@ void CFX_ImageTransformer::DoBicubicLoop(
     std::function<void(const BicubicData&, uint8_t*)> func) {
   CFX_BilinearMatrix matrix_fix(cdata.matrix);
   for (int row = 0; row < m_result.Height(); row++) {
-    uint8_t* dest = const_cast<uint8_t*>(cdata.bitmap->GetScanline(row));
+    uint8_t* dest = cdata.bitmap->GetWritableScanline(row);
     for (int col = 0; col < m_result.Width(); col++) {
       BicubicData d;
       d.res_x = 0;
@@ -536,7 +554,7 @@ void CFX_ImageTransformer::DoDownSampleLoop(
     std::function<void(const DownSampleData&, uint8_t*)> func) {
   CPDF_FixedMatrix matrix_fix(cdata.matrix);
   for (int row = 0; row < m_result.Height(); row++) {
-    uint8_t* dest = const_cast<uint8_t*>(cdata.bitmap->GetScanline(row));
+    uint8_t* dest = cdata.bitmap->GetWritableScanline(row);
     for (int col = 0; col < m_result.Width(); col++) {
       DownSampleData d;
       d.src_col = 0;

@@ -56,7 +56,7 @@ void LayoutSVGModelObject::MapLocalToAncestor(
   SVGLayoutSupport::MapLocalToAncestor(this, ancestor, transform_state, flags);
 }
 
-LayoutRect LayoutSVGModelObject::AbsoluteVisualRect() const {
+LayoutRect LayoutSVGModelObject::VisualRectInDocument() const {
   return SVGLayoutSupport::VisualRectInAncestorSpace(*this, *View());
 }
 
@@ -89,10 +89,9 @@ void LayoutSVGModelObject::AbsoluteQuads(Vector<FloatQuad>& quads,
 
 // This method is called from inside PaintOutline(), and since we call
 // PaintOutline() while transformed to our coord system, return local coords.
-void LayoutSVGModelObject::AddOutlineRects(
-    Vector<LayoutRect>& rects,
-    const LayoutPoint&,
-    IncludeBlockVisualOverflowOrNot) const {
+void LayoutSVGModelObject::AddOutlineRects(Vector<LayoutRect>& rects,
+                                           const LayoutPoint&,
+                                           NGOutlineType) const {
   rects.push_back(LayoutRect(VisualRectInLocalSVGCoordinates()));
 }
 
@@ -126,6 +125,15 @@ void LayoutSVGModelObject::AddLayerHitTestRects(
 
 void LayoutSVGModelObject::StyleDidChange(StyleDifference diff,
                                           const ComputedStyle* old_style) {
+  // Since layout depends on the bounds of the filter, we need to force layout
+  // when the filter changes. We also need to make sure paint will be
+  // performed, since if the filter changed we will not have cached result from
+  // before and thus will not flag paint in ClientLayoutChanged.
+  if (diff.FilterChanged()) {
+    SetNeedsLayoutAndFullPaintInvalidation(
+        layout_invalidation_reason::kStyleChange);
+  }
+
   if (diff.NeedsFullLayout()) {
     SetNeedsBoundariesUpdate();
     if (diff.TransformChanged())
@@ -134,11 +142,12 @@ void LayoutSVGModelObject::StyleDidChange(StyleDifference diff,
 
   if (IsBlendingAllowed()) {
     bool has_blend_mode_changed =
-        (old_style && old_style->HasBlendMode()) == !Style()->HasBlendMode();
-    if (Parent() && has_blend_mode_changed)
+        (old_style && old_style->HasBlendMode()) == !StyleRef().HasBlendMode();
+    if (Parent() && has_blend_mode_changed) {
       Parent()->DescendantIsolationRequirementsChanged(
-          Style()->HasBlendMode() ? kDescendantIsolationRequired
-                                  : kDescendantIsolationNeedsUpdate);
+          StyleRef().HasBlendMode() ? kDescendantIsolationRequired
+                                    : kDescendantIsolationNeedsUpdate);
+    }
 
     if (has_blend_mode_changed)
       SetNeedsPaintPropertyUpdate();
@@ -147,14 +156,6 @@ void LayoutSVGModelObject::StyleDidChange(StyleDifference diff,
   LayoutObject::StyleDidChange(diff, old_style);
   SVGResources::UpdateClipPathFilterMask(*GetElement(), old_style, StyleRef());
   SVGResourcesCache::ClientStyleChanged(*this, diff, StyleRef());
-}
-
-bool LayoutSVGModelObject::NodeAtPoint(HitTestResult&,
-                                       const HitTestLocation&,
-                                       const LayoutPoint&,
-                                       HitTestAction) {
-  NOTREACHED();
-  return false;
 }
 
 }  // namespace blink

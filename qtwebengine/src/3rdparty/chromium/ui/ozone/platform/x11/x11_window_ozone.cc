@@ -21,7 +21,7 @@ X11WindowOzone::X11WindowOzone(X11WindowManagerOzone* window_manager,
                                const gfx::Rect& bounds)
     : X11WindowBase(delegate, bounds), window_manager_(window_manager) {
   DCHECK(window_manager);
-  auto* event_source = X11EventSourceLibevent::GetInstance();
+  auto* event_source = X11EventSource::GetInstance();
   if (event_source)
     event_source->AddXEventDispatcher(this);
 }
@@ -31,7 +31,7 @@ X11WindowOzone::~X11WindowOzone() {
 }
 
 void X11WindowOzone::PrepareForShutdown() {
-  auto* event_source = X11EventSourceLibevent::GetInstance();
+  auto* event_source = X11EventSource::GetInstance();
   if (event_source)
     event_source->RemoveXEventDispatcher(this);
 }

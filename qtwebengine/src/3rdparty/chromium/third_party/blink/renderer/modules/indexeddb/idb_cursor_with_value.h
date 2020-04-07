@@ -27,10 +27,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_INDEXEDDB_IDB_CURSOR_WITH_VALUE_H_
 
 #include <memory>
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_cursor.h"
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_types.h"
+#include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_cursor.h"
 #include "third_party/blink/renderer/modules/indexeddb/indexed_db.h"
+#include "third_party/blink/renderer/modules/indexeddb/web_idb_cursor.h"
 
 namespace blink {
 
@@ -42,10 +42,16 @@ class IDBCursorWithValue final : public IDBCursor {
 
  public:
   static IDBCursorWithValue* Create(std::unique_ptr<WebIDBCursor>,
-                                    WebIDBCursorDirection,
+                                    mojom::IDBCursorDirection,
                                     IDBRequest*,
                                     const Source&,
                                     IDBTransaction*);
+
+  IDBCursorWithValue(std::unique_ptr<WebIDBCursor>,
+                     mojom::IDBCursorDirection,
+                     IDBRequest*,
+                     const Source&,
+                     IDBTransaction*);
   ~IDBCursorWithValue() override;
 
   // The value attribute defined in the IDL is simply implemented in IDBCursor
@@ -54,13 +60,6 @@ class IDBCursorWithValue final : public IDBCursor {
 
   bool IsKeyCursor() const override { return false; }
   bool IsCursorWithValue() const override { return true; }
-
- private:
-  IDBCursorWithValue(std::unique_ptr<WebIDBCursor>,
-                     WebIDBCursorDirection,
-                     IDBRequest*,
-                     const Source&,
-                     IDBTransaction*);
 };
 
 DEFINE_TYPE_CASTS(IDBCursorWithValue,

@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include <SkFont.h>
 #include "gm.h"
 #include "sk_tool_utils.h"
 #include "SkArithmeticImageFilter.h"
@@ -43,7 +44,7 @@ static sk_sp<SkImage> make_dst() {
     SkPoint pts[] = { {0, SkIntToScalar(HH)}, {SkIntToScalar(WW), 0} };
     SkColor colors[] = {
         SK_ColorBLUE, SK_ColorYELLOW, SK_ColorBLACK, SK_ColorGREEN,
-        sk_tool_utils::color_to_565(SK_ColorGRAY)
+        SK_ColorGRAY,
     };
     paint.setShader(SkGradientShader::MakeLinear(pts, colors, nullptr, SK_ARRAY_COUNT(colors),
                                                  SkShader::kClamp_TileMode));
@@ -52,15 +53,15 @@ static sk_sp<SkImage> make_dst() {
 }
 
 static void show_k_text(SkCanvas* canvas, SkScalar x, SkScalar y, const SkScalar k[]) {
+    SkFont font(sk_tool_utils::create_portable_typeface(), 24);
+    font.setEdging(SkFont::Edging::kAntiAlias);
     SkPaint paint;
-    paint.setTextSize(SkIntToScalar(24));
     paint.setAntiAlias(true);
-    sk_tool_utils::set_portable_typeface(&paint);
     for (int i = 0; i < 4; ++i) {
         SkString str;
         str.appendScalar(k[i]);
-        SkScalar width = paint.measureText(str.c_str(), str.size());
-        canvas->drawString(str, x, y + paint.getTextSize(), paint);
+        SkScalar width = font.measureText(str.c_str(), str.size(), kUTF8_SkTextEncoding);
+        canvas->drawString(str, x, y + font.getSize(), font, paint);
         x += width + SkIntToScalar(10);
     }
 }
@@ -148,12 +149,9 @@ protected:
                 canvas->translate(gap, 0);
 
                 // Label
-                SkPaint paint;
-                paint.setTextSize(SkIntToScalar(24));
-                paint.setAntiAlias(true);
-                sk_tool_utils::set_portable_typeface(&paint);
+                SkFont font(sk_tool_utils::create_portable_typeface(), 24);
                 SkString str(enforcePMColor ? "enforcePM" : "no enforcePM");
-                canvas->drawString(str, 0, paint.getTextSize(), paint);
+                canvas->drawString(str, 0, font.getSize(), font, SkPaint());
             }
             canvas->translate(0, HH + 12);
         }

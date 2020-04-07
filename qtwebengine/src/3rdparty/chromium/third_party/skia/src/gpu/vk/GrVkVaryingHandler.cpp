@@ -60,8 +60,6 @@ static inline int grsltype_to_location_size(GrSLType type) {
              return 0;
         case kTexture2DRectSampler_GrSLType:
              return 0;
-        case kBufferSampler_GrSLType:
-             return 0;
         case kBool_GrSLType:
              return 1;
         case kInt_GrSLType: // fall through
@@ -72,16 +70,12 @@ static inline int grsltype_to_location_size(GrSLType type) {
         case kUShort_GrSLType:
         case kUByte_GrSLType:
              return 1;
-        case kTexture2D_GrSLType:
-             return 0;
-        case kSampler_GrSLType:
-             return 0;
     }
     SK_ABORT("Unexpected type");
     return -1;
 }
 
-void finalize_helper(GrVkVaryingHandler::VarArray& vars) {
+static void finalize_helper(GrVkVaryingHandler::VarArray& vars) {
     int locationIndex = 0;
     for (int i = 0; i < vars.count(); ++i) {
         GrShaderVar& var = vars[i];

@@ -17,16 +17,23 @@
 #ifndef SRC_TRACE_PROCESSOR_SCOPED_DB_H_
 #define SRC_TRACE_PROCESSOR_SCOPED_DB_H_
 
-#include <sqlite3.h>
-
 #include "perfetto/base/scoped_file.h"
+
+extern "C" {
+struct sqlite3;
+struct sqlite3_stmt;
+extern int sqlite3_close(sqlite3*);
+extern int sqlite3_finalize(sqlite3_stmt* pStmt);
+}
 
 namespace perfetto {
 namespace trace_processor {
 
 using ScopedDb = base::ScopedResource<sqlite3*, sqlite3_close, nullptr>;
-using ScopedStmt =
-    base::ScopedResource<sqlite3_stmt*, sqlite3_finalize, nullptr>;
+using ScopedStmt = base::ScopedResource<sqlite3_stmt*,
+                                        sqlite3_finalize,
+                                        nullptr,
+                                        /*CheckClose=*/false>;
 
 }  // namespace trace_processor
 }  // namespace perfetto

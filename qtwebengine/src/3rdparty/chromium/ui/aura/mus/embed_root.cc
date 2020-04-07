@@ -84,7 +84,7 @@ class EmbeddedFocusClient : public client::FocusClient, public WindowObserver {
 
   Window* focused_window_ = nullptr;
 
-  base::ObserverList<client::FocusChangeObserver> observers_;
+  base::ObserverList<client::FocusChangeObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(EmbeddedFocusClient);
 };
@@ -104,7 +104,7 @@ Window* EmbedRoot::window() {
 
 EmbedRoot::EmbedRoot(WindowTreeClient* window_tree_client,
                      EmbedRootDelegate* delegate,
-                     ui::ClientSpecificId window_id)
+                     ws::ClientSpecificId window_id)
     : window_tree_client_(window_tree_client),
       delegate_(delegate),
       weak_factory_(this) {
@@ -123,6 +123,7 @@ void EmbedRoot::OnEmbed(std::unique_ptr<WindowTreeHost> window_tree_host) {
   focus_client_ =
       std::make_unique<EmbeddedFocusClient>(window_tree_host->window());
   window_tree_host_ = std::move(window_tree_host);
+  window_tree_host_->Show();
   delegate_->OnEmbed(window());
 }
 

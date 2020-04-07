@@ -35,6 +35,8 @@ class CORE_EXPORT HTMLMapElement final : public HTMLElement {
 
  public:
   DECLARE_NODE_FACTORY(HTMLMapElement);
+
+  explicit HTMLMapElement(Document&);
   ~HTMLMapElement() override;
 
   const AtomicString& GetName() const { return name_; }
@@ -46,12 +48,10 @@ class CORE_EXPORT HTMLMapElement final : public HTMLElement {
   HTMLCollection* areas();
 
  private:
-  explicit HTMLMapElement(Document&);
-
   void ParseAttribute(const AttributeModificationParams&) override;
 
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
 
   AtomicString name_;
 };

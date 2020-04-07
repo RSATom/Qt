@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/page/page_popup.h"
 #include "third_party/blink/renderer/core/page/page_widget_delegate.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
 namespace cc {
@@ -60,14 +61,13 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
 
  public:
   ~WebPagePopupImpl() override;
-  bool Initialize(WebViewImpl*, PagePopupClient*);
+  void Initialize(WebViewImpl*, PagePopupClient*);
   void ClosePopup();
   WebWidgetClient* WidgetClient() const { return widget_client_; }
   bool HasSamePopupClient(WebPagePopupImpl* other) {
     return other && popup_client_ == other->popup_client_;
   }
   LocalDOMWindow* Window();
-  void LayoutAndPaintAsync(base::OnceClosure callback) override;
   void CompositeAndReadbackAsync(
       base::OnceCallback<void(const SkBitmap&)> callback) override;
   WebPoint PositionRelativeToOwner() override;
@@ -81,21 +81,23 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
 
  private:
   // WebWidget functions
+  void SetLayerTreeView(WebLayerTreeView*) override;
   void SetSuppressFrameRequestsWorkaroundFor704763Only(bool) final;
   void BeginFrame(base::TimeTicks last_frame_time) override;
-  void UpdateLifecycle(LifecycleUpdate requested_update) override;
-  void UpdateAllLifecyclePhasesAndCompositeForTesting() override;
-  void CompositeWithRasterForTesting() override;
+  void UpdateLifecycle(LifecycleUpdate requested_update,
+                       LifecycleUpdateReason reason /* Not used */) override;
+  void UpdateAllLifecyclePhasesAndCompositeForTesting(bool do_raster) override;
   void WillCloseLayerTreeView() override;
   void PaintContent(cc::PaintCanvas*, const WebRect&) override;
   void Resize(const WebSize&) override;
   void Close() override;
   WebInputEventResult HandleInputEvent(const WebCoalescedInputEvent&) override;
   void SetFocus(bool) override;
-  bool IsPagePopup() const override { return true; }
   bool IsAcceleratedCompositingActive() const override {
     return is_accelerated_compositing_active_;
   }
+  WebURL GetURLForDebugTrace() override;
+  WebHitTestResult HitTestResultAt(const gfx::Point&) override { return {}; }
 
   // PageWidgetEventHandler functions
   WebInputEventResult HandleCharEvent(const WebKeyboardEvent&) override;
@@ -104,6 +106,9 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   WebInputEventResult HandleMouseWheel(LocalFrame& main_frame,
                                        const WebMouseWheelEvent&) override;
 
+  // This may only be called if page_ is non-null.
+  LocalFrame& MainFrame() const;
+
   bool IsViewportPointInWindow(int x, int y);
 
   // PagePopup function
@@ -111,15 +116,18 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   void SetWindowRect(const IntRect&) override;
 
   explicit WebPagePopupImpl(WebWidgetClient*);
-  bool InitializePage();
   void DestroyPage();
-  void InitializeLayerTreeView();
   void SetRootLayer(cc::Layer*);
 
   WebRect WindowRectInScreen() const;
 
   WebWidgetClient* widget_client_;
   WebViewImpl* web_view_;
+  // WebPagePopupImpl wraps its own Page that renders the content in the popup.
+  // This member is non-null between the call to Initialize() and the call to
+  // ClosePopup(). If page_ is non-null, it is guaranteed to have an attached
+  // main LocalFrame with a corresponding non-null LocalFrameView and non-null
+  // Document.
   Persistent<Page> page_;
   Persistent<PagePopupChromeClient> chrome_client_;
   PagePopupClient* popup_client_;
@@ -136,13 +144,9 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   DISALLOW_COPY_AND_ASSIGN(WebPagePopupImpl);
 };
 
-DEFINE_TYPE_CASTS(WebPagePopupImpl,
-                  WebWidget,
-                  widget,
-                  widget->IsPagePopup(),
-                  widget.IsPagePopup());
-// WebPagePopupImpl is the only implementation of PagePopup, so no
-// further checking required.
+// WebPagePopupImpl is the only implementation of WebPagePopup and PagePopup, so
+// no further checking required.
+DEFINE_TYPE_CASTS(WebPagePopupImpl, WebPagePopup, widget, true, true);
 DEFINE_TYPE_CASTS(WebPagePopupImpl, PagePopup, popup, true, true);
 
 }  // namespace blink

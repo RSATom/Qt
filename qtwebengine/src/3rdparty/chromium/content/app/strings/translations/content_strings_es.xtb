@@ -2,7 +2,6 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="es">
 <translation id="1018939186200882850">elemento de menú</translation>
-<translation id="1020833440720551630">silenciar pista de audio</translation>
 <translation id="10623998915015855">botón de activación</translation>
 <translation id="1088086359088493902">Segundos</translation>
 <translation id="1171774979989969504">Introduce una dirección de correo electrónico</translation>
@@ -16,11 +15,11 @@
 <translation id="1335095011850992622">créditos</translation>
 <translation id="1342835525016946179">artículo</translation>
 <translation id="1359897965706325498">banner</translation>
-<translation id="1548116112524424341">reproducir vídeo en modo imagen en imagen</translation>
 <translation id="1589122976691792535">región</translation>
 <translation id="1591562245178063882">Este mes</translation>
 <translation id="1637811476055996098">Elegir archivos</translation>
 <translation id="1650423536718072820">cita</translation>
+<translation id="1727886345390570319">ocultar menú de subtítulos</translation>
 <translation id="1729654308190250600">Introduce una dirección de correo electrónico que no esté vacía.</translation>
 <translation id="1758486001363313524">Otra...</translation>
 <translation id="1806710327868736751">alert_dialog</translation>
@@ -98,11 +97,13 @@
 <translation id="4413860115965805769">botón de menú</translation>
 <translation id="4446524499724042288">referencia de glosario</translation>
 <translation id="4522570452068850558">Detalles</translation>
+<translation id="4542388879936266156">tiempo restante: <ph name="REMAINING_TIME" /></translation>
 <translation id="4597532268155981612">formulario</translation>
 <translation id="4661075872484491155">tree</translation>
 <translation id="4664250907885839816">El texto detrás del signo "<ph name="ATSIGN" />" no debe incluir el símbolo "<ph name="INVALIDCHARACTER" />".</translation>
 <translation id="4668956016107839909">apéndice</translation>
 <translation id="4742539557769756338">portada</translation>
+<translation id="4748357248530471599">activar pantalla completa en el recorte de la pantalla</translation>
 <translation id="4757246831282535685">panel de pestaña</translation>
 <translation id="4763480195061959176">vídeo</translation>
 <translation id="479989351350248267">buscar</translation>
@@ -129,7 +130,6 @@
 <translation id="561939826962581046">time</translation>
 <translation id="5630795885300617244">Toca dos veces a la derecha o a la izquierda para saltar 10 segundos</translation>
 <translation id="5631759159893697722">resumen</translation>
-<translation id="5641012560118721995">pausar reproducción</translation>
 <translation id="5643186887447432888">botón</translation>
 <translation id="5677946354068040947">más opciones</translation>
 <translation id="576709008726043716">introducción</translation>
@@ -140,15 +140,16 @@
 <translation id="5939518447894949180">Restablecer</translation>
 <translation id="5966707198760109579">Semana</translation>
 <translation id="5987525920412732405">botón de control numérico</translation>
+<translation id="6011459053400940133">control deslizante de volumen</translation>
 <translation id="6015796118275082299">Año</translation>
 <translation id="6023896073578205740">cuadro de lista</translation>
-<translation id="6101327004457443354">activar sonido de la pista de audio</translation>
 <translation id="6150588977291308318">bibliografía</translation>
 <translation id="6164829606128959761">medidor</translation>
 <translation id="6166809985690652833">epílogo</translation>
 <translation id="6213469881011901533">glosario</translation>
 <translation id="6398862346408813489">Mostrar panel para seleccionar el mes</translation>
 <translation id="6404546809543547843">control deslizante de duración de audio</translation>
+<translation id="6443871981718447451">mostrar menú de subtítulos</translation>
 <translation id="6453774872122745852">agradecimientos</translation>
 <translation id="648732519525291180">selector de hora</translation>
 <translation id="6550675742724504774">Configuración</translation>
@@ -164,7 +165,6 @@
 <translation id="6820355525329141109">No se ha podido cargar el complemento.</translation>
 <translation id="6820615603175220800">referencia bibliográfica</translation>
 <translation id="6843725295806269523">silenciar</translation>
-<translation id="6853785296079745596">ocultar subtítulos</translation>
 <translation id="6885760532393684712">directorio</translation>
 <translation id="689129560213475294">colofón</translation>
 <translation id="6934078000481955284">blockquote</translation>
@@ -173,7 +173,6 @@
 <translation id="6989848892321993519">Aumenta la longitud de este texto a <ph name="MIN_CHARACTERS" /> caracteres o más (actualmente, el texto tiene 1 carácter).</translation>
 <translation id="709897737746224366">Utiliza un formato que coincida con el solicitado</translation>
 <translation id="7139483182332611405">prefacio</translation>
-<translation id="7223624360433298498">tiempo transcurrido</translation>
 <translation id="7263440858009898357">Selecciona un elemento de la lista</translation>
 <translation id="727747134524199931">encabezado de columna</translation>
 <translation id="7353453495576941748">crédito</translation>
@@ -188,8 +187,6 @@
 <translation id="7661956066982048809">documento gráfico</translation>
 <translation id="7673697353781729403">Horas</translation>
 <translation id="7681220483256441252">índice</translation>
-<translation id="7720026100085573005">tiempo restante</translation>
-<translation id="7740016676195725605">dejar de mostrar subtítulos</translation>
 <translation id="7740050170769002709">Contenido HTML</translation>
 <translation id="7750228210027921155">Imagen en imagen</translation>
 <translation id="7789962463072032349">pausar</translation>
@@ -200,12 +197,11 @@
 <translation id="8053789581856978548">campo para buscar texto</translation>
 <translation id="8057695513531652401">aviso</translation>
 <translation id="8105797009065549151">referencia de nota</translation>
-<translation id="8115662671911883373">iniciar la visualización de subtítulos</translation>
 <translation id="8117451130807776954">Esta semana</translation>
-<translation id="819205353528511139">reproducir la película en modo de pantalla completa</translation>
 <translation id="8199524924445686405">aaaa</translation>
 <translation id="8284326494547611709">Subtítulos</translation>
 <translation id="835897206747267392">Valor no válido</translation>
+<translation id="8403857369060869934">tiempo transcurrido: <ph name="ELAPSED_TIME" /></translation>
 <translation id="8415319359811155763">parte</translation>
 <translation id="8433900881053900389">barra de herramientas</translation>
 <translation id="8444882422881193423"><ph name="NUMBER_OF_FILES" /> archivos</translation>
@@ -222,7 +218,6 @@
 <translation id="8613126697340063924">reproducción de control remoto</translation>
 <translation id="862370744433916922">subtítulo</translation>
 <translation id="8750798805984357768">Selecciona una de estas opciones</translation>
-<translation id="8785498733064193001">iniciar reproducción</translation>
 <translation id="8808573423886751634">capítulo</translation>
 <translation id="8845239796550121995">Se está enviando contenido a tu TV</translation>
 <translation id="8851136666856101339">principal</translation>
@@ -231,7 +226,6 @@
 <translation id="8987927404178983737">Mes</translation>
 <translation id="901493112792887934">tiempo actual en segundos</translation>
 <translation id="9048119486235211610">navegación</translation>
-<translation id="9050748414552849310">mostrar subtítulos</translation>
 <translation id="9062295712474918030">documento</translation>
 <translation id="9093215626363556771">salir del modo imagen en imagen</translation>
 <translation id="9108370397979208512">expresión matemática</translation>

@@ -58,7 +58,7 @@ void ShellExtensionHostDelegate::ProcessMediaAccessRequest(
 bool ShellExtensionHostDelegate::CheckMediaAccessPermission(
     content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
-    content::MediaStreamType type,
+    blink::MediaStreamType type,
     const Extension* extension) {
   media_capture_util::VerifyMediaAccessPermission(type, extension);
   return true;
@@ -69,6 +69,18 @@ static base::LazyInstance<SerialExtensionHostQueue>::DestructorAtExit g_queue =
 
 ExtensionHostQueue* ShellExtensionHostDelegate::GetExtensionHostQueue() const {
   return g_queue.Pointer();
+}
+
+gfx::Size ShellExtensionHostDelegate::EnterPictureInPicture(
+    content::WebContents* web_contents,
+    const viz::SurfaceId& surface_id,
+    const gfx::Size& natural_size) {
+  NOTREACHED();
+  return gfx::Size();
+}
+
+void ShellExtensionHostDelegate::ExitPictureInPicture() {
+  NOTREACHED();
 }
 
 }  // namespace extensions

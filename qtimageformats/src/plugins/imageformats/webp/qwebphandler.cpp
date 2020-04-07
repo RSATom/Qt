@@ -218,6 +218,10 @@ bool QWebpHandler::write(const QImage &image)
         qWarning() << "source image is null.";
         return false;
     }
+    if (std::max(image.width(), image.height()) > WEBP_MAX_DIMENSION) {
+        qWarning() << "QWebpHandler::write() source image too large for WebP: " << image.size();
+        return false;
+    }
 
     QImage srcImage = image;
     bool alpha = srcImage.hasAlphaChannel();
@@ -310,10 +314,12 @@ bool QWebpHandler::supportsOption(ImageOption option) const
         || option == BackgroundColor;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 QByteArray QWebpHandler::name() const
 {
     return QByteArrayLiteral("webp");
 }
+#endif
 
 int QWebpHandler::imageCount() const
 {

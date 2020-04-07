@@ -85,13 +85,12 @@ public:
 protected:
     void onOnceBeforeDraw() override {
         fTypeface = sk_tool_utils::create_portable_typeface("serif", SkFontStyle());
-        SkPaint p;
-        p.setTypeface(fTypeface);
+        SkFont font(fTypeface);
         size_t txtLen = strlen(fText);
-        int glyphCount = p.textToGlyphs(fText, txtLen, nullptr);
+        int glyphCount = font.countText(fText, txtLen, kUTF8_SkTextEncoding);
 
         fGlyphs.append(glyphCount);
-        p.textToGlyphs(fText, txtLen, fGlyphs.begin());
+        font.textToGlyphs(fText, txtLen, kUTF8_SkTextEncoding, fGlyphs.begin(), glyphCount);
     }
 
     SkString onShortName() override {
@@ -107,6 +106,7 @@ protected:
             sk_sp<SkTextBlob> blob(this->makeBlob(b));
 
             SkPaint p;
+            p.setAntiAlias(true);
             SkPoint offset = SkPoint::Make(SkIntToScalar(10 + 300 * (b % 2)),
                                            SkIntToScalar(20 + 150 * (b / 2)));
 
@@ -116,6 +116,7 @@ protected:
             p.setStyle(SkPaint::kStroke_Style);
             SkRect box = blob->bounds();
             box.offset(offset);
+            p.setAntiAlias(false);
             canvas->drawRect(box, p);
 
         }
@@ -125,10 +126,9 @@ private:
     sk_sp<SkTextBlob> makeBlob(unsigned blobIndex) {
         SkTextBlobBuilder builder;
 
-        SkPaint font;
-        font.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
-        font.setAntiAlias(true);
-        font.setSubpixelText(true);
+        SkFont font;
+        font.setSubpixel(true);
+        font.setEdging(SkFont::Edging::kAntiAlias);
         font.setTypeface(fTypeface);
 
         for (unsigned l = 0; l < SK_ARRAY_COUNT(blobConfigs[blobIndex]); ++l) {
@@ -145,9 +145,9 @@ private:
                     break;
                 }
 
-                font.setTextSize(kFontSize * cfg->scale);
-                const SkScalar advanceX = font.getTextSize() * 0.85f;
-                const SkScalar advanceY = font.getTextSize() * 1.5f;
+                font.setSize(kFontSize * cfg->scale);
+                const SkScalar advanceX = font.getSize() * 0.85f;
+                const SkScalar advanceY = font.getSize() * 1.5f;
 
                 SkPoint offset = SkPoint::Make(currentGlyph * advanceX + c * advanceX,
                                                advanceY * l);

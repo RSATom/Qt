@@ -121,11 +121,12 @@
 #include "base/spinlock.h"              // for SpinLockHolder
 #include "central_freelist.h"  // for CentralFreeListPadded
 #include "common.h"            // for StackTrace, kPageShift, etc
+#include "free_list.h"         // for FL_Init
 #include "internal_logging.h"  // for ASSERT, TCMalloc_Printer, etc
-#include "linked_list.h"       // for SLL_SetNext
 #include "malloc_hook-inl.h"       // for MallocHook::InvokeNewHook, etc
 #include "page_heap.h"         // for PageHeap, PageHeap::Stats
 #include "page_heap_allocator.h"  // for PageHeapAllocator
+#include "sampler.h"              // for Sampler
 #include "span.h"              // for Span, DLL_Prepend, etc
 #include "stack_trace_table.h"  // for StackTraceTable
 #include "static_vars.h"       // for Static
@@ -150,12 +151,13 @@ using STL_NAMESPACE::vector;
 #include "libc_override.h"
 
 using tcmalloc::AlignmentForSize;
-using tcmalloc::kLog;
 using tcmalloc::kCrash;
 using tcmalloc::kCrashWithStats;
+using tcmalloc::kLog;
 using tcmalloc::Log;
 using tcmalloc::PageHeap;
 using tcmalloc::PageHeapAllocator;
+using tcmalloc::Sampler;
 using tcmalloc::SizeMap;
 using tcmalloc::Span;
 using tcmalloc::StackTrace;
@@ -311,6 +313,9 @@ extern "C" {
   //    Windows: _msize()
   size_t tc_malloc_size(void* p) PERFTOOLS_NOTHROW
       ATTRIBUTE_SECTION(google_malloc);
+
+  void* tc_malloc_skip_new_handler(size_t size)
+      ATTRIBUTE_SECTION(google_malloc);
 }  // extern "C"
 #endif  // #ifndef _WIN32
 
@@ -343,6 +348,18 @@ size_t InvalidGetAllocatedSize(const void* ptr) {
       "Attempt to get the size of an invalid pointer", ptr);
   return 0;
 }
+
+#if defined(TCMALLOC_DISABLE_HUGE_ALLOCATIONS)
+// For security reasons, we want to limit the size of allocations.
+// See crbug.com/169327.
+inline bool IsAllocSizePermitted(size_t alloc_size) {
+  // Never allow an allocation larger than what can be indexed via an int.
+  // Remove kPageSize to account for various rounding, padding and to have a
+  // small margin.
+  return alloc_size <= ((std::numeric_limits<int>::max)() - kPageSize);
+}
+#endif
+
 }  // unnamed namespace
 
 // Extract interesting stats
@@ -643,7 +660,7 @@ class TCMallocImplementation : public MallocExtension {
 
   // We may print an extra, tcmalloc-specific warning message here.
   virtual void GetHeapSample(MallocExtensionWriter* writer) {
-    if (FLAGS_tcmalloc_sample_parameter == 0) {
+    if (Sampler::GetSamplePeriod() == 0) {
       const char* const kWarningMsg =
           "%warn\n"
           "%warn This heap profile does not have any data in it, because\n"
@@ -708,6 +725,14 @@ class TCMallocImplementation : public MallocExtension {
       TCMallocStats stats;
       ExtractStats(&stats, NULL, NULL, NULL);
       *value = stats.pageheap.system_bytes;
+      return true;
+    }
+
+    if (strcmp(name, "generic.total_physical_bytes") == 0) {
+      TCMallocStats stats;
+      ExtractStats(&stats, NULL, NULL, NULL);
+      *value = stats.pageheap.system_bytes + stats.metadata_bytes -
+               stats.pageheap.unmapped_bytes;
       return true;
     }
 
@@ -820,6 +845,11 @@ class TCMallocImplementation : public MallocExtension {
       return true;
     }
 
+    if (strcmp(name, "tcmalloc.sampling_period_bytes") == 0) {
+      *value = Sampler::GetSamplePeriod();
+      return true;
+    }
+
     return false;
   }
 
@@ -835,6 +865,11 @@ class TCMallocImplementation : public MallocExtension {
     if (strcmp(name, "tcmalloc.aggressive_memory_decommit") == 0) {
       SpinLockHolder l(Static::pageheap_lock());
       Static::pageheap()->SetAggressiveDecommit(value != 0);
+      return true;
+    }
+
+    if (strcmp(name, "tcmalloc.sampling_period_bytes") == 0) {
+      Sampler::SetSamplePeriod(value);
       return true;
     }
 
@@ -916,13 +951,13 @@ class TCMallocImplementation : public MallocExtension {
   }
 
   virtual void GetFreeListSizes(vector<MallocExtension::FreeListInfo>* v) {
-    static const char* kCentralCacheType = "tcmalloc.central";
-    static const char* kTransferCacheType = "tcmalloc.transfer";
-    static const char* kThreadCacheType = "tcmalloc.thread";
-    static const char* kPageHeapType = "tcmalloc.page";
-    static const char* kPageHeapUnmappedType = "tcmalloc.page_unmapped";
-    static const char* kLargeSpanType = "tcmalloc.large";
-    static const char* kLargeUnmappedSpanType = "tcmalloc.large_unmapped";
+    static const char kCentralCacheType[] = "tcmalloc.central";
+    static const char kTransferCacheType[] = "tcmalloc.transfer";
+    static const char kThreadCacheType[] = "tcmalloc.thread";
+    static const char kPageHeapType[] = "tcmalloc.page";
+    static const char kPageHeapUnmappedType[] = "tcmalloc.page_unmapped";
+    static const char kLargeSpanType[] = "tcmalloc.large";
+    static const char kLargeUnmappedSpanType[] = "tcmalloc.large_unmapped";
 
     v->clear();
 
@@ -1152,15 +1187,15 @@ static inline bool CheckCachedSizeClass(void *ptr) {
   return cached_value == Static::pageheap()->GetDescriptor(p)->sizeclass;
 }
 
-static inline ATTRIBUTE_ALWAYS_INLINE void* CheckedMallocResult(void *result) {
+static inline ATTRIBUTE_ALWAYS_INLINE void* CheckedMallocResult(void* result) {
   ASSERT(result == NULL || CheckCachedSizeClass(result));
   return result;
 }
 
 static inline ATTRIBUTE_ALWAYS_INLINE void* SpanToMallocResult(Span *span) {
   Static::pageheap()->InvalidateCachedSizeClass(span->start);
-  return
-      CheckedMallocResult(reinterpret_cast<void*>(span->start << kPageShift));
+  return CheckedMallocResult(
+      reinterpret_cast<void*>(span->start << kPageShift));
 }
 
 static void* DoSampledAllocation(size_t size) {
@@ -1313,6 +1348,11 @@ static void* do_malloc_pages(ThreadCache* heap, size_t size) {
 
   Length num_pages = tcmalloc::pages(size);
 
+  // Chromium profiling.  Measurements in March 2013 suggest this
+  // imposes a small enough runtime cost that there's no reason to
+  // try to optimize it.
+  heap->AddToByteAllocatedTotal(size);
+
   // NOTE: we're passing original size here as opposed to rounded-up
   // size as we do in do_malloc_small. The difference is small here
   // (at most 4k out of at least 256k). And not rounding up saves us
@@ -1342,6 +1382,13 @@ static void *nop_oom_handler(size_t size) {
 }
 
 ATTRIBUTE_ALWAYS_INLINE inline void* do_malloc(size_t size) {
+#if defined(TCMALLOC_DISABLE_HUGE_ALLOCATIONS)
+  if (!IsAllocSizePermitted(size)) {
+    errno = ENOMEM;
+    return NULL;
+  }
+#endif
+
   if (PREDICT_FALSE(ThreadCache::IsUseEmergencyMalloc())) {
     return tcmalloc::EmergencyMalloc(size);
   }
@@ -1357,6 +1404,12 @@ ATTRIBUTE_ALWAYS_INLINE inline void* do_malloc(size_t size) {
     return do_malloc_pages(cache, size);
   }
 
+  // TODO(jar): If this has any detectable performance impact, it can be
+  // optimized by only tallying sizes if the profiler was activated to recall
+  // these tallies.  I don't think this is performance critical, but we really
+  // should measure it.
+  cache->AddToByteAllocatedTotal(size);  // Chromium profiling.
+
   size_t allocated_size = Static::sizemap()->class_to_size(cl);
   if (PREDICT_FALSE(cache->SampleAllocation(allocated_size))) {
     return DoSampledAllocation(size);
@@ -1364,7 +1417,8 @@ ATTRIBUTE_ALWAYS_INLINE inline void* do_malloc(size_t size) {
 
   // The common case, and also the simplest.  This just pops the
   // size-appropriate freelist, after replenishing it if it's empty.
-  return CheckedMallocResult(cache->Allocate(allocated_size, cl, nop_oom_handler));
+  return CheckedMallocResult(
+      cache->Allocate(allocated_size, cl, nop_oom_handler));
 }
 
 static void *retry_malloc(void* size) {
@@ -1400,6 +1454,13 @@ inline void free_null_or_invalid(void* ptr, void (*invalid_free_fn)(void*)) {
 }
 
 static ATTRIBUTE_NOINLINE void do_free_pages(Span* span, void* ptr) {
+  // Check to see if the object is in use.
+  CHECK_CONDITION_PRINT(span->location == Span::IN_USE,
+                        "Object was not in-use");
+  CHECK_CONDITION_PRINT(
+      span->start << kPageShift == reinterpret_cast<uintptr_t>(ptr),
+      "Pointer is not pointing to the start of a span");
+
   SpinLockHolder h(Static::pageheap_lock());
   if (span->sample) {
     StackTrace* st = reinterpret_cast<StackTrace*>(span->objects);
@@ -1480,7 +1541,7 @@ void do_free_with_callback(void* ptr,
   }
 
   // Otherwise, delete directly into central cache
-  tcmalloc::SLL_SetNext(ptr, NULL);
+  tcmalloc::FL_Init(ptr);
   Static::central_cache()[cl].InsertRange(ptr, ptr, 1);
 }
 
@@ -1620,7 +1681,13 @@ inline void do_malloc_stats() {
 }
 
 inline int do_mallopt(int cmd, int value) {
-  return 1;     // Indicates error
+  if (cmd == TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC)
+    return TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC;
+
+  // 1 is the success return value according to man mallopt(). However (see the
+  // BUGS section in the manpage), most implementations return always 1.
+  // This code is just complying with that (buggy) expectation.
+  return 1;
 }
 
 #ifdef HAVE_STRUCT_MALLINFO

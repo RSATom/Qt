@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <type_traits>
 
 #include "base/bind.h"
 #include "base/files/file.h"
@@ -22,9 +23,10 @@
 #include "build/build_config.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
+#include "net/dns/dns_config.h"
 #include "net/dns/dns_hosts.h"
-#include "net/dns/dns_protocol.h"
 #include "net/dns/notify_watcher_mac.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/dns/serial_worker.h"
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
@@ -186,7 +188,7 @@ ConfigParsePosixResult ReadDnsConfig(DnsConfig* dns_config) {
   }
 #endif  // defined(OS_MACOSX) && !defined(OS_IOS)
   // Override timeout value to match default setting on Windows.
-  dns_config->timeout = base::TimeDelta::FromMilliseconds(kDnsDefaultTimeoutMs);
+  dns_config->timeout = kDnsDefaultTimeout;
   return result;
 #else  // defined(OS_ANDROID)
   dns_config->nameservers.clear();
@@ -464,8 +466,8 @@ ConfigParsePosixResult ConvertResStateToDnsConfig(const struct __res_state& res,
     dns_config->nameservers.push_back(ipe);
   }
 #elif defined(OS_LINUX)
-  static_assert(arraysize(res.nsaddr_list) >= MAXNS &&
-                    arraysize(res._u._ext.nsaddrs) >= MAXNS,
+  static_assert(std::extent<decltype(res.nsaddr_list)>() >= MAXNS &&
+                    std::extent<decltype(res._u._ext.nsaddrs)>() >= MAXNS,
                 "incompatible libresolv res_state");
   DCHECK_LE(res.nscount, MAXNS);
   // Initially, glibc stores IPv6 in |_ext.nsaddrs| and IPv4 in |nsaddr_list|.

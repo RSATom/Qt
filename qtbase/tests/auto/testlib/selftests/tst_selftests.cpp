@@ -468,10 +468,13 @@ void tst_Selftests::runSubTest_data()
 #endif
         << "expectfail"
         << "failcleanup"
+#ifndef Q_OS_WIN // these assert, by design; so same problem as "assert"
+        << "faildatatype"
+        << "failfetchtype"
+#endif
         << "failinit"
         << "failinitdata"
-#if !defined(Q_OS_WIN)
-        // Disable this test on Windows, as the run-time will popup dialogs with warnings
+#ifndef Q_OS_WIN // asserts, by design; so same problem as "assert"
         << "fetchbogus"
 #endif
         << "findtestdata"
@@ -494,6 +497,7 @@ void tst_Selftests::runSubTest_data()
         << "sleep"
         << "strcmp"
         << "subtest"
+        << "testlib"
         << "tuplediagnostics"
         << "verbose1"
         << "verbose2"
@@ -502,6 +506,7 @@ void tst_Selftests::runSubTest_data()
         << "verifyexceptionthrown"
 #endif //!QT_NO_EXCEPTIONS
         << "warnings"
+        << "watchdog"
         << "xunit"
     ;
 
@@ -520,6 +525,7 @@ void tst_Selftests::runSubTest_data()
 
         foreach (QString const& subtest, tests) {
             QStringList arguments = loggerSet.arguments;
+            // Keep in sync with generateTestData()'s extraArgs in generate_expected_output.py:
             if (subtest == "commandlinedata") {
                 arguments << QString("fiveTablePasses fiveTablePasses:fiveTablePasses_data1 -v2").split(' ');
             }
@@ -612,10 +618,12 @@ void tst_Selftests::runSubTest_data()
             if (loggerSet.name.contains("teamcity") && subtest.startsWith("benchlib"))
                 continue;   // Skip benchmark for TeamCity logger
 
+            // Keep in sync with generateTestData()'s crashers in generate_expected_output.py:
             const bool crashes = subtest == QLatin1String("assert") || subtest == QLatin1String("exceptionthrow")
                 || subtest == QLatin1String("fetchbogus") || subtest == QLatin1String("crashedterminate")
+                || subtest == QLatin1String("faildatatype") || subtest == QLatin1String("failfetchtype")
                 || subtest == QLatin1String("crashes") || subtest == QLatin1String("silent")
-                || subtest == QLatin1String("blacklisted");
+                || subtest == QLatin1String("blacklisted") || subtest == QLatin1String("watchdog");
             QTest::newRow(qPrintable(QString("%1 %2").arg(subtest).arg(loggerSet.name)))
                 << subtest
                 << loggers
@@ -674,9 +682,6 @@ static inline QByteArray msgProcessError(const QString &binary, const QStringLis
 
 void tst_Selftests::doRunSubTest(QString const& subdir, QStringList const& loggers, QStringList const& arguments, bool crashes)
 {
-    if (EmulationDetector::isRunningArmOnX86() && (subdir == "crashes"))
-        QSKIP("Skipping \"crashes\" due to QTBUG-71915");
-
 #if defined(__GNUC__) && defined(__i386) && defined(Q_OS_LINUX)
     if (arguments.contains("-callgrind")) {
         QProcess checkProcess;
@@ -690,9 +695,12 @@ void tst_Selftests::doRunSubTest(QString const& subdir, QStringList const& logge
 
     QProcess proc;
     QProcessEnvironment environment = processEnvironment();
+    // Keep in sync with generateTestData()'s extraEnv in generate_expected_output.py:
     if (crashes) {
         environment.insert("QTEST_DISABLE_CORE_DUMP", "1");
         environment.insert("QTEST_DISABLE_STACK_DUMP", "1");
+        if (subdir == QLatin1String("watchdog"))
+            environment.insert("QTEST_FUNCTION_TIMEOUT", "100");
     }
     proc.setProcessEnvironment(environment);
     const QString path = subdir + QLatin1Char('/') + subdir;
@@ -735,6 +743,7 @@ void tst_Selftests::doRunSubTest(QString const& subdir, QStringList const& logge
     if (subdir != QLatin1String("exceptionthrow")
         && subdir != QLatin1String("cmptest") // QImage comparison requires QGuiApplication
         && subdir != QLatin1String("fetchbogus")
+        && subdir != QLatin1String("watchdog")
         && subdir != QLatin1String("xunit")
 #ifdef Q_CC_MINGW
         && subdir != QLatin1String("blacklisted") // calls qFatal()
@@ -742,11 +751,13 @@ void tst_Selftests::doRunSubTest(QString const& subdir, QStringList const& logge
 #endif
 #ifdef Q_OS_LINUX
         // QEMU outputs to stderr about uncaught signals
-        && (!EmulationDetector::isRunningArmOnX86() ||
-                (subdir != QLatin1String("blacklisted")
-                 && subdir != QLatin1String("silent")
-                 && subdir != QLatin1String("assert")
-                 && subdir != QLatin1String("crashes")
+        && !(EmulationDetector::isRunningArmOnX86() &&
+                (subdir == QLatin1String("assert")
+                 || subdir == QLatin1String("blacklisted")
+                 || subdir == QLatin1String("crashes")
+                 || subdir == QLatin1String("faildatatype")
+                 || subdir == QLatin1String("failfetchtype")
+                 || subdir == QLatin1String("silent")
                 )
             )
 #endif
@@ -887,16 +898,20 @@ bool tst_Selftests::compareLine(const QString &logger, const QString &subdir,
                                 const QString &actualLine, const QString &expectedLine,
                                 QString *errorMessage) const
 {
-    if (subdir == QLatin1String("assert") && actualLine.contains(QLatin1String("ASSERT: "))
-        && expectedLine.contains(QLatin1String("ASSERT: ")) && actualLine != expectedLine) {
+    if (actualLine == expectedLine)
+        return true;
+
+    if ((subdir == QLatin1String("assert")
+         || subdir == QLatin1String("faildatatype") || subdir == QLatin1String("failfetchtype"))
+        && actualLine.contains(QLatin1String("ASSERT: "))
+        && expectedLine.contains(QLatin1String("ASSERT: "))) {
         // Q_ASSERT uses __FILE__, the exact contents of which are
         // undefined. If have we something that looks like a Q_ASSERT and we
         // were expecting to see a Q_ASSERT, we'll skip the line.
         return true;
     }
 
-    if (expectedLine.startsWith(QLatin1String("FAIL!  : tst_Exception::throwException() Caught unhandled exce"))
-        && actualLine != expectedLine) {
+    if (expectedLine.startsWith(QLatin1String("FAIL!  : tst_Exception::throwException() Caught unhandled exce"))) {
         // On some platforms we compile without RTTI, and as a result we never throw an exception
         if (actualLine.simplified() != QLatin1String("tst_Exception::throwException()")) {
             *errorMessage = QString::fromLatin1("'%1' != 'tst_Exception::throwException()'").arg(actualLine);
@@ -933,9 +948,6 @@ bool tst_Selftests::compareLine(const QString &logger, const QString &subdir,
     }
 
     if (actualLine.startsWith(QLatin1String("Totals:")) && expectedLine.startsWith(QLatin1String("Totals:")))
-        return true;
-
-    if (actualLine == expectedLine)
         return true;
 
     *errorMessage = msgMismatch(actualLine, expectedLine);

@@ -46,8 +46,7 @@
 QT_BEGIN_NAMESPACE
 
 class QGeoCoordinate;
-class QGeoPathPrivate;
-typedef QGeoPathPrivate QGeoPolygonPrivate;
+class QGeoPolygonPrivate;
 
 class Q_POSITIONING_EXPORT QGeoPolygon : public QGeoShape
 {

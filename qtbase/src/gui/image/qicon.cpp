@@ -315,9 +315,9 @@ QPixmap QPixmapIconEngine::pixmap(const QSize &size, QIcon::Mode mode, QIcon::St
                   % HexString<uint>(actualSize.height());
 
     if (mode == QIcon::Active) {
-        if (QPixmapCache::find(key % HexString<uint>(mode), pm))
+        if (QPixmapCache::find(key % HexString<uint>(mode), &pm))
             return pm; // horray
-        if (QPixmapCache::find(key % HexString<uint>(QIcon::Normal), pm)) {
+        if (QPixmapCache::find(key % HexString<uint>(QIcon::Normal), &pm)) {
             QPixmap active = pm;
             if (QGuiApplication *guiApp = qobject_cast<QGuiApplication *>(qApp))
                 active = static_cast<QGuiApplicationPrivate*>(QObjectPrivate::get(guiApp))->applyQIconStyleHelper(QIcon::Active, pm);
@@ -326,7 +326,7 @@ QPixmap QPixmapIconEngine::pixmap(const QSize &size, QIcon::Mode mode, QIcon::St
         }
     }
 
-    if (!QPixmapCache::find(key % HexString<uint>(mode), pm)) {
+    if (!QPixmapCache::find(key % HexString<uint>(mode), &pm)) {
         if (pm.size() != actualSize)
             pm = pm.scaled(actualSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
         if (pe->mode != mode && mode != QIcon::Normal) {
@@ -1080,11 +1080,12 @@ void QIcon::addFile(const QString &fileName, const QSize &size, Mode mode, State
     if (!d) {
 
         QFileInfo info(fileName);
-        QIconEngine *engine = iconEngineFromSuffix(fileName, info.suffix());
+        QString suffix = info.suffix();
 #if QT_CONFIG(mimetype)
-        if (!engine)
-            engine = iconEngineFromSuffix(fileName, QMimeDatabase().mimeTypeForFile(info).preferredSuffix());
+        if (suffix.isEmpty())
+            suffix = QMimeDatabase().mimeTypeForFile(info).preferredSuffix(); // determination from contents
 #endif // mimetype
+        QIconEngine *engine = iconEngineFromSuffix(fileName, suffix);
         d = new QIconPrivate(engine ? engine : new QPixmapIconEngine);
     }
 
@@ -1522,7 +1523,7 @@ QDebug operator<<(QDebug dbg, const QIcon &i)
     foo@3x.png, then foo@2x, then fall back to foo.png if not found.
 
     \a sourceDevicePixelRatio will be set to the value of N if the argument is
-    a non-null pointer
+    not \nullptr
 */
 QString qt_findAtNxFile(const QString &baseFileName, qreal targetDevicePixelRatio,
                         qreal *sourceDevicePixelRatio)

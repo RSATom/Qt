@@ -46,6 +46,8 @@ class CORE_EXPORT HTMLOptionElement final : public HTMLElement {
                                                    bool selected,
                                                    ExceptionState&);
 
+  explicit HTMLOptionElement(Document&);
+
   // A text to be shown to users.  The difference from |label()| is |label()|
   // returns an empty string if |label| content attribute is empty.
   // |displayLabel()| returns the value string in that case.
@@ -91,18 +93,16 @@ class CORE_EXPORT HTMLOptionElement final : public HTMLElement {
   int ListIndex() const;
 
  private:
-  explicit HTMLOptionElement(Document&);
   ~HTMLOptionElement() override;
 
   bool SupportsFocus() const override;
   bool MatchesDefaultPseudoClass() const override;
   bool MatchesEnabledPseudoClass() const override;
   void ParseAttribute(const AttributeModificationParams&) override;
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
   void AccessKeyAction(bool) override;
   void ChildrenChanged(const ChildrenChange&) override;
-  String innerText() override;
 
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
 

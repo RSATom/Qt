@@ -25,8 +25,14 @@ namespace test {
 
 class QuicSessionPeer {
  public:
-  static QuicStreamId GetNextOutgoingStreamId(QuicSession* session);
-  static void SetNextOutgoingStreamId(QuicSession* session, QuicStreamId id);
+  QuicSessionPeer() = delete;
+
+  static QuicStreamId GetNextOutgoingBidirectionalStreamId(
+      QuicSession* session);
+  static QuicStreamId GetNextOutgoingUnidirectionalStreamId(
+      QuicSession* session);
+  static void SetNextOutgoingBidirectionalStreamId(QuicSession* session,
+                                                   QuicStreamId id);
   static void SetMaxOpenIncomingStreams(QuicSession* session,
                                         uint32_t max_streams);
   static void SetMaxOpenOutgoingStreams(QuicSession* session,
@@ -51,13 +57,16 @@ class QuicSessionPeer {
   static bool IsStreamClosed(QuicSession* session, QuicStreamId id);
   static bool IsStreamCreated(QuicSession* session, QuicStreamId id);
   static bool IsStreamAvailable(QuicSession* session, QuicStreamId id);
-  static bool IsStreamUncreated(QuicSession* session, QuicStreamId id);
 
   static QuicStream* GetStream(QuicSession* session, QuicStreamId id);
   static bool IsStreamWriteBlocked(QuicSession* session, QuicStreamId id);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(QuicSessionPeer);
+  static QuicAlarm* GetCleanUpClosedStreamsAlarm(QuicSession* session);
+  static LegacyQuicStreamIdManager* GetStreamIdManager(QuicSession* session);
+  static UberQuicStreamIdManager* v99_streamid_manager(QuicSession* session);
+  static QuicStreamIdManager* v99_bidirectional_stream_id_manager(
+      QuicSession* session);
+  static QuicStreamIdManager* v99_unidirectional_stream_id_manager(
+      QuicSession* session);
 };
 
 }  // namespace test

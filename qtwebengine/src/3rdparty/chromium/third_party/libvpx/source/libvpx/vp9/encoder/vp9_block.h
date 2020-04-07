@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef VP9_ENCODER_VP9_BLOCK_H_
-#define VP9_ENCODER_VP9_BLOCK_H_
+#ifndef VPX_VP9_ENCODER_VP9_BLOCK_H_
+#define VPX_VP9_ENCODER_VP9_BLOCK_H_
 
 #include "vpx_util/vpx_thread.h"
 
@@ -116,6 +116,12 @@ struct macroblock {
   int *nmvsadcost_hp[2];
   int **mvsadcost;
 
+  // sharpness is used to disable skip mode and change rd_mult
+  int sharpness;
+
+  // aq mode is used to adjust rd based on segment.
+  int adjust_rdmult_by_segment;
+
   // These define limits to motion vector components to prevent them
   // from extending outside the UMV borders
   MvLimits mv_limits;
@@ -202,10 +208,15 @@ struct macroblock {
   void (*highbd_inv_txfm_add)(const tran_low_t *input, uint16_t *dest,
                               int stride, int eob, int bd);
 #endif
+#if CONFIG_ML_VAR_PARTITION
+  DECLARE_ALIGNED(16, uint8_t, est_pred[64 * 64]);
+#endif  // CONFIG_ML_VAR_PARTITION
+
+  struct scale_factors *me_sf;
 };
 
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // VP9_ENCODER_VP9_BLOCK_H_
+#endif  // VPX_VP9_ENCODER_VP9_BLOCK_H_

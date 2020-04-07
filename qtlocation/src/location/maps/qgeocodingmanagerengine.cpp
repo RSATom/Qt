@@ -83,7 +83,7 @@ QGeoCodingManagerEngine::QGeoCodingManagerEngine(const QVariantMap &parameters, 
     : QObject(parent),
       d_ptr(new QGeoCodingManagerEnginePrivate())
 {
-    Q_UNUSED(parameters)
+    Q_UNUSED(parameters);
 }
 
 /*!
@@ -174,8 +174,8 @@ int QGeoCodingManagerEngine::managerVersion() const
 QGeoCodeReply *QGeoCodingManagerEngine::geocode(const QGeoAddress &address,
         const QGeoShape &bounds)
 {
-    Q_UNUSED(address)
-    Q_UNUSED(bounds)
+    Q_UNUSED(address);
+    Q_UNUSED(bounds);
     return new QGeoCodeReply(QGeoCodeReply::UnsupportedOptionError,
                                QLatin1String("Geocoding is not supported by this service provider."), this);
 }
@@ -219,8 +219,8 @@ QGeoCodeReply *QGeoCodingManagerEngine::geocode(const QGeoAddress &address,
 QGeoCodeReply *QGeoCodingManagerEngine::reverseGeocode(const QGeoCoordinate &coordinate,
                                                        const QGeoShape &bounds)
 {
-    Q_UNUSED(coordinate)
-    Q_UNUSED(bounds)
+    Q_UNUSED(coordinate);
+    Q_UNUSED(bounds);
     return new QGeoCodeReply(QGeoCodeReply::UnsupportedOptionError,
                                QLatin1String("Reverse geocoding is not supported by this service provider."), this);
 }
@@ -259,10 +259,10 @@ QGeoCodeReply *QGeoCodingManagerEngine::geocode(const QString &address,
                                                 int offset,
                                                 const QGeoShape &bounds)
 {
-    Q_UNUSED(address)
-    Q_UNUSED(limit)
-    Q_UNUSED(offset)
-    Q_UNUSED(bounds)
+    Q_UNUSED(address);
+    Q_UNUSED(limit);
+    Q_UNUSED(offset);
+    Q_UNUSED(bounds);
 
     return new QGeoCodeReply(QGeoCodeReply::UnsupportedOptionError,
                              QLatin1String("Searching is not supported by this service provider."), this);

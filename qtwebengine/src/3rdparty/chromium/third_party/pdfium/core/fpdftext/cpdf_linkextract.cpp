@@ -39,7 +39,7 @@ size_t FindWebLinkEnding(const WideString& str, size_t start, size_t end) {
         size_t off = end + 1;
         if (off < len && str[off] == L':') {
           off++;
-          while (off < len && str[off] >= L'0' && str[off] <= L'9')
+          while (off < len && FXSYS_IsDecimalDigit(str[off]))
             off++;
           if (off > end + 2 &&
               off <= len)   // At least one digit in port number.
@@ -54,9 +54,10 @@ size_t FindWebLinkEnding(const WideString& str, size_t start, size_t end) {
   // and periods. Hyphen should not at the end though.
   // Non-ASCII chars are ignored during checking.
   while (end > start && str[end] < 0x80) {
-    if ((str[end] >= L'0' && str[end] <= L'9') ||
-        (str[end] >= L'a' && str[end] <= L'z') || str[end] == L'.')
+    if (FXSYS_IsDecimalDigit(str[end]) ||
+        (str[end] >= L'a' && str[end] <= L'z') || str[end] == L'.') {
       break;
+    }
     end--;
   }
   return end;
@@ -305,7 +306,8 @@ bool CPDF_LinkExtract::CheckMailLink(WideString* str) {
 }
 
 WideString CPDF_LinkExtract::GetURL(size_t index) const {
-  return index < m_LinkArray.size() ? m_LinkArray[index].m_strUrl : L"";
+  return index < m_LinkArray.size() ? m_LinkArray[index].m_strUrl
+                                    : WideString();
 }
 
 std::vector<CFX_FloatRect> CPDF_LinkExtract::GetRects(size_t index) const {

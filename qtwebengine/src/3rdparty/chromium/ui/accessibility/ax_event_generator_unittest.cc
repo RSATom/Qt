@@ -62,6 +62,9 @@ std::string DumpEvents(AXEventGenerator* generator) {
       case AXEventGenerator::Event::LOAD_COMPLETE:
         event_name = "LOAD_COMPLETE";
         break;
+      case AXEventGenerator::Event::LOAD_START:
+        event_name = "LOAD_START";
+        break;
       case AXEventGenerator::Event::MENU_ITEM_SELECTED:
         event_name = "MENU_ITEM_SELECTED";
         break;
@@ -118,6 +121,7 @@ TEST(AXEventGeneratorTest, LoadCompleteSameTree) {
   initial_state.root_id = 1;
   initial_state.nodes.resize(1);
   initial_state.nodes[0].id = 1;
+  initial_state.nodes[0].relative_bounds.bounds = gfx::RectF(0, 0, 800, 600);
   initial_state.has_tree_data = true;
   AXTree tree(initial_state);
 
@@ -142,10 +146,58 @@ TEST(AXEventGeneratorTest, LoadCompleteNewTree) {
   load_complete_update.root_id = 2;
   load_complete_update.nodes.resize(1);
   load_complete_update.nodes[0].id = 2;
+  load_complete_update.nodes[0].relative_bounds.bounds =
+      gfx::RectF(0, 0, 800, 600);
   load_complete_update.has_tree_data = true;
   load_complete_update.tree_data.loaded = true;
   EXPECT_TRUE(tree.Unserialize(load_complete_update));
   EXPECT_EQ("LOAD_COMPLETE on 2", DumpEvents(&event_generator));
+
+  // Load complete should not be emitted for sizeless roots.
+  load_complete_update.root_id = 3;
+  load_complete_update.nodes.resize(1);
+  load_complete_update.nodes[0].id = 3;
+  load_complete_update.nodes[0].relative_bounds.bounds = gfx::RectF(0, 0, 0, 0);
+  load_complete_update.has_tree_data = true;
+  load_complete_update.tree_data.loaded = true;
+  EXPECT_TRUE(tree.Unserialize(load_complete_update));
+  EXPECT_EQ("", DumpEvents(&event_generator));
+
+  // TODO(accessibility): http://crbug.com/888758
+  // Load complete should not be emitted for chrome-search URLs.
+  load_complete_update.root_id = 4;
+  load_complete_update.nodes.resize(1);
+  load_complete_update.nodes[0].id = 4;
+  load_complete_update.nodes[0].relative_bounds.bounds =
+      gfx::RectF(0, 0, 800, 600);
+  load_complete_update.nodes[0].AddStringAttribute(
+      ax::mojom::StringAttribute::kUrl, "chrome-search://foo");
+  load_complete_update.has_tree_data = true;
+  load_complete_update.tree_data.loaded = true;
+  EXPECT_TRUE(tree.Unserialize(load_complete_update));
+  EXPECT_EQ("LOAD_COMPLETE on 4", DumpEvents(&event_generator));
+}
+
+TEST(AXEventGeneratorTest, LoadStart) {
+  AXTreeUpdate initial_state;
+  initial_state.root_id = 1;
+  initial_state.nodes.resize(1);
+  initial_state.nodes[0].id = 1;
+  initial_state.nodes[0].relative_bounds.bounds = gfx::RectF(0, 0, 800, 600);
+  initial_state.has_tree_data = true;
+  AXTree tree(initial_state);
+
+  AXEventGenerator event_generator(&tree);
+  AXTreeUpdate load_start_update;
+  load_start_update.root_id = 2;
+  load_start_update.nodes.resize(1);
+  load_start_update.nodes[0].id = 2;
+  load_start_update.nodes[0].relative_bounds.bounds =
+      gfx::RectF(0, 0, 800, 600);
+  load_start_update.has_tree_data = true;
+  load_start_update.tree_data.loaded = false;
+  EXPECT_TRUE(tree.Unserialize(load_start_update));
+  EXPECT_EQ("LOAD_START on 2", DumpEvents(&event_generator));
 }
 
 TEST(AXEventGeneratorTest, DocumentSelectionChanged) {
@@ -777,6 +829,41 @@ TEST(AXEventGeneratorTest, NodeBecomesUnignored) {
       "CHILDREN_CHANGED on 2, "
       "STATE_CHANGED on 4",
       DumpEvents(&event_generator));
+}
+
+TEST(AXEventGeneratorTest, ActiveDescendantChangeOnDescendant) {
+  AXTreeUpdate initial_state;
+  initial_state.root_id = 1;
+  initial_state.nodes.resize(5);
+  initial_state.nodes[0].id = 1;
+  initial_state.nodes[0].role = ax::mojom::Role::kRootWebArea;
+  initial_state.nodes[0].child_ids.push_back(2);
+  initial_state.nodes[1].id = 2;
+  initial_state.nodes[1].role = ax::mojom::Role::kGenericContainer;
+  initial_state.nodes[1].child_ids.push_back(3);
+  initial_state.nodes[2].id = 3;
+  initial_state.nodes[2].role = ax::mojom::Role::kGroup;
+  initial_state.nodes[2].AddIntAttribute(
+      ax::mojom::IntAttribute::kActivedescendantId, 4);
+  initial_state.nodes[2].child_ids.push_back(4);
+  initial_state.nodes[2].child_ids.push_back(5);
+  initial_state.nodes[3].id = 4;
+  initial_state.nodes[3].role = ax::mojom::Role::kGroup;
+  initial_state.nodes[4].id = 5;
+  initial_state.nodes[4].role = ax::mojom::Role::kGroup;
+
+  AXTree tree(initial_state);
+
+  AXEventGenerator event_generator(&tree);
+  initial_state.nodes[2].RemoveIntAttribute(
+      ax::mojom::IntAttribute::kActivedescendantId);
+  initial_state.nodes[2].AddIntAttribute(
+      ax::mojom::IntAttribute::kActivedescendantId, 5);
+  AXTreeUpdate update = initial_state;
+  update.node_id_to_clear = 2;
+  EXPECT_TRUE(tree.Unserialize(update));
+  EXPECT_EQ("ACTIVE_DESCENDANT_CHANGED on 3, RELATED_NODE_CHANGED on 3",
+            DumpEvents(&event_generator));
 }
 
 }  // namespace ui

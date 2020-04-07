@@ -9,13 +9,13 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_text_end_effect.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_positioned_float.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 
 namespace blink {
 
-class NGConstraintSpace;
 class NGInlineItem;
 class NGInlineNode;
 
@@ -29,7 +29,7 @@ struct NGInlineItemsData;
 //
 // NGLineBreaker produces, and NGInlineLayoutAlgorithm consumes.
 struct CORE_EXPORT NGInlineItemResult {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   // The NGInlineItem and its index.
@@ -45,18 +45,21 @@ struct CORE_EXPORT NGInlineItemResult {
 
   // ShapeResult for text items. Maybe different from NGInlineItem if re-shape
   // is needed in the line breaker.
-  scoped_refptr<const ShapeResult> shape_result;
+  scoped_refptr<const ShapeResultView> shape_result;
 
   // NGLayoutResult for atomic inline items.
   scoped_refptr<NGLayoutResult> layout_result;
 
-  // Margins and padding for atomic inline items and open/close tags.
-  NGLineBoxStrut margins;
-  NGLineBoxStrut padding;
+  // NGPositionedFloat for floating inline items. Should only be present for
+  // positioned floats (not unpositioned). It indicates where it was placed
+  // within the BFC.
+  base::Optional<NGPositionedFloat> positioned_float;
 
-  // Borders/padding for open tags.
-  LayoutUnit borders_paddings_line_over;
-  LayoutUnit borders_paddings_line_under;
+  // Margins, borders, and padding for open tags.
+  // Margins are set for atomic inlines too.
+  NGLineBoxStrut margins;
+  NGLineBoxStrut borders;
+  NGLineBoxStrut padding;
 
   // Has start/end edge for open/close tags.
   bool has_edge = false;
@@ -78,6 +81,11 @@ struct CORE_EXPORT NGInlineItemResult {
   // characters.
   bool has_only_trailing_spaces = false;
 
+  // The previous value of |break_anywhere_if_overflow| in the
+  // NGInlineItemResults list. Like |should_create_line_box|, this value is used
+  // to rewind properly.
+  bool break_anywhere_if_overflow = false;
+
   // We don't create "certain zero-height line boxes".
   // https://drafts.csswg.org/css2/visuren.html#phantom-line-box
   // Such line boxes do not prevent two margins being "adjoining", and thus
@@ -94,6 +102,11 @@ struct CORE_EXPORT NGInlineItemResult {
   // correctly determine that we don't need a line box.
   bool should_create_line_box = false;
 
+  // This field should be initialized and maintained like
+  // |should_create_line_box|. It indicates if there are (at the current
+  // position) any unpositioned floats.
+  bool has_unpositioned_floats = false;
+
   // End effects for text items.
   // The effects are included in |shape_result|, but not in text content.
   NGTextEndEffect text_end_effect = NGTextEndEffect::kNone;
@@ -103,10 +116,12 @@ struct CORE_EXPORT NGInlineItemResult {
                      unsigned index,
                      unsigned start,
                      unsigned end,
-                     bool should_create_line_box);
+                     bool break_anywhere_if_overflow,
+                     bool should_create_line_box,
+                     bool has_unpositioned_floats);
 
 #if DCHECK_IS_ON()
-  void CheckConsistency(bool during_line_break = false) const;
+  void CheckConsistency(bool allow_null_shape_result = false) const;
 #endif
 };
 
@@ -119,7 +134,7 @@ using NGInlineItemResults = Vector<NGInlineItemResult, 32>;
 //
 // NGLineBreaker produces, and NGInlineLayoutAlgorithm consumes.
 class CORE_EXPORT NGLineInfo {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   const NGInlineItemsData& ItemsData() const {
@@ -134,10 +149,7 @@ class CORE_EXPORT NGLineInfo {
   }
   void SetLineStyle(const NGInlineNode&,
                     const NGInlineItemsData&,
-                    const NGConstraintSpace&,
-                    bool is_first_formatted_line,
-                    bool use_first_line_style,
-                    bool is_after_forced_break);
+                    bool use_first_line_style);
 
   // Use ::first-line style if true.
   // https://drafts.csswg.org/css-pseudo/#selectordef-first-line
@@ -161,19 +173,47 @@ class CORE_EXPORT NGLineInfo {
   NGInlineItemResults* MutableResults() { return &results_; }
   const NGInlineItemResults& Results() const { return results_; }
 
+  void SetTextIndent(LayoutUnit indent) { text_indent_ = indent; }
   LayoutUnit TextIndent() const { return text_indent_; }
 
-  NGBfcOffset LineBfcOffset() const { return line_bfc_offset_; }
+  NGBfcOffset BfcOffset() const { return bfc_offset_; }
   LayoutUnit AvailableWidth() const { return available_width_; }
-  LayoutUnit Width() const { return width_; }
+
+  // The width of this line. Includes trailing spaces if they were preserved.
+  // Negative width created by negative 'text-indent' is clamped to zero.
+  LayoutUnit Width() const { return width_.ClampNegativeToZero(); }
+  // Same as |Width()| but returns negative value as is.
+  LayoutUnit WidthForAlignment() const { return width_; }
+  // The width of preserved trailing spaces.
+  LayoutUnit ComputeTrailingSpaceWidth(
+      unsigned* end_offset_out = nullptr) const;
+  // Compute |Width()| from |Results()|. Used during line breaking, before
+  // |Width()| is set. After line breaking, this should match to |Width()|
+  // without clamping.
   LayoutUnit ComputeWidth() const;
-  void SetLineBfcOffset(NGBfcOffset line_bfc_offset,
-                        LayoutUnit available_width,
-                        LayoutUnit width);
+
+  bool HasTrailingSpaces() const { return has_trailing_spaces_; }
+  void SetHasTrailingSpaces() { has_trailing_spaces_ = true; }
+
+  // True if this line has overflow, excluding preserved trailing spaces.
+  bool HasOverflow() const { return has_overflow_; }
+  void SetHasOverflow() { has_overflow_ = true; }
+
+  void SetBfcOffset(const NGBfcOffset& bfc_offset) { bfc_offset_ = bfc_offset; }
+  void SetWidth(LayoutUnit available_width, LayoutUnit width) {
+    available_width_ = available_width;
+    width_ = width;
+  }
 
   // Start text offset of this line.
   unsigned StartOffset() const { return start_offset_; }
   void SetStartOffset(unsigned offset) { start_offset_ = offset; }
+  // End text offset of this line, excluding out-of-flow objects such as
+  // floating or positioned.
+  unsigned InflowEndOffset() const;
+  // End item index of this line.
+  unsigned EndItemIndex() const { return end_item_index_; }
+  void SetEndItemIndex(unsigned index) { end_item_index_ = index; }
 
   // The base direction of this line for the bidi algorithm.
   TextDirection BaseDirection() const { return base_direction_; }
@@ -182,29 +222,33 @@ class CORE_EXPORT NGLineInfo {
   }
 
   // Fragment to append to the line end. Used by 'text-overflow: ellipsis'.
-  scoped_refptr<NGPhysicalTextFragment>& LineEndFragment() {
+  scoped_refptr<const NGPhysicalTextFragment>& LineEndFragment() {
     return line_end_fragment_;
   }
-  void SetLineEndFragment(scoped_refptr<NGPhysicalTextFragment>);
+  void SetLineEndFragment(scoped_refptr<const NGPhysicalTextFragment>);
 
  private:
   const NGInlineItemsData* items_data_ = nullptr;
   const ComputedStyle* line_style_ = nullptr;
   NGInlineItemResults results_;
-  scoped_refptr<NGPhysicalTextFragment> line_end_fragment_;
+  scoped_refptr<const NGPhysicalTextFragment> line_end_fragment_;
 
-  NGBfcOffset line_bfc_offset_;
+  NGBfcOffset bfc_offset_;
+
   LayoutUnit available_width_;
   LayoutUnit width_;
   LayoutUnit text_indent_;
 
   unsigned start_offset_;
+  unsigned end_item_index_;
 
   TextDirection base_direction_ = TextDirection::kLtr;
 
   bool use_first_line_style_ = false;
   bool is_last_line_ = false;
   bool is_empty_line_ = false;
+  bool has_overflow_ = false;
+  bool has_trailing_spaces_ = false;
 };
 
 }  // namespace blink

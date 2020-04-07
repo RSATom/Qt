@@ -16,7 +16,6 @@ const char kVmCiceroneServiceName[] = "org.chromium.VmCicerone";
 const char kNotifyVmStartedMethod[] = "NotifyVmStarted";
 const char kNotifyVmStoppedMethod[] = "NotifyVmStopped";
 const char kGetContainerTokenMethod[] = "GetContainerToken";
-const char kIsContainerRunningMethod[] = "IsContainerRunning";
 
 // Methods to be called from Chrome.
 const char kLaunchContainerApplicationMethod[] = "LaunchContainerApplication";
@@ -24,21 +23,29 @@ const char kGetContainerAppIconMethod[] = "GetContainerAppIcon";
 const char kLaunchVshdMethod[] = "LaunchVshd";
 const char kGetLinuxPackageInfoMethod[] = "GetLinuxPackageInfo";
 const char kInstallLinuxPackageMethod[] = "InstallLinuxPackage";
+const char kUninstallPackageOwningFileMethod[] = "UninstallPackageOwningFile";
 const char kCreateLxdContainerMethod[] = "CreateLxdContainer";
 const char kStartLxdContainerMethod[] = "StartLxdContainer";
+const char kSetTimezoneMethod[] = "SetTimezone";
 const char kGetLxdContainerUsernameMethod[] = "GetLxdContainerUsername";
 const char kSetUpLxdContainerUserMethod[] = "SetUpLxdContainerUser";
+const char kInstallLinuxPackageFromAptMethod[] = "InstallLinuxPackageFromApt";
+const char kAppSearchMethod[] = "AppSearch";
+const char kGetLinuxPackageInfoFromAptMethod[] =
+    "GetLinuxPackageInfoFromAptMethod";
 
 // Methods to be called from debugd.
-const char kGetDebugInformation[] = "GetDebugInformation";
+const char kGetDebugInformationMethod[] = "GetDebugInformation";
 
 // Signals.
 const char kContainerStartedSignal[] = "ContainerStarted";
 const char kContainerShutdownSignal[] = "ContainerShutdown";
 const char kInstallLinuxPackageProgressSignal[] =
     "InstallLinuxPackageProgress";
+const char kUninstallPackageProgressSignal[] = "UninstallPackageProgress";
 const char kLxdContainerCreatedSignal[] = "LxdContainerCreated";
 const char kLxdContainerDownloadingSignal[] = "LxdContainerDownloading";
+const char kLxdContainerStartingSignal[] = "LxdContainerStarting";
 const char kTremplinStartedSignal[] = "TremplinStarted";
 
 }  // namespace cicerone

@@ -82,7 +82,7 @@ QSharedPointer<QGeoTileTexture> QGeoFileTileCacheOsm::get(const QGeoTileSpec &sp
 void QGeoFileTileCacheOsm::onProviderResolutionFinished(const QGeoTileProviderOsm *provider)
 {
     clearObsoleteTiles(provider);
-    Q_UNUSED(provider)
+    Q_UNUSED(provider);
     for (int i = 0; i < m_providers.size(); i++) {
         if (m_providers[i]->isHighDpi() != m_highDpi[i]) { // e.g., HiDpi was requested but only LoDpi is available
             int mapId = m_providers[i]->mapType().mapId();
@@ -103,7 +103,7 @@ void QGeoFileTileCacheOsm::onProviderResolutionFinished(const QGeoTileProviderOs
 // Hardcoded fallbacks also have a timestamp, that can get updated with Qt releases.
 void QGeoFileTileCacheOsm::onProviderResolutionError(const QGeoTileProviderOsm *provider, QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     clearObsoleteTiles(provider); // this still removes tiles who happen to be older than qgeotileproviderosm.cpp defaultTs
 }
 

@@ -71,14 +71,7 @@ bool CheckAttachmentCompleteness(const Context *context, const FramebufferAttach
         return false;
     }
 
-    const InternalFormat &format = *attachment.getFormat().info;
-    if (attachment.type() == GL_RENDERBUFFER &&
-        !format.renderbufferSupport(context->getClientVersion(), context->getExtensions()))
-    {
-        return false;
-    }
-    if (attachment.type() == GL_TEXTURE &&
-        !format.textureAttachmentSupport(context->getClientVersion(), context->getExtensions()))
+    if (!attachment.isRenderable(context))
     {
         return false;
     }
@@ -222,14 +215,14 @@ static_assert(static_cast<size_t>(IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS + 1
                   Framebuffer::DIRTY_BIT_STENCIL_ATTACHMENT,
               "Framebuffer Dirty bit mismatch");
 
-Error InitAttachment(const Context *context, FramebufferAttachment *attachment)
+angle::Result InitAttachment(const Context *context, FramebufferAttachment *attachment)
 {
     ASSERT(attachment->isAttached());
     if (attachment->initState() == InitState::MayNeedInit)
     {
         ANGLE_TRY(attachment->initializeContents(context));
     }
-    return NoError();
+    return angle::Result::Continue;
 }
 
 bool IsColorMaskedOut(const BlendState &blend)
@@ -253,14 +246,14 @@ bool IsClearBufferMaskedOut(const Context *context, GLenum buffer)
     switch (buffer)
     {
         case GL_COLOR:
-            return IsColorMaskedOut(context->getGLState().getBlendState());
+            return IsColorMaskedOut(context->getState().getBlendState());
         case GL_DEPTH:
-            return IsDepthMaskedOut(context->getGLState().getDepthStencilState());
+            return IsDepthMaskedOut(context->getState().getDepthStencilState());
         case GL_STENCIL:
-            return IsStencilMaskedOut(context->getGLState().getDepthStencilState());
+            return IsStencilMaskedOut(context->getState().getDepthStencilState());
         case GL_DEPTH_STENCIL:
-            return IsDepthMaskedOut(context->getGLState().getDepthStencilState()) &&
-                   IsStencilMaskedOut(context->getGLState().getDepthStencilState());
+            return IsDepthMaskedOut(context->getState().getDepthStencilState()) &&
+                   IsStencilMaskedOut(context->getState().getDepthStencilState());
         default:
             UNREACHABLE();
             return true;
@@ -307,9 +300,7 @@ FramebufferState::FramebufferState(const Caps &caps, GLuint id)
     mDrawBufferStates[0] = GL_COLOR_ATTACHMENT0_EXT;
 }
 
-FramebufferState::~FramebufferState()
-{
-}
+FramebufferState::~FramebufferState() {}
 
 const std::string &FramebufferState::getLabel()
 {
@@ -594,16 +585,6 @@ bool FramebufferState::hasStencil() const
     return (mStencilAttachment.isAttached() && mStencilAttachment.getStencilSize() > 0);
 }
 
-GLsizei FramebufferState::getNumViews() const
-{
-    const FramebufferAttachment *attachment = getFirstNonNullAttachment();
-    if (attachment == nullptr)
-    {
-        return FramebufferAttachment::kDefaultNumViews;
-    }
-    return attachment->getNumViews();
-}
-
 const std::vector<Offset> *FramebufferState::getViewportOffsets() const
 {
     const FramebufferAttachment *attachment = getFirstNonNullAttachment();
@@ -692,7 +673,7 @@ Framebuffer::Framebuffer(const Context *context, egl::Surface *surface)
                           FramebufferAttachment::kDefaultMultiviewLayout,
                           FramebufferAttachment::kDefaultViewportOffsets);
     }
-    mState.mDrawBufferTypeMask.setIndex(getDrawbufferWriteType(0), 0);
+    SetComponentTypeMask(getDrawbufferWriteType(0), 0, &mState.mDrawBufferTypeMask);
 }
 
 Framebuffer::Framebuffer(rx::GLImplFactory *factory)
@@ -703,7 +684,7 @@ Framebuffer::Framebuffer(rx::GLImplFactory *factory)
       mDirtyStencilAttachmentBinding(this, DIRTY_BIT_STENCIL_ATTACHMENT)
 {
     mDirtyColorAttachmentBindings.emplace_back(this, DIRTY_BIT_COLOR_ATTACHMENT_0);
-    mState.mDrawBufferTypeMask.setIndex(getDrawbufferWriteType(0), 0);
+    SetComponentTypeMask(getDrawbufferWriteType(0), 0, &mState.mDrawBufferTypeMask);
 }
 
 Framebuffer::~Framebuffer()
@@ -726,7 +707,7 @@ void Framebuffer::onDestroy(const Context *context)
     mImpl->destroy(context);
 }
 
-void Framebuffer::setLabel(const std::string &label)
+void Framebuffer::setLabel(const Context *context, const std::string &label)
 {
     mState.mLabel = label;
 }
@@ -753,7 +734,7 @@ bool Framebuffer::detachResourceById(const Context *context, GLenum resourceType
     for (size_t colorIndex = 0; colorIndex < mState.mColorAttachments.size(); ++colorIndex)
     {
         if (detachMatchingAttachment(context, &mState.mColorAttachments[colorIndex], resourceType,
-                                     resourceId, DIRTY_BIT_COLOR_ATTACHMENT_0 + colorIndex))
+                                     resourceId))
         {
             found = true;
         }
@@ -766,23 +747,19 @@ bool Framebuffer::detachResourceById(const Context *context, GLenum resourceType
              &mState.mWebGLStencilAttachment}};
         for (FramebufferAttachment *attachment : attachments)
         {
-            if (attachment->isAttached() && attachment->type() == resourceType &&
-                attachment->id() == resourceId)
+            if (detachMatchingAttachment(context, attachment, resourceType, resourceId))
             {
-                resetAttachment(context, attachment->getBinding());
                 found = true;
             }
         }
     }
     else
     {
-        if (detachMatchingAttachment(context, &mState.mDepthAttachment, resourceType, resourceId,
-                                     DIRTY_BIT_DEPTH_ATTACHMENT))
+        if (detachMatchingAttachment(context, &mState.mDepthAttachment, resourceType, resourceId))
         {
             found = true;
         }
-        if (detachMatchingAttachment(context, &mState.mStencilAttachment, resourceType, resourceId,
-                                     DIRTY_BIT_STENCIL_ATTACHMENT))
+        if (detachMatchingAttachment(context, &mState.mStencilAttachment, resourceType, resourceId))
         {
             found = true;
         }
@@ -794,14 +771,13 @@ bool Framebuffer::detachResourceById(const Context *context, GLenum resourceType
 bool Framebuffer::detachMatchingAttachment(const Context *context,
                                            FramebufferAttachment *attachment,
                                            GLenum matchType,
-                                           GLuint matchId,
-                                           size_t dirtyBit)
+                                           GLuint matchId)
 {
     if (attachment->isAttached() && attachment->type() == matchType && attachment->id() == matchId)
     {
-        attachment->detach(context);
-        mDirtyBits.set(dirtyBit);
-        mState.mResourceNeedsInit.set(dirtyBit, false);
+        // We go through resetAttachment to make sure that all the required bookkeeping will be done
+        // such as updating enabled draw buffer state.
+        resetAttachment(context, attachment->getBinding());
         return true;
     }
 
@@ -895,7 +871,7 @@ void Framebuffer::setDrawBuffers(size_t count, const GLenum *buffers)
 
     for (size_t index = 0; index < count; ++index)
     {
-        mState.mDrawBufferTypeMask.setIndex(getDrawbufferWriteType(index), index);
+        SetComponentTypeMask(getDrawbufferWriteType(index), index, &mState.mDrawBufferTypeMask);
 
         if (drawStates[index] != GL_NONE && mState.mColorAttachments[index].isAttached())
         {
@@ -909,23 +885,24 @@ const FramebufferAttachment *Framebuffer::getDrawBuffer(size_t drawBuffer) const
     return mState.getDrawBuffer(drawBuffer);
 }
 
-GLenum Framebuffer::getDrawbufferWriteType(size_t drawBuffer) const
+ComponentType Framebuffer::getDrawbufferWriteType(size_t drawBuffer) const
 {
     const FramebufferAttachment *attachment = mState.getDrawBuffer(drawBuffer);
     if (attachment == nullptr)
     {
-        return GL_NONE;
+        return ComponentType::NoType;
     }
 
     GLenum componentType = attachment->getFormat().info->componentType;
     switch (componentType)
     {
         case GL_INT:
+            return ComponentType::Int;
         case GL_UNSIGNED_INT:
-            return componentType;
+            return ComponentType::UnsignedInt;
 
         default:
-            return GL_FLOAT;
+            return ComponentType::Float;
     }
 }
 
@@ -994,44 +971,32 @@ bool Framebuffer::usingExtendedDrawBuffers() const
     return false;
 }
 
-void Framebuffer::invalidateCompletenessCache()
+void Framebuffer::invalidateCompletenessCache(const Context *context)
 {
     if (mState.mId != 0)
     {
         mCachedStatus.reset();
+        onStateChange(context, angle::SubjectMessage::CONTENTS_CHANGED);
     }
 }
 
-GLenum Framebuffer::checkStatus(const Context *context)
+GLenum Framebuffer::checkStatusImpl(const Context *context)
 {
-    // The default framebuffer is always complete except when it is surfaceless in which
-    // case it is always unsupported. We return early because the default framebuffer may
-    // not be subject to the same rules as application FBOs. ie, it could have 0x0 size.
-    if (mState.mId == 0)
-    {
-        ASSERT(mCachedStatus.valid());
-        ASSERT(mCachedStatus.value() == GL_FRAMEBUFFER_COMPLETE ||
-               mCachedStatus.value() == GL_FRAMEBUFFER_UNDEFINED_OES);
-        return mCachedStatus.value();
-    }
+    ASSERT(!isDefault());
+    ASSERT(hasAnyDirtyBit() || !mCachedStatus.valid());
 
-    if (hasAnyDirtyBit() || !mCachedStatus.valid())
-    {
-        mCachedStatus = checkStatusWithGLFrontEnd(context);
+    mCachedStatus = checkStatusWithGLFrontEnd(context);
 
-        if (mCachedStatus.value() == GL_FRAMEBUFFER_COMPLETE)
+    if (mCachedStatus.value() == GL_FRAMEBUFFER_COMPLETE)
+    {
+        angle::Result err = syncState(context);
+        if (err != angle::Result::Continue)
         {
-            Error err = syncState(context);
-            if (err.isError())
-            {
-                // TODO(jmadill): Remove when refactor complete. http://anglebug.com/2491
-                const_cast<Context *>(context)->handleError(err);
-                return GetDefaultReturnValue<EntryPoint::CheckFramebufferStatus, GLenum>();
-            }
-            if (!mImpl->checkStatus(context))
-            {
-                mCachedStatus = GL_FRAMEBUFFER_UNSUPPORTED;
-            }
+            return 0;
+        }
+        if (!mImpl->checkStatus(context))
+        {
+            mCachedStatus = GL_FRAMEBUFFER_UNSUPPORTED;
         }
     }
 
@@ -1040,7 +1005,7 @@ GLenum Framebuffer::checkStatus(const Context *context)
 
 GLenum Framebuffer::checkStatusWithGLFrontEnd(const Context *context)
 {
-    const ContextState &state = context->getContextState();
+    const State &state = context->getState();
 
     ASSERT(mState.mId != 0);
 
@@ -1303,7 +1268,7 @@ GLenum Framebuffer::checkStatusWithGLFrontEnd(const Context *context)
     return GL_FRAMEBUFFER_COMPLETE;
 }
 
-Error Framebuffer::discard(const Context *context, size_t count, const GLenum *attachments)
+angle::Result Framebuffer::discard(const Context *context, size_t count, const GLenum *attachments)
 {
     // Back-ends might make the contents of the FBO undefined. In WebGL 2.0, invalidate operations
     // can be no-ops, so we should probably do that to ensure consistency.
@@ -1312,7 +1277,9 @@ Error Framebuffer::discard(const Context *context, size_t count, const GLenum *a
     return mImpl->discard(context, count, attachments);
 }
 
-Error Framebuffer::invalidate(const Context *context, size_t count, const GLenum *attachments)
+angle::Result Framebuffer::invalidate(const Context *context,
+                                      size_t count,
+                                      const GLenum *attachments)
 {
     // Back-ends might make the contents of the FBO undefined. In WebGL 2.0, invalidate operations
     // can be no-ops, so we should probably do that to ensure consistency.
@@ -1326,7 +1293,7 @@ bool Framebuffer::partialClearNeedsInit(const Context *context,
                                         bool depth,
                                         bool stencil)
 {
-    const auto &glState = context->getGLState();
+    const auto &glState = context->getState();
 
     if (!glState.isRobustResourceInitEnabled())
     {
@@ -1353,8 +1320,8 @@ bool Framebuffer::partialClearNeedsInit(const Context *context,
     }
 
     const auto &depthStencil = glState.getDepthStencilState();
-    ASSERT(depthStencil.stencilBackMask == depthStencil.stencilMask);
-    if (stencil && depthStencil.stencilMask != depthStencil.stencilWritemask)
+    if (stencil && (depthStencil.stencilMask != depthStencil.stencilWritemask ||
+                    depthStencil.stencilBackMask != depthStencil.stencilBackWritemask))
     {
         return true;
     }
@@ -1362,10 +1329,10 @@ bool Framebuffer::partialClearNeedsInit(const Context *context,
     return false;
 }
 
-Error Framebuffer::invalidateSub(const Context *context,
-                                 size_t count,
-                                 const GLenum *attachments,
-                                 const Rectangle &area)
+angle::Result Framebuffer::invalidateSub(const Context *context,
+                                         size_t count,
+                                         const GLenum *attachments,
+                                         const Rectangle &area)
 {
     // Back-ends might make the contents of the FBO undefined. In WebGL 2.0, invalidate operations
     // can be no-ops, so we should probably do that to ensure consistency.
@@ -1374,121 +1341,118 @@ Error Framebuffer::invalidateSub(const Context *context,
     return mImpl->invalidateSub(context, count, attachments, area);
 }
 
-Error Framebuffer::clear(const Context *context, GLbitfield mask)
+angle::Result Framebuffer::clear(const Context *context, GLbitfield mask)
 {
-    const auto &glState = context->getGLState();
+    const auto &glState = context->getState();
     if (glState.isRasterizerDiscardEnabled())
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     ANGLE_TRY(mImpl->clear(context, mask));
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::clearBufferfv(const Context *context,
-                                 GLenum buffer,
-                                 GLint drawbuffer,
-                                 const GLfloat *values)
+angle::Result Framebuffer::clearBufferfv(const Context *context,
+                                         GLenum buffer,
+                                         GLint drawbuffer,
+                                         const GLfloat *values)
 {
-    if (context->getGLState().isRasterizerDiscardEnabled() ||
-        IsClearBufferMaskedOut(context, buffer))
+    if (context->getState().isRasterizerDiscardEnabled() || IsClearBufferMaskedOut(context, buffer))
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     ANGLE_TRY(mImpl->clearBufferfv(context, buffer, drawbuffer, values));
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::clearBufferuiv(const Context *context,
-                                  GLenum buffer,
-                                  GLint drawbuffer,
-                                  const GLuint *values)
+angle::Result Framebuffer::clearBufferuiv(const Context *context,
+                                          GLenum buffer,
+                                          GLint drawbuffer,
+                                          const GLuint *values)
 {
-    if (context->getGLState().isRasterizerDiscardEnabled() ||
-        IsClearBufferMaskedOut(context, buffer))
+    if (context->getState().isRasterizerDiscardEnabled() || IsClearBufferMaskedOut(context, buffer))
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     ANGLE_TRY(mImpl->clearBufferuiv(context, buffer, drawbuffer, values));
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::clearBufferiv(const Context *context,
-                                 GLenum buffer,
-                                 GLint drawbuffer,
-                                 const GLint *values)
+angle::Result Framebuffer::clearBufferiv(const Context *context,
+                                         GLenum buffer,
+                                         GLint drawbuffer,
+                                         const GLint *values)
 {
-    if (context->getGLState().isRasterizerDiscardEnabled() ||
-        IsClearBufferMaskedOut(context, buffer))
+    if (context->getState().isRasterizerDiscardEnabled() || IsClearBufferMaskedOut(context, buffer))
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     ANGLE_TRY(mImpl->clearBufferiv(context, buffer, drawbuffer, values));
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::clearBufferfi(const Context *context,
-                                 GLenum buffer,
-                                 GLint drawbuffer,
-                                 GLfloat depth,
-                                 GLint stencil)
+angle::Result Framebuffer::clearBufferfi(const Context *context,
+                                         GLenum buffer,
+                                         GLint drawbuffer,
+                                         GLfloat depth,
+                                         GLint stencil)
 {
-    if (context->getGLState().isRasterizerDiscardEnabled() ||
-        IsClearBufferMaskedOut(context, buffer))
+    if (context->getState().isRasterizerDiscardEnabled() || IsClearBufferMaskedOut(context, buffer))
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     ANGLE_TRY(mImpl->clearBufferfi(context, buffer, drawbuffer, depth, stencil));
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::getImplementationColorReadFormat(const Context *context, GLenum *formatOut)
+angle::Result Framebuffer::getImplementationColorReadFormat(const Context *context,
+                                                            GLenum *formatOut)
 {
     ANGLE_TRY(syncState(context));
     *formatOut = mImpl->getImplementationColorReadFormat(context);
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::getImplementationColorReadType(const Context *context, GLenum *typeOut)
+angle::Result Framebuffer::getImplementationColorReadType(const Context *context, GLenum *typeOut)
 {
     ANGLE_TRY(syncState(context));
     *typeOut = mImpl->getImplementationColorReadType(context);
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::readPixels(const Context *context,
-                              const Rectangle &area,
-                              GLenum format,
-                              GLenum type,
-                              void *pixels)
+angle::Result Framebuffer::readPixels(const Context *context,
+                                      const Rectangle &area,
+                                      GLenum format,
+                                      GLenum type,
+                                      void *pixels)
 {
     ANGLE_TRY(ensureReadAttachmentInitialized(context, GL_COLOR_BUFFER_BIT));
     ANGLE_TRY(mImpl->readPixels(context, area, format, type, pixels));
 
-    Buffer *unpackBuffer = context->getGLState().getTargetBuffer(BufferBinding::PixelUnpack);
+    Buffer *unpackBuffer = context->getState().getTargetBuffer(BufferBinding::PixelUnpack);
     if (unpackBuffer)
     {
         unpackBuffer->onPixelPack(context);
     }
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::blit(const Context *context,
-                        const Rectangle &sourceArea,
-                        const Rectangle &destArea,
-                        GLbitfield mask,
-                        GLenum filter)
+angle::Result Framebuffer::blit(const Context *context,
+                                const Rectangle &sourceArea,
+                                const Rectangle &destArea,
+                                GLbitfield mask,
+                                GLenum filter)
 {
     GLbitfield blitMask = mask;
 
@@ -1511,10 +1475,10 @@ Error Framebuffer::blit(const Context *context,
 
     if (!blitMask)
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
-    auto *sourceFBO = context->getGLState().getReadFramebuffer();
+    auto *sourceFBO = context->getState().getReadFramebuffer();
     ANGLE_TRY(sourceFBO->ensureReadAttachmentInitialized(context, blitMask));
 
     // TODO(jmadill): Only clear if not the full FBO dimensions, and only specified bitmask.
@@ -1550,10 +1514,12 @@ int Framebuffer::getCachedSamples(const Context *context)
     return 0;
 }
 
-Error Framebuffer::getSamplePosition(const Context *context, size_t index, GLfloat *xy) const
+angle::Result Framebuffer::getSamplePosition(const Context *context,
+                                             size_t index,
+                                             GLfloat *xy) const
 {
     ANGLE_TRY(mImpl->getSamplePosition(context, index, xy));
-    return NoError();
+    return angle::Result::Continue;
 }
 
 bool Framebuffer::hasValidDepthStencil() const
@@ -1796,12 +1762,11 @@ void Framebuffer::setAttachmentImpl(const Context *context,
             // formsRenderingFeedbackLoopWith
             bool enabled = (type != GL_NONE && getDrawBufferState(colorIndex) != GL_NONE);
             mState.mEnabledDrawBuffers.set(colorIndex, enabled);
-            mState.mDrawBufferTypeMask.setIndex(getDrawbufferWriteType(colorIndex), colorIndex);
+            SetComponentTypeMask(getDrawbufferWriteType(colorIndex), colorIndex,
+                                 &mState.mDrawBufferTypeMask);
         }
         break;
     }
-
-    mAttachedTextures.reset();
 }
 
 void Framebuffer::updateAttachment(const Context *context,
@@ -1821,9 +1786,9 @@ void Framebuffer::updateAttachment(const Context *context,
                        multiviewLayout, viewportOffsets);
     mDirtyBits.set(dirtyBit);
     mState.mResourceNeedsInit.set(dirtyBit, attachment->initState() == InitState::MayNeedInit);
-    onDirtyBinding->bind(resource ? resource->getSubject() : nullptr);
+    onDirtyBinding->bind(resource);
 
-    invalidateCompletenessCache();
+    invalidateCompletenessCache(context);
 }
 
 void Framebuffer::resetAttachment(const Context *context, GLenum binding)
@@ -1831,7 +1796,7 @@ void Framebuffer::resetAttachment(const Context *context, GLenum binding)
     setAttachment(context, GL_NONE, binding, ImageIndex(), nullptr);
 }
 
-Error Framebuffer::syncState(const Context *context)
+angle::Result Framebuffer::syncState(const Context *context)
 {
     if (mDirtyBits.any())
     {
@@ -1840,28 +1805,25 @@ Error Framebuffer::syncState(const Context *context)
         mDirtyBits.reset();
         mDirtyBitsGuard.reset();
     }
-    return NoError();
+    return angle::Result::Continue;
 }
 
 void Framebuffer::onSubjectStateChange(const Context *context,
                                        angle::SubjectIndex index,
                                        angle::SubjectMessage message)
 {
-    if (message == angle::SubjectMessage::DEPENDENT_DIRTY_BITS)
+    if (message != angle::SubjectMessage::STORAGE_CHANGED)
     {
-        ASSERT(!mDirtyBitsGuard.valid() || mDirtyBitsGuard.value().test(index));
-        mDirtyBits.set(index);
-        context->getGLState().setFramebufferDirty(this);
+        // This can be triggered by the GL back-end TextureGL class.
+        ASSERT(message == angle::SubjectMessage::DEPENDENT_DIRTY_BITS);
         return;
     }
 
-    // Only reset the cached status if this is not the default framebuffer.  The default framebuffer
-    // will still use this channel to mark itself dirty.
-    if (mState.mId != 0)
-    {
-        // TOOD(jmadill): Make this only update individual attachments to do less work.
-        mCachedStatus.reset();
-    }
+    ASSERT(!mDirtyBitsGuard.valid() || mDirtyBitsGuard.value().test(index));
+    mDirtyBits.set(index);
+    onStateChange(context, angle::SubjectMessage::STORAGE_CHANGED);
+
+    invalidateCompletenessCache(context);
 
     FramebufferAttachment *attachment = getAttachmentFromSubjectIndex(index);
 
@@ -1882,11 +1844,6 @@ FramebufferAttachment *Framebuffer::getAttachmentFromSubjectIndex(angle::Subject
             ASSERT(colorIndex < mState.mColorAttachments.size());
             return &mState.mColorAttachments[colorIndex];
     }
-}
-
-bool Framebuffer::isComplete(const Context *context)
-{
-    return (checkStatus(context) == GL_FRAMEBUFFER_COMPLETE);
 }
 
 bool Framebuffer::formsRenderingFeedbackLoopWith(const State &state) const
@@ -1914,12 +1871,9 @@ bool Framebuffer::formsRenderingFeedbackLoopWith(const State &state) const
         }
     }
 
-    // Validate depth-stencil feedback loop.
-    const auto &dsState = state.getDepthStencilState();
-
-    // We can skip the feedback loop checks if depth/stencil is masked out or disabled.
+    // Validate depth-stencil feedback loop. This is independent of Depth/Stencil state.
     const FramebufferAttachment *depth = getDepthbuffer();
-    if (depth && depth->type() == GL_TEXTURE && dsState.depthTest && dsState.depthMask)
+    if (depth && depth->type() == GL_TEXTURE)
     {
         if (program->samplesFromTexture(state, depth->id()))
         {
@@ -1928,23 +1882,14 @@ bool Framebuffer::formsRenderingFeedbackLoopWith(const State &state) const
     }
 
     const FramebufferAttachment *stencil = getStencilbuffer();
-    if (dsState.stencilTest && stencil)
+    if (stencil && stencil->type() == GL_TEXTURE)
     {
-        GLuint stencilSize = stencil->getStencilSize();
-        ASSERT(stencilSize <= 8);
-        GLuint maxStencilValue = (1 << stencilSize) - 1;
-        // We assume the front and back masks are the same for WebGL.
-        ASSERT((dsState.stencilBackWritemask & maxStencilValue) ==
-               (dsState.stencilWritemask & maxStencilValue));
-        if (stencil->type() == GL_TEXTURE && dsState.stencilWritemask != 0)
+        // Skip the feedback loop check if depth/stencil point to the same resource.
+        if (!depth || *stencil != *depth)
         {
-            // Skip the feedback loop check if depth/stencil point to the same resource.
-            if (!depth || *stencil != *depth)
+            if (program->samplesFromTexture(state, stencil->id()))
             {
-                if (program->samplesFromTexture(state, stencil->id()))
-                {
-                    return true;
-                }
+                return true;
             }
         }
     }
@@ -2003,32 +1948,33 @@ GLint Framebuffer::getDefaultLayers() const
     return mState.getDefaultLayers();
 }
 
-void Framebuffer::setDefaultWidth(GLint defaultWidth)
+void Framebuffer::setDefaultWidth(const Context *context, GLint defaultWidth)
 {
     mState.mDefaultWidth = defaultWidth;
     mDirtyBits.set(DIRTY_BIT_DEFAULT_WIDTH);
-    invalidateCompletenessCache();
+    invalidateCompletenessCache(context);
 }
 
-void Framebuffer::setDefaultHeight(GLint defaultHeight)
+void Framebuffer::setDefaultHeight(const Context *context, GLint defaultHeight)
 {
     mState.mDefaultHeight = defaultHeight;
     mDirtyBits.set(DIRTY_BIT_DEFAULT_HEIGHT);
-    invalidateCompletenessCache();
+    invalidateCompletenessCache(context);
 }
 
-void Framebuffer::setDefaultSamples(GLint defaultSamples)
+void Framebuffer::setDefaultSamples(const Context *context, GLint defaultSamples)
 {
     mState.mDefaultSamples = defaultSamples;
     mDirtyBits.set(DIRTY_BIT_DEFAULT_SAMPLES);
-    invalidateCompletenessCache();
+    invalidateCompletenessCache(context);
 }
 
-void Framebuffer::setDefaultFixedSampleLocations(bool defaultFixedSampleLocations)
+void Framebuffer::setDefaultFixedSampleLocations(const Context *context,
+                                                 bool defaultFixedSampleLocations)
 {
     mState.mDefaultFixedSampleLocations = defaultFixedSampleLocations;
     mDirtyBits.set(DIRTY_BIT_DEFAULT_FIXED_SAMPLE_LOCATIONS);
-    invalidateCompletenessCache();
+    invalidateCompletenessCache(context);
 }
 
 void Framebuffer::setDefaultLayers(GLint defaultLayers)
@@ -2057,12 +2003,19 @@ GLenum Framebuffer::getMultiviewLayout() const
     return mState.getMultiviewLayout();
 }
 
-Error Framebuffer::ensureClearAttachmentsInitialized(const Context *context, GLbitfield mask)
+bool Framebuffer::readDisallowedByMultiview() const
 {
-    const auto &glState = context->getGLState();
+    return (mState.getMultiviewLayout() != GL_NONE && mState.getNumViews() > 1) ||
+           mState.getMultiviewLayout() == GL_FRAMEBUFFER_MULTIVIEW_SIDE_BY_SIDE_ANGLE;
+}
+
+angle::Result Framebuffer::ensureClearAttachmentsInitialized(const Context *context,
+                                                             GLbitfield mask)
+{
+    const auto &glState = context->getState();
     if (!context->isRobustResourceInitEnabled() || glState.isRasterizerDiscardEnabled())
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     const BlendState &blend               = glState.getBlendState();
@@ -2074,7 +2027,7 @@ Error Framebuffer::ensureClearAttachmentsInitialized(const Context *context, GLb
 
     if (!color && !depth && !stencil)
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     if (partialClearNeedsInit(context, color, depth, stencil))
@@ -2087,18 +2040,17 @@ Error Framebuffer::ensureClearAttachmentsInitialized(const Context *context, GLb
     // the clear.
     markDrawAttachmentsInitialized(color, depth, stencil);
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::ensureClearBufferAttachmentsInitialized(const Context *context,
-                                                           GLenum buffer,
-                                                           GLint drawbuffer)
+angle::Result Framebuffer::ensureClearBufferAttachmentsInitialized(const Context *context,
+                                                                   GLenum buffer,
+                                                                   GLint drawbuffer)
 {
     if (!context->isRobustResourceInitEnabled() ||
-        context->getGLState().isRasterizerDiscardEnabled() ||
-        IsClearBufferMaskedOut(context, buffer))
+        context->getState().isRasterizerDiscardEnabled() || IsClearBufferMaskedOut(context, buffer))
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     if (partialBufferClearNeedsInit(context, buffer))
@@ -2111,14 +2063,14 @@ Error Framebuffer::ensureClearBufferAttachmentsInitialized(const Context *contex
     // the clear.
     markBufferInitialized(buffer, drawbuffer);
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::ensureDrawAttachmentsInitialized(const Context *context)
+angle::Result Framebuffer::ensureDrawAttachmentsInitialized(const Context *context)
 {
     if (!context->isRobustResourceInitEnabled())
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     // Note: we don't actually filter by the draw attachment enum. Just init everything.
@@ -2139,14 +2091,15 @@ Error Framebuffer::ensureDrawAttachmentsInitialized(const Context *context)
     }
 
     mState.mResourceNeedsInit.reset();
-    return NoError();
+    return angle::Result::Continue;
 }
 
-Error Framebuffer::ensureReadAttachmentInitialized(const Context *context, GLbitfield blitMask)
+angle::Result Framebuffer::ensureReadAttachmentInitialized(const Context *context,
+                                                           GLbitfield blitMask)
 {
     if (!context->isRobustResourceInitEnabled() || mState.mResourceNeedsInit.none())
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     if ((blitMask & GL_COLOR_BUFFER_BIT) != 0 && mState.mReadBufferState != GL_NONE)
@@ -2177,7 +2130,7 @@ Error Framebuffer::ensureReadAttachmentInitialized(const Context *context, GLbit
         }
     }
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
 void Framebuffer::markDrawAttachmentsInitialized(bool color, bool depth, bool stencil)
@@ -2264,15 +2217,15 @@ Box Framebuffer::getDimensions() const
     return mState.getDimensions();
 }
 
-Error Framebuffer::ensureBufferInitialized(const Context *context,
-                                           GLenum bufferType,
-                                           GLint bufferIndex)
+angle::Result Framebuffer::ensureBufferInitialized(const Context *context,
+                                                   GLenum bufferType,
+                                                   GLint bufferIndex)
 {
     ASSERT(context->isRobustResourceInitEnabled());
 
     if (mState.mResourceNeedsInit.none())
     {
-        return NoError();
+        return angle::Result::Continue;
     }
 
     switch (bufferType)
@@ -2324,7 +2277,7 @@ Error Framebuffer::ensureBufferInitialized(const Context *context,
             break;
     }
 
-    return NoError();
+    return angle::Result::Continue;
 }
 
 bool Framebuffer::partialBufferClearNeedsInit(const Context *context, GLenum bufferType)
@@ -2349,36 +2302,4 @@ bool Framebuffer::partialBufferClearNeedsInit(const Context *context, GLenum buf
             return false;
     }
 }
-
-bool Framebuffer::hasTextureAttachment(const Texture *texture) const
-{
-    if (!mAttachedTextures.valid())
-    {
-        std::set<const FramebufferAttachmentObject *> attachedTextures;
-
-        for (const auto &colorAttachment : mState.mColorAttachments)
-        {
-            if (colorAttachment.isAttached() && colorAttachment.type() == GL_TEXTURE)
-            {
-                attachedTextures.insert(colorAttachment.getResource());
-            }
-        }
-
-        if (mState.mDepthAttachment.isAttached() && mState.mDepthAttachment.type() == GL_TEXTURE)
-        {
-            attachedTextures.insert(mState.mDepthAttachment.getResource());
-        }
-
-        if (mState.mStencilAttachment.isAttached() &&
-            mState.mStencilAttachment.type() == GL_TEXTURE)
-        {
-            attachedTextures.insert(mState.mStencilAttachment.getResource());
-        }
-
-        mAttachedTextures = std::move(attachedTextures);
-    }
-
-    return (mAttachedTextures.value().count(texture) > 0);
-}
-
 }  // namespace gl

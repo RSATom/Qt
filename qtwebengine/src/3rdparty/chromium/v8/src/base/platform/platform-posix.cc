@@ -86,14 +86,14 @@ namespace base {
 namespace {
 
 // 0 is never a valid thread id.
-const pthread_t kNoThread = (pthread_t) 0;
+const pthread_t kNoThread = static_cast<pthread_t>(0);
 
 bool g_hard_abort = false;
 
 const char* g_gc_fake_mmap = nullptr;
 
-static LazyInstance<RandomNumberGenerator>::type
-    platform_random_number_generator = LAZY_INSTANCE_INITIALIZER;
+DEFINE_LAZY_LEAKY_OBJECT_GETTER(RandomNumberGenerator,
+                                GetPlatformRandomNumberGenerator);
 static LazyMutex rng_mutex = LAZY_MUTEX_INITIALIZER;
 
 #if !V8_OS_FUCHSIA
@@ -145,32 +145,6 @@ void* Allocate(void* address, size_t size, OS::MemoryPermission access) {
   return result;
 }
 
-int ReclaimInaccessibleMemory(void* address, size_t size) {
-#if defined(OS_MACOSX)
-  // On OSX, MADV_FREE_REUSABLE has comparable behavior to MADV_FREE, but also
-  // marks the pages with the reusable bit, which allows both Activity Monitor
-  // and memory-infra to correctly track the pages.
-  int ret = madvise(address, size, MADV_FREE_REUSABLE);
-#elif defined(_AIX) || defined(V8_OS_SOLARIS)
-  int ret = madvise(reinterpret_cast<caddr_t>(address), size, MADV_FREE);
-#else
-  int ret = madvise(address, size, MADV_FREE);
-#endif
-  if (ret != 0 && errno == ENOSYS)
-    return 0;  // madvise is not available on all systems.
-  if (ret != 0 && errno == EINVAL) {
-    // MADV_FREE only works on Linux 4.5+ . If request failed, retry with older
-    // MADV_DONTNEED . Note that MADV_FREE being defined at compile time doesn't
-    // imply runtime support.
-#if defined(_AIX) || defined(V8_OS_SOLARIS)
-    ret = madvise(reinterpret_cast<caddr_t>(address), size, MADV_DONTNEED);
-#else
-    ret = madvise(address, size, MADV_DONTNEED);
-#endif
-  }
-  return ret;
-}
-
 #endif  // !V8_OS_FUCHSIA
 
 }  // namespace
@@ -213,8 +187,8 @@ size_t OS::CommitPageSize() {
 // static
 void OS::SetRandomMmapSeed(int64_t seed) {
   if (seed) {
-    LockGuard<Mutex> guard(rng_mutex.Pointer());
-    platform_random_number_generator.Pointer()->SetSeed(seed);
+    MutexGuard guard(rng_mutex.Pointer());
+    GetPlatformRandomNumberGenerator()->SetSeed(seed);
   }
 }
 
@@ -222,9 +196,8 @@ void OS::SetRandomMmapSeed(int64_t seed) {
 void* OS::GetRandomMmapAddr() {
   uintptr_t raw_addr;
   {
-    LockGuard<Mutex> guard(rng_mutex.Pointer());
-    platform_random_number_generator.Pointer()->NextBytes(&raw_addr,
-                                                          sizeof(raw_addr));
+    MutexGuard guard(rng_mutex.Pointer());
+    GetPlatformRandomNumberGenerator()->NextBytes(&raw_addr, sizeof(raw_addr));
   }
 #if defined(V8_USE_ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
     defined(THREAD_SANITIZER) || defined(LEAK_SANITIZER)
@@ -248,16 +221,12 @@ void* OS::GetRandomMmapAddr() {
   // Use extra address space to isolate the mmap regions.
   raw_addr += uint64_t{0x400000000000};
 #elif V8_TARGET_BIG_ENDIAN
-  // Big-endian Linux: 44 bits of virtual addressing.
+  // Big-endian Linux: 42 bits of virtual addressing.
   raw_addr &= uint64_t{0x03FFFFFFF000};
 #else
-  // Little-endian Linux: 48 bits of virtual addressing.
-  raw_addr &= uint64_t{0x3FFFFFFFF000};
+  // Little-endian Linux: 46 bits of virtual addressing.
+  raw_addr &= uint64_t{0x3FFFFFFF0000};
 #endif
-#elif V8_TARGET_ARCH_MIPS64
-  // We allocate code in 256 MB aligned segments because of optimizations using
-  // J instruction that require that all code is within a single 256 MB segment
-  raw_addr &= uint64_t{0x3FFFE0000000};
 #elif V8_TARGET_ARCH_S390X
   // Linux on Z uses bits 22-32 for Region Indexing, which translates to 42 bits
   // of virtual addressing.  Truncate to 40 bits to allow kernel chance to
@@ -267,6 +236,10 @@ void* OS::GetRandomMmapAddr() {
   // 31 bits of virtual addressing.  Truncate to 29 bits to allow kernel chance
   // to fulfill request.
   raw_addr &= 0x1FFFF000;
+#elif V8_TARGET_ARCH_MIPS64
+  // 42 bits of virtual addressing. Truncate to 40 bits to allow kernel chance
+  // to fulfill request.
+  raw_addr &= uint64_t{0xFFFFFF0000};
 #else
   raw_addr &= 0x3FFFF000;
 
@@ -313,7 +286,8 @@ void* OS::Allocate(void* address, size_t size, size_t alignment,
 
   // Unmap memory allocated before the aligned base address.
   uint8_t* base = static_cast<uint8_t*>(result);
-  uint8_t* aligned_base = RoundUp(base, alignment);
+  uint8_t* aligned_base = reinterpret_cast<uint8_t*>(
+      RoundUp(reinterpret_cast<uintptr_t>(base), alignment));
   if (aligned_base != base) {
     DCHECK_LT(base, aligned_base);
     size_t prefix_size = static_cast<size_t>(aligned_base - base);
@@ -354,7 +328,8 @@ bool OS::SetPermissions(void* address, size_t size, MemoryPermission access) {
   int prot = GetProtectionFromMemoryPermission(access);
   int ret = mprotect(address, size, prot);
   if (ret == 0 && access == OS::MemoryPermission::kNoAccess) {
-    ret = ReclaimInaccessibleMemory(address, size);
+    // This is advisory; ignore errors and continue execution.
+    USE(DiscardSystemPages(address, size));
   }
 
 // For accounting purposes, we want to call MADV_FREE_REUSE on macOS after
@@ -368,6 +343,34 @@ bool OS::SetPermissions(void* address, size_t size, MemoryPermission access) {
     madvise(address, size, MADV_FREE_REUSE);
 #endif
 
+  return ret == 0;
+}
+
+bool OS::DiscardSystemPages(void* address, size_t size) {
+  DCHECK_EQ(0, reinterpret_cast<uintptr_t>(address) % CommitPageSize());
+  DCHECK_EQ(0, size % CommitPageSize());
+#if defined(OS_MACOSX)
+  // On OSX, MADV_FREE_REUSABLE has comparable behavior to MADV_FREE, but also
+  // marks the pages with the reusable bit, which allows both Activity Monitor
+  // and memory-infra to correctly track the pages.
+  int ret = madvise(address, size, MADV_FREE_REUSABLE);
+#elif defined(_AIX) || defined(V8_OS_SOLARIS)
+  int ret = madvise(reinterpret_cast<caddr_t>(address), size, MADV_FREE);
+#else
+  int ret = madvise(address, size, MADV_FREE);
+#endif
+  if (ret != 0 && errno == ENOSYS)
+    return true;  // madvise is not available on all systems.
+  if (ret != 0 && errno == EINVAL) {
+// MADV_FREE only works on Linux 4.5+ . If request failed, retry with older
+// MADV_DONTNEED . Note that MADV_FREE being defined at compile time doesn't
+// imply runtime support.
+#if defined(_AIX) || defined(V8_OS_SOLARIS)
+    ret = madvise(reinterpret_cast<caddr_t>(address), size, MADV_DONTNEED);
+#else
+    ret = madvise(address, size, MADV_DONTNEED);
+#endif
+  }
   return ret == 0;
 }
 
@@ -445,7 +448,8 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
   if (FILE* file = fopen(name, "r+")) {
     if (fseek(file, 0, SEEK_END) == 0) {
       long size = ftell(file);  // NOLINT(runtime/int)
-      if (size >= 0) {
+      if (size == 0) return new PosixMemoryMappedFile(file, nullptr, 0);
+      if (size > 0) {
         void* const memory =
             mmap(OS::GetRandomMmapAddr(), size, PROT_READ | PROT_WRITE,
                  MAP_SHARED, fileno(file), 0);
@@ -464,6 +468,7 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
 OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name,
                                                    size_t size, void* initial) {
   if (FILE* file = fopen(name, "w+")) {
+    if (size == 0) return new PosixMemoryMappedFile(file, 0, 0);
     size_t result = fwrite(initial, 1, size, file);
     if (result == size && !ferror(file)) {
       void* memory = mmap(OS::GetRandomMmapAddr(), result,
@@ -479,7 +484,7 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name,
 
 
 PosixMemoryMappedFile::~PosixMemoryMappedFile() {
-  if (memory_) CHECK(OS::Free(memory_, size_));
+  if (memory_) CHECK(OS::Free(memory_, RoundUp(size_, OS::AllocatePageSize())));
   fclose(file_);
 }
 
@@ -736,7 +741,7 @@ static void* ThreadEntry(void* arg) {
   // We take the lock here to make sure that pthread_create finished first since
   // we don't know which thread will run first (the original thread or the new
   // one).
-  { LockGuard<Mutex> lock_guard(&thread->data()->thread_creation_mutex_); }
+  { MutexGuard lock_guard(&thread->data()->thread_creation_mutex_); }
   SetThreadName(thread->name());
   DCHECK_NE(thread->data()->thread_, kNoThread);
   thread->NotifyStartedAndRun();
@@ -771,7 +776,7 @@ void Thread::Start() {
     DCHECK_EQ(0, result);
   }
   {
-    LockGuard<Mutex> lock_guard(&data_->thread_creation_mutex_);
+    MutexGuard lock_guard(&data_->thread_creation_mutex_);
     result = pthread_create(&data_->thread_, &attr, ThreadEntry, this);
   }
   DCHECK_EQ(0, result);

@@ -6,6 +6,8 @@
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_CONTROLLEE_REQUEST_HANDLER_H_
 
 #include <stdint.h>
+#include <memory>
+#include <string>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -17,10 +19,10 @@
 #include "content/browser/service_worker/service_worker_url_job_wrapper.h"
 #include "content/browser/service_worker/service_worker_url_request_job.h"
 #include "content/common/service_worker/service_worker_types.h"
-#include "content/public/common/request_context_type.h"
 #include "content/public/common/resource_type.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/request_context_frame_type.mojom.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -37,8 +39,9 @@ namespace content {
 class ServiceWorkerRegistration;
 class ServiceWorkerVersion;
 
-// A request handler derivative used to handle requests from
-// controlled documents.
+// A request handler derivative used to handle requests for,
+// and requests from, controlled documents and shared workers.
+//
 // Note that in IsServicificationEnabled cases this is used only for
 // main resource fetch during navigation or shared worker creation.
 class CONTENT_EXPORT ServiceWorkerControlleeRequestHandler
@@ -55,7 +58,7 @@ class CONTENT_EXPORT ServiceWorkerControlleeRequestHandler
       const std::string& integrity,
       bool keepalive,
       ResourceType resource_type,
-      RequestContextType request_context_type,
+      blink::mojom::RequestContextType request_context_type,
       network::mojom::RequestContextFrameType frame_type,
       scoped_refptr<network::ResourceRequestBody> body);
   ~ServiceWorkerControlleeRequestHandler() override;
@@ -77,47 +80,56 @@ class CONTENT_EXPORT ServiceWorkerControlleeRequestHandler
   // cases. (In fallback-to-network cases we basically forward the request
   // to the request to the next request handler)
   // NavigationLoaderInterceptor overrides:
-  void MaybeCreateLoader(const network::ResourceRequest& request,
+  void MaybeCreateLoader(const network::ResourceRequest& tentative_request,
                          ResourceContext* resource_context,
-                         LoaderCallback callback) override;
+                         LoaderCallback callback,
+                         FallbackCallback fallback_callback) override;
   // Returns params with the ControllerServiceWorkerPtr if we have found
   // a matching controller service worker for the |request| that is given
   // to MaybeCreateLoader(). Otherwise this returns base::nullopt.
   base::Optional<SubresourceLoaderParams> MaybeCreateSubresourceLoaderParams()
       override;
 
+  // Exposed for testing.
+  ServiceWorkerURLJobWrapper* url_job() const { return url_job_.get(); }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerControlleeRequestHandlerTest,
                            ActivateWaitingVersion);
-  typedef ServiceWorkerControlleeRequestHandler self;
+  class ScopedDisallowSetControllerRegistration;
 
   // For main resource case.
   void PrepareForMainResource(const GURL& url, const GURL& site_for_cookies);
   void DidLookupRegistrationForMainResource(
+      std::unique_ptr<ScopedDisallowSetControllerRegistration>
+          disallow_controller,
       blink::ServiceWorkerStatusCode status,
       scoped_refptr<ServiceWorkerRegistration> registration);
-  void OnVersionStatusChanged(
+  void ContinueWithInScopeMainResourceRequest(
       scoped_refptr<ServiceWorkerRegistration> registration,
-      scoped_refptr<ServiceWorkerVersion> version);
+      scoped_refptr<ServiceWorkerVersion> version,
+      std::unique_ptr<ScopedDisallowSetControllerRegistration>
+          disallow_controller);
 
+  // For forced update.
   void DidUpdateRegistration(
-      const scoped_refptr<ServiceWorkerRegistration>& original_registration,
+      scoped_refptr<ServiceWorkerRegistration> original_registration,
+      std::unique_ptr<ScopedDisallowSetControllerRegistration>
+          disallow_controller,
       blink::ServiceWorkerStatusCode status,
       const std::string& status_message,
       int64_t registration_id);
   void OnUpdatedVersionStatusChanged(
-      const scoped_refptr<ServiceWorkerRegistration>& registration,
-      const scoped_refptr<ServiceWorkerVersion>& version);
+      scoped_refptr<ServiceWorkerRegistration> registration,
+      scoped_refptr<ServiceWorkerVersion> version,
+      std::unique_ptr<ScopedDisallowSetControllerRegistration>
+          disallow_controller);
 
   // For sub resource case.
   void PrepareForSubResource();
 
   // ServiceWorkerURLJobWrapper::Delegate implementation:
-
-  // Called just before the request is restarted. Makes sure the next request
-  // goes over the network.
   void OnPrepareToRestart() override;
-
   ServiceWorkerVersion* GetServiceWorkerVersion(
       ServiceWorkerMetrics::URLRequestJobResult* result) override;
   bool RequestStillValid(
@@ -128,7 +140,7 @@ class CONTENT_EXPORT ServiceWorkerControlleeRequestHandler
   // that job, except for timing information.
   void ClearJob();
 
-  bool JobWasCanceled() const;
+  bool IsJobAlive() const;
 
   // Schedules a service worker update to occur shortly after the page and its
   // initial subresources load, if this handler was for a navigation.
@@ -136,14 +148,13 @@ class CONTENT_EXPORT ServiceWorkerControlleeRequestHandler
 
   const ResourceType resource_type_;
   const bool is_main_resource_load_;
-  const bool is_main_frame_load_;
   std::unique_ptr<ServiceWorkerURLJobWrapper> url_job_;
   network::mojom::FetchRequestMode request_mode_;
   network::mojom::FetchCredentialsMode credentials_mode_;
   network::mojom::FetchRedirectMode redirect_mode_;
   std::string integrity_;
   const bool keepalive_;
-  RequestContextType request_context_type_;
+  blink::mojom::RequestContextType request_context_type_;
   network::mojom::RequestContextFrameType frame_type_;
   scoped_refptr<network::ResourceRequestBody> body_;
   ResourceContext* resource_context_;

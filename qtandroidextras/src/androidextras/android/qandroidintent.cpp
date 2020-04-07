@@ -112,7 +112,7 @@ void QAndroidIntent::putExtra(const QString &key, const QByteArray &data)
     QAndroidJniEnvironment env;
     jbyteArray array = env->NewByteArray(data.size());
     env->SetByteArrayRegion(array, 0, data.length(), reinterpret_cast<const jbyte*>(data.constData()));
-    m_handle.callMethod<void>("putExtra", "(Ljava/lang/String;[B)Landroid/content/Intent;",
+    m_handle.callObjectMethod("putExtra", "(Ljava/lang/String;[B)Landroid/content/Intent;",
                               QAndroidJniObject::fromString(key).object(), array);
     env->DeleteLocalRef(array);
 }

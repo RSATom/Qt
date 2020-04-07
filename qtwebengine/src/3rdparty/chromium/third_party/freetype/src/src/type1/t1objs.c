@@ -43,7 +43,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_t1objs
+#define FT_COMPONENT  t1objs
 
 
   /**************************************************************************
@@ -347,6 +347,10 @@
     if ( error )
       goto Exit;
 
+    FT_TRACE2(( "T1_Face_Init: %08p (index %d)\n",
+                face,
+                face_index ));
+
     /* if we just wanted to check the format, leave successfully now */
     if ( face_index < 0 )
       goto Exit;
@@ -522,7 +526,8 @@
 
         error = FT_CMap_New( cmap_classes->unicode, NULL, &charmap, NULL );
         if ( error                                      &&
-             FT_ERR_NEQ( error, No_Unicode_Glyph_Name ) )
+             FT_ERR_NEQ( error, No_Unicode_Glyph_Name ) &&
+             FT_ERR_NEQ( error, Unimplemented_Feature ) )
           goto Exit;
         error = FT_Err_Ok;
 

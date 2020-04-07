@@ -21,15 +21,32 @@
 #include "extensions/browser/updater/request_queue.h"
 #include "extensions/browser/updater/safe_manifest_parser.h"
 #include "extensions/common/extension.h"
-#include "google_apis/gaia/oauth2_token_service.h"
-#include "net/url_request/url_fetcher_delegate.h"
+#include "google_apis/gaia/google_service_auth_error.h"
+#include "net/http/http_request_headers.h"
 #include "url/gurl.h"
 
+namespace crx_file {
+enum class VerifierFormat;
+}
+
+namespace identity {
+class PrimaryAccountAccessTokenFetcher;
+class IdentityManager;
+struct AccessTokenInfo;
+}  // namespace identity
+
 namespace net {
-class URLFetcher;
-class URLRequestContextGetter;
 class URLRequestStatus;
 }
+
+namespace network {
+class SharedURLLoaderFactory;
+class SimpleURLLoader;
+namespace mojom {
+class URLLoaderFactory;
+}
+struct ResourceRequest;
+}  // namespace network
 
 namespace service_manager {
 class Connector;
@@ -53,25 +70,22 @@ class ExtensionUpdaterTest;
 // the crx file when updates are found. It uses a |ExtensionDownloaderDelegate|
 // that takes ownership of the downloaded crx files, and handles events during
 // the update check.
-class ExtensionDownloader : public net::URLFetcherDelegate,
-                            public OAuth2TokenService::Consumer {
+class ExtensionDownloader {
  public:
   // A closure which constructs a new ExtensionDownloader to be owned by the
   // caller.
   using Factory = base::RepeatingCallback<std::unique_ptr<ExtensionDownloader>(
       ExtensionDownloaderDelegate* delegate)>;
 
-  // A closure that returns the account to use for authentication to the
-  // webstore.
-  using GetWebstoreAccountCallback =
-      base::RepeatingCallback<const std::string&()>;
-
   // |delegate| is stored as a raw pointer and must outlive the
   // ExtensionDownloader.
-  ExtensionDownloader(ExtensionDownloaderDelegate* delegate,
-                      net::URLRequestContextGetter* request_context,
-                      service_manager::Connector* connector);
-  ~ExtensionDownloader() override;
+  ExtensionDownloader(
+      ExtensionDownloaderDelegate* delegate,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      service_manager::Connector* connector,
+      crx_file::VerifierFormat crx_format_requirement,
+      const base::FilePath& profile_path = base::FilePath());
+  ~ExtensionDownloader();
 
   // Adds |extension| to the list of extensions to check for updates.
   // Returns false if the |extension| can't be updated due to invalid details.
@@ -106,17 +120,10 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // AddExtension() and AddPendingExtension().
   void StartAllPending(ExtensionCache* cache);
 
-  // Schedules an update check of the blacklist.
-  void StartBlacklistUpdate(const std::string& version,
-                            const ManifestFetchData::PingData& ping_data,
-                            int request_id);
-
-  // Sets GetWebstoreAccountCallback and TokenService instances to be used for
-  // OAuth2 authentication on protected Webstore downloads. Both objects must be
-  // valid to use for the lifetime of this object.
-  void SetWebstoreAuthenticationCapabilities(
-      const GetWebstoreAccountCallback& webstore_account_callback,
-      OAuth2TokenService* token_service);
+  // Sets the IdentityManager instance to be used for OAuth2 authentication on
+  // protected Webstore downloads. The IdentityManager instance must be valid to
+  // use for the lifetime of this object.
+  void SetIdentityManager(identity::IdentityManager* identity_manager);
 
   void set_brand_code(const std::string& brand_code) {
     brand_code_ = brand_code;
@@ -138,9 +145,6 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // URLFetcher objects.
   static const int kManifestFetcherId = 1;
   static const int kExtensionFetcherId = 2;
-
-  // Update AppID for extension blacklist.
-  static const char kBlacklistAppID[];
 
   static const int kMaxRetries = 10;
 
@@ -239,18 +243,15 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // Begins an update check.
   void StartUpdateCheck(std::unique_ptr<ManifestFetchData> fetch_data);
 
-  // Called by RequestQueue when a new manifest fetch request is started.
-  void CreateManifestFetcher();
+  // Returns the URLLoaderFactory instance to be used, depending on whether
+  // the URL being handled is file:// or not.
+  network::mojom::URLLoaderFactory* GetURLLoaderFactoryToUse(const GURL& url);
 
-  // net::URLFetcherDelegate implementation.
-  void OnURLFetchComplete(const net::URLFetcher* source) override;
+  // Called by RequestQueue when a new manifest load request is started.
+  void CreateManifestLoader();
 
   // Handles the result of a manifest fetch.
-  void OnManifestFetchComplete(const GURL& url,
-                               const net::URLRequestStatus& status,
-                               int response_code,
-                               const base::TimeDelta& backoff_delay,
-                               const std::string& data);
+  void OnManifestLoadComplete(std::unique_ptr<std::string> response_body);
 
   // Once a manifest is parsed, this starts fetches of any relevant crx files.
   // If |results| is null, it means something went wrong when parsing it.
@@ -275,15 +276,12 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // Begins (or queues up) download of an updated extension.
   void FetchUpdatedExtension(std::unique_ptr<ExtensionFetch> fetch_data);
 
-  // Called by RequestQueue when a new extension fetch request is started.
-  void CreateExtensionFetcher();
+  // Called by RequestQueue when a new extension load request is started.
+  void CreateExtensionLoader();
+  void StartExtensionLoader();
 
   // Handles the result of a crx fetch.
-  void OnCRXFetchComplete(const net::URLFetcher* source,
-                          const GURL& url,
-                          const net::URLRequestStatus& status,
-                          int response_code,
-                          const base::TimeDelta& backoff_delay);
+  void OnExtensionLoadComplete(base::FilePath crx_path);
 
   // Invokes OnExtensionDownloadFailed() on the |delegate_| for each extension
   // in the set, with |error| as the reason for failure.
@@ -318,12 +316,8 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
                                            const net::URLRequestStatus& status,
                                            int response_code);
 
-  // OAuth2TokenService::Consumer implementation.
-  void OnGetTokenSuccess(const OAuth2TokenService::Request* request,
-                         const std::string& access_token,
-                         const base::Time& expiration_time) override;
-  void OnGetTokenFailure(const OAuth2TokenService::Request* request,
-                         const GoogleServiceAuthError& error) override;
+  void OnAccessTokenFetchComplete(GoogleServiceAuthError error,
+                                  identity::AccessTokenInfo token_info);
 
   ManifestFetchData* CreateManifestFetchData(
       const GURL& update_url,
@@ -344,8 +338,14 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // ExtensionDownloader, and that fills in optional ping and update url data.
   ExtensionDownloaderDelegate* delegate_;
 
-  // The request context to use for the URLFetchers.
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
+  // The URL loader factory to use for the SimpleURLLoaders.
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
+
+  // The URL loader factory exclusively used to load file:// URLs.
+  std::unique_ptr<network::mojom::URLLoaderFactory> file_url_loader_factory_;
+
+  // The profile path used to load file:// URLs. It can be invalid.
+  base::FilePath profile_path_for_url_loader_factory_;
 
   // The connector to the ServiceManager.
   service_manager::Connector* connector_;
@@ -361,9 +361,10 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
                             std::vector<std::unique_ptr<ManifestFetchData>>>;
   FetchMap fetches_preparing_;
 
-  // Outstanding url fetch requests for manifests and updates.
-  std::unique_ptr<net::URLFetcher> manifest_fetcher_;
-  std::unique_ptr<net::URLFetcher> extension_fetcher_;
+  // Outstanding url loader requests for manifests and updates.
+  std::unique_ptr<network::SimpleURLLoader> manifest_loader_;
+  std::unique_ptr<network::SimpleURLLoader> extension_loader_;
+  std::unique_ptr<network::ResourceRequest> extension_loader_resource_request_;
 
   // Pending manifests and extensions to be fetched when the appropriate fetcher
   // is available.
@@ -376,20 +377,17 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // Cache for .crx files.
   ExtensionCache* extension_cache_;
 
-  // Gets the account to use for protected download requests. May be null. If
-  // non-null, valid to call for the lifetime of this object.
-  GetWebstoreAccountCallback webstore_account_callback_;
-
   // May be used to fetch access tokens for protected download requests. May be
   // null. If non-null, guaranteed to outlive this object.
-  OAuth2TokenService* token_service_;
+  identity::IdentityManager* identity_manager_;
 
   // A Webstore download-scoped access token for the |identity_provider_|'s
   // active account, if any.
   std::string access_token_;
 
-  // A pending token fetch request.
-  std::unique_ptr<OAuth2TokenService::Request> access_token_request_;
+  // A pending access token fetcher.
+  std::unique_ptr<identity::PrimaryAccountAccessTokenFetcher>
+      access_token_fetcher_;
 
   // Brand code to include with manifest fetch queries if sending ping data.
   std::string brand_code_;
@@ -400,6 +398,12 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
   // Domain to enable ping data. Ping data will be sent with manifest fetches
   // to update URLs which match this domain. Defaults to empty (no domain).
   std::string ping_enabled_domain_;
+
+  net::HttpRequestHeaders
+      last_extension_loader_resource_request_headers_for_testing_;
+  int last_extension_loader_load_flags_for_testing_ = 0;
+
+  crx_file::VerifierFormat crx_format_requirement_;
 
   // Used to create WeakPtrs to |this|.
   base::WeakPtrFactory<ExtensionDownloader> weak_ptr_factory_;

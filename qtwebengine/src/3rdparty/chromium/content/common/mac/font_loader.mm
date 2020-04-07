@@ -18,8 +18,8 @@
 #include "base/mac/scoped_cftyperef.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 
 namespace content {
 namespace {
@@ -27,7 +27,7 @@ namespace {
 std::unique_ptr<FontLoader::ResultInternal> LoadFontOnFileThread(
     const base::string16& font_name,
     const float font_point_size) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   NSString* font_name_ns = base::SysUTF16ToNSString(font_name);
   NSFont* font_to_encode =

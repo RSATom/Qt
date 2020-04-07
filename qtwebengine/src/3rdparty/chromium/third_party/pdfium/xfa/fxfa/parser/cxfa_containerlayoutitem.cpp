@@ -14,7 +14,7 @@
 #include "xfa/fxfa/parser/cxfa_node.h"
 
 CXFA_ContainerLayoutItem::CXFA_ContainerLayoutItem(CXFA_Node* pNode)
-    : CXFA_LayoutItem(pNode, false) {}
+    : CXFA_LayoutItem(pNode, kContainerItem) {}
 
 CXFA_ContainerLayoutItem::~CXFA_ContainerLayoutItem() = default;
 
@@ -43,7 +43,7 @@ CFX_SizeF CXFA_ContainerLayoutItem::GetPageSize() const {
                        ->GetMeasure(XFA_Attribute::Long)
                        .ToUnit(XFA_Unit::Pt));
   if (pMedium->JSObject()->GetEnum(XFA_Attribute::Orientation) ==
-      XFA_AttributeEnum::Landscape) {
+      XFA_AttributeValue::Landscape) {
     size = CFX_SizeF(size.height, size.width);
   }
   return size;

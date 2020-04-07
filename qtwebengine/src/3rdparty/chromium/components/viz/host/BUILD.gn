@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//components/ui_devtools/devtools.gni")
 import("//components/viz/viz.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
@@ -11,6 +12,11 @@ viz_component("host") {
   sources = [
     "client_frame_sink_video_capturer.cc",
     "client_frame_sink_video_capturer.h",
+    "gpu_client.cc",
+    "gpu_client.h",
+    "gpu_client_delegate.h",
+    "gpu_host_impl.cc",
+    "gpu_host_impl.h",
     "hit_test/hit_test_query.cc",
     "hit_test/hit_test_query.h",
     "hit_test/hit_test_region_observer.h",
@@ -52,11 +58,16 @@ viz_component("host") {
     "//gpu/ipc/host",
     "//services/viz/privileged/interfaces/compositing",
     "//services/viz/public/interfaces",
+    "//services/ws/public/mojom",
     "//ui/gfx/geometry",
   ]
 
   if (is_mac) {
     deps += [ "//ui/accelerated_widget_mac" ]
+  }
+
+  if (use_viz_devtools) {
+    defines += [ "USE_VIZ_DEVTOOLS" ]
   }
 }
 
@@ -74,6 +85,7 @@ viz_source_set("unit_tests") {
     "//base",
     "//base/test:test_support",
     "//components/viz/test:test_support",
+    "//gpu",
     "//gpu/ipc/host",
     "//mojo/public/cpp/bindings",
     "//services/viz/privileged/interfaces",

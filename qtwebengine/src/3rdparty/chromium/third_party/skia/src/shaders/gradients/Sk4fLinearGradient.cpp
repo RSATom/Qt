@@ -185,16 +185,16 @@ LinearGradient4fContext::shadeSpan(int x, int y, SkPMColor dst[], int count) {
 }
 
 void SkLinearGradient::
-LinearGradient4fContext::shadeSpan4f(int x, int y, SkPM4f dst[], int count) {
+LinearGradient4fContext::shadeSpan4f(int x, int y, SkPMColor4f dst[], int count) {
     SkASSERT(count > 0);
 
     // 4f dests are dithered at a later stage, if needed.
     static constexpr float bias0 = 0,
                            bias1 = 0;
     if (fColorsArePremul) {
-        this->shadePremulSpan<SkPM4f, ApplyPremul::False>(x, y, dst, count, bias0, bias1);
+        this->shadePremulSpan<SkPMColor4f, ApplyPremul::False>(x, y, dst, count, bias0, bias1);
     } else {
-        this->shadePremulSpan<SkPM4f, ApplyPremul::True >(x, y, dst, count, bias0, bias1);
+        this->shadePremulSpan<SkPMColor4f, ApplyPremul::True >(x, y, dst, count, bias0, bias1);
     }
 }
 
@@ -242,8 +242,7 @@ LinearGradient4fContext::shadeSpanInternal(int x, int y, dstType dst[], int coun
     while (count > 0) {
         // What we really want here is SkTPin(advance, 1, count)
         // but that's a significant perf hit for >> stops; investigate.
-        const int n = SkScalarTruncToInt(
-            SkTMin<SkScalar>(proc.currentAdvance() + 1, SkIntToScalar(count)));
+        const int n = SkTMin(SkScalarTruncToInt(proc.currentAdvance() + 1), count);
 
         // The current interval advance can be +inf (e.g. when reaching
         // the clamp mode end intervals) - when that happens, we expect to
@@ -310,7 +309,7 @@ public:
 
     SkScalar currentAdvance() const {
         SkASSERT(fAdvX >= 0);
-        SkASSERT(fAdvX <= (fInterval->fT1 - fInterval->fT0) / fDx || !std::isfinite(fAdvX));
+        SkASSERT(!std::isfinite(fAdvX) || fAdvX <= (fInterval->fT1 - fInterval->fT0) / fDx);
         return fAdvX;
     }
 

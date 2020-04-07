@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -83,14 +83,13 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
         SpellcheckServiceFactory::GetForRenderer(renderer_identity);
     ASSERT_NE(nullptr, spellcheck);
 
-    // Override requests for the spellcheck::mojom::SpellChecker
-    // interface so we can test the SpellChecker request flow.
-    service_manager::Connector::TestApi test_api(
-        ChromeService::GetInstance()->connector());
-    test_api.OverrideBinderForTesting(
-        service_manager::Identity(chrome::mojom::kRendererServiceName,
-                                  renderer_identity.user_id(),
-                                  renderer_identity.instance()),
+    // Override requests for the spellcheck::mojom::SpellChecker interface so we
+    // can test the SpellChecker request flow.
+    ChromeService::GetInstance()->connector()->OverrideBinderForTesting(
+        service_manager::ServiceFilter::ByNameWithIdInGroup(
+            chrome::mojom::kRendererServiceName,
+            renderer_identity.instance_id(),
+            renderer_identity.instance_group()),
         spellcheck::mojom::SpellChecker::Name_,
         base::BindRepeating(&SpellcheckServiceBrowserTest::Bind,
                             base::Unretained(this)));
@@ -462,8 +461,8 @@ IN_PROC_BROWSER_TEST_F(SpellcheckServiceBrowserTest, DeleteCorruptedBDICT) {
     base::ScopedAllowBlockingForTesting allow_blocking;
     size_t actual = base::WriteFile(
         bdict_path, reinterpret_cast<const char*>(kCorruptedBDICT),
-        arraysize(kCorruptedBDICT));
-    EXPECT_EQ(arraysize(kCorruptedBDICT), actual);
+        base::size(kCorruptedBDICT));
+    EXPECT_EQ(base::size(kCorruptedBDICT), actual);
   }
 
   // Attach an event to the SpellcheckService object so we can receive its

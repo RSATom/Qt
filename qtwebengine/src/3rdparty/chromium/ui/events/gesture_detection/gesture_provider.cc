@@ -196,8 +196,10 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
         break;
       case ET_GESTURE_PINCH_BEGIN:
         DCHECK(!pinch_event_sent_);
-        if (!scroll_event_sent_)
+        if (!scroll_event_sent_ &&
+            !scale_gesture_detector_.InAnchoredScaleMode()) {
           Send(GestureEventData(ET_GESTURE_SCROLL_BEGIN, gesture));
+        }
         pinch_event_sent_ = true;
         break;
       case ET_GESTURE_PINCH_END:
@@ -583,18 +585,12 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
 
   GestureEventData CreateGesture(const GestureEventDetails& details,
                                  const MotionEvent& event) const {
-    return GestureEventData(details,
-                            event.GetPointerId(),
-                            event.GetToolType(),
-                            event.GetEventTime(),
-                            event.GetX(),
-                            event.GetY(),
-                            event.GetRawX(),
-                            event.GetRawY(),
+    return GestureEventData(details, event.GetPointerId(), event.GetToolType(),
+                            event.GetEventTime(), event.GetX(), event.GetY(),
+                            event.GetRawX(), event.GetRawY(),
                             event.GetPointerCount(),
                             GetBoundingBox(event, details.type()),
-                            event.GetFlags(),
-                            0U);
+                            event.GetFlags(), event.GetUniqueEventId());
   }
 
   GestureEventData CreateGesture(EventType type,

@@ -103,14 +103,14 @@ public:
 public Q_SLOTS:
     void areaEntered(const QGeoAreaMonitorInfo &mon, const QGeoPositionInfo &update)
     {
-        Q_UNUSED(mon)
+        Q_UNUSED(mon);
 
         qDebug() << "Now within 100 meters, current position is" << update.coordinate();
     }
 
     void areaExited(const QGeoAreaMonitorInfo &mon, const QGeoPositionInfo &update)
     {
-        Q_UNUSED(mon)
+        Q_UNUSED(mon);
 
         qDebug() << "No longer within 100 meters, current position is" << update.coordinate();
     }

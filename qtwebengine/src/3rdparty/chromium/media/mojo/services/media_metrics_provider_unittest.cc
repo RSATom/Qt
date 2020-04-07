@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_message_loop.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "media/mojo/services/media_metrics_provider.h"
@@ -29,12 +30,22 @@ class MediaMetricsProviderTest : public testing::Test {
 
   ~MediaMetricsProviderTest() override { base::RunLoop().RunUntilIdle(); }
 
-  void Initialize(bool is_mse, bool is_top_frame, const std::string& origin) {
-    MediaMetricsProvider::Create(VideoDecodePerfHistory::SaveCallback(),
-                                 mojo::MakeRequest(&provider_));
-    provider_->Initialize(is_mse, is_top_frame,
-                          url::Origin::Create(GURL(origin)));
+  void Initialize(bool is_mse,
+                  bool is_top_frame,
+                  const std::string& origin,
+                  mojom::MediaURLScheme scheme) {
+    source_id_ = test_recorder_->GetNewSourceID();
+    test_recorder_->UpdateSourceURL(source_id_, GURL(origin));
+
+    MediaMetricsProvider::Create(
+        is_top_frame,
+        base::BindRepeating(&MediaMetricsProviderTest::GetSourceId,
+                            base::Unretained(this)),
+        VideoDecodePerfHistory::SaveCallback(), mojo::MakeRequest(&provider_));
+    provider_->Initialize(is_mse, scheme);
   }
+
+  ukm::SourceId GetSourceId() { return source_id_; }
 
   void ResetMetricRecorders() {
     // Ensure cleared global before attempting to create a new TestUkmReporter.
@@ -45,6 +56,7 @@ class MediaMetricsProviderTest : public testing::Test {
  protected:
   base::TestMessageLoop message_loop_;
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_recorder_;
+  ukm::SourceId source_id_;
   mojom::MediaMetricsProviderPtr provider_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaMetricsProviderTest);
@@ -58,7 +70,7 @@ class MediaMetricsProviderTest : public testing::Test {
   EXPECT_TRUE(test_recorder_->EntryHasMetric(entry, name));
 
 TEST_F(MediaMetricsProviderTest, TestUkm) {
-  Initialize(true, true, kTestOrigin);
+  Initialize(true, true, kTestOrigin, mojom::MediaURLScheme::kHttp);
   provider_.reset();
   base::RunLoop().RunUntilIdle();
 
@@ -74,6 +86,12 @@ TEST_F(MediaMetricsProviderTest, TestUkm) {
       EXPECT_UKM(UkmEntry::kIsMSEName, true);
       EXPECT_UKM(UkmEntry::kFinalPipelineStatusName, PIPELINE_OK);
 
+      // This is an MSE playback so the URL scheme should not be set.
+      EXPECT_NO_UKM(UkmEntry::kURLSchemeName);
+
+      // This is an MSE playback so no container is available.
+      EXPECT_NO_UKM(UkmEntry::kContainerNameName);
+
       EXPECT_NO_UKM(UkmEntry::kTimeToMetadataName);
       EXPECT_NO_UKM(UkmEntry::kTimeToFirstFrameName);
       EXPECT_NO_UKM(UkmEntry::kTimeToPlayReadyName);
@@ -87,11 +105,12 @@ TEST_F(MediaMetricsProviderTest, TestUkm) {
   const base::TimeDelta kPlayReadyTime = base::TimeDelta::FromSeconds(3);
 
   ResetMetricRecorders();
-  Initialize(false, false, kTestOrigin2);
+  Initialize(false, false, kTestOrigin2, mojom::MediaURLScheme::kHttps);
   provider_->SetIsEME();
   provider_->SetTimeToMetadata(kMetadataTime);
   provider_->SetTimeToFirstFrame(kFirstFrameTime);
   provider_->SetTimeToPlayReady(kPlayReadyTime);
+  provider_->SetContainerName(container_names::CONTAINER_MOV);
   provider_->OnError(PIPELINE_ERROR_DECODE);
   provider_.reset();
   base::RunLoop().RunUntilIdle();
@@ -106,14 +125,54 @@ TEST_F(MediaMetricsProviderTest, TestUkm) {
       EXPECT_UKM(UkmEntry::kIsTopFrameName, false);
       EXPECT_UKM(UkmEntry::kIsEMEName, true);
       EXPECT_UKM(UkmEntry::kIsMSEName, false);
+      EXPECT_UKM(UkmEntry::kURLSchemeName,
+                 static_cast<int64_t>(mojom::MediaURLScheme::kHttps));
       EXPECT_UKM(UkmEntry::kFinalPipelineStatusName, PIPELINE_ERROR_DECODE);
       EXPECT_UKM(UkmEntry::kTimeToMetadataName, kMetadataTime.InMilliseconds());
       EXPECT_UKM(UkmEntry::kTimeToFirstFrameName,
                  kFirstFrameTime.InMilliseconds());
       EXPECT_UKM(UkmEntry::kTimeToPlayReadyName,
                  kPlayReadyTime.InMilliseconds());
+      EXPECT_UKM(UkmEntry::kContainerNameName, container_names::CONTAINER_MOV);
     }
   }
+}
+
+TEST_F(MediaMetricsProviderTest, TestBytesReceivedUMA) {
+  base::HistogramTester histogram_tester;
+  Initialize(false, false, kTestOrigin, mojom::MediaURLScheme::kHttp);
+  provider_->AddBytesReceived(1 << 10);
+  provider_.reset();
+  base::RunLoop().RunUntilIdle();
+
+  histogram_tester.ExpectBucketCount("Media.BytesReceived.SRC", 1, 1);
+  histogram_tester.ExpectTotalCount("Media.BytesReceived.MSE", 0);
+  histogram_tester.ExpectTotalCount("Media.BytesReceived.EME", 0);
+  histogram_tester.ExpectTotalCount("Ads.Media.BytesReceived", 0);
+
+  // EME is recorded in before MSE/SRC.
+  Initialize(true, false, kTestOrigin, mojom::MediaURLScheme::kHttp);
+  provider_->AddBytesReceived(1 << 10);
+  provider_->SetIsEME();
+  provider_->SetIsAdMedia();
+  provider_.reset();
+  base::RunLoop().RunUntilIdle();
+
+  histogram_tester.ExpectBucketCount("Media.BytesReceived.EME", 1, 1);
+  histogram_tester.ExpectTotalCount("Media.BytesReceived.MSE", 0);
+  histogram_tester.ExpectBucketCount("Ads.Media.BytesReceived", 1, 1);
+  histogram_tester.ExpectBucketCount("Ads.Media.BytesReceived.EME", 1, 1);
+  histogram_tester.ExpectTotalCount("Ads.Media.BytesReceived.MSE", 0);
+
+  Initialize(true, false, kTestOrigin, mojom::MediaURLScheme::kHttp);
+  provider_->AddBytesReceived(1 << 10);
+  provider_->SetIsAdMedia();
+  provider_.reset();
+  base::RunLoop().RunUntilIdle();
+
+  histogram_tester.ExpectBucketCount("Media.BytesReceived.MSE", 1, 1);
+  histogram_tester.ExpectBucketCount("Ads.Media.BytesReceived.MSE", 1, 1);
+  histogram_tester.ExpectBucketCount("Ads.Media.BytesReceived", 1, 2);
 }
 
 // Note: Tests for various Acquire* methods are contained with the unittests for

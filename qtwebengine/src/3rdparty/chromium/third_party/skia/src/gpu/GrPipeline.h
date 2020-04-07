@@ -11,7 +11,7 @@
 #include "GrColor.h"
 #include "GrFragmentProcessor.h"
 #include "GrNonAtomicRef.h"
-#include "GrPendingProgramElement.h"
+#include "GrPendingIOResource.h"
 #include "GrProcessorSet.h"
 #include "GrProgramDesc.h"
 #include "GrRect.h"
@@ -27,7 +27,6 @@
 #include "effects/GrSimpleTextureEffect.h"
 
 class GrAppliedClip;
-class GrDeviceCoordTexture;
 class GrOp;
 class GrRenderTargetContext;
 
@@ -54,11 +53,6 @@ public:
         kSnapVerticesToPixelCenters_Flag = 0x2,
     };
 
-    enum ScissorState : bool {
-        kEnabled = true,
-        kDisabled = false
-    };
-
     struct InitArgs {
         uint32_t fFlags = 0;
         const GrUserStencilSettings* fUserStencil = &GrUserStencilSettings::kUnused;
@@ -76,8 +70,12 @@ public:
      * 2) DynamicStateArrays - use this to specify per mesh values for dynamic state.
      **/
     struct FixedDynamicState {
-        FixedDynamicState(const SkIRect& scissorRect) : fScissorRect(scissorRect) {}
-        SkIRect fScissorRect;
+        explicit FixedDynamicState(const SkIRect& scissorRect) : fScissorRect(scissorRect) {}
+        FixedDynamicState() = default;
+        SkIRect fScissorRect = SkIRect::EmptyIRect();
+        // Must have GrPrimitiveProcessor::numTextureSamplers() entries. Can be null if no samplers
+        // or textures are passed using DynamicStateArrays.
+        GrTextureProxy** fPrimitiveProcessorTextures = nullptr;
     };
 
     /**
@@ -86,14 +84,18 @@ public:
      */
     struct DynamicStateArrays {
         const SkIRect* fScissorRects = nullptr;
+        // Must have GrPrimitiveProcessor::numTextureSamplers() * num_meshes entries.
+        // Can be null if no samplers or to use the same textures for all meshes via'
+        // FixedDynamicState.
+        GrTextureProxy** fPrimitiveProcessorTextures = nullptr;
     };
 
     /**
      * Creates a simple pipeline with default settings and no processors. The provided blend mode
-     * must be "Porter Duff" (<= kLastCoeffMode). If using ScissorState::kEnabled, the caller must
+     * must be "Porter Duff" (<= kLastCoeffMode). If using GrScissorTest::kEnabled, the caller must
      * specify a scissor rectangle through the DynamicState struct.
      **/
-    GrPipeline(GrRenderTargetProxy*, ScissorState, SkBlendMode);
+    GrPipeline(GrRenderTargetProxy*, GrScissorTest, SkBlendMode);
 
     GrPipeline(const InitArgs&, GrProcessorSet&&, GrAppliedClip&&);
 
@@ -137,7 +139,7 @@ public:
 
     GrTexture* peekDstTexture(SkIPoint* offset = nullptr) const {
         if (GrTextureProxy* dstProxy = this->dstTextureProxy(offset)) {
-            return dstProxy->priv().peekTexture();
+            return dstProxy->peekTexture();
         }
 
         return nullptr;
@@ -165,12 +167,12 @@ public:
      * @return    The currently set render target.
      */
     GrRenderTargetProxy* proxy() const { return fProxy.get(); }
-    GrRenderTarget* renderTarget() const { return fProxy.get()->priv().peekRenderTarget(); }
+    GrRenderTarget* renderTarget() const { return fProxy.get()->peekRenderTarget(); }
 
     const GrUserStencilSettings* getUserStencil() const { return fUserStencilSettings; }
 
-    ScissorState isScissorEnabled() const {
-        return ScissorState(SkToBool(fFlags & kScissorEnabled_Flag));
+    bool isScissorEnabled() const {
+        return SkToBool(fFlags & kScissorEnabled_Flag);
     }
 
     const GrWindowRectsState& getWindowRectsState() const { return fWindowRectsState; }

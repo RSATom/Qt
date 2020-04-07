@@ -55,10 +55,14 @@
 #if QT_CONFIG(lineedit)
 #include "qlineedit.h"
 #endif
+#include <qpointer.h>
 #include "qpainter.h"
 #include "qwindow.h"
 #include "qpushbutton.h"
 #include "qset.h"
+#if QT_CONFIG(shortcut)
+#  include "qshortcut.h"
+#endif
 #include "qstyle.h"
 #include "qvarlengtharray.h"
 #if defined(Q_OS_MACX)
@@ -232,31 +236,24 @@ void QWizardField::findProperty(const QWizardDefaultProperty *properties, int pr
 class QWizardLayoutInfo
 {
 public:
-    inline QWizardLayoutInfo()
-    : topLevelMarginLeft(-1), topLevelMarginRight(-1), topLevelMarginTop(-1),
-      topLevelMarginBottom(-1), childMarginLeft(-1), childMarginRight(-1),
-      childMarginTop(-1), childMarginBottom(-1), hspacing(-1), vspacing(-1),
-      wizStyle(QWizard::ClassicStyle), header(false), watermark(false), title(false),
-      subTitle(false), extension(false), sideWidget(false) {}
-
-    int topLevelMarginLeft;
-    int topLevelMarginRight;
-    int topLevelMarginTop;
-    int topLevelMarginBottom;
-    int childMarginLeft;
-    int childMarginRight;
-    int childMarginTop;
-    int childMarginBottom;
-    int hspacing;
-    int vspacing;
-    int buttonSpacing;
-    QWizard::WizardStyle wizStyle;
-    bool header;
-    bool watermark;
-    bool title;
-    bool subTitle;
-    bool extension;
-    bool sideWidget;
+    int topLevelMarginLeft = -1;
+    int topLevelMarginRight = -1;
+    int topLevelMarginTop = -1;
+    int topLevelMarginBottom = -1;
+    int childMarginLeft = -1;
+    int childMarginRight = -1;
+    int childMarginTop = -1;
+    int childMarginBottom = -1;
+    int hspacing = -1;
+    int vspacing = -1;
+    int buttonSpacing = -1;
+    QWizard::WizardStyle wizStyle = QWizard::ClassicStyle;
+    bool header = false;
+    bool watermark = false;
+    bool title = false;
+    bool subTitle = false;
+    bool extension = false;
+    bool sideWidget = false;
 
     bool operator==(const QWizardLayoutInfo &other);
     inline bool operator!=(const QWizardLayoutInfo &other) { return !operator==(other); }
@@ -331,7 +328,7 @@ QWizardHeader::QWizardHeader(QWidget *parent)
     titleLabel->setFont(font);
 
     layout = new QGridLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
 
     layout->setRowMinimumHeight(3, 1);
@@ -486,21 +483,18 @@ class QWizardPagePrivate : public QWidgetPrivate
 public:
     enum TriState { Tri_Unknown = -1, Tri_False, Tri_True };
 
-    inline QWizardPagePrivate()
-        : wizard(0), completeState(Tri_Unknown), explicitlyFinal(false), commit(false) {}
-
     bool cachedIsComplete() const;
     void _q_maybeEmitCompleteChanged();
     void _q_updateCachedCompleteState();
 
-    QWizard *wizard;
+    QWizard *wizard = nullptr;
     QString title;
     QString subTitle;
     QPixmap pixmaps[QWizard::NPixmaps];
     QVector<QWizardField> pendingFields;
-    mutable TriState completeState;
-    bool explicitlyFinal;
-    bool commit;
+    mutable TriState completeState = Tri_Unknown;
+    bool explicitlyFinal = false;
+    bool commit = false;
     bool initialized = false;
     QMap<int, QString> buttonCustomTexts;
 };
@@ -556,42 +550,6 @@ public:
         Forward
     };
 
-    inline QWizardPrivate()
-        : start(-1)
-        , startSetByUser(false)
-        , current(-1)
-        , canContinue(false)
-        , canFinish(false)
-        , disableUpdatesCount(0)
-        , wizStyle(QWizard::ClassicStyle)
-        , opts(0)
-        , buttonsHaveCustomLayout(false)
-        , titleFmt(Qt::AutoText)
-        , subTitleFmt(Qt::AutoText)
-        , placeholderWidget1(0)
-        , placeholderWidget2(0)
-        , headerWidget(0)
-        , watermarkLabel(0)
-        , sideWidget(0)
-        , pageFrame(0)
-        , titleLabel(0)
-        , subTitleLabel(0)
-        , bottomRuler(0)
-#if QT_CONFIG(style_windowsvista)
-        , vistaHelper(0)
-        , vistaInitPending(true)
-        , vistaState(QVistaHelper::Dirty)
-        , vistaStateChanged(false)
-        , inHandleAeroStyleChange(false)
-#endif
-        , minimumWidth(0)
-        , minimumHeight(0)
-        , maximumWidth(QWIDGETSIZE_MAX)
-        , maximumHeight(QWIDGETSIZE_MAX)
-    {
-        std::fill(btns, btns + QWizard::NButtons, static_cast<QAbstractButton *>(0));
-    }
-
     void init();
     void reset();
     void cleanupPagesNotInHistory();
@@ -631,21 +589,21 @@ public:
     QMap<QString, int> fieldIndexMap;
     QVector<QWizardDefaultProperty> defaultPropertyTable;
     QList<int> history;
-    int start;
-    bool startSetByUser;
-    int current;
-    bool canContinue;
-    bool canFinish;
+    int start = -1;
+    bool startSetByUser = false;
+    int current = -1;
+    bool canContinue = false;
+    bool canFinish = false;
     QWizardLayoutInfo layoutInfo;
-    int disableUpdatesCount;
+    int disableUpdatesCount = 0;
 
-    QWizard::WizardStyle wizStyle;
+    QWizard::WizardStyle wizStyle = QWizard::ClassicStyle;
     QWizard::WizardOptions opts;
     QMap<int, QString> buttonCustomTexts;
-    bool buttonsHaveCustomLayout;
+    bool buttonsHaveCustomLayout = false;
     QList<QWizard::WizardButton> buttonsCustomLayout;
-    Qt::TextFormat titleFmt;
-    Qt::TextFormat subTitleFmt;
+    Qt::TextFormat titleFmt = Qt::AutoText;
+    Qt::TextFormat subTitleFmt = Qt::AutoText;
     mutable QPixmap defaultPixmaps[QWizard::NPixmaps];
 
     union {
@@ -660,32 +618,35 @@ public:
         } btn;
         mutable QAbstractButton *btns[QWizard::NButtons];
     };
-    QWizardAntiFlickerWidget *antiFlickerWidget;
-    QWidget *placeholderWidget1;
-    QWidget *placeholderWidget2;
-    QWizardHeader *headerWidget;
-    QWatermarkLabel *watermarkLabel;
-    QWidget *sideWidget;
-    QFrame *pageFrame;
-    QLabel *titleLabel;
-    QLabel *subTitleLabel;
-    QWizardRuler *bottomRuler;
+    QWizardAntiFlickerWidget *antiFlickerWidget = nullptr;
+    QWidget *placeholderWidget1 = nullptr;
+    QWidget *placeholderWidget2 = nullptr;
+    QWizardHeader *headerWidget = nullptr;
+    QWatermarkLabel *watermarkLabel = nullptr;
+    QWidget *sideWidget = nullptr;
+    QFrame *pageFrame = nullptr;
+    QLabel *titleLabel = nullptr;
+    QLabel *subTitleLabel = nullptr;
+    QWizardRuler *bottomRuler = nullptr;
 
-    QVBoxLayout *pageVBoxLayout;
-    QHBoxLayout *buttonLayout;
-    QGridLayout *mainLayout;
+    QVBoxLayout *pageVBoxLayout = nullptr;
+    QHBoxLayout *buttonLayout = nullptr;
+    QGridLayout *mainLayout = nullptr;
 
 #if QT_CONFIG(style_windowsvista)
-    QVistaHelper *vistaHelper;
-    bool vistaInitPending;
-    QVistaHelper::VistaState vistaState;
-    bool vistaStateChanged;
-    bool inHandleAeroStyleChange;
+    QVistaHelper *vistaHelper = nullptr;
+#  if QT_CONFIG(shortcut)
+    QPointer<QShortcut> vistaNextShortcut;
+#  endif
+    bool vistaInitPending = true;
+    QVistaHelper::VistaState vistaState = QVistaHelper::Dirty;
+    bool vistaStateChanged = false;
+    bool inHandleAeroStyleChange = false;
 #endif
-    int minimumWidth;
-    int minimumHeight;
-    int maximumWidth;
-    int maximumHeight;
+    int minimumWidth = 0;
+    int minimumHeight = 0;
+    int maximumWidth = QWIDGETSIZE_MAX;
+    int maximumHeight = QWIDGETSIZE_MAX;
 };
 
 static QString buttonDefaultText(int wstyle, int which, const QWizardPrivate *wizardPrivate)
@@ -719,6 +680,8 @@ static QString buttonDefaultText(int wstyle, int which, const QWizardPrivate *wi
 void QWizardPrivate::init()
 {
     Q_Q(QWizard);
+
+    std::fill(btns, btns + QWizard::NButtons, nullptr);
 
     antiFlickerWidget = new QWizardAntiFlickerWidget(q, this);
     wizStyle = QWizard::WizardStyle(q->style()->styleHint(QStyle::SH_WizardStyle, 0, q));
@@ -769,7 +732,7 @@ void QWizardPrivate::reset()
         for (int i = history.count() - 1; i >= 0; --i)
             q->cleanupPage(history.at(i));
         history.clear();
-        for (QWizardPage *page : pageMap)
+        for (QWizardPage *page : qAsConst(pageMap))
             page->d_func()->initialized = false;
 
         current = -1;
@@ -1032,13 +995,13 @@ void QWizardPrivate::recreateLayout(const QWizardLayoutInfo &info)
     int pageColumn = qMin(1, numColumns - 1);
 
     if (mac) {
-        mainLayout->setMargin(0);
+        mainLayout->setContentsMargins(QMargins());
         mainLayout->setSpacing(0);
         buttonLayout->setContentsMargins(MacLayoutLeftMargin, MacButtonTopMargin, MacLayoutRightMargin, MacLayoutBottomMargin);
-        pageVBoxLayout->setMargin(7);
+        pageVBoxLayout->setContentsMargins(7, 7, 7, 7);
     } else {
         if (modern) {
-            mainLayout->setMargin(0);
+            mainLayout->setContentsMargins(QMargins());
             mainLayout->setSpacing(0);
             pageVBoxLayout->setContentsMargins(deltaMarginLeft, deltaMarginTop,
                                                deltaMarginRight, deltaMarginBottom);
@@ -1461,10 +1424,17 @@ void QWizardPrivate::updateButtonTexts()
     // Vista: Add shortcut for 'next'. Note: native dialogs use ALT-Right
     // even in RTL mode, so do the same, even if it might be counter-intuitive.
     // The shortcut for 'back' is set in class QVistaBackButton.
-#if QT_CONFIG(shortcut)
-    if (btns[QWizard::NextButton] && isVistaThemeEnabled())
-        btns[QWizard::NextButton]->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Right));
-#endif
+#if QT_CONFIG(shortcut) && QT_CONFIG(style_windowsvista)
+    if (btns[QWizard::NextButton] && isVistaThemeEnabled()) {
+        if (vistaNextShortcut.isNull()) {
+            vistaNextShortcut =
+                new QShortcut(QKeySequence(Qt::ALT | Qt::Key_Right),
+                              btns[QWizard::NextButton], SLOT(animateClick()));
+        }
+    } else {
+        delete vistaNextShortcut;
+    }
+#endif // shortcut && style_windowsvista
 }
 
 void QWizardPrivate::updateButtonLayout()
@@ -2374,8 +2344,8 @@ void QWizard::removePage(int id)
 /*!
     \fn QWizardPage *QWizard::page(int id) const
 
-    Returns the page with the given \a id, or 0 if there is no such
-    page.
+    Returns the page with the given \a id, or \nullptr if there is no
+    such page.
 
     \sa addPage(), setPage()
 */
@@ -2462,8 +2432,8 @@ int QWizard::startId() const
 }
 
 /*!
-    Returns a pointer to the current page, or 0 if there is no current
-    page (e.g., before the wizard is shown).
+    Returns a pointer to the current page, or \nullptr if there is no
+    current page (e.g., before the wizard is shown).
 
     This is equivalent to calling page(currentId()).
 
@@ -2890,7 +2860,7 @@ void QWizard::setPixmap(WizardPixmap which, const QPixmap &pixmap)
     Returns the pixmap set for role \a which.
 
     By default, the only pixmap that is set is the BackgroundPixmap on
-    \macos.
+    \macos version 10.13 and earlier.
 
     \sa QWizardPage::pixmap(), {Elements of a Wizard Page}
 */
@@ -2954,7 +2924,7 @@ void QWizard::setDefaultProperty(const char *className, const char *property,
 
     Passing 0 shows no side widget.
 
-    When the \a widget is not 0 the wizard reparents it.
+    When the \a widget is not \nullptr the wizard reparents it.
 
     Any previous side widget is hidden.
 
@@ -2963,7 +2933,7 @@ void QWizard::setDefaultProperty(const char *className, const char *property,
 
     All widgets set here will be deleted by the wizard when it is
     destroyed unless you separately reparent the widget after setting
-    some other side widget (or 0).
+    some other side widget (or \nullptr).
 
     By default, no side widget is present.
 */
@@ -2981,7 +2951,7 @@ void QWizard::setSideWidget(QWidget *widget)
 /*!
     \since 4.7
 
-    Returns the widget on the left side of the wizard or 0.
+    Returns the widget on the left side of the wizard or \nullptr.
 
     By default, no side widget is present.
 */
@@ -3265,9 +3235,13 @@ bool QWizard::nativeEvent(const QByteArray &eventType, void *message, long *resu
         MSG *windowsMessage = static_cast<MSG *>(message);
         const bool winEventResult = d->vistaHelper->handleWinEvent(windowsMessage, result);
         if (QVistaHelper::vistaState() != d->vistaState) {
-            d->vistaState = QVistaHelper::vistaState();
-            d->vistaStateChanged = true;
-            setWizardStyle(AeroStyle);
+            // QTBUG-78300: When Qt::AA_NativeWindows is set, delay further
+            // window creation until after the platform window creation events.
+            if (windowsMessage->message == WM_GETICON) {
+                d->vistaStateChanged = true;
+                d->vistaState = QVistaHelper::vistaState();
+                setWizardStyle(AeroStyle);
+            }
         }
         return winEventResult;
     } else {
@@ -3969,7 +3943,7 @@ void QWizardPage::registerField(const QString &name, QWidget *widget, const char
 }
 
 /*!
-    Returns the wizard associated with this page, or 0 if this page
+    Returns the wizard associated with this page, or \nullptr if this page
     hasn't been inserted into a QWizard yet.
 
     \sa QWizard::addPage(), QWizard::setPage()

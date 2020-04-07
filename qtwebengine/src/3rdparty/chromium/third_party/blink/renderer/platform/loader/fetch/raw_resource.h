@@ -52,7 +52,8 @@ class PLATFORM_EXPORT RawResource final : public Resource {
   static RawResource* FetchMainResource(FetchParameters&,
                                         ResourceFetcher*,
                                         RawResourceClient*,
-                                        const SubstituteData&);
+                                        const SubstituteData&,
+                                        unsigned long identifier);
   static RawResource* FetchImport(FetchParameters&,
                                   ResourceFetcher*,
                                   RawResourceClient*);
@@ -67,31 +68,40 @@ class PLATFORM_EXPORT RawResource final : public Resource {
                                     RawResourceClient*);
 
   // Exposed for testing
-  static RawResource* CreateForTest(ResourceRequest request, Type type) {
+  static RawResource* CreateForTest(ResourceRequest request,
+                                    ResourceType type) {
     ResourceLoaderOptions options;
-    return new RawResource(request, type, options);
+    return MakeGarbageCollected<RawResource>(request, type, options);
   }
-  static RawResource* CreateForTest(const KURL& url, Type type) {
+  static RawResource* CreateForTest(const KURL& url,
+                                    scoped_refptr<const SecurityOrigin> origin,
+                                    ResourceType type) {
     ResourceRequest request(url);
+    request.SetRequestorOrigin(std::move(origin));
     return CreateForTest(request, type);
   }
-  static RawResource* CreateForTest(const char* url, Type type) {
-    return CreateForTest(KURL(url), type);
-  }
+
+  RawResource(const ResourceRequest&,
+              ResourceType,
+              const ResourceLoaderOptions&);
 
   // Resource implementation
-  bool CanReuse(
-      const FetchParameters&,
-      scoped_refptr<const SecurityOrigin> new_source_origin) const override;
+  MatchStatus CanReuse(const FetchParameters&) const override;
   bool WillFollowRedirect(const ResourceRequest&,
                           const ResourceResponse&) override;
 
-  void SetSerializedCachedMetadata(const char*, size_t) override;
+  void SetSerializedCachedMetadata(const uint8_t*, size_t) override;
 
   // Used for code caching of scripts with source code inline in the HTML.
   // Returns a cache handler which can store multiple cache metadata entries,
-  // keyed by the source code of the script.
-  SourceKeyedCachedMetadataHandler* CacheHandler();
+  // keyed by the source code of the script. This is valid only if type is
+  // kMainResource.
+  SourceKeyedCachedMetadataHandler* InlineScriptCacheHandler();
+
+  // Used for code caching of fetched code resources. Returns a cache handler
+  // which can only store a single cache metadata entry. This is valid only if
+  // type is kRaw.
+  SingleCachedMetadataHandler* ScriptCacheHandler();
 
   scoped_refptr<BlobDataHandle> DownloadedBlob() const {
     return downloaded_blob_;
@@ -104,16 +114,14 @@ class PLATFORM_EXPORT RawResource final : public Resource {
  private:
   class RawResourceFactory : public NonTextResourceFactory {
    public:
-    explicit RawResourceFactory(Resource::Type type)
+    explicit RawResourceFactory(ResourceType type)
         : NonTextResourceFactory(type) {}
 
     Resource* Create(const ResourceRequest& request,
                      const ResourceLoaderOptions& options) const override {
-      return new RawResource(request, type_, options);
+      return MakeGarbageCollected<RawResource>(request, type_, options);
     }
   };
-
-  RawResource(const ResourceRequest&, Type, const ResourceLoaderOptions&);
 
   // Resource implementation
   void DidAddClient(ResourceClient*) override;
@@ -126,7 +134,7 @@ class PLATFORM_EXPORT RawResource final : public Resource {
                         std::unique_ptr<WebDataConsumerHandle>) override;
   void DidSendData(unsigned long long bytes_sent,
                    unsigned long long total_bytes_to_be_sent) override;
-  void DidDownloadData(int) override;
+  void DidDownloadData(unsigned long long) override;
   void DidDownloadToBlob(scoped_refptr<BlobDataHandle>) override;
   void ReportResourceTimingToClients(const ResourceTimingInfo&) override;
   bool MatchPreload(const FetchParameters&,
@@ -142,11 +150,11 @@ class PLATFORM_EXPORT RawResource final : public Resource {
 
 // TODO(yhirano): Recover #if ENABLE_SECURITY_ASSERT when we stop adding
 // RawResources to MemoryCache.
-inline bool IsRawResource(Resource::Type type) {
-  return type == Resource::kMainResource || type == Resource::kRaw ||
-         type == Resource::kTextTrack || type == Resource::kAudio ||
-         type == Resource::kVideo || type == Resource::kManifest ||
-         type == Resource::kImportResource;
+inline bool IsRawResource(ResourceType type) {
+  return type == ResourceType::kMainResource || type == ResourceType::kRaw ||
+         type == ResourceType::kTextTrack || type == ResourceType::kAudio ||
+         type == ResourceType::kVideo || type == ResourceType::kManifest ||
+         type == ResourceType::kImportResource;
 }
 inline bool IsRawResource(const Resource& resource) {
   return IsRawResource(resource.GetType());
@@ -158,12 +166,7 @@ inline RawResource* ToRawResource(Resource* resource) {
 
 class PLATFORM_EXPORT RawResourceClient : public ResourceClient {
  public:
-  static bool IsExpectedType(ResourceClient* client) {
-    return client->GetResourceClientType() == kRawResourceType;
-  }
-  ResourceClientType GetResourceClientType() const final {
-    return kRawResourceType;
-  }
+  bool IsRawResourceClient() const final { return true; }
 
   // The order of the callbacks is as follows:
   // [Case 1] A successful load:
@@ -188,14 +191,14 @@ class PLATFORM_EXPORT RawResourceClient : public ResourceClient {
   virtual void ResponseReceived(Resource*,
                                 const ResourceResponse&,
                                 std::unique_ptr<WebDataConsumerHandle>) {}
-  virtual void SetSerializedCachedMetadata(Resource*, const char*, size_t) {}
+  virtual void SetSerializedCachedMetadata(Resource*, const uint8_t*, size_t) {}
   virtual bool RedirectReceived(Resource*,
                                 const ResourceRequest&,
                                 const ResourceResponse&) {
     return true;
   }
   virtual void RedirectBlocked() {}
-  virtual void DataDownloaded(Resource*, int) {}
+  virtual void DataDownloaded(Resource*, unsigned long long) {}
   virtual void DidReceiveResourceTiming(Resource*, const ResourceTimingInfo&) {}
   // Called for requests that had DownloadToBlob set to true. Can be called with
   // null if creating the blob failed for some reason (but the download itself

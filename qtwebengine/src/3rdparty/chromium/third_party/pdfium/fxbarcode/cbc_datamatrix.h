@@ -9,18 +9,17 @@
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxge/fx_dib.h"
 #include "fxbarcode/cbc_codebase.h"
 
 class CBC_DataMatrixWriter;
 
-class CBC_DataMatrix : public CBC_CodeBase {
+class CBC_DataMatrix final : public CBC_CodeBase {
  public:
   CBC_DataMatrix();
   ~CBC_DataMatrix() override;
 
   // CBC_OneCode:
-  bool Encode(const WideStringView& contents) override;
+  bool Encode(WideStringView contents) override;
   bool RenderDevice(CFX_RenderDevice* device,
                     const CFX_Matrix* matrix) override;
   BC_TYPE GetType() override;

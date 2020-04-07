@@ -20,7 +20,7 @@ MockTransferBuffer::MockTransferBuffer(CommandBuffer* command_buffer,
       alignment_(alignment),
       actual_buffer_index_(0),
       expected_buffer_index_(0),
-      last_alloc_(NULL),
+      last_alloc_(nullptr),
       expected_offset_(result_size),
       actual_offset_(result_size),
       initialize_fail_(initialize_fail) {
@@ -54,8 +54,15 @@ int MockTransferBuffer::GetShmId() {
   return buffer_ids_[actual_buffer_index_];
 }
 
-void* MockTransferBuffer::GetResultBuffer() {
+void* MockTransferBuffer::AcquireResultBuffer() {
+  EXPECT_FALSE(outstanding_result_pointer_);
+  outstanding_result_pointer_ = true;
   return actual_buffer() + actual_buffer_index_ * alignment_;
+}
+
+void MockTransferBuffer::ReleaseResultBuffer() {
+  EXPECT_TRUE(outstanding_result_pointer_);
+  outstanding_result_pointer_ = false;
 }
 
 int MockTransferBuffer::GetResultOffset() {

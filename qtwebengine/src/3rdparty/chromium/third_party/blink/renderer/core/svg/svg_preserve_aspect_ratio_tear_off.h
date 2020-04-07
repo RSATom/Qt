@@ -75,23 +75,20 @@ class SVGPreserveAspectRatioTearOff final
 
   static SVGPreserveAspectRatioTearOff* Create(
       SVGPreserveAspectRatio* target,
-      SVGElement* context_element,
-      PropertyIsAnimValType property_is_anim_val,
-      const QualifiedName& attribute_name) {
-    return new SVGPreserveAspectRatioTearOff(
-        target, context_element, property_is_anim_val, attribute_name);
+      SVGAnimatedPropertyBase* binding,
+      PropertyIsAnimValType property_is_anim_val) {
+    return MakeGarbageCollected<SVGPreserveAspectRatioTearOff>(
+        target, binding, property_is_anim_val);
   }
+
+  SVGPreserveAspectRatioTearOff(SVGPreserveAspectRatio*,
+                                SVGAnimatedPropertyBase* binding,
+                                PropertyIsAnimValType);
 
   void setAlign(unsigned short, ExceptionState&);
   unsigned short align() { return Target()->Align(); }
   void setMeetOrSlice(unsigned short, ExceptionState&);
   unsigned short meetOrSlice() { return Target()->MeetOrSlice(); }
-
- private:
-  SVGPreserveAspectRatioTearOff(SVGPreserveAspectRatio*,
-                                SVGElement* context_element,
-                                PropertyIsAnimValType,
-                                const QualifiedName& attribute_name);
 };
 
 }  // namespace blink

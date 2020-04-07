@@ -26,6 +26,7 @@
 **
 ****************************************************************************/
 #include <QByteArray>
+#include <QRegExp>
 #include <QString>
 #include <QStringList>
 #include <QTextStream>
@@ -34,6 +35,8 @@
 #include <QStack>
 #include <QFileInfo>
 #include <QSaveFile>
+
+#include <algorithm>
 
 /*!
  * \internal
@@ -260,7 +263,8 @@ private:
     }
 };
 
-static QByteArray generateResourceDirectoryTree(QTextStream &code, const QStringList &qrcFiles)
+static QByteArray generateResourceDirectoryTree(QTextStream &code, const QStringList &qrcFiles,
+                                                const QStringList &sortedRetainedFiles)
 {
     QByteArray call;
     if (qrcFiles.isEmpty())
@@ -269,14 +273,15 @@ static QByteArray generateResourceDirectoryTree(QTextStream &code, const QString
     VirtualDirectoryEntry resourceDirs;
     resourceDirs.name = QStringLiteral("/");
 
-    foreach (const QString &entry, qrcFiles) {
+    for (const QString &entry : qrcFiles) {
         const QStringList segments = entry.split(QLatin1Char('/'), QString::SkipEmptyParts);
 
         VirtualDirectoryEntry *dirEntry = &resourceDirs;
 
         for (int i = 0; i < segments.count() - 1; ++i)
             dirEntry = dirEntry->append(segments.at(i));
-        dirEntry->appendEmptyFile(segments.last());
+        if (!std::binary_search(sortedRetainedFiles.begin(), sortedRetainedFiles.end(), entry))
+            dirEntry->appendEmptyFile(segments.last());
     }
 
     if (resourceDirs.isEmpty())
@@ -327,7 +332,9 @@ static QString qtResourceNameForFile(const QString &fileName)
     return name;
 }
 
-bool generateLoader(const QStringList &compiledFiles, const QString &outputFileName, const QStringList &resourceFileMappings, QString *errorString)
+bool generateLoader(const QStringList &compiledFiles, const QStringList &sortedRetainedFiles,
+                    const QString &outputFileName, const QStringList &resourceFileMappings,
+                    QString *errorString)
 {
     QByteArray generatedLoaderCode;
 
@@ -338,13 +345,14 @@ bool generateLoader(const QStringList &compiledFiles, const QString &outputFileN
         stream << "#include <QtCore/qurl.h>\n";
         stream << "\n";
 
-        QByteArray resourceRegisterCall = generateResourceDirectoryTree(stream, compiledFiles);
+        QByteArray resourceRegisterCall = generateResourceDirectoryTree(stream, compiledFiles,
+                                                                        sortedRetainedFiles);
 
         stream << "namespace QmlCacheGeneratedCode {\n";
         for (int i = 0; i < compiledFiles.count(); ++i) {
             const QString compiledFile = compiledFiles.at(i);
             const QString ns = symbolNamespaceForPath(compiledFile);
-            stream << "namespace " << symbolNamespaceForPath(compiledFile) << " { \n";
+            stream << "namespace " << ns << " { \n";
             stream << "    extern const unsigned char qmlData[];\n";
             stream << "    const QQmlPrivate::CachedQmlUnit unit = {\n";
             stream << "        reinterpret_cast<const QV4::CompiledData::Unit*>(&qmlData), nullptr, nullptr\n";
@@ -357,6 +365,7 @@ bool generateLoader(const QStringList &compiledFiles, const QString &outputFileN
 
         stream << "struct Registry {\n";
         stream << "    Registry();\n";
+        stream << "    ~Registry();\n";
         stream << "    QHash<QString, const QQmlPrivate::CachedQmlUnit*> resourcePathToCachedUnit;\n";
         stream << "    static const QQmlPrivate::CachedQmlUnit *lookupCachedUnit(const QUrl &url);\n";
         stream << "};\n\n";
@@ -379,7 +388,11 @@ bool generateLoader(const QStringList &compiledFiles, const QString &outputFileN
         if (!resourceRegisterCall.isEmpty())
             stream << resourceRegisterCall;
 
-        stream << "}\n";
+        stream << "}\n\n";
+        stream << "Registry::~Registry() {\n";
+        stream << "    QQmlPrivate::qmlunregister(QQmlPrivate::QmlUnitCacheHookRegistration, quintptr(&lookupCachedUnit));\n";
+        stream << "}\n\n";
+
         stream << "const QQmlPrivate::CachedQmlUnit *Registry::lookupCachedUnit(const QUrl &url) {\n";
         stream << "    if (url.scheme() != QLatin1String(\"qrc\"))\n";
         stream << "        return nullptr;\n";

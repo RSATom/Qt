@@ -38,7 +38,7 @@
 #include "third_party/blink/public/mojom/blob/blob.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
@@ -97,7 +97,7 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
   // After OnCalculatedSize() is called: Returns the size of the resource.
   base::Optional<uint64_t> TotalBytes() const { return total_bytes_; }
 
-  FileError::ErrorCode GetErrorCode() const { return error_code_; }
+  FileErrorCode GetErrorCode() const { return error_code_; }
 
   int32_t GetNetError() const { return net_error_; }
 
@@ -128,7 +128,7 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
   };
 
   void Cleanup();
-  void Failed(FileError::ErrorCode, FailureType type);
+  void Failed(FileErrorCode, FailureType type);
 
   void OnStartLoading(uint64_t total_bytes);
   void OnReceivedData(const char* data, unsigned data_length);
@@ -172,7 +172,7 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
   int64_t memory_usage_reported_to_v8_ = 0;
 
   int32_t net_error_ = 0;  // net::OK
-  FileError::ErrorCode error_code_ = FileError::kOK;
+  FileErrorCode error_code_ = FileErrorCode::kOK;
 
   mojo::ScopedDataPipeConsumerHandle consumer_handle_;
   mojo::SimpleWatcher handle_watcher_;

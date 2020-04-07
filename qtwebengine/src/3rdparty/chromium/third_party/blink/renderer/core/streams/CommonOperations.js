@@ -28,8 +28,17 @@
 
   const RangeError = global.RangeError;
   const TypeError = global.TypeError;
+  const TypeError_prototype = TypeError.prototype;
 
   const hasOwnProperty = v8.uncurryThis(global.Object.hasOwnProperty);
+  const getPrototypeOf = global.Object.getPrototypeOf.bind(global.Object);
+  const getOwnPropertyDescriptor =
+        global.Object.getOwnPropertyDescriptor.bind(global.Object);
+
+  const thenPromise = v8.uncurryThis(Promise.prototype.then);
+
+  const JSON_parse = global.JSON.parse.bind(global.JSON);
+  const JSON_stringify = global.JSON.stringify.bind(global.JSON);
 
   function hasOwnPropertyNoThrow(x, property) {
     // The cast of |x| to Boolean will eliminate undefined and null, which would
@@ -347,6 +356,247 @@
     }
   }
 
+  // Functions for transferable streams. See design doc
+  // https://docs.google.com/document/d/1_KuZzg5c3pncLJPFa8SuVm23AP4tft6mzPCL5at3I9M/edit
+
+  const kPull = 1;
+  const kCancel = 2;
+  const kChunk = 3;
+  const kClose = 4;
+  const kAbort = 5;
+  const kError = 6;
+
+  function isATypeError(object) {
+    // There doesn't appear to be a 100% reliable way to identify a TypeError
+    // from JS.
+    return object !== null && getPrototypeOf(object) === TypeError_prototype;
+  }
+
+  function isADOMException(object) {
+    try {
+      callFunction(binding.DOMException_name_get, object);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // We'd like to able to transfer TypeError exceptions, but we can't, so we
+  // hack around it. packReason() is guaranteed not to throw and the object
+  // produced is guaranteed to be serializable by postMessage().
+  function packReason(reason) {
+    switch (typeof reason) {
+      case 'string':
+      case 'number':
+      case 'boolean':
+        return {encoder: 'json', string: JSON_stringify(reason)};
+
+      case 'object':
+        try {
+          if (isATypeError(reason)) {
+            // "message" on TypeError is a normal property, meaning that if it
+            // is set, it is set on the object itself. We can take advantage of
+            // this to avoid executing user JavaScript in the case when the
+            // TypeError was generated internally.
+            let message;
+            const descriptor = getOwnPropertyDescriptor(reason, 'message');
+            if (descriptor) {
+              message = descriptor.value;
+              if (typeof message !== 'string') {
+                message = undefined;
+              }
+            }
+            return {encoder: 'typeerror', string: message};
+          }
+
+          if (isADOMException(reason)) {
+            const message =
+                  callFunction(binding.DOMException_message_get, reason);
+            const name = callFunction(binding.DOMException_name_get, reason);
+            return {
+              encoder: 'domexception',
+              string: JSON_stringify({message, name})
+            };
+          }
+
+          // JSON_stringify() is lossy, but it will serialise things that
+          // postMessage() won't.
+          return {encoder: 'json', string: JSON_stringify(reason)};
+        } catch (e) {
+          return {encoder: 'typeerror', string: 'Cannot transfer message'};
+        }
+
+      default:
+        return {encoder: 'undefined', string: undefined};
+    }
+  }
+
+  function unpackReason(packedReason) {
+    const {encoder, string} = packedReason;
+    switch (encoder) {
+      case 'json':
+        return JSON_parse(string);
+
+      case 'typeerror':
+        return new TypeError(string);
+
+      case 'domexception':
+        const {message, name} = JSON_parse(string);
+        return new binding.DOMException(message, name);
+
+      case 'undefined':
+        return undefined;
+    }
+  }
+
+  function CreateCrossRealmTransformWritable(port) {
+    let backpressurePromise = createPromise();
+
+    callFunction(binding.EventTarget_addEventListener, port, 'message', evt => {
+      const {type, value} = callFunction(binding.MessageEvent_data_get, evt);
+      // assert(type === kPull || type === kCancel || type === kError);
+      switch (type) {
+        case kPull:
+          // assert(backPressurePromise !== undefined);
+          resolvePromise(backpressurePromise);
+          backpressurePromise = undefined;
+          break;
+
+        case kCancel:
+        case kError:
+          binding.WritableStreamDefaultControllerErrorIfNeeded(
+              controller, unpackReason(value));
+          if (backpressurePromise !== undefined) {
+            resolvePromise(backpressurePromise);
+            backpressurePromise = undefined;
+          }
+          break;
+      }
+    });
+
+    callFunction(
+        binding.EventTarget_addEventListener, port, 'messageerror', () => {
+          const error = new binding.DOMException('chunk could not be cloned',
+                                                 'DataCloneError');
+          callFunction(binding.MessagePort_postMessage, port,
+                       {type: kError, value: packReason(error)});
+          callFunction(binding.MessagePort_close, port);
+          binding.WritableStreamDefaultControllerErrorIfNeeded(controller,
+                                                               error);
+        });
+
+    callFunction(binding.MessagePort_start, port);
+
+    function doWrite(chunk) {
+      backpressurePromise = createPromise();
+      try {
+        callFunction(
+            binding.MessagePort_postMessage, port,
+            {type: kChunk, value: chunk});
+      } catch (e) {
+        callFunction(
+            binding.MessagePort_postMessage, port,
+            {type: kError, value: packReason(e)});
+        callFunction(binding.MessagePort_close, port);
+        throw e;
+      }
+    }
+
+    const stream = binding.CreateWritableStream(
+        () => undefined,
+        chunk => {
+          if (!backpressurePromise) {
+            return PromiseCall1(doWrite, null, chunk);
+          }
+          return thenPromise(backpressurePromise, () => doWrite(chunk));
+        },
+        () => {
+          callFunction(
+              binding.MessagePort_postMessage, port,
+              {type: kClose, value: undefined});
+          callFunction(binding.MessagePort_close, port);
+          return createResolvedPromise();
+        },
+        reason => {
+          callFunction(
+              binding.MessagePort_postMessage, port,
+              {type: kAbort, value: packReason(reason)});
+          callFunction(binding.MessagePort_close, port);
+          return createResolvedPromise();
+        });
+
+    const controller = binding.getWritableStreamController(stream);
+    return stream;
+  }
+
+  function CreateCrossRealmTransformReadable(port) {
+    let backpressurePromise = createPromise();
+    let finished = false;
+
+    callFunction(binding.EventTarget_addEventListener, port, 'message', evt => {
+      const {type, value} = callFunction(binding.MessageEvent_data_get, evt);
+      // assert(type === kChunk || type === kClose || type === kAbort ||
+      //        type=kError);
+      if (finished) {
+        return;
+      }
+      switch (type) {
+        case kChunk:
+          binding.ReadableStreamDefaultControllerEnqueue(controller, value);
+          resolvePromise(backpressurePromise);
+          backpressurePromise = createPromise();
+          break;
+
+        case kClose:
+          finished = true;
+          binding.ReadableStreamDefaultControllerClose(controller);
+          callFunction(binding.MessagePort_close, port);
+          break;
+
+        case kAbort:
+        case kError:
+          finished = true;
+          binding.ReadableStreamDefaultControllerError(
+              controller, unpackReason(value));
+          callFunction(binding.MessagePort_close, port);
+          break;
+      }
+    });
+
+    callFunction(
+        binding.EventTarget_addEventListener, port, 'messageerror', () => {
+          const error = new binding.DOMException('chunk could not be cloned',
+                                                 'DataCloneError');
+          callFunction(binding.MessagePort_postMessage, port,
+                       {type: kError, value: packReason(error)});
+          callFunction(binding.MessagePort_close, port);
+          binding.ReadableStreamDefaultControllerError(controller, error);
+        });
+
+    callFunction(binding.MessagePort_start, port);
+
+    const stream = binding.CreateReadableStream(
+        () => undefined,
+        () => {
+          callFunction(
+              binding.MessagePort_postMessage, port,
+              {type: kPull, value: undefined});
+          return backpressurePromise;
+        },
+        reason => {
+          finished = true;
+          callFunction(
+              binding.MessagePort_postMessage, port,
+              {type: kCancel, value: packReason(reason)});
+          callFunction(binding.MessagePort_close, port);
+          return createResolvedPromise();
+        },
+        /* highWaterMark = */ 0);
+
+    const controller = binding.getReadableStreamController(stream);
+    return stream;
+  }
+
   binding.streamOperations = {
     _queue,
     _queueTotalSize,
@@ -360,6 +610,8 @@
     promiseState,
     CreateAlgorithmFromUnderlyingMethod,
     CreateAlgorithmFromUnderlyingMethodPassingController,
+    CreateCrossRealmTransformWritable,
+    CreateCrossRealmTransformReadable,
     DequeueValue,
     EnqueueValueWithSize,
     PeekQueueValue,

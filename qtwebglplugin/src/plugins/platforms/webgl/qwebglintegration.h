@@ -45,7 +45,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcWebGL)
 class QWebGLIntegration : public QPlatformIntegration, public QPlatformNativeInterface
 {
 public:
-    QWebGLIntegration(quint16 port);
+    QWebGLIntegration(quint16 port, quint16 wssport);
     ~QWebGLIntegration();
 
     static QWebGLIntegration *instance();

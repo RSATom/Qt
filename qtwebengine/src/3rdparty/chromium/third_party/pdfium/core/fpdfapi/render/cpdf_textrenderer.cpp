@@ -75,7 +75,7 @@ void CPDF_TextRenderer::DrawTextString(CFX_RenderDevice* pDevice,
                                        float origin_y,
                                        CPDF_Font* pFont,
                                        float font_size,
-                                       const CFX_Matrix* pMatrix,
+                                       const CFX_Matrix& matrix,
                                        const ByteString& str,
                                        FX_ARGB fill_argb,
                                        const CFX_GraphStateData* pGraphState,
@@ -94,19 +94,15 @@ void CPDF_TextRenderer::DrawTextString(CFX_RenderDevice* pDevice,
   positions.resize(nChars - 1);
   float cur_pos = 0;
   for (int i = 0; i < nChars; i++) {
-    codes[i] = pFont->GetNextChar(str.AsStringView(), offset);
+    codes[i] = pFont->GetNextChar(str.AsStringView(), &offset);
     if (i)
       positions[i - 1] = cur_pos;
     cur_pos += pFont->GetCharWidthF(codes[i]) * font_size / 1000;
   }
-  CFX_Matrix matrix;
-  if (pMatrix)
-    matrix = *pMatrix;
-
-  matrix.e = origin_x;
-  matrix.f = origin_y;
-
-  DrawNormalText(pDevice, codes, positions, pFont, font_size, &matrix,
+  CFX_Matrix new_matrix = matrix;
+  new_matrix.e = origin_x;
+  new_matrix.f = origin_y;
+  DrawNormalText(pDevice, codes, positions, pFont, font_size, &new_matrix,
                  fill_argb, pOptions);
 }
 
@@ -125,18 +121,18 @@ bool CPDF_TextRenderer::DrawNormalText(CFX_RenderDevice* pDevice,
     return true;
   int FXGE_flags = 0;
   if (pOptions) {
-    if (pOptions->HasFlag(RENDER_CLEARTYPE)) {
+    if (pOptions->GetOptions().bClearType) {
       FXGE_flags |= FXTEXT_CLEARTYPE;
-      if (pOptions->HasFlag(RENDER_BGR_STRIPE))
+      if (pOptions->GetOptions().bBGRStripe)
         FXGE_flags |= FXTEXT_BGR_STRIPE;
     }
-    if (pOptions->HasFlag(RENDER_NOTEXTSMOOTH))
+    if (pOptions->GetOptions().bNoTextSmooth)
       FXGE_flags |= FXTEXT_NOSMOOTH;
-    if (pOptions->HasFlag(RENDER_PRINTGRAPHICTEXT))
+    if (pOptions->GetOptions().bPrintGraphicText)
       FXGE_flags |= FXTEXT_PRINTGRAPHICTEXT;
-    if (pOptions->HasFlag(RENDER_NO_NATIVETEXT))
+    if (pOptions->GetOptions().bNoNativeText)
       FXGE_flags |= FXTEXT_NO_NATIVETEXT;
-    if (pOptions->HasFlag(RENDER_PRINTIMAGETEXT))
+    if (pOptions->GetOptions().bPrintImageText)
       FXGE_flags |= FXTEXT_PRINTIMAGETEXT;
   } else {
     FXGE_flags = FXTEXT_CLEARTYPE;

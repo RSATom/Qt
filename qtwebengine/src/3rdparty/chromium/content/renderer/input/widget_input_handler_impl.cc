@@ -10,7 +10,7 @@
 #include "base/logging.h"
 #include "content/common/input/ime_text_span_conversions.h"
 #include "content/common/input_messages.h"
-#include "content/renderer/gpu/layer_tree_view.h"
+#include "content/renderer/compositor/layer_tree_view.h"
 #include "content/renderer/ime_event_guard.h"
 #include "content/renderer/input/widget_input_handler_manager.h"
 #include "content/renderer/render_thread_impl.h"
@@ -19,6 +19,7 @@
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_coalesced_input_event.h"
 #include "third_party/blink/public/platform/web_keyboard_event.h"
+#include "third_party/blink/public/web/web_ime_text_span.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 
 namespace content {
@@ -27,10 +28,10 @@ namespace {
 
 void RunClosureIfNotSwappedOut(base::WeakPtr<RenderWidget> render_widget,
                                base::OnceClosure closure) {
-  // Input messages must not be processed if the RenderWidget is in swapped out
-  // or closing state.
-  if (!render_widget || render_widget->is_swapped_out() ||
-      render_widget->IsClosing()) {
+  // Input messages must not be processed if the RenderWidget is in a frozen or
+  // closing state.
+  if (!render_widget || render_widget->is_frozen() ||
+      render_widget->is_closing()) {
     return;
   }
   std::move(closure).Run();
@@ -100,15 +101,32 @@ void WidgetInputHandlerImpl::ImeSetComposition(
                      range, start, end));
 }
 
+static void ImeCommitTextOnMainThread(
+    base::WeakPtr<RenderWidget> render_widget,
+    scoped_refptr<base::SingleThreadTaskRunner> callback_task_runner,
+    const base::string16& text,
+    const std::vector<blink::WebImeTextSpan>& ime_text_spans,
+    const gfx::Range& range,
+    int32_t relative_cursor_position,
+    WidgetInputHandlerImpl::ImeCommitTextCallback callback) {
+  if (render_widget) {
+    render_widget->OnImeCommitText(text, ime_text_spans, range,
+                                   relative_cursor_position);
+  }
+  callback_task_runner->PostTask(FROM_HERE, std::move(callback));
+}
+
 void WidgetInputHandlerImpl::ImeCommitText(
     const base::string16& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& range,
-    int32_t relative_cursor_position) {
+    int32_t relative_cursor_position,
+    ImeCommitTextCallback callback) {
   RunOnMainThread(
-      base::BindOnce(&RenderWidget::OnImeCommitText, render_widget_, text,
+      base::BindOnce(&ImeCommitTextOnMainThread, render_widget_,
+                     base::ThreadTaskRunnerHandle::Get(), text,
                      ConvertUiImeTextSpansToBlinkImeTextSpans(ime_text_spans),
-                     range, relative_cursor_position));
+                     range, relative_cursor_position, std::move(callback)));
 }
 
 void WidgetInputHandlerImpl::ImeFinishComposingText(bool keep_selection) {
@@ -140,6 +158,12 @@ void WidgetInputHandlerImpl::DispatchNonBlockingEvent(
   TRACE_EVENT0("input", "WidgetInputHandlerImpl::DispatchNonBlockingEvent");
   input_handler_manager_->DispatchEvent(std::move(event),
                                         DispatchEventCallback());
+}
+
+void WidgetInputHandlerImpl::WaitForInputProcessed(
+    WaitForInputProcessedCallback callback) {
+  // TODO(bokan): Implement this to actually ensure input is processed.
+  std::move(callback).Run();
 }
 
 void WidgetInputHandlerImpl::AttachSynchronousCompositor(

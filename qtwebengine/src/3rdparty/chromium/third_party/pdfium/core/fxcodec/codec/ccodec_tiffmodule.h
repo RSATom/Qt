@@ -9,22 +9,23 @@
 
 #include <memory>
 
-#include "core/fxcrt/fx_system.h"
-#include "core/fxcrt/retain_ptr.h"
-#include "core/fxge/dib/cfx_dibitmap.h"
+#include "core/fxcodec/codec/codec_module_iface.h"
 
 class CFX_DIBAttribute;
+class CFX_DIBitmap;
 class IFX_SeekableReadStream;
 
-class CCodec_TiffModule {
+class CCodec_TiffModule final : public CodecModuleIface {
  public:
-  class Context {
-   public:
-    virtual ~Context() {}
-  };
-
   std::unique_ptr<Context> CreateDecoder(
       const RetainPtr<IFX_SeekableReadStream>& file_ptr);
+
+  // CodecModuleIface:
+  FX_FILESIZE GetAvailInput(Context* pContext) const override;
+  bool Input(Context* pContext,
+             RetainPtr<CFX_CodecMemory> codec_memory,
+             CFX_DIBAttribute* pAttribute) override;
+
   bool LoadFrameInfo(Context* ctx,
                      int32_t frame,
                      int32_t* width,

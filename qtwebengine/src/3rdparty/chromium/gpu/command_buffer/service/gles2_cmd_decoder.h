@@ -42,6 +42,7 @@ struct Mailbox;
 namespace gles2 {
 
 class ContextGroup;
+class CopyTexImageResourceManager;
 class CopyTextureCHROMIUMResourceManager;
 class FramebufferManager;
 class GLES2Util;
@@ -62,6 +63,10 @@ struct DisallowedFeatures {
     ext_color_buffer_half_float = false;
     oes_texture_float_linear = false;
     oes_texture_half_float_linear = false;
+  }
+
+  bool operator==(const DisallowedFeatures& other) const {
+    return !std::memcmp(this, &other, sizeof(*this));
   }
 
   bool npot_support = false;
@@ -181,6 +186,9 @@ class GPU_GLES2_EXPORT GLES2Decoder : public CommonDecoder,
 
   virtual void SetCopyTextureResourceManagerForTest(
       CopyTextureCHROMIUMResourceManager* copy_texture_resource_manager) = 0;
+
+  virtual void SetCopyTexImageBlitterForTest(
+      CopyTexImageResourceManager* copy_tex_image_blit) = 0;
 
  protected:
   GLES2Decoder(CommandBufferServiceBase* command_buffer_service,

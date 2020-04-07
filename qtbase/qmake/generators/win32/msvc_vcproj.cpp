@@ -193,6 +193,10 @@ bool VcprojGenerator::writeProjectMakefile()
         mergedProject.SccProjectName = mergedProjects.at(0)->vcProject.SccProjectName;
         mergedProject.SccLocalPath = mergedProjects.at(0)->vcProject.SccLocalPath;
         mergedProject.PlatformName = mergedProjects.at(0)->vcProject.PlatformName;
+        mergedProject.WindowsTargetPlatformVersion =
+                project->first("WINDOWS_TARGET_PLATFORM_VERSION").toQString();
+        mergedProject.WindowsTargetPlatformMinVersion =
+                project->first("WINDOWS_TARGET_PLATFORM_MIN_VERSION").toQString();
 
         XmlOutput xmlOut(t);
         projectWriter->write(xmlOut, mergedProject);
@@ -477,8 +481,8 @@ ProStringList VcprojGenerator::collectDependencies(QMakeProject *proj, QHash<QSt
                     // Add all unknown libs to the deps
                     QStringList where = QStringList() << "LIBS" << "LIBS_PRIVATE"
                                                       << "QMAKE_LIBS" << "QMAKE_LIBS_PRIVATE";
-                    for (QStringList::ConstIterator wit = where.begin();
-                        wit != where.end(); ++wit) {
+                    for (QStringList::ConstIterator wit = where.cbegin();
+                        wit != where.cend(); ++wit) {
                             const ProStringList &l = tmp_proj.values(ProKey(*wit));
                             for (ProStringList::ConstIterator it = l.begin(); it != l.end(); ++it) {
                                 const QString opt = fixLibFlag(*it).toQString();
@@ -778,8 +782,9 @@ void VcprojGenerator::init()
 
     // Setup PCH variables
     precompH = project->first("PRECOMPILED_HEADER").toQString();
-    precompCPP = project->first("PRECOMPILED_SOURCE").toQString();
-    usePCH = !precompH.isEmpty() && project->isActiveConfig("precompile_header");
+    precompSource = project->first("PRECOMPILED_SOURCE").toQString();
+    pchIsCFile = project->isActiveConfig("precompile_header_c");
+    usePCH = !precompH.isEmpty() && (pchIsCFile || project->isActiveConfig("precompile_header"));
     if (usePCH) {
         precompHFilename = fileInfo(precompH).fileName();
         // Created files
@@ -793,13 +798,15 @@ void VcprojGenerator::init()
         project->values("PRECOMPILED_OBJECT") = ProStringList(precompObj);
         project->values("PRECOMPILED_PCH")    = ProStringList(precompPch);
 
-        autogenPrecompCPP = precompCPP.isEmpty() && project->isActiveConfig("autogen_precompile_source");
-        if (autogenPrecompCPP) {
-            precompCPP = precompH
-                + (Option::cpp_ext.count() ? Option::cpp_ext.at(0) : QLatin1String(".cpp"));
-            project->values("GENERATED_SOURCES") += precompCPP;
-        } else if (!precompCPP.isEmpty()) {
-            project->values("SOURCES") += precompCPP;
+        autogenPrecompSource = precompSource.isEmpty() && project->isActiveConfig("autogen_precompile_source");
+        if (autogenPrecompSource) {
+            precompSource = precompH
+                    + (pchIsCFile
+                       ? (Option::c_ext.count() ? Option::c_ext.at(0) : QLatin1String(".c"))
+                       : (Option::cpp_ext.count() ? Option::cpp_ext.at(0) : QLatin1String(".cpp")));
+            project->values("GENERATED_SOURCES") += precompSource;
+        } else if (!precompSource.isEmpty()) {
+            project->values("SOURCES") += precompSource;
         }
     }
 
@@ -1031,9 +1038,6 @@ void VcprojGenerator::initConfiguration()
         initDeploymentTool();
     initWinDeployQtTool();
     initPreLinkEventTools();
-
-    if (!isDebug)
-        conf.compiler.PreprocessorDefinitions += "NDEBUG";
 }
 
 void VcprojGenerator::initCompilerTool()
@@ -1056,16 +1060,6 @@ void VcprojGenerator::initCompilerTool()
         conf.compiler.PrecompiledHeaderFile    = "$(IntDir)\\" + precompPch;
         conf.compiler.PrecompiledHeaderThrough = project->first("PRECOMPILED_HEADER").toQString();
         conf.compiler.ForcedIncludeFiles       = project->values("PRECOMPILED_HEADER").toQStringList();
-
-        if (conf.CompilerVersion <= NET2003) {
-            // Minimal build option triggers an Internal Compiler Error
-            // when used in conjunction with /FI and /Yu, so remove it
-            // ### work-around for a VS 2003 bug. Move to some prf file or remove completely.
-            project->values("QMAKE_CFLAGS_DEBUG").removeAll("-Gm");
-            project->values("QMAKE_CFLAGS_DEBUG").removeAll("/Gm");
-            project->values("QMAKE_CXXFLAGS_DEBUG").removeAll("-Gm");
-            project->values("QMAKE_CXXFLAGS_DEBUG").removeAll("/Gm");
-        }
     }
 
     conf.compiler.parseOptions(project->values("QMAKE_CXXFLAGS"));
@@ -1524,6 +1518,18 @@ void VcprojGenerator::initDistributionFiles()
     vcProject.DistributionFiles.Config = &(vcProject.Configuration);
 }
 
+QString VcprojGenerator::extraCompilerName(const ProString &extraCompiler,
+                                             const QStringList &inputs,
+                                             const QStringList &outputs)
+{
+    QString name = project->values(ProKey(extraCompiler + ".name")).join(' ');
+    if (name.isEmpty())
+        name = extraCompiler.toQString();
+    else
+        name = replaceExtraCompilerVariables(name, inputs, outputs, NoShell);
+    return name;
+}
+
 void VcprojGenerator::initExtraCompilerOutputs()
 {
     ProStringList otherFilters;
@@ -1541,13 +1547,16 @@ void VcprojGenerator::initExtraCompilerOutputs()
                  << "YACCSOURCES";
     const ProStringList &quc = project->values("QMAKE_EXTRA_COMPILERS");
     for (ProStringList::ConstIterator it = quc.begin(); it != quc.end(); ++it) {
-        ProString extracompilerName = project->first(ProKey(*it + ".name"));
-        if (extracompilerName.isEmpty())
-            extracompilerName = (*it);
+        const ProStringList &inputVars = project->values(ProKey(*it + ".input"));
+        ProStringList inputFiles;
+        for (auto var : inputVars)
+            inputFiles.append(project->values(var.toKey()));
+        const ProStringList &outputs = project->values(ProKey(*it + ".output"));
 
         // Create an extra compiler filter and add the files
         VCFilter extraCompile;
-        extraCompile.Name = extracompilerName.toQString();
+        extraCompile.Name = extraCompilerName(it->toQString(), inputFiles.toQStringList(),
+                                              outputs.toQStringList());
         extraCompile.ParseFiles = _False;
         extraCompile.Filter = "";
         extraCompile.Guid = QString(_GUIDExtraCompilerFiles) + "-" + (*it);
@@ -1560,14 +1569,16 @@ void VcprojGenerator::initExtraCompilerOutputs()
             if (!outputVar.isEmpty() && otherFilters.contains(outputVar))
                 continue;
 
-            QString tmp_out = project->first(ProKey(*it + ".output")).toQString();
+            QString tmp_out;
+            if (!outputs.isEmpty())
+                tmp_out = project->first(outputs.first().toKey()).toQString();
             if (project->values(ProKey(*it + ".CONFIG")).indexOf("combine") != -1) {
                 // Combined output, only one file result
                 extraCompile.addFile(Option::fixPathToTargetOS(
                         replaceExtraCompilerVariables(tmp_out, QString(), QString(), NoShell), false));
-            } else {
+            } else if (!inputVars.isEmpty()) {
                 // One output file per input
-                const ProStringList &tmp_in = project->values(project->first(ProKey(*it + ".input")).toKey());
+                const ProStringList &tmp_in = project->values(inputVars.first().toKey());
                 for (int i = 0; i < tmp_in.count(); ++i) {
                     const QString &filename = tmp_in.at(i).toQString();
                     if (extraCompilerSources.contains(filename) && !otherFiltersContain(filename))
@@ -1580,7 +1591,6 @@ void VcprojGenerator::initExtraCompilerOutputs()
             // build steps there. So, we turn it around and add it to the input files instead,
             // provided that the input file variable is not handled already (those in otherFilters
             // are handled, so we avoid them).
-            const ProStringList &inputVars = project->values(ProKey(*it + ".input"));
             for (const ProString &inputVar : inputVars) {
                 if (!otherFilters.contains(inputVar)) {
                     const ProStringList &tmp_in = project->values(inputVar.toKey());

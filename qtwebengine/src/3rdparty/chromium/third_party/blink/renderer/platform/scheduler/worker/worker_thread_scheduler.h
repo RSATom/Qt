@@ -9,12 +9,13 @@
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_time_observer.h"
+#include "components/scheduling_metrics/task_duration_metric_reporter.h"
 #include "third_party/blink/public/platform/web_thread_type.h"
-#include "third_party/blink/renderer/platform/scheduler/common/idle_canceled_delayed_task_sweeper.h"
 #include "third_party/blink/renderer/platform/scheduler/common/idle_helper.h"
+#include "third_party/blink/renderer/platform/scheduler/common/idle_memory_reclaimer.h"
+#include "third_party/blink/renderer/platform/scheduler/common/thread_load_tracker.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
-#include "third_party/blink/renderer/platform/scheduler/util/task_duration_metric_reporter.h"
-#include "third_party/blink/renderer/platform/scheduler/util/thread_load_tracker.h"
+#include "third_party/blink/renderer/platform/scheduler/public/frame_status.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_metrics_helper.h"
 
@@ -23,6 +24,14 @@ namespace sequence_manager {
 class SequenceManager;
 }
 }  // namespace base
+
+namespace service_manager {
+class Connector;
+}
+
+namespace ukm {
+class UkmRecorder;
+}
 
 namespace blink {
 namespace scheduler {
@@ -45,21 +54,24 @@ class PLATFORM_EXPORT WorkerThreadScheduler
   ~WorkerThreadScheduler() override;
 
   // WebThreadScheduler implementation:
-  scoped_refptr<SingleThreadIdleTaskRunner> IdleTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
+  scoped_refptr<base::SingleThreadTaskRunner> IPCTaskRunner() override;
   bool ShouldYieldForHighPriorityWork() override;
   bool CanExceedIdleDeadlineIfRequired() const override;
   void AddTaskObserver(base::MessageLoop::TaskObserver* task_observer) override;
   void RemoveTaskObserver(
       base::MessageLoop::TaskObserver* task_observer) override;
-  void AddRAILModeObserver(RAILModeObserver*) override {}
+  void AddRAILModeObserver(WebRAILModeObserver*) override {}
   void Shutdown() override;
+
+  // ThreadSchedulerImpl implementation:
+  scoped_refptr<SingleThreadIdleTaskRunner> IdleTaskRunner() override;
 
   // NonMainThreadSchedulerImpl implementation:
   scoped_refptr<NonMainThreadTaskQueue> DefaultTaskQueue() override;
   void OnTaskCompleted(NonMainThreadTaskQueue* worker_task_queue,
-                       const base::sequence_manager::TaskQueue::Task& task,
+                       const base::sequence_manager::Task& task,
                        const base::sequence_manager::TaskQueue::TaskTiming&
                            task_timing) override;
 
@@ -116,11 +128,19 @@ class PLATFORM_EXPORT WorkerThreadScheduler
 
   std::unordered_set<WorkerScheduler*>& GetWorkerSchedulersForTesting();
 
+  void SetUkmRecorderForTest(std::unique_ptr<ukm::UkmRecorder> ukm_recorder);
+
  private:
   void MaybeStartLongIdlePeriod();
 
+  void RecordTaskUkm(
+      NonMainThreadTaskQueue* worker_task_queue,
+      const base::sequence_manager::Task& task,
+      const base::sequence_manager::TaskQueue::TaskTiming& task_timing);
+
+  const WebThreadType thread_type_;
   IdleHelper idle_helper_;
-  IdleCanceledDelayedTaskSweeper idle_canceled_delayed_task_sweeper_;
+  IdleMemoryReclaimer idle_memory_reclaimer_;
   ThreadLoadTracker load_tracker_;
   bool initialized_;
   base::TimeTicks thread_start_time_;
@@ -142,6 +162,13 @@ class PLATFORM_EXPORT WorkerThreadScheduler
   // Owned by |task_queue_throttler_|.
   WakeUpBudgetPool* wake_up_budget_pool_ = nullptr;
   CPUTimeBudgetPool* cpu_time_budget_pool_ = nullptr;
+
+  // The status of the parent frame when the worker was created.
+  const FrameStatus initial_frame_status_;
+
+  const ukm::SourceId ukm_source_id_;
+  std::unique_ptr<service_manager::Connector> connector_;
+  std::unique_ptr<ukm::UkmRecorder> ukm_recorder_;
 
   DISALLOW_COPY_AND_ASSIGN(WorkerThreadScheduler);
 };

@@ -39,40 +39,18 @@ QT_BEGIN_NAMESPACE
 
 // ### get rid of that class
 
-/*
-  The CodeChunk class represents a tiny piece of C++ code.
-
-  The class provides conversion between a list of lexemes and a string.  It adds
-  spaces at the right place for consistent style.  The tiny pieces of code it
-  represents are data types, enum values, and default parameter values.
-
-  Apart from the piece of code itself, there are two bits of metainformation
-  stored in CodeChunk: the base and the hotspot.  The base is the part of the
-  piece that may be a hypertext link.  The base of
-
-      QMap<QString, QString>
-
-  is QMap.
-
-  The hotspot is the place the variable name should be inserted in the case of a
-  variable (or parameter) declaration.  The base of
-
-      char * []
-
-  is between '*' and '[]'.
-*/
 class CodeChunk
 {
 public:
-    CodeChunk();
-    CodeChunk( const QString& str );
+    CodeChunk() : hotspot(-1) {}
+    CodeChunk(const QString& str) : s(str), hotspot(-1) {}
 
     void append( const QString& lexeme );
-    void appendHotspot();
+    void appendHotspot() { if (hotspot == -1) hotspot = s.length(); }
 
     bool isEmpty() const { return s.isEmpty(); }
     void clear() { s.clear(); }
-    QString toString() const;
+    QString toString() const { return s; }
     QStringList toPath() const;
     QString left() const { return s.left(hotspot == -1 ? s.length() : hotspot); }
     QString right() const { return s.mid(hotspot == -1 ? s.length() : hotspot); }

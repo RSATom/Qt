@@ -71,11 +71,11 @@ class PannerHandler final : public AudioHandler {
   ~PannerHandler() override;
 
   // AudioHandler
-  void Process(size_t frames_to_process) override;
+  void Process(uint32_t frames_to_process) override;
   void ProcessSampleAccurateValues(AudioBus* destination,
                                    const AudioBus* source,
-                                   size_t frames_to_process);
-  void ProcessOnlyAudioParams(size_t frames_to_process) override;
+                                   uint32_t frames_to_process);
+  void ProcessOnlyAudioParams(uint32_t frames_to_process) override;
   void Initialize() override;
   void Uninitialize() override;
 
@@ -118,7 +118,7 @@ class PannerHandler final : public AudioHandler {
   }
   bool RequiresTailProcessing() const final;
 
-  void SetChannelCount(unsigned long, ExceptionState&) final;
+  void SetChannelCount(unsigned, ExceptionState&) final;
   void SetChannelCountMode(const String&, ExceptionState&) final;
 
  private:
@@ -210,9 +210,11 @@ class PannerNode final : public AudioNode {
  public:
   static PannerNode* Create(BaseAudioContext&, ExceptionState&);
   static PannerNode* Create(BaseAudioContext*,
-                            const PannerOptions&,
+                            const PannerOptions*,
                             ExceptionState&);
   PannerHandler& GetPannerHandler() const;
+
+  PannerNode(BaseAudioContext&);
 
   void Trace(blink::Visitor*) override;
 
@@ -236,17 +238,15 @@ class PannerNode final : public AudioNode {
   double maxDistance() const;
   void setMaxDistance(double, ExceptionState&);
   double rolloffFactor() const;
-  void setRolloffFactor(double);
+  void setRolloffFactor(double, ExceptionState&);
   double coneInnerAngle() const;
   void setConeInnerAngle(double);
   double coneOuterAngle() const;
   void setConeOuterAngle(double);
   double coneOuterGain() const;
-  void setConeOuterGain(double);
+  void setConeOuterGain(double, ExceptionState&);
 
  private:
-  PannerNode(BaseAudioContext&);
-
   Member<AudioParam> position_x_;
   Member<AudioParam> position_y_;
   Member<AudioParam> position_z_;

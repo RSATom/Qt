@@ -4,65 +4,56 @@
 // found in the LICENSE file.
 //
 
-#include <string.h>
+#include "util/EGLWindow.h"
+
 #include <cassert>
 #include <iostream>
 #include <vector>
 
-#include "EGLWindow.h"
-#include "OSWindow.h"
-#include "common/debug.h"
+#include <string.h>
 
-// TODO(jmadill): Clean this up at some point.
-#define EGL_PLATFORM_ANGLE_PLATFORM_METHODS_ANGLEX 0x9999
+#include "platform/Platform.h"
+#include "util/OSWindow.h"
+#include "util/system_utils.h"
 
 EGLPlatformParameters::EGLPlatformParameters()
     : renderer(EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE),
       majorVersion(EGL_DONT_CARE),
       minorVersion(EGL_DONT_CARE),
-      deviceType(EGL_DONT_CARE),
+      deviceType(EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE),
       presentPath(EGL_DONT_CARE)
-{
-}
+{}
 
 EGLPlatformParameters::EGLPlatformParameters(EGLint renderer)
     : renderer(renderer),
       majorVersion(EGL_DONT_CARE),
       minorVersion(EGL_DONT_CARE),
-      deviceType(EGL_DONT_CARE),
+      deviceType(EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE),
       presentPath(EGL_DONT_CARE)
-{
-    if (renderer == EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE ||
-        renderer == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
-    {
-        deviceType = EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE;
-    }
-}
+{}
 
 EGLPlatformParameters::EGLPlatformParameters(EGLint renderer,
                                              EGLint majorVersion,
                                              EGLint minorVersion,
-                                             EGLint useWarp)
+                                             EGLint deviceType)
     : renderer(renderer),
       majorVersion(majorVersion),
       minorVersion(minorVersion),
-      deviceType(useWarp),
+      deviceType(deviceType),
       presentPath(EGL_DONT_CARE)
-{
-}
+{}
 
 EGLPlatformParameters::EGLPlatformParameters(EGLint renderer,
                                              EGLint majorVersion,
                                              EGLint minorVersion,
-                                             EGLint useWarp,
+                                             EGLint deviceType,
                                              EGLint presentPath)
     : renderer(renderer),
       majorVersion(majorVersion),
       minorVersion(minorVersion),
-      deviceType(useWarp),
+      deviceType(deviceType),
       presentPath(presentPath)
-{
-}
+{}
 
 bool operator<(const EGLPlatformParameters &a, const EGLPlatformParameters &b)
 {
@@ -96,41 +87,46 @@ bool operator==(const EGLPlatformParameters &a, const EGLPlatformParameters &b)
            (a.presentPath == b.presentPath);
 }
 
-EGLWindow::EGLWindow(EGLint glesMajorVersion,
-                     EGLint glesMinorVersion,
-                     const EGLPlatformParameters &platform)
-    : mDisplay(EGL_NO_DISPLAY),
-      mSurface(EGL_NO_SURFACE),
-      mContext(EGL_NO_CONTEXT),
-      mClientMajorVersion(glesMajorVersion),
+// GLWindowBase implementation.
+GLWindowBase::GLWindowBase(EGLint glesMajorVersion, EGLint glesMinorVersion)
+    : mClientMajorVersion(glesMajorVersion),
       mClientMinorVersion(glesMinorVersion),
-      mEGLMajorVersion(0),
-      mEGLMinorVersion(0),
-      mPlatform(platform),
       mRedBits(-1),
       mGreenBits(-1),
       mBlueBits(-1),
       mAlphaBits(-1),
       mDepthBits(-1),
       mStencilBits(-1),
+      mSwapInterval(-1),
+      mPlatformMethods(nullptr)
+{}
+
+GLWindowBase::~GLWindowBase() = default;
+
+// EGLWindow implementation.
+EGLWindow::EGLWindow(EGLint glesMajorVersion,
+                     EGLint glesMinorVersion,
+                     const EGLPlatformParameters &platform)
+    : GLWindowBase(glesMajorVersion, glesMinorVersion),
+      mDisplay(EGL_NO_DISPLAY),
+      mSurface(EGL_NO_SURFACE),
+      mContext(EGL_NO_CONTEXT),
+      mEGLMajorVersion(0),
+      mEGLMinorVersion(0),
+      mPlatform(platform),
       mComponentType(EGL_COLOR_COMPONENT_TYPE_FIXED_EXT),
       mMultisample(false),
       mDebug(false),
       mNoError(false),
-      mWebGLCompatibility(false),
       mExtensionsEnabled(),
       mBindGeneratesResource(true),
       mClientArraysEnabled(true),
       mRobustAccess(false),
-      mRobustResourceInit(),
-      mSwapInterval(-1),
       mSamples(-1),
       mDebugLayersEnabled(),
       mContextProgramCacheEnabled(),
-      mContextVirtualization(),
-      mPlatformMethods(nullptr)
-{
-}
+      mContextVirtualization()
+{}
 
 EGLWindow::~EGLWindow()
 {
@@ -162,15 +158,27 @@ EGLContext EGLWindow::getContext() const
     return mContext;
 }
 
-bool EGLWindow::initializeGL(OSWindow *osWindow)
+bool EGLWindow::initializeGL(OSWindow *osWindow, angle::Library *glWindowingLibrary)
 {
-    if (!initializeDisplayAndSurface(osWindow))
+    if (!initializeDisplayAndSurface(osWindow, glWindowingLibrary))
         return false;
     return initializeContext();
 }
 
-bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow)
+bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow, angle::Library *glWindowingLibrary)
 {
+#if defined(ANGLE_USE_UTIL_LOADER)
+    PFNEGLGETPROCADDRESSPROC getProcAddress;
+    glWindowingLibrary->getAs("eglGetProcAddress", &getProcAddress);
+    if (!getProcAddress)
+    {
+        return false;
+    }
+
+    // Likely we will need to use a fallback to Library::getAs on non-ANGLE platforms.
+    angle::LoadEGL(getProcAddress);
+#endif  // defined(ANGLE_USE_UTIL_LOADER)
+
     std::vector<EGLAttrib> displayAttributes;
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
     displayAttributes.push_back(mPlatform.renderer);
@@ -297,13 +305,18 @@ bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow)
 
     surfaceAttributes.push_back(EGL_NONE);
 
-    mSurface = eglCreateWindowSurface(mDisplay, mConfig, osWindow->getNativeWindow(), &surfaceAttributes[0]);
-    if (eglGetError() != EGL_SUCCESS)
+    mSurface = eglCreateWindowSurface(mDisplay, mConfig, osWindow->getNativeWindow(),
+                                      &surfaceAttributes[0]);
+    if (eglGetError() != EGL_SUCCESS || (mSurface == EGL_NO_SURFACE))
     {
         destroyGL();
         return false;
     }
-    ASSERT(mSurface != EGL_NO_SURFACE);
+
+#if defined(ANGLE_USE_UTIL_LOADER)
+    angle::LoadGLES(eglGetProcAddress);
+#endif  // defined(ANGLE_USE_UTIL_LOADER)
+
     return true;
 }
 
@@ -321,7 +334,7 @@ EGLContext EGLWindow::createContext(EGLContext share) const
 
     bool hasWebGLCompatibility =
         strstr(displayExtensions, "EGL_ANGLE_create_context_webgl_compatibility") != nullptr;
-    if (mWebGLCompatibility && !hasWebGLCompatibility)
+    if (mWebGLCompatibility.valid() && !hasWebGLCompatibility)
     {
         return EGL_NO_CONTEXT;
     }
@@ -386,10 +399,10 @@ EGLContext EGLWindow::createContext(EGLContext share) const
         contextAttributes.push_back(EGL_CONTEXT_OPENGL_NO_ERROR_KHR);
         contextAttributes.push_back(mNoError ? EGL_TRUE : EGL_FALSE);
 
-        if (hasWebGLCompatibility)
+        if (mWebGLCompatibility.valid())
         {
             contextAttributes.push_back(EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE);
-            contextAttributes.push_back(mWebGLCompatibility ? EGL_TRUE : EGL_FALSE);
+            contextAttributes.push_back(mWebGLCompatibility.value() ? EGL_TRUE : EGL_FALSE);
         }
 
         if (mExtensionsEnabled.valid())
@@ -491,9 +504,7 @@ void EGLWindow::destroyGL()
 
 bool EGLWindow::isGLInitialized() const
 {
-    return mSurface != EGL_NO_SURFACE &&
-           mContext != EGL_NO_CONTEXT &&
-           mDisplay != EGL_NO_DISPLAY;
+    return mSurface != EGL_NO_SURFACE && mContext != EGL_NO_CONTEXT && mDisplay != EGL_NO_DISPLAY;
 }
 
 // Find an EGLConfig that is an exact match for the specified attributes. EGL_FALSE is returned if
@@ -539,6 +550,11 @@ void EGLWindow::makeCurrent()
     eglMakeCurrent(mDisplay, mSurface, mSurface, mContext);
 }
 
+bool EGLWindow::hasError() const
+{
+    return eglGetError() != EGL_SUCCESS;
+}
+
 // static
 bool EGLWindow::ClientExtensionEnabled(const std::string &extName)
 {
@@ -550,4 +566,26 @@ bool CheckExtensionExists(const char *allExtensions, const std::string &extName)
     const std::string paddedExtensions = std::string(" ") + allExtensions + std::string(" ");
     return paddedExtensions.find(std::string(" ") + extName + std::string(" ")) !=
            std::string::npos;
+}
+
+// static
+void GLWindowBase::Delete(GLWindowBase **window)
+{
+    delete *window;
+    *window = nullptr;
+}
+
+// static
+EGLWindow *EGLWindow::New(EGLint glesMajorVersion,
+                          EGLint glesMinorVersion,
+                          const EGLPlatformParameters &platform)
+{
+    return new EGLWindow(glesMajorVersion, glesMinorVersion, platform);
+}
+
+// static
+void EGLWindow::Delete(EGLWindow **window)
+{
+    delete *window;
+    *window = nullptr;
 }

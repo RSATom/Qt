@@ -13,10 +13,10 @@
 #include <memory>
 #include <string>
 
+#include "rtc_base/checks.h"
 #include "rtc_base/event.h"
 #include "rtc_base/task_queue.h"
 #include "test/field_trial.h"
-#include "test/gmock.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -28,19 +28,18 @@ static const int kMinFramesNeededToScale = 60;  // From quality_scaler.cc.
 static const size_t kDefaultTimeoutMs = 150;
 }  // namespace
 
-#define DO_SYNC(q, block)           \
-  do {                              \
-    rtc::Event event(false, false); \
-    q->PostTask([this, &event] {    \
-      block;                        \
-      event.Set();                  \
-    });                             \
-    RTC_CHECK(event.Wait(1000));    \
+#define DO_SYNC(q, block)        \
+  do {                           \
+    rtc::Event event;            \
+    q->PostTask([this, &event] { \
+      block;                     \
+      event.Set();               \
+    });                          \
+    RTC_CHECK(event.Wait(1000)); \
   } while (0)
 
 class MockAdaptationObserver : public AdaptationObserverInterface {
  public:
-  MockAdaptationObserver() : event(false, false) {}
   virtual ~MockAdaptationObserver() {}
 
   void AdaptUp(AdaptReason r) override {

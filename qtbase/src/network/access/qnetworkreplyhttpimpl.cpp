@@ -752,8 +752,9 @@ void QNetworkReplyHttpImplPrivate::postRequest(const QNetworkRequest &newHttpReq
             quint64 requestStartOffset = requestRange.left(index).toULongLong();
             quint64 requestEndOffset = requestRange.mid(index + 1).toULongLong();
 
+            // In case an end offset is not given it is skipped from the request range
             requestRange = "bytes=" + QByteArray::number(resumeOffset + requestStartOffset) +
-                           '-' + QByteArray::number(requestEndOffset);
+                           '-' + (requestEndOffset ? QByteArray::number(requestEndOffset) : QByteArray());
 
             httpRequest.setHeaderField("Range", requestRange);
         } else {
@@ -787,6 +788,7 @@ void QNetworkReplyHttpImplPrivate::postRequest(const QNetworkRequest &newHttpReq
     if (request.attribute(QNetworkRequest::EmitAllUploadProgressSignalsAttribute).toBool())
         emitAllUploadProgressSignals = true;
 
+    httpRequest.setPeerVerifyName(newHttpRequest.peerVerifyName());
 
     // Create the HTTP thread delegate
     QHttpThreadDelegate *delegate = new QHttpThreadDelegate;
@@ -1563,7 +1565,7 @@ bool QNetworkReplyHttpImplPrivate::sendCacheContents(const QNetworkCacheMetaData
     QIODevice *contents = nc->data(url);
     if (!contents) {
 #if defined(QNETWORKACCESSHTTPBACKEND_DEBUG)
-        qDebug() << "Can not send cache, the contents are 0" << url;
+        qDebug() << "Cannot send cache, the contents are 0" << url;
 #endif
         return false;
     }

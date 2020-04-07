@@ -39,13 +39,18 @@ def _GoodMatchKey(symbol):
     "._468", "._467"
     ".L__unnamed_1193", ".L__unnamed_712"
   """
-  name = _STRIP_NUMBER_SUFFIX_PATTERN.sub('', symbol.full_name)
-  clone_idx = name.find(' [clone ')
-  if clone_idx != -1:
-    name = name[:clone_idx]
-  if name.startswith('*'):
-    # "symbol gap 3 (bar)" -> "symbol gaps"
-    name = _NORMALIZE_STAR_SYMBOLS_PATTERN.sub('s', name)
+  if symbol.IsPak():
+    # full_name looks like "about_ui_resources.grdp: IDR_ABOUT_UI_CREDITS_HTML".
+    # name is just "IDR_ABOUT_UI_CREDITS_HTML".
+    name = symbol.name
+  else:
+    name = _STRIP_NUMBER_SUFFIX_PATTERN.sub('', symbol.full_name)
+    clone_idx = name.find(' [clone ')
+    if clone_idx != -1:
+      name = name[:clone_idx]
+    if name.startswith('*'):
+      # "symbol gap 3 (bar)" -> "symbol gaps"
+      name = _NORMALIZE_STAR_SYMBOLS_PATTERN.sub('s', name)
 
   return symbol.section, symbol.object_path, name
 
@@ -116,7 +121,7 @@ def _DiffSymbolGroups(before, after):
   return models.DeltaSymbolGroup(all_deltas)
 
 
-def Diff(before, after):
+def Diff(before, after, sort=False):
   """Diffs two SizeInfo objects. Returns a DeltaSizeInfo."""
   assert isinstance(before, models.SizeInfo)
   assert isinstance(after, models.SizeInfo)
@@ -127,4 +132,15 @@ def Diff(before, after):
       section_sizes[k] = v
 
   symbol_diff = _DiffSymbolGroups(before.raw_symbols, after.raw_symbols)
-  return models.DeltaSizeInfo(before, after, section_sizes, symbol_diff)
+  ret = models.DeltaSizeInfo(before, after, section_sizes, symbol_diff)
+
+  if sort:
+    syms = ret.symbols  # Triggers clustering.
+    logging.debug('Grouping')
+    # Group path aliases so that functions defined in headers will be sorted
+    # by their actual size rather than shown as many small symbols.
+    syms = syms.GroupedByAliases(same_name_only=True)
+    logging.debug('Sorting')
+    ret.symbols = syms.Sorted()
+  logging.debug('Diff complete')
+  return ret

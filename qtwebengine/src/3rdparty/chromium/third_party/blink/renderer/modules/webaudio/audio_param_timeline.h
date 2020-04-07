@@ -279,7 +279,7 @@ class AudioParamTimeline {
     const double control_rate;
 
     // Parameters needed for processing the current event.
-    const size_t fill_to_frame;
+    const unsigned fill_to_frame;
     const size_t fill_to_end_frame;
 
     // Value and time for the current event
@@ -367,7 +367,7 @@ class AudioParamTimeline {
 
   // Handle processing of CancelValue event. If cancellation happens, value2,
   // time2, and nextEventType will be updated with the new value due to
-  // cancellation.  The
+  // cancellation.  Note that |next_event| or its member can be null.
   std::tuple<float, double, ParamEvent::Type> HandleCancelValues(
       const ParamEvent* current_event,
       ParamEvent* next_event,
@@ -440,30 +440,14 @@ class AudioParamTimeline {
   // Fill the output vector |values| with the value |defaultValue|,
   // starting at |writeIndex| and continuing up to |endFrame|
   // (exclusive).  |writeIndex| is updated with the new index.
-  unsigned FillWithDefault(float* values,
+  uint32_t FillWithDefault(float* values,
                            float default_value,
-                           size_t end_frame,
-                           unsigned write_index);
-
-  // TODO(crbug.com/764396): Remove these two methods when the bug is fixed.
-
-  // |EventAtFrame| finds the current event that would run at the specified
-  // |frame|. The first return value is true if a setValueAtTime call would
-  // overlap some ongoing event.  The second return value is the index of the
-  // current event. The second value must be ignored if the first value is
-  // false.
-  std::tuple<bool, size_t> EventAtFrame(size_t frame, float sample_rate) const;
-
-  // Prints a console warning that a call to the AudioParam value setter
-  // overlaps the event at |event_index|.  |param_name| is the name of the
-  // AudioParam where the where this is happening.
-  void WarnSetterOverlapsEvent(String param_name,
-                               size_t event_index,
-                               BaseAudioContext&) const;
+                           uint32_t end_frame,
+                           uint32_t write_index);
 
   // When cancelling events, remove the items from |events_| starting
   // at the given index.  Update |new_events_| too.
-  void RemoveCancelledEvents(size_t first_event_to_remove);
+  void RemoveCancelledEvents(wtf_size_t first_event_to_remove);
 
   // Vector of all automation events for the AudioParam.  Access must
   // be locked via m_eventsLock.

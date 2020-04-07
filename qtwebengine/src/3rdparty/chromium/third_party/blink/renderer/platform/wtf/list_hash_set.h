@@ -129,6 +129,8 @@ class ListHashSet {
 
   struct AddResult final {
     STACK_ALLOCATED();
+
+   public:
     friend class ListHashSet<ValueArg, inlineCapacity, HashArg, AllocatorArg>;
     AddResult(Node* node, bool is_new_entry)
         : stored_value(&node->value_),
@@ -231,6 +233,11 @@ class ListHashSet {
 
   template <typename VisitorDispatcher>
   void Trace(VisitorDispatcher);
+
+ protected:
+  typename ImplType::ValueType** GetBufferSlot() {
+    return impl_.GetBufferSlot();
+  }
 
  private:
   void Unlink(Node*);
@@ -409,7 +416,7 @@ class ListHashSetNode : public ListHashSetNodeBase<ValueArg> {
 
   void SetWasAlreadyDestructed() {
     if (NodeAllocator::kIsGarbageCollected &&
-        !IsTriviallyDestructible<ValueArg>::value)
+        !std::is_trivially_destructible<ValueArg>::value)
       this->prev_ = UnlinkedNodePointer();
   }
 
@@ -420,7 +427,9 @@ class ListHashSetNode : public ListHashSetNodeBase<ValueArg> {
 
   static void Finalize(void* pointer) {
     // No need to waste time calling finalize if it's not needed.
-    DCHECK(!IsTriviallyDestructible<ValueArg>::value);
+    static_assert(
+        !std::is_trivially_destructible<ValueArg>::value,
+        "Finalization of trivially destructible classes should not happen.");
     ListHashSetNode* self = reinterpret_cast_ptr<ListHashSetNode*>(pointer);
 
     // Check whether this node was already destructed before being unlinked

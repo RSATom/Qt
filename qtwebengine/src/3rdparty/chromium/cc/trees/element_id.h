@@ -47,15 +47,15 @@ static const ElementIdType kInvalidElementId = 0;
 // targets. A Layer's element id can change over the Layer's lifetime because
 // non-default ElementIds are only set during an animation's lifetime.
 struct CC_EXPORT ElementId {
-  explicit ElementId(int id) : id_(id) {}
+  explicit ElementId(ElementIdType id) : id_(id) {}
   ElementId() : ElementId(kInvalidElementId) {}
 
-  bool operator==(const ElementId& o) const;
-  bool operator!=(const ElementId& o) const;
-  bool operator<(const ElementId& o) const;
+  bool operator==(const ElementId& o) const { return id_ == o.id_; }
+  bool operator!=(const ElementId& o) const { return !(*this == o); }
+  bool operator<(const ElementId& o) const { return id_ < o.id_; }
 
   // An ElementId's conversion to a boolean value depends only on its primaryId.
-  explicit operator bool() const;
+  explicit operator bool() const { return !!id_; }
 
   void AddToTracedValue(base::trace_event::TracedValue* res) const;
   std::unique_ptr<base::Value> AsValue() const;

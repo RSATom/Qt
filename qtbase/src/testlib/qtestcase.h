@@ -57,6 +57,7 @@
 
 QT_BEGIN_NAMESPACE
 
+class qfloat16;
 class QRegularExpression;
 
 #define QVERIFY(statement) \
@@ -67,17 +68,17 @@ do {\
 
 #define QFAIL(message) \
 do {\
-    QTest::qFail(message, __FILE__, __LINE__);\
+    QTest::qFail(static_cast<const char *>(message), __FILE__, __LINE__);\
     return;\
 } while (false)
 
 #define QVERIFY2(statement, description) \
 do {\
     if (statement) {\
-        if (!QTest::qVerify(true, #statement, (description), __FILE__, __LINE__))\
+        if (!QTest::qVerify(true, #statement, static_cast<const char *>(description), __FILE__, __LINE__))\
             return;\
     } else {\
-        if (!QTest::qVerify(false, #statement, (description), __FILE__, __LINE__))\
+        if (!QTest::qVerify(false, #statement, static_cast<const char *>(description), __FILE__, __LINE__))\
             return;\
     }\
 } while (false)
@@ -152,7 +153,7 @@ do {\
 #define QTRY_IMPL(expr, timeout)\
     const int qt_test_step = timeout < 350 ? timeout / 7 + 1 : 50; \
     const int qt_test_timeoutValue = timeout; \
-    QTRY_LOOP_IMPL((expr), qt_test_timeoutValue, qt_test_step); \
+    { QTRY_LOOP_IMPL((expr), qt_test_timeoutValue, qt_test_step); } \
     QTRY_TIMEOUT_DEBUG_IMPL((expr), qt_test_timeoutValue, qt_test_step)\
 
 // Will try to wait for the expression to become true while allowing event processing
@@ -184,7 +185,7 @@ do { \
 
 #define QSKIP_INTERNAL(statement) \
 do {\
-    QTest::qSkip(statement, __FILE__, __LINE__);\
+    QTest::qSkip(static_cast<const char *>(statement), __FILE__, __LINE__);\
     return;\
 } while (false)
 
@@ -200,7 +201,7 @@ do {\
 
 #define QEXPECT_FAIL(dataIndex, comment, mode)\
 do {\
-    if (!QTest::qExpectFail(dataIndex, comment, QTest::mode, __FILE__, __LINE__))\
+    if (!QTest::qExpectFail(dataIndex, static_cast<const char *>(comment), QTest::mode, __FILE__, __LINE__))\
         return;\
 } while (false)
 
@@ -217,7 +218,7 @@ do {\
 } while (false)
 
 #define QWARN(msg)\
-    QTest::qWarn(msg, __FILE__, __LINE__)
+    QTest::qWarn(static_cast<const char *>(msg), __FILE__, __LINE__)
 
 #ifdef QT_TESTCASE_BUILDDIR
 # define QFINDTESTDATA(basepath)\
@@ -361,6 +362,9 @@ namespace QTest
     }
 #endif
 
+    Q_TESTLIB_EXPORT bool qCompare(qfloat16 const &t1, qfloat16 const &t2,
+                    const char *actual, const char *expected, const char *file, int line);
+
     Q_TESTLIB_EXPORT bool qCompare(float const &t1, float const &t2,
                     const char *actual, const char *expected, const char *file, int line);
 
@@ -405,6 +409,7 @@ namespace QTest
 
     QTEST_COMPARE_DECL(float)
     QTEST_COMPARE_DECL(double)
+    QTEST_COMPARE_DECL(qfloat16)
     QTEST_COMPARE_DECL(char)
     QTEST_COMPARE_DECL(signed char)
     QTEST_COMPARE_DECL(unsigned char)

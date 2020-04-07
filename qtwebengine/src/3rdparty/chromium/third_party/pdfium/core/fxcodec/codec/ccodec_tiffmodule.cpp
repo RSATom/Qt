@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 
+#include "core/fxcodec/codec/cfx_codec_memory.h"
 #include "core/fxcodec/codec/codec_int.h"
 #include "core/fxcodec/fx_codec.h"
 #include "core/fxcrt/fx_safe_types.h"
@@ -32,7 +33,7 @@ struct TiffDeleter {
 
 }  // namespace
 
-class CTiffContext : public CCodec_TiffModule::Context {
+class CTiffContext final : public CodecModuleIface::Context {
  public:
   CTiffContext() = default;
   ~CTiffContext() override = default;
@@ -120,7 +121,7 @@ tsize_t tiff_read(thandle_t context, tdata_t buf, tsize_t length) {
     return 0;
 
   FX_FILESIZE offset = pTiffContext->offset();
-  if (!pTiffContext->io_in()->ReadBlock(buf, offset, length))
+  if (!pTiffContext->io_in()->ReadBlockAtOffset(buf, offset, length))
     return 0;
 
   pTiffContext->set_offset(increment.ValueOrDie());
@@ -463,7 +464,7 @@ bool CTiffContext::Decode(const RetainPtr<CFX_DIBitmap>& pDIBitmap) {
                                   (uint32*)pDIBitmap->GetBuffer(), rotation,
                                   1)) {
       for (uint32_t row = 0; row < img_height; row++) {
-        uint8_t* row_buf = (uint8_t*)pDIBitmap->GetScanline(row);
+        uint8_t* row_buf = pDIBitmap->GetWritableScanline(row);
         TiffBGRA2RGBA(row_buf, img_width, 4);
       }
       return true;
@@ -487,13 +488,25 @@ bool CTiffContext::Decode(const RetainPtr<CFX_DIBitmap>& pDIBitmap) {
   return false;
 }
 
-std::unique_ptr<CCodec_TiffModule::Context> CCodec_TiffModule::CreateDecoder(
+std::unique_ptr<CodecModuleIface::Context> CCodec_TiffModule::CreateDecoder(
     const RetainPtr<IFX_SeekableReadStream>& file_ptr) {
   auto pDecoder = pdfium::MakeUnique<CTiffContext>();
   if (!pDecoder->InitDecoder(file_ptr))
     return nullptr;
 
   return pDecoder;
+}
+
+FX_FILESIZE CCodec_TiffModule::GetAvailInput(Context* pContext) const {
+  NOTREACHED();
+  return 0;
+}
+
+bool CCodec_TiffModule::Input(Context* pContext,
+                              RetainPtr<CFX_CodecMemory> codec_memory,
+                              CFX_DIBAttribute*) {
+  NOTREACHED();
+  return false;
 }
 
 bool CCodec_TiffModule::LoadFrameInfo(Context* pContext,

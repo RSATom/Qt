@@ -14,6 +14,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -204,37 +205,44 @@ void WebSocket::WebSocketEventHandler::OnFailChannel(
 
 void WebSocket::WebSocketEventHandler::OnStartOpeningHandshake(
     std::unique_ptr<net::WebSocketHandshakeRequestInfo> request) {
-  bool should_send = impl_->delegate_->CanReadRawCookies();
+  bool can_read_raw_cookies = impl_->delegate_->CanReadRawCookies(request->url);
 
   DVLOG(3) << "WebSocketEventHandler::OnStartOpeningHandshake @"
-           << reinterpret_cast<void*>(this) << " should_send=" << should_send;
-
-  if (!should_send)
-    return;
+           << reinterpret_cast<void*>(this)
+           << " can_read_raw_cookies =" << can_read_raw_cookies;
 
   mojom::WebSocketHandshakeRequestPtr request_to_pass(
       mojom::WebSocketHandshakeRequest::New());
   request_to_pass->url.Swap(&request->url);
+  std::string headers_text = base::StringPrintf(
+      "GET %s HTTP/1.1\r\n", request_to_pass->url.spec().c_str());
   net::HttpRequestHeaders::Iterator it(request->headers);
   while (it.GetNext()) {
+    if (!can_read_raw_cookies &&
+        base::EqualsCaseInsensitiveASCII(it.name(),
+                                         net::HttpRequestHeaders::kCookie)) {
+      continue;
+    }
     mojom::HttpHeaderPtr header(mojom::HttpHeader::New());
     header->name = it.name();
     header->value = it.value();
     request_to_pass->headers.push_back(std::move(header));
+    headers_text.append(base::StringPrintf("%s: %s\r\n", it.name().c_str(),
+                                           it.value().c_str()));
   }
-  request_to_pass->headers_text =
-      base::StringPrintf("GET %s HTTP/1.1\r\n",
-                         request_to_pass->url.spec().c_str()) +
-      request->headers.ToString();
+  headers_text.append("\r\n");
+  request_to_pass->headers_text = std::move(headers_text);
 
   impl_->client_->OnStartOpeningHandshake(std::move(request_to_pass));
 }
 
 void WebSocket::WebSocketEventHandler::OnFinishOpeningHandshake(
     std::unique_ptr<net::WebSocketHandshakeResponseInfo> response) {
+  bool can_read_raw_cookies =
+      impl_->delegate_->CanReadRawCookies(response->url);
   DVLOG(3) << "WebSocketEventHandler::OnFinishOpeningHandshake "
            << reinterpret_cast<void*>(this)
-           << " CanReadRawCookies=" << impl_->delegate_->CanReadRawCookies();
+           << " CanReadRawCookies=" << can_read_raw_cookies;
 
   mojom::WebSocketHandshakeResponsePtr response_to_pass(
       mojom::WebSocketHandshakeResponse::New());
@@ -245,17 +253,19 @@ void WebSocket::WebSocketEventHandler::OnFinishOpeningHandshake(
   response_to_pass->socket_address = response->socket_address;
   size_t iter = 0;
   std::string name, value;
+  std::string headers_text =
+      base::StrCat({response->headers->GetStatusLine(), "\r\n"});
   while (response->headers->EnumerateHeaderLines(&iter, &name, &value)) {
-    if (impl_->delegate_->CanReadRawCookies() ||
+    if (can_read_raw_cookies ||
         !net::HttpResponseHeaders::IsCookieResponseHeader(name)) {
       // We drop cookie-related headers such as "set-cookie" when the
       // renderer doesn't have access.
       response_to_pass->headers.push_back(mojom::HttpHeader::New(name, value));
+      base::StrAppend(&headers_text, {name, ": ", value, "\r\n"});
     }
   }
-  response_to_pass->headers_text =
-      net::HttpUtil::ConvertHeadersBackToHTTPResponse(
-          response->headers->raw_headers());
+  headers_text.append("\r\n");
+  response_to_pass->headers_text = headers_text;
 
   impl_->client_->OnFinishOpeningHandshake(std::move(response_to_pass));
 }
@@ -385,7 +395,7 @@ void WebSocket::SendFrame(bool fin,
   DCHECK(IsKnownEnumValue(type));
 
   // TODO(darin): Avoid this copy.
-  scoped_refptr<net::IOBuffer> data_to_pass(new net::IOBuffer(data.size()));
+  auto data_to_pass = base::MakeRefCounted<net::IOBuffer>(data.size());
   std::copy(data.begin(), data.end(), data_to_pass->data());
 
   channel_->SendFrame(fin, MessageTypeToOpCode(type), std::move(data_to_pass),
@@ -456,9 +466,10 @@ void WebSocket::AddChannel(
         net::HttpUtil::IsValidHeaderValue(header->value) &&
         (net::HttpUtil::IsSafeHeader(header->name) ||
          base::EqualsCaseInsensitiveASCII(
-             header->name, net::HttpRequestHeaders::kUserAgent))) {
-      // TODO(yhirano): Revisit the last condition. See
-      // https://chromium-review.googlesource.com/c/chromium/src/+/1059092.
+             header->name, net::HttpRequestHeaders::kUserAgent) ||
+         base::EqualsCaseInsensitiveASCII(header->name,
+                                          net::HttpRequestHeaders::kCookie) ||
+         base::EqualsCaseInsensitiveASCII(header->name, "cookie2"))) {
       headers_to_pass.SetHeader(header->name, header->value);
     }
   }

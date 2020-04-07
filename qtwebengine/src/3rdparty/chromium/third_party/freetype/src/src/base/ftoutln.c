@@ -16,13 +16,6 @@
  */
 
 
-  /**************************************************************************
-   *
-   * All functions are declared in freetype.h.
-   *
-   */
-
-
 #include <ft2build.h>
 #include FT_OUTLINE_H
 #include FT_INTERNAL_OBJECTS_H
@@ -38,7 +31,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_outline
+#define FT_COMPONENT  outline
 
 
   static
@@ -296,14 +289,22 @@
   }
 
 
-  FT_EXPORT_DEF( FT_Error )
-  FT_Outline_New_Internal( FT_Memory    memory,
-                           FT_UInt      numPoints,
-                           FT_Int       numContours,
-                           FT_Outline  *anoutline )
-  {
-    FT_Error  error;
+  /* documentation is in ftoutln.h */
 
+  FT_EXPORT_DEF( FT_Error )
+  FT_Outline_New( FT_Library   library,
+                  FT_UInt      numPoints,
+                  FT_Int       numContours,
+                  FT_Outline  *anoutline )
+  {
+    FT_Error   error;
+    FT_Memory  memory;
+
+
+    if ( !library )
+      return FT_THROW( Invalid_Library_Handle );
+
+    memory = library->memory;
 
     if ( !anoutline || !memory )
       return FT_THROW( Invalid_Argument );
@@ -330,25 +331,9 @@
 
   Fail:
     anoutline->flags |= FT_OUTLINE_OWNER;
-    FT_Outline_Done_Internal( memory, anoutline );
+    FT_Outline_Done( library, anoutline );
 
     return error;
-  }
-
-
-  /* documentation is in ftoutln.h */
-
-  FT_EXPORT_DEF( FT_Error )
-  FT_Outline_New( FT_Library   library,
-                  FT_UInt      numPoints,
-                  FT_Int       numContours,
-                  FT_Outline  *anoutline )
-  {
-    if ( !library )
-      return FT_THROW( Invalid_Library_Handle );
-
-    return FT_Outline_New_Internal( library->memory, numPoints,
-                                    numContours, anoutline );
   }
 
 
@@ -436,12 +421,22 @@
   }
 
 
+  /* documentation is in ftoutln.h */
+
   FT_EXPORT_DEF( FT_Error )
-  FT_Outline_Done_Internal( FT_Memory    memory,
-                            FT_Outline*  outline )
+  FT_Outline_Done( FT_Library   library,
+                   FT_Outline*  outline )
   {
+    FT_Memory  memory;
+
+
+    if ( !library )
+      return FT_THROW( Invalid_Library_Handle );
+
     if ( !outline )
       return FT_THROW( Invalid_Outline );
+
+    memory = library->memory;
 
     if ( !memory )
       return FT_THROW( Invalid_Argument );
@@ -455,21 +450,6 @@
     *outline = null_outline;
 
     return FT_Err_Ok;
-  }
-
-
-  /* documentation is in ftoutln.h */
-
-  FT_EXPORT_DEF( FT_Error )
-  FT_Outline_Done( FT_Library   library,
-                   FT_Outline*  outline )
-  {
-    /* check for valid `outline' in FT_Outline_Done_Internal() */
-
-    if ( !library )
-      return FT_THROW( Invalid_Library_Handle );
-
-    return FT_Outline_Done_Internal( library->memory, outline );
   }
 
 
@@ -619,6 +599,7 @@
     FT_Error     error;
     FT_Renderer  renderer;
     FT_ListNode  node;
+    FT_BBox      cbox;
 
 
     if ( !library )
@@ -629,6 +610,11 @@
 
     if ( !params )
       return FT_THROW( Invalid_Argument );
+
+    FT_Outline_Get_CBox( outline, &cbox );
+    if ( cbox.xMin < -0x1000000L || cbox.yMin < -0x1000000L ||
+         cbox.xMax >  0x1000000L || cbox.yMax >  0x1000000L )
+      return FT_THROW( Invalid_Outline );
 
     renderer = library->cur_renderer;
     node     = library->renderers.head;
@@ -911,9 +897,9 @@
                          FT_Pos       xstrength,
                          FT_Pos       ystrength )
   {
-    FT_Vector*  points;
-    FT_Int      c, first, last;
-    FT_Int      orientation;
+    FT_Vector*      points;
+    FT_Int          c, first, last;
+    FT_Orientation  orientation;
 
 
     if ( !outline )
@@ -1044,7 +1030,7 @@
   FT_EXPORT_DEF( FT_Orientation )
   FT_Outline_Get_Orientation( FT_Outline*  outline )
   {
-    FT_BBox     cbox;
+    FT_BBox     cbox = { 0, 0, 0, 0 };
     FT_Int      xshift, yshift;
     FT_Vector*  points;
     FT_Vector   v_prev, v_cur;
@@ -1090,7 +1076,8 @@
         v_cur.y = points[n].y >> yshift;
 
         area = ADD_LONG( area,
-                         ( v_cur.y - v_prev.y ) * ( v_cur.x + v_prev.x ) );
+                         MUL_LONG( v_cur.y - v_prev.y,
+                                   v_cur.x + v_prev.x ) );
 
         v_prev = v_cur;
       }

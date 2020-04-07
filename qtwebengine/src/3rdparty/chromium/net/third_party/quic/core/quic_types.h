@@ -11,6 +11,7 @@
 #include <ostream>
 #include <vector>
 
+#include "net/third_party/quic/core/quic_connection_id.h"
 #include "net/third_party/quic/core/quic_time.h"
 #include "net/third_party/quic/platform/api/quic_export.h"
 
@@ -19,9 +20,12 @@ namespace quic {
 typedef uint16_t QuicPacketLength;
 typedef uint32_t QuicControlFrameId;
 typedef uint32_t QuicHeaderId;
+typedef uint32_t QuicMessageId;
+
+// TODO(fkastenholz): Should update this to 64 bits for V99.
 typedef uint32_t QuicStreamId;
+
 typedef uint64_t QuicByteCount;
-typedef uint64_t QuicConnectionId;
 typedef uint64_t QuicPacketCount;
 typedef uint64_t QuicPacketNumber;
 typedef uint64_t QuicPublicResetNonceProof;
@@ -40,7 +44,8 @@ typedef std::array<uint8_t, kQuicPathFrameBufferSize> QuicPathFrameBuffer;
 typedef uint16_t QuicApplicationErrorCode;
 
 // The connection id sequence number specifies the order that connection
-// ids must be used in.
+// ids must be used in. This is also the sequence number carried in
+// the IETF QUIC NEW_CONNECTION_ID and RETIRE_CONNECTION_ID frames.
 typedef uint64_t QuicConnectionIdSequenceNumber;
 
 // A struct for functions which consume data payloads and fins.
@@ -75,7 +80,10 @@ enum QuicAsyncStatus {
 // TODO(wtc): see if WriteStatus can be replaced by QuicAsyncStatus.
 enum WriteStatus {
   WRITE_STATUS_OK,
+  // Write is blocked, caller needs to retry.
   WRITE_STATUS_BLOCKED,
+  // Write is blocked but the packet data is buffered, caller should not retry.
+  WRITE_STATUS_BLOCKED_DATA_BUFFERED,
   // To make the IsWriteError(WriteStatus) function work properly:
   // - Non-errors MUST be added before WRITE_STATUS_ERROR.
   // - Errors MUST be added after WRITE_STATUS_ERROR.
@@ -83,6 +91,11 @@ enum WriteStatus {
   WRITE_STATUS_MSG_TOO_BIG,
   WRITE_STATUS_NUM_VALUES,
 };
+
+inline bool IsWriteBlockedStatus(WriteStatus status) {
+  return status == WRITE_STATUS_BLOCKED ||
+         status == WRITE_STATUS_BLOCKED_DATA_BUFFERED;
+}
 
 inline bool IsWriteError(WriteStatus status) {
   return status >= WRITE_STATUS_ERROR;
@@ -102,6 +115,7 @@ struct QUIC_EXPORT_PRIVATE WriteResult {
       case WRITE_STATUS_OK:
         return bytes_written == other.bytes_written;
       case WRITE_STATUS_BLOCKED:
+      case WRITE_STATUS_BLOCKED_DATA_BUFFERED:
         return true;
       default:
         return error_code == other.error_code;
@@ -131,14 +145,14 @@ enum TransmissionType : int8_t {
   LAST_TRANSMISSION_TYPE = PROBING_RETRANSMISSION,
 };
 
-enum HasRetransmittableData : int8_t {
+enum HasRetransmittableData : uint8_t {
   NO_RETRANSMITTABLE_DATA,
   HAS_RETRANSMITTABLE_DATA,
 };
 
-enum IsHandshake : int8_t { NOT_HANDSHAKE, IS_HANDSHAKE };
+enum IsHandshake : uint8_t { NOT_HANDSHAKE, IS_HANDSHAKE };
 
-enum class Perspective { IS_SERVER, IS_CLIENT };
+enum class Perspective : uint8_t { IS_SERVER, IS_CLIENT };
 QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
                                              const Perspective& s);
 
@@ -152,7 +166,7 @@ enum class ConnectionCloseBehavior {
   SEND_CONNECTION_CLOSE_PACKET_WITH_NO_ACK
 };
 
-enum QuicFrameType : int8_t {
+enum QuicFrameType : uint8_t {
   // Regular frame types. The values set here cannot change without the
   // introduction of a new QUIC version.
   PADDING_FRAME = 0,
@@ -182,6 +196,10 @@ enum QuicFrameType : int8_t {
   PATH_RESPONSE_FRAME,
   PATH_CHALLENGE_FRAME,
   STOP_SENDING_FRAME,
+  MESSAGE_FRAME,
+  CRYPTO_FRAME,
+  NEW_TOKEN_FRAME,
+  RETIRE_CONNECTION_ID_FRAME,
 
   NUM_FRAME_TYPES
 };
@@ -191,6 +209,12 @@ enum QuicFrameType : int8_t {
 // the symbol will map to the correct stream type.
 // All types are defined here, even if we have not yet implmented the
 // quic/core/stream/.... stuff needed.
+// Note: The protocol specifies that frame types are varint-62 encoded,
+// further stating that the shortest encoding must be used.  The current set of
+// frame types all have values less than 0x40 (64) so can be encoded in a single
+// byte, with the two most significant bits being 0. Thus, the following
+// enumerations are valid as both the numeric values of frame types AND their
+// encodings.
 enum QuicIetfFrameType : uint8_t {
   IETF_PADDING = 0x00,
   IETF_RST_STREAM = 0x01,
@@ -205,7 +229,7 @@ enum QuicIetfFrameType : uint8_t {
   IETF_STREAM_ID_BLOCKED = 0x0a,
   IETF_NEW_CONNECTION_ID = 0x0b,
   IETF_STOP_SENDING = 0x0c,
-  IETF_ACK = 0x0d,
+  IETF_RETIRE_CONNECTION_ID = 0x0d,
   IETF_PATH_CHALLENGE = 0x0e,
   IETF_PATH_RESPONSE = 0x0f,
   // the low-3 bits of the stream frame type value are actually flags
@@ -215,10 +239,19 @@ enum QuicIetfFrameType : uint8_t {
   // whether the frame is a stream frame or not, and then examine each
   // bit specifically when/as needed.
   IETF_STREAM = 0x10,
+  IETF_CRYPTO = 0x18,
+  IETF_NEW_TOKEN = 0x19,
+  IETF_ACK = 0x1a,
+  IETF_ACK_ECN = 0x1b,
+
+  // MESSAGE frame type is not yet determined, use 0x2x temporarily to give
+  // stream frame some wiggle room.
+  IETF_EXTENSION_MESSAGE_NO_LENGTH = 0x20,
+  IETF_EXTENSION_MESSAGE = 0x21,
 };
 // Masks for the bits that indicate the frame is a Stream frame vs the
 // bits used as flags.
-#define IETF_STREAM_FRAME_TYPE_MASK 0xf8
+#define IETF_STREAM_FRAME_TYPE_MASK 0xfffffffffffffff8
 #define IETF_STREAM_FRAME_FLAG_MASK 0x07
 #define IS_IETF_STREAM_FRAME(_stype_) \
   (((_stype_)&IETF_STREAM_FRAME_TYPE_MASK) == IETF_STREAM)
@@ -229,14 +262,10 @@ enum QuicIetfFrameType : uint8_t {
 #define IETF_STREAM_FRAME_LEN_BIT 0x02
 #define IETF_STREAM_FRAME_OFF_BIT 0x04
 
-enum QuicConnectionIdLength {
-  PACKET_0BYTE_CONNECTION_ID = 0,
-  PACKET_8BYTE_CONNECTION_ID = 8
-};
-
-enum QuicPacketNumberLength : int8_t {
+enum QuicPacketNumberLength : uint8_t {
   PACKET_1BYTE_PACKET_NUMBER = 1,
   PACKET_2BYTE_PACKET_NUMBER = 2,
+  PACKET_3BYTE_PACKET_NUMBER = 3,  // Only used in v99.
   PACKET_4BYTE_PACKET_NUMBER = 4,
   // TODO(rch): Remove this when we remove QUIC_VERSION_39.
   PACKET_6BYTE_PACKET_NUMBER = 6,
@@ -306,9 +335,9 @@ enum QuicPacketPrivateFlags {
 // QUIC. Note that this is separate from the congestion feedback type -
 // some congestion control algorithms may use the same feedback type
 // (Reno and Cubic are the classic example for that).
-enum CongestionControlType { kCubicBytes, kRenoBytes, kBBR, kPCC };
+enum CongestionControlType { kCubicBytes, kRenoBytes, kBBR, kPCC, kGoogCC };
 
-enum LossDetectionType {
+enum LossDetectionType : uint8_t {
   kNack,          // Used to mimic TCP's loss detection.
   kTime,          // Time based loss detection.
   kAdaptiveTime,  // Adaptive time based loss detection.
@@ -327,7 +356,7 @@ enum EncryptionLevel : int8_t {
   NUM_ENCRYPTION_LEVELS,
 };
 
-enum AddressChangeType {
+enum AddressChangeType : uint8_t {
   // IP address and port remain unchanged.
   NO_CHANGE,
   // Port changed, but IP address remains unchanged.
@@ -428,42 +457,28 @@ typedef std::vector<LostPacket> LostPacketVector;
 enum QuicIetfTransportErrorCodes : uint16_t {
   NO_IETF_QUIC_ERROR = 0x0,
   INTERNAL_ERROR = 0x1,
+  SERVER_BUSY_ERROR = 0x2,
   FLOW_CONTROL_ERROR = 0x3,
   STREAM_ID_ERROR = 0x4,
   STREAM_STATE_ERROR = 0x5,
   FINAL_OFFSET_ERROR = 0x6,
-  FRAME_FORMAT_ERROR = 0x7,
+  FRAME_ENCODING_ERROR = 0x7,
   TRANSPORT_PARAMETER_ERROR = 0x8,
   VERSION_NEGOTIATION_ERROR = 0x9,
   PROTOCOL_VIOLATION = 0xA,
-  UNSOLICITED_PONG = 0xB,
+  INVALID_MIGRATION = 0xC,
   FRAME_ERROR_base = 0x100,  // add frame type to this base
 };
 
-enum QuicIetfPacketHeaderForm {
-  // Long header is used for packets that are sent prior to the completion of
-  // version negotiation and establishment of 1-RTT keys.
-  LONG_HEADER,
-  // Short header is used after the version and 1-RTT keys are negotiated.
-  SHORT_HEADER,
-};
-
-// Used in long header to explicitly indicate the packet type.
+// Please note, this value cannot used directly for packet serialization.
 enum QuicLongHeaderType : uint8_t {
-  VERSION_NEGOTIATION = 0,  // Value does not matter.
-  ZERO_RTT_PROTECTED = 0x7C,
-  HANDSHAKE = 0x7D,
-  RETRY = 0x7E,
-  INITIAL = 0x7F,
+  VERSION_NEGOTIATION,
+  INITIAL,
+  ZERO_RTT_PROTECTED,
+  HANDSHAKE,
+  RETRY,
 
   INVALID_PACKET_TYPE,
-};
-
-// Used in short header to determine the size of packet number field.
-enum QuicShortHeaderType : uint8_t {
-  SHORT_HEADER_1_BYTE_PACKET_NUMBER = 0,
-  SHORT_HEADER_2_BYTE_PACKET_NUMBER = 1,
-  SHORT_HEADER_4_BYTE_PACKET_NUMBER = 2,
 };
 
 enum QuicPacketHeaderTypeFlags : uint8_t {
@@ -476,11 +491,55 @@ enum QuicPacketHeaderTypeFlags : uint8_t {
   // Bits 4 and 5: Reserved bits for short header.
   FLAGS_SHORT_HEADER_RESERVED_1 = 1 << 4,
   FLAGS_SHORT_HEADER_RESERVED_2 = 1 << 5,
-  // Bit 6: Indicates the key phase, which allows the receipt of the packet to
-  // identify the packet protection keys that are used to protect the packet.
-  FLAGS_KEY_PHASE_BIT = 1 << 6,
+  // Bit 6: the 'QUIC' bit.
+  FLAGS_FIXED_BIT = 1 << 6,
   // Bit 7: Indicates the header is long or short header.
   FLAGS_LONG_HEADER = 1 << 7,
+};
+
+enum MessageStatus {
+  MESSAGE_STATUS_SUCCESS,
+  MESSAGE_STATUS_ENCRYPTION_NOT_ESTABLISHED,  // Failed to send message because
+                                              // encryption is not established
+                                              // yet.
+  MESSAGE_STATUS_UNSUPPORTED,  // Failed to send message because MESSAGE frame
+                               // is not supported by the connection.
+  MESSAGE_STATUS_BLOCKED,      // Failed to send message because connection is
+                           // congestion control blocked or underlying socket is
+                           // write blocked.
+  MESSAGE_STATUS_TOO_LARGE,  // Failed to send message because the message is
+                             // too large to fit into a single packet.
+  MESSAGE_STATUS_INTERNAL_ERROR,  // Failed to send message because connection
+                                  // reaches an invalid state.
+};
+
+// Used to return the result of SendMessage calls
+struct QUIC_EXPORT_PRIVATE MessageResult {
+  MessageResult(MessageStatus status, QuicMessageId message_id);
+
+  bool operator==(const MessageResult& other) const {
+    return status == other.status && message_id == other.message_id;
+  }
+
+  MessageStatus status;
+  // Only valid when status is MESSAGE_STATUS_SUCCESS.
+  QuicMessageId message_id;
+};
+
+enum WriteStreamDataResult {
+  WRITE_SUCCESS,
+  STREAM_MISSING,  // Trying to write data of a nonexistent stream (e.g.
+                   // closed).
+  WRITE_FAILED,    // Trying to write nonexistent data of a stream
+};
+
+enum StreamType {
+  // Bidirectional streams allow for data to be sent in both directions.
+  BIDIRECTIONAL,
+
+  // Unidirectional streams carry data in one direction only.
+  WRITE_UNIDIRECTIONAL,
+  READ_UNIDIRECTIONAL,
 };
 
 }  // namespace quic

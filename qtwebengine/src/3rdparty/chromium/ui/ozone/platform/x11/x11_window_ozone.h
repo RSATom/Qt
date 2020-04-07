@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
-#include "ui/events/platform/x11/x11_event_source_libevent.h"
+#include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/platform_window/x11/x11_window_base.h"
 
 namespace ui {

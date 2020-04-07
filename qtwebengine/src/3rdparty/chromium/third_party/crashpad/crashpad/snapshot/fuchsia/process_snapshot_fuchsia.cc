@@ -14,8 +14,6 @@
 
 #include "snapshot/fuchsia/process_snapshot_fuchsia.h"
 
-#include <zircon/process.h>
-
 #include "base/logging.h"
 #include "util/fuchsia/koid_utilities.h"
 
@@ -25,7 +23,7 @@ ProcessSnapshotFuchsia::ProcessSnapshotFuchsia() = default;
 
 ProcessSnapshotFuchsia::~ProcessSnapshotFuchsia() = default;
 
-bool ProcessSnapshotFuchsia::Initialize(zx_handle_t process) {
+bool ProcessSnapshotFuchsia::Initialize(const zx::process& process) {
   INITIALIZATION_STATE_SET_INITIALIZING(initialized_);
 
   if (gettimeofday(&snapshot_time_, nullptr) != 0) {
@@ -42,6 +40,13 @@ bool ProcessSnapshotFuchsia::Initialize(zx_handle_t process) {
 
   InitializeThreads();
   InitializeModules();
+
+  for (const auto& entry : process_reader_.MemoryMap()->Entries()) {
+    if (entry.type == ZX_INFO_MAPS_TYPE_MAPPING) {
+      memory_map_.push_back(
+          std::make_unique<internal::MemoryMapRegionSnapshotFuchsia>(entry));
+    }
+  }
 
   INITIALIZATION_STATE_SET_VALID(initialized_);
   return true;
@@ -95,7 +100,7 @@ void ProcessSnapshotFuchsia::GetCrashpadOptions(
 
 pid_t ProcessSnapshotFuchsia::ProcessID() const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-  return GetKoidForHandle(zx_process_self());
+  return GetKoidForHandle(*zx::process::self());
 }
 
 pid_t ProcessSnapshotFuchsia::ParentProcessID() const {
@@ -177,7 +182,11 @@ const ExceptionSnapshot* ProcessSnapshotFuchsia::Exception() const {
 std::vector<const MemoryMapRegionSnapshot*> ProcessSnapshotFuchsia::MemoryMap()
     const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-  return std::vector<const MemoryMapRegionSnapshot*>();
+  std::vector<const MemoryMapRegionSnapshot*> memory_map;
+  for (const auto& item : memory_map_) {
+    memory_map.push_back(item.get());
+  }
+  return memory_map;
 }
 
 std::vector<HandleSnapshot> ProcessSnapshotFuchsia::Handles() const {
@@ -188,6 +197,11 @@ std::vector<HandleSnapshot> ProcessSnapshotFuchsia::Handles() const {
 std::vector<const MemorySnapshot*> ProcessSnapshotFuchsia::ExtraMemory() const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
   return std::vector<const MemorySnapshot*>();
+}
+
+const ProcessMemory* ProcessSnapshotFuchsia::Memory() const {
+  INITIALIZATION_STATE_DCHECK_VALID(initialized_);
+  return process_reader_.Memory();
 }
 
 void ProcessSnapshotFuchsia::InitializeThreads() {

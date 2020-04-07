@@ -6,13 +6,23 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
+
 namespace net {
 
 LayeredNetworkDelegate::LayeredNetworkDelegate(
     std::unique_ptr<NetworkDelegate> nested_network_delegate)
-    : nested_network_delegate_(std::move(nested_network_delegate)) {}
+    : owned_nested_network_delegate_(std::move(nested_network_delegate)),
+      nested_network_delegate_(owned_nested_network_delegate_.get()) {}
 
 LayeredNetworkDelegate::~LayeredNetworkDelegate() = default;
+
+std::unique_ptr<NetworkDelegate>
+LayeredNetworkDelegate::CreatePassThroughNetworkDelegate(
+    NetworkDelegate* unowned_nested_network_delegate) {
+  return base::WrapUnique<NetworkDelegate>(
+      new LayeredNetworkDelegate(unowned_nested_network_delegate));
+}
 
 int LayeredNetworkDelegate::OnBeforeURLRequest(URLRequest* request,
                                                CompletionOnceCallback callback,
@@ -99,12 +109,12 @@ void LayeredNetworkDelegate::OnBeforeRedirectInternal(
 
 void LayeredNetworkDelegate::OnResponseStarted(URLRequest* request,
                                                int net_error) {
-  OnResponseStartedInternal(request);
+  OnResponseStartedInternal(request, net_error);
   nested_network_delegate_->NotifyResponseStarted(request, net_error);
 }
 
-void LayeredNetworkDelegate::OnResponseStartedInternal(URLRequest* request) {
-}
+void LayeredNetworkDelegate::OnResponseStartedInternal(URLRequest* request,
+                                                       int net_error) {}
 
 void LayeredNetworkDelegate::OnNetworkBytesReceived(URLRequest* request,
                                                     int64_t bytes_received) {
@@ -172,26 +182,36 @@ void LayeredNetworkDelegate::OnAuthRequiredInternal(
     AuthCredentials* credentials) {}
 
 bool LayeredNetworkDelegate::OnCanGetCookies(const URLRequest& request,
-                                             const CookieList& cookie_list) {
-  OnCanGetCookiesInternal(request, cookie_list);
-  return nested_network_delegate_->CanGetCookies(request, cookie_list);
+                                             const CookieList& cookie_list,
+                                             bool allowed_from_caller) {
+  return nested_network_delegate_->CanGetCookies(
+      request, cookie_list,
+      OnCanGetCookiesInternal(request, cookie_list, allowed_from_caller));
 }
 
-void LayeredNetworkDelegate::OnCanGetCookiesInternal(
+bool LayeredNetworkDelegate::OnCanGetCookiesInternal(
     const URLRequest& request,
-    const CookieList& cookie_list) {}
+    const CookieList& cookie_list,
+    bool allowed_from_caller) {
+  return allowed_from_caller;
+}
 
 bool LayeredNetworkDelegate::OnCanSetCookie(const URLRequest& request,
                                             const net::CanonicalCookie& cookie,
-                                            CookieOptions* options) {
-  OnCanSetCookieInternal(request, cookie, options);
-  return nested_network_delegate_->CanSetCookie(request, cookie, options);
+                                            CookieOptions* options,
+                                            bool allowed_from_caller) {
+  return nested_network_delegate_->CanSetCookie(
+      request, cookie, options,
+      OnCanSetCookieInternal(request, cookie, options, allowed_from_caller));
 }
 
-void LayeredNetworkDelegate::OnCanSetCookieInternal(
+bool LayeredNetworkDelegate::OnCanSetCookieInternal(
     const URLRequest& request,
     const net::CanonicalCookie& cookie,
-    CookieOptions* options) {}
+    CookieOptions* options,
+    bool allowed_from_caller) {
+  return allowed_from_caller;
+}
 
 bool LayeredNetworkDelegate::OnCanAccessFile(
     const URLRequest& request,
@@ -207,24 +227,18 @@ void LayeredNetworkDelegate::OnCanAccessFileInternal(
     const base::FilePath& original_path,
     const base::FilePath& absolute_path) const {}
 
-bool LayeredNetworkDelegate::OnCanEnablePrivacyMode(
+bool LayeredNetworkDelegate::OnForcePrivacyMode(
     const GURL& url,
     const GURL& site_for_cookies) const {
-  OnCanEnablePrivacyModeInternal(url, site_for_cookies);
-  return nested_network_delegate_->CanEnablePrivacyMode(url, site_for_cookies);
+  return OnForcePrivacyModeInternal(url, site_for_cookies) ||
+         nested_network_delegate_->ForcePrivacyMode(url, site_for_cookies);
 }
 
-void LayeredNetworkDelegate::OnCanEnablePrivacyModeInternal(
+bool LayeredNetworkDelegate::OnForcePrivacyModeInternal(
     const GURL& url,
-    const GURL& site_for_cookies) const {}
-
-bool LayeredNetworkDelegate::OnAreExperimentalCookieFeaturesEnabled() const {
-  OnAreExperimentalCookieFeaturesEnabledInternal();
-  return nested_network_delegate_->AreExperimentalCookieFeaturesEnabled();
+    const GURL& site_for_cookies) const {
+  return false;
 }
-
-void LayeredNetworkDelegate::OnAreExperimentalCookieFeaturesEnabledInternal()
-    const {}
 
 bool LayeredNetworkDelegate::
     OnCancelURLRequestWithPolicyViolatingReferrerHeader(
@@ -287,5 +301,9 @@ bool LayeredNetworkDelegate::OnCanUseReportingClient(
 void LayeredNetworkDelegate::OnCanUseReportingClientInternal(
     const url::Origin& origin,
     const GURL& endpoint) const {}
+
+LayeredNetworkDelegate::LayeredNetworkDelegate(
+    NetworkDelegate* unowned_nested_network_delegate)
+    : nested_network_delegate_(unowned_nested_network_delegate) {}
 
 }  // namespace net

@@ -58,7 +58,7 @@ generated file in a Linux or Mac host, the following environment variables
 need to be set:
 
     export DEPOT_TOOLS_WIN_TOOLCHAIN_BASE_URL=<path/to/sdk/zip/file>
-    export GYP_MSVS_<toolchain hash>=<hash value>
+    export GYP_MSVS_HASH_<toolchain hash>=<hash value>
 
 `<toolchain hash>` is hardcoded in `src/build/vs_toolchain.py` and can be found by
 setting `DEPOT_TOOLS_WIN_TOOLCHAIN_BASE_URL` and running `gclient sync`:
@@ -92,6 +92,6 @@ You can run the Windows binaries you built on swarming, like so:
 See the contents of run-swarmed.py for how to do this manually.
 
 The
-[linux-win_cross-rel](https://ci.chromium.org/buildbot/chromium.clang/linux-win_cross-rel/)
+[linux-win_cross-rel](https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/linux-win_cross-rel/)
 buildbot does 64-bit release cross builds, and also runs tests. You can look at
 it to get an idea of which tests pass in the cross build.

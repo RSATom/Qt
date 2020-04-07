@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 
 namespace gpu {
 
@@ -321,6 +322,8 @@ void SyncPointClientState::EnsureWaitReleased(uint64_t release,
 }
 
 SyncPointManager::SyncPointManager() {
+  // Order number 0 is treated as invalid, so increment the generator and return
+  // positive order numbers in GenerateOrderNumber() from now on.
   order_num_generator_.GetNext();
 }
 
@@ -360,7 +363,8 @@ SyncPointManager::CreateSyncPointClientState(
   {
     base::AutoLock auto_lock(lock_);
     DCHECK_GE(namespace_id, 0);
-    DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_state_maps_));
+    DCHECK_LT(static_cast<size_t>(namespace_id),
+              base::size(client_state_maps_));
     DCHECK(!client_state_maps_[namespace_id].count(command_buffer_id));
     client_state_maps_[namespace_id].insert(
         std::make_pair(command_buffer_id, client_state));
@@ -374,7 +378,7 @@ void SyncPointManager::DestroyedSyncPointClientState(
     CommandBufferId command_buffer_id) {
   base::AutoLock auto_lock(lock_);
   DCHECK_GE(namespace_id, 0);
-  DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_state_maps_));
+  DCHECK_LT(static_cast<size_t>(namespace_id), base::size(client_state_maps_));
   DCHECK(client_state_maps_[namespace_id].count(command_buffer_id));
   client_state_maps_[namespace_id].erase(command_buffer_id);
 }
@@ -464,7 +468,8 @@ scoped_refptr<SyncPointClientState> SyncPointManager::GetSyncPointClientState(
     CommandBufferNamespace namespace_id,
     CommandBufferId command_buffer_id) {
   if (namespace_id >= 0) {
-    DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_state_maps_));
+    DCHECK_LT(static_cast<size_t>(namespace_id),
+              base::size(client_state_maps_));
     base::AutoLock auto_lock(lock_);
     ClientStateMap& client_state_map = client_state_maps_[namespace_id];
     auto it = client_state_map.find(command_buffer_id);

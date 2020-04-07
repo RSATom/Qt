@@ -42,7 +42,11 @@ enum PreviewsTypes {
       1 << 7,  // Request that resource loading hints be used during pageload.
   OFFLINE_PAGE_ON =
       1 << 8,  // Request that an offline page be used if one is stored.
-  PREVIEWS_STATE_LAST = OFFLINE_PAGE_ON
+  LITE_PAGE_REDIRECT_ON = 1 << 9,  // Allow the browser to redirect the resource
+                                   // to a Lite Page server.
+  LAZY_IMAGE_LOAD_DEFERRED = 1 << 10,  // Request the placeholder version of an
+                                       // image that was deferred by lazyload.
+  PREVIEWS_STATE_LAST = LAZY_IMAGE_LOAD_DEFERRED
 };
 
 // Combination of all previews that are guaranteed not to provide partial
@@ -69,6 +73,10 @@ STATIC_ASSERT_PREVIEWS_ENUM(RESOURCE_LOADING_HINTS_ON,
                             blink::WebURLRequest::kResourceLoadingHintsOn);
 STATIC_ASSERT_PREVIEWS_ENUM(OFFLINE_PAGE_ON,
                             blink::WebURLRequest::kOfflinePageOn);
+STATIC_ASSERT_PREVIEWS_ENUM(LITE_PAGE_REDIRECT_ON,
+                            blink::WebURLRequest::kLitePageRedirectOn);
+STATIC_ASSERT_PREVIEWS_ENUM(LAZY_IMAGE_LOAD_DEFERRED,
+                            blink::WebURLRequest::kLazyImageLoadDeferred);
 STATIC_ASSERT_PREVIEWS_ENUM(PREVIEWS_STATE_LAST,
                             blink::WebURLRequest::kPreviewsStateLast);
 

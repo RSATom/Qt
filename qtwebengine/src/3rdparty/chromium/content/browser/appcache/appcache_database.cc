@@ -9,23 +9,40 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "content/browser/appcache/appcache_backfillers.h"
 #include "content/browser/appcache/appcache_entry.h"
 #include "content/browser/appcache/appcache_histograms.h"
-#include "sql/connection.h"
+#include "sql/database.h"
 #include "sql/error_delegate_util.h"
 #include "sql/meta_table.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
+#include "storage/browser/quota/padding_key.h"
 
 namespace content {
 
 // Schema -------------------------------------------------------------------
 namespace {
 
-const int kCurrentVersion = 7;
-const int kCompatibleVersion = 7;
+// Version number of the database.
+//
+// We support migrating the database schema from versions that are at most 2
+// years old. Older versions are unsupported, and will cause the database to get
+// nuked.
+//
+// Version 0 - 2009-12-28 - https://crrev.com/501033 (unsupported)
+// Version 1 - 2010-01-20 - https://crrev.com/554008 (unsupported)
+// Version 2 - 2010-02-23 - https://crrev.com/630009 (unsupported)
+// Version 3 - 2010-03-17 - https://crrev.com/886003 (unsupported)
+// Version 4 - 2011-12-12 - https://crrev.com/8396013 (unsupported)
+// Version 5 - 2013-03-29 - https://crrev.com/12628006 (unsupported)
+// Version 6 - 2013-09-20 - https://crrev.com/23503069 (unsupported)
+// Version 7 - 2015-07-09 - https://crrev.com/879393002
+// Version 8 - 2019-03-18 - https://crrev.com/c/1488059
+const int kCurrentVersion = 8;
+const int kCompatibleVersion = 8;
 const bool kCreateIfNeeded = true;
 const bool kDontCreate = false;
 
@@ -56,44 +73,45 @@ struct IndexInfo {
 };
 
 const TableInfo kTables[] = {
-  { kGroupsTable,
-    "(group_id INTEGER PRIMARY KEY,"
-    " origin TEXT,"
-    " manifest_url TEXT,"
-    " creation_time INTEGER,"
-    " last_access_time INTEGER,"
-    " last_full_update_check_time INTEGER,"
-    " first_evictable_error_time INTEGER)" },
+    {kGroupsTable,
+     "(group_id INTEGER PRIMARY KEY,"
+     " origin TEXT,"
+     " manifest_url TEXT,"
+     " creation_time INTEGER,"
+     " last_access_time INTEGER,"
+     " last_full_update_check_time INTEGER,"
+     " first_evictable_error_time INTEGER)"},
 
-  { kCachesTable,
-    "(cache_id INTEGER PRIMARY KEY,"
-    " group_id INTEGER,"
-    " online_wildcard INTEGER CHECK(online_wildcard IN (0, 1)),"
-    " update_time INTEGER,"
-    " cache_size INTEGER)" },  // intentionally not normalized
+    {kCachesTable,
+     "(cache_id INTEGER PRIMARY KEY,"
+     " group_id INTEGER,"
+     " online_wildcard INTEGER CHECK(online_wildcard IN (0, 1)),"
+     " update_time INTEGER,"
+     " cache_size INTEGER,"      // intentionally not normalized
+     " padding_size INTEGER)"},  // intentionally not normalized
 
-  { kEntriesTable,
-    "(cache_id INTEGER,"
-    " url TEXT,"
-    " flags INTEGER,"
-    " response_id INTEGER,"
-    " response_size INTEGER)" },
+    {kEntriesTable,
+     "(cache_id INTEGER,"
+     " url TEXT,"
+     " flags INTEGER,"
+     " response_id INTEGER,"
+     " response_size INTEGER,"
+     " padding_size INTEGER)"},
 
-  { kNamespacesTable,
-    "(cache_id INTEGER,"
-    " origin TEXT,"  // intentionally not normalized
-    " type INTEGER,"
-    " namespace_url TEXT,"
-    " target_url TEXT,"
-    " is_pattern INTEGER CHECK(is_pattern IN (0, 1)))" },
+    {kNamespacesTable,
+     "(cache_id INTEGER,"
+     " origin TEXT,"  // intentionally not normalized
+     " type INTEGER,"
+     " namespace_url TEXT,"
+     " target_url TEXT,"
+     " is_pattern INTEGER CHECK(is_pattern IN (0, 1)))"},
 
-  { kOnlineWhiteListsTable,
-    "(cache_id INTEGER,"
-    " namespace_url TEXT,"
-    " is_pattern INTEGER CHECK(is_pattern IN (0, 1)))" },
+    {kOnlineWhiteListsTable,
+     "(cache_id INTEGER,"
+     " namespace_url TEXT,"
+     " is_pattern INTEGER CHECK(is_pattern IN (0, 1)))"},
 
-  { kDeletableResponseIdsTable,
-    "(response_id INTEGER NOT NULL)" },
+    {kDeletableResponseIdsTable, "(response_id INTEGER NOT NULL)"},
 };
 
 const IndexInfo kIndexes[] = {
@@ -153,17 +171,17 @@ const IndexInfo kIndexes[] = {
     true },
 };
 
-const int kTableCount = arraysize(kTables);
-const int kIndexCount = arraysize(kIndexes);
+const int kTableCount = base::size(kTables);
+const int kIndexCount = base::size(kIndexes);
 
-bool CreateTable(sql::Connection* db, const TableInfo& info) {
+bool CreateTable(sql::Database* db, const TableInfo& info) {
   std::string sql("CREATE TABLE ");
   sql += info.table_name;
   sql += info.columns;
   return db->Execute(sql.c_str());
 }
 
-bool CreateIndex(sql::Connection* db, const IndexInfo& info) {
+bool CreateIndex(sql::Database* db, const IndexInfo& info) {
   std::string sql;
   if (info.unique)
     sql += "CREATE UNIQUE INDEX ";
@@ -225,13 +243,13 @@ void AppCacheDatabase::Disable() {
 }
 
 int64_t AppCacheDatabase::GetOriginUsage(const url::Origin& origin) {
-  std::vector<CacheRecord> records;
-  if (!FindCachesForOrigin(origin, &records))
+  std::vector<CacheRecord> caches;
+  if (!FindCachesForOrigin(origin, &caches))
     return 0;
 
   int64_t origin_usage = 0;
-  for (const auto& record : records)
-    origin_usage += record.cache_size;
+  for (const auto& cache : caches)
+    origin_usage += cache.cache_size + cache.padding_size;
   return origin_usage;
 }
 
@@ -493,7 +511,8 @@ bool AppCacheDatabase::FindCache(int64_t cache_id, CacheRecord* record) {
     return false;
 
   static const char kSql[] =
-      "SELECT cache_id, group_id, online_wildcard, update_time, cache_size"
+      "SELECT cache_id, group_id, online_wildcard, update_time, cache_size, "
+      "padding_size"
       " FROM Caches WHERE cache_id = ?";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
@@ -513,7 +532,8 @@ bool AppCacheDatabase::FindCacheForGroup(int64_t group_id,
     return false;
 
   static const char kSql[] =
-      "SELECT cache_id, group_id, online_wildcard, update_time, cache_size"
+      "SELECT cache_id, group_id, online_wildcard, update_time, cache_size, "
+      "padding_size"
       "  FROM Caches WHERE group_id = ?";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
@@ -547,15 +567,18 @@ bool AppCacheDatabase::InsertCache(const CacheRecord* record) {
 
   static const char kSql[] =
       "INSERT INTO Caches (cache_id, group_id, online_wildcard,"
-      "                    update_time, cache_size)"
-      "  VALUES(?, ?, ?, ?, ?)";
+      "                    update_time, cache_size, padding_size)"
+      "  VALUES(?, ?, ?, ?, ?, ?)";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
   statement.BindInt64(0, record->cache_id);
   statement.BindInt64(1, record->group_id);
   statement.BindBool(2, record->online_wildcard);
   statement.BindInt64(3, record->update_time.ToInternalValue());
+  DCHECK_GE(record->cache_size, 0);
   statement.BindInt64(4, record->cache_size);
+  DCHECK_GE(record->padding_size, 0);
+  statement.BindInt64(5, record->padding_size);
 
   return statement.Run();
 }
@@ -579,7 +602,8 @@ bool AppCacheDatabase::FindEntriesForCache(int64_t cache_id,
     return false;
 
   static const char kSql[] =
-      "SELECT cache_id, url, flags, response_id, response_size FROM Entries"
+      "SELECT cache_id, url, flags, response_id, response_size, padding_size "
+      "FROM Entries"
       "  WHERE cache_id = ?";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
@@ -601,7 +625,8 @@ bool AppCacheDatabase::FindEntriesForUrl(
     return false;
 
   static const char kSql[] =
-      "SELECT cache_id, url, flags, response_id, response_size FROM Entries"
+      "SELECT cache_id, url, flags, response_id, response_size, padding_size "
+      "FROM Entries"
       "  WHERE url = ?";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
@@ -624,7 +649,8 @@ bool AppCacheDatabase::FindEntry(int64_t cache_id,
     return false;
 
   static const char kSql[] =
-      "SELECT cache_id, url, flags, response_id, response_size FROM Entries"
+      "SELECT cache_id, url, flags, response_id, response_size, padding_size "
+      "FROM Entries"
       "  WHERE cache_id = ? AND url = ?";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
@@ -645,15 +671,19 @@ bool AppCacheDatabase::InsertEntry(const EntryRecord* record) {
     return false;
 
   static const char kSql[] =
-      "INSERT INTO Entries (cache_id, url, flags, response_id, response_size)"
-      "  VALUES(?, ?, ?, ?, ?)";
+      "INSERT INTO Entries (cache_id, url, flags, response_id, response_size, "
+      "padding_size)"
+      "  VALUES(?, ?, ?, ?, ?, ?)";
 
   sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
   statement.BindInt64(0, record->cache_id);
   statement.BindString(1, record->url.spec());
   statement.BindInt(2, record->flags);
   statement.BindInt64(3, record->response_id);
+  DCHECK_GE(record->response_size, 0);
   statement.BindInt64(4, record->response_size);
+  DCHECK_GE(record->padding_size, 0);
+  statement.BindInt64(5, record->padding_size);
 
   return statement.Run();
 }
@@ -980,6 +1010,7 @@ void AppCacheDatabase::ReadCacheRecord(
   record->update_time =
       base::Time::FromInternalValue(statement.ColumnInt64(3));
   record->cache_size = statement.ColumnInt64(4);
+  record->padding_size = statement.ColumnInt64(5);
 }
 
 void AppCacheDatabase::ReadEntryRecord(
@@ -989,6 +1020,7 @@ void AppCacheDatabase::ReadEntryRecord(
   record->flags = statement.ColumnInt(2);
   record->response_id = statement.ColumnInt64(3);
   record->response_size = statement.ColumnInt64(4);
+  record->padding_size = statement.ColumnInt64(5);
 }
 
 void AppCacheDatabase::ReadNamespaceRecords(
@@ -1042,7 +1074,7 @@ bool AppCacheDatabase::LazyOpen(bool create_if_needed) {
     return false;
   }
 
-  db_.reset(new sql::Connection);
+  db_.reset(new sql::Database);
   meta_table_.reset(new sql::MetaTable);
 
   db_->set_histogram_tag("AppCache");
@@ -1076,8 +1108,8 @@ bool AppCacheDatabase::LazyOpen(bool create_if_needed) {
 
   AppCacheHistograms::CountInitResult(AppCacheHistograms::INIT_OK);
   was_corruption_detected_ = false;
-  db_->set_error_callback(
-      base::Bind(&AppCacheDatabase::OnDatabaseError, base::Unretained(this)));
+  db_->set_error_callback(base::BindRepeating(
+      &AppCacheDatabase::OnDatabaseError, base::Unretained(this)));
   return true;
 }
 
@@ -1141,118 +1173,22 @@ bool AppCacheDatabase::CreateSchema() {
 }
 
 bool AppCacheDatabase::UpgradeSchema() {
-#if defined(APPCACHE_USE_SIMPLE_CACHE)
-  if (meta_table_->GetVersionNumber() < 6)
+  // Start from scratch for versions that would require unsupported migrations.
+  if (meta_table_->GetVersionNumber() < 7)
     return DeleteExistingAndCreateNewDatabase();
-#endif
-  if (meta_table_->GetVersionNumber() == 3) {
-    // version 3 was pre 12/17/2011
-    DCHECK_EQ(strcmp(kNamespacesTable, kTables[3].table_name), 0);
-    DCHECK_EQ(strcmp(kNamespacesTable, kIndexes[6].table_name), 0);
-    DCHECK_EQ(strcmp(kNamespacesTable, kIndexes[7].table_name), 0);
-    DCHECK_EQ(strcmp(kNamespacesTable, kIndexes[8].table_name), 0);
 
-    const TableInfo kNamespaceTable_v4 = {
-        kNamespacesTable,
-        "(cache_id INTEGER,"
-        " origin TEXT,"  // intentionally not normalized
-        " type INTEGER,"
-        " namespace_url TEXT,"
-        " target_url TEXT)"
-    };
-
-    // Migrate from the old FallbackNameSpaces to the newer Namespaces table,
-    // but without the is_pattern column added in v5.
-    sql::Transaction transaction(db_.get());
-    if (!transaction.Begin() ||
-        !CreateTable(db_.get(), kNamespaceTable_v4)) {
-      return false;
-    }
-
-    // Move data from the old table to the new table, setting the
-    // 'type' for all current records to the value for
-    // APPCACHE_FALLBACK_NAMESPACE.
-    DCHECK_EQ(0, static_cast<int>(APPCACHE_FALLBACK_NAMESPACE));
-    if (!db_->Execute(
-            "INSERT INTO Namespaces"
-            "  SELECT cache_id, origin, 0, namespace_url, fallback_entry_url"
-            "  FROM FallbackNameSpaces")) {
-      return false;
-    }
-
-    // Drop the old table, indexes on that table are also removed by this.
-    if (!db_->Execute("DROP TABLE FallbackNameSpaces"))
-      return false;
-
-    // Create new indexes.
-    if (!CreateIndex(db_.get(), kIndexes[6]) ||
-        !CreateIndex(db_.get(), kIndexes[7]) ||
-        !CreateIndex(db_.get(), kIndexes[8])) {
-      return false;
-    }
-
-    meta_table_->SetVersionNumber(4);
-    meta_table_->SetCompatibleVersionNumber(4);
-    if (!transaction.Commit())
-      return false;
-  }
-
-  if (meta_table_->GetVersionNumber() == 4) {
-    // version 4 pre 3/30/2013
-    // Add the is_pattern column to the Namespaces and OnlineWhitelists tables.
-    DCHECK_EQ(strcmp(kNamespacesTable, "Namespaces"), 0);
-    sql::Transaction transaction(db_.get());
-    if (!transaction.Begin())
-      return false;
-    if (!db_->Execute(
-            "ALTER TABLE Namespaces ADD COLUMN"
-            "  is_pattern INTEGER CHECK(is_pattern IN (0, 1))")) {
-      return false;
-    }
-    if (!db_->Execute(
-            "ALTER TABLE OnlineWhitelists ADD COLUMN"
-            "  is_pattern INTEGER CHECK(is_pattern IN (0, 1))")) {
-      return false;
-    }
-    meta_table_->SetVersionNumber(5);
-    meta_table_->SetCompatibleVersionNumber(5);
-    if (!transaction.Commit())
-      return false;
-  }
-
-#if defined(APPCACHE_USE_SIMPLE_CACHE)
-  // The schema version number was increased to 6 when we switched to the
-  // SimpleCache for Android, but the SQL part of the schema is identical
-  // to v5 on desktop chrome.
-  if (meta_table_->GetVersionNumber() == 6) {
-#else
-  if (meta_table_->GetVersionNumber() == 5) {
-#endif
-    // Versions 5 and 6 were pre-July 2015.
-    // Version 7 adds support for expiring caches that are failing to update.
-    sql::Transaction transaction(db_.get());
-    if (!transaction.Begin() ||
-        !db_->Execute(
-            "ALTER TABLE Groups ADD COLUMN"
-            " last_full_update_check_time INTEGER") ||
-        !db_->Execute(
-            "ALTER TABLE Groups ADD COLUMN"
-            " first_evictable_error_time INTEGER") ||
-        !db_->Execute(
-            "UPDATE Groups"
-            " SET last_full_update_check_time ="
-            "   (SELECT update_time FROM Caches"
-            "    WHERE Caches.group_id = Groups.group_id)")) {
-      return false;
-    }
-    meta_table_->SetVersionNumber(7);
-    meta_table_->SetCompatibleVersionNumber(7);
-    return transaction.Commit();
-  }
-
-  // If there is no upgrade path for the version on disk to the current
-  // version, nuke everything and start over.
-  return DeleteExistingAndCreateNewDatabase();
+  sql::Transaction transaction(db_.get());
+  if (!transaction.Begin())
+    return false;
+  if (!db_->Execute("ALTER TABLE Caches ADD COLUMN padding_size INTEGER"))
+    return false;
+  if (!db_->Execute("ALTER TABLE Entries ADD COLUMN padding_size INTEGER"))
+    return false;
+  meta_table_->SetVersionNumber(8);
+  meta_table_->SetCompatibleVersionNumber(8);
+  if (!AppCacheBackfillerVersion8(db_.get()).BackfillPaddingSizes())
+    return false;
+  return transaction.Commit();
 }
 
 void AppCacheDatabase::ResetConnectionAndTables() {

@@ -17,6 +17,7 @@
 #include "SkRect.h"
 #include "SkString.h"
 
+class SkData;
 class SkDescriptor;
 class SkFontData;
 class SkFontDescriptor;
@@ -126,7 +127,12 @@ public:
         not a valid font file, returns nullptr. Ownership of the stream is
         transferred, so the caller must not reference it again.
     */
-    static sk_sp<SkTypeface> MakeFromStream(SkStreamAsset* stream, int index = 0);
+    static sk_sp<SkTypeface> MakeFromStream(std::unique_ptr<SkStreamAsset> stream, int index = 0);
+
+    /** Return a new typeface given a SkData. If the data is null, or is not a valid font file,
+     *  returns nullptr.
+     */
+    static sk_sp<SkTypeface> MakeFromData(sk_sp<SkData>, int index = 0);
 
     /** Return a new typeface given font data and configuration. If the data
         is not valid font data, returns nullptr.
@@ -141,10 +147,27 @@ public:
     */
     sk_sp<SkTypeface> makeClone(const SkFontArguments&) const;
 
+    /**
+     *  A typeface can serialize just a descriptor (names, etc.), or it can also include the
+     *  actual font data (which can be large). This enum controls how serialize() decides what
+     *  to serialize.
+     */
+    enum class SerializeBehavior {
+        kDoIncludeData,
+        kDontIncludeData,
+        kIncludeDataIfLocal,
+    };
+
     /** Write a unique signature to a stream, sufficient to reconstruct a
         typeface referencing the same font when Deserialize is called.
      */
-    void serialize(SkWStream*) const;
+    void serialize(SkWStream*, SerializeBehavior = SerializeBehavior::kIncludeDataIfLocal) const;
+
+    /**
+     *  Same as serialize(SkWStream*, ...) but returns the serialized data in SkData, instead of
+     *  writing it to a stream.
+     */
+    sk_sp<SkData> serialize(SerializeBehavior = SerializeBehavior::kIncludeDataIfLocal) const;
 
     /** Given the data previously written by serialize(), return a new instance
         of a typeface referring to the same font. If that font is not available,
@@ -153,7 +176,7 @@ public:
      */
     static sk_sp<SkTypeface> MakeDeserialize(SkStream*);
 
-    enum Encoding {
+    enum Encoding : uint8_t {
         kUTF8_Encoding,
         kUTF16_Encoding,
         kUTF32_Encoding
@@ -177,6 +200,14 @@ public:
      */
     int charsToGlyphs(const void* chars, Encoding encoding, SkGlyphID glyphs[],
                       int glyphCount) const;
+
+    /**
+     *  Return the glyphID that corresponds to the specified unicode code-point
+     *  (in UTF32 encoding). If the unichar is not supported, returns 0.
+     *
+     *  This is a short-cut for calling charsToGlyphs() with kUTF32_Encoding for one code-point.
+     */
+    SkGlyphID unicharToGlyph(SkUnichar unichar) const;
 
     /**
      *  Return the number of glyphs in the typeface.
@@ -403,7 +434,10 @@ private:
     };
     static SkFontStyle FromOldStyle(Style oldStyle);
     static SkTypeface* GetDefaultTypeface(Style style = SkTypeface::kNormal);
+
+    friend class SkFontPriv;       // GetDefaultTypeface
     friend class SkPaintPriv;      // GetDefaultTypeface
+    friend class SkFont;           // getGlyphToUnicodeMap
 
 private:
     SkFontID            fUniqueID;

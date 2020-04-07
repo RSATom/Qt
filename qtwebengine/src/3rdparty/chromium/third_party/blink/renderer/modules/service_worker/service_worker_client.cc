@@ -8,45 +8,38 @@
 #include <memory>
 #include "base/memory/scoped_refptr.h"
 #include "services/network/public/mojom/request_context_frame_type.mojom-blink.h"
-#include "third_party/blink/public/mojom/service_worker/service_worker_client.mojom-blink.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/bindings/core/v8/callback_promise_adapter.h"
-#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/messaging/blink_transferable_message.h"
+#include "third_party/blink/renderer/core/messaging/post_message_options.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_global_scope_client.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 
 namespace blink {
 
-ServiceWorkerClient* ServiceWorkerClient::Take(
-    ScriptPromiseResolver*,
-    std::unique_ptr<WebServiceWorkerClientInfo> web_client) {
-  if (!web_client)
-    return nullptr;
-
-  switch (web_client->client_type) {
-    case mojom::ServiceWorkerClientType::kWindow:
-      return ServiceWorkerWindowClient::Create(*web_client);
-    case mojom::ServiceWorkerClientType::kSharedWorker:
-      return ServiceWorkerClient::Create(*web_client);
-    case mojom::ServiceWorkerClientType::kAll:
-      NOTREACHED();
-      return nullptr;
-  }
-  NOTREACHED();
-  return nullptr;
+ServiceWorkerClient* ServiceWorkerClient::Create(
+    const WebServiceWorkerClientInfo& info) {
+  return MakeGarbageCollected<ServiceWorkerClient>(info);
 }
 
 ServiceWorkerClient* ServiceWorkerClient::Create(
-    const WebServiceWorkerClientInfo& info) {
-  return new ServiceWorkerClient(info);
+    const mojom::blink::ServiceWorkerClientInfo& info) {
+  return MakeGarbageCollected<ServiceWorkerClient>(info);
 }
 
 ServiceWorkerClient::ServiceWorkerClient(const WebServiceWorkerClientInfo& info)
     : uuid_(info.uuid),
+      url_(info.url.GetString()),
+      type_(info.client_type),
+      frame_type_(info.frame_type) {}
+
+ServiceWorkerClient::ServiceWorkerClient(
+    const mojom::blink::ServiceWorkerClientInfo& info)
+    : uuid_(info.client_uuid),
       url_(info.url.GetString()),
       type_(info.client_type),
       frame_type_(info.frame_type) {}
@@ -86,20 +79,40 @@ String ServiceWorkerClient::frameType(ScriptState* script_state) const {
   return String();
 }
 
-void ServiceWorkerClient::postMessage(
-    ScriptState* script_state,
-    scoped_refptr<SerializedScriptValue> message,
-    const MessagePortArray& ports,
-    ExceptionState& exception_state) {
+void ServiceWorkerClient::postMessage(ScriptState* script_state,
+                                      const ScriptValue& message,
+                                      Vector<ScriptValue>& transfer,
+                                      ExceptionState& exception_state) {
+  PostMessageOptions* options = PostMessageOptions::Create();
+  if (!transfer.IsEmpty())
+    options->setTransfer(transfer);
+  postMessage(script_state, message, options, exception_state);
+}
+
+void ServiceWorkerClient::postMessage(ScriptState* script_state,
+                                      const ScriptValue& message,
+                                      const PostMessageOptions* options,
+                                      ExceptionState& exception_state) {
   ExecutionContext* context = ExecutionContext::From(script_state);
+  Transferables transferables;
+
+  scoped_refptr<SerializedScriptValue> serialized_message =
+      PostMessageHelper::SerializeMessageByCopy(script_state->GetIsolate(),
+                                                message, options, transferables,
+                                                exception_state);
+  if (exception_state.HadException())
+    return;
+  DCHECK(serialized_message);
+
   BlinkTransferableMessage msg;
-  msg.message = message;
-  msg.ports = MessagePort::DisentanglePorts(context, ports, exception_state);
+  msg.message = serialized_message;
+  msg.ports = MessagePort::DisentanglePorts(
+      context, transferables.message_ports, exception_state);
   if (exception_state.HadException())
     return;
 
   ServiceWorkerGlobalScopeClient::From(context)->PostMessageToClient(
-      uuid_, ToTransferableMessage(std::move(msg)));
+      uuid_, std::move(msg));
 }
 
 }  // namespace blink

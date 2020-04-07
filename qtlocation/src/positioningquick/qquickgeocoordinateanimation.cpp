@@ -48,7 +48,6 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype CoordinateAnimation
-    \instantiates QQuickGeoCoordinateAnimation
     \inherits PropertyAnimation
     \inqmlmodule QtPositioning
     \since 5.3

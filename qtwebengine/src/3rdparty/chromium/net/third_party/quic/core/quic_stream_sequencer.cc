@@ -14,6 +14,7 @@
 #include "net/third_party/quic/core/quic_utils.h"
 #include "net/third_party/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quic/platform/api/quic_clock.h"
+#include "net/third_party/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quic/platform/api/quic_logging.h"
 #include "net/third_party/quic/platform/api/quic_str_cat.h"
 #include "net/third_party/quic/platform/api/quic_string.h"
@@ -21,7 +22,7 @@
 
 namespace quic {
 
-QuicStreamSequencer::QuicStreamSequencer(QuicStream* quic_stream)
+QuicStreamSequencer::QuicStreamSequencer(StreamInterface* quic_stream)
     : stream_(quic_stream),
       buffered_frames_(kStreamReceiveWindowLimit),
       close_offset_(std::numeric_limits<QuicStreamOffset>::max()),
@@ -29,7 +30,9 @@ QuicStreamSequencer::QuicStreamSequencer(QuicStream* quic_stream)
       num_frames_received_(0),
       num_duplicate_frames_received_(0),
       ignore_read_data_(false),
-      level_triggered_(false) {}
+      level_triggered_(false),
+      stop_reading_when_level_triggered_(
+          GetQuicReloadableFlag(quic_stop_reading_when_level_triggered)) {}
 
 QuicStreamSequencer::~QuicStreamSequencer() {}
 
@@ -75,7 +78,12 @@ void QuicStreamSequencer::OnStreamFrame(const QuicStreamFrame& frame) {
     if (buffered_frames_.ReadableBytes() > previous_readable_bytes) {
       // Readable bytes has changed, let stream decide if to inform application
       // or not.
-      stream_->OnDataAvailable();
+      if (stop_reading_when_level_triggered_ && ignore_read_data_) {
+        QUIC_RELOADABLE_FLAG_COUNT(quic_stop_reading_when_level_triggered);
+        FlushBufferedFrames();
+      } else {
+        stream_->OnDataAvailable();
+      }
     }
     return;
   }
@@ -137,9 +145,18 @@ bool QuicStreamSequencer::GetReadableRegion(iovec* iov) const {
   return buffered_frames_.GetReadableRegion(iov);
 }
 
+bool QuicStreamSequencer::PrefetchNextRegion(iovec* iov) {
+  DCHECK(!blocked_);
+  return buffered_frames_.PrefetchNextRegion(iov);
+}
+
 void QuicStreamSequencer::Read(QuicString* buffer) {
   DCHECK(!blocked_);
-  buffered_frames_.Read(buffer);
+  buffer->resize(buffer->size() + ReadableBytes());
+  iovec iov;
+  iov.iov_len = ReadableBytes();
+  iov.iov_base = &(*buffer)[buffer->size() - iov.iov_len];
+  Readv(&iov, 1);
 }
 
 int QuicStreamSequencer::Readv(const struct iovec* iov, size_t iov_len) {

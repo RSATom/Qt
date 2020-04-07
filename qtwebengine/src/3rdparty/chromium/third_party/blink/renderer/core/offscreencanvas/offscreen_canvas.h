@@ -9,7 +9,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/html/canvas/image_encode_options.h"
@@ -39,7 +38,6 @@ typedef OffscreenCanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2Renderin
 
 class CORE_EXPORT OffscreenCanvas final
     : public EventTargetWithInlineData,
-      public CanvasImageSource,
       public ImageBitmapSource,
       public CanvasRenderingContextHost,
       public CanvasResourceDispatcherClient {
@@ -49,6 +47,8 @@ class CORE_EXPORT OffscreenCanvas final
 
  public:
   static OffscreenCanvas* Create(unsigned width, unsigned height);
+
+  explicit OffscreenCanvas(const IntSize&);
   ~OffscreenCanvas() override;
   void Dispose();
 
@@ -67,6 +67,7 @@ class CORE_EXPORT OffscreenCanvas final
 
   const IntSize& Size() const override { return size_; }
   void SetSize(const IntSize&);
+  void RecordTransfer();
 
   void SetPlaceholderCanvasId(DOMNodeId canvas_id);
   DOMNodeId PlaceholderCanvasId() const { return placeholder_canvas_id_; }
@@ -116,14 +117,15 @@ class CORE_EXPORT OffscreenCanvas final
   // Partial CanvasResourceHost implementation
   void NotifyGpuContextLost() override {}
   void SetNeedsCompositingUpdate() override {}
-  void UpdateMemoryUsage() override {}  // TODO(crbug.com/842693): implement
+  // TODO(fserb): Merge this with HTMLCanvasElement::UpdateMemoryUsage
+  void UpdateMemoryUsage() override;
   SkFilterQuality FilterQuality() const override {
     return kLow_SkFilterQuality;  // TODO(crbug.com/856654)
   }
 
   // EventTarget implementation
   const AtomicString& InterfaceName() const final {
-    return EventTargetNames::OffscreenCanvas;
+    return event_target_names::kOffscreenCanvas;
   }
   ExecutionContext* GetExecutionContext() const override {
     return execution_context_.Get();
@@ -142,15 +144,13 @@ class CORE_EXPORT OffscreenCanvas final
   ScriptPromise CreateImageBitmap(ScriptState*,
                                   EventTarget&,
                                   base::Optional<IntRect>,
-                                  const ImageBitmapOptions&) final;
+                                  const ImageBitmapOptions*) final;
 
   // CanvasImageSource implementation
   scoped_refptr<Image> GetSourceImageForCanvas(SourceImageStatus*,
                                                AccelerationHint,
                                                const FloatSize&) final;
-  bool WouldTaintOrigin(const SecurityOrigin*) const final {
-    return !origin_clean_;
-  }
+  bool WouldTaintOrigin() const final { return !origin_clean_; }
   FloatSize ElementSize(const FloatSize& default_object_size) const final {
     return FloatSize(width(), height());
   }
@@ -158,7 +158,7 @@ class CORE_EXPORT OffscreenCanvas final
   bool IsAccelerated() const final;
 
   DispatchEventResult HostDispatchEvent(Event* event) override {
-    return DispatchEvent(event);
+    return DispatchEvent(*event);
   }
 
   bool IsWebGL1Enabled() const override { return true; }
@@ -170,8 +170,9 @@ class CORE_EXPORT OffscreenCanvas final
   void Trace(blink::Visitor*) override;
 
  private:
+  int32_t memory_usage_ = 0;
+
   friend class OffscreenCanvasTest;
-  explicit OffscreenCanvas(const IntSize&);
   using ContextFactoryVector =
       Vector<std::unique_ptr<CanvasRenderingContextFactory>>;
   static ContextFactoryVector& RenderingContextFactories();

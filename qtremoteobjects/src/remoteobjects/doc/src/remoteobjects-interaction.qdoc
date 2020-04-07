@@ -26,23 +26,25 @@
 ****************************************************************************/
 /*!
 \page qtremoteobjects-interaction.html
-\brief Describes how source/replica interaction works.
+\brief Describes how a source and replicas interact with one another.
 \section1 Remote Object Interaction
 
-Source/replica interaction is directional. Property changes and signal emission
-happen on the source, and are propagated to all replicas. If a property is
-writable, you can call the setter function on a replica. This will be forwarded
-to the source, and if a change is made, it will be made on the source and
-subsequently forwarded to all replicas. To the replica, it is then an
-asynchronous call, with latency before the change takes effect.
+The interaction between source and replicas is directional. Property changes
+and signal emission happen on the source, and are propagated to all replicas.
+If a property is writable, you can call the setter function on a replica, which
+is then forwarded to the source. Afterwards, if this call results in a new
+property value, that value is first changed at the source and then subsequently
+forwarded to all replicas. To the replica, it is then an asynchronous call,
+with latency before the change takes effect.
 
-While technically you can emit a signal on a replica, this may have unexpected results and
-is discouraged for that reason. It will only trigger slots connected to the
-replica itself, not slots connected to the source or other replicas. Like
-property setters, slot invocations on a replica are forwarded to the Source to
+While technically you can emit a signal on a replica, this is discouraged as it
+may have unexpected results. It will only trigger slots connected to the
+replica itself; not slots connected to the source or other replicas. Like
+property setters, slot invocations on a replica are forwarded to the source to
 run.
 
-The behavior above is implemented automatically by QtRO, there is no need to
-write any replica implementation code. It will be handled automatically at
-runtime for dynamic replicas, or at compile time for repc generated headers.
+Qt Remote Objects automatically implements the behavior described above. There
+is no need to write any replica implementation code. For dynamic replicas,
+this is handled automatically at runtime. For \l{repc} generated headers, this
+is handled at compile time.
 */

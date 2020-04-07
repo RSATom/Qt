@@ -12,17 +12,19 @@
 
 #include "core/fpdfapi/edit/cpdf_creator.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fxcrt/cfx_memorystream.h"
 #include "core/fxcrt/fx_extension.h"
 #include "fpdfsdk/cpdfsdk_filewriteadapter.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "public/fpdf_edit.h"
+#include "third_party/base/optional.h"
 
 #ifdef PDF_ENABLE_XFA
+#include "core/fxcrt/cfx_memorystream.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
 #include "fpdfsdk/fpdfxfa/cxfa_fwladaptertimermgr.h"
 #include "public/fpdf_formfill.h"
@@ -75,7 +77,7 @@ bool SaveXFADocumentData(CPDFXFA_Context* pContext,
   if (!pArray)
     return false;
 
-  int size = pArray->GetCount();
+  int size = pArray->size();
   int iFormIndex = -1;
   int iDataSetsIndex = -1;
   int iLast = size - 2;
@@ -120,14 +122,13 @@ bool SaveXFADocumentData(CPDFXFA_Context* pContext,
   // L"datasets"
   {
     RetainPtr<IFX_SeekableStream> pDsfileWrite =
-        pdfium::MakeRetain<CFX_MemoryStream>(false);
+        pdfium::MakeRetain<CFX_MemoryStream>();
     CXFA_FFDoc* ffdoc = pXFADocView->GetDoc();
     if (ffdoc->SavePackage(
             ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Datasets)),
             pDsfileWrite) &&
         pDsfileWrite->GetSize() > 0) {
-      auto pDataDict = pdfium::MakeUnique<CPDF_Dictionary>(
-          pPDFDocument->GetByteStringPool());
+      auto pDataDict = pPDFDocument->New<CPDF_Dictionary>();
       if (iDataSetsIndex != -1) {
         if (pDataSetsStream) {
           pDataSetsStream->InitStreamFromFile(pDsfileWrite,
@@ -136,7 +137,7 @@ bool SaveXFADocumentData(CPDFXFA_Context* pContext,
       } else {
         CPDF_Stream* pData = pPDFDocument->NewIndirect<CPDF_Stream>();
         pData->InitStreamFromFile(pDsfileWrite, std::move(pDataDict));
-        iLast = pArray->GetCount() - 2;
+        iLast = pArray->size() - 2;
         pArray->InsertNewAt<CPDF_String>(iLast, "datasets", false);
         pArray->InsertAt(iLast + 1, pData->MakeReference(pPDFDocument));
       }
@@ -146,22 +147,21 @@ bool SaveXFADocumentData(CPDFXFA_Context* pContext,
   // L"form"
   {
     RetainPtr<IFX_SeekableStream> pfileWrite =
-        pdfium::MakeRetain<CFX_MemoryStream>(false);
+        pdfium::MakeRetain<CFX_MemoryStream>();
 
     CXFA_FFDoc* ffdoc = pXFADocView->GetDoc();
     if (ffdoc->SavePackage(
             ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Form)),
             pfileWrite) &&
         pfileWrite->GetSize() > 0) {
-      auto pDataDict = pdfium::MakeUnique<CPDF_Dictionary>(
-          pPDFDocument->GetByteStringPool());
+      auto pDataDict = pPDFDocument->New<CPDF_Dictionary>();
       if (iFormIndex != -1) {
         if (pFormStream)
           pFormStream->InitStreamFromFile(pfileWrite, std::move(pDataDict));
       } else {
         CPDF_Stream* pData = pPDFDocument->NewIndirect<CPDF_Stream>();
         pData->InitStreamFromFile(pfileWrite, std::move(pDataDict));
-        iLast = pArray->GetCount() - 2;
+        iLast = pArray->size() - 2;
         pArray->InsertNewAt<CPDF_String>(iLast, "form", false);
         pArray->InsertAt(iLast + 1, pData->MakeReference(pPDFDocument));
       }
@@ -215,11 +215,10 @@ bool SendPreSaveToXFADoc(CPDFXFA_Context* pContext,
 }
 #endif  // PDF_ENABLE_XFA
 
-bool FPDF_Doc_Save(FPDF_DOCUMENT document,
-                   FPDF_FILEWRITE* pFileWrite,
-                   FPDF_DWORD flags,
-                   FPDF_BOOL bSetVersion,
-                   int fileVerion) {
+bool DoDocSave(FPDF_DOCUMENT document,
+               FPDF_FILEWRITE* pFileWrite,
+               FPDF_DWORD flags,
+               Optional<int> version) {
   CPDF_Document* pPDFDoc = CPDFDocumentFromFPDFDocument(document);
   if (!pPDFDoc)
     return 0;
@@ -237,8 +236,8 @@ bool FPDF_Doc_Save(FPDF_DOCUMENT document,
 
   CPDF_Creator fileMaker(
       pPDFDoc, pdfium::MakeRetain<CPDFSDK_FileWriteAdapter>(pFileWrite));
-  if (bSetVersion)
-    fileMaker.SetFileVersion(fileVerion);
+  if (version.has_value())
+    fileMaker.SetFileVersion(version.value());
   if (flags == FPDF_REMOVE_SECURITY) {
     flags = 0;
     fileMaker.RemoveSecurity();
@@ -258,7 +257,7 @@ bool FPDF_Doc_Save(FPDF_DOCUMENT document,
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_SaveAsCopy(FPDF_DOCUMENT document,
                                                     FPDF_FILEWRITE* pFileWrite,
                                                     FPDF_DWORD flags) {
-  return FPDF_Doc_Save(document, pFileWrite, flags, false, 0);
+  return DoDocSave(document, pFileWrite, flags, {});
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
@@ -266,5 +265,5 @@ FPDF_SaveWithVersion(FPDF_DOCUMENT document,
                      FPDF_FILEWRITE* pFileWrite,
                      FPDF_DWORD flags,
                      int fileVersion) {
-  return FPDF_Doc_Save(document, pFileWrite, flags, true, fileVersion);
+  return DoDocSave(document, pFileWrite, flags, fileVersion);
 }

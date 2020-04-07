@@ -24,7 +24,7 @@ void PrefServiceFactory::SetUserPrefsFile(
     const base::FilePath& prefs_file,
     base::SequencedTaskRunner* task_runner) {
   user_prefs_ =
-      base::MakeRefCounted<JsonPrefStore>(prefs_file, task_runner, nullptr);
+      base::MakeRefCounted<JsonPrefStore>(prefs_file, nullptr, task_runner);
 }
 
 std::unique_ptr<PrefService> PrefServiceFactory::Create(
@@ -39,4 +39,12 @@ std::unique_ptr<PrefService> PrefServiceFactory::Create(
   return std::make_unique<PrefService>(
       std::move(pref_notifier), std::move(pref_value_store), user_prefs_.get(),
       std::move(pref_registry), read_error_callback_, async_);
+}
+
+void PrefServiceFactory::ChangePrefValueStore(
+    PrefService* pref_service,
+    std::unique_ptr<PrefValueStore::Delegate> delegate) {
+  pref_service->ChangePrefValueStore(
+      managed_prefs_.get(), supervised_user_prefs_.get(),
+      extension_prefs_.get(), recommended_prefs_.get(), std::move(delegate));
 }

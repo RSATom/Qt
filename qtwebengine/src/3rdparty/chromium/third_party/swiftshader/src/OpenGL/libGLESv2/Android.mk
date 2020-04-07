@@ -1,5 +1,7 @@
 LOCAL_PATH:= $(call my-dir)
 
+COMMON_SWIFTSHADER_RELATIVE_PATH := $(if $(BOARD_SWIFTSHADER_RELATIVE_PATH),$(BOARD_SWIFTSHADER_RELATIVE_PATH),egl)
+
 COMMON_CFLAGS := \
 	-DLOG_TAG=\"libGLESv2_swiftshader\" \
 	-fno-operator-names \
@@ -18,6 +20,7 @@ COMMON_CFLAGS := \
 	-Wno-unused-private-field \
 	-Wno-unused-variable \
 	-Wno-implicit-exception-spec-mismatch \
+	-Wno-implicit-fallthrough \
 	-Wno-overloaded-virtual \
 	-Wno-attributes \
 	-Wno-unknown-attributes \
@@ -52,6 +55,7 @@ COMMON_SRC_FILES := \
 	utilities.cpp \
 	VertexArray.cpp \
 	VertexDataManager.cpp \
+	../../Common/SharedLibrary.cpp
 
 COMMON_C_INCLUDES := \
 	bionic \
@@ -63,7 +67,7 @@ COMMON_C_INCLUDES := \
 	$(LOCAL_PATH)/../../Shader/ \
 	$(LOCAL_PATH)/../../Main/
 
-ifdef use_subzero
+ifdef REACTOR_USE_SUBZERO
 COMMON_STATIC_LIBRARIES := libsubzero
 else
 COMMON_STATIC_LIBRARIES := libLLVM_swiftshader
@@ -107,9 +111,9 @@ LOCAL_MULTILIB := first
 endif
 
 ifeq (HasRelativePath,$(shell test $(PLATFORM_SDK_VERSION) -ge 21 && echo HasRelativePath))
-LOCAL_MODULE_RELATIVE_PATH := egl
+LOCAL_MODULE_RELATIVE_PATH := $(COMMON_SWIFTSHADER_RELATIVE_PATH)
 else
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/$(COMMON_SWIFTSHADER_RELATIVE_PATH)
 endif
 
 LOCAL_VENDOR_MODULE := true
@@ -132,9 +136,9 @@ LOCAL_MULTILIB := first
 endif
 
 ifeq (HasRelativePath,$(shell test $(PLATFORM_SDK_VERSION) -ge 21 && echo HasRelativePath))
-LOCAL_MODULE_RELATIVE_PATH := egl
+LOCAL_MODULE_RELATIVE_PATH := $(COMMON_SWIFTSHADER_RELATIVE_PATH)
 else
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/$(COMMON_SWIFTSHADER_RELATIVE_PATH)
 endif
 
 LOCAL_VENDOR_MODULE := true

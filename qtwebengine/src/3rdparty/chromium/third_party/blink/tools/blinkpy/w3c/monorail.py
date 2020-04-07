@@ -31,6 +31,7 @@ class MonorailIssue(object):
     def _normalize(self):
         # These requirements are based on trial and error. No docs were found.
         assert self.project_id, 'project_id cannot be empty.'
+        self._body['projectId'] = self.project_id
         for field in self._STRING_LIST_FIELDS:
             if field in self._body:
                 # Not a str or unicode.
@@ -42,18 +43,18 @@ class MonorailIssue(object):
         assert self._body['status'] in self._VALID_STATUSES, 'Unknown status %s.' % self._body['status']
         assert self._body['summary'], 'summary cannot be empty.'
 
-    def __str__(self):
-        result = ('Monorail issue in project {}\n'
+    def __unicode__(self):
+        result = (u'Monorail issue in project {}\n'
                   'Summary: {}\n'
                   'Status: {}\n').format(self.project_id, self.body['summary'], self.body['status'])
         if 'cc' in self.body:
-            result += 'CC: {}\n'.format(', '.join(self.body['cc']))
+            result += u'CC: {}\n'.format(', '.join(self.body['cc']))
         if 'components' in self.body:
-            result += 'Components: {}\n'.format(', '.join(self.body['components']))
+            result += u'Components: {}\n'.format(', '.join(self.body['components']))
         if 'labels' in self.body:
-            result += 'Labels: {}\n'.format(', '.join(self.body['labels']))
+            result += u'Labels: {}\n'.format(', '.join(self.body['labels']))
         if 'description' in self.body:
-            result += 'Description:\n{}\n'.format(self.body['description'])
+            result += u'Description:\n{}\n'.format(self.body['description'])
         return result
 
     @property
@@ -97,14 +98,14 @@ class MonorailAPI(object):
         'https://monorail-prod.appspot.com/_ah/api/discovery/v1/apis/'
         '{api}/{apiVersion}/rest')
 
-    def __init__(self, service_account_key_json=None):
+    def __init__(self, service_account_key_json=None, access_token=None):
         """Initializes a MonorailAPI instance.
 
         Args:
             service_account_key_json: The path to a JSON private key of a
-                service account for accessing Monorail. If None, try to load
-                from the default location, i.e. the path stored in the
-                environment variable GOOGLE_APPLICATION_CREDENTIALS.
+                service account for accessing Monorail. If None, use access_token.
+            access_token: An OAuth access token. If None, fall back to Google
+                application default credentials.
         """
         # Make it easier to mock out the two libraries in the future.
         # Dependencies managed by wpt-import.vpython - pylint: disable=import-error,no-member
@@ -113,8 +114,13 @@ class MonorailAPI(object):
         import oauth2client.client
         self._oauth2_client = oauth2client.client
 
+        # TODO(robertma): Deprecate the JSON key support once BuildBot is gone.
         if service_account_key_json:
             credentials = self._oauth2_client.GoogleCredentials.from_stream(service_account_key_json)
+        elif access_token:
+            credentials = self._oauth2_client.AccessTokenCredentials(
+                access_token=access_token,
+                user_agent='blinkpy/1.0')
         else:
             credentials = self._oauth2_client.GoogleCredentials.get_application_default()
 

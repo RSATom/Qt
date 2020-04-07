@@ -8,16 +8,13 @@
   <template>
     <style>
       :host {
-        --calculated-paper-slider-height: var(--paper-slider-height, 2px);
-        /* Counteract the margin on #sliderContainer in paper-slider.html. */
-        -webkit-margin-end:
-            calc(-15px - var(--calculated-paper-slider-height) / 2);
         display: inline-flex;
+        margin-inline-end: -16px;
       }
 
       cr-policy-pref-indicator {
-        -webkit-margin-start: var(--settings-controlled-by-spacing);
         align-self: center;
+        margin-inline-start: var(--settings-controlled-by-spacing);
       }
 
       #labels[disabled] {
@@ -44,7 +41,7 @@
       }
 
       #label-begin {
-        -webkit-margin-end: 4px;
+        margin-inline-end: 4px;
       }
 
       #label-end {
@@ -55,10 +52,9 @@
       <cr-policy-pref-indicator pref="[[pref]]"></cr-policy-pref-indicator>
     </template>
     <div class="outer">
-      <cr-slider id="slider" disabled$="[[disableSlider_]]" snaps
-          on-immediate-value-changed="onSliderChanged_" max="[[max]]"
-          min="[[min]]">
-      </cr-slider>
+      <cr-slider id="slider" disabled$="[[disableSlider_]]" ticks="[[ticks]]"
+          on-cr-slider-value-changed="onSliderChanged_" max="[[max]]"
+          min="[[min]]" on-dragging-changed="onSliderChanged_"></cr-slider>
       <div id="labels" disabled$="[[disableSlider_]]">
         <div id="label-begin">[[labelMin]]</div>
         <div id="label-end">[[labelMax]]</div>

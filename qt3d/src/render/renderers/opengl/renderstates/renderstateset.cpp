@@ -103,9 +103,35 @@ StateMaskSet RenderStateSet::stateMask() const
     return m_stateMask;
 }
 
+// This modifies our state to add states from others
+// if we don't already contain a state with that type set
 void RenderStateSet::merge(RenderStateSet *other)
 {
     m_stateMask |= other->stateMask();
+    const QVector<StateVariant> otherStates = other->states();
+
+    // We only add states which are new (different type)
+    for (const StateVariant &otherState : otherStates) {
+        const bool canAdd = canAddStateOfType(otherState.type);
+        if (canAdd)
+            m_states.push_back(otherState);
+    }
+}
+
+bool RenderStateSet::canAddStateOfType(StateMask type) const
+{
+    return !hasStateOfType(type) || allowMultipleStatesOfType(type);
+}
+
+bool RenderStateSet::hasStateOfType(StateMask type) const
+{
+    return (type & stateMask());
+}
+
+bool RenderStateSet::allowMultipleStatesOfType(StateMask type) const
+{
+    return (type == BlendEquationArgumentsMask) ||
+           (type == ClipPlaneMask);
 }
 
 bool RenderStateSet::contains(const StateVariant &ds) const

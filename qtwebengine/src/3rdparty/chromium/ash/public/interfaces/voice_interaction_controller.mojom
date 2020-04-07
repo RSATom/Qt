@@ -39,8 +39,14 @@ enum AssistantAllowedState {
   DISALLOWED_BY_NONPRIMARY_USER,
   // Disallowed because current user is supervised user.
   DISALLOWED_BY_SUPERVISED_USER,
+  // Disallowed because current user is child user.
+  DISALLOWED_BY_CHILD_USER,
   // Disallowed because incognito mode.
-  DISALLOWED_BY_INCOGNITO
+  DISALLOWED_BY_INCOGNITO,
+  // Disallowed because the device is in demo mode.
+  DISALLOWED_BY_DEMO_MODE,
+  // Disallowed because the device is in public session.
+  DISALLOWED_BY_PUBLIC_SESSION
 };
 
 // Allows observing changes to voice interaction status and settings.
@@ -58,11 +64,19 @@ interface VoiceInteractionObserver {
   // Called when hotword listening is enabled/disabled.
   OnVoiceInteractionHotwordEnabled(bool enabled);
 
+  // Called when hotword is set to always on/only with power source.
+  OnVoiceInteractionHotwordAlwaysOn(bool always_on);
+
   // Called when voice interaction setup flow completed.
   OnVoiceInteractionSetupCompleted(bool completed);
 
   // Called when assistant feature allowed state has changed.
   OnAssistantFeatureAllowedChanged(AssistantAllowedState state);
+
+  // Called when locale is changed in pref. The locale is in the format can be
+  // "en-US" or simply "en". When locale is not set in pref, it returns empty
+  // string.
+  OnLocaleChanged(string locale);
 };
 
 // Interface for ash client (Chrome) to connect to the voice interaction
@@ -82,6 +96,9 @@ interface VoiceInteractionController {
   // Called when the hotword listening is enabled/disabled.
   NotifyHotwordEnabled(bool enabled);
 
+  // Called when the hotword is set to always on/only with power source.
+  NotifyHotwordAlwaysOn(bool enabled);
+
   // Called when the voice interaction setup complete status is changed.
   NotifySetupCompleted(bool completed);
 
@@ -89,14 +106,14 @@ interface VoiceInteractionController {
   // if disabled by policy.
   NotifyFeatureAllowed(AssistantAllowedState state);
 
-  // Return if the voice interaction setting is enabled/disabled.
-  IsSettingEnabled() => (bool enabled);
+  // Called when the notification is enabled/disabled.
+  NotifyNotificationEnabled(bool enabled);
 
-  // Return the voice interaction setup complete status.
-  IsSetupCompleted() => (bool completed);
+  // Called when the locale is changed.
+  NotifyLocaleChanged(string locale);
 
-  // Return the voice interaction hotword listening status.
-  IsHotwordEnabled() => (bool enabled);
+  // Called when the launch with mic open state is changed.
+  NotifyLaunchWithMicOpen(bool launch_with_mic_open);
 
   // Add an observer.
   AddObserver(VoiceInteractionObserver observer);

@@ -40,6 +40,17 @@ TEST(OfflinePageFeatureTest, OfflinePagesSharing) {
   EXPECT_TRUE(offline_pages::IsOfflinePagesSharingEnabled());
 }
 
+TEST(OfflinePageFeatureTest, OfflinePagesLivePageSharing) {
+  // Disabled by default.
+  EXPECT_FALSE(
+      base::FeatureList::IsEnabled(kOfflinePagesLivePageSharingFeature));
+
+  // Check if helper method works correctly when the feature is disabled.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(kOfflinePagesLivePageSharingFeature);
+  EXPECT_TRUE(offline_pages::IsOfflinePagesLivePageSharingEnabled());
+}
+
 TEST(OfflinePageFeatureTest, OfflinePagesSvelteConcurrentLoading) {
   // Disabled by default.
   EXPECT_FALSE(offline_pages::IsOfflinePagesSvelteConcurrentLoadingEnabled());
@@ -70,47 +81,6 @@ TEST(OfflinePageFeatureTest, OfflinePagesPrefetching) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(kPrefetchingOfflinePagesFeature);
   EXPECT_TRUE(offline_pages::IsPrefetchingOfflinePagesEnabled());
-}
-
-TEST(OfflinePageFeatureTest, OfflinePagesPrefetchingUI) {
-  // Disabled by default.
-  EXPECT_FALSE(offline_pages::IsOfflinePagesPrefetchingUIEnabled());
-
-  // This feature is enabled by default but depends on the core prefetching
-  // feature.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kPrefetchingOfflinePagesFeature);
-  EXPECT_TRUE(offline_pages::IsOfflinePagesPrefetchingUIEnabled());
-}
-
-TEST(OfflinePageFeatureTest, OfflinePagesLimitlessPrefetching) {
-  // Disabled by default.
-  EXPECT_FALSE(offline_pages::IsLimitlessPrefetchingEnabled());
-
-  // This feature depends on the core prefetching feature.
-  {
-    base::test::ScopedFeatureList scoped_feature_list;
-    scoped_feature_list.InitAndEnableFeature(kPrefetchingOfflinePagesFeature);
-    EXPECT_FALSE(offline_pages::IsLimitlessPrefetchingEnabled());
-  }
-  {
-    base::test::ScopedFeatureList scoped_feature_list;
-    scoped_feature_list.InitAndEnableFeature(
-        kOfflinePagesLimitlessPrefetchingFeature);
-    EXPECT_FALSE(offline_pages::IsLimitlessPrefetchingEnabled());
-  }
-
-  // Check if helper method works correctly when all required features are
-  // enabled.
-  // TODO(https://crbug.com/803584): fix limitless mode or fully remove it.
-  {
-    base::test::ScopedFeatureList scoped_feature_list;
-    scoped_feature_list.InitWithFeatures(
-        {kPrefetchingOfflinePagesFeature,
-         kOfflinePagesLimitlessPrefetchingFeature},
-        {});
-    EXPECT_FALSE(offline_pages::IsLimitlessPrefetchingEnabled());
-  }
 }
 
 TEST(OfflinePageFeatureTest, OfflinePagesInDownloadHomeOpenInCct) {

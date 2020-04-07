@@ -97,7 +97,7 @@ private:
     friend class QOpenGLContextGroupPrivate;
     friend class QOpenGLMultiGroupSharedResource;
 
-    Q_DISABLE_COPY(QOpenGLSharedResource)
+    Q_DISABLE_COPY_MOVE(QOpenGLSharedResource)
 };
 
 class Q_GUI_EXPORT QOpenGLSharedResourceGuard : public QOpenGLSharedResource
@@ -219,7 +219,7 @@ public:
         requestedFormat = QSurfaceFormat::defaultFormat();
     }
 
-    virtual ~QOpenGLContextPrivate()
+    ~QOpenGLContextPrivate()
     {
         //do not delete the QOpenGLContext handle here as it is deleted in
         //QWidgetPrivate::deleteTLSysExtra()

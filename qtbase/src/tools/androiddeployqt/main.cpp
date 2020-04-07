@@ -1400,8 +1400,8 @@ bool updateAndroidManifest(Options &options)
                     options.packageName = reader.attributes().value(QLatin1String("package")).toString();
                 } else if (reader.name() == QLatin1String("uses-sdk")) {
                     if (reader.attributes().hasAttribute(QLatin1String("android:minSdkVersion")))
-                        if (reader.attributes().value(QLatin1String("android:minSdkVersion")).toInt() < 16) {
-                            fprintf(stderr, "Invalid minSdkVersion version, minSdkVersion must be >= 16\n");
+                        if (reader.attributes().value(QLatin1String("android:minSdkVersion")).toInt() < 21) {
+                            fprintf(stderr, "Invalid minSdkVersion version, minSdkVersion must be >= 21\n");
                             return false;
                         }
                 } else if ((reader.name() == QLatin1String("application") ||
@@ -1729,6 +1729,11 @@ bool scanImports(Options *options, QSet<QString> *usedDependencies)
     qmlImportScanner += QString::fromLatin1(" -rootPath %1 -importPath %2")
             .arg(shellQuote(rootPath))
             .arg(importPaths.join(QLatin1Char(' ')));
+
+    if (options->verbose) {
+        fprintf(stdout, "Running qmlimportscanner with the following command: %s\n",
+            qmlImportScanner.toLocal8Bit().constData());
+    }
 
     FILE *qmlImportScannerCommand = popen(qmlImportScanner.toLocal8Bit().constData(), QT_POPEN_READ);
     if (qmlImportScannerCommand == 0) {

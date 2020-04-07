@@ -28,14 +28,12 @@ class EVENTS_DEVICES_EXPORT InputDeviceObserverAndroid {
   void AddObserver(ui::InputDeviceEventObserver* observer);
   void RemoveObserver(ui::InputDeviceEventObserver* observer);
 
-  void NotifyObserversTouchpadDeviceConfigurationChanged();
-  void NotifyObserversKeyboardDeviceConfigurationChanged();
-  void NotifyObserversMouseDeviceConfigurationChanged();
+  void NotifyObserversDeviceConfigurationChanged();
 
  private:
   InputDeviceObserverAndroid();
 
-  base::ObserverList<ui::InputDeviceEventObserver> observers_;
+  base::ObserverList<ui::InputDeviceEventObserver>::Unchecked observers_;
 
   friend struct base::DefaultSingletonTraits<InputDeviceObserverAndroid>;
   DISALLOW_COPY_AND_ASSIGN(InputDeviceObserverAndroid);

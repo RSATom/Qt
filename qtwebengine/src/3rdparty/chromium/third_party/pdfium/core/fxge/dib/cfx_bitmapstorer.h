@@ -7,16 +7,13 @@
 #ifndef CORE_FXGE_DIB_CFX_BITMAPSTORER_H_
 #define CORE_FXGE_DIB_CFX_BITMAPSTORER_H_
 
-#include <memory>
-#include <vector>
-
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/retain_ptr.h"
-#include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/scanlinecomposer_iface.h"
-#include "third_party/base/stl_util.h"
 
-class CFX_BitmapStorer : public ScanlineComposerIface {
+class CFX_DIBitmap;
+
+class CFX_BitmapStorer final : public ScanlineComposerIface {
  public:
   CFX_BitmapStorer();
   ~CFX_BitmapStorer() override;

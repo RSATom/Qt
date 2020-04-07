@@ -11,11 +11,11 @@
 #ifndef RTC_BASE_TASK_QUEUE_FOR_TEST_H_
 #define RTC_BASE_TASK_QUEUE_FOR_TEST_H_
 
-#include <utility>
-
 #include "rtc_base/checks.h"
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/event.h"
 #include "rtc_base/task_queue.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace rtc {
 namespace test {
@@ -33,7 +33,7 @@ class RTC_LOCKABLE TaskQueueForTest : public TaskQueue {
   template <class Closure>
   void SendTask(Closure* task) {
     RTC_DCHECK(!IsCurrent());
-    rtc::Event event(false, false);
+    rtc::Event event;
     PostTask(rtc::NewClosure(
         [&task]() {
           RTC_CHECK_EQ(false, static_cast<QueuedTask*>(task)->Run());
@@ -47,7 +47,7 @@ class RTC_LOCKABLE TaskQueueForTest : public TaskQueue {
   template <class Closure>
   void SendTask(Closure&& task) {
     RTC_DCHECK(!IsCurrent());
-    rtc::Event event(false, false);
+    rtc::Event event;
     PostTask(rtc::NewClosure(std::move(task), [&event]() { event.Set(); }));
     event.Wait(rtc::Event::kForever);
   }

@@ -11,7 +11,7 @@
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom-blink.h"
-#include "third_party/blink/renderer/platform/graphics/offscreen_canvas_resource_provider.h"
+#include "third_party/blink/public/platform/modules/frame_sinks/embedded_frame_sink.mojom-blink.h"
 #include "third_party/blink/renderer/platform/wtf/compiler.h"
 
 namespace blink {
@@ -47,23 +47,27 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   void SetSuspendAnimation(bool);
   bool NeedsBeginFrame() const { return needs_begin_frame_; }
   bool IsAnimationSuspended() const { return suspend_animation_; }
-  void DispatchFrame(scoped_refptr<StaticBitmapImage>,
+  void DispatchFrame(scoped_refptr<CanvasResource>,
                      base::TimeTicks commit_start_time,
-                     const SkIRect& damage_rect);
+                     const SkIRect& damage_rect,
+                     bool needs_vertical_flip,
+                     bool is_opaque);
   void ReclaimResource(viz::ResourceId);
-  void DispatchFrameSync(scoped_refptr<StaticBitmapImage>,
+  void DispatchFrameSync(scoped_refptr<CanvasResource>,
                          base::TimeTicks commit_start_time,
-                         const SkIRect& damage_rect);
+                         const SkIRect& damage_rect,
+                         bool needs_vertical_flip,
+                         bool is_opaque);
 
   void Reshape(const IntSize&);
 
   // viz::mojom::blink::CompositorFrameSinkClient implementation.
   void DidReceiveCompositorFrameAck(
       const WTF::Vector<viz::ReturnedResource>& resources) final;
-  void DidPresentCompositorFrame(
-      uint32_t presentation_token,
-      ::gfx::mojom::blink::PresentationFeedbackPtr feedback) final;
-  void OnBeginFrame(const viz::BeginFrameArgs&) final;
+  void OnBeginFrame(
+      const viz::BeginFrameArgs&,
+      WTF::HashMap<uint32_t, ::gfx::mojom::blink::PresentationFeedbackPtr>)
+      final;
   void OnBeginFramePausedChanged(bool paused) final{};
   void ReclaimResources(
       const WTF::Vector<viz::ReturnedResource>& resources) final;
@@ -72,22 +76,16 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
                                ::gpu::mojom::blink::MailboxPtr id);
   void DidDeleteSharedBitmap(::gpu::mojom::blink::MailboxPtr id);
 
-  // This enum is used in histogram, so it should be append-only.
-  enum OffscreenCanvasCommitType {
-    kCommitGPUCanvasGPUCompositing = 0,
-    kCommitGPUCanvasSoftwareCompositing = 1,
-    kCommitSoftwareCanvasGPUCompositing = 2,
-    kCommitSoftwareCanvasSoftwareCompositing = 3,
-    kOffscreenCanvasCommitTypeCount,
-
-  };
-
  private:
   friend class CanvasResourceDispatcherTest;
+  struct FrameResource;
+  using ResourceMap = HashMap<unsigned, std::unique_ptr<FrameResource>>;
 
   bool PrepareFrame(scoped_refptr<CanvasResource>,
                     base::TimeTicks commit_start_time,
                     const SkIRect& damage_rect,
+                    bool needs_vertical_flip,
+                    bool is_opaque,
                     viz::CompositorFrame* frame);
 
   // Surface-related
@@ -109,11 +107,20 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   virtual void PostImageToPlaceholder(scoped_refptr<CanvasResource>,
                                       viz::ResourceId resource_id);
 
+  void ReclaimResourceInternal(viz::ResourceId resource_id);
+  void ReclaimResourceInternal(const ResourceMap::iterator&);
+
   viz::mojom::blink::CompositorFrameSinkPtr sink_;
+  mojom::blink::SurfaceEmbedderPtr surface_embedder_;
   mojo::Binding<viz::mojom::blink::CompositorFrameSinkClient> binding_;
   viz::mojom::blink::CompositorFrameSinkClientPtr client_ptr_;
 
   int placeholder_canvas_id_;
+
+  unsigned next_resource_id_ = 0;
+  ResourceMap resources_;
+
+  viz::FrameTokenGenerator next_frame_token_;
 
   // The latest_unposted_resource_id_ always refers to the Id of the frame
   // resource used by the latest_unposted_image_.
@@ -125,8 +132,7 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
 
   CanvasResourceDispatcherClient* client_;
 
-  std::unique_ptr<OffscreenCanvasResourceProvider>
-      offscreen_canvas_resource_provider_;
+  const bool enable_surface_synchronization_;
 
   base::WeakPtrFactory<CanvasResourceDispatcher> weak_ptr_factory_;
 };

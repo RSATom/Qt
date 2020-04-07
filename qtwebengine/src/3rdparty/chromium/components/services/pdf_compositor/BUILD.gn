@@ -3,9 +3,7 @@
 # found in the LICENSE file.
 
 import("//printing/buildflags/buildflags.gni")
-import("//services/service_manager/public/cpp/service.gni")
 import("//services/service_manager/public/service_manifest.gni")
-import("//services/service_manager/public/tools/test/service_test.gni")
 
 static_library("pdf_compositor") {
   sources = [
@@ -24,13 +22,12 @@ static_library("pdf_compositor") {
     "//content/public/common:service_names",
     "//content/public/utility",
     "//printing/common",
-    "//services/ui/public/interfaces",
+    "//services/ws/public/mojom",
     "//skia",
     "//third_party/blink/public:blink_headers",
   ]
 
   public_deps = [
-    "//components/services/pdf_compositor/public/cpp:utils",
     "//components/services/pdf_compositor/public/interfaces",
     "//services/service_manager/public/cpp",
   ]
@@ -54,22 +51,18 @@ if (enable_basic_printing) {
       "//testing/gmock/include",
       "//third_party/skia/include/core",
     ]
+
     deps = [
       ":pdf_compositor",
+      "//base",
       "//base/test:test_support",
       "//cc/paint:paint",
       "//components/crash/core/common:crash_key",
       "//components/services/pdf_compositor/public/interfaces",
-      "//services/service_manager/public/cpp:service_test_support",
+      "//services/service_manager/public/cpp/test:test_support",
       "//skia",
       "//testing/gmock",
       "//testing/gtest",
     ]
-  }
-
-  service_manifest("pdf_compositor_service_unittest_manifest") {
-    name = "pdf_compositor_service_unittest"
-    source = "pdf_compositor_service_unittest_manifest.json"
-    packaged_services = [ ":pdf_compositor_manifest" ]
   }
 }

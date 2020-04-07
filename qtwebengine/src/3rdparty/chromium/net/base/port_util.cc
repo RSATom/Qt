@@ -87,9 +87,6 @@ const int kRestrictedPorts[] = {
     6668,    // Alternate IRC [Apple addition]
     6669,    // Alternate IRC [Apple addition]
     6697,    // IRC + TLS
-    0xFFFF,  // Used to block all invalid port numbers (see
-             // third_party/WebKit/Source/platform/weborigin/KURL.cpp,
-             // KURL::port())
 };
 
 // FTP overrides the following restricted port.
@@ -178,8 +175,7 @@ ScopedPortException::ScopedPortException(int port) : port_(port) {
 }
 
 ScopedPortException::~ScopedPortException() {
-  std::multiset<int>::iterator it =
-      g_explicitly_allowed_ports.Get().find(port_);
+  auto it = g_explicitly_allowed_ports.Get().find(port_);
   if (it != g_explicitly_allowed_ports.Get().end())
     g_explicitly_allowed_ports.Get().erase(it);
   else

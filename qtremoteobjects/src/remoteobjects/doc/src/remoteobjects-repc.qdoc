@@ -388,7 +388,7 @@
     is not commonly used.
     \endcode
 
-    \section 2 QOBJECT_REP
+    \section2 QOBJECT_REP
 
     Specifies the names of existing QObject header files that should be used to generate corresponding
     .rep files.

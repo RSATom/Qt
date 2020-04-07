@@ -224,13 +224,16 @@ GLXFBConfig qglx_findConfig(Display *display, int screen , QSurfaceFormat format
             }
 
             QXlibPointer<XVisualInfo> visual(glXGetVisualFromFBConfig(display, candidate));
-            if (visual.isNull())
-                continue;
-
-            const int actualRed = qPopulationCount(visual->red_mask);
-            const int actualGreen = qPopulationCount(visual->green_mask);
-            const int actualBlue = qPopulationCount(visual->blue_mask);
-            const int actualAlpha = visual->depth - actualRed - actualGreen - actualBlue;
+            int actualRed;
+            int actualGreen;
+            int actualBlue;
+            int actualAlpha;
+            glXGetFBConfigAttrib(display, candidate, GLX_RED_SIZE, &actualRed);
+            glXGetFBConfigAttrib(display, candidate, GLX_GREEN_SIZE, &actualGreen);
+            glXGetFBConfigAttrib(display, candidate, GLX_BLUE_SIZE, &actualBlue);
+            glXGetFBConfigAttrib(display, candidate, GLX_ALPHA_SIZE, &actualAlpha);
+            // Sometimes the visuals don't have a depth that includes the alpha channel.
+            actualAlpha = qMin(actualAlpha, visual->depth - actualRed - actualGreen - actualBlue);
 
             if (requestedRed && actualRed < requestedRed)
                 continue;
@@ -258,8 +261,10 @@ GLXFBConfig qglx_findConfig(Display *display, int screen , QSurfaceFormat format
             qCDebug(lcGlx) << "qglx_findConfig: Found non-matching but compatible FBConfig";
             return compatibleCandidate;
         }
-        qCWarning(lcGlx, "qglx_findConfig: Failed to finding matching FBConfig (%d %d %d %d)", requestedRed, requestedGreen, requestedBlue, requestedAlpha);
     } while (qglx_reduceFormat(&format));
+
+    if (!config)
+        qCWarning(lcGlx) << "qglx_findConfig: Failed to finding matching FBConfig for" << format;
 
     return config;
 }

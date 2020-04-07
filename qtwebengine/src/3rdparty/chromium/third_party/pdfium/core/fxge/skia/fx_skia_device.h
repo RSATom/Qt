@@ -13,6 +13,7 @@
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/renderdevicedriver_iface.h"
 
+class CFX_ClipRgn;
 class FXTEXT_CHARPOS;
 class SkCanvas;
 class SkMatrix;
@@ -22,7 +23,7 @@ class SkPictureRecorder;
 class SkiaState;
 struct SkIRect;
 
-class CFX_SkiaDeviceDriver : public RenderDeviceDriverIface {
+class CFX_SkiaDeviceDriver final : public RenderDeviceDriverIface {
  public:
   CFX_SkiaDeviceDriver(const RetainPtr<CFX_DIBitmap>& pBitmap,
                        bool bRgbByteOrder,
@@ -62,17 +63,17 @@ class CFX_SkiaDeviceDriver : public RenderDeviceDriverIface {
                 uint32_t fill_color,
                 uint32_t stroke_color,
                 int fill_mode,
-                int blend_type) override;
+                BlendMode blend_type) override;
 
   bool FillRectWithBlend(const FX_RECT& rect,
                          uint32_t fill_color,
-                         int blend_type) override;
+                         BlendMode blend_type) override;
 
   /** Draw a single pixel (device dependant) line */
   bool DrawCosmeticLine(const CFX_PointF& ptMoveTo,
                         const CFX_PointF& ptLineTo,
                         uint32_t color,
-                        int blend_type) override;
+                        BlendMode blend_type) override;
 
   bool GetClipBox(FX_RECT* pRect) override;
 
@@ -83,51 +84,51 @@ class CFX_SkiaDeviceDriver : public RenderDeviceDriverIface {
 
   RetainPtr<CFX_DIBitmap> GetBackDrop() override;
 
-  bool SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
-                 const FX_RECT* pSrcRect,
+                 const FX_RECT& src_rect,
                  int dest_left,
                  int dest_top,
-                 int blend_type) override;
+                 BlendMode blend_type) override;
 #ifdef _SKIA_SUPPORT_
-  bool SetBitsWithMask(const RetainPtr<CFX_DIBSource>& pBitmap,
-                       const RetainPtr<CFX_DIBSource>& pMask,
+  bool SetBitsWithMask(const RetainPtr<CFX_DIBBase>& pBitmap,
+                       const RetainPtr<CFX_DIBBase>& pMask,
                        int dest_left,
                        int dest_top,
                        int bitmap_alpha,
-                       int blend_type) override;
+                       BlendMode blend_type) override;
 #endif
 
 #ifdef _SKIA_SUPPORT_PATHS_
   void SetClipMask(const FX_RECT& clipBox, const SkPath& skClipPath);
 #endif
 
-  bool StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     uint32_t flags,
-                     int blend_type) override;
+                     const FXDIB_ResampleOptions& options,
+                     BlendMode blend_type) override;
 
-  bool StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                    int bitmap_alpha,
                    uint32_t color,
-                   const CFX_Matrix* pMatrix,
-                   uint32_t flags,
+                   const CFX_Matrix& matrix,
+                   const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
-                   int blend_type) override;
+                   BlendMode blend_type) override;
 
   bool ContinueDIBits(CFX_ImageRenderer* handle,
                       PauseIndicatorIface* pPause) override;
 
-  bool DrawBitsWithMask(const RetainPtr<CFX_DIBSource>& pBitmap,
-                        const RetainPtr<CFX_DIBSource>& pMask,
+  bool DrawBitsWithMask(const RetainPtr<CFX_DIBBase>& pBitmap,
+                        const RetainPtr<CFX_DIBBase>& pMask,
                         int bitmap_alpha,
-                        const CFX_Matrix* pMatrix,
-                        int blend_type);
+                        const CFX_Matrix& matrix,
+                        BlendMode blend_type);
 
   bool DrawDeviceText(int nChars,
                       const FXTEXT_CHARPOS* pCharPos,

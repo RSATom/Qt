@@ -240,7 +240,8 @@ bool SocketsUdpSendFunction::Prepare() {
   params_ = sockets_udp::Send::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params_.get());
   io_buffer_size_ = params_->data.size();
-  io_buffer_ = new net::WrappedIOBuffer(params_->data.data());
+  io_buffer_ = base::MakeRefCounted<net::WrappedIOBuffer>(
+      reinterpret_cast<const char*>(params_->data.data()));
 
   return true;
 }
@@ -360,7 +361,7 @@ bool SocketsUdpGetSocketsFunction::Prepare() { return true; }
 
 void SocketsUdpGetSocketsFunction::Work() {
   std::vector<sockets_udp::SocketInfo> socket_infos;
-  base::hash_set<int>* resource_ids = GetSocketIds();
+  std::unordered_set<int>* resource_ids = GetSocketIds();
   if (resource_ids != NULL) {
     for (int socket_id : *resource_ids) {
       ResumableUDPSocket* socket = GetUdpSocket(socket_id);

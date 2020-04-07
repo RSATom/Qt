@@ -8,18 +8,26 @@
 #define FXJS_XFA_CJX_DATETIME_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_DateTime;
 
-class CJX_DateTime : public CJX_Node {
+class CJX_DateTime final : public CJX_Node {
  public:
   explicit CJX_DateTime(CXFA_DateTime* node);
   ~CJX_DateTime() override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(value);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(value);
+
+ private:
+  using Type__ = CJX_DateTime;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::DateTime;
 };
 
 #endif  // FXJS_XFA_CJX_DATETIME_H_

@@ -89,13 +89,17 @@ net::URLRequestJob* BlobProtocolHandler::MaybeCreateJob(
                                         LookupBlobHandle(request));
 }
 
+bool BlobProtocolHandler::IsSafeRedirectTarget(const GURL& location) const {
+  return false;
+}
+
 BlobDataHandle* BlobProtocolHandler::LookupBlobHandle(
     net::URLRequest* request) const {
   BlobDataHandle* blob_data_handle = GetRequestBlobDataHandle(request);
   if (blob_data_handle)
     return blob_data_handle;
   if (!context_.get())
-    return NULL;
+    return nullptr;
 
   // Support looking up based on uuid, the FeedbackExtensionAPI relies on this.
   // TODO(michaeln): Replace this use case and others like it with a BlobReader
@@ -103,7 +107,7 @@ BlobDataHandle* BlobProtocolHandler::LookupBlobHandle(
   const std::string kPrefix("blob:uuid/");
   if (!base::StartsWith(request->url().spec(), kPrefix,
                         base::CompareCase::SENSITIVE))
-    return NULL;
+    return nullptr;
   std::string uuid = request->url().spec().substr(kPrefix.length());
   std::unique_ptr<BlobDataHandle> handle = context_->GetBlobDataFromUUID(uuid);
   BlobDataHandle* handle_ptr = handle.get();

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef PDFIUM_THIRD_PARTY_BASE_STL_UTIL_H_
-#define PDFIUM_THIRD_PARTY_BASE_STL_UTIL_H_
+#ifndef THIRD_PARTY_BASE_STL_UTIL_H_
+#define THIRD_PARTY_BASE_STL_UTIL_H_
 
 #include <algorithm>
 #include <iterator>
@@ -15,6 +15,18 @@
 #include "third_party/base/numerics/safe_math.h"
 
 namespace pdfium {
+
+// C++11 implementation of C++17's std::size():
+// http://en.cppreference.com/w/cpp/iterator/size
+template <typename Container>
+constexpr auto size(const Container& c) -> decltype(c.size()) {
+  return c.size();
+}
+
+template <typename T, size_t N>
+constexpr size_t size(const T (&array)[N]) noexcept {
+  return N;
+}
 
 // Test to see if a set, map, hash_set or hash_map contains a particular key.
 // Returns true if the key is in the collection.
@@ -86,4 +98,4 @@ std::vector<T> Vector2D(size_t w, size_t h) {
 
 }  // namespace pdfium
 
-#endif  // PDFIUM_THIRD_PARTY_BASE_STL_UTIL_H_
+#endif  // THIRD_PARTY_BASE_STL_UTIL_H_

@@ -1,8 +1,8 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
+<link rel="import" href="../../html/polymer.html">
 
-<link rel="import" href="chrome://resources/cr_elements/cr_icons_css.html">
-<link rel="import" href="chrome://resources/cr_elements/hidden_style_css.html">
-<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="../cr_icons_css.html">
+<link rel="import" href="../hidden_style_css.html">
+<link rel="import" href="../shared_vars_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-behaviors/paper-ripple-behavior.html">
 
@@ -43,9 +43,9 @@
       }
 
       #startIcon {
-        -webkit-padding-end: var(--cr-icon-button-margin-start);
         display: flex;
         flex-shrink: 0;
+        padding-inline-end: var(--cr-icon-button-margin-start);
         width: var(--cr-link-row-icon-width, var(--cr-icon-size));
       }
 
@@ -62,18 +62,15 @@
       #labelWrapper {
         flex: 1;
         flex-basis: 0.000000001px;
+        padding-bottom: var(--cr-section-vertical-padding);
+        padding-top: var(--cr-section-vertical-padding);
         text-align: start;
       }
 
       #outer {
         align-items: center;
         display: flex;
-        min-height: var(--cr-section-two-line-min-height);
         width: 100%;
-      }
-
-      #outer[noSubLabel] {
-        min-height: var(--cr-section-min-height);
       }
 
       paper-ripple {
@@ -84,7 +81,10 @@
         @apply --cr-secondary-text;
       }
     </style>
-    <button disabled="[[disabled]]">
+    <button
+        aria-describedby$="[[ariaDescribedBy_]]"
+        aria-label$="[[label]]"
+        disabled="[[disabled]]">
       <div id="outer" noSubLabel$="[[!subLabel]]">
         <iron-icon id="startIcon" icon="[[startIcon]]" hidden="[[!startIcon]]"
             aria-hidden="true">

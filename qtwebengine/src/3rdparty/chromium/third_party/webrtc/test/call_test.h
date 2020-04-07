@@ -10,9 +10,14 @@
 #ifndef TEST_CALL_TEST_H_
 #define TEST_CALL_TEST_H_
 
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "api/test/video/function_video_decoder_factory.h"
+#include "api/test/video/function_video_encoder_factory.h"
+#include "api/video/video_bitrate_allocator_factory.h"
 #include "call/call.h"
 #include "call/rtp_transport_controller_send.h"
 #include "logging/rtc_event_log/rtc_event_log.h"
@@ -20,8 +25,8 @@
 #include "test/encoder_settings.h"
 #include "test/fake_decoder.h"
 #include "test/fake_videorenderer.h"
+#include "test/fake_vp8_encoder.h"
 #include "test/frame_generator_capturer.h"
-#include "test/function_video_encoder_factory.h"
 #include "test/rtp_rtcp_observer.h"
 #include "test/single_threaded_task_queue.h"
 
@@ -102,6 +107,7 @@ class CallTest : public ::testing::Test {
       const VideoSendStream::Config& video_send_config,
       Transport* rtcp_send_transport,
       bool send_side_bwe,
+      VideoDecoderFactory* decoder_factory,
       absl::optional<size_t> decode_sub_stream,
       bool receiver_reference_time_report,
       int rtp_history_ms);
@@ -110,6 +116,7 @@ class CallTest : public ::testing::Test {
       const VideoSendStream::Config& video_send_config,
       Transport* rtcp_send_transport,
       bool send_side_bwe,
+      VideoDecoderFactory* decoder_factory,
       absl::optional<size_t> decode_sub_stream,
       bool receiver_reference_time_report,
       int rtp_history_ms);
@@ -149,9 +156,7 @@ class CallTest : public ::testing::Test {
 
   void Start();
   void StartVideoStreams();
-  void StartVideoCapture();
   void Stop();
-  void StopVideoCapture();
   void StopVideoStreams();
   void DestroyStreams();
   void DestroyVideoSendStreams();
@@ -189,8 +194,8 @@ class CallTest : public ::testing::Test {
   std::vector<FlexfecReceiveStream*> flexfec_receive_streams_;
 
   test::FrameGeneratorCapturer* frame_generator_capturer_;
-  std::vector<rtc::VideoSourceInterface<VideoFrame>*> video_sources_;
-  std::vector<std::unique_ptr<VideoCapturer>> video_capturers_;
+  std::vector<std::unique_ptr<rtc::VideoSourceInterface<VideoFrame>>>
+      video_sources_;
   DegradationPreference degradation_preference_ =
       DegradationPreference::MAINTAIN_FRAMERATE;
 
@@ -198,7 +203,8 @@ class CallTest : public ::testing::Test {
 
   test::FunctionVideoEncoderFactory fake_encoder_factory_;
   int fake_encoder_max_bitrate_ = -1;
-  std::vector<std::unique_ptr<VideoDecoder>> allocated_decoders_;
+  test::FunctionVideoDecoderFactory fake_decoder_factory_;
+  std::unique_ptr<VideoBitrateAllocatorFactory> bitrate_allocator_factory_;
   // Number of simulcast substreams.
   size_t num_video_streams_;
   size_t num_audio_streams_;
@@ -235,8 +241,8 @@ class BaseTest : public RtpRtcpObserver {
       TestAudioDeviceModule* send_audio_device,
       TestAudioDeviceModule* recv_audio_device);
 
-  virtual void ModifySenderCallConfig(Call::Config* config);
-  virtual void ModifyReceiverCallConfig(Call::Config* config);
+  virtual void ModifySenderBitrateConfig(BitrateConstraints* bitrate_config);
+  virtual void ModifyReceiverBitrateConfig(BitrateConstraints* bitrate_config);
 
   virtual void OnRtpTransportControllerSendCreated(
       RtpTransportControllerSend* controller);
@@ -255,6 +261,9 @@ class BaseTest : public RtpRtcpObserver {
   virtual void ModifyVideoCaptureStartResolution(int* width,
                                                  int* heigt,
                                                  int* frame_rate);
+  virtual void ModifyVideoDegradationPreference(
+      DegradationPreference* degradation_preference);
+
   virtual void OnVideoStreamsCreated(
       VideoSendStream* send_stream,
       const std::vector<VideoReceiveStream*>& receive_streams);

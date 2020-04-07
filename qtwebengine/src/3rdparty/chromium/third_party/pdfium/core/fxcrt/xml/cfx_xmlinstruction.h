@@ -7,7 +7,6 @@
 #ifndef CORE_FXCRT_XML_CFX_XMLINSTRUCTION_H_
 #define CORE_FXCRT_XML_CFX_XMLINSTRUCTION_H_
 
-#include <memory>
 #include <vector>
 
 #include "core/fxcrt/fx_string.h"
@@ -15,7 +14,7 @@
 
 class CFX_XMLDocument;
 
-class CFX_XMLInstruction : public CFX_XMLNode {
+class CFX_XMLInstruction final : public CFX_XMLNode {
  public:
   explicit CFX_XMLInstruction(const WideString& wsTarget);
   ~CFX_XMLInstruction() override;
@@ -28,12 +27,18 @@ class CFX_XMLInstruction : public CFX_XMLNode {
   bool IsOriginalXFAVersion() const;
   bool IsAcrobat() const;
 
-  const std::vector<WideString>& GetTargetData() const { return m_TargetData; }
+  const std::vector<WideString>& GetTargetData() const { return target_data_; }
   void AppendData(const WideString& wsData);
 
  private:
-  WideString name_;
-  std::vector<WideString> m_TargetData;
+  const WideString name_;
+  std::vector<WideString> target_data_;
 };
+
+inline CFX_XMLInstruction* ToXMLInstruction(CFX_XMLNode* pNode) {
+  return pNode && pNode->GetType() == FX_XMLNODE_Instruction
+             ? static_cast<CFX_XMLInstruction*>(pNode)
+             : nullptr;
+}
 
 #endif  // CORE_FXCRT_XML_CFX_XMLINSTRUCTION_H_

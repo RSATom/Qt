@@ -1,28 +1,28 @@
 #Topic Color4f
 #Alias Color4f_Reference ##
 
-#Struct SkColor4f
+#Struct SkPM4f
+##
+
+#Struct SkRGBA4f
+
+#Code
+#Populate
+##
 
 Each component is stored as a 32-bit single precision floating point float value.
 All values are allowed, but only the range from zero to one is meaningful.
 
-Each component is independent of the others; fA Alpha is not Premultiplied
-with fG green, fB blue, or fR red.
+Components are independent of the others if defined with kUnpremul_SkAlphaType;
+fA Alpha is may be greater or smaller than fG green, fB blue, or fR red.
+SkColor4f is shorthand for Unpremultiplied SkRGBA4f.
+
+Components are connected if defined with kPremul_SkAlphaType; 
+fA Alpha is equal to or larger than fG green, fB blue, and fR red. The values
+stored in fG, fB, and fR combine the color component with the Alpha component.
 
 Values smaller than zero or larger than one are allowed. Values out of range
 may be used with Blend_Mode so that the final component is in range.
-
-#Subtopic Overview
-#Populate
-##
-
-#Subtopic Operator
-#Populate
-##
-
-#Subtopic Member_Function
-#Populate
-##
 
 #Member float  fR
 #Line # red component ##
@@ -44,17 +44,17 @@ Single precision float for blue ranges from no blue (0.0) to full blue (1.0).
 Single precision float for Alpha ranges from no Alpha (0.0) to full Alpha (1.0).
 ##
 
+
 # ------------------------------------------------------------------------------
 
-#Method bool operator==(const SkColor4f& other)_const
-#In Operator
-#Line # compares Color4f for equality ##
+#Method bool operator==(const SkRGBA4f& other) const
+#Line # compares SkRGBA4f for equality ##
 
-Compares Color4f with other, and returns true if all components are equivalent.
+Compares SkRGBA4f with other, and returns true if all components are equivalent.
 
-#Param other  Color4f to compare ##
+#Param other  SkRGBA4f to compare ##
 
-#Return true if Color4f equals other ##
+#Return true if SkRGBA4f equals other ##
 
 #Example
     SkColor4f colorRed = { 1, 0, 0, 1 };
@@ -65,22 +65,21 @@ colorRed == colorNamedRed
 ##
 ##
 
-#SeeAlso operator!=(const SkColor4f& other)_const
+#SeeAlso operator!=(const SkRGBA4f& other) const
 
 #Method ##
 
 # ------------------------------------------------------------------------------
 
-#Method bool operator!=(const SkColor4f& other)_const
-#In Operator
-#Line # compares colors for inequality ##
+#Method bool operator!=(const SkRGBA4f& other) const
+#Line # compares SkRGBA4f for inequality ##
 
-Compares Color4f with other, and returns true if all components are not
+Compares SkRGBA4f with other, and returns true if all components are not
 equivalent.
 
-#Param other  Color4f to compare ##
+#Param other  SkRGBA4f to compare ##
 
-#Return true if Color4f is not equal to other ##
+#Return true if SkRGBA4f is not equal to other ##
 
 #Example
     SkColor4f colorGray = { .5, .5, .5, 1 };
@@ -91,17 +90,52 @@ colorGray != colorNamedGray
 ##
 ##
 
-#SeeAlso operator==(const SkColor4f& other)_const
+#SeeAlso operator==(const SkRGBA4f& other) const
+
+#Method ##
+
+#Method SkRGBA4f operator*(float scale) const
+#Line # multiplies components by scale ##
+
+Multiplies each component by scale. Does not pin the result.
+
+#Param scale  component multiplier ##
+
+#Return scaled color ##
+
+#NoExample
+##
+
+#SeeAlso SkBlendMode::kMultiply
+
+#Method ##
+
+#Method SkRGBA4f operator*(const SkRGBA4f& scale) const
+
+Multiplies each component by scale component. Does not pin the result.
+
+#Param scale  SkRGBA4f component multipliers ##
+
+#Return scaled color ##
+
+#NoExample
+##
+
+#SeeAlso SkBlendMode::kMultiply
 
 #Method ##
 
 # ------------------------------------------------------------------------------
 
+#Subtopic Property_Functions
+#Line # member values ##
+#Subtopic Property_Functions ##
+
 #Method const float* vec() const
-#In Property
+#In Property_Functions
 #Line # returns array of components ##
 
-Returns Color4f components as a read-only array.
+Returns SkRGBA4f components as a read-only array.
 
 #Return components as read-only array ##
 
@@ -111,8 +145,8 @@ Returns Color4f components as a read-only array.
     const float* array = color.vec();
     SkDebugf("[0]=%g [1]=%g [2]=%g [3]=%g\n", array[0], array[1], array[2], array[3]);
 #StdOut
-red=0.0578054 green=0.246201 blue=0.603827 alpha=0.533333
-[0]=0.0578054 [1]=0.246201 [2]=0.603827 [3]=0.533333
+red=0.266667 green=0.533333 blue=0.8 alpha=0.533333
+[0]=0.266667 [1]=0.533333 [2]=0.8 [3]=0.533333
 ##
 ##
 
@@ -123,10 +157,10 @@ red=0.0578054 green=0.246201 blue=0.603827 alpha=0.533333
 # ------------------------------------------------------------------------------
 
 #Method float* vec()
-#In Property
+#In Property_Functions
 #Line # returns array of components ##
 
-Returns Color4f components as a writable array.
+Returns SkRGBA4f components as a writable array.
 
 #Return components as writable array ##
 
@@ -137,8 +171,8 @@ Returns Color4f components as a writable array.
     array[3] = 1;
     SkDebugf("[0]=%g [1]=%g [2]=%g [3]=%g\n", array[0], array[1], array[2], array[3]);
 #StdOut
-red=0.0578054 green=0.246201 blue=0.603827 alpha=0.533333
-[0]=0.0578054 [1]=0.246201 [2]=0.603827 [3]=1
+red=0.266667 green=0.533333 blue=0.8 alpha=0.533333
+[0]=0.266667 [1]=0.533333 [2]=0.8 [3]=1
 ##
 ##
 
@@ -146,58 +180,67 @@ red=0.0578054 green=0.246201 blue=0.603827 alpha=0.533333
 
 #Method ##
 
-# ------------------------------------------------------------------------------
+#Method float operator[](int index) const
+#Line # returns component by index ##
 
-#Method static SkColor4f Pin(float r, float g, float b, float a)
-#In Utility
-#Line # sets components to valid range ##
+Returns SkRGBA4f component by index, zero through three. index out of range
+triggers an assert in debug builds.
 
-Constructs and returns Color4f with each component pinned from zero to one.
+#Param index component, zero through three ##
+#Return component by index ##
 
-#Param r  red component ##
-#Param g  green component ##
-#Param b  blue component ##
-#Param a  Alpha component ##
-
-#Return Color4f with valid components ##
-
-#Example
-#Height 40
-    uint32_t storage[8];
-    SkImageInfo info = SkImageInfo::MakeN32Premul(8, 1);
-    SkPixmap pixmap(info, storage, info.minRowBytes());
-    pixmap.erase(SK_ColorWHITE);
-    SkIRect bounds = {0, 0, 1, 1};
-    SkColor4f colors[] = { SkColor4f::Pin(1.5, 0.45f,  0.0,  1), 
-                           SkColor4f::Pin(1,   0.45f, -0.25, 1),
-                           {1.5, 0.45f,  0.0,  1},
-                           {1,   0.45f, -0.25, 1},
-                         };
-    for (auto color4f : colors) {
-        pixmap.erase(color4f, &bounds);
-        bounds.offset(2, 0);
-    }
-    SkBitmap bitmap;
-    canvas->scale(20, 20);
-    bitmap.installPixels(pixmap);
-    canvas->drawBitmap(bitmap, 0, 0);
+#NoExample
 ##
 
-#SeeAlso pin() FromColor
+#SeeAlso vec
+
+#Method ##
+
+#Method float& operator[](int index)
+#Line # returns writable component reference ##
+  
+Returns writable component reference by index, zero through three. index out of range
+triggers an assert in debug builds.
+
+#Param index component, zero through three ##
+#Return writable component reference by index ##
+
+#NoExample
+##
+
+#SeeAlso vec
 
 #Method ##
 
 # ------------------------------------------------------------------------------
 
-#Method static SkColor4f FromColor(SkColor)
-#In Utility
+#Subtopic Utility_Functions
+#Line # less common functions ##
+#Subtopic Utility_Functions ##
+
+#Method bool isOpaque() const
+#In Utility_Functions
+#Line # returns if Alpha component is at maximum ##
+
+Returns true if Alpha component is one. Color has no transparency regardless of
+whether color is Premultiplied or Unpremultiplied. Triggers a debugging assert
+if Alpha not valid.
+
+#Return true if Alpha is one ##
+
+#NoExample
+##
+
+#SeeAlso vec SkColorGetA
+
+##
+
+# ------------------------------------------------------------------------------
+
+#Method static SkRGBA4f FromColor(SkColor color)
+#In Utility_Functions
 #Line # sets components from Color ##
-
-Converts to closest Color4f.
-
-#Param SkColor  Color with Alpha, red, blue, and green components ##
-
-#Return Color4f equivalent ##
+#Populate
 
 #Example
     uint8_t red = 77, green = 101, blue = 153, alpha = 43;
@@ -208,7 +251,7 @@ Converts to closest Color4f.
     SkDebugf("red=%d green=%d blue=%d alpha=%d\n", SkColorGetR(fromColor4f),
              SkColorGetG(fromColor4f), SkColorGetB(fromColor4f), SkColorGetA(fromColor4f));
 #StdOut
-red=0.0742136 green=0.130136 blue=0.318547 alpha=0.168627
+red=0.301961 green=0.396078 blue=0.6 alpha=0.168627
 red=77 green=101 blue=153 alpha=43
 ##
 ##
@@ -220,7 +263,7 @@ red=77 green=101 blue=153 alpha=43
 # ------------------------------------------------------------------------------
 
 #Method SkColor toSkColor() const
-#In Utility
+#In Utility_Functions
 #Line # returns closest Color ##
 
 Converts to closest SkColor.
@@ -237,8 +280,8 @@ Converts to closest SkColor.
     SkDebugf("red=%g green=%g blue=%g alpha=%g\n", fromSkColor.fR, fromSkColor.fG,
                                                    fromSkColor.fB, fromSkColor.fA);
 #StdOut
-red=75 green=101 blue=153 alpha=43
-red=0.0703601 green=0.130136 blue=0.318547 alpha=0.168627
+red=18 green=33 blue=82 alpha=43
+red=0.0705882 green=0.129412 blue=0.321569 alpha=0.168627
 ##
 ##
 
@@ -248,57 +291,106 @@ red=0.0703601 green=0.130136 blue=0.318547 alpha=0.168627
 
 # ------------------------------------------------------------------------------
 
-#Method SkColor4f pin() const
-#In Utility
-#Line # sets components to valid range ##
+#Method static SkRGBA4f FromPMColor(SkPMColor)
+#In Utility_Functions
+#Line # converts from Premultiplied Color ##
 
-Returns Color4f with all components in the range from zero to one.
+Converts from Premultiplied integer components to Unpremultiplied float
+components.
 
-#Return Color4f with valid components ##
+#Param SkPMColor  Premultiplied color ##
 
-#Example
-#Height 40
-    uint32_t storage[8];
-    SkImageInfo info = SkImageInfo::MakeN32Premul(8, 1);
-    SkPixmap pixmap(info, storage, info.minRowBytes());
-    pixmap.erase(SK_ColorWHITE);
-    SkIRect bounds = {0, 0, 1, 1};
-    SkColor4f colors[] = { {1.5, 0.45f,  0.0,  1},
-                           {1,   0.45f, -0.25, 1},
-                         };
-    for (auto color4f : colors) {
-        pixmap.erase(color4f, &bounds);
-        bounds.offset(2, 0);
-        pixmap.erase(color4f.pin(), &bounds);
-        bounds.offset(2, 0);
-    }
-    SkBitmap bitmap;
-    canvas->scale(20, 20);
-    bitmap.installPixels(pixmap);
-    canvas->drawBitmap(bitmap, 0, 0);
+#Return Unpremultiplied color ##
+
+#NoExample
 ##
 
-#SeeAlso Pin
+#SeeAlso FromColor
 
 #Method ##
 
 # ------------------------------------------------------------------------------
 
-#Method SkPM4f premul() const
+#Method SkRGBA4f<kPremul_SkAlphaType> premul() const
 #In Utility
-#Line # returns Premultiplied color; internal use only ##
-#Private
-Internal use only.
-##
+#Line # returns Premultiplied color ##
+
+Returns SkColor4f with all components premultiplied by Alpha.
+
 #Return Premultiplied color ##
+
+#NoExample
+##
+
+#SeeAlso unpremul
+
 #Method ##
 
-#Struct SkColor4f ##
+#Method SkRGBA4f<kUnpremul_SkAlphaType> unpremul() const
+#In Utility
+#Line # returns Unpremultiplied color ##
 
-#Struct SkPM4f
-#Private
-Internal use only.
+Returns SkRGBA4f with all components independent of Alpha.
+
+#Return Unpremultiplied color ##
+
+#NoExample
 ##
+
+#SeeAlso premul
+
+#Method ##
+
+#Method uint32_t toBytes_RGBA() const
+#In Utility
+#Line # returns kRGBA_8888_SkColorType color ##
+
+Produces bytes in RGBA order. Component values are not affected by color Alpha.
+
+#Return color ##
+
+#NoExample
+##
+
+#Method ##
+
+#Method static SkRGBA4f FromBytes_RGBA(uint32_t color)
+#In Utility
+#Line # sets kRGBA_8888_SkColorType color ##
+
+Returns from color kRGBA_8888_SkColorType order. Component values are
+not affected by color Alpha.
+
+#Param color  Premultiplied or Unpremultiplied ##
+#Return color ##
+
+#NoExample
+##
+
+#Method ##
+
+#Method SkRGBA4f makeOpaque() const
+#In Utility
+#Line # returns color without transparency ##
+
+Returns color with Alpha set to one.
+
+#Return color ##
+
+#NoExample
+##
+
+#Method ##
+
+#Struct ##
+
+#Typedef SkRGBA4f SkColor4f
+#Line # defines Unpremultiplied Color using floats ##
+
+#Code
+using SkColor4f = SkRGBA4f<kUnpremul_SkAlphaType>;
+##
+
 ##
 
 #Topic Color4f ##

@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
+#include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 
 namespace blink {
 
@@ -43,7 +44,7 @@ class PageTestBase : public testing::Test {
   PendingAnimations& GetPendingAnimations();
   FocusController& GetFocusController() const;
 
-  void UpdateAllLifecyclePhases();
+  void UpdateAllLifecyclePhasesForTest();
 
   // Load the 'Ahem' font to the LocalFrame.
   // The 'Ahem' font is the only font whose font metrics is consistent across
@@ -53,8 +54,19 @@ class PageTestBase : public testing::Test {
 
  protected:
   void LoadAhem();
+  void EnablePlatform();
+
+  ScopedTestingPlatformSupport<TestingPlatformSupportWithMockScheduler>&
+  platform() {
+    return *platform_;
+  }
 
  private:
+  // The order is important: |platform_| must be destroyed after
+  // |dummy_page_holder_| is destroyed.
+  std::unique_ptr<
+      ScopedTestingPlatformSupport<TestingPlatformSupportWithMockScheduler>>
+      platform_;
   std::unique_ptr<DummyPageHolder> dummy_page_holder_;
 };
 

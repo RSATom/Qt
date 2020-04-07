@@ -35,13 +35,7 @@ TEST(AcceleratorTest, TimeStamp) {
   EXPECT_EQ(event_time, accelerator_b.time_stamp());
 }
 
-#if defined(OS_ANDROID)
-// Keyboard shortcuts don't have meaningful text on Android.
-#define MAYBE_GetShortcutText DISABLED_GetShortcutText
-#else
-#define MAYBE_GetShortcutText GetShortcutText
-#endif
-TEST(AcceleratorTest, MAYBE_GetShortcutText) {
+TEST(AcceleratorTest, GetShortcutText) {
   struct {
     KeyboardCode code;
     int modifiers;
@@ -50,6 +44,8 @@ TEST(AcceleratorTest, MAYBE_GetShortcutText) {
   } keys[] = {
     {VKEY_Q, EF_CONTROL_DOWN | EF_SHIFT_DOWN, "Ctrl+Shift+Q", "\u2303\u21e7Q"},
     {VKEY_A, EF_ALT_DOWN | EF_SHIFT_DOWN, "Alt+Shift+A", "\u2325\u21e7A"},
+    // Regression test for https://crbug.com/867732:
+    {VKEY_OEM_COMMA, EF_CONTROL_DOWN, "Ctrl+Comma", "\u2303,"},
 #if defined(OS_MACOSX)
     {VKEY_T, EF_COMMAND_DOWN | EF_CONTROL_DOWN, nullptr, "\u2303\u2318T"},
 #endif

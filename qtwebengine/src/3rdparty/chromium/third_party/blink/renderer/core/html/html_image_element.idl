@@ -40,8 +40,11 @@
     readonly attribute boolean complete;
     readonly attribute DOMString currentSrc;
     [CEReactions, Reflect, ReflectOnly=("","no-referrer","origin","no-referrer-when-downgrade","origin-when-cross-origin","unsafe-url"), ReflectMissing="", ReflectInvalid=""] attribute DOMString referrerPolicy;
-    [RuntimeEnabled=ImageDecodingAttribute, CEReactions, Reflect, ReflectOnly=("async", "sync", "auto"), ReflectMissing="auto", ReflectInvalid="auto"] attribute DOMString decoding;
-    [CEReactions, RuntimeEnabled=PriorityHints, Reflect, ReflectOnly=("low", "auto", "high"), ReflectMissing="auto", ReflectInvalid="auto"] attribute DOMString importance;
+    [CEReactions, Reflect, ReflectOnly=("async", "sync", "auto"), ReflectMissing="auto", ReflectInvalid="auto"] attribute DOMString decoding;
+    [CEReactions, MeasureAs=PriorityHints, OriginTrialEnabled=PriorityHints, Reflect, ReflectOnly=("low", "auto", "high"), ReflectMissing="auto", ReflectInvalid="auto"] attribute DOMString importance;
+    // https://github.com/ojanvafai/intrinsicsize-attribute/blob/master/README.md
+    [RuntimeEnabled=ExperimentalProductivityFeatures, CEReactions, Reflect] attribute DOMString intrinsicSize;
+    [RuntimeEnabled=LazyImageLoading, CEReactions, Reflect, ReflectOnly=("on", "off", "auto"), ReflectMissing="auto", ReflectInvalid="auto"] attribute DOMString lazyLoad;
 
     // obsolete members
     // https://html.spec.whatwg.org/#HTMLImageElement-partial
@@ -59,5 +62,5 @@
     [MeasureAs=HTMLImageElementX] readonly attribute long x;
     [MeasureAs=HTMLImageElementY] readonly attribute long y;
 
-    [RuntimeEnabled=JSImageDecode, CallWith=ScriptState, RaisesException] Promise decode();
+    [CallWith=ScriptState, RaisesException] Promise<void> decode();
 };

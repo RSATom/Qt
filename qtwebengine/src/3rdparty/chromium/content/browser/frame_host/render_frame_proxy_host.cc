@@ -4,12 +4,12 @@
 
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "base/callback.h"
-#include "base/debug/alias.h"
-#include "base/debug/dump_without_crashing.h"
+#include "base/hash.h"
 #include "base/lazy_instance.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
@@ -35,7 +35,9 @@ namespace {
 
 // The (process id, routing id) pair that identifies one RenderFrameProxy.
 typedef std::pair<int32_t, int32_t> RenderFrameProxyHostID;
-typedef base::hash_map<RenderFrameProxyHostID, RenderFrameProxyHost*>
+typedef std::unordered_map<RenderFrameProxyHostID,
+                           RenderFrameProxyHost*,
+                           base::IntPairHash<RenderFrameProxyHostID>>
     RoutingIDFrameProxyMap;
 base::LazyInstance<RoutingIDFrameProxyMap>::DestructorAtExit
     g_routing_id_frame_proxy_map = LAZY_INSTANCE_INITIALIZER;
@@ -47,8 +49,7 @@ RenderFrameProxyHost* RenderFrameProxyHost::FromID(int process_id,
                                                    int routing_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   RoutingIDFrameProxyMap* frames = g_routing_id_frame_proxy_map.Pointer();
-  RoutingIDFrameProxyMap::iterator it = frames->find(
-      RenderFrameProxyHostID(process_id, routing_id));
+  auto it = frames->find(RenderFrameProxyHostID(process_id, routing_id));
   return it == frames->end() ? NULL : it->second;
 }
 
@@ -204,30 +205,6 @@ bool RenderFrameProxyHost::InitRenderFrameProxy() {
         site_instance_.get());
   }
 
-  // Temporary debugging code for https://crbug.com/794625 to see if we're ever
-  // sending a message to create a RenderFrameProxy when one already exists.
-  // TODO(alexmos): Remove after the investigation.
-  if (render_frame_proxy_created_) {
-    SiteInstanceImpl* site_instance =
-        static_cast<SiteInstanceImpl*>(site_instance_.get());
-    GURL site_url(site_instance->GetSiteURL());
-    DEBUG_ALIAS_FOR_GURL(site_url_copy, site_url);
-    GURL current_rfh_site_url(frame_tree_node_->render_manager()
-                                  ->current_frame_host()
-                                  ->GetSiteInstance()
-                                  ->GetSiteURL());
-    DEBUG_ALIAS_FOR_GURL(current_rfh_site_url_copy, current_rfh_site_url);
-
-    int routing_id_copy = routing_id_;
-    base::debug::Alias(&routing_id_copy);
-    int parent_routing_id_copy = parent_routing_id;
-    base::debug::Alias(&parent_routing_id_copy);
-    int active_frame_count = site_instance->active_frame_count();
-    base::debug::Alias(&active_frame_count);
-
-    base::debug::DumpWithoutCrashing();
-  }
-
   int view_routing_id = frame_tree_node_->frame_tree()
       ->GetRenderViewHost(site_instance_.get())->GetRoutingID();
   GetProcess()->GetRendererInterface()->CreateFrameProxy(
@@ -235,7 +212,7 @@ bool RenderFrameProxyHost::InitRenderFrameProxy() {
       frame_tree_node_->current_replication_state(),
       frame_tree_node_->devtools_frame_token());
 
-  render_frame_proxy_created_ = true;
+  set_render_frame_proxy_created(true);
 
   // For subframes, initialize the proxy's FrameOwnerProperties only if they
   // differ from default values.
@@ -300,7 +277,8 @@ void RenderFrameProxyHost::OnDetach() {
     bad_message::ReceivedBadMessage(GetProcess(), bad_message::RFPH_DETACH);
     return;
   }
-  frame_tree_node_->frame_tree()->RemoveFrame(frame_tree_node_);
+
+  frame_tree_node_->current_frame_host()->DetachFromProxy();
 }
 
 void RenderFrameProxyHost::OnOpenURL(
@@ -324,9 +302,15 @@ void RenderFrameProxyHost::OnOpenURL(
             GetSiteInstance()->GetBrowserContext(), std::move(blob_url_token));
   }
 
+  RenderFrameHostImpl* current_rfh = frame_tree_node_->current_frame_host();
+
+  // The current_rfh may be pending deletion. In this case, ignore the
+  // navigation, because the frame is going to disappear soon anyway.
+  if (!current_rfh->is_active())
+    return;
+
   // Verify that we are in the same BrowsingInstance as the current
   // RenderFrameHost.
-  RenderFrameHostImpl* current_rfh = frame_tree_node_->current_frame_host();
   if (!site_instance_->IsRelatedSiteInstance(current_rfh->GetSiteInstance()))
     return;
 
@@ -343,8 +327,6 @@ void RenderFrameProxyHost::OnOpenURL(
   // in the current tab.
   DCHECK_EQ(WindowOpenDisposition::CURRENT_TAB, params.disposition);
 
-  // TODO(alexmos, creis): Figure out whether |params.user_gesture| needs to be
-  // passed in as well.
   // TODO(lfg, lukasza): Remove |extra_headers| parameter from
   // RequestTransferURL method once both RenderFrameProxyHost and
   // RenderFrameHostImpl call RequestOpenURL from their OnOpenURL handlers.
@@ -352,11 +334,12 @@ void RenderFrameProxyHost::OnOpenURL(
   // TODO(clamy): The transition should probably be changed for POST navigations
   // to PAGE_TRANSITION_FORM_SUBMIT. See https://crbug.com/829827.
   frame_tree_node_->navigator()->NavigateFromFrameProxy(
-      current_rfh, validated_url, site_instance_.get(), params.referrer,
-      ui::PAGE_TRANSITION_LINK,
+      current_rfh, validated_url, params.initiator_origin, site_instance_.get(),
+      params.referrer, ui::PAGE_TRANSITION_LINK,
       params.should_replace_current_entry, params.download_policy,
       params.uses_post ? "POST" : "GET", params.resource_request_body,
-      params.extra_headers, std::move(blob_url_loader_factory));
+      params.extra_headers, std::move(blob_url_loader_factory),
+      params.user_gesture);
 }
 
 void RenderFrameProxyHost::OnCheckCompleted() {
@@ -367,6 +350,39 @@ void RenderFrameProxyHost::OnCheckCompleted() {
 void RenderFrameProxyHost::OnRouteMessageEvent(
     const FrameMsg_PostMessage_Params& params) {
   RenderFrameHostImpl* target_rfh = frame_tree_node()->current_frame_host();
+
+  // |targetOrigin| argument of postMessage is already checked by
+  // blink::LocalDOMWindow::DispatchMessageEventWithOriginCheck (needed for
+  // messages sent within the same process - e.g. same-site, cross-origin),
+  // but this check needs to be duplicated below in case the recipient renderer
+  // process got compromised (i.e. in case the renderer-side check may be
+  // bypassed).
+  if (!params.target_origin.empty()) {
+    url::Origin target_origin =
+        url::Origin::Create(GURL(base::UTF16ToUTF8(params.target_origin)));
+
+    // Renderer should send either an empty string (this is how "*" is expressed
+    // in the IPC) or a valid, non-opaque origin.  OTOH, there are no security
+    // implications here - the message payload needs to be protected from an
+    // unintended recipient, not from the sender.
+    DCHECK(!target_origin.opaque());
+
+    // While the postMessage was in flight, the target might have navigated away
+    // to another origin.  In this case, the postMessage should be silently
+    // dropped.
+    if (target_origin != target_rfh->GetLastCommittedOrigin())
+      return;
+  }
+
+  // TODO(lukasza): Move opaque-ness check into ChildProcessSecurityPolicyImpl.
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  if (params.source_origin != base::UTF8ToUTF16("null") &&
+      !policy->CanAccessDataForOrigin(GetProcess()->GetID(),
+                                      GURL(params.source_origin))) {
+    bad_message::ReceivedBadMessage(
+        GetProcess(), bad_message::RFPH_POST_MESSAGE_INVALID_SOURCE_ORIGIN);
+    return;
+  }
 
   // Only deliver the message if the request came from a RenderFrameHost in the
   // same BrowsingInstance or if this WebContents is dedicated to a browser
@@ -406,11 +422,6 @@ void RenderFrameProxyHost::OnRouteMessageEvent(
       if (target_is_descendant_of_source) {
         target_rfh->GetRenderWidgetHost()
             ->SynchronizeVisualPropertiesIgnoringPendingAck();
-      }
-
-      if (!source_rfh->frame_tree_node()->IsDescendantOf(
-              target_rfh->frame_tree_node())) {
-        target_rfh->did_receive_post_message_from_non_descendant();
       }
 
       // Ensure that we have a swapped-out RVH and proxy for the source frame

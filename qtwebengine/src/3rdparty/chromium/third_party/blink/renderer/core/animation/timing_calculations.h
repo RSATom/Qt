@@ -44,18 +44,37 @@ static inline double MultiplyZeroAlwaysGivesZero(double x, double y) {
   return x && y ? x * y : 0;
 }
 
-static inline AnimationEffect::Phase CalculatePhase(double active_duration,
-                                                    double local_time,
-                                                    const Timing& specified) {
+static inline double MultiplyZeroAlwaysGivesZero(AnimationTimeDelta x,
+                                                 double y) {
+  DCHECK(!IsNull(y));
+  return x.is_zero() || y == 0 ? 0 : (x * y).InSecondsF();
+}
+
+// https://drafts.csswg.org/web-animations-1/#animation-effect-phases-and-states
+static inline AnimationEffect::Phase CalculatePhase(
+    double active_duration,
+    double local_time,
+    AnimationEffect::AnimationDirection direction,
+    const Timing& specified) {
   DCHECK_GE(active_duration, 0);
   if (IsNull(local_time))
     return AnimationEffect::kPhaseNone;
-  double end_time =
-      specified.start_delay + active_duration + specified.end_delay;
-  if (local_time < std::min(specified.start_delay, end_time))
+  double end_time = std::max(
+      specified.start_delay + active_duration + specified.end_delay, 0.0);
+  double before_active_boundary_time =
+      std::max(std::min(specified.start_delay, end_time), 0.0);
+  if (local_time < before_active_boundary_time ||
+      (local_time == before_active_boundary_time &&
+       direction == AnimationEffect::AnimationDirection::kBackwards)) {
     return AnimationEffect::kPhaseBefore;
-  if (local_time >= std::min(specified.start_delay + active_duration, end_time))
+  }
+  double active_after_boundary_time = std::max(
+      std::min(specified.start_delay + active_duration, end_time), 0.0);
+  if (local_time > active_after_boundary_time ||
+      (local_time == active_after_boundary_time &&
+       direction == AnimationEffect::AnimationDirection::kForwards)) {
     return AnimationEffect::kPhaseAfter;
+  }
   return AnimationEffect::kPhaseActive;
 }
 
@@ -83,13 +102,12 @@ static inline double CalculateActiveTime(double active_duration,
                                          AnimationEffect::Phase phase,
                                          const Timing& specified) {
   DCHECK_GE(active_duration, 0);
-  DCHECK_EQ(phase, CalculatePhase(active_duration, local_time, specified));
 
   switch (phase) {
     case AnimationEffect::kPhaseBefore:
       if (fill_mode == Timing::FillMode::BACKWARDS ||
           fill_mode == Timing::FillMode::BOTH)
-        return 0;
+        return std::max(local_time - specified.start_delay, 0.0);
       return NullValue();
     case AnimationEffect::kPhaseActive:
       if (IsActiveInParentPhase(parent_phase, fill_mode))
@@ -97,9 +115,10 @@ static inline double CalculateActiveTime(double active_duration,
       return NullValue();
     case AnimationEffect::kPhaseAfter:
       if (fill_mode == Timing::FillMode::FORWARDS ||
-          fill_mode == Timing::FillMode::BOTH)
-        return std::max(0.0, std::min(active_duration,
-                                      active_duration + specified.end_delay));
+          fill_mode == Timing::FillMode::BOTH) {
+        return std::max(
+            0.0, std::min(active_duration, local_time - specified.start_delay));
+      }
       return NullValue();
     case AnimationEffect::kPhaseNone:
       DCHECK(IsNull(local_time));
@@ -110,10 +129,9 @@ static inline double CalculateActiveTime(double active_duration,
   }
 }
 
-static inline double CalculateScaledActiveTime(double active_duration,
+static inline double CalculateOffsetActiveTime(double active_duration,
                                                double active_time,
-                                               double start_offset,
-                                               const Timing& specified) {
+                                               double start_offset) {
   DCHECK_GE(active_duration, 0);
   DCHECK_GE(start_offset, 0);
 
@@ -122,17 +140,10 @@ static inline double CalculateScaledActiveTime(double active_duration,
 
   DCHECK(active_time >= 0 && active_time <= active_duration);
 
-  if (specified.playback_rate == 0)
-    return start_offset;
-
   if (!std::isfinite(active_time))
     return std::numeric_limits<double>::infinity();
 
-  return MultiplyZeroAlwaysGivesZero(specified.playback_rate < 0
-                                         ? active_time - active_duration
-                                         : active_time,
-                                     specified.playback_rate) +
-         start_offset;
+  return active_time + start_offset;
 }
 
 static inline bool EndsOnIterationBoundary(double iteration_count,
@@ -145,7 +156,7 @@ static inline bool EndsOnIterationBoundary(double iteration_count,
 // text.
 static inline double CalculateIterationTime(double iteration_duration,
                                             double repeated_duration,
-                                            double scaled_active_time,
+                                            double offset_active_time,
                                             double start_offset,
                                             AnimationEffect::Phase phase,
                                             const Timing& specified) {
@@ -154,26 +165,26 @@ static inline double CalculateIterationTime(double iteration_duration,
             MultiplyZeroAlwaysGivesZero(iteration_duration,
                                         specified.iteration_count));
 
-  if (IsNull(scaled_active_time))
+  if (IsNull(offset_active_time))
     return NullValue();
 
-  DCHECK_GE(scaled_active_time, 0);
-  DCHECK_LE(scaled_active_time, repeated_duration + start_offset);
+  DCHECK_GE(offset_active_time, 0);
+  DCHECK_LE(offset_active_time, repeated_duration + start_offset);
 
-  if (!std::isfinite(scaled_active_time) ||
-      (scaled_active_time - start_offset == repeated_duration &&
+  if (!std::isfinite(offset_active_time) ||
+      (offset_active_time - start_offset == repeated_duration &&
        specified.iteration_count &&
        EndsOnIterationBoundary(specified.iteration_count,
                                specified.iteration_start)))
     return iteration_duration;
 
-  DCHECK(std::isfinite(scaled_active_time));
-  double iteration_time = fmod(scaled_active_time, iteration_duration);
+  DCHECK(std::isfinite(offset_active_time));
+  double iteration_time = fmod(offset_active_time, iteration_duration);
 
   // This implements step 3 of
   // https://drafts.csswg.org/web-animations/#calculating-the-simple-iteration-progress
   if (iteration_time == 0 && phase == AnimationEffect::kPhaseAfter &&
-      repeated_duration != 0 && scaled_active_time != 0)
+      repeated_duration != 0 && offset_active_time != 0)
     return iteration_duration;
 
   return iteration_time;
@@ -181,25 +192,25 @@ static inline double CalculateIterationTime(double iteration_duration,
 
 static inline double CalculateCurrentIteration(double iteration_duration,
                                                double iteration_time,
-                                               double scaled_active_time,
+                                               double offset_active_time,
                                                const Timing& specified) {
   DCHECK_GT(iteration_duration, 0);
   DCHECK(IsNull(iteration_time) || iteration_time >= 0);
 
-  if (IsNull(scaled_active_time))
+  if (IsNull(offset_active_time))
     return NullValue();
 
   DCHECK_GE(iteration_time, 0);
   DCHECK_LE(iteration_time, iteration_duration);
-  DCHECK_GE(scaled_active_time, 0);
+  DCHECK_GE(offset_active_time, 0);
 
-  if (!scaled_active_time)
+  if (!offset_active_time)
     return 0;
 
   if (iteration_time == iteration_duration)
     return specified.iteration_start + specified.iteration_count - 1;
 
-  return floor(scaled_active_time / iteration_duration);
+  return floor(offset_active_time / iteration_duration);
 }
 
 static inline double CalculateDirectedTime(double current_iteration,

@@ -46,7 +46,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_ttinterp
+#define FT_COMPONENT  ttinterp
 
 
 #define NO_SUBPIXEL_HINTING                                                  \
@@ -535,14 +535,6 @@
    *
    * @Description:
    *   Executes one or more instructions in the execution context.
-   *
-   * @Input:
-   *   debug ::
-   *     A Boolean flag.  If set, the function sets some internal
-   *     variables and returns immediately, otherwise TT_RunIns()
-   *     is called.
-   *
-   *     This is commented out currently.
    *
    * @Input:
    *   exec ::
@@ -1154,73 +1146,73 @@
     "8 PushW[6]",
     "8 PushW[7]",
 
-    "8 MDRP[00]",
-    "8 MDRP[01]",
-    "8 MDRP[02]",
-    "8 MDRP[03]",
-    "8 MDRP[04]",
-    "8 MDRP[05]",
-    "8 MDRP[06]",
-    "8 MDRP[07]",
-    "8 MDRP[08]",
-    "8 MDRP[09]",
-    "8 MDRP[10]",
-    "8 MDRP[11]",
-    "8 MDRP[12]",
-    "8 MDRP[13]",
-    "8 MDRP[14]",
-    "8 MDRP[15]",
+    "7 MDRP[G]",
+    "7 MDRP[B]",
+    "7 MDRP[W]",
+    "7 MDRP[?]",
+    "8 MDRP[rG]",
+    "8 MDRP[rB]",
+    "8 MDRP[rW]",
+    "8 MDRP[r?]",
+    "8 MDRP[mG]",
+    "8 MDRP[mB]",
+    "8 MDRP[mW]",
+    "8 MDRP[m?]",
+    "9 MDRP[mrG]",
+    "9 MDRP[mrB]",
+    "9 MDRP[mrW]",
+    "9 MDRP[mr?]",
 
-    "8 MDRP[16]",
-    "8 MDRP[17]",
-    "8 MDRP[18]",
-    "8 MDRP[19]",
-    "8 MDRP[20]",
-    "8 MDRP[21]",
-    "8 MDRP[22]",
-    "8 MDRP[23]",
-    "8 MDRP[24]",
-    "8 MDRP[25]",
-    "8 MDRP[26]",
-    "8 MDRP[27]",
-    "8 MDRP[28]",
-    "8 MDRP[29]",
-    "8 MDRP[30]",
-    "8 MDRP[31]",
+    "8 MDRP[pG]",
+    "8 MDRP[pB]",
+    "8 MDRP[pW]",
+    "8 MDRP[p?]",
+    "9 MDRP[prG]",
+    "9 MDRP[prB]",
+    "9 MDRP[prW]",
+    "9 MDRP[pr?]",
+    "9 MDRP[pmG]",
+    "9 MDRP[pmB]",
+    "9 MDRP[pmW]",
+    "9 MDRP[pm?]",
+    "A MDRP[pmrG]",
+    "A MDRP[pmrB]",
+    "A MDRP[pmrW]",
+    "A MDRP[pmr?]",
 
-    "8 MIRP[00]",
-    "8 MIRP[01]",
-    "8 MIRP[02]",
-    "8 MIRP[03]",
-    "8 MIRP[04]",
-    "8 MIRP[05]",
-    "8 MIRP[06]",
-    "8 MIRP[07]",
-    "8 MIRP[08]",
-    "8 MIRP[09]",
-    "8 MIRP[10]",
-    "8 MIRP[11]",
-    "8 MIRP[12]",
-    "8 MIRP[13]",
-    "8 MIRP[14]",
-    "8 MIRP[15]",
+    "7 MIRP[G]",
+    "7 MIRP[B]",
+    "7 MIRP[W]",
+    "7 MIRP[?]",
+    "8 MIRP[rG]",
+    "8 MIRP[rB]",
+    "8 MIRP[rW]",
+    "8 MIRP[r?]",
+    "8 MIRP[mG]",
+    "8 MIRP[mB]",
+    "8 MIRP[mW]",
+    "8 MIRP[m?]",
+    "9 MIRP[mrG]",
+    "9 MIRP[mrB]",
+    "9 MIRP[mrW]",
+    "9 MIRP[mr?]",
 
-    "8 MIRP[16]",
-    "8 MIRP[17]",
-    "8 MIRP[18]",
-    "8 MIRP[19]",
-    "8 MIRP[20]",
-    "8 MIRP[21]",
-    "8 MIRP[22]",
-    "8 MIRP[23]",
-    "8 MIRP[24]",
-    "8 MIRP[25]",
-    "8 MIRP[26]",
-    "8 MIRP[27]",
-    "8 MIRP[28]",
-    "8 MIRP[29]",
-    "8 MIRP[30]",
-    "8 MIRP[31]"
+    "8 MIRP[pG]",
+    "8 MIRP[pB]",
+    "8 MIRP[pW]",
+    "8 MIRP[p?]",
+    "9 MIRP[prG]",
+    "9 MIRP[prB]",
+    "9 MIRP[prW]",
+    "9 MIRP[pr?]",
+    "9 MIRP[pmG]",
+    "9 MIRP[pmB]",
+    "9 MIRP[pmW]",
+    "9 MIRP[pm?]",
+    "A MIRP[pmrG]",
+    "A MIRP[pmrB]",
+    "A MIRP[pmrW]",
+    "A MIRP[pmr?]"
   };
 
 #endif /* FT_DEBUG_LEVEL_TRACE */
@@ -7874,7 +7866,7 @@
         /* and the first few stack elements also             */
         FT_TRACE6(( "  " ));
         FT_TRACE7(( "%06d ", exc->IP ));
-        FT_TRACE6(( opcode_name[exc->opcode] + 2 ));
+        FT_TRACE6(( "%s", opcode_name[exc->opcode] + 2 ));
         FT_TRACE7(( "%*s", *opcode_name[exc->opcode] == 'A'
                               ? 2
                               : 12 - ( *opcode_name[exc->opcode] - '0' ),

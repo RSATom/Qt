@@ -89,6 +89,13 @@ class CORE_EXPORT TypingCommand final : public CompositeEditCommand {
   static void UpdateSelectionIfDifferentFromCurrentSelection(TypingCommand*,
                                                              LocalFrame*);
 
+  TypingCommand(Document&,
+                ETypingCommand,
+                const String& text,
+                Options,
+                TextGranularity,
+                TextCompositionType);
+
   void InsertTextRunWithoutNewlines(const String& text,
                                     EditingState*);
   void InsertLineBreak(EditingState*);
@@ -100,10 +107,11 @@ class CORE_EXPORT TypingCommand final : public CompositeEditCommand {
   void SetCompositionType(TextCompositionType type) {
     composition_type_ = type;
   }
-  void AdjustSelectionAfterIncrementalInsertion(LocalFrame*,
-                                                const size_t selection_start,
-                                                const size_t text_length,
-                                                EditingState*);
+  void AdjustSelectionAfterIncrementalInsertion(
+      LocalFrame*,
+      const wtf_size_t selection_start,
+      const wtf_size_t text_length,
+      EditingState*);
 
   ETypingCommand CommandTypeOfOpenCommand() const { return command_type_; }
   TextCompositionType CompositionType() const { return composition_type_; }
@@ -118,8 +126,8 @@ class CORE_EXPORT TypingCommand final : public CompositeEditCommand {
       const String& text = "",
       Options options = 0,
       TextGranularity granularity = TextGranularity::kCharacter) {
-    return new TypingCommand(document, command, text, options, granularity,
-                             kTextCompositionNone);
+    return MakeGarbageCollected<TypingCommand>(
+        document, command, text, options, granularity, kTextCompositionNone);
   }
 
   static TypingCommand* Create(Document& document,
@@ -127,16 +135,10 @@ class CORE_EXPORT TypingCommand final : public CompositeEditCommand {
                                const String& text,
                                Options options,
                                TextCompositionType composition_type) {
-    return new TypingCommand(document, command, text, options,
-                             TextGranularity::kCharacter, composition_type);
+    return MakeGarbageCollected<TypingCommand>(document, command, text, options,
+                                               TextGranularity::kCharacter,
+                                               composition_type);
   }
-
-  TypingCommand(Document&,
-                ETypingCommand,
-                const String& text,
-                Options,
-                TextGranularity,
-                TextCompositionType);
 
   void SetSmartDelete(bool smart_delete) { smart_delete_ = smart_delete; }
   bool IsOpenForMoreTyping() const { return open_for_more_typing_; }
@@ -191,7 +193,7 @@ class CORE_EXPORT TypingCommand final : public CompositeEditCommand {
   bool opened_by_backward_delete_;
 
   bool is_incremental_insertion_;
-  size_t selection_start_;
+  wtf_size_t selection_start_;
   InputEvent::InputType input_type_;
 };
 

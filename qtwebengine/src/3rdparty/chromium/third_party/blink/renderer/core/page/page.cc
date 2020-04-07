@@ -21,13 +21,11 @@
 
 #include "third_party/blink/renderer/core/page/page.h"
 
-#include "cc/layers/picture_layer.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/public/web/blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
-#include "third_party/blink/renderer/core/css/resolver/viewport_style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -39,6 +37,8 @@
 #include "third_party/blink/renderer/core/frame/event_handler_registry.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
 #include "third_party/blink/renderer/core/frame/link_highlights.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/page_scale_constraints.h"
@@ -48,7 +48,6 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
-#include "third_party/blink/renderer/core/geometry/dom_rect_list.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/console_message_storage.h"
@@ -58,24 +57,26 @@
 #include "third_party/blink/renderer/core/page/context_menu_controller.h"
 #include "third_party/blink/renderer/core/page/drag_controller.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
+#include "third_party/blink/renderer/core/page/page_hidden_state.h"
 #include "third_party/blink/renderer/core/page/plugins_changed_observer.h"
 #include "third_party/blink/renderer/core/page/pointer_lock_controller.h"
 #include "third_party/blink/renderer/core/page/scoped_page_pauser.h"
 #include "third_party/blink/renderer/core/page/scrolling/overscroll_controller.h"
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
 #include "third_party/blink/renderer/core/page/scrolling/top_document_root_scroller_controller.h"
-#include "third_party/blink/renderer/core/page/validation_message_client.h"
-#include "third_party/blink/renderer/core/paint/paint_layer.h"
-#include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
+#include "third_party/blink/renderer/core/page/spatial_navigation_controller.h"
+#include "third_party/blink/renderer/core/page/validation_message_client_impl.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
+#include "third_party/blink/renderer/core/scroll/scrollbar_theme_overlay.h"
+#include "third_party/blink/renderer/core/scroll/smooth_scroll_sequencer.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_chrome_client.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
+#include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/plugins/plugin_data.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
-#include "third_party/blink/renderer/platform/scroll/scrollbar_theme.h"
-#include "third_party/blink/renderer/platform/scroll/scrollbar_theme_overlay.h"
-#include "third_party/blink/renderer/platform/scroll/smooth_scroll_sequencer.h"
+#include "third_party/skia/include/core/SkColor.h"
 
 namespace blink {
 
@@ -90,13 +91,15 @@ void ResetPluginCache(bool reload_pages) {
 // Set of all live pages; includes internal Page objects that are
 // not observable from scripts.
 static Page::PageSet& AllPages() {
-  DEFINE_STATIC_LOCAL(Page::PageSet, pages, ());
-  return pages;
+  DEFINE_STATIC_LOCAL(Persistent<Page::PageSet>, pages,
+                      (MakeGarbageCollected<Page::PageSet>()));
+  return *pages;
 }
 
 Page::PageSet& Page::OrdinaryPages() {
-  DEFINE_STATIC_LOCAL(Page::PageSet, pages, ());
-  return pages;
+  DEFINE_STATIC_LOCAL(Persistent<Page::PageSet>, pages,
+                      (MakeGarbageCollected<Page::PageSet>()));
+  return *pages;
 }
 
 void Page::InsertOrdinaryPageForTesting(Page* page) {
@@ -122,11 +125,14 @@ float DeviceScaleFactorDeprecated(LocalFrame* frame) {
   return page->DeviceScaleFactorDeprecated();
 }
 
+Page* Page::Create(PageClients& page_clients) {
+  Page* page = MakeGarbageCollected<Page>(page_clients);
+  page->SetPageScheduler(ThreadScheduler::Current()->CreatePageScheduler(page));
+  return page;
+}
+
 Page* Page::CreateOrdinary(PageClients& page_clients, Page* opener) {
   Page* page = Create(page_clients);
-  page->SetPageScheduler(
-      Platform::Current()->CurrentThread()->Scheduler()->CreatePageScheduler(
-          page));
 
   if (opener) {
     // Before: ... -> opener -> next -> ...
@@ -154,10 +160,10 @@ Page::Page(PageClients& page_clients)
       drag_controller_(DragController::Create(this)),
       focus_controller_(FocusController::Create(this)),
       context_menu_controller_(ContextMenuController::Create(this)),
-      page_scale_constraints_set_(PageScaleConstraintsSet::Create()),
+      page_scale_constraints_set_(PageScaleConstraintsSet::Create(this)),
       pointer_lock_controller_(PointerLockController::Create(this)),
       browser_controls_(BrowserControls::Create(*this)),
-      console_message_storage_(new ConsoleMessageStorage()),
+      console_message_storage_(MakeGarbageCollected<ConsoleMessageStorage>()),
       global_root_scroller_controller_(
           TopDocumentRootScrollerController::Create(*this)),
       visual_viewport_(VisualViewport::Create(*this)),
@@ -165,11 +171,13 @@ Page::Page(PageClients& page_clients)
           OverscrollController::Create(GetVisualViewport(), GetChromeClient())),
       link_highlights_(LinkHighlights::Create(*this)),
       plugin_data_(nullptr),
+      // TODO(pdr): Initialize |validation_message_client_| lazily.
+      validation_message_client_(ValidationMessageClientImpl::Create(*this)),
       opened_by_dom_(false),
       tab_key_cycles_through_elements_(true),
       paused_(false),
       device_scale_factor_(1),
-      visibility_state_(mojom::PageVisibilityState::kVisible),
+      is_hidden_(false),
       page_lifecycle_state_(kDefaultPageLifecycleState),
       is_cursor_visible_(true),
       subframe_count_(0),
@@ -217,13 +225,6 @@ PageScaleConstraintsSet& Page::GetPageScaleConstraintsSet() {
   return *page_scale_constraints_set_;
 }
 
-SmoothScrollSequencer* Page::GetSmoothScrollSequencer() {
-  if (!smooth_scroll_sequencer_)
-    smooth_scroll_sequencer_ = new SmoothScrollSequencer();
-
-  return smooth_scroll_sequencer_.Get();
-}
-
 const PageScaleConstraintsSet& Page::GetPageScaleConstraintsSet() const {
   return *page_scale_constraints_set_;
 }
@@ -268,23 +269,6 @@ LinkHighlights& Page::GetLinkHighlights() {
   return *link_highlights_;
 }
 
-DOMRectList* Page::NonFastScrollableRectsForTesting(const LocalFrame* frame) {
-  // Update lifecycle to kPrePaintClean.  This includes the compositing update
-  // and ScrollingCoordinator::UpdateAfterPaint, which computes the non-fast
-  // scrollable region.
-  frame->View()->UpdateAllLifecyclePhases();
-
-  GraphicsLayer* layer = frame->View()->LayoutViewport()->LayerForScrolling();
-  if (!layer)
-    return DOMRectList::Create();
-  const cc::Region& region = layer->CcLayer()->non_fast_scrollable_region();
-  Vector<IntRect> rects;
-  rects.ReserveCapacity(region.GetRegionComplexity());
-  for (const gfx::Rect& rect : region)
-    rects.push_back(IntRect(rect));
-  return DOMRectList::Create(rects);
-}
-
 void Page::SetMainFrame(Frame* main_frame) {
   // Should only be called during initialization or swaps between local and
   // remote frames.
@@ -294,6 +278,10 @@ void Page::SetMainFrame(Frame* main_frame) {
   // is fixed, also call  page_scheduler_->SetIsMainFrameLocal() from here
   // instead of from the callers of this method.
   main_frame_ = main_frame;
+}
+
+LocalFrame* Page::DeprecatedLocalMainFrame() const {
+  return ToLocalFrame(main_frame_);
 }
 
 void Page::DocumentDetached(Document* document) {
@@ -310,6 +298,13 @@ bool Page::OpenedByDOM() const {
 
 void Page::SetOpenedByDOM() {
   opened_by_dom_ = true;
+}
+
+SpatialNavigationController& Page::GetSpatialNavigationController() {
+  DCHECK(GetSettings().GetSpatialNavigationEnabled());
+  if (!spatial_navigation_controller_)
+    spatial_navigation_controller_ = SpatialNavigationController::Create(*this);
+  return *spatial_navigation_controller_;
 }
 
 void Page::PlatformColorsChanged() {
@@ -358,7 +353,8 @@ static void RestoreSVGImageAnimations() {
   }
 }
 
-void Page::SetValidationMessageClient(ValidationMessageClient* client) {
+void Page::SetValidationMessageClientForTesting(
+    ValidationMessageClient* client) {
   validation_message_client_ = client;
 }
 
@@ -463,16 +459,15 @@ void Page::VisitedStateChanged(LinkHash link_hash) {
   }
 }
 
-void Page::SetVisibilityState(mojom::PageVisibilityState visibility_state,
-                              bool is_initial_state) {
-  if (visibility_state_ == visibility_state)
+void Page::SetIsHidden(bool hidden, bool is_initial_state) {
+  if (is_hidden_ == hidden)
     return;
-  visibility_state_ = visibility_state;
+  is_hidden_ = hidden;
 
   if (is_initial_state)
     return;
-  NotifyPageVisibilityChanged();
 
+  NotifyPageVisibilityChanged();
   if (main_frame_) {
     if (IsPageVisible())
       RestoreSVGImageAnimations();
@@ -480,12 +475,8 @@ void Page::SetVisibilityState(mojom::PageVisibilityState visibility_state,
   }
 }
 
-mojom::PageVisibilityState Page::VisibilityState() const {
-  return visibility_state_;
-}
-
 bool Page::IsPageVisible() const {
-  return VisibilityState() == mojom::PageVisibilityState::kVisible;
+  return !is_hidden_;
 }
 
 void Page::SetLifecycleState(PageLifecycleState state) {
@@ -664,6 +655,14 @@ void Page::SettingsChanged(SettingsDelegate::ChangeType change_type) {
       NotifyPluginsChanged();
       break;
     }
+    case SettingsDelegate::kHighlightAdsChange: {
+      for (Frame* frame = MainFrame(); frame;
+           frame = frame->Tree().TraverseNext()) {
+        if (frame->IsLocalFrame())
+          ToLocalFrame(frame)->UpdateAdHighlight();
+      }
+      break;
+    }
   }
 }
 
@@ -698,6 +697,7 @@ void Page::DidCommitLoad(LocalFrame* frame) {
     GetVisualViewport().SetScrollOffset(ScrollOffset(), kProgrammaticScroll);
     hosts_using_features_.UpdateMeasurementsAndClear();
   }
+  GetLinkHighlights().ResetForPageNavigation();
 }
 
 void Page::AcceptLanguagesChanged() {
@@ -723,15 +723,16 @@ void Page::Trace(blink::Visitor* visitor) {
   visitor->Trace(drag_controller_);
   visitor->Trace(focus_controller_);
   visitor->Trace(context_menu_controller_);
+  visitor->Trace(page_scale_constraints_set_);
   visitor->Trace(pointer_lock_controller_);
   visitor->Trace(scrolling_coordinator_);
-  visitor->Trace(smooth_scroll_sequencer_);
   visitor->Trace(browser_controls_);
   visitor->Trace(console_message_storage_);
   visitor->Trace(global_root_scroller_controller_);
   visitor->Trace(visual_viewport_);
   visitor->Trace(overscroll_controller_);
   visitor->Trace(link_highlights_);
+  visitor->Trace(spatial_navigation_controller_);
   visitor->Trace(main_frame_);
   visitor->Trace(plugin_data_);
   visitor->Trace(validation_message_client_);
@@ -838,20 +839,6 @@ bool Page::RequestBeginMainFrameNotExpected(bool new_state) {
     }
   }
   return false;
-}
-
-ukm::UkmRecorder* Page::GetUkmRecorder() {
-  Frame* frame = MainFrame();
-  if (!frame->IsLocalFrame())
-    return nullptr;
-  return ToLocalFrame(frame)->GetDocument()->UkmRecorder();
-}
-
-int64_t Page::GetUkmSourceId() {
-  Frame* frame = MainFrame();
-  if (!frame->IsLocalFrame())
-    return -1;
-  return ToLocalFrame(frame)->GetDocument()->UkmSourceID();
 }
 
 void Page::AddAutoplayFlags(int32_t value) {

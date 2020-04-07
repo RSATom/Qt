@@ -66,6 +66,7 @@ public:
 
 
     QOAuth1Signature::HttpRequestMethod method = QOAuth1Signature::HttpRequestMethod::Post;
+    QByteArray customVerb;
     QUrl url;
     QString clientSharedKey;
     QString tokenSecret;

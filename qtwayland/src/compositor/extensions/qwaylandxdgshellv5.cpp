@@ -40,9 +40,10 @@
 #include "qwaylandxdgshellv5.h"
 #include "qwaylandxdgshellv5_p.h"
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 #include "qwaylandxdgshellv5integration_p.h"
 #endif
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include <QtWaylandCompositor/QWaylandCompositor>
 #include <QtWaylandCompositor/QWaylandSurface>
@@ -249,7 +250,7 @@ QRect QWaylandXdgSurfaceV5Private::calculateFallbackWindowGeometry() const
 {
     // TODO: The unset window geometry should include subsurfaces as well, so this solution
     // won't work too well on those kinds of clients.
-    return QRect(QPoint(0, 0), m_surface->size() / m_surface->bufferScale());
+    return QRect(QPoint(), m_surface->destinationSize());
 }
 
 void QWaylandXdgSurfaceV5Private::updateFallbackWindowGeometry()
@@ -512,15 +513,17 @@ void QWaylandXdgPopupV5Private::xdg_popup_destroy(Resource *resource)
  *
  * To provide the functionality of the shell extension in a compositor, create
  * an instance of the XdgShellV5 component and add it as a child of the
- * compositor: \code
- * import QtWayland.Compositor 1.0
+ * compositor:
+ *
+ * \qml \QtMinorVersion
+ * import QtWayland.Compositor 1.\1
  *
  * WaylandCompositor {
  *     XdgShellV5 {
  *         // ...
  *     }
  * }
- * \endcode
+ * \endqml
  *
  * \deprecated
  */
@@ -837,7 +840,7 @@ void QWaylandXdgSurfaceV5::initialize(QWaylandXdgShellV5 *xdgShell, QWaylandSurf
     d->init(resource.resource());
     setExtensionContainer(surface);
     d->m_windowGeometry = d->calculateFallbackWindowGeometry();
-    connect(surface, &QWaylandSurface::sizeChanged, this, &QWaylandXdgSurfaceV5::handleSurfaceSizeChanged);
+    connect(surface, &QWaylandSurface::destinationSizeChanged, this, &QWaylandXdgSurfaceV5::handleSurfaceSizeChanged);
     connect(surface, &QWaylandSurface::bufferScaleChanged, this, &QWaylandXdgSurfaceV5::handleBufferScaleChanged);
     emit shellChanged();
     emit surfaceChanged();
@@ -1179,10 +1182,9 @@ QWaylandSurfaceRole *QWaylandXdgSurfaceV5::role()
  */
 QWaylandXdgSurfaceV5 *QWaylandXdgSurfaceV5::fromResource(wl_resource *resource)
 {
-    auto xsResource = QWaylandXdgSurfaceV5Private::Resource::fromResource(resource);
-    if (!xsResource)
-        return nullptr;
-    return static_cast<QWaylandXdgSurfaceV5Private *>(xsResource->xdg_surface_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandXdgSurfaceV5Private *>(resource))
+        return p->q_func();
+    return nullptr;
 }
 
 QSize QWaylandXdgSurfaceV5::sizeForResize(const QSizeF &size, const QPointF &delta,
@@ -1308,7 +1310,7 @@ uint QWaylandXdgSurfaceV5::sendResizing(const QSize &maxSize)
     return sendConfigure(maxSize, conf.states);
 }
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 QWaylandQuickShellIntegration *QWaylandXdgSurfaceV5::createIntegration(QWaylandQuickShellSurfaceItem *item)
 {
     return new QtWayland::XdgShellV5Integration(item);
@@ -1497,10 +1499,9 @@ QWaylandSurfaceRole *QWaylandXdgPopupV5::role()
 
 QWaylandXdgPopupV5 *QWaylandXdgPopupV5::fromResource(wl_resource *resource)
 {
-    auto popupResource = QWaylandXdgPopupV5Private::Resource::fromResource(resource);
-    if (!popupResource)
-        return nullptr;
-    return static_cast<QWaylandXdgPopupV5Private *>(popupResource->xdg_popup_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandXdgPopupV5Private *>(resource))
+        return p->q_func();
+    return nullptr;
 }
 
 void QWaylandXdgPopupV5::sendPopupDone()
@@ -1509,7 +1510,7 @@ void QWaylandXdgPopupV5::sendPopupDone()
     d->send_popup_done();
 }
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 QWaylandQuickShellIntegration *QWaylandXdgPopupV5::createIntegration(QWaylandQuickShellSurfaceItem *item)
 {
     return new QtWayland::XdgPopupV5Integration(item);

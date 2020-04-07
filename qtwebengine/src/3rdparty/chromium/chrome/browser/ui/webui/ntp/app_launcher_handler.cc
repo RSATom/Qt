@@ -25,6 +25,7 @@
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -41,6 +42,7 @@
 #include "chrome/browser/ui/webui/extensions/extension_basic_info.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
+#include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -149,6 +151,16 @@ void AppLauncherHandler::CreateAppInfo(const Extension* extension,
   value->SetBoolean("mayDisable", extensions::ExtensionSystem::Get(
       service->profile())->management_policy()->UserMayModifySettings(
       extension, NULL));
+
+  bool is_locally_installed =
+      !extension->is_hosted_app() ||
+      BookmarkAppIsLocallyInstalled(service->profile(), extension);
+  value->SetBoolean("mayChangeLaunchType",
+                    !extension->is_platform_app() && is_locally_installed);
+
+  // Any locally installed app can have shortcuts created.
+  value->SetBoolean("mayCreateShortcuts", is_locally_installed);
+  value->SetBoolean("isLocallyInstalled", is_locally_installed);
 
   auto icon_size = extension_misc::EXTENSION_ICON_LARGE;
   auto match_type = ExtensionIconSet::MATCH_BIGGER;
@@ -357,8 +369,7 @@ void AppLauncherHandler::FillAppDictionary(base::DictionaryValue* dictionary) {
   Profile* profile = Profile::FromWebUI(web_ui());
   PrefService* prefs = profile->GetPrefs();
 
-  for (std::set<std::string>::iterator it = visible_apps_.begin();
-       it != visible_apps_.end(); ++it) {
+  for (auto it = visible_apps_.begin(); it != visible_apps_.end(); ++it) {
     const Extension* extension = extension_service_->GetInstalledExtension(*it);
     if (extension && extensions::ui_util::ShouldDisplayInNewTabPage(
             extension, profile)) {
@@ -834,10 +845,9 @@ extensions::ExtensionUninstallDialog*
 AppLauncherHandler::CreateExtensionUninstallDialog() {
   Browser* browser =
       chrome::FindBrowserWithWebContents(web_ui()->GetWebContents());
-  extension_uninstall_dialog_.reset(
-      extensions::ExtensionUninstallDialog::Create(
-          extension_service_->profile(), browser->window()->GetNativeWindow(),
-          this));
+  extension_uninstall_dialog_ = extensions::ExtensionUninstallDialog::Create(
+      extension_service_->profile(), browser->window()->GetNativeWindow(),
+      this);
   return extension_uninstall_dialog_.get();
 }
 

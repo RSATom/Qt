@@ -20,6 +20,7 @@
 
 #include "third_party/blink/renderer/core/svg/svg_transform.h"
 
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -51,7 +52,8 @@ SVGTransform::SVGTransform(SVGTransformType transform_type,
 SVGTransform::~SVGTransform() = default;
 
 SVGTransform* SVGTransform::Clone() const {
-  return new SVGTransform(transform_type_, angle_, center_, matrix_);
+  return MakeGarbageCollected<SVGTransform>(transform_type_, angle_, center_,
+                                            matrix_);
 }
 
 SVGPropertyBase* SVGTransform::CloneForAnimation(const String&) const {
@@ -201,7 +203,7 @@ String SVGTransform::ValueAsString() const {
       arguments[argument_count++] = angle_;
       break;
   }
-  DCHECK_LE(argument_count, arraysize(arguments));
+  DCHECK_LE(argument_count, base::size(arguments));
 
   StringBuilder builder;
   builder.Append(TransformTypePrefixForParsing(transform_type_));

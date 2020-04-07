@@ -23,6 +23,9 @@
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif
 
+#if defined(USE_GLIB)
+#error configured with glib but trying to compile libevent message pump
+#endif
 // Lifecycle of struct event
 // Libevent uses two main data structures:
 // struct event_base (of which there is one per message pump), and
@@ -269,8 +272,7 @@ void MessagePumpLibevent::ScheduleWork() {
   // Tell libevent (in a threadsafe way) that it should break out of its loop.
   char buf = 0;
   int nwrite = HANDLE_EINTR(write(wakeup_pipe_in_, &buf, 1));
-  DCHECK(nwrite == 1 || errno == EAGAIN)
-      << "[nwrite:" << nwrite << "] [errno:" << errno << "]";
+  DPCHECK(nwrite == 1 || errno == EAGAIN) << "nwrite:" << nwrite;
 }
 
 void MessagePumpLibevent::ScheduleDelayedWork(
@@ -306,9 +308,7 @@ void MessagePumpLibevent::OnLibeventNotification(int fd,
                                                  void* context) {
   FdWatchController* controller = static_cast<FdWatchController*>(context);
   DCHECK(controller);
-  TRACE_EVENT2("toplevel", "MessagePumpLibevent::OnLibeventNotification",
-               "src_file", controller->created_from_location().file_name(),
-               "src_func", controller->created_from_location().function_name());
+  TRACE_EVENT0("toplevel", "OnLibevent");
   TRACE_HEAP_PROFILER_API_SCOPED_TASK_EXECUTION heap_profiler_scope(
       controller->created_from_location().file_name());
 

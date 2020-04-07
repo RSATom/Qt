@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2016 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,20 +11,9 @@
 #ifndef MEDIA_BASE_TURNUTILS_H_
 #define MEDIA_BASE_TURNUTILS_H_
 
-#include <cstddef>
-#include <cstdint>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace cricket {
-
-struct PacketOptions;
-
-// Finds data location within a TURN Channel Message or TURN Send Indication
-// message.
-bool UnwrapTurnPacket(const uint8_t* packet,
-                      size_t packet_size,
-                      size_t* content_position,
-                      size_t* content_size);
-
-}  // namespace cricket
+#include "media/base/turn_utils.h"
 
 #endif  // MEDIA_BASE_TURNUTILS_H_

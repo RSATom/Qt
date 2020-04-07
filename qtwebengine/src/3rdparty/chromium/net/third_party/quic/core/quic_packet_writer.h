@@ -9,28 +9,27 @@
 
 #include "net/third_party/quic/core/quic_packets.h"
 #include "net/third_party/quic/platform/api/quic_export.h"
+#include "net/third_party/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quic/platform/api/quic_socket_address.h"
 
 namespace quic {
 
 struct WriteResult;
 
-class QUIC_EXPORT_PRIVATE PerPacketOptions {
- public:
-  PerPacketOptions() = default;
+struct QUIC_EXPORT_PRIVATE PerPacketOptions {
   virtual ~PerPacketOptions() {}
 
   // Returns a heap-allocated copy of |this|.
-  virtual PerPacketOptions* Clone() const = 0;
+  //
+  // The subclass implementation of this method should look like this:
+  //   return QuicMakeUnique<MyAwesomePerPacketOptions>(*this);
+  //
+  // This method is declared pure virtual in order to ensure the subclasses
+  // would not forget to override it.
+  virtual std::unique_ptr<PerPacketOptions> Clone() const = 0;
 
-  // Sets release time delay in ns for this packet.
-  virtual void SetReleaseTimeDelay(uint64_t release_time_delay_ns) = 0;
-
- private:
-  PerPacketOptions(PerPacketOptions&& other) = delete;
-  PerPacketOptions& operator=(PerPacketOptions&& other) = delete;
-
-  DISALLOW_COPY_AND_ASSIGN(PerPacketOptions);
+  // Specifies release time delay for this packet.
+  QuicTime::Delta release_time_delay = QuicTime::Delta::Zero();
 };
 
 // An interface between writers and the entity managing the
@@ -115,7 +114,11 @@ class QUIC_EXPORT_PRIVATE QuicPacketWriter {
   // Return the starting address for the next packet's data. A minimum of
   // kMaxPacketSize is guaranteed to be available from the returned address. If
   // the internal buffer does not have enough space, nullptr is returned.
-  virtual char* GetNextWriteLocation() const = 0;
+  // All arguments should be identical to the follow-up call to |WritePacket|,
+  // they are here to allow advanced packet memory management in packet writers,
+  // e.g. one packet buffer pool per |peer_address|.
+  virtual char* GetNextWriteLocation(const QuicIpAddress& self_address,
+                                     const QuicSocketAddress& peer_address) = 0;
 
   // PassThrough mode: Return WriteResult(WRITE_STATUS_OK, 0).
   //

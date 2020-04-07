@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/metrics/ukm_source_id.h"
 #include "services/metrics/public/cpp/metrics_export.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/metrics/public/mojom/ukm_interface.mojom.h"
@@ -22,11 +23,17 @@ class METRICS_EXPORT UkmEntryBuilderBase {
  public:
   virtual ~UkmEntryBuilderBase();
 
-  // Records the complete entry into the recorder.  If recorder is null, the
-  // entry is simply discarded.
+  // Records the complete entry into the recorder. If recorder is null, the
+  // entry is simply discarded. The |entry_| is used up by this call so
+  // further calls to this or TakeEntry() will do nothing.
   void Record(UkmRecorder* recorder);
 
+  // Extracts the created UkmEntryPtr. Record() cannot be called after this.
+  mojom::UkmEntryPtr TakeEntry();
+
  protected:
+  UkmEntryBuilderBase(base::UkmSourceId source_id, uint64_t event_hash);
+  // TODO(crbug/873866): Remove this version once callers are migrated.
   UkmEntryBuilderBase(SourceId source_id, uint64_t event_hash);
 
   // Add metric to the entry. A metric contains a metric hash and value.

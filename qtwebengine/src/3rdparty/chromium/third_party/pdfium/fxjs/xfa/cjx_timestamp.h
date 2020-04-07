@@ -8,18 +8,14 @@
 #define FXJS_XFA_CJX_TIMESTAMP_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_TimeStamp;
 
-class CJX_TimeStamp : public CJX_Node {
+class CJX_TimeStamp final : public CJX_Node {
  public:
   explicit CJX_TimeStamp(CXFA_TimeStamp* node);
   ~CJX_TimeStamp() override;
-
-  JS_PROP(server);
-  JS_PROP(type);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_TIMESTAMP_H_

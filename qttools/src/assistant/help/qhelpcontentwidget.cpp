@@ -76,18 +76,18 @@ public:
     ~QHelpContentProvider() override;
     void collectContents(const QString &customFilterName);
     void stopCollecting();
-    QHelpContentItem *rootItem();
-
-signals:
-    void finishedSuccessFully();
+    QHelpContentItem *takeContentItem();
 
 private:
     void run() override;
 
     QHelpEnginePrivate *m_helpEngine;
+    QString m_currentFilter;
     QStringList m_filterAttributes;
-    QQueue<QHelpContentItem*> m_rootItems;
+    QString m_collectionFile;
+    QHelpContentItem *m_rootItem = nullptr;
     QMutex m_mutex;
+    bool m_usesFilterEngine = false;
     bool m_abort = false;
 };
 
@@ -197,14 +197,15 @@ QHelpContentProvider::~QHelpContentProvider()
 void QHelpContentProvider::collectContents(const QString &customFilterName)
 {
     m_mutex.lock();
+    m_currentFilter = customFilterName;
     m_filterAttributes = m_helpEngine->q->filterAttributes(customFilterName);
+    m_collectionFile = m_helpEngine->collectionHandler->collectionFile();
+    m_usesFilterEngine = m_helpEngine->usesFilterEngine;
     m_mutex.unlock();
-    if (!isRunning()) {
-        start(LowPriority);
-    } else {
+
+    if (isRunning())
         stopCollecting();
-        start(LowPriority);
-    }
+    start(LowPriority);
 }
 
 void QHelpContentProvider::stopCollecting()
@@ -220,16 +221,16 @@ void QHelpContentProvider::stopCollecting()
         // either way never resetting m_abort to false from within the run() method
         m_abort = false;
     }
-    qDeleteAll(m_rootItems);
-    m_rootItems.clear();
+    delete m_rootItem;
+    m_rootItem = nullptr;
 }
 
-QHelpContentItem *QHelpContentProvider::rootItem()
+QHelpContentItem *QHelpContentProvider::takeContentItem()
 {
     QMutexLocker locker(&m_mutex);
-    if (m_rootItems.isEmpty())
-        return nullptr;
-    return m_rootItems.dequeue();
+    QHelpContentItem *content = m_rootItem;
+    m_rootItem = nullptr;
+    return content;
 }
 
 // TODO: this is a copy from helpcollectionhandler, make it common
@@ -263,8 +264,12 @@ void QHelpContentProvider::run()
 
     m_mutex.lock();
     QHelpContentItem * const rootItem = new QHelpContentItem(QString(), QString(), nullptr);
+    const QString currentFilter = m_currentFilter;
     const QStringList attributes = m_filterAttributes;
-    const QString collectionFile = m_helpEngine->collectionHandler->collectionFile();
+    const QString collectionFile = m_collectionFile;
+    const bool usesFilterEngine = m_usesFilterEngine;
+    delete m_rootItem;
+    m_rootItem = nullptr;
     m_mutex.unlock();
 
     if (collectionFile.isEmpty())
@@ -274,8 +279,9 @@ void QHelpContentProvider::run()
     if (!collectionHandler.openCollectionFile())
         return;
 
-    const QList<QHelpCollectionHandler::ContentsData> result
-            = collectionHandler.contentsForFilter(attributes);
+    const QList<QHelpCollectionHandler::ContentsData> result = usesFilterEngine
+            ? collectionHandler.contentsForFilter(currentFilter)
+            : collectionHandler.contentsForFilter(attributes);
 
     for (const auto &contentsData : result) {
         m_mutex.lock();
@@ -333,10 +339,9 @@ CHECK_DEPTH:
     }
 
     m_mutex.lock();
-    m_rootItems.enqueue(rootItem);
+    m_rootItem = rootItem;
     m_abort = false;
     m_mutex.unlock();
-    emit finishedSuccessFully();
 }
 
 /*!
@@ -368,10 +373,8 @@ QHelpContentModel::QHelpContentModel(QHelpEnginePrivate *helpEngine)
     d = new QHelpContentModelPrivate();
     d->qhelpContentProvider = new QHelpContentProvider(helpEngine);
 
-    connect(d->qhelpContentProvider, &QHelpContentProvider::finishedSuccessFully,
-            this, &QHelpContentModel::insertContents, Qt::QueuedConnection);
-    connect(helpEngine->q, &QHelpEngineCore::readersAboutToBeInvalidated,
-            this, [this]() { invalidateContents(); });
+    connect(d->qhelpContentProvider, &QThread::finished,
+            this, &QHelpContentModel::insertContents);
 }
 
 /*!
@@ -383,36 +386,32 @@ QHelpContentModel::~QHelpContentModel()
     delete d;
 }
 
-void QHelpContentModel::invalidateContents(bool onShutDown)
-{
-    if (onShutDown) {
-        disconnect(d->qhelpContentProvider, &QHelpContentProvider::finishedSuccessFully,
-                   this, &QHelpContentModel::insertContents);
-    } else {
-        beginResetModel();
-    }
-    d->qhelpContentProvider->stopCollecting();
-    if (d->rootItem) {
-        delete d->rootItem;
-        d->rootItem = nullptr;
-    }
-    if (!onShutDown)
-        endResetModel();
-}
-
 /*!
     Creates new contents by querying the help system
     for contents specified for the \a customFilterName.
 */
 void QHelpContentModel::createContents(const QString &customFilterName)
 {
+    const bool running = d->qhelpContentProvider->isRunning();
     d->qhelpContentProvider->collectContents(customFilterName);
+    if (running)
+        return;
+
+    if (d->rootItem) {
+        beginResetModel();
+        delete d->rootItem;
+        d->rootItem = nullptr;
+        endResetModel();
+    }
     emit contentsCreationStarted();
 }
 
 void QHelpContentModel::insertContents()
 {
-    QHelpContentItem * const newRootItem = d->qhelpContentProvider->rootItem();
+    if (d->qhelpContentProvider->isRunning())
+        return;
+
+    QHelpContentItem * const newRootItem = d->qhelpContentProvider->takeContentItem();
     if (!newRootItem)
         return;
     beginResetModel();
@@ -497,7 +496,7 @@ int QHelpContentModel::rowCount(const QModelIndex &parent) const
 */
 int QHelpContentModel::columnCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     return 1;
 }

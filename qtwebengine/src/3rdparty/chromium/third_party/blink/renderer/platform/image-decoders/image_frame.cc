@@ -29,7 +29,7 @@
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 #include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkColorSpaceXform.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
@@ -86,11 +86,19 @@ void ImageFrame::ZeroFillPixelData() {
 bool ImageFrame::CopyBitmapData(const ImageFrame& other) {
   DCHECK_NE(this, &other);
   has_alpha_ = other.has_alpha_;
+  pixel_format_ = other.pixel_format_;
   bitmap_.reset();
   SkImageInfo info = other.bitmap_.info();
-  return bitmap_.tryAllocPixels(info) &&
-         other.bitmap_.readPixels(info, bitmap_.getPixels(), bitmap_.rowBytes(),
-                                  0, 0);
+  if (!bitmap_.tryAllocPixels(info)) {
+    return false;
+  }
+
+  if (!other.bitmap_.readPixels(info, bitmap_.getPixels(), bitmap_.rowBytes(),
+                                0, 0))
+    return false;
+
+  status_ = kFrameInitialized;
+  return true;
 }
 
 bool ImageFrame::TakeBitmapDataIfWritable(ImageFrame* other) {
@@ -101,9 +109,11 @@ bool ImageFrame::TakeBitmapDataIfWritable(ImageFrame* other) {
   if (other->bitmap_.isImmutable())
     return false;
   has_alpha_ = other->has_alpha_;
+  pixel_format_ = other->pixel_format_;
   bitmap_.reset();
   bitmap_.swap(other->bitmap_);
   other->status_ = kFrameEmpty;
+  status_ = kFrameInitialized;
   return true;
 }
 
@@ -120,7 +130,11 @@ bool ImageFrame::AllocatePixelData(int new_width,
   if (pixel_format_ == kRGBA_F16)
     info = info.makeColorType(kRGBA_F16_SkColorType);
   bitmap_.setInfo(info);
-  return bitmap_.tryAllocPixels(allocator_);
+  bool allocated = bitmap_.tryAllocPixels(allocator_);
+  if (allocated)
+    status_ = kFrameInitialized;
+
+  return allocated;
 }
 
 sk_sp<SkImage> ImageFrame::FinalizePixelsAndGetImage() {
@@ -155,24 +169,6 @@ void ImageFrame::ZeroFillFrameRect(const IntRect& rect) {
 
   bitmap_.eraseArea(rect, SkColorSetARGB(0, 0, 0, 0));
   SetHasAlpha(true);
-}
-
-void ImageFrame::SetRGBAPremultiplyF16Buffer(PixelDataF16* dst,
-                                             PixelDataF16* src,
-                                             size_t num_pixels) {
-  sk_sp<SkColorSpace> color_space = SkColorSpace::MakeSRGBLinear();
-  auto color_format = SkColorSpaceXform::ColorFormat::kRGBA_F16_ColorFormat;
-  SkColorSpaceXform::Apply(color_space.get(), color_format, dst,
-                           color_space.get(), color_format, src, num_pixels,
-                           SkColorSpaceXform::AlphaOp::kPremul_AlphaOp);
-}
-
-void ImageFrame::SetPixelsOpaqueF16Buffer(PixelDataF16* dst,
-                                          PixelDataF16* src,
-                                          size_t num_pixels) {
-  // We set the alpha half float to 0x3c00, which is equal to 1.
-  while (num_pixels-- > 0)
-    *dst++ = (*src++ & 0x0000ffffffffffff) | 0x3c00000000000000;
 }
 
 static void BlendRGBAF16Buffer(ImageFrame::PixelDataF16* dst,

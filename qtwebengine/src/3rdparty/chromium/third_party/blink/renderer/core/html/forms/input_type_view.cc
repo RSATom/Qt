@@ -28,6 +28,7 @@
 
 #include "third_party/blink/renderer/core/html/forms/input_type_view.h"
 
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
@@ -39,7 +40,7 @@ namespace blink {
 
 InputTypeView::~InputTypeView() = default;
 
-void InputTypeView::Trace(blink::Visitor* visitor) {
+void InputTypeView::Trace(Visitor* visitor) {
   visitor->Trace(element_);
 }
 
@@ -49,26 +50,26 @@ bool InputTypeView::SizeShouldIncludeDecoration(int,
   return false;
 }
 
-void InputTypeView::HandleClickEvent(MouseEvent*) {}
+void InputTypeView::HandleClickEvent(MouseEvent&) {}
 
-void InputTypeView::HandleMouseDownEvent(MouseEvent*) {}
+void InputTypeView::HandleMouseDownEvent(MouseEvent&) {}
 
-void InputTypeView::HandleKeydownEvent(KeyboardEvent*) {}
+void InputTypeView::HandleKeydownEvent(KeyboardEvent&) {}
 
-void InputTypeView::HandleKeypressEvent(KeyboardEvent*) {}
+void InputTypeView::HandleKeypressEvent(KeyboardEvent&) {}
 
-void InputTypeView::HandleKeyupEvent(KeyboardEvent*) {}
+void InputTypeView::HandleKeyupEvent(KeyboardEvent&) {}
 
-void InputTypeView::HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent*) {}
+void InputTypeView::HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) {}
 
-void InputTypeView::HandleDOMActivateEvent(Event*) {}
+void InputTypeView::HandleDOMActivateEvent(Event&) {}
 
-void InputTypeView::ForwardEvent(Event*) {}
+void InputTypeView::ForwardEvent(Event&) {}
 
-void InputTypeView::DispatchSimulatedClickIfActive(KeyboardEvent* event) const {
+void InputTypeView::DispatchSimulatedClickIfActive(KeyboardEvent& event) const {
   if (GetElement().IsActive())
-    GetElement().DispatchSimulatedClick(event);
-  event->SetDefaultHandled();
+    GetElement().DispatchSimulatedClick(&event);
+  event.SetDefaultHandled();
 }
 
 void InputTypeView::AccessKeyAction(bool) {
@@ -76,10 +77,10 @@ void InputTypeView::AccessKeyAction(bool) {
                                  kWebFocusTypeNone, nullptr));
 }
 
-bool InputTypeView::ShouldSubmitImplicitly(Event* event) {
-  return event->IsKeyboardEvent() &&
-         event->type() == EventTypeNames::keypress &&
-         ToKeyboardEvent(event)->charCode() == '\r';
+bool InputTypeView::ShouldSubmitImplicitly(const Event& event) {
+  return event.IsKeyboardEvent() &&
+         event.type() == event_type_names::kKeypress &&
+         ToKeyboardEvent(event).charCode() == '\r';
 }
 
 HTMLFormElement* InputTypeView::FormForSubmission() const {
@@ -97,7 +98,7 @@ scoped_refptr<ComputedStyle> InputTypeView::CustomStyleForLayoutObject(
 }
 
 TextDirection InputTypeView::ComputedTextDirection() {
-  return GetElement().EnsureComputedStyle()->Direction();
+  return GetElement().ComputedStyleRef().Direction();
 }
 
 void InputTypeView::Blur() {
@@ -139,7 +140,7 @@ ClickHandlingState* InputTypeView::WillDispatchClick() {
   return nullptr;
 }
 
-void InputTypeView::DidDispatchClick(Event*, const ClickHandlingState&) {}
+void InputTypeView::DidDispatchClick(Event&, const ClickHandlingState&) {}
 
 void InputTypeView::UpdateView() {}
 
@@ -186,7 +187,7 @@ bool InputTypeView::HasBadInput() const {
   return false;
 }
 
-void ClickHandlingState::Trace(blink::Visitor* visitor) {
+void ClickHandlingState::Trace(Visitor* visitor) {
   visitor->Trace(checked_radio_button);
   EventDispatchHandlingState::Trace(visitor);
 }

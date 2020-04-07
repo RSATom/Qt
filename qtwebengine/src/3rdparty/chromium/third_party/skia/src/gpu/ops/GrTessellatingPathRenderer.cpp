@@ -78,7 +78,7 @@ public:
     void* lock(int vertexCount) override {
         size_t size = vertexCount * stride();
         fVertexBuffer.reset(fResourceProvider->createBuffer(
-            size, kVertex_GrBufferType, kStatic_GrAccessPattern, 0));
+            size, kVertex_GrBufferType, kStatic_GrAccessPattern, GrResourceProvider::Flags::kNone));
         if (!fVertexBuffer.get()) {
             return nullptr;
         }
@@ -184,20 +184,22 @@ public:
 
     const char* name() const override { return "TessellatingPathOp"; }
 
-    void visitProxies(const VisitProxyFunc& func) const override {
+    void visitProxies(const VisitProxyFunc& func, VisitorType) const override {
         fHelper.visitProxies(func);
     }
 
+#ifdef SK_DEBUG
     SkString dumpInfo() const override {
         SkString string;
-        string.appendf("Color 0x%08x, aa: %d\n", fColor, fAntiAlias);
+        string.appendf("Color 0x%08x, aa: %d\n", fColor.toBytes_RGBA(), fAntiAlias);
         string += fHelper.dumpInfo();
         string += INHERITED::dumpInfo();
         return string;
     }
+#endif
 
     TessellatingPathOp(Helper::MakeArgs helperArgs,
-                       GrColor color,
+                       const SkPMColor4f& color,
                        const GrShape& shape,
                        const SkMatrix& viewMatrix,
                        const SkIRect& devClipBounds,
@@ -222,11 +224,11 @@ public:
 
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
-    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
+    GrProcessorSet::Analysis finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
         GrProcessorAnalysisCoverage coverage = fAntiAlias
                                                        ? GrProcessorAnalysisCoverage::kSingleChannel
                                                        : GrProcessorAnalysisCoverage::kNone;
-        return fHelper.xpRequiresDstTexture(caps, clip, coverage, &fColor);
+        return fHelper.finalizeProcessors(caps, clip, coverage, &fColor);
     }
 
 private:
@@ -237,7 +239,7 @@ private:
         return path;
     }
 
-    void draw(Target* target, const GrGeometryProcessor* gp, size_t vertexStride) {
+    void draw(Target* target, sk_sp<const GrGeometryProcessor> gp, size_t vertexStride) {
         SkASSERT(!fAntiAlias);
         GrResourceProvider* rp = target->resourceProvider();
         bool inverseFill = fShape.inverseFilled();
@@ -261,7 +263,7 @@ private:
         SkScalar tol = GrPathUtils::kDefaultTolerance;
         tol = GrPathUtils::scaleToleranceToSrc(tol, fViewMatrix, fShape.bounds());
         if (cache_match(cachedVertexBuffer.get(), tol, &actualCount)) {
-            this->drawVertices(target, gp, cachedVertexBuffer.get(), 0, actualCount);
+            this->drawVertices(target, std::move(gp), cachedVertexBuffer.get(), 0, actualCount);
             return;
         }
 
@@ -275,12 +277,12 @@ private:
         bool isLinear;
         bool canMapVB = GrCaps::kNone_MapFlags != target->caps().mapBufferFlags();
         StaticVertexAllocator allocator(vertexStride, rp, canMapVB);
-        int count = GrTessellator::PathToTriangles(getPath(), tol, clipBounds, &allocator,
-                                                   false, GrColor(), false, &isLinear);
+        int count = GrTessellator::PathToTriangles(getPath(), tol, clipBounds, &allocator, false,
+                                                   &isLinear);
         if (count == 0) {
             return;
         }
-        this->drawVertices(target, gp, allocator.vertexBuffer(), 0, count);
+        this->drawVertices(target, std::move(gp), allocator.vertexBuffer(), 0, count);
         TessInfo info;
         info.fTolerance = isLinear ? 0 : tol;
         info.fCount = count;
@@ -289,7 +291,7 @@ private:
         fShape.addGenIDChangeListener(sk_make_sp<PathInvalidator>(key, target->contextUniqueID()));
     }
 
-    void drawAA(Target* target, const GrGeometryProcessor* gp, size_t vertexStride) {
+    void drawAA(Target* target, sk_sp<const GrGeometryProcessor> gp, size_t vertexStride) {
         SkASSERT(fAntiAlias);
         SkPath path = getPath();
         if (path.isEmpty()) {
@@ -300,22 +302,19 @@ private:
         SkScalar tol = GrPathUtils::kDefaultTolerance;
         bool isLinear;
         DynamicVertexAllocator allocator(vertexStride, target);
-        int count =
-                GrTessellator::PathToTriangles(path, tol, clipBounds, &allocator, true, fColor,
-                                               fHelper.compatibleWithAlphaAsCoverage(), &isLinear);
+        int count = GrTessellator::PathToTriangles(path, tol, clipBounds, &allocator, true,
+                                                   &isLinear);
         if (count == 0) {
             return;
         }
-        this->drawVertices(target, gp, allocator.vertexBuffer(), allocator.firstVertex(), count);
+        this->drawVertices(target, std::move(gp), allocator.vertexBuffer(), allocator.firstVertex(),
+                           count);
     }
 
     void onPrepareDraws(Target* target) override {
         sk_sp<GrGeometryProcessor> gp;
-        size_t vertexStride;
         {
             using namespace GrDefaultGeoProcFactory;
-
-            vertexStride = sizeof(SkPoint);  // position
 
             Color color(fColor);
             LocalCoords::Type localCoordsType = fHelper.usesLocalCoords()
@@ -323,13 +322,10 @@ private:
                                                         : LocalCoords::kUnused_Type;
             Coverage::Type coverageType;
             if (fAntiAlias) {
-                color = Color(Color::kPremulGrColorAttribute_Type);
-                vertexStride += sizeof(uint32_t);
                 if (fHelper.compatibleWithAlphaAsCoverage()) {
-                    coverageType = Coverage::kSolid_Type;
+                    coverageType = Coverage::kAttributeTweakAlpha_Type;
                 } else {
                     coverageType = Coverage::kAttribute_Type;
-                    vertexStride += 4;
                 }
             } else {
                 coverageType = Coverage::kSolid_Type;
@@ -347,27 +343,26 @@ private:
         if (!gp.get()) {
             return;
         }
-        SkASSERT(vertexStride == gp->debugOnly_vertexStride());
+        size_t vertexStride = gp->vertexStride();
         if (fAntiAlias) {
-            this->drawAA(target, gp.get(), vertexStride);
+            this->drawAA(target, std::move(gp), vertexStride);
         } else {
-            this->draw(target, gp.get(), vertexStride);
+            this->draw(target, std::move(gp), vertexStride);
         }
     }
 
-    void drawVertices(Target* target, const GrGeometryProcessor* gp, const GrBuffer* vb,
+    void drawVertices(Target* target, sk_sp<const GrGeometryProcessor> gp, const GrBuffer* vb,
                       int firstVertex, int count) {
-        GrMesh mesh(TESSELLATOR_WIREFRAME ? GrPrimitiveType::kLines : GrPrimitiveType::kTriangles);
-        mesh.setNonIndexedNonInstanced(count);
-        mesh.setVertexData(vb, firstVertex);
+        GrMesh* mesh = target->allocMesh(TESSELLATOR_WIREFRAME ? GrPrimitiveType::kLines
+                                                               : GrPrimitiveType::kTriangles);
+        mesh->setNonIndexedNonInstanced(count);
+        mesh->setVertexData(vb, firstVertex);
         auto pipe = fHelper.makePipeline(target);
-        target->draw(gp, pipe.fPipeline, pipe.fFixedDynamicState, mesh);
+        target->draw(std::move(gp), pipe.fPipeline, pipe.fFixedDynamicState, mesh);
     }
 
-    bool onCombineIfPossible(GrOp*, const GrCaps&) override { return false; }
-
     Helper fHelper;
-    GrColor                 fColor;
+    SkPMColor4f             fColor;
     GrShape                 fShape;
     SkMatrix                fViewMatrix;
     SkIRect                 fDevClipBounds;

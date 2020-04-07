@@ -8,11 +8,12 @@
 #define XFA_FXFA_CXFA_TEXTPROVIDER_H_
 
 #include "core/fxcrt/fx_string.h"
+#include "third_party/base/optional.h"
 #include "xfa/fxfa/cxfa_textlayout.h"
-#include "xfa/fxfa/parser/cxfa_node.h"
 
 class CXFA_Font;
 class CXFA_Node;
+class CXFA_Para;
 
 enum XFA_TEXTPROVIDERTYPE {
   XFA_TEXTPROVIDERTYPE_Text,
@@ -30,14 +31,11 @@ class CXFA_TextProvider {
   }
   ~CXFA_TextProvider() {}
 
-  CXFA_Node* GetTextNode(bool& bRichText);
+  CXFA_Node* GetTextNode(bool* bRichText);
   CXFA_Para* GetParaIfExists();
   CXFA_Font* GetFontIfExists();
-  bool IsCheckButtonAndAutoWidth();
-  bool GetEmbbedObj(bool bURI,
-                    bool bRaw,
-                    const WideString& wsAttr,
-                    WideString& wsValue);
+  bool IsCheckButtonAndAutoWidth() const;
+  Optional<WideString> GetEmbeddedObj(const WideString& wsAttr) const;
 
  private:
   CXFA_Node* m_pNode;  // Raw, this class owned by tree node.

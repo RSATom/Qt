@@ -26,7 +26,7 @@ namespace {
 
 const char* const kTypeNames[] = {"null",   "boolean", "integer",    "double",
                                   "string", "binary",  "dictionary", "list"};
-static_assert(arraysize(kTypeNames) ==
+static_assert(base::size(kTypeNames) ==
                   static_cast<size_t>(Value::Type::LIST) + 1,
               "kTypeNames Has Wrong Size");
 
@@ -75,6 +75,8 @@ std::unique_ptr<Value> CopyWithoutEmptyChildren(const Value& node) {
 }
 
 }  // namespace
+
+constexpr uint32_t Value::kMagicIsAlive;
 
 // static
 std::unique_ptr<Value> Value::CreateWithCopiedBuffer(const char* buffer,
@@ -153,8 +155,11 @@ Value::Value(const char16* in_string16) : Value(StringPiece16(in_string16)) {}
 
 Value::Value(StringPiece16 in_string16) : Value(UTF16ToUTF8(in_string16)) {}
 
-Value::Value(const BlobStorage& in_blob)
-    : type_(Type::BINARY), binary_value_(in_blob) {}
+Value::Value(const std::vector<char>& in_blob)
+    : type_(Type::BINARY), binary_value_(in_blob.begin(), in_blob.end()) {}
+
+Value::Value(base::span<const uint8_t> in_blob)
+    : type_(Type::BINARY), binary_value_(in_blob.begin(), in_blob.end()) {}
 
 Value::Value(BlobStorage&& in_blob) noexcept
     : type_(Type::BINARY), binary_value_(std::move(in_blob)) {}
@@ -212,12 +217,13 @@ Value Value::Clone() const {
 
 Value::~Value() {
   InternalCleanup();
+  is_alive_ = 0;
 }
 
 // static
 const char* Value::GetTypeName(Value::Type type) {
   DCHECK_GE(static_cast<int>(type), 0);
-  DCHECK_LT(static_cast<size_t>(type), arraysize(kTypeNames));
+  DCHECK_LT(static_cast<size_t>(type), base::size(kTypeNames));
   return kTypeNames[static_cast<size_t>(type)];
 }
 
@@ -282,6 +288,26 @@ const Value* Value::FindKeyOfType(StringPiece key, Type type) const {
   if (!result || result->type() != type)
     return nullptr;
   return result;
+}
+
+base::Optional<bool> Value::FindBoolKey(StringPiece key) const {
+  const Value* result = FindKeyOfType(key, Type::BOOLEAN);
+  return result ? base::make_optional(result->bool_value_) : base::nullopt;
+}
+
+base::Optional<int> Value::FindIntKey(StringPiece key) const {
+  const Value* result = FindKeyOfType(key, Type::INTEGER);
+  return result ? base::make_optional(result->int_value_) : base::nullopt;
+}
+
+base::Optional<double> Value::FindDoubleKey(StringPiece key) const {
+  const Value* result = FindKeyOfType(key, Type::DOUBLE);
+  return result ? base::make_optional(result->double_value_) : base::nullopt;
+}
+
+const std::string* Value::FindStringKey(StringPiece key) const {
+  const Value* result = FindKeyOfType(key, Type::STRING);
+  return result ? &result->string_value_ : nullptr;
 }
 
 bool Value::RemoveKey(StringPiece key) {
@@ -368,12 +394,12 @@ Value* Value::SetPath(std::initializer_list<StringPiece> path, Value value) {
 }
 
 Value* Value::SetPath(span<const StringPiece> path, Value value) {
-  DCHECK_NE(path.begin(), path.end());  // Can't be empty path.
+  DCHECK(path.begin() != path.end());  // Can't be empty path.
 
   // Walk/construct intermediate dictionaries. The last element requires
   // special handling so skip it in this loop.
   Value* cur = this;
-  const StringPiece* cur_path = path.begin();
+  auto cur_path = path.begin();
   for (; (cur_path + 1) < path.end(); ++cur_path) {
     if (!cur->is_dict())
       return nullptr;
@@ -440,6 +466,26 @@ bool Value::DictEmpty() const {
   return dict_.empty();
 }
 
+void Value::MergeDictionary(const Value* dictionary) {
+  CHECK(is_dict());
+  CHECK(dictionary->is_dict());
+  for (const auto& pair : dictionary->dict_) {
+    const auto& key = pair.first;
+    const auto& val = pair.second;
+    // Check whether we have to merge dictionaries.
+    if (val->is_dict()) {
+      auto found = dict_.find(key);
+      if (found != dict_.end() && found->second->is_dict()) {
+        found->second->MergeDictionary(val.get());
+        continue;
+      }
+    }
+
+    // All other cases: Make a copy and hook it up.
+    SetKey(key, val->Clone());
+  }
+}
+
 bool Value::GetAsBoolean(bool* out_value) const {
   if (out_value && is_bool()) {
     *out_value = bool_value_;
@@ -460,7 +506,8 @@ bool Value::GetAsDouble(double* out_value) const {
   if (out_value && is_double()) {
     *out_value = double_value_;
     return true;
-  } else if (out_value && is_int()) {
+  }
+  if (out_value && is_int()) {
     // Allow promotion from int to double.
     *out_value = int_value_;
     return true;
@@ -678,6 +725,8 @@ void Value::InternalMoveConstructFrom(Value&& that) {
 }
 
 void Value::InternalCleanup() {
+  CHECK_EQ(is_alive_, kMagicIsAlive);
+
   switch (type_) {
     case Type::NONE:
     case Type::BOOLEAN:
@@ -1111,24 +1160,6 @@ std::unique_ptr<DictionaryValue> DictionaryValue::DeepCopyWithoutEmptyChildren()
   return copy;
 }
 
-void DictionaryValue::MergeDictionary(const DictionaryValue* dictionary) {
-  CHECK(dictionary->is_dict());
-  for (DictionaryValue::Iterator it(*dictionary); !it.IsAtEnd(); it.Advance()) {
-    const Value* merge_value = &it.value();
-    // Check whether we have to merge dictionaries.
-    if (merge_value->is_dict()) {
-      DictionaryValue* sub_dict;
-      if (GetDictionaryWithoutPathExpansion(it.key(), &sub_dict)) {
-        sub_dict->MergeDictionary(
-            static_cast<const DictionaryValue*>(merge_value));
-        continue;
-      }
-    }
-    // All other cases: Make a copy and hook it up.
-    SetKey(it.key(), merge_value->Clone());
-  }
-}
-
 void DictionaryValue::Swap(DictionaryValue* other) {
   CHECK(other->is_dict());
   dict_.swap(other->dict_);
@@ -1393,7 +1424,7 @@ std::ostream& operator<<(std::ostream& out, const Value& value) {
 
 std::ostream& operator<<(std::ostream& out, const Value::Type& type) {
   if (static_cast<int>(type) < 0 ||
-      static_cast<size_t>(type) >= arraysize(kTypeNames))
+      static_cast<size_t>(type) >= base::size(kTypeNames))
     return out << "Invalid Type (index = " << static_cast<int>(type) << ")";
   return out << Value::GetTypeName(type);
 }

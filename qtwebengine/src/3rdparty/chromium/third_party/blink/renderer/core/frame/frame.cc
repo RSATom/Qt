@@ -50,19 +50,16 @@
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
-#include "third_party/blink/renderer/platform/feature_policy/feature_policy.h"
 #include "third_party/blink/renderer/platform/instance_counters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
-using namespace HTMLNames;
-
 Frame::~Frame() {
   InstanceCounters::DecrementCounter(InstanceCounters::kFrameCounter);
   DCHECK(!owner_);
-  DCHECK_EQ(lifecycle_.GetState(), FrameLifecycle::kDetached);
+  DCHECK(IsDetached());
 }
 
 void Frame::Trace(blink::Visitor* visitor) {
@@ -72,14 +69,27 @@ void Frame::Trace(blink::Visitor* visitor) {
   visitor->Trace(window_proxy_manager_);
   visitor->Trace(dom_window_);
   visitor->Trace(client_);
+  visitor->Trace(navigation_rate_limiter_);
 }
 
 void Frame::Detach(FrameDetachType type) {
   DCHECK(client_);
+  // Detach() can be re-entered, so this can't simply DCHECK(IsAttached()).
+  DCHECK(!IsDetached());
+  lifecycle_.AdvanceTo(FrameLifecycle::kDetaching);
+
+  DetachImpl(type);
+
+  if (GetPage())
+    GetPage()->GetFocusController().FrameDetached(this);
+
+  // Due to re-entrancy, |this| could have completed detaching already.
+  // TODO(dcheng): This DCHECK is not always true. See https://crbug.com/838348.
+  DCHECK(IsDetached() == !client_);
+  if (!client_)
+    return;
+
   detach_stack_ = base::debug::StackTrace();
-  // By the time this method is called, the subclasses should have already
-  // advanced to the Detaching state.
-  DCHECK_EQ(lifecycle_.GetState(), FrameLifecycle::kDetaching);
   client_->SetOpener(nullptr);
   // After this, we must no longer talk to the client since this clears
   // its owning reference back to our owning LocalFrame.
@@ -125,8 +135,9 @@ HTMLFrameOwnerElement* Frame::DeprecatedLocalOwner() const {
 }
 
 static ChromeClient& GetEmptyChromeClient() {
-  DEFINE_STATIC_LOCAL(EmptyChromeClient, client, (EmptyChromeClient::Create()));
-  return client;
+  DEFINE_STATIC_LOCAL(Persistent<EmptyChromeClient>, client,
+                      (EmptyChromeClient::Create()));
+  return *client;
 }
 
 ChromeClient& Frame::GetChromeClient() const {
@@ -170,18 +181,29 @@ void Frame::DidChangeVisibilityState() {
   for (Frame* child = Tree().FirstChild(); child;
        child = child->Tree().NextSibling())
     child_frames.push_back(child);
-  for (size_t i = 0; i < child_frames.size(); ++i)
+  for (wtf_size_t i = 0; i < child_frames.size(); ++i)
     child_frames[i]->DidChangeVisibilityState();
 }
 
 void Frame::NotifyUserActivationInLocalTree() {
   for (Frame* node = this; node; node = node->Tree().Parent())
     node->user_activation_state_.Activate();
-}
 
-void Frame::NotifyUserActivation() {
-  ToLocalFrame(this)->Client()->NotifyUserActivation();
-  NotifyUserActivationInLocalTree();
+  // See FrameTreeNode::NotifyUserActivation() for details about this block.
+  if (IsLocalFrame() && RuntimeEnabledFeatures::UserActivationV2Enabled() &&
+      RuntimeEnabledFeatures::UserActivationSameOriginVisibilityEnabled()) {
+    const SecurityOrigin* security_origin =
+        ToLocalFrame(this)->GetSecurityContext()->GetSecurityOrigin();
+
+    Frame& root = Tree().Top();
+    for (Frame* node = &root; node; node = node->Tree().TraverseNext(&root)) {
+      if (node->IsLocalFrame() &&
+          security_origin->CanAccess(
+              ToLocalFrame(node)->GetSecurityContext()->GetSecurityOrigin())) {
+        node->user_activation_state_.Activate();
+      }
+    }
+  }
 }
 
 bool Frame::ConsumeTransientUserActivationInLocalTree() {
@@ -197,65 +219,9 @@ bool Frame::ConsumeTransientUserActivationInLocalTree() {
   return was_active;
 }
 
-bool Frame::ConsumeTransientUserActivation(
-    UserActivationUpdateSource update_source) {
-  if (update_source == UserActivationUpdateSource::kRenderer)
-    ToLocalFrame(this)->Client()->ConsumeUserActivation();
-  return ConsumeTransientUserActivationInLocalTree();
-}
-
-// static
-std::unique_ptr<UserGestureIndicator> Frame::NotifyUserActivation(
-    LocalFrame* frame,
-    UserGestureToken::Status status) {
-  if (frame)
-    frame->NotifyUserActivation();
-  return std::make_unique<UserGestureIndicator>(status);
-}
-
-// static
-std::unique_ptr<UserGestureIndicator> Frame::NotifyUserActivation(
-    LocalFrame* frame,
-    UserGestureToken* token) {
-  if (frame)
-    frame->NotifyUserActivation();
-  return std::make_unique<UserGestureIndicator>(token);
-}
-
-// static
-bool Frame::HasTransientUserActivation(LocalFrame* frame,
-                                       bool checkIfMainThread) {
-  if (RuntimeEnabledFeatures::UserActivationV2Enabled()) {
-    return frame ? frame->HasTransientUserActivation() : false;
-  }
-
-  return checkIfMainThread
-             ? UserGestureIndicator::ProcessingUserGestureThreadSafe()
-             : UserGestureIndicator::ProcessingUserGesture();
-}
-
-// static
-bool Frame::ConsumeTransientUserActivation(
-    LocalFrame* frame,
-    bool checkIfMainThread,
-    UserActivationUpdateSource update_source) {
-  if (RuntimeEnabledFeatures::UserActivationV2Enabled()) {
-    return frame ? frame->ConsumeTransientUserActivation(update_source) : false;
-  }
-
-  return checkIfMainThread
-             ? UserGestureIndicator::ConsumeUserGestureThreadSafe()
-             : UserGestureIndicator::ConsumeUserGesture();
-}
-
-bool Frame::IsFeatureEnabled(mojom::FeaturePolicyFeature feature) const {
-  FeaturePolicy* feature_policy = GetSecurityContext()->GetFeaturePolicy();
-  // The policy should always be initialized before checking it to ensure we
-  // properly inherit the parent policy.
-  DCHECK(feature_policy);
-
-  // Otherwise, check policy.
-  return feature_policy->IsFeatureEnabled(feature);
+void Frame::ClearUserActivationInLocalTree() {
+  for (Frame* node = this; node; node = node->Tree().TraverseNext(this))
+    node->user_activation_state_.Clear();
 }
 
 void Frame::SetOwner(FrameOwner* owner) {
@@ -298,6 +264,7 @@ Frame::Frame(FrameClient* client,
       owner_(owner),
       client_(client),
       window_proxy_manager_(window_proxy_manager),
+      navigation_rate_limiter_(*this),
       is_loading_(false),
       devtools_frame_token_(client->GetDevToolsFrameToken()),
       create_stack_(base::debug::StackTrace()) {

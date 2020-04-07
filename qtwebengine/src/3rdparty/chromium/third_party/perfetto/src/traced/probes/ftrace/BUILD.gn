@@ -14,10 +14,11 @@
 
 import("../../../../gn/perfetto.gni")
 import("../../../../gn/proto_library.gni")
-import("../../../protozero/protozero_library.gni")
+import("../../../../gn/fuzzer.gni")
+import("../../../../gn/protozero_library.gni")
 
 # For use_libfuzzer.
-if (!build_with_chromium) {
+if (perfetto_build_standalone || perfetto_build_with_android) {
   import("//gn/standalone/sanitizers/vars.gni")
 } else {
   import("//build/config/sanitizers/sanitizers.gni")
@@ -31,7 +32,7 @@ source_set("test_support") {
     "../../../protozero",
   ]
   public_deps = [
-    "../../../protozero:test_support",
+    "../../../protozero",
   ]
 
   sources = [
@@ -43,6 +44,7 @@ source_set("test_support") {
 source_set("unittests") {
   testonly = true
   deps = [
+    ":format_parser",
     ":ftrace",
     ":test_messages_lite",
     ":test_messages_zero",
@@ -62,6 +64,7 @@ source_set("unittests") {
     "ftrace_config_unittest.cc",
     "ftrace_controller_unittest.cc",
     "ftrace_procfs_unittest.cc",
+    "page_pool_unittest.cc",
     "proto_translation_table_unittest.cc",
   ]
 }
@@ -96,18 +99,18 @@ source_set("integrationtests") {
     "../../../tracing",
   ]
   sources = [
-    "end_to_end_integrationtest.cc",
     "ftrace_procfs_integrationtest.cc",
   ]
 }
 
 source_set("ftrace") {
   public_deps = [
-    "../../../../gn:gtest_prod_config",
     "../../../../protos/perfetto/trace/ftrace:zero",
     "../../../tracing",
   ]
   deps = [
+    ":format_parser",
+    "..:data_source",
     "../../../../gn:default_deps",
     "../../../../include/perfetto/traced",
     "../../../base",
@@ -124,22 +127,39 @@ source_set("ftrace") {
     "event_info.h",
     "event_info_constants.cc",
     "event_info_constants.h",
-    "format_parser.cc",
-    "format_parser.h",
     "ftrace_config.cc",
     "ftrace_config.h",
     "ftrace_config_muxer.cc",
     "ftrace_config_muxer.h",
     "ftrace_controller.cc",
     "ftrace_controller.h",
+    "ftrace_data_source.cc",
+    "ftrace_data_source.h",
+    "ftrace_metadata.cc",
+    "ftrace_metadata.h",
     "ftrace_procfs.cc",
     "ftrace_procfs.h",
+    "ftrace_stats.cc",
+    "ftrace_stats.h",
+    "page_pool.cc",
+    "page_pool.h",
     "proto_translation_table.cc",
     "proto_translation_table.h",
   ]
 }
 
-if (!build_with_chromium) {
+source_set("format_parser") {
+  deps = [
+    "../../../../gn:default_deps",
+    "../../../base",
+  ]
+  sources = [
+    "format_parser.cc",
+    "format_parser.h",
+  ]
+}
+
+if (perfetto_build_standalone) {
   source_set("benchmarks") {
     testonly = true
     deps = [
@@ -154,17 +174,14 @@ if (!build_with_chromium) {
   }
 }
 
-if (use_libfuzzer && !build_with_chromium) {
-  executable("cpu_reader_fuzzer") {
-    testonly = true
-    sources = [
-      "cpu_reader_fuzzer.cc",
-    ]
-    deps = [
-      ":ftrace",
-      ":test_support",
-      "../../../../gn:default_deps",
-    ]
-    configs += [ "../../../../gn:fuzzer_config" ]
-  }
+perfetto_fuzzer_test("cpu_reader_fuzzer") {
+  testonly = true
+  sources = [
+    "cpu_reader_fuzzer.cc",
+  ]
+  deps = [
+    ":ftrace",
+    ":test_support",
+    "../../../../gn:default_deps",
+  ]
 }

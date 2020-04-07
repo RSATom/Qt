@@ -8,23 +8,36 @@
 #include <vector>
 
 #include "base/containers/circular_deque.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
+#include "base/test/scoped_task_environment.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/layers/layer.h"
 #include "content/public/renderer/media_stream_renderer_factory.h"
 #include "content/renderer/media/stream/webmediaplayer_ms.h"
 #include "content/renderer/media/stream/webmediaplayer_ms_compositor.h"
 #include "content/renderer/render_frame_impl.h"
+#include "media/base/media_util.h"
 #include "media/base/test_helpers.h"
 #include "media/base/video_frame.h"
 #include "media/video/mock_gpu_memory_buffer_video_frame_pool.h"
 #include "media/video/mock_gpu_video_accelerator_factories.h"
+#include "third_party/blink/public/common/picture_in_picture/picture_in_picture_control_info.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/public/platform/web_fullscreen_video_status.h"
 #include "third_party/blink/public/platform/web_media_player.h"
 #include "third_party/blink/public/platform/web_media_player_client.h"
 #include "third_party/blink/public/platform/web_media_player_source.h"
+
+using ::testing::_;
+using ::testing::ByRef;
+using ::testing::Eq;
+using ::testing::NiceMock;
+using ::testing::Return;
+using ::testing::ReturnRef;
+using ::testing::StrictMock;
 
 namespace content {
 
@@ -33,6 +46,28 @@ enum class FrameType {
   BROKEN_FRAME = -1,
   TEST_BRAKE = -2,  // Signal to pause message loop.
   MIN_TYPE = TEST_BRAKE
+};
+
+class MockSurfaceLayerBridge : public blink::WebSurfaceLayerBridge {
+ public:
+  MockSurfaceLayerBridge() {
+    ON_CALL(*this, GetSurfaceId).WillByDefault(ReturnRef(surface_id_));
+  }
+
+  MOCK_CONST_METHOD0(GetCcLayer, cc::Layer*());
+  MOCK_CONST_METHOD0(GetFrameSinkId, const viz::FrameSinkId&());
+  MOCK_CONST_METHOD0(GetSurfaceId, const viz::SurfaceId&());
+  MOCK_CONST_METHOD0(GetLocalSurfaceIdAllocationTime, base::TimeTicks());
+  MOCK_METHOD1(SetContentsOpaque, void(bool));
+  MOCK_METHOD0(CreateSurfaceLayer, void());
+  MOCK_METHOD0(ClearSurfaceId, void());
+  MOCK_METHOD0(ClearObserver, void());
+
+  viz::FrameSinkId frame_sink_id_ = viz::FrameSinkId(1, 1);
+  viz::LocalSurfaceId local_surface_id_ =
+      viz::LocalSurfaceId(11, base::UnguessableToken::Deserialize(0x111111, 0));
+  viz::SurfaceId surface_id_ =
+      viz::SurfaceId(frame_sink_id_, local_surface_id_);
 };
 
 using TestFrame = std::pair<FrameType, scoped_refptr<media::VideoFrame>>;
@@ -76,31 +111,21 @@ class FakeWebMediaPlayerDelegate
     EXPECT_EQ(delegate_id_, delegate_id);
   }
 
-  void DidPictureInPictureModeStart(
-      int delegate_id,
-      const viz::SurfaceId&,
-      const gfx::Size&,
-      blink::WebMediaPlayer::PipWindowOpenedCallback) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void DidPictureInPictureModeEnd(
-      int delegate_id,
-      blink::WebMediaPlayer::PipWindowClosedCallback) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void DidPictureInPictureSurfaceChange(int delegate_id,
-                                        const viz::SurfaceId&,
-                                        const gfx::Size&) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void RegisterPictureInPictureWindowResizeCallback(
-      int delegate_id,
-      blink::WebMediaPlayer::PipWindowResizedCallback) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
+  MOCK_METHOD5(DidPictureInPictureModeStart,
+               void(int,
+                    const viz::SurfaceId&,
+                    const gfx::Size&,
+                    blink::WebMediaPlayer::PipWindowOpenedCallback,
+                    bool));
+  MOCK_METHOD2(DidPictureInPictureModeEnd,
+               void(int, blink::WebMediaPlayer::PipWindowClosedCallback));
+  MOCK_METHOD2(DidSetPictureInPictureCustomControls,
+               void(int,
+                    const std::vector<blink::PictureInPictureControlInfo>&));
+  MOCK_METHOD4(DidPictureInPictureSurfaceChange,
+               void(int, const viz::SurfaceId&, const gfx::Size&, bool));
+  MOCK_METHOD2(RegisterPictureInPictureWindowResizeCallback,
+               void(int, blink::WebMediaPlayer::PipWindowResizedCallback));
 
   void DidPause(int delegate_id) override {
     EXPECT_EQ(delegate_id_, delegate_id);
@@ -147,6 +172,8 @@ class FakeWebMediaPlayerDelegate
   bool IsFrameClosed() override { return false; }
 
   void set_hidden(bool is_hidden) { is_hidden_ = is_hidden; }
+
+  int delegate_id() { return delegate_id_; }
 
  private:
   int delegate_id_ = 1234;
@@ -251,18 +278,12 @@ class MockMediaStreamAudioRenderer : public MediaStreamAudioRenderer {
   void Play() override {}
   void Pause() override {}
   void SetVolume(float volume) override {}
-  media::OutputDeviceInfo GetOutputDeviceInfo() override {
-    return media::OutputDeviceInfo();
-  }
 
-  void SwitchOutputDevice(
-      const std::string& device_id,
-      const media::OutputDeviceStatusCB& callback) override {}
-  base::TimeDelta GetCurrentRenderTime() const override {
-    return base::TimeDelta();
-  }
+  void SwitchOutputDevice(const std::string& device_id,
+                          media::OutputDeviceStatusCB callback) override {}
+  base::TimeDelta GetCurrentRenderTime() override { return base::TimeDelta(); }
 
-  bool IsLocalRenderer() const override { return true; }
+  bool IsLocalRenderer() override { return true; }
 
  protected:
   ~MockMediaStreamAudioRenderer() override {}
@@ -393,6 +414,30 @@ void MockMediaStreamVideoRenderer::InjectFrame() {
     message_loop_controller_->GetClosure().Run();
 }
 
+class MockWebVideoFrameSubmitter : public blink::WebVideoFrameSubmitter {
+ public:
+  // blink::WebVideoFrameSubmitter implementation.
+  MOCK_METHOD0(StopUsingProvider, void());
+  MOCK_METHOD0(DidReceiveFrame, void());
+  MOCK_METHOD2(EnableSubmission, void(viz::SurfaceId, base::TimeTicks));
+  MOCK_METHOD0(StartRendering, void());
+  MOCK_METHOD0(StopRendering, void());
+  MOCK_METHOD1(MockInitialize, void(cc::VideoFrameProvider*));
+  MOCK_METHOD1(SetRotation, void(media::VideoRotation));
+  MOCK_METHOD1(SetIsSurfaceVisible, void(bool));
+  MOCK_METHOD1(SetIsPageVisible, void(bool));
+  MOCK_METHOD1(SetForceSubmit, void(bool));
+  MOCK_CONST_METHOD0(IsDrivingFrameUpdates, bool());
+
+  void Initialize(cc::VideoFrameProvider* provider) override {
+    provider_ = provider;
+    MockInitialize(provider);
+  }
+
+ private:
+  cc::VideoFrameProvider* provider_;
+};
+
 // The class is used to generate a MockVideoProvider in
 // WebMediaPlayerMS::load().
 class MockRenderFactory : public MediaStreamRendererFactory {
@@ -477,33 +522,33 @@ scoped_refptr<MediaStreamVideoRenderer> MockRenderFactory::GetVideoRenderer(
 // 7. When WebMediaPlayerMS::play gets called, evething paused in step 6 should
 //    be resumed.
 class WebMediaPlayerMSTest
-    : public testing::TestWithParam<testing::tuple<bool, bool>> ,
+    : public testing::TestWithParam<
+          testing::tuple<bool /* enable_surface_layer_for_video */,
+                         bool /* opaque_frame */,
+                         bool /* odd_size_frame */>>,
       public blink::WebMediaPlayerClient,
       public cc::VideoFrameProvider::Client {
  public:
   WebMediaPlayerMSTest()
-      : render_factory_(new MockRenderFactory(message_loop_.task_runner(),
-                                              &message_loop_controller_)),
+      : render_factory_(new MockRenderFactory(
+            blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
+            &message_loop_controller_)),
         gpu_factories_(new media::MockGpuVideoAcceleratorFactories(nullptr)),
-        player_(new WebMediaPlayerMS(
-            nullptr,
-            this,
-            &delegate_,
-            std::make_unique<media::MediaLog>(),
-            std::unique_ptr<MediaStreamRendererFactory>(render_factory_),
-            message_loop_.task_runner(),
-            message_loop_.task_runner(),
-            message_loop_.task_runner(),
-            message_loop_.task_runner(),
-            gpu_factories_.get(),
-            blink::WebString())),
+        surface_layer_bridge_(
+            std::make_unique<NiceMock<MockSurfaceLayerBridge>>()),
+        submitter_(std::make_unique<NiceMock<MockWebVideoFrameSubmitter>>()),
         layer_set_(false),
         rendering_(false),
-        background_rendering_(false) {}
+        background_rendering_(false) {
+    surface_layer_bridge_ptr_ = surface_layer_bridge_.get();
+    submitter_ptr_ = submitter_.get();
+  }
   ~WebMediaPlayerMSTest() override {
     player_.reset();
     base::RunLoop().RunUntilIdle();
   }
+
+  void InitializeWebMediaPlayerMS();
 
   MockMediaStreamVideoRenderer* LoadAndGetFrameProvider(bool algorithm_enabled);
 
@@ -551,9 +596,6 @@ class WebMediaPlayerMSTest
   }
   bool HasNativeControls() override { return false; }
   bool IsAudioElement() override { return is_audio_element_; }
-  blink::WebMediaPlayer::DisplayType DisplayType() const override {
-    return blink::WebMediaPlayer::DisplayType::kInline;
-  }
   bool IsInAutoPIP() const override { return false; }
   void ActivateViewportIntersectionMonitoring(bool activate) override {}
   void MediaRemotingStarted(
@@ -598,9 +640,16 @@ class WebMediaPlayerMSTest
                void(blink::WebMediaPlayer::NetworkState));
   MOCK_METHOD1(DoReadyStateChanged, void(blink::WebMediaPlayer::ReadyState));
   MOCK_METHOD1(CheckSizeChanged, void(gfx::Size));
+  MOCK_CONST_METHOD0(DisplayType, blink::WebMediaPlayer::DisplayType());
   MOCK_CONST_METHOD0(CouldPlayIfEnoughData, bool());
 
-  base::MessageLoop message_loop_;
+  std::unique_ptr<blink::WebSurfaceLayerBridge> CreateMockSurfaceLayerBridge(
+      blink::WebSurfaceLayerBridgeObserver*,
+      cc::UpdateSubmissionStateCB) {
+    return std::move(surface_layer_bridge_);
+  }
+
+  base::test::ScopedTaskEnvironment task_environment_;
   MockRenderFactory* render_factory_;
   std::unique_ptr<media::MockGpuVideoAcceleratorFactories> gpu_factories_;
   FakeWebMediaPlayerDelegate delegate_;
@@ -610,6 +659,11 @@ class WebMediaPlayerMSTest
   cc::Layer* layer_;
   bool is_audio_element_ = false;
   std::vector<base::OnceClosure> frame_ready_cbs_;
+  std::unique_ptr<NiceMock<MockSurfaceLayerBridge>> surface_layer_bridge_;
+  std::unique_ptr<NiceMock<MockWebVideoFrameSubmitter>> submitter_;
+  NiceMock<MockSurfaceLayerBridge>* surface_layer_bridge_ptr_ = nullptr;
+  NiceMock<MockWebVideoFrameSubmitter>* submitter_ptr_ = nullptr;
+  bool enable_surface_layer_for_video_ = false;
 
  private:
   // Main function trying to ask WebMediaPlayerMS to submit a frame for
@@ -620,6 +674,25 @@ class WebMediaPlayerMSTest
   bool rendering_;
   bool background_rendering_;
 };
+
+void WebMediaPlayerMSTest::InitializeWebMediaPlayerMS() {
+  enable_surface_layer_for_video_ = testing::get<0>(GetParam());
+  blink::WebMediaPlayer::SurfaceLayerMode surface_layer_mode =
+      enable_surface_layer_for_video_
+          ? blink::WebMediaPlayer::SurfaceLayerMode::kAlways
+          : blink::WebMediaPlayer::SurfaceLayerMode::kNever;
+  player_ = std::make_unique<WebMediaPlayerMS>(
+      nullptr, this, &delegate_, std::make_unique<media::NullMediaLog>(),
+      std::unique_ptr<MediaStreamRendererFactory>(render_factory_),
+      blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
+      blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
+      blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
+      blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
+      gpu_factories_.get(), blink::WebString(),
+      base::BindOnce(&WebMediaPlayerMSTest::CreateMockSurfaceLayerBridge,
+                     base::Unretained(this)),
+      std::move(submitter_), surface_layer_mode);
+}
 
 MockMediaStreamVideoRenderer* WebMediaPlayerMSTest::LoadAndGetFrameProvider(
     bool algorithm_enabled) {
@@ -632,7 +705,7 @@ MockMediaStreamVideoRenderer* WebMediaPlayerMSTest::LoadAndGetFrameProvider(
                          blink::WebMediaPlayer::kReadyStateHaveNothing));
   player_->Load(blink::WebMediaPlayer::kLoadTypeURL,
                 blink::WebMediaPlayerSource(),
-                blink::WebMediaPlayer::kCORSModeUnspecified);
+                blink::WebMediaPlayer::kCorsModeUnspecified);
   compositor_ = player_->compositor_.get();
   EXPECT_TRUE(!!compositor_);
   compositor_->SetAlgorithmEnabledForTesting(algorithm_enabled);
@@ -662,19 +735,29 @@ void WebMediaPlayerMSTest::NetworkStateChanged() {
 void WebMediaPlayerMSTest::ReadyStateChanged() {
   blink::WebMediaPlayer::ReadyState state = player_->GetReadyState();
   DoReadyStateChanged(state);
+  if (state == blink::WebMediaPlayer::ReadyState::kReadyStateHaveMetadata &&
+      !player_->HasAudio()) {
+    const auto& size = player_->NaturalSize();
+    EXPECT_GT(size.width, 0);
+    EXPECT_GT(size.height, 0);
+  }
   if (state == blink::WebMediaPlayer::ReadyState::kReadyStateHaveEnoughData)
     player_->Play();
 }
 
 void WebMediaPlayerMSTest::SetCcLayer(cc::Layer* layer) {
-  // Make sure that the old layer is still alive, see http://crbug.com/705448.
+  // Make sure that the old layer is still alive, see https://crbug.com/705448.
   if (layer_set_)
     EXPECT_TRUE(layer_ != nullptr);
   layer_set_ = layer ? true : false;
 
   layer_ = layer;
-  if (layer)
-    compositor_->SetVideoFrameProviderClient(this);
+  if (layer) {
+    if (enable_surface_layer_for_video_)
+      compositor_->SetVideoFrameProviderClient(submitter_ptr_);
+    else
+      compositor_->SetVideoFrameProviderClient(this);
+  }
   DoSetCcLayer(!!layer);
 }
 
@@ -686,7 +769,7 @@ void WebMediaPlayerMSTest::StopUsingProvider() {
 void WebMediaPlayerMSTest::StartRendering() {
   if (!rendering_) {
     rendering_ = true;
-    message_loop_.task_runner()->PostTask(
+    blink::scheduler::GetSingleThreadTaskRunnerForTesting()->PostTask(
         FROM_HERE, base::BindOnce(&WebMediaPlayerMSTest::RenderFrame,
                                   base::Unretained(this)));
   }
@@ -721,7 +804,7 @@ void WebMediaPlayerMSTest::RenderFrame() {
     auto frame = compositor_->GetCurrentFrame();
     compositor_->PutCurrentFrame();
   }
-  message_loop_.task_runner()->PostDelayedTask(
+  blink::scheduler::GetSingleThreadTaskRunnerForTesting()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&WebMediaPlayerMSTest::RenderFrame,
                      base::Unretained(this)),
@@ -733,7 +816,8 @@ void WebMediaPlayerMSTest::SizeChanged() {
   CheckSizeChanged(frame_size);
 }
 
-TEST_F(WebMediaPlayerMSTest, NoDataDuringLoadForVideo) {
+TEST_P(WebMediaPlayerMSTest, NoDataDuringLoadForVideo) {
+  InitializeWebMediaPlayerMS();
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata))
       .Times(0);
@@ -750,7 +834,8 @@ TEST_F(WebMediaPlayerMSTest, NoDataDuringLoadForVideo) {
   EXPECT_CALL(*this, DoSetCcLayer(false));
 }
 
-TEST_F(WebMediaPlayerMSTest, NoWaitForFrameForAudio) {
+TEST_P(WebMediaPlayerMSTest, NoWaitForFrameForAudio) {
+  InitializeWebMediaPlayerMS();
   is_audio_element_ = true;
   scoped_refptr<MediaStreamAudioRenderer> audio_renderer(
       new MockMediaStreamAudioRenderer());
@@ -767,7 +852,7 @@ TEST_F(WebMediaPlayerMSTest, NoWaitForFrameForAudio) {
 
   player_->Load(blink::WebMediaPlayer::kLoadTypeURL,
                 blink::WebMediaPlayerSource(),
-                blink::WebMediaPlayer::kCORSModeUnspecified);
+                blink::WebMediaPlayer::kCorsModeUnspecified);
 
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
@@ -776,7 +861,8 @@ TEST_F(WebMediaPlayerMSTest, NoWaitForFrameForAudio) {
   EXPECT_CALL(*this, DoSetCcLayer(false));
 }
 
-TEST_F(WebMediaPlayerMSTest, NoWaitForFrameForAudioOnly) {
+TEST_P(WebMediaPlayerMSTest, NoWaitForFrameForAudioOnly) {
+  InitializeWebMediaPlayerMS();
   render_factory_->set_support_video_renderer(false);
   scoped_refptr<MediaStreamAudioRenderer> audio_renderer(
       new MockMediaStreamAudioRenderer());
@@ -789,10 +875,12 @@ TEST_F(WebMediaPlayerMSTest, NoWaitForFrameForAudioOnly) {
   EXPECT_CALL(*this, DoSetCcLayer(false));
 }
 
-TEST_F(WebMediaPlayerMSTest, Playing_Normal) {
+TEST_P(WebMediaPlayerMSTest, Playing_Normal) {
   // This test sends a bunch of normal frames with increasing timestamps
   // and verifies that they are produced by WebMediaPlayerMS in appropriate
   // order.
+
+  InitializeWebMediaPlayerMS();
 
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
 
@@ -801,8 +889,12 @@ TEST_F(WebMediaPlayerMSTest, Playing_Normal) {
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps);
 
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -817,12 +909,17 @@ TEST_F(WebMediaPlayerMSTest, Playing_Normal) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
 
-TEST_F(WebMediaPlayerMSTest, Playing_ErrorFrame) {
+TEST_P(WebMediaPlayerMSTest, Playing_ErrorFrame) {
   // This tests sends a broken frame to WebMediaPlayerMS, and verifies
   // OnSourceError function works as expected.
+
+  InitializeWebMediaPlayerMS();
 
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(false);
 
@@ -832,8 +929,12 @@ TEST_F(WebMediaPlayerMSTest, Playing_ErrorFrame) {
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps);
 
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -847,12 +948,16 @@ TEST_F(WebMediaPlayerMSTest, Playing_ErrorFrame) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
 
 TEST_P(WebMediaPlayerMSTest, PlayThenPause) {
-  const bool opaque_frame = testing::get<0>(GetParam());
-  const bool odd_size_frame = testing::get<1>(GetParam());
+  InitializeWebMediaPlayerMS();
+  const bool opaque_frame = testing::get<1>(GetParam());
+  const bool odd_size_frame = testing::get<2>(GetParam());
   // In the middle of this test, WebMediaPlayerMS::pause will be called, and we
   // are going to verify that during the pause stage, a frame gets freezed, and
   // cc::VideoFrameProviderClient should also be paused.
@@ -864,8 +969,13 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPause) {
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps, opaque_frame, odd_size_frame);
 
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -879,7 +989,11 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPause) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   // Here we call pause, and expect a freezing frame.
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopRendering());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
+
   player_->Pause();
   auto prev_frame = compositor_->GetCurrentFrameWithoutUpdatingStatistics();
   message_loop_controller_.RunAndWaitForStatus(
@@ -892,8 +1006,9 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPause) {
 }
 
 TEST_P(WebMediaPlayerMSTest, PlayThenPauseThenPlay) {
-  const bool opaque_frame = testing::get<0>(GetParam());
-  const bool odd_size_frame = testing::get<1>(GetParam());
+  InitializeWebMediaPlayerMS();
+  const bool opaque_frame = testing::get<1>(GetParam());
+  const bool odd_size_frame = testing::get<2>(GetParam());
   // Similary to PlayAndPause test above, this one focuses on testing that
   // WebMediaPlayerMS can be resumed after a period of paused status.
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(false);
@@ -905,8 +1020,13 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPauseThenPlay) {
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps, opaque_frame, odd_size_frame);
 
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -920,7 +1040,11 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPauseThenPlay) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   // Here we call pause, and expect a freezing frame.
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopRendering());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
+
   player_->Pause();
   auto prev_frame = compositor_->GetCurrentFrameWithoutUpdatingStatistics();
   message_loop_controller_.RunAndWaitForStatus(
@@ -930,7 +1054,11 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPauseThenPlay) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   // We resume the player, and expect rendering can continue.
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  else
+    EXPECT_CALL(*this, DoStartRendering());
+
   player_->Play();
   prev_frame = compositor_->GetCurrentFrameWithoutUpdatingStatistics();
   message_loop_controller_.RunAndWaitForStatus(
@@ -940,25 +1068,30 @@ TEST_P(WebMediaPlayerMSTest, PlayThenPauseThenPlay) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  } else {
+    EXPECT_CALL(*this, DoStopRendering());
+  }
 }
-
-INSTANTIATE_TEST_CASE_P(,
-                        WebMediaPlayerMSTest,
-                        ::testing::Combine(::testing::Bool(),
-                                           ::testing::Bool()));
 
 // During this test, we check that when we send rotated video frames, it applies
 // to player's natural size.
-TEST_F(WebMediaPlayerMSTest, RotationChange) {
+TEST_P(WebMediaPlayerMSTest, RotationChange) {
+  InitializeWebMediaPlayerMS();
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
 
   const int kTestBrake = static_cast<int>(FrameType::TEST_BRAKE);
-  static int tokens[] = {0, 33, kTestBrake};
+  int tokens[] = {0, kTestBrake};
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps, false, false, 17, media::VIDEO_ROTATION_90);
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -967,39 +1100,61 @@ TEST_F(WebMediaPlayerMSTest, RotationChange) {
               CheckSizeChanged(gfx::Size(kStandardWidth, kStandardHeight)));
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
+  // The exact ordering of delayed vs non-delayed tasks is not defined.
+  // Make sure we run all non-delayed tasks (E.G. CheckForFrameChanges) before
+  // testing state.
+  base::RunLoop().RunUntilIdle();
   blink::WebSize natural_size = player_->NaturalSize();
   // Check that height and width are flipped.
   EXPECT_EQ(kStandardHeight, natural_size.width);
   EXPECT_EQ(kStandardWidth, natural_size.height);
 
   // Change rotation.
+  tokens[0] = 33;
+  timestamps = std::vector<int>(tokens, tokens + base::size(tokens));
   provider->QueueFrames(timestamps, false, false, 17, media::VIDEO_ROTATION_0);
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStopRendering());
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*submitter_ptr_, SetRotation(media::VIDEO_ROTATION_0));
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStopRendering());
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
+  base::RunLoop().RunUntilIdle();
   natural_size = player_->NaturalSize();
   EXPECT_EQ(kStandardHeight, natural_size.height);
   EXPECT_EQ(kStandardWidth, natural_size.width);
 
   testing::Mock::VerifyAndClearExpectations(this);
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
 
 // During this test, we check that web layer changes opacity according to the
 // given frames.
-TEST_F(WebMediaPlayerMSTest, OpacityChange) {
+TEST_P(WebMediaPlayerMSTest, OpacityChange) {
+  InitializeWebMediaPlayerMS();
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
 
   // Push one opaque frame.
   const int kTestBrake = static_cast<int>(FrameType::TEST_BRAKE);
-  static int tokens[] = {0, kTestBrake};
-  std::vector<int> timestamps(tokens, tokens + arraysize(tokens));
+  int tokens[] = {0, kTestBrake};
+  std::vector<int> timestamps(tokens, tokens + base::size(tokens));
   provider->QueueFrames(timestamps, true);
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -1008,33 +1163,57 @@ TEST_F(WebMediaPlayerMSTest, OpacityChange) {
               CheckSizeChanged(gfx::Size(kStandardWidth, kStandardHeight)));
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
-  ASSERT_TRUE(layer_ != nullptr);
-  EXPECT_TRUE(layer_->contents_opaque());
+  // The exact ordering of delayed vs non-delayed tasks is not defined.
+  // Make sure we run all non-delayed tasks before testing state.
+  base::RunLoop().RunUntilIdle();
+  if (!enable_surface_layer_for_video_) {
+    ASSERT_TRUE(layer_ != nullptr);
+    EXPECT_TRUE(layer_->contents_opaque());
+  }
 
   // Push one transparent frame.
+  tokens[0] = 33;
+  timestamps = std::vector<int>(tokens, tokens + base::size(tokens));
   provider->QueueFrames(timestamps, false);
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, SetContentsOpaque(false));
+  }
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
-  EXPECT_FALSE(layer_->contents_opaque());
+  base::RunLoop().RunUntilIdle();
+  if (!enable_surface_layer_for_video_) {
+    EXPECT_FALSE(layer_->contents_opaque());
+  }
 
-  // Push another opaque frame.
+  // Push another transparent frame.
+  tokens[0] = 66;
+  timestamps = std::vector<int>(tokens, tokens + base::size(tokens));
   provider->QueueFrames(timestamps, true);
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, SetContentsOpaque(true));
+  }
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
-  EXPECT_TRUE(layer_->contents_opaque());
+  base::RunLoop().RunUntilIdle();
+  if (!enable_surface_layer_for_video_)
+    EXPECT_TRUE(layer_->contents_opaque());
 
   testing::Mock::VerifyAndClearExpectations(this);
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
 
-TEST_F(WebMediaPlayerMSTest, BackgroundRendering) {
+TEST_P(WebMediaPlayerMSTest, BackgroundRendering) {
   // During this test, we will switch to background rendering mode, in which
   // WebMediaPlayerMS::pause does not get called, but
   // cc::VideoFrameProviderClient simply stops asking frames from
   // WebMediaPlayerMS without an explicit notification. We should expect that
   // WebMediaPlayerMS can digest old frames, rather than piling frames up and
   // explode.
+  InitializeWebMediaPlayerMS();
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
 
   const int kTestBrake = static_cast<int>(FrameType::TEST_BRAKE);
@@ -1044,8 +1223,13 @@ TEST_F(WebMediaPlayerMSTest, BackgroundRendering) {
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps);
 
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -1058,7 +1242,11 @@ TEST_F(WebMediaPlayerMSTest, BackgroundRendering) {
 
   // Switch to background rendering, expect rendering to continue for all the
   // frames between kTestBrake frames.
-  EXPECT_CALL(*this, DoDidReceiveFrame()).Times(testing::AtLeast(1));
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, DidReceiveFrame()).Times(testing::AtLeast(1));
+  else
+    EXPECT_CALL(*this, DoDidReceiveFrame()).Times(testing::AtLeast(1));
+
   SetBackgroundRendering(true);
   auto prev_frame = compositor_->GetCurrentFrameWithoutUpdatingStatistics();
   message_loop_controller_.RunAndWaitForStatus(
@@ -1076,13 +1264,17 @@ TEST_F(WebMediaPlayerMSTest, BackgroundRendering) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
 
-TEST_F(WebMediaPlayerMSTest, FrameSizeChange) {
+TEST_P(WebMediaPlayerMSTest, FrameSizeChange) {
   // During this test, the frame size of the input changes.
   // We need to make sure, when sizeChanged() gets called, new size should be
   // returned by GetCurrentSize().
+  InitializeWebMediaPlayerMS();
   MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
 
   int tokens[] = {0,   33,  66,  100, 133, 166, 200, 233, 266, 300,
@@ -1090,8 +1282,13 @@ TEST_F(WebMediaPlayerMSTest, FrameSizeChange) {
   std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
   provider->QueueFrames(timestamps, false, false, 7);
 
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
@@ -1105,12 +1302,16 @@ TEST_F(WebMediaPlayerMSTest, FrameSizeChange) {
   testing::Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
 
 // Tests that GpuMemoryBufferVideoFramePool is called in the expected sequence.
-TEST_F(WebMediaPlayerMSTest, CreateHardwareFrames) {
-  MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
+TEST_P(WebMediaPlayerMSTest, CreateHardwareFrames) {
+  InitializeWebMediaPlayerMS();
+  MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(false);
   SetGpuMemoryBufferVideoForTesting();
 
   const int kTestBrake = static_cast<int>(FrameType::TEST_BRAKE);
@@ -1121,87 +1322,37 @@ TEST_F(WebMediaPlayerMSTest, CreateHardwareFrames) {
       media::PipelineStatus::PIPELINE_OK);
 
   ASSERT_EQ(1u, frame_ready_cbs_.size());
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
+  if (enable_surface_layer_for_video_) {
+    EXPECT_CALL(*surface_layer_bridge_ptr_, CreateSurfaceLayer());
+    EXPECT_CALL(*submitter_ptr_, StartRendering());
+  } else {
+    EXPECT_CALL(*this, DoSetCcLayer(true));
+    EXPECT_CALL(*this, DoStartRendering());
+  }
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveMetadata));
   EXPECT_CALL(*this, DoReadyStateChanged(
                          blink::WebMediaPlayer::kReadyStateHaveEnoughData));
   EXPECT_CALL(*this, CheckSizeChanged(provider->get_standard_size()));
+
+  // Run all the tasks that will assign current frame in
+  // WebMediaPlayerMSCompositor.
   std::move(frame_ready_cbs_[0]).Run();
-  message_loop_controller_.RunAndWaitForStatus(
-      media::PipelineStatus::PIPELINE_OK);
+  base::RunLoop().RunUntilIdle();
 
   auto frame = compositor_->GetCurrentFrameWithoutUpdatingStatistics();
   ASSERT_TRUE(frame != nullptr);
   testing::Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
+  if (enable_surface_layer_for_video_)
+    EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+  else
+    EXPECT_CALL(*this, DoStopRendering());
 }
-
-// Hidden and closed trigger different events on Android and this test doesn't
-// cover that, see HiddenPlayerTests for specifics.
-#if !defined(OS_ANDROID)
-// Tests that GpuMemoryBufferVideoFramePool is not called when page is hidden.
-TEST_F(WebMediaPlayerMSTest, StopsCreatingHardwareFramesWhenHiddenOrClosed) {
-  MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
-  SetGpuMemoryBufferVideoForTesting();
-
-  const int kTestBrake = static_cast<int>(FrameType::TEST_BRAKE);
-  static int tokens[] = {0, kTestBrake};
-  std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
-  provider->QueueFrames(timestamps);
-  EXPECT_CALL(*this, DoSetCcLayer(true));
-  EXPECT_CALL(*this, DoStartRendering());
-  EXPECT_CALL(*this, DoReadyStateChanged(
-                         blink::WebMediaPlayer::kReadyStateHaveMetadata));
-  EXPECT_CALL(*this, DoReadyStateChanged(
-                         blink::WebMediaPlayer::kReadyStateHaveEnoughData));
-  EXPECT_CALL(*this, CheckSizeChanged(provider->get_standard_size()));
-  message_loop_controller_.RunAndWaitForStatus(
-      media::PipelineStatus::PIPELINE_OK);
-  ASSERT_EQ(1u, frame_ready_cbs_.size());
-  frame_ready_cbs_.clear();
-
-  // Hidden should stop passing frames to GpuMemoryBufferVideoFramePool.
-  player_->OnFrameHidden();
-  provider->QueueFrames(timestamps, false);
-  message_loop_controller_.RunAndWaitForStatus(
-      media::PipelineStatus::PIPELINE_OK);
-  ASSERT_EQ(0u, frame_ready_cbs_.size());
-
-  // Shown should resume passing frames to GpuMemoryBufferVideoFramePool.
-  player_->OnFrameShown();
-  provider->QueueFrames(timestamps, false);
-  message_loop_controller_.RunAndWaitForStatus(
-      media::PipelineStatus::PIPELINE_OK);
-  ASSERT_EQ(1u, frame_ready_cbs_.size());
-  frame_ready_cbs_.clear();
-
-  // Hidden should stop passing frames to GpuMemoryBufferVideoFramePool.
-  player_->OnFrameClosed();
-  provider->QueueFrames(timestamps, false);
-  message_loop_controller_.RunAndWaitForStatus(
-      media::PipelineStatus::PIPELINE_OK);
-  ASSERT_EQ(0u, frame_ready_cbs_.size());
-
-  // Shown should resume passing frames to GpuMemoryBufferVideoFramePool.
-  player_->OnFrameShown();
-  provider->QueueFrames(timestamps, false);
-  message_loop_controller_.RunAndWaitForStatus(
-      media::PipelineStatus::PIPELINE_OK);
-  ASSERT_EQ(1u, frame_ready_cbs_.size());
-
-  testing::Mock::VerifyAndClearExpectations(this);
-
-  EXPECT_CALL(*this, DoSetCcLayer(false));
-  EXPECT_CALL(*this, DoStopRendering());
-}
-#endif  // !defined(OS_ANDROID)
-
 #if defined(OS_ANDROID)
-TEST_F(WebMediaPlayerMSTest, HiddenPlayerTests) {
+TEST_P(WebMediaPlayerMSTest, HiddenPlayerTests) {
+  InitializeWebMediaPlayerMS();
   LoadAndGetFrameProvider(true);
 
   // Hidden status should not affect playback.
@@ -1251,4 +1402,68 @@ TEST_F(WebMediaPlayerMSTest, HiddenPlayerTests) {
 }
 #endif
 
+// Tests delegate methods are called when Picture-in-Picture is triggered.
+TEST_P(WebMediaPlayerMSTest, PictureInPictureTriggerCallback) {
+  InitializeWebMediaPlayerMS();
+
+  // It works only a surface layer is used instead of a video layer.
+  if (!enable_surface_layer_for_video_) {
+    EXPECT_CALL(*this, DoSetCcLayer(false));
+    return;
+  }
+
+  MockMediaStreamVideoRenderer* provider = LoadAndGetFrameProvider(true);
+
+  int tokens[] = {0,   33,  66,  100, 133, 166, 200, 233, 266, 300,
+                  333, 366, 400, 433, 466, 500, 533, 566, 600};
+  std::vector<int> timestamps(tokens, tokens + sizeof(tokens) / sizeof(int));
+  provider->QueueFrames(timestamps);
+
+  EXPECT_CALL(*submitter_ptr_, StartRendering());
+  EXPECT_CALL(*this, DisplayType()).Times(2);
+  EXPECT_CALL(*this, DoReadyStateChanged(
+                         blink::WebMediaPlayer::kReadyStateHaveMetadata));
+  EXPECT_CALL(*this, DoReadyStateChanged(
+                         blink::WebMediaPlayer::kReadyStateHaveEnoughData));
+  EXPECT_CALL(*this,
+              CheckSizeChanged(gfx::Size(kStandardWidth, kStandardHeight)));
+  message_loop_controller_.RunAndWaitForStatus(
+      media::PipelineStatus::PIPELINE_OK);
+  testing::Mock::VerifyAndClearExpectations(this);
+
+  EXPECT_CALL(*this, DisplayType())
+      .WillRepeatedly(
+          Return(blink::WebMediaPlayer::DisplayType::kPictureInPicture));
+
+  const gfx::Size natural_size = player_->NaturalSize();
+  EXPECT_CALL(delegate_, DidPictureInPictureSurfaceChange(
+                             delegate_.delegate_id(),
+                             surface_layer_bridge_ptr_->GetSurfaceId(),
+                             natural_size, false))
+      .Times(2);
+
+  player_->OnSurfaceIdUpdated(surface_layer_bridge_ptr_->GetSurfaceId());
+
+  EXPECT_CALL(delegate_, DidPictureInPictureModeStart(
+                             delegate_.delegate_id(),
+                             surface_layer_bridge_ptr_->GetSurfaceId(),
+                             natural_size, _, false));
+
+  player_->EnterPictureInPicture(base::DoNothing());
+  player_->OnSurfaceIdUpdated(surface_layer_bridge_ptr_->GetSurfaceId());
+
+  // Updating SurfaceId should NOT exit Picture-in-Picture.
+  EXPECT_CALL(delegate_, DidPictureInPictureModeEnd(delegate_.delegate_id(), _))
+      .Times(0);
+
+  testing::Mock::VerifyAndClearExpectations(this);
+  EXPECT_CALL(*this, DoSetCcLayer(false));
+  EXPECT_CALL(*submitter_ptr_, StopUsingProvider());
+}
+
+INSTANTIATE_TEST_CASE_P(,
+                        WebMediaPlayerMSTest,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool(),
+                                           ::testing::Bool()));
 }  // namespace content

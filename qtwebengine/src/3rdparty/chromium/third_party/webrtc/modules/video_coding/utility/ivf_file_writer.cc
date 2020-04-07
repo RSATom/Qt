@@ -10,9 +10,9 @@
 
 #include "modules/video_coding/utility/ivf_file_writer.h"
 
-#include <string>
 #include <utility>
 
+#include "api/video_codecs/video_codec.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -25,7 +25,7 @@ namespace webrtc {
 const size_t kIvfHeaderSize = 32;
 
 IvfFileWriter::IvfFileWriter(rtc::File file, size_t byte_limit)
-    : codec_type_(kVideoCodecUnknown),
+    : codec_type_(kVideoCodecGeneric),
       bytes_written_(0),
       byte_limit_(byte_limit),
       num_frames_(0),
@@ -115,7 +115,7 @@ bool IvfFileWriter::InitFromFirstFrame(const EncodedImage& encoded_image,
   height_ = encoded_image._encodedHeight;
   RTC_CHECK_GT(width_, 0);
   RTC_CHECK_GT(height_, 0);
-  using_capture_timestamps_ = encoded_image._timeStamp == 0;
+  using_capture_timestamps_ = encoded_image.Timestamp() == 0;
 
   codec_type_ = codec_type;
 
@@ -151,7 +151,7 @@ bool IvfFileWriter::WriteFrame(const EncodedImage& encoded_image,
 
   int64_t timestamp = using_capture_timestamps_
                           ? encoded_image.capture_time_ms_
-                          : wrap_handler_.Unwrap(encoded_image._timeStamp);
+                          : wrap_handler_.Unwrap(encoded_image.Timestamp());
   if (last_timestamp_ != -1 && timestamp <= last_timestamp_) {
     RTC_LOG(LS_WARNING) << "Timestamp no increasing: " << last_timestamp_
                         << " -> " << timestamp;
@@ -160,7 +160,7 @@ bool IvfFileWriter::WriteFrame(const EncodedImage& encoded_image,
 
   const size_t kFrameHeaderSize = 12;
   if (byte_limit_ != 0 &&
-      bytes_written_ + kFrameHeaderSize + encoded_image._length > byte_limit_) {
+      bytes_written_ + kFrameHeaderSize + encoded_image.size() > byte_limit_) {
     RTC_LOG(LS_WARNING) << "Closing IVF file due to reaching size limit: "
                         << byte_limit_ << " bytes.";
     Close();
@@ -168,16 +168,16 @@ bool IvfFileWriter::WriteFrame(const EncodedImage& encoded_image,
   }
   uint8_t frame_header[kFrameHeaderSize] = {};
   ByteWriter<uint32_t>::WriteLittleEndian(
-      &frame_header[0], static_cast<uint32_t>(encoded_image._length));
+      &frame_header[0], static_cast<uint32_t>(encoded_image.size()));
   ByteWriter<uint64_t>::WriteLittleEndian(&frame_header[4], timestamp);
   if (file_.Write(frame_header, kFrameHeaderSize) < kFrameHeaderSize ||
-      file_.Write(encoded_image._buffer, encoded_image._length) <
-          encoded_image._length) {
+      file_.Write(encoded_image.data(), encoded_image.size()) <
+          encoded_image.size()) {
     RTC_LOG(LS_ERROR) << "Unable to write frame to file.";
     return false;
   }
 
-  bytes_written_ += kFrameHeaderSize + encoded_image._length;
+  bytes_written_ += kFrameHeaderSize + encoded_image.size();
 
   ++num_frames_;
   return true;

@@ -100,6 +100,8 @@ class PLATFORM_EXPORT FontDescription {
 
   struct VariantLigatures {
     STACK_ALLOCATED();
+
+   public:
     VariantLigatures(LigaturesState state = kNormalLigaturesState)
         : common(state),
           discretionary(state),
@@ -116,6 +118,8 @@ class PLATFORM_EXPORT FontDescription {
 
   struct Size {
     STACK_ALLOCATED();
+
+   public:
     Size(unsigned keyword, float value, bool is_absolute)
         : keyword(keyword), is_absolute(is_absolute), value(value) {}
 
@@ -128,6 +132,8 @@ class PLATFORM_EXPORT FontDescription {
 
   struct FamilyDescription {
     STACK_ALLOCATED();
+
+   public:
     FamilyDescription(GenericFamilyType generic_family)
         : generic_family(generic_family) {}
     FamilyDescription(GenericFamilyType generic_family,
@@ -173,7 +179,7 @@ class PLATFORM_EXPORT FontDescription {
   // family is "monospace"
   bool IsMonospace() const {
     return GenericFamily() == kMonospaceFamily && !Family().Next() &&
-           Family().Family() == FontFamilyNames::webkit_monospace;
+           Family().Family() == font_family_names::kWebkitMonospace;
   }
   Kerning GetKerning() const { return static_cast<Kerning>(fields_.kerning_); }
   FontVariantEastAsian VariantEastAsian() const {
@@ -246,6 +252,7 @@ class PLATFORM_EXPORT FontDescription {
       const;  // Returns either the computedSize or the computedPixelSize
   FontCacheKey CacheKey(
       const FontFaceCreationParams&,
+      bool is_unique_match,
       const FontSelectionRequest& = FontSelectionRequest()) const;
 
   void SetFamily(const FontFamily& family) { family_list_ = family; }

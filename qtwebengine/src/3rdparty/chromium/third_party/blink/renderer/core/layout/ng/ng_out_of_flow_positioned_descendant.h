@@ -25,14 +25,14 @@ namespace blink {
 struct CORE_EXPORT NGOutOfFlowPositionedDescendant {
   NGBlockNode node;
   NGStaticPosition static_position;
-  LayoutObject* inline_container;
+  const LayoutObject* inline_container;
   NGOutOfFlowPositionedDescendant(
-      NGBlockNode node_param,
-      NGStaticPosition static_position_param,
-      LayoutObject* inline_container_param = nullptr)
-      : node(node_param),
-        static_position(static_position_param),
-        inline_container(inline_container_param) {}
+      NGBlockNode node,
+      NGStaticPosition static_position,
+      const LayoutObject* inline_container = nullptr)
+      : node(node),
+        static_position(static_position),
+        inline_container(inline_container) {}
 };
 
 }  // namespace blink

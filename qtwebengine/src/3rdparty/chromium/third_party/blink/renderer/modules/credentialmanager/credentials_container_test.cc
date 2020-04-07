@@ -17,6 +17,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/testing/gc_object_liveness_observer.h"
 #include "third_party/blink/renderer/modules/credentialmanager/credential_manager_proxy.h"
 #include "third_party/blink/renderer/modules/credentialmanager/credential_request_options.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -121,20 +122,22 @@ class CredentialManagerTestingContext {
 // document is destored while a call is pending, it can still be freed up.
 TEST(CredentialsContainerTest, PendingGetRequest_NoGCCycles) {
   MockCredentialManager mock_credential_manager;
-  WeakPersistent<Document> weak_document;
+  GCObjectLivenessObserver<Document> document_observer;
 
   {
     CredentialManagerTestingContext context(&mock_credential_manager);
-    weak_document = context.GetDocument();
+    document_observer.Observe(context.GetDocument());
     CredentialsContainer::Create()->get(context.GetScriptState(),
-                                        CredentialRequestOptions());
+                                        CredentialRequestOptions::Create());
     mock_credential_manager.WaitForCallToGet();
   }
 
-  V8GCController::CollectAllGarbageForTesting(v8::Isolate::GetCurrent());
+  V8GCController::CollectAllGarbageForTesting(
+      v8::Isolate::GetCurrent(),
+      v8::EmbedderHeapTracer::EmbedderStackState::kEmpty);
   ThreadState::Current()->CollectAllGarbage();
 
-  ASSERT_EQ(nullptr, weak_document.Get());
+  ASSERT_TRUE(document_observer.WasCollected());
 
   mock_credential_manager.InvokeGetCallback();
   mock_credential_manager.WaitForConnectionError();
@@ -147,9 +150,9 @@ TEST(CredentialsContainerTest,
   MockCredentialManager mock_credential_manager;
   CredentialManagerTestingContext context(&mock_credential_manager);
 
-  auto* proxy = CredentialManagerProxy::From(context.GetDocument());
+  auto* proxy = CredentialManagerProxy::From(*context.GetDocument());
   auto promise = CredentialsContainer::Create()->get(
-      context.GetScriptState(), CredentialRequestOptions());
+      context.GetScriptState(), CredentialRequestOptions::Create());
   mock_credential_manager.WaitForCallToGet();
 
   context.GetDocument()->Shutdown();

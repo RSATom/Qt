@@ -84,10 +84,10 @@ SkBitmap NotificationImageLoader::ScaleDownIfNeeded(const SkBitmap& image,
                  static_cast<double>(max_height_px) / image.height());
     TimeTicks start_time = CurrentTimeTicks();
     // TODO(peter): Try using RESIZE_BETTER for large images.
-    SkBitmap scaled_image =
-        skia::ImageOperations::Resize(image, skia::ImageOperations::RESIZE_BEST,
-                                      std::lround(scale * image.width()),
-                                      std::lround(scale * image.height()));
+    SkBitmap scaled_image = skia::ImageOperations::Resize(
+        image, skia::ImageOperations::RESIZE_BEST,
+        static_cast<int>(std::lround(scale * image.width())),
+        static_cast<int>(std::lround(scale * image.height())));
     NOTIFICATION_HISTOGRAM_COUNTS(
         LoadScaleDownTime, type,
         base::saturated_cast<base::HistogramBase::Sample>(
@@ -106,9 +106,6 @@ void NotificationImageLoader::Start(ExecutionContext* context,
   start_time_ = CurrentTimeTicks();
   image_callback_ = std::move(image_callback);
 
-  ThreadableLoaderOptions threadable_loader_options;
-  threadable_loader_options.timeout_milliseconds = kImageFetchTimeoutInMs;
-
   // TODO(mvanouwerkerk): Add an entry for notifications to
   // FetchInitiatorTypeNames and use it.
   ResourceLoaderOptions resource_loader_options;
@@ -116,12 +113,13 @@ void NotificationImageLoader::Start(ExecutionContext* context,
     resource_loader_options.request_initiator_context = kWorkerContext;
 
   ResourceRequest resource_request(url);
-  resource_request.SetRequestContext(WebURLRequest::kRequestContextImage);
+  resource_request.SetRequestContext(mojom::RequestContextType::IMAGE);
   resource_request.SetPriority(ResourceLoadPriority::kMedium);
-  resource_request.SetRequestorOrigin(context->GetSecurityOrigin());
 
-  threadable_loader_ = ThreadableLoader::Create(
-      *context, this, threadable_loader_options, resource_loader_options);
+  threadable_loader_ = MakeGarbageCollected<ThreadableLoader>(
+      *context, this, resource_loader_options);
+  threadable_loader_->SetTimeout(
+      TimeDelta::FromMilliseconds(kImageFetchTimeoutInMs));
   threadable_loader_->Start(resource_request);
 }
 
@@ -157,8 +155,10 @@ void NotificationImageLoader::DidFinishLoading(
       1000 * 60 * 60 /* 1 hour max */);
 
   if (data_) {
-    NOTIFICATION_HISTOGRAM_COUNTS(LoadFileSize, type_, data_->size(),
-                                  10000000 /* ~10mb max */);
+    NOTIFICATION_HISTOGRAM_COUNTS(
+        LoadFileSize, type_,
+        base::saturated_cast<base::HistogramBase::Sample>(data_->size()),
+        10000000 /* ~10mb max */);
 
     const bool data_complete = true;
     std::unique_ptr<ImageDecoder> decoder = ImageDecoder::Create(

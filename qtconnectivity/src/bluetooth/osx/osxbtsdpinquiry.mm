@@ -179,9 +179,9 @@ void extract_service_record(IOBluetoothSDPServiceRecord *record, QBluetoothServi
         serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, sequence);
 }
 
-QList<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device)
+QVector<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device)
 {
-    QList<QBluetoothUuid> uuids;
+    QVector<QBluetoothUuid> uuids;
 
     // All "temporary" obj-c objects are autoreleased.
     QT_BT_MAC_AUTORELEASEPOOL;
@@ -197,7 +197,7 @@ QList<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device)
 
         const QVector<QBluetoothUuid> idList(extract_service_class_ID_list(record));
         if (idList.size())
-            uuids.append(idList.toList());
+            uuids.append(idList);
     }
 
     return uuids;

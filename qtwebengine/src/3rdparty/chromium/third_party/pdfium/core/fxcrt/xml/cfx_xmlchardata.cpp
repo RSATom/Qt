@@ -7,7 +7,6 @@
 #include "core/fxcrt/xml/cfx_xmlchardata.h"
 
 #include "core/fxcrt/xml/cfx_xmldocument.h"
-#include "third_party/base/ptr_util.h"
 
 CFX_XMLCharData::CFX_XMLCharData(const WideString& wsCData)
     : CFX_XMLText(wsCData) {}
@@ -25,6 +24,6 @@ CFX_XMLNode* CFX_XMLCharData::Clone(CFX_XMLDocument* doc) {
 void CFX_XMLCharData::Save(
     const RetainPtr<IFX_SeekableWriteStream>& pXMLStream) {
   pXMLStream->WriteString("<![CDATA[");
-  pXMLStream->WriteString(GetText().UTF8Encode().AsStringView());
+  pXMLStream->WriteString(GetText().ToUTF8().AsStringView());
   pXMLStream->WriteString("]]>");
 }

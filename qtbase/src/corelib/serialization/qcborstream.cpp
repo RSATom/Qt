@@ -44,6 +44,7 @@
 #include <qbuffer.h>
 #include <qdebug.h>
 #include <qstack.h>
+#include <qdatastream.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -179,6 +180,21 @@ Q_CORE_EXPORT const char *qt_cbor_simpletype_id(QCborSimpleType st)
     }
     return nullptr;
 }
+
+#if !defined(QT_NO_DATASTREAM)
+QDataStream &operator<<(QDataStream &ds, QCborSimpleType st)
+{
+    return ds << quint8(st);
+}
+
+QDataStream &operator>>(QDataStream &ds, QCborSimpleType &st)
+{
+    quint8 v;
+    ds >> v;
+    st = QCborSimpleType(v);
+    return ds;
+}
+#endif
 
 #if !defined(QT_NO_DEBUG_STREAM)
 QDebug operator<<(QDebug dbg, QCborSimpleType st)
@@ -1956,7 +1972,15 @@ inline void QCborStreamReader::preparse()
     if (lastError() == QCborError::NoError) {
         type_ = cbor_value_get_type(&d->currentElement);
 
-        if (type_ != CborInvalidType) {
+        if (type_ == CborInvalidType) {
+            // We may have reached the end.
+            if (d->device && d->containerStack.isEmpty()) {
+                d->buffer.clear();
+                if (d->bufferStart)
+                    d->device->skip(d->bufferStart);
+                d->bufferStart = 0;
+            }
+        } else {
             d->lastError = {};
             // Undo the type mapping that TinyCBOR does (we have an explicit type
             // for negative integer and we don't have separate types for Boolean,

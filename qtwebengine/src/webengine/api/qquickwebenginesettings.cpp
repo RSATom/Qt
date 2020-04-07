@@ -250,7 +250,7 @@ bool QQuickWebEngineSettings::pluginsEnabled() const
 
     Tells the web engine whether fullscreen is supported in this application or not.
 
-    Enabled by default.
+    Disabled by default.
 */
 bool QQuickWebEngineSettings::fullScreenSupportEnabled() const
 {
@@ -454,6 +454,20 @@ bool QQuickWebEngineSettings::javascriptCanPaste() const
 bool QQuickWebEngineSettings::dnsPrefetchEnabled() const
 {
     return d_ptr->testAttribute(WebEngineSettings::DnsPrefetchEnabled);
+}
+
+/*!
+    \qmlproperty bool WebEngineSettings::pdfViewerEnabled
+    \since QtWebEngine 1.9
+
+    Specifies that PDF documents will be opened in the internal PDF viewer
+    instead of being downloaded.
+
+    Enabled by default.
+*/
+bool QQuickWebEngineSettings::pdfViewerEnabled() const
+{
+    return d_ptr->testAttribute(WebEngineSettings::PdfViewerEnabled);
 }
 
 /*!
@@ -712,6 +726,14 @@ void QQuickWebEngineSettings::setDnsPrefetchEnabled(bool on)
     d_ptr->setAttribute(WebEngineSettings::DnsPrefetchEnabled, on);
     if (wasOn != on)
         Q_EMIT dnsPrefetchEnabledChanged();
+}
+
+void QQuickWebEngineSettings::setPdfViewerEnabled(bool on)
+{
+    bool wasOn = d_ptr->testAttribute(WebEngineSettings::PdfViewerEnabled);
+    d_ptr->setAttribute(WebEngineSettings::PdfViewerEnabled, on);
+    if (wasOn != on)
+        Q_EMIT pdfViewerEnabledChanged();
 }
 
 void QQuickWebEngineSettings::setUnknownUrlSchemePolicy(QQuickWebEngineSettings::UnknownUrlSchemePolicy policy)

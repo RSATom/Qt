@@ -43,22 +43,19 @@ public:
         kDrawImageLattice_OpType,
         kDrawImageNine_OpType,
         kDrawImageRect_OpType,
+        kDrawImageSet_OpType,
         kDrawOval_OpType,
         kDrawArc_OpType,
         kDrawPaint_OpType,
         kDrawPatch_OpType,
         kDrawPath_OpType,
         kDrawPoints_OpType,
-        kDrawPosText_OpType,
-        kDrawPosTextH_OpType,
         kDrawRect_OpType,
+        kDrawEdgeAARect_OpType,
         kDrawRRect_OpType,
         kDrawRegion_OpType,
         kDrawShadow_OpType,
-        kDrawText_OpType,
         kDrawTextBlob_OpType,
-        kDrawTextOnPath_OpType,
-        kDrawTextRSXform_OpType,
         kDrawVertices_OpType,
         kDrawAtlas_OpType,
         kDrawDrawable_OpType,
@@ -73,8 +70,7 @@ public:
 
     static const int kOpTypeCount = kLast_OpType + 1;
 
-    static void WritePNG(const uint8_t* rgba, unsigned width, unsigned height,
-                         SkWStream& out, bool isOpaque);
+    static void WritePNG(SkBitmap bitmap, SkWStream& out);
 
     SkDrawCommand(OpType opType);
 
@@ -365,6 +361,20 @@ private:
     typedef SkDrawCommand INHERITED;
 };
 
+class SkDrawImageSetCommand : public SkDrawCommand {
+public:
+    SkDrawImageSetCommand(const SkCanvas::ImageSetEntry[], int count, SkFilterQuality, SkBlendMode);
+    void execute(SkCanvas* canvas) const override;
+
+private:
+    SkAutoTArray<SkCanvas::ImageSetEntry> fSet;
+    int fCount;
+    SkFilterQuality fFilterQuality;
+    SkBlendMode fMode;
+
+    typedef SkDrawCommand INHERITED;
+};
+
 class SkDrawOvalCommand : public SkDrawCommand {
 public:
     SkDrawOvalCommand(const SkRect& oval, const SkPaint& paint);
@@ -483,85 +493,6 @@ private:
     typedef SkDrawCommand INHERITED;
 };
 
-class SkDrawTextCommand : public SkDrawCommand {
-public:
-    SkDrawTextCommand(const void* text, size_t byteLength, SkScalar x, SkScalar y,
-                      const SkPaint& paint);
-    void execute(SkCanvas* canvas) const override;
-    Json::Value toJSON(UrlDataManager& urlDataManager) const override;
-
-private:
-    sk_sp<SkData> fText;
-    SkScalar      fX;
-    SkScalar      fY;
-    SkPaint       fPaint;
-
-    typedef SkDrawCommand INHERITED;
-};
-
-class SkDrawPosTextCommand : public SkDrawCommand {
-public:
-    SkDrawPosTextCommand(const void* text, size_t byteLength, const SkPoint pos[],
-                         const SkPaint& paint);
-    void execute(SkCanvas* canvas) const override;
-    Json::Value toJSON(UrlDataManager& urlDataManager) const override;
-
-private:
-    sk_sp<SkData>      fText;
-    SkTDArray<SkPoint> fPos;
-    SkPaint            fPaint;
-
-    typedef SkDrawCommand INHERITED;
-};
-
-class SkDrawTextOnPathCommand : public SkDrawCommand {
-public:
-    SkDrawTextOnPathCommand(const void* text, size_t byteLength, const SkPath& path,
-                            const SkMatrix* matrix, const SkPaint& paint);
-    void execute(SkCanvas* canvas) const override;
-    Json::Value toJSON(UrlDataManager& urlDataManager) const override;
-
-private:
-    sk_sp<SkData>     fText;
-    SkPath            fPath;
-    SkTLazy<SkMatrix> fMatrix;
-    SkPaint           fPaint;
-
-    typedef SkDrawCommand INHERITED;
-};
-
-class SkDrawTextRSXformCommand : public SkDrawCommand {
-public:
-    SkDrawTextRSXformCommand(const void* text, size_t byteLength, const SkRSXform[],
-                             const SkRect*, const SkPaint& paint);
-    void execute(SkCanvas* canvas) const override;
-    Json::Value toJSON(UrlDataManager& urlDataManager) const override;
-
-private:
-    sk_sp<SkData>        fText;
-    SkTDArray<SkRSXform> fXform;
-    SkTLazy<SkRect>      fCull;
-    SkPaint              fPaint;
-
-    typedef SkDrawCommand INHERITED;
-};
-
-class SkDrawPosTextHCommand : public SkDrawCommand {
-public:
-    SkDrawPosTextHCommand(const void* text, size_t byteLength, const SkScalar xpos[],
-                          SkScalar constY, const SkPaint& paint);
-    void execute(SkCanvas* canvas) const override;
-    Json::Value toJSON(UrlDataManager& urlDataManager) const override;
-
-private:
-    sk_sp<SkData>       fText;
-    SkTDArray<SkScalar> fXpos;
-    SkScalar            fConstY;
-    SkPaint             fPaint;
-
-    typedef SkDrawCommand INHERITED;
-};
-
 class SkDrawTextBlobCommand : public SkDrawCommand {
 public:
     SkDrawTextBlobCommand(sk_sp<SkTextBlob> blob, SkScalar x, SkScalar y, const SkPaint& paint);
@@ -609,6 +540,21 @@ public:
 private:
     SkRect  fRect;
     SkPaint fPaint;
+
+    typedef SkDrawCommand INHERITED;
+};
+
+class SkDrawEdgeAARectCommand : public SkDrawCommand {
+public:
+    SkDrawEdgeAARectCommand(const SkRect& rect, SkCanvas::QuadAAFlags aa, SkColor color,
+                            SkBlendMode mode);
+    void execute(SkCanvas* canvas) const override;
+
+private:
+    SkRect  fRect;
+    SkCanvas::QuadAAFlags fAA;
+    SkColor fColor;
+    SkBlendMode fMode;
 
     typedef SkDrawCommand INHERITED;
 };

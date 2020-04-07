@@ -6,15 +6,17 @@
  * found in the LICENSE file.
  */
 
+#include "VulkanWindowContext.h"
+
 #include "GrBackendSurface.h"
 #include "GrContext.h"
 #include "SkAutoMalloc.h"
 #include "SkSurface.h"
-#include "VulkanWindowContext.h"
 
+#include "vk/GrVkExtensions.h"
 #include "vk/GrVkImage.h"
-#include "vk/GrVkUtil.h"
 #include "vk/GrVkTypes.h"
+#include "vk/GrVkUtil.h"
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 // windows wants to define this as CreateSemaphoreA or CreateSemaphoreW
@@ -49,15 +51,27 @@ VulkanWindowContext::VulkanWindowContext(const DisplayParams& params,
 void VulkanWindowContext::initializeContext() {
     // any config code here (particularly for msaa)?
 
+    PFN_vkGetInstanceProcAddr getInstanceProc = fGetInstanceProcAddr;
+    PFN_vkGetDeviceProcAddr getDeviceProc = fGetDeviceProcAddr;
+    auto getProc = [getInstanceProc, getDeviceProc](const char* proc_name,
+                                                    VkInstance instance, VkDevice device) {
+        if (device != VK_NULL_HANDLE) {
+            return getDeviceProc(device, proc_name);
+        }
+        return getInstanceProc(instance, proc_name);
+    };
     GrVkBackendContext backendContext;
-    if (!sk_gpu_test::CreateVkBackendContext(fGetInstanceProcAddr, fGetDeviceProcAddr,
-                                             &backendContext, &fDebugCallback,
-                                             &fPresentQueueIndex, fCanPresentFn)) {
+    GrVkExtensions extensions;
+    VkPhysicalDeviceFeatures2 features;
+    if (!sk_gpu_test::CreateVkBackendContext(getProc, &backendContext, &extensions, &features,
+                                             &fDebugCallback, &fPresentQueueIndex, fCanPresentFn)) {
+        sk_gpu_test::FreeVulkanFeaturesStructs(&features);
         return;
     }
 
-    if (!(backendContext.fExtensions & kKHR_surface_GrVkExtensionFlag) ||
-        !(backendContext.fExtensions & kKHR_swapchain_GrVkExtensionFlag)) {
+    if (!extensions.hasExtension(VK_KHR_SURFACE_EXTENSION_NAME, 25) ||
+        !extensions.hasExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME, 68)) {
+        sk_gpu_test::FreeVulkanFeaturesStructs(&features);
         return;
     }
 
@@ -66,10 +80,28 @@ void VulkanWindowContext::initializeContext() {
     fDevice = backendContext.fDevice;
     fGraphicsQueueIndex = backendContext.fGraphicsQueueIndex;
     fGraphicsQueue = backendContext.fQueue;
+
+    PFN_vkGetPhysicalDeviceProperties localGetPhysicalDeviceProperties =
+            reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+                    backendContext.fGetProc("vkGetPhysicalDeviceProperties",
+                                            backendContext.fInstance,
+                                            VK_NULL_HANDLE));
+    if (!localGetPhysicalDeviceProperties) {
+        sk_gpu_test::FreeVulkanFeaturesStructs(&features);
+        return;
+    }
+    VkPhysicalDeviceProperties physDeviceProperties;
+    localGetPhysicalDeviceProperties(backendContext.fPhysicalDevice, &physDeviceProperties);
+    uint32_t physDevVersion = physDeviceProperties.apiVersion;
+
     fInterface.reset(new GrVkInterface(backendContext.fGetProc, fInstance, fDevice,
-                                       backendContext.fExtensions));
+                                       backendContext.fInstanceVersion, physDevVersion,
+                                       &extensions));
 
     GET_PROC(DestroyInstance);
+    if (fDebugCallback != VK_NULL_HANDLE) {
+        GET_PROC(DestroyDebugReportCallbackEXT);
+    }
     GET_PROC(DestroySurfaceKHR);
     GET_PROC(GetPhysicalDeviceSurfaceSupportKHR);
     GET_PROC(GetPhysicalDeviceSurfaceCapabilitiesKHR);
@@ -90,6 +122,7 @@ void VulkanWindowContext::initializeContext() {
     fSurface = fCreateVkSurfaceFn(fInstance);
     if (VK_NULL_HANDLE == fSurface) {
         this->destroyContext();
+        sk_gpu_test::FreeVulkanFeaturesStructs(&features);
         return;
     }
 
@@ -98,16 +131,19 @@ void VulkanWindowContext::initializeContext() {
                                                        fSurface, &supported);
     if (VK_SUCCESS != res) {
         this->destroyContext();
+        sk_gpu_test::FreeVulkanFeaturesStructs(&features);
         return;
     }
 
     if (!this->createSwapchain(-1, -1, fDisplayParams)) {
         this->destroyContext();
+        sk_gpu_test::FreeVulkanFeaturesStructs(&features);
         return;
     }
 
     // create presentQueue
     fGetDeviceQueue(fDevice, fPresentQueueIndex, 0, &fPresentQueue);
+    sk_gpu_test::FreeVulkanFeaturesStructs(&features);
 }
 
 bool VulkanWindowContext::createSwapchain(int width, int height,
@@ -443,8 +479,7 @@ void VulkanWindowContext::destroyContext() {
 
 #ifdef SK_ENABLE_VK_LAYERS
     if (fDebugCallback != VK_NULL_HANDLE) {
-        GR_VK_CALL(fInterface, DestroyDebugReportCallbackEXT(fInstance, fDebugCallback,
-                                                             nullptr));
+        fDestroyDebugReportCallbackEXT(fInstance, fDebugCallback, nullptr);
     }
 #endif
 
@@ -511,13 +546,11 @@ sk_sp<SkSurface> VulkanWindowContext::getBackbufferSurface() {
     // set up layout transfer from initial to color attachment
     VkImageLayout layout = fImageLayouts[backbuffer->fImageIndex];
     SkASSERT(VK_IMAGE_LAYOUT_UNDEFINED == layout || VK_IMAGE_LAYOUT_PRESENT_SRC_KHR == layout);
-    VkPipelineStageFlags srcStageMask = (VK_IMAGE_LAYOUT_UNDEFINED == layout) ?
-                                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT :
-                                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkAccessFlags srcAccessMask = (VK_IMAGE_LAYOUT_UNDEFINED == layout) ?
-                                  0 : VK_ACCESS_MEMORY_READ_BIT;
-    VkAccessFlags dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    VkAccessFlags srcAccessMask = 0;
+    VkAccessFlags dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     VkImageMemoryBarrier imageMemoryBarrier = {
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,   // sType
@@ -588,10 +621,10 @@ void VulkanWindowContext::swapBuffers() {
     SkASSERT(imageInfo.fImage == fImages[backbuffer->fImageIndex]);
 
     VkImageLayout layout = imageInfo.fImageLayout;
-    VkPipelineStageFlags srcStageMask = GrVkImage::LayoutToPipelineStageFlags(layout);
+    VkPipelineStageFlags srcStageMask = GrVkImage::LayoutToPipelineSrcStageFlags(layout);
     VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     VkAccessFlags srcAccessMask = GrVkImage::LayoutToSrcAccessMask(layout);
-    VkAccessFlags dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    VkAccessFlags dstAccessMask = 0;
 
     VkImageMemoryBarrier imageMemoryBarrier = {
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,   // sType

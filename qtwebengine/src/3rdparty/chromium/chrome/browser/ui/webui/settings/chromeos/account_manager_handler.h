@@ -10,9 +10,12 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observer.h"
+#include "chrome/browser/chromeos/account_mapper_util.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 #include "chromeos/account_manager/account_manager.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
 namespace chromeos {
 namespace settings {
@@ -24,7 +27,8 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
   // Accepts non-owning pointers to |AccountManager| and
   // |AccountTrackerService|. Both of these must outlive |this| instance.
   AccountManagerUIHandler(AccountManager* account_manager,
-                          AccountTrackerService* account_tracker_service);
+                          AccountTrackerService* account_tracker_service,
+                          identity::IdentityManager* identity_manager);
   ~AccountManagerUIHandler() override;
 
   // WebUIMessageHandler implementation.
@@ -40,8 +44,7 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
 
   // |AccountTrackerService::Observer| overrides.
   void OnAccountUpdated(const AccountInfo& info) override;
-  void OnAccountImageUpdated(const std::string& account_id,
-                             const gfx::Image& image) override;
+  void OnAccountUpdateFailed(const std::string& account_id) override;
   void OnAccountRemoved(const AccountInfo& account_key) override;
 
  private:
@@ -50,6 +53,15 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
 
   // WebUI "addAccount" message callback.
   void HandleAddAccount(const base::ListValue* args);
+
+  // WebUI "reauthenticateAccount" message callback.
+  void HandleReauthenticateAccount(const base::ListValue* args);
+
+  // WebUI "removeAccount" message callback.
+  void HandleRemoveAccount(const base::ListValue* args);
+
+  // WebUI "showWelcomeDialogIfRequired" message callback.
+  void HandleShowWelcomeDialogIfRequired(const base::ListValue* args);
 
   // |AccountManager::GetAccounts| callback.
   void GetAccountsCallbackHandler(
@@ -64,6 +76,21 @@ class AccountManagerUIHandler : public ::settings::SettingsPageUIHandler,
 
   // A non-owning pointer to |AccountTrackerService|.
   AccountTrackerService* const account_tracker_service_;
+
+  // A non-owning pointer to |IdentityManager|.
+  identity::IdentityManager* const identity_manager_;
+
+  chromeos::AccountMapperUtil account_mapper_util_;
+
+  // An observer for |AccountManager|. Automatically deregisters when |this| is
+  // destructed.
+  ScopedObserver<AccountManager, AccountManager::Observer>
+      account_manager_observer_;
+
+  // An observer for |AccountTrackerService|. Automatically deregisters when
+  // |this| is destructed.
+  ScopedObserver<AccountTrackerService, AccountTrackerService::Observer>
+      account_tracker_service_observer_;
 
   base::WeakPtrFactory<AccountManagerUIHandler> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(AccountManagerUIHandler);

@@ -14,12 +14,15 @@
 
 namespace content {
 class NavigationHandle;
+class RenderFrameHost;
 class WebContents;
 }  // namespace content
 
 namespace subresource_filter {
 
-struct ActivationState;
+namespace mojom {
+class ActivationState;
+}  // namespace mojom
 
 // Manages retaining the list of SubresourceFilterObservers and notifying them
 // of various filtering events. Scoped to the lifetime of a WebContents.
@@ -45,7 +48,7 @@ class SubresourceFilterObserverManager
   // throttles created in MaybeAppendNavigationThrottles().
   void NotifyPageActivationComputed(
       content::NavigationHandle* navigation_handle,
-      const ActivationState& activation_state);
+      const mojom::ActivationState& activation_state);
 
   // Called in WillStartRequest or WillRedirectRequest stage from a
   // SubframeNavigationFilteringThrottle.
@@ -54,8 +57,15 @@ class SubresourceFilterObserverManager
       LoadPolicy load_policy,
       bool is_ad_subframe);
 
+  // Called in TODO to notify observers that an ad frame has been detected
+  // with the associated RenderFrameHost.
+  void NotifyAdSubframeDetected(content::RenderFrameHost* render_frame_host);
+
  private:
-  base::ObserverList<SubresourceFilterObserver> observers_;
+  friend class content::WebContentsUserData<SubresourceFilterObserverManager>;
+  base::ObserverList<SubresourceFilterObserver>::Unchecked observers_;
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
+
   DISALLOW_COPY_AND_ASSIGN(SubresourceFilterObserverManager);
 };
 

@@ -151,7 +151,7 @@ class TracingRenderWidgetHostFactory : public RenderWidgetHostFactory {
 
 class MouseLatencyBrowserTest : public ContentBrowserTest {
  public:
-  MouseLatencyBrowserTest() : loop_(base::MessageLoop::TYPE_UI) {}
+  MouseLatencyBrowserTest() {}
   ~MouseLatencyBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
@@ -306,7 +306,6 @@ class MouseLatencyBrowserTest : public ContentBrowserTest {
   }
 
  private:
-  base::MessageLoop loop_;
   std::unique_ptr<base::RunLoop> runner_;
   base::Value trace_data_;
   TracingRenderWidgetHostFactory widget_factory_;
@@ -388,8 +387,16 @@ IN_PROC_BROWSER_TEST_F(MouseLatencyBrowserTest,
   AssertTraceIdsBeginAndEnd(trace_data, "InputLatency::MouseMove");
 }
 
+// TODO(crbug.com/923627): This test is flaky on Windows and Android.
+#if defined(OS_WIN) || defined(OS_ANDROID)
+#define MAYBE_CoalescedMouseWheelsCorrectlyTerminated \
+  DISABLED_CoalescedMouseWheelsCorrectlyTerminated
+#else
+#define MAYBE_CoalescedMouseWheelsCorrectlyTerminated \
+  CoalescedMouseWheelsCorrectlyTerminated
+#endif
 IN_PROC_BROWSER_TEST_F(MouseLatencyBrowserTest,
-                       CoalescedMouseWheelsCorrectlyTerminated) {
+                       MAYBE_CoalescedMouseWheelsCorrectlyTerminated) {
   LoadURL();
 
   StartTracing();

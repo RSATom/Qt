@@ -4,22 +4,23 @@
 
 #include "xfa/fgas/layout/cfx_txtbreak.h"
 
+#include <memory>
 #include <utility>
 
-#include "core/fxcrt/fx_bidi.h"
 #include "core/fxge/cfx_font.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fgas/font/cfgas_fontmgr.h"
 #include "xfa/fgas/font/cfgas_gefont.h"
+#include "xfa/fgas/layout/cfx_char.h"
 
 class CFX_TxtBreakTest : public testing::Test {
  public:
   void SetUp() override {
     font_ =
         CFGAS_GEFont::LoadFont(L"Arial Black", 0, 0, GetGlobalFontManager());
-    ASSERT(font_.Get());
+    ASSERT_TRUE(font_.Get());
   }
 
   std::unique_ptr<CFX_TxtBreak> CreateBreak() {
@@ -42,6 +43,6 @@ TEST_F(CFX_TxtBreakTest, BidiLine) {
     txt_break->AppendChar(ch);
 
   auto chars = txt_break->GetCurrentLineForTesting()->m_LineChars;
-  FX_BidiLine(&chars, chars.size());
+  CFX_Char::BidiLine(&chars, chars.size());
   EXPECT_EQ(3u, chars.size());
 }

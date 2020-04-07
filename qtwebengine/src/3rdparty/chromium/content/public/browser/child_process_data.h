@@ -12,7 +12,7 @@
 namespace content {
 
 // Holds information about a child process.
-struct ChildProcessData {
+struct CONTENT_EXPORT ChildProcessData {
   // The type of the process. See the content::ProcessType enum for the
   // well-known process types.
   int process_type;
@@ -27,17 +27,24 @@ struct ChildProcessData {
   // The unique identifier for this child process. This identifier is NOT a
   // process ID, and will be unique for all types of child process for
   // one run of the browser.
-  int id;
+  int id = 0;
 
-  // The handle to the process. May have value kNullProcessHandle if no process
-  // exists - either because it hasn't been started yet or it's running in the
-  // current process.
-  base::ProcessHandle handle;
+  const base::Process& GetProcess() const { return process_; }
+  // Since base::Process is non-copyable, the caller has to provide a rvalue.
+  void SetProcess(base::Process process) { process_ = std::move(process); }
 
-  explicit ChildProcessData(int process_type)
-      : process_type(process_type),
-        id(0),
-        handle(base::kNullProcessHandle) {}
+  explicit ChildProcessData(int process_type);
+  ~ChildProcessData();
+
+  ChildProcessData(ChildProcessData&& rhs);
+
+  // Copying these objects requires duplicating the handle which is moderately
+  // expensive, so make it an explicit action.
+  ChildProcessData Duplicate() const;
+
+ private:
+  // May be invalid if the process isn't started or is the current process.
+  base::Process process_;
 };
 
 }  // namespace content

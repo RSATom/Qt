@@ -11,20 +11,39 @@
 #include <vector>
 
 #include "core/fxcrt/unowned_ptr.h"
-#include "fxjs/cfxjse_runtimedata.h"
 #include "fxjs/cjs_object.h"
+#include "fxjs/xfa/cfxjse_runtimedata.h"
+#include "third_party/base/ptr_util.h"
+#include "third_party/base/stl_util.h"
+#include "v8/include/v8-util.h"
 
 class CFXJS_PerObjectData;
 
-static unsigned int g_embedderDataSlot = 1u;
-static v8::Isolate* g_isolate = nullptr;
-static size_t g_isolate_ref_count = 0;
-static CFX_V8ArrayBufferAllocator* g_arrayBufferAllocator = nullptr;
-static v8::Global<v8::ObjectTemplate>* g_DefaultGlobalObjectTemplate = nullptr;
-static wchar_t kPerObjectDataTag[] = L"CFXJS_PerObjectData";
+namespace {
+
+unsigned int g_embedderDataSlot = 1u;
+v8::Isolate* g_isolate = nullptr;
+size_t g_isolate_ref_count = 0;
+CFX_V8ArrayBufferAllocator* g_arrayBufferAllocator = nullptr;
+v8::Global<v8::ObjectTemplate>* g_DefaultGlobalObjectTemplate = nullptr;
+const wchar_t kPerObjectDataTag[] = L"CFXJS_PerObjectData";
+
+void* GetAlignedPointerForPerObjectDataTag() {
+  return const_cast<void*>(static_cast<const void*>(kPerObjectDataTag));
+}
+
+std::pair<int, int> GetLineAndColumnFromError(v8::Local<v8::Message> message,
+                                              v8::Local<v8::Context> context) {
+  if (message.IsEmpty())
+    return std::make_pair(-1, -1);
+  return std::make_pair(message->GetLineNumber(context).FromMaybe(-1),
+                        message->GetStartColumn());
+}
+
+}  // namespace
 
 // Global weak map to save dynamic objects.
-class V8TemplateMapTraits
+class V8TemplateMapTraits final
     : public v8::StdMapTraits<CFXJS_PerObjectData*, v8::Object> {
  public:
   using WeakCallbackDataType = CFXJS_PerObjectData;
@@ -90,7 +109,7 @@ class CFXJS_PerObjectData {
                           v8::Local<v8::Object> pObj) {
     if (pObj->InternalFieldCount() == 2) {
       pObj->SetAlignedPointerInInternalField(
-          0, static_cast<void*>(kPerObjectDataTag));
+          0, GetAlignedPointerForPerObjectDataTag());
       pObj->SetAlignedPointerInInternalField(1, pData);
     }
   }
@@ -98,7 +117,7 @@ class CFXJS_PerObjectData {
   static CFXJS_PerObjectData* GetFromObject(v8::Local<v8::Object> pObj) {
     if (pObj.IsEmpty() || pObj->InternalFieldCount() != 2 ||
         pObj->GetAlignedPointerFromInternalField(0) !=
-            static_cast<void*>(kPerObjectDataTag)) {
+            GetAlignedPointerForPerObjectDataTag()) {
       return nullptr;
     }
     return static_cast<CFXJS_PerObjectData*>(
@@ -123,15 +142,9 @@ class CFXJS_ObjDefinition {
         m_pIsolate(isolate) {
     v8::Isolate::Scope isolate_scope(isolate);
     v8::HandleScope handle_scope(isolate);
-
     v8::Local<v8::FunctionTemplate> fun = v8::FunctionTemplate::New(isolate);
     fun->InstanceTemplate()->SetInternalFieldCount(2);
-    fun->SetCallHandler([](const v8::FunctionCallbackInfo<v8::Value>& info) {
-      v8::Local<v8::Object> holder = info.Holder();
-      ASSERT(holder->InternalFieldCount() == 2);
-      holder->SetAlignedPointerInInternalField(0, nullptr);
-      holder->SetAlignedPointerInInternalField(1, nullptr);
-    });
+    fun->SetCallHandler(CallHandler, v8::Number::New(isolate, eObjType));
     if (eObjType == FXJSOBJTYPE_GLOBAL) {
       fun->InstanceTemplate()->Set(
           v8::Symbol::GetToStringTag(isolate),
@@ -139,9 +152,29 @@ class CFXJS_ObjDefinition {
               .ToLocalChecked());
     }
     m_FunctionTemplate.Reset(isolate, fun);
+    m_Signature.Reset(isolate, v8::Signature::New(isolate, fun));
+  }
 
-    v8::Local<v8::Signature> sig = v8::Signature::New(isolate, fun);
-    m_Signature.Reset(isolate, sig);
+  static void CallHandler(const v8::FunctionCallbackInfo<v8::Value>& info) {
+    v8::Isolate* isolate = info.GetIsolate();
+    if (!info.IsConstructCall()) {
+      isolate->ThrowException(
+          v8::String::NewFromUtf8(isolate, "illegal constructor",
+                                  v8::NewStringType::kNormal)
+              .ToLocalChecked());
+      return;
+    }
+    if (info.Data().As<v8::Int32>()->Value() != FXJSOBJTYPE_DYNAMIC) {
+      isolate->ThrowException(
+          v8::String::NewFromUtf8(isolate, "not a dynamic object",
+                                  v8::NewStringType::kNormal)
+              .ToLocalChecked());
+      return;
+    }
+    v8::Local<v8::Object> holder = info.Holder();
+    ASSERT(holder->InternalFieldCount() == 2);
+    holder->SetAlignedPointerInInternalField(0, nullptr);
+    holder->SetAlignedPointerInInternalField(1, nullptr);
   }
 
   v8::Isolate* GetIsolate() const { return m_pIsolate.Get(); }
@@ -296,6 +329,10 @@ void FXJS_PerIsolateData::SetUp(v8::Isolate* pIsolate) {
 FXJS_PerIsolateData* FXJS_PerIsolateData::Get(v8::Isolate* pIsolate) {
   return static_cast<FXJS_PerIsolateData*>(
       pIsolate->GetData(g_embedderDataSlot));
+}
+
+int FXJS_PerIsolateData::MaxObjDefinitionID() const {
+  return pdfium::CollectionSize<int>(m_ObjectDefnArray);
 }
 
 FXJS_PerIsolateData::FXJS_PerIsolateData(v8::Isolate* pIsolate)
@@ -467,7 +504,7 @@ void CFXJS_Engine::InitializeEngine() {
       }
     } else if (pObjDef->m_ObjType == FXJSOBJTYPE_STATIC) {
       v8::Local<v8::String> pObjName = NewString(pObjDef->m_ObjName);
-      v8::Local<v8::Object> obj = NewFXJSBoundObject(i, true);
+      v8::Local<v8::Object> obj = NewFXJSBoundObject(i, FXJSOBJTYPE_STATIC);
       if (!obj.IsEmpty()) {
         v8Context->Global()->Set(v8Context, pObjName, obj).FromJust();
         m_StaticObjects[i] = v8::Global<v8::Object>(GetIsolate(), obj);
@@ -524,25 +561,26 @@ Optional<IJS_Runtime::JS_Error> CFXJS_Engine::Execute(
            .ToLocal(&compiled_script)) {
     v8::String::Utf8Value error(GetIsolate(), try_catch.Exception());
     v8::Local<v8::Message> msg = try_catch.Message();
-    v8::Maybe<int> line = msg->GetLineNumber(context);
-
-    return IJS_Runtime::JS_Error(line.FromMaybe(-1), msg->GetStartColumn(),
-                                 WideString::FromUTF8(*error));
+    int line = -1;
+    int column = -1;
+    std::tie(line, column) = GetLineAndColumnFromError(msg, context);
+    return IJS_Runtime::JS_Error(line, column, WideString::FromUTF8(*error));
   }
 
   v8::Local<v8::Value> result;
   if (!compiled_script->Run(context).ToLocal(&result)) {
     v8::String::Utf8Value error(GetIsolate(), try_catch.Exception());
     auto msg = try_catch.Message();
-    auto line = msg->GetLineNumber(context);
-    return IJS_Runtime::JS_Error(line.FromMaybe(-1), msg->GetStartColumn(),
-                                 WideString::FromUTF8(*error));
+    int line = -1;
+    int column = -1;
+    std::tie(line, column) = GetLineAndColumnFromError(msg, context);
+    return IJS_Runtime::JS_Error(line, column, WideString::FromUTF8(*error));
   }
   return pdfium::nullopt;
 }
 
 v8::Local<v8::Object> CFXJS_Engine::NewFXJSBoundObject(int nObjDefnID,
-                                                       bool bStatic) {
+                                                       FXJSOBJTYPE type) {
   v8::Isolate::Scope isolate_scope(GetIsolate());
   v8::Local<v8::Context> context = GetIsolate()->GetCurrentContext();
   FXJS_PerIsolateData* pData = FXJS_PerIsolateData::Get(GetIsolate());
@@ -562,7 +600,7 @@ v8::Local<v8::Object> CFXJS_Engine::NewFXJSBoundObject(int nObjDefnID,
   if (pObjDef->m_pConstructor)
     pObjDef->m_pConstructor(this, obj);
 
-  if (!bStatic) {
+  if (type == FXJSOBJTYPE_DYNAMIC) {
     auto* pIsolateData = FXJS_PerIsolateData::Get(GetIsolate());
     if (pIsolateData->m_pDynamicObjsMap)
       pIsolateData->m_pDynamicObjsMap->SetAndMakeWeak(pObjData, obj);
@@ -582,6 +620,10 @@ v8::Local<v8::Object> CFXJS_Engine::GetThisObj() {
 
 void CFXJS_Engine::Error(const WideString& message) {
   GetIsolate()->ThrowException(NewString(message.AsStringView()));
+}
+
+v8::Local<v8::Context> CFXJS_Engine::GetV8Context() {
+  return v8::Local<v8::Context>::New(GetIsolate(), m_V8Context);
 }
 
 // static

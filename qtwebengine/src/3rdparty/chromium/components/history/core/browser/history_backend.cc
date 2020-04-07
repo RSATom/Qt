@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <functional>
 #include <limits>
-#include <list>
 #include <map>
 #include <memory>
 #include <set>
@@ -147,8 +146,8 @@ QueuedHistoryDBTask::QueuedHistoryDBTask(
 QueuedHistoryDBTask::~QueuedHistoryDBTask() {
   // Ensure that |task_| is destroyed on its origin thread.
   origin_loop_->PostTask(FROM_HERE,
-                         base::Bind(&base::DeletePointer<HistoryDBTask>,
-                                    base::Unretained(task_.release())));
+                         base::BindOnce(&base::DeletePointer<HistoryDBTask>,
+                                        base::Unretained(task_.release())));
 }
 
 bool QueuedHistoryDBTask::is_canceled() {
@@ -161,10 +160,10 @@ bool QueuedHistoryDBTask::Run(HistoryBackend* backend, HistoryDatabase* db) {
 
 void QueuedHistoryDBTask::DoneRun() {
   origin_loop_->PostTask(
-      FROM_HERE, base::Bind(&RunUnlessCanceled,
-                            base::Bind(&HistoryDBTask::DoneRunOnMainThread,
-                                       base::Unretained(task_.get())),
-                            is_canceled_));
+      FROM_HERE, base::BindOnce(&RunUnlessCanceled,
+                                base::Bind(&HistoryDBTask::DoneRunOnMainThread,
+                                           base::Unretained(task_.get())),
+                                is_canceled_));
 }
 
 // HistoryBackendHelper --------------------------------------------------------
@@ -421,19 +420,6 @@ bool HistoryBackend::IsUntypedIntranetHost(const GURL& url) {
   return (registry_length == 0) && !db_->IsTypedHost(host, /*scheme=*/nullptr);
 }
 
-TopHostsList HistoryBackend::TopHosts(size_t num_hosts) const {
-  if (!db_)
-    return TopHostsList();
-
-  auto top_hosts = db_->TopHosts(num_hosts);
-
-  host_ranks_.clear();
-  int i = 0;
-  for (const auto& host_count : top_hosts)
-    host_ranks_[host_count.first] = i++;
-  return top_hosts;
-}
-
 OriginCountAndLastVisitMap HistoryBackend::GetCountsAndLastVisitForOrigins(
     const std::set<GURL>& origins) const {
   if (!db_)
@@ -462,11 +448,6 @@ OriginCountAndLastVisitMap HistoryBackend::GetCountsAndLastVisitForOrigins(
   }
 
   return origin_count_map;
-}
-
-int HistoryBackend::HostRankIfAvailable(const GURL& url) const {
-  auto it = host_ranks_.find(HostForTopHosts(url));
-  return it != host_ranks_.end() ? it->second : kMaxTopHosts;
 }
 
 void HistoryBackend::AddPage(const HistoryAddPageArgs& request) {
@@ -791,13 +772,10 @@ void HistoryBackend::InitImpl(
 
 void HistoryBackend::OnMemoryPressure(
     base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
-  bool trim_aggressively =
-      memory_pressure_level ==
-      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL;
   if (db_)
-    db_->TrimMemory(trim_aggressively);
+    db_->TrimMemory();
   if (thumbnail_db_)
-    thumbnail_db_->TrimMemory(trim_aggressively);
+    thumbnail_db_->TrimMemory();
 }
 
 void HistoryBackend::CloseAllDatabases() {
@@ -814,12 +792,6 @@ void HistoryBackend::CloseAllDatabases() {
   }
 }
 
-void HistoryBackend::RecordTopHostsMetrics(const GURL& url) {
-  // Convert index from 0-based to 1-based.
-  UMA_HISTOGRAM_EXACT_LINEAR("History.TopHostsVisitsByRank",
-                             HostRankIfAvailable(url) + 1, kMaxTopHosts + 2);
-}
-
 std::pair<URLID, VisitID> HistoryBackend::AddPageVisit(
     const GURL& url,
     Time time,
@@ -829,11 +801,6 @@ std::pair<URLID, VisitID> HistoryBackend::AddPageVisit(
     VisitSource visit_source,
     bool should_increment_typed_count,
     base::Optional<base::string16> title) {
-  if (!host_ranks_.empty() && visit_source == SOURCE_BROWSED &&
-      (transition & ui::PAGE_TRANSITION_CHAIN_END)) {
-    RecordTopHostsMetrics(url);
-  }
-
   // See if this URL is already in the DB.
   URLRow url_info(url);
   URLID url_id = db_->GetRowForURL(url, &url_info);
@@ -899,7 +866,7 @@ void HistoryBackend::AddPagesWithDetails(const URLRows& urls,
     return;
 
   URLRows changed_urls;
-  for (URLRows::const_iterator i = urls.begin(); i != urls.end(); ++i) {
+  for (auto i = urls.begin(); i != urls.end(); ++i) {
     DCHECK(!i->last_visit().is_null());
 
     // As of M37, we no longer maintain an archived database, ignore old visits.
@@ -944,7 +911,7 @@ void HistoryBackend::AddPagesWithDetails(const URLRows& urls,
   //
   // TODO(brettw) bug 1140015: Add an "add page" notification so the history
   // views can keep in sync.
-  NotifyURLsModified(changed_urls);
+  NotifyURLsModified(changed_urls, /*is_from_expiration=*/false);
   ScheduleCommit();
 }
 
@@ -962,7 +929,7 @@ void HistoryBackend::SetPageTitle(const GURL& url,
   // the processing below can be the same.
   RedirectList dummy_list;
   RedirectList* redirects;
-  RedirectCache::iterator iter = recent_redirects_.Get(url);
+  auto iter = recent_redirects_.Get(url);
   if (iter != recent_redirects_.end()) {
     redirects = &iter->second;
 
@@ -990,7 +957,7 @@ void HistoryBackend::SetPageTitle(const GURL& url,
   // Broadcast notifications for any URLs that have changed. This will
   // update the in-memory database and the InMemoryURLIndex.
   if (!changed_urls.empty()) {
-    NotifyURLsModified(changed_urls);
+    NotifyURLsModified(changed_urls, /*is_from_expiration=*/false);
     ScheduleCommit();
   }
 }
@@ -1056,7 +1023,7 @@ size_t HistoryBackend::UpdateURLs(const URLRows& urls) {
     return 0;
 
   URLRows changed_urls;
-  for (URLRows::const_iterator it = urls.begin(); it != urls.end(); ++it) {
+  for (auto it = urls.begin(); it != urls.end(); ++it) {
     DCHECK(it->id());
     if (db_->UpdateURLRow(it->id(), *it))
       changed_urls.push_back(*it);
@@ -1066,7 +1033,7 @@ size_t HistoryBackend::UpdateURLs(const URLRows& urls) {
   // will update the in-memory database and the InMemoryURLIndex.
   size_t num_updated_records = changed_urls.size();
   if (num_updated_records) {
-    NotifyURLsModified(changed_urls);
+    NotifyURLsModified(changed_urls, /*is_from_expiration=*/false);
     ScheduleCommit();
   }
   return num_updated_records;
@@ -1076,8 +1043,7 @@ bool HistoryBackend::AddVisits(const GURL& url,
                                const std::vector<VisitInfo>& visits,
                                VisitSource visit_source) {
   if (db_) {
-    for (std::vector<VisitInfo>::const_iterator visit = visits.begin();
-         visit != visits.end(); ++visit) {
+    for (auto visit = visits.begin(); visit != visits.end(); ++visit) {
       if (!AddPageVisit(url, visit->first, 0, visit->second,
                         !ui::PageTransitionIsMainFrame(visit->second),
                         visit_source, IsTypedIncrement(visit->second))
@@ -1131,19 +1097,22 @@ void HistoryBackend::QueryURL(const GURL& url,
     db_->GetVisitsForURL(result->row.id(), &result->visits);
 }
 
-TypedURLSyncBridge* HistoryBackend::GetTypedURLSyncBridge() const {
-  return typed_url_sync_bridge_.get();
+base::WeakPtr<syncer::ModelTypeControllerDelegate>
+HistoryBackend::GetTypedURLSyncControllerDelegate() {
+  DCHECK(typed_url_sync_bridge_);
+  return typed_url_sync_bridge_->change_processor()->GetControllerDelegate();
 }
 
 // Statistics ------------------------------------------------------------------
 
 HistoryCountResult HistoryBackend::GetHistoryCount(const Time& begin_time,
                                                    const Time& end_time) {
-  HistoryCountResult result;
-  result.count = 0;
-  result.success =
-      db_ && db_->GetHistoryCount(begin_time, end_time, &result.count);
-  return result;
+  int count = 0;
+  return {db_ && db_->GetHistoryCount(begin_time, end_time, &count), count};
+}
+
+HistoryCountResult HistoryBackend::CountUniqueHostsVisitedLastMonth() {
+  return {!!db_, db_ ? db_->CountUniqueHostsVisitedLastMonth() : 0};
 }
 
 // Keyword visits --------------------------------------------------------------
@@ -1202,8 +1171,7 @@ void HistoryBackend::DeleteMatchingURLsForKeyword(KeywordID keyword_id,
   if (db_->GetKeywordSearchTermRows(term, &rows)) {
     std::vector<GURL> items_to_delete;
     URLRow row;
-    for (std::vector<KeywordSearchTermRow>::iterator it = rows.begin();
-         it != rows.end(); ++it) {
+    for (auto it = rows.begin(); it != rows.end(); ++it) {
       if ((it->keyword_id == keyword_id) && db_->GetURLRow(it->url_id, &row))
         items_to_delete.push_back(row.url());
     }
@@ -1268,8 +1236,7 @@ void HistoryBackend::RemoveDownloads(const std::set<uint32_t>& ids) {
   size_t downloads_count_before = db_->CountDownloads();
   // HistoryBackend uses a long-running Transaction that is committed
   // periodically, so this loop doesn't actually hit the disk too hard.
-  for (std::set<uint32_t>::const_iterator it = ids.begin(); it != ids.end();
-       ++it) {
+  for (auto it = ids.begin(); it != ids.end(); ++it) {
     db_->RemoveDownload(*it);
   }
   ScheduleCommit();
@@ -1279,8 +1246,6 @@ void HistoryBackend::RemoveDownloads(const std::set<uint32_t>& ids) {
   if (downloads_count_after > downloads_count_before)
     return;
   size_t num_downloads_deleted = downloads_count_before - downloads_count_after;
-  UMA_HISTOGRAM_COUNTS("Download.DatabaseRemoveDownloadsCount",
-                       num_downloads_deleted);
   DCHECK_GE(ids.size(), num_downloads_deleted);
 }
 
@@ -1500,11 +1465,11 @@ void HistoryBackend::DeleteFTSIndexDatabases() {
   int num_databases_deleted = 0;
   base::FilePath current_file;
   while (!(current_file = enumerator.Next()).empty()) {
-    if (sql::Connection::Delete(current_file))
+    if (sql::Database::Delete(current_file))
       num_databases_deleted++;
   }
-  UMA_HISTOGRAM_COUNTS("History.DeleteFTSIndexDatabases",
-                       num_databases_deleted);
+  UMA_HISTOGRAM_COUNTS_1M("History.DeleteFTSIndexDatabases",
+                          num_databases_deleted);
 }
 
 void HistoryBackend::GetFavicon(
@@ -1700,7 +1665,7 @@ void HistoryBackend::MergeFavicon(
         // Sync calls MergeFavicon() for all of the favicons that it manages at
         // startup. Do not update the "last updated" time if the favicon bitmap
         // data matches that in the database.
-        // TODO: Pass in boolean to MergeFavicon() if any users of
+        // TODO(pkotwicz): Pass in boolean to MergeFavicon() if any users of
         // MergeFavicon() want the last_updated time to be updated when the new
         // bitmap data is identical to the old.
         bitmap_identical = true;
@@ -1796,10 +1761,7 @@ void HistoryBackend::MergeFavicon(
       // a favicon bitmap mapped to |icon_url|. The one there is more correct
       // and having multiple equally sized favicon bitmaps for |page_url| is
       // ambiguous in terms of GetFaviconsForURL().
-      std::vector<gfx::Size>::iterator it =
-          std::find(favicon_sizes.begin(), favicon_sizes.end(),
-                    bitmaps_to_copy[j].pixel_size);
-      if (it != favicon_sizes.end())
+      if (base::ContainsValue(favicon_sizes, bitmaps_to_copy[j].pixel_size))
         continue;
 
       // Add the favicon bitmap as expired as it is not consistent with the
@@ -1927,8 +1889,7 @@ void HistoryBackend::SetFaviconsOutOfDateForPage(const GURL& page_url) {
       !thumbnail_db_->GetIconMappingsForPageURL(page_url, &icon_mappings))
     return;
 
-  for (std::vector<IconMapping>::iterator m = icon_mappings.begin();
-       m != icon_mappings.end(); ++m) {
+  for (auto m = icon_mappings.begin(); m != icon_mappings.end(); ++m) {
     thumbnail_db_->SetFaviconOutOfDate(m->icon_id);
   }
   ScheduleCommit();
@@ -1966,7 +1927,7 @@ void HistoryBackend::SetImportedFavicons(
     }
 
     // Save the mapping from all the URLs to the favicon.
-    for (std::set<GURL>::const_iterator url = favicon_usage[i].urls.begin();
+    for (auto url = favicon_usage[i].urls.begin();
          url != favicon_usage[i].urls.end(); ++url) {
       URLRow url_row;
       if (!db_->GetRowForURL(*url, &url_row)) {
@@ -1974,8 +1935,9 @@ void HistoryBackend::SetImportedFavicons(
         // save the favicon mapping. This will match with what history db does
         // for regular bookmarked URLs with favicons - when history db is
         // cleaned, we keep an entry in the db with 0 visits as long as that
-        // url is bookmarked.
-        if (backend_client_ && backend_client_->IsBookmarked(*url)) {
+        // url is bookmarked. The same is applicable to the saved credential's
+        // URLs.
+        if (backend_client_ && backend_client_->IsPinnedURL(*url)) {
           URLRow url_info(*url);
           url_info.set_visit_count(0);
           url_info.set_typed_count(0);
@@ -2099,9 +2061,8 @@ bool HistoryBackend::SetFaviconBitmaps(favicon_base::FaviconID icon_id,
   bool favicon_bitmaps_changed = false;
   for (size_t i = 0; i < bitmap_id_sizes.size(); ++i) {
     const gfx::Size& pixel_size = bitmap_id_sizes[i].pixel_size;
-    std::vector<PNGEncodedBitmap>::iterator match_it = to_add.end();
-    for (std::vector<PNGEncodedBitmap>::iterator it = to_add.begin();
-         it != to_add.end(); ++it) {
+    auto match_it = to_add.end();
+    for (auto it = to_add.begin(); it != to_add.end(); ++it) {
       if (it->second == pixel_size) {
         match_it = it;
         break;
@@ -2315,8 +2276,7 @@ bool HistoryBackend::SetFaviconMappingsForPage(
   std::vector<IconMapping> icon_mappings;
   thumbnail_db_->GetIconMappingsForPageURL(page_url, &icon_mappings);
 
-  for (std::vector<IconMapping>::iterator m = icon_mappings.begin();
-       m != icon_mappings.end(); ++m) {
+  for (auto m = icon_mappings.begin(); m != icon_mappings.end(); ++m) {
     if (unmapped_icon_id == m->icon_id) {
       unmapped_icon_id = 0;
       continue;
@@ -2343,7 +2303,7 @@ bool HistoryBackend::SetFaviconMappingsForPage(
 }
 
 RedirectList HistoryBackend::GetCachedRecentRedirects(const GURL& page_url) {
-  RedirectCache::iterator iter = recent_redirects_.Get(page_url);
+  auto iter = recent_redirects_.Get(page_url);
   if (iter != recent_redirects_.end()) {
     // The redirect chain should have the destination URL as the last item.
     DCHECK(!iter->second.empty());
@@ -2448,7 +2408,7 @@ void HistoryBackend::ProcessDBTaskImpl() {
     // tasks, and process it after an invoke later.
     queued_history_db_tasks_.push_back(std::move(task));
     task_runner_->PostTask(
-        FROM_HERE, base::Bind(&HistoryBackend::ProcessDBTaskImpl, this));
+        FROM_HERE, base::BindOnce(&HistoryBackend::ProcessDBTaskImpl, this));
   }
 }
 
@@ -2478,7 +2438,8 @@ void HistoryBackend::DeleteURL(const GURL& url) {
 
 void HistoryBackend::ExpireHistoryBetween(const std::set<GURL>& restrict_urls,
                                           Time begin_time,
-                                          Time end_time) {
+                                          Time end_time,
+                                          bool user_initiated) {
   if (!db_)
     return;
 
@@ -2489,7 +2450,8 @@ void HistoryBackend::ExpireHistoryBetween(const std::set<GURL>& restrict_urls,
     DeleteAllHistory();
   } else {
     // Clearing parts of history, have the expirer do the depend
-    expirer_.ExpireHistoryBetween(restrict_urls, begin_time, end_time);
+    expirer_.ExpireHistoryBetween(restrict_urls, begin_time, end_time,
+                                  user_initiated);
 
     // Force a commit, if the user is deleting something for privacy reasons,
     // we want to get it on disk ASAP.
@@ -2553,10 +2515,9 @@ void HistoryBackend::ExpireHistory(
   if (db_) {
     bool update_first_recorded_time = false;
 
-    for (std::vector<ExpireHistoryArgs>::const_iterator it =
-             expire_list.begin();
-         it != expire_list.end(); ++it) {
-      expirer_.ExpireHistoryBetween(it->urls, it->begin_time, it->end_time);
+    for (auto it = expire_list.begin(); it != expire_list.end(); ++it) {
+      expirer_.ExpireHistoryBetween(it->urls, it->begin_time, it->end_time,
+                                    true);
 
       if (it->begin_time < first_recorded_time_)
         update_first_recorded_time = true;
@@ -2580,7 +2541,7 @@ void HistoryBackend::URLsNoLongerBookmarked(const std::set<GURL>& urls) {
   if (!db_)
     return;
 
-  for (std::set<GURL>::const_iterator i = urls.begin(); i != urls.end(); ++i) {
+  for (auto i = urls.begin(); i != urls.end(); ++i) {
     VisitVector visits;
     URLRow url_row;
     if (db_->GetRowForURL(*i, &url_row))
@@ -2607,7 +2568,7 @@ void HistoryBackend::DatabaseErrorCallback(int error, sql::Statement* stmt) {
     // the DB or consider changing KillHistoryDatabase() to use RazeAndClose()
     // (then it can be cleared immediately).
     task_runner_->PostTask(
-        FROM_HERE, base::Bind(&HistoryBackend::KillHistoryDatabase, this));
+        FROM_HERE, base::BindOnce(&HistoryBackend::KillHistoryDatabase, this));
   }
 }
 
@@ -2680,12 +2641,13 @@ void HistoryBackend::NotifyURLVisited(ui::PageTransition transition,
     delegate_->NotifyURLVisited(transition, row, redirects, visit_time);
 }
 
-void HistoryBackend::NotifyURLsModified(const URLRows& rows) {
+void HistoryBackend::NotifyURLsModified(const URLRows& changed_urls,
+                                        bool is_from_expiration) {
   for (HistoryBackendObserver& observer : observers_)
-    observer.OnURLsModified(this, rows);
+    observer.OnURLsModified(this, changed_urls, is_from_expiration);
 
   if (delegate_)
-    delegate_->NotifyURLsModified(rows);
+    delegate_->NotifyURLsModified(changed_urls);
 }
 
 void HistoryBackend::NotifyURLsDeleted(DeletionInfo deletion_info) {
@@ -2710,39 +2672,38 @@ void HistoryBackend::NotifyURLsDeleted(DeletionInfo deletion_info) {
 
 void HistoryBackend::DeleteAllHistory() {
   // Our approach to deleting all history is:
-  //  1. Copy the bookmarks and their dependencies to new tables with temporary
-  //     names.
+  //  1. Copy the pinned URLs and their dependencies to new tables with
+  //     temporary names.
   //  2. Delete the original tables. Since tables can not share pages, we know
   //     that any data we don't want to keep is now in an unused page.
   //  3. Renaming the temporary tables to match the original.
   //  4. Vacuuming the database to delete the unused pages.
   //
-  // Since we are likely to have very few bookmarks and their dependencies
+  // Since we are likely to have very few pinned URLs and their dependencies
   // compared to all history, this is also much faster than just deleting from
   // the original tables directly.
 
-  // Get the bookmarked URLs.
-  std::vector<URLAndTitle> starred_url_and_titles;
+  // Get the pinned URLs.
+  std::vector<URLAndTitle> pinned_url;
   if (backend_client_)
-    backend_client_->GetBookmarks(&starred_url_and_titles);
+    pinned_url = backend_client_->GetPinnedURLs();
 
   URLRows kept_url_rows;
   std::vector<GURL> starred_urls;
-  for (const URLAndTitle& url_and_title : starred_url_and_titles) {
-    const GURL& url = url_and_title.url;
-    starred_urls.push_back(url);
-
+  for (URLAndTitle& url_and_title : pinned_url) {
     URLRow row;
-    if (db_->GetRowForURL(url, &row)) {
+    if (db_->GetRowForURL(url_and_title.url, &row)) {
       // Clear the last visit time so when we write these rows they are "clean."
       row.set_last_visit(Time());
       row.set_visit_count(0);
       row.set_typed_count(0);
       kept_url_rows.push_back(row);
     }
+
+    starred_urls.push_back(std::move(url_and_title.url));
   }
 
-  // Delete all cached favicons which are not used by bookmarks.
+  // Delete all cached favicons which are not used by the UI.
   if (!ClearAllThumbnailHistory(starred_urls)) {
     LOG(ERROR) << "Thumbnail history could not be cleared";
     // We continue in this error case. If the user wants to delete their
@@ -2770,7 +2731,7 @@ bool HistoryBackend::ClearAllThumbnailHistory(
     // error opening it. In this case, we just try to blow it away to try to
     // fix the error if it exists. This may fail, in which case either the
     // file doesn't exist or there's no more we can do.
-    sql::Connection::Delete(GetFaviconsFileName());
+    sql::Database::Delete(GetFaviconsFileName());
     return true;
   }
 
@@ -2787,7 +2748,7 @@ bool HistoryBackend::ClearAllThumbnailHistory(
   }
 
 #if defined(OS_ANDROID)
-  // TODO (michaelbai): Add the unit test once AndroidProviderBackend is
+  // TODO(michaelbai): Add the unit test once AndroidProviderBackend is
   // available in HistoryBackend.
   db_->ClearAndroidURLRows();
 #endif
@@ -2808,8 +2769,7 @@ bool HistoryBackend::ClearAllMainHistory(const URLRows& kept_urls) {
     return false;
 
   // Insert the URLs into the temporary table.
-  for (URLRows::const_iterator i = kept_urls.begin(); i != kept_urls.end();
-       ++i) {
+  for (auto i = kept_urls.begin(); i != kept_urls.end(); ++i) {
     db_->AddTemporaryURL(*i);
   }
 

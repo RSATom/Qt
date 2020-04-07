@@ -138,14 +138,9 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // Retrieve the bounds of the View, in screen coordinates.
   virtual gfx::Rect GetViewBounds() const = 0;
 
-  // Returns the currently selected text.
+  // Returns the currently selected text in both of editable text fields and
+  // non-editable texts.
   virtual base::string16 GetSelectedText() = 0;
-
-  // Returns the currently selected text with the text before and after it.
-  virtual base::string16 GetSurroundingText() = 0;
-
-  // Returns the range of the selection in the page.
-  virtual gfx::Range GetSelectedRange() = 0;
 
   // This only returns non-null on platforms that implement touch
   // selection editing (TSE), currently Aura and (soon) Android.
@@ -221,8 +216,8 @@ class CONTENT_EXPORT RenderWidgetHostView {
       base::OnceCallback<void(const SkBitmap&)> callback) = 0;
 
   // Ensures that all surfaces are synchronized for the next call to
-  // CopyFromSurface. This is used by LayoutTests.
-  virtual void EnsureSurfaceSynchronizedForLayoutTest() = 0;
+  // CopyFromSurface. This is used by web tests.
+  virtual void EnsureSurfaceSynchronizedForWebTest() = 0;
 
   // Creates a video capturer, which will allow the caller to receive a stream
   // of media::VideoFrames captured from this view. The capturer is configured

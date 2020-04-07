@@ -8,21 +8,14 @@
 #define FXJS_XFA_CJX_SUBMIT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Submit;
 
-class CJX_Submit : public CJX_Node {
+class CJX_Submit final : public CJX_Node {
  public:
   explicit CJX_Submit(CXFA_Submit* node);
   ~CJX_Submit() override;
-
-  JS_PROP(embedPDF);
-  JS_PROP(format);
-  JS_PROP(target);
-  JS_PROP(textEncoding);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(xdpContent);
 };
 
 #endif  // FXJS_XFA_CJX_SUBMIT_H_

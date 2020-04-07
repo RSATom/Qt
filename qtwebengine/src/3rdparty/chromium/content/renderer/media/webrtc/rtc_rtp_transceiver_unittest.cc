@@ -8,11 +8,11 @@
 
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "content/child/child_process.h"
 #include "content/renderer/media/stream/media_stream_audio_source.h"
@@ -155,7 +155,7 @@ class RTCRtpTransceiverTest : public ::testing::Test {
         blink::WebString::FromUTF8("local_audio_track"), false);
     MediaStreamAudioSource* audio_source = new MediaStreamAudioSource(true);
     // Takes ownership of |audio_source|.
-    web_source.SetExtraData(audio_source);
+    web_source.SetPlatformSource(base::WrapUnique(audio_source));
 
     blink::WebMediaStreamTrack web_track;
     web_track.Initialize(web_source.Id(), web_source);
@@ -172,7 +172,7 @@ class RTCRtpTransceiverTest : public ::testing::Test {
   }
 
  private:
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
 
  protected:
   std::unique_ptr<MockPeerConnectionDependencyFactory> dependency_factory_;

@@ -12,16 +12,19 @@
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/values.h"
+#include "net/base/proxy_delegate.h"
 #include "net/http/http_proxy_client_socket.h"
 #include "net/http/http_response_info.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_source_type.h"
-#include "net/quic/chromium/quic_http_utils.h"
-#include "net/quic/chromium/quic_proxy_client_socket.h"
+#include "net/quic/quic_http_utils.h"
+#include "net/quic/quic_proxy_client_socket.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/socket_tag.h"
+#include "net/socket/transport_client_socket_pool.h"
+#include "net/socket/transport_connect_job.h"
 #include "net/spdy/spdy_proxy_client_socket.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
@@ -52,6 +55,7 @@ HttpProxyClientSocketWrapper::HttpProxyClientSocketWrapper(
     QuicStreamFactory* quic_stream_factory,
     bool is_trusted_proxy,
     bool tunnel,
+    ProxyDelegate* proxy_delegate,
     const NetworkTrafficAnnotationTag& traffic_annotation,
     const NetLogWithSource& net_log)
     : next_state_(STATE_NONE),
@@ -71,9 +75,10 @@ HttpProxyClientSocketWrapper::HttpProxyClientSocketWrapper(
       spdy_session_pool_(spdy_session_pool),
       has_restarted_(false),
       tunnel_(tunnel),
+      proxy_delegate_(proxy_delegate),
       using_spdy_(false),
       is_trusted_proxy_(is_trusted_proxy),
-      quic_stream_request_(quic_stream_factory),
+      quic_stream_factory_(quic_stream_factory),
       http_auth_controller_(
           tunnel ? new HttpAuthController(
                        HttpAuth::AUTH_PROXY,
@@ -134,6 +139,27 @@ LoadState HttpProxyClientSocketWrapper::GetConnectLoadState() const {
 std::unique_ptr<HttpResponseInfo>
 HttpProxyClientSocketWrapper::GetAdditionalErrorState() {
   return std::move(error_response_info_);
+}
+
+void HttpProxyClientSocketWrapper::SetPriority(RequestPriority priority) {
+  if (respect_limits_ == ClientSocketPool::RespectLimits::DISABLED) {
+    DCHECK_EQ(MAXIMUM_PRIORITY, priority_);
+    return;
+  }
+
+  priority_ = priority;
+
+  if (transport_socket_handle_)
+    transport_socket_handle_->SetPriority(priority);
+
+  if (spdy_stream_request_)
+    spdy_stream_request_->SetPriority(priority);
+
+  if (quic_stream_request_)
+    quic_stream_request_->SetPriority(priority);
+
+  if (transport_socket_)
+    transport_socket_->SetStreamPriority(priority);
 }
 
 const HttpResponseInfo* HttpProxyClientSocketWrapper::GetConnectResponseInfo()
@@ -203,7 +229,8 @@ void HttpProxyClientSocketWrapper::Disconnect() {
   connect_callback_.Reset();
   connect_timer_.Stop();
   next_state_ = STATE_NONE;
-  spdy_stream_request_.CancelRequest();
+  spdy_stream_request_.reset();
+  quic_stream_request_.reset();
   if (transport_socket_handle_) {
     if (transport_socket_handle_->socket())
       transport_socket_handle_->socket()->Disconnect();
@@ -285,12 +312,25 @@ int64_t HttpProxyClientSocketWrapper::GetTotalReceivedBytes() const {
 }
 
 void HttpProxyClientSocketWrapper::ApplySocketTag(const SocketTag& tag) {
-  // HttpProxyClientSocketPool only tags once connected, when transport_socket_
-  // is set. Socket tagging is not supported with tunneling. Socket tagging is
-  // also not supported with proxy auth so ApplySocketTag() won't be called with
-  // a specific (non-default) tag when transport_socket_ is cleared by
-  // RestartWithAuth().
-  if (tunnel_ || !transport_socket_) {
+  // Applying a socket tag to an HttpProxyClientSocketWrapper is done by simply
+  // applying the socket tag to the underlying socket.
+
+  // In the case of a connection to the proxy using HTTP/2 or HTTP/3 where the
+  // underlying socket may multiplex multiple streams, applying this request's
+  // socket tag to the multiplexed session would incorrectly apply the socket
+  // tag to all mutliplexed streams. In reality this would hit the CHECK(false)
+  // in QuicProxyClientSocket::ApplySocketTag() or
+  // SpdyProxyClientSocket::ApplySocketTag(). Fortunately socket tagging is only
+  // supported on Android without the data reduction proxy, so only simple HTTP
+  // proxies are supported, so proxies won't be using HTTP/2 or HTTP/3. Detect
+  // this case (|ssl_params_| must be set for HTTP/2 and HTTP/3 proxies) and
+  // enforce that a specific (non-default) tag isn't being applied.
+  if (ssl_params_ ||
+      // Android also doesn't support proxy auth, so RestartWithAuth() should't
+      // be called so |transport_socket_| shouldn't be cleared. If
+      // |transport_socket_| is cleared, enforce that a specific (non-default)
+      // tag isn't being applied.
+      !transport_socket_) {
     CHECK(tag == SocketTag());
   } else {
     transport_socket_->ApplySocketTag(tag);
@@ -303,6 +343,20 @@ int HttpProxyClientSocketWrapper::Read(IOBuffer* buf,
   if (transport_socket_)
     return transport_socket_->Read(buf, buf_len, std::move(callback));
   return ERR_SOCKET_NOT_CONNECTED;
+}
+
+int HttpProxyClientSocketWrapper::ReadIfReady(IOBuffer* buf,
+                                              int buf_len,
+                                              CompletionOnceCallback callback) {
+  if (transport_socket_)
+    return transport_socket_->ReadIfReady(buf, buf_len, std::move(callback));
+  return ERR_SOCKET_NOT_CONNECTED;
+}
+
+int HttpProxyClientSocketWrapper::CancelReadIfReady() {
+  if (transport_socket_)
+    return transport_socket_->CancelReadIfReady();
+  return OK;
 }
 
 int HttpProxyClientSocketWrapper::Write(
@@ -341,6 +395,16 @@ int HttpProxyClientSocketWrapper::GetLocalAddress(IPEndPoint* address) const {
   if (transport_socket_)
     return transport_socket_->GetLocalAddress(address);
   return ERR_SOCKET_NOT_CONNECTED;
+}
+
+ProxyServer::Scheme HttpProxyClientSocketWrapper::GetProxyServerScheme() const {
+  if (quic_version_ != quic::QUIC_VERSION_UNSUPPORTED)
+    return ProxyServer::SCHEME_QUIC;
+
+  if (transport_params_)
+    return ProxyServer::SCHEME_HTTP;
+
+  return ProxyServer::SCHEME_HTTPS;
 }
 
 void HttpProxyClientSocketWrapper::OnIOComplete(int result) {
@@ -422,12 +486,18 @@ int HttpProxyClientSocketWrapper::DoLoop(int result) {
 int HttpProxyClientSocketWrapper::DoBeginConnect() {
   connect_start_time_ = base::TimeTicks::Now();
   SetConnectTimer(connect_timeout_duration_);
-  if (quic_version_ != quic::QUIC_VERSION_UNSUPPORTED) {
-    next_state_ = STATE_QUIC_PROXY_CREATE_SESSION;
-  } else if (transport_params_) {
-    next_state_ = STATE_TCP_CONNECT;
-  } else {
-    next_state_ = STATE_SSL_CONNECT;
+  switch (GetProxyServerScheme()) {
+    case ProxyServer::SCHEME_QUIC:
+      next_state_ = STATE_QUIC_PROXY_CREATE_SESSION;
+      break;
+    case ProxyServer::SCHEME_HTTP:
+      next_state_ = STATE_TCP_CONNECT;
+      break;
+    case ProxyServer::SCHEME_HTTPS:
+      next_state_ = STATE_SSL_CONNECT;
+      break;
+    default:
+      NOTREACHED();
   }
   return OK;
 }
@@ -436,8 +506,10 @@ int HttpProxyClientSocketWrapper::DoTransportConnect() {
   next_state_ = STATE_TCP_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
   return transport_socket_handle_->Init(
-      group_name_, transport_params_, priority_, initial_socket_tag_,
-      respect_limits_,
+      group_name_,
+      TransportClientSocketPool::SocketParams::CreateFromTransportSocketParams(
+          transport_params_),
+      priority_, initial_socket_tag_, respect_limits_,
       base::Bind(&HttpProxyClientSocketWrapper::OnIOComplete,
                  base::Unretained(this)),
       transport_pool_, net_log_);
@@ -447,6 +519,12 @@ int HttpProxyClientSocketWrapper::DoTransportConnectComplete(int result) {
   if (result != OK) {
     UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpProxy.ConnectLatency.Insecure.Error",
                                base::TimeTicks::Now() - connect_start_time_);
+    // This is a special error code meaning to reuse an existing SPDY session
+    // rather than use a fresh socket. Overriding it with a proxy error message
+    // would cause the request to fail, instead of switching to using the SPDY
+    // session.
+    if (result == ERR_SPDY_SESSION_ALREADY_EXISTS)
+      return result;
     return ERR_PROXY_CONNECTION_FAILED;
   }
 
@@ -466,6 +544,7 @@ int HttpProxyClientSocketWrapper::DoSSLConnect() {
                            ->destination()
                            .host_port_pair(),
                        ProxyServer::Direct(), PRIVACY_MODE_DISABLED,
+                       SpdySessionKey::IsProxySession::kTrue,
                        initial_socket_tag_);
     if (spdy_session_pool_->FindAvailableSession(
             key, /* enable_ip_based_pooling = */ true,
@@ -499,14 +578,10 @@ int HttpProxyClientSocketWrapper::DoSSLConnectComplete(int result) {
   if (IsCertificateError(result)) {
     UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpProxy.ConnectLatency.Secure.Error",
                                base::TimeTicks::Now() - connect_start_time_);
-    if (ssl_params_->load_flags() & LOAD_IGNORE_ALL_CERT_ERRORS) {
-      result = OK;
-    } else {
-      // TODO(rch): allow the user to deal with proxy cert errors in the
-      // same way as server cert errors.
-      transport_socket_handle_->socket()->Disconnect();
-      return ERR_PROXY_CERTIFICATE_INVALID;
-    }
+    // TODO(rch): allow the user to deal with proxy cert errors in the
+    // same way as server cert errors.
+    transport_socket_handle_->socket()->Disconnect();
+    return ERR_PROXY_CERTIFICATE_INVALID;
   }
   // A SPDY session to the proxy completed prior to resolving the proxy
   // hostname. Surface this error, and allow the delegate to retry.
@@ -561,8 +636,10 @@ int HttpProxyClientSocketWrapper::DoHttpProxyConnect() {
   transport_socket_ =
       transport_pool_->client_socket_factory()->CreateProxyClientSocket(
           std::move(transport_socket_handle_), user_agent_, endpoint_,
+          ProxyServer(GetProxyServerScheme(),
+                      GetDestination().host_port_pair()),
           http_auth_controller_.get(), tunnel_, using_spdy_,
-          negotiated_protocol_, ssl_params_.get() != nullptr,
+          negotiated_protocol_, proxy_delegate_, ssl_params_.get() != nullptr,
           traffic_annotation_);
   return transport_socket_->Connect(base::Bind(
       &HttpProxyClientSocketWrapper::OnIOComplete, base::Unretained(this)));
@@ -581,7 +658,8 @@ int HttpProxyClientSocketWrapper::DoSpdyProxyCreateStream() {
   DCHECK(ssl_params_);
   SpdySessionKey key(
       ssl_params_->GetDirectConnectionParams()->destination().host_port_pair(),
-      ProxyServer::Direct(), PRIVACY_MODE_DISABLED, initial_socket_tag_);
+      ProxyServer::Direct(), PRIVACY_MODE_DISABLED,
+      SpdySessionKey::IsProxySession::kTrue, initial_socket_tag_);
   base::WeakPtr<SpdySession> spdy_session =
       spdy_session_pool_->FindAvailableSession(
           key, /* enable_ip_based_pooling = */ true,
@@ -601,7 +679,8 @@ int HttpProxyClientSocketWrapper::DoSpdyProxyCreateStream() {
   }
 
   next_state_ = STATE_SPDY_PROXY_CREATE_STREAM_COMPLETE;
-  return spdy_stream_request_.StartRequest(
+  spdy_stream_request_ = std::make_unique<SpdyStreamRequest>();
+  return spdy_stream_request_->StartRequest(
       SPDY_BIDIRECTIONAL_STREAM, spdy_session,
       GURL("https://" + endpoint_.ToString()), priority_, initial_socket_tag_,
       spdy_session->net_log(),
@@ -611,11 +690,14 @@ int HttpProxyClientSocketWrapper::DoSpdyProxyCreateStream() {
 }
 
 int HttpProxyClientSocketWrapper::DoSpdyProxyCreateStreamComplete(int result) {
-  if (result < 0)
+  if (result < 0) {
+    spdy_stream_request_.reset();
     return result;
+  }
 
   next_state_ = STATE_HTTP_PROXY_CONNECT_COMPLETE;
-  base::WeakPtr<SpdyStream> stream = spdy_stream_request_.ReleaseStream();
+  base::WeakPtr<SpdyStream> stream = spdy_stream_request_->ReleaseStream();
+  spdy_stream_request_.reset();
   DCHECK(stream.get());
   // |transport_socket_| will set itself as |stream|'s delegate.
   transport_socket_.reset(new SpdyProxyClientSocket(
@@ -630,21 +712,28 @@ int HttpProxyClientSocketWrapper::DoQuicProxyCreateSession() {
   next_state_ = STATE_QUIC_PROXY_CREATE_STREAM;
   const HostPortPair& proxy_server =
       ssl_params_->GetDirectConnectionParams()->destination().host_port_pair();
-  return quic_stream_request_.Request(
+  quic_stream_request_ =
+      std::make_unique<QuicStreamRequest>(quic_stream_factory_);
+  return quic_stream_request_->Request(
       proxy_server, quic_version_, ssl_params_->privacy_mode(), priority_,
       initial_socket_tag_, ssl_params_->ssl_config().GetCertVerifyFlags(),
       GURL("https://" + proxy_server.ToString()), net_log_,
       &quic_net_error_details_,
+      /*failed_on_default_network_callback=*/CompletionOnceCallback(),
       base::Bind(&HttpProxyClientSocketWrapper::OnIOComplete,
                  base::Unretained(this)));
 }
 
 int HttpProxyClientSocketWrapper::DoQuicProxyCreateStream(int result) {
-  if (result < 0)
+  if (result < 0) {
+    quic_stream_request_.reset();
     return result;
+  }
 
   next_state_ = STATE_QUIC_PROXY_CREATE_STREAM_COMPLETE;
-  quic_session_ = quic_stream_request_.ReleaseSessionHandle();
+  quic_session_ = quic_stream_request_->ReleaseSessionHandle();
+  quic_stream_request_.reset();
+
   return quic_session_->RequestStream(
       false,
       base::Bind(&HttpProxyClientSocketWrapper::OnIOComplete,
@@ -699,7 +788,7 @@ int HttpProxyClientSocketWrapper::DoRestartWithAuthComplete(int result) {
     has_restarted_ = true;
 
     // Release any auth state bound to the connection. The new connection will
-    // start the current scheme from scratch.
+    // start the current scheme and identity from scratch.
     if (http_auth_controller_)
       http_auth_controller_->OnConnectionClosed();
   }

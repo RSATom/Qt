@@ -49,19 +49,17 @@ namespace QtWebEngineCore {
 
 class ContentClientQt : public content::ContentClient {
 public:
-    static std::string getUserAgent();
-
 #if QT_CONFIG(webengine_pepper_plugins)
     void AddPepperPlugins(std::vector<content::PepperPluginInfo>* plugins) override;
 #endif
     void AddContentDecryptionModules(std::vector<content::CdmInfo> *cdms,
                                      std::vector<media::CdmHostFilePath> *cdm_host_file_paths) override;
+    void AddAdditionalSchemes(Schemes* schemes) override;
 
     base::StringPiece GetDataResource(int, ui::ScaleFactor) const override;
-    base::RefCountedMemory* GetDataResourceBytes(int resource_id) const  override;
-    std::string GetUserAgent() const override { return getUserAgent(); }
+    base::RefCountedMemory* GetDataResourceBytes(int resource_id) const override;
+    gfx::Image &GetNativeImageNamed(int resource_id) const override;
     base::string16 GetLocalizedString(int message_id) const override;
-    std::string GetProduct() const override;
 };
 
 } // namespace QtWebEngineCore

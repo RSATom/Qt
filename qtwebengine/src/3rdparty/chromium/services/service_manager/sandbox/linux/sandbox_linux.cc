@@ -29,7 +29,7 @@
 #include "base/memory/singleton.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "sandbox/constants.h"
@@ -154,7 +154,7 @@ SandboxLinux* SandboxLinux::GetInstance() {
   return instance;
 }
 
-void SandboxLinux::PreinitializeSandbox() {
+bool SandboxLinux::PreinitializeSandbox() {
   CHECK(!pre_initialized_);
   seccomp_bpf_supported_ = false;
 #if BUILDFLAG(USING_SANITIZER)
@@ -189,29 +189,15 @@ void SandboxLinux::PreinitializeSandbox() {
   yama_is_enforcing_ = (yama_status & Yama::STATUS_PRESENT) &&
                        (yama_status & Yama::STATUS_ENFORCING);
   pre_initialized_ = true;
+  return seccomp_bpf_supported_;
 }
 
 void SandboxLinux::EngageNamespaceSandbox(bool from_zygote) {
-  CHECK(pre_initialized_);
-  if (from_zygote) {
-    // Check being in a new PID namespace created by the namespace sandbox and
-    // being the init process.
-    CHECK(sandbox::NamespaceSandbox::InNewPidNamespace());
-    const pid_t pid = getpid();
-    CHECK_EQ(1, pid);
-  }
+  CHECK(EngageNamespaceSandboxInternal(from_zygote));
+}
 
-  CHECK(sandbox::Credentials::MoveToNewUserNS());
-
-  // Note: this requires SealSandbox() to be called later in this process to be
-  // safe, as this class is keeping a file descriptor to /proc/.
-  CHECK(sandbox::Credentials::DropFileSystemAccess(proc_fd_));
-
-  // We do not drop CAP_SYS_ADMIN because we need it to place each child process
-  // in its own PID namespace later on.
-  std::vector<sandbox::Credentials::Capability> caps;
-  caps.push_back(sandbox::Credentials::Capability::SYS_ADMIN);
-  CHECK(sandbox::Credentials::SetCapabilities(proc_fd_, caps));
+bool SandboxLinux::EngageNamespaceSandboxIfPossible() {
+  return EngageNamespaceSandboxInternal(false /* from_zygote */);
 }
 
 std::vector<int> SandboxLinux::GetFileDescriptorsToClose() {
@@ -495,6 +481,37 @@ void SandboxLinux::StopThreadAndEnsureNotCounted(base::Thread* thread) const {
   PCHECK(proc_fd.is_valid());
   CHECK(
       sandbox::ThreadHelpers::StopThreadAndWatchProcFS(proc_fd.get(), thread));
+}
+
+bool SandboxLinux::EngageNamespaceSandboxInternal(bool from_zygote) {
+  CHECK(pre_initialized_);
+  if (from_zygote) {
+    // Check being in a new PID namespace created by the namespace sandbox and
+    // being the init process.
+    CHECK(sandbox::NamespaceSandbox::InNewPidNamespace());
+    const pid_t pid = getpid();
+    CHECK_EQ(1, pid);
+  }
+
+  // After we successfully move to a new user ns, we don't allow this function
+  // to fail.
+  if (!sandbox::Credentials::MoveToNewUserNS()) {
+    return false;
+  }
+
+  // Note: this requires SealSandbox() to be called later in this process to be
+  // safe, as this class is keeping a file descriptor to /proc/.
+  CHECK(sandbox::Credentials::DropFileSystemAccess(proc_fd_));
+
+  // Now we drop all capabilities that we can. In the zygote process, we need
+  // to keep CAP_SYS_ADMIN, to place each child in its own PID namespace
+  // later on.
+  std::vector<sandbox::Credentials::Capability> caps;
+  if (from_zygote) {
+    caps.push_back(sandbox::Credentials::Capability::SYS_ADMIN);
+  }
+  CHECK(sandbox::Credentials::SetCapabilities(proc_fd_, caps));
+  return true;
 }
 
 }  // namespace service_manager

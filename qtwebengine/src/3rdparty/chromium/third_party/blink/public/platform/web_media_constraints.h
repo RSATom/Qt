@@ -53,7 +53,10 @@ class BLINK_PLATFORM_EXPORT BaseConstraint {
   explicit BaseConstraint(const char* name);
   virtual ~BaseConstraint();
   virtual bool IsEmpty() const = 0;
-  virtual bool HasMandatory() const = 0;
+  bool HasMandatory() const;
+  virtual bool HasMin() const { return false; }
+  virtual bool HasMax() const { return false; }
+  virtual bool HasExact() const = 0;
   const char* GetName() const { return name_; }
   virtual WebString ToString() const = 0;
 
@@ -61,48 +64,49 @@ class BLINK_PLATFORM_EXPORT BaseConstraint {
   const char* name_;
 };
 
+// Note this class refers to the "long" WebIDL definition which is
+// equivalent to int32_t.
 class BLINK_PLATFORM_EXPORT LongConstraint : public BaseConstraint {
  public:
   explicit LongConstraint(const char* name);
 
-  void SetMin(long value) {
+  void SetMin(int32_t value) {
     min_ = value;
     has_min_ = true;
   }
 
-  void SetMax(long value) {
+  void SetMax(int32_t value) {
     max_ = value;
     has_max_ = true;
   }
 
-  void SetExact(long value) {
+  void SetExact(int32_t value) {
     exact_ = value;
     has_exact_ = true;
   }
 
-  void SetIdeal(long value) {
+  void SetIdeal(int32_t value) {
     ideal_ = value;
     has_ideal_ = true;
   }
 
-  bool Matches(long value) const;
+  bool Matches(int32_t value) const;
   bool IsEmpty() const override;
-  bool HasMandatory() const override;
+  bool HasMin() const override { return has_min_; }
+  bool HasMax() const override { return has_max_; }
+  bool HasExact() const override { return has_exact_; }
   WebString ToString() const override;
-  bool HasMin() const { return has_min_; }
-  long Min() const { return min_; }
-  bool HasMax() const { return has_max_; }
-  long Max() const { return max_; }
-  bool HasExact() const { return has_exact_; }
-  long Exact() const { return exact_; }
+  int32_t Min() const { return min_; }
+  int32_t Max() const { return max_; }
+  int32_t Exact() const { return exact_; }
   bool HasIdeal() const { return has_ideal_; }
-  long Ideal() const { return ideal_; }
+  int32_t Ideal() const { return ideal_; }
 
  private:
-  long min_;
-  long max_;
-  long exact_;
-  long ideal_;
+  int32_t min_;
+  int32_t max_;
+  int32_t exact_;
+  int32_t ideal_;
   unsigned has_min_ : 1;
   unsigned has_max_ : 1;
   unsigned has_exact_ : 1;
@@ -140,13 +144,12 @@ class BLINK_PLATFORM_EXPORT DoubleConstraint : public BaseConstraint {
 
   bool Matches(double value) const;
   bool IsEmpty() const override;
-  bool HasMandatory() const override;
+  bool HasMin() const override { return has_min_; }
+  bool HasMax() const override { return has_max_; }
+  bool HasExact() const override { return has_exact_; }
   WebString ToString() const override;
-  bool HasMin() const { return has_min_; }
   double Min() const { return min_; }
-  bool HasMax() const { return has_max_; }
   double Max() const { return max_; }
-  bool HasExact() const { return has_exact_; }
   double Exact() const { return exact_; }
   bool HasIdeal() const { return has_ideal_; }
   double Ideal() const { return ideal_; }
@@ -178,9 +181,8 @@ class BLINK_PLATFORM_EXPORT StringConstraint : public BaseConstraint {
 
   bool Matches(WebString value) const;
   bool IsEmpty() const override;
-  bool HasMandatory() const override;
+  bool HasExact() const override { return !exact_.empty(); }
   WebString ToString() const override;
-  bool HasExact() const { return !exact_.empty(); }
   bool HasIdeal() const { return !ideal_.empty(); }
   const WebVector<WebString>& Exact() const;
   const WebVector<WebString>& Ideal() const;
@@ -208,9 +210,8 @@ class BLINK_PLATFORM_EXPORT BooleanConstraint : public BaseConstraint {
 
   bool Matches(bool value) const;
   bool IsEmpty() const override;
-  bool HasMandatory() const override;
+  bool HasExact() const override { return has_exact_; }
   WebString ToString() const override;
-  bool HasExact() const { return has_exact_; }
   bool HasIdeal() const { return has_ideal_; }
 
  private:
@@ -229,6 +230,7 @@ struct WebMediaTrackConstraintSet {
   DoubleConstraint aspect_ratio;
   DoubleConstraint frame_rate;
   StringConstraint facing_mode;
+  StringConstraint resize_mode;
   DoubleConstraint volume;
   LongConstraint sample_rate;
   LongConstraint sample_size;
@@ -283,13 +285,14 @@ struct WebMediaTrackConstraintSet {
   LongConstraint goog_high_start_bitrate;
   BooleanConstraint goog_payload_padding;
   LongConstraint goog_latency_ms;
-  LongConstraint goog_power_line_frequency;
 
   BLINK_PLATFORM_EXPORT bool IsEmpty() const;
   BLINK_PLATFORM_EXPORT bool HasMandatory() const;
   BLINK_PLATFORM_EXPORT bool HasMandatoryOutsideSet(
       const std::vector<std::string>&,
       std::string&) const;
+  BLINK_PLATFORM_EXPORT bool HasMin() const;
+  BLINK_PLATFORM_EXPORT bool HasExact() const;
   BLINK_PLATFORM_EXPORT WebString ToString() const;
 
  private:

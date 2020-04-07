@@ -16,14 +16,16 @@ class LocalFrame;
 class IdleDeadline;
 class SpellCheckRequester;
 
-// This class is only supposed to be used by IdleSpellCheckCallback in cold mode
-// invocation. Not to be confused with SpellCheckRequester.
-// The class iteratively checks the editing host currently focused when the
-// document is idle.
+// This class is only supposed to be used by IdleSpellCheckController in cold
+// mode invocation. Not to be confused with SpellCheckRequester. The class
+// iteratively checks the editing host currently focused when the document is
+// idle.
 class ColdModeSpellCheckRequester
     : public GarbageCollected<ColdModeSpellCheckRequester> {
  public:
   static ColdModeSpellCheckRequester* Create(LocalFrame&);
+
+  explicit ColdModeSpellCheckRequester(LocalFrame&);
 
   void SetNeedsMoreInvocationForTesting() {
     needs_more_invocation_for_testing_ = true;
@@ -37,8 +39,6 @@ class ColdModeSpellCheckRequester
   void Trace(blink::Visitor*);
 
  private:
-  explicit ColdModeSpellCheckRequester(LocalFrame&);
-
   LocalFrame& GetFrame() const { return *frame_; }
   SpellCheckRequester& GetSpellCheckRequester() const;
 

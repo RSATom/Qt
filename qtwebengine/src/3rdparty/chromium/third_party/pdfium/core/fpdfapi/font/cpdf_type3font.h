@@ -17,9 +17,9 @@
 class CPDF_Dictionary;
 class CPDF_Type3Char;
 
-class CPDF_Type3Font : public CPDF_SimpleFont {
+class CPDF_Type3Font final : public CPDF_SimpleFont {
  public:
-  CPDF_Type3Font();
+  CPDF_Type3Font(CPDF_Document* pDocument, CPDF_Dictionary* pFontDict);
   ~CPDF_Type3Font() override;
 
   // CPDF_Font:
@@ -37,9 +37,6 @@ class CPDF_Type3Font : public CPDF_SimpleFont {
 
   CFX_Matrix& GetFontMatrix() { return m_FontMatrix; }
 
- protected:
-  CFX_Matrix m_FontMatrix;
-
  private:
   // CPDF_Font:
   bool Load() override;
@@ -47,6 +44,7 @@ class CPDF_Type3Font : public CPDF_SimpleFont {
   // CPDF_SimpleFont:
   void LoadGlyphMap() override;
 
+  CFX_Matrix m_FontMatrix;
   uint32_t m_CharWidthL[256];
   UnownedPtr<CPDF_Dictionary> m_pCharProcs;
   UnownedPtr<CPDF_Dictionary> m_pPageResources;

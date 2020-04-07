@@ -10,6 +10,7 @@
 
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
 #include "url/url_util.h"
@@ -80,7 +81,7 @@ void RegisterContentSchemes(bool lock_schemes) {
 
   schemes.cors_enabled_schemes.push_back(kChromeUIScheme);
   for (auto& scheme : schemes.cors_enabled_schemes)
-    url::AddCORSEnabledScheme(scheme.c_str());
+    url::AddCorsEnabledScheme(scheme.c_str());
 
   // TODO(mkwst): Investigate whether chrome-error should be included in
   // csp_bypassing_schemes.
@@ -89,6 +90,11 @@ void RegisterContentSchemes(bool lock_schemes) {
 
   for (auto& scheme : schemes.empty_document_schemes)
     url::AddEmptyDocumentScheme(scheme.c_str());
+
+#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
+  if (schemes.allow_non_standard_schemes_in_origins)
+    url::EnableNonStandardSchemesForAndroidWebView();
+#endif
 
   // NOTE(juvaldma)(Chromium 67.0.3396.47)
   //

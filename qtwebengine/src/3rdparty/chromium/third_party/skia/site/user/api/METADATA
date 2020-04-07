@@ -6,10 +6,10 @@
     "SkCanvas_Reference",
     "SkColor_Reference",
     "SkColor4f_Reference",
+    "SkFont_Reference",
     "SkImage_Reference",
     "SkImageInfo_Reference",
     "SkIPoint_Reference",
-    "SkIPoint16_Reference",
     "SkIRect_Reference",
     "SkMatrix_Reference",
     "SkPaint_Reference",
@@ -19,11 +19,15 @@
     "SkPoint_Reference",
     "SkRRect_Reference",
     "SkRect_Reference",
+    "SkRegion_Reference",
     "SkSurface_Reference",
+    "SkTextBlob_Reference",
+    "SkTextBlobBuilder_Reference",
     "usingBookmaker",
-    "undocumented",
     "skcanvas_overview",
     "skcanvas_creation",
+    "SkBlendMode_Overview",
+    "SkPath_Overview",
     "skpaint_overview"
   ]
 }

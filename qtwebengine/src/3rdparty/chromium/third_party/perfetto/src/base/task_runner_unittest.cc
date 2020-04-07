@@ -21,11 +21,14 @@
 #include "perfetto/base/scoped_file.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) && \
-    !PERFETTO_BUILDFLAG(PERFETTO_CHROMIUM_BUILD)
+    !PERFETTO_BUILDFLAG(PERFETTO_EMBEDDER_BUILD)
 #include "perfetto/base/android_task_runner.h"
 #endif
 
 #include <thread>
+
+#include "perfetto/base/file_utils.h"
+#include "perfetto/base/pipe.h"
 
 namespace perfetto {
 namespace base {
@@ -38,35 +41,30 @@ class TaskRunnerTest : public ::testing::Test {
 };
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) && \
-    !PERFETTO_BUILDFLAG(PERFETTO_CHROMIUM_BUILD)
+    !PERFETTO_BUILDFLAG(PERFETTO_EMBEDDER_BUILD)
 using TaskRunnerTypes = ::testing::Types<AndroidTaskRunner, UnixTaskRunner>;
 #else
 using TaskRunnerTypes = ::testing::Types<UnixTaskRunner>;
 #endif
 TYPED_TEST_CASE(TaskRunnerTest, TaskRunnerTypes);
 
-struct Pipe {
-  Pipe() {
-    int pipe_fds[2];
-    PERFETTO_DCHECK(pipe(pipe_fds) == 0);
-    read_fd.reset(pipe_fds[0]);
-    write_fd.reset(pipe_fds[1]);
+struct TestPipe : Pipe {
+  TestPipe() : Pipe(Pipe::Create()) {
     // Make the pipe initially readable.
     Write();
   }
 
   void Read() {
     char b;
-    PERFETTO_DCHECK(read(read_fd.get(), &b, 1) == 1);
+    ssize_t rd = read(*this->rd, &b, 1);
+    PERFETTO_DCHECK(rd == 1);
   }
 
   void Write() {
     const char b = '?';
-    PERFETTO_DCHECK(write(write_fd.get(), &b, 1) == 1);
+    ssize_t wr = WriteAll(*this->wr, &b, 1);
+    PERFETTO_DCHECK(wr == 1);
   }
-
-  ScopedFile read_fd;
-  ScopedFile write_fd;
 };
 
 TYPED_TEST(TaskRunnerTest, PostImmediateTask) {
@@ -139,20 +137,20 @@ TYPED_TEST(TaskRunnerTest, PostDelayedTaskFromOtherThread) {
 
 TYPED_TEST(TaskRunnerTest, AddFileDescriptorWatch) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+  TestPipe pipe;
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&task_runner] { task_runner.Quit(); });
   task_runner.Run();
 }
 
 TYPED_TEST(TaskRunnerTest, RemoveFileDescriptorWatch) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
 
   bool watch_ran = false;
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&watch_ran] { watch_ran = true; });
-  task_runner.RemoveFileDescriptorWatch(pipe.read_fd.get());
+  task_runner.RemoveFileDescriptorWatch(pipe.rd.get());
   task_runner.PostDelayedTask([&task_runner] { task_runner.Quit(); }, 10);
   task_runner.Run();
 
@@ -161,13 +159,13 @@ TYPED_TEST(TaskRunnerTest, RemoveFileDescriptorWatch) {
 
 TYPED_TEST(TaskRunnerTest, RemoveFileDescriptorWatchFromTask) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
 
   bool watch_ran = false;
   task_runner.PostTask([&task_runner, &pipe] {
-    task_runner.RemoveFileDescriptorWatch(pipe.read_fd.get());
+    task_runner.RemoveFileDescriptorWatch(pipe.rd.get());
   });
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&watch_ran] { watch_ran = true; });
   task_runner.PostDelayedTask([&task_runner] { task_runner.Quit(); }, 10);
   task_runner.Run();
@@ -177,30 +175,30 @@ TYPED_TEST(TaskRunnerTest, RemoveFileDescriptorWatchFromTask) {
 
 TYPED_TEST(TaskRunnerTest, AddFileDescriptorWatchFromAnotherWatch) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
-  Pipe pipe2;
+  TestPipe pipe;
+  TestPipe pipe2;
 
   task_runner.AddFileDescriptorWatch(
-      pipe.read_fd.get(), [&task_runner, &pipe, &pipe2] {
+      pipe.rd.get(), [&task_runner, &pipe, &pipe2] {
         pipe.Read();
         task_runner.AddFileDescriptorWatch(
-            pipe2.read_fd.get(), [&task_runner] { task_runner.Quit(); });
+            pipe2.rd.get(), [&task_runner] { task_runner.Quit(); });
       });
   task_runner.Run();
 }
 
 TYPED_TEST(TaskRunnerTest, RemoveFileDescriptorWatchFromAnotherWatch) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
-  Pipe pipe2;
+  TestPipe pipe;
+  TestPipe pipe2;
 
   bool watch_ran = false;
   task_runner.AddFileDescriptorWatch(
-      pipe.read_fd.get(), [&task_runner, &pipe, &pipe2] {
+      pipe.rd.get(), [&task_runner, &pipe, &pipe2] {
         pipe.Read();
-        task_runner.RemoveFileDescriptorWatch(pipe2.read_fd.get());
+        task_runner.RemoveFileDescriptorWatch(pipe2.rd.get());
       });
-  task_runner.AddFileDescriptorWatch(pipe2.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe2.rd.get(),
                                      [&watch_ran] { watch_ran = true; });
   task_runner.PostDelayedTask([&task_runner] { task_runner.Quit(); }, 10);
   task_runner.Run();
@@ -210,17 +208,16 @@ TYPED_TEST(TaskRunnerTest, RemoveFileDescriptorWatchFromAnotherWatch) {
 
 TYPED_TEST(TaskRunnerTest, ReplaceFileDescriptorWatchFromAnotherWatch) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
-  Pipe pipe2;
+  TestPipe pipe;
+  TestPipe pipe2;
 
   bool watch_ran = false;
-  task_runner.AddFileDescriptorWatch(
-      pipe.read_fd.get(), [&task_runner, &pipe2] {
-        task_runner.RemoveFileDescriptorWatch(pipe2.read_fd.get());
-        task_runner.AddFileDescriptorWatch(
-            pipe2.read_fd.get(), [&task_runner] { task_runner.Quit(); });
-      });
-  task_runner.AddFileDescriptorWatch(pipe2.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(), [&task_runner, &pipe2] {
+    task_runner.RemoveFileDescriptorWatch(pipe2.rd.get());
+    task_runner.AddFileDescriptorWatch(pipe2.rd.get(),
+                                       [&task_runner] { task_runner.Quit(); });
+  });
+  task_runner.AddFileDescriptorWatch(pipe2.rd.get(),
                                      [&watch_ran] { watch_ran = true; });
   task_runner.Run();
 
@@ -229,10 +226,10 @@ TYPED_TEST(TaskRunnerTest, ReplaceFileDescriptorWatchFromAnotherWatch) {
 
 TYPED_TEST(TaskRunnerTest, AddFileDescriptorWatchFromAnotherThread) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
 
   std::thread thread([&task_runner, &pipe] {
-    task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+    task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                        [&task_runner] { task_runner.Quit(); });
   });
   task_runner.Run();
@@ -241,10 +238,10 @@ TYPED_TEST(TaskRunnerTest, AddFileDescriptorWatchFromAnotherThread) {
 
 TYPED_TEST(TaskRunnerTest, FileDescriptorWatchWithMultipleEvents) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
 
   int event_count = 0;
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&task_runner, &pipe, &event_count] {
                                        if (++event_count == 3) {
                                          task_runner.Quit();
@@ -259,13 +256,9 @@ TYPED_TEST(TaskRunnerTest, FileDescriptorWatchWithMultipleEvents) {
 
 TYPED_TEST(TaskRunnerTest, FileDescriptorClosedEvent) {
   auto& task_runner = this->task_runner;
-  int pipe_fds[2];
-  PERFETTO_DCHECK(pipe(pipe_fds) == 0);
-  ScopedFile read_fd(pipe_fds[0]);
-  ScopedFile write_fd(pipe_fds[1]);
-
-  write_fd.reset();
-  task_runner.AddFileDescriptorWatch(read_fd.get(),
+  TestPipe pipe;
+  pipe.wr.reset();
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&task_runner] { task_runner.Quit(); });
   task_runner.Run();
 }
@@ -303,9 +296,9 @@ void RepeatingTask(TaskRunner* task_runner) {
 
 TYPED_TEST(TaskRunnerTest, FileDescriptorWatchesNotStarved) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
   task_runner.PostTask(std::bind(&RepeatingTask<TypeParam>, &task_runner));
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&task_runner] { task_runner.Quit(); });
   task_runner.Run();
 }
@@ -322,15 +315,14 @@ void CountdownTask(TaskRunner* task_runner, int* counter) {
 
 TYPED_TEST(TaskRunnerTest, NoDuplicateFileDescriptorWatchCallbacks) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
   bool watch_called = 0;
   int counter = 10;
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
-                                     [&pipe, &watch_called] {
-                                       ASSERT_FALSE(watch_called);
-                                       pipe.Read();
-                                       watch_called = true;
-                                     });
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(), [&pipe, &watch_called] {
+    ASSERT_FALSE(watch_called);
+    pipe.Read();
+    watch_called = true;
+  });
   task_runner.PostTask(
       std::bind(&CountdownTask<TypeParam>, &task_runner, &counter));
   task_runner.Run();
@@ -338,16 +330,16 @@ TYPED_TEST(TaskRunnerTest, NoDuplicateFileDescriptorWatchCallbacks) {
 
 TYPED_TEST(TaskRunnerTest, ReplaceFileDescriptorWatchFromOtherThread) {
   auto& task_runner = this->task_runner;
-  Pipe pipe;
+  TestPipe pipe;
 
   // The two watch tasks here race each other. We don't particularly care which
   // wins as long as one of them runs.
-  task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+  task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                      [&task_runner] { task_runner.Quit(); });
 
   std::thread thread([&task_runner, &pipe] {
-    task_runner.RemoveFileDescriptorWatch(pipe.read_fd.get());
-    task_runner.AddFileDescriptorWatch(pipe.read_fd.get(),
+    task_runner.RemoveFileDescriptorWatch(pipe.rd.get());
+    task_runner.AddFileDescriptorWatch(pipe.rd.get(),
                                        [&task_runner] { task_runner.Quit(); });
   });
 

@@ -47,10 +47,24 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
   void HandleLoginError(const std::string& error_msg,
                         const base::string16& email);
 
+  // Calls the javascript function 'sendLSTFetchResults' with the given
+  // base::Value result. This value will be passed to another
+  // WebUiMessageHandler which needs to handle the 'lstFetchResults' message
+  // with a single argument that is the dictionary of values relevant for the
+  // sign in of the user.
+  void SendLSTFetchResultsMessage(const base::Value& arg);
+
  private:
   // InlineLoginHandler overrides:
   void SetExtraInitParams(base::DictionaryValue& params) override;
-  void CompleteLogin(const base::ListValue* args) override;
+  void CompleteLogin(const std::string& email,
+                     const std::string& password,
+                     const std::string& gaia_id,
+                     const std::string& auth_code,
+                     bool skip_for_now,
+                     bool trusted,
+                     bool trusted_found,
+                     bool choose_what_to_sync) override;
 
   // This struct exists to pass paramters to the FinishCompleteLogin() method,
   // since the base::Bind() call does not support this many template args.
@@ -64,7 +78,6 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
                               const std::string& email,
                               const std::string& gaia_id,
                               const std::string& password,
-                              const std::string& session_index,
                               const std::string& auth_code,
                               bool choose_what_to_sync,
                               bool is_force_sign_in_with_usermanager);
@@ -89,9 +102,6 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
     std::string gaia_id;
     // Password of the account used to sign in.
     std::string password;
-    // Index within gaia cookie of the account used to sign in.  Used only
-    // with password combined signin flow.
-    std::string session_index;
     // Authentication code used to exchange for a login scoped refresh token
     // for the account used to sign in.  Used only with password separated
     // signin flow.
@@ -120,7 +130,7 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
   DISALLOW_COPY_AND_ASSIGN(InlineLoginHandlerImpl);
 };
 
-// Handles details of signing the user in with SigninManager and turning on
+// Handles details of signing the user in with IdentityManager and turning on
 // sync after InlineLoginHandlerImpl has acquired the auth tokens from GAIA.
 // This is a separate class from InlineLoginHandlerImpl because the full signin
 // process is asynchronous and can outlive the signin UI.
@@ -136,10 +146,8 @@ class InlineSigninHelper : public GaiaAuthConsumer {
       const std::string& email,
       const std::string& gaia_id,
       const std::string& password,
-      const std::string& session_index,
       const std::string& auth_code,
       const std::string& signin_scoped_device_id,
-      bool choose_what_to_sync,
       bool confirm_untrusted_signin,
       bool is_force_sign_in_with_usermanager);
   ~InlineSigninHelper() override;
@@ -152,17 +160,12 @@ class InlineSigninHelper : public GaiaAuthConsumer {
   // the last signed in email of the current profile, then Chrome will show a
   // confirmation dialog before starting sync. It returns true if there is a
   // cross account error, and false otherwise.
-  bool HandleCrossAccountError(
-      const std::string& refresh_token,
-      OneClickSigninSyncStarter::ConfirmationRequired confirmation_required,
-      OneClickSigninSyncStarter::StartSyncMode start_mode);
+  bool HandleCrossAccountError(const std::string& refresh_token);
 
   // Callback used with ConfirmEmailDialogDelegate.
   void ConfirmEmailAction(
       content::WebContents* web_contents,
       const std::string& refresh_token,
-      OneClickSigninSyncStarter::ConfirmationRequired confirmation_required,
-      OneClickSigninSyncStarter::StartSyncMode start_mode,
       SigninEmailConfirmationDialog::Action action);
 
   // Overridden from GaiaAuthConsumer.
@@ -174,15 +177,18 @@ class InlineSigninHelper : public GaiaAuthConsumer {
                                             Profile* profile,
                                             Profile::CreateStatus status);
 
+  // Callback invoked once the user has responded to the signin confirmation UI.
+  // If confirmed is false, the signin is aborted.
+  void UntrustedSigninConfirmed(const std::string& refresh_token,
+                                bool confirmed);
+
   // Creates the sync starter.  Virtual for tests. Call to exchange oauth code
   // for tokens.
   virtual void CreateSyncStarter(
       Browser* browser,
       const GURL& current_url,
       const std::string& refresh_token,
-      OneClickSigninSyncStarter::ProfileMode profile_mode,
-      OneClickSigninSyncStarter::StartSyncMode start_mode,
-      OneClickSigninSyncStarter::ConfirmationRequired confirmation_required);
+      OneClickSigninSyncStarter::ProfileMode profile_mode);
 
   GaiaAuthFetcher gaia_auth_fetcher_;
   base::WeakPtr<InlineLoginHandlerImpl> handler_;
@@ -192,9 +198,7 @@ class InlineSigninHelper : public GaiaAuthConsumer {
   std::string email_;
   std::string gaia_id_;
   std::string password_;
-  std::string session_index_;
   std::string auth_code_;
-  bool choose_what_to_sync_;
   bool confirm_untrusted_signin_;
   bool is_force_sign_in_with_usermanager_;
 

@@ -94,6 +94,8 @@ class MimeHandlerViewGuest
   void SetBeforeUnloadController(
       mime_handler::BeforeUnloadControlPtrInfo pending_before_unload_control);
 
+  content::RenderFrameHost* GetEmbedderFrame() const;
+
  protected:
   explicit MimeHandlerViewGuest(content::WebContents* owner_web_contents);
   ~MimeHandlerViewGuest() override;

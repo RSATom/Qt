@@ -11,8 +11,9 @@
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/test/fake_vr_device.h"
 #include "device/vr/test/fake_vr_service_client.h"
-#include "device/vr/test/mock_vr_display_impl.h"
 #include "device/vr/vr_device_base.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace device {
@@ -21,7 +22,7 @@ namespace {
 
 class VRDeviceBaseForTesting : public VRDeviceBase {
  public:
-  VRDeviceBaseForTesting() : VRDeviceBase(VRDeviceId::FAKE_DEVICE_ID) {}
+  VRDeviceBaseForTesting() : VRDeviceBase(mojom::XRDeviceId::FAKE_DEVICE_ID) {}
   ~VRDeviceBaseForTesting() override = default;
 
   void SetVRDisplayInfoForTest(mojom::VRDisplayInfoPtr display_info) {
@@ -35,7 +36,7 @@ class VRDeviceBaseForTesting : public VRDeviceBase {
   bool ListeningForActivate() { return listening_for_activate; }
 
   void RequestSession(
-      mojom::XRDeviceRuntimeSessionOptionsPtr options,
+      mojom::XRRuntimeSessionOptionsPtr options,
       mojom::XRRuntime::RequestSessionCallback callback) override {}
 
  private:
@@ -72,14 +73,15 @@ class StubVRDeviceEventListener : public mojom::XRRuntimeEventListener {
   MOCK_METHOD0(OnBlur, void());
   MOCK_METHOD0(OnFocus, void());
   MOCK_METHOD1(OnDeviceIdle, void(mojom::VRDisplayEventReason));
+  MOCK_METHOD0(OnInitialized, void());
 
-  mojom::XRRuntimeEventListenerPtr BindPtr() {
-    mojom::XRRuntimeEventListenerPtr ret;
+  mojom::XRRuntimeEventListenerAssociatedPtrInfo BindPtrInfo() {
+    mojom::XRRuntimeEventListenerAssociatedPtrInfo ret;
     binding_.Bind(mojo::MakeRequest(&ret));
     return ret;
   }
 
-  mojo::Binding<mojom::XRRuntimeEventListener> binding_;
+  mojo::AssociatedBinding<mojom::XRRuntimeEventListener> binding_;
 };
 
 }  // namespace
@@ -95,14 +97,6 @@ class VRDeviceTest : public testing::Test {
     client_ = std::make_unique<FakeVRServiceClient>(mojo::MakeRequest(&proxy));
   }
 
-  std::unique_ptr<MockVRDisplayImpl> MakeMockDisplay(VRDeviceBase* device) {
-    mojom::VRMagicWindowProviderPtr session;
-    mojom::XRSessionControllerPtr controller;
-    return std::make_unique<testing::NiceMock<MockVRDisplayImpl>>(
-        device, mojo::MakeRequest(&session), mojo::MakeRequest(&controller),
-        false);
-  }
-
   std::unique_ptr<VRDeviceBaseForTesting> MakeVRDevice() {
     std::unique_ptr<VRDeviceBaseForTesting> device =
         std::make_unique<VRDeviceBaseForTesting>();
@@ -110,9 +104,9 @@ class VRDeviceTest : public testing::Test {
     return device;
   }
 
-  mojom::VRDisplayInfoPtr MakeVRDisplayInfo(unsigned int device_id) {
+  mojom::VRDisplayInfoPtr MakeVRDisplayInfo(mojom::XRDeviceId device_id) {
     mojom::VRDisplayInfoPtr display_info = mojom::VRDisplayInfo::New();
-    display_info->index = device_id;
+    display_info->id = device_id;
     display_info->capabilities = mojom::VRDisplayCapabilities::New();
     return display_info;
   }
@@ -130,10 +124,12 @@ class VRDeviceTest : public testing::Test {
 // will receive the "vrdevicechanged" event.
 TEST_F(VRDeviceTest, DeviceChangedDispatched) {
   auto device = MakeVRDevice();
+  auto device_ptr = device->BindXRRuntimePtr();
   StubVRDeviceEventListener listener;
-  device->ListenToDeviceChanges(
-      listener.BindPtr(),
+  device_ptr->ListenToDeviceChanges(
+      listener.BindPtrInfo(),
       base::DoNothing());  // TODO: consider getting initial info
+  base::RunLoop().RunUntilIdle();
   EXPECT_CALL(listener, DoOnChanged(testing::_)).Times(1);
   device->SetVRDisplayInfoForTest(MakeVRDisplayInfo(device->GetId()));
   base::RunLoop().RunUntilIdle();
@@ -143,10 +139,12 @@ TEST_F(VRDeviceTest, DisplayActivateRegsitered) {
   device::mojom::VRDisplayEventReason mounted =
       device::mojom::VRDisplayEventReason::MOUNTED;
   auto device = MakeVRDevice();
+  auto device_ptr = device->BindXRRuntimePtr();
   StubVRDeviceEventListener listener;
-  device->ListenToDeviceChanges(
-      listener.BindPtr(),
+  device_ptr->ListenToDeviceChanges(
+      listener.BindPtrInfo(),
       base::DoNothing());  // TODO: consider getting initial data
+  base::RunLoop().RunUntilIdle();
 
   EXPECT_FALSE(device->ListeningForActivate());
   device->SetListeningForActivate(true);
@@ -158,13 +156,14 @@ TEST_F(VRDeviceTest, DisplayActivateRegsitered) {
 }
 
 TEST_F(VRDeviceTest, NoMagicWindowPosesWhileBrowsing) {
-  auto device = std::make_unique<FakeVRDevice>(1);
+  auto device =
+      std::make_unique<FakeVRDevice>(static_cast<device::mojom::XRDeviceId>(1));
   device->SetPose(mojom::VRPose::New());
 
-  device->GetFrameData(base::BindOnce(
+  device->GetInlineFrameData(base::BindOnce(
       [](device::mojom::XRFrameDataPtr data) { EXPECT_TRUE(data); }));
-  device->SetMagicWindowEnabled(false);
-  device->GetFrameData(base::BindOnce(
+  device->SetInlinePosesEnabled(false);
+  device->GetInlineFrameData(base::BindOnce(
       [](device::mojom::XRFrameDataPtr data) { EXPECT_FALSE(data); }));
 }
 

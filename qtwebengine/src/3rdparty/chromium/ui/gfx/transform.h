@@ -11,7 +11,7 @@
 #include "base/compiler_specific.h"
 #include "third_party/skia/include/core/SkMatrix44.h"
 #include "ui/gfx/geometry/vector2d_f.h"
-#include "ui/gfx/gfx_export.h"
+#include "ui/gfx/geometry_skia_export.h"
 
 namespace gfx {
 
@@ -25,14 +25,14 @@ class Vector3dF;
 
 // 4x4 transformation matrix. Transform is cheap and explicitly allows
 // copy/assign.
-class GFX_EXPORT Transform {
+class GEOMETRY_SKIA_EXPORT Transform {
  public:
 
   enum SkipInitialization {
     kSkipInitialization
   };
 
-  Transform() : matrix_(SkMatrix44::kIdentity_Constructor) {}
+  constexpr Transform() : matrix_(SkMatrix44::kIdentity_Constructor) {}
 
   // Skips initializing this matrix to avoid overhead, when we know it will be
   // initialized before use.

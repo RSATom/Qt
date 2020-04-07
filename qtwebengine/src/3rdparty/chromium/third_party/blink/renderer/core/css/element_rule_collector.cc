@@ -84,7 +84,7 @@ void ElementRuleCollector::ClearMatchedRules() {
 
 inline StyleRuleList* ElementRuleCollector::EnsureStyleRuleList() {
   if (!style_rule_list_)
-    style_rule_list_ = new StyleRuleList();
+    style_rule_list_ = MakeGarbageCollected<StyleRuleList>();
   return style_rule_list_;
 }
 
@@ -115,7 +115,7 @@ static bool RulesApplicableInCurrentTreeScope(
 template <typename RuleDataListType>
 void ElementRuleCollector::CollectMatchingRulesForList(
     const RuleDataListType* rules,
-    CascadeOrder cascade_order,
+    ShadowV0CascadeOrder cascade_order,
     const MatchRequest& match_request,
     PartNames* part_names) {
   if (!rules)
@@ -141,17 +141,17 @@ void ElementRuleCollector::CollectMatchingRulesForList(
   for (const auto& rule_data : *rules) {
     if (can_use_fast_reject_ &&
         selector_filter_.FastRejectSelector<RuleData::kMaximumIdentifierCount>(
-            rule_data.DescendantSelectorIdentifierHashes())) {
+            rule_data->DescendantSelectorIdentifierHashes())) {
       fast_rejected++;
       continue;
     }
 
     // Don't return cross-origin rules if we did not explicitly ask for them
     // through SetSameOriginOnly.
-    if (same_origin_only_ && !rule_data.HasDocumentSecurityOrigin())
+    if (same_origin_only_ && !rule_data->HasDocumentSecurityOrigin())
       continue;
 
-    StyleRule* rule = rule_data.Rule();
+    StyleRule* rule = rule_data->Rule();
 
     // If the rule has no properties to apply, then ignore it in the non-debug
     // mode.
@@ -159,7 +159,7 @@ void ElementRuleCollector::CollectMatchingRulesForList(
       continue;
 
     SelectorChecker::MatchResult result;
-    context.selector = &rule_data.Selector();
+    context.selector = &rule_data->Selector();
     if (!checker.Match(context, result)) {
       rejected++;
       continue;
@@ -188,7 +188,7 @@ void ElementRuleCollector::CollectMatchingRulesForList(
 DISABLE_CFI_PERF
 void ElementRuleCollector::CollectMatchingRules(
     const MatchRequest& match_request,
-    CascadeOrder cascade_order,
+    ShadowV0CascadeOrder cascade_order,
     bool matching_tree_boundary_rules) {
   DCHECK(match_request.rule_set);
   DCHECK(context_.GetElement());
@@ -223,7 +223,7 @@ void ElementRuleCollector::CollectMatchingRules(
         match_request.rule_set->IdRules(element.IdForStyleResolution()),
         cascade_order, match_request);
   if (element.IsStyledElement() && element.HasClass()) {
-    for (size_t i = 0; i < element.ClassNames().size(); ++i)
+    for (wtf_size_t i = 0; i < element.ClassNames().size(); ++i)
       CollectMatchingRulesForList(
           match_request.rule_set->ClassRules(element.ClassNames()[i]),
           cascade_order, match_request);
@@ -235,16 +235,23 @@ void ElementRuleCollector::CollectMatchingRules(
   if (SelectorChecker::MatchesFocusPseudoClass(element))
     CollectMatchingRulesForList(match_request.rule_set->FocusPseudoClassRules(),
                                 cascade_order, match_request);
-  CollectMatchingRulesForList(
-      match_request.rule_set->TagRules(element.LocalNameForSelectorMatching()),
-      cascade_order, match_request);
+  if (SelectorChecker::MatchesSpatialNavigationFocusPseudoClass(element)) {
+    CollectMatchingRulesForList(
+        match_request.rule_set->SpatialNavigationFocusPseudoClassRules(),
+        cascade_order, match_request);
+  }
+  AtomicString element_name = matching_ua_rules_
+                                  ? element.localName()
+                                  : element.LocalNameForSelectorMatching();
+  CollectMatchingRulesForList(match_request.rule_set->TagRules(element_name),
+                              cascade_order, match_request);
   CollectMatchingRulesForList(match_request.rule_set->UniversalRules(),
                               cascade_order, match_request);
 }
 
 void ElementRuleCollector::CollectMatchingShadowHostRules(
     const MatchRequest& match_request,
-    CascadeOrder cascade_order) {
+    ShadowV0CascadeOrder cascade_order) {
   CollectMatchingRulesForList(match_request.rule_set->ShadowHostRules(),
                               cascade_order, match_request);
 }
@@ -252,7 +259,7 @@ void ElementRuleCollector::CollectMatchingShadowHostRules(
 void ElementRuleCollector::CollectMatchingPartPseudoRules(
     const MatchRequest& match_request,
     PartNames& part_names,
-    CascadeOrder cascade_order) {
+    ShadowV0CascadeOrder cascade_order) {
   if (!RuntimeEnabledFeatures::CSSPartPseudoElementEnabled())
     return;
   CollectMatchingRulesForList(match_request.rule_set->PartPseudoRules(),
@@ -328,9 +335,9 @@ void ElementRuleCollector::SortAndTransferMatchedRules() {
 }
 
 void ElementRuleCollector::DidMatchRule(
-    const RuleData& rule_data,
+    const RuleData* rule_data,
     const SelectorChecker::MatchResult& result,
-    CascadeOrder cascade_order,
+    ShadowV0CascadeOrder cascade_order,
     const MatchRequest& match_request) {
   PseudoId dynamic_pseudo = result.dynamic_pseudo;
   // If we're matching normal rules, set a pseudo bit if we really just matched
@@ -345,12 +352,12 @@ void ElementRuleCollector::DidMatchRule(
       return;
     if ((dynamic_pseudo == kPseudoIdBefore ||
          dynamic_pseudo == kPseudoIdAfter) &&
-        !rule_data.Rule()->Properties().HasProperty(CSSPropertyContent))
+        !rule_data->Rule()->Properties().HasProperty(CSSPropertyContent))
       return;
     style_->SetHasPseudoStyle(dynamic_pseudo);
   } else {
     matched_rules_.push_back(MatchedRule(
-        &rule_data, result.specificity, cascade_order,
+        rule_data, result.specificity, cascade_order,
         match_request.style_sheet_index, match_request.style_sheet));
   }
 }

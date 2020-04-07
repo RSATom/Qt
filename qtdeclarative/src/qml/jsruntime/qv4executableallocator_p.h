@@ -86,6 +86,7 @@ public:
             , free(true)
         {}
 
+        void *exceptionHandler() const;
         void *start() const;
         void invalidate() { addr = 0; }
         bool isValid() const { return addr != 0; }

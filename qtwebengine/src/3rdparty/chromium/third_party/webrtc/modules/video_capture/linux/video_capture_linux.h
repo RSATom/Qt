@@ -11,11 +11,14 @@
 #ifndef MODULES_VIDEO_CAPTURE_MAIN_SOURCE_LINUX_VIDEO_CAPTURE_LINUX_H_
 #define MODULES_VIDEO_CAPTURE_MAIN_SOURCE_LINUX_VIDEO_CAPTURE_LINUX_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
 
 #include "common_types.h"  // NOLINT(build/include)
+#include "modules/video_capture/video_capture_defines.h"
 #include "modules/video_capture/video_capture_impl.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/platform_thread.h"
 
 namespace webrtc {
@@ -23,12 +26,12 @@ namespace videocapturemodule {
 class VideoCaptureModuleV4L2 : public VideoCaptureImpl {
  public:
   VideoCaptureModuleV4L2();
-  virtual ~VideoCaptureModuleV4L2();
-  virtual int32_t Init(const char* deviceUniqueId);
-  virtual int32_t StartCapture(const VideoCaptureCapability& capability);
-  virtual int32_t StopCapture();
-  virtual bool CaptureStarted();
-  virtual int32_t CaptureSettings(VideoCaptureCapability& settings);
+  ~VideoCaptureModuleV4L2() override;
+  int32_t Init(const char* deviceUniqueId);
+  int32_t StartCapture(const VideoCaptureCapability& capability) override;
+  int32_t StopCapture() override;
+  bool CaptureStarted() override;
+  int32_t CaptureSettings(VideoCaptureCapability& settings) override;
 
  private:
   enum { kNoOfV4L2Bufffers = 4 };

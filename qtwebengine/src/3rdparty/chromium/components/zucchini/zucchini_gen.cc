@@ -147,8 +147,8 @@ bool GenerateRawDelta(ConstBufferView old_image,
         int num_bytes = reference_bytes_mixer->NumBytes(type_tag.value());
         if (num_bytes) {
           ConstBufferView mixed_ref_bytes = reference_bytes_mixer->Mix(
-              type_tag.value(), old_image.begin(), equivalence.src_offset + i,
-              new_image.begin(), equivalence.dst_offset + i);
+              type_tag.value(), old_image, equivalence.src_offset + i,
+              new_image, equivalence.dst_offset + i);
           for (int j = 0; j < num_bytes; ++j) {
             int8_t diff =
                 mixed_ref_bytes[j] - old_image[equivalence.src_offset + i + j];
@@ -202,21 +202,19 @@ bool GenerateReferencesDelta(const ReferenceSet& src_refs,
         equiv.src_offset + (dst_ref->location - equiv.dst_offset);
     auto src_ref = std::lower_bound(
         src_refs.begin(), src_refs.end(), src_loc,
-        [](const IndirectReference& a, offset_t b) { return a.location < b; });
+        [](const Reference& a, offset_t b) { return a.location < b; });
     for (; dst_ref != dst_refs.end() &&
            dst_ref->location + ref_width <= equiv.dst_end();
          ++dst_ref, ++src_ref) {
       // Local offset of |src_ref| should match that of |dst_ref|.
       DCHECK_EQ(src_ref->location - equiv.src_offset,
                 dst_ref->location - equiv.dst_offset);
-      offset_t old_offset =
-          src_refs.target_pool().OffsetForKey(src_ref->target_key);
+      offset_t old_offset = src_ref->target;
       offset_t new_estimated_offset =
           offset_mapper.ExtendedForwardProject(old_offset);
       offset_t new_estimated_key =
           projected_target_pool.KeyForNearestOffset(new_estimated_offset);
-      offset_t new_offset =
-          dst_refs.target_pool().OffsetForKey(dst_ref->target_key);
+      offset_t new_offset = dst_ref->target;
       offset_t new_key = projected_target_pool.KeyForOffset(new_offset);
 
       reference_delta_sink->PutNext(
@@ -289,7 +287,9 @@ bool GenerateExecutableElement(ExecutableType exe_type,
   EquivalenceMap equivalences =
       CreateEquivalenceMap(old_image_index, new_image_index,
                            new_disasm->num_equivalence_iterations());
-  OffsetMapper offset_mapper(equivalences, old_image.size(), new_image.size());
+  OffsetMapper offset_mapper(equivalences,
+                             base::checked_cast<offset_t>(old_image.size()),
+                             base::checked_cast<offset_t>(new_image.size()));
 
   ReferenceDeltaSink reference_delta_sink;
   for (const auto& old_targets : old_image_index.target_pools()) {

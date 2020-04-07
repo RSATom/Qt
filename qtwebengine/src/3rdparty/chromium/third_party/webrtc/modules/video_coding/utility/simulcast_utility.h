@@ -11,7 +11,9 @@
 #ifndef MODULES_VIDEO_CODING_UTILITY_SIMULCAST_UTILITY_H_
 #define MODULES_VIDEO_CODING_UTILITY_SIMULCAST_UTILITY_H_
 
-#include "api/video_codecs/video_encoder.h"
+#include <stdint.h>
+
+#include "api/video_codecs/video_codec.h"
 
 namespace webrtc {
 
@@ -23,6 +25,9 @@ class SimulcastUtility {
                                         int num_streams);
   static bool ValidSimulcastTemporalLayers(const VideoCodec& codec,
                                            int num_streams);
+  static int NumberOfTemporalLayers(const VideoCodec& codec, int spatial_id);
+  // TODO(sprang): Remove this hack when ScreenshareLayers is gone.
+  static bool IsConferenceModeScreenshare(const VideoCodec& codec);
 };
 
 }  // namespace webrtc

@@ -33,7 +33,9 @@ size_t GetPacketHeaderSize(
       // Long header.
       return kPacketHeaderTypeSize + kConnectionIdLengthSize +
              destination_connection_id_length + source_connection_id_length +
-             PACKET_4BYTE_PACKET_NUMBER + kQuicVersionSize +
+             (version == QUIC_VERSION_99 ? packet_number_length
+                                         : PACKET_4BYTE_PACKET_NUMBER) +
+             kQuicVersionSize +
              (include_diversification_nonce ? kDiversificationNonceSize : 0);
     }
     // Short header.
@@ -64,18 +66,19 @@ size_t GetStartOfEncryptedData(
 }
 
 QuicPacketHeader::QuicPacketHeader()
-    : destination_connection_id(0),
+    : destination_connection_id(EmptyQuicConnectionId()),
       destination_connection_id_length(PACKET_8BYTE_CONNECTION_ID),
-      source_connection_id(0),
+      source_connection_id(EmptyQuicConnectionId()),
       source_connection_id_length(PACKET_0BYTE_CONNECTION_ID),
       reset_flag(false),
       version_flag(false),
+      has_possible_stateless_reset_token(false),
       packet_number_length(PACKET_4BYTE_PACKET_NUMBER),
       version(
           ParsedQuicVersion(PROTOCOL_UNSUPPORTED, QUIC_VERSION_UNSUPPORTED)),
       nonce(nullptr),
-      packet_number(0),
-      form(LONG_HEADER),
+      packet_number(kInvalidPacketNumber),
+      form(GOOGLE_QUIC_PACKET),
       long_packet_type(INITIAL),
       possible_stateless_reset_token(0) {}
 
@@ -84,13 +87,13 @@ QuicPacketHeader::QuicPacketHeader(const QuicPacketHeader& other) = default;
 QuicPacketHeader::~QuicPacketHeader() {}
 
 QuicPublicResetPacket::QuicPublicResetPacket()
-    : connection_id(0), nonce_proof(0) {}
+    : connection_id(EmptyQuicConnectionId()), nonce_proof(0) {}
 
 QuicPublicResetPacket::QuicPublicResetPacket(QuicConnectionId connection_id)
     : connection_id(connection_id), nonce_proof(0) {}
 
 QuicVersionNegotiationPacket::QuicVersionNegotiationPacket()
-    : connection_id(0) {}
+    : connection_id(EmptyQuicConnectionId()) {}
 
 QuicVersionNegotiationPacket::QuicVersionNegotiationPacket(
     QuicConnectionId connection_id)
@@ -185,17 +188,21 @@ std::ostream& operator<<(std::ostream& os, const QuicEncryptedPacket& s) {
 QuicReceivedPacket::QuicReceivedPacket(const char* buffer,
                                        size_t length,
                                        QuicTime receipt_time)
-    : QuicEncryptedPacket(buffer, length),
-      receipt_time_(receipt_time),
-      ttl_(0) {}
+    : QuicReceivedPacket(buffer,
+                         length,
+                         receipt_time,
+                         false /* owns_buffer */) {}
 
 QuicReceivedPacket::QuicReceivedPacket(const char* buffer,
                                        size_t length,
                                        QuicTime receipt_time,
                                        bool owns_buffer)
-    : QuicEncryptedPacket(buffer, length, owns_buffer),
-      receipt_time_(receipt_time),
-      ttl_(0) {}
+    : QuicReceivedPacket(buffer,
+                         length,
+                         receipt_time,
+                         owns_buffer,
+                         0 /* ttl */,
+                         true /* ttl_valid */) {}
 
 QuicReceivedPacket::QuicReceivedPacket(const char* buffer,
                                        size_t length,
@@ -203,13 +210,49 @@ QuicReceivedPacket::QuicReceivedPacket(const char* buffer,
                                        bool owns_buffer,
                                        int ttl,
                                        bool ttl_valid)
+    : quic::QuicReceivedPacket(buffer,
+                               length,
+                               receipt_time,
+                               owns_buffer,
+                               ttl,
+                               ttl_valid,
+                               nullptr /* packet_headers */,
+                               0 /* headers_length */,
+                               false /* owns_header_buffer */) {}
+
+QuicReceivedPacket::QuicReceivedPacket(const char* buffer,
+                                       size_t length,
+                                       QuicTime receipt_time,
+                                       bool owns_buffer,
+                                       int ttl,
+                                       bool ttl_valid,
+                                       char* packet_headers,
+                                       size_t headers_length,
+                                       bool owns_header_buffer)
     : QuicEncryptedPacket(buffer, length, owns_buffer),
       receipt_time_(receipt_time),
-      ttl_(ttl_valid ? ttl : -1) {}
+      ttl_(ttl_valid ? ttl : -1),
+      packet_headers_(packet_headers),
+      headers_length_(headers_length),
+      owns_header_buffer_(owns_header_buffer) {}
+
+QuicReceivedPacket::~QuicReceivedPacket() {
+  if (owns_header_buffer_) {
+    delete[] static_cast<char*>(packet_headers_);
+  }
+}
 
 std::unique_ptr<QuicReceivedPacket> QuicReceivedPacket::Clone() const {
   char* buffer = new char[this->length()];
   memcpy(buffer, this->data(), this->length());
+  if (this->packet_headers()) {
+    char* headers_buffer = new char[this->headers_length()];
+    memcpy(headers_buffer, this->packet_headers(), this->headers_length());
+    return QuicMakeUnique<QuicReceivedPacket>(
+        buffer, this->length(), receipt_time(), true, ttl(), ttl() >= 0,
+        headers_buffer, this->headers_length(), true);
+  }
+
   return QuicMakeUnique<QuicReceivedPacket>(
       buffer, this->length(), receipt_time(), true, ttl(), ttl() >= 0);
 }
@@ -252,8 +295,8 @@ SerializedPacket::SerializedPacket(QuicPacketNumber packet_number,
       has_ack(has_ack),
       has_stop_waiting(has_stop_waiting),
       transmission_type(NOT_RETRANSMISSION),
-      original_packet_number(0),
-      largest_acked(0) {}
+      original_packet_number(kInvalidPacketNumber),
+      largest_acked(kInvalidPacketNumber) {}
 
 SerializedPacket::SerializedPacket(const SerializedPacket& other) = default;
 
@@ -284,7 +327,7 @@ void ClearSerializedPacket(SerializedPacket* serialized_packet) {
   }
   serialized_packet->encrypted_buffer = nullptr;
   serialized_packet->encrypted_length = 0;
-  serialized_packet->largest_acked = 0;
+  serialized_packet->largest_acked = kInvalidPacketNumber;
 }
 
 char* CopyBuffer(const SerializedPacket& packet) {

@@ -25,6 +25,8 @@ class QuicDataReader;
 class QUIC_EXPORT_PRIVATE NullDecrypter : public QuicDecrypter {
  public:
   explicit NullDecrypter(Perspective perspective);
+  NullDecrypter(const NullDecrypter&) = delete;
+  NullDecrypter& operator=(const NullDecrypter&) = delete;
   ~NullDecrypter() override {}
 
   // QuicDecrypter implementation
@@ -34,7 +36,7 @@ class QUIC_EXPORT_PRIVATE NullDecrypter : public QuicDecrypter {
   bool SetPreliminaryKey(QuicStringPiece key) override;
   bool SetDiversificationNonce(const DiversificationNonce& nonce) override;
   bool DecryptPacket(QuicTransportVersion version,
-                     QuicPacketNumber packet_number,
+                     uint64_t packet_number,
                      QuicStringPiece associated_data,
                      QuicStringPiece ciphertext,
                      char* output,
@@ -54,8 +56,6 @@ class QUIC_EXPORT_PRIVATE NullDecrypter : public QuicDecrypter {
                           QuicStringPiece data2) const;
 
   Perspective perspective_;
-
-  DISALLOW_COPY_AND_ASSIGN(NullDecrypter);
 };
 
 }  // namespace quic

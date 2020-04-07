@@ -4,4 +4,5 @@ QT += svg xml testlib widgets gui-private
 
 SOURCES += tst_qsvggenerator.cpp
 
-DEFINES += SRCDIR=\\\"$$PWD/\\\"
+RESOURCES += referenceSvgs/fileName_output.svg \
+             referenceSvgs/radial_gradient.svg

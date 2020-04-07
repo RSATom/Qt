@@ -11,35 +11,24 @@
 #ifndef RTC_BASE_TASK_QUEUE_H_
 #define RTC_BASE_TASK_QUEUE_H_
 
+#include <stdint.h>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
 #include "absl/memory/memory.h"
-#include "rtc_base/constructormagic.h"
+#include "api/task_queue/queued_task.h"
+#include "api/task_queue/task_queue_priority.h"
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/system/rtc_export.h"
 #include "rtc_base/thread_annotations.h"
 
 namespace rtc {
 
-// Base interface for asynchronously executed tasks.
-// The interface basically consists of a single function, Run(), that executes
-// on the target queue.  For more details see the Run() method and TaskQueue.
-class QueuedTask {
- public:
-  QueuedTask() {}
-  virtual ~QueuedTask() {}
-
-  // Main routine that will run when the task is executed on the desired queue.
-  // The task should return |true| to indicate that it should be deleted or
-  // |false| to indicate that the queue should consider ownership of the task
-  // having been transferred.  Returning |false| can be useful if a task has
-  // re-posted itself to a different queue or is otherwise being re-used.
-  virtual bool Run() = 0;
-
- private:
-  RTC_DISALLOW_COPY_AND_ASSIGN(QueuedTask);
-};
+// TODO(danilchap): Remove the alias when all of webrtc is updated to use
+// webrtc::QueuedTask directly.
+using ::webrtc::QueuedTask;
 
 // Simple implementation of QueuedTask for use with rtc::Bind and lambdas.
 template <class Closure>
@@ -150,15 +139,12 @@ static std::unique_ptr<QueuedTask> NewClosure(Closure&& closure,
 // TaskQueue itself has been deleted or it may happen synchronously while the
 // TaskQueue instance is being deleted.  This may vary from one OS to the next
 // so assumptions about lifetimes of pending tasks should not be made.
-class RTC_LOCKABLE TaskQueue {
+class RTC_LOCKABLE RTC_EXPORT TaskQueue {
  public:
   // TaskQueue priority levels. On some platforms these will map to thread
   // priorities, on others such as Mac and iOS, GCD queue priorities.
-  enum class Priority {
-    NORMAL = 0,
-    HIGH,
-    LOW,
-  };
+  using Priority = ::webrtc::TaskQueuePriority;
+  class Impl;
 
   explicit TaskQueue(const char* queue_name,
                      Priority priority = Priority::NORMAL);
@@ -173,11 +159,6 @@ class RTC_LOCKABLE TaskQueue {
 
   // Ownership of the task is passed to PostTask.
   void PostTask(std::unique_ptr<QueuedTask> task);
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                        std::unique_ptr<QueuedTask> reply,
-                        TaskQueue* reply_queue);
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                        std::unique_ptr<QueuedTask> reply);
 
   // Schedules a task to execute a specified number of milliseconds from when
   // the call is made. The precision should be considered as "best effort"
@@ -206,32 +187,15 @@ class RTC_LOCKABLE TaskQueue {
     PostDelayedTask(NewClosure(std::forward<Closure>(closure)), milliseconds);
   }
 
-  template <class Closure1, class Closure2>
-  void PostTaskAndReply(Closure1&& task,
-                        Closure2&& reply,
-                        TaskQueue* reply_queue) {
-    PostTaskAndReply(NewClosure(std::forward<Closure1>(task)),
-                     NewClosure(std::forward<Closure2>(reply)), reply_queue);
-  }
-
-  template <class Closure>
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task, Closure&& reply) {
-    PostTaskAndReply(std::move(task), NewClosure(std::forward<Closure>(reply)));
-  }
-
-  template <class Closure>
-  void PostTaskAndReply(Closure&& task, std::unique_ptr<QueuedTask> reply) {
-    PostTaskAndReply(NewClosure(std::forward<Closure>(task)), std::move(reply));
-  }
-
-  template <class Closure1, class Closure2>
-  void PostTaskAndReply(Closure1&& task, Closure2&& reply) {
-    PostTaskAndReply(NewClosure(std::forward(task)),
-                     NewClosure(std::forward(reply)));
-  }
-
  private:
-  class Impl;
+  // TODO(danilchap): Remove when external implementaions of TaskQueue remove
+  // these two functions.
+  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
+                        std::unique_ptr<QueuedTask> reply,
+                        TaskQueue* reply_queue);
+  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
+                        std::unique_ptr<QueuedTask> reply);
+
   const scoped_refptr<Impl> impl_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(TaskQueue);

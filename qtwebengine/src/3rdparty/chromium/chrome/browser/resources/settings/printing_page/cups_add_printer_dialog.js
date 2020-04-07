@@ -42,7 +42,6 @@ function getEmptyPrinter_() {
     ppdManufacturer: '',
     ppdModel: '',
     printerAddress: '',
-    printerAutoconf: false,
     printerDescription: '',
     printerId: '',
     printerManufacturer: '',
@@ -50,6 +49,12 @@ function getEmptyPrinter_() {
     printerMakeAndModel: '',
     printerName: '',
     printerPPDPath: '',
+    printerPpdReference: {
+      userSuppliedPpdUrl: '',
+      effectiveMakeAndModel: '',
+      autoconf: false,
+    },
+    printerPpdReferenceResolved: false,
     printerProtocol: 'ipp',
     printerQueue: '',
     printerStatus: '',
@@ -193,49 +198,13 @@ Polymer({
   },
 
   /**
-   * This function uses regular expressions to determine whether the provided
-   * printer address is valid. Address can be either an ipv4/6 address or a
-   * hostname followed by an optional port.
-   * NOTE: The regular expression for hostnames will allow hostnames that are
-   * over 255 characters.
-   * @param {String} name
-   * @param {String} address
+   * @param {string} name
+   * @param {string} address
    * @return {boolean} Whether the add printer button is enabled.
    * @private
    */
   canAddPrinter_: function(name, address) {
-    if (!name || !address)
-      return false;
-
-    const hostnamePrefix = '([a-z\\d]|[a-z\\d][a-z\\d\\-]{0,61}[a-z\\d])';
-
-    // Matches an arbitrary number of 'prefix patterns' which are separated by a
-    // dot.
-    const hostnameSuffix = `(\\.${hostnamePrefix})*`;
-
-    // Matches an optional port at the end of the address.
-    const portNumber = '(:\\d+)?';
-
-    const ipv6Full = '(([a-f\\d]){1,4}(:(:)?([a-f\\d]){1,4}){1,7})';
-
-    // Special cases for addresses using a shorthand notation.
-    const ipv6Prefix = '(::([a-f\\d]){1,4})';
-    const ipv6Suffix = '(([a-f\\d]){1,4}::)';
-    const ipv6Combined = `(${ipv6Full}|${ipv6Prefix}|${ipv6Suffix})`;
-    const ipv6WithPort = `(\\[${ipv6Combined}\\]${portNumber})`;
-
-    // Matches valid hostnames and ipv4 addresses.
-    const hostnameRegex =
-        new RegExp(`^${hostnamePrefix}${hostnameSuffix}${portNumber}$`, 'i');
-
-    // Matches valid ipv6 addresses.
-    const ipv6AddressRegex =
-        new RegExp(`^(${ipv6Combined}|${ipv6WithPort})$`, 'i');
-
-    const invalidIpv6Regex = new RegExp('.*::.*::.*');
-
-    return hostnameRegex.test(address) ||
-        (ipv6AddressRegex.test(address) && !invalidIpv6Regex.test(address));
+    return settings.printing.isNameAndAddressValid(name, address);
   },
 });
 
@@ -271,7 +240,8 @@ Polymer({
    * @private
    */
   canAddPrinter_: function(ppdManufacturer, ppdModel, printerPPDPath) {
-    return !!((ppdManufacturer && ppdModel) || printerPPDPath);
+    return settings.printing.isPPDInfoValid(
+        ppdManufacturer, ppdModel, printerPPDPath);
   },
 });
 
@@ -372,8 +342,9 @@ Polymer({
    * @private
    */
   resetData_: function() {
-    if (this.newPrinter)
+    if (this.newPrinter) {
       this.newPrinter = getEmptyPrinter_();
+    }
   },
 
   /** @private */
@@ -408,14 +379,19 @@ Polymer({
    * @private
    * */
   onPrinterFound_: function(info) {
-    this.newPrinter.printerAutoconf = info.autoconf;
     this.newPrinter.printerManufacturer = info.manufacturer;
     this.newPrinter.printerModel = info.model;
     this.newPrinter.printerMakeAndModel = info.makeAndModel;
+    this.newPrinter.printerPpdReference.userSuppliedPpdUrl =
+        info.ppdRefUserSuppliedPpdUrl;
+    this.newPrinter.printerPpdReference.effectiveMakeAndModel =
+        info.ppdRefEffectiveMakeAndModel;
+    this.newPrinter.printerPpdReference.autoconf = info.autoconf;
+    this.newPrinter.printerPpdReferenceResolved = info.ppdReferenceResolved;
 
     // Add the printer if it's configurable. Otherwise, forward to the
     // manufacturer dialog.
-    if (this.newPrinter.printerAutoconf) {
+    if (this.newPrinter.printerPpdReferenceResolved) {
       this.addPrinter_();
     } else {
       this.switchToManufacturerDialog_();
@@ -541,7 +517,8 @@ Polymer({
   onAddPrinter_: function(success, printerName) {
     // 'on-add-cups-printer' event might be triggered by editing an existing
     // printer, in which case there is no configuring dialog.
-    if (this.$$('add-printer-configuring-dialog'))
+    if (this.$$('add-printer-configuring-dialog')) {
       this.$$('add-printer-configuring-dialog').close();
+    }
   },
 });

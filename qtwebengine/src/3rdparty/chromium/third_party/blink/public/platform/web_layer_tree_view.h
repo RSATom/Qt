@@ -32,7 +32,9 @@
 #include "cc/input/layer_selection_bound.h"
 #include "cc/input/overscroll_behavior.h"
 #include "cc/layers/layer.h"
+#include "cc/paint/paint_worklet_layer_painter.h"
 #include "cc/trees/element_id.h"
+#include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_mutator.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "third_party/blink/public/platform/web_common.h"
@@ -91,11 +93,6 @@ class WebLayerTreeView {
   // Sets the background color for the viewport.
   virtual void SetBackgroundColor(SkColor) {}
 
-  // Sets whether this view is visible. In threaded mode, a view that is not
-  // visible will not composite or trigger UpdateAnimations() or Layout() calls
-  // until it becomes visible.
-  virtual void SetVisible(bool) {}
-
   // Sets the current page scale factor and minimum / maximum limits. Both
   // limits are initially 1 (no page scale allowed).
   virtual void SetPageScaleFactorAndLimits(float page_scale_factor,
@@ -141,32 +138,23 @@ class WebLayerTreeView {
 
   // Flow control and scheduling ---------------------------------------
 
-  // Indicates that blink needs a BeginFrame, but that nothing might actually be
-  // dirty.
-  virtual void SetNeedsBeginFrame() {}
-
-  // Relays the end of a fling animation.
-  virtual void DidStopFlinging() {}
-
-  // Run layout and paint of all pending document changes asynchronously.
-  virtual void LayoutAndPaintAsync(base::OnceClosure callback) {}
-
   virtual void CompositeAndReadbackAsync(
       base::OnceCallback<void(const SkBitmap&)> callback) {}
 
-  // Synchronously run all lifecycle phases and compositor update with no
-  // raster. Should only be called by layout tests running in synchronous
-  // single-threaded mode.
-  virtual void SynchronouslyCompositeNoRasterForTesting() {}
+  // Synchronously performs the complete set of document lifecycle phases,
+  // including updates to the compositor state, optionally including
+  // rasterization.
+  virtual void UpdateAllLifecyclePhasesAndCompositeForTesting(bool do_raster) {}
 
-  // Synchronously rasterizes and composites a frame.
-  virtual void CompositeWithRasterForTesting() {}
-
-  // Prevents updates to layer tree from becoming visible.
-  virtual void SetDeferCommits(bool defer_commits) {}
+  // Prevents any updates to the input for the layer tree, and the layer tree
+  // itself, and the layer tree from becoming visible.
+  virtual std::unique_ptr<cc::ScopedDeferMainFrameUpdate>
+  DeferMainFrameUpdate() {
+    return nullptr;
+  }
 
   struct ViewportLayers {
-    scoped_refptr<cc::Layer> overscroll_elasticity;
+    cc::ElementId overscroll_elasticity_element_id;
     scoped_refptr<cc::Layer> page_scale;
     scoped_refptr<cc::Layer> inner_viewport_container;
     scoped_refptr<cc::Layer> outer_viewport_container;
@@ -184,6 +172,10 @@ class WebLayerTreeView {
 
   // Mutations are plumbed back to the layer tree via the mutator client.
   virtual void SetMutatorClient(std::unique_ptr<cc::LayerTreeMutator>) {}
+
+  // Paints are plumbed back to the layer tree via the painter client.
+  virtual void SetPaintWorkletLayerPainterClient(
+      std::unique_ptr<cc::PaintWorkletLayerPainter>) {}
 
   // For when the embedder itself change scales on the page (e.g. devtools)
   // and wants all of the content at the new scale to be crisp.
@@ -208,18 +200,6 @@ class WebLayerTreeView {
 
   virtual int LayerTreeId() const { return 0; }
 
-  // Toggles the FPS counter in the HUD layer
-  virtual void SetShowFPSCounter(bool) {}
-
-  // Toggles the paint rects in the HUD layer
-  virtual void SetShowPaintRects(bool) {}
-
-  // Toggles the debug borders on layers
-  virtual void SetShowDebugBorders(bool) {}
-
-  // Toggles scroll bottleneck rects on the HUD layer
-  virtual void SetShowScrollBottleneckRects(bool) {}
-
   // ReportTimeCallback is a callback that should be fired when the
   // corresponding Swap completes (either with DidSwap or DidNotSwap).
   virtual void NotifySwapTime(ReportTimeCallback callback) {}
@@ -228,6 +208,11 @@ class WebLayerTreeView {
 
   virtual void RequestDecode(const cc::PaintImage& image,
                              base::OnceCallback<void(bool)> callback) {}
+
+  // Runs |callback| after a new frame has been submitted to the display
+  // compositor, and the display-compositor has displayed it on screen. Forces a
+  // redraw so that a new frame is submitted.
+  virtual void RequestPresentationCallback(base::OnceClosure callback) {}
 };
 
 }  // namespace blink

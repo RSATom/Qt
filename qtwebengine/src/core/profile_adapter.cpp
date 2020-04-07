@@ -45,10 +45,11 @@
 #include "content/public/browser/download_manager.h"
 
 #include "api/qwebengineurlscheme.h"
-#include "content_client_qt.h"
+#include "content_browser_client_qt.h"
 #include "download_manager_delegate_qt.h"
 #include "net/url_request_context_getter_qt.h"
 #include "permission_manager_qt.h"
+#include "profile_adapter_client.h"
 #include "profile_qt.h"
 #include "renderer_host/user_resource_controller_host.h"
 #include "type_conversion.h"
@@ -57,6 +58,10 @@
 #include "web_contents_adapter_client.h"
 
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "extensions/browser/extension_system.h"
+#endif
 
 #include <QCoreApplication>
 #include <QDir>
@@ -79,10 +84,12 @@ namespace QtWebEngineCore {
 ProfileAdapter::ProfileAdapter(const QString &storageName):
       m_name(storageName)
     , m_offTheRecord(storageName.isEmpty())
+    , m_downloadPath(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))
     , m_httpCacheType(DiskHttpCache)
     , m_persistentCookiesPolicy(AllowPersistentCookies)
     , m_visitedLinksPolicy(TrackVisitedLinksOnDisk)
     , m_httpCacheMaxSize(0)
+    , m_pageRequestInterceptors(0)
 {
     WebEngineContext::current()->addProfileAdapter(this);
     // creation of profile requires webengine context
@@ -90,6 +97,11 @@ ProfileAdapter::ProfileAdapter(const QString &storageName):
     content::BrowserContext::Initialize(m_profile.data(), toFilePath(dataPath()));
     // fixme: this should not be here
     m_profile->m_profileIOData->initializeOnUIThread();
+    m_customUrlSchemeHandlers.insert(QByteArrayLiteral("qrc"), &m_qrcHandler);
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    if (!storageName.isEmpty())
+        extensions::ExtensionSystem::Get(m_profile.data())->InitForRegularProfile(true);
+#endif
 }
 
 ProfileAdapter::~ProfileAdapter()
@@ -102,6 +114,10 @@ ProfileAdapter::~ProfileAdapter()
         m_profile->GetDownloadManager(m_profile.data())->Shutdown();
         m_downloadManagerDelegate.reset();
     }
+#if QT_CONFIG(ssl)
+    delete m_clientCertificateStore;
+#endif
+    Q_ASSERT(m_pageRequestInterceptors == 0);
 }
 
 void ProfileAdapter::setStorageName(const QString &storageName)
@@ -163,7 +179,16 @@ void ProfileAdapter::setRequestInterceptor(QWebEngineUrlRequestInterceptor *inte
 {
     if (m_requestInterceptor == interceptor)
         return;
+
+    if (m_requestInterceptor)
+        disconnect(m_requestInterceptor, &QObject::destroyed, this, nullptr);
     m_requestInterceptor = interceptor;
+    if (m_requestInterceptor)
+        connect(m_requestInterceptor, &QObject::destroyed, this, [this] () {
+            m_profile->m_profileIOData->updateRequestInterceptor();
+            Q_ASSERT(!m_profile->m_profileIOData->requestInterceptor());
+        });
+
     if (m_profile->m_urlRequestContextGetter.get())
         m_profile->m_profileIOData->updateRequestInterceptor();
 }
@@ -177,6 +202,22 @@ void ProfileAdapter::removeClient(ProfileAdapterClient *adapterClient)
 {
     m_clients.removeOne(adapterClient);
 }
+
+void ProfileAdapter::addPageRequestInterceptor()
+{
+    ++m_pageRequestInterceptors;
+    if (m_profile->m_urlRequestContextGetter.get())
+        m_profile->m_profileIOData->updateRequestInterceptor();
+}
+
+void ProfileAdapter::removePageRequestInterceptor()
+{
+    Q_ASSERT(m_pageRequestInterceptors > 0);
+    --m_pageRequestInterceptors;
+    if (m_profile->m_urlRequestContextGetter.get())
+        m_profile->m_profileIOData->updateRequestInterceptor();
+}
+
 
 void ProfileAdapter::cancelDownload(quint32 downloadId)
 {
@@ -238,6 +279,11 @@ void ProfileAdapter::setDataPath(const QString &path)
     }
 }
 
+void ProfileAdapter::setDownloadPath(const QString &path)
+{
+    m_downloadPath = path.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) : path;
+}
+
 QString ProfileAdapter::cachePath() const
 {
     if (m_offTheRecord)
@@ -296,7 +342,7 @@ QString ProfileAdapter::httpCachePath() const
 QString ProfileAdapter::httpUserAgent() const
 {
     if (m_httpUserAgent.isNull())
-        return QString::fromStdString(ContentClientQt::getUserAgent());
+        return QString::fromStdString(ContentBrowserClientQt::getUserAgent());
     return m_httpUserAgent;
 }
 
@@ -406,48 +452,8 @@ void ProfileAdapter::setHttpCacheMaxSize(int maxSize)
         m_profile->m_profileIOData->updateHttpCache();
 }
 
-const QHash<QByteArray, QWebEngineUrlSchemeHandler *> &ProfileAdapter::customUrlSchemeHandlers() const
-{
-    return m_customUrlSchemeHandlers;
-}
-
-const QList<QByteArray> ProfileAdapter::customUrlSchemes() const
-{
-    return m_customUrlSchemeHandlers.keys();
-}
-
-void ProfileAdapter::updateCustomUrlSchemeHandlers()
-{
-    if (m_profile->m_urlRequestContextGetter.get())
-        m_profile->m_profileIOData->updateJobFactory();
-}
-
-bool ProfileAdapter::removeCustomUrlSchemeHandler(QWebEngineUrlSchemeHandler *handler)
-{
-    bool removedOneOrMore = false;
-    auto it = m_customUrlSchemeHandlers.begin();
-    while (it != m_customUrlSchemeHandlers.end()) {
-        if (it.value() == handler) {
-            it = m_customUrlSchemeHandlers.erase(it);
-            removedOneOrMore = true;
-            continue;
-        }
-        ++it;
-    }
-    if (removedOneOrMore)
-        updateCustomUrlSchemeHandlers();
-    return removedOneOrMore;
-}
-
-QWebEngineUrlSchemeHandler *ProfileAdapter::takeCustomUrlSchemeHandler(const QByteArray &scheme)
-{
-    QWebEngineUrlSchemeHandler *handler = m_customUrlSchemeHandlers.take(scheme.toLower());
-    if (handler)
-        updateCustomUrlSchemeHandlers();
-    return handler;
-}
-
-bool ProfileAdapter::addCustomUrlSchemeHandler(const QByteArray &scheme, QWebEngineUrlSchemeHandler *handler)
+enum class SchemeType { Protected, Overridable, Custom, Unknown };
+static SchemeType schemeType(const QByteArray &canonicalScheme)
 {
     static const QSet<QByteArray> blacklist{
         QByteArrayLiteral("about"),
@@ -462,34 +468,96 @@ bool ProfileAdapter::addCustomUrlSchemeHandler(const QByteArray &scheme, QWebEng
         QByteArrayLiteral("gopher"),
     };
 
-    const QByteArray canonicalScheme = scheme.toLower();
     bool standardSyntax = url::IsStandard(canonicalScheme.data(), url::Component(0, canonicalScheme.size()));
     bool customScheme = QWebEngineUrlScheme::schemeByName(canonicalScheme) != QWebEngineUrlScheme();
-    bool blacklisted = blacklist.contains(canonicalScheme) || (standardSyntax && !customScheme);
+    bool blacklisted = blacklist.contains(canonicalScheme);
     bool whitelisted = whitelist.contains(canonicalScheme);
 
-    if (blacklisted && !whitelisted) {
+    if (whitelisted)
+        return SchemeType::Overridable;
+    if (blacklisted || (standardSyntax && !customScheme))
+        return SchemeType::Protected;
+    if (customScheme)
+        return SchemeType::Custom;
+    return SchemeType::Unknown;
+}
+
+QWebEngineUrlSchemeHandler *ProfileAdapter::urlSchemeHandler(const QByteArray &scheme)
+{
+    return m_customUrlSchemeHandlers.value(scheme.toLower()).data();
+}
+
+const QList<QByteArray> ProfileAdapter::customUrlSchemes() const
+{
+    return m_customUrlSchemeHandlers.keys();
+}
+
+void ProfileAdapter::updateCustomUrlSchemeHandlers()
+{
+    if (m_profile->m_urlRequestContextGetter.get())
+        m_profile->m_profileIOData->updateJobFactory();
+}
+
+void ProfileAdapter::removeUrlSchemeHandler(QWebEngineUrlSchemeHandler *handler)
+{
+    Q_ASSERT(handler);
+    bool removedOneOrMore = false;
+    auto it = m_customUrlSchemeHandlers.begin();
+    while (it != m_customUrlSchemeHandlers.end()) {
+        if (it.value() == handler) {
+            if (schemeType(it.key()) == SchemeType::Protected) {
+                qWarning("Cannot remove the URL scheme handler for an internal scheme: %s", it.key().constData());
+                continue;
+            }
+            it = m_customUrlSchemeHandlers.erase(it);
+            removedOneOrMore = true;
+            continue;
+        }
+        ++it;
+    }
+    if (removedOneOrMore)
+        updateCustomUrlSchemeHandlers();
+}
+
+void ProfileAdapter::removeUrlScheme(const QByteArray &scheme)
+{
+    QByteArray canonicalScheme = scheme.toLower();
+    if (schemeType(canonicalScheme) == SchemeType::Protected) {
+        qWarning("Cannot remove the URL scheme handler for an internal scheme: %s", scheme.constData());
+        return;
+    }
+    if (m_customUrlSchemeHandlers.remove(canonicalScheme))
+        updateCustomUrlSchemeHandlers();
+}
+
+void ProfileAdapter::installUrlSchemeHandler(const QByteArray &scheme, QWebEngineUrlSchemeHandler *handler)
+{
+    Q_ASSERT(handler);
+    QByteArray canonicalScheme = scheme.toLower();
+    SchemeType type = schemeType(canonicalScheme);
+
+    if (type == SchemeType::Protected) {
         qWarning("Cannot install a URL scheme handler overriding internal scheme: %s", scheme.constData());
-        return false;
+        return;
     }
 
     if (m_customUrlSchemeHandlers.value(canonicalScheme, handler) != handler) {
         qWarning("URL scheme handler already installed for the scheme: %s", scheme.constData());
-        return false;
+        return;
     }
 
-    if (!whitelisted && !customScheme)
+    if (type == SchemeType::Unknown)
         qWarning("Please register the custom scheme '%s' via QWebEngineUrlScheme::registerScheme() "
                  "before installing the custom scheme handler.", scheme.constData());
 
     m_customUrlSchemeHandlers.insert(canonicalScheme, handler);
     updateCustomUrlSchemeHandlers();
-    return true;
 }
 
-void ProfileAdapter::clearCustomUrlSchemeHandlers()
+void ProfileAdapter::removeAllUrlSchemeHandlers()
 {
     m_customUrlSchemeHandlers.clear();
+    m_customUrlSchemeHandlers.insert(QByteArrayLiteral("qrc"), &m_qrcHandler);
     updateCustomUrlSchemeHandlers();
 }
 
@@ -598,7 +666,46 @@ void ProfileAdapter::removeWebContentsAdapterClient(WebContentsAdapterClient *cl
 
 void ProfileAdapter::resetVisitedLinksManager()
 {
-    m_visitedLinksManager.reset(new VisitedLinksManagerQt(this));
+    m_visitedLinksManager.reset(new VisitedLinksManagerQt(m_profile.data(), persistVisitedLinks()));
 }
+
+void ProfileAdapter::setUseForGlobalCertificateVerification(bool enable)
+{
+    if (m_usedForGlobalCertificateVerification == enable)
+        return;
+
+    static QPointer<ProfileAdapter> profileForglobalCertificateVerification;
+
+    m_usedForGlobalCertificateVerification = enable;
+    if (enable) {
+        if (profileForglobalCertificateVerification) {
+            profileForglobalCertificateVerification->m_usedForGlobalCertificateVerification = false;
+            for (auto *client : qAsConst(profileForglobalCertificateVerification->m_clients))
+                client->useForGlobalCertificateVerificationChanged();
+        }
+        profileForglobalCertificateVerification = this;
+    } else {
+        Q_ASSERT(profileForglobalCertificateVerification);
+        Q_ASSERT(profileForglobalCertificateVerification == this);
+        profileForglobalCertificateVerification = nullptr;
+    }
+
+    if (m_profile->m_urlRequestContextGetter.get())
+        m_profile->m_profileIOData->updateUsedForGlobalCertificateVerification();
+}
+
+bool ProfileAdapter::isUsedForGlobalCertificateVerification() const
+{
+    return m_usedForGlobalCertificateVerification;
+}
+
+#if QT_CONFIG(ssl)
+QWebEngineClientCertificateStore *ProfileAdapter::clientCertificateStore()
+{
+    if (!m_clientCertificateStore)
+        m_clientCertificateStore = new QWebEngineClientCertificateStore(m_profile->m_profileIOData->clientCertificateStoreData());
+    return m_clientCertificateStore;
+}
+#endif
 
 } // namespace QtWebEngineCore

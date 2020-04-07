@@ -151,7 +151,7 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
 
   DrmDisplayHostManager* display_manager_;  // Not owned.
   DrmOverlayManager* overlay_manager_;      // Not owned.
-  DrmCursor* cursor_;                       // Not owned.
+  DrmCursor* const cursor_;                 // Not owned.
 
   std::unique_ptr<HostCursorProxy> cursor_proxy_;
 
@@ -165,7 +165,7 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
   THREAD_CHECKER(on_ui_thread_);
 
   bool connected_ = false;
-  base::ObserverList<GpuThreadObserver> gpu_thread_observers_;
+  base::ObserverList<GpuThreadObserver>::Unchecked gpu_thread_observers_;
 
   DISALLOW_COPY_AND_ASSIGN(HostDrmDevice);
 };

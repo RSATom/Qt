@@ -54,7 +54,9 @@
 
 static void initResources()
 {
+#if QT_CONFIG(mimetype_database)
     Q_INIT_RESOURCE(mimetypes);
+#endif
 }
 
 QT_BEGIN_NAMESPACE
@@ -445,10 +447,10 @@ void QMimeBinaryProvider::addAllMimeTypes(QList<QMimeType> &result)
     loadMimeTypeList();
     if (result.isEmpty()) {
         result.reserve(m_mimetypeNames.count());
-        for (const QString &name : m_mimetypeNames)
+        for (const QString &name : qAsConst(m_mimetypeNames))
             result.append(mimeTypeForNameUnchecked(name));
     } else {
-        for (const QString &name : m_mimetypeNames)
+        for (const QString &name : qAsConst(m_mimetypeNames))
             if (std::find_if(result.constBegin(), result.constEnd(), [name](const QMimeType &mime) -> bool { return mime.name() == name; })
                     == result.constEnd())
                 result.append(mimeTypeForNameUnchecked(name));

@@ -200,6 +200,6 @@ QGyroscopeReading *QGyroscope::reading() const
     return static_cast<QGyroscopeReading*>(QSensor::reading());
 }
 
-#include "moc_qgyroscope.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qgyroscope.cpp"

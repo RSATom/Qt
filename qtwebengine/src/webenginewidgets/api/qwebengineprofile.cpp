@@ -43,6 +43,7 @@
 #include "qwebenginecookiestore.h"
 #include "qwebenginedownloaditem.h"
 #include "qwebenginedownloaditem_p.h"
+#include "qwebenginenotificationpresenter_p.h"
 #include "qwebenginepage.h"
 #include "qwebenginepage_p.h"
 #include "qwebenginesettings.h"
@@ -139,6 +140,14 @@ using QtWebEngineCore::ProfileAdapter;
     \value  ForcePersistentCookies
             Both session and persistent cookies are saved to and restored from disk.
 */
+
+void QWebEngineProfilePrivate::showNotification(QSharedPointer<QtWebEngineCore::UserNotificationController> &controller)
+{
+    if (m_notificationPresenter) {
+        std::unique_ptr<QWebEngineNotification> notification(new QWebEngineNotification(controller));
+        m_notificationPresenter(std::move(notification));
+    }
+}
 
 /*!
   \fn QWebEngineProfile::downloadRequested(QWebEngineDownloadItem *download)
@@ -379,6 +388,36 @@ void QWebEngineProfile::setPersistentStoragePath(const QString &path)
 }
 
 /*!
+    \since 5.13
+
+    The path to the location where the downloaded files are stored.
+
+    \note By default, the download path is QStandardPaths::DownloadLocation.
+
+    \sa setDownloadPath(), QStandardPaths::writableLocation()
+*/
+QString QWebEngineProfile::downloadPath() const
+{
+    const Q_D(QWebEngineProfile);
+    return d->profileAdapter()->downloadPath();
+}
+
+/*!
+    \since 5.13
+
+    Overrides the default path used for download location, setting it to \a path.
+
+    If set to the null string, the default path is restored.
+
+    \sa downloadPath()
+*/
+void QWebEngineProfile::setDownloadPath(const QString &path)
+{
+    Q_D(QWebEngineProfile);
+    d->profileAdapter()->setDownloadPath(path);
+}
+
+/*!
     Returns the path used for caches.
 
     By default, this is below StandardPaths::CacheLocation in a QtWebengine/StorageName specific
@@ -542,17 +581,43 @@ QWebEngineCookieStore* QWebEngineProfile::cookieStore()
     return d->profileAdapter()->cookieStore();
 }
 
-
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     Registers a request interceptor singleton \a interceptor to intercept URL requests.
 
     The profile does not take ownership of the pointer.
 
+    \obsolete
+
+    Interceptors installed with this method will call
+    QWebEngineUrlRequestInterceptor::interceptRequest on the I/O thread. Therefore
+    the user has to provide thread-safe interaction with the other user classes.
+    Use setUrlRequestInterceptor instead.
+
     \since 5.6
     \sa QWebEngineUrlRequestInfo
+
+*/
+void QWebEngineProfile::setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
+{
+    Q_D(QWebEngineProfile);
+    if (interceptor)
+        interceptor->setProperty("deprecated", true);
+    d->profileAdapter()->setRequestInterceptor(interceptor);
+    if (interceptor)
+        qDebug("Use of deprecated not thread-safe setter, use setUrlRequestInterceptor instead.");
+}
+#endif
+/*!
+    Registers a request interceptor singleton \a interceptor to intercept URL requests.
+
+    The profile does not take ownership of the pointer.
+
+    \since 5.13
+    \sa QWebEngineUrlRequestInfo QWebEngineUrlRequestInterceptor
 */
 
-void QWebEngineProfile::setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
+void QWebEngineProfile::setUrlRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
 {
     Q_D(QWebEngineProfile);
     d->profileAdapter()->setRequestInterceptor(interceptor);
@@ -593,12 +658,25 @@ bool QWebEngineProfile::visitedLinksContainsUrl(const QUrl &url) const
     Returns the collection of scripts that are injected into all pages that share
     this profile.
 
-    \sa QWebEngineScriptCollection, QWebEngineScript, QWebEnginePage::scripts()
+    \sa QWebEngineScriptCollection, QWebEngineScript, QWebEnginePage::scripts(),
+        {Script Injection}
 */
 QWebEngineScriptCollection *QWebEngineProfile::scripts() const
 {
     Q_D(const QWebEngineProfile);
     return d->m_scriptCollection.data();
+}
+
+/*!
+    Sets the function \a notificationPresenter as responsible for presenting sent notifications.
+
+    \since 5.13
+    \sa QWebEngineNotification
+*/
+void QWebEngineProfile::setNotificationPresenter(std::function<void(std::unique_ptr<QWebEngineNotification>)> notificationPresenter)
+{
+    Q_D(QWebEngineProfile);
+    d->m_notificationPresenter = std::move(notificationPresenter);
 }
 
 /*!
@@ -613,6 +691,8 @@ QWebEngineProfile *QWebEngineProfile::defaultProfile()
     static QWebEngineProfile* profile = new QWebEngineProfile(
                 new QWebEngineProfilePrivate(ProfileAdapter::createDefaultProfileAdapter()),
                 ProfileAdapter::globalQObjectRoot());
+    if (!profile->d_ptr->m_notificationPresenter)
+        profile->setNotificationPresenter(&defaultNotificationPresenter);
     return profile;
 }
 
@@ -688,7 +768,7 @@ QWebEngineSettings *QWebEngineProfile::settings() const
 const QWebEngineUrlSchemeHandler *QWebEngineProfile::urlSchemeHandler(const QByteArray &scheme) const
 {
     const Q_D(QWebEngineProfile);
-    return d->profileAdapter()->customUrlSchemeHandlers().value(scheme.toLower());
+    return d->profileAdapter()->urlSchemeHandler(scheme);
 }
 
 /*!
@@ -702,10 +782,7 @@ const QWebEngineUrlSchemeHandler *QWebEngineProfile::urlSchemeHandler(const QByt
 void QWebEngineProfile::installUrlSchemeHandler(const QByteArray &scheme, QWebEngineUrlSchemeHandler *handler)
 {
     Q_D(QWebEngineProfile);
-    Q_ASSERT(handler);
-    if (!d->profileAdapter()->addCustomUrlSchemeHandler(scheme, handler))
-        return;
-    connect(handler, SIGNAL(_q_destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)), this, SLOT(destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)));
+    d->profileAdapter()->installUrlSchemeHandler(scheme, handler);
 }
 
 /*!
@@ -718,10 +795,7 @@ void QWebEngineProfile::installUrlSchemeHandler(const QByteArray &scheme, QWebEn
 void QWebEngineProfile::removeUrlSchemeHandler(QWebEngineUrlSchemeHandler *handler)
 {
     Q_D(QWebEngineProfile);
-    Q_ASSERT(handler);
-    if (!d->profileAdapter()->removeCustomUrlSchemeHandler(handler))
-        return;
-    disconnect(handler, SIGNAL(_q_destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)), this, SLOT(destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)));
+    d->profileAdapter()->removeUrlSchemeHandler(handler);
 }
 
 /*!
@@ -734,10 +808,7 @@ void QWebEngineProfile::removeUrlSchemeHandler(QWebEngineUrlSchemeHandler *handl
 void QWebEngineProfile::removeUrlScheme(const QByteArray &scheme)
 {
     Q_D(QWebEngineProfile);
-    QWebEngineUrlSchemeHandler *handler = d->profileAdapter()->takeCustomUrlSchemeHandler(scheme);
-    if (!handler)
-        return;
-    disconnect(handler, SIGNAL(_q_destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)), this, SLOT(destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)));
+    d->profileAdapter()->removeUrlScheme(scheme);
 }
 
 /*!
@@ -748,12 +819,43 @@ void QWebEngineProfile::removeUrlScheme(const QByteArray &scheme)
 void QWebEngineProfile::removeAllUrlSchemeHandlers()
 {
     Q_D(QWebEngineProfile);
-    d->profileAdapter()->clearCustomUrlSchemeHandlers();
+    d->profileAdapter()->removeAllUrlSchemeHandlers();
 }
 
-void QWebEngineProfile::destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler *obj)
+/*!
+    \since 5.13
+
+    Sets if this profile is to be used for downloading and caching when needed
+    during certificate verification, for instance for OCSP, CRLs, and AIA.
+
+    Only one QWebEngineProfile can do this at a time, and it is recommended
+    that the profile fullfilling this role has a disk HTTP cache to avoid
+    needlessly re-downloading. If you set the option on a second profile,
+    it will be disabled on the profile it is currently set.
+
+    Currently only affects Linux/NSS installations where it enables OCSP.
+
+    As long as one profile has \a enabled set to \c true, all other profiles
+    will be able to use it for their certificate verification.
+
+    \sa isUsedForGlobalCertificateVerification(), httpCacheType()
+*/
+void QWebEngineProfile::setUseForGlobalCertificateVerification(bool enabled)
 {
-    removeUrlSchemeHandler(obj);
+    Q_D(QWebEngineProfile);
+    d->profileAdapter()->setUseForGlobalCertificateVerification(enabled);
+}
+
+/*!
+    \since 5.13
+
+    Returns \c true if this profile is currently being used for global
+    certificate verification.
+*/
+bool QWebEngineProfile::isUsedForGlobalCertificateVerification() const
+{
+    Q_D(const QWebEngineProfile);
+    return d->profileAdapter()->isUsedForGlobalCertificateVerification();
 }
 
 /*!
@@ -765,6 +867,21 @@ void QWebEngineProfile::clearHttpCache()
 {
     Q_D(QWebEngineProfile);
     d->profileAdapter()->clearHttpCache();
+}
+
+/*!
+    \since 5.13
+
+    Returns the profile's client certificate store.
+*/
+QWebEngineClientCertificateStore *QWebEngineProfile::clientCertificateStore()
+{
+#if QT_CONFIG(ssl)
+    Q_D(QWebEngineProfile);
+    return d->profileAdapter()->clientCertificateStore();
+#else
+    return nullptr;
+#endif
 }
 
 QT_END_NAMESPACE

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "base/stl_util.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -32,7 +33,9 @@ const AccessPoint kAccessPointsThatSupportImpression[] = {
     AccessPoint::ACCESS_POINT_AUTOFILL_DROPDOWN,
     AccessPoint::ACCESS_POINT_NTP_CONTENT_SUGGESTIONS,
     AccessPoint::ACCESS_POINT_RESIGNIN_INFOBAR,
-    AccessPoint::ACCESS_POINT_TAB_SWITCHER};
+    AccessPoint::ACCESS_POINT_TAB_SWITCHER,
+    AccessPoint::ACCESS_POINT_SAVE_CARD_BUBBLE,
+    AccessPoint::ACCESS_POINT_MANAGE_CARDS_BUBBLE};
 
 const AccessPoint kAccessPointsThatSupportPersonalizedPromos[] = {
     AccessPoint::ACCESS_POINT_BOOKMARK_MANAGER,
@@ -43,7 +46,9 @@ const AccessPoint kAccessPointsThatSupportPersonalizedPromos[] = {
     AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN,
     AccessPoint::ACCESS_POINT_PASSWORD_BUBBLE,
     AccessPoint::ACCESS_POINT_BOOKMARK_BUBBLE,
-    AccessPoint::ACCESS_POINT_NTP_CONTENT_SUGGESTIONS};
+    AccessPoint::ACCESS_POINT_NTP_CONTENT_SUGGESTIONS,
+    AccessPoint::ACCESS_POINT_SAVE_CARD_BUBBLE,
+    AccessPoint::ACCESS_POINT_MANAGE_CARDS_BUBBLE};
 
 class SigninMetricsTest : public ::testing::Test {
  public:
@@ -95,8 +100,14 @@ class SigninMetricsTest : public ::testing::Test {
         return "ReSigninInfobar";
       case AccessPoint::ACCESS_POINT_TAB_SWITCHER:
         return "TabSwitcher";
-      case AccessPoint::ACCESS_POINT_FORCE_SIGNIN_WARNING:
-        return "ForceSigninWarning";
+      case AccessPoint::ACCESS_POINT_SAVE_CARD_BUBBLE:
+        return "SaveCardBubble";
+      case AccessPoint::ACCESS_POINT_MANAGE_CARDS_BUBBLE:
+        return "ManageCardsBubble";
+      case AccessPoint::ACCESS_POINT_MACHINE_LOGON:
+        return "MachineLogon";
+      case AccessPoint::ACCESS_POINT_GOOGLE_SERVICES_SETTINGS:
+        return "GoogleServicesSettings";
       case AccessPoint::ACCESS_POINT_MAX:
         NOTREACHED();
         return "";
@@ -109,16 +120,17 @@ class SigninMetricsTest : public ::testing::Test {
     std::vector<AccessPoint> access_points;
     for (int ap = 0; ap < static_cast<int>(AccessPoint::ACCESS_POINT_MAX);
          ++ap) {
+      // Skip the deprecated ACCESS_POINT_FORCE_SIGNIN_WARNING
+      if (ap == 23)
+        continue;
       access_points.push_back(static_cast<AccessPoint>(ap));
     }
     return access_points;
   }
 
   static bool AccessPointSupportsPersonalizedPromo(AccessPoint access_point) {
-    return std::find(std::begin(kAccessPointsThatSupportPersonalizedPromos),
-                     std::end(kAccessPointsThatSupportPersonalizedPromos),
-                     access_point) !=
-           std::end(kAccessPointsThatSupportPersonalizedPromos);
+    return base::ContainsValue(kAccessPointsThatSupportPersonalizedPromos,
+                               access_point);
   }
 };
 

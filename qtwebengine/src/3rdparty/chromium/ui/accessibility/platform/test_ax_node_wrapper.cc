@@ -3,9 +3,11 @@
 // found in the LICENSE file.
 
 #include "ui/accessibility/platform/test_ax_node_wrapper.h"
-#include "base/containers/hash_tables.h"
+
+#include "base/stl_util.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_table_info.h"
+#include "ui/accessibility/ax_tree_observer.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 
 namespace ui {
@@ -13,20 +15,15 @@ namespace ui {
 namespace {
 
 // A global map from AXNodes to TestAXNodeWrappers.
-base::hash_map<AXNode*, TestAXNodeWrapper*> g_node_to_wrapper_map;
+std::unordered_map<AXNode*, TestAXNodeWrapper*> g_node_to_wrapper_map;
 
 // A global coordinate offset.
 gfx::Vector2d g_offset;
 
-// A simple implementation of AXTreeDelegate to catch when AXNodes are
+// A simple implementation of AXTreeObserver to catch when AXNodes are
 // deleted so we can delete their wrappers.
-class TestAXTreeDelegate : public AXTreeDelegate {
-  void OnNodeDataWillChange(AXTree* tree,
-                            const AXNodeData& old_node_data,
-                            const AXNodeData& new_node_data) override {}
-  void OnTreeDataChanged(AXTree* tree,
-                         const AXTreeData& old_data,
-                         const AXTreeData& new_data) override {}
+class TestAXTreeObserver : public AXTreeObserver {
+ private:
   void OnNodeWillBeDeleted(AXTree* tree, AXNode* node) override {
     auto iter = g_node_to_wrapper_map.find(node);
     if (iter != g_node_to_wrapper_map.end()) {
@@ -35,18 +32,9 @@ class TestAXTreeDelegate : public AXTreeDelegate {
       g_node_to_wrapper_map.erase(iter->first);
     }
   }
-  void OnSubtreeWillBeDeleted(AXTree* tree, AXNode* node) override {}
-  void OnNodeWillBeReparented(AXTree* tree, AXNode* node) override {}
-  void OnSubtreeWillBeReparented(AXTree* tree, AXNode* node) override {}
-  void OnNodeCreated(AXTree* tree, AXNode* node) override {}
-  void OnNodeReparented(AXTree* tree, AXNode* node) override {}
-  void OnNodeChanged(AXTree* tree, AXNode* node) override {}
-  void OnAtomicUpdateFinished(AXTree* tree,
-                              bool root_changed,
-                              const std::vector<Change>& changes) override {}
 };
 
-TestAXTreeDelegate g_ax_tree_delegate;
+TestAXTreeObserver g_ax_tree_observer;
 
 }  // namespace
 
@@ -55,7 +43,8 @@ TestAXNodeWrapper* TestAXNodeWrapper::GetOrCreate(AXTree* tree, AXNode* node) {
   if (!tree || !node)
     return nullptr;
 
-  tree->SetDelegate(&g_ax_tree_delegate);
+  if (!tree->HasObserver(&g_ax_tree_observer))
+    tree->AddObserver(&g_ax_tree_observer);
   auto iter = g_node_to_wrapper_map.find(node);
   if (iter != g_node_to_wrapper_map.end())
     return iter->second;
@@ -104,13 +93,13 @@ gfx::NativeViewAccessible TestAXNodeWrapper::ChildAtIndex(int index) {
 
 gfx::Rect TestAXNodeWrapper::GetClippedScreenBoundsRect() const {
   // We could add clipping here if needed.
-  gfx::RectF bounds = GetData().location;
+  gfx::RectF bounds = GetData().relative_bounds.bounds;
   bounds.Offset(g_offset);
   return gfx::ToEnclosingRect(bounds);
 }
 
 gfx::Rect TestAXNodeWrapper::GetUnclippedScreenBoundsRect() const {
-  gfx::RectF bounds = GetData().location;
+  gfx::RectF bounds = GetData().relative_bounds.bounds;
   bounds.Offset(g_offset);
   return gfx::ToEnclosingRect(bounds);
 }
@@ -184,118 +173,79 @@ void TestAXNodeWrapper::ReplaceIntAttribute(int32_t node_id,
   std::vector<std::pair<ax::mojom::IntAttribute, int32_t>>& attributes =
       new_data.int_attributes;
 
-  auto deleted = std::remove_if(
-      attributes.begin(), attributes.end(),
-      [attribute](auto& pair) { return pair.first == attribute; });
-  attributes.erase(deleted, attributes.end());
+  base::EraseIf(attributes, [attribute](auto& pair) {
+    return pair.first == attribute;
+  });
 
   new_data.AddIntAttribute(attribute, value);
   node->SetData(new_data);
 }
 
-int TestAXNodeWrapper::GetTableRowCount() const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return 0;
+void TestAXNodeWrapper::ReplaceBoolAttribute(ax::mojom::BoolAttribute attribute,
+                                             bool value) {
+  AXNodeData new_data = GetData();
+  std::vector<std::pair<ax::mojom::BoolAttribute, bool>>& attributes =
+      new_data.bool_attributes;
 
-  return table_info->row_count;
+  base::EraseIf(attributes,
+                [attribute](auto& pair) { return pair.first == attribute; });
+
+  new_data.AddBoolAttribute(attribute, value);
+  node_->SetData(new_data);
+}
+
+int TestAXNodeWrapper::GetTableRowCount() const {
+  return node_->GetTableRowCount();
 }
 
 int TestAXNodeWrapper::GetTableColCount() const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return 0;
-
-  return table_info->col_count;
+  return node_->GetTableColCount();
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds() const {
-  ui::AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return std::vector<int32_t>();
-
-  std::vector<std::vector<int32_t>> headers = table_info->col_headers;
-  std::vector<int32_t> all_ids;
-  for (const auto col_ids : headers) {
-    all_ids.insert(all_ids.end(), col_ids.begin(), col_ids.end());
-  }
-
-  return all_ids;
+const std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds() const {
+  std::vector<int32_t> header_ids;
+  node_->GetTableCellColHeaderNodeIds(&header_ids);
+  return header_ids;
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds(
+const std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds(
     int32_t col_index) const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return std::vector<int32_t>();
-
-  if (col_index < 0 || col_index >= table_info->col_count)
-    return std::vector<int32_t>();
-
-  return table_info->col_headers[col_index];
+  std::vector<int32_t> header_ids;
+  node_->GetTableColHeaderNodeIds(col_index, &header_ids);
+  return header_ids;
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
-  ui::AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return std::vector<int32_t>();
-
-  std::vector<std::vector<int32_t>> headers = table_info->row_headers;
-  std::vector<int32_t> all_ids;
-  for (const auto col_ids : headers) {
-    all_ids.insert(all_ids.end(), col_ids.begin(), col_ids.end());
-  }
-
-  return all_ids;
+const std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
+  std::vector<int32_t> header_ids;
+  node_->GetTableCellRowHeaderNodeIds(&header_ids);
+  return header_ids;
 }
 
-std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds(
+const std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds(
     int32_t row_index) const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return std::vector<int32_t>();
-
-  if (row_index < 0 || row_index >= table_info->row_count)
-    return std::vector<int32_t>();
-
-  return table_info->row_headers[row_index];
+  std::vector<int32_t> header_ids;
+  node_->GetTableRowHeaderNodeIds(row_index, &header_ids);
+  return header_ids;
 }
 
 int32_t TestAXNodeWrapper::GetCellId(int32_t row_index,
                                      int32_t col_index) const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return -1;
-
-  if (row_index < 0 || row_index >= table_info->row_count || col_index < 0 ||
-      col_index >= table_info->col_count)
-    return -1;
-
-  return table_info->cell_ids[row_index][col_index];
-}
-
-int32_t TestAXNodeWrapper::CellIdToIndex(int32_t cell_id) const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return 0;
-
-  const auto& iter = table_info->cell_id_to_index.find(cell_id);
-  if (iter != table_info->cell_id_to_index.end())
-    return iter->second;
+  ui::AXNode* cell = node_->GetTableCellFromCoords(row_index, col_index);
+  if (cell)
+    return cell->id();
 
   return -1;
 }
 
+int32_t TestAXNodeWrapper::GetTableCellIndex() const {
+  return node_->GetTableCellIndex();
+}
+
 int32_t TestAXNodeWrapper::CellIndexToId(int32_t cell_index) const {
-  AXTableInfo* table_info = tree_->GetTableInfo(node_);
-  if (!table_info)
-    return -1;
-
-  if (cell_index < 0 ||
-      cell_index >= static_cast<int32_t>(table_info->unique_cell_ids.size()))
-    return -1;
-
-  return table_info->unique_cell_ids[cell_index];
+  ui::AXNode* cell = node_->GetTableCellFromIndex(cell_index);
+  if (cell)
+    return cell->id();
+  return -1;
 }
 
 bool TestAXNodeWrapper::AccessibilityPerformAction(
@@ -306,9 +256,16 @@ bool TestAXNodeWrapper::AccessibilityPerformAction(
   }
 
   if (data.action == ax::mojom::Action::kScrollToMakeVisible) {
-    auto offset = node_->data().location.OffsetFromOrigin();
+    auto offset = node_->data().relative_bounds.bounds.OffsetFromOrigin();
     g_offset = gfx::Vector2d(-offset.x(), -offset.y());
     return true;
+  }
+
+  if (GetData().role == ax::mojom::Role::kListBoxOption &&
+      data.action == ax::mojom::Action::kDoDefault) {
+    bool current_value =
+        GetData().GetBoolAttribute(ax::mojom::BoolAttribute::kSelected);
+    ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelected, !current_value);
   }
 
   if (data.action == ax::mojom::Action::kSetSelection) {
@@ -348,6 +305,22 @@ TestAXNodeWrapper::TestAXNodeWrapper(AXTree* tree, AXNode* node)
     : tree_(tree),
       node_(node),
       platform_node_(AXPlatformNode::Create(this)) {
+}
+
+bool TestAXNodeWrapper::IsOrderedSetItem() const {
+  return node_->IsOrderedSetItem();
+}
+
+bool TestAXNodeWrapper::IsOrderedSet() const {
+  return node_->IsOrderedSet();
+}
+
+int32_t TestAXNodeWrapper::GetPosInSet() const {
+  return node_->GetPosInSet();
+}
+
+int32_t TestAXNodeWrapper::GetSetSize() const {
+  return node_->GetSetSize();
 }
 
 }  // namespace ui

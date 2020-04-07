@@ -8,11 +8,32 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/optional.h"
+#include "base/strings/string16.h"
 #include "chrome/browser/extensions/api/passwords_private/passwords_private_delegate.h"
-#include "chrome/browser/ui/passwords/password_manager_presenter.h"
+#include "chrome/browser/ui/passwords/settings/password_manager_presenter.h"
 #include "extensions/browser/extension_function.h"
 
 namespace extensions {
+
+class PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction() {}
+  DECLARE_EXTENSION_FUNCTION(
+      "passwordsPrivate.recordPasswordsPageAccessInSettings",
+      PASSWORDSPRIVATE_RECORDPASSWORDSPAGEACCESSINSETTINGS);
+
+ protected:
+  ~PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(
+      PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction);
+};
 
 class PasswordsPrivateRemoveSavedPasswordFunction :
     public UIThreadExtensionFunction {
@@ -81,6 +102,8 @@ class PasswordsPrivateRequestPlaintextPasswordFunction :
   ResponseAction Run() override;
 
  private:
+  void GotPassword(base::Optional<base::string16> password);
+
   DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateRequestPlaintextPasswordFunction);
 };
 

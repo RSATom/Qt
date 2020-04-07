@@ -49,8 +49,7 @@ class GLImageNativePixmapTestDelegate : public GLImageTestDelegateBase {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size.width(), size.height(), 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, pixels.get());
 
-    scoped_refptr<gl::GLImageNativePixmap> image(new gl::GLImageNativePixmap(
-        size, gl::GLImageNativePixmap::GetInternalFormatForTesting(format)));
+    auto image = base::MakeRefCounted<gl::GLImageNativePixmap>(size, format);
     EXPECT_TRUE(image->InitializeFromTexture(texture_id));
 
     glDeleteTextures(1, &texture_id);
@@ -107,6 +106,8 @@ using GLImageTestTypes = testing::Types<
     GLImageNativePixmapTestDelegate<gfx::BufferFormat::BGRX_8888>,
     GLImageNativePixmapTestDelegate<gfx::BufferFormat::BGRA_8888>>;
 
+#if !defined(MEMORY_SANITIZER)
+// Fails under MSAN: crbug.com/886995
 INSTANTIATE_TYPED_TEST_CASE_P(GLImageNativePixmap,
                               GLImageTest,
                               GLImageTestTypes);
@@ -118,6 +119,7 @@ INSTANTIATE_TYPED_TEST_CASE_P(GLImageNativePixmap,
 INSTANTIATE_TYPED_TEST_CASE_P(GLImageNativePixmap,
                               GLImageNativePixmapToDmabufTest,
                               GLImageTestTypes);
+#endif
 
 }  // namespace
 

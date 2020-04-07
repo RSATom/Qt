@@ -7,15 +7,13 @@
 #ifndef XFA_FWL_CFWL_PICTUREBOX_H_
 #define XFA_FWL_CFWL_PICTUREBOX_H_
 
-#include <memory>
-
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fwl/cfwl_widgetproperties.h"
 
 class CFX_DIBitmap;
 class CFWL_Widget;
 
-class CFWL_PictureBox : public CFWL_Widget {
+class CFWL_PictureBox final : public CFWL_Widget {
  public:
   explicit CFWL_PictureBox(const CFWL_App* pApp);
   ~CFWL_PictureBox() override;

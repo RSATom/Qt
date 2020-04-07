@@ -87,6 +87,8 @@ PaymentRequestSpec::PaymentRequestSpec(
       selected_shipping_option_(nullptr) {
   if (observer)
     AddObserver(observer);
+  if (!details_->shipping_options)
+    details_->shipping_options = std::vector<mojom::PaymentShippingOptionPtr>();
   UpdateSelectedShippingOption(/*after_update=*/false);
   PopulateValidatedMethodData(
       method_data_, &supported_card_networks_, &basic_card_specified_networks_,
@@ -97,13 +99,116 @@ PaymentRequestSpec::PaymentRequestSpec(
 PaymentRequestSpec::~PaymentRequestSpec() {}
 
 void PaymentRequestSpec::UpdateWith(mojom::PaymentDetailsPtr details) {
-  details_ = std::move(details);
+  DCHECK(details_);
+  if (details->total)
+    details_->total = std::move(details->total);
+  details_->display_items = std::move(details->display_items);
+  if (details->shipping_options)
+    details_->shipping_options = std::move(details->shipping_options);
+  details_->modifiers = std::move(details->modifiers);
+  details_->error = std::move(details->error);
+  if (details->shipping_address_errors)
+    details_->shipping_address_errors =
+        std::move(details->shipping_address_errors);
+  if (details->id)
+    details_->id = std::move(details->id);
   RecomputeSpecForDetails();
+}
+
+void PaymentRequestSpec::Retry(mojom::PaymentValidationErrorsPtr errors) {
+  if (!errors)
+    return;
+
+  details_->shipping_address_errors = std::move(errors->shipping_address);
+  payer_errors_ = std::move(errors->payer);
+  current_update_reason_ = UpdateReason::RETRY;
+  NotifyOnSpecUpdated();
+  current_update_reason_ = UpdateReason::NONE;
+}
+
+base::string16 PaymentRequestSpec::GetShippingAddressError(
+    autofill::ServerFieldType type) {
+  if (!details_->shipping_address_errors)
+    return base::string16();
+
+  if (type == autofill::ADDRESS_HOME_STREET_ADDRESS)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->address_line);
+
+  if (type == autofill::ADDRESS_HOME_CITY)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->city);
+
+  if (type == autofill::ADDRESS_HOME_COUNTRY)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->country);
+
+  if (type == autofill::ADDRESS_HOME_DEPENDENT_LOCALITY)
+    return base::UTF8ToUTF16(
+        details_->shipping_address_errors->dependent_locality);
+
+  if (type == autofill::COMPANY_NAME)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->organization);
+
+  if (type == autofill::PHONE_HOME_WHOLE_NUMBER)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->phone);
+
+  if (type == autofill::ADDRESS_HOME_ZIP)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->postal_code);
+
+  if (type == autofill::NAME_FULL)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->recipient);
+
+  if (type == autofill::ADDRESS_HOME_STATE)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->region);
+
+  if (type == autofill::ADDRESS_HOME_SORTING_CODE)
+    return base::UTF8ToUTF16(details_->shipping_address_errors->sorting_code);
+
+  return base::string16();
+}
+
+base::string16 PaymentRequestSpec::GetPayerError(
+    autofill::ServerFieldType type) {
+  if (!payer_errors_)
+    return base::string16();
+
+  if (type == autofill::EMAIL_ADDRESS)
+    return base::UTF8ToUTF16(payer_errors_->email);
+
+  if (type == autofill::NAME_FULL)
+    return base::UTF8ToUTF16(payer_errors_->name);
+
+  if (type == autofill::PHONE_HOME_WHOLE_NUMBER)
+    return base::UTF8ToUTF16(payer_errors_->phone);
+
+  return base::string16();
+}
+
+bool PaymentRequestSpec::has_shipping_address_error() const {
+  return details_->shipping_address_errors && request_shipping() &&
+         !(details_->shipping_address_errors->address_line.empty() &&
+           details_->shipping_address_errors->city.empty() &&
+           details_->shipping_address_errors->country.empty() &&
+           details_->shipping_address_errors->dependent_locality.empty() &&
+           details_->shipping_address_errors->organization.empty() &&
+           details_->shipping_address_errors->phone.empty() &&
+           details_->shipping_address_errors->postal_code.empty() &&
+           details_->shipping_address_errors->recipient.empty() &&
+           details_->shipping_address_errors->region.empty() &&
+           details_->shipping_address_errors->region_code.empty() &&
+           details_->shipping_address_errors->sorting_code.empty());
+}
+
+bool PaymentRequestSpec::has_payer_error() const {
+  return payer_errors_ &&
+         (request_payer_email() || request_payer_name() ||
+          request_payer_phone()) &&
+         !(payer_errors_->email.empty() && payer_errors_->name.empty() &&
+           payer_errors_->phone.empty());
 }
 
 void PaymentRequestSpec::RecomputeSpecForDetails() {
   // Reparse the |details_| and update the observers.
   UpdateSelectedShippingOption(/*after_update=*/true);
+
   NotifyOnSpecUpdated();
   current_update_reason_ = UpdateReason::NONE;
 }
@@ -209,7 +314,8 @@ std::vector<const mojom::PaymentItemPtr*> PaymentRequestSpec::GetDisplayItems(
 
 const std::vector<mojom::PaymentShippingOptionPtr>&
 PaymentRequestSpec::GetShippingOptions() const {
-  return details_->shipping_options;
+  DCHECK(details_->shipping_options);
+  return *details_->shipping_options;
 }
 
 const mojom::PaymentDetailsModifierPtr*
@@ -246,12 +352,12 @@ PaymentRequestSpec::GetApplicableModifier(
 }
 
 void PaymentRequestSpec::UpdateSelectedShippingOption(bool after_update) {
-  if (!request_shipping())
+  if (!request_shipping() || !details_->shipping_options)
     return;
 
   selected_shipping_option_ = nullptr;
   selected_shipping_option_error_.clear();
-  if (details_->shipping_options.empty()) {
+  if (details_->shipping_options->empty()) {
     // No options are provided by the merchant.
     if (after_update) {
       // This is after an update, which means that the selected address is not
@@ -284,11 +390,11 @@ void PaymentRequestSpec::UpdateSelectedShippingOption(bool after_update) {
   // one in the array that has its selected field set to true. If none are
   // selected by the merchant, |selected_shipping_option_| stays nullptr.
   auto selected_shipping_option_it = std::find_if(
-      details_->shipping_options.rbegin(), details_->shipping_options.rend(),
+      details_->shipping_options->rbegin(), details_->shipping_options->rend(),
       [](const payments::mojom::PaymentShippingOptionPtr& element) {
         return element->selected;
       });
-  if (selected_shipping_option_it != details_->shipping_options.rend()) {
+  if (selected_shipping_option_it != details_->shipping_options->rend()) {
     selected_shipping_option_ = selected_shipping_option_it->get();
   }
 }

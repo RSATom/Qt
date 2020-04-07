@@ -9,7 +9,7 @@
 
 #include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_CheckButton : public CXFA_Node {
+class CXFA_CheckButton final : public CXFA_Node {
  public:
   CXFA_CheckButton(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_CheckButton() override;
@@ -18,7 +18,7 @@ class CXFA_CheckButton : public CXFA_Node {
 
   bool IsRound();
   bool IsAllowNeutral();
-  XFA_AttributeEnum GetMark();
+  XFA_AttributeValue GetMark();
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_CHECKBUTTON_H_

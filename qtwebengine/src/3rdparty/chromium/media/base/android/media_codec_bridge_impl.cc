@@ -127,8 +127,9 @@ bool GetCodecSpecificDataForAudio(AudioCodec codec,
 
       if (profile == 5 || profile == 29) {
         // Read extension config.
-        RETURN_ON_ERROR(reader.ReadBits(4, &frequency_index));
-        if (frequency_index == 0xf)
+        uint8_t ext_frequency_index = 0;
+        RETURN_ON_ERROR(reader.ReadBits(4, &ext_frequency_index));
+        if (ext_frequency_index == 0xf)
           RETURN_ON_ERROR(reader.SkipBits(24));
         RETURN_ON_ERROR(reader.ReadBits(5, &profile));
       }
@@ -181,7 +182,8 @@ bool GetCodecSpecificDataForAudio(AudioCodec codec,
 // static
 std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateAudioDecoder(
     const AudioDecoderConfig& config,
-    const JavaRef<jobject>& media_crypto) {
+    const JavaRef<jobject>& media_crypto,
+    base::RepeatingClosure on_buffers_available_cb) {
   DVLOG(2) << __func__ << ": " << config.AsHumanReadableString()
            << " media_crypto:" << media_crypto.obj();
 
@@ -223,12 +225,14 @@ std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateAudioDecoder(
   ScopedJavaGlobalRef<jobject> j_bridge(
       Java_MediaCodecBridgeBuilder_createAudioDecoder(
           env, j_mime, media_crypto, config.samples_per_second(), channel_count,
-          j_csd0, j_csd1, j_csd2, output_frame_has_adts_header));
+          j_csd0, j_csd1, j_csd2, output_frame_has_adts_header,
+          !!on_buffers_available_cb));
 
   if (j_bridge.is_null())
     return nullptr;
 
-  return base::WrapUnique(new MediaCodecBridgeImpl(std::move(j_bridge)));
+  return base::WrapUnique(new MediaCodecBridgeImpl(
+      std::move(j_bridge), std::move(on_buffers_available_cb)));
 }
 
 // static
@@ -242,7 +246,8 @@ std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateVideoDecoder(
     const CodecSpecificData& csd1,
     const VideoColorSpace& color_space,
     const base::Optional<HDRMetadata>& hdr_metadata,
-    bool allow_adaptive_playback) {
+    bool allow_adaptive_playback,
+    base::RepeatingClosure on_buffers_available_cb) {
   if (!MediaCodecUtil::IsMediaCodecAvailable())
     return nullptr;
 
@@ -270,11 +275,12 @@ std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateVideoDecoder(
       Java_MediaCodecBridgeBuilder_createVideoDecoder(
           env, j_mime, static_cast<int>(codec_type), media_crypto, size.width(),
           size.height(), surface, j_csd0, j_csd1, j_hdr_metadata,
-          allow_adaptive_playback));
+          allow_adaptive_playback, !!on_buffers_available_cb));
   if (j_bridge.is_null())
     return nullptr;
 
-  return base::WrapUnique(new MediaCodecBridgeImpl(std::move(j_bridge)));
+  return base::WrapUnique(new MediaCodecBridgeImpl(
+      std::move(j_bridge), std::move(on_buffers_available_cb)));
 }
 
 // static
@@ -305,10 +311,35 @@ std::unique_ptr<MediaCodecBridge> MediaCodecBridgeImpl::CreateVideoEncoder(
   return base::WrapUnique(new MediaCodecBridgeImpl(std::move(j_bridge)));
 }
 
+// static
+void MediaCodecBridgeImpl::SetupCallbackHandlerForTesting() {
+  // Callback APIs are only available on M+, so do nothing if below that.
+  if (base::android::BuildInfo::GetInstance()->sdk_int() <
+      base::android::SDK_VERSION_MARSHMALLOW) {
+    return;
+  }
+
+  JNIEnv* env = AttachCurrentThread();
+  Java_MediaCodecBridge_createCallbackHandlerForTesting(env);
+}
+
 MediaCodecBridgeImpl::MediaCodecBridgeImpl(
-    ScopedJavaGlobalRef<jobject> j_bridge)
-    : j_bridge_(std::move(j_bridge)) {
+    ScopedJavaGlobalRef<jobject> j_bridge,
+    base::RepeatingClosure on_buffers_available_cb)
+    : on_buffers_available_cb_(std::move(on_buffers_available_cb)),
+      j_bridge_(std::move(j_bridge)) {
   DCHECK(!j_bridge_.is_null());
+
+  if (!on_buffers_available_cb_)
+    return;
+
+  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(),
+            base::android::SDK_VERSION_MARSHMALLOW);
+
+  // Note this should be done last since setBuffersAvailableListener() may
+  // immediately invoke the callback if buffers came in during construction.
+  Java_MediaCodecBridge_setBuffersAvailableListener(
+      AttachCurrentThread(), j_bridge_, reinterpret_cast<intptr_t>(this));
 }
 
 MediaCodecBridgeImpl::~MediaCodecBridgeImpl() {
@@ -552,6 +583,12 @@ MediaCodecStatus MediaCodecBridgeImpl::GetOutputBufferAddress(
           offset;
   *capacity = total_capacity - offset;
   return MEDIA_CODEC_OK;
+}
+
+void MediaCodecBridgeImpl::OnBuffersAvailable(
+    JNIEnv* /* env */,
+    const base::android::JavaParamRef<jobject>& /* obj */) {
+  on_buffers_available_cb_.Run();
 }
 
 std::string MediaCodecBridgeImpl::GetName() {

@@ -44,7 +44,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_aflatin2
+#define FT_COMPONENT  aflatin2
 
 
   FT_LOCAL_DEF( FT_Error )
@@ -265,7 +265,7 @@
             /* Avoid single-point contours since they are never rasterized. */
             /* In some fonts, they correspond to mark attachment points     */
             /* which are way outside of the glyph's real outline.           */
-            if ( last == first )
+            if ( last <= first )
                 continue;
 
             if ( AF_LATIN_IS_TOP_BLUE( bb ) )
@@ -299,6 +299,7 @@
         /* now check whether the point belongs to a straight or round   */
         /* segment; we first need to find in which contour the extremum */
         /* lies, then inspect its previous and next points              */
+        if ( best_point >= 0 )
         {
           FT_Pos  best_x = points[best_point].x;
           FT_Int  start, end, prev, next;
@@ -632,7 +633,7 @@
     /* an extra-light axis corresponds to a standard width that is */
     /* smaller than 5/8 pixels                                     */
     axis->extra_light =
-      (FT_Bool)( FT_MulFix( axis->standard_width, scale ) < 32 + 8 );
+      FT_BOOL( FT_MulFix( axis->standard_width, scale ) < 32 + 8 );
 
     if ( dim == AF_DIMENSION_VERT )
     {
@@ -1302,9 +1303,9 @@
 
           /* check for links -- if seg->serif is set, then seg->link must */
           /* be ignored                                                   */
-          is_serif = (FT_Bool)( seg->serif               &&
-                                seg->serif->edge         &&
-                                seg->serif->edge != edge );
+          is_serif = FT_BOOL( seg->serif               &&
+                              seg->serif->edge         &&
+                              seg->serif->edge != edge );
 
           if ( ( seg->link && seg->link->edge ) || is_serif )
           {

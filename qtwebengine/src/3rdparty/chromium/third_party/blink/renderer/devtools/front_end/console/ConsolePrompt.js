@@ -5,6 +5,7 @@
 Console.ConsolePrompt = class extends UI.Widget {
   constructor() {
     super();
+    this.registerRequiredCSS('console/consolePrompt.css');
     this._addCompletionsFromHistory = true;
     this._history = new Console.ConsoleHistoryManager();
 
@@ -19,20 +20,22 @@ Console.ConsolePrompt = class extends UI.Widget {
     this._innerPreviewElement = this._eagerPreviewElement.createChild('div', 'console-eager-inner-preview');
     this._eagerPreviewElement.appendChild(UI.Icon.create('smallicon-command-result', 'preview-result-icon'));
 
+    const editorContainerElement = this.element.createChild('div', 'console-prompt-editor-container');
+    if (this._isBelowPromptEnabled)
+      this.element.appendChild(this._eagerPreviewElement);
+
     this._eagerEvalSetting = Common.settings.moduleSetting('consoleEagerEval');
     this._eagerEvalSetting.addChangeListener(this._eagerSettingChanged.bind(this));
     this._eagerPreviewElement.classList.toggle('hidden', !this._eagerEvalSetting.get());
 
-    // TODO(luoe): split out prompt styles into ConsolePrompt.css.
-    const pinsEnabled = Runtime.experiments.isEnabled('pinnedExpressions');
-    if (pinsEnabled)
-      this.element.style.marginRight = '20px';
     this.element.tabIndex = 0;
     /** @type {?Promise} */
     this._previewRequestForTest = null;
 
     /** @type {?UI.AutocompleteConfig} */
     this._defaultAutocompleteConfig = null;
+
+    this._highlightingNode = false;
 
     self.runtime.extension(UI.TextEditorFactory).instance().then(gotFactory.bind(this));
 
@@ -51,18 +54,9 @@ Console.ConsolePrompt = class extends UI.Widget {
                                                      UI.GlassPane.AnchorBehavior.PreferBottom
       }));
       this._editor.widget().element.addEventListener('keydown', this._editorKeyDown.bind(this), true);
-      this._editor.widget().show(this.element);
+      this._editor.widget().show(editorContainerElement);
       this._editor.addEventListener(UI.TextEditor.Events.TextChanged, this._onTextChanged, this);
       this._editor.addEventListener(UI.TextEditor.Events.SuggestionChanged, this._onTextChanged, this);
-      if (pinsEnabled) {
-        const pinButton = this.element.createChild('span', 'command-pin-button');
-        pinButton.title = ls`Pin expression`;
-        pinButton.addEventListener('click', () => {
-          this.dispatchEventToListeners(Console.ConsolePrompt.Events.ExpressionPinned, this.text());
-        });
-      }
-      if (this._isBelowPromptEnabled)
-        this.element.appendChild(this._eagerPreviewElement);
 
       this.setText(this._initialText);
       delete this._initialText;
@@ -105,39 +99,30 @@ Console.ConsolePrompt = class extends UI.Widget {
   async _requestPreview() {
     const text = this._editor.textWithCurrentSuggestion().trim();
     const executionContext = UI.context.flavor(SDK.ExecutionContext);
-    if (!executionContext || !text || text.length > Console.ConsolePrompt._MaxLengthForEvaluation) {
-      this._innerPreviewElement.removeChildren();
-      return;
-    }
-
-    const options = {
-      expression: SDK.RuntimeModel.wrapObjectLiteralExpressionIfNeeded(text),
-      includeCommandLineAPI: true,
-      generatePreview: true,
-      throwOnSideEffect: true,
-      timeout: 500
-    };
-    const result = await executionContext.evaluate(options, true /* userGesture */, false /* awaitPromise */);
+    const {preview, result} =
+        await ObjectUI.JavaScriptREPL.evaluateAndBuildPreview(text, true /* throwOnSideEffect */, 500);
     this._innerPreviewElement.removeChildren();
-    if (result.error)
-      return;
-
-    if (result.exceptionDetails) {
-      const exception = result.exceptionDetails.exception.description;
-      if (exception.startsWith('TypeError: '))
-        this._innerPreviewElement.textContent = exception;
-      return;
+    if (preview.deepTextContent() !== this._editor.textWithCurrentSuggestion().trim())
+      this._innerPreviewElement.appendChild(preview);
+    if (result && result.object && result.object.subtype === 'node') {
+      this._highlightingNode = true;
+      SDK.OverlayModel.highlightObjectAsDOMNode(result.object);
+    } else if (this._highlightingNode) {
+      this._highlightingNode = false;
+      SDK.OverlayModel.hideDOMNodeHighlight();
     }
+    if (result)
+      executionContext.runtimeModel.releaseEvaluationResult(result);
+  }
 
-    const {preview, type, subtype, description} = result.object;
-    if (preview && type === 'object' && subtype !== 'node') {
-      this._formatter.appendObjectPreview(this._innerPreviewElement, preview, false /* isEntry */);
-    } else {
-      const nonObjectPreview = this._formatter.renderPropertyPreview(type, subtype, description.trimEnd(400));
-      this._innerPreviewElement.appendChild(nonObjectPreview);
+  /**
+   * @override
+   */
+  willHide() {
+    if (this._highlightingNode) {
+      this._highlightingNode = false;
+      SDK.OverlayModel.hideDOMNodeHighlight();
     }
-    if (this._innerPreviewElement.deepTextContent() === this._editor.textWithCurrentSuggestion().trim())
-      this._innerPreviewElement.removeChildren();
   }
 
   /**
@@ -256,29 +241,23 @@ Console.ConsolePrompt = class extends UI.Widget {
 
     event.consume(true);
 
+    // Since we prevent default, manually emulate the native "scroll on key input" behavior.
+    this.element.scrollIntoView();
     this.clearAutocomplete();
 
     const str = this.text();
     if (!str.length)
       return;
 
-    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
-    if (!this._isCaretAtEndOfPrompt() || !currentExecutionContext) {
-      this._appendCommand(str, true);
+    if (!this._isCaretAtEndOfPrompt()) {
+      await this._appendCommand(str, true);
       return;
     }
-    const result = await currentExecutionContext.runtimeModel.compileScript(str, '', false, currentExecutionContext.id);
-    if (str !== this.text())
-      return;
-    const exceptionDetails = result.exceptionDetails;
-    if (exceptionDetails &&
-        (exceptionDetails.exception.description.startsWith('SyntaxError: Unexpected end of input') ||
-         exceptionDetails.exception.description.startsWith('SyntaxError: Unterminated template literal'))) {
+
+    if (await ObjectUI.JavaScriptAutocomplete.isExpressionComplete(str))
+      await this._appendCommand(str, true);
+    else
       this._editor.newlineAndIndent();
-      this._enterProcessedForTest();
-      return;
-    }
-    await this._appendCommand(str, true);
     this._enterProcessedForTest();
   }
 
@@ -292,15 +271,10 @@ Console.ConsolePrompt = class extends UI.Widget {
     if (currentExecutionContext) {
       const executionContext = currentExecutionContext;
       const message = SDK.consoleModel.addCommandMessage(executionContext, text);
-      text = SDK.RuntimeModel.wrapObjectLiteralExpressionIfNeeded(text);
-      let preprocessed = false;
-      if (text.indexOf('await') !== -1) {
-        const preprocessedText = await Formatter.formatterWorkerPool().preprocessTopLevelAwaitExpressions(text);
-        preprocessed = !!preprocessedText;
-        text = preprocessedText || text;
-      }
+      const wrappedResult = await ObjectUI.JavaScriptREPL.preprocessExpression(text);
       SDK.consoleModel.evaluateCommandInConsole(
-          executionContext, message, text, useCommandLineAPI, /* awaitPromise */ preprocessed);
+          executionContext, message, wrappedResult.text, useCommandLineAPI,
+          /* awaitPromise */ wrappedResult.preprocessed);
       if (Console.ConsolePanel.instance().isShowing())
         Host.userMetrics.actionTaken(Host.UserMetrics.Action.CommandEvaluatedInConsolePanel);
     }
@@ -360,12 +334,6 @@ Console.ConsolePrompt = class extends UI.Widget {
   _editorSetForTest() {
   }
 };
-
-/**
- * @const
- * @type {number}
- */
-Console.ConsolePrompt._MaxLengthForEvaluation = 2000;
 
 /**
  * @unrestricted
@@ -458,6 +426,5 @@ Console.ConsoleHistoryManager = class {
 };
 
 Console.ConsolePrompt.Events = {
-  ExpressionPinned: Symbol('ExpressionPinned'),
   TextChanged: Symbol('TextChanged')
 };

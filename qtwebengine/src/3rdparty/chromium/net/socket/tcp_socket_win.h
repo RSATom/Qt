@@ -16,7 +16,6 @@
 #include "base/threading/thread_checker.h"
 #include "base/win/object_watcher.h"
 #include "net/base/address_family.h"
-#include "net/base/completion_callback.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/log/net_log_with_source.h"
@@ -59,7 +58,7 @@ class NET_EXPORT TCPSocketWin : public base::win::ObjectWatcher::Delegate {
   int Listen(int backlog);
   int Accept(std::unique_ptr<TCPSocketWin>* socket,
              IPEndPoint* address,
-             const CompletionCallback& callback);
+             CompletionOnceCallback callback);
 
   int Connect(const IPEndPoint& address, CompletionOnceCallback callback);
   bool IsConnected() const;
@@ -99,9 +98,6 @@ class NET_EXPORT TCPSocketWin : public base::win::ObjectWatcher::Delegate {
 
   void Close();
 
-  // NOOP since TCP FastOpen is not implemented in Windows.
-  void EnableTCPFastOpenIfSupported() {}
-
   bool IsValid() const { return socket_ != INVALID_SOCKET; }
 
   // Detachs from the current thread, to allow the socket to be transferred to
@@ -129,8 +125,17 @@ class NET_EXPORT TCPSocketWin : public base::win::ObjectWatcher::Delegate {
   // write, or accept operations should be pending.
   SocketDescriptor ReleaseSocketDescriptorForTesting();
 
+  // Exposes the underlying socket descriptor for testing its state. Does not
+  // release ownership of the descriptor.
+  SocketDescriptor SocketDescriptorForTesting() const;
+
   // Apply |tag| to this socket.
   void ApplySocketTag(const SocketTag& tag);
+
+  // May return nullptr.
+  SocketPerformanceWatcher* socket_performance_watcher() const {
+    return socket_performance_watcher_.get();
+  }
 
  private:
   class Core;
@@ -162,7 +167,7 @@ class NET_EXPORT TCPSocketWin : public base::win::ObjectWatcher::Delegate {
 
   std::unique_ptr<TCPSocketWin>* accept_socket_;
   IPEndPoint* accept_address_;
-  CompletionCallback accept_callback_;
+  CompletionOnceCallback accept_callback_;
 
   // The various states that the socket could be in.
   bool waiting_connect_;

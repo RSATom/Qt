@@ -8,14 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "absl/memory/memory.h"
+#include "api/test/simulated_network.h"
+#include "api/test/video/function_video_encoder_factory.h"
+#include "call/fake_network_pipe.h"
+#include "call/simulated_network.h"
 #include "modules/rtp_rtcp/source/rtp_utility.h"
 #include "modules/video_coding/include/video_coding_defines.h"
+#include "rtc_base/strings/string_builder.h"
 #include "system_wrappers/include/metrics.h"
-#include "system_wrappers/include/metrics_default.h"
 #include "system_wrappers/include/sleep.h"
 #include "test/call_test.h"
 #include "test/fake_encoder.h"
-#include "test/function_video_encoder_factory.h"
 #include "test/gtest.h"
 #include "test/rtcp_packet_parser.h"
 
@@ -34,8 +38,7 @@ TEST_F(StatsEndToEndTest, GetStats) {
     void OnFrame(const VideoFrame& video_frame) override {}
   };
 
-  class StatsObserver : public test::EndToEndTest,
-                        public rtc::VideoSinkInterface<VideoFrame> {
+  class StatsObserver : public test::EndToEndTest {
    public:
     StatsObserver()
         : EndToEndTest(kLongTimeoutMs),
@@ -44,8 +47,7 @@ TEST_F(StatsEndToEndTest, GetStats) {
                 Clock::GetRealTimeClock(), 10);
           }),
           send_stream_(nullptr),
-          expected_send_ssrcs_(),
-          check_stats_event_(false, false) {}
+          expected_send_ssrcs_() {}
 
    private:
     Action OnSendRtp(const uint8_t* packet, size_t length) override {
@@ -76,11 +78,6 @@ TEST_F(StatsEndToEndTest, GetStats) {
     Action OnReceiveRtcp(const uint8_t* packet, size_t length) override {
       check_stats_event_.Set();
       return SEND_PACKET;
-    }
-
-    void OnFrame(const VideoFrame& video_frame) override {
-      // Ensure that we have at least 5ms send side delay.
-      SleepMs(5);
     }
 
     bool CheckReceiveStats() {
@@ -212,9 +209,9 @@ TEST_F(StatsEndToEndTest, GetStats) {
     }
 
     std::string CompoundKey(const char* name, uint32_t ssrc) {
-      std::ostringstream oss;
+      rtc::StringBuilder oss;
       oss << name << "_" << ssrc;
-      return oss.str();
+      return oss.Release();
     }
 
     bool AllStatsFilled(const std::map<std::string, bool>& stats_map) {
@@ -228,14 +225,18 @@ TEST_F(StatsEndToEndTest, GetStats) {
     test::PacketTransport* CreateSendTransport(
         test::SingleThreadedTaskQueueForTesting* task_queue,
         Call* sender_call) override {
-      FakeNetworkPipe::Config network_config;
+      BuiltInNetworkBehaviorConfig network_config;
       network_config.loss_percent = 5;
-      return new test::PacketTransport(task_queue, sender_call, this,
-                                       test::PacketTransport::kSender,
-                                       payload_type_map_, network_config);
+      return new test::PacketTransport(
+          task_queue, sender_call, this, test::PacketTransport::kSender,
+          payload_type_map_,
+          absl::make_unique<FakeNetworkPipe>(
+              Clock::GetRealTimeClock(),
+              absl::make_unique<SimulatedNetwork>(network_config)));
     }
-    void ModifySenderCallConfig(Call::Config* config) override {
-      config->bitrate_config.start_bitrate_bps = kStartBitrateBps;
+    void ModifySenderBitrateConfig(
+        BitrateConstraints* bitrate_config) override {
+      bitrate_config->start_bitrate_bps = kStartBitrateBps;
     }
 
     // This test use other VideoStream settings than the the default settings
@@ -244,7 +245,7 @@ TEST_F(StatsEndToEndTest, GetStats) {
     // in ModifyVideoConfigs.
     class VideoStreamFactory
         : public VideoEncoderConfig::VideoStreamFactoryInterface {
-     public:
+     public:  // NOLINT(whitespace/blank_line)
       VideoStreamFactory() {}
 
      private:
@@ -270,7 +271,6 @@ TEST_F(StatsEndToEndTest, GetStats) {
         VideoEncoderConfig* encoder_config) override {
       encoder_config->video_stream_factory =
           new rtc::RefCountedObject<VideoStreamFactory>();
-      send_config->pre_encode_callback = this;  // Used to inject delay.
       expected_cname_ = send_config->rtp.c_name = "SomeCName";
 
       send_config->rtp.nack.rtp_history_ms = kNackRtpHistoryMs;
@@ -509,9 +509,9 @@ TEST_F(StatsEndToEndTest, MAYBE_ContentTypeSwitches) {
   metrics::Reset();
 
   Call::Config send_config(send_event_log_.get());
-  test.ModifySenderCallConfig(&send_config);
+  test.ModifySenderBitrateConfig(&send_config.bitrate_config);
   Call::Config recv_config(recv_event_log_.get());
-  test.ModifyReceiverCallConfig(&recv_config);
+  test.ModifyReceiverBitrateConfig(&recv_config.bitrate_config);
 
   VideoEncoderConfig encoder_config_with_screenshare;
 
@@ -707,14 +707,22 @@ TEST_F(StatsEndToEndTest, CallReportsRttForSender) {
   std::unique_ptr<test::DirectTransport> receiver_transport;
 
   task_queue_.SendTask([this, &sender_transport, &receiver_transport]() {
-    FakeNetworkPipe::Config config;
+    BuiltInNetworkBehaviorConfig config;
     config.queue_delay_ms = kSendDelayMs;
     CreateCalls();
     sender_transport = absl::make_unique<test::DirectTransport>(
-        &task_queue_, config, sender_call_.get(), payload_type_map_);
+        &task_queue_,
+        absl::make_unique<FakeNetworkPipe>(
+            Clock::GetRealTimeClock(),
+            absl::make_unique<SimulatedNetwork>(config)),
+        sender_call_.get(), payload_type_map_);
     config.queue_delay_ms = kReceiveDelayMs;
     receiver_transport = absl::make_unique<test::DirectTransport>(
-        &task_queue_, config, receiver_call_.get(), payload_type_map_);
+        &task_queue_,
+        absl::make_unique<FakeNetworkPipe>(
+            Clock::GetRealTimeClock(),
+            absl::make_unique<SimulatedNetwork>(config)),
+        receiver_call_.get(), payload_type_map_);
     sender_transport->SetReceiver(receiver_call_->Receiver());
     receiver_transport->SetReceiver(sender_call_->Receiver());
 

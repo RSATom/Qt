@@ -17,11 +17,10 @@
 
 class CFX_CTTGSUBTable {
  public:
-  CFX_CTTGSUBTable();
+  explicit CFX_CTTGSUBTable(FT_Bytes gsub);
   ~CFX_CTTGSUBTable();
 
-  bool LoadGSUBTable(FT_Bytes gsub);
-  bool GetVerticalGlyph(uint32_t glyphnum, uint32_t* vglyphnum);
+  uint32_t GetVerticalGlyph(uint32_t glyphnum) const;
 
  private:
   struct TLangSysRecord {
@@ -61,18 +60,18 @@ class CFX_CTTGSUBTable {
   };
 
   struct TCoverageFormatBase {
-    virtual ~TCoverageFormatBase() {}
+    virtual ~TCoverageFormatBase() = default;
     uint16_t CoverageFormat;
   };
 
-  struct TCoverageFormat1 : public TCoverageFormatBase {
+  struct TCoverageFormat1 final : public TCoverageFormatBase {
     TCoverageFormat1();
     ~TCoverageFormat1() override;
 
     std::vector<uint16_t> GlyphArray;
   };
 
-  struct TCoverageFormat2 : public TCoverageFormatBase {
+  struct TCoverageFormat2 final : public TCoverageFormatBase {
     TCoverageFormat2();
     ~TCoverageFormat2() override;
 
@@ -95,14 +94,14 @@ class CFX_CTTGSUBTable {
     uint16_t SubstFormat;
   };
 
-  struct TSubTable1 : public TSubTableBase {
+  struct TSubTable1 final : public TSubTableBase {
     TSubTable1();
     ~TSubTable1() override;
 
     int16_t DeltaGlyphID;
   };
 
-  struct TSubTable2 : public TSubTableBase {
+  struct TSubTable2 final : public TSubTableBase {
     TSubTable2();
     ~TSubTable2() override;
 
@@ -118,6 +117,7 @@ class CFX_CTTGSUBTable {
     std::vector<std::unique_ptr<TSubTableBase>> SubTables;
   };
 
+  bool LoadGSUBTable(FT_Bytes gsub);
   bool Parse(FT_Bytes scriptlist, FT_Bytes featurelist, FT_Bytes lookuplist);
   void ParseScriptList(FT_Bytes raw);
   void ParseScript(FT_Bytes raw, TScriptRecord* rec);
@@ -133,12 +133,12 @@ class CFX_CTTGSUBTable {
   void ParseSingleSubstFormat1(FT_Bytes raw, TSubTable1* rec);
   void ParseSingleSubstFormat2(FT_Bytes raw, TSubTable2* rec);
 
-  bool GetVerticalGlyphSub(uint32_t glyphnum,
-                           uint32_t* vglyphnum,
-                           TFeatureRecord* Feature);
-  bool GetVerticalGlyphSub2(uint32_t glyphnum,
-                            uint32_t* vglyphnum,
-                            TLookup* Lookup);
+  bool GetVerticalGlyphSub(const TFeatureRecord& feature,
+                           uint32_t glyphnum,
+                           uint32_t* vglyphnum) const;
+  bool GetVerticalGlyphSub2(const TLookup& lookup,
+                            uint32_t glyphnum,
+                            uint32_t* vglyphnum) const;
   int GetCoverageIndex(TCoverageFormatBase* Coverage, uint32_t g) const;
 
   uint8_t GetUInt8(FT_Bytes& p) const;
@@ -148,7 +148,6 @@ class CFX_CTTGSUBTable {
   uint32_t GetUInt32(FT_Bytes& p) const;
 
   std::set<uint32_t> m_featureSet;
-  bool m_bFeautureMapLoad;
   std::vector<TScriptRecord> ScriptList;
   std::vector<TFeatureRecord> FeatureList;
   std::vector<TLookup> LookupList;

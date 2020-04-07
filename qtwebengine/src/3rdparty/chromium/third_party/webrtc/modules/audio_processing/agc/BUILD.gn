@@ -19,13 +19,13 @@ rtc_source_set("agc") {
     ":level_estimation",
     "..:apm_logging",
     "..:gain_control_interface",
-    "../../..:typedefs",
     "../../..:webrtc_common",
     "../../../rtc_base:checks",
+    "../../../rtc_base:gtest_prod",
     "../../../rtc_base:logging",
     "../../../rtc_base:macromagic",
     "../../../rtc_base:safe_minmax",
-    "../../../system_wrappers:metrics_api",
+    "../../../system_wrappers:metrics",
     "../agc2:level_estimation_agc",
     "../vad",
   ]
@@ -41,7 +41,6 @@ rtc_source_set("level_estimation") {
     "utility.h",
   ]
   deps = [
-    "../../..:typedefs",
     "../../..:webrtc_common",
     "../../../rtc_base:checks",
     "../../../rtc_base:macromagic",
@@ -66,11 +65,10 @@ rtc_source_set("agc_legacy_c") {
   ]
 
   deps = [
-    "../../..:typedefs",
     "../../..:webrtc_common",
     "../../../common_audio",
     "../../../common_audio:common_audio_c",
-    "../../../common_audio:fft4g",
+    "../../../common_audio/third_party/fft4g",
     "../../../rtc_base:checks",
     "../../../rtc_base:rtc_base_approved",
     "../../../system_wrappers:cpu_features_api",
@@ -78,9 +76,7 @@ rtc_source_set("agc_legacy_c") {
 
   if (rtc_build_with_neon) {
     if (current_cpu != "arm64") {
-      # Enable compilation for the NEON instruction set. This is needed
-      # since //build/config/arm.gni only enables NEON for iOS, not Android.
-      # This provides the same functionality as webrtc/build/arm_neon.gypi.
+      # Enable compilation for the NEON instruction set.
       suppressed_configs += [ "//build/config/compiler:compiler_arm_fpu" ]
       cflags = [ "-mfpu=neon" ]
     }

@@ -20,6 +20,7 @@
 #include "net/base/load_states.h"
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
+#include "net/base/privacy_mode.h"
 #include "net/base/request_priority.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/filter/source_stream.h"
@@ -197,7 +198,8 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   virtual void ContinueDespiteLastError();
 
   void FollowDeferredRedirect(
-      const base::Optional<net::HttpRequestHeaders>& modified_request_headers);
+      const base::Optional<std::vector<std::string>>& removed_headers,
+      const base::Optional<net::HttpRequestHeaders>& modified_headers);
 
   // Returns true if the Job is done producing response data and has called
   // NotifyDone on the request.
@@ -264,15 +266,15 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // Notifies the job about an SSL certificate error.
   void NotifySSLCertificateError(const SSLInfo& ssl_info, bool fatal);
 
-  // Delegates to URLRequest::Delegate.
+  // Delegates to URLRequest.
   bool CanGetCookies(const CookieList& cookie_list) const;
 
-  // Delegates to URLRequest::Delegate.
+  // Delegates to URLRequest.
   bool CanSetCookie(const net::CanonicalCookie& cookie,
                     CookieOptions* options) const;
 
-  // Delegates to URLRequest::Delegate.
-  bool CanEnablePrivacyMode() const;
+  // Delegates to URLRequest.
+  PrivacyMode privacy_mode() const;
 
   // Notifies the job that headers have been received.
   void NotifyHeadersComplete();
@@ -371,7 +373,8 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // given redirect destination.
   void FollowRedirect(
       const RedirectInfo& redirect_info,
-      const base::Optional<net::HttpRequestHeaders>& modified_request_headers);
+      const base::Optional<std::vector<std::string>>& removed_headers,
+      const base::Optional<net::HttpRequestHeaders>& modified_headers);
 
   // Called after every raw read. If |bytes_read| is > 0, this indicates
   // a successful read of |bytes_read| unfiltered bytes. If |bytes_read|

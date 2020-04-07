@@ -224,15 +224,22 @@ qtConfig(bluez) {
 
     SOURCES += \
         qbluetoothdevicediscoveryagent_winrt.cpp \
-        qbluetoothlocaldevice_p.cpp \
+        qbluetoothlocaldevice_winrt.cpp \
         qbluetoothserver_winrt.cpp \
         qbluetoothservicediscoveryagent_winrt.cpp \
         qbluetoothserviceinfo_winrt.cpp \
         qbluetoothsocket_winrt.cpp \
+        qbluetoothutils_winrt.cpp \
         qlowenergycontroller_winrt.cpp
 
     PRIVATE_HEADERS += qlowenergycontroller_winrt_p.h \
-                       qbluetoothsocket_winrt_p.h
+                       qbluetoothsocket_winrt_p.h \
+                       qbluetoothutils_winrt_p.h
+
+    qtConfig(winrt_btle_no_pairing) {
+        SOURCES += qlowenergycontroller_winrt_new.cpp
+        PRIVATE_HEADERS += qlowenergycontroller_winrt_new_p.h
+    }
 
     lessThan(WINDOWS_SDK_VERSION, 14393) {
         DEFINES += QT_WINRT_LIMITED_SERVICEDISCOVERY

@@ -124,9 +124,8 @@ protected:
         path.lineTo(170, 80);
         path.lineTo(240, 50);
 
-        size_t i;
         canvas->save();
-        for (i = 0; i < SK_ARRAY_COUNT(gPE); i++) {
+        for (size_t i = 0; i < SK_ARRAY_COUNT(gPE); i++) {
             gPE[i](&paint);
             canvas->drawPath(path, paint);
             canvas->translate(0, 75);
@@ -140,14 +139,14 @@ protected:
         path.addRect(r, SkPath::kCCW_Direction);
 
         canvas->translate(320, 20);
-        for (i = 0; i < SK_ARRAY_COUNT(gPE2); i++) {
+        for (size_t i = 0; i < SK_ARRAY_COUNT(gPE2); i++) {
             gPE2[i](&paint);
             canvas->drawPath(path, paint);
             canvas->translate(0, 160);
         }
 
-        SkIRect rect = SkIRect::MakeXYWH(20, 20, 60, 60);
-        for (i = 0; i < SK_ARRAY_COUNT(gPE); i++) {
+        const SkIRect rect = SkIRect::MakeXYWH(20, 20, 60, 60);
+        for (size_t i = 0; i < SK_ARRAY_COUNT(gPE); i++) {
             SkPaint p;
             p.setAntiAlias(true);
             p.setStyle(SkPaint::kFill_Style);
@@ -189,12 +188,14 @@ protected:
         sk_sp<SkPathEffect> effects[] = {
             nullptr,
             SkStrokePathEffect::Make(20, SkPaint::kRound_Join, SkPaint::kRound_Cap, 0),
-            SkOpPathEffect::Make(nullptr,
-                                 SkStrokePathEffect::Make(20, SkPaint::kRound_Join, SkPaint::kRound_Cap, 0),
-                                 kDifference_SkPathOp),
-            SkOpPathEffect::Make(SkMatrixPathEffect::MakeTranslate(50, 30),
-                                 SkStrokePathEffect::Make(20, SkPaint::kRound_Join, SkPaint::kRound_Cap, 0),
-                                 kReverseDifference_SkPathOp),
+            SkMergePathEffect::Make(nullptr,
+                                    SkStrokePathEffect::Make(20, SkPaint::kRound_Join,
+                                                             SkPaint::kRound_Cap, 0),
+                                    kDifference_SkPathOp),
+            SkMergePathEffect::Make(SkMatrixPathEffect::MakeTranslate(50, 30),
+                                    SkStrokePathEffect::Make(20, SkPaint::kRound_Join,
+                                                             SkPaint::kRound_Cap, 0),
+                                    kReverseDifference_SkPathOp),
         };
 
         SkPaint wireframe;

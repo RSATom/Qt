@@ -44,6 +44,8 @@
 #include <QtLocation/private/qmapiconobjectqsg_p_p.h>
 #include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
 #include <QtLocation/private/qgeomapobjectqsgsupport_p.h>
+#include <QtPositioning/private/qlocationutils_p.h>
+#include <math.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -57,6 +59,7 @@ public:
     QGeoMapObjectPrivate *createMapObjectImplementation(QGeoMapObject *obj) override;
     virtual QList<QGeoMapObject *> mapObjects() const override;
     void removeMapObject(QGeoMapObject *obj);
+    QList<QObject *>mapObjectsAt(const QGeoCoordinate &coordinate) const;
 
     void updateMapObjects(QSGNode *root, QQuickWindow *window);
     void updateObjectsGeometry();
@@ -93,6 +96,34 @@ QList<QGeoMapObject *> QGeoTiledMapLabsPrivate::mapObjects() const
 void QGeoTiledMapLabsPrivate::removeMapObject(QGeoMapObject *obj)
 {
     m_qsgSupport.removeMapObject(obj);
+}
+
+QList<QObject *> QGeoTiledMapLabsPrivate::mapObjectsAt(const QGeoCoordinate &coordinate) const
+{
+    // ToDo: use a space partitioning strategy
+    QList<QObject *> res;
+    for (const auto o: mapObjects()) {
+        // explicitly handle lines
+        bool contains = false;
+        if (o->type() == QGeoMapObject::PolylineType ) {
+            QMapPolylineObject *mpo = static_cast<QMapPolylineObject *>(o);
+            qreal mpp = QLocationUtils::metersPerPixel(m_cameraData.zoomLevel(), coordinate);
+            QGeoPath path = o->geoShape();
+            path.setWidth(mpp * mpo->border()->width());
+            contains = path.contains(coordinate);
+        } else if (o->type() == QGeoMapObject::RouteType) {
+            qreal mpp = QLocationUtils::metersPerPixel(m_cameraData.zoomLevel(), coordinate);
+            QGeoPath path = o->geoShape();
+            path.setWidth(mpp * 4); // MapRouteObjectQSG has a hardcoded 4 pixels width;
+            contains = path.contains(coordinate);
+        } else {
+            contains = o->geoShape().contains(coordinate);
+        }
+
+        if (contains)
+            res.append(o);
+    }
+    return res;
 }
 
 void QGeoTiledMapLabsPrivate::updateMapObjects(QSGNode *root, QQuickWindow *window)
@@ -159,6 +190,12 @@ void QGeoTiledMapLabs::removeMapObject(QGeoMapObject *obj)
 {
     Q_D(QGeoTiledMapLabs);
     d->removeMapObject(obj);
+}
+
+QList<QObject *> QGeoTiledMapLabs::mapObjectsAt(const QGeoCoordinate &coordinate) const
+{
+    Q_D(const QGeoTiledMapLabs);
+    return d->mapObjectsAt(coordinate);
 }
 
 QGeoTiledMapLabs::QGeoTiledMapLabs(QGeoTiledMapLabsPrivate &dd, QGeoTiledMappingManagerEngine *engine, QObject *parent)

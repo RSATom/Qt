@@ -7,7 +7,13 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "media/engine/internalencoderfactory.h"
+
+#include "absl/memory/memory.h"
+#include "api/test/simulated_network.h"
+#include "api/test/video/function_video_encoder_factory.h"
+#include "call/fake_network_pipe.h"
+#include "call/simulated_network.h"
+#include "media/engine/internal_encoder_factory.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "modules/rtp_rtcp/source/rtp_format.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
@@ -15,7 +21,6 @@
 #include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/numerics/sequence_number_util.h"
 #include "test/call_test.h"
-#include "test/function_video_encoder_factory.h"
 
 namespace webrtc {
 namespace {
@@ -96,16 +101,22 @@ class PictureIdObserver : public test::RtpRtcpObserver {
         &parsed_payload, &packet[header.headerLength], payload_length));
 
     switch (codec_type_) {
-      case kVideoCodecVP8:
-        parsed->picture_id = parsed_payload.video_header().vp8().pictureId;
-        parsed->tl0_pic_idx = parsed_payload.video_header().vp8().tl0PicIdx;
-        parsed->temporal_idx = parsed_payload.video_header().vp8().temporalIdx;
+      case kVideoCodecVP8: {
+        const auto& vp8_header = absl::get<RTPVideoHeaderVP8>(
+            parsed_payload.video_header().video_type_header);
+        parsed->picture_id = vp8_header.pictureId;
+        parsed->tl0_pic_idx = vp8_header.tl0PicIdx;
+        parsed->temporal_idx = vp8_header.temporalIdx;
         break;
-      case kVideoCodecVP9:
-        parsed->picture_id = parsed_payload.video_header().vp9().picture_id;
-        parsed->tl0_pic_idx = parsed_payload.video_header().vp9().tl0_pic_idx;
-        parsed->temporal_idx = parsed_payload.video_header().vp9().temporal_idx;
+      }
+      case kVideoCodecVP9: {
+        const auto& vp9_header = absl::get<RTPVideoHeaderVP9>(
+            parsed_payload.video_header().video_type_header);
+        parsed->picture_id = vp9_header.picture_id;
+        parsed->tl0_pic_idx = vp9_header.tl0_pic_idx;
+        parsed->temporal_idx = vp9_header.temporal_idx;
         break;
+      }
       default:
         RTC_NOTREACHED();
         break;
@@ -249,14 +260,17 @@ class VideoStreamFactory
     std::vector<VideoStream> streams =
         test::CreateVideoStreams(width, height, encoder_config);
 
-    // Use the same total bitrates when sending a single stream to avoid
-    // lowering the bitrate estimate and requiring a subsequent rampup.
+    // Always divide the same total bitrate across all streams so that sending a
+    // single stream avoids lowering the bitrate estimate and requiring a
+    // subsequent rampup.
     const int encoder_stream_bps =
         kEncoderBitrateBps /
         rtc::checked_cast<int>(encoder_config.number_of_streams);
 
     for (size_t i = 0; i < encoder_config.number_of_streams; ++i) {
-      streams[i].min_bitrate_bps = encoder_stream_bps;
+      // Reduce the min bitrate by 10% to account for overhead that might
+      // otherwise cause streams to not be enabled.
+      streams[i].min_bitrate_bps = static_cast<int>(encoder_stream_bps * 0.9);
       streams[i].target_bitrate_bps = encoder_stream_bps;
       streams[i].max_bitrate_bps = encoder_stream_bps;
       streams[i].num_temporal_layers = num_of_temporal_layers_;
@@ -287,7 +301,9 @@ void PictureIdTest::SetupEncoder(VideoEncoderFactory* encoder_factory,
     send_transport_.reset(new test::PacketTransport(
         &task_queue_, sender_call_.get(), observer_.get(),
         test::PacketTransport::kSender, payload_type_map_,
-        FakeNetworkPipe::Config()));
+        absl::make_unique<FakeNetworkPipe>(
+            Clock::GetRealTimeClock(), absl::make_unique<SimulatedNetwork>(
+                                           BuiltInNetworkBehaviorConfig()))));
 
     CreateSendConfig(kNumSimulcastStreams, 0, 0, send_transport_.get());
     GetVideoSendConfig()->encoder_settings.encoder_factory = encoder_factory;
@@ -351,7 +367,6 @@ void PictureIdTest::TestPictureIdIncreaseAfterRecreateStreams(
   observer_->SetMaxExpectedPictureIdGap(kMaxFramesLost);
   for (int ssrc_count : ssrc_counts) {
     task_queue_.SendTask([this, &ssrc_count]() {
-      frame_generator_capturer_->Stop();
       DestroyVideoSendStreams();
 
       GetVideoEncoderConfig()->number_of_streams = ssrc_count;
@@ -361,7 +376,6 @@ void PictureIdTest::TestPictureIdIncreaseAfterRecreateStreams(
       CreateVideoSendStreams();
       GetVideoSendStream()->Start();
       CreateFrameGeneratorCapturer(kFrameRate, kFrameMaxWidth, kFrameMaxHeight);
-      frame_generator_capturer_->Start();
     });
 
     EXPECT_TRUE(observer_->Wait()) << "Timed out waiting for packets.";

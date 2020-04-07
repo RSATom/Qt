@@ -2,7 +2,6 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="hr">
 <translation id="1018939186200882850">stavka izbornika</translation>
-<translation id="1020833440720551630">isključivanje zvučnog zapisa</translation>
 <translation id="10623998915015855">preklopni gumb</translation>
 <translation id="1088086359088493902">Sekunde</translation>
 <translation id="1171774979989969504">Unesite e-adresu.</translation>
@@ -16,11 +15,11 @@
 <translation id="1335095011850992622">zasluge</translation>
 <translation id="1342835525016946179">članak</translation>
 <translation id="1359897965706325498">natpis</translation>
-<translation id="1548116112524424341">reprodukcija videozapisa u načnu slike u slici</translation>
 <translation id="1589122976691792535">regija</translation>
 <translation id="1591562245178063882">Ovaj mjesec</translation>
 <translation id="1637811476055996098">Odabir datoteka</translation>
 <translation id="1650423536718072820">izdvojeno</translation>
+<translation id="1727886345390570319">sakrij izbornik titlova</translation>
 <translation id="1729654308190250600">Unesite e-adresu koja nije prazna vrijednost.</translation>
 <translation id="1758486001363313524">Drugo...</translation>
 <translation id="1806710327868736751">dijaloški okvir upozorenja</translation>
@@ -98,11 +97,13 @@
 <translation id="4413860115965805769">gumb izbornika</translation>
 <translation id="4446524499724042288">referenca iz pojmovnika</translation>
 <translation id="4522570452068850558">Detalji</translation>
+<translation id="4542388879936266156">preostalo vrijeme: <ph name="REMAINING_TIME" /></translation>
 <translation id="4597532268155981612">obrazac</translation>
 <translation id="4661075872484491155">stablo</translation>
 <translation id="4664250907885839816">Dio adrese iza znaka "<ph name="ATSIGN" />" ne smije sadržavati simbol "<ph name="INVALIDCHARACTER" />".</translation>
 <translation id="4668956016107839909">dodatak</translation>
 <translation id="4742539557769756338">naslovnica</translation>
+<translation id="4748357248530471599">prebacite urez na zaslonu u cijeli zaslon</translation>
 <translation id="4757246831282535685">ploča kartice</translation>
 <translation id="4763480195061959176">videozapis</translation>
 <translation id="479989351350248267">search</translation>
@@ -129,7 +130,6 @@
 <translation id="561939826962581046">vrijeme</translation>
 <translation id="5630795885300617244">Dvaput dodirnite lijevo ili desno za preskakanje od 10 s</translation>
 <translation id="5631759159893697722">sažetak</translation>
-<translation id="5641012560118721995">pauziranje reprodukcije</translation>
 <translation id="5643186887447432888">gumb</translation>
 <translation id="5677946354068040947">više opcija</translation>
 <translation id="576709008726043716">uvod</translation>
@@ -140,15 +140,16 @@
 <translation id="5939518447894949180">Ponovno postavi</translation>
 <translation id="5966707198760109579">Tjedan</translation>
 <translation id="5987525920412732405">okretni gumb</translation>
+<translation id="6011459053400940133">Klizač za glasnoću</translation>
 <translation id="6015796118275082299">Godina</translation>
 <translation id="6023896073578205740">okvir s popisom</translation>
-<translation id="6101327004457443354">uključivanje zvučnog zapisa</translation>
 <translation id="6150588977291308318">bibliografija</translation>
 <translation id="6164829606128959761">mjerač</translation>
 <translation id="6166809985690652833">pogovor</translation>
 <translation id="6213469881011901533">pojmovnik</translation>
 <translation id="6398862346408813489">Prikaži ploču za odabir mjeseca</translation>
 <translation id="6404546809543547843">klizač vremena audiozapisa</translation>
+<translation id="6443871981718447451">prikaži izbornik titlova</translation>
 <translation id="6453774872122745852">zahvale</translation>
 <translation id="648732519525291180">alat za odabir vremena</translation>
 <translation id="6550675742724504774">Opcije</translation>
@@ -164,7 +165,6 @@
 <translation id="6820355525329141109">Nije bilo moguće učitati dodatak.</translation>
 <translation id="6820615603175220800">bibliografska referenca</translation>
 <translation id="6843725295806269523">isključi ton</translation>
-<translation id="6853785296079745596">sakrivanje titlova</translation>
 <translation id="6885760532393684712">direktorij</translation>
 <translation id="689129560213475294">kolofon</translation>
 <translation id="6934078000481955284">uvučeni citat</translation>
@@ -173,7 +173,6 @@
 <translation id="6989848892321993519">Produljite broj znakova u tekstu na minimalno <ph name="MIN_CHARACTERS" /> (trenutačno imate 1 znak).</translation>
 <translation id="709897737746224366">Udovoljite zadanom formatu.</translation>
 <translation id="7139483182332611405">predgovor</translation>
-<translation id="7223624360433298498">proteklo vrijeme</translation>
 <translation id="7263440858009898357">Odaberite stavku s popisa.</translation>
 <translation id="727747134524199931">zaglavlje stupca</translation>
 <translation id="7353453495576941748">zasluga</translation>
@@ -188,8 +187,6 @@
 <translation id="7661956066982048809">grafički dokument</translation>
 <translation id="7673697353781729403">Sati</translation>
 <translation id="7681220483256441252">indeks</translation>
-<translation id="7720026100085573005">preostalo vrijeme</translation>
-<translation id="7740016676195725605">zaustavljanje prikazivanja titlova</translation>
 <translation id="7740050170769002709">HTML sadržaj</translation>
 <translation id="7750228210027921155">Slika u slici</translation>
 <translation id="7789962463072032349">pauziraj</translation>
@@ -200,12 +197,11 @@
 <translation id="8053789581856978548">pretraži tekstno polje</translation>
 <translation id="8057695513531652401">obavijest</translation>
 <translation id="8105797009065549151">referenca bilješke</translation>
-<translation id="8115662671911883373">početak prikazivanja titlova</translation>
 <translation id="8117451130807776954">Ovaj tjedan</translation>
-<translation id="819205353528511139">reprodukcija filma na cijelom zaslonu</translation>
 <translation id="8199524924445686405">gggg</translation>
 <translation id="8284326494547611709">Titlovi</translation>
 <translation id="835897206747267392">Nevažeća vrijednost.</translation>
+<translation id="8403857369060869934">proteklo vrijeme: <ph name="ELAPSED_TIME" /></translation>
 <translation id="8415319359811155763">dio</translation>
 <translation id="8433900881053900389">alatna traka</translation>
 <translation id="8444882422881193423">Broj datoteka: <ph name="NUMBER_OF_FILES" /></translation>
@@ -222,7 +218,6 @@
 <translation id="8613126697340063924">upravljaj daljinskom reprodukcijom</translation>
 <translation id="862370744433916922">titl</translation>
 <translation id="8750798805984357768">Izaberite jednu od tih opcija.</translation>
-<translation id="8785498733064193001">početak reprodukcije</translation>
 <translation id="8808573423886751634">poglavlje</translation>
 <translation id="8845239796550121995">Emitira se na televizoru</translation>
 <translation id="8851136666856101339">glav</translation>
@@ -231,7 +226,6 @@
 <translation id="8987927404178983737">Mjesec</translation>
 <translation id="901493112792887934">trenutačno vrijeme u sekundama</translation>
 <translation id="9048119486235211610">navigacija</translation>
-<translation id="9050748414552849310">prikazivanje titlova</translation>
 <translation id="9062295712474918030">dokument</translation>
 <translation id="9093215626363556771">izlaz iz načina slika u slici</translation>
 <translation id="9108370397979208512">mat</translation>

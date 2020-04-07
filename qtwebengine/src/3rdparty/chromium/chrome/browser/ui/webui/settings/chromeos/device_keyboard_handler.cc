@@ -9,23 +9,42 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/values.h"
+#include "chrome/browser/ui/ash/ksv/keyboard_shortcut_viewer_util.h"
 #include "chrome/browser/ui/ash/tablet_mode_client.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
+#include "ui/chromeos/events/event_rewriter_chromeos.h"
 #include "ui/events/devices/input_device_manager.h"
 
 namespace {
 
-bool HasExternalKeyboard() {
+struct KeyboardsStateResult {
+  bool has_internal_keyboard = false;
+  bool has_external_non_apple_keyboard = false;
+  bool has_apple_keyboard = false;
+};
+
+KeyboardsStateResult GetKeyboardsState() {
+  KeyboardsStateResult result;
   for (const ui::InputDevice& keyboard :
        ui::InputDeviceManager::GetInstance()->GetKeyboardDevices()) {
-    if (keyboard.type == ui::InputDeviceType::INPUT_DEVICE_EXTERNAL)
-      return true;
+    result.has_internal_keyboard |=
+        (keyboard.type == ui::INPUT_DEVICE_INTERNAL);
+
+    const ui::EventRewriterChromeOS::DeviceType type =
+        ui::EventRewriterChromeOS::GetDeviceType(keyboard);
+    if (type == ui::EventRewriterChromeOS::kDeviceAppleKeyboard) {
+      result.has_apple_keyboard = true;
+    } else if (type ==
+                   ui::EventRewriterChromeOS::kDeviceExternalNonAppleKeyboard ||
+               type == ui::EventRewriterChromeOS::kDeviceExternalUnknown) {
+      result.has_external_non_apple_keyboard = true;
+    }
   }
 
-  return false;
+  return result;
 }
 
 }  // namespace
@@ -50,8 +69,8 @@ void KeyboardHandler::RegisterMessages() {
       base::BindRepeating(&KeyboardHandler::HandleInitialize,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "showKeyboardShortcutsOverlay",
-      base::BindRepeating(&KeyboardHandler::HandleShowKeyboardShortcutsOverlay,
+      "showKeyboardShortcutViewer",
+      base::BindRepeating(&KeyboardHandler::HandleShowKeyboardShortcutViewer,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "initializeKeyboardWatcher",
@@ -67,10 +86,13 @@ void KeyboardHandler::OnJavascriptDisallowed() {
   observer_.RemoveAll();
 }
 
-void KeyboardHandler::OnKeyboardDeviceConfigurationChanged() {
-  AllowJavascript();
-  UpdateShowKeys();
-  UpdateKeyboards();
+void KeyboardHandler::OnInputDeviceConfigurationChanged(
+    uint8_t input_device_types) {
+  if (input_device_types & ui::InputDeviceEventObserver::kKeyboard) {
+    AllowJavascript();
+    UpdateShowKeys();
+    UpdateKeyboards();
+  }
 }
 
 void KeyboardHandler::HandleInitialize(const base::ListValue* args) {
@@ -79,13 +101,9 @@ void KeyboardHandler::HandleInitialize(const base::ListValue* args) {
   UpdateKeyboards();
 }
 
-void KeyboardHandler::HandleShowKeyboardShortcutsOverlay(
+void KeyboardHandler::HandleShowKeyboardShortcutViewer(
     const base::ListValue* args) const {
-  ash::mojom::NewWindowControllerPtr new_window_controller;
-  content::ServiceManagerConnection::GetForProcess()
-      ->GetConnector()
-      ->BindInterface(ash::mojom::kServiceName, &new_window_controller);
-  new_window_controller->ShowKeyboardOverlay();
+  keyboard_shortcut_viewer_util::ToggleKeyboardShortcutViewer();
 }
 
 void KeyboardHandler::HandleKeyboardChange(const base::ListValue* args) {
@@ -115,14 +133,27 @@ void KeyboardHandler::UpdateKeyboards() {
 void KeyboardHandler::UpdateShowKeys() {
   // kHasChromeOSKeyboard will be unset on Chromebooks that have standalone Caps
   // Lock keys.
-  const base::Value has_caps_lock(
-      HasExternalKeyboard() ||
-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kHasChromeOSKeyboard));
-  const base::Value has_diamond_key(
+  const KeyboardsStateResult keyboards_state = GetKeyboardsState();
+  const bool has_caps_lock = keyboards_state.has_apple_keyboard ||
+                             keyboards_state.has_external_non_apple_keyboard ||
+                             !base::CommandLine::ForCurrentProcess()->HasSwitch(
+                                 chromeos::switches::kHasChromeOSKeyboard);
+  const bool has_diamond_key =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kHasChromeOSDiamondKey));
-  FireWebUIListener(kShowKeysChangedName, has_caps_lock, has_diamond_key);
+          chromeos::switches::kHasChromeOSDiamondKey);
+
+  base::Value keyboard_params(base::Value::Type::DICTIONARY);
+  keyboard_params.SetKey("showCapsLock", base::Value(has_caps_lock));
+  keyboard_params.SetKey("showDiamondKey", base::Value(has_diamond_key));
+  keyboard_params.SetKey(
+      "showExternalMetaKey",
+      base::Value(keyboards_state.has_external_non_apple_keyboard));
+  keyboard_params.SetKey("showAppleCommandKey",
+                         base::Value(keyboards_state.has_apple_keyboard));
+  keyboard_params.SetKey("hasInternalKeyboard",
+                         base::Value(keyboards_state.has_internal_keyboard));
+
+  FireWebUIListener(kShowKeysChangedName, keyboard_params);
 }
 
 }  // namespace settings

@@ -416,7 +416,7 @@ QFrameInfo QMoviePrivate::infoForFrame(int frameNumber)
             } else {
                 // We've read all frames now. Return an end marker
                 haveReadAll = true;
-                return QFrameInfo::endMarker();
+                return frameNumber == greatestFrameNumber + 1 ? QFrameInfo::endMarker() : QFrameInfo();
             }
         }
     }
@@ -659,7 +659,7 @@ void QMovie::setDevice(QIODevice *device)
 
 /*!
     Returns the device QMovie reads image data from. If no device has
-    currently been assigned, 0 is returned.
+    currently been assigned, \nullptr is returned.
 
     \sa setDevice(), fileName()
 */

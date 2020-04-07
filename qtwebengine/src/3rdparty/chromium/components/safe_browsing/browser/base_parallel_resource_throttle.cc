@@ -140,12 +140,16 @@ void BaseParallelResourceThrottle::WillRedirectRequest(
     return;
   }
 
-  // The safe browsing URLLoaderThrottle doesn't use ResourceResponse, so pass
-  // in an empty struct to avoid changing ResourceThrottle signature.
-  network::ResourceResponseHead resource_response;
+  // The safe browsing URLLoaderThrottle doesn't use the |resource_head|,
+  // |to_be_modified_headers|, |modified_headers| or |new_url| parameters, so
+  // pass in an empty struct to avoid changing ResourceThrottle signature.
+  network::ResourceResponseHead resource_head;
   std::vector<std::string> to_be_removed_headers;
+  net::HttpRequestHeaders modified_headers;
+  net::RedirectInfo redirect_info_copy = redirect_info;
   url_loader_throttle_holder_->throttle()->WillRedirectRequest(
-      redirect_info, resource_response, defer, &to_be_removed_headers);
+      &redirect_info_copy, resource_head, defer, &to_be_removed_headers,
+      &modified_headers);
   DCHECK(!*defer);
   throttle_in_band_ = false;
 }
@@ -157,8 +161,9 @@ void BaseParallelResourceThrottle::WillProcessResponse(bool* defer) {
     return;
   }
 
+  network::ResourceResponseHead response_head;
   url_loader_throttle_holder_->throttle()->WillProcessResponse(
-      GURL(), network::ResourceResponseHead(), defer);
+      GURL(), &response_head, defer);
   if (!*defer)
     throttle_in_band_ = false;
 }

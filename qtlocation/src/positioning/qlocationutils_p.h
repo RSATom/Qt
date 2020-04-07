@@ -229,7 +229,7 @@ public:
         return 6371007.2;
     }
 
-    inline static double earthMeanDiameter()
+    inline static double earthMeanCircumference()
     {
         return earthMeanRadius() * 2.0 * M_PI;
     }
@@ -254,6 +254,12 @@ public:
     inline static double  mapRightLongitude(double centerLongitude)
     {
         return wrapLong(centerLongitude - leftOffset);
+    }
+
+    static qreal metersPerPixel(qreal zoomLevel, const QGeoCoordinate &coordinate)
+    {
+        const qreal metersPerTile = earthMeanCircumference() * std::cos(radians(coordinate.latitude())) / std::pow(2, zoomLevel);
+        return metersPerTile / 256.0;
     }
 
     /*

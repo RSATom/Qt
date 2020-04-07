@@ -11,18 +11,9 @@ mojom_component("mojom") {
 
   deps = [
     "//mojo/public/mojom/base",
+    "//services/service_manager/public/mojom",
   ]
 
   output_prefix = "gamepad_mojom"
   macro_prefix = "GAMEPAD_MOJOM"
-}
-
-mojom("gamepad_mojom_traits_test") {
-  sources = [
-    "gamepad_mojom_traits_test.mojom",
-  ]
-
-  public_deps = [
-    ":mojom",
-  ]
 }

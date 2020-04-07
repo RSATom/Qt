@@ -175,7 +175,6 @@ bool QScriptDebuggerValueProperty::isValid() const
 }
 
 /*!
-  \fn QDataStream &operator<<(QDataStream &stream, const QScriptDebuggerValueProperty &property)
   \relates QScriptDebuggerValueProperty
 
   Writes the given \a property to the specified \a stream.
@@ -190,7 +189,6 @@ QDataStream &operator<<(QDataStream &out, const QScriptDebuggerValueProperty &pr
 }
 
 /*!
-  \fn QDataStream &operator>>(QDataStream &stream, QScriptDebuggerValueProperty &property)
   \relates QScriptDebuggerValueProperty
 
   Reads a QScriptDebuggerValueProperty from the specified \a stream into the

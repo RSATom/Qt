@@ -31,23 +31,7 @@ CBC_Codabar::CBC_Codabar()
 
 CBC_Codabar::~CBC_Codabar() {}
 
-bool CBC_Codabar::SetStartChar(char start) {
-  return GetOnedCodaBarWriter()->SetStartChar(start);
-}
-
-bool CBC_Codabar::SetEndChar(char end) {
-  return GetOnedCodaBarWriter()->SetEndChar(end);
-}
-
-bool CBC_Codabar::SetTextLocation(BC_TEXT_LOC location) {
-  return GetOnedCodaBarWriter()->SetTextLocation(location);
-}
-
-bool CBC_Codabar::SetWideNarrowRatio(int8_t ratio) {
-  return GetOnedCodaBarWriter()->SetWideNarrowRatio(ratio);
-}
-
-bool CBC_Codabar::Encode(const WideStringView& contents) {
+bool CBC_Codabar::Encode(WideStringView contents) {
   if (contents.IsEmpty())
     return false;
 
@@ -55,7 +39,7 @@ bool CBC_Codabar::Encode(const WideStringView& contents) {
   int32_t outWidth = 0;
   int32_t outHeight = 0;
   m_renderContents = GetOnedCodaBarWriter()->FilterContents(contents);
-  ByteString byteString = m_renderContents.UTF8Encode();
+  ByteString byteString = m_renderContents.ToUTF8();
   auto* pWriter = GetOnedCodaBarWriter();
   std::unique_ptr<uint8_t, FxFreeDeleter> data(
       pWriter->Encode(byteString, format, outWidth, outHeight));

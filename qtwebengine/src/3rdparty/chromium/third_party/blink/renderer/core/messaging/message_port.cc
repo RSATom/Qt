@@ -31,14 +31,15 @@
 #include "mojo/public/cpp/base/big_buffer_mojom_traits.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
-#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value_factory.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
 #include "third_party/blink/renderer/core/events/message_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/core/frame/user_activation.h"
 #include "third_party/blink/renderer/core/inspector/thread_debugger.h"
 #include "third_party/blink/renderer/core/messaging/blink_transferable_message_struct_traits.h"
+#include "third_party/blink/renderer/core/messaging/post_message_options.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -47,11 +48,15 @@
 
 namespace blink {
 
+// TODO(altimin): Remove these after per-task mojo dispatching.
 // The maximum number of MessageEvents to dispatch from one task.
-static const int kMaximumMessagesPerTask = 200;
+constexpr int kMaximumMessagesPerTask = 200;
+// The threshold to stop processing new tasks.
+constexpr base::TimeDelta kYieldThreshold =
+    base::TimeDelta::FromMilliseconds(50);
 
 MessagePort* MessagePort::Create(ExecutionContext& execution_context) {
-  return new MessagePort(execution_context);
+  return MakeGarbageCollected<MessagePort>(execution_context);
 }
 
 MessagePort::MessagePort(ExecutionContext& execution_context)
@@ -63,8 +68,18 @@ MessagePort::~MessagePort() {
 }
 
 void MessagePort::postMessage(ScriptState* script_state,
-                              scoped_refptr<SerializedScriptValue> message,
-                              const MessagePortArray& ports,
+                              const ScriptValue& message,
+                              Vector<ScriptValue>& transfer,
+                              ExceptionState& exception_state) {
+  PostMessageOptions* options = PostMessageOptions::Create();
+  if (!transfer.IsEmpty())
+    options->setTransfer(transfer);
+  postMessage(script_state, message, options, exception_state);
+}
+
+void MessagePort::postMessage(ScriptState* script_state,
+                              const ScriptValue& message,
+                              const PostMessageOptions* options,
                               ExceptionState& exception_state) {
   if (!IsEntangled())
     return;
@@ -72,11 +87,17 @@ void MessagePort::postMessage(ScriptState* script_state,
   DCHECK(!IsNeutered());
 
   BlinkTransferableMessage msg;
-  msg.message = message;
+  Transferables transferables;
+  msg.message = PostMessageHelper::SerializeMessageByMove(
+      script_state->GetIsolate(), message, options, transferables,
+      exception_state);
+  if (exception_state.HadException())
+    return;
+  DCHECK(msg.message);
 
   // Make sure we aren't connected to any of the passed-in ports.
-  for (unsigned i = 0; i < ports.size(); ++i) {
-    if (ports[i] == this) {
+  for (unsigned i = 0; i < transferables.message_ports.size(); ++i) {
+    if (transferables.message_ports[i] == this) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kDataCloneError,
           "Port at index " + String::Number(i) + " contains the source port.");
@@ -84,13 +105,22 @@ void MessagePort::postMessage(ScriptState* script_state,
     }
   }
   msg.ports = MessagePort::DisentanglePorts(
-      ExecutionContext::From(script_state), ports, exception_state);
+      ExecutionContext::From(script_state), transferables.message_ports,
+      exception_state);
   if (exception_state.HadException())
     return;
+  msg.user_activation = PostMessageHelper::CreateUserActivationSnapshot(
+      GetExecutionContext(), options);
 
   ThreadDebugger* debugger = ThreadDebugger::From(script_state->GetIsolate());
   if (debugger)
     msg.sender_stack_trace_id = debugger->StoreCurrentStackTrace("postMessage");
+
+  if (msg.message->IsLockedToAgentCluster()) {
+    msg.locked_agent_cluster_id = GetExecutionContext()->GetAgentClusterID();
+  } else {
+    msg.locked_agent_cluster_id = base::nullopt;
+  }
 
   mojo::Message mojo_message =
       mojom::blink::TransferableMessage::WrapAsMessage(std::move(msg));
@@ -147,7 +177,7 @@ void MessagePort::Entangle(MessagePortChannel channel) {
 }
 
 const AtomicString& MessagePort::InterfaceName() const {
-  return EventTargetNames::MessagePort;
+  return event_target_names::kMessagePort;
 }
 
 bool MessagePort::HasPendingActivity() const {
@@ -215,8 +245,9 @@ MessagePortArray* MessagePort::EntanglePorts(
     WebVector<MessagePortChannel> channels) {
   // https://html.spec.whatwg.org/multipage/comms.html#message-ports
   // |ports| should be an empty array, not null even when there is no ports.
-  MessagePortArray* port_array = new MessagePortArray(channels.size());
-  for (unsigned i = 0; i < channels.size(); ++i) {
+  wtf_size_t count = SafeCast<wtf_size_t>(channels.size());
+  MessagePortArray* port_array = MakeGarbageCollected<MessagePortArray>(count);
+  for (wtf_size_t i = 0; i < count; ++i) {
     MessagePort* port = MessagePort::Create(context);
     port->Entangle(std::move(channels[i]));
     (*port_array)[i] = port;
@@ -224,7 +255,7 @@ MessagePortArray* MessagePort::EntanglePorts(
   return port_array;
 }
 
-MojoHandle MessagePort::EntangledHandleForTesting() const {
+::MojoHandle MessagePort::EntangledHandleForTesting() const {
   return connector_->handle().value();
 }
 
@@ -234,17 +265,20 @@ void MessagePort::Trace(blink::Visitor* visitor) {
 }
 
 bool MessagePort::Accept(mojo::Message* mojo_message) {
+  TRACE_EVENT0("blink", "MessagePort::Accept");
+
   // Connector repeatedly calls Accept as long as any messages are available. To
   // avoid completely starving the event loop and give some time for other tasks
   // the connector is temporarily paused after |kMaximumMessagesPerTask| have
   // been received without other tasks having had a chance to run (in particular
   // the ResetMessageCount task posted here).
+  // TODO(altimin): Remove this after per-task mojo dispatching lands[1].
+  // [1] https://chromium-review.googlesource.com/c/chromium/src/+/1145692
   if (messages_in_current_task_ == 0) {
     task_runner_->PostTask(FROM_HERE, WTF::Bind(&MessagePort::ResetMessageCount,
                                                 WrapWeakPersistent(this)));
   }
-  ++messages_in_current_task_;
-  if (messages_in_current_task_ > kMaximumMessagesPerTask) {
+  if (ShouldYieldAfterNewMessage()) {
     connector_->PauseIncomingMethodCallProcessing();
   }
 
@@ -256,20 +290,34 @@ bool MessagePort::Accept(mojo::Message* mojo_message) {
 
   // WorkerGlobalScope::close() in Worker onmessage handler should prevent
   // the next message from dispatching.
-  if (GetExecutionContext()->IsWorkerGlobalScope() &&
-      ToWorkerGlobalScope(GetExecutionContext())->IsClosing()) {
-    return true;
+  if (auto* scope = DynamicTo<WorkerGlobalScope>(GetExecutionContext())) {
+    if (scope->IsClosing())
+      return true;
   }
 
-  MessagePortArray* ports = MessagePort::EntanglePorts(
-      *GetExecutionContext(), std::move(message.ports));
-  Event* evt = MessageEvent::Create(ports, std::move(message.message));
+  Event* evt;
+  if (!message.locked_agent_cluster_id ||
+      GetExecutionContext()->IsSameAgentCluster(
+          *message.locked_agent_cluster_id)) {
+    MessagePortArray* ports = MessagePort::EntanglePorts(
+        *GetExecutionContext(), std::move(message.ports));
+    UserActivation* user_activation = nullptr;
+    if (message.user_activation) {
+      user_activation = MakeGarbageCollected<UserActivation>(
+          message.user_activation->has_been_active,
+          message.user_activation->was_active);
+    }
+    evt = MessageEvent::Create(ports, std::move(message.message),
+                               user_activation);
+  } else {
+    evt = MessageEvent::CreateError();
+  }
 
-  v8::Isolate* isolate = ToIsolate(GetExecutionContext());
+  v8::Isolate* isolate = GetExecutionContext()->GetIsolate();
   ThreadDebugger* debugger = ThreadDebugger::From(isolate);
   if (debugger)
     debugger->ExternalAsyncTaskStarted(message.sender_stack_trace_id);
-  DispatchEvent(evt);
+  DispatchEvent(*evt);
   if (debugger)
     debugger->ExternalAsyncTaskFinished(message.sender_stack_trace_id);
   return true;
@@ -278,9 +326,20 @@ bool MessagePort::Accept(mojo::Message* mojo_message) {
 void MessagePort::ResetMessageCount() {
   DCHECK_GT(messages_in_current_task_, 0);
   messages_in_current_task_ = 0;
+  task_start_time_ = base::nullopt;
   // No-op if not paused already.
   if (connector_)
     connector_->ResumeIncomingMethodCallProcessing();
+}
+
+bool MessagePort::ShouldYieldAfterNewMessage() {
+  ++messages_in_current_task_;
+  if (messages_in_current_task_ > kMaximumMessagesPerTask)
+    return true;
+  base::TimeTicks now = base::TimeTicks::Now();
+  if (!task_start_time_)
+    task_start_time_ = now;
+  return now - task_start_time_.value() > kYieldThreshold;
 }
 
 }  // namespace blink

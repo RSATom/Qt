@@ -15,7 +15,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxcrt/fx_system.h"
-#include "third_party/base/stl_util.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -23,7 +23,9 @@ constexpr int kMaxType3FormLevel = 4;
 
 }  // namespace
 
-CPDF_Type3Font::CPDF_Type3Font() {
+CPDF_Type3Font::CPDF_Type3Font(CPDF_Document* pDocument,
+                               CPDF_Dictionary* pFontDict)
+    : CPDF_SimpleFont(pDocument, pFontDict) {
   memset(m_CharWidthL, 0, sizeof(m_CharWidthL));
 }
 
@@ -66,7 +68,7 @@ bool CPDF_Type3Font::Load() {
   if (StartChar >= 0 && static_cast<size_t>(StartChar) < kCharLimit) {
     const CPDF_Array* pWidthArray = m_pFontDict->GetArrayFor("Widths");
     if (pWidthArray) {
-      size_t count = std::min(pWidthArray->GetCount(), kCharLimit);
+      size_t count = std::min(pWidthArray->size(), kCharLimit);
       count = std::min(count, kCharLimit - StartChar);
       for (size_t i = 0; i < count; i++) {
         m_CharWidthL[StartChar + i] =
@@ -76,9 +78,8 @@ bool CPDF_Type3Font::Load() {
     }
   }
   m_pCharProcs = m_pFontDict->GetDictFor("CharProcs");
-  CPDF_Object* pEncoding = m_pFontDict->GetDirectObjectFor("Encoding");
-  if (pEncoding)
-    LoadPDFEncoding(pEncoding, m_BaseEncoding, &m_CharNames, false, false);
+  if (m_pFontDict->GetDirectObjectFor("Encoding"))
+    LoadPDFEncoding(false, false);
   return true;
 }
 

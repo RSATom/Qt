@@ -54,7 +54,9 @@ class QQuickWebEngineDownloadItem;
 class QQuickWebEngineProfilePrivate;
 class QQuickWebEngineScript;
 class QQuickWebEngineSettings;
+class QWebEngineClientCertificateStore;
 class QWebEngineCookieStore;
+class QWebEngineNotification;
 class QWebEngineUrlRequestInterceptor;
 class QWebEngineUrlSchemeHandler;
 
@@ -72,6 +74,12 @@ class Q_WEBENGINE_EXPORT QQuickWebEngineProfile : public QObject {
     Q_PROPERTY(QStringList spellCheckLanguages READ spellCheckLanguages WRITE setSpellCheckLanguages NOTIFY spellCheckLanguagesChanged FINAL REVISION 3)
     Q_PROPERTY(bool spellCheckEnabled READ isSpellCheckEnabled WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged FINAL REVISION 3)
     Q_PROPERTY(QQmlListProperty<QQuickWebEngineScript> userScripts READ userScripts FINAL REVISION 4)
+    Q_PROPERTY(bool useForGlobalCertificateVerification
+               READ isUsedForGlobalCertificateVerification
+               WRITE setUseForGlobalCertificateVerification
+               NOTIFY useForGlobalCertificateVerificationChanged
+               FINAL REVISION 5)
+    Q_PROPERTY(QString downloadPath READ downloadPath WRITE setDownloadPath NOTIFY downloadPathChanged FINAL REVISION 5)
 
 public:
     QQuickWebEngineProfile(QObject *parent = Q_NULLPTR);
@@ -120,7 +128,10 @@ public:
 
     QWebEngineCookieStore *cookieStore() const;
 
+#if QT_DEPRECATED_SINCE(5, 13)
     void setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor);
+#endif
+    void setUrlRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor);
 
     const QWebEngineUrlSchemeHandler *urlSchemeHandler(const QByteArray &) const;
     void installUrlSchemeHandler(const QByteArray &scheme, QWebEngineUrlSchemeHandler *);
@@ -137,6 +148,14 @@ public:
 
     QQmlListProperty<QQuickWebEngineScript> userScripts();
 
+    void setUseForGlobalCertificateVerification(bool b);
+    bool isUsedForGlobalCertificateVerification() const;
+
+    QString downloadPath() const;
+    void setDownloadPath(const QString &path);
+
+    QWebEngineClientCertificateStore *clientCertificateStore();
+
     static QQuickWebEngineProfile *defaultProfile();
 
 Q_SIGNALS:
@@ -151,12 +170,13 @@ Q_SIGNALS:
     Q_REVISION(1) void httpAcceptLanguageChanged();
     Q_REVISION(3) void spellCheckLanguagesChanged();
     Q_REVISION(3) void spellCheckEnabledChanged();
+    Q_REVISION(5) void useForGlobalCertificateVerificationChanged();
+    Q_REVISION(5) void downloadPathChanged();
 
     void downloadRequested(QQuickWebEngineDownloadItem *download);
     void downloadFinished(QQuickWebEngineDownloadItem *download);
 
-private Q_SLOTS:
-    void destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler *obj);
+    Q_REVISION(5) void presentNotification(QWebEngineNotification *notification);
 
 private:
     Q_DECLARE_PRIVATE(QQuickWebEngineProfile)

@@ -10,12 +10,14 @@
 #include <string>
 #include <utility>
 
-#include "base/macros.h"
+#include "base/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "net/base/chunked_upload_data_stream.h"
+#include "net/base/completion_repeating_callback.h"
 #include "net/http/http_transaction_test_util.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_with_source.h"
@@ -57,10 +59,10 @@ class ThrottlingControllerTestHelper {
  public:
   ThrottlingControllerTestHelper()
       : task_runner_(base::MakeRefCounted<base::TestMockTimeTaskRunner>()),
-        completion_callback_(
-            base::Bind(&TestCallback::Run, base::Unretained(&callback_))),
+        completion_callback_(base::BindRepeating(&TestCallback::Run,
+                                                 base::Unretained(&callback_))),
         mock_transaction_(kSimpleGET_Transaction),
-        buffer_(new net::IOBuffer(64)),
+        buffer_(base::MakeRefCounted<net::IOBuffer>(64)),
         net_log_(std::make_unique<net::NetLog>()),
         net_log_with_source_(
             net::NetLogWithSource::Make(net_log_.get(),
@@ -98,7 +100,7 @@ class ThrottlingControllerTestHelper {
     if (with_upload) {
       upload_data_stream_.reset(
           new net::ChunkedUploadDataStream(kUploadIdentifier));
-      upload_data_stream_->AppendData(kUploadData, arraysize(kUploadData),
+      upload_data_stream_->AppendData(kUploadData, base::size(kUploadData),
                                       true);
       request_->upload_data_stream = upload_data_stream_.get();
     }
@@ -151,7 +153,7 @@ class ThrottlingControllerTestHelper {
   base::MessageLoop message_loop_;
   MockNetworkLayer network_layer_;
   TestCallback callback_;
-  net::CompletionCallback completion_callback_;
+  net::CompletionRepeatingCallback completion_callback_;
   MockTransaction mock_transaction_;
   std::unique_ptr<ThrottlingNetworkTransaction> transaction_;
   scoped_refptr<net::IOBuffer> buffer_;
@@ -290,7 +292,7 @@ TEST(ThrottlingControllerTest, UploadDoesNotFail) {
   int rv = helper.Start(true);
   EXPECT_EQ(rv, net::ERR_INTERNET_DISCONNECTED);
   rv = helper.ReadUploadData();
-  EXPECT_EQ(rv, static_cast<int>(arraysize(kUploadData)));
+  EXPECT_EQ(rv, static_cast<int>(base::size(kUploadData)));
 }
 
 TEST(ThrottlingControllerTest, DownloadOnly) {
@@ -334,7 +336,7 @@ TEST(ThrottlingControllerTest, UploadOnly) {
   EXPECT_EQ(callback->run_count(), 1);
   helper.FastForwardUntilNoTasksRemain();
   EXPECT_EQ(callback->run_count(), 2);
-  EXPECT_EQ(callback->value(), static_cast<int>(arraysize(kUploadData)));
+  EXPECT_EQ(callback->value(), static_cast<int>(base::size(kUploadData)));
 }
 
 }  // namespace network

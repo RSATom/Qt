@@ -15,12 +15,14 @@ ContentSettingsInfo::ContentSettingsInfo(
     const std::vector<std::string>& whitelisted_schemes,
     const std::set<ContentSetting>& valid_settings,
     IncognitoBehavior incognito_behavior,
-    StorageBehavior storage_behavior)
+    StorageBehavior storage_behavior,
+    OriginRestriction origin_restriction)
     : website_settings_info_(website_settings_info),
       whitelisted_schemes_(whitelisted_schemes),
       valid_settings_(valid_settings),
       incognito_behavior_(incognito_behavior),
-      storage_behavior_(storage_behavior) {}
+      storage_behavior_(storage_behavior),
+      origin_restriction_(origin_restriction) {}
 
 ContentSettingsInfo::~ContentSettingsInfo() {}
 
@@ -39,7 +41,7 @@ bool ContentSettingsInfo::IsSettingValid(ContentSetting setting) const {
 // IsDefaultSettingValid.
 bool ContentSettingsInfo::IsDefaultSettingValid(ContentSetting setting) const {
   ContentSettingsType type = website_settings_info_->type();
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS)
   // Don't support ALLOW for protected media default setting until migration.
   if (type == CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER &&
       setting == CONTENT_SETTING_ALLOW) {

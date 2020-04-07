@@ -56,6 +56,11 @@
 
     Configurations in \b bold are \l {Reference Configurations}.
 
+    \note Support for specific configurations or operating system versions may
+          end before the support for Qt \qtver does. A subsequent patch release
+          of Qt \qtver may drop support for a configuration as a \e {reference
+          configuration} or replace it with a currently-supported version.
+
     \include supported-platforms.qdocinc all
 
     \section1 Reference Configurations
@@ -82,6 +87,10 @@
 
     You can download the Qt 5 installers and source packages from the \l Downloads page.
     For more information, visit the \l{Getting Started with Qt} page.
+
+    \note All the supported configurations are not provided as binary packages
+    in the Qt installer. However, the intention is to provide the most widely-used
+    reference configurations for the developer's convenience.
 
     \section2 Exceptions
     Individual modules might be available only on some platforms, or they might

@@ -6,6 +6,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/clipboard/data_object_item.h"
+#include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
 namespace blink {
@@ -32,7 +33,7 @@ class DataObjectObserver : public GarbageCollected<DataObjectObserver>,
 };
 
 TEST_F(DataObjectTest, DataObjectObserver) {
-  DataObjectObserver* observer = new DataObjectObserver;
+  DataObjectObserver* observer = MakeGarbageCollected<DataObjectObserver>();
   data_object_->AddObserver(observer);
 
   data_object_->ClearAll();
@@ -61,7 +62,7 @@ TEST_F(DataObjectTest, DataObjectObserver) {
   EXPECT_EQ(1U, data_object_->length());
   EXPECT_EQ(3U, observer->call_count());
 
-  DataObjectObserver* observer2 = new DataObjectObserver;
+  DataObjectObserver* observer2 = MakeGarbageCollected<DataObjectObserver>();
   data_object_->AddObserver(observer2);
 
   String file_path = test::BlinkRootDir();

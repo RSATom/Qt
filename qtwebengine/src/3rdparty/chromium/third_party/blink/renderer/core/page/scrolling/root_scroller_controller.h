@@ -42,6 +42,8 @@ class CORE_EXPORT RootScrollerController
   // of this class need to be made aware of layout updates.
   static RootScrollerController* Create(Document&);
 
+  RootScrollerController(Document&);
+
   void Trace(blink::Visitor*);
 
   // Sets the element that will be used as the root scroller. This can be
@@ -66,7 +68,7 @@ class CORE_EXPORT RootScrollerController
 
   // This class needs to be informed when the FrameView of its Document changes
   // size. This may occur without a layout (e.g. URL bar hiding) so we can't
-  // rely on DidUpdateLayout.
+  // rely on DidUpdateMainFrameLayout.
   void DidResizeFrameView();
 
   // Called when an iframe in this document has an updated FrameView (e.g.
@@ -77,13 +79,6 @@ class CORE_EXPORT RootScrollerController
   // Returns the PaintLayer associated with the currently effective root
   // scroller.
   PaintLayer* RootScrollerPaintLayer() const;
-
-  // Used to determine which Element should scroll the viewport.  This is
-  // needed since Blink's scrolling machinery works on Elements whereas the
-  // document *Node* also scrolls so we need to designate an element one
-  // Element as the viewport scroller. Sadly, this is *not* the
-  // document.scrollingElement in general.
-  bool ScrollsViewport(const Element&) const;
 
   void ElementRemoved(const Element&);
 
@@ -100,8 +95,6 @@ class CORE_EXPORT RootScrollerController
   void PerformRootScrollerSelection();
 
  private:
-  RootScrollerController(Document&);
-
   // Ensures the effective root scroller is currently valid and replaces it
   // with the default if not.
   void RecomputeEffectiveRootScroller();
@@ -162,8 +155,6 @@ class CORE_EXPORT RootScrollerController
   HeapHashSet<WeakMember<Element>> implicit_candidates_;
 
   WeakMember<Element> implicit_root_scroller_;
-
-  bool document_has_document_element_;
 };
 
 }  // namespace blink

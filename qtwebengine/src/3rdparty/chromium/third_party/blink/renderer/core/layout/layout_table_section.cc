@@ -36,13 +36,12 @@
 #include "third_party/blink/renderer/core/layout/layout_table_row.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/subtree_layout_scope.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/table_section_painter.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
 namespace blink {
-
-using namespace HTMLNames;
 
 void LayoutTableSection::TableGridRow::
     SetRowLogicalHeightToRowStyleLogicalHeight() {
@@ -56,7 +55,7 @@ void LayoutTableSection::TableGridRow::UpdateLogicalHeightForCell(
   if (cell->ResolvedRowSpan() != 1)
     return;
 
-  Length cell_logical_height = cell->StyleRef().LogicalHeight();
+  const Length& cell_logical_height = cell->StyleRef().LogicalHeight();
   if (cell_logical_height.IsPositive()) {
     switch (cell_logical_height.GetType()) {
       case kPercent:
@@ -106,9 +105,9 @@ LayoutTableSection::~LayoutTableSection() = default;
 
 void LayoutTableSection::StyleDidChange(StyleDifference diff,
                                         const ComputedStyle* old_style) {
-  DCHECK(Style()->Display() == EDisplay::kTableFooterGroup ||
-         Style()->Display() == EDisplay::kTableRowGroup ||
-         Style()->Display() == EDisplay::kTableHeaderGroup);
+  DCHECK(StyleRef().Display() == EDisplay::kTableFooterGroup ||
+         StyleRef().Display() == EDisplay::kTableRowGroup ||
+         StyleRef().Display() == EDisplay::kTableHeaderGroup);
 
   LayoutTableBoxComponent::StyleDidChange(diff, old_style);
   PropagateStyleToAnonymousChildren();
@@ -209,7 +208,7 @@ static inline void CheckThatVectorIsDOMOrdered(
   DCHECK_GT(cells.size(), 0u);
 
   const LayoutTableCell* previous_cell = cells[0];
-  for (size_t i = 1; i < cells.size(); ++i) {
+  for (wtf_size_t i = 1; i < cells.size(); ++i) {
     const LayoutTableCell* current_cell = cells[i];
     // The check assumes that all cells belong to the same row group.
     DCHECK_EQ(previous_cell->Section(), current_cell->Section());
@@ -388,7 +387,7 @@ static void UpdatePositionIncreasedWithRowHeight(
     int& accumulated_position_increase,
     double& remainder) {
   // Without the cast we lose enough precision to cause heights to miss pixels
-  // (and trigger asserts) in some layout tests.
+  // (and trigger asserts) in some web tests.
   double proportional_position_increase =
       remainder + (extra_height * double(row_height)) / total_height;
   // The epsilon is to push any values that are close to a whole number but
@@ -773,10 +772,9 @@ void LayoutTableSection::DistributeRowSpanHeightToRows(
 }
 
 bool LayoutTableSection::RowHasVisibilityCollapse(unsigned row) const {
-  return (RuntimeEnabledFeatures::VisibilityCollapseRowEnabled() &&
-          ((grid_[row].row &&
-            grid_[row].row->Style()->Visibility() == EVisibility::kCollapse) ||
-           Style()->Visibility() == EVisibility::kCollapse));
+  return ((grid_[row].row &&
+           grid_[row].row->StyleRef().Visibility() == EVisibility::kCollapse) ||
+          StyleRef().Visibility() == EVisibility::kCollapse);
 }
 
 // Find out the baseline of the cell
@@ -1143,7 +1141,7 @@ int LayoutTableSection::DistributeExtraLogicalHeightToRows(
 }
 
 bool CellHasExplicitlySpecifiedHeight(const LayoutTableCell& cell) {
-  if (cell.Style()->LogicalHeight().IsFixed())
+  if (cell.StyleRef().LogicalHeight().IsFixed())
     return true;
   LayoutBlock* cb = cell.ContainingBlock();
   if (cb->AvailableLogicalHeightForPercentageComputation() == -1)
@@ -1155,8 +1153,8 @@ static bool ShouldFlexCellChild(const LayoutTableCell& cell,
                                 LayoutObject* cell_descendant) {
   if (!CellHasExplicitlySpecifiedHeight(cell))
     return false;
-  if (cell_descendant->Style()->OverflowY() == EOverflow::kVisible ||
-      cell_descendant->Style()->OverflowY() == EOverflow::kHidden)
+  if (cell_descendant->StyleRef().OverflowY() == EOverflow::kVisible ||
+      cell_descendant->StyleRef().OverflowY() == EOverflow::kHidden)
     return true;
   return cell_descendant->IsBox() &&
          ToLayoutBox(cell_descendant)->ShouldBeConsideredAsReplaced();
@@ -1245,7 +1243,7 @@ void LayoutTableSection::LayoutRows() {
                               LayoutUnit(r_height)))
         cell_vertical_align = EVerticalAlign::kTop;
       else
-        cell_vertical_align = cell->Style()->VerticalAlign();
+        cell_vertical_align = cell->StyleRef().VerticalAlign();
 
       // Calculate total collapsed height affecting one cell.
       int collapsed_height = 0;
@@ -1272,18 +1270,18 @@ void LayoutTableSection::LayoutRows() {
         // need a layout. In this case, we know we're going to issue paint
         // invalidations ourselves (and the child) anyway.
         if (!Table()->SelfNeedsLayout())
-          cell->SetMayNeedPaintInvalidation();
+          cell->SetShouldCheckForPaintInvalidation();
       }
     }
     if (row)
-      row->ComputeOverflow();
+      row->ComputeLayoutOverflow();
   }
 
   DCHECK(!NeedsLayout());
 
   SetLogicalHeight(LayoutUnit(row_pos_[total_rows]));
 
-  ComputeOverflowFromDescendants();
+  ComputeLayoutOverflowFromDescendants();
 }
 
 void LayoutTableSection::UpdateLogicalWidthForCollapsedCells(
@@ -1319,7 +1317,7 @@ void LayoutTableSection::UpdateLogicalWidthForCollapsedCells(
         if (collapsed_width != 0)
           cell->SetIsSpanningCollapsedColumn(true);
         // Recompute overflow in case overflow clipping is necessary.
-        cell->ComputeOverflow(cell->ClientLogicalBottom());
+        cell->ComputeLayoutOverflow(cell->ClientLogicalBottom(), false);
         DCHECK_GE(cell->LogicalWidth(), 0);
       }
     }
@@ -1361,7 +1359,13 @@ int LayoutTableSection::PaginationStrutForRow(LayoutTableRow* row,
   return pagination_strut.Ceil();
 }
 
-void LayoutTableSection::ComputeOverflowFromDescendants() {
+void LayoutTableSection::ComputeVisualOverflowFromDescendants() {
+  auto old_self_visual_overflow_rect = SelfVisualOverflowRect();
+  ClearVisualOverflow();
+
+  visually_overflowing_cells_.clear();
+  force_full_paint_ = false;
+
   // These 2 variables are used to balance the memory consumption vs the paint
   // time on big sections with overflowing cells:
   // 1. For small sections, don't track overflowing cells because for them the
@@ -1381,17 +1385,15 @@ void LayoutTableSection::ComputeOverflowFromDescendants() {
           ? 0
           : kMaxOverflowingCellRatioForPartialPaint * total_cell_count;
 
-  overflow_.reset();
-  overflowing_cells_.clear();
-  force_full_paint_ = false;
 #if DCHECK_IS_ON()
   bool has_overflowing_cell = false;
 #endif
-
   for (auto* row = FirstRow(); row; row = row->NextRow()) {
-    AddOverflowFromChild(*row);
+    AddVisualOverflowFromChild(*row);
 
     for (auto* cell = row->FirstCell(); cell; cell = cell->NextCell()) {
+      if (cell->HasSelfPaintingLayer())
+        continue;
       // Let the section's self visual overflow cover the cell's whole collapsed
       // borders. This ensures correct raster invalidation on section border
       // style change.
@@ -1411,50 +1413,75 @@ void LayoutTableSection::ComputeOverflowFromDescendants() {
 #if DCHECK_IS_ON()
       has_overflowing_cell = true;
 #endif
-      if (overflowing_cells_.size() >= max_overflowing_cell_count) {
+      if (visually_overflowing_cells_.size() >= max_overflowing_cell_count) {
         force_full_paint_ = true;
         // The full paint path does not make any use of the overflowing cells
         // info, so don't hold on to the memory.
-        overflowing_cells_.clear();
+        visually_overflowing_cells_.clear();
         continue;
       }
 
-      overflowing_cells_.insert(cell);
+      visually_overflowing_cells_.insert(cell);
     }
   }
 
 #if DCHECK_IS_ON()
-  DCHECK_EQ(has_overflowing_cell, HasOverflowingCell());
+  DCHECK_EQ(has_overflowing_cell, HasVisuallyOverflowingCell());
 #endif
+
+  // Overflow rect contributes to the visual rect, so if it has changed then we
+  // need to signal a possible paint invalidation.
+  if (old_self_visual_overflow_rect != SelfVisualOverflowRect())
+    SetShouldCheckForPaintInvalidation();
 }
 
-bool LayoutTableSection::RecalcOverflowAfterStyleChange() {
-  if (!ChildNeedsOverflowRecalcAfterStyleChange())
+void LayoutTableSection::ComputeLayoutOverflowFromDescendants() {
+  ClearLayoutOverflow();
+  for (auto* row = FirstRow(); row; row = row->NextRow())
+    AddLayoutOverflowFromChild(*row);
+}
+
+bool LayoutTableSection::RecalcLayoutOverflow() {
+  if (!ChildNeedsLayoutOverflowRecalc())
     return false;
-  ClearChildNeedsOverflowRecalcAfterStyleChange();
+  ClearChildNeedsLayoutOverflowRecalc();
   unsigned total_rows = grid_.size();
-  bool children_overflow_changed = false;
+  bool children_layout_overflow_changed = false;
   for (unsigned r = 0; r < total_rows; r++) {
     LayoutTableRow* row_layouter = RowLayoutObjectAt(r);
-    if (!row_layouter ||
-        !row_layouter->ChildNeedsOverflowRecalcAfterStyleChange())
+    if (!row_layouter || !row_layouter->ChildNeedsLayoutOverflowRecalc())
       continue;
-    row_layouter->ClearChildNeedsOverflowRecalcAfterStyleChange();
-    bool row_children_overflow_changed = false;
+    row_layouter->ClearChildNeedsLayoutOverflowRecalc();
+    bool row_children_layout_overflow_changed = false;
     unsigned n_cols = NumCols(r);
     for (unsigned c = 0; c < n_cols; c++) {
       auto* cell = OriginatingCellAt(r, c);
       if (!cell)
         continue;
-      row_children_overflow_changed |= cell->RecalcOverflowAfterStyleChange();
+      row_children_layout_overflow_changed |= cell->RecalcLayoutOverflow();
     }
-    if (row_children_overflow_changed)
-      row_layouter->ComputeOverflow();
-    children_overflow_changed |= row_children_overflow_changed;
+    if (row_children_layout_overflow_changed)
+      row_layouter->ComputeLayoutOverflow();
+    children_layout_overflow_changed |= row_children_layout_overflow_changed;
   }
-  if (children_overflow_changed)
-    ComputeOverflowFromDescendants();
-  return children_overflow_changed;
+  if (children_layout_overflow_changed)
+    ComputeLayoutOverflowFromDescendants();
+
+  return children_layout_overflow_changed;
+}
+
+void LayoutTableSection::RecalcVisualOverflow() {
+  SECURITY_CHECK(!needs_cell_recalc_);
+  unsigned total_rows = grid_.size();
+  for (unsigned r = 0; r < total_rows; r++) {
+    LayoutTableRow* row_layouter = RowLayoutObjectAt(r);
+    if (!row_layouter || (row_layouter->HasLayer() &&
+                          row_layouter->Layer()->IsSelfPaintingLayer()))
+      continue;
+    row_layouter->RecalcVisualOverflow();
+  }
+  ComputeVisualOverflowFromDescendants();
+  AddVisualEffectOverflow();
 }
 
 void LayoutTableSection::MarkAllCellsWidthsDirtyAndOrNeedsLayout(
@@ -1470,6 +1497,7 @@ void LayoutTableSection::MarkAllCellsWidthsDirtyAndOrNeedsLayout(
 }
 
 LayoutUnit LayoutTableSection::FirstLineBoxBaseline() const {
+  DCHECK(!NeedsCellRecalc());
   if (!grid_.size())
     return LayoutUnit(-1);
 
@@ -1515,6 +1543,7 @@ void LayoutTableSection::DirtiedRowsAndEffectiveColumns(
     const LayoutRect& damage_rect,
     CellSpan& rows,
     CellSpan& columns) const {
+  DCHECK(!NeedsCellRecalc());
   if (!grid_.size()) {
     rows = CellSpan();
     columns = CellSpan(1, 1);
@@ -1585,9 +1614,9 @@ void LayoutTableSection::DirtiedRowsAndEffectiveColumns(
 
 CellSpan LayoutTableSection::SpannedRows(const LayoutRect& flipped_rect) const {
   // Find the first row that starts after rect top.
-  unsigned next_row =
+  unsigned next_row = static_cast<unsigned>(
       std::upper_bound(row_pos_.begin(), row_pos_.end(), flipped_rect.Y()) -
-      row_pos_.begin();
+      row_pos_.begin());
 
   // After all rows.
   if (next_row == row_pos_.size())
@@ -1600,9 +1629,10 @@ CellSpan LayoutTableSection::SpannedRows(const LayoutRect& flipped_rect) const {
   if (row_pos_[next_row] >= flipped_rect.MaxY()) {
     end_row = next_row;
   } else {
-    end_row = std::upper_bound(row_pos_.begin() + next_row, row_pos_.end(),
-                               flipped_rect.MaxY()) -
-              row_pos_.begin();
+    end_row = static_cast<unsigned>(
+        std::upper_bound(row_pos_.begin() + next_row, row_pos_.end(),
+                         flipped_rect.MaxY()) -
+        row_pos_.begin());
     if (end_row == row_pos_.size())
       end_row = row_pos_.size() - 1;
   }
@@ -1619,9 +1649,9 @@ CellSpan LayoutTableSection::SpannedEffectiveColumns(
   // wrongly return the cell on the logical top/left.
   // upper_bound on the other hand properly returns the cell on the logical
   // bottom/right, which also matches the behavior of other browsers.
-  unsigned next_column =
+  unsigned next_column = static_cast<unsigned>(
       std::upper_bound(column_pos.begin(), column_pos.end(), flipped_rect.X()) -
-      column_pos.begin();
+      column_pos.begin());
 
   if (next_column == column_pos.size())
     return CellSpan(column_pos.size() - 1,
@@ -1634,9 +1664,10 @@ CellSpan LayoutTableSection::SpannedEffectiveColumns(
   if (column_pos[next_column] >= flipped_rect.MaxX()) {
     end_column = next_column;
   } else {
-    end_column = std::upper_bound(column_pos.begin() + next_column,
-                                  column_pos.end(), flipped_rect.MaxX()) -
-                 column_pos.begin();
+    end_column = static_cast<unsigned>(
+        std::upper_bound(column_pos.begin() + next_column, column_pos.end(),
+                         flipped_rect.MaxX()) -
+        column_pos.begin());
     if (end_column == column_pos.size())
       end_column = column_pos.size() - 1;
   }
@@ -1685,7 +1716,7 @@ void LayoutTableSection::RecalcCells() {
   }
 
   grid_.ShrinkToFit();
-  SetNeedsLayoutAndFullPaintInvalidation(LayoutInvalidationReason::kUnknown);
+  SetNeedsLayoutAndFullPaintInvalidation(layout_invalidation_reason::kUnknown);
 }
 
 // FIXME: This function could be made O(1) in certain cases (like for the
@@ -1704,6 +1735,7 @@ void LayoutTableSection::RowLogicalHeightChanged(LayoutTableRow* row) {
 
 void LayoutTableSection::SetNeedsCellRecalc() {
   needs_cell_recalc_ = true;
+  SetNeedsOverflowRecalc();
   if (LayoutTable* t = Table())
     t->SetNeedsSectionRecalc();
 }
@@ -1726,6 +1758,7 @@ unsigned LayoutTableSection::NumEffectiveColumns() const {
 LayoutTableCell* LayoutTableSection::OriginatingCellAt(
     unsigned row,
     unsigned effective_column) {
+  SECURITY_CHECK(!needs_cell_recalc_);
   if (effective_column >= NumCols(row))
     return nullptr;
   auto& grid_cell = GridCellAt(row, effective_column);
@@ -1788,7 +1821,7 @@ bool LayoutTableSection::NodeAtPoint(
       !location_in_container.Intersects(OverflowClipRect(adjusted_location)))
     return false;
 
-  if (HasOverflowingCell()) {
+  if (HasVisuallyOverflowingCell()) {
     for (LayoutTableRow* row = LastRow(); row; row = row->PreviousRow()) {
       // FIXME: We have to skip over inline flows, since they can show up inside
       // table rows at the moment (a demoted inline <form> for example). If we
@@ -1904,12 +1937,13 @@ void LayoutTableSection::RelayoutCellIfFlexed(LayoutTableCell& cell,
   // as we discover new bugs. :)
   bool cell_children_flex = false;
   bool flex_all_children = CellHasExplicitlySpecifiedHeight(cell) ||
-                           (!Table()->Style()->LogicalHeight().IsAuto() &&
+                           (!Table()->StyleRef().LogicalHeight().IsAuto() &&
                             row_height != cell.LogicalHeight());
 
   for (LayoutObject* child = cell.FirstChild(); child;
        child = child->NextSibling()) {
-    if (!child->IsText() && child->Style()->LogicalHeight().IsPercentOrCalc() &&
+    if (!child->IsText() &&
+        child->StyleRef().LogicalHeight().IsPercentOrCalc() &&
         (flex_all_children || ShouldFlexCellChild(cell, child)) &&
         (!child->IsTable() || ToLayoutTable(child)->HasSections())) {
       cell_children_flex = true;
@@ -1980,7 +2014,9 @@ int LayoutTableSection::LogicalHeightForRow(
   if (grid_[row_index].logical_height.IsSpecified()) {
     LayoutUnit specified_logical_height =
         MinimumValueForLength(grid_[row_index].logical_height, LayoutUnit());
-    logical_height = std::max(logical_height, specified_logical_height.ToInt());
+    // We round here to match computations for row_pos_ in
+    // CalcRowLogicalHeight().
+    logical_height = std::max(logical_height, specified_logical_height.Round());
   }
   return logical_height;
 }

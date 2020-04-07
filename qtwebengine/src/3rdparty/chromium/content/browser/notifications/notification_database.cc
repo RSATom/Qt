@@ -10,8 +10,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "content/browser/notifications/notification_database_data_conversions.h"
 #include "content/common/service_worker/service_worker_types.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_database_data.h"
 #include "storage/common/database/database_identifier.h"
@@ -98,7 +100,7 @@ NotificationDatabase::Status DeserializedNotificationData(
 
 // Updates the time of the last click on the notification, and the first if
 // necessary.
-void UpdateNotificationClickTimestamps(NotificationDatabaseData* data) {
+void UpdateNotificationTimestamps(NotificationDatabaseData* data) {
   base::TimeDelta delta = base::Time::Now() - data->creation_time_millis;
   if (!data->time_until_first_click_millis.has_value())
     data->time_until_first_click_millis = delta;
@@ -107,8 +109,9 @@ void UpdateNotificationClickTimestamps(NotificationDatabaseData* data) {
 
 }  // namespace
 
-NotificationDatabase::NotificationDatabase(const base::FilePath& path)
-    : path_(path) {}
+NotificationDatabase::NotificationDatabase(const base::FilePath& path,
+                                           UkmCallback callback)
+    : path_(path), record_notification_to_ukm_callback_(std::move(callback)) {}
 
 NotificationDatabase::~NotificationDatabase() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
@@ -182,18 +185,20 @@ NotificationDatabase::ReadNotificationDataAndRecordInteraction(
   // Update the appropriate fields for UKM logging purposes.
   switch (interaction) {
     case PlatformNotificationContext::Interaction::CLOSED:
+      notification_database_data->closed_reason =
+          NotificationDatabaseData::ClosedReason::USER;
       notification_database_data->time_until_close_millis =
           base::Time::Now() - notification_database_data->creation_time_millis;
       break;
     case PlatformNotificationContext::Interaction::NONE:
-      return status;
+      break;
     case PlatformNotificationContext::Interaction::ACTION_BUTTON_CLICKED:
       notification_database_data->num_action_button_clicks += 1;
-      UpdateNotificationClickTimestamps(notification_database_data);
+      UpdateNotificationTimestamps(notification_database_data);
       break;
     case PlatformNotificationContext::Interaction::CLICKED:
       notification_database_data->num_clicks += 1;
-      UpdateNotificationClickTimestamps(notification_database_data);
+      UpdateNotificationTimestamps(notification_database_data);
       break;
   }
 
@@ -262,6 +267,13 @@ NotificationDatabase::Status NotificationDatabase::DeleteNotificationData(
   DCHECK(!notification_id.empty());
   DCHECK(origin.is_valid());
 
+  NotificationDatabaseData data;
+  Status status = ReadNotificationData(notification_id, origin, &data);
+  if (status == STATUS_OK && record_notification_to_ukm_callback_) {
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(record_notification_to_ukm_callback_, data));
+  }
   std::string key = CreateDataKey(origin, notification_id);
   return LevelDBStatusToNotificationDatabaseStatus(
       db_->Delete(leveldb::WriteOptions(), key));
@@ -379,6 +391,13 @@ NotificationDatabase::DeleteAllNotificationDataInternal(
         notification_database_data.service_worker_registration_id !=
             service_worker_registration_id) {
       continue;
+    }
+
+    if (record_notification_to_ukm_callback_) {
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::UI},
+          base::BindOnce(record_notification_to_ukm_callback_,
+                         notification_database_data));
     }
 
     batch.Delete(iter->key());

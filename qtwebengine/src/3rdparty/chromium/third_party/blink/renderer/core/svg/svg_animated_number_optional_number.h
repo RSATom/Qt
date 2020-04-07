@@ -52,15 +52,17 @@ class SVGAnimatedNumberOptionalNumber
   static SVGAnimatedNumberOptionalNumber* Create(
       SVGElement* context_element,
       const QualifiedName& attribute_name,
-      float initial_first_value = 0,
-      float initial_second_value = 0) {
-    return new SVGAnimatedNumberOptionalNumber(context_element, attribute_name,
-                                               initial_first_value,
-                                               initial_second_value);
+      float initial_value) {
+    return MakeGarbageCollected<SVGAnimatedNumberOptionalNumber>(
+        context_element, attribute_name, initial_value);
   }
 
+  SVGAnimatedNumberOptionalNumber(SVGElement* context_element,
+                                  const QualifiedName& attribute_name,
+                                  float initial_value);
+
   void SetAnimatedValue(SVGPropertyBase*) override;
-  bool NeedsSynchronizeAttribute() override;
+  bool NeedsSynchronizeAttribute() const override;
   void AnimationEnded() override;
 
   SVGAnimatedNumber* FirstNumber() { return first_number_.Get(); }
@@ -69,11 +71,6 @@ class SVGAnimatedNumberOptionalNumber
   void Trace(blink::Visitor*) override;
 
  protected:
-  SVGAnimatedNumberOptionalNumber(SVGElement* context_element,
-                                  const QualifiedName& attribute_name,
-                                  float initial_first_value,
-                                  float initial_second_value);
-
   Member<SVGAnimatedNumber> first_number_;
   Member<SVGAnimatedNumber> second_number_;
 };

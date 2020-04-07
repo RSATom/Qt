@@ -55,6 +55,7 @@
 #include "qgeoroutesegment.h"
 
 #include <QSharedData>
+#include <QVariantMap>
 #include <QScopedPointer>
 
 QT_BEGIN_NAMESPACE
@@ -99,6 +100,9 @@ public:
 
     virtual void setRouteLegs(const QList<QGeoRouteLeg> &legs);
     virtual QList<QGeoRouteLeg> routeLegs() const;
+
+    virtual void setExtendedAttributes(const QVariantMap &extendedAttributes);
+    virtual QVariantMap extendedAttributes() const;
 
     virtual QString engineName() const = 0;
     virtual int segmentsCount() const = 0;
@@ -153,6 +157,9 @@ public:
     virtual void setRouteLegs(const QList<QGeoRouteLeg> &legs) override;
     virtual QList<QGeoRouteLeg> routeLegs() const override;
 
+    void setExtendedAttributes(const QVariantMap &extendedAttributes) override;
+    QVariantMap extendedAttributes() const override;
+
     // QGeoRouteLeg API
     virtual void setLegIndex(int idx) override;
     virtual int legIndex() const override;
@@ -175,6 +182,7 @@ public:
     QGeoRouteSegment m_firstSegment;
     mutable int m_numSegments;
     QScopedPointer<QGeoRoute> m_containingRoute;
+    QVariantMap m_extendedAttributes;
     int m_legIndex = 0;
 };
 

@@ -4,12 +4,15 @@
 
 #include "third_party/blink/renderer/modules/encryptedmedia/encrypted_media_utils.h"
 
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+
 namespace blink {
 
 namespace {
 
 const char kTemporary[] = "temporary";
 const char kPersistentLicense[] = "persistent-license";
+const char kPersistentUsageRecord[] = "persistent-usage-record";
 
 }  // namespace
 
@@ -54,6 +57,11 @@ WebEncryptedMediaSessionType EncryptedMediaUtils::ConvertToSessionType(
     return WebEncryptedMediaSessionType::kTemporary;
   if (session_type == kPersistentLicense)
     return WebEncryptedMediaSessionType::kPersistentLicense;
+  if (session_type == kPersistentUsageRecord &&
+      RuntimeEnabledFeatures::
+          EncryptedMediaPersistentUsageRecordSessionEnabled()) {
+    return WebEncryptedMediaSessionType::kPersistentUsageRecord;
+  }
 
   // |sessionType| is not restricted in the idl, so anything is possible.
   return WebEncryptedMediaSessionType::kUnknown;
@@ -67,10 +75,14 @@ String EncryptedMediaUtils::ConvertFromSessionType(
       return kTemporary;
     case WebEncryptedMediaSessionType::kPersistentLicense:
       return kPersistentLicense;
-    // TODO(crbug.com/856925): Add support for kPersistentUsageRecord.
     case WebEncryptedMediaSessionType::kPersistentUsageRecord:
+      if (RuntimeEnabledFeatures::
+              EncryptedMediaPersistentUsageRecordSessionEnabled()) {
+        return kPersistentUsageRecord;
+      }
+      FALLTHROUGH;
     case WebEncryptedMediaSessionType::kUnknown:
-      // Chromium should not use Unknown.
+      // Unexpected session type from Chromium.
       NOTREACHED();
       return String();
   }
@@ -101,6 +113,36 @@ String EncryptedMediaUtils::ConvertKeyStatusToString(
 
   NOTREACHED();
   return "internal-error";
+}
+
+// static
+WebMediaKeySystemConfiguration::Requirement
+EncryptedMediaUtils::ConvertToMediaKeysRequirement(const String& requirement) {
+  if (requirement == "required")
+    return WebMediaKeySystemConfiguration::Requirement::kRequired;
+  if (requirement == "optional")
+    return WebMediaKeySystemConfiguration::Requirement::kOptional;
+  if (requirement == "not-allowed")
+    return WebMediaKeySystemConfiguration::Requirement::kNotAllowed;
+
+  NOTREACHED();
+  return WebMediaKeySystemConfiguration::Requirement::kOptional;
+}
+
+// static
+String EncryptedMediaUtils::ConvertMediaKeysRequirementToString(
+    WebMediaKeySystemConfiguration::Requirement requirement) {
+  switch (requirement) {
+    case WebMediaKeySystemConfiguration::Requirement::kRequired:
+      return "required";
+    case WebMediaKeySystemConfiguration::Requirement::kOptional:
+      return "optional";
+    case WebMediaKeySystemConfiguration::Requirement::kNotAllowed:
+      return "not-allowed";
+  }
+
+  NOTREACHED();
+  return "not-allowed";
 }
 
 }  // namespace blink

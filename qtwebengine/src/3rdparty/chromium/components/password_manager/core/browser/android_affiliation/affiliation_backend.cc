@@ -44,11 +44,12 @@ AffiliationBackend::~AffiliationBackend() {
 void AffiliationBackend::Initialize(
     std::unique_ptr<network::SharedURLLoaderFactoryInfo>
         url_loader_factory_info,
+    network::NetworkConnectionTracker* network_connection_tracker,
     const base::FilePath& db_path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!throttler_);
-  throttler_.reset(
-      new AffiliationFetchThrottler(this, task_runner_, tick_clock_));
+  throttler_.reset(new AffiliationFetchThrottler(
+      this, task_runner_, network_connection_tracker, tick_clock_));
 
   // TODO(engedy): Currently, when Init() returns false, it always poisons the
   // DB, so subsequent operations will silently fail. Consider either fully
@@ -171,8 +172,8 @@ void AffiliationBackend::RequestNotificationAtTime(const FacetURI& facet_uri,
   // callback. crbug.com/437865.
   task_runner_->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&AffiliationBackend::OnSendNotification,
-                 weak_ptr_factory_.GetWeakPtr(), facet_uri),
+      base::BindOnce(&AffiliationBackend::OnSendNotification,
+                     weak_ptr_factory_.GetWeakPtr(), facet_uri),
       time - clock_->Now());
 }
 

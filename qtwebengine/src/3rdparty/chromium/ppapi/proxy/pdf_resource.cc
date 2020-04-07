@@ -58,15 +58,16 @@ void PDFResource::SearchString(const unsigned short* input_string,
                                PP_PrivateFindResult** results,
                                uint32_t* count) {
   if (locale_.empty())
-    locale_ = GetLocale();
+    locale_ = GetLocale() + "@collation=search";
+
   const UChar* string =
       reinterpret_cast<const UChar*>(input_string);
   const UChar* term =
       reinterpret_cast<const UChar*>(input_term);
 
   UErrorCode status = U_ZERO_ERROR;
-  UStringSearch* searcher = usearch_open(term, -1, string, -1, locale_.c_str(),
-                                         0, &status);
+  UStringSearch* searcher =
+      usearch_open(term, -1, string, -1, locale_.c_str(), nullptr, &status);
   DCHECK(status == U_ZERO_ERROR || status == U_USING_FALLBACK_WARNING ||
          status == U_USING_DEFAULT_WARNING)
       << status;

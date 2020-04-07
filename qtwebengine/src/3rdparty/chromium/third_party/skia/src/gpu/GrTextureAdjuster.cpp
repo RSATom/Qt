@@ -24,8 +24,7 @@ GrTextureAdjuster::GrTextureAdjuster(GrContext* context, sk_sp<GrTextureProxy> o
     , fColorSpace(cs)
     , fUniqueID(uniqueID) {}
 
-void GrTextureAdjuster::makeCopyKey(const CopyParams& params, GrUniqueKey* copyKey,
-                                    SkColorSpace* dstColorSpace) {
+void GrTextureAdjuster::makeCopyKey(const CopyParams& params, GrUniqueKey* copyKey) {
     // Destination color space is irrelevant - we already have a texture so we're just sub-setting
     GrUniqueKey baseKey;
     GrMakeKeyFromImageID(&baseKey, fUniqueID, SkIRect::MakeWH(this->width(), this->height()));
@@ -41,7 +40,7 @@ sk_sp<GrTextureProxy> GrTextureAdjuster::refTextureProxyCopy(const CopyParams& c
     GrProxyProvider* proxyProvider = fContext->contextPriv().proxyProvider();
 
     GrUniqueKey key;
-    this->makeCopyKey(copyParams, &key, nullptr);
+    this->makeCopyKey(copyParams, &key);
     sk_sp<GrTextureProxy> cachedCopy;
     if (key.isValid()) {
         cachedCopy = proxyProvider->findOrCreateProxyByUniqueKey(key,
@@ -63,7 +62,8 @@ sk_sp<GrTextureProxy> GrTextureAdjuster::refTextureProxyCopy(const CopyParams& c
                 // If we had a cachedProxy, that means there already is a proxy in the cache which
                 // matches the key, but it does not have mip levels and we require them. Thus we
                 // must remove the unique key from that proxy.
-                proxyProvider->removeUniqueKeyFromProxy(key, cachedCopy.get());
+                SkASSERT(cachedCopy->getUniqueKey() == key);
+                proxyProvider->removeUniqueKeyFromProxy(cachedCopy.get());
             }
             proxyProvider->assignUniqueKeyToProxy(key, copy.get());
             this->didCacheCopy(key, proxyProvider->contextUniqueID());
@@ -74,8 +74,6 @@ sk_sp<GrTextureProxy> GrTextureAdjuster::refTextureProxyCopy(const CopyParams& c
 
 sk_sp<GrTextureProxy> GrTextureAdjuster::onRefTextureProxyForParams(
         const GrSamplerState& params,
-        SkColorSpace* dstColorSpace,
-        sk_sp<SkColorSpace>* texColorSpace,
         bool willBeMipped,
         SkScalar scaleAdjust[2]) {
     sk_sp<GrTextureProxy> proxy = this->originalProxyRef();
@@ -86,9 +84,6 @@ sk_sp<GrTextureProxy> GrTextureAdjuster::onRefTextureProxyForParams(
         return nullptr;
     }
 
-    if (texColorSpace) {
-        *texColorSpace = sk_ref_sp(fColorSpace);
-    }
     SkASSERT(this->width() <= fContext->contextPriv().caps()->maxTextureSize() &&
              this->height() <= fContext->contextPriv().caps()->maxTextureSize());
 
@@ -120,8 +115,7 @@ std::unique_ptr<GrFragmentProcessor> GrTextureAdjuster::createFragmentProcessor(
         const SkRect& constraintRect,
         FilterConstraint filterConstraint,
         bool coordsLimitedToConstraintRect,
-        const GrSamplerState::Filter* filterOrNullForBicubic,
-        SkColorSpace* dstColorSpace) {
+        const GrSamplerState::Filter* filterOrNullForBicubic) {
     SkMatrix textureMatrix = origTextureMatrix;
 
     SkRect domain;
@@ -131,7 +125,7 @@ std::unique_ptr<GrFragmentProcessor> GrTextureAdjuster::createFragmentProcessor(
     }
     SkScalar scaleAdjust[2] = { 1.0f, 1.0f };
     sk_sp<GrTextureProxy> proxy(
-            this->refTextureProxyForParams(samplerState, nullptr, nullptr, scaleAdjust));
+            this->refTextureProxyForParams(samplerState, scaleAdjust));
     if (!proxy) {
         return nullptr;
     }
@@ -160,7 +154,6 @@ std::unique_ptr<GrFragmentProcessor> GrTextureAdjuster::createFragmentProcessor(
     }
     SkASSERT(kNoDomain_DomainMode == domainMode ||
              (domain.fLeft <= domain.fRight && domain.fTop <= domain.fBottom));
-    auto fp = CreateFragmentProcessorForDomainAndFilter(std::move(proxy), textureMatrix,
-                                                        domainMode, domain, filterOrNullForBicubic);
-    return GrColorSpaceXformEffect::Make(std::move(fp), fColorSpace, dstColorSpace);
+    return CreateFragmentProcessorForDomainAndFilter(std::move(proxy), textureMatrix, domainMode,
+                                                     domain, filterOrNullForBicubic);
 }

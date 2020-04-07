@@ -24,7 +24,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SIMPLE_FONT_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SIMPLE_FONT_DATA_H_
 
-#include <SkPaint.h>
+#include <SkFont.h>
 
 #include <memory>
 #include <utility>
@@ -54,6 +54,8 @@ namespace blink {
 // character.
 struct GlyphData {
   STACK_ALLOCATED();
+
+ public:
   GlyphData(
       Glyph g = 0,
       const SimpleFontData* f = nullptr,
@@ -110,6 +112,7 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
   }
 
   FloatRect BoundsForGlyph(Glyph) const;
+  void BoundsForGlyphs(const Vector<Glyph, 256>&, Vector<SkRect, 256>*) const;
   FloatRect PlatformBoundsForGlyph(Glyph) const;
   float WidthForGlyph(Glyph) const;
   float PlatformWidthForGlyph(Glyph) const;
@@ -167,7 +170,7 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
   float avg_char_width_;
 
   FontPlatformData platform_data_;
-  SkPaint paint_;
+  SkFont font_;
 
   Glyph space_glyph_;
   float space_width_;

@@ -9,6 +9,7 @@
 #define GrSurface_DEFINED
 
 #include "GrTypes.h"
+#include "GrBackendSurface.h"
 #include "GrGpuResource.h"
 #include "SkImageInfo.h"
 #include "SkRect.h"
@@ -42,6 +43,8 @@ public:
      */
     GrPixelConfig config() const { return fConfig; }
 
+    virtual GrBackendFormat backendFormat() const = 0;
+
     /**
      * @return the texture associated with the surface, may be null.
      */
@@ -62,28 +65,18 @@ public:
     static size_t ComputeSize(GrPixelConfig config, int width, int height, int colorSamplesPerPixel,
                               GrMipMapped, bool useNextPow2 = false);
 
-protected:
-    void setIsGLTextureRectangleOrExternal() {
-        SkASSERT(this->asTexture());
-        fSurfaceFlags |= GrInternalSurfaceFlags::kIsGLTextureRectangleOrExternal;
-    }
-    bool isGLTextureRectangleOrExternal() const {
-        return fSurfaceFlags & GrInternalSurfaceFlags::kIsGLTextureRectangleOrExternal;
-    }
+    /**
+     * The pixel values of this surface cannot be modified (e.g. doesn't support write pixels or
+     * MIP map level regen).
+     */
+    bool readOnly() const { return fSurfaceFlags & GrInternalSurfaceFlags::kReadOnly; }
 
+protected:
     void setHasMixedSamples() {
         SkASSERT(this->asRenderTarget());
         fSurfaceFlags |= GrInternalSurfaceFlags::kMixedSampled;
     }
     bool hasMixedSamples() const { return fSurfaceFlags & GrInternalSurfaceFlags::kMixedSampled; }
-
-    void setSupportsWindowRects() {
-        SkASSERT(this->asRenderTarget());
-        fSurfaceFlags |= GrInternalSurfaceFlags::kWindowRectsSupport;
-    }
-    bool supportsWindowRects() const {
-        return fSurfaceFlags & GrInternalSurfaceFlags::kWindowRectsSupport;
-    }
 
     void setGLRTFBOIDIs0() {
         SkASSERT(this->asRenderTarget());
@@ -91,6 +84,11 @@ protected:
     }
     bool glRTFBOIDis0() const {
         return fSurfaceFlags & GrInternalSurfaceFlags::kGLRTFBOIDIs0;
+    }
+
+    void setReadOnly() {
+        SkASSERT(!this->asRenderTarget());
+        fSurfaceFlags |= GrInternalSurfaceFlags::kReadOnly;
     }
 
     // Methods made available via GrSurfacePriv
@@ -110,7 +108,6 @@ protected:
     }
 
     ~GrSurface() override {}
-
 
     void onRelease() override;
     void onAbandon() override;

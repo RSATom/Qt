@@ -28,7 +28,6 @@
 #endif
 
 namespace gfx {
-class FontList;
 struct VectorIcon;
 }
 
@@ -92,6 +91,9 @@ class VIEWS_EXPORT MenuItemView : public View {
     CHECKBOX,            // Can be selected/checked to toggle a boolean state.
     RADIO,               // Can be selected/checked among a group of choices.
     SEPARATOR,           // Shows a horizontal line separator.
+    HIGHLIGHTED,         // Performs an action when selected, and has a
+                         // different colored background that merges with the
+                         // menu's rounded corners when placed at the bottom.
     EMPTY,  // EMPTY is a special type for empty menus that is only used
             // internally.
   };
@@ -360,6 +362,16 @@ class VIEWS_EXPORT MenuItemView : public View {
   // there's no way to unset it for this MenuItemView!
   void SetForcedVisualSelection(bool selected);
 
+  // For items of type HIGHLIGHTED only: sets the radius of the item's
+  // background. This makes the menu item's background fit its container's
+  // border radius, if they are both the same value.
+  void SetCornerRadius(int radius);
+
+  // Show an alert on this menu item. An alerted menu item is rendered
+  // differently to draw attention to it.
+  void SetAlerted(bool alerted);
+  bool Alerted() const { return alerted_; }
+
  protected:
   // Creates a MenuItemView. This is used by the various AddXXX methods.
   MenuItemView(MenuItemView* parent, int command, Type type);
@@ -406,8 +418,8 @@ class VIEWS_EXPORT MenuItemView : public View {
   // Returns the flags passed to DrawStringRect.
   int GetDrawStringFlags();
 
-  // Returns the font list to use for menu text.
-  const gfx::FontList& GetFontList() const;
+  // Returns the style for the menu text.
+  void GetLabelStyle(MenuDelegate::LabelStyle* style) const;
 
   // If this menu item has no children a child is added showing it has no
   // children. Otherwise AddEmtpyMenus is recursively invoked on child menu
@@ -425,8 +437,15 @@ class VIEWS_EXPORT MenuItemView : public View {
   // are not rendered.
   void PaintButton(gfx::Canvas* canvas, PaintButtonMode mode);
 
+  // Helper function for PaintButton(), draws the background for the button if
+  // appropriate.
+  void PaintBackground(gfx::Canvas* canvas,
+                       PaintButtonMode mode,
+                       bool render_selection);
+
   // Paints the right-side icon and text.
-  void PaintMinorIconAndText(gfx::Canvas* canvas, SkColor color);
+  void PaintMinorIconAndText(gfx::Canvas* canvas,
+                             const MenuDelegate::LabelStyle& style);
 
   // Destroys the window used to display this menu and recursively destroys
   // the windows used to display all descendants.
@@ -441,9 +460,7 @@ class VIEWS_EXPORT MenuItemView : public View {
 
   // Returns the text color for the current state.  |minor| specifies if the
   // minor text or the normal text is desired.
-  SkColor GetTextColor(bool minor,
-                       bool render_selection,
-                       bool emphasized) const;
+  SkColor GetTextColor(bool minor, bool render_selection) const;
 
   // Calculates and returns the MenuItemDimensions.
   MenuItemDimensions CalculateDimensions() const;
@@ -570,6 +587,9 @@ class VIEWS_EXPORT MenuItemView : public View {
   int top_margin_;
   int bottom_margin_;
 
+  // Corner radius in pixels, for HIGHLIGHTED items placed at the end of a menu.
+  int corner_radius_;
+
   // Horizontal icon margins in pixels, which can differ between MenuItems.
   // These values will be set in the layout process.
   mutable int left_icon_margin_;
@@ -597,6 +617,9 @@ class VIEWS_EXPORT MenuItemView : public View {
   // The vertical separator that separates the actionable and submenu regions of
   // an ACTIONABLE_SUBMENU.
   Separator* vertical_separator_;
+
+  // Whether this menu item is rendered differently to draw attention to it.
+  bool alerted_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(MenuItemView);
 };

@@ -66,11 +66,13 @@ matrix:
       sudo: false
       compiler: clang
       env: CFG=linux_trusty-clang-x86_64-msan GN_ARGS="is_debug=false is_msan=true"
+# TODO(b/117093687): ubsan always times out in Travis.
+# Re-enable once that is fixed.
     - os: linux
       dist: trusty
       sudo: true
       compiler: clang
-      env: CFG=linux_trusty-clang-x86_64-ubsan_asan_lsan GN_ARGS="is_debug=false is_ubsan=true is_asan=true is_lsan=true"
+      env: CFG=linux_trusty-clang-x86_64-asan_lsan GN_ARGS="is_debug=false is_asan=true is_lsan=true"
     - os: linux
       dist: trusty
       sudo: false
@@ -95,7 +97,7 @@ matrix:
       dist: trusty
       sudo: true
       compiler: clang
-      env: CFG=linux_trusty-clang-x86_64-libfuzzer GN_ARGS="is_clang=true is_debug=false use_libfuzzer=true is_asan=true"
+      env: CFG=linux_trusty-clang-x86_64-libfuzzer GN_ARGS="is_clang=true is_debug=false is_fuzzer=true is_asan=true"
     - os: linux
       dist: trusty
       sudo: false
@@ -114,19 +116,26 @@ matrix:
 cache:
   timeout: 1800  # 30 mins
   directories:
+    - buildtools/android-core
     - buildtools/benchmark
+    - buildtools/bionic
     - buildtools/emulator
     - buildtools/googletest
+    - buildtools/jsoncpp
     - buildtools/libbacktrace
     - buildtools/libcxx
     - buildtools/libcxxabi
+    - buildtools/libfuzzer
     - buildtools/libunwind
+    - buildtools/linenoise
+    - buildtools/lzma
 
 before_install:
   - set -e
   - echo "$CFG" && echo "$GN_ARGS"
   - export ASAN_SYMBOLIZER_PATH="$(which llvm-symbolizer
       || echo /usr/bin/llvm-symbolizer-*)"
+  - pip install --user protobuf
 
 install:
   - |
@@ -169,10 +178,12 @@ script:
         "out/dist/$TEST_TARGET"
       done
       BENCHMARK_FUNCTIONAL_TEST_ONLY=true out/dist/perfetto_benchmarks
+      tools/diff_test_trace_processor.py out/dist/trace_processor_shell
       if [[ "$CFG" == *-libfuzzer ]]; then
         # Run a single iteration each to make sure they are not crashing.
         out/dist/end_to_end_shared_memory_fuzzer -runs=1
         out/dist/buffered_frame_deserializer_fuzzer -runs=1
+        out/dist/unwinding_fuzzer -runs=1
       fi
     fi
 

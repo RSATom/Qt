@@ -100,4 +100,9 @@ void QMapRouteObjectPrivateQSG::setVisible(bool visible)
     m_polyline->setVisible(visible);
 }
 
+QGeoShape QMapRouteObjectPrivateQSG::geoShape() const
+{
+    return m_polyline->geoShape();
+}
+
 QT_END_NAMESPACE

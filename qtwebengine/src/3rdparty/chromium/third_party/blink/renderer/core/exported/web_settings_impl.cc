@@ -42,12 +42,9 @@ WebSettingsImpl::WebSettingsImpl(Settings* settings,
                                  DevToolsEmulator* dev_tools_emulator)
     : settings_(settings),
       dev_tools_emulator_(dev_tools_emulator),
-      show_fps_counter_(false),
-      show_paint_rects_(false),
       render_v_sync_notification_enabled_(false),
       auto_zoom_focused_node_to_legible_scale_(false),
       support_deprecated_target_density_dpi_(false),
-      shrinks_viewport_content_to_fit_(false),
       viewport_meta_layout_size_quirk_(false),
       viewport_meta_non_user_scalable_quirk_(false),
       clobber_user_agent_initial_scale_quirk_(false) {
@@ -71,8 +68,8 @@ void WebSettingsImpl::SetFixedFontFamily(const WebString& font,
     settings_->NotifyGenericFontFamilyChange();
 }
 
-void WebSettingsImpl::SetFMPNetworkQuietTimeout(double timeout) {
-  settings_->SetFMPNetworkQuietTimeout(timeout);
+void WebSettingsImpl::SetNetworkQuietTimeout(double timeout) {
+  settings_->SetNetworkQuietTimeout(timeout);
 }
 
 void WebSettingsImpl::SetForceMainWorldInitialization(bool enabled) {
@@ -158,10 +155,6 @@ void WebSettingsImpl::SetTextAutosizingEnabled(bool enabled) {
 
 void WebSettingsImpl::SetAccessibilityFontScaleFactor(float font_scale_factor) {
   settings_->SetAccessibilityFontScaleFactor(font_scale_factor);
-}
-
-void WebSettingsImpl::SetAccessibilityEnabled(bool enabled) {
-  settings_->SetAccessibilityEnabled(enabled);
 }
 
 void WebSettingsImpl::SetAccessibilityPasswordValuesEnabled(bool enabled) {
@@ -264,12 +257,6 @@ void WebSettingsImpl::SetShouldReuseGlobalForUnownedMainFrame(bool enabled) {
   settings_->SetShouldReuseGlobalForUnownedMainFrame(enabled);
 }
 
-void WebSettingsImpl::SetSavePreviousDocumentResources(
-    SavePreviousDocumentResources save_resources) {
-  settings_->SetSavePreviousDocumentResources(
-      static_cast<blink::SavePreviousDocumentResources>(save_resources));
-}
-
 void WebSettingsImpl::SetPluginsEnabled(bool enabled) {
   dev_tools_emulator_->SetPluginsEnabled(enabled);
 }
@@ -295,8 +282,8 @@ void WebSettingsImpl::SetPreferHiddenVolumeControls(bool enabled) {
   settings_->SetPreferHiddenVolumeControls(enabled);
 }
 
-void WebSettingsImpl::SetShouldThrottlePushState(bool enabled) {
-  settings_->SetShouldThrottlePushState(enabled);
+void WebSettingsImpl::SetShouldProtectAgainstIpcFlooding(bool enabled) {
+  settings_->SetShouldProtectAgainstIpcFlooding(enabled);
 }
 
 void WebSettingsImpl::SetDOMPasteAllowed(bool enabled) {
@@ -305,7 +292,7 @@ void WebSettingsImpl::SetDOMPasteAllowed(bool enabled) {
 
 void WebSettingsImpl::SetShrinksViewportContentToFit(
     bool shrink_viewport_content) {
-  shrinks_viewport_content_to_fit_ = shrink_viewport_content;
+  settings_->SetShrinksViewportContentToFit(shrink_viewport_content);
 }
 
 void WebSettingsImpl::SetSpatialNavigationEnabled(bool enabled) {
@@ -466,20 +453,8 @@ void WebSettingsImpl::SetShowContextMenuOnMouseUp(bool enabled) {
   settings_->SetShowContextMenuOnMouseUp(enabled);
 }
 
-void WebSettingsImpl::SetShowFPSCounter(bool show) {
-  show_fps_counter_ = show;
-}
-
-void WebSettingsImpl::SetShowPaintRects(bool show) {
-  show_paint_rects_ = show;
-}
-
 void WebSettingsImpl::SetEditingBehavior(EditingBehavior behavior) {
   settings_->SetEditingBehaviorType(static_cast<EditingBehaviorType>(behavior));
-}
-
-void WebSettingsImpl::SetAcceleratedCompositingEnabled(bool enabled) {
-  settings_->SetAcceleratedCompositingEnabled(enabled);
 }
 
 void WebSettingsImpl::SetMockScrollbarsEnabled(bool enabled) {
@@ -520,6 +495,10 @@ void WebSettingsImpl::SetHideDownloadUI(bool hide) {
 
 void WebSettingsImpl::SetPresentationReceiver(bool enabled) {
   settings_->SetPresentationReceiver(enabled);
+}
+
+void WebSettingsImpl::SetHighlightAds(bool enabled) {
+  settings_->SetHighlightAds(enabled);
 }
 
 void WebSettingsImpl::SetHistoryEntryRequiresUserGesture(bool enabled) {
@@ -573,10 +552,6 @@ void WebSettingsImpl::SetPasswordEchoDurationInSeconds(
   settings_->SetPasswordEchoDurationInSeconds(duration_in_seconds);
 }
 
-void WebSettingsImpl::SetPerTilePaintingEnabled(bool enabled) {
-  per_tile_painting_enabled_ = enabled;
-}
-
 void WebSettingsImpl::SetShouldPrintBackgrounds(bool enabled) {
   settings_->SetShouldPrintBackgrounds(enabled);
 }
@@ -589,16 +564,12 @@ void WebSettingsImpl::SetEnableScrollAnimator(bool enabled) {
   settings_->SetScrollAnimatorEnabled(enabled);
 }
 
+void WebSettingsImpl::SetPrefersReducedMotion(bool enabled) {
+  settings_->SetPrefersReducedMotion(enabled);
+}
+
 void WebSettingsImpl::SetEnableTouchAdjustment(bool enabled) {
   settings_->SetTouchAdjustmentEnabled(enabled);
-}
-
-bool WebSettingsImpl::MultiTargetTapNotificationEnabled() {
-  return settings_->GetMultiTargetTapNotificationEnabled();
-}
-
-void WebSettingsImpl::SetMultiTargetTapNotificationEnabled(bool enabled) {
-  settings_->SetMultiTargetTapNotificationEnabled(enabled);
 }
 
 bool WebSettingsImpl::ViewportEnabled() const {
@@ -618,7 +589,7 @@ bool WebSettingsImpl::MockGestureTapHighlightsEnabled() const {
 }
 
 bool WebSettingsImpl::ShrinksViewportContentToFit() const {
-  return shrinks_viewport_content_to_fit_;
+  return settings_->GetShrinksViewportContentToFit();
 }
 
 void WebSettingsImpl::SetShouldRespectImageOrientation(bool enabled) {
@@ -633,13 +604,8 @@ void WebSettingsImpl::SetDataSaverHoldbackWebApi(bool enabled) {
   settings_->SetDataSaverHoldbackWebApi(enabled);
 }
 
-void WebSettingsImpl::SetDataSaverHoldbackMediaApi(bool enabled) {
-  settings_->SetDataSaverHoldbackMediaApi(enabled);
-}
-
-void WebSettingsImpl::SetMediaPlaybackGestureWhitelistScope(
-    const WebString& scope) {
-  settings_->SetMediaPlaybackGestureWhitelistScope(scope);
+void WebSettingsImpl::SetWebAppScope(const WebString& scope) {
+  settings_->SetWebAppScope(scope);
 }
 
 void WebSettingsImpl::SetPresentationRequiresUserGesture(bool required) {
@@ -728,6 +694,10 @@ void WebSettingsImpl::SetLowPriorityIframesThreshold(
   settings_->SetLowPriorityIframesThreshold(effective_connection_type);
 }
 
+void WebSettingsImpl::SetLazyLoadEnabled(bool enabled) {
+  settings_->SetLazyLoadEnabled(enabled);
+}
+
 void WebSettingsImpl::SetLazyFrameLoadingDistanceThresholdPxUnknown(
     int distance_px) {
   settings_->SetLazyFrameLoadingDistanceThresholdPxUnknown(distance_px);
@@ -757,5 +727,42 @@ void WebSettingsImpl::SetLazyFrameLoadingDistanceThresholdPx4G(
     int distance_px) {
   settings_->SetLazyFrameLoadingDistanceThresholdPx4G(distance_px);
 }
+
+void WebSettingsImpl::SetLazyImageLoadingDistanceThresholdPxUnknown(
+    int distance_px) {
+  settings_->SetLazyImageLoadingDistanceThresholdPxUnknown(distance_px);
+}
+
+void WebSettingsImpl::SetLazyImageLoadingDistanceThresholdPxOffline(
+    int distance_px) {
+  settings_->SetLazyImageLoadingDistanceThresholdPxOffline(distance_px);
+}
+
+void WebSettingsImpl::SetLazyImageLoadingDistanceThresholdPxSlow2G(
+    int distance_px) {
+  settings_->SetLazyImageLoadingDistanceThresholdPxSlow2G(distance_px);
+}
+
+void WebSettingsImpl::SetLazyImageLoadingDistanceThresholdPx2G(
+    int distance_px) {
+  settings_->SetLazyImageLoadingDistanceThresholdPx2G(distance_px);
+}
+
+void WebSettingsImpl::SetLazyImageLoadingDistanceThresholdPx3G(
+    int distance_px) {
+  settings_->SetLazyImageLoadingDistanceThresholdPx3G(distance_px);
+}
+
+void WebSettingsImpl::SetLazyImageLoadingDistanceThresholdPx4G(
+    int distance_px) {
+  settings_->SetLazyImageLoadingDistanceThresholdPx4G(distance_px);
+}
+
+STATIC_ASSERT_ENUM(WebSettings::ImageAnimationPolicy::kAllowed,
+                   kImageAnimationPolicyAllowed);
+STATIC_ASSERT_ENUM(WebSettings::ImageAnimationPolicy::kAnimateOnce,
+                   kImageAnimationPolicyAnimateOnce);
+STATIC_ASSERT_ENUM(WebSettings::ImageAnimationPolicy::kNoAnimation,
+                   kImageAnimationPolicyNoAnimation);
 
 }  // namespace blink

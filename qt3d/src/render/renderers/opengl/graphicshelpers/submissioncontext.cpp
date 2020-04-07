@@ -577,7 +577,7 @@ QSize SubmissionContext::renderTargetSize(const QSize &surfaceSize) const
     } else {
         renderTargetSize = m_surface->size();
         if (m_surface->surfaceClass() == QSurface::Window) {
-            int dpr = static_cast<QWindow *>(m_surface)->devicePixelRatio();
+            const float dpr = static_cast<QWindow *>(m_surface)->devicePixelRatio();
             renderTargetSize *= dpr;
         }
     }
@@ -1088,6 +1088,33 @@ void SubmissionContext::clearStencilValue(int stencil)
     }
 }
 
+GLFence SubmissionContext::fenceSync()
+{
+    return m_glHelper->fenceSync();
+}
+
+void SubmissionContext::clientWaitSync(GLFence sync, GLuint64 nanoSecTimeout)
+{
+    qDebug() << Q_FUNC_INFO << sync;
+    m_glHelper->clientWaitSync(sync, nanoSecTimeout);
+}
+
+void SubmissionContext::waitSync(GLFence sync)
+{
+    qDebug() << Q_FUNC_INFO << sync;
+    m_glHelper->waitSync(sync);
+}
+
+bool SubmissionContext::wasSyncSignaled(GLFence sync)
+{
+    return m_glHelper->wasSyncSignaled(sync);
+}
+
+void SubmissionContext::deleteSync(GLFence sync)
+{
+    m_glHelper->deleteSync(sync);
+}
+
 // It will be easier if the QGraphicContext applies the QUniformPack
 // than the other way around
 bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack)
@@ -1113,7 +1140,7 @@ bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack)
             if (t != nullptr) {
                 UniformValue &texUniform = uniformValues[namedTex.glslNameId];
                 if (texUniform.valueType() == UniformValue::TextureValue) {
-                    const int texUnit = m_textureContext.activateTexture(TextureSubmissionContext::TextureScopeMaterial, t);
+                    const int texUnit = m_textureContext.activateTexture(TextureSubmissionContext::TextureScopeMaterial, m_gl, t);
                     texUniform.data<int>()[namedTex.uniformArrayIndex] = texUnit;
                     if (texUnit == -1) {
                         if (namedTex.glslNameId != irradianceId &&
@@ -1482,7 +1509,8 @@ void SubmissionContext::blitFramebuffer(Qt3DCore::QNodeId inputRenderTargetId,
     const GLenum mode = interpolationMethod ? GL_NEAREST : GL_LINEAR;
     m_glHelper->blitFramebuffer(srcX0, srcY0, srcX1, srcY1,
                                 dstX0, dstY0, dstX1, dstY1,
-                                GL_COLOR_BUFFER_BIT, mode);
+                                GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT,
+                                mode);
 
     // Reset draw buffer
     bindFramebuffer(lastDrawFboId, GraphicsHelperInterface::FBOReadAndDraw);

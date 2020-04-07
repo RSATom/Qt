@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
 
 # Name of the project which must match the outputdir. Determines the .index file
 project = QtOpenGL
@@ -22,6 +23,8 @@ imagedirs   += images \
 depends += qtdoc qtcore qtgui qtwidgets qmake
 
 examplesinstallpath     = opengl
+
+tagfile = qtopengl.tags
 
 # The following parameters are for creating a qhp file, the qhelpgenerator
 # program can convert the qhp file into a qch file which can be opened in

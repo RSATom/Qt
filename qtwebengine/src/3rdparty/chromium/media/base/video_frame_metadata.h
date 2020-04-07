@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "media/base/media_export.h"
 #include "media/base/video_rotation.h"
 
@@ -31,11 +32,6 @@ class MEDIA_EXPORT VideoFrameMetadata {
     // these keys.
     CAPTURE_BEGIN_TIME,
     CAPTURE_END_TIME,
-
-    // Some VideoFrames have an indication of the color space used.  Use
-    // GetInteger()/SetInteger() and ColorSpace enumeration.
-    // Reading this metadata is deprecated, use frame->ColorSpace() instead.
-    COLOR_SPACE,
 
     // Indicates that this frame must be copied to a new texture before use,
     // rather than being used directly. Specifically this is required for
@@ -115,12 +111,12 @@ class MEDIA_EXPORT VideoFrameMetadata {
     // notified about its promotability to an overlay.
     WANTS_PROMOTION_HINT,
 
-    // Windows only: if set, then this frame must be displayed in an overlay
-    // rather than being composited into the framebuffer.
-    REQUIRE_OVERLAY,
-
-    // Windows only: this video has protected content.
+    // This video frame comes from protected content.
     PROTECTED_VIDEO,
+
+    // This video frame is protected by hardware. This option is valid only if
+    // PROTECTED_VIDEO is also set to true.
+    HW_PROTECTED,
 
     // Whether this frame was decoded in a power efficient way.
     POWER_EFFICIENT,

@@ -70,8 +70,12 @@ public:
     virtual void terminateGenerator();
 
     QString fullDocumentLocation(const Node *node, bool useSubdir = false);
-    const Config* config() { return config_; }
-
+    const Config *config() { return config_; }
+    QString linkForExampleFile(const QString &path,
+                               const Node *parent,
+                               const QString &fileExt = QString());
+    static QString exampleFileTitle(const ExampleNode *relative,
+                                    const QString &fileName);
     static Generator *currentGenerator() { return currentGenerator_; }
     static Generator *generatorForFormat(const QString& format);
     static void initialize(const Config& config);
@@ -87,9 +91,11 @@ public:
     static bool noLinkErrors() { return noLinkErrors_; }
     static bool autolinkErrors() { return autolinkErrors_; }
     static void setQDocPass(QDocPass t) { qdocPass_ = t; }
+    static void setUseTimestamps() { useTimestamps_ = true; }
     static bool preparing() { return (qdocPass_ == Prepare); }
     static bool generating() { return (qdocPass_ == Generate); }
     static bool singleExec() { return qdocSingleExec_; }
+    static bool dualExec() { return !qdocSingleExec_; }
     static bool writeQaPages() { return qdocWriteQaPages_; }
     static void setSingleExec() { qdocSingleExec_ = true; }
     static void setWriteQaPages() { qdocWriteQaPages_ = true; }
@@ -100,27 +106,33 @@ public:
     static QmlTypeNode* qmlTypeContext() { return qmlTypeContext_; }
     static QString cleanRef(const QString& ref);
     static QString plainCode(const QString& markedCode);
+    static bool useTimestamps() { return useTimestamps_; }
 
 protected:
+    void beginFilePage(const Node* node, const QString& fileName);
+    void endFilePage() { endSubPage(); } // for symmetry
     void beginSubPage(const Node* node, const QString& fileName);
     void endSubPage();
     virtual QString fileBase(const Node* node) const;
     virtual QString fileExtension() const = 0;
     virtual void generateQAPage() { }
+    virtual void generateExampleFilePage(const Node *, const QString &, CodeMarker *) {}
     virtual void generateAlsoList(const Node *node, CodeMarker *marker);
-    virtual int generateAtom(const Atom *atom, const Node *relative, CodeMarker *marker);
+    virtual int generateAtom(const Atom *, const Node *, CodeMarker *) { return 0; }
     virtual void generateBody(const Node *node, CodeMarker *marker);
-    virtual void generateCppReferencePage(Node* node, CodeMarker* marker);
-    virtual void generateQmlTypePage(QmlTypeNode* , CodeMarker* ) { }
-    virtual void generateQmlBasicTypePage(QmlBasicTypeNode* , CodeMarker* ) { }
-    virtual void generateDocumentNode(DocumentNode* dn, CodeMarker* marker);
-    virtual void generateCollectionNode(CollectionNode* cn, CodeMarker* marker);
+    virtual void generateCppReferencePage(Aggregate *, CodeMarker *) {}
+    virtual void generateProxyPage(Aggregate *, CodeMarker *) {}
+    virtual void generateQmlTypePage(QmlTypeNode *, CodeMarker *) {}
+    virtual void generateQmlBasicTypePage(QmlBasicTypeNode *, CodeMarker *) {}
+    virtual void generatePageNode(PageNode *, CodeMarker *) {}
+    virtual void generateCollectionNode(CollectionNode *, CodeMarker *) {}
+    virtual void generateGenericCollectionPage(CollectionNode *, CodeMarker *) {}
     virtual void generateInheritedBy(const ClassNode *classe, CodeMarker *marker);
     virtual void generateInherits(const ClassNode *classe, CodeMarker *marker);
     virtual void generateDocumentation(Node* node);
     virtual void generateMaintainerList(const Aggregate* node, CodeMarker* marker);
     virtual void generateQmlInheritedBy(const QmlTypeNode* qcn, CodeMarker* marker);
-    virtual void generateQmlInherits(QmlTypeNode* qcn, CodeMarker* marker);
+    virtual void generateQmlInherits(QmlTypeNode *, CodeMarker *) {}
     virtual bool generateQmlText(const Text& text,
                                  const Node *relative,
                                  CodeMarker *marker,
@@ -146,12 +158,10 @@ protected:
                                  const Node *relative,
                                  CodeMarker *marker,
                                  bool generate,
-                                 int& numGeneratedAtoms);
-    void generateExampleFiles(const DocumentNode *dn, CodeMarker *marker);
-    void generateFileList(const DocumentNode* dn,
-                          CodeMarker* marker,
-                          Node::DocSubtype subtype,
-                          const QString& regExp = QString());
+                                 int &numGeneratedAtoms);
+    void generateRequiredLinks(const Node *node, CodeMarker *marker);
+    void generateLinkToExample(const ExampleNode *en, CodeMarker *marker, const QString &exampleUrl);
+    virtual void generateFileList(const ExampleNode *en, CodeMarker *marker, bool images);
     void generateSince(const Node *node, CodeMarker *marker);
     void generateStatus(const Node *node, CodeMarker *marker);
     void generatePrivateSignalNote(const Node* node, CodeMarker* marker);
@@ -168,7 +178,7 @@ protected:
                   int* pos,
                   int n,
                   QStringRef* contents,
-                  QStringRef* par1 = 0,
+                  QStringRef* par1 = nullptr,
                   bool debug = false);
     void setImageFileExtensions(const QStringList& extensions);
     void unknownAtom(const Atom *atom);
@@ -187,7 +197,7 @@ protected:
     void appendFullName(Text& text,
                         const Node *apparentNode,
                         const Node *relative,
-                        const Node *actualNode = 0);
+                        const Node *actualNode = nullptr);
     void appendFullName(Text& text,
                         const Node *apparentNode,
                         const QString& fullName,
@@ -225,10 +235,12 @@ private:
     static bool qdocSingleExec_;
     static bool qdocWriteQaPages_;
     static bool useOutputSubdirs_;
+    static bool useTimestamps_;
     static QmlTypeNode* qmlTypeContext_;
 
-    void generateReimplementedFrom(const FunctionNode *func, CodeMarker *marker);
+    void generateReimplementsClause(const FunctionNode *fn, CodeMarker *marker);
     static bool compareNodes(Node *a, Node *b) { return (a->name() < b->name()); }
+    static bool comparePaths(QString a, QString b) { return (a < b); }
     static void copyTemplateFiles(const Config &config,
                                   const QString &configVar,
                                   const QString &subDir);

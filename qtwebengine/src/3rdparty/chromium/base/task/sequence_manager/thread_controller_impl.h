@@ -5,6 +5,8 @@
 #ifndef BASE_TASK_SEQUENCE_MANAGER_THREAD_CONTROLLER_IMPL_H_
 #define BASE_TASK_SEQUENCE_MANAGER_THREAD_CONTROLLER_IMPL_H_
 
+#include <memory>
+
 #include "base/cancelable_callback.h"
 #include "base/debug/task_annotator.h"
 #include "base/macros.h"
@@ -12,13 +14,15 @@
 #include "base/run_loop.h"
 #include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/sequence_manager/associated_thread_id.h"
 #include "base/task/sequence_manager/thread_controller.h"
+#include "build/build_config.h"
 
 namespace base {
 
 // TODO(kraynov): https://crbug.com/828835
 // Consider going away from using MessageLoop in the renderer process.
-class MessageLoop;
+class MessageLoopBase;
 
 namespace sequence_manager {
 namespace internal {
@@ -30,34 +34,46 @@ class BASE_EXPORT ThreadControllerImpl : public ThreadController,
   ~ThreadControllerImpl() override;
 
   static std::unique_ptr<ThreadControllerImpl> Create(
-      MessageLoop* message_loop,
+      MessageLoopBase* message_loop_base,
       const TickClock* time_source);
 
   // ThreadController:
   void SetWorkBatchSize(int work_batch_size) override;
   void WillQueueTask(PendingTask* pending_task) override;
   void ScheduleWork() override;
+  void BindToCurrentThread(MessageLoopBase* message_loop_base) override;
+  void BindToCurrentThread(std::unique_ptr<MessagePump> message_pump) override;
   void SetNextDelayedDoWork(LazyNow* lazy_now, TimeTicks run_time) override;
   void SetSequencedTaskSource(SequencedTaskSource* sequence) override;
+  void SetTimerSlack(TimerSlack timer_slack) override;
   bool RunsTasksInCurrentSequence() override;
   const TickClock* GetClock() override;
   void SetDefaultTaskRunner(scoped_refptr<SingleThreadTaskRunner>) override;
+  scoped_refptr<SingleThreadTaskRunner> GetDefaultTaskRunner() override;
   void RestoreDefaultTaskRunner() override;
   void AddNestingObserver(RunLoop::NestingObserver* observer) override;
   void RemoveNestingObserver(RunLoop::NestingObserver* observer) override;
+  const scoped_refptr<AssociatedThreadId>& GetAssociatedThread() const override;
+  void SetTaskExecutionAllowed(bool allowed) override;
+  bool IsTaskExecutionAllowed() const override;
+  MessagePump* GetBoundMessagePump() const override;
+#if defined(OS_IOS) || defined(OS_ANDROID)
+  void AttachToMessagePump() override;
+#endif
+  bool ShouldQuitRunLoopWhenIdle() override;
 
   // RunLoop::NestingObserver:
   void OnBeginNestedRunLoop() override;
   void OnExitNestedRunLoop() override;
 
  protected:
-  ThreadControllerImpl(MessageLoop* message_loop,
+  ThreadControllerImpl(MessageLoopBase* message_loop_base,
                        scoped_refptr<SingleThreadTaskRunner> task_runner,
                        const TickClock* time_source);
 
   // TODO(altimin): Make these const. Blocked on removing
   // lazy initialisation support.
-  MessageLoop* message_loop_;
+  MessageLoopBase* message_loop_base_;
   scoped_refptr<SingleThreadTaskRunner> task_runner_;
 
   RunLoop::NestingObserver* nesting_observer_ = nullptr;
@@ -77,16 +93,7 @@ class BASE_EXPORT ThreadControllerImpl : public ThreadController,
   };
 
   mutable Lock any_sequence_lock_;
-  AnySequence any_sequence_;
-
-  struct AnySequence& any_sequence() {
-    any_sequence_lock_.AssertAcquired();
-    return any_sequence_;
-  }
-  const struct AnySequence& any_sequence() const {
-    any_sequence_lock_.AssertAcquired();
-    return any_sequence_;
-  }
+  AnySequence any_sequence_ GUARDED_BY(any_sequence_lock_);
 
   struct MainSequenceOnly {
     MainSequenceOnly();
@@ -99,14 +106,15 @@ class BASE_EXPORT ThreadControllerImpl : public ThreadController,
     TimeTicks next_delayed_do_work = TimeTicks::Max();
   };
 
-  SEQUENCE_CHECKER(sequence_checker_);
+  scoped_refptr<AssociatedThreadId> associated_thread_;
+
   MainSequenceOnly main_sequence_only_;
   MainSequenceOnly& main_sequence_only() {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(associated_thread_->sequence_checker);
     return main_sequence_only_;
   }
   const MainSequenceOnly& main_sequence_only() const {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(associated_thread_->sequence_checker);
     return main_sequence_only_;
   }
 
@@ -117,6 +125,10 @@ class BASE_EXPORT ThreadControllerImpl : public ThreadController,
   CancelableClosure cancelable_delayed_do_work_closure_;
   SequencedTaskSource* sequence_ = nullptr;  // Not owned.
   debug::TaskAnnotator task_annotator_;
+
+#if DCHECK_IS_ON()
+  bool default_task_runner_set_ = false;
+#endif
 
   WeakPtrFactory<ThreadControllerImpl> weak_factory_;
 

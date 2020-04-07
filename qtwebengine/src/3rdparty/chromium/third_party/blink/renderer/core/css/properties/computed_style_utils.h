@@ -112,7 +112,7 @@ class ComputedStyleUtils {
                                          const LayoutObject*,
                                          const ComputedStyle&);
   static CSSValue* ValueForGridPosition(const GridPosition&);
-  static LayoutRect SizingBox(const LayoutObject&);
+  static FloatSize UsedBoxSize(const LayoutObject&);
   static CSSValue* RenderTextDecorationFlagsToCSSValue(TextDecoration);
   static CSSValue* ValueForTextDecorationStyle(ETextDecorationStyle);
   static CSSValue* ValueForTextDecorationSkipInk(ETextDecorationSkipInk);
@@ -132,6 +132,17 @@ class ComputedStyleUtils {
                                                    const ComputedStyle&);
   static const CSSValue& ValueForBorderRadiusCorner(const LengthSize&,
                                                     const ComputedStyle&);
+  // TODO(fs): For some properties ('transform') we use the pixel snapped
+  // border-box as the reference box. In other cases ('transform-origin') we use
+  // the "unsnapped" border-box. Maybe use the same (the "unsnapped") in both
+  // cases?
+  enum UsePixelSnappedBox {
+    kDontUsePixelSnappedBox,
+    kUsePixelSnappedBox,
+  };
+  static FloatRect ReferenceBoxForTransform(
+      const LayoutObject&,
+      UsePixelSnappedBox = kUsePixelSnappedBox);
   static CSSValue* ComputedTransform(const LayoutObject*, const ComputedStyle&);
   static CSSValue* CreateTransitionPropertyValue(
       const CSSTransitionData::TransitionProperty&);
@@ -143,7 +154,6 @@ class ComputedStyleUtils {
   static CSSValueList* ValueForBorderRadiusShorthand(const ComputedStyle&);
   static CSSValue* StrokeDashArrayToCSSValueList(const SVGDashArray&,
                                                  const ComputedStyle&);
-  static CSSValue* PaintOrderToCSSValueList(const SVGComputedStyle&);
   static CSSValue* AdjustSVGPaintForCurrentColor(const SVGPaint&, const Color&);
   static CSSValue* ValueForSVGResource(const StyleSVGResource*);
   static CSSValue* ValueForShadowData(const ShadowData&,
@@ -189,7 +199,7 @@ class ComputedStyleUtils {
                                                 Node*,
                                                 bool allow_visited_style);
   static CSSValue* ScrollCustomizationFlagsToCSSValue(
-      ScrollCustomization::ScrollDirection);
+      scroll_customization::ScrollDirection);
   static CSSValue* ValueForGapLength(const GapLength&, const ComputedStyle&);
 };
 

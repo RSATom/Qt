@@ -8,7 +8,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/optional.h"
-#include "components/crash/content/browser/crash_dump_manager_android.h"
+#include "base/rand_util.h"
 
 namespace crash_reporter {
 namespace {
@@ -108,46 +108,51 @@ void CrashMetricsReporter::RemoveObserver(
   async_observers_->RemoveObserver(observer);
 }
 
-void CrashMetricsReporter::CrashDumpProcessed(
-    const ChildExitObserver::TerminationInfo& info,
-    breakpad::CrashDumpManager::CrashDumpStatus status) {
+void CrashMetricsReporter::ChildProcessExited(
+    const ChildExitObserver::TerminationInfo& info) {
   ReportedCrashTypeSet reported_counts;
-  if (status == breakpad::CrashDumpManager::CrashDumpStatus::kMissingDump) {
-    NotifyObservers(info.process_host_id, reported_counts);
-    return;
-  }
-
-  bool has_valid_dump = false;
-  switch (status) {
-    case breakpad::CrashDumpManager::CrashDumpStatus::kMissingDump:
-      NOTREACHED();
-      break;
-    case breakpad::CrashDumpManager::CrashDumpStatus::kEmptyDump:
-      has_valid_dump = false;
-      break;
-    case breakpad::CrashDumpManager::CrashDumpStatus::kValidDump:
-    case breakpad::CrashDumpManager::CrashDumpStatus::kDumpProcessingFailed:
-      has_valid_dump = true;
-      break;
-  }
+  const bool crashed = info.is_crashed();
   const bool app_foreground =
       info.app_state ==
           base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES ||
       info.app_state == base::android::APPLICATION_STATE_HAS_PAUSED_ACTIVITIES;
   const bool intentional_kill = info.was_killed_intentionally_by_browser;
   const bool android_oom_kill = !info.was_killed_intentionally_by_browser &&
-                                !has_valid_dump && !info.normal_termination;
+                                !crashed && !info.normal_termination;
   const bool renderer_visible = info.renderer_has_visible_clients;
   const bool renderer_subframe = info.renderer_was_subframe;
+  const bool renderer_allocation_failed =
+      info.blink_oom_metrics.allocation_failed;
+  const uint64_t private_footprint_kb =
+      info.blink_oom_metrics.current_private_footprint_kb;
+  const uint64_t swap_kb = info.blink_oom_metrics.current_swap_kb;
+  const uint64_t vm_size_kb = info.blink_oom_metrics.current_vm_size_kb;
+  const uint64_t blink_usage_kb = info.blink_oom_metrics.current_blink_usage_kb;
 
-  if (info.process_type == content::PROCESS_TYPE_GPU && app_foreground &&
-      android_oom_kill) {
-    ReportCrashCount(ProcessedCrashCounts::kGpuForegroundOom, &reported_counts);
+  if (app_foreground && android_oom_kill) {
+    if (info.process_type == content::PROCESS_TYPE_GPU) {
+      ReportCrashCount(ProcessedCrashCounts::kGpuForegroundOom,
+                       &reported_counts);
+    } else if (info.process_type == content::PROCESS_TYPE_UTILITY) {
+      ReportCrashCount(ProcessedCrashCounts::kUtilityForegroundOom,
+                       &reported_counts);
+    }
+  }
+
+  if (info.process_type == content::PROCESS_TYPE_RENDERER &&
+      !intentional_kill && !info.normal_termination &&
+      renderer_allocation_failed) {
+    ReportCrashCount(ProcessedCrashCounts::kRendererAllocationFailureAll,
+                     &reported_counts);
+    if (app_foreground && renderer_visible)
+      ReportCrashCount(
+          ProcessedCrashCounts::kRendererForegroundVisibleAllocationFailure,
+          &reported_counts);
   }
 
   if (info.process_type == content::PROCESS_TYPE_RENDERER && app_foreground) {
     if (renderer_visible) {
-      if (has_valid_dump) {
+      if (crashed) {
         ReportCrashCount(
             renderer_subframe
                 ? ProcessedCrashCounts::kRendererForegroundVisibleSubframeCrash
@@ -177,8 +182,26 @@ void CrashMetricsReporter::CrashDumpProcessed(
           base::RecordAction(
               base::UserMetricsAction("RendererForegroundMainFrameOOM"));
         }
+        // Report memory metrics when visible foreground renderer is OOM.
+        if (private_footprint_kb > 0) {
+          // Report only when the metrics are not non-0, because the metrics
+          // are recorded only when oom intervention is on.
+          UMA_HISTOGRAM_MEMORY_LARGE_MB(
+              "Memory.Experimental.OomIntervention."
+              "RendererPrivateMemoryFootprintAtOOM",
+              private_footprint_kb / 1024);
+          UMA_HISTOGRAM_MEMORY_MB(
+              "Memory.Experimental.OomIntervention.RendererSwapFootprintAtOOM",
+              swap_kb / 1024);
+          UMA_HISTOGRAM_MEMORY_MB(
+              "Memory.Experimental.OomIntervention.RendererBlinkUsageAtOOM",
+              blink_usage_kb / 1024);
+          UMA_HISTOGRAM_MEMORY_LARGE_MB(
+              "Memory.Experimental.OomIntervention.RendererVmSizeAtOOMLarge",
+              vm_size_kb / 1024);
+        }
       }
-    } else if (!has_valid_dump) {
+    } else if (!crashed) {
       // Record stats when renderer is not visible, but the process has oom
       // protected bindings. This case occurs when a tab is switched or closed,
       // the bindings are updated later than visibility on web contents.
@@ -226,11 +249,16 @@ void CrashMetricsReporter::CrashDumpProcessed(
                      &reported_counts);
   }
 
-  if (has_valid_dump) {
-    ReportCrashCount(info.process_type == content::PROCESS_TYPE_GPU
-                         ? ProcessedCrashCounts::kGpuCrashAll
-                         : ProcessedCrashCounts::kRendererCrashAll,
-                     &reported_counts);
+  if (crashed) {
+    if (info.process_type == content::PROCESS_TYPE_RENDERER) {
+      ReportCrashCount(ProcessedCrashCounts::kRendererCrashAll,
+                       &reported_counts);
+    } else if (info.process_type == content::PROCESS_TYPE_GPU) {
+      ReportCrashCount(ProcessedCrashCounts::kGpuCrashAll, &reported_counts);
+    } else if (info.process_type == content::PROCESS_TYPE_UTILITY) {
+      ReportCrashCount(ProcessedCrashCounts::kUtilityCrashAll,
+                       &reported_counts);
+    }
   }
 
   if (app_foreground && android_oom_kill &&
@@ -254,9 +282,12 @@ void CrashMetricsReporter::CrashDumpProcessed(
     }
     UMA_HISTOGRAM_ENUMERATION(
         "Stability.Android.StrongBindingOomRemainingBindingState", combo);
+    UMA_HISTOGRAM_EXACT_LINEAR(
+        "Stability.Android.StrongBindingOomRemainingStrongBindingCount",
+        info.remaining_process_with_strong_binding, 20);
   }
 
-  ReportLegacyCrashUma(info, has_valid_dump);
+  ReportLegacyCrashUma(info, crashed);
   NotifyObservers(info.process_host_id, reported_counts);
 }
 

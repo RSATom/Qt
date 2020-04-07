@@ -28,7 +28,6 @@
 #include "ui/display/manager/display_manager_export.h"
 #include "ui/display/manager/display_manager_utilities.h"
 #include "ui/display/manager/managed_display_info.h"
-#include "ui/display/mojo/dev_display_controller.mojom.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/display/unified_desktop_utils.h"
 
@@ -148,11 +147,6 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
     return current_unified_desktop_matrix_;
   }
 
-  // Sets controller used to add/remove fake displays. If this is set then
-  // AddRemoveDisplay() will delegate out to |dev_display_controller_| instead
-  // of adding/removing a ManagedDisplayInfo.
-  void SetDevDisplayController(mojom::DevDisplayControllerPtr controller);
-
   // Initializes displays using command line flag. Returns false if no command
   // line flag was provided.
   bool InitFromCommandLine();
@@ -203,10 +197,6 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
   void SetDisplayRotation(int64_t display_id,
                           Display::Rotation rotation,
                           Display::RotationSource source);
-
-  // Resets the UI scale of the display with |display_id| to the one defined in
-  // the default mode.
-  bool ResetDisplayToDefaultMode(int64_t display_id);
 
   // Sets the external display's configuration, including resolution change,
   // ui-scale change, and device scale factor change. Returns true if it changes
@@ -385,11 +375,11 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
   // current mode to Unified Desktop.
   void SetUnifiedDesktopMatrix(const UnifiedDesktopLayoutMatrix& matrix);
 
-  // In Unified Desktop mode, we consider the first mirroring display to be the
-  // primary. It's also the top-left display in the layout matrix, and it's
-  // where the shelf is placed.
-  // This returns nullptr if we're not in unified desktop mode.
-  const Display* GetPrimaryMirroringDisplayForUnifiedDesktop() const;
+  // Returns the Unified Desktop mode mirroring display according to the
+  // supplied |cell_position| in the matrix. Returns invalid display if we're
+  // not in Unified mode.
+  Display GetMirroringDisplayForUnifiedDesktop(
+      DisplayPositionInUnifiedMatrix cell_position) const;
 
   // Returns the index of the row in the Unified Mode layout matrix which
   // contains the display with |display_id|.
@@ -430,7 +420,8 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
 
   // Used to emulate display change when run in a desktop environment instead
   // of on a device.
-  void AddRemoveDisplay();
+  void AddRemoveDisplay(
+      ManagedDisplayInfo::ManagedDisplayModeList display_modes = {});
   void ToggleDisplayScaleFactor();
 
 // SoftwareMirroringController override:
@@ -474,16 +465,10 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
   // test scenario.
   void UpdateInternalManagedDisplayModeListForTest();
 
-  // Zoom the internal display.
-  bool ZoomInternalDisplay(bool up);
-
   // Zooms the display identified by |display_id| by increasing or decreasing
   // its zoom factor value by 1 unit. Zooming in will have no effect on the
   // display if it is already at its maximum zoom. Vice versa for zooming out.
   bool ZoomDisplay(int64_t display_id, bool up);
-
-  // Reset the internal display zoom.
-  void ResetInternalDisplayZoom();
 
   // Resets the zoom value to 1 for the display identified by |display_id|.
   void ResetDisplayZoom(int64_t display_id);
@@ -529,7 +514,8 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
   // Same as above but for Unified Desktop.
   void CreateUnifiedDesktopDisplayInfo(DisplayInfoList* display_info_list);
 
-  Display* FindDisplayForId(int64_t id);
+  // Finds an display for given |display_id|. Returns nullptr if not found.
+  Display* FindDisplayForId(int64_t display_id);
 
   // Add the mirror display's display info if the software based mirroring is in
   // use. This should only be called before UpdateDisplaysWith().
@@ -672,8 +658,6 @@ class DISPLAY_MANAGER_EXPORT DisplayManager
   base::Closure created_mirror_window_;
 
   base::ObserverList<DisplayObserver> observers_;
-
-  display::mojom::DevDisplayControllerPtr dev_display_controller_;
 
   // Not empty if mixed mirror mode should be turned on (the specified source
   // display is mirrored to the specified destination displays). Empty if mixed

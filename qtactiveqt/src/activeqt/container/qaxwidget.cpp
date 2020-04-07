@@ -695,9 +695,31 @@ bool QAxClientSite::activateObject(bool initialized, const QByteArray &data)
 
         RECT rcPos = qaxQRect2Rect(QRect(qaxNativeWidgetPosition(host), qaxToNativeSize(host, sizehint)));
 
+        const HWND hostWnd = reinterpret_cast<HWND>(host->winId());
         m_spOleObject->DoVerb(OLEIVERB_INPLACEACTIVATE, 0, static_cast<IOleClientSite *>(this), 0,
-                              reinterpret_cast<HWND>(host->winId()),
+                              hostWnd,
                               &rcPos);
+
+        HWND controlWnd = {};
+        {
+            IOleWindow *oleWindow = nullptr;
+            m_spOleObject->QueryInterface(IID_IOleWindow, reinterpret_cast<void **>(&oleWindow));
+            if (oleWindow) {
+                oleWindow->GetWindow(&controlWnd);
+                oleWindow->Release();
+            }
+        }
+
+        if (controlWnd && !GetParent(controlWnd)) {
+            // re-parent control window
+            // this is necessary if the control is running in a "low integrity" process that isn't
+            // permitted to create a child window with hostWnd as parent
+            int winStyle = GetWindowLongPtr(controlWnd, GWL_STYLE);
+            winStyle &= ~WS_CAPTION; // remove title bar
+            winStyle |= WS_CHILD;    // convert to child window
+            SetWindowLongPtr(controlWnd, GWL_STYLE, winStyle);
+            SetParent(controlWnd, hostWnd);
+        }
 
         if (!m_spOleControl)
             m_spOleObject->QueryInterface(IID_IOleControl, reinterpret_cast<void **>(&m_spOleControl));

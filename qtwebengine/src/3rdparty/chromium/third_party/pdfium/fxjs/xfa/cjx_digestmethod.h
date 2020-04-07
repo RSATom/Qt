@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_DIGESTMETHOD_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_DigestMethod;
 
-class CJX_DigestMethod : public CJX_Node {
+class CJX_DigestMethod final : public CJX_Node {
  public:
   explicit CJX_DigestMethod(CXFA_DigestMethod* node);
   ~CJX_DigestMethod() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_DIGESTMETHOD_H_

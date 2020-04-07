@@ -6,7 +6,7 @@
 
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
-#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/view.h"
 #include "ui/views/views_delegate.h"
@@ -30,6 +30,10 @@ void WidgetDelegate::OnDisplayChanged() {
 }
 
 void WidgetDelegate::OnWorkAreaChanged() {
+}
+
+bool WidgetDelegate::OnCloseRequested(Widget::ClosedReason close_reason) {
+  return true;
 }
 
 View* WidgetDelegate::GetInitiallyFocusedView() {
@@ -57,13 +61,13 @@ bool WidgetDelegate::CanMinimize() const {
 }
 
 int32_t WidgetDelegate::GetResizeBehavior() const {
-  int32_t behavior = ui::mojom::kResizeBehaviorNone;
+  int32_t behavior = ws::mojom::kResizeBehaviorNone;
   if (CanResize())
-    behavior |= ui::mojom::kResizeBehaviorCanResize;
+    behavior |= ws::mojom::kResizeBehaviorCanResize;
   if (CanMaximize())
-    behavior |= ui::mojom::kResizeBehaviorCanMaximize;
+    behavior |= ws::mojom::kResizeBehaviorCanMaximize;
   if (CanMinimize())
-    behavior |= ui::mojom::kResizeBehaviorCanMinimize;
+    behavior |= ws::mojom::kResizeBehaviorCanMinimize;
   return behavior;
 }
 
@@ -169,7 +173,7 @@ bool WidgetDelegate::WidgetHasHitTestMask() const {
   return false;
 }
 
-void WidgetDelegate::GetWidgetHitTestMask(gfx::Path* mask) const {
+void WidgetDelegate::GetWidgetHitTestMask(SkPath* mask) const {
   DCHECK(mask);
 }
 

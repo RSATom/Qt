@@ -48,25 +48,18 @@ class CommandBufferHelperImpl
     return decoder_helper_->GetGLContext();
   }
 
+  bool HasStub() override {
+    DVLOG(4) << __func__;
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+    return stub_;
+  }
+
   bool MakeContextCurrent() override {
     DVLOG(2) << __func__;
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
     return decoder_helper_ && decoder_helper_->MakeContextCurrent();
-  }
-
-  bool IsContextCurrent() const override {
-    DVLOG(2) << __func__;
-    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-
-    if (!stub_)
-      return false;
-
-    gl::GLContext* context = stub_->decoder_context()->GetGLContext();
-    if (!context)
-      return false;
-
-    return context->IsCurrent(nullptr);
   }
 
   GLuint CreateTexture(GLenum target,
@@ -126,6 +119,19 @@ class CommandBufferHelperImpl
     return decoder_helper_->CreateMailbox(textures_[service_id].get());
   }
 
+  void ProduceTexture(const gpu::Mailbox& mailbox, GLuint service_id) override {
+    DVLOG(2) << __func__ << "(" << mailbox.ToDebugString() << ", " << service_id
+             << ")";
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+    if (!decoder_helper_)
+      return;
+
+    DCHECK(textures_.count(service_id));
+    return decoder_helper_->ProduceTexture(mailbox,
+                                           textures_[service_id].get());
+  }
+
   void WaitForSyncToken(gpu::SyncToken sync_token,
                         base::OnceClosure done_cb) override {
     DVLOG(2) << __func__;
@@ -173,10 +179,6 @@ class CommandBufferHelperImpl
   void DestroyStub() {
     DVLOG(3) << __func__;
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-
-    // Drop all textures.  Note that it's okay if the context isn't current,
-    // since AbstractTexture handles that case.
-    textures_.clear();
 
     decoder_helper_ = nullptr;
 

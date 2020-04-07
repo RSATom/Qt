@@ -32,10 +32,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_FILESYSTEM_LOCAL_FILE_SYSTEM_H_
 
 #include <memory>
+#include "third_party/blink/public/mojom/filesystem/file_system.mojom-blink.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/workers/worker_clients.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
-#include "third_party/blink/renderer/platform/file_system_type.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -48,7 +48,6 @@ class CallbackWrapper;
 class FileSystemClient;
 class ExecutionContext;
 class KURL;
-class WebFileSystem;
 
 class LocalFileSystem final : public GarbageCollectedFinalized<LocalFileSystem>,
                               public Supplement<LocalFrame>,
@@ -58,6 +57,8 @@ class LocalFileSystem final : public GarbageCollectedFinalized<LocalFileSystem>,
   WTF_MAKE_NONCOPYABLE(LocalFileSystem);
 
  public:
+  enum SynchronousType { kAsynchronous, kSynchronous };
+
   static const char kSupplementName[];
 
   LocalFileSystem(LocalFrame&, std::unique_ptr<FileSystemClient>);
@@ -66,11 +67,13 @@ class LocalFileSystem final : public GarbageCollectedFinalized<LocalFileSystem>,
 
   void ResolveURL(ExecutionContext*,
                   const KURL&,
-                  std::unique_ptr<AsyncFileSystemCallbacks>);
+                  std::unique_ptr<AsyncFileSystemCallbacks>,
+                  SynchronousType sync_type);
   void RequestFileSystem(ExecutionContext*,
-                         FileSystemType,
+                         mojom::blink::FileSystemType,
                          long long size,
-                         std::unique_ptr<AsyncFileSystemCallbacks>);
+                         std::unique_ptr<AsyncFileSystemCallbacks>,
+                         SynchronousType sync_type);
 
   FileSystemClient& Client() const { return *client_; }
 
@@ -80,7 +83,6 @@ class LocalFileSystem final : public GarbageCollectedFinalized<LocalFileSystem>,
   const char* NameInHeapSnapshot() const override { return "LocalFileSystem"; }
 
  private:
-  WebFileSystem* GetFileSystem() const;
   void FileSystemNotAvailable(ExecutionContext*, CallbackWrapper*);
 
   void RequestFileSystemAccessInternal(ExecutionContext*,
@@ -88,9 +90,13 @@ class LocalFileSystem final : public GarbageCollectedFinalized<LocalFileSystem>,
                                        base::OnceClosure denied);
   void FileSystemNotAllowedInternal(ExecutionContext*, CallbackWrapper*);
   void FileSystemAllowedInternal(ExecutionContext*,
-                                 FileSystemType,
-                                 CallbackWrapper*);
-  void ResolveURLInternal(ExecutionContext*, const KURL&, CallbackWrapper*);
+                                 mojom::blink::FileSystemType,
+                                 CallbackWrapper*,
+                                 SynchronousType sync_type);
+  void ResolveURLInternal(ExecutionContext*,
+                          const KURL&,
+                          CallbackWrapper*,
+                          SynchronousType sync_type);
 
   const std::unique_ptr<FileSystemClient> client_;
 };

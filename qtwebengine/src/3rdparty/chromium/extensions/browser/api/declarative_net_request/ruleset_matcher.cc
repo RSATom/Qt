@@ -6,11 +6,11 @@
 
 #include <utility>
 
+#include "base/containers/span.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_restrictions.h"
 #include "base/timer/elapsed_timer.h"
 #include "extensions/browser/api/declarative_net_request/flat/extension_ruleset_generated.h"
 #include "extensions/browser/api/declarative_net_request/utils.h"
@@ -35,7 +35,6 @@ RulesetMatcher::LoadRulesetResult RulesetMatcher::CreateVerifiedMatcher(
     std::unique_ptr<RulesetMatcher>* matcher) {
   DCHECK(matcher);
   DCHECK(IsAPIAvailable());
-  base::AssertBlockingAllowed();
 
   base::ElapsedTimer timer;
 
@@ -46,10 +45,15 @@ RulesetMatcher::LoadRulesetResult RulesetMatcher::CreateVerifiedMatcher(
   if (!base::ReadFileToString(indexed_ruleset_path, &ruleset_data))
     return kLoadErrorFileRead;
 
+  if (!StripVersionHeaderAndParseVersion(&ruleset_data))
+    return kLoadErrorVersionMismatch;
+
   // This guarantees that no memory access will end up outside the buffer.
-  if (!IsValidRulesetData(reinterpret_cast<const uint8_t*>(ruleset_data.data()),
-                          ruleset_data.size(), expected_ruleset_checksum)) {
-    return kLoadErrorRulesetVerification;
+  if (!IsValidRulesetData(
+          base::make_span(reinterpret_cast<const uint8_t*>(ruleset_data.data()),
+                          ruleset_data.size()),
+          expected_ruleset_checksum)) {
+    return kLoadErrorChecksumMismatch;
   }
 
   UMA_HISTOGRAM_TIMES(

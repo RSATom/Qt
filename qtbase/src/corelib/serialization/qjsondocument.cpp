@@ -47,6 +47,7 @@
 #include "qjsonwriter_p.h"
 #include "qjsonparser_p.h"
 #include "qjson_p.h"
+#include "qdatastream.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -331,7 +332,7 @@ QVariant QJsonDocument::toVariant() const
 }
 
 /*!
- Converts the QJsonDocument to a UTF-8 encoded JSON document.
+ Converts the QJsonDocument to an indented, UTF-8 encoded JSON document.
 
  \sa fromJson()
  */
@@ -654,6 +655,25 @@ QDebug operator<<(QDebug dbg, const QJsonDocument &o)
                   << json.constData() // print as utf-8 string without extra quotation marks
                   << ')';
     return dbg;
+}
+#endif
+
+#ifndef QT_NO_DATASTREAM
+QDataStream &operator<<(QDataStream &stream, const QJsonDocument &doc)
+{
+    stream << doc.toJson(QJsonDocument::Compact);
+    return stream;
+}
+
+QDataStream &operator>>(QDataStream &stream, QJsonDocument &doc)
+{
+    QByteArray buffer;
+    stream >> buffer;
+    QJsonParseError parseError{};
+    doc = QJsonDocument::fromJson(buffer, &parseError);
+    if (parseError.error && !buffer.isEmpty())
+        stream.setStatus(QDataStream::ReadCorruptData);
+    return stream;
 }
 #endif
 

@@ -181,7 +181,8 @@ void GuestViewContainer::RunDestructionCallback(bool embedder_frame_destroyed) {
     v8::MicrotasksScope microtasks(
         destruction_isolate_, v8::MicrotasksScope::kDoNotRunMicrotasks);
 
-    callback->Call(context->Global(), 0 /* argc */, nullptr);
+    callback->Call(context, context->Global(), 0 /* argc */, nullptr)
+        .FromMaybe(v8::Local<v8::Value>());
   }
 }
 
@@ -247,9 +248,8 @@ void GuestViewContainer::DidResizeElement(const gfx::Size& new_size) {
     return;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(&GuestViewContainer::CallElementResizeCallback,
-                 weak_ptr_factory_.GetWeakPtr(), new_size));
+      FROM_HERE, base::BindOnce(&GuestViewContainer::CallElementResizeCallback,
+                                weak_ptr_factory_.GetWeakPtr(), new_size));
 }
 
 void GuestViewContainer::CallElementResizeCallback(
@@ -270,7 +270,8 @@ void GuestViewContainer::CallElementResizeCallback(
   v8::MicrotasksScope microtasks(
       element_resize_isolate_, v8::MicrotasksScope::kDoNotRunMicrotasks);
 
-  callback->Call(context->Global(), argc, argv);
+  callback->Call(context, context->Global(), argc, argv)
+      .FromMaybe(v8::Local<v8::Value>());
 }
 
 base::WeakPtr<content::BrowserPluginDelegate> GuestViewContainer::GetWeakPtr() {

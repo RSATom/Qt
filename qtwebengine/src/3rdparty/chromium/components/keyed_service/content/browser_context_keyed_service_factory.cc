@@ -4,6 +4,7 @@
 
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -14,26 +15,32 @@
 
 void BrowserContextKeyedServiceFactory::SetTestingFactory(
     content::BrowserContext* context,
-    TestingFactoryFunction testing_factory) {
-  KeyedServiceFactory::TestingFactoryFunction func;
+    TestingFactory testing_factory) {
+  KeyedServiceFactory::TestingFactory wrapped_factory;
   if (testing_factory) {
-    func = [=](base::SupportsUserData* context) {
-      return testing_factory(static_cast<content::BrowserContext*>(context));
-    };
+    wrapped_factory = base::BindRepeating(
+        [](const TestingFactory& testing_factory,
+           base::SupportsUserData* context) {
+          return testing_factory.Run(
+              static_cast<content::BrowserContext*>(context));
+        },
+        std::move(testing_factory));
   }
-  KeyedServiceFactory::SetTestingFactory(context, func);
+  KeyedServiceFactory::SetTestingFactory(context, std::move(wrapped_factory));
 }
 
 KeyedService* BrowserContextKeyedServiceFactory::SetTestingFactoryAndUse(
     content::BrowserContext* context,
-    TestingFactoryFunction testing_factory) {
-  KeyedServiceFactory::TestingFactoryFunction func;
-  if (testing_factory) {
-    func = [=](base::SupportsUserData* context) {
-      return testing_factory(static_cast<content::BrowserContext*>(context));
-    };
-  }
-  return KeyedServiceFactory::SetTestingFactoryAndUse(context, func);
+    TestingFactory testing_factory) {
+  DCHECK(testing_factory);
+  return KeyedServiceFactory::SetTestingFactoryAndUse(
+      context, base::BindRepeating(
+                   [](const TestingFactory& testing_factory,
+                      base::SupportsUserData* context) {
+                     return testing_factory.Run(
+                         static_cast<content::BrowserContext*>(context));
+                   },
+                   std::move(testing_factory)));
 }
 
 BrowserContextKeyedServiceFactory::BrowserContextKeyedServiceFactory(

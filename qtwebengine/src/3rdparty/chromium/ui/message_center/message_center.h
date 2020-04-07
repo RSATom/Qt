@@ -39,6 +39,7 @@ namespace test {
 class MessagePopupCollectionTest;
 }
 
+class LockScreenController;
 class MessageCenterObserver;
 class MessageCenterImplTest;
 class NotificationBlocker;
@@ -52,8 +53,10 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
     NON_PINNED,
   };
 
-  // Creates the global message center object.
+  // Creates the global message center object with default LockScreenController.
   static void Initialize();
+  // Creates the global message center object with custom LockScreenController.
+  static void Initialize(std::unique_ptr<LockScreenController> controller);
 
   // Returns the global message center object. Returns null if Initialize is
   // not called.
@@ -118,11 +121,6 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
   // image will appear below of the notification.
   virtual void SetNotificationImage(const std::string& notification_id,
                                     const gfx::Image& image) = 0;
-
-  // Sets the image for the icon of the specific action button.
-  virtual void SetNotificationButtonIcon(const std::string& notification_id,
-                                         int button_index,
-                                         const gfx::Image& image) = 0;
 
   // This should be called by UI classes when a notification is clicked to
   // trigger the notification's delegate callback and also update the message
@@ -211,7 +209,7 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
   friend class MessageCenterImplTestWithoutChangeQueue;
   friend class UiControllerTest;
   friend class TrayViewControllerTest;
-  friend class test::MessagePopupCollectionTest;
+  friend class MessagePopupCollectionTest;
   virtual void DisableTimersForTest() = 0;
 
   MessageCenter();

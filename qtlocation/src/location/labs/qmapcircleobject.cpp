@@ -37,6 +37,7 @@
 #include "qmapcircleobject_p.h"
 #include "qmapcircleobject_p_p.h"
 #include <QExplicitlySharedDataPointer>
+#include <QtPositioning/qgeocircle.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +69,30 @@ QGeoMapObject::Type QMapCircleObjectPrivate::type() const
     return QGeoMapObject::CircleType;
 }
 
+QGeoShape QMapCircleObjectPrivate::geoShape() const
+{
+    return QGeoCircle(center(), radius());
+}
 
+void QMapCircleObjectPrivate::setGeoShape(const QGeoShape &shape)
+{
+    if (shape == geoShape())
+        return;
+
+    const QGeoCircle circle(shape); // if shape isn't a circle, circle will be created as a default-constructed circle
+    const bool centerHasChanged = circle.center() != center();
+    const bool radiusHasChanged = circle.radius() != radius();
+
+    if (centerHasChanged)
+        setCenter(circle.center()); // to handle overrides
+    if (radiusHasChanged)
+        setRadius(circle.radius()); // to handle overrides
+
+    if (centerHasChanged)
+        emit static_cast<QMapCircleObject *>(q)->centerChanged();
+    if (radiusHasChanged)
+        emit static_cast<QMapCircleObject *>(q)->radiusChanged();
+}
 
 //
 // QMapCircleObjectPrivate default implementation
@@ -161,8 +185,6 @@ QGeoMapObjectPrivate *QMapCircleObjectPrivateDefault::clone()
 {
     return new QMapCircleObjectPrivateDefault(static_cast<QMapCircleObjectPrivate &>(*this));
 }
-
-
 
 QMapCircleObject::QMapCircleObject(QObject *parent)
     : QGeoMapObject(QExplicitlySharedDataPointer<QGeoMapObjectPrivate>(new QMapCircleObjectPrivateDefault(this)), parent)

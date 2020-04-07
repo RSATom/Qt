@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -46,7 +47,7 @@ class CORE_EXPORT ScopedEventQueue {
  public:
   ~ScopedEventQueue();
 
-  void EnqueueEvent(Event*);
+  void EnqueueEvent(Event&);
   static ScopedEventQueue* Instance();
 
   void IncrementScopingLevel();
@@ -57,9 +58,9 @@ class CORE_EXPORT ScopedEventQueue {
   ScopedEventQueue();
   static void Initialize();
   void DispatchAllEvents();
-  void DispatchEvent(Event*) const;
+  void DispatchEvent(Event&) const;
 
-  PersistentHeapVector<Member<Event>> queued_events_;
+  Persistent<HeapVector<Member<Event>>> queued_events_;
   unsigned scoping_level_;
 
   static ScopedEventQueue* instance_;

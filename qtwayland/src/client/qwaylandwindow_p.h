@@ -53,6 +53,8 @@
 
 #include <QtCore/QWaitCondition>
 #include <QtCore/QMutex>
+#include <QtCore/QReadWriteLock>
+
 #include <QtGui/QIcon>
 #include <QtCore/QVariant>
 #include <QtCore/QLoggingCategory>
@@ -120,9 +122,13 @@ public:
     void handleExpose(const QRegion &region);
     void commit(QWaylandBuffer *buffer, const QRegion &damage);
 
+    void commit();
+
     bool waitForFrameSync(int timeout);
 
     QMargins frameMargins() const override;
+    QSize surfaceSize() const;
+    QRect windowContentGeometry() const;
 
     static QWaylandWindow *fromWlSurface(::wl_surface *surface);
 
@@ -149,7 +155,6 @@ public:
     void requestActivateWindow() override;
     bool isExposed() const override;
     bool isActive() const override;
-    void unfocus();
 
     QWaylandAbstractDecoration *decoration() const;
 
@@ -186,7 +191,7 @@ public:
     QWaylandShmBackingStore *backingStore() const { return mBackingStore; }
 
     bool setKeyboardGrabEnabled(bool) override { return false; }
-    void propagateSizeHints() override { }
+    void propagateSizeHints() override;
     void addAttachOffset(const QPoint point);
 
     bool startSystemMove(const QPoint &pos) override;
@@ -198,6 +203,10 @@ public:
 
 public slots:
     void applyConfigure();
+
+signals:
+    void wlSurfaceCreated();
+    void wlSurfaceDestroyed();
 
 protected:
     void surface_enter(struct ::wl_output *output) override;
@@ -216,7 +225,7 @@ protected:
     WId mWindowId;
     bool mWaitingForFrameCallback = false;
     bool mFrameCallbackTimedOut = false; // Whether the frame callback has timed out
-    int mFrameCallbackTimerId = -1; // Started on commit, reset on frame callback
+    QAtomicInt mFrameCallbackTimerId = -1; // Started on commit, reset on frame callback
     struct ::wl_callback *mFrameCallback = nullptr;
     struct ::wl_event_queue *mFrameQueue = nullptr;
     QWaitCondition mFrameSyncWait;
@@ -263,6 +272,7 @@ private:
     void handleMouseEventWithDecoration(QWaylandInputDevice *inputDevice, const QWaylandPointerEvent &e);
     void handleScreenChanged();
 
+    bool mInResizeFromApplyConfigure = false;
     QRect mLastExposeGeometry;
 
     static const wl_callback_listener callbackListener;
@@ -270,6 +280,8 @@ private:
 
     static QMutex mFrameSyncMutex;
     static QWaylandWindow *mMouseGrab;
+
+    QReadWriteLock mSurfaceLock;
 
     friend class QWaylandSubSurface;
 };

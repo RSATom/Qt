@@ -62,8 +62,8 @@ void GetOriginsForHostOnDBThread(DatabaseTracker* db_tracker,
   }
 }
 
-void DidGetOrigins(QuotaClient::GetOriginsCallback callback,
-                   std::set<url::Origin>* origins_ptr) {
+void DidGetQuotaClientOrigins(QuotaClient::GetOriginsCallback callback,
+                              std::set<url::Origin>* origins_ptr) {
   std::move(callback).Run(*origins_ptr);
 }
 
@@ -94,11 +94,7 @@ DatabaseQuotaClient::DatabaseQuotaClient(
 
 DatabaseQuotaClient::~DatabaseQuotaClient() {
   if (!db_tracker_->task_runner()->RunsTasksInCurrentSequence()) {
-    DatabaseTracker* tracker = db_tracker_.get();
-    tracker->AddRef();
-    db_tracker_ = nullptr;
-    if (!tracker->task_runner()->ReleaseSoon(FROM_HERE, tracker))
-      tracker->Release();
+    db_tracker_->task_runner()->ReleaseSoon(FROM_HERE, std::move(db_tracker_));
   }
 }
 
@@ -145,7 +141,7 @@ void DatabaseQuotaClient::GetOriginsForType(StorageType type,
       FROM_HERE,
       base::BindOnce(&GetOriginsOnDBThread, base::RetainedRef(db_tracker_),
                      base::Unretained(origins_ptr)),
-      base::BindOnce(&DidGetOrigins, std::move(callback),
+      base::BindOnce(&DidGetQuotaClientOrigins, std::move(callback),
                      base::Owned(origins_ptr)));
 }
 
@@ -167,7 +163,7 @@ void DatabaseQuotaClient::GetOriginsForHost(StorageType type,
       base::BindOnce(&GetOriginsForHostOnDBThread,
                      base::RetainedRef(db_tracker_),
                      base::Unretained(origins_ptr), host),
-      base::BindOnce(&DidGetOrigins, std::move(callback),
+      base::BindOnce(&DidGetQuotaClientOrigins, std::move(callback),
                      base::Owned(origins_ptr)));
 }
 

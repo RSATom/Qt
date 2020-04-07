@@ -146,9 +146,9 @@ Network.NetworkLogView = class extends UI.VBox {
         .addChangeListener(this._invalidateAllItems.bind(this, false), this);
 
     SDK.targetManager.observeModels(SDK.NetworkManager, this);
-    BrowserSDK.networkLog.addEventListener(BrowserSDK.NetworkLog.Events.RequestAdded, this._onRequestUpdated, this);
-    BrowserSDK.networkLog.addEventListener(BrowserSDK.NetworkLog.Events.RequestUpdated, this._onRequestUpdated, this);
-    BrowserSDK.networkLog.addEventListener(BrowserSDK.NetworkLog.Events.Reset, this._reset, this);
+    SDK.networkLog.addEventListener(SDK.NetworkLog.Events.RequestAdded, this._onRequestUpdated, this);
+    SDK.networkLog.addEventListener(SDK.NetworkLog.Events.RequestUpdated, this._onRequestUpdated, this);
+    SDK.networkLog.addEventListener(SDK.NetworkLog.Events.Reset, this._reset, this);
 
     this._updateGroupByFrame();
     Common.moduleSetting('network.group-by-frame').addChangeListener(() => this._updateGroupByFrame());
@@ -425,12 +425,12 @@ Network.NetworkLogView = class extends UI.VBox {
    */
   static async _copyResponse(request) {
     const contentData = await request.contentData();
-    let content = contentData.content;
-    if (contentData.encoded) {
-      content = Common.ContentProvider.contentAsDataURL(
-          contentData.content, request.mimeType, contentData.encoded, contentData.encoded ? 'utf-8' : null);
-    }
-    InspectorFrontendHost.copyText(content || '');
+    let content = contentData.content || '';
+    if (!request.contentType().isTextType())
+      content = Common.ContentProvider.contentAsDataURL(content, request.mimeType, contentData.encoded);
+    else if (contentData.encoded)
+      content = window.atob(content);
+    InspectorFrontendHost.copyText(content);
   }
 
   /**
@@ -466,7 +466,7 @@ Network.NetworkLogView = class extends UI.VBox {
       this._harLoadFailed(e);
       return;
     }
-    BrowserSDK.networkLog.importRequests(HARImporter.Importer.requestsFromHARLog(harRoot.log));
+    SDK.networkLog.importRequests(HARImporter.Importer.requestsFromHARLog(harRoot.log));
   }
 
   /**
@@ -592,20 +592,31 @@ Network.NetworkLogView = class extends UI.VBox {
     this._hideRecordingHint();
     this._recordingHint = this.element.createChild('div', 'network-status-pane fill');
     const hintText = this._recordingHint.createChild('div', 'recording-hint');
-    const reloadShortcutNode = this._recordingHint.createChild('b');
-    reloadShortcutNode.textContent = UI.shortcutRegistry.shortcutDescriptorsForAction('inspector_main.reload')[0].name;
+
+    let reloadShortcutNode = null;
+    const reloadShortcutDescriptor = UI.shortcutRegistry.shortcutDescriptorsForAction('inspector_main.reload')[0];
+    if (reloadShortcutDescriptor) {
+      reloadShortcutNode = this._recordingHint.createChild('b');
+      reloadShortcutNode.textContent = reloadShortcutDescriptor.name;
+    }
 
     if (this._recording) {
       const recordingText = hintText.createChild('span');
       recordingText.textContent = Common.UIString('Recording network activity\u2026');
-      hintText.createChild('br');
-      hintText.appendChild(
-          UI.formatLocalized('Perform a request or hit %s to record the reload.', [reloadShortcutNode]));
+      if (reloadShortcutNode) {
+        hintText.createChild('br');
+        hintText.appendChild(
+            UI.formatLocalized('Perform a request or hit %s to record the reload.', [reloadShortcutNode]));
+      }
     } else {
       const recordNode = hintText.createChild('b');
       recordNode.textContent = UI.shortcutRegistry.shortcutTitleForAction('network.toggle-recording');
-      hintText.appendChild(UI.formatLocalized(
-          'Record (%s) or reload (%s) to display network activity.', [recordNode, reloadShortcutNode]));
+      if (reloadShortcutNode) {
+        hintText.appendChild(UI.formatLocalized(
+            'Record (%s) or reload (%s) to display network activity.', [recordNode, reloadShortcutNode]));
+      } else {
+        hintText.appendChild(UI.formatLocalized('Record (%s) to display network activity.', [recordNode]));
+      }
     }
   }
 
@@ -685,22 +696,27 @@ Network.NetworkLogView = class extends UI.VBox {
     this._hideRecordingHint();
 
     let transferSize = 0;
+    let resourceSize = 0;
     let selectedNodeNumber = 0;
     let selectedTransferSize = 0;
+    let selectedResourceSize = 0;
     let baseTime = -1;
     let maxTime = -1;
 
     let nodeCount = 0;
-    for (const request of BrowserSDK.networkLog.requests()) {
+    for (const request of SDK.networkLog.requests()) {
       const node = request[Network.NetworkLogView._networkNodeSymbol];
       if (!node)
         continue;
       nodeCount++;
       const requestTransferSize = request.transferSize;
       transferSize += requestTransferSize;
+      const requestResourceSize = request.resourceSize;
+      resourceSize += requestResourceSize;
       if (!node[Network.NetworkLogView._isFilteredOutSymbol]) {
         selectedNodeNumber++;
         selectedTransferSize += requestTransferSize;
+        selectedResourceSize += requestResourceSize;
       }
       const networkManager = SDK.NetworkManager.forRequest(request);
       // TODO(allada) inspectedURL should be stored in PageLoad used instead of target so HAR requests can have an
@@ -737,24 +753,30 @@ Network.NetworkLogView = class extends UI.VBox {
       appendChunk(separator);
       appendChunk(Common.UIString(
           '%s / %s transferred', Number.bytesToString(selectedTransferSize), Number.bytesToString(transferSize)));
+      appendChunk(separator);
+      appendChunk(Common.UIString(
+          '%s / %s resources', Number.bytesToString(selectedResourceSize), Number.bytesToString(resourceSize)));
     } else {
       appendChunk(Common.UIString('%d requests', nodeCount));
       appendChunk(separator);
       appendChunk(Common.UIString('%s transferred', Number.bytesToString(transferSize)));
+      appendChunk(separator);
+      appendChunk(Common.UIString('%s resources', Number.bytesToString(resourceSize)));
     }
+
     if (baseTime !== -1 && maxTime !== -1) {
       appendChunk(separator);
       appendChunk(Common.UIString('Finish: %s', Number.secondsToString(maxTime - baseTime)));
       if (this._mainRequestDOMContentLoadedTime !== -1 && this._mainRequestDOMContentLoadedTime > baseTime) {
         appendChunk(separator);
-        const domContentLoadedText = Common.UIString(
-            'DOMContentLoaded: %s', Number.secondsToString(this._mainRequestDOMContentLoadedTime - baseTime));
-        appendChunk(domContentLoadedText).classList.add('summary-blue');
+        const domContentLoadedText =
+            ls`DOMContentLoaded: ${Number.secondsToString(this._mainRequestDOMContentLoadedTime - baseTime)}`;
+        appendChunk(domContentLoadedText).classList.add('summary-dcl-event');
       }
       if (this._mainRequestLoadTime !== -1) {
         appendChunk(separator);
-        const loadText = Common.UIString('Load: %s', Number.secondsToString(this._mainRequestLoadTime - baseTime));
-        appendChunk(loadText).classList.add('summary-red');
+        const loadText = ls`Load: ${Number.secondsToString(this._mainRequestLoadTime - baseTime)}`;
+        appendChunk(loadText).classList.add('summary-load-event');
       }
     }
     summaryBar.title = text;
@@ -797,7 +819,7 @@ Network.NetworkLogView = class extends UI.VBox {
    * @param {boolean=} deferUpdate
    */
   _invalidateAllItems(deferUpdate) {
-    this._staleRequests = new Set(BrowserSDK.networkLog.requests());
+    this._staleRequests = new Set(SDK.networkLog.requests());
     if (deferUpdate)
       this.scheduleRefresh();
     else
@@ -849,7 +871,7 @@ Network.NetworkLogView = class extends UI.VBox {
     const time = /** @type {number} */ (event.data.loadTime);
     if (time) {
       this._mainRequestLoadTime = time;
-      this._columns.addEventDividers([time], 'network-red-divider');
+      this._columns.addEventDividers([time], 'network-load-divider');
     }
   }
 
@@ -862,7 +884,7 @@ Network.NetworkLogView = class extends UI.VBox {
     const data = /** @type {number} */ (event.data);
     if (data) {
       this._mainRequestDOMContentLoadedTime = data;
-      this._columns.addEventDividers([data], 'network-blue-divider');
+      this._columns.addEventDividers([data], 'network-dcl-divider');
     }
   }
 
@@ -1146,22 +1168,26 @@ Network.NetworkLogView = class extends UI.VBox {
             Common.UIString('Copy response'), Network.NetworkLogView._copyResponse.bind(null, request));
       }
 
+      const disableIfBlob = request.isBlobRequest();
       if (Host.isWin()) {
         footerSection.appendItem(
-            Common.UIString('Copy as PowerShell'), this._copyPowerShellCommand.bind(this, request));
-        footerSection.appendItem(Common.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request));
+            Common.UIString('Copy as PowerShell'), this._copyPowerShellCommand.bind(this, request), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as cURL (cmd)'), this._copyCurlCommand.bind(this, request, 'win'));
+            Common.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as cURL (bash)'), this._copyCurlCommand.bind(this, request, 'unix'));
+            Common.UIString('Copy as cURL (cmd)'), this._copyCurlCommand.bind(this, request, 'win'), disableIfBlob);
+        footerSection.appendItem(
+            Common.UIString('Copy as cURL (bash)'), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
         footerSection.appendItem(Common.UIString('Copy all as PowerShell'), this._copyAllPowerShellCommand.bind(this));
         footerSection.appendItem(Common.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this));
         footerSection.appendItem(Common.UIString('Copy all as cURL (cmd)'), this._copyAllCurlCommand.bind(this, 'win'));
         footerSection.appendItem(
             Common.UIString('Copy all as cURL (bash)'), this._copyAllCurlCommand.bind(this, 'unix'));
       } else {
-        footerSection.appendItem(Common.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request));
-        footerSection.appendItem(Common.UIString('Copy as cURL'), this._copyCurlCommand.bind(this, request, 'unix'));
+        footerSection.appendItem(
+            Common.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request), disableIfBlob);
+        footerSection.appendItem(
+            Common.UIString('Copy as cURL'), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
         footerSection.appendItem(Common.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this));
         footerSection.appendItem(Common.UIString('Copy all as cURL'), this._copyAllCurlCommand.bind(this, 'unix'));
       }
@@ -1170,7 +1196,7 @@ Network.NetworkLogView = class extends UI.VBox {
     }
     footerSection.appendItem(Common.UIString('Copy all as HAR'), this._copyAll.bind(this));
 
-    contextMenu.saveSection().appendItem(Common.UIString('Save as HAR with content'), this._exportAll.bind(this));
+    contextMenu.saveSection().appendItem(Common.UIString('Save all as HAR with content'), this._exportAll.bind(this));
 
     contextMenu.editSection().appendItem(Common.UIString('Clear browser cache'), this._clearBrowserCache.bind(this));
     contextMenu.editSection().appendItem(
@@ -1228,12 +1254,12 @@ Network.NetworkLogView = class extends UI.VBox {
   }
 
   _harRequests() {
-    const httpRequests = BrowserSDK.networkLog.requests().filter(Network.NetworkLogView.HTTPRequestsFilter);
+    const httpRequests = SDK.networkLog.requests().filter(Network.NetworkLogView.HTTPRequestsFilter);
     return httpRequests.filter(Network.NetworkLogView.FinishedRequestsFilter);
   }
 
   async _copyAll() {
-    const harArchive = {log: await BrowserSDK.HARLog.build(this._harRequests())};
+    const harArchive = {log: await SDK.HARLog.build(this._harRequests())};
     InspectorFrontendHost.copyText(JSON.stringify(harArchive, null, 2));
   }
 
@@ -1250,12 +1276,8 @@ Network.NetworkLogView = class extends UI.VBox {
    * @param {string} platform
    */
   async _copyAllCurlCommand(platform) {
-    const requests = BrowserSDK.networkLog.requests();
-    const commands = await Promise.all(requests.map(request => this._generateCurlCommand(request, platform)));
-    if (platform === 'win')
-      InspectorFrontendHost.copyText(commands.join(' &\r\n'));
-    else
-      InspectorFrontendHost.copyText(commands.join(' ;\n'));
+    const commands = await this._generateAllCurlCommand(SDK.networkLog.requests(), platform);
+    InspectorFrontendHost.copyText(commands);
   }
 
   /**
@@ -1268,9 +1290,8 @@ Network.NetworkLogView = class extends UI.VBox {
   }
 
   async _copyAllFetchCall() {
-    const requests = BrowserSDK.networkLog.requests();
-    const commands = await Promise.all(requests.map(request => this._generateFetchCall(request)));
-    InspectorFrontendHost.copyText(commands.join(' ;\n'));
+    const commands = await this._generateAllFetchCall(SDK.networkLog.requests());
+    InspectorFrontendHost.copyText(commands);
   }
 
   /**
@@ -1282,9 +1303,8 @@ Network.NetworkLogView = class extends UI.VBox {
   }
 
   async _copyAllPowerShellCommand() {
-    const requests = BrowserSDK.networkLog.requests();
-    const commands = await Promise.all(requests.map(request => this._generatePowerShellCommand(request)));
-    InspectorFrontendHost.copyText(commands.join(';\r\n'));
+    const commands = this._generateAllPowerShellCommand(SDK.networkLog.requests());
+    InspectorFrontendHost.copyText(commands);
   }
 
   async _exportAll() {
@@ -1491,6 +1511,14 @@ Network.NetworkLogView = class extends UI.VBox {
   }
 
   /**
+   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @return {!Array<!SDK.NetworkRequest>}
+   */
+  _filterOutBlobRequests(requests) {
+    return requests.filter(request => !request.isBlobRequest());
+  }
+
+  /**
    * @param {!SDK.NetworkRequest} request
    * @return {!Promise<string>}
    */
@@ -1544,8 +1572,7 @@ Network.NetworkLogView = class extends UI.VBox {
 
     const headers = {};
     for (const headerArray of headerData)
-      headers[headerArray[0]] = headers[headerArray[1]];
-
+      headers[headerArray[0]] = headerArray[1];
 
     const credentials =
         request.requestCookies || requestHeaders.some(({name}) => credentialHeaders[name.toLowerCase()]) ? 'include' :
@@ -1561,7 +1588,7 @@ Network.NetworkLogView = class extends UI.VBox {
 
     const fetchOptions = {
       credentials,
-      headers,
+      headers: Object.keys(headers).length ? headers : void 0,
       referrer,
       referrerPolicy,
       body: requestBody,
@@ -1571,6 +1598,16 @@ Network.NetworkLogView = class extends UI.VBox {
 
     const options = JSON.stringify(fetchOptions);
     return `fetch(${url}, ${options});`;
+  }
+
+  /**
+   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @return {!Promise<string>}
+   */
+  async _generateAllFetchCall(requests) {
+    const nonBlobRequests = this._filterOutBlobRequests(requests);
+    const commands = await Promise.all(nonBlobRequests.map(request => this._generateFetchCall(request)));
+    return commands.join(' ;\n');
   }
 
   /**
@@ -1696,6 +1733,20 @@ Network.NetworkLogView = class extends UI.VBox {
   }
 
   /**
+   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @param {string} platform
+   * @return {!Promise<string>}
+   */
+  async _generateAllCurlCommand(requests, platform) {
+    const nonBlobRequests = this._filterOutBlobRequests(requests);
+    const commands = await Promise.all(nonBlobRequests.map(request => this._generateCurlCommand(request, platform)));
+    if (platform === 'win')
+      return commands.join(' &\r\n');
+    else
+      return commands.join(' ;\n');
+  }
+
+  /**
    * @param {!SDK.NetworkRequest} request
    * @return {!Promise<string>}
    */
@@ -1751,6 +1802,16 @@ Network.NetworkLogView = class extends UI.VBox {
     }
 
     return command.join(' ');
+  }
+
+  /**
+   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @return {!Promise<string>}
+   */
+  async _generateAllPowerShellCommand(requests) {
+    const nonBlobRequests = this._filterOutBlobRequests(requests);
+    const commands = await Promise.all(nonBlobRequests.map(request => this._generatePowerShellCommand(request)));
+    return commands.join(';\r\n');
   }
 };
 

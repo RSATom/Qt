@@ -22,6 +22,7 @@ print_preview.PreviewSettings;
  *   printerDescription: (string | undefined),
  *   cupsEnterprisePrinter: (boolean | undefined),
  *   printerOptions: (Object | undefined),
+ *   policies: (print_preview.Policies | undefined),
  * }}
  */
 print_preview.LocalDestinationInfo;
@@ -38,6 +39,8 @@ print_preview.LocalDestinationInfo;
  *   documentHasSelection: boolean,
  *   shouldPrintSelectionOnly: boolean,
  *   printerName: string,
+ *   headerFooter: ?boolean,
+ *   isHeaderFooterManaged: boolean,
  *   serializedAppStateStr: ?string,
  *   serializedDefaultDestinationSelectionRulesStr: ?string,
  * }}
@@ -72,6 +75,7 @@ print_preview.CapabilitiesResponse;
  *   printerId: string,
  *   success: boolean,
  *   capabilities: !print_preview.Cdd,
+ *   policies: (print_preview.Policies | undefined),
  * }}
  */
 print_preview.PrinterSetupResponse;
@@ -112,8 +116,9 @@ cr.define('print_preview', function() {
      * @return {!print_preview.NativeLayer} The singleton instance.
      */
     static getInstance() {
-      if (currentInstance == null)
+      if (currentInstance == null) {
         currentInstance = new NativeLayer();
+      }
       return assert(currentInstance);
     }
 
@@ -125,14 +130,15 @@ cr.define('print_preview', function() {
       currentInstance = instance;
     }
 
+    // <if expr="chromeos">
     /**
-     * Requests access token for cloud print requests.
-     * @param {string} authType type of access token.
+     * Requests access token for cloud print requests for DEVICE origin.
      * @return {!Promise<string>}
      */
-    getAccessToken(authType) {
-      return cr.sendWithPromise('getAccessToken', authType);
+    getAccessToken() {
+      return cr.sendWithPromise('getAccessToken');
     }
+    // </if>
 
     /**
      * Gets the initial settings to initialize the print preview with.
@@ -170,6 +176,7 @@ cr.define('print_preview', function() {
               type);
     }
 
+    // <if expr="chromeos">
     /**
      * Requests Chrome to resolve provisional extension destination by granting
      * the provider extension access to the printer.
@@ -189,6 +196,7 @@ cr.define('print_preview', function() {
     setupPrinter(printerId) {
       return cr.sendWithPromise('setupPrinter', printerId);
     }
+    // </if>
 
     /**
      * Requests that a preview be generated. The following Web UI events may
@@ -203,6 +211,11 @@ cr.define('print_preview', function() {
      */
     getPreview(printTicket) {
       return cr.sendWithPromise('getPreview', printTicket);
+    }
+
+    /** Opens the chrome://settings printing page. */
+    openSettingsPrintPage() {
+      window.open('chrome://settings/printing');
     }
 
     /**
@@ -229,11 +242,12 @@ cr.define('print_preview', function() {
       chrome.send('saveAppState', [appStateStr]);
     }
 
+    // <if expr="not chromeos and not is_win">
     /** Shows the system's native printing dialog. */
     showSystemDialog() {
-      assert(!cr.isWindows);
       chrome.send('showSystemDialog');
     }
+    // </if>
 
     /**
      * Closes the print preview dialog.
@@ -243,8 +257,9 @@ cr.define('print_preview', function() {
      *     closing the dialog without printing.
      */
     dialogClose(isCancel) {
-      if (isCancel)
+      if (isCancel) {
         chrome.send('closePrintPreviewDialog');
+      }
       chrome.send('dialogClose');
     }
 
@@ -263,19 +278,6 @@ cr.define('print_preview', function() {
      */
     signIn(addAccount) {
       return cr.sendWithPromise('signIn', addAccount);
-    }
-
-    /**
-     * Navigates the user to the Chrome printing setting page to manage local
-     * printers and Google cloud printers.
-     */
-    managePrinters() {
-      chrome.send('managePrinters');
-    }
-
-    /** Forces browser to open a new tab with the given URL address. */
-    forceOpenNewTab(url) {
-      chrome.send('forceOpenNewTab', [url]);
     }
 
     /**
@@ -309,14 +311,6 @@ cr.define('print_preview', function() {
 
   /** @private {?print_preview.NativeLayer} */
   let currentInstance = null;
-
-  /**
-   * Version of the serialized state of the print preview.
-   * @type {number}
-   * @const
-   * @private
-   */
-  NativeLayer.SERIALIZED_STATE_VERSION_ = 1;
 
   // Export
   return {

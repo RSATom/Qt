@@ -35,9 +35,11 @@
 
 #include "base/containers/span.h"
 #include "base/optional.h"
+#include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/transferables.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/mojo/mojo_handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
@@ -51,6 +53,8 @@ namespace blink {
 class BlobDataHandle;
 class DOMSharedArrayBuffer;
 class ExceptionState;
+class ExecutionContext;
+class MessagePort;
 class ScriptValue;
 class SharedBuffer;
 class StaticBitmapImage;
@@ -59,6 +63,7 @@ class UnpackedSerializedScriptValue;
 class WebBlobInfo;
 
 typedef HashMap<String, scoped_refptr<BlobDataHandle>> BlobDataHandleMap;
+typedef Vector<mojo::ScopedHandle> MojoScopedHandleArray;
 typedef Vector<WebBlobInfo> WebBlobInfoArray;
 typedef HeapVector<Member<DOMSharedArrayBuffer>> SharedArrayBufferArray;
 
@@ -69,7 +74,8 @@ class CORE_EXPORT SerializedScriptValue
   using SharedArrayBufferContentsArray = Vector<WTF::ArrayBufferContents, 1>;
   using ImageBitmapContentsArray = Vector<scoped_refptr<StaticBitmapImage>, 1>;
   using TransferredWasmModulesArray =
-      WTF::Vector<v8::WasmCompiledModule::TransferrableModule>;
+      WTF::Vector<v8::WasmModuleObject::TransferrableModule>;
+  using MessagePortChannelArray = Vector<MessagePortChannel>;
 
   // Increment this for each incompatible change to the wire format.
   // Version 2: Added StringUCharTag for UChar v8 strings.
@@ -86,6 +92,7 @@ class CORE_EXPORT SerializedScriptValue
   // Version 17: Remove unnecessary byte swapping.
   // Version 18: Add a list of key-value pairs for ImageBitmap and ImageData to
   //             support color space information, compression, etc.
+  // Version 19: Add DetectedBarcode, DetectedFace, and DetectedText support.
   //
   // The following versions cannot be used, in order to be able to
   // deserialize version 0 SSVs. The class implementation has details.
@@ -98,7 +105,7 @@ class CORE_EXPORT SerializedScriptValue
   //
   // Recent changes are routinely reverted in preparation for branch, and this
   // has been the cause of at least one bug in the past.
-  static constexpr uint32_t kWireFormatVersion = 18;
+  static constexpr uint32_t kWireFormatVersion = 19;
 
   // This enumeration specifies whether we're serializing a value for storage;
   // e.g. when writing to IndexedDB. This corresponds to the forStorage flag of
@@ -113,13 +120,15 @@ class CORE_EXPORT SerializedScriptValue
   };
 
   struct SerializeOptions {
+    STACK_ALLOCATED();
+
+   public:
     enum WasmSerializationPolicy {
       kUnspecified,  // Invalid value, used as default initializer.
       kTransfer,     // In-memory transfer without (necessarily) serializing.
       kSerialize,    // Serialize to a byte stream.
       kBlockedInNonSecureContext  // Block transfer or serialization.
     };
-    STACK_ALLOCATED();
 
     SerializeOptions() = default;
     explicit SerializeOptions(StoragePolicy for_storage)
@@ -159,6 +168,8 @@ class CORE_EXPORT SerializedScriptValue
   // case of failure.
   struct DeserializeOptions {
     STACK_ALLOCATED();
+
+   public:
     MessagePortArray* message_ports = nullptr;
     const WebBlobInfoArray* blob_info = nullptr;
     bool read_wasm_from_stream = false;
@@ -235,6 +246,7 @@ class CORE_EXPORT SerializedScriptValue
     return shared_array_buffers_contents_;
   }
   BlobDataHandleMap& BlobDataHandles() { return blob_data_handles_; }
+  MojoScopedHandleArray& MojoHandles() { return mojo_handles_; }
   ArrayBufferContentsArray& GetArrayBufferContentsArray() {
     return array_buffer_contents_array_;
   }
@@ -245,6 +257,13 @@ class CORE_EXPORT SerializedScriptValue
     return image_bitmap_contents_array_;
   }
   void SetImageBitmapContentsArray(ImageBitmapContentsArray contents);
+
+  MessagePortChannelArray& GetStreamChannels() { return stream_channels_; }
+
+  bool IsLockedToAgentCluster() const {
+    return !wasm_modules_.IsEmpty() ||
+           !shared_array_buffers_contents_.IsEmpty();
+  }
 
  private:
   friend class ScriptValueSerializer;
@@ -275,6 +294,25 @@ class CORE_EXPORT SerializedScriptValue
   void TransferOffscreenCanvas(v8::Isolate*,
                                const OffscreenCanvasArray&,
                                ExceptionState&);
+  void TransferReadableStreams(ScriptState*,
+                               const ReadableStreamArray&,
+                               ExceptionState&);
+  void TransferReadableStream(ScriptState* script_state,
+                              ExecutionContext* execution_context,
+                              ReadableStream* readable_streams,
+                              ExceptionState& exception_state);
+  void TransferWritableStreams(ScriptState*,
+                               const WritableStreamArray&,
+                               ExceptionState&);
+  void TransferWritableStream(ScriptState* script_state,
+                              ExecutionContext* execution_context,
+                              WritableStream* writable_streams,
+                              ExceptionState& exception_state);
+  void TransferTransformStreams(ScriptState*,
+                                const TransformStreamArray&,
+                                ExceptionState&);
+  MessagePort* AddStreamChannel(ExecutionContext*);
+
   void CloneSharedArrayBuffers(SharedArrayBufferArray&);
   DataBufferPtr data_buffer_;
   size_t data_buffer_size_ = 0;
@@ -284,9 +322,14 @@ class CORE_EXPORT SerializedScriptValue
   ArrayBufferContentsArray array_buffer_contents_array_;
   ImageBitmapContentsArray image_bitmap_contents_array_;
 
+  // |stream_channels_| is also single-use but is special-cased because it works
+  // with ServiceWorkers.
+  MessagePortChannelArray stream_channels_;
+
   // These do not have one-use transferred contents, like the above.
   TransferredWasmModulesArray wasm_modules_;
   BlobDataHandleMap blob_data_handles_;
+  MojoScopedHandleArray mojo_handles_;
   SharedArrayBufferContentsArray shared_array_buffers_contents_;
 
   bool has_registered_external_allocation_;

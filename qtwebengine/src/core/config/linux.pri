@@ -22,14 +22,18 @@ gn_args += \
     ozone_auto_platforms=false \
     ozone_platform_headless=false \
     ozone_platform_external=true \
-    ozone_platform=\"qt\"
+    ozone_platform=\"qt\" \
+    ozone_extra_path=\"$$QTWEBENGINE_ROOT/src/core/ozone/ozone_extra.gni\"
 
 qtConfig(webengine-embedded-build) {
     gn_args += is_desktop_linux=false
-    gn_args += use_gold=false
-} else {
-    !use_gold_linker: gn_args += use_gold=false
 }
+
+use_gold_linker: gn_args += use_gold=true
+else: gn_args += use_gold=false
+
+use_lld_linker: gn_args += use_lld=true
+else: gn_args += use_lld=false
 
 clang {
     clang_full_path = $$which($${QMAKE_CXX})
@@ -38,8 +42,8 @@ clang {
     gn_args += \
         is_clang=true \
         clang_use_chrome_plugins=false \
-        clang_base_path=\"$${clang_prefix}\" \
-        use_lld=false
+        clang_use_default_sample_profile=false \
+        clang_base_path=\"$${clang_prefix}\"
 
     linux-clang-libc++: gn_args += use_libcxx=true
 } else {
@@ -159,10 +163,22 @@ host_build {
         gn_args += use_system_libpng=true
         qtConfig(webengine-printing-and-pdf): gn_args += pdfium_use_system_libpng=true
     }
-    qtConfig(webengine-system-jpeg): gn_args += use_system_libjpeg=true
-    qtConfig(webengine-system-freetype): gn_args += use_system_freetype=true
-    qtConfig(webengine-system-harfbuzz): gn_args += use_system_harfbuzz=true
-    !qtConfig(webengine-system-glib): gn_args += use_glib=false
+    qtConfig(webengine-system-jpeg) {
+        gn_args += use_system_libjpeg=true
+    } else {
+        gn_args += use_system_libjpeg=false
+    }
+    qtConfig(webengine-system-freetype) {
+        gn_args += use_system_freetype=true
+    } else {
+        gn_args += use_system_freetype=false
+    }
+    qtConfig(webengine-system-harfbuzz) {
+        gn_args += use_system_harfbuzz=true
+    } else {
+        gn_args += use_system_harfbuzz=false
+    }
+    gn_args += use_glib=false
     qtConfig(webengine-pulseaudio) {
         gn_args += use_pulseaudio=true
     } else {
@@ -175,7 +191,7 @@ host_build {
     }
     !packagesExist(libpci): gn_args += use_libpci=false
 
-    qtConfig(webengine-system-x11): hasX11Dependencies() {
+    qtConfig(webengine-ozone-x11) {
         gn_args += ozone_platform_x11=true
         packagesExist(xscrnsaver): gn_args += use_xscrnsaver=true
     }

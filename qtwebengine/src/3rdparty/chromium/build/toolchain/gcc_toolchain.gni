@@ -2,8 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/android/config.gni")
 import("//build/config/clang/clang.gni")
+import("//build/config/compiler/compiler.gni")
+import("//build/config/coverage/coverage.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/v8_target_cpu.gni")
 import("//build/toolchain/cc_wrapper.gni")
@@ -16,6 +17,27 @@ if (is_nacl) {
   # variables defined in nacl/config.gni referenced here should be protected by
   # is_nacl conditions.
   import("//build/config/nacl/config.gni")
+}
+
+declare_args() {
+  # Enables whitelist generation for IDR_ grit defines seen by the compiler.
+  # Currently works only on Android and enabled by default for release builds.
+  # Requires debug info, so disabled for symbol_level=0 & strip_debug_info=true.
+  enable_resource_whitelist_generation =
+      is_android && !is_debug &&
+      # Don't enable for Android-on-Chrome OS so that they can build with
+      # symbol_level=0 without this failing (crbug.com/891164).
+      target_os == "android" &&
+      # Always enable for official builds, but enable for release builds by
+      # default only when other args allow.
+      (is_official_build ||
+       (!strip_debug_info && symbol_level > 0 && !is_component_build))
+}
+
+# When the arg is set via args.gn, it applies to all toolchains. In order to not
+# hit the assert in grit_rule.gni, explicitly disable for host toolchains.
+if (is_linux && target_os == "android") {
+  enable_resource_whitelist_generation = false
 }
 
 # Path to the Clang static analysis wrapper script.
@@ -151,42 +173,57 @@ template("gcc_toolchain") {
     # toolchain args, use those values, otherwise default to the global one.
     # This works because the only reasonable override that toolchains might
     # supply for these values are to force-disable them.
-    if (toolchain_uses_goma) {
+    # But if has_gomacc_path is set in simple chrome build, we assumes that
+    # *chromeos* compiler wrapper find gomacc from GOMACC_PATH envvar.
+    # Note: In this case, we use gomacc for host toolchain compiling.
+    if (toolchain_uses_goma &&
+        (!has_gomacc_path || invoker_toolchain_args.current_os != "chromeos")) {
       goma_path = "$goma_dir/gomacc"
-
-      # Use the static analysis script if static analysis is turned on
-      # AND the tool has not opted out by setting
-      # 'is_clang_static_analysis_supported' to false.
-      if (is_clang && use_clang_static_analyzer &&
-          (!defined(invoker.is_clang_analysis_supported) ||
-           invoker.is_clang_analysis_supported)) {
-        compiler_prefix = "${analyzer_wrapper} ${goma_path} "
-
-        # Create a distinct variable for "asm", since analysis runs pass
-        # a bunch of flags to clang/clang++ that are nonsensical on assembler
-        # runs.
-        asm = "${goma_path} ${invoker.cc}"
-      } else {
-        compiler_prefix = "${goma_path} "
-      }
+      compiler_prefix = "${goma_path} "
     } else {
-      if (is_clang && use_clang_static_analyzer &&
-          (!defined(invoker.is_clang_analysis_supported) ||
-           invoker.is_clang_analysis_supported)) {
-        compiler_prefix = "${analyzer_wrapper} "
-        asm = invoker.cc
-      } else {
-        compiler_prefix = "${toolchain_cc_wrapper} "
-      }
+      compiler_prefix = "${toolchain_cc_wrapper} "
+    }
+
+    # Create a distinct variable for "asm", since analysis runs pass # a bunch
+    # of flags to clang/clang++ that are nonsensical on assembler runs.
+    asm_prefix = compiler_prefix
+
+    # Use the static analysis script if static analysis is turned on
+    # AND the tool has not opted out by setting
+    # 'is_clang_static_analysis_supported' to false.
+    if (is_clang && use_clang_static_analyzer &&
+        (!defined(invoker.is_clang_analysis_supported) ||
+         invoker.is_clang_analysis_supported)) {
+      compiler_prefix = "${analyzer_wrapper} " + compiler_prefix
+    }
+
+    if (defined(toolchain_args.coverage_instrumentation_input_file)) {
+      toolchain_coverage_instrumentation_input_file =
+          toolchain_args.coverage_instrumentation_input_file
+    } else {
+      toolchain_coverage_instrumentation_input_file =
+          coverage_instrumentation_input_file
+    }
+    _use_clang_coverage_wrapper =
+        toolchain_coverage_instrumentation_input_file != ""
+    if (_use_clang_coverage_wrapper) {
+      assert(!use_clang_static_analyzer,
+             "Clang static analyzer wrapper and Clang code coverage wrapper " +
+                 "cannot be used together.")
+
+      _coverage_wrapper =
+          rebase_path("//build/toolchain/clang_code_coverage_wrapper.py",
+                      root_build_dir) + " --files-to-instrument=" +
+          rebase_path(toolchain_coverage_instrumentation_input_file,
+                      root_build_dir)
+      compiler_prefix = "${_coverage_wrapper} " + compiler_prefix
     }
 
     cc = compiler_prefix + invoker.cc
     cxx = compiler_prefix + invoker.cxx
+    asm = asm_prefix + invoker.cc
     ar = invoker.ar
     ld = invoker.ld
-    if (!defined(asm)) {
-      asm = cc
-    }
     if (defined(invoker.readelf)) {
       readelf = invoker.readelf
     } else {
@@ -281,16 +318,8 @@ template("gcc_toolchain") {
       depsformat = "gcc"
       description = "CC {{output}}"
       outputs = [
-        # The whitelist file is also an output, but ninja does not
-        # currently support multiple outputs for tool("cc").
         "$object_subdir/{{source_name_part}}.o",
       ]
-      if (enable_resource_whitelist_generation) {
-        compile_wrapper =
-            rebase_path("//build/toolchain/gcc_compile_wrapper.py",
-                        root_build_dir)
-        command = "$python_path \"$compile_wrapper\" --resource-whitelist=\"{{output}}.whitelist\" $command"
-      }
     }
 
     tool("cxx") {
@@ -299,16 +328,8 @@ template("gcc_toolchain") {
       depsformat = "gcc"
       description = "CXX {{output}}"
       outputs = [
-        # The whitelist file is also an output, but ninja does not
-        # currently support multiple outputs for tool("cxx").
         "$object_subdir/{{source_name_part}}.o",
       ]
-      if (enable_resource_whitelist_generation) {
-        compile_wrapper =
-            rebase_path("//build/toolchain/gcc_compile_wrapper.py",
-                        root_build_dir)
-        command = "$python_path \"$compile_wrapper\" --resource-whitelist=\"{{output}}.whitelist\" $command"
-      }
     }
 
     tool("asm") {
@@ -323,30 +344,29 @@ template("gcc_toolchain") {
     }
 
     tool("alink") {
-      rspfile = "{{output}}.rsp"
-      whitelist_flag = " "
-      if (enable_resource_whitelist_generation) {
-        whitelist_flag = " --resource-whitelist=\"{{output}}.whitelist\""
+      if (current_os == "aix") {
+        # AIX does not support either -D (deterministic output) or response
+        # files.
+        command = "$ar -X64 {{arflags}} -r -c -s {{output}} {{inputs}}"
+      } else {
+        rspfile = "{{output}}.rsp"
+        rspfile_content = "{{inputs}}"
+        command = "\"$ar\" {{arflags}} -r -c -s -D {{output}} @\"$rspfile\""
       }
 
-      # This needs a Python script to avoid using simple sh features in this
-      # command, in case the host does not use a POSIX shell (e.g. compiling
-      # POSIX-like toolchains such as NaCl on Windows).
-      ar_wrapper =
-          rebase_path("//build/toolchain/gcc_ar_wrapper.py", root_build_dir)
-
-      if (current_os == "aix") {
-        # We use slightly different arflags for AIX.
-        extra_arflags = "-r -c -s"
+      # Remove the output file first so that ar doesn't try to modify the
+      # existing file.
+      if (host_os == "win") {
+        tool_wrapper_path =
+            rebase_path("//build/toolchain/win/tool_wrapper.py", root_build_dir)
+        command = "cmd /c $python_path $tool_wrapper_path delete-file {{output}} && $command"
       } else {
-        extra_arflags = "-r -c -s -D"
+        command = "rm -f {{output}} && $command"
       }
 
       # Almost all targets build with //build/config/compiler:thin_archive which
       # adds -T to arflags.
-      command = "$python_path \"$ar_wrapper\"$whitelist_flag --output={{output}} --ar=\"$ar\" \"{{arflags}} $extra_arflags\" @\"$rspfile\""
       description = "AR {{output}}"
-      rspfile_content = "{{inputs}}"
       outputs = [
         "{{output_dir}}/{{target_output_name}}{{output_extension}}",
       ]
@@ -363,11 +383,6 @@ template("gcc_toolchain") {
       sofile = "{{output_dir}}/$soname"  # Possibly including toolchain dir.
       rspfile = sofile + ".rsp"
       pool = "//build/toolchain:link_pool($default_toolchain)"
-      whitelist_flag = " "
-      if (enable_resource_whitelist_generation) {
-        whitelist_file = "$sofile.whitelist"
-        whitelist_flag = " --resource-whitelist=\"$whitelist_file\""
-      }
 
       if (defined(invoker.strip)) {
         unstripped_sofile = "{{root_out_dir}}/lib.unstripped/$soname"
@@ -404,7 +419,7 @@ template("gcc_toolchain") {
       # The host might not have a POSIX shell and utilities (e.g. Windows).
       solink_wrapper =
           rebase_path("//build/toolchain/gcc_solink_wrapper.py", root_build_dir)
-      command = "$python_path \"$solink_wrapper\" --readelf=\"$readelf\" --nm=\"$nm\" $strip_switch--sofile=\"$unstripped_sofile\" --tocfile=\"$tocfile\"$map_switch --output=\"$sofile\"$whitelist_flag -- $link_command"
+      command = "$python_path \"$solink_wrapper\" --readelf=\"$readelf\" --nm=\"$nm\" $strip_switch--sofile=\"$unstripped_sofile\" --tocfile=\"$tocfile\"$map_switch --output=\"$sofile\" -- $link_command"
 
       if (target_cpu == "mipsel" && is_component_build && is_android) {
         rspfile_content = "-Wl,--start-group -Wl,--whole-archive {{inputs}} {{solibs}} -Wl,--no-whole-archive $solink_libs_section_prefix {{libs}} $solink_libs_section_postfix -Wl,--end-group"
@@ -420,9 +435,6 @@ template("gcc_toolchain") {
       default_output_extension = default_shlib_extension
 
       default_output_dir = "{{root_out_dir}}"
-      if (shlib_subdir != ".") {
-        default_output_dir += "/$shlib_subdir"
-      }
 
       output_prefix = "lib"
 
@@ -437,9 +449,6 @@ template("gcc_toolchain") {
         sofile,
         tocfile,
       ]
-      if (enable_resource_whitelist_generation) {
-        outputs += [ whitelist_file ]
-      }
       if (sofile != unstripped_sofile) {
         outputs += [ unstripped_sofile ]
         if (defined(invoker.use_unstripped_as_runtime_outputs) &&
@@ -486,9 +495,6 @@ template("gcc_toolchain") {
       }
 
       default_output_dir = "{{root_out_dir}}"
-      if (shlib_subdir != ".") {
-        default_output_dir += "/$shlib_subdir"
-      }
 
       output_prefix = "lib"
 

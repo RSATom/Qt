@@ -11,7 +11,23 @@ source_set("cpp") {
   ]
   deps = [
     "//base",
-    "//chromeos",
+    "//chromeos/dbus",
     "//chromeos/services/machine_learning/public/mojom",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "service_connection_unittest.cc",
+  ]
+  deps = [
+    ":cpp",
+    "//base/test:test_support",
+    "//chromeos/dbus:test_support",
+    "//chromeos/services/machine_learning/public/mojom",
+    "//mojo/core/embedder",
+    "//mojo/public/cpp/bindings",
+    "//testing/gtest",
   ]
 }

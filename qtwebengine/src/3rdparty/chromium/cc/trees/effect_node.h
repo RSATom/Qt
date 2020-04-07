@@ -9,6 +9,7 @@
 #include "cc/paint/filter_operations.h"
 #include "third_party/skia/include/core/SkBlendMode.h"
 #include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size_f.h"
 
 namespace base {
@@ -39,7 +40,9 @@ struct CC_EXPORT EffectNode {
   float screen_space_opacity;
 
   FilterOperations filters;
-  FilterOperations background_filters;
+  FilterOperations backdrop_filters;
+  gfx::RectF backdrop_filter_bounds;
+  float backdrop_filter_quality;
   gfx::PointF filters_origin;
 
   SkBlendMode blend_mode;

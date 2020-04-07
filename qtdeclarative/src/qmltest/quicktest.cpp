@@ -44,10 +44,14 @@
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcontext.h>
+#include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
 #include <QtQml/qjsvalue.h>
 #include <QtQml/qjsengine.h>
 #include <QtQml/qqmlpropertymap.h>
+#include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/qquickitem.h>
 #include <QtGui/qopengl.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qfileinfo.h>
@@ -72,6 +76,61 @@
 #endif
 
 QT_BEGIN_NAMESPACE
+
+/*!
+    \since 5.13
+
+    Returns \c true if \l {QQuickItem::}{updatePolish()} has not been called
+    on \a item since the last call to \l {QQuickItem::}{polish()},
+    otherwise returns \c false.
+
+    When assigning values to properties in QML, any layouting the item
+    must do as a result of the assignment might not take effect immediately,
+    but can instead be postponed until the item is polished. For these cases,
+    you can use this function to ensure that the item has been polished
+    before the execution of the test continues. For example:
+
+    \code
+        QVERIFY(QQuickTest::qIsPolishScheduled(item));
+        QVERIFY(QQuickTest::qWaitForItemPolished(item));
+    \endcode
+
+    Without the call to \c qIsPolishScheduled() above, the
+    call to \c qWaitForItemPolished() might see that no polish
+    was scheduled and therefore pass instantly, assuming that
+    the item had already been polished. This function
+    makes it obvious why an item wasn't polished and allows tests to
+    fail early under such circumstances.
+
+    The QML equivalent of this function is
+    \l {TestCase::}{isPolishScheduled()}.
+
+    \sa QQuickItem::polish(), QQuickItem::updatePolish()
+*/
+bool QQuickTest::qIsPolishScheduled(const QQuickItem *item)
+{
+    return QQuickItemPrivate::get(item)->polishScheduled;
+}
+
+/*!
+    \since 5.13
+
+    Waits for \a timeout milliseconds or until
+    \l {QQuickItem::}{updatePolish()} has been called on \a item.
+
+    Returns \c true if \c updatePolish() was called on \a item within
+    \a timeout milliseconds, otherwise returns \c false.
+
+    The QML equivalent of this function is
+    \l {TestCase::}{waitForItemPolished()}.
+
+    \sa QQuickItem::polish(), QQuickItem::updatePolish(),
+        QQuickTest::qIsPolishScheduled()
+*/
+bool QQuickTest::qWaitForItemPolished(const QQuickItem *item, int timeout)
+{
+    return QTest::qWaitFor([&]() { return !QQuickItemPrivate::get(item)->polishScheduled; }, timeout);
+}
 
 class QTestRootObject : public QObject
 {

@@ -33,26 +33,28 @@ class GPU_EXPORT GpuMemoryBufferImplNativePixmap : public GpuMemoryBufferImpl {
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      const DestructionCallback& callback);
+      DestructionCallback callback);
 
-  static base::Closure AllocateForTesting(const gfx::Size& size,
-                                          gfx::BufferFormat format,
-                                          gfx::BufferUsage usage,
-                                          gfx::GpuMemoryBufferHandle* handle);
+  static base::OnceClosure AllocateForTesting(
+      const gfx::Size& size,
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage,
+      gfx::GpuMemoryBufferHandle* handle);
 
   // Overridden from gfx::GpuMemoryBuffer:
   bool Map() override;
   void* memory(size_t plane) override;
   void Unmap() override;
   int stride(size_t plane) const override;
-  gfx::GpuMemoryBufferHandle GetHandle() const override;
+  gfx::GpuMemoryBufferType GetType() const override;
+  gfx::GpuMemoryBufferHandle CloneHandle() const override;
 
  private:
   GpuMemoryBufferImplNativePixmap(
       gfx::GpuMemoryBufferId id,
       const gfx::Size& size,
       gfx::BufferFormat format,
-      const DestructionCallback& callback,
+      DestructionCallback callback,
       std::unique_ptr<gfx::ClientNativePixmap> native_pixmap,
       const std::vector<gfx::NativePixmapPlane>& planes,
       base::ScopedFD fd);

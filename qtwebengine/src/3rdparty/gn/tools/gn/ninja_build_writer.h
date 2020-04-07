@@ -20,6 +20,10 @@ class Settings;
 class Target;
 class Toolchain;
 
+namespace base {
+class CommandLine;
+}  // base
+
 // Generates the toplevel "build.ninja" file. This references the individual
 // toolchain files and lists all input .gn files as dependencies of the
 // build itself.
@@ -28,6 +32,7 @@ class NinjaBuildWriter {
   NinjaBuildWriter(const BuildSettings* settings,
                    const std::unordered_map<const Settings*, const Toolchain*>&
                        used_toolchains,
+                   const std::vector<const Target*>& all_targets,
                    const Toolchain* default_toolchain,
                    const std::vector<const Target*>& default_toolchain_targets,
                    std::ostream& out,
@@ -56,6 +61,7 @@ class NinjaBuildWriter {
   const BuildSettings* build_settings_;
 
   const std::unordered_map<const Settings*, const Toolchain*>& used_toolchains_;
+  const std::vector<const Target*>& all_targets_;
   const Toolchain* default_toolchain_;
   const std::vector<const Target*>& default_toolchain_targets_;
 
@@ -67,5 +73,9 @@ class NinjaBuildWriter {
 };
 
 extern const char kNinjaRules_Help[];
+
+// Exposed for testing.
+base::CommandLine GetSelfInvocationCommandLine(
+    const BuildSettings* build_settings);
 
 #endif  // TOOLS_GN_NINJA_BUILD_WRITER_H_

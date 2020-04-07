@@ -127,7 +127,11 @@
       slot->internal->flags &= ~FT_GLYPH_OWN_BITMAP;
     }
 
-    ft_glyphslot_preset_bitmap( slot, mode, origin );
+    if ( ft_glyphslot_preset_bitmap( slot, mode, origin ) )
+    {
+      error = FT_THROW( Raster_Overflow );
+      goto Exit;
+    }
 
     /* allocate new one */
     if ( FT_ALLOC_MULT( bitmap->buffer, bitmap->rows, bitmap->pitch ) )

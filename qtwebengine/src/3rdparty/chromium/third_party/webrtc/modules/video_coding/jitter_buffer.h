@@ -25,10 +25,10 @@
 #include "modules/video_coding/inter_frame_delay.h"
 #include "modules/video_coding/jitter_buffer_common.h"
 #include "modules/video_coding/jitter_estimator.h"
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/thread_annotations.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include "system_wrappers/include/event_wrapper.h"
 
 namespace webrtc {
 
@@ -36,8 +36,6 @@ enum VCMNackMode { kNack, kNoNack };
 
 // forward declarations
 class Clock;
-class EventFactory;
-class EventWrapper;
 class VCMFrameBuffer;
 class VCMPacket;
 class VCMEncodedFrame;
@@ -147,11 +145,6 @@ class VCMJitterBuffer {
   // If found, a pointer to the frame is returned. Returns nullptr otherwise.
   VCMEncodedFrame* NextCompleteFrame(uint32_t max_wait_time_ms);
 
-  // Locates a frame for decoding (even an incomplete) without delay.
-  // The function returns true once such a frame is found, its corresponding
-  // timestamp is returned. Otherwise, returns false.
-  bool NextMaybeIncompleteTimestamp(uint32_t* timestamp);
-
   // Extract frame corresponding to input timestamp.
   // Frame will be set to a decoding state.
   VCMEncodedFrame* ExtractAndSetDecode(uint32_t timestamp);
@@ -196,11 +189,6 @@ class VCMJitterBuffer {
 
   // Returns a list of the sequence numbers currently missing.
   std::vector<uint16_t> GetNackList(bool* request_key_frame);
-
-  // Set decode error mode - Should not be changed in the middle of the
-  // session. Changes will not influence frames already in the buffer.
-  void SetDecodeErrorMode(VCMDecodeErrorMode error_mode);
-  VCMDecodeErrorMode decode_error_mode() const { return decode_error_mode_; }
 
   void RegisterStatsCallback(VCMReceiveStatisticsCallback* callback);
 
@@ -369,7 +357,6 @@ class VCMJitterBuffer {
   int max_packet_age_to_nack_;  // Measured in sequence numbers.
   int max_incomplete_time_ms_;
 
-  VCMDecodeErrorMode decode_error_mode_;
   // Estimated rolling average of packets per frame
   float average_packets_per_frame_;
   // average_packets_per_frame converges fast if we have fewer than this many

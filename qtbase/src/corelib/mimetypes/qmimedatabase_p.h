@@ -63,6 +63,8 @@ QT_REQUIRE_CONFIG(mimetype);
 #include <QtCore/qmutex.h>
 #include <QtCore/qvector.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 class QIODevice;
@@ -72,7 +74,7 @@ class QMimeProviderBase;
 class QMimeDatabasePrivate
 {
 public:
-    Q_DISABLE_COPY(QMimeDatabasePrivate)
+    Q_DISABLE_COPY_MOVE(QMimeDatabasePrivate)
 
     QMimeDatabasePrivate();
     ~QMimeDatabasePrivate();
@@ -102,11 +104,12 @@ public:
     bool mimeInherits(const QString &mime, const QString &parent);
 
 private:
-    QVector<QMimeProviderBase *> providers();
+    using Providers = std::vector<std::unique_ptr<QMimeProviderBase>>;
+    const Providers &providers();
     bool shouldCheck();
     void loadProviders();
 
-    mutable QVector<QMimeProviderBase *> m_providers;
+    mutable Providers m_providers;
     QElapsedTimer m_lastCheck;
 
 public:

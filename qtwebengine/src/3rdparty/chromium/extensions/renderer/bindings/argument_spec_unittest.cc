@@ -5,6 +5,8 @@
 #include "extensions/renderer/bindings/argument_spec.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
 #include "extensions/renderer/bindings/api_invocation_errors.h"
@@ -172,7 +174,7 @@ void ArgumentSpecUnitTest::RunTest(RunTestParams& params) {
     }
   } else if (should_throw) {
     EXPECT_EQ(params.expected_thrown_message,
-              gin::V8ToString(try_catch.Message()->Get()));
+              gin::V8ToString(isolate, try_catch.Message()->Get()));
   }
 }
 
@@ -394,7 +396,7 @@ TEST_F(ArgumentSpecUnitTest, Test) {
       // A non-empty (but zero-filled) ArrayBufferView.
       const char kBuffer[] = {0, 0, 0, 0};
       std::unique_ptr<base::Value> expected_value =
-          base::Value::CreateWithCopiedBuffer(kBuffer, arraysize(kBuffer));
+          base::Value::CreateWithCopiedBuffer(kBuffer, base::size(kBuffer));
       ASSERT_TRUE(expected_value);
       ExpectSuccessWithNoConversion(spec, "(new Int32Array(2))");
     }
@@ -402,7 +404,7 @@ TEST_F(ArgumentSpecUnitTest, Test) {
       // Actual data.
       const char kBuffer[] = {'p', 'i', 'n', 'g'};
       std::unique_ptr<base::Value> expected_value =
-          base::Value::CreateWithCopiedBuffer(kBuffer, arraysize(kBuffer));
+          base::Value::CreateWithCopiedBuffer(kBuffer, base::size(kBuffer));
       ASSERT_TRUE(expected_value);
       ExpectSuccess(spec,
                     "var b = new ArrayBuffer(4);\n"
@@ -858,13 +860,13 @@ TEST_F(ArgumentSpecUnitTest, V8Conversion) {
     ArgumentSpec spec(ArgumentType::INTEGER);
     ExpectSuccess(spec, "1", base::BindOnce([](v8::Local<v8::Value> value) {
                     ASSERT_TRUE(value->IsInt32());
-                    EXPECT_EQ(1, value->Int32Value());
+                    EXPECT_EQ(1, value.As<v8::Int32>()->Value());
                   }));
     // The conversion should handle the -0 value (which is considered an
     // integer but stored in v8 has a number) by converting it to a 0 integer.
     ExpectSuccess(spec, "-0", base::BindOnce([](v8::Local<v8::Value> value) {
                     ASSERT_TRUE(value->IsInt32());
-                    EXPECT_EQ(0, value->Int32Value());
+                    EXPECT_EQ(0, value.As<v8::Int32>()->Value());
                   }));
   }
 

@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
+
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/values.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/content_verifier.h"
 #include "extensions/browser/content_verifier/test_utils.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_test.h"
@@ -80,9 +83,12 @@ class ContentVerifierTest
     // Manually register handlers since the |ContentScriptsHandler| is not
     // usually registered in extensions_unittests.
     ScopedTestingManifestHandlerRegistry registry;
-    (new BackgroundManifestHandler)->Register();
-    (new ContentScriptsHandler)->Register();
-    ManifestHandler::FinalizeRegistration();
+    {
+      ManifestHandlerRegistry* registry = ManifestHandlerRegistry::Get();
+      registry->RegisterHandler(std::make_unique<BackgroundManifestHandler>());
+      registry->RegisterHandler(std::make_unique<ContentScriptsHandler>());
+      ManifestHandler::FinalizeRegistration();
+    }
 
     extension_ = CreateTestExtension();
     ExtensionRegistry::Get(browser_context())->AddEnabled(extension_);
@@ -209,5 +215,25 @@ INSTANTIATE_TEST_CASE_P(
     testing::Values(BackgroundManifestType::kNone,
                     BackgroundManifestType::kBackgroundScript,
                     BackgroundManifestType::kBackgroundPage));
+
+TEST(ContentVerifierTest, NormalizeRelativePath) {
+// This macro helps avoid wrapped lines in the test structs.
+#define FPL(x) FILE_PATH_LITERAL(x)
+  struct TestData {
+    base::FilePath::StringPieceType input;
+    base::FilePath::StringPieceType expected;
+  } test_cases[] = {{FPL("foo/bar"), FPL("foo/bar")},
+                    {FPL("foo//bar"), FPL("foo/bar")},
+                    {FPL("foo/bar/"), FPL("foo/bar/")},
+                    {FPL("foo/bar//"), FPL("foo/bar/")},
+                    {FPL("foo/options.html/"), FPL("foo/options.html/")}};
+#undef FPL
+  for (const auto& test_case : test_cases) {
+    base::FilePath input(test_case.input);
+    base::FilePath expected(test_case.expected);
+    EXPECT_EQ(expected,
+              ContentVerifier::NormalizeRelativePathForTesting(input));
+  }
+}
 
 }  // namespace extensions

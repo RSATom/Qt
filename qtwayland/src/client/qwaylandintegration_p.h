@@ -54,6 +54,7 @@
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 #include <qpa/qplatformintegration.h>
 #include <QtCore/QScopedPointer>
+#include <QtCore/QMutex>
 
 QT_BEGIN_NAMESPACE
 
@@ -106,6 +107,8 @@ public:
 
     QWaylandDisplay *display() const;
 
+    QList<int> possibleKeys(const QKeyEvent *event) const override;
+
     QStringList themeNames() const override;
 
     QPlatformTheme *createPlatformTheme(const QString &name) const override;
@@ -115,6 +118,8 @@ public:
     virtual QWaylandClientBufferIntegration *clientBufferIntegration() const;
     virtual QWaylandServerBufferIntegration *serverBufferIntegration() const;
     virtual QWaylandShellIntegration *shellIntegration() const;
+
+    void reconfigureInputContext();
 
 private:
     // NOTE: mDisplay *must* be destructed after mDrag and mClientBufferIntegration
@@ -145,9 +150,10 @@ private:
     QScopedPointer<QPlatformNativeInterface> mNativeInterface;
     QScopedPointer<QPlatformInputContext> mInputContext;
 #if QT_CONFIG(accessibility)
-    QScopedPointer<QPlatformAccessibility> mAccessibility;
+    mutable QScopedPointer<QPlatformAccessibility> mAccessibility;
 #endif
     bool mFailed = false;
+    QMutex mClientBufferInitLock;
     bool mClientBufferIntegrationInitialized = false;
     bool mServerBufferIntegrationInitialized = false;
     bool mShellIntegrationInitialized = false;

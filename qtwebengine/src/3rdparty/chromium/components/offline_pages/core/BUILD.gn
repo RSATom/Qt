@@ -12,6 +12,10 @@ static_library("core") {
     "archive_manager.h",
     "archive_validator.cc",
     "archive_validator.h",
+    "auto_fetch.cc",
+    "auto_fetch.h",
+    "background_snapshot_controller.cc",
+    "background_snapshot_controller.h",
     "client_id.cc",
     "client_id.h",
     "client_namespace_constants.cc",
@@ -56,6 +60,8 @@ static_library("core") {
     "model/store_thumbnail_task.h",
     "model/update_file_path_task.cc",
     "model/update_file_path_task.h",
+    "offline_clock.cc",
+    "offline_clock.h",
     "offline_event_logger.cc",
     "offline_event_logger.h",
     "offline_page_archiver.cc",
@@ -82,10 +88,6 @@ static_library("core") {
     "snapshot_controller.cc",
     "snapshot_controller.h",
     "system_download_manager.h",
-    "task.cc",
-    "task.h",
-    "task_queue.cc",
-    "task_queue.h",
   ]
 
   deps = [
@@ -94,6 +96,7 @@ static_library("core") {
     "//components/filename_generation",
     "//components/keyed_service/core",
     "//components/offline_items_collection/core/utilities",
+    "//components/offline_pages/task",
     "//crypto",
     "//net",
     "//services/metrics/public/cpp:metrics_cpp",
@@ -120,12 +123,8 @@ static_library("test_support") {
     "stub_offline_page_model.h",
     "stub_system_download_manager.cc",
     "stub_system_download_manager.h",
-    "task_test_base.cc",
-    "task_test_base.h",
-    "test_task.cc",
-    "test_task.h",
-    "test_task_runner.cc",
-    "test_task_runner.h",
+    "test_scoped_offline_clock.cc",
+    "test_scoped_offline_clock.h",
   ]
 
   deps = [
@@ -134,6 +133,7 @@ static_library("test_support") {
     "//base",
     "//base/test:test_support",
     "//components/keyed_service/core",
+    "//components/offline_pages/task:test_support",
     "//sql:sql",
     "//testing/gmock",
     "//testing/gtest",
@@ -158,6 +158,8 @@ source_set("unit_tests") {
   sources = [
     "archive_manager_unittest.cc",
     "archive_validator_unittest.cc",
+    "auto_fetch_unittest.cc",
+    "background_snapshot_controller_unittest.cc",
     "client_policy_controller_unittest.cc",
     "model/add_page_task_unittest.cc",
     "model/add_page_to_download_manager_task_unittest.cc",
@@ -185,8 +187,6 @@ source_set("unit_tests") {
     "offline_page_thumbnail_unittest.cc",
     "offline_pages_ukm_reporter_unittest.cc",
     "snapshot_controller_unittest.cc",
-    "task_queue_unittest.cc",
-    "task_unittest.cc",
   ]
 
   deps = [
@@ -197,6 +197,7 @@ source_set("unit_tests") {
     "renovations:unit_tests",
     "//base",
     "//base/test:test_support",
+    "//components/offline_pages/task:test_support",
     "//components/ukm:test_support",
     "//services/metrics/public/cpp:ukm_builders",
     "//sql:sql",

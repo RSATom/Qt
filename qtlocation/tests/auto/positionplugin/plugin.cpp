@@ -199,14 +199,14 @@ QGeoPositionInfoSource *QGeoPositionInfoSourceFactoryTest::positionInfoSource(QO
 
 QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactoryTest::satelliteInfoSource(QObject *parent)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     // not implemented
     return 0;
 }
 
 QGeoAreaMonitorSource *QGeoPositionInfoSourceFactoryTest::areaMonitor(QObject* parent)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return 0;
 }
 

@@ -138,7 +138,7 @@ AbstractInlineTextBox::Direction LegacyAbstractInlineTextBox::GetDirection()
   if (!inline_text_box_ || !GetLineLayoutItem())
     return kLeftToRight;
 
-  if (GetLineLayoutItem().Style()->IsHorizontalWritingMode()) {
+  if (GetLineLayoutItem().StyleRef().IsHorizontalWritingMode()) {
     return (inline_text_box_->Direction() == TextDirection::kRtl
                 ? kRightToLeft
                 : kLeftToRight);
@@ -207,7 +207,7 @@ String LegacyAbstractInlineTextBox::GetText() const {
   if (inline_text_box_->NextForSameLayoutObject() &&
       inline_text_box_->NextForSameLayoutObject()->Start() >
           inline_text_box_->end() &&
-      result.length() && !result.Right(1).ContainsOnlyWhitespace())
+      result.length() && !result.Right(1).ContainsOnlyWhitespaceOrEmpty())
     return result + " ";
   return result;
 }

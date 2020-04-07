@@ -9,7 +9,6 @@
 
 #include <memory>
 
-#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/retain_ptr.h"
@@ -17,9 +16,9 @@
 
 class CPDF_Dictionary;
 
-class CPDF_ContentMarkItem : public Retainable {
+class CPDF_ContentMarkItem final : public Retainable {
  public:
-  enum ParamType { None, PropertiesDict, DirectDict };
+  enum ParamType { kNone, kPropertiesDict, kDirectDict };
 
   explicit CPDF_ContentMarkItem(ByteString name);
   ~CPDF_ContentMarkItem() override;
@@ -36,10 +35,10 @@ class CPDF_ContentMarkItem : public Retainable {
                            const ByteString& property_name);
 
  private:
+  ParamType m_ParamType = kNone;
   ByteString m_MarkName;
-  ParamType m_ParamType = None;
-  UnownedPtr<CPDF_Dictionary> m_pPropertiesHolder;
   ByteString m_PropertyName;
+  UnownedPtr<CPDF_Dictionary> m_pPropertiesHolder;
   std::unique_ptr<CPDF_Dictionary> m_pDirectDict;
 };
 

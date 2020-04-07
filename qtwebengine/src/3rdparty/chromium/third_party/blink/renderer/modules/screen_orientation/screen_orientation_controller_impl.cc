@@ -13,12 +13,12 @@
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/fullscreen/scoped_allow_fullscreen.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation.h"
 #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation_dispatcher.h"
-#include "third_party/blink/renderer/platform/layout_test_support.h"
-#include "third_party/blink/renderer/platform/scoped_orientation_change_indicator.h"
+#include "third_party/blink/renderer/platform/web_test_support.h"
 
 namespace blink {
 
@@ -26,7 +26,7 @@ ScreenOrientationControllerImpl::~ScreenOrientationControllerImpl() = default;
 
 void ScreenOrientationControllerImpl::ProvideTo(LocalFrame& frame) {
   ScreenOrientationController::ProvideTo(
-      frame, new ScreenOrientationControllerImpl(frame));
+      frame, MakeGarbageCollected<ScreenOrientationControllerImpl>(frame));
 }
 
 ScreenOrientationControllerImpl* ScreenOrientationControllerImpl::From(
@@ -55,10 +55,10 @@ ScreenOrientationControllerImpl::ScreenOrientationControllerImpl(
 WebScreenOrientationType ScreenOrientationControllerImpl::ComputeOrientation(
     const IntRect& rect,
     uint16_t rotation) {
-  // Bypass orientation detection in layout tests to get consistent results.
-  // FIXME: The screen dimension should be fixed when running the layout tests
+  // Bypass orientation detection in web tests to get consistent results.
+  // FIXME: The screen dimension should be fixed when running the web tests
   // to avoid such issues.
-  if (LayoutTestSupport::IsRunningLayoutTest())
+  if (WebTestSupport::IsRunningWebTest())
     return kWebScreenOrientationPortraitPrimary;
 
   bool is_tall_display = rotation % 180 ? rect.Height() < rect.Width()
@@ -168,9 +168,9 @@ void ScreenOrientationControllerImpl::NotifyOrientationChanged() {
     dispatch_event_timer_.StartOneShot(TimeDelta(), FROM_HERE);
 
   // ... and child frames, if they have a ScreenOrientationControllerImpl.
-  for (size_t i = 0; i < child_frames.size(); ++i) {
+  for (LocalFrame* child_frame : child_frames) {
     if (ScreenOrientationControllerImpl* controller =
-            ScreenOrientationControllerImpl::From(*child_frames[i])) {
+            ScreenOrientationControllerImpl::From(*child_frame)) {
       controller->NotifyOrientationChanged();
     }
   }
@@ -219,8 +219,9 @@ void ScreenOrientationControllerImpl::DispatchEventTimerFired(TimerBase*) {
   if (!orientation_)
     return;
 
-  ScopedOrientationChangeIndicator orientation_change_indicator;
-  orientation_->DispatchEvent(Event::Create(EventTypeNames::change));
+  ScopedAllowFullscreen allow_fullscreen(
+      ScopedAllowFullscreen::kOrientationChange);
+  orientation_->DispatchEvent(*Event::Create(event_type_names::kChange));
 }
 
 void ScreenOrientationControllerImpl::DidUpdateData() {

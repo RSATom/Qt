@@ -7,11 +7,12 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/workers/threaded_worklet_global_scope.h"
+#include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_param_descriptor.h"
 #include "third_party/blink/renderer/platform/audio/audio_array.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -46,16 +47,18 @@ class MODULES_EXPORT ProcessorCreationParams final {
 
 // This is constructed and destroyed on a worker thread, and all methods also
 // must be called on the worker thread.
-class MODULES_EXPORT AudioWorkletGlobalScope final
-    : public ThreadedWorkletGlobalScope {
+class MODULES_EXPORT AudioWorkletGlobalScope final : public WorkletGlobalScope {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   static AudioWorkletGlobalScope* Create(
       std::unique_ptr<GlobalScopeCreationParams>,
-      v8::Isolate*,
       WorkerThread*);
+
+  AudioWorkletGlobalScope(std::unique_ptr<GlobalScopeCreationParams>,
+                          WorkerThread*);
   ~AudioWorkletGlobalScope() override;
+
   bool IsAudioWorkletGlobalScope() const final { return true; }
   void Dispose() final;
   bool IsClosing() const final { return is_closing_; }
@@ -105,10 +108,6 @@ class MODULES_EXPORT AudioWorkletGlobalScope final
   void Trace(blink::Visitor*) override;
 
  private:
-  AudioWorkletGlobalScope(std::unique_ptr<GlobalScopeCreationParams>,
-                          v8::Isolate*,
-                          WorkerThread*);
-
   bool is_closing_ = false;
 
   typedef HeapHashMap<String,
@@ -129,11 +128,12 @@ class MODULES_EXPORT AudioWorkletGlobalScope final
   float sample_rate_ = 0.0;
 };
 
-DEFINE_TYPE_CASTS(AudioWorkletGlobalScope,
-                  ExecutionContext,
-                  context,
-                  context->IsAudioWorkletGlobalScope(),
-                  context.IsAudioWorkletGlobalScope());
+template <>
+struct DowncastTraits<AudioWorkletGlobalScope> {
+  static bool AllowFrom(const ExecutionContext& context) {
+    return context.IsAudioWorkletGlobalScope();
+  }
+};
 
 }  // namespace blink
 

@@ -4,6 +4,8 @@
 
 #include "extensions/renderer/native_extension_bindings_system_test_base.h"
 
+#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind_test_util.h"
 #include "components/crx_file/id_util.h"
@@ -37,7 +39,7 @@ bool PropertyExists(v8::Local<v8::Context> context,
 }  // namespace
 
 TEST_F(NativeExtensionBindingsSystemUnittest, Basic) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo")
           .AddPermissions({"idle", "power", "webRequest"})
           .Build();
@@ -146,7 +148,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, Basic) {
 }
 
 TEST_F(NativeExtensionBindingsSystemUnittest, Events) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermissions({"idle", "power"}).Build();
   RegisterExtension(extension);
 
@@ -192,7 +194,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, Events) {
 // Tests that referencing the same API multiple times returns the same object;
 // i.e. chrome.foo === chrome.foo.
 TEST_F(NativeExtensionBindingsSystemUnittest, APIObjectsAreEqual) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermission("idle").Build();
   RegisterExtension(extension);
 
@@ -219,7 +221,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, APIObjectsAreEqual) {
 // returns undefined if not yet instantiated).
 TEST_F(NativeExtensionBindingsSystemUnittest,
        ReferencingAPIAfterDisposingContext) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermissions({"idle", "power"}).Build();
 
   RegisterExtension(extension);
@@ -279,7 +281,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestBridgingToJSCustomBindings) {
 
   source_map()->RegisterModule("idle", kCustomBinding);
 
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermission("idle").Build();
   RegisterExtension(extension);
 
@@ -369,7 +371,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestSendRequestHook) {
 
   source_map()->RegisterModule("idle", kCustomBinding);
 
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermission("idle").Build();
   RegisterExtension(extension);
 
@@ -403,7 +405,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestSendRequestHook) {
 // Note: the notification logic is tested more thoroughly in the APIEventHandler
 // unittests.
 TEST_F(NativeExtensionBindingsSystemUnittest, TestEventRegistration) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermissions({"idle", "power"}).Build();
 
   RegisterExtension(extension);
@@ -431,7 +433,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestEventRegistration) {
               SendAddUnfilteredEventListenerIPC(script_context, kEventName))
       .Times(1);
   v8::Local<v8::Value> argv[] = {listener};
-  RunFunction(add_listener, context, arraysize(argv), argv);
+  RunFunction(add_listener, context, base::size(argv), argv);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
   EXPECT_TRUE(bindings_system()->HasEventListenerInContext(
       "idle.onStateChanged", script_context));
@@ -446,7 +448,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestEventRegistration) {
       .Times(1);
   v8::Local<v8::Function> remove_listener =
       FunctionFromString(context, kRemoveListener);
-  RunFunction(remove_listener, context, arraysize(argv), argv);
+  RunFunction(remove_listener, context, base::size(argv), argv);
   ::testing::Mock::VerifyAndClearExpectations(ipc_message_sender());
   EXPECT_FALSE(bindings_system()->HasEventListenerInContext(
       "idle.onStateChanged", script_context));
@@ -454,7 +456,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestEventRegistration) {
 
 TEST_F(NativeExtensionBindingsSystemUnittest,
        TestPrefixedApiEventsAndAppBinding) {
-  scoped_refptr<Extension> app =
+  scoped_refptr<const Extension> app =
       ExtensionBuilder("foo", ExtensionBuilder::Type::PLATFORM_APP).Build();
   EXPECT_TRUE(app->is_platform_app());
   RegisterExtension(app);
@@ -476,7 +478,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
   ASSERT_FALSE(app_binding_keys.IsEmpty());
   ASSERT_TRUE(app_binding_keys->IsString());
   EXPECT_EQ("[\"runtime\",\"window\"]",
-            gin::V8ToString(app_binding_keys));
+            gin::V8ToString(isolate(), app_binding_keys));
 
   const char kUseAppRuntime[] =
       "(function() {\n"
@@ -494,7 +496,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 
 TEST_F(NativeExtensionBindingsSystemUnittest,
        TestPrefixedApiMethodsAndSystemBinding) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermission("system.cpu").Build();
   RegisterExtension(extension);
 
@@ -534,7 +536,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 }
 
 TEST_F(NativeExtensionBindingsSystemUnittest, TestLastError) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermissions({"idle", "power"}).Build();
   RegisterExtension(extension);
 
@@ -584,7 +586,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestLastError) {
 }
 
 TEST_F(NativeExtensionBindingsSystemUnittest, TestCustomProperties) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("storage extension").AddPermission("storage").Build();
   RegisterExtension(extension);
 
@@ -620,7 +622,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestCustomProperties) {
 // Ensure that different contexts have different API objects.
 TEST_F(NativeExtensionBindingsSystemUnittest,
        CheckDifferentContextsHaveDifferentAPIObjects) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("extension").AddPermission("idle").Build();
   RegisterExtension(extension);
 
@@ -657,7 +659,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 // context are properly present or absent from the API object.
 TEST_F(NativeExtensionBindingsSystemUnittest,
        CheckRestrictedFeaturesBasedOnContext) {
-  scoped_refptr<Extension> connectable_extension;
+  scoped_refptr<const Extension> connectable_extension;
   {
     DictionaryBuilder manifest;
     manifest.Set("name", "connectable")
@@ -726,7 +728,8 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 
 // Tests behavior when script sets window.chrome to be various things.
 TEST_F(NativeExtensionBindingsSystemUnittest, TestUsingOtherChromeObjects) {
-  scoped_refptr<Extension> extension = ExtensionBuilder("extension").Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("extension").Build();
   RegisterExtension(extension);
 
   v8::HandleScope handle_scope(isolate());
@@ -794,7 +797,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestUsingOtherChromeObjects) {
 
 // Tests updating a context's bindings after adding or removing permissions.
 TEST_F(NativeExtensionBindingsSystemUnittest, TestUpdatingPermissions) {
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("extension").AddPermission("idle").Build();
 
   RegisterExtension(extension);
@@ -851,7 +854,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestUpdatingPermissions) {
     // Trying to run a chrome.idle function should fail.
     v8::Local<v8::Value> args[] = {initial_idle};
     RunFunctionAndExpectError(
-        run_idle, context, arraysize(args), args,
+        run_idle, context, base::size(args), args,
         "Uncaught Error: 'idle.queryState' is not available in this context.");
     EXPECT_FALSE(has_last_params());
   }
@@ -862,7 +865,8 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestUpdatingPermissions) {
     apis.insert(APIPermission::kPower);
     apis.insert(APIPermission::kIdle);
     extension->permissions_data()->SetPermissions(
-        std::make_unique<PermissionSet>(apis, ManifestPermissionSet(),
+        std::make_unique<PermissionSet>(std::move(apis),
+                                        ManifestPermissionSet(),
                                         URLPatternSet(), URLPatternSet()),
         std::make_unique<PermissionSet>());
     bindings_system()->OnExtensionPermissionsUpdated(extension->id());
@@ -884,13 +888,14 @@ TEST_F(NativeExtensionBindingsSystemUnittest, TestUpdatingPermissions) {
   {
     // Trying to run a chrome.idle function should now succeed.
     v8::Local<v8::Value> args[] = {initial_idle};
-    RunFunction(run_idle, context, arraysize(args), args);
+    RunFunction(run_idle, context, base::size(args), args);
     EXPECT_EQ("idle.queryState", last_params().name);
   }
 }
 
 TEST_F(NativeExtensionBindingsSystemUnittest, UnmanagedEvents) {
-  scoped_refptr<Extension> extension = ExtensionBuilder("extension").Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("extension").Build();
 
   RegisterExtension(extension);
 
@@ -922,10 +927,11 @@ TEST_F(NativeExtensionBindingsSystemUnittest, UnmanagedEvents) {
 TEST_F(NativeExtensionBindingsSystemUnittest,
        AccessToAliasSourceDoesntGiveAliasAccess) {
   const char kWhitelistedId[] = "pkedcjkdefgpdelpbcmbmeomcjbeemfm";
-  scoped_refptr<Extension> extension = ExtensionBuilder("extension")
-                                           .SetID(kWhitelistedId)
-                                           .AddPermission("networkingPrivate")
-                                           .Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("extension")
+          .SetID(kWhitelistedId)
+          .AddPermission("networkingPrivate")
+          .Build();
 
   RegisterExtension(extension);
 
@@ -938,10 +944,14 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 
   // The extension only has access to networkingPrivate, so networking.onc
   // (and chrome.networking in general) should be undefined.
-  EXPECT_EQ("object", gin::V8ToString(V8ValueFromScriptSource(
-                          context, "typeof chrome.networkingPrivate")));
-  EXPECT_EQ("undefined", gin::V8ToString(V8ValueFromScriptSource(
-                             context, "typeof chrome.networking")));
+  EXPECT_EQ("object",
+            gin::V8ToString(isolate(),
+                            V8ValueFromScriptSource(
+                                context, "typeof chrome.networkingPrivate")));
+  EXPECT_EQ(
+      "undefined",
+      gin::V8ToString(isolate(), V8ValueFromScriptSource(
+                                     context, "typeof chrome.networking")));
 }
 
 // Tests that a context having access to the source for an aliased API does not
@@ -949,10 +959,11 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 TEST_F(NativeExtensionBindingsSystemUnittest,
        AccessToAliasDoesntGiveAliasSourceAccess) {
   const char kWhitelistedId[] = "pkedcjkdefgpdelpbcmbmeomcjbeemfm";
-  scoped_refptr<Extension> extension = ExtensionBuilder("extension")
-                                           .SetID(kWhitelistedId)
-                                           .AddPermission("networking.onc")
-                                           .Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("extension")
+          .SetID(kWhitelistedId)
+          .AddPermission("networking.onc")
+          .Build();
   RegisterExtension(extension);
 
   v8::HandleScope handle_scope(isolate());
@@ -964,17 +975,21 @@ TEST_F(NativeExtensionBindingsSystemUnittest,
 
   // The extension only has access to networking.onc, so networkingPrivate
   // should be undefined.
-  EXPECT_EQ("undefined", gin::V8ToString(V8ValueFromScriptSource(
-                             context, "typeof chrome.networkingPrivate")));
-  EXPECT_EQ("object", gin::V8ToString(V8ValueFromScriptSource(
-                          context, "typeof chrome.networking.onc")));
+  EXPECT_EQ("undefined",
+            gin::V8ToString(isolate(),
+                            V8ValueFromScriptSource(
+                                context, "typeof chrome.networkingPrivate")));
+  EXPECT_EQ(
+      "object",
+      gin::V8ToString(isolate(), V8ValueFromScriptSource(
+                                     context, "typeof chrome.networking.onc")));
 }
 
 // Test that if an extension has access to both an alias and an alias source,
 // the objects on the API are different.
 TEST_F(NativeExtensionBindingsSystemUnittest, AliasedAPIsAreDifferentObjects) {
   const char kWhitelistedId[] = "pkedcjkdefgpdelpbcmbmeomcjbeemfm";
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("extension")
           .SetID(kWhitelistedId)
           .AddPermissions({"networkingPrivate", "networking.onc"})
@@ -989,10 +1004,14 @@ TEST_F(NativeExtensionBindingsSystemUnittest, AliasedAPIsAreDifferentObjects) {
   bindings_system()->UpdateBindingsForContext(script_context);
 
   // Both APIs should be defined, since the extension has access to each.
-  EXPECT_EQ("object", gin::V8ToString(V8ValueFromScriptSource(
-                          context, "typeof chrome.networkingPrivate")));
-  EXPECT_EQ("object", gin::V8ToString(V8ValueFromScriptSource(
-                          context, "typeof chrome.networking.onc")));
+  EXPECT_EQ("object",
+            gin::V8ToString(isolate(),
+                            V8ValueFromScriptSource(
+                                context, "typeof chrome.networkingPrivate")));
+  EXPECT_EQ(
+      "object",
+      gin::V8ToString(isolate(), V8ValueFromScriptSource(
+                                     context, "typeof chrome.networking.onc")));
 
   // The APIs should not be equal.
   bool equal = true;
@@ -1006,7 +1025,8 @@ TEST_F(NativeExtensionBindingsSystemUnittest, AliasedAPIsAreDifferentObjects) {
 
 // Tests that script can overwrite the value of an API.
 TEST_F(NativeExtensionBindingsSystemUnittest, CanOverwriteAPIs) {
-  scoped_refptr<Extension> extension = ExtensionBuilder("extension").Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("extension").Build();
 
   RegisterExtension(extension);
 
@@ -1024,12 +1044,13 @@ TEST_F(NativeExtensionBindingsSystemUnittest, CanOverwriteAPIs) {
   v8::Local<v8::Value> property =
       V8ValueFromScriptSource(context, "chrome.runtime");
   EXPECT_TRUE(property->IsString());
-  EXPECT_EQ("bar", gin::V8ToString(property));
+  EXPECT_EQ("bar", gin::V8ToString(isolate(), property));
 }
 
 // Tests that script can delete an API property.
 TEST_F(NativeExtensionBindingsSystemUnittest, CanDeleteAPIs) {
-  scoped_refptr<Extension> extension = ExtensionBuilder("extension").Build();
+  scoped_refptr<const Extension> extension =
+      ExtensionBuilder("extension").Build();
 
   RegisterExtension(extension);
 
@@ -1075,7 +1096,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, APIIsInitializedByOwningContext) {
          apiBridge.registerCustomHook(() => {});)";
   source_map()->RegisterModule("idle", kCustomBinding);
 
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo").AddPermission("idle").Build();
   RegisterExtension(extension);
 
@@ -1104,7 +1125,7 @@ TEST_F(NativeExtensionBindingsSystemUnittest, APIIsInitializedByOwningContext) {
 
     v8::Context::Scope context_scope(second_context);
     v8::Local<v8::Value> args[] = {chrome};
-    RunFunction(get_idle, second_context, arraysize(args), args);
+    RunFunction(get_idle, second_context, base::size(args), args);
   }
 
   // The apiBridge should have been created in the owning (original) context,
@@ -1163,7 +1184,7 @@ TEST_P(ResponseValidationNativeExtensionBindingsSystemUnittest,
   APIResponseValidator::TestHandler test_validation_failure_handler(
       base::BindLambdaForTesting(on_validation_failure));
 
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder("foo")
           .AddPermissions({"idle", "power", "webRequest"})
           .Build();

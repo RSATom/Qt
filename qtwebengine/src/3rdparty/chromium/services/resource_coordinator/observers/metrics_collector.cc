@@ -16,20 +16,11 @@
 
 namespace resource_coordinator {
 
-const size_t kDefaultMaxCPUUsageMeasurements = 30u;
-
-// Audio is considered to have started playing if the page has never
-// previously played audio, or has been silent for at least one minute.
-const base::TimeDelta kMaxAudioSlientTimeout = base::TimeDelta::FromMinutes(1);
 // Delay the metrics report from GRC to UMA/UKM for 5 minutes from when the main
 // frame navigation is committed.
 const base::TimeDelta kMetricsReportDelayTimeout =
     base::TimeDelta::FromMinutes(5);
 
-const char kTabFromBackgroundedToFirstAlertFiredUMA[] =
-    "TabManager.Heuristics.FromBackgroundedToFirstAlertFired";
-const char kTabFromBackgroundedToFirstAudioStartsUMA[] =
-    "TabManager.Heuristics.FromBackgroundedToFirstAudioStarts";
 const char kTabFromBackgroundedToFirstFaviconUpdatedUMA[] =
     "TabManager.Heuristics.FromBackgroundedToFirstFaviconUpdated";
 const char kTabFromBackgroundedToFirstTitleUpdatedUMA[] =
@@ -54,8 +45,7 @@ size_t GetNumCoresidentTabs(const PageCoordinationUnitImpl* page_cu) {
   return coresident_tabs.size() - 1;
 }
 
-MetricsCollector::MetricsCollector()
-    : max_ukm_cpu_usage_measurements_(kDefaultMaxCPUUsageMeasurements) {
+MetricsCollector::MetricsCollector() {
   UpdateWithFieldTrialParams();
 }
 
@@ -84,32 +74,6 @@ void MetricsCollector::OnBeforeCoordinationUnitDestroyed(
   }
 }
 
-void MetricsCollector::OnFramePropertyChanged(
-    const FrameCoordinationUnitImpl* frame_cu,
-    const mojom::PropertyType property_type,
-    int64_t value) {
-  if (property_type == mojom::PropertyType::kAudible) {
-    bool audible = static_cast<bool>(value);
-    if (!audible)
-      return;
-    auto* page_cu = frame_cu->GetPageCoordinationUnit();
-    // Only record metrics while it is backgrounded.
-    if (!page_cu || page_cu->IsVisible() || !ShouldReportMetrics(page_cu)) {
-      return;
-    }
-    // Audio is considered to have started playing if the page has never
-    // previously played audio, or has been silent for at least one minute.
-    auto now = ResourceCoordinatorClock::NowTicks();
-    if (frame_cu->last_audible_time() + kMaxAudioSlientTimeout < now) {
-      MetricsReportRecord& record =
-          metrics_report_record_map_.find(page_cu->id())->second;
-      record.first_audible.OnSignalReceived(
-          frame_cu->IsMainFrame(), page_cu->TimeSinceLastVisibilityChange(),
-          coordination_unit_graph().ukm_recorder());
-    }
-  }
-}
-
 void MetricsCollector::OnPagePropertyChanged(
     const PageCoordinationUnitImpl* page_cu,
     const mojom::PropertyType property_type,
@@ -135,15 +99,7 @@ void MetricsCollector::OnProcessPropertyChanged(
     const ProcessCoordinationUnitImpl* process_cu,
     const mojom::PropertyType property_type,
     int64_t value) {
-  if (property_type == mojom::PropertyType::kCPUUsage) {
-    for (auto* page_cu : process_cu->GetAssociatedPageCoordinationUnits()) {
-      if (IsCollectingCPUUsageForUkm(page_cu->id())) {
-        RecordCPUUsageForUkm(page_cu->id(), page_cu->GetCPUUsage(),
-                             GetNumCoresidentTabs(page_cu));
-      }
-    }
-  } else if (property_type ==
-             mojom::PropertyType::kExpectedTaskQueueingDuration) {
+  if (property_type == mojom::PropertyType::kExpectedTaskQueueingDuration) {
     for (auto* page_cu : process_cu->GetAssociatedPageCoordinationUnits()) {
       if (IsCollectingExpectedQueueingTimeForUkm(page_cu->id())) {
         int64_t expected_queueing_time;
@@ -159,18 +115,7 @@ void MetricsCollector::OnProcessPropertyChanged(
 void MetricsCollector::OnFrameEventReceived(
     const FrameCoordinationUnitImpl* frame_cu,
     const mojom::Event event) {
-  if (event == mojom::Event::kAlertFired) {
-    auto* page_cu = frame_cu->GetPageCoordinationUnit();
-    // Only record metrics while it is backgrounded.
-    if (!page_cu || page_cu->IsVisible() || !ShouldReportMetrics(page_cu)) {
-      return;
-    }
-    MetricsReportRecord& record =
-        metrics_report_record_map_.find(page_cu->id())->second;
-    record.first_alert_fired.OnSignalReceived(
-        frame_cu->IsMainFrame(), page_cu->TimeSinceLastVisibilityChange(),
-        coordination_unit_graph().ukm_recorder());
-  } else if (event == mojom::Event::kNonPersistentNotificationCreated) {
+  if (event == mojom::Event::kNonPersistentNotificationCreated) {
     auto* page_cu = frame_cu->GetPageCoordinationUnit();
     // Only record metrics while it is backgrounded.
     if (!page_cu || page_cu->IsVisible() || !ShouldReportMetrics(page_cu)) {
@@ -213,31 +158,11 @@ bool MetricsCollector::ShouldReportMetrics(
   return page_cu->TimeSinceLastNavigation() > kMetricsReportDelayTimeout;
 }
 
-bool MetricsCollector::IsCollectingCPUUsageForUkm(
-    const CoordinationUnitID& page_cu_id) {
-  const UkmCollectionState& state = ukm_collection_state_map_[page_cu_id];
-
-  return state.ukm_source_id != ukm::kInvalidSourceId &&
-         state.num_cpu_usage_measurements < max_ukm_cpu_usage_measurements_;
-}
-
 bool MetricsCollector::IsCollectingExpectedQueueingTimeForUkm(
     const CoordinationUnitID& page_cu_id) {
   UkmCollectionState& state = ukm_collection_state_map_[page_cu_id];
   return state.ukm_source_id != ukm::kInvalidSourceId &&
          ++state.num_unreported_eqt_measurements >= frequency_ukm_eqt_reported_;
-}
-
-void MetricsCollector::RecordCPUUsageForUkm(
-    const CoordinationUnitID& page_cu_id,
-    double cpu_usage,
-    size_t num_coresident_tabs) {
-  UkmCollectionState& state = ukm_collection_state_map_[page_cu_id];
-
-  ukm::builders::CPUUsageMeasurement(state.ukm_source_id)
-      .SetCPUUsage(cpu_usage)
-      .SetNumberOfCoresidentTabs(num_coresident_tabs)
-      .Record(coordination_unit_graph().ukm_recorder());
 }
 
 void MetricsCollector::RecordExpectedQueueingTimeForUkm(
@@ -257,19 +182,10 @@ void MetricsCollector::UpdateUkmSourceIdForPage(
 
   state.ukm_source_id = ukm_source_id;
   // Updating the |ukm_source_id| restarts usage collection.
-  state.num_cpu_usage_measurements = 0u;
   state.num_unreported_eqt_measurements = 0u;
 }
 
 void MetricsCollector::UpdateWithFieldTrialParams() {
-  int64_t interval_ms = GetGRCRenderProcessCPUProfilingIntervalInMs();
-  int64_t duration_ms = GetGRCRenderProcessCPUProfilingDurationInMs();
-
-  if (interval_ms > 0 && duration_ms > 0 && duration_ms >= interval_ms) {
-    max_ukm_cpu_usage_measurements_ =
-        static_cast<size_t>(duration_ms / interval_ms);
-  }
-
   frequency_ukm_eqt_reported_ = base::GetFieldTrialParamByFeatureAsInt(
       ukm::kUkmFeature, "FrequencyUKMExpectedQueueingTime",
       kDefaultFrequencyUkmEQTReported);
@@ -288,16 +204,12 @@ MetricsCollector::MetricsReportRecord::MetricsReportRecord(
 
 void MetricsCollector::MetricsReportRecord::UpdateUKMSourceID(
     int64_t ukm_source_id) {
-  first_alert_fired.SetUKMSourceID(ukm_source_id);
-  first_audible.SetUKMSourceID(ukm_source_id);
   first_favicon_updated.SetUKMSourceID(ukm_source_id);
   first_non_persistent_notification_created.SetUKMSourceID(ukm_source_id);
   first_title_updated.SetUKMSourceID(ukm_source_id);
 }
 
 void MetricsCollector::MetricsReportRecord::Reset() {
-  first_alert_fired.Reset();
-  first_audible.Reset();
   first_favicon_updated.Reset();
   first_non_persistent_notification_created.Reset();
   first_title_updated.Reset();

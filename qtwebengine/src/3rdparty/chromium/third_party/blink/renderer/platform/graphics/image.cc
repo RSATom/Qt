@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
+#include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image.h"
 #include "third_party/blink/renderer/platform/graphics/deferred_image_decoder.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
@@ -43,10 +44,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_shader.h"
 #include "third_party/blink/renderer/platform/graphics/scoped_interpolation_quality.h"
 #include "third_party/blink/renderer/platform/histogram.h"
-#include "third_party/blink/renderer/platform/instrumentation/platform_instrumentation.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/length.h"
-#include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -56,6 +54,35 @@
 #include <tuple>
 
 namespace blink {
+
+class CombinedImageDecodeCache {
+ public:
+  CombinedImageDecodeCache(size_t locked_memory_limit_bytes)
+      : locked_memory_limit_bytes_(locked_memory_limit_bytes) {
+    constexpr int kMaxIndex =
+        (kMaxCanvasPixelFormat + 1) * (kMaxCanvasColorSpace + 1);
+    decode_caches_.resize(kMaxIndex);
+  }
+
+  cc::ImageDecodeCache* GetCache(CanvasColorSpace color_space,
+                                 CanvasPixelFormat pixel_format) {
+    base::AutoLock lock(lock_);
+    int index = (kMaxCanvasColorSpace + 1) * pixel_format + color_space;
+    if (!decode_caches_[index]) {
+      decode_caches_[index] = std::make_unique<cc::SoftwareImageDecodeCache>(
+          CanvasColorParams::PixelFormatToSkColorType(pixel_format),
+          locked_memory_limit_bytes_, PaintImage::kDefaultGeneratorClientId,
+          blink::CanvasColorParams::CanvasColorSpaceToSkColorSpace(
+              color_space));
+    }
+    return decode_caches_[index].get();
+  }
+
+ private:
+  std::vector<std::unique_ptr<cc::SoftwareImageDecodeCache>> decode_caches_;
+  const size_t locked_memory_limit_bytes_;
+  base::Lock lock_;
+};
 
 Image::Image(ImageObserver* observer, bool is_multipart)
     : image_observer_disabled_(false),
@@ -74,15 +101,16 @@ Image* Image::NullImage() {
 }
 
 // static
-cc::ImageDecodeCache& Image::SharedCCDecodeCache() {
+cc::ImageDecodeCache* Image::SharedCCDecodeCache(
+    CanvasColorSpace color_space,
+    CanvasPixelFormat pixel_format) {
   // This denotes the allocated locked memory budget for the cache used for
   // book-keeping. The cache indicates when the total memory locked exceeds this
   // budget in cc::DecodedDrawImage.
   static const size_t kLockedMemoryLimitBytes = 64 * 1024 * 1024;
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(cc::SoftwareImageDecodeCache,
-                                  image_decode_cache,
-                                  (kN32_SkColorType, kLockedMemoryLimitBytes));
-  return image_decode_cache;
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(CombinedImageDecodeCache, combined_cache,
+                                  (kLockedMemoryLimitBytes));
+  return combined_cache.GetCache(color_space, pixel_format);
 }
 
 scoped_refptr<Image> Image::LoadPlatformResource(const char* name) {
@@ -93,10 +121,6 @@ scoped_refptr<Image> Image::LoadPlatformResource(const char* name) {
   scoped_refptr<Image> image = BitmapImage::Create();
   image->SetData(resource, true);
   return image;
-}
-
-bool Image::SupportsType(const String& type) {
-  return MIMETypeRegistry::IsSupportedImageResourceMIMEType(type);
 }
 
 Image::SizeAvailability Image::SetData(scoped_refptr<SharedBuffer> data,
@@ -279,7 +303,8 @@ namespace {
 
 sk_sp<PaintShader> CreatePatternShader(const PaintImage& image,
                                        const SkMatrix& shader_matrix,
-                                       const PaintFlags& paint,
+                                       SkFilterQuality quality_to_use,
+                                       bool should_antialias,
                                        const FloatSize& spacing,
                                        SkShader::TileMode tmx,
                                        SkShader::TileMode tmy) {
@@ -294,7 +319,10 @@ sk_sp<PaintShader> CreatePatternShader(const PaintImage& image,
 
   PaintRecorder recorder;
   cc::PaintCanvas* canvas = recorder.beginRecording(tile_rect);
-  canvas->drawImage(image, 0, 0, &paint);
+  PaintFlags flags;
+  flags.setAntiAlias(should_antialias);
+  flags.setFilterQuality(quality_to_use);
+  canvas->drawImage(image, 0, 0, &flags);
 
   return PaintShader::MakePaintRecord(recorder.finishRecordingAsPicture(),
                                       tile_rect, tmx, tmy, &shader_matrix);
@@ -365,27 +393,30 @@ void Image::DrawPattern(GraphicsContext& context,
   const auto tmy = ComputeTileMode(dest_rect.Y(), dest_rect.MaxY(), adjusted_y,
                                    adjusted_y + tile_size.Height());
 
-  PaintFlags flags = context.FillFlags();
-  flags.setColor(SK_ColorBLACK);
-  flags.setBlendMode(composite_op);
-  flags.setFilterQuality(
-      context.ComputeFilterQuality(this, dest_rect, FloatRect(subset_rect)));
-  flags.setAntiAlias(context.ShouldAntialias());
-  flags.setShader(CreatePatternShader(
-      image, local_matrix, flags,
+  SkFilterQuality quality_to_use =
+      context.ComputeFilterQuality(this, dest_rect, FloatRect(subset_rect));
+  sk_sp<PaintShader> tile_shader = CreatePatternShader(
+      image, local_matrix, quality_to_use, context.ShouldAntialias(),
       FloatSize(repeat_spacing.Width() / scale_src_to_dest.Width(),
                 repeat_spacing.Height() / scale_src_to_dest.Height()),
-      tmx, tmy));
+      tmx, tmy);
+
+  PaintFlags flags = context.FillFlags();
   // If the shader could not be instantiated (e.g. non-invertible matrix),
   // draw transparent.
   // Note: we can't simply bail, because of arbitrary blend mode.
-  if (!flags.HasShader())
-    flags.setColor(SK_ColorTRANSPARENT);
+  flags.setColor(tile_shader ? SK_ColorBLACK : SK_ColorTRANSPARENT);
+  flags.setBlendMode(composite_op);
+  flags.setFilterQuality(quality_to_use);
+  flags.setShader(std::move(tile_shader));
 
   context.DrawRect(dest_rect, flags);
 
-  if (CurrentFrameIsLazyDecoded())
-    PlatformInstrumentation::DidDrawLazyPixelRef(image_id);
+  if (CurrentFrameIsLazyDecoded()) {
+    TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
+                         "Draw LazyPixelRef", TRACE_EVENT_SCOPE_THREAD,
+                         "LazyPixelRef", image_id);
+  }
 }
 
 scoped_refptr<Image> Image::ImageForDefaultFrame() {
@@ -439,7 +470,7 @@ FloatRect Image::ComputeSubsetForBackground(const FloatRect& phase_and_size,
                                             const FloatRect& subset,
                                             const FloatSize& intrinsic_size) {
   // TODO(schenney): Re-enable this after determining why it fails for
-  // SPv2, and maybe other cases.
+  // CAP, and maybe other cases.
   // DCHECK(phase_and_size.Contains(subset));
 
   const FloatSize scale(phase_and_size.Width() / intrinsic_size.Width(),

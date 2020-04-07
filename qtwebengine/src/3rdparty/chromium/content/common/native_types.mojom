@@ -19,9 +19,6 @@ struct FrameOwnerProperties;
 struct FrameReplicationState;
 
 [Native]
-struct RendererPreferences;
-
-[Native]
 struct VisualProperties;
 
 // NOTE: This type is only mapped and usable on Mac.
@@ -45,9 +42,6 @@ enum NetworkConnectionType;
 
 [Native]
 struct WebCursor;
-
-[Native]
-enum WebPopupType;
 
 [Native]
 enum Button;

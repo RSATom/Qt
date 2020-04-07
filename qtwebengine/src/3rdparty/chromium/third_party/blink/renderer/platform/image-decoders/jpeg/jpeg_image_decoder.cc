@@ -39,7 +39,8 @@
 
 #include <memory>
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/instrumentation/platform_instrumentation.h"
+#include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
 extern "C" {
 #include <stdio.h>  // jpeglib.h needs stdio FILE.
@@ -77,7 +78,65 @@ namespace {
 const int exifMarker = JPEG_APP0 + 1;
 
 // JPEG only supports a denominator of 8.
-const unsigned g_scale_denomiator = 8;
+const unsigned g_scale_denominator = 8;
+
+// Extracts the JPEG color space of an image for UMA purposes given |info| which
+// is assumed to have gone through a jpeg_read_header(). When the color space is
+// YCbCr, we also extract the chroma subsampling. The caveat is that the
+// extracted color space is really libjpeg_turbo's guess. According to
+// libjpeg.txt, "[t]he JPEG color space, unfortunately, is something of a guess
+// since the JPEG standard proper does not provide a way to record it. In
+// practice most files adhere to the JFIF or Adobe conventions, and the decoder
+// will recognize these correctly."
+blink::BitmapImageMetrics::JpegColorSpace ExtractUMAJpegColorSpace(
+    const jpeg_decompress_struct& info) {
+  switch (info.jpeg_color_space) {
+    case JCS_GRAYSCALE:
+      return blink::BitmapImageMetrics::JpegColorSpace::kGrayscale;
+    case JCS_RGB:
+      return blink::BitmapImageMetrics::JpegColorSpace::kRGB;
+    case JCS_CMYK:
+      return blink::BitmapImageMetrics::JpegColorSpace::kCMYK;
+    case JCS_YCCK:
+      return blink::BitmapImageMetrics::JpegColorSpace::kYCCK;
+    case JCS_YCbCr:
+      // The following logic is mostly reused from YuvSubsampling(). However,
+      // here we use |info.comp_info| instead of |info.cur_comp_info| to read
+      // the components from the SOF instead of the first scan. We also don't
+      // care about |info.scale_denom|.
+      // TODO: can we use this same logic in YuvSubsampling()?
+      if (info.num_components == 3 && info.comp_info &&
+          info.comp_info[1].h_samp_factor == 1 &&
+          info.comp_info[1].v_samp_factor == 1 &&
+          info.comp_info[2].h_samp_factor == 1 &&
+          info.comp_info[2].v_samp_factor == 1) {
+        const int h = info.comp_info[0].h_samp_factor;
+        const int v = info.comp_info[0].v_samp_factor;
+        if (v == 1) {
+          switch (h) {
+            case 1:
+              return blink::BitmapImageMetrics::JpegColorSpace::kYCbCr444;
+            case 2:
+              return blink::BitmapImageMetrics::JpegColorSpace::kYCbCr422;
+            case 4:
+              return blink::BitmapImageMetrics::JpegColorSpace::kYCbCr411;
+          }
+        } else if (v == 2) {
+          switch (h) {
+            case 1:
+              return blink::BitmapImageMetrics::JpegColorSpace::kYCbCr440;
+            case 2:
+              return blink::BitmapImageMetrics::JpegColorSpace::kYCbCr420;
+            case 4:
+              return blink::BitmapImageMetrics::JpegColorSpace::kYCbCr410;
+          }
+        }
+      }
+      return blink::BitmapImageMetrics::JpegColorSpace::kYCbCrOther;
+    default:
+      return blink::BitmapImageMetrics::JpegColorSpace::kUnknown;
+  }
+}
 
 }  // namespace
 
@@ -392,6 +451,21 @@ class JPEGImageReader final {
     ClearBuffer();
   }
 
+  bool ShouldDecodeToOriginalSize() const {
+    // We should decode only to original size if either dimension cannot fit a
+    // whole number of MCUs.
+    const int max_h_samp_factor = info_.max_h_samp_factor;
+    const int max_v_samp_factor = info_.max_v_samp_factor;
+    DCHECK_GE(max_h_samp_factor, 1);
+    DCHECK_GE(max_v_samp_factor, 1);
+    DCHECK_LE(max_h_samp_factor, 4);
+    DCHECK_LE(max_v_samp_factor, 4);
+    const int mcu_width = info_.max_h_samp_factor * DCTSIZE;
+    const int mcu_height = info_.max_v_samp_factor * DCTSIZE;
+    return info_.image_width % mcu_width != 0 ||
+           info_.image_height % mcu_height != 0;
+  }
+
   // Decode the JPEG data. If |only_size| is specified, then only the size
   // information will be decoded.
   bool Decode(bool only_size) {
@@ -437,16 +511,37 @@ class JPEGImageReader final {
 
         // Calculate and set decoded size.
         int max_numerator = decoder_->DesiredScaleNumerator();
-        info_.scale_denom = g_scale_denomiator;
+        info_.scale_denom = g_scale_denominator;
 
         if (decoder_->ShouldGenerateAllSizes()) {
+          // Some images should not be scaled down by libjpeg_turbo because
+          // doing so may cause artifacts. Specifically, if the image contains a
+          // non-whole number of MCUs in either dimension, it's possible that
+          // the encoder used bogus data to create the last row or column of
+          // MCUs. This data may manifest when downscaling using libjpeg_turbo.
+          // See https://crbug.com/890745 and
+          // https://github.com/libjpeg-turbo/libjpeg-turbo/issues/297. Hence,
+          // we'll only allow downscaling an image if both dimensions fit a
+          // whole number of MCUs or if decoding to the original size would
+          // cause us to exceed memory limits. The latter case is detected by
+          // checking the |max_numerator| returned by DesiredScaleNumerator():
+          // this method will return either |g_scale_denominator| if decoding to
+          // the original size won't exceed the memory limit (see
+          // |max_decoded_bytes_| in ImageDecoder) or something less than
+          // |g_scale_denominator| otherwise to ensure the image is downscaled.
           std::vector<SkISize> sizes;
-          sizes.reserve(max_numerator);
-          for (int numerator = 1; numerator <= max_numerator; ++numerator) {
-            info_.scale_num = numerator;
-            jpeg_calc_output_dimensions(&info_);
+          if (max_numerator == g_scale_denominator &&
+              ShouldDecodeToOriginalSize()) {
             sizes.push_back(
-                SkISize::Make(info_.output_width, info_.output_height));
+                SkISize::Make(info_.image_width, info_.image_height));
+          } else {
+            sizes.reserve(max_numerator);
+            for (int numerator = 1; numerator <= max_numerator; ++numerator) {
+              info_.scale_num = numerator;
+              jpeg_calc_output_dimensions(&info_);
+              sizes.push_back(
+                  SkISize::Make(info_.output_width, info_.output_height));
+            }
           }
           decoder_->SetSupportedDecodeSizes(std::move(sizes));
         }
@@ -631,6 +726,9 @@ class JPEGImageReader final {
 
       case JPEG_DONE:
         // Finish decompression.
+        BitmapImageMetrics::CountJpegArea(decoder_->Size());
+        BitmapImageMetrics::CountJpegColorSpace(
+            ExtractUMAJpegColorSpace(info_));
         return jpeg_finish_decompress(&info_);
     }
 
@@ -643,6 +741,9 @@ class JPEGImageReader final {
   IntSize UvSize() const { return uv_size_; }
 
  private:
+#if defined(USE_SYSTEM_LIBJPEG)
+  NO_SANITIZE_CFI_ICALL
+#endif
   JSAMPARRAY AllocateSampleArray() {
 // Some output color spaces don't need the sample array: don't allocate in that
 // case.
@@ -803,13 +904,13 @@ unsigned JPEGImageDecoder::DesiredScaleNumerator() const {
   size_t original_bytes = Size().Width() * Size().Height() * 4;
 
   if (original_bytes <= max_decoded_bytes_)
-    return g_scale_denomiator;
+    return g_scale_denominator;
 
   // Downsample according to the maximum decoded size.
   unsigned scale_numerator = static_cast<unsigned>(floor(sqrt(
       // MSVC needs explicit parameter type for sqrt().
-      static_cast<float>(max_decoded_bytes_ * g_scale_denomiator *
-                         g_scale_denomiator / original_bytes))));
+      static_cast<float>(max_decoded_bytes_ * g_scale_denominator *
+                         g_scale_denominator / original_bytes))));
 
   return scale_numerator;
 }
@@ -819,18 +920,27 @@ bool JPEGImageDecoder::ShouldGenerateAllSizes() const {
 }
 
 bool JPEGImageDecoder::CanDecodeToYUV() {
+  // TODO(crbug.com/919627): Re-enable the code below once JPEG YUV decoding is
+  // finished.
+  // Returning false here is a bit deceptive because the JPEG decoder does
+  // support YUV. But the rest of the infrastructure at levels above the decoder
+  // is not quite there yet to handle the resulting JPEG YUV data,
+  // so for now we disable that path.
+  return false;
   // Calling IsSizeAvailable() ensures the reader is created and the output
   // color space is set.
-  return IsSizeAvailable() && reader_->Info()->out_color_space == JCS_YCbCr;
+  // return IsSizeAvailable() && reader_->Info()->out_color_space == JCS_YCbCr;
 }
 
 bool JPEGImageDecoder::DecodeToYUV() {
   if (!HasImagePlanes())
     return false;
 
-  PlatformInstrumentation::WillDecodeImage("JPEG");
-  Decode(false);
-  PlatformInstrumentation::DidDecodeImage();
+  {
+    TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "Decode Image",
+                 "imageType", "JPEG");
+    Decode(false);
+  }
   return !Failed();
 }
 

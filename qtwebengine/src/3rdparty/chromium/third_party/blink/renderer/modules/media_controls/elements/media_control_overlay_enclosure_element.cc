@@ -15,13 +15,13 @@ MediaControlOverlayEnclosureElement::MediaControlOverlayEnclosureElement(
   SetShadowPseudoId(AtomicString("-webkit-media-controls-overlay-enclosure"));
 }
 
-void MediaControlOverlayEnclosureElement::DefaultEventHandler(Event* event) {
+void MediaControlOverlayEnclosureElement::DefaultEventHandler(Event& event) {
   // When the user interacts with the media element, the Cast overlay button
   // needs to be shown.
-  if (event->type() == EventTypeNames::gesturetap ||
-      event->type() == EventTypeNames::click ||
-      event->type() == EventTypeNames::pointerover ||
-      event->type() == EventTypeNames::pointermove) {
+  if (event.type() == event_type_names::kGesturetap ||
+      event.type() == event_type_names::kClick ||
+      event.type() == event_type_names::kPointerover ||
+      event.type() == event_type_names::kPointermove) {
     GetMediaControls().ShowOverlayCastButtonIfNeeded();
   }
 

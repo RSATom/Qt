@@ -45,9 +45,10 @@ class SVGAnimatedAngle final : public ScriptWrappable,
 
  public:
   static SVGAnimatedAngle* Create(SVGElement* context_element) {
-    return new SVGAnimatedAngle(context_element);
+    return MakeGarbageCollected<SVGAnimatedAngle>(context_element);
   }
 
+  explicit SVGAnimatedAngle(SVGElement* context_element);
   ~SVGAnimatedAngle() override;
 
   SVGAnimatedEnumeration<SVGMarkerOrientType>* OrientType() {
@@ -55,16 +56,13 @@ class SVGAnimatedAngle final : public ScriptWrappable,
   }
 
   // SVGAnimatedPropertyBase:
-  bool NeedsSynchronizeAttribute() override;
+  bool NeedsSynchronizeAttribute() const override;
   void SynchronizeAttribute() override;
 
   void SetAnimatedValue(SVGPropertyBase*) override;
   void AnimationEnded() override;
 
   void Trace(blink::Visitor*) override;
-
- protected:
-  explicit SVGAnimatedAngle(SVGElement* context_element);
 
  private:
   Member<SVGAnimatedEnumeration<SVGMarkerOrientType>> orient_type_;

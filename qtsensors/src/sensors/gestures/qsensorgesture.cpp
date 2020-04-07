@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSensors module of the Qt Toolkit.
@@ -71,12 +71,10 @@
     \sa QSensorGestureManager
   */
 
-#ifdef Q_QDOC
 /*!
-  \fn QSensorGesture::detected(QString gestureId)
-  Signals when the \a gestureId gesture has been recognized.
+  \fn void QSensorGesture::detected(QString)
+  Signals when the gesture has been recognized.
   */
-#endif
 
 /*!
   Constructs the sensor gesture, and initializes the \a ids list of recognizers,

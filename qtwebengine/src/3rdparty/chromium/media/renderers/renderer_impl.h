@@ -25,6 +25,7 @@
 #include "media/base/pipeline_status.h"
 #include "media/base/renderer.h"
 #include "media/base/video_decoder_config.h"
+#include "media/base/waiting.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
@@ -98,6 +99,7 @@ class MEDIA_EXPORT RendererImpl : public Renderer {
   bool HasEncryptedStream();
 
   void FinishInitialization(PipelineStatus status);
+  void FinishFlush();
 
   // Helper functions and callbacks for Initialize().
   void InitializeAudioRenderer();
@@ -148,7 +150,6 @@ class MEDIA_EXPORT RendererImpl : public Renderer {
 
   // Fix state booleans after the stream switching is finished.
   void CleanUpTrackChange(base::RepeatingClosure on_finished,
-                          bool* pending_change,
                           bool* ended,
                           bool* playing);
 
@@ -189,7 +190,7 @@ class MEDIA_EXPORT RendererImpl : public Renderer {
   // Callback executed when a runtime error happens.
   void OnError(PipelineStatus error);
 
-  void OnWaitingForDecryptionKey();
+  void OnWaiting(WaitingReason reason);
   void OnVideoNaturalSizeChange(const gfx::Size& size);
   void OnAudioConfigChange(const AudioDecoderConfig& config);
   void OnVideoConfigChange(const VideoDecoderConfig& config);

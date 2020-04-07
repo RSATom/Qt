@@ -20,7 +20,6 @@
 #include "media/cdm/default_cdm_factory.h"
 #include "media/renderers/default_decoder_factory.h"
 #include "media/renderers/default_renderer_factory.h"
-#include "media/video/gpu_video_accelerator_factories.h"
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 #include "media/cdm/cdm_paths.h"  // nogncheck
@@ -100,8 +99,8 @@ std::unique_ptr<CdmFactory> TestMojoMediaClient::CreateCdmFactory(
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 std::unique_ptr<CdmProxy> TestMojoMediaClient::CreateCdmProxy(
-    const std::string& cdm_guid) {
-  DVLOG(1) << __func__ << ": cdm_guid = " << cdm_guid;
+    const base::Token& cdm_guid) {
+  DVLOG(1) << __func__ << ": cdm_guid = " << cdm_guid.ToString();
   if (cdm_guid == kClearKeyCdmGuid)
     return std::make_unique<ClearKeyCdmProxy>();
 

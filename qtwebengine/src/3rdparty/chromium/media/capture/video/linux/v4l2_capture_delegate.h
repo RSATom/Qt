@@ -8,10 +8,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/containers/queue.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "media/capture/video/linux/scoped_v4l2_device_fd.h"
 #include "media/capture/video/linux/v4l2_capture_device_impl.h"
 #include "media/capture/video/video_capture_device.h"
 
@@ -27,10 +32,9 @@ class Location;
 
 namespace media {
 
-// Class doing the actual Linux capture using V4L2CaptureDevice API.
-// V4L2CaptureDevice SPLANE/MPLANE capture specifics are implemented in derived
-// classes. Created on the owner's thread, otherwise living, operating and
-// destroyed on |v4l2_task_runner_|.
+// Class doing the actual Linux capture using V4L2 API. V4L2 SPLANE/MPLANE
+// capture specifics are implemented in derived classes. Created on the owner's
+// thread, otherwise living, operating and destroyed on |v4l2_task_runner_|.
 class CAPTURE_EXPORT V4L2CaptureDelegate final {
  public:
   // Retrieves the #planes for a given |fourcc|, or 0 if unknown.
@@ -41,7 +45,7 @@ class CAPTURE_EXPORT V4L2CaptureDelegate final {
 
   // Composes a list of usable and supported pixel formats, in order of
   // preference, with MJPEG prioritised depending on |prefer_mjpeg|.
-  static std::list<uint32_t> GetListOfUsableFourCcs(bool prefer_mjpeg);
+  static std::vector<uint32_t> GetListOfUsableFourCcs(bool prefer_mjpeg);
 
   V4L2CaptureDelegate(
       V4L2CaptureDevice* v4l2,
@@ -71,33 +75,34 @@ class CAPTURE_EXPORT V4L2CaptureDelegate final {
   friend class V4L2CaptureDelegateTest;
 
   class BufferTracker;
-  class ScopedV4L2DeviceFD {
-   public:
-    static constexpr int kInvalidId = -1;
-    ScopedV4L2DeviceFD(V4L2CaptureDevice* v4l2);
-    ~ScopedV4L2DeviceFD();
-    int get();
-    void reset(int fd = kInvalidId);
-    bool is_valid();
 
-   private:
-    int device_fd_;
-    V4L2CaptureDevice* const v4l2_;
-  };
+  // Running DoIoctl() on some devices, especially shortly after (re)opening the
+  // device file descriptor or (re)starting streaming, can fail but works after
+  // retrying (https://crbug.com/670262). Returns false if the |request| ioctl
+  // fails too many times.
+  bool RunIoctl(int request, void* argp);
 
-  bool RunIoctl(int fd, int request, void* argp);
-  mojom::RangePtr RetrieveUserControlRange(int device_fd, int control_id);
-  void ResetUserAndCameraControlsToDefault(int device_fd);
+  // Simple wrapper to do HANDLE_EINTR(v4l2_->ioctl(device_fd_.get(), ...)).
+  int DoIoctl(int request, void* argp);
 
-  // void CloseDevice();
+  // Creates a mojom::RangePtr with the (min, max, current, step) values of the
+  // control associated with |control_id|. Returns an empty Range otherwise.
+  mojom::RangePtr RetrieveUserControlRange(int control_id);
 
-  // VIDIOC_QUERYBUFs a buffer from V4L2CaptureDevice, creates a BufferTracker
-  // for it and enqueues it (VIDIOC_QBUF) back into V4L2CaptureDevice.
+  // Sets all user control to their default. Some controls are enabled by
+  // another flag, usually having the word "auto" in the name, see
+  // IsSpecialControl() in the .cc file. These flags are preset beforehand, then
+  // set to their defaults individually afterwards.
+  void ResetUserAndCameraControlsToDefault();
+
+  // VIDIOC_QUERYBUFs a buffer from V4L2, creates a BufferTracker for it and
+  // enqueues it (VIDIOC_QBUF) back into V4L2.
   bool MapAndQueueBuffer(int index);
 
   void DoCapture();
 
-  void SetErrorState(const base::Location& from_here,
+  void SetErrorState(VideoCaptureError error,
+                     const base::Location& from_here,
                      const std::string& reason);
 
   V4L2CaptureDevice* const v4l2_;

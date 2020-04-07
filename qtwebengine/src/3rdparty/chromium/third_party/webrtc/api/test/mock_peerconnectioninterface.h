@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-#include "api/peerconnectioninterface.h"
+#include "api/peer_connection_interface.h"
 #include "test/gmock.h"
 
 namespace webrtc {
@@ -90,16 +90,10 @@ class MockPeerConnectionInterface
                      const SessionDescriptionInterface*());
   MOCK_METHOD2(CreateOffer,
                void(CreateSessionDescriptionObserver*,
-                    const MediaConstraintsInterface*));
-  MOCK_METHOD2(CreateOffer,
-               void(CreateSessionDescriptionObserver*,
                     const RTCOfferAnswerOptions&));
   MOCK_METHOD2(CreateAnswer,
                void(CreateSessionDescriptionObserver*,
                     const RTCOfferAnswerOptions&));
-  MOCK_METHOD2(CreateAnswer,
-               void(CreateSessionDescriptionObserver*,
-                    const MediaConstraintsInterface*));
   MOCK_METHOD2(SetLocalDescription,
                void(SetSessionDescriptionObserver*,
                     SessionDescriptionInterface*));
@@ -118,7 +112,6 @@ class MockPeerConnectionInterface
   MOCK_METHOD1(AddIceCandidate, bool(const IceCandidateInterface*));
   MOCK_METHOD1(RemoveIceCandidates,
                bool(const std::vector<cricket::Candidate>&));
-  MOCK_METHOD1(RegisterUMAObserver, void(UMAObserver*));
   MOCK_METHOD1(SetBitrate, RTCError(const BitrateSettings&));
   MOCK_METHOD1(SetBitrate, RTCError(const BitrateParameters&));
   MOCK_METHOD1(SetBitrateAllocationStrategy,

@@ -46,7 +46,7 @@ std::vector<SkBitmap> ExtractSkBitmapsToStore(const gfx::Image& image) {
     // Don't save if the scale isn't one of supported favicon scales.
     if (!base::ContainsValue(favicon_scales, image_reps[i].scale()))
       continue;
-    bitmaps.push_back(image_reps[i].sk_bitmap());
+    bitmaps.push_back(image_reps[i].GetBitmap());
   }
   return bitmaps;
 }
@@ -222,6 +222,12 @@ void FaviconServiceImpl::TouchOnDemandFavicon(const GURL& icon_url) {
 void FaviconServiceImpl::SetImportedFavicons(
     const favicon_base::FaviconUsageDataList& favicon_usage) {
   history_service_->SetImportedFavicons(favicon_usage);
+}
+
+void FaviconServiceImpl::AddPageNoVisitForBookmark(
+    const GURL& url,
+    const base::string16& title) {
+  history_service_->AddPageNoVisitForBookmark(url, title);
 }
 
 void FaviconServiceImpl::MergeFavicon(

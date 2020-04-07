@@ -31,26 +31,29 @@ GeneralLossAlgorithm::GeneralLossAlgorithm() : GeneralLossAlgorithm(kNack) {}
 
 GeneralLossAlgorithm::GeneralLossAlgorithm(LossDetectionType loss_type)
     : loss_detection_timeout_(QuicTime::Zero()),
-      largest_sent_on_spurious_retransmit_(0),
-      loss_type_(loss_type),
-      reordering_shift_(loss_type == kAdaptiveTime
-                            ? kDefaultAdaptiveLossDelayShift
-                            : kDefaultLossDelayShift),
-      largest_previously_acked_(0),
-      largest_lost_(0) {}
-
-LossDetectionType GeneralLossAlgorithm::GetLossDetectionType() const {
-  return loss_type_;
+      largest_lost_(0),
+      least_in_flight_(1),
+      faster_detect_loss_(GetQuicReloadableFlag(quic_faster_detect_loss)) {
+  SetLossDetectionType(loss_type);
 }
 
 void GeneralLossAlgorithm::SetLossDetectionType(LossDetectionType loss_type) {
   loss_detection_timeout_ = QuicTime::Zero();
-  largest_sent_on_spurious_retransmit_ = 0;
+  largest_sent_on_spurious_retransmit_ = kInvalidPacketNumber;
   loss_type_ = loss_type;
   reordering_shift_ = loss_type == kAdaptiveTime
                           ? kDefaultAdaptiveLossDelayShift
                           : kDefaultLossDelayShift;
-  largest_previously_acked_ = 0;
+  if (GetQuicReloadableFlag(quic_eighth_rtt_loss_detection) &&
+      loss_type == kTime) {
+    QUIC_RELOADABLE_FLAG_COUNT(quic_eighth_rtt_loss_detection);
+    reordering_shift_ = 3;
+  }
+  largest_previously_acked_ = kInvalidPacketNumber;
+}
+
+LossDetectionType GeneralLossAlgorithm::GetLossDetectionType() const {
+  return loss_type_;
 }
 
 // Uses nack counts to decide when packets are lost.
@@ -59,23 +62,58 @@ void GeneralLossAlgorithm::DetectLosses(
     QuicTime time,
     const RttStats& rtt_stats,
     QuicPacketNumber largest_newly_acked,
+    const AckedPacketVector& packets_acked,
     LostPacketVector* packets_lost) {
   loss_detection_timeout_ = QuicTime::Zero();
+  if (faster_detect_loss_ && !packets_acked.empty() &&
+      packets_acked.front().packet_number == least_in_flight_) {
+    if (least_in_flight_ + packets_acked.size() - 1 == largest_newly_acked) {
+      // Optimization for the case when no packet is missing.
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_faster_detect_loss, 1, 3);
+      least_in_flight_ = largest_newly_acked + 1;
+      largest_previously_acked_ = largest_newly_acked;
+      return;
+    }
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_faster_detect_loss, 2, 3);
+    // There is hole in acked_packets, increment least_in_flight_ if possible.
+    for (const auto& acked : packets_acked) {
+      if (acked.packet_number != least_in_flight_) {
+        break;
+      }
+      ++least_in_flight_;
+    }
+  }
   QuicTime::Delta max_rtt =
       std::max(rtt_stats.previous_srtt(), rtt_stats.latest_rtt());
   QuicTime::Delta loss_delay =
       std::max(QuicTime::Delta::FromMilliseconds(kMinLossDelayMs),
                max_rtt + (max_rtt >> reordering_shift_));
   QuicPacketNumber packet_number = unacked_packets.GetLeastUnacked();
-  QuicUnackedPacketMap::const_iterator it = unacked_packets.begin();
-  if (largest_lost_ >= packet_number) {
-    if (largest_lost_ > unacked_packets.largest_sent_packet()) {
-      QUIC_BUG << "largest_lost: " << largest_lost_
-               << " is greater than largest_sent_packet: "
-               << unacked_packets.largest_sent_packet();
-    } else {
-      it += (largest_lost_ - packet_number + 1);
-      packet_number = largest_lost_ + 1;
+  auto it = unacked_packets.begin();
+  if (faster_detect_loss_) {
+    if (least_in_flight_ >= packet_number) {
+      if (least_in_flight_ > unacked_packets.largest_sent_packet() + 1) {
+        QUIC_BUG << "least_in_flight: " << least_in_flight_
+                 << " is greater than largest_sent_packet + 1: "
+                 << unacked_packets.largest_sent_packet() + 1;
+      } else {
+        QUIC_RELOADABLE_FLAG_COUNT_N(quic_faster_detect_loss, 3, 3);
+        it += (least_in_flight_ - packet_number);
+        packet_number = least_in_flight_;
+      }
+    }
+    // Clear least_in_flight_.
+    least_in_flight_ = kInvalidPacketNumber;
+  } else {
+    if (largest_lost_ >= packet_number) {
+      if (largest_lost_ > unacked_packets.largest_sent_packet()) {
+        QUIC_BUG << "largest_lost: " << largest_lost_
+                 << " is greater than largest_sent_packet: "
+                 << unacked_packets.largest_sent_packet();
+      } else {
+        it += (largest_lost_ - packet_number + 1);
+        packet_number = largest_lost_ + 1;
+      }
     }
   }
   for (; it != unacked_packets.end() && packet_number <= largest_newly_acked;
@@ -112,6 +150,10 @@ void GeneralLossAlgorithm::DetectLosses(
       QuicTime when_lost = it->sent_time + loss_delay;
       if (time < when_lost) {
         loss_detection_timeout_ = when_lost;
+        if (least_in_flight_ == kInvalidPacketNumber) {
+          // At this point, packet_number is in flight and not detected as lost.
+          least_in_flight_ = packet_number;
+        }
         break;
       }
       packets_lost->push_back(LostPacket(packet_number, it->bytes_sent));
@@ -124,6 +166,14 @@ void GeneralLossAlgorithm::DetectLosses(
       packets_lost->push_back(LostPacket(packet_number, it->bytes_sent));
       continue;
     }
+    if (least_in_flight_ == kInvalidPacketNumber) {
+      // At this point, packet_number is in flight and not detected as lost.
+      least_in_flight_ = packet_number;
+    }
+  }
+  if (least_in_flight_ == kInvalidPacketNumber) {
+    // There is no in flight packet.
+    least_in_flight_ = largest_newly_acked + 1;
   }
   largest_previously_acked_ = largest_newly_acked;
   if (!packets_lost->empty()) {
@@ -154,7 +204,7 @@ void GeneralLossAlgorithm::SpuriousRetransmitDetected(
   QuicTime::Delta max_rtt =
       std::max(rtt_stats.previous_srtt(), rtt_stats.latest_rtt());
   if (GetQuicReloadableFlag(quic_fix_adaptive_time_loss)) {
-    QUIC_FLAG_COUNT(quic_reloadable_flag_quic_fix_adaptive_time_loss);
+    QUIC_RELOADABLE_FLAG_COUNT(quic_fix_adaptive_time_loss);
     while ((max_rtt >> reordering_shift_) <= extra_time_needed &&
            reordering_shift_ > 0) {
       --reordering_shift_;

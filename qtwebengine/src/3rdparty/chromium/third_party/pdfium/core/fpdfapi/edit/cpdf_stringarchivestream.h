@@ -7,7 +7,7 @@
 
 #include "core/fxcrt/fx_stream.h"
 
-class CPDF_StringArchiveStream : public IFX_ArchiveStream {
+class CPDF_StringArchiveStream final : public IFX_ArchiveStream {
  public:
   explicit CPDF_StringArchiveStream(std::ostringstream* stream);
   ~CPDF_StringArchiveStream() override;
@@ -17,7 +17,7 @@ class CPDF_StringArchiveStream : public IFX_ArchiveStream {
   bool WriteDWord(uint32_t i) override;
   FX_FILESIZE CurrentOffset() const override;
   bool WriteBlock(const void* pData, size_t size) override;
-  bool WriteString(const ByteStringView& str) override;
+  bool WriteString(ByteStringView str) override;
 
  private:
   std::ostringstream* stream_;

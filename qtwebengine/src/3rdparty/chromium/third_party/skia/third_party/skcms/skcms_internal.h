@@ -21,10 +21,6 @@ extern "C" {
 // ~~~~ General Helper Macros ~~~~
     #define ARRAY_COUNT(arr) (int)(sizeof((arr)) / sizeof(*(arr)))
 
-// ~~~~ skcms_TransferFunction ~~~~
-    float skcms_TransferFunction_eval  (const skcms_TransferFunction*, float);
-    bool  skcms_TransferFunction_invert(const skcms_TransferFunction*, skcms_TransferFunction*);
-
 // ~~~~ skcms_ICCProfile ~~~~
     bool skcms_GetCHAD(const skcms_ICCProfile* profile, skcms_Matrix3x3* m);
 
@@ -33,11 +29,6 @@ extern "C" {
     // Used for ICC profile equivalence testing.
     extern const uint8_t skcms_252_random_bytes[252];
 
-// ~~~~ Linear Algebra ~~~~
-    // It is _not_ safe to alias the pointers to invert in-place.
-    bool skcms_Matrix3x3_invert(const skcms_Matrix3x3*, skcms_Matrix3x3*);
-    skcms_Matrix3x3 skcms_Matrix3x3_concat(const skcms_Matrix3x3* A, const skcms_Matrix3x3* B);
-
 // ~~~~ Portable Math ~~~~
     static inline float floorf_(float x) {
         float roundtrip = (float)((int)x);
@@ -45,6 +36,11 @@ extern "C" {
     }
     static inline float fabsf_(float x) { return x < 0 ? -x : x; }
     float powf_(float, float);
+
+// ~~~~ Does this pixel format need a palette pointer to be usable? ~~~~
+    static inline bool needs_palette(skcms_PixelFormat fmt) {
+        return (fmt >> 1) == (skcms_PixelFormat_RGBA_8888_Palette8 >> 1);
+    }
 
 #ifdef __cplusplus
 }

@@ -221,7 +221,7 @@ class SpellcheckCustomDictionary : public SpellcheckDictionary {
   base::FilePath custom_dictionary_path_;
 
   // Observers for dictionary load and content changes.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
 #ifndef TOOLKIT_QT
   // Used to send local changes to the sync infrastructure.

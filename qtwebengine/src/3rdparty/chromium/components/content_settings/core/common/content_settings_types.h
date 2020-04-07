@@ -117,6 +117,18 @@ enum ContentSettingsType {
   // stored under CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA.
   CONTENT_SETTINGS_TYPE_USB_GUARD,
 
+  // Nothing is stored in this setting at present. Please refer to
+  // BackgroundFetchPermissionContext for details on how this permission
+  // is ascertained.
+  CONTENT_SETTINGS_TYPE_BACKGROUND_FETCH,
+
+  // Website setting which stores the amount of times the user has dismissed
+  // intent picker UI without explicitly choosing an option.
+  CONTENT_SETTINGS_TYPE_INTENT_PICKER_DISPLAY,
+
+  // Used to store whether to allow a website to detect user active/idle state.
+  CONTENT_SETTINGS_TYPE_IDLE_DETECTION,
+
   CONTENT_SETTINGS_NUM_TYPES,
 };
 

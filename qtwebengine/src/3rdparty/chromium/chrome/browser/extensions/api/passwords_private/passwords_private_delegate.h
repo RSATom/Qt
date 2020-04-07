@@ -13,8 +13,10 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/observer_list_threadsafe.h"
-#include "chrome/browser/ui/passwords/password_manager_presenter.h"
-#include "chrome/browser/ui/passwords/password_ui_view.h"
+#include "base/optional.h"
+#include "base/strings/string16.h"
+#include "chrome/browser/ui/passwords/settings/password_manager_presenter.h"
+#include "chrome/browser/ui/passwords/settings/password_ui_view.h"
 #include "chrome/common/extensions/api/passwords_private.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/password_manager/core/browser/ui/export_progress_status.h"
@@ -31,6 +33,9 @@ namespace extensions {
 // have changed.
 class PasswordsPrivateDelegate : public KeyedService {
  public:
+  using PlaintextPasswordCallback =
+      base::OnceCallback<void(base::Optional<base::string16>)>;
+
   ~PasswordsPrivateDelegate() override {}
 
   // Sends the saved passwords list to the event router.
@@ -51,25 +56,28 @@ class PasswordsPrivateDelegate : public KeyedService {
   virtual void GetPasswordExceptionsList(
       const ExceptionEntriesCallback& callback) = 0;
 
-  // Removes the saved password entry corresponding to the |index| generated for
+  // Removes the saved password entry corresponding to the |id| generated for
   // each entry of the password list.
-  // |index| the index created when going over the list of saved passwords.
-  virtual void RemoveSavedPassword(size_t index) = 0;
+  // |id| the id created when going over the list of saved passwords.
+  virtual void RemoveSavedPassword(int id) = 0;
 
   // Removes the saved password exception entry corresponding set in the
-  // given |index|
-  // |index| The index for the exception url entry being removed.
-  virtual void RemovePasswordException(size_t index) = 0;
+  // given |id|
+  // |id| The id for the exception url entry being removed.
+  virtual void RemovePasswordException(int id) = 0;
 
   // Undoes the last removal of a saved password or exception.
   virtual void UndoRemoveSavedPasswordOrException() = 0;
 
-  // Requests the plain text password for entry corresponding to the |index|
+  // Requests the plain text password for entry corresponding to the |id|
   // generated for each entry of the password list.
-  // |index| the index created when going over the list of saved passwords.
+  // |id| the id created when going over the list of saved passwords.
+  // |callback| The callback that gets invoked with the saved password if it
+  // could be obtained successfully, or base::nullopt otherwise.
   // |web_contents| The web content object used as the UI; will be used to show
   //     an OS-level authentication dialog if necessary.
-  virtual void RequestShowPassword(size_t index,
+  virtual void RequestShowPassword(int id,
+                                   PlaintextPasswordCallback callback,
                                    content::WebContents* web_contents) = 0;
 
   // Trigger the password import procedure, allowing the user to select a file

@@ -18,24 +18,6 @@
 
 namespace gpu {
 
-namespace {
-
-class MemoryBufferBacking : public BufferBacking {
- public:
-  explicit MemoryBufferBacking(uint32_t size)
-      : memory_(new char[size]), size_(size) {}
-  ~MemoryBufferBacking() override = default;
-  void* GetMemory() const override { return memory_.get(); }
-  uint32_t GetSize() const override { return size_; }
-
- private:
-  std::unique_ptr<char[]> memory_;
-  uint32_t size_;
-  DISALLOW_COPY_AND_ASSIGN(MemoryBufferBacking);
-};
-
-}  // anonymous namespace
-
 CommandBufferService::CommandBufferService(
     CommandBufferServiceClient* client,
     TransferBufferManager* transfer_buffer_manager)
@@ -121,7 +103,7 @@ void CommandBufferService::SetGetBuffer(int32_t transfer_buffer_id) {
   ++state_.set_get_buffer_count;
 
   // If the buffer is invalid we handle it gracefully.
-  // This means ring_buffer_ can be NULL.
+  // This means ring_buffer_ can be nullptr.
   ring_buffer_ = GetTransferBuffer(transfer_buffer_id);
   if (ring_buffer_) {
     uint32_t size = ring_buffer_->size();
@@ -165,8 +147,7 @@ void CommandBufferService::SetReleaseCount(uint64_t release_count) {
 
 scoped_refptr<Buffer> CommandBufferService::CreateTransferBuffer(uint32_t size,
                                                                  int32_t* id) {
-  static int32_t next_id = 1;
-  *id = next_id++;
+  *id = GetNextBufferId();
   auto result = CreateTransferBufferWithId(size, *id);
   if (!result)
     *id = -1;
@@ -183,7 +164,7 @@ scoped_refptr<Buffer> CommandBufferService::GetTransferBuffer(int32_t id) {
 
 bool CommandBufferService::RegisterTransferBuffer(
     int32_t id,
-    std::unique_ptr<BufferBacking> buffer) {
+    scoped_refptr<Buffer> buffer) {
   return transfer_buffer_manager_->RegisterTransferBuffer(id,
                                                           std::move(buffer));
 }
@@ -191,13 +172,13 @@ bool CommandBufferService::RegisterTransferBuffer(
 scoped_refptr<Buffer> CommandBufferService::CreateTransferBufferWithId(
     uint32_t size,
     int32_t id) {
-  if (!RegisterTransferBuffer(id,
-                              std::make_unique<MemoryBufferBacking>(size))) {
+  scoped_refptr<Buffer> buffer = MakeMemoryBuffer(size);
+  if (!RegisterTransferBuffer(id, buffer)) {
     SetParseError(gpu::error::kOutOfBounds);
     return nullptr;
   }
 
-  return GetTransferBuffer(id);
+  return buffer;
 }
 
 void CommandBufferService::SetToken(int32_t token) {

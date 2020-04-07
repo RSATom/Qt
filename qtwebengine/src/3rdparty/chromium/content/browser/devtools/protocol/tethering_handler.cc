@@ -6,6 +6,8 @@
 
 #include <map>
 
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
@@ -80,7 +82,7 @@ class SocketPump {
 
     int result = server_socket_->Accept(
         &accepted_socket_,
-        base::Bind(&SocketPump::OnAccepted, base::Unretained(this)));
+        base::BindOnce(&SocketPump::OnAccepted, base::Unretained(this)));
     if (result != net::ERR_IO_PENDING)
       OnAccepted(result);
     return channel_name;
@@ -105,11 +107,11 @@ class SocketPump {
 
   void Pump(net::StreamSocket* from, net::StreamSocket* to) {
     scoped_refptr<net::IOBuffer> buffer =
-        new net::IOBuffer(kSocketPumpBufferSize);
+        base::MakeRefCounted<net::IOBuffer>(kSocketPumpBufferSize);
     int result =
         from->Read(buffer.get(), kSocketPumpBufferSize,
-                   base::Bind(&SocketPump::OnRead, base::Unretained(this), from,
-                              to, buffer));
+                   base::BindOnce(&SocketPump::OnRead, base::Unretained(this),
+                                  from, to, buffer));
     if (result != net::ERR_IO_PENDING)
       OnRead(from, to, buffer, result);
   }
@@ -125,13 +127,14 @@ class SocketPump {
 
     int total = result;
     scoped_refptr<net::DrainableIOBuffer> drainable =
-        new net::DrainableIOBuffer(buffer.get(), total);
+        base::MakeRefCounted<net::DrainableIOBuffer>(std::move(buffer), total);
 
     ++pending_writes_;
-    result = to->Write(drainable.get(), total,
-                       base::Bind(&SocketPump::OnWritten,
-                                  base::Unretained(this), drainable, from, to),
-                       kTrafficAnnotation);
+    result =
+        to->Write(drainable.get(), total,
+                  base::BindOnce(&SocketPump::OnWritten, base::Unretained(this),
+                                 drainable, from, to),
+                  kTrafficAnnotation);
     if (result != net::ERR_IO_PENDING)
       OnWritten(drainable, from, to, result);
   }
@@ -151,8 +154,8 @@ class SocketPump {
       ++pending_writes_;
       result =
           to->Write(drainable.get(), drainable->BytesRemaining(),
-                    base::Bind(&SocketPump::OnWritten, base::Unretained(this),
-                               drainable, from, to),
+                    base::BindOnce(&SocketPump::OnWritten,
+                                   base::Unretained(this), drainable, from, to),
                     kTrafficAnnotation);
       if (result != net::ERR_IO_PENDING)
         OnWritten(drainable, from, to, result);
@@ -220,7 +223,7 @@ class BoundSocket {
     while (true) {
       int result = socket_->Accept(
           &accept_socket_,
-          base::Bind(&BoundSocket::OnAccepted, base::Unretained(this)));
+          base::BindOnce(&BoundSocket::OnAccepted, base::Unretained(this)));
       if (result == net::ERR_IO_PENDING)
         break;
       else
@@ -284,8 +287,8 @@ TetheringHandler::TetheringImpl::~TetheringImpl() = default;
 void TetheringHandler::TetheringImpl::Bind(
     uint16_t port, std::unique_ptr<BindCallback> callback) {
   if (bound_sockets_.find(port) != bound_sockets_.end()) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&BindCallback::sendFailure, std::move(callback),
                        Response::Error("Port already bound")));
     return;
@@ -296,16 +299,16 @@ void TetheringHandler::TetheringImpl::Bind(
   std::unique_ptr<BoundSocket> bound_socket =
       std::make_unique<BoundSocket>(std::move(accepted), socket_callback_);
   if (!bound_socket->Listen(port)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&BindCallback::sendFailure, std::move(callback),
                        Response::Error("Could not bind port")));
     return;
   }
 
   bound_sockets_[port] = std::move(bound_socket);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&BindCallback::sendSuccess, std::move(callback)));
 }
 
@@ -313,23 +316,23 @@ void TetheringHandler::TetheringImpl::Unbind(
     uint16_t port, std::unique_ptr<UnbindCallback> callback) {
   auto it = bound_sockets_.find(port);
   if (it == bound_sockets_.end()) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&UnbindCallback::sendFailure, std::move(callback),
                        Response::InvalidParams("Port is not bound")));
     return;
   }
 
   bound_sockets_.erase(it);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&UnbindCallback::sendSuccess, std::move(callback)));
 }
 
 void TetheringHandler::TetheringImpl::Accepted(uint16_t port,
                                                const std::string& name) {
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&TetheringHandler::Accepted, handler_, port, name));
 }
 

@@ -138,20 +138,21 @@ void QSpanCollection::updateSpan(QSpanCollection::Span *span, int old_height)
 }
 
 /** \internal
- * \return a spans that spans over cell x,y  (column,row)  or 0 if there is none.
+ * \return a spans that spans over cell x,y  (column,row)
+ * or \nullptr if there is none.
  */
 QSpanCollection::Span *QSpanCollection::spanAt(int x, int y) const
 {
     Index::const_iterator it_y = index.lowerBound(-y);
     if (it_y == index.end())
-        return 0;
+        return nullptr;
     SubIndex::const_iterator it_x = (*it_y).lowerBound(-x);
     if (it_x == (*it_y).end())
-        return 0;
+        return nullptr;
     Span *span = *it_x;
     if (span->right() >= x && span->bottom() >= y)
         return span;
-    return 0;
+    return nullptr;
 }
 
 
@@ -964,6 +965,15 @@ void QTableViewPrivate::_q_updateSpanRemovedColumns(const QModelIndex &parent, i
 
 /*!
   \internal
+  Sort the model when the header sort indicator changed
+*/
+void QTableViewPrivate::_q_sortIndicatorChanged(int column, Qt::SortOrder order)
+{
+    model->sort(column, order);
+}
+
+/*!
+  \internal
   Draws a table cell.
 */
 void QTableViewPrivate::drawCell(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index)
@@ -1099,7 +1109,7 @@ int QTableViewPrivate::heightHintForIndex(const QModelIndex &index, int hint, QS
     \l showGrid property.
 
     The items shown in a table view, like those in the other item views, are
-    rendered and edited using standard \l{QItemDelegate}{delegates}. However,
+    rendered and edited using standard \l{QStyledItemDelegate}{delegates}. However,
     for some tasks it is sometimes useful to be able to insert widgets in a
     table instead. Widgets are set for particular indexes with the
     \l{QAbstractItemView::}{setIndexWidget()} function, and
@@ -1171,8 +1181,6 @@ QSize QTableView::viewportSizeHint() const
     Q_D(const QTableView);
     QSize result( (d->verticalHeader->isHidden() ? 0 : d->verticalHeader->width()) + d->horizontalHeader->length(),
                   (d->horizontalHeader->isHidden() ? 0 : d->horizontalHeader->height()) + d->verticalHeader->length());
-    result += QSize(verticalScrollBar()->isVisible() ? verticalScrollBar()->width() : 0,
-                    horizontalScrollBar()->isVisible() ? horizontalScrollBar()->height() : 0);
     return result;
 }
 
@@ -1443,12 +1451,12 @@ void QTableView::paintEvent(QPaintEvent *event)
     //firstVisualRow is the visual index of the first visible row.  lastVisualRow is the visual index of the last visible Row.
     //same goes for ...VisualColumn
     int firstVisualRow = qMax(verticalHeader->visualIndexAt(0),0);
-    int lastVisualRow = verticalHeader->visualIndexAt(verticalHeader->viewport()->height());
+    int lastVisualRow = verticalHeader->visualIndexAt(verticalHeader->height());
     if (lastVisualRow == -1)
         lastVisualRow = d->model->rowCount(d->root) - 1;
 
     int firstVisualColumn = horizontalHeader->visualIndexAt(0);
-    int lastVisualColumn = horizontalHeader->visualIndexAt(horizontalHeader->viewport()->width());
+    int lastVisualColumn = horizontalHeader->visualIndexAt(horizontalHeader->width());
     if (rightToLeft)
         qSwap(firstVisualColumn, lastVisualColumn);
     if (firstVisualColumn == -1)
@@ -2611,25 +2619,27 @@ void QTableView::setColumnHidden(int column, bool hide)
 void QTableView::setSortingEnabled(bool enable)
 {
     Q_D(QTableView);
-    d->sortingEnabled = enable;
     horizontalHeader()->setSortIndicatorShown(enable);
     if (enable) {
         disconnect(d->horizontalHeader, SIGNAL(sectionEntered(int)),
                    this, SLOT(_q_selectColumn(int)));
         disconnect(horizontalHeader(), SIGNAL(sectionPressed(int)),
                    this, SLOT(selectColumn(int)));
-        connect(horizontalHeader(), SIGNAL(sortIndicatorChanged(int,Qt::SortOrder)),
-                this, SLOT(sortByColumn(int)), Qt::UniqueConnection);
+        //sortByColumn has to be called before we connect or set the sortingEnabled flag
+        // because otherwise it will not call sort on the model.
         sortByColumn(horizontalHeader()->sortIndicatorSection(),
                      horizontalHeader()->sortIndicatorOrder());
+        connect(horizontalHeader(), SIGNAL(sortIndicatorChanged(int,Qt::SortOrder)),
+                this, SLOT(_q_sortIndicatorChanged(int,Qt::SortOrder)), Qt::UniqueConnection);
     } else {
         connect(d->horizontalHeader, SIGNAL(sectionEntered(int)),
                 this, SLOT(_q_selectColumn(int)), Qt::UniqueConnection);
         connect(horizontalHeader(), SIGNAL(sectionPressed(int)),
                 this, SLOT(selectColumn(int)), Qt::UniqueConnection);
         disconnect(horizontalHeader(), SIGNAL(sortIndicatorChanged(int,Qt::SortOrder)),
-                   this, SLOT(sortByColumn(int)));
+                   this, SLOT(_q_sortIndicatorChanged(int,Qt::SortOrder)));
     }
+    d->sortingEnabled = enable;
 }
 
 bool QTableView::isSortingEnabled() const
@@ -3158,32 +3168,44 @@ void QTableView::resizeColumnsToContents()
     d->horizontalHeader->resizeSections(QHeaderView::ResizeToContents);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
   \obsolete
   \overload
 
+  This function is deprecated. Use
+  sortByColumn(int column, Qt::SortOrder order) instead.
   Sorts the model by the values in the given \a column.
 */
 void QTableView::sortByColumn(int column)
 {
     Q_D(QTableView);
-    if (column == -1)
-        return;
-    d->model->sort(column, d->horizontalHeader->sortIndicatorOrder());
+    sortByColumn(column, d->horizontalHeader->sortIndicatorOrder());
 }
+#endif
 
 /*!
   \since 4.2
 
-  Sorts the model by the values in the given \a column in the given \a order.
+  Sorts the model by the values in the given \a column and \a order.
+
+  \a column may be -1, in which case no sort indicator will be shown
+  and the model will return to its natural, unsorted order. Note that not
+  all models support this and may even crash in this case.
 
   \sa sortingEnabled
  */
 void QTableView::sortByColumn(int column, Qt::SortOrder order)
 {
     Q_D(QTableView);
+    if (column < -1)
+        return;
+    // If sorting is enabled it will emit a signal connected to
+    // _q_sortIndicatorChanged, which then actually sorts
     d->horizontalHeader->setSortIndicator(column, order);
-    sortByColumn(column);
+    // If sorting is not enabled, force to sort now
+    if (!d->sortingEnabled)
+        d->model->sort(column, order);
 }
 
 /*!

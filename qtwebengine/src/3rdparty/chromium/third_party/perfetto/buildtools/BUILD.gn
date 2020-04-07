@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import("//gn/standalone/libc++/libc++.gni")
+import("../gn/perfetto.gni")
 
 # Used to suppress warnings coming from googletest macros expansions.
 config("test_warning_suppressions") {
@@ -38,11 +39,33 @@ config("test_warning_suppressions") {
 config("googletest_prod_config") {
   cflags = [
     # Using -isystem instead of include_dirs (-I), so we don't need to suppress
-    # warnings coming from libprotobuf headers. Doing so would mask warnings in
+    # warnings coming from third-party headers. Doing so would mask warnings in
     # our own code.
     "-isystem",
     rebase_path("googletest/googletest/include", root_build_dir),
   ]
+}
+
+config("libunwindstack_config") {
+  cflags = [
+    # Using -isystem instead of include_dirs (-I), so we don't need to suppress
+    # warnings coming from libunwindstack headers. Doing so would mask warnings
+    # in our own code.
+    "-isystem",
+    rebase_path("android-core/libunwindstack/include", root_build_dir),
+    "-isystem",
+    rebase_path("android-core/libprocinfo/include", root_build_dir),
+    "-isystem",
+    rebase_path("android-core/base/include", root_build_dir),
+    "-isystem",
+    rebase_path("android-core/demangle/include", root_build_dir),
+  ]
+  if (is_android) {
+    cflags += [
+      "-isystem",
+      rebase_path("bionic/libc/include", root_build_dir),
+    ]
+  }
 }
 
 # Config to include gtest.h in test targets.
@@ -50,7 +73,7 @@ config("googletest_config") {
   defines = [ "GTEST_LANG_CXX11=1" ]
   cflags = [
     # Using -isystem instead of include_dirs (-I), so we don't need to suppress
-    # warnings coming from libprotobuf headers. Doing so would mask warnings in
+    # warnings coming from third-party headers. Doing so would mask warnings in
     # our own code.
     "-isystem",
     rebase_path("googletest/googletest/include", root_build_dir),
@@ -126,6 +149,7 @@ config("protobuf_config") {
       "-Wno-unknown-warning-option",
       "-Wno-enum-compare-switch",
       "-Wno-user-defined-warnings",
+      "-Wno-tautological-constant-compare",
     ]
   }
 }
@@ -575,6 +599,7 @@ config("sqlite_config") {
     "-DSQLITE_CORE",
     "-DSQLITE_TEMP_STORE=3",
     "-DSQLITE_OMIT_LOAD_EXTENSION",
+    "-DSQLITE_OMIT_RANDOMNESS",
   ]
 }
 
@@ -583,6 +608,7 @@ source_set("sqlite") {
     "sqlite/sqlite3.c",
     "sqlite/sqlite3.h",
     "sqlite/sqlite3ext.h",
+    "sqlite_src/ext/misc/percentile.c",
   ]
   configs -= [ "//gn/standalone:extra_warnings" ]
   public_configs = [ ":sqlite_config" ]
@@ -597,4 +623,189 @@ source_set("sqlite_shell") {
   deps = [
     ":sqlite",
   ]
+}
+
+source_set("lzma") {
+  defines = [ "_7ZIP_ST" ]
+  sources = [
+    "lzma/C/7zAlloc.c",
+    "lzma/C/7zArcIn.c",
+    "lzma/C/7zBuf.c",
+    "lzma/C/7zBuf2.c",
+    "lzma/C/7zCrc.c",
+    "lzma/C/7zCrcOpt.c",
+    "lzma/C/7zDec.c",
+    "lzma/C/7zFile.c",
+    "lzma/C/7zStream.c",
+    "lzma/C/Aes.c",
+    "lzma/C/AesOpt.c",
+    "lzma/C/Alloc.c",
+    "lzma/C/Bcj2.c",
+    "lzma/C/Bra.c",
+    "lzma/C/Bra86.c",
+    "lzma/C/BraIA64.c",
+    "lzma/C/CpuArch.c",
+    "lzma/C/Delta.c",
+    "lzma/C/LzFind.c",
+    "lzma/C/Lzma2Dec.c",
+    "lzma/C/Lzma2Enc.c",
+    "lzma/C/Lzma86Dec.c",
+    "lzma/C/Lzma86Enc.c",
+    "lzma/C/LzmaDec.c",
+    "lzma/C/LzmaEnc.c",
+    "lzma/C/LzmaLib.c",
+    "lzma/C/Ppmd7.c",
+    "lzma/C/Ppmd7Dec.c",
+    "lzma/C/Ppmd7Enc.c",
+    "lzma/C/Sha256.c",
+    "lzma/C/Sort.c",
+    "lzma/C/Xz.c",
+    "lzma/C/XzCrc64.c",
+    "lzma/C/XzCrc64Opt.c",
+    "lzma/C/XzDec.c",
+    "lzma/C/XzEnc.c",
+    "lzma/C/XzIn.c",
+  ]
+  configs -= [ "//gn/standalone:extra_warnings" ]
+  cflags = [
+    "-Wno-empty-body",
+    "-Wno-enum-conversion",
+  ]
+}
+
+source_set("libunwindstack") {
+  include_dirs = [
+    "android-core/libunwindstack/include",
+    "android-core/libunwindstack",
+    "android-core/base/include",
+    "android-core/liblog/include",
+    "android-core/libprocinfo/include",
+    "android-core/include",
+    "lzma/C",
+  ]
+  deps = [
+    ":lzma",
+  ]
+  defines = [ "NO_LIBDEXFILE_SUPPORT" ]
+  sources = [
+    "android-core/base/file.cpp",
+    "android-core/base/logging.cpp",
+    "android-core/base/stringprintf.cpp",
+    "android-core/base/strings.cpp",
+    "android-core/base/threads.cpp",
+    "android-core/demangle/Demangler.cpp",
+    "android-core/libunwindstack/ArmExidx.cpp",
+    "android-core/libunwindstack/DwarfCfa.cpp",
+    "android-core/libunwindstack/DwarfEhFrameWithHdr.cpp",
+    "android-core/libunwindstack/DwarfMemory.cpp",
+    "android-core/libunwindstack/DwarfOp.cpp",
+    "android-core/libunwindstack/DwarfSection.cpp",
+    "android-core/libunwindstack/Elf.cpp",
+    "android-core/libunwindstack/ElfInterface.cpp",
+    "android-core/libunwindstack/ElfInterfaceArm.cpp",
+    "android-core/libunwindstack/Global.cpp",
+    "android-core/libunwindstack/JitDebug.cpp",
+    "android-core/libunwindstack/LocalUnwinder.cpp",
+    "android-core/libunwindstack/Log.cpp",
+    "android-core/libunwindstack/MapInfo.cpp",
+    "android-core/libunwindstack/Maps.cpp",
+    "android-core/libunwindstack/Memory.cpp",
+    "android-core/libunwindstack/Regs.cpp",
+    "android-core/libunwindstack/RegsArm.cpp",
+    "android-core/libunwindstack/RegsArm64.cpp",
+    "android-core/libunwindstack/RegsMips.cpp",
+    "android-core/libunwindstack/RegsMips64.cpp",
+    "android-core/libunwindstack/RegsX86.cpp",
+    "android-core/libunwindstack/RegsX86_64.cpp",
+    "android-core/libunwindstack/Symbols.cpp",
+    "android-core/libunwindstack/Unwinder.cpp",
+    "android-core/libunwindstack/tests/LogFake.cpp",
+  ]
+  if (current_cpu == "x86") {
+    sources += [ "android-core/libunwindstack/AsmGetRegsX86.S" ]
+  } else if (current_cpu == "x64") {
+    sources += [ "android-core/libunwindstack/AsmGetRegsX86_64.S" ]
+  }
+  configs -= [
+    "//gn/standalone:extra_warnings",
+    "//gn/standalone:c++11",
+    "//gn/standalone:visibility_hidden",
+  ]
+  configs += [ "//gn/standalone:c++17" ]
+  public_configs = [ ":libunwindstack_config" ]
+}
+
+config("jsoncpp_config") {
+  cflags = [
+    "-DJSON_USE_EXCEPTION=0",
+
+    # Using -isystem instead of include_dirs (-I), so we don't need to suppress
+    # warnings coming from third-party headers. Doing so would mask warnings in
+    # our own code.
+    "-isystem",
+    rebase_path("jsoncpp/include", root_build_dir),
+  ]
+}
+
+source_set("jsoncpp") {
+  sources = [
+    "jsoncpp/src/lib_json/json_reader.cpp",
+    "jsoncpp/src/lib_json/json_value.cpp",
+    "jsoncpp/src/lib_json/json_writer.cpp",
+  ]
+  configs -= [ "//gn/standalone:extra_warnings" ]
+  public_configs = [ ":jsoncpp_config" ]
+}
+
+config("linenoise_config") {
+  cflags = [
+    # Using -isystem instead of include_dirs (-I), so we don't need to suppress
+    # warnings coming from third-party headers. Doing so would mask warnings in
+    # our own code.
+    "-isystem",
+    rebase_path("linenoise", root_build_dir),
+  ]
+}
+
+source_set("linenoise") {
+  sources = [
+    "linenoise/linenoise.c",
+    "linenoise/linenoise.h",
+  ]
+  configs -= [ "//gn/standalone:extra_warnings" ]
+  public_configs = [ ":linenoise_config" ]
+}
+
+if (use_libfuzzer) {
+  source_set("libfuzzer") {
+    configs -= [
+      "//gn/standalone:extra_warnings",
+      "//gn/standalone/sanitizers:sanitizers_cflags",
+    ]
+    sources = [
+      "libfuzzer/FuzzerCrossOver.cpp",
+      "libfuzzer/FuzzerDataFlowTrace.cpp",
+      "libfuzzer/FuzzerDriver.cpp",
+      "libfuzzer/FuzzerExtFunctionsDlsym.cpp",
+      "libfuzzer/FuzzerExtFunctionsWeak.cpp",
+      "libfuzzer/FuzzerExtFunctionsWeakAlias.cpp",
+      "libfuzzer/FuzzerExtraCounters.cpp",
+      "libfuzzer/FuzzerIO.cpp",
+      "libfuzzer/FuzzerIOPosix.cpp",
+      "libfuzzer/FuzzerIOWindows.cpp",
+      "libfuzzer/FuzzerLoop.cpp",
+      "libfuzzer/FuzzerMain.cpp",
+      "libfuzzer/FuzzerMerge.cpp",
+      "libfuzzer/FuzzerMutate.cpp",
+      "libfuzzer/FuzzerSHA1.cpp",
+      "libfuzzer/FuzzerShmemPosix.cpp",
+      "libfuzzer/FuzzerTracePC.cpp",
+      "libfuzzer/FuzzerUtil.cpp",
+      "libfuzzer/FuzzerUtilDarwin.cpp",
+      "libfuzzer/FuzzerUtilFuchsia.cpp",
+      "libfuzzer/FuzzerUtilLinux.cpp",
+      "libfuzzer/FuzzerUtilPosix.cpp",
+      "libfuzzer/FuzzerUtilWindows.cpp",
+    ]
+  }
 }

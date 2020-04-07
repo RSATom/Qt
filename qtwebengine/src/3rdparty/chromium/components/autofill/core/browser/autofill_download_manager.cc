@@ -12,21 +12,31 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/metrics/field_trial_params.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/rand_util.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/autofill/core/browser/autofill_driver.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/form_structure.h"
+#include "components/autofill/core/browser/proto/legacy_proto_bridge.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
+#include "components/autofill/core/common/autofill_clock.h"
 #include "components/autofill/core/common/autofill_features.h"
-#include "components/autofill/core/common/autofill_pref_names.h"
+#include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_switches.h"
+#include "components/autofill/core/common/submission_source.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
@@ -36,13 +46,14 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "url/gurl.h"
 
 namespace autofill {
 
 namespace {
 
 const size_t kMaxQueryGetSize = 1400;  // 1.25KB
-const size_t kMaxFormCacheSize = 16;
+const size_t kAutofillDownloadManagerMaxFormCacheSize = 16;
 const size_t kMaxFieldsPerQueryRequest = 100;
 
 const net::BackoffEntry::Policy kAutofillBackoffPolicy = {
@@ -74,8 +85,19 @@ const net::BackoffEntry::Policy kAutofillBackoffPolicy = {
 const char kDefaultAutofillServerURL[] =
     "https://clients1.google.com/tbproxy/af/";
 
+// Header for API key.
+constexpr char kGoogApiKey[] = "X-Goog-Api-Key";
+// Header to get base64 encoded serialized proto from API for safety.
+constexpr char kGoogEncodeResponseIfExecutable[] =
+    "X-Goog-Encode-Response-If-Executable";
+
+constexpr char kDefaultAPIKey[] = "";
+
 // Returns the base URL for the autofill server.
 GURL GetAutofillServerURL() {
+  // If a valid autofill server URL is specified on the command line, then the
+  // AutofillDownlaodManager will use it, and assume that server communication
+  // is enabled.
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kAutofillServerURL)) {
@@ -83,63 +105,94 @@ GURL GetAutofillServerURL() {
     if (url.is_valid())
       return url;
 
-    LOG(ERROR) << "Invalid URL given for --" << switches::kAutofillServerURL
-               << ". Using default value.";
+    LOG(ERROR) << "Invalid URL value for --" << switches::kAutofillServerURL
+               << ": "
+               << command_line.GetSwitchValueASCII(
+                      switches::kAutofillServerURL);
   }
 
-  GURL default_url(kDefaultAutofillServerURL);
-  DCHECK(default_url.is_valid());
-  return default_url;
+  // If communication is disabled, leave the autofill server URL unset.
+  if (!base::FeatureList::IsEnabled(features::kAutofillServerCommunication))
+    return GURL();
+
+  // Server communication is enabled. If there's an autofill server url param
+  // use it, otherwise use the default.
+  const std::string autofill_server_url_str =
+      base::FeatureParam<std::string>(&features::kAutofillServerCommunication,
+                                      switches::kAutofillServerURL,
+                                      kDefaultAutofillServerURL)
+          .Get();
+
+  GURL autofill_server_url(autofill_server_url_str);
+
+  if (!autofill_server_url.is_valid()) {
+    LOG(ERROR) << "Invalid URL param for "
+               << features::kAutofillServerCommunication.name << "/"
+               << switches::kAutofillServerURL << ": "
+               << autofill_server_url_str;
+    return GURL();
+  }
+
+  return autofill_server_url;
 }
 
-// Helper to log the HTTP |response_code| received for |request_type| to UMA.
-void LogHttpResponseCode(AutofillDownloadManager::RequestType request_type,
-                         int response_code) {
-  const char* name = nullptr;
+// Helper to log the HTTP |response_code| and other data received for
+// |request_type| to UMA.
+void LogHttpResponseData(AutofillDownloadManager::RequestType request_type,
+                         int response_code,
+                         int net_error,
+                         base::TimeDelta request_duration) {
+  int response_or_error_code =
+      (net_error == net::OK || net_error == net::ERR_FAILED) ? response_code
+                                                             : net_error;
   switch (request_type) {
     case AutofillDownloadManager::REQUEST_QUERY:
-      name = "Autofill.Query.HttpResponseCode";
+      base::UmaHistogramSparse("Autofill.Query.HttpResponseOrErrorCode",
+                               response_or_error_code);
+      UMA_HISTOGRAM_TIMES("Autofill.Query.RequestDuration", request_duration);
       break;
     case AutofillDownloadManager::REQUEST_UPLOAD:
-      name = "Autofill.Upload.HttpResponseCode";
+      base::UmaHistogramSparse("Autofill.Upload.HttpResponseOrErrorCode",
+                               response_or_error_code);
+      UMA_HISTOGRAM_TIMES("Autofill.Upload.RequestDuration", request_duration);
       break;
     default:
       NOTREACHED();
-      name = "Autofill.Unknown.HttpResponseCode";
   }
-
-  if (response_code < 100 || response_code > 599)
-    response_code = 0;
-
-  // An expanded version of UMA_HISTOGRAM_ENUMERATION that supports using
-  // a different name with each invocation.
-  base::HistogramBase* histogram = base::LinearHistogram::FactoryGet(
-      name, 1, 599, 600, base::HistogramBase::kUmaTargetedHistogramFlag);
-  histogram->Add(response_code);
 }
 
 // Helper to log, to UMA, the |num_bytes| sent for a failing instance of
 // |request_type|.
 void LogFailingPayloadSize(AutofillDownloadManager::RequestType request_type,
                            size_t num_bytes) {
-  const char* name = nullptr;
   switch (request_type) {
     case AutofillDownloadManager::REQUEST_QUERY:
-      name = "Autofill.Query.FailingPayloadSize";
+      UMA_HISTOGRAM_COUNTS_100000("Autofill.Query.FailingPayloadSize",
+                                  num_bytes);
       break;
     case AutofillDownloadManager::REQUEST_UPLOAD:
-      name = "Autofill.Upload.FailingPayloadSize";
+      UMA_HISTOGRAM_COUNTS_100000("Autofill.Upload.FailingPayloadSize",
+                                  num_bytes);
       break;
     default:
       NOTREACHED();
-      name = "Autofill.Unknown.FailingPayloadSize";
   }
+}
 
-  // An expanded version of UMA_HISTOGRAM_COUNTS_100000 that supports using
-  // a different name with each invocation.
-  base::HistogramBase* histogram = base::Histogram::FactoryGet(
-      name, 1, 100000, 50, base::HistogramBase::kUmaTargetedHistogramFlag);
-  histogram->Add(num_bytes);
+// Helper to log, to UMA, the |delay| caused by exponential backoff.
+void LogExponentialBackoffDelay(
+    AutofillDownloadManager::RequestType request_type,
+    base::TimeDelta delay) {
+  switch (request_type) {
+    case AutofillDownloadManager::REQUEST_QUERY:
+      UMA_HISTOGRAM_MEDIUM_TIMES("Autofill.Query.BackoffDelay", delay);
+      break;
+    case AutofillDownloadManager::REQUEST_UPLOAD:
+      UMA_HISTOGRAM_MEDIUM_TIMES("Autofill.Upload.BackoffDelay", delay);
+      break;
+    default:
+      NOTREACHED();
+  }
 }
 
 net::NetworkTrafficAnnotationTag GetNetworkTrafficAnnotation(
@@ -259,8 +312,25 @@ std::ostream& operator<<(std::ostream& out,
 
   for (const auto& field : upload.field()) {
     out << "\n Field"
-      << "\n signature: " << field.signature()
-      << "\n autofill_type: " << field.autofill_type();
+        << "\n signature: " << field.signature() << "\n autofill_type: [";
+    for (int i = 0; i < field.autofill_type_size(); ++i) {
+      if (i)
+        out << ", ";
+      out << field.autofill_type(i);
+    }
+    out << "]";
+
+    out << "\n (autofill_type, validity_states): [";
+    for (const auto& type_validities : field.autofill_type_validities()) {
+      out << "(type: " << type_validities.type() << ", validities: {";
+      for (int i = 0; i < type_validities.validity_size(); ++i) {
+        if (i)
+          out << ", ";
+        out << type_validities.validity(i);
+      }
+      out << "})";
+    }
+    out << "]\n";
     if (!field.name().empty())
       out << "\n name: " << field.name();
     if (!field.autocomplete().empty())
@@ -273,6 +343,98 @@ std::ostream& operator<<(std::ostream& out,
   return out;
 }
 
+// Check for and returns true if |upload_event| is allowed to trigger an upload
+// for |form|. If true, updates |prefs| to track that |upload_event| has been
+// recorded for |form|.
+bool IsUploadAllowed(const FormStructure& form, PrefService* pref_service) {
+  if (!pref_service ||
+      !base::FeatureList::IsEnabled(features::kAutofillUploadThrottling)) {
+    return true;
+  }
+
+  // If the upload event pref needs to be reset, clear it now.
+  static constexpr base::TimeDelta kResetPeriod = base::TimeDelta::FromDays(28);
+  base::Time now = AutofillClock::Now();
+  base::Time last_reset =
+      pref_service->GetTime(prefs::kAutofillUploadEventsLastResetTimestamp);
+  if ((now - last_reset) > kResetPeriod) {
+    AutofillDownloadManager::ClearUploadHistory(pref_service);
+  }
+
+  // Get the key for the upload bucket and extract the current bitfield value.
+  static constexpr size_t kNumUploadBuckets = 1021;
+  std::string key = base::StringPrintf(
+      "%03X", static_cast<int>(form.form_signature() % kNumUploadBuckets));
+  auto* upload_events =
+      pref_service->GetDictionary(prefs::kAutofillUploadEvents);
+  auto* found = upload_events->FindKeyOfType(key, base::Value::Type::INTEGER);
+  int value = found ? found->GetInt() : 0;
+
+  // Calculate the mask we expect to be set for the form's upload bucket.
+  const int bit = static_cast<int>(form.submission_source());
+  DCHECK_LE(0, bit);
+  DCHECK_LT(bit, 32);
+  const int mask = (1 << bit);
+
+  // Check if the upload should be allowed and, if so, update the upload event
+  // pref to set the appropriate bit.
+  bool allow_upload = ((value & mask) == 0);
+  if (allow_upload) {
+    DictionaryPrefUpdate update(pref_service, prefs::kAutofillUploadEvents);
+    update->SetKey(std::move(key), base::Value(value | mask));
+  }
+
+  // Capture metrics and return.
+  AutofillMetrics::LogUploadEvent(form.submission_source(), allow_upload);
+  return allow_upload;
+}
+
+// Determines whether to use the API instead of the legacy server.
+inline bool UseApi() {
+  return base::FeatureList::IsEnabled(features::kAutofillUseApi);
+}
+
+// Determines whether a HTTP request was successful based on its response code.
+bool IsHttpSuccess(int response_code) {
+  return (response_code >= 200 && response_code < 300);
+}
+
+// Gets an upload payload for requests to the legacy server.
+inline bool GetUploadPayloadForLegacy(const AutofillUploadContents& upload,
+                                      std::string* payload) {
+  return upload.SerializeToString(payload);
+}
+
+bool GetUploadPayloadForApi(const AutofillUploadContents& upload,
+                            std::string* payload) {
+  AutofillUploadRequest upload_request;
+  *upload_request.mutable_upload() = upload;
+  return upload_request.SerializeToString(payload);
+}
+
+// Gets an API method URL given its type (query or upload) and an optional
+// resource ID.
+// Example usage:
+//   * GetAPIMethodUrl(REQUEST_QUERY, "1234") will return "/v1/pages/1234".
+//   * GetAPIMethodUrl(REQUEST_UPLOAD, "") will return "/v1/forms:vote".
+std::string GetAPIMethodUrl(AutofillDownloadManager::RequestType type,
+                            base::StringPiece resource_id) {
+  const char* api_method_url;
+  if (type == AutofillDownloadManager::REQUEST_QUERY) {
+    api_method_url = "/v1/pages";
+  } else if (type == AutofillDownloadManager::REQUEST_UPLOAD) {
+    api_method_url = "/v1/forms:vote";
+  } else {
+    // This should not be reached, but we never know.
+    NOTREACHED() << "Request of type " << type << " is invalid";
+    return "";
+  }
+  if (resource_id.empty()) {
+    return std::string(api_method_url);
+  }
+  return base::StrCat({api_method_url, "/", resource_id});
+}
+
 }  // namespace
 
 struct AutofillDownloadManager::FormRequestData {
@@ -282,20 +444,29 @@ struct AutofillDownloadManager::FormRequestData {
 };
 
 AutofillDownloadManager::AutofillDownloadManager(AutofillDriver* driver,
-                                                 Observer* observer)
+                                                 Observer* observer,
+                                                 const std::string& api_key)
     : driver_(driver),
       observer_(observer),
+      api_key_(api_key),
       autofill_server_url_(GetAutofillServerURL()),
-      max_form_cache_size_(kMaxFormCacheSize),
+      max_form_cache_size_(kAutofillDownloadManagerMaxFormCacheSize),
       loader_backoff_(&kAutofillBackoffPolicy),
       weak_factory_(this) {
   DCHECK(observer_);
 }
 
+AutofillDownloadManager::AutofillDownloadManager(AutofillDriver* driver,
+                                                 Observer* observer)
+    : AutofillDownloadManager(driver, observer, kDefaultAPIKey) {}
+
 AutofillDownloadManager::~AutofillDownloadManager() = default;
 
 bool AutofillDownloadManager::StartQueryRequest(
     const std::vector<FormStructure*>& forms) {
+  if (!IsEnabled())
+    return false;
+
   // Do not send the request if it contains more fields than the server can
   // accept.
   if (CountActiveFieldsInForms(forms) > kMaxFieldsPerQueryRequest)
@@ -308,9 +479,15 @@ bool AutofillDownloadManager::StartQueryRequest(
     return false;
   }
 
+  // Get the query request payload.
   std::string payload;
-  if (!query.SerializeToString(&payload))
+  bool is_payload_serialized =
+      UseApi()
+          ? CreateApiRequestFromLegacyRequest(query).SerializeToString(&payload)
+          : query.SerializeToString(&payload);
+  if (!is_payload_serialized) {
     return false;
+  }
 
   request_data.request_type = AutofillDownloadManager::REQUEST_QUERY;
   request_data.payload = std::move(payload);
@@ -336,19 +513,28 @@ bool AutofillDownloadManager::StartUploadRequest(
     bool form_was_autofilled,
     const ServerFieldTypeSet& available_field_types,
     const std::string& login_form_signature,
-    bool observed_submission) {
+    bool observed_submission,
+    PrefService* prefs) {
+  if (!IsEnabled() || !IsUploadAllowed(form, prefs))
+    return false;
+
   AutofillUploadContents upload;
   if (!form.EncodeUploadRequest(available_field_types, form_was_autofilled,
                                 login_form_signature, observed_submission,
-                                &upload))
+                                &upload)) {
     return false;
+  }
 
+  // Get the POST payload that contains upload data.
   std::string payload;
-  if (!upload.SerializeToString(&payload))
+  bool is_payload = UseApi() ? GetUploadPayloadForApi(upload, &payload)
+                             : GetUploadPayloadForLegacy(upload, &payload);
+  // Indicate that we could not serialize upload in the payload.
+  if (!is_payload) {
     return false;
+  }
 
   if (form.upload_required() == UPLOAD_NOT_REQUIRED) {
-    DVLOG(1) << "AutofillDownloadManager: Upload request is ignored.";
     // If we ever need notification that upload was skipped, add it here.
     return false;
   }
@@ -361,6 +547,14 @@ bool AutofillDownloadManager::StartUploadRequest(
   DVLOG(1) << "Sending Autofill Upload Request:\n" << upload;
 
   return StartRequest(std::move(request_data));
+}
+
+void AutofillDownloadManager::ClearUploadHistory(PrefService* pref_service) {
+  if (pref_service) {
+    pref_service->ClearPref(prefs::kAutofillUploadEvents);
+    pref_service->SetTime(prefs::kAutofillUploadEventsLastResetTimestamp,
+                          AutofillClock::Now());
+  }
 }
 
 std::tuple<GURL, std::string> AutofillDownloadManager::GetRequestURLAndMethod(
@@ -390,6 +584,40 @@ std::tuple<GURL, std::string> AutofillDownloadManager::GetRequestURLAndMethod(
   return std::make_tuple(std::move(url), std::move(method));
 }
 
+std::tuple<GURL, std::string>
+AutofillDownloadManager::GetRequestURLAndMethodForApi(
+    const FormRequestData& request_data) const {
+  // ID of the resource to add to the API request URL. Nothing will be added if
+  // |resource_id| is empty.
+  std::string resource_id;
+
+  // Get the resource id of corresponding webpage when doing a query request.
+  if (request_data.request_type == AutofillDownloadManager::REQUEST_QUERY) {
+    if (request_data.payload.length() <= kMaxQueryGetSize) {
+      base::Base64UrlEncode(request_data.payload,
+                            base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                            &resource_id);
+    }
+    // Query method is always GET (represented by 0) with API.
+    UMA_HISTOGRAM_BOOLEAN("Autofill.Query.Method", 0);
+  }
+
+  // Make the canonical URL to query the API, e.g.,
+  // https://autofill.googleapis.com/v1/forms/1234?alt=proto.
+  GURL url = autofill_server_url_.Resolve(
+      GetAPIMethodUrl(request_data.request_type, resource_id));
+
+  // Add the query parameter to set the response format to a serialized proto.
+  url = net::AppendQueryParameter(url, "alt", "proto");
+
+  // Determine the HTTP method that should be used.
+  std::string method =
+      (request_data.request_type == AutofillDownloadManager::REQUEST_QUERY)
+          ? "GET"
+          : "POST";
+  return std::make_tuple(std::move(url), std::move(method));
+}
+
 bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
       driver_->GetURLLoaderFactory();
@@ -398,7 +626,9 @@ bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
   // Get the URL and method to use for this request.
   std::string method;
   GURL request_url;
-  std::tie(request_url, method) = GetRequestURLAndMethod(request_data);
+  std::tie(request_url, method) =
+      UseApi() ? GetRequestURLAndMethodForApi(request_data)
+               : GetRequestURLAndMethod(request_data);
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = request_url;
@@ -413,11 +643,34 @@ bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
                              : variations::InIncognito::kNo,
       &resource_request->headers);
 
+  // Set headers specific to the API if using it.
+  if (UseApi())
+    // Encode response serialized proto in base64 for safety.
+    resource_request->headers.SetHeader(kGoogEncodeResponseIfExecutable,
+                                        "base64");
+
+  // Put API key in request's header if there is.
+  if (!api_key_.empty() &&
+      variations::ShouldAppendVariationHeaders(request_url)) {
+    // Make sure that we only send the API key to endpoints trusted by Chrome.
+    resource_request->headers.SetHeader(kGoogApiKey, api_key_);
+  }
+
   auto simple_loader = network::SimpleURLLoader::Create(
       std::move(resource_request),
       GetNetworkTrafficAnnotation(request_data.request_type));
-  if (method == "POST")
-    simple_loader->AttachStringForUpload(request_data.payload, "text/proto");
+
+  // This allows reading the error message within the API response when status
+  // is not 200 (e.g., 400). Otherwise, URL loader will not give any content in
+  // the response when there is a failure, which makes debugging hard.
+  simple_loader->SetAllowHttpErrorResults(true);
+
+  if (method == "POST") {
+    const std::string content_type =
+        UseApi() ? "application/x-protobuf" : "text/proto";
+    // Attach payload data and add data format header.
+    simple_loader->AttachStringForUpload(request_data.payload, content_type);
+  }
 
   // Transfer ownership of the loader into url_loaders_. Temporarily hang
   // onto the raw pointer to use it as a key and to kick off the request;
@@ -429,7 +682,7 @@ bool AutofillDownloadManager::StartRequest(FormRequestData request_data) {
       url_loader_factory.get(),
       base::BindOnce(&AutofillDownloadManager::OnSimpleLoaderComplete,
                      base::Unretained(this), std::move(--url_loaders_.end()),
-                     std::move(request_data)));
+                     std::move(request_data), base::TimeTicks::Now()));
   return true;
 }
 
@@ -488,26 +741,40 @@ std::string AutofillDownloadManager::GetCombinedSignature(
 void AutofillDownloadManager::OnSimpleLoaderComplete(
     std::list<std::unique_ptr<network::SimpleURLLoader>>::iterator it,
     FormRequestData request_data,
+    base::TimeTicks request_start,
     std::unique_ptr<std::string> response_body) {
   // Move the loader out of the active loaders list.
   std::unique_ptr<network::SimpleURLLoader> simple_loader = std::move(*it);
   url_loaders_.erase(it);
 
   CHECK(request_data.form_signatures.size());
-  int response_code = -1;
+  // net:ERR_FAILED is not an HTTP response code, but if none is available, the
+  // UMA logging can accept this as a generic fallback as well.
+  int response_code = net::ERR_FAILED;
   if (simple_loader->ResponseInfo() && simple_loader->ResponseInfo()->headers) {
     response_code = simple_loader->ResponseInfo()->headers->response_code();
   }
 
-  const bool success = !!response_body;
+  // We define success as getting 2XX response code and having a response body.
+  // Even if the server does not fill the response body when responding, the
+  // corresponding response string will be at least instantiated and empty.
+  // Having the response body a nullptr probably reflects a problem.
+  const bool success =
+      IsHttpSuccess(response_code) && (response_body != nullptr);
   loader_backoff_.InformOfRequest(success);
 
-  LogHttpResponseCode(request_data.request_type, response_code);
+  LogHttpResponseData(request_data.request_type, response_code,
+                      simple_loader->NetError(),
+                      base::TimeTicks::Now() - request_start);
 
+  // Handle error if there is and return.
   if (!success) {
+    std::string error_message =
+        (response_body != nullptr) ? *response_body : "";
     DVLOG(1) << "AutofillDownloadManager: "
              << RequestTypeToString(request_data.request_type)
-             << " request has failed with response " << response_code;
+             << " request has failed with response code " << response_code
+             << " and error message from the server " << error_message;
 
     observer_->OnServerRequestError(request_data.form_signatures[0],
                                     request_data.request_type, response_code);
@@ -519,6 +786,9 @@ void AutofillDownloadManager::OnSimpleLoaderComplete(
     if (response_code >= 400 && response_code <= 499)
       return;
 
+    base::TimeDelta backoff = loader_backoff_.GetTimeUntilRelease();
+    LogExponentialBackoffDelay(request_data.request_type, backoff);
+
     // Reschedule with the appropriate delay, ignoring return value because
     // payload is already well formed.
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
@@ -526,7 +796,7 @@ void AutofillDownloadManager::OnSimpleLoaderComplete(
         base::BindOnce(
             base::IgnoreResult(&AutofillDownloadManager::StartRequest),
             weak_factory_.GetWeakPtr(), std::move(request_data)),
-        loader_backoff_.GetTimeUntilRelease());
+        backoff);
     return;
   }
 
@@ -541,6 +811,7 @@ void AutofillDownloadManager::OnSimpleLoaderComplete(
 
   DCHECK_EQ(request_data.request_type, AutofillDownloadManager::REQUEST_UPLOAD);
   DVLOG(1) << "AutofillDownloadManager: upload request has succeeded.";
+
   observer_->OnUploadedPossibleFieldTypes();
 }
 

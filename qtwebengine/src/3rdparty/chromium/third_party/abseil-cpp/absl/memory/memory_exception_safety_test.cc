@@ -32,7 +32,7 @@ TEST(MakeUnique, CheckForLeaks) {
                     .WithInitialValue(Thrower(kValue))
                     // Ensures make_unique does not modify the input. The real
                     // test, though, is ConstructorTracker checking for leaks.
-                    .WithInvariants(testing::strong_guarantee);
+                    .WithContracts(testing::strong_guarantee);
 
   EXPECT_TRUE(tester.Test([](Thrower* thrower) {
     static_cast<void>(absl::make_unique<Thrower>(*thrower));
@@ -46,17 +46,6 @@ TEST(MakeUnique, CheckForLeaks) {
   EXPECT_TRUE(tester.Test([&](Thrower*) {
     static_cast<void>(absl::make_unique<Thrower[]>(kLength));
   }));
-}
-
-TEST(MemoryInternal, UninitDefaultConstructNNonTrivial) {
-  EXPECT_TRUE(testing::MakeExceptionSafetyTester()
-                  .WithInitialValue(ThrowerList{})
-                  .WithOperation([&](ThrowerList* list_ptr) {
-                    absl::memory_internal::uninitialized_default_construct_n(
-                        list_ptr->data(), kLength);
-                  })
-                  .WithInvariants([&](...) { return true; })
-                  .Test());
 }
 
 }  // namespace

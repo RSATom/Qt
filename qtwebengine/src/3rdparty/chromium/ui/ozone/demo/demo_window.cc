@@ -14,6 +14,13 @@
 #include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/platform_window_init_properties.h"
 
+#if defined(OS_FUCHSIA)
+#include <fuchsia/ui/policy/cpp/fidl.h>
+#include <lib/zx/eventpair.h>
+#include "base/fuchsia/component_context.h"
+#include "base/fuchsia/fuchsia_logging.h"
+#endif
+
 namespace ui {
 
 DemoWindow::DemoWindow(WindowManager* window_manager,
@@ -24,6 +31,27 @@ DemoWindow::DemoWindow(WindowManager* window_manager,
       weak_ptr_factory_(this) {
   PlatformWindowInitProperties properties;
   properties.bounds = bounds;
+
+#if defined(OS_FUCHSIA)
+  // When using Scenic Ozone platform we need to supply a view_token to the
+  // window. This is not necessary when using the headless ozone platform.
+  if (ui::OzonePlatform::GetInstance()
+          ->GetPlatformProperties()
+          .needs_view_token) {
+    // Create view_token and view_holder_token.
+    zx::eventpair view_holder_token;
+    zx_status_t status = zx::eventpair::create(
+        /*options=*/0, &properties.view_token, &view_holder_token);
+    ZX_CHECK(status == ZX_OK, status) << "zx_eventpair_create";
+
+    // Request Presenter to show the view full-screen.
+    auto presenter = base::fuchsia::ComponentContext::GetDefault()
+                         ->ConnectToService<fuchsia::ui::policy::Presenter>();
+
+    presenter->Present2(std::move(view_holder_token), nullptr);
+  }
+#endif
+
   platform_window_ = OzonePlatform::GetInstance()->CreatePlatformWindow(
       this, std::move(properties));
   platform_window_->Show();
@@ -43,16 +71,16 @@ gfx::Size DemoWindow::GetSize() {
 }
 
 void DemoWindow::Start() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&DemoWindow::StartOnGpu, weak_ptr_factory_.GetWeakPtr()));
+  StartRendererIfNecessary();
 }
 
 void DemoWindow::Quit() {
   window_manager_->Quit();
 }
 
-void DemoWindow::OnBoundsChanged(const gfx::Rect& new_bounds) {}
+void DemoWindow::OnBoundsChanged(const gfx::Rect& new_bounds) {
+  StartRendererIfNecessary();
+}
 
 void DemoWindow::OnDamageRect(const gfx::Rect& damaged_region) {}
 
@@ -71,13 +99,10 @@ void DemoWindow::OnWindowStateChanged(PlatformWindowState new_state) {}
 
 void DemoWindow::OnLostCapture() {}
 
-void DemoWindow::OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget,
-                                              float device_pixel_ratio) {
+void DemoWindow::OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) {
   DCHECK_NE(widget, gfx::kNullAcceleratedWidget);
   widget_ = widget;
 }
-
-void DemoWindow::OnAcceleratedWidgetDestroying() {}
 
 void DemoWindow::OnAcceleratedWidgetDestroyed() {
   widget_ = gfx::kNullAcceleratedWidget;
@@ -85,7 +110,9 @@ void DemoWindow::OnAcceleratedWidgetDestroyed() {
 
 void DemoWindow::OnActivationChanged(bool active) {}
 
-void DemoWindow::StartOnGpu() {
+void DemoWindow::StartRendererIfNecessary() {
+  if (renderer_ || GetSize().IsEmpty())
+    return;
   renderer_ =
       renderer_factory_->CreateRenderer(GetAcceleratedWidget(), GetSize());
   if (!renderer_->Initialize())

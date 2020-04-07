@@ -12,7 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/version.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -62,7 +62,7 @@ class ContentHashWaiter {
   }
 
  private:
-  void CreatedCallback(const scoped_refptr<ContentHash>& content_hash,
+  void CreatedCallback(scoped_refptr<ContentHash> content_hash,
                        bool was_cancelled) {
     if (!reply_task_runner_->RunsTasksInCurrentSequence()) {
       reply_task_runner_->PostTask(

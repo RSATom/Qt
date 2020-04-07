@@ -339,6 +339,8 @@ QT_BEGIN_NAMESPACE
 
     This signal is emitted when a pinch gesture is started.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onPinchStarted.
 
     \sa pinchUpdated, pinchFinished
@@ -350,6 +352,8 @@ QT_BEGIN_NAMESPACE
     This signal is emitted as the user's fingers move across the map,
     after the \l pinchStarted signal is emitted.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onPinchUpdated.
 
     \sa pinchStarted, pinchFinished
@@ -359,6 +363,8 @@ QT_BEGIN_NAMESPACE
     \qmlsignal QtLocation::MapGestureArea::pinchFinished(PinchEvent event)
 
     This signal is emitted at the end of a pinch gesture.
+
+    Information about the pinch event is provided in \a event.
 
     The corresponding handler is \c onPinchFinished.
 
@@ -411,9 +417,11 @@ QT_BEGIN_NAMESPACE
 
     This signal is emitted when a two-finger rotation gesture is started.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onRotationStarted.
 
-    \sa rotationUpdated, rotationFinished
+    \sa rotationUpdated(), rotationFinished()
 
     \since QtLocation 5.9
 */
@@ -422,11 +430,13 @@ QT_BEGIN_NAMESPACE
     \qmlsignal QtLocation::MapGestureArea::rotationUpdated(PinchEvent event)
 
     This signal is emitted as the user's fingers move across the map,
-    after the \l rotationStarted signal is emitted.
+    after the \l rotationStarted() signal is emitted.
+
+    Information about the pinch event is provided in \a event.
 
     The corresponding handler is \c onRotationUpdated.
 
-    \sa rotationStarted, rotationFinished
+    \sa rotationStarted(), rotationFinished()
 
     \since QtLocation 5.9
 */
@@ -436,9 +446,11 @@ QT_BEGIN_NAMESPACE
 
     This signal is emitted at the end of a two-finger rotation gesture.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onRotationFinished.
 
-    \sa rotationStarted, rotationUpdated
+    \sa rotationStarted(), rotationUpdated()
 
     \since QtLocation 5.9
 */
@@ -448,9 +460,11 @@ QT_BEGIN_NAMESPACE
 
     This signal is emitted when a two-finger tilt gesture is started.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onTiltStarted.
 
-    \sa tiltUpdated, tiltFinished
+    \sa tiltUpdated(), tiltFinished()
 
     \since QtLocation 5.9
 */
@@ -461,9 +475,11 @@ QT_BEGIN_NAMESPACE
     This signal is emitted as the user's fingers move across the map,
     after the \l tiltStarted signal is emitted.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onTiltUpdated.
 
-    \sa tiltStarted, tiltFinished
+    \sa tiltStarted(), tiltFinished()
 
     \since QtLocation 5.9
 */
@@ -473,9 +489,11 @@ QT_BEGIN_NAMESPACE
 
     This signal is emitted at the end of a two-finger tilt gesture.
 
+    Information about the pinch event is provided in \a event.
+
     The corresponding handler is \c onTiltFinished.
 
-    \sa tiltStarted, tiltUpdated
+    \sa tiltStarted(), tiltUpdated()
 
     \since QtLocation 5.9
 */
@@ -521,12 +539,12 @@ void QQuickGeoMapGestureArea::setMap(QGeoMap *map)
     and touch events, such as Flickable, the mouse and touch events
     may be stolen from the MapGestureArea if a gesture is recognized
     by the parent item, e.g. a flick gesture.  If preventStealing is
-    set to true, no item will steal the mouse and touch events.
+    set to \c true, no item will steal the mouse and touch events.
 
-    Note that setting preventStealing to true once an item has started
-    stealing events will have no effect until the next press event.
+    Note that setting preventStealing to \c true once an item has started
+    stealing events has no effect until the next press event.
 
-    By default this property is false.
+    By default this property is set to \c false.
 */
 
 bool QQuickGeoMapGestureArea::preventStealing() const
@@ -551,17 +569,26 @@ QQuickGeoMapGestureArea::~QQuickGeoMapGestureArea()
 /*!
     \qmlproperty enumeration QtLocation::MapGestureArea::acceptedGestures
 
-    This property holds the gestures that will be active. By default
+    This property holds a bit field of gestures that are accepted. By default,
     all gestures are enabled.
 
-    \list
-    \li MapGestureArea.NoGesture - Don't support any additional gestures (value: 0x0000).
-    \li MapGestureArea.PinchGesture - Support the map pinch gesture (value: 0x0001).
-    \li MapGestureArea.PanGesture  - Support the map pan gesture (value: 0x0002).
-    \li MapGestureArea.FlickGesture  - Support the map flick gesture (value: 0x0004).
-    \li MapGestureArea.RotationGesture  - Support the map rotation gesture (value: 0x0008).
-    \li MapGestureArea.TiltGesture  - Support the map tilt gesture (value: 0x0010).
-    \endlist
+    \value MapGestureArea.NoGesture
+           Don't support any additional gestures (value: 0x0000).
+
+    \value MapGestureArea.PinchGesture
+           Support the map pinch gesture (value: 0x0001).
+
+    \value MapGestureArea.PanGesture
+           Support the map pan gesture (value: 0x0002).
+
+    \value MapGestureArea.FlickGesture
+           Support the map flick gesture (value: 0x0004).
+
+    \value MapGestureArea.RotationGesture
+           Support the map rotation gesture (value: 0x0008).
+
+    \value MapGestureArea.TiltGesture
+           Support the map tilt gesture (value: 0x0010).
 */
 
 QQuickGeoMapGestureArea::AcceptedGestures QQuickGeoMapGestureArea::acceptedGestures() const

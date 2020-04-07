@@ -1,15 +1,7 @@
 #Topic Color
 #Alias Color_Reference ##
 
-#File
-Types, consts, functions, and macros for colors.
-##
-
-#Subtopic Overview
-#Populate
-##
-
-#Subtopic Define
+#Code
 #Populate
 ##
 
@@ -17,21 +9,14 @@ Color constants can be helpful to write code, documenting the meaning of values
 the represent transparency and color values. The use of Color constants is not
 required.
 
-#Subtopic Constant
-#Populate
-##
-
-#Subtopic Function
-#Populate
-##
-
-#Subtopic Typedef
-#Populate
+#Subtopic Functions
+#Line # routines to read, write, and manipulate SkColor ##
 ##
 
 # ------------------------------------------------------------------------------
 
 #Subtopic Alpha
+#Line # transparency of Color ##
 
 Alpha represents the transparency of Color. Color with Alpha of zero is fully
 transparent. Color with Alpha of 255 is fully opaque. Some, but not all pixel
@@ -48,7 +33,7 @@ zero, fully transparent, to one, fully opaque.
 #Line # defines Alpha as eight bits ##
 
 #Code
-typedef uint8_t SkAlpha;
+#Populate
 ##
 
 8-bit type for an alpha value. 255 is 100% opaque, zero is 100% transparent.
@@ -63,7 +48,7 @@ typedef uint8_t SkAlpha;
 #Line # defines Color as 32 bits ##
 
 #Code
-typedef uint32_t SkColor;
+#Populate
 ##
 
 32-bit ARGB Color value, Unpremultiplied. Color components are always in
@@ -82,7 +67,7 @@ component values in a different order.
 # ------------------------------------------------------------------------------
 
 #Method static constexpr inline SkColor SkColorSetARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b)
-#In Function
+#In Functions
 #Line # returns Color_Alpha and RGB combined ##
 
 Returns Color value from 8-bit component values. Asserts if SK_DEBUG is defined
@@ -114,9 +99,7 @@ than the largest of r, g, and b.
 #Line # returns opaque Color ##
 
 #Code
-###$
-    #define SkColorSetRGB(r, g, b)  SkColorSetARGB(0xFF, r, g, b)
-$$$#
+#Populate
 ##
 
 Returns Color value from 8-bit component values, with Alpha set
@@ -146,9 +129,7 @@ fully opaque to 255.
 #Line # returns Alpha component ##
 
 #Code
-###$
-    #define SkColorGetA(color)      (((color) >> 24) & 0xFF)
-$$$#
+#Populate
 ##
 
 Returns Alpha byte from Color value.
@@ -178,9 +159,7 @@ Returns Alpha byte from Color value.
 #Line # returns red component ##
 
 #Code
-###$
-    #define SkColorGetR(color)      (((color) >> 16) & 0xFF)
-$$$#
+#Populate
 ##
 
 Returns red component of Color, from zero to 255.
@@ -209,9 +188,7 @@ Returns red component of Color, from zero to 255.
 #Line # returns green component ##
 
 #Code
-###$
-    #define SkColorGetG(color)      (((color) >>  8) & 0xFF)
-$$$#
+#Populate
 ##
 
 Returns green component of Color, from zero to 255.
@@ -240,9 +217,7 @@ Returns green component of Color, from zero to 255.
 #Line # returns blue component ##
 
 #Code
-###$
-    #define SkColorGetB(color)      (((color) >>  0) & 0xFF)
-$$$#
+#Populate
 ##
 
 Returns blue component of Color, from zero to 255.
@@ -268,7 +243,7 @@ Returns blue component of Color, from zero to 255.
 # ------------------------------------------------------------------------------
 
 #Method static constexpr inline SkColor SkColorSetA(SkColor c, U8CPU a)
-#In Function
+#In Functions
 #Line # returns Color with transparency ##
 
 Returns Unpremultiplied Color with red, blue, and green set from c; and alpha set
@@ -301,10 +276,10 @@ from a. Alpha component of c is ignored and is replaced by a in result.
 #Subtopic Alpha_Constants
 #In Constant
 #Line # constants for Alpha ##
+#Filter SK_Alpha
 
 #Code
-    constexpr SkAlpha SK_AlphaTRANSPARENT = 0x00;
-    constexpr SkAlpha SK_AlphaOPAQUE      = 0xFF;
+#Populate
 ##
 
 Alpha constants are conveniences to represent fully transparent and fully
@@ -312,18 +287,14 @@ opaque colors and masks. Their use is not required.
 
 #Const SK_AlphaTRANSPARENT 0x00
 #Line # fully transparent SkAlpha ##
-#Details Transparent
 Represents fully transparent SkAlpha value. SkAlpha ranges from zero,
 fully transparent; to 255, fully opaque.
 ##
 #Const SK_AlphaOPAQUE 0xFF
 #Line # fully opaque SkAlpha ##
-#Details Opaque
 Represents fully opaque SkAlpha value. SkAlpha ranges from zero,
 fully transparent; to 255, fully opaque.
 ##
-
-#Subtopic Transparent
 
 #Example
 #Image 1
@@ -363,17 +334,15 @@ Color the parts of the bitmap red if they mostly contain transparent pixels.
     canvas->drawBitmap(bitmap, 0, 0);
 ##
 
-#SeeAlso SkAlpha SK_ColorTRANSPARENT SK_AlphaOPAQUE
-
-#Subtopic Transparent ##
 
 # ------------------------------------------------------------------------------
-
-#Subtopic Opaque
 
 #Example
 #Image 1
 #Height 128
+#Description
+Color the parts of the bitmap green if they contain fully opaque pixels.
+##
     std::vector<int32_t> srcPixels;
     srcPixels.resize(source.height() * source.rowBytes());
     SkPixmap pixmap(SkImageInfo::MakeN32Premul(source.width(), source.height()),
@@ -393,92 +362,30 @@ Color the parts of the bitmap red if they mostly contain transparent pixels.
     canvas->drawBitmap(bitmap, 0, 0);
 ##
 
-#SeeAlso SkAlpha SK_AlphaTRANSPARENT
+#SeeAlso SkAlpha SK_ColorTRANSPARENT SK_ColorBLACK
 
-#Subtopic Opaque ##
 #Subtopic Alpha_Constants ##
 
 #Subtopic Color_Constants
 #In Constant
 #Line # constants for Color ##
+#Filter SK_Color
 
-# ------------------------------------------------------------------------------
 #Code
-    constexpr SkColor SK_ColorTRANSPARENT = SkColorSetARGB(0x00, 0x00, 0x00, 0x00);
-    constexpr SkColor SK_ColorBLACK       = SkColorSetARGB(0xFF, 0x00, 0x00, 0x00);
-    constexpr SkColor SK_ColorDKGRAY      = SkColorSetARGB(0xFF, 0x44, 0x44, 0x44);
-    constexpr SkColor SK_ColorGRAY        = SkColorSetARGB(0xFF, 0x88, 0x88, 0x88);
-    constexpr SkColor SK_ColorLTGRAY      = SkColorSetARGB(0xFF, 0xCC, 0xCC, 0xCC);
-    constexpr SkColor SK_ColorWHITE       = SkColorSetARGB(0xFF, 0xFF, 0xFF, 0xFF);
-    constexpr SkColor SK_ColorRED         = SkColorSetARGB(0xFF, 0xFF, 0x00, 0x00);
-    constexpr SkColor SK_ColorGREEN       = SkColorSetARGB(0xFF, 0x00, 0xFF, 0x00);
-    constexpr SkColor SK_ColorBLUE        = SkColorSetARGB(0xFF, 0x00, 0x00, 0xFF);
-    constexpr SkColor SK_ColorYELLOW      = SkColorSetARGB(0xFF, 0xFF, 0xFF, 0x00);
-    constexpr SkColor SK_ColorCYAN        = SkColorSetARGB(0xFF, 0x00, 0xFF, 0xFF);
-    constexpr SkColor SK_ColorMAGENTA     = SkColorSetARGB(0xFF, 0xFF, 0x00, 0xFF);
+#Populate
 ##
 
 Color names are provided as conveniences, but are not otherwise special.
 The values chosen for names may not be the same as values used by
 SVG, HTML, CSS, or colors named by a platform.
 
-#Example
-###$
-$Function
-#define SKIA_COLOR_PAIR(name) "SK_Color" #name, SK_Color##name
-$$
-void draw(SkCanvas* canvas) {
-    struct ColorCompare {
-        const char* fSVGName;
-        SkColor fSVGColor;
-        const char* fSkiaName;
-        SkColor fSkiaColor;
-    } colorCompare[] = {  // see https://www.w3.org/TR/SVG/types.html#ColorKeywords
-        {"black",     SkColorSetRGB(  0,   0,   0),    SKIA_COLOR_PAIR(BLACK) },
-        {"darkgray",  SkColorSetRGB(169, 169, 169),    SKIA_COLOR_PAIR(DKGRAY) },
-        {"gray",      SkColorSetRGB(128, 128, 128),    SKIA_COLOR_PAIR(GRAY) },
-        {"lightgray", SkColorSetRGB(211, 211, 211),    SKIA_COLOR_PAIR(LTGRAY) },
-        {"white",     SkColorSetRGB(255, 255, 255),    SKIA_COLOR_PAIR(WHITE) },
-        {"red",       SkColorSetRGB(255,   0,   0),    SKIA_COLOR_PAIR(RED) },
-        {"green",     SkColorSetRGB(  0, 128,   0),    SKIA_COLOR_PAIR(GREEN) },
-        {"blue",      SkColorSetRGB(  0,   0, 255),    SKIA_COLOR_PAIR(BLUE) },
-        {"yellow",    SkColorSetRGB(255, 255,   0),    SKIA_COLOR_PAIR(YELLOW) },
-        {"aqua",      SkColorSetRGB(  0, 255, 255),    SKIA_COLOR_PAIR(CYAN) },
-        {"fuchsia",   SkColorSetRGB(255,   0, 255),    SKIA_COLOR_PAIR(MAGENTA) },
-    };
-    SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setTextSize(14);
-    for (auto compare : colorCompare) {
-        paint.setStyle(SkPaint::kFill_Style);
-        paint.setColor(compare.fSVGColor);
-        canvas->drawRect({5, 5, 15, 15}, paint);
-        paint.setColor(SK_ColorBLACK);
-        canvas->drawString(compare.fSVGName, 20, 16, paint);
-        paint.setColor(compare.fSkiaColor);
-        canvas->drawRect({105, 5, 115, 15}, paint);
-        paint.setColor(SK_ColorBLACK);
-        canvas->drawString(compare.fSkiaName, 120, 16, paint);
-        paint.setStyle(SkPaint::kStroke_Style);
-        canvas->drawRect({5, 5, 15, 15}, paint);
-        canvas->drawRect({105, 5, 115, 15}, paint);
-        canvas->translate(0, 20);
-    }
-}
-$$$#
-##
-
-# ------------------------------------------------------------------------------
-
 #Const SK_ColorTRANSPARENT 0x00000000
 #Line # transparent Color ##
-#Details Transparent
     Represents fully transparent SkColor. May be used to initialize a destination
     containing a mask or a non-rectangular image.
 ##
 #Const SK_ColorBLACK 0xFF000000
 #Line # black Color ##
-#Details Black
     Represents fully opaque black.
 ##
 #Const SK_ColorDKGRAY 0xFF444444
@@ -526,11 +433,56 @@ $$$#
     Represents fully opaque magenta. HTML_Fuchsia is equivalent.
 ##
 
-# ------------------------------------------------------------------------------
-
-#Subtopic Transparent
+#Example
+###$
+$Function
+#define SKIA_COLOR_PAIR(name) "SK_Color" #name, SK_Color##name
+$$
+void draw(SkCanvas* canvas) {
+    struct ColorCompare {
+        const char* fSVGName;
+        SkColor fSVGColor;
+        const char* fSkiaName;
+        SkColor fSkiaColor;
+    } colorCompare[] = {  // see https://www.w3.org/TR/SVG/types.html#ColorKeywords
+        {"black",     SkColorSetRGB(  0,   0,   0),    SKIA_COLOR_PAIR(BLACK) },
+        {"darkgray",  SkColorSetRGB(169, 169, 169),    SKIA_COLOR_PAIR(DKGRAY) },
+        {"gray",      SkColorSetRGB(128, 128, 128),    SKIA_COLOR_PAIR(GRAY) },
+        {"lightgray", SkColorSetRGB(211, 211, 211),    SKIA_COLOR_PAIR(LTGRAY) },
+        {"white",     SkColorSetRGB(255, 255, 255),    SKIA_COLOR_PAIR(WHITE) },
+        {"red",       SkColorSetRGB(255,   0,   0),    SKIA_COLOR_PAIR(RED) },
+        {"green",     SkColorSetRGB(  0, 128,   0),    SKIA_COLOR_PAIR(GREEN) },
+        {"blue",      SkColorSetRGB(  0,   0, 255),    SKIA_COLOR_PAIR(BLUE) },
+        {"yellow",    SkColorSetRGB(255, 255,   0),    SKIA_COLOR_PAIR(YELLOW) },
+        {"aqua",      SkColorSetRGB(  0, 255, 255),    SKIA_COLOR_PAIR(CYAN) },
+        {"fuchsia",   SkColorSetRGB(255,   0, 255),    SKIA_COLOR_PAIR(MAGENTA) },
+    };
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setTextSize(14);
+    for (auto compare : colorCompare) {
+        paint.setStyle(SkPaint::kFill_Style);
+        paint.setColor(compare.fSVGColor);
+        canvas->drawRect({5, 5, 15, 15}, paint);
+        paint.setColor(SK_ColorBLACK);
+        canvas->drawString(compare.fSVGName, 20, 16, paint);
+        paint.setColor(compare.fSkiaColor);
+        canvas->drawRect({105, 5, 115, 15}, paint);
+        paint.setColor(SK_ColorBLACK);
+        canvas->drawString(compare.fSkiaName, 120, 16, paint);
+        paint.setStyle(SkPaint::kStroke_Style);
+        canvas->drawRect({5, 5, 15, 15}, paint);
+        canvas->drawRect({105, 5, 115, 15}, paint);
+        canvas->translate(0, 20);
+    }
+}
+$$$#
+##
 
 #Example
+#Description
+SK_ColorTRANSPARENT sets Color Alpha and components to zero.
+##
 #Image 3
     std::vector<uint32_t> srcPixels;
     constexpr int width = 256;
@@ -547,15 +499,10 @@ $$$#
     canvas->drawBitmap(bitmap, 48, 48);
 ##
 
-#SeeAlso SK_AlphaTRANSPARENT SkCanvas::clear
-
-##
-
-# ------------------------------------------------------------------------------
-
-#Subtopic Black
-
 #Example
+#Description
+SK_ColorBLACK sets Color Alpha to one and components to zero.
+##
     std::vector<uint32_t> srcPixels;
     constexpr int width = 256;
     constexpr int height = 256;
@@ -571,15 +518,10 @@ $$$#
     canvas->drawBitmap(bitmap, 48, 48);
 ##
 
-#SeeAlso SK_ColorTRANSPARENT
-
-##
-
-# ------------------------------------------------------------------------------
-
-#Subtopic White
-
 #Example
+#Description
+SK_ColorWHITE sets Color Alpha and components to one.
+##
     std::vector<uint32_t> srcPixels;
     constexpr int width = 256;
     constexpr int height = 256;
@@ -595,15 +537,14 @@ $$$#
     canvas->drawBitmap(bitmap, 48, 48);
 ##
 
-#SeeAlso SK_ColorTRANSPARENT
-
-##
+#SeeAlso SK_ColorTRANSPARENT SkCanvas::clear SK_AlphaOPAQUE
 
 #Subtopic Color_Constants ##
 
 # ------------------------------------------------------------------------------
 
 #Subtopic HSV
+#Line # hue saturation value color representation ##
 
 #Subtopic Hue
 Hue represents an angle, in degrees, on a color wheel. Hue has a positive value
@@ -621,7 +562,7 @@ one, full brightness.
 ##
 
 #Method void SkRGBToHSV(U8CPU red, U8CPU green, U8CPU blue, SkScalar hsv[3])
-#In Function
+#In Functions
 #Line # converts RGB to HSV ##
 
 Converts RGB to its HSV components.
@@ -656,8 +597,8 @@ hsv[2] contains HSV_Value, a value from zero to one.
 
 # ------------------------------------------------------------------------------
 
-#Method void SkColorToHSV(SkColor color, SkScalar hsv[3])
-#In Function
+#Method static void SkColorToHSV(SkColor color, SkScalar hsv[3])
+#In Functions
 #Line # converts RGB to HSV ##
 
 Converts ARGB to its HSV components. Alpha in ARGB is ignored.
@@ -692,7 +633,7 @@ hsv[2] contains HSV_Value, a value from zero to one.
 # ------------------------------------------------------------------------------
 
 #Method SkColor SkHSVToColor(U8CPU alpha, const SkScalar hsv[3])
-#In Function
+#In Functions
 #Line # converts HSV with Alpha to RGB ##
 
 Converts HSV components to an ARGB color. Alpha is passed through unchanged.
@@ -732,8 +673,8 @@ Out of range hsv values are pinned.
 
 # ------------------------------------------------------------------------------
 
-#Method SkColor SkHSVToColor(const SkScalar hsv[3])
-#In Function
+#Method static SkColor SkHSVToColor(const SkScalar hsv[3])
+#In Functions
 #Line # converts HSV to RGB ##
 
 Converts HSV components to an ARGB color. Alpha is set to 255.
@@ -773,13 +714,14 @@ Out of range hsv values are pinned.
 
 # ------------------------------------------------------------------------------
 
-#Subtopic PMColor
+#Subtopic PM_Color
+#Line # color components premultiplied by Alpha ##
 
 #Typedef uint32_t SkPMColor
 #Line # defines Premultiplied Color as 32 bits ##
 
 #Code
-typedef uint32_t SkPMColor;
+#Populate
 ##
 
 32-bit ARGB color value, Premultiplied. The byte order for this value is
@@ -792,8 +734,8 @@ same byte order.
 # ------------------------------------------------------------------------------
 
 #Method SkPMColor SkPreMultiplyARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b)
-#In Function
-#Line # converts Unpremultiplied ARGB to Premultiplied PMColor ##
+#In Functions
+#Line # converts Unpremultiplied ARGB to Premultiplied PM_Color ##
 
 Returns a SkPMColor value from Unpremultiplied 8-bit component values.
 
@@ -825,10 +767,10 @@ Returns a SkPMColor value from Unpremultiplied 8-bit component values.
 # ------------------------------------------------------------------------------
 
 #Method SkPMColor SkPreMultiplyColor(SkColor c)
-#In Function
-#Line # converts Unpremultiplied Color to Premultiplied PMColor ##
+#In Functions
+#Line # converts Unpremultiplied Color to Premultiplied PM_Color ##
 
-Returns PMColor closest to Color c. Multiplies c RGB components by the c Alpha,
+Returns PM_Color closest to Color c. Multiplies c RGB components by the c Alpha,
 and arranges the bytes to match the format of kN32_SkColorType.
 
 #Param c  Unpremultiplied ARGB Color  ##
@@ -858,6 +800,6 @@ and arranges the bytes to match the format of kN32_SkColorType.
 
 #Method ##
 
-#Subtopic PMColor ##
+#Subtopic PM_Color ##
 
 #Topic Color ##

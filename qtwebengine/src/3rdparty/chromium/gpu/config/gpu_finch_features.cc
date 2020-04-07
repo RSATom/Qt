@@ -3,9 +3,18 @@
 // found in the LICENSE file.
 #include "gpu/config/gpu_finch_features.h"
 
-#include "build/build_config.h"
-
 namespace features {
+#if defined(OS_ANDROID)
+// Use android AImageReader when playing videos with MediaPlayer.
+const base::Feature kAImageReaderMediaPlayer{"AImageReaderMediaPlayer",
+                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use android SurfaceControl API for managing display compositor's buffer queue
+// and using overlays on Android.
+// Note that the feature only works with VizDisplayCompositor enabled.
+const base::Feature kAndroidSurfaceControl{"AndroidSurfaceControl",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // Enable GPU Rasterization by default. This can still be overridden by
 // --force-gpu-rasterization or --disable-gpu-rasterization.
@@ -30,9 +39,33 @@ const base::Feature kDefaultEnableOopRasterization{
 const base::Feature kDefaultPassthroughCommandDecoder{
     "DefaultPassthroughCommandDecoder", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Use DirectComposition layers (overlays) for video if supported. Overridden by
-// --enable-direct-composition-layers and --disable-direct-composition-layers.
-const base::Feature kDirectCompositionOverlays{
-    "DirectCompositionOverlays", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Overrides preferred overlay format to NV12 instead of YUY2.
+const base::Feature kDirectCompositionPreferNV12Overlays{
+    "DirectCompositionPreferNV12Overlays", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Causes us to use the SharedImageManager, removing support for the old
+// mailbox system. Any consumers of the GPU process using the old mailbox
+// system will experience undefined results.
+const base::Feature kSharedImageManager{"SharedImageManager",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+// For Windows only. Use overlay swapchain to present software protected videos
+// for all GPUs
+const base::Feature kUseDCOverlaysForSoftwareProtectedVideo{
+    "UseDCOverlaysForSoftwareProtectedVideo",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use decode swap chain created from compatible video decoder buffers.
+const base::Feature kDirectCompositionUseNV12DecodeSwapChain{
+    "DirectCompositionUseNV12DecodeSwapChain",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls the decode acceleration of JPEG images (as opposed to camera
+// captures) in Chrome OS using the VA-API.
+// TODO(andrescj): remove or enable by default in Chrome OS once
+// https://crbug.com/868400 is resolved.
+const base::Feature kVaapiJpegImageDecodeAcceleration{
+    "VaapiJpegImageDecodeAcceleration", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace features

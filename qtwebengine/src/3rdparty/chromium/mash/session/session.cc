@@ -8,7 +8,6 @@
 #include "base/command_line.h"
 #include "mash/common/config.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/service_manager/public/cpp/service_context.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/components/quick_launch/public/mojom/constants.mojom.h"  // nogncheck
@@ -17,7 +16,9 @@
 namespace mash {
 namespace session {
 
-Session::Session() = default;
+Session::Session(service_manager::mojom::ServiceRequest request)
+    : service_binding_(this, std::move(request)) {}
+
 Session::~Session() = default;
 
 void Session::OnStart() {
@@ -28,7 +29,10 @@ void Session::OnStart() {
   // (crbug.com/594852)
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           quick_launch::mojom::kServiceName)) {
-    context()->connector()->StartService(quick_launch::mojom::kServiceName);
+    // TODO(https://crbug.com/904148): This should not use |WarmService()|.
+    service_binding_.GetConnector()->WarmService(
+        service_manager::ServiceFilter::ByName(
+            quick_launch::mojom::kServiceName));
   }
 #endif  // defined(OS_CHROMEOS)
 }
@@ -36,7 +40,9 @@ void Session::OnStart() {
 void Session::StartWindowManager() {
   // TODO(beng): monitor this service for death & bring down the whole system
   // if necessary.
-  context()->connector()->StartService(common::GetWindowManagerServiceName());
+  service_binding_.GetConnector()->WarmService(
+      service_manager::ServiceFilter::ByName(
+          common::GetWindowManagerServiceName()));
 }
 
 }  // namespace session

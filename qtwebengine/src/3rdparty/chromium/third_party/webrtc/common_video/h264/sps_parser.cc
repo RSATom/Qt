@@ -10,12 +10,11 @@
 
 #include "common_video/h264/sps_parser.h"
 
-#include <memory>
+#include <cstdint>
 #include <vector>
 
 #include "common_video/h264/h264_common.h"
-#include "rtc_base/bitbuffer.h"
-#include "rtc_base/logging.h"
+#include "rtc_base/bit_buffer.h"
 
 namespace {
 typedef absl::optional<webrtc::SpsParser::SpsState> OptionalSps;
@@ -32,6 +31,8 @@ constexpr int kScaldingDeltaMax = 127;
 namespace webrtc {
 
 SpsParser::SpsState::SpsState() = default;
+SpsParser::SpsState::SpsState(const SpsState&) = default;
+SpsParser::SpsState::~SpsState() = default;
 
 // General note: this is based off the 02/2014 version of the H.264 standard.
 // You can find it on this page:

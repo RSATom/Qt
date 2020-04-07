@@ -8,6 +8,8 @@
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/declarative_net_request/rules_monitor_service.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_manager.h"
@@ -93,7 +95,7 @@ DeclarativeNetRequestUpdateAllowedPagesFunction::UpdateAllowedPages(
   }
 
   // Persist |new_set| as part of preferences.
-  prefs->SetDNRAllowedPages(extension_id(), new_set);
+  prefs->SetDNRAllowedPages(extension_id(), new_set.Clone());
 
   // Update the new allowed set on the IO thread.
   base::OnceClosure updated_allow_pages_io_task = base::BindOnce(
@@ -103,10 +105,9 @@ DeclarativeNetRequestUpdateAllowedPagesFunction::UpdateAllowedPages(
   base::OnceClosure updated_allowed_pages_ui_reply = base::BindOnce(
       &DeclarativeNetRequestUpdateAllowedPagesFunction::OnAllowedPagesUpdated,
       this);
-  content::BrowserThread::PostTaskAndReply(
-      content::BrowserThread::IO, FROM_HERE,
-      std::move(updated_allow_pages_io_task),
-      std::move(updated_allowed_pages_ui_reply));
+  base::PostTaskWithTraitsAndReply(FROM_HERE, {content::BrowserThread::IO},
+                                   std::move(updated_allow_pages_io_task),
+                                   std::move(updated_allowed_pages_ui_reply));
 
   return RespondLater();
 }

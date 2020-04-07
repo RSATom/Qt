@@ -11,13 +11,14 @@
 namespace device {
 
 AuthenticatorSupportedOptions::AuthenticatorSupportedOptions() = default;
-
+AuthenticatorSupportedOptions::AuthenticatorSupportedOptions(
+    const AuthenticatorSupportedOptions& other) = default;
 AuthenticatorSupportedOptions::AuthenticatorSupportedOptions(
     AuthenticatorSupportedOptions&& other) = default;
-
+AuthenticatorSupportedOptions& AuthenticatorSupportedOptions::operator=(
+    const AuthenticatorSupportedOptions& other) = default;
 AuthenticatorSupportedOptions& AuthenticatorSupportedOptions::operator=(
     AuthenticatorSupportedOptions&& other) = default;
-
 AuthenticatorSupportedOptions::~AuthenticatorSupportedOptions() = default;
 
 AuthenticatorSupportedOptions&
@@ -54,11 +55,11 @@ AuthenticatorSupportedOptions::SetIsPlatformDevice(bool is_platform_device) {
   return *this;
 }
 
-cbor::CBORValue ConvertToCBOR(const AuthenticatorSupportedOptions& options) {
-  cbor::CBORValue::MapValue option_map;
-  option_map.emplace(cbor::CBORValue(kResidentKeyMapKey), cbor::CBORValue(options.supports_resident_key()));
-  option_map.emplace(cbor::CBORValue(kUserPresenceMapKey), cbor::CBORValue(options.user_presence_required()));
-  option_map.emplace(cbor::CBORValue(kPlatformDeviceMapKey), cbor::CBORValue(options.is_platform_device()));
+cbor::Value ConvertToCBOR(const AuthenticatorSupportedOptions& options) {
+  cbor::Value::MapValue option_map;
+  option_map.emplace(cbor::Value(kResidentKeyMapKey), cbor::Value(options.supports_resident_key()));
+  option_map.emplace(cbor::Value(kUserPresenceMapKey), cbor::Value(options.user_presence_required()));
+  option_map.emplace(cbor::Value(kPlatformDeviceMapKey), cbor::Value(options.is_platform_device()));
 
   using UvAvailability =
       AuthenticatorSupportedOptions::UserVerificationAvailability;
@@ -88,7 +89,7 @@ cbor::CBORValue ConvertToCBOR(const AuthenticatorSupportedOptions& options) {
       break;
   }
 
-  return cbor::CBORValue(std::move(option_map));
+  return cbor::Value(std::move(option_map));
 }
 
 }  // namespace device

@@ -46,9 +46,6 @@ class FakeMessageCenter : public MessageCenter {
   void SetNotificationImage(const std::string& notification_id,
                             const gfx::Image& image) override;
 
-  void SetNotificationButtonIcon(const std::string& notification_id,
-                                 int button_index,
-                                 const gfx::Image& image) override;
   void ClickOnNotification(const std::string& id) override;
   void ClickOnNotificationButton(const std::string& id,
                                  int button_index) override;
@@ -74,12 +71,13 @@ class FakeMessageCenter : public MessageCenter {
 
  protected:
   void DisableTimersForTest() override;
-  const base::ObserverList<MessageCenterObserver>& observer_list() const {
+  const base::ObserverList<MessageCenterObserver>::Unchecked& observer_list()
+      const {
     return observer_list_;
   }
 
  private:
-  base::ObserverList<MessageCenterObserver> observer_list_;
+  base::ObserverList<MessageCenterObserver>::Unchecked observer_list_;
   const NotificationList::Notifications empty_notifications_;
   bool has_message_center_view_ = true;
 

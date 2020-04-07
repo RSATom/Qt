@@ -13,7 +13,7 @@
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/login/login_state.h"
+#include "chromeos/login/login_state/login_state.h"
 #endif
 
 using content::BrowserContext;
@@ -27,7 +27,7 @@ TestExtensionsBrowserClient::TestExtensionsBrowserClient(
       lock_screen_context_(nullptr),
       process_manager_delegate_(nullptr),
       extension_system_factory_(nullptr),
-      extension_cache_(new NullExtensionCache) {
+      extension_cache_(std::make_unique<NullExtensionCache>()) {
   if (main_context)
     SetMainContext(main_context);
 }
@@ -193,6 +193,11 @@ bool TestExtensionsBrowserClient::IsInDemoMode() {
   return false;
 }
 
+bool TestExtensionsBrowserClient::IsScreensaverInDemoMode(
+    const std::string& app_id) {
+  return false;
+}
+
 bool TestExtensionsBrowserClient::IsRunningInForcedAppMode() { return false; }
 
 bool TestExtensionsBrowserClient::IsAppModeForcedForApp(
@@ -209,9 +214,6 @@ TestExtensionsBrowserClient::GetExtensionSystemFactory() {
   DCHECK(extension_system_factory_);
   return extension_system_factory_;
 }
-
-void TestExtensionsBrowserClient::RegisterExtensionFunctions(
-    ExtensionFunctionRegistry* registry) const {}
 
 void TestExtensionsBrowserClient::RegisterExtensionInterfaces(
     service_manager::BinderRegistryWithArgs<content::RenderFrameHost*>*

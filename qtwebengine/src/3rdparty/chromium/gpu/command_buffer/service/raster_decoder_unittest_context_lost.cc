@@ -25,7 +25,6 @@ class RasterDecoderOOMTest : public RasterDecoderManualInitTest {
   void Init(bool has_robustness) {
     InitState init;
     init.lose_context_when_out_of_memory = true;
-    init.workarounds.simulate_out_of_memory_on_large_textures = true;
     if (has_robustness) {
       init.extensions.push_back("GL_ARB_robustness");
     }
@@ -34,7 +33,7 @@ class RasterDecoderOOMTest : public RasterDecoderManualInitTest {
 
   void OOM(GLenum reset_status,
            error::ContextLostReason expected_other_reason) {
-    if (context_->WasAllocatedUsingRobustnessExtension()) {
+    if (context_->HasRobustness()) {
       EXPECT_CALL(*gl_, GetGraphicsResetStatusARB())
           .WillOnce(Return(reset_status));
     }
@@ -43,11 +42,18 @@ class RasterDecoderOOMTest : public RasterDecoderManualInitTest {
         .Times(1)
         .RetiresOnSaturation();
 
-    // Trigger OOM with simulate_out_of_memory_on_large_textures
-    cmds::TexStorage2D cmd;
-    cmd.Init(client_texture_id_, /*width=*/50000,
-             /*height=*/50000);
+    // glGetError merges driver error state with decoder error state.  Return
+    // GL_NO_ERROR from mock driver and GL_OUT_OF_MEMORY from decoder.
+    EXPECT_CALL(*gl_, GetError())
+        .WillOnce(Return(GL_NO_ERROR))
+        .RetiresOnSaturation();
+    GetDecoder()->SetOOMErrorForTest();
+
+    cmds::GetError cmd;
+    cmd.Init(shared_memory_id_, shared_memory_offset_);
     EXPECT_EQ(error::kLostContext, ExecuteCmd(cmd));
+    EXPECT_EQ(GL_OUT_OF_MEMORY,
+              static_cast<GLint>(*GetSharedMemoryAs<GLenum*>()));
   }
 };
 
@@ -57,7 +63,6 @@ TEST_P(RasterDecoderOOMTest, ContextLostReasonOOM) {
   const error::ContextLostReason expected_reason_for_other_contexts =
       error::kOutOfMemory;
   OOM(GL_NO_ERROR, expected_reason_for_other_contexts);
-  EXPECT_EQ(GL_OUT_OF_MEMORY, GetGLError());
   EXPECT_TRUE(decoder_->WasContextLost());
   EXPECT_EQ(error::kOutOfMemory, GetContextLostReason());
 }
@@ -68,7 +73,6 @@ TEST_P(RasterDecoderOOMTest, ContextLostReasonWhenStatusIsNoError) {
   const error::ContextLostReason expected_reason_for_other_contexts =
       error::kOutOfMemory;
   OOM(GL_NO_ERROR, expected_reason_for_other_contexts);
-  EXPECT_EQ(GL_OUT_OF_MEMORY, GetGLError());
   EXPECT_TRUE(decoder_->WasContextLost());
   EXPECT_EQ(error::kOutOfMemory, GetContextLostReason());
 }
@@ -79,7 +83,6 @@ TEST_P(RasterDecoderOOMTest, ContextLostReasonWhenStatusIsGuilty) {
   const error::ContextLostReason expected_reason_for_other_contexts =
       error::kUnknown;
   OOM(GL_GUILTY_CONTEXT_RESET_ARB, expected_reason_for_other_contexts);
-  EXPECT_EQ(GL_OUT_OF_MEMORY, GetGLError());
   EXPECT_TRUE(decoder_->WasContextLost());
   EXPECT_EQ(error::kGuilty, GetContextLostReason());
 }
@@ -90,7 +93,6 @@ TEST_P(RasterDecoderOOMTest, ContextLostReasonWhenStatusIsUnknown) {
   const error::ContextLostReason expected_reason_for_other_contexts =
       error::kUnknown;
   OOM(GL_UNKNOWN_CONTEXT_RESET_ARB, expected_reason_for_other_contexts);
-  EXPECT_EQ(GL_OUT_OF_MEMORY, GetGLError());
   EXPECT_TRUE(decoder_->WasContextLost());
   EXPECT_EQ(error::kUnknown, GetContextLostReason());
 }
@@ -143,6 +145,7 @@ TEST_P(RasterDecoderLostContextTest, LostFromMakeCurrent) {
   EXPECT_CALL(*context_, MakeCurrent(surface_.get())).WillOnce(Return(false));
   // Expect the group to be lost.
   EXPECT_CALL(*mock_decoder_, MarkContextLost(error::kUnknown)).Times(1);
+  EXPECT_FALSE(decoder_->WasContextLost());
   decoder_->MakeCurrent();
   EXPECT_TRUE(decoder_->WasContextLost());
   EXPECT_EQ(error::kMakeCurrentFailed, GetContextLostReason());
@@ -173,11 +176,12 @@ TEST_P(RasterDecoderLostContextTest, LostFromMakeCurrentWithRobustness) {
 TEST_P(RasterDecoderLostContextTest, TextureDestroyAfterLostFromMakeCurrent) {
   Init(/*has_robustness=*/true);
 
-  // Create the texture.
-  DoTexStorage2D(client_texture_id_, /*width=*/10, /*height=*/10);
+  CreateFakeTexture(kNewServiceId, viz::ResourceFormat::RGBA_8888,
+                    /*width=*/2, /*height=*/2,
+                    /*cleared=*/false);
 
   // The texture should never be deleted at the GL level.
-  EXPECT_CALL(*gl_, DeleteTextures(1, Pointee(kServiceTextureId)))
+  EXPECT_CALL(*gl_, DeleteTextures(1, Pointee(kNewServiceId)))
       .Times(0)
       .RetiresOnSaturation();
 
@@ -280,18 +284,6 @@ TEST_P(RasterDecoderLostContextTest, LoseInnocentFromGLError) {
   EXPECT_TRUE(decoder_->WasContextLost());
   EXPECT_TRUE(decoder_->WasContextLostByRobustnessExtension());
   EXPECT_EQ(error::kInnocent, GetContextLostReason());
-}
-
-TEST_P(RasterDecoderLostContextTest, LoseVirtualContextWithRobustness) {
-  InitWithVirtualContextsAndRobustness();
-  EXPECT_CALL(*mock_decoder_, MarkContextLost(error::kUnknown)).Times(1);
-  // Signal guilty....
-  DoGetErrorWithContextLost(GL_GUILTY_CONTEXT_RESET_KHR);
-  EXPECT_TRUE(decoder_->WasContextLost());
-  EXPECT_TRUE(decoder_->WasContextLostByRobustnessExtension());
-  // ...but make sure we don't pretend, since for virtual contexts we don't
-  // know if this was really the guilty client.
-  EXPECT_EQ(error::kUnknown, GetContextLostReason());
 }
 
 TEST_P(RasterDecoderLostContextTest, LoseGroupFromRobustness) {

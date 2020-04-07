@@ -4,63 +4,109 @@
 
 #include "services/content/public/cpp/navigable_contents.h"
 
-#include "services/content/public/cpp/buildflags.h"
-
-#if BUILDFLAG(ENABLE_AURA_CONTENT_VIEW_EMBEDDING)
-#include "services/ui/public/interfaces/window_tree_constants.mojom.h"  // nogncheck
-#include "ui/views/layout/fill_layout.h"                // nogncheck
-#include "ui/views/mus/remote_view/remote_view_host.h"  // nogncheck
-#include "ui/views/view.h"                              // nogncheck
-#endif
+#include "base/memory/ptr_util.h"
+#include "services/content/public/cpp/navigable_contents_view.h"
 
 namespace content {
 
 NavigableContents::NavigableContents(mojom::NavigableContentsFactory* factory)
-    : client_binding_(this) {
+    : NavigableContents(factory, mojom::NavigableContentsParams::New()) {}
+
+NavigableContents::NavigableContents(mojom::NavigableContentsFactory* factory,
+                                     mojom::NavigableContentsParamsPtr params)
+    : client_binding_(this), content_ax_tree_id_(ui::AXTreeIDUnknown()) {
   mojom::NavigableContentsClientPtr client;
   client_binding_.Bind(mojo::MakeRequest(&client));
-  factory->CreateContents(mojom::NavigableContentsParams::New(),
-                          mojo::MakeRequest(&contents_), std::move(client));
+  factory->CreateContents(std::move(params), mojo::MakeRequest(&contents_),
+                          std::move(client));
 }
 
 NavigableContents::~NavigableContents() = default;
 
-views::View* NavigableContents::GetView() {
-#if BUILDFLAG(ENABLE_AURA_CONTENT_VIEW_EMBEDDING)
+void NavigableContents::AddObserver(NavigableContentsObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void NavigableContents::RemoveObserver(NavigableContentsObserver* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+NavigableContentsView* NavigableContents::GetView() {
   if (!view_) {
-    view_ = std::make_unique<views::View>();
-    view_->set_owned_by_client();
-    view_->SetLayoutManager(std::make_unique<views::FillLayout>());
-
-    DCHECK(!remote_view_host_);
-    remote_view_host_ = new views::RemoteViewHost;
-    view_->AddChildView(remote_view_host_);
-
-    contents_->CreateView(base::BindOnce(
-        &NavigableContents::OnEmbedTokenReceived, base::Unretained(this)));
+    view_ = base::WrapUnique(new NavigableContentsView(this));
+    contents_->CreateView(
+        NavigableContentsView::IsClientRunningInServiceProcess(),
+        base::BindOnce(&NavigableContents::OnEmbedTokenReceived,
+                       base::Unretained(this)));
   }
   return view_.get();
-#else
-  return nullptr;
-#endif
 }
 
 void NavigableContents::Navigate(const GURL& url) {
-  contents_->Navigate(url);
+  NavigateWithParams(url, mojom::NavigateParams::New());
+}
+
+void NavigableContents::NavigateWithParams(const GURL& url,
+                                           mojom::NavigateParamsPtr params) {
+  contents_->Navigate(url, std::move(params));
+}
+
+void NavigableContents::GoBack(
+    content::mojom::NavigableContents::GoBackCallback callback) {
+  contents_->GoBack(std::move(callback));
+}
+
+void NavigableContents::Focus() {
+  contents_->Focus();
+}
+
+void NavigableContents::FocusThroughTabTraversal(bool reverse) {
+  contents_->FocusThroughTabTraversal(reverse);
+}
+
+void NavigableContents::ClearViewFocus() {
+  if (view_)
+    view_->ClearNativeFocus();
+}
+
+void NavigableContents::DidFinishNavigation(
+    const GURL& url,
+    bool is_main_frame,
+    bool is_error_page,
+    const scoped_refptr<net::HttpResponseHeaders>& response_headers) {
+  for (auto& observer : observers_) {
+    observer.DidFinishNavigation(url, is_main_frame, is_error_page,
+                                 response_headers.get());
+  }
 }
 
 void NavigableContents::DidStopLoading() {
-  if (did_stop_loading_callback_)
-    did_stop_loading_callback_.Run();
+  for (auto& observer : observers_)
+    observer.DidStopLoading();
+}
+
+void NavigableContents::DidAutoResizeView(const gfx::Size& new_size) {
+  for (auto& observer : observers_)
+    observer.DidAutoResizeView(new_size);
+}
+
+void NavigableContents::DidSuppressNavigation(const GURL& url,
+                                              WindowOpenDisposition disposition,
+                                              bool from_user_gesture) {
+  for (auto& observer : observers_)
+    observer.DidSuppressNavigation(url, disposition, from_user_gesture);
+}
+
+void NavigableContents::UpdateContentAXTree(const ui::AXTreeID& id) {
+  content_ax_tree_id_ = id;
+  if (view_)
+    view_->NotifyAccessibilityTreeChange();
 }
 
 void NavigableContents::OnEmbedTokenReceived(
     const base::UnguessableToken& token) {
-#if BUILDFLAG(ENABLE_AURA_CONTENT_VIEW_EMBEDDING)
-  const uint32_t kEmbedFlags = ui::mojom::kEmbedFlagEmbedderInterceptsEvents |
-                               ui::mojom::kEmbedFlagEmbedderControlsVisibility;
-  remote_view_host_->EmbedUsingToken(token, kEmbedFlags, base::DoNothing());
-#endif  // defined(USE_AURA)
+  DCHECK(view_);
+  view_->EmbedUsingToken(token);
 }
 
 }  // namespace content

@@ -111,18 +111,11 @@ class QRemoteObjectPendingReply : public QRemoteObjectPendingCall
 public:
     typedef T Type;
 
-    inline QRemoteObjectPendingReply()
+    QRemoteObjectPendingReply() = default;
+    explicit QRemoteObjectPendingReply(const QRemoteObjectPendingCall &call)
+        : QRemoteObjectPendingCall(call)
     {
     }
-    inline QRemoteObjectPendingReply(const QRemoteObjectPendingReply &other)
-        : QRemoteObjectPendingCall(other)
-    {
-    }
-    explicit inline QRemoteObjectPendingReply(const QRemoteObjectPendingCall &call)
-    {
-        *this = call;
-    }
-    inline ~QRemoteObjectPendingReply() {}
 
     QRemoteObjectPendingReply &operator=(const QRemoteObjectPendingCall &other)
     {

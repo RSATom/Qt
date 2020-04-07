@@ -242,6 +242,7 @@ class TempFile {
   std::string ReadFile() {
     std::fseek(file_, 0, SEEK_END);
     int size = std::ftell(file_);
+    EXPECT_GT(size, 0);
     std::rewind(file_);
     std::string str(2 * size, ' ');
     int read_bytes = std::fread(&str[0], 1, str.size(), file_);
@@ -270,7 +271,7 @@ TEST_F(FormatEntryPointTest, FPrintFError) {
   EXPECT_EQ(errno, EBADF);
 }
 
-#if __GNUC__
+#if __GLIBC__
 TEST_F(FormatEntryPointTest, FprintfTooLarge) {
   std::FILE* f = std::fopen("/dev/null", "w");
   int width = 2000000000;
@@ -297,7 +298,7 @@ TEST_F(FormatEntryPointTest, PrintF) {
   EXPECT_EQ(result, 30);
   EXPECT_EQ(tmp.ReadFile(), "STRING: ABC NUMBER: -000000019");
 }
-#endif  // __GNUC__
+#endif  // __GLIBC__
 
 TEST_F(FormatEntryPointTest, SNPrintF) {
   char buffer[16];
@@ -384,14 +385,14 @@ TEST(StrFormat, BehavesAsDocumented) {
   EXPECT_EQ(StrFormat("%G", 1e10), "1E+10");
   //     a/A - lower,upper case hex    Eg: -3.0 -> "-0x1.8p+1"/"-0X1.8P+1"
 
-// On NDK r16, there is a regression in hexfloat formatting.
-#if !defined(__NDK_MAJOR__) || __NDK_MAJOR__ != 16
+// On Android platform <=21, there is a regression in hexfloat formatting.
+#if !defined(__ANDROID_API__) || __ANDROID_API__ > 21
   EXPECT_EQ(StrFormat("%.1a", -3.0), "-0x1.8p+1");  // .1 to fix MSVC output
   EXPECT_EQ(StrFormat("%.1A", -3.0), "-0X1.8P+1");  // .1 to fix MSVC output
 #endif
 
   // Other conversion
-  int64_t value = 0x7ffdeb6;
+  int64_t value = 0x7ffdeb4;
   auto ptr_value = static_cast<uintptr_t>(value);
   const int& something = *reinterpret_cast<const int*>(ptr_value);
   EXPECT_EQ(StrFormat("%p", &something), StrFormat("0x%x", ptr_value));
@@ -601,3 +602,25 @@ TEST_F(ParsedFormatTest, RegressionMixPositional) {
 
 }  // namespace
 }  // namespace absl
+
+// Some codegen thunks that we can use to easily dump the generated assembly for
+// different StrFormat calls.
+
+std::string CodegenAbslStrFormatInt(int i) { // NOLINT
+  return absl::StrFormat("%d", i);
+}
+
+std::string CodegenAbslStrFormatIntStringInt64(int i, const std::string& s,
+                                                 int64_t i64) { // NOLINT
+  return absl::StrFormat("%d %s %d", i, s, i64);
+}
+
+void CodegenAbslStrAppendFormatInt(std::string* out, int i) { // NOLINT
+  absl::StrAppendFormat(out, "%d", i);
+}
+
+void CodegenAbslStrAppendFormatIntStringInt64(std::string* out, int i,
+                                                     const std::string& s,
+                                                     int64_t i64) { // NOLINT
+  absl::StrAppendFormat(out, "%d %s %d", i, s, i64);
+}

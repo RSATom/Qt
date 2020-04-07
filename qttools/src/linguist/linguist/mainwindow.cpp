@@ -359,7 +359,7 @@ MainWindow::MainWindow()
     // We can't call setCentralWidget(m_messageEditor), since it is already called in m_ui.setupUi()
     QBoxLayout *lout = new QBoxLayout(QBoxLayout::TopToBottom, m_ui.centralwidget);
     lout->addWidget(m_messageEditor);
-    lout->setMargin(0);
+    lout->setContentsMargins(QMargins());
     m_ui.centralwidget->setLayout(lout);
 
     // Set up the phrases & guesses dock widget
@@ -1357,11 +1357,13 @@ void MainWindow::about()
     QString version = tr("Version %1");
     version = version.arg(QLatin1String(QT_VERSION_STR));
 
-    box.setText(tr("<center><img src=\":/images/icons/linguist-128-32.png\"/></img><p>%1</p></center>"
-                    "<p>Qt Linguist is a tool for adding translations to Qt "
-                    "applications.</p>"
-                    "<p>Copyright (C) %2 The Qt Company Ltd."
-                   ).arg(version, QStringLiteral("2019")));
+    const QString description
+            = tr("Qt Linguist is a tool for adding translations to Qt applications.");
+    const QString copyright
+            = tr("Copyright (C) %1 The Qt Company Ltd.").arg(QStringLiteral("2019"));
+    box.setText(QStringLiteral("<center><img src=\":/images/icons/linguist-128-32.png\"/></img><p>%1</p></center>"
+                               "<p>%2</p>"
+                               "<p>%3</p>").arg(version, description, copyright));
 
     box.setWindowTitle(QApplication::translate("AboutDialog", "Qt Linguist"));
     box.setIcon(QMessageBox::NoIcon);

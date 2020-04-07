@@ -54,27 +54,13 @@ SDK.RuntimeModel = class extends SDK.SDKModel {
   }
 
   /**
-   * @param {string} code
-   * @return {string}
+   * @param {!SDK.RuntimeModel.EvaluationResult} response
    */
-  static wrapObjectLiteralExpressionIfNeeded(code) {
-    // Only parenthesize what appears to be an object literal.
-    if (!(/^\s*\{/.test(code) && /\}\s*$/.test(code)))
-      return code;
-
-    const parse = (async () => 0).constructor;
-    try {
-      // Check if the code can be interpreted as an expression.
-      parse('return ' + code + ';');
-
-      // No syntax error! Does it work parenthesized?
-      const wrappedCode = '(' + code + ')';
-      parse(wrappedCode);
-
-      return wrappedCode;
-    } catch (e) {
-      return code;
-    }
+  static isSideEffectFailure(response) {
+    const exceptionDetails = !response[Protocol.Error] && response.exceptionDetails;
+    return !!(
+        exceptionDetails && exceptionDetails.exception && exceptionDetails.exception.description &&
+        exceptionDetails.exception.description.startsWith('EvalError: Possible side-effect in debug-evaluate'));
   }
 
   /**
@@ -223,6 +209,19 @@ SDK.RuntimeModel = class extends SDK.SDKModel {
     this._agent.releaseObjectGroup(objectGroupName);
   }
 
+  /**
+   * @param {!SDK.RuntimeModel.EvaluationResult} result
+   */
+  releaseEvaluationResult(result) {
+    if (result.object)
+      result.object.release();
+    if (result.exceptionDetails && result.exceptionDetails.exception) {
+      const exception = result.exceptionDetails.exception;
+      const exceptionObject = this.createRemoteObject({type: exception.type, objectId: exception.objectId});
+      exceptionObject.release();
+    }
+  }
+
   runIfWaitingForDebugger() {
     this._agent.runIfWaitingForDebugger();
   }
@@ -244,7 +243,7 @@ SDK.RuntimeModel = class extends SDK.SDKModel {
    */
   async compileScript(expression, sourceURL, persistScript, executionContextId) {
     const response = await this._agent.invoke_compileScript({
-      expression: expression,
+      expression: String.escapeInvalidUnicodeCharacters(expression),
       sourceURL: sourceURL,
       persistScript: persistScript,
       executionContextId: executionContextId
@@ -369,8 +368,8 @@ SDK.RuntimeModel = class extends SDK.SDKModel {
       InspectorFrontendHost.copyText(object.unserializableValue() || object.value);
       return;
     }
-    object.callFunctionJSON(
-        toStringForClipboard, [{value: object.subtype}], InspectorFrontendHost.copyText.bind(InspectorFrontendHost));
+    object.callFunctionJSON(toStringForClipboard, [{value: object.subtype}])
+        .then(InspectorFrontendHost.copyText.bind(InspectorFrontendHost));
 
     /**
      * @param {string} subtype
@@ -490,15 +489,14 @@ SDK.RuntimeModel = class extends SDK.SDKModel {
     if (!testContext)
       return false;
     // Check for a positive throwOnSideEffect response without triggering side effects.
-    const response = await this._agent.invoke_evaluate(
-        {expression: SDK.RuntimeModel._sideEffectTestExpression, contextId: testContext.id, throwOnSideEffect: true});
+    const response = await this._agent.invoke_evaluate({
+      expression: String.escapeInvalidUnicodeCharacters(SDK.RuntimeModel._sideEffectTestExpression),
+      contextId: testContext.id,
+      throwOnSideEffect: true
+    });
 
-    const exceptionDetails = !response[Protocol.Error] && response.exceptionDetails;
-    const supports =
-        !!(exceptionDetails && exceptionDetails.exception &&
-           exceptionDetails.exception.description.startsWith('EvalError: Possible side-effect in debug-evaluate'));
-    this._hasSideEffectSupport = supports;
-    return supports;
+    this._hasSideEffectSupport = SDK.RuntimeModel.isSideEffectFailure(response);
+    return this._hasSideEffectSupport;
   }
 
   /**
@@ -700,10 +698,12 @@ SDK.ExecutionContext = class {
      */
     function targetWeight(target) {
       if (!target.parentTarget())
+        return 5;
+      if (target.type() === SDK.Target.Type.Frame)
         return 4;
-      if (target.hasBrowserCapability())
+      if (target.type() === SDK.Target.Type.ServiceWorker)
         return 3;
-      if (target.hasJSCapability())
+      if (target.type() === SDK.Target.Type.Worker)
         return 2;
       return 1;
     }
@@ -778,7 +778,7 @@ SDK.ExecutionContext = class {
     }
 
     const response = await this.runtimeModel._agent.invoke_evaluate({
-      expression: options.expression,
+      expression: String.escapeInvalidUnicodeCharacters(options.expression),
       objectGroup: options.objectGroup,
       includeCommandLineAPI: options.includeCommandLineAPI,
       silent: options.silent,

@@ -15,8 +15,11 @@
  */
 
 #include "src/trace_processor/thread_table.h"
+#include "src/trace_processor/event_tracker.h"
 #include "src/trace_processor/process_table.h"
+#include "src/trace_processor/process_tracker.h"
 #include "src/trace_processor/scoped_db.h"
+#include "src/trace_processor/trace_processor_context.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -32,12 +35,12 @@ class ThreadTableUnittest : public ::testing::Test {
     PERFETTO_CHECK(sqlite3_open(":memory:", &db) == SQLITE_OK);
     db_.reset(db);
 
-    static sqlite3_module t_module = ThreadTable::CreateModule();
-    sqlite3_create_module(*db_, "thread", &t_module,
-                          static_cast<void*>(&storage_));
-    static sqlite3_module p_module = ProcessTable::CreateModule();
-    sqlite3_create_module(*db_, "process", &p_module,
-                          static_cast<void*>(&storage_));
+    context_.storage.reset(new TraceStorage());
+    context_.process_tracker.reset(new ProcessTracker(&context_));
+    context_.event_tracker.reset(new EventTracker(&context_));
+
+    ThreadTable::RegisterTable(db_.get(), context_.storage.get());
+    ProcessTable::RegisterTable(db_.get(), context_.storage.get());
   }
 
   void PrepareValidStatement(const std::string& sql) {
@@ -52,94 +55,120 @@ class ThreadTableUnittest : public ::testing::Test {
     return reinterpret_cast<const char*>(sqlite3_column_text(*stmt_, colId));
   }
 
+  ~ThreadTableUnittest() override { context_.storage->ResetStorage(); }
+
  protected:
-  TraceStorage storage_;
+  TraceProcessorContext context_;
   ScopedDb db_;
   ScopedStmt stmt_;
 };
 
 TEST_F(ThreadTableUnittest, Select) {
   uint32_t cpu = 3;
-  uint64_t timestamp = 100;
-  uint32_t pid_1 = 1;
+  int64_t timestamp = 100;
   uint32_t prev_state = 32;
-  static const char kCommProc1[] = "thread1";
-  static const char kCommProc2[] = "thread2";
-  uint32_t pid_2 = 4;
+  static const char kThreadName1[] = "thread1";
+  static const char kThreadName2[] = "thread2";
+  int32_t next_prio = 1024;
 
-  storage_.PushSchedSwitch(cpu, timestamp, pid_1, prev_state, kCommProc1,
-                           sizeof(kCommProc1) - 1, pid_2);
-  storage_.PushSchedSwitch(cpu, timestamp + 1, pid_2, prev_state, kCommProc2,
-                           sizeof(kCommProc2) - 1, pid_1);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, prev_state,
+                                          /*tid=*/4, kThreadName1, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
+                                          prev_state, /*tid=*/1, kThreadName2,
+                                          next_prio);
 
-  storage_.PushProcess(2, "test", 4);
-  storage_.MatchThreadToProcess(1, 2);
-  PrepareValidStatement("SELECT utid, upid, name FROM thread");
+  context_.process_tracker->UpdateProcess(2, "test");
+  context_.process_tracker->UpdateThread(4 /*tid*/, 2 /*pid*/);
+  PrepareValidStatement("SELECT utid, upid, tid, name FROM thread where tid=4");
 
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 1 /* utid */);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 1), 1 /* upid */);
-  ASSERT_STREQ(GetColumnAsText(2), kCommProc1);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 2), 4 /* tid */);
+  ASSERT_STREQ(GetColumnAsText(3), kThreadName1);
 
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_DONE);
 }
 
 TEST_F(ThreadTableUnittest, SelectWhere) {
   uint32_t cpu = 3;
-  uint64_t timestamp = 100;
-  uint32_t pid_1 = 1;
+  int64_t timestamp = 100;
   uint32_t prev_state = 32;
-  static const char kCommProc1[] = "thread1";
-  static const char kCommProc2[] = "thread2";
-  uint32_t pid_2 = 4;
+  static const char kThreadName1[] = "thread1";
+  static const char kThreadName2[] = "thread2";
+  int32_t next_prio = 1024;
 
-  storage_.PushSchedSwitch(cpu, timestamp, pid_1, prev_state, kCommProc1,
-                           sizeof(kCommProc1) - 1, pid_2);
-  storage_.PushSchedSwitch(cpu, timestamp + 1, pid_2, prev_state, kCommProc2,
-                           sizeof(kCommProc2) - 1, pid_1);
-  storage_.PushSchedSwitch(cpu, timestamp + 2, pid_1, prev_state, kCommProc1,
-                           sizeof(kCommProc1) - 1, pid_2);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, prev_state,
+                                          /*tid=*/4, kThreadName1, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
+                                          prev_state,
+                                          /*tid=*/1, kThreadName2, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp + 2, /*tid=*/1,
+                                          prev_state, /*tid=*/4, kThreadName1,
+                                          next_prio);
 
-  storage_.PushProcess(2, "test", 4);
-  storage_.MatchThreadToProcess(1, 2);
-  storage_.MatchThreadToProcess(2, 2);
-  PrepareValidStatement("SELECT utid, upid, name FROM thread where utid = 1");
+  context_.process_tracker->UpdateProcess(2, "test");
+  context_.process_tracker->UpdateThread(4 /*tid*/, 2 /*pid*/);
+  context_.process_tracker->UpdateThread(1 /*tid*/, 2 /*pid*/);
+  PrepareValidStatement(
+      "SELECT utid, upid, tid, name FROM thread where tid = 4");
 
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 1 /* utid */);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 1), 1 /* upid */);
-  ASSERT_STREQ(GetColumnAsText(2), kCommProc1);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 2), 4 /* tid */);
+  ASSERT_STREQ(GetColumnAsText(3), kThreadName1);
 
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_DONE);
 }
 
 TEST_F(ThreadTableUnittest, JoinWithProcess) {
   uint32_t cpu = 3;
-  uint64_t timestamp = 100;
-  uint32_t pid_1 = 1;
+  int64_t timestamp = 100;
   uint32_t prev_state = 32;
-  static const char kCommProc1[] = "thread1";
-  static const char kCommProc2[] = "thread2";
-  uint32_t pid_2 = 4;
+  static const char kThreadName1[] = "thread1";
+  static const char kThreadName2[] = "thread2";
+  int32_t next_prio = 1024;
 
-  storage_.PushSchedSwitch(cpu, timestamp, pid_1, prev_state, kCommProc1,
-                           sizeof(kCommProc1) - 1, pid_2);
-  storage_.PushSchedSwitch(cpu, timestamp + 1, pid_2, prev_state, kCommProc2,
-                           sizeof(kCommProc2) - 1, pid_1);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, prev_state,
+                                          /*tid=*/4, kThreadName1, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
+                                          prev_state,
+                                          /*tid=*/1, kThreadName2, next_prio);
 
-  storage_.PushProcess(2, "test", 4);
-  storage_.PushProcess(3, "test1", 5);
-  storage_.MatchThreadToProcess(1, 2);
+  // Also create a process for which we haven't seen any thread.
+  context_.process_tracker->UpdateProcess(7, "pid7");
+
+  context_.process_tracker->UpdateProcess(2, "pid2");
+  context_.process_tracker->UpdateThread(/*tid=*/4, /*pid=*/2);
+
   PrepareValidStatement(
-      "SELECT utid, thread.name, process.upid, process.name FROM thread INNER "
-      "JOIN process USING (upid)");
+      "SELECT utid, thread.tid, thread.name, process.upid, process.pid, "
+      "process.name FROM thread INNER JOIN process USING (upid) WHERE pid = 2 "
+      "ORDER BY tid");
 
+  // At this point we should see two threads bound to process with pid=2:
+
+  // (1) The (implicitly created) main thread (tid=pid=2).
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
-  ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 1 /* utid */);
-  ASSERT_STREQ(GetColumnAsText(1), kCommProc1);
+  auto utid_for_tid2 = sqlite3_column_int(*stmt_, 0);
+  ASSERT_GT(utid_for_tid2, 0);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 1), 2 /* tid */);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 4), 2 /* pid */);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 3), 2 /* upid */);
+  ASSERT_STREQ(GetColumnAsText(2), "");  // No name seen for main thread.
+  ASSERT_STREQ(GetColumnAsText(5), "pid2");
 
-  ASSERT_EQ(sqlite3_column_int(*stmt_, 2), 1 /* upid */);
-  ASSERT_STREQ(GetColumnAsText(3), "test");
+  // (2) A thread with tid=4.
+  ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
+  auto utid_for_tid4 = sqlite3_column_int(*stmt_, 0);
+  ASSERT_GT(utid_for_tid4, 0);
+  ASSERT_NE(utid_for_tid4, utid_for_tid2);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 1), 4 /* tid */);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 4), 2 /* pid */);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 3), 2 /* upid */);
+  ASSERT_STREQ(GetColumnAsText(2), kThreadName1);
+  ASSERT_STREQ(GetColumnAsText(5), "pid2");
 
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_DONE);
 }

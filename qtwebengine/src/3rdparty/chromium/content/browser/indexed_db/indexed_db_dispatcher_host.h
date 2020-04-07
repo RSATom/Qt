@@ -17,12 +17,11 @@
 #include "base/memory/ref_counted.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/common/content_export.h"
-#include "content/common/indexed_db/indexed_db.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "mojo/public/cpp/bindings/associated_binding_set.h"
 #include "mojo/public/cpp/bindings/strong_associated_binding_set.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -39,24 +38,23 @@ class IndexedDBContextImpl;
 // Constructed on UI thread, expects all other calls (including destruction) on
 // IO thread.
 class CONTENT_EXPORT IndexedDBDispatcherHost
-    : public ::indexed_db::mojom::Factory,
+    : public blink::mojom::IDBFactory,
       public RenderProcessHostObserver {
  public:
   // Only call the constructor from the UI thread.
   IndexedDBDispatcherHost(
       int ipc_process_id,
-      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
       scoped_refptr<IndexedDBContextImpl> indexed_db_context,
       scoped_refptr<ChromeBlobStorageContext> blob_storage_context);
 
-  void AddBinding(::indexed_db::mojom::FactoryAssociatedRequest request);
+  void AddBinding(blink::mojom::IDBFactoryRequest request,
+                  const url::Origin& origin);
 
-  void AddDatabaseBinding(
-      std::unique_ptr<::indexed_db::mojom::Database> database,
-      ::indexed_db::mojom::DatabaseAssociatedRequest request);
+  void AddDatabaseBinding(std::unique_ptr<blink::mojom::IDBDatabase> database,
+                          blink::mojom::IDBDatabaseAssociatedRequest request);
 
-  void AddCursorBinding(std::unique_ptr<::indexed_db::mojom::Cursor> cursor,
-                        ::indexed_db::mojom::CursorAssociatedRequest request);
+  void AddCursorBinding(std::unique_ptr<blink::mojom::IDBCursor> cursor,
+                        blink::mojom::IDBCursorAssociatedRequest request);
 
   // A shortcut for accessing our context.
   IndexedDBContextImpl* context() const { return indexed_db_context_.get(); }
@@ -84,27 +82,24 @@ class CONTENT_EXPORT IndexedDBDispatcherHost
 
   ~IndexedDBDispatcherHost() override;
 
-  // indexed_db::mojom::Factory implementation:
+  // blink::mojom::IDBFactory implementation:
+  void GetDatabaseInfo(
+      blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) override;
   void GetDatabaseNames(
-      ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info,
-      const url::Origin& origin) override;
-  void Open(::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info,
-            ::indexed_db::mojom::DatabaseCallbacksAssociatedPtrInfo
+      blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) override;
+  void Open(blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info,
+            blink::mojom::IDBDatabaseCallbacksAssociatedPtrInfo
                 database_callbacks_info,
-            const url::Origin& origin,
             const base::string16& name,
             int64_t version,
             int64_t transaction_id) override;
   void DeleteDatabase(
-      ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info,
-      const url::Origin& origin,
+      blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info,
       const base::string16& name,
       bool force_close) override;
   void AbortTransactionsAndCompactDatabase(
-      const url::Origin& origin,
       AbortTransactionsAndCompactDatabaseCallback callback) override;
   void AbortTransactionsForDatabase(
-      const url::Origin& origin,
       AbortTransactionsForDatabaseCallback callback) override;
 
   void InvalidateWeakPtrsAndClearBindings();
@@ -117,13 +112,17 @@ class CONTENT_EXPORT IndexedDBDispatcherHost
   // Used to set file permissions for blob storage.
   const int ipc_process_id_;
 
-  mojo::AssociatedBindingSet<::indexed_db::mojom::Factory> bindings_;
+  // State for each client held in |bindings_|.
+  struct BindingState {
+    url::Origin origin;
+  };
 
-  mojo::StrongAssociatedBindingSet<::indexed_db::mojom::Database>
+  mojo::BindingSet<blink::mojom::IDBFactory, BindingState> bindings_;
+
+  mojo::StrongAssociatedBindingSet<blink::mojom::IDBDatabase>
       database_bindings_;
 
-  mojo::StrongAssociatedBindingSet<::indexed_db::mojom::Cursor>
-      cursor_bindings_;
+  mojo::StrongAssociatedBindingSet<blink::mojom::IDBCursor> cursor_bindings_;
 
   IDBSequenceHelper* idb_helper_;
 

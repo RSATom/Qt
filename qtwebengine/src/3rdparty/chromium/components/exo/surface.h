@@ -21,19 +21,16 @@
 #include "components/viz/common/resources/transferable_resource.h"
 #include "third_party/skia/include/core/SkBlendMode.h"
 #include "ui/aura/window.h"
-#include "ui/aura/window_targeter.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/transform.h"
+
+class SkPath;
 
 namespace base {
 namespace trace_event {
 class TracedValue;
 }
-}
-
-namespace gfx {
-class Path;
 }
 
 namespace viz {
@@ -93,6 +90,7 @@ class Surface final : public ui::PropertyHandler {
   // This sets the region of the surface that can receive pointer and touch
   // events. The region is clipped to the surface bounds.
   void SetInputRegion(const cc::Region& region);
+  const cc::Region& hit_test_region() const { return hit_test_region_; }
 
   // This resets the region of the surface that can receive pointer and touch
   // events to be wide-open. This will be clipped to the surface bounds.
@@ -152,6 +150,10 @@ class Surface final : public ui::PropertyHandler {
   // Request "parent" for surface.
   void SetParent(Surface* parent, const gfx::Point& position);
 
+  // Request that surface should have a specific ID assigned by client.
+  void SetClientSurfaceId(int32_t client_surface_id);
+  int32_t GetClientSurfaceId() const;
+
   // Surface state (damage regions, attached buffers, etc.) is double-buffered.
   // A Commit() call atomically applies all pending state, replacing the
   // current state. Commit() is not guaranteed to be synchronous. See
@@ -190,12 +192,7 @@ class Surface final : public ui::PropertyHandler {
   bool HitTest(const gfx::Point& point) const;
 
   // Sets |mask| to the path that delineates the hit test region of the surface.
-  void GetHitTestMask(gfx::Path* mask) const;
-
-  // Returns the current input region of surface in the form of a set of
-  // hit-test rects.
-  std::unique_ptr<aura::WindowTargeter::HitTestRects> GetHitTestShapeRects()
-      const;
+  void GetHitTestMask(SkPath* mask) const;
 
   // Set the surface delegate.
   void SetSurfaceDelegate(SurfaceDelegate* delegate);
@@ -240,6 +237,12 @@ class Surface final : public ui::PropertyHandler {
   bool HasPendingDamageForTesting(const gfx::Rect& damage) const {
     return pending_damage_.Contains(damage);
   }
+
+  // Set occlusion tracking region for surface.
+  void SetOcclusionTracking(bool tracking);
+
+  // Triggers sending an occlusion update to observers.
+  void OnWindowOcclusionChanged();
 
  private:
   struct State {
@@ -288,7 +291,7 @@ class Surface final : public ui::PropertyHandler {
   void UpdateResource(LayerTreeFrameSinkHolder* frame_sink_holder);
 
   // Updates buffer_transform_ to match the current buffer parameters.
-  void UpdateBufferTransform();
+  void UpdateBufferTransform(bool y_invert);
 
   // Puts the current surface into a draw quad, and appends the draw quads into
   // the |frame|.
@@ -393,7 +396,10 @@ class Surface final : public ui::PropertyHandler {
   SurfaceDelegate* delegate_ = nullptr;
 
   // Surface observer list. Surface does not own the observers.
-  base::ObserverList<SurfaceObserver, true> observers_;
+  base::ObserverList<SurfaceObserver, true>::Unchecked observers_;
+
+  // Whether this surface is tracking occlusion for the client.
+  bool is_tracking_occlusion_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(Surface);
 };

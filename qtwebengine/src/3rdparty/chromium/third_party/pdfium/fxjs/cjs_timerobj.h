@@ -7,11 +7,11 @@
 #ifndef FXJS_CJS_TIMEROBJ_H_
 #define FXJS_CJS_TIMEROBJ_H_
 
-#include "fxjs/js_define.h"
+#include "fxjs/cjs_object.h"
 
 class GlobalTimer;
 
-class CJS_TimerObj : public CJS_Object {
+class CJS_TimerObj final : public CJS_Object {
  public:
   static int GetObjDefnID();
   static void DefineJSObjects(CFXJS_Engine* pEngine);

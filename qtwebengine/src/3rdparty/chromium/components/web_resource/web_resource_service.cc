@@ -16,7 +16,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/prefs/pref_service.h"
 #include "net/base/load_flags.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -44,10 +44,14 @@ WebResourceService::WebResourceService(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const char* disable_network_switch,
     const ParseJSONCallback& parse_json_callback,
-    const net::NetworkTrafficAnnotationTag& traffic_annotation)
+    const net::NetworkTrafficAnnotationTag& traffic_annotation,
+    ResourceRequestAllowedNotifier::NetworkConnectionTrackerGetter
+        network_connection_tracker_getter)
     : prefs_(prefs),
-      resource_request_allowed_notifier_(
-          new ResourceRequestAllowedNotifier(prefs, disable_network_switch)),
+      resource_request_allowed_notifier_(new ResourceRequestAllowedNotifier(
+          prefs,
+          disable_network_switch,
+          std::move(network_connection_tracker_getter))),
       fetch_scheduled_(false),
       in_fetch_(false),
       web_resource_server_(web_resource_server),
@@ -59,7 +63,7 @@ WebResourceService::WebResourceService(
       parse_json_callback_(parse_json_callback),
       traffic_annotation_(traffic_annotation),
       weak_ptr_factory_(this) {
-  resource_request_allowed_notifier_->Init(this);
+  resource_request_allowed_notifier_->Init(this, false /* leaky */);
   DCHECK(prefs);
 }
 
@@ -105,15 +109,16 @@ void WebResourceService::ScheduleFetch(int64_t delay_ms) {
     return;
   fetch_scheduled_ = true;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(&WebResourceService::StartFetch,
-                            weak_ptr_factory_.GetWeakPtr()),
+      FROM_HERE,
+      base::BindOnce(&WebResourceService::StartFetch,
+                     weak_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromMilliseconds(delay_ms));
 }
 
 void WebResourceService::SetResourceRequestAllowedNotifier(
     std::unique_ptr<ResourceRequestAllowedNotifier> notifier) {
   resource_request_allowed_notifier_ = std::move(notifier);
-  resource_request_allowed_notifier_->Init(this);
+  resource_request_allowed_notifier_->Init(this, false /* leaky */);
 }
 
 bool WebResourceService::GetFetchScheduled() const {

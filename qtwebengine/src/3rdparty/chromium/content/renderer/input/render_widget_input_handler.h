@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "content/common/cursors/webcursor.h"
 #include "content/common/input/input_event_ack.h"
 #include "content/common/input/input_event_dispatch_type.h"
 #include "content/renderer/input/main_thread_event_queue.h"
@@ -47,8 +48,10 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
   virtual ~RenderWidgetInputHandler();
 
   // Hit test the given point to find out the frame underneath and
-  // returns the FrameSinkId for that frame.
-  viz::FrameSinkId GetFrameSinkIdAtPoint(const gfx::Point& point);
+  // returns the FrameSinkId for that frame. |local_point| returns the point
+  // in the coordinate space of the FrameSinkId that was hit.
+  viz::FrameSinkId GetFrameSinkIdAtPoint(const gfx::PointF& point,
+                                         gfx::PointF* local_point);
 
   // Handle input events from the input event provider.
   virtual void HandleInputEvent(
@@ -79,6 +82,10 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
       ime_composition_replacement_ = ime_composition_replacement;
   }
 
+  // Process the new cursor and returns true if it has changed from the last
+  // cursor.
+  bool DidChangeCursor(const WebCursor& cursor);
+
  private:
   blink::WebInputEventResult HandleTouchEvent(
       const blink::WebCoalescedInputEvent& coalesced_event);
@@ -89,6 +96,10 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
 
   // Are we currently handling an input event?
   bool handling_input_event_;
+
+  // We store the current cursor object so we can avoid spamming SetCursor
+  // messages.
+  base::Optional<WebCursor> current_cursor_;
 
   // Used to intercept overscroll notifications while an event is being
   // handled. If the event causes overscroll, the overscroll metadata can be

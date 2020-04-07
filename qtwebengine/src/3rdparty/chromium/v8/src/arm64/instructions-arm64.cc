@@ -72,7 +72,7 @@ static uint64_t RotateRight(uint64_t value,
                             unsigned int width) {
   DCHECK_LE(width, 64);
   rotate &= 63;
-  return ((value & ((1UL << rotate) - 1UL)) << (width - rotate)) |
+  return ((value & ((1ULL << rotate) - 1ULL)) << (width - rotate)) |
          (value >> rotate);
 }
 
@@ -83,7 +83,7 @@ static uint64_t RepeatBitsAcrossReg(unsigned reg_size,
   DCHECK((width == 2) || (width == 4) || (width == 8) || (width == 16) ||
          (width == 32));
   DCHECK((reg_size == kWRegSizeInBits) || (reg_size == kXRegSizeInBits));
-  uint64_t result = value & ((1UL << width) - 1UL);
+  uint64_t result = value & ((1ULL << width) - 1ULL);
   for (unsigned i = width; i < reg_size; i *= 2) {
     result |= (result << i);
   }
@@ -121,7 +121,7 @@ uint64_t Instruction::ImmLogical() {
     if (imm_s == 0x3F) {
       return 0;
     }
-    uint64_t bits = (1UL << (imm_s + 1)) - 1;
+    uint64_t bits = (1ULL << (imm_s + 1)) - 1;
     return RotateRight(bits, imm_r, 64);
   } else {
     if ((imm_s >> 1) == 0x1F) {
@@ -133,7 +133,7 @@ uint64_t Instruction::ImmLogical() {
         if ((imm_s & mask) == mask) {
           return 0;
         }
-        uint64_t bits = (1UL << ((imm_s & mask) + 1)) - 1;
+        uint64_t bits = (1ULL << ((imm_s & mask) + 1)) - 1;
         return RepeatBitsAcrossReg(reg_size,
                                    RotateRight(bits, imm_r & mask, width),
                                    width);
@@ -159,7 +159,7 @@ double Instruction::ImmNEONFP64() const {
 
 unsigned CalcLSDataSize(LoadStoreOp op) {
   DCHECK_EQ(static_cast<unsigned>(LSSize_offset + LSSize_width),
-            kInstructionSize * 8);
+            kInstrSize * 8);
   unsigned size = static_cast<Instr>(op) >> LSSize_offset;
   if ((op & LSVector_mask) != 0) {
     // Vector register memory operations encode the access size in the "size"
@@ -197,16 +197,16 @@ int64_t Instruction::ImmPCOffset() {
   } else if (BranchType() != UnknownBranchType) {
     // All PC-relative branches.
     // Relative branch offsets are instruction-size-aligned.
-    offset = ImmBranch() << kInstructionSizeLog2;
+    offset = ImmBranch() << kInstrSizeLog2;
   } else if (IsUnresolvedInternalReference()) {
     // Internal references are always word-aligned.
-    offset = ImmUnresolvedInternalReference() << kInstructionSizeLog2;
+    offset = ImmUnresolvedInternalReference() << kInstrSizeLog2;
   } else {
     // Load literal (offset from PC).
     DCHECK(IsLdrLiteral());
     // The offset is always shifted by 2 bits, even for loads to 64-bits
     // registers.
-    offset = ImmLLiteral() << kInstructionSizeLog2;
+    offset = ImmLLiteral() << kInstrSizeLog2;
   }
   return offset;
 }
@@ -260,10 +260,10 @@ void Instruction::SetPCRelImmTarget(const AssemblerOptions& options,
 
 
 void Instruction::SetBranchImmTarget(Instruction* target) {
-  DCHECK(IsAligned(DistanceTo(target), kInstructionSize));
-  DCHECK(IsValidImmPCOffset(BranchType(),
-                            DistanceTo(target) >> kInstructionSizeLog2));
-  int offset = static_cast<int>(DistanceTo(target) >> kInstructionSizeLog2);
+  DCHECK(IsAligned(DistanceTo(target), kInstrSize));
+  DCHECK(
+      IsValidImmPCOffset(BranchType(), DistanceTo(target) >> kInstrSizeLog2));
+  int offset = static_cast<int>(DistanceTo(target) >> kInstrSizeLog2);
   Instr branch_imm = 0;
   uint32_t imm_mask = 0;
   switch (BranchType()) {
@@ -295,10 +295,10 @@ void Instruction::SetBranchImmTarget(Instruction* target) {
 void Instruction::SetUnresolvedInternalReferenceImmTarget(
     const AssemblerOptions& options, Instruction* target) {
   DCHECK(IsUnresolvedInternalReference());
-  DCHECK(IsAligned(DistanceTo(target), kInstructionSize));
-  DCHECK(is_int32(DistanceTo(target) >> kInstructionSizeLog2));
+  DCHECK(IsAligned(DistanceTo(target), kInstrSize));
+  DCHECK(is_int32(DistanceTo(target) >> kInstrSizeLog2));
   int32_t target_offset =
-      static_cast<int32_t>(DistanceTo(target) >> kInstructionSizeLog2);
+      static_cast<int32_t>(DistanceTo(target) >> kInstrSizeLog2);
   uint32_t high16 = unsigned_bitextract_32(31, 16, target_offset);
   uint32_t low16 = unsigned_bitextract_32(15, 0, target_offset);
 
@@ -310,7 +310,7 @@ void Instruction::SetUnresolvedInternalReferenceImmTarget(
 
 void Instruction::SetImmLLiteral(Instruction* source) {
   DCHECK(IsLdrLiteral());
-  DCHECK(IsAligned(DistanceTo(source), kInstructionSize));
+  DCHECK(IsAligned(DistanceTo(source), kInstrSize));
   DCHECK(Assembler::IsImmLLiteral(DistanceTo(source)));
   Instr imm = Assembler::ImmLLiteral(
       static_cast<int>(DistanceTo(source) >> kLoadLiteralScaleLog2));
@@ -341,289 +341,6 @@ uint64_t InstructionSequence::InlineData() const {
   // TODO(all): If we extend ::InlineData() to support bigger data, we need
   // to update this method too.
   return payload;
-}
-
-VectorFormat VectorFormatHalfWidth(VectorFormat vform) {
-  DCHECK(vform == kFormat8H || vform == kFormat4S || vform == kFormat2D ||
-         vform == kFormatH || vform == kFormatS || vform == kFormatD);
-  switch (vform) {
-    case kFormat8H:
-      return kFormat8B;
-    case kFormat4S:
-      return kFormat4H;
-    case kFormat2D:
-      return kFormat2S;
-    case kFormatH:
-      return kFormatB;
-    case kFormatS:
-      return kFormatH;
-    case kFormatD:
-      return kFormatS;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat VectorFormatDoubleWidth(VectorFormat vform) {
-  DCHECK(vform == kFormat8B || vform == kFormat4H || vform == kFormat2S ||
-         vform == kFormatB || vform == kFormatH || vform == kFormatS);
-  switch (vform) {
-    case kFormat8B:
-      return kFormat8H;
-    case kFormat4H:
-      return kFormat4S;
-    case kFormat2S:
-      return kFormat2D;
-    case kFormatB:
-      return kFormatH;
-    case kFormatH:
-      return kFormatS;
-    case kFormatS:
-      return kFormatD;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat VectorFormatFillQ(VectorFormat vform) {
-  switch (vform) {
-    case kFormatB:
-    case kFormat8B:
-    case kFormat16B:
-      return kFormat16B;
-    case kFormatH:
-    case kFormat4H:
-    case kFormat8H:
-      return kFormat8H;
-    case kFormatS:
-    case kFormat2S:
-    case kFormat4S:
-      return kFormat4S;
-    case kFormatD:
-    case kFormat1D:
-    case kFormat2D:
-      return kFormat2D;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat VectorFormatHalfWidthDoubleLanes(VectorFormat vform) {
-  switch (vform) {
-    case kFormat4H:
-      return kFormat8B;
-    case kFormat8H:
-      return kFormat16B;
-    case kFormat2S:
-      return kFormat4H;
-    case kFormat4S:
-      return kFormat8H;
-    case kFormat1D:
-      return kFormat2S;
-    case kFormat2D:
-      return kFormat4S;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat VectorFormatDoubleLanes(VectorFormat vform) {
-  DCHECK(vform == kFormat8B || vform == kFormat4H || vform == kFormat2S);
-  switch (vform) {
-    case kFormat8B:
-      return kFormat16B;
-    case kFormat4H:
-      return kFormat8H;
-    case kFormat2S:
-      return kFormat4S;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat VectorFormatHalfLanes(VectorFormat vform) {
-  DCHECK(vform == kFormat16B || vform == kFormat8H || vform == kFormat4S);
-  switch (vform) {
-    case kFormat16B:
-      return kFormat8B;
-    case kFormat8H:
-      return kFormat4H;
-    case kFormat4S:
-      return kFormat2S;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat ScalarFormatFromLaneSize(int laneSize) {
-  switch (laneSize) {
-    case 8:
-      return kFormatB;
-    case 16:
-      return kFormatH;
-    case 32:
-      return kFormatS;
-    case 64:
-      return kFormatD;
-    default:
-      UNREACHABLE();
-  }
-}
-
-VectorFormat ScalarFormatFromFormat(VectorFormat vform) {
-  return ScalarFormatFromLaneSize(LaneSizeInBitsFromFormat(vform));
-}
-
-unsigned RegisterSizeInBytesFromFormat(VectorFormat vform) {
-  return RegisterSizeInBitsFromFormat(vform) / 8;
-}
-
-unsigned RegisterSizeInBitsFromFormat(VectorFormat vform) {
-  DCHECK_NE(vform, kFormatUndefined);
-  switch (vform) {
-    case kFormatB:
-      return kBRegSizeInBits;
-    case kFormatH:
-      return kHRegSizeInBits;
-    case kFormatS:
-      return kSRegSizeInBits;
-    case kFormatD:
-      return kDRegSizeInBits;
-    case kFormat8B:
-    case kFormat4H:
-    case kFormat2S:
-    case kFormat1D:
-      return kDRegSizeInBits;
-    default:
-      return kQRegSizeInBits;
-  }
-}
-
-unsigned LaneSizeInBitsFromFormat(VectorFormat vform) {
-  DCHECK_NE(vform, kFormatUndefined);
-  switch (vform) {
-    case kFormatB:
-    case kFormat8B:
-    case kFormat16B:
-      return 8;
-    case kFormatH:
-    case kFormat4H:
-    case kFormat8H:
-      return 16;
-    case kFormatS:
-    case kFormat2S:
-    case kFormat4S:
-      return 32;
-    case kFormatD:
-    case kFormat1D:
-    case kFormat2D:
-      return 64;
-    default:
-      UNREACHABLE();
-  }
-}
-
-int LaneSizeInBytesFromFormat(VectorFormat vform) {
-  return LaneSizeInBitsFromFormat(vform) / 8;
-}
-
-int LaneSizeInBytesLog2FromFormat(VectorFormat vform) {
-  DCHECK_NE(vform, kFormatUndefined);
-  switch (vform) {
-    case kFormatB:
-    case kFormat8B:
-    case kFormat16B:
-      return 0;
-    case kFormatH:
-    case kFormat4H:
-    case kFormat8H:
-      return 1;
-    case kFormatS:
-    case kFormat2S:
-    case kFormat4S:
-      return 2;
-    case kFormatD:
-    case kFormat1D:
-    case kFormat2D:
-      return 3;
-    default:
-      UNREACHABLE();
-  }
-}
-
-int LaneCountFromFormat(VectorFormat vform) {
-  DCHECK_NE(vform, kFormatUndefined);
-  switch (vform) {
-    case kFormat16B:
-      return 16;
-    case kFormat8B:
-    case kFormat8H:
-      return 8;
-    case kFormat4H:
-    case kFormat4S:
-      return 4;
-    case kFormat2S:
-    case kFormat2D:
-      return 2;
-    case kFormat1D:
-    case kFormatB:
-    case kFormatH:
-    case kFormatS:
-    case kFormatD:
-      return 1;
-    default:
-      UNREACHABLE();
-  }
-}
-
-int MaxLaneCountFromFormat(VectorFormat vform) {
-  DCHECK_NE(vform, kFormatUndefined);
-  switch (vform) {
-    case kFormatB:
-    case kFormat8B:
-    case kFormat16B:
-      return 16;
-    case kFormatH:
-    case kFormat4H:
-    case kFormat8H:
-      return 8;
-    case kFormatS:
-    case kFormat2S:
-    case kFormat4S:
-      return 4;
-    case kFormatD:
-    case kFormat1D:
-    case kFormat2D:
-      return 2;
-    default:
-      UNREACHABLE();
-  }
-}
-
-// Does 'vform' indicate a vector format or a scalar format?
-bool IsVectorFormat(VectorFormat vform) {
-  DCHECK_NE(vform, kFormatUndefined);
-  switch (vform) {
-    case kFormatB:
-    case kFormatH:
-    case kFormatS:
-    case kFormatD:
-      return false;
-    default:
-      return true;
-  }
-}
-
-int64_t MaxIntFromFormat(VectorFormat vform) {
-  return INT64_MAX >> (64 - LaneSizeInBitsFromFormat(vform));
-}
-
-int64_t MinIntFromFormat(VectorFormat vform) {
-  return INT64_MIN >> (64 - LaneSizeInBitsFromFormat(vform));
-}
-
-uint64_t MaxUintFromFormat(VectorFormat vform) {
-  return UINT64_MAX >> (64 - LaneSizeInBitsFromFormat(vform));
 }
 
 NEONFormatDecoder::NEONFormatDecoder(const Instruction* instr) {

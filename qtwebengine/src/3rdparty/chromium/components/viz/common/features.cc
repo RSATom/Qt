@@ -23,29 +23,32 @@ const base::Feature kEnableSurfaceSynchronization{
     "SurfaceSynchronization", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
-// Enables DumpWithoutCrashing of surface invariants violations.
-const base::Feature kEnableInvariantsViolationLogging{
-    "InvariantsViolationLogging", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Enables running the display compositor as part of the viz service in the GPU
 // process. This is also referred to as out-of-process display compositor
 // (OOP-D).
+// TODO(dnicoara): Look at enabling Chromecast support when ChromeOS support is
+// ready.
+#if defined(OS_CHROMEOS) || defined(IS_CHROMECAST) || defined(OS_ANDROID)
 const base::Feature kVizDisplayCompositor{"VizDisplayCompositor",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
+#else
+const base::Feature kVizDisplayCompositor{"VizDisplayCompositor",
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
 
 // Enables running the Viz-assisted hit-test logic.
-const base::Feature kEnableVizHitTestDrawQuad{
-    "VizHitTestDrawQuad", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kEnableVizHitTestDrawQuad{"VizHitTestDrawQuad",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kEnableVizHitTestSurfaceLayer{
     "VizHitTestSurfaceLayer", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Use the SkiaRenderer.
-const base::Feature kUseSkiaDeferredDisplayList{
-    "UseSkiaDeferredDisplayList", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Use the Skia deferred display list.
 const base::Feature kUseSkiaRenderer{"UseSkiaRenderer",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use the SkiaRenderer to record SkPicture.
+const base::Feature kRecordSkPicture{"RecordSkPicture",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsSurfaceSynchronizationEnabled() {
@@ -55,12 +58,15 @@ bool IsSurfaceSynchronizationEnabled() {
          base::FeatureList::IsEnabled(kVizDisplayCompositor);
 }
 
-bool IsSurfaceInvariantsViolationLoggingEnabled() {
-  return IsSurfaceSynchronizationEnabled() &&
-         base::FeatureList::IsEnabled(kEnableInvariantsViolationLogging);
+bool IsVizHitTestingDebugEnabled() {
+  return features::IsVizHitTestingEnabled() &&
+         base::CommandLine::ForCurrentProcess()->HasSwitch(
+             switches::kEnableVizHitTestDebug);
 }
 
 bool IsVizHitTestingDrawQuadEnabled() {
+  if (IsVizHitTestingSurfaceLayerEnabled())
+    return false;
   return base::FeatureList::IsEnabled(kEnableVizHitTestDrawQuad) ||
          base::FeatureList::IsEnabled(kVizDisplayCompositor);
 }
@@ -71,9 +77,6 @@ bool IsVizHitTestingEnabled() {
 }
 
 bool IsVizHitTestingSurfaceLayerEnabled() {
-  // TODO(riajiang): Check feature flag as well. https://crbug.com/804888
-  // TODO(riajiang): Check kVizDisplayCompositor feature when it works with
-  // that config.
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kUseVizHitTestSurfaceLayer) ||
          base::FeatureList::IsEnabled(kEnableVizHitTestSurfaceLayer);
@@ -87,10 +90,9 @@ bool IsUsingSkiaRenderer() {
   return base::FeatureList::IsEnabled(kUseSkiaRenderer);
 }
 
-bool IsUsingSkiaDeferredDisplayList() {
+bool IsRecordingSkPicture() {
   return IsUsingSkiaRenderer() &&
-         base::FeatureList::IsEnabled(kUseSkiaDeferredDisplayList) &&
-         base::FeatureList::IsEnabled(kVizDisplayCompositor);
+         base::FeatureList::IsEnabled(kRecordSkPicture);
 }
 
 }  // namespace features

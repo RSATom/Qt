@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/android/scoped_hardware_buffer_handle.h"
 #include "base/component_export.h"
 #include "gpu/vulkan/vulkan_implementation.h"
 #include "gpu/vulkan/vulkan_instance.h"
@@ -34,6 +35,21 @@ class COMPONENT_EXPORT(VULKAN_ANDROID) VulkanImplementationAndroid
   std::unique_ptr<gfx::GpuFence> ExportVkFenceToGpuFence(
       VkDevice vk_device,
       VkFence vk_fence) override;
+  bool ImportSemaphoreFdKHR(VkDevice vk_device,
+                            base::ScopedFD sync_fd,
+                            VkSemaphore* vk_semaphore) override;
+  bool GetSemaphoreFdKHR(VkDevice vk_device,
+                         VkSemaphore vk_semaphore,
+                         base::ScopedFD* sync_fd) override;
+  bool CreateVkImageAndImportAHB(
+      const VkDevice& vk_device,
+      const VkPhysicalDevice& vk_physical_device,
+      const gfx::Size& size,
+      base::android::ScopedHardwareBufferHandle ahb_handle,
+      VkImage* vk_image,
+      VkImageCreateInfo* vk_image_info,
+      VkDeviceMemory* vk_device_memory,
+      VkDeviceSize* mem_allocation_size) override;
 
  private:
   VulkanInstance vulkan_instance_;

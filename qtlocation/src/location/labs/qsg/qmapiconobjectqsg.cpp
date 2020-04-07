@@ -67,8 +67,10 @@ QMapIconObjectPrivateQSG::QMapIconObjectPrivateQSG(QGeoMapObject *q)
 QMapIconObjectPrivateQSG::QMapIconObjectPrivateQSG(const QMapIconObjectPrivate &other)
     : QMapIconObjectPrivateDefault(other)
 {
+    // Data already cloned by the *Default copy constructor, but necessary
+    // update operations triggered only by setters overrides
     setContent(content());
-    setCoordinate(coordinate());
+//    setCoordinate(coordinate());
 }
 
 QMapIconObjectPrivateQSG::~QMapIconObjectPrivateQSG()
@@ -99,7 +101,7 @@ QSGNode *QMapIconObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
                                                        QSGNode *root,
                                                        QQuickWindow *window)
 {
-    Q_UNUSED(visibleNode)
+    Q_UNUSED(visibleNode);
     bool created = false;
     RootNode *node = static_cast<RootNode *>(oldNode);
     if (!node) {
@@ -116,7 +118,7 @@ QSGNode *QMapIconObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
         m_imageNode->setTexture(window->createTextureFromImage(m_image));
         QRect rect = m_image.rect();
         m_imageNode->setSourceRect(rect);
-        m_imageNode->setRect(QRectF(QPointF(0,0), m_size));
+        m_imageNode->setRect(QRectF(QPointF(0,0), iconSize()));
     }
 
     if (m_geometryDirty) {
@@ -211,9 +213,9 @@ void QMapIconObjectPrivateQSG::setContent(const QVariant &content)
         emit m_map->sgNodeChanged();
 }
 
-void QMapIconObjectPrivateQSG::setSize(const QSizeF &size)
+void QMapIconObjectPrivateQSG::setIconSize(const QSizeF &size)
 {
-    QMapIconObjectPrivateDefault::setSize(size);
+    QMapIconObjectPrivateDefault::setIconSize(size);
     updateGeometry();
 }
 

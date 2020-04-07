@@ -5,8 +5,12 @@ CXX_MODULE = $$TARGET
 TARGETPATH = Qt/labs/location
 IMPORT_VERSION = 1.0
 
+HEADERS += \
+           locationlabssingleton_p.h
+
 SOURCES += \
-           locationlabs.cpp
+           locationlabs.cpp \
+           locationlabssingleton.cpp
 
 #CONFIG += no_cxx_module
 load(qml_plugin)

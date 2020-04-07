@@ -15,31 +15,9 @@
 #include "content/public/browser/browser_thread.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(
-    safe_browsing::TriggerManagerWebContentsHelper);
-
 namespace safe_browsing {
 
 namespace {
-
-bool TriggerNeedsScout(const TriggerType trigger_type) {
-  switch (trigger_type) {
-    case TriggerType::SECURITY_INTERSTITIAL:
-      // Security interstitials only need legacy SBER opt-in.
-      return false;
-    case TriggerType::AD_SAMPLE:
-      // Ad samples need Scout-level opt-in (background data collection).
-      return true;
-    case TriggerType::GAIA_PASSWORD_REUSE:
-      // Gaia password reuses only need legacy SBER opt-in.
-      return false;
-    case TriggerType::SUSPICIOUS_SITE:
-      // Suspicious sites need Scout-level opt-in (background data collection).
-      return true;
-  }
-  // By default, require Scout so we are more restrictive on data collection.
-  return true;
-}
 
 bool TriggerNeedsOptInForCollection(const TriggerType trigger_type) {
   switch (trigger_type) {
@@ -60,6 +38,10 @@ bool TriggerNeedsOptInForCollection(const TriggerType trigger_type) {
       // Suspicious site collection happens in the background so the user must
       // already be opted in before the trigger is allowed to run.
       return true;
+    case TriggerType::APK_DOWNLOAD:
+      // APK download collection happens in the background so the user must
+      // already be opted in before the trigger is allowed to run.
+      return true;
   }
   // By default, require opt-in for all triggers.
   return true;
@@ -67,16 +49,11 @@ bool TriggerNeedsOptInForCollection(const TriggerType trigger_type) {
 
 bool CanSendReport(const SBErrorOptions& error_display_options,
                    const TriggerType trigger_type) {
-  // Some triggers require that users are eligible for elevated Scout data
-  // collection in order to run.
-  bool scout_check_ok = !TriggerNeedsScout(trigger_type) ||
-                        error_display_options.is_scout_reporting_enabled;
-
   // Reports are only sent for non-incoginito users who are allowed to modify
   // the Extended Reporting setting and have opted-in to Extended Reporting.
   return !error_display_options.is_off_the_record &&
          error_display_options.is_extended_reporting_opt_in_allowed &&
-         error_display_options.is_extended_reporting_enabled && scout_check_ok;
+         error_display_options.is_extended_reporting_enabled;
 }
 
 }  // namespace
@@ -101,12 +78,11 @@ void TriggerManager::set_trigger_throttler(TriggerThrottler* throttler) {
 // static
 SBErrorOptions TriggerManager::GetSBErrorDisplayOptions(
     const PrefService& pref_service,
-    const content::WebContents& web_contents) {
+    content::WebContents* web_contents) {
   return SBErrorOptions(/*is_main_frame_load_blocked=*/false,
                         IsExtendedReportingOptInAllowed(pref_service),
-                        web_contents.GetBrowserContext()->IsOffTheRecord(),
+                        web_contents->GetBrowserContext()->IsOffTheRecord(),
                         IsExtendedReportingEnabled(pref_service),
-                        IsScout(pref_service),
                         IsExtendedReportingPolicyManaged(pref_service),
                         /*is_proceed_anyway_disabled=*/false,
                         /*should_open_links_in_new_tab=*/false,
@@ -135,18 +111,13 @@ bool TriggerManager::CanStartDataCollectionWithReason(
       !TriggerNeedsOptInForCollection(trigger_type) ||
       error_display_options.is_extended_reporting_enabled;
 
-  // Some triggers require that users are eligible for elevated Scout data
-  // collection in order to run.
-  bool scout_check_ok = !TriggerNeedsScout(trigger_type) ||
-                        error_display_options.is_scout_reporting_enabled;
-
   // We start data collection as long as user is not incognito and is able to
   // change the Extended Reporting opt-in, and the |trigger_type| has available
-  // quota. For some triggers we also require Scout or extended reporting opt-in
-  // in order to start data collection.
+  // quota. For some triggers we also require extended reporting opt-in in
+  // order to start data collection.
   if (!error_display_options.is_off_the_record &&
       error_display_options.is_extended_reporting_opt_in_allowed &&
-      optin_required_check_ok && scout_check_ok) {
+      optin_required_check_ok) {
     bool quota_ok = trigger_throttler_->TriggerCanFire(trigger_type);
     if (!quota_ok)
       *out_reason = TriggerManagerReason::DAILY_QUOTA_EXCEEDED;
@@ -189,12 +160,11 @@ bool TriggerManager::StartCollectingThreatDetailsWithReason(
     return false;
 
   bool should_trim_threat_details = trigger_type == TriggerType::AD_SAMPLE;
-  collectors->threat_details =
-      scoped_refptr<ThreatDetails>(ThreatDetails::NewThreatDetails(
-          ui_manager_, web_contents, resource, url_loader_factory,
-          history_service, referrer_chain_provider_, should_trim_threat_details,
-          base::Bind(&TriggerManager::ThreatDetailsDone,
-                     weak_factory_.GetWeakPtr())));
+  collectors->threat_details = ThreatDetails::NewThreatDetails(
+      ui_manager_, web_contents, resource, url_loader_factory, history_service,
+      referrer_chain_provider_, should_trim_threat_details,
+      base::Bind(&TriggerManager::ThreatDetailsDone,
+                 weak_factory_.GetWeakPtr()));
   return true;
 }
 
@@ -223,7 +193,8 @@ bool TriggerManager::FinishCollectingThreatDetails(
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&ThreatDetails::FinishCollection,
-                       collectors->threat_details, did_proceed, num_visits),
+                       collectors->threat_details->GetWeakPtr(), did_proceed,
+                       num_visits),
         delay);
 
     // Record that this trigger fired and collected data.
@@ -276,5 +247,7 @@ void TriggerManagerWebContentsHelper::CreateForWebContents(
 void TriggerManagerWebContentsHelper::WebContentsDestroyed() {
   trigger_manager_->WebContentsDestroyed(web_contents());
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(TriggerManagerWebContentsHelper)
 
 }  // namespace safe_browsing

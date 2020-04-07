@@ -42,6 +42,9 @@ class CORE_EXPORT Text : public CharacterData {
   static Text* Create(Document&, const String&);
   static Text* CreateEditingText(Document&, const String&);
 
+  Text(TreeScope& tree_scope, const String& data, ConstructionType type)
+      : CharacterData(tree_scope, data, type) {}
+
   LayoutText* GetLayoutObject() const;
 
   // mergeNextSiblingNodesIfPossible() merges next sibling nodes if possible
@@ -69,11 +72,7 @@ class CORE_EXPORT Text : public CharacterData {
   bool CanContainRangeEndPoint() const final { return true; }
   NodeType getNodeType() const override;
 
-  void Trace(blink::Visitor*) override;
-
- protected:
-  Text(TreeScope& tree_scope, const String& data, ConstructionType type)
-      : CharacterData(tree_scope, data, type) {}
+  void Trace(Visitor*) override;
 
  private:
   String nodeName() const override;

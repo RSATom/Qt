@@ -43,8 +43,11 @@
 #include <QtCharts/private/qchartglobal_p.h>
 #include <private/chartelement_p.h>
 #include <private/axisanimation_p.h>
+#include <private/datetimeaxislabel_p.h>
+#include <private/valueaxislabel_p.h>
 #include <QtWidgets/QGraphicsItem>
 #include <QtWidgets/QGraphicsLayoutItem>
+#include <QtCharts/qdatetimeaxis.h>
 #include <QtCharts/QValueAxis>
 #include <QtGui/QFont>
 
@@ -53,7 +56,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 class ChartPresenter;
 class QAbstractAxis;
 
-class QT_CHARTS_PRIVATE_EXPORT ChartAxisElement : public ChartElement, public QGraphicsLayoutItem
+class Q_CHARTS_PRIVATE_EXPORT ChartAxisElement : public ChartElement, public QGraphicsLayoutItem
 {
     Q_OBJECT
 
@@ -111,6 +114,9 @@ public:
     {
     }
 
+    bool labelsEditable() const;
+    void setLabelsEditable(bool labelsEditable);
+
 protected:
     virtual QVector<qreal> calculateLayout() const = 0;
     virtual void updateLayout(QVector<qreal> &layout) = 0;
@@ -155,6 +161,8 @@ public Q_SLOTS:
     void handleMinorArrowVisibleChanged(bool visible);
     void handleMinorGridVisibleChanged(bool visible);
     void handleLabelsPositionChanged();
+    void valueLabelEdited(qreal oldValue, qreal newValue);
+    void dateTimeLabelEdited(const QDateTime &oldTime, const QDateTime &newTime);
 
 Q_SIGNALS:
     void clicked();
@@ -179,6 +187,7 @@ private:
     QScopedPointer<QGraphicsItemGroup> m_labels;
     QScopedPointer<QGraphicsTextItem> m_title;
     bool m_intervalAxis;
+    bool m_labelsEditable = false;
 };
 
 QT_CHARTS_END_NAMESPACE

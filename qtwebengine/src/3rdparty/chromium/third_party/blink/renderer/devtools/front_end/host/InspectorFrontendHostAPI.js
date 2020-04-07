@@ -100,12 +100,6 @@ InspectorFrontendHostAPI.prototype = {
    */
   addFileSystem(type) {},
 
-  /**
-   * @param {string} url
-   * @param {string} content
-   */
-  append(url, content) {},
-
   loadCompleted() {},
 
   /**
@@ -114,26 +108,6 @@ InspectorFrontendHostAPI.prototype = {
    * @param {string} excludedFolders
    */
   indexPath(requestId, fileSystemPath, excludedFolders) {},
-
-  /**
-   * @return {string}
-   */
-  getSelectionBackgroundColor() {},
-
-  /**
-   * @return {string}
-   */
-  getSelectionForegroundColor() {},
-
-  /**
-   * @return {string}
-   */
-  getInactiveSelectionBackgroundColor() {},
-
-  /**
-   * @return {string}
-   */
-  getInactiveSelectionForegroundColor() {},
 
   /**
    * Requests inspected page to be placed atop of the inspector frontend with specified bounds.
@@ -181,6 +155,17 @@ InspectorFrontendHostAPI.prototype = {
    * @param {boolean} forceSaveAs
    */
   save(url, content, forceSaveAs) {},
+
+  /**
+   * @param {string} url
+   * @param {string} content
+   */
+  append(url, content) {},
+
+  /**
+   * @param {string} url
+   */
+  close(url) {},
 
   /**
    * @param {number} requestId

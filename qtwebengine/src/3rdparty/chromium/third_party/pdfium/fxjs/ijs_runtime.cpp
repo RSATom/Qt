@@ -4,7 +4,6 @@
 
 #include "fxjs/ijs_runtime.h"
 
-#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fxjs/cjs_runtimestub.h"
 #include "third_party/base/ptr_util.h"
 
@@ -12,6 +11,13 @@
 #include "fxjs/cfxjs_engine.h"
 #include "fxjs/cjs_runtime.h"
 #endif
+
+IJS_Runtime::ScopedEventContext::ScopedEventContext(IJS_Runtime* pRuntime)
+    : m_pRuntime(pRuntime), m_pContext(pRuntime->NewEventContext()) {}
+
+IJS_Runtime::ScopedEventContext::~ScopedEventContext() {
+  m_pRuntime->ReleaseEventContext(m_pContext.Release());
+}
 
 // static
 void IJS_Runtime::Initialize(unsigned int slot, void* isolate) {

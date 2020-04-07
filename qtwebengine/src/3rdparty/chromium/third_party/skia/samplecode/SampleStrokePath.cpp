@@ -4,14 +4,16 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
+
+#include "Sample.h"
+
 #include "SkBlurMask.h"
 #include "SkCanvas.h"
+#include "SkFont.h"
 #include "SkMaskFilter.h"
 #include "SkParsePath.h"
 #include "SkPath.h"
 #include "SkRandom.h"
-#include "SkView.h"
 
 
 static void test_huge_stroke(SkCanvas* canvas) {
@@ -94,7 +96,7 @@ static const struct {
     { SkPaint::kStrokeAndFill_Style,    SkPaint::kMiter_Join,   10 },
 };
 
-class StrokePathView : public SampleView {
+class StrokePathView : public Sample {
     SkScalar    fWidth;
     SkPath      fPath;
 protected:
@@ -121,10 +123,9 @@ protected:
         this->setBGColor(0xFFDDDDDD);
     }
 
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "StrokePath");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "StrokePath");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -154,7 +155,7 @@ protected:
         if (true) {
             canvas->drawColor(SK_ColorBLACK);
 
-            paint.setTextSize(24);
+            SkFont font(nullptr, 24);
             paint.setColor(SK_ColorWHITE);
             canvas->translate(10, 30);
 
@@ -170,7 +171,7 @@ protected:
                     if (x) {
                         paint.setMaskFilter(SkMaskFilter::MakeBlur(gStyle[x - 1], sigma));
                     }
-                    canvas->drawString("Title Bar", x*SkIntToScalar(100), y*SkIntToScalar(30), paint);
+                    canvas->drawString("Title Bar", x * 100.0f, y * 30.0f, font, paint);
                     sigma *= 0.75f;
                 }
 
@@ -206,10 +207,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new StrokePathView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new StrokePathView(); )

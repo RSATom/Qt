@@ -4,6 +4,9 @@
 
 #include "media/midi/task_service.h"
 
+#include <limits>
+
+#include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"

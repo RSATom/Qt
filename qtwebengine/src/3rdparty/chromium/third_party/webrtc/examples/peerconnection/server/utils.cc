@@ -12,14 +12,14 @@
 
 #include <stdio.h>
 
-#include "rtc_base/stringencode.h"
+#include "rtc_base/string_encode.h"
 
 using rtc::ToString;
 
 std::string int2str(int i) {
-  return ToString<int>(i);
+  return ToString(i);
 }
 
 std::string size_t2str(size_t i) {
-  return ToString<size_t>(i);
+  return ToString(i);
 }

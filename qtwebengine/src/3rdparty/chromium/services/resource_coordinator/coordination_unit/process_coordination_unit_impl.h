@@ -6,6 +6,7 @@
 #define SERVICES_RESOURCE_COORDINATOR_COORDINATION_UNIT_PROCESS_COORDINATION_UNIT_IMPL_H_
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/process/process_handle.h"
 #include "base/time/time.h"
 #include "services/resource_coordinator/coordination_unit/coordination_unit_base.h"
@@ -13,8 +14,17 @@
 namespace resource_coordinator {
 
 class FrameCoordinationUnitImpl;
-class ProcessCoordinationUnitImpl;
 
+// A process coordination unit follows the lifetime of a RenderProcessHost.
+// It may reference zero or one processes at a time, but during its lifetime, it
+// may reference more than one process. This can happen if the associated
+// renderer crashes, and an associated frame is then reloaded or re-navigated.
+// The state of the process CU goes through:
+// 1. Created, no PID.
+// 2. Process started, have PID - in the case where the associated render
+//    process fails to start, this state may not occur.
+// 3. Process died or falied to start, have exit status.
+// 4. Back to 2.
 class ProcessCoordinationUnitImpl
     : public CoordinationUnitInterface<ProcessCoordinationUnitImpl,
                                        mojom::ProcessCoordinationUnit,
@@ -25,17 +35,16 @@ class ProcessCoordinationUnitImpl
   ProcessCoordinationUnitImpl(
       const CoordinationUnitID& id,
       CoordinationUnitGraph* graph,
-      std::unique_ptr<service_manager::ServiceContextRef> service_ref);
+      std::unique_ptr<service_manager::ServiceKeepaliveRef> keepalive_ref);
   ~ProcessCoordinationUnitImpl() override;
 
   // mojom::ProcessCoordinationUnit implementation.
-  void AddFrame(const CoordinationUnitID& cu_id) override;
-  void RemoveFrame(const CoordinationUnitID& cu_id) override;
   void SetCPUUsage(double cpu_usage) override;
   void SetExpectedTaskQueueingDuration(base::TimeDelta duration) override;
   void SetLaunchTime(base::Time launch_time) override;
   void SetMainThreadTaskLoadIsLow(bool main_thread_task_load_is_low) override;
-  void SetPID(int64_t pid) override;
+  void SetPID(base::ProcessId pid) override;
+  void SetProcessExitStatus(int32_t exit_status) override;
   void OnRendererIsBloated() override;
 
   // Private implementation properties.
@@ -53,24 +62,39 @@ class ProcessCoordinationUnitImpl
       const;
 
   base::ProcessId process_id() const { return process_id_; }
+  base::Time launch_time() const { return launch_time_; }
+  base::Optional<int32_t> exit_status() const { return exit_status_; }
+
+  // Add |frame_cu| to this process.
+  void AddFrame(FrameCoordinationUnitImpl* frame_cu);
+  // Removes |frame_cu| from the set of frames hosted by this process. Invoked
+  // from the destructor of FrameCoordinationUnitImpl.
+  void RemoveFrame(FrameCoordinationUnitImpl* frame_cu);
+
+  // Invoked when the state of a frame hosted by this process changes.
+  void OnFrameLifecycleStateChanged(FrameCoordinationUnitImpl* frame_cu,
+                                    mojom::LifecycleState old_state);
 
  private:
-  friend class FrameCoordinationUnitImpl;
-
   // CoordinationUnitInterface implementation.
   void OnEventReceived(mojom::Event event) override;
   void OnPropertyChanged(mojom::PropertyType property_type,
                          int64_t value) override;
 
-  bool AddFrame(FrameCoordinationUnitImpl* frame_cu);
-  bool RemoveFrame(FrameCoordinationUnitImpl* frame_cu);
+  void DecrementNumFrozenFrames();
+  void IncrementNumFrozenFrames();
 
   base::TimeDelta cumulative_cpu_usage_;
   uint64_t private_footprint_kb_ = 0u;
 
   base::ProcessId process_id_ = base::kNullProcessId;
+  base::Time launch_time_;
+  base::Optional<int32_t> exit_status_;
 
   std::set<FrameCoordinationUnitImpl*> frame_coordination_units_;
+
+  // The number of frames hosted by this process that are frozen.
+  int num_frozen_frames_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(ProcessCoordinationUnitImpl);
 };

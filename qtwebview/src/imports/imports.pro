@@ -1,7 +1,7 @@
 CXX_MODULE = webview
 TARGET  = declarative_webview
 TARGETPATH = QtWebView
-IMPORT_VERSION = 1.1
+IMPORT_VERSION = 1.$$QT_MINOR_VERSION
 
 QT += qml quick webview-private
 SOURCES += \

@@ -283,6 +283,11 @@ void WebEngineSettings::initDefaults()
         s_defaultAttributes.insert(WebRTCPublicInterfacesOnly, false);
         s_defaultAttributes.insert(JavascriptCanPaste, false);
         s_defaultAttributes.insert(DnsPrefetchEnabled, false);
+#if QT_CONFIG(webengine_extensions)
+        s_defaultAttributes.insert(PdfViewerEnabled, true);
+#else
+        s_defaultAttributes.insert(PdfViewerEnabled, false);
+#endif
     }
 
     if (s_defaultFontFamilies.isEmpty()) {
@@ -340,6 +345,10 @@ void WebEngineSettings::applySettingsToWebPreferences(content::WebPreferences *p
 {
     // Override for now
     prefs->touch_event_feature_detection_enabled = isTouchEventsAPIEnabled();
+#if !QT_CONFIG(webengine_embedded_build)
+    prefs->available_hover_types = ui::HOVER_TYPE_HOVER;
+    prefs->primary_hover_type = ui::HOVER_TYPE_HOVER;
+#endif
     if (prefs->viewport_enabled) {
         // We need to enable the viewport options together as it doesn't really work
         // to enable them separately. With viewport-enabled we match Android defaults.

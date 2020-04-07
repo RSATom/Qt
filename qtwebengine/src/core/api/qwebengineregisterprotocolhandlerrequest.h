@@ -47,11 +47,11 @@
 namespace QtWebEngineCore {
 class RegisterProtocolHandlerRequestController;
 class WebContentsDelegateQt;
-}
+} // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
-class QWEBENGINECORE_EXPORT QWebEngineRegisterProtocolHandlerRequest {
+class Q_WEBENGINECORE_EXPORT QWebEngineRegisterProtocolHandlerRequest {
     Q_GADGET
     Q_PROPERTY(QUrl origin READ origin CONSTANT FINAL)
     Q_PROPERTY(QString scheme READ scheme CONSTANT FINAL)
@@ -63,9 +63,9 @@ public:
     QString scheme() const;
     bool operator==(const QWebEngineRegisterProtocolHandlerRequest &that) const { return d_ptr == that.d_ptr; }
     bool operator!=(const QWebEngineRegisterProtocolHandlerRequest &that) const { return d_ptr != that.d_ptr; }
+
 private:
-    QWebEngineRegisterProtocolHandlerRequest(
-        QSharedPointer<QtWebEngineCore::RegisterProtocolHandlerRequestController>);
+    QWebEngineRegisterProtocolHandlerRequest(QSharedPointer<QtWebEngineCore::RegisterProtocolHandlerRequestController>);
     friend QtWebEngineCore::WebContentsDelegateQt;
     QSharedPointer<QtWebEngineCore::RegisterProtocolHandlerRequestController> d_ptr;
 };

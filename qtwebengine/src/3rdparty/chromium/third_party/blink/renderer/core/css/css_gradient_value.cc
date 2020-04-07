@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <tuple>
 #include <utility>
+
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/core/css/css_calculation_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_to_length_conversion_data.h"
@@ -170,6 +172,7 @@ struct GradientStop {
 struct CSSGradientValue::GradientDesc {
   STACK_ALLOCATED();
 
+ public:
   GradientDesc(const FloatPoint& p0,
                const FloatPoint& p1,
                GradientSpreadMethod spread_method)
@@ -209,12 +212,12 @@ static void ReplaceColorHintsWithColorStops(
   int index_offset = 0;
 
   // The first and the last color stops cannot be color hints.
-  for (size_t i = 1; i < css_gradient_stops.size() - 1; ++i) {
+  for (wtf_size_t i = 1; i < css_gradient_stops.size() - 1; ++i) {
     if (!css_gradient_stops[i].IsHint())
       continue;
 
     // The current index of the stops vector.
-    size_t x = i + index_offset;
+    wtf_size_t x = i + index_offset;
     DCHECK_GE(x, 1u);
 
     // offsetLeft          offset                            offsetRight
@@ -360,7 +363,7 @@ bool NormalizeAndAddStops(const Vector<GradientStop>& stops,
 
   DCHECK_GT(span, 0);
 
-  for (size_t i = 0; i < stops.size(); ++i) {
+  for (wtf_size_t i = 0; i < stops.size(); ++i) {
     const float normalized_offset = (stops[i].offset - first_offset) / span;
 
     // stop offsets should be monotonically increasing in [0 , 1]
@@ -380,7 +383,7 @@ bool NormalizeAndAddStops(const Vector<GradientStop>& stops,
 void ClampNegativeOffsets(Vector<GradientStop>& stops) {
   float last_negative_offset = 0;
 
-  for (size_t i = 0; i < stops.size(); ++i) {
+  for (wtf_size_t i = 0; i < stops.size(); ++i) {
     const float current_offset = stops[i].offset;
     if (current_offset >= 0) {
       if (i > 0) {
@@ -463,7 +466,7 @@ void CSSGradientValue::AddStops(
     return;
   }
 
-  size_t num_stops = stops_.size();
+  wtf_size_t num_stops = stops_.size();
 
   Vector<GradientStop> stops(num_stops);
 
@@ -484,7 +487,7 @@ void CSSGradientValue::AddStops(
   }
 
   bool has_hints = false;
-  for (size_t i = 0; i < num_stops; ++i) {
+  for (wtf_size_t i = 0; i < num_stops; ++i) {
     const CSSGradientColorStop& stop = stops_[i];
 
     if (stop.IsHint())
@@ -529,7 +532,7 @@ void CSSGradientValue::AddStops(
     // of any color-stop before it in the list, its position is changed to be
     // equal to the largest specified position of any color-stop before it.
     if (stops[i].specified && i > 0) {
-      size_t prev_specified_index;
+      wtf_size_t prev_specified_index;
       for (prev_specified_index = i - 1; prev_specified_index;
            --prev_specified_index) {
         if (stops[prev_specified_index].specified)
@@ -549,15 +552,15 @@ void CSSGradientValue::AddStops(
   // are evenly spaced between the preceding and following color-stops with
   // positions.
   if (num_stops > 2) {
-    size_t unspecified_run_start = 0;
+    wtf_size_t unspecified_run_start = 0;
     bool in_unspecified_run = false;
 
-    for (size_t i = 0; i < num_stops; ++i) {
+    for (wtf_size_t i = 0; i < num_stops; ++i) {
       if (!stops[i].specified && !in_unspecified_run) {
         unspecified_run_start = i;
         in_unspecified_run = true;
       } else if (stops[i].specified && in_unspecified_run) {
-        size_t unspecified_run_end = i;
+        wtf_size_t unspecified_run_end = i;
 
         if (unspecified_run_start < unspecified_run_end) {
           float last_specified_offset = stops[unspecified_run_start - 1].offset;
@@ -565,7 +568,8 @@ void CSSGradientValue::AddStops(
           float delta = (next_specified_offset - last_specified_offset) /
                         (unspecified_run_end - unspecified_run_start + 1);
 
-          for (size_t j = unspecified_run_start; j < unspecified_run_end; ++j)
+          for (wtf_size_t j = unspecified_run_start; j < unspecified_run_end;
+               ++j)
             stops[j].offset =
                 last_specified_offset + (j - unspecified_run_start + 1) * delta;
         }
@@ -1201,7 +1205,7 @@ FloatSize RadiusToCorner(const FloatPoint& point,
 
   unsigned corner_index = 0;
   float distance = (point - corners[corner_index]).DiagonalLength();
-  for (unsigned i = 1; i < arraysize(corners); ++i) {
+  for (unsigned i = 1; i < base::size(corners); ++i) {
     float new_distance = (point - corners[i]).DiagonalLength();
     if (compare(new_distance, distance)) {
       corner_index = i;

@@ -8,7 +8,6 @@
 #include "cc/animation/scroll_timeline.h"
 #include "cc/test/animation_test_common.h"
 #include "cc/test/animation_timelines_test_common.h"
-#include "cc/test/mock_layer_tree_mutator.h"
 #include "cc/trees/property_tree.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -34,31 +33,27 @@ class WorkletAnimationTest : public AnimationTimelinesTest {
 
   void AttachWorkletAnimation() {
     client_.RegisterElement(element_id_, ElementListType::ACTIVE);
-    client_impl_.RegisterElement(element_id_, ElementListType::PENDING);
-    client_impl_.RegisterElement(element_id_, ElementListType::ACTIVE);
 
-    worklet_animation_ = WorkletAnimation::Create(
-        worklet_animation_id_, "test_name", nullptr, nullptr);
-    int cc_id = worklet_animation_->id();
+    worklet_animation_ = WrapRefCounted(
+        new WorkletAnimation(1, worklet_animation_id_, "test_name", nullptr,
+                             nullptr, true /* controlling instance*/));
     worklet_animation_->AttachElement(element_id_);
     host_->AddAnimationTimeline(timeline_);
     timeline_->AttachAnimation(worklet_animation_);
-
-    host_->PushPropertiesTo(host_impl_);
-    timeline_impl_ = host_impl_->GetTimelineById(timeline_id_);
-    worklet_animation_impl_ =
-        ToWorkletAnimation(timeline_impl_->GetAnimationById(cc_id));
   }
 
   scoped_refptr<WorkletAnimation> worklet_animation_;
-  scoped_refptr<WorkletAnimation> worklet_animation_impl_;
   WorkletAnimationId worklet_animation_id_{11, 12};
 };
 
 class MockScrollTimeline : public ScrollTimeline {
  public:
   MockScrollTimeline()
-      : ScrollTimeline(ElementId(), ScrollTimeline::Vertical, 0) {}
+      : ScrollTimeline(ElementId(),
+                       ScrollTimeline::ScrollDown,
+                       base::nullopt,
+                       base::nullopt,
+                       0) {}
   MOCK_CONST_METHOD2(CurrentTime, double(const ScrollTree&, bool));
 };
 
@@ -73,12 +68,14 @@ TEST_F(WorkletAnimationTest, NonImplInstanceDoesNotTickKeyframe) {
           false /* not impl instance*/, std::move(effect)));
 
   EXPECT_CALL(*mock_effect, Tick(_)).Times(0);
-  worklet_animation->SetOutputState(
-      {worklet_animation_id_, base::TimeDelta::FromSecondsD(1)});
+
+  MutatorOutputState::AnimationState state(worklet_animation_id_);
+  state.local_times.push_back(base::TimeDelta::FromSecondsD(1));
+  worklet_animation->SetOutputState(state);
   worklet_animation->Tick(base::TimeTicks());
 }
 
-TEST_F(WorkletAnimationTest, LocalTimeIsUsedWithAnimations) {
+TEST_F(WorkletAnimationTest, LocalTimeIsUsedWhenTicking) {
   AttachWorkletAnimation();
 
   const float start_opacity = .7f;
@@ -90,80 +87,23 @@ TEST_F(WorkletAnimationTest, LocalTimeIsUsedWithAnimations) {
   AddOpacityTransitionToAnimation(worklet_animation_.get(), duration,
                                   start_opacity, end_opacity, true);
 
-  // Push the opacity animation to the impl thread.
-  host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
+  KeyframeModel* keyframe_model =
+      worklet_animation_->GetKeyframeModel(TargetProperty::OPACITY);
+  // Impl side animation don't need synchronized start time.
+  keyframe_model->set_needs_synchronized_start_time(false);
 
   base::TimeDelta local_time = base::TimeDelta::FromSecondsD(duration / 2);
-  worklet_animation_impl_->SetOutputState({worklet_animation_id_, local_time});
+  MutatorOutputState::AnimationState state(worklet_animation_id_);
+  state.local_times.push_back(local_time);
+  worklet_animation_->SetOutputState(state);
 
-  TickAnimationsTransferEvents(base::TimeTicks(), 0u);
+  worklet_animation_->Tick(base::TimeTicks());
 
   TestLayer* layer =
       client_.FindTestLayer(element_id_, ElementListType::ACTIVE);
-  EXPECT_FALSE(layer->is_property_mutated(TargetProperty::OPACITY));
-  client_impl_.ExpectOpacityPropertyMutated(
-      element_id_, ElementListType::ACTIVE, expected_opacity);
-}
-// Tests that verify interaction of AnimationHost with LayerTreeMutator.
-// TODO(majidvp): Perhaps moves these to AnimationHostTest.
-TEST_F(WorkletAnimationTest, LayerTreeMutatorsIsMutatedWithCorrectInputState) {
-  AttachWorkletAnimation();
-
-  MockLayerTreeMutator* mock_mutator = new NiceMock<MockLayerTreeMutator>();
-  host_impl_->SetLayerTreeMutator(
-      base::WrapUnique<LayerTreeMutator>(mock_mutator));
-  ON_CALL(*mock_mutator, HasAnimators()).WillByDefault(Return(true));
-
-  const float start_opacity = .7f;
-  const float end_opacity = .3f;
-  const double duration = 1.;
-
-  AddOpacityTransitionToAnimation(worklet_animation_.get(), duration,
-                                  start_opacity, end_opacity, true);
-
-  host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
-
-  EXPECT_CALL(*mock_mutator, MutateRef(_));
-
-  base::TimeTicks time;
-  time += base::TimeDelta::FromSecondsD(0.1);
-  TickAnimationsTransferEvents(time, 0u);
-
-  Mock::VerifyAndClearExpectations(mock_mutator);
-}
-
-TEST_F(WorkletAnimationTest, LayerTreeMutatorsIsMutatedOnlyWhenInputChanges) {
-  AttachWorkletAnimation();
-
-  MockLayerTreeMutator* mock_mutator = new NiceMock<MockLayerTreeMutator>();
-  host_impl_->SetLayerTreeMutator(
-      base::WrapUnique<LayerTreeMutator>(mock_mutator));
-  ON_CALL(*mock_mutator, HasAnimators()).WillByDefault(Return(true));
-
-  const float start_opacity = .7f;
-  const float end_opacity = .3f;
-  const double duration = 1.;
-
-  AddOpacityTransitionToAnimation(worklet_animation_.get(), duration,
-                                  start_opacity, end_opacity, true);
-
-  host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
-
-  EXPECT_CALL(*mock_mutator, MutateRef(_)).Times(1);
-
-  base::TimeTicks time;
-  time += base::TimeDelta::FromSecondsD(0.1);
-  TickAnimationsTransferEvents(time, 0u);
-
-  // The time has not changed which means worklet animation input is the same.
-  // Ticking animations again should not result in mutator being asked to
-  // mutate.
-  TickAnimationsTransferEvents(time, 0u);
-
-  Mock::VerifyAndClearExpectations(mock_mutator);
+  EXPECT_TRUE(layer->is_property_mutated(TargetProperty::OPACITY));
+  client_.ExpectOpacityPropertyMutated(element_id_, ElementListType::ACTIVE,
+                                       expected_opacity);
 }
 
 TEST_F(WorkletAnimationTest, CurrentTimeCorrectlyUsesScrollTimeline) {
@@ -178,12 +118,12 @@ TEST_F(WorkletAnimationTest, CurrentTimeCorrectlyUsesScrollTimeline) {
   worklet_animation->UpdateInputState(state.get(), base::TimeTicks::Now(),
                                       scroll_tree, true);
   std::unique_ptr<AnimationWorkletInput> input =
-      state->TakeWorkletState(worklet_animation_id_.scope_id);
+      state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(1234, input->added_and_updated_animations[0].current_time);
 }
 
 TEST_F(WorkletAnimationTest,
-       CurrentTimeFromDocumentTimelineIsOffsetByStartTime) {
+       CurrentTimeFromRegularTimelineIsOffsetByStartTime) {
   scoped_refptr<WorkletAnimation> worklet_animation = WorkletAnimation::Create(
       worklet_animation_id_, "test_name", nullptr, nullptr);
 
@@ -201,29 +141,24 @@ TEST_F(WorkletAnimationTest,
                                       true);
   // First state request sets the start time and thus current time should be 0.
   std::unique_ptr<AnimationWorkletInput> input =
-      state->TakeWorkletState(worklet_animation_id_.scope_id);
+      state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(0, input->added_and_updated_animations[0].current_time);
   state.reset(new MutatorInputState);
   worklet_animation->UpdateInputState(state.get(), second_ticks, scroll_tree,
                                       true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(123.4, input->updated_animations[0].current_time);
   // Should always offset from start time.
   state.reset(new MutatorInputState());
   worklet_animation->UpdateInputState(state.get(), third_ticks, scroll_tree,
                                       true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(246.8, input->updated_animations[0].current_time);
 }
 
 // This test verifies that worklet animation state is properly updated.
-TEST_F(WorkletAnimationTest, WorkletAnimationStateTestWithSingleKeyframeModel) {
+TEST_F(WorkletAnimationTest, UpdateInputStateProducesCorrectState) {
   AttachWorkletAnimation();
-
-  MockLayerTreeMutator* mock_mutator = new NiceMock<MockLayerTreeMutator>();
-  host_impl_->SetLayerTreeMutator(
-      base::WrapUnique<LayerTreeMutator>(mock_mutator));
-  ON_CALL(*mock_mutator, HasAnimators()).WillByDefault(Return(true));
 
   const float start_opacity = .7f;
   const float end_opacity = .3f;
@@ -233,22 +168,17 @@ TEST_F(WorkletAnimationTest, WorkletAnimationStateTestWithSingleKeyframeModel) {
       worklet_animation_.get(), duration, start_opacity, end_opacity, true);
 
   ScrollTree scroll_tree;
-  std::unique_ptr<MutatorEvents> events = host_->CreateEvents();
   std::unique_ptr<MutatorInputState> state =
       std::make_unique<MutatorInputState>();
 
-  host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
-
   KeyframeModel* keyframe_model =
-      worklet_animation_impl_->GetKeyframeModel(TargetProperty::OPACITY);
+      worklet_animation_->GetKeyframeModel(TargetProperty::OPACITY);
   ASSERT_TRUE(keyframe_model);
 
   base::TimeTicks time;
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
   std::unique_ptr<AnimationWorkletInput> input =
-      state->TakeWorkletState(worklet_animation_id_.scope_id);
+      state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->added_and_updated_animations.size(), 1u);
   EXPECT_EQ("test_name", input->added_and_updated_animations[0].name);
   EXPECT_EQ(input->updated_animations.size(), 0u);
@@ -258,9 +188,8 @@ TEST_F(WorkletAnimationTest, WorkletAnimationStateTestWithSingleKeyframeModel) {
   // UpdateInputState above.
   state.reset(new MutatorInputState());
   time += base::TimeDelta::FromSecondsD(0.1);
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->added_and_updated_animations.size(), 0u);
   EXPECT_EQ(input->updated_animations.size(), 1u);
   EXPECT_EQ(input->removed_animations.size(), 0u);
@@ -270,21 +199,19 @@ TEST_F(WorkletAnimationTest, WorkletAnimationStateTestWithSingleKeyframeModel) {
   keyframe_model->SetRunState(KeyframeModel::FINISHED, time);
   state.reset(new MutatorInputState());
   time += base::TimeDelta::FromSecondsD(0.1);
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->added_and_updated_animations.size(), 0u);
   EXPECT_EQ(input->updated_animations.size(), 1u);
   EXPECT_EQ(input->removed_animations.size(), 0u);
 
   // WorkletAnimation sets state to REMOVED when JavaScript fires cancel() which
   // leads to RemoveKeyframeModel.
-  worklet_animation_impl_->RemoveKeyframeModel(keyframe_model_id);
-  host_impl_->UpdateAnimationState(true, events.get());
+  worklet_animation_->RemoveKeyframeModel(keyframe_model_id);
+  worklet_animation_->UpdateState(true, nullptr);
   state.reset(new MutatorInputState());
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->added_and_updated_animations.size(), 0u);
   EXPECT_EQ(input->updated_animations.size(), 0u);
   EXPECT_EQ(input->removed_animations.size(), 1u);
@@ -295,11 +222,6 @@ TEST_F(WorkletAnimationTest, WorkletAnimationStateTestWithSingleKeyframeModel) {
 TEST_F(WorkletAnimationTest, SkipUnchangedAnimations) {
   AttachWorkletAnimation();
 
-  MockLayerTreeMutator* mock_mutator = new NiceMock<MockLayerTreeMutator>();
-  host_impl_->SetLayerTreeMutator(
-      base::WrapUnique<LayerTreeMutator>(mock_mutator));
-  ON_CALL(*mock_mutator, HasAnimators()).WillByDefault(Return(true));
-
   const float start_opacity = .7f;
   const float end_opacity = .3f;
   const double duration = 1.;
@@ -308,43 +230,35 @@ TEST_F(WorkletAnimationTest, SkipUnchangedAnimations) {
       worklet_animation_.get(), duration, start_opacity, end_opacity, true);
 
   ScrollTree scroll_tree;
-  std::unique_ptr<MutatorEvents> events = host_->CreateEvents();
   std::unique_ptr<MutatorInputState> state =
       std::make_unique<MutatorInputState>();
 
-  host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
-
   base::TimeTicks time;
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
   std::unique_ptr<AnimationWorkletInput> input =
-      state->TakeWorkletState(worklet_animation_id_.scope_id);
+      state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->added_and_updated_animations.size(), 1u);
   EXPECT_EQ(input->updated_animations.size(), 0u);
 
   state.reset(new MutatorInputState());
   // No update on the input state if input time stays the same.
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_FALSE(input);
 
   state.reset(new MutatorInputState());
   // Different input time causes the input state to be updated.
   time += base::TimeDelta::FromSecondsD(0.1);
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->updated_animations.size(), 1u);
 
   state.reset(new MutatorInputState());
   // Input state gets updated when the worklet animation is to be removed even
   // the input time doesn't change.
-  worklet_animation_impl_->RemoveKeyframeModel(keyframe_model_id);
-  worklet_animation_impl_->UpdateInputState(state.get(), time, scroll_tree,
-                                            true);
-  input = state->TakeWorkletState(worklet_animation_id_.scope_id);
+  worklet_animation_->RemoveKeyframeModel(keyframe_model_id);
+  worklet_animation_->UpdateInputState(state.get(), time, scroll_tree, true);
+  input = state->TakeWorkletState(worklet_animation_id_.worklet_id);
   EXPECT_EQ(input->updated_animations.size(), 0u);
   EXPECT_EQ(input->removed_animations.size(), 1u);
 }

@@ -13,8 +13,13 @@ static int GetInteger(const uint8_t* data) {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  const int kParameterSize = 21;
+  static constexpr size_t kParameterSize = 21;
   if (size < kParameterSize)
+    return 0;
+
+  // Limit data size to prevent fuzzer timeout.
+  static constexpr size_t kMaxDataSize = 256 * 1024;
+  if (size > kParameterSize + kMaxDataSize)
     return 0;
 
   int width = GetInteger(data);
@@ -30,7 +35,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   CCodec_FaxModule fax_module;
   std::unique_ptr<CCodec_ScanlineDecoder> decoder(
-      fax_module.CreateDecoder(data, size, width, height, K, EndOfLine,
+      fax_module.CreateDecoder({data, size}, width, height, K, EndOfLine,
                                ByteAlign, BlackIs1, Columns, Rows));
 
   if (decoder) {

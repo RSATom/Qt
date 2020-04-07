@@ -9,20 +9,25 @@
 #ifndef V8_OBJECTS_INTL_OBJECTS_H_
 #define V8_OBJECTS_INTL_OBJECTS_H_
 
+#include <map>
 #include <set>
 #include <string>
 
+#include "src/base/timezone-cache.h"
 #include "src/contexts.h"
-#include "src/intl.h"
 #include "src/objects.h"
+#include "src/objects/managed.h"
+#include "unicode/locid.h"
 #include "unicode/uversion.h"
+
+#define V8_MINIMUM_ICU_VERSION 63
 
 namespace U_ICU_NAMESPACE {
 class BreakIterator;
 class Collator;
 class DecimalFormat;
-class PluralRules;
 class SimpleDateFormat;
+class UnicodeString;
 }
 
 namespace v8 {
@@ -30,239 +35,34 @@ namespace internal {
 
 template <typename T>
 class Handle;
-
-class DateFormat {
- public:
-  // Create a formatter for the specificied locale and options. Returns the
-  // resolved settings for the locale / options.
-  static icu::SimpleDateFormat* InitializeDateTimeFormat(
-      Isolate* isolate, Handle<String> locale, Handle<JSObject> options,
-      Handle<JSObject> resolved);
-
-  // Unpacks date format object from corresponding JavaScript object.
-  static icu::SimpleDateFormat* UnpackDateFormat(Isolate* isolate,
-                                                 Handle<JSObject> obj);
-
-  // Release memory we allocated for the DateFormat once the JS object that
-  // holds the pointer gets garbage collected.
-  static void DeleteDateFormat(const v8::WeakCallbackInfo<void>& data);
-
-  // Layout description.
-  static const int kSimpleDateFormat = JSObject::kHeaderSize;
-  static const int kSize = kSimpleDateFormat + kPointerSize;
-
- private:
-  DateFormat();
-};
-
-class NumberFormat {
- public:
-  // Create a formatter for the specificied locale and options. Returns the
-  // resolved settings for the locale / options.
-  static icu::DecimalFormat* InitializeNumberFormat(Isolate* isolate,
-                                                    Handle<String> locale,
-                                                    Handle<JSObject> options,
-                                                    Handle<JSObject> resolved);
-
-  // Unpacks number format object from corresponding JavaScript object.
-  static icu::DecimalFormat* UnpackNumberFormat(Isolate* isolate,
-                                                Handle<JSObject> obj);
-
-  // Release memory we allocated for the NumberFormat once the JS object that
-  // holds the pointer gets garbage collected.
-  static void DeleteNumberFormat(const v8::WeakCallbackInfo<void>& data);
-
-  // The UnwrapNumberFormat abstract operation gets the underlying
-  // NumberFormat operation for various methods which implement
-  // ECMA-402 v1 semantics for supporting initializing existing Intl
-  // objects.
-  //
-  // ecma402/#sec-unwrapnumberformat
-  static MaybeHandle<JSObject> Unwrap(Isolate* isolate,
-                                      Handle<JSReceiver> receiver,
-                                      const char* method_name);
-
-  // ecm402/#sec-formatnumber
-  static MaybeHandle<Object> FormatNumber(Isolate* isolate,
-                                          Handle<JSObject> number_format_holder,
-                                          double value);
-
-  // Layout description.
-#define NUMBER_FORMAT_FIELDS(V)   \
-  /* Pointer fields. */           \
-  V(kDecimalFormat, kPointerSize) \
-  V(kBoundFormat, kPointerSize)   \
-  V(kSize, 0)
-
-  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize, NUMBER_FORMAT_FIELDS)
-#undef NUMBER_FORMAT_FIELDS
-
-  // ContextSlot defines the context structure for the bound
-  // NumberFormat.prototype.format function.
-  enum ContextSlot {
-    // The number format instance that the function holding this
-    // context is bound to.
-    kNumberFormat = Context::MIN_CONTEXT_SLOTS,
-
-    kLength
-  };
-
-  // TODO(gsathya): Remove this and use regular accessors once
-  // NumberFormat is a sub class of JSObject.
-  //
-  // This needs to be consistent with the above LayoutDescription.
-  static const int kDecimalFormatIndex = 0;
-  static const int kBoundFormatIndex = 1;
-
- private:
-  NumberFormat();
-};
-
-class Collator {
- public:
-  // Create a collator for the specificied locale and options. Stores the
-  // collator in the provided collator_holder.
-  static bool InitializeCollator(Isolate* isolate,
-                                 Handle<JSObject> collator_holder,
-                                 Handle<String> locale,
-                                 Handle<JSObject> options,
-                                 Handle<JSObject> resolved);
-
-  // Unpacks collator object from corresponding JavaScript object.
-  static icu::Collator* UnpackCollator(Isolate* isolate, Handle<JSObject> obj);
-
-  // Layout description.
-  static const int kCollator = JSObject::kHeaderSize;
-  static const int kSize = kCollator + kPointerSize;
-
- private:
-  Collator();
-};
-
-class PluralRules {
- public:
-  // Create a PluralRules and DecimalFormat for the specificied locale and
-  // options. Returns false on an ICU failure.
-  static bool InitializePluralRules(Isolate* isolate, Handle<String> locale,
-                                    Handle<JSObject> options,
-                                    Handle<JSObject> resolved,
-                                    icu::PluralRules** plural_rules,
-                                    icu::DecimalFormat** decimal_format);
-
-  // Unpacks PluralRules object from corresponding JavaScript object.
-  static icu::PluralRules* UnpackPluralRules(Isolate* isolate,
-                                             Handle<JSObject> obj);
-
-  // Unpacks NumberFormat object from corresponding JavaScript PluralRUles
-  // object.
-  static icu::DecimalFormat* UnpackNumberFormat(Isolate* isolate,
-                                                Handle<JSObject> obj);
-
-  // Release memory we allocated for the Collator once the JS object that holds
-  // the pointer gets garbage collected.
-  static void DeletePluralRules(const v8::WeakCallbackInfo<void>& data);
-
-  // Layout description.
-  static const int kPluralRules = JSObject::kHeaderSize;
-  // Values are formatted with this NumberFormat and then parsed as a Number
-  // to round them based on the options passed into the PluralRules objct.
-  // TODO(littledan): If a future version of ICU supports the rounding
-  // built-in to PluralRules, switch to that, see this bug:
-  // http://bugs.icu-project.org/trac/ticket/12763
-  static const int kNumberFormat = kPluralRules + kPointerSize;
-  static const int kSize = kNumberFormat + kPointerSize;
-
- private:
-  PluralRules();
-};
-
-class V8BreakIterator {
- public:
-  // Create a BreakIterator for the specificied locale and options. Returns the
-  // resolved settings for the locale / options.
-  static icu::BreakIterator* InitializeBreakIterator(Isolate* isolate,
-                                                     Handle<String> locale,
-                                                     Handle<JSObject> options,
-                                                     Handle<JSObject> resolved);
-
-  // Unpacks break iterator object from corresponding JavaScript object.
-  static icu::BreakIterator* UnpackBreakIterator(Isolate* isolate,
-                                                 Handle<JSObject> obj);
-
-  // Release memory we allocated for the BreakIterator once the JS object that
-  // holds the pointer gets garbage collected.
-  static void DeleteBreakIterator(const v8::WeakCallbackInfo<void>& data);
-
-  // Layout description.
-  static const int kBreakIterator = JSObject::kHeaderSize;
-  static const int kUnicodeString = kBreakIterator + kPointerSize;
-  static const int kSize = kUnicodeString + kPointerSize;
-
- private:
-  V8BreakIterator();
-};
+class JSCollator;
 
 class Intl {
  public:
-  enum Type {
-    kNumberFormat = 0,
-    kCollator,
-    kDateTimeFormat,
-    kPluralRules,
-    kBreakIterator,
-    kLocale,
-
-    kTypeCount
+  enum class BoundFunctionContextSlot {
+    kBoundFunction = Context::MIN_CONTEXT_SLOTS,
+    kLength
   };
 
-  inline static Intl::Type TypeFromInt(int type);
-  inline static Intl::Type TypeFromSmi(Smi* type);
+  // Build a set of ICU locales from a list of Locales. If there is a locale
+  // with a script tag then the locales also include a locale without the
+  // script; eg, pa_Guru_IN (language=Panjabi, script=Gurmukhi, country-India)
+  // would include pa_IN.
+  static std::set<std::string> BuildLocaleSet(
+      const icu::Locale* icu_available_locales, int32_t count);
 
-  // Checks if the given object has the expected_type based by looking
-  // up a private symbol on the object.
-  //
-  // TODO(gsathya): This should just be an instance type check once we
-  // move all the Intl objects to C++.
-  static bool IsObjectOfType(Isolate* isolate, Handle<Object> object,
-                             Intl::Type expected_type);
+  static Maybe<std::string> ToLanguageTag(const icu::Locale& locale);
 
-  // Gets the ICU locales for a given service. If there is a locale with a
-  // script tag then the locales also include a locale without the script; eg,
-  // pa_Guru_IN (language=Panjabi, script=Gurmukhi, country-India) would include
-  // pa_IN.
-  static std::set<std::string> GetAvailableLocales(const IcuService& service);
+  // Get the name of the numbering system from locale.
+  // ICU doesn't expose numbering system in any way, so we have to assume that
+  // for given locale NumberingSystem constructor produces the same digits as
+  // NumberFormat/Calendar would.
+  static std::string GetNumberingSystem(const icu::Locale& icu_locale);
 
-  // If locale has a script tag then return true and the locale without the
-  // script else return false and an empty string
-  static bool RemoveLocaleScriptTag(const std::string& icu_locale,
-                                    std::string* locale_less_script);
-
-  // Returns the underlying Intl receiver for various methods which
-  // implement ECMA-402 v1 semantics for supporting initializing
-  // existing Intl objects.
-  V8_WARN_UNUSED_RESULT static MaybeHandle<JSObject> UnwrapReceiver(
-      Isolate* isolate, Handle<JSReceiver> receiver,
-      Handle<JSFunction> constructor, Intl::Type type,
-      Handle<String> method_name /* TODO(gsathya): Make this char const* */,
-      bool check_legacy_constructor = false);
-
-  // The ResolveLocale abstract operation compares a BCP 47 language
-  // priority list requestedLocales against the locales in
-  // availableLocales and determines the best available language to
-  // meet the request. availableLocales, requestedLocales, and
-  // relevantExtensionKeys must be provided as List values, options
-  // and localeData as Records.
-  //
-  // #ecma402/sec-partitiondatetimepattern
-  //
-  // Returns a JSObject with two properties:
-  //   (1) locale
-  //   (2) extension
-  //
-  // To access either, use JSObject::GetDataProperty.
-  V8_WARN_UNUSED_RESULT static MaybeHandle<JSObject> ResolveLocale(
-      Isolate* isolate, const char* service, Handle<Object> requestedLocales,
-      Handle<Object> options);
+  static V8_WARN_UNUSED_RESULT MaybeHandle<JSObject> SupportedLocalesOf(
+      Isolate* isolate, const char* method,
+      const std::set<std::string>& available_locales, Handle<Object> locales_in,
+      Handle<Object> options_in);
 
   // ECMA402 9.2.10. GetOption( options, property, type, values, fallback)
   // ecma402/#sec-getoption
@@ -284,6 +84,32 @@ class Intl {
       std::vector<const char*> values, const char* service,
       std::unique_ptr<char[]>* result);
 
+  // A helper template to get string from option into a enum.
+  // The enum in the enum_values is the corresponding value to the strings
+  // in the str_values. If the option does not contains name,
+  // default_value will be return.
+  template <typename T>
+  V8_WARN_UNUSED_RESULT static Maybe<T> GetStringOption(
+      Isolate* isolate, Handle<JSReceiver> options, const char* name,
+      const char* method, const std::vector<const char*>& str_values,
+      const std::vector<T>& enum_values, T default_value) {
+    DCHECK_EQ(str_values.size(), enum_values.size());
+    std::unique_ptr<char[]> cstr;
+    Maybe<bool> found = Intl::GetStringOption(isolate, options, name,
+                                              str_values, method, &cstr);
+    MAYBE_RETURN(found, Nothing<T>());
+    if (found.FromJust()) {
+      DCHECK_NOT_NULL(cstr.get());
+      for (size_t i = 0; i < str_values.size(); i++) {
+        if (strcmp(cstr.get(), str_values[i]) == 0) {
+          return Just(enum_values[i]);
+        }
+      }
+      UNREACHABLE();
+    }
+    return Just(default_value);
+  }
+
   // ECMA402 9.2.10. GetOption( options, property, type, values, fallback)
   // ecma402/#sec-getoption
   //
@@ -299,6 +125,145 @@ class Intl {
   V8_WARN_UNUSED_RESULT static Maybe<bool> GetBoolOption(
       Isolate* isolate, Handle<JSReceiver> options, const char* property,
       const char* service, bool* result);
+
+  // Canonicalize the locale.
+  // https://tc39.github.io/ecma402/#sec-canonicalizelanguagetag,
+  // including type check and structural validity check.
+  static Maybe<std::string> CanonicalizeLanguageTag(Isolate* isolate,
+                                                    Handle<Object> locale_in);
+
+  // https://tc39.github.io/ecma402/#sec-canonicalizelocalelist
+  // {only_return_one_result} is an optimization for callers that only
+  // care about the first result.
+  static Maybe<std::vector<std::string>> CanonicalizeLocaleList(
+      Isolate* isolate, Handle<Object> locales,
+      bool only_return_one_result = false);
+
+  // ecma-402 #sec-intl.getcanonicallocales
+  V8_WARN_UNUSED_RESULT static MaybeHandle<JSArray> GetCanonicalLocales(
+      Isolate* isolate, Handle<Object> locales);
+
+  // For locale sensitive functions
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> StringLocaleConvertCase(
+      Isolate* isolate, Handle<String> s, bool is_upper,
+      Handle<Object> locales);
+
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> ConvertToUpper(
+      Isolate* isolate, Handle<String> s);
+
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> ConvertToLower(
+      Isolate* isolate, Handle<String> s);
+
+  V8_WARN_UNUSED_RESULT static MaybeHandle<Object> StringLocaleCompare(
+      Isolate* isolate, Handle<String> s1, Handle<String> s2,
+      Handle<Object> locales, Handle<Object> options);
+
+  V8_WARN_UNUSED_RESULT static Handle<Object> CompareStrings(
+      Isolate* isolate, const icu::Collator& collator, Handle<String> s1,
+      Handle<String> s2);
+
+  // ecma402/#sup-properties-of-the-number-prototype-object
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> NumberToLocaleString(
+      Isolate* isolate, Handle<Object> num, Handle<Object> locales,
+      Handle<Object> options);
+
+  // ecma402/#sec-setnfdigitoptions
+  V8_WARN_UNUSED_RESULT static Maybe<bool> SetNumberFormatDigitOptions(
+      Isolate* isolate, icu::DecimalFormat* number_format,
+      Handle<JSReceiver> options, int mnfd_default, int mxfd_default);
+
+  static icu::Locale CreateICULocale(const std::string& bcp47_locale);
+
+  // Helper funciton to convert a UnicodeString to a Handle<String>
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> ToString(
+      Isolate* isolate, const icu::UnicodeString& string);
+
+  // Helper function to convert a substring of UnicodeString to a Handle<String>
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> ToString(
+      Isolate* isolate, const icu::UnicodeString& string, int32_t begin,
+      int32_t end);
+
+  // A helper function to implement formatToParts which add element to array as
+  // $array[$index] = { type: $field_type_string, value: $value }
+  static void AddElement(Isolate* isolate, Handle<JSArray> array, int index,
+                         Handle<String> field_type_string,
+                         Handle<String> value);
+
+  // A helper function to implement formatToParts which add element to array as
+  // $array[$index] = {
+  //   type: $field_type_string, value: $value,
+  //   $additional_property_name: $additional_property_value
+  // }
+  static void AddElement(Isolate* isolate, Handle<JSArray> array, int index,
+                         Handle<String> field_type_string, Handle<String> value,
+                         Handle<String> additional_property_name,
+                         Handle<String> additional_property_value);
+
+  // In ECMA 402 v1, Intl constructors supported a mode of operation
+  // where calling them with an existing object as a receiver would
+  // transform the receiver into the relevant Intl instance with all
+  // internal slots. In ECMA 402 v2, this capability was removed, to
+  // avoid adding internal slots on existing objects. In ECMA 402 v3,
+  // the capability was re-added as "normative optional" in a mode
+  // which chains the underlying Intl instance on any object, when the
+  // constructor is called
+  //
+  // See ecma402/#legacy-constructor.
+  V8_WARN_UNUSED_RESULT static MaybeHandle<Object> LegacyUnwrapReceiver(
+      Isolate* isolate, Handle<JSReceiver> receiver,
+      Handle<JSFunction> constructor, bool has_initialized_slot);
+
+  // enum for "caseFirst" option: shared by Intl.Locale and Intl.Collator.
+  enum class CaseFirst { kUpper, kLower, kFalse, kUndefined };
+
+  // Shared function to read the "caseFirst" option.
+  V8_WARN_UNUSED_RESULT static Maybe<CaseFirst> GetCaseFirst(
+      Isolate* isolate, Handle<JSReceiver> options, const char* method);
+
+  // enum for "hourCycle" option: shared by Intl.Locale and Intl.DateTimeFormat.
+  enum class HourCycle { kH11, kH12, kH23, kH24, kUndefined };
+
+  static HourCycle ToHourCycle(const std::string& str);
+
+  // Shared function to read the "hourCycle" option.
+  V8_WARN_UNUSED_RESULT static Maybe<HourCycle> GetHourCycle(
+      Isolate* isolate, Handle<JSReceiver> options, const char* method);
+
+  // enum for "localeMatcher" option: shared by many Intl objects.
+  enum class MatcherOption { kBestFit, kLookup };
+
+  // Shared function to read the "localeMatcher" option.
+  V8_WARN_UNUSED_RESULT static Maybe<MatcherOption> GetLocaleMatcher(
+      Isolate* isolate, Handle<JSReceiver> options, const char* method);
+
+  struct ResolvedLocale {
+    std::string locale;
+    icu::Locale icu_locale;
+    std::map<std::string, std::string> extensions;
+  };
+
+  static ResolvedLocale ResolveLocale(
+      Isolate* isolate, const std::set<std::string>& available_locales,
+      const std::vector<std::string>& requested_locales, MatcherOption options,
+      const std::set<std::string>& relevant_extension_keys);
+
+  // Utility function to set text to BreakIterator.
+  static Managed<icu::UnicodeString> SetTextToBreakIterator(
+      Isolate* isolate, Handle<String> text,
+      icu::BreakIterator* break_iterator);
+
+  // ecma262 #sec-string.prototype.normalize
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> Normalize(
+      Isolate* isolate, Handle<String> string, Handle<Object> form_input);
+  static base::TimezoneCache* CreateTimeZoneCache();
+
+  // Convert a Handle<String> to icu::UnicodeString
+  static icu::UnicodeString ToICUUnicodeString(Isolate* isolate,
+                                               Handle<String> string);
+
+  static const uint8_t* ToLatin1LowerTable();
+
+  static String ConvertOneByteToLower(String src, String dst);
 };
 
 }  // namespace internal

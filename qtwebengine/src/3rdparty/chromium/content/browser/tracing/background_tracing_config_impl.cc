@@ -35,6 +35,9 @@ const char kConfigCategoryBenchmarkMemoryHeavy[] = "BENCHMARK_MEMORY_HEAVY";
 const char kConfigCategoryBenchmarkMemoryLight[] = "BENCHMARK_MEMORY_LIGHT";
 const char kConfigCategoryBenchmarkExecutionMetric[] =
     "BENCHMARK_EXECUTION_METRIC";
+const char kConfigCategoryBenchmarkNavigation[] = "BENCHMARK_NAVIGATION";
+const char kConfigCategoryBenchmarkRenderers[] = "BENCHMARK_RENDERERS";
+const char kConfigCategoryBenchmarkServiceworker[] = "BENCHMARK_SERVICEWORKER";
 const char kConfigCategoryBlinkStyle[] = "BLINK_STYLE";
 
 }  // namespace
@@ -67,6 +70,12 @@ std::string BackgroundTracingConfigImpl::CategoryPresetToString(
       return kConfigCategoryBenchmarkMemoryLight;
     case BackgroundTracingConfigImpl::BENCHMARK_EXECUTION_METRIC:
       return kConfigCategoryBenchmarkExecutionMetric;
+    case BackgroundTracingConfigImpl::BENCHMARK_NAVIGATION:
+      return kConfigCategoryBenchmarkNavigation;
+    case BackgroundTracingConfigImpl::BENCHMARK_RENDERERS:
+      return kConfigCategoryBenchmarkRenderers;
+    case BackgroundTracingConfigImpl::BENCHMARK_SERVICEWORKER:
+      return kConfigCategoryBenchmarkServiceworker;
     case BackgroundTracingConfigImpl::BLINK_STYLE:
       return kConfigCategoryBlinkStyle;
     case BackgroundTracingConfigImpl::CATEGORY_PRESET_UNSET:
@@ -121,6 +130,21 @@ bool BackgroundTracingConfigImpl::StringToCategoryPreset(
 
   if (category_preset_string == kConfigCategoryBenchmarkExecutionMetric) {
     *category_preset = BackgroundTracingConfigImpl::BENCHMARK_EXECUTION_METRIC;
+    return true;
+  }
+
+  if (category_preset_string == kConfigCategoryBenchmarkNavigation) {
+    *category_preset = BackgroundTracingConfigImpl::BENCHMARK_NAVIGATION;
+    return true;
+  }
+
+  if (category_preset_string == kConfigCategoryBenchmarkRenderers) {
+    *category_preset = BackgroundTracingConfigImpl::BENCHMARK_RENDERERS;
+    return true;
+  }
+
+  if (category_preset_string == kConfigCategoryBenchmarkServiceworker) {
+    *category_preset = BackgroundTracingConfigImpl::BENCHMARK_SERVICEWORKER;
     return true;
   }
 
@@ -279,4 +303,4 @@ BackgroundTracingConfigImpl::ReactiveFromDict(
   return config;
 }
 
-}  // namspace content
+}  // namespace content

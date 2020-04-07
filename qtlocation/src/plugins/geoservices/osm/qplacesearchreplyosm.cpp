@@ -165,7 +165,7 @@ void QPlaceSearchReplyOsm::replyFinished()
 
 void QPlaceSearchReplyOsm::networkError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(QPlaceReply::CommunicationError, reply->errorString());

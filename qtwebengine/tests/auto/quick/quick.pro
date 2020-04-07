@@ -1,5 +1,5 @@
-include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri) # workaround for QTBUG-68093
-QT_FOR_CONFIG += webenginecore-private
+include($$QTWEBENGINE_OUT_ROOT/src/webengine/qtwebengine-config.pri) # workaround for QTBUG-68093
+QT_FOR_CONFIG += webengine-private
 
 TEMPLATE = subdirs
 
@@ -18,4 +18,4 @@ qtConfig(webengine-testsupport) {
 }
 
 # QTBUG-66055
-boot2qt: SUBDIRS -= inspectorserver qquickwebenginedefaultsurfaceformat qquickwebengineview qmltests dialogs qtbug-70248
+boot2qt: SUBDIRS -= inspectorserver qquickwebengineview qmltests

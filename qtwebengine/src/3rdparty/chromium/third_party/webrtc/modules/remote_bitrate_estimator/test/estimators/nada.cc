@@ -15,10 +15,12 @@
 //  From March 26, 2015.
 
 #include <math.h>
+#include <stddef.h>
 #include <algorithm>
+#include <cstdint>
+#include <list>
 #include <vector>
 
-#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
 #include "modules/remote_bitrate_estimator/test/estimators/nada.h"
 #include "modules/rtp_rtcp/include/receive_statistics.h"
 #include "rtc_base/arraysize.h"
@@ -57,8 +59,7 @@ void NadaBweReceiver::ReceivePacket(int64_t arrival_time_ms,
   const int64_t kDelayMaxThresholdMs = 400;  // Referred as d_max.
 
   clock_.AdvanceTimeMilliseconds(arrival_time_ms - clock_.TimeInMilliseconds());
-  recv_stats_->IncomingPacket(media_packet.header(),
-                              media_packet.payload_size(), false);
+  recv_stats_->OnRtpPacket(media_packet.GetRtpPacket());
   // Refered as x_n.
   int64_t delay_ms = arrival_time_ms - media_packet.sender_timestamp_ms();
 
@@ -117,9 +118,9 @@ FeedbackPacket* NadaBweReceiver::GetFeedback(int64_t now_ms) {
   int64_t corrected_send_time_ms = 0L;
 
   if (!received_packets_.empty()) {
-    PacketIdentifierNode* latest = *(received_packets_.begin());
+    PacketIdentifierNode& latest = *(received_packets_.begin());
     corrected_send_time_ms =
-        latest->send_time_ms + now_ms - latest->arrival_time_ms;
+        latest.send_time_ms + now_ms - latest.arrival_time_ms;
   }
 
   // Sends a tuple containing latest values of <d_hat_n, d_tilde_n, x_n, x'_n,

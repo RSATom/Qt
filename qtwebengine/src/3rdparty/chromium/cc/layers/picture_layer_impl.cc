@@ -13,8 +13,9 @@
 #include <set>
 
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
 #include "base/time/time.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "build/build_config.h"
 #include "cc/base/math_util.h"
 #include "cc/benchmarks/micro_benchmark_impl.h"
@@ -144,7 +145,7 @@ gfx::Size CalculateGpuTileSize(const gfx::Size& base_tile_size,
 PictureLayerImpl::PictureLayerImpl(LayerTreeImpl* tree_impl,
                                    int id,
                                    Layer::LayerMaskType mask_type)
-    : LayerImpl(tree_impl, id),
+    : LayerImpl(tree_impl, id, /*will_always_push_properties=*/true),
       twin_layer_(nullptr),
       tilings_(CreatePictureLayerTilingSet()),
       ideal_page_scale_(0.f),
@@ -241,11 +242,6 @@ void PictureLayerImpl::PushPropertiesTo(LayerImpl* base_layer) {
   layer_impl->can_use_lcd_text_ = can_use_lcd_text_;
 
   layer_impl->SanityCheckTilingState();
-
-  // We always need to push properties.
-  // See http://crbug.com/303943
-  // TODO(danakj): Stop always pushing properties since we don't swap tilings.
-  layer_tree_impl()->AddLayerShouldPushProperties(this);
 }
 
 void PictureLayerImpl::AppendQuads(viz::RenderPass* render_pass,
@@ -391,9 +387,6 @@ void PictureLayerImpl::AppendQuads(viz::RenderPass* render_pass,
         } else if (mode == TileDrawInfo::OOM_MODE) {
           color = DebugColors::OOMTileBorderColor();
           width = DebugColors::OOMTileBorderWidth(device_scale_factor);
-        } else if (iter->draw_info().has_compressed_resource()) {
-          color = DebugColors::CompressedTileBorderColor();
-          width = DebugColors::CompressedTileBorderWidth(device_scale_factor);
         } else if (iter.resolution() == HIGH_RESOLUTION) {
           color = DebugColors::HighResTileBorderColor();
           width = DebugColors::HighResTileBorderWidth(device_scale_factor);
@@ -520,7 +513,8 @@ void PictureLayerImpl::AppendQuads(viz::RenderPass* render_pass,
     if (!has_draw_quad) {
       // Checkerboard.
       SkColor color = SafeOpaqueBackgroundColor();
-      if (ShowDebugBorders(DebugBorderType::LAYER)) {
+      if (mask_type_ == Layer::LayerMaskType::NOT_MASK &&
+          ShowDebugBorders(DebugBorderType::LAYER)) {
         // Fill the whole tile with the missing tile color.
         color = DebugColors::OOMTileBorderColor();
       }
@@ -653,11 +647,11 @@ bool PictureLayerImpl::UpdateTiles() {
         !layer_tree_impl()->SmoothnessTakesPriority();
   }
 
-  static const Occlusion kEmptyOcclusion;
+  static const base::NoDestructor<Occlusion> kEmptyOcclusion;
   const Occlusion& occlusion_in_content_space =
       layer_tree_impl()->settings().use_occlusion_for_tile_prioritization
           ? draw_properties().occlusion_in_content_space
-          : kEmptyOcclusion;
+          : *kEmptyOcclusion;
 
   // Pass |occlusion_in_content_space| for |occlusion_in_layer_space| since
   // they are the same space in picture layer, as contents scale is always 1.
@@ -677,7 +671,8 @@ void PictureLayerImpl::UpdateViewportRectForTilePriorityInContentSpace() {
   gfx::Rect viewport_rect_for_tile_priority =
       layer_tree_impl()->ViewportRectForTilePriority();
   if (visible_rect_in_content_space.IsEmpty() ||
-      layer_tree_impl()->DeviceViewport() != viewport_rect_for_tile_priority) {
+      layer_tree_impl()->GetDeviceViewport() !=
+          viewport_rect_for_tile_priority) {
     gfx::Transform view_to_layer(gfx::Transform::kSkipInitialization);
     if (ScreenSpaceTransform().GetInverse(&view_to_layer)) {
       // Transform from view space to content space.
@@ -703,26 +698,25 @@ void PictureLayerImpl::UpdateViewportRectForTilePriorityInContentSpace() {
   }
   viewport_rect_for_tile_priority_in_content_space_ =
       visible_rect_in_content_space;
-#if defined(OS_ANDROID)
-  // On android, if we're in a scrolling gesture, the pending tree does not
-  // reflect the fact that we may be hiding the top or bottom controls. Thus,
-  // it would believe that the viewport is smaller than it actually is which
-  // can cause activation flickering issues. So, if we're in this situation
-  // adjust the visible rect by the top/bottom controls height. This isn't
-  // ideal since we're not always in this case, but since we should be
-  // prioritizing the active tree anyway, it doesn't cause any serious issues.
-  // https://crbug.com/794456.
-  if (layer_tree_impl()->IsPendingTree() &&
-      layer_tree_impl()->IsActivelyScrolling()) {
-    float total_controls_height = layer_tree_impl()->top_controls_height() +
-                                  layer_tree_impl()->bottom_controls_height();
-    viewport_rect_for_tile_priority_in_content_space_.Inset(
-        0,                        // left
-        0,                        // top,
-        0,                        // right,
-        -total_controls_height);  // bottom
+
+  float total_controls_height = layer_tree_impl()->top_controls_height() +
+                                layer_tree_impl()->bottom_controls_height();
+  if (total_controls_height) {
+    // If sliding top controls are being used, the pending tree does not
+    // reflect the fact that we may be hiding the top or bottom controls. Thus,
+    // it would believe that the viewport is smaller than it actually is which
+    // can cause activation flickering issues. So, if we're in this situation
+    // adjust the visible rect by the the controls height.
+    if (layer_tree_impl()->IsPendingTree() &&
+        layer_tree_impl()->IsActivelyScrolling() &&
+        layer_tree_impl()->browser_controls_shrink_blink_size()) {
+      viewport_rect_for_tile_priority_in_content_space_.Inset(
+          0,                        // left
+          0,                        // top,
+          0,                        // right,
+          -total_controls_height);  // bottom
+    }
   }
-#endif
 }
 
 PictureLayerImpl* PictureLayerImpl::GetPendingOrActiveTwinLayer() const {
@@ -1318,7 +1312,7 @@ void PictureLayerImpl::RecalculateRasterScales() {
       int64_t maximum_area =
           static_cast<int64_t>(bounds_at_maximum_scale.width()) *
           static_cast<int64_t>(bounds_at_maximum_scale.height());
-      gfx::Size viewport = layer_tree_impl()->device_viewport_size();
+      gfx::Size viewport = layer_tree_impl()->GetDeviceViewport().size();
 
       // Use the square of the maximum viewport dimension direction, to
       // compensate for viewports with different aspect ratios.
@@ -1337,7 +1331,7 @@ void PictureLayerImpl::RecalculateRasterScales() {
       int64_t start_area =
           static_cast<int64_t>(bounds_at_starting_scale.width()) *
           static_cast<int64_t>(bounds_at_starting_scale.height());
-      gfx::Size viewport = layer_tree_impl()->device_viewport_size();
+      gfx::Size viewport = layer_tree_impl()->GetDeviceViewport().size();
       int64_t viewport_area = static_cast<int64_t>(viewport.width()) *
                               static_cast<int64_t>(viewport.height());
       if (start_area <= viewport_area)
@@ -1425,9 +1419,18 @@ gfx::Vector2dF PictureLayerImpl::CalculateRasterTranslation(
   if (!use_transformed_rasterization_)
     return gfx::Vector2dF();
 
-  DCHECK(!draw_properties().screen_space_transform_is_animating);
   gfx::Transform draw_transform = DrawTransform();
-  DCHECK(draw_transform.IsScaleOrTranslation());
+  // TODO(enne): for performance reasons, we should only have a raster
+  // translation when the screen space transform is not animating.  We try to
+  // avoid this elsewhere but it still happens: http://crbug.com/778440
+  // TODO(enne): Also, we shouldn't ever get here if the draw transform is not
+  // just a scale + translation, but we do sometimes: http://crbug.com/740113
+  if (draw_properties().screen_space_transform_is_animating ||
+      !draw_transform.IsScaleOrTranslation()) {
+    // For now, while these problems are not well understood, avoid changing
+    // the raster scale in these cases.
+    return gfx::Vector2dF();
+  }
 
   // It is only useful to align the content space to the target space if their
   // relative pixel ratio is some small rational number. Currently we only
@@ -1545,13 +1548,30 @@ void PictureLayerImpl::UpdateIdealScales() {
   float min_contents_scale = MinimumContentsScale();
   DCHECK_GT(min_contents_scale, 0.f);
 
-  ideal_page_scale_ = IsAffectedByPageScale()
-                          ? layer_tree_impl()->current_page_scale_factor()
-                          : 1.f;
   ideal_device_scale_ = layer_tree_impl()->device_scale_factor();
+  if (layer_tree_impl()->PageScaleLayer()) {
+    ideal_page_scale_ = IsAffectedByPageScale()
+                            ? layer_tree_impl()->current_page_scale_factor()
+                            : 1.f;
+    ideal_contents_scale_ = GetIdealContentsScale();
+  } else {
+    // This layer may be in a layer tree embedded in a hierarchy that has its
+    // own page scale factor. We represent that here as
+    // 'external_page_scale_factor', a value that affects raster scale in the
+    // same way that page_scale_factor does, but doesn't affect any geometry
+    // calculations.
+    float external_page_scale_factor =
+        layer_tree_impl() ? layer_tree_impl()->external_page_scale_factor()
+                          : 1.f;
+    DCHECK(!layer_tree_impl() || external_page_scale_factor == 1.f ||
+           layer_tree_impl()->current_page_scale_factor() == 1.f);
+    ideal_page_scale_ = external_page_scale_factor;
+    ideal_contents_scale_ =
+        GetIdealContentsScale() * external_page_scale_factor;
+  }
   ideal_contents_scale_ =
       std::min(kMaxIdealContentsScale,
-               std::max(GetIdealContentsScale(), min_contents_scale));
+               std::max(ideal_contents_scale_, min_contents_scale));
   ideal_source_scale_ =
       ideal_contents_scale_ / ideal_page_scale_ / ideal_device_scale_;
 }
@@ -1693,7 +1713,8 @@ PictureLayerImpl::InvalidateRegionForImages(
 
   invalidation_.Union(invalidation);
   tilings_->Invalidate(invalidation);
-  SetNeedsPushProperties();
+  // TODO(crbug.com/303943): SetNeedsPushProperties() would be needed here if
+  // PictureLayerImpl didn't always push properties every activation.
   return ImageInvalidationResult::kInvalidated;
 }
 

@@ -32,7 +32,7 @@ namespace blink {
 
 class HTMLCanvasElement;
 
-class LayoutHTMLCanvas final : public LayoutReplaced {
+class CORE_EXPORT LayoutHTMLCanvas final : public LayoutReplaced {
  public:
   explicit LayoutHTMLCanvas(HTMLCanvasElement*);
 
@@ -41,8 +41,7 @@ class LayoutHTMLCanvas final : public LayoutReplaced {
   }
   PaintLayerType LayerTypeRequired() const override;
 
-  PaintInvalidationReason InvalidatePaint(
-      const PaintInvalidatorContext&) const final;
+  void InvalidatePaint(const PaintInvalidatorContext&) const final;
 
   void CanvasSizeChanged();
 

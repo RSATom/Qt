@@ -15,17 +15,23 @@
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/webrtc/api/rtptransceiverinterface.h"
+#include "third_party/webrtc/api/rtp_transceiver_interface.h"
 
 namespace blink {
 
 class MediaStreamTrack;
+class RTCDtlsTransport;
 class RTCDTMFSender;
 class RTCPeerConnection;
 class RTCRtpCapabilities;
+class RTCRtpTransceiver;
 
 webrtc::RtpEncodingParameters ToRtpEncodingParameters(
-    const RTCRtpEncodingParameters&);
+    const RTCRtpEncodingParameters*);
+RTCRtpHeaderExtensionParameters* ToRtpHeaderExtensionParameters(
+    const webrtc::RtpHeaderExtensionParameters& headers);
+RTCRtpCodecParameters* ToRtpCodecParameters(
+    const webrtc::RtpCodecParameters& codecs);
 
 // https://w3c.github.io/webrtc-pc/#rtcrtpsender-interface
 class RTCRtpSender final : public ScriptWrappable {
@@ -41,12 +47,13 @@ class RTCRtpSender final : public ScriptWrappable {
                MediaStreamVector streams);
 
   MediaStreamTrack* track();
+  RTCDtlsTransport* transport();
+  RTCDtlsTransport* rtcp_transport();
   ScriptPromise replaceTrack(ScriptState*, MediaStreamTrack*);
   RTCDTMFSender* dtmf();
-  static void getCapabilities(const String& kind,
-                              base::Optional<RTCRtpCapabilities>& result);
-  void getParameters(RTCRtpSendParameters&);
-  ScriptPromise setParameters(ScriptState*, const RTCRtpSendParameters&);
+  static RTCRtpCapabilities* getCapabilities(const String& kind);
+  RTCRtpSendParameters* getParameters();
+  ScriptPromise setParameters(ScriptState*, const RTCRtpSendParameters*);
   ScriptPromise getStats(ScriptState*);
 
   WebRTCRtpSender* web_sender();
@@ -56,6 +63,7 @@ class RTCRtpSender final : public ScriptWrappable {
   void ClearLastReturnedParameters();
   MediaStreamVector streams() const;
   void set_streams(MediaStreamVector streams);
+  void set_transceiver(RTCRtpTransceiver*);
 
   void Trace(blink::Visitor*) override;
 
@@ -68,7 +76,8 @@ class RTCRtpSender final : public ScriptWrappable {
   Member<MediaStreamTrack> track_;
   Member<RTCDTMFSender> dtmf_;
   MediaStreamVector streams_;
-  base::Optional<RTCRtpSendParameters> last_returned_parameters_;
+  Member<RTCRtpSendParameters> last_returned_parameters_;
+  Member<RTCRtpTransceiver> transceiver_;
 };
 
 }  // namespace blink

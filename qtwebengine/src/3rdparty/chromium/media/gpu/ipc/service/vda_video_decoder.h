@@ -38,8 +38,7 @@ namespace media {
 // Implements the VideoDecoder interface backed by a VideoDecodeAccelerator.
 // This class expects to run in the GPU process via MojoVideoDecoder.
 class VdaVideoDecoder : public VideoDecoder,
-                        public VideoDecodeAccelerator::Client,
-                        public MediaLog {
+                        public VideoDecodeAccelerator::Client {
  public:
   using GetStubCB = base::RepeatingCallback<gpu::CommandBufferStub*()>;
   using CreatePictureBufferManagerCB =
@@ -48,7 +47,7 @@ class VdaVideoDecoder : public VideoDecoder,
   using CreateCommandBufferHelperCB =
       base::OnceCallback<scoped_refptr<CommandBufferHelper>()>;
   using CreateAndInitializeVdaCB =
-      base::OnceCallback<std::unique_ptr<VideoDecodeAccelerator>(
+      base::RepeatingCallback<std::unique_ptr<VideoDecodeAccelerator>(
           scoped_refptr<CommandBufferHelper>,
           VideoDecodeAccelerator::Client*,
           MediaLog*,
@@ -69,7 +68,7 @@ class VdaVideoDecoder : public VideoDecoder,
   static std::unique_ptr<VdaVideoDecoder, std::default_delete<VideoDecoder>>
   Create(scoped_refptr<base::SingleThreadTaskRunner> parent_task_runner,
          scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner,
-         MediaLog* media_log,
+         std::unique_ptr<MediaLog> media_log,
          const gfx::ColorSpace& target_color_space,
          const gpu::GpuPreferences& gpu_preferences,
          const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
@@ -80,8 +79,7 @@ class VdaVideoDecoder : public VideoDecoder,
   //     MediaService task runner).
   // |gpu_task_runner|: Task runner that GPU command buffer methods must be
   //     called on (should be the GPU main thread).
-  // |media_log|: MediaLog object to log to; must live at least until
-  //     Destroy() returns.
+  // |media_log|: MediaLog object to log to.
   // |target_color_space|: Color space of the output device.
   // |create_picture_buffer_manager_cb|: PictureBufferManager factory.
   // |create_command_buffer_helper_cb|: CommandBufferHelper factory.
@@ -91,7 +89,7 @@ class VdaVideoDecoder : public VideoDecoder,
   VdaVideoDecoder(
       scoped_refptr<base::SingleThreadTaskRunner> parent_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner,
-      MediaLog* media_log,
+      std::unique_ptr<MediaLog> media_log,
       const gfx::ColorSpace& target_color_space,
       CreatePictureBufferManagerCB create_picture_buffer_manager_cb,
       CreateCommandBufferHelperCB create_command_buffer_helper_cb,
@@ -100,22 +98,18 @@ class VdaVideoDecoder : public VideoDecoder,
 
   // media::VideoDecoder implementation.
   std::string GetDisplayName() const override;
-  void Initialize(
-      const VideoDecoderConfig& config,
-      bool low_delay,
-      CdmContext* cdm_context,
-      const InitCB& init_cb,
-      const OutputCB& output_cb,
-      const WaitingForDecryptionKeyCB& waiting_for_decryption_key_cb) override;
+  void Initialize(const VideoDecoderConfig& config,
+                  bool low_delay,
+                  CdmContext* cdm_context,
+                  const InitCB& init_cb,
+                  const OutputCB& output_cb,
+                  const WaitingCB& waiting_cb) override;
   void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) override;
   void Reset(const base::RepeatingClosure& reset_cb) override;
   bool NeedsBitstreamConversion() const override;
   bool CanReadWithoutStalling() const override;
   int GetMaxDecodeRequests() const override;
-
-  // media::MediaLog implementation.
-  void AddEvent(std::unique_ptr<MediaLogEvent> event) override;
 
  private:
   void Destroy() override;
@@ -144,9 +138,11 @@ class VdaVideoDecoder : public VideoDecoder,
   // Tasks and thread hopping.
   void DestroyOnGpuThread();
   void InitializeOnGpuThread();
+  void ReinitializeOnGpuThread();
   void InitializeDone(bool status);
   void DecodeOnGpuThread(scoped_refptr<DecoderBuffer> buffer,
                          int32_t bitstream_id);
+  void DismissPictureBufferOnParentThread(int32_t picture_buffer_id);
   void PictureReadyOnParentThread(Picture picture);
   void NotifyEndOfBitstreamBufferOnParentThread(int32_t bitstream_buffer_id);
   void NotifyFlushDoneOnParentThread();
@@ -158,7 +154,6 @@ class VdaVideoDecoder : public VideoDecoder,
                                   gfx::Size texture_size,
                                   GLenum texture_target);
   void ReusePictureBuffer(int32_t picture_buffer_id);
-  void AddEventOnParentThread(std::unique_ptr<MediaLogEvent> event);
 
   // Error handling.
   void EnterErrorState();
@@ -169,7 +164,7 @@ class VdaVideoDecoder : public VideoDecoder,
   //
   scoped_refptr<base::SingleThreadTaskRunner> parent_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner_;
-  MediaLog* media_log_;
+  std::unique_ptr<MediaLog> media_log_;
   gfx::ColorSpace target_color_space_;
   scoped_refptr<PictureBufferManager> picture_buffer_manager_;
   CreateCommandBufferHelperCB create_command_buffer_helper_cb_;
@@ -193,15 +188,20 @@ class VdaVideoDecoder : public VideoDecoder,
   base::MRUCache<int32_t, base::TimeDelta> timestamps_;
 
   //
-  // GPU thread state.
-  //
-  std::unique_ptr<VideoDecodeAccelerator> vda_;
-  bool vda_initialized_ = false;
-
-  //
   // Shared state.
   //
+
+  // Only read on GPU thread during initialization, which is mutually exclusive
+  // with writes on the parent thread.
   VideoDecoderConfig config_;
+
+  // Only written on the GPU thread during initialization, which is mutually
+  // exclusive with reads on the parent thread.
+  std::unique_ptr<VideoDecodeAccelerator> vda_;
+  scoped_refptr<CommandBufferHelper> command_buffer_helper_;
+  bool vda_initialized_ = false;
+  bool decode_on_parent_thread_ = false;
+  bool reinitializing_ = false;
 
   //
   // Weak pointers, prefixed by bound thread.

@@ -78,7 +78,7 @@ public:
     void setNavtitle(const QString& t) { navtitle_ = t; }
     void setHref(const QString& t) { href_ = t; }
     virtual bool isMapRef() const = 0;
-    virtual const DitaRefList* subrefs() const { return 0; }
+    virtual const DitaRefList* subrefs() const { return nullptr; }
     virtual void appendSubref(DitaRef* ) { }
 
 private:
@@ -125,7 +125,7 @@ public:
         Section4 = 4
     };
 
-    Doc() : priv(0) {}
+    Doc() : priv(nullptr) {}
     Doc(const Location& start_loc,
         const Location& end_loc,
         const QString& source,
@@ -135,9 +135,6 @@ public:
     ~Doc();
 
     Doc& operator=( const Doc& doc );
-
-    void renameParameters(const QStringList &oldNames,
-                          const QStringList &newNames);
     void simplifyEnumDoc();
     void setBody(const Text &body);
     const DitaRefList& ditamap() const;
@@ -162,6 +159,8 @@ public:
     bool hasTableOfContents() const;
     bool hasKeywords() const;
     bool hasTargets() const;
+    bool isInternal() const;
+    bool isMarkedReimp() const;
     const QList<Atom *> &tableOfContents() const;
     const QVector<int> &tableOfContentsLevels() const;
     const QList<Atom *> &keywords() const;

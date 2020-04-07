@@ -9,21 +9,13 @@
 
 #include "base/fuchsia/component_context.h"
 #include "base/fuchsia/scoped_service_binding.h"
-#include "base/fuchsia/test_fidl/cpp/fidl.h"
+#include "base/fuchsia/test_interface_impl.h"
+#include "base/fuchsia/testfidl/cpp/fidl.h"
 #include "base/message_loop/message_loop.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
 namespace fuchsia {
-
-class TestInterfaceImpl : public test_fidl::TestInterface {
- public:
-  TestInterfaceImpl();
-  ~TestInterfaceImpl() override;
-
-  // TestInterface implementation.
-  void Add(int32_t a, int32_t b, AddCallback callback) override;
-};
 
 class ServiceDirectoryTestBase : public testing::Test {
  public:
@@ -31,15 +23,15 @@ class ServiceDirectoryTestBase : public testing::Test {
   ~ServiceDirectoryTestBase() override;
 
   void ConnectClientContextToDirectory(const char* path);
-  void VerifyTestInterface(fidl::InterfacePtr<test_fidl::TestInterface>* stub,
-                           bool expect_error);
+  void VerifyTestInterface(fidl::InterfacePtr<testfidl::TestInterface>* stub,
+                           zx_status_t expected_error);
 
  protected:
   MessageLoopForIO message_loop_;
   std::unique_ptr<ServiceDirectory> service_directory_;
   zx::channel service_directory_client_channel_;
   TestInterfaceImpl test_service_;
-  std::unique_ptr<ScopedServiceBinding<test_fidl::TestInterface>>
+  std::unique_ptr<ScopedServiceBinding<testfidl::TestInterface>>
       service_binding_;
   std::unique_ptr<ComponentContext> client_context_;
 };

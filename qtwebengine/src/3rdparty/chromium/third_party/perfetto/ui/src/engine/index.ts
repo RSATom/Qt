@@ -17,22 +17,27 @@ import * as init_trace_processor from '../gen/trace_processor';
 import {WasmBridge, WasmBridgeRequest} from './wasm_bridge';
 
 // tslint:disable no-any
-
-declare var FileReaderSync: any;
-
+// Proxy all messages to WasmBridge#callWasm.
 const anySelf = (self as any);
 
-const bridge = new WasmBridge(
-    init_trace_processor,
-    anySelf.postMessage.bind(anySelf),
-    new FileReaderSync(), );
-bridge.initialize();
-
-anySelf.onmessage = (m: any) => {
-  if (m.data.blob) {
-    bridge.setBlob(m.data.blob);
-    return;
-  }
-  const request = (m.data as WasmBridgeRequest);
-  bridge.callWasm(request);
+// Messages can arrive before we are initialized, queue these for later.
+const msgQueue: MessageEvent[] = [];
+anySelf.onmessage = (msg: MessageEvent) => {
+  msgQueue.push(msg);
 };
+
+const bridge = new WasmBridge(init_trace_processor);
+bridge.whenInitialized.then(() => {
+  const handleMsg = (msg: MessageEvent) => {
+    const request: WasmBridgeRequest = msg.data;
+    anySelf.postMessage(bridge.callWasm(request));
+  };
+
+  // Dispatch queued messages.
+  let msg;
+  while (msg = msgQueue.shift()) {
+    handleMsg(msg);
+  }
+
+  anySelf.onmessage = handleMsg;
+});

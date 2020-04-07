@@ -2,21 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-(function() {
-'use strict';
-
-/** @const {number} */
-const MINIMUM_DISTANCE = 72;  // 1 inch
+cr.exportPath('print_preview_new');
 
 /**
  * @const {!Map<!print_preview.ticket_items.CustomMarginsOrientation, string>}
  */
-const MARGIN_KEY_MAP = new Map([
+print_preview_new.MARGIN_KEY_MAP = new Map([
   [print_preview.ticket_items.CustomMarginsOrientation.TOP, 'marginTop'],
   [print_preview.ticket_items.CustomMarginsOrientation.RIGHT, 'marginRight'],
   [print_preview.ticket_items.CustomMarginsOrientation.BOTTOM, 'marginBottom'],
   [print_preview.ticket_items.CustomMarginsOrientation.LEFT, 'marginLeft']
 ]);
+
+(function() {
+'use strict';
+
+/** @const {number} */
+const MINIMUM_DISTANCE = 72;  // 1 inch
 
 Polymer({
   is: 'print-preview-margin-control-container',
@@ -40,6 +42,12 @@ Polymer({
 
     /** @type {?print_preview.MeasurementSystem} */
     measurementSystem: Object,
+
+    /** @type {!print_preview_new.State} */
+    state: {
+      type: Number,
+      observer: 'onStateChanged_',
+    },
 
     /** @private {number} */
     scaleTransform_: {
@@ -105,8 +113,13 @@ Polymer({
     },
   },
 
+  /** @private {boolean} */
+  textboxFocused_: false,
+
   observers: [
     'onMarginSettingsChange_(settings.customMargins.value)',
+    'onMediaSizeOrLayoutChange_(' +
+        'settings.mediaSize.value, settings.layout.value)',
   ],
 
   /** @private {!print_preview.Coordinate2d} */
@@ -114,6 +127,9 @@ Polymer({
 
   /** @private {?print_preview.Coordinate2d} */
   marginStartPositionInPixels_: null,
+
+  /** @private {?boolean} */
+  resetMargins_: null,
 
   /**
    * @return {boolean}
@@ -128,20 +144,17 @@ Polymer({
 
   /** @private */
   onAvailableChange_: function() {
-    if (this.available_ && !!this.documentMargins) {
+    if (this.available_ && this.resetMargins_) {
+      // Set the custom margins values to the current document margins if the
+      // custom margins were reset.
       const newMargins = {};
-      // Track whether the margins have actually changed to avoid triggering the
-      // setting change if they are the same.
-      const oldMargins = this.getSettingValue('customMargins');
-      let change = false;
-      for (let side of Object.values(
+      for (const side of Object.values(
                print_preview.ticket_items.CustomMarginsOrientation)) {
-        const key = MARGIN_KEY_MAP.get(side);
+        const key = print_preview_new.MARGIN_KEY_MAP.get(side);
         newMargins[key] = this.documentMargins.get(side);
-        change = change || (newMargins[key] != oldMargins[key]);
       }
-      if (change)
-        this.setSetting('customMargins', newMargins);
+      this.setSetting('customMargins', newMargins);
+      this.resetMargins_ = false;
     }
     this.invisible_ = !this.available_;
   },
@@ -151,11 +164,43 @@ Polymer({
     const margins = this.getSettingValue('customMargins');
     this.shadowRoot.querySelectorAll('print-preview-margin-control')
         .forEach(control => {
-          const key = MARGIN_KEY_MAP.get(control.side);
+          const key = print_preview_new.MARGIN_KEY_MAP.get(control.side);
           const newValue = margins[key] || 0;
           control.setPositionInPts(newValue);
           control.setTextboxValue(this.serializeValueFromPts_(newValue));
         });
+  },
+
+  /** @private */
+  onMediaSizeOrLayoutChange_: function() {
+    // Reset the custom margins when the paper size changes. Don't do this if it
+    // is the first preview.
+    if (this.resetMargins_ === null) {
+      return;
+    }
+
+    this.resetMargins_ = true;
+    const marginsSetting = this.getSetting('margins');
+    if (marginsSetting.value ==
+        print_preview.ticket_items.MarginsTypeValue.CUSTOM) {
+      // Set the margins value to default first.
+      this.setSetting(
+          'margins', print_preview.ticket_items.MarginsTypeValue.DEFAULT);
+    }
+    // Reset custom margins so that the sticky value is not restored for the new
+    // paper size.
+    this.setSetting('customMargins', {});
+  },
+
+  /** @private */
+  onStateChanged_: function() {
+    if (this.state == print_preview_new.State.READY &&
+        this.resetMargins_ === null) {
+      // Don't reset margins if there are sticky values. Otherwise, set them to
+      // the document margins when the user selects custom margins.
+      this.resetMargins_ =
+          this.getSettingValue('customMargins').marginTop === undefined;
+    }
   },
 
   /**
@@ -277,14 +322,68 @@ Polymer({
    */
   setInvisible: function(invisible) {
     // Ignore changes if the margin controls are not available.
-    if (!this.available_)
+    if (!this.available_) {
       return;
+    }
 
-    // Do not set the controls invisible if the user is dragging one of them.
-    if (invisible && this.dragging_ != '')
+    // Do not set the controls invisible if the user is dragging or focusing
+    // the textbox for one of them.
+    if (invisible && (this.dragging_ != '' || this.textboxFocused_)) {
       return;
+    }
 
     this.invisible_ = invisible;
+  },
+
+  /**
+   * @param {!CustomEvent} e Contains information about what control fired the
+   *     event.
+   * @private
+   */
+  onTextFocus_: function(e) {
+    this.textboxFocused_ = true;
+    const control = /** @type {!PrintPreviewMarginControlElement} */ (e.target);
+
+    const x = control.offsetLeft;
+    const y = control.offsetTop;
+    const isTopOrBottom = this.isTopOrBottom_(
+        /** @type {!print_preview.ticket_items.CustomMarginsOrientation} */ (
+            control.side));
+    const position = {};
+    // Extra padding, in px, to ensure the full textbox will be visible and not
+    // just a portion of it. Can't be less than half the width or height of the
+    // clip area for the computations below to work.
+    const padding = Math.min(
+        Math.min(this.clipSize_.width / 2, this.clipSize_.height / 2), 50);
+
+    // Note: clipSize_ gives the current visible area of the margin control
+    // container. The offsets of the controls are relative to the origin of this
+    // visible area.
+    if (isTopOrBottom) {
+      // For top and bottom controls, the horizontal position of the box is
+      // around halfway across the control's width.
+      position.x = Math.min(x + control.offsetWidth / 2 - padding, 0);
+      position.x = Math.max(
+          x + control.offsetWidth / 2 + padding - this.clipSize_.width,
+          position.x);
+      // For top and bottom controls, the vertical position of the box is nearly
+      // the same as the vertical position of the control.
+      position.y = Math.min(y - padding, 0);
+      position.y = Math.max(y - this.clipSize_.height + padding, position.y);
+    } else {
+      // For left and right controls, the horizontal position of the box is
+      // nearly the same as the horizontal position of the control.
+      position.x = Math.min(x - padding, 0);
+      position.x = Math.max(x - this.clipSize_.width + padding, position.x);
+      // For top and bottom controls, the vertical position of the box is
+      // around halfway up the control's height.
+      position.y = Math.min(y + control.offsetHeight / 2 - padding, 0);
+      position.y = Math.max(
+          y + control.offsetHeight / 2 + padding - this.clipSize_.height,
+          position.y);
+    }
+
+    this.fire('text-focus-position', position);
   },
 
   /**
@@ -298,9 +397,10 @@ Polymer({
             side);
     const oldMargins = /** @type {print_preview.MarginsSetting} */ (
         this.getSettingValue('customMargins'));
-    const key = MARGIN_KEY_MAP.get(marginSide);
-    if (oldMargins[key] == marginValue)
+    const key = print_preview_new.MARGIN_KEY_MAP.get(marginSide);
+    if (oldMargins[key] == marginValue) {
       return;
+    }
     const newMargins = Object.assign({}, oldMargins);
     newMargins[key] = marginValue;
     this.setSetting('customMargins', newMargins);
@@ -316,18 +416,19 @@ Polymer({
     const marginSide =
         /** @type {!print_preview.ticket_items.CustomMarginsOrientation} */ (
             side);
-    if (value < 0)
+    if (value < 0) {
       return 0;
+    }
     const Orientation = print_preview.ticket_items.CustomMarginsOrientation;
     let limit = 0;
     const margins = this.getSettingValue('customMargins');
-    if (marginSide == Orientation.TOP)
+    if (marginSide == Orientation.TOP) {
       limit = this.pageSize.height - margins.marginBottom - MINIMUM_DISTANCE;
-    else if (marginSide == Orientation.RIGHT)
+    } else if (marginSide == Orientation.RIGHT) {
       limit = this.pageSize.width - margins.marginLeft - MINIMUM_DISTANCE;
-    else if (marginSide == Orientation.BOTTOM)
+    } else if (marginSide == Orientation.BOTTOM) {
       limit = this.pageSize.height - margins.marginTop - MINIMUM_DISTANCE;
-    else {
+    } else {
       assert(marginSide == Orientation.LEFT);
       limit = this.pageSize.width - margins.marginRight - MINIMUM_DISTANCE;
     }
@@ -335,11 +436,11 @@ Polymer({
   },
 
   /**
-   * @param {!CustomEvent} e Event containing the new textbox value.
+   * @param {!CustomEvent<string>} e Event containing the new textbox value.
    * @private
    */
   onTextChange_: function(e) {
-    const marginValue = this.parseValueToPts_(/** @type {string} */ (e.detail));
+    const marginValue = this.parseValueToPts_(e.detail);
     const control =
         /** @type {!PrintPreviewMarginControlElement} */ (e.target);
     if (marginValue == null) {
@@ -353,16 +454,19 @@ Polymer({
   },
 
   /**
-   * @param {!CustomEvent} e Event fired when a control with an invalid value's
-   *     text field is blurred.
+   * @param {!CustomEvent} e Event fired when a control's text field is blurred.
+   *     Contains information about whether the control is in an invalid state.
    * @private
    */
   onTextBlur_: function(e) {
-    const control =
-        /** @type {!PrintPreviewMarginControlElement} */ (e.target);
-    control.setTextboxValue(
-        this.serializeValueFromPts_(control.getPositionInPts()));
-    control.invalid = false;
+    if (e.detail /* detail is true if the control is in an invalid state */) {
+      const control =
+          /** @type {!PrintPreviewMarginControlElement} */ (e.target);
+      control.setTextboxValue(
+          this.serializeValueFromPts_(control.getPositionInPts()));
+      control.invalid = false;
+    }
+    this.textboxFocused_ = false;
   },
 
   /**
@@ -372,8 +476,9 @@ Polymer({
   onPointerDown_: function(e) {
     const control =
         /** @type {!PrintPreviewMarginControlElement} */ (e.target);
-    if (!control.shouldDrag(e))
+    if (!control.shouldDrag(e)) {
       return;
+    }
 
     this.pointerStartPositionInPixels_ =
         new print_preview.Coordinate2d(e.x, e.y);
@@ -398,8 +503,9 @@ Polymer({
    * @private
    */
   onTransitionEnd_: function() {
-    if (this.invisible_)
+    if (this.invisible_) {
       this.style.display = 'none';
+    }
   },
 
   /**
@@ -446,8 +552,9 @@ Polymer({
    * @param {number} scaleTransform Updated value of the scale transform.
    */
   updateScaleTransform: function(scaleTransform) {
-    if (scaleTransform != this.scaleTransform_)
+    if (scaleTransform != this.scaleTransform_) {
       this.scaleTransform_ = scaleTransform;
+    }
   },
 
   /**

@@ -5,14 +5,16 @@
 #include "content/browser/loader/resource_request_info_impl.h"
 
 #include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/loader/global_routing_id.h"
 #include "content/browser/loader/resource_message_filter.h"
+#include "content/browser/service_worker/service_worker_provider_host.h"
+#include "content/browser/web_contents/web_contents_getter_registry.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/net/url_request_service_worker_data.h"
 #include "content/common/net/url_request_user_data.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/global_request_id.h"
-#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/browser/global_routing_id.h"
+#include "content/public/common/navigation_policy.h"
 #include "content/public/common/process_type.h"
 #include "net/url_request/url_request.h"
 
@@ -65,32 +67,33 @@ void ResourceRequestInfo::AllocateForTesting(
 
   ResourceRequestInfoImpl* info = new ResourceRequestInfoImpl(
       ResourceRequesterInfo::CreateForRendererTesting(
-          render_process_id),              // resource_requester_info
-      render_view_id,                      // route_id
-      -1,                                  // frame_tree_node_id
-      ChildProcessHost::kInvalidUniqueID,  // plugin_child_id
-      0,                                   // request_id
-      render_frame_id,                     // render_frame_id
-      is_main_frame,                       // is_main_frame
-      resource_type,                       // resource_type
-      ui::PAGE_TRANSITION_LINK,            // transition_type
-      false,                               // is_download
-      false,                               // is_stream
-      allow_download,                      // allow_download
-      false,                               // has_user_gesture
-      false,                               // enable load timing
-      request->has_upload(),               // enable upload progress
-      false,                               // do_not_prompt_for_login
-      false,                               // keep_alive
-      blink::kWebReferrerPolicyDefault,    // referrer_policy
-      false,                               // is_prerendering
-      context,                             // context
-      false,                               // report_raw_headers
-      false,                               // report_security_info
-      is_async,                            // is_async
-      previews_state,                      // previews_state
-      nullptr,                             // body
-      false);                              // initiated_in_secure_context
+          render_process_id),                    // resource_requester_info
+      render_view_id,                            // route_id
+      -1,                                        // frame_tree_node_id
+      ChildProcessHost::kInvalidUniqueID,        // plugin_child_id
+      0,                                         // request_id
+      render_frame_id,                           // render_frame_id
+      is_main_frame,                             // is_main_frame
+      {},                                        // fetch_window_id
+      resource_type,                             // resource_type
+      ui::PAGE_TRANSITION_LINK,                  // transition_type
+      false,                                     // is_download
+      false,                                     // is_stream
+      allow_download,                            // allow_download
+      false,                                     // has_user_gesture
+      false,                                     // enable load timing
+      request->has_upload(),                     // enable upload progress
+      false,                                     // do_not_prompt_for_login
+      false,                                     // keep_alive
+      network::mojom::ReferrerPolicy::kDefault,  // referrer_policy
+      false,                                     // is_prerendering
+      context,                                   // context
+      false,                                     // report_raw_headers
+      false,                                     // report_security_info
+      is_async,                                  // is_async
+      previews_state,                            // previews_state
+      nullptr,                                   // body
+      false);                                    // initiated_in_secure_context
   info->AssociateWithRequest(request);
   info->set_navigation_ui_data(std::move(navigation_ui_data));
 }
@@ -140,6 +143,7 @@ ResourceRequestInfoImpl::ResourceRequestInfoImpl(
     int request_id,
     int render_frame_id,
     bool is_main_frame,
+    const base::UnguessableToken& fetch_window_id,
     ResourceType resource_type,
     ui::PageTransition transition_type,
     bool is_download,
@@ -150,7 +154,7 @@ ResourceRequestInfoImpl::ResourceRequestInfoImpl(
     bool enable_upload_progress,
     bool do_not_prompt_for_login,
     bool keepalive,
-    blink::WebReferrerPolicy referrer_policy,
+    network::mojom::ReferrerPolicy referrer_policy,
     bool is_prerendering,
     ResourceContext* context,
     bool report_raw_headers,
@@ -167,6 +171,7 @@ ResourceRequestInfoImpl::ResourceRequestInfoImpl(
       request_id_(request_id),
       render_frame_id_(render_frame_id),
       is_main_frame_(is_main_frame),
+      fetch_window_id_(fetch_window_id),
       is_download_(is_download),
       is_stream_(is_stream),
       allow_download_(allow_download),
@@ -185,7 +190,6 @@ ResourceRequestInfoImpl::ResourceRequestInfoImpl(
       report_raw_headers_(report_raw_headers),
       report_security_info_(report_security_info),
       is_async_(is_async),
-      devtools_status_(DevToolsStatus::kNotCanceled),
       previews_state_(previews_state),
       body_(body),
       initiated_in_secure_context_(initiated_in_secure_context),
@@ -198,11 +202,18 @@ ResourceRequestInfoImpl::~ResourceRequestInfoImpl() {
 
 ResourceRequestInfo::WebContentsGetter
 ResourceRequestInfoImpl::GetWebContentsGetterForRequest() const {
-  // PlzNavigate: navigation requests are created with a valid FrameTreeNode ID
-  // and invalid RenderProcessHost and RenderFrameHost IDs. The FrameTreeNode
-  // ID should be used to access the WebContents.
-  if (frame_tree_node_id_ != -1) {
-    DCHECK(IsBrowserSideNavigationEnabled());
+  // If we have a window id, try to use that.
+  if (fetch_window_id_) {
+    ResourceRequestInfo::WebContentsGetter getter =
+        WebContentsGetterRegistry::GetInstance()->Get(fetch_window_id_);
+    if (getter)
+      return getter;
+  }
+
+  // Navigation requests are created with a valid FrameTreeNode ID and invalid
+  // RenderProcessHost and RenderFrameHost IDs. The FrameTreeNode ID should be
+  // used to access the WebContents.
+  if (frame_tree_node_id_ != RenderFrameHost::kNoFrameTreeNodeId) {
     return base::Bind(WebContents::FromFrameTreeNodeId, frame_tree_node_id_);
   }
 
@@ -222,7 +233,6 @@ ResourceRequestInfoImpl::GetWebContentsGetterForRequest() const {
 ResourceRequestInfo::FrameTreeNodeIdGetter
 ResourceRequestInfoImpl::GetFrameTreeNodeIdGetterForRequest() const {
   if (frame_tree_node_id_ != -1) {
-    DCHECK(IsBrowserSideNavigationEnabled());
     return base::Bind([](int id) { return id; }, frame_tree_node_id_);
   }
 
@@ -273,12 +283,8 @@ ResourceType ResourceRequestInfoImpl::GetResourceType() const {
   return resource_type_;
 }
 
-int ResourceRequestInfoImpl::GetProcessType() const {
-  return requester_info_->IsBrowserSideNavigation() ? PROCESS_TYPE_BROWSER
-                                                    : PROCESS_TYPE_RENDERER;
-}
-
-blink::WebReferrerPolicy ResourceRequestInfoImpl::GetReferrerPolicy() const {
+network::mojom::ReferrerPolicy ResourceRequestInfoImpl::GetReferrerPolicy()
+    const {
   return referrer_policy_;
 }
 
@@ -316,11 +322,6 @@ PreviewsState ResourceRequestInfoImpl::GetPreviewsState() const {
 
 NavigationUIData* ResourceRequestInfoImpl::GetNavigationUIData() const {
   return navigation_ui_data_.get();
-}
-
-ResourceRequestInfo::DevToolsStatus ResourceRequestInfoImpl::GetDevToolsStatus()
-    const {
-  return devtools_status_;
 }
 
 void ResourceRequestInfoImpl::SetResourceRequestBlockedReason(

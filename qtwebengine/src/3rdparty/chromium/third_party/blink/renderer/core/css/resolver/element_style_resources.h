@@ -26,7 +26,7 @@
 
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/css/css_property_id_templates.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/platform/cross_origin_attribute_value.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -42,7 +42,7 @@ class CSSImageValue;
 class CSSURIValue;
 class CSSValue;
 class ComputedStyle;
-class Document;
+class Element;
 class SVGResource;
 class StyleImage;
 class StylePendingImage;
@@ -54,7 +54,7 @@ class ElementStyleResources {
   STACK_ALLOCATED();
 
  public:
-  ElementStyleResources(Document&, float device_scale_factor);
+  ElementStyleResources(Element&, float device_scale_factor);
 
   StyleImage* GetStyleImage(CSSPropertyID, const CSSValue&);
   StyleImage* CachedOrPendingFromValue(CSSPropertyID, const CSSImageValue&);
@@ -78,10 +78,10 @@ class ElementStyleResources {
   StyleImage* LoadPendingImage(
       ComputedStyle*,
       StylePendingImage*,
-      FetchParameters::PlaceholderImageRequestType,
+      FetchParameters::ImageRequestOptimization,
       CrossOriginAttributeValue = kCrossOriginAttributeNotSet);
 
-  Member<Document> document_;
+  Member<Element> element_;
   HashSet<CSSPropertyID> pending_image_properties_;
   float device_scale_factor_;
   DISALLOW_COPY_AND_ASSIGN(ElementStyleResources);

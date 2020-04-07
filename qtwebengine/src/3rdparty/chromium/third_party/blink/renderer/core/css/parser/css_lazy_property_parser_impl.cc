@@ -9,12 +9,11 @@
 
 namespace blink {
 
-CSSLazyPropertyParserImpl::CSSLazyPropertyParserImpl(size_t offset,
+CSSLazyPropertyParserImpl::CSSLazyPropertyParserImpl(wtf_size_t offset,
                                                      CSSLazyParsingState* state)
     : CSSLazyPropertyParser(), offset_(offset), lazy_state_(state) {}
 
 CSSPropertyValueSet* CSSLazyPropertyParserImpl::ParseProperties() {
-  lazy_state_->CountRuleParsed();
   return CSSParserImpl::ParseDeclarationListForLazyStyle(
       lazy_state_->SheetText(), offset_, lazy_state_->Context());
 }

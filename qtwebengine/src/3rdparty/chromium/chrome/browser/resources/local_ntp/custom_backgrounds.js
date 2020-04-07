@@ -71,6 +71,7 @@ customBackgrounds.KEYCODES = {
 customBackgrounds.IDS = {
   ATTRIBUTIONS: 'custom-bg-attr',
   BACK: 'bg-sel-back',
+  BACK_CIRCLE: 'bg-sel-back-circle',
   CANCEL: 'bg-sel-footer-cancel',
   CUSTOM_LINKS_RESTORE_DEFAULT: 'custom-links-restore-default',
   CUSTOM_LINKS_RESTORE_DEFAULT_TEXT: 'custom-links-restore-default-text',
@@ -81,6 +82,7 @@ customBackgrounds.IDS = {
   EDIT_BG_DIALOG: 'edit-bg-dialog',
   EDIT_BG_DIVIDER: 'edit-bg-divider',
   EDIT_BG_GEAR: 'edit-bg-gear',
+  EDIT_BG_MENU: 'edit-bg-menu',
   MSG_BOX: 'message-box',
   MSG_BOX_MSG: 'message-box-message',
   MSG_BOX_LINK: 'message-box-link',
@@ -110,18 +112,21 @@ customBackgrounds.CLASSES = {
   COLLECTION_DIALOG: 'is-col-sel',
   COLLECTION_SELECTED: 'bg-selected',  // Highlight selected tile
   COLLECTION_TILE: 'bg-sel-tile',  // Preview tile for background customization
+  COLLECTION_TILE_BG: 'bg-sel-tile-bg',
   COLLECTION_TITLE: 'bg-sel-tile-title',  // Title of a background image
   DONE_AVAILABLE: 'done-available',
   FLOAT_UP: 'float-up',
   HAS_LINK: 'has-link',
   HIDE_MSG_BOX: 'message-box-hide',
   IMAGE_DIALOG: 'is-img-sel',
+  OPTION: 'bg-option',
   OPTION_DISABLED: 'bg-option-disabled',  // The menu option is disabled.
   PLUS_ICON: 'plus-icon',
   MOUSE_NAV: 'using-mouse-nav',
   SELECTED_BORDER: 'selected-border',
   SELECTED_CHECK: 'selected-check',
   SELECTED_CIRCLE: 'selected-circle',
+  SINGLE_ATTR: 'single-attr'
 };
 
 /**
@@ -144,8 +149,8 @@ customBackgrounds.SOURCES = {
 customBackgrounds.MENU_ENTRIES = {
   CHROME_BACKGROUNDS: 0,
   UPLOAD_IMAGE: 1,
-  RESTORE_DEFAULT: 2,
-  CUSTOM_LINKS_RESTORE_DEFAULT: 3,
+  CUSTOM_LINKS_RESTORE_DEFAULT: 2,
+  RESTORE_DEFAULT: 3,
 };
 
 customBackgrounds.CUSTOM_BACKGROUND_OVERLAY =
@@ -161,38 +166,38 @@ customBackgrounds.NOTIFICATION_TIMEOUT = 10000;
  */
 customBackgrounds.selectedTile = null;
 
+/**
+ * Number of rows in the custom background dialog to preload.
+ * @type {number}
+ * @const
+ */
+customBackgrounds.ROWS_TO_PRELOAD = 3;
+
 /* Type of collection that is being browsed, needed in order
  * to return from the image dialog.
  * @type {int}
  */
 customBackgrounds.dialogCollectionsSource = customBackgrounds.SOURCES.NONE;
 
-/**
- * Alias for document.getElementById.
- * @param {string} id The ID of the element to find.
- * @return {HTMLElement} The found element or null if not found.
+/*
+ * Called when the error notification should be shown.
+ * @type {?Function}
+ * @private
  */
-function $(id) {
-  // eslint-disable-next-line no-restricted-properties
-  return document.getElementById(id);
-}
+customBackgrounds.showErrorNotification;
+
+/*
+ * Called when the custom link notification should be hidden.
+ * @type {?Function}
+ * @private
+ */
+customBackgrounds.hideCustomLinkNotification;
 
 /**
  * Sets the visibility of the settings menu and individual options depending on
- * their respective features and if the user has a theme installed.
- * @param {boolean} hasTheme True if the user has a theme installed.
+ * their respective features.
  */
-customBackgrounds.setMenuVisibility = function(hasTheme) {
-  // Hide the settings menu if:
-  // - Custom links and custom backgrounds are not enabled.
-  // - Custom links is not enabled and a theme is installed.
-  if ((!configData.isCustomLinksEnabled &&
-       !configData.isCustomBackgroundsEnabled) ||
-      (!configData.isCustomLinksEnabled && hasTheme)) {
-    $(customBackgrounds.IDS.EDIT_BG).hidden = true;
-    return;
-  }
-
+customBackgrounds.setMenuVisibility = function() {
   // Reset all hidden values.
   $(customBackgrounds.IDS.EDIT_BG).hidden = false;
   $(customBackgrounds.IDS.DEFAULT_WALLPAPERS).hidden = false;
@@ -200,19 +205,6 @@ customBackgrounds.setMenuVisibility = function(hasTheme) {
   $(customBackgrounds.IDS.RESTORE_DEFAULT).hidden = false;
   $(customBackgrounds.IDS.EDIT_BG_DIVIDER).hidden = false;
   $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).hidden = false;
-
-  // Custom backgrounds is disabled or a theme is installed, hide all custom
-  // background options.
-  if (!configData.isCustomBackgroundsEnabled || hasTheme) {
-    $(customBackgrounds.IDS.DEFAULT_WALLPAPERS).hidden = true;
-    $(customBackgrounds.IDS.UPLOAD_IMAGE).hidden = true;
-    $(customBackgrounds.IDS.RESTORE_DEFAULT).hidden = true;
-    $(customBackgrounds.IDS.EDIT_BG_DIVIDER).hidden = true;
-  }
-
-  // Custom links is disabled, hide all custom link options.
-  if (!configData.isCustomLinksEnabled)
-    $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).hidden = true;
 };
 
 /**
@@ -226,24 +218,28 @@ customBackgrounds.setAttribution = function(
   var attributionBox = $(customBackgrounds.IDS.ATTRIBUTIONS);
   var attr1 = document.createElement('div');
   var attr2 = document.createElement('div');
-  if (attributionLine1 != '') {
+  if (attributionLine1 !== '') {
     // Shouldn't be changed from textContent for security assurances.
     attr1.textContent = attributionLine1;
     attr1.classList.add(customBackgrounds.CLASSES.ATTR_1);
     $(customBackgrounds.IDS.ATTRIBUTIONS).appendChild(attr1);
   }
-  if (attributionLine2 != '') {
+  if (attributionLine2 !== '') {
     // Shouldn't be changed from textContent for security assurances.
     attr2.textContent = attributionLine2;
     attr2.classList.add(customBackgrounds.CLASSES.ATTR_2);
     attributionBox.appendChild(attr2);
   }
-  if (attributionActionUrl != '') {
-    var attr = (attributionLine2 != '' ? attr2 : attr1);
+  if (attributionActionUrl !== '') {
+    var attr = (attributionLine2 !== '' ? attr2 : attr1);
     attr.classList.add(customBackgrounds.CLASSES.ATTR_LINK);
 
     var linkIcon = document.createElement('div');
     linkIcon.id = customBackgrounds.IDS.LINK_ICON;
+    // Enlarge link-icon when there is only one line of attribution
+    if (attributionLine2 === '') {
+      linkIcon.classList.add(customBackgrounds.CLASSES.SINGLE_ATTR);
+    }
     attr.insertBefore(linkIcon, attr.firstChild);
 
     attributionBox.classList.add(customBackgrounds.CLASSES.ATTR_LINK);
@@ -263,20 +259,23 @@ customBackgrounds.clearAttribution = function() {
   }
 };
 
+customBackgrounds.unselectTile = function() {
+  $(customBackgrounds.IDS.DONE).disabled = true;
+  customBackgrounds.selectedTile = null;
+  $(customBackgrounds.IDS.DONE).tabIndex = -1;
+};
+
 /**
  * Remove all collection tiles from the container when the dialog
  * is closed.
  */
 customBackgrounds.resetSelectionDialog = function() {
   $(customBackgrounds.IDS.TILES).scrollTop = 0;
-  $(customBackgrounds.IDS.DONE).tabIndex = -1;
   var tileContainer = $(customBackgrounds.IDS.TILES);
   while (tileContainer.firstChild) {
     tileContainer.removeChild(tileContainer.firstChild);
   }
-  $(customBackgrounds.IDS.DONE)
-      .classList.remove(customBackgrounds.CLASSES.DONE_AVAILABLE);
-  customBackgrounds.selectedTile = null;
+  customBackgrounds.unselectTile();
 };
 
 /* Close the collection selection dialog and cleanup the state
@@ -302,10 +301,11 @@ customBackgrounds.setBackground = function(
  * Create a tile for a Chrome Backgrounds collection.
  */
 customBackgrounds.createChromeBackgroundTile = function(data) {
-  var tile = document.createElement('div');
+  let tile = document.createElement('div');
   tile.style.backgroundImage = 'url(' + data.previewImageUrl + ')';
   tile.dataset.id = data.collectionId;
   tile.dataset.name = data.collectionName;
+  fadeInImageTile(tile, data.previewImageUrl);
   return tile;
 };
 
@@ -313,11 +313,12 @@ customBackgrounds.createChromeBackgroundTile = function(data) {
  * Create a tile for a Google Photos album.
  */
 customBackgrounds.createAlbumTile = function(data) {
-  var tile = document.createElement('div');
+  let tile = document.createElement('div');
   tile.style.backgroundImage = 'url(' + data.previewImageUrl + ')';
   tile.dataset.id = data.albumId;
   tile.dataset.name = data.albumName;
   tile.dataset.photoContainerId = data.photoContainerId;
+  fadeInImageTile(tile, data.previewImageUrl);
   return tile;
 };
 
@@ -335,6 +336,23 @@ customBackgrounds.createAlbumPlusTile = function() {
   return tile;
 };
 
+/**
+ * Get the number of tiles in a row according to current window width.
+ * @return {number} the number of tiles per row
+ */
+customBackgrounds.getTilesWide = function() {
+  // Browser window can only fit two columns. Should match "#bg-sel-menu" width.
+  if ($(customBackgrounds.IDS.MENU).offsetWidth < 517) {
+    return 2;
+  } else if ($(customBackgrounds.IDS.MENU).offsetWidth < 356) {
+    // Browser window can only fit one column. Should match @media (max-width:
+    // 356) "#bg-sel-menu" width.
+    return 1;
+  }
+
+  return 3;
+};
+
 /* Get the next tile when the arrow keys are used to navigate the grid.
  * Returns null if the tile doesn't exist.
  * @param {int} deltaX Change in the x direction.
@@ -342,28 +360,29 @@ customBackgrounds.createAlbumPlusTile = function() {
  * @param {string} current Number of the current tile.
  */
 customBackgrounds.getNextTile = function(deltaX, deltaY, current) {
-  var tilesWide = 3;
-
-  // Browser window can only fit two columns. Should match #bg-sel-menu width.
-  if ($(customBackgrounds.IDS.MENU).offsetWidth < 516) {
-    tilesWide = 2;
-  }
-
-  // Browser window can only fit one column. Should match @media (max-width:
-  // 520px) #bg-sel-menu width.
-  if ($(customBackgrounds.IDS.MENU).offsetWidth < 352) {
-    tilesWide = 1;
-  }
-
-  var targetNum = parseInt(current) + deltaX + (deltaY * tilesWide);
-
+  let idPrefix = 'coll_tile_';
   if ($(customBackgrounds.IDS.MENU)
           .classList.contains(customBackgrounds.CLASSES.IMAGE_DIALOG)) {
-    return $('img_tile_' + targetNum);
+    idPrefix = 'img_tile_';
   }
-  if ($(customBackgrounds.IDS.MENU)
-          .classList.contains(customBackgrounds.CLASSES.COLLECTION_DIALOG)) {
-    return $('coll_tile_' + targetNum);
+
+  if (deltaX != 0) {
+    let target = parseInt(current) + deltaX;
+    return $(idPrefix + target);
+  } else if (deltaY != 0) {
+    let target = parseInt(current);
+    let nextTile = $(idPrefix + target);
+    let startingTop = nextTile.getBoundingClientRect().top;
+    let startingLeft = nextTile.getBoundingClientRect().left;
+
+    // Search until a tile in a different row and the same column is found.
+    while (nextTile &&
+           (nextTile.getBoundingClientRect().top == startingTop ||
+            nextTile.getBoundingClientRect().left != startingLeft)) {
+      target += deltaY;
+      nextTile = $(idPrefix + target);
+    }
+    return nextTile;
   }
 };
 
@@ -388,8 +407,9 @@ customBackgrounds.showCollectionSelectionDialog = function(collectionsSource) {
   }
   customBackgrounds.dialogCollectionsSource = collectionsSource;
 
-  if (!menu.open)
+  if (!menu.open) {
     menu.showModal();
+  }
 
   // Create dialog header.
   if (sourceIsChromeBackgrounds) {
@@ -409,6 +429,9 @@ customBackgrounds.showCollectionSelectionDialog = function(collectionsSource) {
 
   // Create dialog tiles.
   for (var i = 0; i < collData.length; ++i) {
+    let tileBackground = document.createElement('div');
+    tileBackground.classList.add(
+        customBackgrounds.CLASSES.COLLECTION_TILE_BG);
     var tile = null;
     if (sourceIsChromeBackgrounds) {
       tile = customBackgrounds.createChromeBackgroundTile(collData[i]);
@@ -419,6 +442,8 @@ customBackgrounds.showCollectionSelectionDialog = function(collectionsSource) {
     tile.id = 'coll_tile_' + i;
     tile.dataset.tile_num = i;
     tile.tabIndex = -1;
+    // Accessibility support for screen readers.
+    tile.setAttribute('role', 'button');
 
     var title = document.createElement('div');
     title.classList.add(customBackgrounds.CLASSES.COLLECTION_TITLE);
@@ -426,8 +451,9 @@ customBackgrounds.showCollectionSelectionDialog = function(collectionsSource) {
 
     var tileInteraction = function(event) {
       var tile = event.target;
-      if (tile.classList.contains(customBackgrounds.CLASSES.COLLECTION_TITLE))
+      if (tile.classList.contains(customBackgrounds.CLASSES.COLLECTION_TITLE)) {
         tile = tile.parentNode;
+      }
 
       // Load images for selected collection.
       var imgElement = $('ntp-images-loader');
@@ -464,47 +490,68 @@ customBackgrounds.showCollectionSelectionDialog = function(collectionsSource) {
                photos[0].photoContainerId == tile.dataset.photoContainerId);
         }
 
-        // Dependent upon the succces of the load, populate the image selection
+        // Dependent upon the success of the load, populate the image selection
         // dialog or close the current dialog.
-        customBackgrounds.resetSelectionDialog();
         if (imageDataLoaded) {
+          customBackgrounds.resetSelectionDialog();
           customBackgrounds.showImageSelectionDialog(tile.dataset.name);
         } else {
-          let source = customBackgrounds.dialogCollectionsSource;
-          customBackgrounds.closeCollectionDialog(menu);
-
-          let errors = source ? coll_img_errors : photos_errors;
+          let errors =
+              (collectionsSource ==
+                       customBackgrounds.SOURCES.CHROME_BACKGROUNDS ?
+                   coll_img_errors :
+                   photos_errors);
+          // If an auth error occurs leave the dialog open and redirect the
+          // user to sign-in again. Then they can return to the same place in
+          // the customization flow.
+          if (!errors.auth_error) {
+            customBackgrounds.closeCollectionDialog(menu);
+          }
           customBackgrounds.handleError(errors);
         }
       };
     };
 
     tile.onclick = tileInteraction;
-    tile.onkeyup = function(event) {
-      event.preventDefault();
-      event.stopPropagation();
-
+    tile.onkeydown = function(event) {
       if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
+        event.preventDefault();
+        event.stopPropagation();
         tileInteraction(event);
-      }
+      } else if (
+          event.keyCode === customBackgrounds.KEYCODES.LEFT ||
+          event.keyCode === customBackgrounds.KEYCODES.UP ||
+          event.keyCode === customBackgrounds.KEYCODES.RIGHT ||
+          event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+        // Handle arrow key navigation.
+        event.preventDefault();
+        event.stopPropagation();
 
-      var target = null;
-      if (event.keyCode == customBackgrounds.KEYCODES.LEFT) {
-        target = customBackgrounds.getNextTile(-1, 0, this.dataset.tile_num);
-      } else if (event.keyCode == customBackgrounds.KEYCODES.UP) {
-        target = customBackgrounds.getNextTile(0, -1, this.dataset.tile_num);
-      } else if (event.keyCode == customBackgrounds.KEYCODES.RIGHT) {
-        target = customBackgrounds.getNextTile(1, 0, this.dataset.tile_num);
-      } else if (event.keyCode == customBackgrounds.KEYCODES.DOWN) {
-        target = customBackgrounds.getNextTile(0, 1, this.dataset.tile_num);
-      }
-      if (target) {
-        target.focus();
+        let target = null;
+        if (event.keyCode === customBackgrounds.KEYCODES.LEFT) {
+          target = customBackgrounds.getNextTile(
+              document.documentElement.classList.contains('rtl') ? 1 : -1, 0,
+              this.dataset.tile_num);
+        } else if (event.keyCode === customBackgrounds.KEYCODES.UP) {
+          target = customBackgrounds.getNextTile(0, -1, this.dataset.tile_num);
+        } else if (event.keyCode === customBackgrounds.KEYCODES.RIGHT) {
+          target = customBackgrounds.getNextTile(
+              document.documentElement.classList.contains('rtl') ? -1 : 1, 0,
+              this.dataset.tile_num);
+        } else if (event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+          target = customBackgrounds.getNextTile(0, 1, this.dataset.tile_num);
+        }
+        if (target) {
+          target.focus();
+        } else {
+          this.focus();
+        }
       }
     };
 
     tile.appendChild(title);
-    tileContainer.appendChild(tile);
+    tileBackground.appendChild(tile);
+    tileContainer.appendChild(tileBackground);
   }
 
   $(customBackgrounds.IDS.TILES).focus();
@@ -549,6 +596,8 @@ customBackgrounds.removeSelectedState = function(tile) {
  *                 dialog.
  */
 customBackgrounds.showImageSelectionDialog = function(dialogTitle) {
+  const firstNTile = customBackgrounds.ROWS_TO_PRELOAD
+      * customBackgrounds.getTilesWide();
   var menu = $(customBackgrounds.IDS.MENU);
   var tileContainer = $(customBackgrounds.IDS.TILES);
   var sourceIsChromeBackgrounds =
@@ -566,36 +615,40 @@ customBackgrounds.showImageSelectionDialog = function(dialogTitle) {
     imageData = photos;
   }
 
+  let preLoadTiles = [];
+  let postLoadTiles = [];
+
   for (var i = 0; i < imageData.length; ++i) {
+    let tileBackground = document.createElement('div');
+    tileBackground.classList.add(
+        customBackgrounds.CLASSES.COLLECTION_TILE_BG);
     var tile = document.createElement('div');
     tile.classList.add(customBackgrounds.CLASSES.COLLECTION_TILE);
+    // Accessibility support for screen readers.
+    tile.setAttribute('role', 'button');
 
     // Set the background image, the name of the source variable differs
     // depending on if it's coming from Chrome Backgrounds or Google Photos.
     if (sourceIsChromeBackgrounds) {
       // TODO(crbug.com/854028): Remove this hardcoded check when wallpaper
       // previews are supported.
-      if (imageData[i].collectionId == 'solidcolors') {
-        var imageWithOverlay = [
-          customBackgrounds.CUSTOM_BACKGROUND_OVERLAY,
-          'url(' + imageData[i].thumbnailImageUrl + ')'
-        ].join(',').trim();
-        tile.style.backgroundImage = imageWithOverlay;
+      if (imageData[i].collectionId === 'solidcolors') {
+        tile.dataset.attributionLine1 = '';
+        tile.dataset.attributionLine2 = '';
+        tile.dataset.attributionActionUrl = '';
       } else {
-        tile.style.backgroundImage =
-            'url(' + imageData[i].thumbnailImageUrl + ')';
-      }
-      tile.dataset.url = imageData[i].imageUrl;
-      tile.dataset.attributionLine1 =
-          (imageData[i].attributions[0] != undefined ?
+        tile.dataset.attributionLine1 =
+          (imageData[i].attributions[0] !== undefined ?
                imageData[i].attributions[0] :
                '');
-      tile.dataset.attributionLine2 =
-          (imageData[i].attributions[1] != undefined ?
+        tile.dataset.attributionLine2 =
+          (imageData[i].attributions[1] !== undefined ?
                imageData[i].attributions[1] :
                '');
-      tile.dataset.attributionActionUrl = imageData[i].attributionActionUrl;
+        tile.dataset.attributionActionUrl = imageData[i].attributionActionUrl;
+      }
       tile.setAttribute('aria-label', imageData[i].attributions[0]);
+      tile.dataset.url = imageData[i].imageUrl;
     } else {
       tile.style.backgroundImage =
           'url(' + imageData[i].thumbnailPhotoUrl + ')';
@@ -610,10 +663,20 @@ customBackgrounds.showImageSelectionDialog = function(dialogTitle) {
     tile.dataset.tile_num = i;
     tile.tabIndex = -1;
 
-    var tileInteraction = function(event) {
-      var tile = event.target;
+    // Load the first |ROWS_TO_PRELOAD| rows of tiles.
+    if (i < firstNTile) {
+      preLoadTiles.push(tile);
+    } else {
+      postLoadTiles.push(tile);
+    }
+
+    let tileInteraction = function(tile) {
       if (customBackgrounds.selectedTile) {
         customBackgrounds.removeSelectedState(customBackgrounds.selectedTile);
+        if (customBackgrounds.selectedTile.id === tile.id) {
+          customBackgrounds.unselectTile();
+          return ;
+        }
       }
       customBackgrounds.selectedTile = tile;
 
@@ -623,48 +686,116 @@ customBackgrounds.showImageSelectionDialog = function(dialogTitle) {
 
       // Turn toggle off when an image is selected.
       $(customBackgrounds.IDS.REFRESH_TOGGLE).children[0].checked = false;
-      $(customBackgrounds.IDS.DONE)
-          .classList.add(customBackgrounds.CLASSES.DONE_AVAILABLE);
+      $(customBackgrounds.IDS.DONE).disabled = false;
       ntpApiHandle.logEvent(BACKGROUND_CUSTOMIZATION_LOG_TYPE
                                 .NTP_CUSTOMIZE_CHROME_BACKGROUND_SELECT_IMAGE);
     };
 
     tile.onclick = function(event) {
       let clickCount = event.detail;
-      if (clickCount == 1) {
-        tileInteraction(event);
-      } else if (clickCount == 2) {
-        customBackgrounds.setBackground(
-            this.dataset.url, this.dataset.attributionLine1,
-            this.dataset.attributionLine2, this.dataset.attributionActionUrl);
+      // Control + option + space will fire the onclick event with 0 clickCount.
+      if (clickCount <= 1) {
+        tileInteraction(this);
+      } else if (clickCount === 2 && customBackgrounds.selectedTile === this) {
+        customBackgrounds.setBackground(this.dataset.url,
+            this.dataset.attributionLine1, this.dataset.attributionLine2,
+            this.dataset.attributionActionUrl);
       }
     };
-    tile.onkeyup = function(event) {
-      event.preventDefault();
-      event.stopPropagation();
+    tile.onkeydown = function(event) {
 
       if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
-        tileInteraction(event);
-      }
+        event.preventDefault();
+        event.stopPropagation();
+        tileInteraction(this);
+      } else if (
+          event.keyCode === customBackgrounds.KEYCODES.LEFT ||
+          event.keyCode === customBackgrounds.KEYCODES.UP ||
+          event.keyCode === customBackgrounds.KEYCODES.RIGHT ||
+          event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+        // Handle arrow key navigation.
+        event.preventDefault();
+        event.stopPropagation();
 
-      var target = null;
-      if (event.keyCode == customBackgrounds.KEYCODES.LEFT) {
-        target = customBackgrounds.getNextTile(-1, 0, this.dataset.tile_num);
-      } else if (event.keyCode == customBackgrounds.KEYCODES.UP) {
-        target = customBackgrounds.getNextTile(0, -1, this.dataset.tile_num);
-      } else if (event.keyCode == customBackgrounds.KEYCODES.RIGHT) {
-        target = customBackgrounds.getNextTile(1, 0, this.dataset.tile_num);
-      } else if (event.keyCode == customBackgrounds.KEYCODES.DOWN) {
-        target = customBackgrounds.getNextTile(0, 1, this.dataset.tile_num);
-      }
-      if (target) {
-        target.focus();
+        let target = null;
+        if (event.keyCode == customBackgrounds.KEYCODES.LEFT) {
+          target = customBackgrounds.getNextTile(
+              document.documentElement.classList.contains('rtl') ? 1 : -1, 0,
+              this.dataset.tile_num);
+        } else if (event.keyCode == customBackgrounds.KEYCODES.UP) {
+          target = customBackgrounds.getNextTile(0, -1, this.dataset.tile_num);
+        } else if (event.keyCode == customBackgrounds.KEYCODES.RIGHT) {
+          target = customBackgrounds.getNextTile(
+              document.documentElement.classList.contains('rtl') ? -1 : 1, 0,
+              this.dataset.tile_num);
+        } else if (event.keyCode == customBackgrounds.KEYCODES.DOWN) {
+          target = customBackgrounds.getNextTile(0, 1, this.dataset.tile_num);
+        }
+        if (target) {
+          target.focus();
+        } else {
+          this.focus();
+        }
       }
     };
 
-    tileContainer.appendChild(tile);
+    tileBackground.appendChild(tile);
+    tileContainer.appendChild(tileBackground);
   }
+  let tileGetsLoaded = 0;
+  for (let tile of preLoadTiles) {
+    loadTile(tile, imageData, () => {
+      // After the preloaded tiles finish loading, the rest of the tiles start
+      // loading.
+      if (++tileGetsLoaded === preLoadTiles.length) {
+        postLoadTiles.forEach((tile) => loadTile(tile, imageData));
+      }
+    });
+  }
+
   $(customBackgrounds.IDS.TILES).focus();
+};
+
+/**
+ * Add background image src to the tile and add animation for the tile once it
+ * successfully loaded.
+ * @param {Object} tile the tile that needs to be loaded.
+ * @param {object} imageData the source imageData.
+ * @param {?Function} countLoad If not null, called after the tile finishes
+ * loading.
+ */
+let loadTile = function(tile, imageData, countLoad) {
+  if (imageData[tile.dataset.tile_num].collectionId === 'solidcolors') {
+    tile.style.backgroundImage = [customBackgrounds.CUSTOM_BACKGROUND_OVERLAY,
+      'url(' + imageData[tile.dataset.tile_num].thumbnailImageUrl + ')'].join(
+        ',').trim();
+  } else {
+    tile.style.backgroundImage = 'url('
+        + imageData[tile.dataset.tile_num].thumbnailImageUrl + ')' || 'url('
+        + imageData[tile.dataset.tile_num].thumbnailPhotoUrl + ')';
+  }
+  fadeInImageTile(tile, imageData[tile.dataset.tile_num].thumbnailImageUrl
+      || imageData[tile.dataset.tile_num].thumbnailPhotoUrl, countLoad);
+};
+
+/**
+ * Fade in effect for both collection and image tile. Once the image
+ * successfully loads, we can assume the background image with the same source
+ * has also loaded. Then, we set opacity for the tile to start the animation.
+ * @param {Object} tile The tile to add the fade in animation to.
+ * @param {string} imageUrl the image url for the tile
+ * @param {?Function} countLoad If not null, called after the tile finishes
+ * loading.
+ */
+let fadeInImageTile = function(tile, imageUrl, countLoad) {
+  let image = new Image();
+  image.onload = () => {
+    tile.style.opacity = '1';
+    if (countLoad) {
+      countLoad();
+    }
+  };
+  image.src = imageUrl;
 };
 
 /**
@@ -672,7 +803,7 @@ customBackgrounds.showImageSelectionDialog = function(dialogTitle) {
  * variable name "coll" which is a dict of background collections data.
  * @private
  */
-customBackgrounds.loadCollections = function() {
+customBackgrounds.loadChromeBackgrounds = function() {
   var collElement = $('ntp-collection-loader');
   if (collElement) {
     collElement.parentNode.removeChild(collElement);
@@ -682,7 +813,14 @@ customBackgrounds.loadCollections = function() {
   collScript.src = 'chrome-search://local-ntp/ntp-background-collections.js?' +
       'collection_type=background';
   document.body.appendChild(collScript);
+};
 
+/**
+ * Load the NTPGooglePhotoAlbums script. It'll create a global
+ * variable name "albums" which is a dict of album data.
+ * @private
+ */
+customBackgrounds.loadGooglePhotosAlbums = function() {
   var albumElement = $('ntp-album-loader');
   if (albumElement) {
     albumElement.parentNode.removeChild(albumElement);
@@ -711,19 +849,21 @@ customBackgrounds.getNextOption = function(current_index, deltaY) {
   var entries = [];
   entries.push($(customBackgrounds.IDS.DEFAULT_WALLPAPERS));
   entries.push($(customBackgrounds.IDS.UPLOAD_IMAGE));
-  entries.push($(customBackgrounds.IDS.RESTORE_DEFAULT));
   entries.push($(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT));
+  entries.push($(customBackgrounds.IDS.RESTORE_DEFAULT));
 
   var idx = current_index;
   do {
     idx = idx + deltaY;
-    if (idx === -1)
+    if (idx === -1) {
       idx = 3;
-    if (idx === 4)
+    }
+    if (idx === 4) {
       idx = 0;
-  } while (entries[idx].hidden ||
+    }
+  } while (idx !== current_index && (entries[idx].hidden ||
            entries[idx].classList.contains(
-               customBackgrounds.CLASSES.OPTION_DISABLED));
+               customBackgrounds.CLASSES.OPTION_DISABLED)));
   return entries[idx];
 };
 
@@ -737,8 +877,13 @@ customBackgrounds.networkStateChanged = function(online) {
 /**
  * Initialize the settings menu, custom backgrounds dialogs, and custom links
  * menu items. Set the text and event handlers for the various elements.
+ * @param {!Function} showErrorNotification Called when the error notification
+ *                    should be displayed.
+ * @param {!Function} hideCustomLinkNotification Called when the custom link
+ *                    notification should be hidden.
  */
-customBackgrounds.init = function() {
+customBackgrounds.init = function(
+    showErrorNotification, hideCustomLinkNotification) {
   ntpApiHandle = window.chrome.embeddedSearch.newTabPage;
   let editDialog = $(customBackgrounds.IDS.EDIT_BG_DIALOG);
   let menu = $(customBackgrounds.IDS.MENU);
@@ -750,30 +895,40 @@ customBackgrounds.init = function() {
       .setAttribute(
           'aria-label', configData.translatedStrings.customizeThisPage);
 
+  $(customBackgrounds.IDS.EDIT_BG_GEAR)
+      .setAttribute('title', configData.translatedStrings.customizeBackground);
+
   // Edit gear icon interaction events.
   let editBackgroundInteraction = function() {
-    customBackgrounds.loadCollections();
     editDialog.showModal();
   };
   $(customBackgrounds.IDS.EDIT_BG).onclick = function(event) {
     editDialog.classList.add(customBackgrounds.CLASSES.MOUSE_NAV);
     editBackgroundInteraction();
   };
-  $(customBackgrounds.IDS.EDIT_BG).onkeyup = function(event) {
+
+  // Find the first menu option that is not hidden or disabled.
+  let findFirstMenuOption = () => {
+    let editMenu = $(customBackgrounds.IDS.EDIT_BG_MENU);
+    for (let i = 1; i < editMenu.children.length; i++) {
+      let option = editMenu.children[i];
+      if (option.classList.contains(customBackgrounds.CLASSES.OPTION)
+          && !option.hidden && !option.classList.contains(
+              customBackgrounds.CLASSES.OPTION_DISABLED)) {
+        option.focus();
+        return;
+      }
+    }
+  };
+
+  $(customBackgrounds.IDS.EDIT_BG).onkeydown = function(event) {
     if (event.keyCode === customBackgrounds.KEYCODES.ENTER ||
         event.keyCode === customBackgrounds.KEYCODES.SPACE) {
+      // no default behavior for ENTER
+      event.preventDefault();
       editDialog.classList.remove(customBackgrounds.CLASSES.MOUSE_NAV);
       editBackgroundInteraction();
-      // Find the first menu option that is not hidden or disabled.
-      for (let i = 1; i < editDialog.children.length; i++) {
-        let option = editDialog.children[i];
-        if (!option.hidden &&
-            !option.classList.contains(
-                customBackgrounds.CLASSES.OPTION_DISABLED)) {
-          option.focus();
-          return;
-        }
-      }
+      findFirstMenuOption();
     }
   };
 
@@ -788,35 +943,50 @@ customBackgrounds.init = function() {
     editDialog.close();
   };
   editDialog.onclick = function(event) {
-    if (event.target == editDialog)
-      editDialogInteraction();
-  };
-  editDialog.onkeyup = function(event) {
-    if (event.keyCode === customBackgrounds.KEYCODES.ESC) {
+    editDialog.classList.add(customBackgrounds.CLASSES.MOUSE_NAV);
+    if (event.target === editDialog) {
       editDialogInteraction();
     }
-    // If keyboard navigation is attempted, remove mouse-only mode.
-    else if (
-        event.keyCode === customBackgrounds.KEYCODES.TAB ||
+  };
+  editDialog.onkeydown = function(event) {
+    if (event.keyCode === customBackgrounds.KEYCODES.ESC) {
+      editDialogInteraction();
+    } else if (
+        editDialog.classList.contains(customBackgrounds.CLASSES.MOUSE_NAV) &&
+        (event.keyCode === customBackgrounds.KEYCODES.TAB ||
+         event.keyCode === customBackgrounds.KEYCODES.UP ||
+         event.keyCode === customBackgrounds.KEYCODES.DOWN)) {
+      // When using tab in mouse navigation mode, select the first option
+      // available.
+      event.preventDefault();
+      findFirstMenuOption();
+      editDialog.classList.remove(customBackgrounds.CLASSES.MOUSE_NAV);
+    } else if (event.keyCode === customBackgrounds.KEYCODES.TAB) {
+      // If keyboard navigation is attempted, remove mouse-only mode.
+      editDialog.classList.remove(customBackgrounds.CLASSES.MOUSE_NAV);
+    } else if (
         event.keyCode === customBackgrounds.KEYCODES.LEFT ||
         event.keyCode === customBackgrounds.KEYCODES.UP ||
         event.keyCode === customBackgrounds.KEYCODES.RIGHT ||
         event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+      event.preventDefault();
       editDialog.classList.remove(customBackgrounds.CLASSES.MOUSE_NAV);
     }
   };
 
-  if (configData.isCustomLinksEnabled)
-    customBackgrounds.initCustomLinksItems();
-  if (configData.isCustomBackgroundsEnabled)
-    customBackgrounds.initCustomBackgrounds();
+  customBackgrounds.initCustomLinksItems(hideCustomLinkNotification);
+  customBackgrounds.initCustomBackgrounds(showErrorNotification);
 };
 
 /**
  * Initialize custom link items in the settings menu dialog. Set the text
  * and event handlers for the various elements.
+ * @param {!Function} hideCustomLinkNotification Called when the custom link
+ *                    notification should be hidden.
  */
-customBackgrounds.initCustomLinksItems = function() {
+customBackgrounds.initCustomLinksItems = function(hideCustomLinkNotification) {
+  customBackgrounds.hideCustomLinkNotification = hideCustomLinkNotification;
+
   let editDialog = $(customBackgrounds.IDS.EDIT_BG_DIALOG);
   let menu = $(customBackgrounds.IDS.MENU);
 
@@ -826,24 +996,30 @@ customBackgrounds.initCustomLinksItems = function() {
   // Interactions with the "Restore default shortcuts" option.
   let customLinksRestoreDefaultInteraction = function() {
     editDialog.close();
+    customBackgrounds.hideCustomLinkNotification();
     window.chrome.embeddedSearch.newTabPage.resetCustomLinks();
     ntpApiHandle.logEvent(BACKGROUND_CUSTOMIZATION_LOG_TYPE
                               .NTP_CUSTOMIZE_RESTORE_SHORTCUTS_CLICKED);
   };
-  $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).onclick =
-      customLinksRestoreDefaultInteraction;
-  $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).onkeyup = function(
+  $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).onclick = () => {
+    if (!$(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).classList.
+        contains(customBackgrounds.CLASSES.OPTION_DISABLED)) {
+      customLinksRestoreDefaultInteraction();
+    }
+  };
+  $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).onkeydown = function(
       event) {
     if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
       customLinksRestoreDefaultInteraction(event);
-    }
-    // Handle arrow key navigation.
-    else if (event.keyCode === customBackgrounds.KEYCODES.UP) {
+    } else if (event.keyCode === customBackgrounds.KEYCODES.UP) {
+      // Handle arrow key navigation.
+      event.preventDefault();
       customBackgrounds
           .getNextOption(
               customBackgrounds.MENU_ENTRIES.CUSTOM_LINKS_RESTORE_DEFAULT, -1)
           .focus();
     } else if (event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(
               customBackgrounds.MENU_ENTRIES.CUSTOM_LINKS_RESTORE_DEFAULT, 1)
@@ -855,8 +1031,12 @@ customBackgrounds.initCustomLinksItems = function() {
 /**
  * Initialize the settings menu and custom backgrounds dialogs. Set the
  * text and event handlers for the various elements.
+ * @param {!Function} showErrorNotification Called when the error notification
+ *                    should be displayed.
  */
-customBackgrounds.initCustomBackgrounds = function() {
+customBackgrounds.initCustomBackgrounds = function(showErrorNotification) {
+  customBackgrounds.showErrorNotification = showErrorNotification;
+
   var editDialog = $(customBackgrounds.IDS.EDIT_BG_DIALOG);
   var menu = $(customBackgrounds.IDS.MENU);
 
@@ -885,12 +1065,14 @@ customBackgrounds.initCustomBackgrounds = function() {
     customBackgrounds.networkStateChanged(false);
   }
 
-  $(customBackgrounds.IDS.BACK)
+  $(customBackgrounds.IDS.BACK_CIRCLE)
       .setAttribute('aria-label', configData.translatedStrings.backLabel);
   $(customBackgrounds.IDS.CANCEL)
       .setAttribute('aria-label', configData.translatedStrings.selectionCancel);
   $(customBackgrounds.IDS.DONE)
       .setAttribute('aria-label', configData.translatedStrings.selectionDone);
+
+  $(customBackgrounds.IDS.DONE).disabled = true;
 
   // Interactions with the "Upload an image" option.
   var uploadImageInteraction = function(event) {
@@ -899,19 +1081,26 @@ customBackgrounds.initCustomBackgrounds = function() {
         BACKGROUND_CUSTOMIZATION_LOG_TYPE.NTP_CUSTOMIZE_LOCAL_IMAGE_CLICKED);
   };
 
-  $(customBackgrounds.IDS.UPLOAD_IMAGE).onclick = uploadImageInteraction;
-  $(customBackgrounds.IDS.UPLOAD_IMAGE).onkeyup = function(event) {
+  $(customBackgrounds.IDS.UPLOAD_IMAGE).onclick = () => {
+    if (!$(customBackgrounds.IDS.UPLOAD_IMAGE).classList.contains(
+        customBackgrounds.CLASSES.OPTION_DISABLED)) {
+      uploadImageInteraction();
+    }
+  } ;
+  $(customBackgrounds.IDS.UPLOAD_IMAGE).onkeydown = function(event) {
     if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
       uploadImageInteraction(event);
     }
 
     // Handle arrow key navigation.
     if (event.keyCode === customBackgrounds.KEYCODES.UP) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(customBackgrounds.MENU_ENTRIES.UPLOAD_IMAGE, -1)
           .focus();
     }
     if (event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(customBackgrounds.MENU_ENTRIES.UPLOAD_IMAGE, 1)
           .focus();
@@ -926,19 +1115,26 @@ customBackgrounds.initCustomBackgrounds = function() {
     ntpApiHandle.logEvent(BACKGROUND_CUSTOMIZATION_LOG_TYPE
                               .NTP_CUSTOMIZE_RESTORE_BACKGROUND_CLICKED);
   };
-  $(customBackgrounds.IDS.RESTORE_DEFAULT).onclick = restoreDefaultInteraction;
-  $(customBackgrounds.IDS.RESTORE_DEFAULT).onkeyup = function(event) {
+  $(customBackgrounds.IDS.RESTORE_DEFAULT).onclick = () => {
+    if (!$(customBackgrounds.IDS.RESTORE_DEFAULT).classList.contains(
+        customBackgrounds.CLASSES.OPTION_DISABLED)) {
+      restoreDefaultInteraction();
+    }
+  };
+  $(customBackgrounds.IDS.RESTORE_DEFAULT).onkeydown = function(event) {
     if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
       restoreDefaultInteraction(event);
     }
 
     // Handle arrow key navigation.
     if (event.keyCode === customBackgrounds.KEYCODES.UP) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(customBackgrounds.MENU_ENTRIES.RESTORE_DEFAULT, -1)
           .focus();
     }
     if (event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(customBackgrounds.MENU_ENTRIES.RESTORE_DEFAULT, 1)
           .focus();
@@ -947,13 +1143,16 @@ customBackgrounds.initCustomBackgrounds = function() {
 
   // Interactions with the "Chrome backgrounds" option.
   var defaultWallpapersInteraction = function(event) {
-    editDialog.close();
-    if (typeof coll != 'undefined' && coll.length > 0) {
-      customBackgrounds.showCollectionSelectionDialog(
-          customBackgrounds.SOURCES.CHROME_BACKGROUNDS);
-    } else {
-      customBackgrounds.handleError(coll_errors);
-    }
+    customBackgrounds.loadChromeBackgrounds();
+    $('ntp-collection-loader').onload = function() {
+      editDialog.close();
+      if (typeof coll != 'undefined' && coll.length > 0) {
+        customBackgrounds.showCollectionSelectionDialog(
+            customBackgrounds.SOURCES.CHROME_BACKGROUNDS);
+      } else {
+        customBackgrounds.handleError(coll_errors);
+      }
+    };
     ntpApiHandle.logEvent(BACKGROUND_CUSTOMIZATION_LOG_TYPE
                               .NTP_CUSTOMIZE_CHROME_BACKGROUNDS_CLICKED);
   };
@@ -962,7 +1161,7 @@ customBackgrounds.initCustomBackgrounds = function() {
         .classList.add(customBackgrounds.CLASSES.MOUSE_NAV);
     defaultWallpapersInteraction(event);
   };
-  $(customBackgrounds.IDS.DEFAULT_WALLPAPERS).onkeyup = function(event) {
+  $(customBackgrounds.IDS.DEFAULT_WALLPAPERS).onkeydown = function(event) {
     if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
       $(customBackgrounds.IDS.MENU)
           .classList.remove(customBackgrounds.CLASSES.MOUSE_NAV);
@@ -971,11 +1170,13 @@ customBackgrounds.initCustomBackgrounds = function() {
 
     // Handle arrow key navigation.
     if (event.keyCode === customBackgrounds.KEYCODES.UP) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(customBackgrounds.MENU_ENTRIES.CHROME_BACKGROUNDS, -1)
           .focus();
     }
     if (event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+      event.preventDefault();
       customBackgrounds
           .getNextOption(customBackgrounds.MENU_ENTRIES.CHROME_BACKGROUNDS, 1)
           .focus();
@@ -1009,22 +1210,16 @@ customBackgrounds.initCustomBackgrounds = function() {
     }
   };
 
-  // Clicks that happen outside of the dialog.
-  menu.onclick = function(event) {
-    if (event.target == menu) {
-      customBackgrounds.closeCollectionDialog(menu);
-    }
-  };
-
   // Interactions with the back arrow on the image selection dialog.
   var backInteraction = function(event) {
     customBackgrounds.resetSelectionDialog();
     customBackgrounds.showCollectionSelectionDialog(
         customBackgrounds.dialogCollectionsSource);
   };
-  $(customBackgrounds.IDS.BACK).onclick = backInteraction;
-  $(customBackgrounds.IDS.BACK).onkeyup = function(event) {
-    if (event.keyCode === customBackgrounds.KEYCODES.ENTER) {
+  $(customBackgrounds.IDS.BACK_CIRCLE).onclick = backInteraction;
+  $(customBackgrounds.IDS.BACK_CIRCLE).onkeyup = function(event) {
+    if (event.keyCode === customBackgrounds.KEYCODES.ENTER ||
+        event.keyCode === customBackgrounds.KEYCODES.SPACE) {
       backInteraction(event);
     }
   };
@@ -1045,11 +1240,9 @@ customBackgrounds.initCustomBackgrounds = function() {
 
   // Interactions with the done button on the background picker dialog.
   var doneInteraction = function(event) {
-    if (!$(customBackgrounds.IDS.DONE)
-             .classList.contains(customBackgrounds.CLASSES.DONE_AVAILABLE)) {
+    if ($(customBackgrounds.IDS.DONE).disabled) {
       return;
     }
-
     customBackgrounds.setBackground(
         customBackgrounds.selectedTile.dataset.url,
         customBackgrounds.selectedTile.dataset.attributionLine1,
@@ -1069,16 +1262,16 @@ customBackgrounds.initCustomBackgrounds = function() {
       customBackgrounds.removeSelectedState(customBackgrounds.selectedTile);
       customBackgrounds.selectedTile = null;
     }
-    $(customBackgrounds.IDS.DONE)
-        .classList.add(customBackgrounds.CLASSES.DONE_AVAILABLE);
+    $(customBackgrounds.IDS.DONE).disabled = false;
   };
 
   // On any arrow key event in the tiles area, focus the first tile.
-  $(customBackgrounds.IDS.TILES).onkeyup = function(event) {
+  $(customBackgrounds.IDS.TILES).onkeydown = function(event) {
     if (event.keyCode === customBackgrounds.KEYCODES.LEFT ||
         event.keyCode === customBackgrounds.KEYCODES.UP ||
         event.keyCode === customBackgrounds.KEYCODES.RIGHT ||
         event.keyCode === customBackgrounds.KEYCODES.DOWN) {
+      event.preventDefault();
       if ($(customBackgrounds.IDS.MENU)
               .classList.contains(
                   customBackgrounds.CLASSES.COLLECTION_DIALOG)) {
@@ -1090,73 +1283,33 @@ customBackgrounds.initCustomBackgrounds = function() {
   };
 };
 
-customBackgrounds.hideMessageBox = function() {
-  let message = $(customBackgrounds.IDS.MSG_BOX_CONTAINER);
-  if (!message.classList.contains(customBackgrounds.CLASSES.FLOAT_UP)) {
-    return;
-  }
-  window.clearTimeout(customBackgrounds.delayedHideNotification);
-  message.classList.remove(customBackgrounds.CLASSES.FLOAT_UP);
-
-  let afterHide = (event) => {
-    if (event.propertyName == 'bottom') {
-      $(IDS.MSG_BOX).classList.add(customBackgrounds.CLASSES.HIDE_MSG_BOX);
-      $(IDS.MSG_BOX).classList.remove(customBackgrounds.CLASSES.HAS_LINK);
-      notification.removeEventListener('transitionend', afterHide);
-    }
-  };
-};
-
-customBackgrounds.showMessageBox = function() {
-  $(customBackgrounds.IDS.MSG_BOX_CONTAINER)
-      .classList.remove(customBackgrounds.CLASSES.HIDE_MSG_BOX);
-  // Timeout is required for the "float up" transition to work. Modifying the
-  // "display" property prevents transitions from activating.
-  window.setTimeout(() => {
-    $(customBackgrounds.IDS.MSG_BOX_CONTAINER)
-        .classList.add(customBackgrounds.CLASSES.FLOAT_UP);
-  }, 20);
-
-  // Automatically hide the notification after a period of time.
-  customBackgrounds.delayedHideNotification = window.setTimeout(() => {
-    customBackgrounds.hideMessageBox();
-  }, customBackgrounds.NOTIFICATION_TIMEOUT);
-};
-
 customBackgrounds.handleError = function(errors) {
-  var msgBox = $(customBackgrounds.IDS.MSG_BOX_MSG);
-  var msgBoxLink = $(customBackgrounds.IDS.MSG_BOX_LINK);
   var unavailableString = configData.translatedStrings.backgroundsUnavailable;
 
   if (errors != 'undefined') {
     // Network errors.
     if (errors.net_error) {
       if (errors.net_error_no != 0) {
-        msgBox.textContent = configData.translatedStrings.connectionError;
-        msgBoxLink.textContent = configData.translatedStrings.moreInfo;
-        msgBoxLink.classList.add(customBackgrounds.CLASSES.HAS_LINK);
-        msgBoxLink.onclick = function() {
+        let onClick = () => {
           window.open(
               'https://chrome://network-error/' + errors.net_error_no,
               '_blank');
         };
+        customBackgrounds.showErrorNotification(
+            configData.translatedStrings.connectionError,
+            configData.translatedStrings.moreInfo, onClick);
       } else {
-        msgBox.textContent =
-            configData.translatedStrings.connectionErrorNoPeriod;
+        customBackgrounds.showErrorNotification(
+            configData.translatedStrings.connectionErrorNoPeriod);
       }
-      customBackgrounds.showMessageBox();
-      // Auth errors (Google Photos only).
-    } else if (errors.auth_error) {
+    } else if (errors.auth_error) {  // Auth errors (Google Photos only).
       window.open('https://photos.google.com/login', '_blank');
-      // Service errors.
-    } else if (errors.service_error) {
-      msgBox.textContent = unavailableString;
-      customBackgrounds.showMessageBox();
+    } else if (errors.service_error) {  // Service errors.
+      customBackgrounds.showErrorNotification(unavailableString);
     }
     return;
   }
 
   // Generic error when we can't tell what went wrong.
-  msgBox.textContent = unavailableString;
-  customBackgrounds.showMessageBox();
+  customBackgrounds.showErrorNotification(unavailableString);
 };

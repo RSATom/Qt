@@ -53,6 +53,7 @@ QGeoLocationPrivate::QGeoLocationPrivate(const QGeoLocationPrivate &other)
     this->address = other.address;
     this->coordinate = other.coordinate;
     this->viewport = other.viewport;
+    this->extendedAttributes = other.extendedAttributes;
 }
 
 QGeoLocationPrivate::~QGeoLocationPrivate()
@@ -63,7 +64,8 @@ bool QGeoLocationPrivate::operator==(const QGeoLocationPrivate &other) const
 {
     return  (this->address == other.address
             && this->coordinate == other.coordinate
-            && this->viewport == other.viewport);
+            && this->viewport == other.viewport
+            && this->extendedAttributes == other.extendedAttributes);
 
 }
 
@@ -72,7 +74,7 @@ bool QGeoLocationPrivate::isEmpty() const
     return (address.isEmpty()
             && !coordinate.isValid()
             && viewport.isEmpty()
-            );
+            && extendedAttributes.isEmpty());
 }
 
 /*!
@@ -190,6 +192,28 @@ QGeoRectangle QGeoLocation::boundingBox() const
 void QGeoLocation::setBoundingBox(const QGeoRectangle &boundingBox)
 {
     d->viewport = boundingBox;
+}
+
+/*!
+    Returns the extended attributes associated to this location.
+    Extended attributes are backend-dependent and can be location-dependent.
+
+    \since 5.13
+*/
+QVariantMap QGeoLocation::extendedAttributes() const
+{
+    return d->extendedAttributes;
+}
+
+/*!
+    Sets the extended attributes of the location with the
+    parameters specified in \a data.
+
+    \since 5.13
+*/
+void QGeoLocation::setExtendedAttributes(const QVariantMap &data)
+{
+    d->extendedAttributes = data;
 }
 
 /*!

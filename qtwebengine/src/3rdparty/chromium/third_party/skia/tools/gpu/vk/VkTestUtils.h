@@ -12,9 +12,12 @@
 
 #ifdef SK_VULKAN
 
-#include "vk/GrVkDefines.h"
-#include "vk/GrVkInterface.h"
+#include "GrVulkanDefines.h"
+#include "vk/GrVkBackendContext.h"
+#include "vk/GrVkTypes.h"
+#include <functional>
 
+class GrVkExtensions;
 struct GrVkBackendContext;
 
 namespace sk_gpu_test {
@@ -23,12 +26,15 @@ namespace sk_gpu_test {
     using CanPresentFn = std::function<bool(VkInstance, VkPhysicalDevice,
                                             uint32_t queueFamilyIndex)>;
 
-    bool CreateVkBackendContext(const GrVkInterface::GetInstanceProc& getInstanceProc,
-                                const GrVkInterface::GetDeviceProc& getDeviceProc,
+    bool CreateVkBackendContext(GrVkGetProc getProc,
                                 GrVkBackendContext* ctx,
+                                GrVkExtensions*,
+                                VkPhysicalDeviceFeatures2*,
                                 VkDebugReportCallbackEXT* debugCallback,
                                 uint32_t* presentQueueIndexPtr = nullptr,
                                 CanPresentFn canPresent = CanPresentFn());
+
+    void FreeVulkanFeaturesStructs(const VkPhysicalDeviceFeatures2*);
 }
 
 #endif

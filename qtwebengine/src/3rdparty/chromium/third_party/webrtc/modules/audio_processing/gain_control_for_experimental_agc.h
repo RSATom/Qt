@@ -13,8 +13,8 @@
 
 #include "modules/audio_processing/agc/agc_manager_direct.h"
 #include "modules/audio_processing/include/audio_processing.h"
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/thread_checker.h"
 
 namespace webrtc {
@@ -68,6 +68,7 @@ class GainControlForExperimentalAgc : public GainControl,
   GainControl* real_gain_control_;
   int volume_;
   rtc::CriticalSection* crit_capture_;
+  bool do_log_level_ = true;
   static int instance_counter_;
   RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(GainControlForExperimentalAgc);
 };

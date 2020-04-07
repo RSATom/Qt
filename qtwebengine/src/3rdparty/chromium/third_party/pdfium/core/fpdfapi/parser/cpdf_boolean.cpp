@@ -5,6 +5,7 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "core/fpdfapi/parser/cpdf_boolean.h"
+
 #include "core/fxcrt/fx_stream.h"
 #include "third_party/base/ptr_util.h"
 
@@ -15,7 +16,7 @@ CPDF_Boolean::CPDF_Boolean(bool value) : m_bValue(value) {}
 CPDF_Boolean::~CPDF_Boolean() {}
 
 CPDF_Object::Type CPDF_Boolean::GetType() const {
-  return BOOLEAN;
+  return kBoolean;
 }
 
 std::unique_ptr<CPDF_Object> CPDF_Boolean::Clone() const {
@@ -46,7 +47,8 @@ const CPDF_Boolean* CPDF_Boolean::AsBoolean() const {
   return this;
 }
 
-bool CPDF_Boolean::WriteTo(IFX_ArchiveStream* archive) const {
+bool CPDF_Boolean::WriteTo(IFX_ArchiveStream* archive,
+                           const CPDF_Encryptor* encryptor) const {
   return archive->WriteString(" ") &&
          archive->WriteString(GetString().AsStringView());
 }

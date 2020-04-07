@@ -86,6 +86,10 @@ const QuicTag kBBS2 = TAG('B', 'B', 'S', '2');   // More aggressive packet
                                                  // conservation in BBR STARTUP
 const QuicTag kBBS3 = TAG('B', 'B', 'S', '3');   // Slowstart packet
                                                  // conservation in BBR STARTUP
+const QuicTag kBBS4 = TAG('B', 'B', 'S', '4');   // Reduce rate in STARTUP by
+                                                 // bytes_lost / CWND.
+const QuicTag kBBS5 = TAG('B', 'B', 'S', '5');   // Reduce rate in STARTUP by
+                                                 // 2 * bytes_lost / CWND.
 const QuicTag kBBRR = TAG('B', 'B', 'R', 'R');   // Rate-based recovery in BBR
 const QuicTag kBBR1 = TAG('B', 'B', 'R', '1');   // DEPRECATED
 const QuicTag kBBR2 = TAG('B', 'B', 'R', '2');   // DEPRECATED
@@ -98,6 +102,8 @@ const QuicTag kBBR7 = TAG('B', 'B', 'R', '7');   // Skip PROBE_RTT if rtt has
                                                  // not changed 12.5%
 const QuicTag kBBR8 = TAG('B', 'B', 'R', '8');   // Disable PROBE_RTT when
                                                  // recently app-limited
+const QuicTag kBBR9 = TAG('B', 'B', 'R', '9');   // Ignore app-limited calls in
+                                                 // BBR if enough inflight.
 const QuicTag kBBRS = TAG('B', 'B', 'R', 'S');   // Use 1.5x pacing in startup
                                                  // after a loss has occurred.
 const QuicTag kBBQ1 = TAG('B', 'B', 'Q', '1');   // BBR with lower 2.77 STARTUP
@@ -107,6 +113,9 @@ const QuicTag kBBQ2 = TAG('B', 'B', 'Q', '2');   // BBR with lower 2.0 STARTUP
 const QuicTag kBBQ3 = TAG('B', 'B', 'Q', '3');   // BBR with ack aggregation
                                                  // compensation in STARTUP.
 const QuicTag kBBQ4 = TAG('B', 'B', 'Q', '4');   // Drain gain of 0.75.
+const QuicTag kBBQ5 = TAG('B', 'B', 'Q', '5');   // Expire ack aggregation upon
+                                                 // bandwidth increase in
+                                                 // STARTUP.
 const QuicTag kRENO = TAG('R', 'E', 'N', 'O');   // Reno Congestion Control
 const QuicTag kTPCC = TAG('P', 'C', 'C', '\0');  // Performance-Oriented
                                                  // Congestion Control
@@ -153,6 +162,7 @@ const QuicTag kCONH = TAG('C', 'O', 'N', 'H');   // Conservative Handshake
                                                  // Retransmissions.
 const QuicTag kLFAK = TAG('L', 'F', 'A', 'K');   // Don't invoke FACK on the
                                                  // first ack.
+const QuicTag kSTMP = TAG('S', 'T', 'M', 'P');   // Send and process timestamps
 // TODO(fayang): Remove this connection option when QUIC_VERSION_35, is removed
 // Since MAX_HEADER_LIST_SIZE settings frame is supported instead.
 const QuicTag kSMHL = TAG('S', 'M', 'H', 'L');   // Support MAX_HEADER_LIST_SIZE
@@ -170,6 +180,9 @@ const QuicTag kMPTH = TAG('M', 'P', 'T', 'H');   // Enable multipath.
 
 const QuicTag kNCMR = TAG('N', 'C', 'M', 'R');   // Do not attempt connection
                                                  // migration.
+
+// Disable Pacing offload option.
+const QuicTag kNPCO = TAG('N', 'P', 'C', 'O');    // No pacing offload.
 
 // Enable bandwidth resumption experiment.
 const QuicTag kBWRE = TAG('B', 'W', 'R', 'E');  // Bandwidth resumption.
@@ -250,6 +263,9 @@ const QuicTag kPAD  = TAG('P', 'A', 'D', '\0');  // Padding
 
 // Server push tags
 const QuicTag kSPSH = TAG('S', 'P', 'S', 'H');  // Support server push.
+
+// Stats collection tags
+const QuicTag kEPID = TAG('E', 'P', 'I', 'D');  // Endpoint identifier.
 
 // clang-format on
 

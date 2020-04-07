@@ -10,7 +10,7 @@
 #include "core/fxge/fx_dib.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Font : public CXFA_Node {
+class CXFA_Font final : public CXFA_Node {
  public:
   CXFA_Font(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_Font() override;
@@ -21,7 +21,7 @@ class CXFA_Font : public CXFA_Node {
   float GetLetterSpacing();
   int32_t GetLineThrough();
   int32_t GetUnderline();
-  XFA_AttributeEnum GetUnderlinePeriod();
+  XFA_AttributeValue GetUnderlinePeriod();
   float GetFontSize() const;
   WideString GetTypeface();
 

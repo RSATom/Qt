@@ -101,6 +101,9 @@ class FuzzyPacketBuffer : public video_coding::PacketBuffer {
 }  // namespace
 
 void FuzzOneInput(const uint8_t* data, size_t size) {
+  if (size > 20000) {
+    return;
+  }
   DataReader reader(data, size);
   rtc::scoped_refptr<FuzzyPacketBuffer> pb(new FuzzyPacketBuffer(&reader));
   NullCallback cb;
@@ -108,7 +111,7 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
 
   while (reader.MoreToRead()) {
     auto frame = absl::make_unique<video_coding::RtpFrameObject>(
-        pb, reader.GetNum<uint16_t>(), reader.GetNum<uint16_t>(), 0, 0, 0);
+        pb, reader.GetNum<uint16_t>(), reader.GetNum<uint16_t>(), 0, 0, 0, 0);
     reference_finder.ManageFrame(std::move(frame));
   }
 }

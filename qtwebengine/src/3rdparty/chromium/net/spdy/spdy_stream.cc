@@ -406,6 +406,11 @@ void SpdyStream::OnHeadersReceived(
 
         base::UmaHistogramSparse("Net.SpdyResponseCode", status);
 
+        // Include 1XX responses in the TTFB as per the resource timing spec
+        // for responseStart.
+        if (recv_first_byte_time_.is_null())
+          recv_first_byte_time_ = recv_first_byte_time;
+
         // Ignore informational headers like 103 Early Hints.
         // TODO(bnc): Add support for 103 Early Hints, https://crbug.com/671310.
         // However, do not ignore 101 Switching Protocols, because broken
@@ -448,7 +453,6 @@ void SpdyStream::OnHeadersReceived(
       DCHECK_NE(io_state_, STATE_IDLE);
 
       response_time_ = response_time;
-      recv_first_byte_time_ = recv_first_byte_time;
       SaveResponseHeaders(response_headers);
 
       break;
@@ -585,6 +589,12 @@ void SpdyStream::OnFrameWriteComplete(spdy::SpdyFrameType frame_type,
   if (frame_type == spdy::SpdyFrameType::PRIORITY) {
     return;
   }
+
+  // Frame types reserved in
+  // https://tools.ietf.org/html/draft-bishop-httpbis-grease-00 ought to be
+  // ignored.
+  if (static_cast<uint8_t>(frame_type) % 0x1f == 0x0b)
+    return;
 
   DCHECK_NE(type_, SPDY_PUSH_STREAM);
   CHECK(frame_type == spdy::SpdyFrameType::HEADERS ||
@@ -739,19 +749,13 @@ void SpdyStream::SendData(IOBuffer* data,
   CHECK(io_state_ == STATE_OPEN ||
         io_state_ == STATE_HALF_CLOSED_REMOTE) << io_state_;
   CHECK(!pending_send_data_.get());
-  pending_send_data_ = new DrainableIOBuffer(data, length);
+  pending_send_data_ = base::MakeRefCounted<DrainableIOBuffer>(data, length);
   pending_send_status_ = send_status;
   QueueNextDataFrame();
 }
 
 bool SpdyStream::GetSSLInfo(SSLInfo* ssl_info) const {
   return session_->GetSSLInfo(ssl_info);
-}
-
-Error SpdyStream::GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                           TokenBindingType tb_type,
-                                           std::vector<uint8_t>* out) const {
-  return session_->GetTokenBindingSignature(key, tb_type, out);
 }
 
 bool SpdyStream::WasAlpnNegotiated() const {
@@ -816,6 +820,11 @@ bool SpdyStream::GetLoadTimingInfo(LoadTimingInfo* load_timing_info) const {
     if (done_receiving)
       load_timing_info->push_end = recv_last_byte_time_;
   }
+  // TODO(acomminos): recv_first_byte_time_ is actually the time after all
+  // headers have been parsed. We should add support for reporting the time the
+  // first bytes of the HEADERS frame were received to BufferedSpdyFramer
+  // (https://crbug.com/568024).
+  load_timing_info->receive_headers_start = recv_first_byte_time_;
   return result;
 }
 

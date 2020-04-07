@@ -8,14 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <assert.h>
 #include <stdio.h>
-
+#include <string.h>
+#include <cstdint>
 #include <memory>
 #include <string>
 
+#include "api/video/video_frame_buffer.h"
+#include "rtc_base/scoped_ref_ptr.h"
 #include "test/frame_generator.h"
 #include "test/gtest.h"
-#include "test/testsupport/fileutils.h"
+#include "test/testsupport/file_utils.h"
 
 namespace webrtc {
 namespace test {

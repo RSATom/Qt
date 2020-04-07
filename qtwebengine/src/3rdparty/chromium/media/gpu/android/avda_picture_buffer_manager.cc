@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
+#include "base/stl_util.h"
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/service/gl_stream_texture_image.h"
 #include "gpu/command_buffer/service/gles2_cmd_copy_texture_chromium.h"
@@ -53,7 +54,16 @@ bool AVDAPictureBufferManager::Initialize(
 
   if (!surface_bundle->overlay) {
     // Create the texture owner.
-    texture_owner_ = TextureOwner::Create();
+    // TODO(liberato): Don't memorize this.  However, since this entire path is
+    // deprecated, it's probably okay.
+    std::unique_ptr<gpu::gles2::AbstractTexture> texture =
+        state_provider_->CreateAbstractTexture(GL_TEXTURE_EXTERNAL_OES, GL_RGBA,
+                                               0,  // width,
+                                               0,  // height
+                                               1,  // depth
+                                               0,  // border
+                                               GL_RGBA, GL_UNSIGNED_BYTE);
+    texture_owner_ = TextureOwner::Create(std::move(texture));
     if (!texture_owner_)
       return false;
 
@@ -171,10 +181,7 @@ void AVDAPictureBufferManager::ReleaseCodecBufferForPicture(
 
 void AVDAPictureBufferManager::ReuseOnePictureBuffer(
     const PictureBuffer& picture_buffer) {
-  pictures_out_for_display_.erase(
-      std::remove(pictures_out_for_display_.begin(),
-                  pictures_out_for_display_.end(), picture_buffer.id()),
-      pictures_out_for_display_.end());
+  base::Erase(pictures_out_for_display_, picture_buffer.id());
 
   // At this point, the CC must be done with the picture.  We can't really
   // check for that here directly.  it's guaranteed in gpu_video_decoder.cc,

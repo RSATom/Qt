@@ -12,6 +12,9 @@
 #include "mojo/public/cpp/bindings/type_converter.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
+#include "net/cert/cert_verifier.h"
+#include "net/cert/ct_policy_enforcer.h"
+#include "net/cert/multi_log_ct_verifier.h"
 #include "net/log/net_log.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
@@ -19,7 +22,6 @@
 #include "net/ssl/ssl_config_service.h"
 #include "net/url_request/url_request_context.h"
 #include "services/network/ssl_config_type_converter.h"
-#include "services/network/tcp_connected_socket.h"
 #include "services/network/tls_client_socket.h"
 #include "services/network/udp_socket.h"
 
@@ -28,15 +30,8 @@ namespace network {
 SocketFactory::SocketFactory(net::NetLog* net_log,
                              net::URLRequestContext* url_request_context)
     : net_log_(net_log),
-      ssl_client_socket_context_(
-          url_request_context->cert_verifier(),
-          nullptr, /* TODO(rkn): ChannelIDService is not thread safe. */
-          url_request_context->transport_security_state(),
-          url_request_context->cert_transparency_verifier(),
-          url_request_context->ct_policy_enforcer(),
-          std::string() /* TODO(rsleevi): Ensure a proper unique shard. */),
       client_socket_factory_(nullptr),
-      ssl_config_service_(url_request_context->ssl_config_service()) {
+      tls_socket_factory_(url_request_context, nullptr /*http_context*/) {
   if (url_request_context->GetNetworkSessionContext()) {
     client_socket_factory_ =
         url_request_context->GetNetworkSessionContext()->client_socket_factory;
@@ -75,44 +70,60 @@ void SocketFactory::CreateTCPServerSocket(
 void SocketFactory::CreateTCPConnectedSocket(
     const base::Optional<net::IPEndPoint>& local_addr,
     const net::AddressList& remote_addr_list,
+    mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options,
     const net::NetworkTrafficAnnotationTag& traffic_annotation,
     mojom::TCPConnectedSocketRequest request,
     mojom::SocketObserverPtr observer,
     mojom::NetworkContext::CreateTCPConnectedSocketCallback callback) {
   auto socket = std::make_unique<TCPConnectedSocket>(
-      std::move(observer), net_log_, this, client_socket_factory_,
-      traffic_annotation);
+      std::move(observer), net_log_, &tls_socket_factory_,
+      client_socket_factory_, traffic_annotation);
   TCPConnectedSocket* socket_raw = socket.get();
   tcp_connected_socket_bindings_.AddBinding(std::move(socket),
                                             std::move(request));
-  socket_raw->Connect(local_addr, remote_addr_list, std::move(callback));
+  socket_raw->Connect(local_addr, remote_addr_list,
+                      std::move(tcp_connected_socket_options),
+                      std::move(callback));
 }
 
-void SocketFactory::CreateTLSClientSocket(
-    const net::HostPortPair& host_port_pair,
-    mojom::TLSClientSocketOptionsPtr socket_options,
-    mojom::TLSClientSocketRequest request,
-    std::unique_ptr<net::ClientSocketHandle> tcp_socket,
-    mojom::SocketObserverPtr observer,
+void SocketFactory::CreateTCPBoundSocket(
+    const net::IPEndPoint& local_addr,
     const net::NetworkTrafficAnnotationTag& traffic_annotation,
-    mojom::TCPConnectedSocket::UpgradeToTLSCallback callback) {
-  auto socket = std::make_unique<TLSClientSocket>(
-      std::move(request), std::move(observer),
-      static_cast<net::NetworkTrafficAnnotationTag>(traffic_annotation));
-  TLSClientSocket* socket_raw = socket.get();
-  tls_socket_bindings_.AddBinding(std::move(socket), std::move(request));
-
-  net::SSLConfig ssl_config;
-  ssl_config_service_->GetSSLConfig(&ssl_config);
-  if (socket_options) {
-    ssl_config.version_min =
-        mojo::MojoSSLVersionToNetSSLVersion(socket_options->version_min);
-    ssl_config.version_max =
-        mojo::MojoSSLVersionToNetSSLVersion(socket_options->version_max);
+    mojom::TCPBoundSocketRequest request,
+    mojom::NetworkContext::CreateTCPBoundSocketCallback callback) {
+  auto socket =
+      std::make_unique<TCPBoundSocket>(this, net_log_, traffic_annotation);
+  net::IPEndPoint local_addr_out;
+  int result = socket->Bind(local_addr, &local_addr_out);
+  if (result != net::OK) {
+    std::move(callback).Run(result, base::nullopt);
+    return;
   }
-  socket_raw->Connect(host_port_pair, ssl_config, std::move(tcp_socket),
-                      ssl_client_socket_context_, client_socket_factory_,
-                      std::move(callback));
+  socket->set_id(tcp_bound_socket_bindings_.AddBinding(std::move(socket),
+                                                       std::move(request)));
+  std::move(callback).Run(result, local_addr_out);
+}
+
+void SocketFactory::DestroyBoundSocket(mojo::BindingId bound_socket_id) {
+  tcp_bound_socket_bindings_.RemoveBinding(bound_socket_id);
+}
+
+void SocketFactory::OnBoundSocketListening(
+    mojo::BindingId bound_socket_id,
+    std::unique_ptr<TCPServerSocket> server_socket,
+    mojom::TCPServerSocketRequest server_socket_request) {
+  tcp_server_socket_bindings_.AddBinding(std::move(server_socket),
+                                         std::move(server_socket_request));
+  tcp_bound_socket_bindings_.RemoveBinding(bound_socket_id);
+}
+
+void SocketFactory::OnBoundSocketConnected(
+    mojo::BindingId bound_socket_id,
+    std::unique_ptr<TCPConnectedSocket> connected_socket,
+    mojom::TCPConnectedSocketRequest connected_socket_request) {
+  tcp_connected_socket_bindings_.AddBinding(
+      std::move(connected_socket), std::move(connected_socket_request));
+  tcp_bound_socket_bindings_.RemoveBinding(bound_socket_id);
 }
 
 void SocketFactory::OnAccept(std::unique_ptr<TCPConnectedSocket> socket,

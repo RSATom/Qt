@@ -38,7 +38,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_gxvjust
+#define FT_COMPONENT  gxvjust
 
   /*
    * referred `just' table format specification:
@@ -72,6 +72,8 @@
                           const FT_String*  msg_tag,
                           GXV_Validator     gxvalid )
   {
+    FT_UNUSED( msg_tag );
+
     if ( gid < gxvalid->face->num_glyphs )
       return;
 

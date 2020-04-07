@@ -7,6 +7,7 @@
 #include "third_party/blink/renderer/core/dom/element_rare_data.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observer.h"
+#include "third_party/blink/renderer/core/intersection_observer/intersection_observer_controller.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/intersection_geometry.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
@@ -16,16 +17,20 @@ namespace blink {
 namespace {
 
 bool IsOccluded(const Element& element, const IntersectionGeometry& geometry) {
-  HitTestResult hits(
-      element.GetLayoutObject()->HitTestForOcclusion(geometry.TargetRect()));
-  const HitTestResult::NodeSet& hit_nodes = hits.ListBasedTestResult();
-  for (const auto& node : hit_nodes) {
-    if (!node->contains(&element) &&
-        node->GetLayoutObject()->HasNonZeroEffectiveOpacity()) {
-      return true;
-    }
+  DCHECK(RuntimeEnabledFeatures::IntersectionObserverV2Enabled());
+  if (element.GetDocument()
+          .GetFrame()
+          ->LocalFrameRoot()
+          .MayBeOccludedOrObscuredByRemoteAncestor()) {
+    return true;
   }
-  return false;
+  // TODO(layout-dev): This should hit-test the intersection rect, not the
+  // target rect; it's not helpful to know that the portion of the target that
+  // is clipped is also occluded. To do that, the intersection rect must be
+  // mapped down to the local space of the target element.
+  HitTestResult result(
+      element.GetLayoutObject()->HitTestForOcclusion(geometry.TargetRect()));
+  return result.InnerNode() && result.InnerNode() != &element;
 }
 
 }  // namespace
@@ -34,26 +39,45 @@ IntersectionObservation::IntersectionObservation(IntersectionObserver& observer,
                                                  Element& target)
     : observer_(observer),
       target_(&target),
-      // Note that the spec says the initial value of m_lastThresholdIndex
-      // should be -1, but since m_lastThresholdIndex is unsigned, we use a
-      // different sentinel value.
+      last_run_time_(-observer.GetEffectiveDelay()),
       last_is_visible_(false),
-      last_threshold_index_(kMaxThresholdIndex - 1) {
-  UpdateShouldReportRootBoundsAfterDomChange();
-}
+      // Note that the spec says the initial value of last_threshold_index_
+      // should be -1, but since last_threshold_index_ is unsigned, we use a
+      // different sentinel value.
+      last_threshold_index_(kMaxThresholdIndex - 1) {}
 
-void IntersectionObservation::ComputeIntersectionObservations(
-    DOMHighResTimeStamp timestamp) {
+void IntersectionObservation::Compute(unsigned flags) {
   DCHECK(Observer());
-  if (!target_)
+  if (!target_ || !observer_->RootIsValid() | !observer_->GetExecutionContext())
     return;
+  if (flags &
+      (observer_->RootIsImplicit() ? kImplicitRootObserversNeedUpdate
+                                   : kExplicitRootObserversNeedUpdate)) {
+    needs_update_ = true;
+  }
+  if (!needs_update_)
+    return;
+  DOMHighResTimeStamp timestamp = observer_->GetTimeStamp();
+  if (timestamp == -1)
+    return;
+  if (timestamp - last_run_time_ < observer_->GetEffectiveDelay()) {
+    // TODO(crbug.com/915495): Need to eventually notify the observer of the
+    // updated intersection because there's currently nothing to guarantee this
+    // Compute() method will be called again after the delay period has passed.
+    return;
+  }
+  last_run_time_ = timestamp;
+  needs_update_ = 0;
   Vector<Length> root_margin(4);
   root_margin[0] = observer_->TopMargin();
   root_margin[1] = observer_->RightMargin();
   root_margin[2] = observer_->BottomMargin();
   root_margin[3] = observer_->LeftMargin();
+  bool report_root_bounds = observer_->AlwaysReportRootBounds() ||
+                            (flags & kReportImplicitRootBounds) ||
+                            !observer_->RootIsImplicit();
   IntersectionGeometry geometry(observer_->root(), *Target(), root_margin,
-                                should_report_root_bounds_);
+                                report_root_bounds);
   geometry.ComputeGeometry();
 
   // Some corner cases for threshold index:
@@ -73,21 +97,26 @@ void IntersectionObservation::ComputeIntersectionObservations(
   float new_visible_ratio;
   bool is_visible = false;
   if (geometry.DoesIntersect()) {
-    if (geometry.TargetRect().IsEmpty()) {
+    const LayoutRect comparison_rect = observer_->trackFractionOfRoot()
+                                           ? geometry.RootRect()
+                                           : geometry.TargetRect();
+    if (comparison_rect.IsEmpty()) {
       new_visible_ratio = 1;
     } else {
-      float intersection_area =
-          geometry.IntersectionRect().Size().Width().ToFloat() *
-          geometry.IntersectionRect().Size().Height().ToFloat();
-      float target_area = geometry.TargetRect().Size().Width().ToFloat() *
-                          geometry.TargetRect().Size().Height().ToFloat();
-      new_visible_ratio = intersection_area / target_area;
+      const LayoutSize& intersection_size = geometry.IntersectionRect().Size();
+      const float intersection_area = intersection_size.Width().ToFloat() *
+                                      intersection_size.Height().ToFloat();
+      const LayoutSize& comparison_size = comparison_rect.Size();
+      const float area_of_interest = comparison_size.Width().ToFloat() *
+                                     comparison_size.Height().ToFloat();
+      new_visible_ratio = intersection_area / area_of_interest;
     }
     new_threshold_index =
         Observer()->FirstThresholdGreaterThan(new_visible_ratio);
     if (RuntimeEnabledFeatures::IntersectionObserverV2Enabled() &&
         Observer()->trackVisibility()) {
-      is_visible = !Target()->GetLayoutObject()->HasDistortingVisualEffects() &&
+      is_visible = new_threshold_index > 0 &&
+                   !Target()->GetLayoutObject()->HasDistortingVisualEffects() &&
                    !IsOccluded(*Target(), geometry);
     }
   } else {
@@ -96,51 +125,45 @@ void IntersectionObservation::ComputeIntersectionObservations(
   }
 
   // TODO(tkent): We can't use CHECK_LT due to a compile error.
-  CHECK(new_threshold_index < kMaxThresholdIndex);
+  CHECK(new_threshold_index < kMaxThresholdIndex - 1);
 
   if (last_threshold_index_ != new_threshold_index ||
       last_is_visible_ != is_visible) {
-    FloatRect snapped_root_bounds(geometry.RootRect());
+    FloatRect root_bounds(geometry.UnZoomedRootRect());
     FloatRect* root_bounds_pointer =
-        should_report_root_bounds_ ? &snapped_root_bounds : nullptr;
-    IntersectionObserverEntry* new_entry = new IntersectionObserverEntry(
-        timestamp, new_visible_ratio, FloatRect(geometry.TargetRect()),
-        root_bounds_pointer, FloatRect(geometry.IntersectionRect()),
-        geometry.DoesIntersect(), is_visible, Target());
-    Observer()->EnqueueIntersectionObserverEntry(*new_entry);
+        report_root_bounds ? &root_bounds : nullptr;
+    IntersectionObserverEntry* new_entry =
+        MakeGarbageCollected<IntersectionObserverEntry>(
+            timestamp, new_visible_ratio,
+            FloatRect(geometry.UnZoomedTargetRect()), root_bounds_pointer,
+            FloatRect(geometry.UnZoomedIntersectionRect()),
+            new_threshold_index > 0, is_visible, Target());
+    entries_.push_back(new_entry);
+    To<Document>(Observer()->GetExecutionContext())
+        ->EnsureIntersectionObserverController()
+        .ScheduleIntersectionObserverForDelivery(*Observer());
     SetLastThresholdIndex(new_threshold_index);
     SetWasVisible(is_visible);
   }
+}
+
+void IntersectionObservation::TakeRecords(
+    HeapVector<Member<IntersectionObserverEntry>>& entries) {
+  entries.AppendVector(entries_);
+  entries_.clear();
 }
 
 void IntersectionObservation::Disconnect() {
   DCHECK(Observer());
   if (target_)
     Target()->EnsureIntersectionObserverData().RemoveObservation(*Observer());
+  entries_.clear();
   observer_.Clear();
-}
-
-void IntersectionObservation::UpdateShouldReportRootBoundsAfterDomChange() {
-  if (!Observer()->RootIsImplicit()) {
-    should_report_root_bounds_ = true;
-    return;
-  }
-  should_report_root_bounds_ = false;
-  LocalFrame* target_frame = Target()->GetDocument().GetFrame();
-  if (!target_frame)
-    return;
-  Frame& root_frame = target_frame->Tree().Top();
-  if (&root_frame == target_frame) {
-    should_report_root_bounds_ = true;
-  } else {
-    should_report_root_bounds_ =
-        target_frame->GetSecurityContext()->GetSecurityOrigin()->CanAccess(
-            root_frame.GetSecurityContext()->GetSecurityOrigin());
-  }
 }
 
 void IntersectionObservation::Trace(blink::Visitor* visitor) {
   visitor->Trace(observer_);
+  visitor->Trace(entries_);
   visitor->Trace(target_);
 }
 

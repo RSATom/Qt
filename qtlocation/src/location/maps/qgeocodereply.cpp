@@ -97,6 +97,13 @@ QGeoCodeReply::QGeoCodeReply(QObject *parent)
     : QObject(parent),
       d_ptr(new QGeoCodeReplyPrivate()) {}
 
+QGeoCodeReply::QGeoCodeReply(QGeoCodeReplyPrivate &dd, QObject *parent)
+    : QObject(parent),
+      d_ptr(&dd)
+{
+
+}
+
 /*!
     Constructs a geocode reply with a given \a error and \a errorString and the specified \a parent.
 */
@@ -334,5 +341,20 @@ QGeoCodeReplyPrivate::QGeoCodeReplyPrivate(QGeoCodeReply::Error error, const QSt
       offset(0) {}
 
 QGeoCodeReplyPrivate::~QGeoCodeReplyPrivate() {}
+
+QVariantMap QGeoCodeReplyPrivate::extraData() const
+{
+    return QVariantMap();
+}
+
+const QGeoCodeReplyPrivate *QGeoCodeReplyPrivate::get(const QGeoCodeReply &reply)
+{
+    return reply.d_ptr;
+}
+
+QGeoCodeReplyPrivate *QGeoCodeReplyPrivate::get(QGeoCodeReply &reply)
+{
+    return reply.d_ptr;
+}
 
 QT_END_NAMESPACE

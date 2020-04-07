@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/allocator/buildflags.h"
 #include "base/debug/debugging_buildflags.h"
 #include "base/process/process_handle.h"
 #include "base/strings/string_number_conversions.h"
@@ -19,7 +20,13 @@
 
 // TODO(peria): Enable profiling on Windows.
 #if BUILDFLAG(ENABLE_PROFILING) && !defined(NO_TCMALLOC) && !defined(OS_WIN)
+
+#if BUILDFLAG(USE_NEW_TCMALLOC)
+#include "third_party/tcmalloc/chromium/src/gperftools/profiler.h"
+#else
 #include "third_party/tcmalloc/gperftools-2.0/chromium/src/gperftools/profiler.h"
+#endif
+
 #endif
 
 namespace base {
@@ -88,10 +95,6 @@ bool IsProfilingSupported() {
 #if !defined(OS_WIN)
 
 ReturnAddressLocationResolver GetProfilerReturnAddrResolutionFunc() {
-  return nullptr;
-}
-
-DynamicFunctionEntryHook GetProfilerDynamicFunctionEntryHookFunc() {
   return nullptr;
 }
 
@@ -165,11 +168,6 @@ FunctionType FindFunctionInImports(const char* function_name) {
 ReturnAddressLocationResolver GetProfilerReturnAddrResolutionFunc() {
   return FindFunctionInImports<ReturnAddressLocationResolver>(
       "ResolveReturnAddressLocation");
-}
-
-DynamicFunctionEntryHook GetProfilerDynamicFunctionEntryHookFunc() {
-  return FindFunctionInImports<DynamicFunctionEntryHook>(
-      "OnDynamicFunctionEntry");
 }
 
 AddDynamicSymbol GetProfilerAddDynamicSymbolFunc() {

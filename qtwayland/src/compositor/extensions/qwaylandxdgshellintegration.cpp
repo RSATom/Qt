@@ -73,7 +73,7 @@ XdgToplevelIntegration::XdgToplevelIntegration(QWaylandQuickShellSurfaceItem *it
     connect(m_xdgSurface->shell(), &QWaylandXdgShell::popupCreated, this, [item](QWaylandXdgPopup *popup, QWaylandXdgSurface *){
         handlePopupCreated(item, popup);
     });
-    connect(m_xdgSurface->surface(), &QWaylandSurface::sizeChanged, this, &XdgToplevelIntegration::handleSurfaceSizeChanged);
+    connect(m_xdgSurface->surface(), &QWaylandSurface::destinationSizeChanged, this, &XdgToplevelIntegration::handleSurfaceSizeChanged);
     connect(m_toplevel, &QObject::destroyed, this, &XdgToplevelIntegration::handleToplevelDestroyed);
 }
 
@@ -130,7 +130,7 @@ void XdgToplevelIntegration::handleStartResize(QWaylandSeat *seat, Qt::Edges edg
     resizeState.resizeEdges = edges;
     resizeState.initialWindowSize = m_xdgSurface->windowGeometry().size();
     resizeState.initialPosition = m_item->moveItem()->position();
-    resizeState.initialSurfaceSize = m_item->surface()->size();
+    resizeState.initialSurfaceSize = m_item->surface()->destinationSize();
     resizeState.initialized = false;
 }
 
@@ -179,8 +179,12 @@ void XdgToplevelIntegration::handleUnsetMaximized()
 void XdgToplevelIntegration::handleMaximizedChanged()
 {
     if (m_toplevel->maximized()) {
-        QWaylandOutput *output = m_item->view()->output();
-        m_item->moveItem()->setPosition(output->position() + output->availableGeometry().topLeft());
+        if (auto *output = m_item->view()->output()) {
+            m_item->moveItem()->setPosition(output->position() + output->availableGeometry().topLeft());
+        } else {
+            qCWarning(qLcWaylandCompositor) << "The view does not have a corresponding output,"
+                                            << "ignoring maximized state";
+        }
     } else {
         m_item->moveItem()->setPosition(windowedGeometry.initialPosition);
     }
@@ -231,8 +235,12 @@ void XdgToplevelIntegration::handleUnsetFullscreen()
 void XdgToplevelIntegration::handleFullscreenChanged()
 {
     if (m_toplevel->fullscreen()) {
-        QWaylandOutput *output = m_item->view()->output();
-        m_item->moveItem()->setPosition(output->position() + output->geometry().topLeft());
+        if (auto *output = m_item->view()->output()) {
+            m_item->moveItem()->setPosition(output->position() + output->geometry().topLeft());
+        } else {
+            qCWarning(qLcWaylandCompositor) << "The view does not have a corresponding output,"
+                                            << "ignoring fullscreen state";
+        }
     } else {
         m_item->moveItem()->setPosition(windowedGeometry.initialPosition);
     }
@@ -247,14 +255,14 @@ void XdgToplevelIntegration::handleActivatedChanged()
 void XdgToplevelIntegration::handleSurfaceSizeChanged()
 {
     if (grabberState == GrabberState::Resize) {
-        qreal x = resizeState.initialPosition.x();
-        qreal y = resizeState.initialPosition.y();
+        qreal dx = 0;
+        qreal dy = 0;
         if (resizeState.resizeEdges & Qt::TopEdge)
-            y += resizeState.initialSurfaceSize.height() - m_item->surface()->size().height();
-
+            dy = resizeState.initialSurfaceSize.height() - m_item->surface()->destinationSize().height();
         if (resizeState.resizeEdges & Qt::LeftEdge)
-            x += resizeState.initialSurfaceSize.width() - m_item->surface()->size().width();
-        m_item->moveItem()->setPosition(QPointF(x, y));
+            dx = resizeState.initialSurfaceSize.width() - m_item->surface()->destinationSize().width();
+        QPointF offset = m_item->mapFromSurface({dx, dy});
+        m_item->moveItem()->setPosition(resizeState.initialPosition + offset);
     }
 }
 
@@ -285,11 +293,11 @@ void XdgPopupIntegration::handleGeometryChanged()
 {
     if (m_item->view()->output()) {
         const QPoint windowOffset = m_popup->parentXdgSurface()->windowGeometry().topLeft();
-        const QPoint position = m_popup->unconstrainedPosition() + windowOffset;
+        const QPoint surfacePosition = m_popup->unconstrainedPosition() + windowOffset;
+        const QPoint itemPosition = m_item->mapFromSurface(surfacePosition).toPoint();
         //TODO: positioner size or other size...?
-        const float scaleFactor = m_item->view()->output()->scaleFactor();
         //TODO check positioner constraints etc... sliding, flipping
-        m_item->moveItem()->setPosition(position * scaleFactor);
+        m_item->moveItem()->setPosition(itemPosition);
     } else {
         qWarning() << "XdgPopupIntegration popup item without output" << m_item;
     }

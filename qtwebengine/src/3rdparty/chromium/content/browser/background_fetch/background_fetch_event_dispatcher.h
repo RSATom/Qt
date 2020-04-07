@@ -13,12 +13,10 @@
 #include "base/memory/ref_counted.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker.mojom.h"
 
 namespace content {
 
 class BackgroundFetchRegistrationId;
-struct BackgroundFetchSettledFetch;
 class ServiceWorkerContextWrapper;
 class ServiceWorkerRegistration;
 class ServiceWorkerVersion;
@@ -41,38 +39,44 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
       scoped_refptr<ServiceWorkerContextWrapper> service_worker_context);
   ~BackgroundFetchEventDispatcher();
 
-  // Dispatches the `backgroundfetchabort` event, which indicates that an active
-  // background fetch was aborted by the user or another external event.
-  void DispatchBackgroundFetchAbortEvent(
+  // Dispatches one of the update, fail, or success events depending on the
+  // provided registration.
+  void DispatchBackgroundFetchCompletionEvent(
       const BackgroundFetchRegistrationId& registration_id,
-      const std::vector<BackgroundFetchSettledFetch>& fetches,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
       base::OnceClosure finished_closure);
 
   // Dispatches the `backgroundfetchclick` event, which indicates that the user
   // interface displayed for an active background fetch was activated.
   void DispatchBackgroundFetchClickEvent(
       const BackgroundFetchRegistrationId& registration_id,
-      mojom::BackgroundFetchState state,
-      base::OnceClosure finished_closure);
-
-  // Dispatches the `backgroundfetchfail` event, which indicates that a
-  // background fetch has finished with one or more failed fetches. The request-
-  // response pairs are included.
-  void DispatchBackgroundFetchFailEvent(
-      const BackgroundFetchRegistrationId& registration_id,
-      const std::vector<BackgroundFetchSettledFetch>& fetches,
-      base::OnceClosure finished_closure);
-
-  // Dispatches the `backgroundfetched` event, which indicates that a background
-  // fetch has successfully completed. The request-response pairs are included.
-  void DispatchBackgroundFetchedEvent(
-      const BackgroundFetchRegistrationId& registration_id,
-      const std::vector<BackgroundFetchSettledFetch>& fetches,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
       base::OnceClosure finished_closure);
 
  private:
   using ServiceWorkerLoadedCallback =
-      base::Callback<void(scoped_refptr<ServiceWorkerVersion>, int)>;
+      base::Callback<void(scoped_refptr<ServiceWorkerVersion>, int request_id)>;
+
+  // Dispatches the `backgroundfetchabort` event, which indicates that an active
+  // background fetch was aborted by the user or another external event.
+  void DispatchBackgroundFetchAbortEvent(
+      const BackgroundFetchRegistrationId& registration_id,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
+      base::OnceClosure finished_closure);
+
+  // Dispatches the `backgroundfetchfail` event, which indicates that a
+  // background fetch has finished with one or more failed fetches.
+  void DispatchBackgroundFetchFailEvent(
+      const BackgroundFetchRegistrationId& registration_id,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
+      base::OnceClosure finished_closure);
+
+  // Dispatches the `backgroundfetchsuccess` event, which indicates that a
+  // background fetch has successfully completed.
+  void DispatchBackgroundFetchSuccessEvent(
+      const BackgroundFetchRegistrationId& registration_id,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
+      base::OnceClosure finished_closure);
 
   // Phase at which the dispatching process finished. Used for UMA.
   enum class DispatchPhase { FINDING, STARTING, DISPATCHING };
@@ -114,26 +118,19 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
 
   // Methods that actually invoke the event on an activated Service Worker.
   static void DoDispatchBackgroundFetchAbortEvent(
-      const std::string& developer_id,
-      const std::string& unique_id,
-      const std::vector<BackgroundFetchSettledFetch>& fetches,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
   static void DoDispatchBackgroundFetchClickEvent(
-      const std::string& developer_id,
-      mojom::BackgroundFetchState state,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
   static void DoDispatchBackgroundFetchFailEvent(
-      const std::string& developer_id,
-      const std::string& unique_id,
-      const std::vector<BackgroundFetchSettledFetch>& fetches,
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
-  static void DoDispatchBackgroundFetchedEvent(
-      const std::string& developer_id,
-      const std::string& unique_id,
-      const std::vector<BackgroundFetchSettledFetch>& fetches,
+  static void DoDispatchBackgroundFetchSuccessEvent(
+      blink::mojom::BackgroundFetchRegistrationPtr registration,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
 

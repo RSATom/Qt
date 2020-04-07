@@ -20,6 +20,7 @@
 
 namespace base {
 class RefCountedMemory;
+class DictionaryValue;
 }
 
 namespace blink {
@@ -64,7 +65,9 @@ ContentClient* GetContentClient();
 #endif
 
 // Used for tests to override the relevant embedder interfaces. Each method
-// returns the old value.
+// returns the old value. In browser tests it seems safest to call these in
+// SetUpOnMainThread() or you may get TSan errors due a race between the
+// browser "process" and the child "process" for the test both accessing it.
 CONTENT_EXPORT ContentBrowserClient* SetBrowserClientForTesting(
     ContentBrowserClient* b);
 CONTENT_EXPORT ContentRendererClient* SetRendererClientForTesting(
@@ -138,21 +141,17 @@ class CONTENT_EXPORT ContentClient {
     // Registers a URL scheme as strictly empty documents, allowing them to
     // commit synchronously.
     std::vector<std::string> empty_document_schemes;
+#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
+    // Normally, non-standard schemes canonicalize to opaque origins. However,
+    // Android WebView requires non-standard schemes to still be preserved.
+    bool allow_non_standard_schemes_in_origins = true;
+#endif
   };
 
   virtual void AddAdditionalSchemes(Schemes* schemes) {}
 
   // Returns whether the given message should be sent in a swapped out renderer.
   virtual bool CanSendWhileSwappedOut(const IPC::Message* message);
-
-  // Returns a string describing the embedder product name and version,
-  // of the form "productname/version", with no other slashes.
-  // Used as part of the user agent string.
-  virtual std::string GetProduct() const;
-
-  // Returns the user agent.  Content may cache this value.
-  // TODO(yhirano): Move this to ContentBrowserClient.
-  virtual std::string GetUserAgent() const;
 
   // Returns a string resource given its id.
   virtual base::string16 GetLocalizedString(int message_id) const;
@@ -172,6 +171,14 @@ class CONTENT_EXPORT ContentClient {
   // Called by content::GetProcessTypeNameInEnglish for process types that it
   // doesn't know about because they're from the embedder.
   virtual std::string GetProcessTypeNameInEnglish(int type);
+
+  // Called once during initialization of NetworkService to provide constants
+  // to NetLog.  (Though it may be called multiples times if NetworkService
+  // crashes and needs to be reinitialized).  The return value is merged with
+  // |GetNetConstants()| and passed to FileNetLogObserver - see documentation
+  // of |FileNetLogObserver::CreateBounded()| for more information.  The
+  // convention is to put new constants under a subdict at the key "clientInfo".
+  virtual base::DictionaryValue GetNetLogConstants() const;
 
   // Returns whether or not V8 script extensions should be allowed for a
   // service worker.

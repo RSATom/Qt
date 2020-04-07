@@ -10,6 +10,8 @@
 
 #include "video/report_block_stats.h"
 
+#include <algorithm>
+
 namespace webrtc {
 
 namespace {

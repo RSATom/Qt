@@ -41,7 +41,7 @@
 #define QWAYLANDXCOMPOSITEEGLCLIENTBUFFERINTEGRATION_H
 
 #include <QtWaylandClient/private/qwaylandclientbufferintegration_p.h>
-#include <wayland-client.h>
+#include <wayland-client-core.h>
 
 #include <QtCore/QTextStream>
 #include <QtCore/QDataStream>
@@ -64,6 +64,7 @@
 
 struct qt_xcomposite;
 struct qt_xcomposite_listener;
+struct wl_registry;
 
 QT_BEGIN_NAMESPACE
 
@@ -96,11 +97,11 @@ private:
     struct qt_xcomposite *mWaylandComposite = nullptr;
 
     Display *mDisplay = nullptr;
-    EGLDisplay mEglDisplay;
-    int mScreen;
-    Window mRootWindow;
+    EGLDisplay mEglDisplay = EGL_NO_DISPLAY;
+    int mScreen = 0;
+    Window mRootWindow = -1;
 
-    static void wlDisplayHandleGlobal(void *data, struct wl_registry *registry, uint32_t id,
+    static void wlDisplayHandleGlobal(void *data, struct ::wl_registry *registry, uint32_t id,
                                       const QString &interface, uint32_t version);
 
     static const struct ::qt_xcomposite_listener xcomposite_listener;

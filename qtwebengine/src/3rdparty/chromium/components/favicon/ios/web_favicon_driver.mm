@@ -10,7 +10,6 @@
 #include "components/favicon/ios/favicon_url_util.h"
 #include "ios/web/public/browser_state.h"
 #include "ios/web/public/favicon_status.h"
-#include "ios/web/public/load_committed_details.h"
 #include "ios/web/public/navigation_item.h"
 #include "ios/web/public/navigation_manager.h"
 #include "ios/web/public/web_state/navigation_context.h"
@@ -24,8 +23,6 @@
 #error "This file requires ARC support."
 #endif
 
-DEFINE_WEB_STATE_USER_DATA_KEY(favicon::WebFaviconDriver);
-
 // Callback for the download of favicon.
 using ImageDownloadCallback =
     base::Callback<void(int image_id,
@@ -37,16 +34,13 @@ using ImageDownloadCallback =
 namespace favicon {
 
 // static
-void WebFaviconDriver::CreateForWebState(
-    web::WebState* web_state,
-    FaviconService* favicon_service,
-    history::HistoryService* history_service) {
+void WebFaviconDriver::CreateForWebState(web::WebState* web_state,
+                                         FaviconService* favicon_service) {
   if (FromWebState(web_state))
     return;
 
-  web_state->SetUserData(UserDataKey(),
-                         base::WrapUnique(new WebFaviconDriver(
-                             web_state, favicon_service, history_service)));
+  web_state->SetUserData(UserDataKey(), base::WrapUnique(new WebFaviconDriver(
+                                            web_state, favicon_service)));
 }
 
 gfx::Image WebFaviconDriver::GetFavicon() const {
@@ -63,7 +57,7 @@ bool WebFaviconDriver::FaviconIsValid() const {
 
 GURL WebFaviconDriver::GetActiveURL() {
   web::NavigationItem* item =
-      web_state_->GetNavigationManager()->GetVisibleItem();
+      web_state_->GetNavigationManager()->GetLastCommittedItem();
   return item ? item->GetURL() : GURL();
 }
 
@@ -152,9 +146,8 @@ void WebFaviconDriver::OnFaviconDeleted(
 }
 
 WebFaviconDriver::WebFaviconDriver(web::WebState* web_state,
-                                   FaviconService* favicon_service,
-                                   history::HistoryService* history_service)
-    : FaviconDriverImpl(favicon_service, history_service),
+                                   FaviconService* favicon_service)
+    : FaviconDriverImpl(favicon_service),
       image_fetcher_(web_state->GetBrowserState()->GetSharedURLLoaderFactory()),
       web_state_(web_state) {
   web_state_->AddObserver(this);

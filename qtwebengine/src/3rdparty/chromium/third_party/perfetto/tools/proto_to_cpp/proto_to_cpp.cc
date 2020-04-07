@@ -59,7 +59,7 @@ static const char kHeader[] = R"(/*
  * by
  * $f$.
  * If you need to make changes here, change the .proto file and then run
- * ./tools/gen_tracing_cpp_headers_from_protos.py
+ * ./tools/gen_tracing_cpp_headers_from_protos
  */
 
 )";
@@ -195,7 +195,7 @@ std::string ProtoToCpp::GetCppType(const FieldDescriptor* field,
     case FieldDescriptor::TYPE_GROUP:
       PERFETTO_FATAL("No cpp type for a group field.");
   }
-  PERFETTO_CHECK(false);
+  PERFETTO_FATAL("Not reached");  // for gcc
 }
 
 void ProtoToCpp::Convert(const std::string& src_proto) {
@@ -270,7 +270,7 @@ void ProtoToCpp::Convert(const std::string& src_proto) {
 
   cpp_printer.Print("}  // namespace perfetto\n");
   header_printer.Print("}  // namespace perfetto\n");
-  header_printer.Print("#endif  // $g$\n", "g", include_guard);
+  header_printer.Print("\n#endif  // $g$\n", "g", include_guard);
 }
 
 void ProtoToCpp::GenHeader(const Descriptor* msg, Printer* p) {

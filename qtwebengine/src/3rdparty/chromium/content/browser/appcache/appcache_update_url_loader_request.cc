@@ -21,10 +21,12 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::Start() {
   network::mojom::URLLoaderClientPtr client;
   client_binding_.Bind(mojo::MakeRequest(&client));
 
-  loader_factory_getter_->GetNetworkFactory()->CreateLoaderAndStart(
-      mojo::MakeRequest(&url_loader_), -1, -1,
-      network::mojom::kURLLoadOptionNone, request_, std::move(client),
-      net::MutableNetworkTrafficAnnotationTag(GetTrafficAnnotation()));
+  loader_factory_getter_->GetNetworkFactoryWithCORBEnabled()
+      ->CreateLoaderAndStart(
+          mojo::MakeRequest(&url_loader_), -1, -1,
+          network::mojom::kURLLoadOptionSendSSLInfoWithResponse, request_,
+          std::move(client),
+          net::MutableNetworkTrafficAnnotationTag(GetTrafficAnnotation()));
 }
 
 void AppCacheUpdateJob::UpdateURLLoaderRequest::SetExtraRequestHeaders(
@@ -144,8 +146,9 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::OnStartLoadingResponseBody(
 
   handle_watcher_.Watch(
       handle_.get(), MOJO_HANDLE_SIGNAL_READABLE,
-      base::Bind(&AppCacheUpdateJob::UpdateURLLoaderRequest::StartReading,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &AppCacheUpdateJob::UpdateURLLoaderRequest::StartReading,
+          base::Unretained(this)));
 
   // Initiate a read from the pipe if we have a pending Read() request.
   MaybeStartReading();

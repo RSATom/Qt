@@ -5,7 +5,7 @@
 #include "net/third_party/quic/test_tools/crypto_test_utils.h"
 
 #include "net/test/gtest_util.h"
-#include "net/third_party/quic/core/crypto/crypto_server_config_protobuf.h"
+#include "net/third_party/quic/core/proto/crypto_server_config.pb.h"
 #include "net/third_party/quic/core/quic_utils.h"
 #include "net/third_party/quic/core/tls_server_handshaker.h"
 #include "net/third_party/quic/platform/api/quic_ptr_util.h"
@@ -13,7 +13,6 @@
 #include "net/third_party/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quic/test_tools/mock_clock.h"
 
-using std::string;
 
 namespace quic {
 namespace test {
@@ -60,10 +59,12 @@ class ShloVerifier {
           ValidateClientHelloResultCallback::Result>& result) {
     result_ = result;
     crypto_config_->ProcessClientHello(
-        result_, /*reject_only=*/false, /*connection_id=*/1, server_addr_,
-        client_addr_, AllSupportedVersions().front(), AllSupportedVersions(),
-        /*use_stateless_rejects=*/true, /*server_designated_connection_id=*/0,
-        clock_, QuicRandom::GetInstance(), compressed_certs_cache_, params_,
+        result_, /*reject_only=*/false,
+        /*connection_id=*/TestConnectionId(1), server_addr_, client_addr_,
+        AllSupportedVersions().front(), AllSupportedVersions(),
+        /*use_stateless_rejects=*/true,
+        /*server_designated_connection_id=*/TestConnectionId(2), clock_,
+        QuicRandom::GetInstance(), compressed_certs_cache_, params_,
         signed_config_, /*total_framing_overhead=*/50, kDefaultMaxPacketSize,
         GetProcessClientHelloCallback());
   }
@@ -74,7 +75,7 @@ class ShloVerifier {
         : shlo_verifier_(shlo_verifier) {}
     void Run(
         QuicErrorCode error,
-        const string& error_details,
+        const QuicString& error_details,
         std::unique_ptr<CryptoHandshakeMessage> message,
         std::unique_ptr<DiversificationNonce> diversification_nonce,
         std::unique_ptr<ProofSource::Details> proof_source_details) override {
@@ -92,8 +93,7 @@ class ShloVerifier {
   void ProcessClientHelloDone(std::unique_ptr<CryptoHandshakeMessage> message) {
     // Verify output is a SHLO.
     EXPECT_EQ(message->tag(), kSHLO)
-        << "Fail to pass validation. Get "
-        << message->DebugString(Perspective::IS_SERVER);
+        << "Fail to pass validation. Get " << message->DebugString();
   }
 
   QuicCryptoServerConfig* crypto_config_;
@@ -110,11 +110,11 @@ class ShloVerifier {
 
 class CryptoTestUtilsTest : public QuicTest {};
 
-TEST(CryptoTestUtilsTest, TestGenerateFullCHLO) {
+TEST_F(CryptoTestUtilsTest, TestGenerateFullCHLO) {
   MockClock clock;
   QuicCryptoServerConfig crypto_config(
       QuicCryptoServerConfig::TESTING, QuicRandom::GetInstance(),
-      crypto_test_utils::ProofSourceForTesting(),
+      crypto_test_utils::ProofSourceForTesting(), KeyExchangeSource::Default(),
       TlsServerHandshaker::CreateSslCtx());
   QuicSocketAddress server_addr;
   QuicSocketAddress client_addr(QuicIpAddress::Loopback4(), 1);
@@ -137,17 +137,17 @@ TEST(CryptoTestUtilsTest, TestGenerateFullCHLO) {
       crypto_config.AddConfig(std::move(primary_config), clock.WallNow()));
   QuicStringPiece orbit;
   ASSERT_TRUE(msg->GetStringPiece(kORBT, &orbit));
-  string nonce;
+  QuicString nonce;
   CryptoUtils::GenerateNonce(
       clock.WallNow(), QuicRandom::GetInstance(),
       QuicStringPiece(reinterpret_cast<const char*>(orbit.data()),
                       sizeof(orbit.size())),
       &nonce);
-  string nonce_hex = "#" + QuicTextUtils::HexEncode(nonce);
+  QuicString nonce_hex = "#" + QuicTextUtils::HexEncode(nonce);
 
   char public_value[32];
   memset(public_value, 42, sizeof(public_value));
-  string pub_hex =
+  QuicString pub_hex =
       "#" + QuicTextUtils::HexEncode(public_value, sizeof(public_value));
 
   QuicTransportVersion version(AllSupportedTransportVersions().front());

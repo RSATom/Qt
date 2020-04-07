@@ -7,17 +7,45 @@
 #ifndef XFA_FXFA_PARSER_XFA_BASIC_DATA_H_
 #define XFA_FXFA_PARSER_XFA_BASIC_DATA_H_
 
-#include <map>
+#include <stddef.h>
 
+#include "core/fxcrt/widestring.h"
+#include "fxjs/xfa/cjx_object.h"
+#include "third_party/base/optional.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
-extern const XFA_AttributeEnumInfo g_XFAEnumData[];
-extern const int32_t g_iXFAEnumCount;
+struct XFA_PACKETINFO {
+  const wchar_t* name;
+  XFA_PacketType packet_type;
+  const wchar_t* uri;
+  uint32_t flags;
+};
 
-extern const XFA_SCRIPTHIERARCHY g_XFAScriptIndex[];
-extern const int32_t g_iScriptIndexCount;
+struct XFA_ATTRIBUTEINFO {
+  XFA_Attribute attribute;
+  XFA_ScriptType eValueType;
+};
 
-extern const XFA_SCRIPTATTRIBUTEINFO g_SomAttributeData[];
-extern const int32_t g_iSomAttributeCount;
+struct XFA_SCRIPTATTRIBUTEINFO {
+  XFA_Attribute attribute;
+  XFA_ScriptType eValueType;
+  XFA_ATTRIBUTE_CALLBACK callback = nullptr;
+};
+
+XFA_PACKETINFO XFA_GetPacketByIndex(XFA_PacketType ePacket);
+Optional<XFA_PACKETINFO> XFA_GetPacketByName(WideStringView wsName);
+
+ByteStringView XFA_ElementToName(XFA_Element elem);
+XFA_Element XFA_GetElementByName(WideStringView name);
+
+ByteStringView XFA_AttributeToName(XFA_Attribute attr);
+Optional<XFA_ATTRIBUTEINFO> XFA_GetAttributeByName(WideStringView name);
+
+ByteStringView XFA_AttributeValueToName(XFA_AttributeValue item);
+Optional<XFA_AttributeValue> XFA_GetAttributeValueByName(WideStringView name);
+
+Optional<XFA_SCRIPTATTRIBUTEINFO> XFA_GetScriptAttributeByName(
+    XFA_Element eElement,
+    WideStringView wsAttributeName);
 
 #endif  // XFA_FXFA_PARSER_XFA_BASIC_DATA_H_

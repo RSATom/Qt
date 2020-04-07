@@ -11,6 +11,7 @@
 #include <assert.h>
 
 #include "./vpx_config.h"
+#include "./vpx_dsp_rtcd.h"
 #include "vpx/vpx_integer.h"
 #include "vpx_dsp/ppc/types_vsx.h"
 
@@ -111,7 +112,6 @@ void vpx_subtract_block_vsx(int rows, int cols, int16_t *diff,
                           pred, pred_stride);
       }
       break;
-    default:
-      assert(0);  // unreachable
+    default: assert(0);  // unreachable
   }
 }

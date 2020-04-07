@@ -37,13 +37,12 @@
 #include "third_party/blink/renderer/core/html/html_map_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 
 namespace blink {
 
-using namespace HTMLNames;
-
 TreeOrderedMap* TreeOrderedMap::Create() {
-  return new TreeOrderedMap;
+  return MakeGarbageCollected<TreeOrderedMap>();
 }
 
 TreeOrderedMap::TreeOrderedMap() = default;
@@ -76,11 +75,11 @@ inline bool KeyMatchesSlotName(const AtomicString& key,
          ToHTMLSlotElement(element).GetName() == key;
 }
 
-void TreeOrderedMap::Add(const AtomicString& key, Element* element) {
+void TreeOrderedMap::Add(const AtomicString& key, Element& element) {
   DCHECK(key);
-  DCHECK(element);
 
-  Map::AddResult add_result = map_.insert(key, new MapEntry(element));
+  Map::AddResult add_result =
+      map_.insert(key, MakeGarbageCollected<MapEntry>(element));
   if (add_result.is_new_entry)
     return;
 
@@ -91,9 +90,8 @@ void TreeOrderedMap::Add(const AtomicString& key, Element* element) {
   entry->ordered_list.clear();
 }
 
-void TreeOrderedMap::Remove(const AtomicString& key, Element* element) {
+void TreeOrderedMap::Remove(const AtomicString& key, Element& element) {
   DCHECK(key);
-  DCHECK(element);
 
   Map::iterator it = map_.find(key);
   if (it == map_.end())
@@ -156,12 +154,12 @@ const HeapVector<Member<Element>>& TreeOrderedMap::GetAllElementsById(
     const AtomicString& key,
     const TreeScope& scope) const {
   DCHECK(key);
-  DEFINE_STATIC_LOCAL(HeapVector<Member<Element>>, empty_vector,
-                      (new HeapVector<Member<Element>>));
+  DEFINE_STATIC_LOCAL(Persistent<HeapVector<Member<Element>>>, empty_vector,
+                      (MakeGarbageCollected<HeapVector<Member<Element>>>()));
 
   Map::iterator it = map_.find(key);
   if (it == map_.end())
-    return empty_vector;
+    return *empty_vector;
 
   Member<MapEntry>& entry = it->value;
   DCHECK(entry->count);
@@ -207,11 +205,11 @@ Element* TreeOrderedMap::GetCachedFirstElementWithoutAccessingNodeTree(
   return entry->element;
 }
 
-void TreeOrderedMap::Trace(blink::Visitor* visitor) {
+void TreeOrderedMap::Trace(Visitor* visitor) {
   visitor->Trace(map_);
 }
 
-void TreeOrderedMap::MapEntry::Trace(blink::Visitor* visitor) {
+void TreeOrderedMap::MapEntry::Trace(Visitor* visitor) {
   visitor->Trace(element);
   visitor->Trace(ordered_list);
 }

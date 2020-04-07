@@ -10,6 +10,7 @@
 #include "SkSGGeometryNode.h"
 #include "SkSGInvalidationController.h"
 #include "SkSGPaintNode.h"
+#include "SkTLazy.h"
 
 namespace sksg {
 
@@ -25,8 +26,12 @@ Draw::~Draw() {
     this->unobserveInval(fPaint);
 }
 
-void Draw::onRender(SkCanvas* canvas) const {
-    const auto& paint   = fPaint->makePaint();
+void Draw::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
+    auto paint = fPaint->makePaint();
+    if (ctx) {
+        ctx->modulatePaint(&paint);
+    }
+
     const auto skipDraw = paint.nothingToDraw() ||
             (paint.getStyle() == SkPaint::kStroke_Style && paint.getStrokeWidth() <= 0);
 
@@ -41,7 +46,7 @@ SkRect Draw::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {
     auto bounds = fGeometry->revalidate(ic, ctm);
     fPaint->revalidate(ic, ctm);
 
-    const auto& paint = fPaint->makePaint();
+    const auto paint = fPaint->makePaint();
     SkASSERT(paint.canComputeFastBounds());
 
     return paint.computeFastBounds(bounds, &bounds);

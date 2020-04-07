@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,35 +11,9 @@
 #ifndef API_TURNCUSTOMIZER_H_
 #define API_TURNCUSTOMIZER_H_
 
-#include <stdlib.h>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace cricket {
-class PortInterface;
-class StunMessage;
-}  // namespace cricket
-
-namespace webrtc {
-
-class TurnCustomizer {
- public:
-  // This is called before a TURN message is sent.
-  // This could be used to add implementation specific attributes to a request.
-  virtual void MaybeModifyOutgoingStunMessage(
-      cricket::PortInterface* port,
-      cricket::StunMessage* message) = 0;
-
-  // TURN can send data using channel data messages or Send indication.
-  // This method should return false if |data| should be sent using
-  // a Send indication instead of a ChannelData message, even if a
-  // channel is bound.
-  virtual bool AllowChannelData(cricket::PortInterface* port,
-                                const void* data,
-                                size_t size,
-                                bool payload) = 0;
-
-  virtual ~TurnCustomizer() {}
-};
-
-}  // namespace webrtc
+#include "api/turn_customizer.h"
 
 #endif  // API_TURNCUSTOMIZER_H_

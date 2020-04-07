@@ -25,8 +25,8 @@
 #include "base/debug/stack_trace.h"
 #include "base/feature_list.h"
 #include "base/memory/ptr_util.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/initialization_util.h"
+#include "base/system/sys_info.h"
+#include "base/task/task_scheduler/initialization_util.h"
 #include "base/time/time.h"
 #include "content/common/task_scheduler.h"
 #include "content/public/common/bindings_policy.h"
@@ -85,13 +85,13 @@ GetDefaultTaskSchedulerInitParams() {
                                       kSuggestedReclaimTime));
 }
 
-#if DCHECK_IS_CONFIGURABLE
+#if defined(DCHECK_IS_CONFIGURABLE)
 void V8DcheckCallbackHandler(const char* file, int line, const char* message) {
   // TODO(siggi): Set a crash key or a breadcrumb so the fact that we hit a
   //     V8 DCHECK gets out in the crash report.
   ::logging::LogMessage(file, line, logging::LOG_DCHECK).stream() << message;
 }
-#endif  // DCHECK_IS_CONFIGURABLE
+#endif  // defined(DCHECK_IS_CONFIGURABLE)
 
 }  // namespace
 
@@ -101,7 +101,7 @@ RenderProcessImpl::RenderProcessImpl(
     std::unique_ptr<base::TaskScheduler::InitParams> task_scheduler_init_params)
     : RenderProcess("Renderer", std::move(task_scheduler_init_params)),
       enabled_bindings_(0) {
-#if DCHECK_IS_CONFIGURABLE
+#if defined(DCHECK_IS_CONFIGURABLE)
   // Some official builds ship with DCHECKs compiled in. Failing DCHECKs then
   // are either fatal or simply log the error, based on a feature flag.
   // Make sure V8 follows suit by setting a Dcheck handler that forwards to
@@ -120,7 +120,7 @@ RenderProcessImpl::RenderProcessImpl(
 
     v8::V8::SetFlagsFromString(kDisabledFlags, sizeof(kDisabledFlags));
   }
-#endif  // DCHECK_IS_CONFIGURABLE
+#endif  // defined(DCHECK_IS_CONFIGURABLE)
 
   if (base::SysInfo::IsLowEndDevice()) {
     std::string optimize_flag("--optimize-for-size");
@@ -131,12 +131,10 @@ RenderProcessImpl::RenderProcessImpl(
   SetV8FlagIfHasSwitch(switches::kDisableJavaScriptHarmonyShipping,
                        "--noharmony-shipping");
   SetV8FlagIfHasSwitch(switches::kJavaScriptHarmony, "--harmony");
-  SetV8FlagIfFeature(features::kModuleScriptsDynamicImport,
-                     "--harmony-dynamic-import");
-  SetV8FlagIfFeature(features::kModuleScriptsImportMetaUrl,
-                     "--harmony-import-meta");
-  SetV8FlagIfFeature(features::kAsmJsToWebAssembly, "--validate-asm");
-  SetV8FlagIfNotFeature(features::kAsmJsToWebAssembly, "--no-validate-asm");
+
+  constexpr char kModuleFlags[] =
+      "--harmony-dynamic-import --harmony-import-meta";
+  v8::V8::SetFlagsFromString(kModuleFlags, sizeof(kModuleFlags));
 
   SetV8FlagIfFeature(features::kV8Orinoco, "--no-single-threaded-gc");
   SetV8FlagIfNotFeature(features::kV8Orinoco, "--single-threaded-gc");
@@ -165,6 +163,11 @@ RenderProcessImpl::RenderProcessImpl(
                           "--no-harmony-sharedarraybuffer");
   }
 
+  SetV8FlagIfFeature(features::kAwaitOptimization,
+                     "--harmony-await-optimization");
+  SetV8FlagIfNotFeature(features::kAwaitOptimization,
+                        "--no-harmony-await-optimization");
+
   SetV8FlagIfNotFeature(features::kWebAssemblyTrapHandler,
                         "--no-wasm-trap-handler");
 #if defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
@@ -187,9 +190,31 @@ RenderProcessImpl::RenderProcessImpl(
     v8::V8::EnableWebAssemblyTrapHandler(use_v8_signal_handler);
   }
 #endif
+#if defined(OS_WIN) && defined(ARCH_CPU_X86_64)
+  if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
+    // On Windows we use the default trap handler provided by V8.
+    bool use_v8_trap_handler = true;
+    v8::V8::EnableWebAssemblyTrapHandler(use_v8_trap_handler);
+  }
+#endif
+#if defined(OS_MACOSX) && defined(ARCH_CPU_X86_64)
+  if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
+    // On macOS, Crashpad uses exception ports to handle signals in a different
+    // process. As we cannot just pass a callback to this other process, we ask
+    // V8 to install its own signal handler to deal with WebAssembly traps.
+    bool use_v8_signal_handler = true;
+    v8::V8::EnableWebAssemblyTrapHandler(use_v8_signal_handler);
+  }
+#endif  // defined(OS_MACOSX) && defined(ARCH_CPU_X86_64)
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
+
+  if (command_line.HasSwitch(switches::kNoV8UntrustedCodeMitigations)) {
+    const char* disable_mitigations = "--no-untrusted-code-mitigations";
+    v8::V8::SetFlagsFromString(disable_mitigations,
+                               strlen(disable_mitigations));
+  }
 
   if (command_line.HasSwitch(switches::kJavaScriptFlags)) {
     std::string flags(
@@ -229,6 +254,14 @@ void RenderProcessImpl::AddBindings(int bindings) {
 
 int RenderProcessImpl::GetEnabledBindings() const {
   return enabled_bindings_;
+}
+
+void RenderProcessImpl::AddRefProcess() {
+  NOTREACHED();
+}
+
+void RenderProcessImpl::ReleaseProcess() {
+  NOTREACHED();
 }
 
 }  // namespace content

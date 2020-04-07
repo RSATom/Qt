@@ -36,6 +36,7 @@
 #include <qdebug.h>
 #include <qregexp.h>
 #include <ctype.h>
+#include "generator.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -128,11 +129,18 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node,
         name = linkTag(node, name);
     name = "<@name>" + name + "</@name>";
 
-    if ((style == Section::Details) && !node->parent()->name().isEmpty() &&
-        (node->type() != Node::Property) && !node->isQmlNode() && !node->isJsNode())
-        name.prepend(taggedNode(node->parent()) + "::");
+    if (style == Section::Details) {
+        if (!node->isRelatedNonmember() &&
+            !node->isProxyNode() &&
+            !node->parent()->name().isEmpty() &&
+            !node->parent()->isHeader() &&
+            !node->isProperty() &&
+            !node->isQmlNode() &&
+            !node->isJsNode())
+            name.prepend(taggedNode(node->parent()) + "::");
+    }
 
-    switch (node->type()) {
+    switch (node->nodeType()) {
     case Node::Namespace:
         synopsis = "namespace " + name;
         break;
@@ -140,9 +148,6 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node,
         synopsis = "class " + name;
         break;
     case Node::Function:
-    case Node::QmlSignal:
-    case Node::QmlSignalHandler:
-    case Node::QmlMethod:
         func = (const FunctionNode *) node;
 
         if (style != Section::AllMembers && !func->returnType().isEmpty())
@@ -151,19 +156,24 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node,
         if (!func->isMacroWithoutParams()) {
             synopsis += QLatin1Char('(');
             if (!func->parameters().isEmpty()) {
-                QVector<Parameter>::ConstIterator p = func->parameters().constBegin();
-                while (p != func->parameters().constEnd()) {
-                    if (p != func->parameters().constBegin())
+                const Parameters &parameters = func->parameters();
+                for (int i = 0; i < parameters.count(); i++) {
+                    if (i > 0)
                         synopsis += ", ";
-                    bool hasName = !(*p).name().isEmpty();
-                    if (hasName)
-                        synopsis += typified((*p).dataType(), true);
-                    const QString &paramName = hasName ? (*p).name() : (*p).dataType();
-                    if (style != Section::AllMembers || !hasName)
+                    QString name = parameters.at(i).name();
+                    QString type = parameters.at(i).type();
+                    QString value = parameters.at(i).defaultValue();
+                    QString paramName;
+                    if (!name.isEmpty()) {
+                        synopsis += typified(type, true);
+                        paramName = name;
+                    } else {
+                        paramName = type;
+                    }
+                    if (style != Section::AllMembers || name.isEmpty())
                         synopsis += "<@param>" + protect(paramName) + "</@param>";
-                    if (style != Section::AllMembers && !(*p).defaultValue().isEmpty())
-                        synopsis += " = " + protect((*p).defaultValue());
-                    ++p;
+                    if (style != Section::AllMembers && !value.isEmpty())
+                        synopsis += " = " + protect(value);
                 }
             }
             synopsis += QLatin1Char(')');
@@ -180,10 +190,6 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node,
                 synopsis.append(" override");
             if (func->isPureVirtual())
                 synopsis.append(" = 0");
-            else if (func->isDeleted())
-                synopsis.append(" = delete");
-            else if (func->isImplicit() || func->isDefaulted())
-               synopsis.append(" = default");
             if (func->isRef())
                synopsis.append(" &");
             else if (func->isRefRef())
@@ -198,15 +204,9 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node,
                synopsis.append(" &");
             else if (func->isRefRef())
                synopsis.append(" &&");
-            if (func->isImplicit() || func->isDefaulted())
-               synopsis.append(" = default");
             QStringList bracketed;
             if (func->isStatic()) {
                 bracketed += "static";
-            } else if (func->isDeleted()) {
-                bracketed += "delete";
-            } else if (func->isDefaulted()) {
-                bracketed += "default";
             } else if (!func->isNonvirtual()) {
                 if (func->isFinal())
                     bracketed += "final";
@@ -301,15 +301,12 @@ QString CppCodeMarker::markedUpSynopsis(const Node *node,
     }
 
     if (style == Section::Summary) {
-        if (node->status() == Node::Preliminary) {
+        if (node->isPreliminary())
             extra += "(preliminary) ";
-        }
-        else if (node->status() == Node::Deprecated) {
+        else if (node->isDeprecated())
             extra += "(deprecated) ";
-        }
-        else if (node->status() == Node::Obsolete) {
+        else if (node->isObsolete())
             extra += "(obsolete) ";
-        }
     }
 
     if (!extra.isEmpty()) {
@@ -336,10 +333,7 @@ QString CppCodeMarker::markedUpQmlItem(const Node* node, bool summary)
     if (node->isQmlProperty() || node->isJsProperty()) {
         const QmlPropertyNode* pn = static_cast<const QmlPropertyNode*>(node);
         synopsis = name + " : " + typified(pn->dataType());
-    }
-    else if ((node->type() == Node::QmlMethod) ||
-             (node->type() == Node::QmlSignal) ||
-             (node->type() == Node::QmlSignalHandler)) {
+    } else if (node->isFunction(Node::QML) || node->isFunction(Node::JS)) {
         const FunctionNode* func = static_cast<const FunctionNode*>(node);
         if (!func->returnType().isEmpty())
             synopsis = typified(func->returnType(), true) + name;
@@ -347,34 +341,34 @@ QString CppCodeMarker::markedUpQmlItem(const Node* node, bool summary)
             synopsis = name;
         synopsis += QLatin1Char('(');
         if (!func->parameters().isEmpty()) {
-            QVector<Parameter>::ConstIterator p = func->parameters().constBegin();
-            while (p != func->parameters().constEnd()) {
-                if (p != func->parameters().constBegin())
+            const Parameters &parameters = func->parameters();
+            for (int i = 0; i < parameters.count(); i++) {
+                if (i > 0)
                     synopsis += ", ";
-                bool hasName = !(*p).name().isEmpty();
-                if (hasName)
-                    synopsis += typified((*p).dataType(), true);
-                const QString &paramName = hasName ? (*p).name() : (*p).dataType();
+                QString name = parameters.at(i).name();
+                QString type = parameters.at(i).type();
+                QString paramName;
+                if (!name.isEmpty()) {
+                    synopsis += typified(type, true);
+                    paramName = name;
+                } else {
+                    paramName = type;
+                }
                 synopsis += "<@param>" + protect(paramName) + "</@param>";
-                ++p;
             }
         }
         synopsis += QLatin1Char(')');
-    }
-    else
+    } else
         synopsis = name;
 
     QString extra;
     if (summary) {
-        if (node->status() == Node::Preliminary) {
+        if (node->isPreliminary())
             extra += " (preliminary)";
-        }
-        else if (node->status() == Node::Deprecated) {
+        else if (node->isDeprecated())
             extra += " (deprecated)";
-        }
-        else if (node->status() == Node::Obsolete) {
+        else if (node->isObsolete())
             extra += " (obsolete)";
-        }
     }
 
     if (!extra.isEmpty()) {
@@ -412,7 +406,7 @@ QString CppCodeMarker::markedUpFullName(const Node *node, const Node *relative)
 
 QString CppCodeMarker::markedUpEnumValue(const QString &enumValue, const Node *relative)
 {
-    if (relative->type() != Node::Enum)
+    if (!relative->isEnumType())
         return enumValue;
 
     const Node *node = relative->parent();

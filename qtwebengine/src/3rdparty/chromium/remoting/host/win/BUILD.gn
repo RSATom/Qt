@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/toolchain/win/midl.gni")
+import("//build/util/lastchange.gni")
 import("//build/win/message_compiler.gni")
 import("//media/media_options.gni")
 import("//remoting/build/config/remoting_build.gni")
@@ -81,6 +82,8 @@ source_set("win") {
     "com_security.h",
     "default_audio_device_change_detector.cc",
     "default_audio_device_change_detector.h",
+    "evaluate_3d_display_mode.cc",
+    "evaluate_3d_display_mode.h",
     "evaluate_d3d.cc",
     "evaluate_d3d.h",
     "launch_process_with_token.cc",
@@ -93,6 +96,8 @@ source_set("win") {
     "rdp_client_window.h",
     "security_descriptor.cc",
     "security_descriptor.h",
+    "session_action_executor.cc",
+    "session_action_executor.h",
     "session_desktop_environment.cc",
     "session_desktop_environment.h",
     "session_input_injector.cc",
@@ -407,6 +412,7 @@ shared_library("remoting_core") {
     "//remoting/host/setup",
     "//remoting/protocol",
     "//sandbox/win:sandbox",  # Should always use Windows version
+    "//services/network/public/mojom",
     "//third_party/webrtc/modules/desktop_capture",
   ]
 
@@ -494,7 +500,7 @@ remoting_localize("remoting_windows_resources") {
   variables = [
     rebase_path(chrome_version_file),
     rebase_path(remoting_version_file),
-    rebase_path("//build/util/LASTCHANGE"),
+    rebase_path(lastchange_file),
   ]
 
   output = "$root_gen_dir/remoting/{{source_name_part}}"

@@ -50,7 +50,9 @@ enum class FetchCacheMode : int32_t;
 class CORE_EXPORT HistoryItem final
     : public GarbageCollectedFinalized<HistoryItem> {
  public:
-  static HistoryItem* Create() { return new HistoryItem; }
+  static HistoryItem* Create() { return MakeGarbageCollected<HistoryItem>(); }
+
+  HistoryItem();
   ~HistoryItem();
 
   const String& UrlString() const;
@@ -117,7 +119,6 @@ class CORE_EXPORT HistoryItem final
 
   void SetScrollAnchorData(const ScrollAnchorData&);
 
-  void SetFormInfoFromRequest(const ResourceRequest&);
   void SetFormData(scoped_refptr<EncodedFormData>);
   void SetFormContentType(const AtomicString&);
 
@@ -126,8 +127,6 @@ class CORE_EXPORT HistoryItem final
   void Trace(blink::Visitor*);
 
  private:
-  HistoryItem();
-
   String url_string_;
   Referrer referrer_;
 

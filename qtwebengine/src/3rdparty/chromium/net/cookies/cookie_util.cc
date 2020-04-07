@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/stl_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
@@ -101,6 +102,12 @@ bool GetCookieDomainWithString(const GURL& url,
     *result = url_host;
     DCHECK(DomainIsHostOnly(*result));
     return true;
+  }
+
+  // Disallow domain names with %-escaped characters.
+  for (char c : domain_string) {
+    if (c == '%')
+      return false;
   }
 
   // Get the normalized domain specified in cookie line.
@@ -340,7 +347,8 @@ void ParseRequestCookieLine(const std::string& header_value,
         // i points to ';' or end of string.
       }
     }
-    parsed_cookies->push_back(std::make_pair(cookie_name, cookie_value));
+    parsed_cookies->emplace_back(cookie_name.as_string(),
+                                 cookie_value.as_string());
     // Eat ';'.
     if (i != header_value.end()) ++i;
   }
@@ -349,8 +357,7 @@ void ParseRequestCookieLine(const std::string& header_value,
 std::string SerializeRequestCookieLine(
     const ParsedRequestCookies& parsed_cookies) {
   std::string buffer;
-  for (ParsedRequestCookies::const_iterator i = parsed_cookies.begin();
-       i != parsed_cookies.end(); ++i) {
+  for (auto i = parsed_cookies.begin(); i != parsed_cookies.end(); ++i) {
     if (!buffer.empty())
       buffer.append("; ");
     buffer.append(i->first.begin(), i->first.end());

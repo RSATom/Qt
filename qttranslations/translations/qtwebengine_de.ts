@@ -316,10 +316,6 @@
         <translation>Es kann keine separate Instanz der Klasse WebEngineNewViewRequest erstellt werden</translation>
     </message>
     <message>
-        <source>Cannot create a separate instance of WebEngineSettings</source>
-        <translation>Es kann keine separate Instanz der Klasse WebEngineSettings erstellt werden</translation>
-    </message>
-    <message>
         <source>Cannot create a separate instance of NavigationHistory</source>
         <translation>Es kann keine separate Instanz der Klasse NavigationHistory erstellt werden</translation>
     </message>

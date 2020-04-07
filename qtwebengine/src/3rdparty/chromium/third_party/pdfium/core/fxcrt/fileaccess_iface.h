@@ -7,7 +7,6 @@
 #ifndef CORE_FXCRT_FILEACCESS_IFACE_H_
 #define CORE_FXCRT_FILEACCESS_IFACE_H_
 
-#include <algorithm>
 #include <memory>
 
 #include "core/fxcrt/fx_safe_types.h"
@@ -17,10 +16,10 @@
 class FileAccessIface {
  public:
   static std::unique_ptr<FileAccessIface> Create();
-  virtual ~FileAccessIface() {}
+  virtual ~FileAccessIface() = default;
 
-  virtual bool Open(const ByteStringView& fileName, uint32_t dwMode) = 0;
-  virtual bool Open(const WideStringView& fileName, uint32_t dwMode) = 0;
+  virtual bool Open(ByteStringView fileName, uint32_t dwMode) = 0;
+  virtual bool Open(WideStringView fileName, uint32_t dwMode) = 0;
   virtual void Close() = 0;
   virtual FX_FILESIZE GetSize() const = 0;
   virtual FX_FILESIZE GetPosition() const = 0;

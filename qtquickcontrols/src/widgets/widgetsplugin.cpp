@@ -39,10 +39,19 @@
 
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqml.h>
+#include <QtWidgets/qtwidgetsglobal.h>
+#if QT_CONFIG(messagebox)
 #include "qquickqmessagebox_p.h"
+#endif // QT_CONFIG(messagebox)
+#if QT_CONFIG(filedialog)
 #include "qquickqfiledialog_p.h"
+#endif // QT_CONFIG(filedialog)
+#if QT_CONFIG(colordialog)
 #include "qquickqcolordialog_p.h"
+#endif // QT_CONFIG(colordialog)
+#if QT_CONFIG(fontdialog)
 #include "qquickqfontdialog_p.h"
+#endif // QT_CONFIG(fontdialog)
 
 QT_BEGIN_NAMESPACE
 

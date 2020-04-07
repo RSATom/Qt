@@ -340,9 +340,9 @@ void tst_QScriptEngineDebugger::consoleCommands()
     debugger.attachTo(&engine);
 
     QWidget *consoleWidget = debugger.widget(QScriptEngineDebugger::ConsoleWidget);
-    QLineEdit *inputEdit = qFindChild<QLineEdit*>(consoleWidget);
+    QLineEdit *inputEdit = consoleWidget->findChild<QLineEdit*>();
     QVERIFY(inputEdit != 0);
-    QPlainTextEdit *outputEdit = qFindChild<QPlainTextEdit*>(consoleWidget);
+    QPlainTextEdit *outputEdit = consoleWidget->findChild<QPlainTextEdit*>();
     QVERIFY(outputEdit != 0);
 
     QVERIFY(outputEdit->toPlainText().startsWith("Welcome to the Qt Script debugger."));
@@ -351,7 +351,7 @@ void tst_QScriptEngineDebugger::consoleCommands()
     // print()
     {
         QWidget *debugOutputWidget = debugger.widget(QScriptEngineDebugger::DebugOutputWidget);
-        QPlainTextEdit *debugOutputEdit = qFindChild<QPlainTextEdit*>(debugOutputWidget);
+        QPlainTextEdit *debugOutputEdit = debugOutputWidget->findChild<QPlainTextEdit*>();
         QVERIFY(debugOutputEdit != 0);
 
         QVERIFY(debugOutputEdit->toPlainText().isEmpty());

@@ -65,6 +65,11 @@ PACKAGE_INFO.update({
         'org.chromium.chromedriver_webview_shell.Main',
         None,
         None),
+    'android_webview_cts': chrome.PackageInfo(
+        'com.android.webview',
+        'com.android.cts.webkit.WebViewStartupCtsActivity',
+        'webview-command-line',
+        None),
 })
 
 
@@ -103,8 +108,6 @@ ANDROID_SDK_TOOLS = os.path.join(ANDROID_SDK_ROOT,
                                  'build-tools', ANDROID_SDK_BUILD_TOOLS_VERSION)
 ANDROID_NDK_ROOT = os.path.join(DIR_SOURCE_ROOT,
                                 'third_party', 'android_ndk')
-
-PROGUARD_ROOT = os.path.join(DIR_SOURCE_ROOT, 'third_party', 'proguard')
 
 BAD_DEVICES_JSON = os.path.join(DIR_SOURCE_ROOT,
                                 os.environ.get('CHROMIUM_OUT_DIR', 'out'),

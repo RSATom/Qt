@@ -428,9 +428,14 @@ base::FilePath MakeAbsoluteFilePathRelativeIfPossible(
   target.GetComponents(&target_components);
 #if defined(OS_WIN)
   // On Windows, it's impossible to have a relative path from C:\foo to D:\bar,
-  // so return the target as an aboslute path instead.
+  // so return the target as an absolute path instead.
   if (base_components[0] != target_components[0])
     return target;
+
+  // GetComponents() returns the first slash after the root. Set it to the
+  // same value in both component lists so that relative paths between
+  // "C:/foo/..." and "C:\foo\..." are computed correctly.
+  target_components[1] = base_components[1];
 #endif
   size_t i;
   for (i = 0; i < base_components.size() && i < target_components.size(); i++) {
@@ -587,6 +592,11 @@ void NormalizePath(std::string* path, const base::StringPiece& source_root) {
 
 void ConvertPathToSystem(std::string* path) {
 #if defined(OS_WIN)
+  if (path->size() > 2) {
+    if (IsSlash((*path)[0]) && (*path)[2] == ':') {
+      *path = path->substr(1);
+    }
+  }
   for (size_t i = 0; i < path->size(); i++) {
     if ((*path)[i] == '/')
       (*path)[i] = '\\';
@@ -621,6 +631,13 @@ std::string MakeRelativePath(const std::string& input,
       std::string corrected_input = input;
       corrected_input[letter_pos] = dest[letter_pos];
       return MakeRelativePath(corrected_input, dest);
+    }
+    // Give up if the drive paths are different so we don't end up
+    // returning a meaningless result.
+    if (input[letter_pos] != dest[letter_pos]) {
+      std::string ret = input;
+      ConvertPathToSystem(&ret);
+      return ret;
     }
   }
 #endif

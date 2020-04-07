@@ -11,15 +11,18 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_RENDER_BUFFER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_RENDER_BUFFER_H_
 
+#include <stddef.h>
 #include <array>
-#include <memory>
+#include <vector>
 
 #include "api/array_view.h"
+#include "modules/audio_processing/aec3/aec3_common.h"
 #include "modules/audio_processing/aec3/fft_buffer.h"
 #include "modules/audio_processing/aec3/fft_data.h"
 #include "modules/audio_processing/aec3/matrix_buffer.h"
 #include "modules/audio_processing/aec3/vector_buffer.h"
-#include "rtc_base/constructormagic.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -60,6 +63,12 @@ class RenderBuffer {
   // Returns the sum of the spectrums for a certain number of FFTs.
   void SpectralSum(size_t num_spectra,
                    std::array<float, kFftLengthBy2Plus1>* X2) const;
+
+  // Returns the sums of the spectrums for two numbers of FFTs.
+  void SpectralSums(size_t num_spectra_shorter,
+                    size_t num_spectra_longer,
+                    std::array<float, kFftLengthBy2Plus1>* X2_shorter,
+                    std::array<float, kFftLengthBy2Plus1>* X2_longer) const;
 
   // Gets the recent activity seen in the render signal.
   bool GetRenderActivity() const { return render_activity_; }

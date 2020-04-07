@@ -25,6 +25,7 @@ namespace content {
 class ResourceContext;
 class URLLoaderThrottle;
 class SignedExchangeLoader;
+class SignedExchangePrefetchMetricRecorder;
 
 // Attached to each PrefetchURLLoader if the prefetch is for a signed exchange.
 class SignedExchangePrefetchHandler final
@@ -39,19 +40,16 @@ class SignedExchangePrefetchHandler final
   // creates this handler).
   SignedExchangePrefetchHandler(
       base::RepeatingCallback<int(void)> frame_tree_node_id_getter,
-      bool report_raw_headers,
-      int load_flags,
-      const base::Optional<base::UnguessableToken>& throttling_profile_id,
+      const network::ResourceRequest& resource_request,
       const network::ResourceResponseHead& response,
       network::mojom::URLLoaderPtr network_loader,
       network::mojom::URLLoaderClientRequest network_client_request,
       scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory,
-      url::Origin request_initiator,
-      const GURL& outer_request_url,
       URLLoaderThrottlesGetter loader_throttles_getter,
       ResourceContext* resource_context,
       scoped_refptr<net::URLRequestContextGetter> request_context_getter,
-      network::mojom::URLLoaderClient* forwarding_client);
+      network::mojom::URLLoaderClient* forwarding_client,
+      scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder);
 
   ~SignedExchangePrefetchHandler() override;
 

@@ -24,10 +24,10 @@
  * Google Author(s): Behdad Esfahbod
  */
 
-#include "hb-ot-shape-complex-myanmar-private.hh"
+#include "hb-ot-shape-complex-myanmar.hh"
 
 int
-main (void)
+main ()
 {
   for (hb_codepoint_t u = 0; u <= 0x10FFFF; u++)
   {

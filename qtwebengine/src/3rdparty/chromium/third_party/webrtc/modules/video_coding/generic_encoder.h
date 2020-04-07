@@ -15,29 +15,17 @@
 #include <list>
 #include <vector>
 
+#include "api/units/data_rate.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_coding_defines.h"
-
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/race_checker.h"
 
 namespace webrtc {
 
-namespace media_optimization {
-class MediaOptimization;
-}  // namespace media_optimization
-
-struct EncoderParameters {
-  VideoBitrateAllocation target_bitrate;
-  uint8_t loss_rate;
-  int64_t rtt;
-  uint32_t input_frame_rate;
-};
-
 class VCMEncodedFrameCallback : public EncodedImageCallback {
  public:
-  VCMEncodedFrameCallback(EncodedImageCallback* post_encode_callback,
-                          media_optimization::MediaOptimization* media_opt);
+  explicit VCMEncodedFrameCallback(EncodedImageCallback* post_encode_callback);
   ~VCMEncodedFrameCallback() override;
 
   // Implements EncodedImageCallback.
@@ -88,7 +76,6 @@ class VCMEncodedFrameCallback : public EncodedImageCallback {
   rtc::CriticalSection timing_params_lock_;
   bool internal_source_;
   EncodedImageCallback* const post_encode_callback_;
-  media_optimization::MediaOptimization* const media_opt_;
 
   struct EncodeStartTimeRecord {
     EncodeStartTimeRecord(uint32_t timestamp,
@@ -141,12 +128,12 @@ class VCMGenericEncoder {
                  const CodecSpecificInfo* codec_specific,
                  const std::vector<FrameType>& frame_types);
 
-  void SetEncoderParameters(const EncoderParameters& params);
-  EncoderParameters GetEncoderParameters() const;
+  void SetEncoderParameters(const VideoBitrateAllocation& target_bitrate,
+                            uint32_t input_frame_rate);
 
   int32_t RequestFrame(const std::vector<FrameType>& frame_types);
   bool InternalSource() const;
-  bool SupportsNativeHandle() const;
+  VideoEncoder::EncoderInfo GetEncoderInfo() const;
 
  private:
   rtc::RaceChecker race_checker_;
@@ -155,7 +142,8 @@ class VCMGenericEncoder {
   VCMEncodedFrameCallback* const vcm_encoded_frame_callback_;
   const bool internal_source_;
   rtc::CriticalSection params_lock_;
-  EncoderParameters encoder_params_ RTC_GUARDED_BY(params_lock_);
+  VideoBitrateAllocation bitrate_allocation_ RTC_GUARDED_BY(params_lock_);
+  uint32_t input_frame_rate_ RTC_GUARDED_BY(params_lock_);
   size_t streams_or_svc_num_ RTC_GUARDED_BY(race_checker_);
   VideoCodecType codec_type_ RTC_GUARDED_BY(race_checker_);
 };

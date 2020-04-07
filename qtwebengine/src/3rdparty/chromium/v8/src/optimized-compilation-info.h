@@ -8,8 +8,6 @@
 #include <memory>
 
 #include "src/bailout-reason.h"
-#include "src/code-reference.h"
-#include "src/feedback-vector.h"
 #include "src/frames.h"
 #include "src/globals.h"
 #include "src/handles.h"
@@ -21,15 +19,16 @@
 namespace v8 {
 namespace internal {
 
-class CoverageInfo;
-class DeclarationScope;
 class DeferredHandles;
 class FunctionLiteral;
 class Isolate;
 class JavaScriptFrame;
-class ParseInfo;
-class SourceRangeMap;
+class JSGlobalObject;
 class Zone;
+
+namespace wasm {
+struct WasmCompilationResult;
+}
 
 // OptimizedCompilationInfo encapsulates the information needed to compile
 // optimized code for a given function, and the results of the optimized
@@ -56,6 +55,7 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
     kTraceTurboJson = 1 << 14,
     kTraceTurboGraph = 1 << 15,
     kTraceTurboScheduled = 1 << 16,
+    kWasmRuntimeExceptionSupport = 1 << 17
   };
 
   // Construct a compilation info for optimized compilation.
@@ -72,19 +72,11 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
   bool is_osr() const { return !osr_offset_.IsNone(); }
   Handle<SharedFunctionInfo> shared_info() const { return shared_info_; }
   bool has_shared_info() const { return !shared_info().is_null(); }
+  Handle<BytecodeArray> bytecode_array() const { return bytecode_array_; }
+  bool has_bytecode_array() const { return !bytecode_array_.is_null(); }
   Handle<JSFunction> closure() const { return closure_; }
-  Handle<Code> code() const { return code_.as_js_code(); }
-
-  wasm::WasmCode* wasm_code() const {
-    return const_cast<wasm::WasmCode*>(code_.as_wasm_code());
-  }
-  AbstractCode::Kind abstract_code_kind() const { return code_kind_; }
-  Code::Kind code_kind() const {
-    DCHECK(code_kind_ < static_cast<AbstractCode::Kind>(Code::NUMBER_OF_KINDS));
-    return static_cast<Code::Kind>(code_kind_);
-  }
-  uint32_t stub_key() const { return stub_key_; }
-  void set_stub_key(uint32_t stub_key) { stub_key_ = stub_key; }
+  Handle<Code> code() const { return code_; }
+  Code::Kind code_kind() const { return code_kind_; }
   int32_t builtin_index() const { return builtin_index_; }
   void set_builtin_index(int32_t index) { builtin_index_ = index; }
   BailoutId osr_offset() const { return osr_offset_; }
@@ -166,6 +158,14 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
     return GetFlag(kAnalyzeEnvironmentLiveness);
   }
 
+  void SetWasmRuntimeExceptionSupport() {
+    SetFlag(kWasmRuntimeExceptionSupport);
+  }
+
+  bool wasm_runtime_exception_support() {
+    return GetFlag(kWasmRuntimeExceptionSupport);
+  }
+
   bool trace_turbo_json_enabled() const { return GetFlag(kTraceTurboJson); }
 
   bool trace_turbo_graph_enabled() const { return GetFlag(kTraceTurboGraph); }
@@ -176,30 +176,26 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
 
   // Code getters and setters.
 
-  template <typename T>
-  void SetCode(T code) {
-    code_ = CodeReference(code);
-  }
+  void SetCode(Handle<Code> code) { code_ = code; }
+
+  void SetWasmCompilationResult(std::unique_ptr<wasm::WasmCompilationResult>);
+  std::unique_ptr<wasm::WasmCompilationResult> ReleaseWasmCompilationResult();
 
   bool has_context() const;
-  Context* context() const;
+  Context context() const;
 
   bool has_native_context() const;
-  Context* native_context() const;
+  Context native_context() const;
 
   bool has_global_object() const;
-  JSGlobalObject* global_object() const;
+  JSGlobalObject global_object() const;
 
   // Accessors for the different compilation modes.
-  bool IsOptimizing() const {
-    return abstract_code_kind() == AbstractCode::OPTIMIZED_FUNCTION;
-  }
-  bool IsWasm() const {
-    return abstract_code_kind() == AbstractCode::WASM_FUNCTION;
-  }
-  bool IsStub() const {
-    return abstract_code_kind() != AbstractCode::OPTIMIZED_FUNCTION &&
-           abstract_code_kind() != AbstractCode::WASM_FUNCTION;
+  bool IsOptimizing() const { return code_kind() == Code::OPTIMIZED_FUNCTION; }
+  bool IsWasm() const { return code_kind() == Code::WASM_FUNCTION; }
+  bool IsNotOptimizedFunctionOrWasmFunction() const {
+    return code_kind() != Code::OPTIMIZED_FUNCTION &&
+           code_kind() != Code::WASM_FUNCTION;
   }
   void SetOptimizingForOsr(BailoutId osr_offset, JavaScriptFrame* osr_frame) {
     DCHECK(IsOptimizing());
@@ -236,12 +232,14 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
 
   struct InlinedFunctionHolder {
     Handle<SharedFunctionInfo> shared_info;
+    Handle<BytecodeArray> bytecode_array;
 
     InliningPosition position;
 
     InlinedFunctionHolder(Handle<SharedFunctionInfo> inlined_shared_info,
+                          Handle<BytecodeArray> inlined_bytecode,
                           SourcePosition pos)
-        : shared_info(inlined_shared_info) {
+        : shared_info(inlined_shared_info), bytecode_array(inlined_bytecode) {
       position.position = pos;
       // initialized when generating the deoptimization literals
       position.inlined_function_id = DeoptimizationData::kNotInlinedIndex;
@@ -257,6 +255,7 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
 
   // Returns the inlining id for source position tracking.
   int AddInlinedFunction(Handle<SharedFunctionInfo> inlined_function,
+                         Handle<BytecodeArray> inlined_bytecode,
                          SourcePosition pos);
 
   std::unique_ptr<char[]> GetDebugName() const;
@@ -272,8 +271,8 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
   }
 
  private:
-  OptimizedCompilationInfo(Vector<const char> debug_name,
-                           AbstractCode::Kind code_kind, Zone* zone);
+  OptimizedCompilationInfo(Code::Kind code_kind, Zone* zone);
+  void ConfigureFlags();
 
   void SetFlag(Flag flag) { flags_ |= flag; }
   bool GetFlag(Flag flag) const { return (flags_ & flag) != 0; }
@@ -281,23 +280,29 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
   void SetTracingFlags(bool passes_filter);
 
   // Compilation flags.
-  unsigned flags_;
+  unsigned flags_ = 0;
   PoisoningMitigationLevel poisoning_level_ =
       PoisoningMitigationLevel::kDontPoison;
 
-  AbstractCode::Kind code_kind_;
-  uint32_t stub_key_;
-  int32_t builtin_index_;
+  Code::Kind code_kind_;
+  int32_t builtin_index_ = -1;
+
+  // We retain a reference the bytecode array specifically to ensure it doesn't
+  // get flushed while we are optimizing the code.
+  Handle<BytecodeArray> bytecode_array_;
 
   Handle<SharedFunctionInfo> shared_info_;
 
   Handle<JSFunction> closure_;
 
   // The compiled code.
-  CodeReference code_;
+  Handle<Code> code_;
+
+  // The WebAssembly compilation result, not published in the NativeModule yet.
+  std::unique_ptr<wasm::WasmCompilationResult> wasm_compilation_result_;
 
   // Entry point when compiling for OSR, {BailoutId::None} otherwise.
-  BailoutId osr_offset_;
+  BailoutId osr_offset_ = BailoutId::None();
 
   // The zone from which the compilation pipeline working on this
   // OptimizedCompilationInfo allocates.
@@ -305,11 +310,11 @@ class V8_EXPORT_PRIVATE OptimizedCompilationInfo final {
 
   std::shared_ptr<DeferredHandles> deferred_handles_;
 
-  BailoutReason bailout_reason_;
+  BailoutReason bailout_reason_ = BailoutReason::kNoReason;
 
   InlinedFunctionList inlined_functions_;
 
-  int optimization_id_;
+  int optimization_id_ = -1;
 
   // The current OSR frame for specialization or {nullptr}.
   JavaScriptFrame* osr_frame_ = nullptr;

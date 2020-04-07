@@ -151,6 +151,11 @@ bool QApplicationArgument::operator==(const QApplicationArgument &other) const
     return name() == other.name();
 }
 
+bool QApplicationArgument::operator<(const QApplicationArgument &other) const
+{
+    return name() < other.name();
+}
+
 /*!
   \fn qHash(const QApplicationArgument &);
   \internal

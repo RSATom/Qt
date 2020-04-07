@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_STIPPLE_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Stipple;
 
-class CJX_Stipple : public CJX_Node {
+class CJX_Stipple final : public CJX_Node {
  public:
   explicit CJX_Stipple(CXFA_Stipple* node);
   ~CJX_Stipple() override;
-
-  JS_PROP(rate);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_STIPPLE_H_

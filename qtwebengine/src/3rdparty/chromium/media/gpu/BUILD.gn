@@ -8,6 +8,7 @@ import("//build/config/ui.gni")
 import("//media/gpu/args.gni")
 import("//media/media_options.gni")
 import("//testing/test.gni")
+import("//tools/generate_stubs/rules.gni")
 
 buildflag_header("buildflags") {
   header = "buildflags.h"
@@ -24,38 +25,13 @@ if (is_mac) {
 }
 
 if (is_chromeos && use_v4lplugin) {
-  action("libv4l2_generate_stubs") {
+  generate_stubs("libv4l2_stubs") {
     extra_header = "v4l2/v4l2_stub_header.fragment"
-
-    script = "../../tools/generate_stubs/generate_stubs.py"
-    sources = [
-      "v4l2/v4l2.sig",
+    sigs = [ "v4l2/v4l2.sig" ]
+    output_name = "v4l2/v4l2_stubs"
+    deps = [
+      "//base",
     ]
-    inputs = [
-      extra_header,
-    ]
-    stubs_filename_root = "v4l2_stubs"
-
-    outputs = [
-      "$target_gen_dir/v4l2/$stubs_filename_root.cc",
-      "$target_gen_dir/v4l2/$stubs_filename_root.h",
-    ]
-    args = [
-      "-i",
-      rebase_path("$target_gen_dir/v4l2", root_build_dir),
-      "-o",
-      rebase_path("$target_gen_dir/v4l2", root_build_dir),
-      "-t",
-      "posix_stubs",
-      "-e",
-      rebase_path(extra_header, root_build_dir),
-      "-s",
-      stubs_filename_root,
-      "-p",
-      "media/gpu/v4l2",
-    ]
-
-    args += rebase_path(sources, root_build_dir)
   }
 }
 
@@ -68,11 +44,13 @@ component("gpu") {
     "//chrome/gpu",
     "//components/arc/common:media",
     "//components/arc/video_accelerator",
+    "//components/mirroring/service:mirroring_service",
     "//components/viz/service/main",
     "//content/gpu:*",
     "//content/renderer:*",
     "//media/gpu/ipc/*",
     "//media/gpu/vaapi/*",
+    "//media/gpu/test/*",
     "//media/mojo/*",
     "//remoting/codec:encoder",
     ":*",
@@ -105,7 +83,14 @@ component("gpu") {
     "gpu_video_decode_accelerator_factory.h",
     "gpu_video_encode_accelerator_factory.cc",
     "gpu_video_encode_accelerator_factory.h",
+    "image_processor.cc",
     "image_processor.h",
+    "image_processor_factory.cc",
+    "image_processor_factory.h",
+    "libyuv_image_processor.cc",
+    "libyuv_image_processor.h",
+    "platform_video_frame.cc",
+    "platform_video_frame.h",
   ]
 
   public_deps = [
@@ -114,13 +99,14 @@ component("gpu") {
     "//base",
     "//gpu",
     "//media",
-    "//third_party/mesa:mesa_headers",
+    "//third_party/mesa_headers",
     "//ui/gfx/geometry",
   ]
   deps = [
     "//gpu/command_buffer/common:gles2_utils",
     "//gpu/command_buffer/service:gles2",
     "//gpu/ipc/service",
+    "//third_party/libyuv",
     "//ui/base",
     "//ui/display/types",
     "//ui/gl",
@@ -151,11 +137,10 @@ component("gpu") {
     sources += [
       "android/android_video_decode_accelerator.cc",
       "android/android_video_decode_accelerator.h",
+      "android/android_video_surface_chooser.cc",
       "android/android_video_surface_chooser.h",
       "android/android_video_surface_chooser_impl.cc",
       "android/android_video_surface_chooser_impl.h",
-      "android/avda_codec_allocator.cc",
-      "android/avda_codec_allocator.h",
       "android/avda_codec_image.cc",
       "android/avda_codec_image.h",
       "android/avda_picture_buffer_manager.cc",
@@ -165,6 +150,8 @@ component("gpu") {
       "android/avda_state_provider.h",
       "android/avda_surface_bundle.cc",
       "android/avda_surface_bundle.h",
+      "android/codec_allocator.cc",
+      "android/codec_allocator.h",
       "android/codec_image.cc",
       "android/codec_image.h",
       "android/codec_image_group.cc",
@@ -194,7 +181,10 @@ component("gpu") {
     ]
     libs += [ "android" ]
     deps += [
+      "//gpu/ipc/common:android_image_reader_utils",
+
       # TODO(crbug.com/789435): This can be removed once CdmManager is removed.
+      "//gpu/ipc/common:ipc_common_sources",
       "//media/mojo:buildflags",
       "//services/service_manager/public/cpp:cpp",
       "//ui/gl:gl_jni_headers",
@@ -217,31 +207,38 @@ component("gpu") {
   }
 
   if (use_v4lplugin) {
-    sources += get_target_outputs(":libv4l2_generate_stubs")
-    deps += [ ":libv4l2_generate_stubs" ]
+    deps += [ ":libv4l2_stubs" ]
   }
 
   if (use_v4l2_codec) {
-    deps += [
-      "//third_party/libyuv",
-      "//ui/ozone",
-    ]
     sources += [
       "v4l2/generic_v4l2_device.cc",
       "v4l2/generic_v4l2_device.h",
+      "v4l2/v4l2_decode_surface.cc",
+      "v4l2/v4l2_decode_surface.h",
+      "v4l2/v4l2_decode_surface_handler.h",
       "v4l2/v4l2_device.cc",
       "v4l2/v4l2_device.h",
+      "v4l2/v4l2_h264_accelerator.cc",
+      "v4l2/v4l2_h264_accelerator.h",
       "v4l2/v4l2_image_processor.cc",
       "v4l2/v4l2_image_processor.h",
       "v4l2/v4l2_jpeg_decode_accelerator.cc",
       "v4l2/v4l2_jpeg_decode_accelerator.h",
+      "v4l2/v4l2_jpeg_encode_accelerator.cc",
+      "v4l2/v4l2_jpeg_encode_accelerator.h",
       "v4l2/v4l2_slice_video_decode_accelerator.cc",
       "v4l2/v4l2_slice_video_decode_accelerator.h",
       "v4l2/v4l2_video_decode_accelerator.cc",
       "v4l2/v4l2_video_decode_accelerator.h",
       "v4l2/v4l2_video_encode_accelerator.cc",
       "v4l2/v4l2_video_encode_accelerator.h",
+      "v4l2/v4l2_vp8_accelerator.cc",
+      "v4l2/v4l2_vp8_accelerator.h",
+      "v4l2/v4l2_vp9_accelerator.cc",
+      "v4l2/v4l2_vp9_accelerator.h",
     ]
+
     libs = [
       "EGL",
       "GLESv2",
@@ -260,15 +257,21 @@ component("gpu") {
 
   if (is_win) {
     sources += [
-      "windows/d3d11_create_device_cb.h",
       "windows/d3d11_h264_accelerator.cc",
       "windows/d3d11_h264_accelerator.h",
       "windows/d3d11_picture_buffer.cc",
       "windows/d3d11_picture_buffer.h",
+      "windows/d3d11_video_context_wrapper.cc",
+      "windows/d3d11_video_context_wrapper.h",
       "windows/d3d11_video_decoder.cc",
       "windows/d3d11_video_decoder.h",
+      "windows/d3d11_video_decoder_client.h",
       "windows/d3d11_video_decoder_impl.cc",
       "windows/d3d11_video_decoder_impl.h",
+      "windows/d3d11_vp9_accelerator.cc",
+      "windows/d3d11_vp9_accelerator.h",
+      "windows/d3d11_vp9_picture.cc",
+      "windows/d3d11_vp9_picture.h",
       "windows/dxva_picture_buffer_win.cc",
       "windows/dxva_picture_buffer_win.h",
       "windows/dxva_video_decode_accelerator_win.cc",
@@ -282,10 +285,9 @@ component("gpu") {
       "//build/config/compiler:no_size_t_to_int_warning",
       "//third_party/khronos:khronos_headers",
     ]
-    public_deps += [ "//media/base/win" ]
+    public_deps += [ "//media/base/win:media_foundation_util" ]
     deps += [
       "//third_party/angle:includes",
-      "//third_party/libyuv",
       "//ui/display",
     ]
     libs += [
@@ -313,6 +315,10 @@ component("gpu") {
       ]
     }
   }
+
+  if (use_ozone) {
+    deps += [ "//ui/ozone" ]
+  }
 }
 
 source_set("common") {
@@ -324,23 +330,27 @@ source_set("common") {
     "format_utils.cc",
     "format_utils.h",
     "gpu_video_decode_accelerator_helpers.h",
+    "gpu_video_encode_accelerator_helpers.cc",
+    "gpu_video_encode_accelerator_helpers.h",
     "h264_decoder.cc",
     "h264_decoder.h",
     "h264_dpb.cc",
     "h264_dpb.h",
+    "macros.h",
+    "vp9_decoder.cc",
+    "vp9_decoder.h",
+    "vp9_picture.cc",
+    "vp9_picture.h",
   ]
   if (use_v4l2_codec || use_vaapi) {
     sources += [
+      "decode_surface_handler.h",
       "vp8_decoder.cc",
       "vp8_decoder.h",
       "vp8_picture.cc",
       "vp8_picture.h",
       "vp8_reference_frame_vector.cc",
       "vp8_reference_frame_vector.h",
-      "vp9_decoder.cc",
-      "vp9_decoder.h",
-      "vp9_picture.cc",
-      "vp9_picture.h",
     ]
   }
 
@@ -349,6 +359,7 @@ source_set("common") {
     "//base",
     "//media",
     "//ui/gfx:buffer_types",
+    "//ui/gfx:memory_buffer",
     "//ui/gfx/geometry",
   ]
 }
@@ -356,10 +367,6 @@ source_set("common") {
 # TODO(watk): Run this on bots. http://crbug.com/461437
 if (is_win || is_android || use_v4l2_codec || use_vaapi) {
   test("video_decode_accelerator_unittest") {
-    sources = [
-      "test/video_accelerator_unittest_helpers.h",
-    ]
-
     data = [
       "//media/test/data/",
     ]
@@ -370,6 +377,7 @@ if (is_win || is_android || use_v4l2_codec || use_vaapi) {
       "//base",
       "//base/test:test_support",
       "//media:test_support",
+      "//mojo/core/embedder",
       "//testing/gtest",
       "//ui/base",
       "//ui/display/manager",
@@ -384,14 +392,12 @@ if (is_win || is_android || use_v4l2_codec || use_vaapi) {
     configs += [ "//third_party/khronos:khronos_headers" ]
 
     if (is_win || is_chromeos || use_v4l2_codec) {
-      sources += [
-        "test/rendering_helper.cc",
-        "test/rendering_helper.h",
-        "test/video_decode_accelerator_unittest_helpers.cc",
-        "test/video_decode_accelerator_unittest_helpers.h",
+      sources = [
         "video_decode_accelerator_unittest.cc",
       ]
       deps += [
+        "test:decode_helpers",
+        "test:frame_validator",
         "//mojo/core/embedder",
         "//ui/display",
         "//ui/display/types",
@@ -436,7 +442,7 @@ source_set("android_video_decode_accelerator_unittests") {
     sources = [
       "android/android_video_decode_accelerator_unittest.cc",
       "android/android_video_surface_chooser_impl_unittest.cc",
-      "android/avda_codec_allocator_unittest.cc",
+      "android/codec_allocator_unittest.cc",
       "android/codec_image_group_unittest.cc",
       "android/codec_image_unittest.cc",
       "android/codec_wrapper_unittest.cc",
@@ -444,6 +450,8 @@ source_set("android_video_decode_accelerator_unittests") {
       "android/fake_codec_allocator.h",
       "android/image_reader_gl_owner_unittest.cc",
       "android/media_codec_video_decoder_unittest.cc",
+      "android/mock_abstract_texture.cc",
+      "android/mock_abstract_texture.h",
       "android/mock_android_video_surface_chooser.cc",
       "android/mock_android_video_surface_chooser.h",
       "android/mock_device_info.cc",
@@ -476,10 +484,12 @@ source_set("android_video_decode_accelerator_unittests") {
 if (use_v4l2_codec || use_vaapi || is_mac || is_win) {
   test("video_encode_accelerator_unittest") {
     deps = [
+      "test:encode_helpers",
       "//base",
       "//base/test:test_support",
       "//media:test_support",
       "//media/gpu",
+      "//mojo/core/embedder",
       "//testing/gtest",
       "//ui/base",
       "//ui/gfx",
@@ -490,7 +500,6 @@ if (use_v4l2_codec || use_vaapi || is_mac || is_win) {
     ]
     configs += [ "//third_party/libyuv:libyuv_config" ]
     sources = [
-      "test/video_accelerator_unittest_helpers.h",
       "video_encode_accelerator_unittest.cc",
     ]
     if (use_x11) {
@@ -502,13 +511,15 @@ if (use_v4l2_codec || use_vaapi || is_mac || is_win) {
   }
 }
 
-if (use_vaapi) {
+if (use_v4l2_codec || use_vaapi) {
   test("jpeg_encode_accelerator_unittest") {
     deps = [
+      "test:helpers",
       "//base",
       "//base/test:test_support",
       "//media:test_support",
       "//media/gpu",
+      "//mojo/core/embedder",
       "//testing/gtest",
       "//third_party:jpeg",
       "//third_party/libyuv",
@@ -522,7 +533,6 @@ if (use_vaapi) {
     configs += [ "//third_party/libyuv:libyuv_config" ]
     sources = [
       "jpeg_encode_accelerator_unittest.cc",
-      "test/video_accelerator_unittest_helpers.h",
     ]
     if (use_x11) {
       deps += [ "//ui/gfx/x" ]
@@ -533,13 +543,15 @@ if (use_vaapi) {
   }
 }
 
-if (use_v4l2_codec || use_vaapi) {
+if (is_chromeos || is_linux) {
   test("jpeg_decode_accelerator_unittest") {
     deps = [
+      "test:helpers",
       "//base",
       "//media:test_support",
       "//media/gpu",
       "//media/mojo/services",
+      "//mojo/core/embedder",
       "//testing/gtest",
       "//third_party/libyuv",
       "//ui/base",
@@ -552,7 +564,6 @@ if (use_v4l2_codec || use_vaapi) {
     configs += [ "//third_party/libyuv:libyuv_config" ]
     sources = [
       "jpeg_decode_accelerator_unittest.cc",
-      "test/video_accelerator_unittest_helpers.h",
     ]
     data = [
       "//media/test/data/peach_pi-1280x720.jpg",
@@ -560,6 +571,10 @@ if (use_v4l2_codec || use_vaapi) {
       "//media/test/data/peach_pi-41x22.jpg",
       "//media/test/data/peach_pi-41x23.jpg",
     ]
+    if (use_vaapi) {
+      deps += [ "//media/gpu/vaapi:jpeg_decode_accelerator_unit_test" ]
+      data += [ "//media/test/data/pixel-1280x720.jpg" ]
+    }
     if (use_x11) {
       deps += [ "//ui/gfx/x" ]
     }
@@ -604,6 +619,9 @@ source_set("unit_tests") {
   if (use_vaapi) {
     deps += [ "//media/gpu/vaapi:unit_test" ]
   }
+  if (use_v4l2_codec) {
+    sources += [ "v4l2/v4l2_device_unittest.cc" ]
+  }
   if (use_v4l2_codec || use_vaapi) {
     sources += [ "vp8_decoder_unittest.cc" ]
   }
@@ -611,10 +629,47 @@ source_set("unit_tests") {
     sources += [
       "windows/d3d11_cdm_proxy_unittest.cc",
       "windows/d3d11_decryptor_unittest.cc",
-      "windows/d3d11_mocks.cc",
-      "windows/d3d11_mocks.h",
       "windows/d3d11_video_decoder_unittest.cc",
     ]
     libs = [ "dxguid.lib" ]
   }
+}
+
+# TODO(dstaessens@) Make this work on other platforms too.
+if (is_chromeos) {
+  test("video_decode_accelerator_tests") {
+    sources = [
+      "video_decode_accelerator_tests.cc",
+    ]
+    data = [
+      "//media/test/data/",
+    ]
+    deps = [
+      ":buildflags",
+      "test:frame_validator",
+      "test:video_player",
+      "//base/test:test_support",
+      "//media:test_support",
+      "//mojo/core/embedder",
+      "//testing/gtest",
+    ]
+    if (use_vaapi) {
+      deps += [ "//media/gpu/vaapi" ]
+    }
+  }
+}
+
+test("image_processor_test") {
+  sources = [
+    "image_processor_test.cc",
+  ]
+  deps = [
+    ":buildflags",
+    ":gpu",
+    "test:image_processor",
+    "//base/test:test_support",
+    "//media:test_support",
+    "//mojo/core/embedder",
+    "//testing/gtest",
+  ]
 }

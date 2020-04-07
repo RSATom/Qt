@@ -35,7 +35,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLuint,
                   GLuint);
   void bufferSubData(GLenum,
-                     GLintptr,
+                     long long offset,
                      MaybeShared<DOMArrayBufferView>,
                      GLuint,
                      GLuint);
@@ -98,7 +98,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLint,
                   GLenum,
                   GLenum,
-                  GLintptr);
+                  long long);
   void texImage2D(GLenum,
                   GLint,
                   GLint,
@@ -128,7 +128,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLint,
                   GLenum,
                   GLenum,
-                  HTMLCanvasElement*,
+                  CanvasRenderingContextHost*,
                   ExceptionState&);
   void texImage2D(ExecutionContext*,
                   GLenum,
@@ -170,7 +170,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLsizei,
                      GLenum,
                      GLenum,
-                     GLintptr);
+                     long long);
   void texSubImage2D(GLenum,
                      GLint,
                      GLint,
@@ -200,7 +200,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLsizei,
                      GLenum,
                      GLenum,
-                     HTMLCanvasElement*,
+                     CanvasRenderingContextHost*,
                      ExceptionState&);
   void texSubImage2D(ExecutionContext*,
                      GLenum,
@@ -252,7 +252,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLint,
                   GLenum,
                   GLenum,
-                  HTMLCanvasElement*,
+                  CanvasRenderingContextHost*,
                   ExceptionState&);
   void texImage2D(ExecutionContext*,
                   GLenum,
@@ -286,7 +286,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLint,
                      GLenum,
                      GLenum,
-                     HTMLCanvasElement*,
+                     CanvasRenderingContextHost*,
                      ExceptionState&);
   void texSubImage2D(ExecutionContext*,
                      GLenum,
@@ -361,7 +361,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLint,
                   GLenum,
                   GLenum,
-                  HTMLCanvasElement*,
+                  CanvasRenderingContextHost*,
                   ExceptionState&);
   void texImage3D(ExecutionContext*,
                   GLenum,
@@ -395,7 +395,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLint,
                   GLenum,
                   GLenum,
-                  GLintptr);
+                  long long);
   void texSubImage3D(GLenum,
                      GLint,
                      GLint,
@@ -418,7 +418,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLsizei,
                      GLenum,
                      GLenum,
-                     GLintptr);
+                     long long);
   void texSubImage3D(GLenum,
                      GLint,
                      GLint,
@@ -454,7 +454,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                      GLsizei,
                      GLenum,
                      GLenum,
-                     HTMLCanvasElement*,
+                     CanvasRenderingContextHost*,
                      ExceptionState&);
   void texSubImage3D(ExecutionContext*,
                      GLenum,
@@ -559,7 +559,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                             GLsizei height,
                             GLint border,
                             GLsizei image_size,
-                            GLintptr offset);
+                            long long offset);
   void compressedTexSubImage2D(GLenum target,
                                GLint level,
                                GLint xoffset,
@@ -568,7 +568,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                                GLsizei height,
                                GLenum format,
                                GLsizei image_size,
-                               GLintptr offset);
+                               long long offset);
   void compressedTexImage3D(GLenum target,
                             GLint level,
                             GLenum internalformat,
@@ -577,7 +577,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                             GLsizei depth,
                             GLint border,
                             GLsizei image_size,
-                            GLintptr offset);
+                            long long offset);
   void compressedTexSubImage3D(GLenum target,
                                GLint level,
                                GLint xoffset,
@@ -588,7 +588,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                                GLsizei depth,
                                GLenum format,
                                GLsizei image_size,
-                               GLintptr offset);
+                               long long offset);
 
   // Have to re-declare/re-define the following compressedTex{Sub}Image2D
   // functions from the base class. This is because the above
@@ -936,7 +936,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
                   GLenum format,
                   GLenum type,
                   MaybeShared<DOMArrayBufferView> pixels,
-                  GLuint offset);
+                  long long offset);
   void readPixels(GLint x,
                   GLint y,
                   GLsizei width,
@@ -1088,7 +1088,7 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
 
   const char* ValidateGetBufferSubData(const char* function_name,
                                        GLenum target,
-                                       GLintptr source_byte_offset,
+                                       long long source_byte_offset,
                                        DOMArrayBufferView*,
                                        GLuint destination_offset,
                                        GLuint length,
@@ -1127,10 +1127,16 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
   TraceWrapperMember<WebGLBuffer> bound_pixel_unpack_buffer_;
   TraceWrapperMember<WebGLBuffer> bound_transform_feedback_buffer_;
   TraceWrapperMember<WebGLBuffer> bound_uniform_buffer_;
+  TraceWrapperMember<WebGLBuffer> bound_atomic_counter_buffer_;
+  TraceWrapperMember<WebGLBuffer> bound_shader_storage_buffer_;
 
+  HeapVector<TraceWrapperMember<WebGLBuffer>>
+      bound_indexed_atomic_counter_buffers_;
+  HeapVector<TraceWrapperMember<WebGLBuffer>>
+      bound_indexed_shader_storage_buffers_;
   HeapVector<TraceWrapperMember<WebGLBuffer>> bound_indexed_uniform_buffers_;
   GLint max_transform_feedback_separate_attribs_;
-  size_t max_bound_uniform_buffer_index_;
+  wtf_size_t max_bound_uniform_buffer_index_;
 
   TraceWrapperMember<WebGLQuery> current_boolean_occlusion_query_;
   TraceWrapperMember<WebGLQuery>

@@ -10,11 +10,13 @@
 
 #include "modules/video_coding/h264_sprop_parameter_sets.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 
-#include "rtc_base/base64.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/third_party/base64/base64.h"
 
 namespace {
 

@@ -32,12 +32,13 @@ class GPU_EXPORT GpuMemoryBufferImplIOSurface : public GpuMemoryBufferImpl {
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      const DestructionCallback& callback);
+      DestructionCallback callback);
 
-  static base::Closure AllocateForTesting(const gfx::Size& size,
-                                          gfx::BufferFormat format,
-                                          gfx::BufferUsage usage,
-                                          gfx::GpuMemoryBufferHandle* handle);
+  static base::OnceClosure AllocateForTesting(
+      const gfx::Size& size,
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage,
+      gfx::GpuMemoryBufferHandle* handle);
 
   // Overridden from gfx::GpuMemoryBuffer:
   bool Map() override;
@@ -45,13 +46,14 @@ class GPU_EXPORT GpuMemoryBufferImplIOSurface : public GpuMemoryBufferImpl {
   void Unmap() override;
   int stride(size_t plane) const override;
   void SetColorSpace(const gfx::ColorSpace& color_space) override;
-  gfx::GpuMemoryBufferHandle GetHandle() const override;
+  gfx::GpuMemoryBufferType GetType() const override;
+  gfx::GpuMemoryBufferHandle CloneHandle() const override;
 
  private:
   GpuMemoryBufferImplIOSurface(gfx::GpuMemoryBufferId id,
                                const gfx::Size& size,
                                gfx::BufferFormat format,
-                               const DestructionCallback& callback,
+                               DestructionCallback callback,
                                IOSurfaceRef io_surface,
                                uint32_t lock_flags);
 

@@ -48,6 +48,13 @@
 #include <QOpenGLFunctions>
 #include <QLoggingCategory>
 
+#if defined(QT_STATIC)
+static void initResources()
+{
+    Q_INIT_RESOURCE(qtquickshapes);
+}
+#endif
+
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(QQSHAPE_LOG_TIME_DIRTY_SYNC, "qt.shape.time.sync")
@@ -82,7 +89,7 @@ QQuickShapeStrokeFillParams::QQuickShapeStrokeFillParams()
 
 /*!
     \qmltype ShapePath
-    \instantiates QQuickShapePath
+    //! \instantiates QQuickShapePath
     \inqmlmodule QtQuick.Shapes
     \ingroup qtquick-paths
     \ingroup qtquick-views
@@ -193,7 +200,7 @@ void QQuickShapePath::setStrokeColor(const QColor &color)
 }
 
 /*!
-    \qmlproperty color QtQuick.Shapes::ShapePath::strokeWidth
+    \qmlproperty real QtQuick.Shapes::ShapePath::strokeWidth
 
     This property holds the stroke width.
 
@@ -509,7 +516,7 @@ void QQuickShapePath::resetFillGradient()
 
 /*!
     \qmltype Shape
-    \instantiates QQuickShape
+    //! \instantiates QQuickShape
     \inqmlmodule QtQuick.Shapes
     \ingroup qtquick-paths
     \ingroup qtquick-views
@@ -662,7 +669,7 @@ struct QQuickShapeResourceInitializer
     QQuickShapeResourceInitializer()
     {
 #if defined(QT_STATIC)
-        Q_INIT_RESOURCE(qtquickshapes);
+        initResources();
 #endif
     }
 };
@@ -1116,7 +1123,7 @@ void QQuickShapePrivate::sync()
 
 /*!
     \qmltype ShapeGradient
-    \instantiates QQuickShapeGradient
+    //! \instantiates QQuickShapeGradient
     \inqmlmodule QtQuick.Shapes
     \ingroup qtquick-paths
     \ingroup qtquick-views
@@ -1167,7 +1174,7 @@ void QQuickShapeGradient::setSpread(SpreadMode mode)
 
 /*!
     \qmltype LinearGradient
-    \instantiates QQuickShapeLinearGradient
+    //! \instantiates QQuickShapeLinearGradient
     \inqmlmodule QtQuick.Shapes
     \ingroup qtquick-paths
     \ingroup qtquick-views
@@ -1258,7 +1265,7 @@ void QQuickShapeLinearGradient::setY2(qreal v)
 
 /*!
     \qmltype RadialGradient
-    \instantiates QQuickShapeRadialGradient
+    //! \instantiates QQuickShapeRadialGradient
     \inqmlmodule QtQuick.Shapes
     \ingroup qtquick-paths
     \ingroup qtquick-views
@@ -1411,7 +1418,7 @@ void QQuickShapeRadialGradient::setFocalRadius(qreal v)
 
 /*!
     \qmltype ConicalGradient
-    \instantiates QQuickShapeConicalGradient
+    //! \instantiates QQuickShapeConicalGradient
     \inqmlmodule QtQuick.Shapes
     \ingroup qtquick-paths
     \ingroup qtquick-views

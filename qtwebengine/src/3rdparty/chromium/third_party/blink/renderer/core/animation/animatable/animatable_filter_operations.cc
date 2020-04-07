@@ -34,7 +34,7 @@
 
 namespace blink {
 
-scoped_refptr<AnimatableValue> AnimatableFilterOperations::InterpolateTo(
+AnimatableValue* AnimatableFilterOperations::InterpolateTo(
     const AnimatableValue* value,
     double fraction) const {
   const AnimatableFilterOperations* target =
@@ -44,10 +44,10 @@ scoped_refptr<AnimatableValue> AnimatableFilterOperations::InterpolateTo(
     return DefaultInterpolateTo(this, value, fraction);
 
   FilterOperations result;
-  size_t from_size = Operations().size();
-  size_t to_size = target->Operations().size();
-  size_t size = std::max(from_size, to_size);
-  for (size_t i = 0; i < size; i++) {
+  wtf_size_t from_size = Operations().size();
+  wtf_size_t to_size = target->Operations().size();
+  wtf_size_t size = std::max(from_size, to_size);
+  for (wtf_size_t i = 0; i < size; i++) {
     FilterOperation* from =
         (i < from_size) ? operation_wrapper_->Operations().Operations()[i].Get()
                         : nullptr;
@@ -62,6 +62,11 @@ scoped_refptr<AnimatableValue> AnimatableFilterOperations::InterpolateTo(
       NOTREACHED();
   }
   return AnimatableFilterOperations::Create(result);
+}
+
+void AnimatableFilterOperations::Trace(Visitor* visitor) {
+  visitor->Trace(operation_wrapper_);
+  AnimatableValue::Trace(visitor);
 }
 
 }  // namespace blink

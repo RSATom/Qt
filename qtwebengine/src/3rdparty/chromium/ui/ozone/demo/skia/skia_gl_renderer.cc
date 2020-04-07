@@ -9,10 +9,12 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkFont.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/gl/GrGLAssembleInterface.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
+#include "ui/gfx/gpu_fence.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_implementation.h"
@@ -71,7 +73,7 @@ bool SkiaGlRenderer::Initialize() {
   gr_context_ = GrContext::MakeGL(std::move(native_interface), options);
   DCHECK(gr_context_);
 
-  PostRenderFrameTask(gfx::SwapResult::SWAP_ACK);
+  PostRenderFrameTask(gfx::SwapResult::SWAP_ACK, nullptr);
   return true;
 }
 
@@ -111,12 +113,19 @@ void SkiaGlRenderer::RenderFrame() {
         base::BindRepeating(&SkiaGlRenderer::OnPresentation,
                             weak_ptr_factory_.GetWeakPtr()));
   } else {
-    PostRenderFrameTask(gl_surface_->SwapBuffers(base::BindRepeating(
-        &SkiaGlRenderer::OnPresentation, weak_ptr_factory_.GetWeakPtr())));
+    PostRenderFrameTask(
+        gl_surface_->SwapBuffers(base::BindRepeating(
+            &SkiaGlRenderer::OnPresentation, weak_ptr_factory_.GetWeakPtr())),
+        nullptr);
   }
 }
 
-void SkiaGlRenderer::PostRenderFrameTask(gfx::SwapResult result) {
+void SkiaGlRenderer::PostRenderFrameTask(
+    gfx::SwapResult result,
+    std::unique_ptr<gfx::GpuFence> gpu_fence) {
+  if (gpu_fence)
+    gpu_fence->Wait();
+
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindRepeating(&SkiaGlRenderer::RenderFrame,
                                      weak_ptr_factory_.GetWeakPtr()));
@@ -149,9 +158,11 @@ void SkiaGlRenderer::Draw(SkCanvas* canvas, float fraction) {
   }
 
   // Draw a message with a nice black paint
-  paint.setSubpixelText(true);
   paint.setColor(SK_ColorBLACK);
-  paint.setTextSize(32);
+
+  SkFont font;
+  font.setSize(32);
+  font.setSubpixel(true);
 
   canvas->save();
   static const char message[] = "Hello Ozone";
@@ -167,8 +178,7 @@ void SkiaGlRenderer::Draw(SkCanvas* canvas, float fraction) {
 
   const char* text = use_ddl_ ? message_ddl : message;
   // Draw the text
-  canvas->drawText(text, strlen(text), 0, 0, paint);
-
+  canvas->drawString(text, 0, 0, font, paint);
   canvas->restore();
 }
 

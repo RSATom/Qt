@@ -12,6 +12,7 @@
 #include "modules/remote_bitrate_estimator/test/estimators/bbr.h"
 
 #include <stdlib.h>
+#include <time.h>
 #include <algorithm>
 
 #include "modules/remote_bitrate_estimator/test/estimators/congestion_window.h"
@@ -122,6 +123,34 @@ BbrBweSender::BbrBweSender(BitrateObserver* observer, Clock* clock)
 }
 
 BbrBweSender::~BbrBweSender() {}
+
+BbrBweSender::PacketStats::PacketStats() = default;
+
+BbrBweSender::PacketStats::PacketStats(
+    uint16_t sequence_number_,
+    int64_t last_sent_packet_send_time_ms_,
+    int64_t send_time_ms_,
+    int64_t ack_time_ms_,
+    int64_t last_acked_packet_ack_time_ms_,
+    size_t payload_size_bytes_,
+    size_t data_sent_bytes_,
+    size_t data_sent_before_last_sent_packet_bytes_,
+    size_t data_acked_bytes_,
+    size_t data_acked_before_last_acked_packet_bytes_)
+    : sequence_number(sequence_number_),
+      last_sent_packet_send_time_ms(last_sent_packet_send_time_ms_),
+      send_time_ms(send_time_ms_),
+      ack_time_ms(ack_time_ms_),
+      last_acked_packet_ack_time_ms(last_acked_packet_ack_time_ms_),
+      payload_size_bytes(payload_size_bytes_),
+      data_sent_bytes(data_sent_bytes_),
+      data_sent_before_last_sent_packet_bytes(
+          data_sent_before_last_sent_packet_bytes_),
+      data_acked_bytes(data_acked_bytes_),
+      data_acked_before_last_acked_packet_bytes(
+          data_acked_before_last_acked_packet_bytes_) {}
+
+BbrBweSender::PacketStats::PacketStats(const PacketStats&) = default;
 
 int BbrBweSender::GetFeedbackIntervalMs() const {
   return kFeedbackIntervalsMs;
@@ -539,9 +568,9 @@ FeedbackPacket* BbrBweReceiver::GetFeedback(int64_t now_ms) {
   last_feedback_ms_ = now_ms;
   int64_t corrected_send_time_ms = 0L;
   if (!received_packets_.empty()) {
-    PacketIdentifierNode* latest = *(received_packets_.begin());
+    PacketIdentifierNode& latest = *(received_packets_.begin());
     corrected_send_time_ms =
-        latest->send_time_ms + now_ms - latest->arrival_time_ms;
+        latest.send_time_ms + now_ms - latest.arrival_time_ms;
   }
   FeedbackPacket* fb = new BbrBweFeedback(
       flow_id_, now_ms * 1000, corrected_send_time_ms, packet_feedbacks_);

@@ -21,9 +21,8 @@ namespace gles2 {
 
 DecoderFramebufferState::DecoderFramebufferState()
     : clear_state_dirty(false),
-      bound_read_framebuffer(NULL),
-      bound_draw_framebuffer(NULL) {
-}
+      bound_read_framebuffer(nullptr),
+      bound_draw_framebuffer(nullptr) {}
 
 DecoderFramebufferState::~DecoderFramebufferState() = default;
 
@@ -406,7 +405,7 @@ Framebuffer::~Framebuffer() {
       glDeleteFramebuffersEXT(1, &id);
     }
     manager_->StopTracking(this);
-    manager_ = NULL;
+    manager_ = nullptr;
   }
 
   for (auto& attachment : attachments_) {
@@ -660,6 +659,13 @@ GLenum Framebuffer::GetReadBufferTextureType() const {
   return attachment ? attachment->texture_type() : 0;
 }
 
+bool Framebuffer::GetReadBufferIsMultisampledTexture() const {
+  const Attachment* attachment = GetReadBufferAttachment();
+  return attachment
+             ? attachment->IsTextureAttachment() && attachment->samples() > 0
+             : false;
+}
+
 GLsizei Framebuffer::GetSamples() const {
   // Assume the framebuffer is complete, so return any attachment's samples.
   auto iter = attachments_.begin();
@@ -908,7 +914,7 @@ void Framebuffer::UnbindRenderbuffer(
       if (attachment->IsRenderbuffer(renderbuffer)) {
         // TODO(gman): manually detach renderbuffer.
         // glFramebufferRenderbufferEXT(target, it->first, GL_RENDERBUFFER, 0);
-        AttachRenderbuffer(it->first, NULL);
+        AttachRenderbuffer(it->first, nullptr);
         done = false;
         break;
       }
@@ -927,7 +933,7 @@ void Framebuffer::UnbindTexture(
       if (attachment->IsTexture(texture_ref)) {
         // TODO(gman): manually detach texture.
         // glFramebufferTexture2DEXT(target, it->first, GL_TEXTURE_2D, 0, 0);
-        AttachTexture(it->first, NULL, GL_TEXTURE_2D, 0, 0);
+        AttachTexture(it->first, nullptr, GL_TEXTURE_2D, 0, 0);
         done = false;
         break;
       }
@@ -964,7 +970,7 @@ void Framebuffer::UpdateDrawBufferMasks() {
 Framebuffer* FramebufferManager::GetFramebuffer(
     GLuint client_id) {
   FramebufferMap::iterator it = framebuffers_.find(client_id);
-  return it != framebuffers_.end() ? it->second.get() : NULL;
+  return it != framebuffers_.end() ? it->second.get() : nullptr;
 }
 
 void FramebufferManager::RemoveFramebuffer(GLuint client_id) {
@@ -1040,7 +1046,7 @@ const Framebuffer::Attachment*
   if (it != attachments_.end()) {
     return it->second.get();
   }
-  return NULL;
+  return nullptr;
 }
 
 const Framebuffer::Attachment* Framebuffer::GetReadBufferAttachment() const {

@@ -70,7 +70,7 @@ class OCSPIOLoop {
 
   void StartUsing() {
     base::AutoLock autolock(lock_);
-    DCHECK(base::MessageLoopForIO::IsCurrent());
+    DCHECK(base::MessageLoopCurrentForIO::IsSet());
     io_task_runner_ = base::ThreadTaskRunnerHandle::Get();
   }
 
@@ -170,7 +170,7 @@ class OCSPRequestSession
       : url_(url),
         http_request_method_(http_request_method),
         timeout_(timeout),
-        buffer_(new IOBuffer(kRecvBufferSize)),
+        buffer_(base::MakeRefCounted<IOBuffer>(kRecvBufferSize)),
         response_code_(-1),
         cv_(&lock_),
         finished_(false) {}
@@ -370,7 +370,7 @@ class OCSPRequestSession
     {
       base::AutoLock autolock(lock_);
       DCHECK(!io_task_runner_);
-      DCHECK(base::MessageLoopForIO::IsCurrent());
+      DCHECK(base::MessageLoopCurrentForIO::IsSet());
       io_task_runner_ = base::ThreadTaskRunnerHandle::Get();
       g_ocsp_io_loop.Get().AddRequest(this);
     }

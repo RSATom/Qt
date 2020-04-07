@@ -15,13 +15,18 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
 #include "third_party/blink/renderer/modules/media_controls/media_download_in_product_help_manager.h"
+#include "third_party/blink/renderer/platform/text/platform_locale.h"
 
 namespace blink {
 
 MediaControlDownloadButtonElement::MediaControlDownloadButtonElement(
     MediaControlsImpl& media_controls)
-    : MediaControlInputElement(media_controls, kMediaDownloadButton) {
-  setType(InputTypeNames::button);
+    : MediaControlInputElement(media_controls, kMediaIgnore) {
+  setType(input_type_names::kButton);
+  setAttribute(html_names::kAriaLabelAttr,
+               WTF::AtomicString(GetLocale().QueryString(
+                   WebLocalizedString::kAXMediaDownloadButton)));
+
   SetShadowPseudoId(AtomicString("-internal-media-controls-download-button"));
   SetIsWanted(false);
 }
@@ -69,15 +74,16 @@ void MediaControlDownloadButtonElement::UpdateShownState() {
   }
 }
 
-void MediaControlDownloadButtonElement::DefaultEventHandler(Event* event) {
+void MediaControlDownloadButtonElement::DefaultEventHandler(Event& event) {
   const KURL& url = MediaElement().currentSrc();
-  if (event->type() == EventTypeNames::click &&
+  if ((event.type() == event_type_names::kClick ||
+       event.type() == event_type_names::kGesturetap) &&
       !(url.IsNull() || url.IsEmpty())) {
     Platform::Current()->RecordAction(
         UserMetricsAction("Media.Controls.Download"));
     ResourceRequest request(url);
     request.SetSuggestedFilename(MediaElement().title());
-    request.SetRequestContext(WebURLRequest::kRequestContextDownload);
+    request.SetRequestContext(mojom::RequestContextType::DOWNLOAD);
     request.SetRequestorOrigin(SecurityOrigin::Create(GetDocument().Url()));
     GetDocument().GetFrame()->Client()->DownloadURL(
         request, DownloadCrossOriginRedirects::kFollow);

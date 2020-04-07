@@ -66,6 +66,8 @@ class DateTimeEditElement final : public HTMLDivElement,
 
   struct LayoutParameters {
     STACK_ALLOCATED();
+
+   public:
     String date_time_format;
     String fallback_date_time_format;
     Locale& locale;
@@ -82,13 +84,14 @@ class DateTimeEditElement final : public HTMLDivElement,
 
   static DateTimeEditElement* Create(Document&, EditControlOwner&);
 
+  DateTimeEditElement(Document&, EditControlOwner&);
   ~DateTimeEditElement() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   void AddField(DateTimeFieldElement*);
   bool AnyEditableFieldsHaveValues() const;
   void BlurByOwner();
-  void DefaultEventHandler(Event*) override;
+  void DefaultEventHandler(Event&) override;
   void DisabledStateChanged();
   Element* FieldsWrapperElement() const;
   void FocusIfNoFocus();
@@ -110,7 +113,7 @@ class DateTimeEditElement final : public HTMLDivElement,
   DateTimeFieldsState ValueAsDateTimeFieldsState() const;
 
  private:
-  static const size_t kInvalidFieldIndex = static_cast<size_t>(-1);
+  static const wtf_size_t kInvalidFieldIndex = UINT_MAX;
 
   // Datetime can be represent at most five fields, such as
   //  1. year
@@ -123,13 +126,11 @@ class DateTimeEditElement final : public HTMLDivElement,
   //  8. AM/PM
   static const int kMaximumNumberOfFields = 8;
 
-  DateTimeEditElement(Document&, EditControlOwner&);
-
-  DateTimeFieldElement* FieldAt(size_t) const;
-  size_t FieldIndexOf(const DateTimeFieldElement&) const;
+  DateTimeFieldElement* FieldAt(wtf_size_t) const;
+  wtf_size_t FieldIndexOf(const DateTimeFieldElement&) const;
   DateTimeFieldElement* FocusedField() const;
-  size_t FocusedFieldIndex() const;
-  bool FocusOnNextFocusableField(size_t start_index);
+  wtf_size_t FocusedFieldIndex() const;
+  bool FocusOnNextFocusableField(wtf_size_t start_index);
   bool IsDisabled() const;
   bool IsReadOnly() const;
   void GetLayout(const LayoutParameters&, const DateComponents&);

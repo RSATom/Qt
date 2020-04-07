@@ -208,7 +208,7 @@ QGeoPositionInfo QGeoPositionInfoSourceWinRT::lastKnownPosition(bool fromSatelli
 {
     qCDebug(lcPositioningWinRT) << __FUNCTION__;
     Q_D(const QGeoPositionInfoSourceWinRT);
-    Q_UNUSED(fromSatellitePositioningMethodsOnly)
+    Q_UNUSED(fromSatellitePositioningMethodsOnly);
     return d->lastPosition;
 }
 
@@ -655,7 +655,10 @@ bool QGeoPositionInfoSourceWinRT::requestAccess() const
         hr = statics->RequestAccessAsync(&op);
         return hr;
     });
-    Q_ASSERT_SUCCEEDED(hr);
+    if (FAILED(hr)) {
+        qCDebug(lcPositioningWinRT) << __FUNCTION__ << "Requesting access from Xaml thread failed";
+        return false;
+    }
 
     // We cannot wait inside the XamlThread as that would deadlock
 #ifdef Q_OS_WINRT

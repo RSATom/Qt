@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/media.h"
 #include "media/base/media_util.h"
@@ -53,7 +53,7 @@ void TestConfigConvertExtraData(
 
   // Valid combination: extra_data = non-nullptr && size > 0.
   codec_parameters->extradata = &kExtraData[0];
-  codec_parameters->extradata_size = arraysize(kExtraData);
+  codec_parameters->extradata_size = base::size(kExtraData);
   EXPECT_TRUE(converter_fn.Run(stream, decoder_config));
   EXPECT_EQ(static_cast<size_t>(codec_parameters->extradata_size),
             decoder_config->extra_data().size());
@@ -82,7 +82,7 @@ void TestConfigConvertExtraData(
 TEST_F(FFmpegCommonTest, AVStreamToDecoderConfig) {
   // Open a file to get a real AVStreams from FFmpeg.
   base::MemoryMappedFile file;
-  file.Initialize(GetTestDataFilePath("bear-320x240.webm"));
+  ASSERT_TRUE(file.Initialize(GetTestDataFilePath("bear-320x240.webm")));
   InMemoryUrlProtocol protocol(file.data(), file.length(), false);
   FFmpegGlue glue(&protocol);
   ASSERT_TRUE(glue.OpenContext());
@@ -125,8 +125,8 @@ TEST_F(FFmpegCommonTest, AVStreamToDecoderConfig) {
 
 TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_4ch) {
   base::MemoryMappedFile file;
-  file.Initialize(
-      GetTestDataFilePath("bear-opus-end-trimming-4ch-channelmapping2.webm"));
+  ASSERT_TRUE(file.Initialize(
+      GetTestDataFilePath("bear-opus-end-trimming-4ch-channelmapping2.webm")));
   InMemoryUrlProtocol protocol(file.data(), file.length(), false);
   FFmpegGlue glue(&protocol);
   ASSERT_TRUE(glue.OpenContext());
@@ -148,8 +148,8 @@ TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_4ch) {
 
 TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_11ch) {
   base::MemoryMappedFile file;
-  file.Initialize(
-      GetTestDataFilePath("bear-opus-end-trimming-11ch-channelmapping2.webm"));
+  ASSERT_TRUE(file.Initialize(
+      GetTestDataFilePath("bear-opus-end-trimming-11ch-channelmapping2.webm")));
   InMemoryUrlProtocol protocol(file.data(), file.length(), false);
   FFmpegGlue glue(&protocol);
   ASSERT_TRUE(glue.OpenContext());
@@ -171,7 +171,7 @@ TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_11ch) {
 
 TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_9ch_wav) {
   base::MemoryMappedFile file;
-  file.Initialize(GetTestDataFilePath("9ch.wav"));
+  ASSERT_TRUE(file.Initialize(GetTestDataFilePath("9ch.wav")));
   InMemoryUrlProtocol protocol(file.data(), file.length(), false);
   FFmpegGlue glue(&protocol);
   ASSERT_TRUE(glue.OpenContext());
@@ -196,7 +196,7 @@ TEST_F(FFmpegCommonTest, TimeBaseConversions) {
       {1, 2, 1, 500000, 1}, {1, 3, 1, 333333, 1}, {1, 3, 2, 666667, 2},
   };
 
-  for (size_t i = 0; i < arraysize(test_data); ++i) {
+  for (size_t i = 0; i < base::size(test_data); ++i) {
     SCOPED_TRACE(i);
 
     AVRational time_base;
@@ -283,6 +283,9 @@ TEST_F(FFmpegCommonTest, VerifyUmaCodecHashes) {
 
           {"pcm_s24le_planar_deprecated", 1535518292},
           {"sanm_deprecated", 2047102762},
+
+          {"mpegvideo_xvmc_deprecated", 1550758811},
+          {"voxware_deprecated", 1656834662}
       };
 
   for (auto& kv : kDeprecatedHashes)

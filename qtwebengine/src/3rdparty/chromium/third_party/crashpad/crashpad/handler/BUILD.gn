@@ -67,18 +67,24 @@ static_library("handler") {
 
   public_configs = [ "..:crashpad_config" ]
 
-  deps = [
+  public_deps = [
     "../client",
-    "../compat",
+    "../third_party/mini_chromium:base",
+    "../util",
+  ]
+
+  deps = [
     "../minidump",
     "../snapshot",
-    "../third_party/mini_chromium:base",
     "../tools:tool_support",
-    "../util",
   ]
 
   if (crashpad_is_win) {
     cflags = [ "/wd4201" ]  # nonstandard extension used : nameless struct/union
+  }
+
+  if (crashpad_is_fuchsia) {
+    deps += [ "../third_party/fuchsia:zx" ]
   }
 }
 
@@ -143,12 +149,17 @@ crashpad_executable("crashpad_handler") {
         # so set the rpath for that too.
         "-rpath",
         "@loader_path/../../../../../../..",
+
+        # The handler can also be executed in an unbundled framework at
+        # Chromium Framework.framework/Versions/A/Helpers/
+        "-rpath",
+        "@loader_path/../../../..",
       ]
     }
   }
 
   if (crashpad_is_win) {
-    if (crashpad_is_in_chromium) {
+    if (crashpad_is_in_chromium || crashpad_is_in_dart) {
       remove_configs = [ "//build/config/win:console" ]
       configs = [ "//build/config/win:windowed" ]
     } else {
@@ -165,7 +176,7 @@ crashpad_executable("crashpad_handler") {
 # installer will ignore files not named like a shared object, so give the
 # handler executable an acceptable name.
 if (crashpad_is_android) {
-  copy("crashpad_handler_module") {
+  copy("crashpad_handler_named_as_so") {
     deps = [
       ":crashpad_handler",
     ]

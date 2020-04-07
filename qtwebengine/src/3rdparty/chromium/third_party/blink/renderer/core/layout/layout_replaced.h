@@ -63,7 +63,15 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
   // This function returns the local rect of the replaced content.
   virtual LayoutRect ReplacedContentRect() const;
 
+  // This is used by a few special elements, e.g. <video>, <iframe> to ensure
+  // a persistent sizing under different subpixel offset, because these
+  // elements have a high cost to resize. The drawback is that we may overflow
+  // or underflow the final content box by 1px.
+  static LayoutRect PreSnappedRectForPersistentSizing(LayoutRect);
+
   bool NeedsPreferredWidthsRecalculation() const override;
+
+  void RecalcVisualOverflow() override;
 
   // These values are specified to be 300 and 150 pixels in the CSS 2.1 spec.
   // http://www.w3.org/TR/CSS2/visudet.html#inline-replaced-width
@@ -75,7 +83,7 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
   LayoutRect LocalSelectionRect() const final;
 
   bool HasObjectFit() const {
-    return Style()->GetObjectFit() !=
+    return StyleRef().GetObjectFit() !=
            ComputedStyleInitialValues::InitialObjectFit();
   }
 

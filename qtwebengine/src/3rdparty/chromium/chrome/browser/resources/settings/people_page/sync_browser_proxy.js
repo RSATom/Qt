@@ -30,6 +30,7 @@ settings.StoredAccount;
  *            signedInUsername: (string|undefined),
  *            signinAllowed: (boolean|undefined),
  *            statusAction: (!settings.StatusAction),
+ *            statusActionText: (string|undefined),
  *            statusText: (string|undefined),
  *            supervisedUser: (boolean|undefined),
  *            syncSystemEnabled: (boolean|undefined)}}
@@ -97,9 +98,6 @@ settings.StatusAction = {
  *   typedUrlsEnforced: boolean,
  *   typedUrlsRegistered: boolean,
  *   typedUrlsSynced: boolean,
- *   userEventsEnforced: boolean,
- *   userEventsRegistered: boolean,
- *   userEventsSynced: boolean,
  * }}
  */
 settings.SyncPrefs;
@@ -138,9 +136,9 @@ cr.define('settings', function() {
     signOut(deleteProfile) {}
 
     /**
-     * Opens the multi-profile user manager.
+     * Invalidates the Sync token without signing the user out.
      */
-    manageOtherPeople() {}
+    pauseSync() {}
 
     /**
      * @return {number} the number of times the sync account promo was shown.
@@ -233,8 +231,8 @@ cr.define('settings', function() {
     }
 
     /** @override */
-    manageOtherPeople() {
-      chrome.send('SyncSetupManageOtherPeople');
+    pauseSync() {
+      chrome.send('SyncSetupPauseSync');
     }
 
     /** @override */

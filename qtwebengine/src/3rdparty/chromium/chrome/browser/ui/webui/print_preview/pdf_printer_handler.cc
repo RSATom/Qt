@@ -11,9 +11,10 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/i18n/file_util_icu.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
@@ -38,11 +39,13 @@
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
+namespace printing {
+
 namespace {
 
 constexpr base::FilePath::CharType kPdfExtension[] = FILE_PATH_LITERAL("pdf");
 
-class PrintingContextDelegate : public printing::PrintingContext::Delegate {
+class PrintingContextDelegate : public PrintingContext::Delegate {
  public:
   // PrintingContext::Delegate methods.
   gfx::NativeView GetParentView() override { return NULL; }
@@ -53,22 +56,20 @@ class PrintingContextDelegate : public printing::PrintingContext::Delegate {
 
 gfx::Size GetDefaultPdfMediaSizeMicrons() {
   PrintingContextDelegate delegate;
-  std::unique_ptr<printing::PrintingContext> printing_context(
-      printing::PrintingContext::Create(&delegate));
-  if (printing::PrintingContext::OK != printing_context->UsePdfSettings() ||
+  auto printing_context(PrintingContext::Create(&delegate));
+  if (PrintingContext::OK != printing_context->UsePdfSettings() ||
       printing_context->settings().device_units_per_inch() <= 0) {
     return gfx::Size();
   }
   gfx::Size pdf_media_size = printing_context->GetPdfPaperSizeDeviceUnits();
   float device_microns_per_device_unit =
-      static_cast<float>(printing::kMicronsPerInch) /
+      static_cast<float>(kMicronsPerInch) /
       printing_context->settings().device_units_per_inch();
   return gfx::Size(pdf_media_size.width() * device_microns_per_device_unit,
                    pdf_media_size.height() * device_microns_per_device_unit);
 }
 
-std::unique_ptr<base::DictionaryValue> GetPdfCapabilities(
-    const std::string& locale) {
+base::Value GetPdfCapabilities(const std::string& locale) {
   cloud_devices::CloudDeviceDescription description;
   using namespace cloud_devices::printer;
 
@@ -81,7 +82,7 @@ std::unique_ptr<base::DictionaryValue> GetPdfCapabilities(
   ColorCapability color;
   {
     Color standard_color(STANDARD_COLOR);
-    standard_color.vendor_id = base::IntToString(printing::COLOR);
+    standard_color.vendor_id = base::IntToString(COLOR);
     color.AddDefaultOption(standard_color, true);
   }
   color.SaveTo(&description);
@@ -93,8 +94,7 @@ std::unique_ptr<base::DictionaryValue> GetPdfCapabilities(
   Media default_media("", "", default_media_size.width(),
                       default_media_size.height());
   if (!default_media.MatchBySize() ||
-      std::find(kPdfMedia, kPdfMedia + arraysize(kPdfMedia),
-                default_media.type) == kPdfMedia + arraysize(kPdfMedia)) {
+      !base::ContainsValue(kPdfMedia, default_media.type)) {
     default_media = Media(locale == "en-US" ? NA_LETTER : ISO_A4);
   }
   MediaCapability media;
@@ -105,7 +105,7 @@ std::unique_ptr<base::DictionaryValue> GetPdfCapabilities(
   }
   media.SaveTo(&description);
 
-  return std::unique_ptr<base::DictionaryValue>(description.root().DeepCopy());
+  return std::move(description).ToValue();
 }
 
 // Callback that stores a PDF file on disk.
@@ -145,7 +145,7 @@ base::FilePath SelectSaveDirectory(const base::FilePath& path,
 
 PdfPrinterHandler::PdfPrinterHandler(Profile* profile,
                                      content::WebContents* preview_web_contents,
-                                     printing::StickySettings* sticky_settings)
+                                     StickySettings* sticky_settings)
     : preview_web_contents_(preview_web_contents),
       profile_(profile),
       sticky_settings_(sticky_settings),
@@ -168,10 +168,10 @@ void PdfPrinterHandler::StartGetPrinters(
 
 void PdfPrinterHandler::StartGetCapability(const std::string& destination_id,
                                            GetCapabilityCallback callback) {
-  auto printer_info = std::make_unique<base::DictionaryValue>();
-  printer_info->SetString(printing::kSettingDeviceName, destination_id);
-  printer_info->Set(
-      printing::kSettingCapabilities,
+  base::Value printer_info(base::Value::Type::DICTIONARY);
+  printer_info.SetKey(kSettingDeviceName, base::Value(destination_id));
+  printer_info.SetKey(
+      kSettingCapabilities,
       GetPdfCapabilities(g_browser_process->GetApplicationLocale()));
   std::move(callback).Run(std::move(printer_info));
 }
@@ -201,8 +201,8 @@ void PdfPrinterHandler::StartPrint(
   DCHECK(!print_callback_);
   print_callback_ = std::move(callback);
 
-  printing::PrintPreviewDialogController* dialog_controller =
-      printing::PrintPreviewDialogController::GetInstance();
+  PrintPreviewDialogController* dialog_controller =
+      PrintPreviewDialogController::GetInstance();
   content::WebContents* initiator =
       dialog_controller ? dialog_controller->GetInitiator(preview_web_contents_)
                         : nullptr;
@@ -325,7 +325,7 @@ void PdfPrinterHandler::SelectFile(const base::FilePath& default_filename,
   // returns and eventually FileSelected() gets called.
   if (!prompt_user) {
     base::PostTaskWithTraitsAndReplyWithResult(
-        FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::Bind(&GetUniquePath, path.Append(default_filename)),
         base::Bind(&PdfPrinterHandler::OnGotUniqueFileName,
                    weak_ptr_factory_.GetWeakPtr()));
@@ -343,7 +343,7 @@ void PdfPrinterHandler::SelectFile(const base::FilePath& default_filename,
   // save directory does not exist.
   base::FilePath default_path = download_prefs->DownloadPath();
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&SelectSaveDirectory, path, default_path),
       base::BindOnce(&PdfPrinterHandler::OnDirectorySelected,
                      weak_ptr_factory_.GetWeakPtr(), default_filename));
@@ -351,7 +351,7 @@ void PdfPrinterHandler::SelectFile(const base::FilePath& default_filename,
 
 void PdfPrinterHandler::PostPrintToPdfTask() {
   base::PostTaskWithTraits(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&PrintToPdfCallback, print_data_, print_to_pdf_path_,
                      pdf_file_saved_closure_));
   print_to_pdf_path_.clear();
@@ -386,3 +386,5 @@ void PdfPrinterHandler::OnDirectorySelected(const base::FilePath& filename,
       &file_type_info, 0, base::FilePath::StringType(),
       platform_util::GetTopLevel(preview_web_contents_->GetNativeView()), NULL);
 }
+
+}  // namespace printing

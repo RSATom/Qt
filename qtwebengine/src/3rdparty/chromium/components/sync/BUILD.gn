@@ -8,6 +8,11 @@ import("//build/config/jumbo.gni")
 import("//components/sync/protocol/protocol_sources.gni")
 import("//testing/test.gni")
 
+declare_args() {
+  # Controls the product part of the user agent calculated in sync_util.cc.
+  sync_user_agent_product = "Chrome"
+}
+
 jumbo_static_library("sync") {
   sources = [
     "base/bind_to_task_runner.h",
@@ -51,8 +56,8 @@ jumbo_static_library("sync") {
     "base/node_ordinal.cc",
     "base/node_ordinal.h",
     "base/ordinal.h",
-    "base/passphrase_type.cc",
-    "base/passphrase_type.h",
+    "base/passphrase_enums.cc",
+    "base/passphrase_enums.h",
     "base/pref_names.cc",
     "base/pref_names.h",
     "base/progress_marker_map.cc",
@@ -61,6 +66,9 @@ jumbo_static_library("sync") {
     "base/report_unrecoverable_error.cc",
     "base/report_unrecoverable_error.h",
     "base/stop_source.h",
+    "base/storage_option.h",
+    "base/sync_base_switches.cc",
+    "base/sync_base_switches.h",
     "base/sync_prefs.cc",
     "base/sync_prefs.h",
     "base/sync_stop_metadata_fate.cc",
@@ -84,6 +92,10 @@ jumbo_static_library("sync") {
     "device_info/device_info.h",
     "device_info/device_info_sync_bridge.cc",
     "device_info/device_info_sync_bridge.h",
+    "device_info/device_info_sync_service.cc",
+    "device_info/device_info_sync_service.h",
+    "device_info/device_info_sync_service_impl.cc",
+    "device_info/device_info_sync_service_impl.h",
     "device_info/device_info_tracker.h",
     "device_info/device_info_util.cc",
     "device_info/device_info_util.h",
@@ -96,6 +108,8 @@ jumbo_static_library("sync") {
     "driver/async_directory_type_controller.h",
     "driver/backend_migrator.cc",
     "driver/backend_migrator.h",
+    "driver/clear_server_data_events.h",
+    "driver/configure_context.h",
     "driver/data_type_controller.cc",
     "driver/data_type_controller.h",
     "driver/data_type_encryption_handler.cc",
@@ -124,24 +138,22 @@ jumbo_static_library("sync") {
     "driver/model_associator.h",
     "driver/model_type_controller.cc",
     "driver/model_type_controller.h",
-    "driver/proxy_data_type_controller.cc",
-    "driver/proxy_data_type_controller.h",
+    "driver/non_ui_syncable_service_based_model_type_controller.cc",
+    "driver/non_ui_syncable_service_based_model_type_controller.h",
     "driver/shared_change_processor.cc",
     "driver/shared_change_processor.h",
     "driver/shared_change_processor_ref.cc",
     "driver/shared_change_processor_ref.h",
-    "driver/signin_manager_wrapper.cc",
-    "driver/signin_manager_wrapper.h",
     "driver/startup_controller.cc",
     "driver/startup_controller.h",
     "driver/sync_api_component_factory.cc",
     "driver/sync_api_component_factory.h",
+    "driver/sync_auth_util.cc",
+    "driver/sync_auth_util.h",
     "driver/sync_client.cc",
     "driver/sync_client.h",
     "driver/sync_driver_switches.cc",
     "driver/sync_driver_switches.h",
-    "driver/sync_error_controller.cc",
-    "driver/sync_error_controller.h",
     "driver/sync_service.cc",
     "driver/sync_service.h",
     "driver/sync_service_crypto.cc",
@@ -150,14 +162,18 @@ jumbo_static_library("sync") {
     "driver/sync_service_observer.h",
     "driver/sync_service_utils.cc",
     "driver/sync_service_utils.h",
+    "driver/sync_session_durations_metrics_recorder.cc",
+    "driver/sync_session_durations_metrics_recorder.h",
     "driver/sync_stopped_reporter.cc",
     "driver/sync_stopped_reporter.h",
     "driver/sync_token_status.cc",
     "driver/sync_token_status.h",
     "driver/sync_type_preference_provider.h",
+    "driver/sync_user_settings.h",
     "driver/sync_util.cc",
     "driver/sync_util.h",
-    "driver/user_selectable_sync_type.h",
+    "driver/syncable_service_based_model_type_controller.cc",
+    "driver/syncable_service_based_model_type_controller.h",
     "engine/commit_queue.cc",
     "engine/commit_queue.h",
     "engine/configure_reason.h",
@@ -213,6 +229,7 @@ jumbo_static_library("sync") {
     "engine/polling_constants.h",
     "engine/sequenced_model_worker.cc",
     "engine/sequenced_model_worker.h",
+    "engine/shutdown_reason.cc",
     "engine/shutdown_reason.h",
     "engine/sync_auth_provider.h",
     "engine/sync_backend_registrar.cc",
@@ -434,6 +451,8 @@ jumbo_static_library("sync") {
     "model_impl/blocking_model_type_store_impl.h",
     "model_impl/client_tag_based_model_type_processor.cc",
     "model_impl/client_tag_based_model_type_processor.h",
+    "model_impl/forwarding_model_type_controller_delegate.cc",
+    "model_impl/forwarding_model_type_controller_delegate.h",
     "model_impl/in_memory_metadata_change_list.cc",
     "model_impl/in_memory_metadata_change_list.h",
     "model_impl/model_type_store_backend.cc",
@@ -444,8 +463,12 @@ jumbo_static_library("sync") {
     "model_impl/model_type_store_service_impl.h",
     "model_impl/processor_entity_tracker.cc",
     "model_impl/processor_entity_tracker.h",
+    "model_impl/proxy_model_type_controller_delegate.cc",
+    "model_impl/proxy_model_type_controller_delegate.h",
     "model_impl/sync_metadata_store_change_list.cc",
     "model_impl/sync_metadata_store_change_list.h",
+    "model_impl/syncable_service_based_bridge.cc",
+    "model_impl/syncable_service_based_bridge.h",
     "protocol/proto_enum_conversions.cc",
     "protocol/proto_enum_conversions.h",
     "protocol/proto_memory_estimations.cc",
@@ -538,7 +561,6 @@ jumbo_static_library("sync") {
     "user_events/no_op_user_event_service.h",
     "user_events/trial_recorder.cc",
     "user_events/trial_recorder.h",
-    "user_events/user_event_service.cc",
     "user_events/user_event_service.h",
     "user_events/user_event_service_impl.cc",
     "user_events/user_event_service_impl.h",
@@ -557,8 +579,8 @@ jumbo_static_library("sync") {
   ]
   deps = [
     "//base:i18n",
-    "//base/third_party/dynamic_annotations",
     "//components/data_use_measurement/core",
+    "//components/invalidation/impl:feature_list",
     "//components/invalidation/public",
     "//components/keyed_service/core",
     "//components/metrics",
@@ -567,7 +589,6 @@ jumbo_static_library("sync") {
     "//components/prefs",
     "//components/reading_list/features:reading_list_buildflags",
     "//components/signin/core/browser",
-    "//components/strings",
     "//components/variations",
     "//components/version_info",
     "//crypto",
@@ -589,7 +610,7 @@ jumbo_static_library("sync") {
 
   if (is_chromeos) {
     # Required by get_session_name.cc on Chrome OS.
-    deps += [ "//chromeos" ]
+    deps += [ "//chromeos:chromeos_constants" ]
   }
 
   if (is_mac) {
@@ -609,6 +630,8 @@ jumbo_static_library("sync") {
       "//components/policy/core/browser",
     ]
   }
+
+  defines = [ "SYNC_USER_AGENT_PRODUCT=$sync_user_agent_product" ]
 
   configs += [ "//build/config/compiler:wexit_time_destructors" ]
 }
@@ -714,6 +737,7 @@ static_library("test_support_engine") {
 
   deps = [
     ":sync",
+    "//services/network:test_support",
   ]
 
   defines = [ "SYNC_TEST" ]
@@ -789,6 +813,10 @@ static_library("test_support_driver") {
     "driver/sync_api_component_factory_mock.h",
     "driver/sync_client_mock.cc",
     "driver/sync_client_mock.h",
+    "driver/test_sync_service.cc",
+    "driver/test_sync_service.h",
+    "driver/test_sync_user_settings.cc",
+    "driver/test_sync_user_settings.h",
     "engine/fake_sync_engine.cc",
     "engine/fake_sync_engine.h",
     "engine/mock_sync_engine.cc",
@@ -804,7 +832,7 @@ static_library("test_support_driver") {
   deps = [
     ":sync",
     ":test_support_engine",
-    "//components/signin/core/browser:account_info",
+    "//components/signin/core/browser:shared",
     "//components/sync_preferences:test_support",
     "//components/version_info",
     "//google_apis",
@@ -847,6 +875,7 @@ source_set("unit_tests") {
     "driver/shared_change_processor_unittest.cc",
     "driver/startup_controller_unittest.cc",
     "driver/sync_service_utils_unittest.cc",
+    "driver/sync_session_durations_metrics_recorder_unittest.cc",
     "driver/sync_stopped_reporter_unittest.cc",
     "driver/sync_util_unittest.cc",
     "engine/cycle/sync_cycle_snapshot_unittest.cc",
@@ -857,6 +886,7 @@ source_set("unit_tests") {
     "engine/ui_model_worker_unittest.cc",
     "engine_impl/apply_control_data_updates_unittest.cc",
     "engine_impl/backoff_delay_provider_unittest.cc",
+    "engine_impl/cycle/data_type_debug_info_emitter_unittest.cc",
     "engine_impl/cycle/nudge_tracker_unittest.cc",
     "engine_impl/cycle/status_controller_unittest.cc",
     "engine_impl/debug_info_event_listener_unittest.cc",
@@ -897,6 +927,7 @@ source_set("unit_tests") {
     "model_impl/model_type_store_backend_unittest.cc",
     "model_impl/model_type_store_impl_unittest.cc",
     "model_impl/processor_entity_tracker_unittest.cc",
+    "model_impl/syncable_service_based_bridge_unittest.cc",
     "protocol/proto_enum_conversions_unittest.cc",
     "protocol/proto_value_conversions_unittest.cc",
     "syncable/change_record_unittest.cc",
@@ -922,9 +953,8 @@ source_set("unit_tests") {
     "//chrome/test/data/sync/",
     "//net/tools/testserver/",
     "//third_party/pyftpdlib/",
-    "//third_party/pywebsocket/",
+    "//third_party/pywebsocket/src/mod_pywebsocket/",
     "//third_party/tlslite/",
-    "$root_out_dir/pyproto/google/",
   ]
 
   deps = [
@@ -938,7 +968,7 @@ source_set("unit_tests") {
     "//components/invalidation/impl",
     "//components/os_crypt:test_support",
     "//components/prefs:test_support",
-    "//components/signin/core/browser:test_support",
+    "//components/signin/core/browser:internals_test_support",
     "//components/sync_preferences",
     "//components/sync_preferences:test_support",
     "//components/variations",
@@ -948,6 +978,7 @@ source_set("unit_tests") {
     "//google_apis:test_support",
     "//net",
     "//net:test_support",
+    "//services/identity/public/cpp:test_support",
     "//services/network:test_support",
     "//services/network/public/cpp",
     "//sql",
@@ -963,7 +994,7 @@ source_set("unit_tests") {
 
   if (is_chromeos) {
     # Required by get_session_name_unittest.cc on Chrome OS.
-    deps += [ "//chromeos" ]
+    deps += [ "//chromeos:chromeos_constants" ]
   }
 
   if (is_ios) {
@@ -1004,6 +1035,7 @@ static_library("test_support_fake_server") {
     ":sync",
     "//base",
     "//net",
+    "//services/network/public/cpp:cpp",
     "//testing/gtest",
     "//url",
   ]
@@ -1061,7 +1093,7 @@ if (is_android) {
     testonly = true
     jni_package = "sync/test/fake_server"
     sources = [
-      "//chrome/android/sync_shell/javatests/src/org/chromium/chrome/browser/sync/FakeServerHelper.java",
+      "//chrome/android/javatests/src/org/chromium/chrome/browser/sync/FakeServerHelper.java",
     ]
   }
 

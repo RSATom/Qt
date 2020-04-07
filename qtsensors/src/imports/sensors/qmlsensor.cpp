@@ -399,7 +399,8 @@ void QmlSensor::setBufferSize(int bufferSize)
 
 /*!
     \qmlmethod bool Sensor::start()
-    Start retrieving values from the sensor. Returns true if the sensor was started, false otherwise.
+    Start retrieving values from the sensor. Returns true if the sensor
+    was started, false otherwise.
 
     Please see QSensor::start() for information.
 */
@@ -413,6 +414,7 @@ bool QmlSensor::start()
 /*!
     \qmlmethod bool Sensor::stop()
     Stop retrieving values from the sensor.
+    Returns true if the sensor was stopped, false otherwise.
 
     Please see QSensor::stop() for information.
 */

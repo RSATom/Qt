@@ -4,8 +4,10 @@
 
 #include "ui/gfx/native_pixmap_handle.h"
 
-#if defined(OS_LINUX) && !defined(TOOLKIT_QT)
+#if defined(OS_LINUX)
+#if !defined(TOOLKIT_QT)
 #include <drm_fourcc.h>
+#endif
 #include "base/posix/eintr_wrapper.h"
 #endif
 
@@ -36,7 +38,7 @@ NativePixmapHandle::NativePixmapHandle(const NativePixmapHandle& other) =
 
 NativePixmapHandle::~NativePixmapHandle() {}
 
-#if defined(OS_LINUX) && !defined(TOOLKIT_QT)
+#if defined(OS_LINUX)
 NativePixmapHandle CloneHandleForIPC(const NativePixmapHandle& handle) {
   NativePixmapHandle clone;
   std::vector<base::ScopedFD> scoped_fds;

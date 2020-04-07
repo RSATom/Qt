@@ -6,7 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_MODULATOR_H_
 
 #include "base/single_thread_task_runner.h"
+#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_module.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/script/module_import_meta.h"
@@ -14,20 +16,18 @@
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_context_data.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/loader/fetch/access_control_status.h"
 #include "third_party/blink/renderer/platform/loader/fetch/script_fetch_options.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/weborigin/referrer_policy.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
-class FetchClientSettingsObjectSnapshot;
 class ModuleScript;
 class ModuleScriptFetchRequest;
 class ModuleScriptFetcher;
 class ReferrerScriptInfo;
+class ResourceFetcher;
 class ScriptModuleResolver;
 class ScriptPromiseResolver;
 class ScriptState;
@@ -80,7 +80,11 @@ enum class ModuleScriptCustomFetchType {
   // Perform custom fetch steps for Worklet's addModule() function defined in
   // the Worklet spec:
   // https://drafts.css-houdini.org/worklets/#fetch-a-worklet-script
-  kWorkletAddModule
+  kWorkletAddModule,
+
+  // Fetch a Service Worker's installed module script from the Service Worker's
+  // script storage.
+  kInstalledServiceWorker
 };
 
 // A Modulator is an interface for "environment settings object" concept for
@@ -114,31 +118,34 @@ class CORE_EXPORT Modulator : public GarbageCollectedFinalized<Modulator>,
 
   // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-module-script-tree
   // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-module-worker-script-tree
-  // Note that |this| is the "module map settings object" used in the "fetch a
-  // module worker script graph" algorithm.
-  virtual void FetchTree(
-      const KURL&,
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-      WebURLRequest::RequestContext destination,
-      const ScriptFetchOptions&,
-      ModuleScriptCustomFetchType,
-      ModuleTreeClient*) = 0;
+  // Note that |this| is the "module map settings object" and
+  // ResourceFetcher represents "fetch client settings object"
+  // used in the "fetch a module worker script graph" algorithm.
+  virtual void FetchTree(const KURL&,
+                         ResourceFetcher* fetch_client_settings_object_fetcher,
+                         mojom::RequestContextType destination,
+                         const ScriptFetchOptions&,
+                         ModuleScriptCustomFetchType,
+                         ModuleTreeClient*) = 0;
 
   // Asynchronously retrieve a module script from the module map, or fetch it
   // and put it in the map if it's not there already.
   // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-single-module-script
-  // Note that |this| is the "module map settings object".
+  // Note that |this| is the "module map settings object" and
+  // |fetch_client_settings_object_fetcher| represents
+  // "fetch client settings object", which can be different from the
+  // ResourceFetcher associated with |this|.
   virtual void FetchSingle(
       const ModuleScriptFetchRequest&,
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
+      ResourceFetcher* fetch_client_settings_object_fetcher,
       ModuleGraphLevel,
       ModuleScriptCustomFetchType,
       SingleModuleClient*) = 0;
 
   virtual void FetchDescendantsForInlineScript(
       ModuleScript*,
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-      WebURLRequest::RequestContext destination,
+      ResourceFetcher* fetch_client_settings_object_fetcher,
+      mojom::RequestContextType destination,
       ModuleTreeClient*) = 0;
 
   // Synchronously retrieves a single module script from existing module map

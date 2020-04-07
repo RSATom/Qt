@@ -16,7 +16,7 @@
 #include "content/common/content_export.h"
 #include "third_party/blink/public/platform/web_rtc_data_channel_handler.h"
 #include "third_party/blink/public/platform/web_rtc_data_channel_handler_client.h"
-#include "third_party/webrtc/api/peerconnectioninterface.h"
+#include "third_party/webrtc/api/peer_connection_interface.h"
 
 namespace content {
 
@@ -102,7 +102,7 @@ class CONTENT_EXPORT RtcDataChannelHandler
   };
 
   scoped_refptr<Observer> observer_;
-  base::ThreadChecker thread_checker_;
+  THREAD_CHECKER(thread_checker_);
 
   blink::WebRTCDataChannelHandlerClient* webkit_client_;
 };

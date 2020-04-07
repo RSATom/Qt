@@ -6,6 +6,7 @@
                 "SkBlendMode.h",
                 "SkCanvas.h",
                 "SkColor.h",
+                "SkFont.h",
                 "SkImage.h",
                 "SkImageInfo.h",
                 "SkMatrix.h",
@@ -16,7 +17,9 @@
                 "SkPoint.h",
                 "SkRRect.h",
                 "SkRect.h",
-                "SkSurface.h"
+                "SkRegion.h",
+                "SkSurface.h",
+                "SkTextBlob.h"
             ]
         },
         "docs": [
@@ -24,7 +27,7 @@
             "SkBlendMode_Reference.bmh",
             "SkCanvas_Reference.bmh",
             "SkColor_Reference.bmh",
-            "SkColor4f_Reference.bmh",
+            "SkFont_Reference.bmh",
             "SkPaint_Reference.bmh",
             "SkPoint_Reference.bmh",
             "SkIRect_Reference.bmh",
@@ -34,11 +37,14 @@
             "SkPicture_Reference.bmh",
             "SkRRect_Reference.bmh",
             "SkRect_Reference.bmh",
+            "SkRegion_Reference.bmh",
             "SkBitmap_Reference.bmh",
             "SkIPoint_Reference.bmh",
             "SkMatrix_Reference.bmh",
             "SkPixmap_Reference.bmh",
             "SkSurface_Reference.bmh",
+            "SkTextBlobBuilder_Reference.bmh",
+            "SkTextBlob_Reference.bmh",
             "illustrations.bmh",
             "undocumented.bmh"
         ]
@@ -46,9 +52,19 @@
     "InProgress": {
         "include": {
             "core": [
+                "SkStream.h"
             ]
         },
         "docs": [
+            "SkBlendMode_Overview.bmh",
+            "SkColor4f_Reference.bmh",
+            "SkDynamicMemoryWStream_Reference.bmh",
+            "SkFILEStream_Reference.bmh",
+            "SkFILEWStream_Reference.bmh",
+            "SkMemoryStream_Reference.bmh",
+            "SkPath_Overview.bmh",
+            "SkStream_Reference.bmh",
+            "SkWStream_Reference.bmh",
             "overview.bmh",
             "usingBookmaker.bmh"
         ]

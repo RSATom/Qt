@@ -12,15 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("../gn/fuzzer.gni")
 import("../gn/perfetto.gni")
 import("//build_overrides/build.gni")
-
-# For use_libfuzzer.
-if (!build_with_chromium) {
-  import("//gn/standalone/sanitizers/vars.gni")
-} else {
-  import("//build/config/sanitizers/sanitizers.gni")
-}
 
 source_set("end_to_end_integrationtests") {
   testonly = true
@@ -35,37 +29,40 @@ source_set("end_to_end_integrationtests") {
     "../protos/perfetto/trace:zero",
     "../src/base:base",
     "../src/base:test_support",
+    "../src/traced/probes/ftrace",
   ]
   sources = [
     "end_to_end_integrationtest.cc",
   ]
-  if (is_android && !build_with_chromium) {
+  if (is_android && (perfetto_build_standalone || perfetto_build_with_android)) {
     deps += [ "../src/base:android_task_runner" ]
   }
   if (start_daemons_for_testing) {
     cflags = [ "-DPERFETTO_START_DAEMONS_FOR_TESTING" ]
+
+    # In CTS mode we use /syste/bin/perfetto for the cmdline tests and the
+    # perfetto_cmd is not required. Outside of CTS mode, instead, we need to
+    # build the cmdline code as part of the test executable.
+    deps += [ "../src/perfetto_cmd" ]
   }
 }
 
-if (use_libfuzzer && !build_with_chromium) {
-  executable("end_to_end_shared_memory_fuzzer") {
-    sources = [
-      "end_to_end_shared_memory_fuzzer.cc",
-    ]
-    testonly = true
-    deps = [
-      ":task_runner_thread",
-      ":task_runner_thread_delegates",
-      ":test_helper",
-      "../gn:default_deps",
-      "../protos/perfetto/trace:lite",
-      "../src/base:test_support",
-      "../src/protozero",
-      "../src/tracing",
-      "../src/tracing:ipc",
-    ]
-    configs += [ "../gn:fuzzer_config" ]
-  }
+perfetto_fuzzer_test("end_to_end_shared_memory_fuzzer") {
+  sources = [
+    "end_to_end_shared_memory_fuzzer.cc",
+  ]
+  testonly = true
+  deps = [
+    ":task_runner_thread",
+    ":task_runner_thread_delegates",
+    ":test_helper",
+    "../gn:default_deps",
+    "../protos/perfetto/trace:lite",
+    "../src/base:test_support",
+    "../src/protozero",
+    "../src/tracing",
+    "../src/tracing:ipc",
+  ]
 }
 
 source_set("task_runner_thread") {
@@ -121,7 +118,7 @@ source_set("test_helper") {
   }
 }
 
-if (!build_with_chromium) {
+if (perfetto_build_standalone) {
   source_set("end_to_end_benchmarks") {
     testonly = true
     deps = [
@@ -139,7 +136,7 @@ if (!build_with_chromium) {
     sources = [
       "end_to_end_benchmark.cc",
     ]
-    if (is_android && !build_with_chromium) {
+    if (is_android) {
       deps += [ "../src/base:android_task_runner" ]
     }
     if (start_daemons_for_testing) {

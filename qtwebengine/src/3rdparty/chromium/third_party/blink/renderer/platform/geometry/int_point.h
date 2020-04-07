@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/saturated_arithmetic.h"
 #include "third_party/blink/renderer/platform/wtf/vector_traits.h"
+#include "ui/gfx/geometry/point.h"
 
 #if defined(OS_MACOSX)
 typedef struct CGPoint CGPoint;
@@ -44,7 +45,6 @@ typedef struct CGPoint CGPoint;
 #endif
 
 namespace gfx {
-class Point;
 class Vector2d;
 }
 
@@ -54,15 +54,16 @@ class PLATFORM_EXPORT IntPoint {
   USING_FAST_MALLOC(IntPoint);
 
  public:
-  IntPoint() : x_(0), y_(0) {}
-  IntPoint(int x, int y) : x_(x), y_(y) {}
+  constexpr IntPoint() : x_(0), y_(0) {}
+  constexpr IntPoint(int x, int y) : x_(x), y_(y) {}
   explicit IntPoint(const IntSize& size)
       : x_(size.Width()), y_(size.Height()) {}
+  explicit IntPoint(const gfx::Point& point) : x_(point.x()), y_(point.y()) {}
 
   static IntPoint Zero() { return IntPoint(); }
 
-  int X() const { return x_; }
-  int Y() const { return y_; }
+  constexpr int X() const { return x_; }
+  constexpr int Y() const { return y_; }
 
   void SetX(int x) { x_ = x; }
   void SetY(int y) { y_ = y; }
@@ -79,8 +80,8 @@ class PLATFORM_EXPORT IntPoint {
   }
 
   void Scale(float sx, float sy) {
-    x_ = lroundf(static_cast<float>(x_ * sx));
-    y_ = lroundf(static_cast<float>(y_ * sy));
+    x_ = static_cast<int>(lroundf(static_cast<float>(x_ * sx)));
+    y_ = static_cast<int>(lroundf(static_cast<float>(y_ * sy)));
   }
 
   IntPoint ExpandedTo(const IntPoint& other) const {
@@ -126,32 +127,32 @@ inline IntPoint& operator-=(IntPoint& a, const IntSize& b) {
   return a;
 }
 
-inline IntPoint operator+(const IntPoint& a, const IntSize& b) {
+constexpr IntPoint operator+(const IntPoint& a, const IntSize& b) {
   return IntPoint(a.X() + b.Width(), a.Y() + b.Height());
 }
 
-inline IntPoint operator+(const IntPoint& a, const IntPoint& b) {
+constexpr IntPoint operator+(const IntPoint& a, const IntPoint& b) {
   return IntPoint(a.X() + b.X(), a.Y() + b.Y());
 }
 
-inline IntSize operator-(const IntPoint& a, const IntPoint& b) {
+constexpr IntSize operator-(const IntPoint& a, const IntPoint& b) {
   return IntSize(a.X() - b.X(), a.Y() - b.Y());
 }
 
-inline IntPoint operator-(const IntPoint& a, const IntSize& b) {
+constexpr IntPoint operator-(const IntPoint& a, const IntSize& b) {
   return IntPoint(a.X() - b.Width(), a.Y() - b.Height());
 }
 
-inline IntPoint operator-(const IntPoint& point) {
+constexpr IntPoint operator-(const IntPoint& point) {
   return IntPoint(-point.X(), -point.Y());
 }
 
-inline bool operator==(const IntPoint& a, const IntPoint& b) {
+constexpr bool operator==(const IntPoint& a, const IntPoint& b) {
   return a.X() == b.X() && a.Y() == b.Y();
 }
 
-inline bool operator!=(const IntPoint& a, const IntPoint& b) {
-  return a.X() != b.X() || a.Y() != b.Y();
+constexpr bool operator!=(const IntPoint& a, const IntPoint& b) {
+  return !(a == b);
 }
 
 inline IntSize ToIntSize(const IntPoint& a) {

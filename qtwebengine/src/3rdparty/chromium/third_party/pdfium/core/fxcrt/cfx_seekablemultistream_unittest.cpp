@@ -9,7 +9,6 @@
 
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
-#include "core/fxcrt/fx_memory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
 #include "third_party/base/ptr_util.h"
@@ -20,7 +19,7 @@ TEST(CFX_SeekableMultiStreamTest, NoStreams) {
 
   uint8_t output_buffer[16];
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_FALSE(fileread->ReadBlock(output_buffer, 0, 0));
+  EXPECT_FALSE(fileread->ReadBlockAtOffset(output_buffer, 0, 0));
   EXPECT_EQ(0xbd, output_buffer[0]);
 }
 
@@ -32,7 +31,7 @@ TEST(CXFAFileReadTest, EmptyStreams) {
 
   uint8_t output_buffer[16];
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_FALSE(fileread->ReadBlock(output_buffer, 0, 0));
+  EXPECT_FALSE(fileread->ReadBlockAtOffset(output_buffer, 0, 0));
   EXPECT_EQ(0xbd, output_buffer[0]);
 }
 
@@ -43,11 +42,11 @@ TEST(CXFAFileReadTest, NormalStreams) {
   auto stream3 = pdfium::MakeUnique<CPDF_Stream>();
 
   // 16 chars total.
-  stream1->InitStream(reinterpret_cast<const uint8_t*>("one t"), 5,
+  stream1->InitStream(ByteStringView("one t").span(),
                       pdfium::MakeUnique<CPDF_Dictionary>());
-  stream2->InitStream(reinterpret_cast<const uint8_t*>("wo "), 3,
+  stream2->InitStream(ByteStringView("wo ").span(),
                       pdfium::MakeUnique<CPDF_Dictionary>());
-  stream3->InitStream(reinterpret_cast<const uint8_t*>("three!!!"), 8,
+  stream3->InitStream(ByteStringView("three!!!").span(),
                       pdfium::MakeUnique<CPDF_Dictionary>());
 
   streams.push_back(stream1.get());
@@ -57,29 +56,31 @@ TEST(CXFAFileReadTest, NormalStreams) {
 
   uint8_t output_buffer[16];
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_TRUE(fileread->ReadBlock(output_buffer, 0, 0));
+  EXPECT_TRUE(fileread->ReadBlockAtOffset(output_buffer, 0, 0));
   EXPECT_EQ(0xbd, output_buffer[0]);
 
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_TRUE(fileread->ReadBlock(output_buffer, 1, 0));
+  EXPECT_TRUE(fileread->ReadBlockAtOffset(output_buffer, 1, 0));
   EXPECT_EQ(0xbd, output_buffer[0]);
 
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_TRUE(fileread->ReadBlock(output_buffer, 0, 1));
+  EXPECT_TRUE(fileread->ReadBlockAtOffset(output_buffer, 0, 1));
   EXPECT_EQ(0, memcmp(output_buffer, "o", 1));
   EXPECT_EQ(0xbd, output_buffer[1]);
 
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_TRUE(fileread->ReadBlock(output_buffer, 0, sizeof(output_buffer)));
+  EXPECT_TRUE(
+      fileread->ReadBlockAtOffset(output_buffer, 0, sizeof(output_buffer)));
   EXPECT_EQ(0, memcmp(output_buffer, "one two three!!!", 16));
 
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_TRUE(fileread->ReadBlock(output_buffer, 2, 10));
+  EXPECT_TRUE(fileread->ReadBlockAtOffset(output_buffer, 2, 10));
   EXPECT_EQ(0, memcmp(output_buffer, "e two thre", 10));
   EXPECT_EQ(0xbd, output_buffer[11]);
 
   memset(output_buffer, 0xbd, sizeof(output_buffer));
-  EXPECT_FALSE(fileread->ReadBlock(output_buffer, 1, sizeof(output_buffer)));
+  EXPECT_FALSE(
+      fileread->ReadBlockAtOffset(output_buffer, 1, sizeof(output_buffer)));
   EXPECT_EQ(0, memcmp(output_buffer, "ne two three!!!", 15));
   EXPECT_EQ(0xbd, output_buffer[15]);
 }

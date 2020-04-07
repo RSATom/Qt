@@ -44,7 +44,7 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
-#include "third_party/blink/renderer/platform/length_functions.h"
+#include "third_party/blink/renderer/platform/geometry/length_functions.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 namespace blink {
@@ -60,8 +60,6 @@ LayoutFlexibleBox::LayoutFlexibleBox(Element* element)
       has_definite_height_(SizeDefiniteness::kUnknown),
       in_layout_(false) {
   DCHECK(!ChildrenInline());
-  if (!IsAnonymous())
-    UseCounter::Count(GetDocument(), WebFeature::kCSSFlexibleBox);
 }
 
 LayoutFlexibleBox::~LayoutFlexibleBox() = default;
@@ -86,6 +84,8 @@ void LayoutFlexibleBox::ComputeIntrinsicLogicalWidths(
 
     LayoutUnit min_preferred_logical_width;
     LayoutUnit max_preferred_logical_width;
+    if (child->NeedsPreferredWidthsRecalculation())
+      child->SetPreferredLogicalWidthsDirty();
     ComputeChildPreferredLogicalWidths(*child, min_preferred_logical_width,
                                        max_preferred_logical_width);
     DCHECK_GE(min_preferred_logical_width, LayoutUnit());
@@ -136,7 +136,7 @@ float LayoutFlexibleBox::CountIntrinsicSizeForAlgorithmChange(
   // item.
   if (IsColumnFlow())
     return previous_max_content_flex_fraction;
-  Length flex_basis = child->StyleRef().FlexBasis();
+  const Length& flex_basis = child->StyleRef().FlexBasis();
   float flex_grow = child->StyleRef().FlexGrow();
   // A flex-basis of auto will lead to a max-content flex fraction of zero, so
   // just like an inflexible item it would compute to a size of max-content, so
@@ -159,10 +159,10 @@ LayoutUnit LayoutFlexibleBox::SynthesizedBaselineFromContentBox(
     LineDirectionMode direction) {
   if (direction == kHorizontalLine) {
     return box.Size().Height() - box.BorderBottom() - box.PaddingBottom() -
-           box.VerticalScrollbarWidth();
+           box.BottomScrollbarHeight();
   }
   return box.Size().Width() - box.BorderLeft() - box.PaddingLeft() -
-         box.HorizontalScrollbarHeight();
+         box.LeftScrollbarWidth();
 }
 
 LayoutUnit LayoutFlexibleBox::BaselinePosition(FontBaseline,
@@ -179,7 +179,7 @@ LayoutUnit LayoutFlexibleBox::BaselinePosition(FontBaseline,
 
 LayoutUnit LayoutFlexibleBox::FirstLineBoxBaseline() const {
   if (IsWritingModeRoot() || number_of_in_flow_children_on_first_line_ <= 0 ||
-      ShouldApplySizeContainment())
+      ShouldApplyLayoutContainment())
     return LayoutUnit(-1);
   LayoutBox* baseline_child = nullptr;
   int child_number = 0;
@@ -204,12 +204,12 @@ LayoutUnit LayoutFlexibleBox::FirstLineBoxBaseline() const {
   if (!baseline_child)
     return LayoutUnit(-1);
 
-  if (!IsColumnFlow() && HasOrthogonalFlow(*baseline_child)) {
+  if (!IsColumnFlow() && !MainAxisIsInlineAxis(*baseline_child)) {
     // TODO(cbiesinger): Should LogicalTop here be LogicalLeft?
     return CrossAxisExtentForChild(*baseline_child) +
            baseline_child->LogicalTop();
   }
-  if (IsColumnFlow() && !HasOrthogonalFlow(*baseline_child)) {
+  if (IsColumnFlow() && MainAxisIsInlineAxis(*baseline_child)) {
     return MainAxisExtentForChild(*baseline_child) +
            baseline_child->LogicalTop();
   }
@@ -239,73 +239,19 @@ LayoutUnit LayoutFlexibleBox::InlineBlockBaseline(
   return SynthesizedBaselineFromContentBox(*this, direction) + margin_ascent;
 }
 
-IntSize LayoutFlexibleBox::OriginAdjustmentForScrollbars() const {
-  IntSize size;
-  int adjustment_width = VerticalScrollbarWidth();
-  int adjustment_height = HorizontalScrollbarHeight();
-  if (!adjustment_width && !adjustment_height)
-    return size;
-
-  EFlexDirection flex_direction = Style()->FlexDirection();
-  TextDirection text_direction = Style()->Direction();
-  WritingMode writing_mode = Style()->GetWritingMode();
-
-  if (flex_direction == EFlexDirection::kRow) {
-    if (text_direction == TextDirection::kRtl) {
-      if (blink::IsHorizontalWritingMode(writing_mode))
-        size.Expand(adjustment_width, 0);
-      else
-        size.Expand(0, adjustment_height);
-    }
-    if (IsFlippedBlocksWritingMode(writing_mode))
-      size.Expand(adjustment_width, 0);
-  } else if (flex_direction == EFlexDirection::kRowReverse) {
-    if (text_direction == TextDirection::kLtr) {
-      if (blink::IsHorizontalWritingMode(writing_mode))
-        size.Expand(adjustment_width, 0);
-      else
-        size.Expand(0, adjustment_height);
-    }
-    if (IsFlippedBlocksWritingMode(writing_mode))
-      size.Expand(adjustment_width, 0);
-  } else if (flex_direction == EFlexDirection::kColumn) {
-    if (IsFlippedBlocksWritingMode(writing_mode))
-      size.Expand(adjustment_width, 0);
-  } else {
-    if (blink::IsHorizontalWritingMode(writing_mode))
-      size.Expand(0, adjustment_height);
-    else if (IsFlippedLinesWritingMode(writing_mode))
-      size.Expand(adjustment_width, 0);
-  }
-  return size;
-}
-
-IntSize LayoutFlexibleBox::ScrolledContentOffset() const {
-  DCHECK(HasOverflowClip());
-  DCHECK(HasLayer());
-  // FIXME: Return DoubleSize here. crbug.com/414283.
-  PaintLayerScrollableArea* scrollable_area = GetScrollableArea();
-  IntSize result =
-      scrollable_area->ScrollOffsetInt() + OriginAdjustmentForScrollbars();
-  if (IsHorizontalWritingMode() &&
-      ShouldPlaceBlockDirectionScrollbarOnLogicalLeft())
-    result.Expand(-VerticalScrollbarWidth(), 0);
-  return result;
-}
-
 bool LayoutFlexibleBox::HasTopOverflow() const {
-  EFlexDirection flex_direction = Style()->FlexDirection();
+  EFlexDirection flex_direction = StyleRef().FlexDirection();
   if (IsHorizontalWritingMode())
     return flex_direction == EFlexDirection::kColumnReverse;
-  return flex_direction == (Style()->IsLeftToRightDirection()
+  return flex_direction == (StyleRef().IsLeftToRightDirection()
                                 ? EFlexDirection::kRowReverse
                                 : EFlexDirection::kRow);
 }
 
 bool LayoutFlexibleBox::HasLeftOverflow() const {
-  EFlexDirection flex_direction = Style()->FlexDirection();
+  EFlexDirection flex_direction = StyleRef().FlexDirection();
   if (IsHorizontalWritingMode()) {
-    return flex_direction == (Style()->IsLeftToRightDirection()
+    return flex_direction == (StyleRef().IsLeftToRightDirection()
                                   ? EFlexDirection::kRowReverse
                                   : EFlexDirection::kRow);
   }
@@ -334,6 +280,38 @@ void LayoutFlexibleBox::RemoveChild(LayoutObject* child) {
 
   LayoutBlock::RemoveChild(child);
   intrinsic_size_along_main_axis_.erase(child);
+}
+
+bool LayoutFlexibleBox::HitTestChildren(
+    HitTestResult& result,
+    const HitTestLocation& location_in_container,
+    const LayoutPoint& accumulated_offset,
+    HitTestAction hit_test_action) {
+  if (hit_test_action != kHitTestForeground)
+    return false;
+
+  LayoutPoint scrolled_offset(HasOverflowClip()
+                                  ? accumulated_offset - ScrolledContentOffset()
+                                  : accumulated_offset);
+
+  for (LayoutBox* child = LastChildBox(); child;
+       child = child->PreviousSiblingBox()) {
+    if (child->HasSelfPaintingLayer())
+      continue;
+
+    LayoutPoint child_point =
+        FlipForWritingModeForChild(child, scrolled_offset);
+
+    bool child_hit =
+        child->HitTestAllPhases(result, location_in_container, child_point);
+    if (child_hit) {
+      UpdateHitTestResult(
+          result, FlipForWritingMode(ToLayoutPoint(
+                      location_in_container.Point() - accumulated_offset)));
+      return true;
+    }
+  }
+  return false;
 }
 
 void LayoutFlexibleBox::StyleDidChange(StyleDifference diff,
@@ -409,7 +387,7 @@ void LayoutFlexibleBox::UpdateBlockLayout(bool relayout_children) {
 
     // FIXME: css3/flexbox/repaint-rtl-column.html seems to issue paint
     // invalidations for more overflow than it needs to.
-    ComputeOverflow(ClientLogicalBottomAfterRepositioning());
+    ComputeLayoutOverflow(ClientLogicalBottomAfterRepositioning());
   }
 
   // We have to reset this, because changes to our ancestors' style can affect
@@ -426,7 +404,8 @@ void LayoutFlexibleBox::UpdateBlockLayout(bool relayout_children) {
 
 void LayoutFlexibleBox::PaintChildren(const PaintInfo& paint_info,
                                       const LayoutPoint&) const {
-  BlockPainter::PaintChildrenOfFlexibleBox(*this, paint_info);
+  BlockPainter(*this).PaintChildrenAtomically(this->GetOrderIterator(),
+                                              paint_info);
 }
 
 void LayoutFlexibleBox::RepositionLogicalHeightDependentFlexItems(
@@ -434,11 +413,18 @@ void LayoutFlexibleBox::RepositionLogicalHeightDependentFlexItems(
   LayoutUnit cross_axis_start_edge = line_contexts.IsEmpty()
                                          ? LayoutUnit()
                                          : line_contexts[0].cross_axis_offset;
+  // If we have a single line flexbox, the line height is all the available
+  // space. For flex-direction: row, this means we need to use the height, so
+  // we do this after calling updateLogicalHeight.
+  if (!IsMultiline() && !line_contexts.IsEmpty()) {
+    line_contexts[0].cross_axis_extent = CrossAxisContentExtent();
+  }
+
   AlignFlexLines(line_contexts);
 
   AlignChildren(line_contexts);
 
-  if (Style()->FlexWrap() == EFlexWrap::kWrapReverse)
+  if (StyleRef().FlexWrap() == EFlexWrap::kWrapReverse)
     FlipForWrapReverse(line_contexts, cross_axis_start_edge);
 
   // direction:rtl + flex-direction:column means the cross-axis direction is
@@ -463,12 +449,18 @@ LayoutUnit LayoutFlexibleBox::ClientLogicalBottomAfterRepositioning() {
                   max_child_logical_bottom + PaddingAfter());
 }
 
-bool LayoutFlexibleBox::HasOrthogonalFlow(const LayoutBox& child) const {
-  return IsHorizontalFlow() != child.IsHorizontalWritingMode();
+bool LayoutFlexibleBox::MainAxisIsInlineAxis(const LayoutBox& child) const {
+  // If we have a horizontal flow, that means the main size is the width.
+  // That's the inline size for horizontal writing modes, and the block
+  // size in vertical writing modes. For a vertical flow, main size is the
+  // height, so it's the inverse. So we need the inline size if we have a
+  // horizontal flow and horizontal writing mode, or vertical flow and vertical
+  // writing mode. Otherwise we need the block size.
+  return IsHorizontalFlow() == child.IsHorizontalWritingMode();
 }
 
 bool LayoutFlexibleBox::IsColumnFlow() const {
-  return Style()->IsColumnFlexDirection();
+  return StyleRef().IsColumnFlexDirection();
 }
 
 bool LayoutFlexibleBox::IsHorizontalFlow() const {
@@ -479,22 +471,23 @@ bool LayoutFlexibleBox::IsHorizontalFlow() const {
 
 bool LayoutFlexibleBox::IsLeftToRightFlow() const {
   if (IsColumnFlow()) {
-    return blink::IsHorizontalWritingMode(Style()->GetWritingMode()) ||
-           IsFlippedLinesWritingMode(Style()->GetWritingMode());
+    return blink::IsHorizontalWritingMode(StyleRef().GetWritingMode()) ||
+           IsFlippedLinesWritingMode(StyleRef().GetWritingMode());
   }
-  return Style()->IsLeftToRightDirection() ^
-         (Style()->FlexDirection() == EFlexDirection::kRowReverse);
+  return StyleRef().IsLeftToRightDirection() ^
+         (StyleRef().FlexDirection() == EFlexDirection::kRowReverse);
 }
 
 bool LayoutFlexibleBox::IsMultiline() const {
-  return Style()->FlexWrap() != EFlexWrap::kNowrap;
+  return StyleRef().FlexWrap() != EFlexWrap::kNowrap;
 }
 
 Length LayoutFlexibleBox::FlexBasisForChild(const LayoutBox& child) const {
-  Length flex_length = child.Style()->FlexBasis();
-  if (flex_length.IsAuto())
-    flex_length =
-        IsHorizontalFlow() ? child.Style()->Width() : child.Style()->Height();
+  Length flex_length = child.StyleRef().FlexBasis();
+  if (flex_length.IsAuto()) {
+    flex_length = IsHorizontalFlow() ? child.StyleRef().Width()
+                                     : child.StyleRef().Height();
+  }
   return flex_length;
 }
 
@@ -506,7 +499,7 @@ LayoutUnit LayoutFlexibleBox::CrossAxisExtentForChild(
 LayoutUnit LayoutFlexibleBox::ChildIntrinsicLogicalHeight(
     const LayoutBox& child) const {
   // This should only be called if the logical height is the cross size
-  DCHECK(!HasOrthogonalFlow(child));
+  DCHECK(MainAxisIsInlineAxis(child));
   if (NeedToStretchChildLogicalHeight(child)) {
     LayoutUnit child_intrinsic_content_logical_height;
     if (!child.ShouldApplySizeContainment()) {
@@ -526,19 +519,25 @@ DISABLE_CFI_PERF
 LayoutUnit LayoutFlexibleBox::ChildIntrinsicLogicalWidth(
     const LayoutBox& child) const {
   // This should only be called if the logical width is the cross size
-  DCHECK(HasOrthogonalFlow(child));
+  DCHECK(!MainAxisIsInlineAxis(child));
   // If our height is auto, make sure that our returned height is unaffected by
-  // earlier layouts by returning the max preferred logical width
-  if (!CrossAxisLengthIsDefinite(child, child.StyleRef().LogicalWidth()))
-    return child.MaxPreferredLogicalWidth();
+  // earlier layouts by returning the shrink-to-fit size.
+  if (!CrossAxisLengthIsDefinite(child, child.StyleRef().LogicalWidth())) {
+    LayoutUnit available_size =
+        ContentLogicalWidth() - child.MarginLogicalWidth();
+    MinMaxSize sizes{child.MinPreferredLogicalWidth(),
+                     child.MaxPreferredLogicalWidth()};
+    return child.ConstrainLogicalWidthByMinMax(
+        sizes.ShrinkToFit(available_size), available_size, this);
+  }
 
   return child.LogicalWidth();
 }
 
 LayoutUnit LayoutFlexibleBox::CrossAxisIntrinsicExtentForChild(
     const LayoutBox& child) const {
-  return HasOrthogonalFlow(child) ? ChildIntrinsicLogicalWidth(child)
-                                  : ChildIntrinsicLogicalHeight(child);
+  return MainAxisIsInlineAxis(child) ? ChildIntrinsicLogicalHeight(child)
+                                     : ChildIntrinsicLogicalWidth(child);
 }
 
 LayoutUnit LayoutFlexibleBox::MainAxisExtentForChild(
@@ -583,13 +582,7 @@ LayoutUnit LayoutFlexibleBox::ComputeMainAxisExtentForChild(
     const LayoutBox& child,
     SizeType size_type,
     const Length& size) const {
-  // If we have a horizontal flow, that means the main size is the width.
-  // That's the logical width for horizontal writing modes, and the logical
-  // height in vertical writing modes. For a vertical flow, main size is the
-  // height, so it's the inverse. So we need the logical width if we have a
-  // horizontal flow and horizontal writing mode, or vertical flow and vertical
-  // writing mode. Otherwise we need the logical height.
-  if (IsHorizontalFlow() != child.StyleRef().IsHorizontalWritingMode()) {
+  if (!MainAxisIsInlineAxis(child)) {
     // We don't have to check for "auto" here - computeContentLogicalHeight
     // will just return -1 for that case anyway. It's safe to access
     // scrollbarLogicalHeight here because ComputeNextFlexLine will have
@@ -616,90 +609,53 @@ LayoutUnit LayoutFlexibleBox::ComputeMainAxisExtentForChild(
          border_and_padding;
 }
 
-LayoutUnit LayoutFlexibleBox::FlowAwareBorderStart() const {
-  if (IsHorizontalFlow())
-    return IsLeftToRightFlow() ? BorderLeft() : BorderRight();
-  return IsLeftToRightFlow() ? BorderTop() : BorderBottom();
+LayoutUnit LayoutFlexibleBox::ContentInsetRight() const {
+  return BorderRight() + PaddingRight() + RightScrollbarWidth();
 }
 
-LayoutUnit LayoutFlexibleBox::FlowAwareBorderEnd() const {
-  if (IsHorizontalFlow())
-    return IsLeftToRightFlow() ? BorderRight() : BorderLeft();
-  return IsLeftToRightFlow() ? BorderBottom() : BorderTop();
+LayoutUnit LayoutFlexibleBox::ContentInsetBottom() const {
+  return BorderBottom() + PaddingBottom() + BottomScrollbarHeight();
 }
 
-LayoutUnit LayoutFlexibleBox::FlowAwareBorderBefore() const {
+LayoutUnit LayoutFlexibleBox::FlowAwareContentInsetStart() const {
+  if (IsHorizontalFlow())
+    return IsLeftToRightFlow() ? ContentLeft() : ContentInsetRight();
+  return IsLeftToRightFlow() ? ContentTop() : ContentInsetBottom();
+}
+
+LayoutUnit LayoutFlexibleBox::FlowAwareContentInsetEnd() const {
+  if (IsHorizontalFlow())
+    return IsLeftToRightFlow() ? ContentInsetRight() : ContentLeft();
+  return IsLeftToRightFlow() ? ContentInsetBottom() : ContentTop();
+}
+
+LayoutUnit LayoutFlexibleBox::FlowAwareContentInsetBefore() const {
   switch (FlexLayoutAlgorithm::GetTransformedWritingMode(StyleRef())) {
     case TransformedWritingMode::kTopToBottomWritingMode:
-      return BorderTop();
+      return ContentTop();
     case TransformedWritingMode::kBottomToTopWritingMode:
-      return BorderBottom();
+      return ContentInsetBottom();
     case TransformedWritingMode::kLeftToRightWritingMode:
-      return BorderLeft();
+      return ContentLeft();
     case TransformedWritingMode::kRightToLeftWritingMode:
-      return BorderRight();
+      return ContentInsetRight();
   }
   NOTREACHED();
-  return BorderTop();
 }
 
 DISABLE_CFI_PERF
-LayoutUnit LayoutFlexibleBox::FlowAwareBorderAfter() const {
+LayoutUnit LayoutFlexibleBox::FlowAwareContentInsetAfter() const {
   switch (FlexLayoutAlgorithm::GetTransformedWritingMode(StyleRef())) {
     case TransformedWritingMode::kTopToBottomWritingMode:
-      return BorderBottom();
+      return ContentInsetBottom();
     case TransformedWritingMode::kBottomToTopWritingMode:
-      return BorderTop();
+      return ContentTop();
     case TransformedWritingMode::kLeftToRightWritingMode:
-      return BorderRight();
+      return ContentInsetRight();
     case TransformedWritingMode::kRightToLeftWritingMode:
-      return BorderLeft();
+      return ContentLeft();
   }
   NOTREACHED();
-  return BorderTop();
-}
-
-LayoutUnit LayoutFlexibleBox::FlowAwarePaddingStart() const {
-  if (IsHorizontalFlow())
-    return IsLeftToRightFlow() ? PaddingLeft() : PaddingRight();
-  return IsLeftToRightFlow() ? PaddingTop() : PaddingBottom();
-}
-
-LayoutUnit LayoutFlexibleBox::FlowAwarePaddingEnd() const {
-  if (IsHorizontalFlow())
-    return IsLeftToRightFlow() ? PaddingRight() : PaddingLeft();
-  return IsLeftToRightFlow() ? PaddingBottom() : PaddingTop();
-}
-
-LayoutUnit LayoutFlexibleBox::FlowAwarePaddingBefore() const {
-  switch (FlexLayoutAlgorithm::GetTransformedWritingMode(StyleRef())) {
-    case TransformedWritingMode::kTopToBottomWritingMode:
-      return PaddingTop();
-    case TransformedWritingMode::kBottomToTopWritingMode:
-      return PaddingBottom();
-    case TransformedWritingMode::kLeftToRightWritingMode:
-      return PaddingLeft();
-    case TransformedWritingMode::kRightToLeftWritingMode:
-      return PaddingRight();
-  }
-  NOTREACHED();
-  return PaddingTop();
-}
-
-DISABLE_CFI_PERF
-LayoutUnit LayoutFlexibleBox::FlowAwarePaddingAfter() const {
-  switch (FlexLayoutAlgorithm::GetTransformedWritingMode(StyleRef())) {
-    case TransformedWritingMode::kTopToBottomWritingMode:
-      return PaddingBottom();
-    case TransformedWritingMode::kBottomToTopWritingMode:
-      return PaddingTop();
-    case TransformedWritingMode::kLeftToRightWritingMode:
-      return PaddingRight();
-    case TransformedWritingMode::kRightToLeftWritingMode:
-      return PaddingLeft();
-  }
-  NOTREACHED();
-  return PaddingTop();
 }
 
 LayoutUnit LayoutFlexibleBox::CrossAxisScrollbarExtent() const {
@@ -726,17 +682,14 @@ bool LayoutFlexibleBox::UseChildAspectRatio(const LayoutBox& child) const {
     // We can't compute a ratio in this case.
     return false;
   }
-  Length cross_size;
-  if (IsHorizontalFlow())
-    cross_size = child.StyleRef().Height();
-  else
-    cross_size = child.StyleRef().Width();
+  const Length& cross_size =
+      IsHorizontalFlow() ? child.StyleRef().Height() : child.StyleRef().Width();
   return CrossAxisLengthIsDefinite(child, cross_size);
 }
 
 LayoutUnit LayoutFlexibleBox::ComputeMainSizeFromAspectRatioUsing(
     const LayoutBox& child,
-    Length cross_size_length) const {
+    const Length& cross_size_length) const {
   DCHECK(HasAspectRatio(child));
   DCHECK_NE(child.IntrinsicSize().Height(), 0);
 
@@ -745,10 +698,10 @@ LayoutUnit LayoutFlexibleBox::ComputeMainSizeFromAspectRatioUsing(
     cross_size = LayoutUnit(cross_size_length.Value());
   } else {
     DCHECK(cross_size_length.IsPercentOrCalc());
-    cross_size = HasOrthogonalFlow(child)
-                     ? AdjustBorderBoxLogicalWidthForBoxSizing(
-                           ValueForLength(cross_size_length, ContentWidth()))
-                     : child.ComputePercentageLogicalHeight(cross_size_length);
+    cross_size = MainAxisIsInlineAxis(child)
+                     ? child.ComputePercentageLogicalHeight(cross_size_length)
+                     : AdjustBorderBoxLogicalWidthForBoxSizing(
+                           ValueForLength(cross_size_length, ContentWidth()));
   }
 
   const LayoutSize& child_intrinsic_size = child.IntrinsicSize();
@@ -796,7 +749,7 @@ bool LayoutFlexibleBox::CrossAxisLengthIsDefinite(const LayoutBox& child,
   if (length.IsAuto())
     return false;
   if (length.IsPercentOrCalc()) {
-    if (HasOrthogonalFlow(child) ||
+    if (!MainAxisIsInlineAxis(child) ||
         has_definite_height_ == SizeDefiniteness::kDefinite)
       return true;
     if (has_definite_height_ == SizeDefiniteness::kIndefinite)
@@ -814,10 +767,10 @@ bool LayoutFlexibleBox::CrossAxisLengthIsDefinite(const LayoutBox& child,
 void LayoutFlexibleBox::CacheChildMainSize(const LayoutBox& child) {
   DCHECK(!child.NeedsLayout());
   LayoutUnit main_size;
-  if (HasOrthogonalFlow(child))
-    main_size = child.LogicalHeight();
-  else
+  if (MainAxisIsInlineAxis(child))
     main_size = child.MaxPreferredLogicalWidth();
+  else
+    main_size = child.LogicalHeight();
   intrinsic_size_along_main_axis_.Set(&child, main_size);
   relaid_out_children_.insert(&child);
 }
@@ -826,28 +779,31 @@ void LayoutFlexibleBox::ClearCachedMainSizeForChild(const LayoutBox& child) {
   intrinsic_size_along_main_axis_.erase(&child);
 }
 
-bool LayoutFlexibleBox::ShouldForceLayoutForNGChild(
-    const LayoutBlockFlow& child) const {
+bool LayoutFlexibleBox::CanAvoidLayoutForNGChild(
+    const LayoutBox& child_box) const {
+  if (!child_box.IsLayoutNGMixin())
+    return false;
+  const LayoutBlockFlow& child(ToLayoutBlockFlow(child_box));
   // If the last layout was done with a different override size,
   // or different definite-ness, we need to force-relayout so
   // that percentage sizes are resolved correctly.
   const NGConstraintSpace* old_space = child.CachedConstraintSpace();
   if (!old_space)
-    return true;
+    return false;
   if (old_space->IsFixedSizeInline() != child.HasOverrideLogicalWidth())
-    return true;
+    return false;
   if (old_space->IsFixedSizeBlock() != child.HasOverrideLogicalHeight())
-    return true;
+    return false;
   if (old_space->FixedSizeBlockIsDefinite() !=
       UseOverrideLogicalHeightForPerentageResolution(child))
-    return true;
+    return false;
   if (child.HasOverrideLogicalWidth() &&
       old_space->AvailableSize().inline_size != child.OverrideLogicalWidth())
-    return true;
+    return false;
   if (child.HasOverrideLogicalHeight() &&
       old_space->AvailableSize().block_size != child.OverrideLogicalHeight())
-    return true;
-  return false;
+    return false;
+  return true;
 }
 
 DISABLE_CFI_PERF
@@ -872,7 +828,11 @@ LayoutUnit LayoutFlexibleBox::ComputeInnerFlexBaseSizeForChild(
   // width of the child. For the logical width axis we just use the preferred
   // width; for the height we need to lay out the child.
   LayoutUnit main_axis_extent;
-  if (HasOrthogonalFlow(child)) {
+  if (MainAxisIsInlineAxis(child)) {
+    // We don't need to add scrollbarLogicalWidth here because the preferred
+    // width includes the scrollbar, even for overflow: auto.
+    main_axis_extent = child.MaxPreferredLogicalWidth();
+  } else {
     if (child_layout_type == kNeverLayout)
       return LayoutUnit();
 
@@ -884,10 +844,6 @@ LayoutUnit LayoutFlexibleBox::ComputeInnerFlexBaseSizeForChild(
       CacheChildMainSize(child);
     }
     main_axis_extent = intrinsic_size_along_main_axis_.at(&child);
-  } else {
-    // We don't need to add scrollbarLogicalWidth here because the preferred
-    // width includes the scrollbar, even for overflow: auto.
-    main_axis_extent = child.MaxPreferredLogicalWidth();
   }
   DCHECK_GE(main_axis_extent - main_axis_border_and_padding, LayoutUnit())
       << main_axis_extent << " - " << main_axis_border_and_padding;
@@ -904,7 +860,8 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
   // TODO(cbiesinger): That second part is not yet true.
   ChildLayoutType layout_type =
       relayout_children ? kForceLayout : kLayoutIfNeeded;
-  Vector<FlexItem> all_items;
+  const LayoutUnit line_break_length = MainAxisContentExtent(LayoutUnit::Max());
+  FlexLayoutAlgorithm flex_algorithm(Style(), line_break_length);
   order_iterator_.First();
   for (LayoutBox* child = order_iterator_.CurrentChild(); child;
        child = order_iterator_.Next()) {
@@ -914,18 +871,11 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
       continue;
     }
 
-    all_items.push_back(ConstructFlexItem(*child, layout_type));
+    ConstructAndAppendFlexItem(&flex_algorithm, *child, layout_type);
   }
 
-  const LayoutUnit line_break_length = MainAxisContentExtent(LayoutUnit::Max());
-  FlexLayoutAlgorithm flex_algorithm(Style(), line_break_length, all_items);
-  LayoutUnit cross_axis_offset =
-      FlowAwareBorderBefore() + FlowAwarePaddingBefore();
+  LayoutUnit cross_axis_offset = FlowAwareContentInsetBefore();
   LayoutUnit logical_width = LogicalWidth();
-  // TODO(cbiesinger): I don't know why this is necessary but without it we
-  // incorrectly lay out vertical+RTL row flexboxes that overflow.
-  if (!ShouldPlaceBlockDirectionScrollbarOnLogicalLeft())
-    logical_width -= ScrollbarLogicalWidth();
   FlexLine* current_line;
   while ((current_line = flex_algorithm.ComputeNextFlexLine(logical_width))) {
     DCHECK_GE(current_line->line_items.size(), 0ULL);
@@ -940,14 +890,7 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
 
     LayoutLineItems(current_line, relayout_children, layout_scope);
 
-    LayoutUnit main_axis_offset =
-        FlowAwareBorderStart() + FlowAwarePaddingStart();
-    if (Style()->FlexDirection() == EFlexDirection::kRowReverse &&
-        ShouldPlaceBlockDirectionScrollbarOnLogicalLeft()) {
-      main_axis_offset += IsHorizontalFlow() ? VerticalScrollbarWidth()
-                                             : HorizontalScrollbarHeight();
-    }
-
+    LayoutUnit main_axis_offset = FlowAwareContentInsetStart();
     current_line->ComputeLineItemsPosition(main_axis_offset, cross_axis_offset);
     ApplyLineItemsPosition(current_line);
     if (number_of_in_flow_children_on_first_line_ == -1) {
@@ -971,11 +914,12 @@ void LayoutFlexibleBox::LayoutFlexItems(bool relayout_children,
 
 bool LayoutFlexibleBox::HasAutoMarginsInCrossAxis(
     const LayoutBox& child) const {
-  if (IsHorizontalFlow())
-    return child.Style()->MarginTop().IsAuto() ||
-           child.Style()->MarginBottom().IsAuto();
-  return child.Style()->MarginLeft().IsAuto() ||
-         child.Style()->MarginRight().IsAuto();
+  if (IsHorizontalFlow()) {
+    return child.StyleRef().MarginTop().IsAuto() ||
+           child.StyleRef().MarginBottom().IsAuto();
+  }
+  return child.StyleRef().MarginLeft().IsAuto() ||
+         child.StyleRef().MarginRight().IsAuto();
 }
 
 bool LayoutFlexibleBox::UpdateAutoMarginsInCrossAxis(
@@ -985,10 +929,11 @@ bool LayoutFlexibleBox::UpdateAutoMarginsInCrossAxis(
   DCHECK_GE(available_alignment_space, LayoutUnit());
 
   bool is_horizontal = IsHorizontalFlow();
-  Length top_or_left =
-      is_horizontal ? child.Style()->MarginTop() : child.Style()->MarginLeft();
-  Length bottom_or_right = is_horizontal ? child.Style()->MarginBottom()
-                                         : child.Style()->MarginRight();
+  const Length& top_or_left = is_horizontal ? child.StyleRef().MarginTop()
+                                            : child.StyleRef().MarginLeft();
+  const Length& bottom_or_right = is_horizontal
+                                      ? child.StyleRef().MarginBottom()
+                                      : child.StyleRef().MarginRight();
   if (top_or_left.IsAuto() && bottom_or_right.IsAuto()) {
     AdjustAlignmentForChild(child, available_alignment_space / 2);
     if (is_horizontal) {
@@ -1001,13 +946,13 @@ bool LayoutFlexibleBox::UpdateAutoMarginsInCrossAxis(
     return true;
   }
   bool should_adjust_top_or_left = true;
-  if (IsColumnFlow() && !child.Style()->IsLeftToRightDirection()) {
+  if (IsColumnFlow() && !child.StyleRef().IsLeftToRightDirection()) {
     // For column flows, only make this adjustment if topOrLeft corresponds to
     // the "before" margin, so that flipForRightToLeftColumn will do the right
     // thing.
     should_adjust_top_or_left = false;
   }
-  if (!IsColumnFlow() && child.Style()->IsFlippedBlocksWritingMode()) {
+  if (!IsColumnFlow() && child.StyleRef().IsFlippedBlocksWritingMode()) {
     // If we are a flipped writing mode, we need to adjust the opposite side.
     // This is only needed for row flows because this only affects the
     // block-direction axis.
@@ -1037,7 +982,7 @@ bool LayoutFlexibleBox::UpdateAutoMarginsInCrossAxis(
   return false;
 }
 
-LayoutUnit LayoutFlexibleBox::ComputeChildMarginValue(Length margin) {
+LayoutUnit LayoutFlexibleBox::ComputeChildMarginValue(const Length& margin) {
   // When resolving the margins, we use the content size for resolving percent
   // and calc (for percents in calc expressions) margins. Fortunately, percent
   // margins are always computed with respect to the block's width, even for
@@ -1061,24 +1006,26 @@ void LayoutFlexibleBox::PrepareOrderIteratorAndMargins() {
     // start/end margins.
     if (IsHorizontalFlow()) {
       child->SetMarginLeft(
-          ComputeChildMarginValue(child->Style()->MarginLeft()));
+          ComputeChildMarginValue(child->StyleRef().MarginLeft()));
       child->SetMarginRight(
-          ComputeChildMarginValue(child->Style()->MarginRight()));
+          ComputeChildMarginValue(child->StyleRef().MarginRight()));
     } else {
-      child->SetMarginTop(ComputeChildMarginValue(child->Style()->MarginTop()));
+      child->SetMarginTop(
+          ComputeChildMarginValue(child->StyleRef().MarginTop()));
       child->SetMarginBottom(
-          ComputeChildMarginValue(child->Style()->MarginBottom()));
+          ComputeChildMarginValue(child->StyleRef().MarginBottom()));
     }
   }
 }
 
 DISABLE_CFI_PERF
 MinMaxSize LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
+    const FlexLayoutAlgorithm& algorithm,
     const LayoutBox& child) const {
   MinMaxSize sizes{LayoutUnit(), LayoutUnit::Max()};
 
-  Length max = IsHorizontalFlow() ? child.Style()->MaxWidth()
-                                  : child.Style()->MaxHeight();
+  const Length& max = IsHorizontalFlow() ? child.StyleRef().MaxWidth()
+                                         : child.StyleRef().MaxHeight();
   if (max.IsSpecifiedOrIntrinsic()) {
     sizes.max_size = ComputeMainAxisExtentForChild(child, kMaxSize, max);
     if (sizes.max_size == -1)
@@ -1086,21 +1033,14 @@ MinMaxSize LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
     DCHECK_GE(sizes.max_size, LayoutUnit());
   }
 
-  Length min = IsHorizontalFlow() ? child.Style()->MinWidth()
-                                  : child.Style()->MinHeight();
+  const Length& min = IsHorizontalFlow() ? child.StyleRef().MinWidth()
+                                         : child.StyleRef().MinHeight();
   if (min.IsSpecifiedOrIntrinsic()) {
     sizes.min_size = ComputeMainAxisExtentForChild(child, kMinSize, min);
     // computeMainAxisExtentForChild can return -1 when the child has a
     // percentage min size, but we have an indefinite size in that axis.
     sizes.min_size = std::max(LayoutUnit(), sizes.min_size);
-  } else if (min.IsAuto() && !child.ShouldApplySizeContainment() &&
-             MainAxisOverflowForChild(child) == EOverflow::kVisible &&
-             !(IsColumnFlow() && child.IsFlexibleBox())) {
-    // TODO(cbiesinger): For now, we do not handle min-height: auto for nested
-    // column flexboxes. We need to implement
-    // https://drafts.csswg.org/css-flexbox/#intrinsic-sizes before that
-    // produces reasonable results. Tracking bug: https://crbug.com/581553
-    // css-flexbox section 4.5
+  } else if (algorithm.ShouldApplyMinSizeAutoForChild(child)) {
     LayoutUnit content_size =
         ComputeMainAxisExtentForChild(child, kMinSize, Length(kMinContent));
     DCHECK_GE(content_size, LayoutUnit());
@@ -1115,8 +1055,8 @@ MinMaxSize LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
       if (sizes.max_size != -1 && content_size > sizes.max_size)
         content_size = sizes.max_size;
 
-      Length main_size = IsHorizontalFlow() ? child.StyleRef().Width()
-                                            : child.StyleRef().Height();
+      const Length& main_size = IsHorizontalFlow() ? child.StyleRef().Width()
+                                                   : child.StyleRef().Height();
       if (MainAxisLengthIsDefinite(child, main_size)) {
         LayoutUnit resolved_main_size = ComputeMainAxisExtentForChild(
             child, kMainOrPreferredSize, main_size);
@@ -1127,9 +1067,9 @@ MinMaxSize LayoutFlexibleBox::ComputeMinAndMaxSizesForChild(
 
         sizes.min_size = std::min(specified_size, content_size);
       } else if (UseChildAspectRatio(child)) {
-        Length cross_size_length = IsHorizontalFlow()
-                                       ? child.StyleRef().Height()
-                                       : child.StyleRef().Width();
+        const Length& cross_size_length = IsHorizontalFlow()
+                                              ? child.StyleRef().Height()
+                                              : child.StyleRef().Width();
         LayoutUnit transferred_size =
             ComputeMainSizeFromAspectRatioUsing(child, cross_size_length);
         transferred_size = AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
@@ -1151,9 +1091,9 @@ bool LayoutFlexibleBox::CrossSizeIsDefiniteForPercentageResolution(
     return false;
 
   // Here we implement https://drafts.csswg.org/css-flexbox/#algo-stretch
-  if (HasOrthogonalFlow(child) && child.HasOverrideLogicalWidth())
+  if (!MainAxisIsInlineAxis(child) && child.HasOverrideLogicalWidth())
     return true;
-  if (!HasOrthogonalFlow(child) && child.HasOverrideLogicalHeight())
+  if (MainAxisIsInlineAxis(child) && child.HasOverrideLogicalHeight())
     return true;
 
   // We don't currently implement the optimization from
@@ -1169,27 +1109,19 @@ bool LayoutFlexibleBox::MainSizeIsDefiniteForPercentageResolution(
     const LayoutBox& child) const {
   // This function implements section 9.8. Definite and Indefinite Sizes, case
   // 2) of the flexbox spec.
-  // We need to check for the flexbox to have a definite main size, and for the
-  // flex item to have a definite flex basis.
-  const Length& flex_basis = FlexBasisForChild(child);
-  if (!MainAxisLengthIsDefinite(child, flex_basis))
+  // We need to check for the flexbox to have a definite main size.
+  // We make up a percentage to check whether we have a definite size.
+  if (!MainAxisLengthIsDefinite(child, Length(0, kPercent)))
     return false;
-  if (!flex_basis.IsPercentOrCalc()) {
-    // If flex basis had a percentage, our size is guaranteed to be definite or
-    // the flex item's size could not be definite. Otherwise, we make up a
-    // percentage to check whether we have a definite size.
-    if (!MainAxisLengthIsDefinite(child, Length(0, kPercent)))
-      return false;
-  }
 
-  if (HasOrthogonalFlow(child))
-    return child.HasOverrideLogicalHeight();
-  return child.HasOverrideLogicalWidth();
+  if (MainAxisIsInlineAxis(child))
+    return child.HasOverrideLogicalWidth();
+  return child.HasOverrideLogicalHeight();
 }
 
 bool LayoutFlexibleBox::UseOverrideLogicalHeightForPerentageResolution(
     const LayoutBox& child) const {
-  if (!HasOrthogonalFlow(child))
+  if (MainAxisIsInlineAxis(child))
     return CrossSizeIsDefiniteForPercentageResolution(child);
   return MainSizeIsDefiniteForPercentageResolution(child);
 }
@@ -1197,10 +1129,10 @@ bool LayoutFlexibleBox::UseOverrideLogicalHeightForPerentageResolution(
 LayoutUnit LayoutFlexibleBox::AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
     const LayoutBox& child,
     LayoutUnit child_size) const {
-  Length cross_min = IsHorizontalFlow() ? child.Style()->MinHeight()
-                                        : child.Style()->MinWidth();
-  Length cross_max = IsHorizontalFlow() ? child.Style()->MaxHeight()
-                                        : child.Style()->MaxWidth();
+  const Length& cross_min = IsHorizontalFlow() ? child.StyleRef().MinHeight()
+                                               : child.StyleRef().MinWidth();
+  const Length& cross_max = IsHorizontalFlow() ? child.StyleRef().MaxHeight()
+                                               : child.StyleRef().MaxWidth();
 
   if (CrossAxisLengthIsDefinite(child, cross_max)) {
     LayoutUnit max_value =
@@ -1218,8 +1150,10 @@ LayoutUnit LayoutFlexibleBox::AdjustChildSizeForAspectRatioCrossAxisMinAndMax(
 }
 
 DISABLE_CFI_PERF
-FlexItem LayoutFlexibleBox::ConstructFlexItem(LayoutBox& child,
-                                              ChildLayoutType layout_type) {
+void LayoutFlexibleBox::ConstructAndAppendFlexItem(
+    FlexLayoutAlgorithm* algorithm,
+    LayoutBox& child,
+    ChildLayoutType layout_type) {
   if (layout_type != kNeverLayout && ChildHasIntrinsicMainAxisSize(child)) {
     // If this condition is true, then ComputeMainAxisExtentForChild will call
     // child.IntrinsicContentLogicalHeight() and
@@ -1239,7 +1173,7 @@ FlexItem LayoutFlexibleBox::ConstructFlexItem(LayoutBox& child,
     }
   }
 
-  MinMaxSize sizes = ComputeMinAndMaxSizesForChild(child);
+  MinMaxSize sizes = ComputeMinAndMaxSizesForChild(*algorithm, child);
 
   LayoutUnit border_and_padding = IsHorizontalFlow()
                                       ? child.BorderAndPaddingWidth()
@@ -1248,8 +1182,8 @@ FlexItem LayoutFlexibleBox::ConstructFlexItem(LayoutBox& child,
       ComputeInnerFlexBaseSizeForChild(child, border_and_padding, layout_type);
   LayoutUnit margin =
       IsHorizontalFlow() ? child.MarginWidth() : child.MarginHeight();
-  return FlexItem(&child, child_inner_flex_base_size, sizes, border_and_padding,
-                  margin);
+  algorithm->emplace_back(&child, child_inner_flex_base_size, sizes,
+                          border_and_padding, margin);
 }
 
 static LayoutUnit AlignmentOffset(LayoutUnit available_free_space,
@@ -1297,16 +1231,11 @@ static LayoutUnit AlignmentOffset(LayoutUnit available_free_space,
   return LayoutUnit();
 }
 
-void LayoutFlexibleBox::SetOverrideMainAxisContentSizeForChild(
-    LayoutBox& child,
-    LayoutUnit child_preferred_size) {
-  // child_preferred_size includes scrollbar width.
-  if (HasOrthogonalFlow(child)) {
-    child.SetOverrideLogicalHeight(child_preferred_size +
-                                   child.BorderAndPaddingLogicalHeight());
+void LayoutFlexibleBox::SetOverrideMainAxisContentSizeForChild(FlexItem& item) {
+  if (MainAxisIsInlineAxis(*item.box)) {
+    item.box->SetOverrideLogicalWidth(item.FlexedBorderBoxSize());
   } else {
-    child.SetOverrideLogicalWidth(child_preferred_size +
-                                  child.BorderAndPaddingLogicalWidth());
+    item.box->SetOverrideLogicalHeight(item.FlexedBorderBoxSize());
   }
 }
 
@@ -1376,21 +1305,19 @@ void LayoutFlexibleBox::PrepareChildForPositionedLayout(LayoutBox& child) {
   DCHECK(child.IsOutOfFlowPositioned());
   child.ContainingBlock()->InsertPositionedObject(&child);
   PaintLayer* child_layer = child.Layer();
-  LayoutUnit static_inline_position =
-      FlowAwareBorderStart() + FlowAwarePaddingStart();
+  LayoutUnit static_inline_position = FlowAwareContentInsetStart();
   if (child_layer->StaticInlinePosition() != static_inline_position) {
     child_layer->SetStaticInlinePosition(static_inline_position);
-    if (child.Style()->HasStaticInlinePosition(
-            Style()->IsHorizontalWritingMode()))
+    if (child.StyleRef().HasStaticInlinePosition(
+            StyleRef().IsHorizontalWritingMode()))
       child.SetChildNeedsLayout(kMarkOnlyThis);
   }
 
-  LayoutUnit static_block_position =
-      FlowAwareBorderBefore() + FlowAwarePaddingBefore();
+  LayoutUnit static_block_position = FlowAwareContentInsetBefore();
   if (child_layer->StaticBlockPosition() != static_block_position) {
     child_layer->SetStaticBlockPosition(static_block_position);
-    if (child.Style()->HasStaticBlockPosition(
-            Style()->IsHorizontalWritingMode()))
+    if (child.StyleRef().HasStaticBlockPosition(
+            StyleRef().IsHorizontalWritingMode()))
       child.SetChildNeedsLayout(kMarkOnlyThis);
   }
 }
@@ -1400,14 +1327,14 @@ void LayoutFlexibleBox::ResetAutoMarginsAndLogicalTopInCrossAxis(
   if (HasAutoMarginsInCrossAxis(child)) {
     child.UpdateLogicalHeight();
     if (IsHorizontalFlow()) {
-      if (child.Style()->MarginTop().IsAuto())
+      if (child.StyleRef().MarginTop().IsAuto())
         child.SetMarginTop(LayoutUnit());
-      if (child.Style()->MarginBottom().IsAuto())
+      if (child.StyleRef().MarginBottom().IsAuto())
         child.SetMarginBottom(LayoutUnit());
     } else {
-      if (child.Style()->MarginLeft().IsAuto())
+      if (child.StyleRef().MarginLeft().IsAuto())
         child.SetMarginLeft(LayoutUnit());
-      if (child.Style()->MarginRight().IsAuto())
+      if (child.StyleRef().MarginRight().IsAuto())
         child.SetMarginRight(LayoutUnit());
     }
   }
@@ -1437,22 +1364,17 @@ bool LayoutFlexibleBox::ChildHasIntrinsicMainAxisSize(
   bool result = false;
   if (IsHorizontalFlow() != child.StyleRef().IsHorizontalWritingMode()) {
     Length child_flex_basis = FlexBasisForChild(child);
-    Length child_min_size = IsHorizontalFlow() ? child.Style()->MinWidth()
-                                               : child.Style()->MinHeight();
-    Length child_max_size = IsHorizontalFlow() ? child.Style()->MaxWidth()
-                                               : child.Style()->MaxHeight();
+    const Length& child_min_size = IsHorizontalFlow()
+                                       ? child.StyleRef().MinWidth()
+                                       : child.StyleRef().MinHeight();
+    const Length& child_max_size = IsHorizontalFlow()
+                                       ? child.StyleRef().MaxWidth()
+                                       : child.StyleRef().MaxHeight();
     if (child_flex_basis.IsIntrinsic() || child_min_size.IsIntrinsicOrAuto() ||
         child_max_size.IsIntrinsic())
       result = true;
   }
   return result;
-}
-
-EOverflow LayoutFlexibleBox::MainAxisOverflowForChild(
-    const LayoutBox& child) const {
-  if (IsHorizontalFlow())
-    return child.StyleRef().OverflowX();
-  return child.StyleRef().OverflowY();
 }
 
 EOverflow LayoutFlexibleBox::CrossAxisOverflowForChild(
@@ -1466,16 +1388,15 @@ DISABLE_CFI_PERF
 void LayoutFlexibleBox::LayoutLineItems(FlexLine* current_line,
                                         bool relayout_children,
                                         SubtreeLayoutScope& layout_scope) {
-  for (size_t i = 0; i < current_line->line_items.size(); ++i) {
+  for (wtf_size_t i = 0; i < current_line->line_items.size(); ++i) {
     FlexItem& flex_item = current_line->line_items[i];
     LayoutBox* child = flex_item.box;
 
     DCHECK(!flex_item.box->IsOutOfFlowPositioned());
 
-    child->SetMayNeedPaintInvalidation();
+    child->SetShouldCheckForPaintInvalidation();
 
-    SetOverrideMainAxisContentSizeForChild(*child,
-                                           flex_item.flexed_content_size);
+    SetOverrideMainAxisContentSizeForChild(flex_item);
     // The flexed content size and the override size include the scrollbar
     // width, so we need to compare to the size including the scrollbar.
     if (flex_item.flexed_content_size !=
@@ -1492,10 +1413,9 @@ void LayoutFlexibleBox::LayoutLineItems(FlexLine* current_line,
         relayout_children && !relaid_out_children_.Contains(child);
     // TODO(dgrogan): Broaden the NG part of this check once NG types other
     // than Mixin derivatives are cached.
-    if ((child->IsLayoutNGMixin() &&
-         ShouldForceLayoutForNGChild(ToLayoutBlockFlow(*child))) ||
-        (child->IsLayoutBlock() &&
-         ToLayoutBlock(*child).HasPercentHeightDescendants())) {
+    if (child->IsLayoutBlock() &&
+        ToLayoutBlock(*child).HasPercentHeightDescendants() &&
+        !CanAvoidLayoutForNGChild(*child)) {
       // Have to force another relayout even though the child is sized
       // correctly, because its descendants are not sized correctly yet. Our
       // previous layout of the child was done without an override height set.
@@ -1523,7 +1443,7 @@ void LayoutFlexibleBox::LayoutLineItems(FlexLine* current_line,
 
 void LayoutFlexibleBox::ApplyLineItemsPosition(FlexLine* current_line) {
   bool is_paginated = View()->GetLayoutState()->IsPaginated();
-  for (size_t i = 0; i < current_line->line_items.size(); ++i) {
+  for (wtf_size_t i = 0; i < current_line->line_items.size(); ++i) {
     const FlexItem& flex_item = current_line->line_items[i];
     LayoutBox* child = flex_item.box;
     SetFlowAwareLocationForChild(*child, flex_item.desired_location);
@@ -1533,18 +1453,16 @@ void LayoutFlexibleBox::ApplyLineItemsPosition(FlexLine* current_line) {
   }
 
   if (IsColumnFlow()) {
-    SetLogicalHeight(std::max(
-        LogicalHeight(), current_line->main_axis_extent + FlowAwareBorderEnd() +
-                             FlowAwarePaddingEnd() + ScrollbarLogicalHeight()));
+    SetLogicalHeight(std::max(LogicalHeight(), current_line->main_axis_extent +
+                                                   FlowAwareContentInsetEnd()));
   } else {
-    SetLogicalHeight(std::max(
-        LogicalHeight(), current_line->cross_axis_offset +
-                             FlowAwareBorderAfter() + FlowAwarePaddingAfter() +
-                             current_line->cross_axis_extent +
-                             CrossAxisScrollbarExtent()));
+    SetLogicalHeight(
+        std::max(LogicalHeight(), current_line->cross_axis_offset +
+                                      FlowAwareContentInsetAfter() +
+                                      current_line->cross_axis_extent));
   }
 
-  if (Style()->FlexDirection() == EFlexDirection::kColumnReverse) {
+  if (StyleRef().FlexDirection() == EFlexDirection::kColumnReverse) {
     // We have to do an extra pass for column-reverse to reposition the flex
     // items since the start depends on the height of the flexbox, which we
     // only know after we've positioned all the flex items.
@@ -1555,23 +1473,19 @@ void LayoutFlexibleBox::ApplyLineItemsPosition(FlexLine* current_line) {
   }
 }
 
-void LayoutFlexibleBox::LayoutColumnReverse(Vector<FlexItem>& children,
+void LayoutFlexibleBox::LayoutColumnReverse(FlexItemVectorView& children,
                                             LayoutUnit cross_axis_offset,
                                             LayoutUnit available_free_space) {
   const StyleContentAlignmentData justify_content =
       FlexLayoutAlgorithm::ResolvedJustifyContent(StyleRef());
 
-  // This is similar to the logic in layoutAndPlaceChildren, except we place
-  // the children starting from the end of the flexbox. We also don't need to
-  // layout anything since we're just moving the children to a new position.
-  LayoutUnit main_axis_offset =
-      LogicalHeight() - FlowAwareBorderEnd() - FlowAwarePaddingEnd();
+  // This is similar to the logic in FlexLine::ComputeLineItemsPosition, except
+  // we place the children starting from the end of the flexbox.
+  LayoutUnit main_axis_offset = LogicalHeight() - FlowAwareContentInsetEnd();
   main_axis_offset -= FlexLayoutAlgorithm::InitialContentPositionOffset(
       available_free_space, justify_content, children.size());
-  main_axis_offset -= IsHorizontalFlow() ? VerticalScrollbarWidth()
-                                         : HorizontalScrollbarHeight();
 
-  for (size_t i = 0; i < children.size(); ++i) {
+  for (wtf_size_t i = 0; i < children.size(); ++i) {
     FlexItem& flex_item = children[i];
     LayoutBox* child = flex_item.box;
 
@@ -1596,37 +1510,29 @@ void LayoutFlexibleBox::LayoutColumnReverse(Vector<FlexItem>& children,
 void LayoutFlexibleBox::AlignFlexLines(Vector<FlexLine>& line_contexts) {
   const StyleContentAlignmentData align_content =
       FlexLayoutAlgorithm::ResolvedAlignContent(StyleRef());
-
-  // If we have a single line flexbox or a multiline line flexbox with only one
-  // flex line, the line height is all the available space. For
-  // flex-direction: row, this means we need to use the height, so we do this
-  // after calling updateLogicalHeight.
-  if (line_contexts.size() == 1) {
-    line_contexts[0].cross_axis_extent = CrossAxisContentExtent();
-    return;
-  }
-
   if (align_content.GetPosition() == ContentPosition::kFlexStart)
     return;
 
-  LayoutUnit available_cross_axis_space = CrossAxisContentExtent();
-  for (size_t i = 0; i < line_contexts.size(); ++i)
-    available_cross_axis_space -= line_contexts[i].cross_axis_extent;
-
-  LayoutUnit line_offset;
-  if (line_contexts.size() > 1) {
-    line_offset = FlexLayoutAlgorithm::InitialContentPositionOffset(
-        available_cross_axis_space, align_content, line_contexts.size());
+  if (IsMultiline() && !line_contexts.IsEmpty()) {
+    UseCounter::Count(GetDocument(),
+                      WebFeature::kFlexboxSingleLineAlignContent);
   }
+
+  if (line_contexts.IsEmpty() || !IsMultiline())
+    return;
+
+  LayoutUnit available_cross_axis_space = CrossAxisContentExtent();
+  for (const FlexLine& line : line_contexts)
+    available_cross_axis_space -= line.cross_axis_extent;
+
+  LayoutUnit line_offset = FlexLayoutAlgorithm::InitialContentPositionOffset(
+      available_cross_axis_space, align_content, line_contexts.size());
   for (unsigned line_number = 0; line_number < line_contexts.size();
        ++line_number) {
     FlexLine& line_context = line_contexts[line_number];
     line_context.cross_axis_offset += line_offset;
-    for (size_t child_number = 0; child_number < line_context.line_items.size();
-         ++child_number) {
-      FlexItem& flex_item = line_context.line_items[child_number];
+    for (FlexItem& flex_item : line_context.line_items)
       AdjustAlignmentForChild(*flex_item.box, line_offset);
-    }
 
     if (align_content.Distribution() == ContentDistributionType::kStretch &&
         available_cross_axis_space > 0)
@@ -1650,60 +1556,52 @@ void LayoutFlexibleBox::AdjustAlignmentForChild(LayoutBox& child,
 void LayoutFlexibleBox::AlignChildren(Vector<FlexLine>& line_contexts) {
   // Keep track of the space between the baseline edge and the after edge of
   // the box for each line.
+  // TODO(cbiesinger): This should be stored in FlexLine
   Vector<LayoutUnit> min_margin_after_baselines;
 
-  for (size_t line_number = 0; line_number < line_contexts.size();
-       ++line_number) {
-    FlexLine& line_context = line_contexts[line_number];
-
+  for (FlexLine& line_context : line_contexts) {
     LayoutUnit min_margin_after_baseline = LayoutUnit::Max();
-    LayoutUnit line_cross_axis_extent = line_context.cross_axis_extent;
     LayoutUnit max_ascent = line_context.max_ascent;
 
-    for (size_t child_number = 0; child_number < line_context.line_items.size();
-         ++child_number) {
-      FlexItem& flex_item = line_context.line_items[child_number];
+    for (FlexItem& flex_item : line_context.line_items) {
       DCHECK(!flex_item.box->IsOutOfFlowPositioned());
 
       if (UpdateAutoMarginsInCrossAxis(
               *flex_item.box,
-              std::max(LayoutUnit(), flex_item.AvailableAlignmentSpace(
-                                         line_cross_axis_extent))))
+              std::max(LayoutUnit(), flex_item.AvailableAlignmentSpace())))
         continue;
 
       ItemPosition position = flex_item.Alignment();
-      if (position == ItemPosition::kStretch)
-        ApplyStretchAlignmentToChild(flex_item, line_cross_axis_extent);
-      LayoutUnit available_space =
-          flex_item.AvailableAlignmentSpace(line_cross_axis_extent);
+      if (position == ItemPosition::kStretch) {
+        flex_item.ComputeStretchedSize();
+        ApplyStretchAlignmentToChild(flex_item);
+      }
+      LayoutUnit available_space = flex_item.AvailableAlignmentSpace();
       LayoutUnit offset = AlignmentOffset(
           available_space, position, flex_item.MarginBoxAscent(), max_ascent,
           StyleRef().FlexWrap() == EFlexWrap::kWrapReverse);
       AdjustAlignmentForChild(*flex_item.box, offset);
       if (position == ItemPosition::kBaseline &&
           StyleRef().FlexWrap() == EFlexWrap::kWrapReverse) {
-        min_margin_after_baseline = std::min(
-            min_margin_after_baseline,
-            flex_item.AvailableAlignmentSpace(line_cross_axis_extent) - offset);
+        min_margin_after_baseline =
+            std::min(min_margin_after_baseline,
+                     flex_item.AvailableAlignmentSpace() - offset);
       }
     }
     min_margin_after_baselines.push_back(min_margin_after_baseline);
   }
 
-  if (Style()->FlexWrap() != EFlexWrap::kWrapReverse)
+  if (StyleRef().FlexWrap() != EFlexWrap::kWrapReverse)
     return;
 
   // wrap-reverse flips the cross axis start and end. For baseline alignment,
   // this means we need to align the after edge of baseline elements with the
   // after edge of the flex line.
-  for (size_t line_number = 0; line_number < line_contexts.size();
-       ++line_number) {
-    const FlexLine& line_context = line_contexts[line_number];
+  wtf_size_t line_number = 0;
+  for (FlexLine& line_context : line_contexts) {
     LayoutUnit min_margin_after_baseline =
-        min_margin_after_baselines[line_number];
-    for (size_t child_number = 0; child_number < line_context.line_items.size();
-         ++child_number) {
-      const FlexItem& flex_item = line_context.line_items[child_number];
+        min_margin_after_baselines[line_number++];
+    for (FlexItem& flex_item : line_context.line_items) {
       if (flex_item.Alignment() == ItemPosition::kBaseline &&
           !flex_item.HasAutoMarginsInCrossAxis() && min_margin_after_baseline)
         AdjustAlignmentForChild(*flex_item.box, min_margin_after_baseline);
@@ -1711,27 +1609,17 @@ void LayoutFlexibleBox::AlignChildren(Vector<FlexLine>& line_contexts) {
   }
 }
 
-void LayoutFlexibleBox::ApplyStretchAlignmentToChild(
-    FlexItem& flex_item,
-    LayoutUnit line_cross_axis_extent) {
+void LayoutFlexibleBox::ApplyStretchAlignmentToChild(FlexItem& flex_item) {
   LayoutBox& child = *flex_item.box;
-  if (!flex_item.HasOrthogonalFlow() &&
-      child.Style()->LogicalHeight().IsAuto()) {
-    LayoutUnit stretched_logical_height =
-        std::max(child.BorderAndPaddingLogicalHeight(),
-                 line_cross_axis_extent - flex_item.CrossAxisMarginExtent());
-    DCHECK(!child.NeedsLayout());
-    LayoutUnit desired_logical_height = child.ConstrainLogicalHeightByMinMax(
-        stretched_logical_height, child.IntrinsicContentLogicalHeight());
-    flex_item.cross_axis_size = desired_logical_height;
-
+  if (flex_item.MainAxisIsInlineAxis() &&
+      child.StyleRef().LogicalHeight().IsAuto()) {
     // FIXME: Can avoid laying out here in some cases. See
     // https://webkit.org/b/87905.
-    bool child_needs_relayout = desired_logical_height != child.LogicalHeight();
-    if ((child.IsLayoutNGMixin() &&
-         ShouldForceLayoutForNGChild(ToLayoutBlockFlow(child))) ||
-        (child.IsLayoutBlock() &&
-         ToLayoutBlock(child).HasPercentHeightDescendants())) {
+    bool child_needs_relayout =
+        flex_item.cross_axis_size != child.LogicalHeight();
+    if (child.IsLayoutBlock() &&
+        ToLayoutBlock(child).HasPercentHeightDescendants() &&
+        !CanAvoidLayoutForNGChild(child)) {
       // Have to force another relayout even though the child is sized
       // correctly, because its descendants are not sized correctly yet. Our
       // previous layout of the child was done without an override height set.
@@ -1739,31 +1627,16 @@ void LayoutFlexibleBox::ApplyStretchAlignmentToChild(
       child_needs_relayout = relaid_out_children_.Contains(&child);
     }
     if (child_needs_relayout || !child.HasOverrideLogicalHeight())
-      child.SetOverrideLogicalHeight(desired_logical_height);
+      child.SetOverrideLogicalHeight(flex_item.cross_axis_size);
     if (child_needs_relayout) {
+      // TODO(cbiesinger): Why is this necessary?
       child.SetLogicalHeight(LayoutUnit());
-      // We cache the child's intrinsic content logical height to avoid it being
-      // reset to the stretched height.
-      // FIXME: This is fragile. LayoutBoxes should be smart enough to
-      // determine their intrinsic content logical height correctly even when
-      // there's an overrideHeight.
-      LayoutUnit child_intrinsic_content_logical_height =
-          child.IntrinsicContentLogicalHeight();
       child.ForceChildLayout();
-      child.SetIntrinsicContentLogicalHeight(
-          child_intrinsic_content_logical_height);
     }
-  } else if (flex_item.HasOrthogonalFlow() &&
-             child.Style()->LogicalWidth().IsAuto()) {
-    LayoutUnit child_width =
-        (line_cross_axis_extent - flex_item.CrossAxisMarginExtent())
-            .ClampNegativeToZero();
-    child_width = child.ConstrainLogicalWidthByMinMax(
-        child_width, CrossAxisContentExtent(), this);
-    flex_item.cross_axis_size = child_width;
-
-    if (child_width != child.LogicalWidth()) {
-      child.SetOverrideLogicalWidth(child_width);
+  } else if (!flex_item.MainAxisIsInlineAxis() &&
+             child.StyleRef().LogicalWidth().IsAuto()) {
+    if (flex_item.cross_axis_size != child.LogicalWidth()) {
+      child.SetOverrideLogicalWidth(flex_item.cross_axis_size);
       child.ForceChildLayout();
     }
   }
@@ -1771,25 +1644,18 @@ void LayoutFlexibleBox::ApplyStretchAlignmentToChild(
 
 void LayoutFlexibleBox::FlipForRightToLeftColumn(
     const Vector<FlexLine>& line_contexts) {
-  if (Style()->IsLeftToRightDirection() || !IsColumnFlow())
+  if (StyleRef().IsLeftToRightDirection() || !IsColumnFlow())
     return;
 
   LayoutUnit cross_extent = CrossAxisExtent();
-  for (size_t line_number = 0; line_number < line_contexts.size();
-       ++line_number) {
-    const FlexLine& line_context = line_contexts[line_number];
-    for (size_t child_number = 0; child_number < line_context.line_items.size();
-         ++child_number) {
-      const FlexItem& flex_item = line_context.line_items[child_number];
+  for (const FlexLine& line_context : line_contexts) {
+    for (const FlexItem& flex_item : line_context.line_items) {
       DCHECK(!flex_item.box->IsOutOfFlowPositioned());
 
       LayoutPoint location = FlowAwareLocationForChild(*flex_item.box);
       // For vertical flows, setFlowAwareLocationForChild will transpose x and
-      // y,
-      // so using the y axis for a column cross axis extent is correct.
+      // y, so using the y axis for a column cross axis extent is correct.
       location.SetY(cross_extent - flex_item.cross_axis_size - location.Y());
-      if (!IsHorizontalWritingMode())
-        location.Move(LayoutSize(0, -HorizontalScrollbarHeight()));
       SetFlowAwareLocationForChild(*flex_item.box, location);
     }
   }
@@ -1799,16 +1665,11 @@ void LayoutFlexibleBox::FlipForWrapReverse(
     const Vector<FlexLine>& line_contexts,
     LayoutUnit cross_axis_start_edge) {
   LayoutUnit content_extent = CrossAxisContentExtent();
-  for (size_t line_number = 0; line_number < line_contexts.size();
-       ++line_number) {
-    const FlexLine& line_context = line_contexts[line_number];
-    for (size_t child_number = 0; child_number < line_context.line_items.size();
-         ++child_number) {
-      const FlexItem& flex_item = line_context.line_items[child_number];
-      LayoutUnit line_cross_axis_extent =
-          line_contexts[line_number].cross_axis_extent;
+  for (const FlexLine& line_context : line_contexts) {
+    for (const FlexItem& flex_item : line_context.line_items) {
+      LayoutUnit line_cross_axis_extent = line_context.cross_axis_extent;
       LayoutUnit original_offset =
-          line_contexts[line_number].cross_axis_offset - cross_axis_start_edge;
+          line_context.cross_axis_offset - cross_axis_start_edge;
       LayoutUnit new_offset =
           content_extent - original_offset - line_cross_axis_extent;
       AdjustAlignmentForChild(*flex_item.box, new_offset - original_offset);

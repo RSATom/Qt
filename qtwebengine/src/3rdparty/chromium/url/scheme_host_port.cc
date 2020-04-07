@@ -11,6 +11,7 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "url/gurl.h"
 #include "url/third_party/mozilla/url_parse.h"
@@ -52,6 +53,10 @@ bool IsValidInput(const base::StringPiece& scheme,
                   const base::StringPiece& host,
                   uint16_t port,
                   SchemeHostPort::ConstructPolicy policy) {
+  // Empty schemes are never valid.
+  if (scheme.empty())
+    return false;
+
   // NOTE(juvaldma)(Chromium 67.0.3396.47)
   //
   // Differences between standard and custom schemes:
@@ -73,8 +78,21 @@ bool IsValidInput(const base::StringPiece& scheme,
       scheme.data(),
       Component(0, base::checked_cast<int>(scheme.length())),
       &scheme_type);
-  if (!is_standard)
-    return false;
+  if (!is_standard) {
+    // To be consistent with blink, local non-standard schemes are currently
+    // allowed to be tuple origins. Nonstandard schemes don't have hostnames,
+    // so their tuple is just ("protocol", "", 0).
+    //
+    // TODO: Migrate "content:" and "externalfile:" to be standard schemes, and
+    // remove this local scheme exception.
+    if (base::ContainsValue(GetLocalSchemes(), scheme) && host.empty() &&
+        port == 0)
+      return true;
+
+    // Otherwise, allow non-standard schemes only if the Android WebView
+    // workaround is enabled.
+    return AllowNonStandardSchemesForAndroidWebView();
+  }
 
   switch (scheme_type) {
     case SCHEME_WITH_HOST_AND_PORT:
@@ -133,12 +151,16 @@ SchemeHostPort::SchemeHostPort(std::string scheme,
                                uint16_t port,
                                ConstructPolicy policy)
     : port_(0) {
-  if (!IsValidInput(scheme, host, port, policy))
+  if (!IsValidInput(scheme, host, port, policy)) {
+    DCHECK(IsInvalid());
     return;
+  }
 
   scheme_ = std::move(scheme);
   host_ = std::move(host);
   port_ = port;
+  DCHECK(!IsInvalid()) << "Scheme: " << scheme_ << " Host: " << host_
+                       << " Port: " << port;
 }
 
 SchemeHostPort::SchemeHostPort(base::StringPiece scheme,
@@ -176,7 +198,11 @@ SchemeHostPort::SchemeHostPort(const GURL& url) : port_(0) {
 SchemeHostPort::~SchemeHostPort() = default;
 
 bool SchemeHostPort::IsInvalid() const {
-  return scheme_.empty() && host_.empty() && !port_;
+  // It suffices to just check |scheme_| for emptiness; the other fields are
+  // never present without it.
+  DCHECK(!scheme_.empty() || host_.empty());
+  DCHECK(!scheme_.empty() || port_ == 0);
+  return scheme_.empty();
 }
 
 std::string SchemeHostPort::Serialize() const {
@@ -241,11 +267,6 @@ GURL SchemeHostPort::GetURL() const {
   return GURL(std::move(serialized), parsed, true);
 }
 
-bool SchemeHostPort::Equals(const SchemeHostPort& other) const {
-  return port_ == other.port() && scheme_ == other.scheme() &&
-         host_ == other.host();
-}
-
 bool SchemeHostPort::operator<(const SchemeHostPort& other) const {
   return std::tie(port_, scheme_, host_) <
          std::tie(other.port_, other.scheme_, other.host_);
@@ -288,6 +309,11 @@ std::string SchemeHostPort::SerializeInternal(url::Parsed* parsed) const {
   }
 
   return result;
+}
+
+std::ostream& operator<<(std::ostream& out,
+                         const SchemeHostPort& scheme_host_port) {
+  return out << scheme_host_port.Serialize();
 }
 
 }  // namespace url

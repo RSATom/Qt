@@ -7,65 +7,52 @@
 #ifndef FXJS_XFA_CJX_FIELD_H_
 #define FXJS_XFA_CJX_FIELD_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_container.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Field;
 
-class CJX_Field : public CJX_Container {
+class CJX_Field final : public CJX_Container {
  public:
   explicit CJX_Field(CXFA_Field* field);
   ~CJX_Field() override;
 
-  JS_METHOD(addItem, CJX_Field);
-  JS_METHOD(boundItem, CJX_Field);
-  JS_METHOD(clearItems, CJX_Field);
-  JS_METHOD(deleteItem, CJX_Field);
-  JS_METHOD(execCalculate, CJX_Field);
-  JS_METHOD(execEvent, CJX_Field);
-  JS_METHOD(execInitialize, CJX_Field);
-  JS_METHOD(execValidate, CJX_Field);
-  JS_METHOD(getDisplayItem, CJX_Field);
-  JS_METHOD(getItemState, CJX_Field);
-  JS_METHOD(getSaveItem, CJX_Field);
-  JS_METHOD(setItemState, CJX_Field);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(access);
-  JS_PROP(accessKey);
-  JS_PROP(anchorType);
-  JS_PROP(borderColor);
-  JS_PROP(borderWidth);
-  JS_PROP(colSpan);
-  JS_PROP(editValue);
-  JS_PROP(fillColor);
-  JS_PROP(fontColor);
-  JS_PROP(formatMessage);
-  JS_PROP(formattedValue);
-  JS_PROP(h);
-  JS_PROP(hAlign);
-  JS_PROP(locale);
-  JS_PROP(mandatory);
-  JS_PROP(mandatoryMessage);
-  JS_PROP(maxH);
-  JS_PROP(maxW);
-  JS_PROP(minH);
-  JS_PROP(minW);
-  JS_PROP(parentSubform);
-  JS_PROP(presence);
-  JS_PROP(rawValue);
-  JS_PROP(relevant);
-  JS_PROP(rotate);
-  JS_PROP(selectedIndex);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(validationMessage);
-  JS_PROP(vAlign);
-  JS_PROP(w);
-  JS_PROP(x);
-  JS_PROP(y);
+  JSE_METHOD(addItem);
+  JSE_METHOD(boundItem);
+  JSE_METHOD(clearItems);
+  JSE_METHOD(deleteItem);
+  JSE_METHOD(execCalculate);
+  JSE_METHOD(execEvent);
+  JSE_METHOD(execInitialize);
+  JSE_METHOD(execValidate);
+  JSE_METHOD(getDisplayItem);
+  JSE_METHOD(getItemState);
+  JSE_METHOD(getSaveItem);
+  JSE_METHOD(setItemState);
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(borderColor);
+  JSE_PROP(borderWidth);
+  JSE_PROP(editValue);
+  JSE_PROP(fillColor);
+  JSE_PROP(fontColor);
+  JSE_PROP(formatMessage);
+  JSE_PROP(formattedValue);
+  JSE_PROP(mandatory);
+  JSE_PROP(mandatoryMessage);
+  JSE_PROP(parentSubform);
+  JSE_PROP(rawValue);
+  JSE_PROP(selectedIndex);
+  JSE_PROP(validationMessage);
 
  private:
+  using Type__ = CJX_Field;
+  using ParentType__ = CJX_Container;
+
+  static const TypeTag static_type__ = TypeTag::Field;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

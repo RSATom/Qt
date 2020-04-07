@@ -28,6 +28,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
 #include "third_party/blink/renderer/core/timing/performance_mark.h"
+#include "third_party/blink/renderer/core/timing/performance_mark_options.h"
 #include "third_party/blink/renderer/core/timing/performance_measure.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/histogram.h"
@@ -38,37 +39,38 @@ namespace blink {
 
 namespace {
 
-using RestrictedKeyMap = HashMap<String, NavigationTimingFunction>;
+using RestrictedKeyMap = HashMap<AtomicString, NavigationTimingFunction>;
 
 const RestrictedKeyMap& GetRestrictedKeyMap() {
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(
-      RestrictedKeyMap, map,
-      ({
-          {"navigationStart", &PerformanceTiming::navigationStart},
-          {"unloadEventStart", &PerformanceTiming::unloadEventStart},
-          {"unloadEventEnd", &PerformanceTiming::unloadEventEnd},
-          {"redirectStart", &PerformanceTiming::redirectStart},
-          {"redirectEnd", &PerformanceTiming::redirectEnd},
-          {"fetchStart", &PerformanceTiming::fetchStart},
-          {"domainLookupStart", &PerformanceTiming::domainLookupStart},
-          {"domainLookupEnd", &PerformanceTiming::domainLookupEnd},
-          {"connectStart", &PerformanceTiming::connectStart},
-          {"connectEnd", &PerformanceTiming::connectEnd},
-          {"secureConnectionStart", &PerformanceTiming::secureConnectionStart},
-          {"requestStart", &PerformanceTiming::requestStart},
-          {"responseStart", &PerformanceTiming::responseStart},
-          {"responseEnd", &PerformanceTiming::responseEnd},
-          {"domLoading", &PerformanceTiming::domLoading},
-          {"domInteractive", &PerformanceTiming::domInteractive},
-          {"domContentLoadedEventStart",
-           &PerformanceTiming::domContentLoadedEventStart},
-          {"domContentLoadedEventEnd",
-           &PerformanceTiming::domContentLoadedEventEnd},
-          {"domComplete", &PerformanceTiming::domComplete},
-          {"loadEventStart", &PerformanceTiming::loadEventStart},
-          {"loadEventEnd", &PerformanceTiming::loadEventEnd},
-      }));
-  return map;
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<RestrictedKeyMap>, map, ());
+  if (!map.IsSet()) {
+    *map = {
+        {"navigationStart", &PerformanceTiming::navigationStart},
+        {"unloadEventStart", &PerformanceTiming::unloadEventStart},
+        {"unloadEventEnd", &PerformanceTiming::unloadEventEnd},
+        {"redirectStart", &PerformanceTiming::redirectStart},
+        {"redirectEnd", &PerformanceTiming::redirectEnd},
+        {"fetchStart", &PerformanceTiming::fetchStart},
+        {"domainLookupStart", &PerformanceTiming::domainLookupStart},
+        {"domainLookupEnd", &PerformanceTiming::domainLookupEnd},
+        {"connectStart", &PerformanceTiming::connectStart},
+        {"connectEnd", &PerformanceTiming::connectEnd},
+        {"secureConnectionStart", &PerformanceTiming::secureConnectionStart},
+        {"requestStart", &PerformanceTiming::requestStart},
+        {"responseStart", &PerformanceTiming::responseStart},
+        {"responseEnd", &PerformanceTiming::responseEnd},
+        {"domLoading", &PerformanceTiming::domLoading},
+        {"domInteractive", &PerformanceTiming::domInteractive},
+        {"domContentLoadedEventStart",
+         &PerformanceTiming::domContentLoadedEventStart},
+        {"domContentLoadedEventEnd",
+         &PerformanceTiming::domContentLoadedEventEnd},
+        {"domComplete", &PerformanceTiming::domComplete},
+        {"loadEventStart", &PerformanceTiming::loadEventStart},
+        {"loadEventEnd", &PerformanceTiming::loadEventEnd},
+    };
+  }
+  return *map;
 }
 
 }  // namespace
@@ -88,7 +90,7 @@ static void InsertPerformanceEntry(PerformanceEntryMap& performance_entry_map,
 }
 
 static void ClearPeformanceEntries(PerformanceEntryMap& performance_entry_map,
-                                   const String& name) {
+                                   const AtomicString& name) {
   if (name.IsNull()) {
     performance_entry_map.clear();
     return;
@@ -99,11 +101,37 @@ static void ClearPeformanceEntries(PerformanceEntryMap& performance_entry_map,
 }
 
 PerformanceMark* UserTiming::Mark(ScriptState* script_state,
-                                  const String& mark_name,
-                                  const DOMHighResTimeStamp& start_time,
-                                  const ScriptValue& detail,
+                                  const AtomicString& mark_name,
+                                  PerformanceMarkOptions* mark_options,
                                   ExceptionState& exception_state) {
-  if (GetRestrictedKeyMap().Contains(mark_name)) {
+  if (!RuntimeEnabledFeatures::CustomUserTimingEnabled())
+    DCHECK(!mark_options);
+
+  DOMHighResTimeStamp start = 0.0;
+  if (mark_options && mark_options->hasStartTime()) {
+    start = mark_options->startTime();
+  } else {
+    start = performance_->now();
+  }
+
+  // Pass in a null ScriptValue if the mark's detail doesn't exist.
+  ScriptValue detail = ScriptValue::CreateNull(script_state);
+  if (mark_options)
+    detail = mark_options->detail();
+
+  return MarkInternal(script_state, mark_name, start, detail, exception_state);
+}
+
+PerformanceMark* UserTiming::MarkInternal(ScriptState* script_state,
+                                          const AtomicString& mark_name,
+                                          const DOMHighResTimeStamp& start_time,
+                                          const ScriptValue& detail,
+                                          ExceptionState& exception_state) {
+  DCHECK(performance_);
+  bool is_worker_global_scope =
+      performance_->GetExecutionContext() &&
+      performance_->GetExecutionContext()->IsWorkerGlobalScope();
+  if (!is_worker_global_scope && GetRestrictedKeyMap().Contains(mark_name)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kSyntaxError,
         "'" + mark_name +
@@ -112,7 +140,12 @@ PerformanceMark* UserTiming::Mark(ScriptState* script_state,
     return nullptr;
   }
 
-  TRACE_EVENT_COPY_MARK("blink.user_timing", mark_name.Utf8().data());
+  if (performance_->timing()) {
+    TRACE_EVENT_COPY_MARK1("blink.user_timing", mark_name.Utf8().data(), "data",
+                           performance_->timing()->GetNavigationTracingData());
+  } else {
+    TRACE_EVENT_COPY_MARK("blink.user_timing", mark_name.Utf8().data());
+  }
   PerformanceMark* mark =
       PerformanceMark::Create(script_state, mark_name, start_time, detail);
   InsertPerformanceEntry(marks_map_, *mark);
@@ -123,11 +156,11 @@ PerformanceMark* UserTiming::Mark(ScriptState* script_state,
   return mark;
 }
 
-void UserTiming::ClearMarks(const String& mark_name) {
+void UserTiming::ClearMarks(const AtomicString& mark_name) {
   ClearPeformanceEntries(marks_map_, mark_name);
 }
 
-double UserTiming::FindExistingMarkStartTime(const String& mark_name,
+double UserTiming::FindExistingMarkStartTime(const AtomicString& mark_name,
                                              ExceptionState& exception_state) {
   if (marks_map_.Contains(mark_name))
     return marks_map_.at(mark_name).back()->startTime();
@@ -153,40 +186,31 @@ double UserTiming::FindExistingMarkStartTime(const String& mark_name,
   return 0.0;
 }
 
-double UserTiming::FindStartMarkOrTime(const StringOrDouble& start,
-                                       ExceptionState& exception_state) {
-  if (start.IsString())
-    return FindExistingMarkStartTime(start.GetAsString(), exception_state);
-  if (start.IsDouble())
-    return start.GetAsDouble();
-  NOTREACHED();
-  return 0;
+double UserTiming::GetTimeOrFindMarkTime(const StringOrDouble& mark_or_time,
+                                         ExceptionState& exception_state) {
+  if (mark_or_time.IsString()) {
+    return FindExistingMarkStartTime(AtomicString(mark_or_time.GetAsString()),
+                                     exception_state);
+  }
+  DCHECK(mark_or_time.IsDouble());
+  return mark_or_time.GetAsDouble();
 }
 
 PerformanceMeasure* UserTiming::Measure(ScriptState* script_state,
-                                        const String& measure_name,
+                                        const AtomicString& measure_name,
                                         const StringOrDouble& start,
                                         const StringOrDouble& end,
                                         const ScriptValue& detail,
                                         ExceptionState& exception_state) {
-  double start_time = 0.0;
-  double end_time = 0.0;
+  double start_time =
+      start.IsNull() ? 0.0 : GetTimeOrFindMarkTime(start, exception_state);
+  if (exception_state.HadException())
+    return nullptr;
 
-  if (start.IsNull()) {
-    end_time = performance_->now();
-  } else if (end.IsNull()) {
-    end_time = performance_->now();
-    start_time = FindStartMarkOrTime(start, exception_state);
-    if (exception_state.HadException())
-      return nullptr;
-  } else {
-    end_time = FindStartMarkOrTime(end, exception_state);
-    if (exception_state.HadException())
-      return nullptr;
-    start_time = FindStartMarkOrTime(start, exception_state);
-    if (exception_state.HadException())
-      return nullptr;
-  }
+  double end_time = end.IsNull() ? performance_->now()
+                                 : GetTimeOrFindMarkTime(end, exception_state);
+  if (exception_state.HadException())
+    return nullptr;
 
   // User timing events are stored as integer milliseconds from the start of
   // navigation, whereas trace events accept double seconds based off of
@@ -194,15 +218,16 @@ PerformanceMeasure* UserTiming::Measure(ScriptState* script_state,
   double start_time_monotonic =
       performance_->GetTimeOrigin() + start_time / 1000.0;
   double end_time_monotonic = performance_->GetTimeOrigin() + end_time / 1000.0;
+  unsigned hash = WTF::StringHash::GetHash(measure_name);
+  WTF::AddFloatToHash(hash, start_time);
+  WTF::AddFloatToHash(hash, end_time);
 
   TRACE_EVENT_COPY_NESTABLE_ASYNC_BEGIN_WITH_TIMESTAMP0(
-      "blink.user_timing", measure_name.Utf8().data(),
-      WTF::StringHash::GetHash(measure_name),
-      TraceEvent::ToTraceTimestamp(start_time_monotonic));
+      "blink.user_timing", measure_name.Utf8().data(), hash,
+      trace_event::ToTraceTimestamp(start_time_monotonic));
   TRACE_EVENT_COPY_NESTABLE_ASYNC_END_WITH_TIMESTAMP0(
-      "blink.user_timing", measure_name.Utf8().data(),
-      WTF::StringHash::GetHash(measure_name),
-      TraceEvent::ToTraceTimestamp(end_time_monotonic));
+      "blink.user_timing", measure_name.Utf8().data(), hash,
+      trace_event::ToTraceTimestamp(end_time_monotonic));
 
   PerformanceMeasure* measure = PerformanceMeasure::Create(
       script_state, measure_name, start_time, end_time, detail);
@@ -216,7 +241,7 @@ PerformanceMeasure* UserTiming::Measure(ScriptState* script_state,
   return measure;
 }
 
-void UserTiming::ClearMeasures(const String& measure_name) {
+void UserTiming::ClearMeasures(const AtomicString& measure_name) {
   ClearPeformanceEntries(measures_map_, measure_name);
 }
 
@@ -232,7 +257,7 @@ static PerformanceEntryVector ConvertToEntrySequence(
 
 static PerformanceEntryVector GetEntrySequenceByName(
     const PerformanceEntryMap& performance_entry_map,
-    const String& name) {
+    const AtomicString& name) {
   PerformanceEntryVector entries;
 
   PerformanceEntryMap::const_iterator it = performance_entry_map.find(name);
@@ -246,7 +271,7 @@ PerformanceEntryVector UserTiming::GetMarks() const {
   return ConvertToEntrySequence(marks_map_);
 }
 
-PerformanceEntryVector UserTiming::GetMarks(const String& name) const {
+PerformanceEntryVector UserTiming::GetMarks(const AtomicString& name) const {
   return GetEntrySequenceByName(marks_map_, name);
 }
 
@@ -254,7 +279,7 @@ PerformanceEntryVector UserTiming::GetMeasures() const {
   return ConvertToEntrySequence(measures_map_);
 }
 
-PerformanceEntryVector UserTiming::GetMeasures(const String& name) const {
+PerformanceEntryVector UserTiming::GetMeasures(const AtomicString& name) const {
   return GetEntrySequenceByName(measures_map_, name);
 }
 

@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
 #include "norwegianwoodstyle.h"
+
+#include <QtWidgets>
 
 NorwegianWoodStyle::NorwegianWoodStyle() :
     QProxyStyle(QStyleFactory::create("windows"))
@@ -64,9 +64,9 @@ void NorwegianWoodStyle::polish(QPalette &palette)
     QColor beige(236, 182, 120);
     QColor slightlyOpaqueBlack(0, 0, 0, 63);
 
-    QPixmap backgroundImage(":/images/woodbackground.png");
-    QPixmap buttonImage(":/images/woodbutton.png");
-    QPixmap midImage = buttonImage;
+    QImage backgroundImage(":/images/woodbackground.png");
+    QImage buttonImage(":/images/woodbutton.png");
+    QImage midImage = buttonImage.convertToFormat(QImage::Format_RGB32);
 
     QPainter painter;
     painter.begin(&midImage);
@@ -85,8 +85,8 @@ void NorwegianWoodStyle::polish(QPalette &palette)
     setTexture(palette, QPalette::Mid, midImage);
     setTexture(palette, QPalette::Window, backgroundImage);
 
-    QBrush brush = palette.background();
-    brush.setColor(brush.color().dark());
+    QBrush brush = palette.window();
+    brush.setColor(brush.color().darker());
 
     palette.setBrush(QPalette::Disabled, QPalette::WindowText, brush);
     palette.setBrush(QPalette::Disabled, QPalette::Text, brush);
@@ -185,7 +185,7 @@ void NorwegianWoodStyle::drawPrimitive(PrimitiveElement element,
                     qstyleoption_cast<const QStyleOptionButton *>(option);
             if (buttonOption
                     && (buttonOption->features & QStyleOptionButton::Flat)) {
-                brush = option->palette.background();
+                brush = option->palette.window();
                 darker = (option->state & (State_Sunken | State_On));
             } else {
                 if (option->state & (State_Sunken | State_On)) {
@@ -261,7 +261,7 @@ void NorwegianWoodStyle::drawPrimitive(PrimitiveElement element,
             painter->setPen(bottomPen);
             painter->drawPath(roundRect);
 
-            painter->setPen(option->palette.foreground().color());
+            painter->setPen(option->palette.windowText().color());
             painter->setClipping(false);
             painter->drawPath(roundRect);
 
@@ -311,11 +311,12 @@ void NorwegianWoodStyle::drawControl(ControlElement element,
 //! [37]
 void NorwegianWoodStyle::setTexture(QPalette &palette, QPalette::ColorRole role,
 //! [37] //! [38]
-                                    const QPixmap &pixmap)
+                                    const QImage &image)
 {
     for (int i = 0; i < QPalette::NColorGroups; ++i) {
-        QColor color = palette.brush(QPalette::ColorGroup(i), role).color();
-        palette.setBrush(QPalette::ColorGroup(i), role, QBrush(color, pixmap));
+        QBrush brush(image);
+        brush.setColor(palette.brush(QPalette::ColorGroup(i), role).color());
+        palette.setBrush(QPalette::ColorGroup(i), role, brush);
     }
 }
 //! [38]

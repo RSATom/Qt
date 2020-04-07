@@ -120,6 +120,7 @@ Es wird mit einer einfachen Universalform gearbeitet.</translation>
     </message>
     <message>
         <source>%1 (%2)</source>
+        <extracomment>&lt;language&gt; (&lt;country&gt;)</extracomment>
         <translation>%1 (%2)</translation>
     </message>
     <message>
@@ -984,8 +985,12 @@ Alle Dateien (*)</translation>
         <translation>Version %1</translation>
     </message>
     <message>
-        <source>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
-        <translation>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</translation>
+        <source>Qt Linguist is a tool for adding translations to Qt applications.</source>
+        <translation>Qt Linguist ist ein Werkzeug zum Hinzufügen von Übersetzungen zu Qt-Anwendungen</translation>
+    </message>
+    <message>
+        <source>Copyright (C) %1 The Qt Company Ltd.</source>
+        <translation>Copyright (C) %1 The Qt Company Ltd.</translation>
     </message>
     <message>
         <source>Do you want to save the modified files?</source>

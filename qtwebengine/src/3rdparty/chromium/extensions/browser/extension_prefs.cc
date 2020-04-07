@@ -65,7 +65,7 @@ constexpr const char kPrefPath[] = "path";
 constexpr const char kPrefManifest[] = "manifest";
 
 // The version number.
-constexpr const char kPrefVersion[] = "manifest.version";
+constexpr const char kPrefManifestVersion[] = "manifest.version";
 
 // Indicates whether an extension is blacklisted.
 constexpr const char kPrefBlacklist[] = "blacklist";
@@ -392,8 +392,7 @@ void ExtensionPrefs::MakePathsRelative() {
   // Fix these paths.
   prefs::ScopedDictionaryPrefUpdate update(prefs_, pref_names::kExtensions);
   auto update_dict = update.Get();
-  for (std::set<std::string>::iterator i = absolute_keys.begin();
-       i != absolute_keys.end(); ++i) {
+  for (auto i = absolute_keys.begin(); i != absolute_keys.end(); ++i) {
     std::unique_ptr<prefs::DictionaryValueUpdate> extension_dict;
     if (!update_dict->GetDictionaryWithoutPathExpansion(*i, &extension_dict)) {
       NOTREACHED() << "Control should never reach here for extension " << *i;
@@ -581,7 +580,8 @@ std::unique_ptr<const PermissionSet> ExtensionPrefs::ReadPrefAsPermissionSet(
       extension_id, JoinPrefs(pref_key, kPrefScriptableHosts),
       &scriptable_hosts, UserScript::ValidUserScriptSchemes());
 
-  return std::make_unique<PermissionSet>(apis, manifest_permissions,
+  return std::make_unique<PermissionSet>(std::move(apis),
+                                         std::move(manifest_permissions),
                                          explicit_hosts, scriptable_hosts);
 }
 
@@ -863,6 +863,10 @@ bool ExtensionPrefs::IsExtensionBlacklisted(const std::string& id) const {
   return ext_prefs && IsBlacklistBitSet(ext_prefs);
 }
 
+bool ExtensionPrefs::InsecureExtensionUpdatesEnabled() const {
+  return prefs_->GetBoolean(pref_names::kInsecureExtensionUpdatesEnabled);
+}
+
 namespace {
 
 // Serializes a 64bit integer as a string value.
@@ -1000,6 +1004,8 @@ void ExtensionPrefs::AddRuntimeGrantedPermissions(
     const PermissionSet& permissions) {
   AddToPrefPermissionSet(extension_id, permissions,
                          kPrefRuntimeGrantedPermissions);
+  for (auto& observer : observer_list_)
+    observer.OnExtensionRuntimePermissionsChanged(extension_id);
 }
 
 void ExtensionPrefs::RemoveRuntimeGrantedPermissions(
@@ -1007,6 +1013,8 @@ void ExtensionPrefs::RemoveRuntimeGrantedPermissions(
     const PermissionSet& permissions) {
   RemoveFromPrefPermissionSet(extension_id, permissions,
                               kPrefRuntimeGrantedPermissions);
+  for (auto& observer : observer_list_)
+    observer.OnExtensionRuntimePermissionsChanged(extension_id);
 }
 
 void ExtensionPrefs::SetExtensionRunning(const std::string& extension_id,
@@ -1188,7 +1196,7 @@ std::string ExtensionPrefs::GetVersionString(
     return std::string();
 
   std::string version;
-  extension->GetString(kPrefVersion, &version);
+  extension->GetString(kPrefManifestVersion, &version);
 
   return version;
 }
@@ -1212,23 +1220,24 @@ void ExtensionPrefs::UpdateManifest(const Extension* extension) {
 
 std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetInstalledInfoHelper(
     const std::string& extension_id,
-    const base::DictionaryValue* extension) const {
+    const base::DictionaryValue* extension,
+    bool include_component_extensions) const {
   int location_value;
   if (!extension->GetInteger(kPrefLocation, &location_value))
     return std::unique_ptr<ExtensionInfo>();
 
   Manifest::Location location = static_cast<Manifest::Location>(location_value);
-  if (location == Manifest::COMPONENT) {
-    // Component extensions are ignored. Component extensions may have data
-    // saved in preferences, but they are already loaded at this point (by
-    // ComponentLoader) and shouldn't be populated into the result of
+  if (location == Manifest::COMPONENT && !include_component_extensions) {
+    // Component extensions are ignored by default. Component extensions may
+    // have data saved in preferences, but they are already loaded at this point
+    // (by ComponentLoader) and shouldn't be populated into the result of
     // GetInstalledExtensionsInfo, otherwise InstalledLoader would also want to
     // load them.
     return std::unique_ptr<ExtensionInfo>();
   }
 
   // Only the following extension types have data saved in the preferences.
-  if (location != Manifest::INTERNAL &&
+  if (location != Manifest::INTERNAL && location != Manifest::COMPONENT &&
       !Manifest::IsUnpackedLocation(location) &&
       !Manifest::IsExternalLocation(location)) {
     NOTREACHED();
@@ -1255,7 +1264,8 @@ std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetInstalledInfoHelper(
 }
 
 std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetInstalledExtensionInfo(
-    const std::string& extension_id) const {
+    const std::string& extension_id,
+    bool include_component_extensions) const {
   const base::DictionaryValue* ext = NULL;
   const base::DictionaryValue* extensions =
       prefs_->GetDictionary(pref_names::kExtensions);
@@ -1268,11 +1278,13 @@ std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetInstalledExtensionInfo(
     return std::unique_ptr<ExtensionInfo>();
   }
 
-  return GetInstalledInfoHelper(extension_id, ext);
+  return GetInstalledInfoHelper(extension_id, ext,
+                                include_component_extensions);
 }
 
 std::unique_ptr<ExtensionPrefs::ExtensionsInfo>
-ExtensionPrefs::GetInstalledExtensionsInfo() const {
+ExtensionPrefs::GetInstalledExtensionsInfo(
+    bool include_component_extensions) const {
   std::unique_ptr<ExtensionsInfo> extensions_info(new ExtensionsInfo);
 
   const base::DictionaryValue* extensions =
@@ -1282,8 +1294,8 @@ ExtensionPrefs::GetInstalledExtensionsInfo() const {
     if (!crx_file::id_util::IdIsValid(extension_id.key()))
       continue;
 
-    std::unique_ptr<ExtensionInfo> info =
-        GetInstalledExtensionInfo(extension_id.key());
+    std::unique_ptr<ExtensionInfo> info = GetInstalledExtensionInfo(
+        extension_id.key(), include_component_extensions);
     if (info)
       extensions_info->push_back(std::move(info));
   }
@@ -1306,7 +1318,8 @@ ExtensionPrefs::GetUninstalledExtensionsInfo() const {
       continue;
 
     std::unique_ptr<ExtensionInfo> info =
-        GetInstalledInfoHelper(extension_id.key(), ext);
+        GetInstalledInfoHelper(extension_id.key(), ext,
+                               /*include_component_extensions = */ false);
     if (info)
       extensions_info->push_back(std::move(info));
   }
@@ -1401,7 +1414,8 @@ std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetDelayedInstallInfo(
   if (!extension_prefs->GetDictionary(kDelayedInstallInfo, &ext))
     return std::unique_ptr<ExtensionInfo>();
 
-  return GetInstalledInfoHelper(extension_id, ext);
+  return GetInstalledInfoHelper(extension_id, ext,
+                                /*include_component_extensions = */ false);
 }
 
 ExtensionPrefs::DelayReason ExtensionPrefs::GetDelayedInstallReason(
@@ -1609,7 +1623,8 @@ void ExtensionPrefs::InitPrefStore() {
   std::unique_ptr<ExtensionsInfo> extensions_info;
   {
     SCOPED_UMA_HISTOGRAM_TIMER("Extensions.InitPrefGetExtensionsTime");
-    extensions_info = GetInstalledExtensionsInfo();
+    extensions_info =
+        GetInstalledExtensionsInfo(/*include_component_extensions = */ true);
   }
 
   if (extensions_disabled_) {
@@ -1642,11 +1657,6 @@ void ExtensionPrefs::InitPrefStore() {
     };
     base::EraseIf(*extensions_info, predicate);
   }
-
-  // TODO(devlin): |extensions_info| won't contain records for component
-  // extensions (see GetInstalledInfoHelper()). It probably should, because
-  // otherwise component extensions using APIs that rely on extension-controlled
-  // prefs may crash.
 
   InitExtensionControlledPrefs(*extensions_info);
 
@@ -1738,9 +1748,8 @@ bool ExtensionPrefs::GetDNRRulesetChecksum(const ExtensionId& extension_id,
                            dnr_ruleset_checksum);
 }
 
-void ExtensionPrefs::SetDNRRulesetChecksumForTesting(
-    const ExtensionId& extension_id,
-    int dnr_ruleset_checksum) {
+void ExtensionPrefs::SetDNRRulesetChecksum(const ExtensionId& extension_id,
+                                           int dnr_ruleset_checksum) {
   UpdateExtensionPref(extension_id, kPrefDNRRulesetChecksum,
                       std::make_unique<base::Value>(dnr_ruleset_checksum));
 }
@@ -1784,9 +1793,7 @@ ExtensionPrefs::ExtensionPrefs(
   MakePathsRelative();
 
   // Ensure that any early observers are watching before prefs are initialized.
-  for (std::vector<ExtensionPrefsObserver*>::const_iterator iter =
-           early_observers.begin();
-       iter != early_observers.end();
+  for (auto iter = early_observers.cbegin(); iter != early_observers.cend();
        ++iter) {
     AddObserver(*iter);
   }
@@ -1820,8 +1827,6 @@ void ExtensionPrefs::RegisterProfilePrefs(
   registry->RegisterDictionaryPref(pref_names::kInstallLoginScreenAppList);
   registry->RegisterListPref(pref_names::kAllowedTypes);
   registry->RegisterBooleanPref(pref_names::kStorageGarbageCollect, false);
-  registry->RegisterInt64Pref(pref_names::kLastUpdateCheck, 0);
-  registry->RegisterInt64Pref(pref_names::kNextUpdateCheck, 0);
   registry->RegisterListPref(pref_names::kAllowedInstallSites);
   registry->RegisterStringPref(pref_names::kLastChromeVersion, std::string());
   registry->RegisterDictionaryPref(kInstallSignature);
@@ -1831,6 +1836,8 @@ void ExtensionPrefs::RegisterProfilePrefs(
   registry->RegisterBooleanPref(pref_names::kNativeMessagingUserLevelHosts,
                                 true);
   registry->RegisterIntegerPref(kCorruptedDisableCount, 0);
+  registry->RegisterBooleanPref(pref_names::kInsecureExtensionUpdatesEnabled,
+                                true);
 
 #if !defined(OS_MACOSX)
   registry->RegisterBooleanPref(pref_names::kAppFullscreenAllowed, true);
@@ -1851,7 +1858,7 @@ bool ExtensionPrefs::GetUserExtensionPrefIntoContainer(
   std::insert_iterator<ExtensionIdContainer> insert_iterator(
       *id_container_out, id_container_out->end());
   std::string extension_id;
-  for (base::ListValue::const_iterator value_it = user_pref_as_list->begin();
+  for (auto value_it = user_pref_as_list->begin();
        value_it != user_pref_as_list->end(); ++value_it) {
     if (!value_it->GetAsString(&extension_id)) {
       NOTREACHED();
@@ -1869,8 +1876,7 @@ void ExtensionPrefs::SetExtensionPrefFromContainer(
   ListPrefUpdate update(prefs_, pref);
   base::ListValue* list_of_values = update.Get();
   list_of_values->Clear();
-  for (typename ExtensionIdContainer::const_iterator iter = strings.begin();
-       iter != strings.end(); ++iter) {
+  for (auto iter = strings.cbegin(); iter != strings.cend(); ++iter) {
     list_of_values->AppendString(*iter);
   }
 }

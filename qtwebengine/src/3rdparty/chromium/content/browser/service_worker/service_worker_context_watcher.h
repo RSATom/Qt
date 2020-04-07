@@ -29,20 +29,20 @@ class CONTENT_EXPORT ServiceWorkerContextWatcher
     : public ServiceWorkerContextCoreObserver,
       public base::RefCountedThreadSafe<ServiceWorkerContextWatcher> {
  public:
-  typedef base::Callback<void(
-      const std::vector<ServiceWorkerRegistrationInfo>&)>
-      WorkerRegistrationUpdatedCallback;
-  typedef base::Callback<void(const std::vector<ServiceWorkerVersionInfo>&)>
-      WorkerVersionUpdatedCallback;
-  typedef base::Callback<void(int64_t /* registration_id */,
-                              int64_t /* version_id */,
-                              const ErrorInfo&)> WorkerErrorReportedCallback;
+  using WorkerRegistrationUpdatedCallback = base::RepeatingCallback<void(
+      const std::vector<ServiceWorkerRegistrationInfo>&)>;
+  using WorkerVersionUpdatedCallback = base::RepeatingCallback<void(
+      const std::vector<ServiceWorkerVersionInfo>&)>;
+  using WorkerErrorReportedCallback =
+      base::RepeatingCallback<void(int64_t /* registration_id */,
+                                   int64_t /* version_id */,
+                                   const ErrorInfo&)>;
 
   ServiceWorkerContextWatcher(
       scoped_refptr<ServiceWorkerContextWrapper> context,
-      const WorkerRegistrationUpdatedCallback& registration_callback,
-      const WorkerVersionUpdatedCallback& version_callback,
-      const WorkerErrorReportedCallback& error_callback);
+      WorkerRegistrationUpdatedCallback registration_callback,
+      WorkerVersionUpdatedCallback version_callback,
+      WorkerErrorReportedCallback error_callback);
   void Start();
   void Stop();
 
@@ -67,7 +67,7 @@ class CONTENT_EXPORT ServiceWorkerContextWatcher
 
   void SendRegistrationInfo(
       int64_t registration_id,
-      const GURL& pattern,
+      const GURL& scope,
       ServiceWorkerRegistrationInfo::DeleteFlag delete_flag);
   void SendVersionInfo(const ServiceWorkerVersionInfo& version);
 
@@ -82,13 +82,14 @@ class CONTENT_EXPORT ServiceWorkerContextWatcher
 
   // ServiceWorkerContextCoreObserver implements
   void OnNewLiveRegistration(int64_t registration_id,
-                             const GURL& pattern) override;
+                             const GURL& scope) override;
   void OnNewLiveVersion(const ServiceWorkerVersionInfo& version_info) override;
   void OnRunningStateChanged(
       int64_t version_id,
       content::EmbeddedWorkerStatus running_status) override;
   void OnVersionStateChanged(
       int64_t version_id,
+      const GURL& scope,
       content::ServiceWorkerVersion::Status status) override;
   void OnVersionDevToolsRoutingIdChanged(int64_t version_id,
                                          int process_id,
@@ -102,14 +103,16 @@ class CONTENT_EXPORT ServiceWorkerContextWatcher
   void OnReportConsoleMessage(int64_t version_id,
                               const ConsoleMessage& message) override;
   void OnControlleeAdded(int64_t version_id,
+                         const GURL& scope,
                          const std::string& uuid,
                          const ServiceWorkerClientInfo& info) override;
   void OnControlleeRemoved(int64_t version_id,
+                           const GURL& scope,
                            const std::string& uuid) override;
   void OnRegistrationCompleted(int64_t registration_id,
-                               const GURL& pattern) override;
+                               const GURL& scope) override;
   void OnRegistrationDeleted(int64_t registration_id,
-                             const GURL& pattern) override;
+                             const GURL& scope) override;
 
   std::unordered_map<int64_t, std::unique_ptr<ServiceWorkerVersionInfo>>
       version_info_map_;

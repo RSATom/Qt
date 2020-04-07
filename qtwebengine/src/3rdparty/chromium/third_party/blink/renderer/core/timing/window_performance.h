@@ -52,8 +52,10 @@ class CORE_EXPORT WindowPerformance final : public Performance,
 
  public:
   static WindowPerformance* Create(LocalDOMWindow* window) {
-    return new WindowPerformance(window);
+    return MakeGarbageCollected<WindowPerformance>(window);
   }
+
+  explicit WindowPerformance(LocalDOMWindow*);
   ~WindowPerformance() override;
 
   ExecutionContext* GetExecutionContext() const override;
@@ -67,26 +69,31 @@ class CORE_EXPORT WindowPerformance final : public Performance,
 
   void UpdateLongTaskInstrumentation() override;
 
-  bool ObservingEventTimingEntries();
-  bool ShouldBufferEventTiming();
+  bool ShouldBufferEntries();
+
+  bool FirstInputDetected() const { return !!first_input_timing_; }
 
   // This method creates a PerformanceEventTiming and if needed creates a swap
   // promise to calculate the |duration| attribute when such promise is
   // resolved.
-  void RegisterEventTiming(String event_type,
+  void RegisterEventTiming(const AtomicString& event_type,
                            TimeTicks start_time,
                            TimeTicks processing_start,
                            TimeTicks processing_end,
                            bool cancelable);
 
+  void AddElementTiming(const AtomicString& name,
+                        const IntRect& rect,
+                        TimeTicks timestamp);
+
+  void AddLayoutJankFraction(double jank_fraction);
+
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit WindowPerformance(LocalDOMWindow*);
-
   PerformanceNavigationTiming* CreateNavigationTimingInstance() override;
 
-  static std::pair<String, DOMWindow*> SanitizedAttribution(
+  static std::pair<AtomicString, DOMWindow*> SanitizedAttribution(
       ExecutionContext*,
       bool has_multiple_contexts,
       LocalFrame* observer_frame);
@@ -112,10 +119,6 @@ class CORE_EXPORT WindowPerformance final : public Performance,
   // dispatch has been completed but the swap promise used to determine
   // |duration| has not been resolved.
   HeapVector<Member<PerformanceEventTiming>> event_timings_;
-  // We use a bool separate from |first_input_timing_| because if the first
-  // input does not happen before onload then |first_input_timing_| will never
-  // be populated since it should not be accessible from the performance buffer.
-  bool first_input_detected_ = false;
   Member<PerformanceEventTiming> first_pointer_down_event_timing_;
   mutable Member<PerformanceNavigation> navigation_;
   mutable Member<PerformanceTiming> timing_;

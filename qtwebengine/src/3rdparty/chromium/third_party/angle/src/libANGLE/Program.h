@@ -23,6 +23,7 @@
 #include "common/Optional.h"
 #include "common/angleutils.h"
 #include "common/mathutil.h"
+#include "common/utilities.h"
 
 #include "libANGLE/Constants.h"
 #include "libANGLE/Debug.h"
@@ -36,20 +37,21 @@ namespace rx
 class GLImplFactory;
 class ProgramImpl;
 struct TranslatedAttribute;
-}
+}  // namespace rx
 
 namespace gl
 {
-struct UnusedUniform;
+class Buffer;
 struct Caps;
 class Context;
-class ContextState;
+struct Extensions;
+class Framebuffer;
+class InfoLog;
 class Shader;
 class ShaderProgramManager;
 class State;
-class InfoLog;
-class Buffer;
-class Framebuffer;
+struct UnusedUniform;
+struct Version;
 
 extern const char *const g_fakepath;
 
@@ -208,12 +210,17 @@ struct BindingInfo
 // This small structure encapsulates binding sampler uniforms to active GL textures.
 struct SamplerBinding
 {
-    SamplerBinding(TextureType textureTypeIn, size_t elementCount, bool unreferenced);
+    SamplerBinding(TextureType textureTypeIn,
+                   SamplerFormat formatIn,
+                   size_t elementCount,
+                   bool unreferenced);
     SamplerBinding(const SamplerBinding &other);
     ~SamplerBinding();
 
     // Necessary for retrieving active textures from the GL state.
     TextureType textureType;
+
+    SamplerFormat format;
 
     // List of all textures bound to this sampler, of type textureType.
     std::vector<GLuint> boundTextureUnits;
@@ -263,11 +270,14 @@ struct TransformFeedbackVarying : public sh::Varying
 struct ImageBinding
 {
     ImageBinding(size_t count);
-    ImageBinding(GLuint imageUnit, size_t count);
+    ImageBinding(GLuint imageUnit, size_t count, bool unreferenced);
     ImageBinding(const ImageBinding &other);
     ~ImageBinding();
 
     std::vector<GLuint> boundImageUnits;
+
+    // A note if this image unit is an unreferenced uniform.
+    bool unreferenced;
 };
 
 class ProgramState final : angle::NonCopyable
@@ -308,6 +318,10 @@ class ProgramState final : angle::NonCopyable
     DrawBufferMask getActiveOutputVariables() const { return mActiveOutputVariables; }
     const std::vector<sh::OutputVariable> &getOutputVariables() const { return mOutputVariables; }
     const std::vector<VariableLocation> &getOutputLocations() const { return mOutputLocations; }
+    const std::vector<VariableLocation> &getSecondaryOutputLocations() const
+    {
+        return mSecondaryOutputLocations;
+    }
     const std::vector<LinkedUniform> &getUniforms() const { return mUniforms; }
     const std::vector<VariableLocation> &getUniformLocations() const { return mUniformLocations; }
     const std::vector<InterfaceBlock> &getUniformBlocks() const { return mUniformBlocks; }
@@ -337,6 +351,8 @@ class ProgramState final : angle::NonCopyable
     Optional<GLuint> getSamplerIndex(GLint location) const;
     bool isSamplerUniformIndex(GLuint index) const;
     GLuint getSamplerIndexFromUniformIndex(GLuint uniformIndex) const;
+    bool isImageUniformIndex(GLuint index) const;
+    GLuint getImageIndexFromUniformIndex(GLuint uniformIndex) const;
     GLuint getAttributeLocation(const std::string &name) const;
 
     GLuint getBufferVariableIndexFromName(const std::string &name) const;
@@ -348,11 +364,22 @@ class ProgramState final : angle::NonCopyable
 
     bool hasAttachedShader() const;
 
+    const ActiveTextureMask &getActiveSamplersMask() const { return mActiveSamplersMask; }
+    SamplerFormat getSamplerFormatForTextureUnitIndex(size_t textureUnitIndex) const
+    {
+        return mActiveSamplerFormats[textureUnitIndex];
+    }
+
   private:
     friend class MemoryProgramCache;
     friend class Program;
 
     void updateTransformFeedbackStrides();
+    void updateActiveSamplers();
+    void updateActiveImages();
+
+    // Scans the sampler bindings for type conflicts with sampler 'textureUnitIndex'.
+    void setSamplerUniformTextureTypeAndFormat(size_t textureUnitIndex);
 
     std::string mLabel;
 
@@ -406,6 +433,10 @@ class ProgramState final : angle::NonCopyable
     // to uniforms.
     std::vector<sh::OutputVariable> mOutputVariables;
     std::vector<VariableLocation> mOutputLocations;
+
+    // EXT_blend_func_extended secondary outputs (ones with index 1) in ESSL 3.00 shaders.
+    std::vector<VariableLocation> mSecondaryOutputLocations;
+
     DrawBufferMask mActiveOutputVariables;
 
     // Fragment output variable base types: FLOAT, INT, or UINT.  Ordered by location.
@@ -425,8 +456,20 @@ class ProgramState final : angle::NonCopyable
     int mGeometryShaderInvocations;
     int mGeometryShaderMaxVertices;
 
+    // GL_ANGLE_multi_draw
+    int mDrawIDLocation;
+
     // The size of the data written to each transform feedback buffer per vertex.
     std::vector<GLsizei> mTransformFeedbackStrides;
+
+    // Cached mask of active samplers and sampler types.
+    ActiveTextureMask mActiveSamplersMask;
+    ActiveTextureArray<uint32_t> mActiveSamplerRefCounts;
+    ActiveTextureArray<TextureType> mActiveSamplerTypes;
+    ActiveTextureArray<SamplerFormat> mActiveSamplerFormats;
+
+    // Cached mask of active images.
+    ActiveTextureMask mActiveImagesMask;
 };
 
 class ProgramBindings final : angle::NonCopyable
@@ -462,12 +505,16 @@ class Program final : angle::NonCopyable, public LabeledObject
     Program(rx::GLImplFactory *factory, ShaderProgramManager *manager, GLuint handle);
     void onDestroy(const Context *context);
 
-    GLuint id() const { return mHandle; }
+    GLuint id() const;
 
-    void setLabel(const std::string &label) override;
+    void setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
-    rx::ProgramImpl *getImplementation() const { return mProgram; }
+    ANGLE_INLINE rx::ProgramImpl *getImplementation() const
+    {
+        ASSERT(mLinkResolved);
+        return mProgram;
+    }
 
     void attachShader(Shader *shader);
     void detachShader(const Context *context, Shader *shader);
@@ -479,29 +526,44 @@ class Program final : angle::NonCopyable, public LabeledObject
     void bindUniformLocation(GLuint index, const char *name);
 
     // CHROMIUM_path_rendering
-    BindingInfo getFragmentInputBindingInfo(const Context *context, GLint index) const;
+    BindingInfo getFragmentInputBindingInfo(GLint index) const;
     void bindFragmentInputLocation(GLint index, const char *name);
-    void pathFragmentInputGen(const Context *context,
-                              GLint index,
-                              GLenum genMode,
-                              GLint components,
-                              const GLfloat *coeffs);
+    void pathFragmentInputGen(GLint index, GLenum genMode, GLint components, const GLfloat *coeffs);
 
-    Error link(const Context *context);
-    bool isLinked() const { return mLinked; }
+    // EXT_blend_func_extended
+    void bindFragmentOutputLocation(GLuint index, const char *name);
+    void bindFragmentOutputIndex(GLuint index, const char *name);
 
-    bool hasLinkedShaderStage(ShaderType shaderType) const;
+    // KHR_parallel_shader_compile
+    // Try to link the program asynchrously. As a result, background threads may be launched to
+    // execute the linking tasks concurrently.
+    angle::Result link(const Context *context);
 
-    Error loadBinary(const Context *context,
-                     GLenum binaryFormat,
-                     const void *binary,
-                     GLsizei length);
-    Error saveBinary(const Context *context,
-                     GLenum *binaryFormat,
-                     void *binary,
-                     GLsizei bufSize,
-                     GLsizei *length) const;
-    GLint getBinaryLength(const Context *context) const;
+    // Peek whether there is any running linking tasks.
+    bool isLinking() const;
+
+    bool isLinked() const
+    {
+        ASSERT(mLinkResolved);
+        return mLinked;
+    }
+
+    bool hasLinkedShaderStage(ShaderType shaderType) const
+    {
+        ASSERT(shaderType != ShaderType::InvalidEnum);
+        return mState.mLinkedShaderStages[shaderType];
+    }
+
+    angle::Result loadBinary(const Context *context,
+                             GLenum binaryFormat,
+                             const void *binary,
+                             GLsizei length);
+    angle::Result saveBinary(Context *context,
+                             GLenum *binaryFormat,
+                             void *binary,
+                             GLsizei bufSize,
+                             GLsizei *length) const;
+    GLint getBinaryLength(Context *context) const;
     void setBinaryRetrievableHint(bool retrievable);
     bool getBinaryRetrievableHint() const;
 
@@ -523,15 +585,19 @@ class Program final : angle::NonCopyable, public LabeledObject
                             GLchar *name) const;
     GLint getActiveAttributeCount() const;
     GLint getActiveAttributeMaxLength() const;
-    const std::vector<sh::Attribute> &getAttributes() const { return mState.mAttributes; }
+    const std::vector<sh::Attribute> &getAttributes() const;
 
     GLint getFragDataLocation(const std::string &name) const;
     size_t getOutputResourceCount() const;
-    const std::vector<GLenum> &getOutputVariableTypes() const
+    const std::vector<GLenum> &getOutputVariableTypes() const;
+    DrawBufferMask getActiveOutputVariables() const
     {
-        return mState.mOutputVariableTypes;
+        ASSERT(mLinkResolved);
+        return mState.mActiveOutputVariables;
     }
-    DrawBufferMask getActiveOutputVariables() const { return mState.mActiveOutputVariables; }
+
+    // EXT_blend_func_extended
+    GLint getFragDataIndex(const std::string &name) const;
 
     void getActiveUniform(GLuint index,
                           GLsizei bufsize,
@@ -545,13 +611,16 @@ class Program final : angle::NonCopyable, public LabeledObject
     bool isValidUniformLocation(GLint location) const;
     const LinkedUniform &getUniformByLocation(GLint location) const;
     const VariableLocation &getUniformLocation(GLint location) const;
+
     const std::vector<VariableLocation> &getUniformLocations() const
     {
+        ASSERT(mLinkResolved);
         return mState.mUniformLocations;
     }
 
     const LinkedUniform &getUniformByIndex(GLuint index) const
     {
+        ASSERT(mLinkResolved);
         ASSERT(index < static_cast<size_t>(mState.mUniforms.size()));
         return mState.mUniforms[index];
     }
@@ -570,7 +639,7 @@ class Program final : angle::NonCopyable, public LabeledObject
     void setUniform2fv(GLint location, GLsizei count, const GLfloat *v);
     void setUniform3fv(GLint location, GLsizei count, const GLfloat *v);
     void setUniform4fv(GLint location, GLsizei count, const GLfloat *v);
-    SetUniformResult setUniform1iv(GLint location, GLsizei count, const GLint *v);
+    void setUniform1iv(Context *context, GLint location, GLsizei count, const GLint *v);
     void setUniform2iv(GLint location, GLsizei count, const GLint *v);
     void setUniform3iv(GLint location, GLsizei count, const GLint *v);
     void setUniform4iv(GLint location, GLsizei count, const GLint *v);
@@ -627,9 +696,25 @@ class Program final : angle::NonCopyable, public LabeledObject
                                          GLsizei bufSize,
                                          GLsizei *length,
                                          GLchar *blockName) const;
-    GLuint getActiveUniformBlockCount() const;
-    GLuint getActiveAtomicCounterBufferCount() const;
-    GLuint getActiveShaderStorageBlockCount() const;
+
+    ANGLE_INLINE GLuint getActiveUniformBlockCount() const
+    {
+        ASSERT(mLinkResolved);
+        return static_cast<GLuint>(mState.mUniformBlocks.size());
+    }
+
+    ANGLE_INLINE GLuint getActiveAtomicCounterBufferCount() const
+    {
+        ASSERT(mLinkResolved);
+        return static_cast<GLuint>(mState.mAtomicCounterBuffers.size());
+    }
+
+    ANGLE_INLINE GLuint getActiveShaderStorageBlockCount() const
+    {
+        ASSERT(mLinkResolved);
+        return static_cast<GLuint>(mState.mShaderStorageBlocks.size());
+    }
+
     GLint getActiveUniformBlockMaxNameLength() const;
     GLint getActiveShaderStorageBlockMaxNameLength() const;
 
@@ -658,45 +743,70 @@ class Program final : angle::NonCopyable, public LabeledObject
     GLuint getTransformFeedbackVaryingResourceIndex(const GLchar *name) const;
     const TransformFeedbackVarying &getTransformFeedbackVaryingResource(GLuint index) const;
 
-    void addRef();
-    void release(const Context *context);
+    bool hasDrawIDUniform() const;
+    void setDrawIDUniform(GLint drawid);
+
+    ANGLE_INLINE void addRef()
+    {
+        ASSERT(mLinkResolved);
+        mRefCount++;
+    }
+
+    ANGLE_INLINE void release(const Context *context)
+    {
+        ASSERT(mLinkResolved);
+        mRefCount--;
+
+        if (mRefCount == 0 && mDeleteStatus)
+        {
+            deleteSelf(context);
+        }
+    }
+
     unsigned int getRefCount() const;
+    bool isInUse() const { return getRefCount() != 0; }
     void flagForDeletion();
     bool isFlaggedForDeletion() const;
 
     void validate(const Caps &caps);
-    bool validateSamplers(InfoLog *infoLog, const Caps &caps);
+    bool validateSamplers(InfoLog *infoLog, const Caps &caps)
+    {
+        // Skip cache if we're using an infolog, so we get the full error.
+        // Also skip the cache if the sample mapping has changed, or if we haven't ever validated.
+        if (infoLog == nullptr && mCachedValidateSamplersResult.valid())
+        {
+            return mCachedValidateSamplersResult.value();
+        }
+
+        return validateSamplersImpl(infoLog, caps);
+    }
+
     bool isValidated() const;
     bool samplesFromTexture(const State &state, GLuint textureID) const;
 
     const AttributesMask &getActiveAttribLocationsMask() const
     {
+        ASSERT(mLinkResolved);
         return mState.mActiveAttribLocationsMask;
     }
 
-    const std::vector<SamplerBinding> &getSamplerBindings() const
+    const std::vector<SamplerBinding> &getSamplerBindings() const;
+    const std::vector<ImageBinding> &getImageBindings() const
     {
-        return mState.mSamplerBindings;
+        ASSERT(mLinkResolved);
+        return mState.mImageBindings;
     }
+    const sh::WorkGroupSize &getComputeShaderLocalSize() const;
+    PrimitiveMode getGeometryShaderInputPrimitiveType() const;
+    PrimitiveMode getGeometryShaderOutputPrimitiveType() const;
+    GLint getGeometryShaderInvocations() const;
+    GLint getGeometryShaderMaxVertices() const;
 
-    const std::vector<ImageBinding> &getImageBindings() const { return mState.mImageBindings; }
-    const sh::WorkGroupSize &getComputeShaderLocalSize() const
+    const ProgramState &getState() const
     {
-        return mState.mComputeShaderLocalSize;
+        ASSERT(mLinkResolved);
+        return mState;
     }
-
-    PrimitiveMode getGeometryShaderInputPrimitiveType() const
-    {
-        return mState.mGeometryShaderInputPrimitiveType;
-    }
-    PrimitiveMode getGeometryShaderOutputPrimitiveType() const
-    {
-        return mState.mGeometryShaderOutputPrimitiveType;
-    }
-    GLint getGeometryShaderInvocations() const { return mState.mGeometryShaderInvocations; }
-    GLint getGeometryShaderMaxVertices() const { return mState.mGeometryShaderMaxVertices; }
-
-    const ProgramState &getState() const { return mState; }
 
     static LinkMismatchError LinkValidateVariablesBase(
         const sh::ShaderVariable &variable1,
@@ -717,35 +827,84 @@ class Program final : angle::NonCopyable, public LabeledObject
     const sh::Attribute &getInputResource(GLuint index) const;
     const sh::OutputVariable &getOutputResource(GLuint index) const;
 
-    const ProgramBindings &getAttributeBindings() const { return mAttributeBindings; }
-    const ProgramBindings &getUniformLocationBindings() const { return mUniformLocationBindings; }
-    const ProgramBindings &getFragmentInputBindings() const { return mFragmentInputBindings; }
+    const ProgramBindings &getAttributeBindings() const;
+    const ProgramBindings &getUniformLocationBindings() const;
+    const ProgramBindings &getFragmentInputBindings() const;
 
-    int getNumViews() const { return mState.getNumViews(); }
-    bool usesMultiview() const { return mState.usesMultiview(); }
-
-    ComponentTypeMask getDrawBufferTypeMask() const { return mState.mDrawBufferTypeMask; }
-    ComponentTypeMask getAttributesTypeMask() const { return mState.mAttributesTypeMask; }
-    AttributesMask getAttributesMask() const { return mState.mAttributesMask; }
-
-    const std::vector<GLsizei> &getTransformFeedbackStrides() const
+    int getNumViews() const
     {
-        return mState.mTransformFeedbackStrides;
+        ASSERT(mLinkResolved);
+        return mState.getNumViews();
     }
 
+    bool usesMultiview() const { return mState.usesMultiview(); }
+
+    ComponentTypeMask getDrawBufferTypeMask() const;
+    ComponentTypeMask getAttributesTypeMask() const;
+    AttributesMask getAttributesMask() const;
+
+    const std::vector<GLsizei> &getTransformFeedbackStrides() const;
+
+    const ActiveTextureMask &getActiveSamplersMask() const { return mState.mActiveSamplersMask; }
+    const ActiveTextureMask &getActiveImagesMask() const { return mState.mActiveImagesMask; }
+
+    const ActiveTextureArray<TextureType> &getActiveSamplerTypes() const
+    {
+        return mState.mActiveSamplerTypes;
+    }
+
+    // Program dirty bits.
+    enum DirtyBitType
+    {
+        DIRTY_BIT_UNIFORM_BLOCK_BINDING_0,
+        DIRTY_BIT_UNIFORM_BLOCK_BINDING_MAX =
+            DIRTY_BIT_UNIFORM_BLOCK_BINDING_0 + IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS,
+
+        DIRTY_BIT_COUNT = DIRTY_BIT_UNIFORM_BLOCK_BINDING_MAX,
+    };
+
+    using DirtyBits = angle::BitSet<DIRTY_BIT_COUNT>;
+
+    angle::Result syncState(const Context *context);
+
+    // Try to resolve linking. Inlined to make sure its overhead is as low as possible.
+    void resolveLink(const Context *context)
+    {
+        if (!mLinkResolved)
+        {
+            resolveLinkImpl(context);
+        }
+    }
+
+    ANGLE_INLINE bool hasAnyDirtyBit() const { return mDirtyBits.any(); }
+
+    // Writes a program's binary to the output memory buffer.
+    void serialize(const Context *context, angle::MemoryBuffer *binaryOut) const;
+
+    // Loads program state according to the specified binary blob.
+    angle::Result deserialize(const Context *context,
+                              const uint8_t *binary,
+                              size_t length,
+                              InfoLog &infoLog);
+
   private:
+    struct LinkingState;
+
     ~Program() override;
 
     void unlink();
+    void deleteSelf(const Context *context);
 
-    bool linkValidateShaders(const Context *context, InfoLog &infoLog);
-    bool linkAttributes(const Context *context, InfoLog &infoLog);
-    bool linkInterfaceBlocks(const Context *context,
+    bool linkValidateShaders(InfoLog &infoLog);
+    bool linkAttributes(const Caps &caps, InfoLog &infoLog);
+    bool linkInterfaceBlocks(const Caps &caps,
+                             const Version &version,
+                             bool webglCompatibility,
                              InfoLog &infoLog,
                              GLuint *combinedShaderStorageBlocksCount);
-    bool linkVaryings(const Context *context, InfoLog &infoLog) const;
+    bool linkVaryings(InfoLog &infoLog) const;
 
-    bool linkUniforms(const Context *context,
+    bool linkUniforms(const Caps &caps,
                       InfoLog &infoLog,
                       const ProgramBindings &uniformLocationBindings,
                       GLuint *combinedImageUniformsCount,
@@ -761,26 +920,29 @@ class Program final : angle::NonCopyable, public LabeledObject
                                                   bool validateGeometryShaderInputVarying,
                                                   std::string *mismatchedStructFieldName);
 
-    bool linkValidateShaderInterfaceMatching(const Context *context,
-                                             Shader *generatingShader,
+    bool linkValidateShaderInterfaceMatching(Shader *generatingShader,
                                              Shader *consumingShader,
                                              InfoLog &infoLog) const;
 
     // Check for aliased path rendering input bindings (if any).
     // If more than one binding refer statically to the same location the link must fail.
-    bool linkValidateFragmentInputBindings(const Context *context, InfoLog &infoLog) const;
+    bool linkValidateFragmentInputBindings(InfoLog &infoLog) const;
 
-    bool linkValidateBuiltInVaryings(const Context *context, InfoLog &infoLog) const;
-    bool linkValidateTransformFeedback(const Context *context,
+    bool linkValidateBuiltInVaryings(InfoLog &infoLog) const;
+    bool linkValidateTransformFeedback(const Version &version,
                                        InfoLog &infoLog,
                                        const ProgramMergedVaryings &linkedVaryings,
                                        const Caps &caps) const;
-    bool linkValidateGlobalNames(const Context *context, InfoLog &infoLog) const;
+    bool linkValidateGlobalNames(InfoLog &infoLog) const;
 
     void gatherTransformFeedbackVaryings(const ProgramMergedVaryings &varyings);
 
-    ProgramMergedVaryings getMergedVaryings(const Context *context) const;
-    bool linkOutputVariables(const Context *context,
+    ProgramMergedVaryings getMergedVaryings() const;
+    int getOutputLocationForLink(const sh::OutputVariable &outputVariable) const;
+    bool isOutputSecondaryForLink(const sh::OutputVariable &outputVariable) const;
+    bool linkOutputVariables(const Caps &caps,
+                             const Extensions &extensions,
+                             const Version &version,
                              GLuint combinedImageUniformsCount,
                              GLuint combinedShaderStorageBlocksCount);
 
@@ -798,7 +960,8 @@ class Program final : angle::NonCopyable, public LabeledObject
     template <size_t cols, size_t rows, typename T>
     GLsizei clampMatrixUniformCount(GLint location, GLsizei count, GLboolean transpose, const T *v);
 
-    void updateSamplerUniform(const VariableLocation &locationInfo,
+    void updateSamplerUniform(Context *context,
+                              const VariableLocation &locationInfo,
                               GLsizei clampedCount,
                               const GLint *v);
 
@@ -821,6 +984,13 @@ class Program final : angle::NonCopyable, public LabeledObject
 
     GLuint getSamplerUniformBinding(const VariableLocation &uniformLocation) const;
 
+    bool validateSamplersImpl(InfoLog *infoLog, const Caps &caps);
+
+    // Block until linking is finished and resolve it.
+    void resolveLinkImpl(const gl::Context *context);
+
+    void postResolveLink(const gl::Context *context);
+
     ProgramState mState;
     rx::ProgramImpl *mProgram;
 
@@ -835,7 +1005,13 @@ class Program final : angle::NonCopyable, public LabeledObject
     // CHROMIUM_path_rendering
     ProgramBindings mFragmentInputBindings;
 
+    // EXT_blend_func_extended
+    ProgramBindings mFragmentOutputLocations;
+    ProgramBindings mFragmentOutputIndexes;
+
     bool mLinked;
+    bool mLinkResolved;
+    std::unique_ptr<LinkingState> mLinkingState;
     bool mDeleteStatus;  // Flag to indicate that the program can be deleted when no longer in use
 
     unsigned int mRefCount;
@@ -847,7 +1023,8 @@ class Program final : angle::NonCopyable, public LabeledObject
 
     // Cache for sampler validation
     Optional<bool> mCachedValidateSamplersResult;
-    std::vector<TextureType> mTextureUnitTypesCache;
+
+    DirtyBits mDirtyBits;
 };
 }  // namespace gl
 

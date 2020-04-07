@@ -27,11 +27,16 @@ class MODULES_EXPORT AbortPaymentEvent final : public ExtendableEvent {
 
  public:
   static AbortPaymentEvent* Create(const AtomicString& type,
-                                   const ExtendableEventInit&);
+                                   const ExtendableEventInit*);
   static AbortPaymentEvent* Create(const AtomicString& type,
-                                   const ExtendableEventInit&,
+                                   const ExtendableEventInit*,
                                    RespondWithObserver*,
                                    WaitUntilObserver*);
+
+  AbortPaymentEvent(const AtomicString& type,
+                    const ExtendableEventInit*,
+                    RespondWithObserver*,
+                    WaitUntilObserver*);
   ~AbortPaymentEvent() override;
 
   const AtomicString& InterfaceName() const override;
@@ -41,11 +46,6 @@ class MODULES_EXPORT AbortPaymentEvent final : public ExtendableEvent {
   void Trace(blink::Visitor*) override;
 
  private:
-  AbortPaymentEvent(const AtomicString& type,
-                    const ExtendableEventInit&,
-                    RespondWithObserver*,
-                    WaitUntilObserver*);
-
   Member<RespondWithObserver> observer_;
 };
 

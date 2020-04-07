@@ -10,7 +10,10 @@
 
 #include "rtc_tools/event_log_visualizer/plot_protobuf.h"
 
+#include <stddef.h>
+#include <iostream>
 #include <memory>
+#include <vector>
 
 namespace webrtc {
 
@@ -61,7 +64,11 @@ ProtobufPlotCollection::ProtobufPlotCollection() {}
 
 ProtobufPlotCollection::~ProtobufPlotCollection() {}
 
-void ProtobufPlotCollection::Draw() {}
+void ProtobufPlotCollection::Draw() {
+  webrtc::analytics::ChartCollection collection;
+  ExportProtobuf(&collection);
+  std::cout << collection.SerializeAsString();
+}
 
 void ProtobufPlotCollection::ExportProtobuf(
     webrtc::analytics::ChartCollection* collection) {

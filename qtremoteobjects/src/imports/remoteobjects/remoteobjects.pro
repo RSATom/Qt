@@ -1,7 +1,7 @@
 CXX_MODULE = qml
 TARGET = qtremoteobjects
 TARGETPATH = QtRemoteObjects
-IMPORT_VERSION = 5.12
+IMPORT_VERSION = 5.$$QT_MINOR_VERSION
 
 QT += qml remoteobjects
 

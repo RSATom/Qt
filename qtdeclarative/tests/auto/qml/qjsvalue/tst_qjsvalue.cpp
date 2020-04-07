@@ -27,7 +27,14 @@
 ****************************************************************************/
 
 #include "tst_qjsvalue.h"
+
+#include <private/qv4engine_p.h>
+#include <private/qjsvalue_p.h>
+
 #include <QtWidgets/QPushButton>
+#include <QtCore/qthread.h>
+
+#include <memory>
 
 tst_QJSValue::tst_QJSValue()
     : engine(nullptr)
@@ -405,7 +412,7 @@ void tst_QJSValue::toString()
     // then fall back to "QVariant(typename)"
     QJSValue variant = eng.toScriptValue(QPoint(10, 20));
     QVERIFY(variant.isVariant());
-    QCOMPARE(variant.toString(), QString::fromLatin1("QVariant(QPoint)"));
+    QCOMPARE(variant.toString(), QString::fromLatin1("QVariant(QPoint, QPoint(10,20))"));
     variant = eng.toScriptValue(QUrl());
     QVERIFY(variant.isVariant());
     QVERIFY(variant.toString().isEmpty());
@@ -2608,6 +2615,36 @@ void tst_QJSValue::nestedObjectToVariant()
     QVERIFY(!o.isError());
     QVERIFY(o.isObject());
     QCOMPARE(o.toVariant(), expected);
+}
+
+void tst_QJSValue::deleteFromDifferentThread()
+{
+#if !QT_CONFIG(thread)
+    QSKIP("Need thread support to destroy QJSValues from different threads");
+#else
+    QV4::PersistentValueStorage storage(engine->handle());
+    QCOMPARE(storage.firstPage, nullptr);
+    QJSValue jsval;
+    QJSValuePrivate::setRawValue(&jsval, storage.allocate());
+    QVERIFY(storage.firstPage != nullptr);
+
+    QMutex mutex;
+    QWaitCondition condition;
+
+    std::unique_ptr<QThread> thread(QThread::create([&]() {
+        QMutexLocker locker(&mutex);
+        QJSValuePrivate::free(&jsval);
+        QJSValuePrivate::setRawValue(&jsval, nullptr);
+        QVERIFY(storage.firstPage != nullptr);
+        condition.wakeOne();
+    }));
+
+    QMutexLocker locker(&mutex);
+    thread->start();
+    condition.wait(&mutex);
+    QTRY_VERIFY(thread->isFinished());
+    QTRY_COMPARE(storage.firstPage, nullptr);
+#endif
 }
 
 QTEST_MAIN(tst_QJSValue)

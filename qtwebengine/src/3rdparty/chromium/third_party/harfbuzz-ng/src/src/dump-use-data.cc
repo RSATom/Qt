@@ -24,10 +24,10 @@
  * Google Author(s): Behdad Esfahbod
  */
 
-#include "hb-ot-shape-complex-use-private.hh"
+#include "hb-ot-shape-complex-use.hh"
 
 int
-main (void)
+main ()
 {
   for (hb_codepoint_t u = 0; u <= 0x10FFFF; u++)
   {

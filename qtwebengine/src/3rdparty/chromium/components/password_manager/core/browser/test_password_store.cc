@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/psl_matching_helper.h"
 #include "components/password_manager/core/browser/statistics_table.h"
 #include "url/gurl.h"
@@ -34,7 +35,7 @@ bool TestPasswordStore::IsEmpty() const {
   // The store is empty, if the sum of all stored passwords across all entries
   // in |stored_passwords_| is 0.
   size_t number_of_passwords = 0u;
-  for (PasswordMap::const_iterator it = stored_passwords_.begin();
+  for (auto it = stored_passwords_.begin();
        !number_of_passwords && it != stored_passwords_.end(); ++it) {
     number_of_passwords += it->second.size();
   }
@@ -59,8 +60,7 @@ PasswordStoreChangeList TestPasswordStore::UpdateLoginImpl(
   PasswordStoreChangeList changes;
   std::vector<autofill::PasswordForm>& forms =
       stored_passwords_[form.signon_realm];
-  for (std::vector<autofill::PasswordForm>::iterator it = forms.begin();
-       it != forms.end(); ++it) {
+  for (auto it = forms.begin(); it != forms.end(); ++it) {
     if (ArePasswordFormUniqueKeyEqual(form, *it)) {
       *it = form;
       changes.push_back(PasswordStoreChange(PasswordStoreChange::UPDATE, form));
@@ -74,7 +74,7 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginImpl(
   PasswordStoreChangeList changes;
   std::vector<autofill::PasswordForm>& forms =
       stored_passwords_[form.signon_realm];
-  std::vector<autofill::PasswordForm>::iterator it = forms.begin();
+  auto it = forms.begin();
   while (it != forms.end()) {
     if (ArePasswordFormUniqueKeyEqual(form, *it)) {
       it = forms.erase(it);
@@ -137,6 +137,10 @@ bool TestPasswordStore::FillBlacklistLogins(
     }
   }
   return true;
+}
+
+DatabaseCleanupResult TestPasswordStore::DeleteUndecryptableLogins() {
+  return DatabaseCleanupResult::kSuccess;
 }
 
 std::vector<std::unique_ptr<autofill::PasswordForm>>
@@ -206,6 +210,29 @@ void TestPasswordStore::RemoveSiteStatsImpl(const GURL& origin_domain) {
 std::vector<InteractionsStats> TestPasswordStore::GetAllSiteStatsImpl() {
   NOTIMPLEMENTED();
   return std::vector<InteractionsStats>();
+}
+
+bool TestPasswordStore::BeginTransaction() {
+  return true;
+}
+
+bool TestPasswordStore::CommitTransaction() {
+  return true;
+}
+
+bool TestPasswordStore::ReadAllLogins(PrimaryKeyToFormMap* key_to_form_map) {
+  NOTIMPLEMENTED();
+  return true;
+}
+
+PasswordStoreChangeList TestPasswordStore::RemoveLoginByPrimaryKeySync(
+    int primary_key) {
+  NOTIMPLEMENTED();
+  return PasswordStoreChangeList();
+}
+
+syncer::SyncMetadataStore* TestPasswordStore::GetMetadataStore() {
+  return nullptr;
 }
 
 }  // namespace password_manager

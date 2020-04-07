@@ -788,10 +788,12 @@ void QOpenGLWidgetPrivate::initialize()
     if (initialized)
         return;
 
-    // Get our toplevel's context with which we will share in order to make the
-    // texture usable by the underlying window's backingstore.
+    // If no global shared context get our toplevel's context with which we
+    // will share in order to make the texture usable by the underlying window's backingstore.
     QWidget *tlw = q->window();
-    QOpenGLContext *shareContext = get(tlw)->shareContext();
+    QOpenGLContext *shareContext = qt_gl_global_share_context();
+    if (!shareContext)
+        shareContext = get(tlw)->shareContext();
     // If shareContext is null, showing content on-screen will not work.
     // However, offscreen rendering and grabFramebuffer() will stay fully functional.
 
@@ -1118,8 +1120,8 @@ void QOpenGLWidget::setTextureFormat(GLenum texFormat)
 /*!
     \return the active internal texture format if the widget has already
     initialized, the requested format if one was set but the widget has not yet
-    been made visible, or 0 if setTextureFormat() was not called and the widget
-    has not yet been made visible.
+    been made visible, or \nullptr if setTextureFormat() was not called and the
+    widget has not yet been made visible.
 
     \since 5.10
  */

@@ -16,6 +16,9 @@ void GrCCClipPath::init(const SkPath& deviceSpacePath, const SkIRect& accessRect
                         int rtHeight, const GrCaps& caps) {
     SkASSERT(!this->isInitialized());
 
+    const GrBackendFormat format = caps.getBackendFormatFromGrColorType(GrColorType::kAlpha_F16,
+                                                                        GrSRGBEncoded::kNo);
+
     fAtlasLazyProxy = GrProxyProvider::MakeFullyLazyProxy(
             [this](GrResourceProvider* resourceProvider) {
                 if (!resourceProvider) {
@@ -38,10 +41,10 @@ void GrCCClipPath::init(const SkPath& deviceSpacePath, const SkIRect& accessRect
                                     fDevToAtlasOffset.fY * fAtlasScale.y());
                 SkDEBUGCODE(fHasAtlasTransform = true);
 
-                return sk_ref_sp(textureProxy->priv().peekTexture());
+                return sk_ref_sp(textureProxy->peekTexture());
             },
-            GrProxyProvider::Renderable::kYes, kTopLeft_GrSurfaceOrigin, kAlpha_half_GrPixelConfig,
-            caps);
+            format, GrProxyProvider::Renderable::kYes, kTopLeft_GrSurfaceOrigin,
+            kAlpha_half_GrPixelConfig, caps);
 
     fDeviceSpacePath = deviceSpacePath;
     fDeviceSpacePath.getBounds().roundOut(&fPathDevIBounds);
@@ -52,7 +55,7 @@ void GrCCClipPath::accountForOwnPath(GrCCPerFlushResourceSpecs* specs) const {
     SkASSERT(this->isInitialized());
 
     ++specs->fNumClipPaths;
-    specs->fRenderedPathStats.statPath(fDeviceSpacePath);
+    specs->fRenderedPathStats[GrCCPerFlushResourceSpecs::kFillIdx].statPath(fDeviceSpacePath);
 
     SkIRect ibounds;
     if (ibounds.intersect(fAccessRect, fPathDevIBounds)) {

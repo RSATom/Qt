@@ -73,6 +73,8 @@ component("ui_devtools") {
     "root_element.h",
     "string_util.cc",
     "string_util.h",
+    "switches.cc",
+    "switches.h",
     "ui_element.cc",
     "ui_element.h",
     "ui_element_delegate.h",
@@ -96,4 +98,41 @@ component("ui_devtools") {
     "//services/network/public/cpp",
     "//services/network/public/mojom",
   ]
+}
+
+static_library("test_support") {
+  testonly = true
+  sources = [
+    "ui_devtools_unittest_utils.cc",
+    "ui_devtools_unittest_utils.h",
+  ]
+  public_deps = [
+    ":ui_devtools",
+    "//testing/gmock",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  cflags = []
+  if (is_win) {
+    cflags += [ "/wd4800" ]  # Value forced to bool.
+  }
+
+  sources = [
+    #TODO(lgrey,weili): fix and enable css agent tests.
+    #"css_agent_unittest.cc",
+    "devtools_server_unittest.cc",
+  ]
+
+  deps = [
+    ":test_support",
+    "//base/test:test_support",
+    "//net:test_support",
+    "//services/network:network_service",
+    "//testing/gtest",
+  ]
+
+  configs += [ "//build/config:precompiled_headers" ]
 }

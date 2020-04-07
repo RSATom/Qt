@@ -432,6 +432,7 @@ namespace sw
 		ShadingMode shadingMode;
 
 		CullMode cullMode;
+		bool frontFacingCCW;
 		float alphaReference;
 
 		float depthBias;
@@ -453,8 +454,6 @@ namespace sw
 
 		float fogStart;
 		float fogEnd;
-
-		void computeIllumination();
 
 		bool textureWrapActive;
 		unsigned char textureWrap[TEXTURE_IMAGE_UNITS];

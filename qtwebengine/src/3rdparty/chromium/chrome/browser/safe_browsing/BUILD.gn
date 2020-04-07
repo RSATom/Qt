@@ -5,39 +5,8 @@
 import("//extensions/buildflags/buildflags.gni")
 import("//third_party/protobuf/proto_library.gni")
 
-proto_library("chunk_proto") {
-  sources = [
-    "chunk.proto",
-  ]
-}
-
 static_library("safe_browsing") {
   sources = [
-    "chrome_cleaner/chrome_cleaner_controller_impl_win.cc",
-    "chrome_cleaner/chrome_cleaner_controller_impl_win.h",
-    "chrome_cleaner/chrome_cleaner_controller_win.h",
-    "chrome_cleaner/chrome_cleaner_extensions_util_win.h",
-    "chrome_cleaner/chrome_cleaner_fetcher_win.cc",
-    "chrome_cleaner/chrome_cleaner_fetcher_win.h",
-    "chrome_cleaner/chrome_cleaner_navigation_util_win.cc",
-    "chrome_cleaner/chrome_cleaner_navigation_util_win.h",
-    "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.cc",
-    "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.h",
-    "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_win.h",
-    "chrome_cleaner/chrome_cleaner_runner_win.cc",
-    "chrome_cleaner/chrome_cleaner_runner_win.h",
-    "chrome_cleaner/chrome_cleaner_scanner_results.cc",
-    "chrome_cleaner/chrome_cleaner_scanner_results.h",
-    "chrome_cleaner/reporter_runner_win.cc",
-    "chrome_cleaner/reporter_runner_win.h",
-    "chrome_cleaner/settings_resetter_win.cc",
-    "chrome_cleaner/settings_resetter_win.h",
-    "chrome_cleaner/srt_chrome_prompt_impl.cc",
-    "chrome_cleaner/srt_chrome_prompt_impl.h",
-    "chrome_cleaner/srt_client_info_win.cc",
-    "chrome_cleaner/srt_client_info_win.h",
-    "chrome_cleaner/srt_field_trial_win.cc",
-    "chrome_cleaner/srt_field_trial_win.h",
     "safe_browsing_controller_client.cc",
     "safe_browsing_controller_client.h",
     "safe_browsing_tab_observer.cc",
@@ -48,17 +17,65 @@ static_library("safe_browsing") {
 
   deps = [
     "//chrome/app:generated_resources",
+    "//chrome/common",
+    "//chrome/common:constants",
+    "//chrome/common/safe_browsing:file_type_policies",
+    "//components/browser_sync",
     "//components/chrome_cleaner/public/interfaces",
+    "//components/data_use_measurement/core",
+    "//components/keyed_service/content",
+    "//components/language/core/browser",
+    "//components/password_manager/core/browser",
+    "//components/password_manager/core/browser:hash_password_manager",
+    "//components/pref_registry",
+    "//components/resources:components_resources_grit",
+    "//components/safe_browsing:features",
+    "//components/safe_browsing:ping_manager",
+    "//components/safe_browsing/browser:referrer_chain_provider",
     "//components/safe_browsing/common:interfaces",
+    "//components/safe_browsing/db:database_manager",
+    "//components/safe_browsing/db:v4_local_database_manager",
+    "//components/safe_browsing/web_ui",
+    "//components/search_engines",
+    "//components/sessions",
+    "//components/url_formatter",
     "//mojo/public/cpp/platform",
     "//mojo/public/cpp/system",
+    "//services/identity/public/cpp",
+    "//services/preferences/public/cpp",
   ]
 
   if (enable_extensions) {
     sources += [
+      "chrome_cleaner/chrome_cleaner_controller_impl_win.cc",
+      "chrome_cleaner/chrome_cleaner_controller_impl_win.h",
+      "chrome_cleaner/chrome_cleaner_controller_win.cc",
+      "chrome_cleaner/chrome_cleaner_controller_win.h",
       "chrome_cleaner/chrome_cleaner_dialog_controller_impl_win.cc",
       "chrome_cleaner/chrome_cleaner_dialog_controller_impl_win.h",
       "chrome_cleaner/chrome_cleaner_dialog_controller_win.h",
+      "chrome_cleaner/chrome_cleaner_extensions_util_win.h",
+      "chrome_cleaner/chrome_cleaner_fetcher_win.cc",
+      "chrome_cleaner/chrome_cleaner_fetcher_win.h",
+      "chrome_cleaner/chrome_cleaner_navigation_util_win.cc",
+      "chrome_cleaner/chrome_cleaner_navigation_util_win.h",
+      "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.cc",
+      "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.h",
+      "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_win.h",
+      "chrome_cleaner/chrome_cleaner_runner_win.cc",
+      "chrome_cleaner/chrome_cleaner_runner_win.h",
+      "chrome_cleaner/chrome_cleaner_scanner_results_win.cc",
+      "chrome_cleaner/chrome_cleaner_scanner_results_win.h",
+      "chrome_cleaner/reporter_runner_win.cc",
+      "chrome_cleaner/reporter_runner_win.h",
+      "chrome_cleaner/settings_resetter_win.cc",
+      "chrome_cleaner/settings_resetter_win.h",
+      "chrome_cleaner/srt_chrome_prompt_impl_win.cc",
+      "chrome_cleaner/srt_chrome_prompt_impl_win.h",
+      "chrome_cleaner/srt_client_info_win.cc",
+      "chrome_cleaner/srt_client_info_win.h",
+      "chrome_cleaner/srt_field_trial_win.cc",
+      "chrome_cleaner/srt_field_trial_win.h",
       "settings_reset_prompt/default_settings_fetcher.cc",
       "settings_reset_prompt/default_settings_fetcher.h",
       "settings_reset_prompt/settings_reset_prompt_config.cc",
@@ -72,7 +89,10 @@ static_library("safe_browsing") {
       "settings_reset_prompt/settings_reset_prompt_util_win.cc",
       "settings_reset_prompt/settings_reset_prompt_util_win.h",
     ]
-    deps += [ "//components/keep_alive_registry" ]
+    deps += [
+      "//components/keep_alive_registry",
+      "//extensions/browser",
+    ]
   }
 
   if (is_chrome_branded && is_win) {
@@ -99,20 +119,21 @@ static_library("safe_browsing") {
       "safe_browsing_navigation_observer.h",
       "safe_browsing_navigation_observer_manager.cc",
       "safe_browsing_navigation_observer_manager.h",
+      "safe_browsing_navigation_throttle.cc",
+      "safe_browsing_navigation_throttle.h",
       "safe_browsing_service.cc",
       "safe_browsing_service.h",
       "services_delegate.h",
+      "telemetry/telemetry_service.cc",
+      "telemetry/telemetry_service.h",
       "test_safe_browsing_blocking_page_quiet.cc",
       "test_safe_browsing_blocking_page_quiet.h",
-      "test_safe_browsing_service.cc",
-      "test_safe_browsing_service.h",
       "trigger_creator.cc",
       "trigger_creator.h",
       "ui_manager.cc",
       "ui_manager.h",
     ]
     deps += [
-      "//chrome/browser/safe_browsing:chunk_proto",
       "//chrome/common/safe_browsing:proto",
       "//components/safe_browsing:csd_proto",
       "//components/safe_browsing:safe_browsing",
@@ -141,8 +162,6 @@ static_library("safe_browsing") {
         "browser_features.h",
         "chrome_password_protection_service.cc",
         "chrome_password_protection_service.h",
-        "chunk_range.cc",
-        "chunk_range.h",
         "client_side_detection_host.cc",
         "client_side_detection_host.h",
         "client_side_detection_service.cc",
@@ -151,8 +170,6 @@ static_library("safe_browsing") {
         "client_side_model_loader.h",
         "download_protection/check_client_download_request.cc",
         "download_protection/check_client_download_request.h",
-        "download_protection/disk_image_type_sniffer_mac.cc",
-        "download_protection/disk_image_type_sniffer_mac.h",
         "download_protection/download_feedback.cc",
         "download_protection/download_feedback.h",
         "download_protection/download_feedback_service.cc",
@@ -163,6 +180,8 @@ static_library("safe_browsing") {
         "download_protection/download_protection_util.h",
         "download_protection/download_url_sb_client.cc",
         "download_protection/download_url_sb_client.h",
+        "download_protection/file_analyzer.cc",
+        "download_protection/file_analyzer.h",
         "download_protection/path_sanitizer.cc",
         "download_protection/path_sanitizer.h",
         "download_protection/ppapi_download_request.cc",
@@ -216,32 +235,24 @@ static_library("safe_browsing") {
         "incident_reporting/state_store.h",
         "incident_reporting/tracked_preference_incident.cc",
         "incident_reporting/tracked_preference_incident.h",
-        "local_database_manager.cc",
-        "local_database_manager.h",
-        "protocol_manager.cc",
-        "protocol_manager.h",
-        "protocol_parser.cc",
-        "protocol_parser.h",
-        "safe_browsing_database.cc",
-        "safe_browsing_database.h",
-        "safe_browsing_store.cc",
-        "safe_browsing_store.h",
-        "safe_browsing_store_file.cc",
-        "safe_browsing_store_file.h",
-        "safe_browsing_util.cc",
-        "safe_browsing_util.h",
-        "services_delegate_impl.cc",
-        "services_delegate_impl.h",
+        "services_delegate_desktop.cc",
+        "services_delegate_desktop.h",
         "signature_evaluator_mac.h",
         "signature_evaluator_mac.mm",
       ]
       deps += [
+        ":advanced_protection",
+        "//chrome/common/safe_browsing:archive_analyzer_results",
+        "//chrome/common/safe_browsing:binary_feature_extractor",
+        "//chrome/common/safe_browsing:disk_image_type_sniffer_mac",
+        "//chrome/common/safe_browsing:download_type_util",
         "//chrome/services/file_util/public/cpp",
         "//components/content_settings/core/browser:browser",
         "//components/language/core/common:common",
         "//components/prefs:prefs",
         "//components/safe_browsing/db:db",
         "//components/security_interstitials/content:security_interstitial_page",
+        "//components/signin/core/browser:browser",
         "//content/public/browser:browser",
         "//net:net",
       ]
@@ -252,10 +263,43 @@ static_library("safe_browsing") {
       sources += [
         "../loader/safe_browsing_resource_throttle.cc",
         "../loader/safe_browsing_resource_throttle.h",
-        "services_delegate_stub.cc",
-        "services_delegate_stub.h",
+        "android/services_delegate_android.cc",
+        "android/services_delegate_android.h",
+        "telemetry/android/android_telemetry_service.cc",
+        "telemetry/android/android_telemetry_service.h",
       ]
       deps += [ "//components/safe_browsing/android:safe_browsing_mobile" ]
     }
+  }
+}
+
+static_library("advanced_protection") {
+  sources = [
+    "advanced_protection_status_manager.cc",
+    "advanced_protection_status_manager.h",
+    "advanced_protection_status_manager_factory.cc",
+    "advanced_protection_status_manager_factory.h",
+  ]
+
+  deps = [
+    "//components/prefs:prefs",
+    "//components/safe_browsing/common:common",
+    "//components/safe_browsing/common:safe_browsing_prefs",
+    "//components/signin/core/browser:browser",
+    "//content/public/browser:browser",
+  ]
+}
+
+source_set("test_support") {
+  if (safe_browsing_mode != 0) {
+    sources = [
+      "test_safe_browsing_service.cc",
+      "test_safe_browsing_service.h",
+    ]
+
+    deps = [
+      "//chrome/common/safe_browsing:proto",
+      "//content/public/browser:browser",
+    ]
   }
 }

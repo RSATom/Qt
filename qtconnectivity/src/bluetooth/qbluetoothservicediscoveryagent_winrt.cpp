@@ -52,6 +52,7 @@
 #include <windows.devices.enumeration.h>
 #include <windows.devices.bluetooth.h>
 #include <windows.foundation.collections.h>
+#include <windows.networking.h>
 #include <windows.storage.streams.h>
 #include <wrl.h>
 
@@ -80,24 +81,6 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
 #define TYPE_LONG_UUID 28
 #define TYPE_STRING 37
 #define TYPE_SEQUENCE 53
-
-static QByteArray byteArrayFromBuffer(const ComPtr<IBuffer> &buffer, bool isWCharString = false)
-{
-    ComPtr<Windows::Storage::Streams::IBufferByteAccess> byteAccess;
-    HRESULT hr = buffer.As(&byteAccess);
-    Q_ASSERT_SUCCEEDED(hr);
-    char *data;
-    hr = byteAccess->Buffer(reinterpret_cast<byte **>(&data));
-    Q_ASSERT_SUCCEEDED(hr);
-    UINT32 size;
-    hr = buffer->get_Length(&size);
-    Q_ASSERT_SUCCEEDED(hr);
-    if (isWCharString) {
-        QString valueString = QString::fromUtf16(reinterpret_cast<ushort *>(data)).left(size / 2);
-        return valueString.toUtf8();
-    }
-    return QByteArray(data, size);
-}
 
 class QWinRTBluetoothServiceDiscoveryWorker : public QObject
 {
@@ -226,6 +209,14 @@ void QWinRTBluetoothServiceDiscoveryWorker::processServiceSearchResult(quint64 a
         hr = service->get_ConnectionServiceName(name.GetAddressOf());
         Q_ASSERT_SUCCEEDED(hr);
         const QString serviceName = QString::fromWCharArray(WindowsGetStringRawBuffer(name.Get(), nullptr));
+        ComPtr<ABI::Windows::Networking::IHostName> host;
+        hr = service->get_ConnectionHostName(host.GetAddressOf());
+        Q_ASSERT_SUCCEEDED(hr);
+        HString hostName;
+        hr = host->get_RawName(hostName.GetAddressOf());
+        Q_ASSERT_SUCCEEDED(hr);
+        const QString qHostName = QString::fromWCharArray(WindowsGetStringRawBuffer(hostName.Get(),
+                                                                                    nullptr));
         ComPtr<IRfcommServiceId> id;
         hr = service->get_ServiceId(&id);
         Q_ASSERT_SUCCEEDED(hr);
@@ -235,6 +226,8 @@ void QWinRTBluetoothServiceDiscoveryWorker::processServiceSearchResult(quint64 a
         Q_ASSERT_SUCCEEDED(hr);
 
         QBluetoothServiceInfo info;
+        info.setAttribute(0xBEEF, QVariant(qHostName));
+        info.setAttribute(0xBEF0, QVariant(serviceName));
         info.setServiceName(serviceName);
         info.setServiceUuid(uuid);
         ComPtr<IAsyncOperation<IMapView<UINT32, IBuffer *> *>> op;
@@ -342,6 +335,17 @@ void QWinRTBluetoothServiceDiscoveryWorker::processServiceSearchResult(quint64 a
                 qCDebug(QT_BT_WINRT) << "UUID" << uuid << "KEY" << hex << key << "TYPE" << dec << type;
             }
             hr = iterator->MoveNext(&current);
+        }
+        // Windows is only able to discover Rfcomm services but the according protocolDescriptor is
+        // not always set in the raw attribute map. If we encounter a service like that we should
+        // fill the protocol descriptor ourselves.
+        if (info.protocolDescriptor(QBluetoothUuid::Rfcomm).isEmpty()) {
+            QBluetoothServiceInfo::Sequence protocolDescriptorList;
+            QBluetoothServiceInfo::Sequence protocol;
+            protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::Rfcomm))
+                     << QVariant::fromValue(0);
+            protocolDescriptorList.append(QVariant::fromValue(protocol));
+            info.setAttribute(QBluetoothServiceInfo::ProtocolDescriptorList, protocolDescriptorList);
         }
         emit serviceFound(address, info);
     }

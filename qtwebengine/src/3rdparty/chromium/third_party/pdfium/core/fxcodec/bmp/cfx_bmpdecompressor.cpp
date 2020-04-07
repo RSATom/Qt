@@ -8,12 +8,14 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 #include "core/fxcodec/bmp/cfx_bmpcontext.h"
+#include "core/fxcodec/codec/cfx_codec_memory.h"
+#include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/fx_system.h"
 #include "third_party/base/logging.h"
 #include "third_party/base/numerics/safe_math.h"
-#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -64,15 +66,13 @@ void CFX_BmpDecompressor::Error() {
   longjmp(jmpbuf_, 1);
 }
 
-void CFX_BmpDecompressor::ReadScanline(uint32_t row_num_,
+void CFX_BmpDecompressor::ReadScanline(uint32_t row_num,
                                        const std::vector<uint8_t>& row_buf) {
-  auto* p = static_cast<CFX_BmpContext*>(context_ptr_);
-  p->m_pDelegate->BmpReadScanline(row_num_, row_buf);
+  context_ptr_->m_pDelegate->BmpReadScanline(row_num, row_buf);
 }
 
 bool CFX_BmpDecompressor::GetDataPosition(uint32_t rcd_pos) {
-  auto* p = reinterpret_cast<CFX_BmpContext*>(context_ptr_);
-  return p->m_pDelegate->BmpInputImagePositionBuf(rcd_pos);
+  return context_ptr_->m_pDelegate->BmpInputImagePositionBuf(rcd_pos);
 }
 
 int32_t CFX_BmpDecompressor::ReadHeader() {
@@ -660,24 +660,16 @@ void CFX_BmpDecompressor::SaveDecodingStatus(int32_t status) {
   decode_status_ = status;
 }
 
-void CFX_BmpDecompressor::SetInputBuffer(uint8_t* src_buf, uint32_t src_size) {
-  input_buffer_ =
-      pdfium::MakeRetain<CFX_MemoryStream>(src_buf, src_size, false);
+void CFX_BmpDecompressor::SetInputBuffer(
+    RetainPtr<CFX_CodecMemory> codec_memory) {
+  input_buffer_ = std::move(codec_memory);
 }
 
-FX_FILESIZE CFX_BmpDecompressor::GetAvailInput(uint8_t** avail_buf) {
+FX_FILESIZE CFX_BmpDecompressor::GetAvailInput() const {
   if (!input_buffer_)
     return 0;
 
-  FX_FILESIZE available =
-      input_buffer_->GetSize() - input_buffer_->GetPosition();
-  if (avail_buf) {
-    *avail_buf = nullptr;
-    if (available > 0)
-      *avail_buf = input_buffer_->GetBuffer() + available;
-  }
-
-  return available;
+  return input_buffer_->GetSize() - input_buffer_->GetPosition();
 }
 
 void CFX_BmpDecompressor::SetHeight(int32_t signed_height) {

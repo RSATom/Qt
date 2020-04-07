@@ -43,11 +43,11 @@ namespace blink {
 
 InputType* SubmitInputType::Create(HTMLInputElement& element) {
   UseCounter::Count(element.GetDocument(), WebFeature::kInputTypeSubmit);
-  return new SubmitInputType(element);
+  return MakeGarbageCollected<SubmitInputType>(element);
 }
 
 const AtomicString& SubmitInputType::FormControlType() const {
-  return InputTypeNames::submit;
+  return input_type_names::kSubmit;
 }
 
 void SubmitInputType::AppendToFormData(FormData& form_data) const {
@@ -61,12 +61,12 @@ bool SubmitInputType::SupportsRequired() const {
   return false;
 }
 
-void SubmitInputType::HandleDOMActivateEvent(Event* event) {
+void SubmitInputType::HandleDOMActivateEvent(Event& event) {
   if (GetElement().IsDisabledFormControl() || !GetElement().Form())
     return;
   GetElement().Form()->PrepareForSubmission(
       event, &GetElement());  // Event handlers can run.
-  event->SetDefaultHandled();
+  event.SetDefaultHandled();
 }
 
 bool SubmitInputType::CanBeSuccessfulSubmitButton() {

@@ -16,7 +16,7 @@
 
 class CPDF_SimpleFont : public CPDF_Font {
  public:
-  CPDF_SimpleFont();
+  CPDF_SimpleFont(CPDF_Document* pDocument, CPDF_Dictionary* pFontDict);
   ~CPDF_SimpleFont() override;
 
   // CPDF_Font
@@ -37,13 +37,13 @@ class CPDF_SimpleFont : public CPDF_Font {
   bool LoadCommon();
   void LoadSubstFont();
   void LoadCharMetrics(int charcode);
+  void LoadPDFEncoding(bool bEmbedded, bool bTrueType);
 
   CPDF_FontEncoding m_Encoding;
-  int m_BaseEncoding;
+  int m_BaseEncoding = PDFFONT_ENCODING_BUILTIN;
   bool m_bUseFontWidth;
   std::vector<ByteString> m_CharNames;
   uint16_t m_GlyphIndex[256];
-  uint16_t m_ExtGID[256];
   uint16_t m_CharWidth[256];
   FX_RECT m_CharBBox[256];
 };

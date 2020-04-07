@@ -62,7 +62,7 @@ class TestEventRouter : public EventRouter {
   // Count of dispatched and broadcasted events by event name.
   std::map<std::string, int> seen_events_;
 
-  base::ObserverList<EventObserver, false> observers_;
+  base::ObserverList<EventObserver, false>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(TestEventRouter);
 };
@@ -77,10 +77,10 @@ T* CreateAndUseTestEventRouter(content::BrowserContext* context) {
                 "T must be derived from EventRouter");
   return static_cast<T*>(
       extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
-          context, [](content::BrowserContext* context) {
+          context, base::BindRepeating([](content::BrowserContext* context) {
             return static_cast<std::unique_ptr<KeyedService>>(
                 std::make_unique<T>(context));
-          }));
+          })));
 }
 
 }  // namespace extensions

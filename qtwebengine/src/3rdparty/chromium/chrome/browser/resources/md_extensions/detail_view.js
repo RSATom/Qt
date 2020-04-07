@@ -32,14 +32,11 @@ cr.define('extensions', function() {
       /** Whether "allow in incognito" option should be shown. */
       incognitoAvailable: Boolean,
 
-      /**
-       * Proxying the enum to be used easily by the html template.
-       * @private
-       */
-      HostAccess_: {
-        type: Object,
-        value: chrome.developerPrivate.HostAccess,
-      },
+      /** Whether "View Activity Log" link should be shown. */
+      showActivityLog: Boolean,
+
+      /** Whether the user navigated to this page from the activity log page. */
+      fromActivityLog: Boolean,
     },
 
     observers: [
@@ -55,8 +52,12 @@ cr.define('extensions', function() {
      * @private
      */
     onViewEnterStart_: function() {
+      const elementToFocus = this.fromActivityLog ?
+          this.$.extensionsActivityLogLink :
+          this.$.closeButton;
+
       Polymer.RenderStatus.afterNextRender(
-          this, () => cr.ui.focusWithoutInk(this.$.closeButton));
+          this, () => cr.ui.focusWithoutInk(elementToFocus));
     },
 
     /** @private */
@@ -67,6 +68,12 @@ cr.define('extensions', function() {
       this.delegate.getExtensionSize(this.data.id).then(size => {
         this.size_ = size;
       });
+    },
+
+    /** @private */
+    onActivityLogTap_: function() {
+      extensions.navigation.navigateTo(
+          {page: Page.ACTIVITY_LOG, extensionId: this.data.id});
     },
 
     /**
@@ -82,22 +89,6 @@ cr.define('extensions', function() {
     /** @private */
     onCloseButtonTap_: function() {
       extensions.navigation.navigateTo({page: Page.LIST});
-    },
-
-    /**
-     * @param {!Event} event
-     * @private
-     */
-    onHostAccessChanged_: function(event) {
-      const select = /** @type {!HTMLSelectElement} */ (event.target);
-      const access =
-          /** @type {chrome.developerPrivate.HostAccess} */ (select.value);
-      this.delegate.setItemHostAccess(this.data.id, access);
-      // Force the UI to update (in order to potentially hide or show the
-      // specific runtime hosts).
-      // TODO(devlin): Perhaps this should be handled by the backend updating
-      // and sending an onItemStateChanged event?
-      this.set('data.permissions.hostAccess', access);
     },
 
     /**
@@ -308,25 +299,42 @@ cr.define('extensions', function() {
      */
     hasPermissions_: function() {
       return this.data.permissions.simplePermissions.length > 0 ||
-          !!this.data.permissions.hostAccess;
+          this.hasRuntimeHostPermissions_();
     },
 
     /**
      * @return {boolean}
      * @private
      */
-    showRuntimeHostPermissions_: function() {
-      return !!this.data.permissions.hostAccess;
+    hasRuntimeHostPermissions_: function() {
+      return !!this.data.permissions.runtimeHostPermissions;
     },
 
     /**
      * @return {boolean}
      * @private
      */
-    showSpecificSites_: function() {
-      return this.data.permissions &&
-          this.data.permissions.hostAccess ==
-          chrome.developerPrivate.HostAccess.ON_SPECIFIC_SITES;
+    showSiteAccessContent_: function() {
+      return this.showFreeformRuntimeHostPermissions_() ||
+          this.showHostPermissionsToggleList_();
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    showFreeformRuntimeHostPermissions_: function() {
+      return this.hasRuntimeHostPermissions_() &&
+          this.data.permissions.runtimeHostPermissions.hasAllHosts;
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    showHostPermissionsToggleList_: function() {
+      return this.hasRuntimeHostPermissions_() &&
+          !this.data.permissions.runtimeHostPermissions.hasAllHosts;
     },
   });
 

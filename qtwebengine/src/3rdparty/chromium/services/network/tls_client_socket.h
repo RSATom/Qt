@@ -10,10 +10,10 @@
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "net/base/address_family.h"
-#include "net/interfaces/address_family.mojom.h"
-#include "net/interfaces/ip_endpoint.mojom.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/mojom/address_family.mojom.h"
+#include "services/network/public/mojom/ip_endpoint.mojom.h"
 #include "services/network/public/mojom/tcp_socket.mojom.h"
 #include "services/network/public/mojom/tls_socket.mojom.h"
 #include "services/network/socket_data_pump.h"
@@ -40,7 +40,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) TLSClientSocket
                std::unique_ptr<net::ClientSocketHandle> tcp_socket,
                const net::SSLClientSocketContext& ssl_client_socket_context,
                net::ClientSocketFactory* socket_factory,
-               mojom::TCPConnectedSocket::UpgradeToTLSCallback callback);
+               mojom::TCPConnectedSocket::UpgradeToTLSCallback callback,
+               bool send_ssl_info);
 
  private:
   void OnTLSConnectCompleted(int result);
@@ -54,6 +55,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) TLSClientSocket
   std::unique_ptr<SocketDataPump> socket_data_pump_;
   std::unique_ptr<net::SSLClientSocket> socket_;
   mojom::TCPConnectedSocket::UpgradeToTLSCallback connect_callback_;
+  bool send_ssl_info_ = false;
   const net::NetworkTrafficAnnotationTag traffic_annotation_;
 
   DISALLOW_COPY_AND_ASSIGN(TLSClientSocket);

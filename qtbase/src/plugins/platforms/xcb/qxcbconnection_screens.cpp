@@ -210,7 +210,7 @@ void QXcbConnection::updateScreen(QXcbScreen *screen, const xcb_randr_output_cha
             const int idx = m_screens.indexOf(screen);
             if (idx > 0) {
                 qAsConst(m_screens).first()->setPrimary(false);
-                m_screens.swap(0, idx);
+                m_screens.swapItemsAt(0, idx);
             }
             screen->virtualDesktop()->setPrimaryScreen(screen);
             QWindowSystemInterface::handlePrimaryScreenChanged(screen);
@@ -262,7 +262,7 @@ void QXcbConnection::destroyScreen(QXcbScreen *screen)
             newPrimary->setPrimary(true);
             const int idx = m_screens.indexOf(newPrimary);
             if (idx > 0)
-                m_screens.swap(0, idx);
+                m_screens.swapItemsAt(0, idx);
             QWindowSystemInterface::handlePrimaryScreenChanged(newPrimary);
         }
 

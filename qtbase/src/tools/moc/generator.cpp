@@ -619,7 +619,7 @@ void Generator::generateCode()
         fprintf(out, "//     a) You are using a NOTIFY signal that does not exist. Fix it.\n");
         fprintf(out, "//     b) You are using a NOTIFY signal that does exist (in a parent class) but has a non-empty parameter list. This is a moc limitation.\n");
         fprintf(out, "Q_DECL_UNUSED static void checkNotifySignalValidity_%s(%s *t) {\n", qualifiedClassNameIdentifier.constData(), cdef->qualified.constData());
-        for (const QByteArray &nonClassSignal : cdef->nonClassSignalList)
+        for (const QByteArray &nonClassSignal : qAsConst(cdef->nonClassSignalList))
             fprintf(out, "    t->%s();\n", nonClassSignal.constData());
         fprintf(out, "}\n");
     }
@@ -1001,7 +1001,7 @@ void Generator::generateMetacall()
             needUser |= p.user.endsWith(')');
         }
 
-        fprintf(out, "\n#ifndef QT_NO_PROPERTIES\n   ");
+        fprintf(out, "\n#ifndef QT_NO_PROPERTIES\n    ");
         if (needElse)
             fprintf(out, "else ");
         fprintf(out,
@@ -1549,16 +1549,16 @@ void Generator::generateSignal(FunctionDef *def,int index)
         fprintf(out, "nullptr");
     } else {
         if (def->returnTypeIsVolatile)
-             fprintf(out, "const_cast<void*>(reinterpret_cast<const volatile void*>(&_t0))");
+             fprintf(out, "const_cast<void*>(reinterpret_cast<const volatile void*>(std::addressof(_t0)))");
         else
-             fprintf(out, "const_cast<void*>(reinterpret_cast<const void*>(&_t0))");
+             fprintf(out, "const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t0)))");
     }
     int i;
     for (i = 1; i < offset; ++i)
         if (i <= def->arguments.count() && def->arguments.at(i - 1).type.isVolatile)
-            fprintf(out, ", const_cast<void*>(reinterpret_cast<const volatile void*>(&_t%d))", i);
+            fprintf(out, ", const_cast<void*>(reinterpret_cast<const volatile void*>(std::addressof(_t%d)))", i);
         else
-            fprintf(out, ", const_cast<void*>(reinterpret_cast<const void*>(&_t%d))", i);
+            fprintf(out, ", const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t%d)))", i);
     fprintf(out, " };\n");
     fprintf(out, "    QMetaObject::activate(%s, &staticMetaObject, %d, _a);\n", thisPtr.constData(), index);
     if (def->normalizedType != "void")

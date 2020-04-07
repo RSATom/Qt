@@ -9,14 +9,14 @@
 
 #include "fxbarcode/datamatrix/BC_Encoder.h"
 
-class CBC_EdifactEncoder : public CBC_Encoder {
+class CBC_EdifactEncoder final : public CBC_Encoder {
  public:
   CBC_EdifactEncoder();
   ~CBC_EdifactEncoder() override;
 
   // CBC_Encoder
-  int32_t getEncodingMode() override;
-  void Encode(CBC_EncoderContext& context, int32_t& e) override;
+  CBC_HighLevelEncoder::Encoding GetEncodingMode() override;
+  bool Encode(CBC_EncoderContext* context) override;
 };
 
 #endif  // FXBARCODE_DATAMATRIX_BC_EDIFACTENCODER_H_

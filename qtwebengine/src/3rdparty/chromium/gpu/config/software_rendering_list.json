@@ -123,9 +123,6 @@
           }
         },
         {
-          "driver_vendor": "osmesa"
-        },
-        {
           "vendor_id": "0x1414",
           "device_id": ["0x02c1"]
         },
@@ -283,8 +280,8 @@
     },
     {
       "id": 30,
-      "description": "NVIDIA cards with nouveau drivers in Linux are crash-prone",
-      "cr_bugs": [94103],
+      "description": "NVIDIA cards with nouveau drivers in Linux are unstable",
+      "cr_bugs": [94103, 876523],
       "os": {
         "type": "linux"
       },
@@ -444,7 +441,7 @@
     },
     {
       "id": 59,
-      "description": "NVidia driver 8.15.11.8593 is crashy on Windows",
+      "description": "NVidia driver 185.93 is crashy on Windows",
       "cr_bugs": [155749],
       "os": {
         "type": "win"
@@ -452,7 +449,7 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "=",
-        "value": "8.15.11.8593"
+        "value": "185.93"
       },
       "features": [
         "accelerated_video_decode"
@@ -495,7 +492,7 @@
     },
     {
       "id": 69,
-      "description": "NVIDIA driver 8.17.11.9621 is buggy with Stage3D baseline mode",
+      "description": "NVIDIA driver 196.21 is buggy with Stage3D baseline mode",
       "cr_bugs": [172771],
       "os": {
         "type": "win"
@@ -503,7 +500,7 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "=",
-        "value": "8.17.11.9621"
+        "value": "196.21"
       },
       "features": [
         "flash_stage3d_baseline"
@@ -511,7 +508,7 @@
     },
     {
       "id": 70,
-      "description": "NVIDIA driver 8.17.11.8267 is buggy with Stage3D baseline mode",
+      "description": "NVIDIA driver 182.67 is buggy with Stage3D baseline mode",
       "cr_bugs": [172771],
       "os": {
         "type": "win"
@@ -519,7 +516,7 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "=",
-        "value": "8.17.11.8267"
+        "value": "182.67"
       },
       "features": [
         "flash_stage3d_baseline"
@@ -704,8 +701,8 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "between",
-        "value": "8.17.12.5729",
-        "value2": "8.17.12.8026"
+        "value": "257.29",
+        "value2": "280.26"
       },
       "features": [
         "accelerated_video_decode"
@@ -721,8 +718,8 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "between",
-        "value": "9.18.13.783",
-        "value2": "9.18.13.1090"
+        "value": "307.83",
+        "value2": "310.90"
       },
       "features": [
         "accelerated_video_decode"
@@ -834,6 +831,12 @@
             "type": "android"
           },
           "gl_renderer": ".*Google.*"
+        },
+        {
+          "os": {
+            "type": "android"
+          },
+          "gl_renderer": "ANGLE.*"
         }
       ],
       "features": [
@@ -1233,8 +1236,8 @@
     },
     {
       "id": 126,
-      "description": "Don't allow ES3 on Mac core profile < 4.1",
-      "cr_bugs": [295792],
+      "description": "Disallow use of OpenGL on Mac with core profile < 4.1",
+      "cr_bugs": [295792, 875891],
       "os": {
         "type": "macosx"
       },
@@ -1243,7 +1246,7 @@
         "value": "4.1"
       },
       "features": [
-        "accelerated_webgl2"
+        "all"
       ]
     },
     {
@@ -1370,7 +1373,7 @@
     },
     {
       "id": 137,
-      "description": "GPU rasterization on CrOS is blacklisted on anything but Intel or Mali GPUs for now.",
+      "description": "GPU rasterization on CrOS is blacklisted on anything but Intel, Mali, Imagination, or AMD GPUs for now.",
       "cr_bugs": [684094],
       "os": {
         "type": "chromeos"
@@ -1380,7 +1383,9 @@
       ],
       "exceptions": [
         { "vendor_id": "0x8086" },
-        { "gl_renderer": "Mali-T.*" }
+        { "gl_renderer": "Mali-T.*" },
+        { "gl_renderer": "PowerVR.*" },
+        { "vendor_id": "0x1002" }
       ]
     },
     {
@@ -1434,7 +1439,7 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "<=",
-        "value": "8.17.12.6973"
+        "value": "269.73"
       },
       "features": [
         "accelerated_webgl2"
@@ -1661,7 +1666,7 @@
       ]
     },
     {
-      "id":156,
+      "id": 156,
       "cr_bugs": [870964],
       "description": "Frequent crashes on Adreno (TM) on L and below",
       "os": {
@@ -1674,6 +1679,59 @@
       "gl_renderer": "Adreno.*",
       "features": [
         "oop_rasterization"
+      ]
+    },
+    {
+      "id": 157,
+      "description": "VMware can crash with older drivers and WebGL content",
+      "cr_bugs": [879098],
+      "os": {
+        "type": "win"
+      },
+      "vendor_id": "0x15ad",
+      "driver_version": {
+        "op": "<=",
+        "value": "7.14.1.1210"
+      },
+      "features": [
+        "accelerated_webgl",
+        "accelerated_webgl2"
+      ]
+    },
+    {
+      "id": 158,
+      "cr_bugs": [829435],
+      "description": "OOP rasterization on top of ANGLE not supported",
+      "gl_renderer": "ANGLE.*",
+      "features": [
+        "oop_rasterization"
+      ]
+    },
+    {
+      "id": 159,
+      "cr_bugs": [902247],
+      "description": "Disallow OpenGL use on Mac with old NVIDIA GPUs",
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x10de",
+      "device_id": ["0x0861", "0x0866", "0x0867", "0x0869", "0x08a0", "0x08a2",
+                    "0x08a4", "0x0a29"],
+      "features": [
+        "all"
+      ]
+    },
+    {
+      "id": 160,
+      "cr_bugs": [902247],
+      "description": "Disallow OpenGL use on Mac with old AMD GPUs",
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x1002",
+      "device_id": ["0x944a", "0x9488", "0x94c8", "0x9583"],
+      "features": [
+        "all"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2018 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,26 +11,9 @@
 #ifndef SDK_ANDROID_SRC_JNI_VIDEOSINK_H_
 #define SDK_ANDROID_SRC_JNI_VIDEOSINK_H_
 
-#include <jni.h>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "api/mediastreaminterface.h"
-#include "sdk/android/src/jni/jni_helpers.h"
-
-namespace webrtc {
-namespace jni {
-
-class VideoSinkWrapper : public rtc::VideoSinkInterface<VideoFrame> {
- public:
-  VideoSinkWrapper(JNIEnv* jni, const JavaRef<jobject>& j_sink);
-  ~VideoSinkWrapper() override;
-
- private:
-  void OnFrame(const VideoFrame& frame) override;
-
-  const ScopedJavaGlobalRef<jobject> j_sink_;
-};
-
-}  // namespace jni
-}  // namespace webrtc
+#include "sdk/android/src/jni/video_sink.h"
 
 #endif  // SDK_ANDROID_SRC_JNI_VIDEOSINK_H_

@@ -39,10 +39,12 @@
 
 #include <QBuffer>
 #include <QFile>
+#include <QLoggingCategory>
 
 #include "qv4engine_p.h"
 #include "qv4assemblercommon_p.h"
 #include <private/qv4function_p.h>
+#include <private/qv4functiontable_p.h>
 #include <private/qv4runtime_p.h>
 
 #include <assembler/MacroAssemblerCodeRef.h>
@@ -56,6 +58,8 @@
 QT_BEGIN_NAMESPACE
 namespace QV4 {
 namespace JIT {
+
+Q_LOGGING_CATEGORY(lcAsm, "qt.v4.asm")
 
 namespace {
 class QIODevicePrintStream: public FilePrintStream
@@ -109,18 +113,9 @@ static void printDisassembledOutputWithCalls(QByteArray processedOutput,
         }
     }
 
-    qDebug("%s", processedOutput.constData());
-}
-
-static QByteArray functionName(Function *function)
-{
-    QByteArray name = function->name()->toQString().toUtf8();
-    if (name.isEmpty()) {
-        name = QByteArray::number(reinterpret_cast<quintptr>(function), 16);
-        name.prepend("QV4::Function(0x");
-        name.append(')');
-    }
-    return name;
+    auto lines = processedOutput.split('\n');
+    for (const auto &line : lines)
+        qCDebug(lcAsm, "%s", line.constData());
 }
 
 JIT::PlatformAssemblerCommon::~PlatformAssemblerCommon()
@@ -141,13 +136,15 @@ void PlatformAssemblerCommon::link(Function *function, const char *jitKind)
 
     JSC::MacroAssemblerCodeRef codeRef;
 
-    static const bool showCode = qEnvironmentVariableIsSet("QV4_SHOW_ASM");
+    static const bool showCode = lcAsm().isDebugEnabled();
     if (showCode) {
         QBuffer buf;
         buf.open(QIODevice::WriteOnly);
         WTF::setDataFile(new QIODevicePrintStream(&buf));
 
-        QByteArray name = functionName(function);
+        // We use debugAddress here because it's actually for debugging and hidden behind an
+        // environment variable.
+        const QByteArray name = Function::prettyName(function, linkBuffer.debugAddress()).toUtf8();
         codeRef = linkBuffer.finalizeCodeWithDisassembly(jitKind, "function %s", name.constData());
 
         WTF::setDataFile(stderr);
@@ -159,31 +156,9 @@ void PlatformAssemblerCommon::link(Function *function, const char *jitKind)
     function->codeRef = new JSC::MacroAssemblerCodeRef(codeRef);
     function->jittedCode = reinterpret_cast<Function::JittedCode>(function->codeRef->code().executableAddress());
 
-    // This implements writing of JIT'd addresses so that perf can find the
-    // symbol names.
-    //
-    // Perf expects the mapping to be in a certain place and have certain
-    // content, for more information, see:
-    // https://github.com/torvalds/linux/blob/master/tools/perf/Documentation/jit-interface.txt
-    static bool doProfile = !qEnvironmentVariableIsEmpty("QV4_PROFILE_WRITE_PERF_MAP");
-    if (Q_UNLIKELY(doProfile)) {
-        static QFile perfMapFile(QString::fromLatin1("/tmp/perf-%1.map")
-                                 .arg(QCoreApplication::applicationPid()));
-        static const bool isOpen = perfMapFile.open(QIODevice::WriteOnly);
-        if (!isOpen) {
-            qWarning("QV4::JIT::Assembler: Cannot write perf map file.");
-            doProfile = false;
-        } else {
-            perfMapFile.write(QByteArray::number(reinterpret_cast<quintptr>(
-                                                     codeRef.code().executableAddress()), 16));
-            perfMapFile.putChar(' ');
-            perfMapFile.write(QByteArray::number(static_cast<qsizetype>(codeRef.size()), 16));
-            perfMapFile.putChar(' ');
-            perfMapFile.write(functionName(function));
-            perfMapFile.putChar('\n');
-            perfMapFile.flush();
-        }
-    }
+    generateFunctionTable(function, &codeRef);
+
+    linkBuffer.makeExecutable();
 }
 
 void PlatformAssemblerCommon::prepareCallWithArgCount(int argc)
@@ -314,6 +289,19 @@ void PlatformAssemblerCommon::passInt32AsArg(int value, int arg)
         move(TrustedImm32(value), registerForArg(arg));
     else
         store32(TrustedImm32(value), argStackAddress(arg));
+}
+
+void JIT::PlatformAssemblerCommon::passPointerAsArg(void *ptr, int arg)
+{
+#ifndef QT_NO_DEBUG
+    Q_ASSERT(arg < remainingArgcForCall);
+    --remainingArgcForCall;
+#endif
+
+    if (arg < ArgInRegCount)
+        move(TrustedImmPtr(ptr), registerForArg(arg));
+    else
+        storePtr(TrustedImmPtr(ptr), argStackAddress(arg));
 }
 
 void PlatformAssemblerCommon::callRuntime(const char *functionName, const void *funcPtr)

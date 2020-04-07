@@ -473,7 +473,7 @@ QVariant QQmlSettings::value(const QString &key, const QVariant &defaultValue) c
 /*!
    \qmlmethod Settings::setValue(string key, var value)
 
-   Sets the value of setting key to value. If the key already exists,
+   Sets the value of setting \a key to \a value. If the key already exists,
    the previous value is overwritten.
 
    \since Qt 5.12
@@ -485,6 +485,25 @@ void QQmlSettings::setValue(const QString &key, const QVariant &value)
     Q_D(const QQmlSettings);
     d->instance()->setValue(key, value);
     qCDebug(lcSettings) << "QQmlSettings: setValue" << key << ":" << value;
+}
+
+/*!
+   \qmlmethod Settings::sync()
+
+    Writes any unsaved changes to permanent storage, and reloads any
+    settings that have been changed in the meantime by another
+    application.
+
+    This function is called automatically from QSettings's destructor and
+    by the event loop at regular intervals, so you normally don't need to
+    call it yourself.
+
+   \sa QSettings::sync
+*/
+void QQmlSettings::sync()
+{
+    Q_D(QQmlSettings);
+    d->instance()->sync();
 }
 
 void QQmlSettings::classBegin()

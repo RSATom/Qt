@@ -20,19 +20,20 @@ DiceAccountReconcilorDelegate::DiceAccountReconcilorDelegate(
     AccountConsistencyMethod account_consistency)
     : signin_client_(signin_client), account_consistency_(account_consistency) {
   DCHECK(signin_client_);
+  DCHECK(DiceMethodGreaterOrEqual(account_consistency_,
+                                  AccountConsistencyMethod::kDiceMigration));
 }
 
 bool DiceAccountReconcilorDelegate::IsReconcileEnabled() const {
-  return DiceMethodGreaterOrEqual(
-      account_consistency_, AccountConsistencyMethod::kDicePrepareMigration);
+  return true;
 }
 
 bool DiceAccountReconcilorDelegate::IsAccountConsistencyEnforced() const {
   return account_consistency_ == AccountConsistencyMethod::kDice;
 }
 
-std::string DiceAccountReconcilorDelegate::GetGaiaApiSource() const {
-  return "ChromiumAccountReconcilorDice";
+gaia::GaiaSource DiceAccountReconcilorDelegate::GetGaiaApiSource() const {
+  return gaia::GaiaSource::kAccountReconcilorDice;
 }
 
 // - On first execution, the candidates are examined in this order:
@@ -110,15 +111,47 @@ std::string DiceAccountReconcilorDelegate::GetFirstGaiaAccountForReconcile(
   return std::string();
 }
 
+gaia::MultiloginMode DiceAccountReconcilorDelegate::CalculateModeForReconcile(
+    const std::vector<gaia::ListedAccount>& gaia_accounts,
+    const std::string primary_account,
+    bool first_execution,
+    bool primary_has_error) const {
+  const bool sync_enabled = !primary_account.empty();
+  const bool first_gaia_is_primary =
+      !gaia_accounts.empty() && (gaia_accounts[0].id == primary_account);
+  return sync_enabled && first_execution && !primary_has_error &&
+                 !first_gaia_is_primary
+             ? gaia::MultiloginMode::MULTILOGIN_UPDATE_COOKIE_ACCOUNTS_ORDER
+             : gaia::MultiloginMode::MULTILOGIN_PRESERVE_COOKIE_ACCOUNTS_ORDER;
+}
+
+std::vector<std::string>
+DiceAccountReconcilorDelegate::GetChromeAccountsForReconcile(
+    const std::vector<std::string>& chrome_accounts,
+    const std::string& primary_account,
+    const std::vector<gaia::ListedAccount>& gaia_accounts,
+    const gaia::MultiloginMode mode) const {
+  if (mode == gaia::MultiloginMode::MULTILOGIN_UPDATE_COOKIE_ACCOUNTS_ORDER) {
+    return ReorderChromeAccountsForReconcile(chrome_accounts, primary_account,
+                                             gaia_accounts);
+  }
+  if (gaia_accounts.empty() &&
+      base::ContainsValue(chrome_accounts, last_known_first_account_)) {
+    // In PRESERVE mode in case accounts in cookies are accidentally lost we
+    // should put cached first account first since Gaia has no information about
+    // it.
+    return ReorderChromeAccountsForReconcile(
+        chrome_accounts, last_known_first_account_, gaia_accounts);
+  }
+  return chrome_accounts;
+}
+
 AccountReconcilorDelegate::RevokeTokenOption
 DiceAccountReconcilorDelegate::ShouldRevokeSecondaryTokensBeforeReconcile(
     const std::vector<gaia::ListedAccount>& gaia_accounts) {
   // During the Dice migration step, before Dice is actually enabled, chrome
   // tokens must be cleared when the cookies are cleared.
-  if (DiceMethodGreaterOrEqual(
-          account_consistency_,
-          AccountConsistencyMethod::kDicePrepareMigration) &&
-      (account_consistency_ != AccountConsistencyMethod::kDice) &&
+  if ((account_consistency_ == AccountConsistencyMethod::kDiceMigration) &&
       gaia_accounts.empty()) {
     return RevokeTokenOption::kRevoke;
   }
@@ -128,6 +161,10 @@ DiceAccountReconcilorDelegate::ShouldRevokeSecondaryTokensBeforeReconcile(
              : RevokeTokenOption::kDoNotRevoke;
 }
 
+bool DiceAccountReconcilorDelegate::ShouldRevokeTokensOnCookieDeleted() {
+  return account_consistency_ == AccountConsistencyMethod::kDice;
+}
+
 void DiceAccountReconcilorDelegate::OnReconcileFinished(
     const std::string& first_account,
     bool reconcile_is_noop) {
@@ -135,13 +172,9 @@ void DiceAccountReconcilorDelegate::OnReconcileFinished(
 
   // Migration happens on startup if the last reconcile was a no-op and the
   // refresh tokens are Dice-compatible.
-  if (DiceMethodGreaterOrEqual(
-          account_consistency_,
-          AccountConsistencyMethod::kDicePrepareMigration)) {
-    signin_client_->SetReadyForDiceMigration(
-        reconcile_is_noop && signin_client_->GetPrefs()->GetBoolean(
-                                 prefs::kTokenServiceDiceCompatible));
-  }
+  signin_client_->SetReadyForDiceMigration(
+      reconcile_is_noop && signin_client_->GetPrefs()->GetBoolean(
+                               prefs::kTokenServiceDiceCompatible));
 }
 
 }  // namespace signin

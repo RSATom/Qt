@@ -11,19 +11,13 @@
 #include "GrMtlUtil.h"
 #include "GrTexturePriv.h"
 
-// This method parallels GrTextureProxy::highestFilterMode
-static inline GrSamplerState::Filter highest_filter_mode(GrPixelConfig config) {
-    return GrSamplerState::Filter::kMipMap;
-}
-
 GrMtlTexture::GrMtlTexture(GrMtlGpu* gpu,
                            SkBudgeted budgeted,
                            const GrSurfaceDesc& desc,
                            id<MTLTexture> texture,
                            GrMipMapsStatus mipMapsStatus)
         : GrSurface(gpu, desc)
-        , INHERITED(gpu, desc, kTexture2DSampler_GrSLType, highest_filter_mode(desc.fConfig),
-                    mipMapsStatus)
+        , INHERITED(gpu, desc, GrTextureType::k2D, mipMapsStatus)
         , fTexture(texture) {
     SkASSERT((GrMipMapsStatus::kNotAllocated == mipMapsStatus) == (1 == texture.mipmapLevelCount));
     this->registerWithCache(budgeted);
@@ -33,13 +27,17 @@ GrMtlTexture::GrMtlTexture(GrMtlGpu* gpu,
                            Wrapped,
                            const GrSurfaceDesc& desc,
                            id<MTLTexture> texture,
-                           GrMipMapsStatus mipMapsStatus)
+                           GrMipMapsStatus mipMapsStatus,
+                           GrIOType ioType,
+                           bool purgeImmediately)
         : GrSurface(gpu, desc)
-        , INHERITED(gpu, desc, kTexture2DSampler_GrSLType, highest_filter_mode(desc.fConfig),
-                    mipMapsStatus)
+        , INHERITED(gpu, desc, GrTextureType::k2D, mipMapsStatus)
         , fTexture(texture) {
     SkASSERT((GrMipMapsStatus::kNotAllocated == mipMapsStatus) == (1 == texture.mipmapLevelCount));
-    this->registerWithCacheWrapped();
+    if (ioType == kRead_GrIOType) {
+        this->setReadOnly();
+    }
+    this->registerWithCacheWrapped(purgeImmediately);
 }
 
 GrMtlTexture::GrMtlTexture(GrMtlGpu* gpu,
@@ -47,8 +45,7 @@ GrMtlTexture::GrMtlTexture(GrMtlGpu* gpu,
                            id<MTLTexture> texture,
                            GrMipMapsStatus mipMapsStatus)
         : GrSurface(gpu, desc)
-        , INHERITED(gpu, desc, kTexture2DSampler_GrSLType, highest_filter_mode(desc.fConfig),
-                    mipMapsStatus)
+        , INHERITED(gpu, desc, GrTextureType::k2D, mipMapsStatus)
         , fTexture(texture) {
     SkASSERT((GrMipMapsStatus::kNotAllocated == mipMapsStatus) == (1 == texture.mipmapLevelCount));
 }
@@ -69,7 +66,9 @@ sk_sp<GrMtlTexture> GrMtlTexture::CreateNewTexture(GrMtlGpu* gpu, SkBudgeted bud
 
 sk_sp<GrMtlTexture> GrMtlTexture::MakeWrappedTexture(GrMtlGpu* gpu,
                                                      const GrSurfaceDesc& desc,
-                                                     id<MTLTexture> texture) {
+                                                     id<MTLTexture> texture,
+                                                     GrIOType ioType,
+                                                     bool purgeImmediately) {
     if (desc.fSampleCnt > 1) {
         SkASSERT(false); // Currently we don't support msaa
         return nullptr;
@@ -78,7 +77,8 @@ sk_sp<GrMtlTexture> GrMtlTexture::MakeWrappedTexture(GrMtlGpu* gpu,
     SkASSERT(MTLTextureUsageShaderRead & texture.usage);
     GrMipMapsStatus mipMapsStatus = texture.mipmapLevelCount > 1 ? GrMipMapsStatus::kValid
                                                                  : GrMipMapsStatus::kNotAllocated;
-    return sk_sp<GrMtlTexture>(new GrMtlTexture(gpu, kWrapped, desc, texture, mipMapsStatus));
+    return sk_sp<GrMtlTexture>(new GrMtlTexture(gpu, kWrapped, desc, texture, mipMapsStatus, ioType,
+                                                purgeImmediately));
 }
 
 GrMtlTexture::~GrMtlTexture() {
@@ -96,5 +96,9 @@ GrBackendTexture GrMtlTexture::getBackendTexture() const {
     GrMtlTextureInfo info;
     info.fTexture = GrGetPtrFromId(fTexture);
     return GrBackendTexture(this->width(), this->height(), mipMapped, info);
+}
+
+GrBackendFormat GrMtlTexture::backendFormat() const {
+    return GrBackendFormat::MakeMtl(fTexture.pixelFormat);
 }
 

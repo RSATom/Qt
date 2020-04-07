@@ -62,8 +62,8 @@
 #include "qrect.h"
 #endif // !QT_NO_GEOM_VARIANT
 
-#ifndef QT_NO_QOBJECT
-#include "qcoreapplication.h"
+#ifndef QT_BUILD_QMAKE
+#  include "qcoreapplication.h"
 #endif
 
 #ifndef QT_BOOTSTRAPPED
@@ -2667,9 +2667,10 @@ QSettings::QSettings(const QString &fileName, Format format, QObject *parent)
     called, the QSettings object will not be able to read or write
     any settings, and status() will return AccessError.
 
-    On \macos and iOS, if both a name and an Internet domain are specified
-    for the organization, the domain is preferred over the name. On
-    other platforms, the name is preferred over the domain.
+    You should supply both the domain (used by default on \macos and iOS) and
+    the name (used by default elsewhere), although the code will cope if you
+    supply only one, which will then be used (on all platforms), at odds with
+    the usual naming of the file on platforms for which it isn't the default.
 
     \sa QCoreApplication::setOrganizationName(),
         QCoreApplication::setOrganizationDomain(),
@@ -2677,8 +2678,21 @@ QSettings::QSettings(const QString &fileName, Format format, QObject *parent)
         setDefaultFormat()
 */
 QSettings::QSettings(QObject *parent)
-    : QObject(*QSettingsPrivate::create(globalDefaultFormat, UserScope,
-#ifdef Q_OS_MAC
+    : QSettings(UserScope, parent)
+{
+}
+
+/*!
+    \since 5.13
+
+    Constructs a QSettings object in the same way as
+    QSettings(QObject *parent) but with the given \a scope.
+
+    \sa QSettings(QObject *parent)
+*/
+QSettings::QSettings(Scope scope, QObject *parent)
+    : QObject(*QSettingsPrivate::create(globalDefaultFormat, scope,
+#ifdef Q_OS_DARWIN
                                         QCoreApplication::organizationDomain().isEmpty()
                                             ? QCoreApplication::organizationName()
                                             : QCoreApplication::organizationDomain()
@@ -2717,6 +2731,25 @@ QSettings::QSettings(const QString &fileName, Format format)
 {
     d_ptr->q_ptr = this;
 }
+
+# ifndef QT_BUILD_QMAKE
+QSettings::QSettings(Scope scope)
+    : d_ptr(QSettingsPrivate::create(globalDefaultFormat, scope,
+#  ifdef Q_OS_DARWIN
+                                     QCoreApplication::organizationDomain().isEmpty()
+                                         ? QCoreApplication::organizationName()
+                                         : QCoreApplication::organizationDomain()
+#  else
+                                     QCoreApplication::organizationName().isEmpty()
+                                         ? QCoreApplication::organizationDomain()
+                                         : QCoreApplication::organizationName()
+#  endif
+                                     , QCoreApplication::applicationName())
+              )
+{
+    d_ptr->q_ptr = this;
+}
+# endif
 #endif
 
 /*!
@@ -2886,7 +2919,7 @@ void QSettings::setIniCodec(const char *codecName)
     \since 4.5
 
     Returns the codec that is used for accessing INI files. By default,
-    no codec is used, so a null pointer is returned.
+    no codec is used, so \nullptr is returned.
 */
 
 QTextCodec *QSettings::iniCodec() const
@@ -3417,6 +3450,7 @@ QSettings::Format QSettings::defaultFormat()
     return globalDefaultFormat;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -3450,7 +3484,7 @@ void QSettings::setUserIniPath(const QString &dir)
     setPath(NativeFormat, UserScope, dir);
 #endif
 }
-
+#endif
 /*!
     \since 4.1
 

@@ -26,8 +26,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/timer/timer.h"
 #include "net/base/proxy_server.h"
@@ -199,8 +199,8 @@ ProxyConfigServiceLinux::Delegate::GetConfigFromEnv() {
   }
   // Note that this uses "suffix" matching. So a bypass of "google.com"
   // is understood to mean a bypass of "*google.com".
-  config.proxy_rules().bypass_rules.ParseFromStringUsingSuffixMatching(
-      no_proxy);
+  config.proxy_rules().bypass_rules.ParseFromString(
+      no_proxy, ProxyBypassRules::ParseFormat::kHostnameSuffixMatching);
   return ProxyConfigWithAnnotation(
       config, NetworkTrafficAnnotationTag(traffic_annotation_));
 }
@@ -381,7 +381,9 @@ class SettingGetterImplGSettings
     return false;
   }
 
-  bool MatchHostsUsingSuffixMatching() override { return false; }
+  ProxyBypassRules::ParseFormat GetBypassListFormat() override {
+    return ProxyBypassRules::ParseFormat::kDefault;
+  }
 
  private:
   bool GetStringByPath(GSettings* client,
@@ -646,7 +648,7 @@ class SettingGetterImplKDE : public ProxyConfigServiceLinux::SettingGetter {
   }
 
   bool GetString(StringSetting key, std::string* result) override {
-    string_map_type::iterator it = string_table_.find(key);
+    auto it = string_table_.find(key);
     if (it == string_table_.end())
       return false;
     *result = it->second;
@@ -662,7 +664,7 @@ class SettingGetterImplKDE : public ProxyConfigServiceLinux::SettingGetter {
   }
   bool GetStringList(StringListSetting key,
                      std::vector<std::string>* result) override {
-    strings_map_type::iterator it = strings_table_.find(key);
+    auto it = strings_table_.find(key);
     if (it == strings_table_.end())
       return false;
     *result = it->second;
@@ -671,7 +673,9 @@ class SettingGetterImplKDE : public ProxyConfigServiceLinux::SettingGetter {
 
   bool BypassListIsReversed() override { return reversed_bypass_list_; }
 
-  bool MatchHostsUsingSuffixMatching() override { return true; }
+  ProxyBypassRules::ParseFormat GetBypassListFormat() override {
+    return ProxyBypassRules::ParseFormat::kHostnameSuffixMatching;
+  }
 
  private:
   void ResetCachedSettings() {
@@ -774,7 +778,7 @@ class SettingGetterImplKDE : public ProxyConfigServiceLinux::SettingGetter {
   }
 
   void ResolveIndirect(StringSetting key) {
-    string_map_type::iterator it = string_table_.find(key);
+    auto it = string_table_.find(key);
     if (it != string_table_.end()) {
       std::string value;
       if (env_var_getter_->GetVar(it->second.c_str(), &value))
@@ -785,7 +789,7 @@ class SettingGetterImplKDE : public ProxyConfigServiceLinux::SettingGetter {
   }
 
   void ResolveIndirectList(StringListSetting key) {
-    strings_map_type::iterator it = strings_table_.find(key);
+    auto it = strings_table_.find(key);
     if (it != strings_table_.end()) {
       std::string value;
       if (!it->second.empty() &&
@@ -1137,18 +1141,14 @@ ProxyConfigServiceLinux::Delegate::GetConfigFromSettings() {
   }
 
   // Now the bypass list.
+  auto format = setting_getter_->GetBypassListFormat();
+
   std::vector<std::string> ignore_hosts_list;
   config.proxy_rules().bypass_rules.Clear();
   if (setting_getter_->GetStringList(SettingGetter::PROXY_IGNORE_HOSTS,
                                      &ignore_hosts_list)) {
-    std::vector<std::string>::const_iterator it(ignore_hosts_list.begin());
-    for (; it != ignore_hosts_list.end(); ++it) {
-      if (setting_getter_->MatchHostsUsingSuffixMatching()) {
-        config.proxy_rules().bypass_rules.AddRuleFromStringUsingSuffixMatching(
-            *it);
-      } else {
-        config.proxy_rules().bypass_rules.AddRuleFromString(*it);
-      }
+    for (const auto& rule : ignore_hosts_list) {
+      config.proxy_rules().bypass_rules.AddRuleFromString(rule, format);
     }
   }
   // Note that there are no settings with semantics corresponding to

@@ -16,7 +16,9 @@ namespace {
 
 bool DecodePath(const base::StringPiece& path, std::string* output) {
   url::RawCanonOutputT<base::char16> unescaped;
-  url::DecodeURLEscapeSequences(path.data(), path.size(), &unescaped);
+  url::DecodeURLEscapeSequences(path.data(), path.size(),
+                                url::DecodeURLMode::kUTF8OrIsomorphic,
+                                &unescaped);
   return base::UTF16ToUTF8(unescaped.data(), unescaped.length(), output);
 }
 
@@ -103,8 +105,8 @@ PortMatchingResult SourceAllowPort(const CSPSource& source, const GURL& url) {
 
 bool SourceAllowPath(const CSPSource& source,
                      const GURL& url,
-                     bool is_redirect) {
-  if (is_redirect)
+                     bool has_followed_redirect) {
+  if (has_followed_redirect)
     return true;
 
   if (source.path.empty() || url.path().empty())
@@ -174,7 +176,7 @@ CSPSource::~CSPSource() = default;
 bool CSPSource::Allow(const CSPSource& source,
                       const GURL& url,
                       CSPContext* context,
-                      bool is_redirect) {
+                      bool has_followed_redirect) {
   if (source.IsSchemeOnly())
     return SourceAllowScheme(source, url, context) !=
            SchemeMatchingResult::NotMatching;
@@ -190,7 +192,7 @@ bool CSPSource::Allow(const CSPSource& source,
   return schemeResult != SchemeMatchingResult::NotMatching &&
          SourceAllowHost(source, url) &&
          portResult != PortMatchingResult::NotMatching &&
-         SourceAllowPath(source, url, is_redirect);
+         SourceAllowPath(source, url, has_followed_redirect);
 }
 
 std::string CSPSource::ToString() const {

@@ -39,16 +39,30 @@ namespace absl {
 // Function Template: WrapUnique()
 // -----------------------------------------------------------------------------
 //
-//  Adopts ownership from a raw pointer and transfers it to the returned
-//  `std::unique_ptr`, whose type is deduced. DO NOT specify the template type T
-//  when calling WrapUnique.
+// Adopts ownership from a raw pointer and transfers it to the returned
+// `std::unique_ptr`, whose type is deduced. Because of this deduction, *do not*
+// specify the template type `T` when calling `WrapUnique`.
 //
 // Example:
 //   X* NewX(int, int);
 //   auto x = WrapUnique(NewX(1, 2));  // 'x' is std::unique_ptr<X>.
 //
-// `absl::WrapUnique` is useful for capturing the output of a raw pointer
-// factory. However, prefer 'absl::make_unique<T>(args...) over
+// The purpose of WrapUnique is to automatically deduce the pointer type. If you
+// wish to make the type explicit, for readability reasons or because you prefer
+// to use a base-class pointer rather than a derived one, just use
+// `std::unique_ptr` directly.
+//
+// Example:
+//   X* Factory(int, int);
+//   auto x = std::unique_ptr<X>(Factory(1, 2));
+//                  - or -
+//   std::unique_ptr<X> x(Factory(1, 2));
+//
+// This has the added advantage of working whether Factory returns a raw
+// pointer or a `std::unique_ptr`.
+//
+// While `absl::WrapUnique` is useful for capturing the output of a raw
+// pointer factory, prefer 'absl::make_unique<T>(args...)' over
 // 'absl::WrapUnique(new T(args...))'.
 //
 //   auto x = WrapUnique(new X(1, 2));  // works, but nonideal.
@@ -83,7 +97,11 @@ struct MakeUniqueResult<T[N]> {
 
 }  // namespace memory_internal
 
-#if __cplusplus >= 201402L || defined(_MSC_VER)
+// gcc 4.8 has __cplusplus at 201301 but doesn't define make_unique.  Other
+// supported compilers either just define __cplusplus as 201103 but have
+// make_unique (msvc), or have make_unique whenever __cplusplus > 201103 (clang)
+#if (__cplusplus > 201103L || defined(_MSC_VER)) && \
+    !(defined(__GNUC__) && __GNUC__ == 4 && __GNUC_MINOR__ == 8)
 using std::make_unique;
 #else
 // -----------------------------------------------------------------------------
@@ -581,7 +599,7 @@ struct allocator_traits {
     return a.max_size();
   }
   static size_type max_size_impl(char, const Alloc&) {
-    return std::numeric_limits<size_type>::max() / sizeof(value_type);
+    return (std::numeric_limits<size_type>::max)() / sizeof(value_type);
   }
 
   template <typename A>
@@ -637,38 +655,43 @@ struct default_allocator_is_nothrow : std::false_type {};
 #endif
 
 namespace memory_internal {
-// TODO(b110200014): Implement proper backports
-template <typename ForwardIt>
-void DefaultConstruct(ForwardIt it) {
-  using value_type = typename std::iterator_traits<ForwardIt>::value_type;
-  ::new (static_cast<void*>(std::addressof(*it))) value_type;
-}  // namespace memory_internal
-
-#ifdef ABSL_HAVE_EXCEPTIONS
-template <typename ForwardIt, typename Size>
-void uninitialized_default_construct_n(ForwardIt first, Size size) {
-  for (ForwardIt cur = first; size > 0; static_cast<void>(++cur), --size) {
-    try {
-      absl::memory_internal::DefaultConstruct(cur);
-    } catch (...) {
-      using value_type = typename std::iterator_traits<ForwardIt>::value_type;
-      for (; first != cur; ++first) {
-        first->~value_type();
+template <typename Allocator, typename Iterator, typename... Args>
+void ConstructRange(Allocator& alloc, Iterator first, Iterator last,
+                    const Args&... args) {
+  for (Iterator cur = first; cur != last; ++cur) {
+    ABSL_INTERNAL_TRY {
+      std::allocator_traits<Allocator>::construct(alloc, std::addressof(*cur),
+                                                  args...);
+    }
+    ABSL_INTERNAL_CATCH_ANY {
+      while (cur != first) {
+        --cur;
+        std::allocator_traits<Allocator>::destroy(alloc, std::addressof(*cur));
       }
-      throw;
+      ABSL_INTERNAL_RETHROW;
     }
   }
 }
-#else   // ABSL_HAVE_EXCEPTIONS
-template <typename ForwardIt, typename Size>
-void uninitialized_default_construct_n(ForwardIt first, Size size) {
-  for (; size > 0; static_cast<void>(++first), --size) {
-    absl::memory_internal::DefaultConstruct(first);
+
+template <typename Allocator, typename Iterator, typename InputIterator>
+void CopyRange(Allocator& alloc, Iterator destination, InputIterator first,
+               InputIterator last) {
+  for (Iterator cur = destination; first != last;
+       static_cast<void>(++cur), static_cast<void>(++first)) {
+    ABSL_INTERNAL_TRY {
+      std::allocator_traits<Allocator>::construct(alloc, std::addressof(*cur),
+                                                  *first);
+    }
+    ABSL_INTERNAL_CATCH_ANY {
+      while (cur != destination) {
+        --cur;
+        std::allocator_traits<Allocator>::destroy(alloc, std::addressof(*cur));
+      }
+      ABSL_INTERNAL_RETHROW;
+    }
   }
 }
-#endif  // ABSL_HAVE_EXCEPTIONS
 }  // namespace memory_internal
-
 }  // namespace absl
 
 #endif  // ABSL_MEMORY_MEMORY_H_

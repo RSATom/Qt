@@ -9,6 +9,8 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -34,6 +36,7 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/picture_in_picture_window_controller.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
@@ -100,11 +103,11 @@ void VerifyIconsMatch(const gfx::Image& bar_rendering,
   icon_portion.ClampToCenteredSize(model_icon.Size());
 
   EXPECT_TRUE(gfx::test::AreBitmapsEqual(
-      model_icon.AsImageSkia().GetRepresentation(1.0f).sk_bitmap(),
+      model_icon.AsImageSkia().GetRepresentation(1.0f).GetBitmap(),
       gfx::ImageSkiaOperations::ExtractSubset(bar_rendering.AsImageSkia(),
                                               icon_portion)
           .GetRepresentation(1.0f)
-          .sk_bitmap()));
+          .GetBitmap()));
 }
 
 class BrowserActionApiTest : public ExtensionApiTest {
@@ -366,6 +369,66 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, DynamicBrowserAction) {
   GetBrowserActionsBar()->Press(0);
   ASSERT_FALSE(catcher.GetNextResult());
   EXPECT_EQ(kEmptyPathError, catcher.message());
+}
+
+IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, InvisibleIconBrowserAction) {
+  // Turn this on so errors are reported.
+  ExtensionActionSetIconFunction::SetReportErrorForInvisibleIconForTesting(
+      true);
+  ASSERT_TRUE(RunExtensionTest("browser_action/invisible_icon")) << message_;
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension) << message_;
+
+  // Test there is a browser action in the toolbar.
+  ASSERT_EQ(1, GetBrowserActionsBar()->NumberOfBrowserActions());
+  EXPECT_TRUE(GetBrowserActionsBar()->HasIcon(0));
+  gfx::Image initial_bar_icon = GetBrowserActionsBar()->GetIcon(0);
+
+  ExtensionHost* background_page =
+      ProcessManager::Get(profile())->GetBackgroundHostForExtension(
+          extension->id());
+  ASSERT_TRUE(background_page);
+
+  static constexpr char kScript[] =
+      "setIcon(%s).then(function(arg) {"
+      "  domAutomationController.send(arg);"
+      "});";
+
+  const std::string histogram_name =
+      "Extensions.DynamicExtensionActionIconWasVisible";
+  const std::string new_histogram_name =
+      "Extensions.DynamicExtensionActionIconWasVisibleRendered";
+  {
+    base::HistogramTester histogram_tester;
+    std::string result;
+    EXPECT_TRUE(ExecuteScriptAndExtractString(
+        background_page->host_contents(),
+        base::StringPrintf(kScript, "invisible"), &result));
+    EXPECT_EQ("Icon not sufficiently visible.", result);
+    // The icon should not have changed.
+    EXPECT_TRUE(gfx::test::AreImagesEqual(initial_bar_icon,
+                                          GetBrowserActionsBar()->GetIcon(0)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(histogram_name),
+                testing::ElementsAre(base::Bucket(0, 1)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(new_histogram_name),
+                testing::ElementsAre(base::Bucket(0, 1)));
+  }
+
+  {
+    base::HistogramTester histogram_tester;
+    std::string result;
+    EXPECT_TRUE(ExecuteScriptAndExtractString(
+        background_page->host_contents(),
+        base::StringPrintf(kScript, "visible"), &result));
+    EXPECT_EQ("", result);
+    // The icon should have changed.
+    EXPECT_FALSE(gfx::test::AreImagesEqual(initial_bar_icon,
+                                           GetBrowserActionsBar()->GetIcon(0)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(histogram_name),
+                testing::ElementsAre(base::Bucket(1, 1)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(new_histogram_name),
+                testing::ElementsAre(base::Bucket(1, 1)));
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, TabSpecificBrowserActionState) {
@@ -994,8 +1057,9 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, Webpage) {
 
 // Tests that an extension pop-up can be navigated to another page
 // in the same extension.
+// Times out on all platforms: https://crbug.com/882200
 IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest,
-                       PageInSameExtension) {
+                       DISABLED_PageInSameExtension) {
   GURL other_page_in_same_extension =
       popup_extension().GetResourceURL("other_page.html");
   TestPopupNavigationViaGet(other_page_in_same_extension,
@@ -1057,6 +1121,49 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, DownloadViaPost) {
 #if !defined(OS_CHROMEOS)
   EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
 #endif
+}
+
+// Verify video can enter and exit Picture-in_Picture when browser action icon
+// is clicked.
+IN_PROC_BROWSER_TEST_F(BrowserActionApiTest,
+                       TestPictureInPictureOnBrowserActionIconClick) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  ASSERT_TRUE(
+      RunExtensionTest("trigger_actions/browser_action_picture_in_picture"))
+      << message_;
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension) << message_;
+
+  // Test that there is a browser action in the toolbar.
+  ASSERT_EQ(1, GetBrowserActionsBar()->NumberOfBrowserActions());
+
+  ExtensionAction* browser_action = GetBrowserAction(*extension);
+  EXPECT_TRUE(browser_action);
+
+  // Find the background page.
+  ProcessManager* process_manager =
+      extensions::ProcessManager::Get(browser()->profile());
+  content::WebContents* web_contents =
+      process_manager->GetBackgroundHostForExtension(extension->id())
+          ->web_contents();
+  ASSERT_TRUE(web_contents);
+  content::PictureInPictureWindowController* window_controller =
+      content::PictureInPictureWindowController::GetOrCreateForWebContents(
+          web_contents);
+  ASSERT_TRUE(window_controller->GetWindowForTesting());
+  EXPECT_FALSE(window_controller->GetWindowForTesting()->IsVisible());
+
+  // Click on the browser action icon to enter Picture-in-Picture.
+  ResultCatcher catcher;
+  GetBrowserActionsBar()->Press(0);
+  EXPECT_TRUE(catcher.GetNextResult());
+  EXPECT_TRUE(window_controller->GetWindowForTesting()->IsVisible());
+
+  // Click on the browser action icon to exit Picture-in-Picture.
+  GetBrowserActionsBar()->Press(0);
+  EXPECT_TRUE(catcher.GetNextResult());
+  EXPECT_FALSE(window_controller->GetWindowForTesting()->IsVisible());
 }
 
 }  // namespace

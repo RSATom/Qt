@@ -11,14 +11,13 @@
 
 #include <list>
 #include <map>
-#include <tuple>
 #include <vector>
 
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
-#define XFA_LAYOUT_INVALIDNODE nullptr
-#define XFA_LAYOUT_FLOAT_PERCISION (0.0005f)
+constexpr float kXFALayoutPrecision = 0.0005f;
 
 class CXFA_ContainerLayoutItem;
 class CXFA_ContentLayoutItem;
@@ -95,7 +94,7 @@ class CXFA_ItemLayoutProcessor {
   float InsertKeepLayoutItems();
   bool CalculateRowChildPosition(
       std::vector<CXFA_ContentLayoutItem*> (&rgCurLineLayoutItems)[3],
-      XFA_AttributeEnum eFlowStrategy,
+      XFA_AttributeValue eFlowStrategy,
       bool bContainerHeightAutoSize,
       bool bContainerWidthAutoSize,
       float* fContentCalculatedWidth,
@@ -113,24 +112,25 @@ class CXFA_ItemLayoutProcessor {
   void DoLayoutTableContainer(CXFA_Node* pLayoutNode);
   XFA_ItemLayoutProcessorResult DoLayoutFlowedContainer(
       bool bUseBreakControl,
-      XFA_AttributeEnum eFlowStrategy,
+      XFA_AttributeValue eFlowStrategy,
       float fHeightLimit,
       float fRealHeight,
       CXFA_LayoutContext* pContext,
       bool bRootForceTb);
   void DoLayoutField();
 
-  void GotoNextContainerNode(CXFA_Node*& pCurActionNode,
+  void GotoNextContainerNodeSimple(bool bUsePageBreak);
+  void GotoNextContainerNode(CXFA_Node** pCurActionNode,
                              XFA_ItemLayoutProcessorStages* nCurStage,
                              CXFA_Node* pParentContainer,
                              bool bUsePageBreak);
 
-  bool ProcessKeepNodesForCheckNext(CXFA_Node*& pCurActionNode,
+  bool ProcessKeepNodesForCheckNext(CXFA_Node** pCurActionNode,
                                     XFA_ItemLayoutProcessorStages* nCurStage,
-                                    CXFA_Node*& pNextContainer,
-                                    bool& bLastKeepNode);
+                                    CXFA_Node** pNextContainer,
+                                    bool* pLastKeepNode);
 
-  bool ProcessKeepNodesForBreakBefore(CXFA_Node*& pCurActionNode,
+  bool ProcessKeepNodesForBreakBefore(CXFA_Node** pCurActionNode,
                                       XFA_ItemLayoutProcessorStages* nCurStage,
                                       CXFA_Node* pContainerNode);
 
@@ -148,7 +148,7 @@ class CXFA_ItemLayoutProcessor {
       bool bContainerWidthAutoSize,
       bool bContainerHeightAutoSize,
       float fContainerHeight,
-      XFA_AttributeEnum eFlowStrategy,
+      XFA_AttributeValue eFlowStrategy,
       uint8_t* uCurHAlignState,
       std::vector<CXFA_ContentLayoutItem*> (&rgCurLineLayoutItems)[3],
       bool bUseBreakControl,
@@ -165,9 +165,9 @@ class CXFA_ItemLayoutProcessor {
 
   CXFA_Node* m_pFormNode;
   CXFA_ContentLayoutItem* m_pLayoutItem = nullptr;
-  CXFA_Node* m_pCurChildNode = XFA_LAYOUT_INVALIDNODE;
+  CXFA_Node* m_pCurChildNode = nullptr;
   float m_fUsedSize = 0;
-  CXFA_LayoutPageMgr* m_pPageMgr;
+  UnownedPtr<CXFA_LayoutPageMgr> m_pPageMgr;
   std::list<CXFA_Node*> m_PendingNodes;
   bool m_bBreakPending = true;
   std::vector<float> m_rgSpecifiedColumnWidths;

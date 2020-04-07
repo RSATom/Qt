@@ -248,8 +248,7 @@ CPDF_CMap::CPDF_CMap()
 CPDF_CMap::~CPDF_CMap() {}
 
 void CPDF_CMap::LoadPredefined(CPDF_CMapManager* pMgr,
-                               const ByteString& bsName,
-                               bool bPromptCJK) {
+                               const ByteString& bsName) {
   m_PredefinedCMap = bsName;
   if (m_PredefinedCMap == "Identity-H" || m_PredefinedCMap == "Identity-V") {
     m_Coding = CIDCODING_CID;
@@ -283,7 +282,7 @@ void CPDF_CMap::LoadPredefined(CPDF_CMapManager* pMgr,
         m_MixedTwoByteLeadingBytes[b] = true;
     }
   }
-  m_pEmbedMap = FPDFAPI_FindEmbeddedCMap(bsName, m_Charset, m_Coding);
+  m_pEmbedMap = FindEmbeddedCMap(bsName, m_Charset, m_Coding);
   if (!m_pEmbedMap)
     return;
 
@@ -317,7 +316,7 @@ uint16_t CPDF_CMap::CIDFromCharCode(uint32_t charcode) const {
     return static_cast<uint16_t>(charcode);
 
   if (m_pEmbedMap)
-    return FPDFAPI_CIDFromCharCode(m_pEmbedMap.Get(), charcode);
+    return ::CIDFromCharCode(m_pEmbedMap.Get(), charcode);
 
   if (m_DirectCharcodeToCIDTable.empty())
     return static_cast<uint16_t>(charcode);
@@ -337,8 +336,8 @@ uint16_t CPDF_CMap::CIDFromCharCode(uint32_t charcode) const {
   return it->m_StartCID + charcode - it->m_StartCode;
 }
 
-uint32_t CPDF_CMap::GetNextChar(const ByteStringView& pString,
-                                size_t& offset) const {
+uint32_t CPDF_CMap::GetNextChar(ByteStringView pString, size_t* pOffset) const {
+  size_t& offset = *pOffset;
   auto pBytes = pString.span();
   switch (m_CodingScheme) {
     case OneByte: {
@@ -403,7 +402,7 @@ int CPDF_CMap::GetCharSize(uint32_t charcode) const {
   return 1;
 }
 
-size_t CPDF_CMap::CountChar(const ByteStringView& pString) const {
+size_t CPDF_CMap::CountChar(ByteStringView pString) const {
   switch (m_CodingScheme) {
     case OneByte:
       return pString.GetLength();
@@ -422,7 +421,7 @@ size_t CPDF_CMap::CountChar(const ByteStringView& pString) const {
       size_t count = 0;
       size_t offset = 0;
       while (offset < pString.GetLength()) {
-        GetNextChar(pString, offset);
+        GetNextChar(pString, &offset);
         count++;
       }
       return count;

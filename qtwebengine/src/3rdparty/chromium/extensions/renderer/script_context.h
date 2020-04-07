@@ -70,7 +70,7 @@ class ScriptContext : public RequestSender::Source {
 
   // Registers |observer| to be run when this context is invalidated. Closures
   // are run immediately when Invalidate() is called, not in a message loop.
-  void AddInvalidationObserver(const base::Closure& observer);
+  void AddInvalidationObserver(base::OnceClosure observer);
 
   // Returns true if this context is still valid, false if it isn't.
   // A context becomes invalid via Invalidate().
@@ -152,6 +152,10 @@ class ScriptContext : public RequestSender::Source {
 
   const GURL& service_worker_scope() const;
 
+  int64_t service_worker_version_id() const {
+    return service_worker_version_id_;
+  }
+
   // Sets the URL of this ScriptContext. Usually this will automatically be set
   // on construction, unless this isn't constructed with enough information to
   // determine the URL (e.g. frame was null).
@@ -159,6 +163,9 @@ class ScriptContext : public RequestSender::Source {
   void set_url(const GURL& url) { url_ = url; }
   void set_service_worker_scope(const GURL& scope) {
     service_worker_scope_ = scope;
+  }
+  void set_service_worker_version_id(int64_t service_worker_version_id) {
+    service_worker_version_id_ = service_worker_version_id;
   }
 
   // Returns whether the API |api| or any part of the API could be available in
@@ -196,8 +203,8 @@ class ScriptContext : public RequestSender::Source {
                           const std::string& error) override;
 
   // Grants a set of content capabilities to this context.
-  void set_content_capabilities(const APIPermissionSet& capabilities) {
-    content_capabilities_ = capabilities;
+  void set_content_capabilities(APIPermissionSet capabilities) {
+    content_capabilities_ = std::move(capabilities);
   }
 
   // Indicates if this context has an effective API permission either by being
@@ -270,15 +277,17 @@ class ScriptContext : public RequestSender::Source {
   // The set of capabilities granted to this context by extensions.
   APIPermissionSet content_capabilities_;
 
-  // A list of base::Closure instances as an observer interface for
+  // A list of base::OnceClosure instances as an observer interface for
   // invalidation.
-  std::vector<base::Closure> invalidate_observers_;
+  std::vector<base::OnceClosure> invalidate_observers_;
 
   v8::Isolate* isolate_;
 
   GURL url_;
 
   GURL service_worker_scope_;
+
+  int64_t service_worker_version_id_;
 
   base::ThreadChecker thread_checker_;
 

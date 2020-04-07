@@ -2,16 +2,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-static_library("renderer") {
+import("//build/config/jumbo.gni")
+
+jumbo_static_library("renderer") {
   sources = [
     "autofill_agent.cc",
     "autofill_agent.h",
+    "field_data_manager.cc",
+    "field_data_manager.h",
     "form_autofill_util.cc",
     "form_autofill_util.h",
     "form_cache.cc",
     "form_cache.h",
-    "form_classifier.cc",
-    "form_classifier.h",
     "form_tracker.cc",
     "form_tracker.h",
     "html_based_username_detector.cc",
@@ -28,6 +30,8 @@ static_library("renderer") {
     "password_form_conversion_utils.h",
     "password_generation_agent.cc",
     "password_generation_agent.h",
+    "prefilled_values_detector.cc",
+    "prefilled_values_detector.h",
     "provisionally_saved_password_form.cc",
     "provisionally_saved_password_form.h",
     "renderer_save_password_progress_logger.cc",
@@ -56,6 +60,7 @@ static_library("renderer") {
     "//services/service_manager/public/cpp",
     "//skia",
     "//third_party/blink/public:blink",
+    "//third_party/blink/public/common",
     "//third_party/re2",
     "//ui/base",
   ]
@@ -64,7 +69,7 @@ static_library("renderer") {
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "test_password_autofill_agent.cc",
@@ -89,6 +94,7 @@ source_set("unit_tests") {
   testonly = true
   sources = [
     "form_cache_unittest.cc",
+    "prefilled_values_detector_unittest.cc",
     "renderer_save_password_progress_logger_unittest.cc",
   ]
 

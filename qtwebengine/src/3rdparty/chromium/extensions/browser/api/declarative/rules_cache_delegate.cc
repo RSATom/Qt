@@ -6,7 +6,9 @@
 
 #include <utility>
 
+#include "base/task/post_task.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
 #include "extensions/browser/api/declarative/rules_registry.h"
@@ -104,6 +106,9 @@ void RulesCacheDelegate::UpdateRules(const std::string& extension_id,
 
   DCHECK(value.is_list());
   has_nonempty_ruleset_ = !value.GetList().empty();
+  for (auto& observer : observers_)
+    observer.OnUpdateRules();
+
   if (type_ == Type::kEphemeral)
     return;
 
@@ -123,16 +128,24 @@ bool RulesCacheDelegate::HasRules() const {
   return has_nonempty_ruleset_;
 }
 
+void RulesCacheDelegate::AddObserver(Observer* observer) {
+  DCHECK(observer);
+  observers_.AddObserver(observer);
+}
+
+void RulesCacheDelegate::RemoveObserver(Observer* observer) {
+  DCHECK(observer);
+  observers_.RemoveObserver(observer);
+}
+
 void RulesCacheDelegate::CheckIfReady() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (notified_registry_ || !waiting_for_extensions_.empty())
     return;
 
-  content::BrowserThread::PostTask(
-      rules_registry_thread_,
-      FROM_HERE,
-      base::Bind(
-          &RulesRegistry::MarkReady, registry_, storage_init_time_));
+  base::PostTaskWithTraits(
+      FROM_HERE, {rules_registry_thread_},
+      base::Bind(&RulesRegistry::MarkReady, registry_, storage_init_time_));
   notified_registry_ = true;
 }
 
@@ -197,13 +210,10 @@ void RulesCacheDelegate::ReadFromStorageCallback(
     std::unique_ptr<base::Value> value) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(Type::kPersistent, type_);
-  content::BrowserThread::PostTask(
-      rules_registry_thread_,
-      FROM_HERE,
-      base::Bind(&RulesRegistry::DeserializeAndAddRules,
-                 registry_,
-                 extension_id,
-                 base::Passed(&value)));
+  base::PostTaskWithTraits(
+      FROM_HERE, {rules_registry_thread_},
+      base::Bind(&RulesRegistry::DeserializeAndAddRules, registry_,
+                 extension_id, base::Passed(&value)));
 
   waiting_for_extensions_.erase(extension_id);
 

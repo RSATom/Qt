@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
+#include "base/task/post_task.h"
 #include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/frame_host/frame_tree_node.h"
@@ -16,11 +17,14 @@
 #include "content/browser/speech/speech_recognition_manager_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/speech_recognition_manager_delegate.h"
 #include "content/public/browser/speech_recognition_session_config.h"
 #include "content/public/browser/speech_recognition_session_context.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -63,7 +67,7 @@ void SpeechRecognitionDispatcherHost::Start(
 
   // Check that the origin specified by the renderer process is one
   // that it is allowed to access.
-  if (!params->origin.unique() &&
+  if (!params->origin.opaque() &&
       !ChildProcessSecurityPolicyImpl::GetInstance()->CanRequestURL(
           render_process_id_, params->origin.GetURL())) {
     LOG(ERROR) << "SRDH::OnStartRequest, disallowed origin: "
@@ -71,8 +75,8 @@ void SpeechRecognitionDispatcherHost::Start(
     return;
   }
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&SpeechRecognitionDispatcherHost::StartRequestOnUI,
                      AsWeakPtr(), render_process_id_, render_frame_id_,
                      std::move(params)));
@@ -131,18 +135,19 @@ void SpeechRecognitionDispatcherHost::StartRequestOnUI(
           ->delegate()
           ->FilterProfanities(embedder_render_process_id);
 
+  content::BrowserContext* browser_context = web_contents->GetBrowserContext();
   StoragePartition* storage_partition = BrowserContext::GetStoragePartition(
-      web_contents->GetBrowserContext(), web_contents->GetSiteInstance());
+      browser_context, web_contents->GetSiteInstance());
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
           &SpeechRecognitionDispatcherHost::StartSessionOnIO,
           speech_recognition_dispatcher_host, std::move(params),
           embedder_render_process_id, embedder_render_frame_id,
           filter_profanities,
           storage_partition->GetURLLoaderFactoryForBrowserProcessIOThread(),
-          base::WrapRefCounted(storage_partition->GetURLRequestContext())));
+          GetContentClient()->browser()->GetAcceptLangs(browser_context)));
 }
 
 void SpeechRecognitionDispatcherHost::StartSessionOnIO(
@@ -152,7 +157,7 @@ void SpeechRecognitionDispatcherHost::StartSessionOnIO(
     bool filter_profanities,
     std::unique_ptr<network::SharedURLLoaderFactoryInfo>
         shared_url_loader_factory_info,
-    scoped_refptr<net::URLRequestContextGetter> deprecated_context_getter) {
+    const std::string& accept_language) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   SpeechRecognitionSessionContext context;
@@ -167,13 +172,12 @@ void SpeechRecognitionDispatcherHost::StartSessionOnIO(
 
   SpeechRecognitionSessionConfig config;
   config.language = params->language;
+  config.accept_language = accept_language;
   config.max_hypotheses = params->max_hypotheses;
   config.origin = params->origin;
   config.initial_context = context;
   config.shared_url_loader_factory = network::SharedURLLoaderFactory::Create(
       std::move(shared_url_loader_factory_info));
-  config.deprecated_url_request_context_getter =
-      std::move(deprecated_context_getter);
   config.filter_profanities = filter_profanities;
   config.continuous = params->continuous;
   config.interim_results = params->interim_results;
@@ -201,7 +205,11 @@ SpeechRecognitionSession::SpeechRecognitionSession(
     : session_id_(SpeechRecognitionManager::kSessionIDInvalid),
       client_(std::move(client_ptr_info)),
       stopped_(false),
-      weak_factory_(this) {}
+      weak_factory_(this) {
+  client_.set_connection_error_handler(
+      base::BindOnce(&SpeechRecognitionSession::ConnectionErrorHandler,
+                     base::Unretained(this)));
+}
 
 SpeechRecognitionSession::~SpeechRecognitionSession() {
   // If a connection error happens and the session hasn't been stopped yet,
@@ -271,6 +279,11 @@ void SpeechRecognitionSession::OnAudioLevelsChange(int session_id,
                                                    float noise_volume) {}
 
 void SpeechRecognitionSession::OnEnvironmentEstimationComplete(int session_id) {
+}
+
+void SpeechRecognitionSession::ConnectionErrorHandler() {
+  if (!stopped_)
+    Abort();
 }
 
 }  // namespace content

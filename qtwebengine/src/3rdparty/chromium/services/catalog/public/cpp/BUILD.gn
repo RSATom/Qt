@@ -4,11 +4,11 @@
 
 source_set("cpp") {
   sources = [
-    "manifest_parsing_util.cc",
-    "manifest_parsing_util.h",
     "resource_loader.cc",
     "resource_loader.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   deps = [
     "//base",

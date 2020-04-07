@@ -10,12 +10,11 @@
 #include <string>
 
 #include "base/files/file_util.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_appcache_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_cache_storage_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_channel_id_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_cookie_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_database_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_file_system_helper.h"
@@ -103,6 +102,11 @@ void StorageHandler::RegisterMessages() {
                           base::Unretained(this)));
 }
 
+void StorageHandler::OnJavascriptDisallowed() {
+  // Ensure that pending callbacks do not complete and cause JS to be evaluated.
+  weak_ptr_factory_.InvalidateWeakPtrs();
+}
+
 void StorageHandler::HandleUpdateStorageInfo(const base::ListValue* args) {
   AllowJavascript();
 
@@ -187,7 +191,7 @@ void StorageHandler::UpdateDownloadsSize() {
       file_manager::util::GetDownloadsFolderForProfile(profile_);
 
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&base::ComputeDirectorySize, downloads_path),
       base::Bind(&StorageHandler::OnGetDownloadsSize,
                  weak_ptr_factory_.GetWeakPtr()));
@@ -249,7 +253,6 @@ void StorageHandler::UpdateBrowsingDataSize() {
             storage_partition->GetIndexedDBContext()),
         BrowsingDataFileSystemHelper::Create(
             storage_partition->GetFileSystemContext()),
-        BrowsingDataChannelIDHelper::Create(profile_->GetRequestContext()),
         new BrowsingDataServiceWorkerHelper(
             storage_partition->GetServiceWorkerContext()),
         new BrowsingDataCacheStorageHelper(
@@ -290,10 +293,8 @@ void StorageHandler::OnGetBrowsingDataSize(bool is_site_data, int64_t size) {
 }
 
 void StorageHandler::UpdateAndroidSize() {
-  if (!arc::IsArcPlayStoreEnabledForProfile(profile_) ||
-      arc::IsArcOptInVerificationDisabled()) {
+  if (!arc::IsArcPlayStoreEnabledForProfile(profile_))
     return;
-  }
 
   if (updating_android_size_)
     return;
@@ -328,7 +329,7 @@ void StorageHandler::OnGetAndroidSize(bool succeeded,
 }
 
 void StorageHandler::UpdateCrostiniSize() {
-  if (!IsCrostiniEnabled(profile_)) {
+  if (!crostini::IsCrostiniEnabled(profile_)) {
     return;
   }
 
@@ -336,13 +337,12 @@ void StorageHandler::UpdateCrostiniSize() {
     return;
   updating_crostini_size_ = true;
 
-  crostini::CrostiniManager::GetInstance()->ListVmDisks(
-      CryptohomeIdForProfile(profile_),
+  crostini::CrostiniManager::GetForProfile(profile_)->ListVmDisks(
       base::BindOnce(&StorageHandler::OnGetCrostiniSize,
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
-void StorageHandler::OnGetCrostiniSize(crostini::ConciergeClientResult result,
+void StorageHandler::OnGetCrostiniSize(crostini::CrostiniResult result,
                                        int64_t size) {
   updating_crostini_size_ = false;
   FireWebUIListener("storage-crostini-size-changed",
@@ -363,7 +363,7 @@ void StorageHandler::UpdateOtherUsersSize() {
       continue;
     other_users_.push_back(user);
     DBusThreadManager::Get()->GetCryptohomeClient()->GetAccountDiskUsage(
-        cryptohome::Identification(user->GetAccountId()),
+        cryptohome::CreateAccountIdentifierFromAccountId(user->GetAccountId()),
         base::BindOnce(&StorageHandler::OnGetOtherUserSize,
                        weak_ptr_factory_.GetWeakPtr()));
   }

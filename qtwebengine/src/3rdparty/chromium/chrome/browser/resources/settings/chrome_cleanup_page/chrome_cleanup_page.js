@@ -60,14 +60,6 @@ settings.ChromeCleanupOngoingAction = {
 
 /**
  * @typedef {{
- *   statusIcon: string,
- *   statusIconClassName: string,
- * }}
- */
-settings.ChromeCleanupCardIcon;
-
-/**
- * @typedef {{
  *   label: string,
  *   doAction: !function(),
  * }}
@@ -78,7 +70,6 @@ settings.ChromeCleanupCardActionButton;
  * @typedef {{
  *   title: ?string,
  *   explanation: ?string,
- *   icon: ?settings.ChromeCleanupCardIcon,
  *   actionButton: ?settings.ChromeCleanupCardActionButton,
  *   flags: number,
  * }}
@@ -86,8 +77,18 @@ settings.ChromeCleanupCardActionButton;
 settings.ChromeCleanupCardComponents;
 
 /**
+ * Represents the file path structure of a base::FilePath.
+ * dirname ends with a separator.
  * @typedef {{
- *   files: Array<string>,
+ *   dirname: string,
+ *   basename: string,
+ * }}
+ */
+settings.ChromeCleanupFilePath;
+
+/**
+ * @typedef {{
+ *   files: Array<settings.ChromeCleanupFilePath>,
  *   registryKeys: Array<string>,
  *   extensions: Array<string>,
  * }}
@@ -112,8 +113,13 @@ Polymer({
   behaviors: [I18nBehavior, WebUIListenerBehavior],
 
   properties: {
-    /** Preferences state. */
-    prefs: Object,
+    /**
+     * Preferences state.
+     */
+    prefs: {
+      type: Object,
+      notify: true,
+    },
 
     /** @private */
     title_: {
@@ -214,18 +220,6 @@ Polymer({
       computed: 'computeHasExtensionsToShow_(scannerResults_)',
     },
 
-    /** @private */
-    statusIcon_: {
-      type: String,
-      value: '',
-    },
-
-    /** @private */
-    statusIconClassName_: {
-      type: String,
-      value: '',
-    },
-
     /** @private {chrome.settingsPrivate.PrefObject} */
     logsUploadPref_: {
       type: Object,
@@ -251,8 +245,10 @@ Polymer({
   /** @private {?function()} */
   doAction_: null,
 
-  /** @private {?Map<settings.ChromeCleanerCardState,
-   *                 !settings.ChromeCleanupCardComponents>} */
+  /**
+   * @private {?Map<settings.ChromeCleanerCardState,
+   *                 !settings.ChromeCleanupCardComponents>}
+   */
   cardStateToComponentsMap_: null,
 
   /** @private {settings.ChromeCleanupOngoingAction} */
@@ -287,9 +283,6 @@ Polymer({
     this.addWebUIListener(
         'chrome-cleanup-on-reboot-required', this.onRebootRequired_.bind(this));
     this.addWebUIListener(
-        'chrome-cleanup-upload-permission-change',
-        this.onUploadPermissionChange_.bind(this));
-    this.addWebUIListener(
         'chrome-cleanup-enabled-change',
         this.onCleanupEnabledChange_.bind(this));
     this.browserProxy_.registerChromeCleanerObserver();
@@ -304,34 +297,14 @@ Polymer({
     this.doAction_();
   },
 
-  getTopSettingsBoxClass_: function(showDetails) {
-    return showDetails ? 'top-aligned-settings-box' : 'two-line';
-  },
-
-  /**
-   * Toggles the expand button within the element being listened to.
-   * @param {!Event} e
-   * @private
-   */
-  toggleExpandButton_: function(e) {
-    // The expand button handles toggling itself.
-    const expandButtonTag = 'CR-EXPAND-BUTTON';
-    if (e.target.tagName == expandButtonTag)
-      return;
-
-    /** @type {!CrExpandButtonElement} */
-    const expandButton = e.currentTarget.querySelector(expandButtonTag);
-    assert(expandButton);
-    expandButton.expanded = !expandButton.expanded;
-  },
-
   /**
    * Notifies Chrome that the details section was opened or closed.
    * @private
    */
   itemsToRemoveSectionExpandedChanged_: function(newVal, oldVal) {
-    if (!oldVal && newVal)
+    if (!oldVal && newVal) {
       this.browserProxy_.notifyShowDetails(this.itemsToRemoveSectionExpanded_);
+    }
   },
 
   /**
@@ -521,25 +494,8 @@ Polymer({
 
     this.title_ = components.title || '';
     this.explanation_ = components.explanation || '';
-    this.updateIcon_(components.icon);
     this.updateActionButton_(components.actionButton);
     this.updateCardFlags_(components.flags);
-  },
-
-  /**
-   * Updates the icon on the cleanup card to show the current state.
-   * @param {?settings.ChromeCleanupCardIcon} icon The icon to
-   *     render, or null if no icon should be shown.
-   * @private
-   */
-  updateIcon_: function(icon) {
-    if (!icon) {
-      this.statusIcon_ = '';
-      this.statusIconClassName_ = '';
-    } else {
-      this.statusIcon_ = icon.statusIcon;
-      this.statusIconClassName_ = icon.statusIconClassName;
-    }
   },
 
   /**
@@ -577,26 +533,9 @@ Polymer({
 
     // Files to remove list should only be expandable if details are being
     // shown, otherwise it will add extra padding at the bottom of the card.
-    if (!this.showExplanation_ || !this.showItemsToRemove_)
+    if (!this.showExplanation_ || !this.showItemsToRemove_) {
       this.itemsToRemoveSectionExpanded_ = false;
-  },
-
-  /**
-   * @param {boolean} managed Whether uploads are controlled by policy or not.
-   * @param {boolean} enabled Whether logs upload is enabled.
-   * @private
-   */
-  onUploadPermissionChange_: function(managed, enabled) {
-    const pref = {
-      key: '',
-      type: chrome.settingsPrivate.PrefType.BOOLEAN,
-      value: enabled,
-    };
-    if (managed) {
-      pref.enforcement = chrome.settingsPrivate.Enforcement.ENFORCED;
-      pref.controlledBy = chrome.settingsPrivate.ControlledBy.USER_POLICY;
     }
-    this.logsUploadPref_ = pref;
   },
 
   /**
@@ -605,12 +544,6 @@ Polymer({
    */
   onCleanupEnabledChange_: function(enabled) {
     this.cleanupEnabled_ = enabled;
-  },
-
-  /** @private */
-  changeLogsPermission_: function() {
-    const enabled = this.$.chromeCleanupLogsUploadControl.checked;
-    this.browserProxy_.setLogsUploadPermission(enabled);
   },
 
   /**
@@ -663,30 +596,6 @@ Polymer({
    */
   buildCardStateToComponentsMap_: function() {
     /**
-     * The icons to show on the card.
-     * @enum {settings.ChromeCleanupCardIcon}
-     */
-    const icons = {
-      // Card's icon indicates a cleanup offer.
-      SYSTEM: {
-        statusIcon: 'cr:security',
-        statusIconClassName: 'status-icon-remove',
-      },
-
-      // Card's icon indicates a warning (in case of failure).
-      WARNING: {
-        statusIcon: 'cr:error',
-        statusIconClassName: 'status-icon-warning',
-      },
-
-      // Card's icon indicates completion or reboot required.
-      DONE: {
-        statusIcon: 'settings:check-circle',
-        statusIconClassName: 'status-icon-done',
-      },
-    };
-
-    /**
      * The action buttons to show on the card.
      * @enum {settings.ChromeCleanupCardActionButton}
      */
@@ -719,7 +628,6 @@ Polymer({
         settings.ChromeCleanerCardState.CLEANUP_OFFERED, {
           title: this.i18n('chromeCleanupTitleRemove'),
           explanation: this.i18n('chromeCleanupExplanationRemove'),
-          icon: icons.SYSTEM,
           actionButton: actionButtons.REMOVE,
           flags: settings.ChromeCleanupCardFlags.SHOW_LOGS_PERMISSIONS |
               settings.ChromeCleanupCardFlags.SHOW_ITEMS_TO_REMOVE,
@@ -729,7 +637,6 @@ Polymer({
         settings.ChromeCleanerCardState.CLEANING, {
           title: this.i18n('chromeCleanupTitleRemoving'),
           explanation: this.i18n('chromeCleanupExplanationRemoving'),
-          icon: null,
           actionButton: null,
           flags: settings.ChromeCleanupCardFlags.WAITING_FOR_RESULT |
               settings.ChromeCleanupCardFlags.SHOW_ITEMS_TO_REMOVE,
@@ -739,7 +646,6 @@ Polymer({
         settings.ChromeCleanerCardState.REBOOT_REQUIRED, {
           title: this.i18n('chromeCleanupTitleRestart'),
           explanation: null,
-          icon: icons.DONE,
           actionButton: actionButtons.RESTART_COMPUTER,
           flags: settings.ChromeCleanupCardFlags.NONE,
         }
@@ -748,7 +654,6 @@ Polymer({
         settings.ChromeCleanerCardState.CLEANUP_SUCCEEDED, {
           title: this.i18nAdvanced('chromeCleanupTitleRemoved', {tags: ['a']}),
           explanation: null,
-          icon: icons.DONE,
           actionButton: null,
           flags: settings.ChromeCleanupCardFlags.NONE,
         }
@@ -757,7 +662,6 @@ Polymer({
         settings.ChromeCleanerCardState.CLEANING_FAILED, {
           title: this.i18n('chromeCleanupTitleErrorCantRemove'),
           explanation: this.i18n('chromeCleanupExplanationCleanupError'),
-          icon: icons.WARNING,
           actionButton: null,
           flags: settings.ChromeCleanupCardFlags.NONE,
         }
@@ -766,7 +670,6 @@ Polymer({
         settings.ChromeCleanerCardState.SCANNING_OFFERED, {
           title: this.i18n('chromeCleanupTitleFindAndRemove'),
           explanation: this.i18n('chromeCleanupExplanationFindAndRemove'),
-          icon: icons.SYSTEM,
           actionButton: actionButtons.FIND,
           flags: settings.ChromeCleanupCardFlags.SHOW_LOGS_PERMISSIONS,
         }
@@ -775,7 +678,6 @@ Polymer({
         settings.ChromeCleanerCardState.SCANNING, {
           title: this.i18n('chromeCleanupTitleScanning'),
           explanation: null,
-          icon: null,
           actionButton: null,
           flags: settings.ChromeCleanupCardFlags.WAITING_FOR_RESULT,
         }
@@ -785,7 +687,6 @@ Polymer({
         settings.ChromeCleanerCardState.SCANNING_FOUND_NOTHING, {
           title: this.i18n('chromeCleanupTitleNothingFound'),
           explanation: null,
-          icon: icons.DONE,
           actionButton: null,
           flags: settings.ChromeCleanupCardFlags.NONE,
         }
@@ -794,7 +695,6 @@ Polymer({
         settings.ChromeCleanerCardState.SCANNING_FAILED, {
           title: this.i18n('chromeCleanupTitleScanningFailed'),
           explanation: this.i18n('chromeCleanupExplanationScanError'),
-          icon: icons.WARNING,
           actionButton: null,
           flags: settings.ChromeCleanupCardFlags.NONE,
         }
@@ -806,11 +706,29 @@ Polymer({
           // connectivity and cleanups being disabled by the server.
           title: this.i18n('chromeCleanupTitleCleanupUnavailable'),
           explanation: this.i18n('chromeCleanupExplanationCleanupUnavailable'),
-          icon: icons.WARNING,
           actionButton: actionButtons.TRY_SCAN_AGAIN,
           flags: settings.ChromeCleanupCardFlags.NONE,
         },
       ],
     ]);
+  },
+
+  /**
+   * @param {!Array<string>} list
+   * @return {!Array<settings.ChromeCleanupRemovalListItem>}
+   * @private
+   */
+  getListEntriesFromStrings_: function(list) {
+    return list.map(entry => ({text: entry, highlightSuffix: null}));
+  },
+
+  /**
+   * @param {!Array<settings.ChromeCleanupFilePath>} paths
+   * @return {!Array<settings.ChromeCleanupRemovalListItem>}
+   * @private
+   */
+  getListEntriesFromFilePaths_: function(paths) {
+    return paths.map(
+        path => ({text: path.dirname, highlightSuffix: path.basename}));
   },
 });

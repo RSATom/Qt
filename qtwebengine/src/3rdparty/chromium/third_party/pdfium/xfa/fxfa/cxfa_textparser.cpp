@@ -19,6 +19,7 @@
 #include "core/fxcrt/xml/cfx_xmlnode.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fgas/font/cfgas_fontmgr.h"
+#include "xfa/fgas/font/cfgas_gefont.h"
 #include "xfa/fxfa/cxfa_ffapp.h"
 #include "xfa/fxfa/cxfa_ffdoc.h"
 #include "xfa/fxfa/cxfa_fontmgr.h"
@@ -40,6 +41,18 @@ enum class TabStopStatus {
   Leader,
   Location,
 };
+
+WideString GetLowerCaseElementAttributeOrDefault(
+    const CFX_XMLElement* pElement,
+    const WideString& wsName,
+    const WideString& wsDefaultValue) {
+  WideString ws = pElement->GetAttribute(wsName);
+  if (ws.IsEmpty())
+    ws = wsDefaultValue;
+  else
+    ws.MakeLower();
+  return ws;
+}
 
 }  // namespace
 
@@ -74,20 +87,22 @@ void CXFA_TextParser::InitCSSData(CXFA_TextProvider* pTextProvider) {
 }
 
 std::unique_ptr<CFX_CSSStyleSheet> CXFA_TextParser::LoadDefaultSheetStyle() {
-  static const wchar_t s_pStyle[] =
-      L"html,body,ol,p,ul{display:block}"
-      L"li{display:list-item}"
-      L"ol,ul{padding-left:33px;margin:1.12em 0}"
-      L"ol{list-style-type:decimal}"
-      L"a{color:#0000ff;text-decoration:underline}"
-      L"b{font-weight:bolder}"
-      L"i{font-style:italic}"
-      L"sup{vertical-align:+15em;font-size:.66em}"
-      L"sub{vertical-align:-15em;font-size:.66em}";
-
+  static const char kStyle[] =
+      "html,body,ol,p,ul{display:block}"
+      "li{display:list-item}"
+      "ol,ul{padding-left:33px;margin:1.12em 0}"
+      "ol{list-style-type:decimal}"
+      "a{color:#0000ff;text-decoration:underline}"
+      "b{font-weight:bolder}"
+      "i{font-style:italic}"
+      "sup{vertical-align:+15em;font-size:.66em}"
+      "sub{vertical-align:-15em;font-size:.66em}";
+  WideString ws = WideString::FromASCII(kStyle);
   auto sheet = pdfium::MakeUnique<CFX_CSSStyleSheet>();
-  return sheet->LoadBuffer(s_pStyle, wcslen(s_pStyle)) ? std::move(sheet)
-                                                       : nullptr;
+  if (!sheet->LoadBuffer(ws.c_str(), ws.GetLength()))
+    return nullptr;
+
+  return sheet;
 }
 
 RetainPtr<CFX_CSSComputedStyle> CXFA_TextParser::CreateRootStyle(
@@ -104,20 +119,20 @@ RetainPtr<CFX_CSSComputedStyle> CXFA_TextParser::CreateRootStyle(
     pStyle->SetTextIndent(indent);
     CFX_CSSTextAlign hAlign = CFX_CSSTextAlign::Left;
     switch (para->GetHorizontalAlign()) {
-      case XFA_AttributeEnum::Center:
+      case XFA_AttributeValue::Center:
         hAlign = CFX_CSSTextAlign::Center;
         break;
-      case XFA_AttributeEnum::Right:
+      case XFA_AttributeValue::Right:
         hAlign = CFX_CSSTextAlign::Right;
         break;
-      case XFA_AttributeEnum::Justify:
+      case XFA_AttributeValue::Justify:
         hAlign = CFX_CSSTextAlign::Justify;
         break;
-      case XFA_AttributeEnum::JustifyAll:
+      case XFA_AttributeValue::JustifyAll:
         hAlign = CFX_CSSTextAlign::JustifyAll;
         break;
-      case XFA_AttributeEnum::Left:
-      case XFA_AttributeEnum::Radix:
+      case XFA_AttributeValue::Left:
+      case XFA_AttributeValue::Radix:
         break;
       default:
         NOTREACHED();
@@ -180,7 +195,7 @@ RetainPtr<CFX_CSSComputedStyle> CXFA_TextParser::CreateStyle(
 }
 
 RetainPtr<CFX_CSSComputedStyle> CXFA_TextParser::ComputeStyle(
-    CFX_XMLNode* pXMLNode,
+    const CFX_XMLNode* pXMLNode,
     CFX_CSSComputedStyle* pParentStyle) {
   auto it = m_mapXMLNodeToParseContext.find(pXMLNode);
   if (it == m_mapXMLNodeToParseContext.end())
@@ -203,7 +218,7 @@ RetainPtr<CFX_CSSComputedStyle> CXFA_TextParser::ComputeStyle(
   return pStyle;
 }
 
-void CXFA_TextParser::DoParse(CFX_XMLNode* pXMLContainer,
+void CXFA_TextParser::DoParse(const CFX_XMLNode* pXMLContainer,
                               CXFA_TextProvider* pTextProvider) {
   if (!pXMLContainer || !pTextProvider || m_bParsed)
     return;
@@ -214,7 +229,7 @@ void CXFA_TextParser::DoParse(CFX_XMLNode* pXMLContainer,
   ParseRichText(pXMLContainer, pRootStyle.Get());
 }
 
-void CXFA_TextParser::ParseRichText(CFX_XMLNode* pXMLNode,
+void CXFA_TextParser::ParseRichText(const CFX_XMLNode* pXMLNode,
                                     CFX_CSSComputedStyle* pParentStyle) {
   if (!pXMLNode)
     return;
@@ -224,8 +239,8 @@ void CXFA_TextParser::ParseRichText(CFX_XMLNode* pXMLNode,
     return;
 
   RetainPtr<CFX_CSSComputedStyle> pNewStyle;
-  if ((tagProvider->GetTagName() != L"body") ||
-      (tagProvider->GetTagName() != L"html")) {
+  if (!(tagProvider->GetTagName().EqualsASCII("body") &&
+        tagProvider->GetTagName().EqualsASCII("html"))) {
     auto pTextContext = pdfium::MakeUnique<CXFA_TextParseContext>();
     CFX_CSSDisplay eDisplay = CFX_CSSDisplay::Inline;
     if (!tagProvider->m_bContent) {
@@ -273,54 +288,52 @@ bool CXFA_TextParser::TagValidate(const WideString& wsName) const {
                             FX_HashCode_GetW(wsName.AsStringView(), true));
 }
 
+// static
 std::unique_ptr<CXFA_TextParser::TagProvider> CXFA_TextParser::ParseTagInfo(
-    CFX_XMLNode* pXMLNode) {
+    const CFX_XMLNode* pXMLNode) {
   auto tagProvider = pdfium::MakeUnique<TagProvider>();
-
-  WideString wsName;
-  if (pXMLNode->GetType() == FX_XMLNODE_Element) {
-    CFX_XMLElement* pXMLElement = static_cast<CFX_XMLElement*>(pXMLNode);
-    wsName = pXMLElement->GetLocalTagName();
+  const CFX_XMLElement* pXMLElement = ToXMLElement(pXMLNode);
+  if (pXMLElement) {
+    WideString wsName = pXMLElement->GetLocalTagName();
     tagProvider->SetTagName(wsName);
     tagProvider->m_bTagAvailable = TagValidate(wsName);
-
     WideString wsValue = pXMLElement->GetAttribute(L"style");
     if (!wsValue.IsEmpty())
       tagProvider->SetAttribute(L"style", wsValue);
-  } else if (pXMLNode->GetType() == FX_XMLNODE_Text) {
+
+    return tagProvider;
+  }
+  if (pXMLNode->GetType() == FX_XMLNODE_Text) {
     tagProvider->m_bTagAvailable = true;
     tagProvider->m_bContent = true;
   }
   return tagProvider;
 }
 
-XFA_AttributeEnum CXFA_TextParser::GetVAlign(
+XFA_AttributeValue CXFA_TextParser::GetVAlign(
     CXFA_TextProvider* pTextProvider) const {
   CXFA_Para* para = pTextProvider->GetParaIfExists();
-  return para ? para->GetVerticalAlign() : XFA_AttributeEnum::Top;
+  return para ? para->GetVerticalAlign() : XFA_AttributeValue::Top;
 }
 
 float CXFA_TextParser::GetTabInterval(CFX_CSSComputedStyle* pStyle) const {
   WideString wsValue;
-  if (pStyle && pStyle->GetCustomStyle(L"tab-interval", wsValue))
+  if (pStyle && pStyle->GetCustomStyle(L"tab-interval", &wsValue))
     return CXFA_Measurement(wsValue.AsStringView()).ToUnit(XFA_Unit::Pt);
   return 36;
 }
 
 int32_t CXFA_TextParser::CountTabs(CFX_CSSComputedStyle* pStyle) const {
   WideString wsValue;
-  if (pStyle && pStyle->GetCustomStyle(L"xfa-tab-count", wsValue))
+  if (pStyle && pStyle->GetCustomStyle(L"xfa-tab-count", &wsValue))
     return wsValue.GetInteger();
   return 0;
 }
 
 bool CXFA_TextParser::IsSpaceRun(CFX_CSSComputedStyle* pStyle) const {
   WideString wsValue;
-  if (pStyle && pStyle->GetCustomStyle(L"xfa-spacerun", wsValue)) {
-    wsValue.MakeLower();
-    return wsValue == L"yes";
-  }
-  return false;
+  return pStyle && pStyle->GetCustomStyle(L"xfa-spacerun", &wsValue) &&
+         wsValue.EqualsASCIINoCase("yes");
 }
 
 RetainPtr<CFGAS_GEFont> CXFA_TextParser::GetFont(
@@ -365,10 +378,10 @@ float CXFA_TextParser::GetFontSize(CXFA_TextProvider* pTextProvider,
 
 int32_t CXFA_TextParser::GetHorScale(CXFA_TextProvider* pTextProvider,
                                      CFX_CSSComputedStyle* pStyle,
-                                     CFX_XMLNode* pXMLNode) const {
+                                     const CFX_XMLNode* pXMLNode) const {
   if (pStyle) {
     WideString wsValue;
-    if (pStyle->GetCustomStyle(L"xfa-font-horizontal-scale", wsValue))
+    if (pStyle->GetCustomStyle(L"xfa-font-horizontal-scale", &wsValue))
       return wsValue.GetInteger();
 
     while (pXMLNode) {
@@ -377,7 +390,7 @@ int32_t CXFA_TextParser::GetHorScale(CXFA_TextProvider* pTextProvider,
         CXFA_TextParseContext* pContext = it->second.get();
         if (pContext && pContext->m_pParentStyle &&
             pContext->m_pParentStyle->GetCustomStyle(
-                L"xfa-font-horizontal-scale", wsValue)) {
+                L"xfa-font-horizontal-scale", &wsValue)) {
           return wsValue.GetInteger();
         }
       }
@@ -393,7 +406,7 @@ int32_t CXFA_TextParser::GetVerScale(CXFA_TextProvider* pTextProvider,
                                      CFX_CSSComputedStyle* pStyle) const {
   if (pStyle) {
     WideString wsValue;
-    if (pStyle->GetCustomStyle(L"xfa-font-vertical-scale", wsValue))
+    if (pStyle->GetCustomStyle(L"xfa-font-vertical-scale", &wsValue))
       return wsValue.GetInteger();
   }
 
@@ -404,9 +417,9 @@ int32_t CXFA_TextParser::GetVerScale(CXFA_TextProvider* pTextProvider,
 void CXFA_TextParser::GetUnderline(CXFA_TextProvider* pTextProvider,
                                    CFX_CSSComputedStyle* pStyle,
                                    int32_t& iUnderline,
-                                   XFA_AttributeEnum& iPeriod) const {
+                                   XFA_AttributeValue& iPeriod) const {
   iUnderline = 0;
-  iPeriod = XFA_AttributeEnum::All;
+  iPeriod = XFA_AttributeValue::All;
   CXFA_Font* font = pTextProvider->GetFontIfExists();
   if (!pStyle) {
     if (font) {
@@ -423,9 +436,9 @@ void CXFA_TextParser::GetUnderline(CXFA_TextProvider* pTextProvider,
     iUnderline = 1;
 
   WideString wsValue;
-  if (pStyle->GetCustomStyle(L"underlinePeriod", wsValue)) {
-    if (wsValue == L"word")
-      iPeriod = XFA_AttributeEnum::Word;
+  if (pStyle->GetCustomStyle(L"underlinePeriod", &wsValue)) {
+    if (wsValue.EqualsASCII("word"))
+      iPeriod = XFA_AttributeValue::Word;
   } else if (font) {
     iPeriod = font->GetUnderlinePeriod();
   }
@@ -495,49 +508,38 @@ float CXFA_TextParser::GetLineHeight(CXFA_TextProvider* pTextProvider,
   return fLineHeight;
 }
 
-bool CXFA_TextParser::GetEmbbedObj(CXFA_TextProvider* pTextProvider,
-                                   CFX_XMLNode* pXMLNode,
-                                   WideString& wsValue) {
-  wsValue.clear();
+Optional<WideString> CXFA_TextParser::GetEmbeddedObj(
+    const CXFA_TextProvider* pTextProvider,
+    const CFX_XMLNode* pXMLNode) {
   if (!pXMLNode)
-    return false;
+    return {};
 
-  bool bRet = false;
-  if (pXMLNode->GetType() == FX_XMLNODE_Element) {
-    CFX_XMLElement* pElement = static_cast<CFX_XMLElement*>(pXMLNode);
-    WideString wsAttr = pElement->GetAttribute(L"xfa:embed");
-    if (wsAttr.IsEmpty())
-      return false;
-    if (wsAttr[0] == L'#')
-      wsAttr.Delete(0);
+  const CFX_XMLElement* pElement = ToXMLElement(pXMLNode);
+  if (!pElement)
+    return {};
 
-    WideString ws = pElement->GetAttribute(L"xfa:embedType");
-    if (ws.IsEmpty())
-      ws = L"som";
-    else
-      ws.MakeLower();
+  WideString wsAttr = pElement->GetAttribute(L"xfa:embed");
+  if (wsAttr.IsEmpty())
+    return {};
 
-    bool bURI = (ws == L"uri");
-    if (!bURI && ws != L"som")
-      return false;
+  if (wsAttr[0] == L'#')
+    wsAttr.Delete(0);
 
-    ws = pElement->GetAttribute(L"xfa:embedMode");
-    if (ws.IsEmpty())
-      ws = L"formatted";
-    else
-      ws.MakeLower();
+  WideString ws =
+      GetLowerCaseElementAttributeOrDefault(pElement, L"xfa:embedType", L"som");
+  if (!ws.EqualsASCII("uri"))
+    return {};
 
-    bool bRaw = (ws == L"raw");
-    if (!bRaw && ws != L"formatted")
-      return false;
+  ws = GetLowerCaseElementAttributeOrDefault(pElement, L"xfa:embedMode",
+                                             L"formatted");
+  if (!(ws.EqualsASCII("raw") || ws.EqualsASCII("formatted")))
+    return {};
 
-    bRet = pTextProvider->GetEmbbedObj(bURI, bRaw, wsAttr, wsValue);
-  }
-  return bRet;
+  return pTextProvider->GetEmbeddedObj(wsAttr);
 }
 
 CXFA_TextParseContext* CXFA_TextParser::GetParseContextFromMap(
-    CFX_XMLNode* pXMLNode) {
+    const CFX_XMLNode* pXMLNode) {
   auto it = m_mapXMLNodeToParseContext.find(pXMLNode);
   return it != m_mapXMLNodeToParseContext.end() ? it->second.get() : nullptr;
 }
@@ -548,8 +550,8 @@ bool CXFA_TextParser::GetTabstops(CFX_CSSComputedStyle* pStyle,
     return false;
 
   WideString wsValue;
-  if (!pStyle->GetCustomStyle(L"xfa-tab-stops", wsValue) &&
-      !pStyle->GetCustomStyle(L"tab-stops", wsValue)) {
+  if (!pStyle->GetCustomStyle(L"xfa-tab-stops", &wsValue) &&
+      !pStyle->GetCustomStyle(L"tab-stops", &wsValue)) {
     return false;
   }
 

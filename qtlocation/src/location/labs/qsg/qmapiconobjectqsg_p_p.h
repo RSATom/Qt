@@ -77,7 +77,7 @@ public:
     // QGeoMapIconPrivate interface
     void setCoordinate(const QGeoCoordinate &coordinate) override;
     void setContent(const QVariant &content) override;
-    void setSize(const QSizeF &size) override;
+    void setIconSize(const QSizeF &size) override;
 
     // QGeoMapObjectPrivate
     QGeoMapObjectPrivate *clone() override;

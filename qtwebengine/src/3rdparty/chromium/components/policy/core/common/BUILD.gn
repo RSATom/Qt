@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//build/config/jumbo.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
 group("common") {
@@ -17,7 +18,7 @@ group("common") {
   }
 }
 
-source_set("internal") {
+jumbo_source_set("internal") {
   visibility = [ "//components/policy/*" ]
 
   configs += [ "//components/policy:component_implementation" ]
@@ -28,14 +29,14 @@ source_set("internal") {
     "async_policy_loader.h",
     "async_policy_provider.cc",
     "async_policy_provider.h",
+    "chrome_schema.cc",
+    "chrome_schema.h",
     "cloud/cloud_external_data_manager.cc",
     "cloud/cloud_external_data_manager.h",
     "cloud/cloud_policy_client.cc",
     "cloud/cloud_policy_client.h",
     "cloud/cloud_policy_client_registration_helper.cc",
     "cloud/cloud_policy_client_registration_helper.h",
-    "cloud/cloud_policy_constants.cc",
-    "cloud/cloud_policy_constants.h",
     "cloud/cloud_policy_core.cc",
     "cloud/cloud_policy_core.h",
     "cloud/cloud_policy_manager.cc",
@@ -58,6 +59,8 @@ source_set("internal") {
     "cloud/component_cloud_policy_updater.h",
     "cloud/device_management_service.cc",
     "cloud/device_management_service.h",
+    "cloud/dm_auth.cc",
+    "cloud/dm_auth.h",
     "cloud/enterprise_metrics.cc",
     "cloud/enterprise_metrics.h",
     "cloud/external_policy_data_fetcher.cc",
@@ -71,6 +74,7 @@ source_set("internal") {
     "cloud/machine_level_user_cloud_policy_store.h",
     "cloud/policy_header_service.cc",
     "cloud/policy_header_service.h",
+    "cloud/policy_value_validator.h",
     "cloud/resource_cache.cc",
     "cloud/resource_cache.h",
     "cloud/signing_service.h",
@@ -86,9 +90,12 @@ source_set("internal") {
     "config_dir_policy_loader.h",
     "configuration_policy_provider.cc",
     "configuration_policy_provider.h",
+    "extension_policy_migrator.h",
     "external_data_fetcher.cc",
     "external_data_fetcher.h",
     "external_data_manager.h",
+    "json_schema_constants.cc",
+    "json_schema_constants.h",
     "plist_writer.cc",
     "plist_writer.h",
     "policy_bundle.cc",
@@ -106,8 +113,6 @@ source_set("internal") {
     "policy_map.h",
     "policy_namespace.cc",
     "policy_namespace.h",
-    "policy_pref_names.cc",
-    "policy_pref_names.h",
     "policy_proto_decoders.cc",
     "policy_proto_decoders.h",
     "policy_service.cc",
@@ -116,9 +121,6 @@ source_set("internal") {
     "policy_service_impl.h",
     "policy_statistics_collector.cc",
     "policy_statistics_collector.h",
-    "policy_switches.cc",
-    "policy_switches.h",
-    "policy_types.h",
     "preferences_mac.cc",
     "preferences_mac.h",
     "remote_commands/remote_command_job.cc",
@@ -143,6 +145,7 @@ source_set("internal") {
   configs += [ "//build/config:precompiled_headers" ]
 
   public_deps = [
+    ":common_constants",
     "//components/policy:generated",
     "//components/policy/proto",
   ]
@@ -152,12 +155,13 @@ source_set("internal") {
     "//components/account_id",
     "//components/crash/core/common:crash_key",  # Remove once https://crbug.com/685996 is fixed.
     "//components/data_use_measurement/core",
-    "//components/json_schema",
     "//components/prefs",
     "//components/version_info",
     "//extensions/buildflags",
     "//google_apis",
     "//net",
+    "//services/identity/public/cpp",
+    "//services/identity/public/cpp:cpp_types",
     "//services/network/public/cpp",
     "//third_party/libxml",
     "//third_party/re2",
@@ -235,13 +239,15 @@ source_set("internal") {
   }
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "cloud/mock_cloud_external_data_manager.cc",
     "cloud/mock_cloud_external_data_manager.h",
     "cloud/mock_cloud_policy_client.cc",
     "cloud/mock_cloud_policy_client.h",
+    "cloud/mock_cloud_policy_service.cc",
+    "cloud/mock_cloud_policy_service.h",
     "cloud/mock_cloud_policy_store.cc",
     "cloud/mock_cloud_policy_store.h",
     "cloud/mock_device_management_service.cc",
@@ -293,6 +299,23 @@ static_library("test_support") {
     "//services/network/public/cpp",
     "//testing/gmock",
     "//testing/gtest",
+  ]
+}
+
+source_set("common_constants") {
+  configs += [ "//components/policy:component_implementation" ]
+  deps = [
+    "//base",
+  ]
+  sources = [
+    "../../policy_export.h",
+    "cloud/cloud_policy_constants.cc",
+    "cloud/cloud_policy_constants.h",
+    "policy_pref_names.cc",
+    "policy_pref_names.h",
+    "policy_switches.cc",
+    "policy_switches.h",
+    "policy_types.h",
   ]
 }
 

@@ -23,9 +23,6 @@
 #include "content/browser/service_worker/service_worker_response_type.h"
 #include "content/browser/service_worker/service_worker_url_job_wrapper.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker.mojom.h"
-#include "content/common/service_worker/service_worker_types.h"
-#include "content/public/common/request_context_type.h"
 #include "content/public/common/resource_type.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/http/http_byte_range.h"
@@ -37,6 +34,8 @@
 #include "services/network/public/mojom/request_context_frame_type.mojom.h"
 #include "storage/common/blob_storage/blob_storage_constants.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_response.mojom.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -48,7 +47,6 @@ class ResourceRequestBody;
 }
 
 namespace storage {
-class BlobDataHandle;
 class BlobStorageContext;
 }  // namespace storage
 
@@ -57,6 +55,7 @@ namespace content {
 class ResourceContext;
 class ServiceWorkerBlobReader;
 class ServiceWorkerDataPipeReader;
+class ServiceWorkerProviderHost;
 class ServiceWorkerVersion;
 
 namespace service_worker_controllee_request_handler_unittest {
@@ -77,7 +76,7 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
   ServiceWorkerURLRequestJob(
       net::URLRequest* request,
       net::NetworkDelegate* network_delegate,
-      const std::string& client_id,
+      base::WeakPtr<ServiceWorkerProviderHost> provider_host,
       base::WeakPtr<storage::BlobStorageContext> blob_storage_context,
       const ResourceContext* resource_context,
       network::mojom::FetchRequestMode request_mode,
@@ -86,7 +85,7 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
       const std::string& integrity,
       bool keepalive,
       ResourceType resource_type,
-      RequestContextType request_context_type,
+      blink::mojom::RequestContextType request_context_type,
       network::mojom::RequestContextFrameType frame_type,
       scoped_refptr<network::ResourceRequestBody> body,
       Delegate* delegate);
@@ -148,7 +147,8 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
   base::WeakPtr<ServiceWorkerURLRequestJob> GetWeakPtr();
 
  private:
-  class FileSizeResolver;
+  using ResponseHeaderMap = base::flat_map<std::string, std::string>;
+
   class NavigationPreloadMetrics;
   friend class service_worker_url_request_job_unittest::DelayHelper;
   friend class ServiceWorkerURLRequestJobTest;
@@ -171,14 +171,6 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
   // body.
   std::unique_ptr<network::ResourceRequest> CreateResourceRequest();
 
-  // Creates BlobDataHandle of the request body from |body_|. This handle
-  // |request_body_blob_data_handle_| will be deleted when
-  // ServiceWorkerURLRequestJob is deleted.
-  // This must not be called until all files in |body_| with unknown size have
-  // their sizes populated.
-  blink::mojom::BlobPtr CreateRequestBodyBlob(std::string* blob_uuid,
-                                              uint64_t* blob_size);
-
   // Returns true if this job performed a navigation that should be logged to
   // performance-related UMA. It returns false in certain cases that are not
   // relevant to performance analysis, such as if the worker was not already
@@ -190,16 +182,16 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
   void DidDispatchFetchEvent(
       blink::ServiceWorkerStatusCode status,
       ServiceWorkerFetchDispatcher::FetchEventResult fetch_result,
-      const ServiceWorkerResponse& response,
+      blink::mojom::FetchAPIResponsePtr response,
       blink::mojom::ServiceWorkerStreamHandlePtr body_as_stream,
-      blink::mojom::BlobPtr body_as_blob,
+      blink::mojom::ServiceWorkerFetchEventTimingPtr timing,
       scoped_refptr<ServiceWorkerVersion> version);
-  void SetResponse(const ServiceWorkerResponse& response);
+  void SetResponse(blink::mojom::FetchAPIResponsePtr response);
 
   // Populates |http_response_headers_|.
   void CreateResponseHeader(int status_code,
                             const std::string& status_text,
-                            const ServiceWorkerHeaderMap& headers);
+                            ResponseHeaderMap headers);
 
   // Creates |http_response_info_| using |http_response_headers_| and calls
   // NotifyHeadersComplete.
@@ -240,9 +232,8 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
 
   bool IsMainResourceLoad() const;
 
-  // For waiting for files sizes of request body files with unknown sizes.
   bool HasRequestBody();
-  void RequestBodyFileSizesResolved(bool success);
+  void ForwardRequestToServiceWorker();
 
   // Called back from
   // ServiceWorkerFetchEventDispatcher::MaybeStartNavigationPreload when the
@@ -305,7 +296,7 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
 
   // Used when response type is FORWARD_TO_SERVICE_WORKER.
   std::unique_ptr<ServiceWorkerFetchDispatcher> fetch_dispatcher_;
-  std::string client_id_;
+  base::WeakPtr<ServiceWorkerProviderHost> provider_host_;
   base::WeakPtr<storage::BlobStorageContext> blob_storage_context_;
   const ResourceContext* resource_context_;
   // Only one of |blob_reader_| and |data_pipe_reader_| can be non-null.
@@ -318,13 +309,10 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
   std::string integrity_;
   const bool keepalive_;
   const ResourceType resource_type_;
-  RequestContextType request_context_type_;
+  blink::mojom::RequestContextType request_context_type_;
   network::mojom::RequestContextFrameType frame_type_;
   bool fall_back_required_;
-  // ResourceRequestBody has a collection of BlobDataHandles attached to it
-  // using the userdata mechanism. So we have to keep it not to free the blobs.
   scoped_refptr<network::ResourceRequestBody> body_;
-  std::unique_ptr<storage::BlobDataHandle> request_body_blob_data_handle_;
 
   ResponseBodyType response_body_type_ = UNKNOWN;
   bool did_record_result_ = false;
@@ -333,8 +321,6 @@ class CONTENT_EXPORT ServiceWorkerURLRequestJob : public net::URLRequestJob {
   std::string response_cache_storage_cache_name_;
 
   ServiceWorkerHeaderList cors_exposed_header_names_;
-
-  std::unique_ptr<FileSizeResolver> file_size_resolver_;
 
   base::WeakPtrFactory<ServiceWorkerURLRequestJob> weak_factory_;
 

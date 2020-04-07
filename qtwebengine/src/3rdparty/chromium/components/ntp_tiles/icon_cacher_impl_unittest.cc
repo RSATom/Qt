@@ -19,7 +19,7 @@
 #include "components/favicon/core/favicon_client.h"
 #include "components/favicon/core/favicon_service_impl.h"
 #include "components/favicon/core/favicon_util.h"
-#include "components/favicon/core/large_icon_service.h"
+#include "components/favicon/core/large_icon_service_impl.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/history/core/browser/history_database_params.h"
 #include "components/history/core/browser/history_service.h"
@@ -89,7 +89,7 @@ ACTION(FailFetch) {
 
 ACTION_P2(DecodeSuccessfully, width, height) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(arg2, gfx::test::CreateImage(width, height)));
+      FROM_HERE, base::BindOnce(arg2, gfx::test::CreateImage(width, height)));
 }
 
 ACTION_P2(PassFetch, width, height) {
@@ -173,7 +173,6 @@ class IconCacherTestPopularSites : public IconCacherTestBase {
               GURL("http://url.google/"),
               GURL("http://url.google/icon.png"),
               GURL("http://url.google/favicon.ico"),
-              GURL(),                     // thumbnail, unused
               TileTitleSource::UNKNOWN),  // title_source, unused
         image_fetcher_(new ::testing::StrictMock<MockImageFetcher>),
         image_decoder_(new ::testing::StrictMock<MockImageDecoder>) {}
@@ -188,7 +187,7 @@ class IconCacherTestPopularSites : public IconCacherTestBase {
         .WillByDefault(ReturnArg<0>());
     ui::ResourceBundle::InitSharedInstanceWithLocale(
         "en-US", &mock_resource_delegate_,
-        ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+        ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
   }
 
   void TearDown() override {
@@ -442,7 +441,7 @@ TEST_F(IconCacherTestMostLikely, Cached) {
   GURL icon_url("http://www.site.com/favicon.png");
   PreloadIcon(page_url, icon_url, favicon_base::IconType::kTouchIcon, 128, 128);
 
-  favicon::LargeIconService large_icon_service(
+  favicon::LargeIconServiceImpl large_icon_service(
       &favicon_service_, std::move(fetcher_for_large_icon_service_));
   IconCacherImpl cacher(&favicon_service_, &large_icon_service,
                         std::move(fetcher_for_icon_cacher_));
@@ -476,7 +475,7 @@ TEST_F(IconCacherTestMostLikely, NotCachedAndFetchSucceeded) {
     EXPECT_CALL(done, Run()).WillOnce(Quit(&loop));
   }
 
-  favicon::LargeIconService large_icon_service(
+  favicon::LargeIconServiceImpl large_icon_service(
       &favicon_service_, std::move(fetcher_for_large_icon_service_));
   IconCacherImpl cacher(&favicon_service_, &large_icon_service,
                         std::move(fetcher_for_icon_cacher_));
@@ -514,7 +513,7 @@ TEST_F(IconCacherTestMostLikely, NotCachedAndFetchFailed) {
     EXPECT_CALL(done, Run()).Times(0);
   }
 
-  favicon::LargeIconService large_icon_service(
+  favicon::LargeIconServiceImpl large_icon_service(
       &favicon_service_, std::move(fetcher_for_large_icon_service_));
   IconCacherImpl cacher(&favicon_service_, &large_icon_service,
                         std::move(fetcher_for_icon_cacher_));
@@ -544,7 +543,7 @@ TEST_F(IconCacherTestMostLikely, HandlesEmptyCallbacksNicely) {
               FetchImageAndData_(_, _, _, _, _))
       .WillOnce(PassFetch(128, 128));
 
-  favicon::LargeIconService large_icon_service(
+  favicon::LargeIconServiceImpl large_icon_service(
       &favicon_service_, std::move(fetcher_for_large_icon_service_));
   IconCacherImpl cacher(&favicon_service_, &large_icon_service,
                         std::move(fetcher_for_icon_cacher_));
@@ -585,7 +584,7 @@ TEST_F(IconCacherTestMostLikely, NotCachedAndFetchPerformedOnlyOnce) {
     EXPECT_CALL(done, Run()).WillOnce(Return()).WillOnce(Quit(&loop));
   }
 
-  favicon::LargeIconService large_icon_service(
+  favicon::LargeIconServiceImpl large_icon_service(
       &favicon_service_, std::move(fetcher_for_large_icon_service_));
   IconCacherImpl cacher(&favicon_service_, &large_icon_service,
                         std::move(fetcher_for_icon_cacher_));

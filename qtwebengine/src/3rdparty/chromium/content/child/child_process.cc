@@ -11,7 +11,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task_scheduler/task_scheduler.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_local.h"
 #include "build/build_config.h"
@@ -21,7 +21,7 @@ namespace content {
 
 namespace {
 base::LazyInstance<base::ThreadLocalPointer<ChildProcess>>::DestructorAtExit
-    g_lazy_tls = LAZY_INSTANCE_INITIALIZER;
+    g_lazy_child_process_tls = LAZY_INSTANCE_INITIALIZER;
 }
 
 ChildProcess::ChildProcess(
@@ -32,8 +32,8 @@ ChildProcess::ChildProcess(
       shutdown_event_(base::WaitableEvent::ResetPolicy::MANUAL,
                       base::WaitableEvent::InitialState::NOT_SIGNALED),
       io_thread_("Chrome_ChildIOThread") {
-  DCHECK(!g_lazy_tls.Pointer()->Get());
-  g_lazy_tls.Pointer()->Set(this);
+  DCHECK(!g_lazy_child_process_tls.Pointer()->Get());
+  g_lazy_child_process_tls.Pointer()->Set(this);
 
   // Initialize TaskScheduler if not already done. A TaskScheduler may already
   // exist when ChildProcess is instantiated in the browser process or in a
@@ -63,7 +63,7 @@ ChildProcess::ChildProcess(
 }
 
 ChildProcess::~ChildProcess() {
-  DCHECK(g_lazy_tls.Pointer()->Get() == this);
+  DCHECK(g_lazy_child_process_tls.Pointer()->Get() == this);
 
   // Signal this event before destroying the child process.  That way all
   // background threads can cleanup.
@@ -82,7 +82,7 @@ ChildProcess::~ChildProcess() {
     }
   }
 
-  g_lazy_tls.Pointer()->Set(nullptr);
+  g_lazy_child_process_tls.Pointer()->Set(nullptr);
   io_thread_.Stop();
 
   if (initialized_task_scheduler_) {
@@ -117,7 +117,7 @@ void ChildProcess::ReleaseProcess() {
 }
 
 ChildProcess* ChildProcess::current() {
-  return g_lazy_tls.Pointer()->Get();
+  return g_lazy_child_process_tls.Pointer()->Get();
 }
 
 base::WaitableEvent* ChildProcess::GetShutDownEvent() {

@@ -17,26 +17,26 @@
 #include <string>
 #include <vector>
 
+#include "api/video/video_bitrate_allocator.h"
 #include "api/video/video_rotation.h"
 #include "api/video/video_sink_interface.h"
 #include "api/video/video_stream_encoder_interface.h"
+#include "api/video/video_stream_encoder_observer.h"
+#include "api/video/video_stream_encoder_settings.h"
 #include "api/video_codecs/video_encoder.h"
-#include "call/video_send_stream.h"
-#include "common_types.h"  // NOLINT(build/include)
-#include "common_video/include/video_bitrate_allocator.h"
-#include "modules/video_coding/include/video_coding_defines.h"
+#include "modules/video_coding/utility/frame_dropper.h"
 #include "modules/video_coding/utility/quality_scaler.h"
 #include "modules/video_coding/video_coding_impl.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
+#include "rtc_base/experiments/rate_control_settings.h"
+#include "rtc_base/rate_statistics.h"
 #include "rtc_base/sequenced_task_checker.h"
 #include "rtc_base/task_queue.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include "video/encoder_bitrate_adjuster.h"
 #include "video/overuse_frame_detector.h"
 
 namespace webrtc {
-
-class SendStatisticsProxy;
 
 // VideoStreamEncoder represent a video encoder that accepts raw video frames as
 // input and produces an encoded bit stream.
@@ -51,16 +51,9 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
                            // Protected only to provide access to tests.
                            protected AdaptationObserverInterface {
  public:
-  // Number of resolution and framerate reductions (-1: disabled).
-  struct AdaptCounts {
-    int resolution = 0;
-    int fps = 0;
-  };
-
   VideoStreamEncoder(uint32_t number_of_cores,
-                     SendStatisticsProxy* stats_proxy,
-                     const VideoSendStream::Config::EncoderSettings& settings,
-                     rtc::VideoSinkInterface<VideoFrame>* pre_encode_callback,
+                     VideoStreamEncoderObserver* encoder_stats_observer,
+                     const VideoStreamEncoderSettings& settings,
                      std::unique_ptr<OveruseFrameDetector> overuse_detector);
   ~VideoStreamEncoder() override;
 
@@ -115,7 +108,7 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
                                    size_t max_data_payload_length);
   void ReconfigureEncoder() RTC_RUN_ON(&encoder_queue_);
 
-  void ConfigureQualityScaler();
+  void ConfigureQualityScaler(const VideoEncoder::EncoderInfo& encoder_info);
 
   // Implements VideoSinkInterface.
   void OnFrame(const VideoFrame& video_frame) override;
@@ -142,6 +135,11 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
   void TraceFrameDropStart();
   void TraceFrameDropEnd();
 
+  VideoBitrateAllocation GetBitrateAllocationAndNotifyObserver(
+      const uint32_t target_bitrate_bps,
+      uint32_t framerate_fps) RTC_RUN_ON(&encoder_queue_);
+  uint32_t GetInputFramerateFps() RTC_RUN_ON(&encoder_queue_);
+
   // Class holding adaptation information.
   class AdaptCounter final {
    public:
@@ -149,7 +147,7 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
     ~AdaptCounter();
 
     // Get number of adaptation downscales for |reason|.
-    AdaptCounts Counts(int reason) const;
+    VideoStreamEncoderObserver::AdaptationSteps Counts(int reason) const;
 
     std::string ToString() const;
 
@@ -182,19 +180,26 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
   AdaptCounter& GetAdaptCounter() RTC_RUN_ON(&encoder_queue_);
   const AdaptCounter& GetConstAdaptCounter() RTC_RUN_ON(&encoder_queue_);
   void UpdateAdaptationStats(AdaptReason reason) RTC_RUN_ON(&encoder_queue_);
-  AdaptCounts GetActiveCounts(AdaptReason reason) RTC_RUN_ON(&encoder_queue_);
+  VideoStreamEncoderObserver::AdaptationSteps GetActiveCounts(
+      AdaptReason reason) RTC_RUN_ON(&encoder_queue_);
+  void RunPostEncode(EncodedImage encoded_image,
+                     int64_t time_sent_us,
+                     int temporal_index);
 
   rtc::Event shutdown_event_;
 
   const uint32_t number_of_cores_;
-  // Counts how many frames we've dropped in the initial rampup phase.
-  int initial_rampup_;
+  // Counts how many frames we've dropped in the initial framedrop phase.
+  int initial_framedrop_;
+  const bool initial_framedrop_on_bwe_enabled_;
+  bool has_seen_first_significant_bwe_change_ = false;
 
   const bool quality_scaling_experiment_enabled_;
 
   const std::unique_ptr<VideoSourceProxy> source_proxy_;
   EncoderSink* sink_;
-  const VideoSendStream::Config::EncoderSettings settings_;
+  const VideoStreamEncoderSettings settings_;
+  const RateControlSettings rate_control_settings_;
 
   vcm::VideoSender video_sender_ RTC_GUARDED_BY(&encoder_queue_);
   const std::unique_ptr<OveruseFrameDetector> overuse_detector_
@@ -202,8 +207,7 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
   std::unique_ptr<QualityScaler> quality_scaler_ RTC_GUARDED_BY(&encoder_queue_)
       RTC_PT_GUARDED_BY(&encoder_queue_);
 
-  SendStatisticsProxy* const stats_proxy_;
-  rtc::VideoSinkInterface<VideoFrame>* const pre_encode_callback_;
+  VideoStreamEncoderObserver* const encoder_stats_observer_;
   // |thread_checker_| checks that public methods that are related to lifetime
   // of VideoStreamEncoder are called on the same thread.
   rtc::ThreadChecker thread_checker_;
@@ -273,6 +277,24 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
   VideoBitrateAllocationObserver* bitrate_observer_
       RTC_GUARDED_BY(&encoder_queue_);
   absl::optional<int64_t> last_parameters_update_ms_
+      RTC_GUARDED_BY(&encoder_queue_);
+
+  VideoEncoder::EncoderInfo encoder_info_ RTC_GUARDED_BY(&encoder_queue_);
+  FrameDropper frame_dropper_ RTC_GUARDED_BY(&encoder_queue_);
+
+  // If frame dropper is not force disabled, frame dropping might still be
+  // disabled if VideoEncoder::GetEncoderInfo() indicates that the encoder has a
+  // trusted rate controller. This is determined on a per-frame basis, as the
+  // encoder behavior might dynamically change.
+  bool force_disable_frame_dropper_ RTC_GUARDED_BY(&encoder_queue_);
+  RateStatistics input_framerate_ RTC_GUARDED_BY(&encoder_queue_);
+  // Incremented on worker thread whenever |frame_dropper_| determines that a
+  // frame should be dropped. Decremented on whichever thread runs
+  // OnEncodedImage(), which is only called by one thread but not necessarily
+  // the worker thread.
+  std::atomic<int> pending_frame_drops_;
+
+  std::unique_ptr<EncoderBitrateAdjuster> bitrate_adjuster_
       RTC_GUARDED_BY(&encoder_queue_);
 
   // All public methods are proxied to |encoder_queue_|. It must must be

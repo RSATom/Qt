@@ -135,15 +135,10 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
   const PaintLayer& squashing_layer =
       squashing_state.most_recent_mapping->OwningLayer();
 
-  // FIXME: this special case for video exists only to deal with corner cases
-  // where a LayoutVideo does not report that it needs to be directly
-  // composited.  Video does not currently support sharing a backing, but this
-  // could be generalized in the future. The following layout tests fail if we
-  // permit the video to share a backing with other layers.
-  //
-  // compositing/video/video-controls-layer-creation.html
-  if (layer->GetLayoutObject().IsVideo() ||
-      squashing_layer.GetLayoutObject().IsVideo())
+  // Don't squash into or out of any thing underneath a video, including the
+  // user-agent shadow DOM for controls. This is is to work around a
+  // bug involving overflow clip of videos. See crbug.com/900602.
+  if (layer->IsUnderVideo() || squashing_layer.IsUnderVideo())
     return SquashingDisallowedReason::kSquashingVideoIsDisallowed;
 
   // Don't squash iframes, frames or plugins.
@@ -158,8 +153,8 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
   if (SquashingWouldExceedSparsityTolerance(layer, squashing_state))
     return SquashingDisallowedReason::kSquashingSparsityExceeded;
 
-  if (layer->GetLayoutObject().Style()->HasBlendMode() ||
-      squashing_layer.GetLayoutObject().Style()->HasBlendMode())
+  if (layer->GetLayoutObject().StyleRef().HasBlendMode() ||
+      squashing_layer.GetLayoutObject().StyleRef().HasBlendMode())
     return SquashingDisallowedReason::kSquashingBlendingIsDisallowed;
 
   if (layer->ClippingContainer() != squashing_layer.ClippingContainer() &&
@@ -196,15 +191,18 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
   if (layer->NearestFixedPositionLayer() !=
       squashing_layer.NearestFixedPositionLayer())
     return SquashingDisallowedReason::kNearestFixedPositionMismatch;
-  DCHECK_NE(layer->GetLayoutObject().Style()->GetPosition(), EPosition::kFixed);
+  DCHECK_NE(layer->GetLayoutObject().StyleRef().GetPosition(),
+            EPosition::kFixed);
 
-  if ((squashing_layer.GetLayoutObject().Style()->SubtreeWillChangeContents() &&
+  if ((squashing_layer.GetLayoutObject()
+           .StyleRef()
+           .SubtreeWillChangeContents() &&
        squashing_layer.GetLayoutObject()
-           .Style()
-           ->IsRunningAnimationOnCompositor()) ||
+           .StyleRef()
+           .IsRunningAnimationOnCompositor()) ||
       squashing_layer.GetLayoutObject()
-          .Style()
-          ->ShouldCompositeForCurrentAnimations())
+          .StyleRef()
+          .ShouldCompositeForCurrentAnimations())
     return SquashingDisallowedReason::kSquashingLayerIsAnimating;
 
   if (layer->EnclosingPaginationLayer())
@@ -255,7 +253,8 @@ void CompositingLayerAssigner::UpdateSquashingAssignment(
     // Issue a paint invalidation, since |layer| may have been added to an
     // already-existing squashing layer.
     TRACE_LAYER_INVALIDATION(
-        layer, InspectorLayerInvalidationTrackingEvent::kAddedToSquashingLayer);
+        layer,
+        inspector_layer_invalidation_tracking_event::kAddedToSquashingLayer);
     layers_needing_paint_invalidation.push_back(layer);
     layers_changed_ = true;
   } else if (composited_layer_update == kRemoveFromSquashingLayer) {
@@ -271,9 +270,9 @@ void CompositingLayerAssigner::UpdateSquashingAssignment(
 
     // If we need to issue paint invalidations, do so now that we've removed it
     // from a squashed layer.
-    TRACE_LAYER_INVALIDATION(
-        layer,
-        InspectorLayerInvalidationTrackingEvent::kRemovedFromSquashingLayer);
+    TRACE_LAYER_INVALIDATION(layer,
+                             inspector_layer_invalidation_tracking_event::
+                                 kRemovedFromSquashingLayer);
     layers_needing_paint_invalidation.push_back(layer);
     layers_changed_ = true;
 
@@ -305,14 +304,15 @@ void CompositingLayerAssigner::AssignLayersToBackingsInternal(
     if (compositor_->AllocateOrClearCompositedLayerMapping(
             layer, composited_layer_update)) {
       TRACE_LAYER_INVALIDATION(
-          layer, InspectorLayerInvalidationTrackingEvent::kNewCompositedLayer);
+          layer,
+          inspector_layer_invalidation_tracking_event::kNewCompositedLayer);
       layers_needing_paint_invalidation.push_back(layer);
       layers_changed_ = true;
       if (ScrollingCoordinator* scrolling_coordinator =
               layer->GetScrollingCoordinator()) {
         if (layer->GetLayoutObject()
-                .Style()
-                ->HasViewportConstrainedPosition()) {
+                .StyleRef()
+                .HasViewportConstrainedPosition()) {
           scrolling_coordinator->FrameViewFixedObjectsDidChange(
               layer->GetLayoutObject().View()->GetFrameView());
         }

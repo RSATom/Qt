@@ -133,19 +133,21 @@ void FrameGraphNode::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
     switch (e->type()) {
 
     case Qt3DCore::PropertyUpdated: {
-        auto change = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(e);
-        if (change->propertyName() == QByteArrayLiteral("parentFrameGraphUpdated")) {
-            auto newParent = change->value().value<Qt3DCore::QNodeId>();
+        Qt3DCore::QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(e);
+        if (propertyChange->propertyName() == QByteArrayLiteral("enabled")) {
+            d_func()->m_enabled = propertyChange->value().toBool();
+            markDirty(AbstractRenderer::FrameGraphDirty);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("parentFrameGraphUpdated")) {
+            auto newParent = propertyChange->value().value<Qt3DCore::QNodeId>();
             setParentId(newParent);
-         }
+            markDirty(AbstractRenderer::AllDirty);
+        }
         break;
     }
     default:
+        markDirty(AbstractRenderer::AllDirty);
         break;
     }
-
-    markDirty(AbstractRenderer::AllDirty);
-    BackendNode::sceneChangeEvent(e);
 }
 
 void FrameGraphNode::cleanup()

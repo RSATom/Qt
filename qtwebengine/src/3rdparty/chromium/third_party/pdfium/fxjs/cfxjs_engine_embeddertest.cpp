@@ -25,7 +25,7 @@ void CheckAssignmentInEngineContext(CFXJS_Engine* current_engine,
                                     double expected) {
   v8::Context::Scope context_scope(current_engine->GetV8Context());
   v8::Local<v8::Object> This = current_engine->GetThisObj();
-  v8::Local<v8::Value> fred = current_engine->GetObjectProperty(This, L"fred");
+  v8::Local<v8::Value> fred = current_engine->GetObjectProperty(This, "fred");
   EXPECT_TRUE(fred->IsNumber());
   EXPECT_EQ(expected, current_engine->ToDouble(fred));
 }
@@ -51,10 +51,12 @@ TEST_F(CFXJSEngineEmbedderTest, MultipleEngines) {
   engine2.InitializeEngine();
 
   v8::Context::Scope context_scope(GetV8Context());
-  Optional<IJS_Runtime::JS_Error> err = engine()->Execute(WideString(kScript0));
-  EXPECT_FALSE(err);
-  CheckAssignmentInEngineContext(engine(), kExpected0);
-
+  {
+    Optional<IJS_Runtime::JS_Error> err =
+        engine()->Execute(WideString(kScript0));
+    EXPECT_FALSE(err);
+    CheckAssignmentInEngineContext(engine(), kExpected0);
+  }
   {
     // engine1 executing in engine1's context doesn't affect main.
     v8::Context::Scope context_scope1(engine1.GetV8Context());

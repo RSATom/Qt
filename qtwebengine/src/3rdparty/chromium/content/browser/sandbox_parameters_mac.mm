@@ -13,9 +13,10 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/numerics/checked_math.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/common/content_client.h"
@@ -45,6 +46,10 @@ std::string GetOSVersion() {
 }
 
 }  // namespace
+
+#if defined(TOOLKIT_QT)
+std::string getQtPrefix();
+#endif
 
 void SetupCommonSandboxParameters(sandbox::SeatbeltExecClient* client) {
   const base::CommandLine* command_line =
@@ -87,6 +92,16 @@ void SetupCommonSandboxParameters(sandbox::SeatbeltExecClient* client) {
                              component_path_canonical));
 #endif
 
+#if defined(TOOLKIT_QT)
+  // Allow read access to files under the Qt Prefix.
+  const std::string qt_prefix_path_string = getQtPrefix();
+  const base::FilePath qt_prefix_path = base::FilePath(qt_prefix_path_string);
+  const std::string qt_prefix_path_canonical =
+      service_manager::SandboxMac::GetCanonicalPath(qt_prefix_path).value();
+  CHECK(client->SetParameter(service_manager::SandboxMac::kSandboxQtPrefixPath,
+                             qt_prefix_path_canonical));
+#endif
+
   CHECK(client->SetParameter(service_manager::SandboxMac::kSandboxOSVersion,
                              GetOSVersion()));
 
@@ -94,6 +109,32 @@ void SetupCommonSandboxParameters(sandbox::SeatbeltExecClient* client) {
       service_manager::SandboxMac::GetCanonicalPath(base::GetHomeDir()).value();
   CHECK(client->SetParameter(
       service_manager::SandboxMac::kSandboxHomedirAsLiteral, homedir));
+}
+
+void SetupNetworkSandboxParameters(sandbox::SeatbeltExecClient* client) {
+  SetupCommonSandboxParameters(client);
+
+  char dir_path[PATH_MAX + 1];
+
+  size_t rv = confstr(_CS_DARWIN_USER_CACHE_DIR, dir_path, sizeof(dir_path));
+  PCHECK(rv != 0);
+  CHECK(client->SetParameter(
+      "DARWIN_USER_CACHE_DIR",
+      service_manager::SandboxMac::GetCanonicalPath(base::FilePath(dir_path))
+          .value()));
+
+  std::vector<base::FilePath> storage_paths =
+      GetContentClient()->browser()->GetNetworkContextsParentDirectory();
+
+  CHECK(client->SetParameter("NETWORK_SERVICE_STORAGE_PATHS_COUNT",
+                             base::NumberToString(storage_paths.size())));
+  for (size_t i = 0; i < storage_paths.size(); ++i) {
+    base::FilePath path =
+        service_manager::SandboxMac::GetCanonicalPath(storage_paths[i]);
+    std::string param_name =
+        base::StringPrintf("NETWORK_SERVICE_STORAGE_PATH_%zu", i);
+    CHECK(client->SetParameter(param_name, path.value())) << param_name;
+  }
 }
 
 void SetupPPAPISandboxParameters(sandbox::SeatbeltExecClient* client) {

@@ -46,15 +46,20 @@ PaymentRequestState::PaymentRequestState(
       delegate_(delegate),
       personal_data_manager_(personal_data_manager),
       journey_logger_(journey_logger),
+      are_requested_methods_supported_(
+          !spec_->supported_card_networks().empty()),
       selected_shipping_profile_(nullptr),
       selected_shipping_option_error_profile_(nullptr),
       selected_contact_profile_(nullptr),
+      invalid_shipping_profile_(nullptr),
+      invalid_contact_profile_(nullptr),
       selected_instrument_(nullptr),
       number_of_pending_sw_payment_instruments_(0),
       payment_request_delegate_(payment_request_delegate),
       profile_comparator_(app_locale, *spec),
       weak_ptr_factory_(this) {
   if (base::FeatureList::IsEnabled(::features::kServiceWorkerPaymentApps)) {
+    DCHECK(web_contents);
     get_all_instruments_finished_ = false;
     ServiceWorkerPaymentAppFactory::GetInstance()->GetAllPaymentApps(
         web_contents,
@@ -139,13 +144,18 @@ void PaymentRequestState::FinishedGetAllSWPaymentInstruments() {
   SetDefaultProfileSelections();
 
   get_all_instruments_finished_ = true;
+  are_requested_methods_supported_ |= !available_instruments_.empty();
   NotifyOnGetAllPaymentInstrumentsFinished();
 
-  // Fullfill the pending CanMakePayment call.
+  // Fulfill the pending CanMakePayment call.
   if (can_make_payment_callback_)
     CheckCanMakePayment(std::move(can_make_payment_callback_));
 
-  // Fullfill the pending AreRequestedMethodsSupported call.
+  // Fulfill the pending HasEnrolledInstrument call.
+  if (has_enrolled_instrument_callback_)
+    CheckHasEnrolledInstrument(std::move(has_enrolled_instrument_callback_));
+
+  // Fulfill the pending AreRequestedMethodsSupported call.
   if (are_requested_methods_supported_callback_)
     CheckRequestedMethodsSupported(
         std::move(are_requested_methods_supported_callback_));
@@ -157,18 +167,41 @@ void PaymentRequestState::OnPaymentResponseReady(
 }
 
 void PaymentRequestState::OnSpecUpdated() {
+  autofill::AutofillProfile* selected_shipping_profile =
+      selected_shipping_profile_;
+  autofill::AutofillProfile* selected_contact_profile =
+      selected_contact_profile_;
+
+  if (spec_->current_update_reason() ==
+      PaymentRequestSpec::UpdateReason::RETRY) {
+    if (spec_->has_shipping_address_error() && selected_shipping_profile) {
+      invalid_shipping_profile_ = selected_shipping_profile;
+      selected_shipping_profile_ = nullptr;
+    }
+
+    if (spec_->has_payer_error() && selected_contact_profile) {
+      invalid_contact_profile_ = selected_contact_profile;
+      selected_contact_profile_ = nullptr;
+    }
+  }
+
   if (spec_->selected_shipping_option_error().empty()) {
     selected_shipping_option_error_profile_ = nullptr;
   } else {
-    selected_shipping_option_error_profile_ = selected_shipping_profile_;
+    selected_shipping_option_error_profile_ = selected_shipping_profile;
     selected_shipping_profile_ = nullptr;
+    if (spec_->has_shipping_address_error() && selected_shipping_profile) {
+      invalid_shipping_profile_ = selected_shipping_profile;
+    }
   }
+
   is_waiting_for_merchant_validation_ = false;
   UpdateIsReadyToPayAndNotifyObservers();
 }
 
 void PaymentRequestState::CanMakePayment(StatusCallback callback) {
   if (!get_all_instruments_finished_) {
+    DCHECK(!can_make_payment_callback_);
     can_make_payment_callback_ = std::move(callback);
     return;
   }
@@ -180,14 +213,32 @@ void PaymentRequestState::CanMakePayment(StatusCallback callback) {
 }
 
 void PaymentRequestState::CheckCanMakePayment(StatusCallback callback) {
-  bool can_make_payment_value = false;
+  DCHECK(get_all_instruments_finished_);
+  std::move(callback).Run(are_requested_methods_supported_);
+}
+
+void PaymentRequestState::HasEnrolledInstrument(StatusCallback callback) {
+  if (!get_all_instruments_finished_) {
+    DCHECK(!has_enrolled_instrument_callback_);
+    has_enrolled_instrument_callback_ = std::move(callback);
+    return;
+  }
+
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&PaymentRequestState::CheckHasEnrolledInstrument,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void PaymentRequestState::CheckHasEnrolledInstrument(StatusCallback callback) {
+  bool has_enrolled_instrument_value = false;
   for (const auto& instrument : available_instruments_) {
     if (instrument->IsValidForCanMakePayment()) {
-      can_make_payment_value = true;
+      has_enrolled_instrument_value = true;
       break;
     }
   }
-  std::move(callback).Run(can_make_payment_value);
+  std::move(callback).Run(has_enrolled_instrument_value);
 }
 
 void PaymentRequestState::AreRequestedMethodsSupported(
@@ -207,8 +258,7 @@ void PaymentRequestState::CheckRequestedMethodsSupported(
     StatusCallback callback) {
   DCHECK(get_all_instruments_finished_);
 
-  std::move(callback).Run(!spec_->supported_card_networks().empty() ||
-                          !available_instruments_.empty());
+  std::move(callback).Run(are_requested_methods_supported_);
 }
 
 std::string PaymentRequestState::GetAuthenticatedEmail() const {
@@ -327,6 +377,10 @@ void PaymentRequestState::SetSelectedShippingProfile(
       PaymentRequestSpec::UpdateReason::SHIPPING_ADDRESS);
   selected_shipping_profile_ = profile;
 
+  // Changing the shipping address clears shipping address validation errors
+  // from retry().
+  invalid_shipping_profile_ = nullptr;
+
   // The user should not be able to click on pay until the callback from the
   // merchant.
   is_waiting_for_merchant_validation_ = true;
@@ -341,7 +395,17 @@ void PaymentRequestState::SetSelectedShippingProfile(
 void PaymentRequestState::SetSelectedContactProfile(
     autofill::AutofillProfile* profile) {
   selected_contact_profile_ = profile;
+
+  // Changing the contact information clears contact information validation
+  // errors from retry().
+  invalid_contact_profile_ = nullptr;
+
   UpdateIsReadyToPayAndNotifyObservers();
+
+  if (IsPaymentAppInvoked()) {
+    delegate_->OnPayerInfoSelected(
+        response_helper_->GeneratePayerDetail(profile));
+  }
 }
 
 void PaymentRequestState::SetSelectedInstrument(PaymentInstrument* instrument) {

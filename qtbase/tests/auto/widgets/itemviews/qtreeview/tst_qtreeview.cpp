@@ -69,6 +69,7 @@ public slots:
     void selectionOrderTest();
 
 private slots:
+    void initTestCase() { QApplication::setKeyboardInputInterval(100); }
     void getSetCheck();
 
     // one test per QTreeView property
@@ -1648,50 +1649,96 @@ void tst_QTreeView::expandAndCollapse()
     }
 }
 
+static void checkExpandState(const QAbstractItemModel &model, const QTreeView &view,
+                             const QModelIndex &startIdx, bool bIsExpanded, int *count)
+{
+    *count = 0;
+    QStack<QModelIndex> parents;
+    parents.push(startIdx);
+    if (startIdx.isValid()) {
+        QCOMPARE(view.isExpanded(startIdx), bIsExpanded);
+        *count += 1;
+    }
+    while (!parents.isEmpty()) {
+        const QModelIndex p = parents.pop();
+        const int rows = model.rowCount(p);
+        for (int r = 0; r < rows; ++r) {
+            const QModelIndex c = model.index(r, 0, p);
+            QCOMPARE(view.isExpanded(c), bIsExpanded);
+            parents.push(c);
+        }
+        *count += rows;
+    }
+}
+
 void tst_QTreeView::expandAndCollapseAll()
 {
-    QtTestModel model(3, 2);
-    model.levels = 2;
+    QStandardItemModel model;
+    // QtTestModel has a broken parent/child handling which will break the test
+    for (int i1 = 0; i1 < 3; ++i1) {
+        QStandardItem *s1 = new QStandardItem;
+        s1->setText(QString::number(i1));
+        model.appendRow(s1);
+        for (int i2 = 0; i2 < 3; ++i2) {
+            QStandardItem *s2 = new QStandardItem;
+            s2->setText(QStringLiteral("%1 - %2").arg(i1).arg(i2));
+            s1->appendRow(s2);
+            for (int i3 = 0; i3 < 3; ++i3) {
+                QStandardItem *s3 = new QStandardItem;
+                s3->setText(QStringLiteral("%1 - %2 - %3").arg(i1).arg(i2).arg(i3));
+                s2->appendRow(s3);
+            }
+        }
+    }
     QTreeView view;
     view.setUniformRowHeights(true);
     view.setModel(&model);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
-    QSignalSpy expandedSpy(&view, SIGNAL(expanded(QModelIndex)));
-    QSignalSpy collapsedSpy(&view, SIGNAL(collapsed(QModelIndex)));
+    QSignalSpy expandedSpy(&view, &QTreeView::expanded);
+    QSignalSpy collapsedSpy(&view, &QTreeView::collapsed);
+    int count;
 
     view.expandAll();
-    view.show();
-
+    checkExpandState(model, view, QModelIndex(), true, &count);
     QCOMPARE(collapsedSpy.count(), 0);
+    QCOMPARE(expandedSpy.count(),  39); // == 3 (first) + 9 (second) + 27 (third level)
+    QCOMPARE(count, 39);
 
-    QStack<QModelIndex> parents;
-    parents.push(QModelIndex());
-    int count = 0;
-    while (!parents.isEmpty()) {
-        QModelIndex p = parents.pop();
-        int rows = model.rowCount(p);
-        for (int r = 0; r < rows; ++r)
-            QVERIFY(view.isExpanded(model.index(r, 0, p)));
-        count += rows;
-        for (int r = 0; r < rows; ++r)
-            parents.push(model.index(r, 0, p));
-    }
-    QCOMPARE(expandedSpy.count(), 12); // == (3+1)*(2+1) from QtTestModel model(3, 2);
-
+    collapsedSpy.clear();
+    expandedSpy.clear();
     view.collapseAll();
+    checkExpandState(model, view, QModelIndex(), false, &count);
+    QCOMPARE(collapsedSpy.count(), 39);
+    QCOMPARE(expandedSpy.count(), 0);
+    QCOMPARE(count, 39);
 
-    parents.push(QModelIndex());
-    count = 0;
-    while (!parents.isEmpty()) {
-        QModelIndex p = parents.pop();
-        int rows = model.rowCount(p);
-        for (int r = 0; r < rows; ++r)
-            QVERIFY(!view.isExpanded(model.index(r, 0, p)));
-        count += rows;
-        for (int r = 0; r < rows; ++r)
-            parents.push(model.index(r, 0, p));
-    }
-    QCOMPARE(collapsedSpy.count(), 12);
+    collapsedSpy.clear();
+    expandedSpy.clear();
+    view.expandRecursively(model.index(0, 0));
+    QCOMPARE(expandedSpy.count(), 13); // 1 + 3 + 9
+
+    checkExpandState(model, view, model.index(0, 0), true, &count);
+    QCOMPARE(count, 13);
+    checkExpandState(model, view, model.index(1, 0), false, &count);
+    QCOMPARE(count, 13);
+    checkExpandState(model, view, model.index(2, 0), false, &count);
+    QCOMPARE(count, 13);
+
+    expandedSpy.clear();
+    view.collapseAll();
+    view.expandRecursively(model.index(0, 0), 1);
+    QCOMPARE(expandedSpy.count(), 4); // 1 + 3
+    view.expandRecursively(model.index(0, 0), 2);
+    QCOMPARE(expandedSpy.count(), 13); // (1 + 3) + 9
+
+    checkExpandState(model, view, model.index(0, 0), true, &count);
+    QCOMPARE(count, 13);
+    checkExpandState(model, view, model.index(1, 0), false, &count);
+    QCOMPARE(count, 13);
+    checkExpandState(model, view, model.index(2, 0), false, &count);
+    QCOMPARE(count, 13);
 }
 
 void tst_QTreeView::expandWithNoChildren()
@@ -1750,7 +1797,7 @@ void tst_QTreeView::keyboardNavigation()
         case Qt::Key_Down:
             if (view.isExpanded(index)) {
                 row = 0;
-                index = index.child(row, column);
+                index = model.index(row, column, index);
             } else {
                 row = qMin(rows - 1, row + 1);
                 index = index.sibling(row, column);
@@ -2436,6 +2483,8 @@ void tst_QTreeView::selection()
     for (int i = 0;i < 10; ++i)
         m.setData(m.index(i, 0), i);
     treeView.setModel(&m);
+    treeView.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&treeView));
 
     treeView.setSelectionBehavior(QAbstractItemView::SelectRows);
     treeView.setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -2447,6 +2496,13 @@ void tst_QTreeView::selection()
 
     QTest::mousePress(treeView.viewport(), Qt::LeftButton, 0, treeView.visualRect(m.index(1, 0)).center());
     QTest::keyPress(treeView.viewport(), Qt::Key_Down);
+    auto selectedRows = treeView.selectionModel()->selectedRows();
+    QCOMPARE(selectedRows.size(), 1);
+    QCOMPARE(selectedRows.first(), m.index(2, 0, QModelIndex()));
+    QTest::keyPress(treeView.viewport(), Qt::Key_5);
+    selectedRows = treeView.selectionModel()->selectedRows();
+    QCOMPARE(selectedRows.size(), 1);
+    QCOMPARE(selectedRows.first(), m.index(5, 0, QModelIndex()));
 }
 
 //From task 151686 QTreeView ExtendedSelection selects hidden rows
@@ -2727,25 +2783,40 @@ void tst_QTreeView::sortByColumn()
     QFETCH(bool, sortingEnabled);
     QTreeView view;
     QStandardItemModel model(4,2);
-    model.setItem(0,0,new QStandardItem("b"));
-    model.setItem(1,0,new QStandardItem("d"));
-    model.setItem(2,0,new QStandardItem("c"));
-    model.setItem(3,0,new QStandardItem("a"));
-    model.setItem(0,1,new QStandardItem("e"));
-    model.setItem(1,1,new QStandardItem("g"));
-    model.setItem(2,1,new QStandardItem("h"));
-    model.setItem(3,1,new QStandardItem("f"));
+    QSortFilterProxyModel sfpm; // default QStandardItemModel does not support 'unsorted' state
+    sfpm.setSourceModel(&model);
+    model.setItem(0, 0, new QStandardItem("b"));
+    model.setItem(1, 0, new QStandardItem("d"));
+    model.setItem(2, 0, new QStandardItem("c"));
+    model.setItem(3, 0, new QStandardItem("a"));
+    model.setItem(0, 1, new QStandardItem("e"));
+    model.setItem(1, 1, new QStandardItem("g"));
+    model.setItem(2, 1, new QStandardItem("h"));
+    model.setItem(3, 1, new QStandardItem("f"));
 
     view.setSortingEnabled(sortingEnabled);
-    view.setModel(&model);
-    view.sortByColumn(1);
+    view.setModel(&sfpm);
+
+    view.sortByColumn(1, Qt::DescendingOrder);
     QCOMPARE(view.header()->sortIndicatorSection(), 1);
-    QCOMPARE(view.model()->data(view.model()->index(0,1)).toString(), QString::fromLatin1("h"));
-    QCOMPARE(view.model()->data(view.model()->index(1,1)).toString(), QString::fromLatin1("g"));
+    QCOMPARE(view.model()->data(view.model()->index(0, 0)).toString(), QString::fromLatin1("c"));
+    QCOMPARE(view.model()->data(view.model()->index(1, 0)).toString(), QString::fromLatin1("d"));
+    QCOMPARE(view.model()->data(view.model()->index(0, 1)).toString(), QString::fromLatin1("h"));
+    QCOMPARE(view.model()->data(view.model()->index(1, 1)).toString(), QString::fromLatin1("g"));
+
     view.sortByColumn(0, Qt::AscendingOrder);
     QCOMPARE(view.header()->sortIndicatorSection(), 0);
-    QCOMPARE(view.model()->data(view.model()->index(0,0)).toString(), QString::fromLatin1("a"));
-    QCOMPARE(view.model()->data(view.model()->index(1,0)).toString(), QString::fromLatin1("b"));
+    QCOMPARE(view.model()->data(view.model()->index(0, 0)).toString(), QString::fromLatin1("a"));
+    QCOMPARE(view.model()->data(view.model()->index(1, 0)).toString(), QString::fromLatin1("b"));
+    QCOMPARE(view.model()->data(view.model()->index(0, 1)).toString(), QString::fromLatin1("f"));
+    QCOMPARE(view.model()->data(view.model()->index(1, 1)).toString(), QString::fromLatin1("e"));
+
+    view.sortByColumn(-1, Qt::AscendingOrder);
+    QCOMPARE(view.header()->sortIndicatorSection(), -1);
+    QCOMPARE(view.model()->data(view.model()->index(0, 0)).toString(), QString::fromLatin1("b"));
+    QCOMPARE(view.model()->data(view.model()->index(1, 0)).toString(), QString::fromLatin1("d"));
+    QCOMPARE(view.model()->data(view.model()->index(0, 1)).toString(), QString::fromLatin1("e"));
+    QCOMPARE(view.model()->data(view.model()->index(1, 1)).toString(), QString::fromLatin1("g"));
 }
 
 /*
@@ -3048,7 +3119,7 @@ void tst_QTreeView::evilModel()
     view.resizeColumnToContents(1);
     model.change();
 
-    view.sortByColumn(1);
+    view.sortByColumn(1, Qt::DescendingOrder);
     model.change();
 
     view.selectAll();
@@ -3892,7 +3963,7 @@ void tst_QTreeView::task254234_proxySort()
     model.setItem(2,1,new QStandardItem("h"));
     model.setItem(3,1,new QStandardItem("f"));
 
-    view.sortByColumn(1);
+    view.sortByColumn(1, Qt::DescendingOrder);
     view.setSortingEnabled(true);
 
     QSortFilterProxyModel proxy;
@@ -4080,6 +4151,30 @@ void tst_QTreeView::keyboardNavigationWithDisabled()
     QCOMPARE(view.currentIndex(), model.index(12, 0));
     QTest::keyClick(view.viewport(), Qt::Key_Up);
     QCOMPARE(view.currentIndex(), model.index(6, 0));
+    // QTBUG-44746 - when first/last item is disabled,
+    // Key_PageUp/Down/Home/End will not work as expected.
+    model.item(0)->setEnabled(false);
+    model.item(1)->setEnabled(true);
+    model.item(2)->setEnabled(true);
+    model.item(model.rowCount() - 1)->setEnabled(false);
+    model.item(model.rowCount() - 2)->setEnabled(true);
+    model.item(model.rowCount() - 3)->setEnabled(true);
+    // PageUp
+    view.setCurrentIndex(model.index(2, 0));
+    QCOMPARE(view.currentIndex(), model.index(2, 0));
+    QTest::keyClick(view.viewport(), Qt::Key_PageUp);
+    QCOMPARE(view.currentIndex(), model.index(1, 0));
+    // PageDown
+    view.setCurrentIndex(model.index(model.rowCount() - 3, 0));
+    QCOMPARE(view.currentIndex(), model.index(model.rowCount() - 3, 0));
+    QTest::keyClick(view.viewport(), Qt::Key_PageDown);
+    QCOMPARE(view.currentIndex(), model.index(model.rowCount() - 2, 0));
+    // Key_Home
+    QTest::keyClick(view.viewport(), Qt::Key_Home);
+    QCOMPARE(view.currentIndex(), model.index(1, 0));
+    // Key_End
+    QTest::keyClick(view.viewport(), Qt::Key_End);
+    QCOMPARE(view.currentIndex(), model.index(model.rowCount() - 2, 0));
 }
 
 class RemoveColumnOne : public QSortFilterProxyModel

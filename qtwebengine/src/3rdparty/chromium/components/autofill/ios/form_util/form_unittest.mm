@@ -7,9 +7,9 @@
 #import "ios/web/public/browser_state.h"
 #import "ios/web/public/test/fakes/test_web_client.h"
 #include "ios/web/public/test/fakes/test_web_state_observer.h"
+#import "ios/web/public/test/js_test_util.h"
 #import "ios/web/public/test/web_js_test.h"
 #import "ios/web/public/test/web_test_with_web_state.h"
-#import "ios/web/web_state/js/page_script_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -20,7 +20,7 @@ class FormTestClient : public web::TestWebClient {
  public:
   NSString* GetDocumentStartScriptForAllFrames(
       web::BrowserState* browser_state) const override {
-    return web::GetPageScript(@"form");
+    return web::test::GetPageScript(@"form_util_js");
   }
 };
 
@@ -163,7 +163,7 @@ TEST_F(FormJsTest, AddForm) {
   LoadHtml(@"<body></body>");
 
   ExecuteJavaScript(
-      @"__gCrWeb.form.trackFormMutations(10);"
+      @"__gCrWeb.formHandlers.trackFormMutations(10);"
       @"var form = document.createElement('form');"
       @"document.body.appendChild(form);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
@@ -181,7 +181,7 @@ TEST_F(FormJsTest, AddInput) {
   LoadHtml(@"<form id='formId'/>");
 
   ExecuteJavaScript(
-      @"__gCrWeb.form.trackFormMutations(10);"
+      @"__gCrWeb.formHandlers.trackFormMutations(10);"
       @"var input = document.createElement('input');"
       @"document.getElementById('formId').appendChild(input);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
@@ -199,7 +199,7 @@ TEST_F(FormJsTest, AddSelect) {
   LoadHtml(@"<form id='formId'/>");
 
   ExecuteJavaScript(
-      @"__gCrWeb.form.trackFormMutations(10);"
+      @"__gCrWeb.formHandlers.trackFormMutations(10);"
       @"var select = document.createElement('select');"
       @"document.getElementById('formId').appendChild(select);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();
@@ -220,7 +220,7 @@ TEST_F(FormJsTest, AddOption) {
        "</form>");
 
   ExecuteJavaScript(
-      @"__gCrWeb.form.trackFormMutations(10);"
+      @"__gCrWeb.formHandlers.trackFormMutations(10);"
       @"var option = document.createElement('option');"
       @"document.getElementById('select1').appendChild(option);");
   autofill::TestFormActivityObserver* block_observer = observer_.get();

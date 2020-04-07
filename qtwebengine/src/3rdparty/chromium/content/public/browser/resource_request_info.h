@@ -12,8 +12,8 @@
 #include "content/public/browser/navigation_ui_data.h"
 #include "content/public/common/previews_state.h"
 #include "content/public/common/resource_type.h"
+#include "services/network/public/mojom/referrer_policy.mojom.h"
 #include "third_party/blink/public/platform/resource_request_blocked_reason.h"
-#include "third_party/blink/public/platform/web_referrer_policy.h"
 #include "ui/base/page_transition_types.h"
 
 namespace net {
@@ -136,11 +136,8 @@ class ResourceRequestInfo {
   // Returns the associated resource type.
   virtual ResourceType GetResourceType() const = 0;
 
-  // Returns the process type that initiated this request.
-  virtual int GetProcessType() const = 0;
-
   // Returns the associated referrer policy.
-  virtual blink::WebReferrerPolicy GetReferrerPolicy() const = 0;
+  virtual network::mojom::ReferrerPolicy GetReferrerPolicy() const = 0;
 
   // Returns whether the frame that initiated this request is used for
   // prerendering.
@@ -177,17 +174,6 @@ class ResourceRequestInfo {
   // Only used for navigations. Returns opaque data set by the embedder on the
   // UI thread at the beginning of navigation.
   virtual NavigationUIData* GetNavigationUIData() const = 0;
-
-  enum class DevToolsStatus {
-    kCanceled,
-    // DevTools can internally handle a redirect, so the url request may
-    // appear never done. Mark these cases.
-    kCanceledAsRedirect,
-    kNotCanceled,
-  };
-
-  // If and why this request was canceled by DevTools. TODO(johannes): Remove.
-  virtual DevToolsStatus GetDevToolsStatus() const = 0;
 
   // Used to annotate requests blocked using net::ERR_BLOCKED_BY_CLIENT and
   // net::ERR_BLOCKED_BY_RESPONSE errors, with a ResourceRequestBlockedReason.

@@ -40,12 +40,14 @@ MediaCodecLoop::MediaCodecLoop(
     int sdk_int,
     Client* client,
     std::unique_ptr<MediaCodecBridge> media_codec,
-    scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner,
+    bool disable_timer)
     : state_(STATE_READY),
       client_(client),
       media_codec_(std::move(media_codec)),
       pending_input_buf_index_(kInvalidBufferIndex),
       sdk_int_(sdk_int),
+      disable_timer_(disable_timer),
       weak_factory_(this) {
   if (timer_task_runner)
     io_timer_.SetTaskRunner(timer_task_runner);
@@ -232,6 +234,7 @@ void MediaCodecLoop::EnqueueInputBuffer(const InputBuffer& input_buffer) {
       // to send in nullptr for the source.  Note that the client doesn't
       // guarantee that the pointer will remain valid after we return anyway.
       pending_input_buf_data_.memory = nullptr;
+      client_->OnWaiting(WaitingReason::kNoDecryptionKey);
       SetState(STATE_WAITING_FOR_KEY);
       // Do not call OnInputDataQueued yet.
       break;
@@ -316,6 +319,9 @@ bool MediaCodecLoop::ProcessOneOutputBuffer() {
 }
 
 void MediaCodecLoop::ManageTimer(bool did_work) {
+  if (disable_timer_)
+    return;
+
   bool should_be_running = true;
 
   // One might also use DefaultTickClock, but then ownership becomes harder.

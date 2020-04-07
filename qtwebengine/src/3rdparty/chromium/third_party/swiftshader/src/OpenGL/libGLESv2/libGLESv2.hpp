@@ -276,7 +276,7 @@ public:
 private:
 	LibGLESv2exports *loadExports()
 	{
-		if(!libGLESv2)
+		if(!loadLibraryAttempted && !libGLESv2)
 		{
 			#if defined(_WIN32)
 				#if defined(__LP64__)
@@ -299,7 +299,7 @@ private:
 					const char *libGLESv2_lib[] = {"libswiftshader_libGLESv2.dylib", "libGLES_V2_translator.dylib", "libGLESv2.dylib"};
 				#endif
 			#elif defined(__Fuchsia__)
-				const char *libGLESv2_lib[] = {"libGLESv2.so"};
+				const char *libGLESv2_lib[] = {"libswiftshader_libGLESv2.so", "libGLESv2.so"};
 			#else
 				#error "libGLESv2::loadExports unimplemented for this platform"
 			#endif
@@ -312,6 +312,8 @@ private:
 				auto libGLESv2_swiftshader = (LibGLESv2exports *(*)())getProcAddress(libGLESv2, "libGLESv2_swiftshader");
 				libGLESv2exports = libGLESv2_swiftshader();
 			}
+
+			loadLibraryAttempted = true;
 		}
 
 		return libGLESv2exports;
@@ -319,6 +321,7 @@ private:
 
 	void *libGLESv2 = nullptr;
 	LibGLESv2exports *libGLESv2exports = nullptr;
+	bool loadLibraryAttempted = false;
 };
 
 #endif   // libGLESv2_hpp

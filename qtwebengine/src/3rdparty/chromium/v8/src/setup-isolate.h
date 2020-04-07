@@ -34,17 +34,15 @@ class SetupIsolateDelegate {
  public:
   explicit SetupIsolateDelegate(bool create_heap_objects)
       : create_heap_objects_(create_heap_objects) {}
-  virtual ~SetupIsolateDelegate() {}
+  virtual ~SetupIsolateDelegate() = default;
 
   virtual void SetupBuiltins(Isolate* isolate);
-
-  virtual void SetupInterpreter(interpreter::Interpreter* interpreter);
 
   virtual bool SetupHeap(Heap* heap);
 
  protected:
   static void SetupBuiltinsInternal(Isolate* isolate);
-  static void AddBuiltin(Builtins* builtins, int index, Code* code);
+  static void AddBuiltin(Builtins* builtins, int index, Code code);
   static void PopulateWithPlaceholders(Isolate* isolate);
   static void ReplacePlaceholders(Isolate* isolate);
 

@@ -56,14 +56,12 @@
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
 #include "third_party/blink/renderer/core/svg_names.h"
-#include "third_party/blink/renderer/platform/length.h"
+#include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/transforms/transform_operations.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
-
-using namespace HTMLNames;
 
 namespace {
 
@@ -78,16 +76,60 @@ TouchAction AdjustTouchActionForElement(TouchAction touch_action,
   return touch_action;
 }
 
-// Returns true for elements that are either <img> or <svg> image or <video>
-// that are not in an image or media document; returns false otherwise.
-bool IsImageOrVideoElement(const Element* element) {
-  if ((IsHTMLImageElement(element) || IsSVGImageElement(element)) &&
-      !element->GetDocument().IsImageDocument())
+bool ShouldForceLegacyLayout(const ComputedStyle& style,
+                             const ComputedStyle& layout_parent_style,
+                             const Element& element) {
+  // Form controls are not supported yet.
+  if (element.ShouldForceLegacyLayout())
     return true;
-  if (IsHTMLVideoElement(element) && !element->GetDocument().IsMediaDocument())
+
+  // When the actual parent (to inherit style from) doesn't have a layout box
+  // (display:contents), it may not have been switched over to forcing legacy
+  // layout, even if it's inside a subtree that should use legacy. Check with
+  // the layout parent as well, so that we don't risk switching back to LayoutNG
+  // when we shouldn't.
+  if (layout_parent_style.ForceLegacyLayout())
     return true;
+
+  const Document& document = element.GetDocument();
+
+  // TODO(layout-dev): Once LayoutNG handles inline content editable, we
+  // should get rid of following code fragment.
+  if (!RuntimeEnabledFeatures::EditingNGEnabled()) {
+    if (style.UserModify() != EUserModify::kReadOnly || document.InDesignMode())
+      return true;
+  }
+
+  if (style.Display() == EDisplay::kWebkitBox ||
+      style.Display() == EDisplay::kWebkitInlineBox)
+    return true;
+
+  if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled()) {
+    // Disable NG for the entire subtree if we're establishing a block
+    // fragmentation context.
+    if (style.SpecifiesColumns() || style.IsOverflowPaged())
+      return true;
+    if (document.Printing()) {
+      // This needs to be discovered on the root element.
+      DCHECK_EQ(element, document.documentElement());
+      return true;
+    }
+  }
+
+  // The custom container is laid out by the legacy engine. Its children may
+  // not establish new formatting contexts, so we need to protect against
+  // re-entering LayoutNG there.
+  if (style.Display() == EDisplay::kLayoutCustom ||
+      style.Display() == EDisplay::kInlineLayoutCustom)
+    return true;
+
+  // 'text-combine-upright' property is not supported yet.
+  if (style.HasTextCombine() && !style.IsHorizontalWritingMode())
+    return true;
+
   return false;
 }
+
 }  // namespace
 
 static EDisplay EquivalentBlockDisplay(EDisplay display) {
@@ -263,7 +305,14 @@ static void AdjustStyleForHTMLElement(ComputedStyle& style,
   }
 
   if (IsHTMLLegendElement(element) && style.Display() != EDisplay::kContents) {
-    style.SetDisplay(EDisplay::kBlock);
+    // Allow any blockified display value for legends. Note that according to
+    // the spec, this shouldn't affect computed style (like we do here).
+    // Instead, the display override should be determined during box creation,
+    // and even then only be applied to the rendered legend inside a
+    // fieldset. However, Blink determines the rendered legend during layout
+    // instead of during layout object creation, and also generally makes
+    // assumptions that the computed display value is the one to use.
+    style.SetDisplay(EquivalentBlockDisplay(style.Display()));
     return;
   }
 
@@ -396,16 +445,20 @@ static void AdjustStyleForDisplay(ComputedStyle& style,
       style.Display() == EDisplay::kTableHeaderGroup ||
       style.Display() == EDisplay::kTableRow ||
       style.Display() == EDisplay::kTableRowGroup ||
-      style.Display() == EDisplay::kTableCell)
+      style.Display() == EDisplay::kTableCell) {
     style.SetWritingMode(layout_parent_style.GetWritingMode());
+    style.UpdateFontOrientation();
+  }
 
   // FIXME: Since we don't support block-flow on flexible boxes yet, disallow
   // setting of block-flow to anything other than TopToBottomWritingMode.
   // https://bugs.webkit.org/show_bug.cgi?id=46418 - Flexible box support.
   if (style.GetWritingMode() != WritingMode::kHorizontalTb &&
       (style.Display() == EDisplay::kWebkitBox ||
-       style.Display() == EDisplay::kWebkitInlineBox))
+       style.Display() == EDisplay::kWebkitInlineBox)) {
     style.SetWritingMode(WritingMode::kHorizontalTb);
+    style.UpdateFontOrientation();
+  }
 
   if (layout_parent_style.IsDisplayFlexibleOrGridBox()) {
     style.SetFloating(EFloat::kNone);
@@ -506,10 +559,9 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
   const ComputedStyle& parent_style = *state.ParentStyle();
   const ComputedStyle& layout_parent_style = *state.LayoutParentStyle();
 
-  if (element &&
+  if (element && element->IsHTMLElement() &&
       (style.Display() != EDisplay::kNone ||
-       element->LayoutObjectIsNeeded(style)) &&
-      element->IsHTMLElement()) {
+       element->LayoutObjectIsNeeded(style))) {
     AdjustStyleForHTMLElement(style, ToHTMLElement(*element));
   }
   if (style.Display() != EDisplay::kNone) {
@@ -582,12 +634,6 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
   // Let the theme also have a crack at adjusting the style.
   if (style.HasAppearance())
     LayoutTheme::GetTheme().AdjustStyle(style, element);
-
-  // If we have first-letter pseudo style, transitions, or animations, do not
-  // share this style.
-  if (style.HasPseudoStyle(kPseudoIdFirstLetter) || style.Transitions() ||
-      style.Animations())
-    style.SetUnique();
 
   AdjustStyleForEditing(style);
 
@@ -672,54 +718,9 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
   }
 
   if (RuntimeEnabledFeatures::LayoutNGEnabled() && !style.ForceLegacyLayout() &&
-      element) {
-    const Document& document = element->GetDocument();
-    if (element->ShouldForceLegacyLayout()) {
-      // Form controls are not supported yet.
-      style.SetForceLegacyLayout(true);
-    } else if (style.UserModify() != EUserModify::kReadOnly ||
-               document.InDesignMode() ||
-               style.Display() == EDisplay::kWebkitBox ||
-               style.Display() == EDisplay::kWebkitInlineBox) {
-      // TODO(layout-dev): Once LayoutNG handles inline content editable, we
-      // should get rid of following code fragment.
-      style.SetForceLegacyLayout(true);
-
-    } else if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled()) {
-      // Disable NG for the entire subtree if we're establishing a block
-      // fragmentation context.
-      if (style.SpecifiesColumns() ||
-          (style.IsOverflowPaged() &&
-           element != document.ViewportDefiningElement())) {
-        style.SetForceLegacyLayout(true);
-      } else if (document.Printing()) {
-        // This needs to be discovered on the root element.
-        DCHECK_EQ(element, document.documentElement());
-        style.SetForceLegacyLayout(true);
-      }
-    }
-    if (!style.ForceLegacyLayout()) {
-      // The custom container is laid out by the legacy engine. Its children may
-      // not establish new formatting contexts, so we need to protect against
-      // re-entering LayoutNG there.
-      if (style.Display() == EDisplay::kLayoutCustom ||
-          style.Display() == EDisplay::kInlineLayoutCustom)
-        style.SetForceLegacyLayout(true);
-    }
-  }
-
-  // If intrinsically sized images or videos are disallowed by feature policy,
-  // use default size (300 x 150) instead.
-  if (IsImageOrVideoElement(element)) {
-    if (RuntimeEnabledFeatures::ExperimentalProductivityFeaturesEnabled() &&
-        element->GetDocument().GetFrame() &&
-        !element->GetDocument().GetFrame()->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kUnsizedMedia)) {
-      if (!style.Width().IsSpecified())
-        style.SetLogicalWidth(Length(LayoutReplaced::kDefaultWidth, kFixed));
-      if (!style.Height().IsSpecified())
-        style.SetLogicalHeight(Length(LayoutReplaced::kDefaultHeight, kFixed));
-    }
+      element &&
+      ShouldForceLegacyLayout(style, layout_parent_style, *element)) {
+    style.SetForceLegacyLayout(true);
   }
 }
 }  // namespace blink

@@ -112,7 +112,7 @@ void DownloadManagerDelegateQt::pauseDownload(quint32 downloadId)
 void DownloadManagerDelegateQt::resumeDownload(quint32 downloadId)
 {
     if (download::DownloadItem *download = findDownloadById(downloadId))
-        download->Resume();
+        download->Resume(/* user_resume */ true);
 }
 
 void DownloadManagerDelegateQt::removeDownload(quint32 downloadId)
@@ -166,7 +166,7 @@ bool DownloadManagerDelegateQt::DetermineDownloadTarget(download::DownloadItem* 
             suggestedFilename += QStringLiteral(".") + mimeType.preferredSuffix();
     }
 
-    QDir defaultDownloadDirectory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    QDir defaultDownloadDirectory(m_profileAdapter->downloadPath());
 
     QFileInfo suggestedFile(defaultDownloadDirectory.absoluteFilePath(suggestedFilename));
     QString suggestedFilePath = suggestedFile.absoluteFilePath();

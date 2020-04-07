@@ -60,6 +60,8 @@
 #include <QScopedPointer>
 #include <QSharedPointer>
 
+#include <functional>
+
 namespace QtWebEngineCore {
 class ProfileAdapter;
 }
@@ -68,6 +70,7 @@ QT_BEGIN_NAMESPACE
 
 class QWebEngineBrowserContext;
 class QWebEngineProfilePrivate;
+class QWebEngineNotification;
 class QWebEngineSettings;
 
 class QWebEngineProfilePrivate : public QtWebEngineCore::ProfileAdapterClient {
@@ -86,6 +89,8 @@ public:
     void downloadRequested(DownloadItemInfo &info) override;
     void downloadUpdated(const DownloadItemInfo &info) override;
 
+    void showNotification(QSharedPointer<QtWebEngineCore::UserNotificationController> &) override;
+
     void addWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter) override;
     void removeWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter) override;
 
@@ -95,6 +100,7 @@ private:
     QPointer<QtWebEngineCore::ProfileAdapter> m_profileAdapter;
     QScopedPointer<QWebEngineScriptCollection> m_scriptCollection;
     QMap<quint32, QPointer<QWebEngineDownloadItem> > m_ongoingDownloads;
+    std::function<void(std::unique_ptr<QWebEngineNotification>)> m_notificationPresenter;
 };
 
 QT_END_NAMESPACE

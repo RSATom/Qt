@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -28,7 +29,10 @@ int FindOrEnd(std::string str, size_t start, char delimiter) {
 
 FieldTrialParameterInterface::FieldTrialParameterInterface(std::string key)
     : key_(key) {}
-FieldTrialParameterInterface::~FieldTrialParameterInterface() = default;
+FieldTrialParameterInterface::~FieldTrialParameterInterface() {
+  RTC_DCHECK(used_) << "Field trial parameter with key: '" << key_
+                    << "' never used.";
+}
 std::string FieldTrialParameterInterface::Key() const {
   return key_;
 }
@@ -37,8 +41,15 @@ void ParseFieldTrial(
     std::initializer_list<FieldTrialParameterInterface*> fields,
     std::string trial_string) {
   std::map<std::string, FieldTrialParameterInterface*> field_map;
+  FieldTrialParameterInterface* keyless_field = nullptr;
   for (FieldTrialParameterInterface* field : fields) {
-    field_map[field->Key()] = field;
+    field->MarkAsUsed();
+    if (field->Key().empty()) {
+      RTC_DCHECK(!keyless_field);
+      keyless_field = field;
+    } else {
+      field_map[field->Key()] = field;
+    }
   }
   size_t i = 0;
   while (i < trial_string.length()) {
@@ -56,6 +67,11 @@ void ParseFieldTrial(
       if (!field->second->Parse(std::move(opt_value))) {
         RTC_LOG(LS_WARNING) << "Failed to read field with key: '" << key
                             << "' in trial: \"" << trial_string << "\"";
+      }
+    } else if (!opt_value && keyless_field && !key.empty()) {
+      if (!keyless_field->Parse(key)) {
+        RTC_LOG(LS_WARNING) << "Failed to read empty key field with value '"
+                            << key << "' in trial: \"" << trial_string << "\"";
       }
     } else {
       RTC_LOG(LS_INFO) << "No field with key: '" << key
@@ -77,7 +93,10 @@ absl::optional<bool> ParseTypedParameter<bool>(std::string str) {
 template <>
 absl::optional<double> ParseTypedParameter<double>(std::string str) {
   double value;
-  if (sscanf(str.c_str(), "%lf", &value) == 1) {
+  char unit[2]{0, 0};
+  if (sscanf(str.c_str(), "%lf%1s", &value, unit) >= 1) {
+    if (unit[0] == '%')
+      return value / 100;
     return value;
   } else {
     return absl::nullopt;
@@ -105,6 +124,10 @@ FieldTrialFlag::FieldTrialFlag(std::string key, bool default_value)
     : FieldTrialParameterInterface(key), value_(default_value) {}
 
 bool FieldTrialFlag::Get() const {
+  return value_;
+}
+
+webrtc::FieldTrialFlag::operator bool() const {
   return value_;
 }
 
@@ -156,6 +179,9 @@ template class FieldTrialParameter<bool>;
 template class FieldTrialParameter<double>;
 template class FieldTrialParameter<int>;
 template class FieldTrialParameter<std::string>;
+
+template class FieldTrialConstrained<double>;
+template class FieldTrialConstrained<int>;
 
 template class FieldTrialOptional<double>;
 template class FieldTrialOptional<int>;

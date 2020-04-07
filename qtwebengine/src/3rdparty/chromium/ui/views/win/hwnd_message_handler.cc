@@ -24,6 +24,7 @@
 #include "base/trace_event/trace_event.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/windows_version.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "ui/accessibility/platform/ax_platform_node_win.h"
 #include "ui/accessibility/platform/ax_system_caret_win.h"
 #include "ui/base/ime/input_method.h"
@@ -31,6 +32,7 @@
 #include "ui/base/ime/text_input_type.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/view_prop.h"
+#include "ui/base/win/hwnd_metrics.h"
 #include "ui/base/win/internal_constants.h"
 #include "ui/base/win/lock_state.h"
 #include "ui/base/win/mouse_wheel_util.h"
@@ -46,7 +48,6 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/icon_util.h"
-#include "ui/gfx/path.h"
 #include "ui/gfx/path_win.h"
 #include "ui/gfx/win/hwnd_util.h"
 #include "ui/gfx/win/rendering_window_manager.h"
@@ -216,6 +217,12 @@ void EnableMenuItemByCommand(HMENU menu, UINT command, bool enabled) {
 BOOL CALLBACK SendDwmCompositionChanged(HWND window, LPARAM param) {
   SendMessage(window, WM_DWMCOMPOSITIONCHANGED, 0, 0);
   return TRUE;
+}
+
+bool IsDwmCompositionEnabled() {
+  BOOL is_dwm_composition_enabled;
+  DwmIsCompositionEnabled(&is_dwm_composition_enabled);
+  return static_cast<bool>(is_dwm_composition_enabled);
 }
 
 // The thickness of an auto-hide taskbar in pixels.
@@ -390,10 +397,10 @@ HWNDMessageHandler::HWNDMessageHandler(HWNDMessageHandlerDelegate* delegate)
       pen_processor_(
           &id_generator_,
           base::FeatureList::IsEnabled(features::kDirectManipulationStylus)),
-      in_size_loop_(false),
       touch_down_contexts_(0),
       last_mouse_hwheel_time_(0),
       dwm_transition_desired_(false),
+      dwm_composition_enabled_(IsDwmCompositionEnabled()),
       sent_window_size_changing_(false),
       left_button_down_on_caption_(false),
       background_fullscreen_hack_(false),
@@ -615,52 +622,57 @@ void HWNDMessageHandler::StackAtTop() {
                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
 }
 
-void HWNDMessageHandler::Show() {
-  if (IsWindow(hwnd())) {
-    if (!(GetWindowLong(hwnd(), GWL_EXSTYLE) & WS_EX_TRANSPARENT) &&
-        !(GetWindowLong(hwnd(), GWL_EXSTYLE) & WS_EX_NOACTIVATE)) {
-      ShowWindowWithState(ui::SHOW_STATE_NORMAL);
-    } else {
-      ShowWindowWithState(ui::SHOW_STATE_INACTIVE);
-    }
-  }
-}
-
-void HWNDMessageHandler::ShowWindowWithState(ui::WindowShowState show_state) {
-  TRACE_EVENT0("views", "HWNDMessageHandler::ShowWindowWithState");
+void HWNDMessageHandler::Show(ui::WindowShowState show_state,
+                              const gfx::Rect& pixel_restore_bounds) {
+  TRACE_EVENT0("views", "HWNDMessageHandler::Show");
   DWORD native_show_state;
-  switch (show_state) {
-    case ui::SHOW_STATE_INACTIVE:
-      native_show_state = SW_SHOWNOACTIVATE;
-      break;
-    case ui::SHOW_STATE_MAXIMIZED:
-      native_show_state = SW_SHOWMAXIMIZED;
-      break;
-    case ui::SHOW_STATE_MINIMIZED:
-      native_show_state = SW_SHOWMINIMIZED;
-      break;
-    case ui::SHOW_STATE_NORMAL:
-      native_show_state = SW_SHOWNORMAL;
-      break;
-    case ui::SHOW_STATE_FULLSCREEN:
-      native_show_state = SW_SHOWNORMAL;
-      SetFullscreen(true);
-      break;
-    default:
-      native_show_state = delegate_->GetInitialShowState();
-      break;
-  }
+  if (show_state == ui::SHOW_STATE_MAXIMIZED &&
+      !pixel_restore_bounds.IsEmpty()) {
+    WINDOWPLACEMENT placement = {0};
+    placement.length = sizeof(WINDOWPLACEMENT);
+    placement.showCmd = SW_SHOWMAXIMIZED;
+    placement.rcNormalPosition = pixel_restore_bounds.ToRECT();
+    SetWindowPlacement(hwnd(), &placement);
+    native_show_state = SW_SHOWMAXIMIZED;
+  } else {
+    switch (show_state) {
+      case ui::SHOW_STATE_INACTIVE:
+        native_show_state = SW_SHOWNOACTIVATE;
+        break;
+      case ui::SHOW_STATE_MAXIMIZED:
+        native_show_state = SW_SHOWMAXIMIZED;
+        break;
+      case ui::SHOW_STATE_MINIMIZED:
+        native_show_state = SW_SHOWMINIMIZED;
+        break;
+      case ui::SHOW_STATE_NORMAL:
+        if ((GetWindowLong(hwnd(), GWL_EXSTYLE) & WS_EX_TRANSPARENT) ||
+            (GetWindowLong(hwnd(), GWL_EXSTYLE) & WS_EX_NOACTIVATE)) {
+          native_show_state = SW_SHOWNOACTIVATE;
+        } else {
+          native_show_state = SW_SHOWNORMAL;
+        }
+        break;
+      case ui::SHOW_STATE_FULLSCREEN:
+        native_show_state = SW_SHOWNORMAL;
+        SetFullscreen(true);
+        break;
+      default:
+        native_show_state = delegate_->GetInitialShowState();
+        break;
+    }
 
-  ShowWindow(hwnd(), native_show_state);
-  // When launched from certain programs like bash and Windows Live Messenger,
-  // show_state is set to SW_HIDE, so we need to correct that condition. We
-  // don't just change show_state to SW_SHOWNORMAL because MSDN says we must
-  // always first call ShowWindow with the specified value from STARTUPINFO,
-  // otherwise all future ShowWindow calls will be ignored (!!#@@#!). Instead,
-  // we call ShowWindow again in this case.
-  if (native_show_state == SW_HIDE) {
-    native_show_state = SW_SHOWNORMAL;
     ShowWindow(hwnd(), native_show_state);
+    // When launched from certain programs like bash and Windows Live
+    // Messenger, show_state is set to SW_HIDE, so we need to correct that
+    // condition. We don't just change show_state to SW_SHOWNORMAL because
+    // MSDN says we must always first call ShowWindow with the specified
+    // value from STARTUPINFO, otherwise all future ShowWindow calls will be
+    // ignored (!!#@@#!). Instead, we call ShowWindow again in this case.
+    if (native_show_state == SW_HIDE) {
+      native_show_state = SW_SHOWNORMAL;
+      ShowWindow(hwnd(), native_show_state);
+    }
   }
 
   // We need to explicitly activate the window if we've been shown with a state
@@ -673,19 +685,6 @@ void HWNDMessageHandler::ShowWindowWithState(ui::WindowShowState show_state) {
 
   if (!delegate_->HandleInitialFocus(show_state))
     SetInitialFocus();
-}
-
-void HWNDMessageHandler::ShowMaximizedWithBounds(const gfx::Rect& bounds) {
-  WINDOWPLACEMENT placement = { 0 };
-  placement.length = sizeof(WINDOWPLACEMENT);
-  placement.showCmd = SW_SHOWMAXIMIZED;
-  placement.rcNormalPosition = bounds.ToRECT();
-  SetWindowPlacement(hwnd(), &placement);
-
-  // We need to explicitly activate the window, because if we're opened from a
-  // desktop shortcut while an existing window is already running it doesn't
-  // seem to be enough to use SW_SHOWMAXIMIZED to activate the window.
-  Activate();
 }
 
 void HWNDMessageHandler::Hide() {
@@ -850,6 +849,7 @@ void HWNDMessageHandler::SetCursor(HCURSOR cursor) {
 }
 
 void HWNDMessageHandler::FrameTypeChanged() {
+  needs_dwm_frame_clear_ = true;
   if (!custom_window_region_.is_valid() && IsFrameSystemDrawn())
     dwm_transition_desired_ = true;
   if (!dwm_transition_desired_ || !IsFullscreen())
@@ -1007,11 +1007,13 @@ void HWNDMessageHandler::OnBlur() {}
 
 void HWNDMessageHandler::OnCaretBoundsChanged(
     const ui::TextInputClient* client) {
-  if (!client || client->GetTextInputType() == ui::TEXT_INPUT_TYPE_NONE)
-    return;
-
   if (!ax_system_caret_)
     ax_system_caret_ = std::make_unique<ui::AXSystemCaretWin>(hwnd());
+
+  if (!client || client->GetTextInputType() == ui::TEXT_INPUT_TYPE_NONE) {
+    ax_system_caret_->Hide();
+    return;
+  }
 
   const gfx::Rect dip_caret_bounds(client->GetCaretBounds());
   gfx::Rect caret_bounds =
@@ -1022,7 +1024,10 @@ void HWNDMessageHandler::OnCaretBoundsChanged(
 }
 
 void HWNDMessageHandler::OnTextInputStateChanged(
-    const ui::TextInputClient* client) {}
+    const ui::TextInputClient* client) {
+  if (!client || client->GetTextInputType() == ui::TEXT_INPUT_TYPE_NONE)
+    OnCaretBoundsChanged(client);
+}
 
 void HWNDMessageHandler::OnInputMethodDestroyed(
     const ui::InputMethod* input_method) {
@@ -1359,8 +1364,9 @@ void HWNDMessageHandler::ClientAreaSizeChanged() {
   sent_window_size_changing_ = false;
 }
 
-bool HWNDMessageHandler::GetClientAreaInsets(gfx::Insets* insets) const {
-  if (delegate_->GetClientAreaInsets(insets))
+bool HWNDMessageHandler::GetClientAreaInsets(gfx::Insets* insets,
+                                             HMONITOR monitor) const {
+  if (delegate_->GetClientAreaInsets(insets, monitor))
     return true;
   DCHECK(insets->IsEmpty());
 
@@ -1372,11 +1378,11 @@ bool HWNDMessageHandler::GetClientAreaInsets(gfx::Insets* insets) const {
   if (IsMaximized()) {
     // Windows automatically adds a standard width border to all sides when a
     // window is maximized.
-    int border_thickness = GetSystemMetrics(SM_CXSIZEFRAME);
+    int frame_thickness = ui::GetFrameThickness(monitor);
     if (!delegate_->HasFrame())
-      border_thickness -= 1;
-    *insets = gfx::Insets(
-        border_thickness, border_thickness, border_thickness, border_thickness);
+      frame_thickness -= 1;
+    *insets = gfx::Insets(frame_thickness, frame_thickness, frame_thickness,
+                          frame_thickness);
     return true;
   }
 
@@ -1418,7 +1424,7 @@ void HWNDMessageHandler::ResetWindowRegion(bool force, bool redraw) {
     OffsetRect(&work_rect, -window_rect.left, -window_rect.top);
     new_region.reset(CreateRectRgnIndirect(&work_rect));
   } else {
-    gfx::Path window_mask;
+    SkPath window_mask;
     delegate_->GetWindowMask(gfx::Size(window_rect.right - window_rect.left,
                                        window_rect.bottom - window_rect.top),
                              &window_mask);
@@ -1592,8 +1598,7 @@ LRESULT HWNDMessageHandler::OnCreate(CREATESTRUCT* create_struct) {
       base::Bind(&HWNDMessageHandler::OnSessionChange,
                  base::Unretained(this))));
 
-  float scale_factor = display::win::ScreenWin::GetScaleFactorForHWND(hwnd());
-  dpi_ = display::win::GetDPIFromScalingFactor(scale_factor);
+  dpi_ = display::win::ScreenWin::GetDPIForHWND(hwnd());
 
   // TODO(beng): move more of NWW::OnCreate here.
   return 0;
@@ -1631,7 +1636,16 @@ LRESULT HWNDMessageHandler::OnDwmCompositionChanged(UINT msg,
     return 0;
   }
 
-  FrameTypeChanged();
+  bool dwm_composition_enabled = IsDwmCompositionEnabled();
+  if (dwm_composition_enabled_ != dwm_composition_enabled) {
+    // Do not cause the Window to be hidden and shown unless there was
+    // an actual change in the theme. This filter is necessary because
+    // Windows sends redundant WM_DWMCOMPOSITIONCHANGED messages when
+    // a laptop is reopened, and our theme change code causes wonky
+    // focus issues. See http://crbug.com/895855 for more information.
+    dwm_composition_enabled_ = dwm_composition_enabled;
+    FrameTypeChanged();
+  }
   return 0;
 }
 
@@ -1648,7 +1662,7 @@ LRESULT HWNDMessageHandler::OnDpiChanged(UINT msg,
     dpi = display::win::GetDPIFromScalingFactor(scaling_factor);
   } else {
     dpi = LOWORD(w_param);
-    scaling_factor = display::win::GetScalingFactorFromDPI(dpi_);
+    scaling_factor = display::win::ScreenWin::GetScaleFactorForDPI(dpi);
   }
 
   // The first WM_DPICHANGED originates from EnableChildWindowDpiMessage during
@@ -1675,6 +1689,20 @@ void HWNDMessageHandler::OnEnterSizeMove() {
 }
 
 LRESULT HWNDMessageHandler::OnEraseBkgnd(HDC dc) {
+  gfx::Insets insets;
+  if (ui::win::IsAeroGlassEnabled() &&
+      delegate_->GetDwmFrameInsetsInPixels(&insets) && !insets.IsEmpty() &&
+      needs_dwm_frame_clear_) {
+    // This is necessary to avoid white flashing in the titlebar area around the
+    // minimize/maximize/close buttons.
+    needs_dwm_frame_clear_ = false;
+    RECT client_rect;
+    GetClientRect(hwnd(), &client_rect);
+    base::win::ScopedGDIObject<HBRUSH> brush(CreateSolidBrush(0));
+    // The DC and GetClientRect operate in client area coordinates.
+    RECT rect = {0, 0, client_rect.right, insets.top()};
+    FillRect(dc, &rect, brush.get());
+  }
   // Needed to prevent resize flicker.
   return 1;
 }
@@ -1997,16 +2025,36 @@ LRESULT HWNDMessageHandler::OnNCCalcSize(BOOL mode, LPARAM l_param) {
     }
   }
 
+  RECT* client_rect =
+      mode ? &(reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param)->rgrc[0])
+           : reinterpret_cast<RECT*>(l_param);
+
+  HMONITOR monitor = MonitorFromWindow(hwnd(), MONITOR_DEFAULTTONULL);
+  if (!monitor) {
+    // We might end up here if the window was previously minimized and the
+    // user clicks on the taskbar button to restore it in the previous
+    // position. In that case WM_NCCALCSIZE is sent before the window
+    // coordinates are restored to their previous values, so our (left,top)
+    // would probably be (-32000,-32000) like all minimized windows. So the
+    // above MonitorFromWindow call fails, but if we check the window rect
+    // given with WM_NCCALCSIZE (which is our previous restored window
+    // position) we will get the correct monitor handle.
+    monitor = MonitorFromRect(client_rect, MONITOR_DEFAULTTONULL);
+    if (!monitor) {
+      // This is probably an extreme case that we won't hit, but if we don't
+      // intersect any monitor, let us not adjust the client rect since our
+      // window will not be visible anyway.
+      return 0;
+    }
+  }
+
   gfx::Insets insets;
-  bool got_insets = GetClientAreaInsets(&insets);
+  bool got_insets = GetClientAreaInsets(&insets, monitor);
   if (!got_insets && !IsFullscreen() && !(mode && !delegate_->HasFrame())) {
     SetMsgHandled(FALSE);
     return 0;
   }
 
-  RECT* client_rect = mode ?
-      &(reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param)->rgrc[0]) :
-      reinterpret_cast<RECT*>(l_param);
   client_rect->left += insets.left();
   client_rect->top += insets.top();
   client_rect->bottom -= insets.bottom();
@@ -2016,24 +2064,6 @@ LRESULT HWNDMessageHandler::OnNCCalcSize(BOOL mode, LPARAM l_param) {
     // thickness of the auto-hide taskbar on each such edge, so the window isn't
     // treated as a "fullscreen app", which would cause the taskbars to
     // disappear.
-    HMONITOR monitor = MonitorFromWindow(hwnd(), MONITOR_DEFAULTTONULL);
-    if (!monitor) {
-      // We might end up here if the window was previously minimized and the
-      // user clicks on the taskbar button to restore it in the previously
-      // maximized position. In that case WM_NCCALCSIZE is sent before the
-      // window coordinates are restored to their previous values, so our
-      // (left,top) would probably be (-32000,-32000) like all minimized
-      // windows. So the above MonitorFromWindow call fails, but if we check
-      // the window rect given with WM_NCCALCSIZE (which is our previous
-      // restored window position) we will get the correct monitor handle.
-      monitor = MonitorFromRect(client_rect, MONITOR_DEFAULTTONULL);
-      if (!monitor) {
-        // This is probably an extreme case that we won't hit, but if we don't
-        // intersect any monitor, let us not adjust the client rect since our
-        // window will not be visible anyway.
-        return 0;
-      }
-    }
     const int autohide_edges = GetAppbarAutohideEdges(monitor);
     if (autohide_edges & ViewsDelegate::EDGE_LEFT)
       client_rect->left += kAutoHideTaskbarThicknessPx;
@@ -2373,6 +2403,10 @@ void HWNDMessageHandler::OnSettingChange(UINT flags, const wchar_t* section) {
 }
 
 void HWNDMessageHandler::OnSize(UINT param, const gfx::Size& size) {
+  if (DidMinimizedChange(last_size_param_, param) && IsTopLevelWindow(hwnd()))
+    delegate_->HandleWindowMinimizedOrRestored(param != SIZE_MINIMIZED);
+  last_size_param_ = param;
+
   RedrawWindow(hwnd(), NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
   // ResetWindowRegion is going to trigger WM_NCPAINT. By doing it after we've
   // invoked OnSize we ensure the RootView has been laid out.
@@ -2443,22 +2477,12 @@ void HWNDMessageHandler::OnSysCommand(UINT notification_code,
     return;
   }
 
+  if (delegate_->HandleCommand(notification_code))
+    return;
+
   // If the delegate can't handle it, the system implementation will be called.
-  if (!delegate_->HandleCommand(notification_code)) {
-    // If the window is being resized by dragging the borders of the window
-    // with the mouse/touch/keyboard, we flag as being in a size loop.
-    if ((notification_code & sc_mask) == SC_SIZE)
-      in_size_loop_ = true;
-    base::WeakPtr<HWNDMessageHandler> ref(
-        msg_handler_weak_factory_.GetWeakPtr());
-
-    DefWindowProc(hwnd(), WM_SYSCOMMAND, notification_code,
-                  MAKELPARAM(point.x(), point.y()));
-
-    if (!ref.get())
-      return;
-    in_size_loop_ = false;
-  }
+  DefWindowProc(hwnd(), WM_SYSCOMMAND, notification_code,
+                MAKELPARAM(point.x(), point.y()));
 }
 
 void HWNDMessageHandler::OnThemeChanged() {
@@ -2611,7 +2635,7 @@ void HWNDMessageHandler::OnWindowPosChanging(WINDOWPOS* window_pos) {
         // Windows automatically adds a standard width border to all sides when
         // window is maximized. We should take this into account.
         gfx::Insets client_area_insets;
-        if (GetClientAreaInsets(&client_area_insets))
+        if (GetClientAreaInsets(&client_area_insets, monitor))
           expected_maximized_bounds.Inset(client_area_insets.Scale(-1));
       }
       // Sometimes Windows incorrectly changes bounds of maximized windows after
@@ -2706,9 +2730,9 @@ void HWNDMessageHandler::OnWindowPosChanging(WINDOWPOS* window_pos) {
     window_pos->flags &= ~SWP_SHOWWINDOW;
   }
 
-  if (window_pos->flags & SWP_SHOWWINDOW)
+  if (window_pos->flags & SWP_SHOWWINDOW) {
     delegate_->HandleVisibilityChanging(true);
-  else if (window_pos->flags & SWP_HIDEWINDOW) {
+  } else if (window_pos->flags & SWP_HIDEWINDOW) {
     SetDwmFrameExtension(DwmFrameState::OFF);
     delegate_->HandleVisibilityChanging(false);
   }
@@ -2727,7 +2751,7 @@ void HWNDMessageHandler::OnWindowPosChanged(WINDOWPOS* window_pos) {
   } else if (window_pos->flags & SWP_HIDEWINDOW) {
     delegate_->HandleVisibilityChanged(false);
   }
-
+  UpdateDwmFrame();
   SetMsgHandled(FALSE);
 }
 
@@ -2934,7 +2958,7 @@ LRESULT HWNDMessageHandler::HandlePointerEventTypeTouch(UINT message,
 
   // Increment |touch_down_contexts_| on a pointer down. This variable
   // is used to debounce the WM_MOUSEACTIVATE events.
-  if (message == WM_POINTERDOWN) {
+  if (message == WM_POINTERDOWN || message == WM_NCPOINTERDOWN) {
     touch_down_contexts_++;
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
@@ -2971,8 +2995,8 @@ LRESULT HWNDMessageHandler::HandlePointerEventTypeTouch(UINT message,
       event_type, touch_point, event_time,
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH,
                          mapped_pointer_id, radius_x, radius_y, pressure,
-                         pointer_touch_info.orientation, 0.0f, 0.0f, 0.0f),
-      ui::GetModifiersFromKeyState(), rotation_angle);
+                         rotation_angle),
+      ui::GetModifiersFromKeyState());
 
   event.latency()->AddLatencyNumberWithTimestamp(
       ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, event_time, 1);
@@ -2988,6 +3012,23 @@ LRESULT HWNDMessageHandler::HandlePointerEventTypeTouch(UINT message,
     if (event_type == ui::ET_TOUCH_RELEASED)
       id_generator_.ReleaseNumber(pointer_id);
 
+    // Mark touch released events handled. These will usually turn into tap
+    // gestures, and doing this avoids propagating the event to other windows.
+    if (delegate_->GetFrameMode() == FrameMode::SYSTEM_DRAWN) {
+      // WM_NCPOINTERUP must be DefWindowProc'ed in order for the system caption
+      // buttons to work correctly.
+      if (message == WM_POINTERUP)
+        event.SetHandled();
+    } else {
+      // Messages on HTCAPTION should be DefWindowProc'ed, as we let Windows
+      // take care of dragging the window and double-tapping to maximize.
+      const bool on_titlebar =
+          SendMessage(hwnd(), WM_NCHITTEST, 0, l_param) == HTCAPTION;
+      // Unlike above, we must mark both WM_POINTERUP and WM_NCPOINTERUP as
+      // handled, in order for the custom caption buttons to work correctly.
+      if (event_type == ui::ET_TOUCH_RELEASED && !on_titlebar)
+        event.SetHandled();
+    }
     SetMsgHandled(event.handled());
   }
   return 0;
@@ -3068,6 +3109,9 @@ void HWNDMessageHandler::PerformDwmTransition() {
   ResetWindowRegion(true, false);
   // The non-client view needs to update too.
   delegate_->HandleFrameChanged();
+  // This calls DwmExtendFrameIntoClientArea which must be called when DWM
+  // composition state changes.
+  UpdateDwmFrame();
 
   if (IsVisible() && IsFrameSystemDrawn()) {
     // For some reason, we need to hide the window after we change from a custom
@@ -3076,7 +3120,12 @@ void HWNDMessageHandler::PerformDwmTransition() {
     // SetWindowRgn, but the details aren't clear. Additionally, we need to
     // specify SWP_NOZORDER here, otherwise if you have multiple chrome windows
     // open they will re-appear with a non-deterministic Z-order.
-    UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER;
+    // Note: caused http://crbug.com/895855, where a laptop lid close+reopen
+    // puts window in the background but acts like a foreground window. Fixed by
+    // not calling this unless DWM composition actually changes. Finally, since
+    // we don't want windows stealing focus if they're not already active, we
+    // set SWP_NOACTIVATE.
+    UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
     SetWindowPos(hwnd(), NULL, 0, 0, 0, 0, flags | SWP_HIDEWINDOW);
     SetWindowPos(hwnd(), NULL, 0, 0, 0, 0, flags | SWP_SHOWWINDOW);
   }
@@ -3084,6 +3133,16 @@ void HWNDMessageHandler::PerformDwmTransition() {
   // to notify our children too, since we can have MDI child windows who need to
   // update their appearance.
   EnumChildWindows(hwnd(), &SendDwmCompositionChanged, NULL);
+}
+
+void HWNDMessageHandler::UpdateDwmFrame() {
+  gfx::Insets insets;
+  if (ui::win::IsAeroGlassEnabled() &&
+      delegate_->GetDwmFrameInsetsInPixels(&insets)) {
+    MARGINS margins = {insets.left(), insets.right(), insets.top(),
+                       insets.bottom()};
+    DwmExtendFrameIntoClientArea(hwnd(), &margins);
+  }
 }
 
 void HWNDMessageHandler::GenerateTouchEvent(ui::EventType event_type,

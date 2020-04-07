@@ -21,7 +21,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/api/automation.h"
-#include "chrome/common/extensions/api/automation_api_constants.h"
 #include "chrome/common/extensions/api/automation_internal.h"
 #include "chrome/common/extensions/chrome_extension_messages.h"
 #include "content/public/browser/ax_event_notification_details.h"
@@ -30,6 +29,7 @@
 #include "content/public/browser/browser_plugin_guest_manager.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -39,8 +39,8 @@
 #include "extensions/common/manifest_handlers/automation.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_action_handler.h"
 #include "ui/accessibility/ax_enum_util.h"
-#include "ui/accessibility/ax_host_delegate.h"
 #include "ui/accessibility/ax_tree_id_registry.h"
 
 #if defined(USE_AURA)
@@ -51,8 +51,6 @@
 namespace extensions {
 class AutomationWebContentsObserver;
 }  // namespace extensions
-
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(extensions::AutomationWebContentsObserver);
 
 namespace extensions {
 
@@ -140,7 +138,7 @@ class QuerySelectorHandler : public content::WebContentsObserver {
 
 bool CanRequestAutomation(const Extension* extension,
                           const AutomationInfo* automation_info,
-                          const content::WebContents* contents) {
+                          content::WebContents* contents) {
   if (automation_info->desktop)
     return true;
 
@@ -194,7 +192,7 @@ class AutomationWebContentsObserver
 
   void RenderFrameDeleted(
       content::RenderFrameHost* render_frame_host) override {
-    int tree_id = render_frame_host->GetAXTreeID();
+    ui::AXTreeID tree_id = render_frame_host->GetAXTreeID();
     AutomationEventRouter::GetInstance()->DispatchTreeDestroyedEvent(
         tree_id,
         browser_context_);
@@ -244,8 +242,12 @@ class AutomationWebContentsObserver
 
   content::BrowserContext* browser_context_;
 
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
+
   DISALLOW_COPY_AND_ASSIGN(AutomationWebContentsObserver);
 };
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(AutomationWebContentsObserver)
 
 ExtensionFunction::ResponseAction
 AutomationInternalEnableTabFunction::Run() {
@@ -287,7 +289,7 @@ AutomationInternalEnableTabFunction::Run() {
   AutomationWebContentsObserver::CreateForWebContents(contents);
   contents->EnableWebContentsOnlyAccessibilityMode();
 
-  int ax_tree_id = rfh->GetAXTreeID();
+  ui::AXTreeID ax_tree_id = rfh->GetAXTreeID();
 
   // This gets removed when the extension process dies.
   AutomationEventRouter::GetInstance()->RegisterListenerForOneTree(
@@ -295,8 +297,9 @@ AutomationInternalEnableTabFunction::Run() {
       source_process_id(),
       ax_tree_id);
 
-  return RespondNow(ArgumentList(
-      api::automation_internal::EnableTab::Results::Create(ax_tree_id)));
+  return RespondNow(
+      ArgumentList(api::automation_internal::EnableTab::Results::Create(
+          ax_tree_id.ToString())));
 }
 
 ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
@@ -306,8 +309,8 @@ ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  content::RenderFrameHost* rfh =
-      content::RenderFrameHost::FromAXTreeID(params->tree_id);
+  content::RenderFrameHost* rfh = content::RenderFrameHost::FromAXTreeID(
+      ui::AXTreeID::FromString(params->tree_id));
   if (!rfh)
     return RespondNow(Error("unable to load tab"));
 
@@ -327,7 +330,7 @@ ExtensionFunction::ResponseAction
 AutomationInternalPerformActionFunction::ConvertToAXActionData(
     api::automation_internal::PerformAction::Params* params,
     ui::AXActionData* action) {
-  action->target_tree_id = params->args.tree_id;
+  action->target_tree_id = ui::AXTreeID::FromString(params->args.tree_id);
   action->source_extension_id = extension_id();
   action->target_node_id = params->args.automation_node_id;
   int* request_id = params->args.request_id.get();
@@ -464,6 +467,18 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
     case api::automation::ACTION_TYPE_SETSCROLLOFFSET:
       return RespondNow(
           Error("Unsupported action: " + params->args.action_type));
+    case api::automation::ACTION_TYPE_GETTEXTLOCATION: {
+      api::automation_internal::GetTextLocationDataParams
+          get_text_location_params;
+      EXTENSION_FUNCTION_VALIDATE(
+          api::automation_internal::GetTextLocationDataParams::Populate(
+              params->opt_args.additional_properties,
+              &get_text_location_params));
+      action->action = ax::mojom::Action::kGetTextLocation;
+      action->start_index = get_text_location_params.start_index;
+      action->end_index = get_text_location_params.end_index;
+      break;
+    }
     case api::automation::ACTION_TYPE_NONE:
       break;
   }
@@ -479,61 +494,53 @@ AutomationInternalPerformActionFunction::Run() {
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
   ui::AXTreeIDRegistry* registry = ui::AXTreeIDRegistry::GetInstance();
-  ui::AXHostDelegate* delegate =
-      registry->GetHostDelegate(params->args.tree_id);
-  if (delegate) {
-#if defined(USE_AURA)
+  ui::AXActionHandler* action_handler = registry->GetActionHandler(
+      ui::AXTreeID::FromString(params->args.tree_id));
+  if (action_handler) {
+    // Handle an AXActionHandler with a rfh first. Some actions require a rfh ->
+    // web contents and this api requires web contents to perform a permissions
+    // check.
+    content::RenderFrameHost* rfh = content::RenderFrameHost::FromAXTreeID(
+        ui::AXTreeID::FromString(params->args.tree_id));
+    if (rfh) {
+      content::WebContents* contents =
+          content::WebContents::FromRenderFrameHost(rfh);
+      if (!CanRequestAutomation(extension(), automation_info, contents)) {
+        return RespondNow(
+            Error(kCannotRequestAutomationOnPage, contents->GetURL().spec()));
+      }
+
+      // Handle internal actions.
+      api::automation_internal::ActionTypePrivate internal_action_type =
+          api::automation_internal::ParseActionTypePrivate(
+              params->args.action_type);
+      content::MediaSession* session = content::MediaSession::Get(contents);
+      switch (internal_action_type) {
+        case api::automation_internal::ACTION_TYPE_PRIVATE_STARTDUCKINGMEDIA:
+          session->StartDucking();
+          return RespondNow(NoArguments());
+        case api::automation_internal::ACTION_TYPE_PRIVATE_STOPDUCKINGMEDIA:
+          session->StopDucking();
+          return RespondNow(NoArguments());
+        case api::automation_internal::ACTION_TYPE_PRIVATE_RESUMEMEDIA:
+          session->Resume(content::MediaSession::SuspendType::kSystem);
+          return RespondNow(NoArguments());
+        case api::automation_internal::ACTION_TYPE_PRIVATE_SUSPENDMEDIA:
+          session->Suspend(content::MediaSession::SuspendType::kSystem);
+          return RespondNow(NoArguments());
+        case api::automation_internal::ACTION_TYPE_PRIVATE_NONE:
+          // Not a private action.
+          break;
+      }
+    }
+
     ui::AXActionData data;
     ExtensionFunction::ResponseAction result =
         ConvertToAXActionData(params.get(), &data);
-    delegate->PerformAction(data);
+    action_handler->PerformAction(data);
     return result;
-#else
-    NOTREACHED();
-    return RespondNow(Error("Unexpected action on desktop automation tree;"
-                            " platform does not support desktop automation"));
-#endif  // defined(USE_AURA)
   }
-  content::RenderFrameHost* rfh =
-      content::RenderFrameHost::FromAXTreeID(params->args.tree_id);
-  if (!rfh)
-    return RespondNow(Error("Ignoring action on destroyed node"));
-
-  content::WebContents* contents =
-      content::WebContents::FromRenderFrameHost(rfh);
-  if (!CanRequestAutomation(extension(), automation_info, contents)) {
-    return RespondNow(
-        Error(kCannotRequestAutomationOnPage, contents->GetURL().spec()));
-  }
-
-  // Handle internal actions.
-  api::automation_internal::ActionTypePrivate internal_action_type =
-      api::automation_internal::ParseActionTypePrivate(
-          params->args.action_type);
-  content::MediaSession* session = content::MediaSession::Get(contents);
-  switch (internal_action_type) {
-    case api::automation_internal::ACTION_TYPE_PRIVATE_STARTDUCKINGMEDIA:
-      session->StartDucking();
-      return RespondNow(NoArguments());
-    case api::automation_internal::ACTION_TYPE_PRIVATE_STOPDUCKINGMEDIA:
-      session->StopDucking();
-      return RespondNow(NoArguments());
-    case api::automation_internal::ACTION_TYPE_PRIVATE_RESUMEMEDIA:
-      session->Resume(content::MediaSession::SuspendType::SYSTEM);
-      return RespondNow(NoArguments());
-    case api::automation_internal::ACTION_TYPE_PRIVATE_SUSPENDMEDIA:
-      session->Suspend(content::MediaSession::SuspendType::SYSTEM);
-      return RespondNow(NoArguments());
-    case api::automation_internal::ACTION_TYPE_PRIVATE_NONE:
-      // Not a private action.
-      break;
-  }
-
-  ui::AXActionData data;
-  ExtensionFunction::ResponseAction result =
-      ConvertToAXActionData(params.get(), &data);
-  rfh->AccessibilityPerformAction(data);
-  return result;
+  return RespondNow(Error("Unable to perform action on unknown tree."));
 }
 
 ExtensionFunction::ResponseAction
@@ -547,8 +554,11 @@ AutomationInternalEnableDesktopFunction::Run() {
   AutomationEventRouter::GetInstance()->RegisterListenerWithDesktopPermission(
       extension_id(), source_process_id());
 
-  AutomationManagerAura::GetInstance()->Enable(browser_context());
-  return RespondNow(NoArguments());
+  AutomationManagerAura::GetInstance()->Enable();
+  ui::AXTreeID ax_tree_id = AutomationManagerAura::GetInstance()->ax_tree_id();
+  return RespondNow(
+      ArgumentList(api::automation_internal::EnableDesktop::Results::Create(
+          ax_tree_id.ToString())));
 #else
   return RespondNow(Error("getDesktop is unsupported by this platform"));
 #endif  // defined(USE_AURA)
@@ -566,8 +576,8 @@ AutomationInternalQuerySelectorFunction::Run() {
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  content::RenderFrameHost* rfh =
-      content::RenderFrameHost::FromAXTreeID(params->args.tree_id);
+  content::RenderFrameHost* rfh = content::RenderFrameHost::FromAXTreeID(
+      ui::AXTreeID::FromString(params->args.tree_id));
   if (!rfh) {
     return RespondNow(
         Error("domQuerySelector query sent on non-web or destroyed tree."));

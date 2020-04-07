@@ -62,6 +62,7 @@ private Q_SLOTS:
     void address();
     void coordinate();
     void viewport();
+    void extendedAttributes();
     void operators();
     void comparison();
     void comparison_data();
@@ -74,6 +75,7 @@ private:
     QGeoAddress m_address;
     QGeoCoordinate m_coordinate;
     QGeoRectangle m_viewport;
+    QVariantMap m_extendedAttributes;
 };
 
 Q_DECLARE_METATYPE( QGeoCoordinate::CoordinateFormat);

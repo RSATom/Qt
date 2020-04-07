@@ -24,10 +24,27 @@ Polymer({
     /** @type {!print_preview_new.State} */
     state: Number,
 
-    /** @private {boolean} */
+    /** @private */
     printButtonEnabled_: {
       type: Boolean,
       value: false,
+    },
+
+    /** @private */
+    managed_: {
+      type: Boolean,
+      computed: 'computeManaged_(settings.headerFooter.setByPolicy, ' +
+          'settings.headerFooter.available, settings.color.setByPolicy, ' +
+          'settings.color.available, settings.duplex.setByPolicy, ' +
+          'settings.duplex.available)',
+    },
+
+    /** @private */
+    printButtonLabel_: {
+      type: String,
+      value: function() {
+        return loadTimeData.getString('printButton');
+      },
     },
 
     /** @private {?string} */
@@ -47,10 +64,11 @@ Polymer({
     errorMessage: String,
   },
 
-  observers:
-      ['update_(settings.copies.value, settings.duplex.value, ' +
-       'settings.pages.value, settings.pagesPerSheet.value, state, ' +
-       'destination.id)'],
+  observers: [
+    'update_(settings.copies.value, settings.duplex.value, ' +
+        'settings.pages.value, state, destination.id)',
+    'updatePrintButtonLabel_(destination.id)'
+  ],
 
   /** @private {!print_preview_new.State} */
   lastState_: print_preview_new.State.NOT_READY,
@@ -77,12 +95,9 @@ Polymer({
              print_preview.Destination.GooglePromotedId.DOCS);
   },
 
-  /**
-   * @return {string}
-   * @private
-   */
-  getPrintButton_: function() {
-    return loadTimeData.getString(
+  /** @private */
+  updatePrintButtonLabel_: function() {
+    this.printButtonLabel_ = loadTimeData.getString(
         this.isPdfOrDrive_() ? 'saveButton' : 'printButton');
   },
 
@@ -96,14 +111,6 @@ Polymer({
     let numSheets = numPages;
     if (!saveToPdfOrDrive && this.getSettingValue('duplex')) {
       numSheets = Math.ceil(numPages / 2);
-    }
-
-    const pagesPerSheet = parseInt(this.getSettingValue('pagesPerSheet'), 10);
-
-    if (!Number.isNaN(pagesPerSheet)) {
-      assert(pagesPerSheet > 0);
-      numSheets = Math.ceil(numSheets / pagesPerSheet);
-      numPages = Math.ceil(numPages / pagesPerSheet);
     }
 
     const copies = parseInt(this.getSettingValue('copies'), 10);
@@ -146,7 +153,7 @@ Polymer({
         if (this.lastState_ != this.state &&
             (document.activeElement == null ||
              document.activeElement == document.body)) {
-          this.$$('button.print').focus();
+          this.$$('paper-button.action-button').focus();
         }
         break;
       case (print_preview_new.State.FATAL_ERROR):
@@ -188,5 +195,17 @@ Polymer({
     return loadTimeData.getStringF(
         'printPreviewSummaryFormatShort', labelInfo.numSheets.toLocaleString(),
         labelInfo.summaryLabel);
-  }
+  },
+
+  /**
+   * @return {boolean} Whether any setting on the page is managed by enterprise
+   *     policy.
+   * @private
+   */
+  computeManaged_: function() {
+    return ['color', 'duplex', 'headerFooter'].some(settingName => {
+      const setting = this.getSetting(settingName);
+      return setting.available && setting.setByPolicy;
+    });
+  },
 });

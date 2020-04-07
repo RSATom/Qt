@@ -45,9 +45,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_LAYER_PAINTING_INFO_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_LAYER_PAINTING_INFO_H_
 
+#include "base/logging.h"
 #include "third_party/blink/renderer/core/paint/paint_phase.h"
-#include "third_party/blink/renderer/platform/geometry/layout_rect.h"
+#include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
+
+#if DCHECK_IS_ON()
+#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#endif
 
 namespace blink {
 
@@ -56,7 +62,6 @@ class PaintLayer;
 enum PaintLayerFlag {
   kPaintLayerNoFlag = 0,
   kPaintLayerHaveTransparency = 1,
-  kPaintLayerAppliedTransform = 1 << 1,
   kPaintLayerUncachedClipRects = 1 << 2,
   kPaintLayerPaintingOverlayScrollbars = 1 << 3,
   kPaintLayerPaintingCompositingBackgroundPhase = 1 << 4,
@@ -81,25 +86,81 @@ typedef unsigned PaintLayerFlags;
 
 struct PaintLayerPaintingInfo {
   STACK_ALLOCATED();
-  PaintLayerPaintingInfo(PaintLayer* in_root_layer,
-                         const LayoutRect& in_dirty_rect,
+
+ public:
+  PaintLayerPaintingInfo(PaintLayer* root_layer,
+                         const CullRect& cull_rect,
                          GlobalPaintFlags global_paint_flags,
-                         const LayoutSize& in_sub_pixel_accumulation)
-      : root_layer(in_root_layer),
-        paint_dirty_rect(in_dirty_rect),
-        sub_pixel_accumulation(in_sub_pixel_accumulation),
+                         const LayoutSize& sub_pixel_accumulation)
+      : root_layer(root_layer),
+        cull_rect(cull_rect),
+        sub_pixel_accumulation(sub_pixel_accumulation),
         global_paint_flags_(global_paint_flags) {}
 
   GlobalPaintFlags GetGlobalPaintFlags() const { return global_paint_flags_; }
 
   // TODO(jchaffraix): We should encapsulate all these fields.
   const PaintLayer* root_layer;
-  LayoutRect paint_dirty_rect;  // relative to rootLayer;
+  CullRect cull_rect;  // relative to rootLayer;
   LayoutSize sub_pixel_accumulation;
 
  private:
   const GlobalPaintFlags global_paint_flags_;
 };
+
+#if DCHECK_IS_ON()
+inline String PaintLayerFlagsToDebugString(PaintLayerFlags flags) {
+  if (flags == 0)
+    return "(kPaintLayerNoFlag)";
+
+  StringBuilder builder;
+  builder.Append("(");
+  bool need_separator = false;
+  auto append = [&builder, &need_separator](const char* str) {
+    if (need_separator)
+      builder.Append("|");
+    builder.Append(str);
+    need_separator = true;
+  };
+
+  if (flags & kPaintLayerPaintingCompositingAllPhases) {
+    append("kPaintLayerPaintingCompositingAllPhases");
+  } else {
+    if (flags & kPaintLayerPaintingCompositingBackgroundPhase)
+      append("kPaintLayerPaintingCompositingBackgroundPhase");
+    if (flags & kPaintLayerPaintingCompositingForegroundPhase)
+      append("kPaintLayerPaintingCompositingForegroundPhase");
+    if (flags & kPaintLayerPaintingCompositingMaskPhase)
+      append("kPaintLayerPaintingCompositingMaskPhase");
+    if (flags & kPaintLayerPaintingCompositingDecorationPhase)
+      append("kPaintLayerPaintingCompositingDecorationPhase");
+  }
+
+  if (flags & kPaintLayerHaveTransparency)
+    append("kPaintLayerHaveTransparency");
+  if (flags & kPaintLayerUncachedClipRects)
+    append("kPaintLayerUncachedClipRects");
+  if (flags & kPaintLayerPaintingOverlayScrollbars)
+    append("kPaintLayerPaintingOverlayScrollbars");
+  if (flags & kPaintLayerPaintingCompositingScrollingPhase)
+    append("kPaintLayerPaintingCompositingScrollingPhase");
+  if (flags & kPaintLayerPaintingOverflowContents)
+    append("kPaintLayerPaintingOverflowContents");
+  if (flags & kPaintLayerPaintingSkipRootBackground)
+    append("kPaintLayerPaintingSkipRootBackground");
+  if (flags & kPaintLayerPaintingChildClippingMaskPhase)
+    append("kPaintLayerPaintingChildClippingMaskPhase");
+  if (flags & kPaintLayerPaintingAncestorClippingMaskPhase)
+    append("kPaintLayerPaintingAncestorClippingMaskPhase");
+  if (flags & kPaintLayerPaintingRenderingClipPathAsMask)
+    append("kPaintLayerPaintingRenderingClipPathAsMask");
+  if (flags & kPaintLayerPaintingRenderingResourceSubtree)
+    append("kPaintLayerPaintingRenderingResourceSubtree");
+
+  builder.Append(")");
+  return builder.ToString();
+}
+#endif  // DCHECK_IS_ON()
 
 }  // namespace blink
 

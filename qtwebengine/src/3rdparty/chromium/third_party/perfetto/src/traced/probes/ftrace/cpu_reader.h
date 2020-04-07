@@ -26,18 +26,23 @@
 #include <set>
 #include <thread>
 
-#include "gtest/gtest_prod.h"
-#include "perfetto/base/build_config.h"
-#include "perfetto/base/page_allocator.h"
+#include "perfetto/base/gtest_prod_util.h"
+#include "perfetto/base/paged_memory.h"
+#include "perfetto/base/pipe.h"
 #include "perfetto/base/scoped_file.h"
 #include "perfetto/base/thread_checker.h"
 #include "perfetto/protozero/message.h"
+#include "perfetto/protozero/message_handle.h"
 #include "perfetto/traced/data_source_types.h"
-#include "src/traced/probes/ftrace/ftrace_controller.h"
+#include "src/traced/probes/ftrace/ftrace_config.h"
+#include "src/traced/probes/ftrace/ftrace_metadata.h"
+#include "src/traced/probes/ftrace/page_pool.h"
 #include "src/traced/probes/ftrace/proto_translation_table.h"
 
 namespace perfetto {
 
+class FtraceDataSource;
+struct FtraceThreadSync;
 class ProtoTranslationTable;
 
 namespace protos {
@@ -46,49 +51,24 @@ class FtraceEventBundle;
 }  // namespace pbzero
 }  // namespace protos
 
-// Class for efficient 'is event with id x enabled?' tests.
-// Mirrors the data in a FtraceConfig but in a format better suited
-// to be consumed by CpuReader.
-class EventFilter {
- public:
-  EventFilter(const ProtoTranslationTable&, std::set<std::string>);
-  ~EventFilter();
 
-  bool IsEventEnabled(size_t ftrace_event_id) const {
-    if (ftrace_event_id == 0 || ftrace_event_id > enabled_ids_.size()) {
-      return false;
-    }
-    return enabled_ids_[ftrace_event_id];
-  }
-
-  const std::set<std::string>& enabled_names() const { return enabled_names_; }
-
- private:
-  EventFilter(const EventFilter&) = delete;
-  EventFilter& operator=(const EventFilter&) = delete;
-
-  const std::vector<bool> enabled_ids_;
-  std::set<std::string> enabled_names_;
-};
-
-// Processes raw ftrace data for a logical CPU core.
+// Reads raw ftrace data for a cpu and writes that into the perfetto userspace
+// buffer.
 class CpuReader {
  public:
-  // |on_data_available| will be called on an arbitrary thread when at least one
-  // page of ftrace data is available for draining on this CPU.
+  using FtraceEventBundle = protos::pbzero::FtraceEventBundle;
+
   CpuReader(const ProtoTranslationTable*,
+            FtraceThreadSync*,
             size_t cpu,
-            base::ScopedFile fd,
-            std::function<void()> on_data_available);
+            int generation,
+            base::ScopedFile fd);
   ~CpuReader();
 
-  // Drains all available data from the staging pipe into the given sinks.
-  // Should be called in response to the |on_data_available| callback.
-  bool Drain(const std::array<const EventFilter*, kMaxSinks>&,
-             const std::array<
-                 protozero::MessageHandle<protos::pbzero::FtraceEventBundle>,
-                 kMaxSinks>&,
-             const std::array<FtraceMetadata*, kMaxSinks>& metadatas);
+  // Drains all available data into the buffer of the passed data sources.
+  void Drain(const std::set<FtraceDataSource*>&);
+
+  void InterruptWorkerThreadWithSignal();
 
   template <typename T>
   static bool ReadAndAdvance(const uint8_t** ptr, const uint8_t* end, T* out) {
@@ -201,25 +181,24 @@ class CpuReader {
 
  private:
   static void RunWorkerThread(size_t cpu,
+                              int generation,
                               int trace_fd,
-                              int staging_write_fd,
-                              const std::function<void()>& on_data_available,
-                              std::atomic<bool>* exiting);
+                              PagePool*,
+                              FtraceThreadSync*,
+                              uint16_t header_size_len);
 
-  uint8_t* GetBuffer();
   CpuReader(const CpuReader&) = delete;
   CpuReader& operator=(const CpuReader&) = delete;
 
-  const ProtoTranslationTable* table_;
+  const ProtoTranslationTable* const table_;
+  FtraceThreadSync* const thread_sync_;
   const size_t cpu_;
+  PagePool pool_;
   base::ScopedFile trace_fd_;
-  base::ScopedFile staging_read_fd_;
-  base::ScopedFile staging_write_fd_;
-  base::PageAllocator::UniquePtr buffer_;
   std::thread worker_thread_;
-  std::atomic<bool> exiting_{false};
   PERFETTO_THREAD_CHECKER(thread_checker_)
 };
+
 
 }  // namespace perfetto
 

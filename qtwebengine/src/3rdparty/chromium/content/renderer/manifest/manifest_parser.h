@@ -144,10 +144,9 @@ class CONTENT_EXPORT ManifestParser {
   // Parses the 'purpose' field of an icon, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-a-purpose-member-of-an-image
   // Returns a vector of Manifest::Icon::IconPurpose with the successfully
-  // parsed icon purposes, and a vector with Manifest::Icon::IconPurpose::Any if
-  // the parsing failed.
-  std::vector<blink::Manifest::ImageResource::Purpose> ParseIconPurpose(
-      const base::DictionaryValue& icon);
+  // parsed icon purposes, and nullopt if the parsing failed.
+  base::Optional<std::vector<blink::Manifest::ImageResource::Purpose>>
+  ParseIconPurpose(const base::DictionaryValue& icon);
 
   // Parses the 'icons' field of a Manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-an-array-of-images
@@ -156,10 +155,48 @@ class CONTENT_EXPORT ManifestParser {
   std::vector<blink::Manifest::ImageResource> ParseIcons(
       const base::DictionaryValue& dictionary);
 
-  // Parses the 'url_template' field of a Share Target, as defined in:
+  // Parses the name field of a share target file, as defined in:
   // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
-  // Returns the parsed GURL if any, or an empty GURL if the parsing failed.
-  GURL ParseShareTargetURLTemplate(const base::DictionaryValue& share_target);
+  // Returns the parsed string if any, an empty string if the parsing failed.
+  base::string16 ParseShareTargetFileName(const base::DictionaryValue& file);
+
+  // Parses the accept field of a share target file, as defined in:
+  // https://wicg.github.io/web-share-target/level-2/#sharetargetfiles-and-its-members
+  // Returns the vector of parsed strings if any, an empty vector if the parsing
+  // failed or no accept instances were provided.
+  std::vector<base::string16> ParseShareTargetFileAccept(
+      const base::DictionaryValue& file);
+
+  // Parses the 'files' field of a Share Target param, as defined in:
+  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // Returns a parsed vector of share target files.
+  std::vector<blink::Manifest::ShareTargetFile> ParseShareTargetFiles(
+      const base::DictionaryValue& share_target_params);
+
+  // Parses a single ShareTargetFile (see above comment) and appends it to
+  // the given |files| vector.
+  void ParseShareTargetFile(
+      const base::DictionaryValue& file_dictionary,
+      std::vector<blink::Manifest::ShareTargetFile>* files);
+
+  // Parses the method field of a Share Target, as defined in:
+  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // Returns an optional share target method enum object..
+  base::Optional<blink::Manifest::ShareTarget::Method> ParseShareTargetMethod(
+      const base::DictionaryValue& share_target_dict);
+
+  // Parses the enctype field of a Share Target, as defined in:
+  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // Returns an optional share target enctype enum object.
+  base::Optional<blink::Manifest::ShareTarget::Enctype> ParseShareTargetEnctype(
+      const base::DictionaryValue& share_target_dict);
+
+  // Parses the 'params' field of a Share Target, as defined in:
+  // https://wicg.github.io/web-share-target/level-2/#sharetargetparams-and-its-members
+  // Returns a parsed Manifest::ShareTargetParams, not all fields need to be
+  // populated.
+  blink::Manifest::ShareTargetParams ParseShareTargetParams(
+      const base::DictionaryValue& share_target_params);
 
   // Parses the 'share_target' field of a Manifest, as defined in:
   // https://github.com/WICG/web-share-target/blob/master/docs/interface.md

@@ -44,6 +44,7 @@
 #include "qhelpindexwidget.h"
 #include "qhelpsearchengine.h"
 #include "qhelpcollectionhandler_p.h"
+#include "qhelpfilterengine.h"
 
 #include <QtCore/QDir>
 #include <QtCore/QFile>
@@ -68,6 +69,8 @@ void QHelpEnginePrivate::init(const QString &collectionFile,
             this, &QHelpEnginePrivate::scheduleApplyCurrentFilter);
     connect(helpEngineCore, &QHelpEngineCore::currentFilterChanged,
             this, &QHelpEnginePrivate::scheduleApplyCurrentFilter);
+    connect(helpEngineCore->filterEngine(), &QHelpFilterEngine::filterActivated,
+            this, &QHelpEnginePrivate::scheduleApplyCurrentFilter);
 }
 
 void QHelpEnginePrivate::scheduleApplyCurrentFilter()
@@ -85,8 +88,11 @@ void QHelpEnginePrivate::scheduleApplyCurrentFilter()
 void QHelpEnginePrivate::applyCurrentFilter()
 {
     m_isApplyCurrentFilterScheduled = false;
-    contentModel->createContents(currentFilter);
-    indexModel->createIndex(currentFilter);
+    const QString filter = usesFilterEngine
+            ? q->filterEngine()->activeFilter()
+            : currentFilter;
+    contentModel->createContents(filter);
+    indexModel->createIndex(filter);
 }
 
 void QHelpEnginePrivate::setContentsWidgetBusy()
@@ -117,22 +123,12 @@ void QHelpEnginePrivate::unsetIndexWidgetBusy()
 #endif
 }
 
-void QHelpEnginePrivate::stopDataCollection()
-{
-    contentModel->invalidateContents(true);
-    indexModel->invalidateIndex(true);
-}
-
-
-
 /*!
     \class QHelpEngine
     \since 4.4
     \inmodule QtHelp
     \brief The QHelpEngine class provides access to contents and
     indices of the help engine.
-
-
 */
 
 /*!
@@ -152,7 +148,6 @@ QHelpEngine::QHelpEngine(const QString &collectionFile, QObject *parent)
 */
 QHelpEngine::~QHelpEngine()
 {
-    d->stopDataCollection();
 }
 
 /*!

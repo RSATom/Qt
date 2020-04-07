@@ -18,8 +18,8 @@
 #include "libANGLE/renderer/d3d/SwapChainD3D.h"
 #include "libANGLE/renderer/d3d/d3d11/formatutils11.h"
 
-#include <tchar.h>
 #include <EGL/eglext.h>
+#include <tchar.h>
 #include <algorithm>
 
 namespace rx
@@ -36,6 +36,8 @@ SurfaceD3D::SurfaceD3D(const egl::SurfaceState &state,
       mRenderer(renderer),
       mDisplay(display),
       mFixedSize(window == nullptr || attribs.get(EGL_FIXED_SIZE_ANGLE, EGL_FALSE) == EGL_TRUE),
+      mFixedWidth(0),
+      mFixedHeight(0),
       mOrientation(static_cast<EGLint>(attribs.get(EGL_SURFACE_ORIENTATION_ANGLE, 0))),
       mRenderTargetFormat(state.config->renderTargetFormat),
       mDepthStencilFormat(state.config->depthStencilFormat),
@@ -54,6 +56,12 @@ SurfaceD3D::SurfaceD3D(const egl::SurfaceState &state,
     {
         mWidth  = -1;
         mHeight = -1;
+    }
+
+    if (mFixedSize)
+    {
+        mFixedWidth  = mWidth;
+        mFixedHeight = mHeight;
     }
 
     switch (buftype)
@@ -97,33 +105,33 @@ egl::Error SurfaceD3D::initialize(const egl::Display *display)
 
     if (mBuftype == EGL_D3D_TEXTURE_ANGLE)
     {
-        ANGLE_TRY(mRenderer->getD3DTextureInfo(mState.config, mD3DTexture, &mWidth, &mHeight,
-                                               &mColorFormat));
+        ANGLE_TRY(mRenderer->getD3DTextureInfo(mState.config, mD3DTexture, &mFixedWidth,
+                                               &mFixedHeight, &mColorFormat));
         if (mState.attributes.contains(EGL_GL_COLORSPACE))
         {
-            if (mColorFormat->id != angle::Format::ID::R8G8B8A8_TYPELESS &&
-                mColorFormat->id != angle::Format::ID::B8G8R8A8_TYPELESS)
+            if (mColorFormat->id != angle::FormatID::R8G8B8A8_TYPELESS &&
+                mColorFormat->id != angle::FormatID::B8G8R8A8_TYPELESS)
             {
                 return egl::EglBadMatch()
                        << "EGL_GL_COLORSPACE may only be specified for TYPELESS textures";
             }
         }
-        if (mColorFormat->id == angle::Format::ID::R8G8B8A8_TYPELESS)
+        if (mColorFormat->id == angle::FormatID::R8G8B8A8_TYPELESS)
         {
             EGLAttrib colorspace =
                 mState.attributes.get(EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_LINEAR);
             if (colorspace == EGL_GL_COLORSPACE_SRGB)
             {
-                mColorFormat = &angle::Format::Get(angle::Format::ID::R8G8B8A8_TYPELESS_SRGB);
+                mColorFormat = &angle::Format::Get(angle::FormatID::R8G8B8A8_TYPELESS_SRGB);
             }
         }
-        if (mColorFormat->id == angle::Format::ID::B8G8R8A8_TYPELESS)
+        if (mColorFormat->id == angle::FormatID::B8G8R8A8_TYPELESS)
         {
             EGLAttrib colorspace =
                 mState.attributes.get(EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_LINEAR);
             if (colorspace == EGL_GL_COLORSPACE_SRGB)
             {
-                mColorFormat = &angle::Format::Get(angle::Format::ID::B8G8R8A8_TYPELESS_SRGB);
+                mColorFormat = &angle::Format::Get(angle::FormatID::B8G8R8A8_TYPELESS_SRGB);
             }
         }
         mRenderTargetFormat = mColorFormat->fboImplementationInternalFormat;
@@ -171,14 +179,14 @@ egl::Error SurfaceD3D::resetSwapChain(const egl::Display *display)
             return egl::EglBadSurface() << "Could not retrieve the window dimensions";
         }
 
-        width = windowRect.right - windowRect.left;
+        width  = windowRect.right - windowRect.left;
         height = windowRect.bottom - windowRect.top;
     }
     else
     {
         // non-window surface - size is determined at creation
-        width = mWidth;
-        height = mHeight;
+        width  = mFixedWidth;
+        height = mFixedHeight;
     }
 
     mSwapChain =
@@ -221,7 +229,7 @@ egl::Error SurfaceD3D::resizeSwapChain(DisplayD3D *displayD3D,
         return egl::Error(status);
     }
 
-    mWidth = backbufferWidth;
+    mWidth  = backbufferWidth;
     mHeight = backbufferHeight;
 
     return egl::NoError();
@@ -247,8 +255,8 @@ egl::Error SurfaceD3D::resetSwapChain(DisplayD3D *displayD3D,
         return egl::Error(status);
     }
 
-    mWidth = backbufferWidth;
-    mHeight = backbufferHeight;
+    mWidth             = backbufferWidth;
+    mHeight            = backbufferHeight;
     mSwapIntervalDirty = false;
 
     return egl::NoError();
@@ -298,23 +306,30 @@ egl::Error SurfaceD3D::swapRect(DisplayD3D *displayD3D,
 egl::Error SurfaceD3D::checkForOutOfDateSwapChain(DisplayD3D *displayD3D)
 {
     RECT client;
-    int clientWidth = getWidth();
+    int clientWidth  = getWidth();
     int clientHeight = getHeight();
-    bool sizeDirty = false;
+    bool sizeDirty   = false;
     if (!mFixedSize && !mNativeWindow->isIconic())
     {
-        // The window is automatically resized to 150x22 when it's minimized, but the swapchain shouldn't be resized
-        // because that's not a useful size to render to.
+        // The window is automatically resized to 150x22 when it's minimized, but the swapchain
+        // shouldn't be resized because that's not a useful size to render to.
         if (!mNativeWindow->getClientRect(&client))
         {
             UNREACHABLE();
             return egl::NoError();
         }
 
-        // Grow the buffer now, if the window has grown. We need to grow now to avoid losing information.
-        clientWidth = client.right - client.left;
+        // Grow the buffer now, if the window has grown. We need to grow now to avoid losing
+        // information.
+        clientWidth  = client.right - client.left;
         clientHeight = client.bottom - client.top;
-        sizeDirty = clientWidth != getWidth() || clientHeight != getHeight();
+        sizeDirty    = clientWidth != getWidth() || clientHeight != getHeight();
+    }
+    else if (mFixedSize)
+    {
+        clientWidth  = mFixedWidth;
+        clientHeight = mFixedHeight;
+        sizeDirty    = mFixedWidth != getWidth() || mFixedHeight != getHeight();
     }
 
     if (mSwapIntervalDirty)
@@ -357,8 +372,18 @@ void SurfaceD3D::setSwapInterval(EGLint interval)
         return;
     }
 
-    mSwapInterval = interval;
+    mSwapInterval      = interval;
     mSwapIntervalDirty = true;
+}
+
+void SurfaceD3D::setFixedWidth(EGLint width)
+{
+    mFixedWidth = width;
+}
+
+void SurfaceD3D::setFixedHeight(EGLint height)
+{
+    mFixedHeight = height;
 }
 
 EGLint SurfaceD3D::getWidth() const
@@ -392,7 +417,8 @@ egl::Error SurfaceD3D::querySurfacePointerANGLE(EGLint attribute, void **value)
     {
         *value = mSwapChain->getKeyedMutex();
     }
-    else UNREACHABLE();
+    else
+        UNREACHABLE();
 
     return egl::NoError();
 }
@@ -402,10 +428,10 @@ const angle::Format *SurfaceD3D::getD3DTextureColorFormat() const
     return mColorFormat;
 }
 
-gl::Error SurfaceD3D::getAttachmentRenderTarget(const gl::Context *context,
-                                                GLenum binding,
-                                                const gl::ImageIndex &imageIndex,
-                                                FramebufferAttachmentRenderTarget **rtOut)
+angle::Result SurfaceD3D::getAttachmentRenderTarget(const gl::Context *context,
+                                                    GLenum binding,
+                                                    const gl::ImageIndex &imageIndex,
+                                                    FramebufferAttachmentRenderTarget **rtOut)
 {
     if (binding == GL_BACK)
     {
@@ -415,21 +441,21 @@ gl::Error SurfaceD3D::getAttachmentRenderTarget(const gl::Context *context,
     {
         *rtOut = mSwapChain->getDepthStencilRenderTarget();
     }
-    return gl::NoError();
+    return angle::Result::Continue;
 }
 
-gl::Error SurfaceD3D::initializeContents(const gl::Context * /*context*/,
-                                         const gl::ImageIndex & /*imageIndex*/)
+angle::Result SurfaceD3D::initializeContents(const gl::Context *context,
+                                             const gl::ImageIndex &imageIndex)
 {
     if (mState.config->renderTargetFormat != GL_NONE)
     {
-        ANGLE_TRY(mRenderer->initRenderTarget(mSwapChain->getColorRenderTarget()));
+        ANGLE_TRY(mRenderer->initRenderTarget(context, mSwapChain->getColorRenderTarget()));
     }
     if (mState.config->depthStencilFormat != GL_NONE)
     {
-        ANGLE_TRY(mRenderer->initRenderTarget(mSwapChain->getDepthStencilRenderTarget()));
+        ANGLE_TRY(mRenderer->initRenderTarget(context, mSwapChain->getDepthStencilRenderTarget()));
     }
-    return gl::NoError();
+    return angle::Result::Continue;
 }
 
 WindowSurfaceD3D::WindowSurfaceD3D(const egl::SurfaceState &state,
@@ -437,19 +463,10 @@ WindowSurfaceD3D::WindowSurfaceD3D(const egl::SurfaceState &state,
                                    egl::Display *display,
                                    EGLNativeWindowType window,
                                    const egl::AttributeMap &attribs)
-    : SurfaceD3D(state,
-                 renderer,
-                 display,
-                 window,
-                 0,
-                 static_cast<EGLClientBuffer>(0),
-                 attribs)
-{
-}
+    : SurfaceD3D(state, renderer, display, window, 0, static_cast<EGLClientBuffer>(0), attribs)
+{}
 
-WindowSurfaceD3D::~WindowSurfaceD3D()
-{
-}
+WindowSurfaceD3D::~WindowSurfaceD3D() {}
 
 PbufferSurfaceD3D::PbufferSurfaceD3D(const egl::SurfaceState &state,
                                      RendererD3D *renderer,
@@ -464,11 +481,8 @@ PbufferSurfaceD3D::PbufferSurfaceD3D(const egl::SurfaceState &state,
                  buftype,
                  clientBuffer,
                  attribs)
-{
-}
+{}
 
-PbufferSurfaceD3D::~PbufferSurfaceD3D()
-{
-}
+PbufferSurfaceD3D::~PbufferSurfaceD3D() {}
 
-}  // namespace rc
+}  // namespace rx

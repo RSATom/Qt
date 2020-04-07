@@ -33,11 +33,8 @@
 
 #include <memory>
 
-#include "third_party/blink/public/common/message_port/transferable_message.h"
+#include "base/time/time.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_event_status.mojom-shared.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_clients_claim_callbacks.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_clients_info.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_skip_waiting_callbacks.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_stream_handle.h"
 #include "third_party/blink/public/platform/web_feature.mojom-shared.h"
 #include "third_party/blink/public/platform/web_url.h"
@@ -47,10 +44,8 @@
 namespace blink {
 
 struct WebPaymentHandlerResponse;
-struct WebServiceWorkerClientQueryOptions;
 class WebServiceWorkerContextProxy;
 class WebServiceWorkerNetworkProvider;
-class WebServiceWorkerProvider;
 class WebServiceWorkerResponse;
 class WebString;
 
@@ -66,33 +61,6 @@ class WebServiceWorkerContextClient {
  public:
   virtual ~WebServiceWorkerContextClient() = default;
 
-  // For Clients#get(id). Requests the embedder to return the specified Client.
-  virtual void GetClient(const WebString& client_id,
-                         std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
-
-  // For Clients#matchAll(options). Requests the embedder to return all matching
-  // Clients.
-  virtual void GetClients(
-      const WebServiceWorkerClientQueryOptions&,
-      std::unique_ptr<WebServiceWorkerClientsCallbacks>) = 0;
-
-  // For Clients#openWindow(url). Requests the embedder to open a tab.
-  virtual void OpenNewTab(const WebURL&,
-                          std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
-
-  // Similar to OpenNewTab above. For PaymentRequestEvent#openWindow().
-  virtual void OpenPaymentHandlerWindow(
-      const WebURL&,
-      std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
-
-  // A suggestion to cache this metadata in association with this URL.
-  virtual void SetCachedMetadata(const WebURL& url,
-                                 const char* data,
-                                 size_t size) {}
-
-  // A suggestion to clear the cached metadata in association with this URL.
-  virtual void ClearCachedMetadata(const WebURL& url) {}
-
   // ServiceWorker has prepared everything for script loading and is now ready
   // for DevTools inspection.
   virtual void WorkerReadyForInspection() {}
@@ -102,12 +70,20 @@ class WebServiceWorkerContextClient {
   // completed. Called on the main thread.
   virtual void WorkerContextFailedToStart() {}
 
+  // The worker started but it could not execute because loading the
+  // installed classic script failed.
+  virtual void FailedToLoadInstalledClassicScript() {}
+
+  // The worker started but it could not execute because fetching module script
+  // failed.
+  virtual void FailedToFetchModuleScript() {}
+
   // The worker script successfully loaded. Called on the main thread when the
   // script is served from ResourceLoader or on the worker thread when the
   // script is served via WebServiceWorkerInstalledScriptsManager.
   //
   // This may be called before or after WorkerContextStarted(). Script
-  // evaluation does not start until WillEvaluateClassicScript().
+  // evaluation does not start until WillEvaluateScript().
   virtual void WorkerScriptLoaded() {}
 
   // Called when a WorkerGlobalScope was created for the worker thread. This
@@ -117,18 +93,18 @@ class WebServiceWorkerContextClient {
   // willDestroyWorkerContext() is called.
   //
   // This may be called before or after WorkerScriptLoaded(). Script evaluation
-  // does not start until WillEvaluateClassicScript().
+  // does not start until WillEvaluateScript().
   virtual void WorkerContextStarted(WebServiceWorkerContextProxy*) {}
 
-  // Called immediately before V8 script evaluation starts. This means all setup
-  // is finally complete: the script has been loaded, the worker thread has
-  // started, the script has been passed to the worker thread, and CSP and
-  // ReferrerPolicy information has been set on the worker thread.
-  virtual void WillEvaluateClassicScript() {}
+  // Called immediately before V8 script evaluation starts for the main script.
+  // This means all setup is finally complete: the script has been loaded, the
+  // worker thread has started, the script has been passed to the worker thread,
+  // and CSP and ReferrerPolicy information has been set on the worker thread.
+  virtual void WillEvaluateScript() {}
 
-  // Called when initial script evaluation finished. |success| is true if the
-  // evaluation completed with no uncaught exception.
-  virtual void DidEvaluateClassicScript(bool success) {}
+  // Called when initial script evaluation finished for the main script.
+  // |success| is true if the evaluation completed with no uncaught exception.
+  virtual void DidEvaluateScript(bool success) {}
 
   // Called when the worker context is initialized. This is probably called
   // after WorkerContextStarted(). (WorkerThread::InitializeOnWorkerThread()
@@ -169,36 +145,31 @@ class WebServiceWorkerContextClient {
 
   // Called after an 'activate' event completed.
   virtual void DidHandleActivateEvent(int event_id,
-                                      mojom::ServiceWorkerEventStatus,
-                                      double event_dispatch_time) {}
+                                      mojom::ServiceWorkerEventStatus) {}
 
   // Called after Background Fetch events (dispatched via
   // WebServiceWorkerContextProxy) are handled by the service worker.
   virtual void DidHandleBackgroundFetchAbortEvent(
       int event_id,
-      mojom::ServiceWorkerEventStatus,
-      double event_dispatch_time) {}
+      mojom::ServiceWorkerEventStatus) {}
   virtual void DidHandleBackgroundFetchClickEvent(
       int event_id,
-      mojom::ServiceWorkerEventStatus,
-      double event_dispatch_time) {}
+      mojom::ServiceWorkerEventStatus) {}
   virtual void DidHandleBackgroundFetchFailEvent(
       int event_id,
-      mojom::ServiceWorkerEventStatus,
-      double event_dispatch_time) {}
-  virtual void DidHandleBackgroundFetchedEvent(int event_id,
-                                               mojom::ServiceWorkerEventStatus,
-                                               double event_dispatch_time) {}
+      mojom::ServiceWorkerEventStatus) {}
+  virtual void DidHandleBackgroundFetchSuccessEvent(
+      int event_id,
+      mojom::ServiceWorkerEventStatus) {}
 
   // Called after 'cookiechange' events are handled by the service worker.
   virtual void DidHandleCookieChangeEvent(int event_id,
-                                          mojom::ServiceWorkerEventStatus,
-                                          double event_dispatch_time) {}
+                                          mojom::ServiceWorkerEventStatus) {}
 
   // Called after ExtendableMessageEvent was handled by the service worker.
-  virtual void DidHandleExtendableMessageEvent(int event_id,
-                                               mojom::ServiceWorkerEventStatus,
-                                               double event_dispatch_time) {}
+  virtual void DidHandleExtendableMessageEvent(
+      int event_id,
+      mojom::ServiceWorkerEventStatus) {}
 
   // RespondToFetchEvent* will be called after the service worker returns a
   // response to a FetchEvent, and DidHandleFetchEvent will be called after the
@@ -207,65 +178,62 @@ class WebServiceWorkerContextClient {
 
   // Used when respondWith() is not called. Tells the browser to fall back to
   // native fetch.
-  virtual void RespondToFetchEventWithNoResponse(int fetch_event_id,
-                                                 double event_dispatch_time) {}
+  virtual void RespondToFetchEventWithNoResponse(
+      int fetch_event_id,
+      base::TimeTicks event_dispatch_time,
+      base::TimeTicks respond_with_settled_time) {}
   // Responds to the fetch event with |response|.
   virtual void RespondToFetchEvent(int fetch_event_id,
                                    const WebServiceWorkerResponse& response,
-                                   double event_dispatch_time) {}
+                                   base::TimeTicks event_dispatch_time,
+                                   base::TimeTicks respond_with_settled_time) {}
   // Responds to the fetch event with |response|, where body is
   // |body_as_stream|.
   virtual void RespondToFetchEventWithResponseStream(
       int fetch_event_id,
       const WebServiceWorkerResponse& response,
       WebServiceWorkerStreamHandle* body_as_stream,
-      double event_dispatch_time) {}
+      base::TimeTicks event_dispatch_time,
+      base::TimeTicks respond_with_settled_time) {}
   virtual void DidHandleFetchEvent(int fetch_event_id,
-                                   mojom::ServiceWorkerEventStatus,
-                                   double event_dispatch_time) {}
+                                   mojom::ServiceWorkerEventStatus) {}
 
   // Called after InstallEvent (dispatched via WebServiceWorkerContextProxy) is
   // handled by the service worker.
   virtual void DidHandleInstallEvent(int install_event_id,
-                                     mojom::ServiceWorkerEventStatus,
-                                     double event_dispatch_time) {}
+                                     mojom::ServiceWorkerEventStatus) {}
 
   // Called after NotificationClickEvent (dispatched via
   // WebServiceWorkerContextProxy) is handled by the service worker.
-  virtual void DidHandleNotificationClickEvent(int event_id,
-                                               mojom::ServiceWorkerEventStatus,
-                                               double event_dispatch_time) {}
+  virtual void DidHandleNotificationClickEvent(
+      int event_id,
+      mojom::ServiceWorkerEventStatus) {}
 
   // Called after NotificationCloseEvent (dispatched via
   // WebServiceWorkerContextProxy) is handled by the service worker.
-  virtual void DidHandleNotificationCloseEvent(int event_id,
-                                               mojom::ServiceWorkerEventStatus,
-                                               double event_dispatch_time) {}
+  virtual void DidHandleNotificationCloseEvent(
+      int event_id,
+      mojom::ServiceWorkerEventStatus) {}
 
   // Called after PushEvent (dispatched via WebServiceWorkerContextProxy) is
   // handled by the service worker.
   virtual void DidHandlePushEvent(int push_event_id,
-                                  mojom::ServiceWorkerEventStatus,
-                                  double event_dispatch_time) {}
+                                  mojom::ServiceWorkerEventStatus) {}
 
   // Called after SyncEvent (dispatched via WebServiceWorkerContextProxy) is
   // handled by the service worker.
   virtual void DidHandleSyncEvent(int sync_event_id,
-                                  mojom::ServiceWorkerEventStatus,
-                                  double event_dispatch_time) {}
+                                  mojom::ServiceWorkerEventStatus) {}
 
   // RespondToAbortPaymentEvent will be called after the service worker
   // returns a response to a AbortPaymentEvent, and DidHandleAbortPaymentEvent
   // will be called after the end of AbortPaymentEvent's lifecycle.
   // |event_id| is the id that was passed to DispatchAbortPaymentEvent.
-  virtual void RespondToAbortPaymentEvent(int event_id,
-                                          bool abort_payment,
-                                          double event_dispatch_time) {}
+  virtual void RespondToAbortPaymentEvent(int event_id, bool abort_payment) {}
   // Called after AbortPaymentEvent (dispatched
   // via WebServiceWorkerContextProxy) is handled by the service worker.
   virtual void DidHandleAbortPaymentEvent(int abort_payment_event_id,
-                                          mojom::ServiceWorkerEventStatus,
-                                          double event_dispatch_time) {}
+                                          mojom::ServiceWorkerEventStatus) {}
 
   // RespondToCanMakePaymentEvent will be called after the service worker
   // returns a response to a CanMakePaymentEvent, and
@@ -273,13 +241,11 @@ class WebServiceWorkerContextClient {
   // CanMakePaymentEvent's lifecycle. |event_id| is the id that was passed
   // to DispatchCanMakePaymentEvent.
   virtual void RespondToCanMakePaymentEvent(int event_id,
-                                            bool can_make_payment,
-                                            double event_dispatch_time) {}
+                                            bool can_make_payment) {}
   // Called after CanMakePaymentEvent (dispatched
   // via WebServiceWorkerContextProxy) is handled by the service worker.
   virtual void DidHandleCanMakePaymentEvent(int payment_request_event_id,
-                                            mojom::ServiceWorkerEventStatus,
-                                            double event_dispatch_time) {}
+                                            mojom::ServiceWorkerEventStatus) {}
 
   // RespondToPaymentRequestEvent will be called after the service worker
   // returns a response to a PaymentRequestEvent, and
@@ -288,13 +254,11 @@ class WebServiceWorkerContextClient {
   // to DispatchPaymentRequestEvent.
   virtual void RespondToPaymentRequestEvent(
       int event_id,
-      const WebPaymentHandlerResponse& response,
-      double event_dispatch_time) {}
+      const WebPaymentHandlerResponse& response) {}
   // Called after PaymentRequestEvent (dispatched via
   // WebServiceWorkerContextProxy) is handled by the service worker.
   virtual void DidHandlePaymentRequestEvent(int payment_request_event_id,
-                                            mojom::ServiceWorkerEventStatus,
-                                            double event_dispatch_time) {}
+                                            mojom::ServiceWorkerEventStatus) {}
 
   // Called on the main thread.
   virtual std::unique_ptr<WebServiceWorkerNetworkProvider>
@@ -302,36 +266,20 @@ class WebServiceWorkerContextClient {
 
   // Creates a WebWorkerFetchContext for a service worker. This is called on the
   // main thread.
-  virtual std::unique_ptr<blink::WebWorkerFetchContext>
+  virtual scoped_refptr<blink::WebWorkerFetchContext>
   CreateServiceWorkerFetchContext(WebServiceWorkerNetworkProvider*) {
     return nullptr;
   }
 
-  // Called on the main thread.
-  virtual std::unique_ptr<WebServiceWorkerProvider>
-  CreateServiceWorkerProvider() = 0;
+  // Called when a task is going to be scheduled on the service worker.
+  // The service worker shouldn't request to be terminated until the task is
+  // finished. Returns an id for the task. The caller must call DidEndTask()
+  // with the returned id to notify that the task is finished.
+  virtual int WillStartTask() { return -1; }
 
-  // The message is only valid during this method call, unless callee calls
-  // EnsureDataIsOwned on the message.
-  virtual void PostMessageToClient(const WebString& uuid,
-                                   TransferableMessage) = 0;
-
-  // For WindowClient#focus(). Requests the embedder to focus a window.
-  virtual void Focus(const WebString& uuid,
-                     std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
-
-  // For WindowClient#navigate(). Requests the embedder to navigate to a URL.
-  virtual void Navigate(const WebString& uuid,
-                        const WebURL&,
-                        std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
-
-  // For ServiceWorkerGlobalScope#skipWaiting().
-  virtual void SkipWaiting(
-      std::unique_ptr<WebServiceWorkerSkipWaitingCallbacks>) = 0;
-
-  // For Clients#claim().
-  virtual void Claim(
-      std::unique_ptr<WebServiceWorkerClientsClaimCallbacks>) = 0;
+  // Called when a task is finished. |task_id| must be a return value of
+  // WillStartTask().
+  virtual void DidEndTask(int task_id) {}
 };
 
 }  // namespace blink

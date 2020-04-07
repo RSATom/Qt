@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
@@ -44,24 +45,25 @@ ChooserOnlyTemporalInputTypeView::ChooserOnlyTemporalInputTypeView(
 ChooserOnlyTemporalInputTypeView* ChooserOnlyTemporalInputTypeView::Create(
     HTMLInputElement& element,
     BaseTemporalInputType& input_type) {
-  return new ChooserOnlyTemporalInputTypeView(element, input_type);
+  return MakeGarbageCollected<ChooserOnlyTemporalInputTypeView>(element,
+                                                                input_type);
 }
 
 ChooserOnlyTemporalInputTypeView::~ChooserOnlyTemporalInputTypeView() {
   DCHECK(!date_time_chooser_);
 }
 
-void ChooserOnlyTemporalInputTypeView::Trace(blink::Visitor* visitor) {
+void ChooserOnlyTemporalInputTypeView::Trace(Visitor* visitor) {
   visitor->Trace(input_type_);
   visitor->Trace(date_time_chooser_);
   InputTypeView::Trace(visitor);
   DateTimeChooserClient::Trace(visitor);
 }
 
-void ChooserOnlyTemporalInputTypeView::HandleDOMActivateEvent(Event* event) {
+void ChooserOnlyTemporalInputTypeView::HandleDOMActivateEvent(Event& event) {
   Document& document = GetElement().GetDocument();
   if (GetElement().IsDisabledOrReadOnly() || !GetElement().GetLayoutObject() ||
-      !Frame::HasTransientUserActivation(document.GetFrame()) ||
+      !LocalFrame::HasTransientUserActivation(document.GetFrame()) ||
       GetElement().OpenShadowRoot())
     return;
 
@@ -74,7 +76,7 @@ void ChooserOnlyTemporalInputTypeView::HandleDOMActivateEvent(Event* event) {
     return;
   UseCounter::Count(
       document,
-      (event->UnderlyingEvent() && event->UnderlyingEvent()->isTrusted())
+      (event.UnderlyingEvent() && event.UnderlyingEvent()->isTrusted())
           ? WebFeature::kTemporalInputTypeChooserByTrustedClick
           : WebFeature::kTemporalInputTypeChooserByUntrustedClick);
   date_time_chooser_ =

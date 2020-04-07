@@ -5,10 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "bookmaker.h"
+#include "bmhParser.h"
+#include "fiddleParser.h"
 
 #include "SkOSFile.h"
 #include "SkOSPath.h"
+
+const string kCatalogFileName("catalog.htm");
 
 bool Catalog::appendFile(string path) {
     FILE* file = fopen(path.c_str(), "r");
@@ -27,19 +30,15 @@ bool Catalog::appendFile(string path) {
     return true;
 }
 
-bool Catalog::openCatalog(const char* inDir, const char* outDir) {
+bool Catalog::openCatalog(const char* inDir) {
     fDocsDir = inDir;
     if ('/' != fDocsDir.back()) {
         fDocsDir += '/';
     }
-    string outie = outDir;
-    if ('/' != outie.back()) {
-        outie += '/';
-    }
-    fFullName = outie + "catalog.htm";
-    fOut = fopen(fFullName.c_str(), "wb");
+    fOut = fopen(kCatalogFileName.c_str(), "wb");
+    fFullName = kCatalogFileName;
     if (!fOut) {
-        SkDebugf("could not open output file %s\n", fFullName.c_str());
+        SkDebugf("could not open output file %s\n", kCatalogFileName.c_str());
         return false;
     }
     fContinuation = false;
@@ -47,21 +46,21 @@ bool Catalog::openCatalog(const char* inDir, const char* outDir) {
         return false;
     }
     this->lf(1);
+
     return true;
 }
 
-bool Catalog::openStatus(const char* statusFile, const char* outDir) {
+bool Catalog::openStatus(const char* statusFile) {
     StatusIter iter(statusFile, ".bmh", StatusFilter::kInProgress);
-    string unused;
     // FIXME: iterate through only chosen files by setting fDocsDir to iter
     // read one file to find directory
-    if (!iter.next(&unused)) {
+    if (!iter.next(nullptr, nullptr)) {
         return false;
     }
-    return openCatalog(iter.baseDir().c_str(), outDir);
+    return openCatalog(iter.baseDir().c_str());
 }
 
-bool Catalog::closeCatalog() {
+bool Catalog::closeCatalog(const char* outDir) {
     if (fOut) {
         this->lf(1);
         this->writeString("}");
@@ -72,7 +71,17 @@ bool Catalog::closeCatalog() {
         this->lf(1);
         this->writePending();
         fclose(fOut);
-        SkDebugf("wrote %s\n", fFullName.c_str());
+        string outie = outDir;
+        if ('/' != outie.back()) {
+            outie += '/';
+        }
+        string fullName = outie + kCatalogFileName;
+        if (ParserCommon::WrittenFileDiffers(fullName, kCatalogFileName)) {
+            ParserCommon::CopyToFile(fullName, kCatalogFileName);
+            SkDebugf("wrote %s\n", fullName.c_str());
+        } else {
+            remove(kCatalogFileName.c_str());
+        }
         fOut = nullptr;
     }
     return true;

@@ -34,9 +34,8 @@ public:
         kYes = true
     };
 
-    static sk_sp<GrCoverageCountingPathRenderer> CreateIfSupported(const GrCaps&, AllowCaching);
-
-    ~GrCoverageCountingPathRenderer() override;
+    static sk_sp<GrCoverageCountingPathRenderer> CreateIfSupported(const GrCaps&, AllowCaching,
+                                                                   uint32_t contextUniqueID);
 
     using PendingPathsMap = std::map<uint32_t, sk_sp<GrCCPerOpListPaths>>;
 
@@ -67,11 +66,23 @@ public:
                   SkTArray<sk_sp<GrRenderTargetContext>>* out) override;
     void postFlush(GrDeferredUploadToken, const uint32_t* opListIDs, int numOpListIDs) override;
 
-    void testingOnly_drawPathDirectly(const DrawPathArgs&);
-    const GrUniqueKey& testingOnly_getStashedAtlasKey() const;
+    void purgeCacheEntriesOlderThan(GrProxyProvider*, const GrStdSteadyClock::time_point&);
+
+    // If a path spans more pixels than this, we need to crop it or else analytic AA can run out of
+    // fp32 precision.
+    static constexpr float kPathCropThreshold = 1 << 16;
+
+    static void CropPath(const SkPath&, const SkIRect& cropbox, SkPath* out);
+
+    // Maximum inflation of path bounds due to stroking (from width, miter, caps). Strokes wider
+    // than this will be converted to fill paths and drawn by the CCPR filler instead.
+    static constexpr float kMaxBoundsInflationFromStroke = 4096;
+
+    static float GetStrokeDevWidth(const SkMatrix&, const SkStrokeRec&,
+                                   float* inflationRadius = nullptr);
 
 private:
-    GrCoverageCountingPathRenderer(AllowCaching);
+    GrCoverageCountingPathRenderer(AllowCaching, uint32_t contextUniqueID);
 
     // GrPathRenderer overrides.
     StencilSupport onGetStencilSupport(const GrShape&) const override {
@@ -93,9 +104,13 @@ private:
     SkSTArray<4, sk_sp<GrCCPerOpListPaths>> fFlushingPaths;
 
     std::unique_ptr<GrCCPathCache> fPathCache;
-    GrUniqueKey fStashedAtlasKey;
 
     SkDEBUGCODE(bool fFlushing = false);
+
+public:
+    void testingOnly_drawPathDirectly(const DrawPathArgs&);
+    const GrCCPerFlushResources* testingOnly_getCurrentFlushResources();
+    const GrCCPathCache* testingOnly_getPathCache() const;
 };
 
 #endif

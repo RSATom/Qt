@@ -51,6 +51,7 @@
 #include <QtCore/qstringlist.h>
 #include <QtCore/qcborcommon.h>
 #include <QtCore/qdatetime.h>
+#include <QtCore/qabstractitemmodel.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/qurl.h>
@@ -126,6 +127,13 @@ template<> inline char *toString(const QChar &c)
         return qstrdup(msg);
     }
     return qstrdup(qPrintable(QString::fromLatin1("QChar: '%1' (0x%2)").arg(c).arg(QString::number(static_cast<int>(c.unicode()), 16))));
+}
+
+template<> inline char *toString(const QModelIndex &idx)
+{
+    char msg[128];
+    qsnprintf(msg, sizeof(msg), "QModelIndex(%d,%d,%p,%p)", idx.row(), idx.column(), idx.internalPointer(), idx.model());
+    return qstrdup(msg);
 }
 
 template<> inline char *toString(const QPoint &p)
@@ -366,27 +374,41 @@ QT_END_NAMESPACE
 #  define QTEST_SET_MAIN_SOURCE_PATH  QTest::setMainSourcePath(__FILE__);
 #endif
 
+// Hooks for coverage-testing of QTestLib itself:
+#if QT_CONFIG(testlib_selfcover) && defined(__COVERAGESCANNER__)
+struct QtCoverageScanner
+{
+    QtCoverageScanner(const char *name)
+    {
+        __coveragescanner_clear();
+        __coveragescanner_testname(name);
+    }
+    ~QtCoverageScanner()
+    {
+        __coveragescanner_save();
+        __coveragescanner_testname("");
+    }
+};
+#define TESTLIB_SELFCOVERAGE_START(name) QtCoverageScanner _qtCoverageScanner(name);
+#else
+#define TESTLIB_SELFCOVERAGE_START(name)
+#endif
+
 #define QTEST_APPLESS_MAIN(TestObject) \
 int main(int argc, char *argv[]) \
 { \
+    TESTLIB_SELFCOVERAGE_START(TestObject) \
     TestObject tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
     return QTest::qExec(&tc, argc, argv); \
 }
 
 #include <QtTest/qtestsystem.h>
-#include <set>
 
-#ifndef QT_NO_OPENGL
-#  define QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS \
-    extern Q_TESTLIB_EXPORT std::set<QByteArray> *(*qgpu_features_ptr)(const QString &); \
-    extern Q_GUI_EXPORT std::set<QByteArray> *qgpu_features(const QString &);
-#  define QTEST_ADD_GPU_BLACKLIST_SUPPORT \
-    qgpu_features_ptr = qgpu_features;
-#else
-#  define QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS
-#  define QTEST_ADD_GPU_BLACKLIST_SUPPORT
-#endif
+// Two backwards-compatibility defines for an obsolete feature:
+#define QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS
+#define QTEST_ADD_GPU_BLACKLIST_SUPPORT
+// ### Qt 6: fully remove these.
 
 #if defined(QT_NETWORK_LIB)
 #  include <QtTest/qtest_network.h>
@@ -403,15 +425,12 @@ int main(int argc, char *argv[]) \
 #endif
 
 #define QTEST_MAIN(TestObject) \
-QT_BEGIN_NAMESPACE \
-QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS \
-QT_END_NAMESPACE \
 int main(int argc, char *argv[]) \
 { \
+    TESTLIB_SELFCOVERAGE_START(#TestObject) \
     QApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     QTEST_DISABLE_KEYPAD_NAVIGATION \
-    QTEST_ADD_GPU_BLACKLIST_SUPPORT \
     TestObject tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
     return QTest::qExec(&tc, argc, argv); \
@@ -422,14 +441,11 @@ int main(int argc, char *argv[]) \
 #include <QtTest/qtest_gui.h>
 
 #define QTEST_MAIN(TestObject) \
-QT_BEGIN_NAMESPACE \
-QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS \
-QT_END_NAMESPACE \
 int main(int argc, char *argv[]) \
 { \
+    TESTLIB_SELFCOVERAGE_START(#TestObject) \
     QGuiApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
-    QTEST_ADD_GPU_BLACKLIST_SUPPORT \
     TestObject tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
     return QTest::qExec(&tc, argc, argv); \
@@ -440,6 +456,7 @@ int main(int argc, char *argv[]) \
 #define QTEST_MAIN(TestObject) \
 int main(int argc, char *argv[]) \
 { \
+    TESTLIB_SELFCOVERAGE_START(#TestObject) \
     QCoreApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     TestObject tc; \
@@ -452,6 +469,7 @@ int main(int argc, char *argv[]) \
 #define QTEST_GUILESS_MAIN(TestObject) \
 int main(int argc, char *argv[]) \
 { \
+    TESTLIB_SELFCOVERAGE_START(#TestObject) \
     QCoreApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     TestObject tc; \

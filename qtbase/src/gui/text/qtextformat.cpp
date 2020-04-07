@@ -361,6 +361,12 @@ void QTextFormatPrivate::recalcFont() const
             case QTextFormat::FontFamily:
                 f.setFamily(props.at(i).value.toString());
                 break;
+            case QTextFormat::FontFamilies:
+                f.setFamilies(props.at(i).value.toStringList());
+                break;
+            case QTextFormat::FontStyleName:
+                f.setStyleName(props.at(i).value.toString());
+                break;
             case QTextFormat::FontPointSize:
                 f.setPointSizeF(props.at(i).value.toReal());
                 break;
@@ -562,6 +568,8 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     Character properties
 
     \value FontFamily
+    \value FontFamilies
+    \value FontStyleName
     \value FontPointSize
     \value FontPixelSize
     \value FontSizeAdjustment       Specifies the change in size given to the fontsize already set using
@@ -1391,6 +1399,41 @@ QTextCharFormat::QTextCharFormat(const QTextFormat &fmt)
     \sa font()
 */
 
+/*!
+    \fn void QTextCharFormat::setFontFamilies(const QStringList &families)
+    \since 5.13
+
+    Sets the text format's font \a families.
+
+    \sa setFont()
+*/
+
+/*!
+    \fn QStringList QTextCharFormat::fontFamilies() const
+    \since 5.13
+
+    Returns the text format's font families.
+
+    \sa font()
+*/
+
+/*!
+    \fn void QTextCharFormat::setFontStyleName(const QString &styleName)
+    \since 5.13
+
+    Sets the text format's font \a styleName.
+
+    \sa setFont(), QFont::setStyleName()
+*/
+
+/*!
+    \fn QStringList QTextCharFormat::fontStyleName() const
+    \since 5.13
+
+    Returns the text format's font style name.
+
+    \sa font(), QFont::styleName()
+*/
 
 /*!
     \fn void QTextCharFormat::setFontPointSize(qreal size)
@@ -1744,6 +1787,7 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
 */
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn void QTextCharFormat::setAnchorName(const QString &name)
     \obsolete
@@ -1754,6 +1798,7 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     hyperlink, the destination must be set with setAnchorHref() and
     the anchor must be enabled with setAnchor().
 */
+#endif
 
 /*!
     \fn void QTextCharFormat::setAnchorNames(const QStringList &names)
@@ -1764,6 +1809,7 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     the anchor must be enabled with setAnchor().
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QString QTextCharFormat::anchorName() const
     \obsolete
@@ -1783,6 +1829,7 @@ QString QTextCharFormat::anchorName() const
         return QString();
     return prop.toString();
 }
+#endif
 
 /*!
     \fn QStringList QTextCharFormat::anchorNames() const
@@ -1920,6 +1967,11 @@ void QTextCharFormat::setFont(const QFont &font, FontPropertiesInheritanceBehavi
 
     if (mask & QFont::FamilyResolved)
         setFontFamily(font.family());
+    if (mask & QFont::FamiliesResolved)
+        setFontFamilies(font.families());
+    if (mask & QFont::StyleNameResolved)
+        setFontStyleName(font.styleName());
+
     if (mask & QFont::SizeResolved) {
         const qreal pointSize = font.pointSizeF();
         if (pointSize > 0) {

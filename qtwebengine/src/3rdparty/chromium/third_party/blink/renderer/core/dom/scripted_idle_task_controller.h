@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_idle_request_callback.h"
 #include "third_party/blink/renderer/core/dom/idle_deadline.h"
-#include "third_party/blink/renderer/core/dom/pausable_object.h"
+#include "third_party/blink/renderer/core/execution_context/pausable_object.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -31,11 +31,13 @@ class CORE_EXPORT ScriptedIdleTaskController
 
  public:
   static ScriptedIdleTaskController* Create(ExecutionContext* context) {
-    return new ScriptedIdleTaskController(context);
+    return MakeGarbageCollected<ScriptedIdleTaskController>(context);
   }
+
+  explicit ScriptedIdleTaskController(ExecutionContext*);
   ~ScriptedIdleTaskController() override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   const char* NameInHeapSnapshot() const override {
     return "ScriptedIdleTaskController";
   }
@@ -47,7 +49,7 @@ class CORE_EXPORT ScriptedIdleTaskController
   class IdleTask : public GarbageCollectedFinalized<IdleTask>,
                    public NameClient {
    public:
-    virtual void Trace(blink::Visitor* visitor) {}
+    virtual void Trace(Visitor* visitor) {}
     const char* NameInHeapSnapshot() const override { return "IdleTask"; }
     virtual ~IdleTask() = default;
     virtual void invoke(IdleDeadline*) = 0;
@@ -58,24 +60,26 @@ class CORE_EXPORT ScriptedIdleTaskController
   class V8IdleTask : public IdleTask {
    public:
     static V8IdleTask* Create(V8IdleRequestCallback* callback) {
-      return new V8IdleTask(callback);
+      return MakeGarbageCollected<V8IdleTask>(callback);
     }
+
+    explicit V8IdleTask(V8IdleRequestCallback*);
     ~V8IdleTask() override = default;
+
     void invoke(IdleDeadline*) override;
-    void Trace(blink::Visitor*) override;
+    void Trace(Visitor*) override;
 
    private:
-    explicit V8IdleTask(V8IdleRequestCallback*);
     TraceWrapperMember<V8IdleRequestCallback> callback_;
   };
 
-  int RegisterCallback(IdleTask*, const IdleRequestOptions&);
+  int RegisterCallback(IdleTask*, const IdleRequestOptions*);
   void CancelCallback(CallbackId);
 
   // PausableObject interface.
   void ContextDestroyed(ExecutionContext*) override;
-  void Pause() override;
-  void Unpause() override;
+  void ContextPaused(PauseState) override;
+  void ContextUnpaused() override;
 
   void CallbackFired(CallbackId,
                      TimeTicks deadline,
@@ -83,7 +87,6 @@ class CORE_EXPORT ScriptedIdleTaskController
 
  private:
   friend class internal::IdleRequestCallbackWrapper;
-  explicit ScriptedIdleTaskController(ExecutionContext*);
 
   void ScheduleCallback(scoped_refptr<internal::IdleRequestCallbackWrapper>,
                         long long timeout_millis);

@@ -31,7 +31,7 @@
 #include "third_party/blink/renderer/core/html/forms/color_input_type.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
@@ -53,7 +53,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 // Upper limit of number of datalist suggestions shown.
 static const unsigned kMaxSuggestions = 1000;
@@ -77,12 +77,12 @@ ColorInputType::ColorInputType(HTMLInputElement& element)
     : InputType(element), KeyboardClickableInputTypeView(element) {}
 
 InputType* ColorInputType::Create(HTMLInputElement& element) {
-  return new ColorInputType(element);
+  return MakeGarbageCollected<ColorInputType>(element);
 }
 
 ColorInputType::~ColorInputType() = default;
 
-void ColorInputType::Trace(blink::Visitor* visitor) {
+void ColorInputType::Trace(Visitor* visitor) {
   visitor->Trace(chooser_);
   KeyboardClickableInputTypeView::Trace(visitor);
   ColorChooserClient::Trace(visitor);
@@ -102,7 +102,7 @@ void ColorInputType::CountUsage() {
 }
 
 const AtomicString& ColorInputType::FormControlType() const {
-  return InputTypeNames::color;
+  return input_type_names::kColor;
 }
 
 bool ColorInputType::SupportsRequired() const {
@@ -145,26 +145,26 @@ void ColorInputType::DidSetValue(const String&, bool value_changed) {
     chooser_->SetSelectedColor(ValueAsColor());
 }
 
-void ColorInputType::HandleDOMActivateEvent(Event* event) {
+void ColorInputType::HandleDOMActivateEvent(Event& event) {
   if (GetElement().IsDisabledFormControl())
     return;
 
   Document& document = GetElement().GetDocument();
-  if (!Frame::HasTransientUserActivation(document.GetFrame()))
+  if (!LocalFrame::HasTransientUserActivation(document.GetFrame()))
     return;
 
   ChromeClient* chrome_client = GetChromeClient();
   if (chrome_client && !chooser_) {
     UseCounter::Count(
         document,
-        (event->UnderlyingEvent() && event->UnderlyingEvent()->isTrusted())
+        (event.UnderlyingEvent() && event.UnderlyingEvent()->isTrusted())
             ? WebFeature::kColorInputTypeChooserByTrustedClick
             : WebFeature::kColorInputTypeChooserByUntrustedClick);
     chooser_ = chrome_client->OpenColorChooser(document.GetFrame(), this,
                                                ValueAsColor());
   }
 
-  event->SetDefaultHandled();
+  event.SetDefaultHandled();
 }
 
 void ColorInputType::ClosePopupView() {
@@ -243,7 +243,7 @@ Color ColorInputType::CurrentColor() {
 }
 
 bool ColorInputType::ShouldShowSuggestions() const {
-  return GetElement().FastHasAttribute(listAttr);
+  return GetElement().FastHasAttribute(kListAttr);
 }
 
 Vector<mojom::blink::ColorSuggestionPtr> ColorInputType::Suggestions() const {

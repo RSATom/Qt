@@ -14,6 +14,7 @@
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxge/fx_dib.h"
+#include "third_party/base/optional.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
 class CFGAS_GEFont;
@@ -32,17 +33,18 @@ class CXFA_TextParser {
   virtual ~CXFA_TextParser();
 
   void Reset();
-  void DoParse(CFX_XMLNode* pXMLContainer, CXFA_TextProvider* pTextProvider);
+  void DoParse(const CFX_XMLNode* pXMLContainer,
+               CXFA_TextProvider* pTextProvider);
 
   RetainPtr<CFX_CSSComputedStyle> CreateRootStyle(
       CXFA_TextProvider* pTextProvider);
   RetainPtr<CFX_CSSComputedStyle> ComputeStyle(
-      CFX_XMLNode* pXMLNode,
+      const CFX_XMLNode* pXMLNode,
       CFX_CSSComputedStyle* pParentStyle);
 
   bool IsParsed() const { return m_bParsed; }
 
-  XFA_AttributeEnum GetVAlign(CXFA_TextProvider* pTextProvider) const;
+  XFA_AttributeValue GetVAlign(CXFA_TextProvider* pTextProvider) const;
 
   float GetTabInterval(CFX_CSSComputedStyle* pStyle) const;
   int32_t CountTabs(CFX_CSSComputedStyle* pStyle) const;
@@ -59,14 +61,14 @@ class CXFA_TextParser {
 
   int32_t GetHorScale(CXFA_TextProvider* pTextProvider,
                       CFX_CSSComputedStyle* pStyle,
-                      CFX_XMLNode* pXMLNode) const;
+                      const CFX_XMLNode* pXMLNode) const;
   int32_t GetVerScale(CXFA_TextProvider* pTextProvider,
                       CFX_CSSComputedStyle* pStyle) const;
 
   void GetUnderline(CXFA_TextProvider* pTextProvider,
                     CFX_CSSComputedStyle* pStyle,
                     int32_t& iUnderline,
-                    XFA_AttributeEnum& iPeriod) const;
+                    XFA_AttributeValue& iPeriod) const;
   void GetLinethrough(CXFA_TextProvider* pTextProvider,
                       CFX_CSSComputedStyle* pStyle,
                       int32_t& iLinethrough) const;
@@ -79,10 +81,9 @@ class CXFA_TextParser {
                       bool bFirst,
                       float fVerScale) const;
 
-  bool GetEmbbedObj(CXFA_TextProvider* pTextProvider,
-                    CFX_XMLNode* pXMLNode,
-                    WideString& wsValue);
-  CXFA_TextParseContext* GetParseContextFromMap(CFX_XMLNode* pXMLNode);
+  Optional<WideString> GetEmbeddedObj(const CXFA_TextProvider* pTextProvider,
+                                      const CFX_XMLNode* pXMLNode);
+  CXFA_TextParseContext* GetParseContextFromMap(const CFX_XMLNode* pXMLNode);
 
  protected:
   bool TagValidate(const WideString& str) const;
@@ -112,9 +113,12 @@ class CXFA_TextParser {
     std::map<WideString, WideString> m_Attributes;
   };
 
+  // static
+  std::unique_ptr<TagProvider> ParseTagInfo(const CFX_XMLNode* pXMLNode);
+
   void InitCSSData(CXFA_TextProvider* pTextProvider);
-  void ParseRichText(CFX_XMLNode* pXMLNode, CFX_CSSComputedStyle* pParentStyle);
-  std::unique_ptr<TagProvider> ParseTagInfo(CFX_XMLNode* pXMLNode);
+  void ParseRichText(const CFX_XMLNode* pXMLNode,
+                     CFX_CSSComputedStyle* pParentStyle);
   std::unique_ptr<CFX_CSSStyleSheet> LoadDefaultSheetStyle();
   RetainPtr<CFX_CSSComputedStyle> CreateStyle(
       CFX_CSSComputedStyle* pParentStyle);
@@ -122,7 +126,7 @@ class CXFA_TextParser {
   bool m_bParsed;
   bool m_cssInitialized;
   std::unique_ptr<CFX_CSSStyleSelector> m_pSelector;
-  std::map<CFX_XMLNode*, std::unique_ptr<CXFA_TextParseContext>>
+  std::map<const CFX_XMLNode*, std::unique_ptr<CXFA_TextParseContext>>
       m_mapXMLNodeToParseContext;
 };
 

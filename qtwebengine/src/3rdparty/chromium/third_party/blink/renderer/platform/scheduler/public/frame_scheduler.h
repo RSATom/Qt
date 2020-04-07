@@ -9,6 +9,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom-blink.h"
 #include "third_party/blink/public/platform/scheduler/web_resource_loading_task_runner_handle.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -17,12 +18,24 @@
 #include "third_party/blink/renderer/platform/scheduler/public/frame_or_worker_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
+namespace ukm {
+class UkmRecorder;
+}
+
 namespace blink {
 
 class PageScheduler;
 
 class FrameScheduler : public FrameOrWorkerScheduler {
  public:
+  class PLATFORM_EXPORT Delegate {
+   public:
+    virtual ~Delegate() = default;
+
+    virtual ukm::UkmRecorder* GetUkmRecorder() = 0;
+    virtual ukm::SourceId GetUkmSourceId() = 0;
+  };
+
   ~FrameScheduler() override = default;
 
   // Represents the type of frame: main (top-level) vs not.
@@ -59,34 +72,6 @@ class FrameScheduler : public FrameOrWorkerScheduler {
   // Returns the frame type, which currently determines whether this frame is
   // the top level frame, i.e. a main frame.
   virtual FrameType GetFrameType() const = 0;
-
-  // The tasks runners below are listed in increasing QoS order.
-  // - throttleable task queue. Designed for custom user-provided javascript
-  //   tasks. Lowest guarantees. Can be paused, blocked during user gesture,
-  //   throttled when backgrounded or stopped completely after some time in
-  //   background.
-  // - deferrable task queue. These tasks can be deferred for a small period
-  //   (several seconds) when high-priority work is anticipated. These tasks
-  //   can be paused.
-  // - pausable task queue. Default queue for high-priority javascript tasks.
-  //   They can be paused according to the spec during javascript alert
-  //   dialogs, printing windows and devtools debugging. Otherwise scheduler
-  //   does not tamper with their execution.
-  // - unpausable task queue. Should be used for control tasks which should
-  //   run when the context is paused. Usage should be extremely rare.
-  //   Please consult scheduler-dev@ before using it. Running javascript
-  //   on it is strictly verboten and can lead to hard-to-diagnose errors.
-  //
-  //
-  // These queues below are separate due to special handling for their
-  // priorities.
-  // - loading task queue. Similar to deferrable task queue. Throttling might
-  //   be considered in the future.
-  // - loading control task queue. Loading task queue with increased priority
-  //   to run small loading tasks which schedule other loading tasks.
-
-  // Note: old-style timer task runner corresponds to throttleable task runner
-  // and unthrottled task runner corresponds to pausable task runner.
 
   // Returns a task runner that is suitable with the given task type.
   virtual scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(
@@ -134,6 +119,9 @@ class FrameScheduler : public FrameOrWorkerScheduler {
   // use GetPageScheduler()->IsExemptFromBudgetBasedThrottling for the status
   // of the page.
   virtual bool IsExemptFromBudgetBasedThrottling() const = 0;
+
+  // Returns UKM source id for recording metrics associated with this frame.
+  virtual ukm::SourceId GetUkmSourceId() = 0;
 
   FrameScheduler* ToFrameScheduler() override { return this; }
 

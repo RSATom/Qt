@@ -14,19 +14,21 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/time/time.h"
+#include "cc/trees/element_id.h"
 #include "cc/trees/layer_tree_host_client.h"
 #include "cc/trees/layer_tree_host_single_thread_client.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
+#include "components/viz/common/surfaces/local_surface_id_allocation.h"
 #include "components/viz/host/host_frame_sink_client.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/android/compositor.h"
 #include "gpu/command_buffer/common/capabilities.h"
 #include "gpu/ipc/common/surface_handle.h"
-#include "gpu/vulkan/buildflags.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
 #include "services/viz/privileged/interfaces/compositing/display_private.mojom.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/android/resources/resource_manager_impl.h"
 #include "ui/android/resources/ui_resource_provider.h"
@@ -66,7 +68,6 @@ class CONTENT_EXPORT CompositorImpl
     : public Compositor,
       public cc::LayerTreeHostClient,
       public cc::LayerTreeHostSingleThreadClient,
-      public ui::CompositorLockManagerClient,
       public ui::UIResourceProvider,
       public ui::WindowAndroidCompositor,
       public viz::HostFrameSinkClient,
@@ -112,14 +113,16 @@ class CONTENT_EXPORT CompositorImpl
   void BeginMainFrame(const viz::BeginFrameArgs& args) override {}
   void BeginMainFrameNotExpectedSoon() override {}
   void BeginMainFrameNotExpectedUntil(base::TimeTicks time) override {}
-  void UpdateLayerTreeHost(VisualStateUpdate requested_update) override;
-  void ApplyViewportDeltas(const gfx::Vector2dF& inner_delta,
-                           const gfx::Vector2dF& outer_delta,
-                           const gfx::Vector2dF& elastic_overscroll_delta,
-                           float page_scale,
-                           float top_controls_delta) override {}
+  void UpdateLayerTreeHost(bool record_main_frame_metrics) override;
+  void ApplyViewportChanges(const cc::ApplyViewportChangesArgs& args) override {
+  }
   void RecordWheelAndTouchScrollingCount(bool has_scrolled_by_wheel,
                                          bool has_scrolled_by_touch) override {}
+  void SendOverscrollEventFromImplSide(
+      const gfx::Vector2dF& overscroll_delta,
+      cc::ElementId scroll_latched_element_id) override {}
+  void SendScrollEndEventFromImplSide(
+      cc::ElementId scroll_latched_element_id) override {}
   void RequestNewLayerTreeFrameSink() override;
   void DidInitializeLayerTreeFrameSink() override;
   void DidFailToInitializeLayerTreeFrameSink() override;
@@ -131,6 +134,9 @@ class CONTENT_EXPORT CompositorImpl
   void DidPresentCompositorFrame(
       uint32_t frame_token,
       const gfx::PresentationFeedback& feedback) override {}
+  void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) override {}
+  void DidGenerateLocalSurfaceIdAllocation(
+      const viz::LocalSurfaceIdAllocation& allocation) override {}
 
   // LayerTreeHostSingleThreadClient implementation.
   void DidSubmitCompositorFrame() override;
@@ -148,27 +154,21 @@ class CONTENT_EXPORT CompositorImpl
       ui::CompositorLockClient* client,
       base::TimeDelta timeout) override;
   bool IsDrawingFirstVisibleFrame() const override;
+  void SetVSyncPaused(bool paused) override;
 
   // viz::HostFrameSinkClient implementation.
-  void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override {
-  }
+  void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
   void OnFrameTokenChanged(uint32_t frame_token) override {}
 
   // display::DisplayObserver implementation.
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
 
-  // ui::CompositorLockManagerClient implementation.
-  void OnCompositorLockStateChanged(bool locked) override;
-
   void SetVisible(bool visible);
   void CreateLayerTreeHost();
 
   void HandlePendingLayerTreeFrameSinkRequest();
 
-#if BUILDFLAG(ENABLE_VULKAN)
-  bool CreateVulkanOutputSurface();
-#endif
   void OnGpuChannelEstablished(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host);
   void InitializeDisplay(
@@ -187,11 +187,22 @@ class CONTENT_EXPORT CompositorImpl
 
   // Returns a new surface ID when in surface-synchronization mode. Otherwise
   // returns an empty surface.
-  viz::LocalSurfaceId GenerateLocalSurfaceId() const;
+  viz::LocalSurfaceIdAllocation GenerateLocalSurfaceId() const;
+
+  // Tears down the display for both Viz and non-Viz, unregistering the root
+  // frame sink ID in the process.
+  void TearDownDisplayAndUnregisterRootFrameSink();
+
+  // Registers the root frame sink ID.
+  void RegisterRootFrameSink();
+
+  // Called when we fail to create the context for the root frame sink.
+  void OnFatalOrSurfaceContextCreationFailure(
+      gpu::ContextResult context_result);
 
   // Viz specific functions:
   void InitializeVizLayerTreeFrameSink(
-      scoped_refptr<ui::ContextProviderCommandBuffer> context_provider);
+      scoped_refptr<ws::ContextProviderCommandBuffer> context_provider);
 
   viz::FrameSinkId frame_sink_id_;
 
@@ -240,10 +251,6 @@ class CONTENT_EXPORT CompositorImpl
   ui::CompositorLockManager lock_manager_;
   bool has_submitted_frame_since_became_visible_ = false;
 
-  // A task which runs cleanup tasks on low-end Android after a delay. Enqueued
-  // when we hide, canceled when we're shown.
-  base::CancelableOnceClosure low_end_background_cleanup_task_;
-
   // If true, we are using surface synchronization.
   const bool enable_surface_synchronization_;
 
@@ -253,6 +260,7 @@ class CONTENT_EXPORT CompositorImpl
   // Viz-specific members for communicating with the display.
   viz::mojom::DisplayPrivateAssociatedPtr display_private_;
   std::unique_ptr<viz::HostDisplayClient> display_client_;
+  bool vsync_paused_ = false;
 
   // Test-only. Called when we are notified of a swap.
   base::RepeatingCallback<void(const gfx::Size&)>

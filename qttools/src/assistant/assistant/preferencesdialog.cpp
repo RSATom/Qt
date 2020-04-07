@@ -32,105 +32,36 @@
 #include "fontpanel.h"
 #include "helpenginewrapper.h"
 #include "openpagesmanager.h"
-#include "tracer.h"
 
-#include <QtCore/QAbstractListModel>
-#include <QtCore/QtAlgorithms>
-#include <QtCore/QFileSystemWatcher>
-#include <QtCore/QSortFilterProxyModel>
-#include <QtCore/QVector>
-
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QFileDialog>
+#include <QtCore/QVersionNumber>
 #include <QtGui/QFontDatabase>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QMenu>
 #include <QtWidgets/QMessageBox>
 
+#include <QtHelp/QCompressedHelpInfo>
 #include <QtHelp/QHelpEngineCore>
+#include <QtHelp/QHelpFilterData>
+#include <QtHelp/QHelpFilterEngine>
 
-#include <algorithm>
+#include <QtWidgets/QFileDialog>
+
+#include <QtDebug>
 
 QT_BEGIN_NAMESPACE
 
-struct RegisteredDocEntry
+static QStringList versionsToStringList(const QList<QVersionNumber> &versions)
 {
-    QString nameSpace;
-    QString fileName;
-};
-
-typedef QVector<RegisteredDocEntry> RegisteredDocEntries;
-
-class RegisteredDocsModel : public QAbstractListModel {
-public:
-
-    explicit RegisteredDocsModel(const RegisteredDocEntries &e = RegisteredDocEntries(), QObject *parent = nullptr)
-        : QAbstractListModel(parent), m_docEntries(e) {}
-
-    int rowCount(const QModelIndex & = QModelIndex()) const override { return m_docEntries.size(); }
-    QVariant data(const QModelIndex &index, int role) const override;
-
-    bool contains(const QString &nameSpace) const
-    {
-        return m_docEntries.cend() !=
-            std::find_if(m_docEntries.cbegin(), m_docEntries.cend(),
-                         [nameSpace] (const RegisteredDocEntry &e) { return e.nameSpace == nameSpace; });
-    }
-
-    void append(const RegisteredDocEntry &e);
-
-    const RegisteredDocEntries &docEntries() const { return m_docEntries; }
-    void setDocEntries(const RegisteredDocEntries &);
-
-private:
-    RegisteredDocEntries m_docEntries;
-};
-
-QVariant RegisteredDocsModel::data(const QModelIndex &index, int role) const
-{
-    QVariant result;
-    const int row = index.row();
-    if (index.isValid() && row < m_docEntries.size()) {
-        switch (role) {
-        case Qt::DisplayRole:
-            result = QVariant(m_docEntries.at(row).nameSpace);
-            break;
-        case Qt::ToolTipRole:
-            result = QVariant(QDir::toNativeSeparators(m_docEntries.at(row).fileName));
-            break;
-        default:
-            break;
-        }
-    }
-    return result;
+    QStringList versionList;
+    for (const QVersionNumber &version : versions)
+        versionList.append(version.isNull() ? QString() : version.toString());
+    return versionList;
 }
 
-void RegisteredDocsModel::append(const RegisteredDocEntry &e)
+static QList<QVersionNumber> stringListToVersions(const QStringList &versionList)
 {
-    beginInsertRows(QModelIndex(), m_docEntries.size(), m_docEntries.size());
-    m_docEntries.append(e);
-    endInsertRows();
-}
-
-void RegisteredDocsModel::setDocEntries(const RegisteredDocEntries &e)
-{
-    beginResetModel();
-    m_docEntries = e;
-    endResetModel();
-}
-
-static RegisteredDocEntries registeredDocEntries(const HelpEngineWrapper &wrapper)
-{
-    RegisteredDocEntries result;
-    const QStringList &nameSpaces = wrapper.registeredDocumentations();
-    result.reserve(nameSpaces.size());
-    for (const QString &nameSpace : nameSpaces) {
-        RegisteredDocEntry entry;
-        entry.nameSpace = nameSpace;
-        entry.fileName = wrapper.documentationFileName(nameSpace);
-        result.append(entry);
-    }
-    return result;
+    QList<QVersionNumber> versions;
+    for (const QString &versionString : versionList)
+        versions.append(QVersionNumber::fromString(versionString));
+    return versions;
 }
 
 PreferencesDialog::PreferencesDialog(QWidget *parent)
@@ -141,52 +72,67 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     , m_hideFiltersTab(!helpEngine.filterFunctionalityEnabled())
     , m_hideDocsTab(!helpEngine.documentationManagerEnabled())
 {
-    TRACE_OBJ
     m_ui.setupUi(this);
 
-    m_registeredDocsModel =
-        new RegisteredDocsModel(m_hideDocsTab ? RegisteredDocEntries() : registeredDocEntries(helpEngine));
-    m_registereredDocsFilterModel = new QSortFilterProxyModel(m_ui.registeredDocsListView);
-    m_registereredDocsFilterModel->setSourceModel(m_registeredDocsModel);
-    m_ui.registeredDocsListView->setModel(m_registereredDocsFilterModel);
-    connect(m_ui.registeredDocsFilterLineEdit, &QLineEdit::textChanged,
-            m_registereredDocsFilterModel, &QSortFilterProxyModel::setFilterFixedString);
+    QString resourcePath = QLatin1String(":/qt-project.org/assistant/images/");
+#ifdef Q_OS_MACOS
+    resourcePath.append(QLatin1String("mac"));
+#else
+    resourcePath.append(QLatin1String("win"));
+#endif
+
+    m_ui.filterAddButton->setIcon(QIcon(resourcePath + QLatin1String("/plus.png")));
+    m_ui.filterRemoveButton->setIcon(QIcon(resourcePath + QLatin1String("/minus.png")));
+
+    // TODO: filter docs via lineedit
 
     connect(m_ui.buttonBox->button(QDialogButtonBox::Ok), &QAbstractButton::clicked,
-            this, &PreferencesDialog::applyChanges);
+            this, &PreferencesDialog::okClicked);
+    connect(m_ui.buttonBox->button(QDialogButtonBox::Apply), &QAbstractButton::clicked,
+            this, &PreferencesDialog::applyClicked);
     connect(m_ui.buttonBox->button(QDialogButtonBox::Cancel), &QAbstractButton::clicked,
             this, &QDialog::reject);
 
-    if (!m_hideFiltersTab) {
-        m_ui.attributeWidget->header()->hide();
-        m_ui.attributeWidget->setRootIsDecorated(false);
+    m_originalSetup = readOriginalSetup();
+    m_currentSetup = m_originalSetup;
 
-        connect(m_ui.attributeWidget, &QTreeWidget::itemChanged,
-                this, &PreferencesDialog::updateFilterMap);
-        connect(m_ui.filterWidget, &QListWidget::currentItemChanged,
-                this, &PreferencesDialog::updateAttributes);
-
-        connect(m_ui.filterAddButton, &QAbstractButton::clicked,
-                this, &PreferencesDialog::addFilter);
-        connect(m_ui.filterRemoveButton, &QAbstractButton::clicked,
-                this, &PreferencesDialog::removeFilter);
-
-        updateFilterPage();
+    if (m_hideDocsTab) {
+        m_ui.tabWidget->removeTab(m_ui.tabWidget->indexOf(m_ui.docsTab));
     } else {
-        m_ui.tabWidget->removeTab(m_ui.tabWidget->indexOf(m_ui.filtersTab));
-    }
-
-    if (!m_hideDocsTab) {
         connect(m_ui.docAddButton, &QAbstractButton::clicked,
-                this, &PreferencesDialog::addDocumentationLocal);
+                this, &PreferencesDialog::addDocumentation);
         connect(m_ui.docRemoveButton, &QAbstractButton::clicked,
                 this, &PreferencesDialog::removeDocumentation);
 
-        m_docsBackup.reserve(m_registeredDocsModel->rowCount());
-        for (const RegisteredDocEntry &e : m_registeredDocsModel->docEntries())
-            m_docsBackup.append(e.nameSpace);
+        updateDocumentationPage();
+    }
+
+    if (m_hideFiltersTab) {
+        m_ui.tabWidget->removeTab(m_ui.tabWidget->indexOf(m_ui.filtersTab));
     } else {
-        m_ui.tabWidget->removeTab(m_ui.tabWidget->indexOf(m_ui.docsTab));
+        connect(m_ui.componentWidget, &OptionsWidget::optionSelectionChanged,
+                this, &PreferencesDialog::componentsChanged);
+        connect(m_ui.versionWidget, &OptionsWidget::optionSelectionChanged,
+                this, &PreferencesDialog::versionsChanged);
+        connect(m_ui.filterWidget, &QListWidget::currentItemChanged,
+                this, &PreferencesDialog::filterSelected);
+        connect(m_ui.filterWidget, &QListWidget::itemDoubleClicked,
+                this, &PreferencesDialog::renameFilterClicked);
+
+        // TODO: repeat these actions on context menu
+        connect(m_ui.filterAddButton, &QAbstractButton::clicked,
+                this, &PreferencesDialog::addFilterClicked);
+        connect(m_ui.filterRenameButton, &QAbstractButton::clicked,
+                this, &PreferencesDialog::renameFilterClicked);
+        connect(m_ui.filterRemoveButton, &QAbstractButton::clicked,
+                this, &PreferencesDialog::removeFilterClicked);
+
+        m_ui.componentWidget->setNoOptionText(tr("No Component"));
+        m_ui.componentWidget->setInvalidOptionText(tr("Invalid Component"));
+        m_ui.versionWidget->setNoOptionText(tr("No Version"));
+        m_ui.versionWidget->setInvalidOptionText(tr("Invalid Version"));
+
+        updateFilterPage();
     }
 
     updateFontSettingsPage();
@@ -196,14 +142,403 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
         setFont(helpEngine.appFont());
 }
 
-PreferencesDialog::~PreferencesDialog()
+FilterSetup PreferencesDialog::readOriginalSetup() const
 {
-    TRACE_OBJ
+    FilterSetup filterSetup;
+
+    filterSetup.m_namespaceToComponent = helpEngine.filterEngine()->namespaceToComponent();
+    filterSetup.m_namespaceToVersion = helpEngine.filterEngine()->namespaceToVersion();
+    for (auto it = filterSetup.m_namespaceToComponent.constBegin();
+         it != filterSetup.m_namespaceToComponent.constEnd(); ++it) {
+        const QString namespaceName = it.key();
+        const QString namespaceFileName = helpEngine.documentationFileName(namespaceName);
+        filterSetup.m_namespaceToFileName.insert(namespaceName, namespaceFileName);
+        filterSetup.m_fileNameToNamespace.insert(namespaceFileName, namespaceName);
+        filterSetup.m_componentToNamespace[it.value()].append(namespaceName);
+    }
+    for (auto it = filterSetup.m_namespaceToVersion.constBegin();
+         it != filterSetup.m_namespaceToVersion.constEnd(); ++it) {
+        filterSetup.m_versionToNamespace[it.value()].append(it.key());
+    }
+
+    const QStringList allFilters = helpEngine.filterEngine()->filters();
+    for (const QString &filter : allFilters)
+        filterSetup.m_filterToData.insert(filter, helpEngine.filterEngine()->filterData(filter));
+
+    filterSetup.m_currentFilter = helpEngine.filterEngine()->activeFilter();
+
+    return filterSetup;
+}
+
+void PreferencesDialog::updateFilterPage()
+{
+    if (m_hideFiltersTab)
+        return;
+
+    QString currentFilter = m_itemToFilter.value(m_ui.filterWidget->currentItem());
+    if (currentFilter.isEmpty())
+        currentFilter = m_currentSetup.m_currentFilter;
+
+    m_currentSetup = m_originalSetup;
+
+    m_ui.filterWidget->clear();
+    m_ui.componentWidget->clear();
+    m_ui.versionWidget->clear();
+    m_itemToFilter.clear();
+    m_filterToItem.clear();
+
+    for (const QString &filterName : m_currentSetup.m_filterToData.keys()) {
+        QListWidgetItem *item = new QListWidgetItem(filterName);
+        m_ui.filterWidget->addItem(item);
+        m_itemToFilter.insert(item, filterName);
+        m_filterToItem.insert(filterName, item);
+        if (filterName == currentFilter)
+            m_ui.filterWidget->setCurrentItem(item);
+    }
+
+    if (!m_ui.filterWidget->currentItem() && !m_filterToItem.isEmpty())
+        m_ui.filterWidget->setCurrentItem(m_filterToItem.first());
+
+    updateCurrentFilter();
+}
+
+void PreferencesDialog::updateCurrentFilter()
+{
+    if (m_hideFiltersTab)
+        return;
+
+    const QString &currentFilter = m_itemToFilter.value(m_ui.filterWidget->currentItem());
+
+    const bool filterSelected = !currentFilter.isEmpty();
+    m_ui.componentWidget->setEnabled(filterSelected);
+    m_ui.versionWidget->setEnabled(filterSelected);
+    m_ui.filterRenameButton->setEnabled(filterSelected);
+    m_ui.filterRemoveButton->setEnabled(filterSelected);
+
+    m_ui.componentWidget->setOptions(m_currentSetup.m_componentToNamespace.keys(),
+            m_currentSetup.m_filterToData.value(currentFilter).components());
+    m_ui.versionWidget->setOptions(versionsToStringList(m_currentSetup.m_versionToNamespace.keys()),
+            versionsToStringList(m_currentSetup.m_filterToData.value(currentFilter).versions()));
+}
+
+void PreferencesDialog::updateDocumentationPage()
+{
+    if (m_hideDocsTab)
+        return;
+
+    m_ui.registeredDocsListWidget->clear();
+    m_namespaceToItem.clear();
+    m_itemToNamespace.clear();
+
+    for (const QString &namespaceName : m_currentSetup.m_namespaceToFileName.keys()) {
+        QListWidgetItem *item = new QListWidgetItem(namespaceName);
+        m_namespaceToItem.insert(namespaceName, item);
+        m_itemToNamespace.insert(item, namespaceName);
+        m_ui.registeredDocsListWidget->addItem(item);
+    }
+}
+
+void PreferencesDialog::filterSelected(QListWidgetItem *item)
+{
+    Q_UNUSED(item)
+
+    updateCurrentFilter();
+}
+
+void PreferencesDialog::componentsChanged(const QStringList &components)
+{
+    const QString &currentFilter = m_itemToFilter.value(m_ui.filterWidget->currentItem());
+    if (currentFilter.isEmpty())
+        return;
+
+    m_currentSetup.m_filterToData[currentFilter].setComponents(components);
+}
+
+void PreferencesDialog::versionsChanged(const QStringList &versions)
+{
+    const QString &currentFilter = m_itemToFilter.value(m_ui.filterWidget->currentItem());
+    if (currentFilter.isEmpty())
+        return;
+
+    m_currentSetup.m_filterToData[currentFilter].setVersions(stringListToVersions(versions));
+}
+
+QString PreferencesDialog::suggestedNewFilterName(const QString &initialFilterName) const
+{
+    QString newFilterName = initialFilterName;
+
+    int counter = 1;
+    while (m_filterToItem.contains(newFilterName)) {
+        newFilterName = initialFilterName + QLatin1Char(' ')
+                + QString::number(++counter);
+    }
+
+    return newFilterName;
+}
+
+QString PreferencesDialog::getUniqueFilterName(const QString &windowTitle,
+                                               const QString &initialFilterName)
+{
+    QString newFilterName = initialFilterName;
+    while (1) {
+        FilterNameDialog dialog(this);
+        dialog.setWindowTitle(windowTitle);
+        dialog.setFilterName(newFilterName);
+        if (dialog.exec() == QDialog::Rejected)
+            return QString();
+
+        newFilterName = dialog.filterName();
+        if (!m_filterToItem.contains(newFilterName))
+            break;
+
+        if (QMessageBox::warning(this, tr("Filter Exists"),
+                                 tr("The filter \"%1\" already exists.")
+                                 .arg(newFilterName),
+                                 QMessageBox::Retry | QMessageBox::Cancel)
+                == QMessageBox::Cancel) {
+            return QString();
+        }
+    }
+
+    return newFilterName;
+}
+
+void PreferencesDialog::addFilterClicked()
+{
+    const QString newFilterName = getUniqueFilterName(tr("Add Filter"),
+                                  suggestedNewFilterName(tr("New Filter")));
+    if (newFilterName.isEmpty())
+        return;
+
+    addFilter(newFilterName);
+}
+
+void PreferencesDialog::renameFilterClicked()
+{
+    const QString &currentFilter = m_itemToFilter.value(m_ui.filterWidget->currentItem());
+    if (currentFilter.isEmpty())
+        return;
+
+    const QString newFilterName = getUniqueFilterName(tr("Rename Filter"), currentFilter);
+    if (newFilterName.isEmpty())
+        return;
+
+    const QHelpFilterData oldFilterData = m_currentSetup.m_filterToData.value(currentFilter);
+    removeFilter(currentFilter);
+    addFilter(newFilterName, oldFilterData);
+
+    if (m_currentSetup.m_currentFilter == currentFilter)
+        m_currentSetup.m_currentFilter = newFilterName;
+}
+
+void PreferencesDialog::removeFilterClicked()
+{
+    const QString &currentFilter = m_itemToFilter.value(m_ui.filterWidget->currentItem());
+    if (currentFilter.isEmpty())
+        return;
+
+    if (QMessageBox::question(this, tr("Remove Filter"),
+                              tr("Are you sure you want to remove the \"%1\" filter?")
+                              .arg(currentFilter),
+                              QMessageBox::Yes | QMessageBox::No)
+            != QMessageBox::Yes) {
+        return;
+    }
+
+    removeFilter(currentFilter);
+
+    if (m_currentSetup.m_currentFilter == currentFilter)
+        m_currentSetup.m_currentFilter.clear();
+}
+
+void PreferencesDialog::addFilter(const QString &filterName,
+                                  const QHelpFilterData &filterData)
+{
+    QListWidgetItem *item = new QListWidgetItem(filterName);
+    m_currentSetup.m_filterToData.insert(filterName, filterData);
+    m_filterToItem.insert(filterName, item);
+    m_itemToFilter.insert(item, filterName);
+    m_ui.filterWidget->insertItem(m_filterToItem.keys().indexOf(filterName), item);
+
+    m_ui.filterWidget->setCurrentItem(item);
+    updateCurrentFilter();
+}
+
+void PreferencesDialog::removeFilter(const QString &filterName)
+{
+    QListWidgetItem *item = m_filterToItem.value(filterName);
+    m_itemToFilter.remove(item);
+    m_filterToItem.remove(filterName);
+    delete item;
+
+    m_currentSetup.m_filterToData.remove(filterName);
+}
+
+void PreferencesDialog::addDocumentation()
+{
+    const QStringList &fileNames = QFileDialog::getOpenFileNames(this,
+        tr("Add Documentation"), QString(), tr("Qt Compressed Help Files (*.qch)"));
+    if (fileNames.isEmpty())
+        return;
+
+    bool added = false;
+
+    for (const QString &fileName : fileNames) {
+        const QCompressedHelpInfo info = QCompressedHelpInfo::fromCompressedHelpFile(fileName);
+        const QString namespaceName = info.namespaceName();
+
+        if (m_currentSetup.m_namespaceToFileName.contains(namespaceName))
+            continue;
+
+        if (m_currentSetup.m_fileNameToNamespace.contains(fileName))
+            continue;
+
+        const QString component = info.component();
+        const QVersionNumber version = info.version();
+
+        m_currentSetup.m_namespaceToFileName.insert(namespaceName, fileName);
+        m_currentSetup.m_fileNameToNamespace.insert(fileName, namespaceName);
+
+        m_currentSetup.m_namespaceToComponent.insert(namespaceName, component);
+        m_currentSetup.m_componentToNamespace[component].append(namespaceName);
+
+        m_currentSetup.m_namespaceToVersion.insert(namespaceName, version);
+        m_currentSetup.m_versionToNamespace[version].append(namespaceName);
+
+        QListWidgetItem *item = new QListWidgetItem(namespaceName);
+        m_namespaceToItem.insert(namespaceName, item);
+        m_itemToNamespace.insert(item, namespaceName);
+        m_ui.registeredDocsListWidget->insertItem(m_namespaceToItem.keys().indexOf(namespaceName), item);
+
+        added = true;
+    }
+
+    if (added)
+        updateCurrentFilter();
+}
+
+void PreferencesDialog::removeDocumentation()
+{
+    const QList<QListWidgetItem *> selectedItems = m_ui.registeredDocsListWidget->selectedItems();
+    if (selectedItems.isEmpty())
+        return;
+
+    for (QListWidgetItem *item : selectedItems) {
+        const QString namespaceName = m_itemToNamespace.value(item);
+        m_itemToNamespace.remove(item);
+        m_namespaceToItem.remove(namespaceName);
+        delete item;
+
+        const QString fileName = m_currentSetup.m_namespaceToFileName.value(namespaceName);
+        const QString component = m_currentSetup.m_namespaceToComponent.value(namespaceName);
+        const QVersionNumber version = m_currentSetup.m_namespaceToVersion.value(namespaceName);
+        m_currentSetup.m_namespaceToComponent.remove(namespaceName);
+        m_currentSetup.m_namespaceToVersion.remove(namespaceName);
+        m_currentSetup.m_namespaceToFileName.remove(namespaceName);
+        m_currentSetup.m_fileNameToNamespace.remove(fileName);
+        m_currentSetup.m_componentToNamespace[component].removeOne(namespaceName);
+        if (m_currentSetup.m_componentToNamespace[component].isEmpty())
+            m_currentSetup.m_componentToNamespace.remove(component);
+        m_currentSetup.m_versionToNamespace[version].removeOne(namespaceName);
+        if (m_currentSetup.m_versionToNamespace[version].isEmpty())
+            m_currentSetup.m_versionToNamespace.remove(version);
+    }
+
+    updateCurrentFilter();
+}
+
+void PreferencesDialog::okClicked()
+{
+    applyChanges();
+    accept();
+}
+
+void PreferencesDialog::applyClicked()
+{
+    applyChanges();
+    m_originalSetup = readOriginalSetup();
+    m_currentSetup = m_originalSetup;
+    updateDocumentationPage();
+    updateFilterPage();
+}
+
+template <class T>
+static QMap<QString, T> subtract(const QMap<QString, T> &minuend,
+                                 const QMap<QString, T> &subtrahend)
+{
+    QMap<QString, T> result = minuend;
+
+    for (auto itSubtrahend = subtrahend.cbegin(); itSubtrahend != subtrahend.cend(); ++itSubtrahend) {
+        auto itResult = result.find(itSubtrahend.key());
+        if (itResult != result.end() && itSubtrahend.value() == itResult.value())
+            result.erase(itResult);
+    }
+
+    return result;
+}
+
+void PreferencesDialog::applyChanges()
+{
+    bool changed = false;
+
+    const QMap<QString, QString> docsToRemove = subtract(
+                m_originalSetup.m_namespaceToFileName,
+                m_currentSetup.m_namespaceToFileName);
+    const QMap<QString, QString> docsToAdd = subtract(
+                m_currentSetup.m_namespaceToFileName,
+                m_originalSetup.m_namespaceToFileName);
+
+    for (const QString &namespaceName : docsToRemove.keys()) {
+        if (!helpEngine.unregisterDocumentation(namespaceName))
+            qWarning() << "Cannot unregister documentation:" << namespaceName;
+        changed = true;
+    }
+
+    for (const QString &fileName : docsToAdd.values()) {
+        if (!helpEngine.registerDocumentation(fileName))
+            qWarning() << "Cannot register documentation file:" << fileName;
+        changed = true;
+    }
+
+    const QMap<QString, QHelpFilterData> filtersToRemove = subtract(
+                m_originalSetup.m_filterToData,
+                m_currentSetup.m_filterToData);
+    const QMap<QString, QHelpFilterData> filtersToAdd = subtract(
+                m_currentSetup.m_filterToData,
+                m_originalSetup.m_filterToData);
+
+    const QString &currentFilter = helpEngine.filterEngine()->activeFilter();
+
+    for (const QString &filter : filtersToRemove.keys()) {
+        helpEngine.filterEngine()->removeFilter(filter);
+        if (currentFilter == filter && !filtersToAdd.contains(filter))
+            helpEngine.filterEngine()->setActiveFilter(QString());
+        changed = true;
+    }
+
+    for (auto it = filtersToAdd.cbegin(); it != filtersToAdd.cend(); ++it) {
+        helpEngine.filterEngine()->setFilterData(it.key(), it.value());
+        changed = true;
+    }
+
+    if (changed) {
+        helpEngine.filterEngine()->setActiveFilter(m_currentSetup.m_currentFilter);
+
+        // In order to update the filtercombobox and indexwidget
+        // according to the new filter configuration.
+        helpEngine.setupData();
+    }
+
+    helpEngine.setShowTabs(m_ui.showTabs->isChecked());
+    if (m_showTabs != m_ui.showTabs->isChecked())
+        emit updateUserInterface();
+
     if (m_appFontChanged) {
         helpEngine.setAppFont(m_appFontPanel->selectedFont());
         helpEngine.setUseAppFont(m_appFontPanel->isChecked());
         helpEngine.setAppWritingSystem(m_appFontPanel->writingSystem());
         emit updateApplicationFont();
+        m_appFontChanged = false;
     }
 
     if (m_browserFontChanged) {
@@ -211,6 +546,7 @@ PreferencesDialog::~PreferencesDialog()
         helpEngine.setUseBrowserFont(m_browserFontPanel->isChecked());
         helpEngine.setBrowserWritingSystem(m_browserFontPanel->writingSystem());
         emit updateBrowserFont();
+        m_browserFontChanged = false;
     }
 
     QString homePage = m_ui.homePageLineEdit->text();
@@ -218,264 +554,12 @@ PreferencesDialog::~PreferencesDialog()
         homePage = QLatin1String("help");
     helpEngine.setHomePage(homePage);
 
-    int option = m_ui.helpStartComboBox->currentIndex();
+    const int option = m_ui.helpStartComboBox->currentIndex();
     helpEngine.setStartOption(option);
-}
-
-void PreferencesDialog::showDialog()
-{
-    TRACE_OBJ
-    if (exec() != Accepted)
-        m_appFontChanged = m_browserFontChanged = false;
-}
-
-void PreferencesDialog::updateFilterPage()
-{
-    TRACE_OBJ
-    m_ui.filterWidget->clear();
-    m_ui.attributeWidget->clear();
-
-    m_filterMapBackup.clear();
-    const QStringList &filters = helpEngine.customFilters();
-    for (const QString &filter : filters) {
-        if (filter == HelpEngineWrapper::TrUnfiltered())
-            continue;
-        QStringList atts = helpEngine.filterAttributes(filter);
-        m_filterMapBackup.insert(filter, atts);
-        if (!m_filterMap.contains(filter))
-            m_filterMap.insert(filter, atts);
-    }
-
-    m_ui.filterWidget->addItems(m_filterMap.keys());
-
-    for (const QString &a : helpEngine.filterAttributes())
-        new QTreeWidgetItem(m_ui.attributeWidget, QStringList() << a);
-
-    if (!m_filterMap.isEmpty())
-        m_ui.filterWidget->setCurrentRow(0);
-}
-
-void PreferencesDialog::updateAttributes(QListWidgetItem *item)
-{
-    TRACE_OBJ
-    const QStringList &checkedList = item ? m_filterMap.value(item->text()) : QStringList();
-
-    for (int i = 0; i < m_ui.attributeWidget->topLevelItemCount(); ++i) {
-        QTreeWidgetItem *itm = m_ui.attributeWidget->topLevelItem(i);
-        if (checkedList.contains(itm->text(0)))
-            itm->setCheckState(0, Qt::Checked);
-        else
-            itm->setCheckState(0, Qt::Unchecked);
-    }
-}
-
-void PreferencesDialog::updateFilterMap()
-{
-    TRACE_OBJ
-    if (!m_ui.filterWidget->currentItem())
-        return;
-    QString filter = m_ui.filterWidget->currentItem()->text();
-    if (!m_filterMap.contains(filter))
-        return;
-
-    QStringList newAtts;
-    QTreeWidgetItem *itm = nullptr;
-    for (int i = 0; i < m_ui.attributeWidget->topLevelItemCount(); ++i) {
-        itm = m_ui.attributeWidget->topLevelItem(i);
-        if (itm->checkState(0) == Qt::Checked)
-            newAtts.append(itm->text(0));
-    }
-    m_filterMap[filter] = newAtts;
-}
-
-void PreferencesDialog::addFilter()
-{
-    TRACE_OBJ
-    FilterNameDialog dia(this);
-    if (dia.exec() == QDialog::Rejected)
-        return;
-
-    QString filterName = dia.filterName();
-    if (!m_filterMap.contains(filterName)) {
-        m_filterMap.insert(filterName, QStringList());
-        m_ui.filterWidget->addItem(filterName);
-    }
-
-    QList<QListWidgetItem*> lst = m_ui.filterWidget
-        ->findItems(filterName, Qt::MatchCaseSensitive);
-    m_ui.filterWidget->setCurrentItem(lst.first());
-}
-
-void PreferencesDialog::removeFilter()
-{
-    TRACE_OBJ
-    QListWidgetItem *item =
-        m_ui.filterWidget ->takeItem(m_ui.filterWidget->currentRow());
-    if (!item)
-        return;
-
-    m_filterMap.remove(item->text());
-    m_removedFilters.append(item->text());
-    delete item;
-    if (m_ui.filterWidget->count())
-        m_ui.filterWidget->setCurrentRow(0);
-}
-
-void PreferencesDialog::addDocumentationLocal()
-{
-    TRACE_OBJ
-    const QStringList &fileNames = QFileDialog::getOpenFileNames(this,
-        tr("Add Documentation"), QString(), tr("Qt Compressed Help Files (*.qch)"));
-    if (fileNames.isEmpty())
-        return;
-
-    QStringList invalidFiles;
-    QStringList alreadyRegistered;
-    for (const QString &fileName : fileNames) {
-        const QString nameSpace = QHelpEngineCore::namespaceName(fileName);
-        if (nameSpace.isEmpty()) {
-            invalidFiles.append(fileName);
-            continue;
-        }
-
-        if (m_registeredDocsModel->contains(nameSpace)) {
-                alreadyRegistered.append(nameSpace);
-                continue;
-        }
-
-        if (helpEngine.registerDocumentation(fileName)) {
-            RegisteredDocEntry entry;
-            entry.nameSpace = nameSpace;
-            entry.fileName = fileName;
-            m_registeredDocsModel->append(entry);
-            m_regDocs.append(nameSpace);
-            m_unregDocs.removeAll(nameSpace);
-        }
-    }
-
-    if (!invalidFiles.isEmpty() || !alreadyRegistered.isEmpty()) {
-        QString message;
-        if (!alreadyRegistered.isEmpty()) {
-            for (const QString &ns : qAsConst(alreadyRegistered)) {
-                message += tr("The namespace %1 is already registered!")
-                    .arg(QString("<b>%1</b>").arg(ns)) + QLatin1String("<br>");
-            }
-            if (!invalidFiles.isEmpty())
-                message.append(QLatin1String("<br>"));
-        }
-
-        if (!invalidFiles.isEmpty()) {
-            message += tr("The specified file is not a valid Qt Help File!");
-            message.append(QLatin1String("<ul>"));
-            for (const QString &file : qAsConst(invalidFiles))
-                message += QLatin1String("<li>") + file + QLatin1String("</li>");
-            message.append(QLatin1String("</ul>"));
-        }
-        QMessageBox::warning(this, tr("Add Documentation"), message);
-    }
-
-    updateFilterPage();
-}
-
-QList<int> PreferencesDialog::currentRegisteredDocsSelection() const
-{
-    QList<int> result;
-    for (const QModelIndex &index : m_ui.registeredDocsListView->selectionModel()->selectedRows())
-        result.append(m_registereredDocsFilterModel->mapToSource(index).row());
-    std::sort(result.begin(), result.end());
-    return result;
-}
-
-void PreferencesDialog::removeDocumentation()
-{
-    TRACE_OBJ
-
-    const QList<int> currentSelection = currentRegisteredDocsSelection();
-    if (currentSelection.isEmpty())
-        return;
-
-    RegisteredDocEntries entries = m_registeredDocsModel->docEntries();
-
-    bool foundBefore = false;
-    for (int i = currentSelection.size() - 1; i >= 0; --i) {
-        const int row = currentSelection.at(i);
-        const QString &ns = entries.at(row).nameSpace;
-        if (!foundBefore && OpenPagesManager::instance()->pagesOpenForNamespace(ns)) {
-            if (0 == QMessageBox::information(this, tr("Remove Documentation"),
-                tr("Some documents currently opened in Assistant reference the "
-                   "documentation you are attempting to remove. Removing the "
-                   "documentation will close those documents."), tr("Cancel"),
-                tr("OK"))) return;
-            foundBefore = true;
-        }
-
-        m_unregDocs.append(ns);
-        entries.removeAt(row);
-    }
-
-    m_registeredDocsModel->setDocEntries(entries);
-
-    if (m_registereredDocsFilterModel->rowCount()) {
-        const QModelIndex &first = m_registereredDocsFilterModel->index(0, 0);
-        m_ui.registeredDocsListView->selectionModel()->setCurrentIndex(first,
-                                                                       QItemSelectionModel::ClearAndSelect);
-    }
-}
-
-void PreferencesDialog::applyChanges()
-{
-    TRACE_OBJ
-    bool filtersWereChanged = false;
-    if (!m_hideFiltersTab) {
-        if (m_filterMap.count() != m_filterMapBackup.count()) {
-            filtersWereChanged = true;
-        } else {
-            for (auto it = m_filterMapBackup.cbegin(), end = m_filterMapBackup.cend(); it != end && !filtersWereChanged; ++it) {
-                if (!m_filterMap.contains(it.key())) {
-                    filtersWereChanged = true;
-                } else {
-                    const QStringList &a = it.value();
-                    const QStringList &b = m_filterMap.value(it.key());
-                    if (a.count() != b.count()) {
-                        filtersWereChanged = true;
-                    } else {
-                        for (const QString &aStr : a) {
-                            if (!b.contains(aStr)) {
-                                filtersWereChanged = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (filtersWereChanged) {
-        for (const QString &filter : qAsConst(m_removedFilters))
-            helpEngine.removeCustomFilter(filter);
-        for (auto it = m_filterMap.cbegin(), end = m_filterMap.cend(); it != end; ++it)
-            helpEngine.addCustomFilter(it.key(), it.value());
-    }
-
-    for (const QString &doc : qAsConst(m_unregDocs)) {
-        OpenPagesManager::instance()->closePages(doc);
-        helpEngine.unregisterDocumentation(doc);
-    }
-
-    if (filtersWereChanged || !m_regDocs.isEmpty() || !m_unregDocs.isEmpty())
-        helpEngine.setupData();
-
-    helpEngine.setShowTabs(m_ui.showTabs->isChecked());
-    if (m_showTabs != m_ui.showTabs->isChecked())
-        emit updateUserInterface();
-
-    accept();
 }
 
 void PreferencesDialog::updateFontSettingsPage()
 {
-    TRACE_OBJ
     m_browserFontPanel = new FontPanel(this);
     m_browserFontPanel->setCheckable(true);
     m_ui.stackedWidget_2->insertWidget(0, m_browserFontPanel);
@@ -527,35 +611,30 @@ void PreferencesDialog::updateFontSettingsPage()
 
 void PreferencesDialog::appFontSettingToggled(bool on)
 {
-    TRACE_OBJ
-    Q_UNUSED(on)
+    Q_UNUSED(on);
     m_appFontChanged = true;
 }
 
 void PreferencesDialog::appFontSettingChanged(int index)
 {
-    TRACE_OBJ
-    Q_UNUSED(index)
+    Q_UNUSED(index);
     m_appFontChanged = true;
 }
 
 void PreferencesDialog::browserFontSettingToggled(bool on)
 {
-    TRACE_OBJ
-    Q_UNUSED(on)
+    Q_UNUSED(on);
     m_browserFontChanged = true;
 }
 
 void PreferencesDialog::browserFontSettingChanged(int index)
 {
-    TRACE_OBJ
-    Q_UNUSED(index)
+    Q_UNUSED(index);
     m_browserFontChanged = true;
 }
 
 void PreferencesDialog::updateOptionsPage()
 {
-    TRACE_OBJ
     m_ui.homePageLineEdit->setText(helpEngine.homePage());
 
     int option = helpEngine.startOption();
@@ -574,13 +653,11 @@ void PreferencesDialog::updateOptionsPage()
 
 void PreferencesDialog::setBlankPage()
 {
-    TRACE_OBJ
     m_ui.homePageLineEdit->setText(QLatin1String("about:blank"));
 }
 
 void PreferencesDialog::setCurrentPage()
 {
-    TRACE_OBJ
     QString homepage = CentralWidget::instance()->currentSource().toString();
     if (homepage.isEmpty())
         homepage = QLatin1String("help");
@@ -590,7 +667,6 @@ void PreferencesDialog::setCurrentPage()
 
 void PreferencesDialog::setDefaultPage()
 {
-    TRACE_OBJ
     m_ui.homePageLineEdit->setText(helpEngine.defaultHomePage());
 }
 

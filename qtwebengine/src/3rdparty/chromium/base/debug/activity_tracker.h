@@ -34,7 +34,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_runner.h"
 #include "base/threading/platform_thread.h"
-#include "base/threading/thread_local_storage.h"
+#include "base/threading/thread_local.h"
 
 namespace base {
 
@@ -861,12 +861,6 @@ class BASE_EXPORT GlobalActivityTracker {
       if (!global_tracker)
         return nullptr;
 
-      // It is not safe to use TLS once TLS has been destroyed. This can happen
-      // if code that runs late during thread destruction tries to use a
-      // base::Lock. See https://crbug.com/864589.
-      if (base::ThreadLocalStorage::HasBeenDestroyed())
-        return nullptr;
-
       if (lock_allowed)
         return global_tracker->GetOrCreateTrackerForCurrentThread();
       else
@@ -955,7 +949,11 @@ class BASE_EXPORT GlobalActivityTracker {
   // is no significant lookup time required to find the one for the calling
   // thread. Ownership remains with the global tracker.
   ThreadActivityTracker* GetTrackerForCurrentThread() {
-    return reinterpret_cast<ThreadActivityTracker*>(this_thread_tracker_.Get());
+    // It is not safe to use TLS once TLS has been destroyed.
+    if (base::ThreadLocalStorage::HasBeenDestroyed())
+      return nullptr;
+
+    return this_thread_tracker_.Get();
   }
 
   // Gets the thread's activity-tracker or creates one if none exists. This
@@ -1202,7 +1200,7 @@ class BASE_EXPORT GlobalActivityTracker {
   const int64_t process_id_;
 
   // The activity tracker for the currently executing thread.
-  ThreadLocalStorage::Slot this_thread_tracker_;
+  ThreadLocalOwnedPointer<ThreadActivityTracker> this_thread_tracker_;
 
   // The number of thread trackers currently active.
   std::atomic<int> thread_tracker_count_;

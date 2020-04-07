@@ -47,13 +47,11 @@ class MEDIA_GPU_EXPORT CommandBufferHelper
   // EGLImages. New clients should use more specialized accessors instead.
   virtual gl::GLContext* GetGLContext() = 0;
 
+  // Checks whether the stub has been destroyed.
+  virtual bool HasStub() = 0;
+
   // Makes the GL context current.
   virtual bool MakeContextCurrent() = 0;
-
-  // Returns whether or not the the context is current in the
-  // GLContext::IsCurrent(nullptr) sense.  Note that this is not necessarily the
-  // same for virtual contexts as "Did somebody run MakeContextCurrent?".
-  virtual bool IsContextCurrent() const = 0;
 
   // Creates a texture and returns its |service_id|.
   //
@@ -101,6 +99,11 @@ class MEDIA_GPU_EXPORT CommandBufferHelper
   // be to add a HasStub() method, and not define behavior when it is false.
   virtual gpu::Mailbox CreateMailbox(GLuint service_id) = 0;
 
+  // Produce a texture into a mailbox.  The context does not have to be current.
+  // However, this will fail if the stub has been destroyed.
+  virtual void ProduceTexture(const gpu::Mailbox& mailbox,
+                              GLuint service_id) = 0;
+
   // Waits for a SyncToken, then runs |done_cb|.
   //
   // |done_cb| may be destructed without running if the stub is destroyed.
@@ -112,7 +115,7 @@ class MEDIA_GPU_EXPORT CommandBufferHelper
   virtual void WaitForSyncToken(gpu::SyncToken sync_token,
                                 base::OnceClosure done_cb) = 0;
 
-  // Set the callback to be called when our stub is destroyed.  This callback
+  // Set the callback to be called when our stub is destroyed. This callback
   // may not change the current context.
   virtual void SetWillDestroyStubCB(WillDestroyStubCB will_destroy_stub_cb) = 0;
 

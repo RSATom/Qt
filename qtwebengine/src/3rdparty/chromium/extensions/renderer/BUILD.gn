@@ -90,11 +90,10 @@ jumbo_source_set("renderer") {
     "declarative_content_hooks_delegate.h",
     "dispatcher.cc",
     "dispatcher.h",
+    "dispatcher_delegate.cc",
     "dispatcher_delegate.h",
     "display_source_custom_bindings.cc",
     "display_source_custom_bindings.h",
-    "document_custom_bindings.cc",
-    "document_custom_bindings.h",
     "dom_activity_logger.cc",
     "dom_activity_logger.h",
     "easy_unlock_proximity_required_stub.cc",
@@ -113,6 +112,12 @@ jumbo_source_set("renderer") {
     "extension_js_runner.h",
     "extension_port.cc",
     "extension_port.h",
+    "extension_throttle_entry.cc",
+    "extension_throttle_entry.h",
+    "extension_throttle_manager.cc",
+    "extension_throttle_manager.h",
+    "extension_url_loader_throttle.cc",
+    "extension_url_loader_throttle.h",
     "extensions_render_frame_observer.cc",
     "extensions_render_frame_observer.h",
     "extensions_renderer_client.cc",
@@ -135,6 +140,10 @@ jumbo_source_set("renderer") {
     "guest_view/guest_view_internal_custom_bindings.h",
     "guest_view/mime_handler_view/mime_handler_view_container.cc",
     "guest_view/mime_handler_view/mime_handler_view_container.h",
+    "guest_view/mime_handler_view/mime_handler_view_container_base.cc",
+    "guest_view/mime_handler_view/mime_handler_view_container_base.h",
+    "guest_view/mime_handler_view/mime_handler_view_frame_container.cc",
+    "guest_view/mime_handler_view/mime_handler_view_frame_container.h",
     "i18n_custom_bindings.cc",
     "i18n_custom_bindings.h",
     "i18n_hooks_delegate.cc",
@@ -202,28 +211,35 @@ jumbo_source_set("renderer") {
     "resources/file_system_custom_bindings.js",
     "resources/greasemonkey_api.js",
     "resources/guest_view/app_view/app_view.js",
+    "resources/guest_view/app_view/app_view_element.js",
     "resources/guest_view/extension_options/extension_options.js",
     "resources/guest_view/extension_options/extension_options_attributes.js",
     "resources/guest_view/extension_options/extension_options_constants.js",
+    "resources/guest_view/extension_options/extension_options_element.js",
     "resources/guest_view/extension_options/extension_options_events.js",
     "resources/guest_view/extension_view/extension_view.js",
     "resources/guest_view/extension_view/extension_view_api_methods.js",
     "resources/guest_view/extension_view/extension_view_attributes.js",
     "resources/guest_view/extension_view/extension_view_constants.js",
+    "resources/guest_view/extension_view/extension_view_element.js",
     "resources/guest_view/extension_view/extension_view_events.js",
     "resources/guest_view/extension_view/extension_view_internal.js",
     "resources/guest_view/guest_view.js",
     "resources/guest_view/guest_view_attributes.js",
     "resources/guest_view/guest_view_container.js",
+    "resources/guest_view/guest_view_container_element.js",
     "resources/guest_view/guest_view_deny.js",
     "resources/guest_view/guest_view_events.js",
     "resources/guest_view/guest_view_iframe.js",
     "resources/guest_view/guest_view_iframe_container.js",
+    "resources/guest_view/safe_methods.js",
+    "resources/guest_view/web_view/extensions_web_view_element.js",
     "resources/guest_view/web_view/web_view.js",
     "resources/guest_view/web_view/web_view_action_requests.js",
     "resources/guest_view/web_view/web_view_api_methods.js",
     "resources/guest_view/web_view/web_view_attributes.js",
     "resources/guest_view/web_view/web_view_constants.js",
+    "resources/guest_view/web_view/web_view_element.js",
     "resources/guest_view/web_view/web_view_events.js",
     "resources/guest_view/web_view/web_view_internal.js",
     "resources/guest_view/web_view/web_view_request_custom_bindings.js",
@@ -306,7 +322,10 @@ jumbo_source_set("renderer") {
     "worker_thread_dispatcher.h",
   ]
 
-  configs += [ "//build/config:precompiled_headers" ]
+  configs += [
+    "//build/config:precompiled_headers",
+    "//build/config/compiler:wexit_time_destructors",
+  ]
 
   deps = [
     "//chrome:resources",
@@ -354,6 +373,12 @@ jumbo_source_set("renderer") {
     deps += [
       "//third_party/openh264:encoder",
       "//third_party/wds:libwds",
+    ]
+  }
+  if (use_qt) {
+    deps -= [
+      "//chrome:resources",
+      "//third_party/cld_3/src/src:cld_3",
     ]
   }
 }
@@ -422,6 +447,10 @@ source_set("unit_tests") {
     "bindings/exception_handler_unittest.cc",
     "bindings/listener_tracker_unittest.cc",
     "event_unittest.cc",
+    "extension_throttle_simulation_unittest.cc",
+    "extension_throttle_test_support.cc",
+    "extension_throttle_test_support.h",
+    "extension_throttle_unittest.cc",
     "feature_cache_unittest.cc",
     "gc_callback_unittest.cc",
     "gin_port_unittest.cc",

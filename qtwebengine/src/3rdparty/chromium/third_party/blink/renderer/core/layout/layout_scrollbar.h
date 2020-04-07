@@ -26,9 +26,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_SCROLLBAR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_SCROLLBAR_H_
 
+#include "third_party/blink/renderer/core/scroll/scrollbar.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/scroll/scrollbar.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
@@ -44,6 +44,8 @@ class LayoutScrollbar final : public Scrollbar {
   static Scrollbar* CreateCustomScrollbar(ScrollableArea*,
                                           ScrollbarOrientation,
                                           Element*);
+
+  LayoutScrollbar(ScrollableArea*, ScrollbarOrientation, Element*);
   ~LayoutScrollbar() override;
 
   // Return the thickness that a custom scrollbar would have, without actually
@@ -77,9 +79,6 @@ class LayoutScrollbar final : public Scrollbar {
   void SetVisualRect(const LayoutRect&) final;
 
   void Trace(blink::Visitor*) override;
-
- protected:
-  LayoutScrollbar(ScrollableArea*, ScrollbarOrientation, Element*);
 
  private:
   friend class Scrollbar;

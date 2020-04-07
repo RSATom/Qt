@@ -800,6 +800,8 @@ void QWindowSystemInterface::handleScreenAdded(QPlatformScreen *ps, bool isPrima
     else
         QGuiApplicationPrivate::screen_list.append(screen);
 
+    QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+
     emit qGuiApp->screenAdded(screen);
 
     if (isPrimary)
@@ -816,11 +818,6 @@ void QWindowSystemInterface::handleScreenAdded(QPlatformScreen *ps, bool isPrima
 */
 void QWindowSystemInterface::handleScreenRemoved(QPlatformScreen *platformScreen)
 {
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QGuiApplicationPrivate::platformIntegration()->removeScreen(platformScreen->screen());
-QT_WARNING_POP
-
     // Important to keep this order since the QSceen doesn't own the platform screen
     delete platformScreen->screen();
     delete platformScreen;
@@ -840,7 +837,7 @@ void QWindowSystemInterface::handlePrimaryScreenChanged(QPlatformScreen *newPrim
     if (indexOfScreen == 0)
         return;
 
-    QGuiApplicationPrivate::screen_list.swap(0, indexOfScreen);
+    QGuiApplicationPrivate::screen_list.swapItemsAt(0, indexOfScreen);
     emit qGuiApp->primaryScreenChanged(newPrimaryScreen);
 }
 

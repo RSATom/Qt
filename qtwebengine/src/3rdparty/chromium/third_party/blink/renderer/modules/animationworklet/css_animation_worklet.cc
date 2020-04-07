@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/animationworklet/css_animation_worklet.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -44,7 +45,8 @@ CSSAnimationWorklet& CSSAnimationWorklet::From(LocalDOMWindow& window) {
   CSSAnimationWorklet* supplement =
       Supplement<LocalDOMWindow>::From<CSSAnimationWorklet>(window);
   if (!supplement) {
-    supplement = new CSSAnimationWorklet(window.GetFrame()->GetDocument());
+    supplement = MakeGarbageCollected<CSSAnimationWorklet>(
+        window.GetFrame()->GetDocument());
     ProvideTo(window, supplement);
   }
   return *supplement;
@@ -52,7 +54,7 @@ CSSAnimationWorklet& CSSAnimationWorklet::From(LocalDOMWindow& window) {
 
 CSSAnimationWorklet::CSSAnimationWorklet(Document* document)
     : ContextLifecycleObserver(document),
-      animation_worklet_(new AnimationWorklet(document)) {
+      animation_worklet_(MakeGarbageCollected<AnimationWorklet>(document)) {
   DCHECK(GetExecutionContext());
 }
 

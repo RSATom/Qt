@@ -29,7 +29,7 @@ class CommandLine;
 
 extern const char kDotfile_Help[];
 
-// Helper class to setup the build settings and environment for the various
+// Helper class to set up the build settings and environment for the various
 // commands to run.
 class Setup {
  public:
@@ -49,12 +49,24 @@ class Setup {
   // generation should set this to true to create it, but querying commands
   // should set it to false to prevent creating oddly-named directories in case
   // the user omits the build directory argument (which is easy to do).
+  //
+  // cmdline is the gn invocation command, with flags like --root and --dotfile.
+  // If no explicit cmdline is passed, base::CommandLine::ForCurrentProcess()
+  // is used.
   bool DoSetup(const std::string& build_dir, bool force_create);
+  bool DoSetup(const std::string& build_dir,
+               bool force_create,
+               const base::CommandLine& cmdline);
 
   // Runs the load, returning true on success. On failure, prints the error
   // and returns false. This includes both RunPreMessageLoop() and
   // RunPostMessageLoop().
+  //
+  // cmdline is the gn invocation command, with flags like --root and --dotfile.
+  // If no explicit cmdline is passed, base::CommandLine::ForCurrentProcess()
+  // is used.
   bool Run();
+  bool Run(const base::CommandLine& cmdline);
 
   Scheduler& scheduler() { return scheduler_; }
 
@@ -71,6 +83,10 @@ class Setup {
   // After a successful run, setting this will additionally cause the public
   // headers to be checked. Defaults to false.
   void set_check_public_headers(bool s) { check_public_headers_ = s; }
+
+  // Before DoSetup, setting this will generate an empty args.gn if
+  // it does not exist and set up correct dependencies for it.
+  void set_gen_empty_args(bool ge) { gen_empty_args_ = ge; }
 
   // Read from the .gn file, these are the targets to check. If the .gn file
   // does not specify anything, this will be null. If the .gn file specifies
@@ -93,7 +109,7 @@ class Setup {
   // Performs the two sets of operations to run the generation before and after
   // the message loop is run.
   void RunPreMessageLoop();
-  bool RunPostMessageLoop();
+  bool RunPostMessageLoop(const base::CommandLine& cmdline);
 
   // Fills build arguments. Returns true on success.
   bool FillArguments(const base::CommandLine& cmdline);
@@ -157,6 +173,9 @@ class Setup {
   // Set to true when we should populate the build arguments from the command
   // line or build argument file. See setter above.
   bool fill_arguments_;
+
+  // Generate an empty args.gn file if it does not exists.
+  bool gen_empty_args_;
 
   // State for invoking the command line args. We specifically want to keep
   // this around for the entire run so that Values can blame to the command

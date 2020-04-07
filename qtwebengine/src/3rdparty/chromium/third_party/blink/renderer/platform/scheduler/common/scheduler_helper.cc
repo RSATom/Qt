@@ -6,11 +6,11 @@
 
 #include <utility>
 
+#include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
-#include "third_party/blink/renderer/platform/scheduler/child/task_queue_with_task_type.h"
+#include "base/trace_event/traced_value.h"
 
 namespace blink {
 namespace scheduler {
@@ -33,7 +33,7 @@ void SchedulerHelper::InitDefaultQueues(
   control_task_queue->SetQueuePriority(TaskQueue::kControlPriority);
 
   default_task_runner_ =
-      TaskQueueWithTaskType::Create(default_task_queue, default_task_type);
+      default_task_queue->CreateTaskRunner(static_cast<int>(default_task_type));
 
   DCHECK(sequence_manager_);
   sequence_manager_->SetDefaultTaskRunner(default_task_runner_);
@@ -56,7 +56,7 @@ SchedulerHelper::DefaultTaskRunner() {
   return default_task_runner_;
 }
 
-void SchedulerHelper::SetWorkBatchSizeForTesting(size_t work_batch_size) {
+void SchedulerHelper::SetWorkBatchSizeForTesting(int work_batch_size) {
   CheckOnValidThread();
   DCHECK(sequence_manager_.get());
   sequence_manager_->SetWorkBatchSize(work_batch_size);
@@ -71,15 +71,21 @@ bool SchedulerHelper::GetAndClearSystemIsQuiescentBit() {
 void SchedulerHelper::AddTaskObserver(
     base::MessageLoop::TaskObserver* task_observer) {
   CheckOnValidThread();
-  if (sequence_manager_)
-    sequence_manager_->AddTaskObserver(task_observer);
+  if (sequence_manager_) {
+    static_cast<base::sequence_manager::internal::SequenceManagerImpl*>(
+        sequence_manager_.get())
+        ->AddTaskObserver(task_observer);
+  }
 }
 
 void SchedulerHelper::RemoveTaskObserver(
     base::MessageLoop::TaskObserver* task_observer) {
   CheckOnValidThread();
-  if (sequence_manager_)
-    sequence_manager_->RemoveTaskObserver(task_observer);
+  if (sequence_manager_) {
+    static_cast<base::sequence_manager::internal::SequenceManagerImpl*>(
+        sequence_manager_.get())
+        ->RemoveTaskObserver(task_observer);
+  }
 }
 
 void SchedulerHelper::AddTaskTimeObserver(
@@ -101,10 +107,10 @@ void SchedulerHelper::SetObserver(Observer* observer) {
   sequence_manager_->SetObserver(this);
 }
 
-void SchedulerHelper::SweepCanceledDelayedTasks() {
+void SchedulerHelper::ReclaimMemory() {
   CheckOnValidThread();
   DCHECK(sequence_manager_);
-  sequence_manager_->SweepCanceledDelayedTasks();
+  sequence_manager_->ReclaimMemory();
 }
 
 TimeDomain* SchedulerHelper::real_time_domain() const {
@@ -136,7 +142,9 @@ void SchedulerHelper::OnExitNestedRunLoop() {
 }
 
 const base::TickClock* SchedulerHelper::GetClock() const {
-  return sequence_manager_->GetTickClock();
+  if (sequence_manager_)
+    return sequence_manager_->GetTickClock();
+  return nullptr;
 }
 
 base::TimeTicks SchedulerHelper::NowTicks() const {
@@ -144,6 +152,14 @@ base::TimeTicks SchedulerHelper::NowTicks() const {
     return sequence_manager_->NowTicks();
   // We may need current time for tracing when shutting down worker thread.
   return base::TimeTicks::Now();
+}
+
+void SchedulerHelper::SetTimerSlack(base::TimerSlack timer_slack) {
+  if (sequence_manager_) {
+    static_cast<base::sequence_manager::internal::SequenceManagerImpl*>(
+        sequence_manager_.get())
+        ->SetTimerSlack(timer_slack);
+  }
 }
 
 double SchedulerHelper::GetSamplingRateForRecordingCPUTime() const {
@@ -157,7 +173,7 @@ double SchedulerHelper::GetSamplingRateForRecordingCPUTime() const {
 bool SchedulerHelper::HasCPUTimingForEachTask() const {
   if (sequence_manager_) {
     return sequence_manager_->GetMetricRecordingSettings()
-        .records_cpu_time_for_each_task;
+        .records_cpu_time_for_all_tasks();
   }
   return false;
 }

@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
@@ -29,9 +30,15 @@ class CORE_EXPORT ReportingContext final
   // Returns the ReportingContext for an ExecutionContext. If one does not
   // already exist for the given context, one is created.
   static ReportingContext* From(ExecutionContext*);
+  static ReportingContext* From(const ExecutionContext* context) {
+    return ReportingContext::From(const_cast<ExecutionContext*>(context));
+  }
 
   // Queues a report in all registered observers.
   void QueueReport(Report*);
+
+  // Counts the use of a report type via UseCounter.
+  void CountReport(Report*);
 
   void RegisterObserver(ReportingObserver*);
   void UnregisterObserver(ReportingObserver*);
@@ -40,7 +47,7 @@ class CORE_EXPORT ReportingContext final
 
  private:
   HeapListHashSet<Member<ReportingObserver>> observers_;
-  HeapListHashSet<Member<Report>> report_buffer_;
+  HeapHashMap<String, HeapListHashSet<Member<Report>>> report_buffer_;
   Member<ExecutionContext> execution_context_;
 };
 

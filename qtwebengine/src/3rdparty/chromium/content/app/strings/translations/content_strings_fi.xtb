@@ -2,7 +2,6 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="fi">
 <translation id="1018939186200882850">valikkokohde</translation>
-<translation id="1020833440720551630">mykistä ääniraita</translation>
 <translation id="10623998915015855">vaihtopainike</translation>
 <translation id="1088086359088493902">Sekuntia</translation>
 <translation id="1171774979989969504">Anna sähköpostiosoite.</translation>
@@ -16,11 +15,11 @@
 <translation id="1335095011850992622">tunnustukset</translation>
 <translation id="1342835525016946179">artikkeli</translation>
 <translation id="1359897965706325498">banneri</translation>
-<translation id="1548116112524424341">toista video kuva kuvassa ‑tilassa</translation>
 <translation id="1589122976691792535">alue</translation>
 <translation id="1591562245178063882">Tässä kuussa</translation>
 <translation id="1637811476055996098">Valitse tiedostot</translation>
 <translation id="1650423536718072820">erotettu lainaus</translation>
+<translation id="1727886345390570319">sulje tekstitysvalikko</translation>
 <translation id="1729654308190250600">Kirjoita ei-tyhjä sähköpostiosoite.</translation>
 <translation id="1758486001363313524">Muu...</translation>
 <translation id="1806710327868736751">ilmoitusvalintaikkuna</translation>
@@ -98,11 +97,13 @@
 <translation id="4413860115965805769">valikkopainike</translation>
 <translation id="4446524499724042288">sanastoviittaus</translation>
 <translation id="4522570452068850558">Tiedot</translation>
+<translation id="4542388879936266156">jäljellä oleva aika: <ph name="REMAINING_TIME" /></translation>
 <translation id="4597532268155981612">lomake</translation>
 <translation id="4661075872484491155">tree</translation>
 <translation id="4664250907885839816"><ph name="ATSIGN" />-osan jälkeen tulevassa osassa ei pitäisi olla merkkiä <ph name="INVALIDCHARACTER" />.</translation>
 <translation id="4668956016107839909">liite</translation>
 <translation id="4742539557769756338">kansi</translation>
+<translation id="4748357248530471599">näyttölovi osana koko näytön tilaa päälle/pois</translation>
 <translation id="4757246831282535685">välilehtipaneeli</translation>
 <translation id="4763480195061959176">video</translation>
 <translation id="479989351350248267">haku</translation>
@@ -129,7 +130,6 @@
 <translation id="561939826962581046">time</translation>
 <translation id="5630795885300617244">Ohita 10 sekuntia kaksoisnapauttamalla vasemmalle tai oikealle.</translation>
 <translation id="5631759159893697722">tiivistelmä</translation>
-<translation id="5641012560118721995">keskeytä toisto</translation>
 <translation id="5643186887447432888">painike</translation>
 <translation id="5677946354068040947">lisäasetukset</translation>
 <translation id="576709008726043716">johdanto</translation>
@@ -140,15 +140,16 @@
 <translation id="5939518447894949180">Tyhjennä</translation>
 <translation id="5966707198760109579">Viikko</translation>
 <translation id="5987525920412732405">pyöräytyspainike</translation>
+<translation id="6011459053400940133">äänenvoimakkuuden liukusäädin</translation>
 <translation id="6015796118275082299">Vuosi</translation>
 <translation id="6023896073578205740">luetteloruutu</translation>
-<translation id="6101327004457443354">peruuta ääniraidan mykistys</translation>
 <translation id="6150588977291308318">lähdeluettelo</translation>
 <translation id="6164829606128959761">mittari</translation>
 <translation id="6166809985690652833">jälkipuhe</translation>
 <translation id="6213469881011901533">sanasto</translation>
 <translation id="6398862346408813489">Näytä kuukaudenvalintapaneeli</translation>
 <translation id="6404546809543547843">äänen ajan liukusäädin</translation>
+<translation id="6443871981718447451">näytä tekstitysvalikko</translation>
 <translation id="6453774872122745852">kiitokset</translation>
 <translation id="648732519525291180">ajan valitsin</translation>
 <translation id="6550675742724504774">Asetukset</translation>
@@ -164,7 +165,6 @@
 <translation id="6820355525329141109">Laajennuksen lataaminen epäonnistui.</translation>
 <translation id="6820615603175220800">lähdeluetteloviittaus</translation>
 <translation id="6843725295806269523">äänetön</translation>
-<translation id="6853785296079745596">piilota tekstitykset</translation>
 <translation id="6885760532393684712">hakemisto</translation>
 <translation id="689129560213475294">kolofoni</translation>
 <translation id="6934078000481955284">muotoiltu lainaus</translation>
@@ -173,7 +173,6 @@
 <translation id="6989848892321993519">Pidennä tämä teksti vähintään <ph name="MIN_CHARACTERS" /> merkkiin (tällä hetkellä käytössä 1 merkki).</translation>
 <translation id="709897737746224366">Käytä pyydettyä muotoilua.</translation>
 <translation id="7139483182332611405">johdanto</translation>
-<translation id="7223624360433298498">kulunut aika</translation>
 <translation id="7263440858009898357">Valitse kohde luettelosta.</translation>
 <translation id="727747134524199931">sarakkeen otsikko</translation>
 <translation id="7353453495576941748">tunnustus</translation>
@@ -188,8 +187,6 @@
 <translation id="7661956066982048809">grafiikkadokumentti</translation>
 <translation id="7673697353781729403">Tuntia</translation>
 <translation id="7681220483256441252">hakemisto</translation>
-<translation id="7720026100085573005">jäljellä oleva aika</translation>
-<translation id="7740016676195725605">älä näytä tekstityksiä</translation>
 <translation id="7740050170769002709">HTML-sisältö</translation>
 <translation id="7750228210027921155">Kuva kuvassa</translation>
 <translation id="7789962463072032349">tauko</translation>
@@ -200,12 +197,11 @@
 <translation id="8053789581856978548">hakutekstikenttä</translation>
 <translation id="8057695513531652401">ilmoitus</translation>
 <translation id="8105797009065549151">muistiinpanoviittaus</translation>
-<translation id="8115662671911883373">näytä tekstitykset</translation>
 <translation id="8117451130807776954">Tällä viikolla</translation>
-<translation id="819205353528511139">toista elokuva koko näytön tilassa</translation>
 <translation id="8199524924445686405">vvvv</translation>
 <translation id="8284326494547611709">Tekstitykset</translation>
 <translation id="835897206747267392">Virheellinen arvo.</translation>
+<translation id="8403857369060869934">kulunut aika: <ph name="ELAPSED_TIME" /></translation>
 <translation id="8415319359811155763">osa</translation>
 <translation id="8433900881053900389">työkalupalkki</translation>
 <translation id="8444882422881193423"><ph name="NUMBER_OF_FILES" /> tiedostoa</translation>
@@ -222,7 +218,6 @@
 <translation id="8613126697340063924">hallinnoi etätoistoa</translation>
 <translation id="862370744433916922">alaotsikko</translation>
 <translation id="8750798805984357768">Valitse yksi vaihtoehdoista.</translation>
-<translation id="8785498733064193001">aloita toisto</translation>
 <translation id="8808573423886751634">luku</translation>
 <translation id="8845239796550121995">Suoratoistetaan televisioosi</translation>
 <translation id="8851136666856101339">pää</translation>
@@ -231,7 +226,6 @@
 <translation id="8987927404178983737">Kuukausi</translation>
 <translation id="901493112792887934">nykyinen toistoaika sekunteina</translation>
 <translation id="9048119486235211610">navigointi</translation>
-<translation id="9050748414552849310">näytä tekstitykset</translation>
 <translation id="9062295712474918030">dokumentti</translation>
 <translation id="9093215626363556771">sulje kuva kuvassa ‑tila</translation>
 <translation id="9108370397979208512">matematiikka</translation>

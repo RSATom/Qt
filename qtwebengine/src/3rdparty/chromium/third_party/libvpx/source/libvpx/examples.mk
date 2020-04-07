@@ -118,6 +118,8 @@ vp9_spatial_svc_encoder.SRCS        += video_common.h
 vp9_spatial_svc_encoder.SRCS        += video_writer.h video_writer.c
 vp9_spatial_svc_encoder.SRCS        += vpx_ports/msvc.h
 vp9_spatial_svc_encoder.SRCS        += vpxstats.c vpxstats.h
+vp9_spatial_svc_encoder.SRCS        += examples/svc_encodeframe.c
+vp9_spatial_svc_encoder.SRCS        += examples/svc_context.h
 vp9_spatial_svc_encoder.GUID        = 4A38598D-627D-4505-9C7B-D4020C84100D
 vp9_spatial_svc_encoder.DESCRIPTION = VP9 Spatial SVC Encoder
 
@@ -402,3 +404,4 @@ CLEAN-OBJS += examples.doxy samples.dox $(ALL_EXAMPLES:.c=.dox)
 DOCS-yes += examples.doxy samples.dox
 examples.doxy: samples.dox $(ALL_EXAMPLES:.c=.dox)
 	@echo "INPUT += $^" > $@
+	@echo "ENABLED_SECTIONS += samples" >> $@

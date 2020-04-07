@@ -1,5 +1,5 @@
 /*
- *  Copyright 2018 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,24 +11,9 @@
 #ifndef RTC_BASE_TESTCERTIFICATEVERIFIER_H_
 #define RTC_BASE_TESTCERTIFICATEVERIFIER_H_
 
-#include "rtc_base/sslcertificate.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
-
-class TestCertificateVerifier : public SSLCertificateVerifier {
- public:
-  TestCertificateVerifier() = default;
-  ~TestCertificateVerifier() override = default;
-
-  bool Verify(const SSLCertificate& certificate) override {
-    call_count_++;
-    return verify_certificate_;
-  }
-
-  size_t call_count_ = 0;
-  bool verify_certificate_ = true;
-};
-
-}  // namespace rtc
+#include "rtc_base/test_certificate_verifier.h"
 
 #endif  // RTC_BASE_TESTCERTIFICATEVERIFIER_H_

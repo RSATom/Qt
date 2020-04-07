@@ -38,13 +38,12 @@ class VROrientationDeviceProviderTest : public testing::Test {
         mojo::MakeRequest(&sensor_ptr_));
     shared_buffer_handle_ = mojo::SharedBufferHandle::Create(
         sizeof(SensorReadingSharedBuffer) *
-        static_cast<uint64_t>(mojom::SensorType::LAST));
+        (static_cast<uint64_t>(mojom::SensorType::kMaxValue) + 1));
 
     service_manager::mojom::ConnectorRequest request;
     connector_ = service_manager::Connector::Create(&request);
-    service_manager::Connector::TestApi test_api(connector_.get());
-    test_api.OverrideBinderForTesting(
-        service_manager::Identity(mojom::kServiceName),
+    connector_->OverrideBinderForTesting(
+        service_manager::ServiceFilter::ByName(mojom::kServiceName),
         mojom::SensorProvider::Name_,
         base::BindRepeating(&FakeSensorProvider::Bind,
                             base::Unretained(fake_sensor_provider_.get())));
@@ -83,22 +82,26 @@ class VROrientationDeviceProviderTest : public testing::Test {
     return init_params;
   }
 
-  base::RepeatingCallback<
-      void(unsigned int, mojom::VRDisplayInfoPtr, mojom::XRRuntimePtr device)>
+  base::RepeatingCallback<void(device::mojom::XRDeviceId,
+                               mojom::VRDisplayInfoPtr,
+                               mojom::XRRuntimePtr device)>
   DeviceAndIdCallbackFailIfCalled() {
-    return base::BindRepeating([](unsigned int id, mojom::VRDisplayInfoPtr,
+    return base::BindRepeating([](device::mojom::XRDeviceId id,
+                                  mojom::VRDisplayInfoPtr,
                                   mojom::XRRuntimePtr device) { FAIL(); });
   };
 
-  base::RepeatingCallback<void(unsigned int)> DeviceIdCallbackFailIfCalled() {
-    return base::BindRepeating([](unsigned int id) { FAIL(); });
+  base::RepeatingCallback<void(device::mojom::XRDeviceId)>
+  DeviceIdCallbackFailIfCalled() {
+    return base::BindRepeating([](device::mojom::XRDeviceId id) { FAIL(); });
   };
 
-  base::RepeatingCallback<
-      void(unsigned int, mojom::VRDisplayInfoPtr, mojom::XRRuntimePtr device)>
+  base::RepeatingCallback<void(device::mojom::XRDeviceId,
+                               mojom::VRDisplayInfoPtr,
+                               mojom::XRRuntimePtr device)>
   DeviceAndIdCallbackMustBeCalled(base::RunLoop* loop) {
     return base::BindRepeating(
-        [](base::OnceClosure quit_closure, unsigned int id,
+        [](base::OnceClosure quit_closure, device::mojom::XRDeviceId id,
            mojom::VRDisplayInfoPtr info, mojom::XRRuntimePtr device) {
           ASSERT_TRUE(device);
           ASSERT_TRUE(info);
@@ -107,10 +110,10 @@ class VROrientationDeviceProviderTest : public testing::Test {
         loop->QuitClosure());
   };
 
-  base::RepeatingCallback<void(unsigned int)> DeviceIdCallbackMustBeCalled(
-      base::RunLoop* loop) {
+  base::RepeatingCallback<void(device::mojom::XRDeviceId)>
+  DeviceIdCallbackMustBeCalled(base::RunLoop* loop) {
     return base::BindRepeating(
-        [](base::OnceClosure quit_closure, unsigned int id) {
+        [](base::OnceClosure quit_closure, device::mojom::XRDeviceId id) {
           std::move(quit_closure).Run();
         },
         loop->QuitClosure());

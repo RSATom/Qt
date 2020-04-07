@@ -9,26 +9,27 @@
 
 #include <memory>
 
+#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_system.h"
+#include "third_party/base/span.h"
 
 class CCodec_ScanlineDecoder;
 
 class CCodec_BasicModule {
  public:
   std::unique_ptr<CCodec_ScanlineDecoder> CreateRunLengthDecoder(
-      const uint8_t* src_buf,
-      uint32_t src_size,
+      pdfium::span<const uint8_t> src_buf,
       int width,
       int height,
       int nComps,
       int bpc);
-  bool RunLengthEncode(const uint8_t* src_buf,
-                       uint32_t src_size,
-                       uint8_t** dest_buf,
+
+  bool RunLengthEncode(pdfium::span<const uint8_t> src_buf,
+                       std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                        uint32_t* dest_size);
-  bool A85Encode(const uint8_t* src_buf,
-                 uint32_t src_size,
-                 uint8_t** dest_buf,
+
+  bool A85Encode(pdfium::span<const uint8_t> src_buf,
+                 std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                  uint32_t* dest_size);
 };
 

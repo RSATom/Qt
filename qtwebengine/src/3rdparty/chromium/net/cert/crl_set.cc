@@ -191,7 +191,7 @@ CRLSet::~CRLSet() = default;
 
 // static
 bool CRLSet::Parse(base::StringPiece data, scoped_refptr<CRLSet>* out_crl_set) {
-  TRACE_EVENT0(kNetTracingCategory, "CRLSet::Parse");
+  TRACE_EVENT0(NetTracingCategory(), "CRLSet::Parse");
 // Other parts of Chrome assume that we're little endian, so we don't lose
 // anything by doing this.
 #if defined(__BYTE_ORDER)
@@ -257,8 +257,7 @@ bool CRLSet::Parse(base::StringPiece data, scoped_refptr<CRLSet>* out_crl_set) {
 }
 
 CRLSet::Result CRLSet::CheckSPKI(const base::StringPiece& spki_hash) const {
-  for (std::vector<std::string>::const_iterator i = blocked_spkis_.begin();
-       i != blocked_spkis_.end(); ++i) {
+  for (auto i = blocked_spkis_.begin(); i != blocked_spkis_.end(); ++i) {
     if (spki_hash.size() == i->size() &&
         memcmp(spki_hash.data(), i->data(), i->size()) == 0) {
       return REVOKED;
@@ -333,6 +332,7 @@ scoped_refptr<CRLSet> CRLSet::EmptyCRLSetForTesting() {
   return ForTesting(false, nullptr, "", "", {});
 }
 
+// static
 scoped_refptr<CRLSet> CRLSet::ExpiredCRLSetForTesting() {
   return ForTesting(true, nullptr, "", "", {});
 }
@@ -374,6 +374,7 @@ scoped_refptr<CRLSet> CRLSet::ForTesting(
   }
 
   scoped_refptr<CRLSet> crl_set(new CRLSet);
+  crl_set->sequence_ = 0;
   if (is_expired)
     crl_set->not_after_ = 1;
 

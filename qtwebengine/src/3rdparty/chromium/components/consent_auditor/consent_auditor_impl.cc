@@ -5,20 +5,19 @@
 #include "components/consent_auditor/consent_auditor_impl.h"
 
 #include <memory>
+#include <utility>
 
-#include "base/metrics/histogram_macros.h"
 #include "base/values.h"
 #include "components/consent_auditor/pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/model/model_type_sync_bridge.h"
-#include "components/sync/user_events/user_event_service.h"
 
+using ArcPlayTermsOfServiceConsent =
+    sync_pb::UserConsentTypes::ArcPlayTermsOfServiceConsent;
 using sync_pb::UserConsentTypes;
 using sync_pb::UserConsentSpecifics;
-using sync_pb::UserEventSpecifics;
 
 namespace consent_auditor {
 
@@ -29,56 +28,18 @@ const char kLocalConsentConfirmationKey[] = "confirmation";
 const char kLocalConsentVersionKey[] = "version";
 const char kLocalConsentLocaleKey[] = "locale";
 
-bool IsSeparateConsentTypeEnabled() {
-  return base::FeatureList::IsEnabled(switches::kSyncUserConsentSeparateType);
-}
+std::unique_ptr<sync_pb::UserConsentSpecifics> CreateUserConsentSpecifics(
+    const std::string& account_id,
+    const std::string& locale,
+    base::Clock* clock) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      std::make_unique<sync_pb::UserConsentSpecifics>();
+  specifics->set_account_id(account_id);
+  specifics->set_client_consent_time_usec(
+      clock->Now().since_origin().InMicroseconds());
+  specifics->set_locale(locale);
 
-UserEventSpecifics::UserConsent::Feature FeatureToUserEventProtoEnum(
-    consent_auditor::Feature feature) {
-  switch (feature) {
-    case consent_auditor::Feature::CHROME_SYNC:
-      return UserEventSpecifics::UserConsent::CHROME_SYNC;
-    case consent_auditor::Feature::PLAY_STORE:
-      return UserEventSpecifics::UserConsent::PLAY_STORE;
-    case consent_auditor::Feature::BACKUP_AND_RESTORE:
-      return UserEventSpecifics::UserConsent::BACKUP_AND_RESTORE;
-    case consent_auditor::Feature::GOOGLE_LOCATION_SERVICE:
-      return UserEventSpecifics::UserConsent::GOOGLE_LOCATION_SERVICE;
-    case consent_auditor::Feature::CHROME_UNIFIED_CONSENT:
-      return UserEventSpecifics::UserConsent::CHROME_UNIFIED_CONSENT;
-  }
-  NOTREACHED();
-  return UserEventSpecifics::UserConsent::FEATURE_UNSPECIFIED;
-}
-
-UserConsentTypes::ConsentStatus StatusToProtoEnum(
-    consent_auditor::ConsentStatus status) {
-  switch (status) {
-    case consent_auditor::ConsentStatus::NOT_GIVEN:
-      return UserConsentTypes::NOT_GIVEN;
-    case consent_auditor::ConsentStatus::GIVEN:
-      return UserConsentTypes::GIVEN;
-  }
-  NOTREACHED();
-  return UserConsentTypes::CONSENT_STATUS_UNSPECIFIED;
-}
-
-UserConsentSpecifics::Feature FeatureToUserConsentProtoEnum(
-    consent_auditor::Feature feature) {
-  switch (feature) {
-    case consent_auditor::Feature::CHROME_SYNC:
-      return UserConsentSpecifics::CHROME_SYNC;
-    case consent_auditor::Feature::PLAY_STORE:
-      return UserConsentSpecifics::PLAY_STORE;
-    case consent_auditor::Feature::BACKUP_AND_RESTORE:
-      return UserConsentSpecifics::BACKUP_AND_RESTORE;
-    case consent_auditor::Feature::GOOGLE_LOCATION_SERVICE:
-      return UserConsentSpecifics::GOOGLE_LOCATION_SERVICE;
-    case consent_auditor::Feature::CHROME_UNIFIED_CONSENT:
-      return UserConsentSpecifics::CHROME_UNIFIED_CONSENT;
-  }
-  NOTREACHED();
-  return UserConsentSpecifics::FEATURE_UNSPECIFIED;
+  return specifics;
 }
 
 }  // namespace
@@ -86,119 +47,100 @@ UserConsentSpecifics::Feature FeatureToUserConsentProtoEnum(
 ConsentAuditorImpl::ConsentAuditorImpl(
     PrefService* pref_service,
     std::unique_ptr<syncer::ConsentSyncBridge> consent_sync_bridge,
-    syncer::UserEventService* user_event_service,
     const std::string& app_version,
-    const std::string& app_locale)
+    const std::string& app_locale,
+    base::Clock* clock)
     : pref_service_(pref_service),
       consent_sync_bridge_(std::move(consent_sync_bridge)),
-      user_event_service_(user_event_service),
       app_version_(app_version),
-      app_locale_(app_locale) {
-  if (IsSeparateConsentTypeEnabled()) {
-    DCHECK(consent_sync_bridge_ && !user_event_service_);
-  } else {
-    DCHECK(user_event_service_ && !consent_sync_bridge_);
-  }
+      app_locale_(app_locale),
+      clock_(clock) {
+  DCHECK(consent_sync_bridge_);
   DCHECK(pref_service_);
 }
 
 ConsentAuditorImpl::~ConsentAuditorImpl() {}
 
-void ConsentAuditorImpl::Shutdown() {
-  user_event_service_ = nullptr;
-}
+void ConsentAuditorImpl::Shutdown() {}
 
 // static
 void ConsentAuditorImpl::RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kLocalConsentsDictionary);
 }
 
-void ConsentAuditorImpl::RecordGaiaConsent(
+void ConsentAuditorImpl::RecordArcPlayConsent(
     const std::string& account_id,
-    Feature feature,
-    const std::vector<int>& description_grd_ids,
-    int confirmation_grd_id,
-    ConsentStatus status) {
-  DCHECK(!account_id.empty()) << "No signed-in account specified.";
+    const ArcPlayTermsOfServiceConsent& consent) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
 
-  if (!base::FeatureList::IsEnabled(switches::kSyncUserConsentEvents))
-    return;
-
-  DCHECK_LE(feature, consent_auditor::Feature::FEATURE_LAST);
-
-  switch (status) {
-    case ConsentStatus::GIVEN:
-      UMA_HISTOGRAM_ENUMERATION(
-          "Privacy.ConsentAuditor.ConsentGiven.Feature", feature,
-          static_cast<int>(consent_auditor::Feature::FEATURE_LAST) + 1);
-      break;
-    case ConsentStatus::NOT_GIVEN:
-      UMA_HISTOGRAM_ENUMERATION(
-          "Privacy.ConsentAuditor.ConsentNotGiven.Feature", feature,
-          static_cast<int>(consent_auditor::Feature::FEATURE_LAST) + 1);
-      break;
-  }
-
-  if (IsSeparateConsentTypeEnabled()) {
-    // TODO(msramek): Pass in the actual account id.
-    std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
-        ConstructUserConsentSpecifics(account_id, feature, description_grd_ids,
-                                      confirmation_grd_id, status);
-    consent_sync_bridge_->RecordConsent(std::move(specifics));
-  } else {
-    // TODO(msramek): Pass in the actual account id.
-    std::unique_ptr<sync_pb::UserEventSpecifics> specifics =
-        ConstructUserEventSpecifics(account_id, feature, description_grd_ids,
-                                    confirmation_grd_id, status);
-    user_event_service_->RecordUserEvent(std::move(specifics));
-  }
+  sync_pb::UserConsentTypes::ArcPlayTermsOfServiceConsent* arc_play_consent =
+      specifics->mutable_arc_play_terms_of_service_consent();
+  arc_play_consent->CopyFrom(consent);
+  consent_sync_bridge_->RecordConsent(std::move(specifics));
 }
 
-std::unique_ptr<sync_pb::UserEventSpecifics>
-ConsentAuditorImpl::ConstructUserEventSpecifics(
+void ConsentAuditorImpl::RecordArcGoogleLocationServiceConsent(
     const std::string& account_id,
-    Feature feature,
-    const std::vector<int>& description_grd_ids,
-    int confirmation_grd_id,
-    ConsentStatus status) {
-  DCHECK(!IsSeparateConsentTypeEnabled());
+    const UserConsentTypes::ArcGoogleLocationServiceConsent& consent) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
 
-  auto specifics = std::make_unique<sync_pb::UserEventSpecifics>();
-  specifics->set_event_time_usec(
-      base::Time::Now().since_origin().InMicroseconds());
-  auto* consent = specifics->mutable_user_consent();
-  consent->set_account_id(account_id);
-  consent->set_feature(FeatureToUserEventProtoEnum(feature));
-  for (int id : description_grd_ids) {
-    consent->add_description_grd_ids(id);
-  }
-  consent->set_confirmation_grd_id(confirmation_grd_id);
-  consent->set_locale(app_locale_);
-  consent->set_status(StatusToProtoEnum(status));
-  return specifics;
+  sync_pb::UserConsentTypes::ArcGoogleLocationServiceConsent*
+      arc_google_location_service_consent =
+          specifics->mutable_arc_location_service_consent();
+  arc_google_location_service_consent->CopyFrom(consent);
+  consent_sync_bridge_->RecordConsent(std::move(specifics));
 }
 
-std::unique_ptr<sync_pb::UserConsentSpecifics>
-ConsentAuditorImpl::ConstructUserConsentSpecifics(
+void ConsentAuditorImpl::RecordArcBackupAndRestoreConsent(
     const std::string& account_id,
-    Feature feature,
-    const std::vector<int>& description_grd_ids,
-    int confirmation_grd_id,
-    ConsentStatus status) {
-  DCHECK(IsSeparateConsentTypeEnabled());
+    const UserConsentTypes::ArcBackupAndRestoreConsent& consent) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
 
-  auto specifics = std::make_unique<sync_pb::UserConsentSpecifics>();
-  specifics->set_client_consent_time_usec(
-      base::Time::Now().since_origin().InMicroseconds());
-  specifics->set_account_id(account_id);
-  specifics->set_feature(FeatureToUserConsentProtoEnum(feature));
-  for (int id : description_grd_ids) {
-    specifics->add_description_grd_ids(id);
-  }
-  specifics->set_confirmation_grd_id(confirmation_grd_id);
-  specifics->set_locale(app_locale_);
-  specifics->set_status(StatusToProtoEnum(status));
-  return specifics;
+  sync_pb::UserConsentTypes::ArcBackupAndRestoreConsent*
+      arc_backup_and_restore_consent =
+          specifics->mutable_arc_backup_and_restore_consent();
+  arc_backup_and_restore_consent->CopyFrom(consent);
+  consent_sync_bridge_->RecordConsent(std::move(specifics));
+}
+
+void ConsentAuditorImpl::RecordSyncConsent(
+    const std::string& account_id,
+    const UserConsentTypes::SyncConsent& consent) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
+
+  sync_pb::UserConsentTypes::SyncConsent* sync_consent =
+      specifics->mutable_sync_consent();
+  sync_consent->CopyFrom(consent);
+  consent_sync_bridge_->RecordConsent(std::move(specifics));
+}
+
+void ConsentAuditorImpl::RecordUnifiedConsent(
+    const std::string& account_id,
+    const sync_pb::UserConsentTypes::UnifiedConsent& consent) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
+
+  sync_pb::UserConsentTypes::UnifiedConsent* unified_consent =
+      specifics->mutable_unified_consent();
+  unified_consent->CopyFrom(consent);
+  consent_sync_bridge_->RecordConsent(std::move(specifics));
+}
+
+void ConsentAuditorImpl::RecordAssistantActivityControlConsent(
+    const std::string& account_id,
+    const sync_pb::UserConsentTypes::AssistantActivityControlConsent& consent) {
+  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
+      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
+  sync_pb::UserConsentTypes::AssistantActivityControlConsent*
+      assistant_consent =
+          specifics->mutable_assistant_activity_control_consent();
+  assistant_consent->CopyFrom(consent);
+
+  consent_sync_bridge_->RecordConsent(std::move(specifics));
 }
 
 void ConsentAuditorImpl::RecordLocalConsent(
@@ -220,9 +162,9 @@ void ConsentAuditorImpl::RecordLocalConsent(
 }
 
 base::WeakPtr<syncer::ModelTypeControllerDelegate>
-ConsentAuditorImpl::GetControllerDelegateOnUIThread() {
+ConsentAuditorImpl::GetControllerDelegate() {
   if (consent_sync_bridge_) {
-    return consent_sync_bridge_->GetControllerDelegateOnUIThread();
+    return consent_sync_bridge_->GetControllerDelegate();
   }
   return base::WeakPtr<syncer::ModelTypeControllerDelegate>();
 }

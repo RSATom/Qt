@@ -77,6 +77,7 @@ public:
     QGeoRouteRequest::RouteOptimizations routeOptimization;
     QGeoRouteRequest::SegmentDetail segmentDetail;
     QGeoRouteRequest::ManeuverDetail maneuverDetail;
+    QDateTime departureTime;
     QVariantMap extraParameters;
 };
 

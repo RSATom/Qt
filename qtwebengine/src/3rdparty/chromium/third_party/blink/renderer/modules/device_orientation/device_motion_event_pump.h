@@ -6,19 +6,29 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_DEVICE_ORIENTATION_DEVICE_MOTION_EVENT_PUMP_H_
 
 #include "base/macros.h"
-#include "third_party/blink/public/platform/modules/device_orientation/web_device_motion_listener.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_sensor_event_pump.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
 
 namespace blink {
 
 class DeviceMotionData;
+class PlatformEventController;
 
 class MODULES_EXPORT DeviceMotionEventPump
-    : public DeviceSensorEventPump<blink::WebDeviceMotionListener> {
+    : public GarbageCollectedFinalized<DeviceMotionEventPump>,
+      public DeviceSensorEventPump {
  public:
   explicit DeviceMotionEventPump(scoped_refptr<base::SingleThreadTaskRunner>);
   ~DeviceMotionEventPump() override;
+
+  void SetController(PlatformEventController*);
+  void RemoveController();
+
+  // Note that the returned object is owned by this class.
+  DeviceMotionData* LatestDeviceMotionData();
+
+  void Trace(blink::Visitor*);
 
   // DeviceSensorEventPump:
   void SendStartMessage(LocalFrame* frame) override;
@@ -35,10 +45,17 @@ class MODULES_EXPORT DeviceMotionEventPump
  private:
   friend class DeviceMotionEventPumpTest;
 
+  void StartListening(LocalFrame*);
+  void StopListening();
+  void NotifyController();
+
   // DeviceSensorEventPump:
   bool SensorsReadyOrErrored() const override;
 
   DeviceMotionData* GetDataFromSharedMemory();
+
+  Member<DeviceMotionData> data_;
+  WeakMember<PlatformEventController> controller_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceMotionEventPump);
 };

@@ -14,7 +14,7 @@
 
 namespace blink {
 
-class XRDevice;
+class XR;
 class XRSession;
 class XRFrameTransport;
 class XRWebGLLayer;
@@ -24,14 +24,13 @@ class XRWebGLLayer;
 class XRFrameProvider final
     : public GarbageCollectedFinalized<XRFrameProvider> {
  public:
-  explicit XRFrameProvider(XRDevice*);
+  explicit XRFrameProvider(XR*);
 
   XRSession* immersive_session() const { return immersive_session_; }
-  device::mojom::blink::VRSubmitFrameClientPtr GetSubmitFrameClient();
+  device::mojom::blink::XRPresentationClientPtr GetSubmitFrameClient();
 
-  void BeginImmersiveSession(
-      XRSession* session,
-      device::mojom::blink::XRPresentationConnectionPtr connection);
+  void BeginImmersiveSession(XRSession* session,
+                             device::mojom::blink::XRSessionPtr session_ptr);
   void OnImmersiveSessionEnded();
 
   void RequestFrame(XRSession*);
@@ -59,15 +58,16 @@ class XRFrameProvider final
 
   bool HasARSession();
 
-  const Member<XRDevice> device_;
+  const Member<XR> xr_;
   Member<XRSession> immersive_session_;
   Member<XRFrameTransport> frame_transport_;
 
   // Non-immersive Sessions which have requested a frame update.
   HeapVector<Member<XRSession>> requesting_sessions_;
+  HeapVector<Member<XRSession>> processing_sessions_;
 
-  device::mojom::blink::VRPresentationProviderPtr presentation_provider_;
-  device::mojom::blink::VRMagicWindowProviderPtr magic_window_provider_;
+  device::mojom::blink::XRPresentationProviderPtr presentation_provider_;
+  device::mojom::blink::XRFrameDataProviderPtr immersive_data_provider_;
   device::mojom::blink::VRPosePtr frame_pose_;
 
   // This frame ID is XR-specific and is used to track when frames arrive at the

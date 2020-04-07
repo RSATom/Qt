@@ -6,13 +6,13 @@
 
 #include "xfa/fxfa/parser/cscript_layoutpseudomodel.h"
 
+#include "fxjs/xfa/cjx_layoutpseudomodel.h"
 #include "third_party/base/ptr_util.h"
 
 CScript_LayoutPseudoModel::CScript_LayoutPseudoModel(CXFA_Document* pDocument)
     : CXFA_Object(pDocument,
                   XFA_ObjectType::Object,
                   XFA_Element::LayoutPseudoModel,
-                  WideStringView(L"layoutPseudoModel"),
                   pdfium::MakeUnique<CJX_LayoutPseudoModel>(this)) {}
 
-CScript_LayoutPseudoModel::~CScript_LayoutPseudoModel() {}
+CScript_LayoutPseudoModel::~CScript_LayoutPseudoModel() = default;

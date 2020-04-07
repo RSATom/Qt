@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/stl_util.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
@@ -83,30 +84,31 @@ EventBindings::EventBindings(ScriptContext* context,
   // It's safe to use base::Unretained here because |context| will always
   // outlive us.
   context->AddInvalidationObserver(
-      base::Bind(&EventBindings::OnInvalidated, base::Unretained(this)));
+      base::BindOnce(&EventBindings::OnInvalidated, base::Unretained(this)));
 }
 
 EventBindings::~EventBindings() {}
 
 void EventBindings::AddRoutes() {
+  RouteHandlerFunction("AttachEvent",
+                       base::BindRepeating(&EventBindings::AttachEventHandler,
+                                           base::Unretained(this)));
+  RouteHandlerFunction("DetachEvent",
+                       base::BindRepeating(&EventBindings::DetachEventHandler,
+                                           base::Unretained(this)));
+  RouteHandlerFunction("AttachFilteredEvent",
+                       base::BindRepeating(&EventBindings::AttachFilteredEvent,
+                                           base::Unretained(this)));
   RouteHandlerFunction(
-      "AttachEvent",
-      base::Bind(&EventBindings::AttachEventHandler, base::Unretained(this)));
-  RouteHandlerFunction(
-      "DetachEvent",
-      base::Bind(&EventBindings::DetachEventHandler, base::Unretained(this)));
-  RouteHandlerFunction(
-      "AttachFilteredEvent",
-      base::Bind(&EventBindings::AttachFilteredEvent, base::Unretained(this)));
-  RouteHandlerFunction("DetachFilteredEvent",
-                       base::Bind(&EventBindings::DetachFilteredEventHandler,
-                                  base::Unretained(this)));
-  RouteHandlerFunction(
-      "AttachUnmanagedEvent",
-      base::Bind(&EventBindings::AttachUnmanagedEvent, base::Unretained(this)));
-  RouteHandlerFunction(
-      "DetachUnmanagedEvent",
-      base::Bind(&EventBindings::DetachUnmanagedEvent, base::Unretained(this)));
+      "DetachFilteredEvent",
+      base::BindRepeating(&EventBindings::DetachFilteredEventHandler,
+                          base::Unretained(this)));
+  RouteHandlerFunction("AttachUnmanagedEvent",
+                       base::BindRepeating(&EventBindings::AttachUnmanagedEvent,
+                                           base::Unretained(this)));
+  RouteHandlerFunction("DetachUnmanagedEvent",
+                       base::BindRepeating(&EventBindings::DetachUnmanagedEvent,
+                                           base::Unretained(this)));
 }
 
 // static
@@ -132,7 +134,7 @@ void EventBindings::DispatchEventInContext(
   };
 
   context->module_system()->CallModuleMethodSafe(
-      kEventBindings, "dispatchEvent", arraysize(v8_args), v8_args);
+      kEventBindings, "dispatchEvent", base::size(v8_args), v8_args);
 }
 
 void EventBindings::AttachEventHandler(
@@ -141,7 +143,7 @@ void EventBindings::AttachEventHandler(
   CHECK(args[0]->IsString());
   CHECK(args[1]->IsBoolean());
   AttachEvent(*v8::String::Utf8Value(args.GetIsolate(), args[0]),
-              args[1]->BooleanValue());
+              args[1].As<v8::Boolean>()->Value());
 }
 
 void EventBindings::AttachEvent(const std::string& event_name,
@@ -180,8 +182,8 @@ void EventBindings::DetachEventHandler(
   CHECK(args[0]->IsString());
   CHECK(args[1]->IsBoolean());
   CHECK(args[2]->IsBoolean());
-  bool was_manual = args[1]->BooleanValue();
-  bool supports_lazy_listeners = args[2]->BooleanValue();
+  bool was_manual = args[1].As<v8::Boolean>()->Value();
+  bool supports_lazy_listeners = args[2].As<v8::Boolean>()->Value();
   DetachEvent(*v8::String::Utf8Value(args.GetIsolate(), args[0]),
               was_manual && supports_lazy_listeners);
 }
@@ -236,7 +238,7 @@ void EventBindings::AttachFilteredEvent(
     filter = base::DictionaryValue::From(std::move(filter_value));
   }
 
-  bool supports_lazy_listeners = args[2]->BooleanValue();
+  bool supports_lazy_listeners = args[2].As<v8::Boolean>()->Value();
 
   EventBookkeeper* bookkeeper = EventBookkeeper::Get();
   DCHECK(bookkeeper);
@@ -271,9 +273,9 @@ void EventBindings::DetachFilteredEventHandler(
   CHECK(args[0]->IsInt32());
   CHECK(args[1]->IsBoolean());
   CHECK(args[2]->IsBoolean());
-  bool was_manual = args[1]->BooleanValue();
-  bool supports_lazy_listeners = args[2]->BooleanValue();
-  DetachFilteredEvent(args[0]->Int32Value(),
+  bool was_manual = args[1].As<v8::Boolean>()->Value();
+  bool supports_lazy_listeners = args[2].As<v8::Boolean>()->Value();
+  DetachFilteredEvent(args[0].As<v8::Int32>()->Value(),
                       was_manual && supports_lazy_listeners);
 }
 
@@ -305,7 +307,7 @@ void EventBindings::AttachUnmanagedEvent(
   v8::HandleScope handle_scope(isolate);
   CHECK_EQ(1, args.Length());
   CHECK(args[0]->IsString());
-  std::string event_name = gin::V8ToString(args[0]);
+  std::string event_name = gin::V8ToString(isolate, args[0]);
   EventBookkeeper::Get()->AddUnmanagedEvent(context(), event_name);
 }
 
@@ -315,7 +317,7 @@ void EventBindings::DetachUnmanagedEvent(
   v8::HandleScope handle_scope(isolate);
   CHECK_EQ(1, args.Length());
   CHECK(args[0]->IsString());
-  std::string event_name = gin::V8ToString(args[0]);
+  std::string event_name = gin::V8ToString(isolate, args[0]);
   EventBookkeeper::Get()->RemoveUnmanagedEvent(context(), event_name);
 }
 

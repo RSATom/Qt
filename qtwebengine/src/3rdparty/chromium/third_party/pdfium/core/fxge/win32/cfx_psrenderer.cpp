@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <memory>
 #include <sstream>
+#include <utility>
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fxcodec/codec/ccodec_basicmodule.h"
@@ -23,24 +24,27 @@
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibextractor.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
+#include "core/fxge/fx_dib.h"
 #include "core/fxge/win32/cpsoutput.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
 
-void FaxCompressData(uint8_t* src_buf,
+bool FaxCompressData(std::unique_ptr<uint8_t, FxFreeDeleter> src_buf,
                      int width,
                      int height,
                      std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                      uint32_t* dest_size) {
-  if (width * height > 128) {
-    CCodec_FaxModule::FaxEncode(src_buf, width, height, (width + 7) / 8,
-                                dest_buf, dest_size);
-    FX_Free(src_buf);
-  } else {
-    dest_buf->reset(src_buf);
+  if (width * height <= 128) {
+    *dest_buf = std::move(src_buf);
     *dest_size = (width + 7) / 8 * height;
+    return false;
   }
+
+  CCodec_FaxModule::FaxEncode(src_buf.get(), width, height, (width + 7) / 8,
+                              dest_buf, dest_size);
+  return true;
 }
 
 void PSCompressData(int PSLevel,
@@ -59,13 +63,17 @@ void PSCompressData(int PSLevel,
   uint8_t* dest_buf = nullptr;
   uint32_t dest_size = src_size;
   if (PSLevel >= 3) {
-    if (pEncoders->GetFlateModule()->Encode(src_buf, src_size, &dest_buf,
+    std::unique_ptr<uint8_t, FxFreeDeleter> dest_buf_unique;
+    if (pEncoders->GetFlateModule()->Encode(src_buf, src_size, &dest_buf_unique,
                                             &dest_size)) {
+      dest_buf = dest_buf_unique.release();
       *filter = "/FlateDecode filter ";
     }
   } else {
-    if (pEncoders->GetBasicModule()->RunLengthEncode(src_buf, src_size,
-                                                     &dest_buf, &dest_size)) {
+    std::unique_ptr<uint8_t, FxFreeDeleter> dest_buf_unique;
+    if (pEncoders->GetBasicModule()->RunLengthEncode(
+            {src_buf, src_size}, &dest_buf_unique, &dest_size)) {
+      dest_buf = dest_buf_unique.release();
       *filter = "/RunLengthDecode filter ";
     }
   }
@@ -101,7 +109,7 @@ CFX_PSRenderer::CFX_PSRenderer()
 
 CFX_PSRenderer::~CFX_PSRenderer() {}
 
-void CFX_PSRenderer::Init(const RetainPtr<IFX_WriteStream>& pStream,
+void CFX_PSRenderer::Init(const RetainPtr<IFX_RetainableWriteStream>& pStream,
                           int pslevel,
                           int width,
                           int height,
@@ -311,13 +319,10 @@ void CFX_PSRenderer::SetGraphState(const CFX_GraphStateData* pGraphState) {
     buf << pGraphState->m_LineCap << " J\n";
   }
   if (!m_bGraphStateSet ||
-      m_CurGraphState.m_DashCount != pGraphState->m_DashCount ||
-      memcmp(m_CurGraphState.m_DashArray, pGraphState->m_DashArray,
-             sizeof(float) * m_CurGraphState.m_DashCount)) {
+      m_CurGraphState.m_DashArray != pGraphState->m_DashArray) {
     buf << "[";
-    for (int i = 0; i < pGraphState->m_DashCount; ++i)
-      buf << pGraphState->m_DashArray[i] << " ";
-
+    for (const auto& dash : pGraphState->m_DashArray)
+      buf << dash << " ";
     buf << "]" << pGraphState->m_DashPhase << " d\n";
   }
   if (!m_bGraphStateSet ||
@@ -332,44 +337,42 @@ void CFX_PSRenderer::SetGraphState(const CFX_GraphStateData* pGraphState) {
       m_CurGraphState.m_MiterLimit != pGraphState->m_MiterLimit) {
     buf << pGraphState->m_MiterLimit << " M\n";
   }
-  m_CurGraphState.Copy(*pGraphState);
+  m_CurGraphState = *pGraphState;
   m_bGraphStateSet = true;
   WriteToStream(&buf);
 }
 
-bool CFX_PSRenderer::SetDIBits(const RetainPtr<CFX_DIBSource>& pSource,
+bool CFX_PSRenderer::SetDIBits(const RetainPtr<CFX_DIBBase>& pSource,
                                uint32_t color,
                                int left,
                                int top) {
   StartRendering();
-  CFX_Matrix matrix((float)(pSource->GetWidth()), 0.0f, 0.0f,
-                    -(float)(pSource->GetHeight()), (float)(left),
-                    (float)(top + pSource->GetHeight()));
-  return DrawDIBits(pSource, color, &matrix, 0);
+  CFX_Matrix matrix = CFX_RenderDevice::GetFlipMatrix(
+      pSource->GetWidth(), pSource->GetHeight(), left, top);
+  return DrawDIBits(pSource, color, matrix, FXDIB_ResampleOptions());
 }
 
-bool CFX_PSRenderer::StretchDIBits(const RetainPtr<CFX_DIBSource>& pSource,
+bool CFX_PSRenderer::StretchDIBits(const RetainPtr<CFX_DIBBase>& pSource,
                                    uint32_t color,
                                    int dest_left,
                                    int dest_top,
                                    int dest_width,
                                    int dest_height,
-                                   uint32_t flags) {
+                                   const FXDIB_ResampleOptions& options) {
   StartRendering();
-  CFX_Matrix matrix((float)(dest_width), 0.0f, 0.0f, (float)(-dest_height),
-                    (float)(dest_left), (float)(dest_top + dest_height));
-  return DrawDIBits(pSource, color, &matrix, flags);
+  CFX_Matrix matrix = CFX_RenderDevice::GetFlipMatrix(dest_width, dest_height,
+                                                      dest_left, dest_top);
+  return DrawDIBits(pSource, color, matrix, options);
 }
 
-bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
+bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBBase>& pSource,
                                 uint32_t color,
-                                const CFX_Matrix* pMatrix,
-                                uint32_t flags) {
+                                const CFX_Matrix& matrix,
+                                const FXDIB_ResampleOptions& options) {
   StartRendering();
-  if ((pMatrix->a == 0 && pMatrix->b == 0) ||
-      (pMatrix->c == 0 && pMatrix->d == 0)) {
+  if ((matrix.a == 0 && matrix.b == 0) || (matrix.c == 0 && matrix.d == 0))
     return true;
-  }
+
   if (pSource->HasAlpha())
     return false;
 
@@ -380,8 +383,8 @@ bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
   m_pStream->WriteString("q\n");
 
   std::ostringstream buf;
-  buf << "[" << pMatrix->a << " " << pMatrix->b << " " << pMatrix->c << " "
-      << pMatrix->d << " " << pMatrix->e << " " << pMatrix->f << "]cm ";
+  buf << "[" << matrix.a << " " << matrix.b << " " << matrix.c << " "
+      << matrix.d << " " << matrix.e << " " << matrix.f << "]cm ";
 
   int width = pSource->GetWidth();
   int height = pSource->GetHeight();
@@ -390,15 +393,17 @@ bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
   if (pSource->GetBPP() == 1 && !pSource->GetPalette()) {
     int pitch = (width + 7) / 8;
     uint32_t src_size = height * pitch;
-    uint8_t* src_buf = FX_Alloc(uint8_t, src_size);
+    std::unique_ptr<uint8_t, FxFreeDeleter> src_buf(
+        FX_Alloc(uint8_t, src_size));
     for (int row = 0; row < height; row++) {
       const uint8_t* src_scan = pSource->GetScanline(row);
-      memcpy(src_buf + row * pitch, src_scan, pitch);
+      memcpy(src_buf.get() + row * pitch, src_scan, pitch);
     }
 
     std::unique_ptr<uint8_t, FxFreeDeleter> output_buf;
     uint32_t output_size;
-    FaxCompressData(src_buf, width, height, &output_buf, &output_size);
+    bool compressed = FaxCompressData(std::move(src_buf), width, height,
+                                      &output_buf, &output_size);
     if (pSource->IsAlphaMask()) {
       SetColor(color);
       m_bColorSet = false;
@@ -409,7 +414,7 @@ bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
     buf << width << " 0 0 -" << height << " 0 " << height
         << "]currentfile/ASCII85Decode filter ";
 
-    if (output_buf.get() != src_buf) {
+    if (compressed) {
       buf << "<</K -1/EndOfBlock false/Columns " << width << "/Rows " << height
           << ">>/CCITTFaxDecode filter ";
     }
@@ -420,10 +425,9 @@ bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
 
     WriteToStream(&buf);
     WritePSBinary(output_buf.get(), output_size);
-    output_buf.release();
   } else {
     CFX_DIBExtractor source_extractor(pSource);
-    RetainPtr<CFX_DIBSource> pConverted = source_extractor.GetBitmap();
+    RetainPtr<CFX_DIBBase> pConverted = source_extractor.GetBitmap();
     if (!pConverted)
       return false;
     switch (pSource->GetFormat()) {
@@ -456,7 +460,7 @@ bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
     uint8_t* output_buf = nullptr;
     size_t output_size = 0;
     const char* filter = nullptr;
-    if ((m_PSLevel == 2 || flags & FXRENDER_IMAGE_LOSSY) &&
+    if ((m_PSLevel == 2 || options.bLossy) &&
         CCodec_JpegModule::JpegEncode(pConverted, &output_buf, &output_size)) {
       filter = "/DCTDecode filter ";
     }
@@ -594,7 +598,6 @@ void CFX_PSRenderer::FindPSFontGlyph(CFX_FaceCache* pFaceCache,
         CFX_Matrix(charpos.m_AdjustMatrix[0], charpos.m_AdjustMatrix[1],
                    charpos.m_AdjustMatrix[2], charpos.m_AdjustMatrix[3], 0, 0);
   }
-  matrix.Concat(CFX_Matrix(1.0f, 0, 0, 1.0f, 0, 0));
   const CFX_PathData* pPathData = pFaceCache->LoadGlyphPath(
       pFont, charpos.m_GlyphIndex, charpos.m_FontCharWidth);
   if (!pPathData)
@@ -602,7 +605,7 @@ void CFX_PSRenderer::FindPSFontGlyph(CFX_FaceCache* pFaceCache,
 
   CFX_PathData TransformedPath(*pPathData);
   if (charpos.m_bGlyphAdjust)
-    TransformedPath.Transform(&matrix);
+    TransformedPath.Transform(matrix);
 
   std::ostringstream buf;
   buf << "/X" << *ps_fontnum << " Ff/CharProcs get begin/" << glyphindex
@@ -686,13 +689,12 @@ bool CFX_PSRenderer::DrawText(int nChars,
 }
 
 void CFX_PSRenderer::WritePSBinary(const uint8_t* data, int len) {
-  uint8_t* dest_buf;
+  std::unique_ptr<uint8_t, FxFreeDeleter> dest_buf;
   uint32_t dest_size;
   CCodec_ModuleMgr* pEncoders = CPDF_ModuleMgr::Get()->GetCodecModule();
-  if (pEncoders->GetBasicModule()->A85Encode(data, len, &dest_buf,
-                                             &dest_size)) {
-    m_pStream->WriteBlock(dest_buf, dest_size);
-    FX_Free(dest_buf);
+  if (pEncoders->GetBasicModule()->A85Encode({data, static_cast<size_t>(len)},
+                                             &dest_buf, &dest_size)) {
+    m_pStream->WriteBlock(dest_buf.get(), dest_size);
   } else {
     m_pStream->WriteBlock(data, len);
   }

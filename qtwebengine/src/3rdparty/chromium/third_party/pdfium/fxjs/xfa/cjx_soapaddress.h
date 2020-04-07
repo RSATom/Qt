@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_SOAPADDRESS_H_
 
 #include "fxjs/xfa/cjx_textnode.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_SoapAddress;
 
-class CJX_SoapAddress : public CJX_TextNode {
+class CJX_SoapAddress final : public CJX_TextNode {
  public:
   explicit CJX_SoapAddress(CXFA_SoapAddress* node);
   ~CJX_SoapAddress() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_SOAPADDRESS_H_

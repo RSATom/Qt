@@ -25,7 +25,11 @@ const char kEnsureForcedColorProfile[] = "ensure-forced-color-profile";
 // Force all monitors to be treated as though they have the specified color
 // profile. Accepted values are "srgb" and "generic-rgb" (currently used by Mac
 // layout tests) and "color-spin-gamma24" (used by layout tests).
-const char kForceColorProfile[] = "force-color-profile";
+const char kForceDisplayColorProfile[] = "force-color-profile";
+
+// Force rastering to take place in the specified color profile. Accepted values
+// are the same as for the kForceDisplayColorProfile case above.
+const char kForceRasterColorProfile[] = "force-raster-color-profile";
 
 // Overrides the device scale factor for the browser UI and the contents.
 const char kForceDeviceScaleFactor[] = "force-device-scale-factor";
@@ -71,21 +75,5 @@ const base::Feature kHighDynamicRange{"HighDynamicRange",
 const base::Feature kUseMonitorColorSpace{"UseMonitorColorSpace",
                                           base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // OS_CHROMEOS
-
-// Enables the slider in display settings to modify the display zoom/size.
-// TODO(malaykeshav): Remove this in M68 when the feature has been in stable for
-// atleast one milestone.
-const base::Feature kEnableDisplayZoomSetting {
-  "EnableDisplayZoomSetting",
-#if defined(OS_CHROMEOS)
-      base::FEATURE_ENABLED_BY_DEFAULT
-#else
-      base::FEATURE_DISABLED_BY_DEFAULT
-#endif
-};
-
-bool IsDisplayZoomSettingEnabled() {
-  return base::FeatureList::IsEnabled(kEnableDisplayZoomSetting);
-}
 
 }  // namespace features

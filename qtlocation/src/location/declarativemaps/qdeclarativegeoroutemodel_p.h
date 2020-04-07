@@ -296,6 +296,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoRouteQuery : public QObject, publ
     Q_PROPERTY(QJSValue excludedAreas READ excludedAreas WRITE setExcludedAreas NOTIFY excludedAreasChanged)
     Q_PROPERTY(QList<int> featureTypes READ featureTypes NOTIFY featureTypesChanged)
     Q_PROPERTY(QVariantMap extraParameters READ extraParameters REVISION 11)
+    Q_PROPERTY(QDateTime departureTime READ departureTime WRITE setDepartureTime NOTIFY departureTimeChanged REVISION 13)
     Q_PROPERTY(QQmlListProperty<QObject> quickChildren READ declarativeChildren DESIGNABLE false)
     Q_CLASSINFO("DefaultProperty", "quickChildren")
     Q_INTERFACES(QQmlParserStatus)
@@ -409,6 +410,9 @@ public:
     void setRouteOptimizations(RouteOptimizations optimization);
     RouteOptimizations routeOptimizations() const;
 
+    void setDepartureTime(const QDateTime &departureTime);
+    QDateTime departureTime() const;
+
     template <typename T = QObject>
     QList<T*> quickChildren() const
     {
@@ -435,6 +439,7 @@ Q_SIGNALS:
 
     void queryDetailsChanged();
     Q_REVISION(11) void extraParametersChanged();
+    void departureTimeChanged();
 
 private Q_SLOTS:
     void excludedAreaCoordinateChanged();

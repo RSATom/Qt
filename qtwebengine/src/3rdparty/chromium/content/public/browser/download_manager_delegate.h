@@ -10,13 +10,14 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/save_page_type.h"
-
+#include "url/origin.h"
 
 namespace content {
 
@@ -69,7 +70,8 @@ using DownloadOpenDelayedCallback = base::Callback<void(bool)>;
 // Called with the result of CheckForFileExistence().
 using CheckForFileExistenceCallback = base::OnceCallback<void(bool result)>;
 
-using DownloadIdCallback = base::Callback<void(uint32_t)>;
+// On failure, |next_id| is equal to kInvalidId.
+using DownloadIdCallback = base::Callback<void(uint32_t /* next_id */)>;
 
 // Called on whether a download is allowed to continue.
 using CheckDownloadAllowedCallback = base::OnceCallback<void(bool /*allow*/)>;
@@ -81,7 +83,8 @@ class CONTENT_EXPORT DownloadManagerDelegate {
   virtual void Shutdown() {}
 
   // Runs |callback| with a new download id when possible, perhaps
-  // synchronously.
+  // synchronously. If this call fails, |callback| will be called with
+  // kInvalidId.
   virtual void GetNextId(const DownloadIdCallback& callback);
 
   // Called to notify the delegate that a new download |item| requires a
@@ -186,6 +189,7 @@ class CONTENT_EXPORT DownloadManagerDelegate {
       const ResourceRequestInfo::WebContentsGetter& web_contents_getter,
       const GURL& url,
       const std::string& request_method,
+      base::Optional<url::Origin> request_initiator,
       CheckDownloadAllowedCallback check_download_allowed_cb);
 
  protected:

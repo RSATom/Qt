@@ -581,6 +581,6 @@ bool QBluetoothServiceDiscoveryAgentPrivate::isDuplicatedService(
     return false;
 }
 
-#include "moc_qbluetoothservicediscoveryagent.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qbluetoothservicediscoveryagent.cpp"

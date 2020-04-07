@@ -22,7 +22,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_init.h"
 #include "third_party/blink/renderer/core/dom/dom_implementation.h"
-#include "third_party/blink/renderer/core/trustedtypes/trusted_html.h"
+#include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -32,21 +32,12 @@ namespace blink {
 Document* DOMParser::parseFromString(const StringOrTrustedHTML& stringOrHTML,
                                      const String& type,
                                      ExceptionState& exception_state) {
-  DCHECK(stringOrHTML.IsString() ||
-         RuntimeEnabledFeatures::TrustedDOMTypesEnabled());
-  DCHECK(!stringOrHTML.IsNull());
-  if (context_document_ && stringOrHTML.IsString() &&
-      context_document_->RequireTrustedTypes()) {
-    exception_state.ThrowTypeError(
-        "This document requires `TrustedHTML` assignment.");
-    return nullptr;
+  String value = GetStringFromTrustedHTML(stringOrHTML, context_document_,
+                                          exception_state);
+  if (!exception_state.HadException()) {
+    return parseFromStringInternal(value, type);
   }
-
-  String valueString = stringOrHTML.IsString()
-                           ? stringOrHTML.GetAsString()
-                           : stringOrHTML.GetAsTrustedHTML()->toString();
-
-  return parseFromStringInternal(valueString, type);
+  return nullptr;
 }
 
 Document* DOMParser::parseFromStringInternal(const String& str,

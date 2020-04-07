@@ -17,7 +17,6 @@
 #include "base/threading/thread.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
-#include "net/base/completion_callback.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -57,13 +56,13 @@ class MockServerSocket : public net::ServerSocket {
   }
 
   int Accept(std::unique_ptr<net::StreamSocket>* socket,
-             const net::CompletionCallback& callback) override {
+             net::CompletionOnceCallback callback) override {
     DCHECK(accept_callback_.is_null());
     if (accept_result_ == net::OK && mode_ == net::SYNCHRONOUS)
       *socket = CreateMockAcceptSocket();
     if (mode_ == net::ASYNC || accept_result_ == net::ERR_IO_PENDING) {
       accept_socket_ = socket;
-      accept_callback_ = callback;
+      accept_callback_ = std::move(callback);
     }
     run_loop_.Quit();
 
@@ -108,7 +107,7 @@ class MockServerSocket : public net::ServerSocket {
 
   net::IoMode mode_ = net::SYNCHRONOUS;
   int accept_result_ = net::OK;
-  net::CompletionCallback accept_callback_;
+  net::CompletionOnceCallback accept_callback_;
   std::unique_ptr<net::StreamSocket>* accept_socket_;
   base::RunLoop run_loop_;
   std::vector<std::unique_ptr<net::StaticSocketDataProvider>> data_providers_;
@@ -192,6 +191,10 @@ class TestServer {
   void DestroyServerSocket() { server_socket_.reset(); }
 
   const net::IPEndPoint& server_addr() { return server_addr_; }
+
+  mojom::TCPConnectedSocket* most_recent_connected_socket() {
+    return connected_sockets_.back().get();
+  }
 
  private:
   void OnAccept(net::CompletionOnceCallback callback,
@@ -307,13 +310,15 @@ class TCPSocketTest : public testing::Test {
       const base::Optional<net::IPEndPoint>& local_addr,
       const net::IPEndPoint& remote_addr,
       mojo::ScopedDataPipeConsumerHandle* receive_pipe_handle_out,
-      mojo::ScopedDataPipeProducerHandle* send_pipe_handle_out) {
+      mojo::ScopedDataPipeProducerHandle* send_pipe_handle_out,
+      mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options =
+          nullptr) {
     net::AddressList remote_addr_list(remote_addr);
     base::RunLoop run_loop;
     int net_error = net::ERR_FAILED;
     factory_->CreateTCPConnectedSocket(
-        local_addr, remote_addr_list, TRAFFIC_ANNOTATION_FOR_TESTS,
-        std::move(request), std::move(observer),
+        local_addr, remote_addr_list, std::move(tcp_connected_socket_options),
+        TRAFFIC_ANNOTATION_FOR_TESTS, std::move(request), std::move(observer),
         base::BindLambdaForTesting(
             [&](int result,
                 const base::Optional<net::IPEndPoint>& actual_local_addr,
@@ -334,6 +339,7 @@ class TCPSocketTest : public testing::Test {
   }
 
   TestSocketObserver* observer() { return &test_observer_; }
+  SocketFactory* factory() { return factory_.get(); }
 
  private:
   base::test::ScopedTaskEnvironment scoped_task_environment_;
@@ -458,6 +464,48 @@ TEST_F(TCPSocketTest, ServerReceivesMultipleAccept) {
   for (const auto& callback : accept_callbacks) {
     EXPECT_EQ(net::OK, callback->WaitForResult());
   }
+}
+
+// Check that accepted sockets can't be upgraded to TLS, since UpgradeToTLS only
+// supports the client side of a TLS handshake.
+TEST_F(TCPSocketTest, AcceptedSocketCantUpgradeToTLS) {
+  TestServer server;
+  server.Start(1 /* backlog */);
+
+  net::TestCompletionCallback callback;
+  server.AcceptOneConnection(callback.callback());
+
+  mojom::TCPConnectedSocketPtr client_socket;
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+  EXPECT_EQ(net::OK,
+            CreateTCPConnectedSocketSync(
+                mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                base::nullopt /*local_addr*/, server.server_addr(),
+                &client_socket_receive_handle, &client_socket_send_handle));
+
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+
+  // Consumers generally close these before attempting to upgrade the socket,
+  // since TCPConnectedSocket waits for the pipes to close before upgrading the
+  // connection.
+  client_socket_receive_handle.reset();
+  client_socket_send_handle.reset();
+
+  base::RunLoop run_loop;
+  mojom::TLSClientSocketPtr tls_client_socket;
+  server.most_recent_connected_socket()->UpgradeToTLS(
+      net::HostPortPair("foopy", 443), nullptr /* options */,
+      net::MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS),
+      mojo::MakeRequest(&tls_client_socket), nullptr /* observer */,
+      base::BindLambdaForTesting(
+          [&](int net_error,
+              mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
+              mojo::ScopedDataPipeProducerHandle send_pipe_handle,
+              const base::Optional<net::SSLInfo>& ssl_info) {
+            EXPECT_EQ(net::ERR_NOT_IMPLEMENTED, net_error);
+            run_loop.Quit();
+          }));
 }
 
 // Tests that if a socket is closed, the other side can observe that the pipes
@@ -662,7 +710,7 @@ TEST_P(TCPSocketWithMockSocketTest,
                         mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
                        std::move(callback).Run(result);
                      },
-                     std::move(callback->callback())));
+                     callback->callback()));
     accept_callbacks.push_back(std::move(callback));
   }
 
@@ -689,7 +737,7 @@ TEST_P(TCPSocketWithMockSocketTest,
                       mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
                      std::move(callback).Run(result);
                    },
-                   std::move(callback->callback())));
+                   callback->callback()));
   EXPECT_EQ(net::OK, callback->WaitForResult());
 }
 
@@ -724,7 +772,7 @@ TEST_P(TCPSocketWithMockSocketTest, ServerAcceptWithObserverReadError) {
               mojom::TCPConnectedSocketPtr connected_socket,
               mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
               mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
-            std::move(callback->callback()).Run(result);
+            callback->callback().Run(result);
             connected_socket_result = std::move(connected_socket);
             receive_handle = std::move(receive_pipe_handle);
             send_handle = std::move(send_pipe_handle);
@@ -772,7 +820,7 @@ TEST_P(TCPSocketWithMockSocketTest, ServerAcceptWithObserverWriteError) {
               mojom::TCPConnectedSocketPtr connected_socket,
               mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
               mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
-            std::move(callback->callback()).Run(result);
+            callback->callback().Run(result);
             connected_socket_result = std::move(connected_socket);
             receive_handle = std::move(receive_pipe_handle);
             send_handle = std::move(send_pipe_handle);
@@ -973,7 +1021,306 @@ TEST_P(TCPSocketWithMockSocketTest, WriteError) {
   EXPECT_TRUE(data_provider.AllWriteDataConsumed());
 }
 
+TEST_P(TCPSocketWithMockSocketTest, InitialTCPConnectedSocketOptions) {
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  for (int receive_buffer_size :
+       {-1, 0, 1024, TCPConnectedSocket::kMaxBufferSize,
+        TCPConnectedSocket::kMaxBufferSize + 1}) {
+    for (int send_buffer_size :
+         {-1, 0, 2048, TCPConnectedSocket::kMaxBufferSize,
+          TCPConnectedSocket::kMaxBufferSize + 1}) {
+      for (int no_delay : {false, true}) {
+        mojom::TCPConnectedSocketPtr client_socket;
+        net::StaticSocketDataProvider data_provider;
+        data_provider.set_connect_data(
+            net::MockConnect(GetParam(), net::OK, server_addr));
+        mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+        mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options =
+            mojom::TCPConnectedSocketOptions::New();
+        tcp_connected_socket_options->receive_buffer_size = receive_buffer_size;
+        tcp_connected_socket_options->send_buffer_size = send_buffer_size;
+        tcp_connected_socket_options->no_delay = no_delay;
+        EXPECT_EQ(net::OK,
+                  CreateTCPConnectedSocketSync(
+                      mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                      base::nullopt /*local_addr*/, server_addr,
+                      &client_socket_receive_handle, &client_socket_send_handle,
+                      std::move(tcp_connected_socket_options)));
+
+        if (receive_buffer_size <= 0) {
+          EXPECT_EQ(-1, data_provider.receive_buffer_size());
+        } else if (receive_buffer_size <= TCPConnectedSocket::kMaxBufferSize) {
+          EXPECT_EQ(receive_buffer_size, data_provider.receive_buffer_size());
+        } else {
+          EXPECT_EQ(TCPConnectedSocket::kMaxBufferSize,
+                    data_provider.receive_buffer_size());
+        }
+
+        if (send_buffer_size <= 0) {
+          EXPECT_EQ(-1, data_provider.send_buffer_size());
+        } else if (send_buffer_size <= TCPConnectedSocket::kMaxBufferSize) {
+          EXPECT_EQ(send_buffer_size, data_provider.send_buffer_size());
+        } else {
+          EXPECT_EQ(TCPConnectedSocket::kMaxBufferSize,
+                    data_provider.send_buffer_size());
+        }
+
+        EXPECT_EQ(no_delay, data_provider.no_delay());
+      }
+    }
+  }
+}
+
+TEST_P(TCPSocketWithMockSocketTest, InitialTCPConnectedSocketOptionsFails) {
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  enum class FailedCall {
+    SET_RECEIVE_BUFFER_SIZE,
+    SET_SEND_BUFFER_SIZE,
+    SET_NO_DELAY,
+  };
+  for (const auto& failed_call :
+       {FailedCall::SET_RECEIVE_BUFFER_SIZE, FailedCall::SET_SEND_BUFFER_SIZE,
+        FailedCall::SET_NO_DELAY}) {
+    mojom::TCPConnectedSocketPtr client_socket;
+    net::StaticSocketDataProvider data_provider;
+    data_provider.set_connect_data(
+        net::MockConnect(GetParam(), net::OK, server_addr));
+    switch (failed_call) {
+      case FailedCall::SET_RECEIVE_BUFFER_SIZE:
+        data_provider.set_set_receive_buffer_size_result(net::ERR_FAILED);
+        break;
+      case FailedCall::SET_SEND_BUFFER_SIZE:
+        data_provider.set_set_send_buffer_size_result(net::ERR_FAILED);
+        break;
+      case FailedCall::SET_NO_DELAY:
+        data_provider.set_set_no_delay_result(false);
+        break;
+    }
+    mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+    mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options =
+        mojom::TCPConnectedSocketOptions::New();
+    tcp_connected_socket_options->receive_buffer_size = 1;
+    tcp_connected_socket_options->send_buffer_size = 2;
+    tcp_connected_socket_options->no_delay = false;
+    EXPECT_EQ(net::ERR_FAILED,
+              CreateTCPConnectedSocketSync(
+                  mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                  base::nullopt /*local_addr*/, server_addr,
+                  &client_socket_receive_handle, &client_socket_send_handle,
+                  std::move(tcp_connected_socket_options)));
+  }
+}
+
+TEST_P(TCPSocketWithMockSocketTest, SetBufferSizes) {
+  mojom::TCPConnectedSocketPtr client_socket;
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  net::StaticSocketDataProvider data_provider;
+  data_provider.set_connect_data(
+      net::MockConnect(GetParam(), net::OK, server_addr));
+  mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+  EXPECT_EQ(net::OK,
+            CreateTCPConnectedSocketSync(
+                mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                base::nullopt /*local_addr*/, server_addr,
+                &client_socket_receive_handle, &client_socket_send_handle));
+
+  EXPECT_EQ(-1, data_provider.receive_buffer_size());
+
+  net::TestCompletionCallback callback;
+  // Setting a buffer size < 0 is replaced by setting a buffer size of 0.
+  client_socket->SetReceiveBufferSize(-1, callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(0, data_provider.receive_buffer_size());
+
+  client_socket->SetReceiveBufferSize(1024, callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(1024, data_provider.receive_buffer_size());
+
+  client_socket->SetReceiveBufferSize(TCPConnectedSocket::kMaxBufferSize + 1,
+                                      callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(TCPConnectedSocket::kMaxBufferSize,
+            data_provider.receive_buffer_size());
+
+  client_socket->SetReceiveBufferSize(0, callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(0, data_provider.receive_buffer_size());
+
+  EXPECT_EQ(-1, data_provider.send_buffer_size());
+
+  // Setting a buffer size < 0 is replaced by setting a buffer size of 0.
+  client_socket->SetSendBufferSize(-1, callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(0, data_provider.send_buffer_size());
+
+  client_socket->SetSendBufferSize(1024, callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(1024, data_provider.send_buffer_size());
+
+  client_socket->SetSendBufferSize(TCPConnectedSocket::kMaxBufferSize + 1,
+                                   callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(TCPConnectedSocket::kMaxBufferSize,
+            data_provider.send_buffer_size());
+
+  client_socket->SetSendBufferSize(0, callback.callback());
+  EXPECT_EQ(net::OK, callback.WaitForResult());
+  EXPECT_EQ(0, data_provider.send_buffer_size());
+}
+
+TEST_P(TCPSocketWithMockSocketTest, SetBufferSizesFails) {
+  mojom::TCPConnectedSocketPtr client_socket;
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  net::StaticSocketDataProvider data_provider;
+  data_provider.set_connect_data(
+      net::MockConnect(GetParam(), net::OK, server_addr));
+  data_provider.set_set_receive_buffer_size_result(net::ERR_FAILED);
+  data_provider.set_set_send_buffer_size_result(net::ERR_UNEXPECTED);
+  mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+  EXPECT_EQ(net::OK,
+            CreateTCPConnectedSocketSync(
+                mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                base::nullopt /*local_addr*/, server_addr,
+                &client_socket_receive_handle, &client_socket_send_handle));
+
+  net::TestCompletionCallback callback;
+  client_socket->SetReceiveBufferSize(1024, callback.callback());
+  EXPECT_EQ(net::ERR_FAILED, callback.WaitForResult());
+
+  client_socket->SetSendBufferSize(1024, callback.callback());
+  EXPECT_EQ(net::ERR_UNEXPECTED, callback.WaitForResult());
+}
+
 TEST_F(TCPSocketWithMockSocketTest, SetNoDelayAndKeepAlive) {
+  net::StaticSocketDataProvider data_provider;
+  mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  mojom::TCPConnectedSocketPtr client_socket;
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  EXPECT_EQ(net::OK,
+            CreateTCPConnectedSocketSync(
+                mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                base::nullopt, server_addr, &client_socket_receive_handle,
+                &client_socket_send_handle));
+
+  EXPECT_TRUE(data_provider.no_delay());
+  {
+    base::RunLoop run_loop;
+    client_socket->SetNoDelay(false /* no_delay */,
+                              base::BindLambdaForTesting([&](bool success) {
+                                EXPECT_TRUE(success);
+                                run_loop.Quit();
+                              }));
+    run_loop.Run();
+    EXPECT_FALSE(data_provider.no_delay());
+  }
+  {
+    base::RunLoop run_loop;
+    client_socket->SetNoDelay(true /* no_delay */,
+                              base::BindLambdaForTesting([&](bool success) {
+                                EXPECT_TRUE(success);
+                                run_loop.Quit();
+                              }));
+    run_loop.Run();
+    EXPECT_TRUE(data_provider.no_delay());
+  }
+
+  {
+    const int kKeepAliveDelay = 123;
+    base::RunLoop run_loop;
+    client_socket->SetKeepAlive(true /* enable */, kKeepAliveDelay,
+                                base::BindLambdaForTesting([&](bool success) {
+                                  EXPECT_TRUE(success);
+                                  run_loop.Quit();
+                                }));
+    run_loop.Run();
+    EXPECT_TRUE(data_provider.keep_alive_enabled());
+    EXPECT_EQ(kKeepAliveDelay, data_provider.keep_alive_delay());
+  }
+
+  {
+    base::RunLoop run_loop;
+    client_socket->SetKeepAlive(false /* enable */, 0 /* delay */,
+                                base::BindLambdaForTesting([&](bool success) {
+                                  EXPECT_TRUE(success);
+                                  run_loop.Quit();
+                                }));
+    run_loop.Run();
+    EXPECT_FALSE(data_provider.keep_alive_enabled());
+  }
+
+  {
+    const int kKeepAliveDelay = 1234;
+    base::RunLoop run_loop;
+    client_socket->SetKeepAlive(true /* enable */, kKeepAliveDelay,
+                                base::BindLambdaForTesting([&](bool success) {
+                                  EXPECT_TRUE(success);
+                                  run_loop.Quit();
+                                }));
+    run_loop.Run();
+    EXPECT_TRUE(data_provider.keep_alive_enabled());
+    EXPECT_EQ(kKeepAliveDelay, data_provider.keep_alive_delay());
+  }
+}
+
+TEST_F(TCPSocketWithMockSocketTest, SetNoDelayFails) {
+  net::StaticSocketDataProvider data_provider;
+  data_provider.set_set_no_delay_result(false);
+  data_provider.set_set_keep_alive_result(false);
+  mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  mojom::TCPConnectedSocketPtr client_socket;
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  EXPECT_EQ(net::OK,
+            CreateTCPConnectedSocketSync(
+                mojo::MakeRequest(&client_socket), nullptr /*observer*/,
+                base::nullopt, server_addr, &client_socket_receive_handle,
+                &client_socket_send_handle));
+
+  {
+    base::RunLoop run_loop;
+    client_socket->SetNoDelay(false /* no_delay */,
+                              base::BindLambdaForTesting([&](bool success) {
+                                EXPECT_FALSE(success);
+                                run_loop.Quit();
+                              }));
+    run_loop.Run();
+  }
+
+  {
+    base::RunLoop run_loop;
+    client_socket->SetKeepAlive(true /* enable */, 123 /* delay */,
+                                base::BindLambdaForTesting([&](bool success) {
+                                  EXPECT_FALSE(success);
+                                  run_loop.Quit();
+                                }));
+    run_loop.Run();
+  }
+}
+
+TEST_F(TCPSocketWithMockSocketTest, SetOptionsAfterTLSUpgrade) {
   // Populate with some mock reads, so UpgradeToTLS() won't error out because of
   // a closed receive pipe.
   const net::MockRead kReads[] = {
@@ -996,24 +1343,6 @@ TEST_F(TCPSocketWithMockSocketTest, SetNoDelayAndKeepAlive) {
                 mojo::MakeRequest(&client_socket), nullptr /*observer*/,
                 base::nullopt, server_addr, &client_socket_receive_handle,
                 &client_socket_send_handle));
-  {
-    base::RunLoop run_loop;
-    client_socket->SetNoDelay(true /* no_delay */,
-                              base::BindLambdaForTesting([&](bool success) {
-                                EXPECT_TRUE(success);
-                                run_loop.Quit();
-                              }));
-    run_loop.Run();
-  }
-  {
-    base::RunLoop run_loop;
-    client_socket->SetKeepAlive(true /* enable */, 123 /* delay */,
-                                base::BindLambdaForTesting([&](bool success) {
-                                  EXPECT_TRUE(success);
-                                  run_loop.Quit();
-                                }));
-    run_loop.Run();
-  }
 
   // UpgradeToTLS will destroy network::TCPConnectedSocket::|socket_|. Calling
   // SetNoDelay and SetKeepAlive should error out.
@@ -1030,20 +1359,32 @@ TEST_F(TCPSocketWithMockSocketTest, SetNoDelayAndKeepAlive) {
         base::BindLambdaForTesting(
             [&](int result,
                 mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
-                mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
+                mojo::ScopedDataPipeProducerHandle send_pipe_handle,
+                const base::Optional<net::SSLInfo>& ssl_info) {
               EXPECT_EQ(net::ERR_FAILED, result);
               run_loop.Quit();
             }));
     run_loop.Run();
   }
+
+  net::TestCompletionCallback callback;
+  client_socket->SetReceiveBufferSize(1024, callback.callback());
+  EXPECT_EQ(net::ERR_UNEXPECTED, callback.WaitForResult());
+  EXPECT_EQ(-1, data_provider.receive_buffer_size());
+
+  client_socket->SetSendBufferSize(1024, callback.callback());
+  EXPECT_EQ(net::ERR_UNEXPECTED, callback.WaitForResult());
+  EXPECT_EQ(-1, data_provider.send_buffer_size());
+
   {
     base::RunLoop run_loop;
-    client_socket->SetNoDelay(true /* no_delay */,
+    client_socket->SetNoDelay(false /* no_delay */,
                               base::BindLambdaForTesting([&](bool success) {
                                 EXPECT_FALSE(success);
                                 run_loop.Quit();
                               }));
     run_loop.Run();
+    EXPECT_TRUE(data_provider.no_delay());
   }
   {
     base::RunLoop run_loop;
@@ -1054,6 +1395,37 @@ TEST_F(TCPSocketWithMockSocketTest, SetNoDelayAndKeepAlive) {
                                 }));
     run_loop.Run();
   }
+}
+
+TEST_F(TCPSocketWithMockSocketTest, SocketDestroyedBeforeConnectCompletes) {
+  std::vector<net::MockRead> reads;
+  std::vector<net::MockWrite> writes;
+  net::StaticSocketDataProvider data_provider(reads, writes);
+  data_provider.set_connect_data(
+      net::MockConnect(net::ASYNC, net::ERR_IO_PENDING));
+  mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+  mojom::TCPConnectedSocketPtr client_socket;
+  net::IPEndPoint server_addr(net::IPAddress::IPv4Localhost(), 1234);
+  net::AddressList remote_addr_list(server_addr);
+  int net_error = net::OK;
+  base::RunLoop run_loop;
+  factory()->CreateTCPConnectedSocket(
+      base::nullopt, remote_addr_list,
+      nullptr /* tcp_connected_socket_options */, TRAFFIC_ANNOTATION_FOR_TESTS,
+      mojo::MakeRequest(&client_socket), nullptr,
+      base::BindLambdaForTesting(
+          [&](int result,
+              const base::Optional<net::IPEndPoint>& actual_local_addr,
+              const base::Optional<net::IPEndPoint>& peer_addr,
+              mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
+              mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
+            net_error = result;
+            run_loop.Quit();
+          }));
+  client_socket.reset();
+  run_loop.Run();
+  EXPECT_EQ(net::ERR_ABORTED, net_error);
 }
 
 // Tests the case where net::ServerSocket::Listen() succeeds but

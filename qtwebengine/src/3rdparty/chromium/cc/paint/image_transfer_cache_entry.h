@@ -39,7 +39,7 @@ class CC_PAINT_EXPORT ClientImageTransferCacheEntry
   const SkPixmap* const pixmap_;
   const SkColorSpace* const target_color_space_;
   const bool needs_mips_;
-  size_t size_ = 0;
+  uint32_t size_ = 0;
   static base::AtomicSequenceNumber s_next_id_;
 };
 
@@ -67,7 +67,7 @@ class CC_PAINT_EXPORT ServiceImageTransferCacheEntry
   GrContext* context_;
   sk_sp<SkImage> image_;
   bool has_mips_ = false;
-  uint32_t size_ = 0;
+  size_t size_ = 0;
   bool fits_on_gpu_ = false;
 };
 

@@ -65,6 +65,7 @@ public:
     virtual QList<QGeoMapObject *> mapObjects() const override;
     void removeMapObject(QGeoMapObject *obj);
     void updateMapObjects(QSGNode *root, QQuickWindow *window);
+    QList<QObject *>mapObjectsAt(const QGeoCoordinate &coordinate) const;
 
     QGeoMapObjectQSGSupport m_qsgSupport;
 #endif
@@ -112,7 +113,7 @@ bool QGeoMapItemsOverlay::createMapObjectImplementation(QGeoMapObject *obj)
 QSGNode *QGeoMapItemsOverlay::updateSceneGraph(QSGNode *node, QQuickWindow *window)
 {
 #ifndef LOCATIONLABS
-    Q_UNUSED(window)
+    Q_UNUSED(window);
     return node;
 #else
     Q_D(QGeoMapItemsOverlay);
@@ -134,6 +135,16 @@ void QGeoMapItemsOverlay::removeMapObject(QGeoMapObject *obj)
 #ifdef LOCATIONLABS
     Q_D(QGeoMapItemsOverlay);
     d->removeMapObject(obj);
+#endif
+}
+
+QList<QObject *> QGeoMapItemsOverlay::mapObjectsAt(const QGeoCoordinate &coordinate) const
+{
+#ifdef LOCATIONLABS
+    Q_D(const QGeoMapItemsOverlay);
+    return d->mapObjectsAt(coordinate);
+#else
+    return QGeoMap::mapObjectsAt(coordinate);
 #endif
 }
 
@@ -184,6 +195,34 @@ void QGeoMapItemsOverlayPrivate::removeMapObject(QGeoMapObject *obj)
 void QGeoMapItemsOverlayPrivate::updateMapObjects(QSGNode *root, QQuickWindow *window)
 {
     m_qsgSupport.updateMapObjects(root, window);
+}
+
+QList<QObject *> QGeoMapItemsOverlayPrivate::mapObjectsAt(const QGeoCoordinate &coordinate) const
+{
+    // ToDo: use a space partitioning strategy
+    QList<QObject *> res;
+    for (const auto o: mapObjects()) {
+        // explicitly handle lines
+        bool contains = false;
+        if (o->type() == QGeoMapObject::PolylineType ) {
+            QMapPolylineObject *mpo = static_cast<QMapPolylineObject *>(o);
+            qreal mpp = QLocationUtils::metersPerPixel(m_cameraData.zoomLevel(), coordinate);
+            QGeoPath path = o->geoShape();
+            path.setWidth(mpp * mpo->border()->width());
+            contains = path.contains(coordinate);
+        } else if (o->type() == QGeoMapObject::RouteType) {
+            qreal mpp = QLocationUtils::metersPerPixel(m_cameraData.zoomLevel(), coordinate);
+            QGeoPath path = o->geoShape();
+            path.setWidth(mpp * 4); // MapRouteObjectQSG has a hardcoded 4 pixels width;
+            contains = path.contains(coordinate);
+        } else {
+            contains = o->geoShape().contains(coordinate);
+        }
+
+        if (contains)
+            res.append(o);
+    }
+    return res;
 }
 #endif
 

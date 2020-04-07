@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/task_scheduler/task_scheduler.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "content/renderer/render_process.h"
 
 namespace content {
@@ -31,6 +31,14 @@ class RenderProcessImpl : public RenderProcess {
   // RenderProcess implementation.
   void AddBindings(int bindings) override;
   int GetEnabledBindings() const override;
+
+  // Do not use these functions.
+  // The browser process is the only one responsible for knowing when to
+  // shutdown its renderer processes. Reference counting to keep this process
+  // alive is not used. To keep this process alive longer, see
+  // mojo::KeepAliveHandle and content::RenderProcessHostImpl.
+  void AddRefProcess() override;
+  void ReleaseProcess() override;
 
  private:
   RenderProcessImpl(std::unique_ptr<base::TaskScheduler::InitParams>

@@ -8,14 +8,16 @@
 #include "third_party/blink/renderer/core/css/css_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
-#include "third_party/blink/renderer/core/dom/events/event_listener.h"
+#include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
+#include "third_party/blink/renderer/modules/media_controls/elements/media_control_elements_helper.h"
 #include "third_party/blink/renderer/modules/media_controls/elements/media_control_overflow_menu_button_element.h"
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
 #include "third_party/blink/renderer/platform/keyboard_codes.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
@@ -38,49 +40,48 @@ bool FocusListItemIfDisplayed(Node* node) {
 }  // anonymous namespace
 
 class MediaControlPopupMenuElement::EventListener final
-    : public blink::EventListener {
+    : public NativeEventListener {
  public:
   explicit EventListener(MediaControlPopupMenuElement* popup_menu)
-      : blink::EventListener(kCPPEventListenerType), popup_menu_(popup_menu) {}
+      : popup_menu_(popup_menu) {}
 
   ~EventListener() final = default;
 
   void StartListening() {
-    popup_menu_->addEventListener(EventTypeNames::keydown, this, false);
+    popup_menu_->addEventListener(event_type_names::kKeydown, this, false);
 
     LocalDOMWindow* window = popup_menu_->GetDocument().domWindow();
-    window->addEventListener(EventTypeNames::scroll, this, true);
+    window->addEventListener(event_type_names::kScroll, this, true);
     if (DOMWindow* outer_window = window->top()) {
       if (outer_window != window)
-        outer_window->addEventListener(EventTypeNames::scroll, this, true);
-      outer_window->addEventListener(EventTypeNames::resize, this, true);
+        outer_window->addEventListener(event_type_names::kScroll, this, true);
+      outer_window->addEventListener(event_type_names::kResize, this, true);
     }
   }
 
   void StopListening() {
-    popup_menu_->removeEventListener(EventTypeNames::keydown, this, false);
+    popup_menu_->removeEventListener(event_type_names::kKeydown, this, false);
 
     LocalDOMWindow* window = popup_menu_->GetDocument().domWindow();
-    window->removeEventListener(EventTypeNames::scroll, this, true);
+    window->removeEventListener(event_type_names::kScroll, this, true);
     if (DOMWindow* outer_window = window->top()) {
-      if (outer_window != window)
-        outer_window->removeEventListener(EventTypeNames::scroll, this, true);
-      outer_window->removeEventListener(EventTypeNames::resize, this, true);
+      if (outer_window != window) {
+        outer_window->removeEventListener(event_type_names::kScroll, this,
+                                          true);
+      }
+      outer_window->removeEventListener(event_type_names::kResize, this, true);
     }
   }
 
-  bool operator==(const blink::EventListener& other) const final {
-    return &other == this;
-  }
-
   void Trace(blink::Visitor* visitor) final {
-    blink::EventListener::Trace(visitor);
+    NativeEventListener::Trace(visitor);
     visitor->Trace(popup_menu_);
   }
 
  private:
-  void handleEvent(ExecutionContext*, Event* event) final {
-    if (event->type() == EventTypeNames::keydown && event->IsKeyboardEvent()) {
+  void Invoke(ExecutionContext*, Event* event) final {
+    if (event->type() == event_type_names::kKeydown &&
+        event->IsKeyboardEvent()) {
       KeyboardEvent* keyboard_event = ToKeyboardEvent(event);
       bool handled = true;
 
@@ -110,8 +111,8 @@ class MediaControlPopupMenuElement::EventListener final
         event->stopPropagation();
         event->SetDefaultHandled();
       }
-    } else if (event->type() == EventTypeNames::resize ||
-               event->type() == EventTypeNames::scroll) {
+    } else if (event->type() == event_type_names::kResize ||
+               event->type() == event_type_names::kScroll) {
       popup_menu_->SetIsWanted(false);
     }
   }
@@ -130,7 +131,7 @@ void MediaControlPopupMenuElement::SetIsWanted(bool wanted) {
     SelectFirstItem();
 
     if (!event_listener_)
-      event_listener_ = new EventListener(this);
+      event_listener_ = MakeGarbageCollected<EventListener>(this);
     event_listener_->StartListening();
   } else {
     if (event_listener_)
@@ -142,26 +143,32 @@ void MediaControlPopupMenuElement::OnItemSelected() {
   SetIsWanted(false);
 }
 
-void MediaControlPopupMenuElement::DefaultEventHandler(Event* event) {
-  if (event->type() == EventTypeNames::pointermove) {
-    ToElement(event->target()->ToNode())->focus();
-  } else if (event->type() == EventTypeNames::focusout) {
+void MediaControlPopupMenuElement::DefaultEventHandler(Event& event) {
+  if (event.type() == event_type_names::kPointermove &&
+      event.target() != this) {
+    ToElement(event.target()->ToNode())->focus();
+  } else if (event.type() == event_type_names::kFocusout) {
     GetDocument()
         .GetTaskRunner(TaskType::kMediaElementEvent)
         ->PostTask(FROM_HERE,
                    WTF::Bind(&MediaControlPopupMenuElement::HideIfNotFocused,
                              WrapWeakPersistent(this)));
-  } else if (event->type() == EventTypeNames::click) {
+  } else if (event.type() == event_type_names::kClick) {
     OnItemSelected();
 
-    event->stopPropagation();
-    event->SetDefaultHandled();
+    event.stopPropagation();
+    event.SetDefaultHandled();
   }
 
   MediaControlDivElement::DefaultEventHandler(event);
 }
 
-void MediaControlPopupMenuElement::RemovedFrom(ContainerNode* container) {
+bool MediaControlPopupMenuElement::KeepEventInNode(const Event& event) const {
+  return MediaControlsImpl::IsModern() &&
+         MediaControlElementsHelper::IsUserInteractionEvent(event);
+}
+
+void MediaControlPopupMenuElement::RemovedFrom(ContainerNode& container) {
   if (IsWanted())
     SetIsWanted(false);
   event_listener_ = nullptr;
@@ -220,7 +227,8 @@ void MediaControlPopupMenuElement::HideIfNotFocused() {
     return;
 
   if (!GetDocument().FocusedElement() ||
-      GetDocument().FocusedElement()->parentElement() != this) {
+      (GetDocument().FocusedElement()->parentElement() != this &&
+       GetDocument().FocusedElement() != this)) {
     SetIsWanted(false);
   }
 }

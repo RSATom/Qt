@@ -8,10 +8,12 @@
 #include <zircon/process.h>
 #include <zircon/syscalls.h>
 
+#include "base/clang_coverage_buildflags.h"
 #include "base/debug/activity_tracker.h"
 #include "base/fuchsia/default_job.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/clang_coverage.h"
 
 namespace base {
 
@@ -88,6 +90,9 @@ bool Process::CanBackgroundProcesses() {
 
 // static
 void Process::TerminateCurrentProcessImmediately(int exit_code) {
+#if BUILDFLAG(CLANG_COVERAGE)
+  WriteClangCoverageProfile();
+#endif
   _exit(exit_code);
 }
 
@@ -119,6 +124,12 @@ Process Process::Duplicate() const {
 ProcessId Process::Pid() const {
   DCHECK(IsValid());
   return GetProcId(Handle());
+}
+
+Time Process::CreationTime() const {
+  // TODO(https://crbug.com/726484): There is no syscall providing this data.
+  NOTIMPLEMENTED();
+  return Time();
 }
 
 bool Process::is_current() const {

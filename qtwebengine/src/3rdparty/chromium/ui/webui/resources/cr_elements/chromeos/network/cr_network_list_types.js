@@ -8,7 +8,7 @@
  * CrNetworkListItem.
  */
 
-var CrNetworkList = {};
+const CrNetworkList = {};
 
 /**
  * Generic managed property type. This should match any of the basic managed
@@ -17,6 +17,7 @@ var CrNetworkList = {};
  *   customItemName: string,
  *   polymerIcon: (string|undefined),
  *   customData: (!Object|undefined),
+ *   showBeforeNetworksList: boolean,
  * }}
  */
 CrNetworkList.CustomItemState;

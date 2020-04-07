@@ -18,7 +18,6 @@
 #include "content/browser/service_worker/service_worker_url_request_job.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/browser/resource_context.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -78,11 +77,11 @@ void ServiceWorkerRequestHandler::InitializeForNavigation(
     storage::BlobStorageContext* blob_storage_context,
     bool skip_service_worker,
     ResourceType resource_type,
-    RequestContextType request_context_type,
+    blink::mojom::RequestContextType request_context_type,
     network::mojom::RequestContextFrameType frame_type,
     bool is_parent_frame_secure,
     scoped_refptr<network::ResourceRequestBody> body,
-    const base::Callback<WebContents*(void)>& web_contents_getter) {
+    base::RepeatingCallback<WebContents*()> web_contents_getter) {
   // Only create a handler when there is a ServiceWorkerNavigationHandlerCore
   // to take ownership of a pre-created SeviceWorkerProviderHost.
   if (!navigation_handle_core)
@@ -115,7 +114,8 @@ void ServiceWorkerRequestHandler::InitializeForNavigation(
   // Initialize the SWProviderHost.
   base::WeakPtr<ServiceWorkerProviderHost> provider_host =
       ServiceWorkerProviderHost::PreCreateNavigationHost(
-          context->AsWeakPtr(), is_parent_frame_secure, web_contents_getter);
+          context->AsWeakPtr(), is_parent_frame_secure,
+          std::move(web_contents_getter));
 
   std::unique_ptr<ServiceWorkerRequestHandler> handler(
       provider_host->CreateRequestHandler(
@@ -136,24 +136,25 @@ void ServiceWorkerRequestHandler::InitializeForNavigation(
 // static
 std::unique_ptr<NavigationLoaderInterceptor>
 ServiceWorkerRequestHandler::InitializeForNavigationNetworkService(
-    const network::ResourceRequest& resource_request,
+    const GURL& url,
     ResourceContext* resource_context,
     ServiceWorkerNavigationHandleCore* navigation_handle_core,
     storage::BlobStorageContext* blob_storage_context,
     bool skip_service_worker,
     ResourceType resource_type,
-    RequestContextType request_context_type,
+    blink::mojom::RequestContextType request_context_type,
     network::mojom::RequestContextFrameType frame_type,
     bool is_parent_frame_secure,
     scoped_refptr<network::ResourceRequestBody> body,
-    const base::Callback<WebContents*(void)>& web_contents_getter) {
+    base::RepeatingCallback<WebContents*()> web_contents_getter,
+    base::WeakPtr<ServiceWorkerProviderHost>* out_provider_host) {
   DCHECK(blink::ServiceWorkerUtils::IsServicificationEnabled());
   DCHECK(navigation_handle_core);
 
   // Create the handler even for insecure HTTP since it's used in the
   // case of redirect to HTTPS.
-  if (!resource_request.url.SchemeIsHTTPOrHTTPS() &&
-      !OriginCanAccessServiceWorkers(resource_request.url)) {
+  if (!url.SchemeIsHTTPOrHTTPS() && !OriginCanAccessServiceWorkers(url) &&
+      !SchemeMaySupportRedirectingToHTTPS(url)) {
     return nullptr;
   }
 
@@ -165,21 +166,22 @@ ServiceWorkerRequestHandler::InitializeForNavigationNetworkService(
     return nullptr;
 
   // Initialize the SWProviderHost.
-  base::WeakPtr<ServiceWorkerProviderHost> provider_host =
-      ServiceWorkerProviderHost::PreCreateNavigationHost(
-          context->AsWeakPtr(), is_parent_frame_secure, web_contents_getter);
+  *out_provider_host = ServiceWorkerProviderHost::PreCreateNavigationHost(
+      context->AsWeakPtr(), is_parent_frame_secure,
+      std::move(web_contents_getter));
 
   std::unique_ptr<ServiceWorkerRequestHandler> handler(
-      provider_host->CreateRequestHandler(
-          network::mojom::FetchRequestMode::kNavigate,
-          network::mojom::FetchCredentialsMode::kInclude,
-          network::mojom::FetchRedirectMode::kManual,
-          std::string() /* integrity */, false /* keepalive */, resource_type,
-          request_context_type, frame_type, blob_storage_context->AsWeakPtr(),
-          body, skip_service_worker));
+      (*out_provider_host)
+          ->CreateRequestHandler(
+              network::mojom::FetchRequestMode::kNavigate,
+              network::mojom::FetchCredentialsMode::kInclude,
+              network::mojom::FetchRedirectMode::kManual,
+              std::string() /* integrity */, false /* keepalive */,
+              resource_type, request_context_type, frame_type,
+              blob_storage_context->AsWeakPtr(), body, skip_service_worker));
 
   navigation_handle_core->DidPreCreateProviderHost(
-      provider_host->provider_id());
+      (*out_provider_host)->provider_id());
 
   return base::WrapUnique<NavigationLoaderInterceptor>(handler.release());
 }
@@ -204,7 +206,8 @@ ServiceWorkerRequestHandler::InitializeForSharedWorker(
           resource_request.fetch_credentials_mode,
           resource_request.fetch_redirect_mode,
           resource_request.fetch_integrity, resource_request.keepalive,
-          RESOURCE_TYPE_SHARED_WORKER, REQUEST_CONTEXT_TYPE_SHARED_WORKER,
+          RESOURCE_TYPE_SHARED_WORKER,
+          blink::mojom::RequestContextType::SHARED_WORKER,
           resource_request.fetch_frame_type,
           nullptr /* blob_storage_context: unused in S13n */,
           resource_request.request_body, resource_request.skip_service_worker));
@@ -226,7 +229,7 @@ void ServiceWorkerRequestHandler::InitializeHandler(
     const std::string& integrity,
     bool keepalive,
     ResourceType resource_type,
-    RequestContextType request_context_type,
+    blink::mojom::RequestContextType request_context_type,
     network::mojom::RequestContextFrameType frame_type,
     scoped_refptr<network::ResourceRequestBody> body) {
   // S13nServiceWorker enabled, NetworkService disabled:
@@ -284,7 +287,7 @@ bool ServiceWorkerRequestHandler::IsControlledByServiceWorker(
   ServiceWorkerRequestHandler* handler = GetHandler(request);
   if (!handler || !handler->provider_host_)
     return false;
-  return handler->provider_host_->associated_registration() ||
+  return handler->provider_host_->controller() ||
          handler->provider_host_->running_hosted_version();
 }
 
@@ -296,9 +299,10 @@ ServiceWorkerProviderHost* ServiceWorkerRequestHandler::GetProviderHost(
 }
 
 void ServiceWorkerRequestHandler::MaybeCreateLoader(
-    const network::ResourceRequest& request,
+    const network::ResourceRequest& tentative_request,
     ResourceContext* resource_context,
-    LoaderCallback callback) {
+    LoaderCallback callback,
+    FallbackCallback fallback_callback) {
   NOTREACHED();
   std::move(callback).Run({});
 }

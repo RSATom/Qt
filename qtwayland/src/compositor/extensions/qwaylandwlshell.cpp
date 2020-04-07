@@ -41,9 +41,10 @@
 #include "qwaylandwlshell.h"
 #include "qwaylandwlshell_p.h"
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 #include "qwaylandwlshellintegration_p.h"
 #endif
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include <QtWaylandCompositor/QWaylandCompositor>
 #include <QtWaylandCompositor/QWaylandView>
@@ -266,15 +267,16 @@ void QWaylandWlShellSurfacePrivate::shell_surface_set_class(Resource *resource,
  * To provide the functionality of the shell extension in a compositor, create
  * an instance of the WlShell component and add it to the list of extensions
  * supported by the compositor:
- * \code
- * import QtWayland.Compositor 1.0
+ *
+ * \qml \QtMinorVersion
+ * import QtWayland.Compositor 1.\1
  *
  * WaylandCompositor {
  *     WlShell {
  *         // ...
  *     }
  * }
- * \endcode
+ * \endqml
  */
 
 /*!
@@ -584,7 +586,7 @@ void QWaylandWlShellSurface::sendPopupDone()
     d->send_popup_done();
 }
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 QWaylandQuickShellIntegration *QWaylandWlShellSurface::createIntegration(QWaylandQuickShellSurfaceItem *item)
 {
     return new QtWayland::WlShellIntegration(item);
@@ -699,9 +701,8 @@ void QWaylandWlShellSurface::ping()
  */
 QWaylandWlShellSurface *QWaylandWlShellSurface::fromResource(wl_resource *resource)
 {
-    QWaylandWlShellSurfacePrivate::Resource *res = QWaylandWlShellSurfacePrivate::Resource::fromResource(resource);
-    if (res)
-        return static_cast<QWaylandWlShellSurfacePrivate *>(res->shell_surface_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandWlShellSurfacePrivate *>(resource))
+        return p->q_func();
     return nullptr;
 }
 

@@ -7,22 +7,33 @@
 #ifndef CORE_FXGE_ANDROID_CFPF_SKIAPATHFONT_H_
 #define CORE_FXGE_ANDROID_CFPF_SKIAPATHFONT_H_
 
+#include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxge/android/cfpf_skiafontdescriptor.h"
 
-#define FPF_SKIAFONTTYPE_Path 1
-
-class CFPF_SkiaPathFont : public CFPF_SkiaFontDescriptor {
+class CFPF_SkiaPathFont {
  public:
-  CFPF_SkiaPathFont();
-  ~CFPF_SkiaPathFont() override;
+  CFPF_SkiaPathFont(const ByteString& path,
+                    const char* pFamily,
+                    uint32_t dwStyle,
+                    int32_t iFaceIndex,
+                    uint32_t dwCharsets,
+                    int32_t iGlyphNum);
+  ~CFPF_SkiaPathFont();
 
-  // CFPF_SkiaFontDescriptor
-  int32_t GetType() const override;
+  const char* path() const { return m_bsPath.c_str(); }
+  const char* family() const { return m_bsFamily.c_str(); }
+  uint32_t style() const { return m_dwStyle; }
+  int32_t face_index() const { return m_iFaceIndex; }
+  uint32_t charsets() const { return m_dwCharsets; }
+  int32_t glyph_num() const { return m_iGlyphNum; }
 
-  void SetPath(const char* pPath);
-
-  char* m_pPath;
+ private:
+  const ByteString m_bsPath;
+  const ByteString m_bsFamily;
+  const uint32_t m_dwStyle;
+  const int32_t m_iFaceIndex;
+  const uint32_t m_dwCharsets;
+  const int32_t m_iGlyphNum;
 };
 
 #endif  // CORE_FXGE_ANDROID_CFPF_SKIAPATHFONT_H_

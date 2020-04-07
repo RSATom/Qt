@@ -12,34 +12,56 @@ cr.exportPath('settings');
 Polymer({
   is: 'settings-multidevice-subpage',
 
-  behaviors: [I18nBehavior],
+  behaviors: [
+    MultiDeviceFeatureBehavior,
+    CrNetworkListenerBehavior,
+  ],
 
   properties: {
-    /** SettingsPrefsElement 'prefs' Object reference. See prefs.js. */
-    prefs: {
-      type: Object,
-      notify: true,
-    },
-
-    // TODO(jordynass): Set this based on data in this.prefs.
     /**
-     * If a host has been verified, this is true if that host is and enabled and
-     * false if it is disabled. Otherwise it is undefined.
-     * @type {boolean|undefined}
+     * Alias for allowing Polymer bindings to settings.routes.
+     * @type {?SettingsRoutes}
      */
-    hostEnabled: {
-      type: Boolean,
-      notify: true,
-    },
-
-    /** @type {?SettingsRoutes} */
     routes: {
       type: Object,
       value: settings.routes,
     },
 
-    /** @type {MultiDevicePageContentData} */
-    pageContentData: Object,
+    /** Overridden from NetworkListenerBehavior. */
+    networkingPrivate: {
+      type: Object,
+      value: chrome.networkingPrivate,
+    },
+
+    /** Overridden from NetworkListenerBehavior. */
+    networkListChangeSubscriberSelectors_: {
+      type: Array,
+      value: () => ['settings-multidevice-tether-item'],
+    },
+
+    /** Overridden from NetworkListenerBehavior. */
+    networksChangeSubscriberSelectors_: {
+      type: Array,
+      value: () => ['settings-multidevice-tether-item'],
+    },
+  },
+
+  /** @private {?settings.MultiDeviceBrowserProxy} */
+  browserProxy_: null,
+
+  /** @override */
+  created: function() {
+    this.browserProxy_ = settings.MultiDeviceBrowserProxyImpl.getInstance();
+  },
+
+  /** @private */
+  handleVerifyButtonClick_: function(event) {
+    this.browserProxy_.retryPendingHostSetup();
+  },
+
+  /** @private */
+  handleAndroidMessagesButtonClick_: function() {
+    this.browserProxy_.setUpAndroidSms();
   },
 
   /**
@@ -52,11 +74,64 @@ Polymer({
   },
 
   /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowVerifyButton_: function() {
+    return [
+      settings.MultiDeviceSettingsMode.HOST_SET_WAITING_FOR_SERVER,
+      settings.MultiDeviceSettingsMode.HOST_SET_WAITING_FOR_VERIFICATION,
+    ].includes(this.pageContentData.mode);
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowSuiteToggle_: function() {
+    return this.pageContentData.mode ===
+        settings.MultiDeviceSettingsMode.HOST_SET_VERIFIED;
+  },
+
+  /** @private */
+  handleForgetDeviceClick_: function() {
+    this.$.forgetDeviceDialog.showModal();
+  },
+
+  /** @private */
+  onForgetDeviceDialogCancelClick_: function() {
+    this.$.forgetDeviceDialog.close();
+  },
+
+  /** @private */
+  onForgetDeviceDialogConfirmClick_: function() {
+    this.fire('forget-device-requested');
+    this.$.forgetDeviceDialog.close();
+  },
+
+  /**
    * @return {string}
    * @private
    */
-  getStatusText_: function() {
-    return this.hostEnabled ? this.i18n('multideviceEnabled') :
+  getStatusInnerHtml_: function() {
+    if ([
+          settings.MultiDeviceSettingsMode.HOST_SET_WAITING_FOR_SERVER,
+          settings.MultiDeviceSettingsMode.HOST_SET_WAITING_FOR_VERIFICATION,
+        ].includes(this.pageContentData.mode)) {
+      return this.i18nAdvanced('multideviceVerificationText');
+    }
+    return this.isSuiteOn() ? this.i18n('multideviceEnabled') :
                               this.i18n('multideviceDisabled');
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  doesAndroidMessagesRequireSetUp_: function() {
+    // The pairing state is preferred over the FeatureState here since
+    // FeatureState.UNAVAILABLE_SUITE_DISABLED is returned when the suite is
+    // disabled, regardless if Messages requires further setup.
+    return !this.pageContentData.isAndroidSmsPairingComplete;
   },
 });

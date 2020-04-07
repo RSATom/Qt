@@ -10,7 +10,7 @@
 #include "core/fxcrt/widestring.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Script : public CXFA_Node {
+class CXFA_Script final : public CXFA_Node {
  public:
   enum class Type {
     Formcalc = 0,
@@ -22,7 +22,7 @@ class CXFA_Script : public CXFA_Node {
   ~CXFA_Script() override;
 
   Type GetContentType();
-  XFA_AttributeEnum GetRunAt();
+  XFA_AttributeValue GetRunAt();
   WideString GetExpression();
 };
 

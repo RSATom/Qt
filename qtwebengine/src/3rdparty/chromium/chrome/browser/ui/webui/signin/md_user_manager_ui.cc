@@ -41,12 +41,13 @@ MDUserManagerUI::MDUserManagerUI(content::WebUI* web_ui)
   GetLocalizedStrings(&localized_strings);
 
   Profile* profile = Profile::FromWebUI(web_ui);
+
   // Set up the chrome://md-user-manager/ source.
-  content::WebUIDataSource::Add(profile, CreateUIDataSource(localized_strings));
+  auto* md_user_source = CreateUIDataSource(localized_strings);
+  content::WebUIDataSource::Add(profile, md_user_source);
 
   // Set up the chrome://theme/ source
-  ThemeSource* theme = new ThemeSource(profile);
-  content::URLDataSource::Add(profile, theme);
+  content::URLDataSource::Add(profile, std::make_unique<ThemeSource>(profile));
 }
 
 MDUserManagerUI::~MDUserManagerUI() {}

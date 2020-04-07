@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/service_manager/public/cpp/service.gni")
 import("//services/service_manager/public/service_manifest.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
@@ -17,6 +16,8 @@ source_set("lib") {
     "xml_parser.cc",
     "xml_parser.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   deps = [
     "//base",
@@ -83,6 +84,6 @@ fuzzer_test("xml_parser_fuzzer") {
     "//base",
     "//third_party/libxml:libxml",
   ]
-  dict = "//testing/libfuzzer/fuzzers/dicts/xml.dict"
-  seed_corpus = "xml_parser_fuzzer_corpus"
+  dict = "//third_party/libxml/fuzz/xml.dict"
+  seed_corpus = "//third_party/libxml/fuzz/seed_corpus"
 }

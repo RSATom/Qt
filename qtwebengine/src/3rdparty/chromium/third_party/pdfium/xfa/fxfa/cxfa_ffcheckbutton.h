@@ -14,7 +14,7 @@
 
 class CXFA_CheckButton;
 
-class CXFA_FFCheckButton : public CXFA_FFField {
+class CXFA_FFCheckButton final : public CXFA_FFField {
  public:
   CXFA_FFCheckButton(CXFA_Node* pNode, CXFA_CheckButton* button);
   ~CXFA_FFCheckButton() override;
@@ -41,7 +41,7 @@ class CXFA_FFCheckButton : public CXFA_FFField {
   bool CommitData() override;
   bool IsDataChanged() override;
   void CapLeftRightPlacement(const CXFA_Margin* captionMargin);
-  void AddUIMargin(XFA_AttributeEnum iCapPlacement);
+  void AddUIMargin(XFA_AttributeValue iCapPlacement);
   XFA_CHECKSTATE FWLState2XFAState();
 
   UnownedPtr<IFWL_WidgetDelegate> m_pOldDelegate;

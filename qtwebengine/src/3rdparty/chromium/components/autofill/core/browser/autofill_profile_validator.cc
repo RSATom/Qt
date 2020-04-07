@@ -36,15 +36,16 @@ const int kRulesLoadingTimeoutSeconds = 5;
 }  // namespace
 
 AutofillProfileValidator::ValidationRequest::ValidationRequest(
-    base::WeakPtr<AutofillProfile> profile,
+    base::WeakPtr<const AutofillProfile> profile,
     autofill::AddressValidator* validator,
     AutofillProfileValidatorCallback on_validated)
     : profile_(profile),
       validator_(validator),
       on_validated_(std::move(on_validated)),
       has_responded_(false),
-      on_timeout_(base::Bind(&ValidationRequest::OnRulesLoaded,
-                             base::Unretained(this))) {
+      weak_factory_(this) {
+  on_timeout_.Reset(base::BindOnce(&ValidationRequest::OnRulesLoaded,
+                             weak_factory_.GetWeakPtr()));
   DCHECK(profile_);
   base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, on_timeout_.callback(),
@@ -78,13 +79,14 @@ AutofillProfileValidator::AutofillProfileValidator(
 AutofillProfileValidator::~AutofillProfileValidator() {}
 
 void AutofillProfileValidator::StartProfileValidation(
-    AutofillProfile* profile,
+    const AutofillProfile* profile,
     AutofillProfileValidatorCallback cb) {
   DCHECK(profile);
   if (!profile)
     return;
+
   std::unique_ptr<ValidationRequest> request(
-      std::make_unique<ValidationRequest>(profile->AsWeakPtr(),
+      std::make_unique<ValidationRequest>(profile->GetWeakPtr(),
                                           &address_validator_, std::move(cb)));
 
   // If the |region_code| is not a valid code according to our source, calling

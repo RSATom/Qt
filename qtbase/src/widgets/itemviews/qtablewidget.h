@@ -92,8 +92,8 @@ public:
     inline int row() const;
     inline int column() const;
 
-    inline void setSelected(bool select);
-    inline bool isSelected() const;
+    void setSelected(bool select);
+    bool isSelected() const;
 
     inline Qt::ItemFlags flags() const { return itemFlags; }
     void setFlags(Qt::ItemFlags flags);
@@ -131,20 +131,28 @@ public:
     inline void setTextAlignment(int alignment)
         { setData(Qt::TextAlignmentRole, alignment); }
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTableWidgetItem::background() instead")
     inline QColor backgroundColor() const
-        { return qvariant_cast<QColor>(data(Qt::BackgroundColorRole)); }
+        { return qvariant_cast<QColor>(data(Qt::BackgroundRole)); }
+    QT_DEPRECATED_X ("Use QTableWidgetItem::setBackground() instead")
     inline void setBackgroundColor(const QColor &color)
-        { setData(Qt::BackgroundColorRole, color); }
+        { setData(Qt::BackgroundRole, color); }
+#endif
 
     inline QBrush background() const
         { return qvariant_cast<QBrush>(data(Qt::BackgroundRole)); }
     inline void setBackground(const QBrush &brush)
         { setData(Qt::BackgroundRole, brush); }
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTableWidgetItem::foreground() instead")
     inline QColor textColor() const
-        { return qvariant_cast<QColor>(data(Qt::TextColorRole)); }
+        { return qvariant_cast<QColor>(data(Qt::ForegroundRole)); }
+    QT_DEPRECATED_X ("Use QTableWidgetItem::setForeground() instead")
     inline void setTextColor(const QColor &color)
-        { setData(Qt::TextColorRole, color); }
+        { setData(Qt::ForegroundRole, color); }
+#endif
 
     inline QBrush foreground() const
         { return qvariant_cast<QBrush>(data(Qt::ForegroundRole)); }
@@ -173,6 +181,9 @@ public:
     QTableWidgetItem &operator=(const QTableWidgetItem &other);
 
     inline int type() const { return rtti; }
+
+private:
+    QTableModel *tableModel() const;
 
 private:
     int rtti;
@@ -268,8 +279,12 @@ public:
     void setCellWidget(int row, int column, QWidget *widget);
     inline void removeCellWidget(int row, int column);
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTableWidgetItem::isSelected() instead")
     bool isItemSelected(const QTableWidgetItem *item) const;
+    QT_DEPRECATED_X ("Use QTableWidgetItem::setSelected() instead")
     void setItemSelected(const QTableWidgetItem *item, bool select);
+#endif
     void setRangeSelected(const QTableWidgetSelectionRange &range, bool select);
 
     QList<QTableWidgetSelectionRange> selectedRanges() const;
@@ -374,12 +389,6 @@ inline int QTableWidgetItem::row() const
 
 inline int QTableWidgetItem::column() const
 { return (view ? view->column(this) : -1); }
-
-inline void QTableWidgetItem::setSelected(bool aselect)
-{ if (view) view->setItemSelected(this, aselect); }
-
-inline bool QTableWidgetItem::isSelected() const
-{ return (view ? view->isItemSelected(this) : false); }
 
 QT_END_NAMESPACE
 

@@ -14,8 +14,8 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/sequenced_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -151,6 +151,9 @@ void NetExportFileWriter::StartNetLog(
   base::Value custom_constants = base::Value::FromUniquePtrValue(
       ChromeNetLog::GetPlatformConstants(command_line_string, channel_string));
 
+  net_log_exporter_.set_connection_error_handler(base::BindOnce(
+      &NetExportFileWriter::OnConnectionError, base::Unretained(this)));
+
   base::PostTaskAndReplyWithResult(
       file_task_runner_.get(), FROM_HERE,
       base::BindOnce(&NetExportFileWriter::CreateOutputFile, log_path_),
@@ -174,14 +177,19 @@ void NetExportFileWriter::StartNetLogAfterCreateFile(
     return;
   }
 
-  network::mojom::NetLogExporter_CaptureMode rpc_capture_mode =
-      network::mojom::NetLogExporter::CaptureMode::DEFAULT;
+  // It's possible that the network service crashed in the window between
+  // StartNetLog and here. In that case, OnConnectionError will have closed
+  // |net_log_exporter_|.
+  if (!net_log_exporter_)
+    return;
+
+  network::mojom::NetLogCaptureMode rpc_capture_mode =
+      network::mojom::NetLogCaptureMode::DEFAULT;
   if (capture_mode.include_socket_bytes()) {
-    rpc_capture_mode =
-        network::mojom::NetLogExporter::CaptureMode::INCLUDE_SOCKET_BYTES;
+    rpc_capture_mode = network::mojom::NetLogCaptureMode::INCLUDE_SOCKET_BYTES;
   } else if (capture_mode.include_cookies_and_credentials()) {
-    rpc_capture_mode = network::mojom::NetLogExporter::CaptureMode::
-        INCLUDE_COOKIES_AND_CREDENTIALS;
+    rpc_capture_mode =
+        network::mojom::NetLogCaptureMode::INCLUDE_COOKIES_AND_CREDENTIALS;
   }
 
   // base::Unretained(this) is safe here since |net_log_exporter_| is owned by
@@ -234,6 +242,10 @@ void NetExportFileWriter::OnStopResult(int result) {
   ResetExporterThenSetStateNotLogging();
 }
 
+void NetExportFileWriter::OnConnectionError() {
+  ResetExporterThenSetStateNotLogging();
+}
+
 std::unique_ptr<base::DictionaryValue> NetExportFileWriter::GetState() const {
   DCHECK(thread_checker_.CalledOnValidThread());
 
@@ -276,7 +288,7 @@ void NetExportFileWriter::GetFilePathToCompletedLog(
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!(log_exists_ && state_ == STATE_NOT_LOGGING)) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(path_callback, base::FilePath()));
+        FROM_HERE, base::BindOnce(path_callback, base::FilePath()));
     return;
   }
 
@@ -328,8 +340,8 @@ void NetExportFileWriter::NotifyStateObservers() {
 void NetExportFileWriter::NotifyStateObserversAsync() {
   DCHECK(thread_checker_.CalledOnValidThread());
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&NetExportFileWriter::NotifyStateObservers,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&NetExportFileWriter::NotifyStateObservers,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 void NetExportFileWriter::SetStateAfterSetUpDefaultLogPath(

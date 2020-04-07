@@ -59,7 +59,7 @@ namespace egl
 		bool getConfigs(EGLConfig *configs, const EGLint *attribList, EGLint configSize, EGLint *numConfig);
 		bool getConfigAttrib(EGLConfig config, EGLint attribute, EGLint *value);
 
-		EGLSurface createWindowSurface(EGLNativeWindowType window, EGLConfig config, const EGLint *attribList);
+		EGLSurface createWindowSurface(EGLNativeWindowType window, EGLConfig config, const EGLAttrib *attribList);
 		EGLSurface createPBufferSurface(EGLConfig config, const EGLint *attribList, EGLClientBuffer clientBuffer = nullptr);
 		EGLContext createContext(EGLConfig configHandle, const Context *shareContext, EGLint clientVersion);
 		EGLSyncKHR createSync(Context *context);
@@ -86,6 +86,8 @@ namespace egl
 		bool destroySharedImage(EGLImageKHR);
 		virtual Image *getSharedImage(EGLImageKHR name) = 0;
 
+		sw::MutexLock *getLock() { return &mApiMutex; }
+
 	private:
 		sw::Format getDisplayFormat() const;
 
@@ -104,10 +106,10 @@ namespace egl
 		ContextSet mContextSet;
 
 		typedef std::set<FenceSync*> SyncSet;
-		sw::MutexLock mSyncSetMutex;
 		SyncSet mSyncSet;
 
 		gl::NameSpace<Image> mSharedImageNameSpace;
+		sw::MutexLock mApiMutex;
 	};
 }
 

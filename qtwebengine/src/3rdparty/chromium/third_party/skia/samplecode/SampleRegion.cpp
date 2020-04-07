@@ -5,15 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
+#include "SkFont.h"
+#include "SkFontMetrics.h"
 #include "SkGradientShader.h"
 #include "SkPath.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 
 #include <math.h>
 
@@ -54,20 +55,20 @@ static void test_strokerect(SkCanvas* canvas) {
 
 static void drawFadingText(SkCanvas* canvas,
                            const char* text, size_t len, SkScalar x, SkScalar y,
-                           const SkPaint& paint) {
+                           const SkFont& font, const SkPaint& paint) {
     // Need a bounds for the text
     SkRect bounds;
-    SkPaint::FontMetrics fm;
+    SkFontMetrics fm;
 
-    paint.getFontMetrics(&fm);
-    bounds.set(x, y + fm.fTop, x + paint.measureText(text, len), y + fm.fBottom);
+    font.getMetrics(&fm);
+    bounds.set(x, y + fm.fTop, x + font.measureText(text, len, kUTF8_SkTextEncoding), y + fm.fBottom);
 
     // may need to outset bounds a little, to account for hinting and/or
     // antialiasing
     bounds.inset(-SkIntToScalar(2), -SkIntToScalar(2));
 
     canvas->saveLayer(&bounds, nullptr);
-    canvas->drawText(text, len, x, y, paint);
+    canvas->drawSimpleText(text, len, kUTF8_SkTextEncoding, x, y, font, paint);
 
     const SkPoint pts[] = {
         { bounds.fLeft, y },
@@ -90,69 +91,31 @@ static void drawFadingText(SkCanvas* canvas,
 static void test_text(SkCanvas* canvas) {
     SkPaint paint;
     paint.setAntiAlias(true);
-    paint.setTextSize(20);
+
+    SkFont font;
+    font.setSize(20);
 
     const char* str = "Hamburgefons";
     size_t len = strlen(str);
     SkScalar x = 20;
     SkScalar y = 20;
 
-    canvas->drawText(str, len, x, y, paint);
+    canvas->drawSimpleText(str, len, kUTF8_SkTextEncoding, x, y, font, paint);
 
     y += 20;
 
-    const SkPoint pts[] = { { x, y }, { x + paint.measureText(str, len), y } };
+    const SkPoint pts[] = { { x, y }, { x + font.measureText(str, len, kUTF8_SkTextEncoding), y } };
     const SkColor colors[] = { SK_ColorBLACK, SK_ColorBLACK, 0 };
     const SkScalar pos[] = { 0, 0.9f, 1 };
     paint.setShader(SkGradientShader::MakeLinear(pts, colors, pos,
                                                  SK_ARRAY_COUNT(colors),
                                                  SkShader::kClamp_TileMode));
-    canvas->drawText(str, len, x, y, paint);
+    canvas->drawSimpleText(str, len, kUTF8_SkTextEncoding, x, y, font, paint);
 
     y += 20;
     paint.setShader(nullptr);
-    drawFadingText(canvas, str, len, x, y, paint);
+    drawFadingText(canvas, str, len, x, y, font, paint);
 }
-
-#ifdef SK_DEBUG
-static void make_rgn(SkRegion* rgn, int left, int top, int right, int bottom,
-                     int count, int32_t runs[]) {
-    SkIRect r;
-    r.set(left, top, right, bottom);
-
-    rgn->debugSetRuns(runs, count);
-    SkASSERT(rgn->getBounds() == r);
-}
-
-static void test_union_bug_1505668(SkRegion* ra, SkRegion* rb, SkRegion* rc) {
-    static int32_t dataA[] = {
-        0x00000001,
-        0x000001dd, 2, 0x00000001, 0x0000000c, 0x0000000d, 0x00000025, 0x7fffffff,
-        0x000001de, 1, 0x00000001, 0x00000025, 0x7fffffff,
-        0x000004b3, 1, 0x00000001, 0x00000026, 0x7fffffff,
-        0x000004b4, 1, 0x0000000c, 0x00000026, 0x7fffffff,
-        0x00000579, 1, 0x00000000, 0x0000013a, 0x7fffffff,
-        0x000005d8, 1, 0x00000000, 0x0000013b, 0x7fffffff,
-        0x7fffffff
-    };
-    make_rgn(ra, 0, 1, 315, 1496, SK_ARRAY_COUNT(dataA), dataA);
-
-    static int32_t dataB[] = {
-        0x000000b6,
-        0x000000c4, 1, 0x000000a1, 0x000000f0, 0x7fffffff,
-        0x000000d6, 0, 0x7fffffff,
-        0x000000e4, 2, 0x00000070, 0x00000079, 0x000000a1, 0x000000b0, 0x7fffffff,
-        0x000000e6, 0, 0x7fffffff,
-        0x000000f4, 2, 0x00000070, 0x00000079, 0x000000a1, 0x000000b0, 0x7fffffff,
-        0x000000f6, 0, 0x7fffffff,
-        0x00000104, 1, 0x000000a1, 0x000000b0, 0x7fffffff,
-        0x7fffffff
-    };
-    make_rgn(rb, 112, 182, 240, 260, SK_ARRAY_COUNT(dataB), dataB);
-
-    rc->op(*ra, *rb, SkRegion::kUnion_Op);
-}
-#endif
 
 static void scale_rect(SkIRect* dst, const SkIRect& src, float scale) {
     dst->fLeft = (int)::roundf(src.fLeft * scale);
@@ -188,7 +151,7 @@ static void paint_rgn(SkCanvas* canvas, const SkRegion& rgn,
     }
 }
 
-class RegionView : public SampleView {
+class RegionView : public Sample {
 public:
     RegionView() {
         fBase.set(100, 100, 150, 150);
@@ -212,10 +175,9 @@ public:
 
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Regions");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Regions");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -224,10 +186,10 @@ protected:
     static void drawstr(SkCanvas* canvas, const char text[], const SkPoint& loc,
                         bool hilite) {
         SkPaint paint;
-        paint.setAntiAlias(true);
-        paint.setTextSize(SkIntToScalar(20));
         paint.setColor(hilite ? SK_ColorRED : 0x40FF0000);
-        canvas->drawString(text, loc.fX, loc.fY, paint);
+        SkFont font;
+        font.setSize(SkIntToScalar(20));
+        canvas->drawSimpleText(text, strlen(text), kUTF8_SkTextEncoding, loc.fX, loc.fY, font, paint);
     }
 
     void drawPredicates(SkCanvas* canvas, const SkPoint pts[]) {
@@ -324,26 +286,7 @@ protected:
             test_text(canvas);
             return;
         }
-#ifdef SK_DEBUG
-        if (true) {
-            SkRegion a, b, c;
-            test_union_bug_1505668(&a, &b, &c);
 
-            if (false) {    // draw the result of the test
-                SkPaint paint;
-
-                canvas->translate(SkIntToScalar(10), SkIntToScalar(10));
-                paint.setColor(SK_ColorRED);
-                paint_rgn(canvas, a, paint);
-                paint.setColor(0x800000FF);
-                paint_rgn(canvas, b, paint);
-                paint.setColor(SK_ColorBLACK);
-                paint.setStyle(SkPaint::kStroke_Style);
-             //   paint_rgn(canvas, c, paint);
-                return;
-            }
-        }
-#endif
         const SkPoint origins[] = {
             { 30*SK_Scalar1, 50*SK_Scalar1 },
             { 150*SK_Scalar1, 50*SK_Scalar1 },
@@ -361,9 +304,8 @@ protected:
             { SK_ColorBLUE,     "XOR",          SkRegion::kXOR_Op           }
         };
 
-        SkPaint textPaint;
-        textPaint.setAntiAlias(true);
-        textPaint.setTextSize(SK_Scalar1*24);
+        SkFont font;
+        font.setSize(SK_Scalar1*24);
 
         this->drawOrig(canvas, false);
         canvas->save();
@@ -374,7 +316,8 @@ protected:
         canvas->translate(0, SkIntToScalar(200));
 
         for (size_t op = 0; op < SK_ARRAY_COUNT(gOps); op++) {
-            canvas->drawString(gOps[op].fName, SkIntToScalar(75), SkIntToScalar(50), textPaint);
+            canvas->drawSimpleText(gOps[op].fName, strlen(gOps[op].fName), kUTF8_SkTextEncoding,
+                                   SkIntToScalar(75), SkIntToScalar(50), font, SkPaint());
 
             this->drawRgnOped(canvas, gOps[op].fOp, gOps[op].fColor);
 
@@ -387,7 +330,7 @@ protected:
         }
     }
 
-    virtual SkView::Click* onFindClickHandler(SkScalar x, SkScalar y,
+    virtual Sample::Click* onFindClickHandler(SkScalar x, SkScalar y,
                                               unsigned modi) override {
         return fRect.contains(SkScalarRoundToInt(x),
                               SkScalarRoundToInt(y)) ? new Click(this) : nullptr;
@@ -402,10 +345,9 @@ protected:
 private:
     SkIRect    fBase, fRect;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new RegionView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new RegionView(); )

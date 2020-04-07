@@ -42,21 +42,21 @@ namespace gles2 {
 class ErrorState;
 class FeatureInfo;
 class Logger;
+class Texture;
 enum class CopyTextureMethod;
+
+// clang-format off
+constexpr GLfloat kIdentityMatrix[16] = { 1.0f, 0.0f, 0.0f, 0.0f,
+                                          0.0f, 1.0f, 0.0f, 0.0f,
+                                          0.0f, 0.0f, 1.0f, 0.0f,
+                                          0.0f, 0.0f, 0.0f, 1.0f };
+// clang-format on
 
 struct CALayerSharedState {
   float opacity;
   bool is_clipped;
   gfx::Rect clip_rect;
   int sorting_context_id;
-  gfx::Transform transform;
-};
-
-struct DCLayerSharedState {
-  float opacity;
-  bool is_clipped;
-  gfx::Rect clip_rect;
-  int z_order;
   gfx::Transform transform;
 };
 
@@ -105,6 +105,28 @@ bool GetCompressedTexSizeInBytes(const char* function_name,
                                  GLenum format,
                                  GLsizei* size_in_bytes,
                                  ErrorState* error_state);
+
+bool ValidateCompressedTexSubDimensions(GLenum target,
+                                        GLint level,
+                                        GLint xoffset,
+                                        GLint yoffset,
+                                        GLint zoffset,
+                                        GLsizei width,
+                                        GLsizei height,
+                                        GLsizei depth,
+                                        GLenum format,
+                                        Texture* texture,
+                                        bool restrict_for_webgl,
+                                        const char** error_message);
+
+bool ValidateCompressedTexDimensions(GLenum target,
+                                     GLint level,
+                                     GLsizei width,
+                                     GLsizei height,
+                                     GLsizei depth,
+                                     GLenum format,
+                                     bool restrict_for_webgl,
+                                     const char** error_message);
 
 bool ValidateCopyTexFormatHelper(const FeatureInfo* feature_info,
                                  GLenum internal_format,

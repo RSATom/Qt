@@ -169,7 +169,8 @@ namespace compiler {
                                   kNumber | kNullOrUndefined | kBoolean) \
   V(PlainPrimitive,               kNumber | kString | kBoolean | \
                                   kNullOrUndefined) \
-  V(Primitive,                    kSymbol | kBigInt | kPlainPrimitive) \
+  V(NonBigIntPrimitive,           kSymbol | kPlainPrimitive) \
+  V(Primitive,                    kBigInt | kNonBigIntPrimitive) \
   V(OtherUndetectableOrUndefined, kOtherUndetectable | kUndefined) \
   V(Proxy,                        kCallableProxy | kOtherProxy) \
   V(ArrayOrOtherObject,           kArray | kOtherObject) \
@@ -193,7 +194,8 @@ namespace compiler {
                                   kUndefined | kReceiver) \
   V(Internal,                     kHole | kExternalPointer | kOtherInternal) \
   V(NonInternal,                  kPrimitive | kReceiver) \
-  V(NonNumber,                    kUnique | kString | kInternal) \
+  V(NonBigInt,                    kNonBigIntPrimitive | kReceiver) \
+  V(NonNumber,                    kBigInt | kUnique | kString | kInternal) \
   V(Any,                          0xfffffffeu)
 
 // clang-format on
@@ -251,7 +253,10 @@ class V8_EXPORT_PRIVATE BitsetType {
   static double Max(bitset);
 
   static bitset Glb(double min, double max);
-  static bitset Lub(HeapObjectType const& type);
+  static bitset Lub(HeapObjectType const& type) {
+    return Lub<HeapObjectType>(type);
+  }
+  static bitset Lub(MapRef const& map) { return Lub<MapRef>(map); }
   static bitset Lub(double value);
   static bitset Lub(double min, double max);
   static bitset ExpandInternals(bitset bits);
@@ -273,6 +278,9 @@ class V8_EXPORT_PRIVATE BitsetType {
   static const Boundary BoundariesArray[];
   static inline const Boundary* Boundaries();
   static inline size_t BoundariesSize();
+
+  template <typename MapRefLike>
+  static bitset Lub(MapRefLike const& map);
 };
 
 // -----------------------------------------------------------------------------
@@ -361,23 +369,26 @@ class V8_EXPORT_PRIVATE Type {
   static Type UnsignedSmall() { return NewBitset(BitsetType::UnsignedSmall()); }
 
   static Type OtherNumberConstant(double value, Zone* zone);
-  static Type HeapConstant(const JSHeapBroker* js_heap_broker,
-                           Handle<i::Object> value, Zone* zone);
+  static Type HeapConstant(JSHeapBroker* broker, Handle<i::Object> value,
+                           Zone* zone);
+  static Type HeapConstant(const HeapObjectRef& value, Zone* zone);
   static Type Range(double min, double max, Zone* zone);
   static Type Range(RangeType::Limits lims, Zone* zone);
   static Type Tuple(Type first, Type second, Type third, Zone* zone);
   static Type Union(int length, Zone* zone);
 
   // NewConstant is a factory that returns Constant, Range or Number.
-  static Type NewConstant(const JSHeapBroker* js_heap_broker,
-                          Handle<i::Object> value, Zone* zone);
+  static Type NewConstant(JSHeapBroker* broker, Handle<i::Object> value,
+                          Zone* zone);
   static Type NewConstant(double value, Zone* zone);
 
   static Type Union(Type type1, Type type2, Zone* zone);
   static Type Intersect(Type type1, Type type2, Zone* zone);
 
-  static Type For(const JSHeapBroker* js_heap_broker, Handle<i::Map> map) {
-    HeapObjectType type = js_heap_broker->HeapObjectTypeFromMap(map);
+  static Type For(HeapObjectType const& type) {
+    return NewBitset(BitsetType::ExpandInternals(BitsetType::Lub(type)));
+  }
+  static Type For(MapRef const& type) {
     return NewBitset(BitsetType::ExpandInternals(BitsetType::Lub(type)));
   }
 
@@ -446,8 +457,8 @@ class V8_EXPORT_PRIVATE Type {
   friend UnionType;
   friend size_t hash_value(Type type);
 
-  Type(bitset bits) : payload_(bits | 1u) {}
-  Type(TypeBase* type_base)
+  explicit Type(bitset bits) : payload_(bits | 1u) {}
+  Type(TypeBase* type_base)  // NOLINT(runtime/explicit)
       : payload_(reinterpret_cast<uintptr_t>(type_base)) {}
 
   // Internal inspection.
@@ -544,7 +555,7 @@ class V8_EXPORT_PRIVATE HeapConstantType : public NON_EXPORTED_BASE(TypeBase) {
   static HeapConstantType* New(const HeapObjectRef& heap_ref, Zone* zone) {
     DCHECK(!heap_ref.IsHeapNumber());
     DCHECK_IMPLIES(heap_ref.IsString(), heap_ref.IsInternalizedString());
-    BitsetType::bitset bitset = BitsetType::Lub(heap_ref.type());
+    BitsetType::bitset bitset = BitsetType::Lub(heap_ref.GetHeapObjectType());
     return new (zone->New(sizeof(HeapConstantType)))
         HeapConstantType(bitset, heap_ref);
   }

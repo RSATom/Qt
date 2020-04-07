@@ -48,7 +48,7 @@ THE SOFTWARE.
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_bdfdriver
+#define FT_COMPONENT  bdfdriver
 
 
   typedef struct  BDF_CMapRec_
@@ -99,14 +99,17 @@ THE SOFTWARE.
 
     min = 0;
     max = cmap->num_encodings;
+    mid = ( min + max ) >> 1;
 
     while ( min < max )
     {
       FT_ULong  code;
 
 
-      mid  = ( min + max ) >> 1;
-      code = (FT_ULong)encodings[mid].enc;
+      if ( mid > max || mid < min )
+        mid = ( min + max ) >> 1;
+
+      code = encodings[mid].enc;
 
       if ( charcode == code )
       {
@@ -120,6 +123,9 @@ THE SOFTWARE.
         max = mid;
       else
         min = mid + 1;
+
+      /* prediction in a continuous block */
+      mid += charcode - code;
     }
 
     return result;
@@ -139,14 +145,17 @@ THE SOFTWARE.
 
     min = 0;
     max = cmap->num_encodings;
+    mid = ( min + max ) >> 1;
 
     while ( min < max )
     {
       FT_ULong  code; /* same as BDF_encoding_el.enc */
 
 
-      mid  = ( min + max ) >> 1;
-      code = (FT_ULong)encodings[mid].enc;
+      if ( mid > max || mid < min )
+        mid = ( min + max ) >> 1;
+
+      code = encodings[mid].enc;
 
       if ( charcode == code )
       {
@@ -160,12 +169,15 @@ THE SOFTWARE.
         max = mid;
       else
         min = mid + 1;
+
+      /* prediction in a continuous block */
+      mid += charcode - code;
     }
 
     charcode = 0;
     if ( min < cmap->num_encodings )
     {
-      charcode = (FT_ULong)encodings[min].enc;
+      charcode = encodings[min].enc;
       result   = encodings[min].glyph + 1;
     }
 

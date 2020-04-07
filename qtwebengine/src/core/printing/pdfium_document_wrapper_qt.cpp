@@ -48,14 +48,13 @@
 namespace QtWebEngineCore {
 int PdfiumDocumentWrapperQt::m_libraryUsers = 0;
 
-class QWEBENGINECORE_PRIVATE_EXPORT PdfiumPageWrapperQt {
+class PdfiumPageWrapperQt {
 public:
-    PdfiumPageWrapperQt(FPDF_DOCUMENT data, int pageIndex, int targetWidth, int targetHeight)
+    PdfiumPageWrapperQt(FPDF_DOCUMENT data, int pageIndex)
         : m_pageData(FPDF_LoadPage(data, pageIndex))
         , m_width(FPDF_GetPageWidth(m_pageData))
         , m_height(FPDF_GetPageHeight(m_pageData))
-        , m_index(pageIndex)
-        , m_image(createImage(targetWidth, targetHeight))
+        , m_image(createImage())
     {
     }
 
@@ -63,7 +62,6 @@ public:
         : m_pageData(nullptr)
         , m_width(-1)
         , m_height(-1)
-        , m_index(-1)
         , m_image(QImage())
     {
     }
@@ -79,16 +77,11 @@ public:
     }
 
 private:
-    QImage createImage(int targetWidth, int targetHeight)
+    QImage createImage()
     {
         Q_ASSERT(m_pageData);
-        if (targetWidth <= 0)
-            targetWidth = m_width;
 
-        if (targetHeight <= 0)
-            targetHeight = m_height;
-
-        QImage image(targetWidth, targetHeight, QImage::Format_ARGB32);
+        QImage image(m_width * 2, m_height * 2, QImage::Format_ARGB32);
         Q_ASSERT(!image.isNull());
         image.fill(0xFFFFFFFF);
 
@@ -102,22 +95,19 @@ private:
                               0, 0);
         FPDFBitmap_Destroy(bitmap);
         bitmap = nullptr;
-        return std::move(image);
+        return image;
     }
 
 private:
     FPDF_PAGE m_pageData;
     int m_width;
     int m_height;
-    int m_index;
     QImage m_image;
 };
 
 
 PdfiumDocumentWrapperQt::PdfiumDocumentWrapperQt(const void *pdfData, size_t size,
-                                                 const QSize& imageSize,
                                                  const char *password)
-    : m_imageSize(imageSize * 2.0)
 {
     Q_ASSERT(pdfData);
     Q_ASSERT(size);
@@ -140,9 +130,15 @@ QImage PdfiumDocumentWrapperQt::pageAsQImage(size_t index)
         return QImage();
     }
 
-    PdfiumPageWrapperQt pageWrapper((FPDF_DOCUMENT)m_documentHandle, index,
-                                    m_imageSize.width(), m_imageSize.height());
+    PdfiumPageWrapperQt pageWrapper((FPDF_DOCUMENT)m_documentHandle, index);
     return pageWrapper.image();
+}
+
+bool PdfiumDocumentWrapperQt::pageIsLandscape(size_t index)
+{
+    double width = 0, height = 0;
+    FPDF_GetPageSizeByIndex((FPDF_DOCUMENT)m_documentHandle, index, &width, &height);
+    return (width > height);
 }
 
 PdfiumDocumentWrapperQt::~PdfiumDocumentWrapperQt()

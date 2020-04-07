@@ -40,6 +40,7 @@
 #include "qhelpcollectionhandler_p.h"
 #include "qhelp_global.h"
 #include "qhelpdbreader_p.h"
+#include "qhelpfilterdata.h"
 
 #include <QtCore/QDataStream>
 #include <QtCore/QDateTime>
@@ -173,19 +174,34 @@ bool QHelpCollectionHandler::openCollectionFile()
 
     bool indexAndNamespaceFilterTablesMissing = false;
 
-    m_query->exec(QLatin1String("SELECT COUNT(*) FROM sqlite_master WHERE TYPE=\'table\' "
-                                "AND (Name=\'IndexTable\' "
-                                "OR Name=\'FileNameTable\' "
-                                "OR Name=\'ContentsTable\' "
-                                "OR Name=\'FileFilterTable\' "
-                                "OR Name=\'IndexFilterTable\' "
-                                "OR Name=\'ContentsFilterTable\' "
-                                "OR Name=\'FileAttributeSetTable\' "
-                                "OR Name=\'OptimizedFilterTable\' "
-                                "OR Name=\'TimeStampTable\' "
-                                "OR Name=\'VersionTable\')"));
+    const QStringList newTables = {
+        QLatin1String("IndexTable"),
+        QLatin1String("FileNameTable"),
+        QLatin1String("ContentsTable"),
+        QLatin1String("FileFilterTable"),
+        QLatin1String("IndexFilterTable"),
+        QLatin1String("ContentsFilterTable"),
+        QLatin1String("FileAttributeSetTable"),
+        QLatin1String("OptimizedFilterTable"),
+        QLatin1String("TimeStampTable"),
+        QLatin1String("VersionTable"),
+        QLatin1String("Filter"),
+        QLatin1String("ComponentTable"),
+        QLatin1String("ComponentMapping"),
+        QLatin1String("ComponentFilter"),
+        QLatin1String("VersionFilter")
+    };
+
+    QString queryString = QLatin1String("SELECT COUNT(*) "
+                                        "FROM sqlite_master "
+                                        "WHERE TYPE=\'table\'");
+    queryString.append(QLatin1String(" AND (Name=\'"));
+    queryString.append(newTables.join(QLatin1String("\' OR Name=\'")));
+    queryString.append(QLatin1String("\')"));
+
+    m_query->exec(queryString);
     m_query->next();
-    if (m_query->value(0).toInt() != 10) {
+    if (m_query->value(0).toInt() != newTables.count()) {
         if (!recreateIndexAndNamespaceFilterTables(m_query)) {
             emit error(tr("Cannot create index tables in file %1.").arg(collectionFile()));
             return false;
@@ -198,7 +214,7 @@ bool QHelpCollectionHandler::openCollectionFile()
     const FileInfoList &docList = registeredDocumentations();
     if (indexAndNamespaceFilterTablesMissing) {
         for (const QHelpCollectionHandler::FileInfo &info : docList) {
-            if (!registerIndexAndNamespaceFilterTables(info.namespaceName)) {
+            if (!registerIndexAndNamespaceFilterTables(info.namespaceName, true)) {
                 emit error(tr("Cannot register index tables in file %1.").arg(collectionFile()));
                 return false;
             }
@@ -278,6 +294,7 @@ bool QHelpCollectionHandler::isTimeStampCorrect(const TimeStamp &timeStamp) cons
         return false;
 
     const QString oldFileName = m_query->value(0).toString();
+    m_query->clear();
     if (oldFileName != timeStamp.fileName)
         return false;
 
@@ -300,6 +317,7 @@ bool QHelpCollectionHandler::hasTimeStampInfo(const QString &nameSpace) const
     if (!m_query->next())
         return false;
 
+    m_query->clear();
     return true;
 }
 
@@ -460,13 +478,18 @@ bool QHelpCollectionHandler::recreateIndexAndNamespaceFilterTables(QSqlQuery *qu
             << QLatin1String("DROP TABLE IF EXISTS FileNameTable")
             << QLatin1String("DROP TABLE IF EXISTS IndexTable")
             << QLatin1String("DROP TABLE IF EXISTS ContentsTable")
-            << QLatin1String("DROP TABLE IF EXISTS FileFilterTable")
-            << QLatin1String("DROP TABLE IF EXISTS IndexFilterTable")
-            << QLatin1String("DROP TABLE IF EXISTS ContentsFilterTable")
-            << QLatin1String("DROP TABLE IF EXISTS FileAttributeSetTable")
-            << QLatin1String("DROP TABLE IF EXISTS OptimizedFilterTable")
+            << QLatin1String("DROP TABLE IF EXISTS FileFilterTable") // legacy
+            << QLatin1String("DROP TABLE IF EXISTS IndexFilterTable") // legacy
+            << QLatin1String("DROP TABLE IF EXISTS ContentsFilterTable") // legacy
+            << QLatin1String("DROP TABLE IF EXISTS FileAttributeSetTable") // legacy
+            << QLatin1String("DROP TABLE IF EXISTS OptimizedFilterTable") // legacy
             << QLatin1String("DROP TABLE IF EXISTS TimeStampTable")
             << QLatin1String("DROP TABLE IF EXISTS VersionTable")
+            << QLatin1String("DROP TABLE IF EXISTS Filter")
+            << QLatin1String("DROP TABLE IF EXISTS ComponentTable")
+            << QLatin1String("DROP TABLE IF EXISTS ComponentMapping")
+            << QLatin1String("DROP TABLE IF EXISTS ComponentFilter")
+            << QLatin1String("DROP TABLE IF EXISTS VersionFilter")
             << QLatin1String("CREATE TABLE FileNameTable ("
                              "FolderId INTEGER, "
                              "Name TEXT, "
@@ -507,7 +530,22 @@ bool QHelpCollectionHandler::recreateIndexAndNamespaceFilterTables(QSqlQuery *qu
                              "TimeStamp TEXT)")
             << QLatin1String("CREATE TABLE VersionTable ("
                              "NamespaceId INTEGER, "
-                             "Version TEXT)");
+                             "Version TEXT)")
+            << QLatin1String("CREATE TABLE Filter ("
+                             "FilterId INTEGER PRIMARY KEY, "
+                             "Name TEXT)")
+            << QLatin1String("CREATE TABLE ComponentTable ("
+                             "ComponentId INTEGER PRIMARY KEY, "
+                             "Name TEXT)")
+            << QLatin1String("CREATE TABLE ComponentMapping ("
+                             "ComponentId INTEGER, "
+                             "NamespaceId INTEGER)")
+            << QLatin1String("CREATE TABLE ComponentFilter ("
+                             "ComponentName TEXT, "
+                             "FilterId INTEGER)")
+            << QLatin1String("CREATE TABLE VersionFilter ("
+                             "Version TEXT, "
+                             "FilterId INTEGER)");
 
     for (const QString &q : tables) {
         if (!query->exec(q))
@@ -525,6 +563,189 @@ QStringList QHelpCollectionHandler::customFilters() const
             list.append(m_query->value(0).toString());
     }
     return list;
+}
+
+
+QStringList QHelpCollectionHandler::filters() const
+{
+    QStringList list;
+    if (m_query) {
+        m_query->exec(QLatin1String("SELECT Name FROM Filter ORDER BY Name"));
+        while (m_query->next())
+            list.append(m_query->value(0).toString());
+    }
+    return list;
+}
+
+QStringList QHelpCollectionHandler::availableComponents() const
+{
+    QStringList list;
+    if (m_query) {
+        m_query->exec(QLatin1String("SELECT DISTINCT Name FROM ComponentTable ORDER BY Name"));
+        while (m_query->next())
+            list.append(m_query->value(0).toString());
+    }
+    return list;
+}
+
+QStringList QHelpCollectionHandler::availableVersions() const
+{
+    QStringList list;
+    if (m_query) {
+        m_query->exec(QLatin1String("SELECT DISTINCT Version FROM VersionTable ORDER BY Version"));
+        while (m_query->next())
+            list.append(m_query->value(0).toString());
+    }
+    return list;
+}
+
+QMap<QString, QString> QHelpCollectionHandler::namespaceToComponent() const
+{
+    QMap<QString, QString> result;
+    if (m_query) {
+        m_query->exec(QLatin1String("SELECT "
+                                        "NamespaceTable.Name, "
+                                        "ComponentTable.Name "
+                                    "FROM NamespaceTable, "
+                                        "ComponentTable, "
+                                        "ComponentMapping "
+                                    "WHERE NamespaceTable.Id = ComponentMapping.NamespaceId "
+                                    "AND ComponentMapping.ComponentId = ComponentTable.ComponentId"));
+        while (m_query->next())
+            result.insert(m_query->value(0).toString(), m_query->value(1).toString());
+    }
+    return result;
+}
+
+QMap<QString, QVersionNumber> QHelpCollectionHandler::namespaceToVersion() const
+{
+    QMap<QString, QVersionNumber> result;
+    if (m_query) {
+        m_query->exec(QLatin1String("SELECT "
+                                        "NamespaceTable.Name, "
+                                        "VersionTable.Version "
+                                    "FROM NamespaceTable, "
+                                        "VersionTable "
+                                    "WHERE NamespaceTable.Id = VersionTable.NamespaceId"));
+        while (m_query->next()) {
+            result.insert(m_query->value(0).toString(),
+                QVersionNumber::fromString(m_query->value(1).toString()));
+        }
+    }
+    return result;
+}
+
+QHelpFilterData QHelpCollectionHandler::filterData(const QString &filterName) const
+{
+    QStringList components;
+    QList<QVersionNumber> versions;
+    if (m_query) {
+        m_query->prepare(QLatin1String("SELECT ComponentFilter.ComponentName "
+                                       "FROM ComponentFilter, Filter "
+                                       "WHERE ComponentFilter.FilterId = Filter.FilterId "
+                                       "AND Filter.Name = ? "
+                                       "ORDER BY ComponentFilter.ComponentName"));
+        m_query->bindValue(0, filterName);
+        m_query->exec();
+        while (m_query->next())
+            components.append(m_query->value(0).toString());
+
+        m_query->prepare(QLatin1String("SELECT VersionFilter.Version "
+                                       "FROM VersionFilter, Filter "
+                                       "WHERE VersionFilter.FilterId = Filter.FilterId "
+                                       "AND Filter.Name = ? "
+                                       "ORDER BY VersionFilter.Version"));
+        m_query->bindValue(0, filterName);
+        m_query->exec();
+        while (m_query->next())
+            versions.append(QVersionNumber::fromString(m_query->value(0).toString()));
+
+    }
+    QHelpFilterData data;
+    data.setComponents(components);
+    data.setVersions(versions);
+    return data;
+}
+
+bool QHelpCollectionHandler::setFilterData(const QString &filterName,
+                                           const QHelpFilterData &filterData)
+{
+    if (!removeFilter(filterName))
+        return false;
+
+    m_query->prepare(QLatin1String("INSERT INTO Filter "
+                                   "VALUES (NULL, ?)"));
+    m_query->bindValue(0, filterName);
+    if (!m_query->exec())
+        return false;
+
+    const int filterId = m_query->lastInsertId().toInt();
+
+    QVariantList componentList;
+    QVariantList versionList;
+    QVariantList filterIdList;
+
+    for (const QString &component : filterData.components()) {
+        componentList.append(component);
+        filterIdList.append(filterId);
+    }
+
+    m_query->prepare(QLatin1String("INSERT INTO ComponentFilter "
+                                   "VALUES (?, ?)"));
+    m_query->addBindValue(componentList);
+    m_query->addBindValue(filterIdList);
+    if (!m_query->execBatch())
+        return false;
+
+    filterIdList.clear();
+    for (const QVersionNumber &version : filterData.versions()) {
+        versionList.append(version.isNull() ? QString() : version.toString());
+        filterIdList.append(filterId);
+    }
+
+    m_query->prepare(QLatin1String("INSERT INTO VersionFilter "
+                                   "VALUES (?, ?)"));
+    m_query->addBindValue(versionList);
+    m_query->addBindValue(filterIdList);
+    if (!m_query->execBatch())
+        return false;
+
+    return true;
+}
+
+bool QHelpCollectionHandler::removeFilter(const QString &filterName)
+{
+    m_query->prepare(QLatin1String("SELECT FilterId "
+                                   "FROM Filter "
+                                   "WHERE Name = ?"));
+    m_query->bindValue(0, filterName);
+    if (!m_query->exec())
+        return false;
+
+    if (!m_query->next())
+        return true; // no filter in DB
+
+    const int filterId = m_query->value(0).toInt();
+
+    m_query->prepare(QLatin1String("DELETE FROM Filter "
+                                   "WHERE Filter.Name = ?"));
+    m_query->bindValue(0, filterName);
+    if (!m_query->exec())
+        return false;
+
+    m_query->prepare(QLatin1String("DELETE FROM ComponentFilter "
+                                   "WHERE ComponentFilter.FilterId = ?"));
+    m_query->bindValue(0, filterId);
+    if (!m_query->exec())
+        return false;
+
+    m_query->prepare(QLatin1String("DELETE FROM VersionFilter "
+                                   "WHERE VersionFilter.FilterId = ?"));
+    m_query->bindValue(0, filterId);
+    if (!m_query->exec())
+        return false;
+
+    return true;
 }
 
 bool QHelpCollectionHandler::removeCustomFilter(const QString &filterName)
@@ -797,7 +1018,73 @@ bool QHelpCollectionHandler::fileExists(const QUrl &url) const
     if (!m_query->exec() || !m_query->next())
         return false;
 
-    return m_query->value(0).toInt();
+    const int count = m_query->value(0).toInt();
+    m_query->clear();
+
+    return count;
+}
+
+static QString prepareFilterQuery(const QString &filterName)
+{
+    if (filterName.isEmpty())
+        return QString();
+
+    return QString::fromLatin1(" AND EXISTS(SELECT * FROM Filter WHERE Filter.Name = ?) "
+                               "AND ("
+                               "(NOT EXISTS(" // 1. filter by component
+                               "SELECT * FROM "
+                                   "ComponentFilter, "
+                                   "Filter "
+                               "WHERE ComponentFilter.FilterId = Filter.FilterId "
+                                   "AND Filter.Name = ?) "
+                               "OR NamespaceTable.Id IN ("
+                               "SELECT "
+                                   "NamespaceTable.Id "
+                               "FROM "
+                                   "NamespaceTable, "
+                                   "ComponentTable, "
+                                   "ComponentMapping, "
+                                   "ComponentFilter, "
+                                   "Filter "
+                               "WHERE ComponentMapping.NamespaceId = NamespaceTable.Id "
+                                   "AND ComponentTable.ComponentId = ComponentMapping.ComponentId "
+                                   "AND ((ComponentTable.Name = ComponentFilter.ComponentName) "
+                                       "OR (ComponentTable.Name IS NULL AND ComponentFilter.ComponentName IS NULL)) "
+                                   "AND ComponentFilter.FilterId = Filter.FilterId "
+                                   "AND Filter.Name = ?))"
+                               " AND "
+                               "(NOT EXISTS(" // 2. filter by version
+                               "SELECT * FROM "
+                                   "VersionFilter, "
+                                   "Filter "
+                               "WHERE VersionFilter.FilterId = Filter.FilterId "
+                                   "AND Filter.Name = ?) "
+                               "OR NamespaceTable.Id IN ("
+                               "SELECT "
+                                   "NamespaceTable.Id "
+                               "FROM "
+                                   "NamespaceTable, "
+                                   "VersionFilter, "
+                                   "VersionTable, "
+                                   "Filter "
+                               "WHERE VersionFilter.FilterId = Filter.FilterId "
+                                   "AND ((VersionFilter.Version = VersionTable.Version) "
+                                       "OR (VersionFilter.Version IS NULL AND VersionTable.Version IS NULL)) "
+                                   "AND VersionTable.NamespaceId = NamespaceTable.Id "
+                                   "AND Filter.Name = ?))"
+                               ")");
+}
+
+static void bindFilterQuery(QSqlQuery *query, int bindStart, const QString &filterName)
+{
+    if (filterName.isEmpty())
+        return;
+
+    query->bindValue(bindStart, filterName);
+    query->bindValue(bindStart + 1, filterName);
+    query->bindValue(bindStart + 2, filterName);
+    query->bindValue(bindStart + 3, filterName);
+    query->bindValue(bindStart + 4, filterName);
 }
 
 static QString prepareFilterQuery(int attributesCount,
@@ -912,6 +1199,61 @@ QString QHelpCollectionHandler::namespaceForFile(const QUrl &url,
     return namespaceList.first();
 }
 
+QString QHelpCollectionHandler::namespaceForFile(const QUrl &url,
+                                                 const QString &filterName) const
+{
+    if (!isDBOpened())
+        return QString();
+
+    const FileInfo fileInfo = extractFileInfo(url);
+    if (fileInfo.namespaceName.isEmpty())
+        return QString();
+
+    const QString filterlessQuery = QLatin1String(
+                "SELECT DISTINCT "
+                    "NamespaceTable.Name "
+                "FROM "
+                    "FileNameTable, "
+                    "NamespaceTable, "
+                    "FolderTable "
+                "WHERE FolderTable.Name = ? "
+                "AND FileNameTable.Name = ? "
+                "AND FileNameTable.FolderId = FolderTable.Id "
+                "AND FolderTable.NamespaceId = NamespaceTable.Id");
+
+    const QString filterQuery = filterlessQuery
+            + prepareFilterQuery(filterName);
+
+    m_query->prepare(filterQuery);
+    m_query->bindValue(0, fileInfo.folderName);
+    m_query->bindValue(1, fileInfo.fileName);
+    bindFilterQuery(m_query, 2, filterName);
+
+    if (!m_query->exec())
+        return QString();
+
+    QVector<QString> namespaceList;
+    while (m_query->next())
+        namespaceList.append(m_query->value(0).toString());
+
+    if (namespaceList.isEmpty())
+        return QString();
+
+    if (namespaceList.contains(fileInfo.namespaceName))
+        return fileInfo.namespaceName;
+
+    const QString originalVersion = namespaceVersion(fileInfo.namespaceName);
+
+    for (const QString &ns : namespaceList) {
+        const QString nsVersion = namespaceVersion(ns);
+        if (originalVersion == nsVersion)
+            return ns;
+    }
+
+    // TODO: still, we may like to return the ns for the highest available version
+    return namespaceList.first();
+}
+
 QStringList QHelpCollectionHandler::files(const QString &namespaceName,
                                           const QStringList &filterAttributes,
                                           const QString &extensionFilter) const
@@ -962,6 +1304,53 @@ QStringList QHelpCollectionHandler::files(const QString &namespaceName,
     return fileNames;
 }
 
+QStringList QHelpCollectionHandler::files(const QString &namespaceName,
+                                          const QString &filterName,
+                                          const QString &extensionFilter) const
+{
+    if (!isDBOpened())
+        return QStringList();
+
+    const QString extensionQuery = extensionFilter.isEmpty()
+            ? QString() : QLatin1String(" AND FileNameTable.Name LIKE ?");
+    const QString filterlessQuery = QLatin1String(
+                "SELECT "
+                    "FolderTable.Name, "
+                    "FileNameTable.Name "
+                "FROM "
+                    "FileNameTable, "
+                    "FolderTable, "
+                    "NamespaceTable "
+                "WHERE FileNameTable.FolderId = FolderTable.Id "
+                "AND FolderTable.NamespaceId = NamespaceTable.Id "
+                "AND NamespaceTable.Name = ?") + extensionQuery;
+
+    const QString filterQuery = filterlessQuery
+            + prepareFilterQuery(filterName);
+
+    m_query->prepare(filterQuery);
+    m_query->bindValue(0, namespaceName);
+    int bindCount = 1;
+    if (!extensionFilter.isEmpty()) {
+        m_query->bindValue(bindCount, QString::fromLatin1("%.%1").arg(extensionFilter));
+        ++bindCount;
+    }
+
+    bindFilterQuery(m_query, bindCount, filterName);
+
+    if (!m_query->exec())
+        return QStringList();
+
+    QStringList fileNames;
+    while (m_query->next()) {
+        fileNames.append(m_query->value(0).toString()
+                         + QLatin1Char('/')
+                         + m_query->value(1).toString());
+    }
+
+    return fileNames;
+}
+
 QUrl QHelpCollectionHandler::findFile(const QUrl &url, const QStringList &filterAttributes) const
 {
     if (!isDBOpened())
@@ -976,12 +1365,26 @@ QUrl QHelpCollectionHandler::findFile(const QUrl &url, const QStringList &filter
     return result;
 }
 
+QUrl QHelpCollectionHandler::findFile(const QUrl &url, const QString &filterName) const
+{
+    if (!isDBOpened())
+        return QUrl();
+
+    const QString namespaceName = namespaceForFile(url, filterName);
+    if (namespaceName.isEmpty())
+        return QUrl();
+
+    QUrl result = url;
+    result.setAuthority(namespaceName);
+    return result;
+}
+
 QByteArray QHelpCollectionHandler::fileData(const QUrl &url) const
 {
     if (!isDBOpened())
         return QByteArray();
 
-    const QString namespaceName = namespaceForFile(url);
+    const QString namespaceName = namespaceForFile(url, QString());
     if (namespaceName.isEmpty())
         return QByteArray();
 
@@ -1028,6 +1431,41 @@ QStringList QHelpCollectionHandler::indicesForFilter(const QStringList &filterAt
 
     m_query->prepare(filterQuery);
     bindFilterQuery(m_query, 0, filterAttributes);
+
+    m_query->exec();
+
+    while (m_query->next())
+        indices.append(m_query->value(0).toString());
+
+    return indices;
+}
+
+
+QStringList QHelpCollectionHandler::indicesForFilter(const QString &filterName) const
+{
+    QStringList indices;
+
+    if (!isDBOpened())
+        return indices;
+
+    const QString filterlessQuery = QString::fromLatin1(
+                "SELECT DISTINCT "
+                    "IndexTable.Name "
+                "FROM "
+                    "IndexTable, "
+                    "FileNameTable, "
+                    "FolderTable, "
+                    "NamespaceTable "
+                "WHERE IndexTable.FileId = FileNameTable.FileId "
+                "AND FileNameTable.FolderId = FolderTable.Id "
+                "AND IndexTable.NamespaceId = NamespaceTable.Id");
+
+    const QString filterQuery = filterlessQuery
+            + prepareFilterQuery(filterName)
+            + QLatin1String(" ORDER BY LOWER(IndexTable.Name), IndexTable.Name");
+
+    m_query->prepare(filterQuery);
+    bindFilterQuery(m_query, 0, filterName);
 
     m_query->exec();
 
@@ -1085,6 +1523,65 @@ QList<QHelpCollectionHandler::ContentsData> QHelpCollectionHandler::contentsForF
 
     m_query->prepare(filterQuery);
     bindFilterQuery(m_query, 0, filterAttributes);
+
+    m_query->exec();
+
+    QMap<QString, QMap<QVersionNumber, ContentsData>> contentsMap;
+
+    while (m_query->next()) {
+        const QString namespaceName = m_query->value(0).toString();
+        const QByteArray contents = m_query->value(2).toByteArray();
+        const QString versionString = m_query->value(3).toString();
+
+        const QString title = getTitle(contents);
+        const QVersionNumber version = QVersionNumber::fromString(versionString);
+        // get existing or insert a new one otherwise
+        ContentsData &contentsData = contentsMap[title][version];
+        contentsData.namespaceName = namespaceName;
+        contentsData.folderName = m_query->value(1).toString();
+        contentsData.contentsList.append(contents);
+    }
+
+    QList<QHelpCollectionHandler::ContentsData> result;
+    for (const auto &versionContents : qAsConst(contentsMap)) {
+        // insert items in the reverse order of version number
+        const auto itBegin = versionContents.constBegin();
+        auto it = versionContents.constEnd();
+        while (it != itBegin) {
+            --it;
+            result.append(it.value());
+        }
+    }
+
+    return result;
+}
+
+QList<QHelpCollectionHandler::ContentsData> QHelpCollectionHandler::contentsForFilter(const QString &filterName) const
+{
+    if (!isDBOpened())
+        return QList<ContentsData>();
+
+    const QString filterlessQuery = QString::fromLatin1(
+                "SELECT DISTINCT "
+                    "NamespaceTable.Name, "
+                    "FolderTable.Name, "
+                    "ContentsTable.Data, "
+                    "VersionTable.Version "
+                "FROM "
+                    "FolderTable, "
+                    "NamespaceTable, "
+                    "ContentsTable, "
+                    "VersionTable "
+                "WHERE ContentsTable.NamespaceId = NamespaceTable.Id "
+                "AND NamespaceTable.Id = FolderTable.NamespaceId "
+                "AND ContentsTable.NamespaceId = NamespaceTable.Id "
+                "AND VersionTable.NamespaceId = NamespaceTable.Id");
+
+    const QString filterQuery = filterlessQuery
+            + prepareFilterQuery(filterName);
+
+    m_query->prepare(filterQuery);
+    bindFilterQuery(m_query, 0, filterName);
 
     m_query->exec();
 
@@ -1328,7 +1825,10 @@ QString QHelpCollectionHandler::namespaceVersion(const QString &namespaceName) c
     if (!m_query->exec() || !m_query->next())
         return QString();
 
-    return m_query->value(0).toString();
+    const QString ret = m_query->value(0).toString();
+    m_query->clear();
+
+    return ret;
 }
 
 int QHelpCollectionHandler::registerNamespace(const QString &nspace, const QString &fileName)
@@ -1352,8 +1852,10 @@ int QHelpCollectionHandler::registerNamespace(const QString &nspace, const QStri
     m_query->bindValue(0, nspace);
     m_query->bindValue(1, fi.absoluteDir().relativeFilePath(fileName));
     int namespaceId = errorValue;
-    if (m_query->exec())
+    if (m_query->exec()) {
         namespaceId = m_query->lastInsertId().toInt();
+        m_query->clear();
+    }
     if (namespaceId < 1) {
         emit error(tr("Cannot register namespace \"%1\".").arg(nspace));
         return errorValue;
@@ -1371,13 +1873,49 @@ int QHelpCollectionHandler::registerVirtualFolder(const QString &folderName, int
     m_query->bindValue(1, folderName);
 
     int virtualId = -1;
-    if (m_query->exec())
+    if (m_query->exec()) {
         virtualId = m_query->lastInsertId().toInt();
+        m_query->clear();
+    }
     if (virtualId < 1) {
         emit error(tr("Cannot register virtual folder '%1'.").arg(folderName));
         return -1;
     }
+
+    if (registerComponent(folderName, namespaceId) < 0)
+        return -1;
+
     return virtualId;
+}
+
+int QHelpCollectionHandler::registerComponent(const QString &componentName, int namespaceId)
+{
+    m_query->prepare(QLatin1String("SELECT ComponentId FROM ComponentTable WHERE Name = ?"));
+    m_query->bindValue(0, componentName);
+    if (!m_query->exec())
+        return -1;
+
+    if (!m_query->next()) {
+        m_query->prepare(QLatin1String("INSERT INTO ComponentTable VALUES(NULL, ?)"));
+        m_query->bindValue(0, componentName);
+        if (!m_query->exec())
+            return -1;
+
+        m_query->prepare(QLatin1String("SELECT ComponentId FROM ComponentTable WHERE Name = ?"));
+        m_query->bindValue(0, componentName);
+        if (!m_query->exec() || !m_query->next())
+            return -1;
+    }
+
+    const int componentId = m_query->value(0).toInt();
+
+    m_query->prepare(QLatin1String("INSERT INTO ComponentMapping VALUES(?, ?)"));
+    m_query->bindValue(0, componentId);
+    m_query->bindValue(1, namespaceId);
+    if (!m_query->exec())
+        return -1;
+
+    return componentId;
 }
 
 bool QHelpCollectionHandler::registerVersion(const QString &version, int namespaceId)
@@ -1393,7 +1931,8 @@ bool QHelpCollectionHandler::registerVersion(const QString &version, int namespa
     return m_query->exec();
 }
 
-bool QHelpCollectionHandler::registerIndexAndNamespaceFilterTables(const QString &nameSpace)
+bool QHelpCollectionHandler::registerIndexAndNamespaceFilterTables(
+        const QString &nameSpace, bool createDefaultVersionFilter)
 {
     if (!isDBOpened())
         return false;
@@ -1407,13 +1946,14 @@ bool QHelpCollectionHandler::registerIndexAndNamespaceFilterTables(const QString
     const int nsId = m_query->value(0).toInt();
     const QString fileName = m_query->value(1).toString();
 
-    m_query->prepare(QLatin1String("SELECT Id FROM FolderTable WHERE NamespaceId=?"));
+    m_query->prepare(QLatin1String("SELECT Id, Name FROM FolderTable WHERE NamespaceId=?"));
     m_query->bindValue(0, nsId);
     m_query->exec();
     if (!m_query->next())
         return false;
 
     const int vfId = m_query->value(0).toInt();
+    const QString vfName = m_query->value(1).toString();
 
     const QString absFileName = absoluteDocPath(fileName);
     QHelpDBReader reader(absFileName, QHelpGlobal::uniquifyConnectionName(
@@ -1421,6 +1961,7 @@ bool QHelpCollectionHandler::registerIndexAndNamespaceFilterTables(const QString
     if (!reader.init())
         return false;
 
+    registerComponent(vfName, nsId);
     registerVersion(reader.version(), nsId);
     if (!registerFileAttributeSets(reader.filterAttributeSets(), nsId))
         return false;
@@ -1428,7 +1969,28 @@ bool QHelpCollectionHandler::registerIndexAndNamespaceFilterTables(const QString
     if (!registerIndexTable(reader.indexTable(), nsId, vfId, fileName))
         return false;
 
+    if (createDefaultVersionFilter)
+        createVersionFilter(reader.version());
+
     return true;
+}
+
+void QHelpCollectionHandler::createVersionFilter(const QString &version)
+{
+    if (version.isEmpty())
+        return;
+
+    const QVersionNumber versionNumber = QVersionNumber::fromString(version);
+    if (versionNumber.isNull())
+        return;
+
+    const QString filterName = tr("Version %1").arg(version);
+    if (filters().contains(filterName))
+        return;
+
+    QHelpFilterData filterData;
+    filterData.setVersions(QList<QVersionNumber>() << versionNumber);
+    setFilterData(filterName, filterData);
 }
 
 bool QHelpCollectionHandler::registerIndexTable(const QHelpDBReader::IndexTable &indexTable,
@@ -1695,6 +2257,33 @@ bool QHelpCollectionHandler::unregisterIndexTable(int nsId, int vfId)
     if (!m_query->exec())
         return false;
 
+    m_query->prepare(QLatin1String("SELECT ComponentId FROM ComponentMapping WHERE NamespaceId = ?"));
+    m_query->bindValue(0, nsId);
+    if (!m_query->exec())
+        return false;
+
+    if (!m_query->next())
+        return false;
+
+    const int componentId = m_query->value(0).toInt();
+
+    m_query->prepare(QLatin1String("DELETE FROM ComponentMapping WHERE NamespaceId = ?"));
+    m_query->bindValue(0, nsId);
+    if (!m_query->exec())
+        return false;
+
+    m_query->prepare(QLatin1String("SELECT ComponentId FROM ComponentMapping WHERE ComponentId = ?"));
+    m_query->bindValue(0, componentId);
+    if (!m_query->exec())
+        return false;
+
+    if (!m_query->next()) { // no more namespaces refer to the componentId
+        m_query->prepare(QLatin1String("DELETE FROM ComponentTable WHERE ComponentId = ?"));
+        m_query->bindValue(0, componentId);
+        if (!m_query->exec())
+            return false;
+    }
+
     return true;
 }
 
@@ -1771,6 +2360,94 @@ QMap<QString, QUrl> QHelpCollectionHandler::linksForField(const QString &fieldNa
                                              m_query->value(4).toString()));
     }
     return linkMap;
+}
+
+QMap<QString, QUrl> QHelpCollectionHandler::linksForIdentifier(const QString &id,
+                    const QString &filterName) const
+{
+    return linksForField(QLatin1String("Identifier"), id, filterName);
+}
+
+QMap<QString, QUrl> QHelpCollectionHandler::linksForKeyword(const QString &keyword,
+                    const QString &filterName) const
+{
+    return linksForField(QLatin1String("Name"), keyword, filterName);
+}
+
+QMap<QString, QUrl> QHelpCollectionHandler::linksForField(const QString &fieldName,
+                    const QString &fieldValue,
+                    const QString &filterName) const
+{
+    QMap<QString, QUrl> linkMap;
+
+    if (!isDBOpened())
+        return linkMap;
+
+    const QString filterlessQuery = QString::fromLatin1(
+                "SELECT "
+                    "FileNameTable.Title, "
+                    "NamespaceTable.Name, "
+                    "FolderTable.Name, "
+                    "FileNameTable.Name, "
+                    "IndexTable.Anchor "
+                "FROM "
+                    "IndexTable, "
+                    "FileNameTable, "
+                    "FolderTable, "
+                    "NamespaceTable "
+                "WHERE IndexTable.FileId = FileNameTable.FileId "
+                "AND FileNameTable.FolderId = FolderTable.Id "
+                "AND IndexTable.NamespaceId = NamespaceTable.Id "
+                "AND IndexTable.%1 = ?").arg(fieldName);
+
+    const QString filterQuery = filterlessQuery
+            + prepareFilterQuery(filterName);
+
+    m_query->prepare(filterQuery);
+    m_query->bindValue(0, fieldValue);
+    bindFilterQuery(m_query, 1, filterName);
+
+    m_query->exec();
+
+    while (m_query->next()) {
+        QString title = m_query->value(0).toString();
+        if (title.isEmpty()) // generate a title + corresponding path
+            title = fieldValue + QLatin1String(" : ") + m_query->value(3).toString();
+
+        linkMap.insertMulti(title, buildQUrl(m_query->value(1).toString(),
+                                             m_query->value(2).toString(),
+                                             m_query->value(3).toString(),
+                                             m_query->value(4).toString()));
+    }
+    return linkMap;
+}
+
+QStringList QHelpCollectionHandler::namespacesForFilter(const QString &filterName) const
+{
+    QStringList namespaceList;
+
+    if (!isDBOpened())
+        return namespaceList;
+
+    const QString filterlessQuery = QString::fromLatin1(
+                "SELECT "
+                    "NamespaceTable.Name "
+                "FROM "
+                    "NamespaceTable "
+                "WHERE TRUE");
+
+    const QString filterQuery = filterlessQuery
+            + prepareFilterQuery(filterName);
+
+    m_query->prepare(filterQuery);
+    bindFilterQuery(m_query, 0, filterName);
+
+    m_query->exec();
+
+    while (m_query->next())
+        namespaceList.append(m_query->value(0).toString());
+
+    return namespaceList;
 }
 
 void QHelpCollectionHandler::setReadOnly(bool readOnly)

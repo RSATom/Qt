@@ -90,7 +90,7 @@ public:
         contentStream = device;
     }
 
-    virtual ~QXmlStreamStrategy()
+    ~QXmlStreamStrategy()
     {
         if (contentStream)
             contentStream->close();
@@ -358,7 +358,7 @@ void QTextOdfWriter::writeBlock(QXmlStreamWriter &writer, const QTextBlock &bloc
         int precedingSpaces = 0;
         int exportedIndex = 0;
         for (int i=0; i <= fragmentText.count(); ++i) {
-            QChar character = fragmentText[i];
+            QChar character = (i == fragmentText.count() ? QChar() : fragmentText.at(i));
             bool isSpace = character.unicode() == ' ';
 
             // find more than one space. -> <text:s text:c="2" />
@@ -546,10 +546,12 @@ void QTextOdfWriter::writeFormats(QXmlStreamWriter &writer, const QSet<int> &for
             else
                 writeFrameFormat(writer, textFormat.toFrameFormat(), formatIndex);
             break;
+#if QT_DEPRECATED_SINCE(5, 3)
         case QTextFormat::TableFormat:
             // this case never happens, because TableFormat is a FrameFormat
             Q_UNREACHABLE();
             break;
+#endif
         }
     }
 
@@ -936,26 +938,30 @@ void QTextOdfWriter::tableCellStyleElement(QXmlStreamWriter &writer, const int &
     if (hasBorder) {
         writer.writeAttribute(foNS, QString::fromLatin1("border"),
                               pixelToPoint(tableFormatTmp.border()) + QLatin1String(" ")
-                              + borderStyleName(tableFormatTmp.borderStyle())
-                              + QLatin1String(" #000000"));  //!! HARD-CODING color black
+                              + borderStyleName(tableFormatTmp.borderStyle()) + QLatin1String(" ")
+                              + tableFormatTmp.borderBrush().color().name(QColor::HexRgb));
     }
-    qreal padding = format.topPadding();
-    if (padding > 0 && padding == format.bottomPadding()
-        && padding == format.leftPadding() && padding == format.rightPadding()) {
+    qreal topPadding = format.topPadding();
+    qreal padding = topPadding + tableFormatTmp.cellPadding();
+    if (padding > 0 && topPadding == format.bottomPadding()
+        && topPadding == format.leftPadding() && topPadding == format.rightPadding()) {
         writer.writeAttribute(foNS, QString::fromLatin1("padding"), pixelToPoint(padding));
     }
     else {
         if (padding > 0)
             writer.writeAttribute(foNS, QString::fromLatin1("padding-top"), pixelToPoint(padding));
-        if (format.bottomPadding() > 0)
+        padding = format.bottomPadding() + tableFormatTmp.cellPadding();
+        if (padding > 0)
             writer.writeAttribute(foNS, QString::fromLatin1("padding-bottom"),
-                                  pixelToPoint(format.bottomPadding()));
-        if (format.leftPadding() > 0)
+                                  pixelToPoint(padding));
+        padding = format.leftPadding() + tableFormatTmp.cellPadding();
+        if (padding > 0)
             writer.writeAttribute(foNS, QString::fromLatin1("padding-left"),
-                                  pixelToPoint(format.leftPadding()));
-        if (format.rightPadding() > 0)
+                                  pixelToPoint(padding));
+        padding = format.rightPadding() + tableFormatTmp.cellPadding();
+        if (padding > 0)
             writer.writeAttribute(foNS, QString::fromLatin1("padding-right"),
-                                  pixelToPoint(format.rightPadding()));
+                                  pixelToPoint(padding));
     }
 
     if (format.hasProperty(QTextFormat::TextVerticalAlignment)) {
@@ -1007,7 +1013,7 @@ bool QTextOdfWriter::writeAll()
         m_strategy = new QXmlStreamStrategy(m_device);
 
     if (!m_device->isWritable() && ! m_device->open(QIODevice::WriteOnly)) {
-        qWarning("QTextOdfWriter::writeAll: the device can not be opened for writing");
+        qWarning("QTextOdfWriter::writeAll: the device cannot be opened for writing");
         return false;
     }
     QXmlStreamWriter writer(m_strategy->contentStream);

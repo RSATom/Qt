@@ -16,11 +16,6 @@
 
 class GrSemaphoreOp : public GrOp {
 public:
-    static std::unique_ptr<GrOp> MakeSignal(GrContext*,
-                                            sk_sp<GrSemaphore>,
-                                            GrRenderTargetProxy*,
-                                            bool forceFlush);
-
     static std::unique_ptr<GrOp> MakeWait(GrContext*,
                                           sk_sp<GrSemaphore>,
                                           GrRenderTargetProxy*);
@@ -34,7 +29,6 @@ protected:
     sk_sp<GrSemaphore> fSemaphore;
 
 private:
-    bool onCombineIfPossible(GrOp* that, const GrCaps& caps) override { return false; }
     void onPrepare(GrOpFlushState*) override {}
 
     typedef GrOp INHERITED;

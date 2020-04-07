@@ -41,6 +41,12 @@ class NET_EXPORT LayeredNetworkDelegate : public NetworkDelegate {
       std::unique_ptr<NetworkDelegate> nested_network_delegate);
   ~LayeredNetworkDelegate() override;
 
+  // Allows creating a LayeredNetworkDelegate that passes through calls to a
+  // NetworkDelegate it does not own.
+  // TODO(mmenke): Remove this once no longer needed.
+  static std::unique_ptr<NetworkDelegate> CreatePassThroughNetworkDelegate(
+      NetworkDelegate* unowned_nested_network_delegate);
+
   // NetworkDelegate implementation:
   int OnBeforeURLRequest(URLRequest* request,
                          CompletionOnceCallback callback,
@@ -74,16 +80,17 @@ class NET_EXPORT LayeredNetworkDelegate : public NetworkDelegate {
                                       AuthCallback callback,
                                       AuthCredentials* credentials) final;
   bool OnCanGetCookies(const URLRequest& request,
-                       const CookieList& cookie_list) final;
+                       const CookieList& cookie_list,
+                       bool allowed_from_caller) final;
   bool OnCanSetCookie(const URLRequest& request,
                       const net::CanonicalCookie& cookie,
-                      CookieOptions* options) final;
+                      CookieOptions* options,
+                      bool allowed_from_caller) final;
   bool OnCanAccessFile(const URLRequest& request,
                        const base::FilePath& original_path,
                        const base::FilePath& absolute_path) const final;
-  bool OnCanEnablePrivacyMode(const GURL& url,
-                              const GURL& site_for_cookies) const final;
-  bool OnAreExperimentalCookieFeaturesEnabled() const final;
+  bool OnForcePrivacyMode(const GURL& url,
+                          const GURL& site_for_cookies) const final;
   bool OnCancelURLRequestWithPolicyViolatingReferrerHeader(
       const URLRequest& request,
       const GURL& target_url,
@@ -126,7 +133,7 @@ class NET_EXPORT LayeredNetworkDelegate : public NetworkDelegate {
   virtual void OnBeforeRedirectInternal(URLRequest* request,
                                         const GURL& new_location);
 
-  virtual void OnResponseStartedInternal(URLRequest* request);
+  virtual void OnResponseStartedInternal(URLRequest* request, int net_error);
 
   virtual void OnNetworkBytesReceivedInternal(URLRequest* request,
                                               int64_t bytes_received);
@@ -143,12 +150,14 @@ class NET_EXPORT LayeredNetworkDelegate : public NetworkDelegate {
   virtual void OnPACScriptErrorInternal(int line_number,
                                         const base::string16& error);
 
-  virtual void OnCanGetCookiesInternal(const URLRequest& request,
-                                       const CookieList& cookie_list);
+  virtual bool OnCanGetCookiesInternal(const URLRequest& request,
+                                       const CookieList& cookie_list,
+                                       bool allowed_from_caller);
 
-  virtual void OnCanSetCookieInternal(const URLRequest& request,
+  virtual bool OnCanSetCookieInternal(const URLRequest& request,
                                       const net::CanonicalCookie& cookie,
-                                      CookieOptions* options);
+                                      CookieOptions* options,
+                                      bool allowed_from_caller);
 
   virtual void OnAuthRequiredInternal(URLRequest* request,
                                       const AuthChallengeInfo& auth_info,
@@ -159,11 +168,10 @@ class NET_EXPORT LayeredNetworkDelegate : public NetworkDelegate {
       const base::FilePath& original_path,
       const base::FilePath& absolute_path) const;
 
-  virtual void OnCanEnablePrivacyModeInternal(
-      const GURL& url,
-      const GURL& site_for_cookies) const;
-
-  virtual void OnAreExperimentalCookieFeaturesEnabledInternal() const;
+  // If this returns false, it short circuits the corresponding call in any
+  // nested NetworkDelegates.
+  virtual bool OnForcePrivacyModeInternal(const GURL& url,
+                                          const GURL& site_for_cookies) const;
 
   // If this returns false, it short circuits the corresponding call in any
   // nested NetworkDelegates.
@@ -185,7 +193,11 @@ class NET_EXPORT LayeredNetworkDelegate : public NetworkDelegate {
                                                const GURL& endpoint) const;
 
  private:
-  std::unique_ptr<NetworkDelegate> nested_network_delegate_;
+  explicit LayeredNetworkDelegate(
+      NetworkDelegate* unowned_nested_network_delegate);
+
+  std::unique_ptr<NetworkDelegate> owned_nested_network_delegate_;
+  NetworkDelegate* nested_network_delegate_ = nullptr;
 };
 
 }  // namespace net

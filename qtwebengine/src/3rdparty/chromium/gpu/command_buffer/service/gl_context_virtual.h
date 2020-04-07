@@ -10,6 +10,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "gpu/gpu_gles2_export.h"
 #include "ui/gl/gl_context.h"
 
@@ -20,14 +21,14 @@ class GLSurface;
 }
 
 namespace gpu {
-class DecoderContext;
+class GLContextVirtualDelegate;
 
 // Encapsulates a virtual OpenGL context.
 class GPU_GLES2_EXPORT GLContextVirtual : public gl::GLContext {
  public:
   GLContextVirtual(gl::GLShareGroup* share_group,
                    gl::GLContext* shared_context,
-                   base::WeakPtr<DecoderContext> decoder);
+                   base::WeakPtr<GLContextVirtualDelegate> delegate);
 
   // Implement GLContext.
   bool Initialize(gl::GLSurface* compatible_surface,
@@ -41,12 +42,14 @@ class GPU_GLES2_EXPORT GLContextVirtual : public gl::GLContext {
   std::string GetGLRenderer() override;
   const gfx::ExtensionSet& GetExtensions() override;
   void SetSafeToForceGpuSwitch() override;
-  bool WasAllocatedUsingRobustnessExtension() override;
+  unsigned int CheckStickyGraphicsResetStatus() override;
   void SetUnbindFboOnMakeCurrent() override;
   gl::YUVToRGBConverter* GetYUVToRGBConverter(
       const gfx::ColorSpace& color_space) override;
   void ForceReleaseVirtuallyCurrent() override;
 #if defined(OS_MACOSX)
+  uint64_t BackpressureFenceCreate() override;
+  void BackpressureFenceWait(uint64_t fence) override;
   void FlushForDriverCrashWorkaround() override;
 #endif
 
@@ -58,7 +61,7 @@ class GPU_GLES2_EXPORT GLContextVirtual : public gl::GLContext {
   void Destroy();
 
   scoped_refptr<gl::GLContext> shared_context_;
-  base::WeakPtr<DecoderContext> decoder_;
+  base::WeakPtr<GLContextVirtualDelegate> delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(GLContextVirtual);
 };

@@ -4,7 +4,8 @@
 
 #include "src/runtime/runtime-utils.h"
 
-#include "src/arguments.h"
+#include "src/arguments-inl.h"
+#include "src/counters.h"
 #include "src/elements.h"
 #include "src/heap/factory.h"
 #include "src/isolate-inl.h"
@@ -77,8 +78,8 @@ RUNTIME_FUNCTION(Runtime_SetPropertyWithReceiver) {
     DCHECK(isolate->has_pending_exception());
     return ReadOnlyRoots(isolate).exception();
   }
-  Maybe<bool> result = Object::SetSuperProperty(
-      &it, value, language_mode, Object::MAY_BE_STORE_FROM_KEYED);
+  Maybe<bool> result = Object::SetSuperProperty(&it, value, language_mode,
+                                                StoreOrigin::kMaybeKeyed);
   MAYBE_RETURN(result, ReadOnlyRoots(isolate).exception());
   return *isolate->factory()->ToBoolean(result.FromJust());
 }

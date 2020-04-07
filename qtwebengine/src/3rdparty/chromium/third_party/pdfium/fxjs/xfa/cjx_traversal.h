@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_TRAVERSAL_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Traversal;
 
-class CJX_Traversal : public CJX_Node {
+class CJX_Traversal final : public CJX_Node {
  public:
   explicit CJX_Traversal(CXFA_Traversal* node);
   ~CJX_Traversal() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_TRAVERSAL_H_

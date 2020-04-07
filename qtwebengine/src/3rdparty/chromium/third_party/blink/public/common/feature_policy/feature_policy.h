@@ -9,9 +9,10 @@
 #include <memory>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "third_party/blink/common/common_export.h"
+#include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 #include "url/origin.h"
 
@@ -40,7 +41,7 @@ namespace blink {
 // ----------
 // Allowlists are collections of origins, although two special terms can be used
 // when declaring them:
-//   "self" refers to the orgin of the frame which is declaring the policy.
+//   "self" refers to the origin of the frame which is declaring the policy.
 //   "*" refers to all origins; any origin will match an allowlist which
 //   contains it.
 //
@@ -106,6 +107,7 @@ struct BLINK_COMMON_EXPORT ParsedFeaturePolicyDeclaration {
   // of the iframe to be present in |origins|, but for sandboxed iframes, this
   // flag is set instead.
   bool matches_opaque_src;
+  // An alphabetically sorted list of all the origins allowed.
   std::vector<url::Origin> origins;
 };
 
@@ -138,12 +140,12 @@ class BLINK_COMMON_EXPORT FeaturePolicy {
     // Returns true if the allowlist matches all origins.
     bool MatchesAll() const;
 
-    // Returns list of origins in the allowlist.
-    const std::vector<url::Origin>& Origins() const;
+    // Returns set of origins in the allowlist.
+    const base::flat_set<url::Origin>& Origins() const;
 
    private:
     bool matches_all_origins_;
-    std::vector<url::Origin> origins_;
+    base::flat_set<url::Origin> origins_;
   };
 
   // The FeaturePolicy::FeatureDefault enum defines the default enable state for

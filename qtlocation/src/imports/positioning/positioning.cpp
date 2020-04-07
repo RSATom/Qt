@@ -38,8 +38,8 @@
 ****************************************************************************/
 
 
-#include <QtPositioning/private/qdeclarativegeoaddress_p.h>
-#include <QtPositioning/private/qdeclarativegeolocation_p.h>
+#include <QtPositioningQuick/private/qdeclarativegeoaddress_p.h>
+#include <QtPositioningQuick/private/qdeclarativegeolocation_p.h>
 #include <QtPositioning/private/qwebmercator_p.h>
 
 #include <QtPositioningQuick/private/qdeclarativepositionsource_p.h>
@@ -551,8 +551,8 @@ QT_BEGIN_NAMESPACE
 
 static QObject *singleton_type_factory(QQmlEngine *engine, QJSEngine *jsEngine)
 {
-    Q_UNUSED(engine)
-    Q_UNUSED(jsEngine)
+    Q_UNUSED(engine);
+    Q_UNUSED(jsEngine);
 
     return new LocationSingleton;
 }
@@ -613,6 +613,9 @@ public:
             minor = 4;
             qmlRegisterType<QDeclarativePosition, 2>(uri, major, minor, "Position");
 
+            minor = 13;
+            qmlRegisterType<QDeclarativeGeoLocation, 13>(uri, major, minor, "Location");
+
             // Register the latest Qt version as QML type version
             qmlRegisterModule(uri, QT_VERSION_MAJOR, QT_VERSION_MINOR);
         } else {
@@ -621,6 +624,6 @@ public:
     }
 };
 
-#include "positioning.moc"
-
 QT_END_NAMESPACE
+
+#include "positioning.moc"

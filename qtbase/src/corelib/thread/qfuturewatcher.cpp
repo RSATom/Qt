@@ -84,8 +84,8 @@ QT_BEGIN_NAMESPACE
 
     \snippet code/src_corelib_thread_qfuturewatcher.cpp 0
 
-    Be aware that not all asynchronous computations can be canceled or paused.
-    For example, the future returned by QtConcurrent::run() cannot be
+    Be aware that not all running asynchronous computations can be canceled or
+    paused. For example, the future returned by QtConcurrent::run() cannot be
     canceled; but the future returned by QtConcurrent::mappedReduced() can.
 
     QFutureWatcher<void> is specialized to not contain any of the result
@@ -124,9 +124,9 @@ QFutureWatcherBase::QFutureWatcherBase(QObject *parent)
     progressRangeChanged(), progressTextChanged(), resultReadyAt(), and
     resultsReadyAt() signals.
 
-    Be aware that not all asynchronous computations can be canceled. For
-    example, the QFuture returned by QtConcurrent::run() cannot be canceled;
-    but the QFuture returned by QtConcurrent::mappedReduced() can.
+    Be aware that not all running asynchronous computations can be canceled.
+    For example, the QFuture returned by QtConcurrent::run() cannot be
+    canceled; but the QFuture returned by QtConcurrent::mappedReduced() can.
 */
 void QFutureWatcherBase::cancel()
 {
@@ -479,7 +479,7 @@ void QFutureWatcherBasePrivate::sendCallOutEvent(QFutureCallOutEvent *event)
 
             emit q->progressValueChanged(event->index1);
             if (!event->text.isNull()) // ###
-                q->progressTextChanged(event->text);
+                emit q->progressTextChanged(event->text);
         break;
         case QFutureCallOutEvent::ProgressRange:
             emit q->progressRangeChanged(event->index1, event->index2);

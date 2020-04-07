@@ -29,7 +29,6 @@
 #include "qmlprofilerapplication.h"
 #include "constants.h"
 #include <QtCore/QStringList>
-#include <QtCore/QTextStream>
 #include <QtCore/QProcess>
 #include <QtCore/QTimer>
 #include <QtCore/QDateTime>
@@ -37,6 +36,8 @@
 #include <QtCore/QDebug>
 #include <QtCore/QCommandLineParser>
 #include <QtCore/QTemporaryFile>
+
+#include <iostream>
 
 static const char commandTextC[] =
         "The following commands are available:\n"
@@ -52,8 +53,8 @@ static const char commandTextC[] =
         "    Stop recording if it is running, then output the\n"
         "    data, and finally clear it from memory.\n"
         "'q', 'quit'\n"
-        "    Terminate the program if started from qmlprofiler,\n"
-        "    and qmlprofiler itself.";
+        "    Terminate the target process if started from\n"
+        "    qmlprofiler, and qmlprofiler itself.";
 
 static const char *features[] = {
     "javascript",
@@ -120,10 +121,8 @@ QmlProfilerApplication::~QmlProfilerApplication()
         logStatus("Killing process ...");
         m_process->kill();
     }
-    if (isInteractive()) {
-        QTextStream err(stderr);
-        err << endl;
-    }
+    if (isInteractive())
+        std::cerr << std::endl;
     delete m_process;
 }
 
@@ -199,11 +198,11 @@ void QmlProfilerApplication::parseArguments()
     parser.addHelpOption();
     parser.addVersionOption();
 
-    parser.addPositionalArgument(QLatin1String("program"),
-                                 tr("The program to be started and profiled."),
-                                 QLatin1String("[program]"));
+    parser.addPositionalArgument(QLatin1String("executable"),
+                                 tr("The executable to be started and profiled."),
+                                 QLatin1String("[executable]"));
     parser.addPositionalArgument(QLatin1String("parameters"),
-                                 tr("Parameters for the program to be started."),
+                                 tr("Parameters for the executable to be started."),
                                  QLatin1String("[parameters...]"));
 
     parser.process(*this);
@@ -252,17 +251,17 @@ void QmlProfilerApplication::parseArguments()
     if (parser.isSet(verbose))
         m_verbose = true;
 
-    m_programArguments = parser.positionalArguments();
-    if (!m_programArguments.isEmpty())
-        m_programPath = m_programArguments.takeFirst();
+    m_arguments = parser.positionalArguments();
+    if (!m_arguments.isEmpty())
+        m_executablePath = m_arguments.takeFirst();
 
-    if (m_runMode == LaunchMode && m_programPath.isEmpty()) {
-        logError(tr("You have to specify either --attach or a program to start."));
+    if (m_runMode == LaunchMode && m_executablePath.isEmpty()) {
+        logError(tr("You have to specify either --attach or an executable to start."));
         parser.showHelp(2);
     }
 
-    if (m_runMode == AttachMode && !m_programPath.isEmpty()) {
-        logError(tr("--attach cannot be used when starting a program."));
+    if (m_runMode == AttachMode && !m_executablePath.isEmpty()) {
+        logError(tr("--attach cannot be used when starting an executable."));
         parser.showHelp(3);
     }
 }
@@ -469,17 +468,17 @@ void QmlProfilerApplication::run()
         arguments << QString::fromLatin1("-qmljsdebugger=%1:%2,block,services:CanvasFrameRate")
                      .arg(QLatin1String(m_socketFile.isEmpty() ? "port" : "file"))
                      .arg(m_socketFile.isEmpty() ? QString::number(m_port) : m_socketFile);
-        arguments << m_programArguments;
+        arguments << m_arguments;
 
         m_process->setProcessChannelMode(QProcess::MergedChannels);
         connect(m_process, &QIODevice::readyRead, this, &QmlProfilerApplication::processHasOutput);
-        connect(m_process, static_cast<void(QProcess::*)(int)>(&QProcess::finished),
+        connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                 this, [this](int){ processFinished(); });
-        logStatus(QString("Starting '%1 %2' ...").arg(m_programPath,
+        logStatus(QString("Starting '%1 %2' ...").arg(m_executablePath,
                                                       arguments.join(QLatin1Char(' '))));
-        m_process->start(m_programPath, arguments);
+        m_process->start(m_executablePath, arguments);
         if (!m_process->waitForStarted()) {
-            logError(QString("Could not run '%1': %2").arg(m_programPath,
+            logError(QString("Could not run '%1': %2").arg(m_executablePath,
                                                            m_process->errorString()));
             exit(1);
         }
@@ -539,10 +538,8 @@ void QmlProfilerApplication::disconnected()
 void QmlProfilerApplication::processHasOutput()
 {
     Q_ASSERT(m_process);
-    while (m_process->bytesAvailable()) {
-        QTextStream out(stderr);
-        out << m_process->readAll();
-    }
+    while (m_process->bytesAvailable())
+        std::cerr << m_process->readAll().constData();
 }
 
 void QmlProfilerApplication::processFinished()
@@ -594,10 +591,9 @@ void QmlProfilerApplication::traceFinished()
 void QmlProfilerApplication::prompt(const QString &line, bool ready)
 {
     if (m_interactive) {
-        QTextStream err(stderr);
         if (!line.isEmpty())
-            err << line << endl;
-        err << QLatin1String("> ");
+            std::cerr << qPrintable(line) << std::endl;
+        std::cerr << "> ";
         if (ready)
             emit readyForCommand();
     }
@@ -605,14 +601,12 @@ void QmlProfilerApplication::prompt(const QString &line, bool ready)
 
 void QmlProfilerApplication::logError(const QString &error)
 {
-    QTextStream err(stderr);
-    err << "Error: " << error << endl;
+    std::cerr << "Error: " << qPrintable(error) << std::endl;
 }
 
 void QmlProfilerApplication::logStatus(const QString &status)
 {
     if (!m_verbose)
         return;
-    QTextStream err(stderr);
-    err << status << endl;
+    std::cerr << qPrintable(status) << std::endl;
 }

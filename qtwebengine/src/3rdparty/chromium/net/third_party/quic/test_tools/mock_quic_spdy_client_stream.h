@@ -6,9 +6,9 @@
 #define NET_THIRD_PARTY_QUIC_TEST_TOOLS_MOCK_QUIC_SPDY_CLIENT_STREAM_H_
 
 #include "base/macros.h"
-#include "net/third_party/quic/core/quic_header_list.h"
+#include "net/third_party/quic/core/http/quic_header_list.h"
+#include "net/third_party/quic/core/http/quic_spdy_client_stream.h"
 #include "net/third_party/quic/core/quic_packets.h"
-#include "net/third_party/quic/core/quic_spdy_client_stream.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace quic {
@@ -16,7 +16,9 @@ namespace test {
 
 class MockQuicSpdyClientStream : public QuicSpdyClientStream {
  public:
-  MockQuicSpdyClientStream(QuicStreamId id, QuicSpdyClientSession* session);
+  MockQuicSpdyClientStream(QuicStreamId id,
+                           QuicSpdyClientSession* session,
+                           StreamType type);
   ~MockQuicSpdyClientStream() override;
 
   MOCK_METHOD1(OnStreamFrame, void(const QuicStreamFrame& frame));

@@ -44,6 +44,7 @@
 
 #include "private/qcssutil_p.h"
 #include <qdebug.h>
+#include <qdir.h>
 #include <qapplication.h>
 #if QT_CONFIG(menu)
 #include <qmenu.h>
@@ -957,8 +958,10 @@ QRenderRule::QRenderRule(const QVector<Declaration> &declarations, const QObject
     origin = Origin_Padding;
     Origin clip = Origin_Border;
     if (v.extractBackground(&brush, &uri, &repeat, &alignment, &origin, &attachment, &clip)) {
-        bg = new QStyleSheetBackgroundData(brush, QStyleSheetStyle::loadPixmap(uri, object),
-                                           repeat, alignment, origin, attachment, clip);
+        QPixmap pixmap = QStyleSheetStyle::loadPixmap(uri, object);
+        if (!uri.isEmpty() && pixmap.isNull())
+            qWarning("Could not create pixmap from %s", qPrintable(QDir::toNativeSeparators(uri)));
+        bg = new QStyleSheetBackgroundData(brush, pixmap, repeat, alignment, origin, attachment, clip);
     }
 
     QBrush sfg, fg;
@@ -2732,6 +2735,11 @@ static void updateObjects(const QList<const QObject *>& objects)
         if (auto widget = qobject_cast<QWidget*>(const_cast<QObject*>(object))) {
             widget->style()->polish(widget);
             QApplication::sendEvent(widget, &event);
+            QList<const QObject *> children;
+            children.reserve(widget->children().size() + 1);
+            for (auto child: qAsConst(widget->children()))
+                children.append(child);
+            updateObjects(children);
         }
     }
 }
@@ -3246,8 +3254,8 @@ void QStyleSheetStyle::drawComplexControl(ComplexControl cc, const QStyleOptionC
 #if QT_CONFIG(scrollbar)
     case CC_ScrollBar:
         if (const QStyleOptionSlider *sb = qstyleoption_cast<const QStyleOptionSlider *>(opt)) {
-            QStyleOptionSlider sbOpt(*sb);
             if (!rule.hasDrawable()) {
+                QStyleOptionSlider sbOpt(*sb);
                 sbOpt.rect = rule.borderRect(opt->rect);
                 rule.drawBackgroundImage(p, opt->rect);
                 baseStyle()->drawComplexControl(cc, &sbOpt, p, w);
@@ -3703,17 +3711,6 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                 bool dis = !(opt->state & QStyle::State_Enabled),
                      act = opt->state & QStyle::State_Selected;
 
-                int checkableOffset = 0;
-                if (checkable) {
-                    QRenderRule subSubRule = renderRule(w, opt, PseudoElement_MenuCheckMark);
-                    QStyleOptionMenuItem newMi = mi;
-                    newMi.rect = positionRect(w, subRule, subSubRule, PseudoElement_MenuCheckMark, opt->rect, opt->direction);
-                    // align with icons if there are some
-                    checkableOffset = std::max(m->maxIconWidth, newMi.rect.width());
-                    if (subSubRule.hasDrawable() || checked)
-                        drawPrimitive(PE_IndicatorMenuCheckMark, &newMi, p, w);
-                }
-
                 if (!mi.icon.isNull()) {
                     QIcon::Mode mode = dis ? QIcon::Disabled : QIcon::Normal;
                     if (act && !dis)
@@ -3730,24 +3727,28 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                     }
                     QRect iconRect = positionRect(w, subRule, iconRule, PseudoElement_MenuIcon, opt->rect, opt->direction);
                     if (opt->direction == Qt::LeftToRight)
-                        iconRect.moveLeft(iconRect.left() + checkableOffset);
+                        iconRect.moveLeft(iconRect.left());
                     else
-                        iconRect.moveRight(iconRect.right() - checkableOffset);
+                        iconRect.moveRight(iconRect.right());
                     iconRule.drawRule(p, iconRect);
                     QRect pmr(0, 0, pixw, pixh);
                     pmr.moveCenter(iconRect.center());
                     p->drawPixmap(pmr.topLeft(), pixmap);
+                } else if (checkable) {
+                    QRenderRule subSubRule = renderRule(w, opt, PseudoElement_MenuCheckMark);
+                    if (subSubRule.hasDrawable() || checked) {
+                        QStyleOptionMenuItem newMi = mi;
+                        if (!dis)
+                            newMi.state |= State_Enabled;
+                        if (act)
+                            newMi.state |= State_On;
+                        newMi.rect = positionRect(w, subRule, subSubRule, PseudoElement_MenuCheckMark, opt->rect, opt->direction);
+                        drawPrimitive(PE_IndicatorMenuCheckMark, &newMi, p, w);
+                    }
                 }
 
-                int textOffset = 0;
-                // padding overrules it all
-                if (!subRule.hasBox() || subRule.box()->paddings[LeftEdge] == 0) {
-                    textOffset = checkableOffset;
-                    if (!m->icon.isNull() || !checkable)
-                        textOffset += m->maxIconWidth;
-                }
                 QRect textRect = subRule.contentsRect(opt->rect);
-                textRect.setLeft(textRect.left() + textOffset);
+                textRect.setLeft(textRect.left() + m->maxIconWidth);
                 textRect.setWidth(textRect.width() - mi.tabWidth);
                 const QRect vTextRect = visualRect(opt->direction, m->rect, textRect);
 
@@ -4162,12 +4163,12 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
         if (const QStyleOptionTab *tab = qstyleoption_cast<const QStyleOptionTab *>(opt)) {
             QRenderRule subRule = renderRule(w, opt, PseudoElement_TabBarTab);
             QRect r = positionRect(w, subRule, PseudoElement_TabBarTab, opt->rect, opt->direction);
-            if (ce == CE_TabBarTabShape && subRule.hasDrawable()) {
+            if (ce == CE_TabBarTabShape && subRule.hasDrawable() && tab->shape < QTabBar::TriangularNorth) {
                 subRule.drawRule(p, r);
                 return;
             }
             QStyleOptionTab tabCopy(*tab);
-            subRule.configurePalette(&tabCopy.palette, QPalette::WindowText, QPalette::Window);
+            subRule.configurePalette(&tabCopy.palette, QPalette::WindowText, QPalette::Base);
             QFont oldFont = p->font();
             if (subRule.hasFont)
                 p->setFont(subRule.font);
@@ -4225,7 +4226,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
 
                 QString titleText = p->fontMetrics().elidedText(dwOpt->title, Qt::ElideRight, r.width());
                 drawItemText(p, r,
-                             alignment | Qt::TextShowMnemonic, dwOpt->palette,
+                             alignment, dwOpt->palette,
                              dwOpt->state & State_Enabled, titleText,
                              QPalette::WindowText);
 
@@ -4299,7 +4300,7 @@ void QStyleSheetStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *op
 
     switch (pe) {
 
-    case PE_FrameStatusBar: {
+    case PE_FrameStatusBarItem: {
         QRenderRule subRule = renderRule(w ? w->parentWidget() : nullptr, opt, PseudoElement_Item);
         if (subRule.hasDrawable()) {
             subRule.drawRule(p, opt->rect);
@@ -4320,7 +4321,7 @@ void QStyleSheetStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *op
         pseudoElement = PseudoElement_ExclusiveIndicator;
         break;
 
-    case PE_IndicatorViewItemCheck:
+    case PE_IndicatorItemViewItemCheck:
         pseudoElement = PseudoElement_ViewItemIndicator;
         break;
 
@@ -4984,17 +4985,19 @@ QSize QStyleSheetStyle::sizeFromContents(ContentsType ct, const QStyleOption *op
 
     switch (ct) {
 #if QT_CONFIG(spinbox)
-    case CT_SpinBox: // ### hopelessly broken QAbstractSpinBox (part 1)
+    case CT_SpinBox:
         if (const QStyleOptionSpinBox *spinbox = qstyleoption_cast<const QStyleOptionSpinBox *>(opt)) {
-            // Add some space for the up/down buttons
-            QRenderRule subRule = renderRule(w, opt, PseudoElement_SpinBoxUpButton);
-            if (subRule.hasDrawable()) {
-                QRect r = positionRect(w, rule, subRule, PseudoElement_SpinBoxUpButton,
-                                       opt->rect, opt->direction);
-                sz += QSize(r.width(), 0);
-            } else {
-                QSize defaultUpSize = defaultSize(w, subRule.size(), spinbox->rect, PseudoElement_SpinBoxUpButton);
-                sz += QSize(defaultUpSize.width(), 0);
+            if (spinbox->buttonSymbols != QAbstractSpinBox::NoButtons) {
+                // Add some space for the up/down buttons
+                QRenderRule subRule = renderRule(w, opt, PseudoElement_SpinBoxUpButton);
+                if (subRule.hasDrawable()) {
+                    QRect r = positionRect(w, rule, subRule, PseudoElement_SpinBoxUpButton,
+                                           opt->rect, opt->direction);
+                    sz.rwidth() += r.width();
+                } else {
+                    QSize defaultUpSize = defaultSize(w, subRule.size(), spinbox->rect, PseudoElement_SpinBoxUpButton);
+                    sz.rwidth() += defaultUpSize.width();
+                }
             }
             if (rule.hasBox() || rule.hasBorder() || !rule.hasNativeBorder())
                 sz = rule.boxSize(sz);
@@ -5090,28 +5093,27 @@ QSize QStyleSheetStyle::sizeFromContents(ContentsType ct, const QStyleOption *op
             QRenderRule subRule = renderRule(w, opt, pe);
             if ((pe == PseudoElement_MenuSeparator) && subRule.hasContentsSize()) {
                 return QSize(sz.width(), subRule.size().height());
-            } else if ((pe == PseudoElement_Item) && (subRule.hasBox() || subRule.hasBorder())) {
-                int width = csz.width();
+            }
+            if ((pe == PseudoElement_Item) && (subRule.hasBox() || subRule.hasBorder() || subRule.hasFont)) {
+                QSize sz(csz);
                 if (mi->text.contains(QLatin1Char('\t')))
-                    width += 12; //as in QCommonStyle
+                    sz.rwidth() += 12; //as in QCommonStyle
                 bool checkable = mi->checkType != QStyleOptionMenuItem::NotCheckable;
-                int checkableWidth = 0;
-                if (checkable) {
+                if (!mi->icon.isNull()) {
+                    const int pmSmall = pixelMetric(PM_SmallIconSize);
+                    const QSize pmSize = mi->icon.actualSize(QSize(pmSmall, pmSmall));
+                    sz.rwidth() += pmSize.width() + 4;
+                } else if (checkable) {
                     QRenderRule subSubRule = renderRule(w, opt, PseudoElement_MenuCheckMark);
                     QRect checkmarkRect = positionRect(w, subRule, subSubRule, PseudoElement_MenuCheckMark, opt->rect, opt->direction);
-                    checkableWidth = std::max(mi->maxIconWidth, checkmarkRect.width());
+                    sz.rwidth() += std::max(mi->maxIconWidth, checkmarkRect.width()) + 4;
                 }
-                if (!mi->icon.isNull()) {
-                    QPixmap pixmap = mi->icon.pixmap(pixelMetric(PM_SmallIconSize));
-                    width += pixmap.width();
+                if (subRule.hasFont) {
+                    QFontMetrics fm(subRule.font);
+                    const QRect r = fm.boundingRect(QRect(), Qt::TextSingleLine | Qt::TextShowMnemonic, mi->text);
+                    sz = sz.expandedTo(r.size());
                 }
-                // padding overrules it all
-                if (!subRule.hasBox() || subRule.box()->paddings[LeftEdge] == 0) {
-                    width += checkableWidth;
-                    if (!mi->icon.isNull() || !checkable)
-                        width += mi->maxIconWidth;
-                }
-                return subRule.boxSize(subRule.adjustSize(QSize(width, csz.height())));
+                return subRule.boxSize(subRule.adjustSize(sz));
             }
         }
         break;
@@ -5489,8 +5491,12 @@ QRect QStyleSheetStyle::subControlRect(ComplexControl cc, const QStyleOptionComp
                                 : Qt::Alignment(Qt::AlignRight);
                         downAlign = resolveAlignment(opt->direction, downAlign);
 
-                        int upSize = subControlRect(CC_SpinBox, opt, SC_SpinBoxUp, w).width();
-                        int downSize = subControlRect(CC_SpinBox, opt, SC_SpinBoxDown, w).width();
+                        const bool hasButtons = (spin->buttonSymbols != QAbstractSpinBox::NoButtons);
+                        const int upSize = hasButtons
+                                ? subControlRect(CC_SpinBox, opt, SC_SpinBoxUp, w).width() : 0;
+                        const int downSize = hasButtons
+                                ? subControlRect(CC_SpinBox, opt, SC_SpinBoxDown, w).width() : 0;
+
                         int widestL = qMax((upAlign & Qt::AlignLeft) ? upSize : 0,
                                 (downAlign & Qt::AlignLeft) ? downSize : 0);
                         int widestR = qMax((upAlign & Qt::AlignRight) ? upSize : 0,
@@ -5782,11 +5788,10 @@ QRect QStyleSheetStyle::subElementRect(SubElement se, const QStyleOption *opt, c
     case SE_PushButtonContents:
     case SE_PushButtonFocusRect:
         if (const QStyleOptionButton *btn = qstyleoption_cast<const QStyleOptionButton *>(opt)) {
-            QStyleOptionButton btnOpt(*btn);
             if (rule.hasBox() || !rule.hasNativeBorder())
                 return visualRect(opt->direction, opt->rect, rule.contentsRect(opt->rect));
-            return rule.baseStyleCanDraw() ? baseStyle()->subElementRect(se, &btnOpt, w)
-                                           : QWindowsStyle::subElementRect(se, &btnOpt, w);
+            return rule.baseStyleCanDraw() ? baseStyle()->subElementRect(se, btn, w)
+                                           : QWindowsStyle::subElementRect(se, btn, w);
         }
         break;
 
@@ -5841,7 +5846,7 @@ QRect QStyleSheetStyle::subElementRect(SubElement se, const QStyleOption *opt, c
         return ParentStyle::subElementRect(se, opt, w);
 
 #if QT_CONFIG(itemviews)
-    case SE_ViewItemCheckIndicator:
+    case SE_ItemViewItemCheckIndicator:
         if (!qstyleoption_cast<const QStyleOptionViewItem *>(opt)) {
             return subElementRect(SE_CheckBoxIndicator, opt, w);
         }

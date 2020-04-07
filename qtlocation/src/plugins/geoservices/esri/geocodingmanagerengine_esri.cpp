@@ -106,7 +106,7 @@ QGeoCodeReply *GeoCodingManagerEngineEsri::geocode(const QGeoAddress &address,
 QGeoCodeReply *GeoCodingManagerEngineEsri::geocode(const QString &address, int limit, int offset,
                                                    const QGeoShape &bounds)
 {
-    Q_UNUSED(offset)
+    Q_UNUSED(offset);
 
     QNetworkRequest request;
     request.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent);
@@ -140,7 +140,7 @@ QGeoCodeReply *GeoCodingManagerEngineEsri::geocode(const QString &address, int l
 QGeoCodeReply *GeoCodingManagerEngineEsri::reverseGeocode(const QGeoCoordinate &coordinate,
                                                           const QGeoShape &bounds)
 {
-    Q_UNUSED(bounds)
+    Q_UNUSED(bounds);
 
     QNetworkRequest request;
     request.setHeader(QNetworkRequest::UserAgentHeader, m_userAgent);

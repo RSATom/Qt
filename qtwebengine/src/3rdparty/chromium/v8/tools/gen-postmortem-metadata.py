@@ -58,6 +58,9 @@ consts_misc = [
     { 'name': 'APIObjectType',          'value': 'JS_API_OBJECT_TYPE' },
     { 'name': 'SpecialAPIObjectType',   'value': 'JS_SPECIAL_API_OBJECT_TYPE' },
 
+    { 'name': 'FirstContextType',     'value': 'FIRST_CONTEXT_TYPE' },
+    { 'name': 'LastContextType',     'value': 'LAST_CONTEXT_TYPE' },
+
     { 'name': 'IsNotStringMask',        'value': 'kIsNotStringMask' },
     { 'name': 'StringTag',              'value': 'kStringTag' },
 
@@ -91,8 +94,6 @@ consts_misc = [
     { 'name': 'OddballOther',           'value': 'Oddball::kOther' },
     { 'name': 'OddballException',       'value': 'Oddball::kException' },
 
-    { 'name': 'prop_idx_first',
-        'value': 'DescriptorArray::kFirstIndex' },
     { 'name': 'prop_kind_Data',
         'value': 'kData' },
     { 'name': 'prop_kind_Accessor',
@@ -189,10 +190,10 @@ consts_misc = [
     { 'name': 'scopeinfo_idx_first_vars',
         'value': 'ScopeInfo::kVariablePartIndex' },
 
-    { 'name': 'jsarray_buffer_was_neutered_mask',
-        'value': 'JSArrayBuffer::WasNeutered::kMask' },
-    { 'name': 'jsarray_buffer_was_neutered_shift',
-        'value': 'JSArrayBuffer::WasNeutered::kShift' },
+    { 'name': 'jsarray_buffer_was_detached_mask',
+        'value': 'JSArrayBuffer::WasDetachedBit::kMask' },
+    { 'name': 'jsarray_buffer_was_detached_shift',
+        'value': 'JSArrayBuffer::WasDetachedBit::kShift' },
 
     { 'name': 'context_idx_scope_info',
         'value': 'Context::SCOPE_INFO_INDEX' },
@@ -204,8 +205,8 @@ consts_misc = [
         'value': 'Context::EXTENSION_INDEX' },
     { 'name': 'context_min_slots',
         'value': 'Context::MIN_CONTEXT_SLOTS' },
-    { 'name': 'context_idx_embedder_data',
-        'value': 'Internals::kContextEmbedderDataIndex' },
+    { 'name': 'native_context_embedder_data_offset',
+        'value': 'Internals::kNativeContextEmbedderDataOffset' },
 
 
     { 'name': 'namedictionaryshape_prefix_size',
@@ -229,6 +230,9 @@ consts_misc = [
         'value': 'SimpleNumberDictionaryShape::kEntrySize' },
 
     { 'name': 'type_JSError__JS_ERROR_TYPE', 'value': 'JS_ERROR_TYPE' },
+
+    { 'name': 'class_SharedFunctionInfo__function_data__Object',
+        'value': 'SharedFunctionInfo::kFunctionDataOffset' },
 ];
 
 #
@@ -241,13 +245,16 @@ consts_misc = [
 #
 extras_accessors = [
     'JSFunction, context, Context, kContextOffset',
+    'JSFunction, shared, SharedFunctionInfo, kSharedFunctionInfoOffset',
     'HeapObject, map, Map, kMapOffset',
     'JSObject, elements, Object, kElementsOffset',
     'JSObject, internal_fields, uintptr_t, kHeaderSize',
     'FixedArray, data, uintptr_t, kHeaderSize',
     'FixedTypedArrayBase, external_pointer, Object, kExternalPointerOffset',
     'JSArrayBuffer, backing_store, Object, kBackingStoreOffset',
-    'JSArrayBufferView, byte_offset, Object, kByteOffsetOffset',
+    'JSArrayBuffer, byte_length, size_t, kByteLengthOffset',
+    'JSArrayBufferView, byte_length, size_t, kByteLengthOffset',
+    'JSArrayBufferView, byte_offset, size_t, kByteOffsetOffset',
     'JSTypedArray, length, Object, kLengthOffset',
     'Map, instance_size_in_words, char, kInstanceSizeInWordsOffset',
     'Map, inobject_properties_start_or_constructor_function_index, char, kInObjectPropertiesStartOrConstructorFunctionIndexOffset',
@@ -272,6 +279,7 @@ extras_accessors = [
     'SlicedString, parent, String, kParentOffset',
     'Code, instruction_start, uintptr_t, kHeaderSize',
     'Code, instruction_size, int, kInstructionSizeOffset',
+    'String, length, int32_t, kLengthOffset',
 ];
 
 #
@@ -282,7 +290,7 @@ extras_accessors = [
 expected_classes = [
     'ConsString', 'FixedArray', 'HeapNumber', 'JSArray', 'JSFunction',
     'JSObject', 'JSRegExp', 'JSValue', 'Map', 'Oddball', 'Script',
-    'SeqOneByteString', 'SharedFunctionInfo'
+    'SeqOneByteString', 'SharedFunctionInfo', 'ScopeInfo', 'JSPromise'
 ];
 
 
@@ -305,6 +313,7 @@ header = '''
 #include "src/frames-inl.h" /* for architecture-specific frame constants */
 #include "src/contexts.h"
 #include "src/objects.h"
+#include "src/objects/js-promise.h"
 #include "src/objects/js-regexp-string-iterator.h"
 
 using namespace v8::internal;
@@ -415,14 +424,9 @@ def load_objects_from_file(objfilename, checktypes):
         #
         for type in types:
                 #
-                # Symbols and Strings are implemented using the same classes.
-                #
-                usetype = re.sub('SYMBOL_', 'STRING_', type);
-
-                #
                 # REGEXP behaves like REG_EXP, as in JS_REGEXP_TYPE => JSRegExp.
                 #
-                usetype = re.sub('_REGEXP_', '_REG_EXP_', usetype);
+                usetype = re.sub('_REGEXP_', '_REG_EXP_', type);
 
                 #
                 # Remove the "_TYPE" suffix and then convert to camel case,
@@ -516,7 +520,8 @@ def parse_field(call):
 
         consts = [];
 
-        if (kind == 'ACCESSORS' or kind == 'ACCESSORS_GCSAFE'):
+        if (kind == 'ACCESSORS' or kind == 'ACCESSORS2' or
+            kind == 'ACCESSORS_GCSAFE'):
                 klass = args[0];
                 field = args[1];
                 dtype = args[2].replace('<', '_').replace('>', '_')
@@ -559,7 +564,7 @@ def load_fields_from_file(filename):
         # may span multiple lines and may contain nested parentheses.  We also
         # call parse_field() to pick apart the invocation.
         #
-        prefixes = [ 'ACCESSORS', 'ACCESSORS_GCSAFE',
+        prefixes = [ 'ACCESSORS', 'ACCESSORS2', 'ACCESSORS_GCSAFE',
                      'SMI_ACCESSORS', 'ACCESSORS_TO_SMI' ];
         current = '';
         opens = 0;

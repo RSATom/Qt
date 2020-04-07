@@ -32,7 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_DOCUMENT_ANIMATIONS_H_
 
 #include "base/optional.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/document_lifecycle.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 
@@ -52,7 +52,7 @@ class DocumentAnimations {
   static void UpdateAnimations(
       Document&,
       DocumentLifecycle::LifecycleState required_lifecycle_state,
-      base::Optional<CompositorElementIdSet>&);
+      const base::Optional<CompositorElementIdSet>&);
 
  private:
   DocumentAnimations() = default;

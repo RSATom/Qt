@@ -86,11 +86,71 @@ QLocale::MeasurementSystem QAbstractNavigator::measurementSystem() const
     return d->measurementSystem;
 }
 
+QVariant QAbstractNavigator::nextManeuverIcon() const
+{
+    return QVariant();
+}
+
+double QAbstractNavigator::distanceToNextManeuver() const
+{
+    return qQNaN();
+}
+
+int QAbstractNavigator::timeToNextManeuver() const
+{
+    return -1;
+}
+
+int QAbstractNavigator::remainingTravelTime() const
+{
+    return -1;
+}
+
+double QAbstractNavigator::remainingTravelDistance() const
+{
+    return qQNaN();
+}
+
+int QAbstractNavigator::remainingTravelTimeToNextWaypoint() const
+{
+    return -1;
+}
+
+double QAbstractNavigator::remainingTravelDistanceToNextWaypoint() const
+{
+    return qQNaN();
+}
+
+double QAbstractNavigator::traveledDistance() const
+{
+    return 0;
+}
+
+int QAbstractNavigator::traveledTime() const
+{
+    return 0;
+}
+
+QGeoRoute QAbstractNavigator::currentRoute() const
+{
+    return QGeoRoute();
+}
+
+QGeoRouteLeg QAbstractNavigator::currentRouteLeg() const
+{
+    return QGeoRouteLeg();
+}
+
+int QAbstractNavigator::currentSegment() const
+{
+    return 0;
+}
+
 QNavigationManagerEngine::QNavigationManagerEngine(const QVariantMap &parameters, QObject *parent)
     : QObject(parent)
     , d(new QNavigationManagerEnginePrivate)
 {
-    Q_UNUSED(parameters)
+    Q_UNUSED(parameters);
 }
 
 QNavigationManagerEngine::~QNavigationManagerEngine()

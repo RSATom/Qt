@@ -78,7 +78,7 @@ public:
     quint8 minorDeviceClass;
 
     QBluetoothDeviceInfo::DataCompleteness serviceUuidsCompleteness;
-    QList<QBluetoothUuid> serviceUuids;
+    QVector<QBluetoothUuid> serviceUuids;
     QHash<quint16, QByteArray> manufacturerData;
     QBluetoothDeviceInfo::CoreConfigurations deviceCoreConfiguration;
 

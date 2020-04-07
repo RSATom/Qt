@@ -136,6 +136,9 @@ public:
     void disableClassInfo();
     void disableEventSink();
 
+    unsigned long classContext() const;
+    void setClassContext(unsigned long classContext);
+
 protected:
     virtual bool initialize(IUnknown** ptr);
     bool initializeRemote(IUnknown** ptr);

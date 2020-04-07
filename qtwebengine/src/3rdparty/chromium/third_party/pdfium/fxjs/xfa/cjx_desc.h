@@ -7,22 +7,26 @@
 #ifndef FXJS_XFA_CJX_DESC_H_
 #define FXJS_XFA_CJX_DESC_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Desc;
 
-class CJX_Desc : public CJX_Node {
+class CJX_Desc final : public CJX_Node {
  public:
   explicit CJX_Desc(CXFA_Desc* desc);
   ~CJX_Desc() override;
 
-  JS_METHOD(metadata, CJX_Desc);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(use);
-  JS_PROP(usehref);
+  JSE_METHOD(metadata);
 
  private:
+  using Type__ = CJX_Desc;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::Desc;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

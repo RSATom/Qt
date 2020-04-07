@@ -70,7 +70,10 @@ QMapPolygonObjectPrivateDefault::QMapPolygonObjectPrivateDefault(QGeoMapObject *
 
 QMapPolygonObjectPrivateDefault::QMapPolygonObjectPrivateDefault(const QMapPolygonObjectPrivate &other) : QMapPolygonObjectPrivate(other.q)
 {
-    m_path = other.path();
+    m_path.setPath(other.path()); // to stay on the safe side
+    QGeoPolygon poly(other.geoShape()); // to handle holes
+    for (int i = 0; i < poly.holesCount(); i++)
+        m_path.addHole(poly.holePath(i));
     m_borderColor = other.borderColor();
     m_fillColor = other.fillColor();
     m_borderWidth = other.borderWidth();
@@ -88,12 +91,12 @@ QGeoMapObject::Type QMapPolygonObjectPrivate::type() const
 
 QList<QGeoCoordinate> QMapPolygonObjectPrivateDefault::path() const
 {
-    return m_path;
+    return m_path.path();
 }
 
 void QMapPolygonObjectPrivateDefault::setPath(const QList<QGeoCoordinate> &path)
 {
-    m_path = path;
+    m_path.setPath(path);
 }
 
 QColor QMapPolygonObjectPrivateDefault::fillColor() const
@@ -131,6 +134,23 @@ QGeoMapObjectPrivate *QMapPolygonObjectPrivateDefault::clone()
     return new QMapPolygonObjectPrivateDefault(static_cast<QMapPolygonObjectPrivate &>(*this));
 }
 
+QGeoShape QMapPolygonObjectPrivateDefault::geoShape() const
+{
+    return m_path;
+}
+
+void QMapPolygonObjectPrivateDefault::setGeoShape(const QGeoShape &shape)
+{
+    if (shape == m_path)
+        return;
+
+    const QGeoPolygon poly(shape);
+    setPath(poly.path()); // to handle overrides
+    for (int i = 0; i < poly.holesCount(); i++)
+        m_path.addHole(poly.holePath(i));
+    emit static_cast<QMapPolygonObject *>(q)->pathChanged();
+}
+
 bool QMapPolygonObjectPrivate::equals(const QGeoMapObjectPrivate &other) const
 {
     if (other.type() != type()) // This check might be unnecessary, depending on how equals gets used
@@ -138,10 +158,25 @@ bool QMapPolygonObjectPrivate::equals(const QGeoMapObjectPrivate &other) const
 
     const QMapPolygonObjectPrivate &o = static_cast<const QMapPolygonObjectPrivate &>(other);
     return (QGeoMapObjectPrivate::equals(o)
-            && path() == o.path()
+            && geoShape() == o.geoShape()
             && borderColor() == o.borderColor()
             && fillColor() == o.fillColor()
             && borderWidth() == o.borderWidth());
+}
+
+QGeoShape QMapPolygonObjectPrivate::geoShape() const
+{
+    return QGeoPolygon(path());
+}
+
+void QMapPolygonObjectPrivate::setGeoShape(const QGeoShape &shape)
+{
+    if (shape == geoShape())
+        return;
+
+    const QGeoPolygon poly(shape);
+    setPath(poly.path()); // to handle overrides
+    emit static_cast<QMapPolygonObject *>(q)->pathChanged();
 }
 
 

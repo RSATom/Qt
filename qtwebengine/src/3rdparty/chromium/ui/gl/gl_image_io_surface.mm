@@ -17,10 +17,10 @@
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/mac/display_icc_profiles.h"
 #include "ui/gfx/mac/io_surface.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_enums.h"
-#include "ui/gl/gl_features.h"
 #include "ui/gl/gl_version_info.h"
 #include "ui/gl/scoped_binders.h"
 #include "ui/gl/yuv_to_rgb_converter.h"
@@ -78,11 +78,6 @@ GLenum TextureFormat(gfx::BufferFormat format) {
       // OpenGL ES 3.0, for the case) support only GL_RGBA (the hardware ignores
       // the alpha channel anyway), see https://crbug.com/797347.
       return GL_RGBA;
-    case gfx::BufferFormat::ATC:
-    case gfx::BufferFormat::ATCIA:
-    case gfx::BufferFormat::DXT1:
-    case gfx::BufferFormat::DXT5:
-    case gfx::BufferFormat::ETC1:
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBX_8888:
@@ -113,11 +108,6 @@ GLenum DataFormat(gfx::BufferFormat format) {
       return GL_RGBA;
     case gfx::BufferFormat::UYVY_422:
       return GL_YCBCR_422_APPLE;
-    case gfx::BufferFormat::ATC:
-    case gfx::BufferFormat::ATCIA:
-    case gfx::BufferFormat::DXT1:
-    case gfx::BufferFormat::DXT5:
-    case gfx::BufferFormat::ETC1:
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBX_8888:
@@ -149,11 +139,6 @@ GLenum DataType(gfx::BufferFormat format) {
       return GL_HALF_APPLE;
     case gfx::BufferFormat::UYVY_422:
       return GL_UNSIGNED_SHORT_8_8_APPLE;
-    case gfx::BufferFormat::ATC:
-    case gfx::BufferFormat::ATCIA:
-    case gfx::BufferFormat::DXT1:
-    case gfx::BufferFormat::DXT5:
-    case gfx::BufferFormat::ETC1:
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBX_8888:
@@ -419,10 +404,23 @@ void GLImageIOSurface::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
         base::trace_event::MemoryDumpManager::kInvalidTracingProcessId;
   }
 
-  auto guid = GetGenericSharedGpuMemoryGUIDForTracing(process_tracing_id,
-                                                      io_surface_id_);
-  pmd->CreateSharedGlobalAllocatorDump(guid);
-  pmd->AddOwnershipEdge(dump->guid(), guid);
+  // Create an edge using the GMB GenericSharedMemoryId if the image is not
+  // anonymous. Otherwise, add another nested node to account for the anonymous
+  // IOSurface.
+  if (io_surface_id_.is_valid()) {
+    auto guid = GetGenericSharedGpuMemoryGUIDForTracing(process_tracing_id,
+                                                        io_surface_id_);
+    pmd->CreateSharedGlobalAllocatorDump(guid);
+    pmd->AddOwnershipEdge(dump->guid(), guid);
+  } else {
+    std::string anonymous_dump_name = dump_name + "/anonymous-iosurface";
+    base::trace_event::MemoryAllocatorDump* anonymous_dump =
+        pmd->CreateAllocatorDump(anonymous_dump_name);
+    anonymous_dump->AddScalar(
+        base::trace_event::MemoryAllocatorDump::kNameSize,
+        base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+        static_cast<uint64_t>(size_bytes));
+  }
 }
 
 bool GLImageIOSurface::EmulatingRGB() const {
@@ -501,11 +499,6 @@ bool GLImageIOSurface::ValidFormat(gfx::BufferFormat format) {
       return true;
     case gfx::BufferFormat::R_16:
     case gfx::BufferFormat::RG_88:
-    case gfx::BufferFormat::ATC:
-    case gfx::BufferFormat::ATCIA:
-    case gfx::BufferFormat::DXT1:
-    case gfx::BufferFormat::DXT5:
-    case gfx::BufferFormat::ETC1:
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBX_8888:

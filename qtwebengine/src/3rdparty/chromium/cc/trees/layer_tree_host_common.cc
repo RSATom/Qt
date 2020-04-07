@@ -79,7 +79,7 @@ LayerTreeHostCommon::CalcDrawPropsImplInputs::CalcDrawPropsImplInputs(
     const LayerImpl* inner_viewport_scroll_layer,
     const LayerImpl* outer_viewport_scroll_layer,
     const gfx::Vector2dF& elastic_overscroll,
-    const LayerImpl* elastic_overscroll_application_layer,
+    const ElementId elastic_overscroll_element_id,
     int max_texture_size,
     bool can_adjust_raster_scales,
     RenderSurfaceList* render_surface_list,
@@ -94,8 +94,7 @@ LayerTreeHostCommon::CalcDrawPropsImplInputs::CalcDrawPropsImplInputs(
       inner_viewport_scroll_layer(inner_viewport_scroll_layer),
       outer_viewport_scroll_layer(outer_viewport_scroll_layer),
       elastic_overscroll(elastic_overscroll),
-      elastic_overscroll_application_layer(
-          elastic_overscroll_application_layer),
+      elastic_overscroll_element_id(elastic_overscroll_element_id),
       max_texture_size(max_texture_size),
       can_adjust_raster_scales(can_adjust_raster_scales),
       render_surface_list(render_surface_list),
@@ -117,7 +116,7 @@ LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting::
                               nullptr,
                               nullptr,
                               gfx::Vector2dF(),
-                              nullptr,
+                              ElementId(),
                               std::numeric_limits<int>::max() / 2,
                               false,
                               render_surface_list,
@@ -179,8 +178,11 @@ bool LayerTreeHostCommon::ScrollbarsUpdateInfo::operator==(
 ScrollAndScaleSet::ScrollAndScaleSet()
     : page_scale_delta(1.f),
       top_controls_delta(0.f),
+      browser_controls_constraint(BrowserControlsState::kBoth),
+      browser_controls_constraint_changed(false),
       has_scrolled_by_wheel(false),
-      has_scrolled_by_touch(false) {}
+      has_scrolled_by_touch(false),
+      scroll_gesture_did_end(false) {}
 
 ScrollAndScaleSet::~ScrollAndScaleSet() = default;
 
@@ -199,12 +201,6 @@ static inline void ClearMaskLayersContributeToDrawnRenderSurface(
   LayerImpl* mask_layer = surface->MaskLayer();
   if (mask_layer)
     mask_layer->set_contributes_to_drawn_render_surface(false);
-}
-
-static bool CdpPerfTracingEnabled() {
-  bool tracing_enabled;
-  TRACE_EVENT_CATEGORY_GROUP_ENABLED("cdp.perf", &tracing_enabled);
-  return tracing_enabled;
 }
 
 static float TranslationFromActiveTreeLayerScreenSpaceTransform(
@@ -497,29 +493,20 @@ void CalculateDrawPropertiesInternal(
     PropertyTreeOption property_tree_option) {
   inputs->render_surface_list->clear();
 
-  const bool should_measure_property_tree_performance =
-      property_tree_option == BUILD_PROPERTY_TREES;
-
   LayerImplList visible_layer_list;
   switch (property_tree_option) {
     case BUILD_PROPERTY_TREES: {
       // The translation from layer to property trees is an intermediate
       // state. We will eventually get these data passed directly to the
       // compositor.
-      if (should_measure_property_tree_performance) {
-        TRACE_EVENT_BEGIN0(
-            TRACE_DISABLED_BY_DEFAULT("cc.debug.cdp-perf"),
-            "LayerTreeHostCommon::ComputeVisibleRectsWithPropertyTrees");
-      }
-
       PropertyTreeBuilder::BuildPropertyTrees(
           inputs->root_layer, inputs->page_scale_layer,
           inputs->inner_viewport_scroll_layer,
           inputs->outer_viewport_scroll_layer,
-          inputs->elastic_overscroll_application_layer,
-          inputs->elastic_overscroll, inputs->page_scale_factor,
-          inputs->device_scale_factor, gfx::Rect(inputs->device_viewport_size),
-          inputs->device_transform, inputs->property_trees);
+          inputs->elastic_overscroll_element_id, inputs->elastic_overscroll,
+          inputs->page_scale_factor, inputs->device_scale_factor,
+          gfx::Rect(inputs->device_viewport_size), inputs->device_transform,
+          inputs->property_trees);
       draw_property_utils::UpdatePropertyTreesAndRenderSurfaces(
           inputs->root_layer, inputs->property_trees,
           inputs->can_adjust_raster_scales);
@@ -531,18 +518,9 @@ void CalculateDrawPropertiesInternal(
       // updates when they are built on compositor thread.
       inputs->property_trees->transform_tree
           .set_source_to_parent_updates_allowed(false);
-      if (should_measure_property_tree_performance) {
-        TRACE_EVENT_END0(
-            TRACE_DISABLED_BY_DEFAULT("cc.debug.cdp-perf"),
-            "LayerTreeHostCommon::ComputeVisibleRectsWithPropertyTrees");
-      }
-
       break;
     }
     case DONT_BUILD_PROPERTY_TREES: {
-      TRACE_EVENT0(
-          TRACE_DISABLED_BY_DEFAULT("cc.debug.cdp-perf"),
-          "LayerTreeHostCommon::ComputeJustVisibleRectsWithPropertyTrees");
       // Since page scale and elastic overscroll are SyncedProperties, changes
       // on the active tree immediately affect the pending tree, so instead of
       // trying to update property trees whenever these values change, we
@@ -577,7 +555,7 @@ void CalculateDrawPropertiesInternal(
                    << inputs->root_layer->layer_tree_impl()
                           ->settings()
                           .is_layer_tree_for_subframe;
-        CHECK(false);
+        NOTREACHED();
       }
 
       draw_property_utils::UpdatePageScaleFactor(
@@ -585,7 +563,7 @@ void CalculateDrawPropertiesInternal(
           inputs->page_scale_factor, device_scale_factor_for_page_scale_node,
           device_transform_for_page_scale_node);
       draw_property_utils::UpdateElasticOverscroll(
-          inputs->property_trees, inputs->elastic_overscroll_application_layer,
+          inputs->property_trees, inputs->elastic_overscroll_element_id,
           inputs->elastic_overscroll);
       // Similarly, the device viewport and device transform are shared
       // by both trees.
@@ -596,7 +574,7 @@ void CalculateDrawPropertiesInternal(
           combine_dsf_and_psf ? inputs->page_scale_factor : 1.f;
       property_trees->transform_tree.SetRootTransformsAndScales(
           inputs->device_scale_factor, page_scale_factor_for_root,
-          inputs->device_transform, inputs->root_layer->position());
+          inputs->device_transform);
       draw_property_utils::UpdatePropertyTreesAndRenderSurfaces(
           inputs->root_layer, inputs->property_trees,
           inputs->can_adjust_raster_scales);
@@ -604,24 +582,26 @@ void CalculateDrawPropertiesInternal(
     }
   }
 
-  if (should_measure_property_tree_performance) {
-    TRACE_EVENT_BEGIN0(TRACE_DISABLED_BY_DEFAULT("cc.debug.cdp-perf"),
-                       "LayerTreeHostCommon::CalculateDrawProperties");
+  {
+    TRACE_EVENT0("cc", "draw_property_utils::FindLayersThatNeedUpdates");
+    draw_property_utils::FindLayersThatNeedUpdates(
+        inputs->root_layer->layer_tree_impl(), inputs->property_trees,
+        &visible_layer_list);
   }
 
-  draw_property_utils::FindLayersThatNeedUpdates(
-      inputs->root_layer->layer_tree_impl(), inputs->property_trees,
-      &visible_layer_list);
-  draw_property_utils::ComputeDrawPropertiesOfVisibleLayers(
-      &visible_layer_list, inputs->property_trees);
+  {
+    TRACE_EVENT1("cc",
+                 "draw_property_utils::ComputeDrawPropertiesOfVisibleLayers",
+                 "visible_layers", visible_layer_list.size());
+    draw_property_utils::ComputeDrawPropertiesOfVisibleLayers(
+        &visible_layer_list, inputs->property_trees);
+  }
 
-  CalculateRenderSurfaceLayerList(
-      inputs->root_layer->layer_tree_impl(), inputs->property_trees,
-      inputs->render_surface_list, inputs->max_texture_size);
-
-  if (should_measure_property_tree_performance) {
-    TRACE_EVENT_END0(TRACE_DISABLED_BY_DEFAULT("cc.debug.cdp-perf"),
-                     "LayerTreeHostCommon::CalculateDrawProperties");
+  {
+    TRACE_EVENT0("cc", "CalculateRenderSurfaceLayerList");
+    CalculateRenderSurfaceLayerList(
+        inputs->root_layer->layer_tree_impl(), inputs->property_trees,
+        inputs->render_surface_list, inputs->max_texture_size);
   }
 
   // A root layer render_surface should always exist after
@@ -635,15 +615,13 @@ void LayerTreeHostCommon::CalculateDrawPropertiesForTesting(
   LayerList update_layer_list;
   PropertyTrees* property_trees =
       inputs->root_layer->layer_tree_host()->property_trees();
-  Layer* overscroll_elasticity_layer = nullptr;
   gfx::Vector2dF elastic_overscroll;
   PropertyTreeBuilder::BuildPropertyTrees(
       inputs->root_layer, inputs->page_scale_layer,
       inputs->inner_viewport_scroll_layer, inputs->outer_viewport_scroll_layer,
-      overscroll_elasticity_layer, elastic_overscroll,
-      inputs->page_scale_factor, inputs->device_scale_factor,
-      gfx::Rect(inputs->device_viewport_size), inputs->device_transform,
-      property_trees);
+      ElementId(), elastic_overscroll, inputs->page_scale_factor,
+      inputs->device_scale_factor, gfx::Rect(inputs->device_viewport_size),
+      inputs->device_transform, property_trees);
   draw_property_utils::UpdatePropertyTrees(
       inputs->root_layer->layer_tree_host(), property_trees);
   draw_property_utils::FindLayersThatNeedUpdates(
@@ -654,48 +632,6 @@ void LayerTreeHostCommon::CalculateDrawPropertiesForTesting(
 void LayerTreeHostCommon::CalculateDrawProperties(
     CalcDrawPropsImplInputs* inputs) {
   CalculateDrawPropertiesInternal(inputs, DONT_BUILD_PROPERTY_TREES);
-
-  if (CdpPerfTracingEnabled()) {
-    LayerTreeImpl* layer_tree_impl = inputs->root_layer->layer_tree_impl();
-    if (layer_tree_impl->IsPendingTree() &&
-        layer_tree_impl->is_first_frame_after_commit()) {
-      LayerImpl* active_tree_root =
-          layer_tree_impl->FindActiveTreeLayerById(inputs->root_layer->id());
-      float jitter = 0.f;
-      if (active_tree_root) {
-        int last_scrolled_node_index =
-            active_tree_root->layer_tree_impl()->LastScrolledScrollNodeIndex();
-        if (last_scrolled_node_index != ScrollTree::kInvalidNodeId) {
-          std::unordered_set<int> jitter_nodes;
-          for (auto* layer : *layer_tree_impl) {
-            // Layers that have the same scroll tree index jitter together. So,
-            // it is enough to calculate jitter on one of these layers. So,
-            // after we find a jittering layer, we need not consider other
-            // layers with the same scroll tree index.
-            int scroll_tree_index = layer->scroll_tree_index();
-            if (last_scrolled_node_index <= scroll_tree_index &&
-                jitter_nodes.find(scroll_tree_index) == jitter_nodes.end()) {
-              float layer_jitter = CalculateLayerJitter(layer);
-              if (layer_jitter > 0.f) {
-                jitter_nodes.insert(layer->scroll_tree_index());
-                jitter += layer_jitter;
-              }
-            }
-          }
-        }
-      }
-      TRACE_EVENT_ASYNC_BEGIN1(
-          "cdp.perf", "jitter",
-          inputs->root_layer->layer_tree_impl()->source_frame_number(), "value",
-          jitter);
-      inputs->root_layer->layer_tree_impl()->set_is_first_frame_after_commit(
-          false);
-      TRACE_EVENT_ASYNC_END1(
-          "cdp.perf", "jitter",
-          inputs->root_layer->layer_tree_impl()->source_frame_number(), "value",
-          jitter);
-    }
-  }
 }
 
 void LayerTreeHostCommon::CalculateDrawPropertiesForTesting(

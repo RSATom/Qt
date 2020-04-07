@@ -1,43 +1,35 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#ifndef LIBSPIRV_TEXT_HANDLER_H_
-#define LIBSPIRV_TEXT_HANDLER_H_
+#ifndef SOURCE_TEXT_HANDLER_H_
+#define SOURCE_TEXT_HANDLER_H_
 
 #include <iomanip>
+#include <set>
 #include <sstream>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 
-#include "diagnostic.h"
-#include "instruction.h"
+#include "source/diagnostic.h"
+#include "source/instruction.h"
+#include "source/text.h"
 #include "spirv-tools/libspirv.h"
-#include "text.h"
 
-namespace libspirv {
+namespace spvtools {
+
 // Structures
 
 // This is a lattice for tracking types.
@@ -128,11 +120,14 @@ class ClampToZeroIfUnsignedType<
 // Encapsulates the data used during the assembly of a SPIR-V module.
 class AssemblyContext {
  public:
-  AssemblyContext(spv_text text, spv_diagnostic* diagnostic_arg)
+  AssemblyContext(spv_text text, const MessageConsumer& consumer,
+                  std::set<uint32_t>&& ids_to_preserve = std::set<uint32_t>())
       : current_position_({}),
-        pDiagnostic_(diagnostic_arg),
+        consumer_(consumer),
         text_(text),
-        bound_(1) {}
+        bound_(1),
+        next_id_(1),
+        ids_to_preserve_(std::move(ids_to_preserve)) {}
 
   // Assigns a new integer value to the given text ID, or returns the previously
   // assigned integer value if the ID has been seen before.
@@ -160,7 +155,7 @@ class AssemblyContext {
   // stream, and for the given error code. Any data written to this object will
   // show up in pDiagnsotic on destruction.
   DiagnosticStream diagnostic(spv_result_t error) {
-    return DiagnosticStream(current_position_, pDiagnostic_, error);
+    return DiagnosticStream(current_position_, consumer_, "", error);
   }
 
   // Returns a diagnostic object with the default assembly error code.
@@ -238,68 +233,12 @@ class AssemblyContext {
   // id is not the id for an extended instruction type.
   spv_ext_inst_type_t getExtInstTypeForId(uint32_t id) const;
 
-  // Parses a numeric value of a given type from the given text.  The number
-  // should take up the entire string, and should be within bounds for the
-  // target type.  On success, returns SPV_SUCCESS and populates the object
-  // referenced by value_pointer. On failure, returns the given error code,
-  // and emits a diagnostic if that error code is not SPV_FAILED_MATCH.
-  template <typename T>
-  spv_result_t parseNumber(const char* text, spv_result_t error_code,
-                           T* value_pointer,
-                           const char* error_message_fragment) {
-    // C++11 doesn't define std::istringstream(int8_t&), so calling this method
-    // with a single-byte type leads to implementation-defined behaviour.
-    // Similarly for uint8_t.
-    static_assert(sizeof(T) > 1,
-                  "Don't use a single-byte type this parse method");
-
-    std::istringstream text_stream(text);
-    // Allow both decimal and hex input for integers.
-    // It also allows octal input, but we don't care about that case.
-    text_stream >> std::setbase(0);
-    text_stream >> *value_pointer;
-
-    // We should have read something.
-    bool ok = (text[0] != 0) && !text_stream.bad();
-    // It should have been all the text.
-    ok = ok && text_stream.eof();
-    // It should have been in range.
-    ok = ok && !text_stream.fail();
-
-    // Work around a bug in the GNU C++11 library. It will happily parse
-    // "-1" for uint16_t as 65535.
-    if (ok && text[0] == '-')
-      ok = !ClampToZeroIfUnsignedType<T>::Clamp(value_pointer);
-
-    if (ok) return SPV_SUCCESS;
-    return diagnostic(error_code) << error_message_fragment << text;
-  }
+  // Returns a set consisting of each ID generated by spvNamedIdAssignOrGet from
+  // a numeric ID text representation. For example, generated from "%12" but not
+  // from "%foo".
+  std::set<uint32_t> GetNumericIds() const;
 
  private:
-
-  // Appends the given floating point literal to the given instruction.
-  // Returns SPV_SUCCESS if the value was correctly parsed.  Otherwise
-  // returns the given error code, and emits a diagnostic if that error
-  // code is not SPV_FAILED_MATCH.
-  // Only 32 and 64 bit floating point numbers are supported.
-  spv_result_t binaryEncodeFloatingPointLiteral(const char* numeric_literal,
-                                                spv_result_t error_code,
-                                                const IdType& type,
-                                                spv_instruction_t* pInst);
-
-  // Appends the given integer literal to the given instruction.
-  // Returns SPV_SUCCESS if the value was correctly parsed.  Otherwise
-  // returns the given error code, and emits a diagnostic if that error
-  // code is not SPV_FAILED_MATCH.
-  // Integers up to 64 bits are supported.
-  spv_result_t binaryEncodeIntegerLiteral(const char* numeric_literal,
-                                          spv_result_t error_code,
-                                          const IdType& type,
-                                          spv_instruction_t* pInst);
-
-  // Writes the given 64-bit literal value into the instruction.
-  // return SPV_SUCCESS if the value could be written in the instruction.
-  spv_result_t binaryEncodeU64(const uint64_t value, spv_instruction_t* pInst);
   // Maps ID names to their corresponding numerical ids.
   using spv_named_id_table = std::unordered_map<std::string, uint32_t>;
   // Maps type-defining IDs to their IdType.
@@ -313,9 +252,13 @@ class AssemblyContext {
   // Maps an extended instruction import Id to the extended instruction type.
   std::unordered_map<uint32_t, spv_ext_inst_type_t> import_id_to_ext_inst_type_;
   spv_position_t current_position_;
-  spv_diagnostic* pDiagnostic_;
+  MessageConsumer consumer_;
   spv_text text_;
   uint32_t bound_;
+  uint32_t next_id_;
+  std::set<uint32_t> ids_to_preserve_;
 };
-}
-#endif  // _LIBSPIRV_TEXT_HANDLER_H_
+
+}  // namespace spvtools
+
+#endif  // SOURCE_TEXT_HANDLER_H_

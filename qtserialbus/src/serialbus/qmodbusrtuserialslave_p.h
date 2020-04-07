@@ -74,7 +74,7 @@ public:
         Q_Q(QModbusRtuSerialSlave);
 
         m_serialPort = new QSerialPort(q);
-        QObject::connect(m_serialPort, &QSerialPort::readyRead, [this]() {
+        QObject::connect(m_serialPort, &QSerialPort::readyRead, q, [this]() {
 
             if (m_interFrameTimer.isValid()
                     && m_interFrameTimer.elapsed() > m_interFrameDelayMilliseconds
@@ -90,7 +90,7 @@ public:
 
             m_interFrameTimer.start();
 
-            const int size = m_serialPort->size();
+            const qint64 size = m_serialPort->size();
             m_requestBuffer += m_serialPort->read(size);
 
             const QModbusSerialAdu adu(QModbusSerialAdu::Rtu, m_requestBuffer);
@@ -218,7 +218,7 @@ public:
                 return;
             }
 
-            int writtenBytes = m_serialPort->write(result);
+            qint64 writtenBytes = m_serialPort->write(result);
             if ((writtenBytes == -1) || (writtenBytes < result.size())) {
                 qCDebug(QT_MODBUS) << "(RTU server) Cannot write requested response to serial port.";
                 q->setError(QModbusRtuSerialSlave::tr("Could not write response to client"),
@@ -281,7 +281,7 @@ public:
         });
 
         using TypeId = void (QSerialPort::*)(QSerialPort::SerialPortError);
-        QObject::connect(m_serialPort, static_cast<TypeId>(&QSerialPort::error),
+        QObject::connect(m_serialPort, static_cast<TypeId>(&QSerialPort::error), q,
                          [this](QSerialPort::SerialPortError error) {
             if (error == QSerialPort::NoError)
                 return;
@@ -330,7 +330,7 @@ public:
             }
         });
 
-        QObject::connect(m_serialPort, &QSerialPort::aboutToClose, [this]() {
+        QObject::connect(m_serialPort, &QSerialPort::aboutToClose, q, [this]() {
             Q_Q(QModbusRtuSerialSlave);
             // update state if socket closure was caused by remote side
             if (q->state() != QModbusDevice::ClosingState)

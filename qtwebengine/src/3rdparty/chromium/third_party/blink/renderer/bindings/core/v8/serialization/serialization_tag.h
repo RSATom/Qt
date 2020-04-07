@@ -39,6 +39,8 @@ namespace blink {
 enum SerializationTag {
   kMessagePortTag = 'M',  // index:int -> MessagePort. Fills the result with
                           // transferred MessagePort.
+  kMojoHandleTag = 'h',   // index:int -> MojoHandle. Fills the result with
+                          // transferred MojoHandle.
   kBlobTag = 'b',  // uuid:WebCoreString, type:WebCoreString, size:uint64_t ->
                    // Blob (ref)
   kBlobIndexTag = 'i',      // index:int32_t -> Blob (ref)
@@ -65,6 +67,9 @@ enum SerializationTag {
   kOffscreenCanvasTransferTag = 'H',  // index, width, height, id:uint32_t ->
                                       // OffscreenCanvas. For OffscreenCanvas
                                       // transfer
+  kReadableStreamTransferTag = 'r',   // index:uint32_t
+  kTransformStreamTransferTag = 'm',  // index:uint32_t
+  kWritableStreamTransferTag = 'w',   // index:uint32_t
   kDOMPointTag = 'Q',                 // x:Double, y:Double, z:Double, w:Double
   kDOMPointReadOnlyTag = 'W',         // x:Double, y:Double, z:Double, w:Double
   kDOMRectTag = 'E',          // x:Double, y:Double, width:Double, height:Double
@@ -91,7 +96,15 @@ enum SerializationTag {
   //                     namedCurve:uint32_t
   kRTCCertificateTag = 'k',  // length:uint32_t, pemPrivateKey:WebCoreString,
                              // pemCertificate:WebCoreString
-  kVersionTag = 0xFF  // version:uint32_t -> Uses this as the file version.
+  kDetectedBarcodeTag =
+      'B',  // raw_value:WebCoreString, bounding_box:DOMRectReadOnly,
+            // corner_points:Point2D[length] -> DetectedBarcode (ref)
+  kDetectedFaceTag =
+      'F',  // raw_value:WebCoreString, bounding_box:DOMRectReadOnly,
+            // corner_points:Point2D[length] -> DetectedText (ref)
+  kDetectedTextTag = 't',  // bounding_box:DOMRectReadOnly,
+                           // landmarks:Landmark[length] -> DetectedFace (ref)
+  kVersionTag = 0xFF       // version:uint32_t -> Uses this as the file version.
 };
 
 }  // namespace blink

@@ -8,11 +8,11 @@
 #include "base/test/scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/renderer/platform/scheduler/child/webthread_impl_for_worker_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/worker/worker_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread_scheduler.h"
 #include "third_party/blink/renderer/platform/waitable_event.h"
 
@@ -45,24 +45,22 @@ class WorkerThreadSchedulerForTest : public WorkerThreadScheduler {
   WaitableEvent* throtting_state_changed_;
 };
 
-class WebThreadImplForWorkerSchedulerForTest
-    : public WebThreadImplForWorkerScheduler {
+class WorkerThreadForTest : public WorkerThread {
  public:
-  WebThreadImplForWorkerSchedulerForTest(FrameScheduler* frame_scheduler,
-                                         WaitableEvent* throtting_state_changed)
-      : WebThreadImplForWorkerScheduler(
-            WebThreadCreationParams(WebThreadType::kTestThread)
-                .SetFrameOrWorkerScheduler(frame_scheduler)),
+  WorkerThreadForTest(FrameScheduler* frame_scheduler,
+                      WaitableEvent* throtting_state_changed)
+      : WorkerThread(ThreadCreationParams(WebThreadType::kTestThread)
+                         .SetFrameOrWorkerScheduler(frame_scheduler)),
         throtting_state_changed_(throtting_state_changed) {}
 
-  ~WebThreadImplForWorkerSchedulerForTest() override {
+  ~WorkerThreadForTest() override {
     base::WaitableEvent completion(
         base::WaitableEvent::ResetPolicy::AUTOMATIC,
         base::WaitableEvent::InitialState::NOT_SIGNALED);
     thread_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&WebThreadImplForWorkerSchedulerForTest::
-                                      DisposeWorkerSchedulerOnThread,
-                                  base::Unretained(this), &completion));
+        FROM_HERE,
+        base::BindOnce(&WorkerThreadForTest::DisposeWorkerSchedulerOnThread,
+                       base::Unretained(this), &completion));
     completion.Wait();
   }
 
@@ -78,7 +76,10 @@ class WebThreadImplForWorkerSchedulerForTest
   std::unique_ptr<NonMainThreadSchedulerImpl> CreateNonMainThreadScheduler()
       override {
     auto scheduler = std::make_unique<WorkerThreadSchedulerForTest>(
-        base::sequence_manager::CreateSequenceManagerOnCurrentThread(),
+        base::sequence_manager::CreateSequenceManagerOnCurrentThread(
+            base::sequence_manager::SequenceManager::Settings{
+                base::MessageLoop::TYPE_DEFAULT,
+                /* randomised_sampling_enabled */ true}),
         worker_scheduler_proxy(), throtting_state_changed_);
     scheduler_ = scheduler.get();
     worker_scheduler_ = std::make_unique<scheduler::WorkerScheduler>(
@@ -94,12 +95,11 @@ class WebThreadImplForWorkerSchedulerForTest
   std::unique_ptr<WorkerScheduler> worker_scheduler_ = nullptr;
 };
 
-std::unique_ptr<WebThreadImplForWorkerSchedulerForTest> CreateWorkerThread(
+std::unique_ptr<WorkerThreadForTest> CreateWorkerThread(
     FrameScheduler* frame_scheduler,
     WaitableEvent* throtting_state_changed) {
-  std::unique_ptr<WebThreadImplForWorkerSchedulerForTest> thread =
-      std::make_unique<WebThreadImplForWorkerSchedulerForTest>(
-          frame_scheduler, throtting_state_changed);
+  auto thread = std::make_unique<WorkerThreadForTest>(frame_scheduler,
+                                                      throtting_state_changed);
   thread->Init();
   return thread;
 }
@@ -123,6 +123,7 @@ class WorkerSchedulerProxyTest : public testing::Test {
                                                 main_thread_scheduler_.get())),
         frame_scheduler_(
             FrameSchedulerImpl::Create(page_scheduler_.get(),
+                                       nullptr,
                                        nullptr,
                                        FrameScheduler::FrameType::kMainFrame)) {
     // Null clock triggers some assertions.

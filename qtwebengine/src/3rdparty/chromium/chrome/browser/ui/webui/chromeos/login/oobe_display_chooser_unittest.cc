@@ -9,11 +9,11 @@
 
 #include "ash/display/display_configuration_controller.h"
 #include "ash/shell.h"
-#include "ash/test/ash_test_base.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "chrome/test/base/chrome_ash_test_base.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "services/ui/public/cpp/input_devices/input_device_client_test_api.h"
+#include "services/ws/public/cpp/input_devices/input_device_client_test_api.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/display.h"
 #include "ui/display/display_observer.h"
@@ -73,24 +73,24 @@ class TestCrosDisplayConfig : public ash::mojom::CrosDisplayConfigController {
   DISALLOW_COPY_AND_ASSIGN(TestCrosDisplayConfig);
 };
 
-class OobeDisplayChooserTest : public ash::AshTestBase {
+class OobeDisplayChooserTest : public ChromeAshTestBase {
  public:
-  OobeDisplayChooserTest() : ash::AshTestBase() {}
+  OobeDisplayChooserTest() : ChromeAshTestBase() {}
 
   int64_t GetPrimaryDisplay() {
     return display::Screen::GetScreen()->GetPrimaryDisplay().id();
   }
 
-  // ash::AshTestBase:
+  // ChromeAshTestBase:
   void SetUp() override {
-    ash::AshTestBase::SetUp();
+    ChromeAshTestBase::SetUp();
 
     cros_display_config_ = std::make_unique<TestCrosDisplayConfig>();
     display_chooser_ = std::make_unique<OobeDisplayChooser>();
     display_chooser_->set_cros_display_config_ptr_for_test(
         cros_display_config_->CreateInterfacePtrAndBind());
 
-    ui::InputDeviceClientTestApi().OnDeviceListsComplete();
+    ws::InputDeviceClientTestApi().OnDeviceListsComplete();
   }
 
   OobeDisplayChooser* display_chooser() { return display_chooser_.get(); }
@@ -121,10 +121,10 @@ TEST_F(OobeDisplayChooserTest, PreferTouchAsPrimary) {
 
   // Setup corresponding TouchscreenDevice object
   ui::TouchscreenDevice touchscreen =
-      ui::TouchscreenDevice(1, ui::InputDeviceType::INPUT_DEVICE_EXTERNAL,
+      ui::TouchscreenDevice(1, ui::InputDeviceType::INPUT_DEVICE_USB,
                             "Touchscreen", gfx::Size(800, 600), 1);
   touchscreen.vendor_id = kWhitelistedId;
-  ui::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen});
+  ws::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen});
   base::RunLoop().RunUntilIdle();
 
   // Associate touchscreen device with display
@@ -137,10 +137,10 @@ TEST_F(OobeDisplayChooserTest, PreferTouchAsPrimary) {
   // For mus we have to explicitly tell the InputDeviceClient the
   // TouchscreenDevices. Normally InputDeviceClient is told of the
   // TouchscreenDevices by way of implementing
-  // ui::mojom::InputDeviceObserverMojo. In unit tests InputDeviceClient is not
+  // ws::mojom::InputDeviceObserverMojo. In unit tests InputDeviceClient is not
   // wired to the window server (the window server isn't running).
   touchscreen.target_display_id = display_info[1].id();
-  ui::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen}, true);
+  ws::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen}, true);
 
   EXPECT_EQ(1, GetPrimaryDisplay());
   display_chooser()->TryToPlaceUiOnTouchDisplay();
@@ -164,10 +164,10 @@ TEST_F(OobeDisplayChooserTest, DontSwitchFromTouch) {
 
   // Setup corresponding TouchscreenDevice object
   ui::TouchscreenDevice touchscreen =
-      ui::TouchscreenDevice(1, ui::InputDeviceType::INPUT_DEVICE_EXTERNAL,
+      ui::TouchscreenDevice(1, ui::InputDeviceType::INPUT_DEVICE_USB,
                             "Touchscreen", gfx::Size(800, 600), 1);
   touchscreen.vendor_id = kWhitelistedId;
-  ui::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen});
+  ws::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen});
   base::RunLoop().RunUntilIdle();
 
   // Associate touchscreen device with display

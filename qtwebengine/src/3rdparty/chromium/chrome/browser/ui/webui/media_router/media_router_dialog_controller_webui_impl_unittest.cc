@@ -8,11 +8,11 @@
 #include "chrome/browser/media/router/test/test_helper.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/media_router/media_router_ui_service.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/mock_media_router_action_controller.h"
 #include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_webui_impl.h"
 #include "chrome/browser/ui/webui/media_router/media_router_ui.h"
-#include "chrome/browser/ui/webui/media_router/media_router_ui_service.h"
 #include "chrome/browser/ui/webui/media_router/media_router_web_ui_test.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -29,8 +29,10 @@ class MediaRouterDialogControllerWebUIImplTest : public MediaRouterWebUITest {
 
   void OpenMediaRouterDialog();
 
-  MOCK_METHOD2(PresentationSuccessCallback,
-               void(const blink::mojom::PresentationInfo&, const MediaRoute&));
+  MOCK_METHOD3(PresentationSuccessCallback,
+               void(const blink::mojom::PresentationInfo&,
+                    mojom::RoutePresentationConnectionPtr,
+                    const MediaRoute&));
   MOCK_METHOD1(PresentationErrorCallback,
                void(const blink::mojom::PresentationError& error));
 
@@ -255,15 +257,16 @@ TEST_F(MediaRouterDialogControllerWebUIImplTest, NotifyActionController) {
 
   EXPECT_CALL(*action_controller, OnDialogShown());
   EXPECT_TRUE(dialog_controller_->ShowMediaRouterDialogForPresentation(
-      content::PresentationRequest(
-          {1, 2}, {GURL("http://test.com"), GURL("http://test2.com")},
-          url::Origin::Create(GURL("http://example.com"))),
-      base::BindOnce(&MediaRouterDialogControllerWebUIImplTest::
-                         PresentationSuccessCallback,
-                     base::Unretained(this)),
-      base::BindOnce(
-          &MediaRouterDialogControllerWebUIImplTest::PresentationErrorCallback,
-          base::Unretained(this))));
+      std::make_unique<StartPresentationContext>(
+          content::PresentationRequest(
+              {1, 2}, {GURL("http://test.com"), GURL("http://test2.com")},
+              url::Origin::Create(GURL("http://example.com"))),
+          base::BindOnce(&MediaRouterDialogControllerWebUIImplTest::
+                             PresentationSuccessCallback,
+                         base::Unretained(this)),
+          base::BindOnce(&MediaRouterDialogControllerWebUIImplTest::
+                             PresentationErrorCallback,
+                         base::Unretained(this)))));
 
   // When |dialog_controller_| is destroyed with its dialog open,
   // |action_controller| should be notified.

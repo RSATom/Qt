@@ -58,13 +58,17 @@
 #include "visited_links_manager_qt.h"
 #include "web_contents_adapter_client.h"
 #include "web_contents_adapter.h"
+#include "web_contents_view_qt.h"
 #include "web_engine_context.h"
 #include "web_engine_settings.h"
 
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "components/web_cache/browser/web_cache_manager.h"
+#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -73,7 +77,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/favicon_url.h"
-#include "content/public/common/file_chooser_params.h"
 #include "content/public/common/frame_navigate_params.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
@@ -102,6 +105,7 @@ WebContentsDelegateQt::WebContentsDelegateQt(content::WebContents *webContents, 
     , m_lastReceivedFindReply(0)
     , m_faviconManager(new FaviconManager(webContents, adapterClient))
     , m_lastLoadProgress(-1)
+    , m_frameFocusedObserver(adapterClient)
 {
     webContents->SetDelegate(this);
     Observe(webContents);
@@ -134,6 +138,7 @@ content::WebContents *WebContentsDelegateQt::OpenURLFromTab(content::WebContents
     Q_ASSERT(target);
 
     content::NavigationController::LoadURLParams load_url_params(params.url);
+    load_url_params.initiator_origin = params.initiator_origin;
     load_url_params.source_site_instance = target_site_instance;
     load_url_params.referrer = referrer;
     load_url_params.frame_tree_node_id = params.frame_tree_node_id;
@@ -143,7 +148,11 @@ content::WebContents *WebContentsDelegateQt::OpenURLFromTab(content::WebContents
     load_url_params.should_replace_current_entry = params.should_replace_current_entry;
     load_url_params.is_renderer_initiated = params.is_renderer_initiated;
     load_url_params.started_from_context_menu = params.started_from_context_menu;
+    load_url_params.has_user_gesture = params.user_gesture;
+    load_url_params.blob_url_loader_factory = params.blob_url_loader_factory;
     load_url_params.override_user_agent = content::NavigationController::UA_OVERRIDE_TRUE;
+    load_url_params.href_translate = params.href_translate;
+    load_url_params.reload_type = params.reload_type;
     if (params.uses_post) {
         load_url_params.load_type = content::NavigationController::LOAD_TYPE_HTTP_POST;
         load_url_params.post_data = params.post_data;
@@ -153,7 +162,7 @@ content::WebContents *WebContentsDelegateQt::OpenURLFromTab(content::WebContents
     return target;
 }
 
-static bool shouldUseActualURL(const content::NavigationEntry *entry)
+static bool shouldUseActualURL(content::NavigationEntry *entry)
 {
     Q_ASSERT(entry);
 
@@ -223,6 +232,11 @@ void WebContentsDelegateQt::AddNewContents(content::WebContents* source, std::un
 {
     Q_UNUSED(source)
     QSharedPointer<WebContentsAdapter> newAdapter = createWindow(std::move(new_contents), disposition, initial_pos, user_gesture);
+    // Chromium can forget to pass user-agent override settings to new windows (see QTBUG-61774 and QTBUG-76249),
+    // so set it here. Note the actual value doesn't really matter here. Only the second value does, but we try
+    // to give the correct user-agent anyway.
+    if (newAdapter)
+        newAdapter->webContents()->SetUserAgentOverride(newAdapter->profileAdapter()->httpUserAgent().toStdString(), true);
     if (newAdapter && !newAdapter->isInitialized())
         newAdapter->loadDefault();
     if (was_blocked)
@@ -246,16 +260,37 @@ void WebContentsDelegateQt::LoadProgressChanged(content::WebContents */*source*/
     m_viewClient->loadProgressChanged(m_lastLoadProgress);
 }
 
-void WebContentsDelegateQt::HandleKeyboardEvent(content::WebContents *, const content::NativeWebKeyboardEvent &event)
+bool WebContentsDelegateQt::HandleKeyboardEvent(content::WebContents *, const content::NativeWebKeyboardEvent &event)
 {
     Q_ASSERT(!event.skip_in_browser);
     if (event.os_event)
         m_viewClient->unhandledKeyEvent(reinterpret_cast<QKeyEvent *>(event.os_event));
+    // FIXME: ?
+    return true;
+}
+
+void WebContentsDelegateQt::RenderFrameCreated(content::RenderFrameHost *render_frame_host)
+{
+    content::FrameTreeNode *node = static_cast<content::RenderFrameHostImpl *>(render_frame_host)->frame_tree_node();
+    m_frameFocusedObserver.addNode(node);
 }
 
 void WebContentsDelegateQt::RenderFrameDeleted(content::RenderFrameHost *render_frame_host)
 {
     m_loadingErrorFrameList.removeOne(render_frame_host->GetRoutingID());
+}
+
+void WebContentsDelegateQt::RenderFrameHostChanged(content::RenderFrameHost *old_host, content::RenderFrameHost *new_host)
+{
+    if (old_host) {
+        content::FrameTreeNode *old_node = static_cast<content::RenderFrameHostImpl *>(old_host)->frame_tree_node();
+        m_frameFocusedObserver.removeNode(old_node);
+    }
+
+    if (new_host) {
+        content::FrameTreeNode *new_node = static_cast<content::RenderFrameHostImpl *>(new_host)->frame_tree_node();
+        m_frameFocusedObserver.addNode(new_node);
+    }
 }
 
 void WebContentsDelegateQt::RenderViewHostChanged(content::RenderViewHost *, content::RenderViewHost *newHost)
@@ -411,12 +446,14 @@ void WebContentsDelegateQt::DidUpdateFaviconURL(const std::vector<content::Favic
     m_faviconManager->update(faviconCandidates);
 }
 
-void WebContentsDelegateQt::WebContentsCreated(content::WebContents */*source_contents*/,
+void WebContentsDelegateQt::WebContentsCreated(content::WebContents * /*source_contents*/,
                                                int /*opener_render_process_id*/, int /*opener_render_frame_id*/,
                                                const std::string &/*frame_name*/,
-                                               const GURL &target_url, content::WebContents */*new_contents*/)
+                                               const GURL &target_url, content::WebContents *newContents)
 {
     m_initialTargetUrl = toQt(target_url);
+    if (auto *view = static_cast<content::WebContentsImpl *>(newContents)->GetView())
+        static_cast<WebContentsViewQt *>(view)->setFactoryClient(m_viewClient);
 }
 
 content::ColorChooser *WebContentsDelegateQt::OpenColorChooser(content::WebContents *source, SkColor color, const std::vector<blink::mojom::ColorSuggestionPtr> &suggestion)
@@ -451,12 +488,14 @@ bool WebContentsDelegateQt::IsFullscreenForTabOrPending(const content::WebConten
     return m_viewClient->isFullScreenMode();
 }
 
-ASSERT_ENUMS_MATCH(FilePickerController::Open, content::FileChooserParams::Open)
-ASSERT_ENUMS_MATCH(FilePickerController::OpenMultiple, content::FileChooserParams::OpenMultiple)
-ASSERT_ENUMS_MATCH(FilePickerController::UploadFolder, content::FileChooserParams::UploadFolder)
-ASSERT_ENUMS_MATCH(FilePickerController::Save, content::FileChooserParams::Save)
+ASSERT_ENUMS_MATCH(FilePickerController::Open, blink::mojom::FileChooserParams::Mode::kOpen)
+ASSERT_ENUMS_MATCH(FilePickerController::OpenMultiple, blink::mojom::FileChooserParams::Mode::kOpenMultiple)
+ASSERT_ENUMS_MATCH(FilePickerController::UploadFolder, blink::mojom::FileChooserParams::Mode::kUploadFolder)
+ASSERT_ENUMS_MATCH(FilePickerController::Save, blink::mojom::FileChooserParams::Mode::kSave)
 
-void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost *frameHost, const content::FileChooserParams &params)
+void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost * /*frameHost*/,
+                                           std::unique_ptr<content::FileSelectListener> listener,
+                                           const blink::mojom::FileChooserParams& params)
 {
     QStringList acceptedMimeTypes;
     acceptedMimeTypes.reserve(params.accept_types.size());
@@ -464,7 +503,7 @@ void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost *frameHost, 
         acceptedMimeTypes.append(toQt(*it));
 
     m_filePickerController.reset(new FilePickerController(static_cast<FilePickerController::FileChooserMode>(params.mode),
-                                                          frameHost, toQt(params.default_file_name.value()), acceptedMimeTypes));
+                                                          std::move(listener), toQt(params.default_file_name.value()), acceptedMimeTypes));
 
     // Defer the call to not block base::MessageLoop::RunTask with modal dialogs.
     QTimer::singleShot(0, [this] () {
@@ -484,7 +523,7 @@ void WebContentsDelegateQt::FindReply(content::WebContents *source, int request_
     Q_UNUSED(source)
     Q_UNUSED(selection_rect)
     Q_UNUSED(active_match_ordinal)
-    if (final_update) {
+    if (final_update && request_id > m_lastReceivedFindReply) {
         m_lastReceivedFindReply = request_id;
         m_viewClient->didFindText(request_id, number_of_matches);
     }
@@ -583,6 +622,11 @@ void WebContentsDelegateQt::requestGeolocationPermission(const QUrl &requestingO
     m_viewClient->runGeolocationPermissionRequest(requestingOrigin);
 }
 
+void WebContentsDelegateQt::requestUserNotificationPermission(const QUrl &requestingOrigin)
+{
+    m_viewClient->runUserNotificationPermissionRequest(requestingOrigin);
+}
+
 extern WebContentsAdapterClient::NavigationType pageTransitionToNavigationType(ui::PageTransition transition);
 
 void WebContentsDelegateQt::launchExternalURL(const QUrl &url, ui::PageTransition page_transition, bool is_main_frame, bool has_user_gesture)
@@ -633,16 +677,18 @@ void WebContentsDelegateQt::BeforeUnloadFired(content::WebContents *tab, bool pr
         m_viewClient->windowCloseRejected();
 }
 
-void WebContentsDelegateQt::BeforeUnloadFired(const base::TimeTicks &proceed_time) {
+void WebContentsDelegateQt::BeforeUnloadFired(bool proceed, const base::TimeTicks &proceed_time)
+{
+    Q_UNUSED(proceed);
     Q_UNUSED(proceed_time);
 }
 
-bool WebContentsDelegateQt::CheckMediaAccessPermission(content::RenderFrameHost *, const GURL& security_origin, content::MediaStreamType type)
+bool WebContentsDelegateQt::CheckMediaAccessPermission(content::RenderFrameHost *, const GURL& security_origin, blink::MediaStreamType type)
 {
     switch (type) {
-    case content::MEDIA_DEVICE_AUDIO_CAPTURE:
+    case blink::MEDIA_DEVICE_AUDIO_CAPTURE:
         return m_viewClient->profileAdapter()->checkPermission(toQt(security_origin), ProfileAdapter::AudioCapturePermission);
-    case content::MEDIA_DEVICE_VIDEO_CAPTURE:
+    case blink::MEDIA_DEVICE_VIDEO_CAPTURE:
         return m_viewClient->profileAdapter()->checkPermission(toQt(security_origin), ProfileAdapter::VideoCapturePermission);
     default:
         LOG(INFO) << "WebContentsDelegateQt::CheckMediaAccessPermission: "
@@ -702,6 +748,44 @@ WebEngineSettings *WebContentsDelegateQt::webEngineSettings() const {
 WebContentsAdapter *WebContentsDelegateQt::webContentsAdapter() const
 {
     return m_viewClient->webContentsAdapter();
+}
+
+
+FrameFocusedObserver::FrameFocusedObserver(WebContentsAdapterClient *adapterClient)
+    : m_viewClient(adapterClient)
+{}
+
+void FrameFocusedObserver::addNode(content::FrameTreeNode *node)
+{
+   if (m_observedNodes.contains(node))
+       return;
+
+   node->AddObserver(this);
+   m_observedNodes.append(node);
+}
+
+void FrameFocusedObserver::removeNode(content::FrameTreeNode *node)
+{
+    node->RemoveObserver(this);
+    m_observedNodes.removeOne(node);
+}
+
+void FrameFocusedObserver::OnFrameTreeNodeFocused(content::FrameTreeNode *node)
+{
+    Q_UNUSED(node);
+    m_viewClient->updateEditActions();
+}
+
+void FrameFocusedObserver::OnFrameTreeNodeDestroyed(content::FrameTreeNode *node)
+{
+    m_observedNodes.removeOne(node);
+    m_viewClient->updateEditActions();
+}
+
+FrameFocusedObserver::~FrameFocusedObserver()
+{
+    for (content::FrameTreeNode *node : m_observedNodes)
+        node->RemoveObserver(this);
 }
 
 } // namespace QtWebEngineCore

@@ -12,25 +12,46 @@
 
 #ifdef SK_VULKAN
 
+#include "GrVulkanDefines.h"
 #include "vk/GrVkBackendContext.h"
+
+class GrVkExtensions;
 
 namespace sk_gpu_test {
 class VkTestContext : public TestContext {
 public:
-    virtual GrBackend backend() override { return kVulkan_GrBackend; }
+    virtual GrBackendApi backend() override { return GrBackendApi::kVulkan; }
 
-    const GrVkBackendContext& getVkBackendContext() {
+    const GrVkBackendContext& getVkBackendContext() const {
         return fVk;
     }
 
-protected:
-    VkTestContext(const GrVkBackendContext& vk, bool ownsContext,
-                  VkDebugReportCallbackEXT debugCallback)
-            : fVk(vk), fOwnsContext(ownsContext), fDebugCallback(debugCallback) {}
+    const GrVkExtensions* getVkExtensions() const {
+        return fExtensions;
+    }
 
-    GrVkBackendContext fVk;
-    bool fOwnsContext;
-    VkDebugReportCallbackEXT fDebugCallback = VK_NULL_HANDLE;
+    const VkPhysicalDeviceFeatures2* getVkFeatures() const {
+        return fFeatures;
+    }
+
+protected:
+    VkTestContext(const GrVkBackendContext& vk, const GrVkExtensions* extensions,
+                  const VkPhysicalDeviceFeatures2* features, bool ownsContext,
+                  VkDebugReportCallbackEXT debugCallback,
+                  PFN_vkDestroyDebugReportCallbackEXT destroyCallback)
+            : fVk(vk)
+            , fExtensions(extensions)
+            , fFeatures(features)
+            , fOwnsContext(ownsContext)
+            , fDebugCallback(debugCallback)
+            , fDestroyDebugReportCallbackEXT(destroyCallback) {}
+
+    GrVkBackendContext                  fVk;
+    const GrVkExtensions*               fExtensions;
+    const VkPhysicalDeviceFeatures2*    fFeatures;
+    bool                                fOwnsContext;
+    VkDebugReportCallbackEXT            fDebugCallback = VK_NULL_HANDLE;
+    PFN_vkDestroyDebugReportCallbackEXT fDestroyDebugReportCallbackEXT = nullptr;
 
 private:
     typedef TestContext INHERITED;

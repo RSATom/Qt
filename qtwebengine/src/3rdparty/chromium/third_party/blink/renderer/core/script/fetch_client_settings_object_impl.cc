@@ -24,7 +24,8 @@ const SecurityOrigin* FetchClientSettingsObjectImpl::GetSecurityOrigin() const {
   return execution_context_->GetSecurityOrigin();
 }
 
-ReferrerPolicy FetchClientSettingsObjectImpl::GetReferrerPolicy() const {
+network::mojom::ReferrerPolicy
+FetchClientSettingsObjectImpl::GetReferrerPolicy() const {
   DCHECK(execution_context_->IsContextThread());
   return execution_context_->GetReferrerPolicy();
 }
@@ -37,6 +38,27 @@ const String FetchClientSettingsObjectImpl::GetOutgoingReferrer() const {
 HttpsState FetchClientSettingsObjectImpl::GetHttpsState() const {
   DCHECK(execution_context_->IsContextThread());
   return execution_context_->GetHttpsState();
+}
+
+AllowedByNosniff::MimeTypeCheck
+FetchClientSettingsObjectImpl::MimeTypeCheckForClassicWorkerScript() const {
+  if (execution_context_->IsDocument()) {
+    // For worker creation on a document, don't impose strict MIME-type checks
+    // on the top-level worker script for backward compatibility. Note that
+    // there is a plan to deprecate legacy mime types for workers. See
+    // https://crbug.com/794548.
+    //
+    // For worker creation on a document with off-the-main-thread top-level
+    // worker classic script loading, this value is propagated to
+    // outsideSettings FCSO.
+    return AllowedByNosniff::MimeTypeCheck::kLax;
+  }
+
+  // For importScripts() and nested worker top-level scripts impose the strict
+  // MIME-type checks.
+  // Nested workers is a new feature (enabled by default in M69) and there is no
+  // backward compatibility issue.
+  return AllowedByNosniff::MimeTypeCheck::kStrict;
 }
 
 void FetchClientSettingsObjectImpl::Trace(Visitor* visitor) {

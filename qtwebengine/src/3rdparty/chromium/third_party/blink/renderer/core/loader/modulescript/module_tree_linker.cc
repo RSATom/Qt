@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/script/layered_api.h"
 #include "third_party/blink/renderer/core/script/module_script.h"
 #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loading_log.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
@@ -20,16 +21,16 @@ namespace blink {
 
 void ModuleTreeLinker::Fetch(
     const KURL& url,
-    FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-    WebURLRequest::RequestContext destination,
+    ResourceFetcher* fetch_client_settings_object_fetcher,
+    mojom::RequestContextType destination,
     const ScriptFetchOptions& options,
     Modulator* modulator,
     ModuleScriptCustomFetchType custom_fetch_type,
     ModuleTreeLinkerRegistry* registry,
     ModuleTreeClient* client) {
-  ModuleTreeLinker* fetcher =
-      new ModuleTreeLinker(fetch_client_settings_object, destination, modulator,
-                           custom_fetch_type, registry, client);
+  ModuleTreeLinker* fetcher = MakeGarbageCollected<ModuleTreeLinker>(
+      fetch_client_settings_object_fetcher, destination, modulator,
+      custom_fetch_type, registry, client);
   registry->AddFetcher(fetcher);
   fetcher->FetchRoot(url, options);
   DCHECK(fetcher->IsFetching());
@@ -37,29 +38,30 @@ void ModuleTreeLinker::Fetch(
 
 void ModuleTreeLinker::FetchDescendantsForInlineScript(
     ModuleScript* module_script,
-    FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-    WebURLRequest::RequestContext destination,
+    ResourceFetcher* fetch_client_settings_object_fetcher,
+    mojom::RequestContextType destination,
     Modulator* modulator,
     ModuleScriptCustomFetchType custom_fetch_type,
     ModuleTreeLinkerRegistry* registry,
     ModuleTreeClient* client) {
   DCHECK(module_script);
-  ModuleTreeLinker* fetcher =
-      new ModuleTreeLinker(fetch_client_settings_object, destination, modulator,
-                           custom_fetch_type, registry, client);
+  ModuleTreeLinker* fetcher = MakeGarbageCollected<ModuleTreeLinker>(
+      fetch_client_settings_object_fetcher, destination, modulator,
+      custom_fetch_type, registry, client);
   registry->AddFetcher(fetcher);
   fetcher->FetchRootInline(module_script);
   DCHECK(fetcher->IsFetching());
 }
 
 ModuleTreeLinker::ModuleTreeLinker(
-    FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-    WebURLRequest::RequestContext destination,
+    ResourceFetcher* fetch_client_settings_object_fetcher,
+    mojom::RequestContextType destination,
     Modulator* modulator,
     ModuleScriptCustomFetchType custom_fetch_type,
     ModuleTreeLinkerRegistry* registry,
     ModuleTreeClient* client)
-    : fetch_client_settings_object_(fetch_client_settings_object),
+    : fetch_client_settings_object_fetcher_(
+          fetch_client_settings_object_fetcher),
       destination_(destination),
       modulator_(modulator),
       custom_fetch_type_(custom_fetch_type),
@@ -71,7 +73,7 @@ ModuleTreeLinker::ModuleTreeLinker(
 }
 
 void ModuleTreeLinker::Trace(blink::Visitor* visitor) {
-  visitor->Trace(fetch_client_settings_object_);
+  visitor->Trace(fetch_client_settings_object_fetcher_);
   visitor->Trace(modulator_);
   visitor->Trace(registry_);
   visitor->Trace(client_);
@@ -163,10 +165,8 @@ void ModuleTreeLinker::FetchRoot(const KURL& original_url,
   // href="https://github.com/drufball/layered-apis/blob/master/spec.md#fetch-a-module-script-graph"
   // step="1">Set url to the layered API fetching URL given url and the current
   // settings object's API base URL.</spec>
-  if (RuntimeEnabledFeatures::LayeredAPIEnabled()) {
-    url = blink::layered_api::ResolveFetchingURL(
-        url, fetch_client_settings_object_->BaseURL());
-  }
+  if (RuntimeEnabledFeatures::LayeredAPIEnabled())
+    url = blink::layered_api::ResolveFetchingURL(url);
 
 #if DCHECK_IS_ON()
   url_ = url;
@@ -188,13 +188,11 @@ void ModuleTreeLinker::FetchRoot(const KURL& original_url,
   visited_set_.insert(url);
 
   // Step 2. Perform the internal module script graph fetching procedure given
-  // ... with the top-level module fetch flag set. ...
-  ModuleScriptFetchRequest request(
-      url, destination_, options,
-      SecurityPolicy::GenerateReferrer(
-          options.GetReferrerPolicy(), url,
-          fetch_client_settings_object_->GetOutgoingReferrer()),
-      TextPosition::MinimumPosition());
+  // url, settings object, destination, options, settings object, visited set,
+  // "client", and with the top-level module fetch flag set.
+  ModuleScriptFetchRequest request(url, destination_, options,
+                                   Referrer::ClientReferrerString(),
+                                   TextPosition::MinimumPosition());
 
   InitiateInternalModuleScriptGraphFetching(
       request, ModuleGraphLevel::kTopLevelModuleFetch);
@@ -232,8 +230,8 @@ void ModuleTreeLinker::InitiateInternalModuleScriptGraphFetching(
   ++num_incomplete_fetches_;
 
   // [IMSGF] Step 2. Fetch a single module script given ...
-  modulator_->FetchSingle(request, fetch_client_settings_object_.Get(), level,
-                          custom_fetch_type_, this);
+  modulator_->FetchSingle(request, fetch_client_settings_object_fetcher_.Get(),
+                          level, custom_fetch_type_, this);
 
   // [IMSGF] Step 3-- are executed when NotifyModuleLoadFinished() is called.
 }
@@ -381,16 +379,14 @@ void ModuleTreeLinker::FetchDescendants(ModuleScript* module_script) {
   //
   // [FD] Step 7. These invocations of the internal module script graph fetching
   // procedure should be performed in parallel to each other.
-  for (size_t i = 0; i < urls.size(); ++i) {
+  for (wtf_size_t i = 0; i < urls.size(); ++i) {
     // [FD] Step 7. ... perform the internal module script graph fetching
     // procedure given url, fetch client settings object, destination, options,
     // module script's settings object, visited set, module script's base URL,
     // and with the top-level module fetch flag unset. ...
-    ModuleScriptFetchRequest request(
-        urls[i], destination_, options,
-        SecurityPolicy::GenerateReferrer(options.GetReferrerPolicy(), urls[i],
-                                         module_script->BaseURL().GetString()),
-        positions[i]);
+    ModuleScriptFetchRequest request(urls[i], destination_, options,
+                                     module_script->BaseURL().GetString(),
+                                     positions[i]);
     InitiateInternalModuleScriptGraphFetching(
         request, ModuleGraphLevel::kDependentModuleFetch);
   }

@@ -8,20 +8,14 @@
 #define FXJS_XFA_CJX_MARGIN_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Margin;
 
-class CJX_Margin : public CJX_Node {
+class CJX_Margin final : public CJX_Node {
  public:
   explicit CJX_Margin(CXFA_Margin* node);
   ~CJX_Margin() override;
-
-  JS_PROP(bottomInset);
-  JS_PROP(leftInset);
-  JS_PROP(rightInset);
-  JS_PROP(topInset);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_MARGIN_H_

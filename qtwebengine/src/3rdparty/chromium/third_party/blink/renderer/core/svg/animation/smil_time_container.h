@@ -46,8 +46,10 @@ class SVGSVGElement;
 class SMILTimeContainer : public GarbageCollectedFinalized<SMILTimeContainer> {
  public:
   static SMILTimeContainer* Create(SVGSVGElement& owner) {
-    return new SMILTimeContainer(owner);
+    return MakeGarbageCollected<SMILTimeContainer>(owner);
   }
+
+  explicit SMILTimeContainer(SVGSVGElement& owner);
   ~SMILTimeContainer();
 
   void Schedule(SVGSMILElement*, SVGElement*, const QualifiedName&);
@@ -75,8 +77,6 @@ class SMILTimeContainer : public GarbageCollectedFinalized<SMILTimeContainer> {
   void Trace(blink::Visitor*);
 
  private:
-  explicit SMILTimeContainer(SVGSVGElement& owner);
-
   enum FrameSchedulingState {
     // No frame scheduled.
     kIdle,
@@ -135,10 +135,11 @@ class SMILTimeContainer : public GarbageCollectedFinalized<SMILTimeContainer> {
   TaskRunnerTimer<SMILTimeContainer> wakeup_timer_;
   TaskRunnerTimer<SMILTimeContainer> animation_policy_once_timer_;
 
-  using ElementAttributePair = std::pair<WeakMember<SVGElement>, QualifiedName>;
   using AnimationsLinkedHashSet = HeapLinkedHashSet<WeakMember<SVGSMILElement>>;
+  using AttributeAnimationsMap =
+      HeapHashMap<QualifiedName, Member<AnimationsLinkedHashSet>>;
   using GroupedAnimationsMap =
-      HeapHashMap<ElementAttributePair, Member<AnimationsLinkedHashSet>>;
+      HeapHashMap<WeakMember<SVGElement>, AttributeAnimationsMap>;
   GroupedAnimationsMap scheduled_animations_;
 
   Member<SVGSVGElement> owner_svg_element_;

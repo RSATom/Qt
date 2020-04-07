@@ -14,6 +14,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+#include "extensions/renderer/get_script_context.h"
 #include "extensions/renderer/script_context.h"
 #include "gin/converter.h"
 #include "gin/dictionary.h"
@@ -75,15 +76,19 @@ std::unique_ptr<Message> MessageFromV8(v8::Local<v8::Context> context,
     return nullptr;
   }
 
-  return MessageFromJSONString(stringified, error_out);
+  ScriptContext* script_context = GetScriptContextFromV8Context(context);
+  blink::WebLocalFrame* web_frame =
+      script_context ? script_context->web_frame() : nullptr;
+  return MessageFromJSONString(isolate, stringified, error_out, web_frame);
 }
 
 std::unique_ptr<Message> MessageFromJSONString(
+    v8::Isolate* isolate,
     v8::Local<v8::String> json,
     std::string* error_out,
     blink::WebLocalFrame* web_frame) {
   std::string message;
-  message = gin::V8ToString(json);
+  message = gin::V8ToString(isolate, json);
   // JSON.stringify can fail to produce a string value in one of two ways: it
   // can throw an exception (as with unserializable objects), or it can return
   // `undefined` (as with e.g. passing a function). If JSON.stringify returns
@@ -135,10 +140,12 @@ v8::Local<v8::Value> MessageToV8(v8::Local<v8::Context> context,
 }
 
 int ExtractIntegerId(v8::Local<v8::Value> value) {
+  if (value->IsInt32())
+    return value.As<v8::Int32>()->Value();
+
   // Account for -0, which is a valid integer, but is stored as a number in v8.
-  DCHECK(value->IsNumber() &&
-         (value->IsInt32() || value.As<v8::Number>()->Value() == 0.0));
-  return value->Int32Value();
+  DCHECK(value->IsNumber() && value.As<v8::Number>()->Value() == 0.0);
+  return 0;
 }
 
 MessageOptions ParseMessageOptions(v8::Local<v8::Context> context,
@@ -159,7 +166,7 @@ MessageOptions ParseMessageOptions(v8::Local<v8::Context> context,
 
     if (!v8_channel_name->IsUndefined()) {
       DCHECK(v8_channel_name->IsString());
-      options.channel_name = gin::V8ToString(v8_channel_name);
+      options.channel_name = gin::V8ToString(isolate, v8_channel_name);
     }
   }
 
@@ -172,7 +179,7 @@ MessageOptions ParseMessageOptions(v8::Local<v8::Context> context,
     if (!v8_include_tls_channel_id->IsUndefined()) {
       DCHECK(v8_include_tls_channel_id->IsBoolean());
       options.include_tls_channel_id =
-          v8_include_tls_channel_id->BooleanValue();
+          v8_include_tls_channel_id.As<v8::Boolean>()->Value();
     }
   }
 
@@ -221,7 +228,7 @@ bool GetTargetExtensionId(ScriptContext* script_context,
     DCHECK(crx_file::id_util::IdIsValid(target_id));
   } else {
     DCHECK(v8_target_id->IsString());
-    target_id = gin::V8ToString(v8_target_id);
+    target_id = gin::V8ToString(script_context->isolate(), v8_target_id);
     // NOTE(devlin): JS bindings only validate that the extension id is present,
     // rather than validating its content. This seems better. Let's see how this
     // goes.

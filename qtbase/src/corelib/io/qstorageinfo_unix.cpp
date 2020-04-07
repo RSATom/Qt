@@ -220,7 +220,7 @@ static bool shouldIncludeFs(const QStorageIterator &it)
         return false;
     }
 
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     if (it.fileSystemType() == "rootfs")
         return false;
 #endif
@@ -468,8 +468,18 @@ inline bool QStorageIterator::next()
     size_t len = strlen(buffer.data());
     if (len == 0)
         return false;
-    if (ptr[len - 1] == '\n')
-        ptr[len - 1] = '\0';
+    while (Q_UNLIKELY(ptr[len - 1] != '\n' && !feof(fp))) {
+        // buffer wasn't large enough. Enlarge and try again.
+        // (we're readidng from the kernel, so OOM is unlikely)
+        buffer.resize((buffer.size() + 4096) & ~4095);
+        ptr = buffer.data();
+        if (fgets(ptr + len, buffer.size() - len, fp) == nullptr)
+            return false;
+
+        len += strlen(ptr + len);
+        Q_ASSERT(len < size_t(buffer.size()));
+    }
+    ptr[len - 1] = '\0';
 
     // parse the line
     bool ok;
@@ -846,7 +856,10 @@ QList<QStorageInfo> QStorageInfoPrivate::mountedVolumes()
 
         const QString mountDir = it.rootPath();
         QStorageInfo info(mountDir);
-        if (info.bytesTotal() == 0)
+        info.d->device = it.device();
+        info.d->fileSystemType = it.fileSystemType();
+        info.d->subvolume = it.subvolume();
+        if (info.bytesTotal() == 0 && info != root())
             continue;
         volumes.append(info);
     }

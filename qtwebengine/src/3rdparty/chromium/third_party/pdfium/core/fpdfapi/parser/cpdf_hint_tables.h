@@ -7,6 +7,7 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_HINT_TABLES_H_
 #define CORE_FPDFAPI_PARSER_CPDF_HINT_TABLES_H_
 
+#include <memory>
 #include <vector>
 
 #include "core/fpdfapi/parser/cpdf_data_avail.h"
@@ -15,14 +16,17 @@
 
 class CFX_BitStream;
 class CPDF_LinearizedHeader;
-class CPDF_Stream;
 class CPDF_ReadValidator;
+class CPDF_Stream;
+class CPDF_SyntaxParser;
 
 class CPDF_HintTables {
  public:
   struct SharedObjGroupInfo {
     FX_FILESIZE m_szOffset = 0;
     uint32_t m_dwLength = 0;
+    uint32_t m_dwObjectsCount = 0;
+    uint32_t m_dwStartObjNum = 0;
   };
 
   class PageInfo {
@@ -31,9 +35,9 @@ class CPDF_HintTables {
     ~PageInfo();
 
     void set_objects_count(uint32_t objects_count) {
-      m_nObjectsCount = objects_count;
+      m_dwObjectsCount = objects_count;
     }
-    uint32_t objects_count() const { return m_nObjectsCount; }
+    uint32_t objects_count() const { return m_dwObjectsCount; }
 
     void set_page_offset(FX_FILESIZE offset) { m_szOffset = offset; }
     FX_FILESIZE page_offset() const { return m_szOffset; }
@@ -55,7 +59,7 @@ class CPDF_HintTables {
     }
 
    private:
-    uint32_t m_nObjectsCount = 0;
+    uint32_t m_dwObjectsCount = 0;
     FX_FILESIZE m_szOffset = 0;
     uint32_t m_dwLength = 0;
     uint32_t m_dwStartObjNum = 0;
@@ -64,6 +68,10 @@ class CPDF_HintTables {
     PageInfo(const PageInfo& other) = delete;
     PageInfo& operator=(const PageInfo&) = delete;
   };
+
+  static std::unique_ptr<CPDF_HintTables> Parse(
+      CPDF_SyntaxParser* parser,
+      CPDF_LinearizedHeader* pLinearized);
 
   CPDF_HintTables(CPDF_ReadValidator* pValidator,
                   CPDF_LinearizedHeader* pLinearized);
@@ -82,6 +90,8 @@ class CPDF_HintTables {
   const std::vector<SharedObjGroupInfo>& SharedGroupInfos() const {
     return m_SharedObjGroupInfos;
   }
+
+  FX_FILESIZE GetFirstPageObjOffset() const { return m_szFirstPageObjOffset; }
 
  protected:
   bool ReadPageHintTable(CFX_BitStream* hStream);

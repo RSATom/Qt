@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/observer_list.h"
 #include "components/guest_view/browser/guest_view.h"
 #include "content/public/browser/javascript_dialog_manager.h"
 #include "extensions/browser/guest_view/web_view/javascript_dialog_helper.h"
@@ -22,10 +21,7 @@
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_types.h"
 #include "extensions/browser/script_executor.h"
-
-namespace blink {
-struct WebFindOptions;
-}  // namespace blink
+#include "third_party/blink/public/mojom/frame/find_in_page.mojom.h"
 
 namespace extensions {
 
@@ -71,7 +67,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   // represented by |render_process_host|, if any. Otherwise, an empty string is
   // returned.
   static std::string GetPartitionID(
-      const content::RenderProcessHost* render_process_host);
+      content::RenderProcessHost* render_process_host);
 
   static const char Type[];
 
@@ -120,7 +116,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   // Begin or continue a find request.
   void StartFind(const base::string16& search_text,
-                 const blink::WebFindOptions& options,
+                 blink::mojom::FindOptionsPtr options,
                  scoped_refptr<WebViewInternalFindFunction> find_function);
 
   // Conclude a find request to clear highlighting.
@@ -153,6 +149,12 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   ScriptExecutor* script_executor() { return script_executor_.get(); }
 
+  // Enables or disables spatial navigation.
+  void SetSpatialNavigationEnabled(bool enabled);
+
+  // Returns spatial navigation status.
+  bool IsSpatialNavigationEnabled() const;
+
  private:
   friend class WebViewPermissionHelper;
 
@@ -160,6 +162,9 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   ~WebViewGuest() override;
 
+  void ClearCodeCache(base::Time remove_since,
+                      uint32_t removal_mask,
+                      const base::Closure& callback);
   void ClearDataInternal(const base::Time remove_since,
                          uint32_t removal_mask,
                          const base::Closure& callback);
@@ -196,7 +201,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void GuestViewDidStopLoading() final;
   void GuestZoomChanged(double old_zoom_level, double new_zoom_level) final;
   bool IsAutoSizeSupported() const final;
-  void SignalWhenReady(const base::Closure& callback) final;
+  void SignalWhenReady(base::OnceClosure callback) final;
   void WillAttachToEmbedder() final;
   void WillDestroy() final;
 
@@ -208,7 +213,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
                               const base::string16& source_id) final;
   void CloseContents(content::WebContents* source) final;
   bool HandleContextMenu(const content::ContextMenuParams& params) final;
-  void HandleKeyboardEvent(content::WebContents* source,
+  bool HandleKeyboardEvent(content::WebContents* source,
                            const content::NativeWebKeyboardEvent& event) final;
   void LoadProgressChanged(content::WebContents* source, double progress) final;
   bool PreHandleGestureEvent(content::WebContents* source,
@@ -229,7 +234,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
       const base::Callback<void(bool)>& callback) final;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
-                                  content::MediaStreamType type) final;
+                                  blink::MediaStreamType type) final;
   void CanDownload(const GURL& url,
                    const std::string& request_method,
                    const base::Callback<void(bool)>& callback) final;
@@ -265,6 +270,8 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void DidStartNavigation(content::NavigationHandle* navigation_handle) final;
   void DidRedirectNavigation(
       content::NavigationHandle* navigation_handle) final;
+  void ReadyToCommitNavigation(
+      content::NavigationHandle* navigation_handle) final;
   void DidFinishNavigation(content::NavigationHandle* navigation_handle) final;
   void DocumentOnLoadCompletedInMainFrame() final;
   void RenderProcessGone(base::TerminationStatus status) final;
@@ -277,8 +284,6 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void ReportFrameNameChange(const std::string& name);
 
   void PushWebViewStateToIOThread();
-  static void RemoveWebViewStateFromIOThread(
-      content::WebContents* web_contents);
 
   // Loads the |url| provided. |force_navigation| indicates whether to reload
   // the content if the provided |url| matches the current page of the guest.
@@ -318,8 +323,6 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   // Handles find requests and replies for the webview find API.
   WebViewFindHelper find_helper_;
-
-  base::ObserverList<ScriptExecutionObserver> script_observers_;
   std::unique_ptr<ScriptExecutor> script_executor_;
 
   // True if the user agent is overridden.
@@ -345,13 +348,27 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   // Tracks the name, and target URL of the new window. Once the first
   // navigation commits, we no longer track this information.
   struct NewWindowInfo {
-    GURL url;
+    // Name of the new window.
     std::string name;
-    bool changed;
-    NewWindowInfo(const GURL& url, const std::string& name) :
-        url(url),
-        name(name),
-        changed(false) {}
+
+    // Expected initial URL of the new window.
+    GURL url;
+
+    // Whether OpenURL navigation from the newly created GuestView has changed
+    // |url|. The pending OpenURL navigation needs to be applied after attaching
+    // the GuestView.
+    bool url_changed_via_open_url;
+
+    // Whether the newly created GuestView begun navigating away from the
+    // initial URL.  Used to suppress the initial navigation when attaching the
+    // GuestView and applying its attributes.
+    bool did_start_navigating_away_from_initial_url;
+
+    NewWindowInfo(const GURL& url, const std::string& name)
+        : name(name),
+          url(url),
+          url_changed_via_open_url(false),
+          did_start_navigating_away_from_initial_url(false) {}
   };
 
   using PendingWindowMap = std::map<WebViewGuest*, NewWindowInfo>;
@@ -369,6 +386,9 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   // Whether the GuestView set an explicit zoom level.
   bool did_set_explicit_zoom_;
+
+  // Store spatial navigation status.
+  bool is_spatial_navigation_enabled_;
 
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.

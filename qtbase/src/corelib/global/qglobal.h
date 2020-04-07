@@ -287,7 +287,7 @@ typedef double qreal;
 #  undef QT_DEPRECATED_X
 #  undef QT_DEPRECATED_VARIABLE
 #  undef QT_DEPRECATED_CONSTRUCTOR
-#elif defined(QT_DEPRECATED_WARNINGS)
+#elif !defined(QT_NO_DEPRECATED_WARNINGS)
 #  undef QT_DEPRECATED
 #  define QT_DEPRECATED Q_DECL_DEPRECATED
 #  undef QT_DEPRECATED_X
@@ -371,6 +371,14 @@ typedef double qreal;
 #define Q_DISABLE_COPY(Class) \
     Class(const Class &) Q_DECL_EQ_DELETE;\
     Class &operator=(const Class &) Q_DECL_EQ_DELETE;
+
+#define Q_DISABLE_MOVE(Class) \
+    Class(Class &&) = delete; \
+    Class &operator=(Class &&) = delete;
+
+#define Q_DISABLE_COPY_MOVE(Class) \
+    Q_DISABLE_COPY(Class) \
+    Q_DISABLE_MOVE(Class)
 
 /*
    No, this is not an evil backdoor. QT_BUILD_INTERNAL just exports more symbols
@@ -591,11 +599,11 @@ Q_DECL_CONSTEXPR inline qint64 qRound64(float d)
 { return d >= 0.0f ? qint64(d + 0.5f) : qint64(d - float(qint64(d-1)) + 0.5f) + qint64(d-1); }
 
 template <typename T>
-Q_DECL_CONSTEXPR inline const T &qMin(const T &a, const T &b) { return (a < b) ? a : b; }
+constexpr inline const T &qMin(const T &a, const T &b) { return (a < b) ? a : b; }
 template <typename T>
-Q_DECL_CONSTEXPR inline const T &qMax(const T &a, const T &b) { return (a < b) ? b : a; }
+constexpr inline const T &qMax(const T &a, const T &b) { return (a < b) ? b : a; }
 template <typename T>
-Q_DECL_CONSTEXPR inline const T &qBound(const T &min, const T &val, const T &max)
+constexpr inline const T &qBound(const T &min, const T &val, const T &max)
 { return qMax(min, qMin(max, val)); }
 
 #ifndef Q_FORWARD_DECLARE_OBJC_CLASS
@@ -1005,6 +1013,15 @@ QForeachContainer<typename std::decay<T>::type> qMakeForeachContainer(T &&t)
 }
 
 }
+
+#if __cplusplus >= 201703L
+// Use C++17 if statement with initializer. User's code ends up in a else so
+// scoping of different ifs is not broken
+#define Q_FOREACH(variable, container)                                   \
+for (auto _container_ = QtPrivate::qMakeForeachContainer(container);     \
+     _container_.i != _container_.e;  ++_container_.i)                   \
+    if (variable = *_container_.i; false) {} else
+#else
 // Explanation of the control word:
 //  - it's initialized to 1
 //  - that means both the inner and outer loops start
@@ -1019,7 +1036,7 @@ for (auto _container_ = QtPrivate::qMakeForeachContainer(container); \
      _container_.control && _container_.i != _container_.e;         \
      ++_container_.i, _container_.control ^= 1)                     \
     for (variable = *_container_.i; _container_.control; _container_.control = 0)
-
+#endif
 #endif // QT_NO_FOREACH
 
 #define Q_FOREVER for(;;)
@@ -1192,9 +1209,6 @@ namespace QtPrivate {
 //like std::enable_if
 template <bool B, typename T = void> struct QEnableIf;
 template <typename T> struct QEnableIf<true, T> { typedef T Type; };
-
-template <bool B, typename T, typename F> struct QConditional { typedef T Type; };
-template <typename T, typename F> struct QConditional<false, T, F> { typedef F Type; };
 }
 
 QT_END_NAMESPACE

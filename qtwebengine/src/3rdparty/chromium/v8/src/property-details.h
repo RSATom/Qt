@@ -154,16 +154,13 @@ class Representation {
 
   int size() const {
     DCHECK(!IsNone());
-    if (IsInteger8() || IsUInteger8()) {
-      return sizeof(uint8_t);
-    }
-    if (IsInteger16() || IsUInteger16()) {
-      return sizeof(uint16_t);
-    }
-    if (IsInteger32()) {
-      return sizeof(uint32_t);
-    }
-    return kPointerSize;
+    if (IsInteger8() || IsUInteger8()) return kUInt8Size;
+    if (IsInteger16() || IsUInteger16()) return kUInt16Size;
+    if (IsInteger32()) return kInt32Size;
+    if (IsDouble()) return kDoubleSize;
+    if (IsExternal()) return kSystemPointerSize;
+    DCHECK(IsTagged() || IsSmi() || IsHeapObject());
+    return kTaggedSize;
   }
 
   Kind kind() const { return static_cast<Kind>(kind_); }
@@ -230,7 +227,7 @@ enum class PropertyCellConstantType {
 
 // PropertyDetails captures type and attributes for a property.
 // They are used both in property dictionaries and instance descriptors.
-class PropertyDetails BASE_EMBEDDED {
+class PropertyDetails {
  public:
   // Property details for dictionary mode properties/elements.
   PropertyDetails(PropertyKind kind, PropertyAttributes attributes,
@@ -287,9 +284,9 @@ class PropertyDetails BASE_EMBEDDED {
     return PropertyDetails(value_, new_attributes);
   }
 
-  // Conversion for storing details as Object*.
-  explicit inline PropertyDetails(Smi* smi);
-  inline Smi* AsSmi() const;
+  // Conversion for storing details as Object.
+  explicit inline PropertyDetails(Smi smi);
+  inline Smi AsSmi() const;
 
   static uint8_t EncodeRepresentation(Representation representation) {
     return representation.kind();
@@ -305,6 +302,11 @@ class PropertyDetails BASE_EMBEDDED {
 
   PropertyAttributes attributes() const {
     return AttributesField::decode(value_);
+  }
+
+  bool HasKindAndAttributes(PropertyKind kind, PropertyAttributes attributes) {
+    return (value_ & (KindField::kMask | AttributesField::kMask)) ==
+           (KindField::encode(kind) | AttributesField::encode(attributes));
   }
 
   int dictionary_index() const {

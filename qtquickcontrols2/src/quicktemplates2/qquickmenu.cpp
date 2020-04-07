@@ -173,6 +173,19 @@ static const int SUBMENU_DELAY = 225;
     \sa {Customizing Menu}, MenuItem, {Menu Controls}, {Popup Controls}
 */
 
+/*!
+    \qmlproperty bool QtQuick.Controls::Menu::focus
+
+    This property holds whether the popup wants focus.
+
+    When the popup actually receives focus, \l activeFocus will be \c true.
+    For more information, see \l {Keyboard Focus in Qt Quick}.
+
+    The default value is \c false.
+
+    \sa activeFocus
+*/
+
 static const QQuickPopup::ClosePolicy cascadingSubMenuClosePolicy = QQuickPopup::CloseOnEscape | QQuickPopup::CloseOnPressOutsideParent;
 
 static bool shouldCascade()
@@ -1474,7 +1487,9 @@ void QQuickMenu::timerEvent(QTimerEvent *event)
         if (QQuickMenu *subMenu = d->currentSubMenu())
             subMenu->open();
         d->stopHoverTimer();
+        return;
     }
+    QQuickPopup::timerEvent(event);
 }
 
 QFont QQuickMenu::defaultFont() const

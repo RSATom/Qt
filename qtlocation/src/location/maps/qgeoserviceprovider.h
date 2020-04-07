@@ -161,6 +161,17 @@ public:
     Error error() const;
     QString errorString() const;
 
+    Error mappingError() const;
+    QString mappingErrorString() const;
+    Error geocodingError() const;
+    QString geocodingErrorString() const;
+    Error routingError() const;
+    QString routingErrorString() const;
+    Error placesError() const;
+    QString placesErrorString() const;
+    Error navigationError() const;
+    QString navigationErrorString() const;
+
     void setParameters(const QVariantMap &parameters);
     void setLocale(const QLocale &locale);
     void setAllowExperimental(bool allow);

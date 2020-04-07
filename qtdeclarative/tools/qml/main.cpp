@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 Research In Motion.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -168,54 +169,41 @@ class LoadWatcher : public QObject
 public:
     LoadWatcher(QQmlApplicationEngine *e, int expected)
         : QObject(e)
-        , earlyExit(false)
-        , returnCode(0)
-        , expect(expected)
-        , haveOne(false)
+        , expectedFileCount(expected)
     {
-        connect(e, SIGNAL(objectCreated(QObject*,QUrl)),
-            this, SLOT(checkFinished(QObject*)));
+        connect(e, &QQmlApplicationEngine::objectCreated, this, &LoadWatcher::checkFinished);
         // QQmlApplicationEngine also connects quit() to QCoreApplication::quit
         // and exit() to QCoreApplication::exit but if called before exec()
         // then QCoreApplication::quit or QCoreApplication::exit does nothing
-        connect(e, SIGNAL(quit()),
-            this, SLOT(quit()));
-        connect(e, &QQmlEngine::exit,
-            this, &LoadWatcher::exit);
+        connect(e, &QQmlEngine::quit, this, &LoadWatcher::quit);
+        connect(e, &QQmlEngine::exit, this, &LoadWatcher::exit);
     }
 
-    bool earlyExit;
-    int returnCode;
-
-private:
-    void contain(QObject *o, const QUrl &containPath);
-    void checkForWindow(QObject *o);
-
-    int expect;
-    bool haveOne;
+    bool earlyExit = false;
+    int returnCode = 0;
 
 public Q_SLOTS:
-    void checkFinished(QObject *o)
+    void checkFinished(QObject *o, const QUrl &url)
     {
+        Q_UNUSED(url)
         if (o) {
             checkForWindow(o);
-            haveOne = true;
             if (conf && qae)
                 for (PartialScene *ps : qAsConst(conf->completers))
                     if (o->inherits(ps->itemType().toUtf8().constData()))
                         contain(o, ps->container());
         }
-        if (haveOne)
+        if (haveWindow)
             return;
 
-        if (! --expect) {
+        if (! --expectedFileCount) {
             printf("qml: Did not load any objects, exiting.\n");
-            std::exit(2);//Different return code from qFatal
+            std::exit(2); // Different return code from qFatal
         }
     }
 
     void quit() {
-        //Will be checked before calling exec()
+        // Will be checked before calling exec()
         earlyExit = true;
         returnCode = 0;
     }
@@ -227,6 +215,14 @@ public Q_SLOTS:
 #if defined(QT_GUI_LIB) && QT_CONFIG(opengl)
     void onOpenGlContextCreated(QOpenGLContext *context);
 #endif
+
+private:
+    void contain(QObject *o, const QUrl &containPath);
+    void checkForWindow(QObject *o);
+
+private:
+    int expectedFileCount;
+    bool haveWindow = false;
 };
 
 void LoadWatcher::contain(QObject *o, const QUrl &containPath)
@@ -241,15 +237,17 @@ void LoadWatcher::contain(QObject *o, const QUrl &containPath)
     if ((idx = o2->metaObject()->indexOfProperty("containedObject")) != -1)
         success = o2->metaObject()->property(idx).write(o2, QVariant::fromValue<QObject*>(o));
     if (!success)
-        o->setParent(o2); //Set QObject parent, and assume container will react as needed
+        o->setParent(o2); // Set QObject parent, and assume container will react as needed
 }
 
 void LoadWatcher::checkForWindow(QObject *o)
 {
 #if defined(QT_GUI_LIB) && QT_CONFIG(opengl)
-    if (verboseMode && o->isWindowType() && o->inherits("QQuickWindow")) {
-        connect(o, SIGNAL(openglContextCreated(QOpenGLContext*)),
-                this, SLOT(onOpenGlContextCreated(QOpenGLContext*)));
+    if (o->isWindowType() && o->inherits("QQuickWindow")) {
+        haveWindow = true;
+        if (verboseMode)
+            connect(o, SIGNAL(openglContextCreated(QOpenGLContext*)),
+                    this, SLOT(onOpenGlContextCreated(QOpenGLContext*)));
     }
 #else
     Q_UNUSED(o)
@@ -278,7 +276,7 @@ void quietMessageHandler(QtMsgType type, const QMessageLogContext &ctxt, const Q
 {
     Q_UNUSED(ctxt);
     Q_UNUSED(msg);
-    //Doesn't print anything
+    // Doesn't print anything
     switch (type) {
     case QtFatalMsg:
         exit(-1);
@@ -365,7 +363,7 @@ void noFilesGiven()
     exit(1);
 }
 
-//Called before application initialization, removes arguments it uses
+// Called before application initialization, removes arguments it uses
 void getAppFlags(int &argc, char **argv)
 {
 #ifdef QT_GUI_LIB
@@ -476,7 +474,7 @@ int main(int argc, char *argv[])
     QString translationFile;
     QString dummyDir;
 
-    //Handle main arguments
+    // Handle main arguments
     const QStringList argList = app->arguments();
     for (int i = 1; i < argList.count(); i++) {
         const QString &arg = argList[i];
@@ -498,27 +496,27 @@ int main(int argc, char *argv[])
 #endif
         else if (arg == QLatin1String("-I")) {
             if (i+1 == argList.count())
-                continue;//Invalid usage, but just ignore it
+                continue; // Invalid usage, but just ignore it
             e.addImportPath(argList[i+1]);
             i++;
         } else if (arg == QLatin1String("-f")) {
             if (i+1 == argList.count())
-                continue;//Invalid usage, but just ignore it
+                continue; // Invalid usage, but just ignore it
             files << argList[i+1];
             i++;
         } else if (arg == QLatin1String("-config")){
             if (i+1 == argList.count())
-                continue;//Invalid usage, but just ignore it
+                continue; // Invalid usage, but just ignore it
             confFile = argList[i+1];
             i++;
         } else if (arg == QLatin1String("-translation")){
             if (i+1 == argList.count())
-                continue;//Invalid usage, but just ignore it
+                continue; // Invalid usage, but just ignore it
             translationFile = argList[i+1];
             i++;
         } else if (arg == QLatin1String("-dummy-data")){
             if (i+1 == argList.count())
-                continue;//Invalid usage, but just ignore it
+                continue; // Invalid usage, but just ignore it
             dummyDir = argList[i+1];
             i++;
         } else if (arg == QLatin1String("-gles")) {
@@ -574,7 +572,7 @@ int main(int argc, char *argv[])
     qae = &e;
     loadConf(confFile, !verboseMode);
 
-    //Load files
+    // Load files
     QScopedPointer<LoadWatcher> lw(new LoadWatcher(&e, files.count()));
 
     // Load dummy data before loading QML-files
@@ -587,8 +585,9 @@ int main(int argc, char *argv[])
             printf("qml: loading %s\n", qPrintable(url.toString()));
         QByteArray strippedFile;
         if (getFileSansBangLine(path, strippedFile))
-            e.loadData(strippedFile, e.baseUrl().resolved(url)); //QQmlComponent won't resolve it for us, it doesn't know it's a valid file if we loadData
-        else //Errors or no bang line
+            // QQmlComponent won't resolve it for us: it doesn't know it's a valid file if we loadData
+            e.loadData(strippedFile, e.baseUrl().resolved(url));
+        else // Errors or no bang line
             e.load(url);
     }
 

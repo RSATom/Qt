@@ -98,8 +98,6 @@ public:
 private:
     bool after(SkOpAngle* test);
     void alignmentSameSide(const SkOpAngle* test, int* order) const;
-    int allOnOneSide(const SkOpAngle* test);
-    int allOnOriginalSide(const SkOpAngle* test);
     bool checkCrossesZero() const;
     bool checkParallel(SkOpAngle* );
     bool computeSector();
@@ -108,11 +106,15 @@ private:
     bool endsIntersect(SkOpAngle* );
     int findSector(SkPath::Verb verb, double x, double y) const;
     SkOpGlobalState* globalState() const;
+    int lineOnOneSide(const SkDPoint& origin, const SkDVector& line, const SkOpAngle* test,
+                      bool useOriginal) const;
+    int lineOnOneSide(const SkOpAngle* test, bool useOriginal);
+    int linesOnOriginalSide(const SkOpAngle* test);
     bool merge(SkOpAngle* );
     double midT() const;
     bool midToSide(const SkOpAngle* rh, bool* inside) const;
     bool oppositePlanes(const SkOpAngle* rh) const;
-    bool orderable(SkOpAngle* rh);  // false == this < rh ; true == this > rh
+    int orderable(SkOpAngle* rh);  // false == this < rh ; true == this > rh; -1 == unorderable
     void setSector();
     void setSpans();
     bool tangentsDiverge(const SkOpAngle* rh, double s0xt0);

@@ -82,11 +82,7 @@ using CompositingReasons = uint64_t;
   V(LayerForAncestorClippingMask)                                             \
   V(LayerForScrollingBlockSelection)                                          \
   /* Composited layer painted on top of all other layers as decoration. */    \
-  V(LayerForDecoration)                                                       \
-                                                                              \
-  /* Composited elements with inline transforms trigger assumed overlap so    \
-  that we can update their transforms quickly. */                             \
-  V(InlineTransform)
+  V(LayerForDecoration)
 
 class PLATFORM_EXPORT CompositingReason {
  private:
@@ -139,15 +135,14 @@ class PLATFORM_EXPORT CompositingReason {
         kTransformWithCompositedDescendants | kIsolateCompositedDescendants |
         kOpacityWithCompositedDescendants | kMaskWithCompositedDescendants |
         kFilterWithCompositedDescendants | kBlendingWithCompositedDescendants |
-        kReflectionWithCompositedDescendants | kClipsCompositingDescendants |
-        kPositionFixedOrStickyWithCompositedDescendants,
+        kReflectionWithCompositedDescendants | kClipsCompositingDescendants,
 
     kCombo3DDescendants =
         kPreserve3DWith3DDescendants | kPerspectiveWith3DDescendants,
 
     kComboAllStyleDeterminedReasons = kComboAllDirectStyleDeterminedReasons |
                                       kComboCompositedDescendants |
-                                      kCombo3DDescendants | kInlineTransform,
+                                      kCombo3DDescendants,
 
     kComboSquashableReasons =
         kOverlap | kAssumedOverlap | kOverflowScrollingParent,

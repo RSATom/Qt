@@ -73,7 +73,7 @@ ContextMenuController::ContextMenuController(Page* page) : page_(page) {}
 ContextMenuController::~ContextMenuController() = default;
 
 ContextMenuController* ContextMenuController::Create(Page* page) {
-  return new ContextMenuController(page);
+  return MakeGarbageCollected<ContextMenuController>(page);
 }
 
 void ContextMenuController::Trace(blink::Visitor* visitor) {
@@ -98,7 +98,7 @@ void ContextMenuController::DocumentDetached(Document* document) {
 }
 
 void ContextMenuController::HandleContextMenuEvent(MouseEvent* mouse_event) {
-  DCHECK(mouse_event->type() == EventTypeNames::contextmenu);
+  DCHECK(mouse_event->type() == event_type_names::kContextmenu);
   LocalFrame* frame = mouse_event->target()->ToNode()->GetDocument().GetFrame();
   LayoutPoint location(mouse_event->AbsoluteLocation());
   if (ShowContextMenu(frame, location, mouse_event->GetMenuSourceType()))
@@ -128,17 +128,12 @@ Node* ContextMenuController::ContextMenuNodeForFrame(LocalFrame* frame) {
              : nullptr;
 }
 
-// Figure out the URL of a page or subframe. Returns |page_type| as the type,
-// which indicates page or subframe, or ContextNodeType::kNone if the URL could
-// not be determined for some reason.
+// Figure out the URL of a page or subframe.
 static KURL UrlFromFrame(LocalFrame* frame) {
   if (frame) {
     DocumentLoader* document_loader = frame->Loader().GetDocumentLoader();
-    if (document_loader) {
-      return document_loader->UnreachableURL().IsEmpty()
-                 ? document_loader->GetRequest().Url()
-                 : document_loader->UnreachableURL();
-    }
+    if (document_loader)
+      return document_loader->UrlForHistory();
   }
   return KURL();
 }
@@ -247,11 +242,13 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
             image_element->CachedImage()->GetResponse());
       }
     }
-  } else if (!result.AbsoluteMediaURL().IsEmpty()) {
-    data.src_url = result.AbsoluteMediaURL();
+  } else if (!result.AbsoluteMediaURL().IsEmpty() ||
+             result.GetMediaStreamDescriptor()) {
+    if (!result.AbsoluteMediaURL().IsEmpty())
+      data.src_url = result.AbsoluteMediaURL();
 
-    // We know that if absoluteMediaURL() is not empty, then this
-    // is a media element.
+    // We know that if absoluteMediaURL() is not empty or element has a media
+    // stream descriptor, then this is a media element.
     HTMLMediaElement* media_element = ToHTMLMediaElement(result.InnerNode());
     if (IsHTMLVideoElement(*media_element)) {
       // A video element should be presented as an audio element when it has an
@@ -262,10 +259,9 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
         data.media_type = WebContextMenuData::kMediaTypeVideo;
       if (media_element->SupportsPictureInPicture()) {
         data.media_flags |= WebContextMenuData::kMediaCanPictureInPicture;
-        if (PictureInPictureController::From(media_element->GetDocument())
-                .IsPictureInPictureElement(media_element)) {
+        if (PictureInPictureController::IsElementInPictureInPicture(
+                media_element))
           data.media_flags |= WebContextMenuData::kMediaPictureInPicture;
-        }
       }
     } else if (IsHTMLAudioElement(*media_element))
       data.media_type = WebContextMenuData::kMediaTypeAudio;
@@ -277,6 +273,8 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
       data.media_flags |= WebContextMenuData::kMediaPaused;
     if (media_element->muted())
       data.media_flags |= WebContextMenuData::kMediaMuted;
+    if (media_element->SupportsLoop())
+      data.media_flags |= WebContextMenuData::kMediaCanLoop;
     if (media_element->Loop())
       data.media_flags |= WebContextMenuData::kMediaLoop;
     if (media_element->SupportsSave())
@@ -382,6 +380,15 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
     WebRange range =
         selected_frame->GetInputMethodController().GetSelectionOffsets();
     data.selection_start_offset = range.StartOffset();
+    // TODO(crbug.com/850954): Remove redundant log after we identified the
+    // issue.
+    CHECK_GE(data.selection_start_offset, 0)
+        << "Log issue against https://crbug.com/850954\n"
+        << "data.selection_start_offset: " << data.selection_start_offset
+        << "\nrange: [" << range.StartOffset() << ", " << range.EndOffset()
+        << "]\nVisibleSelection: "
+        << selected_frame->Selection()
+               .ComputeVisibleSelectionInDOMTreeDeprecated();
   }
 
   if (result.IsContentEditable()) {
@@ -419,8 +426,7 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
         WebContextMenuData::kCheckableMenuItemChecked;
   }
 
-  data.referrer_policy = static_cast<WebReferrerPolicy>(
-      selected_frame->GetDocument()->GetReferrerPolicy());
+  data.referrer_policy = selected_frame->GetDocument()->GetReferrerPolicy();
 
   if (menu_provider_) {
     // Filter out custom menu elements and add them into the data.
@@ -433,24 +439,24 @@ bool ContextMenuController::ShowContextMenu(LocalFrame* frame,
         selected_frame->GetSecurityContext()->GetSecurityOrigin();
     if (origin->CanReadContent(anchor->Url())) {
       data.suggested_filename =
-          anchor->FastGetAttribute(HTMLNames::downloadAttr);
+          anchor->FastGetAttribute(html_names::kDownloadAttr);
     }
 
     // If the anchor wants to suppress the referrer, update the referrerPolicy
     // accordingly.
     if (anchor->HasRel(kRelationNoReferrer))
-      data.referrer_policy = kWebReferrerPolicyNever;
+      data.referrer_policy = network::mojom::ReferrerPolicy::kNever;
 
     data.link_text = anchor->innerText();
   }
 
   // Find the input field type.
   if (auto* input = ToHTMLInputElementOrNull(result.InnerNode())) {
-    if (input->type() == InputTypeNames::password)
+    if (input->type() == input_type_names::kPassword)
       data.input_field_type = WebContextMenuData::kInputFieldTypePassword;
-    else if (input->type() == InputTypeNames::number)
+    else if (input->type() == input_type_names::kNumber)
       data.input_field_type = WebContextMenuData::kInputFieldTypeNumber;
-    else if (input->type() == InputTypeNames::tel)
+    else if (input->type() == input_type_names::kTel)
       data.input_field_type = WebContextMenuData::kInputFieldTypeTelephone;
     else if (input->IsTextField())
       data.input_field_type = WebContextMenuData::kInputFieldTypePlainText;

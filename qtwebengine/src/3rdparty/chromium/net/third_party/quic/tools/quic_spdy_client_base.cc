@@ -5,15 +5,14 @@
 #include "net/third_party/quic/tools/quic_spdy_client_base.h"
 
 #include "net/third_party/quic/core/crypto/quic_random.h"
+#include "net/third_party/quic/core/http/spdy_utils.h"
 #include "net/third_party/quic/core/quic_server_id.h"
-#include "net/third_party/quic/core/spdy_utils.h"
 #include "net/third_party/quic/platform/api/quic_flags.h"
 #include "net/third_party/quic/platform/api/quic_logging.h"
 #include "net/third_party/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quic/platform/api/quic_text_utils.h"
 
 using base::StringToInt;
-using std::string;
 
 namespace quic {
 
@@ -93,10 +92,11 @@ void QuicSpdyClientBase::OnClose(QuicSpdyStream* stream) {
 }
 
 std::unique_ptr<QuicSession> QuicSpdyClientBase::CreateQuicClientSession(
+    const quic::ParsedQuicVersionVector& supported_versions,
     QuicConnection* connection) {
-  return QuicMakeUnique<QuicSpdyClientSession>(*config(), connection,
-                                               server_id(), crypto_config(),
-                                               &push_promise_index_);
+  return QuicMakeUnique<QuicSpdyClientSession>(
+      *config(), supported_versions, connection, server_id(), crypto_config(),
+      &push_promise_index_);
 }
 
 void QuicSpdyClientBase::SendRequest(const spdy::SpdyHeaderBlock& headers,
@@ -133,7 +133,7 @@ void QuicSpdyClientBase::SendRequestAndWaitForResponse(
 }
 
 void QuicSpdyClientBase::SendRequestsAndWaitForResponse(
-    const std::vector<string>& url_list) {
+    const std::vector<QuicString>& url_list) {
   for (size_t i = 0; i < url_list.size(); ++i) {
     spdy::SpdyHeaderBlock headers;
     if (!SpdyUtils::PopulateHeaderBlockFromUrl(url_list[i], &headers)) {
@@ -152,7 +152,7 @@ QuicSpdyClientStream* QuicSpdyClientBase::CreateClientStream() {
   }
 
   auto* stream = static_cast<QuicSpdyClientStream*>(
-      client_session()->CreateOutgoingDynamicStream());
+      client_session()->CreateOutgoingBidirectionalStream());
   if (stream) {
     stream->SetPriority(QuicStream::kDefaultPriority);
     stream->set_visitor(this);
@@ -233,7 +233,7 @@ void QuicSpdyClientBase::OnRendezvousResult(QuicSpdyStream* stream) {
       std::move(push_promise_data_to_resend_);
   if (stream) {
     stream->set_visitor(this);
-    stream->OnDataAvailable();
+    stream->OnBodyAvailable();
   } else if (data_to_resend) {
     data_to_resend->Resend();
   }
@@ -244,12 +244,12 @@ size_t QuicSpdyClientBase::latest_response_code() const {
   return latest_response_code_;
 }
 
-const string& QuicSpdyClientBase::latest_response_headers() const {
+const QuicString& QuicSpdyClientBase::latest_response_headers() const {
   QUIC_BUG_IF(!store_response_) << "Response not stored!";
   return latest_response_headers_;
 }
 
-const string& QuicSpdyClientBase::preliminary_response_headers() const {
+const QuicString& QuicSpdyClientBase::preliminary_response_headers() const {
   QUIC_BUG_IF(!store_response_) << "Response not stored!";
   return preliminary_response_headers_;
 }
@@ -260,12 +260,12 @@ const spdy::SpdyHeaderBlock& QuicSpdyClientBase::latest_response_header_block()
   return latest_response_header_block_;
 }
 
-const string& QuicSpdyClientBase::latest_response_body() const {
+const QuicString& QuicSpdyClientBase::latest_response_body() const {
   QUIC_BUG_IF(!store_response_) << "Response not stored!";
   return latest_response_body_;
 }
 
-const string& QuicSpdyClientBase::latest_response_trailers() const {
+const QuicString& QuicSpdyClientBase::latest_response_trailers() const {
   QUIC_BUG_IF(!store_response_) << "Response not stored!";
   return latest_response_trailers_;
 }

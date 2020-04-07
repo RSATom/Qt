@@ -31,6 +31,8 @@ namespace test {
 // Peer to make public a number of otherwise private QuicConnection methods.
 class QuicConnectionPeer {
  public:
+  QuicConnectionPeer() = delete;
+
   static void SendAck(QuicConnection* connection);
 
   static void SetSendAlgorithm(QuicConnection* connection,
@@ -91,8 +93,9 @@ class QuicConnectionPeer {
   static QuicAlarm* GetSendAlarm(QuicConnection* connection);
   static QuicAlarm* GetTimeoutAlarm(QuicConnection* connection);
   static QuicAlarm* GetMtuDiscoveryAlarm(QuicConnection* connection);
-  static QuicAlarm* GetRetransmittableOnWireAlarm(QuicConnection* connection);
   static QuicAlarm* GetPathDegradingAlarm(QuicConnection* connection);
+  static QuicAlarm* GetProcessUndecryptablePacketsAlarm(
+      QuicConnection* connection);
 
   static QuicPacketWriter* GetWriter(QuicConnection* connection);
   // If |owns_writer| is true, takes ownership of |writer|.
@@ -128,9 +131,14 @@ class QuicConnectionPeer {
                                    QuicPacketCount max_tracked_packets);
   static void SetSessionDecidesWhatToWrite(QuicConnection* connection);
   static void SetNegotiatedVersion(QuicConnection* connection);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(QuicConnectionPeer);
+  static void SetMaxConsecutiveNumPacketsWithNoRetransmittableFrames(
+      QuicConnection* connection,
+      size_t new_value);
+  static void SetNoVersionNegotiation(QuicConnection* connection,
+                                      bool no_version_negotiation);
+  static bool SupportsReleaseTime(QuicConnection* connection);
+  static QuicConnection::PacketContent GetCurrentPacketContent(
+      QuicConnection* connection);
 };
 
 }  // namespace test

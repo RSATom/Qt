@@ -4,9 +4,6 @@
 
 #include "extensions/shell/browser/shell_extension_web_contents_observer.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(
-    extensions::ShellExtensionWebContentsObserver);
-
 namespace extensions {
 
 ShellExtensionWebContentsObserver::ShellExtensionWebContentsObserver(
@@ -25,5 +22,7 @@ void ShellExtensionWebContentsObserver::CreateForWebContents(
   // Initialize this instance if necessary.
   FromWebContents(web_contents)->Initialize();
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(ShellExtensionWebContentsObserver)
 
 }  // namespace extensions

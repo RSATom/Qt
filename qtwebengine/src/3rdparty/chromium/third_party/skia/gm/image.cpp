@@ -5,18 +5,18 @@
  * found in the LICENSE file.
  */
 
-#include <functional>
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "GrContext.h"
 #include "SkAutoPixmapStorage.h"
+#include "SkCanvas.h"
 #include "SkColorPriv.h"
 #include "SkData.h"
-#include "SkCanvas.h"
 #include "SkRandom.h"
 #include "SkStream.h"
 #include "SkSurface.h"
+#include "gm.h"
+#include "sk_tool_utils.h"
 
-#include "GrContext.h"
+#include <functional>
 
 static void drawContents(SkSurface* surface, SkColor fillC) {
     SkSize size = SkSize::Make(SkIntToScalar(surface->width()),
@@ -113,34 +113,19 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         canvas->scale(2, 2);
 
-        const char* kLabel1 = "Original Img";
-        const char* kLabel2 = "Modified Img";
-        const char* kLabel3 = "Cur Surface";
-        const char* kLabel4 = "Full Crop";
-        const char* kLabel5 = "Over-crop";
-        const char* kLabel6 = "Upper-left";
-        const char* kLabel7 = "No Crop";
+        SkFont font(sk_tool_utils::create_portable_typeface(), 8);
 
-        const char* kLabel8 = "Pre-Alloc Img";
-        const char* kLabel9 = "New Alloc Img";
-        const char* kLabel10 = "GPU";
+        canvas->drawString("Original Img",  10,  60, font, SkPaint());
+        canvas->drawString("Modified Img",  10, 140, font, SkPaint());
+        canvas->drawString("Cur Surface",   10, 220, font, SkPaint());
+        canvas->drawString("Full Crop",     10, 300, font, SkPaint());
+        canvas->drawString("Over-crop",     10, 380, font, SkPaint());
+        canvas->drawString("Upper-left",    10, 460, font, SkPaint());
+        canvas->drawString("No Crop",       10, 540, font, SkPaint());
 
-        SkPaint textPaint;
-        textPaint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&textPaint);
-        textPaint.setTextSize(8);
-
-        canvas->drawString(kLabel1, 10,  60, textPaint);
-        canvas->drawString(kLabel2, 10, 140, textPaint);
-        canvas->drawString(kLabel3, 10, 220, textPaint);
-        canvas->drawString(kLabel4, 10, 300, textPaint);
-        canvas->drawString(kLabel5, 10, 380, textPaint);
-        canvas->drawString(kLabel6, 10, 460, textPaint);
-        canvas->drawString(kLabel7, 10, 540, textPaint);
-
-        canvas->drawString(kLabel8, 80, 10, textPaint);
-        canvas->drawString(kLabel9, 160, 10, textPaint);
-        canvas->drawString(kLabel10, 265, 10, textPaint);
+        canvas->drawString("Pre-Alloc Img", 80,  10, font, SkPaint());
+        canvas->drawString("New Alloc Img", 160, 10, font, SkPaint());
+        canvas->drawString( "GPU",          265, 10, font, SkPaint());
 
         canvas->translate(80, 20);
 
@@ -311,14 +296,12 @@ DEF_SIMPLE_GM(new_texture_image, canvas, 280, 60) {
         },
         // Create encoded image.
         [bmp] {
-            sk_sp<SkData> src(
-                sk_tool_utils::EncodeImageToData(bmp, SkEncodedImageFormat::kPNG, 100));
+            auto src = SkEncodeBitmap(bmp, SkEncodedImageFormat::kPNG, 100);
             return SkImage::MakeFromEncoded(std::move(src));
         },
         // Create YUV encoded image.
         [bmp] {
-            sk_sp<SkData> src(
-                sk_tool_utils::EncodeImageToData(bmp, SkEncodedImageFormat::kJPEG, 100));
+            auto src = SkEncodeBitmap(bmp, SkEncodedImageFormat::kJPEG, 100);
             return SkImage::MakeFromEncoded(std::move(src));
         },
         // Create a picture image.

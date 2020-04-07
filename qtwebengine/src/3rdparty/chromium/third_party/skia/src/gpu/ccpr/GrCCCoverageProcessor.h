@@ -52,6 +52,7 @@ public:
 
         void set(const SkPoint[3], const Sk2f& trans);
         void set(const SkPoint&, const SkPoint&, const SkPoint&, const Sk2f& trans);
+        void set(const Sk2f& P0, const Sk2f& P1, const Sk2f& P2, const Sk2f& trans);
     };
 
     // Defines a single primitive shape with 4 input points, or 3 input points plus a "weight"
@@ -64,6 +65,7 @@ public:
         void set(const SkPoint[4], float dx, float dy);
         void setW(const SkPoint[3], const Sk2f& trans, float w);
         void setW(const SkPoint&, const SkPoint&, const SkPoint&, const Sk2f& trans, float w);
+        void setW(const Sk2f& P0, const Sk2f& P1, const Sk2f& P2, const Sk2f& trans, float w);
     };
 
     GrCCCoverageProcessor(GrResourceProvider* rp, PrimitiveType type)
@@ -80,9 +82,11 @@ public:
 
     // GrPrimitiveProcessor overrides.
     const char* name() const override { return PrimitiveTypeName(fPrimitiveType); }
+#ifdef SK_DEBUG
     SkString dumpInfo() const override {
         return SkStringPrintf("%s\n%s", this->name(), this->INHERITED::dumpInfo().c_str());
     }
+#endif
     void getGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override;
     GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override;
 
@@ -246,13 +250,6 @@ private:
     void initGS();
     void initVS(GrResourceProvider*);
 
-    const Attribute& onVertexAttribute(int i) const override { return fVertexAttribute; }
-
-    const Attribute& onInstanceAttribute(int i) const override {
-        SkASSERT(fImpl == Impl::kVertexShader);
-        return fInstanceAttributes[i];
-    }
-
     void appendGSMesh(GrBuffer* instanceBuffer, int instanceCount, int baseInstance,
                       SkTArray<GrMesh>* out) const;
     void appendVSMesh(GrBuffer* instanceBuffer, int instanceCount, int baseInstance,
@@ -298,10 +295,15 @@ inline void GrCCCoverageProcessor::TriPointInstance::set(const SkPoint p[3], con
 
 inline void GrCCCoverageProcessor::TriPointInstance::set(const SkPoint& p0, const SkPoint& p1,
                                                          const SkPoint& p2, const Sk2f& trans) {
-    Sk2f P0 = Sk2f::Load(&p0) + trans;
-    Sk2f P1 = Sk2f::Load(&p1) + trans;
-    Sk2f P2 = Sk2f::Load(&p2) + trans;
-    Sk2f::Store3(this, P0, P1, P2);
+    Sk2f P0 = Sk2f::Load(&p0);
+    Sk2f P1 = Sk2f::Load(&p1);
+    Sk2f P2 = Sk2f::Load(&p2);
+    this->set(P0, P1, P2, trans);
+}
+
+inline void GrCCCoverageProcessor::TriPointInstance::set(const Sk2f& P0, const Sk2f& P1,
+                                                         const Sk2f& P2, const Sk2f& trans) {
+    Sk2f::Store3(this, P0 + trans, P1 + trans, P2 + trans);
 }
 
 inline void GrCCCoverageProcessor::QuadPointInstance::set(const SkPoint p[4], float dx, float dy) {
@@ -319,11 +321,17 @@ inline void GrCCCoverageProcessor::QuadPointInstance::setW(const SkPoint p[3], c
 inline void GrCCCoverageProcessor::QuadPointInstance::setW(const SkPoint& p0, const SkPoint& p1,
                                                            const SkPoint& p2, const Sk2f& trans,
                                                            float w) {
-    Sk2f P0 = Sk2f::Load(&p0) + trans;
-    Sk2f P1 = Sk2f::Load(&p1) + trans;
-    Sk2f P2 = Sk2f::Load(&p2) + trans;
+    Sk2f P0 = Sk2f::Load(&p0);
+    Sk2f P1 = Sk2f::Load(&p1);
+    Sk2f P2 = Sk2f::Load(&p2);
+    this->setW(P0, P1, P2, trans, w);
+}
+
+inline void GrCCCoverageProcessor::QuadPointInstance::setW(const Sk2f& P0, const Sk2f& P1,
+                                                           const Sk2f& P2, const Sk2f& trans,
+                                                           float w) {
     Sk2f W = Sk2f(w);
-    Sk2f::Store4(this, P0, P1, P2, W);
+    Sk2f::Store4(this, P0 + trans, P1 + trans, P2 + trans, W);
 }
 
 #endif

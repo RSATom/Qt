@@ -69,6 +69,7 @@ class QCborArray;
 class QCborMap;
 class QCborStreamReader;
 class QCborStreamWriter;
+class QDataStream;
 
 struct QCborParserError
 {
@@ -78,6 +79,7 @@ struct QCborParserError
     QString errorString() const { return error.toString(); }
 };
 
+class QCborValueRef;
 class QCborContainerPrivate;
 class Q_CORE_EXPORT QCborValue
 {
@@ -242,20 +244,18 @@ public:
 #endif
     QUuid toUuid(const QUuid &defaultValue = {}) const;
 
-#ifdef Q_QDOC
-    QCborArray toArray(const QCborArray &a = {}) const;
-    QCborMap toMap(const QCborMap &m = {}) const;
-#else
     // only forward-declared, need split functions
     QCborArray toArray() const;
     QCborArray toArray(const QCborArray &defaultValue) const;
     QCborMap toMap() const;
     QCborMap toMap(const QCborMap &defaultValue) const;
-#endif
 
     const QCborValue operator[](const QString &key) const;
     const QCborValue operator[](QLatin1String key) const;
     const QCborValue operator[](qint64 key) const;
+    QCborValueRef operator[](qint64 key);
+    QCborValueRef operator[](QLatin1String key);
+    QCborValueRef operator[](const QString & key);
 
     int compare(const QCborValue &other) const;
 #if 0 && QT_HAS_INCLUDE(<compare>)
@@ -393,16 +393,18 @@ public:
     QUuid toUuid(const QUuid &defaultValue = {}) const
     { return concrete().toUuid(defaultValue); }
 
-#ifdef Q_QDOC
-    QCborArray toArray(const QCborArray &a = {}) const;
-    QCborMap toMap(const QCborMap &m = {}) const;
-#else
     // only forward-declared, need split functions. Implemented in qcbor{array,map}.h
     QCborArray toArray() const;
     QCborArray toArray(const QCborArray &a) const;
     QCborMap toMap() const;
     QCborMap toMap(const QCborMap &m) const;
-#endif
+
+    const QCborValue operator[](const QString &key) const;
+    const QCborValue operator[](QLatin1String key) const;
+    const QCborValue operator[](qint64 key) const;
+    QCborValueRef operator[](qint64 key);
+    QCborValueRef operator[](QLatin1String key);
+    QCborValueRef operator[](const QString & key);
 
     int compare(const QCborValue &other) const
     { return concrete().compare(other); }
@@ -434,6 +436,7 @@ public:
     { return concrete().toDiagnosticNotation(opt); }
 
 private:
+    friend class QCborValue;
     friend class QCborArray;
     friend class QCborMap;
     friend class QCborContainerPrivate;
@@ -463,6 +466,11 @@ Q_CORE_EXPORT uint qHash(const QCborValue &value, uint seed = 0);
 
 #if !defined(QT_NO_DEBUG_STREAM)
 Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborValue &v);
+#endif
+
+#ifndef QT_NO_DATASTREAM
+Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QCborValue &);
+Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QCborValue &);
 #endif
 
 QT_END_NAMESPACE

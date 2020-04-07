@@ -414,15 +414,14 @@ int QOpenGLContextPrivate::maxTextureSize()
 
 /*!
     Returns the last context which called makeCurrent in the current thread,
-    or 0, if no context is current.
+    or \nullptr, if no context is current.
 */
 QOpenGLContext* QOpenGLContext::currentContext()
 {
     QGuiGLThreadContext *threadContext = qwindow_context_storage()->localData();
-    if (threadContext) {
+    if (threadContext)
         return threadContext->context;
-    }
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -612,8 +611,8 @@ bool QOpenGLContext::create()
     d->platformGLContext = QGuiApplicationPrivate::platformIntegration()->createPlatformOpenGLContext(this);
     if (!d->platformGLContext)
         return false;
-    d->platformGLContext->initialize();
     d->platformGLContext->setContext(this);
+    d->platformGLContext->initialize();
     if (!d->platformGLContext->isSharing())
         d->shareContext = 0;
     d->shareGroup = d->shareContext ? d->shareContext->shareGroup() : new QOpenGLContextGroup;
@@ -788,7 +787,7 @@ QOpenGLExtraFunctions *QOpenGLContext::extraFunctions() const
     to the non-template function.
 
     Note that requests for function objects of other versions or profiles can fail and
-    in doing so will return a null pointer. Situations in which creation of the functions
+    in doing so will return \nullptr. Situations in which creation of the functions
     object can fail are if the request cannot be satisfied due to asking for functions
     that are not in the version or profile of this context. For example:
 
@@ -977,11 +976,8 @@ bool QOpenGLContext::makeCurrent(QSurface *surface)
     if (!surface->surfaceHandle())
         return false;
     if (!surface->supportsOpenGL()) {
-#ifndef Q_OS_WASM // ### work around the WASM platform plugin using QOpenGLContext with raster surfaces.
-        // see QTBUG-70076
         qWarning() << "QOpenGLContext::makeCurrent() called with non-opengl surface" << surface;
         return false;
-#endif
     }
 
     if (!d->platformGLContext->makeCurrent(surface->surfaceHandle()))
@@ -1236,7 +1232,8 @@ void QOpenGLContext::deleteQGLContext()
   Returns the platform-specific handle for the OpenGL implementation that
   is currently in use. (for example, a HMODULE on Windows)
 
-  On platforms that do not use dynamic GL switch the return value is null.
+  On platforms that do not use dynamic GL switching, the return value
+  is \nullptr.
 
   The library might be GL-only, meaning that windowing system interface
   functions (for example EGL) may live in another, separate library.
@@ -1330,7 +1327,7 @@ bool QOpenGLContext::supportsThreadedOpenGL()
     \since 5.5
 
     Returns the application-wide shared OpenGL context, if present.
-    Otherwise, returns a null pointer.
+    Otherwise, returns \nullptr.
 
     This is useful if you need to upload OpenGL objects (buffers, textures,
     etc.) before creating or showing a QOpenGLWidget or QQuickWidget.

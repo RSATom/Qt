@@ -16,6 +16,7 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
@@ -183,12 +184,14 @@ std::unique_ptr<base::ListValue> ComponentsUI::LoadComponents() {
   for (size_t j = 0; j < component_ids.size(); ++j) {
     update_client::CrxUpdateItem item;
     if (cus->GetComponentDetails(component_ids[j], &item)) {
-      std::unique_ptr<base::DictionaryValue> component_entry(
-          new base::DictionaryValue());
+      auto component_entry = std::make_unique<base::DictionaryValue>();
       component_entry->SetString("id", component_ids[j]);
-      component_entry->SetString("name", item.component.name);
-      component_entry->SetString("version", item.component.version.GetString());
       component_entry->SetString("status", ServiceStatusToString(item.state));
+      if (item.component) {
+        component_entry->SetString("name", item.component->name);
+        component_entry->SetString("version",
+                                   item.component->version.GetString());
+      }
       component_list->Append(std::move(component_entry));
     }
   }
@@ -266,8 +269,8 @@ void ComponentsUI::OnEvent(Events event, const std::string& id) {
     if (event == Events::COMPONENT_UPDATED) {
       auto* component_updater = g_browser_process->component_updater();
       update_client::CrxUpdateItem item;
-      if (component_updater->GetComponentDetails(id, &item))
-        parameters.SetString("version", item.component.version.GetString());
+      if (component_updater->GetComponentDetails(id, &item) && item.component)
+        parameters.SetString("version", item.component->version.GetString());
     }
     parameters.SetString("id", id);
   }

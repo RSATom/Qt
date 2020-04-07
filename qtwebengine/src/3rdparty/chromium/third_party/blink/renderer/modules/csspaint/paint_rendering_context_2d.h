@@ -28,13 +28,19 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   static PaintRenderingContext2D* Create(
       const IntSize& container_size,
       const CanvasColorParams& color_params,
-      const PaintRenderingContext2DSettings& context_settings,
+      const PaintRenderingContext2DSettings* context_settings,
       float zoom) {
-    return new PaintRenderingContext2D(container_size, color_params,
-                                       context_settings, zoom);
+    return MakeGarbageCollected<PaintRenderingContext2D>(
+        container_size, color_params, context_settings, zoom);
   }
 
+  PaintRenderingContext2D(const IntSize& container_size,
+                          const CanvasColorParams&,
+                          const PaintRenderingContext2DSettings*,
+                          float zoom);
+
   void Trace(blink::Visitor* visitor) override {
+    visitor->Trace(context_settings_);
     ScriptWrappable::Trace(visitor);
     BaseRenderingContext2D::Trace(visitor);
   }
@@ -43,9 +49,7 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   // is always clean, and unable to taint it.
   bool OriginClean() const final { return true; }
   void SetOriginTainted() final {}
-  bool WouldTaintOrigin(CanvasImageSource*, ExecutionContext*) final {
-    return false;
-  }
+  bool WouldTaintOrigin(CanvasImageSource*) final { return false; }
 
   int Width() const final;
   int Height() const final;
@@ -73,7 +77,7 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
 
   void ValidateStateStack() const final;
 
-  bool HasAlpha() const final { return context_settings_.alpha(); }
+  bool HasAlpha() const final { return context_settings_->alpha(); }
 
   // PaintRenderingContext2D cannot lose it's context.
   bool isContextLost() const final { return false; }
@@ -90,11 +94,6 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   void WillOverwriteCanvas() override;
 
  private:
-  PaintRenderingContext2D(const IntSize& container_size,
-                          const CanvasColorParams&,
-                          const PaintRenderingContext2DSettings&,
-                          float zoom);
-
   void InitializePaintRecorder();
   cc::PaintCanvas* Canvas() const;
 
@@ -102,7 +101,7 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
   sk_sp<PaintRecord> previous_frame_;
   IntSize container_size_;
   const CanvasColorParams& color_params_;
-  PaintRenderingContext2DSettings context_settings_;
+  Member<const PaintRenderingContext2DSettings> context_settings_;
   bool did_record_draw_commands_in_paint_recorder_;
   float effective_zoom_;
 };

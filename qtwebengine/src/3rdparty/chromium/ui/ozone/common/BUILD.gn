@@ -13,8 +13,6 @@ source_set("common") {
     "egl_util.h",
     "gl_ozone_egl.cc",
     "gl_ozone_egl.h",
-    "gl_ozone_osmesa.cc",
-    "gl_ozone_osmesa.h",
     "gl_surface_egl_readback.cc",
     "gl_surface_egl_readback.h",
     "gpu/ozone_gpu_message_generator.cc",
@@ -40,14 +38,15 @@ source_set("common") {
   deps = [
     "//ui/gfx/ipc/color",
     "//ui/gl",
-    "//ui/gl:gl_features",
+    "//ui/gl:buildflags",
   ]
 
   data_deps = [
-    "//third_party/mesa:osmesa",
+    "//third_party/mesa_headers",
   ]
 
-  if (!ozone_platform_external) {
-    visibility = [ "//ui/ozone/platform/*" ]
-  }
+  visibility = [ "//ui/ozone/platform/*" ]
+
+  # Out of tree platforms can depend on this.
+  visibility += ozone_external_platform_visibility
 }

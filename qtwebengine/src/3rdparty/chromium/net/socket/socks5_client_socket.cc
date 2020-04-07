@@ -9,6 +9,7 @@
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
 #include "base/trace_event/trace_event.h"
@@ -281,14 +282,14 @@ int SOCKS5ClientSocket::DoGreetWrite() {
   }
 
   if (buffer_.empty()) {
-    buffer_ = std::string(kSOCKS5GreetWriteData,
-                          arraysize(kSOCKS5GreetWriteData));
+    buffer_ =
+        std::string(kSOCKS5GreetWriteData, base::size(kSOCKS5GreetWriteData));
     bytes_sent_ = 0;
   }
 
   next_state_ = STATE_GREET_WRITE_COMPLETE;
   size_t handshake_buf_len = buffer_.size() - bytes_sent_;
-  handshake_buf_ = new IOBuffer(handshake_buf_len);
+  handshake_buf_ = base::MakeRefCounted<IOBuffer>(handshake_buf_len);
   memcpy(handshake_buf_->data(), &buffer_.data()[bytes_sent_],
          handshake_buf_len);
   return transport_->socket()->Write(handshake_buf_.get(), handshake_buf_len,
@@ -313,7 +314,7 @@ int SOCKS5ClientSocket::DoGreetWriteComplete(int result) {
 int SOCKS5ClientSocket::DoGreetRead() {
   next_state_ = STATE_GREET_READ_COMPLETE;
   size_t handshake_buf_len = kGreetReadHeaderSize - bytes_received_;
-  handshake_buf_ = new IOBuffer(handshake_buf_len);
+  handshake_buf_ = base::MakeRefCounted<IOBuffer>(handshake_buf_len);
   return transport_->socket()
       ->Read(handshake_buf_.get(), handshake_buf_len, io_callback_);
 }
@@ -387,7 +388,7 @@ int SOCKS5ClientSocket::DoHandshakeWrite() {
 
   int handshake_buf_len = buffer_.size() - bytes_sent_;
   DCHECK_LT(0, handshake_buf_len);
-  handshake_buf_ = new IOBuffer(handshake_buf_len);
+  handshake_buf_ = base::MakeRefCounted<IOBuffer>(handshake_buf_len);
   memcpy(handshake_buf_->data(), &buffer_[bytes_sent_],
          handshake_buf_len);
   return transport_->socket()->Write(handshake_buf_.get(), handshake_buf_len,
@@ -423,7 +424,7 @@ int SOCKS5ClientSocket::DoHandshakeRead() {
   }
 
   int handshake_buf_len = read_header_size - bytes_received_;
-  handshake_buf_ = new IOBuffer(handshake_buf_len);
+  handshake_buf_ = base::MakeRefCounted<IOBuffer>(handshake_buf_len);
   return transport_->socket()
       ->Read(handshake_buf_.get(), handshake_buf_len, io_callback_);
 }

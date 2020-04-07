@@ -45,7 +45,7 @@ class DummyTransport : public QWebChannelAbstractTransport
 {
     Q_OBJECT
 public:
-    explicit DummyTransport(QObject *parent)
+    explicit DummyTransport(QObject *parent = nullptr)
         : QWebChannelAbstractTransport(parent)
     {}
     ~DummyTransport() {};
@@ -329,6 +329,7 @@ private slots:
     void benchRemoveTransport();
 
     void qtbug46548_overriddenProperties();
+    void qtbug62388_wrapObjectMultipleTransports();
 
 private:
     DummyTransport *m_dummyTransport;

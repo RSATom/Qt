@@ -79,14 +79,20 @@ class NET_EXPORT_PRIVATE SimpleEntryImpl : public Entry,
 
   // Adds another reader/writer to this entry, if possible, returning |this| to
   // |entry|.
-  int OpenEntry(Entry** entry, CompletionOnceCallback callback);
+  net::Error OpenEntry(Entry** entry, CompletionOnceCallback callback);
 
   // Creates this entry, if possible. Returns |this| to |entry|.
-  int CreateEntry(Entry** entry, CompletionOnceCallback callback);
+  net::Error CreateEntry(Entry** entry, CompletionOnceCallback callback);
+
+  // Opens an existing entry or creates a new one. Returns |this| to
+  // |entry_struct->entry|, and sets |entry_struct->opened| based on what op was
+  // actually performed.
+  net::Error OpenOrCreateEntry(EntryWithOpened* entry_struct,
+                               CompletionOnceCallback callback);
 
   // Identical to Backend::Doom() except that it accepts a
   // CompletionOnceCallback.
-  int DoomEntry(CompletionOnceCallback callback);
+  net::Error DoomEntry(CompletionOnceCallback callback);
 
   const std::string& key() const { return key_; }
   uint64_t entry_hash() const { return entry_hash_; }
@@ -107,6 +113,8 @@ class NET_EXPORT_PRIVATE SimpleEntryImpl : public Entry,
   void Doom() override;
   void Close() override;
   std::string GetKey() const override;
+  // GetLastUsed() should not be called in net::APP_CACHE mode since the times
+  // are not updated.
   base::Time GetLastUsed() const override;
   base::Time GetLastModified() const override;
   int32_t GetDataSize(int index) const override;
@@ -135,7 +143,7 @@ class NET_EXPORT_PRIVATE SimpleEntryImpl : public Entry,
                         CompletionOnceCallback callback) override;
   bool CouldBeSparse() const override;
   void CancelSparseIO() override;
-  int ReadyForSparseIO(CompletionOnceCallback callback) override;
+  net::Error ReadyForSparseIO(CompletionOnceCallback callback) override;
   void SetLastUsedTimeForTest(base::Time time) override;
 
   // Returns the estimate of dynamically allocated memory in bytes.
@@ -226,6 +234,10 @@ class NET_EXPORT_PRIVATE SimpleEntryImpl : public Entry,
                            CompletionOnceCallback callback,
                            Entry** out_entry);
 
+  void OpenOrCreateEntryInternal(OpenEntryIndexEnum index_state,
+                                 CompletionOnceCallback callback,
+                                 EntryWithOpened* entry_struct);
+
   void CloseInternal();
 
   int ReadDataInternal(bool sync_possible,
@@ -266,14 +278,17 @@ class NET_EXPORT_PRIVATE SimpleEntryImpl : public Entry,
   void CreationOperationComplete(
       CompletionOnceCallback completion_callback,
       const base::TimeTicks& start_time,
+      const base::Time index_last_used_time,
       std::unique_ptr<SimpleEntryCreationResults> in_results,
       Entry** out_entry,
+      bool* out_opened,
       net::NetLogEventType end_event_type);
 
   // Called after we've closed and written the EOF record to our entry. Until
   // this point it hasn't been safe to OpenEntry() the same entry, but from this
   // point it is.
-  void CloseOperationComplete();
+  void CloseOperationComplete(
+      std::unique_ptr<SimpleEntryCloseResults> in_results);
 
   // Internal utility method used by other completion methods. Calls
   // |completion_callback| after updating state and dooming on errors.

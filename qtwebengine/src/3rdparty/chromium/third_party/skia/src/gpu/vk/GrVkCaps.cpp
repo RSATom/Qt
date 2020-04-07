@@ -10,35 +10,33 @@
 #include "GrRenderTargetProxy.h"
 #include "GrRenderTarget.h"
 #include "GrShaderCaps.h"
+#include "GrVkInterface.h"
 #include "GrVkUtil.h"
+#include "SkGr.h"
 #include "vk/GrVkBackendContext.h"
-#include "vk/GrVkInterface.h"
+#include "vk/GrVkExtensions.h"
 
 GrVkCaps::GrVkCaps(const GrContextOptions& contextOptions, const GrVkInterface* vkInterface,
-                   VkPhysicalDevice physDev, uint32_t featureFlags, uint32_t extensionFlags)
+                   VkPhysicalDevice physDev, const VkPhysicalDeviceFeatures2& features,
+                   uint32_t instanceVersion, const GrVkExtensions& extensions)
     : INHERITED(contextOptions) {
-    fCanUseGLSLForShaderModule = false;
-    fMustDoCopiesFromOrigin = false;
-    fMustSubmitCommandsBeforeCopyOp = false;
-    fMustSleepOnTearDown  = false;
-    fNewCBOnPipelineChange = false;
-    fShouldAlwaysUseDedicatedImageMemory = false;
 
     /**************************************************************************
-    * GrDrawTargetCaps fields
-    **************************************************************************/
+     * GrCaps fields
+     **************************************************************************/
     fMipMapSupport = true;   // always available in Vulkan
     fSRGBSupport = true;   // always available in Vulkan
     fNPOTTextureTileSupport = true;  // always available in Vulkan
     fDiscardRenderTargetSupport = true;
     fReuseScratchTextures = true; //TODO: figure this out
     fGpuTracingSupport = false; //TODO: figure this out
+    fCompressedTexSubImageSupport = true;
     fOversizedStencilSupport = false; //TODO: figure this out
     fInstanceAttribSupport = true;
 
-    fBlacklistCoverageCounting = true; // blacklisting ccpr until we work through a few issues.
     fFenceSyncSupport = true;   // always available in Vulkan
     fCrossContextTextureSupport = true;
+    fHalfFloatVertexAttributeSupport = true;
 
     fMapBufferFlags = kNone_MapFlags; //TODO: figure this out
     fBufferMapThreshold = SK_MaxS32;  //TODO: figure this out
@@ -46,9 +44,11 @@ GrVkCaps::GrVkCaps(const GrContextOptions& contextOptions, const GrVkInterface* 
     fMaxRenderTargetSize = 4096; // minimum required by spec
     fMaxTextureSize = 4096; // minimum required by spec
 
+    fDynamicStateArrayGeometryProcessorTextureSupport = true;
+
     fShaderCaps.reset(new GrShaderCaps(contextOptions));
 
-    this->init(contextOptions, vkInterface, physDev, featureFlags, extensionFlags);
+    this->init(contextOptions, vkInterface, physDev, features, extensions);
 }
 
 bool GrVkCaps::initDescForDstCopy(const GrRenderTargetProxy* src, GrSurfaceDesc* desc,
@@ -159,8 +159,8 @@ bool GrVkCaps::canCopyAsDraw(GrPixelConfig dstConfig, bool dstIsRenderable,
     return true;
 }
 
-bool GrVkCaps::canCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
-                              const SkIRect& srcRect, const SkIPoint& dstPoint) const {
+bool GrVkCaps::onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
+                                const SkIRect& srcRect, const SkIPoint& dstPoint) const {
     GrSurfaceOrigin dstOrigin = dst->origin();
     GrSurfaceOrigin srcOrigin = src->origin();
 
@@ -177,9 +177,21 @@ bool GrVkCaps::canCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* s
     int dstSampleCnt = 0;
     int srcSampleCnt = 0;
     if (const GrRenderTargetProxy* rtProxy = dst->asRenderTargetProxy()) {
+        // Copying to or from render targets that wrap a secondary command buffer is not allowed
+        // since they would require us to know the VkImage, which we don't have, as well as need us
+        // to stop and start the VkRenderPass which we don't have access to.
+        if (rtProxy->wrapsVkSecondaryCB()) {
+            return false;
+        }
         dstSampleCnt = rtProxy->numColorSamples();
     }
     if (const GrRenderTargetProxy* rtProxy = src->asRenderTargetProxy()) {
+        // Copying to or from render targets that wrap a secondary command buffer is not allowed
+        // since they would require us to know the VkImage, which we don't have, as well as need us
+        // to stop and start the VkRenderPass which we don't have access to.
+        if (rtProxy->wrapsVkSecondaryCB()) {
+            return false;
+        }
         srcSampleCnt = rtProxy->numColorSamples();
     }
     SkASSERT((dstSampleCnt > 0) == SkToBool(dst->asRenderTargetProxy()));
@@ -195,8 +207,30 @@ bool GrVkCaps::canCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* s
                                srcConfig, SkToBool(src->asTextureProxy()));
 }
 
+template<typename T> T* get_extension_feature_struct(const VkPhysicalDeviceFeatures2& features,
+                                                     VkStructureType type) {
+    // All Vulkan structs that could be part of the features chain will start with the
+    // structure type followed by the pNext pointer. We cast to the CommonVulkanHeader
+    // so we can get access to the pNext for the next struct.
+    struct CommonVulkanHeader {
+        VkStructureType sType;
+        void*           pNext;
+    };
+
+    void* pNext = features.pNext;
+    while (pNext) {
+        CommonVulkanHeader* header = static_cast<CommonVulkanHeader*>(pNext);
+        if (header->sType == type) {
+            return static_cast<T*>(pNext);
+        }
+        pNext = header->pNext;
+    }
+    return nullptr;
+}
+
 void GrVkCaps::init(const GrContextOptions& contextOptions, const GrVkInterface* vkInterface,
-                    VkPhysicalDevice physDev, uint32_t featureFlags, uint32_t extensionFlags) {
+                    VkPhysicalDevice physDev, const VkPhysicalDeviceFeatures2& features,
+                    const GrVkExtensions& extensions) {
 
     VkPhysicalDeviceProperties properties;
     GR_VK_CALL(vkInterface, GetPhysicalDeviceProperties(physDev, &properties));
@@ -204,8 +238,85 @@ void GrVkCaps::init(const GrContextOptions& contextOptions, const GrVkInterface*
     VkPhysicalDeviceMemoryProperties memoryProperties;
     GR_VK_CALL(vkInterface, GetPhysicalDeviceMemoryProperties(physDev, &memoryProperties));
 
-    this->initGrCaps(properties, memoryProperties, featureFlags);
-    this->initShaderCaps(properties, featureFlags);
+    uint32_t physicalDeviceVersion = properties.apiVersion;
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        extensions.hasExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, 1)) {
+        fSupportsPhysicalDeviceProperties2 = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        extensions.hasExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, 1)) {
+        fSupportsMemoryRequirements2 = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        extensions.hasExtension(VK_KHR_BIND_MEMORY_2_EXTENSION_NAME, 1)) {
+        fSupportsBindMemory2 = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        extensions.hasExtension(VK_KHR_MAINTENANCE1_EXTENSION_NAME, 1)) {
+        fSupportsMaintenance1 = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        extensions.hasExtension(VK_KHR_MAINTENANCE2_EXTENSION_NAME, 1)) {
+        fSupportsMaintenance2 = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        extensions.hasExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME, 1)) {
+        fSupportsMaintenance3 = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        (extensions.hasExtension(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, 1) &&
+         this->supportsMemoryRequirements2())) {
+        fSupportsDedicatedAllocation = true;
+    }
+
+    if (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+        (extensions.hasExtension(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME, 1) &&
+         this->supportsPhysicalDeviceProperties2() &&
+         extensions.hasExtension(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, 1) &&
+         this->supportsDedicatedAllocation())) {
+        fSupportsExternalMemory = true;
+    }
+
+#ifdef SK_BUILD_FOR_ANDROID
+    // Currently Adreno devices are not supporting the QUEUE_FAMILY_FOREIGN_EXTENSION, so until they
+    // do we don't explicitly require it here even the spec says it is required.
+    if (extensions.hasExtension(
+            VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME, 2) &&
+       /* extensions.hasExtension(VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, 1) &&*/
+        this->supportsExternalMemory() &&
+        this->supportsBindMemory2()) {
+        fSupportsAndroidHWBExternalMemory = true;
+        fSupportsAHardwareBufferImages = true;
+    }
+#endif
+
+    auto ycbcrFeatures =
+            get_extension_feature_struct<VkPhysicalDeviceSamplerYcbcrConversionFeatures>(
+                    features,
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES);
+    if (ycbcrFeatures && ycbcrFeatures->samplerYcbcrConversion &&
+        fSupportsAndroidHWBExternalMemory &&
+        (physicalDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
+         (extensions.hasExtension(VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME, 1) &&
+          this->supportsMaintenance1() &&
+          this->supportsBindMemory2() &&
+          this->supportsMemoryRequirements2() &&
+          this->supportsPhysicalDeviceProperties2()))) {
+        fSupportsYcbcrConversion = true;
+    }
+    // We always push back the default GrVkYcbcrConversionInfo so that the case of no conversion
+    // will return a key of 0.
+    fYcbcrInfos.push_back(GrVkYcbcrConversionInfo());
+
+    this->initGrCaps(vkInterface, physDev, properties, memoryProperties, features, extensions);
+    this->initShaderCaps(properties, features);
 
     if (!contextOptions.fDisableDriverCorrectnessWorkarounds) {
 #if defined(SK_CPU_X86)
@@ -214,6 +325,14 @@ void GrVkCaps::init(const GrContextOptions& contextOptions, const GrVkInterface*
             fSRGBSupport = false;
         }
 #endif
+    }
+
+    if (kQualcomm_VkVendor == properties.vendorID) {
+        // A "clear" load for the CCPR atlas runs faster on QC than a "discard" load followed by a
+        // scissored clear.
+        // On NVIDIA and Intel, the discard load followed by clear is faster.
+        // TODO: Evaluate on ARM, Imagination, and ATI.
+        fPreferFullscreenClears = true;
     }
 
     this->initConfigTable(vkInterface, physDev, properties);
@@ -238,12 +357,8 @@ void GrVkCaps::applyDriverCorrectnessWorkarounds(const VkPhysicalDevicePropertie
         fMustDoCopiesFromOrigin = true;
     }
 
-    if (kNvidia_VkVendor == properties.vendorID) {
-        fMustSubmitCommandsBeforeCopyOp = true;
-    }
-
 #if defined(SK_BUILD_FOR_WIN)
-    if (kNvidia_VkVendor == properties.vendorID) {
+    if (kNvidia_VkVendor == properties.vendorID || kIntel_VkVendor == properties.vendorID) {
         fMustSleepOnTearDown = true;
     }
 #elif defined(SK_BUILD_FOR_ANDROID)
@@ -269,6 +384,7 @@ void GrVkCaps::applyDriverCorrectnessWorkarounds(const VkPhysicalDevicePropertie
 
     if (kARM_VkVendor == properties.vendorID) {
         fInstanceAttribSupport = false;
+        fAvoidWritePixelsFastPath = true; // bugs.skia.org/8064
     }
 
     // AMD advertises support for MAX_UINT vertex input attributes, but in reality only supports 32.
@@ -283,7 +399,6 @@ void GrVkCaps::applyDriverCorrectnessWorkarounds(const VkPhysicalDevicePropertie
     if (kImagination_VkVendor == properties.vendorID) {
         fShaderCaps->fAtan2ImplementedAsAtanYOverX = true;
     }
-
 }
 
 int get_max_sample_count(VkSampleCountFlags flags) {
@@ -309,9 +424,12 @@ int get_max_sample_count(VkSampleCountFlags flags) {
     return 64;
 }
 
-void GrVkCaps::initGrCaps(const VkPhysicalDeviceProperties& properties,
+void GrVkCaps::initGrCaps(const GrVkInterface* vkInterface,
+                          VkPhysicalDevice physDev,
+                          const VkPhysicalDeviceProperties& properties,
                           const VkPhysicalDeviceMemoryProperties& memoryProperties,
-                          uint32_t featureFlags) {
+                          const VkPhysicalDeviceFeatures2& features,
+                          const GrVkExtensions& extensions) {
     // So GPUs, like AMD, are reporting MAX_INT support vertex attributes. In general, there is no
     // need for us ever to support that amount, and it makes tests which tests all the vertex
     // attribs timeout looping over that many. For now, we'll cap this at 64 max and can raise it if
@@ -340,12 +458,41 @@ void GrVkCaps::initGrCaps(const VkPhysicalDeviceProperties& properties,
     fMapBufferFlags = kCanMap_MapFlag | kSubset_MapFlag;
 
     fOversizedStencilSupport = true;
-    fSampleShadingSupport = SkToBool(featureFlags & kSampleRateShading_GrVkFeatureFlag);
 
+    if (extensions.hasExtension(VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME, 2) &&
+        this->supportsPhysicalDeviceProperties2()) {
 
+        VkPhysicalDeviceBlendOperationAdvancedPropertiesEXT blendProps;
+        blendProps.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_PROPERTIES_EXT;
+        blendProps.pNext = nullptr;
+
+        VkPhysicalDeviceProperties2 props;
+        props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        props.pNext = &blendProps;
+
+        GR_VK_CALL(vkInterface, GetPhysicalDeviceProperties2(physDev, &props));
+
+        if (blendProps.advancedBlendAllOperations == VK_TRUE) {
+            fShaderCaps->fAdvBlendEqInteraction = GrShaderCaps::kAutomatic_AdvBlendEqInteraction;
+
+            auto blendFeatures =
+                get_extension_feature_struct<VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT>(
+                    features,
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT);
+            if (blendFeatures && blendFeatures->advancedBlendCoherentOperations == VK_TRUE) {
+                fBlendEquationSupport = kAdvancedCoherent_BlendEquationSupport;
+            } else {
+                // TODO: Currently non coherent blends are not supported in our vulkan backend. They
+                // require us to support self dependencies in our render passes.
+                // fBlendEquationSupport = kAdvanced_BlendEquationSupport;
+            }
+        }
+    }
 }
 
-void GrVkCaps::initShaderCaps(const VkPhysicalDeviceProperties& properties, uint32_t featureFlags) {
+void GrVkCaps::initShaderCaps(const VkPhysicalDeviceProperties& properties,
+                              const VkPhysicalDeviceFeatures2& features) {
     GrShaderCaps* shaderCaps = fShaderCaps.get();
     shaderCaps->fVersionDeclString = "#version 330\n";
 
@@ -386,10 +533,11 @@ void GrVkCaps::initShaderCaps(const VkPhysicalDeviceProperties& properties, uint
 
     shaderCaps->fShaderDerivativeSupport = true;
 
-    shaderCaps->fGeometryShaderSupport = SkToBool(featureFlags & kGeometryShader_GrVkFeatureFlag);
-    shaderCaps->fGSInvocationsSupport = shaderCaps->fGeometryShaderSupport;
+    // FIXME: http://skbug.com/7733: Disable geometry shaders until Intel/Radeon GMs draw correctly.
+    // shaderCaps->fGeometryShaderSupport =
+    //         shaderCaps->fGSInvocationsSupport = features.features.geometryShader;
 
-    shaderCaps->fDualSourceBlendingSupport = SkToBool(featureFlags & kDualSrcBlend_GrVkFeatureFlag);
+    shaderCaps->fDualSourceBlendingSupport = features.features.dualSrcBlend;
 
     shaderCaps->fIntegerSupport = true;
     shaderCaps->fVertexIDSupport = true;
@@ -402,15 +550,9 @@ void GrVkCaps::initShaderCaps(const VkPhysicalDeviceProperties& properties, uint
     // SPIR-V supports unsigned integers.
     shaderCaps->fUnsignedSupport = true;
 
-    shaderCaps->fMaxVertexSamplers =
-    shaderCaps->fMaxGeometrySamplers =
     shaderCaps->fMaxFragmentSamplers = SkTMin(
                                        SkTMin(properties.limits.maxPerStageDescriptorSampledImages,
                                               properties.limits.maxPerStageDescriptorSamplers),
-                                              (uint32_t)INT_MAX);
-    shaderCaps->fMaxCombinedSamplers = SkTMin(
-                                       SkTMin(properties.limits.maxDescriptorSetSampledImages,
-                                              properties.limits.maxDescriptorSetSamplers),
                                               (uint32_t)INT_MAX);
 }
 
@@ -435,12 +577,12 @@ void GrVkCaps::initStencilFormat(const GrVkInterface* interface, VkPhysicalDevic
         gD32S8 = { VK_FORMAT_D32_SFLOAT_S8_UINT, 8,                64,               true };
 
     if (stencil_format_supported(interface, physDev, VK_FORMAT_S8_UINT)) {
-        fPreferedStencilFormat = gS8;
+        fPreferredStencilFormat = gS8;
     } else if (stencil_format_supported(interface, physDev, VK_FORMAT_D24_UNORM_S8_UINT)) {
-        fPreferedStencilFormat = gD24S8;
+        fPreferredStencilFormat = gD24S8;
     } else {
         SkASSERT(stencil_format_supported(interface, physDev, VK_FORMAT_D32_SFLOAT_S8_UINT));
-        fPreferedStencilFormat = gD32S8;
+        fPreferredStencilFormat = gD32S8;
     }
 }
 
@@ -494,29 +636,29 @@ void GrVkCaps::ConfigInfo::initSampleCounts(const GrVkInterface* interface,
                                                                  &properties));
     VkSampleCountFlags flags = properties.sampleCounts;
     if (flags & VK_SAMPLE_COUNT_1_BIT) {
-        fColorSampleCounts.push(1);
+        fColorSampleCounts.push_back(1);
     }
     if (kImagination_VkVendor == physProps.vendorID) {
         // MSAA does not work on imagination
         return;
     }
     if (flags & VK_SAMPLE_COUNT_2_BIT) {
-        fColorSampleCounts.push(2);
+        fColorSampleCounts.push_back(2);
     }
     if (flags & VK_SAMPLE_COUNT_4_BIT) {
-        fColorSampleCounts.push(4);
+        fColorSampleCounts.push_back(4);
     }
     if (flags & VK_SAMPLE_COUNT_8_BIT) {
-        fColorSampleCounts.push(8);
+        fColorSampleCounts.push_back(8);
     }
     if (flags & VK_SAMPLE_COUNT_16_BIT) {
-        fColorSampleCounts.push(16);
+        fColorSampleCounts.push_back(16);
     }
     if (flags & VK_SAMPLE_COUNT_32_BIT) {
-        fColorSampleCounts.push(32);
+        fColorSampleCounts.push_back(32);
     }
     if (flags & VK_SAMPLE_COUNT_64_BIT) {
-        fColorSampleCounts.push(64);
+        fColorSampleCounts.push_back(64);
     }
 }
 
@@ -564,113 +706,150 @@ int GrVkCaps::maxRenderTargetSampleCount(GrPixelConfig config) const {
     return table[table.count() - 1];
 }
 
-bool GrVkCaps::surfaceSupportsWritePixels(const GrSurface* surface) const {
+bool GrVkCaps::onSurfaceSupportsWritePixels(const GrSurface* surface) const {
     if (auto rt = surface->asRenderTarget()) {
         return rt->numColorSamples() <= 1 && SkToBool(surface->asTexture());
     }
     return true;
 }
 
-bool validate_image_info(VkFormat format, SkColorType ct, GrPixelConfig* config) {
-    *config = kUnknown_GrPixelConfig;
+GrPixelConfig validate_image_info(VkFormat format, SkColorType ct, bool hasYcbcrConversion) {
+    if (format == VK_FORMAT_UNDEFINED) {
+        // If the format is undefined then it is only valid as an external image which requires that
+        // we have a valid VkYcbcrConversion.
+        if (hasYcbcrConversion) {
+            // We don't actually care what the color type or config are since we won't use those
+            // values for external textures, but since our code requires setting a config here
+            // just default it to RGBA.
+            return kRGBA_8888_GrPixelConfig;
+        } else {
+            return kUnknown_GrPixelConfig;
+        }
+    }
+
+    if (hasYcbcrConversion) {
+        // We only support having a ycbcr conversion for external images.
+        return kUnknown_GrPixelConfig;
+    }
 
     switch (ct) {
         case kUnknown_SkColorType:
-            return false;
+            break;
         case kAlpha_8_SkColorType:
             if (VK_FORMAT_R8_UNORM == format) {
-                *config = kAlpha_8_as_Red_GrPixelConfig;
+                return kAlpha_8_as_Red_GrPixelConfig;
             }
             break;
         case kRGB_565_SkColorType:
             if (VK_FORMAT_R5G6B5_UNORM_PACK16 == format) {
-                *config = kRGB_565_GrPixelConfig;
+                return kRGB_565_GrPixelConfig;
             }
             break;
         case kARGB_4444_SkColorType:
             if (VK_FORMAT_B4G4R4A4_UNORM_PACK16 == format) {
-                *config = kRGBA_4444_GrPixelConfig;
+                return kRGBA_4444_GrPixelConfig;
             }
             break;
         case kRGBA_8888_SkColorType:
             if (VK_FORMAT_R8G8B8A8_UNORM == format) {
-                *config = kRGBA_8888_GrPixelConfig;
+                return kRGBA_8888_GrPixelConfig;
             } else if (VK_FORMAT_R8G8B8A8_SRGB == format) {
-                *config = kSRGBA_8888_GrPixelConfig;
+                return kSRGBA_8888_GrPixelConfig;
             }
             break;
         case kRGB_888x_SkColorType:
-            // TODO: VK_FORMAT_R8G8B8_UNORM
-            return false;
+            if (VK_FORMAT_R8G8B8_UNORM == format) {
+                return kRGB_888_GrPixelConfig;
+            }
+            break;
         case kBGRA_8888_SkColorType:
             if (VK_FORMAT_B8G8R8A8_UNORM == format) {
-                *config = kBGRA_8888_GrPixelConfig;
+                return kBGRA_8888_GrPixelConfig;
             } else if (VK_FORMAT_B8G8R8A8_SRGB == format) {
-                *config = kSBGRA_8888_GrPixelConfig;
+                return kSBGRA_8888_GrPixelConfig;
             }
             break;
         case kRGBA_1010102_SkColorType:
             if (VK_FORMAT_A2B10G10R10_UNORM_PACK32 == format) {
-                *config = kRGBA_1010102_GrPixelConfig;
+                return kRGBA_1010102_GrPixelConfig;
             }
             break;
         case kRGB_101010x_SkColorType:
-            return false;
+            return kUnknown_GrPixelConfig;
         case kGray_8_SkColorType:
             if (VK_FORMAT_R8_UNORM == format) {
-                *config = kGray_8_as_Red_GrPixelConfig;
+                return kGray_8_as_Red_GrPixelConfig;
             }
             break;
         case kRGBA_F16_SkColorType:
             if (VK_FORMAT_R16G16B16A16_SFLOAT == format) {
-                *config = kRGBA_half_GrPixelConfig;
+                return kRGBA_half_GrPixelConfig;
             }
             break;
         case kRGBA_F32_SkColorType:
             if (VK_FORMAT_R32G32B32A32_SFLOAT == format) {
-                *config = kRGBA_float_GrPixelConfig;
+                return kRGBA_float_GrPixelConfig;
             }
             break;
     }
 
-    return kUnknown_GrPixelConfig != *config;
+    return kUnknown_GrPixelConfig;
 }
 
-bool GrVkCaps::validateBackendTexture(const GrBackendTexture& tex, SkColorType ct,
-                                      GrPixelConfig* config) const {
-    GrVkImageInfo imageInfo;
-    if (!tex.getVkImageInfo(&imageInfo)) {
-        return false;
-    }
-
-    return validate_image_info(imageInfo.fFormat, ct, config);
-}
-
-bool GrVkCaps::validateBackendRenderTarget(const GrBackendRenderTarget& rt, SkColorType ct,
-                                           GrPixelConfig* config) const {
+GrPixelConfig GrVkCaps::validateBackendRenderTarget(const GrBackendRenderTarget& rt,
+                                                    SkColorType ct) const {
     GrVkImageInfo imageInfo;
     if (!rt.getVkImageInfo(&imageInfo)) {
-        return false;
+        return kUnknown_GrPixelConfig;
     }
-
-    return validate_image_info(imageInfo.fFormat, ct, config);
+    return validate_image_info(imageInfo.fFormat, ct, imageInfo.fYcbcrConversionInfo.isValid());
 }
 
-bool GrVkCaps::getConfigFromBackendFormat(const GrBackendFormat& format, SkColorType ct,
-                                          GrPixelConfig* config) const {
+GrPixelConfig GrVkCaps::getConfigFromBackendFormat(const GrBackendFormat& format,
+                                                   SkColorType ct) const {
+    const VkFormat* vkFormat = format.getVkFormat();
+    const GrVkYcbcrConversionInfo* ycbcrInfo = format.getVkYcbcrConversionInfo();
+    if (!vkFormat || !ycbcrInfo) {
+        return kUnknown_GrPixelConfig;
+    }
+    return validate_image_info(*vkFormat, ct, ycbcrInfo->isValid());
+}
+
+static GrPixelConfig get_yuva_config(VkFormat vkFormat) {
+    switch (vkFormat) {
+        case VK_FORMAT_R8_UNORM:
+            return kAlpha_8_as_Red_GrPixelConfig;
+        case VK_FORMAT_R8G8B8A8_UNORM:
+            return kRGBA_8888_GrPixelConfig;
+        case VK_FORMAT_R8G8B8_UNORM:
+            return kRGB_888_GrPixelConfig;
+        case VK_FORMAT_R8G8_UNORM:
+            return kRG_88_GrPixelConfig;
+        case VK_FORMAT_B8G8R8A8_UNORM:
+            return kBGRA_8888_GrPixelConfig;
+        default:
+            return kUnknown_GrPixelConfig;
+    }
+}
+
+GrPixelConfig GrVkCaps::getYUVAConfigFromBackendFormat(const GrBackendFormat& format) const {
     const VkFormat* vkFormat = format.getVkFormat();
     if (!vkFormat) {
-        return false;
+        return kUnknown_GrPixelConfig;
     }
-    return validate_image_info(*vkFormat, ct, config);
+    return get_yuva_config(*vkFormat);
 }
 
-#ifdef GR_TEST_UTILS
-GrBackendFormat GrVkCaps::onCreateFormatFromBackendTexture(
-        const GrBackendTexture& backendTex) const {
-    GrVkImageInfo vkInfo;
-    SkAssertResult(backendTex.getVkImageInfo(&vkInfo));
-    return GrBackendFormat::MakeVk(vkInfo.fFormat);
+GrBackendFormat GrVkCaps::getBackendFormatFromGrColorType(GrColorType ct,
+                                                          GrSRGBEncoded srgbEncoded) const {
+    GrPixelConfig config = GrColorTypeToPixelConfig(ct, srgbEncoded);
+    if (config == kUnknown_GrPixelConfig) {
+        return GrBackendFormat();
+    }
+    VkFormat format;
+    if (!GrPixelConfigToVkFormat(config, &format)) {
+        return GrBackendFormat();
+    }
+    return GrBackendFormat::MakeVk(format);
 }
-#endif
 

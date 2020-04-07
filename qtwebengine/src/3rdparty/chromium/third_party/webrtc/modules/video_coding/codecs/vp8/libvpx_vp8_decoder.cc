@@ -8,19 +8,31 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <stdio.h>
+#include <string.h>
 #include <algorithm>
 #include <string>
 
 #include "absl/memory/memory.h"
-#include "common_video/libyuv/include/webrtc_libyuv.h"
+#include "absl/types/optional.h"
+#include "api/video/i420_buffer.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_rotation.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "modules/video_coding/codecs/vp8/include/vp8.h"
 #include "modules/video_coding/codecs/vp8/libvpx_vp8_decoder.h"
+#include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/numerics/exp_filter.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/field_trial.h"
 #include "system_wrappers/include/metrics.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
-#include "third_party/libyuv/include/libyuv/scale.h"
+#include "vpx/vp8.h"
+#include "vpx/vp8dx.h"
+#include "vpx/vpx_decoder.h"
 
 namespace webrtc {
 namespace {
@@ -55,7 +67,7 @@ void GetPostProcParamsFromFieldTrialGroup(
 
 }  // namespace
 
-std::unique_ptr<VP8Decoder> VP8Decoder::Create() {
+std::unique_ptr<VideoDecoder> VP8Decoder::Create() {
   return absl::make_unique<LibvpxVp8Decoder>();
 }
 
@@ -149,7 +161,7 @@ int LibvpxVp8Decoder::Decode(const EncodedImage& input_image,
   if (decode_complete_callback_ == NULL) {
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
-  if (input_image._buffer == NULL && input_image._length > 0) {
+  if (input_image.data() == NULL && input_image.size() > 0) {
     // Reset to avoid requesting key frames too often.
     if (propagation_cnt_ > 0)
       propagation_cnt_ = 0;
@@ -236,11 +248,11 @@ int LibvpxVp8Decoder::Decode(const EncodedImage& input_image,
     iter = NULL;
   }
 
-  uint8_t* buffer = input_image._buffer;
-  if (input_image._length == 0) {
+  const uint8_t* buffer = input_image.data();
+  if (input_image.size() == 0) {
     buffer = NULL;  // Triggers full frame concealment.
   }
-  if (vpx_codec_decode(decoder_, buffer, input_image._length, 0,
+  if (vpx_codec_decode(decoder_, buffer, input_image.size(), 0,
                        kDecodeDeadlineRealtime)) {
     // Reset to avoid requesting key frames too often.
     if (propagation_cnt_ > 0) {
@@ -254,7 +266,8 @@ int LibvpxVp8Decoder::Decode(const EncodedImage& input_image,
   vpx_codec_err_t vpx_ret =
       vpx_codec_control(decoder_, VPXD_GET_LAST_QUANTIZER, &qp);
   RTC_DCHECK_EQ(vpx_ret, VPX_CODEC_OK);
-  ret = ReturnFrame(img, input_image._timeStamp, input_image.ntp_time_ms_, qp);
+  ret = ReturnFrame(img, input_image.Timestamp(), input_image.ntp_time_ms_, qp,
+                    input_image.ColorSpace());
   if (ret != 0) {
     // Reset to avoid requesting key frames too often.
     if (ret < 0 && propagation_cnt_ > 0)
@@ -273,7 +286,8 @@ int LibvpxVp8Decoder::Decode(const EncodedImage& input_image,
 int LibvpxVp8Decoder::ReturnFrame(const vpx_image_t* img,
                                   uint32_t timestamp,
                                   int64_t ntp_time_ms,
-                                  int qp) {
+                                  int qp,
+                                  const ColorSpace* explicit_color_space) {
   if (img == NULL) {
     // Decoder OK and NULL image => No show frame
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
@@ -305,8 +319,12 @@ int LibvpxVp8Decoder::ReturnFrame(const vpx_image_t* img,
                    buffer->MutableDataV(), buffer->StrideV(), img->d_w,
                    img->d_h);
 
-  VideoFrame decoded_image(buffer, timestamp, 0, kVideoRotation_0);
-  decoded_image.set_ntp_time_ms(ntp_time_ms);
+  VideoFrame decoded_image = VideoFrame::Builder()
+                                 .set_video_frame_buffer(buffer)
+                                 .set_timestamp_rtp(timestamp)
+                                 .set_ntp_time_ms(ntp_time_ms)
+                                 .set_color_space(explicit_color_space)
+                                 .build();
   decode_complete_callback_->Decoded(decoded_image, absl::nullopt, qp);
 
   return WEBRTC_VIDEO_CODEC_OK;

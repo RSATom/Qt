@@ -1,31 +1,26 @@
-CONFIG += testcase link_pkgconfig
-QT += testlib
-QT += core-private gui-private waylandclient-private
+QT += testlib waylandclient-private
+CONFIG += testcase wayland-scanner
+QMAKE_USE += wayland-server
 
-QMAKE_USE += wayland-client wayland-server
-
-CONFIG += wayland-scanner
 WAYLANDSERVERSOURCES += \
-    ../../../../src/3rdparty/protocol/ivi-application.xml \
-    ../../../../src/3rdparty/protocol/wayland.xml \
-    ../../../../src/3rdparty/protocol/xdg-shell-unstable-v6.xml
+    $$PWD/../../../../src/3rdparty/protocol/wayland.xml \
+    $$PWD/../../../../src/3rdparty/protocol/xdg-shell.xml \
+    $$PWD/../../../../src/3rdparty/protocol/text-input-unstable-v2.xml
 
 INCLUDEPATH += ../shared
 
-SOURCES += \
-    ../shared/mockcompositor.cpp \
-    ../shared/mockinput.cpp \
-    ../shared/mockiviapplication.cpp \
-    ../shared/mockwlshell.cpp \
-    ../shared/mockxdgshellv6.cpp \
-    ../shared/mocksurface.cpp \
-    ../shared/mockoutput.cpp
-
 HEADERS += \
-    ../shared/mockcompositor.h \
-    ../shared/mockinput.h \
-    ../shared/mockiviapplication.h \
-    ../shared/mockwlshell.h \
-    ../shared/mockxdgshellv6.h \
-    ../shared/mocksurface.h \
-    ../shared/mockoutput.h
+    $$PWD/corecompositor.h \
+    $$PWD/coreprotocol.h \
+    $$PWD/datadevice.h \
+    $$PWD/mockcompositor.h \
+    $$PWD/xdgshell.h \
+    $$PWD/textinput.h
+
+SOURCES += \
+    $$PWD/corecompositor.cpp \
+    $$PWD/coreprotocol.cpp \
+    $$PWD/datadevice.cpp \
+    $$PWD/mockcompositor.cpp \
+    $$PWD/xdgshell.cpp \
+    $$PWD/textinput.cpp

@@ -587,6 +587,10 @@ namespace networkingPrivate {
     long? SignalStrength;
   };
 
+  dictionary EAPStateProperties {
+    DOMString? Outer;
+  };
+
   dictionary EthernetProperties {
     boolean? AutoConnect;
     DOMString? Authentication;
@@ -654,6 +658,7 @@ namespace networkingPrivate {
     DOMString? SSID;
     DOMString? Security;
     long? SignalStrength;
+    DOMString? TetheringState;
   };
 
   dictionary ManagedWiFiProperties {
@@ -671,15 +676,18 @@ namespace networkingPrivate {
     ManagedDOMString? SSID;
     ManagedDOMString Security;
     long? SignalStrength;
+    DOMString? TetheringState;
   };
 
   dictionary WiFiStateProperties {
     DOMString? BSSID;
+    EAPStateProperties? EAP;
     long? Frequency;
     DOMString? HexSSID;
     DOMString Security;
     long? SignalStrength;
     DOMString? SSID;
+    DOMString? TetheringState;
   };
 
   dictionary WiMAXProperties {
@@ -803,6 +811,9 @@ namespace networkingPrivate {
     // The network type associated with the device (Cellular, Ethernet, WiFi, or
     // WiMAX).
     NetworkType Type;
+
+    // Whether or not any managed networks are available/visible.
+    boolean? ManagedNetworkAvailable;
   };
 
   dictionary VerificationProperties {
@@ -864,6 +875,11 @@ namespace networkingPrivate {
     // If true, only policy networks may be connected to and no new networks may
     // be added or configured. Defaults to false.
     boolean? AllowOnlyPolicyNetworksToConnect;
+
+    // If true and a managed network is available in the visible network list,
+    // only policy networks may be connected to and no new networks may be added
+    // or configured. Defaults to false.
+    boolean? AllowOnlyPolicyNetworksToConnectIfAvailable;
 
     // List of blacklisted networks. Connections to blacklisted networks are
     // prohibited. Networks can be whitelisted again by specifying an explicit
@@ -1055,18 +1071,6 @@ namespace networkingPrivate {
     [nodoc, deprecated = "Use networking.castPrivate API."]
     static void verifyDestination(VerificationProperties properties,
                                   BooleanCallback callback);
-
-    // Verifies that the device is a trusted device and retrieves encrypted
-    // network credentials.
-    // |properties|: Properties of the destination to use in verifying that it
-    //     is a trusted device.
-    // |networkGuid|: The GUID of the Cellular network to activate.
-    // |callback|: A callback function that receives base64-encoded encrypted
-    //     credential data to send to a trusted device.
-    [nodoc, deprecated = "Use networking.castPrivate API."]
-    static void verifyAndEncryptCredentials(VerificationProperties properties,
-                                            DOMString networkGuid,
-                                            StringCallback callback);
 
     // Verifies that the device is a trusted device and encrypts supplied
     // data with device public key.

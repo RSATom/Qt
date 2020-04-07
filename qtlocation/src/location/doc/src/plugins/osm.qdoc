@@ -70,6 +70,13 @@ a prefix.
         valid server url with the correct osm API. If not specified the default \l {http://nominatim.openstreetmap.org/}{url} will be used.
         \note The API documentation is available at \l {https://wiki.openstreetmap.org/wiki/Nominatim}{Project OSM Nominatim}.
 \row
+    \li osm.geocoding.debug_query
+    \li Instructs the plugin to inject the query url to nominatim into the geocode reply, for debugging purposes.
+\row
+    \li osm.geocoding.include_extended_data
+    \li Instructs the plugin to include Nominatim-specific information (such as geometry and class) into the returned Location
+        objects, exposed as extendedAttributes.
+\row
     \li osm.mapping.cache.directory
     \li Absolute path to map tile cache directory used as network disk cache.
 

@@ -11,7 +11,6 @@
 #include "core/fpdfapi/cpdf_pagerendercontext.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/render/cpdf_progressiverenderer.h"
-#include "core/fxcrt/fx_memory.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
@@ -57,8 +56,8 @@ FPDF_EXPORT int FPDF_CALLCONV FPDF_RenderPageBitmap_Start(FPDF_BITMAP bitmap,
   pDevice->Attach(pBitmap, !!(flags & FPDF_REVERSE_BYTE_ORDER), nullptr, false);
 
   IPDFSDK_PauseAdapter IPauseAdapter(pause);
-  FPDF_RenderPage_Retail(pContext, page, start_x, start_y, size_x, size_y,
-                         rotate, flags, false, &IPauseAdapter);
+  RenderPageWithContext(pContext, page, start_x, start_y, size_x, size_y,
+                        rotate, flags, false, &IPauseAdapter);
 
 #ifdef _SKIA_SUPPORT_PATHS_
   pDevice->Flush(false);

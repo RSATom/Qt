@@ -16,10 +16,16 @@
 
 namespace autofill {
 struct PasswordForm;
-class AutofillClient;
+}
+
+namespace network {
+namespace mojom {
+class NetworkContext;
+}
 }
 
 namespace password_manager {
+class PasswordManagerDriver;
 class PasswordManagerClient;
 class PasswordStore;
 }
@@ -32,15 +38,17 @@ class PrefService;
 
 namespace password_manager_util {
 
+// Update |credential| to reflect usage.
+void UpdateMetadataForUsage(autofill::PasswordForm* credential);
+
 // Reports whether and how passwords are currently synced. In particular, for a
 // null |sync_service| returns NOT_SYNCING.
 password_manager::SyncState GetPasswordSyncState(
     const syncer::SyncService* sync_service);
 
-// Reports whether and how browsing history is currently synced. In particular,
-// for a null |sync_service| returns NOT_SYNCING.
-password_manager::SyncState GetHistorySyncState(
-    const syncer::SyncService* sync_service);
+// Reports whether passwords are synced with normal encryption, i.e. without a
+// custom passphrase.
+bool IsSyncingWithNormalEncryption(const syncer::SyncService* sync_service);
 
 // Finds the forms with a duplicate sync tags in |forms|. The first one of
 // the duplicated entries stays in |forms|, the others are moved to
@@ -64,29 +72,46 @@ void TrimUsernameOnlyCredentials(
 // and required to always return non-null.
 bool IsLoggingActive(const password_manager::PasswordManagerClient* client);
 
-// True iff the manual password generation is enabled and the user is sync user
-// without custom passphrase.
-bool ManualPasswordGenerationEnabled(syncer::SyncService* sync_service);
+// True iff the manual password generation is enabled for the current site.
+bool ManualPasswordGenerationEnabled(
+    password_manager::PasswordManagerDriver* driver);
 
 // Returns true iff the "Show all saved passwords" option should be shown in
 // Context Menu. Also records metric, that the Context Menu will have "Show all
 // saved passwords" option.
-bool ShowAllSavedPasswordsContextMenuEnabled();
-
-// Opens Password Manager setting page and records the metrics.
-void UserTriggeredShowAllSavedPasswordsFromContextMenu(
-    autofill::AutofillClient* autofill_client);
+bool ShowAllSavedPasswordsContextMenuEnabled(
+    password_manager::PasswordManagerDriver* driver);
 
 // Triggers password generation flow and records the metrics.
 void UserTriggeredManualGenerationFromContextMenu(
     password_manager::PasswordManagerClient* password_manager_client);
 
-// Clean up the blacklisted entries in the password store. Those shouldn't
-// contain username/password pair. https://crbug.com/817754
-void CleanUserDataInBlacklistedCredentials(
-    password_manager::PasswordStore* store,
+// This function handles the following clean-ups of credentials:
+// (1) Removing blacklisted duplicates: if two blacklisted credentials have the
+// same signon_realm, they are duplicates of each other. Deleting all but one
+// sharing the signon_realm does not affect Chrome's behaviour and hence
+// duplicates can be removed. Having duplicates makes un-blacklisting not work,
+// hence blacklisted duplicates need to be removed.
+// (2) Removing or fixing of HTTPS credentials with wrong signon_realm. See
+// https://crbug.com/881731 for details.
+// (3) Report metrics about HTTP to HTTPS migration process and remove obsolete
+// HTTP credentials. This feature is not available on iOS platform because the
+// HSTS query is not supported. |network_context_getter| is always null for iOS
+// and it can also be null for some unittests.
+void RemoveUselessCredentials(
+    scoped_refptr<password_manager::PasswordStore> store,
     PrefService* prefs,
-    int delay_in_seconds);
+    int delay_in_seconds,
+    base::RepeatingCallback<network::mojom::NetworkContext*()>
+        network_context_getter);
+
+// Excluding protocol from a signon_realm means to remove from the signon_realm
+// what is before the web origin (with the protocol excluded as well). For
+// example if the signon_realm is "https://www.google.com/", after
+// excluding protocol it becomes "www.google.com/".
+// This assumes that the |form|'s host is a substring of the signon_realm.
+base::StringPiece GetSignonRealmWithProtocolExcluded(
+    const autofill::PasswordForm& form);
 
 // Given all non-blacklisted |matches|, finds and populates
 // |best_matches_|, |preferred_match_| and |non_best_matches_| accordingly.

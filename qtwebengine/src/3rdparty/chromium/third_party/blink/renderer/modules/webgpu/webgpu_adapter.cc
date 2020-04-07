@@ -10,15 +10,15 @@ namespace blink {
 
 // static
 WebGPUAdapter* WebGPUAdapter::Create(const String& name) {
-  return new WebGPUAdapter(name);
+  return MakeGarbageCollected<WebGPUAdapter>(name);
 }
 
 const String& WebGPUAdapter::name() const {
   return name_;
 }
 
-WebGPUDevice* WebGPUAdapter::createDevice() {
-  return WebGPUDevice::Create(this);
+WebGPUDevice* WebGPUAdapter::createDevice(ExecutionContext* execution_context) {
+  return WebGPUDevice::Create(execution_context, this);
 }
 
 WebGPUAdapter::WebGPUAdapter(const String& name) : name_(name) {}

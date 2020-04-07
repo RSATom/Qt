@@ -804,7 +804,8 @@ void QGeoRectangle::extendRectangle(const QGeoCoordinate &coordinate)
 QGeoRectangle QGeoRectangle::united(const QGeoRectangle &rectangle) const
 {
     QGeoRectangle result(*this);
-    result |= rectangle;
+    if (rectangle.isValid())
+        result |= rectangle;
     return result;
 }
 

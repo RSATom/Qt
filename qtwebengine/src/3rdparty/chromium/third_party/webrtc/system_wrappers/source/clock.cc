@@ -17,6 +17,8 @@
 
 #include <mmsystem.h>
 
+#include "rtc_base/critical_section.h"
+
 #elif defined(WEBRTC_POSIX)
 
 #include <sys/time.h>
@@ -24,9 +26,8 @@
 
 #endif  // defined(WEBRTC_POSIX)
 
-#include "rtc_base/criticalsection.h"
 #include "rtc_base/synchronization/rw_lock_wrapper.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -79,7 +80,29 @@ class RealTimeClock : public Clock {
   }
 };
 
-#if defined(WEBRTC_WIN)
+#if defined(WINUWP)
+class WinUwpRealTimeClock final : public RealTimeClock {
+ public:
+  WinUwpRealTimeClock() = default;
+  ~WinUwpRealTimeClock() override {}
+
+ protected:
+  timeval CurrentTimeVal() const override {
+    // The rtc::SystemTimeNanos() method is already time offset from a base
+    // epoch value and might as be synchronized against an NTP time server as
+    // an added bonus.
+    auto nanos = rtc::SystemTimeNanos();
+
+    struct timeval tv;
+
+    tv.tv_sec = rtc::dchecked_cast<long>(nanos / 1000000000);
+    tv.tv_usec = rtc::dchecked_cast<long>(nanos / 1000);
+
+    return tv;
+  }
+};
+
+#elif defined(WEBRTC_WIN)
 // TODO(pbos): Consider modifying the implementation to synchronize itself
 // against system time (update ref_point_, make it non-const) periodically to
 // prevent clock drift.
@@ -200,32 +223,17 @@ class UnixRealTimeClock : public RealTimeClock {
 };
 #endif  // defined(WEBRTC_POSIX)
 
-#if defined(WEBRTC_WIN)
-static WindowsRealTimeClock* volatile g_shared_clock = nullptr;
-#endif  // defined(WEBRTC_WIN)
-
 Clock* Clock::GetRealTimeClock() {
-#if defined(WEBRTC_WIN)
-  // This read relies on volatile read being atomic-load-acquire. This is
-  // true in MSVC since at least 2005:
-  // "A read of a volatile object (volatile read) has Acquire semantics"
-  if (g_shared_clock != nullptr)
-    return g_shared_clock;
-  WindowsRealTimeClock* clock = new WindowsRealTimeClock;
-  if (InterlockedCompareExchangePointer(
-          reinterpret_cast<void* volatile*>(&g_shared_clock), clock, nullptr) !=
-      nullptr) {
-    // g_shared_clock was assigned while we constructed/tried to assign our
-    // instance, delete our instance and use the existing one.
-    delete clock;
-  }
-  return g_shared_clock;
+#if defined(WINUWP)
+  static Clock* const clock = new WinUwpRealTimeClock();
+#elif defined(WEBRTC_WIN)
+  static Clock* const clock = new WindowsRealTimeClock();
 #elif defined(WEBRTC_POSIX)
-  static UnixRealTimeClock clock;
-  return &clock;
-#else   // defined(WEBRTC_POSIX)
-  return nullptr;
-#endif  // !defined(WEBRTC_WIN) || defined(WEBRTC_POSIX)
+  static Clock* const clock = new UnixRealTimeClock();
+#else
+  static Clock* const clock = nullptr;
+#endif
+  return clock;
 }
 
 SimulatedClock::SimulatedClock(int64_t initial_time_us)

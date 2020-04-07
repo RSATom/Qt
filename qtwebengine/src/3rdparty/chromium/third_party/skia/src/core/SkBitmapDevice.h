@@ -12,8 +12,8 @@
 #include "SkCanvas.h"
 #include "SkColor.h"
 #include "SkDevice.h"
+#include "SkGlyphRunPainter.h"
 #include "SkImageInfo.h"
-#include "SkPixelRef.h"
 #include "SkRasterClip.h"
 #include "SkRasterClipStack.h"
 #include "SkRect.h"
@@ -25,7 +25,6 @@ class SkImageFilterCache;
 class SkMatrix;
 class SkPaint;
 class SkPath;
-class SkPixelRef;
 class SkPixmap;
 class SkRasterHandleAllocator;
 class SkRRect;
@@ -88,14 +87,8 @@ protected:
      *  non-const pointer and modify it in place (as an optimization). Canvas
      *  may do this to implement helpers such as drawOval, by placing a temp
      *  path on the stack to hold the representation of the oval.
-     *
-     *  If prePathMatrix is not null, it should logically be applied before any
-     *  stroking or other effects. If there are no effects on the paint that
-     *  affect the geometry/rasterization, then the pre matrix can just be
-     *  pre-concated with the current matrix.
      */
-    void drawPath(const SkPath&, const SkPaint&, const SkMatrix* prePathMatrix,
-                          bool pathIsMutable) override;
+    void drawPath(const SkPath&, const SkPaint&, bool pathIsMutable) override;
     void drawBitmap(const SkBitmap&, SkScalar x, SkScalar y, const SkPaint&) override;
     void drawSprite(const SkBitmap&, int x, int y, const SkPaint&) override;
 
@@ -106,13 +99,8 @@ protected:
     void drawBitmapRect(const SkBitmap&, const SkRect*, const SkRect&,
                         const SkPaint&, SkCanvas::SrcRectConstraint) override;
 
-    /**
-     *  Does not handle text decoration.
-     *  Decorations (underline and stike-thru) will be handled by SkCanvas.
-     */
-    void drawPosText(const void* text, size_t len, const SkScalar pos[],
-                     int scalarsPerPos, const SkPoint& offset, const SkPaint& paint) override;
-    void drawVertices(const SkVertices*, const SkMatrix* bones, int boneCount, SkBlendMode,
+    void drawGlyphRunList(const SkGlyphRunList& glyphRunList) override;
+    void drawVertices(const SkVertices*, const SkVertices::Bone bones[], int boneCount, SkBlendMode,
                       const SkPaint& paint) override;
     void drawDevice(SkBaseDevice*, int x, int y, const SkPaint&) override;
 
@@ -123,6 +111,9 @@ protected:
     sk_sp<SkSpecialImage> makeSpecial(const SkBitmap&) override;
     sk_sp<SkSpecialImage> makeSpecial(const SkImage*) override;
     sk_sp<SkSpecialImage> snapSpecial() override;
+    void setImmutable() override { fBitmap.setImmutable(); }
+
+    sk_sp<SkSpecialImage> snapBackImage(const SkIRect&) override;
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -152,9 +143,7 @@ private:
     friend class SkDraw;
     friend class SkDrawIter;
     friend class SkDrawTiler;
-    friend class SkDeviceFilteredPaint;
     friend class SkSurface_Raster;
-    friend class SkThreadedBMPDevice; // to copy fRCStack
 
     class BDDraw;
 
@@ -173,6 +162,8 @@ private:
     void*       fRasterHandle = nullptr;
     SkRasterClipStack  fRCStack;
     std::unique_ptr<SkBitmap> fCoverage;    // if non-null, will have the same dimensions as fBitmap
+    SkGlyphRunListPainter fGlyphPainter;
+
 
     typedef SkBaseDevice INHERITED;
 };

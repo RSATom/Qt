@@ -14,7 +14,7 @@
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
-#include "base/system_monitor/system_monitor.h"
+#include "base/system/system_monitor.h"
 #include "base/time/time.h"
 #include "device/gamepad/gamepad_export.h"
 #include "device/gamepad/gamepad_pad_state_provider.h"
@@ -35,7 +35,7 @@ class GamepadDataFetcher;
 class DEVICE_GAMEPAD_EXPORT GamepadConnectionChangeClient {
  public:
   virtual void OnGamepadConnectionChange(bool connected,
-                                         int index,
+                                         uint32_t index,
                                          const Gamepad& pad) = 0;
 };
 
@@ -59,13 +59,13 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
   void GetCurrentGamepadData(Gamepads* data);
 
   void PlayVibrationEffectOnce(
-      int pad_index,
+      uint32_t pad_index,
       mojom::GamepadHapticEffectType,
       mojom::GamepadEffectParametersPtr,
       mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback);
 
   void ResetVibrationActuator(
-      int pad_index,
+      uint32_t pad_index,
       mojom::GamepadHapticsManager::ResetVibrationActuatorCallback);
 
   // Pause and resume the background polling thread. Can be called from any
@@ -106,11 +106,25 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
   void DoPoll();
   void ScheduleDoPoll();
 
-  void OnGamepadConnectionChange(bool connected, int index, const Gamepad& pad);
+  void OnGamepadConnectionChange(bool connected,
+                                 uint32_t index,
+                                 const Gamepad& pad);
 
   // Checks the gamepad state to see if the user has interacted with it. Returns
   // true if any user gesture observers were notified.
   bool CheckForUserGesture();
+
+  void PlayEffectOnPollingThread(
+      uint32_t pad_index,
+      mojom::GamepadHapticEffectType,
+      mojom::GamepadEffectParametersPtr,
+      mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback,
+      scoped_refptr<base::SequencedTaskRunner>);
+
+  void ResetVibrationOnPollingThread(
+      uint32_t pad_index,
+      mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback,
+      scoped_refptr<base::SequencedTaskRunner>);
 
   // The duration of the delay between iterations of DoPoll.
   base::TimeDelta sampling_interval_delta_;

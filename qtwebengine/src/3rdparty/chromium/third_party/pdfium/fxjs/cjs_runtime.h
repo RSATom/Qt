@@ -7,7 +7,6 @@
 #ifndef FXJS_CJS_RUNTIME_H_
 #define FXJS_CJS_RUNTIME_H_
 
-#include <map>
 #include <memory>
 #include <set>
 #include <utility>
@@ -21,9 +20,9 @@
 
 class CJS_EventContext;
 
-class CJS_Runtime : public IJS_Runtime,
-                    public CFXJS_Engine,
-                    public Observable<CJS_Runtime> {
+class CJS_Runtime final : public IJS_Runtime,
+                          public CFXJS_Engine,
+                          public Observable<CJS_Runtime> {
  public:
   using FieldEvent = std::pair<WideString, JS_EVENT_T>;
 
@@ -31,7 +30,6 @@ class CJS_Runtime : public IJS_Runtime,
   ~CJS_Runtime() override;
 
   // IJS_Runtime
-  CJS_Runtime* AsCJSRuntime() override;
   IJS_EventContext* NewEventContext() override;
   void ReleaseEventContext(IJS_EventContext* pContext) override;
   CPDFSDK_FormFillEnvironment* GetFormFillEnv() const override;
@@ -53,9 +51,10 @@ class CJS_Runtime : public IJS_Runtime,
   v8::Local<v8::Value> MaybeCoerceToNumber(v8::Local<v8::Value> value);
 
 #ifdef PDF_ENABLE_XFA
-  bool GetValueByNameFromGlobalObject(const ByteStringView& utf8Name,
+  CJS_Runtime* AsCJSRuntime() override;
+  bool GetValueByNameFromGlobalObject(ByteStringView utf8Name,
                                       CFXJSE_Value* pValue) override;
-  bool SetValueByNameInGlobalObject(const ByteStringView& utf8Name,
+  bool SetValueByNameInGlobalObject(ByteStringView utf8Name,
                                     CFXJSE_Value* pValue) override;
 #endif  // PDF_ENABLE_XFA
 
@@ -65,8 +64,8 @@ class CJS_Runtime : public IJS_Runtime,
 
   std::vector<std::unique_ptr<CJS_EventContext>> m_EventContextArray;
   CPDFSDK_FormFillEnvironment::ObservedPtr m_pFormFillEnv;
-  bool m_bBlocking;
-  bool m_isolateManaged;
+  bool m_bBlocking = false;
+  bool m_isolateManaged = false;
   std::set<FieldEvent> m_FieldEventSet;
 };
 

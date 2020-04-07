@@ -62,14 +62,13 @@ bool TracingManager::GetTraceData(int id, const TraceDataCallback& callback) {
       return false;
     }
   } else {
-    std::map<int, scoped_refptr<base::RefCountedString> >::iterator data =
-        trace_data_.find(id);
+    auto data = trace_data_.find(id);
     if (data == trace_data_.end())
       return false;
 
     // Always return the data asychronously, so the behavior is consistant.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, data->second));
+        FROM_HERE, base::BindOnce(callback, data->second));
     return true;
   }
 }
@@ -120,8 +119,8 @@ void TracingManager::OnTraceDataCollected(
   // Tracing has to be restarted asynchronous, so the TracingController can
   // clean up.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&TracingManager::StartTracing,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&TracingManager::StartTracing,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 // static

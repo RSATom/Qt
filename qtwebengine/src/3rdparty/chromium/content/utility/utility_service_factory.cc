@@ -9,6 +9,8 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/debug/crash_logging.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/trace_log.h"
 #include "build/build_config.h"
 #include "content/child/child_process.h"
@@ -27,8 +29,6 @@
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/features.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
-#include "services/shape_detection/public/mojom/constants.mojom.h"
-#include "services/shape_detection/shape_detection_service.h"
 #include "services/video_capture/public/mojom/constants.mojom.h"
 #include "services/video_capture/service_impl.h"
 #include "services/viz/public/interfaces/constants.mojom.h"
@@ -45,6 +45,11 @@
 #endif  // BUILDFLAG(ENABLE_CDM_HOST_VERIFICATION)
 #endif
 
+#if defined(OS_MACOSX)
+#include "sandbox/mac/system_services.h"
+#include "services/service_manager/sandbox/features.h"
+#endif
+
 #if defined(OS_WIN)
 #include "sandbox/win/src/sandbox.h"
 
@@ -54,6 +59,10 @@ extern sandbox::TargetServices* g_utility_target_services;
 namespace content {
 
 namespace {
+
+void TerminateThisProcess() {
+  UtilityThread::Get()->ReleaseProcess();
+}
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
@@ -90,90 +99,71 @@ class ContentCdmServiceClient final : public media::CdmService::Client {
 #endif  // BUILDFLAG(ENABLE_CDM_HOST_VERIFICATION)
 };
 
-std::unique_ptr<service_manager::Service> CreateCdmService() {
-  return std::unique_ptr<service_manager::Service>(
-      new ::media::CdmService(std::make_unique<ContentCdmServiceClient>()));
-}
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
-
-std::unique_ptr<service_manager::Service> CreateDataDecoderService() {
-  content::UtilityThread::Get()->EnsureBlinkInitialized();
-  return data_decoder::DataDecoderService::Create();
-}
-
-std::unique_ptr<service_manager::Service> CreateVizService() {
-  return std::make_unique<viz::Service>();
-}
 
 }  // namespace
 
 UtilityServiceFactory::UtilityServiceFactory()
     : network_registry_(std::make_unique<service_manager::BinderRegistry>()),
-      audio_registry_(std::make_unique<service_manager::BinderRegistry>()) {}
+      audio_registry_(std::make_unique<service_manager::BinderRegistry>()) {
+  GetContentClient()->utility()->RegisterAudioBinders(audio_registry_.get());
+}
 
 UtilityServiceFactory::~UtilityServiceFactory() {}
 
-void UtilityServiceFactory::CreateService(
-    service_manager::mojom::ServiceRequest request,
+bool UtilityServiceFactory::HandleServiceRequest(
     const std::string& name,
-    service_manager::mojom::PIDReceiverPtr pid_receiver) {
+    service_manager::mojom::ServiceRequest request) {
   auto* trace_log = base::trace_event::TraceLog::GetInstance();
   if (trace_log->IsProcessNameEmpty())
     trace_log->set_process_name("Service: " + name);
-  ServiceFactory::CreateService(std::move(request), name,
-                                std::move(pid_receiver));
-}
 
-void UtilityServiceFactory::RegisterServices(ServiceMap* services) {
-  GetContentClient()->utility()->RegisterServices(services);
+  static auto* service_name = base::debug::AllocateCrashKeyString(
+      "service-name", base::debug::CrashKeySize::Size32);
+  base::debug::SetCrashKeyString(service_name, name);
 
-  service_manager::EmbeddedServiceInfo video_capture_info;
-  video_capture_info.factory =
-      base::BindRepeating(&video_capture::ServiceImpl::Create);
-  services->insert(
-      std::make_pair(video_capture::mojom::kServiceName, video_capture_info));
-
-  GetContentClient()->utility()->RegisterAudioBinders(audio_registry_.get());
-  service_manager::EmbeddedServiceInfo audio_info;
-  audio_info.factory = base::BindRepeating(
-      &UtilityServiceFactory::CreateAudioService, base::Unretained(this));
-  services->insert(std::make_pair(audio::mojom::kServiceName, audio_info));
-
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
-  service_manager::EmbeddedServiceInfo info;
-  info.factory = base::Bind(&CreateCdmService);
-  services->emplace(media::mojom::kCdmServiceName, info);
-#endif
-
-  service_manager::EmbeddedServiceInfo shape_detection_info;
-  shape_detection_info.factory =
-      base::Bind(&shape_detection::ShapeDetectionService::Create);
-  services->insert(std::make_pair(shape_detection::mojom::kServiceName,
-                                  shape_detection_info));
-
-  service_manager::EmbeddedServiceInfo data_decoder_info;
-  data_decoder_info.factory = base::Bind(&CreateDataDecoderService);
-  services->insert(
-      std::make_pair(data_decoder::mojom::kServiceName, data_decoder_info));
-
-  service_manager::EmbeddedServiceInfo viz_info;
-  viz_info.factory = base::Bind(&CreateVizService);
-  services->insert(std::make_pair(viz::mojom::kVizServiceName, viz_info));
-
-  if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+  std::unique_ptr<service_manager::Service> service;
+  if (name == audio::mojom::kServiceName) {
+    service = CreateAudioService(std::move(request));
+  } else if (name == data_decoder::mojom::kServiceName) {
+    content::UtilityThread::Get()->EnsureBlinkInitialized();
+    service =
+        std::make_unique<data_decoder::DataDecoderService>(std::move(request));
+  } else if (name == mojom::kNetworkServiceName &&
+             base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+    // Unlike other services supported by the utility process, the network
+    // service runs on the IO thread and never self-terminates.
     GetContentClient()->utility()->RegisterNetworkBinders(
         network_registry_.get());
-    service_manager::EmbeddedServiceInfo network_info;
-    network_info.factory = base::Bind(
-        &UtilityServiceFactory::CreateNetworkService, base::Unretained(this));
-    network_info.task_runner = ChildProcess::current()->io_task_runner();
-    services->insert(
-        std::make_pair(content::mojom::kNetworkServiceName, network_info));
+    ChildProcess::current()->io_task_runner()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&UtilityServiceFactory::RunNetworkServiceOnIOThread,
+                       base::Unretained(this), std::move(request),
+                       base::SequencedTaskRunnerHandle::Get()));
+    return true;
+  } else if (name == video_capture::mojom::kServiceName) {
+    service = std::make_unique<video_capture::ServiceImpl>(
+        std::move(request), base::ThreadTaskRunnerHandle::Get());
+  } else if (name == viz::mojom::kVizServiceName) {
+    service = std::make_unique<viz::Service>(std::move(request));
   }
-}
+#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
+  else if (name == media::mojom::kCdmServiceName) {
+    service = std::make_unique<media::CdmService>(
+        std::make_unique<ContentCdmServiceClient>(), std::move(request));
+  }
+#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
-void UtilityServiceFactory::OnServiceQuit() {
-  UtilityThread::Get()->ReleaseProcess();
+  if (service) {
+    service_manager::Service::RunAsyncUntilTermination(
+        std::move(service),
+        base::BindOnce(&UtilityThread::ReleaseProcess,
+                       base::Unretained(UtilityThread::Get())));
+    return true;
+  }
+
+  return GetContentClient()->utility()->HandleServiceRequest(
+      name, std::move(request));
 }
 
 void UtilityServiceFactory::OnLoadFailed() {
@@ -183,15 +173,39 @@ void UtilityServiceFactory::OnLoadFailed() {
   utility_thread->ReleaseProcess();
 }
 
-std::unique_ptr<service_manager::Service>
-UtilityServiceFactory::CreateNetworkService() {
-  return std::make_unique<network::NetworkService>(
-      std::move(network_registry_));
+void UtilityServiceFactory::RunNetworkServiceOnIOThread(
+    service_manager::mojom::ServiceRequest service_request,
+    scoped_refptr<base::SequencedTaskRunner> main_thread_task_runner) {
+  auto service = std::make_unique<network::NetworkService>(
+      std::move(network_registry_), nullptr /* request */,
+      nullptr /* net_log */, std::move(service_request), true);
+
+  // Transfer ownership of the service to itself, and have it post to the main
+  // thread on self-termination to kill the process.
+  auto* raw_service = service.get();
+  raw_service->set_termination_closure(base::BindOnce(
+      [](std::unique_ptr<network::NetworkService> service,
+         scoped_refptr<base::SequencedTaskRunner> main_thread_task_runner) {
+        main_thread_task_runner->PostTask(
+            FROM_HERE, base::BindOnce(&TerminateThisProcess));
+      },
+      std::move(service), std::move(main_thread_task_runner)));
 }
 
 std::unique_ptr<service_manager::Service>
-UtilityServiceFactory::CreateAudioService() {
-  return audio::CreateStandaloneService(std::move(audio_registry_));
+UtilityServiceFactory::CreateAudioService(
+    service_manager::mojom::ServiceRequest request) {
+#if defined(OS_MACOSX)
+  // Don't connect to launch services when running sandboxed
+  // (https://crbug.com/874785).
+  if (base::FeatureList::IsEnabled(
+          service_manager::features::kAudioServiceSandbox)) {
+    sandbox::DisableLaunchServices();
+  }
+#endif
+
+  return audio::CreateStandaloneService(std::move(audio_registry_),
+                                        std::move(request));
 }
 
 }  // namespace content

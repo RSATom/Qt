@@ -127,6 +127,8 @@ bool GrClipStackClip::PathNeedsSWRenderer(GrContext* context,
                                              renderTargetContext->fsaaType(),
                                              GrAllowMixedSamples::kYes,
                                              *context->contextPriv().caps());
+        SkASSERT(!renderTargetContext->wrapsVkSecondaryCB());
+        canDrawArgs.fTargetIsWrappedVkSecondaryCB = false;
         canDrawArgs.fHasUserStencilSettings = hasUserStencilSettings;
 
         // the 'false' parameter disallows use of the SW path renderer
@@ -156,8 +158,10 @@ bool GrClipStackClip::UseSWOnlyPath(GrContext* context,
     // a clip gets complex enough it can just be done in SW regardless
     // of whether it would invoke the GrSoftwarePathRenderer.
 
-    // If we're avoiding stencils, always use SW:
-    if (context->contextPriv().caps()->avoidStencilBuffers()) {
+    // If we're avoiding stencils, always use SW. This includes drawing into a wrapped vulkan
+    // secondary command buffer which can't handle stencils.
+    if (context->contextPriv().caps()->avoidStencilBuffers() ||
+        renderTargetContext->wrapsVkSecondaryCB()) {
         return true;
     }
 
@@ -258,7 +262,8 @@ bool GrClipStackClip::applyClipMask(GrContext* context, GrRenderTargetContext* r
 
     // If the stencil buffer is multisampled we can use it to do everything.
     if ((GrFSAAType::kNone == renderTargetContext->fsaaType() && reducedClip.maskRequiresAA()) ||
-        context->contextPriv().caps()->avoidStencilBuffers()) {
+        context->contextPriv().caps()->avoidStencilBuffers() ||
+        renderTargetContext->wrapsVkSecondaryCB()) {
         sk_sp<GrTextureProxy> result;
         if (UseSWOnlyPath(context, hasUserStencilSettings, renderTargetContext, reducedClip)) {
             // The clip geometry is complex enough that it will be more efficient to create it
@@ -277,7 +282,8 @@ bool GrClipStackClip::applyClipMask(GrContext* context, GrRenderTargetContext* r
 
         // If alpha or software clip mask creation fails, fall through to the stencil code paths,
         // unless stencils are disallowed.
-        if (context->contextPriv().caps()->avoidStencilBuffers()) {
+        if (context->contextPriv().caps()->avoidStencilBuffers() ||
+            renderTargetContext->wrapsVkSecondaryCB()) {
             SkDebugf("WARNING: Clip mask requires stencil, but stencil unavailable. "
                      "Clip will be ignored.\n");
             return false;
@@ -316,15 +322,15 @@ static void create_clip_mask_key(uint32_t clipGenID, const SkIRect& bounds, int 
     builder[3] = numAnalyticFPs;
 }
 
-static void add_invalidate_on_pop_message(const SkClipStack& stack, uint32_t clipGenID,
-                                          const GrUniqueKey& clipMaskKey,
-                                          uint32_t contextUniqueID) {
+static void add_invalidate_on_pop_message(GrContext* context,
+                                          const SkClipStack& stack, uint32_t clipGenID,
+                                          const GrUniqueKey& clipMaskKey) {
+    GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
+
     SkClipStack::Iter iter(stack, SkClipStack::Iter::kTop_IterStart);
     while (const Element* element = iter.prev()) {
         if (element->getGenID() == clipGenID) {
-            std::unique_ptr<GrUniqueKeyInvalidatedMessage> msg(
-                    new GrUniqueKeyInvalidatedMessage(clipMaskKey, contextUniqueID));
-            element->addResourceInvalidationMessage(std::move(msg));
+            element->addResourceInvalidationMessage(proxyProvider, clipMaskKey);
             return;
         }
     }
@@ -344,8 +350,11 @@ sk_sp<GrTextureProxy> GrClipStackClip::createAlphaClipMask(GrContext* context,
         return proxy;
     }
 
+    GrBackendFormat format =
+            context->contextPriv().caps()->getBackendFormatFromColorType(kAlpha_8_SkColorType);
     sk_sp<GrRenderTargetContext> rtc(
         context->contextPriv().makeDeferredRenderTargetContextWithFallback(
+                                                                        format,
                                                                         SkBackingFit::kApprox,
                                                                         reducedClip.width(),
                                                                         reducedClip.height(),
@@ -368,7 +377,7 @@ sk_sp<GrTextureProxy> GrClipStackClip::createAlphaClipMask(GrContext* context,
 
     SkASSERT(result->origin() == kTopLeft_GrSurfaceOrigin);
     proxyProvider->assignUniqueKeyToProxy(key, result.get());
-    add_invalidate_on_pop_message(*fStack, reducedClip.maskGenID(), key, context->uniqueID());
+    add_invalidate_on_pop_message(context, *fStack, reducedClip.maskGenID(), key);
 
     return result;
 }
@@ -473,10 +482,15 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
         desc.fWidth = maskSpaceIBounds.width();
         desc.fHeight = maskSpaceIBounds.height();
         desc.fConfig = kAlpha_8_GrPixelConfig;
+
+        GrBackendFormat format =
+                context->contextPriv().caps()->getBackendFormatFromColorType(kAlpha_8_SkColorType);
+
         // MDB TODO: We're going to fill this proxy with an ASAP upload (which is out of order wrt
         // to ops), so it can't have any pending IO.
-        proxy = proxyProvider->createProxy(desc, kTopLeft_GrSurfaceOrigin, SkBackingFit::kApprox,
-                                           SkBudgeted::kYes, GrInternalSurfaceFlags::kNoPendingIO);
+        proxy = proxyProvider->createProxy(format, desc, kTopLeft_GrSurfaceOrigin,
+                                           SkBackingFit::kApprox, SkBudgeted::kYes,
+                                           GrInternalSurfaceFlags::kNoPendingIO);
 
         auto uploader = skstd::make_unique<GrTDeferredProxyUploader<ClipMaskData>>(reducedClip);
         GrTDeferredProxyUploader<ClipMaskData>* uploaderRaw = uploader.get();
@@ -509,6 +523,6 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
 
     SkASSERT(proxy->origin() == kTopLeft_GrSurfaceOrigin);
     proxyProvider->assignUniqueKeyToProxy(key, proxy.get());
-    add_invalidate_on_pop_message(*fStack, reducedClip.maskGenID(), key, context->uniqueID());
+    add_invalidate_on_pop_message(context, *fStack, reducedClip.maskGenID(), key);
     return proxy;
 }

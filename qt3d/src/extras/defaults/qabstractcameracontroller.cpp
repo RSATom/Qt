@@ -209,7 +209,12 @@ void QAbstractCameraControllerPrivate::init()
     // Disable the logical device when the entity is disabled
     QObject::connect(q, &Qt3DCore::QEntity::enabledChanged,
                      m_logicalDevice, &Qt3DInput::QLogicalDevice::setEnabled);
-
+    QObject::connect(q, &Qt3DCore::QEntity::enabledChanged,
+                     m_frameAction, &Qt3DLogic::QFrameAction::setEnabled);
+    for (auto axis: {m_rxAxis, m_ryAxis, m_txAxis, m_tyAxis, m_tzAxis}) {
+        QObject::connect(q, &Qt3DCore::QEntity::enabledChanged,
+                         axis, &Qt3DInput::QAxis::setEnabled);
+    }
 
     QObject::connect(m_escapeButtonAction, &Qt3DInput::QAction::activeChanged,
                      q, [this](bool isActive) {

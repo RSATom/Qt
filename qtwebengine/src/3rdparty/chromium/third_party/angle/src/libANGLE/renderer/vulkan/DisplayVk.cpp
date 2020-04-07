@@ -20,9 +20,8 @@ namespace rx
 {
 
 DisplayVk::DisplayVk(const egl::DisplayState &state)
-    : DisplayImpl(state), vk::Context(new RendererVk())
-{
-}
+    : DisplayImpl(state), vk::Context(new RendererVk()), mScratchBuffer(1000u)
+{}
 
 DisplayVk::~DisplayVk()
 {
@@ -32,7 +31,7 @@ DisplayVk::~DisplayVk()
 egl::Error DisplayVk::initialize(egl::Display *display)
 {
     ASSERT(mRenderer != nullptr && display != nullptr);
-    angle::Result result = mRenderer->initialize(this, display->getAttributeMap(), getWSIName());
+    angle::Result result = mRenderer->initialize(this, display, getWSIName());
     ANGLE_TRY(angle::ToEGL(result, this, EGL_NOT_INITIALIZED));
     return egl::NoError();
 }
@@ -52,14 +51,14 @@ egl::Error DisplayVk::makeCurrent(egl::Surface * /*drawSurface*/,
 
 bool DisplayVk::testDeviceLost()
 {
-    // TODO(jmadill): Figure out how to do device lost in Vulkan.
-    return false;
+    return mRenderer->isDeviceLost();
 }
 
 egl::Error DisplayVk::restoreLostDevice(const egl::Display *display)
 {
-    UNIMPLEMENTED();
-    return egl::EglBadAccess();
+    // A vulkan device cannot be restored, the entire renderer would have to be re-created along
+    // with any other EGL objects that reference it.
+    return egl::EglBadDisplay();
 }
 
 std::string DisplayVk::getVendorString() const
@@ -133,6 +132,7 @@ SurfaceImpl *DisplayVk::createPixmapSurface(const egl::SurfaceState &state,
 }
 
 ImageImpl *DisplayVk::createImage(const egl::ImageState &state,
+                                  const gl::Context *context,
                                   EGLenum target,
                                   const egl::AttributeMap &attribs)
 {
@@ -140,12 +140,13 @@ ImageImpl *DisplayVk::createImage(const egl::ImageState &state,
     return static_cast<ImageImpl *>(0);
 }
 
-ContextImpl *DisplayVk::createContext(const gl::ContextState &state,
-                                      const egl::Config *configuration,
-                                      const gl::Context *shareContext,
-                                      const egl::AttributeMap &attribs)
+rx::ContextImpl *DisplayVk::createContext(const gl::State &state,
+                                          gl::ErrorSet *errorSet,
+                                          const egl::Config *configuration,
+                                          const gl::Context *shareContext,
+                                          const egl::AttributeMap &attribs)
 {
-    return new ContextVk(state, mRenderer);
+    return new ContextVk(state, errorSet, mRenderer);
 }
 
 StreamProducerImpl *DisplayVk::createStreamProducerD3DTexture(
@@ -158,18 +159,23 @@ StreamProducerImpl *DisplayVk::createStreamProducerD3DTexture(
 
 gl::Version DisplayVk::getMaxSupportedESVersion() const
 {
-    UNIMPLEMENTED();
-    return gl::Version(0, 0);
+    return mRenderer->getMaxSupportedESVersion();
 }
 
 void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
 {
+    outExtensions->createContextRobustness  = true;
     outExtensions->surfaceOrientation       = true;
     outExtensions->displayTextureShareGroup = true;
 
     // TODO(geofflang): Extension is exposed but not implemented so that other aspects of the Vulkan
     // backend can be tested in Chrome. http://anglebug.com/2722
     outExtensions->robustResourceInitialization = true;
+
+    // The Vulkan implementation will always say that EGL_KHR_swap_buffers_with_damage is supported.
+    // When the Vulkan driver supports VK_KHR_incremental_present, it will use it.  Otherwise, it
+    // will ignore the hint and do a regular swap.
+    outExtensions->swapBuffersWithDamage = true;
 }
 
 void DisplayVk::generateCaps(egl::Caps *outCaps) const
@@ -177,15 +183,32 @@ void DisplayVk::generateCaps(egl::Caps *outCaps) const
     outCaps->textureNPOT = true;
 }
 
-void DisplayVk::handleError(VkResult result, const char *file, unsigned int line)
+bool DisplayVk::getScratchBuffer(size_t requstedSizeBytes,
+                                 angle::MemoryBuffer **scratchBufferOut) const
 {
-    std::stringstream errorStream;
-    errorStream << "Internal Vulkan error: " << VulkanResultString(result) << ", in " << file
-                << ", line " << line << ".";
-    mStoredErrorString = errorStream.str();
+    return mScratchBuffer.get(requstedSizeBytes, scratchBufferOut);
 }
 
-// TODO(jmadill): Remove this. http://anglebug.com/2491
+void DisplayVk::handleError(VkResult result,
+                            const char *file,
+                            const char *function,
+                            unsigned int line)
+{
+    ASSERT(result != VK_SUCCESS);
+
+    std::stringstream errorStream;
+    errorStream << "Internal Vulkan error: " << VulkanResultString(result) << ", in " << file
+                << ", " << function << ":" << line << ".";
+    mStoredErrorString = errorStream.str();
+
+    if (result == VK_ERROR_DEVICE_LOST)
+    {
+        WARN() << mStoredErrorString;
+        mRenderer->notifyDeviceLost();
+    }
+}
+
+// TODO(jmadill): Remove this. http://anglebug.com/3041
 egl::Error DisplayVk::getEGLError(EGLint errorCode)
 {
     return egl::Error(errorCode, 0, std::move(mStoredErrorString));

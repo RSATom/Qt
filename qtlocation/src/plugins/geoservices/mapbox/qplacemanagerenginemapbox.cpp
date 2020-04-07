@@ -264,7 +264,7 @@ QPlaceReply *QPlaceManagerEngineMapbox::initializeCategories()
 
 QString QPlaceManagerEngineMapbox::parentCategoryId(const QString &categoryId) const
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     // Only a single category level.
     return QString();

@@ -1396,8 +1396,8 @@ static void fe_copy(fe *h, const fe *f) {
 }
 
 static void fe_copy_lt(fe_loose *h, const fe *f) {
-  OPENSSL_COMPILE_ASSERT(sizeof(fe_loose) == sizeof(fe),
-                         fe_and_fe_loose_mismatch);
+  OPENSSL_STATIC_ASSERT(sizeof(fe_loose) == sizeof(fe),
+                        "fe and fe_loose mismatch");
   OPENSSL_memmove(h, f, sizeof(fe));
 }
 #if !defined(OPENSSL_SMALL)
@@ -2960,6 +2960,11 @@ void ED25519_keypair(uint8_t out_public_key[32], uint8_t out_private_key[64]) {
 
 int ED25519_sign(uint8_t out_sig[64], const uint8_t *message,
                  size_t message_len, const uint8_t private_key[64]) {
+  // NOTE: The documentation on this function says that it returns zero on
+  // allocation failure. While that can't happen with the current
+  // implementation, we want to reserve the ability to allocate in this
+  // implementation in the future.
+
   uint8_t az[SHA512_DIGEST_LENGTH];
   SHA512(private_key, 32, az);
 

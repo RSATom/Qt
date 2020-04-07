@@ -2,7 +2,6 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="sr">
 <translation id="1018939186200882850">ставка менија</translation>
-<translation id="1020833440720551630">искључите звук аудио снимка</translation>
 <translation id="10623998915015855">дугме за укључивање/искључивање</translation>
 <translation id="1088086359088493902">Секунде</translation>
 <translation id="1171774979989969504">Унесите имејл адресу.</translation>
@@ -16,11 +15,11 @@
 <translation id="1335095011850992622">заслуге</translation>
 <translation id="1342835525016946179">article</translation>
 <translation id="1359897965706325498">банер</translation>
-<translation id="1548116112524424341">пустите видео у режиму слике у слици</translation>
 <translation id="1589122976691792535">регион</translation>
 <translation id="1591562245178063882">Овај месец</translation>
 <translation id="1637811476055996098">Избор датотека</translation>
 <translation id="1650423536718072820">кратки цитат</translation>
+<translation id="1727886345390570319">сакријте мени опционалног титла</translation>
 <translation id="1729654308190250600">Унесите имејл адресу која није празна.</translation>
 <translation id="1758486001363313524">Друго...</translation>
 <translation id="1806710327868736751">дијалог обавештења</translation>
@@ -98,11 +97,13 @@
 <translation id="4413860115965805769">дугме менија</translation>
 <translation id="4446524499724042288">референца речника термина</translation>
 <translation id="4522570452068850558">Детаљи</translation>
+<translation id="4542388879936266156">преостало време: <ph name="REMAINING_TIME" /></translation>
 <translation id="4597532268155981612">образац</translation>
 <translation id="4661075872484491155">стабло</translation>
 <translation id="4664250907885839816">Део после „<ph name="ATSIGN" />“ не треба да садржи симбол „<ph name="INVALIDCHARACTER" />“.</translation>
 <translation id="4668956016107839909">додатак</translation>
 <translation id="4742539557769756338">корицe</translation>
+<translation id="4748357248530471599">укључи/искључи цео екран без области изрезаног приказа</translation>
 <translation id="4757246831282535685">табла са картицама</translation>
 <translation id="4763480195061959176">видео</translation>
 <translation id="479989351350248267">search</translation>
@@ -129,7 +130,6 @@
 <translation id="561939826962581046">време</translation>
 <translation id="5630795885300617244">Двапут додирните лево или десно да бисте прескочили 10 сек</translation>
 <translation id="5631759159893697722">сажетак</translation>
-<translation id="5641012560118721995">паузирајте репродукцију</translation>
 <translation id="5643186887447432888">дугме</translation>
 <translation id="5677946354068040947">још опција</translation>
 <translation id="576709008726043716">увод</translation>
@@ -140,15 +140,16 @@
 <translation id="5939518447894949180">Ресетуј</translation>
 <translation id="5966707198760109579">Недеља</translation>
 <translation id="5987525920412732405">дугме за промену вредности</translation>
+<translation id="6011459053400940133">клизач за јачину звука</translation>
 <translation id="6015796118275082299">Година</translation>
 <translation id="6023896073578205740">оквир са листом</translation>
-<translation id="6101327004457443354">укључите звук аудио снимка</translation>
 <translation id="6150588977291308318">библиографија</translation>
 <translation id="6164829606128959761">мерач</translation>
 <translation id="6166809985690652833">поговор</translation>
 <translation id="6213469881011901533">речник термина</translation>
 <translation id="6398862346408813489">Прикажи таблу за избор месеца</translation>
 <translation id="6404546809543547843">клизач за трајање аудио-садржаја</translation>
+<translation id="6443871981718447451">прикажите мени опционалног титла</translation>
 <translation id="6453774872122745852">признања</translation>
 <translation id="648732519525291180">бирач времена</translation>
 <translation id="6550675742724504774">Опције</translation>
@@ -164,7 +165,6 @@
 <translation id="6820355525329141109">Учитавање додатне компоненте није успело.</translation>
 <translation id="6820615603175220800">референца библиографије</translation>
 <translation id="6843725295806269523">искључи звук</translation>
-<translation id="6853785296079745596">сакријте опционални титл</translation>
 <translation id="6885760532393684712">каталог</translation>
 <translation id="689129560213475294">знак издавача</translation>
 <translation id="6934078000481955284">издвојени цитат</translation>
@@ -173,7 +173,6 @@
 <translation id="6989848892321993519">Продужите овај текст на бар <ph name="MIN_CHARACTERS" /> знак(ов)а (тренутно користите 1 знак).</translation>
 <translation id="709897737746224366">Изаберите захтевани формат.</translation>
 <translation id="7139483182332611405">предговор</translation>
-<translation id="7223624360433298498">протекло време</translation>
 <translation id="7263440858009898357">Изаберите ставку са листе.</translation>
 <translation id="727747134524199931">заглавље колоне</translation>
 <translation id="7353453495576941748">заслуга</translation>
@@ -188,8 +187,6 @@
 <translation id="7661956066982048809">графички документ</translation>
 <translation id="7673697353781729403">Сати</translation>
 <translation id="7681220483256441252">индекс</translation>
-<translation id="7720026100085573005">преостало време</translation>
-<translation id="7740016676195725605">зауставите приказивање опционалног титла</translation>
 <translation id="7740050170769002709">HTML садржај</translation>
 <translation id="7750228210027921155">Слика у слици</translation>
 <translation id="7789962463072032349">паузирај</translation>
@@ -200,12 +197,11 @@
 <translation id="8053789581856978548">поље за текст претраге</translation>
 <translation id="8057695513531652401">обавештење</translation>
 <translation id="8105797009065549151">референца напомене</translation>
-<translation id="8115662671911883373">започните приказивање опционалног титла</translation>
 <translation id="8117451130807776954">Ова недеља</translation>
-<translation id="819205353528511139">пустите филм у режиму целог екрана</translation>
 <translation id="8199524924445686405">гггг</translation>
 <translation id="8284326494547611709">Титл</translation>
 <translation id="835897206747267392">Неважећа вредност.</translation>
+<translation id="8403857369060869934">протекло време: <ph name="ELAPSED_TIME" /></translation>
 <translation id="8415319359811155763">део</translation>
 <translation id="8433900881053900389">трака с алаткама</translation>
 <translation id="8444882422881193423"><ph name="NUMBER_OF_FILES" /> датотеке(а)</translation>
@@ -222,7 +218,6 @@
 <translation id="8613126697340063924">контролишите репродукцију на удаљеном уређају</translation>
 <translation id="862370744433916922">титл</translation>
 <translation id="8750798805984357768">Изаберите неку од ових опција.</translation>
-<translation id="8785498733064193001">започните репродукцију</translation>
 <translation id="8808573423886751634">поглавље</translation>
 <translation id="8845239796550121995">Тренутно се пребацује на ТВ</translation>
 <translation id="8851136666856101339">main</translation>
@@ -231,7 +226,6 @@
 <translation id="8987927404178983737">Месец</translation>
 <translation id="901493112792887934">актуелно време у секундама</translation>
 <translation id="9048119486235211610">навигација</translation>
-<translation id="9050748414552849310">приказивање опционалног титла</translation>
 <translation id="9062295712474918030">документ</translation>
 <translation id="9093215626363556771">изађи из режима слике у слици</translation>
 <translation id="9108370397979208512">математички</translation>

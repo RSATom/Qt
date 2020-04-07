@@ -17,7 +17,9 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/thread_annotations.h"
 #include "base/threading/thread_checker.h"
+#include "base/unguessable_token.h"
 #include "content/common/content_export.h"
 #include "content/renderer/media/webrtc/webrtc_audio_device_not_impl.h"
 #include "ipc/ipc_platform_file.h"
@@ -66,6 +68,10 @@ class WebRtcAudioRendererSource {
 
   // Callback to notify the client of the output device the renderer is using.
   virtual void SetOutputDeviceForAec(const std::string& output_device_id) = 0;
+
+  // Returns the UnguessableToken used to connect this stream to an input stream
+  // for echo cancellation.
+  virtual base::UnguessableToken GetAudioProcessingId() const = 0;
 
  protected:
   virtual ~WebRtcAudioRendererSource() {}
@@ -159,8 +165,6 @@ class CONTENT_EXPORT WebRtcAudioDeviceImpl : public WebRtcAudioDeviceNotImpl,
 
   int32_t MaxMicrophoneVolume(uint32_t* max_volume) const override;
   int32_t MinMicrophoneVolume(uint32_t* min_volume) const override;
-  int32_t StereoPlayoutIsAvailable(bool* available) const override;
-  int32_t StereoRecordingIsAvailable(bool* available) const override;
   int32_t PlayoutDelay(uint16_t* delay_ms) const override;
 
  public:
@@ -186,11 +190,6 @@ class CONTENT_EXPORT WebRtcAudioDeviceImpl : public WebRtcAudioDeviceNotImpl,
     return renderer_;
   }
 
- private:
-  typedef std::list<ProcessedLocalAudioSource*> CapturerList;
-  typedef std::list<WebRtcPlayoutDataSource::Sink*> PlayoutDataSinkList;
-  class RenderBuffer;
-
   // WebRtcAudioRendererSource implementation.
 
   // Called on the AudioOutputDevice worker thread.
@@ -203,17 +202,26 @@ class CONTENT_EXPORT WebRtcAudioDeviceImpl : public WebRtcAudioDeviceNotImpl,
   void RemoveAudioRenderer(WebRtcAudioRenderer* renderer) override;
   void AudioRendererThreadStopped() override;
   void SetOutputDeviceForAec(const std::string& output_device_id) override;
+  base::UnguessableToken GetAudioProcessingId() const override;
 
   // WebRtcPlayoutDataSource implementation.
   void AddPlayoutSink(WebRtcPlayoutDataSource::Sink* sink) override;
   void RemovePlayoutSink(WebRtcPlayoutDataSource::Sink* sink) override;
 
+ private:
+  using CapturerList = std::list<ProcessedLocalAudioSource*>;
+  using PlayoutDataSinkList = std::list<WebRtcPlayoutDataSource::Sink*>;
+
+  class RenderBuffer;
+
   // Used to check methods that run on the main render thread.
-  base::ThreadChecker main_thread_checker_;
+  THREAD_CHECKER(main_thread_checker_);
   // Used to check methods that are called on libjingle's signaling thread.
-  base::ThreadChecker signaling_thread_checker_;
-  base::ThreadChecker worker_thread_checker_;
-  base::ThreadChecker audio_renderer_thread_checker_;
+  THREAD_CHECKER(signaling_thread_checker_);
+  THREAD_CHECKER(worker_thread_checker_);
+  THREAD_CHECKER(audio_renderer_thread_checker_);
+
+  const base::UnguessableToken audio_processing_id_;
 
   // List of captures which provides access to the native audio input layer
   // in the browser process.  The last capturer in this list is considered the
@@ -222,12 +230,12 @@ class CONTENT_EXPORT WebRtcAudioDeviceImpl : public WebRtcAudioDeviceNotImpl,
   CapturerList capturers_;
 
   // Provides access to the audio renderer in the browser process.
-  scoped_refptr<WebRtcAudioRenderer> renderer_;
+  scoped_refptr<WebRtcAudioRenderer> renderer_ GUARDED_BY(lock_);
 
   // A list of raw pointer of WebRtcPlayoutDataSource::Sink objects which want
   // to get the playout data, the sink need to call RemovePlayoutSink()
   // before it goes away.
-  PlayoutDataSinkList playout_sinks_;
+  PlayoutDataSinkList playout_sinks_ GUARDED_BY(lock_);
 
   // Weak reference to the audio callback.
   // The webrtc client defines |audio_transport_callback_| by calling
@@ -235,15 +243,15 @@ class CONTENT_EXPORT WebRtcAudioDeviceImpl : public WebRtcAudioDeviceNotImpl,
   webrtc::AudioTransport* audio_transport_callback_;
 
   // Cached value of the current audio delay on the output/renderer side.
-  int output_delay_ms_;
+  int output_delay_ms_ GUARDED_BY(lock_);
 
-  // Protects |recording_|, |output_delay_ms_|, |input_delay_ms_|, |renderer_|
-  // |recording_|, |microphone_volume_| and |playout_sinks_|.
+  // Protects |renderer_|, |playout_sinks_|, |output_delay_ms_|, |playing_|,
+  // and |recording_|.
   mutable base::Lock lock_;
 
   bool initialized_;
-  bool playing_;
-  bool recording_;
+  bool playing_ GUARDED_BY(lock_);
+  bool recording_ GUARDED_BY(lock_);
 
   // Buffer used for temporary storage during render callback.
   // It is only accessed by the audio render thread.

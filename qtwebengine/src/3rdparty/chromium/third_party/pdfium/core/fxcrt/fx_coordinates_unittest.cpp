@@ -229,9 +229,7 @@ TEST(CFX_RectF, Print) {
 #endif  // NDEBUG
 
 TEST(CFX_Matrix, ReverseIdentity) {
-  CFX_Matrix m;
-  m.SetIdentity();
-  CFX_Matrix rev = m.GetInverse();
+  CFX_Matrix rev = CFX_Matrix().GetInverse();
 
   EXPECT_FLOAT_EQ(1.0, rev.a);
   EXPECT_FLOAT_EQ(0.0, rev.b);
@@ -241,32 +239,43 @@ TEST(CFX_Matrix, ReverseIdentity) {
   EXPECT_FLOAT_EQ(0.0, rev.f);
 
   CFX_PointF expected(2, 3);
-  CFX_PointF result = rev.Transform(m.Transform(CFX_PointF(2, 3)));
+  CFX_PointF result = rev.Transform(CFX_Matrix().Transform(CFX_PointF(2, 3)));
   EXPECT_FLOAT_EQ(expected.x, result.x);
   EXPECT_FLOAT_EQ(expected.y, result.y);
 }
 
 TEST(CFX_Matrix, SetIdentity) {
   CFX_Matrix m;
-  EXPECT_FLOAT_EQ(1.0, m.a);
-  EXPECT_FLOAT_EQ(0.0, m.b);
-  EXPECT_FLOAT_EQ(0.0, m.c);
-  EXPECT_FLOAT_EQ(1.0, m.d);
-  EXPECT_FLOAT_EQ(0.0, m.e);
-  EXPECT_FLOAT_EQ(0.0, m.f);
+  EXPECT_FLOAT_EQ(1.0f, m.a);
+  EXPECT_FLOAT_EQ(0.0f, m.b);
+  EXPECT_FLOAT_EQ(0.0f, m.c);
+  EXPECT_FLOAT_EQ(1.0f, m.d);
+  EXPECT_FLOAT_EQ(0.0f, m.e);
+  EXPECT_FLOAT_EQ(0.0f, m.f);
   EXPECT_TRUE(m.IsIdentity());
 
   m.a = -1;
   EXPECT_FALSE(m.IsIdentity());
 
-  m.SetIdentity();
-  EXPECT_FLOAT_EQ(1.0, m.a);
-  EXPECT_FLOAT_EQ(0.0, m.b);
-  EXPECT_FLOAT_EQ(0.0, m.c);
-  EXPECT_FLOAT_EQ(1.0, m.d);
-  EXPECT_FLOAT_EQ(0.0, m.e);
-  EXPECT_FLOAT_EQ(0.0, m.f);
+  m = CFX_Matrix();
+  EXPECT_FLOAT_EQ(1.0f, m.a);
+  EXPECT_FLOAT_EQ(0.0f, m.b);
+  EXPECT_FLOAT_EQ(0.0f, m.c);
+  EXPECT_FLOAT_EQ(1.0f, m.d);
+  EXPECT_FLOAT_EQ(0.0f, m.e);
+  EXPECT_FLOAT_EQ(0.0f, m.f);
   EXPECT_TRUE(m.IsIdentity());
+}
+
+TEST(CFX_Matrix, AsTuple) {
+  CFX_Matrix m(1, 2, 3, 4, 5, 6);
+  auto tuple = m.AsTuple();
+  EXPECT_FLOAT_EQ(1.0f, std::get<0>(tuple));
+  EXPECT_FLOAT_EQ(2.0f, std::get<1>(tuple));
+  EXPECT_FLOAT_EQ(3.0f, std::get<2>(tuple));
+  EXPECT_FLOAT_EQ(4.0f, std::get<3>(tuple));
+  EXPECT_FLOAT_EQ(5.0f, std::get<4>(tuple));
+  EXPECT_FLOAT_EQ(6.0f, std::get<5>(tuple));
 }
 
 TEST(CFX_Matrix, GetInverse) {
@@ -436,10 +445,10 @@ TEST(CFX_Matrix, ComposeTransformations) {
   EXPECT_FLOAT_EQ(273.0f, p_10_20_transformed.y);
 
   // Now compose all transforms prepending.
-  m.SetIdentity();
-  m.Concat(rotate_90, true);
-  m.Concat(translate_23_11, true);
-  m.Concat(scale_5_13, true);
+  m = CFX_Matrix();
+  m = rotate_90 * m;
+  m = translate_23_11 * m;
+  m = scale_5_13 * m;
   EXPECT_NEAR_FIVE_PLACES(0.0f, m.a);
   EXPECT_NEAR_FIVE_PLACES(5.0f, m.b);
   EXPECT_NEAR_FIVE_PLACES(-13.0f, m.c);
@@ -459,66 +468,44 @@ TEST(CFX_Matrix, ComposeTransformations) {
   EXPECT_FLOAT_EQ(73.0f, p_10_20_transformed.y);
 }
 
-TEST(CFX_Matrix, RotateAt) {
-  CFX_Matrix m;
-  m.RotateAt(FX_PI, 10, 20);
+TEST(CFX_Matrix, TransformRectForRectF) {
+  CFX_Matrix rotate_90;
+  rotate_90.Rotate(FX_PI / 2);
 
-  // 180 degree rotation
-  CFX_PointF p(27, 19);
-  CFX_PointF new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(-7, new_p.x);
-  EXPECT_FLOAT_EQ(21, new_p.y);
+  CFX_Matrix scale_5_13;
+  scale_5_13.Scale(5, 13);
 
-  p = CFX_PointF(10, 20);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(10, new_p.x);
-  EXPECT_FLOAT_EQ(20, new_p.y);
+  CFX_RectF rect(10.5f, 20.5f, 4.25f, 3.25f);
+  rect = rotate_90.TransformRect(rect);
+  EXPECT_FLOAT_EQ(-23.75f, rect.Left());
+  EXPECT_FLOAT_EQ(10.5f, rect.Top());
+  EXPECT_FLOAT_EQ(3.25f, rect.Width());
+  EXPECT_FLOAT_EQ(4.25f, rect.Height());
 
-  p = CFX_PointF(0, 0);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(20, new_p.x);
-  EXPECT_FLOAT_EQ(40, new_p.y);
+  rect = scale_5_13.TransformRect(rect);
+  EXPECT_FLOAT_EQ(-118.75f, rect.Left());
+  EXPECT_FLOAT_EQ(136.5f, rect.Top());
+  EXPECT_FLOAT_EQ(16.25f, rect.Width());
+  EXPECT_FLOAT_EQ(55.25f, rect.Height());
+}
 
-  // 90 degree rotation
-  m.SetIdentity();
-  m.RotateAt(FX_PI / 2, 10, 20);
+TEST(CFX_Matrix, TransformRectForFloatRect) {
+  CFX_Matrix rotate_90;
+  rotate_90.Rotate(FX_PI / 2);
 
-  p = CFX_PointF(6, 17);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(13, new_p.x);
-  EXPECT_FLOAT_EQ(16, new_p.y);
+  CFX_Matrix scale_5_13;
+  scale_5_13.Scale(5, 13);
 
-  p = CFX_PointF(10, 20);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(10, new_p.x);
-  EXPECT_FLOAT_EQ(20, new_p.y);
+  CFX_FloatRect rect(5.5f, 0.0f, 12.25f, 2.7f);
+  rect = rotate_90.TransformRect(rect);
+  EXPECT_FLOAT_EQ(-2.7f, rect.Left());
+  EXPECT_FLOAT_EQ(5.5f, rect.Bottom());
+  EXPECT_NEAR(0.0f, rect.Right(), 0.00001f);
+  EXPECT_FLOAT_EQ(12.25f, rect.Top());
 
-  p = CFX_PointF(0, 0);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(30, new_p.x);
-  EXPECT_FLOAT_EQ(10, new_p.y);
-
-  // 60 degree rotation
-  m.SetIdentity();
-  m.RotateAt(FX_PI / 3, 10, 20);
-
-  p = CFX_PointF(20, 20);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(15, new_p.x);
-  EXPECT_FLOAT_EQ(28.660254f, new_p.y);
-
-  p = CFX_PointF(10, 20);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(10, new_p.x);
-  EXPECT_FLOAT_EQ(20, new_p.y);
-
-  p = CFX_PointF(0, 0);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(22.320509f, new_p.x);
-  EXPECT_FLOAT_EQ(1.3397465f, new_p.y);
-
-  p = CFX_PointF(10, -80);
-  new_p = m.Transform(p);
-  EXPECT_FLOAT_EQ(96.602540f, new_p.x);
-  EXPECT_FLOAT_EQ(-30, new_p.y);
+  rect = scale_5_13.TransformRect(rect);
+  EXPECT_FLOAT_EQ(-13.5f, rect.Left());
+  EXPECT_FLOAT_EQ(71.5f, rect.Bottom());
+  EXPECT_NEAR(0.0f, rect.Right(), 0.00001f);
+  EXPECT_FLOAT_EQ(159.25f, rect.Top());
 }

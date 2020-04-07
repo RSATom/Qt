@@ -41,7 +41,7 @@ namespace blink {
 TextEncoder* TextEncoder::Create(ExecutionContext* context,
                                  ExceptionState& exception_state) {
   WTF::TextEncoding encoding("UTF-8");
-  return new TextEncoder(encoding);
+  return MakeGarbageCollected<TextEncoder>(encoding);
 }
 
 TextEncoder::TextEncoder(const WTF::TextEncoding& encoding)
@@ -67,10 +67,10 @@ NotShared<DOMUint8Array> TextEncoder::encode(const String& input) {
   // are present in the input.
   if (input.Is8Bit()) {
     result = codec_->Encode(input.Characters8(), input.length(),
-                            WTF::kEntitiesForUnencodables);
+                            WTF::kNoUnencodables);
   } else {
     result = codec_->Encode(input.Characters16(), input.length(),
-                            WTF::kEntitiesForUnencodables);
+                            WTF::kNoUnencodables);
   }
 
   const char* buffer = result.data();

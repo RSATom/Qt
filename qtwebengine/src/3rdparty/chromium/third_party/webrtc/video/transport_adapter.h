@@ -10,10 +10,11 @@
 #ifndef VIDEO_TRANSPORT_ADAPTER_H_
 #define VIDEO_TRANSPORT_ADAPTER_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <atomic>
 
 #include "api/call/transport.h"
-#include "common_types.h"  // NOLINT(build/include)
 
 namespace webrtc {
 namespace internal {
@@ -21,6 +22,7 @@ namespace internal {
 class TransportAdapter : public Transport {
  public:
   explicit TransportAdapter(Transport* transport);
+  ~TransportAdapter() override;
 
   bool SendRtp(const uint8_t* packet,
                size_t length,

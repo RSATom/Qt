@@ -5,8 +5,12 @@
 #include "components/language/content/browser/geo_language_provider.h"
 
 #include "base/memory/singleton.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/time/time.h"
+#include "base/values.h"
+#include "components/language/content/browser/language_code_locator_provider.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/device/public/mojom/constants.mojom.h"
 #include "services/device/public/mojom/public_ip_address_geolocation_provider.mojom.h"
@@ -21,11 +25,15 @@ constexpr base::TimeDelta kMinUpdatePeriod = base::TimeDelta::FromDays(1);
 
 }  // namespace
 
+const char GeoLanguageProvider::kCachedGeoLanguagesPref[] =
+    "language.geo_language_provider.cached_geo_languages";
+
 GeoLanguageProvider::GeoLanguageProvider()
     : creation_task_runner_(base::SequencedTaskRunnerHandle::Get()),
       background_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})) {
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
+      prefs_(nullptr) {
   // Constructor is not required to run on |background_task_runner_|:
   DETACH_FROM_SEQUENCE(background_sequence_checker_);
 }
@@ -33,22 +41,38 @@ GeoLanguageProvider::GeoLanguageProvider()
 GeoLanguageProvider::GeoLanguageProvider(
     scoped_refptr<base::SequencedTaskRunner> background_task_runner)
     : creation_task_runner_(base::SequencedTaskRunnerHandle::Get()),
-      background_task_runner_(background_task_runner) {
+      background_task_runner_(background_task_runner),
+      prefs_(nullptr) {
   // Constructor is not required to run on |background_task_runner_|:
   DETACH_FROM_SEQUENCE(background_sequence_checker_);
 }
 
 GeoLanguageProvider::~GeoLanguageProvider() = default;
 
-/* static */
+// static
 GeoLanguageProvider* GeoLanguageProvider::GetInstance() {
   return base::Singleton<GeoLanguageProvider, base::LeakySingletonTraits<
                                                   GeoLanguageProvider>>::get();
 }
 
+// static
+void GeoLanguageProvider::RegisterLocalStatePrefs(
+    PrefRegistrySimple* const registry) {
+  registry->RegisterListPref(kCachedGeoLanguagesPref);
+}
+
 void GeoLanguageProvider::StartUp(
-    std::unique_ptr<service_manager::Connector> service_manager_connector) {
+    std::unique_ptr<service_manager::Connector> service_manager_connector,
+    PrefService* const prefs) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(creation_sequence_checker_);
+
+  prefs_ = prefs;
+
+  const base::ListValue* const cached_languages_list =
+      prefs_->GetList(kCachedGeoLanguagesPref);
+  for (const auto& language_value : *cached_languages_list) {
+    languages_.push_back(language_value.GetString());
+  }
 
   service_manager_connector_ = std::move(service_manager_connector);
   // Continue startup in the background.
@@ -67,7 +91,7 @@ void GeoLanguageProvider::BackgroundStartUp() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(background_sequence_checker_);
 
   // Initialize location->language lookup library.
-  language_code_locator_ = std::make_unique<language::LanguageCodeLocator>();
+  language_code_locator_ = GetLanguageCodeLocator(prefs_);
 
   // Make initial query.
   QueryNextPosition();
@@ -91,8 +115,10 @@ void GeoLanguageProvider::BindIpGeolocationService() {
           }
           policy {
             setting:
-              "Users can control this feature via the translation settings "
-              "'Languages', 'Language', 'Offer to translate'."
+              "Users can disable this feature for translation requests in "
+              "settings 'Languages', 'Language', 'Offer to translate'. Note "
+              "that users can still manually trigger this feature via the "
+              "right-click menu."
             chrome_policy {
               DefaultGeolocationSetting {
                 DefaultGeolocationSetting: 2
@@ -126,8 +152,8 @@ void GeoLanguageProvider::OnIpGeolocationResponse(
   DCHECK_CALLED_ON_VALID_SEQUENCE(background_sequence_checker_);
 
   const std::vector<std::string> languages =
-      language_code_locator_->GetLanguageCode(geoposition->latitude,
-                                              geoposition->longitude);
+      language_code_locator_->GetLanguageCodes(geoposition->latitude,
+                                               geoposition->longitude);
 
   // Update current languages on UI thread.
   creation_task_runner_->PostTask(
@@ -146,6 +172,11 @@ void GeoLanguageProvider::SetGeoLanguages(
     const std::vector<std::string>& languages) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(creation_sequence_checker_);
   languages_ = languages;
+  base::ListValue cache_list;
+  for (size_t i = 0; i < languages_.size(); ++i) {
+    cache_list.Set(i, std::make_unique<base::Value>(languages_[i]));
+  }
+  prefs_->Set(kCachedGeoLanguagesPref, cache_list);
 }
 
 }  // namespace language

@@ -11,15 +11,31 @@
 #include "modules/remote_bitrate_estimator/test/bwe_test_framework.h"
 
 #include <stdio.h>
-
+#include <stdlib.h>
+#include <string.h>
+#include <cmath>
 #include <sstream>
 
-#include "rtc_base/constructormagic.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/numerics/safe_minmax.h"
+#include "rtc_base/system/unused.h"
 
 namespace webrtc {
 namespace testing {
 namespace bwe {
+
+RateCounter::RateCounter(int64_t window_size_ms)
+    : window_size_us_(1000 * window_size_ms),
+      recently_received_packets_(0),
+      recently_received_bytes_(0),
+      last_accumulated_us_(0),
+      window_() {}
+
+RateCounter::RateCounter() : RateCounter(1000) {}
+
+RateCounter::~RateCounter() = default;
 
 class DelayCapHelper {
  public:
@@ -93,31 +109,6 @@ double RateCounter::BitrateWindowS() const {
   return static_cast<double>(window_size_us_) / (1000 * 1000);
 }
 
-Packet::Packet()
-    : flow_id_(0),
-      creation_time_us_(-1),
-      send_time_us_(-1),
-      sender_timestamp_us_(-1),
-      payload_size_(0) {}
-
-Packet::Packet(int flow_id, int64_t send_time_us, size_t payload_size)
-    : flow_id_(flow_id),
-      creation_time_us_(send_time_us),
-      send_time_us_(send_time_us),
-      sender_timestamp_us_(send_time_us),
-      payload_size_(payload_size) {}
-
-Packet::~Packet() {}
-
-bool Packet::operator<(const Packet& rhs) const {
-  return send_time_us_ < rhs.send_time_us_;
-}
-
-void Packet::set_send_time_us(int64_t send_time_us) {
-  assert(send_time_us >= 0);
-  send_time_us_ = send_time_us;
-}
-
 MediaPacket::MediaPacket() {
   memset(&header_, 0, sizeof(header_));
 }
@@ -148,6 +139,15 @@ void MediaPacket::SetAbsSendTimeMs(int64_t abs_send_time_ms) {
   header_.extension.absoluteSendTime =
       ((static_cast<int64_t>(abs_send_time_ms * (1 << 18)) + 500) / 1000) &
       0x00fffffful;
+}
+
+// Copies payload size and sequence number.
+RtpPacketReceived MediaPacket::GetRtpPacket() const {
+  RtpPacketReceived packet;
+
+  packet.SetPayloadSize(payload_size());
+  packet.SetSequenceNumber(header_.sequenceNumber);
+  return packet;
 }
 
 BbrBweFeedback::BbrBweFeedback(
@@ -683,6 +683,10 @@ VideoSource::VideoSource(int flow_id,
   memset(&prototype_header_, 0, sizeof(prototype_header_));
   prototype_header_.ssrc = ssrc;
   prototype_header_.sequenceNumber = 0xf000u;
+}
+
+int VideoSource::flow_id() const {
+  return flow_id_;
 }
 
 uint32_t VideoSource::NextFrameSize() {

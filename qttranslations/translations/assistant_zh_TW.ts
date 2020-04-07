@@ -853,6 +853,22 @@ Reason:
         <translation>使用自訂設定</translation>
     </message>
     <message>
+        <source>No Component</source>
+        <translation>沒有元件</translation>
+    </message>
+    <message>
+        <source>Invalid Component</source>
+        <translation>元件無效</translation>
+    </message>
+    <message>
+        <source>No Version</source>
+        <translation>沒有版本</translation>
+    </message>
+    <message>
+        <source>Invalid Version</source>
+        <translation>版本無效</translation>
+    </message>
+    <message>
         <source>Filter Exists</source>
         <translation>篩選器存在</translation>
     </message>
@@ -990,6 +1006,10 @@ Reason:
     <message>
         <source>Components:</source>
         <translation>元件：</translation>
+    </message>
+    <message>
+        <source>Versions:</source>
+        <translation>版本：</translation>
     </message>
     <message>
         <source>Rename...</source>

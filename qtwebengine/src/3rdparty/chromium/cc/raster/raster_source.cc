@@ -94,16 +94,16 @@ void RasterSource::ClearForOpaqueRaster(
   if (device_column.intersect(playback_device_rect)) {
     clear_type = RasterSourceClearType::kBorder;
     raster_canvas->save();
-    raster_canvas->clipRect(SkRect::MakeFromIRect(device_column),
-                            SkClipOp::kIntersect, false);
+    raster_canvas->clipRect(SkRect::Make(device_column), SkClipOp::kIntersect,
+                            false);
     raster_canvas->drawColor(background_color_, SkBlendMode::kSrc);
     raster_canvas->restore();
   }
   if (device_row.intersect(playback_device_rect)) {
     clear_type = RasterSourceClearType::kBorder;
     raster_canvas->save();
-    raster_canvas->clipRect(SkRect::MakeFromIRect(device_row),
-                            SkClipOp::kIntersect, false);
+    raster_canvas->clipRect(SkRect::Make(device_row), SkClipOp::kIntersect,
+                            false);
     raster_canvas->drawColor(background_color_, SkBlendMode::kSrc);
     raster_canvas->restore();
   }
@@ -154,7 +154,7 @@ void RasterSource::PlaybackToCanvas(
 
   raster_canvas->save();
   raster_canvas->translate(-canvas_bitmap_rect.x(), -canvas_bitmap_rect.y());
-  raster_canvas->clipRect(SkRect::MakeFromIRect(raster_bounds));
+  raster_canvas->clipRect(SkRect::Make(raster_bounds));
   raster_canvas->translate(raster_transform.translation().x(),
                            raster_transform.translation().y());
   raster_canvas->scale(raster_transform.scale() / recording_scale_factor_,
@@ -169,17 +169,21 @@ void RasterSource::PlaybackToCanvas(
     raster_canvas->clear(SK_ColorTRANSPARENT);
   }
 
-  PlaybackToCanvas(raster_canvas, settings.image_provider);
+  PlaybackToCanvas(raster_canvas, settings.image_provider,
+                   settings.paint_worklet_image_provider);
   raster_canvas->restore();
 }
 
-void RasterSource::PlaybackToCanvas(SkCanvas* raster_canvas,
-                                    ImageProvider* image_provider) const {
+void RasterSource::PlaybackToCanvas(
+    SkCanvas* raster_canvas,
+    ImageProvider* image_provider,
+    PaintWorkletImageProvider* paint_worklet_image_provider) const {
   // TODO(enne): Temporary CHECK debugging for http://crbug.com/823835
   CHECK(display_list_.get());
   int repeat_count = std::max(1, slow_down_raster_scale_factor_for_debug_);
   for (int i = 0; i < repeat_count; ++i)
-    display_list_->Raster(raster_canvas, image_provider);
+    display_list_->Raster(raster_canvas, image_provider,
+                          paint_worklet_image_provider);
 }
 
 sk_sp<SkPicture> RasterSource::GetFlattenedPicture() {
@@ -189,7 +193,7 @@ sk_sp<SkPicture> RasterSource::GetFlattenedPicture() {
   SkCanvas* canvas = recorder.beginRecording(size_.width(), size_.height());
   if (!size_.IsEmpty()) {
     canvas->clear(SK_ColorTRANSPARENT);
-    PlaybackToCanvas(canvas, nullptr);
+    PlaybackToCanvas(canvas, nullptr, nullptr);
   }
 
   return recorder.finishRecordingAsPicture();

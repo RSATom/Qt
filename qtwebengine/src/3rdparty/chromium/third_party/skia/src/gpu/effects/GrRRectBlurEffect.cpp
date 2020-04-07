@@ -91,7 +91,7 @@ public:
                 "   translatedFragPos.y -= float(middle.y) - 1.0;\n}\nhalf2 proxyDims = "
                 "half2(half(2.0 * float(threshold) + 1.0));\nhalf2 texCoord = translatedFragPos / "
                 "proxyDims;\n%s = %s * texture(%s, float2(texCoord)).%s;\n",
-                args.fOutputColor, args.fInputColor ? args.fInputColor : "half4(1)",
+                args.fOutputColor, args.fInputColor,
                 fragBuilder->getProgramBuilder()->samplerVariable(args.fTexSamplers[0]).c_str(),
                 fragBuilder->getProgramBuilder()->samplerSwizzle(args.fTexSamplers[0]).c_str());
     }
@@ -100,7 +100,7 @@ private:
     void onSetData(const GrGLSLProgramDataManager& pdman,
                    const GrFragmentProcessor& _proc) override {
         const GrRRectBlurEffect& _outer = _proc.cast<GrRRectBlurEffect>();
-        { pdman.set1f(fCornerRadiusVar, _outer.cornerRadius()); }
+        { pdman.set1f(fCornerRadiusVar, (_outer.cornerRadius())); }
         auto sigma = _outer.sigma();
         (void)sigma;
         auto rect = _outer.rect();
@@ -108,7 +108,7 @@ private:
         UniformHandle& cornerRadius = fCornerRadiusVar;
         (void)cornerRadius;
         GrSurfaceProxy& ninePatchSamplerProxy = *_outer.textureSampler(0).proxy();
-        GrTexture& ninePatchSampler = *ninePatchSamplerProxy.priv().peekTexture();
+        GrTexture& ninePatchSampler = *ninePatchSamplerProxy.peekTexture();
         (void)ninePatchSampler;
         UniformHandle& proxyRect = fProxyRectVar;
         (void)proxyRect;
@@ -146,10 +146,13 @@ GrRRectBlurEffect::GrRRectBlurEffect(const GrRRectBlurEffect& src)
         , fRect(src.fRect)
         , fCornerRadius(src.fCornerRadius)
         , fNinePatchSampler(src.fNinePatchSampler) {
-    this->addTextureSampler(&fNinePatchSampler);
+    this->setTextureSamplerCnt(1);
 }
 std::unique_ptr<GrFragmentProcessor> GrRRectBlurEffect::clone() const {
     return std::unique_ptr<GrFragmentProcessor>(new GrRRectBlurEffect(*this));
+}
+const GrFragmentProcessor::TextureSampler& GrRRectBlurEffect::onTextureSampler(int index) const {
+    return IthTextureSampler(index, fNinePatchSampler);
 }
 GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrRRectBlurEffect);
 #if GR_TEST_UTILS

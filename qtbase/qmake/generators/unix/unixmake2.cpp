@@ -48,12 +48,15 @@ void
 UnixMakefileGenerator::writePrlFile(QTextStream &t)
 {
     MakefileGenerator::writePrlFile(t);
+    const ProString tmplt = project->first("TEMPLATE");
+    if (tmplt != "lib" && tmplt != "aux")
+        return;
     // libtool support
-    if(project->isActiveConfig("create_libtool") && project->first("TEMPLATE") == "lib") { //write .la
+    if (project->isActiveConfig("create_libtool")) {
         writeLibtoolFile();
     }
     // pkg-config support
-    if(project->isActiveConfig("create_pc") && project->first("TEMPLATE") == "lib")
+    if (project->isActiveConfig("create_pc"))
         writePkgConfigFile();
 }
 
@@ -169,6 +172,16 @@ static QString rfc1034Identifier(const QString &str)
     return s;
 }
 
+static QString escapeDir(const QString &dir)
+{
+    // When building on non-MSys MinGW, the path ends with a backslash, which
+    // GNU make will interpret that as a line continuation. Doubling the backslash
+    // avoids the problem, at the cost of the variable containing *both* backslashes.
+    if (dir.endsWith('\\'))
+        return dir + '\\';
+    return dir;
+}
+
 void
 UnixMakefileGenerator::writeMakeParts(QTextStream &t)
 {
@@ -231,7 +244,7 @@ UnixMakefileGenerator::writeMakeParts(QTextStream &t)
     t << "####### Output directory\n\n";
     // This is used in commands by some .prf files.
     if (! project->values("OBJECTS_DIR").isEmpty())
-        t << "OBJECTS_DIR   = " << fileVar("OBJECTS_DIR") << endl;
+        t << "OBJECTS_DIR   = " << escapeDir(fileVar("OBJECTS_DIR")) << endl;
     else
         t << "OBJECTS_DIR   = ./\n";
     t << endl;
@@ -277,13 +290,7 @@ UnixMakefileGenerator::writeMakeParts(QTextStream &t)
     t << "DIST          = " << valList(fileFixify(project->values("DISTFILES").toQStringList())) << " "
                             << fileVarList("HEADERS") << ' ' << fileVarList("SOURCES") << endl;
     t << "QMAKE_TARGET  = " << fileVar("QMAKE_ORIG_TARGET") << endl;
-    QString destd = fileVar("DESTDIR");
-    // When building on non-MSys MinGW, the path ends with a backslash, which
-    // GNU make will interpret that as a line continuation. Doubling the backslash
-    // avoids the problem, at the cost of the variable containing *both* backslashes.
-    if (destd.endsWith('\\'))
-        destd += '\\';
-    t << "DESTDIR       = " << destd << endl;
+    t << "DESTDIR       = " << escapeDir(fileVar("DESTDIR")) << endl;
     t << "TARGET        = " << fileVar("TARGET") << endl;
     if(project->isActiveConfig("plugin")) {
         t << "TARGETD       = " << fileVar("TARGET") << endl;
@@ -1199,7 +1206,10 @@ void UnixMakefileGenerator::init2()
         project->values("QMAKE_FRAMEWORK_VERSION").append(project->first("VER_MAJ"));
 
     if (project->first("TEMPLATE") == "aux") {
-        // nothing
+        project->values("PRL_TARGET") = {
+            project->first("QMAKE_PREFIX_STATICLIB") +
+            project->first("TARGET")
+        };
     } else if (!project->values("QMAKE_APP_FLAG").isEmpty()) {
         if(!project->isEmpty("QMAKE_BUNDLE")) {
             ProString bundle_loc = project->first("QMAKE_BUNDLE_LOCATION");
@@ -1446,7 +1456,36 @@ UnixMakefileGenerator::libtoolFileName(bool fixify)
 void
 UnixMakefileGenerator::writeLibtoolFile()
 {
+    auto fixDependencyLibs
+            = [this](const ProStringList &libs)
+              {
+                  ProStringList result;
+                  for (auto lib : libs) {
+                      auto fi = fileInfo(lib.toQString());
+                      if (fi.isAbsolute()) {
+                          const QString libDirArg = "-L" + fi.path();
+                          if (!result.contains(libDirArg))
+                              result += libDirArg;
+                          QString namespec = fi.fileName();
+                          int dotPos = namespec.lastIndexOf('.');
+                          if (dotPos != -1 && namespec.startsWith("lib")) {
+                              namespec.truncate(dotPos);
+                              namespec.remove(0, 3);
+                          } else {
+                              debug_msg(1, "Ignoring dependency library %s",
+                                        lib.toLatin1().constData());
+                              continue;
+                          }
+                          result += "-l" + namespec;
+                      } else {
+                          result += lib;
+                      }
+                  }
+                  return result;
+              };
+
     QString fname = libtoolFileName(), lname = fname;
+    debug_msg(1, "Writing libtool file %s", fname.toLatin1().constData());
     mkdir(fileInfo(fname).path());
     int slsh = lname.lastIndexOf(Option::dir_sep);
     if(slsh != -1)
@@ -1484,12 +1523,11 @@ UnixMakefileGenerator::writeLibtoolFile()
                          << ".a'\n\n";
 
     t << "# Libraries that this one depends upon.\n";
+    static const ProKey libVars[] = { "LIBS", "QMAKE_LIBS" };
     ProStringList libs;
-    libs << "LIBS" << "QMAKE_LIBS";
-    t << "dependency_libs='";
-    for (ProStringList::ConstIterator it = libs.begin(); it != libs.end(); ++it)
-        t << fixLibFlags((*it).toKey()).join(' ') << ' ';
-    t << "'\n\n";
+    for (auto var : libVars)
+        libs += fixLibFlags(var);
+    t << "dependency_libs='" << fixDependencyLibs(libs).join(' ') << "'\n\n";
 
     t << "# Version information for " << lname << "\n";
     int maj = project->first("VER_MAJ").toInt();

@@ -55,8 +55,9 @@ void RendererDnsPrefetch::Resolve(const char* name, size_t length) {
         return;  // Overkill safety net: Don't send too many InvokeLater's.
       weak_factory_.InvalidateWeakPtrs();
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-          FROM_HERE, base::Bind(&RendererDnsPrefetch::SubmitHostnames,
-                                weak_factory_.GetWeakPtr()),
+          FROM_HERE,
+          base::BindOnce(&RendererDnsPrefetch::SubmitHostnames,
+                         weak_factory_.GetWeakPtr()),
           base::TimeDelta::FromMilliseconds(10));
     }
     return;
@@ -91,8 +92,9 @@ void RendererDnsPrefetch::SubmitHostnames() {
   if (new_name_count_ > 0 || 0 < c_string_queue_.Size()) {
     weak_factory_.InvalidateWeakPtrs();
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&RendererDnsPrefetch::SubmitHostnames,
-                              weak_factory_.GetWeakPtr()),
+        FROM_HERE,
+        base::BindOnce(&RendererDnsPrefetch::SubmitHostnames,
+                       weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(10));
   } else {
     // TODO(JAR): Should we only clear the map when we navigate, or reload?
@@ -133,9 +135,7 @@ void RendererDnsPrefetch::DnsPrefetchNames(size_t max_count) {
   // We are on the renderer thread, and just need to send things to the browser.
   NameList names;
   size_t domains_handled = 0;
-  for (DomainUseMap::iterator it = domain_map_.begin();
-    it != domain_map_.end();
-    ++it) {
+  for (auto it = domain_map_.begin(); it != domain_map_.end(); ++it) {
     if (0 == (it->second & kLookupRequested)) {
       it->second |= kLookupRequested;
       domains_handled++;

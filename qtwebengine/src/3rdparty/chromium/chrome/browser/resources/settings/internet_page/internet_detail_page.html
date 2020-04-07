@@ -19,6 +19,8 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout-classes.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner-lite.html">
+<link rel="import" href="../controls/controlled_button.html">
 <link rel="import" href="../controls/settings_toggle_button.html">
 <link rel="import" href="../prefs/prefs.html">
 <link rel="import" href="../route.html">
@@ -38,20 +40,17 @@
       }
 
       iron-icon {
-        -webkit-margin-end: 10px;
+        margin-inline-end: 10px;
       }
 
       cr-toggle {
-        -webkit-margin-start: var(--settings-control-label-spacing);
+        margin-inline-start: var(--settings-control-label-spacing);
       }
 
       cr-policy-network-indicator,
-      cr-policy-indicator {
-        -webkit-margin-start: var(--settings-controlled-by-spacing);
-      }
-
-      .settings-box:first-of-type {
-        border-top: none;
+      cr-policy-indicator,
+      cr-policy-pref-indicator {
+        margin-inline-start: var(--settings-controlled-by-spacing);
       }
 
       #networkState[connected] {
@@ -61,13 +60,17 @@
       #networkState[error] {
         color: var(--google-red-500);
       }
+
+      paper-spinner-lite {
+        @apply --cr-icon-height-width;
+      }
     </style>
     <!-- Title section: Icon + name + connection state. -->
     <div id="titleDiv" class="settings-box first">
       <div class="start layout horizontal center">
         <cr-network-icon network-state="[[networkProperties]]">
         </cr-network-icon>
-        <div id="networkState" class="title"
+        <div id="networkState" class="title settings-box-text"
             connected$="[[isConnectedState_(networkProperties)]]"
             error$="[[outOfRange_]]">
           [[getStateText_(networkProperties, outOfRange_)]]
@@ -81,7 +84,9 @@
         </template>
       </div>
       <paper-button on-click="onForgetTap_"
-          hidden$="[[!showForget_(networkProperties)]]">
+          hidden$="[[!showForget_(networkProperties)]]"
+          disabled="[[disableForget_(networkProperties,
+              prefs.vpn_config_allowed)]]">
         $i18n{networkButtonForget}
       </paper-button>
       <paper-button on-click="onViewAccountTap_"
@@ -93,29 +98,41 @@
         $i18n{networkButtonActivate}
       </paper-button>
       <paper-button on-click="onConfigureTap_"
-          hidden$="[[!showConfigure_(networkProperties, globalPolicy)]]">
+          hidden$="[[!showConfigure_(networkProperties, globalPolicy,
+              managedNetworkAvailable)]]"
+          disabled="[[disableConfigure_(networkProperties,
+              prefs.vpn_config_allowed)]]">
         $i18n{networkButtonConfigure}
       </paper-button>
-      <paper-button class="action-button" on-click="onConnectTap_"
-          hidden$="[[!showConnect_(networkProperties, globalPolicy)]]"
+      <controlled-button id="connect" action-button on-click="onConnectTap_"
+          hidden$="[[!showConnect_(networkProperties, globalPolicy,
+              managedNetworkAvailable)]]"
           disabled="[[!enableConnect_(networkProperties, defaultNetwork,
-              networkPropertiesReceived_, outOfRange_, globalPolicy)]]">
-        $i18n{networkButtonConnect}
-      </paper-button>
-      <paper-button class="action-button" on-click="onDisconnectTap_"
-          hidden$="[[!showDisconnect_(networkProperties)]]">
-        $i18n{networkButtonDisconnect}
-      </paper-button>
+              networkPropertiesReceived_, outOfRange_, globalPolicy,
+              managedNetworkAvailable)]]"
+          label="$i18n{networkButtonConnect}"
+          pref="[[getVpnConfigPrefFromValue_(networkProperties,
+              prefs.vpn_config_allowed)]]">
+      </controlled-button>
+      <controlled-button id="disconnect" action-button
+          on-click="onDisconnectTap_"
+          hidden$="[[!showDisconnect_(networkProperties)]]"
+          label="$i18n{networkButtonDisconnect}"
+          pref="[[getVpnConfigPrefFromValue_(networkProperties,
+              prefs.vpn_config_allowed)]]">
+      </controlled-button>
     </div>
 
     <!-- Disabled by policy / Shared messages. -->
     <div class="settings-box continuation"
-        hidden$="[[!isBlockedByPolicy_(networkProperties, globalPolicy)]]">
+        hidden$="[[!isBlockedByPolicy_(networkProperties, globalPolicy,
+            managedNetworkAvailable)]]">
       <iron-icon class="policy" icon="cr20:domain"></iron-icon>
-      <div>$i18n{networkConnectNotAllowed}</div>
+      <div class="settings-box-text">$i18n{networkConnectNotAllowed}</div>
     </div>
-    <div class="settings-box continuation"
-        hidden$="[[!showShared_(networkProperties, globalPolicy)]]">
+    <div class="settings-box continuation settings-box-text"
+        hidden$="[[!showShared_(networkProperties, globalPolicy,
+            managedNetworkAvailable)]]">
       $i18n{networkShared}
     </div>
 
@@ -124,7 +141,9 @@
       <div class="settings-box continuation single-column">
         <div class="layout horizontal center">
           <iron-icon class="policy" icon="cr:group"></iron-icon>
-          <div>[[i18n('networkPrimaryUserControlled', primaryUserEmail_)]]</div>
+          <div class="settings-box-text">
+            [[i18n('networkPrimaryUserControlled', primaryUserEmail_)]]
+          </div>
         </div>
       </div>
     </template>
@@ -132,9 +151,10 @@
     <template is="dom-if" if="[[!isSecondaryUser_]]">
       <!-- Prefer this network. -->
       <template is="dom-if"
-          if="[[showPreferNetwork_(networkProperties, globalPolicy)]]">
+          if="[[showPreferNetwork_(networkProperties, globalPolicy,
+              managedNetworkAvailable)]]">
         <div class="settings-box">
-          <div id="preferNetworkToggleLabel"class="start">
+          <div id="preferNetworkToggleLabel" class="start settings-box-text">
             $i18n{networkPrefer}
           </div>
           <cr-policy-network-indicator
@@ -148,18 +168,46 @@
       </template>
       <!-- Autoconnect. -->
       <template is="dom-if"
-          if="[[showAutoConnect_(networkProperties, globalPolicy)]]">
+          if="[[showAutoConnect_(networkProperties, globalPolicy,
+              managedNetworkAvailable)]]">
         <div class="settings-box">
-          <div id="autoConnectToggleLabel" class="start">
+          <div id="autoConnectToggleLabel" class="start settings-box-text">
             $i18n{networkAutoConnect}
           </div>
-          <cr-policy-network-indicator
-              property="[[getManagedAutoConnect_(networkProperties)]]">
-          </cr-policy-network-indicator>
+          <template is="dom-if" if="[[isAutoConnectEnforcedByPolicy(
+              networkProperties, globalPolicy)]]">
+            <cr-policy-indicator indicator-type="devicePolicy">
+            </cr-policy-indicator>
+          </template>
           <cr-toggle checked="{{autoConnect_}}"
-              disabled="[[!enableAutoConnect_(networkProperties)]]"
+              disabled="[[isAutoConnectEnforcedByPolicy(networkProperties,
+                  globalPolicy)]]"
               aria-labelledby="autoConnectToggleLabel">
           </cr-toggle>
+        </div>
+      </template>
+      <!-- Always-on VPN. -->
+      <template is="dom-if"
+          if="[[showAlwaysOnVpn_(networkProperties)]]">
+        <div class="settings-box">
+          <div id="AlwaysOnVpnToggleLabel" class="start settings-box-text">
+            $i18n{networkAlwaysOnVpn}
+          </div>
+          <cr-toggle checked="{{alwaysOnVpn_}}"
+              disabled="[[!enableAlwaysOnVpn_(networkProperties,
+                  prefs.vpn_config_allowed)]]"
+              aria-labelledby="AlwaysOnVpnToggleLabel"
+              on-change="onAlwaysOnVpnChange_">
+          </cr-toggle>
+          <template is="dom-if"
+              if="[[!enableAlwaysOnVpn_(networkProperties,
+              prefs.vpn_config_allowed)]]">
+            <cr-policy-pref-indicator
+                pref="[[getVpnConfigPrefFromValue_(networkProperties,
+                    prefs.vpn_config_allowed)]]" on-click="onIndicatorTap_"
+                icon-aria-label="$i18n{networkAlwaysOnVpn}">
+            </cr-policy-pref-indicator>
+          </template>
         </div>
       </template>
       <!-- Data roaming (Cellular only). -->
@@ -181,7 +229,7 @@
         </div>
       </template>
       <!-- IP Address. -->
-      <div class="settings-box two-line single-column stretch"
+      <div class="settings-box two-line single-column stretch settings-box-text"
         hidden$="[[!showIpAddress_(ipAddress_, networkProperties)]]">
         <div>$i18n{networkIPAddress}</div>
         <div class="secondary">[[ipAddress_]]</div>
@@ -200,16 +248,16 @@
 
       <template is="dom-if" if="[[showAdvanced_(networkProperties)]]">
         <!-- Advanced toggle. -->
-        <div class="settings-box" actionable on-click="toggleAdvancedExpanded_">
-          <div class="flex">$i18n{networkSectionAdvanced}</div>
-          <cr-expand-button expanded="{{advancedExpanded_}}"
-              alt="$i18n{networkSectionAdvancedA11yLabel}">
-          </cr-expand-button>
-        </div>
+        <cr-expand-button
+            alt="$i18n{networkSectionAdvancedA11yLabel}"
+            class="settings-box"
+            expanded="{{advancedExpanded_}}">
+          $i18n{networkSectionAdvanced}
+        </cr-expand-button>
 
         <!-- Advanced section -->
         <iron-collapse opened="[[advancedExpanded_]]">
-          <div class="settings-box single-column stretch indented"
+          <div class="settings-box single-column stretch indented first"
               hidden$="[[!hasAdvancedOrDeviceFields_(networkProperties)]]">
             <!-- Advanced properties -->
             <network-property-list
@@ -227,18 +275,26 @@
         </iron-collapse>
       </template>
 
-      <template is="dom-if"
-          if="[[hasNetworkSection_(networkProperties, globalPolicy)]]">
+      <template is="dom-if" if="[[hasNetworkSection_(networkProperties,
+          globalPolicy, managedNetworkAvailable)]]">
         <!-- Network toggle -->
-        <div class="settings-box" actionable on-click="toggleNetworkExpanded_">
-          <div class="start">$i18n{networkSectionNetwork}</div>
-          <cr-expand-button expanded="{{networkExpanded_}}"
-              alt="$i18n{networkSectionNetworkExpandA11yLabel}">
-          </cr-expand-button>
-        </div>
+        <cr-expand-button
+            alt="$i18n{networkSectionNetworkExpandA11yLabel}"
+            class="settings-box"
+            expanded="{{networkExpanded_}}">
+          <div class="settings-row">
+            <div class="start">
+              $i18n{networkSectionNetwork}
+            </div>
+            <template is="dom-if"
+                if="[[showScanningSpinner_(networkProperties)]]">
+              <paper-spinner-lite active></paper-spinner-lite>
+            </template>
+          </div>
+        </cr-expand-button>
 
         <iron-collapse opened="[[networkExpanded_]]">
-          <div class="settings-box single-column stretch indented">
+          <div class="settings-box single-column stretch indented first">
             <!-- Choose Mobile Network (Cellular only). -->
             <template is="dom-if"
                 if="[[showCellularChooseNetwork_(networkProperties)]]">
@@ -270,15 +326,15 @@
         </iron-collapse>
       </template>
 
-      <template is="dom-if"
-          if="[[hasProxySection_(networkProperties, globalPolicy)]]">
+      <template is="dom-if" if="[[hasProxySection_(networkProperties,
+          globalPolicy, managedNetworkAvailable)]]">
         <!-- Proxy toggle -->
-        <div class="settings-box" actionable on-click="toggleProxyExpanded_">
-          <div class="start">$i18n{networkSectionProxy}</div>
-          <cr-expand-button expanded="{{proxyExpanded_}}"
-              alt="$i18n{networkSectionProxyExpandA11yLabel}">
-          </cr-expand-button>
-        </div>
+        <cr-expand-button
+            alt="$i18n{networkSectionProxyExpandA11yLabel}"
+            class="settings-box"
+            expanded="{{proxyExpanded_}}">
+          $i18n{networkSectionProxy}
+        </cr-expand-button>
 
         <iron-collapse opened="[[proxyExpanded_]]">
           <network-proxy-section prefs="{{prefs}}"

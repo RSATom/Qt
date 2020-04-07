@@ -341,7 +341,6 @@ ScrollView {
             var col = getColumn(i)
             var header = __listView.headerItem.headerRepeater.itemAt(i)
             if (col) {
-                col.__index = i
                 col.resizeToContents()
                 if (col.width < header.implicitWidth)
                     col.width = header.implicitWidth
@@ -493,7 +492,7 @@ ScrollView {
             y: listView.contentHeight - listView.contentY + listView.originY
             width: parent.width
             visible: alternatingRowColors
-            height: viewport.height - listView.contentHeight
+            height: listView.model && listView.model.count ? (viewport.height - listView.contentHeight) : 0
             Repeater {
                 model: visible ? parent.paddedRowCount : 0
                 Loader {
@@ -613,7 +612,6 @@ ScrollView {
 
                         onItemAdded: {
                             var columnItem = columnModel.get(index).columnItem
-                            item.__index = index
                             item.__rowItem = rowitem
                             item.__column = columnItem
                         }

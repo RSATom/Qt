@@ -130,15 +130,22 @@ class MetricsServiceClient {
   // Returns whether UKM notification listeners were attached to all profiles.
   virtual bool AreNotificationListenersEnabledOnAllProfiles();
 
-  // Gets the Chrome package name for Android. Returns empty string for other
-  // platforms.
+  // Gets Chrome's package name in Android Chrome, or the host app's package
+  // name in Android WebView, or an empty string on other platforms.
   virtual std::string GetAppPackageName();
+
+  // Gets the key used to sign metrics uploads. This will be used to compute an
+  // HMAC-SHA256 signature of an uploaded log.
+  virtual std::string GetUploadSigningKey();
 
   // Sets the callback to run MetricsServiceManager::UpdateRunningServices.
   void SetUpdateRunningServicesCallback(const base::Closure& callback);
 
   // Notify MetricsServiceManager to UpdateRunningServices using callback.
   void UpdateRunningServices();
+
+  // Checks if the user has forced metrics collection on via the override flag.
+  bool IsMetricsReportingForceEnabled();
 
  private:
   base::Closure update_running_services_;

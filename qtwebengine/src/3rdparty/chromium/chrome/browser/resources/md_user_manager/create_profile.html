@@ -61,7 +61,7 @@
       }
 
       #message-container #message {
-        -webkit-margin-start: 16px;
+        margin-inline-start: 16px;
       }
 
       #message-container a {
@@ -100,9 +100,9 @@
       }
 
       #actions paper-spinner-lite {
-        -webkit-margin-end: 8px;
         align-self: center;
         height: 20px;
+        margin-inline-end: 8px;
         width: 20px;
       }
     </style>
@@ -113,7 +113,7 @@
     <div class="container">
       <div id="title-bar">$i18n{createProfileTitle}</div>
       <cr-input id="nameInput" value="{{profileName_}}" pattern=".*\S.*"
-          auto-validate>
+          auto-validate spellcheck="false">
       </cr-input>
       <cr-profile-avatar-selector avatars="[[availableIcons_]]"
           selected-avatar="{{selectedAvatar_}}">

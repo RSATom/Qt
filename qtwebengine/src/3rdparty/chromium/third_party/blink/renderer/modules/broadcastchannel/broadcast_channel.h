@@ -29,6 +29,8 @@ class BroadcastChannel final : public EventTargetWithInlineData,
   static BroadcastChannel* Create(ExecutionContext*,
                                   const String& name,
                                   ExceptionState&);
+
+  BroadcastChannel(ExecutionContext*, const String& name);
   ~BroadcastChannel() override;
   void Dispose();
 
@@ -36,8 +38,8 @@ class BroadcastChannel final : public EventTargetWithInlineData,
   String name() const { return name_; }
   void postMessage(const ScriptValue&, ExceptionState&);
   void close();
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(message);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(messageerror);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(message, kMessage);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(messageerror, kMessageerror);
 
   // EventTarget:
   const AtomicString& InterfaceName() const override;
@@ -54,8 +56,6 @@ class BroadcastChannel final : public EventTargetWithInlineData,
   void Trace(blink::Visitor*) override;
 
  private:
-  BroadcastChannel(ExecutionContext*, const String& name);
-
   // mojom::blink::BroadcastChannelClient:
   void OnMessage(BlinkCloneableMessage) override;
 

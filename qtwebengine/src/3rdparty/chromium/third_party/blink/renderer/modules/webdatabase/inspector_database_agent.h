@@ -49,8 +49,10 @@ class MODULES_EXPORT InspectorDatabaseAgent final
 
  public:
   static InspectorDatabaseAgent* Create(Page* page) {
-    return new InspectorDatabaseAgent(page);
+    return MakeGarbageCollected<InspectorDatabaseAgent>(page);
   }
+
+  explicit InspectorDatabaseAgent(Page*);
   ~InspectorDatabaseAgent() override;
   void Trace(blink::Visitor*) override;
 
@@ -73,7 +75,7 @@ class MODULES_EXPORT InspectorDatabaseAgent final
                        const String& version);
 
  private:
-  explicit InspectorDatabaseAgent(Page*);
+  void InnerEnable();
   void RegisterDatabaseOnCreation(blink::Database*);
 
   blink::Database* DatabaseForId(const String& database_id);
@@ -83,7 +85,7 @@ class MODULES_EXPORT InspectorDatabaseAgent final
   typedef HeapHashMap<String, Member<InspectorDatabaseResource>>
       DatabaseResourcesHeapMap;
   DatabaseResourcesHeapMap resources_;
-  bool enabled_;
+  InspectorAgentState::Boolean enabled_;
 };
 
 }  // namespace blink

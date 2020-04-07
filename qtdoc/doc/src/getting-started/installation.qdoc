@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -77,14 +77,14 @@ visit the following page:
 \section1 Embedded Linux
 
 \list
-\li \l{Qt for Embedded Linux#Configuring a Specific Device}
-    {Qt for Embedded Linux - Building from Source}
+    \li \l{Configure an Embedded Linux Device}
+    \li \l{Qt for Embedded Linux}
 \endlist
 
 \section1 Android
 
 \list
-\li \l {Building Qt 5 for Android}{Qt for Android - Building from Source}
+\li \l {Qt for Android - Building from Source}
 \endlist
 
 \section1 iOS
@@ -93,9 +93,9 @@ visit the following page:
 \li \l {Qt for iOS - Building from Source}
 \endlist
 
-\section1 WinRT
+\section1 Universal Windows Platform (UWP)
 
 \list
-\li \l {Qt for WinRT#Building from source}{Qt for WinRT - Building from Source}
+\li \l {Qt for UWP#Building from source}{Qt for UWP - Building from Source}
 \endlist
 */

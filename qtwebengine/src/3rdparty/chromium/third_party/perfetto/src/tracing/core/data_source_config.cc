@@ -22,16 +22,20 @@
  * by
  * ../../tools/proto_to_cpp/proto_to_cpp.cc.
  * If you need to make changes here, change the .proto file and then run
- * ./tools/gen_tracing_cpp_headers_from_protos.py
+ * ./tools/gen_tracing_cpp_headers_from_protos
  */
 
 #include "perfetto/tracing/core/data_source_config.h"
 
+#include "perfetto/config/android/android_log_config.pb.h"
 #include "perfetto/config/chrome/chrome_config.pb.h"
 #include "perfetto/config/data_source_config.pb.h"
 #include "perfetto/config/ftrace/ftrace_config.pb.h"
 #include "perfetto/config/inode_file/inode_file_config.pb.h"
+#include "perfetto/config/power/android_power_config.pb.h"
 #include "perfetto/config/process_stats/process_stats_config.pb.h"
+#include "perfetto/config/profiling/heapprofd_config.pb.h"
+#include "perfetto/config/sys_stats/sys_stats_config.pb.h"
 #include "perfetto/config/test_config.pb.h"
 
 namespace perfetto {
@@ -58,6 +62,12 @@ void DataSourceConfig::FromProto(
   trace_duration_ms_ =
       static_cast<decltype(trace_duration_ms_)>(proto.trace_duration_ms());
 
+  static_assert(
+      sizeof(tracing_session_id_) == sizeof(proto.tracing_session_id()),
+      "size mismatch");
+  tracing_session_id_ =
+      static_cast<decltype(tracing_session_id_)>(proto.tracing_session_id());
+
   ftrace_config_.FromProto(proto.ftrace_config());
 
   chrome_config_.FromProto(proto.chrome_config());
@@ -65,6 +75,14 @@ void DataSourceConfig::FromProto(
   inode_file_config_.FromProto(proto.inode_file_config());
 
   process_stats_config_.FromProto(proto.process_stats_config());
+
+  sys_stats_config_.FromProto(proto.sys_stats_config());
+
+  heapprofd_config_.FromProto(proto.heapprofd_config());
+
+  android_power_config_.FromProto(proto.android_power_config());
+
+  android_log_config_.FromProto(proto.android_log_config());
 
   static_assert(sizeof(legacy_config_) == sizeof(proto.legacy_config()),
                 "size mismatch");
@@ -92,6 +110,12 @@ void DataSourceConfig::ToProto(
   proto->set_trace_duration_ms(
       static_cast<decltype(proto->trace_duration_ms())>(trace_duration_ms_));
 
+  static_assert(
+      sizeof(tracing_session_id_) == sizeof(proto->tracing_session_id()),
+      "size mismatch");
+  proto->set_tracing_session_id(
+      static_cast<decltype(proto->tracing_session_id())>(tracing_session_id_));
+
   ftrace_config_.ToProto(proto->mutable_ftrace_config());
 
   chrome_config_.ToProto(proto->mutable_chrome_config());
@@ -99,6 +123,14 @@ void DataSourceConfig::ToProto(
   inode_file_config_.ToProto(proto->mutable_inode_file_config());
 
   process_stats_config_.ToProto(proto->mutable_process_stats_config());
+
+  sys_stats_config_.ToProto(proto->mutable_sys_stats_config());
+
+  heapprofd_config_.ToProto(proto->mutable_heapprofd_config());
+
+  android_power_config_.ToProto(proto->mutable_android_power_config());
+
+  android_log_config_.ToProto(proto->mutable_android_log_config());
 
   static_assert(sizeof(legacy_config_) == sizeof(proto->legacy_config()),
                 "size mismatch");

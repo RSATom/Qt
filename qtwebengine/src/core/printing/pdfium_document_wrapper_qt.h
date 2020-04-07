@@ -58,20 +58,19 @@
 namespace QtWebEngineCore {
 class PdfiumPageWrapperQt;
 
-class QWEBENGINECORE_PRIVATE_EXPORT PdfiumDocumentWrapperQt
+class Q_WEBENGINECORE_PRIVATE_EXPORT PdfiumDocumentWrapperQt
 {
 public:
-    PdfiumDocumentWrapperQt(const void *pdfData, size_t size, const QSize &imageSize,
-                            const char *password = nullptr);
+    PdfiumDocumentWrapperQt(const void *pdfData, size_t size, const char *password = nullptr);
     virtual ~PdfiumDocumentWrapperQt();
     QImage pageAsQImage(size_t index);
+    bool pageIsLandscape(size_t index);
     int pageCount() const { return m_pageCount; }
 
 private:
     static int m_libraryUsers;
     int m_pageCount;
     void *m_documentHandle;
-    QSize m_imageSize;
 };
 
 } // namespace QtWebEngineCore

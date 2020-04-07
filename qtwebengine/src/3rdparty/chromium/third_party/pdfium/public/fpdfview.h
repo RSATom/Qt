@@ -44,6 +44,7 @@ typedef struct fpdf_clippath_t__* FPDF_CLIPPATH;
 typedef const struct fpdf_dest_t__* FPDF_DEST;
 typedef struct fpdf_document_t__* FPDF_DOCUMENT;
 typedef struct fpdf_font_t__* FPDF_FONT;
+typedef struct fpdf_form_handle_t__* FPDF_FORMHANDLE;
 typedef struct fpdf_link_t__* FPDF_LINK;
 typedef struct fpdf_page_t__* FPDF_PAGE;
 typedef struct fpdf_pagelink_t__* FPDF_PAGELINK;
@@ -295,12 +296,19 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_SetPrintMode(int mode);
 //          file_path -  Path to the PDF file (including extension).
 //          password  -  A string used as the password for the PDF file.
 //                       If no password is needed, empty or NULL can be used.
+//                       See comments below regarding the encoding.
 // Return value:
 //          A handle to the loaded document, or NULL on failure.
 // Comments:
 //          Loaded document can be closed by FPDF_CloseDocument().
 //          If this function fails, you can use FPDF_GetLastError() to retrieve
 //          the reason why it failed.
+//
+//          The encoding for |password| can be either UTF-8 or Latin-1. PDFs,
+//          depending on the security handler revision, will only accept one or
+//          the other encoding. If |password|'s encoding and the PDF's expected
+//          encoding do not match, FPDF_LoadDocument() will automatically
+//          convert |password| to the other encoding.
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 FPDF_LoadDocument(FPDF_STRING file_path, FPDF_BYTESTRING password);
 
@@ -318,6 +326,9 @@ FPDF_LoadDocument(FPDF_STRING file_path, FPDF_BYTESTRING password);
 //          The loaded document can be closed by FPDF_CloseDocument.
 //          If this function fails, you can use FPDF_GetLastError() to retrieve
 //          the reason why it failed.
+//
+//          See the comments for FPDF_LoadDocument() regarding the encoding for
+//          |password|.
 // Notes:
 //          If PDFium is built with the XFA module, the application should call
 //          FPDF_LoadXFA() function after the PDF document loaded to support XFA
@@ -332,6 +343,7 @@ typedef struct {
 
   // A function pointer for getting a block of data from a specific position.
   // Position is specified by byte offset from the beginning of the file.
+  // The pointer to the buffer is never NULL and the size is never 0.
   // The position and size will never go out of range of the file length.
   // It may be possible for FPDFSDK to call this function multiple times for
   // the same position.
@@ -431,7 +443,8 @@ typedef struct _FPDF_FILEHANDLER {
   FPDF_RESULT (*Truncate)(FPDF_LPVOID clientData, FPDF_DWORD size);
 } FPDF_FILEHANDLER, *FPDF_LPFILEHANDLER;
 
-#endif
+#endif  // PDF_ENABLE_XFA
+
 // Function: FPDF_LoadCustomDocument
 //          Load PDF document from a custom access descriptor.
 // Parameters:
@@ -444,6 +457,9 @@ typedef struct _FPDF_FILEHANDLER {
 //          document is closed.
 //
 //          The loaded document can be closed with FPDF_CloseDocument.
+//
+//          See the comments for FPDF_LoadDocument() regarding the encoding for
+//          |password|.
 // Notes:
 //          If PDFium is built with the XFA module, the application should call
 //          FPDF_LoadXFA() function after the PDF document loaded to support XFA
@@ -487,6 +503,21 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetFileVersion(FPDF_DOCUMENT doc,
 //          If the previous SDK call succeeded, the return value of this
 //          function is not defined.
 FPDF_EXPORT unsigned long FPDF_CALLCONV FPDF_GetLastError();
+
+// Function: FPDF_DocumentHasValidCrossReferenceTable
+//          Whether the document's cross reference table is valid or not.
+//          Experimental API.
+// Parameters:
+//          document    -   Handle to a document. Returned by FPDF_LoadDocument.
+// Return value:
+//          True if the PDF parser did not encounter problems parsing the cross
+//          reference table. False if the parser could not parse the cross
+//          reference table and the table had to be rebuild from other data
+//          within the document.
+// Comments:
+//          The return value can change over time as the PDF parser evolves.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDF_DocumentHasValidCrossReferenceTable(FPDF_DOCUMENT document);
 
 // Function: FPDF_GetDocPermission
 //          Get file permission flags of the document.
@@ -1113,6 +1144,19 @@ FPDF_EXPORT FPDF_DEST FPDF_CALLCONV FPDF_GetNamedDest(FPDF_DOCUMENT document,
                                                       int index,
                                                       void* buffer,
                                                       long* buflen);
+
+#ifdef PDF_ENABLE_V8
+// Function: FPDF_GetRecommendedV8Flags
+//          Returns a space-separated string of command line flags that are
+//          recommended to be passed into V8 via V8::SetFlagsFromString()
+//          prior to initializing the PDFium library.
+// Parameters:
+//          None.
+// Return value:
+//          NUL-terminated string of the form "--flag1 --flag2".
+//          The caller must not attempt to modify or free the result.
+FPDF_EXPORT const char* FPDF_CALLCONV FPDF_GetRecommendedV8Flags();
+#endif  // PDF_ENABLE_V8
 
 #ifdef PDF_ENABLE_XFA
 // Function: FPDF_BStr_Init

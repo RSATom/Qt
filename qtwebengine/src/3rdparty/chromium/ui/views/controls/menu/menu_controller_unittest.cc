@@ -16,7 +16,6 @@
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/event_utils.h"
-#include "ui/events/null_event_targeter.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
@@ -31,10 +30,12 @@
 #include "ui/views/test/test_views_delegate.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/root_view.h"
+#include "ui/views/widget/widget_utils.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/client/drag_drop_client_observer.h"
+#include "ui/aura/null_window_targeter.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window.h"
 #include "ui/views/controls/menu/menu_pre_target_handler.h"
@@ -43,6 +44,10 @@
 #if defined(USE_X11)
 #include "ui/events/test/events_test_utils_x11.h"
 #include "ui/gfx/x/x11.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "ui/base/ui_base_features.h"
 #endif
 
 namespace views {
@@ -240,6 +245,27 @@ void DestructingTestViewsDelegate::ReleaseRef() {
     release_ref_callback_.Run();
 }
 
+// View which cancels the menu it belongs to on mouse press.
+class CancelMenuOnMousePressView : public View {
+ public:
+  explicit CancelMenuOnMousePressView(MenuController* controller)
+      : controller_(controller) {}
+
+  // View:
+  bool OnMousePressed(const ui::MouseEvent& event) override {
+    controller_->CancelAll();
+    return true;
+  }
+
+  // This is needed to prevent the view from being "squashed" to zero height
+  // when the menu which owns it is shown. In such state the logic which
+  // determines if the menu contains the mouse press location doesn't work.
+  gfx::Size CalculatePreferredSize() const override { return size(); }
+
+ private:
+  MenuController* controller_;
+};
+
 }  // namespace
 
 class TestMenuItemViewShown : public MenuItemView {
@@ -256,6 +282,9 @@ class TestMenuItemViewShown : public MenuItemView {
 
   void SetActualMenuPosition(MenuItemView::MenuPosition position) {
     set_actual_menu_position(position);
+  }
+  MenuItemView::MenuPosition ActualMenuPosition() {
+    return actual_menu_position();
   }
 
  private:
@@ -300,7 +329,7 @@ class MenuControllerTest : public ViewsTestBase {
     set_views_delegate(std::move(views_delegate));
     ViewsTestBase::SetUp();
     Init();
-    ASSERT_TRUE(base::MessageLoopForUI::IsCurrent());
+    ASSERT_TRUE(base::MessageLoopCurrentForUI::IsSet());
   }
 
   void TearDown() override {
@@ -580,8 +609,8 @@ class MenuControllerTest : public ViewsTestBase {
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     owner_->Init(params);
-    event_generator_.reset(
-        new ui::test::EventGenerator(owner_->GetNativeWindow()));
+    event_generator_ =
+        std::make_unique<ui::test::EventGenerator>(GetRootWindow(owner()));
     owner_->Show();
 
     SetupMenuItem();
@@ -627,11 +656,10 @@ class MenuControllerTest : public ViewsTestBase {
 // event dispatcher.
 TEST_F(MenuControllerTest, EventTargeter) {
   {
-    // With the |ui::NullEventTargeter| instantiated and assigned we expect
+    // With the aura::NullWindowTargeter instantiated and assigned we expect
     // the menu to not handle the key event.
     aura::ScopedWindowTargeter scoped_targeter(
-        owner()->GetNativeWindow()->GetRootWindow(),
-        std::unique_ptr<ui::EventTargeter>(new ui::NullEventTargeter));
+        GetRootWindow(owner()), std::make_unique<aura::NullWindowTargeter>());
     PressKey(ui::VKEY_ESCAPE);
     EXPECT_EQ(MenuController::EXIT_NONE, menu_exit_type());
   }
@@ -648,8 +676,7 @@ TEST_F(MenuControllerTest, EventTargeter) {
 // details. When the ids aren't managed correctly, we get stuck down touches.
 TEST_F(MenuControllerTest, TouchIdsReleasedCorrectly) {
   TestEventHandler test_event_handler;
-  owner()->GetNativeWindow()->GetRootWindow()->AddPreTargetHandler(
-      &test_event_handler);
+  GetRootWindow(owner())->AddPreTargetHandler(&test_event_handler);
 
   std::vector<int> devices;
   devices.push_back(1);
@@ -668,8 +695,7 @@ TEST_F(MenuControllerTest, TouchIdsReleasedCorrectly) {
   EXPECT_EQ(MenuController::EXIT_ALL, menu_exit_type());
   EXPECT_EQ(0, test_event_handler.outstanding_touches());
 
-  owner()->GetNativeWindow()->GetRootWindow()->RemovePreTargetHandler(
-      &test_event_handler);
+  GetRootWindow(owner())->RemovePreTargetHandler(&test_event_handler);
 }
 #endif  // defined(USE_X11)
 
@@ -748,6 +774,66 @@ TEST_F(MenuControllerTest, InitialSelectedItem) {
   // single enabled item in the menu.
   EXPECT_EQ(nullptr, FindNextSelectableMenuItem(menu_item(), 1));
   EXPECT_EQ(nullptr, FindPreviousSelectableMenuItem(menu_item(), 1));
+
+  // Clear references in menu controller to the menu item that is going away.
+  ResetSelection();
+}
+
+// Tests that opening the menu and pressing 'Home' selects the first menu item.
+TEST_F(MenuControllerTest, FirstSelectedItem) {
+  SetPendingStateItem(menu_item()->GetSubmenu()->GetMenuItemAt(0));
+  EXPECT_EQ(1, pending_state_item()->GetCommand());
+
+  // Select the first menu item.
+  DispatchKey(ui::VKEY_HOME);
+  EXPECT_EQ(1, pending_state_item()->GetCommand());
+
+  // Fake initial root item selection and submenu showing.
+  SetPendingStateItem(menu_item());
+  EXPECT_EQ(0, pending_state_item()->GetCommand());
+
+  // Select the first menu item.
+  DispatchKey(ui::VKEY_HOME);
+  EXPECT_EQ(1, pending_state_item()->GetCommand());
+
+  // Select the last item.
+  SetPendingStateItem(menu_item()->GetSubmenu()->GetMenuItemAt(3));
+  EXPECT_EQ(4, pending_state_item()->GetCommand());
+
+  // Select the first menu item.
+  DispatchKey(ui::VKEY_HOME);
+  EXPECT_EQ(1, pending_state_item()->GetCommand());
+
+  // Clear references in menu controller to the menu item that is going away.
+  ResetSelection();
+}
+
+// Tests that opening the menu and pressing 'End' selects the last enabled menu
+// item.
+TEST_F(MenuControllerTest, LastSelectedItem) {
+  // Fake initial root item selection and submenu showing.
+  SetPendingStateItem(menu_item());
+  EXPECT_EQ(0, pending_state_item()->GetCommand());
+
+  // Select the last menu item.
+  DispatchKey(ui::VKEY_END);
+  EXPECT_EQ(4, pending_state_item()->GetCommand());
+
+  // Select the last item.
+  SetPendingStateItem(menu_item()->GetSubmenu()->GetMenuItemAt(3));
+  EXPECT_EQ(4, pending_state_item()->GetCommand());
+
+  // Select the last menu item.
+  DispatchKey(ui::VKEY_END);
+  EXPECT_EQ(4, pending_state_item()->GetCommand());
+
+  // Select the first item.
+  SetPendingStateItem(menu_item()->GetSubmenu()->GetMenuItemAt(0));
+  EXPECT_EQ(1, pending_state_item()->GetCommand());
+
+  // Select the last menu item.
+  DispatchKey(ui::VKEY_END);
+  EXPECT_EQ(4, pending_state_item()->GetCommand());
 
   // Clear references in menu controller to the menu item that is going away.
   ResetSelection();
@@ -879,6 +965,8 @@ TEST_F(MenuControllerTest, SelectChildButtonView) {
   ui::MouseEvent event(ui::ET_MOUSE_MOVED, location, location,
                        ui::EventTimeForNow(), 0, 0);
   ProcessMouseMoved(sub_menu, event);
+  EXPECT_EQ(button1, GetHotButton());
+  EXPECT_TRUE(button1->IsHotTracked());
 
   // Incrementing selection should move hot tracking to the second button (next
   // after the first button).
@@ -1068,8 +1156,7 @@ TEST_F(MenuControllerTest, AsynchronousPerformDrop) {
   SetDropMenuItem(target, MenuDelegate::DropPosition::DROP_AFTER);
 
   ui::OSExchangeData drop_data;
-  gfx::Rect bounds(target->bounds());
-  gfx::Point location(bounds.x(), bounds.y());
+  gfx::PointF location(target->origin());
   ui::DropTargetEvent target_event(drop_data, location, location,
                                    ui::DragDropTypes::DRAG_MOVE);
   controller->OnPerformDrop(source, target_event);
@@ -1168,6 +1255,8 @@ TEST_F(MenuControllerTest, DoubleAsynchronousNested) {
   EXPECT_EQ(1, nested_delegate->on_menu_closed_called());
 }
 
+// Tests that setting send_gesture_events_to_owner flag forwards gesture events
+// to owner and the forwarding stops when the current gesture sequence ends.
 TEST_F(MenuControllerTest, PreserveGestureForOwner) {
   MenuController* controller = menu_controller();
   MenuItemView* item = menu_item();
@@ -1204,10 +1293,47 @@ TEST_F(MenuControllerTest, PreserveGestureForOwner) {
   EXPECT_EQ(CountOwnerOnGestureEvent(), 2);
 }
 
+// Tests that touch outside menu does not closes the menu when forwarding
+// gesture events to owner.
+TEST_F(MenuControllerTest, NoTouchCloseWhenSendingGesturesToOwner) {
+  views::test::DisableMenuClosureAnimations();
+  MenuController* controller = menu_controller();
+
+  // Owner wants the gesture events.
+  controller->set_send_gesture_events_to_owner(true);
+
+  // Show a sub menu and touch outside of it.
+  MenuItemView* item = menu_item();
+  SubmenuView* sub_menu = item->GetSubmenu();
+  sub_menu->ShowAt(owner(), item->bounds(), false);
+  gfx::Point location(sub_menu->bounds().bottom_right());
+  location.Offset(1, 1);
+  ui::TouchEvent touch_event(
+      ui::ET_TOUCH_PRESSED, location, ui::EventTimeForNow(),
+      ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
+  controller->OnTouchEvent(sub_menu, &touch_event);
+
+  // Menu should still be visible.
+  EXPECT_TRUE(IsShowing());
+
+  // The current gesture sequence ends.
+  ui::GestureEvent gesture_end_event(
+      location.x(), location.y(), 0, ui::EventTimeForNow(),
+      ui::GestureEventDetails(ui::ET_GESTURE_END));
+  controller->OnGestureEvent(sub_menu, &gesture_end_event);
+
+  // Touch outside again and menu should be closed.
+  controller->OnTouchEvent(sub_menu, &touch_event);
+  views::test::WaitForMenuClosureAnimation();
+  EXPECT_FALSE(IsShowing());
+  EXPECT_EQ(MenuController::EXIT_ALL, controller->exit_type());
+}
+
 // Tests that a nested menu does not crash when trying to repost events that
 // occur outside of the bounds of the menu. Instead a proper shutdown should
 // occur.
 TEST_F(MenuControllerTest, AsynchronousRepostEvent) {
+  views::test::DisableMenuClosureAnimations();
   MenuController* controller = menu_controller();
   TestMenuControllerDelegate* delegate = menu_controller_delegate();
   std::unique_ptr<TestMenuControllerDelegate> nested_delegate(
@@ -1232,6 +1358,7 @@ TEST_F(MenuControllerTest, AsynchronousRepostEvent) {
   // When attempting to select outside of all menus this should lead to a
   // shutdown. This should not crash while attempting to repost the event.
   SetSelectionOnPointerDown(sub_menu, &event);
+  views::test::WaitForMenuClosureAnimation();
 
   EXPECT_EQ(delegate, GetCurrentDelegate());
   EXPECT_EQ(1, delegate->on_menu_closed_called());
@@ -1246,6 +1373,7 @@ TEST_F(MenuControllerTest, AsynchronousRepostEvent) {
 // Tests that an asynchronous menu reposts touch events that occur outside of
 // the bounds of the menu, and that the menu closes.
 TEST_F(MenuControllerTest, AsynchronousTouchEventRepostEvent) {
+  views::test::DisableMenuClosureAnimations();
   MenuController* controller = menu_controller();
   TestMenuControllerDelegate* delegate = menu_controller_delegate();
 
@@ -1260,6 +1388,7 @@ TEST_F(MenuControllerTest, AsynchronousTouchEventRepostEvent) {
       ui::ET_TOUCH_PRESSED, location, ui::EventTimeForNow(),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, 0));
   controller->OnTouchEvent(sub_menu, &event);
+  views::test::WaitForMenuClosureAnimation();
 
   EXPECT_FALSE(IsShowing());
   EXPECT_EQ(1, delegate->on_menu_closed_called());
@@ -1273,6 +1402,7 @@ TEST_F(MenuControllerTest, AsynchronousTouchEventRepostEvent) {
 // Tests that having the MenuController deleted during RepostEvent does not
 // cause a crash. ASAN bots should not detect use-after-free in MenuController.
 TEST_F(MenuControllerTest, AsynchronousRepostEventDeletesController) {
+  views::test::DisableMenuClosureAnimations();
   MenuController* controller = menu_controller();
   std::unique_ptr<TestMenuControllerDelegate> nested_delegate(
       new TestMenuControllerDelegate());
@@ -1299,6 +1429,7 @@ TEST_F(MenuControllerTest, AsynchronousRepostEventDeletesController) {
   // When attempting to select outside of all menus this should lead to a
   // shutdown. This should not crash while attempting to repost the event.
   SetSelectionOnPointerDown(sub_menu, &event);
+  views::test::WaitForMenuClosureAnimation();
 
   // Close to remove observers before test TearDown
   sub_menu->Close();
@@ -1548,15 +1679,41 @@ TEST_F(MenuControllerTest, CalculateMenuBoundsMonitorFitTest) {
   EXPECT_EQ(expected, CalculateMenuBounds(options));
 }
 
+// Test that a menu that was originally drawn below the anchor does not get
+// squished or move above the anchor when it grows vertically and horizontally
+// beyond the monitor bounds.
+TEST_F(MenuControllerTest, GrowingMenuMovesLaterallyNotVertically) {
+  MenuBoundsOptions options;
+  options.monitor_bounds = gfx::Rect(0, 0, 100, 100);
+  // The anchor should be near the bottom right side of the screen.
+  options.anchor_bounds = gfx::Rect(80, 70, 15, 10);
+  // The menu should fit the available space, below the anchor.
+  options.menu_size = gfx::Size(20, 20);
+
+  // Ensure the menu is initially drawn below the bounds, and the MenuPosition
+  // is set to POSITION_BELOW_BOUNDS;
+  const gfx::Rect first_drawn_expected(80, 80, 20, 20);
+  EXPECT_EQ(first_drawn_expected, CalculateMenuBounds(options));
+  EXPECT_EQ(MenuItemView::MenuPosition::POSITION_BELOW_BOUNDS,
+            menu_item()->ActualMenuPosition());
+
+  options.menu_position = MenuItemView::MenuPosition::POSITION_BELOW_BOUNDS;
+
+  // The menu bounds are larger than the remaining space on the monitor. This
+  // simulates the case where the menu has been grown vertically and
+  // horizontally to where it would no longer fit on the screen.
+  options.menu_size = gfx::Size(50, 50);
+
+  // The menu bounds should move left to show the wider menu, and grow to fill
+  // the remaining vertical space without moving upwards.
+  const gfx::Rect final_expected(50, 80, 50, 20);
+  EXPECT_EQ(final_expected, CalculateMenuBounds(options));
+}
+
 #if defined(USE_AURA)
 // This tests that mouse moved events from the initial position of the mouse
 // when the menu was shown don't select the menu item at the mouse position.
 TEST_F(MenuControllerTest, MouseAtMenuItemOnShow) {
-  // aura::Window::MoveCursorTo check fails in Mus due to null
-  // window_manager_client_.
-  if (IsMus())
-    return;
-
   // Most tests create an already shown menu but this test needs one that's
   // not shown, so it can show it. The mouse position is remembered when
   // the menu is shown.
@@ -1571,7 +1728,7 @@ TEST_F(MenuControllerTest, MouseAtMenuItemOnShow) {
   // and show the menu.
   gfx::Size item_size = first_item->CalculatePreferredSize();
   gfx::Point location(item_size.width() / 2, item_size.height() / 2);
-  owner()->GetNativeWindow()->GetRootWindow()->MoveCursorTo(location);
+  GetRootWindow(owner())->MoveCursorTo(location);
   menu_controller()->Run(owner(), nullptr, menu_item.get(), gfx::Rect(),
                          MENU_ANCHOR_TOPLEFT, false, false);
 
@@ -1606,9 +1763,15 @@ TEST_F(MenuControllerTest, AsynchronousCancelEvent) {
   EXPECT_EQ(MenuController::EXIT_ALL, controller->exit_type());
 }
 
-// Tests that if a menu is ran without a widget, that MenuPreTargetHandler does
-// not cause a crash.
+// Tests that menus without parent widgets do not crash in MenuPreTargetHandler.
+// This is generally true, except on Chrome OS running with the window service.
+// In that case, a DCHECK fires to ensure menus can consume parents' key events.
 TEST_F(MenuControllerTest, RunWithoutWidgetDoesntCrash) {
+#if defined(OS_CHROMEOS)
+  if (features::IsUsingWindowService())
+    return;
+#endif  // OS_CHROMEOS
+
   ExitMenuRun();
   MenuController* controller = menu_controller();
   controller->Run(nullptr, nullptr, menu_item(), gfx::Rect(),
@@ -1625,12 +1788,8 @@ TEST_F(MenuControllerTest, MenuControllerReplacedDuringDrag) {
   TestDragDropClient drag_drop_client(
       base::Bind(&MenuControllerTest::TestMenuControllerReplacementDuringDrag,
                  base::Unretained(this)));
-  aura::client::SetDragDropClient(menu_item()
-                                      ->GetSubmenu()
-                                      ->GetWidget()
-                                      ->GetNativeWindow()
-                                      ->GetRootWindow(),
-                                  &drag_drop_client);
+  aura::client::SetDragDropClient(
+      GetRootWindow(menu_item()->GetSubmenu()->GetWidget()), &drag_drop_client);
   StartDrag();
 }
 
@@ -1643,12 +1802,8 @@ TEST_F(MenuControllerTest, CancelAllDuringDrag) {
   AddButtonMenuItems();
   TestDragDropClient drag_drop_client(base::Bind(
       &MenuControllerTest::TestCancelAllDuringDrag, base::Unretained(this)));
-  aura::client::SetDragDropClient(menu_item()
-                                      ->GetSubmenu()
-                                      ->GetWidget()
-                                      ->GetNativeWindow()
-                                      ->GetRootWindow(),
-                                  &drag_drop_client);
+  aura::client::SetDragDropClient(
+      GetRootWindow(menu_item()->GetSubmenu()->GetWidget()), &drag_drop_client);
   StartDrag();
 }
 
@@ -1813,6 +1968,36 @@ TEST_F(MenuControllerTest, DragFromViewIntoMenuAndExit) {
 }
 
 #endif  // defined(USE_AURA)
+
+// Tests that having the MenuController deleted during OnMousePressed does not
+// cause a crash. ASAN bots should not detect use-after-free in MenuController.
+TEST_F(MenuControllerTest, NoUseAfterFreeWhenMenuCanceledOnMousePress) {
+  MenuController* controller = menu_controller();
+  DestroyMenuControllerOnMenuClosed(menu_controller_delegate());
+
+  // Creating own MenuItem for a minimal test environment.
+  auto item = std::make_unique<TestMenuItemViewNotShown>(menu_delegate());
+  item->SetController(controller);
+  item->SetBounds(0, 0, 50, 50);
+
+  SubmenuView* sub_menu = item->CreateSubmenu();
+  auto* canceling_view = new CancelMenuOnMousePressView(controller);
+  sub_menu->AddChildView(canceling_view);
+  canceling_view->SetBoundsRect(item->bounds());
+
+  controller->Run(owner(), nullptr, item.get(), item->bounds(),
+                  MENU_ANCHOR_TOPLEFT, false, false);
+  sub_menu->ShowAt(owner(), item->bounds(), true);
+
+  // Simulate a mouse press in the middle of the |closing_widget|.
+  gfx::Point location(canceling_view->bounds().CenterPoint());
+  ui::MouseEvent event(ui::ET_MOUSE_PRESSED, location, location,
+                       ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON, 0);
+  EXPECT_TRUE(controller->OnMousePressed(sub_menu, event));
+
+  // Close to remove observers before test TearDown.
+  sub_menu->Close();
+}
 
 }  // namespace test
 }  // namespace views

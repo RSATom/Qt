@@ -24,7 +24,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/origin_util.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/gfx/geometry/size_f.h"
 
 namespace autofill {
@@ -64,7 +64,8 @@ ContentAutofillDriver* ContentAutofillDriver::GetForRenderFrameHost(
   return factory ? factory->DriverForFrame(render_frame_host) : nullptr;
 }
 
-void ContentAutofillDriver::BindRequest(mojom::AutofillDriverRequest request) {
+void ContentAutofillDriver::BindRequest(
+    mojom::AutofillDriverAssociatedRequest request) {
   binding_.Bind(std::move(request));
 }
 
@@ -72,6 +73,10 @@ bool ContentAutofillDriver::IsIncognito() const {
   return render_frame_host_->GetSiteInstance()
       ->GetBrowserContext()
       ->IsOffTheRecord();
+}
+
+bool ContentAutofillDriver::IsInMainFrame() const {
+  return render_frame_host_->GetParent() == nullptr;
 }
 
 net::URLRequestContextGetter* ContentAutofillDriver::GetURLRequestContext() {
@@ -177,19 +182,6 @@ gfx::RectF ContentAutofillDriver::TransformBoundingBoxToViewportCoordinates(
                     bounding_box.width(), bounding_box.height());
 }
 
-void ContentAutofillDriver::DidInteractWithCreditCardForm() {
-  // If there is an autofill manager, notify its client about credit card
-  // inputs on non-secure pages.
-  if (!autofill_manager_)
-    return;
-  if (content::IsOriginSecure(
-          content::WebContents::FromRenderFrameHost(render_frame_host_)
-              ->GetVisibleURL())) {
-    return;
-  }
-  autofill_manager_->client()->DidInteractWithNonsecureCreditCardInput();
-}
-
 void ContentAutofillDriver::FormsSeen(const std::vector<FormData>& forms,
                                       base::TimeTicks timestamp) {
   autofill_handler_->OnFormsSeen(forms, timestamp);
@@ -197,9 +189,8 @@ void ContentAutofillDriver::FormsSeen(const std::vector<FormData>& forms,
 
 void ContentAutofillDriver::FormSubmitted(const FormData& form,
                                           bool known_success,
-                                          SubmissionSource source,
-                                          base::TimeTicks timestamp) {
-  autofill_handler_->OnFormSubmitted(form, known_success, source, timestamp);
+                                          SubmissionSource source) {
+  autofill_handler_->OnFormSubmitted(form, known_success, source);
 }
 
 void ContentAutofillDriver::TextFieldDidChange(const FormData& form,
@@ -285,10 +276,11 @@ void ContentAutofillDriver::SetAutofillManager(
   autofill_manager_->SetExternalDelegate(autofill_external_delegate_.get());
 }
 
-const mojom::AutofillAgentPtr& ContentAutofillDriver::GetAutofillAgent() {
+const mojom::AutofillAgentAssociatedPtr&
+ContentAutofillDriver::GetAutofillAgent() {
   // Here is a lazy binding, and will not reconnect after connection error.
   if (!autofill_agent_) {
-    render_frame_host_->GetRemoteInterfaces()->GetInterface(
+    render_frame_host_->GetRemoteAssociatedInterfaces()->GetInterface(
         mojo::MakeRequest(&autofill_agent_));
   }
 

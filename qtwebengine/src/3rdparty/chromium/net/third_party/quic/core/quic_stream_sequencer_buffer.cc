@@ -33,7 +33,8 @@ QuicStreamSequencerBuffer::QuicStreamSequencerBuffer(size_t max_capacity_bytes)
     : max_buffer_capacity_bytes_(max_capacity_bytes),
       blocks_count_(CalculateBlockCount(max_capacity_bytes)),
       total_bytes_read_(0),
-      blocks_(nullptr) {
+      blocks_(nullptr),
+      total_bytes_prefetched_(0) {
   Clear();
 }
 
@@ -80,7 +81,6 @@ QuicErrorCode QuicStreamSequencerBuffer::OnStreamData(
   if (starting_offset + size > total_bytes_read_ + max_buffer_capacity_bytes_ ||
       starting_offset + size < starting_offset) {
     *error_details = "Received data beyond available range.";
-    RecordInternalErrorLocation(QUIC_STREAM_SEQUENCER_BUFFER);
     return QUIC_INTERNAL_ERROR;
   }
   if (bytes_received_.Empty() ||
@@ -93,7 +93,7 @@ QuicErrorCode QuicStreamSequencerBuffer::OnStreamData(
       // Extend the right edge of last interval.
       // TODO(fayang): Encapsulate this into a future version of QuicIntervalSet
       // if this is more efficient than Add.
-      const_cast<QuicInterval<QuicPacketNumber>*>(&(*bytes_received_.rbegin()))
+      const_cast<QuicInterval<QuicStreamOffset>*>(&(*bytes_received_.rbegin()))
           ->SetMax(starting_offset + size);
     } else {
       bytes_received_.Add(starting_offset, starting_offset + size);
@@ -236,7 +236,7 @@ QuicErrorCode QuicStreamSequencerBuffer::Readv(const iovec* dest_iov,
           ReadableBytes(), block_capacity - start_offset_in_block);
       size_t bytes_to_copy =
           std::min<size_t>(bytes_available_in_block, dest_remaining);
-      DCHECK_GT(bytes_to_copy, 0UL);
+      DCHECK_GT(bytes_to_copy, 0u);
       if (blocks_[block_idx] == nullptr || dest == nullptr) {
         *error_details = QuicStrCat(
             "QuicStreamSequencerBuffer error:"
@@ -273,6 +273,8 @@ QuicErrorCode QuicStreamSequencerBuffer::Readv(const iovec* dest_iov,
       }
     }
   }
+  total_bytes_prefetched_ =
+      std::max(total_bytes_prefetched_, total_bytes_read_);
 
   return QUIC_NO_ERROR;
 }
@@ -339,12 +341,29 @@ bool QuicStreamSequencerBuffer::GetReadableRegion(iovec* iov) const {
   return GetReadableRegions(iov, 1) == 1;
 }
 
-void QuicStreamSequencerBuffer::Read(QuicString* buffer) {
-  iovec iov;
-  while (GetReadableRegion(&iov)) {
-    buffer->append(reinterpret_cast<const char*>(iov.iov_base), iov.iov_len);
-    MarkConsumed(iov.iov_len);
+bool QuicStreamSequencerBuffer::PrefetchNextRegion(iovec* iov) {
+  DCHECK(iov != nullptr);
+
+  if (total_bytes_prefetched_ == FirstMissingByte()) {
+    return false;
   }
+
+  size_t start_block_idx = GetBlockIndex(total_bytes_prefetched_);
+  size_t start_block_offset = GetInBlockOffset(total_bytes_prefetched_);
+  QuicStreamOffset readable_offset_end = FirstMissingByte() - 1;
+  size_t end_block_offset = GetInBlockOffset(readable_offset_end);
+  size_t end_block_idx = GetBlockIndex(readable_offset_end);
+
+  if (start_block_idx != end_block_idx) {
+    iov->iov_base = blocks_[start_block_idx]->buffer + start_block_offset;
+    iov->iov_len = GetBlockCapacity(start_block_idx) - start_block_offset;
+    total_bytes_prefetched_ += iov->iov_len;
+    return true;
+  }
+  iov->iov_base = blocks_[end_block_idx]->buffer + start_block_offset;
+  iov->iov_len = end_block_offset - start_block_offset + 1;
+  total_bytes_prefetched_ += iov->iov_len;
+  return true;
 }
 
 bool QuicStreamSequencerBuffer::MarkConsumed(size_t bytes_used) {
@@ -367,6 +386,8 @@ bool QuicStreamSequencerBuffer::MarkConsumed(size_t bytes_used) {
       RetireBlockIfEmpty(block_idx);
     }
   }
+  total_bytes_prefetched_ =
+      std::max(total_bytes_read_, total_bytes_prefetched_);
   return true;
 }
 

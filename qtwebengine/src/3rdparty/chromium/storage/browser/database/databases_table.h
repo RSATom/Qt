@@ -9,16 +9,16 @@
 
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/strings/string16.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace sql {
-class Connection;
+class Database;
 }
 
 namespace storage {
 
-struct STORAGE_EXPORT DatabaseDetails {
+struct COMPONENT_EXPORT(STORAGE_BROWSER) DatabaseDetails {
   DatabaseDetails();
   DatabaseDetails(const DatabaseDetails& other);
   ~DatabaseDetails();
@@ -29,9 +29,9 @@ struct STORAGE_EXPORT DatabaseDetails {
   int64_t estimated_size;
 };
 
-class STORAGE_EXPORT DatabasesTable {
+class COMPONENT_EXPORT(STORAGE_BROWSER) DatabasesTable {
  public:
-  explicit DatabasesTable(sql::Connection* db) : db_(db) { }
+  explicit DatabasesTable(sql::Database* db) : db_(db) {}
 
   bool Init();
   int64_t GetDatabaseID(const std::string& origin_identifier,
@@ -49,7 +49,7 @@ class STORAGE_EXPORT DatabasesTable {
       std::vector<DatabaseDetails>* details);
   bool DeleteOriginIdentifier(const std::string& origin_identifier);
  private:
-  sql::Connection* db_;
+  sql::Database* db_;
 };
 
 }  // namespace storage

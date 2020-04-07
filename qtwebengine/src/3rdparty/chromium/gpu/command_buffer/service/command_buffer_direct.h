@@ -16,21 +16,12 @@ namespace gpu {
 
 class AsyncAPIInterface;
 class TransferBufferManager;
-class SyncPointClientState;
-class SyncPointManager;
-class SyncPointOrderData;
-struct SyncToken;
 
 class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
                                        public CommandBufferServiceClient,
                                        public DecoderClient {
  public:
-  using MakeCurrentCallback = base::Callback<bool()>;
-
-  CommandBufferDirect(TransferBufferManager* transfer_buffer_manager,
-                      SyncPointManager* sync_point_manager);
   explicit CommandBufferDirect(TransferBufferManager* transfer_buffer_manager);
-
   ~CommandBufferDirect() override;
 
   void set_handler(AsyncAPIInterface* handler) { handler_ = handler; }
@@ -57,18 +48,10 @@ class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
   void OnConsoleMessage(int32_t id, const std::string& message) override;
   void CacheShader(const std::string& key, const std::string& shader) override;
   void OnFenceSyncRelease(uint64_t release) override;
-  bool OnWaitSyncToken(const gpu::SyncToken&) override;
   void OnDescheduleUntilFinished() override;
   void OnRescheduleAfterFinished() override;
   void OnSwapBuffers(uint64_t swap_id, uint32_t flags) override;
   void ScheduleGrContextCleanup() override {}
-
-  CommandBufferNamespace GetNamespaceID() const;
-  CommandBufferId GetCommandBufferID() const;
-
-  void SetCommandsPaused(bool paused);
-  void SignalSyncToken(const gpu::SyncToken& sync_token,
-                       base::OnceClosure callback);
 
   scoped_refptr<Buffer> CreateTransferBufferWithId(uint32_t size, int32_t id);
 
@@ -78,13 +61,7 @@ class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
 
  private:
   CommandBufferService service_;
-  SyncPointManager* sync_point_manager_;
-
   AsyncAPIInterface* handler_ = nullptr;
-  scoped_refptr<SyncPointOrderData> sync_point_order_data_;
-  scoped_refptr<SyncPointClientState> sync_point_client_state_;
-  bool pause_commands_ = false;
-  uint32_t paused_order_num_ = 0;
   const CommandBufferId command_buffer_id_;
 };
 

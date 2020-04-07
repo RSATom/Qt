@@ -11,6 +11,7 @@
 #ifndef MODULES_AUDIO_DEVICE_INCLUDE_AUDIO_DEVICE_FACTORY_H_
 #define MODULES_AUDIO_DEVICE_INCLUDE_AUDIO_DEVICE_FACTORY_H_
 
+#include "absl/memory/memory.h"
 #include "modules/audio_device/include/audio_device.h"
 
 namespace webrtc {
@@ -34,6 +35,9 @@ namespace webrtc {
 //    std::unique_ptr<webrtc_win::ScopedCOMInitializer> com_initializer_;
 //
 rtc::scoped_refptr<AudioDeviceModule> CreateWindowsCoreAudioAudioDeviceModule();
+
+rtc::scoped_refptr<AudioDeviceModuleForTest>
+CreateWindowsCoreAudioAudioDeviceModuleForTest();
 
 }  // namespace webrtc
 

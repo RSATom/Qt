@@ -102,7 +102,7 @@ typedef enum {
 // Elliptic curve groups.
 
 // EC_GROUP_new_by_curve_name returns a fresh EC_GROUP object for the elliptic
-// curve specified by |nid|, or NULL on error.
+// curve specified by |nid|, or NULL on unsupported NID or allocation failure.
 //
 // The supported NIDs are:
 //   NID_secp224r1 (P-224),
@@ -348,21 +348,23 @@ OPENSSL_EXPORT size_t EC_get_builtin_curves(EC_builtin_curve *out_curves,
 // EC_POINT_clear_free calls |EC_POINT_free|.
 OPENSSL_EXPORT void EC_POINT_clear_free(EC_POINT *point);
 
-// Old code expects to get EC_KEY from ec.h.
-#include <openssl/ec_key.h>
-
 
 #if defined(__cplusplus)
 }  // extern C
+#endif
 
+// Old code expects to get EC_KEY from ec.h.
+#include <openssl/ec_key.h>
+
+#if defined(__cplusplus)
 extern "C++" {
 
-namespace bssl {
+BSSL_NAMESPACE_BEGIN
 
 BORINGSSL_MAKE_DELETER(EC_POINT, EC_POINT_free)
 BORINGSSL_MAKE_DELETER(EC_GROUP, EC_GROUP_free)
 
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 }  // extern C++
 

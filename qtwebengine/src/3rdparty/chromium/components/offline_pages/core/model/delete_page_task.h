@@ -13,10 +13,10 @@
 #include "components/offline_pages/core/offline_page_metadata_store.h"
 #include "components/offline_pages/core/offline_page_model.h"
 #include "components/offline_pages/core/offline_page_types.h"
-#include "components/offline_pages/core/task.h"
+#include "components/offline_pages/task/task.h"
 
 namespace sql {
-class Connection;
+class Database;
 }  // namespace sql
 
 namespace offline_pages {
@@ -93,7 +93,7 @@ class DeletePageTask : public Task {
   void Run() override;
 
  private:
-  typedef base::OnceCallback<DeletePageTaskResult(sql::Connection*)>
+  typedef base::OnceCallback<DeletePageTaskResult(sql::Database*)>
       DeleteFunction;
 
   // Making the constructor private, in order to use static methods to create

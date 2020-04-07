@@ -50,6 +50,7 @@
 #endif
 #if QT_CONFIG(wayland_datadevice)
 #include "qwaylanddatadevicemanager_p.h"
+#include "qwaylanddatadevice_p.h"
 #endif
 #if QT_CONFIG(cursor)
 #include <wayland-cursor.h>
@@ -71,6 +72,7 @@
 #include <QtCore/private/qcore_unix_p.h>
 
 #include <QtCore/QAbstractEventDispatcher>
+#include <QtGui/qpa/qwindowsysteminterface.h>
 #include <QtGui/private/qguiapplication_p.h>
 
 #include <QtCore/QDebug>
@@ -141,7 +143,18 @@ QWaylandDisplay::QWaylandDisplay(QWaylandIntegration *waylandIntegration)
 
     mWindowManagerIntegration.reset(new QWaylandWindowManagerIntegration(this));
 
+#if QT_CONFIG(xkbcommon)
+    mXkbContext.reset(xkb_context_new(XKB_CONTEXT_NO_FLAGS));
+    if (!mXkbContext)
+        qCWarning(lcQpaWayland, "failed to create xkb context");
+#endif
+
     forceRoundTrip();
+
+    if (!mWaitingScreens.isEmpty()) {
+        // Give wl_output.done and zxdg_output_v1.done events a chance to arrive
+        forceRoundTrip();
+    }
 }
 
 QWaylandDisplay::~QWaylandDisplay(void)
@@ -153,15 +166,16 @@ QWaylandDisplay::~QWaylandDisplay(void)
     mInputDevices.clear();
 
     foreach (QWaylandScreen *screen, mScreens) {
-        mWaylandIntegration->destroyScreen(screen);
+        QWindowSystemInterface::handleScreenRemoved(screen);
     }
     mScreens.clear();
+    qDeleteAll(mWaitingScreens);
 
 #if QT_CONFIG(wayland_datadevice)
     delete mDndSelectionHandler.take();
 #endif
 #if QT_CONFIG(cursor)
-    qDeleteAll(mCursorThemesBySize);
+    qDeleteAll(mCursorThemes);
 #endif
     if (mDisplay)
         wl_display_disconnect(mDisplay);
@@ -172,9 +186,9 @@ void QWaylandDisplay::checkError() const
     int ecode = wl_display_get_error(mDisplay);
     if ((ecode == EPIPE || ecode == ECONNRESET)) {
         // special case this to provide a nicer error
-        qWarning("The Wayland connection broke. Did the Wayland compositor die?");
+        qFatal("The Wayland connection broke. Did the Wayland compositor die?");
     } else {
-        qErrnoWarning(ecode, "The Wayland connection experienced a fatal error");
+        qFatal("The Wayland connection experienced a fatal error: %s", strerror(ecode));
     }
 }
 
@@ -184,25 +198,16 @@ void QWaylandDisplay::flushRequests()
         wl_display_read_events(mDisplay);
     }
 
-    if (wl_display_dispatch_pending(mDisplay) < 0) {
+    if (wl_display_dispatch_pending(mDisplay) < 0)
         checkError();
-        exitWithError();
-    }
 
     wl_display_flush(mDisplay);
 }
 
 void QWaylandDisplay::blockingReadEvents()
 {
-    if (wl_display_dispatch(mDisplay) < 0) {
+    if (wl_display_dispatch(mDisplay) < 0)
         checkError();
-        exitWithError();
-    }
-}
-
-void QWaylandDisplay::exitWithError()
-{
-    ::exit(1);
 }
 
 wl_event_queue *QWaylandDisplay::createEventQueue()
@@ -231,10 +236,9 @@ void QWaylandDisplay::dispatchQueueWhile(wl_event_queue *queue, std::function<bo
         else
             wl_display_cancel_read(mDisplay);
 
-        if (wl_display_dispatch_queue_pending(mDisplay, queue) < 0) {
+        if (wl_display_dispatch_queue_pending(mDisplay, queue) < 0)
             checkError();
-            exitWithError();
-        }
+
         if (!condition())
             break;
     }
@@ -248,6 +252,14 @@ QWaylandScreen *QWaylandDisplay::screenForOutput(struct wl_output *output) const
             return screen;
     }
     return nullptr;
+}
+
+void QWaylandDisplay::handleScreenInitialized(QWaylandScreen *screen)
+{
+    if (!mWaitingScreens.removeOne(screen))
+        return;
+    mScreens.append(screen);
+    QWindowSystemInterface::handleScreenAdded(screen);
 }
 
 void QWaylandDisplay::waitForScreens()
@@ -271,16 +283,10 @@ void QWaylandDisplay::waitForScreens()
 
 void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uint32_t version)
 {
-    Q_UNUSED(version);
-
     struct ::wl_registry *registry = object();
 
     if (interface == QStringLiteral("wl_output")) {
-        QWaylandScreen *screen = new QWaylandScreen(this, version, id);
-        mScreens.append(screen);
-        // We need to get the output events before creating surfaces
-        forceRoundTrip();
-        mWaylandIntegration->screenAdded(screen);
+        mWaitingScreens << new QWaylandScreen(this, version, id);
     } else if (interface == QStringLiteral("wl_compositor")) {
         mCompositorVersion = qMin((int)version, 3);
         mCompositor.init(registry, id, mCompositorVersion);
@@ -301,19 +307,22 @@ void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uin
         mTouchExtension.reset(new QWaylandTouchExtension(this, id));
     } else if (interface == QStringLiteral("zqt_key_v1")) {
         mQtKeyExtension.reset(new QWaylandQtKeyExtension(this, id));
-    } else if (interface == QStringLiteral("zwp_text_input_manager_v2")) {
+    } else if (interface == QStringLiteral("zwp_text_input_manager_v2") && !mClientSideInputContextRequested) {
         mTextInputManager.reset(new QtWayland::zwp_text_input_manager_v2(registry, id, 1));
-        foreach (QWaylandInputDevice *inputDevice, mInputDevices) {
+        for (QWaylandInputDevice *inputDevice : qAsConst(mInputDevices))
             inputDevice->setTextInput(new QWaylandTextInput(this, mTextInputManager->get_text_input(inputDevice->wl_seat())));
-        }
+        mWaylandIntegration->reconfigureInputContext();
     } else if (interface == QStringLiteral("qt_hardware_integration")) {
-        mHardwareIntegration.reset(new QWaylandHardwareIntegration(registry, id));
-        // make a roundtrip here since we need to receive the events sent by
-        // qt_hardware_integration before creating windows
-        forceRoundTrip();
+        bool disableHardwareIntegration = qEnvironmentVariableIntValue("QT_WAYLAND_DISABLE_HW_INTEGRATION");
+        if (!disableHardwareIntegration) {
+            mHardwareIntegration.reset(new QWaylandHardwareIntegration(registry, id));
+            // make a roundtrip here since we need to receive the events sent by
+            // qt_hardware_integration before creating windows
+            forceRoundTrip();
+        }
     } else if (interface == QLatin1String("zxdg_output_manager_v1")) {
-        mXdgOutputManager.reset(new QtWayland::zxdg_output_manager_v1(registry, id, 1));
-        for (auto *screen : qAsConst(mScreens))
+        mXdgOutputManager.reset(new QtWayland::zxdg_output_manager_v1(registry, id, qMin(2, int(version))));
+        for (auto *screen : qAsConst(mWaitingScreens))
             screen->initXdgOutput(xdgOutputManager());
         forceRoundTrip();
     }
@@ -330,13 +339,27 @@ void QWaylandDisplay::registry_global_remove(uint32_t id)
         RegistryGlobal &global = mGlobals[i];
         if (global.id == id) {
             if (global.interface == QStringLiteral("wl_output")) {
-                foreach (QWaylandScreen *screen, mScreens) {
+                for (auto *screen : mWaitingScreens) {
                     if (screen->outputId() == id) {
-                        mScreens.removeOne(screen);
-                        mWaylandIntegration->destroyScreen(screen);
+                        mWaitingScreens.removeOne(screen);
+                        delete screen;
                         break;
                     }
                 }
+
+                foreach (QWaylandScreen *screen, mScreens) {
+                    if (screen->outputId() == id) {
+                        mScreens.removeOne(screen);
+                        QWindowSystemInterface::handleScreenRemoved(screen);
+                        break;
+                    }
+                }
+            }
+            if (global.interface == QStringLiteral("zwp_text_input_manager_v2")) {
+                mTextInputManager.reset();
+                for (QWaylandInputDevice *inputDevice : qAsConst(mInputDevices))
+                    inputDevice->setTextInput(nullptr);
+                mWaylandIntegration->reconfigureInputContext();
             }
             mGlobals.removeAt(i);
             break;
@@ -539,40 +562,20 @@ QWaylandInputDevice *QWaylandDisplay::defaultInputDevice() const
 
 #if QT_CONFIG(cursor)
 
-void QWaylandDisplay::setCursor(struct wl_buffer *buffer, struct wl_cursor_image *image, qreal dpr)
+QWaylandCursor *QWaylandDisplay::waylandCursor()
 {
-    /* Qt doesn't tell us which input device we should set the cursor
-     * for, so set it for all devices. */
-    for (int i = 0; i < mInputDevices.count(); i++) {
-        QWaylandInputDevice *inputDevice = mInputDevices.at(i);
-        inputDevice->setCursor(buffer, image, dpr);
-    }
+    if (!mCursor)
+        mCursor.reset(new QWaylandCursor(this));
+    return mCursor.data();
 }
 
-void QWaylandDisplay::setCursor(const QSharedPointer<QWaylandBuffer> &buffer, const QPoint &hotSpot, qreal dpr)
+QWaylandCursorTheme *QWaylandDisplay::loadCursorTheme(const QString &name, int pixelSize)
 {
-    /* Qt doesn't tell us which input device we should set the cursor
-     * for, so set it for all devices. */
-    for (int i = 0; i < mInputDevices.count(); i++) {
-        QWaylandInputDevice *inputDevice = mInputDevices.at(i);
-        inputDevice->setCursor(buffer, hotSpot, dpr);
-    }
-}
-
-QWaylandCursorTheme *QWaylandDisplay::loadCursorTheme(qreal devicePixelRatio)
-{
-    constexpr int defaultCursorSize = 32;
-    static const int xCursorSize = qEnvironmentVariableIntValue("XCURSOR_SIZE");
-    int cursorSize = xCursorSize > 0 ? xCursorSize : defaultCursorSize;
-
-    if (compositorVersion() >= 3) // set_buffer_scale is not supported on earlier versions
-        cursorSize *= devicePixelRatio;
-
-    if (auto *theme = mCursorThemesBySize.value(cursorSize, nullptr))
+    if (auto *theme = mCursorThemes.value({name, pixelSize}, nullptr))
         return theme;
 
-    if (auto *theme = QWaylandCursorTheme::create(shm(), cursorSize)) {
-        mCursorThemesBySize[cursorSize] = theme;
+    if (auto *theme = QWaylandCursorTheme::create(shm(), pixelSize, name)) {
+        mCursorThemes[{name, pixelSize}] = theme;
         return theme;
     }
 
@@ -581,6 +584,6 @@ QWaylandCursorTheme *QWaylandDisplay::loadCursorTheme(qreal devicePixelRatio)
 
 #endif // QT_CONFIG(cursor)
 
-}
+} // namespace QtWaylandClient
 
 QT_END_NAMESPACE

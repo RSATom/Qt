@@ -11,7 +11,9 @@
 #include "SkColor.h"
 #include "SkData.h"
 #include "SkEncodedImageFormat.h"
+#include "SkFont.h"
 #include "SkFontStyle.h"
+#include "SkFontTypes.h"
 #include "SkImageEncoder.h"
 #include "SkImageInfo.h"
 #include "SkRandom.h"
@@ -21,13 +23,13 @@
 #include "SkStream.h"
 #include "SkTArray.h"
 #include "SkTDArray.h"
+#include "SkTypeface.h"
 #include "SkTypes.h"
 
 class SkBitmap;
 class SkCanvas;
 class SkFontStyle;
 class SkImage;
-class SkPaint;
 class SkPath;
 class SkPixmap;
 class SkRRect;
@@ -63,15 +65,16 @@ namespace sk_tool_utils {
     const char* platform_font_manager();
 
     /**
-     * Sets the paint to use a platform-independent text renderer
-     */
-    void set_portable_typeface(SkPaint* paint, const char* name = nullptr,
-                               SkFontStyle style = SkFontStyle());
-
-    /**
      * Returns a platform-independent text renderer.
      */
     sk_sp<SkTypeface> create_portable_typeface(const char* name, SkFontStyle style);
+
+    static inline sk_sp<SkTypeface> create_portable_typeface() {
+        return create_portable_typeface(nullptr, SkFontStyle());
+    }
+
+    void get_text_path(const SkFont&, const void* text, size_t length, SkTextEncoding, SkPath*,
+                       const SkPoint* positions = nullptr);
 
     /**
      *  Call writePixels() by using the pixels from bitmap, but with an info that claims
@@ -81,19 +84,13 @@ namespace sk_tool_utils {
     void write_pixels(SkSurface*, const SkBitmap&, int x, int y, SkColorType, SkAlphaType);
 
     /**
-     *  Returns true iff all of the pixels between the two images differ by <= the maxDiff value
-     *  per component.
+     *  Returns true iff all of the pixels between the two images are identical.
      *
      *  If the configs differ, return false.
-     *
-     *  If the colorType is half-float, then maxDiff is interpreted as 0..255 --> 0..1
      */
-    bool equal_pixels(const SkPixmap&, const SkPixmap&, unsigned maxDiff = 0,
-                      bool respectColorSpaces = false);
-    bool equal_pixels(const SkBitmap&, const SkBitmap&, unsigned maxDiff = 0,
-                      bool respectColorSpaces = false);
-    bool equal_pixels(const SkImage* a, const SkImage* b, unsigned maxDiff = 0,
-                      bool respectColorSpaces = false);
+    bool equal_pixels(const SkPixmap&, const SkPixmap&);
+    bool equal_pixels(const SkBitmap&, const SkBitmap&);
+    bool equal_pixels(const SkImage* a, const SkImage* b);
 
     /** Returns a newly created CheckerboardShader. */
     sk_sp<SkShader> create_checkerboard_shader(SkColor c1, SkColor c2, int size);
@@ -122,11 +119,11 @@ namespace sk_tool_utils {
     sk_sp<SkSurface> makeSurface(SkCanvas*, const SkImageInfo&, const SkSurfaceProps* = nullptr);
 
     // A helper for inserting a drawtext call into a SkTextBlobBuilder
-    void add_to_text_blob_w_len(SkTextBlobBuilder* builder, const char* text, size_t len,
-                                const SkPaint& origPaint, SkScalar x, SkScalar y);
+    void add_to_text_blob_w_len(SkTextBlobBuilder*, const char* text, size_t len, SkTextEncoding,
+                                const SkFont&, SkScalar x, SkScalar y);
 
-    void add_to_text_blob(SkTextBlobBuilder* builder, const char* text,
-                          const SkPaint& origPaint, SkScalar x, SkScalar y);
+    void add_to_text_blob(SkTextBlobBuilder*, const char* text, const SkFont&,
+                          SkScalar x, SkScalar y);
 
     // Constructs a star by walking a 'numPts'-sided regular polygon with even/odd fill:
     //
@@ -147,14 +144,6 @@ namespace sk_tool_utils {
     void create_tetra_normal_map(SkBitmap* bm, const SkIRect& dst);
 
     void make_big_path(SkPath& path);
-
-    // Return a blurred version of 'src'. This doesn't use a separable filter
-    // so it is slow!
-    SkBitmap slow_blur(const SkBitmap& src, float sigma);
-
-    SkRect compute_central_occluder(const SkRRect& rr);
-    SkRect compute_widest_occluder(const SkRRect& rr);
-    SkRect compute_tallest_occluder(const SkRRect& rr);
 
     // A helper object to test the topological sorting code (TopoSortBench.cpp & TopoSortTest.cpp)
     class TopoTestNode : public SkRefCnt {
@@ -242,12 +231,6 @@ namespace sk_tool_utils {
     inline bool EncodeImageToFile(const char* path, const T& src, SkEncodedImageFormat f, int q) {
         SkFILEWStream file(path);
         return file.isValid() && SkEncodeImage(&file, src, f, q);
-    }
-
-    template <typename T>
-    inline sk_sp<SkData> EncodeImageToData(const T& src, SkEncodedImageFormat f, int q) {
-        SkDynamicMemoryWStream buf;
-        return SkEncodeImage(&buf, src , f, q) ? buf.detachAsData() : nullptr;
     }
 
     bool copy_to(SkBitmap* dst, SkColorType dstCT, const SkBitmap& src);

@@ -1,6 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -127,10 +128,25 @@ int runRcc(int argc, char *argv[])
     QCommandLineOption rootOption(QStringLiteral("root"), QStringLiteral("Prefix resource access path with root path."), QStringLiteral("path"));
     parser.addOption(rootOption);
 
+#if QT_CONFIG(zstd) && !defined(QT_NO_COMPRESS)
+#  define ALGOS     "[zstd], zlib, none"
+#elif QT_CONFIG(zstd)
+#  define ALGOS     "[zstd], none"
+#elif !defined(QT_NO_COMPRESS)
+#  define ALGOS     "[zlib], none"
+#else
+#  define ALGOS     "[none]"
+#endif
+    const QString &algoDescription =
+            QStringLiteral("Compress input files using algorithm <algo> (" ALGOS ").");
+    QCommandLineOption compressionAlgoOption(QStringLiteral("compress-algo"), algoDescription, QStringLiteral("algo"));
+    parser.addOption(compressionAlgoOption);
+#undef ALGOS
+
     QCommandLineOption compressOption(QStringLiteral("compress"), QStringLiteral("Compress input files by <level>."), QStringLiteral("level"));
     parser.addOption(compressOption);
 
-    QCommandLineOption nocompressOption(QStringLiteral("no-compress"), QStringLiteral("Disable all compression."));
+    QCommandLineOption nocompressOption(QStringLiteral("no-compress"), QStringLiteral("Disable all compression. Same as --compress-algo=none."));
     parser.addOption(nocompressOption);
 
     QCommandLineOption thresholdOption(QStringLiteral("threshold"), QStringLiteral("Threshold to consider compressing files."), QStringLiteral("level"));
@@ -169,13 +185,13 @@ int runRcc(int argc, char *argv[])
 
     QString errorMsg;
 
-    quint8 formatVersion = 2;
+    quint8 formatVersion = 3;
     if (parser.isSet(formatVersionOption)) {
         bool ok = false;
         formatVersion = parser.value(formatVersionOption).toUInt(&ok);
         if (!ok) {
             errorMsg = QLatin1String("Invalid format version specified");
-        } else if (formatVersion != 1 && formatVersion != 2) {
+        } else if (formatVersion < 1 || formatVersion > 3) {
             errorMsg = QLatin1String("Unsupported format version specified");
         }
     }
@@ -189,10 +205,17 @@ int runRcc(int argc, char *argv[])
                 || library.resourceRoot().at(0) != QLatin1Char('/'))
             errorMsg = QLatin1String("Root must start with a /");
     }
-    if (parser.isSet(compressOption))
-        library.setCompressLevel(parser.value(compressOption).toInt());
+
+    if (parser.isSet(compressionAlgoOption))
+        library.setCompressionAlgorithm(RCCResourceLibrary::parseCompressionAlgorithm(parser.value(compressionAlgoOption), &errorMsg));
+    if (formatVersion < 3 && library.compressionAlgorithm() == RCCResourceLibrary::CompressionAlgorithm::Zstd)
+        errorMsg = QLatin1String("Zstandard compression requires format version 3 or higher");
     if (parser.isSet(nocompressOption))
-        library.setCompressLevel(-2);
+        library.setCompressionAlgorithm(RCCResourceLibrary::CompressionAlgorithm::None);
+    if (parser.isSet(compressOption) && errorMsg.isEmpty()) {
+        int level = library.parseCompressionLevel(library.compressionAlgorithm(), parser.value(compressOption), &errorMsg);
+        library.setCompressLevel(level);
+    }
     if (parser.isSet(thresholdOption))
         library.setCompressThreshold(parser.value(thresholdOption).toInt());
     if (parser.isSet(binaryOption))

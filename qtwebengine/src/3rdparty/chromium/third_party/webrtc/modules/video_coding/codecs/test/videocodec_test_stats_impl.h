@@ -11,12 +11,11 @@
 #ifndef MODULES_VIDEO_CODING_CODECS_TEST_VIDEOCODEC_TEST_STATS_IMPL_H_
 #define MODULES_VIDEO_CODING_CODECS_TEST_VIDEOCODEC_TEST_STATS_IMPL_H_
 
+#include <stddef.h>
 #include <map>
-#include <string>
 #include <vector>
 
 #include "api/test/videocodec_test_stats.h"  // NOLINT(build/include)
-#include "common_types.h"                    // NOLINT(build/include)
 
 namespace webrtc {
 namespace test {
@@ -28,7 +27,7 @@ class VideoCodecTestStatsImpl : public VideoCodecTestStats {
   ~VideoCodecTestStatsImpl() override;
 
   // Creates a FrameStatistics for the next frame to be processed.
-  FrameStatistics* AddFrame(size_t timestamp, size_t spatial_idx) override;
+  void AddFrame(const FrameStatistics& frame_stat) override;
 
   // Returns the FrameStatistics corresponding to |frame_number| or |timestamp|.
   FrameStatistics* GetFrame(size_t frame_number, size_t spatial_idx) override;

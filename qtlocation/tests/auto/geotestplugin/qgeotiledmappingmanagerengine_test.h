@@ -49,8 +49,8 @@ public:
         QGeoServiceProvider::Error *error, QString *errorString) :
         QGeoTiledMappingManagerEngine()
     {
-        Q_UNUSED(error)
-        Q_UNUSED(errorString)
+        Q_UNUSED(error);
+        Q_UNUSED(errorString);
 
         setLocale(QLocale (QLocale::German, QLocale::Germany));
         QGeoCameraCapabilities capabilities;

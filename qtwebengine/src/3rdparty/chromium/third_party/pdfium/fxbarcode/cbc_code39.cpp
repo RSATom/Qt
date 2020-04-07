@@ -31,7 +31,7 @@ CBC_Code39::CBC_Code39()
 
 CBC_Code39::~CBC_Code39() {}
 
-bool CBC_Code39::Encode(const WideStringView& contents) {
+bool CBC_Code39::Encode(WideStringView contents) {
   if (contents.IsEmpty())
     return false;
 
@@ -41,7 +41,7 @@ bool CBC_Code39::Encode(const WideStringView& contents) {
   auto* pWriter = GetOnedCode39Writer();
   WideString filtercontents = pWriter->FilterContents(contents);
   m_renderContents = pWriter->RenderTextContents(contents);
-  ByteString byteString = filtercontents.UTF8Encode();
+  ByteString byteString = filtercontents.ToUTF8();
   std::unique_ptr<uint8_t, FxFreeDeleter> data(
       pWriter->Encode(byteString, format, outWidth, outHeight));
   return data && pWriter->RenderResult(m_renderContents.AsStringView(),
@@ -59,14 +59,6 @@ bool CBC_Code39::RenderDevice(CFX_RenderDevice* device,
 
 BC_TYPE CBC_Code39::GetType() {
   return BC_CODE39;
-}
-
-bool CBC_Code39::SetTextLocation(BC_TEXT_LOC location) {
-  return GetOnedCode39Writer()->SetTextLocation(location);
-}
-
-bool CBC_Code39::SetWideNarrowRatio(int8_t ratio) {
-  return GetOnedCode39Writer()->SetWideNarrowRatio(ratio);
 }
 
 CBC_OnedCode39Writer* CBC_Code39::GetOnedCode39Writer() {

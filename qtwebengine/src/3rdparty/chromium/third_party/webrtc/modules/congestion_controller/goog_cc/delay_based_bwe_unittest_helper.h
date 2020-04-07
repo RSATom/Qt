@@ -11,17 +11,21 @@
 #ifndef MODULES_CONGESTION_CONTROLLER_GOOG_CC_DELAY_BASED_BWE_UNITTEST_HELPER_H_
 #define MODULES_CONGESTION_CONTROLLER_GOOG_CC_DELAY_BASED_BWE_UNITTEST_HELPER_H_
 
-#include <list>
-#include <map>
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
-#include <utility>
+#include <string>
 #include <vector>
 
+#include "api/transport/field_trial_based_config.h"
+#include "api/transport/network_types.h"
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "rtc_base/constructormagic.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "rtc_base/constructor_magic.h"
 #include "system_wrappers/include/clock.h"
+#include "test/field_trial.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -30,7 +34,7 @@ namespace test {
 class TestBitrateObserver : public RemoteBitrateObserver {
  public:
   TestBitrateObserver() : updated_(false), latest_bitrate_(0) {}
-  virtual ~TestBitrateObserver() {}
+  ~TestBitrateObserver() override {}
 
   void OnReceiveBitrateChanged(const std::vector<uint32_t>& ssrcs,
                                uint32_t bitrate) override;
@@ -80,6 +84,7 @@ class RtpStream {
 class StreamGenerator {
  public:
   StreamGenerator(int capacity, int64_t time_now);
+  ~StreamGenerator();
 
   // Add a new stream.
   void AddStream(RtpStream* stream);
@@ -114,7 +119,8 @@ class StreamGenerator {
 class DelayBasedBweTest : public ::testing::Test {
  public:
   DelayBasedBweTest();
-  virtual ~DelayBasedBweTest();
+  explicit DelayBasedBweTest(const std::string& field_trial_string);
+  ~DelayBasedBweTest() override;
 
  protected:
   void AddDefaultStream();
@@ -162,10 +168,14 @@ class DelayBasedBweTest : public ::testing::Test {
                               int64_t receiver_clock_offset_change_ms);
 
   static const uint32_t kDefaultSsrc;
+  FieldTrialBasedConfig field_trial_config_;
 
+  std::unique_ptr<test::ScopedFieldTrials>
+      field_trial;        // Must be initialized first.
   SimulatedClock clock_;  // Time at the receiver.
   test::TestBitrateObserver bitrate_observer_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
+  const std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<DelayBasedBwe> bitrate_estimator_;
   std::unique_ptr<test::StreamGenerator> stream_generator_;
   int64_t arrival_time_offset_ms_;

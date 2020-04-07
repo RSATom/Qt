@@ -8,42 +8,39 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "logging/rtc_event_log/rtc_event_log.h"
-#include "modules/video_coding/codecs/vp8/include/vp8.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <memory>
+#include <vector>
+
+#include "api/video/video_frame.h"
+#include "api/video/video_sink_interface.h"
+#include "api/video_codecs/video_encoder_config.h"
+#include "call/rtp_config.h"
+#include "call/video_receive_stream.h"
+#include "call/video_send_stream.h"
+#include "rtc_base/event.h"
 #include "test/call_test.h"
-#include "test/encoder_settings.h"
-#include "test/field_trial.h"
+#include "test/frame_generator_capturer.h"
 #include "test/gtest.h"
+#include "test/single_threaded_task_queue.h"
 #include "video/end_to_end_tests/multi_stream_tester.h"
 
 namespace webrtc {
-class MultiStreamEndToEndTest
-    : public test::CallTest,
-      public testing::WithParamInterface<std::string> {
+class MultiStreamEndToEndTest : public test::CallTest {
  public:
-  MultiStreamEndToEndTest() : field_trial_(GetParam()) {}
-
- private:
-  test::ScopedFieldTrials field_trial_;
+  MultiStreamEndToEndTest() = default;
 };
-
-INSTANTIATE_TEST_CASE_P(RoundRobin,
-                        MultiStreamEndToEndTest,
-                        ::testing::Values("WebRTC-RoundRobinPacing/Disabled/",
-                                          "WebRTC-RoundRobinPacing/Enabled/"));
 
 // Each renderer verifies that it receives the expected resolution, and as soon
 // as every renderer has received a frame, the test finishes.
-TEST_P(MultiStreamEndToEndTest, SendsAndReceivesMultipleStreams) {
+TEST_F(MultiStreamEndToEndTest, SendsAndReceivesMultipleStreams) {
   class VideoOutputObserver : public rtc::VideoSinkInterface<VideoFrame> {
    public:
     VideoOutputObserver(const MultiStreamTester::CodecSettings& settings,
                         uint32_t ssrc,
                         test::FrameGeneratorCapturer** frame_generator)
-        : settings_(settings),
-          ssrc_(ssrc),
-          frame_generator_(frame_generator),
-          done_(false, false) {}
+        : settings_(settings), ssrc_(ssrc), frame_generator_(frame_generator) {}
 
     void OnFrame(const VideoFrame& video_frame) override {
       EXPECT_EQ(settings_.width, video_frame.width());

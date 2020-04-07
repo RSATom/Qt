@@ -45,17 +45,18 @@ FAIL_SLOPPY = "FAIL_SLOPPY"
 SKIP = "SKIP"
 SLOW = "SLOW"
 NO_VARIANTS = "NO_VARIANTS"
+FAIL_PHASE_ONLY = "FAIL_PHASE_ONLY"
 
 ALWAYS = "ALWAYS"
 
 KEYWORDS = {}
 for key in [SKIP, FAIL, PASS, CRASH, SLOW, FAIL_OK, NO_VARIANTS, FAIL_SLOPPY,
-            ALWAYS]:
+            ALWAYS, FAIL_PHASE_ONLY]:
   KEYWORDS[key] = key
 
 # Support arches, modes to be written as keywords instead of strings.
 VARIABLES = {ALWAYS: True}
-for var in ["debug", "release", "big", "little",
+for var in ["debug", "release", "big", "little", "android",
             "android_arm", "android_arm64", "android_ia32", "android_x64",
             "arm", "arm64", "ia32", "mips", "mipsel", "mips64", "mips64el",
             "x64", "ppc", "ppc64", "s390", "s390x", "macos", "windows",

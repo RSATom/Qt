@@ -47,11 +47,20 @@
 
 namespace base {
 class RunLoop;
+class CommandLine;
 }
 
 namespace content {
 class BrowserMainRunner;
 class ContentMainRunner;
+class GpuProcess;
+class GpuThreadController;
+class InProcessChildThreadParams;
+}
+
+namespace gpu {
+struct GpuPreferences;
+class SyncPointManager;
 }
 
 #if QT_CONFIG(webengine_printing_and_pdf)
@@ -64,16 +73,20 @@ QT_FORWARD_DECLARE_CLASS(QObject)
 
 namespace QtWebEngineCore {
 
-class ProfileAdapter;
+class AccessibilityActivationObserver;
 class ContentMainDelegateQt;
 class DevToolsServerQt;
+class ProfileAdapter;
 
 bool usingSoftwareDynamicGL();
+
+typedef std::tuple<bool, QString, QString> ProxyAuthentication;
 
 class WebEngineContext : public base::RefCounted<WebEngineContext> {
 public:
     static WebEngineContext *current();
     static void destroyContextPostRoutine();
+    static ProxyAuthentication qProxyNetworkAuthentication(QString host, int port);
 
     ProfileAdapter *createDefaultProfileAdapter();
     ProfileAdapter *defaultProfileAdapter();
@@ -86,12 +99,18 @@ public:
     void addProfileAdapter(ProfileAdapter *profileAdapter);
     void removeProfileAdapter(ProfileAdapter *profileAdapter);
     void destroy();
+    static base::CommandLine* commandLine();
+
+    static gpu::SyncPointManager *syncPointManager();
 
 private:
     friend class base::RefCounted<WebEngineContext>;
     friend class ProfileAdapter;
     WebEngineContext();
     ~WebEngineContext();
+
+    static void registerMainThreadFactories(bool threaded);
+    static void destroyGpuProcess();
 
     std::unique_ptr<base::RunLoop> m_runLoop;
     std::unique_ptr<ContentMainDelegateQt> m_mainDelegate;
@@ -101,12 +120,16 @@ private:
     std::unique_ptr<ProfileAdapter> m_defaultProfileAdapter;
     std::unique_ptr<DevToolsServerQt> m_devtoolsServer;
     QVector<ProfileAdapter*> m_profileAdapters;
+#ifndef QT_NO_ACCESSIBILITY
+    std::unique_ptr<AccessibilityActivationObserver> m_accessibilityActivationObserver;
+#endif
 
 #if QT_CONFIG(webengine_printing_and_pdf)
     std::unique_ptr<printing::PrintJobManager> m_printJobManager;
 #endif
     static scoped_refptr<QtWebEngineCore::WebEngineContext> m_handle;
     static bool m_destroyed;
+    static QAtomicPointer<gpu::SyncPointManager> s_syncPointManager;
 };
 
 } // namespace

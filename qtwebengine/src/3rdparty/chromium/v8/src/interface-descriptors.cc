@@ -4,16 +4,26 @@
 
 #include "src/interface-descriptors.h"
 
+#include "src/macro-assembler.h"
+
 namespace v8 {
 namespace internal {
 
 void CallInterfaceDescriptorData::InitializePlatformSpecific(
     int register_parameter_count, const Register* registers) {
+  DCHECK(!IsInitializedPlatformIndependent());
+
   register_param_count_ = register_parameter_count;
+
+  // UBSan doesn't like creating zero-length arrays.
+  if (register_parameter_count == 0) return;
 
   // InterfaceDescriptor owns a copy of the registers array.
   register_params_ = NewArray<Register>(register_parameter_count, no_reg);
   for (int i = 0; i < register_parameter_count; i++) {
+    // The value of the root register must be reserved, thus any uses
+    // within the calling convention are disallowed.
+    DCHECK_NE(registers[i], kRootRegister);
     register_params_[i] = registers[i];
   }
 }
@@ -21,19 +31,37 @@ void CallInterfaceDescriptorData::InitializePlatformSpecific(
 void CallInterfaceDescriptorData::InitializePlatformIndependent(
     Flags flags, int return_count, int parameter_count,
     const MachineType* machine_types, int machine_types_length) {
+  DCHECK(IsInitializedPlatformSpecific());
+
   flags_ = flags;
   return_count_ = return_count;
   param_count_ = parameter_count;
-  int types_length = return_count_ + param_count_;
-  machine_types_ = NewArray<MachineType>(types_length);
-  for (int i = 0; i < types_length; i++) {
-    if (machine_types == nullptr || i >= machine_types_length) {
-      machine_types_[i] = MachineType::AnyTagged();
-    } else {
-      machine_types_[i] = machine_types[i];
-    }
+  const int types_length = return_count_ + param_count_;
+
+  // Machine types are either fully initialized or null.
+  if (machine_types == nullptr) {
+    machine_types_ =
+        NewArray<MachineType>(types_length, MachineType::AnyTagged());
+  } else {
+    DCHECK_EQ(machine_types_length, types_length);
+    machine_types_ = NewArray<MachineType>(types_length);
+    for (int i = 0; i < types_length; i++) machine_types_[i] = machine_types[i];
   }
+
+  if (!(flags_ & kNoStackScan)) DCHECK(AllStackParametersAreTagged());
 }
+
+#ifdef DEBUG
+bool CallInterfaceDescriptorData::AllStackParametersAreTagged() const {
+  DCHECK(IsInitialized());
+  const int types_length = return_count_ + param_count_;
+  const int first_stack_param = return_count_ + register_param_count_;
+  for (int i = first_stack_param; i < types_length; i++) {
+    if (!machine_types_[i].IsTagged()) return false;
+  }
+  return true;
+}
+#endif  // DEBUG
 
 void CallInterfaceDescriptorData::Reset() {
   delete[] machine_types_;
@@ -100,6 +128,11 @@ const char* CallInterfaceDescriptor::DebugName() const {
   return "";
 }
 
+#if !defined(V8_TARGET_ARCH_MIPS) && !defined(V8_TARGET_ARCH_MIPS64)
+bool CallInterfaceDescriptor::IsValidFloatParameterRegister(Register reg) {
+  return true;
+}
+#endif
 
 void VoidDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
@@ -117,6 +150,28 @@ void CEntry1ArgvOnStackDescriptor::InitializePlatformSpecific(
   Register registers[] = {kRuntimeCallArgCountRegister,
                           kRuntimeCallFunctionRegister};
   data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+namespace {
+
+void InterpreterCEntryDescriptor_InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  Register registers[] = {kRuntimeCallArgCountRegister,
+                          kRuntimeCallArgvRegister,
+                          kRuntimeCallFunctionRegister};
+  data->InitializePlatformSpecific(arraysize(registers), registers);
+}
+
+}  // namespace
+
+void InterpreterCEntry1Descriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  InterpreterCEntryDescriptor_InitializePlatformSpecific(data);
+}
+
+void InterpreterCEntry2Descriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  InterpreterCEntryDescriptor_InitializePlatformSpecific(data);
 }
 
 void FastNewFunctionContextDescriptor::InitializePlatformSpecific(
@@ -214,17 +269,30 @@ void TypeConversionStackParameterDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(0, nullptr);
 }
 
+void AsyncFunctionStackParameterDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  data->InitializePlatformSpecific(0, nullptr);
+}
+
 void LoadWithVectorDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   Register registers[] = {ReceiverRegister(), NameRegister(), SlotRegister(),
                           VectorRegister()};
-  data->InitializePlatformSpecific(arraysize(registers), registers);
+  // TODO(jgruber): This DCHECK could be enabled if RegisterBase::ListOf were
+  // to allow no_reg entries.
+  // DCHECK(!AreAliased(ReceiverRegister(), NameRegister(), SlotRegister(),
+  //                    VectorRegister(), kRootRegister));
+  int len = arraysize(registers) - kStackArgumentsCount;
+  data->InitializePlatformSpecific(len, registers);
 }
 
 void StoreWithVectorDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   Register registers[] = {ReceiverRegister(), NameRegister(), ValueRegister(),
                           SlotRegister(), VectorRegister()};
+  // TODO(jgruber): This DCHECK could be enabled if RegisterBase::ListOf were
+  // to allow no_reg entries.
+  // DCHECK(!AreAliased(ReceiverRegister(), NameRegister(), kRootRegister));
   int len = arraysize(registers) - kStackArgumentsCount;
   data->InitializePlatformSpecific(len, registers);
 }
@@ -258,7 +326,7 @@ void GrowArrayElementsDescriptor::InitializePlatformSpecific(
 
 void NewArgumentsElementsDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
-  DefaultInitializePlatformSpecific(data, 3);
+  DefaultInitializePlatformSpecific(data, kParameterCount);
 }
 
 void ArrayNoArgumentConstructorDescriptor::InitializePlatformSpecific(
@@ -286,7 +354,55 @@ void ArrayNArgumentsConstructorDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-void WasmGrowMemoryDescriptor::InitializePlatformSpecific(
+void WasmMemoryGrowDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+void WasmThrowDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+void WasmAtomicWakeDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+#if !defined(V8_TARGET_ARCH_MIPS) && !defined(V8_TARGET_ARCH_MIPS64)
+void WasmI32AtomicWaitDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+void WasmI64AtomicWaitDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+#endif
+
+void CloneObjectWithVectorDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+// static
+Register RunMicrotasksDescriptor::MicrotaskQueueRegister() {
+  return CallDescriptors::call_descriptor_data(CallDescriptors::RunMicrotasks)
+      ->register_param(0);
+}
+
+void RunMicrotasksDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+void BigIntToWasmI64Descriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  DefaultInitializePlatformSpecific(data, kParameterCount);
+}
+
+void BigIntToI64Descriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   DefaultInitializePlatformSpecific(data, kParameterCount);
 }

@@ -33,7 +33,6 @@
 
 #include "mojo/public/cpp/bindings/binding.h"
 #include "third_party/blink/public/platform/modules/notifications/notification_service.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/notifications/web_notification_data.h"
 #include "third_party/blink/public/platform/modules/permissions/permission.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/permissions/permission_status.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
@@ -71,24 +70,32 @@ class MODULES_EXPORT Notification final
   // when the developer-provided data is valid.
   static Notification* Create(ExecutionContext* context,
                               const String& title,
-                              const NotificationOptions& options,
+                              const NotificationOptions* options,
                               ExceptionState& state);
 
   // Used for embedder-created persistent notifications. Initializes the state
   // of the notification as either Showing or Closed based on |showing|.
   static Notification* Create(ExecutionContext* context,
                               const String& notification_id,
-                              const WebNotificationData& data,
+                              mojom::blink::NotificationDataPtr data,
                               bool showing);
 
+  // The type of notification this instance represents. Non-persistent
+  // notifications will have events delivered to their instance, whereas
+  // persistent notification will be using a Service Worker.
+  enum class Type { kNonPersistent, kPersistent };
+
+  Notification(ExecutionContext* context,
+               Type type,
+               mojom::blink::NotificationDataPtr data);
   ~Notification() override;
 
   void close();
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(click);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(show);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(error);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(close);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(click, kClick);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(show, kShow);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(error, kError);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(close, kClose);
 
   // NonPersistentNotificationListener interface.
   void OnShow() override;
@@ -117,7 +124,7 @@ class MODULES_EXPORT Notification final
       ScriptState* script_state,
       V8NotificationPermissionCallback* deprecated_callback = nullptr);
 
-  static size_t maxActions();
+  static uint32_t maxActions();
 
   // EventTarget interface.
   ExecutionContext* GetExecutionContext() const final {
@@ -135,20 +142,11 @@ class MODULES_EXPORT Notification final
 
  protected:
   // EventTarget interface.
-  DispatchEventResult DispatchEventInternal(Event* event) final;
+  DispatchEventResult DispatchEventInternal(Event& event) final;
 
  private:
-  // The type of notification this instance represents. Non-persistent
-  // notifications will have events delivered to their instance, whereas
-  // persistent notification will be using a Service Worker.
-  enum class Type { kNonPersistent, kPersistent };
-
   // The current phase of the notification in its lifecycle.
   enum class State { kLoading, kShowing, kClosing, kClosed };
-
-  Notification(ExecutionContext* context,
-               Type type,
-               const WebNotificationData& data);
 
   // Sets the state of the notification in its lifecycle.
   void SetState(State state) { state_ = state; }
@@ -180,7 +178,7 @@ class MODULES_EXPORT Notification final
   Type type_;
   State state_;
 
-  WebNotificationData data_;
+  mojom::blink::NotificationDataPtr data_;
 
   String notification_id_;
 

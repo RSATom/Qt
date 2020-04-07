@@ -37,8 +37,9 @@ const static uint32_t render_target_formats[] = { DRM_FORMAT_ABGR8888, DRM_FORMA
 						  DRM_FORMAT_RGB565, DRM_FORMAT_XBGR8888,
 						  DRM_FORMAT_XRGB8888 };
 
-const static uint32_t texture_source_formats[] = { DRM_FORMAT_GR88, DRM_FORMAT_R8, DRM_FORMAT_NV21,
-						   DRM_FORMAT_NV12, DRM_FORMAT_YVU420_ANDROID };
+const static uint32_t texture_source_formats[] = { DRM_FORMAT_BGR888, DRM_FORMAT_GR88,
+						   DRM_FORMAT_R8,     DRM_FORMAT_NV21,
+						   DRM_FORMAT_NV12,   DRM_FORMAT_YVU420_ANDROID };
 
 static int amdgpu_init(struct driver *drv)
 {
@@ -85,7 +86,8 @@ static int amdgpu_init(struct driver *drv)
 
 	/* YUV formats for camera and display. */
 	drv_modify_combination(drv, DRM_FORMAT_NV12, &metadata,
-			       BO_USE_CAMERA_READ | BO_USE_CAMERA_WRITE | BO_USE_SCANOUT);
+			       BO_USE_CAMERA_READ | BO_USE_CAMERA_WRITE | BO_USE_SCANOUT |
+				   BO_USE_HW_VIDEO_DECODER);
 
 	drv_modify_combination(drv, DRM_FORMAT_NV21, &metadata, BO_USE_SCANOUT);
 
@@ -143,10 +145,7 @@ static int amdgpu_create_bo(struct bo *bo, uint32_t width, uint32_t height, uint
 		return dri_bo_create(bo, width, height, format, use_flags);
 
 	stride = drv_stride_from_format(format, width, 0);
-	if (format == DRM_FORMAT_YVU420_ANDROID)
-		stride = ALIGN(stride, 128);
-	else
-		stride = ALIGN(stride, 64);
+	stride = ALIGN(stride,256);
 
 	drv_bo_from_format(bo, stride, height, format);
 

@@ -37,18 +37,18 @@ class CORE_EXPORT SVGAElement final : public SVGGraphicsElement,
   DECLARE_NODE_FACTORY(SVGAElement);
   SVGAnimatedString* svgTarget() { return svg_target_.Get(); }
 
+  explicit SVGAElement(Document&);
+
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit SVGAElement(Document&);
-
   String title() const override;
 
   void SvgAttributeChanged(const QualifiedName&) override;
 
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
 
-  void DefaultEventHandler(Event*) override;
+  void DefaultEventHandler(Event&) override;
   bool HasActivationBehavior() const override;
 
   bool IsLiveLink() const override { return IsLink(); }

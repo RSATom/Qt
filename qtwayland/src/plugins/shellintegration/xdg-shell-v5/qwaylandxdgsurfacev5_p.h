@@ -59,8 +59,6 @@
 #include <QtCore/QSize>
 #include <QtCore/QMargins>
 
-#include <wayland-client.h>
-
 QT_BEGIN_NAMESPACE
 
 class QWindow;
@@ -81,12 +79,12 @@ public:
     ~QWaylandXdgSurfaceV5() override;
 
     using QtWayland::xdg_surface_v5::resize;
-    void resize(QWaylandInputDevice *inputDevice, enum resize_edge edges);
-
-    void resize(QWaylandInputDevice *inputDevice, enum wl_shell_surface_resize edges) override;
+    static resize_edge convertToResizeEdges(Qt::Edges edges);
+    void resize(QWaylandInputDevice *inputDevice, Qt::Edges edges) override;
 
     using QtWayland::xdg_surface_v5::move;
     bool move(QWaylandInputDevice *inputDevice) override;
+    bool showWindowMenu(QWaylandInputDevice *seat) override;
 
     void setTitle(const QString &title) override;
     void setAppId(const QString &appId) override;

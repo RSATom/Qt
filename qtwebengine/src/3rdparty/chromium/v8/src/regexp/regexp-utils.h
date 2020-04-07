@@ -36,13 +36,14 @@ class RegExpUtils : public AllStatic {
   static Maybe<bool> IsRegExp(Isolate* isolate, Handle<Object> object);
 
   // Checks whether the given object is an unmodified JSRegExp instance.
-  // Neither the object's map, nor its prototype's map may be modified.
+  // Neither the object's map, nor its prototype's map, nor any relevant
+  // method on the prototype may be modified.
   static bool IsUnmodifiedRegExp(Isolate* isolate, Handle<Object> obj);
 
   // ES#sec-advancestringindex
   // AdvanceStringIndex ( S, index, unicode )
-  static uint64_t AdvanceStringIndex(Isolate* isolate, Handle<String> string,
-                                     uint64_t index, bool unicode);
+  static uint64_t AdvanceStringIndex(Handle<String> string, uint64_t index,
+                                     bool unicode);
   static V8_WARN_UNUSED_RESULT MaybeHandle<Object> SetAdvancedStringIndex(
       Isolate* isolate, Handle<JSReceiver> regexp, Handle<String> string,
       bool unicode);

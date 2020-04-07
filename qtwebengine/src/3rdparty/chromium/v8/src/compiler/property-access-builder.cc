@@ -11,6 +11,7 @@
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/lookup.h"
+#include "src/objects/heap-number.h"
 
 #include "src/field-index-inl.h"
 #include "src/isolate-inl.h"
@@ -82,26 +83,37 @@ bool NeedsCheckHeapObject(Node* receiver) {
   switch (receiver->opcode()) {
     case IrOpcode::kConvertReceiver:
     case IrOpcode::kHeapConstant:
+    case IrOpcode::kJSCloneObject:
+    case IrOpcode::kJSConstruct:
+    case IrOpcode::kJSConstructForwardVarargs:
+    case IrOpcode::kJSConstructWithArrayLike:
+    case IrOpcode::kJSConstructWithSpread:
     case IrOpcode::kJSCreate:
     case IrOpcode::kJSCreateArguments:
     case IrOpcode::kJSCreateArray:
+    case IrOpcode::kJSCreateArrayFromIterable:
+    case IrOpcode::kJSCreateArrayIterator:
+    case IrOpcode::kJSCreateAsyncFunctionObject:
+    case IrOpcode::kJSCreateBoundFunction:
     case IrOpcode::kJSCreateClosure:
-    case IrOpcode::kJSCreateIterResultObject:
-    case IrOpcode::kJSCreateLiteralArray:
+    case IrOpcode::kJSCreateCollectionIterator:
     case IrOpcode::kJSCreateEmptyLiteralArray:
-    case IrOpcode::kJSCreateLiteralObject:
     case IrOpcode::kJSCreateEmptyLiteralObject:
-    case IrOpcode::kJSCreateLiteralRegExp:
     case IrOpcode::kJSCreateGeneratorObject:
-    case IrOpcode::kJSConstructForwardVarargs:
-    case IrOpcode::kJSConstruct:
-    case IrOpcode::kJSConstructWithArrayLike:
-    case IrOpcode::kJSConstructWithSpread:
-    case IrOpcode::kJSToName:
-    case IrOpcode::kJSToString:
-    case IrOpcode::kJSToObject:
-    case IrOpcode::kTypeOf:
+    case IrOpcode::kJSCreateIterResultObject:
+    case IrOpcode::kJSCreateKeyValueArray:
+    case IrOpcode::kJSCreateLiteralArray:
+    case IrOpcode::kJSCreateLiteralObject:
+    case IrOpcode::kJSCreateLiteralRegExp:
+    case IrOpcode::kJSCreateObject:
+    case IrOpcode::kJSCreatePromise:
+    case IrOpcode::kJSCreateStringIterator:
+    case IrOpcode::kJSCreateTypedArray:
     case IrOpcode::kJSGetSuperConstructor:
+    case IrOpcode::kJSToName:
+    case IrOpcode::kJSToObject:
+    case IrOpcode::kJSToString:
+    case IrOpcode::kTypeOf:
       return false;
     case IrOpcode::kPhi: {
       Node* control = NodeProperties::GetControlInput(receiver);
@@ -136,8 +148,7 @@ void PropertyAccessBuilder::BuildCheckMaps(
     if (receiver_map->is_stable()) {
       for (Handle<Map> map : receiver_maps) {
         if (map.is_identical_to(receiver_map)) {
-          dependencies()->DependOnStableMap(
-              MapRef(js_heap_broker(), receiver_map));
+          dependencies()->DependOnStableMap(MapRef(broker(), receiver_map));
           return;
         }
       }
@@ -192,8 +203,7 @@ Node* PropertyAccessBuilder::TryBuildLoadConstantDataField(
     // here, once we have the immutable bit in the access_info.
 
     // TODO(turbofan): Given that we already have the field_index here, we
-    // might be smarter in the future and not rely on the LookupIterator,
-    // but for now let's just do what Crankshaft does.
+    // might be smarter in the future and not rely on the LookupIterator.
     LookupIterator it(isolate(), m.Value(), name,
                       LookupIterator::OWN_SKIP_INTERCEPTOR);
     if (it.state() == LookupIterator::DATA) {
@@ -207,8 +217,9 @@ Node* PropertyAccessBuilder::TryBuildLoadConstantDataField(
           // the field.
           DCHECK(access_info.IsDataConstantField());
           DCHECK(!it.is_dictionary_holder());
-          MapRef map(js_heap_broker(),
+          MapRef map(broker(),
                      handle(it.GetHolder<HeapObject>()->map(), isolate()));
+          map.SerializeOwnDescriptors();  // TODO(neis): Remove later.
           dependencies()->DependOnFieldType(map, it.GetFieldDescriptorIndex());
         }
         return value;
@@ -245,7 +256,8 @@ Node* PropertyAccessBuilder::BuildLoadDataField(
       MaybeHandle<Map>(),
       field_type,
       MachineType::TypeForRepresentation(field_representation),
-      kFullWriteBarrier};
+      kFullWriteBarrier,
+      LoadSensitivity::kCritical};
   if (field_representation == MachineRepresentation::kFloat64) {
     if (!field_index.is_inobject() || field_index.is_hidden_field() ||
         !FLAG_unbox_double_fields) {
@@ -255,7 +267,8 @@ Node* PropertyAccessBuilder::BuildLoadDataField(
                                           MaybeHandle<Map>(),
                                           Type::OtherInternal(),
                                           MachineType::TaggedPointer(),
-                                          kPointerWriteBarrier};
+                                          kPointerWriteBarrier,
+                                          LoadSensitivity::kCritical};
       storage = *effect = graph()->NewNode(
           simplified()->LoadField(storage_access), storage, *effect, *control);
       field_access.offset = HeapNumber::kValueOffset;
@@ -267,7 +280,7 @@ Node* PropertyAccessBuilder::BuildLoadDataField(
     Handle<Map> field_map;
     if (access_info.field_map().ToHandle(&field_map)) {
       if (field_map->is_stable()) {
-        dependencies()->DependOnStableMap(MapRef(js_heap_broker(), field_map));
+        dependencies()->DependOnStableMap(MapRef(broker(), field_map));
         field_access.map = field_map;
       }
     }

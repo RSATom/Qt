@@ -22,6 +22,16 @@
 
 namespace blink {
 
+const PropertyRegistration* PropertyRegistration::From(
+    const ExecutionContext* execution_context,
+    const AtomicString& property_name) {
+  const auto* document = DynamicTo<Document>(execution_context);
+  if (!document)
+    return nullptr;
+  const PropertyRegistry* registry = document->GetPropertyRegistry();
+  return registry ? registry->Registration(property_name) : nullptr;
+}
+
 PropertyRegistration::PropertyRegistration(
     const AtomicString& name,
     const CSSSyntaxDescriptor& syntax,
@@ -36,7 +46,10 @@ PropertyRegistration::PropertyRegistration(
           CSSInterpolationTypesMap::CreateInterpolationTypesForCSSSyntax(
               name,
               syntax,
-              *this)) {}
+              *this)),
+      referenced_(false) {
+  DCHECK(RuntimeEnabledFeatures::CSSVariables2Enabled());
+}
 
 static bool ComputationallyIndependent(const CSSValue& value) {
   DCHECK(!value.IsCSSWideKeyword());
@@ -78,14 +91,14 @@ static bool ComputationallyIndependent(const CSSValue& value) {
 
 void PropertyRegistration::registerProperty(
     ExecutionContext* execution_context,
-    const PropertyDescriptor& descriptor,
+    const PropertyDescriptor* descriptor,
     ExceptionState& exception_state) {
   // Bindings code ensures these are set.
-  DCHECK(descriptor.hasName());
-  DCHECK(descriptor.hasInherits());
-  DCHECK(descriptor.hasSyntax());
+  DCHECK(descriptor->hasName());
+  DCHECK(descriptor->hasInherits());
+  DCHECK(descriptor->hasSyntax());
 
-  String name = descriptor.name();
+  String name = descriptor->name();
   if (!CSSVariableParser::IsValidVariableName(name)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kSyntaxError,
@@ -93,7 +106,7 @@ void PropertyRegistration::registerProperty(
     return;
   }
   AtomicString atomic_name(name);
-  Document* document = ToDocument(execution_context);
+  Document* document = To<Document>(execution_context);
   PropertyRegistry& registry = *document->GetPropertyRegistry();
   if (registry.Registration(atomic_name)) {
     exception_state.ThrowDOMException(
@@ -102,7 +115,7 @@ void PropertyRegistration::registerProperty(
     return;
   }
 
-  CSSSyntaxDescriptor syntax_descriptor(descriptor.syntax());
+  CSSSyntaxDescriptor syntax_descriptor(descriptor->syntax());
   if (!syntax_descriptor.IsValid()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kSyntaxError,
@@ -115,8 +128,8 @@ void PropertyRegistration::registerProperty(
 
   const CSSValue* initial = nullptr;
   scoped_refptr<CSSVariableData> initial_variable_data;
-  if (descriptor.hasInitialValue()) {
-    CSSTokenizer tokenizer(descriptor.initialValue());
+  if (descriptor->hasInitialValue()) {
+    CSSTokenizer tokenizer(descriptor->initialValue());
     const auto tokens = tokenizer.TokenizeToEOF();
     bool is_animation_tainted = false;
     initial = syntax_descriptor.Parse(CSSParserTokenRange(tokens),
@@ -133,8 +146,8 @@ void PropertyRegistration::registerProperty(
           "The initial value provided is not computationally independent.");
       return;
     }
-    initial =
-        &StyleBuilderConverter::ConvertRegisteredPropertyInitialValue(*initial);
+    initial = &StyleBuilderConverter::ConvertRegisteredPropertyInitialValue(
+        *document, *initial);
     initial_variable_data = CSSVariableData::Create(
         CSSParserTokenRange(tokens), is_animation_tainted, false,
         parser_context->BaseURL(), parser_context->Charset());
@@ -147,9 +160,9 @@ void PropertyRegistration::registerProperty(
     }
   }
   registry.RegisterProperty(
-      atomic_name, *new PropertyRegistration(atomic_name, syntax_descriptor,
-                                             descriptor.inherits(), initial,
-                                             std::move(initial_variable_data)));
+      atomic_name, *MakeGarbageCollected<PropertyRegistration>(
+                       atomic_name, syntax_descriptor, descriptor->inherits(),
+                       initial, std::move(initial_variable_data)));
 
   document->GetStyleEngine().CustomPropertyRegistered();
 }

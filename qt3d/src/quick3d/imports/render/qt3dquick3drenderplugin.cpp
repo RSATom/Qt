@@ -112,6 +112,8 @@
 #include <Qt3DRender/qviewport.h>
 #include <Qt3DRender/qproximityfilter.h>
 #include <Qt3DRender/qblitframebuffer.h>
+#include <Qt3DRender/qsetfence.h>
+#include <Qt3DRender/qwaitfence.h>
 
 #include <QtGui/qwindow.h>
 
@@ -178,6 +180,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DRender::QShaderProgram>(uri, 2, 0, "ShaderProgram");
     qmlRegisterType<Qt3DRender::QShaderProgram, 9>(uri, 2, 9, "ShaderProgram");
     qmlRegisterType<Qt3DRender::QShaderProgramBuilder>(uri, 2, 10, "ShaderProgramBuilder");
+    qmlRegisterType<Qt3DRender::QShaderProgramBuilder, 13>(uri, 2, 13, "ShaderProgramBuilder");
     qmlRegisterUncreatableType<Qt3DRender::QShaderData>(uri, 2, 0, "QShaderData", "Quick3D should instantiate Quick3DShaderData only");
     qmlRegisterType<Qt3DRender::Render::Quick::Quick3DShaderDataArray>(uri, 2, 0, "ShaderDataArray");
     qmlRegisterType<Qt3DRender::Render::Quick::Quick3DShaderData>(uri, 2, 0, "ShaderData");
@@ -191,6 +194,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     // Textures
     qmlRegisterType<Qt3DRender::QTextureWrapMode>(uri, 2, 0, "WrapMode");//, QStringLiteral("QTextureWrapMode cannot be created from QML"));
     qmlRegisterUncreatableType<Qt3DRender::QAbstractTexture>(uri, 2, 0, "Texture", QStringLiteral("Texture should be created from one of the subclasses"));
+    qmlRegisterUncreatableType<Qt3DRender::QAbstractTexture, 13>(uri, 2, 13, "Texture", QStringLiteral("Texture should be created from one of the subclasses"));
     Qt3DRender::Quick::registerExtendedType<Qt3DRender::QTexture1D, Qt3DRender::Render::Quick::Quick3DTextureExtension>("QTexture1D", "Qt3D.Render/Texture1D", uri, 2, 0, "Texture1D");
     Qt3DRender::Quick::registerExtendedType<Qt3DRender::QTexture1DArray, Qt3DRender::Render::Quick::Quick3DTextureExtension>("QTexture1DArray", "Qt3D.Render/Texture1DArray", uri, 2, 0, "Texture1DArray");
     Qt3DRender::Quick::registerExtendedType<Qt3DRender::QTexture2D, Qt3DRender::Render::Quick::Quick3DTextureExtension>("QTexture2D", "Qt3D.Render/Texture2D", uri, 2, 0, "Texture2D");
@@ -205,6 +209,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     Qt3DRender::Quick::registerExtendedType<Qt3DRender::QTextureLoader, Qt3DRender::Render::Quick::Quick3DTextureExtension>("QTextureLoader", "Qt3D.Render/TextureLoader", uri, 2, 0, "TextureLoader");
     qmlRegisterUncreatableType<Qt3DRender::QAbstractTextureImage>(uri, 2, 0, "QAbstractTextureImage", QStringLiteral("QAbstractTextureImage is abstract"));
     qmlRegisterType<Qt3DRender::QTextureImage>(uri, 2, 0, "TextureImage");
+    qmlRegisterType<Qt3DRender::QSharedGLTexture>(uri, 2, 13, "SharedGLTexture");
 
     // Geometry
     qmlRegisterType<Qt3DRender::QAttribute>(uri, 2, 0, "Attribute");
@@ -225,12 +230,14 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     // Picking
     qmlRegisterType<Qt3DRender::QObjectPicker>(uri, 2, 0, "ObjectPicker");
     qmlRegisterType<Qt3DRender::QObjectPicker, 9>(uri, 2, 9, "ObjectPicker");
+    qmlRegisterType<Qt3DRender::QObjectPicker, 13>(uri, 2, 13, "ObjectPicker");
     qmlRegisterUncreatableType<Qt3DRender::QPickEvent>(uri, 2, 0, "PickEvent", QStringLiteral("Events cannot be created"));
     qmlRegisterType<Qt3DRender::Render::Quick::Quick3DRayCaster>(uri, 2, 11, "RayCaster");
     qmlRegisterType<Qt3DRender::Render::Quick::Quick3DScreenRayCaster>(uri, 2, 11, "ScreenRayCaster");
 
         // Compute Job
     qmlRegisterType<Qt3DRender::QComputeCommand>(uri, 2, 0, "ComputeCommand");
+    qmlRegisterType<Qt3DRender::QComputeCommand, 13>(uri, 2, 13, "ComputeCommand");
 
     // Layers
     qmlRegisterType<Qt3DRender::QLayer>(uri, 2, 0, "Layer");
@@ -263,6 +270,8 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     Qt3DRender::Quick::registerExtendedType<Qt3DRender::QMemoryBarrier, Qt3DRender::Render::Quick::Quick3DMemoryBarrier>("QMemoryBarrier", "Qt3D.Render/MemoryBarrier", uri, 2, 9, "MemoryBarrier");
     qmlRegisterType<Qt3DRender::QProximityFilter>(uri, 2, 10, "ProximityFilter");
     qmlRegisterType<Qt3DRender::QBlitFramebuffer>(uri, 2, 10, "BlitFramebuffer");
+    qmlRegisterType<Qt3DRender::QSetFence>(uri, 2, 13, "SetFence");
+    qmlRegisterType<Qt3DRender::QWaitFence>(uri, 2, 13, "WaitFence");
 
     // RenderTarget
     qmlRegisterType<Qt3DRender::QRenderTargetOutput>(uri, 2, 0, "RenderTargetOutput");

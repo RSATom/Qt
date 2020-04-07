@@ -121,7 +121,11 @@ bool HomepageURLHandler::Parse(Extension* extension, base::string16* error) {
 
 base::span<const char* const> HomepageURLHandler::Keys() const {
   static constexpr const char* kKeys[] = {keys::kHomepageURL};
+#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 UpdateURLHandler::UpdateURLHandler() {
@@ -154,7 +158,7 @@ bool UpdateURLHandler::Parse(Extension* extension, base::string16* error) {
 
 base::span<const char* const> UpdateURLHandler::Keys() const {
   static constexpr const char* kKeys[] = {keys::kUpdateURL};
-  return kKeys;
+  return base::make_span(kKeys, 1);
 }
 
 AboutPageHandler::AboutPageHandler() {
@@ -206,7 +210,7 @@ bool AboutPageHandler::Validate(const Extension* extension,
 
 base::span<const char* const> AboutPageHandler::Keys() const {
   static constexpr const char* kKeys[] = {keys::kAboutPage};
-  return kKeys;
+  return base::make_span(kKeys, 1);
 }
 
 }  // namespace extensions

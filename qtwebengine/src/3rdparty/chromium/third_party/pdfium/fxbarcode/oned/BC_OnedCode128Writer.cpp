@@ -78,13 +78,12 @@ const int32_t CODE_STOP = 106;
 
 CBC_OnedCode128Writer::CBC_OnedCode128Writer(BC_TYPE type)
     : m_codeFormat(type) {
-  assert(m_codeFormat == BC_CODE128_B || m_codeFormat == BC_CODE128_C);
+  ASSERT(m_codeFormat == BC_CODE128_B || m_codeFormat == BC_CODE128_C);
 }
 
-CBC_OnedCode128Writer::~CBC_OnedCode128Writer() {}
+CBC_OnedCode128Writer::~CBC_OnedCode128Writer() = default;
 
-bool CBC_OnedCode128Writer::CheckContentValidity(
-    const WideStringView& contents) {
+bool CBC_OnedCode128Writer::CheckContentValidity(WideStringView contents) {
   for (const auto& ch : contents) {
     int32_t patternIndex = static_cast<int32_t>(ch);
     if (patternIndex < 32 || patternIndex > 126 || patternIndex == 34)
@@ -93,8 +92,7 @@ bool CBC_OnedCode128Writer::CheckContentValidity(
   return true;
 }
 
-WideString CBC_OnedCode128Writer::FilterContents(
-    const WideStringView& contents) {
+WideString CBC_OnedCode128Writer::FilterContents(WideStringView contents) {
   const wchar_t limit = m_codeFormat == BC_CODE128_B ? 126 : 106;
 
   WideString filtered;
@@ -157,10 +155,7 @@ uint8_t* CBC_OnedCode128Writer::EncodeImpl(const ByteString& contents,
   int32_t pos = 0;
   for (size_t i = 0; i < patterns.size(); ++i) {
     const int8_t* pattern = CODE_PATTERNS[patterns[i]];
-    int32_t e = BCExceptionNO;
-    pos += AppendPattern(result.get(), pos, pattern, kPatternSize, 1, e);
-    if (e != BCExceptionNO)
-      return nullptr;
+    pos += AppendPattern(result.get(), pos, pattern, kPatternSize, true);
   }
   return result.release();
 }

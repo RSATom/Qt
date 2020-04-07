@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fxcrt/fx_extension.h"
+#include "third_party/base/stl_util.h"
 
 bool GraphicsData::operator<(const GraphicsData& other) const {
   if (!FXSYS_SafeEQ(fillAlpha, other.fillAlpha))
@@ -32,13 +33,18 @@ bool FontData::operator<(const FontData& other) const {
 }
 
 CPDF_PageObjectHolder::CPDF_PageObjectHolder(CPDF_Document* pDoc,
-                                             CPDF_Dictionary* pDict)
-    : m_pDict(pDict), m_pDocument(pDoc) {
+                                             CPDF_Dictionary* pDict,
+                                             CPDF_Dictionary* pPageResources,
+                                             CPDF_Dictionary* pResources)
+    : m_pPageResources(pPageResources),
+      m_pResources(pResources),
+      m_pDict(pDict),
+      m_pDocument(pDoc) {
   // TODO(thestig): Check if |m_pDict| is never a nullptr and simplify
   // callers that checks for that.
 }
 
-CPDF_PageObjectHolder::~CPDF_PageObjectHolder() {}
+CPDF_PageObjectHolder::~CPDF_PageObjectHolder() = default;
 
 bool CPDF_PageObjectHolder::IsPage() const {
   return false;
@@ -85,10 +91,11 @@ CFX_FloatRect CPDF_PageObjectHolder::CalcBoundingBox() const {
   float bottom = 1000000.0f;
   float top = -1000000.0f;
   for (const auto& pObj : m_PageObjectList) {
-    left = std::min(left, pObj->m_Left);
-    right = std::max(right, pObj->m_Right);
-    bottom = std::min(bottom, pObj->m_Bottom);
-    top = std::max(top, pObj->m_Top);
+    const auto& rect = pObj->GetRect();
+    left = std::min(left, rect.left);
+    right = std::max(right, rect.right);
+    bottom = std::min(bottom, rect.bottom);
+    top = std::max(top, rect.top);
   }
   return CFX_FloatRect(left, bottom, right, top);
 }

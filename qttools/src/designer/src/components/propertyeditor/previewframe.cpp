@@ -52,7 +52,7 @@ namespace qdesigner_internal {
             return QMdiArea::viewportEvent (event);
         QWidget *paintWidget = viewport();
         QPainter p(paintWidget);
-        p.fillRect(rect(), paintWidget->palette().color(backgroundRole()).dark());
+        p.fillRect(rect(), paintWidget->palette().color(backgroundRole()).darker());
         p.setPen(QPen(Qt::white));
         //: Palette editor background
         p.drawText(0, height() / 2,  width(), height(), Qt::AlignHCenter,
@@ -70,7 +70,7 @@ PreviewFrame::PreviewFrame(QWidget *parent) :
     setLineWidth(1);
 
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(QMargins());
     vbox->addWidget(m_mdiArea);
 
     setMinimumSize(ensureMdiSubWindow()->minimumSizeHint());

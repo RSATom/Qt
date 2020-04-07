@@ -2,16 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/builtins/builtins.h"
-#include "src/builtins/builtins-utils.h"
-
 #include "src/accessors.h"
+#include "src/builtins/builtins-utils-inl.h"
+#include "src/builtins/builtins.h"
 #include "src/counters.h"
 #include "src/messages.h"
 #include "src/objects-inl.h"
 #include "src/objects/api-callbacks.h"
 #include "src/property-descriptor.h"
-#include "src/string-builder.h"
 
 namespace v8 {
 namespace internal {
@@ -87,8 +85,8 @@ BUILTIN(ErrorPrototypeToString) {
 
 namespace {
 
-Object* MakeGenericError(Isolate* isolate, BuiltinArguments args,
-                         Handle<JSFunction> constructor) {
+Object MakeGenericError(Isolate* isolate, BuiltinArguments args,
+                        Handle<JSFunction> constructor) {
   Handle<Object> template_index = args.atOrUndefined(isolate, 1);
   Handle<Object> arg0 = args.atOrUndefined(isolate, 2);
   Handle<Object> arg1 = args.atOrUndefined(isolate, 3);
@@ -97,9 +95,10 @@ Object* MakeGenericError(Isolate* isolate, BuiltinArguments args,
   DCHECK(template_index->IsSmi());
 
   RETURN_RESULT_OR_FAILURE(
-      isolate, ErrorUtils::MakeGenericError(isolate, constructor,
-                                            Smi::ToInt(*template_index), arg0,
-                                            arg1, arg2, SKIP_NONE));
+      isolate, ErrorUtils::MakeGenericError(
+                   isolate, constructor,
+                   MessageTemplateFromInt(Smi::ToInt(*template_index)), arg0,
+                   arg1, arg2, SKIP_NONE));
 }
 
 }  // namespace
@@ -128,7 +127,7 @@ BUILTIN(MakeURIError) {
   HandleScope scope(isolate);
   Handle<JSFunction> constructor = isolate->uri_error_function();
   Handle<Object> undefined = isolate->factory()->undefined_value();
-  const int template_index = MessageTemplate::kURIMalformed;
+  MessageTemplate template_index = MessageTemplate::kURIMalformed;
   RETURN_RESULT_OR_FAILURE(
       isolate,
       ErrorUtils::MakeGenericError(isolate, constructor, template_index,

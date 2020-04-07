@@ -12,19 +12,6 @@
 
 namespace autofill {
 
-// Helper struct for PasswordFormFillData
-struct UsernamesCollectionKey {
-  UsernamesCollectionKey();
-  ~UsernamesCollectionKey();
-
-  // Defined so that this struct can be used as a key in a std::map.
-  bool operator<(const UsernamesCollectionKey& other) const;
-
-  base::string16 username;
-  base::string16 password;
-  std::string realm;
-};
-
 struct PasswordAndRealm {
   base::string16 password;
   std::string realm;
@@ -35,8 +22,6 @@ struct PasswordAndRealm {
 // form that we are filling.
 struct PasswordFormFillData {
   typedef std::map<base::string16, PasswordAndRealm> LoginCollection;
-  typedef std::map<UsernamesCollectionKey,
-                   std::vector<base::string16> > UsernamesCollection;
 
   // If |has_renderer_ids| == true then |form_renderer_id| contains the unique
   // renderer form id. No special values for |has_renderer_ids| == false case
@@ -81,9 +66,6 @@ struct PasswordFormFillData {
   // and our saved representation don't match up.
   bool wait_for_username;
 
-  // True if this form is a change password form.
-  bool is_possible_change_password_form;
-
   // True if renderer ids for form, username and password fields are present.
   // TODO(https://crbug.com/831123): Remove this field when old parsing is
   // removed and filling by renderer ids is by default.
@@ -109,9 +91,9 @@ void InitPasswordFormFillData(
     bool wait_for_username_before_autofill,
     PasswordFormFillData* result);
 
-// Renderer needs to have only a password that should be autofilled, all other
-// passwords might be safety erased.
-PasswordFormFillData ClearPasswordValues(const PasswordFormFillData& data);
+// If |data.wait_for_username| is set, the renderer does not need to receive
+// passwords, yet, and this function clears the password values from |data|.
+PasswordFormFillData MaybeClearPasswordValues(const PasswordFormFillData& data);
 
 }  // namespace autofill
 

@@ -43,7 +43,7 @@
 
 namespace blink {
 
-void V8MessageEvent::dataAttributeGetterCustom(
+void V8MessageEvent::DataAttributeGetterCustom(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   v8::Isolate* isolate = info.GetIsolate();
   auto private_cached_data =
@@ -59,6 +59,10 @@ void V8MessageEvent::dataAttributeGetterCustom(
 
   v8::Local<v8::Value> result;
   switch (event->GetDataType()) {
+    case MessageEvent::kDataTypeNull:
+      result = v8::Null(isolate);
+      break;
+
     case MessageEvent::kDataTypeScriptValue:
       result =
           event->DataAsScriptValue().V8ValueFor(ScriptState::Current(isolate));
@@ -97,7 +101,7 @@ void V8MessageEvent::dataAttributeGetterCustom(
   V8SetReturnValue(info, result);
 }
 
-void V8MessageEvent::initMessageEventMethodCustom(
+void V8MessageEvent::InitMessageEventMethodCustom(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   ExceptionState exception_state(info.GetIsolate(),
                                  ExceptionState::kExecutionContext,
@@ -110,15 +114,8 @@ void V8MessageEvent::initMessageEventMethodCustom(
 
   MessageEvent* event = V8MessageEvent::ToImpl(info.Holder());
   TOSTRING_VOID(V8StringResource<>, type_arg, info[0]);
-  bool bubbles_arg = false;
-  bool cancelable_arg = false;
-  if (!info[1]
-           ->BooleanValue(info.GetIsolate()->GetCurrentContext())
-           .To(&bubbles_arg) ||
-      !info[2]
-           ->BooleanValue(info.GetIsolate()->GetCurrentContext())
-           .To(&cancelable_arg))
-    return;
+  bool bubbles_arg = info[1]->BooleanValue(info.GetIsolate());
+  bool cancelable_arg = info[2]->BooleanValue(info.GetIsolate());
   v8::Local<v8::Value> data_arg = info[3];
   TOSTRING_VOID(V8StringResource<>, origin_arg, info[4]);
   TOSTRING_VOID(V8StringResource<>, last_event_id_arg, info[5]);
@@ -127,7 +124,7 @@ void V8MessageEvent::initMessageEventMethodCustom(
   MessagePortArray* port_array = nullptr;
   const int kPortArrayIndex = 7;
   if (!IsUndefinedOrNull(info[kPortArrayIndex])) {
-    port_array = new MessagePortArray;
+    port_array = MakeGarbageCollected<MessagePortArray>();
     *port_array = NativeValueTraits<IDLSequence<MessagePort>>::NativeValue(
         info.GetIsolate(), info[kPortArrayIndex], exception_state);
     if (exception_state.HadException())

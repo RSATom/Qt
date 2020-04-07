@@ -66,8 +66,10 @@ typedef QGuiApplication Application;
 int main(int argc, char *argv[])
 {
     QCoreApplication::setOrganizationName("QtExamples");
-    Application app(argc, argv);
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QtWebEngine::initialize();
+
+    Application app(argc, argv);
 
     QQmlApplicationEngine engine;
     Server *server = new Server(&engine);

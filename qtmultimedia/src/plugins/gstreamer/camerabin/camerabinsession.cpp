@@ -541,13 +541,26 @@ GstElement *CameraBinSession::buildCameraSource()
                 if (!m_videoSrc)
                     m_videoSrc = gst_element_factory_make("v4l2src", "camera_source");
 
+                if (!m_videoSrc)
+                    m_videoSrc = gst_element_factory_make("ksvideosrc", "camera_source");
+
+                if (!m_videoSrc)
+                    m_videoSrc = gst_element_factory_make("avfvideosrc", "camera_source");
+
                 if (m_videoSrc)
                     g_object_set(G_OBJECT(m_cameraSrc), "video-source", m_videoSrc, NULL);
             }
 
-            if (m_videoSrc)
-                g_object_set(G_OBJECT(m_videoSrc), "device", m_inputDevice.toUtf8().constData(), NULL);
+            if (m_videoSrc) {
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(m_videoSrc), "device"))
+                    g_object_set(G_OBJECT(m_videoSrc), "device", m_inputDevice.toUtf8().constData(), NULL);
 
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(m_videoSrc), "device-path"))
+                    g_object_set(G_OBJECT(m_videoSrc), "device-path", m_inputDevice.toUtf8().constData(), NULL);
+
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(m_videoSrc), "device-index"))
+                    g_object_set(G_OBJECT(m_videoSrc), "device-index", m_inputDevice.toInt(), NULL);
+            }
         } else if (g_object_class_find_property(G_OBJECT_GET_CLASS(m_cameraSrc), "camera-device")) {
             if (m_inputDevice == QLatin1String("secondary")) {
                 g_object_set(G_OBJECT(m_cameraSrc), "camera-device", 1, NULL);
@@ -719,7 +732,7 @@ static QList<QCameraViewfinderSettings> capsToViewfinderSettings(GstCaps *suppor
 
 QList<QCameraViewfinderSettings> CameraBinSession::supportedViewfinderSettings() const
 {
-    if (m_status == QCamera::LoadedStatus && m_supportedViewfinderSettings.isEmpty()) {
+    if (m_status >= QCamera::LoadedStatus && m_supportedViewfinderSettings.isEmpty()) {
         m_supportedViewfinderSettings =
             capsToViewfinderSettings(supportedCaps(QCamera::CaptureViewfinder));
     }
@@ -1177,11 +1190,16 @@ void CameraBinSession::recordVideo()
     if (format.isEmpty())
         format = m_mediaContainerControl->actualContainerFormat();
 
-    const QString actualFileName = m_mediaStorageLocation.generateFileName(m_sink.isLocalFile() ? m_sink.toLocalFile()
-                                                                                                : m_sink.toString(),
+    const QString fileName = m_sink.isLocalFile() ? m_sink.toLocalFile() : m_sink.toString();
+    const QFileInfo fileInfo(fileName);
+    const QString extension = fileInfo.suffix().isEmpty()
+                            ? QGstUtils::fileExtensionForMimeType(format)
+                            : fileInfo.suffix();
+
+    const QString actualFileName = m_mediaStorageLocation.generateFileName(fileName,
                                       QMediaStorageLocation::Movies,
                                       QLatin1String("clip_"),
-                                      QGstUtils::fileExtensionForMimeType(format));
+                                      extension);
 
     m_recordingActive = true;
     m_actualSink = QUrl::fromLocalFile(actualFileName);
@@ -1294,6 +1312,9 @@ QList< QPair<int,int> > CameraBinSession::supportedFrameRates(const QSize &frame
     for (uint i=0; i<gst_caps_get_size(caps); i++) {
         GstStructure *structure = gst_caps_get_structure(caps, i);
         gst_structure_set_name(structure, "video/x-raw");
+#if GST_CHECK_VERSION(1,2,0)
+        gst_caps_set_features(caps, i, NULL);
+#endif
         const GValue *oldRate = gst_structure_get_value(structure, "framerate");
         if (!oldRate)
             continue;
@@ -1406,6 +1427,9 @@ QList<QSize> CameraBinSession::supportedResolutions(QPair<int,int> rate,
     for (uint i=0; i<gst_caps_get_size(caps); i++) {
         GstStructure *structure = gst_caps_get_structure(caps, i);
         gst_structure_set_name(structure, "video/x-raw");
+#if GST_CHECK_VERSION(1,2,0)
+        gst_caps_set_features(caps, i, NULL);
+#endif
         const GValue *oldW = gst_structure_get_value(structure, "width");
         const GValue *oldH = gst_structure_get_value(structure, "height");
         if (!oldW || !oldH)

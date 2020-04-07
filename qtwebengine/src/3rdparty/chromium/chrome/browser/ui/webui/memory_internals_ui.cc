@@ -17,6 +17,7 @@
 #include "base/process/process_handle.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiling_host/profiling_process_host.h"
@@ -28,6 +29,7 @@
 #include "components/heap_profiling/supervisor.h"
 #include "components/services/heap_profiling/public/cpp/settings.h"
 #include "content/public/browser/browser_child_process_host_iterator.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/render_process_host.h"
@@ -74,8 +76,14 @@ std::string GetMessageString() {
 
     case Mode::kRendererSampling:
       return std::string(
-          "Memory logging is enabled for an automatic sample of renderer "
-          "processes. This UI is disabled.");
+          "Memory logging is enabled for at most one renderer process. Each "
+          "renderer process has a fixed probability of being sampled at "
+          "startup.");
+
+    case Mode::kUtilitySampling:
+      return std::string(
+          "Each utility process has a fixed probability of being profiled at "
+          "startup.");
 
     case Mode::kNone:
     case Mode::kManual:
@@ -198,8 +206,8 @@ void MemoryInternalsDOMHandler::HandleRequestProcessList(
     const base::ListValue* args) {
   // This is called on the UI thread, the child process iterator must run on
   // the IO thread, while the render process iterator must run on the UI thread.
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::Bind(&MemoryInternalsDOMHandler::GetChildProcessesOnIOThread,
                  weak_factory_.GetWeakPtr()));
 }
@@ -272,20 +280,21 @@ void MemoryInternalsDOMHandler::GetChildProcessesOnIOThread(
     base::WeakPtr<MemoryInternalsDOMHandler> dom_handler) {
   std::vector<base::Value> result;
 
-  // The only non-renderer child process that currently supports out-of-process
-  // heap profiling is GPU.
+  // The only non-renderer child processes that currently support out-of-process
+  // heap profiling are GPU and UTILITY.
   for (content::BrowserChildProcessHostIterator iter; !iter.Done(); ++iter) {
     // Note that ChildProcessData.id is a child ID and not an OS PID.
     const content::ChildProcessData& data = iter.GetData();
 
-    if (data.process_type == content::PROCESS_TYPE_GPU) {
-      result.push_back(MakeProcessInfo(base::GetProcId(data.handle),
-                                       GetChildDescription(data)));
+    if (data.process_type == content::PROCESS_TYPE_GPU ||
+        data.process_type == content::PROCESS_TYPE_UTILITY) {
+      result.push_back(
+          MakeProcessInfo(data.GetProcess().Pid(), GetChildDescription(data)));
     }
   }
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&MemoryInternalsDOMHandler::GetProfiledPids, dom_handler,
                      std::move(result)));
 }
@@ -298,8 +307,8 @@ void MemoryInternalsDOMHandler::GetProfiledPids(
 
   // The supervisor hasn't started, so return an empty list.
   if (!supervisor->HasStarted()) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&MemoryInternalsDOMHandler::ReturnProcessListOnUIThread,
                        weak_factory_.GetWeakPtr(), std::move(children),
                        std::vector<base::ProcessId>()));

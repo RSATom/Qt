@@ -8,12 +8,14 @@
 #include "SkAdvancedTypefaceMetrics.h"
 #include "SkEndian.h"
 #include "SkFontDescriptor.h"
+#include "SkFontMetrics.h"
 #include "SkFontMgr.h"
 #include "SkMakeUnique.h"
 #include "SkMutex.h"
 #include "SkOTTable_OS_2.h"
 #include "SkOnce.h"
 #include "SkStream.h"
+#include "SkSurfacePriv.h"
 #include "SkTypeface.h"
 #include "SkTypefaceCache.h"
 
@@ -142,23 +144,29 @@ sk_sp<SkTypeface> SkTypeface::MakeFromName(const char name[],
             (fontStyle.weight() == SkFontStyle::kBold_Weight ? SkTypeface::kBold :
                                                                SkTypeface::kNormal))));
     }
-    sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return fm->legacyMakeTypeface(name, fontStyle);
+    return SkFontMgr::RefDefault()->legacyMakeTypeface(name, fontStyle);
 }
 
-sk_sp<SkTypeface> SkTypeface::MakeFromStream(SkStreamAsset* stream, int index) {
-    sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return fm->makeFromStream(std::unique_ptr<SkStreamAsset>(stream), index);
+sk_sp<SkTypeface> SkTypeface::MakeFromStream(std::unique_ptr<SkStreamAsset> stream, int index) {
+    if (!stream) {
+        return nullptr;
+    }
+    return SkFontMgr::RefDefault()->makeFromStream(std::move(stream), index);
+}
+
+sk_sp<SkTypeface> SkTypeface::MakeFromData(sk_sp<SkData> data, int index) {
+    if (!data) {
+        return nullptr;
+    }
+    return SkFontMgr::RefDefault()->makeFromData(std::move(data), index);
 }
 
 sk_sp<SkTypeface> SkTypeface::MakeFromFontData(std::unique_ptr<SkFontData> data) {
-    sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return fm->makeFromFontData(std::move(data));
+    return SkFontMgr::RefDefault()->makeFromFontData(std::move(data));
 }
 
 sk_sp<SkTypeface> SkTypeface::MakeFromFile(const char path[], int index) {
-    sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return fm->makeFromFile(path, index);
+    return SkFontMgr::RefDefault()->makeFromFile(path, index);
 }
 
 sk_sp<SkTypeface> SkTypeface::makeClone(const SkFontArguments& args) const {
@@ -167,20 +175,39 @@ sk_sp<SkTypeface> SkTypeface::makeClone(const SkFontArguments& args) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void SkTypeface::serialize(SkWStream* wstream) const {
+void SkTypeface::serialize(SkWStream* wstream, SerializeBehavior behavior) const {
     if (gSerializeTypefaceDelegate) {
         (*gSerializeTypefaceDelegate)(this, wstream);
         return;
     }
-    bool isLocal = false;
+    bool isLocalData = false;
     SkFontDescriptor desc;
-    this->onGetFontDescriptor(&desc, &isLocal);
+    this->onGetFontDescriptor(&desc, &isLocalData);
 
-    // Embed font data if it's a local font.
-    if (isLocal && !desc.hasFontData()) {
+    switch (behavior) {
+        case SerializeBehavior::kDoIncludeData:
+            isLocalData = true;
+            break;
+        case SerializeBehavior::kDontIncludeData:
+            isLocalData = false;
+            break;
+        case SerializeBehavior::kIncludeDataIfLocal:
+            break;
+    }
+
+    // TODO: why do we check hasFontData() and allow the data to pass through even if the caller
+    //       has said they don't want the fontdata? Does this actually happen (getDescriptor returns
+    //       fontdata as well?)
+    if (isLocalData && !desc.hasFontData()) {
         desc.setFontData(this->onMakeFontData());
     }
     desc.serialize(wstream);
+}
+
+sk_sp<SkData> SkTypeface::serialize(SerializeBehavior behavior) const {
+    SkDynamicMemoryWStream stream;
+    this->serialize(&stream, behavior);
+    return stream.detachAsData();
 }
 
 sk_sp<SkTypeface> SkTypeface::MakeDeserialize(SkStream* stream) {
@@ -252,6 +279,9 @@ std::unique_ptr<SkFontData> SkTypeface::makeFontData() const {
 std::unique_ptr<SkFontData> SkTypeface::onMakeFontData() const {
     int index;
     std::unique_ptr<SkStreamAsset> stream(this->onOpenStream(&index));
+    if (!stream) {
+        return nullptr;
+    }
     return skstd::make_unique<SkFontData>(std::move(stream), index, nullptr, 0);
 };
 
@@ -267,6 +297,11 @@ int SkTypeface::charsToGlyphs(const void* chars, Encoding encoding,
         return 0;
     }
     return this->onCharsToGlyphs(chars, encoding, glyphs, glyphCount);
+}
+
+SkGlyphID SkTypeface::unicharToGlyph(SkUnichar uni) const {
+    SkGlyphID glyphs[1];
+    return this->onCharsToGlyphs(&uni, kUTF32_Encoding, glyphs, 1) == 1 ? glyphs[0] : 0;
 }
 
 int SkTypeface::countGlyphs() const {
@@ -360,16 +395,15 @@ bool SkTypeface::onComputeBounds(SkRect* bounds) const {
     const SkScalar textSize = 2048;
     const SkScalar invTextSize = 1 / textSize;
 
-    SkPaint paint;
-    paint.setTypeface(sk_ref_sp(const_cast<SkTypeface*>(this)));
-    paint.setTextSize(textSize);
-    paint.setLinearText(true);
+    SkFont font;
+    font.setTypeface(sk_ref_sp(const_cast<SkTypeface*>(this)));
+    font.setSize(textSize);
+    font.setLinearMetrics(true);
 
     SkScalerContextRec rec;
     SkScalerContextEffects effects;
 
-    SkScalerContext::MakeRecAndEffects(
-        paint, nullptr, nullptr, SkScalerContextFlags::kNone, &rec, &effects);
+    SkScalerContext::MakeRecAndEffectsFromFont(font, &rec, &effects);
 
     SkAutoDescriptor ad;
     SkScalerContextEffects noeffects;
@@ -380,7 +414,7 @@ bool SkTypeface::onComputeBounds(SkRect* bounds) const {
         return false;
     }
 
-    SkPaint::FontMetrics fm;
+    SkFontMetrics fm;
     ctx->getFontMetrics(&fm);
     bounds->set(fm.fXMin * invTextSize, fm.fTop * invTextSize,
                 fm.fXMax * invTextSize, fm.fBottom * invTextSize);

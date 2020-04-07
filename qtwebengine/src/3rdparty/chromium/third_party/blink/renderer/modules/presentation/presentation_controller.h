@@ -7,14 +7,13 @@
 
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/blink/public/platform/modules/presentation/presentation.mojom-blink.h"
+#include "third_party/blink/public/mojom/presentation/presentation.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/presentation/presentation.h"
 #include "third_party/blink/renderer/modules/presentation/presentation_availability_callbacks.h"
-#include "third_party/blink/renderer/modules/presentation/presentation_request.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -39,6 +38,7 @@ class MODULES_EXPORT PresentationController
  public:
   static const char kSupplementName[];
 
+  PresentationController(LocalFrame&);
   ~PresentationController() override;
 
   static PresentationController* From(LocalFrame&);
@@ -78,9 +78,6 @@ class MODULES_EXPORT PresentationController
   virtual void AddAvailabilityObserver(PresentationAvailabilityObserver*);
   virtual void RemoveAvailabilityObserver(PresentationAvailabilityObserver*);
 
- protected:
-  PresentationController(LocalFrame&);
-
  private:
   // Implementation of ContextLifecycleObserver.
   void ContextDestroyed(ExecutionContext*) override;
@@ -94,7 +91,8 @@ class MODULES_EXPORT PresentationController
   void OnConnectionClosed(mojom::blink::PresentationInfoPtr,
                           mojom::blink::PresentationConnectionCloseReason,
                           const String& message) override;
-  void OnDefaultPresentationStarted(mojom::blink::PresentationInfoPtr) override;
+  void OnDefaultPresentationStarted(
+      mojom::blink::PresentationConnectionResultPtr result) override;
 
   // Return the connection associated with the given |presentation_info| or
   // null if it doesn't exist.
@@ -102,7 +100,7 @@ class MODULES_EXPORT PresentationController
       const mojom::blink::PresentationInfo&) const;
 
   // Lazily-instantiated when the page queries for availability.
-  std::unique_ptr<PresentationAvailabilityState> availability_state_;
+  Member<PresentationAvailabilityState> availability_state_;
 
   // The Presentation instance associated with that frame.
   WeakMember<Presentation> presentation_;

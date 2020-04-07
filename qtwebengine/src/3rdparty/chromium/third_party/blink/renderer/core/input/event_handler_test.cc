@@ -8,6 +8,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/range.h"
+#include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
@@ -125,7 +126,7 @@ void EventHandlerTest::SetUp() {
 void EventHandlerTest::SetHtmlInnerHTML(const char* html_content) {
   GetDocument().documentElement()->SetInnerHTMLFromString(
       String::FromUTF8(html_content));
-  GetDocument().View()->UpdateAllLifecyclePhases();
+  UpdateAllLifecyclePhasesForTest();
 }
 
 ShadowRoot* EventHandlerTest::SetShadowContent(const char* shadow_content,
@@ -177,7 +178,7 @@ TEST_F(EventHandlerTest, dragSelectionAfterScroll) {
       WebInputEvent::GetStaticTimeStampForTests());
   mouse_move_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_event, Vector<WebMouseEvent>());
+      mouse_move_event, Vector<WebMouseEvent>(), Vector<WebMouseEvent>());
 
   GetPage().GetAutoscrollController().Animate();
   GetPage().Animator().ServiceScriptedAnimations(WTF::CurrentTimeTicks());
@@ -300,7 +301,7 @@ TEST_F(EventHandlerTest, draggedInlinePositionTest) {
       WebInputEvent::GetStaticTimeStampForTests());
   mouse_move_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_event, Vector<WebMouseEvent>());
+      mouse_move_event, Vector<WebMouseEvent>(), Vector<WebMouseEvent>());
 
   EXPECT_EQ(IntPoint(12, 29), GetDocument()
                                   .GetFrame()
@@ -338,7 +339,7 @@ TEST_F(EventHandlerTest, draggedSVGImagePositionTest) {
       WebInputEvent::GetStaticTimeStampForTests());
   mouse_move_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_event, Vector<WebMouseEvent>());
+      mouse_move_event, Vector<WebMouseEvent>(), Vector<WebMouseEvent>());
 
   EXPECT_EQ(IntPoint(45, 44), GetDocument()
                                   .GetFrame()
@@ -595,7 +596,7 @@ TEST_F(EventHandlerTest, sendContextMenuEventWithHover) {
       "<style>*:hover { color: red; }</style>"
       "<div>foo</div>");
   GetDocument().GetSettings()->SetScriptEnabled(true);
-  Element* script = GetDocument().CreateRawElement(HTMLNames::scriptTag);
+  Element* script = GetDocument().CreateRawElement(html_names::kScriptTag);
   script->SetInnerHTMLFromString(
       "document.addEventListener('contextmenu', event => "
       "event.preventDefault());");
@@ -776,7 +777,7 @@ TEST_F(EventHandlerTest, dragEndInNewDrag) {
       WebInputEvent::Modifiers::kLeftButtonDown, CurrentTimeTicks());
   mouse_move_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_event, Vector<WebMouseEvent>());
+      mouse_move_event, Vector<WebMouseEvent>(), Vector<WebMouseEvent>());
 
   // This reproduces what might be the conditions of http://crbug.com/677916
   //
@@ -823,9 +824,10 @@ TEST_F(EventHandlerTest, FakeMouseMoveNotStartDrag) {
           WebInputEvent::Modifiers::kRelativeMotionEvent,
       WebInputEvent::GetStaticTimeStampForTests());
   fake_mouse_move.SetFrameScale(1);
-  EXPECT_EQ(WebInputEventResult::kHandledSuppressed,
-            GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-                fake_mouse_move, Vector<WebMouseEvent>()));
+  EXPECT_EQ(
+      WebInputEventResult::kHandledSuppressed,
+      GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
+          fake_mouse_move, Vector<WebMouseEvent>(), Vector<WebMouseEvent>()));
 
   EXPECT_EQ(IntPoint(0, 0), GetDocument()
                                 .GetFrame()
@@ -852,7 +854,7 @@ class EventHandlerTooltipTest : public EventHandlerTest {
   EventHandlerTooltipTest() = default;
 
   void SetUp() override {
-    chrome_client_ = new TooltipCapturingChromeClient();
+    chrome_client_ = MakeGarbageCollected<TooltipCapturingChromeClient>();
     Page::PageClients clients;
     FillWithEmptyClients(clients);
     clients.chrome_client = chrome_client_.Get();
@@ -879,7 +881,7 @@ TEST_F(EventHandlerTooltipTest, mouseLeaveClearsTooltip) {
       CurrentTimeTicks());
   mouse_move_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_event, Vector<WebMouseEvent>());
+      mouse_move_event, Vector<WebMouseEvent>(), Vector<WebMouseEvent>());
 
   EXPECT_EQ("tooltip", LastToolTip());
 
@@ -915,7 +917,8 @@ class UnbufferedInputEventsTrackingChromeClient : public EmptyChromeClient {
 class EventHandlerLatencyTest : public PageTestBase {
  protected:
   void SetUp() override {
-    chrome_client_ = new UnbufferedInputEventsTrackingChromeClient();
+    chrome_client_ =
+        MakeGarbageCollected<UnbufferedInputEventsTrackingChromeClient>();
     Page::PageClients page_clients;
     FillWithEmptyClients(page_clients);
     page_clients.chrome_client = chrome_client_.Get();
@@ -925,7 +928,7 @@ class EventHandlerLatencyTest : public PageTestBase {
   void SetHtmlInnerHTML(const char* html_content) {
     GetDocument().documentElement()->SetInnerHTMLFromString(
         String::FromUTF8(html_content));
-    GetDocument().View()->UpdateAllLifecyclePhases();
+    UpdateAllLifecyclePhasesForTest();
   }
 
   Persistent<UnbufferedInputEventsTrackingChromeClient> chrome_client_;
@@ -983,7 +986,7 @@ class EventHandlerNavigationTest : public EventHandlerTest {
   EventHandlerNavigationTest() = default;
 
   void SetUp() override {
-    frame_client_ = new NavigationCapturingFrameClient();
+    frame_client_ = MakeGarbageCollected<NavigationCapturingFrameClient>();
     Page::PageClients clients;
     FillWithEmptyClients(clients);
     SetupPageWithClients(&clients, frame_client_);
@@ -1024,7 +1027,7 @@ TEST_F(EventHandlerNavigationTest, MouseButtonsNavigate) {
 TEST_F(EventHandlerNavigationTest, MouseButtonsDontNavigate) {
   SetHtmlInnerHTML("<div>");
   GetDocument().GetSettings()->SetScriptEnabled(true);
-  Element* script = GetDocument().CreateRawElement(HTMLNames::scriptTag);
+  Element* script = GetDocument().CreateRawElement(html_names::kScriptTag);
   script->SetInnerHTMLFromString(
       "document.addEventListener('mouseup', event => "
       "event.preventDefault());");
@@ -1082,7 +1085,7 @@ TEST_F(EventHandlerTest, MouseLeaveResetsUnknownState) {
 // Test that leaving an iframe sets the mouse position to unknown on that
 // iframe.
 TEST_F(EventHandlerSimTest, MouseLeaveIFrameResets) {
-  WebView().Resize(WebSize(800, 600));
+  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
 
   SimRequest main_resource("https://example.com/test.html", "text/html");
   SimRequest frame_resource("https://example.com/frame.html", "text/html");
@@ -1114,7 +1117,8 @@ TEST_F(EventHandlerSimTest, MouseLeaveIFrameResets) {
       WebInputEvent::GetStaticTimeStampForTests());
   mouse_move_inside_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_inside_event, Vector<WebMouseEvent>());
+      mouse_move_inside_event, Vector<WebMouseEvent>(),
+      Vector<WebMouseEvent>());
   EXPECT_FALSE(
       GetDocument().GetFrame()->GetEventHandler().IsMousePositionUnknown());
   auto* child_frame =
@@ -1134,7 +1138,8 @@ TEST_F(EventHandlerSimTest, MouseLeaveIFrameResets) {
       WebInputEvent::GetStaticTimeStampForTests());
   mouse_move_outside_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_outside_event, Vector<WebMouseEvent>());
+      mouse_move_outside_event, Vector<WebMouseEvent>(),
+      Vector<WebMouseEvent>());
   EXPECT_FALSE(
       GetDocument().GetFrame()->GetEventHandler().IsMousePositionUnknown());
   EXPECT_TRUE(GetDocument().GetFrame()->Tree().FirstChild());
@@ -1147,7 +1152,7 @@ TEST_F(EventHandlerSimTest, MouseLeaveIFrameResets) {
 // Test that mouse down and move a small distance on a draggable element will
 // not change cursor style.
 TEST_F(EventHandlerSimTest, CursorStyleBeforeStartDragging) {
-  WebView().Resize(WebSize(800, 600));
+  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -1179,7 +1184,7 @@ TEST_F(EventHandlerSimTest, CursorStyleBeforeStartDragging) {
                                  WebInputEvent::GetStaticTimeStampForTests());
   mouse_move_event.SetFrameScale(1);
   GetDocument().GetFrame()->GetEventHandler().HandleMouseMoveEvent(
-      mouse_move_event, Vector<WebMouseEvent>());
+      mouse_move_event, Vector<WebMouseEvent>(), Vector<WebMouseEvent>());
   EXPECT_EQ(Cursor::Type::kHelp, GetDocument()
                                      .GetFrame()
                                      ->GetChromeClient()
@@ -1189,7 +1194,7 @@ TEST_F(EventHandlerSimTest, CursorStyleBeforeStartDragging) {
 
 // Ensure that tap on element in iframe should apply active state.
 TEST_F(EventHandlerSimTest, TapActiveInFrame) {
-  WebView().Resize(WebSize(800, 600));
+  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
 
   SimRequest main_resource("https://example.com/test.html", "text/html");
   SimRequest frame_resource("https://example.com/iframe.html", "text/html");

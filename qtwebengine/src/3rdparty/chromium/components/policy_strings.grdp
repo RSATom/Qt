@@ -55,6 +55,9 @@
   <message name="IDS_POLICY_DM_STATUS_CANNOT_SIGN_REQUEST" desc="Message indicating a failure to sign a request.">
     Request could not be signed
   </message>
+  <message name="IDS_POLICY_DM_STATUS_CONSUMER_ACCOUNT_WITH_PACKAGED_LICENSE" desc="Message to show when the user tries to enroll a device with a packaged license using a consumer account.">
+    Can't enroll with consumer account (packaged license available).
+  </message>
 
   <message name="IDS_POLICY_VALIDATION_OK" desc="Message indicating successful policy validation.">
     Validation successful
@@ -94,6 +97,12 @@
   </message>
   <message name="IDS_POLICY_VALIDATION_BAD_KEY_VERIFICATION_SIGNATURE" desc="Message indicating a policy key had an invalid verification signature.">
     Bad verification signature
+  </message>
+  <message name="IDS_POLICY_VALIDATION_VALUE_WARNING" desc="Message indicating the policy value validation succeeded with non-fatal warnings.">
+    Validation of policy values has raised warnings
+  </message>
+  <message name="IDS_POLICY_VALIDATION_VALUE_ERROR" desc="Message indicating the policy value validation failed with fatal errors.">
+    Validation of policy values has failed with errors
   </message>
   <message name="IDS_POLICY_VALIDATION_UNKNOWN_ERROR" desc="Message indicating unknown error in policy validation.">
     Unknown error
@@ -171,7 +180,10 @@
     Invalid update URL for extension with ID "<ph name="EXTENSION_ID">$1<ex>abcdefghijklmnopabcdefghijklmnop</ex></ph>".
   </message>
   <message name="IDS_POLICY_OFF_CWS_URL_ERROR" desc="The text displayed in the status column when the update URL points to a location other than the Chrome Webstore and the machine is not enterprise managed.">
-  This computer is not detected as enterprise managed so policy can only automatically install extensions hosted on the Chrome Webstore. The Chrome Webstore update URL is "<ph name="CWS_UPDATE_URL">$1<ex>https://clients2.google.com/service/update2/crx</ex></ph>".
+    This computer is not detected as enterprise managed so policy can only automatically install extensions hosted on the Chrome Webstore. The Chrome Webstore update URL is "<ph name="CWS_UPDATE_URL">$1<ex>https://clients2.google.com/service/update2/crx</ex></ph>".
+  </message>
+  <message name="IDS_POLICY_HOMEPAGE_LOCATION_ERROR" desc="The text displayed in the status column when the homepage URL given by the HomepageLocation policy is invalid.">
+    Invalid URL. Must be a URL with a standard scheme.
   </message>
   <message name="IDS_POLICY_PROXY_MODE_DISABLED_ERROR" desc="The text displayed in the status column when use of a proxy is disabled but a proxy configuration is given.">
     Use of a proxy is disabled but an explicit proxy configuration is specified.
@@ -205,13 +217,17 @@
   </message>
   <if expr="chromeos">
     <message name="IDS_POLICY_NETWORK_CONFIG_PARSE_FAILED" desc="The text displayed in the status column when the corresponding network configuration policy failed to parse.">
-      Network configuration failed to be parsed.
+      Network configuration failed to be parsed (invalid JSON).
     </message>
-    <message name="IDS_POLICY_NETWORK_CONFIG_IMPORT_PARTIAL" desc="The text displayed in the status column when the corresponding network configuration policy is not standard conform and was imported partially.">
+    <message name="IDS_POLICY_NETWORK_CONFIG_IMPORT_PARTIAL" desc="The text displayed in the status column when the corresponding network configuration policy is not standard conform and was imported partially. DEBUG_INFO contains non-localized detailed information about existing warnings.">
       The network configuration doesn't comply to the ONC standard. Parts of the configuration may not be imported.
+Additional details:
+<ph name="DEBUG_INFO">$1<ex>WARNING: Field name 'SomeRandomField' is unknown. (at toplevel)</ex></ph>
     </message>
-    <message name="IDS_POLICY_NETWORK_CONFIG_IMPORT_FAILED" desc="The text displayed in the status column when the corresponding network configuration policy is invalid.">
+    <message name="IDS_POLICY_NETWORK_CONFIG_IMPORT_FAILED" desc="The text displayed in the status column when the corresponding network configuration policy is invalid. DEBUG_INFO contains non-localized detailed information about existing errors/warnings.">
       The network configuration is invalid and couldn't be imported.
+Additional details:
+<ph name="DEBUG_INFO">$1<ex>ERROR: Field name 'SomeRandomField' is unknown. (at toplevel)</ex></ph>
     </message>
     <message name="IDS_POLICY_SCOPE_ERROR" desc="Text displayed in the status column when a policy is set in an unsupported scope.">
       Policy scope is not supported.
@@ -318,11 +334,26 @@
   <message name="IDS_POLICY_STATUS_USER" desc="Title for the user policy status box.">
     User policies
   </message>
+<message name="IDS_POLICY_STATUS_MACHINE" desc="Title for the machine policy status box.">
+    Machine policies
+  </message>
   <message name="IDS_POLICY_LABEL_ENTERPRISE_ENROLLMENT_DOMAIN" desc="Label for the enrollment domain in the device policy status box.">
     Enrollment domain:
   </message>
   <message name="IDS_POLICY_LABEL_ENTERPRISE_DISPLAY_DOMAIN" desc="Label for the display domain in the device policy status box.">
     Display domain:
+  </message>
+  <message name="IDS_POLICY_LABEL_MACHINE_ENROLLMENT_DOMAIN" desc="Label for the enrollment domain in the machine policy status box.">
+    Enrollment domain:
+  </message>
+  <message name="IDS_POLICY_LABEL_MACHINE_ENROLLMENT_TOKEN" desc="Label for the enrollment token in the machine policy status box.">
+    Enrollment Token:
+  </message>
+  <message name="IDS_POLICY_LABEL_MACHINE_ENROLLMENT_DEVICE_ID" desc="Label for the device ID in the machine policy status box.">
+    Device ID:
+  </message>
+    <message name="IDS_POLICY_LABEL_MACHINE_ENROLLMENT_MACHINE_NAME" desc="Label for the machine name in the machine policy status box.">
+    Machine Name:
   </message>
   <message name="IDS_POLICY_LABEL_USERNAME" desc="Label for the username in the user policy status box.">
     User:
@@ -421,8 +452,8 @@
   <message name="IDS_POLICY_SOURCE_PLATFORM" desc="Indicates that the policy is obtained from the local OS.">
     Platform
   </message>
-  <message name="IDS_POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE" desc="Indicates that the policy is set programmatically because of an active public session (for Chrome OS only). It could have overridden other sources that set this policy.">
-    Public session override
+  <message name="IDS_POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE" desc="Indicates that the policy is set programmatically because of an active managed session (for Chrome OS only). It could have overridden other sources that set this policy.">
+    Managed session override
   </message>
   <message name="IDS_POLICY_RISK_TAG_FULL_ADMIN_ACCESS" desc="Title of a group/tag whose policies potentially allow the administrator to access all of a user's data.">
     Full Admin Access
@@ -444,5 +475,11 @@
   </message>
   <message name="IDS_POLICY_RISK_TAG_GOOGLE_SHARING" desc="Title of a group/tag whose policies enable functionality that might share user data with trusted Google services.">
     Sharing with Google
+  </message>
+  <message name="IDS_POLICY_SHOW_EXPANDED_STATUS" desc="Text for the link that shows the policy status. Used when the policy status is too long to be always visible.">
+    Show status
+  </message>
+  <message name="IDS_POLICY_HIDE_EXPANDED_STATUS" desc="Text for the link that hides the policy status. Used when the policy status is too long to be always visible.">
+    Hide status
   </message>
 </grit-part>

@@ -41,8 +41,9 @@ class NumberInputType final : public TextFieldInputType {
  public:
   static InputType* Create(HTMLInputElement&);
 
- private:
   NumberInputType(HTMLInputElement& element) : TextFieldInputType(element) {}
+
+ private:
   void CountUsage() override;
   const AtomicString& FormControlType() const override;
   void SetValue(const String&,
@@ -62,8 +63,8 @@ class NumberInputType final : public TextFieldInputType {
                                    int& preferred_size) const override;
   bool IsSteppable() const override;
   StepRange CreateStepRange(AnyStepHandling) const override;
-  void HandleKeydownEvent(KeyboardEvent*) override;
-  void HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent*) override;
+  void HandleKeydownEvent(KeyboardEvent&) override;
+  void HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) override;
   Decimal ParseToNumber(const String&, const Decimal&) const override;
   String Serialize(const Decimal&) const override;
   String LocalizeValue(const String&) const override;

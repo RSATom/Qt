@@ -159,10 +159,6 @@ bool ValidateConnection(const HttpResponseHeaders* headers,
 
 }  // namespace
 
-const base::Feature
-    WebSocketBasicHandshakeStream::kWebSocketHandshakeReuseConnection{
-        "WebSocketHandshakeReuseConnection", base::FEATURE_DISABLED_BY_DEFAULT};
-
 WebSocketBasicHandshakeStream::WebSocketBasicHandshakeStream(
     std::unique_ptr<ClientSocketHandle> connection,
     WebSocketStream::ConnectDelegate* connect_delegate,
@@ -180,7 +176,8 @@ WebSocketBasicHandshakeStream::WebSocketBasicHandshakeStream(
       requested_sub_protocols_(std::move(requested_sub_protocols)),
       requested_extensions_(std::move(requested_extensions)),
       stream_request_(request),
-      websocket_endpoint_lock_manager_(websocket_endpoint_lock_manager) {
+      websocket_endpoint_lock_manager_(websocket_endpoint_lock_manager),
+      weak_ptr_factory_(this) {
   DCHECK(connect_delegate);
   DCHECK(request);
 }
@@ -298,9 +295,6 @@ void WebSocketBasicHandshakeStream::SetConnectionReused() {
 }
 
 bool WebSocketBasicHandshakeStream::CanReuseConnection() const {
-  if (!base::FeatureList::IsEnabled(kWebSocketHandshakeReuseConnection))
-    return false;
-
   return parser() && parser()->CanReuseConnection();
 }
 
@@ -344,16 +338,6 @@ void WebSocketBasicHandshakeStream::PopulateNetErrorDetails(
   return;
 }
 
-Error WebSocketBasicHandshakeStream::GetTokenBindingSignature(
-    crypto::ECPrivateKey* key,
-    TokenBindingType tb_type,
-    std::vector<uint8_t>* out) {
-  DCHECK(url_.SchemeIsCryptographic());
-
-  return state_.connection()->socket()->GetTokenBindingSignature(key, tb_type,
-                                                                 out);
-}
-
 void WebSocketBasicHandshakeStream::Drain(HttpNetworkSession* session) {
   HttpResponseBodyDrainer* drainer = new HttpResponseBodyDrainer(this);
   drainer->Start(session);
@@ -366,9 +350,6 @@ void WebSocketBasicHandshakeStream::SetPriority(RequestPriority priority) {
 }
 
 HttpStream* WebSocketBasicHandshakeStream::RenewStreamForAuth() {
-  if (!base::FeatureList::IsEnabled(kWebSocketHandshakeReuseConnection))
-    return nullptr;
-
   DCHECK(IsResponseBodyComplete());
   DCHECK(!parser()->IsMoreDataBuffered());
   // The HttpStreamParser object still has a pointer to the connection. Just to
@@ -408,6 +389,11 @@ std::unique_ptr<WebSocketStream> WebSocketBasicHandshakeStream::Upgrade() {
   } else {
     return basic_stream;
   }
+}
+
+base::WeakPtr<WebSocketHandshakeStreamBase>
+WebSocketBasicHandshakeStream::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 void WebSocketBasicHandshakeStream::SetWebSocketKeyForTesting(

@@ -13,7 +13,6 @@
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/fx_dib.h"
-#include "third_party/base/ptr_util.h"
 
 CPDF_DeviceBuffer::CPDF_DeviceBuffer() {}
 
@@ -65,7 +64,7 @@ void CPDF_DeviceBuffer::OutputToDevice() {
                                     m_pBitmap->GetHeight());
   m_pContext->GetBackground(pBuffer, m_pObject.Get(), nullptr, &m_Matrix);
   pBuffer->CompositeBitmap(0, 0, pBuffer->GetWidth(), pBuffer->GetHeight(),
-                           m_pBitmap, 0, 0);
+                           m_pBitmap, 0, 0, BlendMode::kNormal, nullptr, false);
   m_pDevice->StretchDIBits(pBuffer, m_Rect.left, m_Rect.top, m_Rect.Width(),
                            m_Rect.Height());
 }

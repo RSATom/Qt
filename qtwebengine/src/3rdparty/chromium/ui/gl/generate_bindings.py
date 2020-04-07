@@ -16,7 +16,7 @@ from collections import namedtuple
 
 HEADER_PATHS = [
   '../../third_party/khronos',
-  '../../third_party/mesa/src/include',
+  '../../third_party/mesa_headers',
   '.',
   '../../gpu',
 ]
@@ -48,6 +48,9 @@ versions array. This can be overridden by supplying a 'known_as' key.
 
 """
 GL_FUNCTIONS = [
+{ 'return_type': 'void',
+  'names': ['glActiveShaderProgram'],
+  'arguments': 'GLuint pipeline, GLuint program', },
 { 'return_type': 'void',
   'names': ['glActiveTexture'],
   'arguments': 'GLenum texture', },
@@ -102,6 +105,10 @@ GL_FUNCTIONS = [
       'GLuint program, GLuint colorNumber, GLuint index, const char* name',
 },
 { 'return_type': 'void',
+  'versions': [{ 'name': 'glBindFragmentInputLocationCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
+  'arguments': 'GLuint program, GLint location, const char* name', },
+{ 'return_type': 'void',
   'names': ['glBindFramebufferEXT', 'glBindFramebuffer'],
   'arguments': 'GLenum target, GLuint framebuffer', },
 { 'return_type': 'void',
@@ -112,6 +119,9 @@ GL_FUNCTIONS = [
                  'extensions': ['GL_EXT_shader_image_load_store'] }],
   'arguments': 'GLuint index, GLuint texture, GLint level, GLboolean layered,'
                'GLint layer, GLenum access, GLint format', },
+{ 'return_type': 'void',
+  'names': ['glBindProgramPipeline'],
+  'arguments': 'GLuint pipeline', },
 { 'return_type': 'void',
   'names': ['glBindRenderbufferEXT', 'glBindRenderbuffer'],
   'arguments': 'GLenum target, GLuint renderbuffer', },
@@ -138,6 +148,10 @@ GL_FUNCTIONS = [
                { 'name': 'glBindVertexArrayAPPLE',
                  'extensions': ['GL_APPLE_vertex_array_object'] }],
   'arguments': 'GLuint array' },
+{ 'return_type': 'void',
+  'names': ['glBindVertexBuffer'],
+  'arguments': 'GLuint bindingindex, GLuint buffer, GLintptr offset, '
+               'GLsizei stride', },
 { 'return_type': 'void',
   'known_as': 'glBlendBarrierKHR',
   'versions': [{ 'name': 'glBlendBarrierNV',
@@ -224,10 +238,6 @@ GL_FUNCTIONS = [
 { 'return_type': 'void',
   'names': ['glCompileShader'],
   'arguments': 'GLuint shader', },
-{ 'return_type': 'void',
-  'versions': [{ 'name': 'glCompressedCopyTextureCHROMIUM',
-                 'extensions': ['GL_CHROMIUM_copy_compressed_texture'], }],
-  'arguments': 'GLuint sourceId, GLuint destId', },
 { 'return_type': 'void',
   'names': ['glCompressedTexImage2D'],
   'arguments':
@@ -318,22 +328,42 @@ GL_FUNCTIONS = [
       'GLboolean unpackUnmultiplyAlpha', },
 { 'return_type': 'void',
   'names': ['glCoverageModulationNV'],
+  'versions': [{ 'name': 'glCoverageModulationNV',
+                 'extensions': ['GL_NV_framebuffer_mixed_samples'] },
+               { 'name': 'glCoverageModulationCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_framebuffer_mixed_samples'] }],
   'arguments': 'GLenum components'},
 { 'return_type': 'void',
   'names': ['glCoverFillPathInstancedNV'],
+  'versions': [{ 'name': 'glCoverFillPathInstancedNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glCoverFillPathInstancedCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei numPaths, GLenum pathNameType, const void* paths, '
   'GLuint pathBase, GLenum coverMode, GLenum transformType, '
   'const GLfloat* transformValues' },
 { 'return_type': 'void',
   'names': ['glCoverFillPathNV'],
+  'versions': [{ 'name': 'glCoverFillPathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glCoverFillPathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLenum coverMode' },
 { 'return_type': 'void',
   'names': ['glCoverStrokePathInstancedNV'],
+  'versions': [{ 'name': 'glCoverStrokePathInstancedNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glCoverStrokePathInstancedCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei numPaths, GLenum pathNameType, const void* paths, '
   'GLuint pathBase, GLenum coverMode, GLenum transformType, '
   'const GLfloat* transformValues' },
 { 'return_type': 'void',
   'names': ['glCoverStrokePathNV'],
+  'versions': [{ 'name': 'glCoverStrokePathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glCoverStrokePathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint name, GLenum coverMode' },
 { 'return_type': 'GLuint',
   'names': ['glCreateProgram'],
@@ -341,6 +371,9 @@ GL_FUNCTIONS = [
 { 'return_type': 'GLuint',
   'names': ['glCreateShader'],
   'arguments': 'GLenum type', },
+{ 'return_type': 'GLuint',
+  'names': ['glCreateShaderProgramv'],
+  'arguments': 'GLenum type, GLsizei count, const char* const* strings', },
 { 'return_type': 'void',
   'names': ['glCullFace'],
   'arguments': 'GLenum mode', },
@@ -380,10 +413,17 @@ GL_FUNCTIONS = [
   'arguments': 'GLsizei n, const GLuint* framebuffers', },
 { 'return_type': 'void',
   'names': ['glDeletePathsNV'],
+  'versions': [{ 'name': 'glDeletePathsNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glDeletePathsCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLsizei range' },
 { 'return_type': 'void',
   'names': ['glDeleteProgram'],
   'arguments': 'GLuint program', },
+{ 'return_type': 'void',
+  'names': ['glDeleteProgramPipelines'],
+  'arguments': 'GLsizei n, const GLuint* pipelines', },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glDeleteQueries' },
                { 'name': 'glDeleteQueriesARB'},
@@ -447,8 +487,17 @@ GL_FUNCTIONS = [
   'arguments': 'GLenum target, GLsizei numAttachments, '
       'const GLenum* attachments' },
 { 'return_type': 'void',
+  'names': ['glDispatchCompute'],
+  'arguments': 'GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ', },
+{ 'return_type': 'void',
+  'names': ['glDispatchComputeIndirect'],
+  'arguments': 'GLintptr indirect', },
+{ 'return_type': 'void',
   'names': ['glDrawArrays'],
   'arguments': 'GLenum mode, GLint first, GLsizei count', },
+{ 'return_type': 'void',
+  'names': ['glDrawArraysIndirect'],
+  'arguments': 'GLenum mode, const void* indirect', },
 { 'return_type': 'void',
   'known_as': 'glDrawArraysInstancedANGLE',
   'names': ['glDrawArraysInstancedARB', 'glDrawArraysInstancedANGLE',
@@ -464,6 +513,9 @@ GL_FUNCTIONS = [
   'names': ['glDrawElements'],
   'arguments':
       'GLenum mode, GLsizei count, GLenum type, const void* indices', },
+{ 'return_type': 'void',
+  'names': ['glDrawElementsIndirect'],
+  'arguments': 'GLenum mode, GLenum type, const void* indirect', },
 { 'return_type': 'void',
   'known_as': 'glDrawElementsInstancedANGLE',
   'names': ['glDrawElementsInstancedARB', 'glDrawElementsInstancedANGLE',
@@ -522,6 +574,9 @@ GL_FUNCTIONS = [
                {'name': 'glFlushMappedBufferRangeEXT'}],
   'arguments': 'GLenum target, GLintptr offset, GLsizeiptr length', },
 { 'return_type': 'void',
+  'names': ['glFramebufferParameteri'],
+  'arguments': 'GLenum target, GLenum pname, GLint param', },
+{ 'return_type': 'void',
   'names': ['glFramebufferRenderbufferEXT', 'glFramebufferRenderbuffer'],
   'arguments':
       'GLenum target, GLenum attachment, GLenum renderbuffertarget, '
@@ -541,6 +596,11 @@ GL_FUNCTIONS = [
   'versions': [{ 'name': 'glFramebufferTextureLayer' }],
   'arguments': 'GLenum target, GLenum attachment, GLuint texture, GLint level, '
                'GLint layer', },
+{ 'return_type': 'void',
+  'versions': [{'name': 'glFramebufferTextureMultiviewLayeredANGLE',
+                'extensions': ['GL_ANGLE_multiview']}],
+  'arguments': 'GLenum target, GLenum attachment, GLuint texture, GLint level, '
+               'GLint baseViewIndex, GLsizei numViews', },
 { 'return_type': 'void',
   'names': ['glFrontFace'],
   'arguments': 'GLenum mode', },
@@ -564,7 +624,14 @@ GL_FUNCTIONS = [
   'arguments': 'GLsizei n, GLuint* framebuffers', },
 { 'return_type': 'GLuint',
   'names': ['glGenPathsNV'],
+  'versions': [{ 'name': 'glGenPathsNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glGenPathsCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei range' },
+{ 'return_type': 'GLuint',
+  'names': ['glGenProgramPipelines'],
+  'arguments': 'GLsizei n, GLuint* pipelines' },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glGenQueries' },
                { 'name': 'glGenQueriesARB', },
@@ -628,6 +695,9 @@ GL_FUNCTIONS = [
 { 'return_type': 'GLint',
   'names': ['glGetAttribLocation'],
   'arguments': 'GLuint program, const char* name', },
+{ 'return_type': 'void',
+  'names': ['glGetBooleani_v'],
+  'arguments': 'GLenum target, GLuint index, GLboolean* data', },
 { 'return_type': 'void',
   'versions': [{'name': 'glGetBooleani_vRobustANGLE',
                 'extensions': ['GL_ANGLE_robust_client_memory']}],
@@ -707,6 +777,9 @@ GL_FUNCTIONS = [
   'arguments':
       'GLenum target, GLenum attachment, GLenum pname, GLsizei bufSize, '
       'GLsizei* length, GLint* params', },
+{ 'return_type': 'void',
+  'names': ['glGetFramebufferParameteriv'],
+  'arguments': 'GLenum target, GLenum pname, GLint* params', },
 { 'return_type': 'void',
   'versions': [{'name': 'glGetFramebufferParameterivRobustANGLE',
                 'extensions': ['GL_ANGLE_robust_client_memory']}],
@@ -845,6 +918,18 @@ GL_FUNCTIONS = [
   'arguments':
       'GLuint program, GLenum pname, GLsizei bufSize, GLsizei* length, '
       'GLint* params', },
+{ 'return_type': 'void',
+  'names': ['glGetProgramPipelineInfoLog'],
+  'arguments':
+      'GLuint pipeline, GLsizei bufSize, GLsizei* length, GLchar* infoLog', },
+{ 'return_type': 'void',
+  'names': ['glGetProgramPipelineiv'],
+  'arguments':
+      'GLuint pipeline, GLenum pname, GLint* params', },
+{ 'return_type': 'GLuint',
+  'names': ['glGetProgramResourceIndex'],
+  'arguments':
+      'GLuint program, GLenum programInterface, const GLchar* name', },
 { 'return_type': 'void',
   'versions': [{'name': 'glGetProgramResourceiv',
                 'extensions': ['GL_ARB_program_interface_query']}],
@@ -1163,10 +1248,17 @@ GL_FUNCTIONS = [
   'arguments': 'GLuint framebuffer', },
 { 'return_type': 'GLboolean',
   'names': ['glIsPathNV'],
+  'versions': [{ 'name': 'glIsPathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glIsPathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path' },
 { 'return_type': 'GLboolean',
   'names': ['glIsProgram'],
   'arguments': 'GLuint program', },
+{ 'return_type': 'GLboolean',
+  'names': ['glIsProgramPipeline'],
+  'arguments': 'GLuint pipeline', },
 { 'return_type': 'GLboolean',
   'versions': [{ 'name': 'glIsQuery' },
                { 'name': 'glIsQueryARB' },
@@ -1224,21 +1316,59 @@ GL_FUNCTIONS = [
   'known_as': 'glMatrixLoadfEXT',
   'versions': [{ 'name': 'glMatrixLoadfEXT',
                  'extensions': ['GL_EXT_direct_state_access',
-                                'GL_NV_path_rendering'] }],
+                                'GL_NV_path_rendering'] },
+               { 'name': 'glMatrixLoadfCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLenum matrixMode, const GLfloat* m' },
 { 'return_type': 'void',
   'known_as': 'glMatrixLoadIdentityEXT',
   'versions': [{ 'name': 'glMatrixLoadIdentityEXT',
                  'extensions': ['GL_EXT_direct_state_access',
-                                'GL_NV_path_rendering'] },],
+                                'GL_NV_path_rendering'] },
+               { 'name': 'glMatrixLoadIdentityCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLenum matrixMode' },
+{'return_type': 'void',
+ 'known_as': 'glMaxShaderCompilerThreadsKHR',
+  'versions': [{ 'name': 'glMaxShaderCompilerThreadsKHR',
+                 'extensions': ['GL_KHR_parallel_shader_compile'] }],
+  'arguments': 'GLuint count', },
 { 'return_type': 'void',
+  'names': ['glMemoryBarrierByRegion'],
+  'arguments': 'GLbitfield barriers', },
+{'return_type': 'void',
   'known_as': 'glMemoryBarrierEXT',
   'versions': [{ 'name': 'glMemoryBarrier',
                  'extensions': ['GL_ARB_shader_image_load_store'] },
                { 'name': 'glMemoryBarrierEXT',
                  'extensions': ['GL_EXT_shader_image_load_store'] }],
   'arguments': 'GLbitfield barriers', },
+{ 'return_type': 'void',
+  'names': ['glMinSampleShading'],
+  'arguments': 'GLfloat value', },
+{ 'return_type': 'void',
+  'versions' : [{'name': 'glMultiDrawArraysANGLE',
+                 'extensions': ['GL_ANGLE_multi_draw'] }],
+  'arguments': 'GLenum mode, const GLint* firsts, '
+               'const GLsizei* counts, GLsizei drawcount', },
+{ 'return_type': 'void',
+  'versions' : [{'name': 'glMultiDrawArraysInstancedANGLE',
+                 'extensions': ['GL_ANGLE_multi_draw'] }],
+  'arguments': 'GLenum mode, const GLint* firsts, '
+               'const GLsizei* counts, const GLsizei* instanceCounts, '
+               'GLsizei drawcount', },
+{ 'return_type': 'void',
+  'versions' : [{'name': 'glMultiDrawElementsANGLE',
+                 'extensions': ['GL_ANGLE_multi_draw'] }],
+  'arguments': 'GLenum mode, const GLsizei* counts, '
+               'GLenum type, const GLvoid* const* indices, '
+               'GLsizei drawcount', },
+{ 'return_type': 'void',
+  'versions' : [{'name': 'glMultiDrawElementsInstancedANGLE',
+                 'extensions': ['GL_ANGLE_multi_draw'] }],
+  'arguments': 'GLenum mode, const GLsizei* counts, '
+               'GLenum type, const GLvoid* const* indices, '
+               'const GLsizei* instanceCounts, GLsizei drawcount', },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glObjectLabel' },
                { 'name': 'glObjectLabelKHR',
@@ -1252,16 +1382,32 @@ GL_FUNCTIONS = [
   'arguments': 'void* ptr, GLsizei length, const char* label', },
 { 'return_type': 'void',
   'names': ['glPathCommandsNV'],
+  'versions': [{ 'name': 'glPathCommandsNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glPathCommandsCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLsizei numCommands, const GLubyte* commands, '
   'GLsizei numCoords, GLenum coordType, const GLvoid* coords' },
 { 'return_type': 'void',
   'names': ['glPathParameterfNV'],
+  'versions': [{ 'name': 'glPathParameterfNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glPathParameterfCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLenum pname, GLfloat value' },
 { 'return_type': 'void',
   'names': ['glPathParameteriNV'],
+  'versions': [{ 'name': 'glPathParameteriNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glPathParameteriCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLenum pname, GLint value' },
 { 'return_type': 'void',
   'names': ['glPathStencilFuncNV'],
+  'versions': [{ 'name': 'glPathStencilFuncNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glPathStencilFuncCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLenum func, GLint ref, GLuint mask' },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glPauseTransformFeedback',
@@ -1303,9 +1449,138 @@ GL_FUNCTIONS = [
   'arguments': 'GLuint program, GLenum pname, GLint value' },
 { 'return_type': 'void',
   'names': ['glProgramPathFragmentInputGenNV'],
+  'versions': [{ 'name': 'glProgramPathFragmentInputGenNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glProgramPathFragmentInputGenCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint program, GLint location, GLenum genMode, '
   'GLint components, const GLfloat* coeffs',
   'is_optional': True, },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform1f'],
+  'arguments': 'GLuint program, GLint location, GLfloat v0' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform1fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform1i'],
+  'arguments': 'GLuint program, GLint location, GLint v0' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform1iv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform1ui'],
+  'arguments': 'GLuint program, GLint location, GLuint v0' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform1uiv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLuint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform2f'],
+  'arguments': 'GLuint program, GLint location, GLfloat v0, GLfloat v1' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform2fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform2i'],
+  'arguments': 'GLuint program, GLint location, GLint v0, GLint v1' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform2iv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform2ui'],
+  'arguments': 'GLuint program, GLint location, GLuint v0, GLuint v1' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform2uiv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLuint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform3f'],
+  'arguments': 'GLuint program, GLint location, GLfloat v0, GLfloat v1, '
+               'GLfloat v2' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform3fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform3i'],
+  'arguments': 'GLuint program, GLint location, GLint v0, GLint v1, GLint v2' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform3iv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform3ui'],
+  'arguments': 'GLuint program, GLint location, GLuint v0, GLuint v1, '
+               'GLuint v2' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform3uiv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLuint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform4f'],
+  'arguments': 'GLuint program, GLint location, GLfloat v0, GLfloat v1, '
+               'GLfloat v2, GLfloat v3' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform4fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform4i'],
+  'arguments': 'GLuint program, GLint location, GLint v0, GLint v1, GLint v2, '
+               'GLint v3' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform4iv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform4ui'],
+  'arguments': 'GLuint program, GLint location, GLuint v0, GLuint v1, '
+               'GLuint v2, GLuint v3' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniform4uiv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'const GLuint* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix2fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix2x3fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix2x4fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix3fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix3x2fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix3x4fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix4fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix4x2fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
+{ 'return_type': 'void',
+  'names': ['glProgramUniformMatrix4x3fv'],
+  'arguments': 'GLuint program, GLint location, GLsizei count, '
+               'GLboolean transpose, const GLfloat* value' },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glPushDebugGroup' },
                { 'name': 'glPushDebugGroupKHR',
@@ -1376,6 +1651,9 @@ GL_FUNCTIONS = [
 { 'return_type': 'void',
   'names': ['glSampleCoverage'],
   'arguments': 'GLclampf value, GLboolean invert', },
+{ 'return_type': 'void',
+  'names': ['glSampleMaski'],
+  'arguments': 'GLuint maskNumber, GLbitfield mask', },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glSamplerParameterf',
                  'extensions': ['GL_ARB_sampler_objects'] }],
@@ -1449,11 +1727,19 @@ GL_FUNCTIONS = [
 """, },
 { 'return_type': 'void',
   'names': ['glStencilFillPathInstancedNV'],
+  'versions': [{ 'name': 'glStencilFillPathInstancedNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilFillPathInstancedCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei numPaths, GLenum pathNameType, const void* paths, '
   'GLuint pathBase, GLenum fillMode, GLuint mask, GLenum transformType, '
   'const GLfloat* transformValues' },
 { 'return_type': 'void',
   'names': ['glStencilFillPathNV'],
+  'versions': [{ 'name': 'glStencilFillPathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilFillPathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLenum fillMode, GLuint mask' },
 { 'return_type': 'void',
   'names': ['glStencilFunc'],
@@ -1475,30 +1761,54 @@ GL_FUNCTIONS = [
   'arguments': 'GLenum face, GLenum fail, GLenum zfail, GLenum zpass', },
 { 'return_type': 'void',
   'names': ['glStencilStrokePathInstancedNV'],
+  'versions': [{ 'name': 'glStencilStrokePathInstancedNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilStrokePathInstancedCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei numPaths, GLenum pathNameType, const void* paths, '
   'GLuint pathBase, GLint ref, GLuint mask, GLenum transformType, '
   'const GLfloat* transformValues' },
 { 'return_type': 'void',
   'names': ['glStencilStrokePathNV'],
+  'versions': [{ 'name': 'glStencilStrokePathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilStrokePathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLint reference, GLuint mask' },
 { 'return_type': 'void',
   'names': ['glStencilThenCoverFillPathInstancedNV'],
+  'versions': [{ 'name': 'glStencilThenCoverFillPathInstancedNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilThenCoverFillPathInstancedCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei numPaths, GLenum pathNameType, const void* paths, '
   'GLuint pathBase, GLenum fillMode, GLuint mask, GLenum coverMode, '
   'GLenum transformType, const GLfloat* transformValues',
   'is_optional': True, },
 { 'return_type': 'void',
   'names': ['glStencilThenCoverFillPathNV'],
+  'versions': [{ 'name': 'glStencilThenCoverFillPathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilThenCoverFillPathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLenum fillMode, GLuint mask, GLenum coverMode',
   'is_optional': True, },
 { 'return_type': 'void',
   'names': ['glStencilThenCoverStrokePathInstancedNV'],
+  'versions': [{ 'name': 'glStencilThenCoverStrokePathInstancedNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilThenCoverStrokePathInstancedCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLsizei numPaths, GLenum pathNameType, const void* paths, '
   'GLuint pathBase, GLint ref, GLuint mask, GLenum coverMode, '
   'GLenum transformType, const GLfloat* transformValues',
   'is_optional': True, },
 { 'return_type': 'void',
   'names': ['glStencilThenCoverStrokePathNV'],
+  'versions': [{ 'name': 'glStencilThenCoverStrokePathNV',
+                 'extensions': ['GL_NV_path_rendering'] },
+               { 'name': 'glStencilThenCoverStrokePathCHROMIUM',
+                 'extensions': ['GL_CHROMIUM_path_rendering'] }],
   'arguments': 'GLuint path, GLint reference, GLuint mask, GLenum coverMode',
   'is_optional': True, },
 { 'return_type': 'GLboolean',
@@ -1583,6 +1893,11 @@ GL_FUNCTIONS = [
                  'extensions': ['GL_EXT_texture_storage'] }],
   'arguments': 'GLenum target, GLsizei levels, GLenum internalformat, '
                'GLsizei width, GLsizei height', },
+{ 'return_type': 'void',
+  'names': ['glTexStorage2DMultisample'],
+  'arguments':
+      'GLenum target, GLsizei samples, GLenum internalformat, '
+      'GLsizei width, GLsizei height, GLboolean fixedsamplelocations', },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glTexStorage3D',
                  'extensions': ['GL_ARB_texture_storage'] }],
@@ -1740,8 +2055,14 @@ GL_FUNCTIONS = [
   'names': ['glUseProgram'],
   'arguments': 'GLuint program', },
 { 'return_type': 'void',
+  'names': ['glUseProgramStages'],
+  'arguments': 'GLuint pipeline, GLbitfield stages, GLuint program', },
+{ 'return_type': 'void',
   'names': ['glValidateProgram'],
   'arguments': 'GLuint program', },
+{ 'return_type': 'void',
+  'names': ['glValidateProgramPipeline'],
+  'arguments': 'GLuint pipeline', },
 { 'return_type': 'void',
   'names': ['glVertexAttrib1f'],
   'arguments': 'GLuint indx, GLfloat x', },
@@ -1767,11 +2088,18 @@ GL_FUNCTIONS = [
   'names': ['glVertexAttrib4fv'],
   'arguments': 'GLuint indx, const GLfloat* values', },
 { 'return_type': 'void',
+  'names': ['glVertexAttribBinding'],
+  'arguments': 'GLuint attribindex, GLuint bindingindex', },
+{ 'return_type': 'void',
   'known_as': 'glVertexAttribDivisorANGLE',
   'names': ['glVertexAttribDivisorARB', 'glVertexAttribDivisorANGLE',
             'glVertexAttribDivisorEXT', 'glVertexAttribDivisor'],
   'arguments':
       'GLuint index, GLuint divisor', },
+{ 'return_type': 'void',
+  'names': ['glVertexAttribFormat'],
+  'arguments': 'GLuint attribindex, GLint size, GLenum type, '
+               'GLboolean normalized, GLuint relativeoffset', },
 { 'return_type': 'void',
   'versions': [{ 'name': 'glVertexAttribI4i' }],
   'arguments': 'GLuint indx, GLint x, GLint y, GLint z, GLint w', },
@@ -1785,6 +2113,10 @@ GL_FUNCTIONS = [
   'versions': [{ 'name': 'glVertexAttribI4uiv' }],
   'arguments': 'GLuint indx, const GLuint* values', },
 { 'return_type': 'void',
+  'names': ['glVertexAttribIFormat'],
+  'arguments': 'GLuint attribindex, GLint size, GLenum type, '
+               'GLuint relativeoffset', },
+{ 'return_type': 'void',
   'versions': [{ 'name': 'glVertexAttribIPointer' }],
   'arguments': 'GLuint indx, GLint size, GLenum type, GLsizei stride, '
                'const void* ptr', },
@@ -1792,6 +2124,9 @@ GL_FUNCTIONS = [
   'names': ['glVertexAttribPointer'],
   'arguments': 'GLuint indx, GLint size, GLenum type, GLboolean normalized, '
                'GLsizei stride, const void* ptr', },
+{ 'return_type': 'void',
+  'names': ['glVertexBindingDivisor'],
+  'arguments': 'GLuint bindingindex, GLuint divisor', },
 { 'return_type': 'void',
   'names': ['glViewport'],
   'arguments': 'GLint x, GLint y, GLsizei width, GLsizei height', },
@@ -1803,51 +2138,6 @@ GL_FUNCTIONS = [
 { 'return_type': 'void',
   'names': ['glWindowRectanglesEXT'],
   'arguments': 'GLenum mode, GLsizei n, const GLint* box', },
-]
-
-OSMESA_FUNCTIONS = [
-{ 'return_type': 'void',
-  'names': ['OSMesaColorClamp'],
-  'arguments': 'GLboolean enable', },
-{ 'return_type': 'OSMesaContext',
-  'names': ['OSMesaCreateContext'],
-  'arguments': 'GLenum format, OSMesaContext sharelist', },
-{ 'return_type': 'OSMesaContext',
-  'names': ['OSMesaCreateContextExt'],
-  'arguments':
-      'GLenum format, GLint depthBits, GLint stencilBits, GLint accumBits, '
-      'OSMesaContext sharelist', },
-{ 'return_type': 'void',
-  'names': ['OSMesaDestroyContext'],
-  'arguments': 'OSMesaContext ctx', },
-{ 'return_type': 'GLboolean',
-  'names': ['OSMesaGetColorBuffer'],
-  'arguments': 'OSMesaContext c, GLint* width, GLint* height, GLint* format, '
-               'void** buffer', },
-{ 'return_type': 'OSMesaContext',
-  'names': ['OSMesaGetCurrentContext'],
-  'arguments': 'void', },
-{ 'return_type': 'GLboolean',
-  'names': ['OSMesaGetDepthBuffer'],
-  'arguments':
-      'OSMesaContext c, GLint* width, GLint* height, GLint* bytesPerValue, '
-      'void** buffer', },
-{ 'return_type': 'void',
-  'names': ['OSMesaGetIntegerv'],
-  'arguments': 'GLint pname, GLint* value', },
-{ 'return_type': 'OSMESAproc',
-  'names': ['OSMesaGetProcAddress'],
-  'arguments': 'const char* funcName',
-  'logging_code': """
-  GL_SERVICE_LOG("GL_RESULT: " << reinterpret_cast<void*>(result));
-""", },
-{ 'return_type': 'GLboolean',
-  'names': ['OSMesaMakeCurrent'],
-  'arguments': 'OSMesaContext ctx, void* buffer, GLenum type, GLsizei width, '
-               'GLsizei height', },
-{ 'return_type': 'void',
-  'names': ['OSMesaPixelStore'],
-  'arguments': 'GLint pname, GLint value', },
 ]
 
 EGL_FUNCTIONS = [
@@ -2070,24 +2360,6 @@ EGL_FUNCTIONS = [
   'names': ['eglPostSubBufferNV'],
   'arguments': 'EGLDisplay dpy, EGLSurface surface, '
     'EGLint x, EGLint y, EGLint width, EGLint height', },
-{ 'return_type': 'EGLint',
-  'versions': [{ 'name': 'eglProgramCacheGetAttribANGLE',
-                 'extensions': ['EGL_ANGLE_program_cache_control'] }],
-  'arguments': 'EGLDisplay dpy, EGLenum attrib', },
-{ 'return_type': 'void',
-  'versions': [{ 'name': 'eglProgramCachePopulateANGLE',
-                 'extensions': ['EGL_ANGLE_program_cache_control'] }],
-  'arguments': 'EGLDisplay dpy, const void* key, '
-    'EGLint keysize, const void* binary, EGLint binarysize', },
-{ 'return_type': 'void',
-  'versions': [{ 'name': 'eglProgramCacheQueryANGLE',
-                 'extensions': ['EGL_ANGLE_program_cache_control'] }],
-  'arguments': 'EGLDisplay dpy, EGLint index, '
-    'void* key, EGLint* keysize, void* binary, EGLint* binarysize', },
-{ 'return_type': 'EGLint',
-  'versions': [{ 'name': 'eglProgramCacheResizeANGLE',
-                 'extensions': ['EGL_ANGLE_program_cache_control'] }],
-  'arguments': 'EGLDisplay dpy, EGLint limit, EGLenum mode', },
 { 'return_type': 'EGLenum',
   'names': ['eglQueryAPI'],
   'arguments': 'void', },
@@ -2129,6 +2401,11 @@ EGL_FUNCTIONS = [
 { 'return_type': 'EGLBoolean',
   'names': ['eglReleaseThread'],
   'arguments': 'void', },
+{ 'return_type': 'void',
+  'versions': [{ 'name': 'eglSetBlobCacheFuncsANDROID',
+                 'extensions': ['EGL_ANDROID_blob_cache'] }],
+  'arguments':
+      'EGLDisplay dpy, EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get' },
 { 'return_type': 'EGLBoolean',
   'versions': [{ 'name': 'eglStreamAttribKHR',
                  'extensions': ['EGL_KHR_stream'] }],
@@ -2435,7 +2712,6 @@ FUNCTION_SETS = [
       "GL_EXT_unpack_subimage",
     ]
   ],
-  [OSMESA_FUNCTIONS, 'osmesa', [], []],
   [EGL_FUNCTIONS, 'egl', [
       'EGL/eglext.h',
       # Files below are Chromium-specific and shipped with Chromium sources.
@@ -2456,6 +2732,7 @@ GLES2_HEADERS_WITH_ENUMS = [
   'GLES2/gl2chromium.h',
   'GLES2/gl2extchromium.h',
   'GLES3/gl3.h',
+  'GLES3/gl31.h',
 ]
 
 SELF_LOCATION = os.path.dirname(os.path.abspath(__file__))
@@ -2598,7 +2875,14 @@ def GenerateAPIHeader(file, functions, set_name):
   """Generates gl_bindings_api_autogen_x.h"""
 
   # Write file header.
-  file.write(LICENSE_AND_HEADER)
+  file.write(LICENSE_AND_HEADER +
+"""
+
+// The following line silences a presubmit warning that would otherwise be
+// triggered by this:
+// no-include-guard-because-multiply-included
+
+""")
 
   # Write API declaration.
   for func in functions:
@@ -2612,7 +2896,14 @@ def GenerateMockHeader(file, functions, set_name):
   """Generates gl_mock_autogen_x.h"""
 
   # Write file header.
-  file.write(LICENSE_AND_HEADER)
+  file.write(LICENSE_AND_HEADER +
+"""
+
+// The following line silences a presubmit warning that would otherwise be
+// triggered by this:
+// no-include-guard-because-multiply-included
+
+""")
 
   # Write API declaration.
   for func in functions:
@@ -2639,7 +2930,14 @@ def GenerateStubHeader(file, functions):
   """Generates gl_stub_autogen_gl.h"""
 
   # Write file header.
-  file.write(LICENSE_AND_HEADER)
+  file.write(LICENSE_AND_HEADER +
+"""
+
+#ifndef UI_GL_GL_STUB_AUTOGEN_H_
+#define UI_GL_GL_STUB_AUTOGEN_H_
+
+""")
+
 
   # Write API declaration.
   for func in functions:
@@ -2655,6 +2953,7 @@ def GenerateStubHeader(file, functions):
       file.write(';\n');
 
   file.write('\n')
+  file.write('#endif  //  UI_GL_GL_STUB_AUTOGEN_H_')
 
 def GenerateStubSource(file, functions):
   """Generates gl_stub_autogen_gl.cc"""
@@ -2932,6 +3231,9 @@ void DriverEGL::InitializeExtensionBindings() {
         r'(const )?[a-zA-Z0-9_]+\* ([a-zA-Z0-9_]+)',
         r'CONSTVOID_\2', log_argument_names)
     log_argument_names = re.sub(
+        r'(const )?EGL[GS]etBlobFuncANDROID ([a-zA-Z0-9_]+)',
+        r'FUNCPTR_\2', log_argument_names)
+    log_argument_names = re.sub(
         r'(?<!E)GLboolean ([a-zA-Z0-9_]+)', r'GLboolean_\1', log_argument_names)
     log_argument_names = re.sub(
         r'GLDEBUGPROC ([a-zA-Z0-9_]+)',
@@ -2953,6 +3255,9 @@ void DriverEGL::InitializeExtensionBindings() {
     log_argument_names = re.sub(
         r'CONSTVOID_([a-zA-Z0-9_]+)',
         r'static_cast<const void*>(\1)', log_argument_names)
+    log_argument_names = re.sub(
+        r'FUNCPTR_([a-zA-Z0-9_]+)',
+        r'reinterpret_cast<const void*>(\1)', log_argument_names)
     log_argument_names = re.sub(
         r'CONSTCHAR_([a-zA-Z0-9_]+)', r'\1', log_argument_names)
     log_argument_names = re.sub(
@@ -3065,7 +3370,14 @@ def GetUniquelyNamedFunctions(functions):
 def GenerateMockBindingsHeader(file, functions):
   """Headers for functions that invoke MockGLInterface members"""
 
-  file.write(LICENSE_AND_HEADER)
+  file.write(LICENSE_AND_HEADER +
+"""
+
+// The following line silences a presubmit warning that would otherwise be
+// triggered by this:
+// no-include-guard-because-multiply-included
+
+""")
   uniquely_named_functions = GetUniquelyNamedFunctions(functions)
 
   for key in sorted(uniquely_named_functions.iterkeys()):
@@ -3089,13 +3401,13 @@ namespace {
 // This is called mainly to prevent the compiler combining the code of mock
 // functions with identical contents, so that their function pointers will be
 // different.
-void MakeFunctionUnique(const char *func_name) {
+void Make%sMockFunctionUnique(const char *func_name) {
     VLOG(2) << "Calling mock " << func_name;
 }
 }  // namespace
 
 namespace gl {
-""" % (set_name,))
+""" % (set_name, set_name.capitalize()))
 
   # Write functions that trampoline into the set MockGLInterface instance.
   uniquely_named_functions = GetUniquelyNamedFunctions(functions)
@@ -3107,7 +3419,8 @@ namespace gl {
     file.write('%s GL_BINDING_CALL Mock%sInterface::Mock_%s(%s) {\n' %
         (func['return_type'], set_name.upper(), func['name'],
          func['arguments']))
-    file.write('  MakeFunctionUnique("%s");\n' % func['name'])
+    file.write('  Make%sMockFunctionUnique("%s");\n' % (set_name.capitalize(),
+                                                        func['name']))
     arg_re = r'(const |struct )*[a-zA-Z0-9]+((\s*const\s*)?\*)* ([a-zA-Z0-9]+)'
     argument_names = re.sub(arg_re, r'\4', func['arguments'])
     if argument_names == 'void':
@@ -3125,7 +3438,7 @@ namespace gl {
   # function pointers or trying to interpret the return value of
   # GLProcAddress().
   file.write('\n')
-  file.write('static void MockInvalidFunction() {\n')
+  file.write('static void Mock%sInvalidFunction() {\n' % set_name.capitalize())
   file.write('  NOTREACHED();\n')
   file.write('}\n')
 
@@ -3142,7 +3455,7 @@ namespace gl {
             name)
   # Always return a non-NULL pointer like some EGL implementations do.
   file.write('  return reinterpret_cast<GLFunctionPointerType>('
-             '&MockInvalidFunction);\n')
+             '&Mock%sInvalidFunction);\n' % set_name.capitalize())
   file.write('}\n')
 
   file.write('\n')
@@ -3161,7 +3474,7 @@ def GenerateEnumUtils(out_file, input_filenames):
       if m:
         name = m.group(1)
         value = m.group(2)
-        if len(value) <= 10:
+        if len(value) <= 10 and value.startswith('0x'):
           if not value in dict:
             dict[value] = name
           # check our own _CHROMIUM macro conflicts with khronos GL headers.
@@ -3172,7 +3485,13 @@ def GenerateEnumUtils(out_file, input_filenames):
             raise RuntimeError("code collision: %s and %s have the same code %s"
                                %  (dict[value], name, value))
 
-  out_file.write(LICENSE_AND_HEADER)
+  out_file.write(LICENSE_AND_HEADER +
+"""
+
+#ifndef UI_GL_GL_ENUMS_IMPLEMENTATION_AUTOGEN_H_
+#define UI_GL_GL_ENUMS_IMPLEMENTATION_AUTOGEN_H_
+
+""")
   out_file.write("static const GLEnums::EnumToString "
                  "enum_to_string_table[] = {\n")
   for value in sorted(dict):
@@ -3185,6 +3504,7 @@ const size_t GLEnums::enum_to_string_table_len_ =
   sizeof(enum_to_string_table) / sizeof(enum_to_string_table[0]);
 
 """)
+  out_file.write('#endif  //  UI_GL_GL_ENUMS_IMPLEMENTATION_AUTOGEN_H_')
 
 
 def ParseFunctionsFromHeader(header_file, extensions, versions):

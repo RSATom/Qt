@@ -31,12 +31,14 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
+#include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/image_animation_policy.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
 #include "third_party/blink/renderer/platform/graphics/image_orientation.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_image.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -72,10 +74,11 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
  public:
   virtual ~Image();
 
-  static cc::ImageDecodeCache& SharedCCDecodeCache();
+  static cc::ImageDecodeCache* SharedCCDecodeCache(
+      CanvasColorSpace color_space,
+      CanvasPixelFormat pixel_format);
 
   static scoped_refptr<Image> LoadPlatformResource(const char* name);
-  static bool SupportsType(const String&);
 
   virtual bool IsSVGImage() const { return false; }
   virtual bool IsBitmapImage() const { return false; }

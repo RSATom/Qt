@@ -46,18 +46,17 @@
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
+#include "components/viz/host/host_frame_sink_client.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/renderer_host/input/mouse_wheel_phase_handler.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/text_input_manager.h"
-#include "content/common/view_messages.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "ui/events/gesture_detection/filtered_gesture_provider.h"
 #include "qtwebenginecoreglobal_p.h"
 #include <QMap>
 #include <QPoint>
 #include <QtGlobal>
-#include <QtGui/qaccessible.h>
 #include <QtGui/QTouchEvent>
 
 QT_BEGIN_NAMESPACE
@@ -67,11 +66,21 @@ QT_END_NAMESPACE
 namespace content {
 class RenderFrameHost;
 class RenderWidgetHostImpl;
+namespace mojom {
+class FrameInputHandler;
+}
+}
+
+namespace ui {
+class TouchSelectionController;
 }
 
 namespace QtWebEngineCore {
 
 class Compositor;
+class TouchHandleDrawableClient;
+class TouchSelectionControllerClientQt;
+class TouchSelectionMenuController;
 
 struct MultipleMouseClickHelper
 {
@@ -94,9 +103,6 @@ class RenderWidgetHostViewQt
     , public ui::GestureProviderClient
     , public RenderWidgetHostViewQtDelegateClient
     , public base::SupportsWeakPtr<RenderWidgetHostViewQt>
-#ifndef QT_NO_ACCESSIBILITY
-    , public QAccessible::ActivationObserver
-#endif // QT_NO_ACCESSIBILITY
     , public content::TextInputManager::Observer
 {
 public:
@@ -111,15 +117,14 @@ public:
 
     RenderWidgetHostViewQtDelegate *delegate() { return m_delegate.get(); }
     void setDelegate(RenderWidgetHostViewQtDelegate *delegate);
+    WebContentsAdapterClient *adapterClient() { return m_adapterClient; }
     void setAdapterClient(WebContentsAdapterClient *adapterClient);
-    void OnBeginFrame(base::TimeTicks frame_time);
 
     void InitAsChild(gfx::NativeView) override;
     void InitAsPopup(content::RenderWidgetHostView*, const gfx::Rect&) override;
     void InitAsFullscreen(content::RenderWidgetHostView*) override;
     void SetSize(const gfx::Size& size) override;
     void SetBounds(const gfx::Rect&) override;
-    gfx::Size GetCompositorViewportPixelSize() const override;
     gfx::NativeView GetNativeView() const override;
     gfx::NativeViewAccessible GetNativeViewAccessible() override;
     void Focus() override;
@@ -159,21 +164,21 @@ public:
     void SetWantsAnimateOnlyBeginFrames() override;
     viz::SurfaceId GetCurrentSurfaceId() const override;
     const viz::FrameSinkId &GetFrameSinkId() const override;
-    const viz::LocalSurfaceId &GetLocalSurfaceId() const override;
+    const viz::LocalSurfaceIdAllocation &GetLocalSurfaceIdAllocation() const override;
     void TakeFallbackContentFrom(content::RenderWidgetHostView *view) override;
-    void EnsureSurfaceSynchronizedForLayoutTest() override;
+    void EnsureSurfaceSynchronizedForWebTest() override;
     uint32_t GetCaptureSequenceNumber() const override;
+    void ResetFallbackToFirstNavigationSurface() override;
+    void DidStopFlinging() override;
 
     // Overridden from ui::GestureProviderClient.
     void OnGestureEvent(const ui::GestureEventData& gesture) override;
 
     // Overridden from RenderWidgetHostViewQtDelegateClient.
     QSGNode *updatePaintNode(QSGNode *) override;
-    void notifyResize() override;
     void notifyShown() override;
     void notifyHidden() override;
-    void windowBoundsChanged() override;
-    void windowChanged() override;
+    void visualPropertiesChanged() override;
     bool forwardEvent(QEvent *) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) override;
     void closePopup() override;
@@ -209,27 +214,37 @@ public:
 
     // Overridden from content::BrowserAccessibilityDelegate
     content::BrowserAccessibilityManager* CreateBrowserAccessibilityManager(content::BrowserAccessibilityDelegate* delegate, bool for_root_frame) override;
-#ifndef QT_NO_ACCESSIBILITY
-    void accessibilityActiveChanged(bool active) override;
-#endif // QT_NO_ACCESSIBILITY
     LoadVisuallyCommittedState getLoadVisuallyCommittedState() const { return m_loadVisuallyCommittedState; }
     void setLoadVisuallyCommittedState(LoadVisuallyCommittedState state) { m_loadVisuallyCommittedState = state; }
 
+    // Overridden from content::RenderFrameMetadataProvider::Observer
+    void OnRenderFrameMetadataChangedAfterActivation() override;
+
     gfx::SizeF lastContentsSize() const { return m_lastContentsSize; }
     gfx::Vector2dF lastScrollOffset() const { return m_lastScrollOffset; }
+
+    ui::TouchSelectionController *getTouchSelectionController() const { return m_touchSelectionController.get(); }
+    TouchSelectionControllerClientQt *getTouchSelectionControllerClient() const { return m_touchSelectionControllerClient.get(); }
+    content::mojom::FrameInputHandler *getFrameInputHandler();
+    ui::TextInputType getTextInputType() const;
 
 private:
     void processMotionEvent(const ui::MotionEvent &motionEvent);
     void clearPreviousTouchMotionState();
     QList<QTouchEvent::TouchPoint> mapTouchPointIds(const QList<QTouchEvent::TouchPoint> &inputPoints);
-    float dpiScale() const;
-    void updateNeedsBeginFramesInternal();
 
     bool IsPopup() const;
 
     void selectionChanged();
     content::RenderFrameHost *getFocusedFrameHost();
-    ui::TextInputType getTextInputType() const;
+
+    void synchronizeVisualProperties(const base::Optional<viz::LocalSurfaceIdAllocation> &childSurfaceId);
+
+    // Geometry of the view in screen DIPs.
+    gfx::Rect m_viewRectInDips;
+    // Geometry of the window, including frame, in screen DIPs.
+    gfx::Rect m_windowRectInDips;
+    content::ScreenInfo m_screenInfo;
 
     ui::FilteredGestureProvider m_gestureProvider;
     base::TimeDelta m_eventsToNowDelta;
@@ -252,7 +267,6 @@ private:
 
     gfx::Vector2dF m_lastScrollOffset;
     gfx::SizeF m_lastContentsSize;
-    viz::LocalSurfaceId m_localSurfaceId;
     viz::ParentLocalSurfaceIdAllocator m_localSurfaceIdAllocator;
 
     uint m_imState;
@@ -265,13 +279,16 @@ private:
     bool m_imeHasHiddenTextCapability;
 
     bool m_wheelAckPending;
-    bool m_pendingResize;
     QList<blink::WebMouseWheelEvent> m_pendingWheelEvents;
     content::MouseWheelPhaseHandler m_mouseWheelPhaseHandler;
     viz::FrameSinkId m_frameSinkId;
 
-    uint32_t m_latestCaptureSequenceNumber = 0u;
     std::string m_editCommand;
+
+    std::unique_ptr<TouchSelectionControllerClientQt> m_touchSelectionControllerClient;
+    std::unique_ptr<ui::TouchSelectionController> m_touchSelectionController;
+    gfx::SelectionBound m_selectionStart;
+    gfx::SelectionBound m_selectionEnd;
 };
 
 } // namespace QtWebEngineCore

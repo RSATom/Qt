@@ -13,6 +13,8 @@ mojom("mojom") {
     "receiver.mojom",
     "scoped_access_permission.mojom",
     "testing_controls.mojom",
+    "video_source.mojom",
+    "video_source_provider.mojom",
     "virtual_device.mojom",
   ]
 
@@ -20,7 +22,7 @@ mojom("mojom") {
     "//media/capture/mojom:image_capture",
     "//media/capture/mojom:video_capture",
     "//media/mojo/interfaces",
-    "//services/ui/public/interfaces",
+    "//services/ws/public/mojom",
     "//ui/gfx/geometry/mojo",
   ]
 }

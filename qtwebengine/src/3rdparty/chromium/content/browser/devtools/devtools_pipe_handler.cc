@@ -20,9 +20,10 @@
 #include "base/message_loop/message_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "net/server/http_connection.h"
@@ -152,8 +153,8 @@ bool PipeReader::HandleReadResult(int result) {
     if (read_buffer_->StartOfBuffer()[i] == '\0') {
       std::string str(read_buffer_->StartOfBuffer() + offset, i - offset);
 
-      BrowserThread::PostTask(
-          BrowserThread::UI, FROM_HERE,
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::UI},
           base::BindOnce(&DevToolsPipeHandler::HandleMessage, devtools_handler_,
                          std::move(str)));
       offset = i + 1;
@@ -165,8 +166,8 @@ bool PipeReader::HandleReadResult(int result) {
 }
 
 void PipeReader::ConnectionClosed() {
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&DevToolsPipeHandler::Shutdown, devtools_handler_));
 }
 
@@ -202,6 +203,9 @@ DevToolsPipeHandler::DevToolsPipeHandler()
 }
 
 void DevToolsPipeHandler::Shutdown() {
+  if (shutting_down_)
+    return;
+  shutting_down_ = true;
   // Is there is no read thread, there is nothing, it is safe to proceed.
   if (!read_thread_)
     return;
@@ -209,7 +213,7 @@ void DevToolsPipeHandler::Shutdown() {
   // If there is no write thread, only take care of the read thread.
   if (!write_thread_) {
     base::PostTaskWithTraits(
-        FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::BindOnce([](base::Thread* rthread) { delete rthread; },
                        read_thread_.release()));
     return;
@@ -222,7 +226,10 @@ void DevToolsPipeHandler::Shutdown() {
 
 // Concurrently discard the pipe handles to successfully join threads.
 #if defined(OS_WIN)
-  CloseHandle(reinterpret_cast<HANDLE>(_get_osfhandle(read_fd_)));
+  HANDLE read_handle = reinterpret_cast<HANDLE>(_get_osfhandle(read_fd_));
+  // Cancel pending synchronous read.
+  CancelIoEx(read_handle, NULL);
+  CloseHandle(read_handle);
   CloseHandle(reinterpret_cast<HANDLE>(_get_osfhandle(write_fd_)));
 #else
   shutdown(read_fd_, SHUT_RDWR);
@@ -236,7 +243,7 @@ void DevToolsPipeHandler::Shutdown() {
 
   // Post background task that would join and destroy the threads.
   base::PostTaskWithTraits(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(
           [](base::Thread* rthread, base::Thread* wthread) {
             delete rthread;

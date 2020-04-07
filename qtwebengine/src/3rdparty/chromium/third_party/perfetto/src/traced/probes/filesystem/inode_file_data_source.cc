@@ -87,6 +87,9 @@ class StaticMapDelegate : public FileScanner::Delegate {
 
 }  // namespace
 
+// static
+constexpr int InodeFileDataSource::kTypeId;
+
 void CreateStaticDeviceToInodeMap(
     const std::string& root_directory,
     std::map<BlockDeviceID, std::unordered_map<Inode, InodeMapValue>>*
@@ -109,24 +112,29 @@ void InodeFileDataSource::FillInodeEntry(InodeFileMap* destination,
 InodeFileDataSource::InodeFileDataSource(
     DataSourceConfig source_config,
     base::TaskRunner* task_runner,
-    TracingSessionID id,
+    TracingSessionID session_id,
     std::map<BlockDeviceID, std::unordered_map<Inode, InodeMapValue>>*
         static_file_map,
     LRUInodeCache* cache,
     std::unique_ptr<TraceWriter> writer)
-    : source_config_(std::move(source_config)),
+    : ProbesDataSource(session_id, kTypeId),
+      source_config_(std::move(source_config)),
       scan_mount_points_(
           source_config_.inode_file_config().scan_mount_points().cbegin(),
           source_config_.inode_file_config().scan_mount_points().cend()),
       mount_point_mapping_(BuildMountpointMapping(source_config_)),
       task_runner_(task_runner),
-      session_id_(id),
       static_file_map_(static_file_map),
       cache_(cache),
       writer_(std::move(writer)),
       weak_factory_(this) {}
 
 InodeFileDataSource::~InodeFileDataSource() = default;
+
+void InodeFileDataSource::Start() {
+  // Nothing special to do, this data source is only reacting to on-demand
+  // events such as OnInodes().
+}
 
 void InodeFileDataSource::AddInodesFromStaticMap(
     BlockDeviceID block_device_id,
@@ -174,9 +182,10 @@ void InodeFileDataSource::AddInodesFromLRUCache(
     PERFETTO_DLOG("%" PRIu64 " inodes found in cache", cache_found_count);
 }
 
-void InodeFileDataSource::Flush() {
+void InodeFileDataSource::Flush(FlushRequestID,
+                                std::function<void()> callback) {
   ResetTracePacket();
-  writer_->Flush();
+  writer_->Flush(callback);
 }
 
 void InodeFileDataSource::OnInodes(

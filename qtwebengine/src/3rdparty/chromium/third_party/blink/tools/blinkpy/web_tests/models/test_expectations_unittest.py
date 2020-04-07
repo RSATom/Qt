@@ -36,7 +36,7 @@ from blinkpy.web_tests.models.test_configuration import TestConfiguration, TestC
 from blinkpy.web_tests.models.test_expectations import (
     TestExpectationLine, TestExpectations, ParseError, TestExpectationParser,
     PASS, FAIL, TEXT, IMAGE, IMAGE_PLUS_TEXT, AUDIO,
-    TIMEOUT, CRASH, LEAK, SKIP, WONTFIX, NEEDS_MANUAL_REBASELINE, MISSING
+    TIMEOUT, CRASH, LEAK, SKIP, WONTFIX, MISSING
 )
 
 
@@ -121,42 +121,15 @@ class MiscTests(Base):
 
     def test_result_was_expected(self):
         # test basics
-        self.assertEqual(TestExpectations.result_was_expected(PASS, set([PASS]), test_needs_rebaselining=False), True)
-        self.assertEqual(TestExpectations.result_was_expected(FAIL, set([PASS]), test_needs_rebaselining=False), False)
+        self.assertEqual(TestExpectations.result_was_expected(PASS, set([PASS])), True)
+        self.assertEqual(TestExpectations.result_was_expected(FAIL, set([PASS])), False)
 
         # test handling of SKIPped tests and results
-        self.assertEqual(TestExpectations.result_was_expected(SKIP, set([CRASH]), test_needs_rebaselining=False), True)
-        self.assertEqual(TestExpectations.result_was_expected(SKIP, set([LEAK]), test_needs_rebaselining=False), True)
+        self.assertEqual(TestExpectations.result_was_expected(SKIP, set([CRASH])), False)
+        self.assertEqual(TestExpectations.result_was_expected(SKIP, set([LEAK])), False)
 
-        # test handling of MISSING results and the REBASELINE specifier
-        self.assertEqual(TestExpectations.result_was_expected(MISSING, set([PASS]), test_needs_rebaselining=True), True)
-        self.assertEqual(TestExpectations.result_was_expected(MISSING, set([PASS]), test_needs_rebaselining=False), False)
-
-        self.assertTrue(TestExpectations.result_was_expected(
-            PASS, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertTrue(TestExpectations.result_was_expected(
-            MISSING, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertTrue(TestExpectations.result_was_expected(
-            TEXT, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertTrue(TestExpectations.result_was_expected(
-            IMAGE, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertTrue(TestExpectations.result_was_expected(
-            IMAGE_PLUS_TEXT, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertTrue(TestExpectations.result_was_expected(
-            AUDIO, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertFalse(TestExpectations.result_was_expected(
-            TIMEOUT, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertFalse(TestExpectations.result_was_expected(
-            CRASH, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-        self.assertFalse(TestExpectations.result_was_expected(
-            LEAK, set([NEEDS_MANUAL_REBASELINE]), test_needs_rebaselining=False))
-
-    def test_remove_pixel_failures(self):
-        self.assertEqual(TestExpectations.remove_pixel_failures(set([FAIL])), set([FAIL]))
-        self.assertEqual(TestExpectations.remove_pixel_failures(set([PASS])), set([PASS]))
-        self.assertEqual(TestExpectations.remove_pixel_failures(set([IMAGE])), set([PASS]))
-        self.assertEqual(TestExpectations.remove_pixel_failures(set([FAIL])), set([FAIL]))
-        self.assertEqual(TestExpectations.remove_pixel_failures(set([PASS, IMAGE, CRASH])), set([PASS, CRASH]))
+        # test handling of MISSING results
+        self.assertEqual(TestExpectations.result_was_expected(MISSING, set([PASS])), False)
 
     def test_suffixes_for_expectations(self):
         self.assertEqual(TestExpectations.suffixes_for_expectations(set([FAIL])), set(['txt', 'png', 'wav']))
@@ -195,8 +168,8 @@ class MiscTests(Base):
     def test_parse_warning(self):
         try:
             filesystem = self._port.host.filesystem
-            filesystem.write_text_file(filesystem.join(self._port.layout_tests_dir(), 'disabled-test.html-disabled'), 'content')
-            filesystem.write_text_file(filesystem.join(self._port.layout_tests_dir(), 'test-to-rebaseline.html'), 'content')
+            filesystem.write_text_file(filesystem.join(self._port.web_tests_dir(), 'disabled-test.html-disabled'), 'content')
+            filesystem.write_text_file(filesystem.join(self._port.web_tests_dir(), 'test-to-rebaseline.html'), 'content')
             self.parse_exp('Bug(user) [ FOO ] failures/expected/text.html [ Failure ]\n'
                            'Bug(user) non-existent-test.html [ Failure ]\n'
                            'Bug(user) disabled-test.html-disabled [ Failure ]\n',
@@ -248,25 +221,9 @@ class MiscTests(Base):
                                      'Bug(override) failures/expected/text.html [ Timeout ]\n'
                                      'Bug(override) failures/expected/text.html [ Crash ]\n')
 
-    def test_pixel_tests_flag(self):
-        def match(test, result, pixel_tests_enabled):
-            return self._exp.matches_an_expected_result(
-                test, result, pixel_tests_enabled, sanitizer_is_enabled=False)
-
-        self.parse_exp(self.get_basic_expectations())
-        self.assertTrue(match('failures/expected/text.html', FAIL, True))
-        self.assertTrue(match('failures/expected/text.html', FAIL, False))
-        self.assertFalse(match('failures/expected/text.html', CRASH, True))
-        self.assertFalse(match('failures/expected/text.html', CRASH, False))
-        self.assertFalse(match('failures/expected/image_checksum.html', PASS, True))
-        self.assertFalse(match('failures/expected/image_checksum.html', PASS, False))
-        self.assertFalse(match('failures/expected/crash.html', PASS, False))
-        self.assertTrue(match('passes/text.html', PASS, False))
-
     def test_sanitizer_flag(self):
         def match(test, result):
-            return self._exp.matches_an_expected_result(
-                test, result, pixel_tests_are_enabled=False, sanitizer_is_enabled=True)
+            return self._exp.matches_an_expected_result(test, result, sanitizer_is_enabled=True)
 
         self.parse_exp("""
 Bug(test) failures/expected/crash.html [ Crash ]
@@ -285,7 +242,7 @@ Bug(test) failures/expected/timeout.html [ Timeout ]
         self.assert_exp('failures/expected/text.html', FAIL)
         self.assertNotIn(
             self._port.host.filesystem.join(
-                self._port.layout_tests_dir(),
+                self._port.web_tests_dir(),
                 'failures/expected/text.html'),
             self._exp.get_tests_with_result_type(SKIP))
 
@@ -315,8 +272,8 @@ Bug(test) failures/expected/timeout.html [ Timeout ]
         expectations = TestExpectations(self._port, self.get_basic_tests())
         self.assertEquals(expectations._shorten_filename('/out-of-checkout/TestExpectations'),
                           '/out-of-checkout/TestExpectations')
-        self.assertEquals(expectations._shorten_filename('/mock-checkout/third_party/WebKit/LayoutTests/TestExpectations'),
-                          'third_party/WebKit/LayoutTests/TestExpectations')
+        self.assertEquals(expectations._shorten_filename('/mock-checkout/third_party/blink/web_tests/TestExpectations'),
+                          'third_party/blink/web_tests/TestExpectations')
 
 class SkippedTests(Base):
 
@@ -327,7 +284,7 @@ class SkippedTests(Base):
             options=optparse.Values({'ignore_tests': ignore_tests}))
         port.host.filesystem.write_text_file(
             port.host.filesystem.join(
-                port.layout_tests_dir(), 'failures/expected/text.html'),
+                port.web_tests_dir(), 'failures/expected/text.html'),
             'foo')
         expectations_dict = OrderedDict()
         expectations_dict['expectations'] = expectations
@@ -472,6 +429,15 @@ class SemanticTests(Base):
             self.fail('should have raised an error about a bad bug identifier')
         except ParseError as exp:
             self.assertEqual(len(exp.warnings), 3)
+
+    def test_exclusive_specifiers_error_in_lint_mode(self):
+        with self.assertRaises(ParseError):
+            self.parse_exp('BUG1234 [ Mac Win ] failures/expected/text.html [ Failure ]',
+                           is_lint_mode=True)
+
+        with self.assertRaises(ParseError):
+            self.parse_exp('BUG1234 [ Mac Debug Release ] failures/expected/text.html [ Failure ]',
+                           is_lint_mode=True)
 
     def test_missing_bugid(self):
         self.parse_exp('failures/expected/text.html [ Failure ]', is_lint_mode=False)
@@ -774,17 +740,6 @@ Bug(y) [ Mac ] failures/expected/foo.html [ Crash ]
         self.assertEqual("""Bug(x) [ Win Debug ] failures/expected/foo.html [ Failure Timeout ]
 Bug(y) [ Mac ] failures/expected/foo.html [ Crash ]
 """, actual_expectations)
-
-
-class RebaseliningTest(Base):
-
-    def test_get_rebaselining_failures(self):
-        # Make sure we find a test as needing a rebaseline even if it is not marked as a failure.
-        self.parse_exp('Bug(x) failures/expected/text.html [ Rebaseline ]\n')
-        self.assertEqual(len(self._exp.get_rebaselining_failures()), 1)
-
-        self.parse_exp(self.get_basic_expectations())
-        self.assertEqual(len(self._exp.get_rebaselining_failures()), 0)
 
 
 class TestExpectationsParserTests(unittest.TestCase):

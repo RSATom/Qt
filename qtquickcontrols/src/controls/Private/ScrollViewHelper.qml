@@ -78,6 +78,8 @@ Item {
             scrollHelper.availableWidth = viewport.width
             scrollHelper.availableHeight = viewport.height
             blockUpdates = false;
+            hscrollbar.valueChanged();
+            vscrollbar.valueChanged();
         }
     }
 
@@ -133,8 +135,11 @@ Item {
         anchors.leftMargin:  leftMargin
         anchors.bottomMargin: bottomMargin
         onScrollAmountChanged: {
+            var scrollableAmount = scrollable ? scrollAmount : 0
             if (flickableItem && (flickableItem.atXBeginning || flickableItem.atXEnd)) {
-                value = flickableItem.contentX - flickableItem.originX
+                value = Math.min(scrollableAmount, flickableItem.contentX - flickableItem.originX);
+            } else if (value > scrollableAmount) {
+                value = scrollableAmount;
             }
         }
         onValueChanged: {

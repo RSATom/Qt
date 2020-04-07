@@ -16,8 +16,6 @@ namespace {
 // integration tests.
 const char kOfflinePagesUseTestingSnapshotDelay[] =
     "short-offline-page-snapshot-delay-for-test";
-
-bool limitless_prefetching_enabled = false;
 }  // namespace
 
 namespace offline_pages {
@@ -33,6 +31,9 @@ const base::Feature kOfflinePagesCTFeature{"OfflinePagesCT",
 
 const base::Feature kOfflinePagesSharingFeature{
     "OfflinePagesSharing", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kOfflinePagesLivePageSharingFeature{
+    "OfflinePagesLivePageSharing", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kOfflinePagesSvelteConcurrentLoadingFeature{
     "OfflinePagesSvelteConcurrentLoading", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -55,12 +56,6 @@ const base::Feature kPrefetchingOfflinePagesFeature{
 const base::Feature kOfflinePagesCTV2Feature{"OfflinePagesCTV2",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kOfflinePagesPrefetchingUIFeature{
-    "OfflinePagesPrefetchingUI", base::FEATURE_ENABLED_BY_DEFAULT};
-
-const base::Feature kOfflinePagesLimitlessPrefetchingFeature{
-    "OfflinePagesLimitlessPrefetching", base::FEATURE_DISABLED_BY_DEFAULT};
-
 const base::Feature kOfflinePagesDescriptiveFailStatusFeature{
     "OfflinePagesDescriptiveFailStatus", base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -78,6 +73,12 @@ const base::Feature kOfflinePagesShowAlternateDinoPageFeature{
 
 const base::Feature kOfflineIndicatorFeature{"OfflineIndicator",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kOfflineIndicatorAlwaysHttpProbeFeature{
+    "OfflineIndicatorAlwaysHttpProbe", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kOnTheFlyMhtmlHashComputationFeature{
+    "OnTheFlyMhtmlHashComputation", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const char kPrefetchingOfflinePagesExperimentsOption[] = "exp";
 
@@ -102,26 +103,16 @@ bool IsOfflinePagesSharingEnabled() {
   return base::FeatureList::IsEnabled(kOfflinePagesSharingFeature);
 }
 
+bool IsOfflinePagesLivePageSharingEnabled() {
+  return base::FeatureList::IsEnabled(kOfflinePagesLivePageSharingFeature);
+}
+
 bool IsBackgroundLoaderForDownloadsEnabled() {
   return base::FeatureList::IsEnabled(kBackgroundLoaderForDownloadsFeature);
 }
 
 bool IsPrefetchingOfflinePagesEnabled() {
   return base::FeatureList::IsEnabled(kPrefetchingOfflinePagesFeature);
-}
-
-bool IsOfflinePagesPrefetchingUIEnabled() {
-  return IsPrefetchingOfflinePagesEnabled() &&
-         base::FeatureList::IsEnabled(kOfflinePagesPrefetchingUIFeature);
-}
-
-bool IsLimitlessPrefetchingEnabled() {
-  // TODO(https://crbug.com/803584): fix limitless mode or fully remove it.
-  return limitless_prefetching_enabled;
-}
-
-void SetLimitlessPrefetchingEnabledForTesting(bool enabled) {
-  limitless_prefetching_enabled = enabled;
 }
 
 bool IsOfflinePagesLoadSignalCollectingEnabled() {
@@ -179,6 +170,14 @@ std::string GetPrefetchingOfflinePagesExperimentTag() {
 
 bool IsOfflineIndicatorFeatureEnabled() {
   return base::FeatureList::IsEnabled(kOfflineIndicatorFeature);
+}
+
+bool IsOfflineIndicatorAlwaysHttpProbeEnabled() {
+  return base::FeatureList::IsEnabled(kOfflineIndicatorAlwaysHttpProbeFeature);
+}
+
+bool IsOnTheFlyMhtmlHashComputationEnabled() {
+  return base::FeatureList::IsEnabled(kOnTheFlyMhtmlHashComputationFeature);
 }
 
 }  // namespace offline_pages

@@ -15,7 +15,7 @@
 #include "core/fpdfapi/edit/cpdf_pagecontentmanager.h"
 #include "core/fpdfapi/edit/cpdf_stringarchivestream.h"
 #include "core/fpdfapi/font/cpdf_font.h"
-#include "core/fpdfapi/page/cpdf_contentmark.h"
+#include "core/fpdfapi/page/cpdf_contentmarks.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/cpdf_image.h"
 #include "core/fpdfapi/page/cpdf_imageobject.h"
@@ -32,6 +32,7 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 #include "third_party/skia_shared/SkFloatToDecimal.h"
 
@@ -96,9 +97,9 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
   // Start regenerating dirty streams.
   std::map<int32_t, std::unique_ptr<std::ostringstream>> streams;
   std::set<int32_t> empty_streams;
-  std::unique_ptr<const CPDF_ContentMark> empty_content_mark =
-      pdfium::MakeUnique<CPDF_ContentMark>();
-  std::map<int32_t, const CPDF_ContentMark*> current_content_mark;
+  std::unique_ptr<const CPDF_ContentMarks> empty_content_marks =
+      pdfium::MakeUnique<CPDF_ContentMarks>();
+  std::map<int32_t, const CPDF_ContentMarks*> current_content_marks;
 
   for (int32_t dirty_stream : all_dirty_streams) {
     std::unique_ptr<std::ostringstream> buf =
@@ -113,7 +114,7 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
 
     streams[dirty_stream] = std::move(buf);
     empty_streams.insert(dirty_stream);
-    current_content_mark[dirty_stream] = empty_content_mark.get();
+    current_content_marks[dirty_stream] = empty_content_marks.get();
   }
 
   // Process the page objects, write into each dirty stream.
@@ -125,8 +126,8 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
 
     std::ostringstream* buf = it->second.get();
     empty_streams.erase(stream_index);
-    current_content_mark[stream_index] = ProcessContentMarks(
-        buf, pPageObj.Get(), current_content_mark[stream_index]);
+    current_content_marks[stream_index] = ProcessContentMarks(
+        buf, pPageObj.Get(), current_content_marks[stream_index]);
     ProcessPageObject(buf, pPageObj.Get());
   }
 
@@ -137,7 +138,7 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
       // Clear to show that this stream needs to be deleted.
       buf->str("");
     } else {
-      FinishMarks(buf, current_content_mark[dirty_stream]);
+      FinishMarks(buf, current_content_marks[dirty_stream]);
 
       // Return graphics to original state
       *buf << "Q\n";
@@ -176,7 +177,7 @@ void CPDF_PageContentGenerator::UpdateContentStreams(
     if (buf->tellp() <= 0)
       page_content_manager.ScheduleRemoveStreamByIndex(stream_index);
     else
-      old_stream->SetData(buf);
+      old_stream->SetDataFromStringstream(buf);
   }
 
   page_content_manager.ExecuteScheduledRemovals();
@@ -211,19 +212,19 @@ ByteString CPDF_PageContentGenerator::RealizeResource(
 
 bool CPDF_PageContentGenerator::ProcessPageObjects(std::ostringstream* buf) {
   bool bDirty = false;
-  std::unique_ptr<const CPDF_ContentMark> empty_content_mark =
-      pdfium::MakeUnique<CPDF_ContentMark>();
-  const CPDF_ContentMark* content_mark = empty_content_mark.get();
+  std::unique_ptr<const CPDF_ContentMarks> empty_content_marks =
+      pdfium::MakeUnique<CPDF_ContentMarks>();
+  const CPDF_ContentMarks* content_marks = empty_content_marks.get();
 
   for (auto& pPageObj : m_pageObjects) {
     if (m_pObjHolder->IsPage() && !pPageObj->IsDirty())
       continue;
 
     bDirty = true;
-    content_mark = ProcessContentMarks(buf, pPageObj.Get(), content_mark);
+    content_marks = ProcessContentMarks(buf, pPageObj.Get(), content_marks);
     ProcessPageObject(buf, pPageObj.Get());
   }
-  FinishMarks(buf, content_mark);
+  FinishMarks(buf, content_marks);
   return bDirty;
 }
 
@@ -235,11 +236,11 @@ void CPDF_PageContentGenerator::UpdateStreamlessPageObjects(
   }
 }
 
-const CPDF_ContentMark* CPDF_PageContentGenerator::ProcessContentMarks(
+const CPDF_ContentMarks* CPDF_PageContentGenerator::ProcessContentMarks(
     std::ostringstream* buf,
     const CPDF_PageObject* pPageObj,
-    const CPDF_ContentMark* pPrev) {
-  const CPDF_ContentMark* pNext = &pPageObj->m_ContentMark;
+    const CPDF_ContentMarks* pPrev) {
+  const CPDF_ContentMarks* pNext = &pPageObj->m_ContentMarks;
 
   size_t first_different = pPrev->FindFirstDifference(pNext);
 
@@ -255,22 +256,29 @@ const CPDF_ContentMark* CPDF_PageContentGenerator::ProcessContentMarks(
     const CPDF_ContentMarkItem* item = pNext->GetItem(i);
 
     // Write mark tag.
-    *buf << "/" << item->GetName() << " ";
+    *buf << "/" << PDF_NameEncode(item->GetName()) << " ";
 
     // If there are no parameters, write a BMC (begin marked content) operator.
-    if (item->GetParamType() == CPDF_ContentMarkItem::None) {
+    if (item->GetParamType() == CPDF_ContentMarkItem::kNone) {
       *buf << "BMC\n";
       continue;
     }
 
     // If there are parameters, write properties, direct or indirect.
-    if (item->GetParamType() == CPDF_ContentMarkItem::DirectDict) {
-      CPDF_StringArchiveStream archive_stream(buf);
-      item->GetParam()->WriteTo(&archive_stream);
-      *buf << " ";
-    } else {
-      ASSERT(item->GetParamType() == CPDF_ContentMarkItem::PropertiesDict);
-      *buf << "/" << item->GetPropertyName() << " ";
+    switch (item->GetParamType()) {
+      case CPDF_ContentMarkItem::kDirectDict: {
+        CPDF_StringArchiveStream archive_stream(buf);
+        item->GetParam()->WriteTo(&archive_stream, nullptr);
+        *buf << " ";
+        break;
+      }
+      case CPDF_ContentMarkItem::kPropertiesDict: {
+        *buf << "/" << item->GetPropertyName() << " ";
+        break;
+      }
+      default:
+        NOTREACHED();
+        break;
     }
 
     // Write BDC (begin dictionary content) operator.
@@ -282,11 +290,11 @@ const CPDF_ContentMark* CPDF_PageContentGenerator::ProcessContentMarks(
 
 void CPDF_PageContentGenerator::FinishMarks(
     std::ostringstream* buf,
-    const CPDF_ContentMark* pContentMark) {
+    const CPDF_ContentMarks* pContentMarks) {
   // Technically we should iterate backwards to close from the top to the
   // bottom, but since the EMC operators do not identify which mark they are
   // closing, it does not matter.
-  for (size_t i = 0; i < pContentMark->CountItems(); ++i)
+  for (size_t i = 0; i < pContentMarks->CountItems(); ++i)
     *buf << "EMC\n";
 }
 
@@ -344,10 +352,10 @@ void CPDF_PageContentGenerator::ProcessPath(std::ostringstream* buf,
                                             CPDF_PathObject* pPathObj) {
   ProcessGraphics(buf, pPathObj);
 
-  *buf << pPathObj->m_Matrix << " cm ";
+  *buf << pPathObj->matrix() << " cm ";
 
-  auto& pPoints = pPathObj->m_Path.GetPoints();
-  if (pPathObj->m_Path.IsRect()) {
+  const auto& pPoints = pPathObj->path().GetPoints();
+  if (pPathObj->path().IsRect()) {
     CFX_PointF diff = pPoints[2].m_Point - pPoints[0].m_Point;
     *buf << pPoints[0].m_Point.x << " " << pPoints[0].m_Point.y << " " << diff.x
          << " " << diff.y << " re";
@@ -386,12 +394,12 @@ void CPDF_PageContentGenerator::ProcessPath(std::ostringstream* buf,
         *buf << " h";
     }
   }
-  if (pPathObj->m_FillType == 0)
-    *buf << (pPathObj->m_bStroke ? " S" : " n");
-  else if (pPathObj->m_FillType == FXFILL_WINDING)
-    *buf << (pPathObj->m_bStroke ? " B" : " f");
-  else if (pPathObj->m_FillType == FXFILL_ALTERNATE)
-    *buf << (pPathObj->m_bStroke ? " B*" : " f*");
+  if (pPathObj->filltype() == 0)
+    *buf << (pPathObj->stroke() ? " S" : " n");
+  else if (pPathObj->filltype() == FXFILL_WINDING)
+    *buf << (pPathObj->stroke() ? " B" : " f");
+  else if (pPathObj->filltype() == FXFILL_ALTERNATE)
+    *buf << (pPathObj->stroke() ? " B*" : " f*");
   *buf << " Q\n";
 }
 
@@ -431,8 +439,7 @@ void CPDF_PageContentGenerator::ProcessGraphics(std::ostringstream* buf,
   graphD.strokeAlpha = pPageObj->m_GeneralState.GetStrokeAlpha();
   graphD.blendType = pPageObj->m_GeneralState.GetBlendType();
   if (graphD.fillAlpha == 1.0f && graphD.strokeAlpha == 1.0f &&
-      (graphD.blendType == FXDIB_BLEND_UNSUPPORTED ||
-       graphD.blendType == FXDIB_BLEND_NORMAL)) {
+      graphD.blendType == BlendMode::kNormal) {
     return;
   }
 
@@ -448,8 +455,7 @@ void CPDF_PageContentGenerator::ProcessGraphics(std::ostringstream* buf,
     if (graphD.strokeAlpha != 1.0f)
       gsDict->SetNewFor<CPDF_Number>("CA", graphD.strokeAlpha);
 
-    if (graphD.blendType != FXDIB_BLEND_UNSUPPORTED &&
-        graphD.blendType != FXDIB_BLEND_NORMAL) {
+    if (graphD.blendType != BlendMode::kNormal) {
       gsDict->SetNewFor<CPDF_Name>("BM",
                                    pPageObj->m_GeneralState.GetBlendMode());
     }
@@ -473,7 +479,7 @@ ByteString CPDF_PageContentGenerator::GetOrCreateDefaultGraphics() const {
   GraphicsData defaultGraphics;
   defaultGraphics.fillAlpha = 1.0f;
   defaultGraphics.strokeAlpha = 1.0f;
-  defaultGraphics.blendType = FXDIB_BLEND_NORMAL;
+  defaultGraphics.blendType = BlendMode::kNormal;
   auto it = m_pObjHolder->m_GraphicsMap.find(defaultGraphics);
 
   // If default graphics already exists, return it.

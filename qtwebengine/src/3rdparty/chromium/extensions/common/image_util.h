@@ -7,7 +7,13 @@
 
 #include <string>
 
+class SkBitmap;
+
 typedef unsigned int SkColor;
+
+namespace base {
+class FilePath;
+}
 
 // This file contains various utility functions for extension images and colors.
 namespace extensions {
@@ -29,6 +35,32 @@ bool ParseRgbColorString(const std::string& color_string, SkColor* result);
 
 // Parses hsl() or hsla() string to a SkColor. Returns true for success.
 bool ParseHslColorString(const std::string& color_string, SkColor* result);
+
+// Returns whether an icon image is considered to be visible in its display
+// context.
+bool IsIconSufficientlyVisible(const SkBitmap& bitmap);
+
+// Returns whether an icon image is considered to be visible in its display
+// context.
+bool IsIconAtPathSufficientlyVisible(const base::FilePath& path);
+
+// This is the color of the toolbar in the default scheme. There is a unit test
+// to catch any changes to this value.
+extern const SkColor kDefaultToolbarColor;
+
+// Renders the icon bitmap onto another bitmap, combining it with the specified
+// background color, then determines whether the rendered icon is sufficiently
+// visible against the background.
+bool IsRenderedIconSufficientlyVisible(const SkBitmap& bitmap,
+                                       SkColor background_color);
+
+// Returns whether an icon image is considered to be visible in its display
+// context, according to the previous function.
+bool IsRenderedIconAtPathSufficientlyVisible(const base::FilePath& path,
+                                             SkColor background_color);
+
+// Load a PNG image from a file into the destination bitmap.
+bool LoadPngFromFile(const base::FilePath& path, SkBitmap* dst);
 
 }  // namespace image_util
 }  // namespace extensions

@@ -10,20 +10,46 @@
 #include "libANGLE/GLES1State.h"
 
 #include "libANGLE/Context.h"
+#include "libANGLE/GLES1Renderer.h"
 
 namespace gl
 {
 
 TextureCoordF::TextureCoordF() = default;
 
-TextureCoordF::TextureCoordF(float _s, float _t, float _r, float _q) : s(_s), t(_t), r(_r), q(_q)
-{
-}
+TextureCoordF::TextureCoordF(float _s, float _t, float _r, float _q) : s(_s), t(_t), r(_r), q(_q) {}
 
 bool TextureCoordF::operator==(const TextureCoordF &other) const
 {
     return s == other.s && t == other.t && r == other.r && q == other.q;
 }
+
+MaterialParameters::MaterialParameters() = default;
+
+LightModelParameters::LightModelParameters() = default;
+
+LightParameters::LightParameters() = default;
+
+LightParameters::LightParameters(const LightParameters &other) = default;
+
+FogParameters::FogParameters() = default;
+
+TextureEnvironmentParameters::TextureEnvironmentParameters() = default;
+
+TextureEnvironmentParameters::TextureEnvironmentParameters(
+    const TextureEnvironmentParameters &other) = default;
+
+PointParameters::PointParameters() = default;
+
+PointParameters::PointParameters(const PointParameters &other) = default;
+
+ClipPlaneParameters::ClipPlaneParameters() = default;
+
+ClipPlaneParameters::ClipPlaneParameters(bool enabled, const angle::Vector4 &equation)
+    : enabled(enabled), equation(equation)
+{}
+
+ClipPlaneParameters::ClipPlaneParameters(const ClipPlaneParameters &other) = default;
 
 GLES1State::GLES1State()
     : mGLState(nullptr),
@@ -54,8 +80,7 @@ GLES1State::GLES1State()
       mPointSmoothHint(HintSetting::DontCare),
       mPerspectiveCorrectionHint(HintSetting::DontCare),
       mFogHint(HintSetting::DontCare)
-{
-}
+{}
 
 GLES1State::~GLES1State() = default;
 
@@ -137,7 +162,8 @@ void GLES1State::initialize(const Context *context, const State *state)
 
     mLogicOp = LogicalOperation::Copy;
 
-    mClipPlanes.resize(caps.maxClipPlanes, {false, angle::Vector4(0.0f, 0.0f, 0.0f, 0.0f)});
+    mClipPlanes.resize(caps.maxClipPlanes,
+                       ClipPlaneParameters(false, angle::Vector4(0.0f, 0.0f, 0.0f, 0.0f)));
 
     mLineSmoothHint            = HintSetting::DontCare;
     mPointSmoothHint           = HintSetting::DontCare;
@@ -205,6 +231,22 @@ MatrixType GLES1State::getMatrixMode() const
     return mMatrixMode;
 }
 
+GLint GLES1State::getCurrentMatrixStackDepth(GLenum queryType) const
+{
+    switch (queryType)
+    {
+        case GL_MODELVIEW_STACK_DEPTH:
+            return clampCast<GLint>(mModelviewMatrices.size());
+        case GL_PROJECTION_STACK_DEPTH:
+            return clampCast<GLint>(mProjectionMatrices.size());
+        case GL_TEXTURE_STACK_DEPTH:
+            return clampCast<GLint>(mTextureMatrices[mGLState->getActiveSampler()].size());
+        default:
+            UNREACHABLE();
+            return 0;
+    }
+}
+
 void GLES1State::pushMatrix()
 {
     auto &stack = currentMatrixStack();
@@ -265,6 +307,11 @@ void GLES1State::multMatrix(const angle::Mat4 &m)
     currentMatrixStack().back() = currentMatrix.product(m);
 }
 
+void GLES1State::setLogicOp(LogicalOperation opcodePacked)
+{
+    mLogicOp = opcodePacked;
+}
+
 void GLES1State::setClientStateEnabled(ClientVertexArrayType clientState, bool enable)
 {
     switch (clientState)
@@ -288,6 +335,11 @@ void GLES1State::setClientStateEnabled(ClientVertexArrayType clientState, bool e
             UNREACHABLE();
             break;
     }
+}
+
+void GLES1State::setTexCoordArrayEnabled(unsigned int unit, bool enable)
+{
+    mTexCoordArrayEnabled[unit] = enable;
 }
 
 bool GLES1State::isClientStateEnabled(ClientVertexArrayType clientState) const
@@ -411,4 +463,68 @@ const PointParameters &GLES1State::pointParameters() const
     return mPointParameters;
 }
 
+AttributesMask GLES1State::getVertexArraysAttributeMask() const
+{
+    AttributesMask attribsMask;
+
+    ClientVertexArrayType nonTexcoordArrays[] = {
+        ClientVertexArrayType::Vertex,
+        ClientVertexArrayType::Normal,
+        ClientVertexArrayType::Color,
+        ClientVertexArrayType::PointSize,
+    };
+
+    for (const ClientVertexArrayType attrib : nonTexcoordArrays)
+    {
+        attribsMask.set(GLES1Renderer::VertexArrayIndex(attrib, *this),
+                        isClientStateEnabled(attrib));
+    }
+
+    for (unsigned int i = 0; i < GLES1Renderer::kTexUnitCount; i++)
+    {
+        attribsMask.set(GLES1Renderer::TexCoordArrayIndex(i), isTexCoordArrayEnabled(i));
+    }
+
+    return attribsMask;
+}
+
+void GLES1State::setHint(GLenum target, GLenum mode)
+{
+    HintSetting setting = FromGLenum<HintSetting>(mode);
+    switch (target)
+    {
+        case GL_PERSPECTIVE_CORRECTION_HINT:
+            mPerspectiveCorrectionHint = setting;
+            break;
+        case GL_POINT_SMOOTH_HINT:
+            mPointSmoothHint = setting;
+            break;
+        case GL_LINE_SMOOTH_HINT:
+            mLineSmoothHint = setting;
+            break;
+        case GL_FOG_HINT:
+            mFogHint = setting;
+            break;
+        default:
+            UNREACHABLE();
+    }
+}
+
+GLenum GLES1State::getHint(GLenum target)
+{
+    switch (target)
+    {
+        case GL_PERSPECTIVE_CORRECTION_HINT:
+            return ToGLenum(mPerspectiveCorrectionHint);
+        case GL_POINT_SMOOTH_HINT:
+            return ToGLenum(mPointSmoothHint);
+        case GL_LINE_SMOOTH_HINT:
+            return ToGLenum(mLineSmoothHint);
+        case GL_FOG_HINT:
+            return ToGLenum(mFogHint);
+        default:
+            UNREACHABLE();
+            return 0;
+    }
+}
 }  // namespace gl

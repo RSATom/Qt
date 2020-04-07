@@ -25,41 +25,44 @@
 
 #include "third_party/blink/renderer/modules/webaudio/offline_audio_completion_event.h"
 
+#include "third_party/blink/renderer/core/event_type_names.h"
+
 namespace blink {
 
 OfflineAudioCompletionEvent* OfflineAudioCompletionEvent::Create() {
-  return new OfflineAudioCompletionEvent;
+  return MakeGarbageCollected<OfflineAudioCompletionEvent>();
 }
 
 OfflineAudioCompletionEvent* OfflineAudioCompletionEvent::Create(
     AudioBuffer* rendered_buffer) {
-  return new OfflineAudioCompletionEvent(rendered_buffer);
+  return MakeGarbageCollected<OfflineAudioCompletionEvent>(rendered_buffer);
 }
 
 OfflineAudioCompletionEvent* OfflineAudioCompletionEvent::Create(
     const AtomicString& event_type,
-    const OfflineAudioCompletionEventInit& event_init) {
-  return new OfflineAudioCompletionEvent(event_type, event_init);
+    const OfflineAudioCompletionEventInit* event_init) {
+  return MakeGarbageCollected<OfflineAudioCompletionEvent>(event_type,
+                                                           event_init);
 }
 
 OfflineAudioCompletionEvent::OfflineAudioCompletionEvent() = default;
 
 OfflineAudioCompletionEvent::OfflineAudioCompletionEvent(
     AudioBuffer* rendered_buffer)
-    : Event(EventTypeNames::complete, Bubbles::kYes, Cancelable::kNo),
+    : Event(event_type_names::kComplete, Bubbles::kYes, Cancelable::kNo),
       rendered_buffer_(rendered_buffer) {}
 
 OfflineAudioCompletionEvent::OfflineAudioCompletionEvent(
     const AtomicString& event_type,
-    const OfflineAudioCompletionEventInit& event_init)
+    const OfflineAudioCompletionEventInit* event_init)
     : Event(event_type, event_init) {
-  rendered_buffer_ = event_init.renderedBuffer();
+  rendered_buffer_ = event_init->renderedBuffer();
 }
 
 OfflineAudioCompletionEvent::~OfflineAudioCompletionEvent() = default;
 
 const AtomicString& OfflineAudioCompletionEvent::InterfaceName() const {
-  return EventNames::OfflineAudioCompletionEvent;
+  return event_interface_names::kOfflineAudioCompletionEvent;
 }
 
 void OfflineAudioCompletionEvent::Trace(blink::Visitor* visitor) {

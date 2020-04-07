@@ -41,7 +41,7 @@ RemoteFrameClientImpl::RemoteFrameClientImpl(WebRemoteFrameImpl* web_frame)
 
 RemoteFrameClientImpl* RemoteFrameClientImpl::Create(
     WebRemoteFrameImpl* web_frame) {
-  return new RemoteFrameClientImpl(web_frame);
+  return MakeGarbageCollected<RemoteFrameClientImpl>(web_frame);
 }
 
 void RemoteFrameClientImpl::Trace(blink::Visitor* visitor) {
@@ -112,20 +112,13 @@ void RemoteFrameClientImpl::Navigate(
     const ResourceRequest& request,
     bool should_replace_current_entry,
     bool is_opener_navigation,
+    bool prevent_sandboxed_download,
     mojom::blink::BlobURLTokenPtr blob_url_token) {
   if (web_frame_->Client()) {
     web_frame_->Client()->Navigate(
         WrappedResourceRequest(request), should_replace_current_entry,
-        is_opener_navigation, blob_url_token.PassInterface().PassHandle());
-  }
-}
-
-void RemoteFrameClientImpl::Reload(
-    WebFrameLoadType load_type,
-    ClientRedirectPolicy client_redirect_policy) {
-  DCHECK(IsReloadLoadType(load_type));
-  if (web_frame_->Client()) {
-    web_frame_->Client()->Reload(load_type, client_redirect_policy);
+        is_opener_navigation, prevent_sandboxed_download,
+        blob_url_token.PassInterface().PassHandle());
   }
 }
 
@@ -161,8 +154,10 @@ void RemoteFrameClientImpl::FrameRectsChanged(
 }
 
 void RemoteFrameClientImpl::UpdateRemoteViewportIntersection(
-    const IntRect& viewport_intersection) {
-  web_frame_->Client()->UpdateRemoteViewportIntersection(viewport_intersection);
+    const IntRect& viewport_intersection,
+    bool occluded_or_obscured) {
+  web_frame_->Client()->UpdateRemoteViewportIntersection(viewport_intersection,
+                                                         occluded_or_obscured);
 }
 
 void RemoteFrameClientImpl::AdvanceFocus(WebFocusType type,

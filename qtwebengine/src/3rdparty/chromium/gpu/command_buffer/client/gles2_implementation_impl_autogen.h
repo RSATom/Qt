@@ -201,13 +201,12 @@ GLenum GLES2Implementation::CheckFramebufferStatus(GLenum target) {
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glCheckFramebufferStatus("
                      << GLES2Util::GetStringFramebufferTarget(target) << ")");
   typedef cmds::CheckFramebufferStatus::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FRAMEBUFFER_UNSUPPORTED;
   }
   *result = 0;
-  helper_->CheckFramebufferStatus(target, GetResultShmId(),
-                                  GetResultShmOffset());
+  helper_->CheckFramebufferStatus(target, GetResultShmId(), result.offset());
   WaitForCmd();
   GLenum result_value = *result;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -509,7 +508,8 @@ void GLES2Implementation::DeleteProgram(GLuint program) {
   GPU_CLIENT_SINGLE_THREAD_CHECK();
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glDeleteProgram(" << program
                      << ")");
-  GPU_CLIENT_DCHECK(program != 0);
+  if (program == 0)
+    return;
   DeleteProgramHelper(program);
   CheckGLError();
 }
@@ -562,7 +562,8 @@ void GLES2Implementation::DeleteSamplers(GLsizei n, const GLuint* samplers) {
 void GLES2Implementation::DeleteSync(GLsync sync) {
   GPU_CLIENT_SINGLE_THREAD_CHECK();
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glDeleteSync(" << sync << ")");
-  GPU_CLIENT_DCHECK(sync != 0);
+  if (sync == 0)
+    return;
   DeleteSyncHelper(sync);
   CheckGLError();
 }
@@ -570,7 +571,8 @@ void GLES2Implementation::DeleteSync(GLsync sync) {
 void GLES2Implementation::DeleteShader(GLuint shader) {
   GPU_CLIENT_SINGLE_THREAD_CHECK();
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glDeleteShader(" << shader << ")");
-  GPU_CLIENT_DCHECK(shader != 0);
+  if (shader == 0)
+    return;
   DeleteShaderHelper(shader);
   CheckGLError();
 }
@@ -872,12 +874,12 @@ void GLES2Implementation::GetBooleanv(GLenum pname, GLboolean* params) {
     return;
   }
   typedef cmds::GetBooleanv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetBooleanv(pname, GetResultShmId(), GetResultShmOffset());
+  helper_->GetBooleanv(pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -900,13 +902,13 @@ void GLES2Implementation::GetBufferParameteri64v(GLenum target,
     return;
   }
   typedef cmds::GetBufferParameteri64v::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
   helper_->GetBufferParameteri64v(target, pname, GetResultShmId(),
-                                  GetResultShmOffset());
+                                  result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -930,13 +932,13 @@ void GLES2Implementation::GetBufferParameteriv(GLenum target,
     return;
   }
   typedef cmds::GetBufferParameteriv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
   helper_->GetBufferParameteriv(target, pname, GetResultShmId(),
-                                GetResultShmOffset());
+                                result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -956,12 +958,12 @@ void GLES2Implementation::GetFloatv(GLenum pname, GLfloat* params) {
     return;
   }
   typedef cmds::GetFloatv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetFloatv(pname, GetResultShmId(), GetResultShmOffset());
+  helper_->GetFloatv(pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -990,13 +992,13 @@ void GLES2Implementation::GetFramebufferAttachmentParameteriv(GLenum target,
     return;
   }
   typedef cmds::GetFramebufferAttachmentParameteriv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
   helper_->GetFramebufferAttachmentParameteriv(
-      target, attachment, pname, GetResultShmId(), GetResultShmOffset());
+      target, attachment, pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1016,12 +1018,12 @@ void GLES2Implementation::GetInteger64v(GLenum pname, GLint64* params) {
     return;
   }
   typedef cmds::GetInteger64v::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetInteger64v(pname, GetResultShmId(), GetResultShmOffset());
+  helper_->GetInteger64v(pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1044,12 +1046,12 @@ void GLES2Implementation::GetIntegeri_v(GLenum pname,
     return;
   }
   typedef cmds::GetIntegeri_v::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetIntegeri_v(pname, index, GetResultShmId(), GetResultShmOffset());
+  helper_->GetIntegeri_v(pname, index, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(data);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1071,13 +1073,12 @@ void GLES2Implementation::GetInteger64i_v(GLenum pname,
     return;
   }
   typedef cmds::GetInteger64i_v::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetInteger64i_v(pname, index, GetResultShmId(),
-                           GetResultShmOffset());
+  helper_->GetInteger64i_v(pname, index, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(data);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1098,12 +1099,12 @@ void GLES2Implementation::GetIntegerv(GLenum pname, GLint* params) {
     return;
   }
   typedef cmds::GetIntegerv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetIntegerv(pname, GetResultShmId(), GetResultShmOffset());
+  helper_->GetIntegerv(pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1126,12 +1127,12 @@ void GLES2Implementation::GetProgramiv(GLuint program,
     return;
   }
   typedef cmds::GetProgramiv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetProgramiv(program, pname, GetResultShmId(), GetResultShmOffset());
+  helper_->GetProgramiv(program, pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1163,7 +1164,7 @@ void GLES2Implementation::GetProgramInfoLog(GLuint program,
       GPU_CLIENT_LOG("------\n" << infolog << "\n------");
     }
   }
-  if (length != NULL) {
+  if (length != nullptr) {
     *length = max_size;
   }
   CheckGLError();
@@ -1182,13 +1183,13 @@ void GLES2Implementation::GetRenderbufferParameteriv(GLenum target,
     return;
   }
   typedef cmds::GetRenderbufferParameteriv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
   helper_->GetRenderbufferParameteriv(target, pname, GetResultShmId(),
-                                      GetResultShmOffset());
+                                      result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1211,13 +1212,13 @@ void GLES2Implementation::GetSamplerParameterfv(GLuint sampler,
     return;
   }
   typedef cmds::GetSamplerParameterfv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
   helper_->GetSamplerParameterfv(sampler, pname, GetResultShmId(),
-                                 GetResultShmOffset());
+                                 result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1241,13 +1242,13 @@ void GLES2Implementation::GetSamplerParameteriv(GLuint sampler,
     return;
   }
   typedef cmds::GetSamplerParameteriv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
   helper_->GetSamplerParameteriv(sampler, pname, GetResultShmId(),
-                                 GetResultShmOffset());
+                                 result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1270,12 +1271,12 @@ void GLES2Implementation::GetShaderiv(GLuint shader,
     return;
   }
   typedef cmds::GetShaderiv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetShaderiv(shader, pname, GetResultShmId(), GetResultShmOffset());
+  helper_->GetShaderiv(shader, pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1307,7 +1308,7 @@ void GLES2Implementation::GetShaderInfoLog(GLuint shader,
       GPU_CLIENT_LOG("------\n" << infolog << "\n------");
     }
   }
-  if (length != NULL) {
+  if (length != nullptr) {
     *length = max_size;
   }
   CheckGLError();
@@ -1334,7 +1335,7 @@ void GLES2Implementation::GetShaderSource(GLuint shader,
       GPU_CLIENT_LOG("------\n" << source << "\n------");
     }
   }
-  if (length != NULL) {
+  if (length != nullptr) {
     *length = max_size;
   }
   CheckGLError();
@@ -1360,13 +1361,12 @@ void GLES2Implementation::GetSynciv(GLsync sync,
     return;
   }
   typedef cmds::GetSynciv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetSynciv(ToGLuint(sync), pname, GetResultShmId(),
-                     GetResultShmOffset());
+  helper_->GetSynciv(ToGLuint(sync), pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(values);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1392,13 +1392,12 @@ void GLES2Implementation::GetTexParameterfv(GLenum target,
     return;
   }
   typedef cmds::GetTexParameterfv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetTexParameterfv(target, pname, GetResultShmId(),
-                             GetResultShmOffset());
+  helper_->GetTexParameterfv(target, pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1422,13 +1421,12 @@ void GLES2Implementation::GetTexParameteriv(GLenum target,
     return;
   }
   typedef cmds::GetTexParameteriv::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return;
   }
   result->SetNumResults(0);
-  helper_->GetTexParameteriv(target, pname, GetResultShmId(),
-                             GetResultShmOffset());
+  helper_->GetTexParameteriv(target, pname, GetResultShmId(), result.offset());
   WaitForCmd();
   result->CopyResult(params);
   GPU_CLIENT_LOG_CODE_BLOCK({
@@ -1508,12 +1506,12 @@ GLboolean GLES2Implementation::IsBuffer(GLuint buffer) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsBuffer");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsBuffer(" << buffer << ")");
   typedef cmds::IsBuffer::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsBuffer(buffer, GetResultShmId(), GetResultShmOffset());
+  helper_->IsBuffer(buffer, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1527,12 +1525,12 @@ GLboolean GLES2Implementation::IsFramebuffer(GLuint framebuffer) {
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsFramebuffer(" << framebuffer
                      << ")");
   typedef cmds::IsFramebuffer::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsFramebuffer(framebuffer, GetResultShmId(), GetResultShmOffset());
+  helper_->IsFramebuffer(framebuffer, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1545,12 +1543,12 @@ GLboolean GLES2Implementation::IsProgram(GLuint program) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsProgram");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsProgram(" << program << ")");
   typedef cmds::IsProgram::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsProgram(program, GetResultShmId(), GetResultShmOffset());
+  helper_->IsProgram(program, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1564,12 +1562,12 @@ GLboolean GLES2Implementation::IsRenderbuffer(GLuint renderbuffer) {
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsRenderbuffer(" << renderbuffer
                      << ")");
   typedef cmds::IsRenderbuffer::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsRenderbuffer(renderbuffer, GetResultShmId(), GetResultShmOffset());
+  helper_->IsRenderbuffer(renderbuffer, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1582,12 +1580,12 @@ GLboolean GLES2Implementation::IsSampler(GLuint sampler) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsSampler");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsSampler(" << sampler << ")");
   typedef cmds::IsSampler::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsSampler(sampler, GetResultShmId(), GetResultShmOffset());
+  helper_->IsSampler(sampler, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1600,12 +1598,12 @@ GLboolean GLES2Implementation::IsShader(GLuint shader) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsShader");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsShader(" << shader << ")");
   typedef cmds::IsShader::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsShader(shader, GetResultShmId(), GetResultShmOffset());
+  helper_->IsShader(shader, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1618,12 +1616,12 @@ GLboolean GLES2Implementation::IsSync(GLsync sync) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsSync");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsSync(" << sync << ")");
   typedef cmds::IsSync::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsSync(ToGLuint(sync), GetResultShmId(), GetResultShmOffset());
+  helper_->IsSync(ToGLuint(sync), GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1636,12 +1634,12 @@ GLboolean GLES2Implementation::IsTexture(GLuint texture) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsTexture");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsTexture(" << texture << ")");
   typedef cmds::IsTexture::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsTexture(texture, GetResultShmId(), GetResultShmOffset());
+  helper_->IsTexture(texture, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -1655,13 +1653,13 @@ GLboolean GLES2Implementation::IsTransformFeedback(GLuint transformfeedback) {
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsTransformFeedback("
                      << transformfeedback << ")");
   typedef cmds::IsTransformFeedback::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
   helper_->IsTransformFeedback(transformfeedback, GetResultShmId(),
-                               GetResultShmOffset());
+                               result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -2021,7 +2019,7 @@ void GLES2Implementation::TransformFeedbackVaryings(GLuint program,
     return;
   }
 
-  if (!PackStringsToBucket(count, varyings, NULL,
+  if (!PackStringsToBucket(count, varyings, nullptr,
                            "glTransformFeedbackVaryings")) {
     return;
   }
@@ -3014,12 +3012,12 @@ GLboolean GLES2Implementation::IsVertexArrayOES(GLuint array) {
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsVertexArrayOES(" << array
                      << ")");
   typedef cmds::IsVertexArrayOES::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsVertexArrayOES(array, GetResultShmId(), GetResultShmOffset());
+  helper_->IsVertexArrayOES(array, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -3036,6 +3034,62 @@ void GLES2Implementation::BindVertexArrayOES(GLuint array) {
     return;
   }
   BindVertexArrayOESHelper(array);
+  CheckGLError();
+}
+
+void GLES2Implementation::FramebufferParameteri(GLenum target,
+                                                GLenum pname,
+                                                GLint param) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glFramebufferParameteri("
+                     << GLES2Util::GetStringFramebufferTarget(target) << ", "
+                     << GLES2Util::GetStringFramebufferParameter(pname) << ", "
+                     << param << ")");
+  helper_->FramebufferParameteri(target, pname, param);
+  CheckGLError();
+}
+
+void GLES2Implementation::BindImageTexture(GLuint unit,
+                                           GLuint texture,
+                                           GLint level,
+                                           GLboolean layered,
+                                           GLint layer,
+                                           GLenum access,
+                                           GLenum format) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glBindImageTexture(" << unit
+                     << ", " << texture << ", " << level << ", "
+                     << GLES2Util::GetStringBool(layered) << ", " << layer
+                     << ", " << GLES2Util::GetStringEnum(access) << ", "
+                     << GLES2Util::GetStringEnum(format) << ")");
+  helper_->BindImageTexture(unit, texture, level, layered, layer, access,
+                            format);
+  CheckGLError();
+}
+
+void GLES2Implementation::DispatchCompute(GLuint num_groups_x,
+                                          GLuint num_groups_y,
+                                          GLuint num_groups_z) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glDispatchCompute(" << num_groups_x
+                     << ", " << num_groups_y << ", " << num_groups_z << ")");
+  helper_->DispatchCompute(num_groups_x, num_groups_y, num_groups_z);
+  CheckGLError();
+}
+
+void GLES2Implementation::MemoryBarrierEXT(GLbitfield barriers) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glMemoryBarrierEXT(" << barriers
+                     << ")");
+  helper_->MemoryBarrierEXT(barriers);
+  CheckGLError();
+}
+
+void GLES2Implementation::MemoryBarrierByRegion(GLbitfield barriers) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glMemoryBarrierByRegion("
+                     << barriers << ")");
+  helper_->MemoryBarrierByRegion(barriers);
   CheckGLError();
 }
 
@@ -3088,7 +3142,7 @@ void GLES2Implementation::GetTranslatedShaderSourceANGLE(GLuint shader,
       GPU_CLIENT_LOG("------\n" << source << "\n------");
     }
   }
-  if (length != NULL) {
+  if (length != nullptr) {
     *length = max_size;
   }
   CheckGLError();
@@ -3158,15 +3212,6 @@ void GLES2Implementation::CopySubTextureCHROMIUM(
       source_id, source_level, dest_target, dest_id, dest_level, xoffset,
       yoffset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha,
       unpack_unmultiply_alpha);
-  CheckGLError();
-}
-
-void GLES2Implementation::CompressedCopyTextureCHROMIUM(GLuint source_id,
-                                                        GLuint dest_id) {
-  GPU_CLIENT_SINGLE_THREAD_CHECK();
-  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glCompressedCopyTextureCHROMIUM("
-                     << source_id << ", " << dest_id << ")");
-  helper_->CompressedCopyTextureCHROMIUM(source_id, dest_id);
   CheckGLError();
 }
 
@@ -3344,6 +3389,50 @@ void GLES2Implementation::FlushDriverCachesCHROMIUM() {
   CheckGLError();
 }
 
+void GLES2Implementation::ScheduleDCLayerCHROMIUM(GLuint y_texture_id,
+                                                  GLuint uv_texture_id,
+                                                  GLint z_order,
+                                                  GLint content_x,
+                                                  GLint content_y,
+                                                  GLint content_width,
+                                                  GLint content_height,
+                                                  GLint quad_x,
+                                                  GLint quad_y,
+                                                  GLint quad_width,
+                                                  GLint quad_height,
+                                                  GLfloat transform_c1r1,
+                                                  GLfloat transform_c2r1,
+                                                  GLfloat transform_c1r2,
+                                                  GLfloat transform_c2r2,
+                                                  GLfloat transform_tx,
+                                                  GLfloat transform_ty,
+                                                  GLboolean is_clipped,
+                                                  GLint clip_x,
+                                                  GLint clip_y,
+                                                  GLint clip_width,
+                                                  GLint clip_height,
+                                                  GLuint protected_video_type) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG(
+      "[" << GetLogPrefix() << "] glScheduleDCLayerCHROMIUM(" << y_texture_id
+          << ", " << uv_texture_id << ", " << z_order << ", " << content_x
+          << ", " << content_y << ", " << content_width << ", "
+          << content_height << ", " << quad_x << ", " << quad_y << ", "
+          << quad_width << ", " << quad_height << ", " << transform_c1r1 << ", "
+          << transform_c2r1 << ", " << transform_c1r2 << ", " << transform_c2r2
+          << ", " << transform_tx << ", " << transform_ty << ", "
+          << GLES2Util::GetStringBool(is_clipped) << ", " << clip_x << ", "
+          << clip_y << ", " << clip_width << ", " << clip_height << ", "
+          << protected_video_type << ")");
+  helper_->ScheduleDCLayerCHROMIUM(
+      y_texture_id, uv_texture_id, z_order, content_x, content_y, content_width,
+      content_height, quad_x, quad_y, quad_width, quad_height, transform_c1r1,
+      transform_c2r1, transform_c1r2, transform_c2r2, transform_tx,
+      transform_ty, is_clipped, clip_x, clip_y, clip_width, clip_height,
+      protected_video_type);
+  CheckGLError();
+}
+
 void GLES2Implementation::MatrixLoadfCHROMIUM(GLenum matrixMode,
                                               const GLfloat* m) {
   GPU_CLIENT_SINGLE_THREAD_CHECK();
@@ -3370,12 +3459,12 @@ GLboolean GLES2Implementation::IsPathCHROMIUM(GLuint path) {
   TRACE_EVENT0("gpu", "GLES2Implementation::IsPathCHROMIUM");
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glIsPathCHROMIUM(" << path << ")");
   typedef cmds::IsPathCHROMIUM::Result Result;
-  Result* result = GetResultAs<Result*>();
+  ScopedResultPtr<Result> result = GetResultAs<Result>();
   if (!result) {
     return GL_FALSE;
   }
   *result = 0;
-  helper_->IsPathCHROMIUM(path, GetResultShmId(), GetResultShmOffset());
+  helper_->IsPathCHROMIUM(path, GetResultShmId(), result.offset());
   WaitForCmd();
   GLboolean result_value = *result != 0;
   GPU_CLIENT_LOG("returned " << result_value);
@@ -3627,6 +3716,57 @@ void GLES2Implementation::DestroyGpuFenceCHROMIUM(GLuint gpu_fence_id) {
   GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glDestroyGpuFenceCHROMIUM("
                      << gpu_fence_id << ")");
   helper_->DestroyGpuFenceCHROMIUM(gpu_fence_id);
+  CheckGLError();
+}
+
+void GLES2Implementation::FramebufferTextureMultiviewLayeredANGLE(
+    GLenum target,
+    GLenum attachment,
+    GLuint texture,
+    GLint level,
+    GLint baseViewIndex,
+    GLsizei numViews) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG(
+      "[" << GetLogPrefix() << "] glFramebufferTextureMultiviewLayeredANGLE("
+          << GLES2Util::GetStringEnum(target) << ", "
+          << GLES2Util::GetStringEnum(attachment) << ", " << texture << ", "
+          << level << ", " << baseViewIndex << ", " << numViews << ")");
+  if (numViews < 0) {
+    SetGLError(GL_INVALID_VALUE, "glFramebufferTextureMultiviewLayeredANGLE",
+               "numViews < 0");
+    return;
+  }
+  helper_->FramebufferTextureMultiviewLayeredANGLE(
+      target, attachment, texture, level, baseViewIndex, numViews);
+  CheckGLError();
+}
+
+void GLES2Implementation::MaxShaderCompilerThreadsKHR(GLuint count) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glMaxShaderCompilerThreadsKHR("
+                     << count << ")");
+  helper_->MaxShaderCompilerThreadsKHR(count);
+  CheckGLError();
+}
+
+void GLES2Implementation::BeginSharedImageAccessDirectCHROMIUM(GLuint texture,
+                                                               GLenum mode) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix()
+                     << "] glBeginSharedImageAccessDirectCHROMIUM(" << texture
+                     << ", " << GLES2Util::GetStringSharedImageAccessMode(mode)
+                     << ")");
+  helper_->BeginSharedImageAccessDirectCHROMIUM(texture, mode);
+  CheckGLError();
+}
+
+void GLES2Implementation::EndSharedImageAccessDirectCHROMIUM(GLuint texture) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix()
+                     << "] glEndSharedImageAccessDirectCHROMIUM(" << texture
+                     << ")");
+  helper_->EndSharedImageAccessDirectCHROMIUM(texture);
   CheckGLError();
 }
 

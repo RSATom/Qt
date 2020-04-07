@@ -150,7 +150,7 @@ public:
     }
 
 private:
-    Q_DISABLE_COPY(QWidgetBackingStoreTracker)
+    Q_DISABLE_COPY_MOVE(QWidgetBackingStoreTracker)
 
 private:
     QWidgetBackingStore* m_ptr;
@@ -181,6 +181,7 @@ struct QTLWExtra {
     QRect frameStrut;
     QRect normalGeometry; // used by showMin/maximized/FullScreen
     Qt::WindowFlags savedFlags; // Save widget flags while showing fullscreen
+    // ### TODO replace initialScreenIndex with QScreen *, in case the screens change at runtime
     int initialScreenIndex; // Screen number when passing a QDesktop[Screen]Widget as parent.
 
     QVector<QPlatformTextureList *> widgetTextures;
@@ -351,11 +352,12 @@ public:
     void update(T t);
 
     void init(QWidget *desktopWidget, Qt::WindowFlags f);
-    void create_sys(WId window, bool initializeWindow, bool destroyOldWindow);
+    void create();
     void createRecursively();
     void createWinId();
 
     bool setScreenForPoint(const QPoint &pos);
+    bool setScreen(QScreen *screen);
 
     void createTLExtra();
     void createExtra();
@@ -402,6 +404,7 @@ public:
 
     void setUpdatesEnabled_helper(bool );
 
+    bool updateBrushOrigin(QPainter *, const QBrush &brush) const;
     void paintBackground(QPainter *, const QRegion &, int flags = DrawAsRoot) const;
     bool isAboutToShow() const;
     QRegion prepareToRender(const QRegion &region, QWidget::RenderFlags renderFlags);
@@ -451,10 +454,11 @@ public:
     void scrollChildren(int dx, int dy);
     void moveRect(const QRect &, int dx, int dy);
     void scrollRect(const QRect &, int dx, int dy);
-    void invalidateBuffer_resizeHelper(const QPoint &oldPos, const QSize &oldSize);
-    // ### Qt 4.6: Merge into a template function (after MSVC isn't supported anymore).
-    void invalidateBuffer(const QRegion &);
-    void invalidateBuffer(const QRect &);
+    void invalidateBackingStore_resizeHelper(const QPoint &oldPos, const QSize &oldSize);
+
+    template <class T>
+    void invalidateBackingStore(const T &);
+
     QRegion overlappedRegion(const QRect &rect, bool breakAfterFirst = false) const;
     void syncBackingStore();
     void syncBackingStore(const QRegion &region);
@@ -604,6 +608,11 @@ public:
     inline bool nativeChildrenForced() const
     {
         return extra ? extra->nativeChildrenForced : false;
+    }
+
+    inline QRect effectiveRectFor(const QRegion &region) const
+    {
+        return effectiveRectFor(region.boundingRect());
     }
 
     inline QRect effectiveRectFor(const QRect &rect) const

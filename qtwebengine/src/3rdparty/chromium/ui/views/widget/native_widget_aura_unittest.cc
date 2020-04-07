@@ -9,7 +9,7 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
@@ -50,11 +50,11 @@ class TestFocusRules : public wm::BaseFocusRules {
   void set_can_activate(bool can_activate) { can_activate_ = can_activate; }
 
   // wm::BaseFocusRules overrides:
-  bool SupportsChildActivation(aura::Window* window) const override {
+  bool SupportsChildActivation(const aura::Window* window) const override {
     return true;
   }
 
-  bool CanActivateWindow(aura::Window* window) const override {
+  bool CanActivateWindow(const aura::Window* window) const override {
     return can_activate_;
   }
 
@@ -310,9 +310,9 @@ class PropertyTestLayoutManager : public TestLayoutManagerBase {
  private:
   // aura::LayoutManager:
   void OnWindowAddedToLayout(aura::Window* child) override {
-    EXPECT_EQ(ui::mojom::kResizeBehaviorCanResize |
-                  ui::mojom::kResizeBehaviorCanMaximize |
-                  ui::mojom::kResizeBehaviorCanMinimize,
+    EXPECT_EQ(ws::mojom::kResizeBehaviorCanResize |
+                  ws::mojom::kResizeBehaviorCanMaximize |
+                  ws::mojom::kResizeBehaviorCanMinimize,
               child->GetProperty(aura::client::kResizeBehaviorKey));
     added_ = true;
   }

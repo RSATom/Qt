@@ -3,16 +3,21 @@
 // found in the LICENSE file.
 
 #include <limits>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "core/fpdfapi/parser/cpdf_linearized_header.h"
+#include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
 #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
+#include "core/fxcrt/cfx_readonlymemorystream.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/retain_ptr.h"
-#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/utils/path_service.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -25,7 +30,7 @@ CPDF_CrossRefTable::ObjectInfo GetObjInfo(const CPDF_Parser& parser,
 }  // namespace
 
 // A wrapper class to help test member functions of CPDF_Parser.
-class CPDF_TestParser : public CPDF_Parser {
+class CPDF_TestParser final : public CPDF_Parser {
  public:
   CPDF_TestParser() {}
   ~CPDF_TestParser() {}
@@ -38,16 +43,20 @@ class CPDF_TestParser : public CPDF_Parser {
       return false;
 
     // For the test file, the header is set at the beginning.
-    m_pSyntax->InitParser(pFileAccess, 0);
+    m_pSyntax = pdfium::MakeUnique<CPDF_SyntaxParser>(pFileAccess);
     return true;
   }
 
   // Setup reading from a buffer and initial states.
-  bool InitTestFromBuffer(const unsigned char* buffer, size_t len) {
-    // For the test file, the header is set at the beginning.
-    m_pSyntax->InitParser(
-        pdfium::MakeRetain<CFX_BufferSeekableReadStream>(buffer, len), 0);
+  bool InitTestFromBufferWithOffset(pdfium::span<const uint8_t> buffer,
+                                    FX_FILESIZE header_offset) {
+    m_pSyntax = CPDF_SyntaxParser::CreateForTesting(
+        pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(buffer), header_offset);
     return true;
+  }
+
+  bool InitTestFromBuffer(pdfium::span<const uint8_t> buffer) {
+    return InitTestFromBufferWithOffset(buffer, 0 /*header_offset*/);
   }
 
  private:
@@ -99,8 +108,7 @@ TEST(cpdf_parser, LoadCrossRefV4) {
         "0000000409 00000 n \n"
         "trail";  // Needed to end cross ref table reading.
     CPDF_TestParser parser;
-    ASSERT_TRUE(
-        parser.InitTestFromBuffer(xref_table, FX_ArraySize(xref_table)));
+    ASSERT_TRUE(parser.InitTestFromBuffer(xref_table));
 
     ASSERT_TRUE(parser.LoadCrossRefV4(0, false));
     const FX_FILESIZE offsets[] = {0, 17, 81, 0, 331, 409};
@@ -130,8 +138,7 @@ TEST(cpdf_parser, LoadCrossRefV4) {
         "0000025777 00000 n \n"
         "trail";  // Needed to end cross ref table reading.
     CPDF_TestParser parser;
-    ASSERT_TRUE(
-        parser.InitTestFromBuffer(xref_table, FX_ArraySize(xref_table)));
+    ASSERT_TRUE(parser.InitTestFromBuffer(xref_table));
 
     ASSERT_TRUE(parser.LoadCrossRefV4(0, false));
     const FX_FILESIZE offsets[] = {0, 0,     0,     25325, 0, 0,    0,
@@ -169,8 +176,7 @@ TEST(cpdf_parser, LoadCrossRefV4) {
         "0000025777 00000 n \n"
         "trail";  // Needed to end cross ref table reading.
     CPDF_TestParser parser;
-    ASSERT_TRUE(
-        parser.InitTestFromBuffer(xref_table, FX_ArraySize(xref_table)));
+    ASSERT_TRUE(parser.InitTestFromBuffer(xref_table));
 
     ASSERT_TRUE(parser.LoadCrossRefV4(0, false));
     const FX_FILESIZE offsets[] = {0, 0, 0,     25325, 0, 0,    0,
@@ -207,8 +213,7 @@ TEST(cpdf_parser, LoadCrossRefV4) {
         "0000000179 00000 n \n"
         "trail";  // Needed to end cross ref table reading.
     CPDF_TestParser parser;
-    ASSERT_TRUE(
-        parser.InitTestFromBuffer(xref_table, FX_ArraySize(xref_table)));
+    ASSERT_TRUE(parser.InitTestFromBuffer(xref_table));
 
     ASSERT_TRUE(parser.LoadCrossRefV4(0, false));
     const FX_FILESIZE offsets[] = {0, 23, 0, 0, 0, 45, 179};
@@ -225,4 +230,74 @@ TEST(cpdf_parser, LoadCrossRefV4) {
       EXPECT_EQ(types[i], GetObjInfo(parser, i).type);
     }
   }
+}
+
+TEST(cpdf_parser, ParseStartXRef) {
+  CPDF_TestParser parser;
+  std::string test_file;
+  ASSERT_TRUE(
+      PathService::GetTestFilePath("annotation_stamp_with_ap.pdf", &test_file));
+  ASSERT_TRUE(parser.InitTestFromFile(test_file.c_str())) << test_file;
+
+  EXPECT_EQ(100940, parser.ParseStartXRef());
+  std::unique_ptr<CPDF_Object> cross_ref_v5_obj =
+      parser.ParseIndirectObjectAt(100940, 0);
+  ASSERT_TRUE(cross_ref_v5_obj);
+  EXPECT_EQ(75u, cross_ref_v5_obj->GetObjNum());
+}
+
+TEST(cpdf_parser, ParseStartXRefWithHeaderOffset) {
+  static constexpr FX_FILESIZE kTestHeaderOffset = 765;
+  std::string test_file;
+  ASSERT_TRUE(
+      PathService::GetTestFilePath("annotation_stamp_with_ap.pdf", &test_file));
+  RetainPtr<IFX_SeekableReadStream> pFileAccess =
+      IFX_SeekableReadStream::CreateFromFilename(test_file.c_str());
+  ASSERT_TRUE(pFileAccess);
+
+  std::vector<unsigned char> data(pFileAccess->GetSize() + kTestHeaderOffset);
+  ASSERT_TRUE(pFileAccess->ReadBlockAtOffset(&data.front() + kTestHeaderOffset,
+                                             0, pFileAccess->GetSize()));
+  CPDF_TestParser parser;
+  parser.InitTestFromBufferWithOffset(data, kTestHeaderOffset);
+
+  EXPECT_EQ(100940, parser.ParseStartXRef());
+  std::unique_ptr<CPDF_Object> cross_ref_v5_obj =
+      parser.ParseIndirectObjectAt(100940, 0);
+  ASSERT_TRUE(cross_ref_v5_obj);
+  EXPECT_EQ(75u, cross_ref_v5_obj->GetObjNum());
+}
+
+TEST(cpdf_parser, ParseLinearizedWithHeaderOffset) {
+  static constexpr FX_FILESIZE kTestHeaderOffset = 765;
+  std::string test_file;
+  ASSERT_TRUE(PathService::GetTestFilePath("linearized.pdf", &test_file));
+  RetainPtr<IFX_SeekableReadStream> pFileAccess =
+      IFX_SeekableReadStream::CreateFromFilename(test_file.c_str());
+  ASSERT_TRUE(pFileAccess);
+
+  std::vector<unsigned char> data(pFileAccess->GetSize() + kTestHeaderOffset);
+  ASSERT_TRUE(pFileAccess->ReadBlockAtOffset(&data.front() + kTestHeaderOffset,
+                                             0, pFileAccess->GetSize()));
+  CPDF_TestParser parser;
+  parser.InitTestFromBufferWithOffset(data, kTestHeaderOffset);
+
+  EXPECT_TRUE(parser.ParseLinearizedHeader());
+}
+
+TEST(cpdf_parser, BadStartXrefShouldNotBuildCrossRefTable) {
+  const unsigned char kData[] =
+      "%PDF1-7 0 obj <</Size 2 /W [0 0 0]\n>>\n"
+      "stream\n"
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      "endstream\n"
+      "endobj\n"
+      "startxref\n"
+      "6\n"
+      "%%EOF\n";
+  CPDF_TestParser parser;
+  ASSERT_TRUE(parser.InitTestFromBuffer(kData));
+  EXPECT_EQ(CPDF_Parser::FORMAT_ERROR, parser.StartParseInternal());
+  ASSERT_TRUE(parser.GetCrossRefTable());
+  EXPECT_EQ(0u, parser.GetCrossRefTable()->objects_info().size());
 }

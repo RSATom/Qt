@@ -14,11 +14,14 @@ namespace blink {
 class PseudoElementData final : public GarbageCollected<PseudoElementData> {
  public:
   static PseudoElementData* Create();
+
+  PseudoElementData() = default;
+
   void SetPseudoElement(PseudoId, PseudoElement*);
   PseudoElement* GetPseudoElement(PseudoId) const;
   bool HasPseudoElements() const;
   void ClearPseudoElements();
-  void Trace(blink::Visitor* visitor) {
+  void Trace(Visitor* visitor) {
     visitor->Trace(generated_before_);
     visitor->Trace(generated_after_);
     visitor->Trace(generated_first_letter_);
@@ -26,7 +29,6 @@ class PseudoElementData final : public GarbageCollected<PseudoElementData> {
   }
 
  private:
-  PseudoElementData() = default;
   Member<PseudoElement> generated_before_;
   Member<PseudoElement> generated_after_;
   Member<PseudoElement> generated_first_letter_;
@@ -35,7 +37,7 @@ class PseudoElementData final : public GarbageCollected<PseudoElementData> {
 };
 
 inline PseudoElementData* PseudoElementData::Create() {
-  return new PseudoElementData();
+  return MakeGarbageCollected<PseudoElementData>();
 }
 
 inline bool PseudoElementData::HasPseudoElements() const {
@@ -85,7 +87,7 @@ inline PseudoElement* PseudoElementData::GetPseudoElement(
   if (kPseudoIdAfter == pseudo_id)
     return generated_after_;
 // Workaround for CPU bug. This avoids compiler optimizing
-// this group of if conditions into switch. See crbug.com/855390.
+// this group of if conditions into switch. See http://crbug.com/855390.
 #if defined(ARCH_CPU_ARMEL)
   __asm__ volatile("");
 #endif

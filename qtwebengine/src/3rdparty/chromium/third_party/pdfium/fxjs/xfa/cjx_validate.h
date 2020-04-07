@@ -8,19 +8,14 @@
 #define FXJS_XFA_CJX_VALIDATE_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Validate;
 
-class CJX_Validate : public CJX_Node {
+class CJX_Validate final : public CJX_Node {
  public:
   explicit CJX_Validate(CXFA_Validate* node);
   ~CJX_Validate() override;
-
-  JS_PROP(formatTest);
-  JS_PROP(nullTest);
-  JS_PROP(scriptTest);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_VALIDATE_H_

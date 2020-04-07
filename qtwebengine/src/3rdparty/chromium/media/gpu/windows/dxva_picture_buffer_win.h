@@ -12,10 +12,10 @@
 
 #include <memory>
 
-#include "base/memory/linked_ptr.h"
 #include "media/video/picture.h"
 #include "third_party/angle/include/EGL/egl.h"
 #include "third_party/angle/include/EGL/eglext.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gl/gl_fence.h"
 #include "ui/gl/gl_image.h"
 
@@ -29,7 +29,7 @@ class DXVAVideoDecodeAccelerator;
 class DXVAPictureBuffer {
  public:
   enum State { UNUSED, BOUND, COPYING, IN_CLIENT, WAITING_TO_REUSE };
-  static linked_ptr<DXVAPictureBuffer> Create(
+  static std::unique_ptr<DXVAPictureBuffer> Create(
       const DXVAVideoDecodeAccelerator& decoder,
       const PictureBuffer& buffer,
       EGLConfig egl_config);
@@ -56,6 +56,11 @@ class DXVAPictureBuffer {
   void set_bound();
 
   scoped_refptr<gl::GLImage> gl_image() { return gl_image_; }
+
+  const gfx::Rect& visible_rect() const { return visible_rect_; }
+  void set_visible_rect(const gfx::Rect& visible_rect) {
+    visible_rect_ = visible_rect;
+  }
 
   const gfx::ColorSpace& color_space() const { return color_space_; }
   void set_color_space(const gfx::ColorSpace& color_space) {
@@ -86,6 +91,7 @@ class DXVAPictureBuffer {
 
   State state_ = UNUSED;
   PictureBuffer picture_buffer_;
+  gfx::Rect visible_rect_;
   gfx::ColorSpace color_space_;
   scoped_refptr<gl::GLImage> gl_image_;
 

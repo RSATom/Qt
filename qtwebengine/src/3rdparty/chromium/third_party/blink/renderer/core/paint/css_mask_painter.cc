@@ -22,8 +22,10 @@ base::Optional<IntRect> CSSMaskPainter::MaskBoundingBox(
     SVGResources* resources =
         SVGResourcesCache::CachedResourcesForLayoutObject(object);
     LayoutSVGResourceMasker* masker = resources ? resources->Masker() : nullptr;
-    if (masker)
-      return EnclosingIntRect(masker->ResourceBoundingBox(&object));
+    if (masker) {
+      return EnclosingIntRect(
+          masker->ResourceBoundingBox(object.ObjectBoundingBox()));
+    }
   }
 
   if (object.IsSVGChild() && !object.IsSVGForeignObject())
@@ -64,7 +66,7 @@ ColorFilter CSSMaskPainter::MaskColorFilter(const LayoutObject& object) {
   LayoutSVGResourceMasker* masker = resources ? resources->Masker() : nullptr;
   if (!masker)
     return kColorFilterNone;
-  return masker->Style()->SvgStyle().MaskType() == MT_LUMINANCE
+  return masker->StyleRef().SvgStyle().MaskType() == MT_LUMINANCE
              ? kColorFilterLuminanceToAlpha
              : kColorFilterNone;
 }

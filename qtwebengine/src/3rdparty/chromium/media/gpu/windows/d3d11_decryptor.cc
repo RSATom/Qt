@@ -18,6 +18,11 @@ namespace {
 const UINT kSubresourceIndex = 0;
 const UINT kWaitIfGPUBusy = 0;
 
+// This value is somewhat arbitrary but is a multiple of 16 and 4K and is
+// equal to D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION. Since the buffers are cast
+// to ID3D11Texture2D, setting it as its size should make sense.
+const UINT kBufferSize = 16384;
+
 // Creates ID3D11Buffer using the values. Return true on success.
 bool CreateBuffer(ID3D11Device* device,
                   D3D11_USAGE usage,
@@ -25,10 +30,8 @@ bool CreateBuffer(ID3D11Device* device,
                   UINT cpu_access,
                   ID3D11Buffer** out) {
   D3D11_BUFFER_DESC buf_desc = {};
-  // This value is somewhat arbitrary but is a multiple of 16 and 4K and is
-  // equal to D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION. Since the buffers are cast
-  // to ID3D11Texture2D, setting it as its size should make sense.
-  buf_desc.ByteWidth = 16384;
+
+  buf_desc.ByteWidth = kBufferSize;
   buf_desc.BindFlags = bind_flags;
   buf_desc.Usage = usage;
   buf_desc.CPUAccessFlags = cpu_access;
@@ -101,12 +104,37 @@ bool IsWholeSampleEncrypted(const DecryptConfig& decrypt_config,
          subsamples.front().cypher_bytes == sample_size;
 }
 
+// Checks whether |device1| is the same component as |device2|.
+// Note that comparing COM pointers require using their IUnknowns.
+// https://docs.microsoft.com/en-us/windows/desktop/api/unknwn/nf-unknwn-iunknown-queryinterface(q_)
+bool SameDevices(Microsoft::WRL::ComPtr<ID3D11Device> device1,
+                 Microsoft::WRL::ComPtr<ID3D11Device> device2) {
+  // For the case where both are nullptrs, they aren't devices, so returning
+  // false here.
+  if (!device1 || !device2)
+    return false;
+  Microsoft::WRL::ComPtr<IUnknown> device1_iunknown;
+  Microsoft::WRL::ComPtr<IUnknown> device2_iunknown;
+  HRESULT hr = device1.CopyTo(device1_iunknown.ReleaseAndGetAddressOf());
+  if (FAILED(hr))
+    return false;
+  hr = device2.CopyTo(device2_iunknown.ReleaseAndGetAddressOf());
+  if (FAILED(hr))
+    return false;
+  return device1_iunknown == device2_iunknown;
+}
+
+// Returns a value that is bigger than or equal to |num| that is a
+// multiple of 16.
+// E.g. num = 15 returns 16, 17 returns 32.
+UINT To16Multiple(size_t num) {
+  return ((num + 15) >> 4) << 4;
+}
+
 }  // namespace
 
 D3D11Decryptor::D3D11Decryptor(CdmProxyContext* cdm_proxy_context)
-    : cdm_proxy_context_(cdm_proxy_context),
-      create_device_func_(base::BindRepeating(D3D11CreateDevice)),
-      weak_factory_(this) {
+    : cdm_proxy_context_(cdm_proxy_context), weak_factory_(this) {
   DCHECK(cdm_proxy_context_);
 }
 
@@ -140,14 +168,17 @@ void D3D11Decryptor::Decrypt(StreamType stream_type,
     return;
   }
 
-  auto context =
-      cdm_proxy_context_->GetD3D11DecryptContext(decrypt_config->key_id());
+  auto context = cdm_proxy_context_->GetD3D11DecryptContext(
+      CdmProxy::KeyType::kDecryptOnly, decrypt_config->key_id());
   if (!context) {
     decrypt_cb.Run(kNoKey, nullptr);
     return;
   }
 
-  if (!IsDecryptionBufferInitialized() && !InitializeDecryptionBuffer()) {
+  // Because DecryptionBlt() implementation checks whether the device, buffers,
+  // and the crypto session are from the same device, the buffers have to be
+  // recreated.
+  if (!InitializeDecryptionBuffer(*context)) {
     decrypt_cb.Run(kError, nullptr);
     return;
   }
@@ -214,30 +245,28 @@ void D3D11Decryptor::DeinitializeDecoder(StreamType stream_type) {
   // nothing to be done here.
 }
 
-bool D3D11Decryptor::IsDecryptionBufferInitialized() {
-  // This must be the last object initialized in InitializeDecryptionBuffer().
-  return cpu_accessible_buffer_;
-}
+bool D3D11Decryptor::InitializeDecryptionBuffer(
+    const CdmProxyContext::D3D11DecryptContext& decrypt_context) {
+  ComPtr<ID3D11Device> crypto_session_device;
+  decrypt_context.crypto_session->GetDevice(
+      crypto_session_device.ReleaseAndGetAddressOf());
 
-bool D3D11Decryptor::InitializeDecryptionBuffer() {
-  const D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_1};
-  HRESULT hresult = create_device_func_.Run(
-      nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, feature_levels,
-      base::size(feature_levels), D3D11_SDK_VERSION,
-      device_.ReleaseAndGetAddressOf(), nullptr,
-      device_context_.ReleaseAndGetAddressOf());
-  if (FAILED(hresult)) {
-    DVLOG(2) << "Failed to create D3D11 device: " << hresult;
-    return false;
-  }
+  // If they are the same devices, then there is no reason to reinitialize the
+  // buffers.
+  if (SameDevices(crypto_session_device, device_))
+    return true;
 
-  hresult = device_context_.CopyTo(video_context_.ReleaseAndGetAddressOf());
+  device_ = crypto_session_device;
+  device_->GetImmediateContext(device_context_.ReleaseAndGetAddressOf());
+
+  HRESULT hresult =
+      device_context_.CopyTo(video_context_.ReleaseAndGetAddressOf());
   if (FAILED(hresult)) {
     DVLOG(2) << "Failed to get video context.";
     return false;
   }
 
-  // The buffer is statging so that the data can be accessed by the CPU and HW.
+  // The buffer is staging so that the data can be accessed by the CPU and HW.
   if (!CreateBuffer(device_.Get(), D3D11_USAGE_STAGING, 0,  // no binding.
                     D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE,
                     encrypted_sample_buffer_.ReleaseAndGetAddressOf())) {
@@ -280,10 +309,14 @@ bool D3D11Decryptor::CtrDecrypt(
   }
 
   D3D11_AES_CTR_IV aes_ctr_iv = StringIvToD3D11Iv(iv);
-  D3D11_ENCRYPTED_BLOCK_INFO block_info = {};
-  // The field says num bytes but it should be number of 4K blocks. See more at
+
+  // The size of the encrypted bytes must be a multiple of 16. See more at
   // https://crbug.com/849466.
-  block_info.NumEncryptedBytesAtBeginning = (input.size() - 1) / 4096 + 1;
+  D3D11_ENCRYPTED_BLOCK_INFO block_info = {};
+  block_info.NumEncryptedBytesAtBeginning = To16Multiple(input.size());
+  DCHECK_LE(block_info.NumEncryptedBytesAtBeginning, kBufferSize);
+  block_info.NumBytesInSkipPattern =
+      kBufferSize - block_info.NumEncryptedBytesAtBeginning;
 
   // ID3D11Buffers should be used but since the interface takes ID3D11Texture2D,
   // it is reinterpret cast. See more at https://crbug.com/849466.
@@ -297,7 +330,10 @@ bool D3D11Decryptor::CtrDecrypt(
   // Because DecryptionBlt() doesn't have a return value, this is a hack to
   // check for decryption operation status. If it has been modified, then there
   // was an error. See more at https://crbug.com/849466.
-  if (block_info.NumBytesInSkipPattern != 0) {
+  HRESULT result = static_cast<HRESULT>(block_info.NumBytesInEncryptPattern);
+  if (FAILED(result)) {
+    DVLOG(3) << "Decryption error :"
+             << logging::SystemErrorCodeToString(result);
     return false;
   }
 

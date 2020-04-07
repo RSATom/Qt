@@ -39,11 +39,14 @@ VULKAN_PHYSICAL_DEVICE_FUNCTIONS = [
 VULKAN_DEVICE_FUNCTIONS = [
 { 'name': 'vkAllocateCommandBuffers' },
 { 'name': 'vkAllocateDescriptorSets' },
+{ 'name': 'vkAllocateMemory' },
+{ 'name': 'vkBindImageMemory' },
 { 'name': 'vkCreateCommandPool' },
 { 'name': 'vkCreateDescriptorPool' },
 { 'name': 'vkCreateDescriptorSetLayout' },
 { 'name': 'vkCreateFence' },
 { 'name': 'vkCreateFramebuffer' },
+{ 'name': 'vkCreateImage' },
 { 'name': 'vkCreateImageView' },
 { 'name': 'vkCreateRenderPass' },
 { 'name': 'vkCreateSampler' },
@@ -61,6 +64,7 @@ VULKAN_DEVICE_FUNCTIONS = [
 { 'name': 'vkDestroySampler' },
 { 'name': 'vkDestroySemaphore' },
 { 'name': 'vkDestroyShaderModule' },
+{ 'name': 'vkDeviceWaitIdle' },
 { 'name': 'vkFreeCommandBuffers' },
 { 'name': 'vkFreeDescriptorSets' },
 { 'name': 'vkFreeMemory' },
@@ -69,6 +73,12 @@ VULKAN_DEVICE_FUNCTIONS = [
 { 'name': 'vkResetFences' },
 { 'name': 'vkUpdateDescriptorSets' },
 { 'name': 'vkWaitForFences' },
+]
+
+VULKAN_DEVICE_FUNCTIONS_ANDROID = [
+{ 'name': 'vkImportSemaphoreFdKHR' },
+{ 'name': 'vkGetAndroidHardwareBufferPropertiesANDROID' },
+{ 'name': 'vkGetSemaphoreFdKHR' },
 ]
 
 VULKAN_QUEUE_FUNCTIONS = [
@@ -123,8 +133,8 @@ def WriteMacros(file, functions):
 
 def GenerateHeaderFile(file, unassociated_functions, instance_functions,
                        physical_device_functions, device_functions,
-                       queue_functions, command_buffer_functions,
-                       swapchain_functions):
+                       device_functions_android, queue_functions,
+                       command_buffer_functions, swapchain_functions):
   """Generates gpu/vulkan/vulkan_function_pointers.h"""
 
   file.write(LICENSE_AND_HEADER +
@@ -136,6 +146,7 @@ def GenerateHeaderFile(file, unassociated_functions, instance_functions,
 #include <vulkan/vulkan.h>
 
 #include "base/native_library.h"
+#include "build/build_config.h"
 #include "gpu/vulkan/vulkan_export.h"
 
 namespace gpu {
@@ -148,14 +159,14 @@ struct VulkanFunctionPointers {
   VulkanFunctionPointers();
   ~VulkanFunctionPointers();
 
-  bool BindUnassociatedFunctionPointers();
+  VULKAN_EXPORT bool BindUnassociatedFunctionPointers();
 
   // These functions assume that vkGetInstanceProcAddr has been populated.
-  bool BindInstanceFunctionPointers(VkInstance vk_instance);
-  bool BindPhysicalDeviceFunctionPointers(VkInstance vk_instance);
+  VULKAN_EXPORT bool BindInstanceFunctionPointers(VkInstance vk_instance);
+  VULKAN_EXPORT bool BindPhysicalDeviceFunctionPointers(VkInstance vk_instance);
 
   // These functions assume that vkGetDeviceProcAddr has been populated.
-  bool BindDeviceFunctionPointers(VkDevice vk_device);
+  VULKAN_EXPORT bool BindDeviceFunctionPointers(VkDevice vk_device);
   bool BindSwapchainFunctionPointers(VkDevice vk_device);
 
   base::NativeLibrary vulkan_loader_library_ = nullptr;
@@ -193,6 +204,18 @@ struct VulkanFunctionPointers {
 """)
 
   WriteFunctionDeclarations(file, device_functions)
+
+  file.write("""\
+
+  // Android only device functions.
+#if defined(OS_ANDROID)
+""")
+
+  WriteFunctionDeclarations(file, device_functions_android)
+
+  file.write("""\
+#endif
+""")
 
   file.write("""\
 
@@ -255,6 +278,17 @@ struct VulkanFunctionPointers {
 
   file.write("""\
 
+#if defined(OS_ANDROID)
+""")
+
+  WriteMacros(file, device_functions_android)
+
+  file.write("""\
+#endif
+""")
+
+  file.write("""\
+
 // Queue functions
 """)
 
@@ -305,8 +339,8 @@ def WriteDeviceFunctionPointerInitialization(file, functions):
 
 def GenerateSourceFile(file, unassociated_functions, instance_functions,
                        physical_device_functions, device_functions,
-                       queue_functions, command_buffer_functions,
-                       swapchain_functions):
+                       device_functions_android, queue_functions,
+                       command_buffer_functions, swapchain_functions):
   """Generates gpu/vulkan/vulkan_function_pointers.cc"""
 
   file.write(LICENSE_AND_HEADER +
@@ -374,6 +408,18 @@ bool VulkanFunctionPointers::BindDeviceFunctionPointers(VkDevice vk_device) {
 
   file.write("""\
 
+#if defined(OS_ANDROID)
+
+""")
+
+  WriteDeviceFunctionPointerInitialization(file, device_functions_android)
+
+  file.write("""\
+#endif
+""")
+
+  file.write("""\
+
   // Queue functions
 """)
   WriteDeviceFunctionPointerInitialization(file, queue_functions)
@@ -425,6 +471,7 @@ def main(argv):
   GenerateHeaderFile(header_file, VULKAN_UNASSOCIATED_FUNCTIONS,
                      VULKAN_INSTANCE_FUNCTIONS,
                      VULKAN_PHYSICAL_DEVICE_FUNCTIONS, VULKAN_DEVICE_FUNCTIONS,
+                     VULKAN_DEVICE_FUNCTIONS_ANDROID,
                      VULKAN_QUEUE_FUNCTIONS, VULKAN_COMMAND_BUFFER_FUNCTIONS,
                      VULKAN_SWAPCHAIN_FUNCTIONS)
   header_file.close()
@@ -435,6 +482,7 @@ def main(argv):
   GenerateSourceFile(source_file, VULKAN_UNASSOCIATED_FUNCTIONS,
                      VULKAN_INSTANCE_FUNCTIONS,
                      VULKAN_PHYSICAL_DEVICE_FUNCTIONS, VULKAN_DEVICE_FUNCTIONS,
+                     VULKAN_DEVICE_FUNCTIONS_ANDROID,
                      VULKAN_QUEUE_FUNCTIONS, VULKAN_COMMAND_BUFFER_FUNCTIONS,
                      VULKAN_SWAPCHAIN_FUNCTIONS)
   source_file.close()

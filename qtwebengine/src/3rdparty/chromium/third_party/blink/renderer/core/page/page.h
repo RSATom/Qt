@@ -30,16 +30,13 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/hosts_using_features.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings_delegate.h"
 #include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/page/page_visibility_notifier.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
-#include "third_party/blink/renderer/core/page/page_visibility_state.h"
 #include "third_party/blink/renderer/core/page/viewport_description.h"
-#include "third_party/blink/renderer/platform/geometry/layout_rect.h"
-#include "third_party/blink/renderer/platform/geometry/region.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_lifecycle_state.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
@@ -52,14 +49,16 @@ namespace blink {
 class AutoscrollController;
 class BrowserControls;
 class ChromeClient;
+class ConsoleMessageStorage;
 class ContextMenuController;
 class Document;
-class DOMRectList;
 class DragCaret;
 class DragController;
 class FocusController;
 class Frame;
 class LinkHighlights;
+class LocalFrame;
+class LocalFrameView;
 class OverscrollController;
 struct PageScaleConstraints;
 class PageScaleConstraintsSet;
@@ -69,9 +68,9 @@ class PointerLockController;
 class ScopedPagePauser;
 class ScrollingCoordinator;
 class ScrollbarTheme;
-class SmoothScrollSequencer;
+class SecurityOrigin;
 class Settings;
-class ConsoleMessageStorage;
+class SpatialNavigationController;
 class TopDocumentRootScrollerController;
 class ValidationMessageClient;
 class VisualViewport;
@@ -103,19 +102,18 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
     DISALLOW_COPY_AND_ASSIGN(PageClients);
   };
 
-  static Page* Create(PageClients& page_clients) {
-    return new Page(page_clients);
-  }
+  static Page* Create(PageClients& page_clients);
 
   // An "ordinary" page is a fully-featured page owned by a web view.
   static Page* CreateOrdinary(PageClients&, Page* opener);
 
+  explicit Page(PageClients&);
   ~Page() override;
 
   void CloseSoon();
   bool IsClosing() const { return is_closing_; }
 
-  using PageSet = PersistentHeapHashSet<WeakMember<Page>>;
+  using PageSet = HeapHashSet<WeakMember<Page>>;
 
   // Return the current set of full-fledged, ordinary pages.
   // Each created and owned by a WebView.
@@ -154,9 +152,7 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   // depends on this will generally have to be rewritten to propagate any
   // necessary state through all renderer processes for that page and/or
   // coordinate/rely on the browser process to help dispatch/coordinate work.
-  LocalFrame* DeprecatedLocalMainFrame() const {
-    return ToLocalFrame(main_frame_);
-  }
+  LocalFrame* DeprecatedLocalMainFrame() const;
 
   void DocumentDetached(Document*);
 
@@ -174,6 +170,7 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   DragCaret& GetDragCaret() const { return *drag_caret_; }
   DragController& GetDragController() const { return *drag_controller_; }
   FocusController& GetFocusController() const { return *focus_controller_; }
+  SpatialNavigationController& GetSpatialNavigationController();
   ContextMenuController& GetContextMenuController() const {
     return *context_menu_controller_;
   }
@@ -183,13 +180,9 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   ValidationMessageClient& GetValidationMessageClient() const {
     return *validation_message_client_;
   }
-  void SetValidationMessageClient(ValidationMessageClient*);
+  void SetValidationMessageClientForTesting(ValidationMessageClient*);
 
   ScrollingCoordinator* GetScrollingCoordinator();
-
-  SmoothScrollSequencer* GetSmoothScrollSequencer();
-
-  DOMRectList* NonFastScrollableRectsForTesting(const LocalFrame*);
 
   Settings& GetSettings() const { return *settings_; }
 
@@ -261,8 +254,7 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   static void AllVisitedStateChanged(bool invalidate_visited_link_hashes);
   static void VisitedStateChanged(LinkHash visited_hash);
 
-  void SetVisibilityState(mojom::PageVisibilityState, bool);
-  mojom::PageVisibilityState VisibilityState() const;
+  void SetIsHidden(bool hidden, bool is_initial_state);
   bool IsPageVisible() const;
 
   PageLifecycleState LifecycleState() const;
@@ -312,8 +304,6 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   void ReportIntervention(const String& message) override;
   bool RequestBeginMainFrameNotExpected(bool new_state) override;
   void SetLifecycleState(PageLifecycleState) override;
-  ukm::UkmRecorder* GetUkmRecorder() override;
-  int64_t GetUkmSourceId() override;
 
   void AddAutoplayFlags(int32_t flags);
   void ClearAutoplayFlags();
@@ -322,8 +312,6 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
 
  private:
   friend class ScopedPagePauser;
-
-  explicit Page(PageClients&);
 
   void InitGroup();
 
@@ -356,10 +344,9 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   const Member<DragController> drag_controller_;
   const Member<FocusController> focus_controller_;
   const Member<ContextMenuController> context_menu_controller_;
-  const std::unique_ptr<PageScaleConstraintsSet> page_scale_constraints_set_;
+  const Member<PageScaleConstraintsSet> page_scale_constraints_set_;
   const Member<PointerLockController> pointer_lock_controller_;
   Member<ScrollingCoordinator> scrolling_coordinator_;
-  Member<SmoothScrollSequencer> smooth_scroll_sequencer_;
   const Member<BrowserControls> browser_controls_;
   const Member<ConsoleMessageStorage> console_message_storage_;
   const Member<TopDocumentRootScrollerController>
@@ -367,6 +354,7 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   const Member<VisualViewport> visual_viewport_;
   const Member<OverscrollController> overscroll_controller_;
   const Member<LinkHighlights> link_highlights_;
+  Member<SpatialNavigationController> spatial_navigation_controller_;
 
   Member<PluginData> plugin_data_;
 
@@ -389,7 +377,7 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
 
   float device_scale_factor_;
 
-  mojom::PageVisibilityState visibility_state_;
+  bool is_hidden_;
 
   PageLifecycleState page_lifecycle_state_;
 

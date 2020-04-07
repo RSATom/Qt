@@ -15,6 +15,7 @@ class MODULES_EXPORT DeviceOrientationAbsoluteController final
  public:
   static const char kSupplementName[];
 
+  explicit DeviceOrientationAbsoluteController(Document&);
   ~DeviceOrientationAbsoluteController() override;
 
   static DeviceOrientationAbsoluteController& From(Document&);
@@ -26,10 +27,10 @@ class MODULES_EXPORT DeviceOrientationAbsoluteController final
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit DeviceOrientationAbsoluteController(Document&);
+  // Inherited from PlatformEventController.
+  void RegisterWithDispatcher() override;
 
   // Inherited from DeviceOrientationController.
-  DeviceOrientationDispatcher& DispatcherInstance() const override;
   const AtomicString& EventTypeName() const override;
 };
 

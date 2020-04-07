@@ -7,21 +7,43 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/atomic_sequence_num.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/numerics/safe_math.h"
 #include "base/strings/stringprintf.h"
 
 namespace gpu {
+namespace {
+
+// Global atomic to generate unique buffer IDs.
+base::AtomicSequenceNumber g_next_buffer_id;
+
+}  // namespace
 
 const base::UnsafeSharedMemoryRegion& BufferBacking::shared_memory_region()
     const {
-  static const base::UnsafeSharedMemoryRegion kInvalidRegion;
-  return kInvalidRegion;
+  static const base::NoDestructor<base::UnsafeSharedMemoryRegion>
+      kInvalidRegion;
+  return *kInvalidRegion;
 }
 
 base::UnguessableToken BufferBacking::GetGUID() const {
   return base::UnguessableToken();
+}
+
+MemoryBufferBacking::MemoryBufferBacking(uint32_t size)
+    : memory_(new char[size]), size_(size) {}
+
+MemoryBufferBacking::~MemoryBufferBacking() = default;
+
+void* MemoryBufferBacking::GetMemory() const {
+  return memory_.get();
+}
+
+uint32_t MemoryBufferBacking::GetSize() const {
+  return size_;
 }
 
 SharedMemoryBufferBacking::SharedMemoryBufferBacking(
@@ -65,14 +87,14 @@ void* Buffer::GetDataAddress(uint32_t data_offset, uint32_t data_size) const {
   base::CheckedNumeric<uint32_t> end = data_offset;
   end += data_size;
   if (!end.IsValid() || end.ValueOrDie() > static_cast<uint32_t>(size_))
-    return NULL;
+    return nullptr;
   return static_cast<uint8_t*>(memory_) + data_offset;
 }
 
 void* Buffer::GetDataAddressAndSize(uint32_t data_offset,
                                     uint32_t* data_size) const {
   if (data_offset > static_cast<uint32_t>(size_))
-    return NULL;
+    return nullptr;
   *data_size = GetRemainingSize(data_offset);
   return static_cast<uint8_t*>(memory_) + data_offset;
 }
@@ -81,6 +103,11 @@ uint32_t Buffer::GetRemainingSize(uint32_t data_offset) const {
   if (data_offset > static_cast<uint32_t>(size_))
     return 0;
   return static_cast<uint32_t>(size_) - data_offset;
+}
+
+int32_t GetNextBufferId() {
+  // 0 is a reserved value.
+  return g_next_buffer_id.GetNext() + 1;
 }
 
 base::trace_event::MemoryAllocatorDumpGuid GetBufferGUIDForTracing(

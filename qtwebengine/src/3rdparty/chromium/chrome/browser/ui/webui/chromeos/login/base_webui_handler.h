@@ -124,14 +124,12 @@ class BaseWebUIHandler : public content::WebUIMessageHandler,
 
   template <typename A1>
   void CallJS(const std::string& method, const A1& arg1) {
-    web_ui()->CallJavascriptFunctionUnsafe(FullMethodPath(method),
-                                           ::login::MakeValue(arg1));
+    web_ui()->CallJavascriptFunctionUnsafe(method, ::login::MakeValue(arg1));
   }
 
   template <typename A1, typename A2>
   void CallJS(const std::string& method, const A1& arg1, const A2& arg2) {
-    web_ui()->CallJavascriptFunctionUnsafe(FullMethodPath(method),
-                                           ::login::MakeValue(arg1),
+    web_ui()->CallJavascriptFunctionUnsafe(method, ::login::MakeValue(arg1),
                                            ::login::MakeValue(arg2));
   }
 
@@ -140,9 +138,9 @@ class BaseWebUIHandler : public content::WebUIMessageHandler,
               const A1& arg1,
               const A2& arg2,
               const A3& arg3) {
-    web_ui()->CallJavascriptFunctionUnsafe(
-        FullMethodPath(method), ::login::MakeValue(arg1),
-        ::login::MakeValue(arg2), ::login::MakeValue(arg3));
+    web_ui()->CallJavascriptFunctionUnsafe(method, ::login::MakeValue(arg1),
+                                           ::login::MakeValue(arg2),
+                                           ::login::MakeValue(arg3));
   }
 
   template <typename A1, typename A2, typename A3, typename A4>
@@ -152,9 +150,8 @@ class BaseWebUIHandler : public content::WebUIMessageHandler,
               const A3& arg3,
               const A4& arg4) {
     web_ui()->CallJavascriptFunctionUnsafe(
-        FullMethodPath(method), ::login::MakeValue(arg1),
-        ::login::MakeValue(arg2), ::login::MakeValue(arg3),
-        ::login::MakeValue(arg4));
+        method, ::login::MakeValue(arg1), ::login::MakeValue(arg2),
+        ::login::MakeValue(arg3), ::login::MakeValue(arg4));
   }
 
   template <typename... Args>
@@ -198,12 +195,6 @@ class BaseWebUIHandler : public content::WebUIMessageHandler,
         base::BindRepeating(&::login::CallbackWrapper<Args...>, callback));
   }
 
-  template <typename Method>
-  void AddPrefixedCallback(const std::string& unprefixed_name,
-                           const Method& method) {
-    AddCallback(FullMethodPath(unprefixed_name), method);
-  }
-
   // Called when the page is ready and handler can do initialization.
   virtual void Initialize() = 0;
 
@@ -239,8 +230,7 @@ class BaseWebUIHandler : public content::WebUIMessageHandler,
     CallJS(function_name, *args...);
   }
 
-  // Returns full name of JS method based on screen and method
-  // names.
+  // Returns full name of JS method based on screen and method names.
   std::string FullMethodPath(const std::string& method) const;
 
   // Handles user action.

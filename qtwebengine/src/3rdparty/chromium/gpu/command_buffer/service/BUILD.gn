@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
+import("//gpu/vulkan/features.gni")
 import("//third_party/protobuf/proto_library.gni")
 
 group("service") {
@@ -30,9 +32,9 @@ group("gles2") {
 }
 
 if (is_component_build) {
-  link_target_type = "source_set"
+  link_target_type = "jumbo_source_set"
 } else {
-  link_target_type = "static_library"
+  link_target_type = "jumbo_static_library"
 }
 target(link_target_type, "service_sources") {
   # External code should depend on this via //gpu/command_buffer/service above
@@ -77,6 +79,7 @@ target(link_target_type, "service_sources") {
 
   public_deps = [
     "//gpu/command_buffer/common:common_sources",
+    "//url:url",
   ]
   deps = [
     "//base",
@@ -124,6 +127,7 @@ target(link_target_type, "gles2_sources") {
     "framebuffer_manager.h",
     "gl_context_virtual.cc",
     "gl_context_virtual.h",
+    "gl_context_virtual_delegate.h",
     "gl_state_restorer_impl.cc",
     "gl_state_restorer_impl.h",
     "gl_utils.cc",
@@ -153,6 +157,8 @@ target(link_target_type, "gles2_sources") {
     "gles2_cmd_validation_implementation_autogen.h",
     "gles2_query_manager.cc",
     "gles2_query_manager.h",
+    "gpu_command_buffer_memory_tracker.cc",
+    "gpu_command_buffer_memory_tracker.h",
     "gpu_fence_manager.cc",
     "gpu_fence_manager.h",
     "gpu_state_tracer.cc",
@@ -161,6 +167,8 @@ target(link_target_type, "gles2_sources") {
     "gpu_tracer.h",
     "gr_cache_controller.cc",
     "gr_cache_controller.h",
+    "gr_shader_cache.cc",
+    "gr_shader_cache.h",
     "id_manager.cc",
     "id_manager.h",
     "indexed_buffer_binding_host.cc",
@@ -175,8 +183,12 @@ target(link_target_type, "gles2_sources") {
     "mailbox_manager_sync.h",
     "memory_program_cache.cc",
     "memory_program_cache.h",
+    "multi_draw_manager.cc",
+    "multi_draw_manager.h",
     "passthrough_abstract_texture_impl.cc",
     "passthrough_abstract_texture_impl.h",
+    "passthrough_discardable_manager.cc",
+    "passthrough_discardable_manager.h",
     "passthrough_program_cache.cc",
     "passthrough_program_cache.h",
     "path_manager.cc",
@@ -193,8 +205,6 @@ target(link_target_type, "gles2_sources") {
     "raster_cmd_validation_implementation_autogen.h",
     "raster_decoder.cc",
     "raster_decoder.h",
-    "raster_decoder_context_state.cc",
-    "raster_decoder_context_state.h",
     "renderbuffer_manager.cc",
     "renderbuffer_manager.h",
     "sampler_manager.cc",
@@ -213,6 +223,21 @@ target(link_target_type, "gles2_sources") {
     "shader_translator.h",
     "shader_translator_cache.cc",
     "shader_translator_cache.h",
+    "shared_context_state.cc",
+    "shared_context_state.h",
+    "shared_image_backing.cc",
+    "shared_image_backing.h",
+    "shared_image_backing_factory.h",
+    "shared_image_backing_factory_gl_texture.cc",
+    "shared_image_backing_factory_gl_texture.h",
+    "shared_image_factory.cc",
+    "shared_image_factory.h",
+    "shared_image_manager.cc",
+    "shared_image_manager.h",
+    "shared_image_representation.cc",
+    "shared_image_representation.h",
+    "skia_utils.cc",
+    "skia_utils.h",
     "texture_definition.cc",
     "texture_definition.h",
     "texture_manager.cc",
@@ -225,22 +250,32 @@ target(link_target_type, "gles2_sources") {
     "vertex_array_manager.h",
     "vertex_attrib_manager.cc",
     "vertex_attrib_manager.h",
+    "webgpu_cmd_validation.cc",
+    "webgpu_cmd_validation.h",
+    "webgpu_cmd_validation_autogen.h",
+    "webgpu_cmd_validation_implementation_autogen.h",
+    "webgpu_decoder.cc",
+    "webgpu_decoder.h",
+    "wrapped_sk_image.cc",
+    "wrapped_sk_image.h",
   ]
 
   configs += [
     "//build/config:precompiled_headers",
     "//gpu:gpu_gles2_implementation",
     "//gpu:raster_implementation",
+    "//gpu:webgpu_implementation",
     "//third_party/khronos:khronos_headers",
   ]
 
   # Prefer mesa GL headers to system headers, which cause problems on Win.
-  include_dirs = [ "//third_party/mesa/src/include" ]
+  include_dirs = [ "//third_party/mesa_headers" ]
 
   public_deps = [
     "//gpu/command_buffer/common",
     "//gpu/command_buffer/common:gles2_sources",
     "//gpu/command_buffer/common:raster_sources",
+    "//gpu/command_buffer/common:webgpu_sources",
   ]
   deps = [
     ":disk_cache_proto",
@@ -248,10 +283,12 @@ target(link_target_type, "gles2_sources") {
     "//base",
     "//base/third_party/dynamic_annotations",
     "//cc/paint",
+    "//components/viz/common:resource_format_utils",
     "//gpu/command_buffer/client",
     "//gpu/command_buffer/common:gles2_utils",
     "//gpu/config",
     "//gpu/ipc/common:surface_handle_type",
+    "//gpu/vulkan:buildflags",
     "//third_party/angle:angle_image_util",
     "//third_party/angle:commit_id",
     "//third_party/angle:translator",
@@ -266,6 +303,10 @@ target(link_target_type, "gles2_sources") {
     "//ui/gl/init",
   ]
 
+  if (enable_vulkan) {
+    deps += [ "//components/viz/common:vulkan_context_provider" ]
+  }
+
   if (is_mac) {
     # Required by gles2_cmd_decoder.cc on Mac.
     libs = [
@@ -274,10 +315,31 @@ target(link_target_type, "gles2_sources") {
     ]
   }
 
-  if (is_android && !is_debug) {
-    # On Android optimize more since this component can be a bottleneck.
-    configs -= [ "//build/config/compiler:default_optimization" ]
-    configs += [ "//build/config/compiler:optimize_max" ]
+  if (is_android) {
+    if (!is_debug) {
+      # On Android optimize more since this component can be a bottleneck.
+      configs -= [ "//build/config/compiler:default_optimization" ]
+      configs += [ "//build/config/compiler:optimize_max" ]
+    }
+    sources += [
+      "ahardwarebuffer_utils.cc",
+      "ahardwarebuffer_utils.h",
+      "shared_image_backing_factory_ahardwarebuffer.cc",
+      "shared_image_backing_factory_ahardwarebuffer.h",
+    ]
+
+    # TODO(cblume): http://crbug.com/911313
+    # Abstract out the platform specific defines. Right now we need the android
+    # platform specific define here to be able to include android specific
+    # functions.
+    defines = [ "VK_USE_PLATFORM_ANDROID_KHR" ]
+    deps += [ "//third_party/libsync" ]
+    if (enable_vulkan) {
+      deps += [
+        "//gpu/ipc/common:android_image_reader_utils",
+        "//gpu/vulkan:vulkan",
+      ]
+    }
   }
 }
 

@@ -81,7 +81,7 @@ void qfileinfo::symLinkTargetPerformanceLNK()
     QString linkTarget;
     QBENCHMARK {
         for(int i=0; i<100; i++)
-            linkTarget = info.readLink();
+            linkTarget = info.symLinkTarget();
     }
     QVERIFY(QFile::remove("link.lnk"));
 }
@@ -94,7 +94,9 @@ void qfileinfo::symLinkTargetPerformanceMounpoint()
     QString rootVolume = QString::fromWCharArray(buffer);
     QString mountpoint = "mountpoint";
     rootVolume.replace("\\\\?\\","\\??\\");
-    FileSystem::createNtfsJunction(rootVolume, mountpoint);
+    QString errorMessage;
+    QVERIFY2(FileSystem::createNtfsJunction(rootVolume, mountpoint, &errorMessage) == ERROR_SUCCESS,
+             qPrintable(errorMessage));
 
     QFileInfo info(mountpoint);
     info.setCaching(false);
@@ -102,7 +104,7 @@ void qfileinfo::symLinkTargetPerformanceMounpoint()
     QString linkTarget;
     QBENCHMARK {
         for(int i=0; i<100; i++)
-            linkTarget = info.readLink();
+            linkTarget = info.symLinkTarget();
     }
     QVERIFY(QDir().rmdir(mountpoint));
 }

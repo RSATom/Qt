@@ -31,6 +31,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/inspector/console_types.h"
+#include "third_party/blink/renderer/core/loader/console_logger_impl_base.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -49,12 +50,21 @@ class SourceLocation;
 // around ChromeClient calls and the way that Blink core/ can add messages to
 // the console.
 class CORE_EXPORT FrameConsole final
-    : public GarbageCollectedFinalized<FrameConsole> {
+    : public GarbageCollectedFinalized<FrameConsole>,
+      public ConsoleLoggerImplBase {
+  USING_GARBAGE_COLLECTED_MIXIN(FrameConsole);
+
  public:
   static FrameConsole* Create(LocalFrame& frame) {
-    return new FrameConsole(frame);
+    return MakeGarbageCollected<FrameConsole>(frame);
   }
 
+  explicit FrameConsole(LocalFrame&);
+
+  // ConsoleLoggerImplBase implementation.
+  void AddConsoleMessage(ConsoleMessage* message) override {
+    AddMessage(message);
+  }
   void AddMessage(ConsoleMessage*);
 
   bool AddMessageToStorage(ConsoleMessage*);
@@ -71,11 +81,9 @@ class CORE_EXPORT FrameConsole final
                       unsigned long request_identifier,
                       const ResourceError&);
 
-  void Trace(blink::Visitor*);
+  void Trace(blink::Visitor*) override;
 
  private:
-  explicit FrameConsole(LocalFrame&);
-
   Member<LocalFrame> frame_;
 };
 

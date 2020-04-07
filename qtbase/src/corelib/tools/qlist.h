@@ -45,6 +45,7 @@
 #include <QtCore/qrefcount.h>
 #include <QtCore/qarraydata.h>
 #include <QtCore/qhashfunctions.h>
+#include <QtCore/qvector.h>
 
 #include <iterator>
 #include <list>
@@ -72,7 +73,7 @@ template <typename T> class QSet;
 template <typename T> struct QListSpecialMethods
 {
 protected:
-    ~QListSpecialMethods() {}
+    ~QListSpecialMethods() = default;
 };
 template <> struct QListSpecialMethods<QByteArray>;
 template <> struct QListSpecialMethods<QString>;
@@ -110,12 +111,17 @@ struct Q_CORE_EXPORT QListData {
     void remove(int i);
     void remove(int i, int n);
     void move(int from, int to);
-    inline int size() const Q_DECL_NOTHROW { return d->end - d->begin; }
+    inline int size() const Q_DECL_NOTHROW { return int(d->end - d->begin); }   // q6sizetype
     inline bool isEmpty() const Q_DECL_NOTHROW { return d->end  == d->begin; }
     inline void **at(int i) const Q_DECL_NOTHROW { return d->array + d->begin + i; }
     inline void **begin() const Q_DECL_NOTHROW { return d->array + d->begin; }
     inline void **end() const Q_DECL_NOTHROW { return d->array + d->end; }
 };
+
+namespace QtPrivate {
+    template <typename V, typename U> int indexOf(const QList<V> &list, const U &u, int from);
+    template <typename V, typename U> int lastIndexOf(const QList<V> &list, const U &u, int from);
+}
 
 template <typename T>
 class QList
@@ -135,6 +141,8 @@ public:
                 QListData::InlineWithPaddingLayout
              >::type>::type {};
 private:
+    template <typename V, typename U> friend int QtPrivate::indexOf(const QList<V> &list, const U &u, int from);
+    template <typename V, typename U> friend int QtPrivate::lastIndexOf(const QList<V> &list, const U &u, int from);
     struct Node { void *v;
 #if defined(Q_CC_BOR)
         Q_INLINE_TEMPLATE T &t();
@@ -213,7 +221,11 @@ public:
     T takeFirst();
     T takeLast();
     void move(int from, int to);
-    void swap(int i, int j);
+    void swapItemsAt(int i, int j);
+#if QT_DEPRECATED_SINCE(5, 13) && QT_VERSION < QT_VERSION_CHECK(6,0,0)
+    QT_DEPRECATED_X("Use QList<T>::swapItemsAt()")
+    void swap(int i, int j) { swapItemsAt(i, j); }
+#endif
     int indexOf(const T &t, int from = 0) const;
     int lastIndexOf(const T &t, int from = -1) const;
     bool contains(const T &t) const;
@@ -237,6 +249,8 @@ public:
         // can't remove it in Qt 5, since doing so would make the type trivial,
         // which changes the way it's passed to functions by value.
         inline iterator(const iterator &o) Q_DECL_NOTHROW : i(o.i){}
+        inline iterator &operator=(const iterator &o) Q_DECL_NOTHROW
+        { i = o.i; return *this; }
 #endif
         inline T &operator*() const { return i->t(); }
         inline T *operator->() const { return &i->t(); }
@@ -290,6 +304,8 @@ public:
         // can't remove it in Qt 5, since doing so would make the type trivial,
         // which changes the way it's passed to functions by value.
         inline const_iterator(const const_iterator &o) Q_DECL_NOTHROW : i(o.i) {}
+        inline const_iterator &operator=(const const_iterator &o) Q_DECL_NOTHROW
+        { i = o.i; return *this; }
 #endif
 #ifdef QT_STRICT_ITERATORS
         inline explicit const_iterator(const iterator &o) Q_DECL_NOTHROW : i(o.i) {}
@@ -689,7 +705,7 @@ inline void QList<T>::replace(int i, const T &t)
 }
 
 template <typename T>
-inline void QList<T>::swap(int i, int j)
+inline void QList<T>::swapItemsAt(int i, int j)
 {
     Q_ASSERT_X(i >= 0 && i < p.size() && j >= 0 && j < p.size(),
                 "QList<T>::swap", "index out of range");
@@ -970,34 +986,56 @@ inline void QList<T>::append(const QList<T> &t)
 template <typename T>
 Q_OUTOFLINE_TEMPLATE int QList<T>::indexOf(const T &t, int from) const
 {
+    return QtPrivate::indexOf<T, T>(*this, t, from);
+}
+
+namespace QtPrivate
+{
+template <typename T, typename U>
+int indexOf(const QList<T> &list, const U &u, int from)
+{
+    typedef typename QList<T>::Node Node;
+
     if (from < 0)
-        from = qMax(from + p.size(), 0);
-    if (from < p.size()) {
-        Node *n = reinterpret_cast<Node *>(p.at(from -1));
-        Node *e = reinterpret_cast<Node *>(p.end());
+        from = qMax(from + list.p.size(), 0);
+    if (from < list.p.size()) {
+        Node *n = reinterpret_cast<Node *>(list.p.at(from -1));
+        Node *e = reinterpret_cast<Node *>(list.p.end());
         while (++n != e)
-            if (n->t() == t)
-                return int(n - reinterpret_cast<Node *>(p.begin()));
+            if (n->t() == u)
+                return int(n - reinterpret_cast<Node *>(list.p.begin()));
     }
     return -1;
+}
 }
 
 template <typename T>
 Q_OUTOFLINE_TEMPLATE int QList<T>::lastIndexOf(const T &t, int from) const
 {
+    return QtPrivate::lastIndexOf<T, T>(*this, t, from);
+}
+
+namespace QtPrivate
+{
+template <typename T, typename U>
+int lastIndexOf(const QList<T> &list, const U &u, int from)
+{
+    typedef typename QList<T>::Node Node;
+
     if (from < 0)
-        from += p.size();
-    else if (from >= p.size())
-        from = p.size()-1;
+        from += list.p.size();
+    else if (from >= list.p.size())
+        from = list.p.size()-1;
     if (from >= 0) {
-        Node *b = reinterpret_cast<Node *>(p.begin());
-        Node *n = reinterpret_cast<Node *>(p.at(from + 1));
+        Node *b = reinterpret_cast<Node *>(list.p.begin());
+        Node *n = reinterpret_cast<Node *>(list.p.at(from + 1));
         while (n-- != b) {
-            if (n->t() == t)
-                return n - b;
+            if (n->t() == u)
+                return int(n - b);
         }
     }
     return -1;
+}
 }
 
 template <typename T>
@@ -1049,6 +1087,37 @@ inline int QList<T>::count_impl(const T &t, QListData::ArrayCompatibleLayout) co
     return int(std::count(reinterpret_cast<const T*>(p.begin()),
                           reinterpret_cast<const T*>(p.end()),
                           t));
+}
+
+template <typename T>
+Q_OUTOFLINE_TEMPLATE QVector<T> QList<T>::toVector() const
+{
+    QVector<T> result(size());
+    for (int i = 0; i < size(); ++i)
+        result[i] = at(i);
+    return result;
+}
+
+template <typename T>
+QList<T> QList<T>::fromVector(const QVector<T> &vector)
+{
+    return vector.toList();
+}
+
+template <typename T>
+Q_OUTOFLINE_TEMPLATE QList<T> QVector<T>::toList() const
+{
+    QList<T> result;
+    result.reserve(size());
+    for (int i = 0; i < size(); ++i)
+        result.append(at(i));
+    return result;
+}
+
+template <typename T>
+QVector<T> QVector<T>::fromList(const QList<T> &list)
+{
+    return list.toVector();
 }
 
 Q_DECLARE_SEQUENTIAL_ITERATOR(List)

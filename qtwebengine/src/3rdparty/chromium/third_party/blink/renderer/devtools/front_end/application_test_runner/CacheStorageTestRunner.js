@@ -7,17 +7,33 @@
  * @suppress {accessControls}
  */
 
-ApplicationTestRunner.dumpCacheTree = async function() {
+ApplicationTestRunner.dumpCacheTree = async function(pathFilter) {
   UI.panels.resources._sidebar.cacheStorageListTreeElement.expand();
   const promise = TestRunner.addSnifferPromise(SDK.ServiceWorkerCacheModel.prototype, '_updateCacheNames');
   UI.panels.resources._sidebar.cacheStorageListTreeElement._refreshCaches();
   await promise;
-  await ApplicationTestRunner.dumpCacheTreeNoRefresh();
+  await ApplicationTestRunner.dumpCacheTreeNoRefresh(pathFilter);
 };
 
-ApplicationTestRunner.dumpCacheTreeNoRefresh = async function() {
+ApplicationTestRunner.dumpCacheTreeNoRefresh = async function(pathFilter) {
+  function _dumpDataGrid(dataGrid, indentSpaces) {
+    for (const node of dataGrid.rootNode().children) {
+      const children = Array.from(node.element().children).filter(function(element) {
+        return !element.classList.contains('responseTime-column');
+      });
+
+      const entries = Array.from(children, td => td.textContent).filter(text => text);
+      TestRunner.addResult(' '.repeat(8) + entries.join(', '));
+    }
+  }
+
   UI.panels.resources._sidebar.cacheStorageListTreeElement.expand();
-  TestRunner.addResult('Dumping CacheStorage tree:');
+
+  if (!pathFilter)
+    TestRunner.addResult('Dumping CacheStorage tree:');
+  else
+    TestRunner.addResult('Dumping CacheStorage tree with URL path filter string "' + pathFilter + '"');
+
   const cachesTreeElement = UI.panels.resources._sidebar.cacheStorageListTreeElement;
 
   if (!cachesTreeElement.childCount()) {
@@ -29,31 +45,29 @@ ApplicationTestRunner.dumpCacheTreeNoRefresh = async function() {
     const cacheTreeElement = cachesTreeElement.childAt(i);
     TestRunner.addResult('    cache: ' + cacheTreeElement.title);
     let view = cacheTreeElement._view;
-    promise = TestRunner.addSnifferPromise(Resources.ServiceWorkerCacheView.prototype, '_updateDataCallback');
 
     if (!view)
       cacheTreeElement.onselect(false);
-    else
-      view._updateData(true);
-
     view = cacheTreeElement._view;
-    await promise;
-
-    if (view._entriesForTest.length === 0) {
+    await view._updateData(true);
+    if (cacheTreeElement._view._entriesForTest.length === 0) {
       TestRunner.addResult('        (cache empty)');
       continue;
     }
 
-    const dataGrid = view._dataGrid;
-
-    for (const node of dataGrid.rootNode().children) {
-      const children = Array.from(node.element().children).filter(function(element) {
-        return !element.classList.contains('responseTime-column');
-      });
-
-      const entries = Array.from(children, td => td.textContent).filter(text => text);
-      TestRunner.addResult('        ' + entries.join(', '));
+    if (!pathFilter) {
+      _dumpDataGrid(view._dataGrid);
+      continue;
     }
+
+    cacheTreeElement._view._entryPathFilter = pathFilter;
+    await view._updateData(true);
+    if (cacheTreeElement._view._entriesForTest.length === 0) {
+      TestRunner.addResult('        (no matching entries)');
+      continue;
+    }
+
+    _dumpDataGrid(cacheTreeElement._view._dataGrid);
   }
 };
 
@@ -123,6 +137,10 @@ ApplicationTestRunner.addCacheEntry = function(cacheName, requestUrl, responseTe
   return TestRunner.callFunctionInPageAsync('addCacheEntry', [cacheName, requestUrl, responseText]);
 };
 
+ApplicationTestRunner.addCacheEntryWithNoCorsRequest = function(cacheName, requestUrl) {
+  return TestRunner.callFunctionInPageAsync('addCacheEntryWithNoCorsRequest', [cacheName, requestUrl]);
+};
+
 ApplicationTestRunner.deleteCache = function(cacheName) {
   return TestRunner.callFunctionInPageAsync('deleteCache', [cacheName]);
 };
@@ -156,6 +174,13 @@ TestRunner.deprecatedInitAsync(`
 
       let response = new Response(myBlob, init);
       return cache.put(request, response);
+    }).catch(onCacheStorageError);
+  }
+
+  function addCacheEntryWithNoCorsRequest(cacheName, requestUrl) {
+    return caches.open(cacheName).then(async function(cache) {
+      let request = new Request(requestUrl, {mode: 'no-cors'});
+      return cache.put(request, await fetch(request));
     }).catch(onCacheStorageError);
   }
 

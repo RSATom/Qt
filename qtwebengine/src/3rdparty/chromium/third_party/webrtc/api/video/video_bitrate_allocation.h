@@ -11,19 +11,16 @@
 #ifndef API_VIDEO_VIDEO_BITRATE_ALLOCATION_H_
 #define API_VIDEO_VIDEO_BITRATE_ALLOCATION_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <limits>
 #include <string>
 #include <vector>
 
 #include "absl/types/optional.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include "api/video/video_codec_constants.h"
 
 namespace webrtc {
-
-// TODO(sprang): Move back to common_types when include of this is removed.
-enum : int { kMaxSimulcastStreams = 4 };
-enum : int { kMaxSpatialLayers = 5 };
-enum : int { kMaxTemporalStreams = 4 };
 
 // Class that describes how video bitrate, in bps, is allocated across temporal
 // and spatial layers. Not that bitrates are NOT cumulative. Depending on if

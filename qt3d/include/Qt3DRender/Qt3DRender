@@ -79,6 +79,7 @@
 #include "qscissortest.h"
 #include "qscreenraycaster.h"
 #include "qseamlesscubemap.h"
+#include "qsetfence.h"
 #include "qshaderdata.h"
 #include "qshaderprogram.h"
 #include "qshaderprogrambuilder.h"
@@ -99,5 +100,6 @@
 #include "qtextureimagedatagenerator.h"
 #include "qtexturewrapmode.h"
 #include "qviewport.h"
+#include "qwaitfence.h"
 #include "qt3drenderversion.h"
 #endif

@@ -29,21 +29,21 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
-#include "content/browser/loader/global_routing_id.h"
 #include "content/browser/loader/resource_loader_delegate.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/stream_handle.h"
 #include "content/public/common/previews_state.h"
-#include "content/public/common/request_context_type.h"
 #include "content/public/common/resource_type.h"
 #include "net/base/load_states.h"
 #include "net/base/request_priority.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/keepalive_statistics_recorder.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -146,18 +146,13 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   static const int kAvgBytesPerOutstandingRequest = 4400;
 
   // Called when a RenderViewHost is created.
-  void OnRenderViewHostCreated(
+  static void OnRenderViewHostCreated(
       int child_id,
       int route_id,
       net::URLRequestContextGetter* url_request_context_getter);
 
   // Called when a RenderViewHost is deleted.
-  void OnRenderViewHostDeleted(int child_id, int route_id);
-
-  // Called when a RenderViewHost starts or stops loading.
-  void OnRenderViewHostSetIsLoading(int child_id,
-                                    int route_id,
-                                    bool is_loading);
+  static void OnRenderViewHostDeleted(int child_id, int route_id);
 
   // Force cancels any pending requests for the given process.
   void CancelRequestsForProcess(int child_id);
@@ -243,6 +238,7 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       ServiceWorkerNavigationHandleCore* service_worker_handle_core,
       AppCacheNavigationHandleCore* appcache_handle_core,
       uint32_t url_loader_options,
+      net::RequestPriority net_priority,
       const GlobalRequestID& global_request_id);
 
   int num_in_flight_requests_for_testing() const {
@@ -331,6 +327,7 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
 
  private:
   class ScheduledResourceRequestAdapter;
+  friend class NetworkServiceClient;
   friend class ResourceDispatcherHostTest;
 
   FRIEND_TEST_ALL_PREFIXES(ResourceDispatcherHostTest,
@@ -588,14 +585,6 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       network::mojom::URLLoaderRequest mojo_request,
       network::mojom::URLLoaderClientPtr url_loader_client);
 
-  // Creates either MojoAsyncResourceHandler or AsyncResourceHandler.
-  std::unique_ptr<ResourceHandler> CreateBaseResourceHandler(
-      net::URLRequest* request,
-      uint32_t url_loader_options,
-      network::mojom::URLLoaderRequest mojo_request,
-      network::mojom::URLLoaderClientPtr url_loader_client,
-      ResourceType resource_type);
-
   // Wraps |handler| in the standard resource handlers for normal resource
   // loading and navigation requests. This adds MimeTypeResourceHandler and
   // ResourceThrottles.
@@ -604,7 +593,8 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       ResourceType resource_type,
       ResourceContext* resource_context,
       network::mojom::FetchRequestMode fetch_request_mode,
-      RequestContextType fetch_request_context_type,
+      blink::mojom::RequestContextType fetch_request_context_type,
+      uint32_t url_loader_options,
       AppCacheService* appcache_service,
       int child_id,
       int route_id,

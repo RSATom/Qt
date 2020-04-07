@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/double_or_string.h"
 #include "third_party/blink/renderer/bindings/core/v8/internal_enum_or_internal_enum_sequence.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_callback.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -26,22 +27,26 @@ class DictionaryTest : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static DictionaryTest* Create() { return new DictionaryTest(); }
+  static DictionaryTest* Create() {
+    return MakeGarbageCollected<DictionaryTest>();
+  }
+
+  DictionaryTest();
   ~DictionaryTest() override;
 
   // Stores all members into corresponding fields
-  void set(const InternalDictionary&);
+  void set(const InternalDictionary*);
   // Sets each member of the given TestDictionary from fields
-  void get(InternalDictionary&);
+  InternalDictionary* get();
   // Returns properties of the latest |dictionaryMember| which was set via
   // set().
   ScriptValue getDictionaryMemberProperties(ScriptState*);
 
-  void setDerived(const InternalDictionaryDerived&);
-  void getDerived(InternalDictionaryDerived&);
+  void setDerived(const InternalDictionaryDerived*);
+  InternalDictionaryDerived* getDerived();
 
-  void setDerivedDerived(const InternalDictionaryDerivedDerived&);
-  void getDerivedDerived(InternalDictionaryDerivedDerived&);
+  void setDerivedDerived(const InternalDictionaryDerivedDerived*);
+  InternalDictionaryDerivedDerived* getDerivedDerived();
 
   String stringFromIterable(ScriptState*,
                             Dictionary iterable,
@@ -50,9 +55,11 @@ class DictionaryTest : public ScriptWrappable {
   void Trace(blink::Visitor*) override;
 
  private:
-  DictionaryTest();
-
   void Reset();
+
+  void GetInternals(InternalDictionary*);
+  void GetDerivedInternals(InternalDictionaryDerived*);
+  void GetDerivedDerivedInternals(InternalDictionaryDerivedDerived*);
 
   // The reason to use base::Optional<T> is convenience; we use
   // base::Optional<T> here to record whether the member field is set or not.
@@ -92,6 +99,7 @@ class DictionaryTest : public ScriptWrappable {
   base::Optional<HashMap<String, String>> dictionary_member_properties_;
   InternalEnumOrInternalEnumSequence internal_enum_or_internal_enum_sequence_;
   ScriptValue any_member_;
+  TraceWrapperMember<V8TestCallback> callback_function_member_;
 };
 
 }  // namespace blink

@@ -14,6 +14,7 @@
 #include "base/threading/thread_checker.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/payments/payments_customer_data.h"
 #include "components/sync/model/syncable_service.h"
 
 namespace autofill {
@@ -28,6 +29,9 @@ class AutofillWalletSyncableService
     : public base::SupportsUserData::Data,
       public syncer::SyncableService {
  public:
+  AutofillWalletSyncableService(AutofillWebDataBackend* webdata_backend,
+                                const std::string& app_locale);
+
   ~AutofillWalletSyncableService() override;
 
   // syncer::SyncableService implementation.
@@ -59,11 +63,6 @@ class AutofillWalletSyncableService
   void InjectStartSyncFlare(
       const syncer::SyncableService::StartSyncFlare& flare);
 
- protected:
-  AutofillWalletSyncableService(
-      AutofillWebDataBackend* webdata_backend,
-      const std::string& app_locale);
-
  private:
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
                            CopyRelevantMetadataFromDisk_KeepLocalAddresses);
@@ -72,11 +71,13 @@ class AutofillWalletSyncableService
       CopyRelevantMetadataFromDisk_OverwriteOtherAddresses);
   FRIEND_TEST_ALL_PREFIXES(
       AutofillWalletSyncableServiceTest,
-      PopulateWalletCardsAndAddresses_BillingAddressIdTransfer);
+      PopulateWalletTypesFromSyncData_BillingAddressIdTransfer);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
                            CopyRelevantMetadataFromDisk_KeepUseStats);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest, NewWalletCard);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest, EmptyNameOnCard);
+  FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
+                           PaymentsCustomerData);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest, ComputeCardsDiff);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
                            ComputeAddressesDiff);
@@ -100,14 +101,15 @@ class AutofillWalletSyncableService
                           const std::vector<Item>& new_data);
 
   syncer::SyncMergeResult SetSyncData(const syncer::SyncDataList& data_list,
-                                      bool is_initial_data);
+                                      bool is_initial_merge);
 
-  // Populates the wallet cards and addresses from the sync data and uses the
-  // sync data to link the card to its billing address.
-  static void PopulateWalletCardsAndAddresses(
+  // Populates the wallet datatypes from the sync data and uses the sync data to
+  // link the card to its billing address.
+  static void PopulateWalletTypesFromSyncData(
       const syncer::SyncDataList& data_list,
       std::vector<CreditCard>* wallet_cards,
-      std::vector<AutofillProfile>* wallet_addresses);
+      std::vector<AutofillProfile>* wallet_addresses,
+      std::vector<PaymentsCustomerData>* customer_data);
 
   // Finds the copies of the same credit card from the server and on disk and
   // overwrites the server version with the use stats saved on disk, and the

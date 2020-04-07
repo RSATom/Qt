@@ -32,8 +32,6 @@
 
 namespace blink {
 
-using namespace HTMLNames;
-
 LayoutTableCol::LayoutTableCol(Element* element)
     : LayoutTableBoxComponent(element), span_(1) {
   // init LayoutObject attributes
@@ -43,8 +41,8 @@ LayoutTableCol::LayoutTableCol(Element* element)
 
 void LayoutTableCol::StyleDidChange(StyleDifference diff,
                                     const ComputedStyle* old_style) {
-  DCHECK(Style()->Display() == EDisplay::kTableColumn ||
-         Style()->Display() == EDisplay::kTableColumnGroup);
+  DCHECK(StyleRef().Display() == EDisplay::kTableColumn ||
+         StyleRef().Display() == EDisplay::kTableColumnGroup);
 
   LayoutTableBoxComponent::StyleDidChange(diff, old_style);
 
@@ -58,7 +56,7 @@ void LayoutTableCol::StyleDidChange(StyleDifference diff,
   LayoutTableBoxComponent::InvalidateCollapsedBordersOnStyleChange(
       *this, *table, diff, *old_style);
 
-  if ((old_style->LogicalWidth() != Style()->LogicalWidth()) ||
+  if ((old_style->LogicalWidth() != StyleRef().LogicalWidth()) ||
       LayoutTableBoxComponent::DoCellsHaveDirtyWidth(*this, *table, diff,
                                                      *old_style)) {
     // TODO(dgrogan): Optimization opportunities:
@@ -81,9 +79,10 @@ void LayoutTableCol::UpdateFromElement() {
   } else {
     span_ = 1;
   }
-  if (span_ != old_span && Style() && Parent())
+  if (span_ != old_span && Style() && Parent()) {
     SetNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
-        LayoutInvalidationReason::kAttributeChanged);
+        layout_invalidation_reason::kAttributeChanged);
+  }
 }
 
 void LayoutTableCol::InsertedIntoTree() {

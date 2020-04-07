@@ -11,16 +11,17 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/span.h"
 #include "base/macros.h"
 #include "base/optional.h"
 
 namespace base {
 class ListValue;
+class Token;
 }  // namespace base
 
 namespace service_manager {
 class Connector;
-class Identity;
 }  // namespace service_manager
 
 namespace extensions {
@@ -68,19 +69,33 @@ using IndexAndPersistRulesCallback =
     base::OnceCallback<void(IndexAndPersistRulesResult)>;
 // Same as IndexAndPersistRulesUnsafe but parses the JSON rules file out-of-
 // process. |connector| should be a connector to the ServiceManager usable on
-// the current sequence. Optionally clients can pass a valid |identity| to be
-// used when accessing the data decoder service which is used internally to
-// parse JSON. Note: This must be called on a sequence where file IO is allowed.
+// the current sequence. Optionally clients can pass a valid |decoder_batch_id|
+// to be used when accessing the data decoder service, which is used internally
+// to parse JSON.
+//
+// NOTE: This must be called on a sequence where file IO is allowed.
 void IndexAndPersistRules(service_manager::Connector* connector,
-                          service_manager::Identity* identity,
+                          const base::Optional<base::Token>& decoder_batch_id,
                           const Extension& extension,
                           IndexAndPersistRulesCallback callback);
 
-// Returns true if |data| and |size| represent a valid data buffer containing
-// indexed ruleset data with |expected_checksum|.
-bool IsValidRulesetData(const uint8_t* data,
-                        size_t size,
-                        int expected_checksum);
+// Returns true if |data| represents a valid data buffer containing indexed
+// ruleset data with |expected_checksum|.
+bool IsValidRulesetData(base::span<const uint8_t> data, int expected_checksum);
+
+// Returns the version header used for indexed ruleset files. Only exposed for
+// testing.
+std::string GetVersionHeaderForTesting();
+
+// Returns the indexed ruleset format version.
+int GetIndexedRulesetFormatVersionForTesting();
+
+// Override the ruleset format version for testing.
+void SetIndexedRulesetFormatVersionForTesting(int version);
+
+// Strips the version header from |ruleset_data|. Returns false on version
+// mismatch.
+bool StripVersionHeaderAndParseVersion(std::string* ruleset_data);
 
 }  // namespace declarative_net_request
 }  // namespace extensions

@@ -18,7 +18,7 @@
 Polymer({
   is: 'settings-downloads-page',
 
-  behaviors: [WebUIListenerBehavior],
+  behaviors: [WebUIListenerBehavior, PrefsBehavior],
 
   properties: {
     /**
@@ -43,16 +43,9 @@ Polymer({
 
     // <if expr="chromeos">
     /**
-     * Whether Smb Shares settings should be fetched and displayed.
-     * @private
+     * The download location string that is suitable to display in the UI.
      */
-    enableSmbSettings_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('enableNativeSmbSetting');
-      },
-      readOnly: true,
-    },
+    downloadLocation_: String,
     // </if>
 
     /** @private {!Map<string, string>} */
@@ -73,13 +66,22 @@ Polymer({
 
   },
 
+  // <if expr="chromeos">
+  observers: [
+    'handleDownloadLocationChanged_(prefs.download.default_directory.value)'
+  ],
+  // </if>
+
   /** @private {?settings.DownloadsBrowserProxy} */
   browserProxy_: null,
 
   /** @override */
-  attached: function() {
+  created: function() {
     this.browserProxy_ = settings.DownloadsBrowserProxyImpl.getInstance();
+  },
 
+  /** @override */
+  ready: function() {
     this.addWebUIListener('auto-open-downloads-changed', autoOpen => {
       this.autoOpenDownloads_ = autoOpen;
     });
@@ -99,25 +101,17 @@ Polymer({
   onTapSmbShares_: function() {
     settings.navigateTo(settings.routes.SMB_SHARES);
   },
-  // </if>
 
-
-  // <if expr="chromeos">
   /**
-   * @param {string} path
-   * @return {string} The download location string that is suitable to display
-   *     in the UI.
    * @private
    */
-  getDownloadLocation_: function(path) {
-    // Replace /special/drive-<hash>/root with "Google Drive" for remote files,
-    // /home/chronos/user/Downloads or /home/chronos/u-<hash>/Downloads with
-    // "Downloads" for local paths, and '/' with ' \u203a ' (angled quote sign)
-    // everywhere. It is used only for display purpose.
-    path = path.replace(/^\/special\/drive[^\/]*\/root/, 'Google Drive');
-    path = path.replace(/^\/home\/chronos\/(user|u-[^\/]*)\//, '');
-    path = path.replace(/\//g, ' \u203a ');
-    return path;
+  handleDownloadLocationChanged_: function() {
+    this.browserProxy_
+        .getDownloadLocationText(/** @type {string} */ (
+            this.getPref('download.default_directory').value))
+        .then(text => {
+          this.downloadLocation_ = text;
+        });
   },
   // </if>
 

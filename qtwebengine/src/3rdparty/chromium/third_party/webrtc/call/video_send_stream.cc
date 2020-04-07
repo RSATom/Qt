@@ -9,6 +9,10 @@
  */
 
 #include "call/video_send_stream.h"
+
+#include <utility>
+
+#include "api/crypto/frame_encryptor_interface.h"
 #include "rtc_base/strings/string_builder.h"
 
 namespace webrtc {
@@ -63,8 +67,11 @@ std::string VideoSendStream::Stats::ToString(int64_t time_ms) const {
 
 VideoSendStream::Config::Config(const Config&) = default;
 VideoSendStream::Config::Config(Config&&) = default;
+VideoSendStream::Config::Config(Transport* send_transport,
+                                MediaTransportInterface* media_transport)
+    : send_transport(send_transport), media_transport(media_transport) {}
 VideoSendStream::Config::Config(Transport* send_transport)
-    : send_transport(send_transport) {}
+    : Config(send_transport, nullptr) {}
 
 VideoSendStream::Config& VideoSendStream::Config::operator=(Config&&) = default;
 VideoSendStream::Config::Config::~Config() = default;
@@ -72,13 +79,12 @@ VideoSendStream::Config::Config::~Config() = default;
 std::string VideoSendStream::Config::ToString() const {
   char buf[2 * 1024];
   rtc::SimpleStringBuilder ss(buf);
-  ss << "{encoder_settings: " << encoder_settings.ToString();
+  ss << "{encoder_settings: { experiment_cpu_load_estimator: "
+     << (encoder_settings.experiment_cpu_load_estimator ? "on" : "off") << "}}";
   ss << ", rtp: " << rtp.ToString();
-  ss << ", rtcp: " << rtcp.ToString();
-  ss << ", pre_encode_callback: "
-     << (pre_encode_callback ? "(VideoSinkInterface)" : "nullptr");
-  ss << ", post_encode_callback: "
-     << (post_encode_callback ? "(EncodedFrameObserver)" : "nullptr");
+  ss << ", rtcp_report_interval_ms: " << rtcp_report_interval_ms;
+  ss << ", send_transport: " << (send_transport ? "(Transport)" : "nullptr");
+  ss << ", media_transport: " << (media_transport ? "(Transport)" : "nullptr");
   ss << ", render_delay_ms: " << render_delay_ms;
   ss << ", target_delay_ms: " << target_delay_ms;
   ss << ", suspend_below_min_bitrate: "
@@ -87,12 +93,4 @@ std::string VideoSendStream::Config::ToString() const {
   return ss.str();
 }
 
-std::string VideoSendStream::Config::EncoderSettings::ToString() const {
-  char buf[1024];
-  rtc::SimpleStringBuilder ss(buf);
-  ss << "{encoder_factory: "
-     << (encoder_factory ? "(VideoEncoderFactory)" : "(nullptr)");
-  ss << '}';
-  return ss.str();
-}
 }  // namespace webrtc

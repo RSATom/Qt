@@ -39,7 +39,7 @@ XMLHttpRequestUpload::XMLHttpRequestUpload(XMLHttpRequest* xml_http_request)
       last_total_bytes_to_be_sent_(0) {}
 
 const AtomicString& XMLHttpRequestUpload::InterfaceName() const {
-  return EventTargetNames::XMLHttpRequestUpload;
+  return event_target_names::kXMLHttpRequestUpload;
 }
 
 ExecutionContext* XMLHttpRequestUpload::GetExecutionContext() const {
@@ -53,8 +53,8 @@ void XMLHttpRequestUpload::DispatchProgressEvent(
   last_total_bytes_to_be_sent_ = total_bytes_to_be_sent;
   probe::AsyncTask async_task(GetExecutionContext(), xml_http_request_,
                               "progress", xml_http_request_->IsAsync());
-  DispatchEvent(ProgressEvent::Create(EventTypeNames::progress, true,
-                                      bytes_sent, total_bytes_to_be_sent));
+  DispatchEvent(*ProgressEvent::Create(event_type_names::kProgress, true,
+                                       bytes_sent, total_bytes_to_be_sent));
 }
 
 void XMLHttpRequestUpload::DispatchEventAndLoadEnd(
@@ -62,14 +62,15 @@ void XMLHttpRequestUpload::DispatchEventAndLoadEnd(
     bool length_computable,
     unsigned long long bytes_sent,
     unsigned long long total) {
-  DCHECK(type == EventTypeNames::load || type == EventTypeNames::abort ||
-         type == EventTypeNames::error || type == EventTypeNames::timeout);
+  DCHECK(type == event_type_names::kLoad || type == event_type_names::kAbort ||
+         type == event_type_names::kError ||
+         type == event_type_names::kTimeout);
   probe::AsyncTask async_task(GetExecutionContext(), xml_http_request_, "event",
                               xml_http_request_->IsAsync());
   DispatchEvent(
-      ProgressEvent::Create(type, length_computable, bytes_sent, total));
-  DispatchEvent(ProgressEvent::Create(EventTypeNames::loadend,
-                                      length_computable, bytes_sent, total));
+      *ProgressEvent::Create(type, length_computable, bytes_sent, total));
+  DispatchEvent(*ProgressEvent::Create(event_type_names::kLoadend,
+                                       length_computable, bytes_sent, total));
 }
 
 void XMLHttpRequestUpload::HandleRequestError(const AtomicString& type) {
@@ -77,9 +78,9 @@ void XMLHttpRequestUpload::HandleRequestError(const AtomicString& type) {
                            last_bytes_sent_ <= last_total_bytes_to_be_sent_;
   probe::AsyncTask async_task(GetExecutionContext(), xml_http_request_, "error",
                               xml_http_request_->IsAsync());
-  DispatchEvent(ProgressEvent::Create(EventTypeNames::progress,
-                                      length_computable, last_bytes_sent_,
-                                      last_total_bytes_to_be_sent_));
+  DispatchEvent(*ProgressEvent::Create(event_type_names::kProgress,
+                                       length_computable, last_bytes_sent_,
+                                       last_total_bytes_to_be_sent_));
   DispatchEventAndLoadEnd(type, length_computable, last_bytes_sent_,
                           last_total_bytes_to_be_sent_);
 }

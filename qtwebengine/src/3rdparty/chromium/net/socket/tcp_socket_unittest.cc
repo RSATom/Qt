@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
+#include "base/test/bind_test_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/base/address_list.h"
@@ -21,6 +22,7 @@
 #include "net/base/sockaddr_storage.h"
 #include "net/base/test_completion_callback.h"
 #include "net/log/net_log_source.h"
+#include "net/socket/socket_descriptor.h"
 #include "net/socket/socket_performance_watcher.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/tcp_client_socket.h"
@@ -31,6 +33,13 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
+
+// For getsockopt() call.
+#if defined(OS_WIN)
+#include <winsock2.h>
+#else  // !defined(OS_WIN)
+#include <sys/socket.h>
+#endif  //  !defined(OS_WIN)
 
 using net::test::IsError;
 using net::test::IsOk;
@@ -185,8 +194,8 @@ class TCPSocketTest : public PlatformTest, public WithScopedTaskEnvironment {
       // message.
       const std::string message("t");
 
-      scoped_refptr<IOBufferWithSize> write_buffer(
-          new IOBufferWithSize(message.size()));
+      scoped_refptr<IOBufferWithSize> write_buffer =
+          base::MakeRefCounted<IOBufferWithSize>(message.size());
       memmove(write_buffer->data(), message.data(), message.size());
 
       TestCompletionCallback write_callback;
@@ -194,8 +203,8 @@ class TCPSocketTest : public PlatformTest, public WithScopedTaskEnvironment {
           write_buffer.get(), write_buffer->size(), write_callback.callback(),
           TRAFFIC_ANNOTATION_FOR_TESTS);
 
-      scoped_refptr<IOBufferWithSize> read_buffer(
-          new IOBufferWithSize(message.size()));
+      scoped_refptr<IOBufferWithSize> read_buffer =
+          base::MakeRefCounted<IOBufferWithSize>(message.size());
       TestCompletionCallback read_callback;
       int read_result = connecting_socket.Read(
           read_buffer.get(), read_buffer->size(), read_callback.callback());
@@ -405,8 +414,8 @@ TEST_F(TCPSocketTest, ReadWrite) {
 
   size_t bytes_written = 0;
   while (bytes_written < message.size()) {
-    scoped_refptr<IOBufferWithSize> write_buffer(
-        new IOBufferWithSize(message.size() - bytes_written));
+    scoped_refptr<IOBufferWithSize> write_buffer =
+        base::MakeRefCounted<IOBufferWithSize>(message.size() - bytes_written);
     memmove(write_buffer->data(), message.data() + bytes_written,
             message.size() - bytes_written);
 
@@ -422,8 +431,8 @@ TEST_F(TCPSocketTest, ReadWrite) {
 
   size_t bytes_read = 0;
   while (bytes_read < message.size()) {
-    scoped_refptr<IOBufferWithSize> read_buffer(
-        new IOBufferWithSize(message.size() - bytes_read));
+    scoped_refptr<IOBufferWithSize> read_buffer =
+        base::MakeRefCounted<IOBufferWithSize>(message.size() - bytes_read);
     TestCompletionCallback read_callback;
     int read_result = connecting_socket.Read(
         read_buffer.get(), read_buffer->size(), read_callback.callback());
@@ -588,6 +597,158 @@ TEST_F(TCPSocketTest, CancelPendingReadIfReady) {
   ASSERT_EQ(0, memcmp(&kMsg, read_buffer->data(), msg_size));
 }
 
+TEST_F(TCPSocketTest, IsConnected) {
+  ASSERT_NO_FATAL_FAILURE(SetUpListenIPv4());
+
+  TestCompletionCallback accept_callback;
+  std::unique_ptr<TCPSocket> accepted_socket;
+  IPEndPoint accepted_address;
+  EXPECT_THAT(socket_.Accept(&accepted_socket, &accepted_address,
+                             accept_callback.callback()),
+              IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback connect_callback;
+  TCPClientSocket connecting_socket(local_address_list(), nullptr, nullptr,
+                                    NetLogSource());
+
+  // Immediately after creation, the socket should not be connected.
+  EXPECT_FALSE(connecting_socket.IsConnected());
+  EXPECT_FALSE(connecting_socket.IsConnectedAndIdle());
+
+  int connect_result = connecting_socket.Connect(connect_callback.callback());
+  EXPECT_THAT(accept_callback.WaitForResult(), IsOk());
+  EXPECT_THAT(connect_callback.GetResult(connect_result), IsOk());
+
+  // |connecting_socket| and |accepted_socket| should now both be reported as
+  // connected, and idle
+  EXPECT_TRUE(accepted_socket->IsConnected());
+  EXPECT_TRUE(accepted_socket->IsConnectedAndIdle());
+  EXPECT_TRUE(connecting_socket.IsConnected());
+  EXPECT_TRUE(connecting_socket.IsConnectedAndIdle());
+
+  // Write one byte to the |accepted_socket|, then close it.
+  const char kSomeData[] = "!";
+  scoped_refptr<IOBuffer> some_data_buffer =
+      base::MakeRefCounted<StringIOBuffer>(kSomeData);
+  TestCompletionCallback write_callback;
+  EXPECT_THAT(write_callback.GetResult(accepted_socket->Write(
+                  some_data_buffer.get(), 1, write_callback.callback(),
+                  TRAFFIC_ANNOTATION_FOR_TESTS)),
+              1);
+  accepted_socket.reset();
+
+  // Wait until |connecting_socket| is signalled as having data to read.
+  fd_set read_fds;
+  FD_ZERO(&read_fds);
+  SocketDescriptor connecting_fd =
+      connecting_socket.SocketDescriptorForTesting();
+  FD_SET(connecting_fd, &read_fds);
+  ASSERT_EQ(select(FD_SETSIZE, &read_fds, nullptr, nullptr, nullptr), 1);
+  ASSERT_TRUE(FD_ISSET(connecting_fd, &read_fds));
+
+  // It should now be reported as connected, but not as idle.
+  EXPECT_TRUE(connecting_socket.IsConnected());
+  EXPECT_FALSE(connecting_socket.IsConnectedAndIdle());
+
+  // Read the message from |connecting_socket_|, then read the end-of-stream.
+  scoped_refptr<IOBufferWithSize> read_buffer =
+      base::MakeRefCounted<IOBufferWithSize>(2);
+  TestCompletionCallback read_callback;
+  EXPECT_THAT(
+      read_callback.GetResult(connecting_socket.Read(
+          read_buffer.get(), read_buffer->size(), read_callback.callback())),
+      1);
+  EXPECT_THAT(
+      read_callback.GetResult(connecting_socket.Read(
+          read_buffer.get(), read_buffer->size(), read_callback.callback())),
+      0);
+
+  // |connecting_socket| has no more data to read, so should noe be reported
+  // as disconnected.
+  EXPECT_FALSE(connecting_socket.IsConnected());
+  EXPECT_FALSE(connecting_socket.IsConnectedAndIdle());
+}
+
+// Tests that setting a socket option in the BeforeConnectCallback works. With
+// real sockets, socket options often have to be set before the connect() call,
+// and the BeforeConnectCallback is the only way to do that, with a
+// TCPClientSocket.
+TEST_F(TCPSocketTest, BeforeConnectCallback) {
+  // A receive buffer size that is between max and minimum buffer size limits,
+  // and weird enough to likely not be a default value.
+  const int kReceiveBufferSize = 32 * 1024 + 1117;
+  ASSERT_NO_FATAL_FAILURE(SetUpListenIPv4());
+
+  TestCompletionCallback accept_callback;
+  std::unique_ptr<TCPSocket> accepted_socket;
+  IPEndPoint accepted_address;
+  EXPECT_THAT(socket_.Accept(&accepted_socket, &accepted_address,
+                             accept_callback.callback()),
+              IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback connect_callback;
+  TCPClientSocket connecting_socket(local_address_list(), nullptr, nullptr,
+                                    NetLogSource());
+
+  connecting_socket.SetBeforeConnectCallback(base::BindLambdaForTesting([&] {
+    EXPECT_FALSE(connecting_socket.IsConnected());
+    int result = connecting_socket.SetReceiveBufferSize(kReceiveBufferSize);
+    EXPECT_THAT(result, IsOk());
+    return result;
+  }));
+  int connect_result = connecting_socket.Connect(connect_callback.callback());
+
+  EXPECT_THAT(accept_callback.WaitForResult(), IsOk());
+  EXPECT_THAT(connect_callback.GetResult(connect_result), IsOk());
+
+  int actual_size = 0;
+  socklen_t actual_size_len = sizeof(actual_size);
+  int os_result = getsockopt(
+      connecting_socket.SocketDescriptorForTesting(), SOL_SOCKET, SO_RCVBUF,
+      reinterpret_cast<char*>(&actual_size), &actual_size_len);
+  ASSERT_EQ(0, os_result);
+// Linux platforms generally allocate twice as much buffer size is requested to
+// account for internal kernel data structures.
+#if defined(OS_LINUX) || defined(OS_ANDROID)
+  EXPECT_EQ(2 * kReceiveBufferSize, actual_size);
+// Unfortunately, Apple platform behavior doesn't seem to be documented, and
+// doesn't match behavior on any other platforms.
+// Fuchsia doesn't currently implement SO_RCVBUF.
+#elif !defined(OS_IOS) && !defined(OS_MACOSX) && !defined(OS_FUCHSIA)
+  EXPECT_EQ(kReceiveBufferSize, actual_size);
+#endif
+}
+
+TEST_F(TCPSocketTest, BeforeConnectCallbackFails) {
+  // Setting up a server isn't strictly necessary, but it does allow checking
+  // the server was never connected to.
+  ASSERT_NO_FATAL_FAILURE(SetUpListenIPv4());
+
+  TestCompletionCallback accept_callback;
+  std::unique_ptr<TCPSocket> accepted_socket;
+  IPEndPoint accepted_address;
+  EXPECT_THAT(socket_.Accept(&accepted_socket, &accepted_address,
+                             accept_callback.callback()),
+              IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback connect_callback;
+  TCPClientSocket connecting_socket(local_address_list(), nullptr, nullptr,
+                                    NetLogSource());
+
+  // Set a callback that returns a nonsensical error, and make sure it's
+  // returned.
+  connecting_socket.SetBeforeConnectCallback(base::BindRepeating(
+      [] { return static_cast<int>(net::ERR_NAME_NOT_RESOLVED); }));
+  int connect_result = connecting_socket.Connect(connect_callback.callback());
+  EXPECT_THAT(connect_callback.GetResult(connect_result),
+              IsError(net::ERR_NAME_NOT_RESOLVED));
+
+  // Best effort check that the socket wasn't accepted - may flakily pass on
+  // regression, unfortunately.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(accept_callback.have_result());
+}
+
 // These tests require kernel support for tcp_info struct, and so they are
 // enabled only on certain platforms.
 #if defined(TCP_INFO) || defined(OS_LINUX)
@@ -635,7 +796,8 @@ TEST_F(TCPSocketTest, Tag) {
   SocketTag tag2(getuid(), tag_val2);
   socket_.ApplySocketTag(tag2);
   const char kRequest1[] = "GET / HTTP/1.0";
-  scoped_refptr<IOBuffer> write_buffer1(new StringIOBuffer(kRequest1));
+  scoped_refptr<IOBuffer> write_buffer1 =
+      base::MakeRefCounted<StringIOBuffer>(kRequest1);
   TestCompletionCallback write_callback1;
   EXPECT_EQ(
       socket_.Write(write_buffer1.get(), strlen(kRequest1),
@@ -648,7 +810,8 @@ TEST_F(TCPSocketTest, Tag) {
   old_traffic = GetTaggedBytes(tag_val1);
   socket_.ApplySocketTag(tag1);
   const char kRequest2[] = "\n\n";
-  scoped_refptr<IOBuffer> write_buffer2(new StringIOBuffer(kRequest2));
+  scoped_refptr<IOBuffer> write_buffer2 =
+      base::MakeRefCounted<StringIOBuffer>(kRequest2);
   TestCompletionCallback write_callback2;
   EXPECT_EQ(
       socket_.Write(write_buffer2.get(), strlen(kRequest2),
@@ -682,7 +845,8 @@ TEST_F(TCPSocketTest, TagAfterConnect) {
   SocketTag tag2(getuid(), tag_val2);
   socket_.ApplySocketTag(tag2);
   const char kRequest1[] = "GET / HTTP/1.0";
-  scoped_refptr<IOBuffer> write_buffer1(new StringIOBuffer(kRequest1));
+  scoped_refptr<IOBuffer> write_buffer1 =
+      base::MakeRefCounted<StringIOBuffer>(kRequest1);
   TestCompletionCallback write_callback1;
   EXPECT_EQ(
       socket_.Write(write_buffer1.get(), strlen(kRequest1),
@@ -697,7 +861,8 @@ TEST_F(TCPSocketTest, TagAfterConnect) {
   SocketTag tag1(SocketTag::UNSET_UID, tag_val1);
   socket_.ApplySocketTag(tag1);
   const char kRequest2[] = "\n\n";
-  scoped_refptr<IOBuffer> write_buffer2(new StringIOBuffer(kRequest2));
+  scoped_refptr<IOBuffer> write_buffer2 =
+      base::MakeRefCounted<StringIOBuffer>(kRequest2);
   TestCompletionCallback write_callback2;
   EXPECT_EQ(
       socket_.Write(write_buffer2.get(), strlen(kRequest2),

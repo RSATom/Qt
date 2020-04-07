@@ -36,11 +36,11 @@ namespace blink {
 
 SVGAnimatedAngle::SVGAnimatedAngle(SVGElement* context_element)
     : SVGAnimatedProperty<SVGAngle>(context_element,
-                                    SVGNames::orientAttr,
+                                    svg_names::kOrientAttr,
                                     SVGAngle::Create()),
       orient_type_(SVGAnimatedEnumeration<SVGMarkerOrientType>::Create(
           context_element,
-          SVGNames::orientAttr,
+          svg_names::kOrientAttr,
           BaseValue()->OrientType())) {}
 
 SVGAnimatedAngle::~SVGAnimatedAngle() = default;
@@ -51,7 +51,7 @@ void SVGAnimatedAngle::Trace(blink::Visitor* visitor) {
   ScriptWrappable::Trace(visitor);
 }
 
-bool SVGAnimatedAngle::NeedsSynchronizeAttribute() {
+bool SVGAnimatedAngle::NeedsSynchronizeAttribute() const {
   return orient_type_->NeedsSynchronizeAttribute() ||
          SVGAnimatedProperty<SVGAngle>::NeedsSynchronizeAttribute();
 }

@@ -1382,28 +1382,31 @@ void BaselineAssembler::cmpStrictNotEqual(int lhs)
     pasm()->setAccumulatorTag(QV4::Value::ValueTypeInternal::Boolean);
 }
 
-void BaselineAssembler::jump(int offset)
+int BaselineAssembler::jump(int offset)
 {
     pasm()->addJumpToOffset(pasm()->jump(), offset);
+    return offset;
 }
 
-void BaselineAssembler::jumpTrue(int offset)
+int BaselineAssembler::jumpTrue(int offset)
 {
     pasm()->toBoolean([this, offset](PlatformAssembler::RegisterID resultReg) {
         auto jump = pasm()->branch32(PlatformAssembler::NotEqual, TrustedImm32(0), resultReg);
         pasm()->addJumpToOffset(jump, offset);
     });
+    return offset;
 }
 
-void BaselineAssembler::jumpFalse(int offset)
+int BaselineAssembler::jumpFalse(int offset)
 {
     pasm()->toBoolean([this, offset](PlatformAssembler::RegisterID resultReg) {
         auto jump = pasm()->branch32(PlatformAssembler::Equal, TrustedImm32(0), resultReg);
         pasm()->addJumpToOffset(jump, offset);
     });
+    return offset;
 }
 
-void BaselineAssembler::jumpNoException(int offset)
+int BaselineAssembler::jumpNoException(int offset)
 {
     auto jump = pasm()->branch32(
         PlatformAssembler::Equal,
@@ -1411,11 +1414,13 @@ void BaselineAssembler::jumpNoException(int offset)
                                    offsetof(EngineBase, hasException)),
         TrustedImm32(0));
     pasm()->addJumpToOffset(jump, offset);
+    return offset;
 }
 
-void BaselineAssembler::jumpNotUndefined(int offset)
+int BaselineAssembler::jumpNotUndefined(int offset)
 {
     pasm()->jumpNotUndefined(offset);
+    return offset;
 }
 
 void BaselineAssembler::prepareCallWithArgCount(int argc)
@@ -1458,6 +1463,11 @@ void BaselineAssembler::passInt32AsArg(int value, int arg)
     pasm()->passInt32AsArg(value, arg);
 }
 
+void BaselineAssembler::passPointerAsArg(void *ptr, int arg)
+{
+    pasm()->passPointerAsArg(ptr, arg);
+}
+
 void BaselineAssembler::callRuntime(const char *functionName, const void *funcPtr, CallResultDestination dest)
 {
     pasm()->callRuntime(functionName, funcPtr, dest);
@@ -1467,6 +1477,12 @@ void BaselineAssembler::saveAccumulatorInFrame()
 {
     pasm()->storeAccumulator(PlatformAssembler::Address(PlatformAssembler::JSStackFrameRegister,
                                                         offsetof(CallData, accumulator)));
+}
+
+void BaselineAssembler::loadAccumulatorFromFrame()
+{
+    pasm()->loadAccumulator(PlatformAssembler::Address(PlatformAssembler::JSStackFrameRegister,
+                                                       offsetof(CallData, accumulator)));
 }
 
 static ReturnedValue TheJitIs__Tail_Calling__ToTheRuntimeSoTheJitFrameIsMissing(CppStackFrame *frame, ExecutionEngine *engine)
@@ -1534,10 +1550,11 @@ void BaselineAssembler::setException()
     noException.link(pasm());
 }
 
-void BaselineAssembler::setUnwindHandler(int offset)
+int BaselineAssembler::setUnwindHandler(int offset)
 {
     auto l = pasm()->storePtrWithPatch(TrustedImmPtr(nullptr), pasm()->exceptionHandlerAddress());
     pasm()->addEHTarget(l, offset);
+    return offset;
 }
 
 
@@ -1563,12 +1580,13 @@ void JIT::BaselineAssembler::unwindDispatch()
     noUnwind.link(pasm());
 }
 
-void JIT::BaselineAssembler::unwindToLabel(int level, int offset)
+int JIT::BaselineAssembler::unwindToLabel(int level, int offset)
 {
     auto l = pasm()->storePtrWithPatch(TrustedImmPtr(nullptr), Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLabel)));
     pasm()->addEHTarget(l, offset);
     pasm()->store32(TrustedImm32(level), Address(PlatformAssembler::CppStackFrameRegister, offsetof(CppStackFrame, unwindLevel)));
     gotoCatchException();
+    return offset;
 }
 
 void BaselineAssembler::pushCatchContext(int index, int name)
@@ -1594,7 +1612,6 @@ void BaselineAssembler::deadTemporalZoneCheck(int offsetForSavedIP, int variable
 {
     auto valueIsAliveJump = pasm()->jumpNotEmpty();
     storeInstructionPointer(offsetForSavedIP);
-    saveAccumulatorInFrame();
     prepareCallWithArgCount(2);
     passInt32AsArg(variableName, 1);
     passEngineAsArg(0);

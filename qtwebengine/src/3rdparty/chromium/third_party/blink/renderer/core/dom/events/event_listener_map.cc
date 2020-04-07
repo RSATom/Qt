@@ -32,6 +32,7 @@
 
 #include "third_party/blink/renderer/core/dom/events/event_listener_map.h"
 
+#include "third_party/blink/renderer/core/dom/events/event_listener.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -96,7 +97,7 @@ Vector<AtomicString> EventListenerMap::EventTypes() const {
 
 static bool AddListenerToVector(EventListenerVector* vector,
                                 EventListener* listener,
-                                const AddEventListenerOptionsResolved& options,
+                                const AddEventListenerOptionsResolved* options,
                                 RegisteredEventListener* registered_listener) {
   *registered_listener = RegisteredEventListener(listener, options);
 
@@ -109,7 +110,7 @@ static bool AddListenerToVector(EventListenerVector* vector,
 
 bool EventListenerMap::Add(const AtomicString& event_type,
                            EventListener* listener,
-                           const AddEventListenerOptionsResolved& options,
+                           const AddEventListenerOptionsResolved* options,
                            RegisteredEventListener* registered_listener) {
   CheckNoActiveIterators();
 
@@ -119,7 +120,8 @@ bool EventListenerMap::Add(const AtomicString& event_type,
                                  registered_listener);
   }
 
-  entries_.push_back(std::make_pair(event_type, new EventListenerVector));
+  entries_.push_back(
+      std::make_pair(event_type, MakeGarbageCollected<EventListenerVector>()));
   return AddListenerToVector(entries_.back().second.Get(), listener, options,
                              registered_listener);
 }
@@ -127,8 +129,8 @@ bool EventListenerMap::Add(const AtomicString& event_type,
 static bool RemoveListenerFromVector(
     EventListenerVector* listener_vector,
     const EventListener* listener,
-    const EventListenerOptions& options,
-    size_t* index_of_removed_listener,
+    const EventListenerOptions* options,
+    wtf_size_t* index_of_removed_listener,
     RegisteredEventListener* registered_listener) {
   auto* const begin = listener_vector->data();
   auto* const end = begin + listener_vector->size();
@@ -146,15 +148,15 @@ static bool RemoveListenerFromVector(
     return false;
   }
   *registered_listener = *it;
-  *index_of_removed_listener = it - begin;
+  *index_of_removed_listener = static_cast<wtf_size_t>(it - begin);
   listener_vector->EraseAt(*index_of_removed_listener);
   return true;
 }
 
 bool EventListenerMap::Remove(const AtomicString& event_type,
                               const EventListener* listener,
-                              const EventListenerOptions& options,
-                              size_t* index_of_removed_listener,
+                              const EventListenerOptions* options,
+                              wtf_size_t* index_of_removed_listener,
                               RegisteredEventListener* registered_listener) {
   CheckNoActiveIterators();
 
@@ -188,9 +190,9 @@ static void CopyListenersNotCreatedFromMarkupToTarget(
     EventListenerVector* listener_vector,
     EventTarget* target) {
   for (auto& event_listener : *listener_vector) {
-    if (event_listener.Callback()->WasCreatedFromMarkup())
+    if (event_listener.Callback()->IsEventHandlerForContentAttribute())
       continue;
-    AddEventListenerOptionsResolved options = event_listener.Options();
+    AddEventListenerOptionsResolved* options = event_listener.Options();
     target->addEventListener(event_type, event_listener.Callback(), options);
   }
 }
@@ -205,7 +207,7 @@ void EventListenerMap::CopyEventListenersNotCreatedFromMarkupToTarget(
   }
 }
 
-void EventListenerMap::Trace(blink::Visitor* visitor) {
+void EventListenerMap::Trace(Visitor* visitor) {
   visitor->Trace(entries_);
 }
 

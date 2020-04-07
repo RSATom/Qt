@@ -929,6 +929,19 @@ Item {
             compare (spy.count, 21)
             compare(model.get(0).path.length, 3);
 
+            // departure time
+            verify(!model.get(0).extendedAttributes["tst_departureTime"])
+            var invalidDate = new Date("abc"); // to create an invalid date
+            var validDate = new Date("2011-02-07T11:05:00");
+
+            filledRouteQuery2.departureTime = validDate
+            tryCompare(spy, "count", 22)
+            compare(model.get(0).extendedAttributes["tst_departureTime"], validDate)
+
+            filledRouteQuery2.departureTime = invalidDate
+            tryCompare (spy, "count", 23)
+            verify(!model.get(0).extendedAttributes["tst_departureTime"])
+
             // ReSetting
             filledRouteQuery.numberAlternativeRoutes = 0
             filledRouteQuery2.numberAlternativeRoutes = 0

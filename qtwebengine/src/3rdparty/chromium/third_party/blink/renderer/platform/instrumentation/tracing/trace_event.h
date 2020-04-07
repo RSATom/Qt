@@ -26,11 +26,12 @@ static inline void SetTraceValue(const CString& arg,
 }  // namespace WTF
 
 namespace blink {
-namespace TraceEvent {
+namespace trace_event {
 
 using base::trace_event::TraceScopedTrackableObject;
 using AsyncEnabledStateObserver =
     base::trace_event::TraceLog::AsyncEnabledStateObserver;
+using EnabledStateObserver = base::trace_event::TraceLog::EnabledStateObserver;
 
 inline base::TimeTicks ToTraceTimestamp(double seconds) {
   return base::TimeTicks() + base::TimeDelta::FromSecondsD(seconds);
@@ -47,7 +48,10 @@ PLATFORM_EXPORT void AddAsyncEnabledStateObserver(
 PLATFORM_EXPORT void RemoveAsyncEnabledStateObserver(
     AsyncEnabledStateObserver*);
 
-}  // namespace TraceEvent
+PLATFORM_EXPORT void AddEnabledStateObserver(EnabledStateObserver*);
+PLATFORM_EXPORT void RemoveEnabledStateObserver(EnabledStateObserver*);
+
+}  // namespace trace_event
 }  // namespace blink
 
 #endif

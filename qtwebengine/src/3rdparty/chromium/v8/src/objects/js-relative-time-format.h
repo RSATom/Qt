@@ -9,9 +9,13 @@
 #ifndef V8_OBJECTS_JS_RELATIVE_TIME_FORMAT_H_
 #define V8_OBJECTS_JS_RELATIVE_TIME_FORMAT_H_
 
+#include <set>
+#include <string>
+
 #include "src/heap/factory.h"
 #include "src/isolate.h"
 #include "src/objects.h"
+#include "src/objects/managed.h"
 #include "unicode/uversion.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -28,29 +32,33 @@ class JSRelativeTimeFormat : public JSObject {
  public:
   // Initializes relative time format object with properties derived from input
   // locales and options.
-  static MaybeHandle<JSRelativeTimeFormat> InitializeRelativeTimeFormat(
+  V8_WARN_UNUSED_RESULT static MaybeHandle<JSRelativeTimeFormat> Initialize(
       Isolate* isolate,
       Handle<JSRelativeTimeFormat> relative_time_format_holder,
       Handle<Object> locales, Handle<Object> options);
 
-  static Handle<JSObject> ResolvedOptions(
+  V8_WARN_UNUSED_RESULT static Handle<JSObject> ResolvedOptions(
       Isolate* isolate, Handle<JSRelativeTimeFormat> format_holder);
 
-  // Unpacks formatter object from corresponding JavaScript object.
-  static icu::RelativeDateTimeFormatter* UnpackFormatter(
-      Isolate* isolate,
-      Handle<JSRelativeTimeFormat> relative_time_format_holder);
   Handle<String> StyleAsString() const;
   Handle<String> NumericAsString() const;
+
+  // ecma402/#sec-Intl.RelativeTimeFormat.prototype.format
+  // ecma402/#sec-Intl.RelativeTimeFormat.prototype.formatToParts
+  V8_WARN_UNUSED_RESULT static MaybeHandle<Object> Format(
+      Isolate* isolate, Handle<Object> value_obj, Handle<Object> unit_obj,
+      Handle<JSRelativeTimeFormat> format_holder, const char* func_name,
+      bool to_parts);
+
+  static std::set<std::string> GetAvailableLocales();
 
   DECL_CAST(JSRelativeTimeFormat)
 
   // RelativeTimeFormat accessors.
   DECL_ACCESSORS(locale, String)
-  // TODO(ftang): Style requires only 3 bits and Numeric requires only 2 bits
-  // but here we're using 64 bits for each. We should fold these two fields into
-  // a single Flags field and use BIT_FIELD_ACCESSORS to access it.
-  //
+
+  DECL_ACCESSORS(icu_formatter, Managed<icu::RelativeDateTimeFormatter>)
+
   // Style: identifying the relative time format style used.
   //
   // ecma402/#sec-properties-of-intl-relativetimeformat-instances
@@ -78,23 +86,43 @@ class JSRelativeTimeFormat : public JSObject {
   inline void set_numeric(Numeric numeric);
   inline Numeric numeric() const;
 
-  DECL_ACCESSORS(formatter, Foreign)
+// Bit positions in |flags|.
+#define FLAGS_BIT_FIELDS(V, _) \
+  V(StyleBits, Style, 2, _)    \
+  V(NumericBits, Numeric, 1, _)
+  DEFINE_BIT_FIELDS(FLAGS_BIT_FIELDS)
+#undef FLAGS_BIT_FIELDS
+
+  STATIC_ASSERT(Style::LONG <= StyleBits::kMax);
+  STATIC_ASSERT(Style::SHORT <= StyleBits::kMax);
+  STATIC_ASSERT(Style::NARROW <= StyleBits::kMax);
+  STATIC_ASSERT(Numeric::AUTO <= NumericBits::kMax);
+  STATIC_ASSERT(Numeric::ALWAYS <= NumericBits::kMax);
+
+  // [flags] Bit field containing various flags about the function.
+  DECL_INT_ACCESSORS(flags)
+
   DECL_PRINTER(JSRelativeTimeFormat)
   DECL_VERIFIER(JSRelativeTimeFormat)
 
   // Layout description.
-  static const int kJSRelativeTimeFormatOffset = JSObject::kHeaderSize;
-  static const int kLocaleOffset = kJSRelativeTimeFormatOffset + kPointerSize;
-  static const int kStyleOffset = kLocaleOffset + kPointerSize;
-  static const int kNumericOffset = kStyleOffset + kPointerSize;
-  static const int kFormatterOffset = kNumericOffset + kPointerSize;
-  static const int kSize = kFormatterOffset + kPointerSize;
+#define JS_RELATIVE_TIME_FORMAT_FIELDS(V)     \
+  V(kJSRelativeTimeFormatOffset, kTaggedSize) \
+  V(kLocaleOffset, kTaggedSize)               \
+  V(kICUFormatterOffset, kTaggedSize)         \
+  V(kFlagsOffset, kTaggedSize)                \
+  /* Header size. */                          \
+  V(kSize, 0)
 
-  // Constant to access field
-  static const int kFormatterField = 3;
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                JS_RELATIVE_TIME_FORMAT_FIELDS)
+#undef JS_RELATIVE_TIME_FORMAT_FIELDS
 
  private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(JSRelativeTimeFormat);
+  static Style getStyle(const char* str);
+  static Numeric getNumeric(const char* str);
+
+  OBJECT_CONSTRUCTORS(JSRelativeTimeFormat, JSObject);
 };
 
 }  // namespace internal

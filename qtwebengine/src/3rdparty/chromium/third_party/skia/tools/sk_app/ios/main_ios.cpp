@@ -7,10 +7,11 @@
 
 #include "SkTypes.h"
 #include "SkTHash.h"
-#include "SDL.h"
 #include "Timer.h"
 #include "Window_ios.h"
 #include "../Application.h"
+
+#include "SDL.h"
 
 using sk_app::Application;
 
@@ -29,10 +30,9 @@ int main(int argc, char* argv[]) {
             switch (event.type) {
                 // events handled by the windows
                 case SDL_WINDOWEVENT:
-                case SDL_MOUSEMOTION:
-                case SDL_MOUSEBUTTONDOWN:
-                case SDL_MOUSEBUTTONUP:
-                case SDL_MOUSEWHEEL:
+                case SDL_FINGERDOWN:
+                case SDL_FINGERMOTION:
+                case SDL_FINGERUP:
                 case SDL_KEYDOWN:
                 case SDL_KEYUP:
                 case SDL_TEXTINPUT:

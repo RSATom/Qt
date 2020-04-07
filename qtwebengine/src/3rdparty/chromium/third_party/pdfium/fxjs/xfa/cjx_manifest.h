@@ -7,24 +7,28 @@
 #ifndef FXJS_XFA_CJX_MANIFEST_H_
 #define FXJS_XFA_CJX_MANIFEST_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Manifest;
 
-class CJX_Manifest : public CJX_Node {
+class CJX_Manifest final : public CJX_Node {
  public:
   explicit CJX_Manifest(CXFA_Manifest* manifest);
   ~CJX_Manifest() override;
 
-  JS_METHOD(evaluate, CJX_Manifest);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(action);
-  JS_PROP(use);
-  JS_PROP(usehref);
+  JSE_METHOD(evaluate);
+
+  JSE_PROP(defaultValue); /* {default} */
 
  private:
+  using Type__ = CJX_Manifest;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::Manifest;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

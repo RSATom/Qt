@@ -39,6 +39,7 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/location.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
@@ -49,7 +50,7 @@
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 
-using blink::URLTestHelpers::ToKURL;
+using blink::url_test_helpers::ToKURL;
 
 namespace blink {
 namespace test {
@@ -68,21 +69,21 @@ class MHTMLLoadingTest : public testing::Test {
 
   void RegisterMockedURLLoad(const std::string& url,
                              const std::string& file_name) {
-    URLTestHelpers::RegisterMockedURLLoad(
+    url_test_helpers::RegisterMockedURLLoad(
         ToKURL(url),
         test::CoreTestDataPath(WebString::FromUTF8("mhtml/" + file_name)),
         WebString::FromUTF8("multipart/related"));
   }
 
   void LoadURLInTopFrame(const WebURL& url) {
-    FrameTestHelpers::LoadFrame(helper_.GetWebView()->MainFrameImpl(),
-                                url.GetString().Utf8().data());
+    frame_test_helpers::LoadFrame(helper_.GetWebView()->MainFrameImpl(),
+                                  url.GetString().Utf8().data());
   }
 
   Page* GetPage() const { return helper_.GetWebView()->GetPage(); }
 
  private:
-  FrameTestHelpers::WebViewHelper helper_;
+  frame_test_helpers::WebViewHelper helper_;
   ScopedTestingPlatformSupport<TestingPlatformSupport> platform_;
 };
 

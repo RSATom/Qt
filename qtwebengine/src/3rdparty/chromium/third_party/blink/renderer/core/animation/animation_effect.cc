@@ -64,11 +64,10 @@ AnimationEffect::AnimationEffect(const Timing& timing,
   timing_.AssertValid();
 }
 
-double AnimationEffect::IterationDuration() const {
-  double result = std::isnan(timing_.iteration_duration)
-                      ? IntrinsicIterationDuration()
-                      : timing_.iteration_duration;
-  DCHECK_GE(result, 0);
+AnimationTimeDelta AnimationEffect::IterationDuration() const {
+  AnimationTimeDelta result =
+      timing_.iteration_duration.value_or(IntrinsicIterationDuration());
+  DCHECK_GE(result, AnimationTimeDelta());
   return result;
 }
 
@@ -79,20 +78,11 @@ double AnimationEffect::RepeatedDuration() const {
   return result;
 }
 
-double AnimationEffect::ActiveDurationInternal() const {
-  const double result =
-      timing_.playback_rate
-          ? RepeatedDuration() / std::abs(timing_.playback_rate)
-          : std::numeric_limits<double>::infinity();
-  DCHECK_GE(result, 0);
-  return result;
-}
-
 double AnimationEffect::EndTimeInternal() const {
   // Per the spec, the end time has a lower bound of 0.0:
   // https://drafts.csswg.org/web-animations-1/#end-time
-  return std::max(
-      timing_.start_delay + ActiveDurationInternal() + timing_.end_delay, 0.0);
+  return std::max(timing_.start_delay + RepeatedDuration() + timing_.end_delay,
+                  0.0);
 }
 
 void AnimationEffect::UpdateSpecifiedTiming(const Timing& timing) {
@@ -101,77 +91,73 @@ void AnimationEffect::UpdateSpecifiedTiming(const Timing& timing) {
   InvalidateAndNotifyOwner();
 }
 
-void AnimationEffect::getTiming(EffectTiming& effect_timing) const {
-  effect_timing.setDelay(SpecifiedTiming().start_delay * 1000);
-  effect_timing.setEndDelay(SpecifiedTiming().end_delay * 1000);
-  effect_timing.setFill(Timing::FillModeString(SpecifiedTiming().fill_mode));
-  effect_timing.setIterationStart(SpecifiedTiming().iteration_start);
-  effect_timing.setIterations(SpecifiedTiming().iteration_count);
+EffectTiming* AnimationEffect::getTiming() const {
+  EffectTiming* effect_timing = EffectTiming::Create();
+
+  effect_timing->setDelay(SpecifiedTiming().start_delay * 1000);
+  effect_timing->setEndDelay(SpecifiedTiming().end_delay * 1000);
+  effect_timing->setFill(Timing::FillModeString(SpecifiedTiming().fill_mode));
+  effect_timing->setIterationStart(SpecifiedTiming().iteration_start);
+  effect_timing->setIterations(SpecifiedTiming().iteration_count);
   UnrestrictedDoubleOrString duration;
-  if (IsNull(SpecifiedTiming().iteration_duration)) {
-    duration.SetString("auto");
+  if (SpecifiedTiming().iteration_duration) {
+    duration.SetUnrestrictedDouble(
+        SpecifiedTiming().iteration_duration->InMillisecondsF());
   } else {
-    duration.SetUnrestrictedDouble(SpecifiedTiming().iteration_duration * 1000);
+    duration.SetString("auto");
   }
-  effect_timing.setDuration(duration);
-  effect_timing.setDirection(
+  effect_timing->setDuration(duration);
+  effect_timing->setDirection(
       Timing::PlaybackDirectionString(SpecifiedTiming().direction));
-  effect_timing.setEasing(SpecifiedTiming().timing_function->ToString());
+  effect_timing->setEasing(SpecifiedTiming().timing_function->ToString());
+
+  return effect_timing;
 }
 
-EffectTiming AnimationEffect::getTiming() const {
-  EffectTiming result;
-  getTiming(result);
-  return result;
-}
+ComputedEffectTiming* AnimationEffect::getComputedTiming() const {
+  ComputedEffectTiming* computed_timing = ComputedEffectTiming::Create();
 
-void AnimationEffect::getComputedTiming(
-    ComputedEffectTiming& computed_timing) const {
   // ComputedEffectTiming members.
-  computed_timing.setEndTime(EndTimeInternal() * 1000);
-  computed_timing.setActiveDuration(ActiveDurationInternal() * 1000);
+  computed_timing->setEndTime(EndTimeInternal() * 1000);
+  computed_timing->setActiveDuration(RepeatedDuration() * 1000);
 
   if (IsNull(EnsureCalculated().local_time)) {
-    computed_timing.setLocalTimeToNull();
+    computed_timing->setLocalTimeToNull();
   } else {
-    computed_timing.setLocalTime(EnsureCalculated().local_time * 1000);
+    computed_timing->setLocalTime(EnsureCalculated().local_time * 1000);
   }
 
   if (EnsureCalculated().is_in_effect) {
-    computed_timing.setProgress(EnsureCalculated().progress.value());
-    computed_timing.setCurrentIteration(EnsureCalculated().current_iteration);
+    computed_timing->setProgress(EnsureCalculated().progress.value());
+    computed_timing->setCurrentIteration(EnsureCalculated().current_iteration);
   } else {
-    computed_timing.setProgressToNull();
-    computed_timing.setCurrentIterationToNull();
+    computed_timing->setProgressToNull();
+    computed_timing->setCurrentIterationToNull();
   }
 
   // For the EffectTiming members, getComputedTiming is equivalent to getTiming
   // except that the fill and duration must be resolved.
   //
   // https://drafts.csswg.org/web-animations-1/#dom-animationeffect-getcomputedtiming
-  computed_timing.setDelay(SpecifiedTiming().start_delay * 1000);
-  computed_timing.setEndDelay(SpecifiedTiming().end_delay * 1000);
-  computed_timing.setFill(Timing::FillModeString(
+  computed_timing->setDelay(SpecifiedTiming().start_delay * 1000);
+  computed_timing->setEndDelay(SpecifiedTiming().end_delay * 1000);
+  computed_timing->setFill(Timing::FillModeString(
       ResolvedFillMode(SpecifiedTiming().fill_mode, IsKeyframeEffect())));
-  computed_timing.setIterationStart(SpecifiedTiming().iteration_start);
-  computed_timing.setIterations(SpecifiedTiming().iteration_count);
+  computed_timing->setIterationStart(SpecifiedTiming().iteration_start);
+  computed_timing->setIterations(SpecifiedTiming().iteration_count);
 
   UnrestrictedDoubleOrString duration;
-  duration.SetUnrestrictedDouble(IterationDuration() * 1000);
-  computed_timing.setDuration(duration);
+  duration.SetUnrestrictedDouble(IterationDuration().InMillisecondsF());
+  computed_timing->setDuration(duration);
 
-  computed_timing.setDirection(
+  computed_timing->setDirection(
       Timing::PlaybackDirectionString(SpecifiedTiming().direction));
-  computed_timing.setEasing(SpecifiedTiming().timing_function->ToString());
+  computed_timing->setEasing(SpecifiedTiming().timing_function->ToString());
+
+  return computed_timing;
 }
 
-ComputedEffectTiming AnimationEffect::getComputedTiming() const {
-  ComputedEffectTiming result;
-  getComputedTiming(result);
-  return result;
-}
-
-void AnimationEffect::updateTiming(OptionalEffectTiming& optional_timing,
+void AnimationEffect::updateTiming(OptionalEffectTiming* optional_timing,
                                    ExceptionState& exception_state) {
   // TODO(crbug.com/827178): Determine whether we should pass a Document in here
   // (and which) to resolve the CSS secure/insecure context against.
@@ -193,10 +179,16 @@ void AnimationEffect::UpdateInheritedTime(double inherited_time,
   const double local_time = inherited_time;
   double time_to_next_iteration = std::numeric_limits<double>::infinity();
   if (needs_update) {
-    const double active_duration = this->ActiveDurationInternal();
+    const double active_duration = RepeatedDuration();
+    // TODO(yigu): Direction of WorkletAnimation is always forwards based on
+    // the calculation. Need to unify the logic to handle it correctly.
+    // https://crbug.com/896249.
+    const AnimationDirection direction =
+        (GetAnimation() && GetAnimation()->playbackRate() < 0) ? kBackwards
+                                                               : kForwards;
 
     const Phase current_phase =
-        CalculatePhase(active_duration, local_time, timing_);
+        CalculatePhase(active_duration, local_time, direction, timing_);
     // FIXME: parentPhase depends on groups being implemented.
     const AnimationEffect::Phase kParentPhase = AnimationEffect::kPhaseActive;
     const double active_time = CalculateActiveTime(
@@ -206,18 +198,19 @@ void AnimationEffect::UpdateInheritedTime(double inherited_time,
 
     double current_iteration;
     base::Optional<double> progress;
-    if (const double iteration_duration = this->IterationDuration()) {
+    if (!IterationDuration().is_zero()) {
+      const double iteration_duration = IterationDuration().InSecondsF();
       const double start_offset = MultiplyZeroAlwaysGivesZero(
           timing_.iteration_start, iteration_duration);
       DCHECK_GE(start_offset, 0);
-      const double scaled_active_time = CalculateScaledActiveTime(
-          active_duration, active_time, start_offset, timing_);
+      const double offset_active_time =
+          CalculateOffsetActiveTime(active_duration, active_time, start_offset);
       const double iteration_time = CalculateIterationTime(
-          iteration_duration, RepeatedDuration(), scaled_active_time,
-          start_offset, current_phase, timing_);
+          iteration_duration, active_duration, offset_active_time, start_offset,
+          current_phase, timing_);
 
       current_iteration = CalculateCurrentIteration(
-          iteration_duration, iteration_time, scaled_active_time, timing_);
+          iteration_duration, iteration_time, offset_active_time, timing_);
       const base::Optional<double> transformed_time = CalculateTransformedTime(
           current_iteration, iteration_duration, iteration_time, timing_);
 
@@ -231,27 +224,30 @@ void AnimationEffect::UpdateInheritedTime(double inherited_time,
         progress = transformed_time.value() / iteration_duration;
 
       if (!IsNull(iteration_time)) {
-        time_to_next_iteration = (iteration_duration - iteration_time) /
-                                 std::abs(timing_.playback_rate);
+        time_to_next_iteration = iteration_duration - iteration_time;
         if (active_duration - active_time < time_to_next_iteration)
           time_to_next_iteration = std::numeric_limits<double>::infinity();
       }
     } else {
       const double kLocalIterationDuration = 1;
-      const double local_repeated_duration =
-          kLocalIterationDuration * timing_.iteration_count;
-      DCHECK_GE(local_repeated_duration, 0);
       const double local_active_duration =
-          timing_.playback_rate
-              ? local_repeated_duration / std::abs(timing_.playback_rate)
-              : std::numeric_limits<double>::infinity();
+          kLocalIterationDuration * timing_.iteration_count;
       DCHECK_GE(local_active_duration, 0);
+      const double end_time = std::max(
+          timing_.start_delay + active_duration + timing_.end_delay, 0.0);
+      const double before_active_boundary_time =
+          std::max(std::min(timing_.start_delay, end_time), 0.0);
+      // local_local_time should be greater than or equal to the
+      // before_active_boundary_time once the local_time goes past the start
+      // delay.
       const double local_local_time =
           local_time < timing_.start_delay
               ? local_time
-              : local_active_duration + timing_.start_delay;
-      const AnimationEffect::Phase local_current_phase =
-          CalculatePhase(local_active_duration, local_local_time, timing_);
+              : std::max(local_active_duration + timing_.start_delay,
+                         before_active_boundary_time);
+
+      const AnimationEffect::Phase local_current_phase = CalculatePhase(
+          local_active_duration, local_local_time, direction, timing_);
       const double local_active_time = CalculateActiveTime(
           local_active_duration,
           ResolvedFillMode(timing_.fill_mode, IsKeyframeEffect()),
@@ -259,14 +255,14 @@ void AnimationEffect::UpdateInheritedTime(double inherited_time,
       const double start_offset =
           timing_.iteration_start * kLocalIterationDuration;
       DCHECK_GE(start_offset, 0);
-      const double scaled_active_time = CalculateScaledActiveTime(
-          local_active_duration, local_active_time, start_offset, timing_);
+      const double offset_active_time = CalculateOffsetActiveTime(
+          local_active_duration, local_active_time, start_offset);
       const double iteration_time = CalculateIterationTime(
-          kLocalIterationDuration, local_repeated_duration, scaled_active_time,
+          kLocalIterationDuration, local_active_duration, offset_active_time,
           start_offset, current_phase, timing_);
 
       current_iteration = CalculateCurrentIteration(
-          kLocalIterationDuration, iteration_time, scaled_active_time, timing_);
+          kLocalIterationDuration, iteration_time, offset_active_time, timing_);
       progress = CalculateTransformedTime(
           current_iteration, kLocalIterationDuration, iteration_time, timing_);
     }

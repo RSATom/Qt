@@ -8,19 +8,14 @@
 #define FXJS_XFA_CJX_CAPTION_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Caption;
 
-class CJX_Caption : public CJX_Node {
+class CJX_Caption final : public CJX_Node {
  public:
   explicit CJX_Caption(CXFA_Caption* node);
   ~CJX_Caption() override;
-
-  JS_PROP(placement);
-  JS_PROP(presence);
-  JS_PROP(reserve);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_CAPTION_H_

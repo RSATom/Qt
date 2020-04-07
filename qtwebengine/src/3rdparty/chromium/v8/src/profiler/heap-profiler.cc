@@ -4,7 +4,7 @@
 
 #include "src/profiler/heap-profiler.h"
 
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/debug/debug.h"
 #include "src/heap/heap-inl.h"
 #include "src/profiler/allocation-tracker.h"
@@ -23,9 +23,14 @@ HeapProfiler::~HeapProfiler() = default;
 
 void HeapProfiler::DeleteAllSnapshots() {
   snapshots_.clear();
-  names_.reset(new StringsStorage());
+  MaybeClearStringsStorage();
 }
 
+void HeapProfiler::MaybeClearStringsStorage() {
+  if (snapshots_.empty() && !sampling_heap_profiler_ && !allocation_tracker_) {
+    names_.reset(new StringsStorage());
+  }
+}
 
 void HeapProfiler::RemoveSnapshot(HeapSnapshot* snapshot) {
   snapshots_.erase(
@@ -47,12 +52,10 @@ void HeapProfiler::DefineWrapperClass(
   wrapper_callbacks_[class_id] = callback;
 }
 
-
 v8::RetainedObjectInfo* HeapProfiler::ExecuteWrapperClassCallback(
-    uint16_t class_id, Object** wrapper) {
+    uint16_t class_id, Handle<Object> wrapper) {
   if (wrapper_callbacks_.size() <= class_id) return nullptr;
-  return wrapper_callbacks_[class_id](
-      class_id, Utils::ToLocal(Handle<Object>(wrapper)));
+  return wrapper_callbacks_[class_id](class_id, Utils::ToLocal(wrapper));
 }
 
 void HeapProfiler::SetGetRetainerInfosCallback(
@@ -126,6 +129,7 @@ bool HeapProfiler::StartSamplingHeapProfiler(
 
 void HeapProfiler::StopSamplingHeapProfiler() {
   sampling_heap_profiler_.reset();
+  MaybeClearStringsStorage();
 }
 
 
@@ -159,6 +163,7 @@ void HeapProfiler::StopHeapObjectsTracking() {
   ids_->StopHeapObjectsTracking();
   if (allocation_tracker_) {
     allocation_tracker_.reset();
+    MaybeClearStringsStorage();
     heap()->RemoveHeapObjectAllocationTracker(this);
   }
 }
@@ -178,7 +183,7 @@ SnapshotObjectId HeapProfiler::GetSnapshotObjectId(Handle<Object> obj) {
 }
 
 void HeapProfiler::ObjectMoveEvent(Address from, Address to, int size) {
-  base::LockGuard<base::Mutex> guard(&profiler_mutex_);
+  base::MutexGuard guard(&profiler_mutex_);
   bool known_object = ids_->MoveObject(from, to, size);
   if (!known_object && allocation_tracker_) {
     allocation_tracker_->address_to_trace()->MoveObject(from, to, size);
@@ -198,18 +203,18 @@ void HeapProfiler::UpdateObjectSizeEvent(Address addr, int size) {
 }
 
 Handle<HeapObject> HeapProfiler::FindHeapObjectById(SnapshotObjectId id) {
-  HeapObject* object = nullptr;
+  HeapObject object;
   HeapIterator iterator(heap(), HeapIterator::kFilterUnreachable);
   // Make sure that object with the given id is still reachable.
-  for (HeapObject* obj = iterator.next(); obj != nullptr;
+  for (HeapObject obj = iterator.next(); !obj.is_null();
        obj = iterator.next()) {
     if (ids_->FindEntry(obj->address()) == id) {
-      DCHECK_NULL(object);
+      DCHECK(object.is_null());
       object = obj;
       // Can't break -- kFilterUnreachable requires full heap traversal.
     }
   }
-  return object != nullptr ? Handle<HeapObject>(object, isolate())
+  return !object.is_null() ? Handle<HeapObject>(object, isolate())
                            : Handle<HeapObject>();
 }
 
@@ -222,18 +227,17 @@ void HeapProfiler::ClearHeapObjectMap() {
 
 Heap* HeapProfiler::heap() const { return ids_->heap(); }
 
+Isolate* HeapProfiler::isolate() const { return heap()->isolate(); }
+
 void HeapProfiler::QueryObjects(Handle<Context> context,
                                 debug::QueryObjectPredicate* predicate,
                                 PersistentValueVector<v8::Object>* objects) {
   // We should return accurate information about live objects, so we need to
   // collect all garbage first.
-  heap()->CollectAllAvailableGarbage(
-      GarbageCollectionReason::kLowMemoryNotification);
-  heap()->CollectAllGarbage(Heap::kMakeHeapIterableMask,
-                            GarbageCollectionReason::kHeapProfiler);
+  heap()->CollectAllAvailableGarbage(GarbageCollectionReason::kHeapProfiler);
   HeapIterator heap_iterator(heap());
-  HeapObject* heap_obj;
-  while ((heap_obj = heap_iterator.next()) != nullptr) {
+  for (HeapObject heap_obj = heap_iterator.next(); !heap_obj.is_null();
+       heap_obj = heap_iterator.next()) {
     if (!heap_obj->IsJSObject() || heap_obj->IsExternal(isolate())) continue;
     v8::Local<v8::Object> v8_obj(
         Utils::ToLocal(handle(JSObject::cast(heap_obj), isolate())));

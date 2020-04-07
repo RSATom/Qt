@@ -58,39 +58,18 @@ void ReportUsage(Usage usage) {
 
 }  // namespace
 
-MidiManager::MidiManager(MidiService* service)
-    : initialization_state_(InitializationState::NOT_STARTED),
-      finalized_(false),
-      result_(Result::NOT_INITIALIZED),
-      data_sent_(false),
-      data_received_(false),
-      service_(service) {
+MidiManager::MidiManager(MidiService* service) : service_(service) {
   ReportUsage(Usage::CREATED);
 }
 
 MidiManager::~MidiManager() {
-  // Make sure that Finalize() is called to clean up resources allocated on
-  // the Chrome_IOThread.
   base::AutoLock auto_lock(lock_);
-  CHECK(finalized_);
-}
+  DCHECK(pending_clients_.empty() && clients_.empty());
 
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && \
-    !(defined(USE_ALSA) && defined(USE_UDEV)) && !defined(OS_ANDROID)
-MidiManager* MidiManager::Create(MidiService* service) {
-  ReportUsage(Usage::CREATED_ON_UNSUPPORTED_PLATFORMS);
-  return new MidiManager(service);
-}
-#endif
-
-void MidiManager::Shutdown() {
-  Finalize();
-
-  base::AutoLock auto_lock(lock_);
-  if (session_thread_runner_)
+  if (session_thread_runner_) {
     DCHECK(session_thread_runner_->BelongsToCurrentThread());
-
-  finalized_ = true;
+    session_thread_runner_ = nullptr;
+  }
 
   UMA_HISTOGRAM_ENUMERATION("Media.Midi.ResultOnShutdown", result_,
                             static_cast<Sample>(Result::MAX) + 1);
@@ -102,17 +81,15 @@ void MidiManager::Shutdown() {
                  : (data_received_ ? SendReceiveUsage::RECEIVED
                                    : SendReceiveUsage::NO_USE),
       static_cast<Sample>(SendReceiveUsage::MAX) + 1);
-
-  // Detach all clients so that they do not call MidiManager methods any more.
-  for (auto* client : pending_clients_)
-    client->Detach();
-  pending_clients_.clear();
-  for (auto* client : clients_)
-    client->Detach();
-  clients_.clear();
-
-  session_thread_runner_ = nullptr;
 }
+
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && \
+    !(defined(USE_ALSA) && defined(USE_UDEV)) && !defined(OS_ANDROID)
+MidiManager* MidiManager::Create(MidiService* service) {
+  ReportUsage(Usage::CREATED_ON_UNSUPPORTED_PLATFORMS);
+  return new MidiManager(service);
+}
+#endif
 
 void MidiManager::StartSession(MidiManagerClient* client) {
   ReportUsage(Usage::SESSION_STARTED);
@@ -121,7 +98,6 @@ void MidiManager::StartSession(MidiManagerClient* client) {
 
   {
     base::AutoLock auto_lock(lock_);
-    DCHECK(!finalized_);
 
     if (clients_.find(client) != clients_.end() ||
         pending_clients_.find(client) != pending_clients_.end()) {
@@ -202,27 +178,37 @@ void MidiManager::DispatchSendMidiData(MidiManagerClient* client,
   NOTREACHED();
 }
 
+void MidiManager::EndAllSessions() {
+  base::AutoLock lock(lock_);
+  for (auto* client : pending_clients_)
+    client->Detach();
+  for (auto* client : clients_)
+    client->Detach();
+  pending_clients_.clear();
+  clients_.clear();
+}
+
 void MidiManager::StartInitialization() {
   CompleteInitialization(Result::NOT_SUPPORTED);
 }
 
 void MidiManager::CompleteInitialization(Result result) {
+  DCHECK_EQ(InitializationState::STARTED, initialization_state_);
+
   TRACE_EVENT0("midi", "MidiManager::CompleteInitialization");
   ReportUsage(Usage::INITIALIZED);
 
   base::AutoLock auto_lock(lock_);
+  if (!session_thread_runner_)
+    return;
+  DCHECK(session_thread_runner_->BelongsToCurrentThread());
+
   UMA_HISTOGRAM_ENUMERATION("Media.Midi.InputPorts", input_ports_.size(),
                             kMaxUmaDevices + 1);
   UMA_HISTOGRAM_ENUMERATION("Media.Midi.OutputPorts", output_ports_.size(),
                             kMaxUmaDevices + 1);
 
-  if (!session_thread_runner_)
-    return;
-  DCHECK(session_thread_runner_->BelongsToCurrentThread());
-
-  DCHECK(!finalized_);
   DCHECK(clients_.empty());
-  DCHECK_EQ(initialization_state_, InitializationState::STARTED);
   initialization_state_ = InitializationState::COMPLETED;
   result_ = result;
 
@@ -240,7 +226,7 @@ void MidiManager::CompleteInitialization(Result result) {
   pending_clients_.clear();
 }
 
-void MidiManager::AddInputPort(const MidiPortInfo& info) {
+void MidiManager::AddInputPort(const mojom::PortInfo& info) {
   ReportUsage(Usage::INPUT_PORT_ADDED);
   base::AutoLock auto_lock(lock_);
   input_ports_.push_back(info);
@@ -248,7 +234,7 @@ void MidiManager::AddInputPort(const MidiPortInfo& info) {
     client->AddInputPort(info);
 }
 
-void MidiManager::AddOutputPort(const MidiPortInfo& info) {
+void MidiManager::AddOutputPort(const mojom::PortInfo& info) {
   ReportUsage(Usage::OUTPUT_PORT_ADDED);
   base::AutoLock auto_lock(lock_);
   output_ports_.push_back(info);
@@ -298,6 +284,16 @@ void MidiManager::ReceiveMidiData(uint32_t port_index,
 
   for (auto* client : clients_)
     client->ReceiveMidiData(port_index, data, length, timestamp);
+}
+
+size_t MidiManager::GetClientCountForTesting() {
+  base::AutoLock auto_lock(lock_);
+  return clients_.size();
+}
+
+size_t MidiManager::GetPendingClientCountForTesting() {
+  base::AutoLock auto_lock(lock_);
+  return pending_clients_.size();
 }
 
 }  // namespace midi

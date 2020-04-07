@@ -7,8 +7,8 @@
 
 #include "mojo/public/cpp/bindings/array_traits_wtf_vector.h"
 #include "skia/public/interfaces/bitmap_skbitmap_struct_traits.h"
-#include "third_party/blink/public/common/message_port/message_port_channel.h"
-#include "third_party/blink/public/mojom/message_port/message_port.mojom-blink.h"
+#include "third_party/blink/public/common/messaging/message_port_channel.h"
+#include "third_party/blink/public/mojom/messaging/transferable_message.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/messaging/blink_cloneable_message_struct_traits.h"
@@ -34,6 +34,16 @@ struct CORE_EXPORT
     return result;
   }
 
+  static Vector<mojo::ScopedMessagePipeHandle> stream_channels(
+      blink::BlinkTransferableMessage& input) {
+    Vector<mojo::ScopedMessagePipeHandle> result;
+    auto& stream_channels = input.message->GetStreamChannels();
+    result.ReserveInitialCapacity(stream_channels.size());
+    for (const auto& port : stream_channels)
+      result.push_back(port.ReleaseHandle());
+    return result;
+  }
+
   static const blink::SerializedScriptValue::ArrayBufferContentsArray&
   array_buffer_contents_array(const blink::BlinkCloneableMessage& input) {
     return input.message->GetArrayBufferContentsArray();
@@ -44,6 +54,11 @@ struct CORE_EXPORT
 
   static bool has_user_gesture(const blink::BlinkTransferableMessage& input) {
     return input.has_user_gesture;
+  }
+
+  static const blink::mojom::blink::UserActivationSnapshotPtr& user_activation(
+      const blink::BlinkTransferableMessage& input) {
+    return input.user_activation;
   }
 
   static bool Read(blink::mojom::blink::TransferableMessage::DataView,

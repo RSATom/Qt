@@ -900,13 +900,14 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
 
 static void assert_file_overwrite(const char *filename)
 {
+    const char *proto_name = avio_find_protocol_name(filename);
+
     if (file_overwrite && no_file_overwrite) {
         fprintf(stderr, "Error, both -y and -n supplied. Exiting.\n");
         exit_program(1);
     }
 
     if (!file_overwrite) {
-        const char *proto_name = avio_find_protocol_name(filename);
         if (proto_name && !strcmp(proto_name, "file") && avio_check(filename, 0) == 0) {
             if (stdin_interaction && !no_file_overwrite) {
                 fprintf(stderr,"File '%s' already exists. Overwrite ? [y/N] ", filename);
@@ -923,6 +924,19 @@ static void assert_file_overwrite(const char *filename)
                 av_log(NULL, AV_LOG_FATAL, "File '%s' already exists. Exiting.\n", filename);
                 exit_program(1);
             }
+        }
+    }
+
+    if (proto_name && !strcmp(proto_name, "file")) {
+        for (int i = 0; i < nb_input_files; i++) {
+             InputFile *file = input_files[i];
+             if (file->ctx->iformat->flags & AVFMT_NOFILE)
+                 continue;
+             if (!strcmp(filename, file->ctx->url)) {
+                 av_log(NULL, AV_LOG_FATAL, "Output %s same as Input #%d - exiting\n", filename, i);
+                 av_log(NULL, AV_LOG_WARNING, "FFmpeg cannot edit existing files in-place.\n");
+                 exit_program(1);
+             }
         }
     }
 }
@@ -1103,9 +1117,22 @@ static int open_input_file(OptionsContext *o, const char *filename)
         }
     }
 
+    if (o->start_time != AV_NOPTS_VALUE && o->start_time_eof != AV_NOPTS_VALUE) {
+        av_log(NULL, AV_LOG_WARNING, "Cannot use -ss and -sseof both, using -ss for %s\n", filename);
+        o->start_time_eof = AV_NOPTS_VALUE;
+    }
+
     if (o->start_time_eof != AV_NOPTS_VALUE) {
-        if (ic->duration>0) {
+        if (o->start_time_eof >= 0) {
+            av_log(NULL, AV_LOG_ERROR, "-sseof value must be negative; aborting\n");
+            exit_program(1);
+        }
+        if (ic->duration > 0) {
             o->start_time = o->start_time_eof + ic->duration;
+            if (o->start_time < 0) {
+                av_log(NULL, AV_LOG_WARNING, "-sseof value seeks to before start of file %s; ignored\n", filename);
+                o->start_time = AV_NOPTS_VALUE;
+            }
         } else
             av_log(NULL, AV_LOG_WARNING, "Cannot use -sseof, duration of %s not known\n", filename);
     }
@@ -1122,8 +1149,10 @@ static int open_input_file(OptionsContext *o, const char *filename)
             int dts_heuristic = 0;
             for (i=0; i<ic->nb_streams; i++) {
                 const AVCodecParameters *par = ic->streams[i]->codecpar;
-                if (par->video_delay)
+                if (par->video_delay) {
                     dts_heuristic = 1;
+                    break;
+                }
             }
             if (dts_heuristic) {
                 seek_timestamp -= 3*AV_TIME_BASE / 23;

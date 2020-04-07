@@ -104,3 +104,7 @@ qtConfig(private_tests): \
 qtNomakeTools( \
     qmlplugindump \
 )
+
+QtConfig(qml_tracing) {
+    PRIVATETESTS += v4traced
+}

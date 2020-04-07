@@ -16,6 +16,7 @@
 #include "base/memory/shared_memory.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
+#include "components/viz/common/resources/resource_format.h"
 #include "gpu/command_buffer/common/capabilities.h"
 #include "gpu/command_buffer/common/command_buffer.h"
 #include "gpu/command_buffer/common/constants.h"
@@ -29,9 +30,11 @@
 #include "gpu/ipc/common/surface_handle.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message_macros.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/gpu_memory_buffer.h"
+#include "ui/gfx/ipc/color/gfx_param_traits.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
 #include "ui/gfx/native_widget_types.h"
@@ -68,8 +71,54 @@ IPC_STRUCT_BEGIN(GpuCommandBufferMsg_CreateImage_Params)
   IPC_STRUCT_MEMBER(gfx::GpuMemoryBufferHandle, gpu_memory_buffer)
   IPC_STRUCT_MEMBER(gfx::Size, size)
   IPC_STRUCT_MEMBER(gfx::BufferFormat, format)
-  IPC_STRUCT_MEMBER(uint32_t, internal_format)
   IPC_STRUCT_MEMBER(uint64_t, image_release_count)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(GpuChannelMsg_CreateSharedImage_Params)
+  IPC_STRUCT_MEMBER(gpu::Mailbox, mailbox)
+  IPC_STRUCT_MEMBER(viz::ResourceFormat, format)
+  IPC_STRUCT_MEMBER(gfx::Size, size)
+  IPC_STRUCT_MEMBER(gfx::ColorSpace, color_space)
+  IPC_STRUCT_MEMBER(uint32_t, usage)
+  IPC_STRUCT_MEMBER(uint32_t, release_id)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(GpuChannelMsg_CreateSharedImageWithData_Params)
+  IPC_STRUCT_MEMBER(gpu::Mailbox, mailbox)
+  IPC_STRUCT_MEMBER(viz::ResourceFormat, format)
+  IPC_STRUCT_MEMBER(gfx::Size, size)
+  IPC_STRUCT_MEMBER(gfx::ColorSpace, color_space)
+  IPC_STRUCT_MEMBER(uint32_t, usage)
+  IPC_STRUCT_MEMBER(uint32_t, release_id)
+  IPC_STRUCT_MEMBER(uint32_t, pixel_data_offset)
+  IPC_STRUCT_MEMBER(uint32_t, pixel_data_size)
+  IPC_STRUCT_MEMBER(bool, done_with_shm)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(GpuChannelMsg_CreateGMBSharedImage_Params)
+  IPC_STRUCT_MEMBER(gpu::Mailbox, mailbox)
+  IPC_STRUCT_MEMBER(gfx::GpuMemoryBufferHandle, handle)
+  IPC_STRUCT_MEMBER(gfx::Size, size)
+  IPC_STRUCT_MEMBER(gfx::BufferFormat, format)
+  IPC_STRUCT_MEMBER(gfx::ColorSpace, color_space)
+  IPC_STRUCT_MEMBER(uint32_t, usage)
+  IPC_STRUCT_MEMBER(uint32_t, release_id)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(GpuChannelMsg_ScheduleImageDecode_Params)
+  IPC_STRUCT_MEMBER(std::vector<uint8_t>, encoded_data)
+  IPC_STRUCT_MEMBER(gfx::Size, output_size)
+  IPC_STRUCT_MEMBER(int32_t, raster_decoder_route_id)
+  IPC_STRUCT_MEMBER(uint32_t, transfer_cache_entry_id)
+  IPC_STRUCT_MEMBER(int32_t, discardable_handle_shm_id)
+  IPC_STRUCT_MEMBER(uint32_t, discardable_handle_shm_offset)
+  IPC_STRUCT_MEMBER(gfx::ColorSpace, target_color_space)
+  IPC_STRUCT_MEMBER(bool, needs_mips)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(GpuDeferredMessage)
+  IPC_STRUCT_MEMBER(IPC::Message, message)
+  IPC_STRUCT_MEMBER(std::vector<gpu::SyncToken>, sync_token_fences)
 IPC_STRUCT_END()
 
 //------------------------------------------------------------------------------
@@ -94,8 +143,33 @@ IPC_SYNC_MESSAGE_CONTROL3_2(GpuChannelMsg_CreateCommandBuffer,
 IPC_SYNC_MESSAGE_CONTROL1_0(GpuChannelMsg_DestroyCommandBuffer,
                             int32_t /* instance_id */)
 
-IPC_MESSAGE_CONTROL1(GpuChannelMsg_FlushCommandBuffers,
-                     std::vector<gpu::FlushParams> /* flush_list */)
+IPC_MESSAGE_CONTROL1(GpuChannelMsg_FlushDeferredMessages,
+                     std::vector<GpuDeferredMessage> /* deferred_messages */)
+
+IPC_MESSAGE_ROUTED1(GpuChannelMsg_CreateSharedImage,
+                    GpuChannelMsg_CreateSharedImage_Params /* params */)
+IPC_MESSAGE_ROUTED1(GpuChannelMsg_CreateSharedImageWithData,
+                    GpuChannelMsg_CreateSharedImageWithData_Params /* params */)
+IPC_MESSAGE_ROUTED1(GpuChannelMsg_CreateGMBSharedImage,
+                    GpuChannelMsg_CreateGMBSharedImage_Params /* params */)
+IPC_MESSAGE_ROUTED2(GpuChannelMsg_UpdateSharedImage,
+                    gpu::Mailbox /* id */,
+                    uint32_t /* release_id */)
+IPC_MESSAGE_ROUTED1(GpuChannelMsg_DestroySharedImage, gpu::Mailbox /* id */)
+IPC_MESSAGE_ROUTED1(GpuChannelMsg_RegisterSharedImageUploadBuffer,
+                    base::ReadOnlySharedMemoryRegion /* shm */)
+
+// Schedules a hardware-accelerated image decode in the GPU process. Renderers
+// should use gpu::ImageDecodeAcceleratorProxy to schedule decode requests which
+// are processed by gpu::ImageDecodeAcceleratorStub on the service side.
+IPC_MESSAGE_ROUTED2(
+    GpuChannelMsg_ScheduleImageDecode,
+    GpuChannelMsg_ScheduleImageDecode_Params /* decode_params */,
+    uint64_t /* release_count */)
+
+// Crash the GPU process in similar way to how chrome://gpucrash does.
+// This is only supported in testing environments, and is otherwise ignored.
+IPC_MESSAGE_CONTROL0(GpuChannelMsg_CrashForTesting)
 
 // Simple NOP message which can be used as fence to ensure all previous sent
 // messages have been received.
@@ -158,9 +232,10 @@ IPC_SYNC_MESSAGE_ROUTED3_1(GpuCommandBufferMsg_WaitForGetOffsetInRange,
 // TODO(sunnyps): This is an internal implementation detail of the gpu service
 // and is not sent by the client. Remove this once the non-scheduler code path
 // is removed.
-IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_AsyncFlush,
+IPC_MESSAGE_ROUTED3(GpuCommandBufferMsg_AsyncFlush,
                     int32_t /* put_offset */,
-                    uint32_t /* flush_id */)
+                    uint32_t /* flush_id */,
+                    std::vector<gpu::SyncToken> /* sync_token_fences */)
 
 // Sent by the GPU process to display messages in the console.
 IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_ConsoleMsg,
@@ -189,10 +264,6 @@ IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_SwapBuffersCompleted,
 IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_BufferPresented,
                     uint64_t, /* swap_id */
                     gfx::PresentationFeedback /* feedback */)
-
-// The receiver will stop processing messages until the Synctoken is signaled.
-IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_WaitSyncToken,
-                    gpu::SyncToken /* sync_token */)
 
 // The receiver will asynchronously wait until the SyncToken is signaled, and
 // then return a GpuCommandBufferMsg_SignalAck message.

@@ -89,12 +89,11 @@ class ShellExtensionsBrowserClient : public ExtensionsBrowserClient {
   bool DidVersionUpdate(content::BrowserContext* context) override;
   void PermitExternalProtocolHandler() override;
   bool IsInDemoMode() override;
+  bool IsScreensaverInDemoMode(const std::string& app_id) override;
   bool IsRunningInForcedAppMode() override;
   bool IsAppModeForcedForApp(const ExtensionId& extension_id) override;
   bool IsLoggedInAsPublicAccount() override;
   ExtensionSystemProvider* GetExtensionSystemFactory() override;
-  void RegisterExtensionFunctions(
-      ExtensionFunctionRegistry* registry) const override;
   void RegisterExtensionInterfaces(service_manager::BinderRegistryWithArgs<
                                        content::RenderFrameHost*>* registry,
                                    content::RenderFrameHost* render_frame_host,
@@ -118,6 +117,7 @@ class ShellExtensionsBrowserClient : public ExtensionsBrowserClient {
   KioskDelegate* GetKioskDelegate() override;
   bool IsLockScreenContext(content::BrowserContext* context) override;
   std::string GetApplicationLocale() override;
+  std::string GetUserAgent() const override;
 
   // |context| is the single BrowserContext used for IsValidContext().
   // |pref_service| is used for GetPrefServiceForContext().

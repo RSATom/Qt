@@ -46,11 +46,11 @@
 namespace blink {
 
 Text* Text::Create(Document& document, const String& data) {
-  return new Text(document, data, kCreateText);
+  return MakeGarbageCollected<Text>(document, data, kCreateText);
 }
 
 Text* Text::CreateEditingText(Document& document, const String& data) {
-  return new Text(document, data, kCreateEditingText);
+  return MakeGarbageCollected<Text>(document, data, kCreateEditingText);
 }
 
 Node* Text::MergeNextSiblingNodesIfPossible() {
@@ -258,8 +258,9 @@ static inline bool CanHaveWhitespaceChildren(
 
   if (parent.IsTable() || parent.IsTableRow() || parent.IsTableSection() ||
       parent.IsLayoutTableCol() || parent.IsFrameSet() ||
-      parent.IsFlexibleBox() || parent.IsLayoutGrid() || parent.IsSVGRoot() ||
-      parent.IsSVGContainer() || parent.IsSVGImage() || parent.IsSVGShape()) {
+      parent.IsFlexibleBoxIncludingNG() || parent.IsLayoutGrid() ||
+      parent.IsSVGRoot() || parent.IsSVGContainer() || parent.IsSVGImage() ||
+      parent.IsSVGShape()) {
     if (!context.use_previous_in_flow || !context.previous_in_flow ||
         !context.previous_in_flow->IsText())
       return false;
@@ -288,7 +289,7 @@ bool Text::TextLayoutObjectIsNeeded(const AttachContext& context,
   if (style.Display() == EDisplay::kNone)
     return false;
 
-  if (!ContainsOnlyWhitespace())
+  if (!ContainsOnlyWhitespaceOrEmpty())
     return true;
 
   if (!CanHaveWhitespaceChildren(parent, style, context))
@@ -392,8 +393,8 @@ void Text::RecalcTextStyle(StyleRecalcChange change) {
           GetDocument().EnsureStyleResolver().StyleForText(this);
       const ComputedStyle* layout_parent_style =
           GetLayoutObject()->Parent()->Style();
-      if (new_style != layout_parent_style &&
-          !new_style->InheritedEqual(*layout_parent_style)) {
+      if (!new_style || (new_style != layout_parent_style &&
+                         !new_style->InheritedEqual(*layout_parent_style))) {
         // The computed style or the need for an anonymous inline wrapper for a
         // display:contents text child changed.
         SetNeedsReattachLayoutTree();
@@ -471,7 +472,7 @@ Text* Text::CloneWithData(Document& factory, const String& data) const {
   return Create(factory, data);
 }
 
-void Text::Trace(blink::Visitor* visitor) {
+void Text::Trace(Visitor* visitor) {
   CharacterData::Trace(visitor);
 }
 

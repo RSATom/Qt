@@ -209,6 +209,6 @@ QBluetoothTransferReplyPrivate::QBluetoothTransferReplyPrivate()
 {
 }
 
-#include "moc_qbluetoothtransferreply.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qbluetoothtransferreply.cpp"

@@ -12,6 +12,12 @@
 #include "media/gpu/media_gpu_export.h"
 #include "ui/gl/android/surface_texture.h"
 
+namespace base {
+namespace android {
+class ScopedHardwareBufferFenceSync;
+}  // namespace android
+}  // namespace base
+
 namespace media {
 
 struct FrameAvailableEvent;
@@ -24,7 +30,6 @@ struct FrameAvailableEvent;
 // present in the surface.
 class MEDIA_GPU_EXPORT SurfaceTextureGLOwner : public TextureOwner {
  public:
-  GLuint GetTextureId() const override;
   gl::GLContext* GetContext() const override;
   gl::GLSurface* GetSurface() const override;
   gl::ScopedJavaSurface CreateJavaSurface() const override;
@@ -35,16 +40,20 @@ class MEDIA_GPU_EXPORT SurfaceTextureGLOwner : public TextureOwner {
   void IgnorePendingRelease() override;
   bool IsExpectingFrameAvailable() override;
   void WaitForFrameAvailable() override;
+  std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
+  GetAHardwareBuffer() override;
+
+ protected:
+  void OnTextureDestroyed(gpu::gles2::AbstractTexture*) override;
 
  private:
   friend class TextureOwner;
 
-  SurfaceTextureGLOwner(GLuint texture_id);
+  SurfaceTextureGLOwner(std::unique_ptr<gpu::gles2::AbstractTexture> texture);
   ~SurfaceTextureGLOwner() override;
 
   scoped_refptr<gl::SurfaceTexture> surface_texture_;
-  GLuint texture_id_;
-  // The context and surface that were used to create |texture_id_|.
+  // The context and surface that were used to create |surface_texture_|.
   scoped_refptr<gl::GLContext> context_;
   scoped_refptr<gl::GLSurface> surface_;
   // When SetReleaseTimeToNow() was last called. i.e., when the last

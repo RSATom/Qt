@@ -82,7 +82,7 @@ namespace absl {
 // absl::variant
 // -----------------------------------------------------------------------------
 //
-// An 'absl::variant` type is a form of type-safe union. An `absl::variant` --
+// An `absl::variant` type is a form of type-safe union. An `absl::variant` --
 // except in exceptional cases -- always holds a value of one of its alternative
 // types.
 //
@@ -136,7 +136,7 @@ void swap(variant<Ts...>& v, variant<Ts...>& w) noexcept(noexcept(v.swap(w))) {
 
 // variant_size
 //
-// Returns the number of alterative types available for a given `absl::variant`
+// Returns the number of alternative types available for a given `absl::variant`
 // type as a compile-time constant expression. As this is a class template, it
 // is not generally useful for accessing the number of alternative types of
 // any given `absl::variant` instance.
@@ -248,7 +248,7 @@ using variant_alternative_t = typename variant_alternative<I, T>::type;
 //
 // Example:
 //
-//   absl::variant<int, std::string> bar = 42;
+//   absl::variant<int, std::string> foo = 42;
 //   if (absl::holds_alternative<int>(foo)) {
 //       std::cout << "The variant holds an integer";
 //   }
@@ -399,9 +399,9 @@ constexpr absl::add_pointer_t<const T> get_if(
 // Calls a provided functor on a given set of variants. `absl::visit()` is
 // commonly used to conditionally inspect the state of a given variant (or set
 // of variants).
-// Requires: The expression in the Effects: element shall be a valid expression
-// of the same type and value category, for all combinations of alternative
-// types of all variants. Otherwise, the program is ill-formed.
+//
+// The functor must return the same type when called with any of the variants'
+// alternatives.
 //
 // Example:
 //
@@ -414,9 +414,10 @@ constexpr absl::add_pointer_t<const T> get_if(
 //   };
 //
 //   // Declare our variant, and call `absl::visit()` on it.
-//   std::variant<int, std::string> foo = std::string("foo");
+//   // Note that `GetVariant()` returns void in either case.
+//   absl::variant<int, std::string> foo = std::string("foo");
 //   GetVariant visitor;
-//   std::visit(visitor, foo);  // Prints `The variant's value is: foo'
+//   absl::visit(visitor, foo);  // Prints `The variant's value is: foo'
 template <typename Visitor, typename... Variants>
 variant_internal::VisitResult<Visitor, Variants...> visit(Visitor&& vis,
                                                           Variants&&... vars) {
@@ -449,14 +450,19 @@ constexpr bool operator!=(monostate, monostate) noexcept { return false; }
 //------------------------------------------------------------------------------
 template <typename T0, typename... Tn>
 class variant<T0, Tn...> : private variant_internal::VariantBase<T0, Tn...> {
-  // Intentionally not qualifing `negation` with `absl::` to work around a bug
+  static_assert(absl::conjunction<std::is_object<T0>,
+                                  std::is_object<Tn>...>::value,
+                "Attempted to instantiate a variant containing a non-object "
+                "type.");
+  // Intentionally not qualifying `negation` with `absl::` to work around a bug
   // in MSVC 2015 with inline namespace and variadic template.
-  static_assert(absl::conjunction<std::is_object<T0>, std::is_object<Tn>...,
-                                  negation<std::is_array<T0> >,
-                                  negation<std::is_array<Tn> >...,
-                                  std::is_nothrow_destructible<T0>,
+  static_assert(absl::conjunction<negation<std::is_array<T0> >,
+                                  negation<std::is_array<Tn> >...>::value,
+                "Attempted to instantiate a variant containing an array type.");
+  static_assert(absl::conjunction<std::is_nothrow_destructible<T0>,
                                   std::is_nothrow_destructible<Tn>...>::value,
-                "Attempted to instantiate a variant with an unsupported type.");
+                "Attempted to instantiate a variant containing a non-nothrow "
+                "destructible type.");
 
   friend struct variant_internal::VariantCoreAccess;
 
@@ -556,7 +562,7 @@ class variant<T0, Tn...> : private variant_internal::VariantBase<T0, Tn...> {
 
   // Assignment Operators
 
-  // Copy assignement operator
+  // Copy assignment operator
   variant& operator=(const variant& other) = default;
 
   // Move assignment operator

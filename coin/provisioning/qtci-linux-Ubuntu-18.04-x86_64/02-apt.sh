@@ -97,6 +97,8 @@ installPackages+=(libfreetype6-dev)
 installPackages+=(libjpeg-dev)
 # Enable support for printer driver
 installPackages+=(libcups2-dev)
+# Enable support for printer test
+installPackages+=(cups-pdf)
 # Install libraries needed for QtMultimedia to be able to support all plugins
 installPackages+=(libasound2-dev)
 installPackages+=(libgstreamer1.0-dev)
@@ -108,7 +110,7 @@ installPackages+=(g++-multilib)
 # python3 development package
 installPackages+=(python3-dev)
 installPackages+=(python3-pip)
-installPackages+=(python3-virtualenv)
+installPackages+=(virtualenv)
 installPackages+=(python3-wheel)
 # python2 development package
 installPackages+=(python-dev)
@@ -159,6 +161,11 @@ installPackages+=(dkms)
 installPackages+=(libspeechd-dev)
 #Pypdf for PDF reading in RTA tests
 installPackages+=(python-pypdf2)
+# Needed for b2qt
+installPackages+=(git-lfs)
+installPackages+=(chrpath)
+installPackages+=(gawk)
+installPackages+=(texinfo)
 
 echo "Running update for apt"
 waitLoop

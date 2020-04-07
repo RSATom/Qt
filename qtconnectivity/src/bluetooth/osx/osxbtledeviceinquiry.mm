@@ -81,7 +81,7 @@ struct AdvertisementData {
 
     // For now, we "parse":
     QString localName;
-    QList<QBluetoothUuid> serviceUuids;
+    QVector<QBluetoothUuid> serviceUuids;
     QHash<quint16, QByteArray> manufacturerData;
     // TODO: other keys probably?
     AdvertisementData(NSDictionary *AdvertisementData);
@@ -363,10 +363,8 @@ QT_USE_NAMESPACE
     if (RSSI)
         newDeviceInfo.setRssi([RSSI shortValue]);
 
-    if (qtAdvData.serviceUuids.size()) {
-        newDeviceInfo.setServiceUuids(qtAdvData.serviceUuids,
-                                      QBluetoothDeviceInfo::DataIncomplete);
-    }
+    if (qtAdvData.serviceUuids.size())
+        newDeviceInfo.setServiceUuids(qtAdvData.serviceUuids);
 
     const QList<quint16> keys = qtAdvData.manufacturerData.keys();
     for (quint16 key : keys)

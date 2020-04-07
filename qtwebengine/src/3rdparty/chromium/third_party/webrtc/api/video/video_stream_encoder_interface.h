@@ -13,16 +13,14 @@
 
 #include <vector>
 
-#include "api/rtpparameters.h"  // For DegradationPreference.
+#include "api/rtp_parameters.h"  // For DegradationPreference.
+#include "api/video/video_bitrate_allocator.h"
 #include "api/video/video_sink_interface.h"
 #include "api/video/video_source_interface.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_config.h"
 
 namespace webrtc {
-
-// TODO(nisse): Move full declaration to api/.
-class VideoBitrateAllocationObserver;
 
 // This interface represents a class responsible for creating and driving the
 // encoder(s) for a single video stream. It is also responsible for adaptation
@@ -46,8 +44,6 @@ class VideoStreamEncoderInterface : public rtc::VideoSinkInterface<VideoFrame> {
         std::vector<VideoStream> streams,
         int min_transmit_bitrate_bps) = 0;
   };
-
-  ~VideoStreamEncoderInterface() override = default;
 
   // Sets the source that will provide video frames to the VideoStreamEncoder's
   // OnFrame method. |degradation_preference| control whether or not resolution

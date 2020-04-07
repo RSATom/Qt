@@ -9,17 +9,14 @@
 
 #include "fxbarcode/datamatrix/BC_Encoder.h"
 
-class CBC_Base256Encoder : public CBC_Encoder {
+class CBC_Base256Encoder final : public CBC_Encoder {
  public:
   CBC_Base256Encoder();
   ~CBC_Base256Encoder() override;
 
   // CBC_Encoder
-  int32_t getEncodingMode() override;
-  void Encode(CBC_EncoderContext& context, int32_t& e) override;
-
- private:
-  static wchar_t randomize255State(wchar_t ch, int32_t codewordPosition);
+  CBC_HighLevelEncoder::Encoding GetEncodingMode() override;
+  bool Encode(CBC_EncoderContext* context) override;
 };
 
 #endif  // FXBARCODE_DATAMATRIX_BC_BASE256ENCODER_H_

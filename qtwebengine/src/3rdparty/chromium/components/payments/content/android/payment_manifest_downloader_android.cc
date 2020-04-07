@@ -8,6 +8,7 @@
 
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
+#include "components/payments/content/developer_console_logger.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
@@ -26,7 +27,8 @@ class DownloadCallback {
 
   ~DownloadCallback() {}
 
-  void OnPaymentMethodManifestDownload(const std::string& content) {
+  void OnPaymentMethodManifestDownload(const GURL& url_after_redirects,
+                                       const std::string& content) {
     JNIEnv* env = base::android::AttachCurrentThread();
 
     if (content.empty()) {
@@ -38,7 +40,8 @@ class DownloadCallback {
     }
   }
 
-  void OnWebAppManifestDownload(const std::string& content) {
+  void OnWebAppManifestDownload(const GURL& url_after_redirects,
+                                const std::string& content) {
     JNIEnv* env = base::android::AttachCurrentThread();
 
     if (content.empty()) {
@@ -59,8 +62,9 @@ class DownloadCallback {
 }  // namespace
 
 PaymentManifestDownloaderAndroid::PaymentManifestDownloaderAndroid(
+    std::unique_ptr<ErrorLogger> log,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
-    : downloader_(std::move(url_loader_factory)) {}
+    : downloader_(std::move(log), std::move(url_loader_factory)) {}
 
 PaymentManifestDownloaderAndroid::~PaymentManifestDownloaderAndroid() {}
 
@@ -98,7 +102,6 @@ void PaymentManifestDownloaderAndroid::Destroy(
 // Caller owns the result. Returns 0 on error.
 static jlong JNI_PaymentManifestDownloader_Init(
     JNIEnv* env,
-    const base::android::JavaParamRef<jclass>& jcaller,
     const base::android::JavaParamRef<jobject>& jweb_contents) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(jweb_contents);
@@ -106,6 +109,7 @@ static jlong JNI_PaymentManifestDownloader_Init(
     return 0;
 
   return reinterpret_cast<jlong>(new PaymentManifestDownloaderAndroid(
+      std::make_unique<DeveloperConsoleLogger>(web_contents),
       content::BrowserContext::GetDefaultStoragePartition(
           web_contents->GetBrowserContext())
           ->GetURLLoaderFactoryForBrowserProcess()));

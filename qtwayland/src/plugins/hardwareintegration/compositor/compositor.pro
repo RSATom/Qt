@@ -1,6 +1,8 @@
 TEMPLATE = subdirs
 QT_FOR_CONFIG += waylandcompositor-private
 
+qtConfig(wayland-dmabuf-client-buffer): \
+    SUBDIRS += linux-dmabuf-unstable-v1
 qtConfig(wayland-egl): \
     SUBDIRS += wayland-egl
 qtConfig(wayland-brcm): \
@@ -18,6 +20,8 @@ qtConfig(wayland-shm-emulation-server-buffer): \
     SUBDIRS += shm-emulation-server
 qtConfig(wayland-dmabuf-server-buffer): \
     SUBDIRS += dmabuf-server
+qtConfig(wayland-vulkan-server-buffer): \
+    SUBDIRS += vulkan-server
 
 qtConfig(wayland-egl): \
     SUBDIRS += wayland-eglstream-controller

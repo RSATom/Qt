@@ -8,9 +8,11 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/task/post_task.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "content/browser/renderer_host/media/video_capture_manager.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -89,7 +91,8 @@ VideoCaptureHost::~VideoCaptureHost() {
     if (controller) {
       const VideoCaptureControllerID controller_id(it->first);
       media_stream_manager_->video_capture_manager()->DisconnectClient(
-          controller.get(), controller_id, this, false);
+          controller.get(), controller_id, this,
+          media::VideoCaptureError::kNone);
       ++it;
     } else {
       // Remove the entry for this controller_id so that when the controller
@@ -104,19 +107,19 @@ VideoCaptureHost::~VideoCaptureHost() {
                             render_process_host_delegate_.release());
 }
 
-void VideoCaptureHost::OnError(VideoCaptureControllerID controller_id) {
+void VideoCaptureHost::OnError(VideoCaptureControllerID controller_id,
+                               media::VideoCaptureError error) {
   DVLOG(1) << __func__;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&VideoCaptureHost::DoError, weak_factory_.GetWeakPtr(),
-                     controller_id));
+                     controller_id, error));
 }
 
 void VideoCaptureHost::OnNewBuffer(
     VideoCaptureControllerID controller_id,
     media::mojom::VideoBufferHandlePtr buffer_handle,
-    int length,
     int buffer_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (controllers_.find(controller_id) == controllers_.end())
@@ -156,8 +159,8 @@ void VideoCaptureHost::OnBufferReady(
 void VideoCaptureHost::OnEnded(VideoCaptureControllerID controller_id) {
   DVLOG(1) << __func__;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&VideoCaptureHost::DoEnded, weak_factory_.GetWeakPtr(),
                      controller_id));
 }
@@ -216,7 +219,7 @@ void VideoCaptureHost::Stop(int32_t device_id) {
   }
   device_id_to_observer_map_.erase(controller_id);
 
-  DeleteVideoCaptureController(controller_id, false);
+  DeleteVideoCaptureController(controller_id, media::VideoCaptureError::kNone);
   NotifyStreamRemoved();
 }
 
@@ -316,7 +319,8 @@ void VideoCaptureHost::GetDeviceFormatsInUse(
   std::move(callback).Run(formats_in_use);
 }
 
-void VideoCaptureHost::DoError(VideoCaptureControllerID controller_id) {
+void VideoCaptureHost::DoError(VideoCaptureControllerID controller_id,
+                               media::VideoCaptureError error) {
   DVLOG(1) << __func__;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (controllers_.find(controller_id) == controllers_.end())
@@ -327,7 +331,7 @@ void VideoCaptureHost::DoError(VideoCaptureControllerID controller_id) {
         media::mojom::VideoCaptureState::FAILED);
   }
 
-  DeleteVideoCaptureController(controller_id, true);
+  DeleteVideoCaptureController(controller_id, error);
   NotifyStreamRemoved();
 }
 
@@ -342,7 +346,7 @@ void VideoCaptureHost::DoEnded(VideoCaptureControllerID controller_id) {
         media::mojom::VideoCaptureState::ENDED);
   }
 
-  DeleteVideoCaptureController(controller_id, false);
+  DeleteVideoCaptureController(controller_id, media::VideoCaptureError::kNone);
   NotifyStreamRemoved();
 }
 
@@ -355,7 +359,8 @@ void VideoCaptureHost::OnControllerAdded(
   if (it == controllers_.end()) {
     if (controller) {
       media_stream_manager_->video_capture_manager()->DisconnectClient(
-          controller.get(), controller_id, this, false);
+          controller.get(), controller_id, this,
+          media::VideoCaptureError::kNone);
     }
     return;
   }
@@ -374,7 +379,8 @@ void VideoCaptureHost::OnControllerAdded(
 }
 
 void VideoCaptureHost::DeleteVideoCaptureController(
-    VideoCaptureControllerID controller_id, bool on_error) {
+    VideoCaptureControllerID controller_id,
+    media::VideoCaptureError error) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   auto it = controllers_.find(controller_id);
@@ -387,7 +393,7 @@ void VideoCaptureHost::DeleteVideoCaptureController(
     return;
 
   media_stream_manager_->video_capture_manager()->DisconnectClient(
-      controller.get(), controller_id, this, on_error);
+      controller.get(), controller_id, this, error);
 }
 
 void VideoCaptureHost::NotifyStreamAdded() {
@@ -395,8 +401,8 @@ void VideoCaptureHost::NotifyStreamAdded() {
   ++number_of_active_streams_;
   // base::Unretained() usage is safe because |render_process_host_delegate_|
   // is destroyed on UI thread.
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&RenderProcessHostDelegate::NotifyStreamAdded,
                      base::Unretained(render_process_host_delegate_.get())));
 }
@@ -412,8 +418,8 @@ void VideoCaptureHost::NotifyStreamRemoved() {
   --number_of_active_streams_;
   // base::Unretained() usage is safe because |render_process_host_delegate_| is
   // destroyed on UI thread.
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&RenderProcessHostDelegate::NotifyStreamRemoved,
                      base::Unretained(render_process_host_delegate_.get())));
 }

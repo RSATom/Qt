@@ -43,6 +43,13 @@ if (is_android) {
   import("//third_party/icu/config.gni")
 }
 
+declare_args() {
+  # Indicates whether keystone registration framework should be enabled (see
+  # action("keystone_registration_framework") below).  There are some tests
+  # where we'd like for it to be disabled. (https://crbug.com/909080)
+  enable_keystone_registration_framework = true
+}
+
 assert(!is_ios, "Chromium/iOS shouldn't use anything in //chrome")
 
 if (enable_resource_whitelist_generation) {
@@ -114,9 +121,7 @@ if (!is_android && !is_mac) {
     ]
     if (is_win) {
       public_deps += [ ":reorder_imports" ]
-    }
-    if (use_aura && (is_win || is_linux)) {
-      data_deps += [ "//chrome/app:service_manifests" ]
+      data_deps += [ ":reorder_imports" ]
     }
     if (is_chromeos) {
       data_deps += [ "//sandbox/linux:chrome_sandbox" ]
@@ -163,6 +168,9 @@ if (!is_android && !is_mac) {
           "$root_out_dir/locales/en-US.pak",
           "$root_out_dir/locales/fr.pak",
         ]
+        if (enable_hidpi || enable_mus) {
+          data += [ "$root_out_dir/chrome_200_percent.pak" ]
+        }
       }
 
       data_deps = []
@@ -213,6 +221,7 @@ if (!is_android && !is_mac) {
         ]
         data_deps = [
           "//chrome/app/version_assembly:version_assembly_manifest",
+          "//chrome/chrome_proxy",
           "//chrome/elevation_service",
           "//chrome/notification_helper",
         ]
@@ -232,6 +241,7 @@ if (!is_android && !is_mac) {
           "/DELAYLOAD:uxtheme.dll",
           "/DELAYLOAD:ole32.dll",
           "/DELAYLOAD:oleaut32.dll",
+          "/DELAYLOAD:winhttp.dll",
         ]
 
         if (current_cpu == "x64") {
@@ -269,7 +279,7 @@ if (!is_android && !is_mac) {
           "//chrome/common:buildflags",
         ]
 
-        ldflags = [ "-pie" ]
+        ldflags = []
 
         # Chrome OS debug builds for arm need to pass --long-plt to the linker.
         # See https://bugs.chromium.org/p/chromium/issues/detail?id=583532
@@ -355,9 +365,6 @@ if (!is_android && !is_mac) {
       # what telemetry test-runner expects.
       output_name = "test_chrome"
       sources = []
-      data = [
-        "$root_out_dir/chrome_200_percent.pak",
-      ]
       if (!is_win && use_aura) {
         sources += [ "app/chrome_exe_main_aura.cc" ]
       }
@@ -403,6 +410,7 @@ if (is_win) {
       "//chrome/install_static:secondary_module",
       "//chrome_elf",
       "//components/crash/content/app",
+      "//components/gwp_asan/client",
       "//components/policy:generated",
       "//content/app/resources",
       "//content/public/common:service_names",
@@ -420,6 +428,7 @@ if (is_win) {
       "/DELAYLOAD:comdlg32.dll",
       "/DELAYLOAD:crypt32.dll",
       "/DELAYLOAD:cryptui.dll",
+      "/DELAYLOAD:dbghelp.dll",
       "/DELAYLOAD:dhcpcsvc.dll",
       "/DELAYLOAD:dwmapi.dll",
       "/DELAYLOAD:imagehlp.dll",
@@ -508,6 +517,7 @@ if (is_win) {
         "//chrome_elf",
         "//components/browser_watcher:browser_watcher_client",
         "//components/crash/content/app",
+        "//components/gwp_asan/client",
         "//content/public/app:child",
         "//content/public/common:service_names",
         "//headless:headless_shell_child_lib",
@@ -634,10 +644,6 @@ if (is_win) {
       "//chrome/common:version_header",
     ]
 
-    if (is_chrome_branded) {
-      deps += [ ":chrome_helpers" ]
-    }
-
     if (enable_stripping) {
       # At link time, preserve the global symbols specified in the .exports
       # file. All other global symbols will be marked as private. The default
@@ -732,18 +738,6 @@ if (is_win) {
       ":chrome_app_strings",
       "//components/policy:chrome_manifest_bundle",
     ]
-  }
-
-  if (is_chrome_branded) {
-    bundle_data("chrome_helpers") {
-      sources = [
-        "installer/mac/internal/keychain_reauthorizers/$chrome_mac_bundle_id",
-      ]
-
-      outputs = [
-        "{{bundle_contents_dir}}/Helpers/{{source_file_part}}",
-      ]
-    }
   }
 
   bundle_data("chrome_versioned_bundle_data") {
@@ -979,10 +973,8 @@ if (is_win) {
     }
   }
 
-  # EGL on MacOS can be used in dev builds and on bots for test
-  # related purposes, but it is not yet desired to ship these
-  # libraries with official chrome (http://crbug.com/757974).
-  bundle_egl_libraries = use_egl && !(is_chrome_branded && is_official_build)
+  # EGL on MacOS ships with official chrome
+  bundle_egl_libraries = use_egl
 
   if (bundle_egl_libraries) {
     # Add the ANGLE .dylibs in the MODULE_DIR of Chromium.app
@@ -1000,17 +992,19 @@ if (is_win) {
     }
 
     # Add the SwiftShader .dylibs in the MODULE_DIR of Chromium.app
-    bundle_data("swiftshader_binaries") {
-      sources = [
-        "$root_out_dir/egl_intermediates/libswiftshader_libEGL.dylib",
-        "$root_out_dir/egl_intermediates/libswiftshader_libGLESv2.dylib",
-      ]
-      outputs = [
-        "{{bundle_contents_dir}}/Libraries/{{source_file_part}}",
-      ]
-      public_deps = [
-        "//ui/gl:swiftshader_library_copy",
-      ]
+    if (enable_swiftshader) {
+      bundle_data("swiftshader_binaries") {
+        sources = [
+          "$root_out_dir/egl_intermediates/libswiftshader_libEGL.dylib",
+          "$root_out_dir/egl_intermediates/libswiftshader_libGLESv2.dylib",
+        ]
+        outputs = [
+          "{{bundle_contents_dir}}/Libraries/{{source_file_part}}",
+        ]
+        public_deps = [
+          "//ui/gl:swiftshader_library_copy",
+        ]
+      }
     }
   }
 
@@ -1023,14 +1017,14 @@ if (is_win) {
   }
 
   group("swiftshader_library") {
-    if (bundle_egl_libraries) {
+    if (bundle_egl_libraries && enable_swiftshader) {
       deps = [
         ":swiftshader_binaries",
       ]
     }
   }
 
-  if (should_bundle_widevine_cdm) {
+  if (bundle_widevine_cdm) {
     bundle_data("widevine_cdm_library_binaries") {
       sources = [
         "$root_out_dir/$widevine_cdm_path/libwidevinecdm.dylib",
@@ -1047,8 +1041,9 @@ if (is_win) {
       ]
     }
 
-    bundle_data("widevine_cdm_library_manifest") {
+    bundle_data("widevine_cdm_library_manifest_and_license_files") {
       sources = [
+        "$root_out_dir/WidevineCdm/LICENSE",
         "$root_out_dir/WidevineCdm/manifest.json",
       ]
       outputs = [
@@ -1061,10 +1056,10 @@ if (is_win) {
   }
 
   group("widevine_cdm_library") {
-    if (should_bundle_widevine_cdm) {
+    if (bundle_widevine_cdm) {
       deps = [
         ":widevine_cdm_library_binaries",
-        ":widevine_cdm_library_manifest",
+        ":widevine_cdm_library_manifest_and_license_files",
       ]
     }
   }
@@ -1125,7 +1120,7 @@ if (is_win) {
     }
   }
 
-  if (is_chrome_branded) {
+  if (is_chrome_branded && enable_keystone_registration_framework) {
     action("keystone_registration_framework") {
       script = "//chrome/tools/build/mac/copy_keystone_framework.py"
 
@@ -1233,11 +1228,12 @@ if (is_win) {
     ]
 
     if (is_chrome_branded) {
-      framework_contents += [
-        "Default Apps",
-        "Frameworks",  # For KeystoneRegistration.framework.
-      ]
+      framework_contents += [ "Default Apps" ]
+      if (enable_keystone_registration_framework) {
+        framework_contents += [ "Frameworks" ]  # For KeystoneRegistration.framework.
+      }
     }
+
     if (enable_nacl) {
       framework_contents += [ "Internet Plug-Ins" ]
     }
@@ -1344,6 +1340,8 @@ if (is_win) {
       "$root_out_dir/$chrome_helper_name.app/Contents/MacOS/$chrome_helper_name",
       "$root_out_dir/$chrome_product_full_name.app/Contents/MacOS/$chrome_product_full_name",
       "$root_out_dir/crashpad_handler",
+      "$root_out_dir/libswiftshader_libEGL.dylib",
+      "$root_out_dir/libswiftshader_libGLESv2.dylib",
     ]
 
     # It is possible to run dump_syms on unstripped products without dSYMs,
@@ -1362,7 +1360,7 @@ if (is_win) {
                rebase_path("$root_out_dir/dump_syms"),
                "-g",
                rebase_path(
-                   "$root_out_dir/{{source_name_part}}.dSYM/Contents/Resources/DWARF/{{source_name_part}}",
+                   "$root_out_dir/{{source_file_part}}.dSYM/Contents/Resources/DWARF/{{source_file_part}}",
                    root_out_dir),
                "{{source}}",
              ]
@@ -1374,6 +1372,8 @@ if (is_win) {
         "//chrome/browser/ui/cocoa/notifications:alert_notification_xpc_service",
         "//third_party/breakpad:dump_syms",
         "//third_party/crashpad/crashpad/handler:crashpad_handler",
+        "//third_party/swiftshader/src/OpenGL/libEGL:swiftshader_libEGL",
+        "//third_party/swiftshader/src/OpenGL/libGLESv2:swiftshader_libGLESv2",
       ]
     }
 
@@ -1390,6 +1390,8 @@ if (is_win) {
         "$root_out_dir/$chrome_helper_name.dSYM",
         "$root_out_dir/$chrome_product_full_name.dSYM",
         "$root_out_dir/crashpad_handler.dSYM",
+        "$root_out_dir/libswiftshader_libEGL.dylib.dSYM",
+        "$root_out_dir/libswiftshader_libGLESv2.dylib.dSYM",
       ]
 
       sources = _chrome_symbols_sources
@@ -1409,6 +1411,8 @@ if (is_win) {
         ":chrome_helper_app",
         "//chrome/browser/ui/cocoa/notifications:alert_notification_xpc_service",
         "//third_party/crashpad/crashpad/handler:crashpad_handler",
+        "//third_party/swiftshader/src/OpenGL/libEGL:swiftshader_libEGL",
+        "//third_party/swiftshader/src/OpenGL/libGLESv2:swiftshader_libGLESv2",
       ]
     }
   } else {
@@ -1424,6 +1428,7 @@ group("browser_dependencies") {
     "//chrome/browser",
     "//chrome/common",
     "//components/sync",
+    "//components/tracing",
   ]
   if (enable_plugins) {
     public_deps += [ "//ppapi/host" ]
@@ -1465,6 +1470,7 @@ group("child_dependencies") {
     "//chrome/utility",
     "//components/services/heap_profiling",
     "//components/sync",
+    "//components/tracing",
     "//content/public/child",
     "//pdf",
     "//third_party/blink/public:blink_devtools_frontend_resources",
@@ -1533,19 +1539,11 @@ copy("visual_elements_resources") {
   if (is_chrome_branded) {
     sources += [
       "//chrome/app/theme/$branding_path_component/win/tiles/LogoBeta.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/LogoBetaLight.png",
       "//chrome/app/theme/$branding_path_component/win/tiles/LogoCanary.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/LogoCanaryLight.png",
       "//chrome/app/theme/$branding_path_component/win/tiles/LogoDev.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/LogoDevLight.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/LogoLight.png",
       "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoBeta.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoBetaLight.png",
       "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoCanary.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoCanaryLight.png",
       "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoDev.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoDevLight.png",
-      "//chrome/app/theme/$branding_path_component/win/tiles/SmallLogoLight.png",
     ]
   }
 
@@ -1576,6 +1574,7 @@ group("extra_resources") {
   if (!is_android) {
     public_deps += [
       "//chrome/browser/resources:component_extension_resources",
+      "//chrome/browser/resources:local_ntp_resources",
       "//chrome/browser/resources:settings_resources",
     ]
   }
@@ -1586,7 +1585,12 @@ group("extra_resources") {
       "//chrome/browser/resources/chromeos/chromevox",
       "//chrome/browser/resources/chromeos/select_to_speak:build",
       "//chrome/browser/resources/chromeos/switch_access:build",
+      "//third_party/ink:ink_resources",
     ]
+  }
+
+  if (!is_android && !is_chromeos) {
+    public_deps += [ "//chrome/browser/resources:onboarding_welcome_resources" ]
   }
 
   if (enable_extensions) {
@@ -1640,25 +1644,27 @@ if (is_chrome_branded && !is_android) {
   }
 }
 
-chrome_paks("packed_resources") {
-  if (is_mac) {
-    output_dir = "$root_gen_dir/repack"
-    copy_data_to_bundle = true
-  } else {
-    output_dir = root_out_dir
-  }
+if (!is_android) {
+  chrome_paks("packed_resources") {
+    if (is_mac) {
+      output_dir = "$root_gen_dir/repack"
+      copy_data_to_bundle = true
+    } else {
+      output_dir = root_out_dir
+    }
 
-  if (enable_resource_whitelist_generation) {
-    repack_whitelist = chrome_resource_whitelist
-    deps = [
-      "//chrome:resource_whitelist",
-    ]
-  }
+    if (enable_resource_whitelist_generation) {
+      repack_whitelist = chrome_resource_whitelist
+      deps = [
+        "//chrome:resource_whitelist",
+      ]
+    }
 
-  if (is_chrome_branded && !is_mac && !is_android) {
-    public_deps = [
-      ":default_apps",
-    ]
+    if (is_chrome_branded && !is_mac) {
+      public_deps = [
+        ":default_apps",
+      ]
+    }
   }
 }
 
@@ -1792,8 +1798,10 @@ if (is_android) {
       "//chrome/gpu",
       "//chrome/renderer",
       "//chrome/utility",
+      "//components/minidump_uploader",
       "//components/safe_browsing/android:safe_browsing_mobile",
       "//components/services/heap_profiling",
+      "//components/tracing",
       "//content/public/app:both",
       "//content/public/common:service_names",
       "//services/service_manager/embedder",
@@ -1820,14 +1828,21 @@ if (enable_resource_whitelist_generation) {
     deps = [
       "//chrome/android:libchrome",
     ]
-    input = "$root_out_dir/libchrome$shlib_extension.whitelist"
+    input = "$root_out_dir/lib.unstripped/libchrome$shlib_extension"
     output = chrome_resource_whitelist
   }
 }
 
 if (is_linux) {
   if (is_official_build) {
-    extract_symbols("linux") {
+    group("linux_symbols") {
+      deps = [
+        ":chrome_symbols",
+        ":swiftshader_egl_symbols",
+        ":swiftshader_gles_symbols",
+      ]
+    }
+    extract_symbols("chrome_symbols") {
       binary = "$root_out_dir/chrome"
 
       if (current_cpu == "x86") {
@@ -1839,6 +1854,34 @@ if (is_linux) {
 
       deps = [
         ":chrome",
+      ]
+    }
+    extract_symbols("swiftshader_egl_symbols") {
+      binary = "$root_out_dir/swiftshader/libEGL.so"
+
+      if (current_cpu == "x86") {
+        # GYP used "ia32" so keep that naming for back-compat.
+        symbol_file = "$root_out_dir/swiftshader_libegl.breakpad.ia32"
+      } else {
+        symbol_file = "$root_out_dir/swiftshader_libegl.breakpad.$current_cpu"
+      }
+
+      deps = [
+        "//third_party/swiftshader/src/OpenGL/libEGL:swiftshader_libEGL",
+      ]
+    }
+    extract_symbols("swiftshader_gles_symbols") {
+      binary = "$root_out_dir/swiftshader/libGLESv2.so"
+
+      if (current_cpu == "x86") {
+        # GYP used "ia32" so keep that naming for back-compat.
+        symbol_file = "$root_out_dir/swiftshader_libgles.breakpad.ia32"
+      } else {
+        symbol_file = "$root_out_dir/swiftshader_libgles.breakpad.$current_cpu"
+      }
+
+      deps = [
+        "//third_party/swiftshader/src/OpenGL/libGLESv2:swiftshader_libGLESv2",
       ]
     }
   }

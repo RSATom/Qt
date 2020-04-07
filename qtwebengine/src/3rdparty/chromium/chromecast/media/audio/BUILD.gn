@@ -15,23 +15,28 @@ cast_source_set("audio") {
     "cast_audio_output_stream.h",
   ]
 
-  if (use_alsa) {
-    sources += [
-      "cast_audio_manager_alsa.cc",
-      "cast_audio_manager_alsa.h",
-    ]
-  }
-
   deps = [
     "//base",
     "//chromecast/base",
+    "//chromecast/common/mojom",
+    "//chromecast/media/audio/mixer_service:connection",
+    "//chromecast/media/audio/mixer_service:proto",
     "//chromecast/media/base",
     "//chromecast/media/cma/backend",
     "//chromecast/media/cma/base",
     "//chromecast/public/media",
     "//media",
     "//media:shared_memory_support",
+    "//services/service_manager/public/cpp",
   ]
+
+  if (use_alsa) {
+    sources += [
+      "cast_audio_manager_alsa.cc",
+      "cast_audio_manager_alsa.h",
+    ]
+    deps += [ "//content/public/browser" ]
+  }
 
   configs += [ "//media/audio:platform_config" ]
 }
@@ -42,6 +47,19 @@ cast_shared_library("libcast_external_audio_pipeline_1.0") {
   ]
 
   public_deps = [
+    "//chromecast/public/media",
+  ]
+}
+
+source_set("fake_external_audio_pipeline") {
+  sources = [
+    "fake_external_audio_pipeline.cc",
+    "fake_external_audio_pipeline_support.h",
+  ]
+
+  deps = [
+    "//base",
+    "//chromecast/public",
     "//chromecast/public/media",
   ]
 }

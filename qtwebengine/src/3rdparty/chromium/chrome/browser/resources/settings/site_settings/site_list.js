@@ -8,7 +8,6 @@
  * category.
  */
 Polymer({
-
   is: 'site-list',
 
   behaviors: [
@@ -18,14 +17,6 @@ Polymer({
   ],
 
   properties: {
-    /** @private */
-    enableSiteSettings_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('enableSiteSettings');
-      },
-    },
-
     /**
      * Some content types (like Location) do not allow the user to manually
      * edit the exception list from within Settings.
@@ -35,6 +26,8 @@ Polymer({
       type: Boolean,
       value: false,
     },
+
+    categoryHeader: String,
 
     /**
      * The site serving as the model for the currently open action menu.
@@ -108,7 +101,27 @@ Polymer({
         SESSION_ONLY: 'SessionOnly',
       }
     },
+
+    /** @private */
+    lastFocused_: Object,
+
+    /** @private */
+    listBlurred_: Boolean,
+
+    /** @private */
+    tooltipText_: String,
+
+    searchFilter: String,
   },
+
+  // <if expr="chromeos">
+  /**
+   * Android messages info object containing messages feature state and
+   * exception origin.
+   * @private {?settings.AndroidSmsInfo}
+   */
+  androidSmsInfo_: null,
+  // </if>
 
   /**
    * The element to return focus to, when the currently active dialog is closed.
@@ -125,6 +138,12 @@ Polymer({
         this.siteWithinCategoryChanged_.bind(this));
     this.addWebUIListener(
         'onIncognitoStatusChanged', this.onIncognitoStatusChanged_.bind(this));
+    // <if expr="chromeos">
+    this.addWebUIListener('settings.onAndroidSmsInfoChange', (info) => {
+      this.androidSmsInfo_ = info;
+      this.populateList_();
+    });
+    // </if>
     this.browserProxy.updateIncognitoStatus();
   },
 
@@ -135,8 +154,9 @@ Polymer({
    * @private
    */
   siteWithinCategoryChanged_: function(category, site) {
-    if (category == this.category)
+    if (category == this.category) {
       this.configureWidget_();
+    }
   },
 
   /**
@@ -150,8 +170,9 @@ Polymer({
 
     // The SESSION_ONLY list won't have any incognito exceptions. (Minor
     // optimization, not required).
-    if (this.categorySubtype == settings.ContentSetting.SESSION_ONLY)
+    if (this.categorySubtype == settings.ContentSetting.SESSION_ONLY) {
       return;
+    }
 
     // A change notification is not sent for each site. So we repopulate the
     // whole list when the incognito profile is created or destroyed.
@@ -163,8 +184,9 @@ Polymer({
    * @private
    */
   configureWidget_: function() {
-    if (this.category == undefined)
+    if (this.category == undefined) {
       return;
+    }
 
     // The observer for All Sites fires before the attached/ready event, so
     // initialize this here.
@@ -174,7 +196,14 @@ Polymer({
     }
 
     this.setUpActionMenu_();
+
+    // <if expr="not chromeos">
     this.populateList_();
+    // </if>
+
+    // <if expr="chromeos">
+    this.updateAndroidSmsInfo_().then(this.populateList_.bind(this));
+    // </if>
 
     // The Session permissions are only for cookies.
     if (this.categorySubtype == settings.ContentSetting.SESSION_ONLY) {
@@ -189,31 +218,15 @@ Polymer({
    * @private
    */
   hasSites_: function() {
-    return !!this.sites.length;
+    return this.sites.length > 0;
   },
 
   /**
-   * @param {!SiteException} exception The content setting exception.
-   * @param {boolean} readOnlyList Whether the site exception list is read-only.
    * @return {boolean}
    * @private
    */
-  shouldHideResetButton_: function(exception, readOnlyList) {
-    return exception.enforcement ==
-        chrome.settingsPrivate.Enforcement.ENFORCED ||
-        !(readOnlyList || !!exception.embeddingOrigin);
-  },
-
-  /**
-   * @param {!SiteException} exception The content setting exception.
-   * @param {boolean} readOnlyList Whether the site exception list is read-only.
-   * @return {boolean}
-   * @private
-   */
-  shouldHideActionMenu_: function(exception, readOnlyList) {
-    return exception.enforcement ==
-        chrome.settingsPrivate.Enforcement.ENFORCED ||
-        readOnlyList || !!exception.embeddingOrigin;
+  showNoSearchResults_: function() {
+    return this.sites.length > 0 && this.getFilteredSites_().length == 0;
   },
 
   /**
@@ -232,6 +245,77 @@ Polymer({
   },
 
   /**
+   * Need to use common tooltip since the tooltip in the entry is cut off from
+   * the iron-list.
+   * @param {!CustomEvent<!{target: HTMLElement, text: string}>} e
+   * @private
+   */
+  onShowTooltip_: function(e) {
+    this.tooltipText_ = e.detail.text;
+    const target = e.detail.target;
+    // paper-tooltip normally determines the target from the |for| property,
+    // which is a selector. Here paper-tooltip is being reused by multiple
+    // potential targets.
+    const tooltip = this.$.tooltip;
+    tooltip.target = target;
+    /** @type {{updatePosition: Function}} */ (tooltip).updatePosition();
+    const hide = () => {
+      this.$.tooltip.hide();
+      target.removeEventListener('mouseleave', hide);
+      target.removeEventListener('blur', hide);
+      target.removeEventListener('tap', hide);
+      this.$.tooltip.removeEventListener('mouseenter', hide);
+    };
+    target.addEventListener('mouseleave', hide);
+    target.addEventListener('blur', hide);
+    target.addEventListener('tap', hide);
+    this.$.tooltip.addEventListener('mouseenter', hide);
+    this.$.tooltip.show();
+  },
+
+  // <if expr="chromeos">
+  /**
+   * Load android sms info if required and sets it to the |androidSmsInfo_|
+   * property. Returns a promise that resolves when load is complete.
+   * @private
+   */
+  updateAndroidSmsInfo_: function() {
+    // |androidSmsInfo_| is only relevant for NOTIFICATIONS category. Don't
+    // bother fetching it for other categories.
+    if (this.category === settings.ContentSettingsTypes.NOTIFICATIONS &&
+        loadTimeData.valueExists('multideviceAllowedByPolicy') &&
+        loadTimeData.getBoolean('multideviceAllowedByPolicy') &&
+        !this.androidSmsInfo_) {
+      const multideviceSetupProxy =
+          settings.MultiDeviceBrowserProxyImpl.getInstance();
+      return multideviceSetupProxy.getAndroidSmsInfo().then((info) => {
+        this.androidSmsInfo_ = info;
+      });
+    }
+
+    return Promise.resolve();
+  },
+
+  /**
+   * Processes exceptions and adds showAndroidSmsNote field to
+   * the required exception item.
+   * @private
+   */
+  processExceptionsForAndroidSmsInfo_: function(sites) {
+    if (!this.androidSmsInfo_ || !this.androidSmsInfo_.enabled) {
+      return sites;
+    }
+    return sites.map((site) => {
+      if (site.origin === this.androidSmsInfo_.origin) {
+        return Object.assign({showAndroidSmsNote: true}, site);
+      } else {
+        return site;
+      }
+    });
+  },
+  // </if>
+
+  /**
    * Populate the sites list for display.
    * @private
    */
@@ -248,13 +332,21 @@ Polymer({
    * @private
    */
   processExceptions_: function(exceptionList) {
-    const sites =
+    let sites =
         exceptionList
             .filter(
                 site => site.setting != settings.ContentSetting.DEFAULT &&
                     site.setting == this.categorySubtype)
             .map(site => this.expandSiteException(site));
-    this.updateList('sites', x => x.origin, sites);
+
+    // <if expr="not chromeos">
+    this.updateList('sites', (x) => x.origin, sites);
+    // </if>
+
+    // <if expr="chromeos">
+    sites = this.processExceptionsForAndroidSmsInfo_(sites);
+    this.updateList('sites', (x) => x.origin + x.showAndroidSmsNote, sites);
+    // </if>
   },
 
   /**
@@ -280,33 +372,11 @@ Polymer({
     // It makes no sense to show "clear on exit" for exceptions that only apply
     // to incognito. It gives the impression that they might under some
     // circumstances not be cleared on exit, which isn't true.
-    if (!this.actionMenuSite_ || this.actionMenuSite_.incognito)
+    if (!this.actionMenuSite_ || this.actionMenuSite_.incognito) {
       return false;
+    }
 
     return this.showSessionOnlyAction_;
-  },
-
-  /**
-   * A handler for selecting a site (by clicking on the origin).
-   * @param {!{model: !{item: !SiteException}}} event
-   * @private
-   */
-  onOriginTap_: function(event) {
-    if (!this.enableSiteSettings_)
-      return;
-    settings.navigateTo(
-        settings.routes.SITE_SETTINGS_SITE_DETAILS,
-        new URLSearchParams('site=' + event.model.item.origin));
-  },
-
-  /**
-   * @param {?SiteException} site
-   * @private
-   */
-  resetPermissionForOrigin_: function(site) {
-    assert(site);
-    this.browserProxy.resetCategoryPermissionForPattern(
-        site.origin, site.embeddingOrigin, this.category, site.incognito);
   },
 
   /**
@@ -359,51 +429,20 @@ Polymer({
 
   /** @private */
   onResetTap_: function() {
-    this.resetPermissionForOrigin_(this.actionMenuSite_);
+    const site = this.actionMenuSite_;
+    assert(site);
+    this.browserProxy.resetCategoryPermissionForPattern(
+        site.origin, site.embeddingOrigin, this.category, site.incognito);
     this.closeActionMenu_();
   },
 
   /**
-   * Returns the appropriate site description to display. This can, for example,
-   * be blank, an 'embedded on <site>' or 'Current incognito session' (or a
-   * mix of the last two).
-   * @param {SiteException} item The site exception entry.
-   * @return {string} The site description.
-   */
-  computeSiteDescription_: function(item) {
-    let displayName = '';
-    if (item.embeddingOrigin) {
-      displayName = loadTimeData.getStringF(
-          'embeddedOnHost', this.sanitizePort(item.embeddingOrigin));
-    } else if (this.category == settings.ContentSettingsTypes.GEOLOCATION) {
-      displayName = loadTimeData.getString('embeddedOnAnyHost');
-    }
-
-    if (item.incognito) {
-      if (displayName.length > 0)
-        return loadTimeData.getStringF('embeddedIncognitoSite', displayName);
-      return loadTimeData.getString('incognitoSite');
-    }
-    return displayName;
-  },
-
-  /**
-   * @param {!{model: !{item: !SiteException}}} e
+   * @param {!Event} e
    * @private
    */
-  onResetButtonTap_: function(e) {
-    this.resetPermissionForOrigin_(e.model.item);
-  },
-
-  /**
-   * @param {!{model: !{item: !SiteException}}} e
-   * @private
-   */
-  onShowActionMenuTap_: function(e) {
-    this.activeDialogAnchor_ = /** @type {!HTMLElement} */ (
-        Polymer.dom(/** @type {!Event} */ (e)).localTarget);
-
-    this.actionMenuSite_ = e.model.item;
+  onShowActionMenu_: function(e) {
+    this.activeDialogAnchor_ = /** @type {!HTMLElement} */ (e.detail.anchor);
+    this.actionMenuSite_ = e.detail.model;
     /** @type {!CrActionMenuElement} */ (this.$$('cr-action-menu'))
         .showAt(this.activeDialogAnchor_);
   },
@@ -414,7 +453,27 @@ Polymer({
     this.activeDialogAnchor_ = null;
     const actionMenu =
         /** @type {!CrActionMenuElement} */ (this.$$('cr-action-menu'));
-    if (actionMenu.open)
+    if (actionMenu.open) {
       actionMenu.close();
+    }
+  },
+
+  /**
+   * @return {!Array<!SiteException>}
+   * @private
+   */
+  getFilteredSites_: function() {
+    if (!this.searchFilter) {
+      return this.sites.slice();
+    }
+
+    const propNames = [
+      'displayName',
+      'origin',
+    ];
+    const searchFilter = this.searchFilter.toLowerCase();
+    return this.sites.filter(
+        site => propNames.some(
+            propName => site[propName].toLowerCase().includes(searchFilter)));
   },
 });

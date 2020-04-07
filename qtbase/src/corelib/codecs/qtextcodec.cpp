@@ -505,9 +505,9 @@ QTextCodec::~QTextCodec()
 
     globalData->allCodecs.removeOne(this);
 
-    auto it = globalData->codecCache.cbegin();
+    auto it = globalData->codecCache.begin();
 
-    while (it != globalData->codecCache.cend()) {
+    while (it != globalData->codecCache.end()) {
         if (it.value() == this)
             it = globalData->codecCache.erase(it);
         else
@@ -678,7 +678,7 @@ QList<int> QTextCodec::availableMibs()
     \nonreentrant
 
     Set the codec to \a c; this will be returned by
-    codecForLocale(). If \a c is a null pointer, the codec is reset to
+    codecForLocale(). If \a c is \nullptr, the codec is reset to
     the default.
 
     This might be needed for some applications that want to use their
@@ -695,11 +695,9 @@ void QTextCodec::setCodecForLocale(QTextCodec *c)
     \threadsafe
     Returns a pointer to the codec most suitable for this locale.
 
-    On Windows, the codec will be based on a system locale. On Unix
-    systems, the codec will might fall back to using the \e iconv
-    library if no builtin codec for the locale can be found.
-
-    Note that in these cases the codec's name will be "System".
+    The codec will be retrieved from ICU where that backend is in use, otherwise
+    it may be obtained from an OS-specific API.  In the latter case, the codec's
+    name may be "System".
 */
 
 QTextCodec* QTextCodec::codecForLocale()
@@ -766,7 +764,7 @@ QList<QByteArray> QTextCodec::aliases() const
     encoding of the subclass to Unicode, and returns the result in a
     QString.
 
-    \a state can be 0, in which case the conversion is stateless and
+    \a state can be \nullptr, in which case the conversion is stateless and
     default conversion rules should be used. If state is not 0, the
     codec should save the state after the conversion in \a state, and
     adjust the \c remainingChars and \c invalidChars members of the struct.
@@ -782,7 +780,7 @@ QList<QByteArray> QTextCodec::aliases() const
     from Unicode to the encoding of the subclass, and returns the result
     in a QByteArray.
 
-    \a state can be 0 in which case the conversion is stateless and
+    \a state can be \nullptr in which case the conversion is stateless and
     default conversion rules should be used. If state is not 0, the
     codec should save the state after the conversion in \a state, and
     adjust the \c remainingChars and \c invalidChars members of the struct.

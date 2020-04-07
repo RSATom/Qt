@@ -28,7 +28,6 @@ rtc_source_set("legacy_delay_estimator") {
     "delay_estimator_wrapper.h",
   ]
   deps = [
-    "../../..:typedefs",
     "../../../rtc_base:checks",
   ]
 }
@@ -40,7 +39,7 @@ rtc_source_set("ooura_fft") {
     "ooura_fft_tables_common.h",
   ]
   deps = [
-    "../../..:typedefs",
+    "../../../rtc_base/system:arch",
     "../../../system_wrappers:cpu_features_api",
   ]
   cflags = []
@@ -64,9 +63,7 @@ rtc_source_set("ooura_fft") {
     deps += [ "../../../common_audio" ]
 
     if (current_cpu != "arm64") {
-      # Enable compilation for the NEON instruction set. This is needed
-      # since //build/config/arm.gni only enables NEON for iOS, not Android.
-      # This provides the same functionality as webrtc/build/arm_neon.gypi.
+      # Enable compilation for the NEON instruction set.
       suppressed_configs += [ "//build/config/compiler:compiler_arm_fpu" ]
       cflags += [ "-mfpu=neon" ]
     }
@@ -109,7 +106,6 @@ if (rtc_include_tests) {
     ]
     deps = [
       ":legacy_delay_estimator",
-      "../../..:typedefs",
       "../../../rtc_base:rtc_base_approved",
       "../../../test:test_support",
       "//testing/gtest",

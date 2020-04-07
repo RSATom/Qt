@@ -35,8 +35,9 @@
 #include "third_party/blink/renderer/core/clipboard/clipboard_mime_types.h"
 #include "third_party/blink/renderer/core/clipboard/clipboard_utilities.h"
 #include "third_party/blink/renderer/core/clipboard/dragged_isolated_file_system.h"
+#include "third_party/blink/renderer/core/clipboard/paste_mode.h"
 #include "third_party/blink/renderer/core/clipboard/system_clipboard.h"
-#include "third_party/blink/renderer/platform/paste_mode.h"
+#include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
 namespace blink {
@@ -67,22 +68,22 @@ DataObject* DataObject::CreateFromString(const String& data) {
 }
 
 DataObject* DataObject::Create() {
-  return new DataObject;
+  return MakeGarbageCollected<DataObject>();
 }
 
 DataObject::~DataObject() = default;
 
-size_t DataObject::length() const {
+uint32_t DataObject::length() const {
   return item_list_.size();
 }
 
-DataObjectItem* DataObject::Item(unsigned long index) {
+DataObjectItem* DataObject::Item(uint32_t index) {
   if (index >= length())
     return nullptr;
   return item_list_[index];
 }
 
-void DataObject::DeleteItem(unsigned long index) {
+void DataObject::DeleteItem(uint32_t index) {
   if (index >= length())
     return;
   item_list_.EraseAt(index);
@@ -123,7 +124,7 @@ DataObjectItem* DataObject::Add(File* file, const String& file_system_id) {
 }
 
 void DataObject::ClearData(const String& type) {
-  for (size_t i = 0; i < item_list_.size(); ++i) {
+  for (wtf_size_t i = 0; i < item_list_.size(); ++i) {
     if (item_list_[i]->Kind() == DataObjectItem::kStringKind &&
         item_list_[i]->GetType() == type) {
       // Per the spec, type must be unique among all items of kind 'string'.
@@ -164,7 +165,7 @@ Vector<String> DataObject::Types() const {
 }
 
 String DataObject::GetData(const String& type) const {
-  for (size_t i = 0; i < item_list_.size(); ++i) {
+  for (wtf_size_t i = 0; i < item_list_.size(); ++i) {
     if (item_list_[i]->Kind() == DataObjectItem::kStringKind &&
         item_list_[i]->GetType() == type)
       return item_list_[i]->GetAsString();
@@ -206,7 +207,7 @@ void DataObject::SetHTMLAndBaseURL(const String& html, const KURL& base_url) {
 }
 
 bool DataObject::ContainsFilenames() const {
-  for (size_t i = 0; i < item_list_.size(); ++i) {
+  for (wtf_size_t i = 0; i < item_list_.size(); ++i) {
     if (item_list_[i]->IsFilename())
       return true;
   }
@@ -215,7 +216,7 @@ bool DataObject::ContainsFilenames() const {
 
 Vector<String> DataObject::Filenames() const {
   Vector<String> results;
-  for (size_t i = 0; i < item_list_.size(); ++i) {
+  for (wtf_size_t i = 0; i < item_list_.size(); ++i) {
     if (item_list_[i]->IsFilename())
       results.push_back(item_list_[i]->GetAsFile()->GetPath());
   }
@@ -240,7 +241,7 @@ void DataObject::AddSharedBuffer(scoped_refptr<SharedBuffer> buffer,
 DataObject::DataObject() : modifiers_(0) {}
 
 DataObjectItem* DataObject::FindStringItem(const String& type) const {
-  for (size_t i = 0; i < item_list_.size(); ++i) {
+  for (wtf_size_t i = 0; i < item_list_.size(); ++i) {
     if (item_list_[i]->Kind() == DataObjectItem::kStringKind &&
         item_list_[i]->GetType() == type)
       return item_list_[i];
@@ -250,7 +251,7 @@ DataObjectItem* DataObject::FindStringItem(const String& type) const {
 
 bool DataObject::InternalAddStringItem(DataObjectItem* item) {
   DCHECK_EQ(item->Kind(), DataObjectItem::kStringKind);
-  for (size_t i = 0; i < item_list_.size(); ++i) {
+  for (wtf_size_t i = 0; i < item_list_.size(); ++i) {
     if (item_list_[i]->Kind() == DataObjectItem::kStringKind &&
         item_list_[i]->GetType() == item->GetType())
       return false;
@@ -337,7 +338,7 @@ WebDragData DataObject::ToWebDragData() {
   data.SetModifierKeyState(modifiers_);
   WebVector<WebDragData::Item> item_list(length());
 
-  for (size_t i = 0; i < length(); ++i) {
+  for (wtf_size_t i = 0; i < length(); ++i) {
     DataObjectItem* original_item = Item(i);
     WebDragData::Item item;
     if (original_item->Kind() == DataObjectItem::kStringKind) {

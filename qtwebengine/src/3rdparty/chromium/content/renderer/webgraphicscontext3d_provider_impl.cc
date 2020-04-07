@@ -4,15 +4,17 @@
 
 #include "content/renderer/webgraphicscontext3d_provider_impl.h"
 
+#include "cc/paint/paint_image.h"
 #include "cc/tiles/gpu_image_decode_cache.h"
 #include "components/viz/common/gl_helper.h"
 #include "gpu/command_buffer/client/context_support.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
+#include "third_party/skia/include/gpu/GrContext.h"
 
 namespace content {
 
 WebGraphicsContext3DProviderImpl::WebGraphicsContext3DProviderImpl(
-    scoped_refptr<ui::ContextProviderCommandBuffer> provider)
+    scoped_refptr<ws::ContextProviderCommandBuffer> provider)
     : provider_(std::move(provider)) {}
 
 WebGraphicsContext3DProviderImpl::~WebGraphicsContext3DProviderImpl() {
@@ -30,6 +32,11 @@ bool WebGraphicsContext3DProviderImpl::BindToCurrentThread() {
 
 gpu::gles2::GLES2Interface* WebGraphicsContext3DProviderImpl::ContextGL() {
   return provider_->ContextGL();
+}
+
+gpu::webgpu::WebGPUInterface*
+WebGraphicsContext3DProviderImpl::WebGPUInterface() {
+  return provider_->WebGPUInterface();
 }
 
 GrContext* WebGraphicsContext3DProviderImpl::GetGrContext() {
@@ -69,9 +76,14 @@ void WebGraphicsContext3DProviderImpl::OnContextLost() {
     context_lost_callback_.Run();
 }
 
-cc::ImageDecodeCache* WebGraphicsContext3DProviderImpl::ImageDecodeCache() {
-  if (image_decode_cache_)
-    return image_decode_cache_.get();
+cc::ImageDecodeCache* WebGraphicsContext3DProviderImpl::ImageDecodeCache(
+    SkColorType color_type,
+    sk_sp<SkColorSpace> color_space) {
+  DCHECK(GetGrContext()->colorTypeSupportedAsImage(color_type));
+  auto key = std::make_pair(color_type, color_space->hash());
+  auto cache_iterator = image_decode_cache_map_.find(key);
+  if (cache_iterator != image_decode_cache_map_.end())
+    return cache_iterator->second.get();
 
   // This denotes the allocated GPU memory budget for the cache used for
   // book-keeping. The cache indicates when the total memory locked exceeds this
@@ -81,10 +93,15 @@ cc::ImageDecodeCache* WebGraphicsContext3DProviderImpl::ImageDecodeCache() {
   // TransferCache is used only with OOP raster.
   const bool use_transfer_cache = false;
 
-  image_decode_cache_ = std::make_unique<cc::GpuImageDecodeCache>(
-      provider_.get(), use_transfer_cache, kN32_SkColorType,
-      kMaxWorkingSetBytes, provider_->ContextCapabilities().max_texture_size);
-  return image_decode_cache_.get();
+  auto insertion_result = image_decode_cache_map_.emplace(
+      key,
+      std::make_unique<cc::GpuImageDecodeCache>(
+          provider_.get(), use_transfer_cache, color_type, kMaxWorkingSetBytes,
+          provider_->ContextCapabilities().max_texture_size,
+          cc::PaintImage::kDefaultGeneratorClientId, color_space));
+  DCHECK(insertion_result.second);
+  cache_iterator = insertion_result.first;
+  return cache_iterator->second.get();
 }
 
 }  // namespace content

@@ -26,6 +26,8 @@
 
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 
+#include <limits>
+
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -58,11 +60,7 @@
 #include "third_party/blink/renderer/core/page/slot_scoped_traversal.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
 
-#include <limits>
-
 namespace blink {
-
-using namespace HTMLNames;
 
 namespace {
 
@@ -234,17 +232,19 @@ ScopedFocusNavigation::ScopedFocusNavigation(
     : current_(current) {
   if (HTMLSlotElement* slot = ToHTMLSlotElementOrNull(scoping_root_node)) {
     if (slot->AssignedNodes().IsEmpty()) {
-      navigation_ = new FocusNavigation(scoping_root_node, *slot, owner_map);
+      navigation_ = MakeGarbageCollected<FocusNavigation>(scoping_root_node,
+                                                          *slot, owner_map);
     } else {
       // Here, slot->AssignedNodes() are non null, so the slot must be inside
       // the shadow tree.
       DCHECK(scoping_root_node.ContainingShadowRoot());
-      navigation_ =
-          new FocusNavigation(scoping_root_node.ContainingShadowRoot()->host(),
-                              ToHTMLSlotElement(scoping_root_node), owner_map);
+      navigation_ = MakeGarbageCollected<FocusNavigation>(
+          scoping_root_node.ContainingShadowRoot()->host(),
+          ToHTMLSlotElement(scoping_root_node), owner_map);
     }
   } else {
-    navigation_ = new FocusNavigation(scoping_root_node, owner_map);
+    navigation_ =
+        MakeGarbageCollected<FocusNavigation>(scoping_root_node, owner_map);
   }
   DCHECK(navigation_);
 }
@@ -358,9 +358,9 @@ inline void DispatchBlurEvent(const Document& document,
                               Element& focused_element) {
   focused_element.DispatchBlurEvent(nullptr, kWebFocusTypePage);
   if (focused_element == document.FocusedElement()) {
-    focused_element.DispatchFocusOutEvent(EventTypeNames::focusout, nullptr);
+    focused_element.DispatchFocusOutEvent(event_type_names::kFocusout, nullptr);
     if (focused_element == document.FocusedElement())
-      focused_element.DispatchFocusOutEvent(EventTypeNames::DOMFocusOut,
+      focused_element.DispatchFocusOutEvent(event_type_names::kDOMFocusOut,
                                             nullptr);
   }
 }
@@ -369,11 +369,12 @@ inline void DispatchFocusEvent(const Document& document,
                                Element& focused_element) {
   focused_element.DispatchFocusEvent(nullptr, kWebFocusTypePage);
   if (focused_element == document.FocusedElement()) {
-    focused_element.DispatchFocusInEvent(EventTypeNames::focusin, nullptr,
+    focused_element.DispatchFocusInEvent(event_type_names::kFocusin, nullptr,
                                          kWebFocusTypePage);
-    if (focused_element == document.FocusedElement())
-      focused_element.DispatchFocusInEvent(EventTypeNames::DOMFocusIn, nullptr,
-                                           kWebFocusTypePage);
+    if (focused_element == document.FocusedElement()) {
+      focused_element.DispatchFocusInEvent(event_type_names::kDOMFocusIn,
+                                           nullptr, kWebFocusTypePage);
+    }
   }
 }
 
@@ -399,9 +400,10 @@ inline void DispatchEventsOnWindowAndFocusedElement(Document* document,
     DispatchBlurEvent(*document, *focused_element);
   }
 
-  if (LocalDOMWindow* window = document->domWindow())
-    window->DispatchEvent(
-        Event::Create(focused ? EventTypeNames::focus : EventTypeNames::blur));
+  if (LocalDOMWindow* window = document->domWindow()) {
+    window->DispatchEvent(*Event::Create(focused ? event_type_names::kFocus
+                                                 : event_type_names::kBlur));
+  }
   if (focused && document->FocusedElement()) {
     Element* focused_element(document->FocusedElement());
     // Use focus_type kWebFocusTypePage, same as used in DispatchFocusEvent.
@@ -763,10 +765,11 @@ FocusController::FocusController(Page* page)
     : page_(page),
       is_active_(false),
       is_focused_(false),
-      is_changing_focused_frame_(false) {}
+      is_changing_focused_frame_(false),
+      is_emulating_focus_(false) {}
 
 FocusController* FocusController::Create(Page* page) {
-  return new FocusController(page);
+  return MakeGarbageCollected<FocusController>(page);
 }
 
 void FocusController::SetFocusedFrame(Frame* frame, bool notify_embedder) {
@@ -789,12 +792,14 @@ void FocusController::SetFocusedFrame(Frame* frame, bool notify_embedder) {
   // states of both frames.
   if (old_frame && old_frame->View()) {
     old_frame->Selection().SetFrameIsFocused(false);
-    old_frame->DomWindow()->DispatchEvent(Event::Create(EventTypeNames::blur));
+    old_frame->DomWindow()->DispatchEvent(
+        *Event::Create(event_type_names::kBlur));
   }
 
   if (new_frame && new_frame->View() && IsFocused()) {
     new_frame->Selection().SetFrameIsFocused(true);
-    new_frame->DomWindow()->DispatchEvent(Event::Create(EventTypeNames::focus));
+    new_frame->DomWindow()->DispatchEvent(
+        *Event::Create(event_type_names::kFocus));
   }
 
   is_changing_focused_frame_ = false;
@@ -840,10 +845,7 @@ void FocusController::FocusDocumentView(Frame* frame, bool notify_embedder) {
 }
 
 LocalFrame* FocusController::FocusedFrame() const {
-  // TODO(alexmos): Strengthen this to DCHECK that whoever called this really
-  // expected a LocalFrame. Refactor call sites so that the rare cases that
-  // need to know about focused RemoteFrames use a separate accessor (to be
-  // added).
+  // All callsites only care about *local* focused frames.
   if (focused_frame_ && focused_frame_->IsRemoteFrame())
     return nullptr;
   return ToLocalFrame(focused_frame_.Get());
@@ -853,9 +855,10 @@ Frame* FocusController::FocusedOrMainFrame() const {
   if (LocalFrame* frame = FocusedFrame())
     return frame;
 
-  // FIXME: This is a temporary hack to ensure that we return a LocalFrame, even
-  // when the mainFrame is remote.  FocusController needs to be refactored to
-  // deal with RemoteFrames cross-process focus transfers.
+  // TODO(dcheng, alexmos): https://crbug.com/820786: This is a temporary hack
+  // to ensure that we return a LocalFrame, even when the mainFrame is remote.
+  // FocusController needs to be refactored to deal with RemoteFrames
+  // cross-process focus transfers.
   for (Frame* frame = &page_->MainFrame()->Tree().Top(); frame;
        frame = frame->Tree().TraverseNext()) {
     if (frame->IsLocalFrame() && ToLocalFrame(frame)->IsLocalRoot())
@@ -863,6 +866,11 @@ Frame* FocusController::FocusedOrMainFrame() const {
   }
 
   return page_->MainFrame();
+}
+
+void FocusController::FrameDetached(Frame* detached_frame) {
+  if (detached_frame == focused_frame_)
+    SetFocusedFrame(nullptr);
 }
 
 HTMLFrameOwnerElement* FocusController::FocusedFrameOwnerElement(
@@ -885,22 +893,18 @@ bool FocusController::IsDocumentFocused(const Document& document) const {
          focused_frame_->Tree().IsDescendantOf(document.GetFrame());
 }
 
-void FocusController::SetFocused(bool focused) {
-  if (IsFocused() == focused)
-    return;
-
-  is_focused_ = focused;
-
-  if (!is_focused_ && FocusedOrMainFrame()->IsLocalFrame())
+void FocusController::FocusHasChanged() {
+  bool focused = IsFocused();
+  if (!focused && FocusedOrMainFrame()->IsLocalFrame())
     ToLocalFrame(FocusedOrMainFrame())->GetEventHandler().StopAutoscroll();
 
   // Do not set a focused frame when being unfocused. This might reset
-  // m_isFocused to true.
-  if (!focused_frame_ && is_focused_)
+  // is_focused_ to true.
+  if (!focused_frame_ && focused)
     SetFocusedFrame(page_->MainFrame());
 
-  // setFocusedFrame above might reject to update m_focusedFrame, or
-  // m_focusedFrame might be changed by blur/focus event handlers.
+  // SetFocusedFrame above might reject to update focused_frame_, or
+  // focused_frame_ might be changed by blur/focus event handlers.
   if (focused_frame_ && focused_frame_->IsLocalFrame() &&
       ToLocalFrame(focused_frame_.Get())->View()) {
     ToLocalFrame(focused_frame_.Get())->Selection().SetFrameIsFocused(focused);
@@ -909,6 +913,26 @@ void FocusController::SetFocused(bool focused) {
   }
 
   NotifyFocusChangedObservers();
+}
+
+void FocusController::SetFocused(bool focused) {
+  if (is_focused_ == focused)
+    return;
+  is_focused_ = focused;
+  if (!is_emulating_focus_)
+    FocusHasChanged();
+}
+
+void FocusController::SetFocusEmulationEnabled(bool emulate_focus) {
+  if (emulate_focus == is_emulating_focus_)
+    return;
+  bool active = IsActive();
+  bool focused = IsFocused();
+  is_emulating_focus_ = emulate_focus;
+  if (active != IsActive())
+    ActiveHasChanged();
+  if (focused != IsFocused())
+    FocusHasChanged();
 }
 
 bool FocusController::SetInitialFocus(WebFocusType type) {
@@ -942,11 +966,9 @@ bool FocusController::AdvanceFocus(
       return AdvanceFocusInDocumentOrder(starting_frame, nullptr, type,
                                          initial_focus, source_capabilities);
     }
-    case kWebFocusTypeLeft:
-    case kWebFocusTypeRight:
-    case kWebFocusTypeUp:
-    case kWebFocusTypeDown:
-      return AdvanceFocusDirectionally(type);
+    case kWebFocusTypeSpatialNavigation:
+      // Fallthrough - SpatialNavigation should use
+      // SpatialNavigationController.
     default:
       NOTREACHED();
   }
@@ -1207,7 +1229,6 @@ bool FocusController::SetFocusedElement(Element* element,
       new_document->FocusedElement() == element)
     return true;
 
-
   if (old_document && old_document != new_document)
     old_document->ClearFocusedElement();
 
@@ -1227,12 +1248,7 @@ bool FocusController::SetFocusedElement(Element* element,
   return true;
 }
 
-void FocusController::SetActive(bool active) {
-  if (is_active_ == active)
-    return;
-
-  is_active_ = active;
-
+void FocusController::ActiveHasChanged() {
   Frame* frame = FocusedOrMainFrame();
   if (frame->IsLocalFrame()) {
     Document* const document =
@@ -1249,218 +1265,13 @@ void FocusController::SetActive(bool active) {
   }
 }
 
-static void UpdateFocusCandidateIfNeeded(WebFocusType direction,
-                                         const FocusCandidate& current,
-                                         FocusCandidate& candidate,
-                                         FocusCandidate& closest) {
-  DCHECK(candidate.visible_node->IsElementNode());
-  DCHECK(candidate.visible_node->GetLayoutObject());
-
-  // Ignore iframes that don't have a src attribute
-  if (FrameOwnerElement(candidate) &&
-      (!FrameOwnerElement(candidate)->ContentFrame() ||
-       candidate.rect_in_root_frame.IsEmpty()))
+void FocusController::SetActive(bool active) {
+  if (is_active_ == active)
     return;
 
-  // Ignore off screen child nodes of containers that do not scroll
-  // (overflow:hidden)
-  if (candidate.is_offscreen && !CanBeScrolledIntoView(direction, candidate))
-    return;
-
-  DistanceDataForNode(direction, current, candidate);
-  if (candidate.distance == MaxDistance())
-    return;
-
-  if (candidate.is_offscreen_after_scrolling)
-    return;
-
-  if (closest.IsNull()) {
-    closest = candidate;
-    return;
-  }
-
-  LayoutRect intersection_rect =
-      Intersection(candidate.rect_in_root_frame, closest.rect_in_root_frame);
-  if (!intersection_rect.IsEmpty() &&
-      !AreElementsOnSameLine(closest, candidate) &&
-      intersection_rect == candidate.rect_in_root_frame) {
-    // If 2 nodes are intersecting, do hit test to find which node in on top.
-    LayoutUnit x = intersection_rect.X() + intersection_rect.Width() / 2;
-    LayoutUnit y = intersection_rect.Y() + intersection_rect.Height() / 2;
-    if (!candidate.visible_node->GetDocument()
-             .GetPage()
-             ->MainFrame()
-             ->IsLocalFrame())
-      return;
-    HitTestLocation location(IntPoint(x.ToInt(), y.ToInt()));
-    HitTestResult result =
-        candidate.visible_node->GetDocument()
-            .GetPage()
-            ->DeprecatedLocalMainFrame()
-            ->GetEventHandler()
-            .HitTestResultAtLocation(
-                location, HitTestRequest::kReadOnly | HitTestRequest::kActive |
-                              HitTestRequest::kIgnoreClipping);
-    if (candidate.visible_node->contains(result.InnerNode())) {
-      closest = candidate;
-      return;
-    }
-    if (closest.visible_node->contains(result.InnerNode()))
-      return;
-  }
-
-  if (candidate.distance < closest.distance)
-    closest = candidate;
-}
-
-void FocusController::FindFocusCandidateInContainer(
-    Node& container,
-    const LayoutRect& starting_rect,
-    WebFocusType direction,
-    FocusCandidate& closest,
-    const SkipList& already_checked) {
-  if (already_checked.Contains(&container))
-    return;
-
-  Element* focused_element =
-      (FocusedFrame() && FocusedFrame()->GetDocument())
-          ? FocusedFrame()->GetDocument()->FocusedElement()
-          : nullptr;
-
-  Element* element = ElementTraversal::FirstWithin(container);
-  FocusCandidate current;
-  current.rect_in_root_frame = starting_rect;
-  current.focusable_node = focused_element;
-  current.visible_node = focused_element;
-
-  for (; element;
-       element =
-           (IsNavigableContainer(element, direction))
-               ? ElementTraversal::NextSkippingChildren(*element, &container)
-               : ElementTraversal::Next(*element, &container)) {
-    if (element == focused_element)
-      continue;
-
-    if (!element->IsKeyboardFocusable() &&
-        !IsNavigableContainer(element, direction))
-      continue;
-
-    if (already_checked.Contains(element))
-      continue;
-
-    FocusCandidate candidate = FocusCandidate(element, direction);
-    if (candidate.IsNull())
-      continue;
-
-    candidate.enclosing_scrollable_box = &container;
-    UpdateFocusCandidateIfNeeded(direction, current, candidate, closest);
-  }
-}
-
-bool FocusController::AdvanceFocusDirectionallyInContainer(
-    Node* start_container,
-    const LayoutRect& starting_rect,
-    WebFocusType direction,
-    Node* pruned_sub_tree_root) {
-  if (!start_container)
-    return false;
-
-  HeapVector<Member<Node>> stack;
-  stack.push_back(start_container);
-
-  SkipList already_checked;
-  if (pruned_sub_tree_root)
-    already_checked.insert(pruned_sub_tree_root);
-
-  while (!stack.IsEmpty()) {
-    Node* container = stack.back();
-
-    FocusCandidate candidate;
-    FindFocusCandidateInContainer(*container, starting_rect, direction,
-                                  candidate, already_checked);
-
-    if (candidate.IsNull()) {
-      // Nothing to focus in this container, scroll if possible.
-      // NOTE: If no scrolling is performed (i.e. ScrollInDirection returns
-      // false), the spatial navigation algorithm will skip this container.
-      if (ScrollInDirection(container, direction))
-        return true;
-
-      stack.pop_back();
-      continue;
-    }
-
-    if (!IsNavigableContainer(candidate.visible_node, direction)) {
-      // We found a new focus node, navigate to it.
-      Element* element = ToElement(candidate.focusable_node);
-      DCHECK(element);
-      element->focus(
-          FocusParams(SelectionBehaviorOnFocus::kReset, direction, nullptr));
-      return true;
-    }
-
-    // We now dig into a navigable container.
-
-    HTMLFrameOwnerElement* frame_element = FrameOwnerElement(candidate);
-    if (frame_element && frame_element->ContentFrame()->IsLocalFrame()) {
-      // Navigate into a discovered frame.
-      ToLocalFrame(frame_element->ContentFrame())
-          ->GetDocument()
-          ->UpdateStyleAndLayoutIgnorePendingStylesheets();
-
-      // Mark this |already_checked| so we can skip this subtree in case
-      // FindFocusCandidateInContainer() returns it again.
-      already_checked.insert(candidate.visible_node);
-
-      stack.push_back(
-          ToLocalFrame(frame_element->ContentFrame())->GetDocument());
-      continue;
-    }
-
-    // Search sub-container.
-    stack.push_back(candidate.visible_node);
-  }
-
-  return ScrollInDirection(start_container, direction);
-}
-
-bool FocusController::AdvanceFocusDirectionally(WebFocusType direction) {
-  // FIXME: Directional focus changes don't yet work with RemoteFrames.
-  if (!FocusedOrMainFrame()->IsLocalFrame())
-    return false;
-  const LocalFrame* current_frame = ToLocalFrame(FocusedOrMainFrame());
-  DCHECK(current_frame);
-
-  Document* focused_document = current_frame->GetDocument();
-  if (!focused_document)
-    return false;
-
-  Element* focused_element = focused_document->FocusedElement();
-  Node* container = focused_document;
-  if (container->IsDocumentNode())
-    ToDocument(container)->UpdateStyleAndLayoutIgnorePendingStylesheets();
-  if (focused_element)
-    container = ScrollableAreaOrDocumentOf(focused_element);
-
-  const LayoutRect starting_rect =
-      FindSearchStartPoint(current_frame, direction);
-  Node* pruned_sub_tree_root = nullptr;
-  bool consumed = false;
-
-  while (!consumed && container) {
-    consumed = AdvanceFocusDirectionallyInContainer(
-        container, starting_rect, direction, pruned_sub_tree_root);
-    if (consumed)
-      break;
-
-    // Nothing found in |container| so search the parent container.
-    pruned_sub_tree_root = container;
-    container = ScrollableAreaOrDocumentOf(container);
-    if (container && container->IsDocumentNode())
-      ToDocument(container)->UpdateStyleAndLayoutIgnorePendingStylesheets();
-  }
-
-  return consumed;
+  is_active_ = active;
+  if (!is_emulating_focus_)
+    ActiveHasChanged();
 }
 
 void FocusController::RegisterFocusChangedObserver(

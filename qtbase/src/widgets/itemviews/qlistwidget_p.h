@@ -100,11 +100,15 @@ public:
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool clearItemData(const QModelIndex &index) override;
+#endif
 
     QMap<int, QVariant> itemData(const QModelIndex &index) const override;
 
     bool insertRows(int row, int count = 1, const QModelIndex &parent = QModelIndex()) override;
     bool removeRows(int row, int count = 1, const QModelIndex &parent = QModelIndex()) override;
+    bool moveRows(const QModelIndex &sourceParent, int sourceRow, int count, const QModelIndex &destinationParent, int destinationChild) override;
 
     Qt::ItemFlags flags(const QModelIndex &index) const override;
 

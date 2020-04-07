@@ -10,10 +10,10 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -34,6 +34,9 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterWin
       public BluetoothTaskManagerWin::Observer {
  public:
   static base::WeakPtr<BluetoothAdapter> CreateAdapter(
+      InitCallback init_callback);
+
+  static base::WeakPtr<BluetoothAdapter> CreateClassicAdapter(
       InitCallback init_callback);
 
   static bool UseNewBLEWinImplementation();
@@ -143,7 +146,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterWin
   bool initialized_;
   bool powered_;
   DiscoveryStatus discovery_status_;
-  base::hash_set<std::string> discovered_devices_;
+  std::unordered_set<std::string> discovered_devices_;
 
   std::vector<std::pair<base::Closure, DiscoverySessionErrorCallback>>
       on_start_discovery_callbacks_;

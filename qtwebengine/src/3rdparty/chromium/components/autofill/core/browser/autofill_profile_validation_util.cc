@@ -4,6 +4,7 @@
 
 #include "components/autofill/core/browser/autofill_profile_validation_util.h"
 
+#include <string>
 #include <utility>
 
 #include "base/i18n/case_conversion.h"
@@ -52,7 +53,7 @@ const AddressProblem kProblems[] = {UNEXPECTED_FIELD, MISSING_REQUIRED_FIELD,
 // If the |address_field| is valid, set the validity state of the
 // |address_field| in the |profile| to the |state| and return true.
 // Otherwise, return false.
-bool SetValidityStateForAddressField(AutofillProfile* profile,
+bool SetValidityStateForAddressField(const AutofillProfile* profile,
                                      AddressField address_field,
                                      AutofillProfile::ValidityState state) {
   ServerFieldType server_field = i18n::TypeForField(address_field,
@@ -60,12 +61,12 @@ bool SetValidityStateForAddressField(AutofillProfile* profile,
   if (server_field == UNKNOWN_TYPE)
     return false;
   DCHECK(profile);
-  profile->SetValidityState(server_field, state);
+  profile->SetValidityState(server_field, state, AutofillProfile::CLIENT);
   return true;
 }
 
 // Set the validity state of all address fields in the |profile| to |state|.
-void SetAllAddressValidityStates(AutofillProfile* profile,
+void SetAllAddressValidityStates(const AutofillProfile* profile,
                                  AutofillProfile::ValidityState state) {
   DCHECK(profile);
   for (auto field : kFields)
@@ -107,37 +108,138 @@ void InitializeAddressFromProfile(const AutofillProfile& profile,
       base::i18n::ToUpper(profile.GetRawInfo(ADDRESS_HOME_ZIP)));
 }
 
-void SetEmptyValidityIfEmpty(AutofillProfile* profile) {
+void SetEmptyValidityIfEmpty(const AutofillProfile* profile) {
   if (profile->GetRawInfo(ADDRESS_HOME_COUNTRY).empty())
-    profile->SetValidityState(ADDRESS_HOME_COUNTRY, AutofillProfile::EMPTY);
+    profile->SetValidityState(ADDRESS_HOME_COUNTRY, AutofillProfile::EMPTY,
+                              AutofillProfile::CLIENT);
   if (profile->GetRawInfo(ADDRESS_HOME_STATE).empty())
-    profile->SetValidityState(ADDRESS_HOME_STATE, AutofillProfile::EMPTY);
+    profile->SetValidityState(ADDRESS_HOME_STATE, AutofillProfile::EMPTY,
+                              AutofillProfile::CLIENT);
   if (profile->GetRawInfo(ADDRESS_HOME_CITY).empty())
-    profile->SetValidityState(ADDRESS_HOME_CITY, AutofillProfile::EMPTY);
+    profile->SetValidityState(ADDRESS_HOME_CITY, AutofillProfile::EMPTY,
+                              AutofillProfile::CLIENT);
   if (profile->GetRawInfo(ADDRESS_HOME_DEPENDENT_LOCALITY).empty())
     profile->SetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
-                              AutofillProfile::EMPTY);
+                              AutofillProfile::EMPTY, AutofillProfile::CLIENT);
   if (profile->GetRawInfo(ADDRESS_HOME_ZIP).empty())
-    profile->SetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::EMPTY);
+    profile->SetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::EMPTY,
+                              AutofillProfile::CLIENT);
+}
+
+void SetInvalidIfUnvalidated(const AutofillProfile* profile) {
+  if (profile->GetValidityState(ADDRESS_HOME_COUNTRY,
+                                AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_COUNTRY, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_STATE, AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_STATE, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_CITY, AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_CITY, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
+                                AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
+                              AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+}
+
+void MaybeApplyValidToFields(const AutofillProfile* profile) {
+  // The metadata works from top to bottom. Therefore, a so far UNVALIDATED
+  // subregion can only be validated if its super-region is VALID. In  this
+  // case, it's VALID if it has not been marked as INVALID or EMPTY.
+
+  if (profile->GetValidityState(ADDRESS_HOME_STATE, AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_STATE, AutofillProfile::VALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_CITY, AutofillProfile::CLIENT) ==
+          AutofillProfile::UNVALIDATED &&
+      profile->GetValidityState(ADDRESS_HOME_STATE, AutofillProfile::CLIENT) ==
+          AutofillProfile::VALID) {
+    profile->SetValidityState(ADDRESS_HOME_CITY, AutofillProfile::VALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
+                                AutofillProfile::CLIENT) ==
+          AutofillProfile::UNVALIDATED &&
+      profile->GetValidityState(ADDRESS_HOME_CITY, AutofillProfile::CLIENT) ==
+          AutofillProfile::VALID) {
+    profile->SetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
+                              AutofillProfile::VALID, AutofillProfile::CLIENT);
+  }
+
+  // ZIP only depends on COUNTRY. If it's not so far marked as INVALID or EMPTY,
+  // then it's VALID.
+  if (profile->GetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::CLIENT) ==
+      AutofillProfile::UNVALIDATED) {
+    profile->SetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::VALID,
+                              AutofillProfile::CLIENT);
+  }
+}
+
+void ApplyValidOnlyIfAllChildrenNotInvalid(const AutofillProfile* profile) {
+  if (profile->GetValidityState(ADDRESS_HOME_STATE, AutofillProfile::CLIENT) ==
+          AutofillProfile::INVALID &&
+      profile->GetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::CLIENT) ==
+          AutofillProfile::INVALID) {
+    profile->SetValidityState(ADDRESS_HOME_COUNTRY, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_CITY, AutofillProfile::CLIENT) ==
+      AutofillProfile::INVALID) {
+    profile->SetValidityState(ADDRESS_HOME_STATE, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
+
+  if (profile->GetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
+                                AutofillProfile::CLIENT) ==
+      AutofillProfile::INVALID) {
+    profile->SetValidityState(ADDRESS_HOME_CITY, AutofillProfile::INVALID,
+                              AutofillProfile::CLIENT);
+  }
 }
 
 }  // namespace
 
 namespace profile_validation_util {
 
-void ValidateProfile(AutofillProfile* profile,
+void ValidateProfile(const AutofillProfile* profile,
                      AddressValidator* address_validator) {
   DCHECK(address_validator);
   DCHECK(profile);
-  ValidateAddress(profile, address_validator);
+  ValidateAddressStrictly(profile, address_validator);
   ValidatePhoneNumber(profile);
   ValidateEmailAddress(profile);
 }
 
-void ValidateAddress(AutofillProfile* profile,
-                     AddressValidator* address_validator) {
+AddressValidator::Status ValidateAddress(const AutofillProfile* profile,
+                                         AddressValidator* address_validator) {
   DCHECK(address_validator);
   DCHECK(profile);
+
+  SetAllAddressValidityStates(profile, AutofillProfile::UNVALIDATED);
 
   if (!base::ContainsValue(
           CountryDataMap::GetInstance()->country_codes(),
@@ -145,57 +247,78 @@ void ValidateAddress(AutofillProfile* profile,
     // If the country code is not in the database, the country code and the
     // profile are invalid, and other fields cannot be validated, because it is
     // unclear which, if any, rule should apply.
-    SetAllAddressValidityStates(profile, AutofillProfile::UNVALIDATED);
     SetValidityStateForAddressField(profile, COUNTRY, AutofillProfile::INVALID);
     SetEmptyValidityIfEmpty(profile);
-    return;
+    return AddressValidator::SUCCESS;
   }
+
+  // The COUNTRY was already listed in the CountryDataMap, therefore it's valid.
+  SetValidityStateForAddressField(profile, COUNTRY, AutofillProfile::VALID);
 
   AddressData address;
   InitializeAddressFromProfile(*profile, &address);
-
   FieldProblemMap problems;
   // status denotes if the rule was successfully loaded before validation.
   AddressValidator::Status status =
       address_validator->ValidateAddress(address, GetFilter(), &problems);
 
-  if (status == AddressValidator::SUCCESS) {
-    // The rules were found and applied. Initialize all fields to VALID here and
-    // update the fields with problems below.
-    SetAllAddressValidityStates(profile, AutofillProfile::VALID);
-  } else {
-    // If the rules are not yet available, ValidateAddress can still check for
-    // MISSING_REQUIRED_FIELD. In this case, the address fields will be either
-    // UNVALIDATED or INVALID.
-    SetAllAddressValidityStates(profile, AutofillProfile::UNVALIDATED);
-    SetValidityStateForAddressField(profile, COUNTRY, AutofillProfile::VALID);
-  }
-
-  for (auto problem : problems) {
+  for (auto problem : problems)
     SetValidityStateForAddressField(profile, problem.first,
                                     AutofillProfile::INVALID);
-  }
 
   SetEmptyValidityIfEmpty(profile);
+
+  // Fields (except COUNTRY) could be VALID, only if the rules were available.
+  if (status == AddressValidator::SUCCESS)
+    MaybeApplyValidToFields(profile);
+
+  return status;
 }
 
-void ValidateEmailAddress(AutofillProfile* profile) {
+void ValidateAddressStrictly(const AutofillProfile* profile,
+                             AddressValidator* address_validator) {
+  DCHECK(address_validator);
+  DCHECK(profile);
+
+  // If the rules were loaded successfully, add a second layer of validation:
+  // 1. For a field to stay valid after the first run, all the fields that
+  // depend on that field for validation need to not be invalid on the first
+  // run, otherwise there is a chance that the data on that field was also
+  // invalid (incorrect.)
+  // Example: 1225 Notre-Dame Ouest, Montreal, Quebec, H3C 2A3, United States.
+  // A human validator can see that the country is most probably the invalid
+  // field. The first step helps us validate the rules interdependently.
+  // 2. All the address fields that could not be validated (UNVALIDATED),
+  // should be considered as invalid.
+
+  if (ValidateAddress(profile, address_validator) ==
+      AddressValidator::SUCCESS) {
+    ApplyValidOnlyIfAllChildrenNotInvalid(profile);
+    SetInvalidIfUnvalidated(profile);
+  }
+}
+
+void ValidateEmailAddress(const AutofillProfile* profile) {
   const base::string16& email = profile->GetRawInfo(EMAIL_ADDRESS);
   if (email.empty()) {
-    profile->SetValidityState(EMAIL_ADDRESS, AutofillProfile::EMPTY);
+    profile->SetValidityState(EMAIL_ADDRESS, AutofillProfile::EMPTY,
+                              AutofillProfile::CLIENT);
     return;
   }
 
-  profile->SetValidityState(EMAIL_ADDRESS, autofill::IsValidEmailAddress(email)
-                                               ? AutofillProfile::VALID
-                                               : AutofillProfile::INVALID);
+  profile->SetValidityState(EMAIL_ADDRESS,
+                            autofill::IsValidEmailAddress(email)
+                                ? AutofillProfile::VALID
+                                : AutofillProfile::INVALID,
+                            AutofillProfile::CLIENT);
 }
 
-void ValidatePhoneNumber(AutofillProfile* profile) {
+void ValidatePhoneNumber(const AutofillProfile* profile) {
   const std::string& phone_number =
       base::UTF16ToUTF8(profile->GetRawInfo(PHONE_HOME_WHOLE_NUMBER));
   if (phone_number.empty()) {
-    profile->SetValidityState(PHONE_HOME_WHOLE_NUMBER, AutofillProfile::EMPTY);
+    profile->SetValidityState(PHONE_HOME_WHOLE_NUMBER, AutofillProfile::EMPTY,
+                              AutofillProfile::CLIENT);
     return;
   }
 
@@ -206,7 +329,8 @@ void ValidatePhoneNumber(AutofillProfile* profile) {
     // If the country code is not in the database, the phone number cannot be
     // validated.
     profile->SetValidityState(PHONE_HOME_WHOLE_NUMBER,
-                              AutofillProfile::UNVALIDATED);
+                              AutofillProfile::UNVALIDATED,
+                              AutofillProfile::CLIENT);
     return;
   }
 
@@ -215,7 +339,8 @@ void ValidatePhoneNumber(AutofillProfile* profile) {
       PHONE_HOME_WHOLE_NUMBER,
       phone_util->IsPossibleNumberForString(phone_number, country_code)
           ? AutofillProfile::VALID
-          : AutofillProfile::INVALID);
+          : AutofillProfile::INVALID,
+      AutofillProfile::CLIENT);
 }
 
 }  // namespace profile_validation_util

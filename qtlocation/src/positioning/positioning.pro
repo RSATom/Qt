@@ -49,8 +49,6 @@ PRIVATE_HEADERS += \
                     qnmeapositioninfosource_p.h \
                     qgeocoordinate_p.h \
                     qgeopositioninfosource_p.h \
-                    qdeclarativegeoaddress_p.h \
-                    qdeclarativegeolocation_p.h \
                     qdoublevector2d_p.h \
                     qdoublevector3d_p.h \
                     qwebmercator_p.h \
@@ -58,6 +56,7 @@ PRIVATE_HEADERS += \
                     qlocationdata_simulator_p.h \
                     qdoublematrix4x4_p.h \
                     qgeopath_p.h \
+                    qgeopolygon_p.h \
                     qgeocoordinateobject_p.h \
                     qgeopositioninfo_p.h \
                     qclipperutils_p.h
@@ -78,8 +77,6 @@ SOURCES += \
             qlocationutils.cpp \
             qnmeapositioninfosource.cpp \
             qgeopositioninfosourcefactory.cpp \
-            qdeclarativegeoaddress.cpp \
-            qdeclarativegeolocation.cpp \
             qdoublevector2d.cpp \
             qdoublevector3d.cpp \
             qgeopath.cpp \

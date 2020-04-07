@@ -10,7 +10,9 @@
 #include <memory>
 #include <vector>
 
+#include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/page/cpdf_page.h"
+#include "core/fpdfapi/page/cpdf_textobject.h"
 #include "core/fpdfdoc/cpdf_viewerpreferences.h"
 #include "core/fpdftext/cpdf_linkextract.h"
 #include "core/fpdftext/cpdf_textpage.h"
@@ -86,6 +88,37 @@ FPDF_EXPORT double FPDF_CALLCONV FPDFText_GetFontSize(FPDF_TEXTPAGE text_page,
   FPDF_CHAR_INFO charinfo;
   textpage->GetCharInfo(index, &charinfo);
   return charinfo.m_FontSize;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFText_GetFontInfo(FPDF_TEXTPAGE text_page,
+                     int index,
+                     void* buffer,
+                     unsigned long buflen,
+                     int* flags) {
+  if (!text_page)
+    return 0;
+  CPDF_TextPage* pTextObj = CPDFTextPageFromFPDFTextPage(text_page);
+
+  if (index < 0 || index >= pTextObj->CountChars())
+    return 0;
+
+  FPDF_CHAR_INFO charinfo;
+  pTextObj->GetCharInfo(index, &charinfo);
+  if (!charinfo.m_pTextObj)
+    return 0;
+
+  CPDF_Font* font = charinfo.m_pTextObj->GetFont();
+  if (!font)
+    return 0;
+
+  if (flags)
+    *flags = font->GetFontFlags();
+  ByteString basefont = font->GetBaseFont();
+  unsigned long length = basefont.GetLength() + 1;
+  if (buffer && buflen >= length)
+    memcpy(buffer, basefont.c_str(), length);
+  return length;
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFText_GetCharBox(FPDF_TEXTPAGE text_page,
@@ -171,7 +204,7 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFText_GetText(FPDF_TEXTPAGE page,
 
   // UFT16LE_Encode doesn't handle surrogate pairs properly, so it is expected
   // the number of items to stay the same.
-  ByteString byte_str = str.UTF16LE_Encode();
+  ByteString byte_str = str.ToUTF16LE();
   size_t byte_str_len = byte_str.GetLength();
   int ret_count = byte_str_len / kBytesPerCharacter;
 
@@ -227,7 +260,7 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,
   if (buflen <= 0 || !buffer)
     return str.GetLength();
 
-  ByteString cbUTF16Str = str.UTF16LE_Encode();
+  ByteString cbUTF16Str = str.ToUTF16LE();
   int len = cbUTF16Str.GetLength() / sizeof(unsigned short);
   int size = buflen > len ? len : buflen;
   memcpy(buffer, cbUTF16Str.c_str(), size * sizeof(unsigned short));
@@ -248,9 +281,8 @@ FPDFText_FindStart(FPDF_TEXTPAGE text_page,
 
   CPDF_TextPageFind* textpageFind =
       new CPDF_TextPageFind(CPDFTextPageFromFPDFTextPage(text_page));
-  size_t len = WideString::WStringLength(findwhat);
   textpageFind->FindFirst(
-      WideString::FromUTF16LE(findwhat, len), flags,
+      WideStringFromFPDFWideString(findwhat), flags,
       start_index >= 0 ? Optional<size_t>(start_index) : Optional<size_t>());
   return FPDFSchHandleFromCPDFTextPageFind(textpageFind);
 }
@@ -328,7 +360,7 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFLink_GetURL(FPDF_PAGELINK link_page,
     CPDF_LinkExtract* pageLink = CPDFLinkExtractFromFPDFPageLink(link_page);
     wsUrl = pageLink->GetURL(link_index);
   }
-  ByteString cbUTF16URL = wsUrl.UTF16LE_Encode();
+  ByteString cbUTF16URL = wsUrl.ToUTF16LE();
   int required = cbUTF16URL.GetLength() / sizeof(unsigned short);
   if (!buffer || buflen <= 0)
     return required;

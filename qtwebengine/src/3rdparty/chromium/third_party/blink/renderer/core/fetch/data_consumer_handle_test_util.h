@@ -58,7 +58,7 @@ class DataConsumerHandleTestUtil {
       kWithExecutionContext,
     };
 
-    Thread(const WebThreadCreationParams&,
+    Thread(const ThreadCreationParams&,
            InitializationPolicy = kGarbageCollection);
     ~Thread();
 
@@ -167,10 +167,10 @@ class DataConsumerHandleTestUtil {
       ThreadHolder(ThreadingTestBase* test)
           : context_(test->context_),
             reading_thread_(std::make_unique<Thread>(
-                WebThreadCreationParams(WebThreadType::kTestThread)
+                ThreadCreationParams(WebThreadType::kTestThread)
                     .SetThreadNameForTest("reading thread"))),
             updating_thread_(std::make_unique<Thread>(
-                WebThreadCreationParams(WebThreadType::kTestThread)
+                ThreadCreationParams(WebThreadType::kTestThread)
                     .SetThreadNameForTest("updating thread"))) {
         context_->RegisterThreadHolder(this);
       }
@@ -335,7 +335,7 @@ class DataConsumerHandleTestUtil {
   };
 
   class Command final {
-    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+    DISALLOW_NEW();
 
    public:
     enum Name {
@@ -347,10 +347,11 @@ class DataConsumerHandleTestUtil {
 
     Command(Name name) : name_(name) {}
     Command(Name name, const Vector<char>& body) : name_(name), body_(body) {}
-    Command(Name name, const char* body, size_t size) : name_(name) {
+    Command(Name name, const char* body, wtf_size_t size) : name_(name) {
       body_.Append(body, size);
     }
-    Command(Name name, const char* body) : Command(name, body, strlen(body)) {}
+    Command(Name name, const char* body)
+        : Command(name, body, static_cast<wtf_size_t>(strlen(body))) {}
     Name GetName() const { return name_; }
     const Vector<char>& Body() const { return body_; }
 
@@ -401,7 +402,7 @@ class DataConsumerHandleTestUtil {
 
       Deque<Command> commands_;
       size_t offset_;
-      WebThread* reader_thread_;
+      blink::Thread* reader_thread_;
       Client* client_;
       Result result_;
       bool is_handle_attached_;

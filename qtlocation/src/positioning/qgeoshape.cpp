@@ -449,6 +449,6 @@ QDataStream &operator>>(QDataStream &stream, QGeoShape &shape)
 }
 #endif
 
-#include "moc_qgeoshape.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qgeoshape.cpp"

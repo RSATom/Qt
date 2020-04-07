@@ -8,7 +8,8 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/trace_event/trace_event.h"
-#include "media/base/cdm_proxy_context.h"
+#include "media/base/media_log.h"
+#include "media/cdm/cdm_proxy_context.h"
 #include "media/gpu/h264_decoder.h"
 #include "media/gpu/h264_dpb.h"
 #include "media/gpu/windows/d3d11_picture_buffer.h"
@@ -62,15 +63,22 @@ D3D11H264Picture::~D3D11H264Picture() {
 
 D3D11H264Accelerator::D3D11H264Accelerator(
     D3D11VideoDecoderClient* client,
+    MediaLog* media_log,
     CdmProxyContext* cdm_proxy_context,
     Microsoft::WRL::ComPtr<ID3D11VideoDecoder> video_decoder,
     Microsoft::WRL::ComPtr<ID3D11VideoDevice> video_device,
-    Microsoft::WRL::ComPtr<ID3D11VideoContext1> video_context)
+    std::unique_ptr<VideoContextWrapper> video_context)
     : client_(client),
+      media_log_(media_log),
       cdm_proxy_context_(cdm_proxy_context),
       video_decoder_(video_decoder),
       video_device_(video_device),
-      video_context_(video_context) {}
+      video_context_(std::move(video_context)) {
+  DCHECK(client);
+  DCHECK(media_log_);
+  // |cdm_proxy_context_| is non-null for encrypted content but can be null for
+  // clear content.
+}
 
 D3D11H264Accelerator::~D3D11H264Accelerator() {}
 
@@ -91,20 +99,17 @@ Status D3D11H264Accelerator::SubmitFrameMetadata(
     const H264Picture::Vector& ref_pic_listb1,
     const scoped_refptr<H264Picture>& pic) {
   const bool is_encrypted = pic->decrypt_config();
-  if (is_encrypted && !cdm_proxy_context_) {
-    DVLOG(1) << "The input is encrypted but there is no proxy context.";
-    return Status::kFail;
-  }
 
   std::unique_ptr<D3D11_VIDEO_DECODER_BEGIN_FRAME_CRYPTO_SESSION> content_key;
   // This decrypt context has to be outside the if block because pKeyInfo in
   // D3D11_VIDEO_DECODER_BEGIN_FRAME_CRYPTO_SESSION is a pointer (to a GUID).
   base::Optional<CdmProxyContext::D3D11DecryptContext> decrypt_context;
   if (is_encrypted) {
+    DCHECK(cdm_proxy_context_) << "No CdmProxyContext but picture is encrypted";
     decrypt_context = cdm_proxy_context_->GetD3D11DecryptContext(
-        pic->decrypt_config()->key_id());
+        CdmProxy::KeyType::kDecryptAndDecode, pic->decrypt_config()->key_id());
     if (!decrypt_context) {
-      DVLOG(1) << "Cannot find decrypt context for the frame.";
+      RecordFailure("Cannot find decrypt context for the frame.");
       return Status::kTryAgain;
     }
 
@@ -132,8 +137,7 @@ Status D3D11H264Accelerator::SubmitFrameMetadata(
       // TODO(liberato): For now, just busy wait.
       ;
     } else if (!SUCCEEDED(hr)) {
-      LOG(ERROR) << "DecoderBeginFrame failed: "
-                 << logging::SystemErrorCodeToString(hr);
+      RecordFailure("DecoderBeginFrame failed", hr);
       return Status::kFail;
     } else {
       break;
@@ -184,7 +188,7 @@ bool D3D11H264Accelerator::RetrieveBitstreamBuffer() {
       video_decoder_.Get(), D3D11_VIDEO_DECODER_BUFFER_BITSTREAM, &buffer_size,
       &buffer);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "GetDecoderBuffer (Bitstream) failed";
+    RecordFailure("GetDecoderBuffer (Bitstream) failed", hr);
     return false;
   }
   bitstream_buffer_bytes_ = (uint8_t*)buffer;
@@ -304,7 +308,7 @@ Status D3D11H264Accelerator::SubmitSlice(
       video_decoder_.Get(), D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS,
       &buffer_size, &buffer);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "ReleaseDecoderBuffer (PictureParams) failed";
+    RecordFailure("ReleaseDecoderBuffer (PictureParams) failed", hr);
     return Status::kFail;
   }
 
@@ -312,7 +316,7 @@ Status D3D11H264Accelerator::SubmitSlice(
   hr = video_context_->ReleaseDecoderBuffer(
       video_decoder_.Get(), D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "ReleaseDecoderBuffer (PictureParams) failed";
+    RecordFailure("ReleaseDecoderBuffer (PictureParams) failed", hr);
     return Status::kFail;
   }
 
@@ -344,7 +348,7 @@ Status D3D11H264Accelerator::SubmitSlice(
       D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, &buffer_size,
       &buffer);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "GetDecoderBuffer (QuantMatrix) failed";
+    RecordFailure("GetDecoderBuffer (QuantMatrix) failed", hr);
     return Status::kFail;
   }
   memcpy(buffer, &iq_matrix_buf, sizeof(iq_matrix_buf));
@@ -352,7 +356,7 @@ Status D3D11H264Accelerator::SubmitSlice(
       video_decoder_.Get(),
       D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "ReleaseDecoderBuffer (QuantMatrix) failed";
+    RecordFailure("ReleaseDecoderBuffer (QuantMatrix) failed", hr);
     return Status::kFail;
   }
 
@@ -371,9 +375,9 @@ Status D3D11H264Accelerator::SubmitSlice(
     // For now, the entire frame has to fit into the bitstream buffer. This way
     // the subsample ClearSize adjustment below should work.
     if (bitstream_buffer_size_ < remaining_bitstream) {
-      LOG(ERROR) << "Input slice NALU (" << remaining_bitstream
-                 << ") too big to fit in the bistream buffer ("
-                 << bitstream_buffer_size_ << ").";
+      RecordFailure("Input slice NALU (" + std::to_string(remaining_bitstream) +
+                    ") too big to fit in the bistream buffer (" +
+                    std::to_string(bitstream_buffer_size_) + ").");
       return Status::kFail;
     }
 
@@ -394,12 +398,12 @@ Status D3D11H264Accelerator::SubmitSlice(
     if (bitstream_buffer_size_ < remaining_bitstream &&
         slice_info_.size() > 0) {
       if (!SubmitSliceData()) {
-        LOG(ERROR) << "SubmitSliceData failed";
+        RecordFailure("SubmitSliceData failed");
         return Status::kFail;
       }
 
       if (!RetrieveBitstreamBuffer()) {
-        LOG(ERROR) << "RetrieveBitstreamBuffer failed";
+        RecordFailure("RetrieveBitstreamBuffer failed");
         return Status::kFail;
       }
     }
@@ -455,7 +459,7 @@ bool D3D11H264Accelerator::SubmitSliceData() {
       video_decoder_.Get(), D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL,
       &buffer_size, &buffer);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "GetDecoderBuffer (SliceControl) failed";
+    RecordFailure("GetDecoderBuffer (SliceControl) failed", hr);
     return false;
   }
 
@@ -464,18 +468,18 @@ bool D3D11H264Accelerator::SubmitSliceData() {
   hr = video_context_->ReleaseDecoderBuffer(
       video_decoder_.Get(), D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "ReleaseDecoderBuffer (SliceControl) failed";
+    RecordFailure("ReleaseDecoderBuffer (SliceControl) failed", hr);
     return false;
   }
 
   hr = video_context_->ReleaseDecoderBuffer(
       video_decoder_.Get(), D3D11_VIDEO_DECODER_BUFFER_BITSTREAM);
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "ReleaseDecoderBuffer (BitStream) failed";
+    RecordFailure("ReleaseDecoderBuffer (BitStream) failed", hr);
     return false;
   }
 
-  D3D11_VIDEO_DECODER_BUFFER_DESC1 buffers[4] = {};
+  VideoContextWrapper::VideoBufferWrapper buffers[4] = {};
   buffers[0].BufferType = D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS;
   buffers[0].DataOffset = 0;
   buffers[0].DataSize = sizeof(DXVA_PicParams_H264);
@@ -500,8 +504,8 @@ bool D3D11H264Accelerator::SubmitSliceData() {
     }
   }
 
-  hr = video_context_->SubmitDecoderBuffers1(video_decoder_.Get(),
-                                             base::size(buffers), buffers);
+  hr = video_context_->SubmitDecoderBuffers(video_decoder_.Get(),
+                                            base::size(buffers), buffers);
   current_offset_ = 0;
   slice_info_.clear();
   bitstream_buffer_bytes_ = nullptr;
@@ -509,8 +513,7 @@ bool D3D11H264Accelerator::SubmitSliceData() {
   frame_iv_.clear();
   subsamples_.clear();
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "SubmitDecoderBuffers failed: "
-               << logging::SystemErrorCodeToString(hr);
+    RecordFailure("SubmitDecoderBuffers failed", hr);
     return false;
   }
 
@@ -520,13 +523,13 @@ bool D3D11H264Accelerator::SubmitSliceData() {
 Status D3D11H264Accelerator::SubmitDecode(
     const scoped_refptr<H264Picture>& pic) {
   if (!SubmitSliceData()) {
-    LOG(ERROR) << "SubmitSliceData failed";
+    RecordFailure("SubmitSliceData failed");
     return Status::kFail;
   }
 
   HRESULT hr = video_context_->DecoderEndFrame(video_decoder_.Get());
   if (!SUCCEEDED(hr)) {
-    LOG(ERROR) << "DecoderEndFrame failed";
+    RecordFailure("DecoderEndFrame failed", hr);
     return Status::kFail;
   }
 
@@ -551,8 +554,19 @@ bool D3D11H264Accelerator::OutputPicture(
   scoped_refptr<D3D11H264Picture> our_pic(
       static_cast<D3D11H264Picture*>(pic.get()));
 
-  client_->OutputResult(our_pic->picture, pic->get_colorspace());
+  client_->OutputResult(pic.get(), our_pic->picture);
   return true;
+}
+
+void D3D11H264Accelerator::RecordFailure(const std::string& reason,
+                                         HRESULT hr) const {
+  std::string hr_string;
+  if (!SUCCEEDED(hr))
+    hr_string = ": " + logging::SystemErrorCodeToString(hr);
+
+  DLOG(ERROR) << reason << hr_string;
+  media_log_->AddEvent(media_log_->CreateStringEvent(
+      MediaLogEvent::MEDIA_ERROR_LOG_ENTRY, "error", hr_string + reason));
 }
 
 }  // namespace media

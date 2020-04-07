@@ -5,7 +5,7 @@
 #ifndef CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_H_
 #define CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_H_
 
-#include <stdint.h>
+#include <cstdint>
 
 #include <map>
 #include <utility>
@@ -114,6 +114,9 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   // that might send notifications.
   virtual bool PlatformIsLeaf() const;
 
+  // Returns true if this object can fire events.
+  virtual bool CanFireEvents() const;
+
   // Returns the number of children of this object, or 0 if PlatformIsLeaf()
   // returns true.
   virtual uint32_t PlatformChildCount() const;
@@ -160,10 +163,14 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   // Returns the bounds of the given range in coordinates relative to the
   // top-left corner of the overall web area. Only valid when the
   // role is WebAXRoleStaticText.
-  gfx::Rect GetPageBoundsForRange(int start, int len) const;
+  gfx::Rect GetPageBoundsForRange(int start,
+                                  int len,
+                                  bool clipped = false) const;
 
   // Same as |GetPageBoundsForRange| but in screen coordinates.
-  gfx::Rect GetScreenBoundsForRange(int start, int len) const;
+  gfx::Rect GetScreenBoundsForRange(int start,
+                                    int len,
+                                    bool clipped = false) const;
 
   // Convert a bounding rectangle from this node's coordinate system
   // (which is relative to its nearest scrollable ancestor) to
@@ -290,17 +297,14 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   bool GetHtmlAttribute(const char* attr, std::string* value) const;
   bool GetHtmlAttribute(const char* attr, base::string16* value) const;
 
-  base::string16 GetFontFamily() const;
-  base::string16 GetLanguage() const;
-
   virtual base::string16 GetText() const;
 
   // Returns true if the bit corresponding to the given enum is 1.
   bool HasState(ax::mojom::State state_enum) const;
   bool HasAction(ax::mojom::Action action_enum) const;
 
-  // Returns true if the caret is active on this object.
-  bool HasCaret() const;
+  // Returns true if the caret or selection is visible on this object.
+  bool HasVisibleCaretOrSelection() const;
 
   // True if this is a web area, and its grandparent is a presentational iframe.
   bool IsWebAreaForPresentationalIframe() const;
@@ -316,6 +320,9 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   // to compute a name from its descendants.
   std::string ComputeAccessibleNameFromDescendants() const;
 
+  // Get text to announce for a live region change if AT does not implement.
+  std::string GetLiveRegionText() const;
+
   // Creates a text position rooted at this object.
   BrowserAccessibilityPosition::AXPositionInstance CreatePositionAt(
       int offset,
@@ -330,7 +337,7 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   // AXPlatformNodeDelegate.
   const ui::AXNodeData& GetData() const override;
   const ui::AXTreeData& GetTreeData() const override;
-  gfx::NativeWindow GetTopLevelWidget() override;
+  gfx::NativeViewAccessible GetNSWindow() override;
   gfx::NativeViewAccessible GetParent() override;
   int GetChildCount() override;
   gfx::NativeViewAccessible ChildAtIndex(int index) override;
@@ -341,15 +348,34 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   ui::AXPlatformNode* GetFromNodeID(int32_t id) override;
   int GetIndexInParent() const override;
   gfx::AcceleratedWidget GetTargetForNativeAccessibilityEvent() override;
-  int GetTableRowCount() const override;
-  int GetTableColCount() const override;
-  std::vector<int32_t> GetColHeaderNodeIds() const override;
-  std::vector<int32_t> GetColHeaderNodeIds(int32_t col_index) const override;
-  std::vector<int32_t> GetRowHeaderNodeIds() const override;
-  std::vector<int32_t> GetRowHeaderNodeIds(int32_t row_index) const override;
+
+  bool IsTable() const override;
+  int32_t GetTableColCount() const override;
+  int32_t GetTableRowCount() const override;
+  int32_t GetTableAriaColCount() const override;
+  int32_t GetTableAriaRowCount() const override;
+  int32_t GetTableCellCount() const override;
+  const std::vector<int32_t> GetColHeaderNodeIds() const override;
+  const std::vector<int32_t> GetColHeaderNodeIds(
+      int32_t col_index) const override;
+  const std::vector<int32_t> GetRowHeaderNodeIds() const override;
+  const std::vector<int32_t> GetRowHeaderNodeIds(
+      int32_t row_index) const override;
+
+  bool IsTableRow() const override;
+  int32_t GetTableRowRowIndex() const override;
+
+  bool IsTableCellOrHeader() const override;
+  int32_t GetTableCellIndex() const override;
+  int32_t GetTableCellColIndex() const override;
+  int32_t GetTableCellRowIndex() const override;
+  int32_t GetTableCellColSpan() const override;
+  int32_t GetTableCellRowSpan() const override;
+  int32_t GetTableCellAriaColIndex() const override;
+  int32_t GetTableCellAriaRowIndex() const override;
   int32_t GetCellId(int32_t row_index, int32_t col_index) const override;
-  int32_t CellIdToIndex(int32_t cell_id) const override;
   int32_t CellIndexToId(int32_t cell_index) const override;
+
   bool AccessibilityPerformAction(const ui::AXActionData& data) override;
   bool ShouldIgnoreHoveredStateForTesting() override;
   bool IsOffscreen() const override;
@@ -357,6 +383,10 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
                                         int32_t dst_id) override;
   std::set<int32_t> GetReverseRelations(ax::mojom::IntListAttribute attr,
                                         int32_t dst_id) override;
+  bool IsOrderedSetItem() const override;
+  bool IsOrderedSet() const override;
+  int32_t GetPosInSet() const override;
+  int32_t GetSetSize() const override;
 
  protected:
   using BrowserAccessibilityPositionInstance =
@@ -384,6 +414,8 @@ class CONTENT_EXPORT BrowserAccessibility : public ui::AXPlatformNodeDelegate {
   // special character in the place of every embedded object instead of its
   // text, depending on the platform.
   base::string16 GetInnerText() const;
+
+  gfx::Rect GetPageBoundsPastEndOfText() const;
 
   // A unique ID, since node IDs are frame-local.
   ui::AXUniqueId unique_id_;

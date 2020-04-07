@@ -94,7 +94,6 @@ config("default") {
     cflags += [
       "-fstrict-aliasing",
       "-fPIC",
-      "-Werror",
     ]
     cflags_cc += [ "-std=c++14" ]
 
@@ -227,38 +226,16 @@ config("default") {
     # or pass one of the couple common aliases used by the bots.
     sanitizers = sanitize
 
-    # fyi_sanitizers only print out stacktraces of their issues
-    fyi_sanitizers = fyi_sanitize
     if (sanitize == "ASAN" || sanitize == "UBSAN") {
       # ASAN implicitly runs all UBSAN checks also.
-      sanitizers = "bool,float-cast-overflow,integer-divide-by-zero,nonnull-attribute,null,pointer-overflow,return,returns-nonnull-attribute,shift,signed-integer-overflow,unreachable,vla-bound"
-
-      if (fyi_sanitize == "" && !is_android) {
-        fyi_sanitizers = "float-divide-by-zero"
-      }
-
-      if (!is_mac && !is_win) {
-        sanitizers += ",function"  # Not supported on Mac or Win.
-      }
-      if (!is_win) {
-        sanitizers += ",vptr"  # Not supported on Win.
-      }
-      if (!is_debug && !is_win) {
-        # No-op with somewhat annoying warning at -O0.
-        # Seems to be broken on Win.
-        sanitizers += ",object-size"
-      }
+      sanitizers = "undefined"
       if (sanitize == "ASAN") {
         sanitizers += ",address"
       }
-      if (is_android) {
-        # Android only easily supports address for now
-        # UBSAN runs into linking errors
-        sanitizers = "address"
 
-        # recommended by
-        # https://github.com/google/sanitizers/wiki/AddressSanitizerOnAndroid
-        cflags += [ "-fno-omit-frame-pointer" ]
+      if (is_android) {
+        # TODO(mtklein): work out UBSAN link errors
+        sanitizers = "address"
       }
     } else if (sanitize == "TSAN") {
       sanitizers = "thread"
@@ -266,18 +243,29 @@ config("default") {
       sanitizers = "memory"
     }
 
+    _blacklist = rebase_path("../tools/xsan.blacklist")
+
     cflags += [
-      "-fsanitize=$sanitizers,$fyi_sanitizers",
+      "-fsanitize=$sanitizers",
       "-fno-sanitize-recover=$sanitizers",
+      "-fsanitize-blacklist=$_blacklist",
     ]
-    if (!is_win) {
-      cflags += [ "-fno-omit-frame-pointer" ]
+    ldflags += [ "-fsanitize=$sanitizers" ]
+
+    if (is_win) {
+      cflags += [ "/FI$_blacklist" ]
+    } else {
+      cflags += [
+        "-include$_blacklist",
+        "-fno-omit-frame-pointer",
+      ]
     }
+
     if (is_linux) {
       cflags_cc += [ "-stdlib=libc++" ]
       ldflags += [ "-stdlib=libc++" ]
     }
-    ldflags += [ "-fsanitize=$sanitizers" ]
+
     if (sanitizers == "memory") {
       cflags += [ "-fsanitize-memory-track-origins" ]
     }
@@ -311,6 +299,7 @@ config("warnings") {
     ]
   } else {
     cflags += [
+      "-Werror",
       "-Wall",
       "-Wextra",
       "-Winit-self",
@@ -438,7 +427,12 @@ config("debug_symbols") {
     ]
   } else if (is_win) {
     cflags = [ "/Z7" ]
-    ldflags = [ "/DEBUG:FASTLINK" ]
+    if (is_clang) {
+      cflags += [ "-mllvm", "-emit-codeview-ghash-section" ]
+      ldflags = [ "/DEBUG:GHASH" ]
+    } else {
+      ldflags = [ "/DEBUG:FASTLINK" ]
+    }
   } else {
     cflags = [ "-g" ]
   }
@@ -454,7 +448,7 @@ config("no_rtti") {
   }
 }
 
-config("release") {
+config("optimize") {
   if (is_win) {
     cflags = [
       "/O2",
@@ -483,6 +477,9 @@ config("release") {
       ldflags += [ "-O3" ]
     }
   }
+}
+
+config("NDEBUG") {
   defines = [ "NDEBUG" ]
 }
 

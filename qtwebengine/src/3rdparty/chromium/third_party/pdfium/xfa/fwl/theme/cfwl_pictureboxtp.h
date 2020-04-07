@@ -9,13 +9,13 @@
 
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_PictureBoxTP : public CFWL_WidgetTP {
+class CFWL_PictureBoxTP final : public CFWL_WidgetTP {
  public:
   CFWL_PictureBoxTP();
   ~CFWL_PictureBoxTP() override;
 
   // CFWL_WidgetTP
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
 };
 
 #endif  // XFA_FWL_THEME_CFWL_PICTUREBOXTP_H_

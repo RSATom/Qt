@@ -290,8 +290,7 @@ CRLSetResult CheckRevocationWithCRLSet(const CERTCertList* cert_list,
   // We iterate from the root certificate down to the leaf, keeping track of
   // the issuer's SPKI at each step.
   std::string issuer_spki_hash;
-  for (std::vector<CERTCertificate*>::reverse_iterator i = certs.rbegin();
-       i != certs.rend(); ++i) {
+  for (auto i = certs.rbegin(); i != certs.rend(); ++i) {
     CERTCertificate* cert = *i;
 
     base::StringPiece der(reinterpret_cast<char*>(cert->derCert.data),
@@ -892,8 +891,7 @@ int CertVerifyProcNSS::VerifyInternalImpl(
   SECOidTag ev_policy_oid = SEC_OID_UNKNOWN;
   bool is_ev_candidate =
       IsEVCandidate(metadata, cert_handle, &ev_policy_oid);
-  bool check_revocation =
-      (flags & CertVerifier::VERIFY_REV_CHECKING_ENABLED);
+  bool check_revocation = (flags & VERIFY_REV_CHECKING_ENABLED);
   if (check_revocation)
     verify_result->cert_status |= CERT_STATUS_REV_CHECKING_ENABLED;
 
@@ -917,8 +915,7 @@ int CertVerifyProcNSS::VerifyInternalImpl(
   }
 
   if (status == SECSuccess &&
-      (flags & CertVerifier::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS) &&
-      !known_root) {
+      (flags & VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS) && !known_root) {
     // TODO(rsleevi): Optimize this by supplying the constructed chain to
     // libpkix via cvin. Omitting for now, due to lack of coverage in upstream
     // NSS tests for that feature.

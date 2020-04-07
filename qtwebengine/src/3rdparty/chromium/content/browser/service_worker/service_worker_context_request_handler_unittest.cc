@@ -31,6 +31,7 @@
 #include "services/network/public/mojom/request_context_frame_type.mojom.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace content {
@@ -60,6 +61,11 @@ class ServiceWorkerContextRequestHandlerTest : public testing::Test {
       : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
 
   void SetUp() override {
+    // ServiceWorkerContextRequestHandler is a non-S13nServiceWorker specific
+    // class and we don't use it when S13nServiceWorker is enabled.
+    scoped_feature_list_.InitAndDisableFeature(
+        blink::features::kServiceWorkerServicification);
+
     helper_.reset(new EmbeddedWorkerTestHelper(base::FilePath()));
     context()->storage()->LazyInitializeForTest(base::DoNothing());
     base::RunLoop().RunUntilIdle();
@@ -73,9 +79,9 @@ class ServiceWorkerContextRequestHandlerTest : public testing::Test {
     options.scope = scope_;
     registration_ = base::MakeRefCounted<ServiceWorkerRegistration>(
         options, 1L, context()->AsWeakPtr());
-    version_ = new ServiceWorkerVersion(registration_.get(), script_url_,
-                                        context()->storage()->NewVersionId(),
-                                        context()->AsWeakPtr());
+    version_ = new ServiceWorkerVersion(
+        registration_.get(), script_url_, blink::mojom::ScriptType::kClassic,
+        context()->storage()->NewVersionId(), context()->AsWeakPtr());
     SetUpProvider();
 
     std::unique_ptr<MockHttpProtocolHandler> handler(
@@ -121,11 +127,12 @@ class ServiceWorkerContextRequestHandlerTest : public testing::Test {
         request, helper_->context_wrapper(), &blob_storage_context_,
         helper_->mock_render_process_id(), provider_host_->provider_id(),
         false /* skip_service_worker */,
-        network::mojom::FetchRequestMode::kNoCORS,
+        network::mojom::FetchRequestMode::kNoCors,
         network::mojom::FetchCredentialsMode::kOmit,
         network::mojom::FetchRedirectMode::kFollow,
         std::string() /* integrity */, false /* keepalive */,
-        RESOURCE_TYPE_SERVICE_WORKER, REQUEST_CONTEXT_TYPE_SERVICE_WORKER,
+        RESOURCE_TYPE_SERVICE_WORKER,
+        blink::mojom::RequestContextType::SERVICE_WORKER,
         network::mojom::RequestContextFrameType::kNone, nullptr);
   }
 
@@ -156,6 +163,9 @@ class ServiceWorkerContextRequestHandlerTest : public testing::Test {
   }
 
  protected:
+  // |scoped_feature_list_| must be before |thread_bundle_|.
+  // See comments in ServiceWorkerProviderHostTest.
+  base::test::ScopedFeatureList scoped_feature_list_;
   TestBrowserThreadBundle browser_thread_bundle_;
   std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
   scoped_refptr<ServiceWorkerRegistration> registration_;
@@ -295,11 +305,11 @@ TEST_F(ServiceWorkerContextRequestHandlerTest,
   ServiceWorkerRequestHandler::InitializeHandler(
       request.get(), helper_->context_wrapper(), &blob_storage_context_,
       helper_->mock_render_process_id(), provider_host_->provider_id(),
-      true /* skip_service_worker */, network::mojom::FetchRequestMode::kNoCORS,
+      true /* skip_service_worker */, network::mojom::FetchRequestMode::kNoCors,
       network::mojom::FetchCredentialsMode::kOmit,
       network::mojom::FetchRedirectMode::kFollow, std::string() /* integrity */,
       false /* keepalive */, RESOURCE_TYPE_SERVICE_WORKER,
-      REQUEST_CONTEXT_TYPE_SERVICE_WORKER,
+      blink::mojom::RequestContextType::SERVICE_WORKER,
       network::mojom::RequestContextFrameType::kNone, nullptr);
   // Verify a ServiceWorkerRequestHandler was created.
   ServiceWorkerRequestHandler* handler =
@@ -389,8 +399,8 @@ TEST_F(ServiceWorkerContextRequestHandlerTest, InstalledWorker) {
 TEST_F(ServiceWorkerContextRequestHandlerTest, Incumbent) {
   // Make an incumbent version.
   scoped_refptr<ServiceWorkerVersion> incumbent = new ServiceWorkerVersion(
-      registration_.get(), script_url_, context()->storage()->NewVersionId(),
-      context()->AsWeakPtr());
+      registration_.get(), script_url_, blink::mojom::ScriptType::kClassic,
+      context()->storage()->NewVersionId(), context()->AsWeakPtr());
   incumbent->set_fetch_handler_existence(
       ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
   std::vector<ServiceWorkerDatabase::ResourceRecord> resources = {

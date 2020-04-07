@@ -6,7 +6,7 @@
     found in the LICENSE file.
 
     gl_angle_ext.xml
-        Includes data used to generate ANGLE extension entry points using generate_entry_points.py
+        Includes data used to auto-generate ANGLE classes.
     </comment>
     <!-- SECTION: GL command definitions. -->
     <commands namespace="GL">
@@ -815,22 +815,125 @@
                 <param><ptype>GLsizei</ptype> <name>numViews</name></param>
                 <param><ptype>const GLint *</ptype> <name>viewportOffsets</name></param>
             </command>
+            <command>
+            <proto>void <name>glCopyTexture3DANGLE</name></proto>
+                <param><ptype>GLuint</ptype> <name>sourceId</name></param>
+                <param><ptype>GLint</ptype> <name>sourceLevel</name></param>
+                <param><ptype>GLenum</ptype> <name>destTarget</name></param>
+                <param><ptype>GLuint</ptype> <name>destId</name></param>
+                <param><ptype>GLint</ptype> <name>destLevel</name></param>
+                <param><ptype>GLint</ptype> <name>internalFormat</name></param>
+                <param><ptype>GLenum</ptype> <name>destType</name></param>
+                <param><ptype>GLboolean</ptype> <name>unpackFlipY</name></param>
+                <param><ptype>GLboolean</ptype> <name>unpackPremultiplyAlpha</name></param>
+                <param><ptype>GLboolean</ptype> <name>unpackUnmultiplyAlpha</name></param>
+            </command>
+            <command>
+            <proto>void <name>glCopySubTexture3DANGLE</name></proto>
+                <param><ptype>GLuint</ptype> <name>sourceId</name></param>
+                <param><ptype>GLint</ptype> <name>sourceLevel</name></param>
+                <param><ptype>GLenum</ptype> <name>destTarget</name></param>
+                <param><ptype>GLuint</ptype> <name>destId</name></param>
+                <param><ptype>GLint</ptype> <name>destLevel</name></param>
+                <param><ptype>GLint</ptype> <name>xoffset</name></param>
+                <param><ptype>GLint</ptype> <name>yoffset</name></param>
+                <param><ptype>GLint</ptype> <name>zoffset</name></param>
+                <param><ptype>GLint</ptype> <name>x</name></param>
+                <param><ptype>GLint</ptype> <name>y</name></param>
+                <param><ptype>GLint</ptype> <name>z</name></param>
+                <param><ptype>GLint</ptype> <name>width</name></param>
+                <param><ptype>GLint</ptype> <name>height</name></param>
+                <param><ptype>GLint</ptype> <name>depth</name></param>
+                <param><ptype>GLboolean</ptype> <name>unpackFlipY</name></param>
+                <param><ptype>GLboolean</ptype> <name>unpackPremultiplyAlpha</name></param>
+                <param><ptype>GLboolean</ptype> <name>unpackUnmultiplyAlpha</name></param>
+            </command>
+            <command>
+            <proto>void <name>glTexStorage2DMultisampleANGLE</name></proto>
+                <param><ptype>GLenum</ptype> <name>target</name></param>
+                <param><ptype>GLsizei</ptype> <name>samples</name></param>
+                <param><ptype>GLenum</ptype> <name>internalformat</name></param>
+                <param><ptype>GLsizei</ptype> <name>width</name></param>
+                <param><ptype>GLsizei</ptype> <name>height</name></param>
+                <param><ptype>GLboolean</ptype> <name>fixedsamplelocations</name></param>
+            </command>
+           <command>
+           <proto>void <name>glGetTexLevelParameterivANGLE</name></proto>
+                <param><ptype>GLenum</ptype> <name>target</name></param>
+                <param><ptype>GLint</ptype> <name>level</name></param>
+                <param><ptype>GLenum</ptype> <name>pname</name></param>
+                <param><ptype>GLint *</ptype> <name>params</name></param>
+            </command>
+            <command>
+            <proto>void <name>glGetTexLevelParameterfvANGLE</name></proto>
+                <param><ptype>GLenum</ptype> <name>target</name></param>
+                <param><ptype>GLint</ptype> <name>level</name></param>
+                <param><ptype>GLenum</ptype> <name>pname</name></param>
+                <param><ptype>GLfloat *</ptype> <name>params</name></param>
+            </command>
+            <command>
+            <proto>void <name>glMultiDrawArraysANGLE</name></proto>
+                <param group="PrimitiveType"><ptype>GLenum</ptype> <name>mode</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLint</ptype> *<name>firsts</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLsizei</ptype> *<name>counts</name></param>
+                <param><ptype>GLsizei</ptype> <name>drawcount</name></param>
+            </command>
+            <command>
+            <proto>void <name>glMultiDrawArraysInstancedANGLE</name></proto>
+                <param group="PrimitiveType"><ptype>GLenum</ptype> <name>mode</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLint</ptype> *<name>firsts</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLsizei</ptype> *<name>counts</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLsizei</ptype> *<name>instanceCounts</name></param>
+                <param><ptype>GLsizei</ptype> <name>drawcount</name></param>
+            </command>
+            <command>
+            <proto>void <name>glMultiDrawElementsANGLE</name></proto>
+                <param group="PrimitiveType"><ptype>GLenum</ptype> <name>mode</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLsizei</ptype> *<name>counts</name></param>
+                <param group="DrawElementsType"><ptype>GLenum</ptype> <name>type</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLvoid</ptype> *const*<name>indices</name></param>
+                <param><ptype>GLsizei</ptype> <name>drawcount</name></param>
+            </command>
+            <command>
+            <proto>void <name>glMultiDrawElementsInstancedANGLE</name></proto>
+                <param group="PrimitiveType"><ptype>GLenum</ptype> <name>mode</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLsizei</ptype> *<name>counts</name></param>
+                <param group="DrawElementsType"><ptype>GLenum</ptype> <name>type</name></param>
+                <param len="COMPSIZE(primcount)">const <ptype>GLvoid</ptype> *const*<name>indices</name></param>
+                <param len="COMPSIZE(primcount)">const GLsizei*<name>instanceCounts</name></param>
+                <param><ptype>GLsizei</ptype> <name>drawcount</name></param>
+            </command>
+            <command>
+            <proto>void <name>glGetMultisamplefvANGLE</name></proto>
+                <param><ptype>GLenum</ptype> <name>pname</name></param>
+                <param><ptype>GLuint</ptype> <name>index</name></param>
+                <param><ptype>GLfloat *</ptype> <name>val</name></param>
+            </command>
+            <command>
+            <proto>void <name>glSampleMaskiANGLE</name></proto>
+                <param><ptype>GLuint</ptype> <name>maskNumber</name></param>
+                <param><ptype>GLbitfield</ptype> <name>mask</name></param>
+            </command>
+            <command>
+                <proto>void <name>glProvokingVertexANGLE</name></proto>
+                <param group="VertexProvokingMode"><ptype>GLenum</ptype> <name>mode</name></param>
+            </command>
     </commands>
     <!-- SECTION: ANGLE extension interface definitions -->
     <extensions>
-        <extension name="GL_CHROMIUM_bind_uniform_location" supported='gl'>
+        <extension name="GL_CHROMIUM_bind_uniform_location" supported='gles2'>
             <require>
                 <command name="glBindUniformLocationCHROMIUM"/>
             </require>
         </extension>
-        <extension name="GL_CHROMIUM_framebuffer_mixed_samples" supported='gl'>
+        <extension name="GL_CHROMIUM_framebuffer_mixed_samples" supported='gles2'>
             <require>
                 <command name="glMatrixLoadfCHROMIUM"/>
                 <command name="glMatrixLoadIdentityCHROMIUM"/>
                 <command name="glCoverageModulationCHROMIUM"/>
             </require>
         </extension>
-        <extension name="GL_CHROMIUM_path_rendering" supported='gl'>
+        <extension name="GL_CHROMIUM_path_rendering" supported='gles2'>
         <require>
             <command name="glGenPathsCHROMIUM"/>
             <command name="glDeletePathsCHROMIUM"/>
@@ -857,23 +960,23 @@
             <command name="glProgramPathFragmentInputGenCHROMIUM"/>
         </require>
         </extension>
-        <extension name="GL_CHROMIUM_copy_texture" supported='gl'>
+        <extension name="GL_CHROMIUM_copy_texture" supported='gles2'>
             <require>
                 <command name="glCopyTextureCHROMIUM"/>
                 <command name="glCopySubTextureCHROMIUM"/>
             </require>
         </extension>
-        <extension name="GL_CHROMIUM_copy_compressed_texture" supported='gl'>
+        <extension name="GL_CHROMIUM_copy_compressed_texture" supported='gles2'>
             <require>
                 <command name="glCompressedCopyTextureCHROMIUM"/>
             </require>
         </extension>
-        <extension name="GL_ANGLE_request_extension" supported='gl'>
+        <extension name="GL_ANGLE_request_extension" supported='gles2'>
             <require>
                 <command name="glRequestExtensionANGLE"/>
             </require>
         </extension>
-        <extension name="GL_ANGLE_robust_client_memory" supported='gl'>
+        <extension name="GL_ANGLE_robust_client_memory" supported='gles2'>
             <require>
                 <command name="glGetBooleanvRobustANGLE"/>
                 <command name="glGetBufferParameterivRobustANGLE"/>
@@ -941,10 +1044,41 @@
                 <command name="glGetQueryObjectui64vRobustANGLE"/>
             </require>
         </extension>
-        <extension name="GL_ANGLE_multiview" supported='gl'>
+        <extension name="GL_ANGLE_multiview" supported='gles2'>
             <require>
                 <command name="glFramebufferTextureMultiviewSideBySideANGLE"/>
                 <command name="glFramebufferTextureMultiviewLayeredANGLE"/>
+            </require>
+        </extension>
+        <extension name="GL_ANGLE_copy_texture_3d" supported='gles2'>
+            <require>
+                <command name="glCopyTexture3DANGLE"/>
+                <command name="glCopySubTexture3DANGLE"/>
+            </require>
+        </extension>
+        <extension name="GL_ANGLE_texture_multisample" supported='gles2'>
+            <require>
+                <command name="glTexStorage2DMultisampleANGLE"/>
+                <command name="glGetTexLevelParameterivANGLE"/>
+                <command name="glGetTexLevelParameterfvANGLE"/>
+                <command name="glGetMultisamplefvANGLE"/>
+                <command name="glSampleMaskiANGLE"/>
+            </require>
+        </extension>
+        <extension name="GL_ANGLE_multi_draw" supported='gles2'>
+            <require>
+                <command name="glMultiDrawArraysANGLE"/>
+                <command name="glMultiDrawArraysInstancedANGLE"/>
+                <command name="glMultiDrawElementsANGLE"/>
+                <command name="glMultiDrawElementsInstancedANGLE"/>
+            </require>
+        </extension>
+        <extension name="GL_ANGLE_provoking_vertex" supported='gles2'>
+            <require>
+                <enum name="GL_FIRST_VERTEX_CONVENTION"/>
+                <enum name="GL_LAST_VERTEX_CONVENTION"/>
+                <enum name="GL_PROVOKING_VERTEX"/>
+                <command name="glProvokingVertexANGLE"/>
             </require>
         </extension>
     </extensions>

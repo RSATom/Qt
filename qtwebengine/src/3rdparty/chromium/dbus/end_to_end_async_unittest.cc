@@ -11,7 +11,6 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -55,7 +54,7 @@ class EndToEndAsyncTest : public testing::Test {
     options.dbus_task_runner = dbus_thread_->task_runner();
     test_service_.reset(new TestService(options));
     ASSERT_TRUE(test_service_->StartService());
-    ASSERT_TRUE(test_service_->WaitUntilServiceIsStarted());
+    test_service_->WaitUntilServiceIsStarted();
     ASSERT_TRUE(test_service_->HasDBusThread());
 
     // Create the client, using the D-Bus thread.
@@ -310,7 +309,7 @@ TEST_F(EndToEndAsyncTest, EchoWithErrorCallback) {
 TEST_F(EndToEndAsyncTest, EchoThreeTimes) {
   const char* kMessages[] = { "foo", "bar", "baz" };
 
-  for (size_t i = 0; i < arraysize(kMessages); ++i) {
+  for (size_t i = 0; i < base::size(kMessages); ++i) {
     // Create the method call.
     MethodCall method_call("org.chromium.TestInterface", "Echo");
     MessageWriter writer(&method_call);

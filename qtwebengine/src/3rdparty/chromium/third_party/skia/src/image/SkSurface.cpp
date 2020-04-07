@@ -5,13 +5,12 @@
  * found in the LICENSE file.
  */
 
-#include "SkAtomics.h"
+#include "GrBackendSurface.h"
 #include "SkCanvas.h"
 #include "SkFontLCDConfig.h"
 #include "SkImagePriv.h"
 #include "SkSurface_Base.h"
-
-#include "GrBackendSurface.h"
+#include <atomic>
 
 static SkPixelGeometry compute_default_geometry() {
     SkFontLCDConfig::LCDOrder order = SkFontLCDConfig::GetSubpixelOrder();
@@ -122,8 +121,8 @@ void SkSurface_Base::aboutToDraw(ContentChangeMode mode) {
 
 uint32_t SkSurface_Base::newGenerationID() {
     SkASSERT(!fCachedCanvas || fCachedCanvas->getSurfaceBase() == this);
-    static int32_t gID;
-    return sk_atomic_inc(&gID) + 1;
+    static std::atomic<uint32_t> nextID{1};
+    return nextID++;
 }
 
 static SkSurface_Base* asSB(SkSurface* surface) {
@@ -165,6 +164,20 @@ SkCanvas* SkSurface::getCanvas() {
 
 sk_sp<SkImage> SkSurface::makeImageSnapshot() {
     return asSB(this)->refCachedImage();
+}
+
+sk_sp<SkImage> SkSurface::makeImageSnapshot(const SkIRect& srcBounds) {
+    const SkIRect surfBounds = { 0, 0, fWidth, fHeight };
+    SkIRect bounds = srcBounds;
+    if (!bounds.intersect(surfBounds)) {
+        return nullptr;
+    }
+    SkASSERT(!bounds.isEmpty());
+    if (bounds == surfBounds) {
+        return this->makeImageSnapshot();
+    } else {
+        return asSB(this)->onNewImageSnapshot(&bounds);
+    }
 }
 
 sk_sp<SkSurface> SkSurface::makeSurface(const SkImageInfo& info) {
@@ -265,7 +278,7 @@ protected:
     sk_sp<SkSurface> onNewSurface(const SkImageInfo& info) override {
         return MakeNull(info.width(), info.height());
     }
-    sk_sp<SkImage> onNewImageSnapshot() override { return nullptr; }
+    sk_sp<SkImage> onNewImageSnapshot(const SkIRect* subsetOrNull) override { return nullptr; }
     void onWritePixels(const SkPixmap&, int x, int y) override {}
     void onDraw(SkCanvas*, SkScalar x, SkScalar y, const SkPaint*) override {}
     void onCopyOnWrite(ContentChangeMode) override {}

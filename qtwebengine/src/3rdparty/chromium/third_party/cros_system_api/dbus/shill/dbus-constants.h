@@ -40,14 +40,12 @@ const char kUnblockPinFunction[] = "UnblockPin";
 const char kChangePinFunction[] = "ChangePin";
 const char kRegisterFunction[] = "Register";
 const char kConfigureServiceFunction[] = "ConfigureService";
-const char kConfigureWifiServiceFunction[] = "ConfigureWifiService";
 const char kFindMatchingServiceFunction[] = "FindMatchingService";
 const char kSetNetworkThrottlingFunction[] = "SetNetworkThrottlingStatus";
 
 // Flimflam Service property names.
 const char kSecurityProperty[] = "Security";
 const char kPriorityProperty[] = "Priority";
-const char kPriorityWithinTechnologyProperty[] = "PriorityWithinTechnology";
 const char kPassphraseProperty[] = "Passphrase";
 const char kIdentityProperty[] = "Identity";
 const char kAuthorityPathProperty[] = "AuthorityPath";
@@ -153,7 +151,8 @@ const char kDevicesProperty[] = "Devices";
 const char kCheckPortalListProperty[] = "CheckPortalList";
 const char kArpGatewayProperty[] = "ArpGateway";
 const char kCountryProperty[] = "Country";
-const char kPortalURLProperty[] = "PortalURL";
+const char kPortalHttpUrlProperty[] = "PortalHttpUrl";
+const char kPortalHttpsUrlProperty[] = "PortalHttpsUrl";
 const char kConnectionStateProperty[] = "ConnectionState";
 const char kClaimedDevicesProperty[] = "ClaimedDevices";
 
@@ -455,6 +454,7 @@ const char kTypeDHCP6[] = "dhcp6";
 const char kTypePPP[] = "ppp";
 
 // Flimflam error options.
+const char kError4WayTimeout[] = "4way-handshake-timeout";
 const char kErrorAaaFailed[] = "aaa-failed";
 const char kErrorActivationFailed[] = "activation-failed";
 const char kErrorBadPassphrase[] = "bad-passphrase";
@@ -470,10 +470,13 @@ const char kErrorIpsecPskAuthFailed[] = "ipsec-psk-auth-failed";
 const char kErrorNeedEvdo[] = "need-evdo";
 const char kErrorNeedHomeNetwork[] = "need-home-network";
 const char kErrorNoFailure[] = "no-failure";
+const char kErrorNotAssociated[] = "not-associated";
+const char kErrorNotAuthenticated[] = "not-authenticated";
 const char kErrorOtaspFailed[] = "otasp-failed";
 const char kErrorOutOfRange[] = "out-of-range";
 const char kErrorPinMissing[] = "pin-missing";
 const char kErrorPppAuthFailed[] = "ppp-auth-failed";
+const char kErrorTooManySTAs[] = "too-many-stas";
 const char kErrorUnknownFailure[] = "unknown-failure";
 
 // Flimflam error result codes.
@@ -598,6 +601,7 @@ const char kShortDNSTimeoutTechnologiesProperty[] =
 const char kUninitializedTechnologiesProperty[] = "UninitializedTechnologies";
 const char kWakeOnLanEnabledProperty[] = "WakeOnLanEnabled";
 const char kWakeOnWiFiFeaturesEnabledProperty[] = "WakeOnWiFiFeaturesEnabled";
+const char kWifiGlobalFTEnabledProperty[] = "WiFi.GlobalFTEnabled";
 
 // Service property names.
 const char kActivationTypeProperty[] = "Cellular.ActivationType";
@@ -677,6 +681,7 @@ const char kLastReceiveSignalDbmProperty[] = "LastReceiveSignalDbm";
 const char kPacketReceiveSuccessesProperty[] = "PacketReceiveSuccesses";
 const char kPacketTransmitFailuresProperty[] = "PacketTransmitFailures";
 const char kPacketTransmitSuccessesProperty[] = "PacketTrasmitSuccesses";
+const char kReceiveBitrateProperty[] = "ReceiveBitrate";
 const char kTransmitBitrateProperty[] = "TransmitBitrate";
 const char kTransmitRetriesProperty[] = "TransmitRetries";
 

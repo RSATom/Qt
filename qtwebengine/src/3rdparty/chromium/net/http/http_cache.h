@@ -26,6 +26,7 @@
 #include "base/threading/thread_checker.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/cache_type.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/load_states.h"
@@ -40,6 +41,10 @@ namespace base {
 namespace trace_event {
 class ProcessMemoryDump;
 }
+
+namespace android {
+class ApplicationStatusListener;
+}  // namespace android
 }  // namespace base
 
 namespace disk_cache {
@@ -81,6 +86,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
     virtual int CreateBackend(NetLog* net_log,
                               std::unique_ptr<disk_cache::Backend>* backend,
                               CompletionOnceCallback callback) = 0;
+
+#if defined(OS_ANDROID)
+    virtual void SetAppStatusListener(
+        base::android::ApplicationStatusListener* app_status_listener){};
+#endif
   };
 
   // A default backend factory for the common use cases.
@@ -102,11 +112,19 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
                       std::unique_ptr<disk_cache::Backend>* backend,
                       CompletionOnceCallback callback) override;
 
+#if defined(OS_ANDROID)
+    void SetAppStatusListener(
+        base::android::ApplicationStatusListener* app_status_listener) override;
+#endif
+
    private:
     CacheType type_;
     BackendType backend_type_;
     const base::FilePath path_;
     int max_bytes_;
+#if defined(OS_ANDROID)
+    base::android::ApplicationStatusListener* app_status_listener_ = nullptr;
+#endif
   };
 
   // Whether a transaction can join parallel writing or not is a function of the
@@ -135,6 +153,8 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
     // Writers does not exist and the transaction does not need to create one
     // since it is going to read from the cache.
     PARALLEL_WRITING_NONE_CACHE_READ,
+    // Unable to join since the entry is too big for cache backend to handle.
+    PARALLEL_WRITING_NOT_JOIN_TOO_BIG_FOR_CACHE,
     // On adding a value here, make sure to add in enums.xml as well.
     PARALLEL_WRITING_MAX
   };
@@ -212,8 +232,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   void CloseIdleConnections();
 
   // Called whenever an external cache in the system reuses the resource
-  // referred to by |url| and |http_method|.
-  void OnExternalCacheHit(const GURL& url, const std::string& http_method);
+  // referred to by |url| and |http_method|, inside a page with a top-level
+  // URL at |top_frame_origin|.
+  void OnExternalCacheHit(const GURL& url,
+                          const std::string& http_method,
+                          base::Optional<url::Origin> top_frame_origin);
 
   // Causes all transactions created after this point to simulate lock timeout
   // and effectively bypass the cache lock whenever there is lock contention.
@@ -389,8 +412,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // be currently in use.
   int AsyncDoomEntry(const std::string& key, Transaction* trans);
 
-  // Dooms the entry associated with a GET for a given |url|.
-  void DoomMainEntryForUrl(const GURL& url);
+  // Dooms the entry associated with a GET for a given |url|, loaded from
+  // a page with top-level frame at |top_frame_origin|.
+  void DoomMainEntryForUrl(const GURL& url,
+                           base::Optional<url::Origin> top_frame_origin);
 
   // Closes a previously doomed entry.
   void FinalizeDoomedEntry(ActiveEntry* entry);
@@ -555,12 +580,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // Processes BackendCallback notifications.
   void OnIOComplete(int result, PendingOp* entry);
 
-  // Helper to conditionally delete |pending_op| if the HttpCache object it
-  // is meant for has been deleted.
-  //
-  // TODO(ajwong): The PendingOp lifetime management is very tricky.  It might
-  // be possible to simplify it using either base::Owned() or base::Passed()
-  // with the callback.
+  // Helper to conditionally delete |pending_op| if HttpCache has been deleted.
+  // This is necessary because |pending_op| owns a disk_cache::Backend that has
+  // been passed in to CreateCacheBackend(), therefore must live until callback
+  // is called.
   static void OnPendingOpComplete(const base::WeakPtr<HttpCache>& cache,
                                   PendingOp* pending_op,
                                   int result);

@@ -74,7 +74,7 @@
 #include "base/bits.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/sys_byteorder.h"
 #include "build/build_config.h"
 
@@ -114,6 +114,7 @@ struct BASE_EXPORT PartitionRoot : public internal::PartitionRootBase {
   void Init(size_t num_buckets, size_t max_allocation);
 
   ALWAYS_INLINE void* Alloc(size_t size, const char* type_name);
+  ALWAYS_INLINE void* AllocFlags(int flags, size_t size, const char* type_name);
 
   void PurgeMemory(int flags);
 
@@ -145,9 +146,13 @@ struct BASE_EXPORT PartitionRootGeneric : public internal::PartitionRootBase {
   void Init();
 
   ALWAYS_INLINE void* Alloc(size_t size, const char* type_name);
+  ALWAYS_INLINE void* AllocFlags(int flags, size_t size, const char* type_name);
   ALWAYS_INLINE void Free(void* ptr);
 
   NOINLINE void* Realloc(void* ptr, size_t new_size, const char* type_name);
+  // Overload that may return nullptr if reallocation isn't possible. In this
+  // case, |ptr| remains valid.
+  NOINLINE void* TryRealloc(void* ptr, size_t new_size, const char* type_name);
 
   ALWAYS_INLINE size_t ActualSize(size_t size);
 
@@ -259,6 +264,12 @@ class BASE_EXPORT PartitionAllocHooks {
 };
 
 ALWAYS_INLINE void* PartitionRoot::Alloc(size_t size, const char* type_name) {
+  return AllocFlags(0, size, type_name);
+}
+
+ALWAYS_INLINE void* PartitionRoot::AllocFlags(int flags,
+                                              size_t size,
+                                              const char* type_name) {
 #if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
   void* result = malloc(size);
   CHECK(result);
@@ -271,20 +282,41 @@ ALWAYS_INLINE void* PartitionRoot::Alloc(size_t size, const char* type_name) {
   DCHECK(index < this->num_buckets);
   DCHECK(size == index << kBucketShift);
   internal::PartitionBucket* bucket = &this->buckets()[index];
-  void* result = AllocFromBucket(bucket, 0, size);
+  void* result = AllocFromBucket(bucket, flags, size);
   PartitionAllocHooks::AllocationHookIfEnabled(result, requested_size,
                                                type_name);
   return result;
 #endif  // defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
 }
 
+ALWAYS_INLINE bool PartitionAllocSupportsGetSize() {
+#if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
+  return false;
+#else
+  return true;
+#endif
+}
+
+ALWAYS_INLINE size_t PartitionAllocGetSize(void* ptr) {
+  // No need to lock here. Only |ptr| being freed by another thread could
+  // cause trouble, and the caller is responsible for that not happening.
+  DCHECK(PartitionAllocSupportsGetSize());
+  ptr = internal::PartitionCookieFreePointerAdjust(ptr);
+  internal::PartitionPage* page = internal::PartitionPage::FromPointer(ptr);
+  // TODO(palmer): See if we can afford to make this a CHECK.
+  DCHECK(internal::PartitionRootBase::IsValidPage(page));
+  size_t size = page->bucket->slot_size;
+  return internal::PartitionCookieSizeAdjustSubtract(size);
+}
+
 ALWAYS_INLINE void PartitionFree(void* ptr) {
 #if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
   free(ptr);
 #else
+  void* original_ptr = ptr;
   // TODO(palmer): Check ptr alignment before continuing. Shall we do the check
   // inside PartitionCookieFreePointerAdjust?
-  PartitionAllocHooks::FreeHookIfEnabled(ptr);
+  PartitionAllocHooks::FreeHookIfEnabled(original_ptr);
   ptr = internal::PartitionCookieFreePointerAdjust(ptr);
   internal::PartitionPage* page = internal::PartitionPage::FromPointer(ptr);
   // TODO(palmer): See if we can afford to make this a CHECK.
@@ -305,6 +337,7 @@ ALWAYS_INLINE internal::PartitionBucket* PartitionGenericSizeToBucket(
   internal::PartitionBucket* bucket =
       root->bucket_lookups[(order << kGenericNumBucketsPerOrderBits) +
                            order_index + !!sub_order_index];
+  CHECK(bucket);
   DCHECK(!bucket->slot_size || bucket->slot_size >= size);
   DCHECK(!(bucket->slot_size % kGenericSmallestBucket));
   return bucket;
@@ -314,8 +347,11 @@ ALWAYS_INLINE void* PartitionAllocGenericFlags(PartitionRootGeneric* root,
                                                int flags,
                                                size_t size,
                                                const char* type_name) {
+  DCHECK_LT(flags, PartitionAllocLastFlag << 1);
+
 #if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
-  void* result = malloc(size);
+  const bool zero_fill = flags & PartitionAllocZeroFill;
+  void* result = zero_fill ? calloc(1, size) : malloc(size);
   CHECK(result || flags & PartitionAllocReturnNull);
   return result;
 #else
@@ -329,6 +365,7 @@ ALWAYS_INLINE void* PartitionAllocGenericFlags(PartitionRootGeneric* root,
     ret = root->AllocFromBucket(bucket, flags, size);
   }
   PartitionAllocHooks::AllocationHookIfEnabled(ret, requested_size, type_name);
+
   return ret;
 #endif
 }
@@ -336,6 +373,12 @@ ALWAYS_INLINE void* PartitionAllocGenericFlags(PartitionRootGeneric* root,
 ALWAYS_INLINE void* PartitionRootGeneric::Alloc(size_t size,
                                                 const char* type_name) {
   return PartitionAllocGenericFlags(this, 0, size, type_name);
+}
+
+ALWAYS_INLINE void* PartitionRootGeneric::AllocFlags(int flags,
+                                                     size_t size,
+                                                     const char* type_name) {
+  return PartitionAllocGenericFlags(this, flags, size, type_name);
 }
 
 ALWAYS_INLINE void PartitionRootGeneric::Free(void* ptr) {
@@ -383,32 +426,12 @@ ALWAYS_INLINE size_t PartitionRootGeneric::ActualSize(size_t size) {
 #endif
 }
 
-ALWAYS_INLINE bool PartitionAllocSupportsGetSize() {
-#if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
-  return false;
-#else
-  return true;
-#endif
-}
-
-ALWAYS_INLINE size_t PartitionAllocGetSize(void* ptr) {
-  // No need to lock here. Only |ptr| being freed by another thread could
-  // cause trouble, and the caller is responsible for that not happening.
-  DCHECK(PartitionAllocSupportsGetSize());
-  ptr = internal::PartitionCookieFreePointerAdjust(ptr);
-  internal::PartitionPage* page = internal::PartitionPage::FromPointer(ptr);
-  // TODO(palmer): See if we can afford to make this a CHECK.
-  DCHECK(internal::PartitionRootBase::IsValidPage(page));
-  size_t size = page->bucket->slot_size;
-  return internal::PartitionCookieSizeAdjustSubtract(size);
-}
-
 template <size_t N>
 class SizeSpecificPartitionAllocator {
  public:
   SizeSpecificPartitionAllocator() {
     memset(actual_buckets_, 0,
-           sizeof(internal::PartitionBucket) * arraysize(actual_buckets_));
+           sizeof(internal::PartitionBucket) * base::size(actual_buckets_));
   }
   ~SizeSpecificPartitionAllocator() = default;
   static const size_t kMaxAllocation = N - kAllocationGranularity;

@@ -160,6 +160,9 @@ public Q_SLOTS:
 
     Q_REVISION(1) QObject *findChild(QObject *parent, const QString &objectName);
 
+    Q_REVISION(13) bool isPolishScheduled(QQuickItem *item) const;
+    Q_REVISION(13) bool waitForItemPolished(QQuickItem *item, int timeout);
+
 public:
     // Helper functions for the C++ main() shell.
     static void parseArgs(int argc, char *argv[]);

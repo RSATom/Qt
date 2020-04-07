@@ -37,22 +37,24 @@
 #include "qmappolygonobjectqsg_p_p.h"
 #include <QtQuick/qsgnode.h>
 #include <QtQuick/qsgsimplerectnode.h>
+#include <QtPositioning/private/qgeopolygon_p.h>
 
 QT_BEGIN_NAMESPACE
 
 QMapPolygonObjectPrivateQSG::QMapPolygonObjectPrivateQSG(QGeoMapObject *q)
-    : QMapPolygonObjectPrivate(q)
+    : QMapPolygonObjectPrivateDefault(q)
 {
 
 }
 
 QMapPolygonObjectPrivateQSG::QMapPolygonObjectPrivateQSG(const QMapPolygonObjectPrivate &other)
-    : QMapPolygonObjectPrivate(other.q)
+    : QMapPolygonObjectPrivateDefault(other)
 {
-    setPath(other.path());
-    setFillColor(other.fillColor());
-    setBorderColor(other.borderColor());
-    setBorderWidth(other.borderWidth());
+    // Data already cloned by the *Default copy constructor, but necessary
+    // update operations triggered only by setters overrides
+    updateGeometry();
+    if (m_map)
+        emit m_map->sgNodeChanged();
 }
 
 QMapPolygonObjectPrivateQSG::~QMapPolygonObjectPrivateQSG()
@@ -69,8 +71,8 @@ QList<QDoubleVector2D> QMapPolygonObjectPrivateQSG::projectPath()
 
     const QGeoProjectionWebMercator &p =
             static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
-    geopathProjected_.reserve(m_geoPath.path().size());
-    for (const QGeoCoordinate &c : m_geoPath.path())
+    geopathProjected_.reserve(m_path.path().size());
+    for (const QGeoCoordinate &c : m_path.path())
         geopathProjected_ << p.geoToMapProjection(c);
     return geopathProjected_;
 }
@@ -80,7 +82,7 @@ QSGNode *QMapPolygonObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
                                                           QSGNode *root,
                                                           QQuickWindow * /*window*/)
 {
-    Q_UNUSED(visibleNode)
+    Q_UNUSED(visibleNode);
     MapPolygonNode *node = static_cast<MapPolygonNode *>(oldNode);
 
     bool created = false;
@@ -107,29 +109,9 @@ QSGNode *QMapPolygonObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
     return node;
 }
 
-QList<QGeoCoordinate> QMapPolygonObjectPrivateQSG::path() const
-{
-    return m_geoPath.path();
-}
-
-QColor QMapPolygonObjectPrivateQSG::fillColor() const
-{
-    return m_fillColor;
-}
-
-QColor QMapPolygonObjectPrivateQSG::borderColor() const
-{
-    return m_borderColor;
-}
-
-qreal QMapPolygonObjectPrivateQSG::borderWidth() const
-{
-    return m_borderWidth;
-}
-
 void QMapPolygonObjectPrivateQSG::setPath(const QList<QGeoCoordinate> &path)
 {
-    m_geoPath.setPath(path);
+    QMapPolygonObjectPrivateDefault::setPath(path);
     updateGeometry();
 
     if (m_map)
@@ -138,7 +120,7 @@ void QMapPolygonObjectPrivateQSG::setPath(const QList<QGeoCoordinate> &path)
 
 void QMapPolygonObjectPrivateQSG::setFillColor(const QColor &color)
 {
-    m_fillColor = color;
+    QMapPolygonObjectPrivateDefault::setFillColor(color);
     updateGeometry();
 
     if (m_map)
@@ -147,7 +129,7 @@ void QMapPolygonObjectPrivateQSG::setFillColor(const QColor &color)
 
 void QMapPolygonObjectPrivateQSG::setBorderColor(const QColor &color)
 {
-    m_borderColor = color;
+    QMapPolygonObjectPrivateDefault::setBorderColor(color);
     updateGeometry();
 
     if (m_map)
@@ -156,7 +138,7 @@ void QMapPolygonObjectPrivateQSG::setBorderColor(const QColor &color)
 
 void QMapPolygonObjectPrivateQSG::setBorderWidth(qreal width)
 {
-    m_borderWidth = width;
+    QMapPolygonObjectPrivateDefault::setBorderWidth(width);
     updateGeometry();
 
     if (m_map)
@@ -168,9 +150,21 @@ QGeoMapObjectPrivate *QMapPolygonObjectPrivateQSG::clone()
     return new QMapPolygonObjectPrivateQSG(static_cast<QMapPolygonObjectPrivate &>(*this));
 }
 
+void QMapPolygonObjectPrivateQSG::setGeoShape(const QGeoShape &shape)
+{
+    if (shape == m_path)
+        return;
+
+    m_path = QGeoPathEager(shape);
+    updateGeometry();
+    if (m_map)
+        emit m_map->sgNodeChanged();
+    emit static_cast<QMapPolygonObject *>(q)->pathChanged();
+}
+
 void QMapPolygonObjectPrivateQSG::updateGeometry()
 {
-    if (!m_map || m_geoPath.path().length() == 0
+    if (!m_map || m_path.path().length() == 0
             || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
 
@@ -180,7 +174,7 @@ void QMapPolygonObjectPrivateQSG::updateGeometry()
     const QList<QDoubleVector2D> &geopathProjected = projectPath();
 
     m_geometry.markSourceDirty();
-    m_geometry.setPreserveGeometry(true, m_geoPath.boundingGeoRectangle().topLeft());
+    m_geometry.setPreserveGeometry(true, m_path.boundingGeoRectangle().topLeft());
     m_geometry.updateSourcePoints(*m_map, geopathProjected);
     m_geometry.updateScreenPoints(*m_map);
 
@@ -193,7 +187,7 @@ void QMapPolygonObjectPrivateQSG::updateGeometry()
         closedPath << closedPath.first();
 
         m_borderGeometry.markSourceDirty();
-        m_borderGeometry.setPreserveGeometry(true, m_geoPath.boundingGeoRectangle().topLeft());
+        m_borderGeometry.setPreserveGeometry(true, m_path.boundingGeoRectangle().topLeft());
 
         const QGeoCoordinate &geometryOrigin = m_geometry.origin();
 

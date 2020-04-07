@@ -162,6 +162,7 @@ struct Context {
     int line = 0;
     int column = 0;
     int registerCountInFunction = 0;
+    uint nTraceInfos = 0;
     int functionIndex = -1;
     int blockIndex = -1;
 
@@ -200,6 +201,7 @@ struct Context {
     ControlFlow *controlFlow = nullptr;
     QByteArray code;
     QVector<CompiledData::CodeOffsetToLine> lineNumberMapping;
+    std::vector<unsigned> labelInfo;
 
     int nRegisters = 0;
     int registerOffset = -1;
@@ -361,6 +363,8 @@ struct Context {
             return parent->canHaveTailCalls();
         return false;
     }
+
+    bool canUseTracingJit() const;
 };
 
 

@@ -48,6 +48,7 @@
 #include "qcommandlineparser.h"
 #endif
 #include "qcompilerdetection.h"
+#include "qconcatenatetablesproxymodel.h"
 #include "qcontainerfwd.h"
 #include "qcontiguouscache.h"
 #include "qcoreapplication.h"
@@ -241,6 +242,7 @@
 #include "qtimezone.h"
 #endif
 #include "qtranslator.h"
+#include "qtransposeproxymodel.h"
 #include "qtypeinfo.h"
 #include "qtypetraits.h"
 #include "qurl.h"

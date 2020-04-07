@@ -162,12 +162,14 @@ class WebInputEvent {
     // because it may still turn into a GestureDoubleTap.
     kGestureTapUnconfirmed,
 
-    // Double-tap is two single-taps spread apart in time, like a double-click.
-    // This event is only sent on desktop pages viewed on an Android phone, and
-    // is always preceded by GestureTapUnconfirmed.  It's an instruction to
-    // Blink to perform a PageScaleAnimation zoom onto the double-tapped
-    // content.  (It's treated differently from GestureTap with tapCount=2,
-    // which can also happen.)
+    // On Android, double-tap is two single-taps spread apart in time, like a
+    // double-click. This event is only sent on desktop pages, and is always
+    // preceded by GestureTapUnconfirmed. It's an instruction to Blink to
+    // perform a PageScaleAnimation zoom onto the double-tapped content. (It's
+    // treated differently from GestureTap with tapCount=2, which can also
+    // happen.)
+    // On desktop, this event may be used for a double-tap with two fingers on
+    // a touchpad, as the desired effect is similar to Android's double-tap.
     kGestureDoubleTap,
 
     kGestureTypeLast = kGestureDoubleTap,
@@ -188,11 +190,12 @@ class WebInputEvent {
     kPointerTypeFirst = kPointerDown,
     kPointerUp,
     kPointerMove,
+    kPointerRawMove,  // To be only used within blink.
     kPointerCancel,
     kPointerCausedUaAction,
     kPointerTypeLast = kPointerCausedUaAction,
 
-    kTypeLast = kTouchTypeLast
+    kTypeLast = kPointerTypeLast
   };
 
   // The modifier constants cannot change their values since pepper
@@ -362,6 +365,11 @@ class WebInputEvent {
     return kGesturePinchTypeFirst <= type && type <= kGesturePinchTypeLast;
   }
 
+  // Returns true if the WebInputEvent |type| is a fling gesture event.
+  static bool IsFlingGestureEventType(WebInputEvent::Type type) {
+    return kGestureFlingStart <= type && type <= kGestureFlingCancel;
+  }
+
   static const char* GetName(WebInputEvent::Type type) {
 #define CASE_TYPE(t)        \
   case WebInputEvent::k##t: \
@@ -404,6 +412,7 @@ class WebInputEvent {
       CASE_TYPE(PointerDown);
       CASE_TYPE(PointerUp);
       CASE_TYPE(PointerMove);
+      CASE_TYPE(PointerRawMove);
       CASE_TYPE(PointerCancel);
       CASE_TYPE(PointerCausedUaAction);
     }

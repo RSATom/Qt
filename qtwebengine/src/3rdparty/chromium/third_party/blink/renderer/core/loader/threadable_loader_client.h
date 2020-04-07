@@ -46,11 +46,16 @@ class ResourceError;
 class ResourceResponse;
 class ResourceTimingInfo;
 
-class CORE_EXPORT ThreadableLoaderClient {
+class CORE_EXPORT ThreadableLoaderClient : public GarbageCollectedMixin {
  public:
   virtual void DidSendData(unsigned long long /*bytesSent*/,
                            unsigned long long /*totalBytesToBeSent*/) {}
-  virtual void DidReceiveRedirectTo(const KURL&) {}
+  // Note that redirects for redirect modes kError and kManual are still
+  // notified here. A client must return false in such cases.
+  virtual bool WillFollowRedirect(const KURL& new_url,
+                                  const ResourceResponse&) {
+    return true;
+  }
   virtual void DidReceiveResponse(unsigned long /*identifier*/,
                                   const ResourceResponse&,
                                   std::unique_ptr<WebDataConsumerHandle>) {}
@@ -61,9 +66,7 @@ class CORE_EXPORT ThreadableLoaderClient {
   virtual void DidFailRedirectCheck() {}
   virtual void DidReceiveResourceTiming(const ResourceTimingInfo&) {}
 
-  virtual bool IsDocumentThreadableLoaderClient() { return false; }
-
-  virtual void DidDownloadData(int /*dataLength*/) {}
+  virtual void DidDownloadData(unsigned long long /*dataLength*/) {}
   // Called for requests that had DownloadToBlob set to true. Can be called with
   // null if creating the blob failed for some reason (but the download itself
   // otherwise succeeded). Could also not be called at all if the downloaded

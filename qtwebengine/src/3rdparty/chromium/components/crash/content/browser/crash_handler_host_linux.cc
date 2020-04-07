@@ -28,17 +28,22 @@
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/rand_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "third_party/breakpad/breakpad/src/client/linux/handler/exception_handler.h"
-#include "third_party/breakpad/breakpad/src/client/linux/minidump_writer/linux_dumper.h"
-#include "third_party/breakpad/breakpad/src/client/linux/minidump_writer/minidump_writer.h"
+
+#if !defined(OS_ANDROID)
+#include "third_party/breakpad/breakpad/src/client/linux/handler/exception_handler.h"  // nogncheck
+#include "third_party/breakpad/breakpad/src/client/linux/minidump_writer/linux_dumper.h"  // nogncheck
+#include "third_party/breakpad/breakpad/src/client/linux/minidump_writer/minidump_writer.h"  // nogncheck
+#endif  // ! defined(OS_ANDROID)
 
 #if defined(OS_ANDROID) && !defined(__LP64__)
 #include <sys/syscall.h>
@@ -49,9 +54,13 @@
 #if !defined(OS_CHROMEOS)
 #include "components/crash/content/app/crashpad.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"  // nogncheck
+#include "third_party/crashpad/crashpad/util/posix/signals.h"      // nogncheck
 #endif
 
 using content::BrowserThread;
+
+#if !defined(OS_ANDROID)
+
 using google_breakpad::ExceptionHandler;
 
 namespace breakpad {
@@ -109,7 +118,6 @@ CrashHandlerHostLinux::CrashHandlerHostLinux(const std::string& process_type,
       upload_(upload),
 #endif
       fd_watch_controller_(FROM_HERE),
-      shutting_down_(false),
       blocking_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskPriority::USER_VISIBLE})) {
   int fds[2];
@@ -128,9 +136,9 @@ CrashHandlerHostLinux::CrashHandlerHostLinux(const std::string& process_type,
   process_socket_ = fds[0];
   browser_socket_ = fds[1];
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&CrashHandlerHostLinux::Init, base::Unretained(this)));
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&CrashHandlerHostLinux::Init, base::Unretained(this)));
 }
 
 CrashHandlerHostLinux::~CrashHandlerHostLinux() {
@@ -221,10 +229,9 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
 
   const ssize_t msg_size = HANDLE_EINTR(recvmsg(browser_socket_, &msg, 0));
   if (msg_size < 0) {
-    LOG(ERROR) << "Error reading from death signal socket. Crash dumping"
-               << " is disabled."
-               << " msg_size:" << msg_size
-               << " errno:" << errno;
+    PLOG(ERROR) << "Error reading from death signal socket. Crash dumping"
+                << " is disabled."
+                << " msg_size:" << msg_size;
     fd_watch_controller_.StopWatchingFileDescriptor();
     return;
   }
@@ -404,7 +411,7 @@ void CrashHandlerHostLinux::FindCrashingThreadAndDump(
 void CrashHandlerHostLinux::WriteDumpFile(BreakpadInfo* info,
                                           std::unique_ptr<char[]> crash_context,
                                           pid_t crashing_pid) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   // Set |info->distro| here because base::GetLinuxDistro() needs to run on a
   // blocking sequence.
@@ -484,15 +491,17 @@ void CrashHandlerHostLinux::WillDestroyCurrentMessageLoop() {
 
   // If we are quitting and there are crash dumps in the queue, turn them into
   // no-ops.
-  shutting_down_ = true;
+  shutting_down_.Set();
   uploader_thread_->Stop();
 }
 
 bool CrashHandlerHostLinux::IsShuttingDown() const {
-  return shutting_down_;
+  return shutting_down_.IsSet();
 }
 
 }  // namespace breakpad
+
+#endif  // !defined(OS_ANDROID)
 
 #if !defined(OS_CHROMEOS)
 
@@ -517,8 +526,8 @@ CrashHandlerHost* CrashHandlerHost::Get() {
 }
 
 int CrashHandlerHost::GetDeathSignalSocket() {
-  static bool initialized = BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  static bool initialized = base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&CrashHandlerHost::Init, base::Unretained(this)));
   DCHECK(initialized);
 
@@ -560,15 +569,18 @@ void CrashHandlerHost::Init() {
 bool CrashHandlerHost::ReceiveClientMessage(int client_fd,
                                             base::ScopedFD* handler_fd) {
   int signo;
-  iovec iov;
-  iov.iov_base = &signo;
-  iov.iov_len = sizeof(signo);
+  unsigned char request_dump;
+  iovec iov[2];
+  iov[0].iov_base = &signo;
+  iov[0].iov_len = sizeof(signo);
+  iov[1].iov_base = &request_dump;
+  iov[1].iov_len = sizeof(request_dump);
 
   msghdr msg;
   msg.msg_name = nullptr;
   msg.msg_namelen = 0;
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
+  msg.msg_iov = iov;
+  msg.msg_iovlen = base::size(iov);
 
   char cmsg_buf[CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(ucred))];
   msg.msg_control = cmsg_buf;
@@ -606,7 +618,17 @@ bool CrashHandlerHost::ReceiveClientMessage(int client_fd,
     return false;
   }
 
-  NotifyCrashSignalObservers(child_pid, signo);
+  if (signo != crashpad::Signals::kSimulatedSigno) {
+    NotifyCrashSignalObservers(child_pid, signo);
+  }
+
+#if defined(OS_ANDROID)
+  if (!request_dump) {
+    return false;
+  }
+#else
+  DCHECK(request_dump);
+#endif
 
   handler_fd->reset(child_fd.release());
   return true;
@@ -632,21 +654,8 @@ void CrashHandlerHost::OnFileCanReadWithoutBlocking(int fd) {
     return;
   }
 
-  base::FilePath handler_path;
-  base::FilePath database_path;
-  base::FilePath metrics_path;
-  std::string url;
-  std::map<std::string, std::string> process_annotations;
-  std::vector<std::string> arguments;
-  if (!crash_reporter::internal::BuildHandlerArgs(
-          &handler_path, &database_path, &metrics_path, &url,
-          &process_annotations, &arguments)) {
-    return;
-  }
-
-  bool result = CrashpadClient::StartHandlerForClient(
-      handler_path, database_path, metrics_path, url, process_annotations,
-      arguments, handler_fd.get());
+  bool result =
+      crash_reporter::internal::StartHandlerForClient(handler_fd.get());
   DCHECK(result);
 }
 

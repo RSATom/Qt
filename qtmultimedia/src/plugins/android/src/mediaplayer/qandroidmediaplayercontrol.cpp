@@ -250,6 +250,16 @@ void QAndroidMediaPlayerControl::setMuted(bool muted)
     Q_EMIT mutedChanged(muted);
 }
 
+void QAndroidMediaPlayerControl::setAudioRole(QAudio::Role role)
+{
+    mMediaPlayer->setAudioRole(role);
+}
+
+void QAndroidMediaPlayerControl::setCustomAudioRole(const QString &role)
+{
+    mMediaPlayer->setCustomAudioRole(role);
+}
+
 int QAndroidMediaPlayerControl::bufferStatus() const
 {
     return mBufferFilled ? 100 : 0;
@@ -374,7 +384,7 @@ void QAndroidMediaPlayerControl::setMedia(const QMediaContent &mediaContent,
 
         if ((mMediaPlayer->display() == 0) && mVideoOutput)
             mMediaPlayer->setDisplay(mVideoOutput->surfaceTexture());
-        mMediaPlayer->setDataSource(mediaContent.canonicalUrl().toString(QUrl::FullyEncoded));
+        mMediaPlayer->setDataSource(mediaContent.canonicalRequest());
         mMediaPlayer->prepareAsync();
     }
 

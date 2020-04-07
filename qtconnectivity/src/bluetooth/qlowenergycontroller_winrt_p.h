@@ -114,8 +114,11 @@ public:
     void addToGenericAttributeList(const QLowEnergyServiceData &service,
                                    QLowEnergyHandle startHandle) override;
 
+signals:
+    void characteristicChanged(quint16 charHandle, const QByteArray &data);
+
 private slots:
-    void characteristicChanged(int charHandle, const QByteArray &data);
+    void handleCharacteristicChanged(quint16 charHandle, const QByteArray &data);
 
 private:
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::IBluetoothLEDevice> mDevice;
@@ -138,6 +141,7 @@ private:
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattCharacteristic> getNativeCharacteristic(const QBluetoothUuid &serviceUuid, const QBluetoothUuid &charUuid);
 
     void registerForValueChanges(const QBluetoothUuid &serviceUuid, const QBluetoothUuid &charUuid);
+    void unregisterFromValueChanges();
 
     void obtainIncludedServices(QSharedPointer<QLowEnergyServicePrivate> servicePointer,
         Microsoft::WRL::ComPtr<ABI::Windows::Devices::Bluetooth::GenericAttributeProfile::IGattDeviceService> nativeService);

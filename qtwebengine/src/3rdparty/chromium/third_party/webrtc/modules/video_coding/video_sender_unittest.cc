@@ -11,11 +11,12 @@
 #include <memory>
 #include <vector>
 
+#include "absl/memory/memory.h"
+#include "api/test/mock_video_encoder.h"
 #include "api/video/i420_buffer.h"
+#include "api/video_codecs/vp8_temporal_layers.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
-#include "modules/video_coding/codecs/vp8/temporal_layers.h"
 #include "modules/video_coding/include/mock/mock_vcm_callbacks.h"
-#include "modules/video_coding/include/mock/mock_video_codec_interface.h"
 #include "modules/video_coding/include/video_coding.h"
 #include "modules/video_coding/utility/default_video_bitrate_allocator.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
@@ -23,7 +24,7 @@
 #include "system_wrappers/include/clock.h"
 #include "test/frame_generator.h"
 #include "test/gtest.h"
-#include "test/testsupport/fileutils.h"
+#include "test/testsupport/file_utils.h"
 #include "test/video_codec_settings.h"
 
 using ::testing::_;
@@ -76,8 +77,12 @@ class EmptyFrameGenerator : public FrameGenerator {
  public:
   EmptyFrameGenerator(int width, int height) : width_(width), height_(height) {}
   VideoFrame* NextFrame() override {
-    frame_.reset(new VideoFrame(I420Buffer::Create(width_, height_),
-                                webrtc::kVideoRotation_0, 0));
+    frame_ = absl::make_unique<VideoFrame>(
+        VideoFrame::Builder()
+            .set_video_frame_buffer(I420Buffer::Create(width_, height_))
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build());
     return frame_.get();
   }
 
@@ -99,8 +104,8 @@ class EncodedImageCallbackImpl : public EncodedImageCallback {
                         const RTPFragmentationHeader* fragmentation) override {
     assert(codec_specific_info);
     frame_data_.push_back(
-        FrameData(encoded_image._length, *codec_specific_info));
-    return Result(Result::OK, encoded_image._timeStamp);
+        FrameData(encoded_image.size(), *codec_specific_info));
+    return Result(Result::OK, encoded_image.Timestamp());
   }
 
   void Reset() {
@@ -186,7 +191,10 @@ class TestVideoSender : public ::testing::Test {
 
   void AddFrame() {
     assert(generator_.get());
-    sender_->AddVideoFrame(*generator_->NextFrame(), NULL);
+    sender_->AddVideoFrame(*generator_->NextFrame(), nullptr,
+                           encoder_ ? absl::optional<VideoEncoder::EncoderInfo>(
+                                          encoder_->GetEncoderInfo())
+                                    : absl::nullopt);
   }
 
   SimulatedClock clock_;
@@ -311,14 +319,14 @@ TEST_F(TestVideoSenderWithMockEncoder, TestSetRate) {
               SetRateAllocation(new_rate_allocation, settings_.maxFramerate))
       .Times(1)
       .WillOnce(Return(0));
-  sender_->SetChannelParameters(new_bitrate_kbps * 1000, 0, 200,
-                                rate_allocator_.get(), nullptr);
+  sender_->SetChannelParameters(new_rate_allocation, settings_.maxFramerate);
   AddFrame();
   clock_.AdvanceTimeMilliseconds(kFrameIntervalMs);
 
   // Expect no call to encoder_.SetRates if the new bitrate is zero.
   EXPECT_CALL(encoder_, SetRateAllocation(_, _)).Times(0);
-  sender_->SetChannelParameters(0, 0, 200, rate_allocator_.get(), nullptr);
+  sender_->SetChannelParameters(VideoBitrateAllocation(),
+                                settings_.maxFramerate);
   AddFrame();
 }
 
@@ -355,25 +363,20 @@ TEST_F(TestVideoSenderWithMockEncoder, TestEncoderParametersForInternalSource) {
   EXPECT_CALL(encoder_, SetRateAllocation(new_rate_allocation, _))
       .Times(1)
       .WillOnce(Return(0));
-  sender_->SetChannelParameters(new_bitrate_kbps * 1000, 0, 200,
-                                rate_allocator_.get(), nullptr);
+  sender_->SetChannelParameters(new_rate_allocation, settings_.maxFramerate);
 }
 
 TEST_F(TestVideoSenderWithMockEncoder,
        NoRedundantSetChannelParameterOrSetRatesCalls) {
-  const uint8_t kLossRate = 4;
-  const uint8_t kRtt = 200;
   const int64_t kRateStatsWindowMs = 2000;
   const uint32_t kInputFps = 20;
   int64_t start_time = clock_.TimeInMilliseconds();
   // Expect initial call to SetChannelParameters. Rates are initialized through
   // InitEncode and expects no additional call before the framerate (or bitrate)
   // updates.
-  EXPECT_CALL(encoder_, SetChannelParameters(kLossRate, kRtt))
-      .Times(1)
-      .WillOnce(Return(0));
-  sender_->SetChannelParameters(settings_.startBitrate * 1000, kLossRate, kRtt,
-                                rate_allocator_.get(), nullptr);
+  sender_->SetChannelParameters(
+      rate_allocator_->GetAllocation(settings_.startBitrate * 1000, kInputFps),
+      kInputFps);
   while (clock_.TimeInMilliseconds() < start_time + kRateStatsWindowMs) {
     AddFrame();
     clock_.AdvanceTimeMilliseconds(1000 / kInputFps);
@@ -387,8 +390,7 @@ TEST_F(TestVideoSenderWithMockEncoder,
   EXPECT_CALL(encoder_, SetRateAllocation(new_rate_allocation, kInputFps))
       .Times(1)
       .WillOnce(Return(0));
-  sender_->SetChannelParameters(new_bitrate_bps, kLossRate, kRtt,
-                                rate_allocator_.get(), nullptr);
+  sender_->SetChannelParameters(new_rate_allocation, kInputFps);
   AddFrame();
 }
 
@@ -436,12 +438,13 @@ class TestVideoSenderWithVp8 : public TestVideoSender {
       AddFrame();
       // SetChannelParameters needs to be called frequently to propagate
       // framerate from the media optimization into the encoder.
-      // Note: SetChannelParameters fails if less than 2 frames are in the
-      // buffer since it will fail to calculate the framerate.
+      const VideoBitrateAllocation bitrate_allocation =
+          rate_allocator_->GetAllocation(available_bitrate_kbps_ * 1000,
+                                         static_cast<uint32_t>(framerate));
       if (i != 0) {
-        EXPECT_EQ(VCM_OK, sender_->SetChannelParameters(
-                              available_bitrate_kbps_ * 1000, 0, 200,
-                              rate_allocator_.get(), nullptr));
+        EXPECT_EQ(VCM_OK,
+                  sender_->SetChannelParameters(
+                      bitrate_allocation, static_cast<uint32_t>(framerate)));
       }
     }
   }

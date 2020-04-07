@@ -74,9 +74,14 @@ class MockMediaCodecBridge : public MediaCodecBridge,
   MOCK_METHOD2(SetVideoBitrate, void(int bps, int frame_rate));
   MOCK_METHOD0(RequestKeyFrameSoon, void());
   MOCK_METHOD0(IsAdaptivePlaybackSupported, bool());
+  MOCK_METHOD2(OnBuffersAvailable,
+               void(JNIEnv*, const base::android::JavaParamRef<jobject>&));
 
   // Set an optional WaitableEvent that we'll signal on destruction.
   void SetCodecDestroyedEvent(base::WaitableEvent* event);
+
+  // Return true if the codec is already drained.
+  bool IsDrained() const;
 
   static std::unique_ptr<MediaCodecBridge> CreateVideoDecoder(
       VideoCodec codec,
@@ -88,10 +93,13 @@ class MockMediaCodecBridge : public MediaCodecBridge,
       const std::vector<uint8_t>& csd1,
       const VideoColorSpace& color_space,
       const base::Optional<HDRMetadata>& hdr_metadata,
-      bool allow_adaptive_playback);
+      bool allow_adaptive_playback,
+      base::RepeatingClosure on_buffers_available_cb);
 
  private:
   base::WaitableEvent* destruction_event_ = nullptr;
+  // Is the codec in the drained state?
+  bool is_drained_ = true;
 };
 
 }  // namespace media

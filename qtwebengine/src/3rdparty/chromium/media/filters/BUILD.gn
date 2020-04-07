@@ -2,16 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//media/media_options.gni")
 import("//third_party/libaom/options.gni")
 
-source_set("filters") {
+jumbo_source_set("filters") {
   # Do not expand the visibility here without double-checking with OWNERS, this
   # is a roll-up target which is part of the //media component. Most other DEPs
   # should be using //media and not directly DEP this roll-up target.
   visibility = [
     "//media",
-    "//media/muxers",
     "//media/renderers",
   ]
 
@@ -35,6 +35,8 @@ source_set("filters") {
     "decrypting_audio_decoder.h",
     "decrypting_demuxer_stream.cc",
     "decrypting_demuxer_stream.h",
+    "decrypting_media_resource.cc",
+    "decrypting_media_resource.h",
     "decrypting_video_decoder.cc",
     "decrypting_video_decoder.h",
     "file_data_source.cc",
@@ -51,8 +53,6 @@ source_set("filters") {
     "memory_data_source.h",
     "offloading_video_decoder.cc",
     "offloading_video_decoder.h",
-    "opus_constants.cc",
-    "opus_constants.h",
     "pipeline_controller.cc",
     "pipeline_controller.h",
     "source_buffer_parse_warnings.h",
@@ -97,6 +97,7 @@ source_set("filters") {
   ]
 
   deps = [
+    "//cc/base",  # For MathUtil.
     "//gpu/command_buffer/common",
     "//media/base",
     "//media/cdm",
@@ -195,6 +196,8 @@ source_set("filters") {
     sources += [
       "android/media_codec_audio_decoder.cc",
       "android/media_codec_audio_decoder.h",
+      "android/video_frame_extractor.cc",
+      "android/video_frame_extractor.h",
     ]
     deps += [ "//media/base/android" ]
   }
@@ -204,6 +207,14 @@ source_set("filters") {
       "h264_bitstream_buffer.cc",
       "h264_bitstream_buffer.h",
     ]
+  }
+
+  if (is_fuchsia) {
+    sources += [
+      "fuchsia/fuchsia_video_decoder.cc",
+      "fuchsia/fuchsia_video_decoder.h",
+    ]
+    deps += [ "//third_party/fuchsia-sdk/sdk:mediacodec" ]
   }
 }
 
@@ -250,12 +261,14 @@ source_set("unit_tests") {
   testonly = true
   sources = [
     "audio_clock_unittest.cc",
-    "audio_decoder_selector_unittest.cc",
+    "audio_decoder_stream_unittest.cc",
     "audio_renderer_algorithm_unittest.cc",
     "audio_timestamp_validator_unittest.cc",
     "chunk_demuxer_unittest.cc",
+    "decoder_selector_unittest.cc",
     "decrypting_audio_decoder_unittest.cc",
     "decrypting_demuxer_stream_unittest.cc",
+    "decrypting_media_resource_unittest.cc",
     "decrypting_video_decoder_unittest.cc",
     "fake_video_decoder.cc",
     "fake_video_decoder.h",
@@ -271,8 +284,7 @@ source_set("unit_tests") {
     "source_buffer_state_unittest.cc",
     "source_buffer_stream_unittest.cc",
     "video_cadence_estimator_unittest.cc",
-    "video_decoder_selector_unittest.cc",
-    "video_frame_stream_unittest.cc",
+    "video_decoder_stream_unittest.cc",
     "video_renderer_algorithm_unittest.cc",
     "vp8_bool_decoder_unittest.cc",
     "vp8_parser_unittest.cc",
@@ -294,12 +306,17 @@ source_set("unit_tests") {
   ]
 
   if (is_android) {
+    sources += [ "android/video_frame_extractor_unittest.cc" ]
     sources -= [
       "decrypting_audio_decoder_unittest.cc",
       "decrypting_video_decoder_unittest.cc",
     ]
 
     deps += [ "//ui/gl" ]
+  }
+
+  if (is_fuchsia) {
+    sources += [ "fuchsia/fuchsia_video_decoder_unittest.cc" ]
   }
 
   # libvpx for running vpx test on chromecast doesn't support high bit depth.

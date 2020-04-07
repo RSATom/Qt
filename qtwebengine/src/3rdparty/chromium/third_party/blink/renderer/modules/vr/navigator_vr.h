@@ -36,11 +36,13 @@ class MODULES_EXPORT NavigatorVR final
 
   static NavigatorVR* From(Document&);
   static NavigatorVR& From(Navigator&);
+
+  explicit NavigatorVR(Navigator&);
   ~NavigatorVR() override;
 
   // XR API
-  // TODO(offenwanger) Should eventually move this out into it's own separate
-  // Navigator supplement.
+  // TODO(http://crbug.com/842025) Should eventually move this out into it's own
+  // separate Navigator supplement.
   static XR* xr(Navigator&);
   XR* xr();
 
@@ -76,8 +78,6 @@ class MODULES_EXPORT NavigatorVR final
  private:
   friend class VRDisplay;
   friend class VRGetDevicesCallback;
-
-  explicit NavigatorVR(Navigator&);
 
   void FireVRDisplayPresentChange(VRDisplay*);
 

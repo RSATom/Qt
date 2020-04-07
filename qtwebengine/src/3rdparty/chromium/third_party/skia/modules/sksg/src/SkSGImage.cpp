@@ -14,16 +14,24 @@ namespace sksg {
 
 Image::Image(sk_sp<SkImage> image) : fImage(std::move(image)) {}
 
-void Image::onRender(SkCanvas* canvas) const {
+void Image::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
+    if (!fImage) {
+        return;
+    }
+
     SkPaint paint;
     paint.setAntiAlias(fAntiAlias);
     paint.setFilterQuality(fQuality);
 
-    canvas->drawImage(fImage, 0, 0);
+    if (ctx) {
+        ctx->modulatePaint(&paint);
+    }
+
+    canvas->drawImage(fImage, 0, 0, &paint);
 }
 
 SkRect Image::onRevalidate(InvalidationController*, const SkMatrix& ctm) {
-    return SkRect::Make(fImage->bounds());
+    return fImage ? SkRect::Make(fImage->bounds()) : SkRect::MakeEmpty();
 }
 
 } // namespace sksg

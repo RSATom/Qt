@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -76,4 +75,3 @@ to being one message for the whole menu.'''
 
     with util.WrapOutputStream(open(output_file, 'w')) as f:
       transl2tc.TranslationToTc.WriteTranslations(f, translations)
-

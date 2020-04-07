@@ -22,6 +22,7 @@
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/command_buffer/common/mailbox.h"
+#include "gpu/command_buffer/common/presentation_feedback_utils.h"
 #include "gpu/command_buffer/common/swap_buffers_flags.h"
 #include "gpu/command_buffer/service/gl_context_virtual.h"
 #include "gpu/command_buffer/service/gl_state_restorer_impl.h"
@@ -103,7 +104,9 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
         init_params.attribs.bind_generates_resource, channel_->image_manager(),
         gmb_factory ? gmb_factory->AsImageFactory() : nullptr,
         manager->watchdog() /* progress_reporter */,
-        manager->gpu_feature_info(), manager->discardable_manager());
+        manager->gpu_feature_info(), manager->discardable_manager(),
+        manager->passthrough_discardable_manager(),
+        manager->shared_image_manager());
   }
 
 #if defined(OS_MACOSX)
@@ -122,12 +125,7 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
   use_virtualized_gl_context_ |= manager->mailbox_manager()->UsesSync();
 
   bool offscreen = (surface_handle_ == kNullSurfaceHandle);
-  gl::GLSurface* default_surface = manager->GetDefaultOffscreenSurface();
-  if (!default_surface) {
-    LOG(ERROR) << "ContextResult::kFatalFailure: "
-                  "Failed to create default offscreen surface.";
-    return gpu::ContextResult::kFatalFailure;
-  }
+  gl::GLSurface* default_surface = manager->default_offscreen_surface();
   // On low-spec Android devices, the default offscreen surface is
   // RGB565, but WebGL rendering contexts still ask for RGBA8888 mode.
   // That combination works for offscreen rendering, we can still use
@@ -198,8 +196,9 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
       surface_ = gl::init::CreateOffscreenGLSurfaceWithFormat(gfx::Size(),
                                                               surface_format);
       if (!surface_) {
-        LOG(ERROR) << "ContextResult::kFatalFailure: Failed to create surface.";
-        return gpu::ContextResult::kFatalFailure;
+        LOG(ERROR)
+            << "ContextResult::kSurfaceFailure: Failed to create surface.";
+        return gpu::ContextResult::kSurfaceFailure;
       }
     } else {
       surface_ = default_surface;
@@ -222,8 +221,8 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
         weak_ptr_factory_.GetWeakPtr(), surface_handle_, surface_format);
     if (!surface_ || !surface_->Initialize(surface_format)) {
       surface_ = nullptr;
-      LOG(ERROR) << "ContextResult::kFatalFailure: Failed to create surface.";
-      return gpu::ContextResult::kFatalFailure;
+      LOG(ERROR) << "ContextResult::kSurfaceFailure: Failed to create surface.";
+      return gpu::ContextResult::kSurfaceFailure;
     }
     if (init_params.attribs.enable_swap_timestamps_if_supported &&
         surface_->SupportsSwapTimestamps())
@@ -231,12 +230,15 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
   }
 
   if (context_group_->use_passthrough_cmd_decoder()) {
+    // Virtualized contexts don't work with passthrough command decoder.
+    // See https://crbug.com/914976
+    use_virtualized_gl_context_ = false;
     // When using the passthrough command decoder, only share with other
     // contexts in the explicitly requested share group
     if (share_command_buffer_stub) {
       share_group_ = share_command_buffer_stub->share_group();
     } else {
-      share_group_ = new gl::GLShareGroup();
+      share_group_ = base::MakeRefCounted<gl::GLShareGroup>();
     }
   } else {
     // When using the validating command decoder, always use the global share
@@ -401,13 +403,8 @@ void GLES2CommandBufferStub::BufferPresented(
     const gfx::PresentationFeedback& feedback) {
   SwapBufferParams params = pending_presented_params_.front();
   pending_presented_params_.pop_front();
-
-  if (params.flags & gpu::SwapBuffersFlags::kPresentationFeedback ||
-      (params.flags & gpu::SwapBuffersFlags::kVSyncParams &&
-       feedback.flags & gfx::PresentationFeedback::kVSync)) {
-    Send(new GpuCommandBufferMsg_BufferPresented(route_id_, params.swap_id,
-                                                 feedback));
-  }
+  Send(new GpuCommandBufferMsg_BufferPresented(route_id_, params.swap_id,
+                                               feedback));
 }
 
 void GLES2CommandBufferStub::AddFilter(IPC::MessageFilter* message_filter) {
@@ -430,6 +427,8 @@ void GLES2CommandBufferStub::OnTakeFrontBuffer(const Mailbox& mailbox) {
 
 void GLES2CommandBufferStub::OnReturnFrontBuffer(const Mailbox& mailbox,
                                                  bool is_lost) {
+  // No need to pull texture updates.
+  DCHECK(!context_group_->mailbox_manager()->UsesSync());
   gles2_decoder_->ReturnFrontBuffer(mailbox, is_lost);
 }
 

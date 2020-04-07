@@ -10,9 +10,9 @@
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/graphics/texture_holder.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 
 class GrContext;
 
@@ -87,8 +87,6 @@ class PLATFORM_EXPORT AcceleratedStaticBitmapImage final
   void UpdateSyncToken(gpu::SyncToken) final;
 
   PaintImage PaintImageForCurrentFrame() override;
-
-  void Abandon() final;
 
   TextureHolder* TextureHolderForTesting() { return texture_holder_.get(); }
 

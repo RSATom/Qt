@@ -11,7 +11,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
@@ -123,7 +122,7 @@ std::string MakeRegistrationKey(const std::string& app_id) {
 }
 
 std::string ParseRegistrationKey(const std::string& key) {
-  return key.substr(arraysize(kRegistrationKeyStart) - 1);
+  return key.substr(base::size(kRegistrationKeyStart) - 1);
 }
 
 std::string MakeIncomingKey(const std::string& persistent_id) {
@@ -135,7 +134,7 @@ std::string MakeOutgoingKey(const std::string& persistent_id) {
 }
 
 std::string ParseOutgoingKey(const std::string& key) {
-  return key.substr(arraysize(kOutgoingMsgKeyStart) - 1);
+  return key.substr(base::size(kOutgoingMsgKeyStart) - 1);
 }
 
 std::string MakeGServiceSettingKey(const std::string& setting_name) {
@@ -143,7 +142,7 @@ std::string MakeGServiceSettingKey(const std::string& setting_name) {
 }
 
 std::string ParseGServiceSettingKey(const std::string& key) {
-  return key.substr(arraysize(kGServiceSettingKeyStart) - 1);
+  return key.substr(base::size(kGServiceSettingKeyStart) - 1);
 }
 
 std::string MakeAccountKey(const std::string& account_id) {
@@ -151,7 +150,7 @@ std::string MakeAccountKey(const std::string& account_id) {
 }
 
 std::string ParseAccountKey(const std::string& key) {
-  return key.substr(arraysize(kAccountKeyStart) - 1);
+  return key.substr(base::size(kAccountKeyStart) - 1);
 }
 
 std::string MakeHeartbeatKey(const std::string& scope) {
@@ -159,7 +158,7 @@ std::string MakeHeartbeatKey(const std::string& scope) {
 }
 
 std::string ParseHeartbeatKey(const std::string& key) {
-  return key.substr(arraysize(kHeartbeatKeyStart) - 1);
+  return key.substr(base::size(kHeartbeatKeyStart) - 1);
 }
 
 std::string MakeInstanceIDKey(const std::string& app_id) {
@@ -167,7 +166,7 @@ std::string MakeInstanceIDKey(const std::string& app_id) {
 }
 
 std::string ParseInstanceIDKey(const std::string& key) {
-  return key.substr(arraysize(kInstanceIDKeyStart) - 1);
+  return key.substr(base::size(kInstanceIDKeyStart) - 1);
 }
 
 // Note: leveldb::Slice keeps a pointer to the data in |s|, which must therefore
@@ -366,20 +365,21 @@ void GCMStoreImpl::Backend::Load(StoreOpenMode open_mode,
   if (result->device_android_id != 0 && result->device_security_token != 0) {
     int64_t file_size = 0;
     if (base::GetFileSize(path_, &file_size)) {
-      UMA_HISTOGRAM_COUNTS("GCM.StoreSizeKB",
-                           static_cast<int>(file_size / 1024));
+      UMA_HISTOGRAM_COUNTS_1M("GCM.StoreSizeKB",
+                              static_cast<int>(file_size / 1024));
     }
 
-    UMA_HISTOGRAM_COUNTS("GCM.RestoredRegistrations", gcm_registration_count);
-    UMA_HISTOGRAM_COUNTS("GCM.RestoredOutgoingMessages",
-                         result->outgoing_messages.size());
-    UMA_HISTOGRAM_COUNTS("GCM.RestoredIncomingMessages",
-                         result->incoming_messages.size());
+    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredRegistrations",
+                            gcm_registration_count);
+    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredOutgoingMessages",
+                            result->outgoing_messages.size());
+    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredIncomingMessages",
+                            result->incoming_messages.size());
 
-    UMA_HISTOGRAM_COUNTS("InstanceID.RestoredTokenCount",
-                         instance_id_token_count);
-    UMA_HISTOGRAM_COUNTS("InstanceID.RestoredIDCount",
-                         result->instance_id_data.size());
+    UMA_HISTOGRAM_COUNTS_1M("InstanceID.RestoredTokenCount",
+                            instance_id_token_count);
+    UMA_HISTOGRAM_COUNTS_1M("InstanceID.RestoredIDCount",
+                            result->instance_id_data.size());
   }
 
   DVLOG(1) << "Succeeded in loading "
@@ -1001,7 +1001,7 @@ bool GCMStoreImpl::Backend::LoadOutgoingMessages(
     }
     DVLOG(1) << "Found outgoing message with id " << id << " of type "
              << base::UintToString(tag);
-    (*outgoing_messages)[id] = make_linked_ptr(message.release());
+    (*outgoing_messages)[id] = std::move(message);
   }
 
   return true;
@@ -1440,7 +1440,7 @@ void GCMStoreImpl::LoadContinuation(const LoadCallback& callback,
     if (app_message_counts_[data_message->category()] == kMessagesPerAppLimit)
       num_throttled_apps++;
   }
-  UMA_HISTOGRAM_COUNTS("GCM.NumThrottledApps", num_throttled_apps);
+  UMA_HISTOGRAM_COUNTS_1M("GCM.NumThrottledApps", num_throttled_apps);
   callback.Run(std::move(result));
 }
 

@@ -44,9 +44,7 @@ std::unique_ptr<EmbeddedWorkerInstance> EmbeddedWorkerRegistry::CreateWorker(
 }
 
 void EmbeddedWorkerRegistry::Shutdown() {
-  for (WorkerInstanceMap::iterator it = worker_map_.begin();
-       it != worker_map_.end();
-       ++it) {
+  for (auto it = worker_map_.begin(); it != worker_map_.end(); ++it) {
     it->second->Stop();
   }
 }
@@ -68,13 +66,13 @@ void EmbeddedWorkerRegistry::OnWorkerStopped(int process_id,
   lifetime_tracker_.StopTiming(embedded_worker_id);
 }
 
-void EmbeddedWorkerRegistry::OnDevToolsAttached(int embedded_worker_id) {
+void EmbeddedWorkerRegistry::AbortLifetimeTracking(int embedded_worker_id) {
   lifetime_tracker_.AbortTiming(embedded_worker_id);
 }
 
 EmbeddedWorkerInstance* EmbeddedWorkerRegistry::GetWorker(
     int embedded_worker_id) {
-  WorkerInstanceMap::iterator found = worker_map_.find(embedded_worker_id);
+  auto found = worker_map_.find(embedded_worker_id);
   if (found == worker_map_.end())
     return nullptr;
   return found->second;

@@ -42,7 +42,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 namespace {
 
@@ -227,7 +227,7 @@ void BreakBlockquoteCommand::DoApply(EditingState* editing_state) {
   // that was cloned (i.e. the clone of either ancestors.last()
   // or clonedBlockquote if ancestors is empty).
   Element* cloned_ancestor = cloned_blockquote;
-  for (size_t i = ancestors.size(); i != 0; --i) {
+  for (wtf_size_t i = ancestors.size(); i != 0; --i) {
     Element* cloned_child = ancestors[i - 1]->CloneWithoutChildren();
     // Preserve list item numbering in cloned lists.
     if (IsHTMLOListElement(*cloned_child)) {
@@ -238,7 +238,7 @@ void BreakBlockquoteCommand::DoApply(EditingState* editing_state) {
         list_child_node = list_child_node->nextSibling();
       if (IsListItem(list_child_node))
         SetNodeAttribute(
-            cloned_child, startAttr,
+            cloned_child, kStartAttr,
             AtomicString::Number(
                 ToLayoutListItem(list_child_node->GetLayoutObject())->Value()));
     }

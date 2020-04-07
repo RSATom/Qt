@@ -29,6 +29,11 @@ namespace draw_property_utils {
 
 namespace {
 
+static gfx::Rect ToEnclosingClipRect(const gfx::RectF& clip_rect) {
+  constexpr float kClipError = 0.00001f;
+  return gfx::ToEnclosingRectIgnoringError(clip_rect, kClipError);
+}
+
 static bool IsRootLayer(const Layer* layer) {
   return !layer->parent();
 }
@@ -129,10 +134,11 @@ static ConditionalClip ComputeCurrentClip(const ClipNode* clip_node,
                                           const PropertyTrees* property_trees,
                                           int target_transform_id,
                                           int target_effect_id) {
-  if (clip_node->transform_id != target_transform_id)
+  if (clip_node->transform_id != target_transform_id) {
     return ComputeLocalRectInTargetSpace(clip_node->clip, property_trees,
                                          clip_node->transform_id,
                                          target_transform_id, target_effect_id);
+  }
 
   const EffectTree& effect_tree = property_trees->effect_tree;
   gfx::RectF current_clip = clip_node->clip;
@@ -183,7 +189,7 @@ static bool ApplyClipNodeToAccumulatedClip(const PropertyTrees* property_trees,
       // Do the expansion.
       gfx::RectF expanded_clip_in_expanding_space =
           gfx::RectF(clip_node->clip_expander->MapRectReverse(
-              gfx::ToEnclosingRect(accumulated_clip_rect_in_expanding_space),
+              ToEnclosingClipRect(accumulated_clip_rect_in_expanding_space),
               property_trees));
 
       // Put the expanded clip back into the original target space.
@@ -451,9 +457,14 @@ static inline bool LayerShouldBeSkippedInternal(
     LayerType* layer,
     const TransformTree& transform_tree,
     const EffectTree& effect_tree) {
+  // TODO(enne): remove temporary CHECKs once http://crbug.com/898668 is fixed.
+  CHECK_NE(layer->transform_tree_index(), TransformTree::kInvalidNodeId);
   const TransformNode* transform_node =
       transform_tree.Node(layer->transform_tree_index());
+  CHECK(transform_node);
+  CHECK_NE(layer->effect_tree_index(), EffectTree::kInvalidNodeId);
   const EffectNode* effect_node = effect_tree.Node(layer->effect_tree_index());
+  CHECK(effect_node);
 
   if (effect_node->has_render_surface && effect_node->subtree_has_copy_request)
     return false;
@@ -462,33 +473,6 @@ static inline bool LayerShouldBeSkippedInternal(
   // transform is animating and singular, we should not skip it.
   return !transform_node->node_and_ancestors_are_animated_or_invertible ||
          effect_node->hidden_by_backface_visibility || !effect_node->is_drawn;
-}
-
-template <typename LayerType>
-static void UpdateElasticOverscrollInternal(
-    PropertyTrees* property_trees,
-    const LayerType* overscroll_elasticity_layer,
-    const gfx::Vector2dF& elastic_overscroll) {
-  if (!overscroll_elasticity_layer) {
-    DCHECK(elastic_overscroll.IsZero());
-    return;
-  }
-
-  TransformNode* node = property_trees->transform_tree.Node(
-      overscroll_elasticity_layer->transform_tree_index());
-  DCHECK(node);
-
-  // TODO(pdr): This is a workaround for https://crbug.com/721772 to avoid
-  // crashing when there's no transform node. This workaround should be removed.
-  if (!node)
-    return;
-
-  if (node->scroll_offset == gfx::ScrollOffset(elastic_overscroll))
-    return;
-
-  node->scroll_offset = gfx::ScrollOffset(elastic_overscroll);
-  node->needs_local_transform_update = true;
-  property_trees->transform_tree.set_needs_update(true);
 }
 
 static gfx::Rect LayerDrawableContentRect(
@@ -584,13 +568,13 @@ static void SetSurfaceClipRect(const ClipNode* parent_clip_node,
   bool include_expanding_clips = false;
   if (render_surface->EffectTreeIndex() == EffectTree::kContentsRootNodeId) {
     render_surface->SetClipRect(
-        gfx::ToEnclosingRect(clip_tree.Node(effect_node->clip_id)->clip));
+        ToEnclosingClipRect(clip_tree.Node(effect_node->clip_id)->clip));
   } else {
     ConditionalClip accumulated_clip_rect =
         ComputeAccumulatedClip(property_trees, include_expanding_clips,
                                effect_node->clip_id, target_node->id);
     render_surface->SetClipRect(
-        gfx::ToEnclosingRect(accumulated_clip_rect.clip_rect));
+        ToEnclosingClipRect(accumulated_clip_rect.clip_rect));
   }
 }
 
@@ -668,7 +652,7 @@ static gfx::Rect LayerVisibleRect(PropertyTrees* property_trees,
   gfx::RectF clip_in_layer_space = accumulated_clip_in_layer_space.clip_rect;
   clip_in_layer_space.Offset(-layer->offset_to_transform_parent());
 
-  gfx::Rect visible_rect = gfx::ToEnclosingRect(clip_in_layer_space);
+  gfx::Rect visible_rect = ToEnclosingClipRect(clip_in_layer_space);
   visible_rect.Intersect(layer_content_rect);
   return visible_rect;
 }
@@ -725,7 +709,9 @@ static void ComputeClips(PropertyTrees* property_trees) {
     bool success = ApplyClipNodeToAccumulatedClip(
         property_trees, include_expanding_clips, target_effect_id,
         target_transform_id, clip_node, &accumulated_clip);
-    DCHECK(success);
+    if (!success)
+      LOG(ERROR) << "Compute clip failure";
+//    DCHECK(success);
     clip_node->cached_accumulated_rect_in_screen_space = accumulated_clip;
   }
   clip_tree->set_needs_update(false);
@@ -746,6 +732,9 @@ bool LayerShouldBeSkippedForDrawPropertiesComputation(
     LayerImpl* layer,
     const TransformTree& transform_tree,
     const EffectTree& effect_tree) {
+  // TODO(enne): remove temporary CHECKs once http://crbug.com/898668 is fixed.
+  CHECK(layer);
+  CHECK(layer->layer_tree_impl());
   return LayerShouldBeSkippedInternal(layer, transform_tree, effect_tree);
 }
 
@@ -753,6 +742,11 @@ bool LayerShouldBeSkippedForDrawPropertiesComputation(
     Layer* layer,
     const TransformTree& transform_tree,
     const EffectTree& effect_tree) {
+  // TODO(enne): remove temporary CHECKs once http://crbug.com/898668 is fixed.
+  CHECK(layer);
+  CHECK(layer->layer_tree_host());
+  CHECK_EQ(layer->layer_tree_host()->property_trees()->sequence_number,
+           layer->property_tree_sequence_number());
   return LayerShouldBeSkippedInternal(layer, transform_tree, effect_tree);
 }
 
@@ -943,7 +937,7 @@ void ComputeDrawPropertiesOfVisibleLayers(const LayerImplList* layer_list,
     // is_clipped should be set before visible rect computation as it is used
     // there.
     layer->draw_properties().is_clipped = clip.is_clipped;
-    layer->draw_properties().clip_rect = gfx::ToEnclosingRect(clip.clip_rect);
+    layer->draw_properties().clip_rect = ToEnclosingClipRect(clip.clip_rect);
     layer->draw_properties().visible_layer_rect =
         LayerVisibleRect(property_trees, layer);
   }
@@ -976,8 +970,7 @@ void ComputeMaskDrawProperties(LayerImpl* mask_layer,
   // is_clipped should be set before visible rect computation as it is used
   // there.
   mask_layer->draw_properties().is_clipped = clip.is_clipped;
-  mask_layer->draw_properties().clip_rect =
-      gfx::ToEnclosingRect(clip.clip_rect);
+  mask_layer->draw_properties().clip_rect = ToEnclosingClipRect(clip.clip_rect);
   // Calculate actual visible layer rect for mask layers, since we could have
   // tiled mask layers and the tile manager would need this info for rastering.
   mask_layer->draw_properties().visible_layer_rect =
@@ -1025,17 +1018,23 @@ void UpdatePageScaleFactor(PropertyTrees* property_trees,
 }
 
 void UpdateElasticOverscroll(PropertyTrees* property_trees,
-                             const LayerImpl* overscroll_elasticity_layer,
+                             const ElementId overscroll_elasticity_element_id,
                              const gfx::Vector2dF& elastic_overscroll) {
-  UpdateElasticOverscrollInternal(property_trees, overscroll_elasticity_layer,
-                                  elastic_overscroll);
-}
+  if (!overscroll_elasticity_element_id) {
+    DCHECK(elastic_overscroll.IsZero());
+    return;
+  }
 
-void UpdateElasticOverscroll(PropertyTrees* property_trees,
-                             const Layer* overscroll_elasticity_layer,
-                             const gfx::Vector2dF& elastic_overscroll) {
-  UpdateElasticOverscrollInternal(property_trees, overscroll_elasticity_layer,
-                                  elastic_overscroll);
+  TransformNode* node = property_trees->transform_tree.FindNodeFromElementId(
+      overscroll_elasticity_element_id);
+  DCHECK(node);
+
+  if (node->scroll_offset == gfx::ScrollOffset(elastic_overscroll))
+    return;
+
+  node->scroll_offset = gfx::ScrollOffset(elastic_overscroll);
+  node->needs_local_transform_update = true;
+  property_trees->transform_tree.set_needs_update(true);
 }
 
 }  // namespace draw_property_utils

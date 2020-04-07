@@ -9,12 +9,13 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/guid.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/notification_database_data.h"
-#include "content/public/common/platform_notification_data.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/notifications/platform_notification_data.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 #include "url/gurl.h"
@@ -39,15 +40,19 @@ const struct {
     {"https://chrome.com", "foo" /* tag */, 0}};
 
 class NotificationDatabaseTest : public ::testing::Test {
+ public:
+  NotificationDatabaseTest()
+      : thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
+
  protected:
   // Creates a new NotificationDatabase instance in memory.
   NotificationDatabase* CreateDatabaseInMemory() {
-    return new NotificationDatabase(base::FilePath());
+    return new NotificationDatabase(base::FilePath(), callback());
   }
 
   // Creates a new NotificationDatabase instance in |path|.
   NotificationDatabase* CreateDatabaseOnFileSystem(const base::FilePath& path) {
-    return new NotificationDatabase(path);
+    return new NotificationDatabase(path, callback());
   }
 
   // Creates a new notification for |service_worker_registration_id| belonging
@@ -77,7 +82,7 @@ class NotificationDatabaseTest : public ::testing::Test {
   // their origin and Service Worker registration id.
   void PopulateDatabaseWithExampleData(NotificationDatabase* database) {
     std::string notification_id;
-    for (size_t i = 0; i < arraysize(kExampleNotificationData); ++i) {
+    for (size_t i = 0; i < base::size(kExampleNotificationData); ++i) {
       ASSERT_NO_FATAL_FAILURE(CreateAndWriteNotification(
           database, GURL(kExampleNotificationData[i].origin),
           kExampleNotificationData[i].tag,
@@ -108,6 +113,12 @@ class NotificationDatabaseTest : public ::testing::Test {
 
   // Generates a random notification ID. The format of the ID is opaque.
   std::string GenerateNotificationId() { return base::GenerateGUID(); }
+
+  NotificationDatabase::UkmCallback callback() { return callback_; }
+
+  TestBrowserThreadBundle thread_bundle_;  // Must be first member.
+
+  NotificationDatabase::UkmCallback callback_;
 };
 
 TEST_F(NotificationDatabaseTest, OpenCloseMemory) {
@@ -272,10 +283,10 @@ TEST_F(NotificationDatabaseTest, ReadNotificationDataReflection) {
 
   GURL origin("https://example.com");
 
-  PlatformNotificationData notification_data;
+  blink::PlatformNotificationData notification_data;
   notification_data.title = base::UTF8ToUTF16("My Notification");
   notification_data.direction =
-      PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT;
+      blink::PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT;
   notification_data.lang = "nl-NL";
   notification_data.body = base::UTF8ToUTF16("Hello, world!");
   notification_data.tag = "replace id";
@@ -307,7 +318,7 @@ TEST_F(NotificationDatabaseTest, ReadNotificationDataReflection) {
   EXPECT_EQ(database_data.service_worker_registration_id,
             read_database_data.service_worker_registration_id);
 
-  const PlatformNotificationData& read_notification_data =
+  const blink::PlatformNotificationData& read_notification_data =
       read_database_data.notification_data;
 
   EXPECT_EQ(notification_data.title, read_notification_data.title);
@@ -493,7 +504,7 @@ TEST_F(NotificationDatabaseTest, ReadAllNotificationData) {
   ASSERT_EQ(NotificationDatabase::STATUS_OK,
             database->ReadAllNotificationData(&notifications));
 
-  EXPECT_EQ(arraysize(kExampleNotificationData), notifications.size());
+  EXPECT_EQ(base::size(kExampleNotificationData), notifications.size());
 }
 
 TEST_F(NotificationDatabaseTest, ReadAllNotificationDataEmpty) {

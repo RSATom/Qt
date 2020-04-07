@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "gpu/command_buffer/client/gles2_cmd_helper.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
+#include "gpu/command_buffer/common/gles2_cmd_utils.h"
 
 namespace gpu {
 namespace gles2 {
@@ -18,11 +19,6 @@ namespace gles2 {
 template <typename T>
 static T RoundUpToMultipleOf4(T size) {
   return (size + 3) & ~3;
-}
-
-// A 32-bit and 64-bit compatible way of converting a pointer to a GLuint.
-static GLuint ToGLuint(const void* ptr) {
-  return static_cast<GLuint>(reinterpret_cast<size_t>(ptr));
 }
 
 // This class tracks VertexAttribPointers and helps emulate client side buffers.
@@ -50,11 +46,10 @@ class GLES2_IMPL_EXPORT VertexArrayObject {
           size_(4),
           type_(GL_FLOAT),
           normalized_(GL_FALSE),
-          pointer_(NULL),
+          pointer_(nullptr),
           gl_stride_(0),
           divisor_(0),
-          integer_(GL_FALSE) {
-    }
+          integer_(GL_FALSE) {}
 
     bool enabled() const {
       return enabled_;
@@ -332,7 +327,7 @@ const VertexArrayObject::VertexAttrib* VertexArrayObject::GetAttrib(
     const VertexAttrib* attrib = &vertex_attribs_[index];
     return attrib;
   }
-  return NULL;
+  return nullptr;
 }
 
 VertexArrayObjectManager::VertexArrayObjectManager(
@@ -450,7 +445,7 @@ bool VertexArrayObjectManager::SetAttribPointer(
     const void* ptr,
     GLboolean integer) {
   // Client side arrays are not allowed in vaos.
-  if (buffer_id == 0 && !IsDefaultVAOBound()) {
+  if (buffer_id == 0 && !IsDefaultVAOBound() && ptr) {
     return false;
   }
   bound_vertex_array_object_->SetAttribPointer(
@@ -522,7 +517,8 @@ bool VertexArrayObjectManager::SetupSimulatedClientSideBuffers(
           GLES2Util::GetGroupSizeForBufferType(attrib.size(), attrib.type());
       GLsizei elements = (primcount && attrib.divisor() > 0) ?
           ((primcount - 1) / attrib.divisor() + 1) : num_elements;
-      checked_total_size += RoundUpToMultipleOf4(base::CheckMul(bytes_per_element, elements));
+      checked_total_size +=
+          RoundUpToMultipleOf4(base::CheckMul(bytes_per_element, elements));
     }
   }
   GLsizei total_size = 0;
@@ -534,7 +530,7 @@ bool VertexArrayObjectManager::SetupSimulatedClientSideBuffers(
   gl_helper->BindBuffer(GL_ARRAY_BUFFER, array_buffer_id_);
   array_buffer_offset_ = 0;
   if (total_size > array_buffer_size_) {
-    gl->BufferDataHelper(GL_ARRAY_BUFFER, total_size, NULL, GL_DYNAMIC_DRAW);
+    gl->BufferDataHelper(GL_ARRAY_BUFFER, total_size, nullptr, GL_DYNAMIC_DRAW);
     array_buffer_size_ = total_size;
   }
   for (GLuint ii = 0; ii < vertex_attribs.size(); ++ii) {
@@ -634,8 +630,8 @@ bool VertexArrayObjectManager::SetupSimulatedIndexAndClientSideBuffers(
     }
     if (bytes_needed > element_array_buffer_size_) {
       element_array_buffer_size_ = bytes_needed;
-      gl->BufferDataHelper(
-          GL_ELEMENT_ARRAY_BUFFER, bytes_needed, NULL, GL_DYNAMIC_DRAW);
+      gl->BufferDataHelper(GL_ELEMENT_ARRAY_BUFFER, bytes_needed, nullptr,
+                           GL_DYNAMIC_DRAW);
     }
     gl->BufferSubDataHelper(
         GL_ELEMENT_ARRAY_BUFFER, 0, bytes_needed, indices);

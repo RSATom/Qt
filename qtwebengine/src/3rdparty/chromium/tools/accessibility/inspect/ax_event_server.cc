@@ -4,36 +4,29 @@
 
 #include "tools/accessibility/inspect/ax_event_server.h"
 
+#include <iostream>
 #include <string>
 
-#include "base/at_exit.h"
 #include "base/bind.h"
-#include "base/command_line.h"
-#include "base/run_loop.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/test/scoped_task_environment.h"
 
-namespace content {
+namespace tools {
 
-static void OnEvent(std::string event) {
-  printf("Event %s\n", event.c_str());
+AXEventServer::AXEventServer(base::ProcessId pid,
+                             const base::StringPiece& pattern)
+    : recorder_(
+          content::AccessibilityEventRecorder::Create(nullptr, pid, pattern)) {
+  recorder_->ListenToEvents(
+      base::BindRepeating(&AXEventServer::OnEvent, base::Unretained(this)));
+
+  std::stringstream output;
+  output << "Events for process id: " << pid;
+  printf("%s", output.str().c_str());
 }
 
-AXEventServer::AXEventServer(int pid)
-    : recorder_(AccessibilityEventRecorder::Create(nullptr, pid)) {
-  printf("Events for process id: %d\n", pid);
+AXEventServer::~AXEventServer() = default;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
-
-  recorder_->ListenToEvents(base::BindRepeating(OnEvent));
-
-  base::RunLoop run_loop;
-  run_loop.Run();
+void AXEventServer::OnEvent(const std::string& event) const {
+  printf("%s\n", event.c_str());
 }
 
-AXEventServer::~AXEventServer() {
-  delete recorder_.release();
-}
-
-}  // namespace content
+}  // namespace tools

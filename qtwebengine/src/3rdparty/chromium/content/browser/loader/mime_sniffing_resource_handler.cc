@@ -74,11 +74,12 @@ class MimeSniffingResourceHandler::Controller : public ResourceController {
     mime_handler_->ResumeInternal();
   }
 
-  void ResumeForRedirect(const base::Optional<net::HttpRequestHeaders>&
-                             modified_request_headers) override {
-    DCHECK(!modified_request_headers.has_value())
-        << "Redirect with modified headers was not supported yet. "
-           "crbug.com/845683";
+  void ResumeForRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers) override {
+    DCHECK(removed_headers.empty() && modified_headers.IsEmpty())
+        << "Redirect with removed or modified headers is not used nor "
+           "supported. See https://crbug.com/845683.";
     Resume();
   }
 
@@ -115,7 +116,7 @@ MimeSniffingResourceHandler::MimeSniffingResourceHandler(
     PluginService* plugin_service,
     InterceptingResourceHandler* intercepting_handler,
     net::URLRequest* request,
-    RequestContextType request_context_type)
+    blink::mojom::RequestContextType request_context_type)
     : LayeredResourceHandler(request, std::move(next_handler)),
       state_(STATE_STARTING),
       host_(host),
@@ -161,7 +162,7 @@ void MimeSniffingResourceHandler::OnResponseStarted(
   if (!(response_->head.headers.get() &&
         response_->head.headers->response_code() == 304)) {
     // MIME sniffing should be disabled for a request initiated by fetch().
-    if (request_context_type_ != REQUEST_CONTEXT_TYPE_FETCH &&
+    if (request_context_type_ != blink::mojom::RequestContextType::FETCH &&
         network::ShouldSniffContent(request(), response_.get())) {
       controller->Resume();
       return;
@@ -250,6 +251,7 @@ void MimeSniffingResourceHandler::OnReadCompleted(
   // the mime type. However, even if it returns false, it returns a new type
   // that is probably better than the current one.
   response_->head.mime_type.assign(new_type);
+  response_->head.did_mime_sniff = true;
 
   if (!made_final_decision && (bytes_read > 0)) {
     controller->Resume();

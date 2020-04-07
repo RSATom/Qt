@@ -13,7 +13,7 @@
 #include "base/optional.h"
 #include "base/strings/nullable_string16.h"
 #include "base/strings/string16.h"
-#include "third_party/blink/common/common_export.h"
+#include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/manifest/web_display_mode.h"
 #include "third_party/blink/public/common/screen_orientation/web_screen_orientation_lock_type.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -32,7 +32,8 @@ struct BLINK_COMMON_EXPORT Manifest {
     enum class Purpose {
       ANY = 0,
       BADGE,
-      IMAGE_RESOURCE_PURPOSE_LAST = BADGE,
+      MASKABLE,
+      IMAGE_RESOURCE_PURPOSE_LAST = MASKABLE,
     };
 
     ImageResource();
@@ -55,20 +56,53 @@ struct BLINK_COMMON_EXPORT Manifest {
     // The special value "any" is represented by gfx::Size(0, 0).
     std::vector<gfx::Size> sizes;
 
-    // Empty if the field was not present or not of type "string". Defaults to
-    // a vector with a single value, IconPurpose::ANY, for all other parsing
-    // exceptions.
+    // Never empty. Defaults to a vector with a single value, IconPurpose::ANY,
+    // if not explicitly specified in the manifest.
     std::vector<Purpose> purpose;
+  };
+
+  struct BLINK_COMMON_EXPORT ShareTargetFile {
+    base::string16 name;
+    std::vector<base::string16> accept;
+  };
+
+  // Structure representing a Web Share target's query parameter keys.
+  struct BLINK_COMMON_EXPORT ShareTargetParams {
+    ShareTargetParams();
+    ~ShareTargetParams();
+
+    base::NullableString16 title;
+    base::NullableString16 text;
+    base::NullableString16 url;
+    std::vector<ShareTargetFile> files;
   };
 
   // Structure representing how a Web Share target handles an incoming share.
   struct BLINK_COMMON_EXPORT ShareTarget {
+    enum class Method {
+      kGet,
+      kPost,
+    };
+
+    enum class Enctype {
+      kApplication,
+      kMultipart,
+    };
+
     ShareTarget();
     ~ShareTarget();
 
-    // The URL template that contains placeholders to be replaced with shared
-    // data. Empty if the parsing failed.
-    GURL url_template;
+    // The URL used for sharing. Query parameters are added to this comprised of
+    // keys from |params| and values from the shared data.
+    GURL action;
+
+    // The HTTP request method for the web share target.
+    Method method;
+
+    // The way that share data is encoded in "POST" request.
+    Enctype enctype;
+
+    ShareTargetParams params;
   };
 
   // Structure representing a related application.

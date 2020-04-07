@@ -45,17 +45,18 @@ class FakeVideoDecoder : public VideoDecoder {
 
   // VideoDecoder implementation.
   std::string GetDisplayName() const override;
-  void Initialize(
-      const VideoDecoderConfig& config,
-      bool low_delay,
-      CdmContext* cdm_context,
-      const InitCB& init_cb,
-      const OutputCB& output_cb,
-      const WaitingForDecryptionKeyCB& waiting_for_decryption_key_cb) override;
+  void Initialize(const VideoDecoderConfig& config,
+                  bool low_delay,
+                  CdmContext* cdm_context,
+                  const InitCB& init_cb,
+                  const OutputCB& output_cb,
+                  const WaitingCB& waiting_cb) override;
   void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) override;
   void Reset(const base::Closure& closure) override;
   int GetMaxDecodeRequests() const override;
+
+  base::WeakPtr<FakeVideoDecoder> GetWeakPtr();
 
   // Holds the next init/decode/reset callback from firing.
   void HoldNextInit();

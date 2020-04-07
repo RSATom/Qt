@@ -8,7 +8,7 @@
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
 
 namespace blink {
-namespace CSSShorthand {
+namespace css_shorthand {
 
 bool BorderBlock::ParseShorthand(
     bool important,
@@ -20,20 +20,38 @@ bool BorderBlock::ParseShorthand(
   const CSSValue* style = nullptr;
   const CSSValue* color = nullptr;
 
-  if (!CSSPropertyParserHelpers::ConsumeBorderShorthand(range, context, width,
-                                                        style, color)) {
+  if (!css_property_parser_helpers::ConsumeBorderShorthand(
+          range, context, width, style, color)) {
     return false;
   };
 
-  CSSPropertyParserHelpers::AddExpandedPropertyForValue(
+  css_property_parser_helpers::AddExpandedPropertyForValue(
       CSSPropertyBorderBlockWidth, *width, important, properties);
-  CSSPropertyParserHelpers::AddExpandedPropertyForValue(
+  css_property_parser_helpers::AddExpandedPropertyForValue(
       CSSPropertyBorderBlockStyle, *style, important, properties);
-  CSSPropertyParserHelpers::AddExpandedPropertyForValue(
+  css_property_parser_helpers::AddExpandedPropertyForValue(
       CSSPropertyBorderBlockColor, *color, important, properties);
 
   return range.AtEnd();
 }
 
-}  // namespace CSSShorthand
+const CSSValue* BorderBlock::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const SVGComputedStyle&,
+    const LayoutObject* layout_object,
+    Node* styled_node,
+    bool allow_visited_style) const {
+  const CSSValue* value_start =
+      GetCSSPropertyBorderBlockStart().CSSValueFromComputedStyle(
+          style, layout_object, styled_node, allow_visited_style);
+  const CSSValue* value_end =
+      GetCSSPropertyBorderBlockEnd().CSSValueFromComputedStyle(
+          style, layout_object, styled_node, allow_visited_style);
+  if (!DataEquivalent(value_start, value_end)) {
+    return nullptr;
+  }
+  return value_start;
+}
+
+}  // namespace css_shorthand
 }  // namespace blink

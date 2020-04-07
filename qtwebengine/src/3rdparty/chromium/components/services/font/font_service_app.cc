@@ -10,9 +10,9 @@
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "build/build_config.h"
+#include "components/services/font/fontconfig_matching.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "ppapi/buildflags/buildflags.h"
-#include "services/service_manager/public/cpp/service_context.h"
 #include "ui/gfx/font_fallback_linux.h"
 #include "ui/gfx/font_render_params.h"
 
@@ -82,11 +82,8 @@ font_service::mojom::RenderStyleSwitch ConvertSubpixelRendering(
 
 namespace font_service {
 
-std::unique_ptr<service_manager::Service> FontServiceApp::CreateService() {
-  return std::make_unique<FontServiceApp>();
-}
-
-FontServiceApp::FontServiceApp() {
+FontServiceApp::FontServiceApp(service_manager::mojom::ServiceRequest request)
+    : service_binding_(this, std::move(request)) {
   registry_.AddInterface(
       base::BindRepeating(&FontServiceApp::CreateSelf, base::Unretained(this)));
 }
@@ -201,6 +198,24 @@ void FontServiceApp::FontRenderStyleForStrike(
       params.subpixel_positioning ? mojom::RenderStyleSwitch::ON
                                   : mojom::RenderStyleSwitch::OFF));
   std::move(callback).Run(std::move(font_render_style));
+}
+
+void FontServiceApp::MatchFontByPostscriptNameOrFullFontName(
+    const std::string& family,
+    MatchFontByPostscriptNameOrFullFontNameCallback callback) {
+  base::Optional<FontConfigLocalMatching::FontConfigMatchResult> match_result =
+      FontConfigLocalMatching::FindFontByPostscriptNameOrFullFontName(family);
+  if (match_result) {
+    uint32_t fontconfig_interface_id =
+        FindOrAddPath(SkString(match_result->file_path.value().c_str()));
+    mojom::FontIdentityPtr font_identity =
+        mojom::FontIdentityPtr(mojom::FontIdentity::New(
+            fontconfig_interface_id, match_result->ttc_index,
+            match_result->file_path.value()));
+    std::move(callback).Run(std::move(font_identity));
+    return;
+  }
+  std::move(callback).Run(nullptr);
 }
 
 void FontServiceApp::MatchFontWithFallback(

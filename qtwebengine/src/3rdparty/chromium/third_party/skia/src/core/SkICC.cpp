@@ -206,14 +206,14 @@ static bool nearly_equal(float x, float y) {
 }
 
 static bool nearly_equal(const SkColorSpaceTransferFn& u,
-                         const SkColorSpaceTransferFn& v) {
-    return nearly_equal(u.fG, v.fG)
-        && nearly_equal(u.fA, v.fA)
-        && nearly_equal(u.fB, v.fB)
-        && nearly_equal(u.fC, v.fC)
-        && nearly_equal(u.fD, v.fD)
-        && nearly_equal(u.fE, v.fE)
-        && nearly_equal(u.fF, v.fF);
+                         const skcms_TransferFunction& v) {
+    return nearly_equal(u.fG, v.g)
+        && nearly_equal(u.fA, v.a)
+        && nearly_equal(u.fB, v.b)
+        && nearly_equal(u.fC, v.c)
+        && nearly_equal(u.fD, v.d)
+        && nearly_equal(u.fE, v.e)
+        && nearly_equal(u.fF, v.f);
 }
 
 static bool nearly_equal(const float u[9], const float v[9]) {
@@ -228,23 +228,23 @@ static bool nearly_equal(const float u[9], const float v[9]) {
 // Return nullptr if the color profile doen't have a special name.
 const char* get_color_profile_description(const SkColorSpaceTransferFn& fn,
                                           const float toXYZD50[9]) {
-    bool srgb_xfer = nearly_equal(fn, gSRGB_TransferFn);
-    bool srgb_gamut = nearly_equal(toXYZD50, gSRGB_toXYZD50);
+    bool srgb_xfer = nearly_equal(fn, SkNamedTransferFn::kSRGB);
+    bool srgb_gamut = nearly_equal(toXYZD50, &SkNamedGamut::kSRGB.vals[0][0]);
     if (srgb_xfer && srgb_gamut) {
         return "sRGB";
     }
-    bool line_xfer = nearly_equal(fn, gLinear_TransferFn);
+    bool line_xfer = nearly_equal(fn, SkNamedTransferFn::kLinear);
     if (line_xfer && srgb_gamut) {
         return "Linear Transfer with sRGB Gamut";
     }
-    bool twoDotTwo = nearly_equal(fn, g2Dot2_TransferFn);
+    bool twoDotTwo = nearly_equal(fn, SkNamedTransferFn::k2Dot2);
     if (twoDotTwo && srgb_gamut) {
         return "2.2 Transfer with sRGB Gamut";
     }
-    if (twoDotTwo && nearly_equal(toXYZD50, gAdobeRGB_toXYZD50)) {
+    if (twoDotTwo && nearly_equal(toXYZD50, &SkNamedGamut::kAdobeRGB.vals[0][0])) {
         return "AdobeRGB";
     }
-    bool dcip3_gamut = nearly_equal(toXYZD50, gDCIP3_toXYZD50);
+    bool dcip3_gamut = nearly_equal(toXYZD50, &SkNamedGamut::kDCIP3.vals[0][0]);
     if (srgb_xfer || line_xfer) {
         if (srgb_xfer && dcip3_gamut) {
             return "sRGB Transfer with DCI-P3 Gamut";
@@ -252,16 +252,13 @@ const char* get_color_profile_description(const SkColorSpaceTransferFn& fn,
         if (line_xfer && dcip3_gamut) {
             return "Linear Transfer with DCI-P3 Gamut";
         }
-        bool rec2020 = nearly_equal(toXYZD50, gRec2020_toXYZD50);
+        bool rec2020 = nearly_equal(toXYZD50, &SkNamedGamut::kRec2020.vals[0][0]);
         if (srgb_xfer && rec2020) {
             return "sRGB Transfer with Rec-BT-2020 Gamut";
         }
         if (line_xfer && rec2020) {
             return "Linear Transfer with Rec-BT-2020 Gamut";
         }
-    }
-    if (dcip3_gamut && nearly_equal(fn, gDCIP3_TransferFn)) {
-        return "DCI-P3";
     }
     return nullptr;
 }
@@ -347,4 +344,23 @@ sk_sp<SkData> SkWriteICCProfile(const SkColorSpaceTransferFn& fn, const float to
 
     SkASSERT(kICCProfileSize == ptr - (uint8_t*) profile.get());
     return SkData::MakeFromMalloc(profile.release(), kICCProfileSize);
+}
+
+namespace SkICC {
+
+    sk_sp<SkData> WriteToICC(const SkColorSpaceTransferFn& fn, const SkMatrix44& toXYZD50) {
+        if (toXYZD50.get(3,0) == 0 && toXYZD50.get(3,1) == 0 && toXYZD50.get(3,2) == 0 &&
+            toXYZD50.get(3,3) == 1 &&
+            toXYZD50.get(0,3) == 0 && toXYZD50.get(1,3) == 0 && toXYZD50.get(2,3) == 0) {
+
+            float m33[9];
+            for (int r = 0; r < 3; r++)
+            for (int c = 0; c < 3; c++) {
+                m33[3*r+c] = toXYZD50.get(r,c);
+            }
+            return SkWriteICCProfile(fn, m33);
+        }
+        return nullptr;
+    }
+
 }

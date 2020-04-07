@@ -7,7 +7,6 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/renderer/core/css/font_face_set_document.h"
-#include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/paint/paint_timing.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/cross_thread_functional.h"
@@ -25,32 +24,14 @@ const int kBlankCharactersThreshold = 200;
 
 }  // namespace
 
-constexpr TimeDelta FirstMeaningfulPaintDetector::kNetwork2QuietWindowTimeout;
-constexpr TimeDelta FirstMeaningfulPaintDetector::kNetwork0QuietWindowTimeout;
-
 FirstMeaningfulPaintDetector& FirstMeaningfulPaintDetector::From(
     Document& document) {
   return PaintTiming::From(document).GetFirstMeaningfulPaintDetector();
 }
 
 FirstMeaningfulPaintDetector::FirstMeaningfulPaintDetector(
-    PaintTiming* paint_timing,
-    Document& document)
-    : paint_timing_(paint_timing),
-      network0_quiet_timer_(
-          document.GetTaskRunner(TaskType::kInternalDefault),
-          this,
-          &FirstMeaningfulPaintDetector::Network0QuietTimerFired),
-      network2_quiet_timer_(
-          document.GetTaskRunner(TaskType::kInternalDefault),
-          this,
-          &FirstMeaningfulPaintDetector::Network2QuietTimerFired) {
-  if (GetDocument() && GetDocument()->GetSettings()) {
-    network2_quiet_window_timeout_ = TimeDelta::FromSecondsD(
-        GetDocument()->GetSettings()->GetFMPNetworkQuietTimeout());
-    network0_quiet_window_timeout_ = network2_quiet_window_timeout_;
-  }
-}
+    PaintTiming* paint_timing)
+    : paint_timing_(paint_timing) {}
 
 Document* FirstMeaningfulPaintDetector::GetDocument() {
   return paint_timing_->GetSupplementable();
@@ -83,7 +64,7 @@ void FirstMeaningfulPaintDetector::MarkNextPaintAsMeaningfulIfNeeded(
 
   // If the page has many blank characters, the significance value is
   // accumulated until the text become visible.
-  int approximate_blank_character_count =
+  size_t approximate_blank_character_count =
       FontFaceSetDocument::ApproximateBlankCharacterCount(*GetDocument());
   if (approximate_blank_character_count > kBlankCharactersThreshold) {
     accumulated_significance_while_having_blank_text_ += significance;
@@ -123,44 +104,10 @@ void FirstMeaningfulPaintDetector::NotifyInputEvent() {
   had_user_input_ = kHadUserInput;
 }
 
-int FirstMeaningfulPaintDetector::ActiveConnections() {
-  DCHECK(GetDocument());
-  ResourceFetcher* fetcher = GetDocument()->Fetcher();
-  return fetcher->BlockingRequestCount() + fetcher->NonblockingRequestCount();
-}
-
-// This function is called when the number of active connections is decreased
-// and when the document is parsed.
-void FirstMeaningfulPaintDetector::CheckNetworkStable() {
-  DCHECK(GetDocument());
-  if (!GetDocument()->HasFinishedParsing())
-    return;
-
-  SetNetworkQuietTimers(ActiveConnections());
-}
-
-void FirstMeaningfulPaintDetector::SetNetworkQuietTimers(
-    int active_connections) {
-  if (!network2_quiet_reached_ && active_connections <= 2) {
-    // If activeConnections < 2 and the timer is already running, current
-    // 2-quiet window continues; the timer shouldn't be restarted.
-    if (active_connections == 2 || !network2_quiet_timer_.IsActive()) {
-      network2_quiet_timer_.StartOneShot(network2_quiet_window_timeout_,
-                                         FROM_HERE);
-    }
-  }
-  if (!network0_quiet_reached_ && active_connections == 0) {
-    // This restarts 0-quiet timer if it's already running.
-    network0_quiet_timer_.StartOneShot(network0_quiet_window_timeout_,
-                                       FROM_HERE);
-  }
-}
-
-void FirstMeaningfulPaintDetector::Network0QuietTimerFired(TimerBase*) {
-  if (!GetDocument() || network0_quiet_reached_ || ActiveConnections() > 0 ||
-      paint_timing_->FirstContentfulPaintRendered().is_null())
-    return;
+void FirstMeaningfulPaintDetector::OnNetwork0Quiet() {
   network0_quiet_reached_ = true;
+  if (!GetDocument() || paint_timing_->FirstContentfulPaintRendered().is_null())
+    return;
 
   if (!provisional_first_meaningful_paint_.is_null()) {
     // Enforce FirstContentfulPaint <= FirstMeaningfulPaint.
@@ -171,8 +118,8 @@ void FirstMeaningfulPaintDetector::Network0QuietTimerFired(TimerBase*) {
   ReportHistograms();
 }
 
-void FirstMeaningfulPaintDetector::Network2QuietTimerFired(TimerBase*) {
-  if (!GetDocument() || network2_quiet_reached_ || ActiveConnections() > 2 ||
+void FirstMeaningfulPaintDetector::OnNetwork2Quiet() {
+  if (!GetDocument() || network2_quiet_reached_ ||
       paint_timing_->FirstContentfulPaintRendered().is_null())
     return;
   network2_quiet_reached_ = true;
@@ -205,8 +152,7 @@ void FirstMeaningfulPaintDetector::Network2QuietTimerFired(TimerBase*) {
     if (defer_first_meaningful_paint_ == kDoNotDefer) {
       // Report FirstMeaningfulPaint when the page reached network 2-quiet if
       // we aren't waiting for a swap timestamp.
-      SetFirstMeaningfulPaint(first_meaningful_paint2_quiet_,
-                              first_meaningful_paint2_quiet_swap);
+      SetFirstMeaningfulPaint(first_meaningful_paint2_quiet_swap);
     }
   }
   ReportHistograms();
@@ -301,8 +247,7 @@ void FirstMeaningfulPaintDetector::ReportSwapTime(
   if (defer_first_meaningful_paint_ == kDeferOutstandingSwapPromises &&
       outstanding_swap_promise_count_ == 0) {
     DCHECK(!first_meaningful_paint2_quiet_.is_null());
-    SetFirstMeaningfulPaint(first_meaningful_paint2_quiet_,
-                            provisional_first_meaningful_paint_swap_);
+    SetFirstMeaningfulPaint(provisional_first_meaningful_paint_swap_);
   }
 }
 
@@ -310,11 +255,10 @@ void FirstMeaningfulPaintDetector::NotifyFirstContentfulPaint(
     TimeTicks swap_stamp) {
   if (defer_first_meaningful_paint_ != kDeferFirstContentfulPaintNotSet)
     return;
-  SetFirstMeaningfulPaint(first_meaningful_paint2_quiet_, swap_stamp);
+  SetFirstMeaningfulPaint(swap_stamp);
 }
 
 void FirstMeaningfulPaintDetector::SetFirstMeaningfulPaint(
-    TimeTicks stamp,
     TimeTicks swap_stamp) {
   DCHECK(paint_timing_->FirstMeaningfulPaint().is_null());
   DCHECK(!swap_stamp.is_null());
@@ -329,8 +273,7 @@ void FirstMeaningfulPaintDetector::SetFirstMeaningfulPaint(
   paint_timing_->SetFirstMeaningfulPaintCandidate(swap_stamp);
 
   paint_timing_->SetFirstMeaningfulPaint(
-      stamp, swap_stamp,
-      had_user_input_before_provisional_first_meaningful_paint_);
+      swap_stamp, had_user_input_before_provisional_first_meaningful_paint_);
 }
 
 void FirstMeaningfulPaintDetector::Trace(blink::Visitor* visitor) {

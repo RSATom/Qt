@@ -29,7 +29,7 @@
 #include "third_party/blink/renderer/platform/fonts/font_fallback_list.h"
 #include "third_party/blink/renderer/platform/fonts/font_fallback_priority.h"
 #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/text/tab_size.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
@@ -147,7 +147,7 @@ class PLATFORM_EXPORT Font {
                         BreakGlyphsOption) const;
   FloatRect SelectionRectForText(const TextRun&,
                                  const FloatPoint&,
-                                 int h,
+                                 float height,
                                  int from = 0,
                                  int to = -1) const;
   FloatRect BoundingBox(const TextRun&, int from = 0, int to = -1) const;
@@ -155,6 +155,11 @@ class PLATFORM_EXPORT Font {
                                    unsigned from,
                                    unsigned to) const;
   Vector<CharacterRange> IndividualCharacterRanges(const TextRun&) const;
+
+  // Returns a vector of same size as TextRun.length() with advances measured
+  // in pixels from the left bounding box of the full TextRun to the left bound
+  // of the glyph rendered by each character. Values should always be positive.
+  Vector<double> IndividualCharacterAdvances(const TextRun&) const;
 
   void ExpandRangeToIncludePartialGlyphs(const TextRun&,
                                          int* from,

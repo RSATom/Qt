@@ -17,7 +17,7 @@
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/history/core/browser/history_backend.h"
 #include "components/history/core/browser/url_database.h"
 #include "sql/statement.h"
@@ -301,8 +301,7 @@ bool VisitDatabase::GetVisitsForTimes(const std::vector<base::Time>& times,
                                       VisitVector* visits) {
   visits->clear();
 
-  for (std::vector<base::Time>::const_iterator it = times.begin();
-       it != times.end(); ++it) {
+  for (auto it = times.begin(); it != times.end(); ++it) {
     sql::Statement statement(GetDB().GetCachedStatement(SQL_FROM_HERE,
         "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
         "WHERE visit_time == ?"));

@@ -10,27 +10,53 @@
 #ifndef VIDEO_VIDEO_SEND_STREAM_IMPL_H_
 #define VIDEO_VIDEO_SEND_STREAM_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
+#include <atomic>
 #include <map>
 #include <memory>
-#include <unordered_set>
 #include <vector>
 
+#include "absl/types/optional.h"
+#include "api/fec_controller.h"
+#include "api/video/encoded_image.h"
+#include "api/video/video_bitrate_allocation.h"
+#include "api/video/video_bitrate_allocator.h"
+#include "api/video/video_stream_encoder_interface.h"
+#include "api/video_codecs/video_encoder.h"
+#include "api/video_codecs/video_encoder_config.h"
 #include "call/bitrate_allocator.h"
-#include "call/payload_router.h"
-#include "common_types.h"  // NOLINT(build/include)
-#include "common_video/include/video_bitrate_allocator.h"
+#include "call/rtp_config.h"
+#include "call/rtp_transport_controller_send_interface.h"
+#include "call/rtp_video_sender_interface.h"
+#include "logging/rtc_event_log/rtc_event_log.h"
+#include "modules/include/module_common_types.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/utility/include/process_thread.h"
-#include "modules/video_coding/utility/ivf_file_writer.h"
+#include "modules/video_coding/include/video_codec_interface.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/task_queue.h"
+#include "rtc_base/task_utils/repeating_task.h"
+#include "rtc_base/thread_annotations.h"
 #include "rtc_base/weak_ptr.h"
 #include "video/call_stats.h"
 #include "video/encoder_rtcp_feedback.h"
 #include "video/send_delay_stats.h"
 #include "video/send_statistics_proxy.h"
 #include "video/video_send_stream.h"
-#include "video/video_stream_encoder.h"
 
 namespace webrtc {
 namespace internal {
+
+// Pacing buffer config; overridden by ALR config if provided.
+struct PacingConfig {
+  PacingConfig();
+  PacingConfig(const PacingConfig&);
+  PacingConfig& operator=(const PacingConfig&) = default;
+  ~PacingConfig();
+  FieldTrialParameter<double> pacing_factor;
+  FieldTrialParameter<TimeDelta> max_pacing_delay;
+};
 
 // VideoSendStreamImpl implements internal::VideoSendStream.
 // It is created and destroyed on |worker_queue|. The intent is to decrease the
@@ -40,11 +66,8 @@ namespace internal {
 // An encoder may deliver frames through the EncodedImageCallback on an
 // arbitrary thread.
 class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
-                            public webrtc::OverheadObserver,
-                            public webrtc::VCMProtectionCallback,
-                            public VideoStreamEncoder::EncoderSink,
-                            public VideoBitrateAllocationObserver,
-                            public webrtc::PacketFeedbackObserver {
+                            public VideoStreamEncoderInterface::EncoderSink,
+                            public VideoBitrateAllocationObserver {
  public:
   VideoSendStreamImpl(
       SendStatisticsProxy* stats_proxy,
@@ -61,7 +84,8 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
       std::map<uint32_t, RtpState> suspended_ssrcs,
       std::map<uint32_t, RtpPayloadState> suspended_payload_states,
       VideoEncoderConfig::ContentType content_type,
-      std::unique_ptr<FecController> fec_controller);
+      std::unique_ptr<FecController> fec_controller,
+      MediaTransportInterface* media_transport);
   ~VideoSendStreamImpl() override;
 
   // RegisterProcessThread register |module_process_thread| with those objects
@@ -82,36 +106,11 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
 
   std::map<uint32_t, RtpPayloadState> GetRtpPayloadStates() const;
 
-  void EnableEncodedFrameRecording(const std::vector<rtc::PlatformFile>& files,
-                                   size_t byte_limit);
-
-  void SetTransportOverhead(size_t transport_overhead_per_packet);
-
   absl::optional<float> configured_pacing_factor_;
 
-  // From PacketFeedbackObserver.
-  void OnPacketAdded(uint32_t ssrc, uint16_t seq_num) override;
-  void OnPacketFeedbackVector(
-      const std::vector<PacketFeedback>& packet_feedback_vector) override;
-
  private:
-  class CheckEncoderActivityTask;
-
   // Implements BitrateAllocatorObserver.
-  uint32_t OnBitrateUpdated(uint32_t bitrate_bps,
-                            uint8_t fraction_loss,
-                            int64_t rtt,
-                            int64_t probing_interval_ms) override;
-
-  // Implements webrtc::VCMProtectionCallback.
-  int ProtectionRequest(const FecProtectionParams* delta_params,
-                        const FecProtectionParams* key_params,
-                        uint32_t* sent_video_rate_bps,
-                        uint32_t* sent_nack_rate_bps,
-                        uint32_t* sent_fec_rate_bps) override;
-
-  // Implements OverheadObserver.
-  void OnOverheadChanged(size_t overhead_bytes_per_packet) override;
+  uint32_t OnBitrateUpdated(BitrateAllocationUpdate update) override;
 
   void OnEncoderConfigurationChanged(std::vector<VideoStream> streams,
                                      int min_transmit_bitrate_bps) override;
@@ -132,32 +131,32 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
   void StartupVideoSendStream();
   // Removes the bitrate observer, stops monitoring and notifies the video
   // encoder of the bitrate update.
-  void StopVideoSendStream();
+  void StopVideoSendStream() RTC_RUN_ON(worker_queue_);
 
   void ConfigureProtection();
   void ConfigureSsrcs();
   void SignalEncoderTimedOut();
   void SignalEncoderActive();
 
-  const bool send_side_bwe_with_overhead_;
+  const bool has_alr_probing_;
+  const PacingConfig pacing_config_;
 
   SendStatisticsProxy* const stats_proxy_;
   const VideoSendStream::Config* const config_;
 
-  std::unique_ptr<FecController> fec_controller_;
   rtc::TaskQueue* const worker_queue_;
 
-  rtc::CriticalSection encoder_activity_crit_sect_;
-  CheckEncoderActivityTask* check_encoder_activity_task_
-      RTC_GUARDED_BY(encoder_activity_crit_sect_);
+  RepeatingTaskHandle check_encoder_activity_task_
+      RTC_GUARDED_BY(worker_queue_);
+
+  std::atomic_bool activity_;
+  bool timed_out_ RTC_GUARDED_BY(worker_queue_);
 
   CallStats* const call_stats_;
   RtpTransportControllerSendInterface* const transport_;
   BitrateAllocatorInterface* const bitrate_allocator_;
 
   rtc::CriticalSection ivf_writers_crit_;
-  std::unique_ptr<IvfFileWriter>
-      file_writers_[kMaxSimulcastStreams] RTC_GUARDED_BY(ivf_writers_crit_);
 
   int max_padding_bitrate_;
   int encoder_min_bitrate_bps_;
@@ -170,7 +169,7 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
   EncoderRtcpFeedback encoder_feedback_;
 
   RtcpBandwidthObserver* const bandwidth_observer_;
-  VideoRtpSenderInterface* const payload_router_;
+  RtpVideoSenderInterface* const rtp_video_sender_;
 
   // |weak_ptr_| to our self. This is used since we can not call
   // |weak_ptr_factory_.GetWeakPtr| from multiple sequences but it is ok to copy
@@ -180,13 +179,19 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
   // invalidated before any other members are destroyed.
   rtc::WeakPtrFactory<VideoSendStreamImpl> weak_ptr_factory_;
 
-  rtc::CriticalSection overhead_bytes_per_packet_crit_;
-  size_t overhead_bytes_per_packet_
-      RTC_GUARDED_BY(overhead_bytes_per_packet_crit_);
-  size_t transport_overhead_bytes_per_packet_;
-
-  std::unordered_set<uint16_t> feedback_packet_seq_num_set_;
-  std::vector<bool> loss_mask_vector_;
+  // Context for the most recent and last sent video bitrate allocation. Used to
+  // throttle sending of similar bitrate allocations.
+  struct VbaSendContext {
+    VideoBitrateAllocation last_sent_allocation;
+    absl::optional<VideoBitrateAllocation> throttled_allocation;
+    int64_t last_send_time_ms;
+  };
+  absl::optional<VbaSendContext> video_bitrate_allocation_context_
+      RTC_GUARDED_BY(worker_queue_);
+  MediaTransportInterface* const media_transport_;
+  rtc::CriticalSection media_transport_id_lock_;
+  int64_t media_transport_frame_id_ RTC_GUARDED_BY(media_transport_id_lock_) =
+      0;
 };
 }  // namespace internal
 }  // namespace webrtc

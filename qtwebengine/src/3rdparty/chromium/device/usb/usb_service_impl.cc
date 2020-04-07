@@ -21,7 +21,8 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
 #include "components/device_event_log/device_event_log.h"
 #include "device/usb/usb_device_handle.h"
@@ -82,37 +83,29 @@ bool IsWinUsbInterface(const std::string& device_path) {
 
 #endif  // OS_WIN
 
-void InitializeUsbContextOnBlockingThread(
-    scoped_refptr<base::SequencedTaskRunner> task_runner,
-    const base::Callback<void(scoped_refptr<UsbContext>)>& callback) {
-  scoped_refptr<UsbContext> context;
+scoped_refptr<UsbContext> InitializeUsbContextBlocking() {
   PlatformUsbContext platform_context = nullptr;
   int rv = libusb_init(&platform_context);
   if (rv == LIBUSB_SUCCESS && platform_context) {
-    context = new UsbContext(platform_context);
-  } else {
-    USB_LOG(DEBUG) << "Failed to initialize libusb: "
-                   << ConvertPlatformUsbErrorToString(rv);
+    return base::MakeRefCounted<UsbContext>(platform_context);
   }
 
-  task_runner->PostTask(FROM_HERE,
-                        base::BindOnce(callback, std::move(context)));
+  USB_LOG(DEBUG) << "Failed to initialize libusb: "
+                 << ConvertPlatformUsbErrorToString(rv);
+  return nullptr;
 }
 
-void GetDeviceListOnBlockingThread(
+base::Optional<std::vector<ScopedLibusbDeviceRef>> GetDeviceListBlocking(
     const std::string& new_device_path,
-    scoped_refptr<UsbContext> usb_context,
-    scoped_refptr<base::SequencedTaskRunner> task_runner,
-    base::OnceCallback<void(base::Optional<std::vector<ScopedLibusbDeviceRef>>)>
-        callback) {
+    scoped_refptr<UsbContext> usb_context) {
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+
 #if defined(OS_WIN)
   if (!new_device_path.empty()) {
     if (!IsWinUsbInterface(new_device_path)) {
       // Wait to call libusb_get_device_list until libusb will be able to find
       // a WinUSB interface for the device.
-      task_runner->PostTask(FROM_HERE,
-                            base::BindOnce(std::move(callback), base::nullopt));
-      return;
+      return base::nullopt;
     }
   }
 #endif  // defined(OS_WIN)
@@ -123,22 +116,19 @@ void GetDeviceListOnBlockingThread(
   if (device_count < 0) {
     USB_LOG(ERROR) << "Failed to get device list: "
                    << ConvertPlatformUsbErrorToString(device_count);
-    task_runner->PostTask(FROM_HERE,
-                          base::BindOnce(std::move(callback), base::nullopt));
-    return;
+    return base::nullopt;
   }
 
   std::vector<ScopedLibusbDeviceRef> scoped_devices;
   scoped_devices.reserve(device_count);
   for (ssize_t i = 0; i < device_count; ++i)
-    scoped_devices.emplace_back(platform_devices[i]);
+    scoped_devices.emplace_back(platform_devices[i], usb_context);
 
   // Free the list but don't unref the devices because ownership has been
   // been transfered to the elements of |scoped_devices|.
   libusb_free_device_list(platform_devices, false);
 
-  task_runner->PostTask(FROM_HERE, base::BindOnce(std::move(callback),
-                                                  std::move(scoped_devices)));
+  return scoped_devices;
 }
 
 void CloseHandleAndRunContinuation(scoped_refptr<UsbDeviceHandle> device_handle,
@@ -226,16 +216,18 @@ void OnDeviceOpenedReadDescriptors(
 }  // namespace
 
 UsbServiceImpl::UsbServiceImpl()
-    : UsbService(nullptr),
+    : UsbService(),
+      task_runner_(base::SequencedTaskRunnerHandle::Get()),
 #if defined(OS_WIN)
       device_observer_(this),
 #endif
       weak_factory_(this) {
-  base::PostTaskWithTraits(
+  weak_self_ = weak_factory_.GetWeakPtr();
+  base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE, kBlockingTaskTraits,
-      base::Bind(&InitializeUsbContextOnBlockingThread, task_runner(),
-                 base::Bind(&UsbServiceImpl::OnUsbContext,
-                            weak_factory_.GetWeakPtr())));
+      base::BindOnce(&InitializeUsbContextBlocking),
+      base::BindOnce(&UsbServiceImpl::OnUsbContext,
+                     weak_factory_.GetWeakPtr()));
 }
 
 UsbServiceImpl::~UsbServiceImpl() {
@@ -247,7 +239,7 @@ void UsbServiceImpl::GetDevices(const GetDevicesCallback& callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (usb_unavailable_) {
-    task_runner()->PostTask(
+    task_runner_->PostTask(
         FROM_HERE,
         base::Bind(callback, std::vector<scoped_refptr<UsbDevice>>()));
     return;
@@ -330,12 +322,11 @@ void UsbServiceImpl::RefreshDevices() {
     pending_path_enumerations_.pop();
   }
 
-  base::PostTaskWithTraits(
+  base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE, kBlockingTaskTraits,
-      base::BindOnce(&GetDeviceListOnBlockingThread, device_path, context_,
-                     task_runner(),
-                     base::BindOnce(&UsbServiceImpl::OnDeviceList,
-                                    weak_factory_.GetWeakPtr())));
+      base::BindOnce(&GetDeviceListBlocking, device_path, context_),
+      base::BindOnce(&UsbServiceImpl::OnDeviceList,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void UsbServiceImpl::OnDeviceList(
@@ -361,7 +352,7 @@ void UsbServiceImpl::OnDeviceList(
       // Mark the existing device object visited and remove it from the list so
       // it will not be ignored.
       it->second->set_visited(true);
-      device.reset();
+      device.Reset();
     }
   }
 
@@ -382,7 +373,7 @@ void UsbServiceImpl::OnDeviceList(
   // that have been removed don't remain in |ignored_devices_| indefinitely.
   ignored_devices_.clear();
   for (auto& device : *devices) {
-    if (device.is_valid())
+    if (device.IsValid())
       ignored_devices_.push_back(std::move(device));
   }
 
@@ -441,8 +432,8 @@ void UsbServiceImpl::EnumerateDevice(ScopedLibusbDeviceRef platform_device,
 
   devices_being_enumerated_.insert(platform_device.get());
 
-  auto device = base::MakeRefCounted<UsbDeviceImpl>(
-      context_, std::move(platform_device), descriptor);
+  auto device = base::MakeRefCounted<UsbDeviceImpl>(std::move(platform_device),
+                                                    descriptor);
   base::OnceClosure add_device =
       base::BindOnce(&UsbServiceImpl::AddDevice, weak_factory_.GetWeakPtr(),
                      refresh_complete, device);
@@ -458,7 +449,8 @@ void UsbServiceImpl::EnumerateDevice(ScopedLibusbDeviceRef platform_device,
     libusb_ref_device(device->platform_device());
     base::OnceClosure enumeration_failed = base::BindOnce(
         &UsbServiceImpl::EnumerationFailed, weak_factory_.GetWeakPtr(),
-        ScopedLibusbDeviceRef(device->platform_device()), refresh_complete);
+        ScopedLibusbDeviceRef(device->platform_device(), context_),
+        refresh_complete);
 
     device->Open(base::BindOnce(
         &OnDeviceOpenedReadDescriptors, descriptor.iManufacturer,
@@ -513,23 +505,22 @@ int LIBUSB_CALL UsbServiceImpl::HotplugCallback(libusb_context* context,
   // and so guarantees that this function will not be called by the event
   // processing thread after it has been deregistered.
   UsbServiceImpl* self = reinterpret_cast<UsbServiceImpl*>(user_data);
-  DCHECK(!self->task_runner()->BelongsToCurrentThread());
 
   // libusb does not transfer ownership of |device_raw| to this function so a
   // reference must be taken here.
   libusb_ref_device(device_raw);
-  ScopedLibusbDeviceRef device(device_raw);
+  ScopedLibusbDeviceRef device(device_raw, self->context_);
 
   switch (event) {
     case LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED:
-      self->task_runner()->PostTask(
+      self->task_runner_->PostTask(
           FROM_HERE, base::BindOnce(&UsbServiceImpl::OnPlatformDeviceAdded,
-                                    base::Unretained(self), std::move(device)));
+                                    self->weak_self_, std::move(device)));
       break;
     case LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT:
-      self->task_runner()->PostTask(
+      self->task_runner_->PostTask(
           FROM_HERE, base::BindOnce(&UsbServiceImpl::OnPlatformDeviceRemoved,
-                                    base::Unretained(self), std::move(device)));
+                                    self->weak_self_, std::move(device)));
       break;
     default:
       NOTREACHED();

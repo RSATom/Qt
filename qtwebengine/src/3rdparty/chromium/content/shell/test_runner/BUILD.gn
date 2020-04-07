@@ -3,13 +3,20 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 if (is_android) {
   import("//build/config/android/config.gni")
 }
 
-component("test_runner") {
+jumbo_component("test_runner") {
   testonly = true
+
+  # See comment at the top of //content/BUILD.gn for why this is disabled in
+  # component builds.
+  if (is_component_build) {
+    check_includes = false
+  }
 
   defines = [ "TEST_RUNNER_IMPLEMENTATION" ]
 
@@ -24,12 +31,8 @@ component("test_runner") {
     "gamepad_controller.h",
     "gc_controller.cc",
     "gc_controller.h",
-    "layout_and_paint_async_then.cc",
-    "layout_and_paint_async_then.h",
     "layout_dump.cc",
     "layout_dump.h",
-    "layout_test_runtime_flags.cc",
-    "layout_test_runtime_flags.h",
     "mock_content_settings_client.cc",
     "mock_content_settings_client.h",
     "mock_grammar_check.cc",
@@ -40,8 +43,6 @@ component("test_runner") {
     "mock_spell_check.h",
     "mock_web_document_subresource_filter.cc",
     "mock_web_document_subresource_filter.h",
-    "mock_web_midi_accessor.cc",
-    "mock_web_midi_accessor.h",
     "mock_web_theme_engine.cc",
     "mock_web_theme_engine.h",
     "pixel_dump.cc",
@@ -75,6 +76,8 @@ component("test_runner") {
     "web_test_interfaces.cc",
     "web_test_interfaces.h",
     "web_test_runner.h",
+    "web_test_runtime_flags.cc",
+    "web_test_runtime_flags.h",
     "web_view_test_client.cc",
     "web_view_test_client.h",
     "web_view_test_proxy.cc",
@@ -98,7 +101,10 @@ component("test_runner") {
     "//content/public/common",
     "//content/public/common:service_names",
     "//content/public/renderer",
-    "//content/shell:layout_test_switches",
+    "//content/renderer:for_content_tests",
+    "//content/renderer/compositor",
+    "//content/shell:web_test_switches",
+    "//content/shell:web_test_utils",
     "//content/test:test_runner_support",
     "//device/base/synchronization",
     "//device/gamepad/public/cpp:shared_with_blink",
@@ -108,10 +114,10 @@ component("test_runner") {
     "//gpu/command_buffer/client:gles2_interface",
     "//media/midi:mojo",
     "//net",
-    "//services/device/public/cpp/generic_sensor:shared_with_blink",
     "//services/device/public/mojom",
     "//skia",
     "//third_party/blink/public:blink",
+    "//third_party/blink/public:test_support",
     "//ui/display",
     "//ui/events:dom_keycode_converter",
     "//ui/events:events_base",

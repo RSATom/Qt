@@ -11,7 +11,6 @@
 #include <unordered_map>
 
 #include "base/containers/mru_cache.h"
-#include "base/memory/memory_coordinator_client.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/ref_counted.h"
 #include "base/numerics/safe_math.h"
@@ -25,8 +24,7 @@ namespace cc {
 
 class CC_EXPORT SoftwareImageDecodeCache
     : public ImageDecodeCache,
-      public base::trace_event::MemoryDumpProvider,
-      public base::MemoryCoordinatorClient {
+      public base::trace_event::MemoryDumpProvider {
  public:
   using Utils = SoftwareImageDecodeCacheUtils;
   using CacheKey = Utils::CacheKey;
@@ -35,7 +33,9 @@ class CC_EXPORT SoftwareImageDecodeCache
   enum class DecodeTaskType { USE_IN_RASTER_TASKS, USE_OUT_OF_RASTER_TASKS };
 
   SoftwareImageDecodeCache(SkColorType color_type,
-                           size_t locked_memory_limit_bytes);
+                           size_t locked_memory_limit_bytes,
+                           PaintImage::GeneratorClientId generator_client_id,
+                           sk_sp<SkColorSpace> target_color_space);
   ~SoftwareImageDecodeCache() override;
 
   // ImageDecodeCache overrides.
@@ -113,12 +113,6 @@ class CC_EXPORT SoftwareImageDecodeCache
   // reduced within the given limit.
   void ReduceCacheUsageUntilWithinLimit(size_t limit);
 
-  // Overriden from base::MemoryCoordinatorClient.
-  void OnMemoryStateChange(base::MemoryState state) override;
-  void OnPurgeMemory() override;
-
-  // TODO(gyuyoung): OnMemoryPressure is deprecated. So this should be removed
-  // when the memory coordinator is enabled by default.
   void OnMemoryPressure(
       base::MemoryPressureListener::MemoryPressureLevel level);
 
@@ -157,9 +151,12 @@ class CC_EXPORT SoftwareImageDecodeCache
                      PaintImage::FrameKeyHash>
       frame_key_to_image_keys_;
 
+  const sk_sp<SkColorSpace> target_color_space_;
   MemoryBudget locked_images_budget_;
 
-  SkColorType color_type_;
+  const SkColorType color_type_;
+  const PaintImage::GeneratorClientId generator_client_id_;
+
   size_t max_items_in_cache_;
   // Records the maximum number of items in the cache over the lifetime of the
   // cache. This is updated anytime we are requested to reduce cache usage.

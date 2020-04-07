@@ -8,6 +8,7 @@
 # toolchain, this GNI file may be read and processed from within Chrome OS
 # toolchains. Checking |is_android| here would therefore be too restrictive.
 if (is_android || is_chromeos) {
+  import("//build/config/chromecast_build.gni")
   import("//build_overrides/build.gni")
   import("abi.gni")
 
@@ -116,11 +117,11 @@ if (is_android || is_chromeos) {
   # google_play_services_package contains the path where individual client
   # targets (e.g. google_play_services_base_java) are located.
   if (!defined(google_play_services_package)) {
-    google_play_services_package = "//third_party/android_tools"
-  }
-
-  if (!defined(android_support_library_package)) {
-    android_support_library_package = "//third_party/android_tools/support"
+    if (is_chromecast && chromecast_branding != "public") {
+      google_play_services_package = "//chromecast/internal/android/prebuilt/google-play-services-first-party"
+    } else {
+      google_play_services_package = "//third_party/android_deps"
+    }
   }
 
   if (!defined(system_webview_apk_target)) {
@@ -158,6 +159,12 @@ if (is_android || is_chromeos) {
     # Android versionName for android_apk()s that don't explicitly set one.
     android_default_version_name = "Developer Build"
 
+    # Forced Android versionCode
+    android_override_version_code = ""
+
+    # Forced Android versionName
+    android_override_version_name = ""
+
     # The path to the keystore to use for signing builds.
     android_keystore_path = default_android_keystore_path
 
@@ -166,9 +173,6 @@ if (is_android || is_chromeos) {
 
     # The password for the keystore to use for signing builds.
     android_keystore_password = default_android_keystore_password
-
-    # Enables verbose proguard output (summaries and unfiltered output).
-    proguard_verbose = false
 
     # Java debug on Android. Having this on enables multidexing, and turning it
     # off will enable proguard.
@@ -209,14 +213,25 @@ if (is_android || is_chromeos) {
     # Refer to android_aar_prebuilt() for more details.
     update_android_aar_prebuilts = false
 
-    # When true, uses the third party libraries from //third_party/android_deps
-    # over the ones in other places. (instead of the support library from
-    # android_tools for example)
-    enable_android_deps_repository = true
-
     # Turns off android lint. Useful for prototyping or for faster local builds.
     disable_android_lint = false
+
+    # Location of aapt2 binary used for app bundles. For now, a more recent version
+    # than the one distributed with the Android SDK is required.
+    android_sdk_tools_bundle_aapt2 =
+        "//third_party/android_build_tools/aapt2/aapt2"
+
+    # Use R8 for Java optimization rather than ProGuard for all targets. R8 is
+    # already used as the default for public targets. This will evenutally be
+    # the default. https://crbug.com/908988
+    use_r8 = false
+
+    # Checks that proguard flags have not changed (!is_java_debug only).
+    check_android_configuration = false
   }
+
+  assert(!(check_android_configuration && is_java_debug),
+         "check_android_configuration only works when proguard is enabled")
 
   # We need a second declare_args block to make sure we are using the overridden
   # value of the arguments set above.
@@ -229,6 +244,9 @@ if (is_android || is_chromeos) {
 
     # Speed up dexing using dx --incremental.
     enable_incremental_dx = is_java_debug
+
+    # Use hashed symbol names to reduce JNI symbol overhead.
+    use_hashed_jni_names = !is_java_debug
   }
 
   # Neither of these should ever be used for release builds since they are
@@ -353,17 +371,4 @@ if (is_android || is_chromeos) {
   if (android_libcpp_lib_dir == "") {
     android_libcpp_lib_dir = "${android_libcpp_root}/libs/${android_app_abi}"
   }
-
-  declare_args() {
-    # Location of aapt2 binary used for app bundles. For now, a more recent version
-    # than the one distributed with the Android SDK is required.
-    android_sdk_tools_bundle_aapt2 =
-        "//third_party/android_build_tools/aapt2/aapt2"
-  }
-}
-
-declare_args() {
-  # Enables used resource whitelist generation. Set for official builds only
-  # as a large amount of build output is generated.
-  enable_resource_whitelist_generation = is_android && is_official_build
 }

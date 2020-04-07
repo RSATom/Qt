@@ -14,21 +14,18 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/debug/alias.h"
-#include "base/macros.h"
 #include "base/numerics/safe_math.h"
+#include "base/stl_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "components/download/public/common/download_stats.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/browser_main_loop.h"
-#include "content/browser/cache_storage/cache_storage_cache.h"
-#include "content/browser/cache_storage/cache_storage_cache_handle.h"
-#include "content/browser/cache_storage/cache_storage_context_impl.h"
-#include "content/browser/cache_storage/cache_storage_manager.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
@@ -43,8 +40,11 @@
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/resource_context.h"
+#include "content/public/browser/storage_partition.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/context_menu_params.h"
 #include "content/public/common/url_constants.h"
@@ -56,9 +56,7 @@
 #include "net/base/io_buffer.h"
 #include "net/base/mime_util.h"
 #include "net/base/request_priority.h"
-#include "net/http/http_cache.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -78,38 +76,27 @@
 #include "base/threading/platform_thread.h"
 #endif
 
-using blink::mojom::CacheStorageError;
-
 namespace content {
 namespace {
 
 const uint32_t kRenderFilteredMessageClasses[] = {ViewMsgStart};
-
-void NoOpCacheStorageErrorCallback(CacheStorageCacheHandle cache_handle,
-                                   CacheStorageError error) {}
 
 }  // namespace
 
 RenderMessageFilter::RenderMessageFilter(
     int render_process_id,
     BrowserContext* browser_context,
-    net::URLRequestContextGetter* request_context,
     RenderWidgetHelper* render_widget_helper,
-    MediaInternals* media_internals,
-    CacheStorageContextImpl* cache_storage_context)
+    MediaInternals* media_internals)
     : BrowserMessageFilter(kRenderFilteredMessageClasses,
-                           arraysize(kRenderFilteredMessageClasses)),
+                           base::size(kRenderFilteredMessageClasses)),
       BrowserAssociatedInterface<mojom::RenderMessageFilter>(this, this),
       resource_dispatcher_host_(ResourceDispatcherHostImpl::Get()),
-      request_context_(request_context),
       resource_context_(browser_context->GetResourceContext()),
       render_widget_helper_(render_widget_helper),
       render_process_id_(render_process_id),
       media_internals_(media_internals),
-      cache_storage_context_(cache_storage_context),
       weak_ptr_factory_(this) {
-  DCHECK(request_context_.get());
-
   if (render_widget_helper)
     render_widget_helper_->Init(render_process_id_, resource_dispatcher_host_);
 }
@@ -146,12 +133,11 @@ void RenderMessageFilter::GenerateRoutingID(
 }
 
 void RenderMessageFilter::CreateNewWidget(int32_t opener_id,
-                                          blink::WebPopupType popup_type,
                                           mojom::WidgetPtr widget,
                                           CreateNewWidgetCallback callback) {
   int route_id = MSG_ROUTING_NONE;
-  render_widget_helper_->CreateNewWidget(opener_id, popup_type,
-                                         std::move(widget), &route_id);
+  render_widget_helper_->CreateNewWidget(opener_id, std::move(widget),
+                                         &route_id);
   std::move(callback).Run(route_id);
 }
 
@@ -198,67 +184,6 @@ void RenderMessageFilter::SetThreadPriority(int32_t ns_tid,
                      static_cast<base::PlatformThreadId>(ns_tid), priority));
 }
 #endif
-
-void RenderMessageFilter::DidGenerateCacheableMetadata(
-    const GURL& url,
-    base::Time expected_response_time,
-    const std::vector<uint8_t>& data) {
-  if (!url.SchemeIsHTTPOrHTTPS()) {
-    bad_message::ReceivedBadMessage(
-        this, bad_message::RMF_BAD_URL_CACHEABLE_METADATA);
-    return;
-  }
-
-  net::HttpCache* cache = request_context_->GetURLRequestContext()->
-      http_transaction_factory()->GetCache();
-  if (!cache)
-    return;
-
-  // Use the same priority for the metadata write as for script
-  // resources (see defaultPriorityForResourceType() in WebKit's
-  // CachedResource.cpp). Note that WebURLRequest::PriorityMedium
-  // corresponds to net::LOW (see ConvertWebKitPriorityToNetPriority()
-  // in weburlloader_impl.cc).
-  const net::RequestPriority kPriority = net::LOW;
-  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(data.size()));
-  if (!data.empty())
-    memcpy(buf->data(), &data.front(), data.size());
-  cache->WriteMetadata(url, kPriority, expected_response_time, buf.get(),
-                       data.size());
-}
-
-void RenderMessageFilter::DidGenerateCacheableMetadataInCacheStorage(
-    const GURL& url,
-    base::Time expected_response_time,
-    const std::vector<uint8_t>& data,
-    const url::Origin& cache_storage_origin,
-    const std::string& cache_storage_cache_name) {
-  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(data.size()));
-  if (!data.empty())
-    memcpy(buf->data(), &data.front(), data.size());
-
-  cache_storage_context_->cache_manager()->OpenCache(
-      cache_storage_origin, CacheStorageOwner::kCacheAPI,
-      cache_storage_cache_name,
-      base::BindOnce(&RenderMessageFilter::OnCacheStorageOpenCallback,
-                     weak_ptr_factory_.GetWeakPtr(), url,
-                     expected_response_time, buf, data.size()));
-}
-
-void RenderMessageFilter::OnCacheStorageOpenCallback(
-    const GURL& url,
-    base::Time expected_response_time,
-    scoped_refptr<net::IOBuffer> buf,
-    int buf_len,
-    CacheStorageCacheHandle cache_handle,
-    CacheStorageError error) {
-  if (error != CacheStorageError::kSuccess || !cache_handle.value())
-    return;
-  CacheStorageCache* cache = cache_handle.value();
-  cache->WriteSideData(
-      base::BindOnce(&NoOpCacheStorageErrorCallback, std::move(cache_handle)),
-      url, expected_response_time, buf, buf_len);
-}
 
 void RenderMessageFilter::OnMediaLogEvents(
     const std::vector<media::MediaLogEvent>& events) {

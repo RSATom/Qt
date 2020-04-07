@@ -13,7 +13,6 @@
 #include "base/i18n/icu_string_conversions.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -24,7 +23,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "build/build_config.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/search_engines/search_engines_switches.h"
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
@@ -192,7 +191,7 @@ TemplateURLRef::SearchTermsArgs::SearchTermsArgs(
       accepted_suggestion(NO_SUGGESTIONS_AVAILABLE),
       cursor_position(base::string16::npos),
       page_classification(metrics::OmniboxEventProto::INVALID_SPEC),
-      append_extra_query_params(false),
+      append_extra_query_params_from_command_line(false),
       from_app_list(false),
       contextual_search_params(ContextualSearchParams()) {}
 
@@ -212,7 +211,7 @@ size_t TemplateURLRef::SearchTermsArgs::EstimateMemoryUsage() const {
   res += base::trace_event::EstimateMemoryUsage(session_token);
   res += base::trace_event::EstimateMemoryUsage(prefetch_query);
   res += base::trace_event::EstimateMemoryUsage(prefetch_query_type);
-  res += base::trace_event::EstimateMemoryUsage(suggest_query_params);
+  res += base::trace_event::EstimateMemoryUsage(additional_query_params);
   res += base::trace_event::EstimateMemoryUsage(image_thumbnail_content);
   res += base::trace_event::EstimateMemoryUsage(image_url);
   res += base::trace_event::EstimateMemoryUsage(contextual_search_params);
@@ -223,15 +222,21 @@ size_t TemplateURLRef::SearchTermsArgs::EstimateMemoryUsage() const {
 TemplateURLRef::SearchTermsArgs::ContextualSearchParams::
     ContextualSearchParams()
     : version(-1),
-      contextual_cards_version(0) {}
+      contextual_cards_version(0),
+      previous_event_id(0),
+      previous_event_results(0) {}
 
 TemplateURLRef::SearchTermsArgs::ContextualSearchParams::ContextualSearchParams(
     int version,
     int contextual_cards_version,
-    const std::string& home_country)
+    const std::string& home_country,
+    int64_t previous_event_id,
+    int previous_event_results)
     : version(version),
       contextual_cards_version(contextual_cards_version),
-      home_country(home_country) {}
+      home_country(home_country),
+      previous_event_id(previous_event_id),
+      previous_event_results(previous_event_results) {}
 
 TemplateURLRef::SearchTermsArgs::ContextualSearchParams::ContextualSearchParams(
     const ContextualSearchParams& other) = default;
@@ -374,15 +379,15 @@ std::string TemplateURLRef::ReplaceSearchTerms(
     return url;
 
   std::vector<std::string> query_params;
-  if (search_terms_args.append_extra_query_params) {
+  if (search_terms_args.append_extra_query_params_from_command_line) {
     std::string extra_params(
         base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kExtraSearchQueryParams));
     if (!extra_params.empty())
       query_params.push_back(extra_params);
   }
-  if (!search_terms_args.suggest_query_params.empty())
-    query_params.push_back(search_terms_args.suggest_query_params);
+  if (!search_terms_args.additional_query_params.empty())
+    query_params.push_back(search_terms_args.additional_query_params);
   if (!gurl.query().empty())
     query_params.push_back(gurl.query());
 
@@ -946,8 +951,7 @@ std::string TemplateURLRef::HandleReplacements(
 
   // replacements_ is ordered in ascending order, as such we need to iterate
   // from the back.
-  for (Replacements::reverse_iterator i = replacements_.rbegin();
-       i != replacements_.rend(); ++i) {
+  for (auto i = replacements_.rbegin(); i != replacements_.rend(); ++i) {
     switch (i->type) {
       case ENCODING:
         HandleReplacement(std::string(), input_encoding, *i, &url);
@@ -1034,6 +1038,14 @@ std::string TemplateURLRef::HandleReplacements(
         }
         if (!params.home_country.empty())
           args.push_back("ctxs_hc=" + params.home_country);
+        if (params.previous_event_id != 0) {
+          args.push_back("ctxsl_pid=" +
+                         base::Int64ToString(params.previous_event_id));
+        }
+        if (params.previous_event_results != 0) {
+          args.push_back("ctxsl_per=" +
+                         base::IntToString(params.previous_event_results));
+        }
 
         HandleReplacement(std::string(), base::JoinString(args, "&"), *i, &url);
         break;
@@ -1278,7 +1290,7 @@ GURL TemplateURL::GenerateFaviconURL(const GURL& url) {
   GURL::Replacements rep;
 
   const char favicon_path[] = "/favicon.ico";
-  int favicon_path_len = arraysize(favicon_path) - 1;
+  int favicon_path_len = base::size(favicon_path) - 1;
 
   rep.SetPath(favicon_path, url::Component(0, favicon_path_len));
   rep.ClearUsername();

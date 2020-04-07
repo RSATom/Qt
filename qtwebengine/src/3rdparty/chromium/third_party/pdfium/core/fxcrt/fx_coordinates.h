@@ -13,8 +13,6 @@
 #include "core/fxcrt/fx_system.h"
 #include "third_party/base/numerics/safe_math.h"
 
-class CFX_Matrix;
-
 template <class BaseType>
 class CFX_PTemplate {
  public:
@@ -132,7 +130,7 @@ using CFX_Size = CFX_STemplate<int32_t>;
 using CFX_SizeF = CFX_STemplate<float>;
 
 template <class BaseType>
-class CFX_VTemplate : public CFX_PTemplate<BaseType> {
+class CFX_VTemplate final : public CFX_PTemplate<BaseType> {
  public:
   using CFX_PTemplate<BaseType>::x;
   using CFX_PTemplate<BaseType>::y;
@@ -225,8 +223,8 @@ struct FX_RECT {
 // LTRB rectangles (y-axis runs upwards).
 class CFX_FloatRect {
  public:
-  CFX_FloatRect() : CFX_FloatRect(0.0f, 0.0f, 0.0f, 0.0f) {}
-  CFX_FloatRect(float l, float b, float r, float t)
+  constexpr CFX_FloatRect() : CFX_FloatRect(0.0f, 0.0f, 0.0f, 0.0f) {}
+  constexpr CFX_FloatRect(float l, float b, float r, float t)
       : left(l), bottom(b), right(r), top(t) {}
 
   explicit CFX_FloatRect(const float* pArray)
@@ -238,10 +236,7 @@ class CFX_FloatRect {
 
   void Normalize();
 
-  void Reset();
-
   bool IsEmpty() const { return left >= right || bottom >= top; }
-
   bool Contains(const CFX_PointF& point) const;
   bool Contains(const CFX_FloatRect& other_rect) const;
 
@@ -274,69 +269,28 @@ class CFX_FloatRect {
 
   float Width() const { return right - left; }
   float Height() const { return top - bottom; }
+  float Left() const { return left; }
+  float Bottom() const { return bottom; }
+  float Right() const { return right; }
+  float Top() const { return top; }
 
-  void Inflate(float x, float y) {
-    Normalize();
-    left -= x;
-    right += x;
-    bottom -= y;
-    top += y;
-  }
-
+  void Inflate(float x, float y);
   void Inflate(float other_left,
                float other_bottom,
                float other_right,
-               float other_top) {
-    Normalize();
-    left -= other_left;
-    bottom -= other_bottom;
-    right += other_right;
-    top += other_top;
-  }
+               float other_top);
+  void Inflate(const CFX_FloatRect& rt);
 
-  void Inflate(const CFX_FloatRect& rt) {
-    Inflate(rt.left, rt.bottom, rt.right, rt.top);
-  }
-
-  void Deflate(float x, float y) {
-    Normalize();
-    left += x;
-    right -= x;
-    bottom += y;
-    top -= y;
-  }
-
+  void Deflate(float x, float y);
   void Deflate(float other_left,
                float other_bottom,
                float other_right,
-               float other_top) {
-    Normalize();
-    left += other_left;
-    bottom += other_bottom;
-    right -= other_right;
-    top -= other_top;
-  }
+               float other_top);
+  void Deflate(const CFX_FloatRect& rt);
 
-  void Deflate(const CFX_FloatRect& rt) {
-    Deflate(rt.left, rt.bottom, rt.right, rt.top);
-  }
+  CFX_FloatRect GetDeflated(float x, float y) const;
 
-  CFX_FloatRect GetDeflated(float x, float y) const {
-    if (IsEmpty())
-      return CFX_FloatRect();
-
-    CFX_FloatRect that = *this;
-    that.Deflate(x, y);
-    that.Normalize();
-    return that;
-  }
-
-  void Translate(float e, float f) {
-    left += e;
-    right += e;
-    top += f;
-    bottom += f;
-  }
+  void Translate(float e, float f);
 
   void Scale(float fScale);
   void ScaleFromCenterPoint(float fScale);
@@ -388,12 +342,6 @@ class CFX_RectF {
         width(other.width),
         height(other.height) {}
 
-  void Reset() {
-    left = 0;
-    top = 0;
-    width = 0;
-    height = 0;
-  }
   CFX_RectF& operator+=(const PointType& p) {
     left += p.x;
     top += p.y;
@@ -471,6 +419,8 @@ class CFX_RectF {
     return rt.left >= left && rt.right() <= right() && rt.top >= top &&
            rt.bottom() <= bottom();
   }
+  float Left() const { return left; }
+  float Top() const { return top; }
   float Width() const { return width; }
   float Height() const { return height; }
   SizeType Size() const { return SizeType(width, height); }
@@ -562,59 +512,57 @@ std::ostream& operator<<(std::ostream& os, const CFX_RectF& rect);
 //
 class CFX_Matrix {
  public:
-  CFX_Matrix() { SetIdentity(); }
+  CFX_Matrix() = default;
 
   explicit CFX_Matrix(const float n[6])
       : a(n[0]), b(n[1]), c(n[2]), d(n[3]), e(n[4]), f(n[5]) {}
 
-  CFX_Matrix(const CFX_Matrix& other) = default;
-
   CFX_Matrix(float a1, float b1, float c1, float d1, float e1, float f1)
       : a(a1), b(b1), c(c1), d(d1), e(e1), f(f1) {}
 
-  void operator=(const CFX_Matrix& other) {
-    a = other.a;
-    b = other.b;
-    c = other.c;
-    d = other.d;
-    e = other.e;
-    f = other.f;
+  CFX_Matrix(const CFX_Matrix& other) = default;
+
+  std::tuple<float, float, float, float, float, float> AsTuple() const;
+
+  CFX_Matrix& operator=(const CFX_Matrix& other) = default;
+
+  bool operator==(const CFX_Matrix& other) const {
+    return a == other.a && b == other.b && c == other.c && d == other.d &&
+           e == other.e && f == other.f;
+  }
+  bool operator!=(const CFX_Matrix& other) const { return !(*this == other); }
+
+  CFX_Matrix operator*(const CFX_Matrix& right) const {
+    return CFX_Matrix(a * right.a + b * right.c, a * right.b + b * right.d,
+                      c * right.a + d * right.c, c * right.b + d * right.d,
+                      e * right.a + f * right.c + right.e,
+                      e * right.b + f * right.d + right.f);
+  }
+  CFX_Matrix& operator*=(const CFX_Matrix& other) {
+    *this = *this * other;
+    return *this;
   }
 
-  void SetIdentity() {
-    a = 1;
-    b = 0;
-    c = 0;
-    d = 1;
-    e = 0;
-    f = 0;
-  }
-
+  bool IsIdentity() const { return *this == CFX_Matrix(); }
   CFX_Matrix GetInverse() const;
-
-  void Concat(const CFX_Matrix& m, bool bPrepended = false);
-  void ConcatInverse(const CFX_Matrix& m, bool bPrepended = false);
-
-  bool IsIdentity() const {
-    return a == 1 && b == 0 && c == 0 && d == 1 && e == 0 && f == 0;
-  }
 
   bool Is90Rotated() const;
   bool IsScaled() const;
   bool WillScale() const { return a != 1.0f || b != 0 || c != 0 || d != 1.0f; }
 
-  void Translate(float x, float y, bool bPrepended = false);
-  void Translate(int32_t x, int32_t y, bool bPrepended = false) {
-    Translate(static_cast<float>(x), static_cast<float>(y), bPrepended);
+  void Concat(const CFX_Matrix& right) { *this *= right; }
+  void Translate(float x, float y);
+  void TranslatePrepend(float x, float y);
+  void Translate(int32_t x, int32_t y) {
+    Translate(static_cast<float>(x), static_cast<float>(y));
+  }
+  void TranslatePrepend(int32_t x, int32_t y) {
+    TranslatePrepend(static_cast<float>(x), static_cast<float>(y));
   }
 
-  void Scale(float sx, float sy, bool bPrepended = false);
-  void Rotate(float fRadian, bool bPrepended = false);
-
-  // Rotates counterclockwise around the (x, y) point.
-  void RotateAt(float fRadian, float x, float y, bool bPrepended = false);
-
-  void Shear(float fAlphaRadian, float fBetaRadian, bool bPrepended = false);
+  void Scale(float sx, float sy);
+  void Rotate(float fRadian);
+  void Shear(float fAlphaRadian, float fBetaRadian);
 
   void MatchRect(const CFX_FloatRect& dest, const CFX_FloatRect& src);
 
@@ -627,23 +575,15 @@ class CFX_Matrix {
 
   CFX_PointF Transform(const CFX_PointF& point) const;
 
-  std::tuple<float, float, float, float> TransformRect(
-      const float& left,
-      const float& right,
-      const float& top,
-      const float& bottom) const;
   CFX_RectF TransformRect(const CFX_RectF& rect) const;
   CFX_FloatRect TransformRect(const CFX_FloatRect& rect) const;
 
-  float a;
-  float b;
-  float c;
-  float d;
-  float e;
-  float f;
-
- private:
-  void ConcatInternal(const CFX_Matrix& other, bool prepend);
+  float a = 1.0f;
+  float b = 0.0f;
+  float c = 0.0f;
+  float d = 1.0f;
+  float e = 0.0f;
+  float f = 0.0f;
 };
 
 #endif  // CORE_FXCRT_FX_COORDINATES_H_

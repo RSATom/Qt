@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef sw_LLVMRoutine_hpp
-#define sw_LLVMRoutine_hpp
+#ifndef rr_LLVMRoutine_hpp
+#define rr_LLVMRoutine_hpp
 
 #include "Routine.hpp"
 
-namespace sw
+#include <cstdint>
+
+namespace rr
 {
+#if REACTOR_LLVM_VERSION < 7
 	class LLVMRoutineManager;
 
 	class LLVMRoutine : public Routine
@@ -48,6 +51,32 @@ namespace sw
 
 		//const bool dynamic;   // Generated or precompiled
 	};
+#else
+	class LLVMReactorJIT;
+
+	class LLVMRoutine : public Routine
+	{
+	public:
+		LLVMRoutine(void *ent, void (*callback)(LLVMReactorJIT *, uint64_t),
+		            LLVMReactorJIT *jit, uint64_t key)
+			: entry(ent), dtor(callback), reactorJIT(jit), moduleKey(key)
+		{ }
+
+		virtual ~LLVMRoutine();
+
+		const void *getEntry()
+		{
+			return entry;
+		}
+
+	private:
+		const void *entry;
+
+		void (*dtor)(LLVMReactorJIT *, uint64_t);
+		LLVMReactorJIT *reactorJIT;
+		uint64_t moduleKey;
+	};
+#endif  // REACTOR_LLVM_VERSION < 7
 }
 
-#endif   // sw_LLVMRoutine_hpp
+#endif   // rr_LLVMRoutine_hpp

@@ -33,10 +33,10 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/web_audio_device.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/platform/audio/audio_bus.h"
 #include "third_party/blink/renderer/platform/audio/audio_io_callback.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 
@@ -91,13 +91,15 @@ class PLATFORM_EXPORT AudioDestination
 
   virtual void Start();
   virtual void Stop();
+  virtual void Pause();
+  virtual void Resume();
 
   // Starts the destination with the AudioWorklet support.
   void StartWithWorkletTaskRunner(
       scoped_refptr<base::SingleThreadTaskRunner> worklet_task_runner);
 
   // Getters must be accessed from the main thread.
-  size_t CallbackBufferSize() const;
+  uint32_t CallbackBufferSize() const;
   bool IsPlaying();
 
   // TODO(hongchan): this should not be called by the rendering thread.
@@ -109,9 +111,11 @@ class PLATFORM_EXPORT AudioDestination
 
   // The information from the actual audio hardware. (via Platform::current)
   static float HardwareSampleRate();
-  static unsigned long MaxChannelCount();
+  static uint32_t MaxChannelCount();
 
  private:
+  enum class PlayState { kStopped, kPlaying, kPaused };
+
   // Check if the buffer size chosen by the WebAudioDevice is too large.
   bool CheckBufferSize();
 
@@ -120,8 +124,8 @@ class PLATFORM_EXPORT AudioDestination
   // Accessed by the main thread.
   std::unique_ptr<WebAudioDevice> web_audio_device_;
   const unsigned number_of_output_channels_;
-  size_t callback_buffer_size_;
-  bool is_playing_;
+  uint32_t callback_buffer_size_;
+  PlayState play_state_;
 
   // The task runner for AudioWorklet operation. This is only valid when
   // the AudioWorklet is activated.
@@ -138,18 +142,15 @@ class PLATFORM_EXPORT AudioDestination
   // graph into the FIFO.
   scoped_refptr<AudioBus> render_bus_;
 
-  // Keeps track if the output of this destination was audible, before the
-  // current rendering quantum.  Used for recording "playback" time.
-  bool was_audible_ = false;
-
-  // Counts the number of render quanta where audible sound was played.  We
-  // determine audibility on render quantum boundaries, so counting quanta is
-  // all that's needed.
-  size_t total_audible_renders_ = 0;
-
   // Accessed by rendering thread: the render callback function of WebAudio
   // engine. (i.e. DestinationNode)
   AudioIOCallback& callback_;
+
+  // When the last callback function from the device is called.
+  base::TimeTicks previous_callback_request_;
+
+  // The time duration spent on rendering previous render quanta per callback.
+  base::TimeDelta previous_render_duration_;
 
   // Accessed by rendering thread.
   size_t frames_elapsed_;

@@ -78,9 +78,8 @@ void CursorIPC::Send(IPC::Message* message) {
                            FROM_HERE, base::BindOnce(send_callback_, message)))
     return;
 
-  // Drop disconnected updates. DrmWindowHost will call
-  // CommitBoundsChange() when we connect to initialize the cursor
-  // location.
+  // Drop disconnected updates. The cursor will get set once we connect, via
+  // SetDrmCursorProxy().
   delete message;
 }
 
@@ -95,7 +94,7 @@ DrmGpuPlatformSupportHost::DrmGpuPlatformSupportHost(DrmCursor* cursor)
   if (ui_runner_) {
     weak_ptr_ = weak_ptr_factory_.GetWeakPtr();
   } else {
-    DCHECK(features::IsAshInBrowserProcess());
+    DCHECK(!features::IsMultiProcessMash());
   }
 }
 
@@ -121,7 +120,8 @@ bool DrmGpuPlatformSupportHost::IsConnected() {
 void DrmGpuPlatformSupportHost::OnGpuServiceLaunched(
     scoped_refptr<base::SingleThreadTaskRunner> ui_runner,
     scoped_refptr<base::SingleThreadTaskRunner> io_runner,
-    GpuHostBindInterfaceCallback binder) {
+    GpuHostBindInterfaceCallback binder,
+    GpuHostTerminateCallback terminate_callback) {
   NOTREACHED() << "DrmGpuPlatformSupportHost::OnGpuServiceLaunched shouldn't "
                   "be used with pre-mojo IPC";
 }

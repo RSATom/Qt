@@ -45,7 +45,7 @@
 */
 
 /*!
-    \qmlmodule QtDataVisualization 1.2
+    \qmlmodule QtDataVisualization 1.\QtMinorVersion
     \title Qt Data Visualization QML Types
     \ingroup qmlmodules
 

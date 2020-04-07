@@ -108,7 +108,7 @@ StyleSheetContents::StyleSheetContents(const StyleSheetContents& o)
         static_cast<StyleRuleNamespace*>(o.namespace_rules_[i]->Copy());
   }
 
-  // LazyParseCSS: Copying child rules is a strict point for lazy parsing, so
+  // Copying child rules is a strict point for deferred property parsing, so
   // there is no need to copy lazy parsing state here.
   for (unsigned i = 0; i < child_rules_.size(); ++i)
     child_rules_[i] = o.child_rules_[i]->Copy();
@@ -123,9 +123,6 @@ void StyleSheetContents::SetHasSyntacticallyValidCSSHeader(bool is_valid_css) {
 bool StyleSheetContents::IsCacheableForResource() const {
   // This would require dealing with multiple clients for load callbacks.
   if (!LoadCompleted())
-    return false;
-  if (has_media_queries_ &&
-      !RuntimeEnabledFeatures::CacheStyleSheetWithMediaQueriesEnabled())
     return false;
   // FIXME: Support copying import rules.
   if (!import_rules_.IsEmpty())
@@ -332,44 +329,30 @@ const AtomicString& StyleSheetContents::NamespaceURIFromPrefix(
 void StyleSheetContents::ParseAuthorStyleSheet(
     const CSSStyleSheetResource* cached_style_sheet,
     const SecurityOrigin* security_origin) {
-  TRACE_EVENT1("blink,devtools.timeline", "ParseAuthorStyleSheet", "data",
-               InspectorParseAuthorStyleSheetEvent::Data(cached_style_sheet));
+  TRACE_EVENT1(
+      "blink,devtools.timeline", "ParseAuthorStyleSheet", "data",
+      inspector_parse_author_style_sheet_event::Data(cached_style_sheet));
   TimeTicks start_time = CurrentTimeTicks();
 
-  bool is_same_origin_request =
-      security_origin && security_origin->CanRequest(BaseURL());
-
-  // When the response was fetched via the Service Worker, the original URL may
-  // not be same as the base URL.
-  // TODO(horo): When we will use the original URL as the base URL, we can
-  // remove this check. crbug.com/553535
-  if (is_same_origin_request &&
-      cached_style_sheet->GetResponse().WasFetchedViaServiceWorker()) {
-    const KURL original_url(
-        cached_style_sheet->GetResponse().OriginalURLViaServiceWorker());
-    // |originalURL| is empty when the response is created in the SW.
-    if (!original_url.IsEmpty() && !security_origin->CanRequest(original_url))
-      is_same_origin_request = false;
-  }
-
+  const ResourceResponse& response = cached_style_sheet->GetResponse();
   CSSStyleSheetResource::MIMETypeCheck mime_type_check =
-      IsQuirksModeBehavior(parser_context_->Mode()) && is_same_origin_request
+      (IsQuirksModeBehavior(parser_context_->Mode()) &&
+       response.IsCorsSameOrigin())
           ? CSSStyleSheetResource::MIMETypeCheck::kLax
           : CSSStyleSheetResource::MIMETypeCheck::kStrict;
   String sheet_text =
       cached_style_sheet->SheetText(parser_context_, mime_type_check);
 
-  const ResourceResponse& response = cached_style_sheet->GetResponse();
-  source_map_url_ = response.HttpHeaderField(HTTPNames::SourceMap);
+  source_map_url_ = response.HttpHeaderField(http_names::kSourceMap);
   if (source_map_url_.IsEmpty()) {
     // Try to get deprecated header.
-    source_map_url_ = response.HttpHeaderField(HTTPNames::X_SourceMap);
+    source_map_url_ = response.HttpHeaderField(http_names::kXSourceMap);
   }
 
   const CSSParserContext* context =
       CSSParserContext::CreateWithStyleSheetContents(ParserContext(), this);
   CSSParser::ParseSheet(context, this, sheet_text,
-                        RuntimeEnabledFeatures::LazyParseCSSEnabled());
+                        CSSDeferPropertyParsing::kYes);
 
   DEFINE_STATIC_LOCAL(CustomCountHistogram, parse_histogram,
                       ("Style.AuthorStyleSheet.ParseTime", 0, 10000000, 50));
@@ -377,16 +360,21 @@ void StyleSheetContents::ParseAuthorStyleSheet(
   parse_histogram.CountMicroseconds(parse_duration);
 }
 
-void StyleSheetContents::ParseString(const String& sheet_text) {
-  ParseStringAtPosition(sheet_text, TextPosition::MinimumPosition());
+ParseSheetResult StyleSheetContents::ParseString(const String& sheet_text,
+                                                 bool allow_import_rules) {
+  return ParseStringAtPosition(sheet_text, TextPosition::MinimumPosition(),
+                               allow_import_rules);
 }
 
-void StyleSheetContents::ParseStringAtPosition(
+ParseSheetResult StyleSheetContents::ParseStringAtPosition(
     const String& sheet_text,
-    const TextPosition& start_position) {
+    const TextPosition& start_position,
+    bool allow_import_rules) {
   const CSSParserContext* context =
       CSSParserContext::CreateWithStyleSheetContents(ParserContext(), this);
-  CSSParser::ParseSheet(context, this, sheet_text);
+  return CSSParser::ParseSheet(context, this, sheet_text,
+                               CSSDeferPropertyParsing::kNo,
+                               allow_import_rules);
 }
 
 bool StyleSheetContents::IsLoading() const {
@@ -434,6 +422,12 @@ void StyleSheetContents::CheckLoaded() {
   for (unsigned i = 0; i < loading_clients.size(); ++i) {
     if (loading_clients[i]->LoadCompleted())
       continue;
+
+    if (loading_clients[i]->IsConstructed()) {
+      // Resolve the promise for CSSStyleSheet.replace calls.
+      loading_clients[i]->ResolveReplacePromiseIfNeeded(did_load_error_occur_);
+      continue;
+    }
 
     // sheetLoaded might be invoked after its owner node is removed from
     // document.
@@ -530,6 +524,7 @@ static bool ChildRulesHaveFailedOrCanceledSubresources(
       case StyleRuleBase::kKeyframe:
       case StyleRuleBase::kSupports:
       case StyleRuleBase::kViewport:
+      case StyleRuleBase::kFontFeatureValues:
         break;
     }
   }
@@ -560,7 +555,6 @@ StyleSheetContents* StyleSheetContents::ParentStyleSheet() const {
 void StyleSheetContents::RegisterClient(CSSStyleSheet* sheet) {
   DCHECK(!loading_clients_.Contains(sheet));
   DCHECK(!completed_clients_.Contains(sheet));
-
   // InspectorCSSAgent::BuildObjectForRule creates CSSStyleSheet without any
   // owner node.
   if (!sheet->OwnerDocument())

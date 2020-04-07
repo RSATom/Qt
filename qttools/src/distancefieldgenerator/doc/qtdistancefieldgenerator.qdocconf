@@ -1,7 +1,9 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qttools.qdocconf)
 
 project                 = QtDistanceFieldGenerator
 description             = Qt Distance Field Generator Manual
+moduleheader            =
 
 qhp.projects            = QtDistanceFieldGenerator
 

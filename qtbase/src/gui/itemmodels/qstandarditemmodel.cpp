@@ -1846,7 +1846,7 @@ bool QStandardItem::hasChildren() const
     item) takes ownership of \a item. If necessary, the row count and column
     count are increased to fit the item.
 
-    \note Passing a null pointer as \a item removes the item.
+    \note Passing \nullptr as \a item removes the item.
 
     \sa child()
 */
@@ -1905,7 +1905,7 @@ QStandardItem *QStandardItem::takeChild(int row, int column)
 /*!
     Removes \a row without deleting the row items, and returns a list of
     pointers to the removed items. For items in the row that have not been
-    set, the corresponding pointers in the list will be 0.
+    set, the corresponding pointers in the list will be \nullptr.
 
     \sa removeRow(), insertRow(), takeColumn()
 */
@@ -1939,7 +1939,7 @@ QList<QStandardItem*> QStandardItem::takeRow(int row)
 /*!
     Removes \a column without deleting the column items, and returns a list of
     pointers to the removed items. For items in the column that have not been
-    set, the corresponding pointers in the list will be 0.
+    set, the corresponding pointers in the list will be \nullptr.
 
     \sa removeColumn(), insertColumn(), takeRow()
 */
@@ -2718,7 +2718,7 @@ QStandardItem *QStandardItemModel::takeItem(int row, int column)
     Removes the given \a row without deleting the row items, and returns a
     list of pointers to the removed items. The model releases ownership of the
     items. For items in the row that have not been set, the corresponding
-    pointers in the list will be 0.
+    pointers in the list will be \nullptr.
 
     \sa takeColumn()
 */
@@ -2734,7 +2734,7 @@ QList<QStandardItem*> QStandardItemModel::takeRow(int row)
     Removes the given \a column without deleting the column items, and returns
     a list of pointers to the removed items. The model releases ownership of
     the items. For items in the column that have not been set, the
-    corresponding pointers in the list will be 0.
+    corresponding pointers in the list will be \nullptr.
 
     \sa takeRow()
 */
@@ -3010,6 +3010,11 @@ bool QStandardItemModel::setData(const QModelIndex &index, const QVariant &value
     return true;
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \reimp
+ */
+#else
 /*!
   \since 5.12
   Removes the data stored in all the roles for the given \a index.
@@ -3018,6 +3023,7 @@ bool QStandardItemModel::setData(const QModelIndex &index, const QVariant &value
 
   \sa setData(), data()
 */
+#endif
 bool QStandardItemModel::clearItemData(const QModelIndex &index)
 {
     if (!checkIndex(index, CheckIndexOption::IndexIsValid))

@@ -14,47 +14,13 @@
 
 import * as m from 'mithril';
 
-import {WasmEngineProxy} from '../controller/wasm_engine_proxy';
-
-import {gEngines, globals} from './globals';
-import {quietDispatch} from './mithril_helpers';
 import {createPage} from './pages';
-
-function extractBlob(e: Event): Blob|null {
-  if (!(e.target instanceof HTMLInputElement)) {
-    throw new Error('Not input element');
-  }
-  if (!e.target.files) return null;
-  return e.target.files.item(0);
-}
-
-async function loadExampleTrace() {
-  const url = 'https://storage.googleapis.com/perfetto-misc/example_trace';
-  const repsonse = await fetch(url);
-  const blob = await repsonse.blob();
-  gEngines.set('0', WasmEngineProxy.create(blob));
-  m.route.set('/query/0');
-}
 
 export const HomePage = createPage({
   view() {
-    const count = globals.state.i;
     return m(
-        '.home-page',
+        '.page.home-page',
         m('.home-page-title', 'Perfetto'),
-        m('.home-page-controls',
-          m('label.file-input',
-            m('input[type=file]', {
-              onchange: (e: Event) => {
-                const blob = extractBlob(e);
-                if (!blob) return;
-                gEngines.set('0', WasmEngineProxy.create(blob));
-                m.route.set('/query/0');
-              },
-            }),
-            'Load trace'),
-          ' or ',
-          m('button', {onclick: loadExampleTrace}, 'Open demo trace'),
-          m('button', {onclick: quietDispatch({})}, `Increment ${count}`)));
-  }
+        m('img.logo[src=assets/logo-3d.png]'), );
+  },
 });

@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "components/viz/common/surfaces/frame_sink_id.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/content_export.h"
 #include "ui/events/blink/web_input_event_traits.h"
@@ -24,22 +25,22 @@ namespace gfx {
 class PointF;
 }
 
-namespace viz {
-class FrameSinkId;
-}
-
 namespace content {
 
 class RenderWidgetHostViewBase;
 class OneShotTimeoutMonitor;
 
+// TODO(sunxd): Make |RenderWidgetTargetResult| a class. Merge the booleans into
+// a mask to reduce the size. Make the constructor take in enums for better
+// readability.
 struct CONTENT_EXPORT RenderWidgetTargetResult {
   RenderWidgetTargetResult();
   RenderWidgetTargetResult(const RenderWidgetTargetResult&);
   RenderWidgetTargetResult(RenderWidgetHostViewBase* view,
                            bool should_query_view,
                            base::Optional<gfx::PointF> location,
-                           bool latched_target);
+                           bool latched_target,
+                           bool should_verify_result);
   ~RenderWidgetTargetResult();
 
   RenderWidgetHostViewBase* view = nullptr;
@@ -48,6 +49,11 @@ struct CONTENT_EXPORT RenderWidgetTargetResult {
   // When |latched_target| is false, we explicitly hit-tested events instead of
   // using a known target.
   bool latched_target = false;
+  // When |should_verify_result| is true, RenderWidgetTargeter will do async hit
+  // testing and compare the target with the result of synchronous hit testing.
+  // |should_verify_result| will always be false if we are doing draw quad based
+  // hit testing.
+  bool should_verify_result = false;
 };
 
 class TracingUmaTracker;
@@ -70,8 +76,15 @@ class RenderWidgetTargeter {
         const ui::LatencyInfo& latency,
         const base::Optional<gfx::PointF>& target_location) = 0;
 
+    virtual void SetEventsBeingFlushed(bool events_being_flushed) = 0;
+
     virtual RenderWidgetHostViewBase* FindViewFromFrameSinkId(
         const viz::FrameSinkId& frame_sink_id) const = 0;
+
+    // Returns true if a further asynchronous query should be sent to the
+    // candidate RenderWidgetHostView.
+    virtual bool ShouldContinueHitTesting(
+        RenderWidgetHostViewBase* target_view) const = 0;
   };
 
   // The delegate must outlive this targeter.
@@ -97,7 +110,7 @@ class RenderWidgetTargeter {
  private:
   // Attempts to target and dispatch all events in the queue. It stops if it has
   // to query a client, or if the queue becomes empty.
-  void FlushEventQueue();
+  void FlushEventQueue(bool is_verifying);
 
   // Queries |target| to find the correct target for |event|.
   // |event| is in the coordinate space of |root_view|.
@@ -105,6 +118,22 @@ class RenderWidgetTargeter {
   // |last_request_target| and |last_target_location| provide a fallback target
   // the case that the query times out. These should be null values when
   // querying the root view, and the target's immediate parent view otherwise.
+  // |expected_frame_sink_id| is temporarily added for v2 viz hit testing.
+  // V2 uses cc generated hit test data and we need to verify its correctness.
+  // The variable is the target frame sink id v2 finds in synchronous hit
+  // testing. It should be the same as the async hit testing target if v2 works
+  // correctly.
+  // TODO(sunxd): Remove |expected_frame_sink_id| after verifying synchronous
+  // hit testing correctness. See https://crbug.com/871996.
+  void QueryClientInternal(RenderWidgetHostViewBase* root_view,
+                           RenderWidgetHostViewBase* target,
+                           const blink::WebInputEvent& event,
+                           const ui::LatencyInfo& latency,
+                           const gfx::PointF& target_location,
+                           RenderWidgetHostViewBase* last_request_target,
+                           const gfx::PointF& last_target_location,
+                           const viz::FrameSinkId& expected_frame_sink_id);
+
   void QueryClient(RenderWidgetHostViewBase* root_view,
                    RenderWidgetHostViewBase* target,
                    const blink::WebInputEvent& event,
@@ -113,8 +142,24 @@ class RenderWidgetTargeter {
                    RenderWidgetHostViewBase* last_request_target,
                    const gfx::PointF& last_target_location);
 
+  void QueryAndVerifyClient(RenderWidgetHostViewBase* root_view,
+                            RenderWidgetHostViewBase* target,
+                            const blink::WebInputEvent& event,
+                            const ui::LatencyInfo& latency,
+                            const gfx::PointF& target_location,
+                            RenderWidgetHostViewBase* last_request_target,
+                            const gfx::PointF& last_target_location,
+                            const viz::FrameSinkId& expected_frame_sink_id);
+
   // |event| is in the coordinate space of |root_view|. |target_location|, if
   // set, is the location in |target|'s coordinate space.
+  // |target| is the current target that will be queried using its
+  // InputTargetClient interface.
+  // |frame_sink_id| is returned from the InputTargetClient to indicate where
+  // the event should be routed, and |transformed_location| is the point in
+  // that new target's coordinate space.
+  // |expected_frame_sink_id| is the expected hit test result based on
+  // synchronous event targeting with cc generated data.
   void FoundFrameSinkId(base::WeakPtr<RenderWidgetHostViewBase> root_view,
                         base::WeakPtr<RenderWidgetHostViewBase> target,
                         ui::WebScopedInputEvent event,
@@ -122,7 +167,9 @@ class RenderWidgetTargeter {
                         uint32_t request_id,
                         const gfx::PointF& target_location,
                         TracingUmaTracker tracker,
-                        const viz::FrameSinkId& frame_sink_id);
+                        const viz::FrameSinkId& expected_frame_sink_id,
+                        const viz::FrameSinkId& frame_sink_id,
+                        const gfx::PointF& transformed_location);
 
   // |event| is in the coordinate space of |root_view|. |target_location|, if
   // set, is the location in |target|'s coordinate space. If |latched_target| is
@@ -133,7 +180,8 @@ class RenderWidgetTargeter {
                    const blink::WebInputEvent& event,
                    const ui::LatencyInfo& latency,
                    const base::Optional<gfx::PointF>& target_location,
-                   bool latched_target);
+                   bool latched_target,
+                   const viz::FrameSinkId& expected_frame_sink_id);
 
   // Callback when the hit testing timer fires, to resume event processing
   // without further waiting for a response to the last targeting request.
@@ -144,7 +192,8 @@ class RenderWidgetTargeter {
       base::WeakPtr<RenderWidgetHostViewBase> last_request_target,
       const gfx::PointF& last_target_location,
       ui::WebScopedInputEvent event,
-      const ui::LatencyInfo& latency);
+      const ui::LatencyInfo& latency,
+      const viz::FrameSinkId& expected_frame_sink_id);
 
   base::TimeDelta async_hit_test_timeout_delay() {
     return async_hit_test_timeout_delay_;
@@ -159,12 +208,20 @@ class RenderWidgetTargeter {
     base::WeakPtr<RenderWidgetHostViewBase> root_view;
     ui::WebScopedInputEvent event;
     ui::LatencyInfo latency;
+    viz::FrameSinkId expected_frame_sink_id;
     std::unique_ptr<TracingUmaTracker> tracker;
   };
 
   bool request_in_flight_ = false;
   uint32_t last_request_id_ = 0;
   std::queue<TargetingRequest> requests_;
+
+  // With viz-hit-testing-surface-layer being enabled, we do async hit testing
+  // for already dispatched events for verification. These verification requests
+  // should not block normal hit testing requests.
+  bool verify_request_in_flight_ = false;
+  uint32_t last_verify_request_id_ = 0;
+  std::queue<TargetingRequest> verify_requests_;
 
   std::unordered_set<RenderWidgetHostViewBase*> unresponsive_views_;
 
@@ -178,6 +235,14 @@ class RenderWidgetTargeter {
       base::TimeDelta::FromMilliseconds(kAsyncHitTestTimeoutMs);
 
   std::unique_ptr<OneShotTimeoutMonitor> async_hit_test_timeout_;
+  std::unique_ptr<OneShotTimeoutMonitor> async_verify_hit_test_timeout_;
+
+  uint64_t trace_id_;
+
+  const bool is_viz_hit_testing_debug_enabled_;
+  // Stores SurfaceIds for regions that were async queried if hit-test debugging
+  // is enabled. This allows us to send the queried regions in batches.
+  std::vector<viz::FrameSinkId> hit_test_async_queried_debug_queue_;
 
   Delegate* const delegate_;
   base::WeakPtrFactory<RenderWidgetTargeter> weak_ptr_factory_;

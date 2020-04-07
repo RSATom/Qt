@@ -20,6 +20,7 @@
 #include "build/build_config.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/navigation_entry.h"
@@ -27,7 +28,6 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/media_stream_request.h"
 #include "extensions/browser/app_window/app_delegate.h"
 #include "extensions/browser/app_window/app_web_contents_helper.h"
 #include "extensions/browser/app_window/app_window_client.h"
@@ -49,6 +49,7 @@
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ipc/ipc_message_macros.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/display/display.h"
@@ -282,8 +283,11 @@ void AppWindow::Init(const GURL& url,
 
   // Windows cannot be always-on-top in fullscreen mode for security reasons.
   cached_always_on_top_ = new_params.always_on_top;
-  if (new_params.state == ui::SHOW_STATE_FULLSCREEN)
+  if (new_params.state == ui::SHOW_STATE_FULLSCREEN &&
+      !ExtensionsBrowserClient::Get()->IsScreensaverInDemoMode(
+          extension_id())) {
     new_params.always_on_top = false;
+  }
 
   requested_alpha_enabled_ = new_params.alpha_enabled;
   is_ime_window_ = params.is_ime_window;
@@ -350,9 +354,10 @@ void AppWindow::RequestMediaAccessPermission(
 bool AppWindow::CheckMediaAccessPermission(
     content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
-    content::MediaStreamType type) {
-  DCHECK_EQ(AppWindow::web_contents(),
-            content::WebContents::FromRenderFrameHost(render_frame_host));
+    blink::MediaStreamType type) {
+  DCHECK_EQ(web_contents(),
+            content::WebContents::FromRenderFrameHost(render_frame_host)
+                ->GetOutermostWebContents());
   return helper_->CheckMediaAccessPermission(render_frame_host, security_origin,
                                              type);
 }
@@ -400,7 +405,7 @@ content::KeyboardEventProcessingResult AppWindow::PreHandleKeyboardEvent(
   return content::KeyboardEventProcessingResult::NOT_HANDLED;
 }
 
-void AppWindow::HandleKeyboardEvent(
+bool AppWindow::HandleKeyboardEvent(
     WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
   // If the window is currently fullscreen and not forced, ESC should leave
@@ -409,10 +414,10 @@ void AppWindow::HandleKeyboardEvent(
   if (event.windows_key_code == ui::VKEY_ESCAPE && IsFullscreen() &&
       !IsForcedFullscreen()) {
     Restore();
-    return;
+    return true;
   }
 
-  native_app_window_->HandleKeyboardEvent(event);
+  return native_app_window_->HandleKeyboardEvent(event);
 }
 
 void AppWindow::RequestToLockMouse(WebContents* web_contents,
@@ -436,6 +441,17 @@ std::unique_ptr<content::BluetoothChooser> AppWindow::RunBluetoothChooser(
 
 bool AppWindow::TakeFocus(WebContents* source, bool reverse) {
   return app_delegate_->TakeFocus(source, reverse);
+}
+
+gfx::Size AppWindow::EnterPictureInPicture(content::WebContents* web_contents,
+                                           const viz::SurfaceId& surface_id,
+                                           const gfx::Size& natural_size) {
+  return app_delegate_->EnterPictureInPicture(web_contents, surface_id,
+                                              natural_size);
+}
+
+void AppWindow::ExitPictureInPicture() {
+  app_delegate_->ExitPictureInPicture();
 }
 
 bool AppWindow::OnMessageReceived(const IPC::Message& message,
@@ -720,8 +736,12 @@ void AppWindow::SetAlwaysOnTop(bool always_on_top) {
   // As a security measure, do not allow fullscreen windows or windows that
   // overlap the taskbar to be on top. The property will be applied when the
   // window exits fullscreen and moves away from the taskbar.
-  if (!IsFullscreen() && !IntersectsWithTaskbar())
+  if ((!IsFullscreen() ||
+       ExtensionsBrowserClient::Get()->IsScreensaverInDemoMode(
+           extension_id())) &&
+      !IntersectsWithTaskbar()) {
     native_app_window_->SetAlwaysOnTop(always_on_top);
+  }
 
   OnNativeWindowChanged();
 }
@@ -875,9 +895,11 @@ content::ColorChooser* AppWindow::OpenColorChooser(
   return app_delegate_->ShowColorChooser(web_contents, initial_color);
 }
 
-void AppWindow::RunFileChooser(content::RenderFrameHost* render_frame_host,
-                               const content::FileChooserParams& params) {
-  app_delegate_->RunFileChooser(render_frame_host, params);
+void AppWindow::RunFileChooser(
+    content::RenderFrameHost* render_frame_host,
+    std::unique_ptr<content::FileSelectListener> listener,
+    const blink::mojom::FileChooserParams& params) {
+  app_delegate_->RunFileChooser(render_frame_host, std::move(listener), params);
 }
 
 void AppWindow::SetContentsBounds(WebContents* source,
@@ -1065,9 +1087,7 @@ AppWindow::CreateParams AppWindow::LoadDefaults(CreateParams params)
 SkRegion* AppWindow::RawDraggableRegionsToSkRegion(
     const std::vector<DraggableRegion>& regions) {
   SkRegion* sk_region = new SkRegion;
-  for (std::vector<DraggableRegion>::const_iterator iter = regions.begin();
-       iter != regions.end();
-       ++iter) {
+  for (auto iter = regions.cbegin(); iter != regions.cend(); ++iter) {
     const DraggableRegion& region = *iter;
     sk_region->op(
         region.bounds.x(),

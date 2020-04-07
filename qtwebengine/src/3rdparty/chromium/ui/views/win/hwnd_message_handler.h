@@ -107,9 +107,10 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   void StackAbove(HWND other_hwnd);
   void StackAtTop();
 
-  void Show();
-  void ShowWindowWithState(ui::WindowShowState show_state);
-  void ShowMaximizedWithBounds(const gfx::Rect& bounds);
+  // Shows the window. If |show_state| is maximized, |pixel_restore_bounds| is
+  // the bounds to restore the window to when going back to normal.
+  void Show(ui::WindowShowState show_state,
+            const gfx::Rect& pixel_restore_bounds);
   void Hide();
 
   void Maximize();
@@ -270,9 +271,14 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // or subsequently.
   void ClientAreaSizeChanged();
 
-  // Returns the insets of the client area relative to the non-client area of
-  // the window.
-  bool GetClientAreaInsets(gfx::Insets* insets) const;
+  // Returns true if |insets| was modified to define a custom client area for
+  // the window, false if the default client area should be used. If false is
+  // returned, |insets| is not modified.  |monitor| is the monitor this
+  // window is on.  Normally that would be determined from the HWND, but
+  // during WM_NCCALCSIZE Windows does not return the correct monitor for the
+  // HWND, so it must be passed in explicitly (see HWNDMessageHandler::
+  // OnNCCalcSize for more details).
+  bool GetClientAreaInsets(gfx::Insets* insets, HMONITOR monitor) const;
 
   // Resets the window region for the current widget bounds if necessary.
   // If |force| is true, the window region is reset to NULL even for native
@@ -349,6 +355,9 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
     CR_MESSAGE_HANDLER_EX(WM_POINTERUPDATE, OnPointerEvent)
     CR_MESSAGE_HANDLER_EX(WM_POINTERENTER, OnPointerEvent)
     CR_MESSAGE_HANDLER_EX(WM_POINTERLEAVE, OnPointerEvent)
+    CR_MESSAGE_HANDLER_EX(WM_NCPOINTERDOWN, OnPointerEvent)
+    CR_MESSAGE_HANDLER_EX(WM_NCPOINTERUP, OnPointerEvent)
+    CR_MESSAGE_HANDLER_EX(WM_NCPOINTERUPDATE, OnPointerEvent)
 
     // Key events.
     CR_MESSAGE_HANDLER_EX(WM_KEYDOWN, OnKeyEvent)
@@ -511,13 +520,6 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
                                     WPARAM w_param,
                                     LPARAM l_param);
 
-  LRESULT GenerateMouseEventFromPointerEvent(
-      UINT message,
-      UINT32 pointer_id,
-      const POINTER_INFO& pointer_info,
-      const gfx::Point& point,
-      const ui::PointerDetails& pointer_details);
-
   // Returns true if the mouse message passed in is an OS synthesized mouse
   // message.
   // |message| identifies the mouse message.
@@ -529,6 +531,9 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
 
   // Provides functionality to transition a frame to DWM.
   void PerformDwmTransition();
+
+  // Updates DWM frame to extend into client area if needed.
+  void UpdateDwmFrame();
 
   // Generates a touch event and adds it to the |touch_events| parameter.
   // |point| is the point where the touch was initiated.
@@ -637,6 +642,9 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // activation, etc.)
   bool ignore_window_pos_changes_;
 
+  // Keeps track of the last size type param received from a WM_SIZE message.
+  UINT last_size_param_ = SIZE_RESTORED;
+
   // The last-seen monitor containing us, and its rect and work area.  These are
   // used to catch updates to the rect and work area and react accordingly.
   HMONITOR last_monitor_;
@@ -655,9 +663,6 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   ui::SequentialIDGenerator id_generator_;
 
   PenEventProcessor pen_processor_;
-
-  // Set to true if we are in the context of a sizing operation.
-  bool in_size_loop_;
 
   // Stores a pointer to the WindowEventTarget interface implemented by this
   // class. Allows callers to retrieve the interface pointer.
@@ -687,6 +692,11 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // This member variable is set to true if the window is transitioning to
   // glass. Defaults to false.
   bool dwm_transition_desired_;
+
+  // Is DWM composition currently enabled?
+  // Note: According to MSDN docs for DwmIsCompositionEnabled(), this is always
+  // true starting in Windows 8.
+  bool dwm_composition_enabled_;
 
   // True if HandleWindowSizeChanging has been called in the delegate, but not
   // HandleClientSizeChanged.
@@ -729,6 +739,13 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // True if we enable feature kPrecisionTouchpadScrollPhase. Indicate we will
   // report the scroll phase information or not.
   bool precision_touchpad_scroll_phase_enabled_;
+
+  // True if DWM frame should be cleared on next WM_ERASEBKGND message.  This is
+  // necessary to avoid white flashing in the titlebar area around the
+  // minimize/maximize/close buttons.  Clearing the frame on every WM_ERASEBKGND
+  // message causes black flickering in the titlebar region so we do it on for
+  // the first message after frame type changes.
+  bool needs_dwm_frame_clear_ = true;
 
   // This is a map of the HMONITOR to full screeen window instance. It is safe
   // to keep a raw pointer to the HWNDMessageHandler instance as we track the

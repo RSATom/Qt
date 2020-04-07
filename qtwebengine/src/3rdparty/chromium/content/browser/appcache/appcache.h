@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
@@ -19,7 +20,9 @@
 #include "content/browser/appcache/appcache_database.h"
 #include "content/browser/appcache/appcache_entry.h"
 #include "content/browser/appcache/appcache_manifest_parser.h"
+#include "content/browser/appcache/appcache_namespace.h"
 #include "content/common/content_export.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -98,7 +101,13 @@ class CONTENT_EXPORT AppCache
 
   base::Time update_time() const { return update_time_; }
 
+  // The sum of all the sizes of the resources in this cache.
   int64_t cache_size() const { return cache_size_; }
+
+  // The sum of all the padding sizes of the resources in this cache.
+  //
+  // See AppCacheEntry for a description of how padding size works.
+  int64_t padding_size() const { return padding_size_; }
 
   void set_update_time(base::Time ticks) { update_time_ = ticks; }
 
@@ -130,10 +139,11 @@ class CONTENT_EXPORT AppCache
       bool* found_network_namespace);
 
   // Populates the 'infos' vector with an element per entry in the appcache.
-  void ToResourceInfoVector(AppCacheResourceInfoVector* infos) const;
+  void ToResourceInfoVector(
+      std::vector<blink::mojom::AppCacheResourceInfo>* infos) const;
 
   static const AppCacheNamespace* FindNamespace(
-      const AppCacheNamespaceVector& namespaces,
+      const std::vector<AppCacheNamespace>& namespaces,
       const GURL& url);
 
  private:
@@ -160,7 +170,7 @@ class CONTENT_EXPORT AppCache
     return FindNamespace(online_whitelist_namespaces_, url) != nullptr;
   }
 
-  GURL GetNamespaceEntryUrl(const AppCacheNamespaceVector& namespaces,
+  GURL GetNamespaceEntryUrl(const std::vector<AppCacheNamespace>& namespaces,
                             const GURL& namespace_url) const;
 
   // Use AppCacheHost::Associate*Cache() to manipulate host association.
@@ -175,9 +185,9 @@ class CONTENT_EXPORT AppCache
 
   EntryMap entries_;    // contains entries of all types
 
-  AppCacheNamespaceVector intercept_namespaces_;
-  AppCacheNamespaceVector fallback_namespaces_;
-  AppCacheNamespaceVector online_whitelist_namespaces_;
+  std::vector<AppCacheNamespace> intercept_namespaces_;
+  std::vector<AppCacheNamespace> fallback_namespaces_;
+  std::vector<AppCacheNamespace> online_whitelist_namespaces_;
   bool online_whitelist_all_;
 
   bool is_complete_;
@@ -186,6 +196,7 @@ class CONTENT_EXPORT AppCache
   base::Time update_time_;
 
   int64_t cache_size_;
+  int64_t padding_size_;
 
   // to notify storage when cache is deleted
   AppCacheStorage* storage_;

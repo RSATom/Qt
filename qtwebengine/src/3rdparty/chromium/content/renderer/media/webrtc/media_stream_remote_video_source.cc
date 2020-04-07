@@ -13,33 +13,16 @@
 #include "base/trace_event/trace_event.h"
 #include "content/renderer/media/webrtc/track_observer.h"
 #include "content/renderer/media/webrtc/webrtc_video_frame_adapter.h"
+#include "content/renderer/media/webrtc/webrtc_video_utils.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/timestamp_constants.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
 #include "third_party/webrtc/api/video/i420_buffer.h"
 #include "third_party/webrtc/api/video/video_sink_interface.h"
+#include "third_party/webrtc/rtc_base/time_utils.h"  // for TimeMicros
 
 namespace content {
-
-namespace {
-
-media::VideoRotation WebRTCToMediaVideoRotation(
-    webrtc::VideoRotation rotation) {
-  switch (rotation) {
-    case webrtc::kVideoRotation_0:
-      return media::VIDEO_ROTATION_0;
-    case webrtc::kVideoRotation_90:
-      return media::VIDEO_ROTATION_90;
-    case webrtc::kVideoRotation_180:
-      return media::VIDEO_ROTATION_180;
-    case webrtc::kVideoRotation_270:
-      return media::VIDEO_ROTATION_270;
-  }
-  return media::VIDEO_ROTATION_0;
-}
-
-}  // anonymous namespace
 
 // Internal class used for receiving frames from the webrtc track on a
 // libjingle thread and forward it to the IO-thread.
@@ -192,7 +175,13 @@ void MediaStreamRemoteVideoSource::RemoteVideoSourceDelegate::OnFrame(
   if (incoming_frame.rotation() != webrtc::kVideoRotation_0) {
     video_frame->metadata()->SetRotation(
         media::VideoFrameMetadata::ROTATION,
-        WebRTCToMediaVideoRotation(incoming_frame.rotation()));
+        WebRtcToMediaVideoRotation(incoming_frame.rotation()));
+  }
+
+  if (incoming_frame.color_space()) {
+    video_frame->set_color_space(
+        WebRtcToMediaVideoColorSpace(*incoming_frame.color_space())
+            .ToGfxColorSpace());
   }
 
   // Run render smoothness algorithm only when we don't have to render
@@ -244,7 +233,7 @@ void MediaStreamRemoteVideoSource::StartSourceImpl(
   scoped_refptr<webrtc::VideoTrackInterface> video_track(
       static_cast<webrtc::VideoTrackInterface*>(observer_->track().get()));
   video_track->AddOrUpdateSink(delegate_.get(), rtc::VideoSinkWants());
-  OnStartDone(MEDIA_DEVICE_OK);
+  OnStartDone(blink::MEDIA_DEVICE_OK);
 }
 
 void MediaStreamRemoteVideoSource::StopSourceImpl() {

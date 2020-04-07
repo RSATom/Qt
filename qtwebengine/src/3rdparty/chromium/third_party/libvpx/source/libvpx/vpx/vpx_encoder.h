@@ -7,8 +7,8 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef VPX_VPX_ENCODER_H_
-#define VPX_VPX_ENCODER_H_
+#ifndef VPX_VPX_VPX_ENCODER_H_
+#define VPX_VPX_VPX_ENCODER_H_
 
 /*!\defgroup encoder Encoder Algorithm Interface
  * \ingroup codec
@@ -39,14 +39,8 @@ extern "C" {
 /*! Temporal Scalability: Maximum number of coding layers */
 #define VPX_TS_MAX_LAYERS 5
 
-/*!\deprecated Use #VPX_TS_MAX_PERIODICITY instead. */
-#define MAX_PERIODICITY VPX_TS_MAX_PERIODICITY
-
 /*! Temporal+Spatial Scalability: Maximum number of coding layers */
 #define VPX_MAX_LAYERS 12  // 3 temporal + 4 spatial layers are allowed.
-
-/*!\deprecated Use #VPX_MAX_LAYERS instead. */
-#define MAX_LAYERS VPX_MAX_LAYERS  // 3 temporal + 4 spatial layers allowed.
 
 /*! Spatial Scalability: Maximum number of coding layers */
 #define VPX_SS_MAX_LAYERS 5
@@ -208,8 +202,6 @@ typedef struct vpx_codec_cx_pkt {
  * This callback function, when registered, returns with packets when each
  * spatial layer is encoded.
  */
-// putting the definitions here for now. (agrange: find if there
-// is a better place for this)
 typedef void (*vpx_codec_enc_output_cx_pkt_cb_fn_t)(vpx_codec_cx_pkt_t *pkt,
                                                     void *user_data);
 
@@ -278,12 +270,9 @@ typedef struct vpx_codec_enc_cfg {
    * generic settings (g)
    */
 
-  /*!\brief Algorithm specific "usage" value
+  /*!\brief Deprecated: Algorithm specific "usage" value
    *
-   * Algorithms may define multiple values for usage, which may convey the
-   * intent of how the application intends to use the stream. If this value
-   * is non-zero, consult the documentation for the codec to determine its
-   * meaning.
+   * This value must be zero.
    */
   unsigned int g_usage;
 
@@ -394,9 +383,6 @@ typedef struct vpx_codec_enc_cfg {
    * trade-off is often acceptable, but for many applications is not. It can
    * be disabled in these cases.
    *
-   * Note that not all codecs support this feature. All vpx VPx codecs do.
-   * For other codecs, consult the documentation for that algorithm.
-   *
    * This threshold is described as a percentage of the target data buffer.
    * When the data buffer falls below this percentage of fullness, a
    * dropped frame is indicated. Set the threshold to zero (0) to disable
@@ -482,8 +468,7 @@ typedef struct vpx_codec_enc_cfg {
    * The quantizer is the most direct control over the quality of the
    * encoded image. The range of valid values for the quantizer is codec
    * specific. Consult the documentation for the codec to determine the
-   * values to use. To determine the range programmatically, call
-   * vpx_codec_enc_config_default() with a usage value of 0.
+   * values to use.
    */
   unsigned int rc_min_quantizer;
 
@@ -492,8 +477,7 @@ typedef struct vpx_codec_enc_cfg {
    * The quantizer is the most direct control over the quality of the
    * encoded image. The range of valid values for the quantizer is codec
    * specific. Consult the documentation for the codec to determine the
-   * values to use. To determine the range programmatically, call
-   * vpx_codec_enc_config_default() with a usage value of 0.
+   * values to use.
    */
   unsigned int rc_max_quantizer;
 
@@ -509,7 +493,7 @@ typedef struct vpx_codec_enc_cfg {
    * be subtracted from the target bitrate in order to compensate
    * for prior overshoot.
    * VP9: Expressed as a percentage of the target bitrate, a threshold
-   * undershoot level (current rate vs target) beyond which more agressive
+   * undershoot level (current rate vs target) beyond which more aggressive
    * corrective measures are taken.
    *   *
    * Valid values in the range VP8:0-1000 VP9: 0-100.
@@ -524,7 +508,7 @@ typedef struct vpx_codec_enc_cfg {
    * be added to the target bitrate in order to compensate for
    * prior undershoot.
    * VP9: Expressed as a percentage of the target bitrate, a threshold
-   * overshoot level (current rate vs target) beyond which more agressive
+   * overshoot level (current rate vs target) beyond which more aggressive
    * corrective measures are taken.
    *
    * Valid values in the range VP8:0-1000 VP9: 0-100.
@@ -799,7 +783,7 @@ vpx_codec_err_t vpx_codec_enc_init_multi_ver(
  *
  * \param[in]    iface     Pointer to the algorithm interface to use.
  * \param[out]   cfg       Configuration buffer to populate.
- * \param[in]    reserved  Must set to 0 for VP8 and VP9.
+ * \param[in]    usage     Must be set to 0.
  *
  * \retval #VPX_CODEC_OK
  *     The configuration was populated.
@@ -810,7 +794,7 @@ vpx_codec_err_t vpx_codec_enc_init_multi_ver(
  */
 vpx_codec_err_t vpx_codec_enc_config_default(vpx_codec_iface_t *iface,
                                              vpx_codec_enc_cfg_t *cfg,
-                                             unsigned int reserved);
+                                             unsigned int usage);
 
 /*!\brief Set or change configuration
  *
@@ -859,7 +843,7 @@ vpx_fixed_buf_t *vpx_codec_get_global_headers(vpx_codec_ctx_t *ctx);
  * implicit that limiting the available time to encode will degrade the
  * output quality. The encoder can be given an unlimited time to produce the
  * best possible frame by specifying a deadline of '0'. This deadline
- * supercedes the VPx notion of "best quality, good quality, realtime".
+ * supersedes the VPx notion of "best quality, good quality, realtime".
  * Applications that wish to map these former settings to the new deadline
  * based system can use the symbols #VPX_DL_REALTIME, #VPX_DL_GOOD_QUALITY,
  * and #VPX_DL_BEST_QUALITY.
@@ -981,4 +965,4 @@ const vpx_image_t *vpx_codec_get_preview_frame(vpx_codec_ctx_t *ctx);
 #ifdef __cplusplus
 }
 #endif
-#endif  // VPX_VPX_ENCODER_H_
+#endif  // VPX_VPX_VPX_ENCODER_H_

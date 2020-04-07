@@ -24,10 +24,15 @@ template_autogen_h = """// GENERATED FILE - DO NOT EDIT.
 //
 // ANGLE format enumeration.
 
+#ifndef LIBANGLE_RENDERER_FORMATID_H_
+#define LIBANGLE_RENDERER_FORMATID_H_
+
+#include <cstdint>
+
 namespace angle
 {{
 
-enum class Format::ID
+enum class FormatID
 {{
 {angle_format_enum}
 }};
@@ -35,6 +40,8 @@ enum class Format::ID
 constexpr uint32_t kNumANGLEFormats = {num_angle_formats};
 
 }}  // namespace angle
+
+#endif  // LIBANGLE_RENDERER_FORMATID_H_
 """
 
 template_autogen_inl = """// GENERATED FILE - DO NOT EDIT.
@@ -56,19 +63,19 @@ template_autogen_inl = """// GENERATED FILE - DO NOT EDIT.
 namespace angle
 {{
 
-static constexpr rx::FastCopyFunctionMap::Entry BGRAEntry = {{GL_RGBA, GL_UNSIGNED_BYTE,
+static constexpr rx::FastCopyFunctionMap::Entry BGRAEntry = {{angle::FormatID::R8G8B8A8_UNORM,
                                                              CopyBGRA8ToRGBA8}};
 static constexpr rx::FastCopyFunctionMap BGRACopyFunctions = {{&BGRAEntry, 1}};
 static constexpr rx::FastCopyFunctionMap NoCopyFunctions;
 
-constexpr Format g_formatInfoTable[] = {{
+const Format gFormatInfoTable[] = {{
     // clang-format off
-    {{ Format::ID::NONE, GL_NONE, GL_NONE, nullptr, NoCopyFunctions, nullptr, nullptr, GL_NONE, 0, 0, 0, 0, 0, 0, 0, false }},
+    {{ FormatID::NONE, GL_NONE, GL_NONE, nullptr, NoCopyFunctions, nullptr, nullptr, GL_NONE, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false }},
 {angle_format_info_cases}    // clang-format on
 }};
 
 // static
-Format::ID Format::InternalFormatToID(GLenum internalFormat)
+FormatID Format::InternalFormatToID(GLenum internalFormat)
 {{
     switch (internalFormat)
     {{
@@ -76,14 +83,24 @@ Format::ID Format::InternalFormatToID(GLenum internalFormat)
     }}
 }}
 
-// static
-const Format &Format::Get(ID id)
+const Format *GetFormatInfoTable()
 {{
-    return g_formatInfoTable[static_cast<size_t>(id)];
+    return gFormatInfoTable;
 }}
-
 }}  // namespace angle
 """
+
+def is_depth_stencil(angle_format):
+    if not 'channels' in angle_format or not angle_format['channels']:
+        return False
+    return 'd' in angle_format['channels'] or 's' in angle_format['channels']
+
+def get_component_suffix(angle_format):
+    if angle_format['componentType'] == 'float':
+        return 'F'
+    if angle_format['componentType'] == 'int' or angle_format['componentType'] == 'snorm':
+        return 'S'
+    return ""
 
 def get_channel_struct(angle_format):
     if 'bits' not in angle_format or angle_format['bits'] is None:
@@ -91,13 +108,13 @@ def get_channel_struct(angle_format):
     if 'BLOCK' in angle_format['id']:
         return None
     bits = angle_format['bits']
-    if 'D' in bits or 'S' in bits:
-        return None
 
     if 'channelStruct' in angle_format:
         return angle_format['channelStruct']
 
     struct_name = ''
+    component_suffix = get_component_suffix(angle_format)
+
     for channel in angle_format['channels']:
         if channel == 'r':
             struct_name += 'R{}'.format(bits['R'])
@@ -109,15 +126,19 @@ def get_channel_struct(angle_format):
             struct_name += 'A{}'.format(bits['A'])
         if channel == 'l':
             struct_name += 'L{}'.format(bits['L'])
-    if angle_format['componentType'] == 'float':
-        struct_name += 'F'
-    if angle_format['componentType'] == 'int' or angle_format['componentType'] == 'snorm':
-        struct_name += 'S'
+        if channel == 'd':
+            struct_name += 'D{}'.format(bits['D']) + component_suffix
+        if channel == 's':
+            struct_name += 'S{}'.format(bits['S'])
+
+    if not is_depth_stencil(angle_format):
+        struct_name += component_suffix
+
     return struct_name
 
 def get_mip_generation_function(angle_format):
     channel_struct = get_channel_struct(angle_format)
-    if channel_struct == None or "BLOCK" in angle_format["id"]:
+    if is_depth_stencil(angle_format) or channel_struct == None or "BLOCK" in angle_format["id"]:
         return 'nullptr'
     return 'GenerateMip<' + channel_struct + '>'
 
@@ -135,6 +156,10 @@ def get_color_read_function(angle_format):
     channel_struct = get_channel_struct(angle_format)
     if channel_struct == None:
         return 'nullptr'
+
+    if is_depth_stencil(angle_format):
+        return 'ReadDepthStencil<' + channel_struct + '>'
+
     read_component_type = get_color_read_write_component_type(angle_format)
     return 'ReadColor<' + channel_struct + ', '+ read_component_type + '>'
 
@@ -142,11 +167,15 @@ def get_color_write_function(angle_format):
     channel_struct = get_channel_struct(angle_format)
     if channel_struct == None:
         return 'nullptr'
+
+    if is_depth_stencil(angle_format):
+        return 'WriteDepthStencil<' + channel_struct + '>'
+
     write_component_type = get_color_read_write_component_type(angle_format)
     return 'WriteColor<' + channel_struct + ', '+ write_component_type + '>'
 
 
-format_entry_template = """    {{ Format::ID::{id}, {glInternalFormat}, {fboImplementationInternalFormat}, {mipGenerationFunction}, {fastCopyFunctions}, {colorReadFunction}, {colorWriteFunction}, {namedComponentType}, {R}, {G}, {B}, {A}, {D}, {S}, {pixelBytes}, {isBlock} }},
+format_entry_template = """    {{ FormatID::{id}, {glInternalFormat}, {fboImplementationInternalFormat}, {mipGenerationFunction}, {fastCopyFunctions}, {colorReadFunction}, {colorWriteFunction}, {namedComponentType}, {R}, {G}, {B}, {A}, {L}, {D}, {S}, {pixelBytes}, {componentAlignmentMask}, {isBlock}, {isFixed} }},
 """
 
 def get_named_component_type(component_type):
@@ -164,6 +193,28 @@ def get_named_component_type(component_type):
         return "GL_NONE"
     else:
         raise ValueError("Unknown component type for " + component_type)
+
+def get_component_alignment_mask(channels, bits):
+    if channels == None or bits == None:
+        return "std::numeric_limits<GLuint>::max()"
+    bitness = bits[channels[0].upper()]
+    for channel in channels:
+        if channel not in "rgba":
+            return "std::numeric_limits<GLuint>::max()"
+        # Can happen for RGB10A2 formats.
+        if bits[channel.upper()] != bitness:
+            return "std::numeric_limits<GLuint>::max()"
+    component_bytes = (int(bitness) >> 3)
+
+    if component_bytes == 1:
+        return "0"
+    elif component_bytes == 2:
+        return "1"
+    elif component_bytes == 4:
+        return "3"
+    else:
+        # Can happen for 4-bit RGBA.
+        return "std::numeric_limits<GLuint>::max()"
 
 def json_to_table_data(format_id, json, angle_to_gl):
 
@@ -212,7 +263,10 @@ def json_to_table_data(format_id, json, angle_to_gl):
     for channel in angle_format.kChannels:
         sum_of_bits += int(parsed[channel])
     parsed["pixelBytes"] = sum_of_bits / 8
+    parsed["componentAlignmentMask"] = get_component_alignment_mask(
+        parsed["channels"], parsed["bits"])
     parsed["isBlock"] = "true" if format_id.endswith("_BLOCK") else "false"
+    parsed["isFixed"] = "true" if "FIXED" in format_id else "false"
 
     return format_entry_template.format(**parsed)
 
@@ -234,7 +288,7 @@ def gen_enum_string(all_angle):
     return enum_data
 
 case_template = """        case {gl_format}:
-            return Format::ID::{angle_format};
+            return FormatID::{angle_format};
 """
 
 def gen_map_switch_string(gl_to_angle):
@@ -245,7 +299,7 @@ def gen_map_switch_string(gl_to_angle):
             gl_format=gl_format,
             angle_format=angle_format)
     switch_data += "        default:\n"
-    switch_data += "            return Format::ID::NONE;"
+    switch_data += "            return FormatID::NONE;"
     return switch_data;
 
 gl_to_angle = angle_format.load_forward_table('angle_format_map.json')
@@ -275,6 +329,6 @@ output_h = template_autogen_h.format(
     angle_format_enum = enum_data,
     data_source_name = data_source_name,
     num_angle_formats = num_angle_formats)
-with open('Format_ID_autogen.inl', 'wt') as out_file:
+with open('FormatID_autogen.h', 'wt') as out_file:
     out_file.write(output_h)
     out_file.close()

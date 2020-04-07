@@ -6,18 +6,11 @@
 
 #include "fxjs/cjs_annot.h"
 
+#include "fpdfsdk/cpdfsdk_baannot.h"
 #include "fxjs/cjs_event_context.h"
 #include "fxjs/cjs_object.h"
 #include "fxjs/js_define.h"
 #include "fxjs/js_resources.h"
-
-namespace {
-
-CPDFSDK_BAAnnot* ToBAAnnot(CPDFSDK_Annot* annot) {
-  return static_cast<CPDFSDK_BAAnnot*>(annot);
-}
-
-}  // namespace
 
 const JSPropertySpec CJS_Annot::PropertySpecs[] = {
     {"hidden", get_hidden_static, set_hidden_static},
@@ -45,23 +38,29 @@ CJS_Annot::CJS_Annot(v8::Local<v8::Object> pObject, CJS_Runtime* pRuntime)
 
 CJS_Annot::~CJS_Annot() = default;
 
-CJS_Return CJS_Annot::get_hidden(CJS_Runtime* pRuntime) {
-  if (!m_pAnnot)
-    return CJS_Return(JSMessage::kBadObjectError);
+void CJS_Annot::SetSDKAnnot(CPDFSDK_BAAnnot* annot) {
+  m_pAnnot.Reset(annot);
+}
 
-  CPDF_Annot* pPDFAnnot = ToBAAnnot(m_pAnnot.Get())->GetPDFAnnot();
-  return CJS_Return(pRuntime->NewBoolean(
+CJS_Result CJS_Annot::get_hidden(CJS_Runtime* pRuntime) {
+  if (!m_pAnnot)
+    return CJS_Result::Failure(JSMessage::kBadObjectError);
+
+  CPDF_Annot* pPDFAnnot = m_pAnnot->AsBAAnnot()->GetPDFAnnot();
+  return CJS_Result::Success(pRuntime->NewBoolean(
       CPDF_Annot::IsAnnotationHidden(pPDFAnnot->GetAnnotDict())));
 }
 
-CJS_Return CJS_Annot::set_hidden(CJS_Runtime* pRuntime,
+CJS_Result CJS_Annot::set_hidden(CJS_Runtime* pRuntime,
                                  v8::Local<v8::Value> vp) {
   // May invalidate m_pAnnot.
   bool bHidden = pRuntime->ToBoolean(vp);
-  if (!m_pAnnot)
-    return CJS_Return(JSMessage::kBadObjectError);
 
-  uint32_t flags = ToBAAnnot(m_pAnnot.Get())->GetFlags();
+  CPDFSDK_BAAnnot* pBAAnnot = ToBAAnnot(m_pAnnot.Get());
+  if (!pBAAnnot)
+    return CJS_Result::Failure(JSMessage::kBadObjectError);
+
+  uint32_t flags = pBAAnnot->GetFlags();
   if (bHidden) {
     flags |= ANNOTFLAG_HIDDEN;
     flags |= ANNOTFLAG_INVISIBLE;
@@ -73,38 +72,43 @@ CJS_Return CJS_Annot::set_hidden(CJS_Runtime* pRuntime,
     flags &= ~ANNOTFLAG_NOVIEW;
     flags |= ANNOTFLAG_PRINT;
   }
-  ToBAAnnot(m_pAnnot.Get())->SetFlags(flags);
-
-  return CJS_Return();
+  pBAAnnot->SetFlags(flags);
+  return CJS_Result::Success();
 }
 
-CJS_Return CJS_Annot::get_name(CJS_Runtime* pRuntime) {
-  if (!m_pAnnot)
-    return CJS_Return(JSMessage::kBadObjectError);
-  return CJS_Return(pRuntime->NewString(
-      ToBAAnnot(m_pAnnot.Get())->GetAnnotName().AsStringView()));
+CJS_Result CJS_Annot::get_name(CJS_Runtime* pRuntime) {
+  CPDFSDK_BAAnnot* pBAAnnot = ToBAAnnot(m_pAnnot.Get());
+  if (!pBAAnnot)
+    return CJS_Result::Failure(JSMessage::kBadObjectError);
+
+  return CJS_Result::Success(
+      pRuntime->NewString(pBAAnnot->GetAnnotName().AsStringView()));
 }
 
-CJS_Return CJS_Annot::set_name(CJS_Runtime* pRuntime, v8::Local<v8::Value> vp) {
+CJS_Result CJS_Annot::set_name(CJS_Runtime* pRuntime, v8::Local<v8::Value> vp) {
   // May invalidate m_pAnnot.
   WideString annotName = pRuntime->ToWideString(vp);
-  if (!m_pAnnot)
-    return CJS_Return(JSMessage::kBadObjectError);
 
-  ToBAAnnot(m_pAnnot.Get())->SetAnnotName(annotName);
-  return CJS_Return();
+  CPDFSDK_BAAnnot* pBAAnnot = ToBAAnnot(m_pAnnot.Get());
+  if (!pBAAnnot)
+    return CJS_Result::Failure(JSMessage::kBadObjectError);
+
+  pBAAnnot->SetAnnotName(annotName);
+  return CJS_Result::Success();
 }
 
-CJS_Return CJS_Annot::get_type(CJS_Runtime* pRuntime) {
-  if (!m_pAnnot)
-    return CJS_Return(JSMessage::kBadObjectError);
-  return CJS_Return(pRuntime->NewString(
-      WideString::FromLocal(CPDF_Annot::AnnotSubtypeToString(
-                                ToBAAnnot(m_pAnnot.Get())->GetAnnotSubtype())
-                                .AsStringView())
+CJS_Result CJS_Annot::get_type(CJS_Runtime* pRuntime) {
+  CPDFSDK_BAAnnot* pBAAnnot = ToBAAnnot(m_pAnnot.Get());
+  if (!pBAAnnot)
+    return CJS_Result::Failure(JSMessage::kBadObjectError);
+
+  return CJS_Result::Success(pRuntime->NewString(
+      WideString::FromDefANSI(
+          CPDF_Annot::AnnotSubtypeToString(pBAAnnot->GetAnnotSubtype())
+              .AsStringView())
           .AsStringView()));
 }
 
-CJS_Return CJS_Annot::set_type(CJS_Runtime* pRuntime, v8::Local<v8::Value> vp) {
-  return CJS_Return(JSMessage::kReadOnlyError);
+CJS_Result CJS_Annot::set_type(CJS_Runtime* pRuntime, v8::Local<v8::Value> vp) {
+  return CJS_Result::Failure(JSMessage::kReadOnlyError);
 }

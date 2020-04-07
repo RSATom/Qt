@@ -16,7 +16,7 @@
 
 #include "modules/include/module_common_types.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 
 namespace webrtc {
 
@@ -34,7 +34,7 @@ class RemoteEstimatorProxy : public RemoteBitrateEstimator {
  public:
   RemoteEstimatorProxy(const Clock* clock,
                        TransportFeedbackSenderInterface* feedback_sender);
-  virtual ~RemoteEstimatorProxy();
+  ~RemoteEstimatorProxy() override;
 
   void IncomingPacket(int64_t arrival_time_ms,
                       size_t payload_size,

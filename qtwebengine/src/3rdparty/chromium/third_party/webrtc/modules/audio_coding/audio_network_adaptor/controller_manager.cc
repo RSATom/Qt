@@ -22,7 +22,7 @@
 #include "modules/audio_coding/audio_network_adaptor/frame_length_controller.h"
 #include "modules/audio_coding/audio_network_adaptor/util/threshold_curve.h"
 #include "rtc_base/ignore_wundef.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 
 #if WEBRTC_ENABLE_PROTOBUF
 RTC_PUSH_IGNORING_WUNDEF()
@@ -147,13 +147,13 @@ std::unique_ptr<FrameLengthController> CreateFrameLengthController(
   }
 
   FrameLengthController::Config ctor_config(
-      std::vector<int>(), initial_frame_length_ms, min_encoder_bitrate_bps,
+      std::set<int>(), initial_frame_length_ms, min_encoder_bitrate_bps,
       config.fl_increasing_packet_loss_fraction(),
       config.fl_decreasing_packet_loss_fraction(), fl_increase_overhead_offset,
       fl_decrease_overhead_offset, std::move(fl_changing_bandwidths_bps));
 
   for (auto frame_length : encoder_frame_lengths_ms)
-    ctor_config.encoder_frame_lengths_ms.push_back(frame_length);
+    ctor_config.encoder_frame_lengths_ms.insert(frame_length);
 
   return std::unique_ptr<FrameLengthController>(
       new FrameLengthController(ctor_config));

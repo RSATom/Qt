@@ -69,7 +69,6 @@ MojoCdm::MojoCdm(mojom::ContentDecryptionModulePtr remote_cdm,
     : remote_cdm_(std::move(remote_cdm)),
       interface_factory_(interface_factory),
       client_binding_(this),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
       cdm_id_(CdmContext::kInvalidCdmId),
       session_message_cb_(session_message_cb),
       session_closed_cb_(session_closed_cb),
@@ -77,24 +76,19 @@ MojoCdm::MojoCdm(mojom::ContentDecryptionModulePtr remote_cdm,
       session_expiration_update_cb_(session_expiration_update_cb),
       weak_factory_(this) {
   DVLOG(1) << __func__;
-  DCHECK(!session_message_cb_.is_null());
-  DCHECK(!session_closed_cb_.is_null());
-  DCHECK(!session_keys_change_cb_.is_null());
-  DCHECK(!session_expiration_update_cb_.is_null());
+  DCHECK(session_message_cb_);
+  DCHECK(session_closed_cb_);
+  DCHECK(session_keys_change_cb_);
+  DCHECK(session_expiration_update_cb_);
 
-  mojom::ContentDecryptionModuleClientPtr client;
-  client_binding_.Bind(mojo::MakeRequest(&client));
-  remote_cdm_->SetClient(std::move(client));
+  mojom::ContentDecryptionModuleClientAssociatedPtrInfo client_ptr_info;
+  client_binding_.Bind(mojo::MakeRequest(&client_ptr_info));
+  remote_cdm_->SetClient(std::move(client_ptr_info));
 }
 
 MojoCdm::~MojoCdm() {
   DVLOG(1) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-
-  // TODO(crbug.com/819269): It seems possible that |this| is destructed on the
-  // wrong thread. Add this check to help investigation. We cannot CHECK on the
-  // |thread_checker_| because it will not check anything in release builds.
-  CHECK(task_runner_->BelongsToCurrentThread());
 
   base::AutoLock auto_lock(lock_);
 
@@ -358,7 +352,7 @@ void MojoCdm::OnSessionClosed(const std::string& session_id) {
 void MojoCdm::OnSessionKeysChange(
     const std::string& session_id,
     bool has_additional_usable_key,
-    std::vector<mojom::CdmKeyInformationPtr> keys_info) {
+    std::vector<std::unique_ptr<CdmKeyInformation>> keys_info) {
   DVLOG(2) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
@@ -374,13 +368,8 @@ void MojoCdm::OnSessionKeysChange(
     }
   }
 
-  CdmKeysInfo key_data;
-  key_data.reserve(keys_info.size());
-  for (size_t i = 0; i < keys_info.size(); ++i) {
-    key_data.push_back(keys_info[i].To<std::unique_ptr<CdmKeyInformation>>());
-  }
   session_keys_change_cb_.Run(session_id, has_additional_usable_key,
-                              std::move(key_data));
+                              std::move(keys_info));
 }
 
 void MojoCdm::OnSessionExpirationUpdate(const std::string& session_id,

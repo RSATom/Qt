@@ -15,7 +15,10 @@
  */
 
 #include "src/trace_processor/process_table.h"
+#include "src/trace_processor/event_tracker.h"
+#include "src/trace_processor/process_tracker.h"
 #include "src/trace_processor/scoped_db.h"
+#include "src/trace_processor/trace_processor_context.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -31,9 +34,10 @@ class ProcessTableUnittest : public ::testing::Test {
     PERFETTO_CHECK(sqlite3_open(":memory:", &db) == SQLITE_OK);
     db_.reset(db);
 
-    static sqlite3_module module = ProcessTable::CreateModule();
-    sqlite3_create_module(*db_, "process", &module,
-                          static_cast<void*>(&storage_));
+    context_.storage.reset(new TraceStorage());
+    context_.process_tracker.reset(new ProcessTracker(&context_));
+
+    ProcessTable::RegisterTable(db_.get(), context_.storage.get());
   }
 
   void PrepareValidStatement(const std::string& sql) {
@@ -48,8 +52,10 @@ class ProcessTableUnittest : public ::testing::Test {
     return reinterpret_cast<const char*>(sqlite3_column_text(*stmt_, colId));
   }
 
+  ~ProcessTableUnittest() override { context_.storage->ResetStorage(); }
+
  protected:
-  TraceStorage storage_;
+  TraceProcessorContext context_;
   ScopedDb db_;
   ScopedStmt stmt_;
 };
@@ -57,10 +63,13 @@ class ProcessTableUnittest : public ::testing::Test {
 TEST_F(ProcessTableUnittest, SelectUpidAndName) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement("SELECT upid, name FROM process");
+
+  ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 0 /* upid */);
 
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 1 /* upid */);
@@ -76,8 +85,8 @@ TEST_F(ProcessTableUnittest, SelectUpidAndName) {
 TEST_F(ProcessTableUnittest, SelectUpidAndNameWithFilter) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement("SELECT upid, name FROM process where upid = 2");
 
@@ -91,8 +100,8 @@ TEST_F(ProcessTableUnittest, SelectUpidAndNameWithFilter) {
 TEST_F(ProcessTableUnittest, SelectUpidAndNameWithOrder) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement("SELECT upid, name FROM process ORDER BY upid desc");
 
@@ -104,14 +113,17 @@ TEST_F(ProcessTableUnittest, SelectUpidAndNameWithOrder) {
   ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 1 /* upid */);
   ASSERT_STREQ(GetColumnAsText(1), kCommProc1);
 
+  ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_ROW);
+  ASSERT_EQ(sqlite3_column_int(*stmt_, 0), 0 /* upid */);
+
   ASSERT_EQ(sqlite3_step(*stmt_), SQLITE_DONE);
 }
 
 TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterGt) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement("SELECT upid, name FROM process where upid > 1");
 
@@ -125,8 +137,8 @@ TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterGt) {
 TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterName) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement(
       "SELECT upid, name FROM process where name = \"process2\"");
@@ -141,8 +153,8 @@ TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterName) {
 TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterDifferentOr) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement(
       "SELECT upid, name FROM process where upid = 2 or name = \"process2\"");
@@ -157,8 +169,8 @@ TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterDifferentOr) {
 TEST_F(ProcessTableUnittest, SelectUpidAndNameFilterSameOr) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
-  storage_.PushProcess(1, kCommProc1, 8);
-  storage_.PushProcess(2, kCommProc2, 8);
+  context_.process_tracker->UpdateProcess(1, kCommProc1);
+  context_.process_tracker->UpdateProcess(2, kCommProc2);
 
   PrepareValidStatement(
       "SELECT upid, name FROM process where upid = 1 or upid = 2");

@@ -44,10 +44,8 @@ void TaskAnnotator::WillQueueTask(const char* queue_function,
                            TRACE_EVENT_FLAG_FLOW_OUT);
   }
 
-  // TODO(https://crbug.com/826902): Fix callers that invoke WillQueueTask()
-  // twice for the same PendingTask.
-  // DCHECK(!pending_task.task_backtrace[0])
-  //     << "Task backtrace was already set, task posted twice??";
+  DCHECK(!pending_task->task_backtrace[0])
+      << "Task backtrace was already set, task posted twice??";
   if (!pending_task->task_backtrace[0]) {
     const PendingTask* parent_task = GetTLSForCurrentPendingTask()->Get();
     if (parent_task) {
@@ -82,8 +80,14 @@ void TaskAnnotator::RunTask(const char* queue_function,
 
   // Store a marker to locate |task_backtrace| content easily on a memory
   // dump.
-  task_backtrace.front() = reinterpret_cast<void*>(0xefefefefefefefef);
-  task_backtrace.back() = reinterpret_cast<void*>(0xfefefefefefefefe);
+  //
+  // Markers glossary (compliments of wez):
+  //      cool code,do it dude!
+  //   0x c001 c0de d0 17 d00d
+  //      o dude,i did it biig
+  //   0x 0 d00d 1 d1d 17 8119
+  task_backtrace.front() = reinterpret_cast<void*>(0xc001c0ded017d00d);
+  task_backtrace.back() = reinterpret_cast<void*>(0x0d00d1d1d178119);
 
   task_backtrace[1] = pending_task->posted_from.program_counter();
   std::copy(pending_task->task_backtrace.begin(),

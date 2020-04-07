@@ -16,6 +16,10 @@
 #include "media/base/cdm_context.h"
 #include "media/base/media_export.h"
 
+namespace base {
+class Token;
+}
+
 namespace media {
 
 // A class that proxies part of ContentDecryptionModule (CDM) functionalities to
@@ -57,6 +61,12 @@ class MEDIA_EXPORT CdmProxy {
     kIntelNegotiateCryptoSessionKeyExchange,
     // There will be more values in the future e.g. for D3D11 RSA method.
     kMaxValue = kIntelNegotiateCryptoSessionKeyExchange,
+  };
+
+  enum class KeyType {
+    kDecryptOnly,
+    kDecryptAndDecode,
+    kMaxValue = kDecryptAndDecode,
   };
 
   CdmProxy();
@@ -106,26 +116,38 @@ class MEDIA_EXPORT CdmProxy {
       const std::vector<uint8_t>& input_data,
       CreateMediaCryptoSessionCB create_media_crypto_session_cb) = 0;
 
+  // Callback for SetKey().
+  using SetKeyCB = base::OnceCallback<void(Status status)>;
+
   // Sets a key in the proxy.
   // |crypto_session_id| is the crypto session for decryption.
   // |key_id| is the ID of the key.
+  // |key_type| is the type of the key.
   // |key_blob| is the opaque key blob for decrypting or decoding.
+  // The status of the call is reported to |set_key_cb|.
   virtual void SetKey(uint32_t crypto_session_id,
                       const std::vector<uint8_t>& key_id,
-                      const std::vector<uint8_t>& key_blob) = 0;
+                      KeyType key_type,
+                      const std::vector<uint8_t>& key_blob,
+                      SetKeyCB set_key_cb) = 0;
+
+  // Callback for RemoveKey().
+  using RemoveKeyCB = base::OnceCallback<void(Status status)>;
 
   // Removes a key from the proxy.
   // |crypto_session_id| is the crypto session for decryption.
   // |key_id| is the ID of the key.
+  // The status of the call is reported to |remove_key_cb|.
   virtual void RemoveKey(uint32_t crypto_session_id,
-                         const std::vector<uint8_t>& key_id) = 0;
+                         const std::vector<uint8_t>& key_id,
+                         RemoveKeyCB remove_key_cb) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CdmProxy);
 };
 
 using CdmProxyFactoryCB = base::RepeatingCallback<std::unique_ptr<CdmProxy>(
-    const std::string& cdm_guid)>;
+    const base::Token& cdm_guid)>;
 
 }  // namespace media
 

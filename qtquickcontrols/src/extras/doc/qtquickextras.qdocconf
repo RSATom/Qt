@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtquickcontrols.qdocconf)
 
 project = QtQuickExtras
 description = Qt Quick Extras Reference Documentation

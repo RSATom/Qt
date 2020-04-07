@@ -38,7 +38,7 @@
 ****************************************************************************/
 
 #include "qgeopolygon.h"
-#include "qgeopath_p.h"
+#include "qgeopolygon_p.h"
 
 #include "qgeocoordinate.h"
 #include "qnumeric.h"
@@ -111,16 +111,17 @@ Q_GLOBAL_STATIC(PolygonVariantConversions, initPolygonConversions)
     Constructs a new, empty geo polygon.
 */
 QGeoPolygon::QGeoPolygon()
-:   QGeoShape(new QGeoPolygonPrivate(QGeoShape::PolygonType))
+:   QGeoShape(new QGeoPolygonPrivate())
 {
     initPolygonConversions();
 }
 
 /*!
-    Constructs a new geo \a polygon from a list of coordinates.
+    Constructs a new geo \a polygon from the coordinates specified
+    in \a path.
 */
 QGeoPolygon::QGeoPolygon(const QList<QGeoCoordinate> &path)
-:   QGeoShape(new QGeoPolygonPrivate(QGeoShape::PolygonType, path))
+:   QGeoShape(new QGeoPolygonPrivate(path))
 {
     initPolygonConversions();
 }
@@ -142,7 +143,7 @@ QGeoPolygon::QGeoPolygon(const QGeoShape &other)
 {
     initPolygonConversions();
     if (type() != QGeoShape::PolygonType)
-        d_ptr = new QGeoPolygonPrivate(QGeoShape::PolygonType);
+        d_ptr = new QGeoPolygonPrivate();
 }
 
 /*!
@@ -178,7 +179,7 @@ bool QGeoPolygon::operator!=(const QGeoPolygon &other) const
 }
 
 /*!
-    Sets the \a polygon's boundary from a list of coordinates.
+    Sets the \a path for the polygon.
 */
 void QGeoPolygon::setPath(const QList<QGeoCoordinate> &path)
 {
@@ -196,7 +197,9 @@ const QList<QGeoCoordinate> &QGeoPolygon::path() const
 }
 
 /*!
-    Sets all the elements of the polygon's perimeter.
+    Sets all the elements of the polygon's perimeter
+    based on a list of coordinates (\a path).
+.
 
     \since QtPositioning 5.12
 */
@@ -355,7 +358,8 @@ QString QGeoPolygon::toString() const
 }
 
 /*!
-   Sets the \a path for a hole inside the polygon. The hole is a QVariant containing a QList<QGeoCoordinate>.
+   Sets the \a holePath for a hole inside the polygon. The hole is a
+   QVariant containing a QList<QGeoCoordinate>.
 
    \since 5.12
 */
@@ -375,7 +379,7 @@ void QGeoPolygon::addHole(const QVariant &holePath)
 }
 
 /*!
-   Overloaded method. Sets the \a path for a hole inside the polygon. The hole is a QList<QGeoCoordinate>.
+   Overloaded method. Sets the \a holePath for a hole inside the polygon. The hole is a QList<QGeoCoordinate>.
 
    \since 5.12
 */
@@ -386,7 +390,8 @@ void QGeoPolygon::addHole(const QList<QGeoCoordinate> &holePath)
 }
 
 /*!
-    Returns a QVariant containing a QVariant containing a QList<QGeoCoordinate> which represents the hole at index.
+    Returns a QVariant containing a QVariant containing a QList<QGeoCoordinate>
+    which represents the hole at \a index.
 
     \since 5.12
 */
@@ -430,6 +435,257 @@ int QGeoPolygon::holesCount() const
 {
     Q_D(const QGeoPolygon);
     return d->holesCount();
+}
+
+/*******************************************************************************
+ *
+ * QGeoPathPrivate & friends
+ *
+*******************************************************************************/
+
+QGeoPolygonPrivate::QGeoPolygonPrivate()
+:   QGeoPathPrivate()
+{
+    type = QGeoShape::PolygonType;
+}
+
+QGeoPolygonPrivate::QGeoPolygonPrivate(const QList<QGeoCoordinate> &path)
+:   QGeoPathPrivate(path)
+{
+    type = QGeoShape::PolygonType;
+}
+
+QGeoPolygonPrivate::~QGeoPolygonPrivate() {}
+
+QGeoShapePrivate *QGeoPolygonPrivate::clone() const
+{
+    return new QGeoPolygonPrivate(*this);
+}
+
+bool QGeoPolygonPrivate::isValid() const
+{
+    return path().size() > 2;
+}
+
+bool QGeoPolygonPrivate::contains(const QGeoCoordinate &coordinate) const
+{
+    return polygonContains(coordinate);
+}
+
+inline static void translatePoly(   QList<QGeoCoordinate> &m_path,
+                                    QList<QList<QGeoCoordinate>> &m_holesList,
+                                    QGeoRectangle &m_bbox,
+                                    double degreesLatitude,
+                                    double degreesLongitude,
+                                    double m_maxLati,
+                                    double m_minLati)
+{
+    if (degreesLatitude > 0.0)
+        degreesLatitude = qMin(degreesLatitude, 90.0 - m_maxLati);
+    else
+        degreesLatitude = qMax(degreesLatitude, -90.0 - m_minLati);
+    for (QGeoCoordinate &p: m_path) {
+        p.setLatitude(p.latitude() + degreesLatitude);
+        p.setLongitude(QLocationUtils::wrapLong(p.longitude() + degreesLongitude));
+    }
+    if (!m_holesList.isEmpty()){
+        for (QList<QGeoCoordinate> &hole: m_holesList){
+            for (QGeoCoordinate &holeVertex: hole){
+                holeVertex.setLatitude(holeVertex.latitude() + degreesLatitude);
+                holeVertex.setLongitude(QLocationUtils::wrapLong(holeVertex.longitude() + degreesLongitude));
+            }
+        }
+    }
+    m_bbox.translate(degreesLatitude, degreesLongitude);
+}
+
+void QGeoPolygonPrivate::translate(double degreesLatitude, double degreesLongitude)
+{
+    // Need min/maxLati, so update bbox
+    QVector<double> m_deltaXs;
+    double m_minX, m_maxX, m_minLati, m_maxLati;
+    m_bboxDirty = false;
+    computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+
+    translatePoly(m_path, m_holesList, m_bbox, degreesLatitude, degreesLongitude, m_maxLati, m_minLati);
+}
+
+bool QGeoPolygonPrivate::operator==(const QGeoShapePrivate &other) const
+{
+    if (!QGeoShapePrivate::operator==(other)) // checks type
+        return false;
+
+    const QGeoPolygonPrivate &otherPath = static_cast<const QGeoPolygonPrivate &>(other);
+    if (m_path.size() != otherPath.m_path.size()
+            || m_holesList.size() != otherPath.m_holesList.size())
+        return false;
+    return  m_path == otherPath.m_path && m_holesList == otherPath.m_holesList;
+}
+
+void QGeoPolygonPrivate::addHole(const QList<QGeoCoordinate> &holePath)
+{
+    for (const QGeoCoordinate &holeVertex: holePath)
+        if (!holeVertex.isValid())
+            return;
+
+    m_holesList << holePath;
+    // ToDo: mark clipper dirty when hole caching gets added
+}
+
+const QList<QGeoCoordinate> QGeoPolygonPrivate::holePath(int index) const
+{
+    return m_holesList.at(index);
+}
+
+void QGeoPolygonPrivate::removeHole(int index)
+{
+    if (index < 0 || index >= m_holesList.size())
+        return;
+
+    m_holesList.removeAt(index);
+    // ToDo: mark clipper dirty when hole caching gets added
+}
+
+int QGeoPolygonPrivate::holesCount() const
+{
+    return m_holesList.size();
+}
+
+bool QGeoPolygonPrivate::polygonContains(const QGeoCoordinate &coordinate) const
+{
+    if (m_clipperDirty)
+        const_cast<QGeoPolygonPrivate *>(this)->updateClipperPath(); // this one updates bbox too if needed
+
+    QDoubleVector2D coord = QWebMercator::coordToMercator(coordinate);
+    double tlx = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
+    if (coord.x() < tlx)
+        coord.setX(coord.x() + 1.0);
+
+    IntPoint intCoord = QClipperUtils::toIntPoint(coord);
+    if (!c2t::clip2tri::pointInPolygon(intCoord, m_clipperPath))
+        return false;
+
+    // else iterates the holes List checking whether the point is contained inside the holes
+    for (const QList<QGeoCoordinate> &holePath : qAsConst(m_holesList)) {
+        // ToDo: cache these
+        QGeoPolygon holePolygon;
+        holePolygon.setPath(holePath);
+        //            QGeoPath holeBoundary;
+        //            holeBoundary.setPath(holePath);
+
+        if (holePolygon.contains(coordinate)
+                //                    && !(holeBoundary.contains(coordinate))
+                )
+            return false;
+    }
+    return true;
+}
+
+void QGeoPolygonPrivate::markDirty()
+{
+    m_bboxDirty = m_clipperDirty = true;
+}
+
+void QGeoPolygonPrivate::updateClipperPath()
+{
+    if (m_bboxDirty)
+        computeBoundingBox();
+    m_clipperDirty = false;
+    double tlx = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
+    QList<QDoubleVector2D> preservedPath;
+    for (const QGeoCoordinate &c : m_path) {
+        QDoubleVector2D crd = QWebMercator::coordToMercator(c);
+        if (crd.x() < tlx)
+            crd.setX(crd.x() + 1.0);
+        preservedPath << crd;
+    }
+    m_clipperPath = QClipperUtils::qListToPath(preservedPath);
+}
+
+QGeoPolygonPrivateEager::QGeoPolygonPrivateEager() : QGeoPolygonPrivate()
+{
+    m_bboxDirty = false; // never dirty on the eager version
+}
+
+QGeoPolygonPrivateEager::QGeoPolygonPrivateEager(const QList<QGeoCoordinate> &path) : QGeoPolygonPrivate(path)
+{
+    m_bboxDirty = false; // never dirty on the eager version
+}
+
+QGeoPolygonPrivateEager::~QGeoPolygonPrivateEager()
+{
+
+}
+
+QGeoShapePrivate *QGeoPolygonPrivateEager::clone() const
+{
+    return new QGeoPolygonPrivate(*this);
+}
+
+void QGeoPolygonPrivateEager::translate(double degreesLatitude, double degreesLongitude)
+{
+    translatePoly(m_path, m_holesList, m_bbox, degreesLatitude, degreesLongitude, m_maxLati, m_minLati);
+}
+
+void QGeoPolygonPrivateEager::markDirty()
+{
+    m_clipperDirty = true;
+    computeBoundingBox();
+}
+
+void QGeoPolygonPrivateEager::addCoordinate(const QGeoCoordinate &coordinate)
+{
+    if (!coordinate.isValid())
+        return;
+    m_path.append(coordinate);
+    m_clipperDirty = true;
+    updateBoundingBox(); // do not markDirty as it uses computeBoundingBox instead
+}
+
+void QGeoPolygonPrivateEager::computeBoundingBox()
+{
+    computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+}
+
+void QGeoPolygonPrivateEager::updateBoundingBox()
+{
+    updateBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+}
+
+QGeoPolygonEager::QGeoPolygonEager() : QGeoPolygon()
+{
+    initPolygonConversions();
+    d_ptr = new QGeoPolygonPrivateEager;
+}
+
+QGeoPolygonEager::QGeoPolygonEager(const QList<QGeoCoordinate> &path) : QGeoPolygon()
+{
+    initPolygonConversions();
+    d_ptr = new QGeoPolygonPrivateEager(path);
+}
+
+QGeoPolygonEager::QGeoPolygonEager(const QGeoPolygon &other) : QGeoPolygon()
+{
+    initPolygonConversions();
+    // without being able to dynamic_cast the d_ptr, only way to be sure is to reconstruct a new QGeoPolygonPrivateEager
+    d_ptr = new QGeoPolygonPrivateEager;
+    setPath(other.path());
+    for (int i = 0; i < other.holesCount(); i++)
+        addHole(other.holePath(i));
+}
+
+QGeoPolygonEager::QGeoPolygonEager(const QGeoShape &other) : QGeoPolygon()
+{
+    initPolygonConversions();
+    if (other.type() == QGeoShape::PolygonType)
+        *this = QGeoPolygonEager(QGeoPolygon(other));
+    else
+        d_ptr = new QGeoPolygonPrivateEager;
+}
+
+QGeoPolygonEager::~QGeoPolygonEager()
+{
+
 }
 
 QT_END_NAMESPACE

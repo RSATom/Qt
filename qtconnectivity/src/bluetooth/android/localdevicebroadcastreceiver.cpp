@@ -189,6 +189,14 @@ void LocalDeviceBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobje
             return;
         case 0: //BluetoothDevice.PAIRING_VARIANT_PIN
         {
+            qCDebug(QT_BT_ANDROID) << "Pairing : PAIRING_VARIANT_PIN -> use Android default handling";
+
+            // The section below is disabled because this Android pairing variant
+            // requires the user to enter a pin. Since QBluetoothLocalDevice does
+            // not have a setPin() equivalent which might be used to return the user's value.
+            // For now we ignore this request. If an app ignores such requests,
+            // Android shows a "fall-back" pin code entry form.
+            /*
             //generate a random key
             const QString pin = QStringLiteral("%1").arg(QRandomGenerator::global()->bounded(1000000),
                                                          6, 10, QLatin1Char('0'));
@@ -225,10 +233,12 @@ void LocalDeviceBroadcastReceiver::onReceive(JNIEnv *env, jobject context, jobje
             }
 
             const QBluetoothAddress address(bluetoothDevice.callObjectMethod<jstring>("getAddress").toString());
-            emit pairingDisplayPinCode(address, pin);
+            emit pairingDisplayPinCode(address, pin);*/
+            break;
         }
         case 2: //BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION
         {
+            qCDebug(QT_BT_ANDROID) << "Pairing : PAIRING_VARIANT_PASSKEY_CONFIRMATION";
             keyExtra = valueForStaticField(JavaNames::BluetoothDevice,
                                            JavaNames::ExtraPairingKey);
             key = intentObject.callMethod<jint>("getIntExtra",

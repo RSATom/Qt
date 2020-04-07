@@ -6,11 +6,11 @@
  */
 
 #include "gm.h"
-#include "GrColor.h"
 #include "sk_tool_utils.h"
 #include "SkColorPriv.h"
 #include "SkPath.h"
 #include "SkShader.h"
+#include "SkTextUtils.h"
 
 enum {
     kXfermodeCount = (int)SkBlendMode::kLastMode + 1 + 1,   // extra for arith
@@ -68,10 +68,9 @@ protected:
     }
 
     void onOnceBeforeDraw() override {
-        fLabelPaint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&fLabelPaint);
-        fLabelPaint.setTextSize(5 * kShapeSize/8);
-        fLabelPaint.setSubpixelText(true);
+        fLabelFont.setTypeface(sk_tool_utils::create_portable_typeface());
+        fLabelFont.setSize(5 * kShapeSize/8);
+        fLabelFont.setSubpixel(true);
 
         constexpr SkScalar radius = -1.4f * kShapeSize/2;
         SkPoint pts[4] = {
@@ -107,14 +106,14 @@ protected:
             canvas->save();
 
             if (kShape_Pass == drawingPass) {
-                fLabelPaint.setTextAlign(SkPaint::kCenter_Align);
-                canvas->drawString("Src Unknown",
+                SkTextUtils::DrawString(canvas, "Src Unknown",
                         kLabelSpacing + kShapeTypeSpacing * 1.5f + kShapeSpacing / 2,
-                        kSubtitleSpacing / 2 + fLabelPaint.getTextSize() / 3, fLabelPaint);
-                canvas->drawString("Src Opaque",
+                        kSubtitleSpacing / 2 + fLabelFont.getSize() / 3, fLabelFont, SkPaint(),
+                                        SkTextUtils::kCenter_Align);
+                SkTextUtils::DrawString(canvas, "Src Opaque",
                         kLabelSpacing + kShapeTypeSpacing * 1.5f + kShapeSpacing / 2 +
-                        kPaintSpacing, kSubtitleSpacing / 2 + fLabelPaint.getTextSize() / 3,
-                        fLabelPaint);
+                        kPaintSpacing, kSubtitleSpacing / 2 + fLabelFont.getSize() / 3,
+                                        fLabelFont, SkPaint(), SkTextUtils::kCenter_Align);
             }
 
             canvas->translate(0, kSubtitleSpacing + kShapeSpacing/2);
@@ -177,16 +176,17 @@ protected:
         canvas->translate(kMargin, kMargin);
         draw_pass(canvas, kBackground_Pass);
 
-        SkPaint titlePaint(fLabelPaint);
-        titlePaint.setTextSize(9 * titlePaint.getTextSize() / 8);
-        titlePaint.setFakeBoldText(true);
-        titlePaint.setTextAlign(SkPaint::kCenter_Align);
-        canvas->drawString("Porter Duff",
-                         kLabelSpacing + 4 * kShapeTypeSpacing,
-                         kTitleSpacing / 2 + titlePaint.getTextSize() / 3, titlePaint);
-        canvas->drawString("Advanced",
-                         kXfermodeTypeSpacing + kLabelSpacing + 4 * kShapeTypeSpacing,
-                         kTitleSpacing / 2 + titlePaint.getTextSize() / 3, titlePaint);
+        SkFont titleFont(fLabelFont);
+        titleFont.setSize(9 * titleFont.getSize() / 8);
+        titleFont.setEmbolden(true);
+        SkTextUtils::DrawString(canvas, "Porter Duff",
+                                kLabelSpacing + 4 * kShapeTypeSpacing,
+                                kTitleSpacing / 2 + titleFont.getSize() / 3, titleFont, SkPaint(),
+                                SkTextUtils::kCenter_Align);
+        SkTextUtils::DrawString(canvas, "Advanced",
+                                kXfermodeTypeSpacing + kLabelSpacing + 4 * kShapeTypeSpacing,
+                                kTitleSpacing / 2 + titleFont.getSize() / 3, titleFont, SkPaint(),
+                                SkTextUtils::kCenter_Align);
 
         draw_pass(canvas, kShape_Pass);
         canvas->restore();
@@ -194,12 +194,12 @@ protected:
 
     void drawModeName(SkCanvas* canvas, SkBlendMode mode) {
         const char* modeName = SkBlendMode_Name(mode);
-        fLabelPaint.setTextAlign(SkPaint::kRight_Align);
-        canvas->drawString(modeName, kLabelSpacing - kShapeSize / 4,
-                         fLabelPaint.getTextSize() / 4, fLabelPaint);
+        SkTextUtils::DrawString(canvas, modeName, kLabelSpacing - kShapeSize / 4,
+                                fLabelFont.getSize() / 4, fLabelFont, SkPaint(),
+                                SkTextUtils::kRight_Align);
     }
 
-    void setupShapePaint(SkCanvas* canvas, GrColor color, SkBlendMode mode, SkPaint* paint) {
+    void setupShapePaint(SkCanvas* canvas, SkColor color, SkBlendMode mode, SkPaint* paint) {
         paint->setColor(color);
 
         if (mode == SkBlendMode::kPlus) {
@@ -265,7 +265,7 @@ protected:
     }
 
 private:
-    SkPaint   fLabelPaint;
+    SkFont    fLabelFont;
     SkPath    fOval;
     SkPath    fConcave;
 

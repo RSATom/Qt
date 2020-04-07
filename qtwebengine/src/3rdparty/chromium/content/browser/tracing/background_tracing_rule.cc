@@ -11,10 +11,12 @@
 #include "base/metrics/statistics_recorder.h"
 #include "base/rand_util.h"
 #include "base/strings/safe_sprintf.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "components/tracing/common/tracing_messages.h"
 #include "content/browser/tracing/background_tracing_manager_impl.h"
 #include "content/browser/tracing/trace_message_filter.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace {
@@ -228,8 +230,8 @@ class HistogramRule
     if (histogram_name != histogram_name_)
       return;
 
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(
             &BackgroundTracingManagerImpl::OnRuleTriggered,
             base::Unretained(BackgroundTracingManagerImpl::GetInstance()), this,
@@ -237,8 +239,8 @@ class HistogramRule
   }
 
   void AbortTracing() {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(
             &BackgroundTracingManagerImpl::AbortScenario,
             base::Unretained(BackgroundTracingManagerImpl::GetInstance())));
@@ -266,6 +268,12 @@ class HistogramRule
         AbortTracing();
       return;
     }
+
+    // Add the histogram name and its corresponding value to the trace.
+    TRACE_EVENT_INSTANT2("toplevel",
+                         "BackgroundTracingRule::OnHistogramTrigger",
+                         TRACE_EVENT_SCOPE_THREAD, "histogram_name",
+                         histogram_name, "value", actual_value);
 
     OnHistogramTrigger(histogram_name);
   }
@@ -373,9 +381,10 @@ class TraceAtRandomIntervalsRule : public BackgroundTracingRule {
   void StartTimer() {
     int time_to_wait = base::RandInt(kReactiveTraceRandomStartTimeMin,
                                      kReactiveTraceRandomStartTimeMax);
-    trigger_timer_.Start(FROM_HERE, base::TimeDelta::FromSeconds(time_to_wait),
-                         base::Bind(&TraceAtRandomIntervalsRule::OnTriggerTimer,
-                                    base::Unretained(this)));
+    trigger_timer_.Start(
+        FROM_HERE, base::TimeDelta::FromSeconds(time_to_wait),
+        base::BindOnce(&TraceAtRandomIntervalsRule::OnTriggerTimer,
+                       base::Unretained(this)));
   }
 
   int GetTraceDelay() const override {

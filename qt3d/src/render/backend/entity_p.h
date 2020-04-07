@@ -107,6 +107,8 @@ public:
     QVector<HEntity> childrenHandles() const { return m_childrenHandles; }
     QVector<Entity *> children() const;
     bool hasChildren() const { return !m_childrenHandles.empty(); }
+    void traverse(const std::function<void(Entity *)> &operation);
+    void traverse(const std::function<void(const Entity *)> &operation) const;
 
     Matrix4x4 *worldTransform();
     const Matrix4x4 *worldTransform() const;
@@ -220,25 +222,25 @@ private:
 #define ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(Type, Handle) \
     /* Handle */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Handle Entity::componentHandle<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Handle Entity::componentHandle<Type>() const; \
     /* Component */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Type *Entity::renderComponent<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Type *Entity::renderComponent<Type>() const; \
     /* Uuid */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeId Entity::componentUuid<Type>() const;
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeId Entity::componentUuid<Type>() const;
 
 
 #define ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Type, Handle) \
     /* Handle */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT QVector<Handle> Entity::componentsHandle<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT QVector<Handle> Entity::componentsHandle<Type>() const; \
     /* Component */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT QVector<Type *> Entity::renderComponents<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT QVector<Type *> Entity::renderComponents<Type>() const; \
     /* Uuid */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeIdVector Entity::componentsUuid<Type>() const;
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeIdVector Entity::componentsUuid<Type>() const;
 
 #define ENTITY_COMPONENT_TEMPLATE_IMPL(Type, Handle, Manager, variable) \
     /* Handle */ \

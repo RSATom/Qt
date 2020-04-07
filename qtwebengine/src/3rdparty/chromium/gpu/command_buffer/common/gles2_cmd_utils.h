@@ -22,13 +22,19 @@
 namespace gpu {
 namespace gles2 {
 
+// A 32-bit and 64-bit compatible way of converting a pointer to a
+// 32-bit usigned integer, suitable to be stored in a GLuint.
+inline uint32_t ToGLuint(const void* ptr) {
+  return static_cast<uint32_t>(reinterpret_cast<size_t>(ptr));
+}
+
 // Returns the address of the first byte after a struct.
 template <typename T>
 const volatile void* AddressAfterStruct(const volatile T& pod) {
   return reinterpret_cast<const volatile uint8_t*>(&pod) + sizeof(pod);
 }
 
-// Returns the address of the frst byte after the struct or NULL if size >
+// Returns the address of the frst byte after the struct or nullptr if size >
 // immediate_data_size.
 template <typename RETURN_TYPE, typename COMMAND_TYPE>
 RETURN_TYPE GetImmediateDataAs(const volatile COMMAND_TYPE& pod,
@@ -37,7 +43,7 @@ RETURN_TYPE GetImmediateDataAs(const volatile COMMAND_TYPE& pod,
   return (size <= immediate_data_size)
              ? static_cast<RETURN_TYPE>(
                    const_cast<volatile void*>(AddressAfterStruct(pod)))
-             : NULL;
+             : nullptr;
 }
 
 struct GLES2_UTILS_EXPORT PixelStoreParams {
@@ -151,15 +157,16 @@ class GLES2_UTILS_EXPORT GLES2Util {
 
   static uint32_t GetGroupSizeForBufferType(uint32_t count, uint32_t type);
 
-  static uint32_t GetGLTypeSizeForPathCoordType(uint32_t type);
-
-  static uint32_t GLErrorToErrorBit(uint32_t gl_error);
-
   static uint32_t GetComponentCountForGLTransformType(uint32_t type);
-  static uint32_t GetGLTypeSizeForGLPathNameType(uint32_t type);
 
   static uint32_t GetCoefficientCountForGLPathFragmentInputGenMode(
       uint32_t gen_mode);
+
+  static uint32_t GetGLTypeSizeForPathCoordType(uint32_t type);
+
+  static uint32_t GetGLTypeSizeForGLPathNameType(uint32_t type);
+
+  static uint32_t GLErrorToErrorBit(uint32_t gl_error);
 
   static uint32_t GLErrorBitToGLError(uint32_t error_bit);
 

@@ -11,9 +11,12 @@
 #ifndef MODULES_VIDEO_CAPTURE_MAIN_SOURCE_DEVICE_INFO_IMPL_H_
 #define MODULES_VIDEO_CAPTURE_MAIN_SOURCE_DEVICE_INFO_IMPL_H_
 
+#include <stdint.h>
 #include <vector>
 
+#include "api/video/video_rotation.h"
 #include "modules/video_capture/video_capture.h"
+#include "modules/video_capture/video_capture_defines.h"
 #include "rtc_base/synchronization/rw_lock_wrapper.h"
 
 namespace webrtc {
@@ -21,18 +24,17 @@ namespace videocapturemodule {
 class DeviceInfoImpl : public VideoCaptureModule::DeviceInfo {
  public:
   DeviceInfoImpl();
-  virtual ~DeviceInfoImpl(void);
-  virtual int32_t NumberOfCapabilities(const char* deviceUniqueIdUTF8);
-  virtual int32_t GetCapability(const char* deviceUniqueIdUTF8,
-                                const uint32_t deviceCapabilityNumber,
-                                VideoCaptureCapability& capability);
+  ~DeviceInfoImpl(void) override;
+  int32_t NumberOfCapabilities(const char* deviceUniqueIdUTF8) override;
+  int32_t GetCapability(const char* deviceUniqueIdUTF8,
+                        const uint32_t deviceCapabilityNumber,
+                        VideoCaptureCapability& capability) override;
 
-  virtual int32_t GetBestMatchedCapability(
-      const char* deviceUniqueIdUTF8,
-      const VideoCaptureCapability& requested,
-      VideoCaptureCapability& resulting);
-  virtual int32_t GetOrientation(const char* deviceUniqueIdUTF8,
-                                 VideoRotation& orientation);
+  int32_t GetBestMatchedCapability(const char* deviceUniqueIdUTF8,
+                                   const VideoCaptureCapability& requested,
+                                   VideoCaptureCapability& resulting) override;
+  int32_t GetOrientation(const char* deviceUniqueIdUTF8,
+                         VideoRotation& orientation) override;
 
  protected:
   /* Initialize this object*/

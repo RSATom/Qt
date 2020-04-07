@@ -59,10 +59,12 @@ class DisplayNULL : public DisplayImpl
                                      const egl::AttributeMap &attribs) override;
 
     ImageImpl *createImage(const egl::ImageState &state,
+                           const gl::Context *context,
                            EGLenum target,
                            const egl::AttributeMap &attribs) override;
 
-    ContextImpl *createContext(const gl::ContextState &state,
+    ContextImpl *createContext(const gl::State &state,
+                               gl::ErrorSet *errorSet,
                                const egl::Config *configuration,
                                const gl::Context *shareContext,
                                const egl::AttributeMap &attribs) override;

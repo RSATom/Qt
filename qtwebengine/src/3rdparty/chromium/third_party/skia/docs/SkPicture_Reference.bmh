@@ -4,6 +4,10 @@
 
 #Class SkPicture
 
+#Code
+#Populate
+##
+
 Picture records drawing commands made to Canvas. The command stream may be
 played in whole or in part at a later time.
 
@@ -14,18 +18,6 @@ Picture may contain any Canvas drawing command, as well as one or more
 Canvas_Matrix or Canvas_Clip. Picture has a cull Rect, which is used as
 a bounding box hint. To limit Picture bounds, use Canvas_Clip when
 recording or drawing Picture.
-
-#Subtopic Overview
-#Populate
-##
-
-#Subtopic Class
-#Populate
-##
-
-#Subtopic Member_Function
-#Populate
-##
 
 # ------------------------------------------------------------------------------
 
@@ -50,11 +42,9 @@ If AbortCallback::abort returns true, SkPicture::playback is interrupted.
 # ------------------------------------------------------------------------------
 
 #Method AbortCallback()
-#In Constructor
+#In Constructors
 #Line # defines default constructor ##
-Has no effect.
-
-#Return abstract class cannot be instantiated ##
+#Populate
 
 #NoExample
 ##
@@ -66,9 +56,9 @@ Has no effect.
 # ------------------------------------------------------------------------------
 
 #Method virtual ~AbortCallback()
-#In Constructor
+#In Constructors
 #Line # defines default destructor ##
-Has no effect.
+#Populate
 
 #NoExample
 ##
@@ -82,18 +72,7 @@ Has no effect.
 #Method virtual bool abort() = 0
 #In Utility
 #Line # aborts playback by callback ##
-
-Stops Picture playback when some condition is met. A subclass of
-AbortCallback provides an override for abort() that can stop SkPicture::playback.
-
-The part of Picture drawn when aborted is undefined. Picture instantiations are
-free to stop drawing at different points during playback.
-
-If the abort happens inside one or more calls to SkCanvas::save(), stack
-of Canvas_Matrix and Canvas_Clip values is restored to its state before
-SkPicture::playback was called.
-
-#Return true to stop playback ##
+#Populate
 
 #NoExample
 ##
@@ -136,15 +115,9 @@ void draw(SkCanvas* canvas) {
 
 #Method static sk_sp<SkPicture> MakeFromStream(SkStream* stream,
                                            const SkDeserialProcs* procs = nullptr)
-#In Constructor
+#In Constructors
 #Line # constructs Picture from stream ##
-
-Recreates a picture that was serialized into a stream.
-
-#Param stream  container for serial data ##
-#Param procs  custom serial data decoders; may be nullptr ##
-
-#Return Picture constructed from stream data ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -169,15 +142,9 @@ Recreates a picture that was serialized into a stream.
 
 #Method static sk_sp<SkPicture> MakeFromData(const SkData* data,
                                          const SkDeserialProcs* procs = nullptr)
-#In Constructor
+#In Constructors
 #Line # constructs Picture from data ##
-
-Recreates a picture that was serialized into data.
-
-#Param data  container for serial data ##
-#Param procs  custom serial data decoders; may be nullptr ##
-
-#Return Picture constructed from data ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -202,14 +169,7 @@ Recreates a picture that was serialized into data.
 
 #Method static sk_sp<SkPicture> MakeFromData(const void* data, size_t size,
                                          const SkDeserialProcs* procs = nullptr)
-
-#Param data  pointer to serial data ##
-#Param size  size of data ##
-#Param procs  custom serial data decoders; may be nullptr ##
-
-Recreates a picture that was serialized into data.
-
-#Return Picture constructed from data ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -235,15 +195,7 @@ Recreates a picture that was serialized into data.
 #Method virtual void playback(SkCanvas* canvas, AbortCallback* callback = nullptr) const = 0
 #In Action
 #Line # replays drawing commands on canvas ##
-
-Replays the drawing commands on the specified canvas. In the case that the
-commands are recorded, each command in the Picture is sent separately to canvas.
-
-To add a single command to draw Picture to recording canvas, call
-SkCanvas::drawPicture instead.
-
-#Param canvas  receiver of drawing commands ##
-#Param callback  allows interruption of playback ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -265,15 +217,7 @@ SkCanvas::drawPicture instead.
 #Method virtual SkRect cullRect() const = 0
 #In Property
 #Line # returns bounds used to record Picture ##
-
-Returns cull Rect for this picture, passed in when Picture was created.
-Returned Rect does not specify clipping Rect for Picture; cull is hint
-of Picture bounds.
-
-Picture is free to discard recorded drawing commands that fall outside 
-cull.
-
-#Return bounds passed when Picture was created ##
+#Populate
 
 #Example
 #Description
@@ -302,10 +246,7 @@ bounds may be drawn, and are drawn in this example.
 #Method uint32_t uniqueID() const
 #In Property
 #Line # returns identifier for Picture ##
-
-Returns a non-zero value unique among Pictures in Skia process.
-
-#Return identifier for Picture ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -328,13 +269,8 @@ placeholder id = 2
 
 #Method sk_sp<SkData> serialize(const SkSerialProcs* procs = nullptr) const
 #In Utility
-#Line # writes Picture to data ##
-Returns storage containing data describing Picture, using optional custom
-encoders.
-
-#Param procs  custom serial data encoders; may be nullptr ##
-
-#Return storage containing serialized Picture ##
+#Line # writes Picture to Data ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -356,10 +292,7 @@ encoders.
 # ------------------------------------------------------------------------------
 
 #Method void serialize(SkWStream* stream, const SkSerialProcs* procs = nullptr) const
-Writes picture to stream, using optional custom encoders.
-
-#Param stream  writable serial data stream ##
-#Param procs  custom serial data encoders; may be nullptr ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -383,20 +316,9 @@ Writes picture to stream, using optional custom encoders.
 # ------------------------------------------------------------------------------
 
 #Method static sk_sp<SkPicture> MakePlaceholder(SkRect cull)
-#In Constructor
+#In Constructors
 #Line # constructs placeholder with unique identifier ##
-
-Returns a placeholder SkPicture. Result does not draw, and contains only
-cull Rect, a hint of its bounds. Result is immutable; it cannot be changed
-later. Result identifier is unique.
-
-Returned placeholder can be intercepted during playback to insert other
-commands into Canvas draw stream.
-
-#Param cull  placeholder dimensions
-##
-
-#Return placeholder with unique identifier ##
+#Populate
 
 #Example
 #Function
@@ -432,13 +354,7 @@ myCanvas.drawPicture(picture);
 #Method virtual int approximateOpCount() const = 0
 #In Property
 #Line # returns approximate operation count ##
-
-Returns the approximate number of operations in Picture. Returned value
-may be greater or less than the number of SkCanvas calls
-recorded: some calls may be recorded as more than one operation, other
-calls may be optimized away.
-
-#Return approximate operation count ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;
@@ -462,11 +378,7 @@ calls may be optimized away.
 #Method virtual size_t approximateBytesUsed() const = 0
 #In Property
 #Line # returns approximate size ##
-
-Returns the approximate byte size of Picture. Does not include large objects
-referenced by Picture.
-
-#Return approximate size ##
+#Populate
 
 #Example
     SkPictureRecorder recorder;

@@ -7,7 +7,6 @@
 
 #include <stdint.h>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
@@ -68,6 +67,13 @@ class FontLoader : public SkFontConfigInterface,
       bool is_bold,
       float device_scale_factor,
       mojom::FontRenderStylePtr* out_font_render_style);
+
+  // Out parameters are only guaranteed to be initialized when method returns
+  // true.
+  bool MatchFontByPostscriptNameOrFullFontName(
+      std::string postscript_name_or_full_font_name,
+      mojom::FontIdentityPtr* out_identity);
+
   // Out parameter out_font_file_handle should always be an opened file handle
   // to a matched or default font file. out_font_file_handle is a default
   // initialized base::File on error.
@@ -92,7 +98,7 @@ class FontLoader : public SkFontConfigInterface,
   base::Lock lock_;
 
   // Maps font identity ID to the memory-mapped file with font data.
-  base::hash_map<uint32_t, internal::MappedFontFile*> mapped_font_files_;
+  std::unordered_map<uint32_t, internal::MappedFontFile*> mapped_font_files_;
 
   DISALLOW_COPY_AND_ASSIGN(FontLoader);
 };

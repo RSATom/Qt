@@ -26,8 +26,17 @@ bool NoneAttestationStatement::
   return false;
 }
 
-cbor::CBORValue::MapValue NoneAttestationStatement::GetAsCBORMap() const {
-  return cbor::CBORValue::MapValue();
+bool NoneAttestationStatement::IsSelfAttestation() {
+  return false;
+}
+
+base::Optional<base::span<const uint8_t>>
+NoneAttestationStatement::GetLeafCertificate() const {
+  return base::nullopt;
+}
+
+cbor::Value::MapValue NoneAttestationStatement::GetAsCBORMap() const {
+  return cbor::Value::MapValue();
 }
 
 }  // namespace device

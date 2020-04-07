@@ -11,6 +11,7 @@
 
 #include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -24,6 +25,7 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_unittest_util.h"
 
+using base::HistogramTester;
 using testing::_;
 
 namespace feed {
@@ -34,12 +36,24 @@ const char kImageURL2[] = "http://cake.com/";
 const char kImageData[] = "pie image";
 const char kImageData2[] = "cake image";
 
+const char kUmaImageLoadSuccessHistogramName[] =
+    "ContentSuggestions.Feed.Image.FetchResult";
+const char kUmaCacheLoadHistogramName[] =
+    "ContentSuggestions.Feed.Image.LoadFromCacheTime";
+const char kUmaNetworkLoadHistogramName[] =
+    "ContentSuggestions.Feed.Image.LoadFromNetworkTime";
+
+// Keep in sync with DIMENSION_UNKNOWN in third_party/feed/src/main/java/com/
+//  google/android/libraries/feed/host/imageloader/ImageLoaderApi.java.
+const int DIMENSION_UNKNOWN = -1;
+
 class FakeImageDecoder : public image_fetcher::ImageDecoder {
  public:
   void DecodeImage(
       const std::string& image_data,
       const gfx::Size& desired_image_frame_size,
       const image_fetcher::ImageDecodedCallback& callback) override {
+    desired_image_frame_size_ = desired_image_frame_size;
     gfx::Image image;
     if (valid_ && !image_data.empty()) {
       ASSERT_EQ(image_data_, image_data);
@@ -50,10 +64,12 @@ class FakeImageDecoder : public image_fetcher::ImageDecoder {
   }
   void SetDecodingValid(bool valid) { valid_ = valid; }
   void SetExpectedData(std::string data) { image_data_ = data; }
+  gfx::Size GetDesiredImageFrameSize() { return desired_image_frame_size_; }
 
  private:
   bool valid_ = true;
   std::string image_data_;
+  gfx::Size desired_image_frame_size_;
 };
 
 }  // namespace
@@ -65,7 +81,7 @@ class FeedImageManagerTest : public testing::Test {
   ~FeedImageManagerTest() override {
     feed_image_manager_.reset();
     // We need to run until idle after deleting the database, because
-    // ProtoDatabaseImpl deletes the actual LevelDB asynchronously.
+    // ProtoDatabase deletes the actual LevelDB asynchronously.
     RunUntilIdle();
   }
 
@@ -116,6 +132,8 @@ class FeedImageManagerTest : public testing::Test {
     return &test_url_loader_factory_;
   }
 
+  HistogramTester& histogram() { return histogram_; }
+
   MOCK_METHOD1(OnImageLoaded, void(const std::string&));
 
  private:
@@ -126,6 +144,7 @@ class FeedImageManagerTest : public testing::Test {
   base::ScopedTempDir database_dir_;
   FakeImageDecoder* fake_image_decoder_;
   base::test::ScopedTaskEnvironment scoped_task_environment_;
+  HistogramTester histogram_;
 
   DISALLOW_COPY_AND_ASSIGN(FeedImageManagerTest);
 };
@@ -134,9 +153,11 @@ TEST_F(FeedImageManagerTest, FetchEmptyUrlVector) {
   base::MockCallback<ImageFetchedCallback> image_callback;
 
   // Make sure an empty image passed to callback.
-  EXPECT_CALL(image_callback,
-              Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(true))));
+  EXPECT_CALL(
+      image_callback,
+      Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(true)), -1));
   feed_image_manager()->FetchImage(std::vector<std::string>(),
+                                   DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
                                    image_callback.Get());
 
   RunUntilIdle();
@@ -148,12 +169,16 @@ TEST_F(FeedImageManagerTest, FetchImageFromCache) {
   RunUntilIdle();
 
   base::MockCallback<ImageFetchedCallback> image_callback;
-  EXPECT_CALL(image_callback,
-              Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(false))));
-  feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
-                                   image_callback.Get());
+  EXPECT_CALL(
+      image_callback,
+      Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(false)), 0));
+  feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}), 100,
+                                   200, image_callback.Get());
 
   RunUntilIdle();
+
+  ASSERT_EQ(fake_image_decoder()->GetDesiredImageFrameSize().width(), 100);
+  ASSERT_EQ(fake_image_decoder()->GetDesiredImageFrameSize().height(), 200);
 }
 
 TEST_F(FeedImageManagerTest, FetchImagePopulatesCache) {
@@ -161,9 +186,11 @@ TEST_F(FeedImageManagerTest, FetchImagePopulatesCache) {
   {
     test_url_loader_factory()->AddResponse(kImageURL, kImageData);
     base::MockCallback<ImageFetchedCallback> image_callback;
-    EXPECT_CALL(image_callback, Run(testing::Property(&gfx::Image::IsEmpty,
-                                                      testing::Eq(false))));
+    EXPECT_CALL(
+        image_callback,
+        Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(false)), 0));
     feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                     DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
                                      image_callback.Get());
 
     RunUntilIdle();
@@ -180,9 +207,11 @@ TEST_F(FeedImageManagerTest, FetchImagePopulatesCache) {
   {
     test_url_loader_factory()->ClearResponses();
     base::MockCallback<ImageFetchedCallback> image_callback;
-    EXPECT_CALL(image_callback, Run(testing::Property(&gfx::Image::IsEmpty,
-                                                      testing::Eq(false))));
+    EXPECT_CALL(
+        image_callback,
+        Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(false)), 0));
     feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                     DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
                                      image_callback.Get());
 
     RunUntilIdle();
@@ -196,12 +225,13 @@ TEST_F(FeedImageManagerTest, FetchSecondImageIfFirstFailed) {
                                            net::HTTP_NOT_FOUND);
     test_url_loader_factory()->AddResponse(kImageURL2, kImageData2);
     base::MockCallback<ImageFetchedCallback> image_callback;
-    EXPECT_CALL(image_callback, Run(testing::Property(&gfx::Image::IsEmpty,
-                                                      testing::Eq(false))));
+    EXPECT_CALL(
+        image_callback,
+        Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(false)), 1));
     fake_image_decoder()->SetExpectedData(kImageData2);
     feed_image_manager()->FetchImage(
-        std::vector<std::string>({kImageURL, kImageURL2}),
-        image_callback.Get());
+        std::vector<std::string>({kImageURL, kImageURL2}), DIMENSION_UNKNOWN,
+        DIMENSION_UNKNOWN, image_callback.Get());
 
     RunUntilIdle();
   }
@@ -225,9 +255,11 @@ TEST_F(FeedImageManagerTest, DecodingErrorWillDeleteCache) {
     fake_image_decoder()->SetDecodingValid(false);
     base::MockCallback<ImageFetchedCallback> image_callback;
 
-    EXPECT_CALL(image_callback, Run(testing::Property(&gfx::Image::IsEmpty,
-                                                      testing::Eq(true))));
+    EXPECT_CALL(
+        image_callback,
+        Run(testing::Property(&gfx::Image::IsEmpty, testing::Eq(true)), -1));
     feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                     DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
                                      image_callback.Get());
 
     RunUntilIdle();
@@ -258,6 +290,90 @@ TEST_F(FeedImageManagerTest, GarbageCollectionRunOnStart) {
   // will be scheduled.
   RunUntilIdle();
   EXPECT_TRUE(garbage_collection_timer().IsRunning());
+}
+
+TEST_F(FeedImageManagerTest, InvalidUrlHistogramFailure) {
+  base::MockCallback<ImageFetchedCallback> image_callback;
+  feed_image_manager()->FetchImage(std::vector<std::string>({""}),
+                                   DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
+                                   image_callback.Get());
+
+  RunUntilIdle();
+
+  histogram().ExpectTotalCount(kUmaCacheLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaNetworkLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaImageLoadSuccessHistogramName, 1);
+  histogram().ExpectBucketCount(kUmaImageLoadSuccessHistogramName,
+                                FeedImageFetchResult::kFailure, 1);
+}
+
+TEST_F(FeedImageManagerTest, FetchImageFromCachHistogram) {
+  // Save the image in the database.
+  image_database()->SaveImage(kImageURL, kImageData);
+  RunUntilIdle();
+
+  base::MockCallback<ImageFetchedCallback> image_callback;
+  feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                   DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
+                                   image_callback.Get());
+
+  RunUntilIdle();
+
+  histogram().ExpectTotalCount(kUmaCacheLoadHistogramName, 1);
+  histogram().ExpectTotalCount(kUmaNetworkLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaImageLoadSuccessHistogramName, 1);
+  histogram().ExpectBucketCount(kUmaImageLoadSuccessHistogramName,
+                                FeedImageFetchResult::kSuccessCached, 1);
+}
+
+TEST_F(FeedImageManagerTest, FetchImageFromNetworkHistogram) {
+  test_url_loader_factory()->AddResponse(kImageURL, kImageData);
+  base::MockCallback<ImageFetchedCallback> image_callback;
+  feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                   DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
+                                   image_callback.Get());
+
+  RunUntilIdle();
+
+  histogram().ExpectTotalCount(kUmaCacheLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaNetworkLoadHistogramName, 1);
+  histogram().ExpectTotalCount(kUmaImageLoadSuccessHistogramName, 1);
+  histogram().ExpectBucketCount(kUmaImageLoadSuccessHistogramName,
+                                FeedImageFetchResult::kSuccessFetched, 1);
+}
+
+TEST_F(FeedImageManagerTest, FetchImageFromNetworkEmptyHistogram) {
+  test_url_loader_factory()->AddResponse(kImageURL, "");
+  base::MockCallback<ImageFetchedCallback> image_callback;
+  feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                   DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
+                                   image_callback.Get());
+
+  RunUntilIdle();
+
+  histogram().ExpectTotalCount(kUmaCacheLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaNetworkLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaImageLoadSuccessHistogramName, 1);
+  histogram().ExpectBucketCount(kUmaImageLoadSuccessHistogramName,
+                                FeedImageFetchResult::kFailure, 1);
+}
+
+TEST_F(FeedImageManagerTest, NetworkDecodingErrorHistogram) {
+  test_url_loader_factory()->AddResponse(kImageURL, kImageData);
+  fake_image_decoder()->SetDecodingValid(false);
+
+  base::MockCallback<ImageFetchedCallback> image_callback;
+  feed_image_manager()->FetchImage(std::vector<std::string>({kImageURL}),
+                                   DIMENSION_UNKNOWN, DIMENSION_UNKNOWN,
+                                   image_callback.Get());
+
+  RunUntilIdle();
+
+  histogram().ExpectTotalCount(kUmaCacheLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaNetworkLoadHistogramName, 0);
+  histogram().ExpectTotalCount(kUmaImageLoadSuccessHistogramName, 1);
+  histogram().ExpectBucketCount(kUmaImageLoadSuccessHistogramName,
+                                FeedImageFetchResult::kFailure, 1);
 }
 
 }  // namespace feed

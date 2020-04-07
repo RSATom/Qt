@@ -13,6 +13,7 @@
 #include "core/fxcrt/fx_extension.h"
 #include "fpdfsdk/pwl/cpwl_edit_impl.h"
 #include "fpdfsdk/pwl/cpwl_list_box.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 CPWL_ListCtrl::Item::Item()
@@ -633,5 +634,5 @@ bool CPWL_ListCtrl::IsValid(int32_t nItemIndex) const {
 WideString CPWL_ListCtrl::GetItemText(int32_t nIndex) const {
   if (pdfium::IndexInBounds(m_ListItems, nIndex) && m_ListItems[nIndex])
     return m_ListItems[nIndex]->GetText();
-  return L"";
+  return WideString();
 }

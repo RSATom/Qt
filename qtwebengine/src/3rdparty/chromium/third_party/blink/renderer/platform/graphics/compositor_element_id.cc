@@ -31,11 +31,15 @@ CompositorElementId PLATFORM_EXPORT CompositorElementIdFromUniqueObjectId(
     CompositorElementIdNamespace namespace_id) {
   DCHECK(namespace_id == CompositorElementIdNamespace::kPrimary ||
          namespace_id == CompositorElementIdNamespace::kScroll ||
+         namespace_id == CompositorElementIdNamespace::kStickyTranslation ||
+         namespace_id == CompositorElementIdNamespace::kPrimaryEffect ||
+         namespace_id == CompositorElementIdNamespace::kPrimaryTransform ||
          namespace_id == CompositorElementIdNamespace::kEffectFilter ||
          namespace_id == CompositorElementIdNamespace::kEffectMask ||
          namespace_id == CompositorElementIdNamespace::kEffectClipPath ||
          namespace_id == CompositorElementIdNamespace::kVerticalScrollbar ||
-         namespace_id == CompositorElementIdNamespace::kHorizontalScrollbar);
+         namespace_id == CompositorElementIdNamespace::kHorizontalScrollbar ||
+         namespace_id == CompositorElementIdNamespace::kOverscrollElasticity);
   return CreateCompositorElementId(id, namespace_id);
 }
 

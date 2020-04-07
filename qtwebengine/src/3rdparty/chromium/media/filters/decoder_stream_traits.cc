@@ -63,12 +63,15 @@ void DecoderStreamTraits<DemuxerStream::AUDIO>::InitializeDecoder(
     CdmContext* cdm_context,
     const InitCB& init_cb,
     const OutputCB& output_cb,
-    const DecoderType::WaitingForDecryptionKeyCB&
-        waiting_for_decryption_key_cb) {
+    const WaitingCB& waiting_cb) {
   DCHECK(config.IsValidConfig());
+
+  if (config_.IsValidConfig() && !config_.Matches(config))
+    OnConfigChanged(config);
+  config_ = config;
+
   stats_.audio_decoder_name = decoder->GetDisplayName();
-  decoder->Initialize(config, cdm_context, init_cb, output_cb,
-                      waiting_for_decryption_key_cb);
+  decoder->Initialize(config, cdm_context, init_cb, output_cb, waiting_cb);
 }
 
 void DecoderStreamTraits<DemuxerStream::AUDIO>::OnStreamReset(
@@ -152,13 +155,12 @@ void DecoderStreamTraits<DemuxerStream::VIDEO>::InitializeDecoder(
     CdmContext* cdm_context,
     const InitCB& init_cb,
     const OutputCB& output_cb,
-    const DecoderType::WaitingForDecryptionKeyCB&
-        waiting_for_decryption_key_cb) {
+    const WaitingCB& waiting_cb) {
   DCHECK(config.IsValidConfig());
   stats_.video_decoder_name = decoder->GetDisplayName();
   DVLOG(2) << stats_.video_decoder_name;
   decoder->Initialize(config, low_delay, cdm_context, init_cb, output_cb,
-                      waiting_for_decryption_key_cb);
+                      waiting_cb);
 }
 
 void DecoderStreamTraits<DemuxerStream::VIDEO>::OnStreamReset(
@@ -187,9 +189,8 @@ void DecoderStreamTraits<DemuxerStream::VIDEO>::OnDecode(
     return;
   }
 
-  base::TimeDelta frame_distance =
+  const base::TimeDelta frame_distance =
       current_frame_timestamp - last_keyframe_timestamp_;
-  UMA_HISTOGRAM_MEDIUM_TIMES("Media.Video.KeyFrameDistance", frame_distance);
   last_keyframe_timestamp_ = current_frame_timestamp;
   keyframe_distance_average_.AddSample(frame_distance);
 }

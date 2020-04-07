@@ -136,28 +136,28 @@ DateTimeEditElement*
 MultipleFieldsTemporalInputTypeView::GetDateTimeEditElement() const {
   return ToDateTimeEditElementOrDie(
       GetElement().UserAgentShadowRoot()->getElementById(
-          ShadowElementNames::DateTimeEdit()));
+          shadow_element_names::DateTimeEdit()));
 }
 
 SpinButtonElement* MultipleFieldsTemporalInputTypeView::GetSpinButtonElement()
     const {
   return ToSpinButtonElementOrDie(
       GetElement().UserAgentShadowRoot()->getElementById(
-          ShadowElementNames::SpinButton()));
+          shadow_element_names::SpinButton()));
 }
 
 ClearButtonElement* MultipleFieldsTemporalInputTypeView::GetClearButtonElement()
     const {
   return ToClearButtonElementOrDie(
       GetElement().UserAgentShadowRoot()->getElementById(
-          ShadowElementNames::ClearButton()));
+          shadow_element_names::ClearButton()));
 }
 
 PickerIndicatorElement*
 MultipleFieldsTemporalInputTypeView::GetPickerIndicatorElement() const {
   return ToPickerIndicatorElementOrDie(
       GetElement().UserAgentShadowRoot()->getElementById(
-          ShadowElementNames::PickerIndicator()));
+          shadow_element_names::PickerIndicator()));
 }
 
 inline bool MultipleFieldsTemporalInputTypeView::ContainsFocusedShadowElement()
@@ -202,9 +202,9 @@ void MultipleFieldsTemporalInputTypeView::EditControlValueChanged() {
     GetElement().SetNeedsValidityCheck();
   } else {
     GetElement().SetNonAttributeValueByUserEdit(new_value);
-    GetElement().SetNeedsStyleRecalc(
-        kSubtreeStyleChange,
-        StyleChangeReasonForTracing::Create(StyleChangeReason::kControlValue));
+    GetElement().SetNeedsStyleRecalc(kSubtreeStyleChange,
+                                     StyleChangeReasonForTracing::Create(
+                                         style_change_reason::kControlValue));
     GetElement().DispatchInputEvent();
   }
   GetElement().NotifyFormStateChanged();
@@ -317,13 +317,14 @@ MultipleFieldsTemporalInputTypeView::MultipleFieldsTemporalInputTypeView(
 MultipleFieldsTemporalInputTypeView*
 MultipleFieldsTemporalInputTypeView::Create(HTMLInputElement& element,
                                             BaseTemporalInputType& input_type) {
-  return new MultipleFieldsTemporalInputTypeView(element, input_type);
+  return MakeGarbageCollected<MultipleFieldsTemporalInputTypeView>(element,
+                                                                   input_type);
 }
 
 MultipleFieldsTemporalInputTypeView::~MultipleFieldsTemporalInputTypeView() =
     default;
 
-void MultipleFieldsTemporalInputTypeView::Trace(blink::Visitor* visitor) {
+void MultipleFieldsTemporalInputTypeView::Trace(Visitor* visitor) {
   visitor->Trace(input_type_);
   InputTypeView::Trace(visitor);
 }
@@ -351,7 +352,6 @@ MultipleFieldsTemporalInputTypeView::CustomStyleForLayoutObject(
   scoped_refptr<ComputedStyle> style = ComputedStyle::Clone(*original_style);
   style->SetDirection(content_direction);
   style->SetDisplay(new_display);
-  style->SetUnique();
   return style;
 }
 
@@ -401,8 +401,8 @@ void MultipleFieldsTemporalInputTypeView::DestroyShadowSubtree() {
   is_destroying_shadow_subtree_ = false;
 }
 
-void MultipleFieldsTemporalInputTypeView::HandleClickEvent(MouseEvent* event) {
-  if (!event->isTrusted()) {
+void MultipleFieldsTemporalInputTypeView::HandleClickEvent(MouseEvent& event) {
+  if (!event.isTrusted()) {
     UseCounter::Count(GetElement().GetDocument(),
                       WebFeature::kTemporalInputTypeIgnoreUntrustedClick);
   }
@@ -426,10 +426,10 @@ void MultipleFieldsTemporalInputTypeView::HandleFocusInEvent(
   }
 }
 
-void MultipleFieldsTemporalInputTypeView::ForwardEvent(Event* event) {
+void MultipleFieldsTemporalInputTypeView::ForwardEvent(Event& event) {
   if (SpinButtonElement* element = GetSpinButtonElement()) {
     element->ForwardEvent(event);
-    if (event->DefaultHandled())
+    if (event.DefaultHandled())
       return;
   }
 
@@ -449,16 +449,16 @@ void MultipleFieldsTemporalInputTypeView::RequiredAttributeChanged() {
 }
 
 void MultipleFieldsTemporalInputTypeView::HandleKeydownEvent(
-    KeyboardEvent* event) {
+    KeyboardEvent& event) {
   if (!GetElement().IsFocused())
     return;
   if (picker_indicator_is_visible_ &&
-      ((event->key() == "ArrowDown" && event->getModifierState("Alt")) ||
+      ((event.key() == "ArrowDown" && event.getModifierState("Alt")) ||
        (LayoutTheme::GetTheme().ShouldOpenPickerWithF4Key() &&
-        event->key() == "F4"))) {
+        event.key() == "F4"))) {
     if (PickerIndicatorElement* element = GetPickerIndicatorElement())
       element->OpenPopup();
-    event->SetDefaultHandled();
+    event.SetDefaultHandled();
   } else {
     ForwardEvent(event);
   }
@@ -550,7 +550,7 @@ void MultipleFieldsTemporalInputTypeView::UpdateView() {
   edit->setAttribute(datetimeformat_attr,
                      AtomicString(layout_parameters.date_time_format),
                      ASSERT_NO_EXCEPTION);
-  const AtomicString pattern = edit->FastGetAttribute(HTMLNames::patternAttr);
+  const AtomicString pattern = edit->FastGetAttribute(html_names::kPatternAttr);
   if (!pattern.IsEmpty())
     layout_parameters.date_time_format = pattern;
 

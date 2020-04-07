@@ -48,6 +48,7 @@ class LocalSessionEventHandlerImpl : public LocalSessionEventHandler {
    public:
     virtual ~Delegate();
     virtual std::unique_ptr<WriteBatch> CreateLocalSessionWriteBatch() = 0;
+    virtual bool IsTabNodeUnsynced(int tab_node_id) = 0;
     // Analogous to SessionsGlobalIdMapper.
     virtual void TrackLocalNavigationId(base::Time timestamp,
                                         int unique_id) = 0;
@@ -79,6 +80,8 @@ class LocalSessionEventHandlerImpl : public LocalSessionEventHandler {
  private:
   enum ReloadTabsOption { RELOAD_TABS, DONT_RELOAD_TABS };
 
+  void CleanupLocalTabs(WriteBatch* batch);
+
   void AssociateWindows(ReloadTabsOption option,
                         WriteBatch* batch);
 
@@ -87,17 +90,6 @@ class LocalSessionEventHandlerImpl : public LocalSessionEventHandler {
   // changes for processing later.
   void AssociateTab(SyncedTabDelegate* const tab,
                     WriteBatch* batch);
-
-  // It's possible that when we associate windows, tabs aren't all loaded
-  // into memory yet (e.g on android) and we don't have a WebContents. In this
-  // case we can't do a full association, but we still want to update tab IDs
-  // as they may have changed after a session was restored.  This method
-  // new_window_id against the previously persisted window ID (from our
-  // TabNodePool) and updates it.
-  void AssociateRestoredPlaceholderTab(const SyncedTabDelegate& tab_delegate,
-                                       SessionID tab_id,
-                                       SessionID new_window_id,
-                                       WriteBatch* batch);
 
   // Set |session_tab| from |tab_delegate|.
   sync_pb::SessionTab GetTabSpecificsFromDelegate(

@@ -24,50 +24,21 @@
 #include "fxbarcode/pdf417/BC_PDF417BarcodeRow.h"
 #include "third_party/base/ptr_util.h"
 
-CBC_BarcodeMatrix::CBC_BarcodeMatrix(int32_t height, int32_t width) {
-  m_matrix.resize(height + 2);
-  for (size_t i = 0; i < m_matrix.size(); ++i)
-    m_matrix[i] = pdfium::MakeUnique<CBC_BarcodeRow>((width + 4) * 17 + 1);
-
-  m_width = width * 17;
-  m_height = height + 2;
-  m_currentRow = 0;
-  m_outHeight = 0;
-  m_outWidth = 0;
+CBC_BarcodeMatrix::CBC_BarcodeMatrix(size_t width, size_t height)
+    : m_width((width + 4) * 17 + 1), m_height(height) {
+  m_matrix.resize(m_height);
+  for (size_t i = 0; i < m_height; ++i)
+    m_matrix[i] = pdfium::MakeUnique<CBC_BarcodeRow>(m_width);
 }
 
 CBC_BarcodeMatrix::~CBC_BarcodeMatrix() {}
 
-void CBC_BarcodeMatrix::set(int32_t x, int32_t y, uint8_t value) {
-  m_matrix[y]->set(x, value);
-}
-void CBC_BarcodeMatrix::setMatrix(int32_t x, int32_t y, bool black) {
-  set(x, y, (uint8_t)(black ? 1 : 0));
-}
-void CBC_BarcodeMatrix::startRow() {
-  ++m_currentRow;
-}
-std::vector<uint8_t>& CBC_BarcodeMatrix::getMatrix() {
-  return getScaledMatrix(1, 1);
-}
-std::vector<uint8_t>& CBC_BarcodeMatrix::getScaledMatrix(int32_t scale) {
-  return getScaledMatrix(scale, scale);
-}
-std::vector<uint8_t>& CBC_BarcodeMatrix::getScaledMatrix(int32_t xScale,
-                                                         int32_t yScale) {
-  size_t yMax = m_height * yScale;
-  std::vector<uint8_t> bytearray = m_matrix[0]->getScaledRow(xScale);
-  size_t xMax = bytearray.size();
-  m_matrixOut.resize(xMax * yMax);
-  m_outWidth = xMax;
-  m_outHeight = yMax;
-  int32_t k = 0;
-  for (size_t i = 0; i < yMax; i++) {
-    if (i != 0)
-      bytearray = m_matrix[i / yScale]->getScaledRow(xScale);
-    k = i * xMax;
-    for (size_t l = 0; l < xMax; l++)
-      m_matrixOut[k + l] = bytearray[l];
+std::vector<uint8_t> CBC_BarcodeMatrix::toBitArray() {
+  std::vector<uint8_t> bitArray(m_width * m_height);
+  for (size_t i = 0; i < m_height; ++i) {
+    std::vector<uint8_t>& bytearray = m_matrix[i]->getRow();
+    for (size_t j = 0; j < m_width; ++j)
+      bitArray[i * m_width + j] = bytearray[j];
   }
-  return m_matrixOut;
+  return bitArray;
 }

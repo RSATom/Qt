@@ -32,6 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_SHARED_WORKER_GLOBAL_SCOPE_H_
 
 #include <memory>
+#include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
@@ -39,10 +40,9 @@
 
 namespace blink {
 
-class MessageEvent;
 class SharedWorkerThread;
 
-class SharedWorkerGlobalScope final : public WorkerGlobalScope {
+class CORE_EXPORT SharedWorkerGlobalScope final : public WorkerGlobalScope {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -64,18 +64,26 @@ class SharedWorkerGlobalScope final : public WorkerGlobalScope {
       network::mojom::FetchCredentialsMode) override;
 
   // Setters/Getters for attributes in SharedWorkerGlobalScope.idl
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(connect);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(connect, kConnect);
   String name() const { return name_; }
+
+  void Connect(MessagePortChannel channel);
 
   void Trace(blink::Visitor*) override;
 
  private:
   void ExceptionThrown(ErrorEvent*) override;
+  mojom::RequestContextType GetDestinationForMainScript() override;
 
   const String name_;
 };
 
-CORE_EXPORT MessageEvent* CreateConnectEvent(MessagePort*);
+template <>
+struct DowncastTraits<SharedWorkerGlobalScope> {
+  static bool AllowFrom(const ExecutionContext& context) {
+    return context.IsSharedWorkerGlobalScope();
+  }
+};
 
 }  // namespace blink
 

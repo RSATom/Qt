@@ -10,15 +10,22 @@
 
 #include "modules/video_coding/packet_buffer.h"
 
+#include <string.h>
 #include <algorithm>
-#include <limits>
+#include <cstdint>
 #include <utility>
 
+#include "absl/types/variant.h"
+#include "api/video/encoded_frame.h"
+#include "common_types.h"  // NOLINT(build/include)
 #include "common_video/h264/h264_common.h"
+#include "modules/rtp_rtcp/source/rtp_video_header.h"
+#include "modules/video_coding/codecs/h264/include/h264_globals.h"
 #include "modules/video_coding/frame_object.h"
-#include "rtc_base/atomicops.h"
+#include "rtc_base/atomic_ops.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/numerics/mod_ops.h"
 #include "system_wrappers/include/clock.h"
 #include "system_wrappers/include/field_trial.h"
 
@@ -107,7 +114,7 @@ bool PacketBuffer::InsertPacket(VCMPacket* packet) {
     }
 
     sequence_buffer_[index].frame_begin = packet->is_first_packet_in_frame;
-    sequence_buffer_[index].frame_end = packet->markerBit;
+    sequence_buffer_[index].frame_end = packet->is_last_packet_in_frame;
     sequence_buffer_[index].seq_num = packet->seqNum;
     sequence_buffer_[index].continuous = false;
     sequence_buffer_[index].frame_created = false;
@@ -259,6 +266,8 @@ bool PacketBuffer::PotentialNewFrame(uint16_t seq_num) const {
       static_cast<uint16_t>(sequence_buffer_[index].seq_num - 1)) {
     return false;
   }
+  if (data_buffer_[prev_index].timestamp != data_buffer_[index].timestamp)
+    return false;
   if (sequence_buffer_[prev_index].continuous)
     return true;
 
@@ -278,6 +287,8 @@ std::vector<std::unique_ptr<RtpFrameObject>> PacketBuffer::FindFrames(
       size_t frame_size = 0;
       int max_nack_count = -1;
       uint16_t start_seq_num = seq_num;
+      int64_t min_recv_time = data_buffer_[index].receive_time_ms;
+      int64_t max_recv_time = data_buffer_[index].receive_time_ms;
 
       // Find the start index by searching backward until the packet with
       // the |frame_begin| flag is set.
@@ -299,22 +310,26 @@ std::vector<std::unique_ptr<RtpFrameObject>> PacketBuffer::FindFrames(
             std::max(max_nack_count, data_buffer_[start_index].timesNacked);
         sequence_buffer_[start_index].frame_created = true;
 
+        min_recv_time =
+            std::min(min_recv_time, data_buffer_[start_index].receive_time_ms);
+        max_recv_time =
+            std::max(max_recv_time, data_buffer_[start_index].receive_time_ms);
+
         if (!is_h264 && sequence_buffer_[start_index].frame_begin)
           break;
 
         if (is_h264 && !is_h264_keyframe) {
-          const RTPVideoHeaderH264& header =
-              data_buffer_[start_index].video_header.h264();
-
-          if (header.nalus_length >= kMaxNalusPerPacket)
+          const auto* h264_header = absl::get_if<RTPVideoHeaderH264>(
+              &data_buffer_[start_index].video_header.video_type_header);
+          if (!h264_header || h264_header->nalus_length >= kMaxNalusPerPacket)
             return found_frames;
 
-          for (size_t j = 0; j < header.nalus_length; ++j) {
-            if (header.nalus[j].type == H264::NaluType::kSps) {
+          for (size_t j = 0; j < h264_header->nalus_length; ++j) {
+            if (h264_header->nalus[j].type == H264::NaluType::kSps) {
               has_h264_sps = true;
-            } else if (header.nalus[j].type == H264::NaluType::kPps) {
+            } else if (h264_header->nalus[j].type == H264::NaluType::kPps) {
               has_h264_pps = true;
-            } else if (header.nalus[j].type == H264::NaluType::kIdr) {
+            } else if (h264_header->nalus[j].type == H264::NaluType::kIdr) {
               has_h264_idr = true;
             }
           }
@@ -387,7 +402,7 @@ std::vector<std::unique_ptr<RtpFrameObject>> PacketBuffer::FindFrames(
 
       found_frames.emplace_back(
           new RtpFrameObject(this, start_seq_num, seq_num, frame_size,
-                             max_nack_count, clock_->TimeInMilliseconds()));
+                             max_nack_count, min_recv_time, max_recv_time));
     }
     ++seq_num;
   }
@@ -399,8 +414,12 @@ void PacketBuffer::ReturnFrame(RtpFrameObject* frame) {
   size_t index = frame->first_seq_num() % size_;
   size_t end = (frame->last_seq_num() + 1) % size_;
   uint16_t seq_num = frame->first_seq_num();
+  uint32_t timestamp = frame->Timestamp();
   while (index != end) {
-    if (sequence_buffer_[index].seq_num == seq_num) {
+    // Check both seq_num and timestamp to handle the case when seq_num wraps
+    // around too quickly for high packet rates.
+    if (sequence_buffer_[index].seq_num == seq_num &&
+        data_buffer_[index].timestamp == timestamp) {
       delete[] data_buffer_[index].dataPtr;
       data_buffer_[index].dataPtr = nullptr;
       sequence_buffer_[index].used = false;
@@ -418,11 +437,15 @@ bool PacketBuffer::GetBitstream(const RtpFrameObject& frame,
   size_t index = frame.first_seq_num() % size_;
   size_t end = (frame.last_seq_num() + 1) % size_;
   uint16_t seq_num = frame.first_seq_num();
+  uint32_t timestamp = frame.Timestamp();
   uint8_t* destination_end = destination + frame.size();
 
   do {
+    // Check both seq_num and timestamp to handle the case when seq_num wraps
+    // around too quickly for high packet rates.
     if (!sequence_buffer_[index].used ||
-        sequence_buffer_[index].seq_num != seq_num) {
+        sequence_buffer_[index].seq_num != seq_num ||
+        data_buffer_[index].timestamp != timestamp) {
       return false;
     }
 

@@ -15,7 +15,7 @@
  *
  *
  * IMPORTANT: A description of FreeType's debugging support can be
- *             found in `docs/DEBUG.TXT'.  Read it if you need to use or
+ *             found in 'docs/DEBUG.TXT'.  Read it if you need to use or
  *             understand this code.
  *
  */
@@ -44,8 +44,8 @@ FT_BEGIN_HEADER
 
   /**************************************************************************
    *
-   * Define the trace enums as well as the trace levels array when they
-   * are needed.
+   * Define the trace enums as well as the trace levels array when they are
+   * needed.
    *
    */
 
@@ -62,8 +62,9 @@ FT_BEGIN_HEADER
   } FT_Trace;
 
 
-  /* defining the array of trace levels, provided by `src/base/ftdebug.c' */
-  extern int  ft_trace_levels[trace_count];
+  /* a pointer to the array of trace levels, */
+  /* provided by `src/base/ftdebug.c'        */
+  extern int*  ft_trace_levels;
 
 #undef FT_TRACE_DEF
 
@@ -83,11 +84,15 @@ FT_BEGIN_HEADER
 
 #ifdef FT_DEBUG_LEVEL_TRACE
 
-#define FT_TRACE( level, varformat )                      \
-          do                                              \
-          {                                               \
-            if ( ft_trace_levels[FT_COMPONENT] >= level ) \
-              FT_Message varformat;                       \
+  /* we need two macros here to make cpp expand `FT_COMPONENT' */
+#define FT_TRACE_COMP( x )   FT_TRACE_COMP_( x )
+#define FT_TRACE_COMP_( x )  trace_ ## x
+
+#define FT_TRACE( level, varformat )                                       \
+          do                                                               \
+          {                                                                \
+            if ( ft_trace_levels[FT_TRACE_COMP( FT_COMPONENT )] >= level ) \
+              FT_Message varformat;                                        \
           } while ( 0 )
 
 #else /* !FT_DEBUG_LEVEL_TRACE */
@@ -110,8 +115,8 @@ FT_BEGIN_HEADER
    *   FT_DEBUG_LEVEL_TRACE definition.
    *
    * @note:
-   *   This function may be useful if you want to access elements of
-   *   the internal `ft_trace_levels' array by an index.
+   *   This function may be useful if you want to access elements of the
+   *   internal trace levels array by an index.
    */
   FT_BASE( FT_Int )
   FT_Trace_Get_Count( void );
@@ -130,18 +135,41 @@ FT_BEGIN_HEADER
    *
    * @return:
    *   The name of the trace component.  This is a statically allocated
-   *   C string, so do not free it after use.  NULL if FreeType 2 is not
-   *   built with FT_DEBUG_LEVEL_TRACE definition.
+   *   C~string, so do not free it after use.  NULL if FreeType is not built
+   *   with FT_DEBUG_LEVEL_TRACE definition.
    *
    * @note:
    *   Use @FT_Trace_Get_Count to get the number of available trace
    *   components.
-   *
-   *   This function may be useful if you want to control FreeType 2's
-   *   debug level in your application.
    */
   FT_BASE( const char* )
   FT_Trace_Get_Name( FT_Int  idx );
+
+
+  /**************************************************************************
+   *
+   * @function:
+   *   FT_Trace_Disable
+   *
+   * @description:
+   *   Switch off tracing temporarily.  It can be activated again with
+   *   @FT_Trace_Enable.
+   */
+  FT_BASE( void )
+  FT_Trace_Disable( void );
+
+
+  /**************************************************************************
+   *
+   * @function:
+   *   FT_Trace_Enable
+   *
+   * @description:
+   *   Activate tracing.  Use it after tracing has been switched off with
+   *   @FT_Trace_Disable.
+   */
+  FT_BASE( void )
+  FT_Trace_Enable( void );
 
 
   /**************************************************************************
@@ -185,8 +213,8 @@ FT_BEGIN_HEADER
 
   /**************************************************************************
    *
-   * Define the FT_ASSERT and FT_THROW macros.  The call to `FT_Throw'
-   * makes it possible to easily set a breakpoint at this function.
+   * Define the FT_ASSERT and FT_THROW macros.  The call to `FT_Throw` makes
+   * it possible to easily set a breakpoint at this function.
    *
    */
 
@@ -217,7 +245,7 @@ FT_BEGIN_HEADER
 
   /**************************************************************************
    *
-   * Define `FT_Message' and `FT_Panic' when needed.
+   * Define `FT_Message` and `FT_Panic` when needed.
    *
    */
 

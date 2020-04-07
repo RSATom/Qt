@@ -94,7 +94,7 @@ ObjectUI.JavaScriptAutocomplete = class {
 
     // Check if this is a bound function.
     if (description === 'function () { [native code] }') {
-      const properties = await functionObject.getOwnPropertiesPromise(false);
+      const properties = await functionObject.getOwnProperties(false);
       const internalProperties = properties.internalProperties || [];
       const targetProperty = internalProperties.find(property => property.name === '[[TargetFunction]]');
       const argsProperty = internalProperties.find(property => property.name === '[[BoundArgs]]');
@@ -150,7 +150,7 @@ ObjectUI.JavaScriptAutocomplete = class {
     } else if (receiverObj.type === 'undefined' || receiverObj.subtype === 'null') {
       protoNames = [];
     } else {
-      protoNames = await receiverObj.callFunctionJSONPromise(function() {
+      protoNames = await receiverObj.callFunctionJSON(function() {
         const result = [];
         for (let object = this; object; object = Object.getPrototypeOf(object)) {
           if (typeof object === 'object' && object.constructor && object.constructor.name)
@@ -196,12 +196,12 @@ ObjectUI.JavaScriptAutocomplete = class {
         /* userGesture */ false, /* awaitPromise */ false);
     if (result.error || !!result.exceptionDetails || result.object.subtype !== 'map')
       return [];
-    const properties = await result.object.getOwnPropertiesPromise(false);
+    const properties = await result.object.getOwnProperties(false);
     const internalProperties = properties.internalProperties || [];
     const entriesProperty = internalProperties.find(property => property.name === '[[Entries]]');
     if (!entriesProperty)
       return [];
-    const keysObj = await entriesProperty.value.callFunctionJSONPromise(getEntries);
+    const keysObj = await entriesProperty.value.callFunctionJSON(getEntries);
     executionContext.runtimeModel.releaseObjectGroup('mapCompletion');
     return gotKeys(Object.keys(keysObj));
 
@@ -337,7 +337,7 @@ ObjectUI.JavaScriptAutocomplete = class {
 
       let object = result.object;
       while (object && object.type === 'object' && object.subtype === 'proxy') {
-        const properties = await object.getOwnPropertiesPromise(false /* generatePreview */);
+        const properties = await object.getOwnProperties(false /* generatePreview */);
         const internalProperties = properties.internalProperties || [];
         const target = internalProperties.find(property => property.name === '[[Target]]');
         object = target ? target.value : null;
@@ -347,8 +347,7 @@ ObjectUI.JavaScriptAutocomplete = class {
       let completions = [];
       if (object.type === 'object' || object.type === 'function') {
         completions =
-            await object.callFunctionJSONPromise(getCompletions, [SDK.RemoteObject.toCallArgument(object.subtype)]) ||
-            [];
+            await object.callFunctionJSON(getCompletions, [SDK.RemoteObject.toCallArgument(object.subtype)]) || [];
       } else if (
           object.type === 'string' || object.type === 'number' || object.type === 'boolean' ||
           object.type === 'bigint') {
@@ -445,7 +444,7 @@ ObjectUI.JavaScriptAutocomplete = class {
       const groupPromises = [];
       for (const scope of scopeChain) {
         groupPromises.push(scope.object()
-                               .getAllPropertiesPromise(false /* accessorPropertiesOnly */, false /* generatePreview */)
+                               .getAllProperties(false /* accessorPropertiesOnly */, false /* generatePreview */)
                                .then(result => ({properties: result.properties, name: scope.name()})));
       }
       const fullScopes = await Promise.all(groupPromises);
@@ -490,7 +489,9 @@ ObjectUI.JavaScriptAutocomplete = class {
         'queryObjects',
         '$',
         '$$',
-        '$x'
+        '$x',
+        '$0',
+        '$_'
       ];
       propertyGroups.push({items: commandLineAPI});
     }
@@ -559,7 +560,7 @@ ObjectUI.JavaScriptAutocomplete = class {
 
         allProperties.add(property);
         if (property.startsWith(query))
-          caseSensitivePrefix.push({text: property, priority: 4});
+          caseSensitivePrefix.push({text: property, priority: property === query ? 5 : 4});
         else if (lowerCaseProperty.startsWith(lowerCaseQuery))
           caseInsensitivePrefix.push({text: property, priority: 3});
         else if (property.indexOf(query) !== -1)
@@ -595,6 +596,23 @@ ObjectUI.JavaScriptAutocomplete = class {
     if (bStartsWithUnderscore && !aStartsWithUnderscore)
       return -1;
     return String.naturalOrderComparator(a, b);
+  }
+
+  /**
+   * @param {string} expression
+   * @return {!Promise<boolean>}
+   */
+  static async isExpressionComplete(expression) {
+    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
+    if (!currentExecutionContext)
+      return true;
+    const result =
+        await currentExecutionContext.runtimeModel.compileScript(expression, '', false, currentExecutionContext.id);
+    if (!result.exceptionDetails)
+      return true;
+    const description = result.exceptionDetails.exception.description;
+    return !description.startsWith('SyntaxError: Unexpected end of input') &&
+        !description.startsWith('SyntaxError: Unterminated template literal');
   }
 };
 

@@ -61,7 +61,14 @@ SUBDIRS += \
     raycasting-qml \
     shared_texture_image \
     texture_property_updates \
-    qtbug-72236
+    qtbug-72236 \
+    qtbug-76766
+
+qtHaveModule(multimedia): {
+    SUBDIRS += \
+        sharedtexture \
+        sharedtextureqml
+}
 
 qtHaveModule(widgets): {
     SUBDIRS += \

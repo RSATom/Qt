@@ -87,13 +87,6 @@ cc_library_shared {
             srcs: [
                 $x86_srcs
             ],
-            cflags: [
-                // Clang seems to think new/malloc will only be 4-byte aligned
-                // on x86 Android. We're pretty sure it's actually 8-byte
-                // alignment. tests/OverAlignedTest.cpp has more information,
-                // and should fail if we're wrong.
-                "-Wno-over-aligned"
-            ],
         },
 
         x86_64: {
@@ -128,7 +121,7 @@ gn_args = {
   # setup skqp
   'is_debug':   'false',
   'ndk_api':    '26',
-  'skia_skqp_global_error_tolerance': '4',
+  'skia_skqp_global_error_tolerance': '8',
 
   # setup vulkan
   'skia_use_vulkan':    'true',

@@ -7,15 +7,16 @@
 #ifndef FPDFSDK_PWL_CPWL_ICON_H_
 #define FPDFSDK_PWL_CPWL_ICON_H_
 
+#include <memory>
 #include <utility>
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/pwl/cpwl_wnd.h"
 
-class CPWL_Icon : public CPWL_Wnd {
+class CPWL_Icon final : public CPWL_Wnd {
  public:
-  CPWL_Icon();
+  CPWL_Icon(const CreateParams& cp, std::unique_ptr<PrivateData> pAttachedData);
   ~CPWL_Icon() override;
 
   void SetIconFit(CPDF_IconFit* pIconFit) { m_pIconFit = pIconFit; }

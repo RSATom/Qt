@@ -6,8 +6,6 @@
 
 #include <memory>
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(download::DownloadNavigationObserver);
-
 namespace download {
 
 // static
@@ -43,5 +41,7 @@ void DownloadNavigationObserver::NotifyNavigationEvent(
   DCHECK(navigation_monitor_);
   navigation_monitor_->OnNavigationEvent(navigation_event);
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(DownloadNavigationObserver)
 
 }  // namespace download

@@ -76,7 +76,7 @@ defineTest(runConfigure) {
         }
 
         !qtConfig(webengine-system-glibc) {
-            skipBuild("A suitable version of libc could not be found. See: https://sourceware.org/bugzilla/show_bug.cgi?id=14898")
+            skipBuild("A suitable version >= 2.27 of libc could not be found.")
             return(false)
         }
 
@@ -94,13 +94,9 @@ defineTest(runConfigure) {
             }
          }
 
-        !qtConfig(webengine-embedded-build): qtConfig(xcb) {
-             for(package, $$list("libdrm xcomposite xcursor xi xtst")) {
-                 !qtConfig(webengine-system-$$package) {
-                     skipBuild("A suitable version of $$package could not be found.")
-                     return(false)
-                 }
-             }
+        !qtConfig(webengine-embedded-build): qtConfig(xcb) : !qtConfig(webengine-ozone-x11) {
+            skipBuild("Could not find all necessary libraries for qpa-xcb support")
+            return(false)
         }
     }
 }

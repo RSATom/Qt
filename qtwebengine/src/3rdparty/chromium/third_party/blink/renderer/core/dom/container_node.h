@@ -158,6 +158,7 @@ class CORE_EXPORT ContainerNode : public Node {
   void SetActive(bool = true) override;
   void SetDragged(bool) override;
   void SetHovered(bool = true) override;
+  void RemovedFrom(ContainerNode& insertion_point) override;
 
   bool ChildrenOrSiblingsAffectedByFocus() const {
     return HasRestyleFlag(
@@ -288,13 +289,13 @@ class CORE_EXPORT ContainerNode : public Node {
                                    Element* changed_element,
                                    Node* node_before_change,
                                    Node* node_after_change);
-  void RecalcDescendantStyles(StyleRecalcChange);
+  void RecalcDescendantStyles(StyleRecalcChange, bool calc_invisible = false);
   void RebuildChildrenLayoutTrees(WhitespaceAttacher&);
   void RebuildLayoutTreeForChild(Node* child, WhitespaceAttacher&);
   void RebuildNonDistributedChildren();
 
   // -----------------------------------------------------------------------------
-  // Notification of document structure changes (see core/dom/Node.h for more
+  // Notification of document structure changes (see core/dom/node.h for more
   // notification methods)
 
   enum ChildrenChangeType {
@@ -364,7 +365,9 @@ class CORE_EXPORT ContainerNode : public Node {
   // CDATA_SECTION_NODE, TEXT_NODE or COMMENT_NODE has changed its value.
   virtual void ChildrenChanged(const ChildrenChange&);
 
-  void Trace(blink::Visitor*) override;
+  virtual bool ChildrenCanHaveStyle() const { return true; }
+
+  void Trace(Visitor*) override;
 
  protected:
   ContainerNode(TreeScope*, ConstructionType = kCreateContainer);
@@ -455,10 +458,6 @@ class CORE_EXPORT ContainerNode : public Node {
   TraceWrapperMember<Node> first_child_;
   TraceWrapperMember<Node> last_child_;
 };
-
-#if DCHECK_IS_ON()
-bool ChildAttachedAllowedWhenAttachingChildren(ContainerNode*);
-#endif
 
 WILL_NOT_BE_EAGERLY_TRACED_CLASS(ContainerNode);
 

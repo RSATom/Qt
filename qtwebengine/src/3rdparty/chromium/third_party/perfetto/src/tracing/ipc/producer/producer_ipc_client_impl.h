@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <set>
 #include <vector>
 
 #include "perfetto/base/thread_checker.h"
@@ -62,7 +63,11 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   // tracing library, which know nothing about the IPC transport.
   void RegisterDataSource(const DataSourceDescriptor&) override;
   void UnregisterDataSource(const std::string& name) override;
+  void RegisterTraceWriter(uint32_t writer_id, uint32_t target_buffer) override;
+  void UnregisterTraceWriter(uint32_t writer_id) override;
   void CommitData(const CommitDataRequest&, CommitDataCallback) override;
+  void NotifyDataSourceStopped(DataSourceInstanceID) override;
+
   std::unique_ptr<TraceWriter> CreateTraceWriter(
       BufferID target_buffer) override;
   void NotifyFlushComplete(FlushRequestID) override;
@@ -97,6 +102,7 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   std::unique_ptr<PosixSharedMemory> shared_memory_;
   std::unique_ptr<SharedMemoryArbiter> shared_memory_arbiter_;
   size_t shared_buffer_page_size_kb_ = 0;
+  std::set<DataSourceInstanceID> data_sources_setup_;
   bool connected_ = false;
   std::string const name_;
   PERFETTO_THREAD_CHECKER(thread_checker_)

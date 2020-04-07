@@ -137,11 +137,12 @@ DirectShowPlayerService::DirectShowPlayerService(QObject *parent)
     , m_pendingTasks(0)
     , m_executingTask(0)
     , m_executedTasks(0)
-    , m_taskHandle(::CreateEvent(0, 0, 0, 0))
+    , m_taskHandle(::CreateEvent(nullptr, FALSE, FALSE, nullptr))
     , m_eventHandle(0)
     , m_graphStatus(NoMedia)
     , m_stream(0)
     , m_graph(0)
+    , m_graphBuilder(nullptr)
     , m_source(0)
     , m_audioOutput(0)
     , m_videoOutput(0)
@@ -209,8 +210,8 @@ QMediaControl *DirectShowPlayerService::requestControl(const char *name)
         if (!m_videoRendererControl && !m_videoWindowControl) {
             m_videoRendererControl = new DirectShowVideoRendererControl(m_loop);
 
-            connect(m_videoRendererControl, SIGNAL(filterChanged()),
-                    this, SLOT(videoOutputChanged()));
+            connect(m_videoRendererControl, &DirectShowVideoRendererControl::filterChanged,
+                    this, &DirectShowPlayerService::videoOutputChanged);
 
             return m_videoRendererControl;
         }
@@ -297,7 +298,8 @@ void DirectShowPlayerService::load(const QMediaContent &media, QIODevice *stream
     if (m_graph)
         releaseGraph();
 
-    m_resources = media.resources();
+    m_url = media.canonicalUrl();
+
     m_stream = stream;
     m_error = QMediaPlayer::NoError;
     m_errorString = QString();
@@ -310,13 +312,11 @@ void DirectShowPlayerService::load(const QMediaContent &media, QIODevice *stream
     m_seekable = false;
     m_atEnd = false;
     m_dontCacheNextSeekResult = false;
-    m_metaDataControl->reset();
+    m_metaDataControl->setMetadata(QVariantMap());
 
-    if (m_resources.isEmpty() && !stream) {
+    if (m_url.isEmpty() && !stream) {
         m_pendingTasks = 0;
         m_graphStatus = NoMedia;
-
-        m_url.clear();
     } else if (stream && (!stream->isReadable() || stream->isSequential())) {
         m_pendingTasks = 0;
         m_graphStatus = InvalidMedia;
@@ -327,7 +327,17 @@ void DirectShowPlayerService::load(const QMediaContent &media, QIODevice *stream
             0x36b73882, 0xc2c8, 0x11cf, {0x8b, 0x46, 0x00, 0x80, 0x5f, 0x6c, 0xef, 0x60} };
         m_graphStatus = Loading;
 
+        DirectShowUtils::CoInitializeIfNeeded();
         m_graph = com_new<IFilterGraph2>(CLSID_FilterGraph, iid_IFilterGraph2);
+        m_graphBuilder = com_new<ICaptureGraphBuilder2>(CLSID_CaptureGraphBuilder2, IID_ICaptureGraphBuilder2);
+
+        // Attach the filter graph to the capture graph.
+        HRESULT hr = m_graphBuilder->SetFiltergraph(m_graph);
+        if (FAILED(hr)) {
+            qCWarning(qtDirectShowPlugin, "[0x%x] Failed to attach filter to capture graph", hr);
+            m_graphBuilder->Release();
+            m_graphBuilder = nullptr;
+        }
 
         if (stream)
             m_pendingTasks = SetStreamSource;
@@ -347,9 +357,6 @@ void DirectShowPlayerService::load(const QMediaContent &media, QIODevice *stream
 void DirectShowPlayerService::doSetUrlSource(QMutexLocker *locker)
 {
     IBaseFilter *source = 0;
-
-    QMediaResource resource = m_resources.takeFirst();
-    m_url = resource.url();
 
     HRESULT hr = E_FAIL;
     if (m_url.scheme() == QLatin1String("http") || m_url.scheme() == QLatin1String("https")) {
@@ -524,9 +531,16 @@ void DirectShowPlayerService::doRender(QMutexLocker *locker)
                     } else {
                         locker->unlock();
                         HRESULT hr = graph->RenderEx(pin, /*AM_RENDEREX_RENDERTOEXISTINGRENDERERS*/ 1, 0);
-                        // Do not return an error if no video output is set yet.
-                        if (SUCCEEDED(hr) || !(m_executedTasks & SetVideoOutput)) {
+                        if (SUCCEEDED(hr)) {
                             rendered = true;
+                            m_error = QMediaPlayer::NoError;
+                        } else if (!(m_executedTasks & SetVideoOutput)) {
+                            // Do not return an error if no video output is set yet.
+                            rendered = true;
+                            // Remember the error in this case.
+                            // Handle it when playing is requested and no video output has been provided.
+                            m_error = QMediaPlayer::ResourceError;
+                            m_errorString = QString("%1: %2").arg(__FUNCTION__).arg(qt_error_string(hr));
                         } else if (renderHr == S_OK || renderHr == VFW_E_NO_DECOMPRESSOR){
                             renderHr = hr;
                         }
@@ -594,7 +608,6 @@ void DirectShowPlayerService::doRender(QMutexLocker *locker)
 
 void DirectShowPlayerService::doFinalizeLoad(QMutexLocker *locker)
 {
-    Q_UNUSED(locker)
     if (m_graphStatus != Loaded) {
         if (IMediaEvent *event = com_cast<IMediaEvent>(m_graph, IID_IMediaEvent)) {
             event->GetEventHandle(reinterpret_cast<OAEVENT *>(&m_eventHandle));
@@ -623,11 +636,19 @@ void DirectShowPlayerService::doFinalizeLoad(QMutexLocker *locker)
 
     m_graphStatus = Loaded;
 
+    // Do not block gui thread while updating metadata from file.
+    locker->unlock();
+    DirectShowMetaDataControl::updateMetadata(m_url.toString(), m_metadata);
+    locker->relock();
+
     QCoreApplication::postEvent(this, new QEvent(QEvent::Type(FinalizedLoad)));
 }
 
 void DirectShowPlayerService::releaseGraph()
 {
+    if (m_videoProbeControl)
+        m_videoProbeControl->flushVideoFrame();
+
     if (m_graph) {
         if (m_executingTask != 0) {
             // {8E1C39A1-DE53-11cf-AA63-0080C744528D}
@@ -647,6 +668,7 @@ void DirectShowPlayerService::releaseGraph()
         ::SetEvent(m_taskHandle);
 
         m_loop->wait(&m_mutex);
+        DirectShowUtils::CoUninitializeIfNeeded();
     }
 }
 
@@ -672,6 +694,11 @@ void DirectShowPlayerService::doReleaseGraph(QMutexLocker *locker)
     m_graph->Release();
     m_graph = 0;
 
+    if (m_graphBuilder) {
+        m_graphBuilder->Release();
+        m_graphBuilder = nullptr;
+    }
+
     m_loop->wake();
 }
 
@@ -682,7 +709,7 @@ void DirectShowPlayerService::doSetVideoProbe(QMutexLocker *locker)
 {
     Q_UNUSED(locker);
 
-    if (!m_graph) {
+    if (!m_graph || !m_graphBuilder) {
         qCWarning(qtDirectShowPlugin, "Attempting to set a video probe without a valid graph!");
         return;
     }
@@ -698,41 +725,14 @@ void DirectShowPlayerService::doSetVideoProbe(QMutexLocker *locker)
         return;
     }
 
-    // TODO: Make util function for getting this, so it's easy to keep it in sync.
-    static const GUID subtypes[] = { MEDIASUBTYPE_ARGB32,
-                                     MEDIASUBTYPE_RGB32,
-                                     MEDIASUBTYPE_RGB24,
-                                     MEDIASUBTYPE_RGB565,
-                                     MEDIASUBTYPE_RGB555,
-                                     MEDIASUBTYPE_AYUV,
-                                     MEDIASUBTYPE_I420,
-                                     MEDIASUBTYPE_IYUV,
-                                     MEDIASUBTYPE_YV12,
-                                     MEDIASUBTYPE_UYVY,
-                                     MEDIASUBTYPE_YUYV,
-                                     MEDIASUBTYPE_YUY2,
-                                     MEDIASUBTYPE_NV12,
-                                     MEDIASUBTYPE_MJPG,
-                                     MEDIASUBTYPE_IMC1,
-                                     MEDIASUBTYPE_IMC2,
-                                     MEDIASUBTYPE_IMC3,
-                                     MEDIASUBTYPE_IMC4 };
+    DirectShowMediaType mediaType({ MEDIATYPE_Video, MEDIASUBTYPE_ARGB32 });
+    m_videoSampleGrabber->setMediaType(&mediaType);
 
-    // Negotiate the subtype
-    DirectShowMediaType mediaType(AM_MEDIA_TYPE { MEDIATYPE_Video });
-    const int items = (sizeof subtypes / sizeof(GUID));
-    bool connected = false;
-    for (int i = 0; i != items; ++i) {
-        mediaType->subtype = subtypes[i];
-        m_videoSampleGrabber->setMediaType(&mediaType);
-        if (DirectShowUtils::connectFilters(m_graph, m_source, m_videoSampleGrabber->filter(), true)) {
-            connected = true;
-            break;
-        }
-    }
-
-    if (!connected) {
-        qCWarning(qtDirectShowPlugin, "Unable to connect the video probe!");
+    // Connect source filter to sample grabber filter.
+    HRESULT hr = m_graphBuilder->RenderStream(nullptr, &MEDIATYPE_Video,
+                                              m_source, nullptr, m_videoSampleGrabber->filter());
+    if (FAILED(hr)) {
+        qCWarning(qtDirectShowPlugin, "[0x%x] Failed to connect the video sample grabber", hr);
         return;
     }
 
@@ -763,8 +763,15 @@ void DirectShowPlayerService::doSetAudioProbe(QMutexLocker *locker)
     }
 
     if (!DirectShowUtils::connectFilters(m_graph, m_source, m_audioSampleGrabber->filter(), true)) {
-        qCWarning(qtDirectShowPlugin, "Failed to connect the audio sample grabber");
-        return;
+        // Connect source filter to sample grabber filter.
+        HRESULT hr = m_graphBuilder
+            ? m_graphBuilder->RenderStream(nullptr, &MEDIATYPE_Audio,
+                                           m_source, nullptr, m_audioSampleGrabber->filter())
+            : E_FAIL;
+        if (FAILED(hr)) {
+            qCWarning(qtDirectShowPlugin, "[0x%x] Failed to connect the audio sample grabber", hr);
+            return;
+        }
     }
 
     m_audioSampleGrabber->start(DirectShowSampleGrabber::CallbackMethod::BufferCB);
@@ -918,6 +925,16 @@ void DirectShowPlayerService::play()
 
 void DirectShowPlayerService::doPlay(QMutexLocker *locker)
 {
+    // Invalidate if there is an error while loading.
+    if (m_error != QMediaPlayer::NoError) {
+        m_graphStatus = InvalidMedia;
+        if (!m_errorString.isEmpty())
+            qWarning("%s", qPrintable(m_errorString));
+        m_errorString = QString();
+        QCoreApplication::postEvent(this, new QEvent(QEvent::Type(Error)));
+        return;
+    }
+
     if (IMediaControl *control = com_cast<IMediaControl>(m_graph, IID_IMediaControl)) {
         locker->unlock();
         HRESULT hr = control->Run();
@@ -1009,6 +1026,8 @@ void DirectShowPlayerService::stop()
 
     if ((m_executingTask | m_executedTasks) & (Play | Pause | Seek)) {
         m_pendingTasks |= Stop;
+        if (m_videoProbeControl)
+            m_videoProbeControl->flushVideoFrame();
 
         ::SetEvent(m_taskHandle);
 
@@ -1405,7 +1424,11 @@ void DirectShowPlayerService::customEvent(QEvent *event)
         QMutexLocker locker(&m_mutex);
 
         m_playerControl->updateMediaInfo(m_duration, m_streamTypes, m_seekable);
-        m_metaDataControl->updateMetadata(m_graph, m_source, m_url.toString());
+        if (m_metadata.isEmpty())
+            DirectShowMetaDataControl::updateMetadata(m_graph, m_source, m_metadata);
+
+        m_metaDataControl->setMetadata(m_metadata);
+        m_metadata.clear();
 
         updateStatus();
     } else if (event->type() == QEvent::Type(Error)) {
@@ -1437,6 +1460,8 @@ void DirectShowPlayerService::customEvent(QEvent *event)
             m_playerControl->updateState(QMediaPlayer::StoppedState);
             m_playerControl->updateStatus(QMediaPlayer::EndOfMedia);
             m_playerControl->updatePosition(m_position);
+            if (m_videoProbeControl)
+                m_videoProbeControl->flushVideoFrame();
         }
     } else if (event->type() == QEvent::Type(PositionChange)) {
         QMutexLocker locker(&m_mutex);
@@ -1444,6 +1469,9 @@ void DirectShowPlayerService::customEvent(QEvent *event)
         if (m_playerControl->mediaStatus() == QMediaPlayer::EndOfMedia)
             m_playerControl->updateStatus(QMediaPlayer::LoadedMedia);
         m_playerControl->updatePosition(m_position);
+        // Emits only when seek has been performed.
+        if (m_videoRendererControl)
+            emit m_videoRendererControl->positionChanged(m_position);
     } else {
         QMediaService::customEvent(event);
     }
@@ -1542,7 +1570,7 @@ void DirectShowPlayerService::onVideoBufferAvailable(double time, const QByteArr
                       size,
                       format);
 
-    Q_EMIT m_videoProbeControl->videoFrameProbed(frame);
+    m_videoProbeControl->probeVideoFrame(frame);
 }
 
 QT_WARNING_POP

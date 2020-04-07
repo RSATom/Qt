@@ -8,20 +8,21 @@
 #include "base/feature_list.h"
 #include "base/no_destructor.h"
 #include "content/browser/frame_host/navigation_handle_impl.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/network_service_instance.h"
+#include "content/public/browser/origin_policy_error_reason.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
-#include "services/network/network_context.h"
-#include "services/network/network_service.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "url/origin.h"
 
 namespace {
 // Constants derived from the spec, https://github.com/WICG/origin-policy
-static const char* kDefaultPolicy = "1";
+static const char* kDefaultPolicy = "0";
 static const char* kDeletePolicy = "0";
 static const char* kWellKnown = "/.well-known/origin-policy/";
 
@@ -36,8 +37,12 @@ namespace content {
 bool OriginPolicyThrottle::ShouldRequestOriginPolicy(
     const GURL& url,
     std::string* request_version) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!base::FeatureList::IsEnabled(features::kOriginPolicy))
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  bool origin_policy_enabled =
+      base::FeatureList::IsEnabled(features::kOriginPolicy) ||
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableExperimentalWebPlatformFeatures);
+  if (!origin_policy_enabled)
     return false;
 
   if (!url.SchemeIs(url::kHttpsScheme))
@@ -55,7 +60,7 @@ bool OriginPolicyThrottle::ShouldRequestOriginPolicy(
 // static
 std::unique_ptr<NavigationThrottle>
 OriginPolicyThrottle::MaybeCreateThrottleFor(NavigationHandle* handle) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(handle);
 
   // We use presence of the origin policy request header to determine
@@ -64,7 +69,11 @@ OriginPolicyThrottle::MaybeCreateThrottleFor(NavigationHandle* handle) {
           net::HttpRequestHeaders::kSecOriginPolicy))
     return nullptr;
 
-  DCHECK(base::FeatureList::IsEnabled(features::kOriginPolicy));
+  // TODO(vogelheim): Rewrite & hoist up this DCHECK to ensure that ..HasHeader
+  //     and ShouldRequestOriginPolicy are always equal on entry to the method.
+  //     This depends on https://crbug.com/881234 being fixed.
+  DCHECK(OriginPolicyThrottle::ShouldRequestOriginPolicy(handle->GetURL(),
+                                                         nullptr));
   return base::WrapUnique(new OriginPolicyThrottle(handle));
 }
 
@@ -109,9 +118,9 @@ OriginPolicyThrottle::WillProcessResponse() {
 
   url::Origin origin = GetRequestOrigin();
   DCHECK(!origin.Serialize().empty());
-  DCHECK(!origin.unique());
+  DCHECK(!origin.opaque());
   KnownVersionMap& versions = GetKnownVersions();
-  KnownVersionMap::iterator iter = versions.find(origin);
+  auto iter = versions.find(origin);
 
   // Process policy deletion first!
   if (header_found && response_version == kDeletePolicy) {
@@ -136,7 +145,9 @@ OriginPolicyThrottle::WillProcessResponse() {
   FetchCallback done =
       base::BindOnce(&OriginPolicyThrottle::OnTheGloriousPolicyHasArrived,
                      base::Unretained(this));
-  FetchPolicy(policy, std::move(done));
+  RedirectCallback redirect = base::BindRepeating(
+      &OriginPolicyThrottle::OnRedirect, base::Unretained(this));
+  FetchPolicy(policy, std::move(done), std::move(redirect));
   return NavigationThrottle::DEFER;
 }
 
@@ -163,25 +174,9 @@ const url::Origin OriginPolicyThrottle::GetRequestOrigin() {
   return url::Origin::Create(navigation_handle()->GetURL());
 }
 
-void OriginPolicyThrottle::FetchPolicy(const GURL& url, FetchCallback done) {
-  // Obtain a network context from the network service.
-  network::mojom::NetworkContextParamsPtr context_params =
-      network::mojom::NetworkContextParams::New();
-  content::GetNetworkService()->CreateNetworkContext(
-      mojo::MakeRequest(&network_context_ptr_), std::move(context_params));
-
-  // Create URLLoaderFactory
-  network::mojom::URLLoaderFactoryParamsPtr url_loader_factory_params =
-      network::mojom::URLLoaderFactoryParams::New();
-  url_loader_factory_params->process_id = network::mojom::kBrowserProcessId;
-  url_loader_factory_params->is_corb_enabled = false;
-  url_loader_factory_params->disable_web_security =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableWebSecurity);
-  network_context_ptr_->CreateURLLoaderFactory(
-      mojo::MakeRequest(&url_loader_factory_),
-      std::move(url_loader_factory_params));
-
+void OriginPolicyThrottle::FetchPolicy(const GURL& url,
+                                       FetchCallback done,
+                                       RedirectCallback redirect) {
   // Create the traffic annotation
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("origin_policy_loader", R"(
@@ -205,18 +200,27 @@ void OriginPolicyThrottle::FetchPolicy(const GURL& url, FetchCallback done) {
           policy_exception_justification:
             "Not implemented, considered not useful."})");
 
-  // Create the SimpleURLLoader for the policy.
+  // Create and configure the SimpleURLLoader for the policy.
   std::unique_ptr<network::ResourceRequest> policy_request =
       std::make_unique<network::ResourceRequest>();
   policy_request->url = url;
-  policy_request->fetch_redirect_mode =
-      network::mojom::FetchRedirectMode::kError;
+  policy_request->request_initiator = url::Origin::Create(url);
+  policy_request->load_flags = net::LOAD_DO_NOT_SEND_COOKIES |
+                               net::LOAD_DO_NOT_SAVE_COOKIES |
+                               net::LOAD_DO_NOT_SEND_AUTH_DATA;
   url_loader_ = network::SimpleURLLoader::Create(std::move(policy_request),
                                                  traffic_annotation);
-  url_loader_->SetAllowHttpErrorResults(false);
+  url_loader_->SetOnRedirectCallback(std::move(redirect));
+
+  // Obtain the URLLoaderFactory from the NavigationHandle.
+  SiteInstance* site_instance = navigation_handle()->GetStartingSiteInstance();
+  StoragePartition* storage_partition = BrowserContext::GetStoragePartition(
+      site_instance->GetBrowserContext(), site_instance);
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
+      storage_partition->GetURLLoaderFactoryForBrowserProcess();
 
   // Start the download, and pass the callback for when we're finished.
-  url_loader_->DownloadToString(url_loader_factory_.get(), std::move(done),
+  url_loader_->DownloadToString(url_loader_factory.get(), std::move(done),
                                 kMaxPolicySize);
 }
 
@@ -229,12 +233,10 @@ void OriginPolicyThrottle::OnTheGloriousPolicyHasArrived(
     std::unique_ptr<std::string> policy_content) {
   // Release resources associated with the loading.
   url_loader_.reset();
-  url_loader_factory_.reset();
-  network_context_ptr_.reset();
 
   // Fail hard if the policy could not be loaded.
   if (!policy_content) {
-    CancelDeferredNavigation(NavigationThrottle::CANCEL_AND_IGNORE);
+    CancelNavigation(OriginPolicyErrorReason::kCannotLoadPolicy);
     return;
   }
 
@@ -244,6 +246,23 @@ void OriginPolicyThrottle::OnTheGloriousPolicyHasArrived(
   static_cast<NavigationHandleImpl*>(navigation_handle())
       ->set_origin_policy(*policy_content);
   Resume();
+}
+
+void OriginPolicyThrottle::OnRedirect(
+    const net::RedirectInfo& redirect_info,
+    const network::ResourceResponseHead& response_head,
+    std::vector<std::string>* to_be_removed_headers) {
+  // Fail hard if the policy response follows a redirect.
+  url_loader_.reset();  // Cancel the request while it's ongoing.
+  CancelNavigation(OriginPolicyErrorReason::kPolicyShouldNotRedirect);
+}
+
+void OriginPolicyThrottle::CancelNavigation(OriginPolicyErrorReason reason) {
+  base::Optional<std::string> error_page =
+      GetContentClient()->browser()->GetOriginPolicyErrorPage(
+          reason, GetRequestOrigin(), navigation_handle()->GetURL());
+  CancelDeferredNavigation(NavigationThrottle::ThrottleCheckResult(
+      NavigationThrottle::CANCEL, net::ERR_BLOCKED_BY_CLIENT, error_page));
 }
 
 }  // namespace content

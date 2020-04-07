@@ -13,6 +13,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__ARM_NEON)
+    #include <arm_neon.h>
+#elif defined(__SSE__)
+    #include <immintrin.h>
+#endif
+
 // sizeof(x) will return size_t, which is 32-bit on some machines and 64-bit on others.
 // We have better testing on 64-bit machines, so force 32-bit machines to behave like 64-bit.
 //
@@ -714,7 +720,10 @@ static bool read_tag_mab(const skcms_ICCTag* tag, skcms_A2B* a2b, bool pcs_is_xy
     return true;
 }
 
-static int fit_linear(const skcms_Curve* curve, int N, float tol, float* c, float* d, float* f) {
+// If you pass f, we'll fit a possibly-non-zero value for *f.
+// If you pass nullptr, we'll assume you want *f to be treated as zero.
+static int fit_linear(const skcms_Curve* curve, int N, float tol,
+                      float* c, float* d, float* f = nullptr) {
     assert(N > 1);
     // We iteratively fit the first points to the TF's linear piece.
     // We want the cx + f line to pass through the first and last points we fit exactly.
@@ -729,7 +738,14 @@ static int fit_linear(const skcms_Curve* curve, int N, float tol, float* c, floa
     const float dx = 1.0f / (N - 1);
 
     int lin_points = 1;
-    *f = eval_curve(curve, 0);
+
+    float f_zero = 0.0f;
+    if (f) {
+        *f = eval_curve(curve, 0);
+    } else {
+        f = &f_zero;
+    }
+
 
     float slope_min = -INFINITY_;
     float slope_max = +INFINITY_;
@@ -791,7 +807,7 @@ static bool read_a2b(const skcms_ICCTag* tag, skcms_A2B* a2b, bool pcs_is_xyz) {
         if (curve && curve->table_entries && curve->table_entries <= (uint32_t)INT_MAX) {
             int N = (int)curve->table_entries;
 
-            float c,d,f;
+            float c = 0.0f, d = 0.0f, f = 0.0f;
             if (N == fit_linear(curve, N, 1.0f/(2*N), &c,&d,&f)
                 && c == 1.0f
                 && f == 0.0f) {
@@ -990,10 +1006,10 @@ const skcms_ICCProfile* skcms_sRGB_profile() {
         {
             0,
             {
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
             },
             {0,0,0,0},
             nullptr,
@@ -1001,21 +1017,21 @@ const skcms_ICCProfile* skcms_sRGB_profile() {
 
             0,
             {
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
             },
             {{
-                { 1,0,0,0 },
-                { 0,1,0,0 },
-                { 0,0,1,0 },
+                { 0,0,0,0 },
+                { 0,0,0,0 },
+                { 0,0,0,0 },
             }},
 
             0,
             {
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
             },
         },
     };
@@ -1050,10 +1066,10 @@ const skcms_ICCProfile* skcms_XYZD50_profile() {
         {
             0,
             {
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
             },
             {0,0,0,0},
             nullptr,
@@ -1061,21 +1077,21 @@ const skcms_ICCProfile* skcms_XYZD50_profile() {
 
             0,
             {
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
             },
             {{
-                { 1,0,0,0 },
-                { 0,1,0,0 },
-                { 0,0,1,0 },
+                { 0,0,0,0 },
+                { 0,0,0,0 },
+                { 0,0,0,0 },
             }},
 
             0,
             {
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
-                {{0, {1,1, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
+                {{0, {0,0, 0,0,0,0,0}}},
             },
         },
     };
@@ -1089,7 +1105,7 @@ const skcms_TransferFunction* skcms_sRGB_TransferFunction() {
 
 const skcms_TransferFunction* skcms_sRGB_Inverse_TransferFunction() {
     static const skcms_TransferFunction sRGB_inv =
-        { (float)(1/2.4), 1.137119f, 0, 12.92f, 0.0031308f, -0.055f, 0 };
+        {0.416666657f, 1.137283325f, -0.0f, 12.920000076f, 0.003130805f, -0.054969788f, -0.0f};
     return &sRGB_inv;
 }
 
@@ -1118,6 +1134,11 @@ const uint8_t skcms_252_random_bytes[] = {
 };
 
 bool skcms_ApproximatelyEqualProfiles(const skcms_ICCProfile* A, const skcms_ICCProfile* B) {
+    // Test for exactly equal profiles first.
+    if (A == B || 0 == memcmp(A,B, sizeof(skcms_ICCProfile))) {
+        return true;
+    }
+
     // For now this is the essentially the same strategy we use in test_only.c
     // for our skcms_Transform() smoke tests:
     //    1) transform A to XYZD50
@@ -1125,7 +1146,7 @@ bool skcms_ApproximatelyEqualProfiles(const skcms_ICCProfile* A, const skcms_ICC
     //    3) return true if they're similar enough
     // Our current criterion in 3) is maximum 1 bit error per XYZD50 byte.
 
-    // Here are 252 of a random shuffle of all possible bytes.
+    // skcms_252_random_bytes are 252 of a random shuffle of all possible bytes.
     // 252 is evenly divisible by 3 and 4.  Only 192, 10, 241, and 43 are missing.
 
     if (A->data_color_space != B->data_color_space) {
@@ -1133,6 +1154,7 @@ bool skcms_ApproximatelyEqualProfiles(const skcms_ICCProfile* A, const skcms_ICC
     }
 
     // Interpret as RGB_888 if data color space is RGB or GRAY, RGBA_8888 if CMYK.
+    // TODO: working with RGBA_8888 either way is probably fastest.
     skcms_PixelFormat fmt = skcms_PixelFormat_RGB_888;
     size_t npixels = 84;
     if (A->data_color_space == skcms_Signature_CMYK) {
@@ -1140,6 +1162,8 @@ bool skcms_ApproximatelyEqualProfiles(const skcms_ICCProfile* A, const skcms_ICC
         npixels = 63;
     }
 
+    // TODO: if A or B is a known profile (skcms_sRGB_profile, skcms_XYZD50_profile),
+    // use pre-canned results and skip that skcms_Transform() call?
     uint8_t dstA[252],
             dstB[252];
     if (!skcms_Transform(
@@ -1155,6 +1179,7 @@ bool skcms_ApproximatelyEqualProfiles(const skcms_ICCProfile* A, const skcms_ICC
         return false;
     }
 
+    // TODO: make sure this final check has reasonable codegen.
     for (size_t i = 0; i < 252; i++) {
         if (abs((int)dstA[i] - (int)dstB[i]) > 1) {
             return false;
@@ -1378,80 +1403,67 @@ float skcms_TransferFunction_eval(const skcms_TransferFunction* tf, float x) {
                              : powf_(tf->a * x + tf->b, tf->g) + tf->e);
 }
 
-// TODO: Adjust logic here? This still assumes that purely linear inputs will have D > 1, which
-// we never generate. It also emits inverted linear using the same formulation. Standardize on
-// G == 1 here, too?
+#if defined(__clang__)
+    [[clang::no_sanitize("float-divide-by-zero")]]  // Checked for by tf_is_valid() on the way out.
+#endif
 bool skcms_TransferFunction_invert(const skcms_TransferFunction* src, skcms_TransferFunction* dst) {
-    // Original equation is:       y = (ax + b)^g + e   for x >= d
-    //                             y = cx + f           otherwise
-    //
-    // so 1st inverse is:          (y - e)^(1/g) = ax + b
-    //                             x = ((y - e)^(1/g) - b) / a
-    //
-    // which can be re-written as: x = (1/a)(y - e)^(1/g) - b/a
-    //                             x = ((1/a)^g)^(1/g) * (y - e)^(1/g) - b/a
-    //                             x = ([(1/a)^g]y + [-((1/a)^g)e]) ^ [1/g] + [-b/a]
-    //
-    // and 2nd inverse is:         x = (y - f) / c
-    // which can be re-written as: x = [1/c]y + [-f/c]
-    //
-    // and now both can be expressed in terms of the same parametric form as the
-    // original - parameters are enclosed in square brackets.
-    skcms_TransferFunction tf_inv = { 0, 0, 0, 0, 0, 0, 0 };
-
-    // This rejects obviously malformed inputs, as well as decreasing functions
     if (!tf_is_valid(src)) {
         return false;
     }
 
-    // There are additional constraints to be invertible
-    bool has_nonlinear = (src->d <= 1);
-    bool has_linear = (src->d > 0);
+    // We're inverting this function, solving for x in terms of y.
+    //   y = (cx + f)         x < d
+    //       (ax + b)^g + e   x ≥ d
+    // The inverse of this function can be expressed in the same piecewise form.
+    skcms_TransferFunction inv = {0,0,0,0,0,0,0};
 
-    // Is the linear section not invertible?
-    if (has_linear && src->c == 0) {
+    // We'll start by finding the new threshold inv.d.
+    // In principle we should be able to find that by solving for y at x=d from either side.
+    // (If those two d values aren't the same, it's a discontinuous transfer function.)
+    float d_l =       src->c * src->d + src->f,
+          d_r = powf_(src->a * src->d + src->b, src->g) + src->e;
+    if (fabsf_(d_l - d_r) > 1/512.0f) {
         return false;
     }
+    inv.d = d_l;  // TODO(mtklein): better in practice to choose d_r?
 
-    // Is the nonlinear section not invertible?
-    if (has_nonlinear && (src->a == 0 || src->g == 0)) {
-        return false;
+    // When d=0, the linear section collapses to a point.  We leave c,d,f all zero in that case.
+    if (inv.d > 0) {
+        // Inverting the linear section is pretty straightfoward:
+        //        y       = cx + f
+        //        y - f   = cx
+        //   (1/c)y - f/c = x
+        inv.c =    1.0f/src->c;
+        inv.f = -src->f/src->c;
     }
 
-    // If both segments are present, they need to line up
-    if (has_linear && has_nonlinear) {
-        float l_at_d = src->c * src->d + src->f;
-        float n_at_d = powf_(src->a * src->d + src->b, src->g) + src->e;
-        if (fabsf_(l_at_d - n_at_d) > (1 / 512.0f)) {
-            return false;
-        }
-    }
+    // The interesting part is inverting the nonlinear section:
+    //         y                = (ax + b)^g + e.
+    //         y - e            = (ax + b)^g
+    //        (y - e)^1/g       =  ax + b
+    //        (y - e)^1/g - b   =  ax
+    //   (1/a)(y - e)^1/g - b/a =   x
+    //
+    // To make that fit our form, we need to move the (1/a) term inside the exponentiation:
+    //   let k = (1/a)^g
+    //   (1/a)( y -  e)^1/g - b/a = x
+    //        (ky - ke)^1/g - b/a = x
 
-    // Invert linear segment
-    if (has_linear) {
-        tf_inv.c = 1.0f / src->c;
-        tf_inv.f = -src->f / src->c;
-    }
+    float k = powf_(src->a, -src->g);  // (1/a)^g == a^-g
+    inv.g = 1.0f / src->g;
+    inv.a = k;
+    inv.b = -k * src->e;
+    inv.e = -src->b / src->a;
 
-    // Invert nonlinear segment
-    if (has_nonlinear) {
-        tf_inv.g = 1.0f / src->g;
-        tf_inv.a = powf_(1.0f / src->a, src->g);
-        tf_inv.b = -tf_inv.a * src->e;
-        tf_inv.e = -src->b / src->a;
-    }
+    // Now in principle we're done.
+    // But to preserve the valuable invariant inv(src(1.0f)) == 1.0f,
+    // we'll tweak e.  These two values should be close to each other,
+    // just down to numerical precision issues, especially from powf_.
+    float s = powf_(src->a + src->b, src->g) + src->e;
+    inv.e = 1.0f - powf_(inv.a * s + inv.b, inv.g);
 
-    if (!has_linear) {
-        tf_inv.d = 0;
-    } else if (!has_nonlinear) {
-        // Any value larger than 1 works
-        tf_inv.d = 2.0f;
-    } else {
-        tf_inv.d = src->c * src->d + src->f;
-    }
-
-    *dst = tf_inv;
-    return true;
+    *dst = inv;
+    return tf_is_valid(dst);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
@@ -1671,7 +1683,10 @@ bool skcms_ApproximateCurve(const skcms_Curve* curve,
     for (int t = 0; t < ARRAY_COUNT(kTolerances); t++) {
         skcms_TransferFunction tf,
                                tf_inv;
-        int L = fit_linear(curve, N, kTolerances[t], &tf.c, &tf.d, &tf.f);
+
+        // It's problematic to fit curves with non-zero f, so always force it to zero explicitly.
+        tf.f = 0.0f;
+        int L = fit_linear(curve, N, kTolerances[t], &tf.c, &tf.d);
 
         if (L == N) {
             // If the entire data set was linear, move the coefficients to the nonlinear portion
@@ -1735,17 +1750,18 @@ bool skcms_ApproximateCurve(const skcms_Curve* curve,
 // ~~~~ Impl. of skcms_Transform() ~~~~
 
 typedef enum {
-    Op_noop,
-
     Op_load_a8,
     Op_load_g8,
+    Op_load_8888_palette8,
     Op_load_4444,
     Op_load_565,
     Op_load_888,
     Op_load_8888,
     Op_load_1010102,
-    Op_load_161616,
-    Op_load_16161616,
+    Op_load_161616LE,
+    Op_load_16161616LE,
+    Op_load_161616BE,
+    Op_load_16161616BE,
     Op_load_hhh,
     Op_load_hhhh,
     Op_load_fff,
@@ -1766,24 +1782,12 @@ typedef enum {
     Op_tf_b,
     Op_tf_a,
 
-    Op_table_8_r,
-    Op_table_8_g,
-    Op_table_8_b,
-    Op_table_8_a,
+    Op_table_r,
+    Op_table_g,
+    Op_table_b,
+    Op_table_a,
 
-    Op_table_16_r,
-    Op_table_16_g,
-    Op_table_16_b,
-    Op_table_16_a,
-
-    Op_clut_1D_8,
-    Op_clut_1D_16,
-    Op_clut_2D_8,
-    Op_clut_2D_16,
-    Op_clut_3D_8,
-    Op_clut_3D_16,
-    Op_clut_4D_8,
-    Op_clut_4D_16,
+    Op_clut,
 
     Op_store_a8,
     Op_store_g8,
@@ -1792,8 +1796,10 @@ typedef enum {
     Op_store_888,
     Op_store_8888,
     Op_store_1010102,
-    Op_store_161616,
-    Op_store_16161616,
+    Op_store_161616LE,
+    Op_store_16161616LE,
+    Op_store_161616BE,
+    Op_store_16161616BE,
     Op_store_hhh,
     Op_store_hhhh,
     Op_store_fff,
@@ -1810,173 +1816,94 @@ typedef enum {
 #endif
 
 #if defined(__clang__)
-    typedef float    __attribute__((ext_vector_type(4)))   Fx4;
-    typedef int32_t  __attribute__((ext_vector_type(4))) I32x4;
-    typedef uint64_t __attribute__((ext_vector_type(4))) U64x4;
-    typedef uint32_t __attribute__((ext_vector_type(4))) U32x4;
-    typedef uint16_t __attribute__((ext_vector_type(4))) U16x4;
-    typedef uint8_t  __attribute__((ext_vector_type(4)))  U8x4;
-
-    typedef float    __attribute__((ext_vector_type(8)))   Fx8;
-    typedef int32_t  __attribute__((ext_vector_type(8))) I32x8;
-    typedef uint64_t __attribute__((ext_vector_type(8))) U64x8;
-    typedef uint32_t __attribute__((ext_vector_type(8))) U32x8;
-    typedef uint16_t __attribute__((ext_vector_type(8))) U16x8;
-    typedef uint8_t  __attribute__((ext_vector_type(8)))  U8x8;
-
-    typedef float    __attribute__((ext_vector_type(16)))   Fx16;
-    typedef int32_t  __attribute__((ext_vector_type(16))) I32x16;
-    typedef uint64_t __attribute__((ext_vector_type(16))) U64x16;
-    typedef uint32_t __attribute__((ext_vector_type(16))) U32x16;
-    typedef uint16_t __attribute__((ext_vector_type(16))) U16x16;
-    typedef uint8_t  __attribute__((ext_vector_type(16)))  U8x16;
+    template <int N, typename T> using Vec = T __attribute__((ext_vector_type(N)));
 #elif defined(__GNUC__)
-    typedef float    __attribute__((vector_size(16)))   Fx4;
-    typedef int32_t  __attribute__((vector_size(16))) I32x4;
-    typedef uint64_t __attribute__((vector_size(32))) U64x4;
-    typedef uint32_t __attribute__((vector_size(16))) U32x4;
-    typedef uint16_t __attribute__((vector_size( 8))) U16x4;
-    typedef uint8_t  __attribute__((vector_size( 4)))  U8x4;
+    // For some reason GCC accepts this nonsense, but not the more straightforward version,
+    //   template <int N, typename T> using Vec = T __attribute__((vector_size(N*sizeof(T))));
+    template <int N, typename T>
+    struct VecHelper { typedef T __attribute__((vector_size(N*sizeof(T)))) V; };
 
-    typedef float    __attribute__((vector_size(32)))   Fx8;
-    typedef int32_t  __attribute__((vector_size(32))) I32x8;
-    typedef uint64_t __attribute__((vector_size(64))) U64x8;
-    typedef uint32_t __attribute__((vector_size(32))) U32x8;
-    typedef uint16_t __attribute__((vector_size(16))) U16x8;
-    typedef uint8_t  __attribute__((vector_size( 8)))  U8x8;
-
-    typedef float    __attribute__((vector_size( 64)))   Fx16;
-    typedef int32_t  __attribute__((vector_size( 64))) I32x16;
-    typedef uint64_t __attribute__((vector_size(128))) U64x16;
-    typedef uint32_t __attribute__((vector_size( 64))) U32x16;
-    typedef uint16_t __attribute__((vector_size( 32))) U16x16;
-    typedef uint8_t  __attribute__((vector_size( 16)))  U8x16;
+    template <int N, typename T> using Vec = typename VecHelper<N,T>::V;
 #endif
 
 // First, instantiate our default exec_ops() implementation using the default compiliation target.
 
+namespace baseline {
 #if defined(SKCMS_PORTABLE) || defined(__INTEL_COMPILER) || !(defined(__clang__) || defined(__GNUC__))
     #define N 1
-
-    #define F   float
-    #define U64 uint64_t
-    #define U32 uint32_t
-    #define I32 int32_t
-    #define U16 uint16_t
-    #define U8  uint8_t
-
-    #define F0 0.0f
-    #define F1 1.0f
+    using F   = float;
+    using U64 = uint64_t;
+    using U32 = uint32_t;
+    using I32 = int32_t;
+    using U16 = uint16_t;
+    using U8  = uint8_t;
 
 #elif defined(__AVX512F__)
     #define N 16
-
-    #define F     Fx16
-    #define U64 U64x16
-    #define U32 U32x16
-    #define I32 I32x16
-    #define U16 U16x16
-    #define U8   U8x16
-
-    #define F0 F{0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0}
-    #define F1 F{1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1}
+    using   F = Vec<N,float>;
+    using I32 = Vec<N,int32_t>;
+    using U64 = Vec<N,uint64_t>;
+    using U32 = Vec<N,uint32_t>;
+    using U16 = Vec<N,uint16_t>;
+    using  U8 = Vec<N,uint8_t>;
 #elif defined(__AVX__)
     #define N 8
-
-    #define F     Fx8
-    #define U64 U64x8
-    #define U32 U32x8
-    #define I32 I32x8
-    #define U16 U16x8
-    #define U8   U8x8
-
-    #define F0 F{0,0,0,0, 0,0,0,0}
-    #define F1 F{1,1,1,1, 1,1,1,1}
+    using   F = Vec<N,float>;
+    using I32 = Vec<N,int32_t>;
+    using U64 = Vec<N,uint64_t>;
+    using U32 = Vec<N,uint32_t>;
+    using U16 = Vec<N,uint16_t>;
+    using  U8 = Vec<N,uint8_t>;
 #else
     #define N 4
-
-    #define F     Fx4
-    #define U64 U64x4
-    #define U32 U32x4
-    #define I32 I32x4
-    #define U16 U16x4
-    #define U8   U8x4
-
-    #define F0 F{0,0,0,0}
-    #define F1 F{1,1,1,1}
+    using   F = Vec<N,float>;
+    using I32 = Vec<N,int32_t>;
+    using U64 = Vec<N,uint64_t>;
+    using U32 = Vec<N,uint32_t>;
+    using U16 = Vec<N,uint16_t>;
+    using  U8 = Vec<N,uint8_t>;
 #endif
 
-#define NS(id) id
-#define ATTR
     #include "src/Transform_inl.h"
-#undef N
-#undef F
-#undef U64
-#undef U32
-#undef I32
-#undef U16
-#undef U8
-#undef F0
-#undef F1
-#undef NS
-#undef ATTR
+    #undef N
+}
 
 // Now, instantiate any other versions of run_program() we may want for runtime detection.
-#if !defined(SKCMS_PORTABLE) && (defined(__clang__) || defined(__GNUC__)) \
-        && defined(__x86_64__) && !defined(__AVX2__) && !defined(__INTEL_COMPILER)
-    #define N 8
-    #define F     Fx8
-    #define U64 U64x8
-    #define U32 U32x8
-    #define I32 I32x8
-    #define U16 U16x8
-    #define U8   U8x8
-    #define F0 F{0,0,0,0, 0,0,0,0}
-    #define F1 F{1,1,1,1, 1,1,1,1}
+#if !defined(SKCMS_PORTABLE) &&                           \
+        ((defined(__APPLE__) && defined(__apple_build_version__) && __clang_major__ >= 9) || \
+         (!defined(__apple_build_version__) && defined(__clang__) && __clang_major__ >= 5) || \
+         (!defined(__clang__) && defined(__GNUC__)))      \
+     && defined(__x86_64__) && !defined(__AVX2__) && !defined(__INTEL_COMPILER)
 
-    #define NS(id) id ## _hsw
-    #define ATTR __attribute__((target("avx2,f16c")))
-
-    // We check these guards to see if we have support for these features.
-    // They're likely _not_ defined here in our baseline build config.
-    #ifndef __AVX__
-        #define __AVX__ 1
-        #define UNDEF_AVX
-    #endif
-    #ifndef __F16C__
-        #define __F16C__ 1
-        #define UNDEF_F16C
-    #endif
-    #ifndef __AVX2__
-        #define __AVX2__ 1
-        #define UNDEF_AVX2
+    #if defined(__clang__)
+        #pragma clang attribute push(__attribute__((target("avx2,f16c"))), apply_to=function)
+    #elif defined(__GNUC__)
+        #pragma GCC push_options
+        #pragma GCC target("avx2,f16c")
     #endif
 
-    #include "src/Transform_inl.h"
+    namespace hsw {
+        #define USING_AVX
+        #define USING_AVX_F16C
+        #define USING_AVX2
+        #define N 8
+        using   F = Vec<N,float>;
+        using I32 = Vec<N,int32_t>;
+        using U64 = Vec<N,uint64_t>;
+        using U32 = Vec<N,uint32_t>;
+        using U16 = Vec<N,uint16_t>;
+        using  U8 = Vec<N,uint8_t>;
 
-    #undef N
-    #undef F
-    #undef U64
-    #undef U32
-    #undef I32
-    #undef U16
-    #undef U8
-    #undef F0
-    #undef F1
-    #undef NS
-    #undef ATTR
+        #include "src/Transform_inl.h"
 
-    #ifdef UNDEF_AVX
-        #undef __AVX__
-        #undef UNDEF_AVX
-    #endif
-    #ifdef UNDEF_F16C
-        #undef __F16C__
-        #undef UNDEF_F16C
-    #endif
-    #ifdef UNDEF_AVX2
-        #undef __AVX2__
-        #undef UNDEF_AVX2
+        // src/Transform_inl.h will undefine USING_* for us.
+        #undef N
+    }
+
+    #if defined(__clang__)
+        #pragma clang attribute pop
+    #elif defined(__GNUC__)
+        #pragma GCC pop_options
     #endif
 
     #define TEST_FOR_HSW
@@ -2034,42 +1961,42 @@ typedef struct {
 } OpAndArg;
 
 static OpAndArg select_curve_op(const skcms_Curve* curve, int channel) {
-    static const struct { Op parametric, table_8, table_16; } ops[] = {
-        { Op_tf_r, Op_table_8_r, Op_table_16_r },
-        { Op_tf_g, Op_table_8_g, Op_table_16_g },
-        { Op_tf_b, Op_table_8_b, Op_table_16_b },
-        { Op_tf_a, Op_table_8_a, Op_table_16_a },
+    static const struct { Op parametric, table; } ops[] = {
+        { Op_tf_r, Op_table_r },
+        { Op_tf_g, Op_table_g },
+        { Op_tf_b, Op_table_b },
+        { Op_tf_a, Op_table_a },
     };
+
+    const OpAndArg noop = { Op_load_a8/*doesn't matter*/, nullptr };
 
     if (curve->table_entries == 0) {
         return is_identity_tf(&curve->parametric)
-            ? OpAndArg{ Op_noop, nullptr }
+            ? noop
             : OpAndArg{ ops[channel].parametric, &curve->parametric };
-    } else if (curve->table_8) {
-        return OpAndArg{ ops[channel].table_8,  curve };
-    } else if (curve->table_16) {
-        return OpAndArg{ ops[channel].table_16, curve };
     }
 
-    assert(false);
-    return OpAndArg{Op_noop,nullptr};
+    return OpAndArg{ ops[channel].table, curve };
 }
 
 static size_t bytes_per_pixel(skcms_PixelFormat fmt) {
     switch (fmt >> 1) {   // ignore rgb/bgr
-        case skcms_PixelFormat_A_8           >> 1: return  1;
-        case skcms_PixelFormat_G_8           >> 1: return  1;
-        case skcms_PixelFormat_ABGR_4444     >> 1: return  2;
-        case skcms_PixelFormat_RGB_565       >> 1: return  2;
-        case skcms_PixelFormat_RGB_888       >> 1: return  3;
-        case skcms_PixelFormat_RGBA_8888     >> 1: return  4;
-        case skcms_PixelFormat_RGBA_1010102  >> 1: return  4;
-        case skcms_PixelFormat_RGB_161616    >> 1: return  6;
-        case skcms_PixelFormat_RGBA_16161616 >> 1: return  8;
-        case skcms_PixelFormat_RGB_hhh       >> 1: return  6;
-        case skcms_PixelFormat_RGBA_hhhh     >> 1: return  8;
-        case skcms_PixelFormat_RGB_fff       >> 1: return 12;
-        case skcms_PixelFormat_RGBA_ffff     >> 1: return 16;
+        case skcms_PixelFormat_A_8                >> 1: return  1;
+        case skcms_PixelFormat_G_8                >> 1: return  1;
+        case skcms_PixelFormat_RGBA_8888_Palette8 >> 1: return  1;
+        case skcms_PixelFormat_ABGR_4444          >> 1: return  2;
+        case skcms_PixelFormat_RGB_565            >> 1: return  2;
+        case skcms_PixelFormat_RGB_888            >> 1: return  3;
+        case skcms_PixelFormat_RGBA_8888          >> 1: return  4;
+        case skcms_PixelFormat_RGBA_1010102       >> 1: return  4;
+        case skcms_PixelFormat_RGB_161616LE       >> 1: return  6;
+        case skcms_PixelFormat_RGBA_16161616LE    >> 1: return  8;
+        case skcms_PixelFormat_RGB_161616BE       >> 1: return  6;
+        case skcms_PixelFormat_RGBA_16161616BE    >> 1: return  8;
+        case skcms_PixelFormat_RGB_hhh            >> 1: return  6;
+        case skcms_PixelFormat_RGBA_hhhh          >> 1: return  8;
+        case skcms_PixelFormat_RGB_fff            >> 1: return 12;
+        case skcms_PixelFormat_RGBA_ffff          >> 1: return 16;
     }
     assert(false);
     return 0;
@@ -2101,7 +2028,22 @@ bool skcms_Transform(const void*             src,
                      skcms_PixelFormat       dstFmt,
                      skcms_AlphaFormat       dstAlpha,
                      const skcms_ICCProfile* dstProfile,
-                     size_t                  nz) {
+                     size_t                  npixels) {
+    return skcms_TransformWithPalette(src, srcFmt, srcAlpha, srcProfile,
+                                      dst, dstFmt, dstAlpha, dstProfile,
+                                      npixels, nullptr);
+}
+
+bool skcms_TransformWithPalette(const void*             src,
+                                skcms_PixelFormat       srcFmt,
+                                skcms_AlphaFormat       srcAlpha,
+                                const skcms_ICCProfile* srcProfile,
+                                void*                   dst,
+                                skcms_PixelFormat       dstFmt,
+                                skcms_AlphaFormat       dstAlpha,
+                                const skcms_ICCProfile* dstProfile,
+                                size_t                  nz,
+                                const void*             palette) {
     const size_t dst_bpp = bytes_per_pixel(dstFmt),
                  src_bpp = bytes_per_pixel(srcFmt);
     // Let's just refuse if the request is absurdly big.
@@ -2119,11 +2061,14 @@ bool skcms_Transform(const void*             src,
     }
 
     // We can't transform in place unless the PixelFormats are the same size.
-    if (dst == src && (dstFmt >> 1) != (srcFmt >> 1)) {
+    if (dst == src && dst_bpp != src_bpp) {
         return false;
     }
-    // TODO: this check lazilly disallows U16 <-> F16, but that would actually be fine.
     // TODO: more careful alias rejection (like, dst == src + 1)?
+
+    if (needs_palette(srcFmt) && !palette) {
+        return false;
+    }
 
     Op          program  [32];
     const void* arguments[32];
@@ -2136,19 +2081,25 @@ bool skcms_Transform(const void*             src,
 
     switch (srcFmt >> 1) {
         default: return false;
-        case skcms_PixelFormat_A_8           >> 1: *ops++ = Op_load_a8;       break;
-        case skcms_PixelFormat_G_8           >> 1: *ops++ = Op_load_g8;       break;
-        case skcms_PixelFormat_ABGR_4444     >> 1: *ops++ = Op_load_4444;     break;
-        case skcms_PixelFormat_RGB_565       >> 1: *ops++ = Op_load_565;      break;
-        case skcms_PixelFormat_RGB_888       >> 1: *ops++ = Op_load_888;      break;
-        case skcms_PixelFormat_RGBA_8888     >> 1: *ops++ = Op_load_8888;     break;
-        case skcms_PixelFormat_RGBA_1010102  >> 1: *ops++ = Op_load_1010102;  break;
-        case skcms_PixelFormat_RGB_161616    >> 1: *ops++ = Op_load_161616;   break;
-        case skcms_PixelFormat_RGBA_16161616 >> 1: *ops++ = Op_load_16161616; break;
-        case skcms_PixelFormat_RGB_hhh       >> 1: *ops++ = Op_load_hhh;      break;
-        case skcms_PixelFormat_RGBA_hhhh     >> 1: *ops++ = Op_load_hhhh;     break;
-        case skcms_PixelFormat_RGB_fff       >> 1: *ops++ = Op_load_fff;      break;
-        case skcms_PixelFormat_RGBA_ffff     >> 1: *ops++ = Op_load_ffff;     break;
+        case skcms_PixelFormat_A_8             >> 1: *ops++ = Op_load_a8;         break;
+        case skcms_PixelFormat_G_8             >> 1: *ops++ = Op_load_g8;         break;
+        case skcms_PixelFormat_ABGR_4444       >> 1: *ops++ = Op_load_4444;       break;
+        case skcms_PixelFormat_RGB_565         >> 1: *ops++ = Op_load_565;        break;
+        case skcms_PixelFormat_RGB_888         >> 1: *ops++ = Op_load_888;        break;
+        case skcms_PixelFormat_RGBA_8888       >> 1: *ops++ = Op_load_8888;       break;
+        case skcms_PixelFormat_RGBA_1010102    >> 1: *ops++ = Op_load_1010102;    break;
+        case skcms_PixelFormat_RGB_161616LE    >> 1: *ops++ = Op_load_161616LE;   break;
+        case skcms_PixelFormat_RGBA_16161616LE >> 1: *ops++ = Op_load_16161616LE; break;
+        case skcms_PixelFormat_RGB_161616BE    >> 1: *ops++ = Op_load_161616BE;   break;
+        case skcms_PixelFormat_RGBA_16161616BE >> 1: *ops++ = Op_load_16161616BE; break;
+        case skcms_PixelFormat_RGB_hhh         >> 1: *ops++ = Op_load_hhh;        break;
+        case skcms_PixelFormat_RGBA_hhhh       >> 1: *ops++ = Op_load_hhhh;       break;
+        case skcms_PixelFormat_RGB_fff         >> 1: *ops++ = Op_load_fff;        break;
+        case skcms_PixelFormat_RGBA_ffff       >> 1: *ops++ = Op_load_ffff;       break;
+
+        case skcms_PixelFormat_RGBA_8888_Palette8 >> 1: *ops++  = Op_load_8888_palette8;
+                                                        *args++ = palette;
+                                                        break;
     }
     if (srcFmt & 1) {
         *ops++ = Op_swap_rb;
@@ -2176,11 +2127,7 @@ bool skcms_Transform(const void*             src,
         *ops++ = Op_unpremul;
     }
 
-    // TODO: We can skip this work if both srcAlpha and dstAlpha are PremulLinear, and the profiles
-    // are the same. Also, if dstAlpha is PremulLinear, and SrcAlpha is Opaque.
-    if (dstProfile != srcProfile ||
-        srcAlpha == skcms_AlphaFormat_PremulLinear ||
-        dstAlpha == skcms_AlphaFormat_PremulLinear) {
+    if (dstProfile != srcProfile) {
 
         if (!prep_for_destination(dstProfile,
                                   &from_xyz, &inv_dst_tf_r, &inv_dst_tf_b, &inv_dst_tf_g)) {
@@ -2191,25 +2138,20 @@ bool skcms_Transform(const void*             src,
             if (srcProfile->A2B.input_channels) {
                 for (int i = 0; i < (int)srcProfile->A2B.input_channels; i++) {
                     OpAndArg oa = select_curve_op(&srcProfile->A2B.input_curves[i], i);
-                    if (oa.op != Op_noop) {
+                    if (oa.arg) {
                         *ops++  = oa.op;
                         *args++ = oa.arg;
                     }
                 }
-                switch (srcProfile->A2B.input_channels) {
-                    case 1: *ops++ = srcProfile->A2B.grid_8 ? Op_clut_1D_8 : Op_clut_1D_16; break;
-                    case 2: *ops++ = srcProfile->A2B.grid_8 ? Op_clut_2D_8 : Op_clut_2D_16; break;
-                    case 3: *ops++ = srcProfile->A2B.grid_8 ? Op_clut_3D_8 : Op_clut_3D_16; break;
-                    case 4: *ops++ = srcProfile->A2B.grid_8 ? Op_clut_4D_8 : Op_clut_4D_16; break;
-                    default: return false;
-                }
+                *ops++ = Op_clamp;
+                *ops++ = Op_clut;
                 *args++ = &srcProfile->A2B;
             }
 
             if (srcProfile->A2B.matrix_channels == 3) {
                 for (int i = 0; i < 3; i++) {
                     OpAndArg oa = select_curve_op(&srcProfile->A2B.matrix_curves[i], i);
-                    if (oa.op != Op_noop) {
+                    if (oa.arg) {
                         *ops++  = oa.op;
                         *args++ = oa.arg;
                     }
@@ -2229,7 +2171,7 @@ bool skcms_Transform(const void*             src,
             if (srcProfile->A2B.output_channels == 3) {
                 for (int i = 0; i < 3; i++) {
                     OpAndArg oa = select_curve_op(&srcProfile->A2B.output_curves[i], i);
-                    if (oa.op != Op_noop) {
+                    if (oa.arg) {
                         *ops++  = oa.op;
                         *args++ = oa.arg;
                     }
@@ -2243,20 +2185,13 @@ bool skcms_Transform(const void*             src,
         } else if (srcProfile->has_trc && srcProfile->has_toXYZD50) {
             for (int i = 0; i < 3; i++) {
                 OpAndArg oa = select_curve_op(&srcProfile->trc[i], i);
-                if (oa.op != Op_noop) {
+                if (oa.arg) {
                     *ops++  = oa.op;
                     *args++ = oa.arg;
                 }
             }
         } else {
             return false;
-        }
-
-        // At this point our source colors are linear, either RGB (XYZ-type profiles)
-        // or XYZ (A2B-type profiles). Unpremul is a linear operation (multiply by a
-        // constant 1/a), so either way we can do it now if needed.
-        if (srcAlpha == skcms_AlphaFormat_PremulLinear) {
-            *ops++ = Op_unpremul;
         }
 
         // A2B sources should already be in XYZD50 at this point.
@@ -2281,10 +2216,6 @@ bool skcms_Transform(const void*             src,
             *args++ = &from_xyz;
         }
 
-        if (dstAlpha == skcms_AlphaFormat_PremulLinear) {
-            *ops++ = Op_premul;
-        }
-
         // Encode back to dst RGB using its parametric transfer functions.
         if (!is_identity_tf(&inv_dst_tf_r)) { *ops++ = Op_tf_r; *args++ = &inv_dst_tf_r; }
         if (!is_identity_tf(&inv_dst_tf_g)) { *ops++ = Op_tf_g; *args++ = &inv_dst_tf_g; }
@@ -2296,7 +2227,6 @@ bool skcms_Transform(const void*             src,
     //
     // E.g. r = 1.1, a = 0.5 would fit fine in fixed point after premul (ra=0.55,a=0.5),
     // but would be carrying r > 1, which is really unexpected for downstream consumers.
-    // TODO(mtklein): add a unit test
     if (dstFmt < skcms_PixelFormat_RGB_hhh) {
         *ops++ = Op_clamp;
     }
@@ -2310,26 +2240,26 @@ bool skcms_Transform(const void*             src,
     }
     switch (dstFmt >> 1) {
         default: return false;
-        case skcms_PixelFormat_A_8           >> 1: *ops++ = Op_store_a8;       break;
-        case skcms_PixelFormat_G_8           >> 1: *ops++ = Op_store_g8;       break;
-        case skcms_PixelFormat_ABGR_4444     >> 1: *ops++ = Op_store_4444;     break;
-        case skcms_PixelFormat_RGB_565       >> 1: *ops++ = Op_store_565;      break;
-        case skcms_PixelFormat_RGB_888       >> 1: *ops++ = Op_store_888;      break;
-        case skcms_PixelFormat_RGBA_8888     >> 1: *ops++ = Op_store_8888;     break;
-        case skcms_PixelFormat_RGBA_1010102  >> 1: *ops++ = Op_store_1010102;  break;
-        case skcms_PixelFormat_RGB_161616    >> 1: *ops++ = Op_store_161616;   break;
-        case skcms_PixelFormat_RGBA_16161616 >> 1: *ops++ = Op_store_16161616; break;
-        case skcms_PixelFormat_RGB_hhh       >> 1: *ops++ = Op_store_hhh;      break;
-        case skcms_PixelFormat_RGBA_hhhh     >> 1: *ops++ = Op_store_hhhh;     break;
-        case skcms_PixelFormat_RGB_fff       >> 1: *ops++ = Op_store_fff;      break;
-        case skcms_PixelFormat_RGBA_ffff     >> 1: *ops++ = Op_store_ffff;     break;
+        case skcms_PixelFormat_A_8             >> 1: *ops++ = Op_store_a8;         break;
+        case skcms_PixelFormat_G_8             >> 1: *ops++ = Op_store_g8;         break;
+        case skcms_PixelFormat_ABGR_4444       >> 1: *ops++ = Op_store_4444;       break;
+        case skcms_PixelFormat_RGB_565         >> 1: *ops++ = Op_store_565;        break;
+        case skcms_PixelFormat_RGB_888         >> 1: *ops++ = Op_store_888;        break;
+        case skcms_PixelFormat_RGBA_8888       >> 1: *ops++ = Op_store_8888;       break;
+        case skcms_PixelFormat_RGBA_1010102    >> 1: *ops++ = Op_store_1010102;    break;
+        case skcms_PixelFormat_RGB_161616LE    >> 1: *ops++ = Op_store_161616LE;   break;
+        case skcms_PixelFormat_RGBA_16161616LE >> 1: *ops++ = Op_store_16161616LE; break;
+        case skcms_PixelFormat_RGB_161616BE    >> 1: *ops++ = Op_store_161616BE;   break;
+        case skcms_PixelFormat_RGBA_16161616BE >> 1: *ops++ = Op_store_16161616BE; break;
+        case skcms_PixelFormat_RGB_hhh         >> 1: *ops++ = Op_store_hhh;        break;
+        case skcms_PixelFormat_RGBA_hhhh       >> 1: *ops++ = Op_store_hhhh;       break;
+        case skcms_PixelFormat_RGB_fff         >> 1: *ops++ = Op_store_fff;        break;
+        case skcms_PixelFormat_RGBA_ffff       >> 1: *ops++ = Op_store_ffff;       break;
     }
 
-    void (*run)(const Op*, const void**, const char*, char*, int, size_t,size_t) = run_program;
+    auto run = baseline::run_program;
 #if defined(TEST_FOR_HSW)
-    if (hsw_ok()) {
-        run = run_program_hsw;
-    }
+    if (hsw_ok()) { run = hsw::run_program; }
 #endif
     run(program, arguments, (const char*)src, (char*)dst, n, src_bpp,dst_bpp);
     return true;
@@ -2388,7 +2318,9 @@ bool skcms_MakeUsableAsDestinationWithSingleCurve(skcms_ICCProfile* profile) {
     float min_max_error = INFINITY_;
     for (int i = 0; i < 3; i++) {
         skcms_TransferFunction inv;
-        skcms_TransferFunction_invert(&result.trc[i].parametric, &inv);
+        if (!skcms_TransferFunction_invert(&result.trc[i].parametric, &inv)) {
+            return false;
+        }
 
         float err = 0;
         for (int j = 0; j < 3; ++j) {

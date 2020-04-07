@@ -59,7 +59,7 @@
 #include <QtWaylandCompositor/QWaylandSurface>
 #include <QtWaylandCompositor/QWaylandBufferRef>
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -110,7 +110,7 @@ protected:
     void ref();
     void deref();
     void sendRelease();
-    void setDestroyed();
+    virtual void setDestroyed();
 
     struct ::wl_resource *m_buffer = nullptr;
     QRegion m_damage;

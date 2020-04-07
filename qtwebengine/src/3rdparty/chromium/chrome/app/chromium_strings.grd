@@ -220,7 +220,10 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
           Chromium OS is made possible by additional <ph name="BEGIN_LINK_CROS_OSS">&lt;a target="_blank" href="$1"&gt;</ph>open source software<ph name="END_LINK_CROS_OSS">&lt;/a&gt;</ph>.
         </message>
         <message name="IDS_ABOUT_CROS_WITH_LINUX_VERSION_LICENSE" desc="Additional text displayed beneath the Chromium open source URLs for Chrome OS when Crostini is installed.">
-          Chrome OS is made possible by additional <ph name="BEGIN_LINK_CROS_OSS">&lt;a target="_blank" href="$1"&gt;</ph>open source software<ph name="END_LINK_CROS_OSS">&lt;/a&gt;</ph>, as is <ph name="BEGIN_LINK_LINUX_OSS">&lt;a target="_blank" href="$2"&gt;</ph>Linux (Beta)<ph name="END_LINK_LINUX_OSS">&lt;/a&gt;</ph>.
+          Chromium OS is made possible by additional <ph name="BEGIN_LINK_CROS_OSS">&lt;a target="_blank" href="$1"&gt;</ph>open source software<ph name="END_LINK_CROS_OSS">&lt;/a&gt;</ph>, as is <ph name="BEGIN_LINK_LINUX_OSS">&lt;a target="_blank" href="$2"&gt;</ph>Linux (Beta)<ph name="END_LINK_LINUX_OSS">&lt;/a&gt;</ph>.
+        </message>
+        <message name="IDS_ABOUT_SAFETY_INFORMATION" desc="The safety label in the About box." translateable="false">
+          Not used in Chromium. Placeholder to keep resource maps in sync.
         </message>
       </if>
       <message name="IDS_ABOUT_TERMS_OF_SERVICE" desc="The terms of service label in the About box." translateable="false">
@@ -412,7 +415,7 @@ Chromium is unable to recover your settings.
 
       <!-- Print Preview -->
       <message name="IDS_PRINT_PREVIEW_NO_PLUGIN" desc="Message to display when the PDF viewer is missing.">
-        Chromium does not include the PDF viewer which is required for Print Preview to function.
+        Chromium cannot show the print preview when the built-in PDF viewer is missing.
       </message>
 
       <!-- Download Shelf Items -->
@@ -510,10 +513,6 @@ Chromium is unable to recover your settings.
       </if>
 
       <!-- Extension/App install prompt -->
-      <message name="IDS_EXTENSION_INLINE_INSTALL_PROMPT_TITLE" desc="Titlebar of the extension or app inline installation prompt window">
-        Add to Chromium
-      </message>
-
       <if expr="enable_extensions">
         <!-- Extension installed bubble -->
         <message name="IDS_EXTENSION_INSTALLED_HEADING" desc="Title of the extension-installed bubble. Instructs that the extension was installed.">
@@ -521,6 +520,11 @@ Chromium is unable to recover your settings.
         </message>
         <message name="IDS_EXTENSION_INSTALLED_SYNC_PROMO_LINK_NEW" desc="Text of the link to sign in to Chromium from the extension installed bubble. This will be converted to a link, with additional text around it.">
           sign in to Chromium
+        </message>
+
+        <!-- Extension uninstall prompt -->
+        <message name="IDS_EXTENSION_UNINSTALL_PROMPT_REMOVE_DATA_CHECKBOX" desc="Checkbox text to ask the user whether they want to remove associated data at uninstall time. Only used when uninstalling an app associated with a particular website.">
+          Also clear data from Chromium (<ph name="URL">$1<ex>www.google.com</ex></ph>)
         </message>
 
         <!-- Extension context menu -->
@@ -568,6 +572,10 @@ Chromium is unable to recover your settings.
 
       <message name="IDS_APPMENU_TOOLTIP_UPDATE_AVAILABLE" desc="The tooltip to show for the browser menu when an update is available">
         Customize and control Chromium. Update is available.
+      </message>
+
+      <message name="IDS_APPMENU_TOOLTIP_ALERT" desc="The tooltip to show for the browser menu when a non-update alert is displayed">
+        Customize and control Chromium. Something needs your attention - click for details.
       </message>
 
       <message name="IDS_OPEN_IN_CHROME" desc="The text label of the Open in Chrome menu item for the Hosted App app menu">
@@ -681,15 +689,6 @@ Signing in anyway will merge Chromium information like bookmarks, history, and o
         </message>
       </if>
 
-      <if expr="toolkit_views">
-        <message name="IDS_ENTERPRISE_FORCE_SIGNOUT_EXPLANATION" desc="Text of the reason to sign out">
-          Authentication certificate failed. Please sign in to Chromium again as <ph name="USER_NAME">$1<ex>pat@example.com</ex></ph> or contact your administrator for more information. <ph name="ADDITIONAL_EXPLANATION">$2</ph>
-        </message>
-        <message name="IDS_ENTERPRISE_FORCE_SIGNOUT_EXPLANATION_WITHOUT_USER_NAME" desc="Text of the reason to sign out when there is no valid email address">
-          Authentication certificate failed. Please sign in to Chromium again or contact your administrator for more information. <ph name="ADDITIONAL_EXPLANATION">$2</ph>
-        </message>
-      </if>
-
       <!-- Signin Email Confirmation tab modal dialog -->
       <if expr="not chromeos">
         <message name="IDS_SIGNIN_EMAIL_CONFIRMATION_TITLE" desc="Title of the signin email confirmation tab modal dialog.">
@@ -702,7 +701,7 @@ Signing in anyway will merge Chromium information like bookmarks, history, and o
                  omitting them brings up a hash collision error. -->
       <if expr="is_win">
         <message name="IDS_CHROME_CLEANUP_PROMPT_EXPLANATION" desc="Description in the Chrome Cleanup dialog that Chromium browser shows when unwanted software, like ad injectors or software that changes the user's settings without their knowledge, is found on the user's computer. Appears under the title asking 'Remove harmful software?' Actor is Chromium; we are asking, Do you want Chromium to remove harmful software? 'it' is harmful software. User has the option of clicking 'Remove' to proceed with a cleanup, or 'Details' to see more details. The description is also shown on the Chrome Cleanup section of the Settings page, under 'Remove harmful software' title. Preferrably, the translation for this string should parallel IDS_SETTINGS_RESET_CLEANUP_EXPLANATION_CURRENTLY_REMOVING.">
-          There's harmful software on your computer. Chromium can remove it and restore your settings to make your browser work normally again.
+          There's harmful software on your computer. Chromium can remove it, restore your settings, and disable extensions to make your browser work normally again.
         </message>
       </if>
 
@@ -722,6 +721,9 @@ Signing in anyway will merge Chromium information like bookmarks, history, and o
         </message>
       </if>
       <if expr="chromeos">
+        <message name="IDS_SIGNIN_ERROR_SECONDARY_ACCOUNT_DISPLAY_SOURCE" desc="Context title shown in the notification header of sign-in error notification for Chromium OS Secondary Accounts.">
+          Chromium OS System
+        </message>
         <message name="IDS_SYNC_PASSPHRASE_ERROR_BUBBLE_VIEW_MESSAGE" desc="Message in the sync error notification when the user needs to update their sync passphrase.">
           Chromium OS could not sync your data. Please update your Sync passphrase.
         </message>
@@ -745,13 +747,6 @@ Signing in anyway will merge Chromium information like bookmarks, history, and o
       <message name="IDS_AUTOFILL_DESCRIBE_LOCAL_COPY" desc="Text label that described a Wallet credit card which has been copied to the local Chrome instance.">
         Copied to Chromium
       </message>
-
-      <!-- Chrome OS keyboard overlay-->
-      <if expr="chromeos">
-        <message name="IDS_KEYBOARD_OVERLAY_SHOW_WRENCH_MENU" desc="The text in the keyboard overlay to explain the shortcut that opens the main Chrome menu.">
-          Show Chromium menu
-        </message>
-      </if>
 
       <!-- App list -->
       <if expr="enable_app_list">
@@ -846,7 +841,7 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
 
         <!-- User pod remove sync warning text -->
         <message name="IDS_LOGIN_POD_USER_REMOVE_WARNING_SYNC" desc="Main text shown as a warning when attempting to remove an user.">
-          This person's browsing data will be deleted from this device. To recover the data, sign in to Chrome as $2.
+          This person's browsing data will be deleted from this device. To recover the data, sign in to Chromium as <ph name="USER_EMAIL">$2<ex>foo@example.com</ex></ph>.
         </message>
 
         <!-- Tutorial -->
@@ -921,6 +916,9 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
       </if>
 
       <if expr="not is_android">
+        <message name="IDS_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_BUBBLE_TEXT" desc="The text of a bubble that confirms users allows integrating the accessibility labels service of Google to Chromium.">
+          Chromium can recognize images and text in an image by sending page images to Google servers, allowing you to better understand page content.
+        </message>
         <message name="IDS_CONTENT_CONTEXT_SPELLING_BUBBLE_TEXT" desc="The text of a bubble that confirms users allows integrating the spelling service of Google to Chrome.">
           Chromium can provide smarter spell-checking by sending what you type in the browser to Google servers, allowing you to use the same spell-checking technology used by Google search.
         </message>
@@ -961,6 +959,9 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
         </message>
       </if>
       <if expr="chromeos">
+        <message name="IDS_UPDATE_RECOMMENDED_DIALOG_TITLE" desc="The window title for the Update Recommended dialog.">
+          Restart Chromium OS
+        </message>
         <message name="IDS_UPDATE_RECOMMENDED" desc="The main text of the Update Recommended dialog.">
           Chromium OS needs to be restarted to apply the update.
         </message>
@@ -1036,10 +1037,10 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
          other {Chromium will restart in # seconds}}
       </message>
       <message name="IDS_CRITICAL_NOTIFICATION_TITLE_ALTERNATE" desc="The title for a bubble that appears when there is a critical update and Chromium must restart to install it. The title was previously countng down to an automatic restart and now it has finished. Will only be seen if a web page stops the shutdown process.">
-        You should restart Chromium now.
+        You should restart Chromium now
       </message>
       <message name="IDS_CRITICAL_NOTIFICATION_TEXT" desc="Explanation text for the bubble that appears when there is a critical update and Chromium must restart to install it.">
-        A special security update for Chromium was just applied; you should restart now for it to take effect (we'll restore your tabs).
+        A special security update for Chromium was just applied. Restart now and we'll restore your tabs.
       </message>
 
       <!-- Dialog that asks whether user wants to participate in Safe Browsing Extended Reporting -->
@@ -1111,6 +1112,13 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
         </message>
       </if>
 
+      <!-- OOM intervention message -->
+      <if expr="is_android">
+        <message name="IDS_NEAR_OOM_REDUCTION_MESSAGE" desc="The message stating that the browser removed some content of the page using too much memory.">
+           This page uses too much memory, so Chromium removed some content.
+        </message>
+      </if>
+
       <!-- OOBE -->
       <if expr="chromeos">
         <message name="IDS_INSTALLING_UPDATE" desc="Label shown on the updates installation screen during OOBE">
@@ -1154,7 +1162,7 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
           Not now
         </message>
         <message name="IDS_DICE_WELCOME_DESCRIPTION" desc="A message on the welcome page explaining the purpose of signing in.">
-          Sign in to sync and personalize Chromium across your devices
+          Sync and personalize Chromium across your devices
         </message>
       </if>
 
@@ -1187,42 +1195,81 @@ Please check your email at <ph name="ACCOUNT_EMAIL">$2<ex>jane.doe@example.com</
         </message>
       </if>
       <!-- Relaunch notification bubble and dialog. -->
-      <if expr="not is_android and not chromeos">
-        <message name="IDS_RELAUNCH_RECOMMENDED_TITLE" desc="The title of a dialog that tells users that a browser relaunch is recommended for an update available for some number of days.">
-          {0, plural,
-           =0 {A Chromium update is available}
-           =1 {A Chromium update is available}
-           other {A Chromium update has been available for # days}}
-        </message>
-        <message name="IDS_RELAUNCH_RECOMMENDED_BODY" desc="The body text of a dialog that tells users that a browser relaunch is recommended for an update.">
-          Your administrator asks that you relaunch Chromium to apply this update
-        </message>
-        <message name="IDS_RELAUNCH_REQUIRED_TITLE_DAYS" desc="The title of a dialog that tells users the browser must be relaunched within two or more days.">
-          {0, plural,
-           =1 {Relaunch Chromium within a day}
-           other {Relaunch Chromium within # days}}
-        </message>
-        <message name="IDS_RELAUNCH_REQUIRED_TITLE_HOURS" desc="The title of a dialog that tells users the browser must be relaunched within one or more hours.">
-          {0, plural,
-           =1 {Chromium will relaunch in an hour}
-           other {Chromium will relaunch in # hours}}
-        </message>
-        <message name="IDS_RELAUNCH_REQUIRED_TITLE_MINUTES" desc="The title of a dialog that tells users the browser must be relaunched within one or more minutes.">
-          {0, plural,
-           =1 {Chromium will relaunch in 1 minute}
-           other {Chromium will relaunch in # minutes}}
-        </message>
-        <message name="IDS_RELAUNCH_REQUIRED_TITLE_SECONDS" desc="The title of a dialog that tells users the browser must be relaunched within some number of seconds.">
-          {0, plural,
-           =0 {Chromium will relaunch now}
-           =1 {Chromium will relaunch in 1 second}
-           other {Chromium will relaunch in # seconds}}
-        </message>
-        <message name="IDS_RELAUNCH_REQUIRED_BODY" desc="The body text of a dialog that tells users the browser must be relaunched.">
-          Your administrator requires that you relaunch Chromium to apply an update
-        </message>
+      <if expr="not is_android">
+        <if expr="not chromeos">
+          <then>
+            <message name="IDS_RELAUNCH_RECOMMENDED_TITLE" desc="The title of a dialog that tells users that a browser relaunch is recommended for an update available for some number of days.">
+              {0, plural,
+               =0 {A Chromium update is available}
+               =1 {A Chromium update is available}
+               other {A Chromium update has been available for # days}}
+            </message>
+            <message name="IDS_RELAUNCH_RECOMMENDED_BODY" desc="The body text of a dialog that tells users that a browser relaunch is recommended for an update.">
+              Your administrator asks that you relaunch Chromium to apply this update
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_DAYS" desc="The title of a dialog that tells users the browser must be relaunched within two or more days.">
+              {0, plural,
+               =1 {Relaunch Chromium within a day}
+               other {Relaunch Chromium within # days}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_HOURS" desc="The title of a dialog that tells users the browser must be relaunched within one or more hours.">
+              {0, plural,
+               =1 {Chromium will relaunch in an hour}
+               other {Chromium will relaunch in # hours}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_MINUTES" desc="The title of a dialog that tells users the browser must be relaunched within one or more minutes.">
+              {0, plural,
+               =1 {Chromium will relaunch in 1 minute}
+               other {Chromium will relaunch in # minutes}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_SECONDS" desc="The title of a dialog that tells users the browser must be relaunched within some number of seconds.">
+              {0, plural,
+               =0 {Chromium will relaunch now}
+               =1 {Chromium will relaunch in 1 second}
+               other {Chromium will relaunch in # seconds}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_BODY" desc="The body text of a dialog that tells users the browser must be relaunched.">
+              Your administrator requires that you relaunch Chromium to apply an update
+            </message>
+          </then>
+          <else>
+            <message name="IDS_RELAUNCH_RECOMMENDED_TITLE" desc="The title of a dialog that tells users that a device restart is recommended for an update available for some number of days.">
+              {0, plural,
+               =0 {A Chromium OS update is available}
+               =1 {A Chromium OS update is available}
+               other {A Chromium OS update has been available for # days}}
+            </message>
+            <message name="IDS_RELAUNCH_RECOMMENDED_BODY" desc="The body text of a dialog that tells users that a device restart is recommended for an update.">
+              Your administrator asks that you restart Chromium OS to apply this update
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_DAYS" desc="The title of a dialog that tells users the device must be restarted within two or more days.">
+              {0, plural,
+               =1 {Restart Chromium OS within a day}
+               other {Restart Chromium OS within # days}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_HOURS" desc="The title of a dialog that tells users the device must be restarted within one or more hours.">
+              {0, plural,
+               =1 {Chromium OS will restart in an hour}
+               other {Chromium OS will restart in # hours}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_MINUTES" desc="The title of a dialog that tells users the device must be restarted within one or more minutes.">
+              {0, plural,
+               =1 {Chromium OS will restart in 1 minute}
+               other {Chromium OS will restart in # minutes}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_TITLE_SECONDS" desc="The title of a dialog that tells users the device must be restarted within some number of seconds.">
+              {0, plural,
+               =0 {Chromium OS will restart now}
+               =1 {Chromium OS will restart in 1 second}
+               other {Chromium OS will restart in # seconds}}
+            </message>
+            <message name="IDS_RELAUNCH_REQUIRED_BODY" desc="The body text of a dialog that tells users the device must be restarted.">
+              Your administrator requires that you restart Chromium OS to apply an update
+            </message>
+          </else>
+        </if>
       </if>
-      <!-- Chroium launch blocking dialog. -->
+      <!-- Chromium launch blocking dialog. -->
       <if expr="not is_android and not chromeos">
          <message name="IDS_ENTERPRISE_STARTUP_CLOUD_POLICY_ENROLLMENT_TOOLTIP" desc="The information message of Chromium launch blocking dialog for machine level user cloud policy enrollment.">
           Launching Chromium...

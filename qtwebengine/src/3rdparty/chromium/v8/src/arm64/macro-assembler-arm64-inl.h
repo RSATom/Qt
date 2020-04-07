@@ -780,18 +780,6 @@ void TurboAssembler::Mneg(const Register& rd, const Register& rn,
   mneg(rd, rn, rm);
 }
 
-void TurboAssembler::Mov(const Register& rd, const Register& rn) {
-  DCHECK(allow_macro_instructions());
-  DCHECK(!rd.IsZero());
-  // Emit a register move only if the registers are distinct, or if they are
-  // not X registers. Note that mov(w0, w0) is not a no-op because it clears
-  // the top word of x0.
-  if (!rd.Is(rn) || !rd.Is64Bits()) {
-    Assembler::mov(rd, rn);
-  }
-}
-
-
 void MacroAssembler::Movk(const Register& rd, uint64_t imm, int shift) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsZero());
@@ -828,6 +816,12 @@ void TurboAssembler::Rbit(const Register& rd, const Register& rn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsZero());
   rbit(rd, rn);
+}
+
+void TurboAssembler::Rev(const Register& rd, const Register& rn) {
+  DCHECK(allow_macro_instructions());
+  DCHECK(!rd.IsZero());
+  rev(rd, rn);
 }
 
 void TurboAssembler::Ret(const Register& xn) {
@@ -1027,10 +1021,8 @@ void TurboAssembler::Uxtw(const Register& rd, const Register& rn) {
 }
 
 void TurboAssembler::InitializeRootRegister() {
-  ExternalReference roots_array_start =
-      ExternalReference::roots_array_start(isolate());
-  Mov(kRootRegister, Operand(roots_array_start));
-  Add(kRootRegister, kRootRegister, kRootRegisterBias);
+  ExternalReference isolate_root = ExternalReference::isolate_root(isolate());
+  Mov(kRootRegister, Operand(isolate_root));
 }
 
 
@@ -1180,7 +1172,7 @@ void TurboAssembler::Push(Handle<HeapObject> handle) {
   Push(padreg, tmp);
 }
 
-void TurboAssembler::Push(Smi* smi) {
+void TurboAssembler::Push(Smi smi) {
   UseScratchRegisterScope temps(this);
   Register tmp = temps.AcquireX();
   Mov(tmp, Operand(smi));

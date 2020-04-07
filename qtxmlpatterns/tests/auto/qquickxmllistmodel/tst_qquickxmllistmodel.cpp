@@ -44,7 +44,7 @@
 
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
-#include "../../../../src/imports/xmllistmodel/qqmlxmllistmodel_p.h"
+#include "../../../src/imports/xmllistmodel/qqmlxmllistmodel_p.h"
 
 #include <algorithm>
 
@@ -110,14 +110,14 @@ private:
         QString xml;
 
         if (!data.isEmpty()) {
-            QStringList items = data.split(QLatin1Char(';'));
-            foreach (const QString &item, items) {
+            const QStringList items = data.split(QLatin1Char(';'));
+            for (const QString &item : items) {
                 if (item.isEmpty())
                     continue;
                 QVariantList variants;
                 xml += QLatin1String("<item>");
-                QStringList fields = item.split(QLatin1Char(','));
-                foreach (const QString &field, fields) {
+                const QStringList fields = item.split(QLatin1Char(','));
+                for (const QString &field : fields) {
                     QStringList values = field.split(QLatin1Char('='));
                     if (values.count() != 2) {
                         qWarning() << "makeItemXmlAndData: invalid field:" << field;
@@ -168,7 +168,8 @@ protected:
     {
         if (m_factory) {
             QVariantMap map;
-            foreach (const QString &header, req.rawHeaderList())
+            const auto rawHeaderList = req.rawHeaderList();
+            for (const QString &header : rawHeaderList)
                 map[header] = req.rawHeader(header.toUtf8());
             m_factory->lastSentHeaders = map;
         }
@@ -421,9 +422,9 @@ void tst_qquickxmllistmodel::headers()
     expectedHeaders["Accept"] = "application/xml,*/*";
 
     QCOMPARE(factory.lastSentHeaders.count(), expectedHeaders.count());
-    foreach (const QString &header, expectedHeaders.keys()) {
-        QVERIFY(factory.lastSentHeaders.contains(header));
-        QCOMPARE(factory.lastSentHeaders[header].toString(), expectedHeaders[header].toString());
+    for (auto it = expectedHeaders.cbegin(), end = expectedHeaders.cend(); it != end; ++it) {
+        QVERIFY(factory.lastSentHeaders.contains(it.key()));
+        QCOMPARE(factory.lastSentHeaders[it.key()].toString(), it.value().toString());
     }
 
     delete model;

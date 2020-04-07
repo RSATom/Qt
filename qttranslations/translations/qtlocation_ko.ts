@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="ko">
+<TS version="2.0" language="ko">
 <context>
     <name>GeoServiceProviderFactoryEsri</name>
     <message>
@@ -8,13 +8,6 @@
 Please visit https://developers.arcgis.com/authentication/accessing-arcgis-online-services/</source>
         <translation>Esri 플러그인을 사용하려면 &apos;esri.token&apos; 값이 필요합니다.
 https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ 사이트를 방문하십시오</translation>
-    </message>
-</context>
-<context>
-    <name>PlaceSearchReplyEsri</name>
-    <message>
-        <source>Response parse error</source>
-        <translation>응답 처리 오류</translation>
     </message>
 </context>
 <context>
@@ -43,10 +36,6 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
         <translation>경로를 찾을 수 없음, 경로 관리자를 설정하지 않았습니다.</translation>
     </message>
     <message>
-        <source>Cannot route, valid query not set.</source>
-        <translation>경로를 찾을 수 없음, 질의가 올바르지 않습니다.</translation>
-    </message>
-    <message>
         <source>Not enough waypoints for routing.</source>
         <translation>경로를 찾을 중간점이 충분하지 않습니다.</translation>
     </message>
@@ -68,94 +57,6 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     <message>
         <source>Plugin does not support (reverse) geocoding.</source>
         <translation>플러그인에서 (역) 지오코딩을 지원하지 않습니다.</translation>
-    </message>
-</context>
-<context>
-    <name>QGeoCodeReplyMapbox</name>
-    <message>
-        <source>Response parse error</source>
-        <translation>응답 처리 오류</translation>
-    </message>
-</context>
-<context>
-    <name>QGeoMapMapboxGL</name>
-    <message>
-        <source>Development access token, do not use in production.</source>
-        <translation>개발자용 접근 토큰, 상용 환경에서 사용하지 마십시오.</translation>
-    </message>
-</context>
-<context>
-    <name>QGeoMappingManagerEngineItemsOverlay</name>
-    <message>
-        <source>Empty Map</source>
-        <translation>빈 지도</translation>
-    </message>
-</context>
-<context>
-    <name>QGeoMappingManagerEngineMapboxGL</name>
-    <message>
-        <source>China Streets</source>
-        <translation>중국 거리</translation>
-    </message>
-    <message>
-        <source>China Light</source>
-        <translation>중국 밝음</translation>
-    </message>
-    <message>
-        <source>China Dark</source>
-        <translation>중국 어두움</translation>
-    </message>
-    <message>
-        <source>Streets</source>
-        <translation>거리</translation>
-    </message>
-    <message>
-        <source>Basic</source>
-        <translation>기본</translation>
-    </message>
-    <message>
-        <source>Bright</source>
-        <translation>밝음</translation>
-    </message>
-    <message>
-        <source>Outdoors</source>
-        <translation>실외</translation>
-    </message>
-    <message>
-        <source>Satellite</source>
-        <translation>위성</translation>
-    </message>
-    <message>
-        <source>Satellite Streets</source>
-        <translation>위성 거리</translation>
-    </message>
-    <message>
-        <source>Light</source>
-        <translation>밝음</translation>
-    </message>
-    <message>
-        <source>Dark</source>
-        <translation>어두움</translation>
-    </message>
-    <message>
-        <source>Navigation Preview Day</source>
-        <translation>탐색 미리 보기 낮</translation>
-    </message>
-    <message>
-        <source>Navigation Preview Night</source>
-        <translation>탐색 미리 보기 밤</translation>
-    </message>
-    <message>
-        <source>Navigation Guidance Day</source>
-        <translation>탐색 안내 낮</translation>
-    </message>
-    <message>
-        <source>Navigation Guidance Night</source>
-        <translation>탐색 안내 밤</translation>
-    </message>
-    <message>
-        <source>User provided style</source>
-        <translation>사용자 지정 스타일</translation>
     </message>
 </context>
 <context>
@@ -222,7 +123,7 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     </message>
     <message>
         <source>Reached waypoint.</source>
-        <translation>경유 지점에 도착했습니다.</translation>
+        <translation>경유 지점에 도착하였습니다.</translation>
     </message>
     <message>
         <source>Head on.</source>
@@ -341,7 +242,7 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     <name>QGeoRouteParserOsrmV5</name>
     <message>
         <source>North</source>
-        <extracomment>Translations exist at https://github.com/Project-OSRM/osrm-text-instructions. Always used in &quot;Head %1 [onto &lt;street name&gt;]&quot;</extracomment>
+        <extracomment>Always used in &quot;Head %1 [onto &lt;street name&gt;]&quot;</extracomment>
         <translation>북쪽</translation>
     </message>
     <message>
@@ -540,7 +441,6 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     </message>
     <message>
         <source>Head %1</source>
-        <extracomment>%1 is &quot;North&quot;, &quot;South&quot;, &quot;East&quot; or &quot;West&quot;</extracomment>
         <translation>%1으로 진행</translation>
     </message>
     <message>
@@ -764,24 +664,12 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
         <translation>%1 방면으로 우회전</translation>
     </message>
     <message>
-        <source>Continue slightly right onto %1</source>
-        <translation>%1 방면으로 약간 오른쪽으로 진행</translation>
-    </message>
-    <message>
-        <source>Continue on the right</source>
-        <translation>오른쪽으로 계속 진행</translation>
-    </message>
-    <message>
-        <source>Continue on the right on %1</source>
-        <translation>%1에서 오른쪽으로 계속 진행</translation>
-    </message>
-    <message>
         <source>Contine slightly right</source>
-        <translation type="vanished">약간 오른쪽으로 진행</translation>
+        <translation>약간 오른쪽으로 진행</translation>
     </message>
     <message>
         <source>Contine slightly right onto %1</source>
-        <translation type="vanished">%1 방면으로 약간 오른쪽으로 진행</translation>
+        <translation>%1 방면으로 약간 오른쪽으로 진행</translation>
     </message>
     <message>
         <source>Continue straight onto %1</source>
@@ -801,11 +689,11 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     </message>
     <message>
         <source>Contine on the right</source>
-        <translation type="vanished">오른쪽으로 계속 진행</translation>
+        <translation>오른쪽으로 계속 진행</translation>
     </message>
     <message>
         <source>Contine on the right on %1</source>
-        <translation type="vanished">%1 방면으로 오른쪽으로 계속 진행</translation>
+        <translation>%1 방면으로 오른쪽으로 계속 진행</translation>
     </message>
     <message>
         <source>Take the ramp on the left</source>
@@ -894,10 +782,6 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
         <translation>열차 탑승</translation>
     </message>
     <message>
-        <source>Take the train [%1]</source>
-        <translation>열차 탑승 [%1]</translation>
-    </message>
-    <message>
         <source>Go straight</source>
         <translation>직진</translation>
     </message>
@@ -931,7 +815,6 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     </message>
     <message>
         <source> and continue straight</source>
-        <extracomment>This string will be prepended with lane instructions. E.g., &quot;Use the left or the right lane and continue straight&quot;</extracomment>
         <translation> 그리고 계속 진행</translation>
     </message>
     <message>
@@ -999,179 +882,179 @@ https://developers.arcgis.com/authentication/accessing-arcgis-online-services/ �
     <name>QGeoRouteReplyOsm</name>
     <message>
         <source>Go straight.</source>
-        <translation type="vanished">직진하십시오.</translation>
+        <translation>직진하십시오.</translation>
     </message>
     <message>
         <source>Go straight onto %1.</source>
-        <translation type="vanished">%1 방향으로 직진하십시오.</translation>
+        <translation>%1 방향으로 직진하십시오.</translation>
     </message>
     <message>
         <source>Turn slightly right.</source>
-        <translation type="vanished">약간 우회전하십시오.</translation>
+        <translation>약간 우회전하십시오.</translation>
     </message>
     <message>
         <source>Turn slightly right onto %1.</source>
-        <translation type="vanished">%1 방향으로 약간 우회전하십시오.</translation>
+        <translation>%1 방향으로 약간 우회전하십시오.</translation>
     </message>
     <message>
         <source>Turn right.</source>
-        <translation type="vanished">우회전하십시오.</translation>
+        <translation>우회전하십시오.</translation>
     </message>
     <message>
         <source>Turn right onto %1.</source>
-        <translation type="vanished">%1 방향으로 우회전하십시오.</translation>
+        <translation>%1 방향으로 우회전하십시오.</translation>
     </message>
     <message>
         <source>Make a sharp right.</source>
-        <translation type="vanished">크게 우회전하십시오.</translation>
+        <translation>크게 우회전하십시오.</translation>
     </message>
     <message>
         <source>Make a sharp right onto %1.</source>
-        <translation type="vanished">%1 방향으로 크게 우회전하십시오.</translation>
+        <translation>%1 방향으로 크게 우회전하십시오.</translation>
     </message>
     <message>
         <source>When it is safe to do so, perform a U-turn.</source>
-        <translation type="vanished">유턴 허용 시 유턴하십시오.</translation>
+        <translation>유턴 허용 시 유턴하십시오.</translation>
     </message>
     <message>
         <source>Make a sharp left.</source>
-        <translation type="vanished">크게 좌회전하십시오.</translation>
+        <translation>크게 좌회전하십시오.</translation>
     </message>
     <message>
         <source>Make a sharp left onto %1.</source>
-        <translation type="vanished">%1 방향으로 크게 좌회전하십시오.</translation>
+        <translation>%1 방향으로 크게 좌회전하십시오.</translation>
     </message>
     <message>
         <source>Turn left.</source>
-        <translation type="vanished">좌회전하십시오.</translation>
+        <translation>좌회전하십시오.</translation>
     </message>
     <message>
         <source>Turn left onto %1.</source>
-        <translation type="vanished">%1 방향으로 좌회전하십시오.</translation>
+        <translation>%1 방향으로 좌회전하십시오.</translation>
     </message>
     <message>
         <source>Turn slightly left.</source>
-        <translation type="vanished">약간 좌회전하십시오.</translation>
+        <translation>약간 좌회전하십시오.</translation>
     </message>
     <message>
         <source>Turn slightly left onto %1.</source>
-        <translation type="vanished">%1 방향으로 약간 좌회전하십시오.</translation>
+        <translation>%1 방향으로 약간 좌회전하십시오.</translation>
     </message>
     <message>
         <source>Reached waypoint.</source>
-        <translation type="vanished">경유 지점에 도착하였습니다.</translation>
+        <translation>경유 지점에 도착하였습니다.</translation>
     </message>
     <message>
         <source>Head on.</source>
-        <translation type="vanished">직진하십시오.</translation>
+        <translation>직진하십시오.</translation>
     </message>
     <message>
         <source>Head onto %1.</source>
-        <translation type="vanished">%1 방향으로 직진하십시오.</translation>
+        <translation>%1 방향으로 직진하십시오.</translation>
     </message>
     <message>
         <source>Enter the roundabout.</source>
-        <translation type="vanished">회전 교차로에 진입하십시오.</translation>
+        <translation>회전 교차로에 진입하십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the first exit.</source>
-        <translation type="vanished">회전 교차로의 첫번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 첫번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the first exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 첫번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 첫번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the second exit.</source>
-        <translation type="vanished">회전 교차로의 두번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 두번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the second exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 두번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 두번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the third exit.</source>
-        <translation type="vanished">회전 교차로의 세번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 세번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the third exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 세번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 세번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the fourth exit.</source>
-        <translation type="vanished">회전 교차로의 네번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 네번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the fourth exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 네번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 네번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the fifth exit.</source>
-        <translation type="vanished">회전 교차로의 다섯번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 다섯번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the fifth exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 다섯번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 다섯번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the sixth exit.</source>
-        <translation type="vanished">회전 교차로의 여섯번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 여섯번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the sixth exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 여섯번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 여섯번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the seventh exit.</source>
-        <translation type="vanished">회전 교차로의 일곱번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 일곱번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the seventh exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 일곱번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 일곱번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the eighth exit.</source>
-        <translation type="vanished">회전 교차로의 여덟번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 여덟번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the eighth exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 여덟번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 여덟번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the ninth exit.</source>
-        <translation type="vanished">회전 교차로의 아홉번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 아홉번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>At the roundabout take the ninth exit onto %1.</source>
-        <translation type="vanished">회전 교차로의 %1 방면 아홉번째 출구로 나가십시오.</translation>
+        <translation>회전 교차로의 %1 방면 아홉번째 출구로 나가십시오.</translation>
     </message>
     <message>
         <source>Leave the roundabout.</source>
-        <translation type="vanished">회전 교차로에서 나가십시오.</translation>
+        <translation>회전 교차로에서 나가십시오.</translation>
     </message>
     <message>
         <source>Leave the roundabout onto %1.</source>
-        <translation type="vanished">%1 방면으로 회전 교차로에서 나가십시오.</translation>
+        <translation>%1 방면으로 회전 교차로에서 나가십시오.</translation>
     </message>
     <message>
         <source>Stay on the roundabout.</source>
-        <translation type="vanished">회전 교차로에서 계속 진행하십시오.</translation>
+        <translation>회전 교차로에서 계속 진행하십시오.</translation>
     </message>
     <message>
         <source>Start at the end of the street.</source>
-        <translation type="vanished">길 끝에서 시작하십시오.</translation>
+        <translation>길 끝에서 시작하십시오.</translation>
     </message>
     <message>
         <source>Start at the end of %1.</source>
-        <translation type="vanished">%1 끝에서 시작하십시오.</translation>
+        <translation>%1 끝에서 시작하십시오.</translation>
     </message>
     <message>
         <source>You have reached your destination.</source>
-        <translation type="vanished">목적지에 도착하였습니다.</translation>
+        <translation>목적지에 도착하였습니다.</translation>
     </message>
     <message>
         <source>Don&apos;t know what to say for &apos;%1&apos;</source>
-        <translation type="vanished">&apos;%1&apos;을 무엇이라고 말해야 할 지 모르겠습니다</translation>
+        <translation>&apos;%1&apos;을 무엇이라고 말해야 할 지 모르겠습니다</translation>
     </message>
 </context>
 <context>
@@ -1494,7 +1377,7 @@ https://www.mapbox.com 사이트를 방문하십시오</translation>
     </message>
     <message>
         <source>OpenStreetMap street map</source>
-        <translation type="vanished">OpenStreetMap 거리 지도</translation>
+        <translation>OpenStreetMap 거리 지도</translation>
     </message>
     <message>
         <source>Satellite Map</source>
@@ -1502,7 +1385,7 @@ https://www.mapbox.com 사이트를 방문하십시오</translation>
     </message>
     <message>
         <source>OpenStreetMap satellite map</source>
-        <translation type="vanished">OpenStreetMap 위성 지도</translation>
+        <translation>OpenStreetMap 위성 지도</translation>
     </message>
 </context>
 <context>
@@ -1569,25 +1452,11 @@ https://www.mapbox.com 사이트를 방문하십시오</translation>
     </message>
 </context>
 <context>
-    <name>QPlaceSearchReplyMapbox</name>
-    <message>
-        <source>Response parse error</source>
-        <translation>응답 처리 오류</translation>
-    </message>
-</context>
-<context>
     <name>QPlaceSearchReplyOsm</name>
     <message>
         <source>Communication error</source>
-        <translation type="vanished">통신 오류</translation>
+        <translation>통신 오류</translation>
     </message>
-    <message>
-        <source>Response parse error</source>
-        <translation>응답 처리 오류</translation>
-    </message>
-</context>
-<context>
-    <name>QPlaceSearchSuggestionReplyMapbox</name>
     <message>
         <source>Response parse error</source>
         <translation>응답 처리 오류</translation>

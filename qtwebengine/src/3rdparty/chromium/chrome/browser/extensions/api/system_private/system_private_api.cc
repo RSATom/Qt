@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -22,7 +22,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/update_engine_client.h"
 #else
-#include "chrome/browser/upgrade_detector.h"
+#include "chrome/browser/upgrade_detector/upgrade_detector.h"
 #endif
 
 namespace {
@@ -60,7 +60,7 @@ SystemPrivateGetIncognitoModeAvailabilityFunction::Run() {
   int value = prefs->GetInteger(prefs::kIncognitoModeAvailability);
   EXTENSION_FUNCTION_VALIDATE(
       value >= 0 &&
-      value < static_cast<int>(arraysize(kIncognitoModeAvailabilityStrings)));
+      value < static_cast<int>(base::size(kIncognitoModeAvailabilityStrings)));
   return RespondNow(OneArgument(
       std::make_unique<base::Value>(kIncognitoModeAvailabilityStrings[value])));
 }

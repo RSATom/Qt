@@ -7,9 +7,9 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "content/common/pepper_file_util.h"
+#include "content/public/common/service_names.mojom.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
-#include "content/renderer/fileapi/file_system_dispatcher.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "ppapi/c/pp_errors.h"
@@ -18,6 +18,8 @@
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/file_system_util.h"
 #include "ppapi/shared_impl/file_type_conversion.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "storage/common/fileapi/file_system_type_converters.h"
 #include "storage/common/fileapi/file_system_util.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -66,7 +68,12 @@ bool PepperFileSystemHost::IsFileSystemHost() { return true; }
 
 void PepperFileSystemHost::DidOpenFileSystem(
     const std::string& /* name_unused */,
-    const GURL& root) {
+    const GURL& root,
+    base::File::Error error) {
+  if (error != base::File::FILE_OK) {
+    DidFailOpenFileSystem(error);
+    return;
+  }
   opened_ = true;
   root_url_ = root;
   reply_context_.params.set_result(PP_OK);
@@ -99,13 +106,11 @@ int32_t PepperFileSystemHost::OnHostMsgOpen(
   if (!document_url.is_valid())
     return PP_ERROR_FAILED;
 
-  FileSystemDispatcher* file_system_dispatcher =
-      RenderThreadImpl::current()->file_system_dispatcher();
   reply_context_ = context->MakeReplyMessageContext();
-  file_system_dispatcher->OpenFileSystem(
-      document_url.GetOrigin(), file_system_type,
-      base::Bind(&PepperFileSystemHost::DidOpenFileSystem, AsWeakPtr()),
-      base::Bind(&PepperFileSystemHost::DidFailOpenFileSystem, AsWeakPtr()));
+  GetFileSystemManager().Open(
+      url::Origin::Create(document_url),
+      mojo::ConvertTo<blink::mojom::FileSystemType>(file_system_type),
+      base::BindOnce(&PepperFileSystemHost::DidOpenFileSystem, AsWeakPtr()));
   return PP_OK_COMPLETIONPENDING;
 }
 
@@ -136,6 +141,14 @@ int32_t PepperFileSystemHost::OnHostMsgInitIsolatedFileSystem(
       main_frame_origin.GetURL(), fsid, root_name));
   opened_ = true;
   return PP_OK;
+}
+
+blink::mojom::FileSystemManager& PepperFileSystemHost::GetFileSystemManager() {
+  if (!file_system_manager_) {
+    ChildThreadImpl::current()->GetConnector()->BindInterface(
+        mojom::kBrowserServiceName, mojo::MakeRequest(&file_system_manager_));
+  }
+  return *file_system_manager_;
 }
 
 }  // namespace content

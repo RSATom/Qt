@@ -70,6 +70,7 @@
 
 enum OutputFormat {
   OUTPUT_NONE,
+  OUTPUT_PAGEINFO,
   OUTPUT_STRUCTURE,
   OUTPUT_TEXT,
   OUTPUT_PPM,
@@ -115,6 +116,7 @@ struct Options {
   std::string font_directory;
   int first_page = 0;  // First 0-based page number to renderer.
   int last_page = 0;   // Last 0-based page number to renderer.
+  time_t time = -1;
 };
 
 Optional<std::string> ExpandDirectoryPath(const std::string& path) {
@@ -134,7 +136,7 @@ Optional<std::string> ExpandDirectoryPath(const std::string& path) {
 #endif  // WORDEXP_AVAILABLE
 }
 
-struct FPDF_FORMFILLINFO_PDFiumTest : public FPDF_FORMFILLINFO {
+struct FPDF_FORMFILLINFO_PDFiumTest final : public FPDF_FORMFILLINFO {
   // Hold a map of the currently loaded pages in order to avoid them
   // to get loaded twice.
   std::map<int, ScopedFPDFPage> loaded_pages;
@@ -156,6 +158,7 @@ void OutputMD5Hash(const char* file_name, const char* buffer, int len) {
   printf("MD5:%s:%s\n", file_name, hash.c_str());
 }
 
+#ifdef PDF_ENABLE_V8
 // These example JS platform callback handlers are entirely optional,
 // and exist here to show the flow of information from a document back
 // to the embedder.
@@ -169,6 +172,10 @@ int ExampleAppAlert(IPDF_JSPLATFORM*,
     printf("[icon=%d,type=%d]", icon, type);
   printf(": %ls\n", GetPlatformWString(msg).c_str());
   return 0;
+}
+
+void ExampleAppBeep(IPDF_JSPLATFORM*, int type) {
+  printf("BEEP!!! %d\n", type);
 }
 
 int ExampleAppResponse(IPDF_JSPLATFORM*,
@@ -194,12 +201,12 @@ int ExampleAppResponse(IPDF_JSPLATFORM*,
   return 4;
 }
 
-void ExampleAppBeep(IPDF_JSPLATFORM*, int type) {
-  printf("BEEP!!! %d\n", type);
-}
-
-void ExampleDocGotoPage(IPDF_JSPLATFORM*, int page_number) {
-  printf("Goto Page: %d\n", page_number);
+int ExampleDocGetFilePath(IPDF_JSPLATFORM*, void* file_path, int length) {
+  static const char kPath[] = "myfile.pdf";
+  constexpr int kRequired = static_cast<int>(sizeof(kPath));
+  if (file_path && length >= kRequired)
+    memcpy(file_path, kPath, kRequired);
+  return kRequired;
 }
 
 void ExampleDocMail(IPDF_JSPLATFORM*,
@@ -216,6 +223,39 @@ void ExampleDocMail(IPDF_JSPLATFORM*,
          GetPlatformWString(BCC).c_str(), GetPlatformWString(Subject).c_str(),
          GetPlatformWString(Msg).c_str());
 }
+
+void ExampleDocPrint(IPDF_JSPLATFORM*,
+                     FPDF_BOOL bUI,
+                     int nStart,
+                     int nEnd,
+                     FPDF_BOOL bSilent,
+                     FPDF_BOOL bShrinkToFit,
+                     FPDF_BOOL bPrintAsImage,
+                     FPDF_BOOL bReverse,
+                     FPDF_BOOL bAnnotations) {
+  printf("Doc Print: %d, %d, %d, %d, %d, %d, %d, %d\n", bUI, nStart, nEnd,
+         bSilent, bShrinkToFit, bPrintAsImage, bReverse, bAnnotations);
+}
+
+void ExampleDocSubmitForm(IPDF_JSPLATFORM*,
+                          void* formData,
+                          int length,
+                          FPDF_WIDESTRING url) {
+  printf("Doc Submit Form: url=%ls\n", GetPlatformWString(url).c_str());
+}
+
+void ExampleDocGotoPage(IPDF_JSPLATFORM*, int page_number) {
+  printf("Goto Page: %d\n", page_number);
+}
+
+int ExampleFieldBrowse(IPDF_JSPLATFORM*, void* file_path, int length) {
+  static const char kPath[] = "selected.txt";
+  constexpr int kRequired = static_cast<int>(sizeof(kPath));
+  if (file_path && length >= kRequired)
+    memcpy(file_path, kPath, kRequired);
+  return kRequired;
+}
+#endif  // PDF_ENABLE_V8
 
 void ExampleUnsupportedHandler(UNSUPPORT_INFO*, int type) {
   std::string feature = "Unknown";
@@ -399,6 +439,12 @@ bool ParseCommandLine(const std::vector<std::string>& args,
         return false;
       }
       options->scale_factor_as_string = cur_arg.substr(8);
+    } else if (cur_arg == "--show-pageinfo") {
+      if (options->output_format != OUTPUT_NONE) {
+        fprintf(stderr, "Duplicate or conflicting --show-pageinfo argument\n");
+        return false;
+      }
+      options->output_format = OUTPUT_PAGEINFO;
     } else if (cur_arg == "--show-structure") {
       if (options->output_format != OUTPUT_NONE) {
         fprintf(stderr, "Duplicate or conflicting --show-structure argument\n");
@@ -424,6 +470,17 @@ bool ParseCommandLine(const std::vector<std::string>& args,
       }
     } else if (cur_arg == "--md5") {
       options->md5 = true;
+    } else if (cur_arg.size() > 7 && cur_arg.compare(0, 7, "--time=") == 0) {
+      if (options->time > -1) {
+        fprintf(stderr, "Duplicate --time argument\n");
+        return false;
+      }
+      const std::string time_string = cur_arg.substr(7);
+      std::stringstream(time_string) >> options->time;
+      if (options->time < 0) {
+        fprintf(stderr, "Invalid --time argument, must be non-negative\n");
+        return false;
+      }
     } else if (cur_arg.size() >= 2 && cur_arg[0] == '-' && cur_arg[1] == '-') {
       fprintf(stderr, "Unrecognized argument %s\n", cur_arg.c_str());
       return false;
@@ -520,6 +577,11 @@ bool RenderPage(const std::string& name,
     SendPageEvents(form, page, events);
   if (options.save_images)
     WriteImages(page, name.c_str(), page_index);
+
+  if (options.output_format == OUTPUT_PAGEINFO) {
+    DumpPageInfo(page, page_index);
+    return true;
+  }
   if (options.output_format == OUTPUT_STRUCTURE) {
     DumpPageStructure(page, page_index);
     return true;
@@ -552,7 +614,7 @@ bool RenderPage(const std::string& name,
 
       int rv = FPDF_RenderPageBitmap_Start(bitmap.get(), page, 0, 0, width,
                                            height, 0, FPDF_ANNOT, &pause);
-      while (rv == FPDF_RENDER_TOBECOUNTINUED)
+      while (rv == FPDF_RENDER_TOBECONTINUED)
         rv = FPDF_RenderPage_Continue(page, &pause);
     }
 
@@ -682,6 +744,9 @@ void RenderPdf(const std::string& name,
     return;
   }
 
+  if (!FPDF_DocumentHasValidCrossReferenceTable(doc.get()))
+    fprintf(stderr, "Document has invalid cross reference table\n");
+
   (void)FPDF_GetDocPermissions(doc.get());
 
   if (options.show_metadata)
@@ -690,13 +755,19 @@ void RenderPdf(const std::string& name,
   if (options.save_attachments)
     WriteAttachments(doc.get(), name);
 
+#ifdef PDF_ENABLE_V8
   IPDF_JSPLATFORM platform_callbacks = {};
   platform_callbacks.version = 3;
   platform_callbacks.app_alert = ExampleAppAlert;
-  platform_callbacks.app_response = ExampleAppResponse;
   platform_callbacks.app_beep = ExampleAppBeep;
-  platform_callbacks.Doc_gotoPage = ExampleDocGotoPage;
+  platform_callbacks.app_response = ExampleAppResponse;
+  platform_callbacks.Doc_getFilePath = ExampleDocGetFilePath;
   platform_callbacks.Doc_mail = ExampleDocMail;
+  platform_callbacks.Doc_print = ExampleDocPrint;
+  platform_callbacks.Doc_submitForm = ExampleDocSubmitForm;
+  platform_callbacks.Doc_gotoPage = ExampleDocGotoPage;
+  platform_callbacks.Field_browse = ExampleFieldBrowse;
+#endif  // PDF_ENABLE_V8
 
   FPDF_FORMFILLINFO_PDFiumTest form_callbacks = {};
 #ifdef PDF_ENABLE_XFA
@@ -798,6 +869,7 @@ constexpr char kUsageString[] =
     "Usage: pdfium_test [OPTION] [FILE]...\n"
     "  --show-config       - print build options and exit\n"
     "  --show-metadata     - print the file metadata\n"
+    "  --show-pageinfo     - print information about pages\n"
     "  --show-structure    - print the structure elements from the document\n"
     "  --send-events       - send input described by .evt file\n"
     "  --render-oneshot    - render image without using progressive renderer\n"
@@ -834,6 +906,7 @@ constexpr char kUsageString[] =
     "  --skp   - write page images <pdf-name>.<page-number>.skp\n"
 #endif
     "  --md5   - write output image paths and their md5 hashes to stdout.\n"
+    "  --time=<number> - Seconds since the epoch to set system time.\n"
     "";
 
 }  // namespace
@@ -888,6 +961,14 @@ int main(int argc, const char* argv[]) {
   unsupported_info.FSDK_UnSupport_Handler = ExampleUnsupportedHandler;
 
   FSDK_SetUnSpObjProcessHandler(&unsupported_info);
+
+  if (options.time > -1) {
+    // This must be a static var to avoid explicit capture, so the lambda can be
+    // converted to a function ptr.
+    static time_t time_ret = options.time;
+    FSDK_SetTimeFunction([]() { return time_ret; });
+    FSDK_SetLocaltimeFunction([](const time_t* tp) { return gmtime(tp); });
+  }
 
   for (const std::string& filename : files) {
     size_t file_length = 0;

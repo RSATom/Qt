@@ -8,18 +8,26 @@
 #define FXJS_XFA_CJX_FLOAT_H_
 
 #include "fxjs/xfa/cjx_content.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Float;
 
-class CJX_Float : public CJX_Content {
+class CJX_Float final : public CJX_Content {
  public:
   explicit CJX_Float(CXFA_Float* node);
   ~CJX_Float() override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(value);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(value);
+
+ private:
+  using Type__ = CJX_Float;
+  using ParentType__ = CJX_Content;
+
+  static const TypeTag static_type__ = TypeTag::Float;
 };
 
 #endif  // FXJS_XFA_CJX_FLOAT_H_

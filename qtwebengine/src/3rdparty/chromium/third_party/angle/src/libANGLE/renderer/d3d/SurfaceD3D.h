@@ -46,6 +46,8 @@ class SurfaceD3D : public SurfaceImpl
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
     egl::Error getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc) override;
     void setSwapInterval(EGLint interval) override;
+    void setFixedWidth(EGLint width) override;
+    void setFixedHeight(EGLint height) override;
 
     EGLint getWidth() const override;
     EGLint getHeight() const override;
@@ -60,12 +62,12 @@ class SurfaceD3D : public SurfaceImpl
 
     egl::Error checkForOutOfDateSwapChain(DisplayD3D *displayD3D);
 
-    gl::Error getAttachmentRenderTarget(const gl::Context *context,
-                                        GLenum binding,
-                                        const gl::ImageIndex &imageIndex,
-                                        FramebufferAttachmentRenderTarget **rtOut) override;
-    gl::Error initializeContents(const gl::Context *context,
-                                 const gl::ImageIndex &imageIndex) override;
+    angle::Result getAttachmentRenderTarget(const gl::Context *context,
+                                            GLenum binding,
+                                            const gl::ImageIndex &imageIndex,
+                                            FramebufferAttachmentRenderTarget **rtOut) override;
+    angle::Result initializeContents(const gl::Context *context,
+                                     const gl::ImageIndex &imageIndex) override;
 
     const angle::Format *getD3DTextureColorFormat() const override;
 
@@ -86,6 +88,8 @@ class SurfaceD3D : public SurfaceImpl
     egl::Display *mDisplay;
 
     bool mFixedSize;
+    GLint mFixedWidth;
+    GLint mFixedHeight;
     GLint mOrientation;
 
     GLenum mRenderTargetFormat;
@@ -132,4 +136,4 @@ class PbufferSurfaceD3D : public SurfaceD3D
 
 }  // namespace rx
 
-#endif // LIBANGLE_RENDERER_D3D_SURFACED3D_H_
+#endif  // LIBANGLE_RENDERER_D3D_SURFACED3D_H_

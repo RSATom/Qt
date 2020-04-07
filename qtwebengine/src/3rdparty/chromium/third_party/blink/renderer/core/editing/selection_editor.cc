@@ -27,6 +27,7 @@
 
 #include "third_party/blink/renderer/core/dom/node_with_index.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/editing/selection_adjuster.h"
@@ -43,7 +44,7 @@ SelectionEditor::~SelectionEditor() = default;
 void SelectionEditor::AssertSelectionValid() const {
 #if DCHECK_IS_ON()
   // Since We don't track dom tree version during attribute changes, we can't
-  // use it for validity of |m_selection|.
+  // use it for validity of |selection_|.
   const_cast<SelectionEditor*>(this)->selection_.dom_tree_version_ =
       GetDocument().DomTreeVersion();
 #endif
@@ -139,7 +140,7 @@ void SelectionEditor::DidFinishDOMMutation() {
   AssertSelectionValid();
 }
 
-void SelectionEditor::DocumentAttached(Document* document) {
+void SelectionEditor::DidAttachDocument(Document* document) {
   DCHECK(document);
   DCHECK(!LifecycleContext()) << LifecycleContext();
   style_version_for_dom_tree_ = static_cast<uint64_t>(-1);
@@ -162,6 +163,14 @@ void SelectionEditor::ContextDestroyed(Document*) {
 static Position ComputePositionForChildrenRemoval(const Position& position,
                                                   ContainerNode& container) {
   Node* node = position.ComputeContainerNode();
+#if DCHECK_IS_ON()
+  DCHECK(node) << position;
+#else
+  // TODO(https://crbug.com/882592): Once we know the root cause, we should
+  // get rid of following if-statement.
+  if (!node)
+    return position;
+#endif
   if (container.ContainsIncludingHostElements(*node))
     return Position::FirstPositionInNode(container);
   return position;

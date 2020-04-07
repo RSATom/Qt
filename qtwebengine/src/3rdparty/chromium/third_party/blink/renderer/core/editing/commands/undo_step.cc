@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/set_selection_options.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 
 namespace blink {
 
@@ -23,8 +24,8 @@ UndoStep* UndoStep::Create(Document* document,
                            const SelectionForUndoStep& starting_selection,
                            const SelectionForUndoStep& ending_selection,
                            InputEvent::InputType input_type) {
-  return new UndoStep(document, starting_selection, ending_selection,
-                      input_type);
+  return MakeGarbageCollected<UndoStep>(document, starting_selection,
+                                        ending_selection, input_type);
 }
 
 UndoStep::UndoStep(Document* document,
@@ -54,8 +55,8 @@ void UndoStep::Unapply() {
   document_->UpdateStyleAndLayoutIgnorePendingStylesheets();
 
   {
-    size_t size = commands_.size();
-    for (size_t i = size; i; --i)
+    wtf_size_t size = commands_.size();
+    for (wtf_size_t i = size; i; --i)
       commands_[i - 1]->DoUnapply();
   }
 

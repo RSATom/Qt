@@ -13,14 +13,6 @@ if (is_android) {
   import("//build/config/android/rules.gni")
 }
 
-config("audio_device_config") {
-  include_dirs = [
-    "../include",
-    "include",
-    "dummy",  # Contains dummy audio device implementations.
-  ]
-}
-
 config("audio_device_warnings_config") {
   if (is_win && is_clang) {
     cflags = [
@@ -30,6 +22,16 @@ config("audio_device_warnings_config") {
       "-Wno-microsoft-goto",
     ]
   }
+}
+
+rtc_source_set("audio_device_default") {
+  visibility = [ "*" ]
+  sources = [
+    "include/audio_device_default.h",
+  ]
+  deps = [
+    ":audio_device_api",
+  ]
 }
 
 rtc_source_set("audio_device") {
@@ -77,9 +79,10 @@ if (rtc_include_internal_audio_device && is_ios) {
       "../../rtc_base:gtest_prod",
       "../../rtc_base:rtc_base",
       "../../rtc_base/system:fallthrough",
+      "../../sdk:audio_device",
       "../../sdk:audio_objc",
-      "../../sdk:common_objc",
-      "../../system_wrappers:metrics_api",
+      "../../sdk:base_objc",
+      "../../system_wrappers:metrics",
     ]
     if (!build_with_chromium && is_clang) {
       # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
@@ -95,7 +98,6 @@ rtc_source_set("audio_device_api") {
     "include/audio_device_defines.h",
   ]
   deps = [
-    "../../:typedefs",
     "../../rtc_base:checks",
     "../../rtc_base:deprecation",
     "../../rtc_base:rtc_base_approved",
@@ -117,14 +119,13 @@ rtc_source_set("audio_device_buffer") {
   ]
   deps = [
     ":audio_device_api",
-    "../../:typedefs",
     "../../api:array_view",
     "../../common_audio:common_audio_c",
     "../../rtc_base:checks",
     "../../rtc_base:rtc_base_approved",
     "../../rtc_base:rtc_task_queue",
     "../../system_wrappers",
-    "../../system_wrappers:metrics_api",
+    "../../system_wrappers:metrics",
   ]
   if (!build_with_chromium && is_clang) {
     # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
@@ -177,8 +178,6 @@ rtc_source_set("windows_core_audio_utility") {
 # gradually phase out the old design.
 # TODO(henrika): currently only supported on Windows.
 rtc_source_set("audio_device_module_from_input_and_output") {
-  visibility = [ ":*" ]
-
   if (is_win && !build_with_chromium) {
     sources = [
       "include/audio_device_factory.cc",
@@ -211,25 +210,25 @@ rtc_source_set("audio_device_module_from_input_and_output") {
 # Linux, Mac, iOS and Android.
 rtc_source_set("audio_device_impl") {
   visibility = [ "*" ]
-  public_configs = [ ":audio_device_config" ]
-
   deps = [
     ":audio_device_api",
     ":audio_device_buffer",
+    ":audio_device_default",
     ":audio_device_generic",
-    "../..:webrtc_common",
-    "../../:typedefs",
     "../../api:array_view",
     "../../common_audio",
     "../../common_audio:common_audio_c",
     "../../rtc_base:checks",
     "../../rtc_base:deprecation",
+    "../../rtc_base:rtc_base",
     "../../rtc_base:rtc_base_approved",
     "../../rtc_base:rtc_task_queue",
+    "../../rtc_base/system:arch",
     "../../rtc_base/system:file_wrapper",
     "../../system_wrappers",
-    "../../system_wrappers:metrics_api",
+    "../../system_wrappers:metrics",
     "../utility",
+    "//third_party/abseil-cpp/absl/memory",
   ]
   if (rtc_include_internal_audio_device && is_ios) {
     deps += [ ":audio_device_ios_objc" ]
@@ -252,22 +251,6 @@ rtc_source_set("audio_device_impl") {
     ]
   }
 
-  include_dirs = []
-  if (is_linux) {
-    include_dirs += [ "linux" ]
-  }
-  if (is_ios) {
-    include_dirs += [ "ios" ]
-  }
-  if (is_mac) {
-    include_dirs += [ "mac" ]
-  }
-  if (is_win) {
-    include_dirs += [ "win" ]
-  }
-  if (is_android) {
-    include_dirs += [ "android" ]
-  }
   defines = []
   cflags = []
   if (rtc_audio_device_plays_sinus_tone) {
@@ -277,8 +260,6 @@ rtc_source_set("audio_device_impl") {
     defines += [ "AUDIO_DEVICE_INCLUDE_ANDROID_AAUDIO" ]
   }
   if (rtc_include_internal_audio_device) {
-    # TODO(bugs.webrtc.org/8850): remove this when the circular dependency will be fixed.
-    check_includes = false
     sources += [
       "audio_device_data_observer.cc",
       "audio_device_impl.cc",
@@ -367,7 +348,7 @@ rtc_source_set("audio_device_impl") {
           "mac/audio_mixer_manager_mac.cc",
           "mac/audio_mixer_manager_mac.h",
         ]
-        deps += [ ":mac_portaudio" ]
+        deps += [ "../third_party/portaudio:mac_portaudio" ]
         libs = [
           # Needed for CoreGraphics:
           "ApplicationServices.framework",
@@ -410,15 +391,6 @@ rtc_source_set("audio_device_impl") {
     # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
-}
-
-rtc_source_set("mac_portaudio") {
-  visibility = [ ":*" ]  # Only targets in this file can depend on this.
-  sources = [
-    "mac/portaudio/pa_memorybarrier.h",
-    "mac/portaudio/pa_ringbuffer.c",
-    "mac/portaudio/pa_ringbuffer.h",
-  ]
 }
 
 rtc_source_set("mock_audio_device") {
@@ -490,6 +462,7 @@ if (rtc_include_tests) {
     ]
     if (is_linux || is_mac || is_win) {
       sources += [ "audio_device_unittest.cc" ]
+      deps += [ "//third_party/abseil-cpp/absl/memory" ]
     }
     if (is_win) {
       sources += [ "win/core_audio_utility_win_unittest.cc" ]
@@ -511,7 +484,7 @@ if (rtc_include_tests) {
         "android/ensure_initialized.h",
       ]
       deps += [
-        "../../../base",
+        "../../base",
         "../../sdk/android:libjingle_peerconnection_java",
       ]
     }
@@ -537,6 +510,7 @@ if (!build_with_chromium && is_android) {
     ]
     deps = [
       "../../rtc_base:base_java",
+      "//third_party/android_deps:android_support_annotations_java",
     ]
   }
 }

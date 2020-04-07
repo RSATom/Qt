@@ -9,11 +9,12 @@
 #include <climits>
 #include <tuple>
 
+#include "core/fxge/dib/cfx_dibbase.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
-#include "core/fxge/dib/cfx_dibsource.h"
 #include "core/fxge/dib/cstretchengine.h"
 #include "core/fxge/fx_dib.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/stl_util.h"
 
 namespace {
 
@@ -23,7 +24,7 @@ bool SourceSizeWithinLimit(int width, int height) {
   return !height || width < kMaxProgressiveStretchPixels / height;
 }
 
-FXDIB_Format GetStretchedFormat(const CFX_DIBSource& src) {
+FXDIB_Format GetStretchedFormat(const CFX_DIBBase& src) {
   FXDIB_Format format = src.GetFormat();
   if (format == FXDIB_1bppMask)
     return FXDIB_8bppMask;
@@ -43,14 +44,14 @@ std::tuple<int, int, int, int> CmykDecode(const uint32_t cmyk) {
 }  // namespace
 
 CFX_ImageStretcher::CFX_ImageStretcher(ScanlineComposerIface* pDest,
-                                       const RetainPtr<CFX_DIBSource>& pSource,
+                                       const RetainPtr<CFX_DIBBase>& pSource,
                                        int dest_width,
                                        int dest_height,
                                        const FX_RECT& bitmap_rect,
-                                       uint32_t flags)
+                                       const FXDIB_ResampleOptions& options)
     : m_pDest(pDest),
       m_pSource(pSource),
-      m_Flags(flags),
+      m_ResampleOptions(options),
       m_bFlipX(false),
       m_bFlipY(false),
       m_DestWidth(dest_width),
@@ -58,7 +59,9 @@ CFX_ImageStretcher::CFX_ImageStretcher(ScanlineComposerIface* pDest,
       m_ClipRect(bitmap_rect),
       m_DestFormat(GetStretchedFormat(*pSource)),
       m_DestBPP(m_DestFormat & 0xff),
-      m_LineIndex(0) {}
+      m_LineIndex(0) {
+  ASSERT(m_ClipRect.Valid());
+}
 
 CFX_ImageStretcher::~CFX_ImageStretcher() {}
 
@@ -118,22 +121,25 @@ bool CFX_ImageStretcher::Start() {
     return false;
   }
 
-  if (m_Flags & FXDIB_DOWNSAMPLE)
+  if (m_ResampleOptions.bInterpolateDownsample)
     return StartQuickStretch();
-
   return StartStretch();
 }
 
 bool CFX_ImageStretcher::Continue(PauseIndicatorIface* pPause) {
-  if (m_Flags & FXDIB_DOWNSAMPLE)
+  if (m_ResampleOptions.bInterpolateDownsample)
     return ContinueQuickStretch(pPause);
   return ContinueStretch(pPause);
+}
+
+RetainPtr<CFX_DIBBase> CFX_ImageStretcher::source() {
+  return m_pSource;
 }
 
 bool CFX_ImageStretcher::StartStretch() {
   m_pStretchEngine = pdfium::MakeUnique<CStretchEngine>(
       m_pDest.Get(), m_DestFormat, m_DestWidth, m_DestHeight, m_ClipRect,
-      m_pSource, m_Flags);
+      m_pSource, m_ResampleOptions);
   m_pStretchEngine->StartStretchHorz();
   if (SourceSizeWithinLimit(m_pSource->GetWidth(), m_pSource->GetHeight())) {
     m_pStretchEngine->Continue(nullptr);
@@ -160,10 +166,11 @@ bool CFX_ImageStretcher::StartQuickStretch() {
     return false;
 
   size *= m_DestBPP;
-  m_pScanline.reset(FX_Alloc(uint8_t, (size / 8 + 3) / 4 * 4));
-  if (m_pSource->m_pAlphaMask)
-    m_pMaskScanline.reset(FX_Alloc(uint8_t, (m_ClipRect.Width() + 3) / 4 * 4));
-
+  m_pScanline.reset(FX_Alloc(uint8_t, FxAlignToBoundary<4>(size / 8)));
+  if (m_pSource->m_pAlphaMask) {
+    m_pMaskScanline.reset(
+        FX_Alloc(uint8_t, FxAlignToBoundary<4>(m_ClipRect.Width())));
+  }
   if (SourceSizeWithinLimit(m_pSource->GetWidth(), m_pSource->GetHeight())) {
     ContinueQuickStretch(nullptr);
     return false;

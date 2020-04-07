@@ -22,10 +22,6 @@
 #define O_LARGEFILE 0
 #endif  // O_LARGEFILE
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_LINUX_ || \
-    _FX_PLATFORM_ == _FX_PLATFORM_APPLE_ || \
-    _FX_PLATFORM_ == _FX_PLATFORM_ANDROID_
-
 namespace {
 
 void GetFileMode(uint32_t dwModes, int32_t& nFlags, int32_t& nMasks) {
@@ -55,8 +51,7 @@ CFX_FileAccess_Posix::~CFX_FileAccess_Posix() {
   Close();
 }
 
-bool CFX_FileAccess_Posix::Open(const ByteStringView& fileName,
-                                uint32_t dwMode) {
+bool CFX_FileAccess_Posix::Open(ByteStringView fileName, uint32_t dwMode) {
   if (m_nFD > -1)
     return false;
 
@@ -69,8 +64,7 @@ bool CFX_FileAccess_Posix::Open(const ByteStringView& fileName,
   return m_nFD > -1;
 }
 
-bool CFX_FileAccess_Posix::Open(const WideStringView& fileName,
-                                uint32_t dwMode) {
+bool CFX_FileAccess_Posix::Open(WideStringView fileName, uint32_t dwMode) {
   return Open(FX_UTF8Encode(fileName).AsStringView(), dwMode);
 }
 
@@ -153,5 +147,3 @@ bool CFX_FileAccess_Posix::Truncate(FX_FILESIZE szFile) {
 
   return !ftruncate(m_nFD, szFile);
 }
-
-#endif

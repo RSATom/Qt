@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "base/feature_list.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/frame_host/navigation_controller_impl.h"
@@ -27,6 +27,7 @@
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_utils.h"
+#include "content/test/navigation_simulator_impl.h"
 #include "content/test/test_navigation_url_loader.h"
 #include "content/test/test_render_frame_host.h"
 #include "content/test/test_web_contents.h"
@@ -58,27 +59,16 @@ class NavigatorTestWithBrowserSideNavigation
     return static_cast<TestNavigationURLLoader*>(request->loader_for_testing());
   }
 
-  // Requests a navigation of the specified FrameTreeNode to the specified URL;
-  // returns the unique ID of the pending NavigationEntry.
+  // Requests a navigation of the specified FrameTreeNode to the specified URL.
+  // Returns the unique ID of the pending NavigationEntry.
+  // TODO(ahemery): Convert this usage to NavigationSimulator.
   int RequestNavigation(FrameTreeNode* node, const GURL& url) {
-    return RequestNavigationWithParameters(node, url, Referrer(),
-                                           ui::PAGE_TRANSITION_LINK);
-  }
+    NavigationController::LoadURLParams load_url_params(url);
+    load_url_params.frame_tree_node_id = node->frame_tree_node_id();
+    load_url_params.referrer = Referrer();
+    load_url_params.transition_type = ui::PAGE_TRANSITION_LINK;
 
-  // Requests a navigation of the specified FrameTreeNode to the specified URL,
-  // using other specified parameters; returns the unique ID of the pending
-  // NavigationEntry.
-  int RequestNavigationWithParameters(
-      FrameTreeNode* node,
-      const GURL& url,
-      const Referrer& referrer,
-      ui::PageTransition transition_type) {
-    NavigationController::LoadURLParams load_params(url);
-    load_params.frame_tree_node_id = node->frame_tree_node_id();
-    load_params.referrer = referrer;
-    load_params.transition_type = transition_type;
-
-    controller().LoadURLWithParams(load_params);
+    controller().LoadURLWithParams(load_url_params);
     return controller().GetPendingEntry()->GetUniqueID();
   }
 
@@ -133,7 +123,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation,
   EXPECT_TRUE(main_test_rfh()->navigation_request());
   main_test_rfh()->SendNavigate(entry_id, true, kUrl);
   EXPECT_TRUE(main_test_rfh()->is_active());
-  EXPECT_EQ(SiteInstanceImpl::GetSiteForURL(browser_context(), kUrl),
+  EXPECT_EQ(SiteInstance::GetSiteForURL(browser_context(), kUrl),
             main_test_rfh()->GetSiteInstance()->GetSiteURL());
   EXPECT_EQ(kUrl, contents()->GetLastCommittedURL());
 
@@ -187,7 +177,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation,
   // Commit the navigation.
   navigation->Commit();
   EXPECT_TRUE(main_test_rfh()->is_active());
-  EXPECT_EQ(SiteInstanceImpl::GetSiteForURL(browser_context(), kUrl2),
+  EXPECT_EQ(SiteInstance::GetSiteForURL(browser_context(), kUrl2),
             main_test_rfh()->GetSiteInstance()->GetSiteURL());
   EXPECT_EQ(kUrl2, contents()->GetLastCommittedURL());
   EXPECT_FALSE(GetSpeculativeRenderFrameHost(node));
@@ -312,6 +302,8 @@ TEST_F(NavigatorTestWithBrowserSideNavigation, BeginNavigation) {
   EXPECT_EQ(kUrl2, subframe_loader->request_info()->common_params.url);
   // First party for cookies url should be that of the main frame.
   EXPECT_EQ(kUrl1, subframe_loader->request_info()->site_for_cookies);
+  EXPECT_EQ(url::Origin::Create(kUrl1),
+            subframe_loader->request_info()->top_frame_origin);
   EXPECT_FALSE(subframe_loader->request_info()->is_main_frame);
   EXPECT_TRUE(subframe_loader->request_info()->parent_is_main_frame);
   EXPECT_TRUE(subframe_request->browser_initiated());
@@ -387,7 +379,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation, NoContent) {
       new network::ResourceResponse);
   const char kNoContentHeaders[] = "HTTP/1.1 204 No Content\0\0";
   response->head.headers = new net::HttpResponseHeaders(
-      std::string(kNoContentHeaders, arraysize(kNoContentHeaders)));
+      std::string(kNoContentHeaders, base::size(kNoContentHeaders)));
   GetLoaderForNavigationRequest(main_request)
       ->CallOnResponseStarted(response, nullptr);
 
@@ -412,7 +404,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation, NoContent) {
   response = new network::ResourceResponse;
   const char kResetContentHeaders[] = "HTTP/1.1 205 Reset Content\0\0";
   response->head.headers = new net::HttpResponseHeaders(
-      std::string(kResetContentHeaders, arraysize(kResetContentHeaders)));
+      std::string(kResetContentHeaders, base::size(kResetContentHeaders)));
   GetLoaderForNavigationRequest(main_request)
       ->CallOnResponseStarted(response, nullptr);
 
@@ -878,7 +870,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation,
   // Receive the beforeUnload ACK.
   main_test_rfh()->SendBeforeUnloadACK(true);
   EXPECT_EQ(speculative_rfh, GetSpeculativeRenderFrameHost(node));
-  EXPECT_EQ(SiteInstanceImpl::GetSiteForURL(browser_context(), kUrl),
+  EXPECT_EQ(SiteInstance::GetSiteForURL(browser_context(), kUrl),
             speculative_rfh->GetSiteInstance()->GetSiteURL());
   int32_t site_instance_id = speculative_rfh->GetSiteInstance()->GetId();
   int64_t navigation_id =
@@ -923,7 +915,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation,
   EXPECT_NE(init_site_instance_id, site_instance_id);
   EXPECT_EQ(init_site_instance_id, main_test_rfh()->GetSiteInstance()->GetId());
   EXPECT_NE(speculative_rfh, main_test_rfh());
-  EXPECT_EQ(SiteInstanceImpl::GetSiteForURL(browser_context(), kUrl),
+  EXPECT_EQ(SiteInstance::GetSiteForURL(browser_context(), kUrl),
             speculative_rfh->GetSiteInstance()->GetSiteURL());
 
   // Receive the beforeUnload ACK.
@@ -960,7 +952,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation,
 
   // Once commit happens the speculative RenderFrameHost is updated to match the
   // known final SiteInstance.
-  EXPECT_EQ(SiteInstanceImpl::GetSiteForURL(browser_context(), kUrlRedirect),
+  EXPECT_EQ(SiteInstance::GetSiteForURL(browser_context(), kUrlRedirect),
             speculative_rfh->GetSiteInstance()->GetSiteURL());
   int32_t redirect_site_instance_id =
       speculative_rfh->GetSiteInstance()->GetId();
@@ -1301,7 +1293,7 @@ TEST_F(NavigatorTestWithBrowserSideNavigation, FeaturePolicyNewChild) {
   blink::FeaturePolicy* subframe_feature_policy =
       subframe_rfh->feature_policy();
   ASSERT_TRUE(subframe_feature_policy);
-  ASSERT_FALSE(subframe_feature_policy->GetOriginForTest().unique());
+  ASSERT_FALSE(subframe_feature_policy->GetOriginForTest().opaque());
 }
 
 TEST_F(NavigatorTestWithBrowserSideNavigation, TwoNavigationsRacingCommit) {

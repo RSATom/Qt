@@ -46,6 +46,8 @@
 #include <QtSensors/qambientlightsensor.h>
 #include <QtSensors/qambienttemperaturesensor.h>
 #include <QtSensors/qcompass.h>
+#include <QtSensors/qdistancesensor.h>
+#include <QtSensors/qhumiditysensor.h>
 #include <QtSensors/qmagnetometer.h>
 #include <QtSensors/qorientationsensor.h>
 #include <QtSensors/qproximitysensor.h>
@@ -64,8 +66,10 @@
 #include "qmlambientlightsensor.h"
 #include "qmlambienttemperaturesensor.h"
 #include "qmlcompass.h"
+#include "qmldistancesensor.h"
 #include "qmlgyroscope.h"
 #include "qmlholstersensor.h"
+#include "qmlhumiditysensor.h"
 #include "qmlirproximitysensor.h"
 #include "qmllightsensor.h"
 #include "qmlmagnetometer.h"
@@ -217,11 +221,18 @@ public:
 
         qmlRegisterType           <QmlSensorGesture            >(package, major, minor, "SensorGesture");
 
+        // Register the 5.4 interfaces
+        minor = 4;
+        qmlRegisterType           <QmlDistanceSensor           >(package, major, minor, "DistanceSensor");
+        qmlRegisterUncreatableType<QmlDistanceReading          >(package, major, minor, "DistanceReading",     QLatin1String("Cannot create DistanceReading"));
+
         // Register the new 5.9 interfaces
         // Implicitly registers 5.3 - 5.8 too
         minor = 9;
         qmlRegisterType           <QmlLidSensor                >(package, major, minor, "LidSensor");
         qmlRegisterUncreatableType<QmlLidReading               >(package, major, minor, "LidReading",          QLatin1String("Cannot create LidReading"));
+        qmlRegisterType           <QmlHumiditySensor           >(package, major, minor, "HumiditySensor");
+        qmlRegisterUncreatableType<QmlHumidityReading          >(package, major, minor, "HumidityReading",     QLatin1String("Cannot create HumidityReading"));
 
         // Register the latest Qt version as QML type version
         qmlRegisterModule(package, QT_VERSION_MAJOR, QT_VERSION_MINOR);

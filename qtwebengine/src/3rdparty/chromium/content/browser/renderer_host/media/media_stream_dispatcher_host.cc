@@ -9,8 +9,10 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -24,7 +26,7 @@ namespace {
 void BindMediaStreamDeviceObserverRequest(
     int render_process_id,
     int render_frame_id,
-    mojom::MediaStreamDeviceObserverRequest request) {
+    blink::mojom::MediaStreamDeviceObserverRequest request) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   RenderFrameHost* render_frame_host =
@@ -60,7 +62,7 @@ void MediaStreamDispatcherHost::Create(
     int render_process_id,
     int render_frame_id,
     MediaStreamManager* media_stream_manager,
-    mojom::MediaStreamDispatcherHostRequest request) {
+    blink::mojom::MediaStreamDispatcherHostRequest request) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   mojo::MakeStrongBinding(
       std::make_unique<MediaStreamDispatcherHost>(
@@ -70,26 +72,36 @@ void MediaStreamDispatcherHost::Create(
 
 void MediaStreamDispatcherHost::OnDeviceStopped(
     const std::string& label,
-    const MediaStreamDevice& device) {
+    const blink::MediaStreamDevice& device) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   GetMediaStreamDeviceObserver()->OnDeviceStopped(label, device);
 }
 
-const mojom::MediaStreamDeviceObserverPtr&
+void MediaStreamDispatcherHost::OnDeviceChanged(
+    const std::string& label,
+    const blink::MediaStreamDevice& old_device,
+    const blink::MediaStreamDevice& new_device) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  GetMediaStreamDeviceObserver()->OnDeviceChanged(label, old_device,
+                                                  new_device);
+}
+
+const blink::mojom::MediaStreamDeviceObserverPtr&
 MediaStreamDispatcherHost::GetMediaStreamDeviceObserver() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (media_stream_device_observer_)
     return media_stream_device_observer_;
 
-  mojom::MediaStreamDeviceObserverPtr observer;
+  blink::mojom::MediaStreamDeviceObserverPtr observer;
   auto dispatcher_request = mojo::MakeRequest(&observer);
   observer.set_connection_error_handler(base::BindOnce(
       &MediaStreamDispatcherHost::OnMediaStreamDeviceObserverConnectionError,
       weak_factory_.GetWeakPtr()));
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&BindMediaStreamDeviceObserverRequest, render_process_id_,
                      render_frame_id_, std::move(dispatcher_request)));
   media_stream_device_observer_ = std::move(observer);
@@ -109,13 +121,14 @@ void MediaStreamDispatcherHost::CancelAllRequests() {
 
 void MediaStreamDispatcherHost::GenerateStream(
     int32_t page_request_id,
-    const StreamControls& controls,
+    const blink::StreamControls& controls,
     bool user_gesture,
     GenerateStreamCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::PostTaskAndReplyWithResult(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::UI).get(), FROM_HERE,
+      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::UI}).get(),
+      FROM_HERE,
       base::BindOnce(salt_and_origin_callback_, render_process_id_,
                      render_frame_id_),
       base::BindOnce(&MediaStreamDispatcherHost::DoGenerateStream,
@@ -125,15 +138,16 @@ void MediaStreamDispatcherHost::GenerateStream(
 
 void MediaStreamDispatcherHost::DoGenerateStream(
     int32_t page_request_id,
-    const StreamControls& controls,
+    const blink::StreamControls& controls,
     bool user_gesture,
     GenerateStreamCallback callback,
     MediaDeviceSaltAndOrigin salt_and_origin) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!MediaStreamManager::IsOriginAllowed(render_process_id_,
                                            salt_and_origin.origin)) {
-    std::move(callback).Run(MEDIA_DEVICE_INVALID_SECURITY_ORIGIN, std::string(),
-                            MediaStreamDevices(), MediaStreamDevices());
+    std::move(callback).Run(blink::MEDIA_DEVICE_INVALID_SECURITY_ORIGIN,
+                            std::string(), blink::MediaStreamDevices(),
+                            blink::MediaStreamDevices());
     return;
   }
 
@@ -141,6 +155,8 @@ void MediaStreamDispatcherHost::DoGenerateStream(
       render_process_id_, render_frame_id_, requester_id_, page_request_id,
       controls, std::move(salt_and_origin), user_gesture, std::move(callback),
       base::BindRepeating(&MediaStreamDispatcherHost::OnDeviceStopped,
+                          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&MediaStreamDispatcherHost::OnDeviceChanged,
                           weak_factory_.GetWeakPtr()));
 }
 
@@ -161,12 +177,13 @@ void MediaStreamDispatcherHost::StopStreamDevice(const std::string& device_id,
 
 void MediaStreamDispatcherHost::OpenDevice(int32_t page_request_id,
                                            const std::string& device_id,
-                                           MediaStreamType type,
+                                           blink::MediaStreamType type,
                                            OpenDeviceCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::PostTaskAndReplyWithResult(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::UI).get(), FROM_HERE,
+      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::UI}).get(),
+      FROM_HERE,
       base::BindOnce(salt_and_origin_callback_, render_process_id_,
                      render_frame_id_),
       base::BindOnce(&MediaStreamDispatcherHost::DoOpenDevice,
@@ -177,14 +194,14 @@ void MediaStreamDispatcherHost::OpenDevice(int32_t page_request_id,
 void MediaStreamDispatcherHost::DoOpenDevice(
     int32_t page_request_id,
     const std::string& device_id,
-    MediaStreamType type,
+    blink::MediaStreamType type,
     OpenDeviceCallback callback,
     MediaDeviceSaltAndOrigin salt_and_origin) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!MediaStreamManager::IsOriginAllowed(render_process_id_,
                                            salt_and_origin.origin)) {
     std::move(callback).Run(false /* success */, std::string(),
-                            MediaStreamDevice());
+                            blink::MediaStreamDevice());
     return;
   }
 
@@ -201,9 +218,10 @@ void MediaStreamDispatcherHost::CloseDevice(const std::string& label) {
   media_stream_manager_->CancelRequest(label);
 }
 
-void MediaStreamDispatcherHost::SetCapturingLinkSecured(int32_t session_id,
-                                                        MediaStreamType type,
-                                                        bool is_secure) {
+void MediaStreamDispatcherHost::SetCapturingLinkSecured(
+    int32_t session_id,
+    blink::MediaStreamType type,
+    bool is_secure) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   media_stream_manager_->SetCapturingLinkSecured(render_process_id_, session_id,

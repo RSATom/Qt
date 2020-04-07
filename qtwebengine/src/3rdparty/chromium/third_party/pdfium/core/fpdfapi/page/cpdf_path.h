@@ -11,9 +11,7 @@
 
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/shared_copy_on_write.h"
-#include "core/fxge/cfx_defaultrenderdevice.h"
 #include "core/fxge/cfx_pathdata.h"
-#include "core/fxge/cfx_renderdevice.h"
 
 class CPDF_Path {
  public:
@@ -32,10 +30,11 @@ class CPDF_Path {
   CFX_FloatRect GetBoundingBox(float line_width, float miter_limit) const;
 
   bool IsRect() const;
-  void Transform(const CFX_Matrix* pMatrix);
+  void Transform(const CFX_Matrix& matrix);
 
   void Append(const CPDF_Path& other, const CFX_Matrix* pMatrix);
   void Append(const CFX_PathData* pData, const CFX_Matrix* pMatrix);
+  // TODO(thestig): Switch to CFX_FloatRect.
   void AppendRect(float left, float bottom, float right, float top);
   void AppendPoint(const CFX_PointF& point, FXPT_TYPE type, bool close);
 

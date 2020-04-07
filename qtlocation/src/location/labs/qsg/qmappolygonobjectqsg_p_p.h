@@ -57,7 +57,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_LOCATION_PRIVATE_EXPORT QMapPolygonObjectPrivateQSG : public QMapPolygonObjectPrivate, public QQSGMapObject
+class Q_LOCATION_PRIVATE_EXPORT QMapPolygonObjectPrivateQSG : public QMapPolygonObjectPrivateDefault, public QQSGMapObject
 {
 public:
     QMapPolygonObjectPrivateQSG(QGeoMapObject *q);
@@ -73,12 +73,7 @@ public:
                                  QSGNode *root,
                                  QQuickWindow *window) override;
 
-    // QGeoMapPolylinePrivate interface
-    QList<QGeoCoordinate> path() const override;
-    QColor fillColor() const override;
-    QColor borderColor() const override;
-    qreal borderWidth() const override;
-
+    // QGeoMapPolygonPrivate interface
     void setPath(const QList<QGeoCoordinate> &path) override;
     void setFillColor(const QColor &color) override;
     void setBorderColor(const QColor &color) override;
@@ -86,15 +81,12 @@ public:
 
     // QGeoMapObjectPrivate
     QGeoMapObjectPrivate *clone() override;
+    virtual void setGeoShape(const QGeoShape &shape) override;
 
     // Data Members
     QGeoMapPolygonGeometry m_geometry;
     QGeoMapPolylineGeometry m_borderGeometry;
-    QGeoPath m_geoPath;
 
-    QColor m_fillColor;
-    QColor m_borderColor;
-    qreal m_borderWidth = 0;
     bool m_updatingGeometry = false;
 };
 

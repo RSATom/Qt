@@ -53,6 +53,7 @@
 
 #include "qquickwebengineview_p.h"
 #include "render_view_context_menu_qt.h"
+#include "touch_handle_drawable_client.h"
 #include "web_contents_adapter_client.h"
 
 #include <QPointer>
@@ -64,6 +65,8 @@
 
 namespace QtWebEngineCore {
 class RenderWidgetHostViewQtDelegateQuick;
+class TouchHandleDrawableClient;
+class TouchSelectionMenuController;
 class UIDelegatesManager;
 class WebContentsAdapter;
 }
@@ -76,6 +79,7 @@ class QQuickWebEngineContextMenuRequest;
 class QQuickWebEngineSettings;
 class QQuickWebEngineFaviconProvider;
 class QQuickWebEngineProfilePrivate;
+class QQuickWebEngineTouchHandleProvider;
 
 QQuickWebEngineView::WebAction editorActionForKeyEvent(QKeyEvent* event);
 
@@ -105,7 +109,6 @@ public:
     void selectionChanged() override { }
     void recentlyAudibleChanged(bool recentlyAudible) override;
     QRectF viewportRect() const override;
-    qreal dpiScale() const override;
     QColor backgroundColor() const override;
     void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) override;
     void loadCommitted() override;
@@ -128,7 +131,7 @@ public:
     void didFetchDocumentMarkup(quint64, const QString&) override { }
     void didFetchDocumentInnerText(quint64, const QString&) override { }
     void didFindText(quint64, int) override;
-    void didPrintPage(quint64 requestId, const QByteArray &result) override;
+    void didPrintPage(quint64 requestId, QSharedPointer<QByteArray>) override;
     void didPrintPageToPdf(const QString &filePath, bool success) override;
     bool passOnFocus(bool reverse) override;
     void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level, const QString& message, int lineNumber, const QString& sourceID) override;
@@ -142,16 +145,21 @@ public:
     void allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController) override;
     void selectClientCert(const QSharedPointer<ClientCertSelectController> &selectController) override;
     void runGeolocationPermissionRequest(QUrl const&) override;
+    void runUserNotificationPermissionRequest(QUrl const&) override;
     void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus, int exitCode) override;
     void requestGeometryChange(const QRect &geometry, const QRect &frameGeometry) override;
     void updateScrollPosition(const QPointF &position) override;
     void updateContentsSize(const QSizeF &size) override;
     void updateNavigationActions() override;
+    void updateEditActions() override;
     void startDragging(const content::DropData &dropData, Qt::DropActions allowedActions,
                        const QPixmap &pixmap, const QPoint &offset) override;
     bool supportsDragging() const override;
     bool isEnabled() const override;
     void setToolTip(const QString &toolTipText) override;
+    QtWebEngineCore::TouchHandleDrawableClient *createTouchHandle(const QMap<int, QImage> &images) override;
+    void showTouchSelectionMenu(QtWebEngineCore::TouchSelectionMenuController *, const QRect &, const QSize &) override;
+    void hideTouchSelectionMenu() override;
     const QObject *holdingQObject() const override;
     ClientType clientType() override { return QtWebEngineCore::WebContentsAdapterClient::QmlClient; }
 
@@ -211,7 +219,6 @@ public:
 private:
     QScopedPointer<QtWebEngineCore::UIDelegatesManager> m_uIDelegatesManager;
     QList<QQuickWebEngineScript *> m_userScripts;
-    qreal m_dpiScale;
     QColor m_backgroundColor;
     qreal m_zoomFactor;
     bool m_ui2Enabled;
@@ -251,6 +258,19 @@ private:
 
     QQuickWebEngineView *m_view;
     QObject *m_menu;
+};
+
+class Q_WEBENGINE_PRIVATE_EXPORT QQuickWebEngineTouchHandle : public QtWebEngineCore::TouchHandleDrawableClient {
+public:
+    QQuickWebEngineTouchHandle(QtWebEngineCore::UIDelegatesManager *ui, const QMap<int, QImage> &images);
+
+    void setImage(int orientation) override;
+    void setBounds(const QRect &bounds) override;
+    void setVisible(bool visible) override;
+    void setOpacity(float opacity) override;
+
+private:
+    QScopedPointer<QQuickItem> m_item;
 };
 
 QT_END_NAMESPACE

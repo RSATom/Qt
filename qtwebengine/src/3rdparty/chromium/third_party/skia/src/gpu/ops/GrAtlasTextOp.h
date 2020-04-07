@@ -9,9 +9,8 @@
 #define GrAtlasTextOp_DEFINED
 
 #include "ops/GrMeshDrawOp.h"
-#include "text/GrTextContext.h"
+#include "text/GrTextBlob.h"
 #include "text/GrDistanceFieldAdjustTable.h"
-#include "text/GrGlyphCache.h"
 
 class SkAtlasTextTarget;
 class GrContext;
@@ -31,14 +30,14 @@ public:
 
     typedef GrTextBlob Blob;
     struct Geometry {
-        SkMatrix fViewMatrix;
-        SkIRect  fClipRect;
-        Blob*    fBlob;
-        SkScalar fX;
-        SkScalar fY;
-        uint16_t fRun;
-        uint16_t fSubRun;
-        GrColor  fColor;
+        SkMatrix    fViewMatrix;
+        SkIRect     fClipRect;
+        Blob*       fBlob;
+        SkScalar    fX;
+        SkScalar    fY;
+        uint16_t    fRun;
+        uint16_t    fSubRun;
+        SkPMColor4f fColor;
     };
 
     static std::unique_ptr<GrAtlasTextOp> MakeBitmap(GrContext* context,
@@ -68,13 +67,15 @@ public:
 
     const char* name() const override { return "AtlasTextOp"; }
 
-    void visitProxies(const VisitProxyFunc& func) const override;
+    void visitProxies(const VisitProxyFunc& func, VisitorType) const override;
 
+#ifdef SK_DEBUG
     SkString dumpInfo() const override;
+#endif
 
     FixedFunctionFlags fixedFunctionFlags() const override;
 
-    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip) override;
+    GrProcessorSet::Analysis finalize(const GrCaps& caps, const GrAppliedClip* clip) override;
 
     enum MaskType {
         kGrayscaleCoverageMask_MaskType,
@@ -107,7 +108,7 @@ private:
         sk_sp<const GrBuffer> fIndexBuffer;
         sk_sp<GrGeometryProcessor> fGeometryProcessor;
         const GrPipeline* fPipeline;
-        const GrPipeline::FixedDynamicState* fFixedDynamicState;
+        GrPipeline::FixedDynamicState* fFixedDynamicState;
         int fGlyphsToFlush;
         int fVertexOffset;
     };
@@ -145,13 +146,14 @@ private:
 
     inline void flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const;
 
-    GrColor color() const { SkASSERT(fGeoCount > 0); return fGeoData[0].fColor; }
+    const SkPMColor4f& color() const { SkASSERT(fGeoCount > 0); return fGeoData[0].fColor; }
     bool usesLocalCoords() const { return fUsesLocalCoords; }
     int numGlyphs() const { return fNumGlyphs; }
 
-    bool onCombineIfPossible(GrOp* t, const GrCaps& caps) override;
+    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override;
 
-    sk_sp<GrGeometryProcessor> setupDfProcessor(const sk_sp<GrTextureProxy>* proxies,
+    sk_sp<GrGeometryProcessor> setupDfProcessor(const GrShaderCaps& caps,
+                                                const sk_sp<GrTextureProxy>* proxies,
                                                 unsigned int numActiveProxies) const;
 
     SkAutoSTMalloc<kMinGeometryAllocated, Geometry> fGeoData;
@@ -159,7 +161,6 @@ private:
     GrProcessorSet fProcessors;
     struct {
         uint32_t fUsesLocalCoords : 1;
-        uint32_t fCanCombineOnTouchOrOverlap : 1;
         uint32_t fUseGammaCorrectDistanceTable : 1;
         uint32_t fNeedsGlyphTransform : 1;
     };

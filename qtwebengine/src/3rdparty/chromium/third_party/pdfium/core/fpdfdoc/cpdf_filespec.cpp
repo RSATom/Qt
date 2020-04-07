@@ -100,7 +100,7 @@ WideString CPDF_FileSpec::GetFileName() const {
   if (const CPDF_Dictionary* pDict = m_pObj->AsDictionary()) {
     csFileName = pDict->GetUnicodeTextFor("UF");
     if (csFileName.IsEmpty()) {
-      csFileName = WideString::FromLocal(
+      csFileName = WideString::FromDefANSI(
           pDict->GetStringFor(pdfium::stream::kF).AsStringView());
     }
     if (pDict->GetStringFor("FS") == "URL")
@@ -111,13 +111,13 @@ WideString CPDF_FileSpec::GetFileName() const {
       for (const auto* key : keys) {
         if (pDict->KeyExist(key)) {
           csFileName =
-              WideString::FromLocal(pDict->GetStringFor(key).AsStringView());
+              WideString::FromDefANSI(pDict->GetStringFor(key).AsStringView());
           break;
         }
       }
     }
   } else if (m_pObj->IsString()) {
-    csFileName = WideString::FromLocal(m_pObj->GetString().AsStringView());
+    csFileName = WideString::FromDefANSI(m_pObj->GetString().AsStringView());
   }
   return DecodeFileName(csFileName);
 }
@@ -187,7 +187,7 @@ WideString CPDF_FileSpec::EncodeFileName(const WideString& filepath) {
     return L'/' + ChangeSlashToPDF(filepath.c_str());
   return ChangeSlashToPDF(filepath.c_str());
 #elif _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
-  if (filepath.Left(sizeof("Mac") - 1) == L"Mac")
+  if (filepath.Left(sizeof("Mac") - 1).EqualsASCII("Mac"))
     return L'/' + ChangeSlashToPDF(filepath.c_str());
   return ChangeSlashToPDF(filepath.c_str());
 #else
@@ -203,10 +203,9 @@ void CPDF_FileSpec::SetFileName(const WideString& wsFileName) {
 
   WideString wsStr = EncodeFileName(wsFileName);
   if (m_pObj->IsString()) {
-    m_pWritableObj->SetString(ByteString::FromUnicode(wsStr));
+    m_pWritableObj->SetString(wsStr.ToDefANSI());
   } else if (CPDF_Dictionary* pDict = m_pWritableObj->AsDictionary()) {
-    pDict->SetNewFor<CPDF_String>(pdfium::stream::kF,
-                                  ByteString::FromUnicode(wsStr), false);
-    pDict->SetNewFor<CPDF_String>("UF", PDF_EncodeText(wsStr), false);
+    pDict->SetNewFor<CPDF_String>(pdfium::stream::kF, wsStr.ToDefANSI(), false);
+    pDict->SetNewFor<CPDF_String>("UF", wsStr);
   }
 }

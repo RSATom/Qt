@@ -31,6 +31,9 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
                              QuicCompressedCertsCache* compressed_certs_cache,
                              QuicSession* session,
                              QuicCryptoServerStream::Helper* helper);
+  QuicCryptoServerHandshaker(const QuicCryptoServerHandshaker&) = delete;
+  QuicCryptoServerHandshaker& operator=(const QuicCryptoServerHandshaker&) =
+      delete;
 
   ~QuicCryptoServerHandshaker() override;
 
@@ -73,12 +76,25 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
   // Returns client address used to generate and validate source address token.
   virtual const QuicSocketAddress GetClientAddress();
 
+  // Returns the QuicSession that this stream belongs to.
+  QuicSession* session() const { return session_; }
+
+  void set_encryption_established(bool encryption_established) {
+    encryption_established_ = encryption_established;
+  }
+
+  void set_handshake_confirmed(bool handshake_confirmed) {
+    handshake_confirmed_ = handshake_confirmed;
+  }
+
  private:
   friend class test::QuicCryptoServerStreamPeer;
 
   class ValidateCallback : public ValidateClientHelloResultCallback {
    public:
     explicit ValidateCallback(QuicCryptoServerHandshaker* parent);
+    ValidateCallback(const ValidateCallback&) = delete;
+    ValidateCallback& operator=(const ValidateCallback&) = delete;
     // To allow the parent to detach itself from the callback before deletion.
     void Cancel();
 
@@ -88,8 +104,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
 
    private:
     QuicCryptoServerHandshaker* parent_;
-
-    DISALLOW_COPY_AND_ASSIGN(ValidateCallback);
   };
 
   class SendServerConfigUpdateCallback
@@ -141,9 +155,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
   // Returns a new ConnectionId to be used for statelessly rejected connections
   // if |use_stateless_rejects| is true. Returns 0 otherwise.
   QuicConnectionId GenerateConnectionIdForReject(bool use_stateless_rejects);
-
-  // Returns the QuicSession that this stream belongs to.
-  QuicSession* session() const { return session_; }
 
   // Returns the QuicTransportVersion of the connection.
   QuicTransportVersion transport_version() const {
@@ -221,8 +232,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
   bool handshake_confirmed_;
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters>
       crypto_negotiated_params_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicCryptoServerHandshaker);
 };
 
 }  // namespace quic

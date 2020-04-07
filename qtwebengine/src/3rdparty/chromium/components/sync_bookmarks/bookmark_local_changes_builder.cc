@@ -10,42 +10,19 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/sync/base/time.h"
+#include "components/sync/engine/engine_util.h"
 #include "components/sync/protocol/bookmark_model_metadata.pb.h"
+#include "components/sync_bookmarks/bookmark_specifics_conversions.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
 
 namespace sync_bookmarks {
 
-namespace {
-
-sync_pb::EntitySpecifics SpecificsFromBookmarkNode(
-    const bookmarks::BookmarkNode* node) {
-  sync_pb::EntitySpecifics specifics;
-  sync_pb::BookmarkSpecifics* bm_specifics = specifics.mutable_bookmark();
-  bm_specifics->set_url(node->url().spec());
-  // TODO(crbug.com/516866): Set the favicon.
-  bm_specifics->set_title(base::UTF16ToUTF8(node->GetTitle()));
-  bm_specifics->set_creation_time_us(
-      node->date_added().ToDeltaSinceWindowsEpoch().InMicroseconds());
-
-  bm_specifics->set_icon_url(node->icon_url() ? node->icon_url()->spec()
-                                              : std::string());
-  if (node->GetMetaInfoMap()) {
-    for (const std::pair<std::string, std::string>& pair :
-         *node->GetMetaInfoMap()) {
-      sync_pb::MetaInfo* meta_info = bm_specifics->add_meta_info();
-      meta_info->set_key(pair.first);
-      meta_info->set_value(pair.second);
-    }
-  }
-  return specifics;
-}
-
-}  // namespace
-
 BookmarkLocalChangesBuilder::BookmarkLocalChangesBuilder(
-    const SyncedBookmarkTracker* const bookmark_tracker)
-    : bookmark_tracker_(bookmark_tracker) {
+    const SyncedBookmarkTracker* const bookmark_tracker,
+    bookmarks::BookmarkModel* bookmark_model)
+    : bookmark_tracker_(bookmark_tracker), bookmark_model_(bookmark_model) {
   DCHECK(bookmark_tracker);
+  DCHECK(bookmark_model);
 }
 
 std::vector<syncer::CommitRequestData>
@@ -59,6 +36,7 @@ BookmarkLocalChangesBuilder::BuildCommitRequests(size_t max_entries) const {
   std::vector<syncer::CommitRequestData> commit_requests;
   for (const SyncedBookmarkTracker::Entity* entity :
        entities_with_local_changes) {
+    DCHECK(entity);
     DCHECK(entity->IsUnsynced());
     const sync_pb::EntityMetadata* metadata = entity->metadata();
 
@@ -83,14 +61,18 @@ BookmarkLocalChangesBuilder::BuildCommitRequests(size_t max_entries) const {
       // 2. Bookmarks (maybe ancient legacy bookmarks only?) use/used |name| to
       //    encode the title.
       data.is_folder = node->is_folder();
-      // TODO(crbug.com/516866): Set the non_unique_name similar to directory
-      // implementation.
-      // https://cs.chromium.org/chromium/src/components/sync/syncable/write_node.cc?l=41&rcl=1675007db1e0eb03417e81442688bb11cd181f58
-      data.non_unique_name = base::UTF16ToUTF8(node->GetTitle());
+      // Adjust the non_unique_name for backward compatibility with legacy
+      // clients.
+      std::string new_legal_title;
+      syncer::SyncAPINameToServerName(base::UTF16ToUTF8(node->GetTitle()),
+                                      &new_legal_title);
+      base::TruncateUTF8ToByteSize(new_legal_title, 255, &new_legal_title);
+      data.non_unique_name = new_legal_title;
       data.unique_position = metadata->unique_position();
       // Assign specifics only for the non-deletion case. In case of deletion,
       // EntityData should contain empty specifics to indicate deletion.
-      data.specifics = SpecificsFromBookmarkNode(node);
+      data.specifics = CreateSpecificsFromBookmarkNode(
+          node, bookmark_model_, /*force_favicon_load=*/true);
     }
     request.entity = data.PassToPtr();
     request.sequence_number = metadata->sequence_number();

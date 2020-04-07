@@ -10,7 +10,6 @@
 #include <D3D11.h>
 #include <DXGI.h>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
@@ -47,10 +46,9 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryDXGI
 
   // Overridden from ImageFactory:
   scoped_refptr<gl::GLImage> CreateImageForGpuMemoryBuffer(
-      const gfx::GpuMemoryBufferHandle& handle,
+      gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
-      unsigned internalformat,
       int client_id,
       SurfaceHandle surface_handle) override;
   unsigned RequiredTextureType() override;

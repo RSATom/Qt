@@ -31,6 +31,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QRegularExpression>
 #include <QWebEngineDownloadItem>
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
@@ -70,6 +71,12 @@ private Q_SLOTS:
     void downloadFileNot2();
     void downloadDeleted();
     void downloadDeletedByProfile();
+    void downloadUniqueFilename_data();
+    void downloadUniqueFilename();
+    void downloadUniqueFilenameWithTimestamp();
+    void downloadToDefaultLocation();
+    void downloadToNonExistentDir();
+    void downloadToReadOnlyDir();
     void downloadPathValidation();
 
 private:
@@ -136,6 +143,8 @@ void tst_QWebEngineDownloadItem::cleanup()
     QTRY_COMPARE(m_requestedDownloads.count(), 0);
     QCOMPARE(m_finishedDownloads.count(), 0);
     QVERIFY(m_server->stop());
+    // Set download path to default.
+    m_profile->setDownloadPath("");
 }
 
 void tst_QWebEngineDownloadItem::cleanupTestCase()
@@ -845,6 +854,268 @@ void tst_QWebEngineDownloadItem::downloadDeletedByProfile()
     QTRY_COMPARE(downloadItem.isNull(), true);
 }
 
+void tst_QWebEngineDownloadItem::downloadUniqueFilename_data()
+{
+    QTest::addColumn<QString>("baseName");
+    QTest::addColumn<QString>("extension");
+
+    QTest::newRow("txt") << QString("test(1.test)") << QString("txt");
+    QTest::newRow("tar.gz") << QString("test(1.test)") << QString("tar.gz");
+}
+
+void tst_QWebEngineDownloadItem::downloadUniqueFilename()
+{
+    QFETCH(QString, baseName);
+    QFETCH(QString, extension);
+    QString fileName = QString("%1.%2").arg(baseName).arg(extension);
+    QString downloadedFilePath;
+    bool downloadFinished = false;
+
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    m_profile->setDownloadPath(tmpDir.path());
+
+    // Set up HTTP server
+    ScopedConnection sc1 = connect(m_server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        if (rr->requestMethod() == "GET" && rr->requestPath() == ("/" + fileName)) {
+            rr->setResponseHeader(QByteArrayLiteral("content-type"), QByteArrayLiteral("application/octet-stream"));
+            rr->setResponseHeader(QByteArrayLiteral("content-disposition"), QByteArrayLiteral("attachment"));
+            rr->setResponseBody(QByteArrayLiteral("a"));
+            rr->sendResponse();
+        } else {
+            rr->setResponseStatus(404);
+            rr->sendResponse();
+        }
+    });
+
+    // Set up profile and download handler
+    ScopedConnection sc2 = connect(m_profile, &QWebEngineProfile::downloadRequested, [&](QWebEngineDownloadItem *item) {
+        item->accept();
+        connect(item, &QWebEngineDownloadItem::finished, [&, item]() {
+            QCOMPARE(item->state(), QWebEngineDownloadItem::DownloadCompleted);
+            QCOMPARE(item->isFinished(), true);
+            QCOMPARE(item->totalBytes(), item->receivedBytes());
+            QVERIFY(item->receivedBytes() > 0);
+            QCOMPARE(item->interruptReason(), QWebEngineDownloadItem::NoReason);
+            QCOMPARE(item->type(), QWebEngineDownloadItem::Attachment);
+            QCOMPARE(item->isSavePageDownload(), false);
+            downloadedFilePath = item->path();
+            downloadFinished = true;
+        });
+    });
+
+    m_page->setUrl(m_server->url("/" + fileName));
+    QTRY_VERIFY(downloadFinished);
+    QVERIFY(QFile(downloadedFilePath).exists());
+    QCOMPARE(downloadedFilePath, m_profile->downloadPath() + "/" + baseName + "." + extension);
+
+    for (int i = 1; i <= 2; ++i) {
+        downloadFinished = false;
+        m_page->setUrl(m_server->url("/" + fileName));
+        QTRY_VERIFY(downloadFinished);
+        QVERIFY(QFile(downloadedFilePath).exists());
+        QCOMPARE(downloadedFilePath, m_profile->downloadPath() + "/" + baseName + " (" + QString::number(i) + ")." + extension);
+    }
+}
+
+void tst_QWebEngineDownloadItem::downloadUniqueFilenameWithTimestamp()
+{
+    // Set up HTTP server
+    QString baseName("test(1.test)");
+    QString extension("txt");
+    QString fileName = QString("%1.%2").arg(baseName).arg(extension);
+    QString downloadedFilePath;
+    bool downloadFinished = false;
+
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    m_profile->setDownloadPath(tmpDir.path());
+
+    ScopedConnection sc1 = connect(m_server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        if (rr->requestMethod() == "GET" && rr->requestPath() == ("/" + fileName)) {
+            rr->setResponseHeader(QByteArrayLiteral("content-type"), QByteArrayLiteral("application/octet-stream"));
+            rr->setResponseHeader(QByteArrayLiteral("content-disposition"), QByteArrayLiteral("attachment"));
+            rr->setResponseBody(QByteArrayLiteral("a"));
+            rr->sendResponse();
+        } else {
+            rr->setResponseStatus(404);
+            rr->sendResponse();
+        }
+    });
+
+    // Set up profile and download handler
+    ScopedConnection sc2 = connect(m_profile, &QWebEngineProfile::downloadRequested, [&](QWebEngineDownloadItem *item) {
+        item->accept();
+        connect(item, &QWebEngineDownloadItem::finished, [&, item]() {
+            QCOMPARE(item->state(), QWebEngineDownloadItem::DownloadCompleted);
+            QCOMPARE(item->isFinished(), true);
+            QCOMPARE(item->totalBytes(), item->receivedBytes());
+            QVERIFY(item->receivedBytes() > 0);
+            QCOMPARE(item->interruptReason(), QWebEngineDownloadItem::NoReason);
+            QCOMPARE(item->page(), m_page);
+            downloadFinished = true;
+            downloadedFilePath = item->path();
+        });
+    });
+
+    // Create the first empty file without uniquifier.
+    {
+        QFile file(m_profile->downloadPath() + "/" + fileName);
+        file.open(QIODevice::ReadWrite);
+    }
+
+    // Create 99 empty files with uniquifier.
+    for (int i = 1; i < 100; i++) {
+        QFile file(m_profile->downloadPath() + "/" + baseName + " (" + QString::number(i) + ")." + extension);
+        file.open(QIODevice::ReadWrite);
+    }
+
+    // Create 100th (kMaxUniqueFiles) empty file with uniquifier.
+    m_page->setUrl(m_server->url("/" + fileName));
+    QTRY_VERIFY(downloadFinished);
+    QVERIFY(QFile(downloadedFilePath).exists());
+    QCOMPARE(downloadedFilePath, m_profile->downloadPath() + "/" + baseName + " (100)." + extension);
+
+    // Check if the downloaded files are suffixed with timestamp after the 100th download.
+    for (int i = 101; i < 103; i++) {
+        downloadFinished = false;
+        m_page->setUrl(m_server->url("/" + fileName));
+        QTRY_VERIFY(downloadFinished);
+        QVERIFY(QFile(downloadedFilePath).exists());
+        QRegularExpression fileNameCheck("^.*" + QRegularExpression::escape(baseName) + " - (.*)[.]" + QRegularExpression::escape(extension) + "$");
+        QRegularExpressionMatch match = fileNameCheck.match(downloadedFilePath);
+        QVERIFY(match.hasMatch());
+        // ISO 8601 Date and time in UTC
+        QRegExp timestamp("^(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])T(2[0-3]|[01][0-9])([0-5][0-9])([0-5][0-9])([.][0-9]+)?(Z|[+-](?:2[0-3]|[01][0-9])[0-5][0-9])?$");
+        QVERIFY(timestamp.exactMatch(match.captured(1)));
+    }
+}
+
+void tst_QWebEngineDownloadItem::downloadToDefaultLocation()
+{
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+
+    QCOMPARE(m_profile->downloadPath(), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+
+    m_profile->setDownloadPath("");
+    QCOMPARE(m_profile->downloadPath(),  QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+
+    m_profile->setDownloadPath(tmpDir.path());
+    QCOMPARE(m_profile->downloadPath(), tmpDir.path());
+
+    m_profile->setDownloadPath(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+    QCOMPARE(m_profile->downloadPath(), QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+}
+
+void tst_QWebEngineDownloadItem::downloadToNonExistentDir()
+{
+    QString baseName("test(1.test)");
+    QString extension("txt");
+    QString fileName = QString("%1.%2").arg(baseName).arg(extension);
+    QString downloadedFilePath;
+    bool downloadFinished = false;
+
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    m_profile->setDownloadPath(tmpDir.path());
+
+    // Set up HTTP server
+    ScopedConnection sc1 = connect(m_server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        if (rr->requestMethod() == "GET" && rr->requestPath() == ("/" + fileName)) {
+            rr->setResponseHeader(QByteArrayLiteral("content-type"), QByteArrayLiteral("application/octet-stream"));
+            rr->setResponseHeader(QByteArrayLiteral("content-disposition"), QByteArrayLiteral("attachment"));
+            rr->setResponseBody(QByteArrayLiteral("a"));
+            rr->sendResponse();
+        } else {
+            rr->setResponseStatus(404);
+            rr->sendResponse();
+        }
+    });
+
+    // Set up profile and download handler
+    ScopedConnection sc2 = connect(m_profile, &QWebEngineProfile::downloadRequested, [&](QWebEngineDownloadItem *item) {
+        item->accept();
+        connect(item, &QWebEngineDownloadItem::finished, [&, item]() {
+            QCOMPARE(item->state(), QWebEngineDownloadItem::DownloadCompleted);
+            QCOMPARE(item->isFinished(), true);
+            QCOMPARE(item->totalBytes(), item->receivedBytes());
+            QVERIFY(item->receivedBytes() > 0);
+            QCOMPARE(item->interruptReason(), QWebEngineDownloadItem::NoReason);
+            QCOMPARE(item->page(), m_page);
+            downloadFinished = true;
+            downloadedFilePath = item->path();
+        });
+    });
+
+    // Set a non-existent directory for the default download location.
+    QString nonExistentDownloadPath(m_profile->downloadPath() + "/non_existent_dir");
+    m_profile->setDownloadPath(nonExistentDownloadPath);
+    QCOMPARE(m_profile->downloadPath(), nonExistentDownloadPath);
+    m_page->setUrl(m_server->url("/" + fileName));
+    QTRY_VERIFY(downloadFinished);
+    QVERIFY(QFile(downloadedFilePath).exists());
+    QCOMPARE(downloadedFilePath, nonExistentDownloadPath + "/" + fileName);
+}
+
+void tst_QWebEngineDownloadItem::downloadToReadOnlyDir()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Cannot change file permissions on Windows.");
+#endif
+    QString baseName("test(1.test)");
+    QString extension("txt");
+    QString fileName = QString("%1.%2").arg(baseName).arg(extension);
+    QString downloadedFilePath;
+    bool downloadAccepted = false;
+    bool downloadFinished = false;
+
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    m_profile->setDownloadPath(tmpDir.path());
+
+    // Set up HTTP server
+    ScopedConnection sc1 = connect(m_server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        if (rr->requestMethod() == "GET" && rr->requestPath() == ("/" + fileName)) {
+            rr->setResponseHeader(QByteArrayLiteral("content-type"), QByteArrayLiteral("application/octet-stream"));
+            rr->setResponseHeader(QByteArrayLiteral("content-disposition"), QByteArrayLiteral("attachment"));
+            rr->setResponseBody(QByteArrayLiteral("a"));
+            rr->sendResponse();
+        } else {
+            rr->setResponseStatus(404);
+            rr->sendResponse();
+        }
+    });
+
+    QPointer<QWebEngineDownloadItem> downloadItem;
+    ScopedConnection sc2 = connect(m_profile, &QWebEngineProfile::downloadRequested, [&](QWebEngineDownloadItem *item) {
+        downloadItem = item;
+        item->accept();
+        connect(item, &QWebEngineDownloadItem::finished, [&, item]() {
+            downloadFinished = true;
+        });
+        downloadAccepted = true;
+    });
+
+    // Change permission for directory.
+    QFile(m_profile->downloadPath()).setPermissions(QFileDevice::ReadOwner);
+    QVERIFY(QFile(m_profile->downloadPath()).exists());
+
+    m_page->setUrl(m_server->url("/" + fileName));
+    QTRY_VERIFY(downloadAccepted);
+
+    QVERIFY(downloadItem);
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadInterrupted);
+    QCOMPARE(downloadItem->isFinished(), false);
+    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::FileAccessDenied);
+    QVERIFY(!QFile(downloadedFilePath).exists());
+
+    // Clear m_requestedDownloads explicitly because download is accepted but never finished.
+    m_requestedDownloads.clear();
+    QVERIFY(!downloadFinished);
+    QFile(m_profile->downloadPath()).setPermissions(QFileDevice::WriteOwner);
+}
+
 void tst_QWebEngineDownloadItem::downloadPathValidation()
 {
     const QString fileName = "test.txt";
@@ -853,6 +1124,7 @@ void tst_QWebEngineDownloadItem::downloadPathValidation()
 
     QTemporaryDir tmpDir;
     QVERIFY(tmpDir.isValid());
+    m_profile->setDownloadPath(tmpDir.path());
 
     // Set up HTTP server
     ScopedConnection sc1 = connect(m_server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
@@ -874,12 +1146,7 @@ void tst_QWebEngineDownloadItem::downloadPathValidation()
         originalDownloadPath = item->path();
 
         item->setPath(downloadPath);
-        // TODO: Do not cancel download from 5.13. This is for not messing up system download path.
-        // Use m_profile->setDownloadPath(tmpDir.path()) at initialization.
-        if (item->path() != downloadPath)
-            item->cancel();
-        else
-            item->accept();
+        item->accept();
 
         connect(item, &QWebEngineDownloadItem::stateChanged, [&, item](QWebEngineDownloadItem::DownloadState downloadState) {
             if (downloadState == QWebEngineDownloadItem::DownloadInterrupted) {
@@ -914,8 +1181,8 @@ void tst_QWebEngineDownloadItem::downloadPathValidation()
     downloadPath = tmpDir.path();
     m_page->setUrl(m_server->url("/" + fileName));
     QTRY_VERIFY(downloadItem);
-    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCancelled);
-    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::UserCanceled);
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCompleted);
+    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::NoReason);
     QCOMPARE(downloadItem->path(), originalDownloadPath);
 
     // Set only the directory path with separator.
@@ -924,8 +1191,8 @@ void tst_QWebEngineDownloadItem::downloadPathValidation()
     downloadPath = tmpDir.path() + QDir::separator();
     m_page->setUrl(m_server->url("/" + fileName));
     QTRY_VERIFY(downloadItem);
-    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCancelled);
-    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::UserCanceled);
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCompleted);
+    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::NoReason);
     QCOMPARE(downloadItem->path(), originalDownloadPath);
 
     // Set only the directory with the current directory path without ending separator.
@@ -934,8 +1201,8 @@ void tst_QWebEngineDownloadItem::downloadPathValidation()
     downloadPath = ".";
     m_page->setUrl(m_server->url("/" + fileName));
     QTRY_VERIFY(downloadItem);
-    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCancelled);
-    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::UserCanceled);
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCompleted);
+    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::NoReason);
     QCOMPARE(downloadItem->path(), originalDownloadPath);
 
     // Set only the directory with the current directory path with ending separator.
@@ -944,24 +1211,23 @@ void tst_QWebEngineDownloadItem::downloadPathValidation()
     downloadPath = "./";
     m_page->setUrl(m_server->url("/" + fileName));
     QTRY_VERIFY(downloadItem);
-    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCancelled);
-    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::UserCanceled);
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCompleted);
+    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::NoReason);
     QCOMPARE(downloadItem->path(), originalDownloadPath);
-
-
 
     downloadItem.clear();
     originalDownloadPath = "";
     downloadPath = "...";
     m_page->setUrl(m_server->url("/" + fileName));
     QTRY_VERIFY(downloadItem);
-    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCancelled);
 #if !defined(Q_OS_WIN)
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCancelled);
     QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::FileFailed);
     QCOMPARE(downloadItem->path(), downloadPath);
 #else
     // Windows interprets the "..." path as a valid path. It will be the current path.
-    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::UserCanceled);
+    QTRY_COMPARE(downloadItem->state(), QWebEngineDownloadItem::DownloadCompleted);
+    QCOMPARE(downloadItem->interruptReason(), QWebEngineDownloadItem::NoReason);
     QCOMPARE(downloadItem->path(), originalDownloadPath);
 #endif // !defined(Q_OS_WIN)
     QDir::setCurrent(oldPath);

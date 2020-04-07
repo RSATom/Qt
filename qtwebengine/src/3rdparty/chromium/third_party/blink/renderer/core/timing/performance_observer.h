@@ -22,7 +22,7 @@ class PerformanceObserver;
 class PerformanceObserverInit;
 class V8PerformanceObserverCallback;
 
-using PerformanceEntryVector = HeapVector<Member<PerformanceEntry>>;
+using PerformanceEntryVector = HeapVector<TraceWrapperMember<PerformanceEntry>>;
 
 class CORE_EXPORT PerformanceObserver final
     : public ScriptWrappable,
@@ -37,9 +37,13 @@ class CORE_EXPORT PerformanceObserver final
  public:
   static PerformanceObserver* Create(ScriptState*,
                                      V8PerformanceObserverCallback*);
-  static void ResumeSuspendedObservers();
+  static Vector<AtomicString> supportedEntryTypes(ScriptState*);
 
-  void observe(const PerformanceObserverInit&, ExceptionState&);
+  PerformanceObserver(ExecutionContext*,
+                      Performance*,
+                      V8PerformanceObserverCallback*);
+
+  void observe(const PerformanceObserverInit*, ExceptionState&);
   void disconnect();
   PerformanceEntryVector takeRecords();
   void EnqueuePerformanceEntry(PerformanceEntry&);
@@ -51,9 +55,6 @@ class CORE_EXPORT PerformanceObserver final
   void Trace(blink::Visitor*) override;
 
  private:
-  PerformanceObserver(ExecutionContext*,
-                      Performance*,
-                      V8PerformanceObserverCallback*);
   void Deliver();
   bool ShouldBeSuspended() const;
 

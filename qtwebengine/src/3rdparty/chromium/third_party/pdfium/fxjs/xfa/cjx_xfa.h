@@ -8,17 +8,25 @@
 #define FXJS_XFA_CJX_XFA_H_
 
 #include "fxjs/xfa/cjx_model.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Xfa;
 
-class CJX_Xfa : public CJX_Model {
+class CJX_Xfa final : public CJX_Model {
  public:
   explicit CJX_Xfa(CXFA_Xfa* node);
   ~CJX_Xfa() override;
 
-  JS_PROP(thisValue); /* this */
-  JS_PROP(timeStamp);
-  JS_PROP(uuid);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(thisValue); /* this */
+
+ private:
+  using Type__ = CJX_Xfa;
+  using ParentType__ = CJX_Model;
+
+  static const TypeTag static_type__ = TypeTag::Xfa;
 };
 
 #endif  // FXJS_XFA_CJX_XFA_H_

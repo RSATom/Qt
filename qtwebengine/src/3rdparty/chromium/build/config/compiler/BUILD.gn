@@ -13,6 +13,7 @@ import("//build/config/host_byteorder.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/ui.gni")
 import("//build/toolchain/cc_wrapper.gni")
+import("//build/toolchain/goma.gni")
 import("//build/toolchain/toolchain.gni")
 import("//build_overrides/build.gni")
 
@@ -95,20 +96,18 @@ declare_args() {
   auto_profile_path = ""
 
   # Optimize symbol files for maximizing goma cache hit rate. This is on by
-  # default only when goma is enabled on Linux because setting this to true may
-  # make it harder to debug binaries.
+  # default for Android, and when goma is enabled on Linux and Windows.
+  # But setting this to true may make it harder to debug binaries on Linux.
   # See below reference for detail.
   # https://chromium.googlesource.com/chromium/src/+/master/docs/linux_debugging.md#Source-level-debug-with-fdebug_compilation_dir
-  strip_absolute_paths_from_debug_symbols = is_linux && use_goma
+  strip_absolute_paths_from_debug_symbols =
+      is_android || is_nacl || (use_goma && (is_linux || (is_win && use_lld)))
 
   # Use stdlib=libc++
   use_libcxx = is_mac
 
   # Allow projects that wish to stay on C++11 to override Chromium's default.
   use_cxx11 = false
-
-  # Strip the debug info of symbols file in lib.unstripped to reduce size.
-  strip_debug_info = false
 
   # Path to an AFDO profile to use while building with clang, if any. Empty
   # implies none.
@@ -134,6 +133,19 @@ declare_args() {
   # Turn this on to use ghash feature of lld for faster debug link on Windows.
   # http://blog.llvm.org/2018/01/improving-link-time-on-windows-with.html
   use_ghash = false
+
+  # Whether to enable ThinLTO optimizations. Turning ThinLTO optimizations on
+  # can substantially increase link time and binary size, but they generally
+  # also make binaries a fair bit faster.
+  #
+  # TODO(gbiv): We disable optimizations by default on most platforms because
+  # the space overhead is too great. We should use some mixture of profiles and
+  # optimization settings to better tune the size increase.
+  thin_lto_enable_optimizations =
+      (is_chromeos || is_android) && is_official_build
+
+  # By default only the binaries in official builds get build IDs.
+  force_local_build_id = false
 }
 
 declare_args() {
@@ -173,7 +185,7 @@ if (gold_path == false) {
 }
 
 if (use_debug_fission == "default") {
-  use_debug_fission = is_debug && !is_android && !is_win &&
+  use_debug_fission = is_debug && !is_android && !is_fuchsia && !is_win &&
                       (use_gold || use_lld) && cc_wrapper == ""
 }
 
@@ -345,7 +357,7 @@ config("compiler") {
       }
     }
 
-    if (is_official_build) {
+    if (is_official_build || force_local_build_id) {
       # Explicitly pass --build-id to ld. Compilers used to always pass this
       # implicitly but don't any more (in particular clang when built without
       # ENABLE_LINKER_BUILD_ID=ON). The crash infrastructure does need a build
@@ -382,10 +394,9 @@ config("compiler") {
   # Linux/Android/Fuchsia common flags setup.
   # ---------------------------------
   if (is_linux || is_android || is_fuchsia) {
-    if (use_pic) {
-      cflags += [ "-fPIC" ]
-      ldflags += [ "-fPIC" ]
-    }
+    asmflags += [ "-fPIC" ]
+    cflags += [ "-fPIC" ]
+    ldflags += [ "-fPIC" ]
 
     if (!is_clang) {
       # Use pipes for communicating between sub-processes. Faster.
@@ -398,6 +409,9 @@ config("compiler") {
       "-Wl,-z,now",
       "-Wl,-z,relro",
     ]
+
+    # Compiler instrumentation can introduce dependencies in DSOs to symbols in
+    # the executable they are loaded into, so they are unresolved at link-time.
     if (!using_sanitizer) {
       ldflags += [
         "-Wl,-z,defs",
@@ -506,8 +520,7 @@ config("compiler") {
     }
   }
 
-  if (is_clang && !is_nacl && current_toolchain == host_toolchain &&
-      target_os != "chromeos" && !use_qt) {
+  if (is_clang && !is_nacl && !use_xcode_clang && !use_qt) {
     cflags += [
       # TODO(hans): Remove this once Clang generates better optimized debug info
       # by default. https://crbug.com/765793
@@ -526,11 +539,7 @@ config("compiler") {
   }
 
   # Makes builds independent of absolute file path.
-  # clang-cl (used if is_win) doesn't expose this flag.
-  # Currently disabled for nacl since its toolchain lacks this flag (too old).
-  # TODO(zforman): Once nacl's toolchain is updated, remove check.
-  if (symbol_level != 0 && is_clang && !is_nacl && !is_mac && !is_ios &&
-      strip_absolute_paths_from_debug_symbols) {
+  if (symbol_level != 0 && is_clang && strip_absolute_paths_from_debug_symbols) {
     # If debug option is given, clang includes $cwd in debug info by default.
     # For such build, this flag generates reproducible obj files even we use
     # different build directory like "out/feature_a" and "out/feature_b" if
@@ -542,6 +551,23 @@ config("compiler") {
       "-Xclang",
       ".",
     ]
+
+    if (is_win && use_lld) {
+      if (symbol_level == 2 || (is_clang && using_sanitizer)) {
+        # Absolutize source file path for PDB. Pass the real build directory
+        # if the pdb contains source-level debug information.
+        ldflags += [ "/PDBSourcePath:" + rebase_path(root_build_dir) ]
+      } else {
+        # On Windows, (non-sanitizier) symbol_level 1 builds don't contain
+        # debug information in obj files; the linker just creates enough
+        # debug info at link time to produce symbolized stacks (without line
+        # numbers). In that case, there's no downside in using a fake fixed
+        # base directory for paths in the pdb. This makes the pdb output
+        # fully deterministic and independent of the build directory.
+        assert(symbol_level == 1 && !(is_clang && using_sanitizer))
+        ldflags += [ "/PDBSourcePath:o:\fake\prefix" ]
+      }
+    }
   }
 
   # Tells the compiler not to use absolute paths when passing the default
@@ -560,16 +586,34 @@ config("compiler") {
       cxx11_override = use_cxx11
     }
 
-    # gnu11/gnu++11 instead of c11/c++11 is needed because some code uses typeof()
-    # (a GNU extension).
-    # TODO(thakis): Eventually switch this to c++11 instead,
-    # http://crbug.com/427584
-    cflags_c += [ "-std=gnu11" ]
+    if (is_clang) {
+      standard_prefix = "c"
+
+      # Since we build with -std=c* and not -std=gnu*, _GNU_SOURCE will not be
+      # defined by the compiler.  However, lots of code relies on the
+      # non-standard features that _GNU_SOURCE enables, so define it manually.
+      defines += [ "_GNU_SOURCE" ]
+
+      if (is_nacl) {
+        # Undefine __STRICT_ANSI__ to get non-standard features which would
+        # otherwise not be enabled by NaCl's sysroots.
+        cflags += [ "-U__STRICT_ANSI__" ]
+      }
+    } else {
+      # Gcc does not support ##__VA_ARGS__ when in standards-conforming mode,
+      # but we use this feature in several places in Chromium.
+      # TODO(thomasanderson): Replace usages of ##__VA_ARGS__ with the
+      # standard-compliant __VA_OPT__ added by C++20, and switch the gcc build
+      # to -std=c*.
+      standard_prefix = "gnu"
+    }
+
+    cflags_c += [ "-std=${standard_prefix}11" ]
     if (cxx11_override) {
       # Override Chromium's default for projects that wish to stay on C++11.
-      cflags_cc += [ "-std=gnu++11" ]
+      cflags_cc += [ "-std=${standard_prefix}++11" ]
     } else {
-      cflags_cc += [ "-std=gnu++14" ]
+      cflags_cc += [ "-std=${standard_prefix}++14" ]
     }
   } else if (!is_win && !is_nacl) {
     if (target_os == "android") {
@@ -607,26 +651,29 @@ config("compiler") {
   # example by disabling the optimize configuration.
   # TODO(pcc): Make this conditional on is_official_build rather than on gn
   # flags for specific features.
-  if (!is_debug && use_thin_lto && current_toolchain == default_toolchain) {
+  if (!is_debug && use_thin_lto && is_a_target_toolchain) {
     assert(use_lld || target_os == "chromeos",
            "gold plugin only supported with ChromeOS")
 
     cflags += [ "-flto=thin" ]
 
-    # Limit the size of the ThinLTO cache to the lesser of 10% of available disk
-    # space, 10GB and 100000 files.
-    if (use_lld) {
-      cache_policy =
-          "cache_size=10%:cache_size_bytes=10g:cache_size_files=100000"
+    if (target_os != "chromeos") {
+      cflags += [ "-fsplit-lto-unit" ]
     }
+
+    if (thin_lto_enable_optimizations) {
+      lto_opt_level = 2
+    } else {
+      lto_opt_level = 0
+    }
+
     if (is_win) {
-      # This is a straight translation of the non-Windows flags below.
+      # This is a straight translation of the non-Windows flags below,
+      # except we do not use the ThinLTO cache, which leaks temporary
+      # files on Windows (https://crbug.com/871962).
       ldflags += [
-        "/opt:lldlto=0",
+        "/opt:lldlto=" + lto_opt_level,
         "/opt:lldltojobs=8",
-        "/lldltocache:" +
-            rebase_path("$root_out_dir/thinlto-cache", root_build_dir),
-        "/lldltocachepolicy:$cache_policy",
       ]
     } else {
       ldflags += [ "-flto=thin" ]
@@ -635,21 +682,39 @@ config("compiler") {
       # linker jobs. This is still suboptimal to a potential dynamic
       # resource allocation scheme, but should be good enough.
       if (use_lld) {
-        ldflags += [
-          "-Wl,--thinlto-jobs=8",
-          "-Wl,--thinlto-cache-dir=" +
-              rebase_path("$root_out_dir/thinlto-cache", root_build_dir),
-          "-Wl,--thinlto-cache-policy,$cache_policy",
-        ]
+        ldflags += [ "-Wl,--thinlto-jobs=8" ]
+
+        # Disable caching on Chrome OS temporarily (crbug.com/889967)
+        if (!is_chromeos) {
+          # Limit the size of the ThinLTO cache to the lesser of 10% of
+          # available disk space, 10GB and 100000 files.
+          cache_policy =
+              "cache_size=10%:cache_size_bytes=10g:cache_size_files=100000"
+          ldflags += [
+            "-Wl,--thinlto-cache-dir=" +
+                rebase_path("$root_out_dir/thinlto-cache", root_build_dir),
+            "-Wl,--thinlto-cache-policy,$cache_policy",
+          ]
+        }
       } else {
         ldflags += [ "-Wl,-plugin-opt,jobs=8" ]
       }
-    }
 
-    # Disable optimization for now because they increase binary size by too
-    # much.
-    if (use_lld && (is_android || (is_linux && !is_chromeos))) {
-      ldflags += [ "-Wl,--lto-O0" ]
+      if (use_lld) {
+        ldflags += [ "-Wl,--lto-O" + lto_opt_level ]
+        if (thin_lto_enable_optimizations) {
+          if (is_android) {
+            # TODO(gbiv): We ideally shouldn't need to specify this; ThinLTO
+            # should be able to better manage binary size increases on its own.
+            ldflags += [
+              "-Wl,-mllvm",
+              "-Wl,-import-instr-limit=5",
+            ]
+          }
+        }
+      } else {
+        not_needed([ "lto_opt_level" ])
+      }
     }
 
     # TODO(pcc): Re-enable this flag on Android. This will require libc++ to be
@@ -692,8 +757,10 @@ config("compiler") {
   }
 
   # Pass flag to LLD to work around issue in Valgrind related to
-  # location of debug symbols.
-  if (use_lld && ro_segment_workaround_for_valgrind) {
+  # location of debug symbols. This is also enabled for Android
+  # builds to allow debuggerd to properly symbolize stack crashes
+  # on this platform (http://crbug.com/919499).
+  if (use_lld && (ro_segment_workaround_for_valgrind || is_android)) {
     ldflags += [ "-Wl,--no-rosegment" ]
   }
 
@@ -896,6 +963,7 @@ config("compiler_cpu_abi") {
 
       cflags += [ "-m${mips_float_abi}-float" ]
     } else if (current_cpu == "mips64el") {
+      cflags += [ "-D__SANE_USERSPACE_TYPES__" ]
       ldflags += [ "-Wl,--hash-style=sysv" ]
       if (custom_toolchain == "") {
         if (is_clang) {
@@ -1024,29 +1092,16 @@ config("compiler_cpu_abi") {
         ]
       }
     } else if (current_cpu == "ppc64") {
-      if (v8_current_cpu == "ppc") {
-        cflags += [ "-m32" ]
-        ldflags += [ "-m32" ]
-      } else if (v8_current_cpu == "ppc64") {
-        if (current_os == "aix") {
-          cflags += [ "-maix64" ]
-          ldflags += [ "-maix64" ]
-        } else {
-          cflags += [ "-m64" ]
-          ldflags += [ "-m64" ]
-        }
-      }
-    } else if (current_cpu == "s390x") {
-      if (v8_current_cpu == "s390" && host_byteorder == "little") {
-        cflags += [ "-m32" ]
-        ldflags += [ "-m32" ]
-      } else if (v8_current_cpu == "s390") {
-        cflags += [ "-m31" ]
-        ldflags += [ "-m31" ]
-      } else if (v8_current_cpu == "s390x") {
+      if (current_os == "aix") {
+        cflags += [ "-maix64" ]
+        ldflags += [ "-maix64" ]
+      } else {
         cflags += [ "-m64" ]
         ldflags += [ "-m64" ]
       }
+    } else if (current_cpu == "s390x") {
+      cflags += [ "-m64" ]
+      ldflags += [ "-m64" ]
     }
   }
 
@@ -1093,20 +1148,6 @@ config("compiler_codegen") {
   asmflags = cflags
 }
 
-# This is separate from :compiler_codegen (and not even a sub-config there)
-# so that some targets can remove it from the list with:
-#   configs -= [ "//build/config/compiler:clang_stackrealign" ]
-# See https://crbug.com/556393 for details of where it must be avoided.
-config("clang_stackrealign") {
-  if (is_clang && current_cpu == "x86" && is_linux) {
-    cflags = [
-      # Align the stack on 16-byte boundaries, http://crbug.com/418554.
-      "-mstack-alignment=16",
-      "-mstackrealign",
-    ]
-  }
-}
-
 config("clang_revision") {
   if (is_clang && clang_base_path == default_clang_base_path) {
     update_args = [
@@ -1151,6 +1192,17 @@ config("compiler_arm") {
     # arm is normally the default mode for clang, but on chromeos a wrapper
     # is used to pass -mthumb, and therefor change the default.
     cflags = [ "-marm" ]
+  }
+}
+
+config("assembler_debug_dir") {
+  # TODO(thakis): Once openmax_dl no longer uses -fno-integrated-as, move
+  # this behind the -fdebug-compilation-dir cflags in the "compiler" config.
+  if (symbol_level != 0 && is_clang && strip_absolute_paths_from_debug_symbols) {
+    if (!is_win) {
+      # We don't use clang -cc1as on Windows (yet? https://crbug.com/762167)
+      asmflags = [ "-Wa,-fdebug-compilation-dir,." ]
+    }
   }
 }
 
@@ -1327,7 +1379,6 @@ config("default_warnings") {
 
       # http://crbug.com/588506 - Conversion suppressions waiting on Clang
       # -Wconversion.
-      "/wd4018",  # 'expression' : signed/unsigned mismatch
       "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                   # signed/unsigned mismatch
 
@@ -1435,6 +1486,7 @@ config("default_warnings") {
       cflags_cc += [ "-Wno-attributes" ]
       cflags_cc += [ "-Wno-class-memaccess" ]
       cflags_cc += [ "-Wno-subobject-linkage" ]
+      cflags_cc += [ "-Wno-invalid-offsetof" ]
     }
   }
 
@@ -1458,10 +1510,6 @@ config("default_warnings") {
       # this is worth fixing.
       "-Wno-c++11-narrowing",
 
-      # Warns on switches on enums that cover all enum values but
-      # also contain a default: branch. Chrome is full of that.
-      "-Wno-covered-switch-default",
-
       # TODO(thakis): This used to be implied by -Wno-unused-function,
       # which we no longer use. Check if it makes sense to remove
       # this as well. http://crbug.com/316352
@@ -1474,41 +1522,28 @@ config("default_warnings") {
       cflags += [
         # TODO(thakis): https://crbug.com/604888
         "-Wno-undefined-var-template",
-
-        # TODO(hans): https://crbug.com/637306
-        "-Wno-address-of-packed-member",
       ]
-      if (current_toolchain == host_toolchain || !use_xcode_clang ||
-          xcode_version_int >= 930) {
-        cflags += [
-          # TODO(thakis): https://crbug.com/617318
-          "-Wno-nonportable-include-path",
 
-          # TODO(thakis): https://crbug.com/683349
-          "-Wno-user-defined-warnings",
+      if (is_win) {
+        # TODO(thakis): https://crbug.com/617318
+        # Currently goma can not handle case sensitiveness for windows well.
+        cflags += [ "-Wno-nonportable-include-path" ]
+      }
 
-          # TODO(hans): https://crbug.com/681136
-          "-Wno-unused-lambda-capture",
-        ]
-      }
-      if (current_toolchain == host_toolchain || !use_xcode_clang ||
-          xcode_version_int >= 1000) {
-        cflags += [
-          # TODO(hans): https://crbug.com/766891
-          "-Wno-null-pointer-arithmetic",
-        ]
-      }
       if (current_toolchain == host_toolchain || !use_xcode_clang) {
         # Flags NaCl (Clang 3.7) and Xcode 9.2 (Clang clang-900.0.39.2) do not
         # recognize.
         cflags += [
-          # TODO(thakis): https://crbug.com/753973
-          "-Wno-enum-compare-switch",
-
           # Ignore warnings about MSVC optimization pragmas.
-          # TODO(thakis): Only for no_chromium_code? http://crbug.com/505314
+          # TODO(thakis): Only for no_chromium_code? http://crbug.com/912662
           "-Wno-ignored-pragma-optimize",
         ]
+        if (is_fuchsia) {
+          cflags += [
+            # TODO(hans): https://crbug.com/890307
+            "-Wno-defaulted-function-deleted",
+          ]
+        }
       }
     }
   }
@@ -1565,7 +1600,7 @@ config("chromium_code") {
       cflags += [ "-U_FORTIFY_SOURCE", "-D_FORTIFY_SOURCE=2" ]
     }
 
-    if (is_mac || is_ios) {
+    if (is_mac) {
       cflags_objc = [ "-Wobjc-missing-property-synthesis" ]
       cflags_objcc = [ "-Wobjc-missing-property-synthesis" ]
     }
@@ -1664,10 +1699,24 @@ config("no_rtti") {
   }
 }
 
+# export_dynamic ---------------------------------------------------------------
+#
+# Ensures all exported symbols are added to the dynamic symbol table.  This is
+# necessary to expose Chrome's custom operator new() and operator delete() (and
+# other memory-related symbols) to libraries.  Otherwise, they might
+# (de)allocate memory on a different heap, which would spell trouble if pointers
+# to heap-allocated memory are passed over shared library boundaries.
+config("export_dynamic") {
+  if (is_desktop_linux || export_libcxxabi_from_executables) {
+    ldflags = [ "-rdynamic" ]
+  }
+}
+
 # thin_archive -----------------------------------------------------------------
 #
-# Enables thin archives on posix.  Regular archives directly include the object
-# files used to generate it.  Thin archives merely reference the object files.
+# Enables thin archives on posix, and on windows when the lld linker is used.
+# Regular archives directly include the object files used to generate it.
+# Thin archives merely reference the object files.
 # This makes building them faster since it requires less disk IO, but is
 # inappropriate if you wish to redistribute your static library.
 # This config is added to the global config, so thin archives should already be
@@ -1683,6 +1732,8 @@ config("thin_archive") {
   # archive names to 16 characters, which is not what we want).
   if ((is_posix && !is_nacl && !is_mac && !is_ios) || is_fuchsia) {
     arflags = [ "-T" ]
+  } else if (is_win && use_lld) {
+    arflags = [ "/llvmlibthin" ]
   }
 }
 
@@ -1727,8 +1778,7 @@ config("no_exceptions") {
 # destructors, which will slow down closing the program.
 # TODO(thakis): Make this a blacklist instead, http://crbug.com/101600
 config("wexit_time_destructors") {
-  # TODO: Enable on Windows too, http://crbug.com/404525
-  if (is_clang && !is_win) {
+  if (is_clang) {
     cflags = [ "-Wexit-time-destructors" ]
   }
 }
@@ -1742,10 +1792,38 @@ config("wexit_time_destructors") {
 # Note that this can be applied regardless of platform and architecture to
 # clean up the call sites. This will only apply the flag when necessary.
 #
+# This config is just an alias to no_shorten_64_warnings and will
+# suppress a superset of warning 4267 and any 64-bit -> 32-bit implicit
+# conversions. Having both for a time means not having to go through and
+# update all references to no_size_t_to_int_warning throughout the codebase
+# atomically.
+#
+# Any new warning suppressions should use the no_shorten_64_warnings
+# config below and not this.
+#
 # TODO(jschuh): crbug.com/167187 fix this and delete this config.
 config("no_size_t_to_int_warning") {
-  if (is_win && current_cpu == "x64") {
-    cflags = [ "/wd4267" ]
+  configs = [ ":no_shorten_64_warnings" ]
+}
+
+# As part of re-enabling -Wconversion (see issue 588506) some code
+# will continue to generate warnings.
+# The first warning to be enabled will be -Wshorten-64-to-32.
+#
+# Code that currently generates warnings for this can include this
+# config to disable them.
+config("no_shorten_64_warnings") {
+  if (current_cpu == "x64" || current_cpu == "arm64") {
+    if (is_clang) {
+      cflags = [ "-Wno-shorten-64-to-32" ]
+    } else {
+      if (is_win) {
+        # MSVC does not have an explicit warning equivalent to
+        # -Wshorten-64-to-32 but 4267 warns for size_t -> int
+        # on 64-bit builds, so is the closest.
+        cflags = [ "/wd4267" ]
+      }
+    }
   }
 }
 
@@ -1966,6 +2044,10 @@ config("no_optimize") {
     } else {
       cflags = [ "-Os" ] + common_optimize_on_cflags
     }
+  } else if (is_fuchsia) {
+    # On Fuchsia, we optimize for size here to reduce the size of debug build
+    # packages so they can be run in a KVM. See crbug.com/910243 for details.
+    cflags = [ "-Og" ]
   } else {
     cflags = [ "-O0" ]
     ldflags = []
@@ -2001,7 +2083,7 @@ config("optimize_max") {
       # build also specifies /Ot, /Oi, and /GF, but these are implied by /O2.
       cflags = [ "/O2" ] + common_optimize_on_cflags
 
-      if (is_official_build) {
+      if (is_official_build && full_wpo_on_official) {
         if (!is_clang) {
           cflags += [
             "/GL",  # Whole program optimization.
@@ -2049,7 +2131,7 @@ config("optimize_speed") {
       cflags = [ "/O2" ] + common_optimize_on_cflags
 
       # TODO(thakis): Remove is_clang here, https://crbug.com/598772
-      if (is_official_build && !is_clang) {
+      if (is_official_build && full_wpo_on_official && !is_clang) {
         cflags += [
           "/GL",  # Whole program optimization.
 
@@ -2098,7 +2180,7 @@ config("default_optimization") {
 }
 
 _clang_sample_profile = ""
-if (is_clang && current_toolchain == default_toolchain) {
+if (is_clang && is_a_target_toolchain) {
   if (clang_sample_profile_path != "") {
     _clang_sample_profile = clang_sample_profile_path
   } else if (clang_use_default_sample_profile) {
@@ -2134,7 +2216,7 @@ config("afdo") {
         _clang_sample_profile,
       ]
     }
-  } else if (auto_profile_path != "" && current_toolchain == default_toolchain) {
+  } else if (auto_profile_path != "" && is_a_target_toolchain) {
     cflags = [ "-fauto-profile=${auto_profile_path}" ]
     inputs = [
       auto_profile_path,
@@ -2152,6 +2234,22 @@ config("afdo") {
 #
 #   configs -= [ "//build/config/compiler:default_symbols" ]
 #   configs += [ "//build/config/compiler:symbols" ]
+
+# A helper config that all configs passing /DEBUG to the linker should
+# include as sub-config.
+config("win_pdbaltpath") {
+  visibility = [
+    ":symbols",
+    ":minimal_symbols",
+  ]
+
+  # /DEBUG causes the linker to generate a pdb file, and to write the absolute
+  # path to it in the executable file it generates.  This flag turns that
+  # absolute path into just the basename of the pdb file, which helps with
+  # build reproducibility. Debuggers look for pdb files next to executables,
+  # so there's no downside to always using this.
+  ldflags = [ "/pdbaltpath:%_PDB%" ]
+}
 
 # Full symbols.
 config("symbols") {
@@ -2174,14 +2272,14 @@ config("symbols") {
       # it all. This flag is incompatible with /PROFILE
       ldflags = [ "/DEBUG:FASTLINK" ]
     } else if (is_clang && use_lld && use_ghash) {
-      cflags += [
-        "-mllvm",
-        "-emit-codeview-ghash-section",
-      ]
+      cflags += [ "-gcodeview-ghash" ]
       ldflags = [ "/DEBUG:GHASH" ]
     } else {
       ldflags = [ "/DEBUG" ]
     }
+
+    # All configs using /DEBUG should include this:
+    configs = [ ":win_pdbaltpath" ]
 
     if (is_clang) {
       # /DEBUG:FASTLINK requires every object file to have standalone debug
@@ -2205,7 +2303,7 @@ config("symbols") {
       }
     } else {
       cflags = []
-      if (!use_debug_fission && target_cpu == "arm") {
+      if (!use_debug_fission && current_cpu == "arm") {
         # dump_syms has issues with dwarf4 on arm, https://crbug.com/744956
         # TODO(thakis): Remove this again once dump_syms is fixed.
         #
@@ -2216,7 +2314,16 @@ config("symbols") {
         # [1] crrev.com/a81d5ade0b043208e06ad71a38bcf9c348a1a52f
         cflags += [ "-gdwarf-3" ]
       }
-      cflags += [ "-g2" ]
+
+      # The gcc-based nacl compilers don't support -fdebug-compilation-dir (see
+      # elsewhere in this file), so they can't have build-dir-independent output.
+      # Disable symbols for nacl object files to get deterministic,
+      # build-directory-independent output. pnacl and nacl-clang do support that
+      # flag, so we can use use -g1 for pnacl and nacl-clang compiles.
+      # gcc nacl is is_nacl && !is_clang, pnacl and nacl-clang are && is_clang.
+      if (!is_nacl || is_clang) {
+        cflags += [ "-g2" ]
+      }
     }
     if (use_debug_fission && !is_nacl && !is_android) {
       # NOTE: Some Chrome OS builds globally set |use_debug_fission| to true,
@@ -2235,7 +2342,7 @@ config("symbols") {
     # obj/native_client/src/trusted/service_runtime/sel_asm/nacl_switch_32.o:
     # DWARF info may be corrupt; offsets in a range list entry are in different
     # sections" there.  Maybe just a bug in nacl_switch_32.S.
-    if (!is_mac && !is_ios && !is_nacl && target_cpu != "x86" &&
+    if (!is_mac && !is_ios && !is_nacl && current_cpu != "x86" &&
         (use_gold || use_lld)) {
       if (is_clang) {
         # This flag enables the GNU-format pubnames and pubtypes sections,
@@ -2257,14 +2364,35 @@ config("minimal_symbols") {
     # Linker symbols for backtraces only.
     cflags = []
     ldflags = [ "/DEBUG" ]
+
+    # All configs using /DEBUG should include this:
+    configs = [ ":win_pdbaltpath" ]
+
+    # For win/asan, get stack traces with full line numbers.
+    # AddressSanitizerTests.TestAddressSanitizer needs this, and since
+    # win/asan isn't a default cq bot the build time hit is ok.
+    if (is_clang && using_sanitizer) {
+      # -gline-tables-only is the same as -g1, but clang-cl only exposes the
+      # former.
+      cflags += [ "-gline-tables-only" ]
+    }
   } else {
     cflags = []
-    if (target_cpu == "arm") {
+    if (current_cpu == "arm") {
       # dump_syms has issues with dwarf4 on arm, https://crbug.com/744956
       # TODO(thakis): Remove this again once dump_syms is fixed.
       cflags += [ "-gdwarf-3" ]
     }
-    cflags += [ "-g1" ]
+
+    # The gcc-based nacl compilers don't support -fdebug-compilation-dir (see
+    # elsewhere in this file), so they can't have build-dir-independent output.
+    # Disable symbols for nacl object files to get deterministic,
+    # build-directory-independent output. pnacl and nacl-clang do support that
+    # flag, so we can use use -g1 for pnacl and nacl-clang compiles.
+    # gcc nacl is is_nacl && !is_clang, pnacl and nacl-clang are && is_clang.
+    if (!is_nacl || is_clang) {
+      cflags += [ "-g1" ]
+    }
     ldflags = []
     if (is_android && is_clang) {
       # Android defaults to symbol_level=1 builds in production builds

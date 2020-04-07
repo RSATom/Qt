@@ -32,14 +32,14 @@ class HTMLTitleElement final : public HTMLElement {
  public:
   DECLARE_NODE_FACTORY(HTMLTitleElement);
 
+  explicit HTMLTitleElement(Document&);
+
   String text() const;
   void setText(const String&);
 
  private:
-  explicit HTMLTitleElement(Document&);
-
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
   void ChildrenChanged(const ChildrenChange&) override;
 
   bool ignore_title_updates_when_children_change_;

@@ -14,26 +14,73 @@
 
 import * as m from 'mithril';
 
-const Nav = {
+import {Actions} from '../common/actions';
+import {globals} from './globals';
+import {Sidebar} from './sidebar';
+import {Topbar} from './topbar';
+
+function renderPermalink(): m.Children {
+  const permalink = globals.state.permalink;
+  if (!permalink.requestId || !permalink.hash) return null;
+  const url = `${self.location.origin}/#!/?s=${permalink.hash}`;
+  return m('.alert-permalink', [
+    m('div', 'Permalink: ', m(`a[href=${url}]`, url)),
+    m('button',
+      {
+        onclick: () => globals.dispatch(Actions.clearPermalink({})),
+      },
+      m('i.material-icons', 'close')),
+  ]);
+}
+
+class Alerts implements m.ClassComponent {
+  view() {
+    return m('.alerts', renderPermalink());
+  }
+}
+
+const TogglePerfDebugButton = {
   view() {
     return m(
-        'nav',
-        m('ul',
-          m('li', m('a[href=/]', {oncreate: m.route.link}, 'Home')),
-          m('li', m('a[href=/viewer]', {oncreate: m.route.link}, 'Viewer'))));
+        '.perf-monitor-button',
+        m('button',
+          {
+            onclick: () => globals.frontendLocalState.togglePerfDebug(),
+          },
+          m('i.material-icons',
+            {
+              title: 'Toggle Perf Debug Mode',
+            },
+            'assessment')));
   }
-} as m.Component;
+};
+
+const PerfStats: m.Component = {
+  view() {
+    const perfDebug = globals.frontendLocalState.perfDebug;
+    const children = [m(TogglePerfDebugButton)];
+    if (perfDebug) {
+      children.unshift(m('.perf-stats-content'));
+    }
+    return m(`.perf-stats[expanded=${perfDebug}]`, children);
+  }
+};
 
 /**
  * Wrap component with common UI elements (nav bar etc).
  */
 export function createPage(component: m.Component): m.Component {
-  return {
+  const pageComponent = {
     view() {
       return [
-        m(Nav),
+        m(Sidebar),
+        m(Topbar),
+        m(Alerts),
         m(component),
+        m(PerfStats),
       ];
     },
   };
+
+  return pageComponent;
 }

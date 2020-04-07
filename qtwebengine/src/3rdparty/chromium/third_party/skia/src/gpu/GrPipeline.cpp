@@ -80,7 +80,7 @@ GrPipeline::GrPipeline(const InitArgs& args,
 void GrPipeline::addDependenciesTo(GrOpList* opList, const GrCaps& caps) const {
     for (int i = 0; i < fFragmentProcessors.count(); ++i) {
         GrFragmentProcessor::TextureAccessIter iter(fFragmentProcessors[i].get());
-        while (const GrResourceIOProcessor::TextureSampler* sampler = iter.next()) {
+        while (const GrFragmentProcessor::TextureSampler* sampler = iter.next()) {
             opList->addDependency(sampler->proxy(), caps);
         }
     }
@@ -93,13 +93,13 @@ void GrPipeline::addDependenciesTo(GrOpList* opList, const GrCaps& caps) const {
 
 GrXferBarrierType GrPipeline::xferBarrierType(const GrCaps& caps) const {
     if (fDstTextureProxy.get() &&
-        fDstTextureProxy.get()->priv().peekTexture() == fProxy.get()->priv().peekTexture()) {
+        fDstTextureProxy.get()->peekTexture() == fProxy.get()->peekTexture()) {
         return kTexture_GrXferBarrierType;
     }
     return this->getXferProcessor().xferBarrierType(caps);
 }
 
-GrPipeline::GrPipeline(GrRenderTargetProxy* proxy, ScissorState scissorState, SkBlendMode blendmode)
+GrPipeline::GrPipeline(GrRenderTargetProxy* proxy, GrScissorTest scissorTest, SkBlendMode blendmode)
         : fProxy(proxy)
         , fWindowRectsState()
         , fUserStencilSettings(&GrUserStencilSettings::kUnused)
@@ -108,7 +108,7 @@ GrPipeline::GrPipeline(GrRenderTargetProxy* proxy, ScissorState scissorState, Sk
         , fFragmentProcessors()
         , fNumColorProcessors(0) {
     SkASSERT(proxy);
-    if (scissorState) {
+    if (GrScissorTest::kEnabled == scissorTest) {
         fFlags |= kScissorEnabled_Flag;
     }
 }

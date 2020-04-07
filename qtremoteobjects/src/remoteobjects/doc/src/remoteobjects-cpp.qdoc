@@ -28,15 +28,18 @@
 /*!
 \module QtRemoteObjects
 \title Qt Remote Objects C++ Classes
-\brief The Qt Remote Objects module provides an easy to use mechanism for sharing a QObject (Properties/Signals/Slots) between processes.
+\brief Provides an easy to use mechanism for sharing a QObject's Properties, Signals, or Slots, between processes.
 \ingroup modules
 \qtvariable remoteobjects
 
-    To use Qt Remote Objects in your application, add the following configuration option to your \c .pro file:
-    \snippet snippets.pro project_file_include
+    To include the definitions of the module's classes, use the following directive:
 
-    Use the following include in you source files:
     \snippet doc_src_remoteobjects.h qtremoteobject_include
 
-    See \l{Overview Qt Remote Objects} for an introduction to the module.
+    To link against the module, add this line to your qmake \c{.pro} file:
+
+    \snippet snippets.pro project_file_include
+
+
+    For more information, see \l{Getting Started with Qt Remote Objects}.
 */

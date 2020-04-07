@@ -31,7 +31,9 @@ extern "C" {
 #include <X11/extensions/XShm.h>
 #include <X11/extensions/XTest.h>
 #include <X11/extensions/Xfixes.h>
+#if !defined(TOOLKIT_QT)
 #include <X11/extensions/Xrandr.h>
+#endif
 #include <X11/extensions/Xrender.h>
 #include <X11/extensions/record.h>
 #include <X11/extensions/shape.h>

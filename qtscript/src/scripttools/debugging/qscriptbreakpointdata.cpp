@@ -345,7 +345,6 @@ bool QScriptBreakpointData::operator!=(const QScriptBreakpointData &other) const
 }
 
 /*!
-  \fn QDataStream &operator<<(QDataStream &stream, const QScriptBreakpointData &data)
   \relates QScriptBreakpointData
 
   Writes the given \a data to the specified \a stream.
@@ -366,7 +365,6 @@ QDataStream &operator<<(QDataStream &out, const QScriptBreakpointData &data)
 }
 
 /*!
-  \fn QDataStream &operator>>(QDataStream &stream, QScriptBreakpointData &data)
   \relates QScriptBreakpointData
 
   Reads a QScriptBreakpointData from the specified \a stream into the

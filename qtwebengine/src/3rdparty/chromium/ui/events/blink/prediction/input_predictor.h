@@ -25,6 +25,9 @@ class InputPredictor {
     base::TimeTicks time_stamp;
   };
 
+  // Returns the name of the predictor.
+  virtual const char* GetName() const = 0;
+
   // Reset should be called each time when a new line start.
   virtual void Reset() = 0;
 
@@ -37,6 +40,16 @@ class InputPredictor {
   // Generate the prediction based on current points.
   virtual bool GeneratePrediction(base::TimeTicks frame_time,
                                   InputData* result) const = 0;
+
+ protected:
+  static constexpr base::TimeDelta kMaxTimeDelta =
+      base::TimeDelta::FromMilliseconds(20);
+  // When event is jammed in OS or browser, we might have events with invalid
+  // timestamp. To avoid getting inaccurate result, limit the resampling time
+  // delta to 20 ms. This value might change if we have better timestamp or
+  // do better in predicting.
+  static constexpr base::TimeDelta kMaxResampleTime =
+      base::TimeDelta::FromMilliseconds(20);
 };
 
 }  // namespace ui

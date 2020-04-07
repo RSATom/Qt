@@ -12,13 +12,13 @@
 #define API_AUDIO_AUDIO_FRAME_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
-#include "rtc_base/constructormagic.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
-/* This class holds up to 60 ms of super-wideband (32 kHz) stereo audio. It
+/* This class holds up to 120 ms of super-wideband (32 kHz) stereo audio. It
  * allows for adding and subtracting frames while keeping track of the resulting
  * states.
  *
@@ -38,8 +38,9 @@ class AudioFrame {
   // variables which should allow us to switch to constexpr and keep this a
   // header-only class.
   enum : size_t {
-    // Stereo, 32 kHz, 60 ms (2 * 32 * 60)
-    kMaxDataSizeSamples = 3840,
+    // Stereo, 32 kHz, 120 ms (2 * 32 * 120)
+    // Stereo, 192 kHz, 20 ms (2 * 192 * 20)
+    kMaxDataSizeSamples = 7680,
     kMaxDataSizeBytes = kMaxDataSizeSamples * sizeof(int16_t),
   };
 

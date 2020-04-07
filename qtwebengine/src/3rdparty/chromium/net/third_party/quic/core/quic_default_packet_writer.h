@@ -20,6 +20,8 @@ struct WriteResult;
 class QUIC_EXPORT_PRIVATE QuicDefaultPacketWriter : public QuicPacketWriter {
  public:
   explicit QuicDefaultPacketWriter(int fd);
+  QuicDefaultPacketWriter(const QuicDefaultPacketWriter&) = delete;
+  QuicDefaultPacketWriter& operator=(const QuicDefaultPacketWriter&) = delete;
   ~QuicDefaultPacketWriter() override;
 
   // QuicPacketWriter
@@ -35,7 +37,8 @@ class QUIC_EXPORT_PRIVATE QuicDefaultPacketWriter : public QuicPacketWriter {
       const QuicSocketAddress& peer_address) const override;
   bool SupportsReleaseTime() const override;
   bool IsBatchMode() const override;
-  char* GetNextWriteLocation() const override;
+  char* GetNextWriteLocation(const QuicIpAddress& self_address,
+                             const QuicSocketAddress& peer_address) override;
   WriteResult Flush() override;
 
   void set_fd(int fd) { fd_ = fd; }
@@ -47,8 +50,6 @@ class QUIC_EXPORT_PRIVATE QuicDefaultPacketWriter : public QuicPacketWriter {
  private:
   int fd_;
   bool write_blocked_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicDefaultPacketWriter);
 };
 
 }  // namespace quic

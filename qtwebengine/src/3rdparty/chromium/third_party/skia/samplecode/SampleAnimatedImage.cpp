@@ -9,19 +9,20 @@
 #include "SkAnimatedImage.h"
 #include "SkAnimTimer.h"
 #include "SkCanvas.h"
+#include "SkFont.h"
 #include "SkPaint.h"
 #include "SkPictureRecorder.h"
 #include "SkRect.h"
 #include "SkScalar.h"
 #include "SkString.h"
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "Resources.h"
 
 static constexpr char kPauseKey = 'p';
 static constexpr char kResetKey = 'r';
 
-class SampleAnimatedImage : public SampleView {
+class SampleAnimatedImage : public Sample {
 public:
     SampleAnimatedImage()
         : INHERITED()
@@ -30,19 +31,17 @@ public:
 
 protected:
     void onDrawBackground(SkCanvas* canvas) override {
-        SkPaint paint;
-        paint.setAntiAlias(true);
-        constexpr SkScalar kTextSize = 20;
-        paint.setTextSize(kTextSize);
+        SkFont font;
+        font.setSize(20);
 
         SkString str = SkStringPrintf("Press '%c' to start/pause; '%c' to reset.",
                 kPauseKey, kResetKey);
         const char* text = str.c_str();
         SkRect bounds;
-        paint.measureText(text, strlen(text), &bounds);
+        font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
         fYOffset = bounds.height();
 
-        canvas->drawText(text, strlen(text), 5, fYOffset, paint);
+        canvas->drawSimpleText(text, strlen(text), kUTF8_SkTextEncoding, 5, fYOffset, font, SkPaint());
         fYOffset *= 2;
     }
 
@@ -97,14 +96,14 @@ protected:
         fDrawable = recorder.finishRecordingAsDrawable();
     }
 
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "AnimatedImage");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "AnimatedImage");
             return true;
         }
 
         SkUnichar uni;
-        if (fImage && SampleCode::CharQ(*evt, &uni)) {
+        if (fImage && Sample::CharQ(*evt, &uni)) {
             switch (uni) {
                 case kPauseKey:
                     fRunning = !fRunning;
@@ -133,13 +132,9 @@ private:
     double                  fCurrentTime = 0.0;
     double                  fLastWallTime = 0.0;
     double                  fTimeToShowNextFrame = 0.0;
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() {
-    return new SampleAnimatedImage;
-}
-
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new SampleAnimatedImage(); )

@@ -11,8 +11,8 @@
 #include "base/numerics/safe_math.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
-#include "content/common/gpu_stream_constants.h"
 #include "content/common/pepper_file_util.h"
+#include "content/public/common/gpu_stream_constants.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "content/renderer/pepper/gfx_conversion.h"
 #include "content/renderer/pepper/host_globals.h"
@@ -266,10 +266,10 @@ int32_t PepperVideoEncoderHost::OnHostMsgInitialize(
     return PP_ERROR_NOTSUPPORTED;
 
   initialize_reply_context_ = context->MakeReplyMessageContext();
-  if (encoder_->Initialize(media_input_format_, input_size, media_profile,
-                           initial_bitrate, this)) {
+  const media::VideoEncodeAccelerator::Config config(
+      media_input_format_, input_size, media_profile, initial_bitrate);
+  if (encoder_->Initialize(config, this))
     return PP_OK_COMPLETIONPENDING;
-  }
 
   initialize_reply_context_ = ppapi::host::ReplyMessageContext();
   Close();

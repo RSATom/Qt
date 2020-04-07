@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -974,6 +974,12 @@
             the compiler does not support C++17, or can't select the C++ standard.
             By default, support is disabled.
     \row    \li c++17 \li Same as c++1z.
+    \row    \li c++2a \li C++2a support is enabled. This option has no effect if
+            the compiler does not support C++2a, or can't select the C++ standard.
+            By default, support is disabled.
+    \row    \li c++latest \li Support for the latest C++ language standard is
+            enabled that is supported by the compiler. By default, this option is
+            disabled.
     \row    \li strict_c++ \li Disables support for C++ compiler extensions.
             By default, they are enabled.
     \row    \li depend_includepath \li Appending the value of INCLUDEPATH to
@@ -986,6 +992,22 @@
     \row    \li embed_translations \li Embed the generated translations from
             \c lrelease in the executable, under \l{QM_FILES_RESOURCE_PREFIX}.
             Requires \c lrelease to be set, too. Not set by default.
+    \row \li create_libtool \li Create a libtool .la file for the currently
+            built library.
+    \row \li create_pc \li Create a pkg-config .pc file for the currently built
+            library.
+    \row \li no_batch \li NMake only: Turn off generation of NMake batch rules
+            or inference rules.
+    \row \li skip_target_version_ext \li Suppress the automatic version number
+            appended to the DLL file name on Windows.
+    \row \li suppress_vcproj_warnings \li Suppress warnings of the VS project
+            generator.
+    \row \li windeployqt \li Automatically invoke windeployqt after linking,
+            and add the output as deployment items.
+    \row \li dont_recurse \li Suppress qmake recursion for the current
+            subproject.
+    \row \li no_include_pwd \li Do not add the current directory to
+            INCLUDEPATHS.
     \endtable
 
     When you use the \c debug_and_release option (which is the default under
@@ -1033,6 +1055,8 @@
         qmake will process all libraries linked to
         by the application and find their meta-information (see
         \l{LibDepend}{Library Dependencies} for more info).
+     \row \li no_install_prl \li This option disables the generation of
+        installation rules for generated .prl files.
      \endtable
 
     \note The \c create_prl option is required when \e {building} a
@@ -1138,6 +1162,26 @@
 
     \snippet code/doc_src_qmake-manual.pro 27
 
+    \target DEFINES_DEBUG
+    \section1 DEFINES_DEBUG
+
+    Specifies preprocessor defines for the debug configuration. The values of
+    this variable get added to \l{DEFINES} before the project is loaded. This
+    variable is typically set in \l{#QMAKESPEC}{qmake.conf} and rarely needs
+    to be modified.
+
+    This variable was introduced in Qt 5.13.2.
+
+    \target DEFINES_RELEASE
+    \section1 DEFINES_RELEASE
+
+    Specifies preprocessor defines for the release configuration. The values of
+    this variable get added to \l{DEFINES} before the project is loaded. This
+    variable is typically set in \l{#QMAKESPEC}{qmake.conf} and rarely needs
+    to be modified.
+
+    This variable was introduced in Qt 5.13.2.
+
     \target DEF_FILE
     \section1 DEF_FILE
 
@@ -1148,8 +1192,9 @@
     \target DEPENDPATH
     \section1 DEPENDPATH
 
-    Specifies a list of all directories to look in to resolve dependencies. This
-    variable is used when crawling through \c included files.
+    Specifies a list of directories for qmake to scan, to resolve dependencies.
+    This variable is used when qmake crawls through the header files that you
+    \c{#include} in your source code.
 
     \target DESTDIR
     \section1 DESTDIR
@@ -1276,6 +1321,41 @@
     build target to the list of existing resources to be installed:
 
     \snippet code/doc_src_qmake-manual.pro 36
+
+    \c INSTALLS has a \c{.CONFIG} member that can take several values:
+
+    \table
+        \header
+            \li Value
+            \li Description
+        \row
+            \li no_check_exists
+            \li If not set, qmake looks to see if the files to install actually
+                exist. If these files don't exist, qmake doesn’t create the
+                install rule. Use this config value if you need to install
+                files that are generated as part of your build process, like
+                HTML files created by qdoc.
+        \row
+            \li nostrip
+            \li If set, the typical Unix strip functionality is turned off and
+                the debug information will remain in the binary.
+        \row
+            \li executable
+            \li On Unix, this sets the executable flag.
+        \row
+            \li no_build
+            \li When you do a \c{make install}, and you don't have a build of
+                the project yet, the project is first built, and then installed.
+                If you don't want this behavior, set this config value to ensure
+                that the build target is not added as a dependency to the install
+                target.
+        \row
+            \li no_default_install
+            \li A project has a top-level project target where, when you do a
+                \c{make install}, everything is installed. But, if you have an
+                install target with this config value set, it's not installed by
+                default. You then have to explicitly say \c{make install_<file>}.
+    \endtable
 
     For more information, see \l{Installing Files}.
 
@@ -2541,10 +2621,8 @@
 
     \section1 RC_FILE
 
-    Specifies the name of the resource file for the application.
-    The value of this variable is typically handled by
-    qmake or \l{#QMAKESPEC}{qmake.conf} and rarely
-    needs to be modified.
+    Windows only. Specifies the name of the Windows resource file (.rc) for the
+    target. See \l{Adding Windows Resource Files}.
 
     \target RC_CODEPAGE
     \section1 RC_CODEPAGE
@@ -2607,7 +2685,9 @@
 
     \section1 RES_FILE
 
-    Specifies the name of the compiled Windows resource file for the target.
+    Windows only. Specifies the name of the Windows resource compiler's output
+    file for this target. See \l{RC_FILE} and \l{Adding Windows Resource Files}.
+
     The value of this variable is typically handled by
     qmake or \l{#QMAKESPEC}{qmake.conf} and rarely
     needs to be modified.
@@ -2820,11 +2900,31 @@
 
     See also \l{#DEPENDPATH}{DEPENDPATH}.
 
+    \target WINDOWS_TARGET_PLATFORM_VERSION
+    \section1 WINDOWS_TARGET_PLATFORM_VERSION
+
+    Specifies the targeted Windows version; this corresponds to the tag
+    \c{WindowsTargetPlatformVersion} in vcxproj files.
+
+    On desktop Windows, the default value is the value of the environment
+    variable \c{WindowsSDKVersion}.
+
+    On Universal Windows Platform (UWP), the default value is the value of the
+    environment variable \c{UCRTVERSION}.
+
+    \target WINDOWS_TARGET_PLATFORM_MIN_VERSION
+    \section1 WINDOWS_TARGET_PLATFORM_MIN_VERSION
+
+    Specifies the minimum version of the Windows target platform; this
+    corresponds to the tag \c{WindowsTargetPlatformMinVersion} in vcxproj files.
+
+    Defaults to \c{WINDOWS_TARGET_PLATFORM_VERSION}.
+
     \target WINRT_MANIFEST
     \section1 WINRT_MANIFEST
 
-    Specifies parameters to be passed to the application manifest on \l{Qt for WinRT}{Windows
-    Runtime}. The allowed values are:
+    Specifies parameters to be passed to the application manifest on
+    \l{Qt for UWP}{UWP}. The allowed values are:
 
     \table
     \header
@@ -2859,7 +2959,6 @@
     \row
         \li foreground
         \li Tile foreground (text) color. Defaults to \c{light}.
-            This option is only available for Windows Store apps on Windows 8 and Windows RT.
     \row
         \li iconic_tile_icon
         \li Image file for the \c{iconic} tile template icon. Default provided by
@@ -2874,16 +2973,16 @@
             manifest's UUID, or generates a new UUID if none is present.
     \row
         \li logo_30x30
-        \li Logo image file of size 30x30 pixels. This is not supported on Windows Phone.
+        \li Logo image file of size 30x30 pixels.
     \row
         \li logo_41x41
-        \li Logo image file of size 41x41 pixels. This is only supported on Windows Phone.
+        \li Logo image file of size 41x41 pixels. This parameter is obsolete.
     \row
         \li logo_70x70
-        \li Logo image file of size 70x70 pixels. This is not supported on Windows Phone.
+        \li Logo image file of size 70x70 pixels.
     \row
         \li logo_71x71
-        \li Logo image file of size 71x71 pixels. This is only supported on Windows Phone.
+        \li Logo image file of size 71x71 pixels. This parameter is obsolete.
     \row
         \li logo_150x150
         \li Logo image file of size 150x150 pixels. This is supported on all Windows
@@ -2898,31 +2997,27 @@
             Store App platforms.
     \row
         \li logo_620x300
-        \li Splash screen image file of size 620x300 pixels. This is not supported on
-            Windows Phone.
+        \li Splash screen image file of size 620x300 pixels.
     \row
         \li logo_480x800
-        \li Splash screen image file of size 480x800 pixels. This is only supported on
-            Windows Phone.
+        \li Splash screen image file of size 480x800 pixels.
+            This parameter is obsolete.
     \row
         \li logo_large
         \li Large logo image file. This has to be 150x150 pixels. Supported on all
             Windows Store App platforms. Default provided by the mkspec.
     \row
         \li logo_medium
-        \li Medium logo image file. For Windows Phone the image must have a pixel size
-            of 71x71, for other Windows Store App platforms 70x70. Default provided by
-            the mkspec.
+        \li Medium logo image file. The image must have a pixel size of 70x70.
+            Default provided by the mkspec.
     \row
         \li logo_small
-        \li Small logo image file. For Windows Phone the image must have a pixel size
-            of 44x44, for other Windows Store App platforms 30x30. Default provided by
-            the mkspec.
+        \li Small logo image file. The image must have a pixel size of 30x30.
+            Default provided by the mkspec.
     \row
         \li logo_splash
-        \li Splash screen image file. For Windows Phone the image must have a pixel size
-            of 480x800, for other Windows Store App platforms 620x300. Default provided
-            by the mkspec.
+        \li Splash screen image file. The image must have a pixel size of
+            620x300. Default provided by the mkspec.
     \row
         \li logo_store
         \li Logo image file for Windows Store. Default provided by the mkspec.
@@ -2935,10 +3030,12 @@
         \li The name of the package as displayed to the user. Defaults to TARGET.
     \row
         \li phone_product_id
-        \li The GUID of the product. Defaults to the value of WINRT_MANIFEST.identity. (Windows Phone only)
+        \li The GUID of the product.
+            This parameter is obsolete.
     \row
         \li phone_publisher_id
-        \li The GUID of the publisher. Defaults to an invalid GUID. (Windows Phone only)
+        \li The GUID of the publisher.
+            This parameter is obsolete.
     \row
         \li publisher
         \li Display name of the publisher. Defaults to \c{Default publisher display name}.
@@ -2953,10 +3050,12 @@
         \li The version number of the package. Defaults to \c{1.0.0.0}.
     \row
         \li minVersion
-        \li The minimum required Windows version to run the package. Defaults to the environment variable \c UCRTVersion.
+        \li The minimum required Windows version to run the package.
+            Defaults to \c{WINDOWS_TARGET_PLATFORM_VERSION}.
     \row
         \li maxVersionTested
-        \li The maximum Windows version the package has been tested against. Defaults to \c WINRT_MANIFEST.minVersion
+        \li The maximum Windows version the package has been tested against.
+            Defaults to \c{WINDOWS_TARGET_PLATFORM_MIN_VERSION}.
 
     \endtable
 
@@ -2986,10 +3085,6 @@
     WINRT_MANIFEST = someManifest.xml.in
     WINRT_MANIFEST.CONFIG += verbatim
     \endcode
-
-    \note The required image sizes of \e logo_small, \e logo_medium, and \e logo_large
-          depend on the target platform. The general descriptions are overwritten if a
-          description that specifies the size is provided.
 
     \target YACCSOURCES
     \section1 YACCSOURCES
@@ -4514,7 +4609,10 @@
        \c QMAKEFEATURES environment variable)
     \li \c $$QMAKEFEATURES/myfeatures.prf (for each directory listed in the
        \c QMAKEFEATURES property variable)
-    \li \c myfeatures.prf (in the project's root directory)
+    \li \c myfeatures.prf (in the project's root directory). The project root
+        is determined by the top-level \c{.pro} file. However, if you place the
+        \c{.qmake.cache} file in a sub-directory or the directory of a
+        sub-project, then the project root becomes the sub-directory itself.
     \li \c $QMAKEPATH/mkspecs/features/unix/myfeatures.prf and
        \c $QMAKEPATH/mkspecs/features/myfeatures.prf (for each directory
        listed in the \c QMAKEPATH environment variable)
@@ -4592,7 +4690,7 @@
 
     The definitions above define a qmake target called \c mytarget, containing a
     Makefile target called \c{.buildfile} which in turn is generated with the
-    \l{touchfunction}{touch()} function. Finally, the
+    \c touch command. Finally, the
     \c{.depends} member specifies that \c mytarget depends on \c mytarget2,
     another target that is defined afterwards. \c mytarget2 is a dummy target.
     It is only defined to echo some text to the console.
@@ -4729,6 +4827,11 @@
         \li The dependencies for the output only get generated from the depends
             member and from nowhere else.
     \row
+        \li dep_existing_only
+        \li Every dependency that is a result of .depend_command is checked for
+            existence. Non-existing dependencies are ignored.
+            This value was introduced in Qt 5.13.2.
+    \row
         \li dep_lines
         \li The output from the .depend_command is interpreted to be one file
             per line. The default is to split on whitespace and is maintained
@@ -4819,6 +4922,7 @@
     \li Unix
         \list
         \li GCC 3.4 and above
+        \li clang
         \endlist
     \endlist
 

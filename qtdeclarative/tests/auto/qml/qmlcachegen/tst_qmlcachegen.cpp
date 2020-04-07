@@ -54,6 +54,7 @@ private slots:
     void aheadOfTimeCompilation();
     void functionExpressions();
     void versionChecksForAheadOfTimeUnits();
+    void retainedResources();
 
     void workerScripts();
 
@@ -63,6 +64,7 @@ private slots:
     void qrcScriptImport();
     void fsScriptImport();
     void moduleScriptImport();
+    void esModulesViaQJSEngine();
 
     void enums();
 
@@ -401,6 +403,13 @@ void tst_qmlcachegen::versionChecksForAheadOfTimeUnits()
     QQmlMetaType::removeCachedUnitLookupFunction(testHandler);
 }
 
+void tst_qmlcachegen::retainedResources()
+{
+    QFile file(":/Retain.qml");
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QVERIFY(file.readAll().startsWith("import QtQml 2.0"));
+}
+
 void tst_qmlcachegen::workerScripts()
 {
     QVERIFY(QFile::exists(":/workerscripts/data/worker.js"));
@@ -594,6 +603,15 @@ void tst_qmlcachegen::moduleScriptImport()
 
         QCOMPARE(unitFromResources, compilationUnit->unitData());
     }
+}
+
+void tst_qmlcachegen::esModulesViaQJSEngine()
+{
+    QCOMPARE(QFileInfo(":/data/module.mjs").size(), 0);
+    QJSEngine engine;
+    QJSValue module = engine.importModule(":/data/module.mjs");
+    QJSValue result = module.property("entry").call();
+    QCOMPARE(result.toString(), "ok");
 }
 
 void tst_qmlcachegen::enums()

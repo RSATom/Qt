@@ -45,6 +45,12 @@ function IcProcessor() {
           processor: this.processCodeDelete },
       'sfi-move': { parsers: [parseInt, parseInt],
           processor: this.processFunctionMove },
+      'LoadGlobalIC': {
+        parsers : propertyICParser,
+        processor: this.processPropertyIC.bind(this, "LoadGlobalIC") },
+      'StoreGlobalIC': {
+        parsers : propertyICParser,
+        processor: this.processPropertyIC.bind(this, "StoreGlobalIC") },
       'LoadIC': {
         parsers : propertyICParser,
         processor: this.processPropertyIC.bind(this, "LoadIC") },
@@ -61,9 +67,10 @@ function IcProcessor() {
         parsers : propertyICParser,
         processor: this.processPropertyIC.bind(this, "StoreInArrayLiteralIC") },
       });
-  this.deserializedEntriesNames_ = [];
   this.profile_ = new Profile();
 
+  this.LoadGlobalIC = 0;
+  this.StoreGlobalIC = 0;
   this.LoadIC = 0;
   this.StoreIC = 0;
   this.KeyedLoadIC = 0;
@@ -105,6 +112,8 @@ IcProcessor.prototype.processLogFile = function(fileName) {
   }
   print();
   print("=====================");
+  print("LoadGlobal: " + this.LoadGlobalIC);
+  print("StoreGlobal: " + this.StoreGlobalIC);
   print("Load: " + this.LoadIC);
   print("Store: " + this.StoreIC);
   print("KeyedLoad: " + this.KeyedLoadIC);
@@ -118,10 +127,6 @@ IcProcessor.prototype.addEntry = function(entry) {
 
 IcProcessor.prototype.processCodeCreation = function(
     type, kind, timestamp, start, size, name, maybe_func) {
-  name = this.deserializedEntriesNames_[start] || name;
-  if (name.startsWith("onComplete")) {
-    console.log(name);
-  }
   if (maybe_func.length) {
     var funcAddr = parseInt(maybe_func[0]);
     var state = parseState(maybe_func[1]);

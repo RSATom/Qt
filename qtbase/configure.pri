@@ -14,21 +14,26 @@ defineTest(qtConfCommandline_qmakeArgs) {
 }
 
 defineTest(qtConfCommandline_cxxstd) {
-    msvc: \
-        qtConfAddError("Command line option -c++std is not supported with MSVC compilers.")
-
     arg = $${1}
     val = $${2}
     isEmpty(val): val = $$qtConfGetNextCommandlineArg()
     !contains(val, "^-.*"):!isEmpty(val) {
         contains(val, "(c\+\+)?11") {
             qtConfCommandlineSetInput("c++14", "no")
+            qtConfCommandlineSetInput("c++1z", "no")
+            qtConfCommandlineSetInput("c++2a", "no")
         } else: contains(val, "(c\+\+)?(14|1y)") {
             qtConfCommandlineSetInput("c++14", "yes")
             qtConfCommandlineSetInput("c++1z", "no")
-        } else: contains(val, "(c\+\+)?(1z)") {
+            qtConfCommandlineSetInput("c++2a", "no")
+        } else: contains(val, "(c\+\+)?(17|1z)") {
             qtConfCommandlineSetInput("c++14", "yes")
             qtConfCommandlineSetInput("c++1z", "yes")
+            qtConfCommandlineSetInput("c++2a", "no")
+        } else: contains(val, "(c\+\+)?(2a)") {
+            qtConfCommandlineSetInput("c++14", "yes")
+            qtConfCommandlineSetInput("c++1z", "yes")
+            qtConfCommandlineSetInput("c++2a", "yes")
         } else {
             qtConfAddError("Invalid argument $$val to command line parameter $$arg")
         }
@@ -50,6 +55,21 @@ defineTest(qtConfCommandline_sanitize) {
             qtConfCommandlineSetInput("sanitize_memory", "yes")
         } else: equals(val, "undefined") {
             qtConfCommandlineSetInput("sanitize_undefined", "yes")
+        } else {
+            qtConfAddError("Invalid argument $$val to command line parameter $$arg")
+        }
+    } else {
+        qtConfAddError("Missing argument to command line parameter $$arg")
+    }
+}
+
+defineTest(qtConfCommandline_coverage) {
+    arg = $${1}
+    val = $${2}
+    isEmpty(val): val = $$qtConfGetNextCommandlineArg()
+    !contains(val, "^-.*"):!isEmpty(val) {
+        equals(val, "trace-pc-guard") {
+            qtConfCommandlineSetInput("coverage_trace_pc_guard", "yes")
         } else {
             qtConfAddError("Invalid argument $$val to command line parameter $$arg")
         }
@@ -267,17 +287,14 @@ defineTest(qtConfTest_architecture) {
         error("Could not determine $$eval($${1}.label). See config.log for details.")
 
     test = $$eval($${1}.test)
+    output = $$eval($${1}.output)
     test_out_dir = $$OUT_PWD/$$basename(QMAKE_CONFIG_TESTS_DIR)/$$test
-    unix:exists($$test_out_dir/arch): \
-        content = $$cat($$test_out_dir/arch, blob)
-    else: win32:exists($$test_out_dir/arch.exe): \
-        content = $$cat($$test_out_dir/arch.exe, blob)
-    else: android:exists($$test_out_dir/libarch.so): \
-        content = $$cat($$test_out_dir/libarch.so, blob)
-    else: wasm:exists($$test_out_dir/arch.wasm): \
-        content = $$cat($$test_out_dir/arch.wasm, blob)
+    test_out_file = $$test_out_dir/$$cat($$test_out_dir/$${output}.target.txt)
+    exists($$test_out_file): \
+        content = $$cat($$test_out_file, blob)
     else: \
         error("$$eval($${1}.label) detection binary not found.")
+    content = $$cat($$test_out_file, blob)
 
     arch_magic = ".*==Qt=magic=Qt== Architecture:([^\\0]*).*"
     subarch_magic = ".*==Qt=magic=Qt== Sub-architecture:([^\\0]*).*"
@@ -606,14 +623,8 @@ defineTest(qtConfOutput_prepareOptions) {
             target_arch = armeabi-v7a
 
         platform = $$eval(config.input.android-ndk-platform)
-        isEmpty(platform): equals(target_arch, arm64-v8a): \
-            platform = android-21
-
-        isEmpty(platform): equals(target_arch, x86_64): \
-            platform = android-21
-
         isEmpty(platform): \
-            platform = android-16  ### the windows configure disagrees ...
+            platform = android-21
 
         $${currentConfig}.output.devicePro += \
             "DEFAULT_ANDROID_SDK_ROOT = $$val_escape(sdk_root)" \
@@ -839,9 +850,6 @@ defineTest(qtConfOutput_preparePaths) {
     addConfStr($$[QMAKE_SPEC])
 
     $${currentConfig}.output.qconfigSource = \
-        "/* Installation date */" \
-        "static const char qt_configure_installation     [12+11]  = \"qt_instdate=2012-12-20\";" \
-        "" \
         "/* Installation Info */" \
         "static const char qt_configure_prefix_path_str  [12+256] = \"qt_prfxpath=$$config.input.prefix\";" \
         "$${LITERAL_HASH}ifdef QT_BUILD_QMAKE" \
@@ -1020,11 +1028,27 @@ defineTest(qtConfOutput_crossCompile) {
     export(CONFIG)
 }
 
+defineTest(qtConfOutput_useBFDLinker) {
+    !$${2}: return()
+
+    # We need to preempt the output here, so that qtConfTest_linkerSupportsFlag can work properly in qtbase
+    CONFIG += use_bfd_linker
+    export(CONFIG)
+}
+
 defineTest(qtConfOutput_useGoldLinker) {
     !$${2}: return()
 
     # We need to preempt the output here, so that qtConfTest_linkerSupportsFlag can work properly in qtbase
     CONFIG += use_gold_linker
+    export(CONFIG)
+}
+
+defineTest(qtConfOutput_useLLDLinker) {
+    !$${2}: return()
+
+    # We need to preempt the output here, so that qtConfTest_linkerSupportsFlag can work properly in qtbase
+    CONFIG += use_lld_linker
     export(CONFIG)
 }
 

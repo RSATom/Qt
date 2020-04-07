@@ -17,6 +17,7 @@ DEFINES *= QT_NO_NARROWING_CONVERSIONS_IN_CONNECT
 qtConfig(c++11): CONFIG += c++11 strict_c++
 qtConfig(c++14): CONFIG += c++14
 qtConfig(c++1z): CONFIG += c++1z
+qtConfig(c++2a): CONFIG += c++2a
 qtConfig(c99): CONFIG += c99
 qtConfig(c11): CONFIG += c11
 qtConfig(stack-protector-strong): CONFIG += stack_protector_strong
@@ -99,14 +100,8 @@ clang {
     greaterThan(QT_GCC_MAJOR_VERSION, 5): QMAKE_CXXFLAGS_WARN_ON += -Wshift-overflow=2 -Wduplicated-cond
     # GCC 7 has a lot of false positives relating to this, so disable completely
     greaterThan(QT_GCC_MAJOR_VERSION, 6): QMAKE_CXXFLAGS_WARN_ON += -Wno-stringop-overflow
-    # GCC 9 has a lot of false positives relating to this, so disable completely
-    greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-deprecated-copy
-    # GCC 9 introduced this
-    greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-redundant-move
-    # GCC 9 introduced this
+    # GCC 9 introduced -Wformat-overflow in -Wall, but it is buggy:
     greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-format-overflow
-    # GCC 9 introduced this
-    greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-init-list-lifetime
 }
 
 warnings_are_errors:warning_clean {
@@ -115,10 +110,10 @@ warnings_are_errors:warning_clean {
     # compiler.
     clang {
         # Apple clang 4.0-4.2,5.0-5.1,6.0-6.4,7.0-7.3,8.0-8.3,9.0-9.2
-        # Regular clang 3.x-6.0
+        # Regular clang 3.x-7.0
         apple_ver = $${QT_APPLE_CLANG_MAJOR_VERSION}.$${QT_APPLE_CLANG_MINOR_VERSION}
         reg_ver = $${QT_CLANG_MAJOR_VERSION}.$${QT_CLANG_MINOR_VERSION}
-        contains(apple_ver, "4\\.[012]|5\\.[01]|6\\.[01234]|7\\.[0123]|8\\.[0123]|9\\.[012]")|contains(reg_ver, "[345]\\.|6\\.0") {
+        contains(apple_ver, "4\\.[012]|5\\.[01]|6\\.[01234]|7\\.[0123]|8\\.[0123]|9\\.[012]")|contains(reg_ver, "[345]\\.|[67]\\.0") {
             QMAKE_CXXFLAGS_WARN_ON += -Werror -Wno-error=\\$${LITERAL_HASH}warnings -Wno-error=deprecated-declarations $$WERROR
         }
     } else:intel_icc:linux {
@@ -146,14 +141,13 @@ warnings_are_errors:warning_clean {
 
             # GCC 7 includes -Wimplicit-fallthrough in -Wextra, but Qt is not yet free of implicit fallthroughs.
             greaterThan(QT_GCC_MAJOR_VERSION, 6): QMAKE_CXXFLAGS_WARN_ON += -Wno-error=implicit-fallthrough
-            # GCC 9 has a lot of false positives relating to this, so disable completely
-            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-deprecated-copy
+            # GCC 9 introduced -Wdeprecated-copy in -Wextra, but we are not clean for it.
+            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-error=deprecated-copy
             # GCC 9 introduced this
-            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-redundant-move
+            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-error=redundant-move
             # GCC 9 introduced this
-            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-format-overflow
-            # GCC 9 introduced this
-            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-init-list-lifetime
+            greaterThan(QT_GCC_MAJOR_VERSION, 8): QMAKE_CXXFLAGS_WARN_ON += -Wno-error=init-list-lifetime
+
             # Work-around for bug https://code.google.com/p/android/issues/detail?id=58135
             android: QMAKE_CXXFLAGS_WARN_ON += -Wno-error=literal-suffix
         }

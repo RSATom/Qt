@@ -62,7 +62,7 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
 
   ~TextControlElement() override;
 
-  void ForwardEvent(Event*);
+  void ForwardEvent(Event&);
 
   void SetFocused(bool, WebFocusType) override;
 
@@ -134,10 +134,8 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   void DropInnerEditorElement() { inner_editor_ = nullptr; }
 
   void SelectionChanged(bool user_triggered);
-  bool UserHasEditedTheField() const;
   bool LastChangeWasUserEdit() const;
-  // This is only used in tests, to fake the user's action
-  void SetUserHasEditedTheFieldForTest() { user_has_edited_the_field_ = true; }
+
   virtual void SetInnerEditorValue(const String&);
   String InnerEditorValue() const;
   Node* CreatePlaceholderBreakElement() const;
@@ -165,7 +163,7 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
 
   void RestoreCachedSelection();
 
-  void DefaultEventHandler(Event*) override;
+  void DefaultEventHandler(Event&) override;
   virtual void SubtreeHasChanged() = 0;
 
   void SetLastChangeWasNotUserEdit() { last_change_was_user_edit_ = false; }
@@ -216,12 +214,11 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   // creating a number of TreeScope data structures to track elements by ID.
   Member<TextControlInnerEditorElement> inner_editor_;
 
-  // In m_valueBeforeFirstUserEdit, we distinguish a null String and zero-length
-  // String. Null String means the field doesn't have any data yet, and
-  // zero-length String is a valid data.
+  // In value_before_first_user_edit_, we distinguish a null String and
+  // zero-length String. Null String means the field doesn't have any data yet,
+  // and zero-length String is a valid data.
   String value_before_first_user_edit_;
   bool last_change_was_user_edit_;
-  bool user_has_edited_the_field_;
 
   unsigned cached_selection_start_;
   unsigned cached_selection_end_;
@@ -267,6 +264,7 @@ DEFINE_TEXT_CONTROL_CASTS(const TextControlElement, const Node);
 #undef DEFINE_TEXT_CONTROL_CASTS
 
 TextControlElement* EnclosingTextControl(const Position&);
+TextControlElement* EnclosingTextControl(const PositionInFlatTree&);
 TextControlElement* EnclosingTextControl(const Node*);
 
 }  // namespace blink

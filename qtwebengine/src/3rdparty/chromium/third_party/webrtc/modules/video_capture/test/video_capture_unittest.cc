@@ -14,15 +14,16 @@
 #include <memory>
 #include <sstream>
 
+#include "absl/memory/memory.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "modules/utility/include/process_thread.h"
 #include "modules/video_capture/video_capture.h"
 #include "modules/video_capture/video_capture_factory.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/scoped_ref_ptr.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/sleep.h"
 #include "test/frame_utils.h"
 #include "test/gtest.h"
@@ -64,7 +65,7 @@ class TestVideoCaptureCallback
         timing_warnings_(0),
         rotate_frame_(webrtc::kVideoRotation_0) {}
 
-  ~TestVideoCaptureCallback() {
+  ~TestVideoCaptureCallback() override {
     if (timing_warnings_ > 0)
       printf("No of timing warnings %d\n", timing_warnings_);
   }
@@ -146,7 +147,7 @@ class VideoCaptureTest : public testing::Test {
  public:
   VideoCaptureTest() : number_of_devices_(0) {}
 
-  void SetUp() {
+  void SetUp() override {
     device_info_.reset(VideoCaptureFactory::CreateDeviceInfo());
     assert(device_info_.get());
     number_of_devices_ = device_info_->NumberOfDevices();
@@ -348,7 +349,7 @@ TEST_F(VideoCaptureTest, DISABLED_TestTwoCameras) {
 // such as frame rate and picture alarm.
 class VideoCaptureExternalTest : public testing::Test {
  public:
-  void SetUp() {
+  void SetUp() override {
     capture_module_ = VideoCaptureFactory::Create(capture_input_interface_);
 
     VideoCaptureCapability capability;
@@ -366,15 +367,19 @@ class VideoCaptureExternalTest : public testing::Test {
            buffer->ChromaHeight() * buffer->StrideU());
     memset(buffer->MutableDataV(), 127,
            buffer->ChromaHeight() * buffer->StrideV());
-    test_frame_.reset(new webrtc::VideoFrame(buffer, webrtc::kVideoRotation_0,
-                                             0 /* timestamp_us */));
+    test_frame_ = absl::make_unique<webrtc::VideoFrame>(
+        webrtc::VideoFrame::Builder()
+            .set_video_frame_buffer(buffer)
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build());
 
     SleepMs(1);  // Wait 1ms so that two tests can't have the same timestamp.
 
     capture_module_->RegisterCaptureDataCallback(&capture_callback_);
   }
 
-  void TearDown() {}
+  void TearDown() override {}
 
   webrtc::VideoCaptureExternal* capture_input_interface_;
   rtc::scoped_refptr<VideoCaptureModule> capture_module_;

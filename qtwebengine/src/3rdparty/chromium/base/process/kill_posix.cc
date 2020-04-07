@@ -16,7 +16,7 @@
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/process_iterator.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 
@@ -36,7 +36,8 @@ TerminationStatus GetTerminationStatusImpl(ProcessHandle handle,
     DPLOG(ERROR) << "waitpid(" << handle << ")";
     *exit_code = 0;
     return TERMINATION_STATUS_NORMAL_TERMINATION;
-  } else if (result == 0) {
+  }
+  if (result == 0) {
     // the child hasn't exited yet.
     *exit_code = 0;
     return TERMINATION_STATUS_STILL_RUNNING;

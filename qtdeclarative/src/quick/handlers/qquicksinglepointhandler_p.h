@@ -56,24 +56,29 @@
 
 QT_BEGIN_NAMESPACE
 
+class QQuickSinglePointHandlerPrivate;
+
 class Q_QUICK_PRIVATE_EXPORT QQuickSinglePointHandler : public QQuickPointerDeviceHandler
 {
     Q_OBJECT
     Q_PROPERTY(QQuickHandlerPoint point READ point NOTIFY pointChanged)
+
 public:
     explicit QQuickSinglePointHandler(QQuickItem *parent = nullptr);
 
-    QQuickHandlerPoint point() const { return m_pointInfo; }
+    QQuickHandlerPoint point() const;
 
 Q_SIGNALS:
     void pointChanged();
 
 protected:
+    QQuickSinglePointHandler(QQuickSinglePointHandlerPrivate &dd, QQuickItem *parent);
+
     bool wantsPointerEvent(QQuickPointerEvent *event) override;
     void handlePointerEventImpl(QQuickPointerEvent *event) override;
     virtual void handleEventPoint(QQuickEventPoint *point) = 0;
 
-    QQuickEventPoint *currentPoint(QQuickPointerEvent *ev) { return ev->pointById(m_pointInfo.m_id); }
+    QQuickEventPoint *currentPoint(QQuickPointerEvent *ev);
     void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point) override;
 
     void setIgnoreAdditionalPoints(bool v = true);
@@ -82,11 +87,7 @@ protected:
 
     void setPointId(int id);
 
-    void reset();
-
-private:
-    QQuickHandlerPoint m_pointInfo;
-    bool m_ignoreAdditionalPoints = false;
+    Q_DECLARE_PRIVATE(QQuickSinglePointHandler)
 };
 
 QT_END_NAMESPACE

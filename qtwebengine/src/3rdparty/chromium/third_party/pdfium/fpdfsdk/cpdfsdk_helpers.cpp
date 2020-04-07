@@ -10,11 +10,11 @@
 #include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
-#include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfdoc/cpdf_annot.h"
-#include "core/fpdfdoc/cpdf_interform.h"
+#include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpdf_metadata.h"
 #include "public/fpdf_ext.h"
 
@@ -25,6 +25,13 @@
 namespace {
 
 constexpr char kQuadPoints[] = "QuadPoints";
+
+// 0 bit: FPDF_POLICY_MACHINETIME_ACCESS
+static uint32_t g_sandbox_policy = 0xFFFFFFFF;
+
+#ifndef _WIN32
+int g_last_error;
+#endif  // _WIN32
 
 bool RaiseUnSupportError(int nError) {
   CFSDK_UnsupportInfo_Adapter* pAdapter =
@@ -39,7 +46,7 @@ bool RaiseUnSupportError(int nError) {
 }
 
 #ifdef PDF_ENABLE_XFA
-class FPDF_FileHandlerContext : public IFX_SeekableStream {
+class FPDF_FileHandlerContext final : public IFX_SeekableStream {
  public:
   template <typename T, typename... Args>
   friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
@@ -48,14 +55,18 @@ class FPDF_FileHandlerContext : public IFX_SeekableStream {
   FX_FILESIZE GetSize() override;
   bool IsEOF() override;
   FX_FILESIZE GetPosition() override;
-  bool ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
+  bool ReadBlockAtOffset(void* buffer,
+                         FX_FILESIZE offset,
+                         size_t size) override;
   size_t ReadBlock(void* buffer, size_t size) override;
-  bool WriteBlock(const void* buffer, FX_FILESIZE offset, size_t size) override;
+  bool WriteBlockAtOffset(const void* buffer,
+                          FX_FILESIZE offset,
+                          size_t size) override;
   bool Flush() override;
 
   void SetPosition(FX_FILESIZE pos) { m_nCurPos = pos; }
 
- protected:
+ private:
   explicit FPDF_FileHandlerContext(FPDF_FILEHANDLER* pFS);
   ~FPDF_FileHandlerContext() override;
 
@@ -87,9 +98,9 @@ FX_FILESIZE FPDF_FileHandlerContext::GetPosition() {
   return m_nCurPos;
 }
 
-bool FPDF_FileHandlerContext::ReadBlock(void* buffer,
-                                        FX_FILESIZE offset,
-                                        size_t size) {
+bool FPDF_FileHandlerContext::ReadBlockAtOffset(void* buffer,
+                                                FX_FILESIZE offset,
+                                                size_t size) {
   if (!buffer || !size || !m_pFS->ReadBlock)
     return false;
 
@@ -120,9 +131,9 @@ size_t FPDF_FileHandlerContext::ReadBlock(void* buffer, size_t size) {
   return 0;
 }
 
-bool FPDF_FileHandlerContext::WriteBlock(const void* buffer,
-                                         FX_FILESIZE offset,
-                                         size_t size) {
+bool FPDF_FileHandlerContext::WriteBlockAtOffset(const void* buffer,
+                                                 FX_FILESIZE offset,
+                                                 size_t size) {
   if (!m_pFS || !m_pFS->WriteBlock)
     return false;
 
@@ -164,10 +175,186 @@ CPDF_Page* CPDFPageFromFPDFPage(FPDF_PAGE page) {
   return page ? IPDFPageFromFPDFPage(page)->AsPDFPage() : nullptr;
 }
 
-ByteString CFXByteStringFromFPDFWideString(FPDF_WIDESTRING wide_string) {
+ByteString ByteStringFromFPDFWideString(FPDF_WIDESTRING wide_string) {
+  return WideStringFromFPDFWideString(wide_string).ToUTF8();
+}
+
+WideString WideStringFromFPDFWideString(FPDF_WIDESTRING wide_string) {
   return WideString::FromUTF16LE(wide_string,
-                                 WideString::WStringLength(wide_string))
-      .UTF8Encode();
+                                 WideString::WStringLength(wide_string));
+}
+
+#ifdef PDF_ENABLE_XFA
+RetainPtr<IFX_SeekableStream> MakeSeekableStream(
+    FPDF_FILEHANDLER* pFilehandler) {
+  return pdfium::MakeRetain<FPDF_FileHandlerContext>(pFilehandler);
+}
+#endif  // PDF_ENABLE_XFA
+
+const CPDF_Array* GetQuadPointsArrayFromDictionary(
+    const CPDF_Dictionary* dict) {
+  return dict ? dict->GetArrayFor("QuadPoints") : nullptr;
+}
+
+CPDF_Array* GetQuadPointsArrayFromDictionary(CPDF_Dictionary* dict) {
+  return dict ? dict->GetArrayFor("QuadPoints") : nullptr;
+}
+
+CPDF_Array* AddQuadPointsArrayToDictionary(CPDF_Dictionary* dict) {
+  if (!dict)
+    return nullptr;
+  return dict->SetNewFor<CPDF_Array>(kQuadPoints);
+}
+
+bool IsValidQuadPointsIndex(const CPDF_Array* array, size_t index) {
+  return array && index < array->size() / 8;
+}
+
+bool GetQuadPointsAtIndex(const CPDF_Array* array,
+                          size_t quad_index,
+                          FS_QUADPOINTSF* quad_points) {
+  ASSERT(quad_points);
+  ASSERT(array);
+
+  if (!IsValidQuadPointsIndex(array, quad_index))
+    return false;
+
+  quad_index *= 8;
+  quad_points->x1 = array->GetNumberAt(quad_index);
+  quad_points->y1 = array->GetNumberAt(quad_index + 1);
+  quad_points->x2 = array->GetNumberAt(quad_index + 2);
+  quad_points->y2 = array->GetNumberAt(quad_index + 3);
+  quad_points->x3 = array->GetNumberAt(quad_index + 4);
+  quad_points->y3 = array->GetNumberAt(quad_index + 5);
+  quad_points->x4 = array->GetNumberAt(quad_index + 6);
+  quad_points->y4 = array->GetNumberAt(quad_index + 7);
+  return true;
+}
+
+bool GetQuadPointsFromDictionary(CPDF_Dictionary* dict,
+                                 size_t quad_index,
+                                 FS_QUADPOINTSF* quad_points) {
+  ASSERT(quad_points);
+
+  const CPDF_Array* pArray = GetQuadPointsArrayFromDictionary(dict);
+  if (!pArray || quad_index >= pArray->size() / 8)
+    return false;
+
+  quad_index *= 8;
+  quad_points->x1 = pArray->GetNumberAt(quad_index);
+  quad_points->y1 = pArray->GetNumberAt(quad_index + 1);
+  quad_points->x2 = pArray->GetNumberAt(quad_index + 2);
+  quad_points->y2 = pArray->GetNumberAt(quad_index + 3);
+  quad_points->x3 = pArray->GetNumberAt(quad_index + 4);
+  quad_points->y3 = pArray->GetNumberAt(quad_index + 5);
+  quad_points->x4 = pArray->GetNumberAt(quad_index + 6);
+  quad_points->y4 = pArray->GetNumberAt(quad_index + 7);
+  return true;
+}
+
+CFX_FloatRect CFXFloatRectFromFSRECTF(const FS_RECTF& rect) {
+  return CFX_FloatRect(rect.left, rect.bottom, rect.right, rect.top);
+}
+
+void FSRECTFFromCFXFloatRect(const CFX_FloatRect& rect, FS_RECTF* out_rect) {
+  out_rect->left = rect.left;
+  out_rect->top = rect.top;
+  out_rect->right = rect.right;
+  out_rect->bottom = rect.bottom;
+}
+
+CFX_Matrix CFXMatrixFromFSMatrix(const FS_MATRIX& matrix) {
+  return CFX_Matrix(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+}
+
+unsigned long Utf16EncodeMaybeCopyAndReturnLength(const WideString& text,
+                                                  void* buffer,
+                                                  unsigned long buflen) {
+  ByteString encoded_text = text.ToUTF16LE();
+  unsigned long len = encoded_text.GetLength();
+  if (buffer && len <= buflen)
+    memcpy(buffer, encoded_text.c_str(), len);
+  return len;
+}
+
+unsigned long DecodeStreamMaybeCopyAndReturnLength(const CPDF_Stream* stream,
+                                                   void* buffer,
+                                                   unsigned long buflen) {
+  ASSERT(stream);
+  auto stream_acc = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
+  stream_acc->LoadAllDataFiltered();
+  const auto stream_data_size = stream_acc->GetSize();
+  if (!buffer || buflen < stream_data_size)
+    return stream_data_size;
+
+  memcpy(buffer, stream_acc->GetData(), stream_data_size);
+  return stream_data_size;
+}
+
+void FSDK_SetSandBoxPolicy(FPDF_DWORD policy, FPDF_BOOL enable) {
+  switch (policy) {
+    case FPDF_POLICY_MACHINETIME_ACCESS: {
+      if (enable)
+        g_sandbox_policy |= 0x01;
+      else
+        g_sandbox_policy &= 0xFFFFFFFE;
+    } break;
+    default:
+      break;
+  }
+}
+
+FPDF_BOOL FSDK_IsSandBoxPolicyEnabled(FPDF_DWORD policy) {
+  switch (policy) {
+    case FPDF_POLICY_MACHINETIME_ACCESS:
+      return !!(g_sandbox_policy & 0x01);
+    default:
+      return false;
+  }
+}
+
+void ReportUnsupportedFeatures(CPDF_Document* pDoc) {
+  const CPDF_Dictionary* pRootDict = pDoc->GetRoot();
+  if (pRootDict) {
+    // Portfolios and Packages
+    if (pRootDict->KeyExist("Collection")) {
+      RaiseUnSupportError(FPDF_UNSP_DOC_PORTABLECOLLECTION);
+      return;
+    }
+    if (pRootDict->KeyExist("Names")) {
+      const CPDF_Dictionary* pNameDict = pRootDict->GetDictFor("Names");
+      if (pNameDict && pNameDict->KeyExist("EmbeddedFiles")) {
+        RaiseUnSupportError(FPDF_UNSP_DOC_ATTACHMENT);
+        return;
+      }
+      if (pNameDict && pNameDict->KeyExist("JavaScript")) {
+        const CPDF_Dictionary* pJSDict = pNameDict->GetDictFor("JavaScript");
+        const CPDF_Array* pArray =
+            pJSDict ? pJSDict->GetArrayFor("Names") : nullptr;
+        if (pArray) {
+          for (size_t i = 0; i < pArray->size(); i++) {
+            ByteString cbStr = pArray->GetStringAt(i);
+            if (cbStr.Compare("com.adobe.acrobat.SharedReview.Register") == 0) {
+              RaiseUnSupportError(FPDF_UNSP_DOC_SHAREDREVIEW);
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // SharedForm
+    const CPDF_Stream* pStream = pRootDict->GetStreamFor("Metadata");
+    if (pStream) {
+      CPDF_Metadata metaData(pStream);
+      for (const auto& err : metaData.CheckForSharedForm())
+        RaiseUnSupportError(static_cast<int>(err));
+    }
+  }
+
+  // XFA Forms
+  if (!pDoc->GetExtension() && CPDF_InteractiveForm(pDoc).HasXFAForm())
+    RaiseUnSupportError(FPDF_UNSP_DOC_XFAFORM);
 }
 
 void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot) {
@@ -199,58 +386,13 @@ void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot) {
   }
 }
 
-void ReportUnsupportedFeatures(CPDF_Document* pDoc) {
-  const CPDF_Dictionary* pRootDict = pDoc->GetRoot();
-  if (pRootDict) {
-    // Portfolios and Packages
-    if (pRootDict->KeyExist("Collection")) {
-      RaiseUnSupportError(FPDF_UNSP_DOC_PORTABLECOLLECTION);
-      return;
-    }
-    if (pRootDict->KeyExist("Names")) {
-      const CPDF_Dictionary* pNameDict = pRootDict->GetDictFor("Names");
-      if (pNameDict && pNameDict->KeyExist("EmbeddedFiles")) {
-        RaiseUnSupportError(FPDF_UNSP_DOC_ATTACHMENT);
-        return;
-      }
-      if (pNameDict && pNameDict->KeyExist("JavaScript")) {
-        const CPDF_Dictionary* pJSDict = pNameDict->GetDictFor("JavaScript");
-        const CPDF_Array* pArray =
-            pJSDict ? pJSDict->GetArrayFor("Names") : nullptr;
-        if (pArray) {
-          for (size_t i = 0; i < pArray->GetCount(); i++) {
-            ByteString cbStr = pArray->GetStringAt(i);
-            if (cbStr.Compare("com.adobe.acrobat.SharedReview.Register") == 0) {
-              RaiseUnSupportError(FPDF_UNSP_DOC_SHAREDREVIEW);
-              return;
-            }
-          }
-        }
-      }
-    }
-
-    // SharedForm
-    const CPDF_Stream* pStream = pRootDict->GetStreamFor("Metadata");
-    if (pStream) {
-      CPDF_Metadata metaData(pStream);
-      for (const auto& err : metaData.CheckForSharedForm())
-        RaiseUnSupportError(static_cast<int>(err));
-    }
-  }
-
-  // XFA Forms
-  if (!pDoc->GetExtension() && CPDF_InterForm(pDoc).HasXFAForm())
-    RaiseUnSupportError(FPDF_UNSP_DOC_XFAFORM);
-}
-
 #ifndef _WIN32
-int g_LastError;
 void SetLastError(int err) {
-  g_LastError = err;
+  g_last_error = err;
 }
 
 int GetLastError() {
-  return g_LastError;
+  return g_last_error;
 }
 #endif  // _WIN32
 
@@ -276,131 +418,3 @@ void ProcessParseError(CPDF_Parser::Error err) {
   }
   SetLastError(err_code);
 }
-
-// 0 bit: FPDF_POLICY_MACHINETIME_ACCESS
-static uint32_t foxit_sandbox_policy = 0xFFFFFFFF;
-
-void FSDK_SetSandBoxPolicy(FPDF_DWORD policy, FPDF_BOOL enable) {
-  switch (policy) {
-    case FPDF_POLICY_MACHINETIME_ACCESS: {
-      if (enable)
-        foxit_sandbox_policy |= 0x01;
-      else
-        foxit_sandbox_policy &= 0xFFFFFFFE;
-    } break;
-    default:
-      break;
-  }
-}
-
-FPDF_BOOL FSDK_IsSandBoxPolicyEnabled(FPDF_DWORD policy) {
-  switch (policy) {
-    case FPDF_POLICY_MACHINETIME_ACCESS:
-      return !!(foxit_sandbox_policy & 0x01);
-    default:
-      return false;
-  }
-}
-
-unsigned long DecodeStreamMaybeCopyAndReturnLength(const CPDF_Stream* stream,
-                                                   void* buffer,
-                                                   unsigned long buflen) {
-  ASSERT(stream);
-  auto stream_acc = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
-  stream_acc->LoadAllDataFiltered();
-  const auto stream_data_size = stream_acc->GetSize();
-  if (!buffer || buflen < stream_data_size)
-    return stream_data_size;
-
-  memcpy(buffer, stream_acc->GetData(), stream_data_size);
-  return stream_data_size;
-}
-
-unsigned long Utf16EncodeMaybeCopyAndReturnLength(const WideString& text,
-                                                  void* buffer,
-                                                  unsigned long buflen) {
-  ByteString encoded_text = text.UTF16LE_Encode();
-  unsigned long len = encoded_text.GetLength();
-  if (buffer && len <= buflen)
-    memcpy(buffer, encoded_text.c_str(), len);
-  return len;
-}
-
-void FSRECTFFromCFXFloatRect(const CFX_FloatRect& rect, FS_RECTF* out_rect) {
-  out_rect->left = rect.left;
-  out_rect->top = rect.top;
-  out_rect->right = rect.right;
-  out_rect->bottom = rect.bottom;
-}
-
-CFX_FloatRect CFXFloatRectFromFSRECTF(const FS_RECTF& rect) {
-  return CFX_FloatRect(rect.left, rect.bottom, rect.right, rect.top);
-}
-
-const CPDF_Array* GetQuadPointsArrayFromDictionary(
-    const CPDF_Dictionary* dict) {
-  return dict ? dict->GetArrayFor("QuadPoints") : nullptr;
-}
-
-CPDF_Array* GetQuadPointsArrayFromDictionary(CPDF_Dictionary* dict) {
-  return dict ? dict->GetArrayFor("QuadPoints") : nullptr;
-}
-
-CPDF_Array* AddQuadPointsArrayToDictionary(CPDF_Dictionary* dict) {
-  if (!dict)
-    return nullptr;
-  return dict->SetNewFor<CPDF_Array>(kQuadPoints);
-}
-
-bool IsValidQuadPointsIndex(const CPDF_Array* array, size_t index) {
-  return array && index < array->GetCount() / 8;
-}
-
-bool GetQuadPointsAtIndex(const CPDF_Array* array,
-                          size_t quad_index,
-                          FS_QUADPOINTSF* quad_points) {
-  ASSERT(quad_points);
-  ASSERT(array);
-
-  if (!IsValidQuadPointsIndex(array, quad_index))
-    return false;
-
-  quad_index *= 8;
-  quad_points->x1 = array->GetNumberAt(quad_index);
-  quad_points->y1 = array->GetNumberAt(quad_index + 1);
-  quad_points->x2 = array->GetNumberAt(quad_index + 2);
-  quad_points->y2 = array->GetNumberAt(quad_index + 3);
-  quad_points->x3 = array->GetNumberAt(quad_index + 4);
-  quad_points->y3 = array->GetNumberAt(quad_index + 5);
-  quad_points->x4 = array->GetNumberAt(quad_index + 6);
-  quad_points->y4 = array->GetNumberAt(quad_index + 7);
-  return true;
-}
-
-bool GetQuadPointsFromDictionary(CPDF_Dictionary* dict,
-                                 size_t quad_index,
-                                 FS_QUADPOINTSF* quad_points) {
-  ASSERT(quad_points);
-
-  const CPDF_Array* pArray = GetQuadPointsArrayFromDictionary(dict);
-  if (!pArray || quad_index >= pArray->GetCount() / 8)
-    return false;
-
-  quad_index *= 8;
-  quad_points->x1 = pArray->GetNumberAt(quad_index);
-  quad_points->y1 = pArray->GetNumberAt(quad_index + 1);
-  quad_points->x2 = pArray->GetNumberAt(quad_index + 2);
-  quad_points->y2 = pArray->GetNumberAt(quad_index + 3);
-  quad_points->x3 = pArray->GetNumberAt(quad_index + 4);
-  quad_points->y3 = pArray->GetNumberAt(quad_index + 5);
-  quad_points->x4 = pArray->GetNumberAt(quad_index + 6);
-  quad_points->y4 = pArray->GetNumberAt(quad_index + 7);
-  return true;
-}
-
-#ifdef PDF_ENABLE_XFA
-RetainPtr<IFX_SeekableStream> MakeSeekableStream(
-    FPDF_FILEHANDLER* pFilehandler) {
-  return pdfium::MakeRetain<FPDF_FileHandlerContext>(pFilehandler);
-}
-#endif  // PDF_ENABLE_XFA

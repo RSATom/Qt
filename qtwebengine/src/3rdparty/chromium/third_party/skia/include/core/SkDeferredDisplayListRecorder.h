@@ -5,23 +5,24 @@
  * found in the LICENSE file.
  */
 
-#ifndef SkDeferredDisplayListMaker_DEFINED
-#define SkDeferredDisplayListMaker_DEFINED
+#ifndef SkDeferredDisplayListRecorder_DEFINED
+#define SkDeferredDisplayListRecorder_DEFINED
 
+#include "../private/SkDeferredDisplayList.h"
 #include "SkImageInfo.h"
 #include "SkRefCnt.h"
 #include "SkSurfaceCharacterization.h"
 #include "SkTypes.h"
 
-#include "../private/SkDeferredDisplayList.h"
-
 class GrBackendFormat;
 class GrBackendTexture;
 class GrContext;
-
 class SkCanvas;
 class SkImage;
+class SkPromiseImageTexture;
 class SkSurface;
+struct SkYUVAIndex;
+struct SkYUVASizeInfo;
 
 /*
  * This class is intended to be used as:
@@ -46,16 +47,21 @@ public:
 
     // The backing canvas will become invalid (and this entry point will return
     // null) once 'detach' is called.
-    // Note: ownership of the SkCanvas is not transfered via this call.
+    // Note: ownership of the SkCanvas is not transferred via this call.
     SkCanvas* getCanvas();
 
     std::unique_ptr<SkDeferredDisplayList> detach();
 
-    // Matches the defines in SkImage_Gpu.h
-    typedef void* TextureContext;
-    typedef void (*TextureReleaseProc)(TextureContext textureContext);
-    typedef void (*TextureFulfillProc)(TextureContext textureContext, GrBackendTexture* outTexture);
-    typedef void (*PromiseDoneProc)(TextureContext textureContext);
+    using PromiseImageTextureContext = void*;
+    using PromiseImageTextureFulfillProc =
+            sk_sp<SkPromiseImageTexture> (*)(PromiseImageTextureContext);
+    using PromiseImageTextureReleaseProc = void (*)(PromiseImageTextureContext);
+    using PromiseImageTextureDoneProc = void (*)(PromiseImageTextureContext);
+
+    // Deprecated types. To be removed.
+    using LegacyPromiseImageTextureFulfillProc = void (*)(PromiseImageTextureContext,
+                                                          GrBackendTexture*);
+    using TextureContext = PromiseImageTextureContext;
 
     /**
         Create a new SkImage that is very similar to an SkImage created by MakeFromTexture. The main
@@ -76,7 +82,7 @@ public:
         In other words we will never call textureFulfillProc or textureReleaseProc multiple times
         for the same textureContext before calling the other.
 
-        We we call the promiseDoneProc when we will no longer call the textureFulfillProc again. We
+        We call the promiseDoneProc when we will no longer call the textureFulfillProc again. We
         pass in the textureContext as a parameter to the promiseDoneProc. We also guarantee that
         there will be no outstanding textureReleaseProcs that still need to be called when we call
         the textureDoneProc. Thus when the textureDoneProc gets called the client is able to cleanup
@@ -110,10 +116,56 @@ public:
                                       SkColorType colorType,
                                       SkAlphaType alphaType,
                                       sk_sp<SkColorSpace> colorSpace,
-                                      TextureFulfillProc textureFulfillProc,
-                                      TextureReleaseProc textureReleaseProc,
-                                      PromiseDoneProc promiseDoneProc,
-                                      TextureContext textureContext);
+                                      PromiseImageTextureFulfillProc textureFulfillProc,
+                                      PromiseImageTextureReleaseProc textureReleaseProc,
+                                      PromiseImageTextureDoneProc textureDoneProc,
+                                      PromiseImageTextureContext textureContext);
+    /** Deprecated variant of above. */
+    sk_sp<SkImage> makePromiseTexture(const GrBackendFormat& backendFormat,
+                                      int width,
+                                      int height,
+                                      GrMipMapped mipMapped,
+                                      GrSurfaceOrigin origin,
+                                      SkColorType colorType,
+                                      SkAlphaType alphaType,
+                                      sk_sp<SkColorSpace> colorSpace,
+                                      LegacyPromiseImageTextureFulfillProc textureFulfillProc,
+                                      PromiseImageTextureReleaseProc textureReleaseProc,
+                                      PromiseImageTextureDoneProc textureDoneProc,
+                                      PromiseImageTextureContext textureContext);
+
+    /**
+        This entry point operates the same as 'makePromiseTexture' except that its
+        textureFulfillProc can be called up to four times to fetch the required YUVA
+        planes (passing a different textureContext to each call). So, if the 'yuvaIndices'
+        indicate that only the first two backend textures are used, 'textureFulfillProc' will
+        be called with the first two 'textureContexts'.
+     */
+    sk_sp<SkImage> makeYUVAPromiseTexture(SkYUVColorSpace yuvColorSpace,
+                                          const GrBackendFormat yuvaFormats[],
+                                          const SkISize yuvaSizes[],
+                                          const SkYUVAIndex yuvaIndices[4],
+                                          int imageWidth,
+                                          int imageHeight,
+                                          GrSurfaceOrigin imageOrigin,
+                                          sk_sp<SkColorSpace> imageColorSpace,
+                                          PromiseImageTextureFulfillProc textureFulfillProc,
+                                          PromiseImageTextureReleaseProc textureReleaseProc,
+                                          PromiseImageTextureDoneProc textureDoneProc,
+                                          PromiseImageTextureContext textureContexts[]);
+    /** Deprecated variant of above. */
+    sk_sp<SkImage> makeYUVAPromiseTexture(SkYUVColorSpace yuvColorSpace,
+                                          const GrBackendFormat yuvaFormats[],
+                                          const SkISize yuvaSizes[],
+                                          const SkYUVAIndex yuvaIndices[4],
+                                          int imageWidth,
+                                          int imageHeight,
+                                          GrSurfaceOrigin imageOrigin,
+                                          sk_sp<SkColorSpace> imageColorSpace,
+                                          LegacyPromiseImageTextureFulfillProc textureFulfillProc,
+                                          PromiseImageTextureReleaseProc textureReleaseProc,
+                                          PromiseImageTextureDoneProc textureDoneProc,
+                                          PromiseImageTextureContext textureContexts[]);
 
 private:
     bool init();

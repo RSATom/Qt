@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 
+#include <utility>
 #include <vector>
 
 #include "base/files/file_util.h"
@@ -430,7 +431,11 @@ bool SessionStorageDatabase::LazyOpen(bool create_if_needed) {
                  << ", error: " << s.ToString();
 
     // Clear the directory and try again.
-    base::DeleteFile(file_path_, true);
+    s = leveldb_chrome::DeleteDB(file_path_, leveldb_env::Options());
+    if (!s.ok()) {
+      LOG(WARNING) << "Failed to delete leveldb in " << file_path_.value()
+                   << ", error: " << s.ToString();
+    }
     s = TryToOpen(&db_);
     if (!s.ok()) {
       LOG(WARNING) << "Failed to open leveldb in " << file_path_.value()
@@ -725,9 +730,7 @@ bool SessionStorageDatabase::ReadMap(const std::string& map_id,
 void SessionStorageDatabase::WriteValuesToMap(const std::string& map_id,
                                               const DOMStorageValuesMap& values,
                                               leveldb::WriteBatch* batch) {
-  for (DOMStorageValuesMap::const_iterator it = values.begin();
-       it != values.end();
-       ++it) {
+  for (auto it = values.begin(); it != values.end(); ++it) {
     base::NullableString16 value = it->second;
     std::string key = MapKey(map_id, base::UTF16ToUTF8(it->first));
     if (value.is_null()) {

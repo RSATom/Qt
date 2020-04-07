@@ -1,5 +1,5 @@
 <!--
-   Copyright 2016 Google Inc.
+   Copyright 2018 Google LLC
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,26 +13,46 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 -->
+
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="com.google.ar.core.examples.java.helloskar.HelloSkARActivity">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    tools:context="com.google.skar.examples.helloskar.app.HelloCanvasAR">
 
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
+        <android.support.v7.widget.Toolbar
+            android:id="@+id/main_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary"
+            android:elevation="4dp"
+            android:theme="@style/ThemeOverlay.AppCompat.ActionBar"
+            app:popupTheme="@style/ThemeOverlay.AppCompat.Light"/>
 
-        <com.google.ar.core.examples.java.helloskar.ARSurfaceView
-            android:id="@+id/arsurfaceview"
+        <com.google.skar.examples.helloskar.app.CanvasARSurfaceView
+            android:id="@+id/canvas_surfaceview"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
         <android.opengl.GLSurfaceView
-            android:id="@+id/glsurfaceview"
+            android:id="@+id/gl_surfaceview"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
+
+        <android.support.design.widget.BottomNavigationView
+            android:id="@+id/palette"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            app:menu="@menu/platte_bar"
+            app:itemIconTint="@android:color/black"
+            app:itemTextColor="@android:color/black"
+            style="@style/BottomNavigation" />
     </FrameLayout>
 
 

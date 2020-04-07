@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -23,7 +24,6 @@
 #include "storage/browser/fileapi/plugin_private_file_system_backend.h"
 #include "storage/browser/fileapi/sandbox_file_system_backend_delegate.h"
 #include "storage/browser/fileapi/task_runner_bound_observer_list.h"
-#include "storage/browser/storage_browser_export.h"
 #include "storage/common/fileapi/file_system_types.h"
 
 namespace base {
@@ -87,7 +87,7 @@ using URLRequestAutoMountHandler = base::RepeatingCallback<bool(
 
 // This class keeps and provides a file system context for FileSystem API.
 // An instance of this class is created and owned by profile.
-class STORAGE_EXPORT FileSystemContext
+class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
     : public base::RefCountedThreadSafe<FileSystemContext,
                                         DefaultContextDeleter> {
  public:
@@ -108,8 +108,8 @@ class STORAGE_EXPORT FileSystemContext
   // does).
   //
   // |external_mount_points| contains non-system external mount points available
-  // in the context. If not NULL, it will be used during URL cracking.
-  // |external_mount_points| may be NULL only on platforms different from
+  // in the context. If not nullptr, it will be used during URL cracking.
+  // |external_mount_points| may be nullptr only on platforms different from
   // ChromeOS (i.e. platforms that don't use external_mount_point_provider).
   //
   // |additional_backends| are added to the internal backend map
@@ -134,7 +134,7 @@ class STORAGE_EXPORT FileSystemContext
   bool DeleteDataForOriginOnFileTaskRunner(const GURL& origin_url);
 
   // Creates a new QuotaReservation for the given |origin_url| and |type|.
-  // Returns NULL if |type| does not support quota or reservation fails.
+  // Returns nullptr if |type| does not support quota or reservation fails.
   // This should be run on |default_file_task_runner_| and the returned value
   // should be destroyed on the runner.
   scoped_refptr<QuotaReservation> CreateQuotaReservationOnFileTaskRunner(
@@ -149,7 +149,7 @@ class STORAGE_EXPORT FileSystemContext
   void Shutdown();
 
   // Returns a quota util for a given filesystem type.  This may
-  // return NULL if the type does not support the usage tracking or
+  // return nullptr if the type does not support the usage tracking or
   // it is not a quota-managed storage.
   FileSystemQuotaUtil* GetQuotaUtil(FileSystemType type) const;
 
@@ -157,23 +157,23 @@ class STORAGE_EXPORT FileSystemContext
   AsyncFileUtil* GetAsyncFileUtil(FileSystemType type) const;
 
   // Returns the appropriate CopyOrMoveFileValidatorFactory for the given
-  // |type|.  If |error_code| is File::FILE_OK and the result is NULL,
+  // |type|.  If |error_code| is File::FILE_OK and the result is nullptr,
   // then no validator is required.
   CopyOrMoveFileValidatorFactory* GetCopyOrMoveFileValidatorFactory(
       FileSystemType type, base::File::Error* error_code) const;
 
   // Returns the file system backend instance for the given |type|.
-  // This may return NULL if it is given an invalid or unsupported filesystem
+  // This may return nullptr if it is given an invalid or unsupported filesystem
   // type.
   FileSystemBackend* GetFileSystemBackend(
       FileSystemType type) const;
 
   // Returns the watcher manager for the given |type|.
-  // This may return NULL if the type does not support watching.
+  // This may return nullptr if the type does not support watching.
   WatcherManager* GetWatcherManager(FileSystemType type) const;
 
   // Returns true for sandboxed filesystems. Currently this does
-  // the same as GetQuotaUtil(type) != NULL. (In an assumption that
+  // the same as GetQuotaUtil(type) != nullptr. (In an assumption that
   // all sandboxed filesystems must cooperate with QuotaManager so that
   // they can get deleted)
   bool IsSandboxFileSystem(FileSystemType type) const;
@@ -309,8 +309,6 @@ class STORAGE_EXPORT FileSystemContext
                                    StatusCallback callback);
 
  private:
-  using FileSystemBackendMap = std::map<FileSystemType, FileSystemBackend*>;
-
   // For CreateFileSystemOperation.
   friend class FileSystemOperationRunner;
 
@@ -395,7 +393,7 @@ class STORAGE_EXPORT FileSystemContext
   // This map itself doesn't retain each backend's ownership; ownerships
   // of the backends are held by additional_backends_ or other scoped_ptr
   // backend fields.
-  FileSystemBackendMap backend_map_;
+  std::map<FileSystemType, FileSystemBackend*> backend_map_;
 
   // External mount points visible in the file system context (excluding system
   // external mount points).

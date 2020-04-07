@@ -27,7 +27,8 @@
 #ifndef HB_DSALGS_HH
 #define HB_DSALGS_HH
 
-#include "hb-private.hh"
+#include "hb.hh"
+#include "hb-null.hh"
 
 
 /* Void! For when we need a expression-type of void. */
@@ -44,7 +45,7 @@ template <typename T>
 static inline HB_CONST_FUNC unsigned int
 hb_popcount (T v)
 {
-#if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4)) && defined(__OPTIMIZE__)
+#if (defined(__GNUC__) && (__GNUC__ >= 4)) || defined(__clang__)
   if (sizeof (T) <= sizeof (unsigned int))
     return __builtin_popcount (v);
 
@@ -87,7 +88,7 @@ hb_bit_storage (T v)
 {
   if (unlikely (!v)) return 0;
 
-#if defined(__GNUC__) && (__GNUC__ >= 4) && defined(__OPTIMIZE__)
+#if (defined(__GNUC__) && (__GNUC__ >= 4)) || defined(__clang__)
   if (sizeof (T) <= sizeof (unsigned int))
     return sizeof (unsigned int) * 8 - __builtin_clz (v);
 
@@ -105,7 +106,7 @@ hb_bit_storage (T v)
     _BitScanReverse (&where, v);
     return 1 + where;
   }
-# if _WIN64
+# if defined(_WIN64)
   if (sizeof (T) <= 8)
   {
     unsigned long where;
@@ -161,7 +162,7 @@ hb_ctz (T v)
 {
   if (unlikely (!v)) return 0;
 
-#if defined(__GNUC__) && (__GNUC__ >= 4) && defined(__OPTIMIZE__)
+#if (defined(__GNUC__) && (__GNUC__ >= 4)) || defined(__clang__)
   if (sizeof (T) <= sizeof (unsigned int))
     return __builtin_ctz (v);
 
@@ -179,7 +180,7 @@ hb_ctz (T v)
     _BitScanForward (&where, v);
     return where;
   }
-# if _WIN64
+# if defined(_WIN64)
   if (sizeof (T) <= 8)
   {
     unsigned long where;
@@ -232,6 +233,30 @@ hb_ctz (T v)
  * Tiny stuff.
  */
 
+template <typename T>
+static inline T* hb_addressof (T& arg)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-align"
+  /* https://en.cppreference.com/w/cpp/memory/addressof */
+  return reinterpret_cast<T*>(
+	   &const_cast<char&>(
+	      reinterpret_cast<const volatile char&>(arg)));
+#pragma GCC diagnostic pop
+}
+
+/* ASCII tag/character handling */
+static inline bool ISALPHA (unsigned char c)
+{ return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+static inline bool ISALNUM (unsigned char c)
+{ return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); }
+static inline bool ISSPACE (unsigned char c)
+{ return c == ' ' || c =='\f'|| c =='\n'|| c =='\r'|| c =='\t'|| c =='\v'; }
+static inline unsigned char TOUPPER (unsigned char c)
+{ return (c >= 'a' && c <= 'z') ? c - 'a' + 'A' : c; }
+static inline unsigned char TOLOWER (unsigned char c)
+{ return (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c; }
+
 #undef MIN
 template <typename Type>
 static inline Type MIN (const Type &a, const Type &b) { return a < b ? a : b; }
@@ -250,6 +275,17 @@ static inline unsigned int ARRAY_LENGTH (const Type (&)[n]) { return n; }
 /* A const version, but does not detect erratically being called on pointers. */
 #define ARRAY_LENGTH_CONST(__array) ((signed int) (sizeof (__array) / sizeof (__array[0])))
 
+
+static inline int
+hb_memcmp (const void *a, const void *b, unsigned int len)
+{
+  /* It's illegal to pass NULL to memcmp(), even if len is zero.
+   * So, wrap it.
+   * https://sourceware.org/bugzilla/show_bug.cgi?id=23878 */
+  if (!len) return 0;
+  return memcmp (a, b, len);
+}
+
 static inline bool
 hb_unsigned_mul_overflows (unsigned int count, unsigned int size)
 {
@@ -262,10 +298,76 @@ hb_ceil_to_4 (unsigned int v)
   return ((v - 1) | 3) + 1;
 }
 
+template <typename T> struct hb_is_signed;
+template <> struct hb_is_signed<signed char> { enum { value = true }; };
+template <> struct hb_is_signed<signed short> { enum { value = true }; };
+template <> struct hb_is_signed<signed int> { enum { value = true }; };
+template <> struct hb_is_signed<signed long> { enum { value = true }; };
+template <> struct hb_is_signed<unsigned char> { enum { value = false }; };
+template <> struct hb_is_signed<unsigned short> { enum { value = false }; };
+template <> struct hb_is_signed<unsigned int> { enum { value = false }; };
+template <> struct hb_is_signed<unsigned long> { enum { value = false }; };
+/* We need to define hb_is_signed for the typedefs we use on pre-Visual
+ * Studio 2010 for the int8_t type, since __int8/__int64 is not considered
+ * the same as char/long.  The previous lines will suffice for the other
+ * types, though.  Note that somehow, unsigned __int8 is considered same
+ * as unsigned char.
+ * https://github.com/harfbuzz/harfbuzz/pull/1499
+ */
+#if defined(_MSC_VER) && (_MSC_VER < 1600)
+template <> struct hb_is_signed<__int8> { enum { value = true }; };
+#endif
+
+template <typename T> static inline bool
+hb_in_range (T u, T lo, T hi)
+{
+  /* The sizeof() is here to force template instantiation.
+   * I'm sure there are better ways to do this but can't think of
+   * one right now.  Declaring a variable won't work as HB_UNUSED
+   * is unusable on some platforms and unused types are less likely
+   * to generate a warning than unused variables. */
+  static_assert (!hb_is_signed<T>::value, "");
+
+  /* The casts below are important as if T is smaller than int,
+   * the subtract results will become a signed int! */
+  return (T)(u - lo) <= (T)(hi - lo);
+}
+template <typename T> static inline bool
+hb_in_ranges (T u, T lo1, T hi1, T lo2, T hi2)
+{
+  return hb_in_range (u, lo1, hi1) || hb_in_range (u, lo2, hi2);
+}
+template <typename T> static inline bool
+hb_in_ranges (T u, T lo1, T hi1, T lo2, T hi2, T lo3, T hi3)
+{
+  return hb_in_range (u, lo1, hi1) || hb_in_range (u, lo2, hi2) || hb_in_range (u, lo3, hi3);
+}
+
 
 /*
  * Sort and search.
  */
+
+static inline void *
+hb_bsearch (const void *key, const void *base,
+	    size_t nmemb, size_t size,
+	    int (*compar)(const void *_key, const void *_item))
+{
+  int min = 0, max = (int) nmemb - 1;
+  while (min <= max)
+  {
+    int mid = (min + max) / 2;
+    const void *p = (const void *) (((const char *) base) + (mid * size));
+    int c = compar (key, p);
+    if (c < 0)
+      max = mid - 1;
+    else if (c > 0)
+      min = mid + 1;
+    else
+      return (void *) p;
+  }
+  return nullptr;
+}
 
 static inline void *
 hb_bsearch_r (const void *key, const void *base,
@@ -276,7 +378,7 @@ hb_bsearch_r (const void *key, const void *base,
   int min = 0, max = (int) nmemb - 1;
   while (min <= max)
   {
-    int mid = (min + max) / 2;
+    int mid = ((unsigned int) min + (unsigned int) max) / 2;
     const void *p = (const void *) (((const char *) base) + (mid * size));
     int c = compar (key, p, arg);
     if (c < 0)
@@ -290,7 +392,12 @@ hb_bsearch_r (const void *key, const void *base,
 }
 
 
-/* From https://github.com/noporpoise/sort_r */
+/* From https://github.com/noporpoise/sort_r
+ * With following modifications:
+ *
+ * 10 November 2018:
+ * https://github.com/noporpoise/sort_r/issues/7
+ */
 
 /* Isaac Turner 29 April 2014 Public Domain */
 
@@ -346,7 +453,7 @@ static inline void sort_r_simple(void *base, size_t nel, size_t w,
 
     /* Use median of first, middle and last items as pivot */
     char *x, *y, *xend, ch;
-    char *pl, *pr;
+    char *pl, *pm, *pr;
     char *last = b+w*(nel-1), *tmp;
     char *l[3];
     l[0] = b;
@@ -368,13 +475,15 @@ static inline void sort_r_simple(void *base, size_t nel, size_t w,
     pr = last;
 
     while(pl < pr) {
-      for(; pl < pr; pl += w) {
+      pm = pl+((pr-pl+1)>>1);
+      for(; pl < pm; pl += w) {
         if(sort_r_cmpswap(pl, pr, w, compar, arg)) {
           pr -= w; /* pivot now at pl */
           break;
         }
       }
-      for(; pl < pr; pr -= w) {
+      pm = pl+((pr-pl)>>1);
+      for(; pm < pr; pr -= w) {
         if(sort_r_cmpswap(pl, pr, w, compar, arg)) {
           pl += w; /* pivot now at pr */
           break;
@@ -445,361 +554,28 @@ hb_codepoint_parse (const char *s, unsigned int len, int base, hb_codepoint_t *o
 }
 
 
-#define HB_VECTOR_INIT {0, 0, false, nullptr}
-template <typename Type, unsigned int StaticSize=8>
-struct hb_vector_t
-{
-  unsigned int len;
-  unsigned int allocated;
-  bool successful;
-  Type *arrayZ;
-  Type static_array[StaticSize];
-
-  void init (void)
-  {
-    len = 0;
-    allocated = ARRAY_LENGTH (static_array);
-    successful = true;
-    arrayZ = static_array;
-  }
-
-  inline Type& operator [] (unsigned int i)
-  {
-    if (unlikely (i >= len))
-      return Crap (Type);
-    return arrayZ[i];
-  }
-  inline const Type& operator [] (unsigned int i) const
-  {
-    if (unlikely (i >= len))
-      return Null(Type);
-    return arrayZ[i];
-  }
-
-  inline Type *push (void)
-  {
-    if (unlikely (!resize (len + 1)))
-      return &Crap(Type);
-    return &arrayZ[len - 1];
-  }
-  inline Type *push (const Type& v)
-  {
-    Type *p = push ();
-    *p = v;
-    return p;
-  }
-
-  /* Allocate for size but don't adjust len. */
-  inline bool alloc (unsigned int size)
-  {
-    if (unlikely (!successful))
-      return false;
-
-    if (likely (size <= allocated))
-      return true;
-
-    /* Reallocate */
-
-    unsigned int new_allocated = allocated;
-    while (size >= new_allocated)
-      new_allocated += (new_allocated >> 1) + 8;
-
-    Type *new_array = nullptr;
-
-    if (arrayZ == static_array)
-    {
-      new_array = (Type *) calloc (new_allocated, sizeof (Type));
-      if (new_array)
-        memcpy (new_array, arrayZ, len * sizeof (Type));
-    }
-    else
-    {
-      bool overflows = (new_allocated < allocated) || hb_unsigned_mul_overflows (new_allocated, sizeof (Type));
-      if (likely (!overflows))
-        new_array = (Type *) realloc (arrayZ, new_allocated * sizeof (Type));
-    }
-
-    if (unlikely (!new_array))
-    {
-      successful = false;
-      return false;
-    }
-
-    arrayZ = new_array;
-    allocated = new_allocated;
-
-    return true;
-  }
-
-  inline bool resize (int size_)
-  {
-    unsigned int size = size_ < 0 ? 0u : (unsigned int) size_;
-    if (!alloc (size))
-      return false;
-
-    if (size > len)
-      memset (arrayZ + len, 0, (size - len) * sizeof (*arrayZ));
-
-    len = size;
-    return true;
-  }
-
-  inline void pop (void)
-  {
-    if (!len) return;
-    len--;
-  }
-
-  inline void remove (unsigned int i)
-  {
-     if (unlikely (i >= len))
-       return;
-     memmove (static_cast<void *> (&arrayZ[i]),
-	      static_cast<void *> (&arrayZ[i + 1]),
-	      (len - i - 1) * sizeof (Type));
-     len--;
-  }
-
-  inline void shrink (int size_)
-  {
-    unsigned int size = size_ < 0 ? 0u : (unsigned int) size_;
-     if (size < len)
-       len = size;
-  }
-
-  template <typename T>
-  inline Type *find (T v) {
-    for (unsigned int i = 0; i < len; i++)
-      if (arrayZ[i] == v)
-	return &arrayZ[i];
-    return nullptr;
-  }
-  template <typename T>
-  inline const Type *find (T v) const {
-    for (unsigned int i = 0; i < len; i++)
-      if (arrayZ[i] == v)
-	return &arrayZ[i];
-    return nullptr;
-  }
-
-  inline void qsort (int (*cmp)(const void*, const void*))
-  {
-    ::qsort (arrayZ, len, sizeof (Type), cmp);
-  }
-
-  inline void qsort (void)
-  {
-    ::qsort (arrayZ, len, sizeof (Type), Type::cmp);
-  }
-
-  inline void qsort (unsigned int start, unsigned int end)
-  {
-    ::qsort (arrayZ + start, end - start, sizeof (Type), Type::cmp);
-  }
-
-  template <typename T>
-  inline Type *lsearch (const T &x)
-  {
-    for (unsigned int i = 0; i < len; i++)
-      if (0 == this->arrayZ[i].cmp (&x))
-	return &arrayZ[i];
-    return nullptr;
-  }
-
-  template <typename T>
-  inline Type *bsearch (const T &x)
-  {
-    unsigned int i;
-    return bfind (x, &i) ? &arrayZ[i] : nullptr;
-  }
-  template <typename T>
-  inline const Type *bsearch (const T &x) const
-  {
-    unsigned int i;
-    return bfind (x, &i) ? &arrayZ[i] : nullptr;
-  }
-  template <typename T>
-  inline bool bfind (const T &x, unsigned int *i) const
-  {
-    int min = 0, max = (int) this->len - 1;
-    while (min <= max)
-    {
-      int mid = (min + max) / 2;
-      int c = this->arrayZ[mid].cmp (&x);
-      if (c < 0)
-        max = mid - 1;
-      else if (c > 0)
-        min = mid + 1;
-      else
-      {
-        *i = mid;
-	return true;
-      }
-    }
-    if (max < 0 || (max < (int) this->len && this->arrayZ[max].cmp (&x) > 0))
-      max++;
-    *i = max;
-    return false;
-  }
-
-  inline void fini (void)
-  {
-    if (arrayZ != static_array)
-      free (arrayZ);
-    arrayZ = nullptr;
-    allocated = len = 0;
-  }
-};
-
-
-#define HB_LOCKABLE_SET_INIT {HB_VECTOR_INIT}
-template <typename item_t, typename lock_t>
-struct hb_lockable_set_t
-{
-  hb_vector_t <item_t, 1> items;
-
-  inline void init (void) { items.init (); }
-
-  template <typename T>
-  inline item_t *replace_or_insert (T v, lock_t &l, bool replace)
-  {
-    l.lock ();
-    item_t *item = items.find (v);
-    if (item) {
-      if (replace) {
-	item_t old = *item;
-	*item = v;
-	l.unlock ();
-	old.fini ();
-      }
-      else {
-        item = nullptr;
-	l.unlock ();
-      }
-    } else {
-      item = items.push (v);
-      l.unlock ();
-    }
-    return item;
-  }
-
-  template <typename T>
-  inline void remove (T v, lock_t &l)
-  {
-    l.lock ();
-    item_t *item = items.find (v);
-    if (item) {
-      item_t old = *item;
-      *item = items[items.len - 1];
-      items.pop ();
-      l.unlock ();
-      old.fini ();
-    } else {
-      l.unlock ();
-    }
-  }
-
-  template <typename T>
-  inline bool find (T v, item_t *i, lock_t &l)
-  {
-    l.lock ();
-    item_t *item = items.find (v);
-    if (item)
-      *i = *item;
-    l.unlock ();
-    return !!item;
-  }
-
-  template <typename T>
-  inline item_t *find_or_insert (T v, lock_t &l)
-  {
-    l.lock ();
-    item_t *item = items.find (v);
-    if (!item) {
-      item = items.push (v);
-    }
-    l.unlock ();
-    return item;
-  }
-
-  inline void fini (lock_t &l)
-  {
-    if (!items.len) {
-      /* No need for locking. */
-      items.fini ();
-      return;
-    }
-    l.lock ();
-    while (items.len) {
-      item_t old = items[items.len - 1];
-	items.pop ();
-	l.unlock ();
-	old.fini ();
-	l.lock ();
-    }
-    items.fini ();
-    l.unlock ();
-  }
-
-};
-
-
-template <typename Type>
-struct hb_auto_t : Type
-{
-  hb_auto_t (void) { Type::init (); }
-  ~hb_auto_t (void) { Type::fini (); }
-  private: /* Hide */
-  void init (void) {}
-  void fini (void) {}
-};
-
-struct hb_bytes_t
-{
-  inline hb_bytes_t (void) : bytes (nullptr), len (0) {}
-  inline hb_bytes_t (const char *bytes_, unsigned int len_) : bytes (bytes_), len (len_) {}
-
-  inline int cmp (const hb_bytes_t &a) const
-  {
-    if (len != a.len)
-      return (int) a.len - (int) len;
-
-    return memcmp (a.bytes, bytes, len);
-  }
-  static inline int cmp (const void *pa, const void *pb)
-  {
-    hb_bytes_t *a = (hb_bytes_t *) pa;
-    hb_bytes_t *b = (hb_bytes_t *) pb;
-    return b->cmp (*a);
-  }
-
-  const char *bytes;
-  unsigned int len;
-};
-
-
 struct HbOpOr
 {
-  static const bool passthru_left = true;
-  static const bool passthru_right = true;
+  static constexpr bool passthru_left = true;
+  static constexpr bool passthru_right = true;
   template <typename T> static void process (T &o, const T &a, const T &b) { o = a | b; }
 };
 struct HbOpAnd
 {
-  static const bool passthru_left = false;
-  static const bool passthru_right = false;
+  static constexpr bool passthru_left = false;
+  static constexpr bool passthru_right = false;
   template <typename T> static void process (T &o, const T &a, const T &b) { o = a & b; }
 };
 struct HbOpMinus
 {
-  static const bool passthru_left = true;
-  static const bool passthru_right = false;
+  static constexpr bool passthru_left = true;
+  static constexpr bool passthru_right = false;
   template <typename T> static void process (T &o, const T &a, const T &b) { o = a & ~b; }
 };
 struct HbOpXor
 {
-  static const bool passthru_left = true;
-  static const bool passthru_right = true;
+  static constexpr bool passthru_left = true;
+  static constexpr bool passthru_right = true;
   template <typename T> static void process (T &o, const T &a, const T &b) { o = a ^ b; }
 };
 
@@ -815,8 +591,10 @@ struct hb_vector_size_t
   elt_t& operator [] (unsigned int i) { return u.v[i]; }
   const elt_t& operator [] (unsigned int i) const { return u.v[i]; }
 
+  void clear (unsigned char v = 0) { memset (this, v, sizeof (*this)); }
+
   template <class Op>
-  inline hb_vector_size_t process (const hb_vector_size_t &o) const
+  hb_vector_size_t process (const hb_vector_size_t &o) const
   {
     hb_vector_size_t r;
 #if HB_VECTOR_SIZE
@@ -829,13 +607,13 @@ struct hb_vector_size_t
 	Op::process (r.u.v[i], u.v[i], o.u.v[i]);
     return r;
   }
-  inline hb_vector_size_t operator | (const hb_vector_size_t &o) const
+  hb_vector_size_t operator | (const hb_vector_size_t &o) const
   { return process<HbOpOr> (o); }
-  inline hb_vector_size_t operator & (const hb_vector_size_t &o) const
+  hb_vector_size_t operator & (const hb_vector_size_t &o) const
   { return process<HbOpAnd> (o); }
-  inline hb_vector_size_t operator ^ (const hb_vector_size_t &o) const
+  hb_vector_size_t operator ^ (const hb_vector_size_t &o) const
   { return process<HbOpXor> (o); }
-  inline hb_vector_size_t operator ~ () const
+  hb_vector_size_t operator ~ () const
   {
     hb_vector_size_t r;
 #if HB_VECTOR_SIZE && 0
@@ -854,8 +632,7 @@ struct hb_vector_size_t
   union {
     elt_t v[byte_size / sizeof (elt_t)];
 #if HB_VECTOR_SIZE
-    typedef unsigned long vec_t __attribute__((vector_size (HB_VECTOR_SIZE / 8)));
-    vec_t vec[byte_size / sizeof (vec_t)];
+    hb_vector_size_impl_t vec[byte_size / sizeof (hb_vector_size_impl_t)];
 #endif
   } u;
 };

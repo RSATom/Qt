@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/fetch/fetch_data_loader.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
+#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 
@@ -20,13 +21,16 @@ namespace blink {
 
 namespace {
 
-class FetchDataLoaderAsWasmModule final : public FetchDataLoader,
-                                          public BytesConsumer::Client {
-  USING_GARBAGE_COLLECTED_MIXIN(FetchDataLoaderAsWasmModule);
+// The |FetchDataLoader| for streaming compilation of WebAssembly code. The
+// received bytes get forwarded to the V8 API class |WasmStreaming|.
+class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
+                                              public BytesConsumer::Client {
+  USING_GARBAGE_COLLECTED_MIXIN(FetchDataLoaderForWasmStreaming);
 
  public:
-  explicit FetchDataLoaderAsWasmModule(ScriptState* script_state)
-      : builder_(script_state->GetIsolate()), script_state_(script_state) {}
+  FetchDataLoaderForWasmStreaming(ScriptState* script_state,
+                                  std::shared_ptr<v8::WasmStreaming> streaming)
+      : streaming_(std::move(streaming)), script_state_(script_state) {}
 
   void Start(BytesConsumer* consumer,
              FetchDataLoader::Client* client) override {
@@ -38,11 +42,9 @@ class FetchDataLoaderAsWasmModule final : public FetchDataLoader,
     OnStateChange();
   }
 
-  v8::Local<v8::Promise> GetPromise() { return builder_.GetPromise(); }
-
   void OnStateChange() override {
     while (true) {
-      // {buffer} is owned by {m_consumer}.
+      // |buffer| is owned by |consumer_|.
       const char* buffer = nullptr;
       size_t available = 0;
       BytesConsumer::Result result = consumer_->BeginRead(&buffer, &available);
@@ -52,8 +54,8 @@ class FetchDataLoaderAsWasmModule final : public FetchDataLoader,
       if (result == BytesConsumer::Result::kOk) {
         if (available > 0) {
           DCHECK_NE(buffer, nullptr);
-          builder_.OnBytesReceived(reinterpret_cast<const uint8_t*>(buffer),
-                                   available);
+          streaming_->OnBytesReceived(reinterpret_cast<const uint8_t*>(buffer),
+                                      available);
         }
         result = consumer_->EndRead(available);
       }
@@ -65,8 +67,10 @@ class FetchDataLoaderAsWasmModule final : public FetchDataLoader,
           break;
         }
         case BytesConsumer::Result::kDone: {
-          ScriptState::Scope scope(script_state_);
-          builder_.Finish();
+          {
+            ScriptState::Scope scope(script_state_);
+            streaming_->Finish();
+          }
           client_->DidFetchDataLoadedCustomFormat();
           return;
         }
@@ -77,7 +81,7 @@ class FetchDataLoaderAsWasmModule final : public FetchDataLoader,
     }
   }
 
-  String DebugName() const override { return "FetchDataLoaderAsWasmModule"; }
+  String DebugName() const override { return "FetchDataLoaderForWasmModule"; }
 
   void Cancel() override {
     consumer_->Cancel();
@@ -93,24 +97,24 @@ class FetchDataLoaderAsWasmModule final : public FetchDataLoader,
   }
 
  private:
-  // TODO(mtrofin): replace with spec-ed error types, once spec clarifies
+  // TODO(ahaas): replace with spec-ed error types, once spec clarifies
   // what they are.
   void AbortCompilation() {
-    ScriptState::Scope scope(script_state_);
-    if (!ExecutionContext::From(script_state_)->IsContextDestroyed()) {
-      builder_.Abort(V8ThrowException::CreateTypeError(
+    if (script_state_->ContextIsValid()) {
+      ScriptState::Scope scope(script_state_);
+      streaming_->Abort(V8ThrowException::CreateTypeError(
           script_state_->GetIsolate(), "Could not download wasm module"));
     } else {
       // We are not allowed to execute a script, which indicates that we should
       // not reject the promise of the streaming compilation. By passing no
       // abort reason, we indicate the V8 side that the promise should not get
       // rejected.
-      builder_.Abort(v8::Local<v8::Value>());
+      streaming_->Abort(v8::Local<v8::Value>());
     }
   }
-  Member<BytesConsumer> consumer_;
+  TraceWrapperMember<BytesConsumer> consumer_;
   Member<FetchDataLoader::Client> client_;
-  v8::WasmModuleObjectBuilderStreaming builder_;
+  std::shared_ptr<v8::WasmStreaming> streaming_;
   const Member<ScriptState> script_state_;
 };
 
@@ -135,20 +139,48 @@ class WasmDataLoaderClient final
   }
 };
 
-// This callback may be entered as a promise is resolved, or directly
-// from the overload callback.
-// See
-// https://github.com/WebAssembly/design/blob/master/Web.md#webassemblycompile
-void CompileFromResponseCallback(
+// ExceptionToAbortStreamingScope converts a possible exception to an abort
+// message for WasmStreaming instead of throwing the exception.
+//
+// All exceptions which happen in the setup of WebAssembly streaming compilation
+// have to be passed as an abort message to V8 so that V8 can reject the promise
+// associated to the streaming compilation.
+class ExceptionToAbortStreamingScope {
+  STACK_ALLOCATED();
+  WTF_MAKE_NONCOPYABLE(ExceptionToAbortStreamingScope);
+
+ public:
+  ExceptionToAbortStreamingScope(std::shared_ptr<v8::WasmStreaming> streaming,
+                                 ExceptionState& exception_state)
+      : streaming_(streaming), exception_state_(exception_state) {}
+
+  ~ExceptionToAbortStreamingScope() {
+    if (!exception_state_.HadException())
+      return;
+
+    streaming_->Abort(exception_state_.GetException());
+    exception_state_.ClearException();
+  }
+
+ private:
+  std::shared_ptr<v8::WasmStreaming> streaming_;
+  ExceptionState& exception_state_;
+};
+
+void StreamFromResponseCallback(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   ExceptionState exception_state(args.GetIsolate(),
                                  ExceptionState::kExecutionContext,
                                  "WebAssembly", "compile");
-  ExceptionToRejectPromiseScope reject_promise_scope(args, exception_state);
+  std::shared_ptr<v8::WasmStreaming> streaming =
+      v8::WasmStreaming::Unpack(args.GetIsolate(), args.Data());
+  ExceptionToAbortStreamingScope exception_scope(streaming, exception_state);
 
   ScriptState* script_state = ScriptState::ForCurrentRealm(args);
-  if (!ExecutionContext::From(script_state)) {
-    V8SetReturnValue(args, ScriptPromise().V8Value());
+  if (!script_state->ContextIsValid()) {
+    // We do not have an execution context, we just abort streaming compilation
+    // immediately without error.
+    streaming->Abort(v8::Local<v8::Value>());
     return;
   }
 
@@ -172,13 +204,18 @@ void CompileFromResponseCallback(
     return;
   }
 
-  if (response->IsBodyLocked(exception_state) == Body::BodyLocked::kLocked ||
+  Body::BodyLocked body_locked = response->IsBodyLocked(exception_state);
+  if (body_locked == Body::BodyLocked::kBroken)
+    return;
+
+  if (body_locked == Body::BodyLocked::kLocked ||
       response->IsBodyUsed(exception_state) == Body::BodyUsed::kUsed) {
     DCHECK(!exception_state.HadException());
     exception_state.ThrowTypeError(
         "Cannot compile WebAssembly.Module from an already read Response");
     return;
   }
+
   if (exception_state.HadException())
     return;
 
@@ -187,54 +224,17 @@ void CompileFromResponseCallback(
     return;
   }
 
-  FetchDataLoaderAsWasmModule* loader =
-      new FetchDataLoaderAsWasmModule(script_state);
-  v8::Local<v8::Value> promise = loader->GetPromise();
-  response->BodyBuffer()->StartLoading(loader, new WasmDataLoaderClient(),
-                                       exception_state);
-  if (exception_state.HadException())
-    return;
-
-  V8SetReturnValue(args, promise);
-}
-
-// See https://crbug.com/708238 for tracking avoiding the hand-generated code.
-void WasmCompileStreamingImpl(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  ScriptState* script_state = ScriptState::ForCurrentRealm(args);
-  V8PerIsolateData* per_isolate_data =
-      V8PerIsolateData::From(script_state->GetIsolate());
-
-  // An unique key of the v8::FunctionTemplate cache in V8PerIsolateData.
-  // Everyone uses address of something as a key, so the address of |unique_key|
-  // is guaranteed to be unique for the function template cache.
-  static const int unique_key = 0;
-  v8::Local<v8::FunctionTemplate> function_template =
-      per_isolate_data->FindOrCreateOperationTemplate(
-          script_state->World(), &unique_key, CompileFromResponseCallback,
-          v8::Local<v8::Value>(), v8::Local<v8::Signature>(), 1);
-  v8::Local<v8::Function> compile_callback;
-  if (!function_template->GetFunction(script_state->GetContext())
-           .ToLocal(&compile_callback)) {
-    return;  // Throw an exception.
-  }
-
-  // treat either case of parameter as
-  // Promise.resolve(parameter)
-  // as per https://www.w3.org/2001/tag/doc/promises-guide#resolve-arguments
-
-  // Ending with:
-  //    return Promise.resolve(parameter).then(compileCallback);
-  V8SetReturnValue(args, ScriptPromise::Cast(script_state, args[0])
-                             .Then(compile_callback)
-                             .V8Value());
+  FetchDataLoaderForWasmStreaming* loader =
+      MakeGarbageCollected<FetchDataLoaderForWasmStreaming>(script_state,
+                                                            streaming);
+  response->BodyBuffer()->StartLoading(
+      loader, MakeGarbageCollected<WasmDataLoaderClient>(), exception_state);
 }
 
 }  // namespace
 
 void WasmResponseExtensions::Initialize(v8::Isolate* isolate) {
-  if (RuntimeEnabledFeatures::WebAssemblyStreamingEnabled()) {
-    isolate->SetWasmCompileStreamingCallback(WasmCompileStreamingImpl);
-  }
+  isolate->SetWasmStreamingCallback(StreamFromResponseCallback);
 }
 
 }  // namespace blink

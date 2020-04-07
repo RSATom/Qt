@@ -214,9 +214,11 @@ public:
     inline iterator begin() { detach2(); return iterator(this, 0); }
     inline const_iterator begin() const { return const_iterator(this, 0); }
     inline const_iterator constBegin() const { return const_iterator(this, 0); }
+    inline const_iterator cbegin() const { return const_iterator(this, 0); }
     inline iterator end() { detach2(); return iterator(this, size()); }
     inline const_iterator end() const { return const_iterator(this, size()); }
     inline const_iterator constEnd() const { return const_iterator(this, size()); }
+    inline const_iterator cend() const { return const_iterator(this, size()); }
     iterator insert(iterator before, const QJsonValue &value) { insert(before.i, value); return before; }
     iterator erase(iterator it) { removeAt(it.i); return it; }
 
@@ -269,6 +271,11 @@ Q_CORE_EXPORT uint qHash(const QJsonArray &array, uint seed = 0);
 
 #if !defined(QT_NO_DEBUG_STREAM) && !defined(QT_JSON_READONLY)
 Q_CORE_EXPORT QDebug operator<<(QDebug, const QJsonArray &);
+#endif
+
+#ifndef QT_NO_DATASTREAM
+Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QJsonArray &);
+Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QJsonArray &);
 #endif
 
 QT_END_NAMESPACE

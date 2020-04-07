@@ -12,8 +12,8 @@
 #include "base/memory/weak_ptr.h"
 #include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/gpu/context_provider.h"
-#include "services/ui/public/cpp/raster_thread_helper.h"
-#include "services/ui/public/interfaces/window_tree.mojom.h"
+#include "services/ws/public/cpp/raster_thread_helper.h"
+#include "services/ws/public/mojom/window_tree.mojom.h"
 #include "ui/aura/aura_export.h"
 #include "ui/compositor/compositor.h"
 
@@ -21,8 +21,9 @@ namespace gpu {
 class GpuChannelHost;
 }
 
-namespace ui {
+namespace ws {
 class Gpu;
+class SharedWorkerContextProviderFactory;
 }
 
 namespace aura {
@@ -30,8 +31,12 @@ namespace aura {
 // ContextFactory implementation that can be used with Mus.
 class AURA_EXPORT MusContextFactory : public ui::ContextFactory {
  public:
-  explicit MusContextFactory(ui::Gpu* gpu);
+  explicit MusContextFactory(ws::Gpu* gpu);
   ~MusContextFactory() override;
+
+  // Drops the references to the RasterContextProvider. This may be called to
+  // ensure a particular shutdown ordering.
+  void ResetSharedWorkerContextProvider();
 
  private:
   // Callback function for Gpu::EstablishGpuChannel().
@@ -44,16 +49,17 @@ class AURA_EXPORT MusContextFactory : public ui::ContextFactory {
   scoped_refptr<viz::ContextProvider> SharedMainThreadContextProvider()
       override;
   void RemoveCompositor(ui::Compositor* compositor) override;
-  double GetRefreshRate() const override;
   gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   void AddObserver(ui::ContextFactoryObserver* observer) override {}
   void RemoveObserver(ui::ContextFactoryObserver* observer) override {}
   bool SyncTokensRequiredForDisplayCompositor() override;
 
-  ui::RasterThreadHelper raster_thread_helper_;
-  ui::Gpu* gpu_;
+  ws::RasterThreadHelper raster_thread_helper_;
+  ws::Gpu* gpu_;
   scoped_refptr<viz::ContextProvider> shared_main_thread_context_provider_;
+  std::unique_ptr<ws::SharedWorkerContextProviderFactory>
+      shared_worker_context_provider_factory_;
 
   base::WeakPtrFactory<MusContextFactory> weak_ptr_factory_;
 

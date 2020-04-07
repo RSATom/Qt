@@ -12,10 +12,11 @@
 #include <unordered_set>
 
 #include "SkDescriptor.h"
+#include "SkStrike.h"
 #include "SkSpinlock.h"
 #include "SkTemplates.h"
 
-class SkGlyphCache;
+class SkStrike;
 class SkTraceMemoryDump;
 
 #ifndef SK_DEFAULT_FONT_CACHE_COUNT_LIMIT
@@ -39,7 +40,7 @@ public:
 };
 
 class SkStrikeCache {
-    struct Node;
+    class Node;
 
 public:
     SkStrikeCache() = default;
@@ -47,7 +48,7 @@ public:
 
     class ExclusiveStrikePtr {
     public:
-        explicit ExclusiveStrikePtr(Node*, SkStrikeCache*);
+        explicit ExclusiveStrikePtr(Node*);
         ExclusiveStrikePtr();
         ExclusiveStrikePtr(const ExclusiveStrikePtr&) = delete;
         ExclusiveStrikePtr& operator = (const ExclusiveStrikePtr&) = delete;
@@ -55,9 +56,9 @@ public:
         ExclusiveStrikePtr& operator = (ExclusiveStrikePtr&&);
         ~ExclusiveStrikePtr();
 
-        SkGlyphCache* get() const;
-        SkGlyphCache* operator -> () const;
-        SkGlyphCache& operator *  () const;
+        SkStrike* get() const;
+        SkStrike* operator -> () const;
+        SkStrike& operator *  () const;
         explicit operator bool () const;
         friend bool operator == (const ExclusiveStrikePtr&, const ExclusiveStrikePtr&);
         friend bool operator == (const ExclusiveStrikePtr&, decltype(nullptr));
@@ -65,24 +66,30 @@ public:
 
     private:
         Node* fNode;
-        SkStrikeCache* fStrikeCache;
     };
 
     static SkStrikeCache* GlobalStrikeCache();
 
     static ExclusiveStrikePtr FindStrikeExclusive(const SkDescriptor&);
     ExclusiveStrikePtr findStrikeExclusive(const SkDescriptor&);
+    Node* findAndDetachStrike(const SkDescriptor&);
 
     static ExclusiveStrikePtr CreateStrikeExclusive(
             const SkDescriptor& desc,
             std::unique_ptr<SkScalerContext> scaler,
-            SkPaint::FontMetrics* maybeMetrics = nullptr,
+            SkFontMetrics* maybeMetrics = nullptr,
             std::unique_ptr<SkStrikePinner> = nullptr);
 
     ExclusiveStrikePtr createStrikeExclusive(
             const SkDescriptor& desc,
             std::unique_ptr<SkScalerContext> scaler,
-            SkPaint::FontMetrics* maybeMetrics = nullptr,
+            SkFontMetrics* maybeMetrics = nullptr,
+            std::unique_ptr<SkStrikePinner> = nullptr);
+
+    Node* createStrike(
+            const SkDescriptor& desc,
+            std::unique_ptr<SkScalerContext> scaler,
+            SkFontMetrics* maybeMetrics = nullptr,
             std::unique_ptr<SkStrikePinner> = nullptr);
 
     static ExclusiveStrikePtr FindOrCreateStrikeExclusive(
@@ -95,20 +102,37 @@ public:
             const SkScalerContextEffects& effects,
             const SkTypeface& typeface);
 
+    Node* findOrCreateStrike(
+            const SkDescriptor& desc,
+            const SkScalerContextEffects& effects,
+            const SkTypeface& typeface);
+
     // Routines to find suitable data when working in a remote cache situation. These are
     // suitable as substitutes for similar calls in SkScalerContext.
     bool desperationSearchForImage(const SkDescriptor& desc,
                                    SkGlyph* glyph,
-                                   SkGlyphCache* targetCache);
+                                   SkStrike* targetCache);
     bool desperationSearchForPath(const SkDescriptor& desc, SkGlyphID glyphID, SkPath* path);
 
     static ExclusiveStrikePtr FindOrCreateStrikeExclusive(
+            const SkFont& font,
             const SkPaint& paint,
-            const SkSurfaceProps* surfaceProps,
+            const SkSurfaceProps& surfaceProps,
             SkScalerContextFlags scalerContextFlags,
-            const SkMatrix* deviceMatrix);
+            const SkMatrix& deviceMatrix);
 
-    static ExclusiveStrikePtr FindOrCreateStrikeExclusive(const SkPaint& paint);
+    Node* findOrCreateStrike(
+            const SkFont& font,
+            const SkPaint& paint,
+            const SkSurfaceProps& surfaceProps,
+            SkScalerContextFlags scalerContextFlags,
+            const SkMatrix& deviceMatrix);
+
+    // cons up a default paint, which is only needed for patheffects/maskfilter
+    static ExclusiveStrikePtr FindOrCreateStrikeWithNoDeviceExclusive(const SkFont&);
+
+    static ExclusiveStrikePtr FindOrCreateStrikeWithNoDeviceExclusive(const SkFont& font,
+                                                                      const SkPaint& paint);
 
     static std::unique_ptr<SkScalerContext> CreateScalerContext(
             const SkDescriptor&, const SkScalerContextEffects&, const SkTypeface&);
@@ -160,7 +184,7 @@ private:
     // Returns number of bytes freed.
     size_t internalPurge(size_t minBytesNeeded = 0);
 
-    void forEachStrike(std::function<void(const SkGlyphCache&)> visitor) const;
+    void forEachStrike(std::function<void(const SkStrike&)> visitor) const;
 
     mutable SkSpinlock fLock;
     Node*              fHead{nullptr};

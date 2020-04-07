@@ -97,7 +97,7 @@ void QGeoCodeReplyMapbox::onNetworkReplyFinished()
 
 void QGeoCodeReplyMapbox::onNetworkReplyError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(QGeoCodeReply::CommunicationError, reply->errorString());

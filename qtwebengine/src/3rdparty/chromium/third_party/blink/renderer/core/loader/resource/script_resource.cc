@@ -26,7 +26,10 @@
 
 #include "third_party/blink/renderer/core/loader/resource/script_resource.h"
 
+#include <utility>
+
 #include "services/network/public/mojom/request_context_frame_type.mojom-blink.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/loader/subresource_integrity_helper.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/web_memory_allocator_dump.h"
@@ -36,9 +39,11 @@
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client_walker.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
+#include "third_party/blink/renderer/platform/loader/fetch/script_cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/loader/fetch/text_resource_decoder_options.h"
 #include "third_party/blink/renderer/platform/loader/subresource_integrity.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 
 namespace blink {
@@ -48,15 +53,14 @@ namespace {
 // Returns true if the given request context is a script-like destination
 // defined in the Fetch spec:
 // https://fetch.spec.whatwg.org/#request-destination-script-like
-bool IsRequestContextSupported(WebURLRequest::RequestContext request_context) {
+bool IsRequestContextSupported(mojom::RequestContextType request_context) {
   // TODO(nhiroki): Support |kRequestContextSharedWorker| for module loading for
   // shared workers (https://crbug.com/824646).
-  // TODO(nhiroki): Support |kRequestContextServiceWorker| for module loading
-  // for service workers (https://crbug.com/824647).
   // TODO(nhiroki): Support "audioworklet" and "paintworklet" destinations.
   switch (request_context) {
-    case WebURLRequest::kRequestContextScript:
-    case WebURLRequest::kRequestContextWorker:
+    case mojom::RequestContextType::SCRIPT:
+    case mojom::RequestContextType::WORKER:
+    case mojom::RequestContextType::SERVICE_WORKER:
       return true;
     default:
       break;
@@ -67,149 +71,114 @@ bool IsRequestContextSupported(WebURLRequest::RequestContext request_context) {
 
 }  // namespace
 
-// SingleCachedMetadataHandlerImpl should be created when a response is
-// received, and can be used independently from Resource. - It doesn't have any
-// references to Resource. Necessary data are captured
-//   from Resource when the handler is created.
-// - It is not affected by Resource's revalidation on MemoryCache.
-//   The validity of the handler is solely checked by |response_url_| and
-//   |response_time_| (not by Resource) by the browser process, and the cached
-//   metadata written to the handler is rejected if e.g. the disk cache entry
-//   has been updated and the handler refers to an older response.
-class ScriptResource::SingleCachedMetadataHandlerImpl final
-    : public SingleCachedMetadataHandler {
- public:
-  SingleCachedMetadataHandlerImpl(const WTF::TextEncoding&,
-                                  std::unique_ptr<CachedMetadataSender>);
-  ~SingleCachedMetadataHandlerImpl() override = default;
-  void Trace(blink::Visitor*) override;
-  void SetCachedMetadata(uint32_t, const char*, size_t, CacheType) override;
-  void ClearCachedMetadata(CacheType) override;
-  scoped_refptr<CachedMetadata> GetCachedMetadata(uint32_t) const override;
-
-  // This returns the encoding at the time of ResponseReceived().
-  // Therefore this does NOT reflect encoding detection from body contents,
-  // but the final encoding after the encoding detection can be determined
-  // uniquely from Encoding(), provided the body content is the same,
-  // as we can assume the encoding detection will results in the same final
-  // encoding.
-  // TODO(hiroshige): Make this semantics cleaner.
-  String Encoding() const override { return String(encoding_.GetName()); }
-
-  bool IsServedFromCacheStorage() const override {
-    return sender_->IsServedFromCacheStorage();
-  }
-
-  // Sets the serialized metadata retrieved from the platform's cache.
-  void SetSerializedCachedMetadata(const char*, size_t);
-
- private:
-  void SendToPlatform();
-
-  scoped_refptr<CachedMetadata> cached_metadata_;
-  std::unique_ptr<CachedMetadataSender> sender_;
-
-  const WTF::TextEncoding encoding_;
-};
-
-ScriptResource::SingleCachedMetadataHandlerImpl::
-    SingleCachedMetadataHandlerImpl(
-        const WTF::TextEncoding& encoding,
-        std::unique_ptr<CachedMetadataSender> sender)
-    : sender_(std::move(sender)), encoding_(encoding) {}
-
-void ScriptResource::SingleCachedMetadataHandlerImpl::Trace(
-    blink::Visitor* visitor) {
-  CachedMetadataHandler::Trace(visitor);
-}
-
-void ScriptResource::SingleCachedMetadataHandlerImpl::SetCachedMetadata(
-    uint32_t data_type_id,
-    const char* data,
-    size_t size,
-    CachedMetadataHandler::CacheType cache_type) {
-  // Currently, only one type of cached metadata per resource is supported. If
-  // the need arises for multiple types of metadata per resource this could be
-  // enhanced to store types of metadata in a map.
-  DCHECK(!cached_metadata_);
-  cached_metadata_ = CachedMetadata::Create(data_type_id, data, size);
-  if (cache_type == CachedMetadataHandler::kSendToPlatform)
-    SendToPlatform();
-}
-
-void ScriptResource::SingleCachedMetadataHandlerImpl::ClearCachedMetadata(
-    CachedMetadataHandler::CacheType cache_type) {
-  cached_metadata_ = nullptr;
-  if (cache_type == CachedMetadataHandler::kSendToPlatform)
-    SendToPlatform();
-}
-
-scoped_refptr<CachedMetadata>
-ScriptResource::SingleCachedMetadataHandlerImpl::GetCachedMetadata(
-    uint32_t data_type_id) const {
-  if (!cached_metadata_ || cached_metadata_->DataTypeID() != data_type_id)
-    return nullptr;
-  return cached_metadata_;
-}
-
-void ScriptResource::SingleCachedMetadataHandlerImpl::
-    SetSerializedCachedMetadata(const char* data, size_t size) {
-  // We only expect to receive cached metadata from the platform once. If this
-  // triggers, it indicates an efficiency problem which is most likely
-  // unexpected in code designed to improve performance.
-  DCHECK(!cached_metadata_);
-  cached_metadata_ = CachedMetadata::CreateFromSerializedData(data, size);
-}
-
-void ScriptResource::SingleCachedMetadataHandlerImpl::SendToPlatform() {
-  if (cached_metadata_) {
-    const Vector<char>& serialized_data = cached_metadata_->SerializedData();
-    sender_->Send(serialized_data.data(), serialized_data.size());
-  } else {
-    sender_->Send(nullptr, 0);
-  }
-}
-
 ScriptResource* ScriptResource::Fetch(FetchParameters& params,
                                       ResourceFetcher* fetcher,
-                                      ResourceClient* client) {
+                                      ResourceClient* client,
+                                      StreamingAllowed streaming_allowed) {
   DCHECK_EQ(params.GetResourceRequest().GetFrameType(),
             network::mojom::RequestContextFrameType::kNone);
   DCHECK(IsRequestContextSupported(
       params.GetResourceRequest().GetRequestContext()));
-  return ToScriptResource(
+  ScriptResource* resource = ToScriptResource(
       fetcher->RequestResource(params, ScriptResourceFactory(), client));
+
+  if (streaming_allowed == kAllowStreaming) {
+    // Start streaming the script as soon as we get it.
+    if (RuntimeEnabledFeatures::ScriptStreamingOnPreloadEnabled()) {
+      resource->StartStreaming(fetcher->GetTaskRunner());
+    }
+  } else {
+    // Advance the |streaming_state_| to kStreamingNotAllowed by calling
+    // SetClientIsWaitingForFinished unless it is explicitly allowed.'
+    //
+    // Do this in a task rather than directly to make sure that we don't call
+    // the finished callbacks of other clients synchronously.
+
+    // TODO(leszeks): Previous behaviour, without script streaming, was to
+    // synchronously notify the given client, with the assumption that other
+    // clients were already finished. If this behaviour becomes necessary, we
+    // would have to either check that streaming wasn't started (if that would
+    // be a logic error), or cancel any existing streaming.
+    fetcher->GetTaskRunner()->PostTask(
+        FROM_HERE, WTF::Bind(&ScriptResource::SetClientIsWaitingForFinished,
+                             WrapWeakPersistent(resource)));
+  }
+
+  return resource;
 }
 
 ScriptResource::ScriptResource(
     const ResourceRequest& resource_request,
     const ResourceLoaderOptions& options,
     const TextResourceDecoderOptions& decoder_options)
-    : TextResource(resource_request, kScript, options, decoder_options) {}
+    : TextResource(resource_request,
+                   ResourceType::kScript,
+                   options,
+                   decoder_options) {}
 
 ScriptResource::~ScriptResource() = default;
+
+void ScriptResource::Trace(blink::Visitor* visitor) {
+  visitor->Trace(streamer_);
+  TextResource::Trace(visitor);
+}
 
 void ScriptResource::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
                                   WebProcessMemoryDump* memory_dump) const {
   Resource::OnMemoryDump(level_of_detail, memory_dump);
   const String name = GetMemoryDumpName() + "/decoded_script";
-  auto* dump = memory_dump->CreateMemoryAllocatorDump(name);
-  dump->AddScalar("size", "bytes", source_text_.CharactersSizeInBytes());
-  memory_dump->AddSuballocation(
-      dump->Guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
+  source_text_.OnMemoryDump(memory_dump, name);
 }
 
-const MovableString& ScriptResource::SourceText() {
-  DCHECK(IsLoaded());
+const ParkableString& ScriptResource::SourceText() {
+  CHECK(IsFinishedInternal());
 
   if (source_text_.IsNull() && Data()) {
     String source_text = DecodedText();
     ClearData();
     SetDecodedSize(source_text.CharactersSizeInBytes());
-    source_text_ = MovableString(source_text.ReleaseImpl());
+    source_text_ = ParkableString(source_text.ReleaseImpl());
   }
 
   return source_text_;
+}
+
+String ScriptResource::TextForInspector() const {
+  // If the resource buffer exists, we can safely return the decoded text.
+  if (ResourceBuffer())
+    return DecodedText();
+
+  // If there is no resource buffer, then we have three cases.
+  // TODO(crbug.com/865098): Simplify the below code and remove the CHECKs once
+  // the assumptions are confirmed.
+
+  if (IsLoaded()) {
+    if (!source_text_.IsNull()) {
+      // 1. We have finished loading, and have already decoded the buffer into
+      //    the source text and cleared the resource buffer to save space.
+      return source_text_.ToString();
+    }
+
+    // 2. We have finished loading with no data received, so no streaming ever
+    //    happened or streaming was suppressed. Note that the finished
+    //    notification may not have come through yet because of task posting, so
+    //    NotifyFinished may not have been called yet. Regardless, there was no
+    //    data, so the text should be empty.
+    //
+    // TODO(crbug/909858) Currently this CHECK can occasionally fail, but this
+    // doesn't seem to cause real issues immediately. For now, we suppress the
+    // crashes on release builds by making this a DCHECK and continue baking the
+    // script streamer control (crbug/865098) on beta, while investigating the
+    // failure reason on canary.
+    DCHECK(!IsFinishedInternal() || !streamer_ ||
+           streamer_->StreamingSuppressedReason() ==
+               ScriptStreamer::kScriptTooSmall);
+    return "";
+  }
+
+  // 3. We haven't started loading, and actually haven't received any data yet
+  //    at all to initialise the resource buffer, so the resource is empty.
+  return "";
 }
 
 SingleCachedMetadataHandler* ScriptResource::CacheHandler() {
@@ -218,37 +187,41 @@ SingleCachedMetadataHandler* ScriptResource::CacheHandler() {
 
 CachedMetadataHandler* ScriptResource::CreateCachedMetadataHandler(
     std::unique_ptr<CachedMetadataSender> send_callback) {
-  return new SingleCachedMetadataHandlerImpl(Encoding(),
-                                             std::move(send_callback));
+  return MakeGarbageCollected<ScriptCachedMetadataHandler>(
+      Encoding(), std::move(send_callback));
 }
 
-void ScriptResource::SetSerializedCachedMetadata(const char* data,
+void ScriptResource::SetSerializedCachedMetadata(const uint8_t* data,
                                                  size_t size) {
   Resource::SetSerializedCachedMetadata(data, size);
-  SingleCachedMetadataHandlerImpl* cache_handler =
-      static_cast<SingleCachedMetadataHandlerImpl*>(Resource::CacheHandler());
+  ScriptCachedMetadataHandler* cache_handler =
+      static_cast<ScriptCachedMetadataHandler*>(Resource::CacheHandler());
   if (cache_handler) {
     cache_handler->SetSerializedCachedMetadata(data, size);
   }
 }
 
 void ScriptResource::DestroyDecodedDataForFailedRevalidation() {
-  source_text_ = MovableString();
+  source_text_ = ParkableString();
+  // Make sure there's no streaming.
+  DCHECK(!streamer_);
+  DCHECK_EQ(streaming_state_, StreamingState::kStreamingNotAllowed);
   SetDecodedSize(0);
 }
 
-AccessControlStatus ScriptResource::CalculateAccessControlStatus(
-    const SecurityOrigin* security_origin) const {
-  if (GetResponse().WasFetchedViaServiceWorker()) {
-    if (GetCORSStatus() == CORSStatus::kServiceWorkerOpaque)
-      return kOpaqueResource;
-    return kSharableCrossOrigin;
+void ScriptResource::SetRevalidatingRequest(const ResourceRequest& request) {
+  CHECK_EQ(streaming_state_, StreamingState::kFinishedNotificationSent);
+  if (streamer_) {
+    CHECK(streamer_->IsStreamingFinished());
+    streamer_ = nullptr;
   }
+  // Revalidation requests don't actually load the current Resource, so disable
+  // streaming.
+  not_streaming_reason_ = ScriptStreamer::kRevalidate;
+  streaming_state_ = StreamingState::kStreamingNotAllowed;
+  CheckStreamingState();
 
-  if (security_origin && PassesAccessControlCheck(*security_origin))
-    return kSharableCrossOrigin;
-
-  return kNotSharableCrossOrigin;
+  TextResource::SetRevalidatingRequest(request);
 }
 
 bool ScriptResource::CanUseCacheValidator() const {
@@ -258,7 +231,203 @@ bool ScriptResource::CanUseCacheValidator() const {
   if (HasClientsOrObservers())
     return false;
 
+  // Do not revalidate until streaming is complete.
+  if (!IsFinishedInternal())
+    return false;
+
   return Resource::CanUseCacheValidator();
+}
+
+void ScriptResource::NotifyDataReceived(const char* data, size_t size) {
+  CheckStreamingState();
+  if (streamer_) {
+    DCHECK_EQ(streaming_state_, StreamingState::kStreaming);
+    streamer_->NotifyAppendData();
+  }
+  TextResource::NotifyDataReceived(data, size);
+}
+
+void ScriptResource::NotifyFinished() {
+  DCHECK(IsLoaded());
+  switch (streaming_state_) {
+    case StreamingState::kCanStartStreaming:
+      // Do nothing, expect either a StartStreaming() call to transition us to
+      // kStreaming, or an SetClientIsWaitingForFinished() call to transition us
+      // into kStreamingNotAllowed. These will then transition again since
+      // IsLoaded will be true.
+      break;
+    case StreamingState::kStreaming:
+      AdvanceStreamingState(StreamingState::kWaitingForStreamingToEnd);
+      DCHECK(streamer_);
+      streamer_->NotifyFinished();
+      // Don't call the base NotifyFinished until streaming finishes too (which
+      // might happen immediately in the above ScriptStreamer::NotifyFinished
+      // call)
+      break;
+    case StreamingState::kStreamingNotAllowed:
+      AdvanceStreamingState(StreamingState::kFinishedNotificationSent);
+      TextResource::NotifyFinished();
+      break;
+    case StreamingState::kWaitingForStreamingToEnd:
+    case StreamingState::kFinishedNotificationSent:
+      // Not possible.
+      CHECK(false);
+      break;
+  }
+}
+
+bool ScriptResource::IsFinishedInternal() const {
+  CheckStreamingState();
+  return streaming_state_ == StreamingState::kFinishedNotificationSent;
+}
+
+void ScriptResource::StreamingFinished() {
+  CHECK(streamer_);
+  CHECK_EQ(streaming_state_, StreamingState::kWaitingForStreamingToEnd);
+  AdvanceStreamingState(StreamingState::kFinishedNotificationSent);
+  TextResource::NotifyFinished();
+}
+
+void ScriptResource::StartStreaming(
+    scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner) {
+  CheckStreamingState();
+
+  if (streamer_) {
+    return;
+  }
+
+  if (streaming_state_ != StreamingState::kCanStartStreaming) {
+    return;
+  }
+
+  // Don't bother streaming if there was an error, it won't work anyway.
+  if (ErrorOccurred()) {
+    return;
+  }
+
+  static bool script_streaming_enabled =
+      base::FeatureList::IsEnabled(features::kScriptStreaming);
+  if (!script_streaming_enabled) {
+    return;
+  }
+
+  CHECK(!IsCacheValidator());
+
+  streamer_ =
+      ScriptStreamer::Create(this, loading_task_runner, &not_streaming_reason_);
+  if (streamer_) {
+    AdvanceStreamingState(StreamingState::kStreaming);
+
+    // If there is any data already, send it to the streamer.
+    if (Data()) {
+      // Note that we don't need to iterate through the segments of the data, as
+      // the streamer will do that itself.
+      CHECK_GT(Data()->size(), 0u);
+      streamer_->NotifyAppendData();
+    }
+    // If the we're is already loaded, notify the streamer about that too.
+    if (IsLoaded()) {
+      AdvanceStreamingState(StreamingState::kWaitingForStreamingToEnd);
+
+      // Do this in a task rather than directly to make sure that we don't call
+      // the finished callback in the same stack as starting streaming -- this
+      // can cause issues with the client expecting to be not finished when
+      // starting streaming (e.g. ClassicPendingScript::IsReady == false), but
+      // ending up finished by the end of this method.
+      loading_task_runner->PostTask(FROM_HERE,
+                                    WTF::Bind(&ScriptStreamer::NotifyFinished,
+                                              WrapPersistent(streamer_.Get())));
+    }
+  }
+
+  CheckStreamingState();
+  return;
+}
+
+void ScriptResource::SetClientIsWaitingForFinished() {
+  // No-op if streaming already started or finished.
+  CheckStreamingState();
+  if (streaming_state_ != StreamingState::kCanStartStreaming)
+    return;
+
+  AdvanceStreamingState(StreamingState::kStreamingNotAllowed);
+  not_streaming_reason_ = ScriptStreamer::kStreamingDisabled;
+  // Trigger the finished notification if needed.
+  if (IsLoaded()) {
+    AdvanceStreamingState(StreamingState::kFinishedNotificationSent);
+    TextResource::NotifyFinished();
+  }
+}
+
+ScriptStreamer* ScriptResource::TakeStreamer() {
+  CHECK(IsFinishedInternal());
+  if (!streamer_)
+    return nullptr;
+
+  ScriptStreamer* streamer = streamer_;
+  streamer_ = nullptr;
+  not_streaming_reason_ = ScriptStreamer::kSecondScriptResourceUse;
+  return streamer;
+}
+
+void ScriptResource::AdvanceStreamingState(StreamingState new_state) {
+  switch (streaming_state_) {
+    case StreamingState::kCanStartStreaming:
+      CHECK(new_state == StreamingState::kStreaming ||
+            new_state == StreamingState::kStreamingNotAllowed);
+      break;
+    case StreamingState::kStreaming:
+      CHECK(streamer_);
+      CHECK_EQ(new_state, StreamingState::kWaitingForStreamingToEnd);
+      break;
+    case StreamingState::kWaitingForStreamingToEnd:
+      CHECK(streamer_);
+      CHECK_EQ(new_state, StreamingState::kFinishedNotificationSent);
+      break;
+    case StreamingState::kStreamingNotAllowed:
+      CHECK_EQ(new_state, StreamingState::kFinishedNotificationSent);
+      break;
+    case StreamingState::kFinishedNotificationSent:
+      CHECK(false);
+      break;
+  }
+
+  streaming_state_ = new_state;
+  CheckStreamingState();
+}
+
+void ScriptResource::CheckStreamingState() const {
+  // TODO(leszeks): Eventually convert these CHECKs into DCHECKs once the logic
+  // is a bit more baked in.
+  switch (streaming_state_) {
+    case StreamingState::kCanStartStreaming:
+      CHECK(!streamer_);
+      break;
+    case StreamingState::kStreaming:
+      CHECK(streamer_);
+      CHECK(!streamer_->IsFinished());
+      // kStreaming can be entered both when loading (if streaming is started
+      // before load completes) or when loaded (if streaming is started after
+      // load completes). In the latter case, the state will almost immediately
+      // advance to kWaitingForStreamingToEnd.
+      CHECK(IsLoaded() || IsLoading());
+      break;
+    case StreamingState::kWaitingForStreamingToEnd:
+      CHECK(streamer_);
+      CHECK(!streamer_->IsFinished());
+      CHECK(IsLoaded());
+      break;
+    case StreamingState::kStreamingNotAllowed:
+      CHECK(!streamer_);
+      // TODO(leszeks): We could CHECK(!IsLoaded()) if not for the immediate
+      // kCanStartStreaming -> kStreamingNotAllowed -> kFinishedNotificationSent
+      // transition in SetClientIsWaitingForFinished when IsLoaded.
+      break;
+    case StreamingState::kFinishedNotificationSent:
+      CHECK(!streamer_ || streamer_->IsFinished());
+      CHECK(IsLoaded());
+      break;
+  }
 }
 
 }  // namespace blink

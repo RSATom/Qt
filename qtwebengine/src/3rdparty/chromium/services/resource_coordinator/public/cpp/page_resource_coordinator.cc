@@ -47,16 +47,18 @@ void PageResourceCoordinator::OnTitleUpdated() {
 }
 
 void PageResourceCoordinator::OnMainFrameNavigationCommitted(
+    base::TimeTicks navigation_committed_time,
     uint64_t navigation_id,
     const std::string& url) {
   if (!service_)
     return;
-  service_->OnMainFrameNavigationCommitted(navigation_id, url);
+  service_->OnMainFrameNavigationCommitted(navigation_committed_time,
+                                           navigation_id, url);
 }
 
 void PageResourceCoordinator::AddFrame(const FrameResourceCoordinator& frame) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (!service_)
+  if (!service_ || !frame.service())
     return;
   // We could keep the ID around ourselves, but this hop ensures that the child
   // has been created on the service-side.
@@ -67,7 +69,7 @@ void PageResourceCoordinator::AddFrame(const FrameResourceCoordinator& frame) {
 void PageResourceCoordinator::RemoveFrame(
     const FrameResourceCoordinator& frame) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (!service_)
+  if (!service_ || !frame.service())
     return;
   frame.service()->GetID(
       base::BindOnce(&PageResourceCoordinator::RemoveFrameByID,

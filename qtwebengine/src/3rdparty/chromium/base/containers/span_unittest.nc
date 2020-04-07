@@ -19,7 +19,7 @@ class Base {
 class Derived : Base {
 };
 
-#if defined(NCTEST_DEFAULT_SPAN_WITH_NON_ZERO_STATIC_EXTENT_DISALLOWED)  // [r"fatal error: static_assert failed \"Invalid Extent\""]
+#if defined(NCTEST_DEFAULT_SPAN_WITH_NON_ZERO_STATIC_EXTENT_DISALLOWED)  // [r"fatal error: static_assert failed due to requirement '1UL == dynamic_extent || 1UL == 0' \"Invalid Extent\""]
 
 // A default constructed span must have an extent of 0 or dynamic_extent.
 void WontCompile() {
@@ -102,6 +102,22 @@ void WontCompile() {
   span<int> span(v);
 }
 
+#elif defined(NCTEST_IMPLICIT_CONVERSION_FROM_DYNAMIC_CONST_CONTAINER_TO_STATIC_SPAN_DISALLOWED) // [r"fatal error: no viable conversion from 'const std::vector<int>' to 'span<const int, 3>'"]
+
+// A dynamic const container should not be implicitly convertible to a static span.
+void WontCompile() {
+  const std::vector<int> v = {1, 2, 3};
+  span<const int, 3> span = v;
+}
+
+#elif defined(NCTEST_IMPLICIT_CONVERSION_FROM_DYNAMIC_MUTABLE_CONTAINER_TO_STATIC_SPAN_DISALLOWED) // [r"fatal error: no viable conversion from 'std::vector<int>' to 'span<int, 3>'"]
+
+// A dynamic mutable container should not be implicitly convertible to a static span.
+void WontCompile() {
+  std::vector<int> v = {1, 2, 3};
+  span<int, 3> span = v;
+}
+
 #elif defined(NCTEST_STD_SET_CONVERSION_DISALLOWED)  // [r"fatal error: no matching constructor for initialization of 'span<int>'"]
 
 // A std::set() should not satisfy the requirements for conversion to a span.
@@ -110,7 +126,7 @@ void WontCompile() {
   span<int> span(set);
 }
 
-#elif defined(NCTEST_STATIC_FRONT_WITH_EXCEEDING_COUNT_DISALLOWED)  // [r"fatal error: static_assert failed \"Count must not exceed Extent\""]
+#elif defined(NCTEST_STATIC_FRONT_WITH_EXCEEDING_COUNT_DISALLOWED)  // [r" fatal error: static_assert failed due to requirement '3UL == dynamic_extent || 4UL <= 3UL' \"Count must not exceed Extent\""]
 
 // Static first called on a span with static extent must not exceed the size.
 void WontCompile() {
@@ -119,7 +135,7 @@ void WontCompile() {
   auto first = span.first<4>();
 }
 
-#elif defined(NCTEST_STATIC_LAST_WITH_EXCEEDING_COUNT_DISALLOWED)  // [r"fatal error: static_assert failed \"Count must not exceed Extent\""]
+#elif defined(NCTEST_STATIC_LAST_WITH_EXCEEDING_COUNT_DISALLOWED)  // [r"fatal error: static_assert failed due to requirement '3UL == dynamic_extent || 4UL <= 3UL' \"Count must not exceed Extent\""]
 
 // Static last called on a span with static extent must not exceed the size.
 void WontCompile() {
@@ -128,7 +144,7 @@ void WontCompile() {
   auto last = span.last<4>();
 }
 
-#elif defined(NCTEST_STATIC_SUBSPAN_WITH_EXCEEDING_OFFSET_DISALLOWED)  // [r"fatal error: static_assert failed \"Offset must not exceed Extent\""]
+#elif defined(NCTEST_STATIC_SUBSPAN_WITH_EXCEEDING_OFFSET_DISALLOWED)  // [r"fatal error: static_assert failed due to requirement '3UL == dynamic_extent || 4UL <= 3UL' \"Count must not exceed Extent\""]
 
 // Static subspan called on a span with static extent must not exceed the size.
 void WontCompile() {
@@ -137,7 +153,7 @@ void WontCompile() {
   auto subspan = span.subspan<4>();
 }
 
-#elif defined(NCTEST_STATIC_SUBSPAN_WITH_EXCEEDING_COUNT_DISALLOWED)  // [r"fatal error: static_assert failed \"Count must not exceed Extent - Offset\""]
+#elif defined(NCTEST_STATIC_SUBSPAN_WITH_EXCEEDING_COUNT_DISALLOWED)  // [r"fatal error: static_assert failed due to requirement '3UL == dynamic_extent || 4UL == dynamic_extent || 4UL <= 3UL - 0UL' \"Count must not exceed Extent - Offset\""]
 
 // Static subspan called on a span with static extent must not exceed the size.
 void WontCompile() {

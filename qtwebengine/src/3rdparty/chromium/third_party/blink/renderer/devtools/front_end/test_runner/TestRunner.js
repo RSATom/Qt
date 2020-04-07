@@ -13,7 +13,7 @@
 self.testRunner;
 
 /**
- * Only tests in /LayoutTests/http/tests/devtools/startup/ need to call
+ * Only tests in web_tests/http/tests/devtools/startup/ need to call
  * this method because these tests need certain activities to be exercised
  * in the inspected page prior to the DevTools session.
  * @param {string} path
@@ -326,6 +326,7 @@ TestRunner.textContentWithoutStyles = function(node) {
  * @param {!SDK.Target} target
  */
 TestRunner._setupTestHelpers = function(target) {
+  TestRunner.BrowserAgent = target.browserAgent();
   TestRunner.CSSAgent = target.cssAgent();
   TestRunner.DeviceOrientationAgent = target.deviceOrientationAgent();
   TestRunner.DOMAgent = target.domAgent();
@@ -411,10 +412,12 @@ TestRunner._evaluateInPage = async function(code) {
  * Doesn't append sourceURL to snippets evaluated in inspected page
  * to avoid churning test expectations
  * @param {string} code
+ * @param {boolean=} userGesture
  * @return {!Promise<*>}
  */
-TestRunner.evaluateInPageAnonymously = async function(code) {
-  const response = await TestRunner.RuntimeAgent.invoke_evaluate({expression: code, objectGroup: 'console'});
+TestRunner.evaluateInPageAnonymously = async function(code, userGesture) {
+  const response =
+      await TestRunner.RuntimeAgent.invoke_evaluate({expression: code, objectGroup: 'console', userGesture});
   if (!response[Protocol.Error])
     return response.result.value;
   TestRunner.addResult(
@@ -460,10 +463,11 @@ TestRunner.callFunctionInPageAsync = function(name, args) {
 
 /**
  * @param {string} code
+ * @param {boolean=} userGesture
  */
-TestRunner.evaluateInPageWithTimeout = function(code) {
+TestRunner.evaluateInPageWithTimeout = function(code, userGesture) {
   // FIXME: we need a better way of waiting for chromium events to happen
-  TestRunner.evaluateInPageAnonymously('setTimeout(unescape(\'' + escape(code) + '\'), 1)');
+  TestRunner.evaluateInPageAnonymously('setTimeout(unescape(\'' + escape(code) + '\'), 1)', userGesture);
 };
 
 /**
@@ -500,9 +504,7 @@ TestRunner.check = function(passCondition, failureText) {
  * @param {!Function} callback
  */
 TestRunner.deprecatedRunAfterPendingDispatches = function(callback) {
-  const targets = SDK.targetManager.targets();
-  const promises = targets.map(target => new Promise(resolve => target._deprecatedRunAfterPendingDispatches(resolve)));
-  Promise.all(promises).then(TestRunner.safeWrap(callback));
+  Protocol.test.deprecatedRunAfterPendingDispatches(callback);
 };
 
 /**
@@ -637,11 +639,7 @@ TestRunner.markStep = function(title) {
 };
 
 TestRunner.startDumpingProtocolMessages = function() {
-  // TODO(chenwilliam): stop abusing Closure interface which is why
-  // we need to opt out of type checking here
-  const untypedConnection = /** @type {*} */ (Protocol.InspectorBackend.Connection);
-  untypedConnection.prototype._dumpProtocolMessage = self.testRunner.logToStderr.bind(self.testRunner);
-  Protocol.InspectorBackend.Options.dumpInspectorProtocolMessages = 1;
+  Protocol.test.dumpProtocol = self.testRunner.logToStderr.bind(self.testRunner);
 };
 
 /**
@@ -1214,37 +1212,6 @@ TestRunner.dumpLoadedModules = function(relativeTo) {
     TestRunner.addResult('    ' + module._descriptor.name);
   }
   return loadedModules;
-};
-
-/**
- * @param {!SDK.Target} target
- * @return {boolean}
- */
-TestRunner.isDedicatedWorker = function(target) {
-  return target && !target.hasBrowserCapability() && target.hasJSCapability() && target.hasLogCapability();
-};
-
-/**
- * @param {!SDK.Target} target
- * @return {boolean}
- */
-TestRunner.isServiceWorker = function(target) {
-  return target && !target.hasBrowserCapability() && !target.hasJSCapability() && target.hasNetworkCapability() &&
-      target.hasTargetCapability();
-};
-
-/**
- * @param {!SDK.Target} target
- * @return {string}
- */
-TestRunner.describeTargetType = function(target) {
-  if (TestRunner.isDedicatedWorker(target))
-    return 'worker';
-  if (TestRunner.isServiceWorker(target))
-    return 'service-worker';
-  if (!target.parentTarget())
-    return 'page';
-  return 'frame';
 };
 
 /**

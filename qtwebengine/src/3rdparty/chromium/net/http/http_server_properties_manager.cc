@@ -256,6 +256,17 @@ void HttpServerPropertiesManager::MarkAlternativeServiceBroken(
   ScheduleUpdatePrefs(MARK_ALTERNATIVE_SERVICE_BROKEN);
 }
 
+void HttpServerPropertiesManager::
+    MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+        const AlternativeService& alternative_service) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  http_server_properties_impl_
+      ->MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+          alternative_service);
+  ScheduleUpdatePrefs(
+      MARK_ALTERNATIVE_SERVICE_BROKEN_UNTIL_DEFAULT_NETWORK_CHANGES);
+}
+
 void HttpServerPropertiesManager::MarkAlternativeServiceRecentlyBroken(
     const AlternativeService& alternative_service) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -290,6 +301,14 @@ void HttpServerPropertiesManager::ConfirmAlternativeService(
   // IsAlternativeServiceBroken. If that value changes, then call persist.
   if (old_value != new_value)
     ScheduleUpdatePrefs(CONFIRM_ALTERNATIVE_SERVICE);
+}
+
+bool HttpServerPropertiesManager::OnDefaultNetworkChanged() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  bool changed = http_server_properties_impl_->OnDefaultNetworkChanged();
+  if (changed)
+    ScheduleUpdatePrefs(ON_DEFAULT_NETWORK_CHANGED);
+  return changed;
 }
 
 const AlternativeServiceMap&
@@ -534,8 +553,7 @@ void HttpServerPropertiesManager::UpdateCacheFromPrefs() {
     // Iterate servers list in reverse MRU order so that entries are inserted
     // into |spdy_servers_map|, |alternative_service_map|, and
     // |server_network_stats_map| from oldest to newest.
-    for (base::ListValue::const_iterator it = servers_list->end();
-         it != servers_list->begin();) {
+    for (auto it = servers_list->end(); it != servers_list->begin();) {
       --it;
       if (!it->GetAsDictionary(&servers_dict)) {
         DVLOG(1) << "Malformed http_server_properties for servers dictionary.";
@@ -569,7 +587,7 @@ void HttpServerPropertiesManager::UpdateCacheFromPrefs() {
         std::make_unique<RecentlyBrokenAlternativeServices>();
 
     // Iterate list in reverse-MRU order
-    for (base::ListValue::const_iterator it = broken_alt_svc_list->end();
+    for (auto it = broken_alt_svc_list->end();
          it != broken_alt_svc_list->begin();) {
       --it;
       const base::DictionaryValue* entry_dict;
@@ -1008,8 +1026,8 @@ void HttpServerPropertiesManager::UpdatePrefsFromCache(
   // Add SPDY servers to |server_pref_map|.
   const SpdyServersMap& spdy_servers_map =
       http_server_properties_impl_->spdy_servers_map();
-  for (SpdyServersMap::const_reverse_iterator it = spdy_servers_map.rbegin();
-       it != spdy_servers_map.rend(); ++it) {
+  for (auto it = spdy_servers_map.rbegin(); it != spdy_servers_map.rend();
+       ++it) {
     // Only add servers that support SPDY.
     if (!it->second)
       continue;
@@ -1027,8 +1045,7 @@ void HttpServerPropertiesManager::UpdatePrefsFromCache(
   typedef std::map<std::string, bool> CanonicalHostPersistedMap;
   CanonicalHostPersistedMap persisted_map;
   const base::Time now = base::Time::Now();
-  for (AlternativeServiceMap::const_reverse_iterator it =
-           alternative_service_map.rbegin();
+  for (auto it = alternative_service_map.rbegin();
        it != alternative_service_map.rend(); ++it) {
     const url::SchemeHostPort& server = it->first;
     AlternativeServiceInfoVector notbroken_alternative_service_info_vector;
@@ -1065,8 +1082,7 @@ void HttpServerPropertiesManager::UpdatePrefsFromCache(
   // Add server network stats to |server_pref_map|.
   const ServerNetworkStatsMap& server_network_stats_map =
       http_server_properties_impl_->server_network_stats_map();
-  for (ServerNetworkStatsMap::const_reverse_iterator it =
-           server_network_stats_map.rbegin();
+  for (auto it = server_network_stats_map.rbegin();
        it != server_network_stats_map.rend(); ++it) {
     const url::SchemeHostPort& server = it->first;
     auto map_it = server_pref_map.Get(server);
@@ -1204,8 +1220,7 @@ void HttpServerPropertiesManager::SaveQuicServerInfoMapToServerPrefs(
   if (quic_server_info_map.empty())
     return;
   auto quic_servers_dict = std::make_unique<base::DictionaryValue>();
-  for (QuicServerInfoMap::const_reverse_iterator it =
-           quic_server_info_map.rbegin();
+  for (auto it = quic_server_info_map.rbegin();
        it != quic_server_info_map.rend(); ++it) {
     const quic::QuicServerId& server_id = it->first;
     auto quic_server_pref_dict = std::make_unique<base::DictionaryValue>();

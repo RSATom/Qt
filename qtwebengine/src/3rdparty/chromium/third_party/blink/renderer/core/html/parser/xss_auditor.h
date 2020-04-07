@@ -45,6 +45,8 @@ class XSSAuditorDelegate;
 
 struct FilterTokenRequest {
   STACK_ALLOCATED();
+
+ public:
   FilterTokenRequest(HTMLToken& token,
                      HTMLSourceTracker& source_tracker,
                      bool should_allow_cdata)
@@ -74,7 +76,7 @@ class XSSAuditor {
   bool IsEnabled() const { return is_enabled_; }
 
  private:
-  static const size_t kMaximumFragmentLengthTarget = 100;
+  static const wtf_size_t kMaximumFragmentLengthTarget = 100;
 
   enum State {
     kUninitialized,

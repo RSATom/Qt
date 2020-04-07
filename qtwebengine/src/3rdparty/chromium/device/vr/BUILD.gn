@@ -63,6 +63,8 @@ if (enable_vr) {
         "android/gvr/gvr_gamepad_data_fetcher.cc",
         "android/gvr/gvr_gamepad_data_fetcher.h",
         "android/gvr/gvr_gamepad_data_provider.h",
+        "android/gvr/vr_module_delegate.cc",
+        "android/gvr/vr_module_delegate.h",
       ]
 
       if (enable_arcore) {
@@ -96,13 +98,20 @@ if (enable_vr) {
         "openvr/openvr_device.h",
         "openvr/openvr_device_provider.cc",
         "openvr/openvr_device_provider.h",
-        "openvr/openvr_gamepad_data_fetcher.cc",
-        "openvr/openvr_gamepad_data_fetcher.h",
+        "openvr/openvr_gamepad_helper.cc",
+        "openvr/openvr_gamepad_helper.h",
         "openvr/openvr_render_loop.cc",
         "openvr/openvr_render_loop.h",
         "openvr/openvr_type_converters.cc",
         "openvr/openvr_type_converters.h",
         "openvr/test/test_hook.h",
+      ]
+    }
+
+    if (enable_openvr || enable_oculus_vr) {
+      sources += [
+        "windows/compositor_base.cc",
+        "windows/compositor_base.h",
       ]
     }
 
@@ -113,6 +122,8 @@ if (enable_vr) {
       ]
 
       sources += [
+        "isolated_gamepad_data_fetcher.cc",
+        "isolated_gamepad_data_fetcher.h",
         "windows/d3d11_texture_helper.cc",
         "windows/d3d11_texture_helper.h",
         "windows/flip_pixel_shader.h",
@@ -132,8 +143,8 @@ if (enable_vr) {
         "oculus/oculus_device.h",
         "oculus/oculus_device_provider.cc",
         "oculus/oculus_device_provider.h",
-        "oculus/oculus_gamepad_data_fetcher.cc",
-        "oculus/oculus_gamepad_data_fetcher.h",
+        "oculus/oculus_gamepad_helper.cc",
+        "oculus/oculus_gamepad_helper.h",
         "oculus/oculus_render_loop.cc",
         "oculus/oculus_render_loop.h",
         "oculus/oculus_type_converters.cc",
@@ -160,8 +171,6 @@ if (enable_vr) {
       "test/fake_vr_display_impl_client.h",
       "test/fake_vr_service_client.cc",
       "test/fake_vr_service_client.h",
-      "test/mock_vr_display_impl.cc",
-      "test/mock_vr_display_impl.h",
       "vr_export.h",
     ]
 
@@ -205,6 +214,8 @@ if (enable_openvr) {
 
     deps = [
       "//base",
+      "//device/vr/public/mojom:test_mojom",
+      "//third_party/openvr:openvr_headers",
     ]
   }
 }

@@ -1,0 +1,41 @@
+1. General
+
+- The master specification for bodymovin that is obeyed is at
+  https://github.com/airbnb/lottie-web/tree/master/docs/json
+- Deviations in exported Bodymovin files compared to the specification
+  taken into account as much as possible (when differences noticed)
+- precomps not supported
+- expressions not supported
+- only frame-mode on the timeline supported (no time-mode)
+
+
+2. Animation level
+
+- unsupported properties
+    - assets (reusable text and images)
+    - chars (text)
+
+
+3. Layers
+
+- Only the shape layer supported
+- Only alpha mask adjustment layer supported
+- unsupported properties
+    - ao (auto-orientation)
+    - bm (blend mode)
+    - maskProperties (masks)
+    - sr (time stretch)
+
+
+4. Shapes
+
+- the gstroke (group stroke) element not supported
+- the star element not supported
+- Nested Repeater shapes not supported
+- multiple active trim paths behavior is unpredictable
+  (e.g. trim paths in nested groups)
+
+
+5. Effects
+
+- Only Slide and Layer Fill effects supported

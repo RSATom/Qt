@@ -54,11 +54,13 @@ void CPDF_ProgressiveRenderer::Continue(PauseIndicatorIface* pPause) {
       m_pCurrentLayer = m_pContext->GetLayer(m_LayerIndex);
       m_LastObjectRendered =
           m_pCurrentLayer->m_pObjectHolder->GetPageObjectList()->end();
-      m_pRenderStatus = pdfium::MakeUnique<CPDF_RenderStatus>();
-      m_pRenderStatus->Initialize(
-          m_pContext.Get(), m_pDevice.Get(), nullptr, nullptr, nullptr, nullptr,
-          m_pOptions, m_pCurrentLayer->m_pObjectHolder->GetTransparency(),
-          false, nullptr);
+      m_pRenderStatus = pdfium::MakeUnique<CPDF_RenderStatus>(m_pContext.Get(),
+                                                              m_pDevice.Get());
+      if (m_pOptions)
+        m_pRenderStatus->SetOptions(*m_pOptions);
+      m_pRenderStatus->SetTransparency(
+          m_pCurrentLayer->m_pObjectHolder->GetTransparency());
+      m_pRenderStatus->Initialize(nullptr, nullptr);
       m_pDevice->SaveState();
       m_ClipRect = m_pCurrentLayer->m_Matrix.GetInverse().TransformRect(
           CFX_FloatRect(m_pDevice->GetClipBox()));
@@ -76,28 +78,29 @@ void CPDF_ProgressiveRenderer::Continue(PauseIndicatorIface* pPause) {
     bool is_mask = false;
     while (iter != iterEnd) {
       CPDF_PageObject* pCurObj = iter->get();
-      if (pCurObj && pCurObj->m_Left <= m_ClipRect.right &&
-          pCurObj->m_Right >= m_ClipRect.left &&
-          pCurObj->m_Bottom <= m_ClipRect.top &&
-          pCurObj->m_Top >= m_ClipRect.bottom) {
-        if (m_pOptions->HasFlag(RENDER_BREAKFORMASKS) && pCurObj->IsImage() &&
+      if (pCurObj && pCurObj->GetRect().left <= m_ClipRect.right &&
+          pCurObj->GetRect().right >= m_ClipRect.left &&
+          pCurObj->GetRect().bottom <= m_ClipRect.top &&
+          pCurObj->GetRect().top >= m_ClipRect.bottom) {
+        if (m_pOptions->GetOptions().bBreakForMasks && pCurObj->IsImage() &&
             pCurObj->AsImage()->GetImage()->IsMask()) {
           if (m_pDevice->GetDeviceCaps(FXDC_DEVICE_CLASS) == FXDC_PRINTER) {
             m_LastObjectRendered = iter;
             m_pRenderStatus->ProcessClipPath(pCurObj->m_ClipPath,
-                                             &m_pCurrentLayer->m_Matrix);
+                                             m_pCurrentLayer->m_Matrix);
             return;
           }
           is_mask = true;
         }
         if (m_pRenderStatus->ContinueSingleObject(
-                pCurObj, &m_pCurrentLayer->m_Matrix, pPause)) {
+                pCurObj, m_pCurrentLayer->m_Matrix, pPause)) {
           return;
         }
-        if (pCurObj->IsImage() && m_pRenderStatus->GetRenderOptions()->HasFlag(
-                                      RENDER_LIMITEDIMAGECACHE)) {
+        if (pCurObj->IsImage() && m_pRenderStatus->GetRenderOptions()
+                                      .GetOptions()
+                                      .bLimitedImageCache) {
           m_pContext->GetPageCache()->CacheOptimization(
-              m_pRenderStatus->GetRenderOptions()->GetCacheSizeLimit());
+              m_pRenderStatus->GetRenderOptions().GetCacheSizeLimit());
         }
         if (pCurObj->IsForm() || pCurObj->IsShading())
           nObjsToGo = 0;

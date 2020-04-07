@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_border_edges.h"
@@ -12,23 +12,38 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_break_token.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
+#include "third_party/blink/renderer/platform/fonts/shaping/shape_result_view.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
 namespace {
 
-bool AppendFragmentOffsetAndSize(const NGPhysicalFragment* fragment,
-                                 StringBuilder* builder,
-                                 NGPhysicalFragment::DumpFlags flags,
-                                 bool has_content) {
+struct SameSizeAsNGPhysicalFragment
+    : RefCounted<const NGPhysicalFragment, NGPhysicalFragmentTraits> {
+  void* pointers[2];
+  NGPhysicalSize size;
+  unsigned flags;
+};
+
+static_assert(sizeof(NGPhysicalFragment) ==
+                  sizeof(SameSizeAsNGPhysicalFragment),
+              "NGPhysicalFragment should stay small");
+
+bool AppendFragmentOffsetAndSize(
+    const NGPhysicalFragment* fragment,
+    base::Optional<NGPhysicalOffset> fragment_offset,
+    StringBuilder* builder,
+    NGPhysicalFragment::DumpFlags flags,
+    bool has_content) {
   if (flags & NGPhysicalFragment::DumpOffset) {
     if (has_content)
       builder->Append(" ");
     builder->Append("offset:");
-    if (fragment->IsPlaced())
-      builder->Append(fragment->Offset().ToString());
+    if (fragment_offset)
+      builder->Append(fragment_offset->ToString());
     else
       builder->Append("unplaced");
     has_content = true;
@@ -71,6 +86,9 @@ String StringForBoxType(const NGPhysicalFragment& fragment) {
     case NGPhysicalFragment::NGBoxType::kInlineBox:
       result.Append("inline");
       break;
+    case NGPhysicalFragment::NGBoxType::kColumnBox:
+      result.Append("column");
+      break;
     case NGPhysicalFragment::NGBoxType::kAtomicInline:
       result.Append("atomic-inline");
       break;
@@ -79,6 +97,9 @@ String StringForBoxType(const NGPhysicalFragment& fragment) {
       break;
     case NGPhysicalFragment::NGBoxType::kOutOfFlowPositioned:
       result.Append("out-of-flow-positioned");
+      break;
+    case NGPhysicalFragment::NGBoxType::kBlockFlowRoot:
+      result.Append("block-flow-root");
       break;
   }
   if (fragment.IsOldLayoutRoot()) {
@@ -91,6 +112,16 @@ String StringForBoxType(const NGPhysicalFragment& fragment) {
       result.Append(" ");
     result.Append("block-flow");
   }
+  if (fragment.IsRenderedLegend()) {
+    if (result.length())
+      result.Append(" ");
+    result.Append("rendered-legend");
+  }
+  if (fragment.IsFieldsetContainer()) {
+    if (result.length())
+      result.Append(" ");
+    result.Append("fieldset-container");
+  }
   if (fragment.IsBox() &&
       static_cast<const NGPhysicalBoxFragment&>(fragment).ChildrenInline()) {
     if (result.length())
@@ -102,6 +133,7 @@ String StringForBoxType(const NGPhysicalFragment& fragment) {
 }
 
 void AppendFragmentToString(const NGPhysicalFragment* fragment,
+                            base::Optional<NGPhysicalOffset> fragment_offset,
                             StringBuilder* builder,
                             NGPhysicalFragment::DumpFlags flags,
                             unsigned indent = 2) {
@@ -111,10 +143,13 @@ void AppendFragmentToString(const NGPhysicalFragment* fragment,
   }
 
   bool has_content = false;
-  if (fragment->IsBox()) {
+  if (fragment->IsBox() || fragment->IsRenderedLegend()) {
     const auto* box = ToNGPhysicalBoxFragment(fragment);
     if (flags & NGPhysicalFragment::DumpType) {
-      builder->Append("Box");
+      if (fragment->IsRenderedLegend())
+        builder->Append("RenderedLegend");
+      else
+        builder->Append("Box");
       String box_type = StringForBoxType(*fragment);
       has_content = true;
       if (!box_type.IsEmpty()) {
@@ -129,8 +164,8 @@ void AppendFragmentToString(const NGPhysicalFragment* fragment,
         builder->Append("(self paint)");
       }
     }
-    has_content =
-        AppendFragmentOffsetAndSize(fragment, builder, flags, has_content);
+    has_content = AppendFragmentOffsetAndSize(fragment, fragment_offset,
+                                              builder, flags, has_content);
 
     if (flags & NGPhysicalFragment::DumpNodeName &&
         fragment->GetLayoutObject()) {
@@ -141,9 +176,10 @@ void AppendFragmentToString(const NGPhysicalFragment* fragment,
     builder->Append("\n");
 
     if (flags & NGPhysicalFragment::DumpSubtree) {
-      const auto& children = box->Children();
-      for (unsigned i = 0; i < children.size(); i++)
-        AppendFragmentToString(children[i].get(), builder, flags, indent + 2);
+      for (auto& child : box->Children()) {
+        AppendFragmentToString(child.get(), child.Offset(), builder, flags,
+                               indent + 2);
+      }
     }
     return;
   }
@@ -153,15 +189,16 @@ void AppendFragmentToString(const NGPhysicalFragment* fragment,
       builder->Append("LineBox");
       has_content = true;
     }
-    has_content =
-        AppendFragmentOffsetAndSize(fragment, builder, flags, has_content);
+    has_content = AppendFragmentOffsetAndSize(fragment, fragment_offset,
+                                              builder, flags, has_content);
     builder->Append("\n");
 
     if (flags & NGPhysicalFragment::DumpSubtree) {
       const auto* line_box = ToNGPhysicalLineBoxFragment(fragment);
-      const auto& children = line_box->Children();
-      for (unsigned i = 0; i < children.size(); i++)
-        AppendFragmentToString(children[i].get(), builder, flags, indent + 2);
+      for (auto& child : line_box->Children()) {
+        AppendFragmentToString(child.get(), child.Offset(), builder, flags,
+                               indent + 2);
+      }
       return;
     }
   }
@@ -171,8 +208,8 @@ void AppendFragmentToString(const NGPhysicalFragment* fragment,
       builder->Append("Text");
       has_content = true;
     }
-    has_content =
-        AppendFragmentOffsetAndSize(fragment, builder, flags, has_content);
+    has_content = AppendFragmentOffsetAndSize(fragment, fragment_offset,
+                                              builder, flags, has_content);
 
     if (flags & NGPhysicalFragment::DumpTextOffsets) {
       const auto* text = ToNGPhysicalTextFragment(fragment);
@@ -192,8 +229,8 @@ void AppendFragmentToString(const NGPhysicalFragment* fragment,
     builder->Append("Unknown fragment type");
     has_content = true;
   }
-  has_content =
-      AppendFragmentOffsetAndSize(fragment, builder, flags, has_content);
+  has_content = AppendFragmentOffsetAndSize(fragment, fragment_offset, builder,
+                                            flags, has_content);
   builder->Append("\n");
 }
 
@@ -208,22 +245,32 @@ void NGPhysicalFragmentTraits::Destruct(const NGPhysicalFragment* fragment) {
   fragment->Destroy();
 }
 
+NGPhysicalFragment::NGPhysicalFragment(NGFragmentBuilder* builder,
+                                       NGFragmentType type,
+                                       unsigned sub_type)
+    : layout_object_(builder->layout_object_),
+      size_(ToNGPhysicalSize(builder->size_, builder->GetWritingMode())),
+      break_token_(std::move(builder->break_token_)),
+      type_(type),
+      sub_type_(sub_type),
+      style_variant_((unsigned)builder->style_variant_),
+      is_fieldset_container_(false),
+      is_old_layout_root_(false) {}
+
 NGPhysicalFragment::NGPhysicalFragment(LayoutObject* layout_object,
-                                       const ComputedStyle& style,
                                        NGStyleVariant style_variant,
                                        NGPhysicalSize size,
                                        NGFragmentType type,
                                        unsigned sub_type,
                                        scoped_refptr<NGBreakToken> break_token)
     : layout_object_(layout_object),
-      style_(&style),
       size_(size),
       break_token_(std::move(break_token)),
       type_(type),
       sub_type_(sub_type),
-      is_old_layout_root_(false),
-      is_placed_(false),
-      style_variant_((unsigned)style_variant) {}
+      style_variant_((unsigned)style_variant),
+      is_fieldset_container_(false),
+      is_old_layout_root_(false) {}
 
 // Keep the implementation of the destructor here, to avoid dependencies on
 // ComputedStyle in the header file.
@@ -232,6 +279,7 @@ NGPhysicalFragment::~NGPhysicalFragment() = default;
 void NGPhysicalFragment::Destroy() const {
   switch (Type()) {
     case kFragmentBox:
+    case kFragmentRenderedLegend:
       delete static_cast<const NGPhysicalBoxFragment*>(this);
       break;
     case kFragmentText:
@@ -247,21 +295,20 @@ void NGPhysicalFragment::Destroy() const {
 }
 
 const ComputedStyle& NGPhysicalFragment::Style() const {
-  DCHECK(style_);
-  // TODO(kojii): Returning |style_| locks the style at the layout time, and
-  // will not be updated when its base style is updated later. Line styles and
-  // ellipsis styles have this problem.
-  if (!GetLayoutObject())
-    return *style_;
+  if (Type() == kFragmentLineBox)
+    return ToNGPhysicalLineBoxFragment(this)->Style();
   switch (StyleVariant()) {
     case NGStyleVariant::kStandard:
+      DCHECK(GetLayoutObject());
       return *GetLayoutObject()->Style();
     case NGStyleVariant::kFirstLine:
+      DCHECK(GetLayoutObject());
       return *GetLayoutObject()->FirstLineStyle();
     case NGStyleVariant::kEllipsis:
-      return *style_;
+      return ToNGPhysicalTextFragment(this)->Style();
   }
-  return *style_;
+  NOTREACHED();
+  return *GetLayoutObject()->Style();
 }
 
 Node* NGPhysicalFragment::GetNode() const {
@@ -269,7 +316,7 @@ Node* NGPhysicalFragment::GetNode() const {
 }
 
 bool NGPhysicalFragment::HasLayer() const {
-  return layout_object_->HasLayer();
+  return layout_object_ && layout_object_->HasLayer();
 }
 
 PaintLayer* NGPhysicalFragment::Layer() const {
@@ -312,11 +359,12 @@ NGPixelSnappedPhysicalBoxStrut NGPhysicalFragment::BorderWidths() const {
 
 NGPhysicalOffsetRect NGPhysicalFragment::SelfInkOverflow() const {
   switch (Type()) {
-    case NGPhysicalFragment::kFragmentBox:
+    case kFragmentBox:
+    case kFragmentRenderedLegend:
       return ToNGPhysicalBoxFragment(*this).SelfInkOverflow();
-    case NGPhysicalFragment::kFragmentText:
+    case kFragmentText:
       return ToNGPhysicalTextFragment(*this).SelfInkOverflow();
-    case NGPhysicalFragment::kFragmentLineBox:
+    case kFragmentLineBox:
       return {{}, Size()};
   }
   NOTREACHED();
@@ -325,11 +373,12 @@ NGPhysicalOffsetRect NGPhysicalFragment::SelfInkOverflow() const {
 
 NGPhysicalOffsetRect NGPhysicalFragment::InkOverflow(bool apply_clip) const {
   switch (Type()) {
-    case NGPhysicalFragment::kFragmentBox:
+    case kFragmentBox:
+    case kFragmentRenderedLegend:
       return ToNGPhysicalBoxFragment(*this).InkOverflow(apply_clip);
-    case NGPhysicalFragment::kFragmentText:
+    case kFragmentText:
       return ToNGPhysicalTextFragment(*this).SelfInkOverflow();
-    case NGPhysicalFragment::kFragmentLineBox:
+    case kFragmentLineBox:
       return ToNGPhysicalLineBoxFragment(*this).InkOverflow();
   }
   NOTREACHED();
@@ -338,11 +387,12 @@ NGPhysicalOffsetRect NGPhysicalFragment::InkOverflow(bool apply_clip) const {
 
 NGPhysicalOffsetRect NGPhysicalFragment::ScrollableOverflow() const {
   switch (Type()) {
-    case NGPhysicalFragment::kFragmentBox:
+    case kFragmentBox:
+    case kFragmentRenderedLegend:
       return ToNGPhysicalBoxFragment(*this).ScrollableOverflow();
-    case NGPhysicalFragment::kFragmentText:
+    case kFragmentText:
       return {{}, Size()};
-    case NGPhysicalFragment::kFragmentLineBox:
+    case kFragmentLineBox:
       NOTREACHED()
           << "You must call NGLineBoxFragment::ScrollableOverflow explicitly.";
       break;
@@ -351,10 +401,32 @@ NGPhysicalOffsetRect NGPhysicalFragment::ScrollableOverflow() const {
   return {{}, Size()};
 }
 
+NGPhysicalOffsetRect NGPhysicalFragment::ScrollableOverflowForPropagation(
+    const LayoutObject* container) const {
+  DCHECK(container);
+  NGPhysicalOffsetRect overflow = ScrollableOverflow();
+  if (GetLayoutObject() &&
+      GetLayoutObject()->ShouldUseTransformFromContainer(container)) {
+    TransformationMatrix transform;
+    GetLayoutObject()->GetTransformFromContainer(container, LayoutSize(),
+                                                 transform);
+    overflow = NGPhysicalOffsetRect(transform.MapRect(overflow.ToLayoutRect()));
+  }
+  return overflow;
+}
+
 void NGPhysicalFragment::PropagateContentsInkOverflow(
-    NGPhysicalOffsetRect* parent_ink_overflow) const {
+    NGPhysicalOffsetRect* parent_ink_overflow,
+    NGPhysicalOffset fragment_offset) const {
+  // Add in visual overflow from the child.  Even if the child clips its
+  // overflow, it may still have visual overflow of its own set from box shadows
+  // or reflections. It is unnecessary to propagate this overflow if we are
+  // clipping our own overflow.
+  if (IsBox() && ToNGPhysicalBoxFragment(*this).HasSelfPaintingLayer())
+    return;
+
   NGPhysicalOffsetRect ink_overflow = InkOverflow();
-  ink_overflow.offset += Offset();
+  ink_overflow.offset += fragment_offset;
   parent_ink_overflow->Unite(ink_overflow);
 }
 
@@ -362,8 +434,7 @@ const Vector<NGInlineItem>& NGPhysicalFragment::InlineItemsOfContainingBlock()
     const {
   DCHECK(IsInline());
   DCHECK(GetLayoutObject());
-  LayoutBlockFlow* block_flow =
-      GetLayoutObject()->Parent()->EnclosingNGBlockFlow();
+  LayoutBlockFlow* block_flow = GetLayoutObject()->ContainingNGBlockFlow();
   // TODO(xiaochengh): Code below is copied from ng_offset_mapping.cc with
   // modification. Unify them.
   DCHECK(block_flow);
@@ -378,49 +449,48 @@ const Vector<NGInlineItem>& NGPhysicalFragment::InlineItemsOfContainingBlock()
   return ToNGInlineNode(node).ItemsData(false).items;
 }
 
+TouchAction NGPhysicalFragment::EffectiveWhitelistedTouchAction() const {
+  DCHECK(GetLayoutObject());
+  return GetLayoutObject()->EffectiveWhitelistedTouchAction();
+}
+
 UBiDiLevel NGPhysicalFragment::BidiLevel() const {
+  switch (Type()) {
+    case kFragmentText:
+      return ToNGPhysicalTextFragment(*this).BidiLevel();
+    case kFragmentBox:
+    case kFragmentRenderedLegend:
+      return ToNGPhysicalBoxFragment(*this).BidiLevel();
+    case kFragmentLineBox:
+      break;
+  }
   NOTREACHED();
   return 0;
 }
 
 TextDirection NGPhysicalFragment::ResolvedDirection() const {
-  DCHECK(IsInline());
-  DCHECK(IsText() || IsAtomicInline());
-  // TODO(xiaochengh): Store direction in |base_direction_| flag.
-  return DirectionFromLevel(BidiLevel());
-}
-
-scoped_refptr<NGPhysicalFragment> NGPhysicalFragment::CloneWithoutOffset()
-    const {
   switch (Type()) {
-    case kFragmentBox:
-      return static_cast<const NGPhysicalBoxFragment*>(this)
-          ->CloneWithoutOffset();
-      break;
     case kFragmentText:
-      return static_cast<const NGPhysicalTextFragment*>(this)
-          ->CloneWithoutOffset();
-      break;
+      return ToNGPhysicalTextFragment(*this).ResolvedDirection();
+    case kFragmentBox:
+    case kFragmentRenderedLegend:
+      DCHECK(IsInline() && IsAtomicInline());
+      // TODO(xiaochengh): Store direction in |base_direction_| flag.
+      return DirectionFromLevel(BidiLevel());
     case kFragmentLineBox:
-      return static_cast<const NGPhysicalLineBoxFragment*>(this)
-          ->CloneWithoutOffset();
-      break;
-    default:
-      NOTREACHED();
       break;
   }
-  return nullptr;
+  NOTREACHED();
+  return TextDirection::kLtr;
 }
 
 String NGPhysicalFragment::ToString() const {
   StringBuilder output;
-  output.Append(String::Format(
-      "Type: '%d' Size: '%s' Offset: '%s' Placed: '%d'", Type(),
-      Size().ToString().Ascii().data(),
-      is_placed_ ? Offset().ToString().Ascii().data() : "no offset",
-      IsPlaced()));
+  output.Append(String::Format("Type: '%d' Size: '%s'", Type(),
+                               Size().ToString().Ascii().data()));
   switch (Type()) {
     case kFragmentBox:
+    case kFragmentRenderedLegend:
       output.Append(String::Format(", BoxType: '%s'",
                                    StringForBoxType(*this).Ascii().data()));
       break;
@@ -439,18 +509,20 @@ String NGPhysicalFragment::ToString() const {
   return output.ToString();
 }
 
-String NGPhysicalFragment::DumpFragmentTree(DumpFlags flags,
-                                            unsigned indent) const {
+String NGPhysicalFragment::DumpFragmentTree(
+    DumpFlags flags,
+    base::Optional<NGPhysicalOffset> fragment_offset,
+    unsigned indent) const {
   StringBuilder string_builder;
   if (flags & DumpHeaderText)
     string_builder.Append(".:: LayoutNG Physical Fragment Tree ::.\n");
-  AppendFragmentToString(this, &string_builder, flags, indent);
+  AppendFragmentToString(this, fragment_offset, &string_builder, flags, indent);
   return string_builder.ToString();
 }
 
 #ifndef NDEBUG
 void NGPhysicalFragment::ShowFragmentTree() const {
-  DumpFlags dump_flags = DumpAll;  //& ~DumpOverflow;
+  DumpFlags dump_flags = DumpAll;  // & ~DumpOverflow;
   LOG(INFO) << "\n" << DumpFragmentTree(dump_flags).Utf8().data();
 }
 #endif  // !NDEBUG

@@ -40,6 +40,8 @@
 #include "renderer/content_renderer_client_qt.h"
 
 #include "common/qt_messages.h"
+#include "extensions/buildflags/buildflags.h"
+#include "printing/buildflags/buildflags.h"
 #include "renderer/content_settings_observer_qt.h"
 #include "base/strings/string_split.h"
 #if QT_CONFIG(webengine_spellchecker)
@@ -66,7 +68,8 @@
 #include "media/base/key_system_properties.h"
 #include "media/media_buildflags.h"
 #include "net/base/net_errors.h"
-#include "services/service_manager/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/web/web_security_policy.h"
@@ -81,10 +84,17 @@
 
 #include "renderer/render_frame_observer_qt.h"
 #include "renderer/render_view_observer_qt.h"
+#include "renderer/render_thread_observer_qt.h"
 #include "renderer/user_resource_controller.h"
 #if QT_CONFIG(webengine_webchannel)
 #include "renderer/web_channel_ipc_transport.h"
 #endif
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "common/extensions/extensions_client_qt.h"
+#include "extensions/extensions_renderer_client_qt.h"
+#endif //ENABLE_EXTENSIONS
+
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/connector.h"
 
@@ -95,9 +105,8 @@
 #include "content/public/renderer/key_system_support.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
+#include "third_party/widevine/cdm/buildflags.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
-
-#include "widevine_cdm_version.h" // In SHARED_INTERMEDIATE_DIR.
 #endif
 
 namespace QtWebEngineCore {
@@ -105,7 +114,12 @@ namespace QtWebEngineCore {
 static const char kHttpErrorDomain[] = "http";
 
 ContentRendererClientQt::ContentRendererClientQt()
+    : m_serviceBinding(this)
 {
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    extensions::ExtensionsClient::Set(extensions::ExtensionsClientQt::GetInstance());
+    extensions::ExtensionsRendererClient::Set(ExtensionsRendererClientQt::GetInstance());
+#endif
 }
 
 ContentRendererClientQt::~ContentRendererClientQt()
@@ -116,6 +130,7 @@ void ContentRendererClientQt::RenderThreadStarted()
 {
     content::RenderThread *renderThread = content::RenderThread::Get();
     (void)GetConnector();
+    m_renderThreadObserver.reset(new RenderThreadObserverQt());
     m_visitedLinkSlave.reset(new visitedlink::VisitedLinkSlave);
     m_webCacheImpl.reset(new web_cache::WebCacheImpl());
 
@@ -127,6 +142,7 @@ void ContentRendererClientQt::RenderThreadStarted()
     content::ChildThread::Get()->GetServiceManagerConnection()->AddConnectionFilter(
                 std::make_unique<content::SimpleConnectionFilter>(std::move(registry)));
 
+    renderThread->AddObserver(m_renderThreadObserver.data());
     renderThread->AddObserver(UserResourceController::instance());
 
 #if QT_CONFIG(webengine_spellchecker)
@@ -137,7 +153,18 @@ void ContentRendererClientQt::RenderThreadStarted()
     // Allow XMLHttpRequests from qrc to file.
     blink::WebURL qrc(blink::KURL("qrc:"));
     blink::WebString file(blink::WebString::FromASCII("file"));
-    blink::WebSecurityPolicy::AddOriginAccessWhitelistEntry(qrc, file, blink::WebString(), true);
+    blink::WebSecurityPolicy::AddOriginAccessAllowListEntry(qrc, file, blink::WebString(), true,
+                                                            network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    // Allow the pdf viewer extension to access chrome resources
+    blink::WebURL pdfViewerExtension(blink::KURL("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai"));
+    blink::WebString chromeResources(blink::WebString::FromASCII("chrome"));
+    blink::WebSecurityPolicy::AddOriginAccessAllowListEntry(pdfViewerExtension, chromeResources, blink::WebString(), true,
+                                                            network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
+
+    ExtensionsRendererClientQt::GetInstance()->RenderThreadStarted();
+#endif
 }
 
 void ContentRendererClientQt::RenderViewCreated(content::RenderView* render_view)
@@ -149,11 +176,12 @@ void ContentRendererClientQt::RenderViewCreated(content::RenderView* render_view
 
 void ContentRendererClientQt::RenderFrameCreated(content::RenderFrame* render_frame)
 {
-    new QtWebEngineCore::RenderFrameObserverQt(render_frame);
+    QtWebEngineCore::RenderFrameObserverQt *render_frame_observer = new QtWebEngineCore::RenderFrameObserverQt(render_frame);
 #if QT_CONFIG(webengine_webchannel)
     if (render_frame->IsMainFrame())
         new WebChannelIPCTransport(render_frame);
 #endif
+
     UserResourceController::instance()->renderFrameCreated(render_frame);
 
     new QtWebEngineCore::ContentSettingsObserverQt(render_frame);
@@ -166,17 +194,41 @@ void ContentRendererClientQt::RenderFrameCreated(content::RenderFrame* render_fr
                 render_frame,
                 base::WrapUnique(new PrintWebViewHelperDelegateQt()));
 #endif // QT_CONFIG(webengine_printing_and_pdf)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    auto registry = std::make_unique<service_manager::BinderRegistry>();
+    ExtensionsRendererClientQt::GetInstance()->RenderFrameCreated(render_frame, render_frame_observer->registry());
+#endif
 }
 
-void ContentRendererClientQt::RunScriptsAtDocumentEnd(content::RenderFrame* render_frame)
+void ContentRendererClientQt::RunScriptsAtDocumentStart(content::RenderFrame *render_frame)
+{
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    ExtensionsRendererClientQt::GetInstance()->RunScriptsAtDocumentStart(render_frame);
+    // |render_frame| might be dead by now.
+#endif
+}
+
+void ContentRendererClientQt::RunScriptsAtDocumentEnd(content::RenderFrame *render_frame)
 {
     // Check whether the render_frame has been created and has not been detached yet.
     // Otherwise the WebFrame is not available.
     RenderFrameObserverQt *render_frame_observer = RenderFrameObserverQt::Get(render_frame);
-    if (!render_frame_observer || render_frame_observer->isFrameDetached())
-        return; // The frame is invisible to scripts.
 
-    UserResourceController::instance()->RunScriptsAtDocumentEnd(render_frame);
+    if (render_frame_observer && !render_frame_observer->isFrameDetached())
+        UserResourceController::instance()->RunScriptsAtDocumentEnd(render_frame);
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    ExtensionsRendererClientQt::GetInstance()->RunScriptsAtDocumentEnd(render_frame);
+    // |render_frame| might be dead by now.
+#endif
+}
+
+void ContentRendererClientQt::RunScriptsAtDocumentIdle(content::RenderFrame *render_frame)
+{
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    ExtensionsRendererClientQt::GetInstance()->RunScriptsAtDocumentIdle(render_frame);
+    // |render_frame| might be dead by now.
+#endif
 }
 
 bool ContentRendererClientQt::HasErrorPage(int httpStatusCode)
@@ -195,28 +247,35 @@ bool ContentRendererClientQt::ShouldSuppressErrorPage(content::RenderFrame *fram
 }
 
 // To tap into the chromium localized strings. Ripped from the chrome layer (highly simplified).
-void ContentRendererClientQt::PrepareErrorPage(content::RenderFrame* renderFrame, const blink::WebURLRequest &failedRequest,
+void ContentRendererClientQt::PrepareErrorPage(content::RenderFrame *renderFrame,
                                                const blink::WebURLError &web_error,
-                                               std::string *errorHtml, base::string16 *errorDescription)
+                                               const std::string &httpMethod,
+                                               bool ignoring_cache,
+                                               std::string *errorHtml)
 {
-    GetNavigationErrorStringsInternal(renderFrame, failedRequest,
+    Q_UNUSED(ignoring_cache);
+    GetNavigationErrorStringsInternal(renderFrame, httpMethod,
                                       error_page::Error::NetError(web_error.url(), web_error.reason(), web_error.has_copy_in_cache()),
-                                      errorHtml, errorDescription);
+                                      errorHtml);
 }
 
-void ContentRendererClientQt::PrepareErrorPageForHttpStatusError(content::RenderFrame* renderFrame, const blink::WebURLRequest& failedRequest,
-                                                                 const GURL& unreachable_url, int http_status,
-                                                                 std::string* errorHtml, base::string16* errorDescription)
+void ContentRendererClientQt::PrepareErrorPageForHttpStatusError(content::RenderFrame *renderFrame,
+                                                                 const GURL &unreachable_url,
+                                                                 const std::string &httpMethod,
+                                                                 bool ignoring_cache,
+                                                                 int http_status,
+                                                                 std::string *errorHtml)
 {
-    GetNavigationErrorStringsInternal(renderFrame, failedRequest,
+    Q_UNUSED(ignoring_cache);
+    GetNavigationErrorStringsInternal(renderFrame, httpMethod,
                                       error_page::Error::HttpError(unreachable_url, http_status),
-                                      errorHtml, errorDescription);
+                                      errorHtml);
 }
 
-void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderFrame *renderFrame, const blink::WebURLRequest &failedRequest, const error_page::Error &error, std::string *errorHtml, base::string16 *errorDescription)
+void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderFrame *renderFrame, const std::string &httpMethod, const error_page::Error &error, std::string *errorHtml)
 {
     Q_UNUSED(renderFrame)
-    const bool isPost = QByteArray::fromStdString(failedRequest.HttpMethod().Utf8()) == QByteArrayLiteral("POST");
+    const bool isPost = QByteArray::fromStdString(httpMethod) == QByteArrayLiteral("POST");
 
     if (errorHtml) {
         // Use a local error page.
@@ -229,8 +288,9 @@ void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderF
 
         error_page::LocalizedError::GetStrings(
             error.reason(), error.domain(), error.url(), isPost,
-            error.stale_copy_in_cache(), false, false,
-            locale, std::unique_ptr<error_page::ErrorPageParams>(), &errorStrings);
+            error.stale_copy_in_cache(), false, RenderThreadObserverQt::is_incognito_process(),
+            error_page::LocalizedError::OfflineContentOnNetErrorFeatureState::kDisabled,
+            false, locale, std::unique_ptr<error_page::ErrorPageParams>(), &errorStrings);
         resourceId = IDR_NET_ERROR_HTML;
 
         const base::StringPiece template_html(ui::ResourceBundle::GetSharedInstance().GetRawDataResource(resourceId));
@@ -239,9 +299,6 @@ void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderF
         else // "t" is the id of the templates root node.
             *errorHtml = webui::GetTemplatesHtml(template_html, &errorStrings, "t");
     }
-
-    if (errorDescription)
-        *errorDescription = error_page::LocalizedError::GetErrorDetails(error.domain(), error.reason(), isPost);
 }
 
 unsigned long long ContentRendererClientQt::VisitedLinkHash(const char *canonicalUrl, size_t length)
@@ -259,9 +316,27 @@ blink::WebPrescientNetworking *ContentRendererClientQt::GetPrescientNetworking()
     return m_prescientNetworkingDispatcher.get();
 }
 
-void ContentRendererClientQt::OnStart()
+bool ContentRendererClientQt::OverrideCreatePlugin(
+    content::RenderFrame* render_frame,
+    const blink::WebPluginParams& params, blink::WebPlugin** plugin)
 {
-    context()->connector()->BindConnectorRequest(std::move(m_connectorRequest));
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    if (!ExtensionsRendererClientQt::GetInstance()->OverrideCreatePlugin(render_frame, params))
+        return false;
+#endif //ENABLE_EXTENSIONS
+    return content::ContentRendererClient::OverrideCreatePlugin(render_frame, params, plugin);
+}
+
+content::BrowserPluginDelegate* ContentRendererClientQt::CreateBrowserPluginDelegate(content::RenderFrame *render_frame,
+                                                                                     const content::WebPluginInfo &info,
+                                                                                     const std::string &mime_type,
+                                                                                     const GURL &original_url)
+{
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    return ExtensionsRendererClientQt::GetInstance()->CreateBrowserPluginDelegate(render_frame, info, mime_type, original_url);
+#else
+    return nullptr;
+#endif
 }
 
 void ContentRendererClientQt::OnBindInterface(const service_manager::BindSourceInfo &remote_info,
@@ -274,11 +349,9 @@ void ContentRendererClientQt::OnBindInterface(const service_manager::BindSourceI
 
 void ContentRendererClientQt::GetInterface(const std::string &interface_name, mojo::ScopedMessagePipeHandle interface_pipe)
 {
-    if (!m_connector)
-        return;
-    m_connector->BindInterface(service_manager::Identity("qtwebengine"),
-                               interface_name,
-                               std::move(interface_pipe));
+    m_serviceBinding.GetConnector()->BindInterface(
+        service_manager::ServiceFilter::ByName("qtwebengine"),
+        interface_name, std::move(interface_pipe));
 }
 
 // The following is based on chrome/renderer/media/chrome_key_systems.cc:
@@ -373,7 +446,7 @@ static void AddExternalClearKey(std::vector<std::unique_ptr<media::KeySystemProp
                                            kExternalClearKeyCdmProxyTestKeySystem));
 }
 
-#if defined(WIDEVINE_CDM_AVAILABLE)
+#if BUILDFLAG(ENABLE_WIDEVINE)
 static media::SupportedCodecs GetSupportedCodecs(const std::vector<media::VideoCodec> &supported_video_codecs, bool is_secure)
 {
     media::SupportedCodecs supported_codecs = media::EME_CODEC_NONE;
@@ -385,11 +458,11 @@ static media::SupportedCodecs GetSupportedCodecs(const std::vector<media::VideoC
     // TODO(sandersd): Distinguish these from those that are directly supported,
     // as those may offer a higher level of protection.
     if (!supported_video_codecs.empty() || !is_secure) {
-        supported_codecs |= media::EME_CODEC_WEBM_OPUS;
-        supported_codecs |= media::EME_CODEC_WEBM_VORBIS;
-        supported_codecs |= media::EME_CODEC_MP4_FLAC;
+        supported_codecs |= media::EME_CODEC_OPUS;
+        supported_codecs |= media::EME_CODEC_VORBIS;
+        supported_codecs |= media::EME_CODEC_FLAC;
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-        supported_codecs |= media::EME_CODEC_MP4_AAC;
+        supported_codecs |= media::EME_CODEC_AAC;
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
     }
 
@@ -397,15 +470,15 @@ static media::SupportedCodecs GetSupportedCodecs(const std::vector<media::VideoC
     for (const auto &codec : supported_video_codecs) {
         switch (codec) {
         case media::VideoCodec::kCodecVP8:
-            supported_codecs |= media::EME_CODEC_WEBM_VP8;
+            supported_codecs |= media::EME_CODEC_VP8;
             break;
         case media::VideoCodec::kCodecVP9:
-            supported_codecs |= media::EME_CODEC_WEBM_VP9;
-            supported_codecs |= media::EME_CODEC_COMMON_VP9;
+            supported_codecs |= media::EME_CODEC_VP9_PROFILE0;
+            supported_codecs |= media::EME_CODEC_VP9_PROFILE2;
             break;
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
         case media::VideoCodec::kCodecH264:
-            supported_codecs |= media::EME_CODEC_MP4_AVC1;
+            supported_codecs |= media::EME_CODEC_AVC1;
             break;
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
         default:
@@ -464,7 +537,7 @@ static void AddWidevine(std::vector<std::unique_ptr<media::KeySystemProperties>>
                                            persistent_license_support, persistent_usage_record_support,
                                            persistent_state_support, distinctive_identifier_support));
 }
-#endif // defined(WIDEVINE_CDM_AVAILABLE)
+#endif // BUILDFLAG(ENABLE_WIDEVINE)
 #endif // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
 void ContentRendererClientQt::AddSupportedKeySystems(std::vector<std::unique_ptr<media::KeySystemProperties>> *key_systems)
@@ -473,9 +546,9 @@ void ContentRendererClientQt::AddSupportedKeySystems(std::vector<std::unique_ptr
     if (base::FeatureList::IsEnabled(media::kExternalClearKeyForTesting))
         AddExternalClearKey(key_systems);
 
-#if defined(WIDEVINE_CDM_AVAILABLE)
+#if BUILDFLAG(ENABLE_WIDEVINE)
     AddWidevine(key_systems);
-#endif // defined(WIDEVINE_CDM_AVAILABLE)
+#endif // BUILDFLAG(ENABLE_WIDEVINE)
 
 #endif // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 }
@@ -487,18 +560,30 @@ void ContentRendererClientQt::InitSpellCheck()
 }
 #endif
 
+void ContentRendererClientQt::WillSendRequest(blink::WebLocalFrame *frame,
+                                              ui::PageTransition transition_type,
+                                              const blink::WebURL &url,
+                                              const url::Origin *initiator_origin,
+                                              GURL *new_url,
+                                              bool *attach_same_site_cookies)
+{
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    ExtensionsRendererClientQt::GetInstance()->WillSendRequest(frame, transition_type, url, initiator_origin, new_url, attach_same_site_cookies);
+    if (!new_url->is_empty())
+        return;
+#endif
+    content::ContentRendererClient::WillSendRequest(frame, transition_type, url, initiator_origin, new_url, attach_same_site_cookies);
+}
+
 void ContentRendererClientQt::CreateRendererService(service_manager::mojom::ServiceRequest service_request)
 {
-    m_serviceContext = std::make_unique<service_manager::ServiceContext>(
-                std::make_unique<service_manager::ForwardingService>(this),
-                std::move(service_request));
+    DCHECK(!m_serviceBinding.is_bound());
+    m_serviceBinding.Bind(std::move(service_request));
 }
 
 service_manager::Connector* ContentRendererClientQt::GetConnector()
 {
-    if (!m_connector)
-        m_connector = service_manager::Connector::Create(&m_connectorRequest);
-    return m_connector.get();
+    return m_serviceBinding.GetConnector();
 }
 
 } // namespace

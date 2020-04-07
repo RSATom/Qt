@@ -11,8 +11,6 @@
 
 #include <stdlib.h>
 
-DEFINE_bool(undefok, false, "Silently ignore unknown flags instead of crashing.");
-
 template <typename T> static void ignore_result(const T&) {}
 
 bool SkFlagInfo::CreateStringFlag(const char* name, const char* shortName,
@@ -253,7 +251,7 @@ void SkCommandLineFlags::Parse(int argc, const char* const * argv) {
                 SkTDArray<SkFlagInfo*> allFlags;
                 for (SkFlagInfo* flag = SkCommandLineFlags::gHead; flag;
                      flag = flag->next()) {
-                    allFlags.push(flag);
+                    allFlags.push_back(flag);
                 }
                 SkTQSort(&allFlags[0], &allFlags[allFlags.count() - 1],
                          CompareFlagsByName());
@@ -328,6 +326,10 @@ void SkCommandLineFlags::Parse(int argc, const char* const * argv) {
                             i++;
                             flag->setInt(atoi(argv[i]));
                             break;
+                        case SkFlagInfo::kUint_FlagType:
+                            i++;
+                            flag->setUint(strtoul(argv[i], nullptr, 0));
+                            break;
                         case SkFlagInfo::kDouble_FlagType:
                             i++;
                             flag->setDouble(atof(argv[i]));
@@ -345,12 +347,8 @@ void SkCommandLineFlags::Parse(int argc, const char* const * argv) {
                     i++;  // skip YES
                 } else
 #endif
-                if (FLAGS_undefok) {
-                    SkDebugf("FYI: ignoring unknown flag '%s'.\n", argv[i]);
-                } else {
-                    SkDebugf("Got unknown flag '%s'. Exiting.\n", argv[i]);
-                    exit(-1);
-                }
+                SkDebugf("Got unknown flag '%s'. Exiting.\n", argv[i]);
+                exit(-1);
             }
         }
     }

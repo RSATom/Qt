@@ -10,11 +10,12 @@
 
 #include <memory>
 
+#include "absl/memory/memory.h"
+#include "api/video/encoded_image.h"
 #include "api/video/i420_buffer.h"
-#include "common_video/include/video_frame.h"
 #include "modules/video_coding/utility/quality_scaler.h"
 #include "rtc_base/event.h"
-#include "rtc_base/fakeclock.h"
+#include "rtc_base/fake_clock.h"
 #include "rtc_base/random.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
@@ -77,8 +78,8 @@ class OveruseFrameDetectorTest : public ::testing::Test,
   }
 
   void OnEncodedFrameTimeMeasured(int encode_time_ms,
-                                  const CpuOveruseMetrics& metrics) override {
-    metrics_ = metrics;
+                                  int encode_usage_percent) override {
+    encode_usage_percent_ = encode_usage_percent;
   }
 
   int InitialUsage() {
@@ -93,8 +94,12 @@ class OveruseFrameDetectorTest : public ::testing::Test,
                                                int width,
                                                int height,
                                                int delay_us) {
-    VideoFrame frame(I420Buffer::Create(width, height),
-                     webrtc::kVideoRotation_0, 0);
+    VideoFrame frame =
+        VideoFrame::Builder()
+            .set_video_frame_buffer(I420Buffer::Create(width, height))
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build();
     uint32_t timestamp = 0;
     while (num_frames-- > 0) {
       frame.set_timestamp(timestamp);
@@ -108,6 +113,40 @@ class OveruseFrameDetectorTest : public ::testing::Test,
     }
   }
 
+  virtual void InsertAndSendSimulcastFramesWithInterval(
+      int num_frames,
+      int interval_us,
+      int width,
+      int height,
+      // One element per layer
+      rtc::ArrayView<const int> delays_us) {
+    VideoFrame frame =
+        VideoFrame::Builder()
+            .set_video_frame_buffer(I420Buffer::Create(width, height))
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build();
+    uint32_t timestamp = 0;
+    while (num_frames-- > 0) {
+      frame.set_timestamp(timestamp);
+      int64_t capture_time_us = rtc::TimeMicros();
+      overuse_detector_->FrameCaptured(frame, capture_time_us);
+      int max_delay_us = 0;
+      for (int delay_us : delays_us) {
+        if (delay_us > max_delay_us) {
+          clock_.AdvanceTimeMicros(delay_us - max_delay_us);
+          max_delay_us = delay_us;
+        }
+
+        overuse_detector_->FrameSent(timestamp, rtc::TimeMicros(),
+                                     capture_time_us, delay_us);
+      }
+      overuse_detector_->CheckForOveruse(observer_);
+      clock_.AdvanceTimeMicros(interval_us - max_delay_us);
+      timestamp += interval_us * 90 / 1000;
+    }
+  }
+
   virtual void InsertAndSendFramesWithRandomInterval(int num_frames,
                                                      int min_interval_us,
                                                      int max_interval_us,
@@ -116,8 +155,12 @@ class OveruseFrameDetectorTest : public ::testing::Test,
                                                      int delay_us) {
     webrtc::Random random(17);
 
-    VideoFrame frame(I420Buffer::Create(width, height),
-                     webrtc::kVideoRotation_0, 0);
+    VideoFrame frame =
+        VideoFrame::Builder()
+            .set_video_frame_buffer(I420Buffer::Create(width, height))
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build();
     uint32_t timestamp = 0;
     while (num_frames-- > 0) {
       frame.set_timestamp(timestamp);
@@ -165,7 +208,7 @@ class OveruseFrameDetectorTest : public ::testing::Test,
     overuse_detector_->CheckForOveruse(observer_);
   }
 
-  int UsagePercent() { return metrics_.encode_usage_percent; }
+  int UsagePercent() { return encode_usage_percent_; }
 
   int64_t OveruseProcessingTimeLimitForFramerate(int fps) const {
     int64_t frame_interval = rtc::kNumMicrosecsPerSec / fps;
@@ -186,7 +229,7 @@ class OveruseFrameDetectorTest : public ::testing::Test,
   MockCpuOveruseObserver mock_observer_;
   AdaptationObserverInterface* observer_;
   std::unique_ptr<OveruseFrameDetectorUnderTest> overuse_detector_;
-  CpuOveruseMetrics metrics_;
+  int encode_usage_percent_ = -1;
 
   static const auto reason_ = AdaptationObserverInterface::AdaptReason::kCpu;
 };
@@ -329,8 +372,12 @@ TEST_F(OveruseFrameDetectorTest, MeasuresMultipleConcurrentSamples) {
   EXPECT_CALL(mock_observer_, AdaptDown(reason_)).Times(testing::AtLeast(1));
   static const int kIntervalUs = 33 * rtc::kNumMicrosecsPerMillisec;
   static const size_t kNumFramesEncodingDelay = 3;
-  VideoFrame frame(I420Buffer::Create(kWidth, kHeight),
-                   webrtc::kVideoRotation_0, 0);
+  VideoFrame frame =
+      VideoFrame::Builder()
+          .set_video_frame_buffer(I420Buffer::Create(kWidth, kHeight))
+          .set_rotation(webrtc::kVideoRotation_0)
+          .set_timestamp_us(0)
+          .build();
   for (size_t i = 0; i < 1000; ++i) {
     // Unique timestamps.
     frame.set_timestamp(static_cast<uint32_t>(i));
@@ -352,8 +399,12 @@ TEST_F(OveruseFrameDetectorTest, UpdatesExistingSamples) {
   EXPECT_CALL(mock_observer_, AdaptDown(reason_)).Times(testing::AtLeast(1));
   static const int kIntervalUs = 33 * rtc::kNumMicrosecsPerMillisec;
   static const int kDelayUs = 30 * rtc::kNumMicrosecsPerMillisec;
-  VideoFrame frame(I420Buffer::Create(kWidth, kHeight),
-                   webrtc::kVideoRotation_0, 0);
+  VideoFrame frame =
+      VideoFrame::Builder()
+          .set_video_frame_buffer(I420Buffer::Create(kWidth, kHeight))
+          .set_rotation(webrtc::kVideoRotation_0)
+          .set_timestamp_us(0)
+          .build();
   uint32_t timestamp = 0;
   for (size_t i = 0; i < 1000; ++i) {
     frame.set_timestamp(timestamp);
@@ -376,7 +427,7 @@ TEST_F(OveruseFrameDetectorTest, UpdatesExistingSamples) {
 TEST_F(OveruseFrameDetectorTest, RunOnTqNormalUsage) {
   rtc::TaskQueue queue("OveruseFrameDetectorTestQueue");
 
-  rtc::Event event(false, false);
+  rtc::Event event;
   queue.PostTask([this, &event] {
     overuse_detector_->StartCheckForOveruse(options_, observer_);
     event.Set();
@@ -578,6 +629,27 @@ TEST_F(OveruseFrameDetectorTest, NoOveruseForRandomFrameIntervalWithReset) {
   EXPECT_LE(UsagePercent(), InitialUsage() + 5);
 }
 
+// Models simulcast, with multiple encoded frames for each input frame.
+// Load estimate should be based on the maximum encode time per input frame.
+TEST_F(OveruseFrameDetectorTest, NoOveruseForSimulcast) {
+  overuse_detector_->SetOptions(options_);
+  EXPECT_CALL(mock_observer_, AdaptDown(_)).Times(0);
+
+  constexpr int kNumFrames = 500;
+  constexpr int kEncodeTimesUs[] = {
+      10 * rtc::kNumMicrosecsPerMillisec, 8 * rtc::kNumMicrosecsPerMillisec,
+      12 * rtc::kNumMicrosecsPerMillisec,
+  };
+  constexpr int kIntervalUs = 30 * rtc::kNumMicrosecsPerMillisec;
+
+  InsertAndSendSimulcastFramesWithInterval(kNumFrames, kIntervalUs, kWidth,
+                                           kHeight, kEncodeTimesUs);
+
+  // Average usage 40%. 12 ms / 30 ms.
+  EXPECT_GE(UsagePercent(), 35);
+  EXPECT_LE(UsagePercent(), 45);
+}
+
 // Tests using new cpu load estimator
 class OveruseFrameDetectorTest2 : public OveruseFrameDetectorTest {
  protected:
@@ -591,8 +663,12 @@ class OveruseFrameDetectorTest2 : public OveruseFrameDetectorTest {
                                        int width,
                                        int height,
                                        int delay_us) override {
-    VideoFrame frame(I420Buffer::Create(width, height),
-                     webrtc::kVideoRotation_0, 0);
+    VideoFrame frame =
+        VideoFrame::Builder()
+            .set_video_frame_buffer(I420Buffer::Create(width, height))
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build();
     while (num_frames-- > 0) {
       int64_t capture_time_us = rtc::TimeMicros();
       overuse_detector_->FrameCaptured(frame, capture_time_us /* ignored */);
@@ -611,8 +687,12 @@ class OveruseFrameDetectorTest2 : public OveruseFrameDetectorTest {
                                              int delay_us) override {
     webrtc::Random random(17);
 
-    VideoFrame frame(I420Buffer::Create(width, height),
-                     webrtc::kVideoRotation_0, 0);
+    VideoFrame frame =
+        VideoFrame::Builder()
+            .set_video_frame_buffer(I420Buffer::Create(width, height))
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build();
     for (int i = 0; i < num_frames; i++) {
       int interval_us = random.Rand(min_interval_us, max_interval_us);
       int64_t capture_time_us = rtc::TimeMicros();
@@ -772,8 +852,12 @@ TEST_F(OveruseFrameDetectorTest2, MeasuresMultipleConcurrentSamples) {
   EXPECT_CALL(mock_observer_, AdaptDown(reason_)).Times(testing::AtLeast(1));
   static const int kIntervalUs = 33 * rtc::kNumMicrosecsPerMillisec;
   static const size_t kNumFramesEncodingDelay = 3;
-  VideoFrame frame(I420Buffer::Create(kWidth, kHeight),
-                   webrtc::kVideoRotation_0, 0);
+  VideoFrame frame =
+      VideoFrame::Builder()
+          .set_video_frame_buffer(I420Buffer::Create(kWidth, kHeight))
+          .set_rotation(webrtc::kVideoRotation_0)
+          .set_timestamp_us(0)
+          .build();
   for (size_t i = 0; i < 1000; ++i) {
     // Unique timestamps.
     frame.set_timestamp(static_cast<uint32_t>(i));
@@ -795,8 +879,12 @@ TEST_F(OveruseFrameDetectorTest2, UpdatesExistingSamples) {
   EXPECT_CALL(mock_observer_, AdaptDown(reason_)).Times(testing::AtLeast(1));
   static const int kIntervalUs = 33 * rtc::kNumMicrosecsPerMillisec;
   static const int kDelayUs = 30 * rtc::kNumMicrosecsPerMillisec;
-  VideoFrame frame(I420Buffer::Create(kWidth, kHeight),
-                   webrtc::kVideoRotation_0, 0);
+  VideoFrame frame =
+      VideoFrame::Builder()
+          .set_video_frame_buffer(I420Buffer::Create(kWidth, kHeight))
+          .set_rotation(webrtc::kVideoRotation_0)
+          .set_timestamp_us(0)
+          .build();
   uint32_t timestamp = 0;
   for (size_t i = 0; i < 1000; ++i) {
     frame.set_timestamp(timestamp);
@@ -819,7 +907,7 @@ TEST_F(OveruseFrameDetectorTest2, UpdatesExistingSamples) {
 TEST_F(OveruseFrameDetectorTest2, RunOnTqNormalUsage) {
   rtc::TaskQueue queue("OveruseFrameDetectorTestQueue");
 
-  rtc::Event event(false, false);
+  rtc::Event event;
   queue.PostTask([this, &event] {
     overuse_detector_->StartCheckForOveruse(options_, observer_);
     event.Set();
@@ -888,6 +976,42 @@ TEST_F(OveruseFrameDetectorTest2, NoOveruseForRandomFrameIntervalWithReset) {
   // Check that estimate is in the right ball park.
   EXPECT_GE(UsagePercent(), 1);
   EXPECT_LE(UsagePercent(), InitialUsage() + 5);
+}
+
+TEST_F(OveruseFrameDetectorTest2, ToleratesOutOfOrderFrames) {
+  overuse_detector_->SetOptions(options_);
+  // Represents a cpu utilization close to 100%. First input frame results in
+  // three encoded frames, and the last of those isn't finished until after the
+  // first encoded frame corresponding to the next input frame.
+  const int kEncodeTimeUs = 30 * rtc::kNumMicrosecsPerMillisec;
+  const int kCaptureTimesMs[] = { 33, 33, 66, 33 };
+
+  for (int capture_time_ms : kCaptureTimesMs) {
+    overuse_detector_->FrameSent(
+        0, 0, capture_time_ms * rtc::kNumMicrosecsPerMillisec, kEncodeTimeUs);
+  }
+  EXPECT_GE(UsagePercent(), InitialUsage());
+}
+
+// Models simulcast, with multiple encoded frames for each input frame.
+// Load estimate should be based on the maximum encode time per input frame.
+TEST_F(OveruseFrameDetectorTest2, NoOveruseForSimulcast) {
+  overuse_detector_->SetOptions(options_);
+  EXPECT_CALL(mock_observer_, AdaptDown(_)).Times(0);
+
+  constexpr int kNumFrames = 500;
+  constexpr int kEncodeTimesUs[] = {
+      10 * rtc::kNumMicrosecsPerMillisec, 8 * rtc::kNumMicrosecsPerMillisec,
+      12 * rtc::kNumMicrosecsPerMillisec,
+  };
+  constexpr int kIntervalUs = 30 * rtc::kNumMicrosecsPerMillisec;
+
+  InsertAndSendSimulcastFramesWithInterval(kNumFrames, kIntervalUs, kWidth,
+                                           kHeight, kEncodeTimesUs);
+
+  // Average usage 40%. 12 ms / 30 ms.
+  EXPECT_GE(UsagePercent(), 35);
+  EXPECT_LE(UsagePercent(), 45);
 }
 
 }  // namespace webrtc

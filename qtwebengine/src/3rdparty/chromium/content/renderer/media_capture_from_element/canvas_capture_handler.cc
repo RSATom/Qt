@@ -295,9 +295,9 @@ void CanvasCaptureHandler::ReadARGBPixelsAsync(
   context_provider->GetGLHelper()->ReadbackTextureAsync(
       texture_info.fID, image_size,
       temp_argb_frame->visible_data(VideoFrame::kARGBPlane), kN32_SkColorType,
-      base::Bind(&CanvasCaptureHandler::OnARGBPixelsReadAsync,
-                 weak_ptr_factory_.GetWeakPtr(), image, temp_argb_frame,
-                 timestamp, surface_origin != kTopLeft_GrSurfaceOrigin));
+      base::BindOnce(&CanvasCaptureHandler::OnARGBPixelsReadAsync,
+                     weak_ptr_factory_.GetWeakPtr(), image, temp_argb_frame,
+                     timestamp, surface_origin != kTopLeft_GrSurfaceOrigin));
 }
 
 void CanvasCaptureHandler::ReadYUVPixelsAsync(
@@ -338,9 +338,9 @@ void CanvasCaptureHandler::ReadYUVPixelsAsync(
       output_frame->visible_data(media::VideoFrame::kUPlane),
       output_frame->stride(media::VideoFrame::kVPlane),
       output_frame->visible_data(media::VideoFrame::kVPlane), gfx::Point(0, 0),
-      base::Bind(&CanvasCaptureHandler::OnYUVPixelsReadAsync,
-                 weak_ptr_factory_.GetWeakPtr(), image, output_frame,
-                 timestamp));
+      base::BindOnce(&CanvasCaptureHandler::OnYUVPixelsReadAsync,
+                     weak_ptr_factory_.GetWeakPtr(), image, output_frame,
+                     timestamp));
 }
 
 void CanvasCaptureHandler::OnARGBPixelsReadAsync(
@@ -471,22 +471,23 @@ void CanvasCaptureHandler::AddVideoCapturerSourceToVideoTrack(
   base::Base64Encode(base::RandBytesAsString(64), &str_track_id);
   const blink::WebString track_id = blink::WebString::FromASCII(str_track_id);
   media::VideoCaptureFormats preferred_formats = source->GetPreferredFormats();
-  std::unique_ptr<MediaStreamVideoSource> media_stream_source(
+  MediaStreamVideoSource* media_stream_source =
       new MediaStreamVideoCapturerSource(
-          MediaStreamSource::SourceStoppedCallback(), std::move(source)));
+          blink::WebPlatformMediaStreamSource::SourceStoppedCallback(),
+          std::move(source));
   blink::WebMediaStreamSource webkit_source;
   webkit_source.Initialize(track_id, blink::WebMediaStreamSource::kTypeVideo,
                            track_id, false);
-  webkit_source.SetExtraData(media_stream_source.get());
+  webkit_source.SetPlatformSource(base::WrapUnique(media_stream_source));
   webkit_source.SetCapabilities(ComputeCapabilitiesForVideoSource(
       track_id, preferred_formats,
       media::VideoFacingMode::MEDIA_VIDEO_FACING_NONE,
       false /* is_device_capture */));
 
   web_track->Initialize(webkit_source);
-  web_track->SetTrackData(new MediaStreamVideoTrack(
-      media_stream_source.release(),
-      MediaStreamVideoSource::ConstraintsCallback(), true));
+  web_track->SetPlatformTrack(std::make_unique<MediaStreamVideoTrack>(
+      media_stream_source, MediaStreamVideoSource::ConstraintsCallback(),
+      true));
 }
 
 }  // namespace content

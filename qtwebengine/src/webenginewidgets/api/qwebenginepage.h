@@ -71,6 +71,7 @@ class QWebEngineQuotaRequest;
 class QWebEngineRegisterProtocolHandlerRequest;
 class QWebEngineScriptCollection;
 class QWebEngineSettings;
+class QWebEngineUrlRequestInterceptor;
 
 class QWEBENGINEWIDGETS_EXPORT QWebEnginePage : public QObject {
     Q_OBJECT
@@ -184,9 +185,7 @@ public:
     Q_ENUM(NavigationType)
 
     enum Feature {
-#ifndef Q_QDOC
         Notifications = 0,
-#endif
         Geolocation = 1,
         MediaAudioCapture = 2,
         MediaVideoCapture,
@@ -302,6 +301,8 @@ public:
     QWebEnginePage *inspectedPage() const;
     void setDevToolsPage(QWebEnginePage *page);
     QWebEnginePage *devToolsPage() const;
+
+    void setUrlRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor);
 
     const QWebEngineContextMenuData &contextMenuData() const;
 

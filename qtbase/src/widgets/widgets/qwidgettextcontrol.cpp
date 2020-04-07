@@ -57,13 +57,13 @@
 #include <qtimer.h>
 #include "private/qtextdocumentlayout_p.h"
 #include "private/qabstracttextdocumentlayout_p.h"
-#if QT_CONFIG(textedit)
-#include "private/qtextedit_p.h"
-#endif
 #include "qtextdocument.h"
 #include "private/qtextdocument_p.h"
 #include "qtextlist.h"
 #include "private/qwidgettextcontrol_p.h"
+#if QT_CONFIG(style_stylesheet)
+#  include "private/qstylesheetstyle_p.h"
+#endif
 #if QT_CONFIG(graphicsview)
 #include "qgraphicssceneevent.h"
 #endif
@@ -218,6 +218,14 @@ bool QWidgetTextControlPrivate::cursorMoveKeyEvent(QKeyEvent *e)
     else if (e == QKeySequence::SelectPreviousLine) {
             op = QTextCursor::Up;
             mode = QTextCursor::KeepAnchor;
+            {
+                QTextBlock block = cursor.block();
+                QTextLine line = currentTextLine(cursor);
+                if (!block.previous().isValid()
+                    && line.isValid()
+                    && line.lineNumber() == 0)
+                    op = QTextCursor::Start;
+            }
     }
     else if (e == QKeySequence::SelectNextLine) {
             op = QTextCursor::Down;
@@ -1357,15 +1365,8 @@ process:
 
 QVariant QWidgetTextControl::loadResource(int type, const QUrl &name)
 {
-#if !QT_CONFIG(textedit)
     Q_UNUSED(type);
     Q_UNUSED(name);
-#else
-    if (QTextEdit *textEdit = qobject_cast<QTextEdit *>(parent())) {
-        QUrl resolvedName = textEdit->d_func()->resolveUrl(name);
-        return textEdit->loadResource(type, resolvedName);
-    }
-#endif
     return QVariant();
 }
 
@@ -3098,6 +3099,19 @@ bool QWidgetTextControl::find(const QRegExp &exp, QTextDocument::FindFlags optio
 }
 #endif
 
+#if QT_CONFIG(regularexpression)
+bool QWidgetTextControl::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
+{
+    Q_D(QWidgetTextControl);
+    QTextCursor search = d->doc->find(exp, d->cursor, options);
+    if (search.isNull())
+        return false;
+
+    setTextCursor(search);
+    return true;
+}
+#endif
+
 QString QWidgetTextControl::toPlainText() const
 {
     return document()->toPlainText();
@@ -3187,6 +3201,15 @@ QAbstractTextDocumentLayout::PaintContext QWidgetTextControl::getPaintContext(QW
 
     ctx.selections = d->extraSelections;
     ctx.palette = d->palette;
+#if QT_CONFIG(style_stylesheet)
+    if (widget) {
+        if (auto cssStyle = qt_styleSheet(widget->style())) {
+            QStyleOption option;
+            option.initFrom(widget);
+            cssStyle->styleSheetPalette(widget, &option, &ctx.palette);
+        }
+    }
+#endif // style_stylesheet
     if (d->cursorOn && d->isEnabled) {
         if (d->hideCursor)
             ctx.cursorPosition = -1;

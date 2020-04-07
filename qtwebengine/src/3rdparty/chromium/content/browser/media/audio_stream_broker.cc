@@ -6,9 +6,15 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/location.h"
+#include "base/task/post_task.h"
 #include "content/browser/media/audio_input_stream_broker.h"
 #include "content/browser/media/audio_loopback_stream_broker.h"
 #include "content/browser/media/audio_output_stream_broker.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 
 namespace content {
 
@@ -25,20 +31,23 @@ class AudioStreamBrokerFactoryImpl final : public AudioStreamBrokerFactory {
       const std::string& device_id,
       const media::AudioParameters& params,
       uint32_t shared_memory_count,
+      media::UserInputMonitorBase* user_input_monitor,
       bool enable_agc,
+      audio::mojom::AudioProcessingConfigPtr processing_config,
       AudioStreamBroker::DeleterCallback deleter,
       mojom::RendererAudioInputStreamFactoryClientPtr renderer_factory_client)
       final {
     return std::make_unique<AudioInputStreamBroker>(
         render_process_id, render_frame_id, device_id, params,
-        shared_memory_count, enable_agc, std::move(deleter),
+        shared_memory_count, user_input_monitor, enable_agc,
+        std::move(processing_config), std::move(deleter),
         std::move(renderer_factory_client));
   }
 
   std::unique_ptr<AudioStreamBroker> CreateAudioLoopbackStreamBroker(
       int render_process_id,
       int render_frame_id,
-      std::unique_ptr<LoopbackSource> source,
+      AudioStreamBroker::LoopbackSource* source,
       const media::AudioParameters& params,
       uint32_t shared_memory_count,
       bool mute_source,
@@ -46,9 +55,8 @@ class AudioStreamBrokerFactoryImpl final : public AudioStreamBrokerFactory {
       mojom::RendererAudioInputStreamFactoryClientPtr renderer_factory_client)
       final {
     return std::make_unique<AudioLoopbackStreamBroker>(
-        render_process_id, render_frame_id, std::move(source), params,
-        shared_memory_count, mute_source, std::move(deleter),
-        std::move(renderer_factory_client));
+        render_process_id, render_frame_id, source, params, shared_memory_count,
+        mute_source, std::move(deleter), std::move(renderer_factory_client));
   }
 
   std::unique_ptr<AudioStreamBroker> CreateAudioOutputStreamBroker(
@@ -58,20 +66,49 @@ class AudioStreamBrokerFactoryImpl final : public AudioStreamBrokerFactory {
       const std::string& output_device_id,
       const media::AudioParameters& params,
       const base::UnguessableToken& group_id,
+      const base::Optional<base::UnguessableToken>& processing_id,
       AudioStreamBroker::DeleterCallback deleter,
       media::mojom::AudioOutputStreamProviderClientPtr client) final {
     return std::make_unique<AudioOutputStreamBroker>(
         render_process_id, render_frame_id, stream_id, output_device_id, params,
-        group_id, std::move(deleter), std::move(client));
+        group_id, processing_id, std::move(deleter), std::move(client));
   }
 };
 
 }  // namespace
 
+AudioStreamBroker::LoopbackSink::LoopbackSink() = default;
+AudioStreamBroker::LoopbackSink::~LoopbackSink() = default;
+
+AudioStreamBroker::LoopbackSource::LoopbackSource() = default;
+AudioStreamBroker::LoopbackSource::~LoopbackSource() = default;
+
 AudioStreamBroker::AudioStreamBroker(int render_process_id, int render_frame_id)
     : render_process_id_(render_process_id),
       render_frame_id_(render_frame_id) {}
 AudioStreamBroker::~AudioStreamBroker() {}
+
+// static
+void AudioStreamBroker::NotifyProcessHostOfStartedStream(
+    int render_process_id) {
+  auto impl = [](int id) {
+    if (auto* process_host = RenderProcessHost::FromID(id))
+      process_host->OnMediaStreamAdded();
+  };
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                           base::BindOnce(impl, render_process_id));
+}
+
+// static
+void AudioStreamBroker::NotifyProcessHostOfStoppedStream(
+    int render_process_id) {
+  auto impl = [](int id) {
+    if (auto* process_host = RenderProcessHost::FromID(id))
+      process_host->OnMediaStreamRemoved();
+  };
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                           base::BindOnce(impl, render_process_id));
+}
 
 AudioStreamBrokerFactory::AudioStreamBrokerFactory() {}
 AudioStreamBrokerFactory::~AudioStreamBrokerFactory() {}

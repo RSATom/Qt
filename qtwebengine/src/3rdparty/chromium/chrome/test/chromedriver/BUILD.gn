@@ -4,6 +4,7 @@
 
 import("//build/config/python.gni")
 import("//build/config/ui.gni")
+import("//build/util/lastchange.gni")
 import("//testing/test.gni")
 
 action("embed_js_in_cpp") {
@@ -80,6 +81,8 @@ source_set("automation_client_lib") {
     "chrome/adb_impl.h",
     "chrome/automation_extension.cc",
     "chrome/automation_extension.h",
+    "chrome/cast_tracker.cc",
+    "chrome/cast_tracker.h",
     "chrome/chrome.h",
     "chrome/chrome_android_impl.cc",
     "chrome/chrome_android_impl.h",
@@ -149,6 +152,14 @@ source_set("automation_client_lib") {
     "chrome/web_view.h",
     "chrome/web_view_impl.cc",
     "chrome/web_view_impl.h",
+    "log_replay/chrome_replay_impl.cc",
+    "log_replay/chrome_replay_impl.h",
+    "log_replay/devtools_log_reader.cc",
+    "log_replay/devtools_log_reader.h",
+    "log_replay/log_replay_socket.cc",
+    "log_replay/log_replay_socket.h",
+    "log_replay/replay_http_client.cc",
+    "log_replay/replay_http_client.h",
     "net/adb_client_socket.cc",
     "net/adb_client_socket.h",
     "net/net_util.cc",
@@ -181,6 +192,8 @@ source_set("automation_client_lib") {
     "//base",
     "//base/third_party/dynamic_annotations",
     "//net",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//third_party/blink/public:buildflags",
     "//third_party/zlib:minizip",
     "//third_party/zlib/google:zip",
@@ -202,7 +215,7 @@ action("embed_version_in_cpp") {
     # We don't actually use LASTCHANGE as an input file. It is updated
     # whenever a different Git revision is checked out, at which point
     # version.cc needs to be updated with the new revision info.
-    "//build/util/LASTCHANGE",
+    lastchange_file,
   ]
   outputs = [
     "$target_gen_dir/version.cc",
@@ -294,6 +307,9 @@ source_set("lib") {
     "//crypto",
     "//net",
     "//net/server:http_server",
+    "//services/network:network_service",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//third_party/zlib",
     "//ui/base",
     "//ui/events:dom_keycode_converter",
@@ -324,6 +340,8 @@ executable("chromedriver") {
   deps = [
     ":lib",
     "//build/win:default_exe_manifest",
+    "//mojo/core/embedder",
+    "//services/network/public/mojom",
   ]
 }
 
@@ -355,10 +373,20 @@ python_library("chromedriver_py_tests") {
   }
 }
 
+python_library("chromedriver_replay_unittests") {
+  testonly = true
+  deps = [
+    ":chromedriver",
+  ]
+
+  pydeps_file = "log_replay/client_replay_unittest.pydeps"
+}
+
 test("chromedriver_unittests") {
   sources = [
     "capabilities_unittest.cc",
     "chrome/browser_info_unittest.cc",
+    "chrome/cast_tracker_unittest.cc",
     "chrome/chrome_finder_unittest.cc",
     "chrome/console_logger_unittest.cc",
     "chrome/device_manager_unittest.cc",
@@ -385,6 +413,7 @@ test("chromedriver_unittests") {
     "chrome_launcher_unittest.cc",
     "command_listener_proxy_unittest.cc",
     "commands_unittest.cc",
+    "log_replay/devtools_log_reader_unittest.cc",
     "logging_unittest.cc",
     "net/adb_client_socket_unittest.cc",
     "net/timeout_unittest.cc",
@@ -401,6 +430,7 @@ test("chromedriver_unittests") {
 
   data = [
     "//chrome/test/data/chromedriver/",
+    "//chrome/test/chromedriver/log_replay/test_data",
   ]
 
   deps = [
@@ -410,6 +440,7 @@ test("chromedriver_unittests") {
     "//net",
     "//net:test_support",
     "//net/server:http_server",
+    "//services/network/public/mojom",
     "//testing/gmock",
     "//testing/gtest",
     "//ui/base",
@@ -438,9 +469,12 @@ test("chromedriver_tests") {
     ":lib",
     "//base",
     "//base/test:run_all_unittests",
+    "//mojo/core/embedder",
     "//net",
     "//net:test_support",
     "//net/server:http_server",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//testing/gtest",
     "//ui/events:test_support",
     "//url",

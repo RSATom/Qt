@@ -264,11 +264,11 @@ bool ParseAv1CodecId(const std::string& codec_id,
                      uint8_t* level_idc,
                      VideoColorSpace* color_space) {
   // The codecs parameter string for the AOM AV1 codec is as follows:
+  // See https://aomediacodec.github.io/av1-isobmff/#codecsparam.
   //
   // <sample entry4CC>.<profile>.<level><tier>.<bitDepth>.<monochrome>.
   // <chromaSubsampling>.<colorPrimaries>.<transferCharacteristics>.
   // <matrixCoefficients>.<videoFullRangeFlag>
-  //
 
   std::vector<std::string> fields = base::SplitString(
       codec_id, ".", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
@@ -397,9 +397,7 @@ bool ParseAv1CodecId(const std::string& codec_id,
   }
 
   if (((subsampling_x == '0' || subsampling_y == '0') &&
-       chroma_sample_position != '0') ||
-      (subsampling_x == '1' && subsampling_y == '1' &&
-       chroma_sample_position == '0')) {
+       chroma_sample_position != '0')) {
     DVLOG(3) << __func__ << " Invalid chroma subsampling (" << fields[5] << ")";
     return false;
   }

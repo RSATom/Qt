@@ -70,12 +70,15 @@ class QWebGLWebSocketServerPrivate
 {
 public:
     QWebSocketServer *server = nullptr;
+    quint16 initialPort = 0;
 };
 
-QWebGLWebSocketServer::QWebGLWebSocketServer(QObject *parent) :
+QWebGLWebSocketServer::QWebGLWebSocketServer(quint16 port, QObject *parent) :
     QObject(parent),
     d_ptr(new QWebGLWebSocketServerPrivate)
-{}
+{
+    d_ptr->initialPort = port;
+}
 
 QWebGLWebSocketServer::~QWebGLWebSocketServer()
 {}
@@ -120,7 +123,7 @@ void QWebGLWebSocketServer::create()
 #endif
                                                                  QWebSocketServer::NonSecureMode);
     }
-    if (d->server->listen(hostAddress, url.port(0))) {
+    if (d->server->listen(hostAddress, url.port(d->initialPort))) {
         connect(d->server, &QWebSocketServer::newConnection,
                 this, &QWebGLWebSocketServer::onNewConnection);
     } else {

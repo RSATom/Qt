@@ -39,17 +39,18 @@
 
 #include "qquickwebengineview_p.h"
 #include "qquickwebengineview_p_p.h"
-#include "qtwebenginecoreglobal_p.h"
 #include "authentication_dialog_controller.h"
 #include "profile_adapter.h"
 #include "certificate_error_controller.h"
 #include "file_picker_controller.h"
 #include "javascript_dialog_controller.h"
+#include "touch_selection_menu_controller.h"
 
 #include "qquickwebengineaction_p.h"
 #include "qquickwebengineaction_p_p.h"
 #include "qquickwebenginehistory_p.h"
 #include "qquickwebenginecertificateerror_p.h"
+#include "qquickwebengineclientcertificateselection_p.h"
 #include "qquickwebenginecontextmenurequest_p.h"
 #include "qquickwebenginedialogrequests_p.h"
 #include "qquickwebenginefaviconprovider_p_p.h"
@@ -59,6 +60,7 @@
 #include "qquickwebengineprofile_p.h"
 #include "qquickwebenginesettings_p.h"
 #include "qquickwebenginescript_p.h"
+#include "qquickwebenginetouchhandleprovider_p_p.h"
 #include "qwebenginequotarequest.h"
 #include "qwebengineregisterprotocolhandlerrequest.h"
 
@@ -126,7 +128,6 @@ QQuickWebEngineViewPrivate::QQuickWebEngineViewPrivate()
     , m_webChannel(0)
     , m_webChannelWorld(0)
     , m_isBeingAdopted(false)
-    , m_dpiScale(1.0)
     , m_backgroundColor(Qt::white)
     , m_zoomFactor(1.0)
     , m_ui2Enabled(false)
@@ -218,6 +219,7 @@ RenderWidgetHostViewQtDelegate *QQuickWebEngineViewPrivate::CreateRenderWidgetHo
     RenderWidgetHostViewQtDelegateQuick *quickDelegate = new RenderWidgetHostViewQtDelegateQuick(client, /*isPopup = */ true);
     if (hasWindowCapability) {
         RenderWidgetHostViewQtDelegateQuickWindow *wrapperWindow = new RenderWidgetHostViewQtDelegateQuickWindow(quickDelegate);
+        wrapperWindow->setVirtualParent(q);
         quickDelegate->setParentItem(wrapperWindow->contentItem());
         return wrapperWindow;
     }
@@ -294,21 +296,35 @@ void QQuickWebEngineViewPrivate::allowCertificateError(const QSharedPointer<Cert
     // mark the object for gc by creating temporary jsvalue
     qmlEngine(q)->newQObject(quickController);
     Q_EMIT q->certificateError(quickController);
-    if (!quickController->deferred() && !quickController->answered())
+    if (!quickController->overridable() || (!quickController->deferred() && !quickController->answered()))
         quickController->rejectCertificate();
     else
         m_certificateErrorControllers.append(errorController);
 }
 
-void QQuickWebEngineViewPrivate::selectClientCert(const QSharedPointer<ClientCertSelectController> &)
+void QQuickWebEngineViewPrivate::selectClientCert(const QSharedPointer<ClientCertSelectController> &controller)
 {
-    // Doing nothing will free the select-controller and perform default continue.
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
+    Q_Q(QQuickWebEngineView);
+    QQuickWebEngineClientCertificateSelection *certSelection = new QQuickWebEngineClientCertificateSelection(controller);
+    // mark the object for gc by creating temporary jsvalue
+    qmlEngine(q)->newQObject(certSelection);
+    Q_EMIT q->selectClientCertificate(certSelection);
+#else
+    Q_UNUSED(controller);
+#endif
 }
 
 void QQuickWebEngineViewPrivate::runGeolocationPermissionRequest(const QUrl &url)
 {
     Q_Q(QQuickWebEngineView);
     Q_EMIT q->featurePermissionRequested(url, QQuickWebEngineView::Geolocation);
+}
+
+void QQuickWebEngineViewPrivate::runUserNotificationPermissionRequest(const QUrl &url)
+{
+    Q_Q(QQuickWebEngineView);
+    Q_EMIT q->featurePermissionRequested(url, QQuickWebEngineView::Notifications);
 }
 
 void QQuickWebEngineViewPrivate::showColorDialog(QSharedPointer<ColorChooserController> controller)
@@ -407,11 +423,6 @@ QRectF QQuickWebEngineViewPrivate::viewportRect() const
 {
     Q_Q(const QQuickWebEngineView);
     return QRectF(q->x(), q->y(), q->width(), q->height());
-}
-
-qreal QQuickWebEngineViewPrivate::dpiScale() const
-{
-    return m_dpiScale;
 }
 
 QColor QQuickWebEngineViewPrivate::backgroundColor() const
@@ -931,6 +942,16 @@ void QQuickWebEngineViewPrivate::updateAction(QQuickWebEngineView::WebAction act
     case QQuickWebEngineView::ViewSource:
         enabled = adapter->canViewSource();
         break;
+    case QQuickWebEngineView::Cut:
+    case QQuickWebEngineView::Copy:
+    case QQuickWebEngineView::Paste:
+    case QQuickWebEngineView::Undo:
+    case QQuickWebEngineView::Redo:
+    case QQuickWebEngineView::SelectAll:
+    case QQuickWebEngineView::PasteAndMatchStyle:
+    case QQuickWebEngineView::Unselect:
+        enabled = adapter->hasFocusedFrame();
+        break;
     default:
         break;
     }
@@ -946,6 +967,18 @@ void QQuickWebEngineViewPrivate::updateNavigationActions()
     updateAction(QQuickWebEngineView::Reload);
     updateAction(QQuickWebEngineView::ReloadAndBypassCache);
     updateAction(QQuickWebEngineView::ViewSource);
+}
+
+void QQuickWebEngineViewPrivate::updateEditActions()
+{
+    updateAction(QQuickWebEngineView::Cut);
+    updateAction(QQuickWebEngineView::Copy);
+    updateAction(QQuickWebEngineView::Paste);
+    updateAction(QQuickWebEngineView::Undo);
+    updateAction(QQuickWebEngineView::Redo);
+    updateAction(QQuickWebEngineView::SelectAll);
+    updateAction(QQuickWebEngineView::PasteAndMatchStyle);
+    updateAction(QQuickWebEngineView::Unselect);
 }
 
 QUrl QQuickWebEngineView::url() const
@@ -1086,9 +1119,7 @@ void QQuickWebEngineViewPrivate::updateAdapter()
     adapter->setClient(this);
     if (wasInitialized) {
         if (!m_html.isEmpty())
-            adapter->setContent(m_html.toUtf8(), defaultMimeType, m_url);
-        else if (m_url.isValid())
-            adapter->load(m_url);
+            adapter->setContent(m_html.toUtf8(), defaultMimeType, activeUrl);
         else if (activeUrl.isValid())
             adapter->load(activeUrl);
         else
@@ -1134,12 +1165,12 @@ void QQuickWebEngineViewPrivate::didFindText(quint64 requestId, int matchCount)
     callback.call(args);
 }
 
-void QQuickWebEngineViewPrivate::didPrintPage(quint64 requestId, const QByteArray &result)
+void QQuickWebEngineViewPrivate::didPrintPage(quint64 requestId, QSharedPointer<QByteArray> result)
 {
     Q_Q(QQuickWebEngineView);
     QJSValue callback = m_callbacks.take(requestId);
     QJSValueList args;
-    args.append(qmlEngine(q)->toScriptValue(result));
+    args.append(qmlEngine(q)->toScriptValue(*(result.data())));
     callback.call(args);
 }
 
@@ -1205,6 +1236,39 @@ bool QQuickWebEngineViewPrivate::isEnabled() const
 void QQuickWebEngineViewPrivate::setToolTip(const QString &toolTipText)
 {
     ui()->showToolTip(toolTipText);
+}
+
+QtWebEngineCore::TouchHandleDrawableClient *QQuickWebEngineViewPrivate::createTouchHandle(const QMap<int, QImage> &images)
+{
+    return new QQuickWebEngineTouchHandle(ui(), images);
+}
+
+void QQuickWebEngineViewPrivate::showTouchSelectionMenu(QtWebEngineCore::TouchSelectionMenuController *menuController, const QRect &selectionBounds, const QSize &handleSize)
+{
+    Q_UNUSED(handleSize);
+
+    const int kSpacingBetweenButtons = 2;
+    const int kMenuButtonMinWidth = 63;
+    const int kMenuButtonMinHeight = 38;
+
+    int buttonCount = menuController->buttonCount();
+    if (buttonCount == 1) {
+        menuController->runContextMenu();
+        return;
+    }
+
+    int width = (kSpacingBetweenButtons * (buttonCount + 1)) + (kMenuButtonMinWidth * buttonCount);
+    int height = kMenuButtonMinHeight + kSpacingBetweenButtons;
+    int x = (selectionBounds.x() + selectionBounds.x() + selectionBounds.width() - width) / 2;
+    int y = selectionBounds.y() - height - 2;
+
+    QRect bounds(x, y, width, height);
+    ui()->showTouchSelectionMenu(menuController, bounds, kSpacingBetweenButtons);
+}
+
+void QQuickWebEngineViewPrivate::hideTouchSelectionMenu()
+{
+    ui()->hideTouchSelectionMenu();
 }
 
 bool QQuickWebEngineView::isLoading() const
@@ -1516,6 +1580,9 @@ void QQuickWebEngineView::grantFeaturePermission(const QUrl &securityOrigin, QQu
             WebContentsAdapterClient::MediaRequestFlags(
                 WebContentsAdapterClient::MediaDesktopAudioCapture |
                 WebContentsAdapterClient::MediaDesktopVideoCapture));
+        break;
+    case Notifications:
+        d_ptr->adapter->runUserNotificationRequestCallback(securityOrigin, granted);
         break;
     default:
         Q_UNREACHABLE();
@@ -2279,6 +2346,44 @@ bool QQuickContextMenuBuilder::isMenuItemEnabled(ContextMenuItem menuItem)
         return true;
     }
     Q_UNREACHABLE();
+}
+
+
+QQuickWebEngineTouchHandle::QQuickWebEngineTouchHandle(QtWebEngineCore::UIDelegatesManager *ui, const QMap<int, QImage> &images)
+{
+    Q_ASSERT(ui);
+    m_item.reset(ui->createTouchHandle());
+
+    QQmlEngine *engine = qmlEngine(m_item.data());
+    Q_ASSERT(engine);
+    QQuickWebEngineTouchHandleProvider *touchHandleProvider =
+            static_cast<QQuickWebEngineTouchHandleProvider *>(engine->imageProvider(QQuickWebEngineTouchHandleProvider::identifier()));
+    Q_ASSERT(touchHandleProvider);
+    touchHandleProvider->init(images);
+}
+
+void QQuickWebEngineTouchHandle::setImage(int orientation)
+{
+    QUrl url = QQuickWebEngineTouchHandleProvider::url(orientation);
+    m_item->setProperty("source", url);
+}
+
+void QQuickWebEngineTouchHandle::setBounds(const QRect &bounds)
+{
+    m_item->setProperty("x", bounds.x());
+    m_item->setProperty("y", bounds.y());
+    m_item->setProperty("width", bounds.width());
+    m_item->setProperty("height", bounds.height());
+}
+
+void QQuickWebEngineTouchHandle::setVisible(bool visible)
+{
+    m_item->setProperty("visible", visible);
+}
+
+void QQuickWebEngineTouchHandle::setOpacity(float opacity)
+{
+    m_item->setProperty("opacity", opacity);
 }
 
 QT_END_NAMESPACE

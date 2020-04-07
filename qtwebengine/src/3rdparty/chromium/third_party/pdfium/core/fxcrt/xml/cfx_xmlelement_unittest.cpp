@@ -73,7 +73,6 @@ TEST(CFX_XMLElementTest, Attributes) {
 
 TEST(CFX_XMLElementTest, Clone) {
   CFX_XMLDocument doc;
-
   CFX_XMLElement node(L"test:node");
   node.SetAttribute(L"first", L"one");
   node.SetAttribute(L"second", L"two");
@@ -87,10 +86,9 @@ TEST(CFX_XMLElementTest, Clone) {
 
   CFX_XMLNode* clone = node.Clone(&doc);
   EXPECT_TRUE(clone != nullptr);
-
   ASSERT_EQ(FX_XMLNODE_Element, clone->GetType());
-  CFX_XMLElement* inst = static_cast<CFX_XMLElement*>(clone);
 
+  CFX_XMLElement* inst = ToXMLElement(clone);
   EXPECT_EQ(L"test:node", inst->GetName());
   EXPECT_EQ(L"node", inst->GetLocalTagName());
   EXPECT_EQ(L"test", inst->GetNamespacePrefix());
@@ -106,7 +104,7 @@ TEST(CFX_XMLElementTest, Clone) {
   EXPECT_TRUE(inst->GetFirstChild()->GetNextSibling() == nullptr);
 
   ASSERT_EQ(FX_XMLNODE_Text, inst->GetFirstChild()->GetType());
-  auto* text = static_cast<CFX_XMLText*>(inst->GetFirstChild());
+  auto* text = ToXMLText(inst->GetFirstChild());
   EXPECT_EQ(L"Text Child", text->GetText());
 }
 

@@ -50,6 +50,7 @@ bool GrPathRenderer::drawPath(const DrawPathArgs& args) {
     canArgs.fViewMatrix = args.fViewMatrix;
     canArgs.fShape = args.fShape;
     canArgs.fAAType = args.fAAType;
+    canArgs.fTargetIsWrappedVkSecondaryCB = args.fRenderTargetContext->wrapsVkSecondaryCB();
     canArgs.validate();
 
     canArgs.fHasUserStencilSettings = !args.fUserStencilSettings->isUnused();
@@ -69,7 +70,7 @@ bool GrPathRenderer::drawPath(const DrawPathArgs& args) {
 }
 
 bool GrPathRenderer::IsStrokeHairlineOrEquivalent(const GrStyle& style, const SkMatrix& matrix,
-                                         SkScalar* outCoverage) {
+                                                  SkScalar* outCoverage) {
     if (style.pathEffect()) {
         return false;
     }

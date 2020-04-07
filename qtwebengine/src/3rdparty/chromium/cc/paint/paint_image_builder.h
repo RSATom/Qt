@@ -73,8 +73,8 @@ class CC_PAINT_EXPORT PaintImageBuilder {
     paint_image_.is_multipart_ = is_multipart;
     return std::move(*this);
   }
-  PaintImageBuilder&& set_frame_index(size_t frame_index) {
-    paint_image_.frame_index_ = frame_index;
+  PaintImageBuilder&& set_is_high_bit_depth(bool is_high_bit_depth) {
+    paint_image_.is_high_bit_depth_ = is_high_bit_depth;
     return std::move(*this);
   }
   PaintImageBuilder&& set_repetition_count(int count) {
@@ -96,6 +96,11 @@ class CC_PAINT_EXPORT PaintImageBuilder {
   PaintImageBuilder&& set_decoding_mode(
       PaintImage::DecodingMode decoding_mode) {
     paint_image_.decoding_mode_ = decoding_mode;
+    return std::move(*this);
+  }
+  PaintImageBuilder&& set_paint_worklet_input(
+      scoped_refptr<PaintWorkletInput> input) {
+    paint_image_.paint_worklet_input_ = std::move(input);
     return std::move(*this);
   }
 

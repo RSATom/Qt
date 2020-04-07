@@ -41,8 +41,10 @@
 #define PROFILE_IO_DATA_QT_H
 
 #include "profile_adapter.h"
+#include "content/public/browser/browsing_data_remover.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
+#include "extensions/buildflags/buildflags.h"
 #include "services/proxy_resolver/public/mojom/proxy_resolver.mojom.h"
 
 #include <QtCore/QString>
@@ -50,6 +52,7 @@
 #include <QtCore/QMutex>
 
 namespace net {
+class ClientCertStore;
 class DhcpPacFileFetcherFactory;
 class HttpAuthPreferences;
 class HttpNetworkSession;
@@ -61,9 +64,27 @@ class URLRequestJobFactoryImpl;
 class TransportSecurityPersister;
 }
 
+namespace extensions {
+class ExtensionSystemQt;
+}
+
 namespace QtWebEngineCore {
 
+struct ClientCertificateStoreData;
+class ProfileIODataQt;
 class ProfileQt;
+
+
+class BrowsingDataRemoverObserverQt : public content::BrowsingDataRemover::Observer {
+public:
+    BrowsingDataRemoverObserverQt(ProfileIODataQt *profileIOData);
+
+    void OnBrowsingDataRemoverDone() override;
+
+private:
+    ProfileIODataQt *m_profileIOData;
+};
+
 
 // ProfileIOData contains data that lives on the IOthread
 // we still use shared memebers and use mutex which breaks
@@ -75,8 +96,13 @@ public:
     ProfileIODataQt(ProfileQt *profile); // runs on ui thread
     virtual ~ProfileIODataQt();
 
+    QPointer<ProfileAdapter> profileAdapter();
     content::ResourceContext *resourceContext();
     net::URLRequestContext *urlRequestContext();
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    extensions::ExtensionSystemQt* GetExtensionSystem();
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
+
     void initializeOnIOThread();
     void initializeOnUIThread(); // runs on ui thread
     void shutdownOnUIThread(); // runs on ui thread
@@ -91,10 +117,13 @@ public:
     void regenerateJobFactory();
     bool canSetCookie(const QUrl &firstPartyUrl, const QByteArray &cookieLine, const QUrl &url) const;
     bool canGetCookies(const QUrl &firstPartyUrl, const QUrl &url) const;
+    void setGlobalCertificateVerification();
 
     // Used in NetworkDelegateQt::OnBeforeURLRequest.
-    QWebEngineUrlRequestInterceptor *acquireInterceptor();
+    bool isInterceptorDeprecated() const; // Remove for Qt6
+    QWebEngineUrlRequestInterceptor *acquireInterceptor(); // Remove for Qt6
     void releaseInterceptor();
+    QWebEngineUrlRequestInterceptor *requestInterceptor();
 
     void setRequestContextData(content::ProtocolHandlerMap *protocolHandlers,
                                content::URLRequestInterceptorScopedVector request_interceptors);
@@ -107,8 +136,17 @@ public:
     void updateRequestInterceptor(); // runs on ui thread
     void requestStorageGeneration(); //runs on ui thread
     void createProxyConfig(); //runs on ui thread
+    void updateUsedForGlobalCertificateVerification(); // runs on ui thread
+    bool hasPageInterceptors();
 
+#if QT_CONFIG(ssl)
+    ClientCertificateStoreData *clientCertificateStoreData();
+#endif
+    std::unique_ptr<net::ClientCertStore> CreateClientCertStore();
+    static ProfileIODataQt *FromResourceContext(content::ResourceContext *resource_context);
 private:
+    void removeBrowsingDataRemoverObserver();
+
     ProfileQt *m_profile;
     std::unique_ptr<net::URLRequestContextStorage> m_storage;
     std::unique_ptr<net::NetworkDelegate> m_networkDelegate;
@@ -120,6 +158,7 @@ private:
     std::unique_ptr<net::HttpAuthPreferences> m_httpAuthPreferences;
     std::unique_ptr<net::URLRequestJobFactory> m_jobFactory;
     std::unique_ptr<net::TransportSecurityPersister> m_transportSecurityPersister;
+    std::unique_ptr<net::HostResolver> m_hostResolver;
     base::WeakPtr<ProfileIODataQt> m_weakPtr;
     scoped_refptr<CookieMonsterDelegateQt> m_cookieDelegate;
     content::URLRequestInterceptorScopedVector m_requestInterceptors;
@@ -129,6 +168,9 @@ private:
     QAtomicPointer<net::ProxyConfigService> m_proxyConfigService;
     QPointer<ProfileAdapter> m_profileAdapter; // never dereferenced in IO thread and it is passed by qpointer
     ProfileAdapter::PersistentCookiesPolicy m_persistentCookiesPolicy;
+#if QT_CONFIG(ssl)
+    ClientCertificateStoreData *m_clientCertificateStoreData;
+#endif
     QString m_cookiesPath;
     QString m_channelIdPath;
     QString m_httpAcceptLanguage;
@@ -144,9 +186,16 @@ private:
     bool m_updateAllStorage = false;
     bool m_updateJobFactory = false;
     bool m_ignoreCertificateErrors = false;
+    bool m_useForGlobalCertificateVerification = false;
+    bool m_hasPageInterceptors = false;
+    BrowsingDataRemoverObserverQt m_removerObserver;
     base::WeakPtrFactory<ProfileIODataQt> m_weakPtrFactory; // this should be always the last member
     QString m_dataPath;
+    bool m_pendingStorageRequestGeneration = false;
+    volatile bool m_isInterceptorDeprecated = false; // Remove for Qt6
     DISALLOW_COPY_AND_ASSIGN(ProfileIODataQt);
+
+    friend class BrowsingDataRemoverObserverQt;
 };
 } // namespace QtWebEngineCore
 

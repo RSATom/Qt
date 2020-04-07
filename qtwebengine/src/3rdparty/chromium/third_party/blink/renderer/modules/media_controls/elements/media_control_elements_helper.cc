@@ -17,18 +17,21 @@
 namespace blink {
 
 // static
-bool MediaControlElementsHelper::IsUserInteractionEvent(Event* event) {
-  const AtomicString& type = event->type();
-  return type == EventTypeNames::pointerdown ||
-         type == EventTypeNames::pointerup ||
-         type == EventTypeNames::mousedown || type == EventTypeNames::mouseup ||
-         type == EventTypeNames::click || type == EventTypeNames::dblclick ||
-         event->IsKeyboardEvent() || event->IsTouchEvent();
+bool MediaControlElementsHelper::IsUserInteractionEvent(const Event& event) {
+  const AtomicString& type = event.type();
+  return type == event_type_names::kPointerdown ||
+         type == event_type_names::kPointerup ||
+         type == event_type_names::kMousedown ||
+         type == event_type_names::kMouseup ||
+         type == event_type_names::kClick ||
+         type == event_type_names::kDblclick ||
+         type == event_type_names::kGesturetap || event.IsKeyboardEvent() ||
+         event.IsTouchEvent();
 }
 
 // static
 bool MediaControlElementsHelper::IsUserInteractionEventForSlider(
-    Event* event,
+    const Event& event,
     LayoutObject* layout_object) {
   // It is unclear if this can be converted to isUserInteractionEvent(), since
   // mouse* events seem to be eaten during a drag anyway, see
@@ -45,13 +48,13 @@ bool MediaControlElementsHelper::IsUserInteractionEventForSlider(
   if (slider && !slider->InDragMode())
     return false;
 
-  const AtomicString& type = event->type();
-  return type == EventTypeNames::mouseover ||
-         type == EventTypeNames::mouseout ||
-         type == EventTypeNames::mousemove ||
-         type == EventTypeNames::pointerover ||
-         type == EventTypeNames::pointerout ||
-         type == EventTypeNames::pointermove;
+  const AtomicString& type = event.type();
+  return type == event_type_names::kMouseover ||
+         type == event_type_names::kMouseout ||
+         type == event_type_names::kMousemove ||
+         type == event_type_names::kPointerover ||
+         type == event_type_names::kPointerout ||
+         type == event_type_names::kPointermove;
 }
 
 // static
@@ -126,6 +129,16 @@ void MediaControlElementsHelper::NotifyMediaControlAccessibleFocus(
 
   static_cast<MediaControlsImpl*>(media_element->GetMediaControls())
       ->OnAccessibleFocus();
+}
+
+void MediaControlElementsHelper::NotifyMediaControlAccessibleBlur(
+    Element* element) {
+  const HTMLMediaElement* media_element = ToParentMediaElement(element);
+  if (!media_element || !media_element->GetMediaControls())
+    return;
+
+  static_cast<MediaControlsImpl*>(media_element->GetMediaControls())
+      ->OnAccessibleBlur();
 }
 
 }  // namespace blink

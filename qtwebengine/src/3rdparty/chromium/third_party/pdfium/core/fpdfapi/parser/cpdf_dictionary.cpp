@@ -20,6 +20,7 @@
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
 #include "core/fxcrt/fx_stream.h"
 #include "third_party/base/logging.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Dictionary::CPDF_Dictionary()
@@ -39,7 +40,7 @@ CPDF_Dictionary::~CPDF_Dictionary() {
 }
 
 CPDF_Object::Type CPDF_Dictionary::GetType() const {
-  return DICTIONARY;
+  return kDictionary;
 }
 
 CPDF_Dictionary* CPDF_Dictionary::GetDict() {
@@ -71,7 +72,8 @@ std::unique_ptr<CPDF_Object> CPDF_Dictionary::CloneNonCyclic(
     std::set<const CPDF_Object*>* pVisited) const {
   pVisited->insert(this);
   auto pCopy = pdfium::MakeUnique<CPDF_Dictionary>(m_pPool);
-  for (const auto& it : *this) {
+  CPDF_DictionaryLocker locker(this);
+  for (const auto& it : locker) {
     if (!pdfium::ContainsKey(*pVisited, it.second.get())) {
       std::set<const CPDF_Object*> visited(*pVisited);
       if (auto obj = it.second->CloneNonCyclic(bDirect, &visited))
@@ -194,12 +196,17 @@ bool CPDF_Dictionary::KeyExist(const ByteString& key) const {
   return pdfium::ContainsKey(m_Map, key);
 }
 
-bool CPDF_Dictionary::IsSignatureDict() const {
-  return CPDF_CryptoHandler::IsSignatureDictionary(this);
+std::vector<ByteString> CPDF_Dictionary::GetKeys() const {
+  std::vector<ByteString> result;
+  CPDF_DictionaryLocker locker(this);
+  for (const auto& item : locker)
+    result.push_back(item.first);
+  return result;
 }
 
 CPDF_Object* CPDF_Dictionary::SetFor(const ByteString& key,
                                      std::unique_ptr<CPDF_Object> pObj) {
+  CHECK(!IsLocked());
   if (!pObj) {
     m_Map.erase(key);
     return nullptr;
@@ -213,6 +220,7 @@ CPDF_Object* CPDF_Dictionary::SetFor(const ByteString& key,
 void CPDF_Dictionary::ConvertToIndirectObjectFor(
     const ByteString& key,
     CPDF_IndirectObjectHolder* pHolder) {
+  CHECK(!IsLocked());
   auto it = m_Map.find(key);
   if (it == m_Map.end() || it->second->IsReference())
     return;
@@ -222,6 +230,7 @@ void CPDF_Dictionary::ConvertToIndirectObjectFor(
 }
 
 std::unique_ptr<CPDF_Object> CPDF_Dictionary::RemoveFor(const ByteString& key) {
+  CHECK(!IsLocked());
   std::unique_ptr<CPDF_Object> result;
   auto it = m_Map.find(key);
   if (it != m_Map.end()) {
@@ -233,6 +242,7 @@ std::unique_ptr<CPDF_Object> CPDF_Dictionary::RemoveFor(const ByteString& key) {
 
 void CPDF_Dictionary::ReplaceKey(const ByteString& oldkey,
                                  const ByteString& newkey) {
+  CHECK(!IsLocked());
   auto old_it = m_Map.find(oldkey);
   if (old_it == m_Map.end())
     return;
@@ -269,20 +279,35 @@ ByteString CPDF_Dictionary::MaybeIntern(const ByteString& str) {
   return m_pPool ? m_pPool->Intern(str) : str;
 }
 
-bool CPDF_Dictionary::WriteTo(IFX_ArchiveStream* archive) const {
+bool CPDF_Dictionary::WriteTo(IFX_ArchiveStream* archive,
+                              const CPDF_Encryptor* encryptor) const {
   if (!archive->WriteString("<<"))
     return false;
 
-  for (const auto& it : *this) {
+  const bool is_signature = CPDF_CryptoHandler::IsSignatureDictionary(this);
+
+  CPDF_DictionaryLocker locker(this);
+  for (const auto& it : locker) {
     const ByteString& key = it.first;
     CPDF_Object* pValue = it.second.get();
     if (!archive->WriteString("/") ||
         !archive->WriteString(PDF_NameEncode(key).AsStringView())) {
       return false;
     }
-
-    if (!pValue->WriteTo(archive))
+    if (!pValue->WriteTo(archive, !is_signature || key != "Contents"
+                                      ? encryptor
+                                      : nullptr)) {
       return false;
+    }
   }
   return archive->WriteString(">>");
+}
+
+CPDF_DictionaryLocker::CPDF_DictionaryLocker(const CPDF_Dictionary* pDictionary)
+    : m_pDictionary(pDictionary) {
+  m_pDictionary->m_LockCount++;
+}
+
+CPDF_DictionaryLocker::~CPDF_DictionaryLocker() {
+  m_pDictionary->m_LockCount--;
 }

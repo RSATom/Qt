@@ -11,8 +11,9 @@
 #ifndef MODULES_DESKTOP_CAPTURE_DESKTOP_GEOMETRY_H_
 #define MODULES_DESKTOP_CAPTURE_DESKTOP_GEOMETRY_H_
 
-#include "rtc_base/constructormagic.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include <stdint.h>
+
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -73,7 +74,7 @@ class DesktopSize {
 };
 
 // Represents a rectangle on the screen.
-class DesktopRect {
+class RTC_EXPORT DesktopRect {
  public:
   static DesktopRect MakeSize(const DesktopSize& size) {
     return DesktopRect(0, 0, size.width(), size.height());

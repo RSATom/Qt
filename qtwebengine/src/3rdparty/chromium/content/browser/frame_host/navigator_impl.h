@@ -40,11 +40,6 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
   // Navigator implementation.
   NavigatorDelegate* GetDelegate() override;
   NavigationController* GetController() override;
-  void DidStartProvisionalLoad(
-      RenderFrameHostImpl* render_frame_host,
-      const GURL& url,
-      const std::vector<GURL>& redirect_chain,
-      const base::TimeTicks& navigation_start) override;
   void DidFailProvisionalLoadWithError(
       RenderFrameHostImpl* render_frame_host,
       const FrameHostMsg_DidFailProvisionalLoadWithError_Params& params)
@@ -55,7 +50,7 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                             const base::string16& error_description) override;
   void DidNavigate(RenderFrameHostImpl* render_frame_host,
                    const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
-                   std::unique_ptr<NavigationHandleImpl> navigation_handle,
+                   std::unique_ptr<NavigationRequest> navigation_request,
                    bool was_within_same_document) override;
   bool StartHistoryNavigationInNewSubframe(
       RenderFrameHostImpl* render_frame_host,
@@ -65,6 +60,7 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                 RestoreType restore_type) override;
   void RequestOpenURL(RenderFrameHostImpl* render_frame_host,
                       const GURL& url,
+                      const base::Optional<url::Origin>& initiator_origin,
                       bool uses_post,
                       const scoped_refptr<network::ResourceRequestBody>& body,
                       const std::string& extra_headers,
@@ -73,11 +69,13 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                       bool should_replace_current_entry,
                       bool user_gesture,
                       blink::WebTriggeringEventInfo triggering_event_info,
+                      const std::string& href_translate,
                       scoped_refptr<network::SharedURLLoaderFactory>
                           blob_url_loader_factory) override;
   void NavigateFromFrameProxy(
       RenderFrameHostImpl* render_frame_host,
       const GURL& url,
+      const url::Origin& initiator_origin,
       SiteInstance* source_site_instance,
       const Referrer& referrer,
       ui::PageTransition page_transition,
@@ -86,8 +84,8 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
       const std::string& method,
       scoped_refptr<network::ResourceRequestBody> post_body,
       const std::string& extra_headers,
-      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory)
-      override;
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
+      bool has_user_gesture) override;
   void OnBeforeUnloadACK(FrameTreeNode* frame_tree_node,
                          bool proceed,
                          const base::TimeTicks& proceed_time) override;
@@ -96,7 +94,8 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
       const CommonNavigationParams& common_params,
       mojom::BeginNavigationParamsPtr begin_params,
       scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
-      mojom::NavigationClientAssociatedPtrInfo navigation_client) override;
+      mojom::NavigationClientAssociatedPtrInfo navigation_client,
+      blink::mojom::NavigationInitiatorPtr navigation_initiator) override;
   void RestartNavigationAsCrossDocument(
       std::unique_ptr<NavigationRequest> navigation_request) override;
   void OnAbortNavigation(FrameTreeNode* frame_tree_node) override;

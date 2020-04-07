@@ -60,6 +60,10 @@
 
 #include <QtWaylandCompositor/private/qwayland-server-wayland.h>
 
+#if QT_CONFIG(xkbcommon)
+#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 namespace QtWayland {
@@ -80,6 +84,10 @@ public:
 
     QWaylandCompositorPrivate(QWaylandCompositor *compositor);
     ~QWaylandCompositorPrivate() override;
+
+#if QT_CONFIG(xkbcommon)
+    struct xkb_context *xkbContext() const { return mXkbContext.get(); }
+#endif
 
     void preInit();
     void init();
@@ -137,6 +145,7 @@ protected:
     QList<int> externally_added_socket_fds;
 #endif
     struct wl_display *display = nullptr;
+    bool ownsDisplay = false;
 
     QList<QWaylandSeat *> seats;
     QList<QWaylandOutput *> outputs;
@@ -167,6 +176,10 @@ protected:
     bool preInitialized = false;
     bool initialized = false;
     QList<QPointer<QObject> > polish_objects;
+
+#if QT_CONFIG(xkbcommon)
+    QXkbCommon::ScopedXKBContext mXkbContext;
+#endif
 
     Q_DECLARE_PUBLIC(QWaylandCompositor)
     Q_DISABLE_COPY(QWaylandCompositorPrivate)

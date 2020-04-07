@@ -10,7 +10,6 @@
 #include "base/debug/alias.h"
 #include "base/hash.h"
 #include "base/memory/discardable_memory_allocator.h"
-#include "base/memory/memory_coordinator_client_registry.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_math.h"
 #include "base/strings/stringprintf.h"
@@ -19,6 +18,7 @@
 #include "cc/base/devtools_instrumentation.h"
 #include "cc/base/histograms.h"
 #include "cc/paint/image_transfer_cache_entry.h"
+#include "cc/raster/scoped_grcontext_access.h"
 #include "cc/raster/tile_task.h"
 #include "cc/tiles/mipmap_util.h"
 #include "components/viz/common/gpu/raster_context_provider.h"
@@ -40,8 +40,13 @@ namespace {
 // the system. This limit can be breached by in-use cache items, which cannot
 // be deleted.
 static const int kNormalMaxItemsInCacheForGpu = 2000;
-static const int kThrottledMaxItemsInCacheForGpu = 100;
 static const int kSuspendedMaxItemsInCacheForGpu = 0;
+
+// The maximum number of images that we can lock simultaneously in our working
+// set. This is separate from the memory limit, as keeping very large numbers
+// of small images simultaneously locked can lead to performance issues and
+// memory spikes.
+static const int kMaxItemsInWorkingSet = 256;
 
 // lock_count │ used  │ result state
 // ═══════════╪═══════╪══════════════════
@@ -157,7 +162,9 @@ bool ShouldGenerateMips(const DrawImage& draw_image,
 // draw/scale can be done directly, calls directly into PaintImage::Decode.
 // if not, decodes to a compatible temporary pixmap and then converts that into
 // the |target_pixmap|.
-bool DrawAndScaleImage(const DrawImage& draw_image, SkPixmap* target_pixmap) {
+bool DrawAndScaleImage(const DrawImage& draw_image,
+                       SkPixmap* target_pixmap,
+                       PaintImage::GeneratorClientId client_id) {
   // We will pass color_space explicitly to PaintImage::Decode, so pull it out
   // of the pixmap and populate a stand-alone value.
   // note: To pull colorspace out of the pixmap, we create a new pixmap with
@@ -181,50 +188,42 @@ bool DrawAndScaleImage(const DrawImage& draw_image, SkPixmap* target_pixmap) {
   if (supported_size == pixmap.bounds().size() && can_directly_decode) {
     SkImageInfo info = pixmap.info();
     return paint_image.Decode(pixmap.writable_addr(), &info, color_space,
-                              draw_image.frame_index());
+                              draw_image.frame_index(), client_id);
   }
 
-  // If we can't decode/scale directly, we will handle this in up to 3 steps.
+  // If we can't decode/scale directly, we will handle this in 2 steps.
   // Step 1: Decode at the nearest (larger) directly supported size or the
   // original size if nearest neighbor quality is requested.
+  // Step 2: Scale to |pixmap| size. If decoded image is half float backed and
+  // the device does not support image resize, decode to N32 color type and
+  // convert to F16 afterward.
   SkISize decode_size =
       is_nearest_neighbor
           ? SkISize::Make(paint_image.width(), paint_image.height())
           : supported_size;
   SkImageInfo decode_info =
-      SkImageInfo::MakeN32Premul(decode_size.width(), decode_size.height());
+      pixmap.info().makeWH(decode_size.width(), decode_size.height());
+  SkFilterQuality filter_quality = CalculateDesiredFilterQuality(draw_image);
+  bool decode_to_f16_using_n32_intermediate =
+      decode_info.colorType() == kRGBA_F16_SkColorType &&
+      !ImageDecodeCacheUtils::CanResizeF16Image(filter_quality);
+  if (decode_to_f16_using_n32_intermediate)
+    decode_info = decode_info.makeColorType(kN32_SkColorType);
+
   SkBitmap decode_bitmap;
   if (!decode_bitmap.tryAllocPixels(decode_info))
     return false;
-  SkPixmap decode_pixmap(decode_bitmap.info(), decode_bitmap.getPixels(),
-                         decode_bitmap.rowBytes());
+  SkPixmap decode_pixmap = decode_bitmap.pixmap();
   if (!paint_image.Decode(decode_pixmap.writable_addr(), &decode_info,
-                          color_space, draw_image.frame_index())) {
+                          color_space, draw_image.frame_index(), client_id)) {
     return false;
   }
 
-  // Step 2a: Scale to |pixmap| directly if kN32_SkColorType.
-  if (pixmap.info().colorType() == kN32_SkColorType) {
-    return decode_pixmap.scalePixels(pixmap,
-                                     CalculateDesiredFilterQuality(draw_image));
+  if (decode_to_f16_using_n32_intermediate) {
+    return ImageDecodeCacheUtils::ScaleToHalfFloatPixmapUsingN32Intermediate(
+        decode_pixmap, &pixmap, filter_quality);
   }
-
-  // Step 2b: Scale to temporary pixmap of kN32_SkColorType.
-  SkImageInfo scaled_info = pixmap.info().makeColorType(kN32_SkColorType);
-  SkBitmap scaled_bitmap;
-  if (!scaled_bitmap.tryAllocPixels(scaled_info))
-    return false;
-  SkPixmap scaled_pixmap(scaled_bitmap.info(), scaled_bitmap.getPixels(),
-                         scaled_bitmap.rowBytes());
-  if (!decode_pixmap.scalePixels(scaled_pixmap,
-                                 CalculateDesiredFilterQuality(draw_image))) {
-    return false;
-  }
-
-  // Step 3: Copy the temporary scaled pixmap to |pixmap|, performing
-  // color type conversion. We can't do the color conversion in step 1, as
-  // the scale in step 2 must happen in kN32_SkColorType.
-  return scaled_pixmap.readPixels(pixmap);
+  return decode_pixmap.scalePixels(pixmap, filter_quality);
 }
 
 // Takes ownership of the backing texture of an SkImage. This allows us to
@@ -321,24 +320,20 @@ GpuImageDecodeCache::InUseCacheKey::FromDrawImage(const DrawImage& draw_image) {
 GpuImageDecodeCache::InUseCacheKey::InUseCacheKey(const DrawImage& draw_image)
     : frame_key(draw_image.frame_key()),
       upload_scale_mip_level(CalculateUploadScaleMipLevel(draw_image)),
-      filter_quality(CalculateDesiredFilterQuality(draw_image)),
-      target_color_space(draw_image.target_color_space()) {}
+      filter_quality(CalculateDesiredFilterQuality(draw_image)) {}
 
 bool GpuImageDecodeCache::InUseCacheKey::operator==(
     const InUseCacheKey& other) const {
   return frame_key == other.frame_key &&
          upload_scale_mip_level == other.upload_scale_mip_level &&
-         filter_quality == other.filter_quality &&
-         target_color_space == other.target_color_space;
+         filter_quality == other.filter_quality;
 }
 
 size_t GpuImageDecodeCache::InUseCacheKeyHash::operator()(
     const InUseCacheKey& cache_key) const {
-  return base::HashInts(
-      cache_key.target_color_space.GetHash(),
-      base::HashInts(cache_key.frame_key.hash(),
-                     base::HashInts(cache_key.upload_scale_mip_level,
-                                    cache_key.filter_quality)));
+  return base::HashInts(cache_key.frame_key.hash(),
+                        base::HashInts(cache_key.upload_scale_mip_level,
+                                       cache_key.filter_quality));
 }
 
 GpuImageDecodeCache::InUseCacheEntry::InUseCacheEntry(
@@ -599,7 +594,6 @@ GpuImageDecodeCache::ImageData::ImageData(
     PaintImage::Id paint_image_id,
     DecodedDataMode mode,
     size_t size,
-    const gfx::ColorSpace& target_color_space,
     SkFilterQuality quality,
     int upload_scale_mip_level,
     bool needs_mips,
@@ -607,7 +601,6 @@ GpuImageDecodeCache::ImageData::ImageData(
     : paint_image_id(paint_image_id),
       mode(mode),
       size(size),
-      target_color_space(target_color_space),
       quality(quality),
       upload_scale_mip_level(upload_scale_mip_level),
       needs_mips(needs_mips),
@@ -663,25 +656,32 @@ GrGLuint GpuImageDecodeCache::GlIdFromSkImage(const SkImage* image) {
   return info.fID;
 }
 
-GpuImageDecodeCache::GpuImageDecodeCache(viz::RasterContextProvider* context,
-                                         bool use_transfer_cache,
-                                         SkColorType color_type,
-                                         size_t max_working_set_bytes,
-                                         int max_texture_size)
+GpuImageDecodeCache::GpuImageDecodeCache(
+    viz::RasterContextProvider* context,
+    bool use_transfer_cache,
+    SkColorType color_type,
+    size_t max_working_set_bytes,
+    int max_texture_size,
+    PaintImage::GeneratorClientId generator_client_id,
+    sk_sp<SkColorSpace> target_color_space)
     : color_type_(color_type),
       use_transfer_cache_(use_transfer_cache),
       context_(context),
       max_texture_size_(max_texture_size),
+      generator_client_id_(generator_client_id),
       persistent_cache_(PersistentCache::NO_AUTO_EVICT),
-      max_working_set_bytes_(max_working_set_bytes) {
+      max_working_set_bytes_(max_working_set_bytes),
+      max_working_set_items_(kMaxItemsInWorkingSet),
+      target_color_space_(std::move(target_color_space)) {
   // In certain cases, ThreadTaskRunnerHandle isn't set (Android Webview).
   // Don't register a dump provider in these cases.
   if (base::ThreadTaskRunnerHandle::IsSet()) {
     base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
         this, "cc::GpuImageDecodeCache", base::ThreadTaskRunnerHandle::Get());
   }
-  // Register this component with base::MemoryCoordinatorClientRegistry.
-  base::MemoryCoordinatorClientRegistry::GetInstance()->Register(this);
+  memory_pressure_listener_.reset(
+      new base::MemoryPressureListener(base::BindRepeating(
+          &GpuImageDecodeCache::OnMemoryPressure, base::Unretained(this))));
 }
 
 GpuImageDecodeCache::~GpuImageDecodeCache() {
@@ -695,12 +695,6 @@ GpuImageDecodeCache::~GpuImageDecodeCache() {
   // It is safe to unregister, even if we didn't register in the constructor.
   base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
       this);
-  // Unregister this component with memory_coordinator::ClientRegistry.
-  base::MemoryCoordinatorClientRegistry::GetInstance()->Unregister(this);
-
-  memory_pressure_listener_.reset(
-      new base::MemoryPressureListener(base::BindRepeating(
-          &GpuImageDecodeCache::OnMemoryPressure, base::Unretained(this))));
 
   // TODO(vmpstr): If we don't have a client name, it may cause problems in
   // unittests, since most tests don't set the name but some do. The UMA system
@@ -736,6 +730,7 @@ ImageDecodeCache::TaskResult GpuImageDecodeCache::GetTaskForImageAndRefInternal(
     DecodeTaskType task_type) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("cc.debug"),
                "GpuImageDecodeCache::GetTaskForImageAndRef");
+
   if (SkipImage(draw_image))
     return TaskResult(false);
 
@@ -1111,11 +1106,18 @@ void GpuImageDecodeCache::UploadImageInTask(const DrawImage& draw_image) {
   if (context_->GetLock())
     context_lock.emplace(context_);
 
+  base::Optional<ScopedGrContextAccess> gr_context_access;
+  if (!use_transfer_cache_)
+    gr_context_access.emplace(context_);
   base::AutoLock lock(lock_);
-  ImageData* image_data = GetImageDataForDrawImage(
-      draw_image, InUseCacheKey::FromDrawImage(draw_image));
+
+  auto cache_key = InUseCacheKey::FromDrawImage(draw_image);
+  ImageData* image_data = GetImageDataForDrawImage(draw_image, cache_key);
   DCHECK(image_data);
   DCHECK(image_data->is_budgeted) << "Must budget an image for pre-decoding";
+
+  if (image_data->is_bitmap_backed)
+    DecodeImageIfNecessary(draw_image, image_data, TaskType::kInRaster);
   UploadImageIfNecessary(draw_image, image_data);
 }
 
@@ -1181,7 +1183,8 @@ scoped_refptr<TileTask> GpuImageDecodeCache::GetImageDecodeTaskAndRef(
 
   ImageData* image_data = GetImageDataForDrawImage(draw_image, cache_key);
   DCHECK(image_data);
-  if (image_data->decode.is_locked()) {
+  // No decode is necessary for bitmap backed images.
+  if (image_data->decode.is_locked() || image_data->is_bitmap_backed) {
     // We should never be creating a decode task for a not budgeted image.
     DCHECK(image_data->is_budgeted);
     // We should never be creating a decode for an already-uploaded image.
@@ -1285,7 +1288,9 @@ void GpuImageDecodeCache::OwnershipChanged(const DrawImage& draw_image,
   // If we have no image refs on an image, we should unbudget it.
   if (!has_any_refs && image_data->is_budgeted) {
     DCHECK_GE(working_set_bytes_, image_data->size);
+    DCHECK_GE(working_set_items_, 1u);
     working_set_bytes_ -= image_data->size;
+    working_set_items_ -= 1;
     image_data->is_budgeted = false;
   }
 
@@ -1324,6 +1329,7 @@ void GpuImageDecodeCache::OwnershipChanged(const DrawImage& draw_image,
   if (has_any_refs && !image_data->is_budgeted &&
       CanFitInWorkingSet(image_data->size)) {
     working_set_bytes_ += image_data->size;
+    working_set_items_ += 1;
     image_data->is_budgeted = true;
   }
 
@@ -1388,9 +1394,15 @@ bool GpuImageDecodeCache::EnsureCapacity(size_t required_size) {
 bool GpuImageDecodeCache::CanFitInWorkingSet(size_t size) const {
   lock_.AssertAcquired();
 
+  if (working_set_items_ >= max_working_set_items_)
+    return false;
+
   base::CheckedNumeric<uint32_t> new_size(working_set_bytes_);
   new_size += size;
-  return new_size.IsValid() && new_size.ValueOrDie() <= max_working_set_bytes_;
+  if (!new_size.IsValid() || new_size.ValueOrDie() > max_working_set_bytes_)
+    return false;
+
+  return true;
 }
 
 bool GpuImageDecodeCache::ExceedsPreferredCount() const {
@@ -1399,13 +1411,8 @@ bool GpuImageDecodeCache::ExceedsPreferredCount() const {
   size_t items_limit;
   if (aggressively_freeing_resources_) {
     items_limit = kSuspendedMaxItemsInCacheForGpu;
-  } else if (memory_state_ == base::MemoryState::NORMAL) {
-    items_limit = kNormalMaxItemsInCacheForGpu;
-  } else if (memory_state_ == base::MemoryState::THROTTLED) {
-    items_limit = kThrottledMaxItemsInCacheForGpu;
   } else {
-    DCHECK_EQ(base::MemoryState::SUSPENDED, memory_state_);
-    items_limit = kSuspendedMaxItemsInCacheForGpu;
+    items_limit = kNormalMaxItemsInCacheForGpu;
   }
 
   return persistent_cache_.size() > items_limit;
@@ -1459,7 +1466,7 @@ void GpuImageDecodeCache::DecodeImageIfNecessary(const DrawImage& draw_image,
     // Set |pixmap| to the desired colorspace to decode into.
     pixmap.setColorSpace(
         ColorSpaceForImageDecode(draw_image, image_data->mode));
-    if (!DrawAndScaleImage(draw_image, &pixmap)) {
+    if (!DrawAndScaleImage(draw_image, &pixmap, generator_client_id_)) {
       DLOG(ERROR) << "DrawAndScaleImage failed.";
       backing_memory->Unlock();
       backing_memory.reset();
@@ -1520,15 +1527,12 @@ void GpuImageDecodeCache::UploadImageIfNecessary(const DrawImage& draw_image,
   DCHECK_GT(image_data->decode.ref_count, 0u);
   DCHECK_GT(image_data->upload.ref_count, 0u);
 
-  sk_sp<SkColorSpace> target_color_space =
-      SupportsColorSpaceConversion() &&
-              draw_image.target_color_space().IsValid()
-          ? draw_image.target_color_space().ToSkColorSpace()
-          : nullptr;
-  if (target_color_space &&
-      SkColorSpace::Equals(target_color_space.get(),
+  sk_sp<SkColorSpace> color_space =
+      SupportsColorSpaceConversion() ? target_color_space_ : nullptr;
+  if (color_space &&
+      SkColorSpace::Equals(color_space.get(),
                            image_data->decode.image()->colorSpace())) {
-    target_color_space = nullptr;
+    color_space = nullptr;
   }
 
   if (image_data->mode == DecodedDataMode::kTransferCache) {
@@ -1537,7 +1541,7 @@ void GpuImageDecodeCache::UploadImageIfNecessary(const DrawImage& draw_image,
     if (!image_data->decode.image()->peekPixels(&pixmap))
       return;
 
-    ClientImageTransferCacheEntry image_entry(&pixmap, target_color_space.get(),
+    ClientImageTransferCacheEntry image_entry(&pixmap, color_space.get(),
                                               image_data->needs_mips);
     uint32_t size = image_entry.SerializedSize();
     void* data = context_->ContextSupport()->MapTransferCacheEntry(size);
@@ -1572,7 +1576,7 @@ void GpuImageDecodeCache::UploadImageIfNecessary(const DrawImage& draw_image,
     DCHECK(!use_transfer_cache_);
     base::AutoUnlock unlock(lock_);
     uploaded_image = MakeTextureImage(
-        context_, std::move(uploaded_image), target_color_space,
+        context_, std::move(uploaded_image), color_space,
         image_data->needs_mips ? GrMipMapped::kYes : GrMipMapped::kNo);
   }
 
@@ -1651,7 +1655,6 @@ GpuImageDecodeCache::CreateImageData(const DrawImage& draw_image) {
                                 !cache_color_conversion_on_cpu;
   return base::WrapRefCounted(
       new ImageData(draw_image.paint_image().stable_id(), mode, data_size,
-                    draw_image.target_color_space(),
                     CalculateDesiredFilterQuality(draw_image),
                     upload_scale_mip_level, needs_mips, is_bitmap_backed));
 }
@@ -1878,10 +1881,6 @@ bool GpuImageDecodeCache::IsCompatible(const ImageData* image_data,
                              image_data->upload_scale_mip_level;
   bool quality_is_compatible =
       CalculateDesiredFilterQuality(draw_image) <= image_data->quality;
-  bool color_is_compatible =
-      image_data->target_color_space == draw_image.target_color_space();
-  if (!color_is_compatible)
-    return false;
   if (is_scaled && (!scale_is_compatible || !quality_is_compatible))
     return false;
   return true;
@@ -1932,26 +1931,16 @@ sk_sp<SkImage> GpuImageDecodeCache::GetSWImageDecodeForTesting(
   return image_data->decode.ImageForTesting();
 }
 
-void GpuImageDecodeCache::OnMemoryStateChange(base::MemoryState state) {
-  memory_state_ = state;
-}
-
-void GpuImageDecodeCache::OnPurgeMemory() {
-  base::AutoLock lock(lock_);
-  // Temporary changes |memory_state_| to free up cache as much as possible.
-  base::AutoReset<base::MemoryState> reset(&memory_state_,
-                                           base::MemoryState::SUSPENDED);
-  EnsureCapacity(0);
-}
-
 void GpuImageDecodeCache::OnMemoryPressure(
     base::MemoryPressureListener::MemoryPressureLevel level) {
+  base::AutoLock lock(lock_);
   switch (level) {
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE:
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE:
       break;
     case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL:
-      OnPurgeMemory();
+      base::AutoReset<bool> reset(&aggressively_freeing_resources_, true);
+      EnsureCapacity(0);
       break;
   }
 }
@@ -1974,7 +1963,7 @@ sk_sp<SkColorSpace> GpuImageDecodeCache::ColorSpaceForImageDecode(
     return nullptr;
 
   if (mode == DecodedDataMode::kCpu)
-    return image.target_color_space().ToSkColorSpace();
+    return target_color_space_;
 
   // For kGpu or kTransferCache images color conversion is handled during
   // upload, so keep the original colorspace here.

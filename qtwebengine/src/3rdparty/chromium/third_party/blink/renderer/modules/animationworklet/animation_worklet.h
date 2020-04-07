@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/core/workers/worklet.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
-#include "third_party/blink/renderer/platform/graphics/compositor_animators_state.h"
+#include "third_party/blink/renderer/platform/graphics/animation_worklet_mutators_state.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 
 namespace blink {
@@ -32,7 +32,7 @@ class MODULES_EXPORT AnimationWorklet final : public Worklet {
  private:
   // Unique id associated with this worklet that is used by cc to identify all
   // animations associated it.
-  int scope_id_;
+  int worklet_id_;
   int last_animation_id_;
 
   // Implements Worklet.

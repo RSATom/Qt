@@ -7,7 +7,8 @@
 
 #include <string>
 
-#include "content/public/common/media_stream_request.h"
+#include "content/public/browser/media_stream_request.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "ui/base/window_open_disposition.h"
 
 namespace content {
@@ -18,6 +19,11 @@ class WebContents;
 
 namespace gfx {
 class Rect;
+class Size;
+}  // namespace gfx
+
+namespace viz {
+class SurfaceId;
 }
 
 namespace extensions {
@@ -65,12 +71,23 @@ class ExtensionHostDelegate {
   virtual bool CheckMediaAccessPermission(
       content::RenderFrameHost* render_frame_host,
       const GURL& security_origin,
-      content::MediaStreamType type,
+      blink::MediaStreamType type,
       const Extension* extension) = 0;
 
   // Returns the ExtensionHostQueue implementation to use for creating
   // ExtensionHost renderers.
   virtual ExtensionHostQueue* GetExtensionHostQueue() const = 0;
+
+  // Notifies the Picture-in-Picture controller that there is a new player
+  // entering Picture-in-Picture.
+  // Returns the size of the Picture-in-Picture window.
+  virtual gfx::Size EnterPictureInPicture(content::WebContents* web_contents,
+                                          const viz::SurfaceId& surface_id,
+                                          const gfx::Size& natural_size) = 0;
+
+  // Updates the Picture-in-Picture controller with a signal that
+  // Picture-in-Picture mode has ended.
+  virtual void ExitPictureInPicture() = 0;
 };
 
 }  // namespace extensions

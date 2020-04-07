@@ -165,7 +165,7 @@ QLowEnergyControllerPrivateOSX::QLowEnergyControllerPrivateOSX(QLowEnergyControl
 #endif
     } else {
         centralManager.reset([[ObjCCentralManager alloc] initWith:notifier.data()]);
-        if (!centralManager) {
+        if (!centralManager.data()) {
             qCWarning(QT_BT_OSX) << "failed to initialize central manager";
             return;
         }
@@ -200,9 +200,9 @@ QLowEnergyControllerPrivateOSX::~QLowEnergyControllerPrivateOSX()
 bool QLowEnergyControllerPrivateOSX::isValid() const
 {
 #ifdef Q_OS_TVOS
-    return centralManager;
+    return centralManager.data();
 #else
-    return centralManager || peripheralManager;
+    return centralManager.data() || peripheralManager.data();
 #endif
 }
 

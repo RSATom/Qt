@@ -15,12 +15,15 @@
 
 #include "absl/types/optional.h"
 #include "api/video/color_space.h"
+#include "api/video/hdr_metadata.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video/video_rotation.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
-class VideoFrame {
+class RTC_EXPORT VideoFrame {
  public:
   // Preferred way of building VideoFrame objects.
   class Builder {
@@ -37,8 +40,11 @@ class VideoFrame {
     Builder& set_ntp_time_ms(int64_t ntp_time_ms);
     Builder& set_rotation(VideoRotation rotation);
     Builder& set_color_space(const ColorSpace& color_space);
+    Builder& set_color_space(const ColorSpace* color_space);
+    Builder& set_id(uint16_t id);
 
    private:
+    uint16_t id_ = 0;
     rtc::scoped_refptr<webrtc::VideoFrameBuffer> video_frame_buffer_;
     int64_t timestamp_us_ = 0;
     uint32_t timestamp_rtp_ = 0;
@@ -70,6 +76,15 @@ class VideoFrame {
   int height() const;
   // Get frame size in pixels.
   uint32_t size() const;
+
+  // Get frame ID. Returns 0 if ID is not set. Not guarantee to be transferred
+  // from the sender to the receiver, but preserved on single side. The id
+  // should be propagated between all frame modifications during its lifetime
+  // from capturing to sending as encoded image. It is intended to be unique
+  // over a time window of a few minutes for peer connection, to which
+  // corresponding video stream belongs to.
+  uint16_t id() const { return id_; }
+  void set_id(uint16_t id) { id_ = id; }
 
   // System monotonic clock, same timebase as rtc::TimeMicros().
   int64_t timestamp_us() const { return timestamp_us_; }
@@ -110,8 +125,14 @@ class VideoFrame {
   VideoRotation rotation() const { return rotation_; }
   void set_rotation(VideoRotation rotation) { rotation_ = rotation; }
 
-  // Set Color space when available.
-  absl::optional<ColorSpace> color_space() const { return color_space_; }
+  // Get color space when available.
+  const ColorSpace* color_space() const {
+    return color_space_ ? &*color_space_ : nullptr;
+  }
+  void set_color_space(ColorSpace* color_space) {
+    color_space_ =
+        color_space ? absl::make_optional(*color_space) : absl::nullopt;
+  }
 
   // Get render time in milliseconds.
   // TODO(nisse): Deprecated. Migrate all users to timestamp_us().
@@ -128,13 +149,15 @@ class VideoFrame {
   }
 
  private:
-  VideoFrame(const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
+  VideoFrame(uint16_t id,
+             const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
              int64_t timestamp_us,
              uint32_t timestamp_rtp,
              int64_t ntp_time_ms,
              VideoRotation rotation,
              const absl::optional<ColorSpace>& color_space);
 
+  uint16_t id_;
   // An opaque reference counted handle that stores the pixel data.
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> video_frame_buffer_;
   uint32_t timestamp_rtp_;

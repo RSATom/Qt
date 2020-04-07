@@ -88,19 +88,19 @@ TimelineModel.TimelineModel = class {
    * @param {!SDK.TracingModel.Event} event
    * @return {boolean}
    */
-  static isMarkerEvent(event) {
+  isMarkerEvent(event) {
     const recordTypes = TimelineModel.TimelineModel.RecordType;
     switch (event.name) {
-      case recordTypes.FrameStartedLoading:
       case recordTypes.TimeStamp:
+        return true;
       case recordTypes.MarkFirstPaint:
       case recordTypes.MarkFCP:
       case recordTypes.MarkFMP:
-      case recordTypes.MarkFMPCandidate:
-        return true;
+        // TODO(alph): There are duplicate FMP events coming from the backend. Keep the one having 'data' property.
+        return this._mainFrame && event.args.frame === this._mainFrame.frameId && !!event.args.data;
       case recordTypes.MarkDOMContent:
       case recordTypes.MarkLoad:
-        return event.args['data']['isMainFrame'];
+        return !!event.args['data']['isMainFrame'];
       default:
         return false;
     }
@@ -180,8 +180,9 @@ TimelineModel.TimelineModel = class {
    * @param {!SDK.TracingModel} tracingModel
    */
   _processGenericTrace(tracingModel) {
-    const browserMainThread =
-        SDK.TracingModel.browserMainThread(tracingModel) || tracingModel.sortedProcesses()[0].sortedThreads()[0];
+    let browserMainThread = SDK.TracingModel.browserMainThread(tracingModel);
+    if (!browserMainThread && tracingModel.sortedProcesses().length)
+      browserMainThread = tracingModel.sortedProcesses()[0].sortedThreads()[0];
     for (const process of tracingModel.sortedProcesses()) {
       for (const thread of process.sortedThreads()) {
         this._processThreadEvents(
@@ -200,6 +201,8 @@ TimelineModel.TimelineModel = class {
       const metaEvent = metadataEvents.page[i];
       const process = metaEvent.thread.process();
       const endTime = i + 1 < length ? metadataEvents.page[i + 1].startTime : Infinity;
+      if (startTime === endTime)
+        continue;
       this._legacyCurrentPage = metaEvent.args['data'] && metaEvent.args['data']['page'];
       for (const thread of process.sortedThreads()) {
         let workerUrl = null;
@@ -538,7 +541,7 @@ TimelineModel.TimelineModel = class {
             track.tasks.push(event);
           eventStack.push(event);
         }
-        if (TimelineModel.TimelineModel.isMarkerEvent(event))
+        if (this.isMarkerEvent(event))
           this._timeMarkerEvents.push(event);
 
         track.events.push(event);
@@ -596,7 +599,7 @@ TimelineModel.TimelineModel = class {
         }
 
         if (asyncEvent.hasCategory(TimelineModel.TimelineModel.Category.UserTiming)) {
-          group(TimelineModel.TimelineModel.TrackType.UserTiming).push(asyncEvent);
+          group(TimelineModel.TimelineModel.TrackType.Timings).push(asyncEvent);
           continue;
         }
 
@@ -682,6 +685,10 @@ TimelineModel.TimelineModel = class {
       pageFrameId = TimelineModel.TimelineData.forEvent(eventStack.peekLast()).frameId;
     timelineData.frameId = pageFrameId || (this._mainFrame && this._mainFrame.frameId) || '';
     this._asyncEventTracker.processEvent(event);
+
+    if (this.isMarkerEvent(event))
+      this._ensureNamedTrack(TimelineModel.TimelineModel.TrackType.Timings);
+
     switch (event.name) {
       case recordTypes.ResourceSendRequest:
       case recordTypes.WebSocketCreate:
@@ -1212,7 +1219,6 @@ TimelineModel.TimelineModel.RecordType = {
   MarkFirstPaint: 'MarkFirstPaint',
   MarkFCP: 'firstContentfulPaint',
   MarkFMP: 'firstMeaningfulPaint',
-  MarkFMPCandidate: 'firstMeaningfulPaintCandidate',
 
   TimeStamp: 'TimeStamp',
   ConsoleTime: 'ConsoleTime',
@@ -1274,9 +1280,7 @@ TimelineModel.TimelineModel.RecordType = {
   InputLatencyMouseMove: 'InputLatency::MouseMove',
   InputLatencyMouseWheel: 'InputLatency::MouseWheel',
   ImplSideFling: 'InputHandlerProxy::HandleGestureFling::started',
-  GCIdleLazySweep: 'ThreadState::performIdleLazySweep',
-  GCCompleteSweep: 'ThreadState::completeSweep',
-  GCCollectGarbage: 'BlinkGCMarking',
+  GCCollectGarbage: 'BlinkGC.AtomicPhase',
 
   CryptoDoEncrypt: 'DoEncrypt',
   CryptoDoEncryptReply: 'DoEncryptReply',
@@ -1395,7 +1399,7 @@ TimelineModel.TimelineModel.TrackType = {
   Worker: Symbol('Worker'),
   Input: Symbol('Input'),
   Animation: Symbol('Animation'),
-  UserTiming: Symbol('UserTiming'),
+  Timings: Symbol('Timings'),
   Console: Symbol('Console'),
   Raster: Symbol('Raster'),
   GPU: Symbol('GPU'),

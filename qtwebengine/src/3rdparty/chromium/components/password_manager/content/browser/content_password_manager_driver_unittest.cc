@@ -19,10 +19,11 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 
 using autofill::PasswordForm;
 using autofill::PasswordFormFillData;
@@ -63,9 +64,9 @@ class FakePasswordAutofillAgent
 
   ~FakePasswordAutofillAgent() override {}
 
-  void BindRequest(mojo::ScopedMessagePipeHandle handle) {
-    binding_.Bind(
-        autofill::mojom::PasswordAutofillAgentRequest(std::move(handle)));
+  void BindRequest(mojo::ScopedInterfaceEndpointHandle handle) {
+    binding_.Bind(autofill::mojom::PasswordAutofillAgentAssociatedRequest(
+        std::move(handle)));
   }
 
   bool called_set_logging_state() { return called_set_logging_state_; }
@@ -78,8 +79,7 @@ class FakePasswordAutofillAgent
   }
 
   // autofill::mojom::PasswordAutofillAgent:
-  MOCK_METHOD2(FillPasswordForm,
-               void(int, const autofill::PasswordFormFillData&));
+  MOCK_METHOD1(FillPasswordForm, void(const autofill::PasswordFormFillData&));
   MOCK_METHOD3(FillIntoFocusedField,
                void(bool, const base::string16&, FillIntoFocusedFieldCallback));
 
@@ -94,15 +94,12 @@ class FakePasswordAutofillAgent
   void AutofillUsernameAndPasswordDataReceived(
       const autofill::FormsPredictionsMap& predictions) override {}
 
-  void FindFocusedPasswordForm(
-      FindFocusedPasswordFormCallback callback) override {}
-
   // Records whether SetLoggingState() gets called.
   bool called_set_logging_state_;
   // Records data received via SetLoggingState() call.
   bool logging_state_active_;
 
-  mojo::Binding<autofill::mojom::PasswordAutofillAgent> binding_;
+  mojo::AssociatedBinding<autofill::mojom::PasswordAutofillAgent> binding_;
 };
 
 PasswordFormFillData GetTestPasswordFormFillData() {
@@ -155,10 +152,9 @@ class ContentPasswordManagerDriverTest
     ON_CALL(password_manager_client_, GetLogManager())
         .WillByDefault(Return(&log_manager_));
 
-    service_manager::InterfaceProvider* remote_interfaces =
-        web_contents()->GetMainFrame()->GetRemoteInterfaces();
-    service_manager::InterfaceProvider::TestApi test_api(remote_interfaces);
-    test_api.SetBinderForName(
+    blink::AssociatedInterfaceProvider* remote_interfaces =
+        web_contents()->GetMainFrame()->GetRemoteAssociatedInterfaces();
+    remote_interfaces->OverrideBinderForTesting(
         autofill::mojom::PasswordAutofillAgent::Name_,
         base::Bind(&FakePasswordAutofillAgent::BindRequest,
                    base::Unretained(&fake_agent_)));
@@ -229,10 +225,11 @@ TEST_F(ContentPasswordManagerDriverTest, ClearPasswordsOnAutofill) {
       new ContentPasswordManagerDriver(main_rfh(), &password_manager_client_,
                                        &autofill_client_));
 
-    PasswordFormFillData fill_data = GetTestPasswordFormFillData();
-    fill_data.wait_for_username = true;
-    EXPECT_CALL(fake_agent_, FillPasswordForm(_, WerePasswordsCleared()));
-    driver->FillPasswordForm(fill_data);
+  PasswordFormFillData fill_data = GetTestPasswordFormFillData();
+  fill_data.wait_for_username = true;
+  EXPECT_CALL(fake_agent_, FillPasswordForm(WerePasswordsCleared()));
+  driver->FillPasswordForm(fill_data);
+  base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(ContentPasswordManagerDriverTest, NotInformAboutBlacklistedForm) {

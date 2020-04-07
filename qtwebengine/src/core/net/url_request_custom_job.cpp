@@ -39,8 +39,13 @@
 
 #include "url_request_custom_job.h"
 #include "url_request_custom_job_proxy.h"
+
+#include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
+#include "net/http/http_util.h"
 
 #include <QIODevice>
 
@@ -68,17 +73,30 @@ URLRequestCustomJob::~URLRequestCustomJob()
     if (m_device && m_device->isOpen())
         m_device->close();
     m_device = nullptr;
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     base::Bind(&URLRequestCustomJobProxy::release,
-                                     m_proxy));
+    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                             base::BindOnce(&URLRequestCustomJobProxy::release, m_proxy));
 }
 
 void URLRequestCustomJob::Start()
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     base::Bind(&URLRequestCustomJobProxy::initialize,
-                                     m_proxy, request()->url(), request()->method(), request()->initiator()));
+    HttpRequestHeaders requestHeaders = request()->extra_request_headers();
+    std::map<std::string, std::string> headers;
+    net::HttpRequestHeaders::Iterator it(requestHeaders);
+    while (it.GetNext())
+        headers.emplace(it.name(), it.value());
+    if (!request()->referrer().empty())
+        headers.emplace("Referer", request()->referrer());
+
+    // TODO: handle UploadDataStream, for instance using a QIODevice wrapper.
+
+    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                             base::BindOnce(&URLRequestCustomJobProxy::initialize,
+                                            m_proxy,
+                                            request()->url(),
+                                            request()->method(),
+                                            request()->initiator(),
+                                            std::move(headers)));
 }
 
 void URLRequestCustomJob::Kill()
@@ -94,9 +112,9 @@ void URLRequestCustomJob::Kill()
         m_pendingReadPos = 0;
     }
     m_device = nullptr;
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     base::Bind(&URLRequestCustomJobProxy::release,
-                                     m_proxy));
+    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                                     base::BindOnce(&URLRequestCustomJobProxy::release,
+                                                    m_proxy));
     URLRequestJob::Kill();
 }
 
@@ -118,6 +136,22 @@ bool URLRequestCustomJob::GetCharset(std::string* charset)
         return true;
     }
     return false;
+}
+
+void URLRequestCustomJob::GetResponseInfo(HttpResponseInfo* info)
+{
+    if (m_error)
+        return;
+
+    std::string headers;
+    if (m_redirect.is_valid()) {
+        headers += "HTTP/1.1 303 See Other\n";
+        headers += base::StringPrintf("Location: %s\n", m_redirect.spec().c_str());
+    } else {
+        headers += "HTTP/1.1 200 OK\n";
+    }
+
+    info->headers = new HttpResponseHeaders(HttpUtil::AssembleRawHeaders(headers.c_str(), headers.size()));
 }
 
 bool URLRequestCustomJob::IsRedirectResponse(GURL* location, int* http_status_code, bool* /*insecure_scheme_was_upgraded*/)

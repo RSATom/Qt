@@ -146,7 +146,7 @@ static bool mergePositions(QGeoPositionInfo &dst, const QGeoPositionInfo &src, Q
     QGeoPositionInfoPrivateNmea *dstPimpl = static_cast<QGeoPositionInfoPrivateNmea *>(QGeoPositionInfoPrivate::get(dst));
     dstPimpl->nmeaSentences.append(nmeaSentence);
 #else
-    Q_UNUSED(nmeaSentence)
+    Q_UNUSED(nmeaSentence);
 #endif
     return updated;
 }

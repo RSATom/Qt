@@ -7,13 +7,12 @@
 
 #include "SkArenaAlloc.h"
 #include "SkColorSpace.h"
+#include "SkColorSpacePriv.h"
 #include "SkColorSpaceXformSteps.h"
 #include "SkCoreBlitters.h"
 #include "SkOpts.h"
-#include "SkPM4fPriv.h"
 #include "SkRasterPipeline.h"
 #include "SkSpriteBlitter.h"
-#include "../jumper/SkJumper.h"
 
 SkSpriteBlitter::SkSpriteBlitter(const SkPixmap& source)
     : fSource(source) {}
@@ -110,32 +109,14 @@ public:
         fDst  = dst;
         fLeft = left;
         fTop  = top;
-
-        // Just like in SkImageShader, we'll keep the paint color as floats in sRGB.
-        swizzle_rb(Sk4f_fromL32(paint.getColor())).store(fPaintColor.vec());
+        fPaintColor = paint.getColor4f();
 
         SkRasterPipeline p(fAlloc);
-        void* ctx = &fSrcPtr;
-        switch (fSource.colorType()) {
-            case kAlpha_8_SkColorType:      p.append(SkRasterPipeline::load_a8,      ctx); break;
-            case kGray_8_SkColorType:       p.append(SkRasterPipeline::load_g8,      ctx); break;
-            case kRGB_565_SkColorType:      p.append(SkRasterPipeline::load_565,     ctx); break;
-            case kARGB_4444_SkColorType:    p.append(SkRasterPipeline::load_4444,    ctx); break;
-            case kBGRA_8888_SkColorType:    p.append(SkRasterPipeline::load_bgra,    ctx); break;
-            case kRGBA_8888_SkColorType:    p.append(SkRasterPipeline::load_8888,    ctx); break;
-            case kRGBA_1010102_SkColorType: p.append(SkRasterPipeline::load_1010102, ctx); break;
-            case kRGBA_F16_SkColorType:     p.append(SkRasterPipeline::load_f16,     ctx); break;
-            case kRGBA_F32_SkColorType:     p.append(SkRasterPipeline::load_f32,     ctx); break;
+        p.append_load(fSource.colorType(), &fSrcPtr);
 
-            case kRGB_888x_SkColorType:     p.append(SkRasterPipeline::load_8888,    ctx);
-                                            p.append(SkRasterPipeline::force_opaque     ); break;
-            case kRGB_101010x_SkColorType:  p.append(SkRasterPipeline::load_1010102, ctx);
-                                            p.append(SkRasterPipeline::force_opaque     ); break;
-            default: SkASSERT(false);
-        }
         if (fSource.colorType() == kAlpha_8_SkColorType) {
             // The color for A8 images comes from the (sRGB) paint color.
-            p.append(SkRasterPipeline::set_rgb, &fPaintColor);
+            p.append_set_rgb(fAlloc, fPaintColor);
             p.append(SkRasterPipeline::premul);
         }
         if (auto dstCS = fDst.colorSpace()) {
@@ -143,10 +124,13 @@ public:
             if (!srcCS || fSource.colorType() == kAlpha_8_SkColorType) {
                 // We treat untagged images as sRGB.
                 // A8 images get their r,g,b from the paint color, so they're also sRGB.
-                srcCS = SkColorSpace::MakeSRGB().get();
+                srcCS = sk_srgb_singleton();
             }
-            fAlloc->make<SkColorSpaceXformSteps>(srcCS, kPremul_SkAlphaType, dstCS)
-                ->apply(&p);
+            auto srcAT = fSource.isOpaque() ? kOpaque_SkAlphaType
+                                            : kPremul_SkAlphaType;
+            fAlloc->make<SkColorSpaceXformSteps>(srcCS, srcAT,
+                                                 dstCS, kPremul_SkAlphaType)
+                ->apply(&p, fSource.colorType());
         }
         if (fPaintColor.fA != 1.0f) {
             p.append(SkRasterPipeline::scale_1_float, &fPaintColor.fA);
@@ -171,10 +155,10 @@ public:
     }
 
 private:
-    SkArenaAlloc*      fAlloc;
-    SkBlitter*         fBlitter;
-    SkJumper_MemoryCtx fSrcPtr;
-    SkColor4f          fPaintColor;
+    SkArenaAlloc*              fAlloc;
+    SkBlitter*                 fBlitter;
+    SkRasterPipeline_MemoryCtx fSrcPtr;
+    SkColor4f                  fPaintColor;
 
     typedef SkSpriteBlitter INHERITED;
 };

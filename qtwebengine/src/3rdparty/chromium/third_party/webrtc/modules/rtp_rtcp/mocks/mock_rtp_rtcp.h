@@ -27,17 +27,6 @@
 
 namespace webrtc {
 
-class MockRtpData : public RtpData {
- public:
-  MockRtpData();
-  ~MockRtpData();
-
-  MOCK_METHOD3(OnReceivedPayloadData,
-               int32_t(const uint8_t* payload_data,
-                       size_t payload_size,
-                       const WebRtcRTPHeader* rtp_header));
-};
-
 class MockRtpRtcp : public RtpRtcp {
  public:
   MockRtpRtcp();
@@ -48,12 +37,20 @@ class MockRtpRtcp : public RtpRtcp {
   MOCK_METHOD1(SetRemoteSSRC, void(uint32_t ssrc));
   MOCK_METHOD1(SetMaxRtpPacketSize, void(size_t size));
   MOCK_CONST_METHOD0(MaxRtpPacketSize, size_t());
-  MOCK_METHOD1(RegisterSendPayload, int32_t(const CodecInst& voice_codec));
+  MOCK_METHOD5(RegisterAudioSendPayload,
+               void(int payload_type,
+                    absl::string_view payload_name,
+                    int frequency,
+                    int channels,
+                    int rate));
   MOCK_METHOD2(RegisterVideoSendPayload,
                void(int payload_type, const char* payload_name));
   MOCK_METHOD1(DeRegisterSendPayload, int32_t(int8_t payload_type));
+  MOCK_METHOD1(SetExtmapAllowMixed, void(bool extmap_allow_mixed));
   MOCK_METHOD2(RegisterSendRtpHeaderExtension,
                int32_t(RTPExtensionType type, uint8_t id));
+  MOCK_METHOD2(RegisterRtpHeaderExtension,
+               bool(const std::string& uri, int id));
   MOCK_METHOD1(DeregisterSendRtpHeaderExtension,
                int32_t(RTPExtensionType type));
   MOCK_CONST_METHOD0(HasBweExtensions, bool());
@@ -67,6 +64,7 @@ class MockRtpRtcp : public RtpRtcp {
   MOCK_CONST_METHOD0(GetRtxState, RtpState());
   MOCK_CONST_METHOD0(SSRC, uint32_t());
   MOCK_METHOD1(SetSSRC, void(uint32_t ssrc));
+  MOCK_METHOD1(SetRid, void(const std::string& rid));
   MOCK_METHOD1(SetMid, void(const std::string& mid));
   MOCK_CONST_METHOD1(CSRCs, int32_t(uint32_t csrcs[kRtpCsrcSize]));
   MOCK_METHOD1(SetCsrcs, void(const std::vector<uint32_t>& csrcs));
@@ -81,11 +79,13 @@ class MockRtpRtcp : public RtpRtcp {
   MOCK_CONST_METHOD0(Sending, bool());
   MOCK_METHOD1(SetSendingMediaStatus, void(bool sending));
   MOCK_CONST_METHOD0(SendingMedia, bool());
+  MOCK_METHOD1(SetAsPartOfAllocation, void(bool));
   MOCK_CONST_METHOD4(BitrateSent,
                      void(uint32_t* total_rate,
                           uint32_t* video_rate,
                           uint32_t* fec_rate,
                           uint32_t* nack_rate));
+  MOCK_CONST_METHOD0(PacketizationOverheadBps, uint32_t());
   MOCK_CONST_METHOD1(EstimatedReceiveBandwidth,
                      int(uint32_t* available_bandwidth));
   MOCK_METHOD9(SendOutgoingData,
@@ -146,7 +146,6 @@ class MockRtpRtcp : public RtpRtcp {
                        uint32_t name,
                        const uint8_t* data,
                        uint16_t length));
-  MOCK_METHOD1(SetRTCPVoIPMetrics, int32_t(const RTCPVoIPMetric* voip_metric));
   MOCK_METHOD1(SetRtcpXrRrtrStatus, void(bool enable));
   MOCK_CONST_METHOD0(RtcpXrRrtrStatus, bool());
   MOCK_METHOD2(SetRemb, void(int64_t bitrate, std::vector<uint32_t> ssrcs));

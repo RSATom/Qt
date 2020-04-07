@@ -7,9 +7,9 @@
 #ifndef FXJS_CJS_GLOBALCONSTS_H_
 #define FXJS_CJS_GLOBALCONSTS_H_
 
-#include "fxjs/js_define.h"
+#include "fxjs/cjs_object.h"
 
-class CJS_GlobalConsts : public CJS_Object {
+class CJS_GlobalConsts final : public CJS_Object {
  public:
   static void DefineJSObjects(CJS_Runtime* pRuntime);
 };

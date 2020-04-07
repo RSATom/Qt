@@ -78,6 +78,10 @@ private slots:
     void assignDate();
     void exportDate_data();
     void exportDate();
+    void checkDate_data();
+    void checkDate();
+    void checkDateTime_data();
+    void checkDateTime();
     void idShortcutInvalidates();
     void boolPropertiesEvaluateAsBool();
     void methods();
@@ -356,6 +360,7 @@ private slots:
     void callPropertyOnUndefined();
     void jumpStrictNotEqualUndefined();
     void removeBindingsWithNoDependencies();
+    void preserveBindingWithUnresolvedNames();
     void temporaryDeadZone();
     void importLexicalVariables_data();
     void importLexicalVariables();
@@ -370,6 +375,7 @@ private slots:
     void undefinedPropertiesInObjectWrapper();
     void hugeRegexpQuantifiers();
     void singletonTypeWrapperLookup();
+    void getThisObject();
 
 private:
 //    static void propertyVarWeakRefCallback(v8::Persistent<v8::Value> object, void* parameter);
@@ -526,22 +532,22 @@ void tst_qqmlecmascript::exportDate_data()
     QTest::newRow("UTC late") << testFileUrl("exportDate.4.qml") << QDateTime(date, late, Qt::UTC);
     {
         QDateTime dt(date, early, Qt::OffsetFromUTC);
-        dt.setUtcOffset(offset);
+        dt.setOffsetFromUtc(offset);
         QTest::newRow("+11:30 early") << testFileUrl("exportDate.5.qml") << dt;
     }
     {
         QDateTime dt(date, late, Qt::OffsetFromUTC);
-        dt.setUtcOffset(offset);
+        dt.setOffsetFromUtc(offset);
         QTest::newRow("+11:30 late") << testFileUrl("exportDate.6.qml") << dt;
     }
     {
         QDateTime dt(date, early, Qt::OffsetFromUTC);
-        dt.setUtcOffset(-offset);
+        dt.setOffsetFromUtc(-offset);
         QTest::newRow("-11:30 early") << testFileUrl("exportDate.7.qml") << dt;
     }
     {
         QDateTime dt(date, late, Qt::OffsetFromUTC);
-        dt.setUtcOffset(-offset);
+        dt.setOffsetFromUtc(-offset);
         QTest::newRow("-11:30 late") << testFileUrl("exportDate.8.qml") << dt;
     }
 }
@@ -561,6 +567,82 @@ void tst_qqmlecmascript::exportDate()
     MyTypeObject *object = qobject_cast<MyTypeObject *>(obj.data());
     QVERIFY(object != nullptr);
     QCOMPARE(object->boolProperty(), true);
+}
+
+void tst_qqmlecmascript::checkDate_data()
+{
+    QTest::addColumn<QUrl>("source");
+    QTest::addColumn<QDate>("date");
+    // NB: JavaScript month-indices are Jan = 0 to Dec = 11; QDate's are Jan = 1 to Dec = 12.
+    QTest::newRow("denormal-March")
+        << testFileUrl("checkDate-denormal-March.qml")
+        << QDate(2019, 3, 1);
+    QTest::newRow("denormal-leap")
+        << testFileUrl("checkDate-denormal-leap.qml")
+        << QDate(2020, 2, 29);
+    QTest::newRow("denormal-Feb")
+        << testFileUrl("checkDate-denormal-Feb.qml")
+        << QDate(2019, 2, 28);
+    QTest::newRow("denormal-year")
+        << testFileUrl("checkDate-denormal-year.qml")
+        << QDate(2019, 12, 31);
+    QTest::newRow("denormal-wrap")
+        << testFileUrl("checkDate-denormal-wrap.qml")
+        << QDate(2020, 2, 29);
+    QTest::newRow("October")
+        << testFileUrl("checkDate-October.qml")
+        << QDate(2019, 10, 3);
+}
+
+void tst_qqmlecmascript::checkDate()
+{
+    QFETCH(const QUrl, source);
+    QFETCH(const QDate, date);
+    QQmlEngine e;
+    QQmlComponent component(&e, source);
+    QScopedPointer<QObject> obj(component.create());
+    MyTypeObject *object = qobject_cast<MyTypeObject *>(obj.data());
+    QVERIFY(object != nullptr);
+    QCOMPARE(object->dateProperty(), date);
+    QVERIFY(object->boolProperty());
+}
+
+void tst_qqmlecmascript::checkDateTime_data()
+{
+    QTest::addColumn<QUrl>("source");
+    QTest::addColumn<QDateTime>("when");
+    // NB: JavaScript month-indices are Jan = 0 to Dec = 11; QDate's are Jan = 1 to Dec = 12.
+    QTest::newRow("denormal-March")
+        << testFileUrl("checkDateTime-denormal-March.qml")
+        << QDateTime(QDate(2019, 3, 1), QTime(0, 0, 0, 1), Qt::LocalTime);
+    QTest::newRow("denormal-leap")
+        << testFileUrl("checkDateTime-denormal-leap.qml")
+        << QDateTime(QDate(2020, 2, 29), QTime(23, 59, 59, 999), Qt::LocalTime);
+    QTest::newRow("denormal-hours")
+        << testFileUrl("checkDateTime-denormal-hours.qml")
+        << QDateTime(QDate(2020, 2, 29), QTime(0, 0), Qt::LocalTime);
+    QTest::newRow("denormal-minutes")
+        << testFileUrl("checkDateTime-denormal-minutes.qml")
+        << QDateTime(QDate(2020, 2, 29), QTime(0, 0), Qt::LocalTime);
+    QTest::newRow("denormal-seconds")
+        << testFileUrl("checkDateTime-denormal-seconds.qml")
+        << QDateTime(QDate(2020, 2, 29), QTime(0, 0), Qt::LocalTime);
+    QTest::newRow("October")
+        << testFileUrl("checkDateTime-October.qml")
+        << QDateTime(QDate(2019, 10, 3), QTime(12, 0), Qt::LocalTime);
+}
+
+void tst_qqmlecmascript::checkDateTime()
+{
+    QFETCH(const QUrl, source);
+    QFETCH(const QDateTime, when);
+    QQmlEngine e;
+    QQmlComponent component(&e, source);
+    QScopedPointer<QObject> obj(component.create());
+    MyTypeObject *object = qobject_cast<MyTypeObject *>(obj.data());
+    QVERIFY(object != nullptr);
+    QCOMPARE(object->dateTimeProperty(), when);
+    QVERIFY(object->boolProperty());
 }
 
 void tst_qqmlecmascript::idShortcutInvalidates()
@@ -2045,7 +2127,7 @@ void tst_qqmlecmascript::functionErrors()
 
     QObject *resource = qobject_cast<ScarceResourceObject*>(QQmlProperty::read(object, "a").value<QObject*>());
     warning = url + QLatin1String(":16: TypeError: Property 'scarceResource' of object ScarceResourceObject(0x%1) is not a function");
-    warning = warning.arg(QString::number((qintptr)resource, 16));
+    warning = warning.arg(QString::number(quintptr(resource), 16));
     QTest::ignoreMessage(QtWarningMsg, warning.toLatin1().constData()); // we expect a meaningful warning to be printed.
     QMetaObject::invokeMethod(object, "retrieveScarceResource");
     delete object;
@@ -4551,7 +4633,7 @@ void tst_qqmlecmascript::scarceResources_other()
     eo = qobject_cast<ScarceResourceObject*>(QQmlProperty::read(object, "a").value<QObject*>());
     QVERIFY(eo->scarceResourceIsDetached()); // should be no other copies of it at this stage.
     expectedWarning = varComponentTwelve.url().toString() + QLatin1String(":16: TypeError: Property 'scarceResource' of object ScarceResourceObject(0x%1) is not a function");
-    expectedWarning = expectedWarning.arg(QString::number((qintptr)eo, 16));
+    expectedWarning = expectedWarning.arg(QString::number(quintptr(eo), 16));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(expectedWarning)); // we expect a meaningful warning to be printed.
     QMetaObject::invokeMethod(object, "retrieveScarceResource");
     QVERIFY(!object->property("scarceResourceCopy").isValid()); // due to exception, assignment will NOT have occurred.
@@ -4625,7 +4707,7 @@ void tst_qqmlecmascript::scarceResources_other()
     eo = qobject_cast<ScarceResourceObject*>(QQmlProperty::read(object, "a").value<QObject*>());
     QVERIFY(eo->scarceResourceIsDetached()); // should be no other copies of it at this stage.
     expectedWarning = variantComponentTwelve.url().toString() + QLatin1String(":16: TypeError: Property 'scarceResource' of object ScarceResourceObject(0x%1) is not a function");
-    expectedWarning = expectedWarning.arg(QString::number((qintptr)eo, 16));
+    expectedWarning = expectedWarning.arg(QString::number(quintptr(eo), 16));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(expectedWarning)); // we expect a meaningful warning to be printed.
     QMetaObject::invokeMethod(object, "retrieveScarceResource");
     QVERIFY(!object->property("scarceResourceCopy").isValid()); // due to exception, assignment will NOT have occurred.
@@ -5999,6 +6081,13 @@ void tst_qqmlecmascript::nullObjectInitializer()
         QVariant value = obj->property("testProperty");
         QVERIFY(value.userType() == qMetaTypeId<QObject*>());
         QVERIFY(!value.value<QObject*>());
+    }
+
+    {
+        QQmlComponent component(&engine, testFileUrl("qmlVarNullBinding.qml"));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+        QVERIFY(!obj->property("signalSeen").toBool());
     }
 }
 
@@ -8814,6 +8903,18 @@ void tst_qqmlecmascript::removeBindingsWithNoDependencies()
 
 }
 
+void tst_qqmlecmascript::preserveBindingWithUnresolvedNames()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("preserveBindingWithUnresolvedNames.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+    QCOMPARE(object->property("testTypeOf").toString(), QString("undefined"));
+    QObject obj;
+    engine.rootContext()->setContextProperty("contextProp", &obj);
+    QCOMPARE(object->property("testTypeOf").toString(), QString("object"));
+}
+
 void tst_qqmlecmascript::temporaryDeadZone()
 {
     QJSEngine engine;
@@ -9027,6 +9128,17 @@ void tst_qqmlecmascript::singletonTypeWrapperLookup()
 
     QCOMPARE(test->property("firstLookup").toInt(), singleton1->testVar);
     QCOMPARE(test->property("secondLookup").toInt(), singleton2->testVar);
+}
+
+void tst_qqmlecmascript::getThisObject()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("getThis.qml"));
+    QVERIFY(component.isReady());
+    QScopedPointer<QObject> test(component.create());
+    QVERIFY(!test.isNull());
+
+    QTRY_COMPARE(qvariant_cast<QObject *>(test->property("self")), test.data());
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

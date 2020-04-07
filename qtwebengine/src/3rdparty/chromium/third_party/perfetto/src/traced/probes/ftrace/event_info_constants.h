@@ -23,26 +23,9 @@
 #include <vector>
 
 #include "perfetto/base/logging.h"
+#include "perfetto/protozero/proto_utils.h"
 
 namespace perfetto {
-
-enum ProtoFieldType {
-  kProtoDouble = 1,
-  kProtoFloat,
-  kProtoInt32,
-  kProtoInt64,
-  kProtoUint32,
-  kProtoUint64,
-  kProtoSint32,
-  kProtoSint64,
-  kProtoFixed32,
-  kProtoFixed64,
-  kProtoSfixed32,
-  kProtoSfixed64,
-  kProtoBool,
-  kProtoString,
-  kProtoBytes,
-};
 
 enum FtraceFieldType {
   kFtraceUint8 = 1,
@@ -71,12 +54,16 @@ enum FtraceFieldType {
 // into the ProtoFieldType.
 enum TranslationStrategy {
   kUint8ToUint32 = 1,
+  kUint8ToUint64,
   kUint16ToUint32,
+  kUint16ToUint64,
   kUint32ToUint32,
   kUint32ToUint64,
   kUint64ToUint64,
   kInt8ToInt32,
+  kInt8ToInt64,
   kInt16ToInt32,
+  kInt16ToInt64,
   kInt32ToInt32,
   kInt32ToInt64,
   kInt64ToInt64,
@@ -84,52 +71,17 @@ enum TranslationStrategy {
   kCStringToString,
   kStringPtrToString,
   kBoolToUint32,
+  kBoolToUint64,
   kInode32ToUint64,
   kInode64ToUint64,
   kPid32ToInt32,
+  kPid32ToInt64,
   kCommonPid32ToInt32,
+  kCommonPid32ToInt64,
   kDevId32ToUint64,
   kDevId64ToUint64,
   kDataLocToString,
 };
-
-inline const char* ToString(ProtoFieldType v) {
-  switch (v) {
-    case kProtoDouble:
-      return "double";
-    case kProtoFloat:
-      return "float";
-    case kProtoInt32:
-      return "int32";
-    case kProtoInt64:
-      return "int64";
-    case kProtoUint32:
-      return "uint32";
-    case kProtoUint64:
-      return "uint64";
-    case kProtoSint32:
-      return "sint32";
-    case kProtoSint64:
-      return "sint64";
-    case kProtoFixed32:
-      return "fixed32";
-    case kProtoFixed64:
-      return "fixed64";
-    case kProtoSfixed32:
-      return "sfixed32";
-    case kProtoSfixed64:
-      return "sfixed64";
-    case kProtoBool:
-      return "bool";
-    case kProtoString:
-      return "string";
-    case kProtoBytes:
-      return "bytes";
-  }
-  // For gcc:
-  PERFETTO_CHECK(false);
-  return "";
-}
 
 inline const char* ToString(FtraceFieldType v) {
   switch (v) {
@@ -173,7 +125,7 @@ inline const char* ToString(FtraceFieldType v) {
       return "__data_loc";
   }
   // For gcc:
-  PERFETTO_CHECK(false);
+  PERFETTO_FATAL("Not reached");
   return "";
 }
 
@@ -188,7 +140,7 @@ struct Field {
   const char* ftrace_name;
 
   uint32_t proto_field_id;
-  ProtoFieldType proto_field_type;
+  protozero::proto_utils::ProtoSchemaType proto_field_type;
 
   TranslationStrategy strategy;
 };
@@ -213,28 +165,17 @@ struct Event {
   uint16_t size;
 };
 
-// The compile time information needed to read the raw ftrace buffer.
-// Specifically for each event we have a proto we fill:
-//  The event name (e.g. sched_switch)
-//  The event group  (e.g. sched)
-//  The the proto field ID of this event in the FtraceEvent proto.
-//  For each field in the proto:
-//    The field name (e.g. prev_comm)
-//    The proto field id for this field
-//    The proto field type for this field (e.g. kProtoString or kProtoUint32)
-// The other fields: ftrace_event_id, ftrace_size, ftrace_offset, ftrace_type
-// are zeroed.
-std::vector<Event> GetStaticEventInfo();
-
 // The compile time information needed to read the common fields from
 // the raw ftrace buffer.
 std::vector<Field> GetStaticCommonFieldsInfo();
 
 bool SetTranslationStrategy(FtraceFieldType ftrace,
-                            ProtoFieldType proto,
+                            protozero::proto_utils::ProtoSchemaType proto,
                             TranslationStrategy* out);
 
-Field MakeField(const char* name, uint32_t id, ProtoFieldType type);
+Field MakeField(const char* name,
+                uint32_t id,
+                protozero::proto_utils::ProtoSchemaType type);
 
 }  // namespace perfetto
 

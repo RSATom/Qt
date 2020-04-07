@@ -31,6 +31,9 @@ class ResourceRequestInfo;
 class DevToolsURLRequestInterceptor : public net::URLRequestInterceptor,
                                       public DevToolsNetworkInterceptor {
  public:
+  static std::unique_ptr<DevToolsURLRequestInterceptor> MaybeCreate(
+      BrowserContext* browser_context);
+
   static bool IsNavigationRequest(ResourceType resource_type);
 
   explicit DevToolsURLRequestInterceptor(BrowserContext* browser_context);
@@ -66,10 +69,6 @@ class DevToolsURLRequestInterceptor : public net::URLRequestInterceptor,
   // Registers a |sub_request| that should not be intercepted.
   void RegisterSubRequest(const net::URLRequest* sub_request);
   void UnregisterSubRequest(const net::URLRequest* sub_request);
-  // To make the user's life easier we make sure requests in a redirect chain
-  // all have the same id.
-  void ExpectRequestAfterRedirect(const net::URLRequest* request,
-                                  std::string id);
   void JobFinished(const std::string& interception_id, bool is_navigation);
 
  private:
@@ -85,8 +84,6 @@ class DevToolsURLRequestInterceptor : public net::URLRequestInterceptor,
   const DevToolsTargetRegistry::TargetInfo* TargetInfoForRequestInfo(
       const ResourceRequestInfo* request_info) const;
 
-  std::string GetIdForRequest(const net::URLRequest* request,
-                              bool* is_redirect);
   // Returns a WeakPtr to the DevToolsURLInterceptorRequestJob corresponding
   // to |interception_id|.
   DevToolsURLInterceptorRequestJob* GetJob(
@@ -107,9 +104,6 @@ class DevToolsURLRequestInterceptor : public net::URLRequestInterceptor,
   // requests.
   base::flat_set<const net::URLRequest*> sub_requests_;
 
-  // To simplify handling of redirect chains for the end user, we arrange for
-  // all requests in the chain to have the same interception id.
-  base::flat_map<const net::URLRequest*, std::string> expected_redirects_;
   size_t next_id_;
 
   base::WeakPtrFactory<DevToolsURLRequestInterceptor> weak_factory_;

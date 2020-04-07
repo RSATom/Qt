@@ -59,6 +59,19 @@ class VIZ_COMMON_EXPORT SurfaceId {
 
   std::string ToString() const;
 
+  std::string ToString(base::StringPiece frame_sink_debug_label) const;
+
+  // Returns whether this SurfaceId was generated after |other|.
+  bool IsNewerThan(const SurfaceId& other) const;
+
+  // Returns whether this SurfaceId is the same as or was generated after
+  // |other|.
+  bool IsSameOrNewerThan(const SurfaceId& other) const;
+
+  // Returns the smallest valid SurfaceId with the same FrameSinkId and embed
+  // token as this SurfaceId.
+  SurfaceId ToSmallestId() const;
+
   bool operator==(const SurfaceId& other) const {
     return frame_sink_id_ == other.frame_sink_id_ &&
            local_surface_id_ == other.local_surface_id_;

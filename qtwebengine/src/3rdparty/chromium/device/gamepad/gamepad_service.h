@@ -26,6 +26,10 @@ namespace content {
 class GamepadServiceTestConstructor;
 }
 
+namespace service_manager {
+class Connector;
+}
+
 namespace device {
 class GamepadConsumer;
 class GamepadDataFetcher;
@@ -39,6 +43,11 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
  public:
   // Returns the GamepadService singleton.
   static GamepadService* GetInstance();
+
+  void StartUp(
+      std::unique_ptr<service_manager::Connector> service_manager_connector);
+
+  service_manager::Connector* GetConnector();
 
   // Increments the number of users of the provider. The Provider is running
   // when there's > 0 users, and is paused when the count drops to 0.
@@ -77,16 +86,16 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
   void Terminate();
 
   // Called on IO thread when a gamepad is connected.
-  void OnGamepadConnected(int index, const Gamepad& pad);
+  void OnGamepadConnected(uint32_t index, const Gamepad& pad);
 
   // Called on IO thread when a gamepad is disconnected.
-  void OnGamepadDisconnected(int index, const Gamepad& pad);
+  void OnGamepadDisconnected(uint32_t index, const Gamepad& pad);
 
   // Request playback of a haptic effect on the specified gamepad. Once effect
   // playback is complete or is preempted by a different effect, the callback
   // will be called.
   void PlayVibrationEffectOnce(
-      int pad_index,
+      uint32_t pad_index,
       mojom::GamepadHapticEffectType,
       mojom::GamepadEffectParametersPtr,
       mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback);
@@ -95,7 +104,7 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
   // effects are currently being played, they are preempted and vibration is
   // stopped.
   void ResetVibrationActuator(
-      int pad_index,
+      uint32_t pad_index,
       mojom::GamepadHapticsManager::ResetVibrationActuatorCallback);
 
  private:
@@ -116,7 +125,7 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
   void OnUserGesture();
 
   void OnGamepadConnectionChange(bool connected,
-                                 int index,
+                                 uint32_t index,
                                  const Gamepad& pad) override;
 
   void SetSanitizationEnabled(bool sanitize);
@@ -149,6 +158,8 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
   int num_active_consumers_;
 
   bool gesture_callback_pending_;
+
+  std::unique_ptr<service_manager::Connector> service_manager_connector_;
 
   DISALLOW_COPY_AND_ASSIGN(GamepadService);
 };

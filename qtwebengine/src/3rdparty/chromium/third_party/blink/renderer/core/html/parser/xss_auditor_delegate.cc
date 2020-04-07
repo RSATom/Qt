@@ -72,7 +72,7 @@ XSSAuditorDelegate::XSSAuditorDelegate(Document* document)
   DCHECK(document_);
 }
 
-void XSSAuditorDelegate::Trace(blink::Visitor* visitor) {
+void XSSAuditorDelegate::Trace(Visitor* visitor) {
   visitor->Trace(document_);
 }
 
@@ -84,7 +84,7 @@ scoped_refptr<EncodedFormData> XSSAuditorDelegate::GenerateViolationReport(
   String http_body;
   if (frame_loader.GetDocumentLoader()) {
     if (EncodedFormData* form_data =
-            frame_loader.GetDocumentLoader()->OriginalRequest().HttpBody())
+            frame_loader.GetDocumentLoader()->HttpBody())
       http_body = form_data->FlattenToString();
   }
 
@@ -115,9 +115,6 @@ void XSSAuditorDelegate::DidBlockScript(const XSSInfo& xss_info) {
 
   if (!did_send_notifications_ && local_frame->Client()) {
     did_send_notifications_ = true;
-
-    local_frame->Client()->DidDetectXSS(document_->Url(),
-                                        xss_info.did_block_entire_page_);
 
     if (!report_url_.IsEmpty())
       PingLoader::SendViolationReport(local_frame, report_url_,

@@ -8,18 +8,14 @@
 #define FXJS_XFA_CJX_BOOKEND_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Bookend;
 
-class CJX_Bookend : public CJX_Node {
+class CJX_Bookend final : public CJX_Node {
  public:
   explicit CJX_Bookend(CXFA_Bookend* node);
   ~CJX_Bookend() override;
-
-  JS_PROP(leader);
-  JS_PROP(trailer);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_BOOKEND_H_

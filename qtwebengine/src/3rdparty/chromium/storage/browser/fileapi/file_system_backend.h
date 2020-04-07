@@ -13,12 +13,12 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "storage/browser/fileapi/file_permission_policy.h"
 #include "storage/browser/fileapi/open_file_system_mode.h"
 #include "storage/browser/fileapi/task_runner_bound_observer_list.h"
-#include "storage/browser/storage_browser_export.h"
 #include "storage/common/fileapi/file_system_types.h"
 
 class GURL;
@@ -48,14 +48,14 @@ const int64_t kMaximumLength = INT64_MAX;
 // NOTE: when you implement a new FileSystemBackend for your own
 // FileSystem module, please contact to kinuko@chromium.org.
 //
-class STORAGE_EXPORT FileSystemBackend {
+class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemBackend {
  public:
   // Callback for InitializeFileSystem.
   using OpenFileSystemCallback =
       base::OnceCallback<void(const GURL& root_url,
                               const std::string& name,
                               base::File::Error error)>;
-  virtual ~FileSystemBackend() {}
+  virtual ~FileSystemBackend() = default;
 
   // Returns true if this filesystem backend can handle |type|.
   // One filesystem backend may be able to handle multiple filesystem types.
@@ -83,7 +83,7 @@ class STORAGE_EXPORT FileSystemBackend {
   virtual WatcherManager* GetWatcherManager(FileSystemType type) = 0;
 
   // Returns the specialized CopyOrMoveFileValidatorFactory for this backend
-  // and |type|.  If |error_code| is File::FILE_OK and the result is NULL,
+  // and |type|.  If |error_code| is File::FILE_OK and the result is nullptr,
   // then no validator is required.
   virtual CopyOrMoveFileValidatorFactory* GetCopyOrMoveFileValidatorFactory(
       FileSystemType type, base::File::Error* error_code) = 0;
@@ -135,20 +135,20 @@ class STORAGE_EXPORT FileSystemBackend {
       FileSystemContext* context) const = 0;
 
   // Returns the specialized FileSystemQuotaUtil for this backend.
-  // This could return NULL if this backend does not support quota.
+  // This could return nullptr if this backend does not support quota.
   virtual FileSystemQuotaUtil* GetQuotaUtil() = 0;
 
-  // Returns the update observer list for |type|. It may return NULL when no
+  // Returns the update observer list for |type|. It may return nullptr when no
   // observers are added.
   virtual const UpdateObserverList* GetUpdateObservers(
       FileSystemType type) const = 0;
 
-  // Returns the change observer list for |type|. It may return NULL when no
+  // Returns the change observer list for |type|. It may return nullptr when no
   // observers are added.
   virtual const ChangeObserverList* GetChangeObservers(
       FileSystemType type) const = 0;
 
-  // Returns the access observer list for |type|. It may return NULL when no
+  // Returns the access observer list for |type|. It may return nullptr when no
   // observers are added.
   virtual const AccessObserverList* GetAccessObservers(
       FileSystemType type) const = 0;

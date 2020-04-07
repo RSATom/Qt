@@ -22,7 +22,6 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
 #include "core/fxcrt/autorestorer.h"
 #include "core/fxcrt/cfx_binarybuf.h"
@@ -34,7 +33,7 @@ namespace {
 
 enum class ReadStatus { Normal, Backslash, Octal, FinishOctal, CarriageReturn };
 
-class ReadableSubStream : public IFX_SeekableReadStream {
+class ReadableSubStream final : public IFX_SeekableReadStream {
  public:
   ReadableSubStream(const RetainPtr<IFX_SeekableReadStream>& pFileRead,
                     FX_FILESIZE part_offset,
@@ -46,7 +45,9 @@ class ReadableSubStream : public IFX_SeekableReadStream {
   ~ReadableSubStream() override = default;
 
   // IFX_SeekableReadStream overrides:
-  bool ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override {
+  bool ReadBlockAtOffset(void* buffer,
+                         FX_FILESIZE offset,
+                         size_t size) override {
     FX_SAFE_FILESIZE safe_end = offset;
     safe_end += size;
     // Check that requested range is valid, to prevent calling of ReadBlock
@@ -54,7 +55,7 @@ class ReadableSubStream : public IFX_SeekableReadStream {
     if (!safe_end.IsValid() || safe_end.ValueOrDie() > m_PartSize)
       return false;
 
-    return m_pFileRead->ReadBlock(buffer, m_PartOffset + offset, size);
+    return m_pFileRead->ReadBlockAtOffset(buffer, m_PartOffset + offset, size);
   }
 
   FX_FILESIZE GetSize() override { return m_PartSize; }
@@ -70,7 +71,29 @@ class ReadableSubStream : public IFX_SeekableReadStream {
 // static
 int CPDF_SyntaxParser::s_CurrentRecursionDepth = 0;
 
-CPDF_SyntaxParser::CPDF_SyntaxParser() = default;
+// static
+std::unique_ptr<CPDF_SyntaxParser> CPDF_SyntaxParser::CreateForTesting(
+    const RetainPtr<IFX_SeekableReadStream>& pFileAccess,
+    FX_FILESIZE HeaderOffset) {
+  return pdfium::MakeUnique<CPDF_SyntaxParser>(
+      pdfium::MakeRetain<CPDF_ReadValidator>(pFileAccess, nullptr),
+      HeaderOffset);
+}
+
+CPDF_SyntaxParser::CPDF_SyntaxParser(
+    const RetainPtr<IFX_SeekableReadStream>& pFileAccess)
+    : CPDF_SyntaxParser(
+          pdfium::MakeRetain<CPDF_ReadValidator>(pFileAccess, nullptr),
+          0) {}
+
+CPDF_SyntaxParser::CPDF_SyntaxParser(
+    const RetainPtr<CPDF_ReadValidator>& validator,
+    FX_FILESIZE HeaderOffset)
+    : m_pFileAccess(validator),
+      m_HeaderOffset(HeaderOffset),
+      m_FileLen(m_pFileAccess->GetSize()) {
+  ASSERT(m_HeaderOffset <= m_FileLen);
+}
 
 CPDF_SyntaxParser::~CPDF_SyntaxParser() = default;
 
@@ -90,7 +113,8 @@ bool CPDF_SyntaxParser::ReadBlockAt(FX_FILESIZE read_pos) {
     read_size = m_FileLen - read_pos;
 
   m_pFileBuf.resize(read_size);
-  if (!m_pFileAccess->ReadBlock(m_pFileBuf.data(), read_pos, read_size)) {
+  if (!m_pFileAccess->ReadBlockAtOffset(m_pFileBuf.data(), read_pos,
+                                        read_size)) {
     m_pFileBuf.clear();
     return false;
   }
@@ -112,6 +136,10 @@ bool CPDF_SyntaxParser::GetNextChar(uint8_t& ch) {
   return true;
 }
 
+FX_FILESIZE CPDF_SyntaxParser::GetDocumentSize() const {
+  return m_FileLen - m_HeaderOffset;
+}
+
 bool CPDF_SyntaxParser::GetCharAtBackward(FX_FILESIZE pos, uint8_t* ch) {
   pos += m_HeaderOffset;
   if (pos >= m_FileLen)
@@ -129,7 +157,7 @@ bool CPDF_SyntaxParser::GetCharAtBackward(FX_FILESIZE pos, uint8_t* ch) {
 }
 
 bool CPDF_SyntaxParser::ReadBlock(uint8_t* pBuf, uint32_t size) {
-  if (!m_pFileAccess->ReadBlock(pBuf, m_Pos + m_HeaderOffset, size))
+  if (!m_pFileAccess->ReadBlockAtOffset(pBuf, m_Pos + m_HeaderOffset, size))
     return false;
   m_Pos += size;
   return true;
@@ -227,7 +255,7 @@ ByteString CPDF_SyntaxParser::ReadString() {
           buf << static_cast<char>(ch);
         break;
       case ReadStatus::Backslash:
-        if (ch >= '0' && ch <= '7') {
+        if (FXSYS_IsOctalDigit(ch)) {
           iEscCode = FXSYS_DecimalCharToInt(static_cast<wchar_t>(ch));
           status = ReadStatus::Octal;
           break;
@@ -253,7 +281,7 @@ ByteString CPDF_SyntaxParser::ReadString() {
         status = ReadStatus::Normal;
         break;
       case ReadStatus::Octal:
-        if (ch >= '0' && ch <= '7') {
+        if (FXSYS_IsOctalDigit(ch)) {
           iEscCode =
               iEscCode * 8 + FXSYS_DecimalCharToInt(static_cast<wchar_t>(ch));
           status = ReadStatus::FinishOctal;
@@ -265,7 +293,7 @@ ByteString CPDF_SyntaxParser::ReadString() {
         break;
       case ReadStatus::FinishOctal:
         status = ReadStatus::Normal;
-        if (ch >= '0' && ch <= '7') {
+        if (FXSYS_IsOctalDigit(ch)) {
           iEscCode =
               iEscCode * 8 + FXSYS_DecimalCharToInt(static_cast<wchar_t>(ch));
           buf << static_cast<char>(iEscCode);
@@ -378,6 +406,10 @@ ByteString CPDF_SyntaxParser::GetKeyword() {
   return GetNextWord(nullptr);
 }
 
+void CPDF_SyntaxParser::SetPos(FX_FILESIZE pos) {
+  m_Pos = std::min(pos, m_FileLen);
+}
+
 std::unique_ptr<CPDF_Object> CPDF_SyntaxParser::GetObjectBody(
     CPDF_IndirectObjectHolder* pObjList) {
   const CPDF_ReadValidator::Session read_session(GetValidator().Get());
@@ -451,22 +483,22 @@ std::unique_ptr<CPDF_Object> CPDF_SyntaxParser::GetObjectBodyInternal(
     std::unique_ptr<CPDF_Dictionary> pDict =
         pdfium::MakeUnique<CPDF_Dictionary>(m_pPool);
     while (1) {
-      ByteString word = GetNextWord(nullptr);
-      if (word.IsEmpty())
+      ByteString inner_word = GetNextWord(nullptr);
+      if (inner_word.IsEmpty())
         return nullptr;
 
-      FX_FILESIZE SavedPos = m_Pos - word.GetLength();
-      if (word == ">>")
+      FX_FILESIZE SavedPos = m_Pos - inner_word.GetLength();
+      if (inner_word == ">>")
         break;
 
-      if (word == "endobj") {
+      if (inner_word == "endobj") {
         m_Pos = SavedPos;
         break;
       }
-      if (word[0] != '/')
+      if (inner_word[0] != '/')
         continue;
 
-      ByteString key = PDF_NameDecode(word.AsStringView());
+      ByteString key = PDF_NameDecode(inner_word.AsStringView());
       if (key.IsEmpty() && parse_type == ParseType::kLoose)
         continue;
 
@@ -549,7 +581,7 @@ unsigned int CPDF_SyntaxParser::ReadEOLMarkers(FX_FILESIZE pos) {
   return 0;
 }
 
-FX_FILESIZE CPDF_SyntaxParser::FindWordPos(const ByteStringView& word) {
+FX_FILESIZE CPDF_SyntaxParser::FindWordPos(ByteStringView word) {
   AutoRestorer<FX_FILESIZE> pos_restorer(&m_Pos);
   FX_FILESIZE end_offset = FindTag(word);
   while (end_offset >= 0) {
@@ -682,8 +714,7 @@ std::unique_ptr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
     pStream->InitStreamFromFile(data, std::move(pDict));
   } else {
     DCHECK(!len);
-    // Empty stream
-    pStream->InitStream(nullptr, 0, std::move(pDict));
+    pStream->InitStream({}, std::move(pDict));  // Empty stream
   }
   const FX_FILESIZE end_stream_offset = GetPos();
   memset(m_WordBuffer, 0, kEndObjStr.GetLength() + 1);
@@ -698,27 +729,6 @@ std::unique_ptr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
   return pStream;
 }
 
-void CPDF_SyntaxParser::InitParser(
-    const RetainPtr<IFX_SeekableReadStream>& pFileAccess,
-    uint32_t HeaderOffset) {
-  ASSERT(pFileAccess);
-  return InitParserWithValidator(
-      pdfium::MakeRetain<CPDF_ReadValidator>(pFileAccess, nullptr),
-      HeaderOffset);
-}
-
-void CPDF_SyntaxParser::InitParserWithValidator(
-    const RetainPtr<CPDF_ReadValidator>& validator,
-    uint32_t HeaderOffset) {
-  ASSERT(validator);
-  m_pFileBuf.clear();
-  m_HeaderOffset = HeaderOffset;
-  m_FileLen = validator->GetSize();
-  m_Pos = 0;
-  m_pFileAccess = validator;
-  m_BufOffset = 0;
-}
-
 uint32_t CPDF_SyntaxParser::GetDirectNum() {
   bool bIsNumber;
   GetNextWordInternal(&bIsNumber);
@@ -731,7 +741,7 @@ uint32_t CPDF_SyntaxParser::GetDirectNum() {
 
 bool CPDF_SyntaxParser::IsWholeWord(FX_FILESIZE startpos,
                                     FX_FILESIZE limit,
-                                    const ByteStringView& tag,
+                                    ByteStringView tag,
                                     bool checkKeyword) {
   const uint32_t taglen = tag.GetLength();
 
@@ -757,7 +767,7 @@ bool CPDF_SyntaxParser::IsWholeWord(FX_FILESIZE startpos,
   return true;
 }
 
-bool CPDF_SyntaxParser::BackwardsSearchToWord(const ByteStringView& tag,
+bool CPDF_SyntaxParser::BackwardsSearchToWord(ByteStringView tag,
                                               FX_FILESIZE limit) {
   int32_t taglen = tag.GetLength();
   if (taglen == 0)
@@ -791,7 +801,7 @@ bool CPDF_SyntaxParser::BackwardsSearchToWord(const ByteStringView& tag,
   }
 }
 
-FX_FILESIZE CPDF_SyntaxParser::FindTag(const ByteStringView& tag) {
+FX_FILESIZE CPDF_SyntaxParser::FindTag(ByteStringView tag) {
   const FX_FILESIZE startpos = GetPos();
   const int32_t taglen = tag.GetLength();
   ASSERT(taglen > 0);
@@ -811,10 +821,6 @@ FX_FILESIZE CPDF_SyntaxParser::FindTag(const ByteStringView& tag) {
     }
   }
   return -1;
-}
-
-RetainPtr<IFX_SeekableReadStream> CPDF_SyntaxParser::GetFileAccess() const {
-  return m_pFileAccess;
 }
 
 bool CPDF_SyntaxParser::IsPositionRead(FX_FILESIZE pos) const {

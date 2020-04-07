@@ -31,8 +31,9 @@ bool IsTokenSupported(const AtomicString& token) {
     if (token == supported_token)
       return true;
   }
-  if (token == "allow-downloads" &&
-      RuntimeEnabledFeatures::BlockingDownloadsInSandboxEnabled()) {
+  if (token == "allow-downloads-without-user-activation" &&
+      RuntimeEnabledFeatures::
+          BlockingDownloadsInSandboxWithoutUserActivationEnabled()) {
     return true;
   }
   return false;
@@ -41,7 +42,7 @@ bool IsTokenSupported(const AtomicString& token) {
 }  // namespace
 
 HTMLIFrameElementSandbox::HTMLIFrameElementSandbox(HTMLIFrameElement* element)
-    : DOMTokenList(*element, HTMLNames::sandboxAttr) {}
+    : DOMTokenList(*element, html_names::kSandboxAttr) {}
 
 bool HTMLIFrameElementSandbox::ValidateTokenValue(
     const AtomicString& token_value,

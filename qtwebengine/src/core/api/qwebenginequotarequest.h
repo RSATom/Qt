@@ -47,11 +47,11 @@
 namespace QtWebEngineCore {
 class QuotaPermissionContextQt;
 class QuotaRequestController;
-}
+} // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
-class QWEBENGINECORE_EXPORT QWebEngineQuotaRequest {
+class Q_WEBENGINECORE_EXPORT QWebEngineQuotaRequest {
     Q_GADGET
     Q_PROPERTY(QUrl origin READ origin CONSTANT FINAL)
     Q_PROPERTY(qint64 requestedSize READ requestedSize CONSTANT FINAL)
@@ -63,6 +63,7 @@ public:
     qint64 requestedSize() const;
     bool operator==(const QWebEngineQuotaRequest &that) const { return d_ptr == that.d_ptr; }
     bool operator!=(const QWebEngineQuotaRequest &that) const { return d_ptr != that.d_ptr; }
+
 private:
     QWebEngineQuotaRequest(QSharedPointer<QtWebEngineCore::QuotaRequestController>);
     friend QtWebEngineCore::QuotaPermissionContextQt;

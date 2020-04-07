@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_RECTANGLE_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Rectangle;
 
-class CJX_Rectangle : public CJX_Node {
+class CJX_Rectangle final : public CJX_Node {
  public:
   explicit CJX_Rectangle(CXFA_Rectangle* node);
   ~CJX_Rectangle() override;
-
-  JS_PROP(hand);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_RECTANGLE_H_

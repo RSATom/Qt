@@ -45,7 +45,9 @@
     To import Qt Data Visualization QML types, add the following import statement to your \c .qml
     file:
 
-    \snippet doc_src_qmldatavisualization.cpp 0
+    \qml \QtMinorVersion
+    import QtDataVisualization 1.\1
+    \endqml
 
     If you intend to use Qt Data Visualization C++ classes in your application, use the
     following include and using directives:

@@ -28,7 +28,7 @@
 ****************************************************************************/
 
 #include "qwasmopenglcontext.h"
-
+#include "qwasmintegration.h"
 #include <EGL/egl.h>
 
 QT_BEGIN_NAMESPACE
@@ -37,47 +37,46 @@ QWasmOpenGLContext::QWasmOpenGLContext(const QSurfaceFormat &format)
     : m_requestedFormat(format)
 {
     m_requestedFormat.setRenderableType(QSurfaceFormat::OpenGLES);
+
+    // if we set one, we need to set the other as well since in webgl, these are tied together
+    if (format.depthBufferSize() < 0 && format.stencilBufferSize() > 0)
+       m_requestedFormat.setDepthBufferSize(16);
+
+   if (format.stencilBufferSize() < 0 && format.depthBufferSize() > 0)
+       m_requestedFormat.setStencilBufferSize(8);
+
 }
 
 QWasmOpenGLContext::~QWasmOpenGLContext()
 {
-    if (m_context)
+    if (m_context) {
         emscripten_webgl_destroy_context(m_context);
-}
-
-void QWasmOpenGLContext::maybeRecreateEmscriptenContext(QPlatformSurface *surface)
-{
-    // Native emscripten contexts are tied to a single surface. Recreate
-    // the context if the surface is changed.
-    if (surface != m_surface) {
-        m_surface = surface;
-
-        // Destroy existing context
-        if (m_context)
-            emscripten_webgl_destroy_context(m_context);
-
-        // Create new context
-        const char *canvasId = 0; // (use default canvas) FIXME: get the actual canvas from the surface.
-        m_context = createEmscriptenContext(canvasId, m_requestedFormat);
-
-        // Register context-lost callback.
-        auto callback = [](int eventType, const void *reserved, void *userData) -> EM_BOOL
-        {
-            Q_UNUSED(eventType);
-            Q_UNUSED(reserved);
-            // The application may get contex-lost if e.g. moved to the background. Set
-            // m_contextLost which will make isValid() return false. Application code will
-            // then detect this and recrate the the context, resulting in a new QWasmOpenGLContext
-            // instance.
-            reinterpret_cast<QWasmOpenGLContext *>(userData)->m_contextLost = true;
-            return true;
-        };
-        bool capture = true;
-        emscripten_set_webglcontextlost_callback(canvasId, this, capture, callback);
+        m_context = 0;
     }
 }
 
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE QWasmOpenGLContext::createEmscriptenContext(const char *canvasId, QSurfaceFormat format)
+bool QWasmOpenGLContext::maybeCreateEmscriptenContext(QPlatformSurface *surface)
+{
+    // Native emscripten/WebGL contexts are tied to a single screen/canvas. The first
+    // call to this function creates a native canvas for the given screen, subsequent
+    // calls verify that the surface is on/off the same screen.
+    QPlatformScreen *screen = surface->screen();
+    if (m_context && !screen)
+        return false; // Alternative: return true to support makeCurrent on QOffScreenSurface with
+                      // no screen. However, Qt likes to substitute QGuiApplication::primaryScreen()
+                      // for null screens, which foils this plan.
+    if (!screen)
+        return false;
+    if (m_context)
+        return m_screen == screen;
+
+    QString canvasId = QWasmScreen::get(screen)->canvasId();
+    m_context = createEmscriptenContext(canvasId, m_requestedFormat);
+    m_screen = screen;
+    return true;
+}
+
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE QWasmOpenGLContext::createEmscriptenContext(const QString &canvasId, QSurfaceFormat format)
 {
     EmscriptenWebGLContextAttributes attributes;
     emscripten_webgl_init_context_attributes(&attributes); // Populate with default attributes
@@ -91,12 +90,16 @@ EMSCRIPTEN_WEBGL_CONTEXT_HANDLE QWasmOpenGLContext::createEmscriptenContext(cons
         attributes.majorVersion = 2;
     }
 
+    // WebGL doesn't allow separate attach buffers to STENCIL_ATTACHMENT and DEPTH_ATTACHMENT
+    // we need both or none
+    bool useDepthStencil = (format.depthBufferSize() > 0 || format.stencilBufferSize() > 0);
+
     // WebGL offers enable/disable control but not size control for these
     attributes.alpha = format.alphaBufferSize() > 0;
-    attributes.depth = format.depthBufferSize() > 0;
-    attributes.stencil = format.stencilBufferSize() > 0;
+    attributes.depth = useDepthStencil;
+    attributes.stencil = useDepthStencil;
 
-    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context = emscripten_webgl_create_context(canvasId, &attributes);
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context = emscripten_webgl_create_context(canvasId.toLocal8Bit().constData(), &attributes);
 
     return context;
 }
@@ -113,7 +116,9 @@ GLuint QWasmOpenGLContext::defaultFramebufferObject(QPlatformSurface *surface) c
 
 bool QWasmOpenGLContext::makeCurrent(QPlatformSurface *surface)
 {
-    maybeRecreateEmscriptenContext(surface);
+    bool ok = maybeCreateEmscriptenContext(surface);
+    if (!ok)
+        return false;
 
     return emscripten_webgl_make_context_current(m_context) == EMSCRIPTEN_RESULT_SUCCESS;
 }
@@ -136,7 +141,9 @@ bool QWasmOpenGLContext::isSharing() const
 
 bool QWasmOpenGLContext::isValid() const
 {
-    return (m_contextLost == false);
+    // Note: we get isValid() calls before we see the surface and can
+    // create a native context, so no context is also a valid state.
+    return !m_context || !emscripten_is_webgl_context_lost(m_context);
 }
 
 QFunctionPointer QWasmOpenGLContext::getProcAddress(const char *procName)

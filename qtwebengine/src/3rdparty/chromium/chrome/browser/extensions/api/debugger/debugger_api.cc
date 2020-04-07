@@ -22,6 +22,7 @@
 #include "base/scoped_observer.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
@@ -36,6 +37,7 @@
 #include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/infobars/core/infobar.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/notification_service.h"
@@ -44,6 +46,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_host.h"
@@ -90,6 +93,9 @@ bool ExtensionCanAttachToURL(const Extension& extension,
                              const GURL& url,
                              Profile* profile,
                              std::string* error) {
+  if (url == content::kUnreachableWebDataURL)
+    return true;
+
   // NOTE: The `debugger` permission implies all URLs access (and indicates
   // such to the user), so we don't check explicit page access. However, we
   // still need to check if it's an otherwise-restricted URL.
@@ -141,6 +147,8 @@ class ExtensionDevToolsClientHost : public content::DevToolsAgentHostClient,
                                const std::string& message) override;
   bool MayAttachToRenderer(content::RenderFrameHost* render_frame_host,
                            bool is_webui) override;
+  bool MayAttachToBrowser() override;
+  bool MayAffectLocalFiles() override;
 
  private:
   using PendingRequests =
@@ -204,7 +212,7 @@ ExtensionDevToolsClientHost::ExtensionDevToolsClientHost(
 
 bool ExtensionDevToolsClientHost::Attach() {
   // Attach to debugger and tell it we are ready.
-  if (!agent_host_->AttachRestrictedClient(this))
+  if (!agent_host_->AttachClient(this))
     return false;
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -311,9 +319,12 @@ void ExtensionDevToolsClientHost::DispatchProtocolMessage(
   if (!EventRouter::Get(profile_))
     return;
 
-  std::unique_ptr<base::Value> result = base::JSONReader::Read(message);
-  if (!result || !result->is_dict())
+  std::unique_ptr<base::Value> result =
+      base::JSONReader::Read(message, base::JSON_REPLACE_INVALID_CHARACTERS);
+  if (!result || !result->is_dict()) {
+    LOG(ERROR) << "Tried to send invalid message to extension: " << message;
     return;
+  }
   base::DictionaryValue* dictionary =
       static_cast<base::DictionaryValue*>(result.get());
 
@@ -361,14 +372,21 @@ bool ExtensionDevToolsClientHost::MayAttachToRenderer(
   const GURL& site_instance_url =
       render_frame_host->GetSiteInstance()->GetSiteURL();
 
-  if (site_instance_url.is_empty()) {
-    // |site_instance_url| is empty for about:blank. Allow the extension to
-    // attach.
+  if (site_instance_url.is_empty() || site_instance_url == "about:") {
+    // Allow the extension to attach to about:blank.
     return true;
   }
 
   return ExtensionCanAttachToURL(*extension_, site_instance_url, profile_,
                                  &error);
+}
+
+bool ExtensionDevToolsClientHost::MayAttachToBrowser() {
+  return false;
+}
+
+bool ExtensionDevToolsClientHost::MayAffectLocalFiles() {
+  return false;
 }
 
 // DebuggerFunction -----------------------------------------------------------
@@ -463,7 +481,7 @@ ExtensionDevToolsClientHost* DebuggerFunction::FindClientHost() {
   const std::string& extension_id = extension()->id();
   DevToolsAgentHost* agent_host = agent_host_.get();
   AttachedClientHosts& hosts = g_attached_client_hosts.Get();
-  AttachedClientHosts::iterator it = std::find_if(
+  auto it = std::find_if(
       hosts.begin(), hosts.end(),
       [&agent_host, &extension_id](ExtensionDevToolsClientHost* client_host) {
         return client_host->agent_host() == agent_host &&
@@ -596,7 +614,10 @@ const char kTargetUrlField[] = "url";
 const char kTargetFaviconUrlField[] = "faviconUrl";
 const char kTargetTabIdField[] = "tabId";
 const char kTargetExtensionIdField[] = "extensionId";
+const char kTargetTypePage[] = "page";
+const char kTargetTypeBackgroundPage[] = "background_page";
 const char kTargetTypeWorker[] = "worker";
+const char kTargetTypeOther[] = "other";
 
 std::unique_ptr<base::DictionaryValue> SerializeTarget(
     scoped_refptr<DevToolsAgentHost> host) {
@@ -608,20 +629,21 @@ std::unique_ptr<base::DictionaryValue> SerializeTarget(
   dictionary->SetString(kTargetUrlField, host->GetURL().spec());
 
   std::string type = host->GetType();
+  std::string target_type = kTargetTypeOther;
   if (type == DevToolsAgentHost::kTypePage) {
     int tab_id =
         extensions::ExtensionTabUtil::GetTabId(host->GetWebContents());
     dictionary->SetInteger(kTargetTabIdField, tab_id);
+    target_type = kTargetTypePage;
   } else if (type == ChromeDevToolsManagerDelegate::kTypeBackgroundPage) {
     dictionary->SetString(kTargetExtensionIdField, host->GetURL().host());
+    target_type = kTargetTypeBackgroundPage;
+  } else if (type == DevToolsAgentHost::kTypeServiceWorker ||
+             type == DevToolsAgentHost::kTypeSharedWorker) {
+    target_type = kTargetTypeWorker;
   }
 
-  if (type == DevToolsAgentHost::kTypeServiceWorker ||
-      type == DevToolsAgentHost::kTypeSharedWorker) {
-    type = kTargetTypeWorker;
-  }
-
-  dictionary->SetString(kTargetTypeField, type);
+  dictionary->SetString(kTargetTypeField, target_type);
 
   GURL favicon_url = host->GetFaviconURL();
   if (favicon_url.is_valid())
@@ -640,8 +662,8 @@ DebuggerGetTargetsFunction::~DebuggerGetTargetsFunction() {
 
 bool DebuggerGetTargetsFunction::RunAsync() {
   content::DevToolsAgentHost::List list = DevToolsAgentHost::GetOrCreateAll();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&DebuggerGetTargetsFunction::SendTargetList, this, list));
   return true;
 }

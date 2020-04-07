@@ -151,7 +151,7 @@
 #include "../crypto/internal.h"
 
 
-namespace bssl {
+BSSL_NAMESPACE_BEGIN
 
 // The address of this is a magic value, a pointer to which is returned by
 // SSL_magic_pending_session_ptr(). It allows a session callback to indicate
@@ -414,47 +414,44 @@ int ssl_ctx_rotate_ticket_encryption_key(SSL_CTX *ctx) {
     // Avoid acquiring a write lock in the common case (i.e. a non-default key
     // is used or the default keys have not expired yet).
     MutexReadLock lock(&ctx->lock);
-    if (ctx->tlsext_ticket_key_current &&
-        (ctx->tlsext_ticket_key_current->next_rotation_tv_sec == 0 ||
-         ctx->tlsext_ticket_key_current->next_rotation_tv_sec > now.tv_sec) &&
-        (!ctx->tlsext_ticket_key_prev ||
-         ctx->tlsext_ticket_key_prev->next_rotation_tv_sec > now.tv_sec)) {
+    if (ctx->ticket_key_current &&
+        (ctx->ticket_key_current->next_rotation_tv_sec == 0 ||
+         ctx->ticket_key_current->next_rotation_tv_sec > now.tv_sec) &&
+        (!ctx->ticket_key_prev ||
+         ctx->ticket_key_prev->next_rotation_tv_sec > now.tv_sec)) {
       return 1;
     }
   }
 
   MutexWriteLock lock(&ctx->lock);
-  if (!ctx->tlsext_ticket_key_current ||
-      (ctx->tlsext_ticket_key_current->next_rotation_tv_sec != 0 &&
-       ctx->tlsext_ticket_key_current->next_rotation_tv_sec <= now.tv_sec)) {
+  if (!ctx->ticket_key_current ||
+      (ctx->ticket_key_current->next_rotation_tv_sec != 0 &&
+       ctx->ticket_key_current->next_rotation_tv_sec <= now.tv_sec)) {
     // The current key has not been initialized or it is expired.
-    auto new_key = bssl::MakeUnique<struct tlsext_ticket_key>();
+    auto new_key = bssl::MakeUnique<TicketKey>();
     if (!new_key) {
       return 0;
     }
-    OPENSSL_memset(new_key.get(), 0, sizeof(struct tlsext_ticket_key));
-    if (ctx->tlsext_ticket_key_current) {
+    RAND_bytes(new_key->name, 16);
+    RAND_bytes(new_key->hmac_key, 16);
+    RAND_bytes(new_key->aes_key, 16);
+    new_key->next_rotation_tv_sec =
+        now.tv_sec + SSL_DEFAULT_TICKET_KEY_ROTATION_INTERVAL;
+    if (ctx->ticket_key_current) {
       // The current key expired. Rotate it to prev and bump up its rotation
       // timestamp. Note that even with the new rotation time it may still be
-      // expired and get droppped below.
-      ctx->tlsext_ticket_key_current->next_rotation_tv_sec +=
+      // expired and get dropped below.
+      ctx->ticket_key_current->next_rotation_tv_sec +=
           SSL_DEFAULT_TICKET_KEY_ROTATION_INTERVAL;
-      OPENSSL_free(ctx->tlsext_ticket_key_prev);
-      ctx->tlsext_ticket_key_prev = ctx->tlsext_ticket_key_current;
+      ctx->ticket_key_prev = std::move(ctx->ticket_key_current);
     }
-    ctx->tlsext_ticket_key_current = new_key.release();
-    RAND_bytes(ctx->tlsext_ticket_key_current->name, 16);
-    RAND_bytes(ctx->tlsext_ticket_key_current->hmac_key, 16);
-    RAND_bytes(ctx->tlsext_ticket_key_current->aes_key, 16);
-    ctx->tlsext_ticket_key_current->next_rotation_tv_sec =
-        now.tv_sec + SSL_DEFAULT_TICKET_KEY_ROTATION_INTERVAL;
+    ctx->ticket_key_current = std::move(new_key);
   }
 
   // Drop an expired prev key.
-  if (ctx->tlsext_ticket_key_prev &&
-      ctx->tlsext_ticket_key_prev->next_rotation_tv_sec <= now.tv_sec) {
-    OPENSSL_free(ctx->tlsext_ticket_key_prev);
-    ctx->tlsext_ticket_key_prev = nullptr;
+  if (ctx->ticket_key_prev &&
+      ctx->ticket_key_prev->next_rotation_tv_sec <= now.tv_sec) {
+    ctx->ticket_key_prev.reset();
   }
 
   return 1;
@@ -478,12 +475,12 @@ static int ssl_encrypt_ticket_with_cipher_ctx(SSL_HANDSHAKE *hs, CBB *out,
 
   // Initialize HMAC and cipher contexts. If callback present it does all the
   // work otherwise use generated values from parent ctx.
-  SSL_CTX *tctx = hs->ssl->session_ctx;
+  SSL_CTX *tctx = hs->ssl->session_ctx.get();
   uint8_t iv[EVP_MAX_IV_LENGTH];
   uint8_t key_name[16];
-  if (tctx->tlsext_ticket_key_cb != NULL) {
-    if (tctx->tlsext_ticket_key_cb(hs->ssl, key_name, iv, ctx.get(), hctx.get(),
-                                   1 /* encrypt */) < 0) {
+  if (tctx->ticket_key_cb != NULL) {
+    if (tctx->ticket_key_cb(hs->ssl, key_name, iv, ctx.get(), hctx.get(),
+                            1 /* encrypt */) < 0) {
       return 0;
     }
   } else {
@@ -494,12 +491,12 @@ static int ssl_encrypt_ticket_with_cipher_ctx(SSL_HANDSHAKE *hs, CBB *out,
     MutexReadLock lock(&tctx->lock);
     if (!RAND_bytes(iv, 16) ||
         !EVP_EncryptInit_ex(ctx.get(), EVP_aes_128_cbc(), NULL,
-                            tctx->tlsext_ticket_key_current->aes_key, iv) ||
-        !HMAC_Init_ex(hctx.get(), tctx->tlsext_ticket_key_current->hmac_key, 16,
+                            tctx->ticket_key_current->aes_key, iv) ||
+        !HMAC_Init_ex(hctx.get(), tctx->ticket_key_current->hmac_key, 16,
                       tlsext_tick_md(), NULL)) {
       return 0;
     }
-    OPENSSL_memcpy(key_name, tctx->tlsext_ticket_key_current->name, 16);
+    OPENSSL_memcpy(key_name, tctx->ticket_key_current->name, 16);
   }
 
   uint8_t *ptr;
@@ -696,13 +693,13 @@ static enum ssl_hs_wait_t ssl_lookup_session(
     // Add the externally cached session to the internal cache if necessary.
     if (!(ssl->session_ctx->session_cache_mode &
           SSL_SESS_CACHE_NO_INTERNAL_STORE)) {
-      SSL_CTX_add_session(ssl->session_ctx, session.get());
+      SSL_CTX_add_session(ssl->session_ctx.get(), session.get());
     }
   }
 
   if (session && !ssl_session_is_time_valid(ssl, session.get())) {
     // The session was from the cache, so remove it.
-    SSL_CTX_remove_session(ssl->session_ctx, session.get());
+    SSL_CTX_remove_session(ssl->session_ctx.get(), session.get());
     session.reset();
   }
 
@@ -721,16 +718,15 @@ enum ssl_hs_wait_t ssl_get_prev_session(SSL_HANDSHAKE *hs,
   bool renew_ticket = false;
 
   // If tickets are disabled, always behave as if no tickets are present.
-  const uint8_t *ticket = NULL;
-  size_t ticket_len = 0;
+  CBS ticket;
   const bool tickets_supported =
       !(SSL_get_options(hs->ssl) & SSL_OP_NO_TICKET) &&
-      SSL_early_callback_ctx_extension_get(
-          client_hello, TLSEXT_TYPE_session_ticket, &ticket, &ticket_len);
-  if (tickets_supported && ticket_len > 0) {
-    switch (ssl_process_ticket(hs, &session, &renew_ticket, ticket, ticket_len,
-                               client_hello->session_id,
-                               client_hello->session_id_len)) {
+      ssl_client_hello_get_extension(client_hello, &ticket,
+                                     TLSEXT_TYPE_session_ticket);
+  if (tickets_supported && CBS_len(&ticket) != 0) {
+    switch (ssl_process_ticket(hs, &session, &renew_ticket, ticket,
+                               MakeConstSpan(client_hello->session_id,
+                                             client_hello->session_id_len))) {
       case ssl_ticket_aead_success:
         break;
       case ssl_ticket_aead_ignore_ticket:
@@ -788,15 +784,11 @@ static int remove_session_lock(SSL_CTX *ctx, SSL_SESSION *session, int lock) {
 }
 
 void ssl_set_session(SSL *ssl, SSL_SESSION *session) {
-  if (ssl->session == session) {
+  if (ssl->session.get() == session) {
     return;
   }
 
-  SSL_SESSION_free(ssl->session);
-  ssl->session = session;
-  if (session != NULL) {
-    SSL_SESSION_up_ref(session);
-  }
+  ssl->session = UpRef(session);
 }
 
 // locked by SSL_CTX in the calling function
@@ -846,7 +838,7 @@ static void SSL_SESSION_list_add(SSL_CTX *ctx, SSL_SESSION *session) {
   }
 }
 
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 using namespace bssl;
 
@@ -1070,7 +1062,7 @@ SSL_SESSION *SSL_get_session(const SSL *ssl) {
   if (hs->new_session) {
     return hs->new_session.get();
   }
-  return ssl->session;
+  return ssl->session.get();
 }
 
 SSL_SESSION *SSL_get1_session(SSL *ssl) {

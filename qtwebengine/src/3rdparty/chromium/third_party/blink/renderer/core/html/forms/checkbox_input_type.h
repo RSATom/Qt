@@ -39,15 +39,16 @@ class CheckboxInputType final : public BaseCheckableInputType {
  public:
   static InputType* Create(HTMLInputElement&);
 
- private:
   CheckboxInputType(HTMLInputElement& element)
       : BaseCheckableInputType(element) {}
+
+ private:
   const AtomicString& FormControlType() const override;
   bool ValueMissing(const String&) const override;
   String ValueMissingText() const override;
-  void HandleKeyupEvent(KeyboardEvent*) override;
+  void HandleKeyupEvent(KeyboardEvent&) override;
   ClickHandlingState* WillDispatchClick() override;
-  void DidDispatchClick(Event*, const ClickHandlingState&) override;
+  void DidDispatchClick(Event&, const ClickHandlingState&) override;
   bool ShouldAppearIndeterminate() const override;
 };
 

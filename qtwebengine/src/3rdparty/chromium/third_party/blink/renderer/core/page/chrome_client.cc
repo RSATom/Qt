@@ -41,7 +41,6 @@ namespace blink {
 
 void ChromeClient::Trace(blink::Visitor* visitor) {
   visitor->Trace(last_mouse_over_node_);
-  PlatformChromeClient::Trace(visitor);
 }
 
 void ChromeClient::InstallSupplements(LocalFrame& frame) {
@@ -80,9 +79,9 @@ void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
   SetWindowRect(window, frame);
 }
 
-bool ChromeClient::CanOpenModalIfDuringPageDismissal(
+bool ChromeClient::CanOpenUIElementIfDuringPageDismissal(
     Frame& main_frame,
-    ChromeClient::DialogType dialog,
+    UIElementType ui_element_type,
     const String& message) {
   for (Frame* frame = &main_frame; frame;
        frame = frame->Tree().TraverseNext()) {
@@ -92,17 +91,36 @@ bool ChromeClient::CanOpenModalIfDuringPageDismissal(
     Document::PageDismissalType dismissal =
         local_frame.GetDocument()->PageDismissalEventBeingDispatched();
     if (dismissal != Document::kNoDismissal) {
-      return ShouldOpenModalDialogDuringPageDismissal(local_frame, dialog,
-                                                      message, dismissal);
+      return ShouldOpenUIElementDuringPageDismissal(
+          local_frame, ui_element_type, message, dismissal);
     }
   }
   return true;
 }
 
+Page* ChromeClient::CreateWindow(
+    LocalFrame* frame,
+    const FrameLoadRequest& r,
+    const WebWindowFeatures& features,
+    NavigationPolicy navigation_policy,
+    SandboxFlags sandbox_flags,
+    const SessionStorageNamespaceId& session_storage_namespace_id) {
+// Popups during page unloading is a feature being put behind a policy and
+// needing an easily-mergeable change. See https://crbug.com/936080 .
+#if 0
+  if (!CanOpenUIElementIfDuringPageDismissal(
+          frame->Tree().Top(), UIElementType::kPopup, g_empty_string)) {
+    return nullptr;
+  }
+#endif
+
+  return CreateWindowDelegate(frame, r, features, navigation_policy,
+                              sandbox_flags, session_storage_namespace_id);
+}
+
 template <typename Delegate>
 static bool OpenJavaScriptDialog(LocalFrame* frame,
                                  const String& message,
-                                 ChromeClient::DialogType dialog_type,
                                  const Delegate& delegate) {
   // Suspend pages in case the client method runs a new event loop that would
   // otherwise cause the load to continue while we're in the middle of
@@ -118,34 +136,33 @@ bool ChromeClient::OpenBeforeUnloadConfirmPanel(const String& message,
                                                 LocalFrame* frame,
                                                 bool is_reload) {
   DCHECK(frame);
-  return OpenJavaScriptDialog(
-      frame, message, ChromeClient::kHTMLDialog, [this, frame, is_reload]() {
-        return OpenBeforeUnloadConfirmPanelDelegate(frame, is_reload);
-      });
+  return OpenJavaScriptDialog(frame, message, [this, frame, is_reload]() {
+    return OpenBeforeUnloadConfirmPanelDelegate(frame, is_reload);
+  });
 }
 
 bool ChromeClient::OpenJavaScriptAlert(LocalFrame* frame,
                                        const String& message) {
   DCHECK(frame);
-  if (!CanOpenModalIfDuringPageDismissal(frame->Tree().Top(),
-                                         ChromeClient::kAlertDialog, message))
+  if (!CanOpenUIElementIfDuringPageDismissal(
+          frame->Tree().Top(), UIElementType::kAlertDialog, message)) {
     return false;
-  return OpenJavaScriptDialog(
-      frame, message, ChromeClient::kAlertDialog, [this, frame, &message]() {
-        return OpenJavaScriptAlertDelegate(frame, message);
-      });
+  }
+  return OpenJavaScriptDialog(frame, message, [this, frame, &message]() {
+    return OpenJavaScriptAlertDelegate(frame, message);
+  });
 }
 
 bool ChromeClient::OpenJavaScriptConfirm(LocalFrame* frame,
                                          const String& message) {
   DCHECK(frame);
-  if (!CanOpenModalIfDuringPageDismissal(frame->Tree().Top(),
-                                         ChromeClient::kConfirmDialog, message))
+  if (!CanOpenUIElementIfDuringPageDismissal(
+          frame->Tree().Top(), UIElementType::kConfirmDialog, message)) {
     return false;
-  return OpenJavaScriptDialog(
-      frame, message, ChromeClient::kConfirmDialog, [this, frame, &message]() {
-        return OpenJavaScriptConfirmDelegate(frame, message);
-      });
+  }
+  return OpenJavaScriptDialog(frame, message, [this, frame, &message]() {
+    return OpenJavaScriptConfirmDelegate(frame, message);
+  });
 }
 
 bool ChromeClient::OpenJavaScriptPrompt(LocalFrame* frame,
@@ -153,12 +170,12 @@ bool ChromeClient::OpenJavaScriptPrompt(LocalFrame* frame,
                                         const String& default_value,
                                         String& result) {
   DCHECK(frame);
-  if (!CanOpenModalIfDuringPageDismissal(frame->Tree().Top(),
-                                         ChromeClient::kPromptDialog, prompt))
+  if (!CanOpenUIElementIfDuringPageDismissal(
+          frame->Tree().Top(), UIElementType::kPromptDialog, prompt)) {
     return false;
+  }
   return OpenJavaScriptDialog(
-      frame, prompt, ChromeClient::kPromptDialog,
-      [this, frame, &prompt, &default_value, &result]() {
+      frame, prompt, [this, frame, &prompt, &default_value, &result]() {
         return OpenJavaScriptPromptDelegate(frame, prompt, default_value,
                                             result);
       });
@@ -188,7 +205,7 @@ void ChromeClient::SetToolTip(LocalFrame& frame,
 
   // Lastly, some elements provide default tooltip strings.  e.g. <input
   // type="file" multiple> shows a tooltip for the selected filenames.
-  if (tool_tip.IsEmpty()) {
+  if (tool_tip.IsNull()) {
     if (Node* node = result.InnerNode()) {
       if (node->IsElementNode()) {
         tool_tip = ToElement(node)->DefaultToolTip();
@@ -230,8 +247,9 @@ void ChromeClient::ClearToolTip(LocalFrame& frame) {
 }
 
 bool ChromeClient::Print(LocalFrame* frame) {
-  if (!CanOpenModalIfDuringPageDismissal(*frame->GetPage()->MainFrame(),
-                                         ChromeClient::kPrintDialog, "")) {
+  if (!CanOpenUIElementIfDuringPageDismissal(*frame->GetPage()->MainFrame(),
+                                             UIElementType::kPrintDialog,
+                                             g_empty_string)) {
     return false;
   }
 

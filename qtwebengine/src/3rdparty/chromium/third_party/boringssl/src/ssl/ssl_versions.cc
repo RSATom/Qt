@@ -23,13 +23,14 @@
 #include "../crypto/internal.h"
 
 
-namespace bssl {
+BSSL_NAMESPACE_BEGIN
 
 bool ssl_protocol_version_from_wire(uint16_t *out, uint16_t version) {
   switch (version) {
     case TLS1_VERSION:
     case TLS1_1_VERSION:
     case TLS1_2_VERSION:
+    case TLS1_3_VERSION:
       *out = version;
       return true;
 
@@ -56,6 +57,7 @@ bool ssl_protocol_version_from_wire(uint16_t *out, uint16_t version) {
 // decreasing preference.
 
 static const uint16_t kTLSVersions[] = {
+    TLS1_3_VERSION,
     TLS1_3_DRAFT28_VERSION,
     TLS1_3_DRAFT23_VERSION,
     TLS1_2_VERSION,
@@ -101,6 +103,7 @@ static const char *ssl_version_to_string(uint16_t version) {
   switch (version) {
     case TLS1_3_DRAFT23_VERSION:
     case TLS1_3_DRAFT28_VERSION:
+    case TLS1_3_VERSION:
       return "TLSv1.3";
 
     case TLS1_2_VERSION:
@@ -128,6 +131,7 @@ static uint16_t wire_version_to_api(uint16_t version) {
     // Report TLS 1.3 draft versions as TLS 1.3 in the public API.
     case TLS1_3_DRAFT23_VERSION:
     case TLS1_3_DRAFT28_VERSION:
+    case TLS1_3_VERSION:
       return TLS1_3_VERSION;
     default:
       return version;
@@ -141,9 +145,6 @@ static bool api_version_to_wire(uint16_t *out, uint16_t version) {
   if (version == TLS1_3_DRAFT23_VERSION ||
       version == TLS1_3_DRAFT28_VERSION) {
     return false;
-  }
-  if (version == TLS1_3_VERSION) {
-    version = TLS1_3_DRAFT23_VERSION;
   }
 
   // Check it is a real protocol version.
@@ -172,7 +173,7 @@ static bool set_min_version(const SSL_PROTOCOL_METHOD *method, uint16_t *out,
                             uint16_t version) {
   // Zero is interpreted as the default minimum version.
   if (version == 0) {
-    // SSL 3.0 is disabled by default and TLS 1.0 does not exist in DTLS.
+    // TLS 1.0 does not exist in DTLS.
     *out = method->is_dtls ? TLS1_1_VERSION : TLS1_VERSION;
     return true;
   }
@@ -215,6 +216,11 @@ bool ssl_get_version_range(const SSL_HANDSHAKE *hs, uint16_t *out_min_version,
 
   uint16_t min_version = hs->config->conf_min_version;
   uint16_t max_version = hs->config->conf_max_version;
+
+  // QUIC requires TLS 1.3.
+  if (hs->ssl->ctx->quic_method && min_version < TLS1_3_VERSION) {
+    min_version = TLS1_3_VERSION;
+  }
 
   // OpenSSL's API for controlling versions entails blacklisting individual
   // protocols. This has two problems. First, on the client, the protocol can
@@ -301,7 +307,9 @@ bool ssl_supports_version(SSL_HANDSHAKE *hs, uint16_t version) {
         return version == TLS1_3_DRAFT23_VERSION;
       case tls13_draft28:
         return version == TLS1_3_DRAFT28_VERSION;
-      case tls13_default:
+      case tls13_rfc:
+        return version == TLS1_3_VERSION;
+      case tls13_all:
         return true;
     }
   }
@@ -332,6 +340,18 @@ bool ssl_negotiate_version(SSL_HANDSHAKE *hs, uint8_t *out_alert,
       continue;
     }
 
+    // JDK 11, prior to 11.0.2, has a buggy TLS 1.3 implementation which fails
+    // to send SNI when offering 1.3 sessions. Disable TLS 1.3 for such
+    // clients. We apply this logic here rather than |ssl_supports_version| so
+    // the downgrade signal continues to query the true capabilities. (The
+    // workaround is a limitation of the peer's capabilities rather than our
+    // own.)
+    //
+    // See https://bugs.openjdk.java.net/browse/JDK-8211806.
+    if (versions[i] == TLS1_3_VERSION && hs->apply_jdk11_workaround) {
+      continue;
+    }
+
     CBS copy = *peer_versions;
     while (CBS_len(&copy) != 0) {
       uint16_t version;
@@ -354,10 +374,10 @@ bool ssl_negotiate_version(SSL_HANDSHAKE *hs, uint8_t *out_alert,
 }
 
 bool ssl_is_draft28(uint16_t version) {
-  return version == TLS1_3_DRAFT28_VERSION;
+  return version == TLS1_3_DRAFT28_VERSION || version == TLS1_3_VERSION;
 }
 
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 using namespace bssl;
 

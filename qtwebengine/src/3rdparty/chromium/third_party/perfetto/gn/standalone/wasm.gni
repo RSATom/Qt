@@ -34,33 +34,53 @@ em_config = "\"$em_config\""
 #  generate_html: when true generates also an example .html file which contains
 #      a minimal console to interact with the module (useful for testing).
 template("wasm_lib") {
-  _lib_name = target_name
+  assert(defined(invoker.name))
+
+  # If the name is foo the target_name must be foo_wasm.
+  assert(invoker.name + "_wasm" == target_name)
+  _lib_name = invoker.name
 
   if (is_wasm) {
-    assert(defined(invoker.sources))
     _target_ldflags = [
       "-s",
-      "MODULARIZE=1",
-      "-s",
       "WASM=1",
-      "-s",
-      "NO_FILESYSTEM=1",
       "-s",
       "DISABLE_EXCEPTION_CATCHING=1",
       "-s",
       "NO_DYNAMIC_EXECUTION=1",
       "-s",
-      "TOTAL_MEMORY=536870912",
+      "TOTAL_MEMORY=33554432",
+      "-s",
+      "ALLOW_MEMORY_GROWTH=1",
       "-s",
       "RESERVED_FUNCTION_POINTERS=32",
       "-s",
       "BINARYEN_METHOD='native-wasm'",
       "-s",
+      "BINARYEN_TRAP_MODE='clamp'",
+      "-s",
       "EXPORT_FUNCTION_TABLES=1",
       "-s",
-      "EXTRA_EXPORTED_RUNTIME_METHODS=['ccall', 'cwrap', 'addFunction']",
+      "EXTRA_EXPORTED_RUNTIME_METHODS=['ccall', 'cwrap', 'addFunction', 'FS']",
+
+      # This forces the MEMFS filesystem library to always use typed arrays
+      # instead of building strings/arrays when appending to a file. This allows
+      # to deal with pseudo-files larger than 128 MB when calling trace_to_text.
+      "-s",
+      "MEMFS_APPEND_TO_TYPED_ARRAYS=1",
+
+      # Reduces global namespace pollution.
+      "-s",
+      "MODULARIZE=1",
+
+      # This is to prevent that two different wasm modules end up generating
+      # JS that overrides the same global variable (var Module = ...)
+      "-s",
+      "EXPORT_NAME=${target_name}",
     ]
-    if (!is_debug) {
+    if (is_debug) {
+      _target_ldflags += [ "-g4" ]
+    } else {
       _target_ldflags += [ "-O3" ]
     }
 
@@ -102,6 +122,9 @@ template("wasm_lib") {
       outputs = [
         "$root_out_dir/$_lib_name.wasm",
       ]
+      if (is_debug) {
+        outputs += [ "$root_out_dir/$_lib_name.wasm.map" ]
+      }
       args = [ "--noop" ]
       script = "//gn/standalone/build_tool_wrapper.py"
     }

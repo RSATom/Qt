@@ -54,6 +54,10 @@ GrBackendRenderTarget GrMtlRenderTarget::getBackendRenderTarget() const {
     return GrBackendRenderTarget(this->width(), this->height(), fRenderTexture.sampleCount, info);
 }
 
+GrBackendFormat GrMtlRenderTarget::backendFormat() const {
+    return GrBackendFormat::MakeMtl(fRenderTexture.pixelFormat);
+}
+
 GrMtlGpu* GrMtlRenderTarget::getMtlGpu() const {
     SkASSERT(!this->wasDestroyed());
     return static_cast<GrMtlGpu*>(this->getGpu());
@@ -70,7 +74,6 @@ void GrMtlRenderTarget::onRelease() {
 }
 
 bool GrMtlRenderTarget::completeStencilAttachment() {
-    // TODO: fill this out
     return true;
 }
 

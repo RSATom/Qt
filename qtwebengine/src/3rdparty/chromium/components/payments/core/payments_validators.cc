@@ -113,4 +113,44 @@ bool PaymentsValidators::IsValidErrorMsgFormat(
   return false;
 }
 
+// static
+bool PaymentsValidators::IsValidAddressErrorsFormat(
+    const mojom::AddressErrorsPtr& errors,
+    std::string* optional_error_message) {
+  return errors &&
+         IsValidErrorMsgFormat(errors->address_line, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->city, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->country, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->dependent_locality,
+                               optional_error_message) &&
+         IsValidErrorMsgFormat(errors->language_code, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->organization, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->phone, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->postal_code, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->recipient, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->region, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->region_code, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->sorting_code, optional_error_message);
+}
+
+// static
+bool PaymentsValidators::IsValidPayerErrorsFormat(
+    const mojom::PayerErrorsPtr& errors,
+    std::string* optional_error_message) {
+  return errors &&
+         IsValidErrorMsgFormat(errors->email, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->name, optional_error_message) &&
+         IsValidErrorMsgFormat(errors->phone, optional_error_message);
+}
+
+// static
+bool PaymentsValidators::IsValidPaymentValidationErrorsFormat(
+    const mojom::PaymentValidationErrorsPtr& errors,
+    std::string* optional_error_message) {
+  return errors &&
+         IsValidAddressErrorsFormat(errors->shipping_address,
+                                    optional_error_message) &&
+         IsValidPayerErrorsFormat(errors->payer, optional_error_message);
+}
+
 }  // namespace payments

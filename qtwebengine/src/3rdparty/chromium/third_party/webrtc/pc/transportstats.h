@@ -1,5 +1,5 @@
 /*
- *  Copyright 2018 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,40 +11,9 @@
 #ifndef PC_TRANSPORTSTATS_H_
 #define PC_TRANSPORTSTATS_H_
 
-#include <string>
-#include <vector>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "p2p/base/dtlstransport.h"
-#include "p2p/base/port.h"
-
-namespace cricket {
-
-struct TransportChannelStats {
-  TransportChannelStats();
-  TransportChannelStats(const TransportChannelStats&);
-  ~TransportChannelStats();
-
-  int component = 0;
-  CandidateStatsList candidate_stats_list;
-  ConnectionInfos connection_infos;
-  int srtp_crypto_suite = rtc::SRTP_INVALID_CRYPTO_SUITE;
-  int ssl_cipher_suite = rtc::TLS_NULL_WITH_NULL_NULL;
-  DtlsTransportState dtls_state = DTLS_TRANSPORT_NEW;
-};
-
-// Information about all the channels of a transport.
-// TODO(hta): Consider if a simple vector is as good as a map.
-typedef std::vector<TransportChannelStats> TransportChannelStatsList;
-
-// Information about the stats of a transport.
-struct TransportStats {
-  TransportStats();
-  ~TransportStats();
-
-  std::string transport_name;
-  TransportChannelStatsList channel_stats;
-};
-
-}  // namespace cricket
+#include "pc/transport_stats.h"
 
 #endif  // PC_TRANSPORTSTATS_H_

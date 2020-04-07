@@ -13,8 +13,6 @@
 #include "third_party/blink/public/web/web_frame.h"
 
 namespace blink {
-enum class ClientRedirectPolicy;
-enum class WebFrameLoadType;
 class WebURLRequest;
 struct WebRect;
 
@@ -42,14 +40,15 @@ class WebRemoteFrameClient {
   virtual void Navigate(const WebURLRequest& request,
                         bool should_replace_current_entry,
                         bool is_opener_navigation,
+                        bool prevent_sandboxed_download,
                         mojo::ScopedMessagePipeHandle blob_url_token) {}
-  virtual void Reload(WebFrameLoadType, ClientRedirectPolicy) {}
 
   virtual void FrameRectsChanged(const WebRect& local_frame_rect,
                                  const WebRect& screen_space_rect) {}
 
   virtual void UpdateRemoteViewportIntersection(
-      const WebRect& viewport_intersection) {}
+      const WebRect& viewport_intersection,
+      bool occluded_or_obscured) {}
 
   virtual void VisibilityChanged(bool visible) {}
 

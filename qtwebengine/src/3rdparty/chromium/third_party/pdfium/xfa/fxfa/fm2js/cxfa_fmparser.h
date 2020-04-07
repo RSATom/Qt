@@ -15,7 +15,7 @@
 
 class CXFA_FMParser {
  public:
-  explicit CXFA_FMParser(const WideStringView& wsFormcalc);
+  explicit CXFA_FMParser(WideStringView wsFormcalc);
   ~CXFA_FMParser();
 
   std::unique_ptr<CXFA_FMAST> Parse();
@@ -52,6 +52,8 @@ class CXFA_FMParser {
   std::unique_ptr<CXFA_FMSimpleExpression> ParsePrimaryExpression();
   std::unique_ptr<CXFA_FMSimpleExpression> ParsePostExpression(
       std::unique_ptr<CXFA_FMSimpleExpression> e);
+  std::unique_ptr<std::vector<std::unique_ptr<CXFA_FMSimpleExpression>>>
+  ParseArgumentList();
   std::unique_ptr<CXFA_FMSimpleExpression> ParseIndexExpression();
   std::unique_ptr<CXFA_FMSimpleExpression> ParseLiteral();
 

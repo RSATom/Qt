@@ -58,8 +58,9 @@ void GetOriginsForHostOnFileTaskRunner(FileSystemContext* context,
     origins_ptr->insert(url::Origin::Create(origin));
 }
 
-void DidGetOrigins(storage::QuotaClient::GetOriginsCallback callback,
-                   std::set<url::Origin>* origins_ptr) {
+void DidGetFileSystemQuotaClientOrigins(
+    storage::QuotaClient::GetOriginsCallback callback,
+    std::set<url::Origin>* origins_ptr) {
   std::move(callback).Run(*origins_ptr);
 }
 
@@ -76,6 +77,15 @@ blink::mojom::QuotaStatusCode DeleteOriginOnFileTaskRunner(
   if (result == base::File::FILE_OK)
     return blink::mojom::QuotaStatusCode::kOk;
   return blink::mojom::QuotaStatusCode::kErrorInvalidModification;
+}
+
+void PerformStorageCleanupOnFileTaskRunner(FileSystemContext* context,
+                                           FileSystemType type) {
+  FileSystemBackend* provider = context->GetFileSystemBackend(type);
+  if (!provider || !provider->GetQuotaUtil())
+    return;
+  provider->GetQuotaUtil()->PerformStorageCleanupOnFileTaskRunner(
+      context, context->quota_manager_proxy(), type);
 }
 
 }  // namespace
@@ -144,7 +154,7 @@ void FileSystemQuotaClient::GetOriginsForType(StorageType storage_type,
       base::BindOnce(&GetOriginsForTypeOnFileTaskRunner,
                      base::RetainedRef(file_system_context_), storage_type,
                      base::Unretained(origins_ptr)),
-      base::BindOnce(&DidGetOrigins, std::move(callback),
+      base::BindOnce(&DidGetFileSystemQuotaClientOrigins, std::move(callback),
                      base::Owned(origins_ptr)));
 }
 
@@ -166,7 +176,7 @@ void FileSystemQuotaClient::GetOriginsForHost(StorageType storage_type,
       base::BindOnce(&GetOriginsForHostOnFileTaskRunner,
                      base::RetainedRef(file_system_context_), storage_type,
                      host, base::Unretained(origins_ptr)),
-      base::BindOnce(&DidGetOrigins, std::move(callback),
+      base::BindOnce(&DidGetFileSystemQuotaClientOrigins, std::move(callback),
                      base::Owned(origins_ptr)));
 }
 
@@ -180,6 +190,17 @@ void FileSystemQuotaClient::DeleteOriginData(const url::Origin& origin,
       file_task_runner(), FROM_HERE,
       base::BindOnce(&DeleteOriginOnFileTaskRunner,
                      base::RetainedRef(file_system_context_), origin, fs_type),
+      std::move(callback));
+}
+
+void FileSystemQuotaClient::PerformStorageCleanup(StorageType type,
+                                                  base::OnceClosure callback) {
+  FileSystemType fs_type = QuotaStorageTypeToFileSystemType(type);
+  DCHECK(fs_type != kFileSystemTypeUnknown);
+  file_task_runner()->PostTaskAndReply(
+      FROM_HERE,
+      base::BindOnce(&PerformStorageCleanupOnFileTaskRunner,
+                     base::RetainedRef(file_system_context_), fs_type),
       std::move(callback));
 }
 

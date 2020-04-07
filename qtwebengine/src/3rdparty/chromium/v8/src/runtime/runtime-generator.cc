@@ -2,20 +2,54 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/runtime/runtime-utils.h"
-
-#include "src/arguments.h"
+#include "src/arguments-inl.h"
+#include "src/counters.h"
 #include "src/heap/factory.h"
+#include "src/heap/heap-inl.h"
 #include "src/objects-inl.h"
+#include "src/objects/js-generator-inl.h"
+#include "src/runtime/runtime-utils.h"
 
 namespace v8 {
 namespace internal {
+
+RUNTIME_FUNCTION(Runtime_AsyncFunctionAwaitCaught) {
+  // Runtime call is implemented in InterpreterIntrinsics and lowered in
+  // JSIntrinsicLowering
+  UNREACHABLE();
+}
+
+RUNTIME_FUNCTION(Runtime_AsyncFunctionAwaitUncaught) {
+  // Runtime call is implemented in InterpreterIntrinsics and lowered in
+  // JSIntrinsicLowering
+  UNREACHABLE();
+}
+
+RUNTIME_FUNCTION(Runtime_AsyncFunctionEnter) {
+  // Runtime call is implemented in InterpreterIntrinsics and lowered in
+  // JSIntrinsicLowering
+  UNREACHABLE();
+}
+
+RUNTIME_FUNCTION(Runtime_AsyncFunctionReject) {
+  // Runtime call is implemented in InterpreterIntrinsics and lowered in
+  // JSIntrinsicLowering
+  UNREACHABLE();
+}
+
+RUNTIME_FUNCTION(Runtime_AsyncFunctionResolve) {
+  // Runtime call is implemented in InterpreterIntrinsics and lowered in
+  // JSIntrinsicLowering
+  UNREACHABLE();
+}
 
 RUNTIME_FUNCTION(Runtime_CreateJSGeneratorObject) {
   HandleScope scope(isolate);
   DCHECK_EQ(2, args.length());
   CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
   CONVERT_ARG_HANDLE_CHECKED(Object, receiver, 1);
+  CHECK_IMPLIES(IsAsyncFunction(function->shared()->kind()),
+                IsAsyncGeneratorFunction(function->shared()->kind()));
   CHECK(IsResumableFunction(function->shared()->kind()));
 
   // Underlying function needs to have bytecode available.
@@ -52,7 +86,13 @@ RUNTIME_FUNCTION(Runtime_GeneratorGetFunction) {
   return generator->function();
 }
 
-RUNTIME_FUNCTION(Runtime_GeneratorGetInputOrDebugPos) {
+RUNTIME_FUNCTION(Runtime_AsyncGeneratorAwaitCaught) {
+  // Runtime call is implemented in InterpreterIntrinsics and lowered in
+  // JSIntrinsicLowering
+  UNREACHABLE();
+}
+
+RUNTIME_FUNCTION(Runtime_AsyncGeneratorAwaitUncaught) {
   // Runtime call is implemented in InterpreterIntrinsics and lowered in
   // JSIntrinsicLowering
   UNREACHABLE();
@@ -87,8 +127,7 @@ RUNTIME_FUNCTION(Runtime_GeneratorGetResumeMode) {
 RUNTIME_FUNCTION(Runtime_AsyncGeneratorHasCatchHandlerForPC) {
   DisallowHeapAllocation no_allocation_scope;
   DCHECK_EQ(1, args.length());
-  DCHECK(args[0]->IsJSAsyncGeneratorObject());
-  JSAsyncGeneratorObject* generator = JSAsyncGeneratorObject::cast(args[0]);
+  CONVERT_ARG_CHECKED(JSAsyncGeneratorObject, generator, 0);
 
   int state = generator->continuation();
   DCHECK_NE(state, JSAsyncGeneratorObject::kGeneratorExecuting);
@@ -98,7 +137,7 @@ RUNTIME_FUNCTION(Runtime_AsyncGeneratorHasCatchHandlerForPC) {
   // not reach a catch handler.
   if (state < 1) return ReadOnlyRoots(isolate).false_value();
 
-  SharedFunctionInfo* shared = generator->function()->shared();
+  SharedFunctionInfo shared = generator->function()->shared();
   DCHECK(shared->HasBytecodeArray());
   HandlerTable handler_table(shared->GetBytecodeArray());
 

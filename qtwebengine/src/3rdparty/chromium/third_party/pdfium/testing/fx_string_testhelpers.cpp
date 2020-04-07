@@ -22,10 +22,3 @@ CFX_InvalidSeekableReadStream::CFX_InvalidSeekableReadStream(
     : data_size_(data_size) {}
 
 CFX_InvalidSeekableReadStream::~CFX_InvalidSeekableReadStream() = default;
-
-CFX_BufferSeekableReadStream::CFX_BufferSeekableReadStream(
-    const unsigned char* src,
-    size_t src_size)
-    : data_(src), data_size_(src_size) {}
-
-CFX_BufferSeekableReadStream::~CFX_BufferSeekableReadStream() = default;

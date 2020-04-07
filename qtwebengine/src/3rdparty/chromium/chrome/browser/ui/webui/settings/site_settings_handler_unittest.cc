@@ -6,18 +6,29 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
+#include "base/json/json_reader.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
+#include "base/values.h"
+#include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
+#include "chrome/browser/browsing_data/mock_browsing_data_cookie_helper.h"
+#include "chrome/browser/browsing_data/mock_browsing_data_local_storage_helper.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/permissions/chooser_context_base.h"
+#include "chrome/browser/permissions/chooser_context_base_mock_permission_observer.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/site_settings_helper.h"
+#include "chrome/browser/usb/usb_chooser_context.h"
+#include "chrome/browser/usb/usb_chooser_context_factory.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -31,6 +42,7 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_web_ui.h"
+#include "device/usb/public/cpp/fake_usb_device_manager.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_builder.h"
 #include "ppapi/buildflags/buildflags.h"
@@ -51,6 +63,23 @@ constexpr char kCallbackId[] = "test-callback-id";
 constexpr char kSetting[] = "setting";
 constexpr char kSource[] = "source";
 constexpr char kExtensionName[] = "Test Extension";
+
+const struct PatternContentTypeTestCase {
+  struct {
+    const char* const pattern;
+    const char* const content_type;
+  } arguments;
+  struct {
+    const bool validity;
+    const char* const reason;
+  } expected;
+} kPatternsAndContentTypeTestCases[]{
+    {{"https://google.com", "cookies"}, {true, ""}},
+    {{";", "cookies"}, {false, "Not a valid web address"}},
+    {{"*", "cookies"}, {false, "Not a valid web address"}},
+    {{"http://google.com", "location"}, {false, "Origin must be secure"}},
+    {{"http://127.0.0.1", "location"}, {true, ""}},  // Localhost is secure.
+    {{"http://[::1]", "location"}, {true, ""}}};
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 // Waits until a change is observed in content settings.
@@ -151,6 +180,36 @@ class SiteSettingsHandlerTest : public testing::Test {
   content::TestWebUI* web_ui() { return &web_ui_; }
   SiteSettingsHandler* handler() { return &handler_; }
 
+  void ValidateBlockAutoplay(bool expected_value, bool expected_enabled) {
+    const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+    EXPECT_EQ("cr.webUIListenerCallback", data.function_name());
+
+    std::string event_name;
+    ASSERT_TRUE(data.arg1()->GetAsString(&event_name));
+    EXPECT_EQ("onBlockAutoplayStatusChanged", event_name);
+
+    const base::DictionaryValue* event_data = nullptr;
+    ASSERT_TRUE(data.arg2()->GetAsDictionary(&event_data));
+
+    bool enabled;
+    ASSERT_TRUE(event_data->GetBoolean("enabled", &enabled));
+    EXPECT_EQ(expected_enabled, enabled);
+
+    const base::DictionaryValue* pref_data = nullptr;
+    ASSERT_TRUE(event_data->GetDictionary("pref", &pref_data));
+
+    bool value;
+    ASSERT_TRUE(pref_data->GetBoolean("value", &value));
+    EXPECT_EQ(expected_value, value);
+  }
+
+  void SetSoundContentSettingDefault(ContentSetting value) {
+    HostContentSettingsMap* content_settings =
+        HostContentSettingsMapFactory::GetForProfile(profile());
+    content_settings->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_SOUND,
+                                               value);
+  }
+
   void ValidateDefault(const ContentSetting expected_setting,
                        const site_settings::SiteSettingSource expected_source,
                        size_t expected_total_calls) {
@@ -238,7 +297,9 @@ class SiteSettingsHandlerTest : public testing::Test {
     EXPECT_EQ(0U, exceptions->GetSize());
   }
 
-  void ValidatePattern(bool expected_validity, size_t expected_total_calls) {
+  void ValidatePattern(bool expected_validity,
+                       size_t expected_total_calls,
+                       std::string expected_reason) {
     EXPECT_EQ(expected_total_calls, web_ui()->call_data().size());
 
     const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
@@ -252,9 +313,16 @@ class SiteSettingsHandlerTest : public testing::Test {
     ASSERT_TRUE(data.arg2()->GetAsBoolean(&success));
     ASSERT_TRUE(success);
 
-    bool valid;
-    ASSERT_TRUE(data.arg3()->GetAsBoolean(&valid));
+    const base::DictionaryValue* result = nullptr;
+    ASSERT_TRUE(data.arg3()->GetAsDictionary(&result));
+
+    bool valid = false;
+    ASSERT_TRUE(result->GetBoolean("isValid", &valid));
     EXPECT_EQ(expected_validity, valid);
+
+    std::string reason;
+    ASSERT_TRUE(result->GetString("reason", &reason));
+    EXPECT_EQ(expected_reason, reason);
   }
 
   void ValidateIncognitoExists(
@@ -316,6 +384,71 @@ class SiteSettingsHandlerTest : public testing::Test {
     profile_.SetOffTheRecordProfile(nullptr);
     ASSERT_FALSE(profile_.HasOffTheRecordProfile());
     incognito_profile_ = nullptr;
+  }
+
+  // TODO(https://crbug.com/835712): Currently only set up the cookies and local
+  // storage nodes, will update all other nodes in the future.
+  void SetUpCookiesTreeModel() {
+    scoped_refptr<MockBrowsingDataCookieHelper>
+        mock_browsing_data_cookie_helper;
+    scoped_refptr<MockBrowsingDataLocalStorageHelper>
+        mock_browsing_data_local_storage_helper;
+
+    mock_browsing_data_cookie_helper =
+        new MockBrowsingDataCookieHelper(profile());
+    mock_browsing_data_local_storage_helper =
+        new MockBrowsingDataLocalStorageHelper(profile());
+
+    auto container = std::make_unique<LocalDataContainer>(
+        mock_browsing_data_cookie_helper,
+        /*database_helper=*/nullptr, mock_browsing_data_local_storage_helper,
+        /*session_storage_helper=*/nullptr,
+        /*appcache_helper=*/nullptr,
+        /*indexed_db_helper=*/nullptr,
+        /*file_system_helper=*/nullptr,
+        /*quota_helper=*/nullptr,
+        /*service_worker_helper=*/nullptr,
+        /*data_shared_worker_helper=*/nullptr,
+        /*cache_storage_helper=*/nullptr,
+        /*flash_lso_helper=*/nullptr,
+        /*media_license_helper=*/nullptr);
+    auto mock_cookies_tree_model = std::make_unique<CookiesTreeModel>(
+        std::move(container), profile()->GetExtensionSpecialStoragePolicy());
+
+    mock_browsing_data_local_storage_helper->AddLocalStorageForOrigin(
+        GURL("https://www.example.com/"), 2);
+
+    mock_browsing_data_local_storage_helper->AddLocalStorageForOrigin(
+        GURL("https://www.google.com/"), 5);
+    mock_browsing_data_local_storage_helper->Notify();
+
+    mock_browsing_data_cookie_helper->AddCookieSamples(
+        GURL("http://example.com"), "A=1");
+    mock_browsing_data_cookie_helper->AddCookieSamples(
+        GURL("http://www.example.com/"), "B=1");
+    mock_browsing_data_cookie_helper->AddCookieSamples(
+        GURL("http://abc.example.com"), "C=1");
+    mock_browsing_data_cookie_helper->AddCookieSamples(
+        GURL("http://google.com"), "A=1");
+    mock_browsing_data_cookie_helper->AddCookieSamples(
+        GURL("http://google.com"), "B=1");
+    mock_browsing_data_cookie_helper->AddCookieSamples(
+        GURL("http://google.com.au"), "A=1");
+    mock_browsing_data_cookie_helper->Notify();
+
+    handler()->SetCookiesTreeModelForTesting(
+        std::move(mock_cookies_tree_model));
+  }
+
+  const base::ListValue* GetOnStorageFetchedSentListValue() {
+    handler()->ClearAllSitesMapForTesting();
+    handler()->OnStorageFetched();
+    const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+    std::string callback_id;
+    data.arg1()->GetAsString(&callback_id);
+    const base::ListValue* storage_and_cookie_list;
+    data.arg2()->GetAsList(&storage_and_cookie_list);
+    return storage_and_cookie_list;
   }
 
   // Content setting group name for the relevant ContentSettingsType.
@@ -407,8 +540,10 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
           site_group.FindKey("origins")->GetList();
       EXPECT_EQ("example.com", etld_plus1_string);
       EXPECT_EQ(2UL, origin_list.size());
-      EXPECT_EQ(url1.spec(), origin_list[0].GetString());
-      EXPECT_EQ(url2.spec(), origin_list[1].GetString());
+      EXPECT_EQ(url1.spec(), origin_list[0].FindKey("origin")->GetString());
+      EXPECT_EQ(0, origin_list[0].FindKey("engagement")->GetDouble());
+      EXPECT_EQ(url2.spec(), origin_list[1].FindKey("origin")->GetString());
+      EXPECT_EQ(0, origin_list[1].FindKey("engagement")->GetDouble());
     }
   }
 
@@ -434,7 +569,7 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
           site_group.FindKey("origins")->GetList();
       if (etld_plus1_string == "example2.net") {
         EXPECT_EQ(1UL, origin_list.size());
-        EXPECT_EQ(url3.spec(), origin_list[0].GetString());
+        EXPECT_EQ(url3.spec(), origin_list[0].FindKey("origin")->GetString());
       } else {
         EXPECT_EQ("example.com", etld_plus1_string);
       }
@@ -444,6 +579,9 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
   // Test embargoed settings also appear.
   PermissionDecisionAutoBlocker* auto_blocker =
       PermissionDecisionAutoBlocker::GetForProfile(profile());
+  base::SimpleTestClock clock;
+  clock.SetNow(base::Time::Now());
+  auto_blocker->SetClockForTesting(&clock);
   const GURL url4("https://example2.co.uk");
   for (int i = 0; i < 3; ++i) {
     auto_blocker->RecordDismissAndEmbargo(url4,
@@ -465,11 +603,24 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
     EXPECT_EQ(3UL, site_groups.size());
   }
 
-  // Add an expired embargo setting to a) an existing eTLD+1 group and b) a new
-  // eTLD+1 group.
-  base::SimpleTestClock clock;
-  clock.SetNow(base::Time::Now());
-  auto_blocker->SetClockForTesting(&clock);
+  // Check |url4| disappears from the list when its embargo expires.
+  clock.Advance(base::TimeDelta::FromDays(8));
+  handler()->HandleGetAllSites(&get_all_sites_args);
+
+  {
+    const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+    EXPECT_EQ("cr.webUIResponse", data.function_name());
+    EXPECT_EQ(kCallbackId, data.arg1()->GetString());
+    ASSERT_TRUE(data.arg2()->GetBool());
+
+    const base::Value::ListStorage& site_groups = data.arg3()->GetList();
+    EXPECT_EQ(2UL, site_groups.size());
+    EXPECT_EQ("example.com", site_groups[0].FindKey("etldPlus1")->GetString());
+    EXPECT_EQ("example2.net", site_groups[1].FindKey("etldPlus1")->GetString());
+  }
+
+  // Add an expired embargo setting to an existing eTLD+1 group and make sure it
+  // still appears.
   for (int i = 0; i < 3; ++i) {
     auto_blocker->RecordDismissAndEmbargo(url3,
                                           CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
@@ -484,6 +635,7 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
       auto_blocker->GetEmbargoResult(url3, CONTENT_SETTINGS_TYPE_NOTIFICATIONS)
           .content_setting);
 
+  handler()->HandleGetAllSites(&get_all_sites_args);
   {
     const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
     EXPECT_EQ("cr.webUIResponse", data.function_name());
@@ -491,10 +643,12 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
     ASSERT_TRUE(data.arg2()->GetBool());
 
     const base::Value::ListStorage& site_groups = data.arg3()->GetList();
-    EXPECT_EQ(3UL, site_groups.size());
+    EXPECT_EQ(2UL, site_groups.size());
+    EXPECT_EQ("example.com", site_groups[0].FindKey("etldPlus1")->GetString());
+    EXPECT_EQ("example2.net", site_groups[1].FindKey("etldPlus1")->GetString());
   }
 
-  clock.SetNow(base::Time::Now());
+  // Add an expired embargo to a new eTLD+1 and make sure it doesn't appear.
   const GURL url5("http://test.example5.com");
   for (int i = 0; i < 3; ++i) {
     auto_blocker->RecordDismissAndEmbargo(url5,
@@ -510,6 +664,7 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
       auto_blocker->GetEmbargoResult(url5, CONTENT_SETTINGS_TYPE_NOTIFICATIONS)
           .content_setting);
 
+  handler()->HandleGetAllSites(&get_all_sites_args);
   {
     const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
     EXPECT_EQ("cr.webUIResponse", data.function_name());
@@ -517,8 +672,103 @@ TEST_F(SiteSettingsHandlerTest, GetAllSites) {
     ASSERT_TRUE(data.arg2()->GetBool());
 
     const base::Value::ListStorage& site_groups = data.arg3()->GetList();
-    EXPECT_EQ(3UL, site_groups.size());
+    EXPECT_EQ(2UL, site_groups.size());
+    EXPECT_EQ("example.com", site_groups[0].FindKey("etldPlus1")->GetString());
+    EXPECT_EQ("example2.net", site_groups[1].FindKey("etldPlus1")->GetString());
   }
+
+  // Each call to HandleGetAllSites() above added a callback to the profile's
+  // BrowsingDataLocalStorageHelper, so make sure these aren't stuck waiting to
+  // run at the end of the test.
+  base::RunLoop run_loop;
+  run_loop.RunUntilIdle();
+}
+
+TEST_F(SiteSettingsHandlerTest, OnStorageFetched) {
+  SetUpCookiesTreeModel();
+
+  handler()->ClearAllSitesMapForTesting();
+
+  handler()->OnStorageFetched();
+  const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+  EXPECT_EQ("cr.webUIListenerCallback", data.function_name());
+
+  std::string callback_id;
+  ASSERT_TRUE(data.arg1()->GetAsString(&callback_id));
+  EXPECT_EQ("onStorageListFetched", callback_id);
+
+  const base::ListValue* storage_and_cookie_list;
+  ASSERT_TRUE(data.arg2()->GetAsList(&storage_and_cookie_list));
+  EXPECT_EQ(3U, storage_and_cookie_list->GetSize());
+
+  const base::DictionaryValue* site_group;
+  ASSERT_TRUE(storage_and_cookie_list->GetDictionary(0, &site_group));
+
+  std::string etld_plus1_string;
+  ASSERT_TRUE(site_group->GetString("etldPlus1", &etld_plus1_string));
+  ASSERT_EQ("example.com", etld_plus1_string);
+
+  EXPECT_EQ(3, site_group->FindKey("numCookies")->GetDouble());
+
+  const base::ListValue* origin_list;
+  ASSERT_TRUE(site_group->GetList("origins", &origin_list));
+  // There will be 2 origins in this case. Cookie node with url
+  // http://www.example.com/ will be treat as https://www.example.com/ because
+  // this url existed in the storage nodes.
+  EXPECT_EQ(2U, origin_list->GetSize());
+
+  const base::DictionaryValue* origin_info;
+
+  ASSERT_TRUE(origin_list->GetDictionary(0, &origin_info));
+  EXPECT_EQ("http://abc.example.com/",
+            origin_info->FindKey("origin")->GetString());
+  EXPECT_EQ(0, origin_info->FindKey("engagement")->GetDouble());
+  EXPECT_EQ(0, origin_info->FindKey("usage")->GetDouble());
+  EXPECT_EQ(1, origin_info->FindKey("numCookies")->GetDouble());
+
+  ASSERT_TRUE(origin_list->GetDictionary(1, &origin_info));
+  // Even though in the cookies the scheme is http, it still stored as https
+  // because there is https data stored.
+  EXPECT_EQ("https://www.example.com/",
+            origin_info->FindKey("origin")->GetString());
+  EXPECT_EQ(0, origin_info->FindKey("engagement")->GetDouble());
+  EXPECT_EQ(2, origin_info->FindKey("usage")->GetDouble());
+  EXPECT_EQ(1, origin_info->FindKey("numCookies")->GetDouble());
+
+  ASSERT_TRUE(storage_and_cookie_list->GetDictionary(1, &site_group));
+
+  ASSERT_TRUE(site_group->GetString("etldPlus1", &etld_plus1_string));
+  ASSERT_EQ("google.com", etld_plus1_string);
+
+  EXPECT_EQ(2, site_group->FindKey("numCookies")->GetDouble());
+
+  ASSERT_TRUE(site_group->GetList("origins", &origin_list));
+
+  EXPECT_EQ(1U, origin_list->GetSize());
+
+  ASSERT_TRUE(origin_list->GetDictionary(0, &origin_info));
+  EXPECT_EQ("https://www.google.com/",
+            origin_info->FindKey("origin")->GetString());
+  EXPECT_EQ(0, origin_info->FindKey("engagement")->GetDouble());
+  EXPECT_EQ(5, origin_info->FindKey("usage")->GetDouble());
+  EXPECT_EQ(0, origin_info->FindKey("numCookies")->GetDouble());
+
+  ASSERT_TRUE(storage_and_cookie_list->GetDictionary(2, &site_group));
+
+  ASSERT_TRUE(site_group->GetString("etldPlus1", &etld_plus1_string));
+  ASSERT_EQ("google.com.au", etld_plus1_string);
+
+  EXPECT_EQ(1, site_group->FindKey("numCookies")->GetDouble());
+
+  ASSERT_TRUE(site_group->GetList("origins", &origin_list));
+  EXPECT_EQ(1U, origin_list->GetSize());
+
+  ASSERT_TRUE(origin_list->GetDictionary(0, &origin_info));
+  EXPECT_EQ("http://google.com.au/",
+            origin_info->FindKey("origin")->GetString());
+  EXPECT_EQ(0, origin_info->FindKey("engagement")->GetDouble());
+  EXPECT_EQ(0, origin_info->FindKey("usage")->GetDouble());
+  EXPECT_EQ(0, origin_info->FindKey("numCookies")->GetDouble());
 }
 
 TEST_F(SiteSettingsHandlerTest, Origins) {
@@ -856,30 +1106,18 @@ TEST_F(SiteSettingsHandlerTest, ExtensionDisplayName) {
                  site_settings::SiteSettingSource::kDefault, 1U);
 }
 
-TEST_F(SiteSettingsHandlerTest, Patterns) {
-  base::ListValue args;
-  std::string pattern("[*.]google.com");
-  args.AppendString(kCallbackId);
-  args.AppendString(pattern);
-  handler()->HandleIsPatternValid(&args);
-  ValidatePattern(true, 1U);
-
-  base::ListValue invalid;
-  std::string bad_pattern(";");
-  invalid.AppendString(kCallbackId);
-  invalid.AppendString(bad_pattern);
-  handler()->HandleIsPatternValid(&invalid);
-  ValidatePattern(false, 2U);
-
-  // The wildcard pattern ('*') is a valid pattern, but not allowed to be
-  // entered in site settings as it changes the default setting.
-  // (crbug.com/709539).
-  base::ListValue invalid_wildcard;
-  std::string bad_pattern_wildcard("*");
-  invalid_wildcard.AppendString(kCallbackId);
-  invalid_wildcard.AppendString(bad_pattern_wildcard);
-  handler()->HandleIsPatternValid(&invalid_wildcard);
-  ValidatePattern(false, 3U);
+TEST_F(SiteSettingsHandlerTest, PatternsAndContentType) {
+  unsigned counter = 1;
+  for (const auto& test_case : kPatternsAndContentTypeTestCases) {
+    base::ListValue args;
+    args.AppendString(kCallbackId);
+    args.AppendString(test_case.arguments.pattern);
+    args.AppendString(test_case.arguments.content_type);
+    handler()->HandleIsPatternValidForType(&args);
+    ValidatePattern(test_case.expected.validity, counter,
+                    test_case.expected.reason);
+    ++counter;
+  }
 }
 
 TEST_F(SiteSettingsHandlerTest, Incognito) {
@@ -1147,4 +1385,411 @@ TEST_F(SiteSettingsHandlerTest, SessionOnlyException) {
   histograms.ExpectTotalCount(uma_base + ".SessionOnly", 1);
 }
 
+TEST_F(SiteSettingsHandlerTest, BlockAutoplay_SendOnRequest) {
+  base::ListValue args;
+  handler()->HandleFetchBlockAutoplayStatus(&args);
+
+  // Check that we are checked and enabled.
+  ValidateBlockAutoplay(true, true);
+}
+
+TEST_F(SiteSettingsHandlerTest, BlockAutoplay_SoundSettingUpdate) {
+  SetSoundContentSettingDefault(CONTENT_SETTING_BLOCK);
+  base::RunLoop().RunUntilIdle();
+
+  // Check that we are not checked or enabled.
+  ValidateBlockAutoplay(false, false);
+
+  SetSoundContentSettingDefault(CONTENT_SETTING_ALLOW);
+  base::RunLoop().RunUntilIdle();
+
+  // Check that we are checked and enabled.
+  ValidateBlockAutoplay(true, true);
+}
+
+TEST_F(SiteSettingsHandlerTest, BlockAutoplay_PrefUpdate) {
+  profile()->GetPrefs()->SetBoolean(prefs::kBlockAutoplayEnabled, false);
+  base::RunLoop().RunUntilIdle();
+
+  // Check that we are not checked but are enabled.
+  ValidateBlockAutoplay(false, true);
+
+  profile()->GetPrefs()->SetBoolean(prefs::kBlockAutoplayEnabled, true);
+  base::RunLoop().RunUntilIdle();
+
+  // Check that we are checked and enabled.
+  ValidateBlockAutoplay(true, true);
+}
+
+TEST_F(SiteSettingsHandlerTest, BlockAutoplay_Update) {
+  EXPECT_TRUE(profile()->GetPrefs()->GetBoolean(prefs::kBlockAutoplayEnabled));
+
+  base::ListValue data;
+  data.AppendBoolean(false);
+
+  handler()->HandleSetBlockAutoplayEnabled(&data);
+  EXPECT_FALSE(profile()->GetPrefs()->GetBoolean(prefs::kBlockAutoplayEnabled));
+}
+
+namespace {
+
+const GURL kAndroidOrigin("https://android.com");
+const GURL kChromiumOrigin("https://chromium.org");
+const GURL kGoogleOrigin("https://google.com");
+
+constexpr char kUsbPolicySetting[] = R"(
+    [
+      {
+        "devices": [{ "vendor_id": 6353, "product_id": 5678 }],
+        "urls": ["https://chromium.org"]
+      }, {
+        "devices": [{ "vendor_id": 6353 }],
+        "urls": ["https://google.com,https://android.com"]
+      }, {
+        "devices": [{ "vendor_id": 6354 }],
+        "urls": ["https://android.com,"]
+      }, {
+        "devices": [{}],
+        "urls": ["https://google.com,https://google.com"]
+      }
+    ])";
+
+}  // namespace
+
+class SiteSettingsHandlerChooserExceptionTest : public SiteSettingsHandlerTest {
+ protected:
+  void SetUp() override {
+    // Set up UsbChooserContext first, since the granting of device permissions
+    // causes the WebUI listener callbacks for
+    // contentSettingSitePermissionChanged and
+    // contentSettingChooserPermissionChanged to be fired. The base class SetUp
+    // method reset the WebUI call data.
+    SetUpUsbChooserContext();
+    SiteSettingsHandlerTest::SetUp();
+  }
+
+  void TearDown() override {
+    auto* chooser_context = UsbChooserContextFactory::GetForProfile(profile());
+    chooser_context->ChooserContextBase::RemoveObserver(&observer_);
+  }
+
+  // Sets up the UsbChooserContext with two devices and permissions for these
+  // devices. It also adds three policy defined permissions. There are three
+  // devices that are granted user permissions. Two are covered by different
+  // policy permissions, while the third is not covered by policy at all. These
+  // unit tests will check that the WebUI is able to receive the exceptions and
+  // properly manipulate their permissions.
+  void SetUpUsbChooserContext() {
+    persistent_device_info_ = device_manager_.CreateAndAddDevice(
+        6353, 5678, "Google", "Gizmo", "123ABC");
+    ephemeral_device_info_ =
+        device_manager_.CreateAndAddDevice(6354, 0, "Google", "Gadget", "");
+    user_granted_device_info_ = device_manager_.CreateAndAddDevice(
+        6355, 0, "Google", "Widget", "789XYZ");
+
+    auto* chooser_context = UsbChooserContextFactory::GetForProfile(profile());
+    device::mojom::UsbDeviceManagerPtr device_manager_ptr;
+    device_manager_.AddBinding(mojo::MakeRequest(&device_manager_ptr));
+    chooser_context->SetDeviceManagerForTesting(std::move(device_manager_ptr));
+    chooser_context->GetDevices(
+        base::DoNothing::Once<std::vector<device::mojom::UsbDeviceInfoPtr>>());
+    base::RunLoop().RunUntilIdle();
+
+    // Add the user granted permissions for testing.
+    // These two persistent device permissions should be lumped together with
+    // the policy permissions, since they apply to the same device and URL.
+    chooser_context->GrantDevicePermission(kChromiumOrigin, kChromiumOrigin,
+                                           *persistent_device_info_);
+    chooser_context->GrantDevicePermission(kChromiumOrigin, kGoogleOrigin,
+                                           *persistent_device_info_);
+    chooser_context->GrantDevicePermission(kAndroidOrigin, kChromiumOrigin,
+                                           *persistent_device_info_);
+    chooser_context->GrantDevicePermission(kAndroidOrigin, kAndroidOrigin,
+                                           *ephemeral_device_info_);
+    chooser_context->GrantDevicePermission(kAndroidOrigin, kAndroidOrigin,
+                                           *user_granted_device_info_);
+
+    // Add the policy granted permissions for testing.
+    auto policy_value = base::JSONReader::Read(kUsbPolicySetting);
+    DCHECK(policy_value);
+    profile()->GetPrefs()->Set(prefs::kManagedWebUsbAllowDevicesForUrls,
+                               *policy_value);
+
+    // Add the observer for permission changes.
+    chooser_context->ChooserContextBase::AddObserver(&observer_);
+  }
+
+  // Call SiteSettingsHandler::HandleGetChooserExceptionList for |chooser_type|
+  // and return the exception list received by the WebUI.
+  void ValidateChooserExceptionList(const std::string& chooser_type,
+                                    size_t expected_total_calls) {
+    base::ListValue args;
+    args.AppendString(kCallbackId);
+    args.AppendString(chooser_type);
+
+    handler()->HandleGetChooserExceptionList(&args);
+
+    EXPECT_EQ(web_ui()->call_data().size(), expected_total_calls);
+
+    const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+    EXPECT_EQ("cr.webUIResponse", data.function_name());
+
+    ASSERT_TRUE(data.arg1());
+    ASSERT_TRUE(data.arg1()->is_string());
+    EXPECT_EQ(data.arg1()->GetString(), kCallbackId);
+
+    ASSERT_TRUE(data.arg2());
+    ASSERT_TRUE(data.arg2()->is_bool());
+    EXPECT_TRUE(data.arg2()->GetBool());
+
+    ASSERT_TRUE(data.arg3());
+    ASSERT_TRUE(data.arg3()->is_list());
+  }
+
+  const base::Value& GetChooserExceptionListFromWebUiCallData(
+      const std::string& chooser_type,
+      size_t expected_total_calls) {
+    ValidateChooserExceptionList(chooser_type, expected_total_calls);
+    return *web_ui()->call_data().back()->arg3();
+  }
+
+  // Iterate through the exception's sites array and return true if a site
+  // exception matches |requesting_origin| and |embedding_origin|.
+  bool ChooserExceptionContainsSiteException(
+      const base::Value& exception,
+      const std::string& requesting_origin,
+      const std::string& embedding_origin) {
+    const base::Value* site_value = exception.FindKey(site_settings::kSites);
+    for (const auto& site : site_value->GetList()) {
+      const base::Value* origin_value = site.FindKey(site_settings::kOrigin);
+      if (origin_value->GetString() != requesting_origin)
+        continue;
+
+      const base::Value* embedding_origin_value =
+          site.FindKey(site_settings::kEmbeddingOrigin);
+      if (embedding_origin_value->GetString() == embedding_origin)
+        return true;
+    }
+    return false;
+  }
+
+  // Iterate through the |exception_list| array and return true if there is a
+  // chooser exception with |display_name| that contains a site exception for
+  // |requesting_origin| and |embedding_origin|.
+  bool ChooserExceptionContainsSiteException(
+      const base::Value& exception_list,
+      const std::string& display_name,
+      const std::string& requesting_origin,
+      const std::string& embedding_origin) {
+    for (const auto& exception : exception_list.GetList()) {
+      const base::Value* display_name_value =
+          exception.FindKey(site_settings::kDisplayName);
+      if (display_name_value->GetString() == display_name) {
+        return ChooserExceptionContainsSiteException(
+            exception, requesting_origin, embedding_origin);
+      }
+    }
+    return false;
+  }
+
+  device::mojom::UsbDeviceInfoPtr persistent_device_info_;
+  device::mojom::UsbDeviceInfoPtr ephemeral_device_info_;
+  device::mojom::UsbDeviceInfoPtr user_granted_device_info_;
+
+  MockPermissionObserver observer_;
+
+ private:
+  device::FakeUsbDeviceManager device_manager_;
+};
+
+TEST_F(SiteSettingsHandlerChooserExceptionTest,
+       HandleGetChooserExceptionListForUsb) {
+  const std::string kUsbChooserGroupName =
+      site_settings::ContentSettingsTypeToGroupName(
+          CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA);
+
+  const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+      kUsbChooserGroupName, /*expected_total_calls=*/1u);
+  EXPECT_EQ(exceptions.GetList().size(), 5u);
+}
+
+TEST_F(SiteSettingsHandlerChooserExceptionTest,
+       HandleResetChooserExceptionForSiteForUsb) {
+  const std::string kUsbChooserGroupName =
+      site_settings::ContentSettingsTypeToGroupName(
+          CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA);
+  const std::string kAndroidOriginStr = kAndroidOrigin.GetOrigin().spec();
+  const std::string kChromiumOriginStr = kChromiumOrigin.GetOrigin().spec();
+
+  {
+    const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+        kUsbChooserGroupName, /*expected_total_calls=*/1u);
+    EXPECT_EQ(exceptions.GetList().size(), 5u);
+  }
+
+  // User granted USB permissions for devices also containing policy permissions
+  // should be able to be reset without removing the chooser exception object
+  // from the list.
+  base::ListValue args;
+  args.AppendString(kUsbChooserGroupName);
+  args.AppendString(kAndroidOriginStr);
+  args.AppendString(kChromiumOriginStr);
+  args.Append(
+      UsbChooserContext::DeviceInfoToDictValue(*persistent_device_info_));
+
+  EXPECT_CALL(observer_, OnChooserObjectPermissionChanged(
+                             CONTENT_SETTINGS_TYPE_USB_GUARD,
+                             CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA));
+  EXPECT_CALL(observer_, OnPermissionRevoked(kAndroidOrigin, kChromiumOrigin));
+  handler()->HandleResetChooserExceptionForSite(&args);
+
+  // The HandleResetChooserExceptionForSite() method should have also caused the
+  // WebUIListenerCallbacks for contentSettingSitePermissionChanged and
+  // contentSettingChooserPermissionChanged to fire.
+  EXPECT_EQ(web_ui()->call_data().size(), 3u);
+  {
+    // The exception list size should not have been reduced since there is still
+    // a policy granted permission for the "Gizmo" device.
+    const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+        kUsbChooserGroupName, /*expected_total_calls=*/4u);
+    EXPECT_EQ(exceptions.GetList().size(), 5u);
+
+    // Ensure that the sites list does not contain the URLs of the removed
+    // permission.
+    EXPECT_FALSE(ChooserExceptionContainsSiteException(
+        exceptions, "Gizmo", kAndroidOriginStr, kChromiumOriginStr));
+  }
+
+  // User granted USB permissions that are also granted by policy should not
+  // be able to be reset.
+  args.Clear();
+  args.AppendString(kUsbChooserGroupName);
+  args.AppendString(kChromiumOriginStr);
+  args.AppendString(kChromiumOriginStr);
+  args.Append(
+      UsbChooserContext::DeviceInfoToDictValue(*persistent_device_info_));
+
+  {
+    const base::Value& exceptions =
+        GetChooserExceptionListFromWebUiCallData(kUsbChooserGroupName, 5u);
+    EXPECT_EQ(exceptions.GetList().size(), 5u);
+
+    // User granted exceptions that are also granted by policy are only
+    // displayed through the policy granted site exception, so ensure that a
+    // site exception entry for a requesting and embedding origin of
+    // kChromiumOriginStr does not exist.
+    EXPECT_TRUE(ChooserExceptionContainsSiteException(
+        exceptions, "Gizmo", kChromiumOriginStr, std::string()));
+    EXPECT_FALSE(ChooserExceptionContainsSiteException(
+        exceptions, "Gizmo", kChromiumOriginStr, kChromiumOriginStr));
+  }
+
+  EXPECT_CALL(observer_, OnChooserObjectPermissionChanged(
+                             CONTENT_SETTINGS_TYPE_USB_GUARD,
+                             CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA));
+  EXPECT_CALL(observer_, OnPermissionRevoked(kChromiumOrigin, kChromiumOrigin));
+  handler()->HandleResetChooserExceptionForSite(&args);
+
+  // The HandleResetChooserExceptionForSite() method should have also caused the
+  // WebUIListenerCallbacks for contentSettingSitePermissionChanged and
+  // contentSettingChooserPermissionChanged to fire.
+  EXPECT_EQ(web_ui()->call_data().size(), 7u);
+  {
+    const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+        kUsbChooserGroupName, /*expected_total_calls=*/8u);
+    EXPECT_EQ(exceptions.GetList().size(), 5u);
+
+    // Ensure that the sites list still displays a site exception entry for a
+    // requesting origin of kChromiumOriginStr and a wildcard embedding origin.
+    EXPECT_TRUE(ChooserExceptionContainsSiteException(
+        exceptions, "Gizmo", kChromiumOriginStr, std::string()));
+    EXPECT_FALSE(ChooserExceptionContainsSiteException(
+        exceptions, "Gizmo", kChromiumOriginStr, kChromiumOriginStr));
+  }
+
+  // User granted USB permissions that are not covered by policy should be able
+  // to be reset and the chooser exception entry should be removed from the list
+  // when the exception only has one site exception granted to it..
+  args.Clear();
+  args.AppendString(kUsbChooserGroupName);
+  args.AppendString(kAndroidOriginStr);
+  args.AppendString(kAndroidOriginStr);
+  args.Append(
+      UsbChooserContext::DeviceInfoToDictValue(*user_granted_device_info_));
+
+  {
+    const base::Value& exceptions =
+        GetChooserExceptionListFromWebUiCallData(kUsbChooserGroupName, 9u);
+    EXPECT_EQ(exceptions.GetList().size(), 5u);
+    EXPECT_TRUE(ChooserExceptionContainsSiteException(
+        exceptions, "Widget", kAndroidOriginStr, kAndroidOriginStr));
+  }
+
+  EXPECT_CALL(observer_, OnChooserObjectPermissionChanged(
+                             CONTENT_SETTINGS_TYPE_USB_GUARD,
+                             CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA));
+  EXPECT_CALL(observer_, OnPermissionRevoked(kAndroidOrigin, kAndroidOrigin));
+  handler()->HandleResetChooserExceptionForSite(&args);
+
+  // The HandleResetChooserExceptionForSite() method should have also caused the
+  // WebUIListenerCallbacks for contentSettingSitePermissionChanged and
+  // contentSettingChooserPermissionChanged to fire.
+  EXPECT_EQ(web_ui()->call_data().size(), 11u);
+  {
+    const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+        kUsbChooserGroupName, /*expected_total_calls=*/12u);
+    EXPECT_EQ(exceptions.GetList().size(), 4u);
+    EXPECT_FALSE(ChooserExceptionContainsSiteException(
+        exceptions, "Widget", kAndroidOriginStr, kAndroidOriginStr));
+  }
+}
+
+TEST_F(SiteSettingsHandlerTest, HandleClearEtldPlus1DataAndCookies) {
+  SetUpCookiesTreeModel();
+
+  EXPECT_EQ(22, handler()->cookies_tree_model_->GetRoot()->GetTotalNodeCount());
+
+  const base::ListValue* storage_and_cookie_list =
+      GetOnStorageFetchedSentListValue();
+  EXPECT_EQ(3U, storage_and_cookie_list->GetSize());
+  const base::DictionaryValue* site_group;
+  ASSERT_TRUE(storage_and_cookie_list->GetDictionary(0, &site_group));
+  std::string etld_plus1_string;
+  ASSERT_TRUE(site_group->GetString("etldPlus1", &etld_plus1_string));
+  ASSERT_EQ("example.com", etld_plus1_string);
+
+  base::ListValue args;
+  args.AppendString("example.com");
+  handler()->HandleClearEtldPlus1DataAndCookies(&args);
+  EXPECT_EQ(11, handler()->cookies_tree_model_->GetRoot()->GetTotalNodeCount());
+
+  storage_and_cookie_list = GetOnStorageFetchedSentListValue();
+  EXPECT_EQ(2U, storage_and_cookie_list->GetSize());
+  ASSERT_TRUE(storage_and_cookie_list->GetDictionary(0, &site_group));
+  ASSERT_TRUE(site_group->GetString("etldPlus1", &etld_plus1_string));
+  ASSERT_EQ("google.com", etld_plus1_string);
+
+  args.Clear();
+  args.AppendString("google.com");
+
+  handler()->HandleClearEtldPlus1DataAndCookies(&args);
+
+  EXPECT_EQ(4, handler()->cookies_tree_model_->GetRoot()->GetTotalNodeCount());
+
+  storage_and_cookie_list = GetOnStorageFetchedSentListValue();
+  EXPECT_EQ(1U, storage_and_cookie_list->GetSize());
+  ASSERT_TRUE(storage_and_cookie_list->GetDictionary(0, &site_group));
+  ASSERT_TRUE(site_group->GetString("etldPlus1", &etld_plus1_string));
+  ASSERT_EQ("google.com.au", etld_plus1_string);
+
+  args.Clear();
+  args.AppendString("google.com.au");
+
+  handler()->HandleClearEtldPlus1DataAndCookies(&args);
+
+  EXPECT_EQ(1, handler()->cookies_tree_model_->GetRoot()->GetTotalNodeCount());
+
+  storage_and_cookie_list = GetOnStorageFetchedSentListValue();
+  EXPECT_EQ(0U, storage_and_cookie_list->GetSize());
+}
 }  // namespace settings

@@ -45,9 +45,7 @@ class TextSearcherICU;
 // Keeps enough of the previous text to be able to search in the future, but no
 // more. Non-breaking spaces are always equal to normal spaces. Case folding is
 // also done if the CaseInsensitive option is specified. Matches are further
-// filtered if the AtWordStarts option is specified, although some matches
-// inside a word are permitted if TreatMedialCapitalAsWordStart is specified as
-// well.
+// filtered if it should be starting at a word start (WholeWord is set).
 class SearchBuffer {
   STACK_ALLOCATED();
 
@@ -58,32 +56,32 @@ class SearchBuffer {
   // Returns number of characters appended; guaranteed to be in the range
   // [1, length].
   template <typename CharType>
-  void Append(const CharType*, size_t length);
-  size_t NumberOfCharactersJustAppended() const {
+  void Append(const CharType*, wtf_size_t length);
+  wtf_size_t NumberOfCharactersJustAppended() const {
     return number_of_characters_just_appended_;
   }
 
   bool NeedsMoreContext() const;
-  void PrependContext(const UChar*, size_t length);
+  void PrependContext(const UChar*, wtf_size_t length);
   void ReachedBreak();
 
   // Result is the size in characters of what was found.
   // And <startOffset> is the number of characters back to the start of what
   // was found.
-  size_t Search(size_t& start_offset);
+  wtf_size_t Search(wtf_size_t& start_offset);
   bool AtBreak() const;
 
  private:
-  bool IsBadMatch(const UChar*, size_t length) const;
-  bool IsWordStartMatch(size_t start, size_t length) const;
+  bool IsBadMatch(const UChar*, wtf_size_t length) const;
+  bool IsWordStartMatch(wtf_size_t start, wtf_size_t length) const;
 
   Vector<UChar> target_;
   FindOptions options_;
 
   Vector<UChar> buffer_;
-  size_t overlap_;
-  size_t prefix_length_;
-  size_t number_of_characters_just_appended_;
+  wtf_size_t overlap_;
+  wtf_size_t prefix_length_;
+  wtf_size_t number_of_characters_just_appended_;
   bool at_break_;
   bool needs_more_context_;
 

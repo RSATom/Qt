@@ -13,11 +13,12 @@
 #include "core/fxcodec/codec/ccodec_gifmodule.h"
 #include "core/fxcodec/gif/cfx_gif.h"
 #include "core/fxcodec/gif/cfx_lzwdecompressor.h"
-#include "core/fxcrt/cfx_memorystream.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/unowned_ptr.h"
 
-class CFX_GifContext : public CCodec_GifModule::Context {
+class CFX_CodecMemory;
+
+class CFX_GifContext : public CodecModuleIface::Context {
  public:
   CFX_GifContext(CCodec_GifModule* gif_module,
                  CCodec_GifModule::Delegate* delegate);
@@ -40,8 +41,8 @@ class CFX_GifContext : public CCodec_GifModule::Context {
   CFX_GifDecodeStatus ReadHeader();
   CFX_GifDecodeStatus GetFrame();
   CFX_GifDecodeStatus LoadFrame(int32_t frame_num);
-  void SetInputBuffer(uint8_t* src_buf, uint32_t src_size);
-  uint32_t GetAvailInput(uint8_t** avail_buf) const;
+  void SetInputBuffer(RetainPtr<CFX_CodecMemory> codec_memory);
+  uint32_t GetAvailInput() const;
   size_t GetFrameNum() const { return images_.size(); }
 
   UnownedPtr<CCodec_GifModule> gif_module_;
@@ -63,10 +64,11 @@ class CFX_GifContext : public CCodec_GifModule::Context {
   uint8_t img_pass_num_;
 
  protected:
-  bool ReadData(uint8_t* dest, uint32_t size);
+  bool ReadAllOrNone(uint8_t* dest, uint32_t size);
   CFX_GifDecodeStatus ReadGifSignature();
   CFX_GifDecodeStatus ReadLogicalScreenDescriptor();
-  RetainPtr<CFX_MemoryStream> input_buffer_;
+
+  RetainPtr<CFX_CodecMemory> input_buffer_;
 
  private:
   void SaveDecodingStatus(int32_t status);

@@ -50,7 +50,7 @@ void ImageFetcherImpl::FetchImageAndData(
     const net::NetworkTrafficAnnotationTag& traffic_annotation) {
   // Before starting to fetch the image. Look for a request in progress for
   // |image_url|, and queue if appropriate.
-  ImageRequestMap::iterator it = pending_net_requests_.find(image_url);
+  auto it = pending_net_requests_.find(image_url);
   if (it == pending_net_requests_.end()) {
     ImageRequest request;
     request.id = id;
@@ -64,8 +64,8 @@ void ImageFetcherImpl::FetchImageAndData(
 
     image_data_fetcher_->FetchImageData(
         image_url,
-        base::Bind(&ImageFetcherImpl::OnImageURLFetched, base::Unretained(this),
-                   image_url),
+        base::BindOnce(&ImageFetcherImpl::OnImageURLFetched,
+                       base::Unretained(this), image_url),
         traffic_annotation);
   } else {
     ImageRequest* request = &it->second;
@@ -123,7 +123,7 @@ void ImageFetcherImpl::OnImageDecoded(const GURL& image_url,
                                       const RequestMetadata& metadata,
                                       const gfx::Image& image) {
   // Get request for the given image_url from the request queue.
-  ImageRequestMap::iterator image_iter = pending_net_requests_.find(image_url);
+  auto image_iter = pending_net_requests_.find(image_url);
   DCHECK(image_iter != pending_net_requests_.end());
   ImageRequest* request = &image_iter->second;
 

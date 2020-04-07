@@ -52,14 +52,16 @@
 #define PROFILE_ADAPTER_CLIENT_H
 
 #include "qtwebenginecoreglobal_p.h"
+#include <QSharedPointer>
 #include <QString>
 #include <QUrl>
 
 namespace QtWebEngineCore {
 
 class WebContentsAdapterClient;
+class UserNotificationController;
 
-class QWEBENGINECORE_PRIVATE_EXPORT ProfileAdapterClient
+class Q_WEBENGINECORE_PRIVATE_EXPORT ProfileAdapterClient
 {
 public:
     // Keep in sync with content::DownloadItem::DownloadState
@@ -142,6 +144,9 @@ public:
 
     virtual void downloadRequested(DownloadItemInfo &info) = 0;
     virtual void downloadUpdated(const DownloadItemInfo &info) = 0;
+    virtual void useForGlobalCertificateVerificationChanged() {}
+    virtual void showNotification(QSharedPointer<UserNotificationController> &) { }
+
     virtual void addWebContentsAdapterClient(WebContentsAdapterClient *adapter) = 0;
     virtual void removeWebContentsAdapterClient(WebContentsAdapterClient *adapter) = 0;
     static QString downloadInterruptReasonToString(DownloadInterruptReason reason);

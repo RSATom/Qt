@@ -9,11 +9,12 @@
 
 #include <vector>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "components/url_formatter/idn_spoof_checker.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -134,6 +135,13 @@ const IDNTestCase idn_cases[] = {
     {"xn---123-kbjl2j0bl2k.in", L"\x0939\x093f\x0928\x094d\x0926\x0940-123.in",
      true},
 
+    // URL test with mostly numbers and one confusable character
+    // Georgian 'd' 4000.com
+    {"xn--4000-pfr.com",
+     L"\x10eb"
+     L"4000.com",
+     false},
+
     // What used to be 5 Aspirational scripts in the earlier versions of UAX 31.
     // UAX 31 does not define aspirational scripts any more.
     // See http://www.unicode.org/reports/tr31/#Aspirational_Use_Scripts .
@@ -169,6 +177,11 @@ const IDNTestCase idn_cases[] = {
     {"xn--hllo-bpa7979ih5m.cn", L"h\x00e9llo\x4e2d\x56fd.cn", false},
     // <Greek rho><Cyrillic a><Cyrillic u>.ru
     {"xn--2xa6t2b.ru", L"\x03c1\x0430\x0443.ru", false},
+    // Georgian + Latin
+    {"xn--abcef-vuu.test",
+     L"abc\x10eb"
+     L"ef.test",
+     false},
     // Hangul + Latin
     {"xn--han-eb9ll88m.kr", L"\xd55c\xae00han.kr", true},
     // Hangul + Latin + Han with IDN ccTLD
@@ -1004,6 +1017,56 @@ const IDNTestCase idn_cases[] = {
     {"xn--kx8a.com", L"\xa661.com", false},
     // Cyrillic Ext C: ᲂ.com (Narrow o)
     {"xn--43f.com", L"\x1c82.com", false},
+
+    // The skeleton of Extended Arabic-Indic Digit Zero (۰) is a dot. Check that
+    // this is handled correctly (crbug/877045).
+    {"xn--dmb", L"\x06f0", true},
+
+    // Test that top domains whose skeletons are the same as the domain name are
+    // handled properly. In this case, tést.net should match test.net top
+    // domain and not be converted to unicode.
+    {"xn--tst-bma.net", L"t\x00e9st.net", false},
+    // Variations of the above, for testing crbug.com/925199.
+    // some.tést.net should match test.net.
+    {"some.xn--tst-bma.net", L"some.t\x00e9st.net", false},
+    // The following should not match test.net, so should be converted to
+    // unicode.
+    // ést.net (a suffix of tést.net).
+    {"xn--st-9ia.net", L"\x00e9st.net", true},
+    // some.ést.net
+    {"some.xn--st-9ia.net", L"some.\x00e9st.net", true},
+    // atést.net (tést.net is a suffix of atést.net)
+    {"xn--atst-cpa.net", L"at\x00e9st.net", true},
+    // some.atést.net
+    {"some.xn--atst-cpa.net", L"some.at\x00e9st.net", true},
+
+    // Modifier-letter-voicing should be blocked (wwwˬtest.com).
+    {"xn--wwwtest-2be.com", L"www\x02ectest.com", false},
+
+    // U+4E00 and U+3127 should be blocked when next to non-CJK.
+    {"xn--ipaddress-w75n.com", L"ip一address.com", false},
+    {"xn--ipaddress-wx5h.com", L"ipㄧaddress.com", false},
+    // These are allowed because 一 is not immediately next to non-CJK.
+    {"xn--gamer-fg1hz05u.com", L"一生gamer.com", true},
+    {"xn--gamer-kg1hy05u.com", L"gamer生一.com", true},
+    {"xn--4gqz91g.com", L"一猫.com", true},
+    {"xn--4fkv10r.com", L"ㄧ猫.com", true},
+    // U+4E00 with another ideograph.
+    {"xn--4gqc.com", L"一丁.com", true},
+
+    // CJK ideographs looking like slashes should be blocked when next to
+    // non-CJK.
+    {"example.xn--comtest-k63k", L"example.com丶test", false},
+    {"example.xn--comtest-u83k", L"example.com乀test", false},
+    {"example.xn--comtest-283k", L"example.com乁test", false},
+    {"example.xn--comtest-m83k", L"example.com丿test", false},
+    // This is allowed because the ideographs are not immediately next to
+    // non-CJK.
+    {"xn--oiqsace.com", L"丶乀乁丿.com", true},
+
+    // Kana voiced sound marks are not allowed.
+    {"xn--google-1m4e.com", L"google\x3099.com", false},
+    {"xn--google-8m4e.com", L"google\x309A.com", false},
 };
 
 struct AdjustOffsetCase {
@@ -1066,7 +1129,7 @@ TEST(UrlFormatterTest, IDNToUnicode) {
       test::kTopDomainsRootPosition};
   IDNSpoofChecker::SetTrieParamsForTesting(trie_params);
 
-  for (size_t i = 0; i < arraysize(idn_cases); i++) {
+  for (size_t i = 0; i < base::size(idn_cases); i++) {
     base::string16 output(IDNToUnicode(idn_cases[i].input));
     base::string16 expected(idn_cases[i].unicode_allowed
                                 ? WideToUTF16(idn_cases[i].unicode_output)
@@ -1079,6 +1142,7 @@ TEST(UrlFormatterTest, IDNToUnicode) {
 
 TEST(UrlFormatterTest, FormatUrl) {
   FormatUrlTypes default_format_type = kFormatUrlOmitUsernamePassword;
+  // clang-format off
   const UrlTestData tests[] = {
       {"Empty URL", "", default_format_type, net::UnescapeRule::NORMAL, L"", 0},
 
@@ -1186,6 +1250,21 @@ TEST(UrlFormatterTest, FormatUrl) {
        kFormatUrlOmitHTTP, net::UnescapeRule::NORMAL, L"http://ftp.google.com/",
        7},
 
+      // -------- omit file: --------
+#if defined(OS_WIN)
+      {"omit file on Windows", "file:///C:/Users/homedirname/folder/file.pdf/",
+       kFormatUrlOmitFileScheme, net::UnescapeRule::NORMAL,
+       L"C:/Users/homedirname/folder/file.pdf/", -1},
+#else
+      {"omit file", "file:///Users/homedirname/folder/file.pdf/",
+       kFormatUrlOmitFileScheme, net::UnescapeRule::NORMAL,
+       L"/Users/homedirname/folder/file.pdf/", 0},
+#endif
+      // -------- omit mailto: --------
+      { "omit mailto", "mailto:foo@bar.com",
+      kFormatUrlOmitMailToScheme, net::UnescapeRule::NORMAL,
+      L"foo@bar.com", 0 },
+
       // -------- omit trailing slash on bare hostname --------
       {"omit slash when it's the entire path", "http://www.google.com/",
        kFormatUrlOmitTrailingSlashOnBareHostname, net::UnescapeRule::NORMAL,
@@ -1228,41 +1307,6 @@ TEST(UrlFormatterTest, FormatUrl) {
        "view-source:http://a.b/", kFormatUrlOmitDefaults,
        net::UnescapeRule::NORMAL, L"view-source:a.b", 12},
 
-      // -------- elide after host --------
-      {"elide after host but still strip trailing slashes",
-       "http://google.com/",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com", 0},
-      {"elide after host in simple filename-only case", "http://google.com/foo",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host in directory and file case", "http://google.com/ab/cd",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with query only", "http://google.com/?foo=bar",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with ref only", "http://google.com/#foobar",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with path and query only", "http://google.com/foo?a=b",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with path and ref only", "http://google.com/foo#c",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with query and ref only", "http://google.com/?a=b#c",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with path, query and ref",
-       "http://google.com/foo?a=b#c",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-      {"elide after host with repeated delimiters (sanity check)",
-       "http://google.com////???####",
-       kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-       net::UnescapeRule::NORMAL, L"google.com/\x2026\x0000", 0},
-
       // -------- omit https --------
       {"omit https", "https://www.google.com/", kFormatUrlOmitHTTPS,
        net::UnescapeRule::NORMAL, L"www.google.com/", 0},
@@ -1281,29 +1325,26 @@ TEST(UrlFormatterTest, FormatUrl) {
        net::UnescapeRule::NORMAL, L"https://ftp.google.com/", 8},
 
       // -------- omit trivial subdomains --------
-      {"omit trivial subdomains - trim www", "http://www.google.com/",
-       kFormatUrlOmitTrivialSubdomains, net::UnescapeRule::NORMAL,
-       L"http://google.com/", 7},
-      {"omit trivial subdomains - trim m", "http://m.google.com/",
-       kFormatUrlOmitTrivialSubdomains, net::UnescapeRule::NORMAL,
-       L"http://google.com/", 7},
-      {"omit trivial subdomains - trim m and www", "http://m.www.google.com/",
-       kFormatUrlOmitTrivialSubdomains, net::UnescapeRule::NORMAL,
-       L"http://google.com/", 7},
-      {"omit trivial subdomains - trim m from middle",
-       "http://en.m.wikipedia.org/", kFormatUrlOmitTrivialSubdomains,
-       net::UnescapeRule::NORMAL, L"http://en.wikipedia.org/", 7},
-      {"omit trivial subdomains - exclude private registries",
-       "http://www.blogspot.com/", kFormatUrlOmitTrivialSubdomains,
-       net::UnescapeRule::NORMAL, L"http://blogspot.com/", 7},
+      {"omit trivial subdomains - trim leading www",
+      "http://www.wikipedia.org/", kFormatUrlOmitTrivialSubdomains,
+      net::UnescapeRule::NORMAL, L"http://wikipedia.org/", 7},
+      {"omit trivial subdomains - don't trim leading m",
+      "http://m.google.com/", kFormatUrlOmitTrivialSubdomains,
+      net::UnescapeRule::NORMAL, L"http://m.google.com/", 7},
+      {"omit trivial subdomains - don't trim www after a leading m",
+      "http://m.www.google.com/", kFormatUrlOmitTrivialSubdomains,
+      net::UnescapeRule::NORMAL, L"http://m.www.google.com/", 7},
+      {"omit trivial subdomains - trim first www only",
+      "http://www.www.www.wikipedia.org/", kFormatUrlOmitTrivialSubdomains,
+      net::UnescapeRule::NORMAL, L"http://www.www.wikipedia.org/", 7},
+      {"omit trivial subdomains - don't trim www from middle",
+      "http://en.www.wikipedia.org/", kFormatUrlOmitTrivialSubdomains,
+      net::UnescapeRule::NORMAL, L"http://en.www.wikipedia.org/", 7},
       {"omit trivial subdomains - don't do blind substring matches for www",
-       "http://wwww.google.com/", kFormatUrlOmitTrivialSubdomains,
-       net::UnescapeRule::NORMAL, L"http://wwww.google.com/", 7},
-      {"omit trivial subdomains - don't do blind substring matches for m",
-       "http://foom.google.com/", kFormatUrlOmitTrivialSubdomains,
-       net::UnescapeRule::NORMAL, L"http://foom.google.com/", 7},
+       "http://foowww.google.com/", kFormatUrlOmitTrivialSubdomains,
+       net::UnescapeRule::NORMAL, L"http://foowww.google.com/", 7},
       {"omit trivial subdomains - don't crash on multiple delimiters",
-       "http://www...m..foobar...google.com/", kFormatUrlOmitTrivialSubdomains,
+       "http://www....foobar...google.com/", kFormatUrlOmitTrivialSubdomains,
        net::UnescapeRule::NORMAL, L"http://...foobar...google.com/", 7},
 
       {"omit trivial subdomains - sanity check for ordinary subdomains",
@@ -1316,9 +1357,9 @@ TEST(UrlFormatterTest, FormatUrl) {
        "http://google.com/www.m.foobar", kFormatUrlOmitTrivialSubdomains,
        net::UnescapeRule::NORMAL, L"http://google.com/www.m.foobar", 7},
       {"omit trivial subdomains - sanity check for IDN",
-       "http://www.xn--cy2a840a.m.xn--cy2a840a.com",
+       "http://www.xn--cy2a840a.www.xn--cy2a840a.com",
        kFormatUrlOmitTrivialSubdomains, net::UnescapeRule::NORMAL,
-       L"http://\x89c6\x9891.\x89c6\x9891.com/", 7},
+       L"http://\x89c6\x9891.www.\x89c6\x9891.com/", 7},
 
       {"omit trivial subdomains but leave registry and domain alone - trivial",
        "http://google.com/", kFormatUrlOmitTrivialSubdomains,
@@ -1329,6 +1370,10 @@ TEST(UrlFormatterTest, FormatUrl) {
       {"omit trivial subdomains but leave registry and domain alone - co.uk",
        "http://m.co.uk/", kFormatUrlOmitTrivialSubdomains,
        net::UnescapeRule::NORMAL, L"http://m.co.uk/", 7},
+      {"omit trivial subdomains but leave eTLD (effective TLD) alone",
+       "http://www.appspot.com/", kFormatUrlOmitTrivialSubdomains,
+       net::UnescapeRule::NORMAL, L"http://www.appspot.com/", 7},
+
 
       {"omit trivial subdomains but leave intranet hostnames alone",
        "http://router/", kFormatUrlOmitTrivialSubdomains,
@@ -1376,9 +1421,14 @@ TEST(UrlFormatterTest, FormatUrl) {
        "http://google.com////???####",
        kFormatUrlOmitDefaults | kFormatUrlTrimAfterHost,
        net::UnescapeRule::NORMAL, L"google.com", 0},
+      {"never trim file paths", "file:///Users/homedirname/folder/file.pdf/",
+       kFormatUrlOmitDefaults | kFormatUrlTrimAfterHost,
+       net::UnescapeRule::NORMAL,
+       L"file:///Users/homedirname/folder/file.pdf/", 7},
   };
+  // clang-format on
 
-  for (size_t i = 0; i < arraysize(tests); ++i) {
+  for (size_t i = 0; i < base::size(tests); ++i) {
     size_t prefix_len;
     base::string16 formatted = FormatUrl(
         GURL(tests[i].input), tests[i].format_types, tests[i].escape_rules,
@@ -1611,7 +1661,7 @@ TEST(UrlFormatterTest, FormatUrlRoundTripQueryEscaped) {
 }
 
 TEST(UrlFormatterTest, FormatUrlWithOffsets) {
-  CheckAdjustedOffsets(std::string(),  kFormatUrlOmitNothing,
+  CheckAdjustedOffsets(std::string(), kFormatUrlOmitNothing,
                        net::UnescapeRule::NORMAL, nullptr);
 
   const size_t basic_offsets[] = {
@@ -1724,34 +1774,6 @@ TEST(UrlFormatterTest, FormatUrlWithOffsets) {
   CheckAdjustedOffsets("http://user@foo.com/", kFormatUrlOmitDefaults,
                        net::UnescapeRule::NORMAL, omit_all_offsets);
 
-  const size_t elide_after_host_offsets[] = {
-      0, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 0,     1,     2,     3, 4,
-      5, 6,     7,     8,     kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 9};
-  CheckAdjustedOffsets(
-      "http://foo.com/abcdefg",
-      kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-      net::UnescapeRule::NORMAL, elide_after_host_offsets);
-  CheckAdjustedOffsets(
-      "http://foo.com/abc/def",
-      kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-      net::UnescapeRule::NORMAL, elide_after_host_offsets);
-  CheckAdjustedOffsets(
-      "http://foo.com/abc?a=b",
-      kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-      net::UnescapeRule::NORMAL, elide_after_host_offsets);
-  CheckAdjustedOffsets(
-      "http://foo.com/abc#def",
-      kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-      net::UnescapeRule::NORMAL, elide_after_host_offsets);
-  CheckAdjustedOffsets(
-      "http://foo.com/a?a=b#f",
-      kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-      net::UnescapeRule::NORMAL, elide_after_host_offsets);
-  CheckAdjustedOffsets(
-      "http://foo.com//??###",
-      kFormatUrlOmitDefaults | kFormatUrlExperimentalElideAfterHost,
-      net::UnescapeRule::NORMAL, elide_after_host_offsets);
-
   const size_t trim_after_host_offsets[] = {
       0, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 0,     1,     2,     3, 4,
       5, 6,     7,     kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 9};
@@ -1789,18 +1811,11 @@ TEST(UrlFormatterTest, FormatUrlWithOffsets) {
                        net::UnescapeRule::NORMAL, omit_https_with_auth_offsets);
 
   const size_t strip_trivial_subdomains_offsets_1[] = {
-      0, 1, 2,  3,  4,  5,  6,  7,  kNpos, kNpos, kNpos, 7,  kNpos, 7,
-      8, 9, 10, 11, 12, 13, 14, 15, 16,    17,    18,    19, 20,    21};
+      0, 1,  2,  3,  4,  5,  6,  7,  kNpos, kNpos, kNpos, 7,  8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17,    18,    19,    20, 21};
   CheckAdjustedOffsets(
-      "http://www.m.google.com/foo/", kFormatUrlOmitTrivialSubdomains,
+      "http://www.google.com/foo/", kFormatUrlOmitTrivialSubdomains,
       net::UnescapeRule::NORMAL, strip_trivial_subdomains_offsets_1);
-
-  const size_t strip_trivial_subdomains_offsets_2[] = {
-      0,  1,     2,     3,     4,  5,  6,  7,  kNpos, 7,  8,  9,
-      10, kNpos, kNpos, kNpos, 10, 11, 12, 13, 14,    15, 16, 17};
-  CheckAdjustedOffsets(
-      "http://m.en.www.foo.com/", kFormatUrlOmitTrivialSubdomains,
-      net::UnescapeRule::NORMAL, strip_trivial_subdomains_offsets_2);
 
   const size_t strip_trivial_subdomains_from_idn_offsets[] = {
       0,     1,     2,     3,     4,     5,     6,     7,     kNpos, kNpos,

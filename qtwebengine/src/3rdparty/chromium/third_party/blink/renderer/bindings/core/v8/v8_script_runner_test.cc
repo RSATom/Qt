@@ -63,8 +63,8 @@ class V8ScriptRunnerTest : public testing::Test {
     std::tie(compile_options, produce_cache_options, no_cache_reason) =
         V8CodeCache::GetCompileOptions(cache_options, source_code);
     v8::MaybeLocal<v8::Script> compiled_script = V8ScriptRunner::CompileScript(
-        script_state, source_code, kNotSharableCrossOrigin, compile_options,
-        no_cache_reason, ReferrerScriptInfo());
+        script_state, source_code, SanitizeScriptErrors::kSanitize,
+        compile_options, no_cache_reason, ReferrerScriptInfo());
     if (compiled_script.IsEmpty()) {
       return false;
     }
@@ -81,8 +81,8 @@ class V8ScriptRunnerTest : public testing::Test {
                      v8::ScriptCompiler::NoCacheReason no_cache_reason,
                      V8CodeCache::ProduceCacheOptions produce_cache_options) {
     v8::MaybeLocal<v8::Script> compiled_script = V8ScriptRunner::CompileScript(
-        script_state, source_code, kNotSharableCrossOrigin, compile_options,
-        no_cache_reason, ReferrerScriptInfo());
+        script_state, source_code, SanitizeScriptErrors::kSanitize,
+        compile_options, no_cache_reason, ReferrerScriptInfo());
     if (compiled_script.IsEmpty()) {
       return false;
     }
@@ -93,11 +93,15 @@ class V8ScriptRunnerTest : public testing::Test {
   }
 
   ScriptResource* CreateEmptyResource() {
-    return ScriptResource::CreateForTest(NullURL(), UTF8Encoding());
+    ScriptResource* resource =
+        ScriptResource::CreateForTest(NullURL(), UTF8Encoding());
+    resource->SetClientIsWaitingForFinished();
+    return resource;
   }
 
   ScriptResource* CreateResource(const WTF::TextEncoding& encoding) {
     ScriptResource* resource = ScriptResource::CreateForTest(Url(), encoding);
+    resource->SetClientIsWaitingForFinished();
     String code = Code();
     ResourceResponse response(Url());
     response.SetHTTPStatusCode(200);
@@ -130,7 +134,8 @@ TEST_F(V8ScriptRunnerTest, emptyResourceDoesNotHaveCacheHandler) {
 
 TEST_F(V8ScriptRunnerTest, codeOption) {
   V8TestingScope scope;
-  ScriptSourceCode source_code(nullptr, CreateResource(UTF8Encoding()));
+  ScriptSourceCode source_code(nullptr, CreateResource(UTF8Encoding()),
+                               ScriptStreamer::kScriptTooSmall);
   SingleCachedMetadataHandler* cache_handler = source_code.CacheHandler();
   SetCacheTimeStamp(cache_handler);
 
@@ -147,7 +152,8 @@ TEST_F(V8ScriptRunnerTest, codeOption) {
 
 TEST_F(V8ScriptRunnerTest, consumeCodeOption) {
   V8TestingScope scope;
-  ScriptSourceCode source_code(nullptr, CreateResource(UTF8Encoding()));
+  ScriptSourceCode source_code(nullptr, CreateResource(UTF8Encoding()),
+                               ScriptStreamer::kScriptTooSmall);
   // Set timestamp to simulate a warm run.
   SingleCachedMetadataHandler* cache_handler = source_code.CacheHandler();
   SetCacheTimeStamp(cache_handler);
@@ -177,7 +183,8 @@ TEST_F(V8ScriptRunnerTest, consumeCodeOption) {
 
 TEST_F(V8ScriptRunnerTest, produceAndConsumeCodeOption) {
   V8TestingScope scope;
-  ScriptSourceCode source_code(nullptr, CreateResource(UTF8Encoding()));
+  ScriptSourceCode source_code(nullptr, CreateResource(UTF8Encoding()),
+                               ScriptStreamer::kScriptTooSmall);
   SingleCachedMetadataHandler* cache_handler = source_code.CacheHandler();
 
   // Cold run - should set the timestamp

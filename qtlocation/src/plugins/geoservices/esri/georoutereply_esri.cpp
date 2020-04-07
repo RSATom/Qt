@@ -87,7 +87,7 @@ void GeoRouteReplyEsri::networkReplyFinished()
 
 void GeoRouteReplyEsri::networkReplyError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(QGeoRouteReply::CommunicationError, reply->errorString());

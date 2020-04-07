@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "base/sequence_checker.h"
+#include "components/password_manager/core/browser/hsts_query.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "url/gurl.h"
 
@@ -49,12 +50,16 @@ class HttpPasswordStoreMigrator : public PasswordStoreConsumer {
                             Consumer* consumer);
   ~HttpPasswordStoreMigrator() override;
 
+  // Creates HTTPS version of |http_form|.
+  static autofill::PasswordForm MigrateHttpFormToHttps(
+      const autofill::PasswordForm& http_form);
+
   // PasswordStoreConsumer:
   void OnGetPasswordStoreResults(
       std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
 
   // Callback for |PasswordManagerClient::PostHSTSQueryForHost|.
-  void OnHSTSQueryResult(bool is_hsts);
+  void OnHSTSQueryResult(HSTSResult is_hsts);
 
  private:
   enum class MigrationMode {

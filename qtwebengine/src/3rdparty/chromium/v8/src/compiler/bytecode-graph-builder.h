@@ -29,9 +29,10 @@ class SourcePositionTable;
 class BytecodeGraphBuilder {
  public:
   BytecodeGraphBuilder(
-      Zone* local_zone, Handle<SharedFunctionInfo> shared,
-      Handle<FeedbackVector> feedback_vector, BailoutId osr_offset,
-      JSGraph* jsgraph, CallFrequency& invocation_frequency,
+      Zone* local_zone, Handle<BytecodeArray> bytecode_array,
+      Handle<SharedFunctionInfo> shared, Handle<FeedbackVector> feedback_vector,
+      BailoutId osr_offset, JSGraph* jsgraph,
+      CallFrequency& invocation_frequency,
       SourcePositionTable* source_positions, Handle<Context> native_context,
       int inlining_id = SourcePosition::kNotInlined,
       JSTypeHintLowering::Flags flags = JSTypeHintLowering::kNoFlags,
@@ -90,6 +91,12 @@ class BytecodeGraphBuilder {
 
   Node* NewNode(const Operator* op, Node* n1, Node* n2, Node* n3, Node* n4) {
     Node* buffer[] = {n1, n2, n3, n4};
+    return MakeNode(op, arraysize(buffer), buffer, false);
+  }
+
+  Node* NewNode(const Operator* op, Node* n1, Node* n2, Node* n3, Node* n4,
+                Node* n5, Node* n6) {
+    Node* buffer[] = {n1, n2, n3, n4, n5, n6};
     return MakeNode(op, arraysize(buffer), buffer, false);
   }
 
@@ -178,7 +185,6 @@ class BytecodeGraphBuilder {
   void BuildBinaryOp(const Operator* op);
   void BuildBinaryOpWithImmediate(const Operator* op);
   void BuildCompareOp(const Operator* op);
-  void BuildTestingOp(const Operator* op);
   void BuildDelete(LanguageMode language_mode);
   void BuildCastOperator(const Operator* op);
   void BuildHoleCheckAndThrow(Node* condition, Runtime::FunctionId runtime_id,

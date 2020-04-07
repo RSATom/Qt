@@ -11,11 +11,11 @@
 #ifndef MODULES_AUDIO_CODING_CODECS_CNG_WEBRTC_CNG_H_
 #define MODULES_AUDIO_CODING_CODECS_CNG_WEBRTC_CNG_H_
 
+#include <stdint.h>
 #include <cstddef>
 
 #include "api/array_view.h"
 #include "rtc_base/buffer.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 #define WEBRTC_CNG_MAX_LPC_ORDER 12
 

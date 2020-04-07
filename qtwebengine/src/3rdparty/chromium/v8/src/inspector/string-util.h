@@ -5,6 +5,7 @@
 #ifndef V8_INSPECTOR_STRING_UTIL_H_
 #define V8_INSPECTOR_STRING_UTIL_H_
 
+#include <stdint.h>
 #include <memory>
 
 #include "src/base/logging.h"
@@ -60,6 +61,19 @@ class StringUtil {
   static std::unique_ptr<protocol::Value> parseJSON(const StringView& json);
 };
 
+// A read-only sequence of uninterpreted bytes with reference-counted storage.
+// Though the templates for generating the protocol bindings reference
+// this type, js_protocol.pdl doesn't have a field of type 'binary', so
+// therefore it's unnecessary to provide an implementation here.
+class Binary {
+ public:
+  const uint8_t* data() const { UNIMPLEMENTED(); }
+  size_t size() const { UNIMPLEMENTED(); }
+  String toBase64() const { UNIMPLEMENTED(); }
+  static Binary fromBase64(const String& base64, bool* success) {
+    UNIMPLEMENTED();
+  }
+};
 }  // namespace protocol
 
 v8::Local<v8::String> toV8String(v8::Isolate*, const String16&);
@@ -67,8 +81,8 @@ v8::Local<v8::String> toV8StringInternalized(v8::Isolate*, const String16&);
 v8::Local<v8::String> toV8StringInternalized(v8::Isolate*, const char*);
 v8::Local<v8::String> toV8String(v8::Isolate*, const StringView&);
 // TODO(dgozman): rename to toString16.
-String16 toProtocolString(v8::Local<v8::String>);
-String16 toProtocolStringWithTypeCheck(v8::Local<v8::Value>);
+String16 toProtocolString(v8::Isolate*, v8::Local<v8::String>);
+String16 toProtocolStringWithTypeCheck(v8::Isolate*, v8::Local<v8::Value>);
 String16 toString16(const StringView&);
 StringView toStringView(const String16&);
 bool stringViewStartsWith(const StringView&, const char*);

@@ -9,11 +9,11 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
@@ -195,8 +195,9 @@ class PrefModelAssociator : public syncer::SyncableService {
   // Map prefs to lists of observers. Observers will receive notification when
   // a pref changes, including the detail of whether or not the change came
   // from sync.
-  base::hash_map<std::string,
-                 std::unique_ptr<base::ObserverList<SyncedPrefObserver>>>
+  using SyncedPrefObserverList =
+      base::ObserverList<SyncedPrefObserver>::Unchecked;
+  std::unordered_map<std::string, std::unique_ptr<SyncedPrefObserverList>>
       synced_pref_observers_;
 
   const PrefModelAssociatorClient* client_;  // Weak.

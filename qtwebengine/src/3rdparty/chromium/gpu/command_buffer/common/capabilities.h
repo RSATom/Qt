@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <vector>
 
+#include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/gpu_export.h"
 #include "ui/gfx/buffer_types.h"
 
@@ -112,6 +113,9 @@ struct GPU_EXPORT Capabilities {
   int max_transform_feedback_separate_components = 0;
   int64_t max_uniform_block_size = 0;
   int max_uniform_buffer_bindings = 0;
+  int max_atomic_counter_buffer_bindings = 0;
+  int max_shader_storage_buffer_bindings = 0;
+  int shader_storage_buffer_offset_alignment = 1;
   int max_varying_components = 0;
   int max_vertex_output_components = 0;
   int max_vertex_uniform_blocks = 0;
@@ -196,6 +200,8 @@ struct GPU_EXPORT Capabilities {
 
   bool chromium_nonblocking_readback = false;
 
+  bool mesa_framebuffer_flip_y = false;
+
   int major_version = 2;
   int minor_version = 0;
 
@@ -203,6 +209,11 @@ struct GPU_EXPORT Capabilities {
   bool context_supports_distance_field_text = true;
   uint64_t glyph_cache_max_texture_bytes = 0.f;
 
+  GpuMemoryBufferFormatSet gpu_memory_buffer_formats = {
+      gfx::BufferFormat::BGR_565,   gfx::BufferFormat::RGBA_4444,
+      gfx::BufferFormat::RGBA_8888, gfx::BufferFormat::RGBX_8888,
+      gfx::BufferFormat::YVU_420,
+  };
   std::vector<gfx::BufferUsageAndFormat> texture_target_exception_list;
 };
 

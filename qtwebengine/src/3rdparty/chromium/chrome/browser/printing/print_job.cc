@@ -10,15 +10,14 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/printing/print_job_worker.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "printing/printed_document.h"
 
@@ -41,25 +40,22 @@ void HoldRefCallback(scoped_refptr<PrintJob> job, base::OnceClosure callback) {
   std::move(callback).Run();
 }
 
-PrintJob::PrintJob()
-    : is_job_pending_(false),
-      is_canceling_(false),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      quit_factory_(this) {
-  DCHECK(base::MessageLoopForUI::IsCurrent());
+PrintJob::PrintJob() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 }
 
 PrintJob::~PrintJob() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // The job should be finished (or at least canceled) when it is destroyed.
   DCHECK(!is_job_pending_);
   DCHECK(!is_canceling_);
   DCHECK(!worker_ || !worker_->IsRunning());
-  DCHECK(RunsTasksInCurrentSequence());
 }
 
 void PrintJob::Initialize(PrinterQuery* query,
                           const base::string16& name,
                           int page_count) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!worker_);
   DCHECK(!is_job_pending_);
   DCHECK(!is_canceling_);
@@ -104,6 +100,8 @@ void PrintJob::StartConversionToNativeFormat(
     const gfx::Size& page_size,
     const gfx::Rect& content_area,
     const gfx::Point& physical_offsets) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   if (PrintedDocument::HasDebugDumpPath())
     document()->DebugDumpData(print_data.get(), FILE_PATH_LITERAL(".pdf"));
 
@@ -126,6 +124,8 @@ void PrintJob::StartConversionToNativeFormat(
 }
 
 void PrintJob::ResetPageMapping() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   pdf_page_mapping_ =
       GetFullPageMapping(pdf_page_mapping_, document_->page_count());
 }
@@ -134,14 +134,15 @@ void PrintJob::ResetPageMapping() {
 void PrintJob::Observe(int type,
                        const content::NotificationSource& source,
                        const content::NotificationDetails& details) {
-  DCHECK(RunsTasksInCurrentSequence());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(chrome::NOTIFICATION_PRINT_JOB_EVENT, type);
 
   OnNotifyPrintJobEvent(*content::Details<JobEventDetails>(details).ptr());
 }
 
 void PrintJob::StartPrinting() {
-  DCHECK(RunsTasksInCurrentSequence());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   if (!worker_->IsRunning() || is_job_pending_) {
     NOTREACHED();
     return;
@@ -166,13 +167,12 @@ void PrintJob::StartPrinting() {
 }
 
 void PrintJob::Stop() {
-  DCHECK(RunsTasksInCurrentSequence());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  if (quit_factory_.HasWeakPtrs()) {
+  if (quit_closure_) {
     // In case we're running a nested run loop to wait for a job to finish,
     // and we finished before the timeout, quit the nested loop right away.
-    Quit();
-    quit_factory_.InvalidateWeakPtrs();
+    std::move(quit_closure_).Run();
   }
 
   // Be sure to live long enough.
@@ -188,12 +188,13 @@ void PrintJob::Stop() {
 }
 
 void PrintJob::Cancel() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   if (is_canceling_)
     return;
 
   is_canceling_ = true;
 
-  DCHECK(RunsTasksInCurrentSequence());
   if (worker_ && worker_->IsRunning()) {
     // Call this right now so it renders the context invalid. Do not use
     // InvokeLater since it would take too much time.
@@ -211,14 +212,17 @@ void PrintJob::Cancel() {
 }
 
 bool PrintJob::FlushJob(base::TimeDelta timeout) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   // Make sure the object outlive this message loop.
   scoped_refptr<PrintJob> handle(this);
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&PrintJob::Quit, quit_factory_.GetWeakPtr()),
-      timeout);
+  base::RunLoop loop(base::RunLoop::Type::kNestableTasksAllowed);
+  quit_closure_ = loop.QuitClosure();
+  base::PostDelayedTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                                  loop.QuitClosure(), timeout);
 
-  base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
+  loop.Run();
 
   return true;
 }
@@ -282,6 +286,7 @@ void PrintJob::StartPdfToEmfConversion(
     const scoped_refptr<base::RefCountedMemory>& bytes,
     const gfx::Size& page_size,
     const gfx::Rect& content_area) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!pdf_conversion_state_);
   pdf_conversion_state_ =
       std::make_unique<PdfConversionState>(page_size, content_area);
@@ -305,6 +310,8 @@ void PrintJob::StartPdfToEmfConversion(
 }
 
 void PrintJob::OnPdfConversionStarted(int page_count) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   if (page_count <= 0) {
     // Be sure to live long enough.
     scoped_refptr<PrintJob> handle(this);
@@ -320,6 +327,7 @@ void PrintJob::OnPdfConversionStarted(int page_count) {
 void PrintJob::OnPdfPageConverted(int page_number,
                                   float scale_factor,
                                   std::unique_ptr<MetafilePlayer> metafile) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(pdf_conversion_state_);
   if (!document_ || !metafile || page_number < 0 ||
       static_cast<size_t>(page_number) >= pdf_page_mapping_.size()) {
@@ -346,6 +354,7 @@ void PrintJob::OnPdfPageConverted(int page_number,
 void PrintJob::StartPdfToTextConversion(
     const scoped_refptr<base::RefCountedMemory>& bytes,
     const gfx::Size& page_size) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!pdf_conversion_state_);
   pdf_conversion_state_ =
       std::make_unique<PdfConversionState>(gfx::Size(), gfx::Rect());
@@ -364,6 +373,7 @@ void PrintJob::StartPdfToPostScriptConversion(
     const gfx::Rect& content_area,
     const gfx::Point& physical_offsets,
     bool ps_level2) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!pdf_conversion_state_);
   pdf_conversion_state_ = std::make_unique<PdfConversionState>(
       gfx::Size(), gfx::Rect());
@@ -380,6 +390,7 @@ void PrintJob::StartPdfToPostScriptConversion(
 
 void PrintJob::UpdatePrintedDocument(
     scoped_refptr<PrintedDocument> new_document) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(new_document);
 
   document_ = new_document;
@@ -388,6 +399,8 @@ void PrintJob::UpdatePrintedDocument(
 }
 
 void PrintJob::ClearPrintedDocument() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   if (!document_)
     return;
 
@@ -397,6 +410,7 @@ void PrintJob::ClearPrintedDocument() {
 }
 
 void PrintJob::SyncPrintedDocumentToWorker() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(worker_);
   DCHECK(!is_job_pending_);
   worker_->PostTask(
@@ -408,6 +422,8 @@ void PrintJob::SyncPrintedDocumentToWorker() {
 }
 
 void PrintJob::OnNotifyPrintJobEvent(const JobEventDetails& event_details) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   switch (event_details.type()) {
     case JobEventDetails::FAILED: {
       settings_.Clear();
@@ -429,8 +445,8 @@ void PrintJob::OnNotifyPrintJobEvent(const JobEventDetails& event_details) {
     }
     case JobEventDetails::DOC_DONE: {
       // This will call Stop() and broadcast a JOB_DONE message.
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::BindOnce(&PrintJob::OnDocumentDone, this));
+      base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                               base::BindOnce(&PrintJob::OnDocumentDone, this));
       break;
     }
 #if defined(OS_WIN) && !defined(TOOLKIT_QT)
@@ -449,6 +465,8 @@ void PrintJob::OnNotifyPrintJobEvent(const JobEventDetails& event_details) {
 }
 
 void PrintJob::OnDocumentDone() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   // Be sure to live long enough. The instance could be destroyed by the
   // JOB_DONE broadcast.
   scoped_refptr<PrintJob> handle(this);
@@ -465,7 +483,7 @@ void PrintJob::OnDocumentDone() {
 }
 
 void PrintJob::ControlledWorkerShutdown() {
-  DCHECK(RunsTasksInCurrentSequence());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // The deadlock this code works around is specific to window messaging on
   // Windows, so we aren't likely to need it on any other platforms.
@@ -484,8 +502,9 @@ void PrintJob::ControlledWorkerShutdown() {
   // Delay shutdown until the worker terminates.  We want this code path
   // to wait on the thread to quit before continuing.
   if (worker_->IsRunning()) {
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&PrintJob::ControlledWorkerShutdown, this),
+    base::PostDelayedTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
+        base::BindOnce(&PrintJob::ControlledWorkerShutdown, this),
         base::TimeDelta::FromMilliseconds(100));
     return;
   }
@@ -496,7 +515,7 @@ void PrintJob::ControlledWorkerShutdown() {
   base::PostTaskWithTraitsAndReply(
       FROM_HERE,
       {base::MayBlock(), base::WithBaseSyncPrimitives(),
-       base::TaskPriority::BACKGROUND,
+       base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&PrintJobWorker::Stop, base::Unretained(worker_.get())),
       base::BindOnce(&PrintJob::HoldUntilStopIsCalled, this));
@@ -506,20 +525,13 @@ void PrintJob::ControlledWorkerShutdown() {
   ClearPrintedDocument();
 }
 
-bool PrintJob::RunsTasksInCurrentSequence() const {
-  return task_runner_->RunsTasksInCurrentSequence();
-}
-
 bool PrintJob::PostTask(const base::Location& from_here,
                         base::OnceClosure task) {
-  return task_runner_->PostTask(from_here, std::move(task));
+  return base::PostTaskWithTraits(from_here, {content::BrowserThread::UI},
+                                  std::move(task));
 }
 
 void PrintJob::HoldUntilStopIsCalled() {
-}
-
-void PrintJob::Quit() {
-  base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
 void PrintJob::set_settings(const PrintSettings& settings) {

@@ -44,7 +44,7 @@ AudioBasicInspectorHandler::AudioBasicInspectorHandler(
 // advantage of in-place processing, where the input is simply passed through
 // unprocessed to the output.
 // Note: this only applies if the input and output channel counts match.
-void AudioBasicInspectorHandler::PullInputs(size_t frames_to_process) {
+void AudioBasicInspectorHandler::PullInputs(uint32_t frames_to_process) {
   // Render input stream - try to render directly into output bus for
   // pass-through processing where process() doesn't need to do anything...
   Input(0).Pull(Output(0).Bus(), frames_to_process);
@@ -53,7 +53,7 @@ void AudioBasicInspectorHandler::PullInputs(size_t frames_to_process) {
 void AudioBasicInspectorHandler::CheckNumberOfChannelsForInput(
     AudioNodeInput* input) {
   DCHECK(Context()->IsAudioThread());
-  DCHECK(Context()->IsGraphOwner());
+  Context()->AssertGraphOwner();
 
   DCHECK_EQ(input, &this->Input(0));
   if (input != &this->Input(0))
@@ -73,7 +73,7 @@ void AudioBasicInspectorHandler::CheckNumberOfChannelsForInput(
 }
 
 void AudioBasicInspectorHandler::UpdatePullStatusIfNeeded() {
-  DCHECK(Context()->IsGraphOwner());
+  Context()->AssertGraphOwner();
 
   if (Output(0).IsConnected()) {
     // When an AudioBasicInspectorNode is connected to a downstream node, it

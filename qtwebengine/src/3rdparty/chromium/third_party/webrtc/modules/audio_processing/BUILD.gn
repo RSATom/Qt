@@ -26,6 +26,41 @@ config("apm_debug_dump") {
   }
 }
 
+rtc_static_library("config") {
+  visibility = [ ":*" ]
+  sources = [
+    "include/config.cc",
+    "include/config.h",
+  ]
+  deps = [
+    "../../rtc_base:macromagic",
+    "../../rtc_base/system:rtc_export",
+  ]
+}
+
+rtc_source_set("api") {
+  visibility = [ "*" ]
+  sources = [
+    "include/audio_processing.cc",
+    "include/audio_processing.h",
+  ]
+  deps = [
+    ":audio_frame_view",
+    ":audio_generator_interface",
+    ":audio_processing_statistics",
+    ":config",
+    ":gain_control_interface",
+    "../../api/audio:aec3_config",
+    "../../api/audio:echo_control",
+    "../../rtc_base:deprecation",
+    "../../rtc_base:macromagic",
+    "../../rtc_base:ptr_util",
+    "../../rtc_base:rtc_base_approved",
+    "../../rtc_base/system:rtc_export",
+    "//third_party/abseil-cpp/absl/types:optional",
+  ]
+}
+
 rtc_static_library("audio_processing") {
   visibility = [ "*" ]
   configs += [ ":apm_debug_dump" ]
@@ -55,10 +90,6 @@ rtc_static_library("audio_processing") {
     "gain_controller2.h",
     "include/aec_dump.cc",
     "include/aec_dump.h",
-    "include/audio_processing.cc",
-    "include/audio_processing.h",
-    "include/config.cc",
-    "include/config.h",
     "level_estimator_impl.cc",
     "level_estimator_impl.h",
     "low_cut_filter.cc",
@@ -95,13 +126,15 @@ rtc_static_library("audio_processing") {
 
   defines = []
   deps = [
+    ":api",
     ":apm_logging",
     ":audio_frame_view",
     ":audio_generator_interface",
     ":audio_processing_c",
     ":audio_processing_statistics",
+    ":config",
     ":gain_control_interface",
-    "../..:typedefs",
+    ":noise_suppression_proxy",
     "../..:webrtc_common",
     "../../api:array_view",
     "../../api/audio:aec3_config",
@@ -109,15 +142,17 @@ rtc_static_library("audio_processing") {
     "../../api/audio:echo_control",
     "../../audio/utility:audio_frame_operations",
     "../../common_audio:common_audio_c",
-    "../../common_audio:fft4g",
+    "../../common_audio/third_party/fft4g:fft4g",
     "../../rtc_base:checks",
     "../../rtc_base:deprecation",
     "../../rtc_base:gtest_prod",
     "../../rtc_base:safe_minmax",
     "../../rtc_base:sanitizer",
+    "../../rtc_base/system:arch",
+    "../../rtc_base/system:rtc_export",
     "../../system_wrappers:cpu_features_api",
-    "../../system_wrappers:field_trial_api",
-    "../../system_wrappers:metrics_api",
+    "../../system_wrappers:field_trial",
+    "../../system_wrappers:metrics",
     "aec:aec",
     "aec:aec_core",
     "aecm:aecm_core",
@@ -132,18 +167,6 @@ rtc_static_library("audio_processing") {
 
   if (aec_untrusted_delay_for_testing) {
     defines += [ "WEBRTC_UNTRUSTED_DELAY" ]
-  }
-
-  if (rtc_enable_intelligibility_enhancer) {
-    defines += [ "WEBRTC_INTELLIGIBILITY_ENHANCER=1" ]
-    sources += [
-      "intelligibility/intelligibility_enhancer.cc",
-      "intelligibility/intelligibility_enhancer.h",
-      "intelligibility/intelligibility_utils.cc",
-      "intelligibility/intelligibility_utils.h",
-    ]
-  } else {
-    defines += [ "WEBRTC_INTELLIGIBILITY_ENHANCER=0" ]
   }
 
   if (rtc_prefer_fixed_point) {
@@ -167,6 +190,17 @@ rtc_source_set("gain_control_interface") {
   ]
 }
 
+rtc_source_set("noise_suppression_proxy") {
+  sources = [
+    "noise_suppression_proxy.cc",
+    "noise_suppression_proxy.h",
+  ]
+  deps = [
+    ":api",
+    "../../rtc_base:macromagic",
+  ]
+}
+
 rtc_source_set("audio_processing_statistics") {
   visibility = [ "*" ]
   sources = [
@@ -174,6 +208,7 @@ rtc_source_set("audio_processing_statistics") {
     "include/audio_processing_statistics.h",
   ]
   deps = [
+    "../../rtc_base/system:rtc_export",
     "//third_party/abseil-cpp/absl/types:optional",
   ]
 }
@@ -257,11 +292,10 @@ rtc_source_set("audio_processing_c") {
   }
 
   deps = [
-    "../..:typedefs",
     "../..:webrtc_common",
     "../../common_audio",
     "../../common_audio:common_audio_c",
-    "../../common_audio:fft4g",
+    "../../common_audio/third_party/fft4g:fft4g",
     "../../rtc_base:checks",
     "../../rtc_base:rtc_base_approved",
     "../../system_wrappers:cpu_features_api",
@@ -272,9 +306,7 @@ rtc_source_set("audio_processing_c") {
     sources += [ "ns/nsx_core_neon.c" ]
 
     if (current_cpu != "arm64") {
-      # Enable compilation for the NEON instruction set. This is needed
-      # since //build/config/arm.gni only enables NEON for iOS, not Android.
-      # This provides the same functionality as webrtc/build/arm_neon.gypi.
+      # Enable compilation for the NEON instruction set.
       suppressed_configs += [ "//build/config/compiler:compiler_arm_fpu" ]
       cflags = [ "-mfpu=neon" ]
     }
@@ -309,8 +341,8 @@ rtc_source_set("apm_logging") {
   deps = [
     "../../api:array_view",
     "../../common_audio:common_audio",
+    "../../rtc_base:checks",
     "../../rtc_base:rtc_base_approved",
-    "../../rtc_base:stringutils",
   ]
   defines = []
 }
@@ -322,6 +354,7 @@ if (rtc_include_tests) {
       "include/mock_audio_processing.h",
     ]
     deps = [
+      ":api",
       ":audio_processing",
       ":audio_processing_statistics",
       "../../test:test_support",
@@ -335,10 +368,6 @@ if (rtc_include_tests) {
       ":click_annotate",
       ":transient_suppression_test",
     ]
-
-    if (rtc_enable_intelligibility_enhancer) {
-      deps += [ ":intelligibility_proc" ]
-    }
 
     if (rtc_enable_protobuf) {
       deps += [
@@ -360,6 +389,7 @@ if (rtc_include_tests) {
       "audio_frame_view_unittest.cc",
       "config_unittest.cc",
       "echo_cancellation_impl_unittest.cc",
+      "echo_control_mobile_unittest.cc",
       "gain_controller2_unittest.cc",
       "splitting_filter_unittest.cc",
       "test/fake_recording_device_unittest.cc",
@@ -376,13 +406,14 @@ if (rtc_include_tests) {
 
     deps = [
       ":analog_mic_simulation",
+      ":api",
       ":apm_logging",
       ":audio_frame_view",
       ":audio_processing",
       ":audioproc_test_utils",
+      ":config",
       ":file_audio_generator_unittests",
       ":mocks",
-      "../..:typedefs",
       "../..:webrtc_common",
       "../../api:array_view",
       "../../api/audio:aec3_config",
@@ -394,7 +425,9 @@ if (rtc_include_tests) {
       "../../rtc_base:protobuf_utils",
       "../../rtc_base:rtc_base",
       "../../rtc_base:rtc_base_approved",
+      "../../rtc_base:rtc_base_tests_utils",
       "../../rtc_base:safe_minmax",
+      "../../rtc_base/system:arch",
       "../../rtc_base/system:file_wrapper",
       "../../system_wrappers",
       "../../system_wrappers:cpu_features_api",
@@ -409,6 +442,8 @@ if (rtc_include_tests) {
       "agc2:biquad_filter_unittests",
       "agc2:fixed_digital_unittests",
       "agc2:noise_estimator_unittests",
+      "agc2:rnn_vad_with_level_unittests",
+      "agc2:test_utils",
       "agc2/rnn_vad:unittests",
       "test/conversational_speech:unittest",
       "utility:block_mean_calculator_unittest",
@@ -420,16 +455,6 @@ if (rtc_include_tests) {
     ]
 
     defines = []
-
-    if (rtc_enable_intelligibility_enhancer) {
-      defines += [ "WEBRTC_INTELLIGIBILITY_ENHANCER=1" ]
-      sources += [
-        "intelligibility/intelligibility_enhancer_unittest.cc",
-        "intelligibility/intelligibility_utils_unittest.cc",
-      ]
-    } else {
-      defines += [ "WEBRTC_INTELLIGIBILITY_ENHANCER=0" ]
-    }
 
     if (rtc_prefer_fixed_point) {
       defines += [ "WEBRTC_AUDIOPROC_FIXED_PROFILE" ]
@@ -444,7 +469,10 @@ if (rtc_include_tests) {
         ":audioproc_protobuf_utils",
         ":audioproc_test_utils",
         ":audioproc_unittest_proto",
+        ":runtime_settings_protobuf_utils",
         "../../api/audio:audio_frame_api",
+        "../../api/audio:echo_control",
+        "../../rtc_base:rtc_base_tests_utils",
         "../../rtc_base:rtc_task_queue",
         "aec_dump",
         "aec_dump:aec_dump_unittests",
@@ -454,7 +482,7 @@ if (rtc_include_tests) {
         "audio_processing_impl_unittest.cc",
         "audio_processing_unittest.cc",
         "echo_cancellation_bit_exact_unittest.cc",
-        "echo_control_mobile_unittest.cc",
+        "echo_control_mobile_bit_exact_unittest.cc",
         "echo_detector/circular_buffer_unittest.cc",
         "echo_detector/mean_variance_estimator_unittest.cc",
         "echo_detector/moving_max_unittest.cc",
@@ -471,6 +499,7 @@ if (rtc_include_tests) {
         "test/echo_canceller_test_tools.cc",
         "test/echo_canceller_test_tools.h",
         "test/echo_canceller_test_tools_unittest.cc",
+        "test/echo_control_mock.h",
         "test/test_utils.h",
         "voice_detection_unittest.cc",
       ]
@@ -498,12 +527,6 @@ if (rtc_include_tests) {
       "../../test:perf_test",
       "../../test:test_support",
     ]
-
-    if (rtc_enable_intelligibility_enhancer) {
-      defines = [ "WEBRTC_INTELLIGIBILITY_ENHANCER=1" ]
-    } else {
-      defines = [ "WEBRTC_INTELLIGIBILITY_ENHANCER=0" ]
-    }
   }
 
   rtc_source_set("file_audio_generator_unittests") {
@@ -514,6 +537,7 @@ if (rtc_include_tests) {
     ]
 
     deps = [
+      ":api",
       ":audio_generator_factory",
       ":audio_processing",
       ":file_audio_generator",
@@ -544,6 +568,7 @@ if (rtc_include_tests) {
   if (rtc_enable_protobuf) {
     rtc_source_set("audioproc_f_impl") {
       testonly = true
+      configs += [ ":apm_debug_dump" ]
       sources = [
         "test/aec_dump_based_simulator.cc",
         "test/aec_dump_based_simulator.h",
@@ -557,10 +582,14 @@ if (rtc_include_tests) {
 
       deps = [
         ":analog_mic_simulation",
+        ":api",
+        ":apm_logging",
         ":audio_processing",
         ":audioproc_debug_proto",
         ":audioproc_protobuf_utils",
         ":audioproc_test_utils",
+        ":runtime_settings_protobuf_utils",
+        "../../api/audio:aec3_config_json",
         "../../api/audio:aec3_factory",
         "../../common_audio:common_audio",
         "../../rtc_base:checks",
@@ -568,14 +597,13 @@ if (rtc_include_tests) {
         "../../rtc_base:rtc_base_approved",
         "../../rtc_base:rtc_json",
         "../../rtc_base:rtc_task_queue",
-        "../../rtc_base:stringutils",
         "../../system_wrappers",
-        "../../system_wrappers:system_wrappers_default",
         "../../test:test_support",
         "aec_dump",
         "aec_dump:aec_dump_impl",
         "//testing/gtest",
         "//third_party/abseil-cpp/absl/memory",
+        "//third_party/abseil-cpp/absl/strings",
         "//third_party/abseil-cpp/absl/types:optional",
       ]
     }  # audioproc_f_impl
@@ -585,6 +613,7 @@ if (rtc_include_tests) {
         "test/audioproc_float_main.cc",
       ]
       deps = [
+        ":api",
         ":audio_processing",
         "../../api:audioproc_f_api",
         "../../rtc_base:rtc_base_approved",
@@ -610,12 +639,14 @@ if (rtc_include_tests) {
     ]
 
     deps = [
+      ":api",
       ":audio_processing",
       "../../api:array_view",
       "../../api/audio:audio_frame_api",
       "../../common_audio",
       "../../rtc_base:checks",
       "../../rtc_base:rtc_base_approved",
+      "../../rtc_base/system:arch",
       "../../system_wrappers",
       "../../test:fileutils",
       "../../test:test_support",
@@ -634,13 +665,11 @@ if (rtc_include_tests) {
     ]
     deps = [
       ":audio_processing",
-      "../..:typedefs",
       "../..:webrtc_common",
       "../../common_audio:common_audio",
       "../../rtc_base:rtc_base_approved",
       "../../rtc_base/system:file_wrapper",
       "../../system_wrappers",
-      "../../system_wrappers:metrics_default",
       "../../test:fileutils",
       "../../test:test_support",
       "agc:level_estimation",
@@ -657,30 +686,10 @@ if (rtc_include_tests) {
     ]
     deps = [
       ":audio_processing",
-      "../..:typedefs",
       "../..:webrtc_common",
       "../../rtc_base/system:file_wrapper",
       "../../system_wrappers",
-      "../../system_wrappers:metrics_default",
     ]
-  }
-
-  if (rtc_enable_intelligibility_enhancer) {
-    rtc_executable("intelligibility_proc") {
-      testonly = true
-      sources = [
-        "intelligibility/test/intelligibility_proc.cc",
-      ]
-      deps = [
-        ":audio_processing",
-        ":audioproc_test_utils",
-        "../../common_audio",
-        "../../rtc_base:rtc_base_approved",
-        "../../system_wrappers:metrics_default",
-        "../../test:test_support",
-        "//testing/gtest",
-      ]
-    }
   }
 
   if (rtc_enable_protobuf) {
@@ -699,10 +708,27 @@ if (rtc_include_tests) {
 
       deps = [
         ":audioproc_debug_proto",
-        "../..:typedefs",
         "../..:webrtc_common",
+        "../../rtc_base:checks",
         "../../rtc_base:protobuf_utils",
         "../../rtc_base:rtc_base_approved",
+        "../../rtc_base/system:arch",
+      ]
+    }
+
+    rtc_static_library("runtime_settings_protobuf_utils") {
+      testonly = true
+      sources = [
+        "test/runtime_setting_util.cc",
+        "test/runtime_setting_util.h",
+      ]
+
+      deps = [
+        ":api",
+        ":audio_processing",
+        ":audioproc_debug_proto",
+        ":audioproc_protobuf_utils",
+        "../../rtc_base:checks",
       ]
     }
   }

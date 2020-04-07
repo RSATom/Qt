@@ -24,8 +24,8 @@ const char kOOPHeapProfilingFeatureStackMode[] = "stack-mode";
 const char kOOPHeapProfilingFeatureSampling[] = "sampling";
 const char kOOPHeapProfilingFeatureSamplingRate[] = "sampling-rate";
 
-const uint32_t kDefaultSamplingRate = 10000;
-const bool kDefaultShouldSample = false;
+const uint32_t kDefaultSamplingRate = 100000;
+const bool kDefaultShouldSample = true;
 
 bool RecordAllAllocationsForStartup() {
   const base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
@@ -87,6 +87,10 @@ Mode ConvertStringToMode(const std::string& mode) {
     return Mode::kGpu;
   if (mode == kMemlogModeRendererSampling)
     return Mode::kRendererSampling;
+  if (mode == kMemlogModeUtilitySampling)
+    return Mode::kUtilitySampling;
+  if (mode == kMemlogModeUtilityAndBrowser)
+    return Mode::kUtilityAndBrowser;
   DLOG(ERROR) << "Unsupported value: \"" << mode << "\" passed to --"
               << kMemlog;
   return Mode::kNone;

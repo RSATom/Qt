@@ -646,7 +646,7 @@ void QColorWell::mouseMoveEvent(QMouseEvent *e)
         drg->setMimeData(mime);
         drg->setPixmap(pix);
         mousePressed = false;
-        drg->start();
+        drg->exec(Qt::CopyAction);
     }
 #endif
 }
@@ -842,8 +842,8 @@ void QColorLuminancePicker::paintEvent(QPaintEvent *)
     p.drawPixmap(1, coff, *pix);
     const QPalette &g = palette();
     qDrawShadePanel(&p, r, g, true);
-    p.setPen(g.foreground().color());
-    p.setBrush(g.foreground());
+    p.setPen(g.windowText().color());
+    p.setBrush(g.windowText());
     QPolygon a;
     int y = val2y(val);
     a.setPoints(3, w, y, w+5, y+5, w+5, y-5);
@@ -1131,7 +1131,7 @@ void QColorShowLabel::mouseMoveEvent(QMouseEvent *e)
         drg->setMimeData(mime);
         drg->setPixmap(pix);
         mousePressed = false;
-        drg->start();
+        drg->exec(Qt::CopyAction);
     }
 #endif
 }
@@ -1179,7 +1179,8 @@ QColorShower::QColorShower(QColorDialog *parent)
     curQColor = Qt::white;
 
     gl = new QGridLayout(this);
-    gl->setMargin(gl->spacing());
+    const int s = gl->spacing();
+    gl->setContentsMargins(s, s, s, s);
     lab = new QColorShowLabel(this);
 
 #ifdef QT_SMALL_COLORDIALOG
@@ -1739,7 +1740,7 @@ void QColorDialogPrivate::initWidgets()
         q->connect(custom, SIGNAL(selected(int,int)), SLOT(_q_newCustom(int,int)));
         q->connect(custom, SIGNAL(currentChanged(int,int)), SLOT(_q_nextCustom(int,int)));
 
-        q->connect(custom, &QWellArray::colorChanged, [=] (int index, QRgb color) {
+        q->connect(custom, &QWellArray::colorChanged, [this] (int index, QRgb color) {
             QColorDialogOptions::setCustomColor(index, color);
             if (custom)
                 custom->update();
@@ -1807,7 +1808,7 @@ void QColorDialogPrivate::initWidgets()
     rightLay->addStretch();
 
     cs = new QColorShower(q);
-    pickLay->setMargin(cs->gl->margin());
+    pickLay->setContentsMargins(cs->gl->contentsMargins());
     QObject::connect(cs, SIGNAL(newCol(QRgb)), q, SLOT(_q_newColorTypedIn(QRgb)));
     QObject::connect(cs, SIGNAL(currentColorChanged(QColor)),
                      q, SIGNAL(currentColorChanged(QColor)));
@@ -1816,7 +1817,7 @@ void QColorDialogPrivate::initWidgets()
 #else
     rightLay->addWidget(cs);
     if (leftLay)
-        leftLay->addSpacing(cs->gl->margin());
+        leftLay->addSpacing(cs->gl->contentsMargins().right());
 #endif
 
     buttons = new QDialogButtonBox(q);

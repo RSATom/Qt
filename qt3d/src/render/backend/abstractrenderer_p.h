@@ -64,6 +64,7 @@ QT_BEGIN_NAMESPACE
 
 class QSurface;
 class QSize;
+class QScreen;
 
 namespace Qt3DCore {
 class QAbstractFrameAdvanceService;
@@ -87,7 +88,7 @@ class BackendNode;
 class OffscreenSurfaceHelper;
 class Shader;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT AbstractRenderer
+class Q_3DRENDERSHARED_PRIVATE_EXPORT AbstractRenderer
 {
 public:
     virtual ~AbstractRenderer() {}
@@ -155,6 +156,7 @@ public:
     virtual bool shouldRender() = 0;
     virtual void skipNextFrame() = 0;
 
+    virtual QVector<Qt3DCore::QAspectJobPtr> preRenderingJobs() = 0;
     virtual QVector<Qt3DCore::QAspectJobPtr> renderBinJobs() = 0;
     virtual Qt3DCore::QAspectJobPtr pickBoundingVolumeJob() = 0;
     virtual Qt3DCore::QAspectJobPtr rayCastingJob() = 0;
@@ -176,6 +178,8 @@ public:
 
     // For QtQuick rendering
     virtual void setOpenGLContext(QOpenGLContext *ctx) = 0;
+    virtual void setScreen(QScreen *) {}
+    virtual QScreen *screen() const { return nullptr; }
 
     virtual void setOffscreenSurfaceHelper(OffscreenSurfaceHelper *helper) = 0;
     virtual QSurfaceFormat format() = 0;

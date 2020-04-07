@@ -22,22 +22,24 @@ namespace rx
 
 ShaderGL::ShaderGL(const gl::ShaderState &data,
                    GLuint shaderID,
-                   MultiviewImplementationTypeGL multiviewImplementationType)
+                   MultiviewImplementationTypeGL multiviewImplementationType,
+                   const std::shared_ptr<RendererGL> &renderer)
     : ShaderImpl(data),
       mShaderID(shaderID),
-      mMultiviewImplementationType(multiviewImplementationType)
-{
-}
+      mMultiviewImplementationType(multiviewImplementationType),
+      mRenderer(renderer),
+      mFallbackToMainThread(true),
+      mCompileStatus(GL_FALSE)
+{}
 
 ShaderGL::~ShaderGL()
 {
     ASSERT(mShaderID == 0);
 }
 
-void ShaderGL::destroy(const gl::Context *context)
+void ShaderGL::destroy()
 {
-    const FunctionsGL *functions = GetFunctionsGL(context);
-    functions->deleteShader(mShaderID);
+    mRenderer->getFunctions()->deleteShader(mShaderID);
     mShaderID = 0;
 }
 
@@ -50,7 +52,7 @@ ShCompileOptions ShaderGL::prepareSourceAndReturnOptions(const gl::Context *cont
     ShCompileOptions options = SH_INIT_GL_POSITION;
 
     bool isWebGL = context->getExtensions().webglCompatibility;
-    if (isWebGL)
+    if (isWebGL && (mData.getShaderType() != gl::ShaderType::Compute))
     {
         options |= SH_INIT_OUTPUT_VARIABLES;
     }
@@ -138,25 +140,21 @@ ShCompileOptions ShaderGL::prepareSourceAndReturnOptions(const gl::Context *cont
         options |= SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER;
     }
 
+    mFallbackToMainThread = true;
+
     return options;
 }
 
-bool ShaderGL::postTranslateCompile(const gl::Context *context,
-                                    gl::Compiler *compiler,
-                                    std::string *infoLog)
+void ShaderGL::compileAndCheckShader(const char *source)
 {
-    // Translate the ESSL into GLSL
-    const char *translatedSourceCString = mData.getTranslatedSource().c_str();
-
-    // Set the source
-    const FunctionsGL *functions = GetFunctionsGL(context);
-    functions->shaderSource(mShaderID, 1, &translatedSourceCString, nullptr);
+    const FunctionsGL *functions = mRenderer->getFunctions();
+    functions->shaderSource(mShaderID, 1, &source, nullptr);
     functions->compileShader(mShaderID);
 
     // Check for compile errors from the native driver
-    GLint compileStatus = GL_FALSE;
-    functions->getShaderiv(mShaderID, GL_COMPILE_STATUS, &compileStatus);
-    if (compileStatus == GL_FALSE)
+    mCompileStatus = GL_FALSE;
+    functions->getShaderiv(mShaderID, GL_COMPILE_STATUS, &mCompileStatus);
+    if (mCompileStatus == GL_FALSE)
     {
         // Compilation failed, put the error into the info log
         GLint infoLogLength = 0;
@@ -169,20 +167,50 @@ bool ShaderGL::postTranslateCompile(const gl::Context *context,
             std::vector<char> buf(infoLogLength);
             functions->getShaderInfoLog(mShaderID, infoLogLength, nullptr, &buf[0]);
 
-            *infoLog = &buf[0];
-            WARN() << std::endl << *infoLog;
+            mInfoLog = &buf[0];
+            WARN() << std::endl << mInfoLog;
         }
         else
         {
             WARN() << std::endl << "Shader compilation failed with no info log.";
         }
+    }
+}
+
+void ShaderGL::compileAsync(const std::string &source)
+{
+    std::string infoLog;
+    ScopedWorkerContextGL worker(mRenderer.get(), &infoLog);
+    if (worker())
+    {
+        compileAndCheckShader(source.c_str());
+        mFallbackToMainThread = false;
+    }
+    else
+    {
+#if !defined(NDEBUG)
+        WARN() << "bindWorkerContext failed." << std::endl << infoLog;
+#endif
+    }
+}
+
+bool ShaderGL::postTranslateCompile(gl::ShCompilerInstance *compiler, std::string *infoLog)
+{
+    if (mFallbackToMainThread)
+    {
+        const char *translatedSourceCString = mData.getTranslatedSource().c_str();
+        compileAndCheckShader(translatedSourceCString);
+    }
+    if (mCompileStatus == GL_FALSE)
+    {
+        *infoLog = mInfoLog;
         return false;
     }
 
     return true;
 }
 
-std::string ShaderGL::getDebugInfo(const gl::Context *context) const
+std::string ShaderGL::getDebugInfo() const
 {
     return mData.getTranslatedSource();
 }
@@ -192,4 +220,4 @@ GLuint ShaderGL::getShaderID() const
     return mShaderID;
 }
 
-}
+}  // namespace rx

@@ -9,7 +9,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -246,7 +246,7 @@ TEST(URLFixerTest, SegmentURL) {
   std::string result;
   url::Parsed parts;
 
-  for (size_t i = 0; i < arraysize(segment_cases); ++i) {
+  for (size_t i = 0; i < base::size(segment_cases); ++i) {
     SegmentCase value = segment_cases[i];
     result = url_formatter::SegmentURL(value.input, &parts);
     EXPECT_EQ(value.result, result);
@@ -279,9 +279,9 @@ static bool IsMatchingFileURL(const std::string& url,
   if (url.length() <= 8)
     return false;
   if (std::string("file:///") != url.substr(0, 8))
-    return false; // no file:/// prefix
+    return false;  // no file:/// prefix
   if (url.find('\\') != std::string::npos)
-    return false; // contains backslashes
+    return false;  // contains backslashes
 
   base::FilePath derived_path;
   net::FileURLToFilePath(GURL(url), &derived_path);
@@ -307,6 +307,11 @@ struct FixupCase {
     {"about:version", "chrome://version/"},
     {"about:blank", "about:blank"},
     {"About:blaNk", "about:blank"},
+    {"about:blank#blah", "about:blank#blah"},
+    {"about:blank/#blah", "about:blank/#blah"},
+    {"about:srcdoc", "about:srcdoc"},
+    {"about:srcdoc#blah", "about:srcdoc#blah"},
+    {"about:srcdoc/#blah", "about:srcdoc/#blah"},
     {"about:usr:pwd@hst:20/pth?qry#ref", "chrome://hst/pth?qry#ref"},
     {"about://usr:pwd@hst/pth?qry#ref", "chrome://hst/pth?qry#ref"},
     {"chrome:usr:pwd@hst/pth?qry#ref", "chrome://hst/pth?qry#ref"},
@@ -356,7 +361,7 @@ struct FixupCase {
 };
 
 TEST(URLFixerTest, FixupURL) {
-  for (size_t i = 0; i < arraysize(fixup_cases); ++i) {
+  for (size_t i = 0; i < base::size(fixup_cases); ++i) {
     FixupCase value = fixup_cases[i];
     EXPECT_EQ(value.output,
               url_formatter::FixupURL(value.input, "").possibly_invalid_spec())
@@ -401,7 +406,7 @@ TEST(URLFixerTest, FixupURL) {
       {"http://somedomainthatwillnotbeagtld:123",
        "http://www.somedomainthatwillnotbeagtld.com:123/"},
   };
-  for (size_t i = 0; i < arraysize(tld_cases); ++i) {
+  for (size_t i = 0; i < base::size(tld_cases); ++i) {
     FixupCase value = tld_cases[i];
     EXPECT_EQ(value.output, url_formatter::FixupURL(value.input, "com")
                                 .possibly_invalid_spec());
@@ -463,7 +468,7 @@ TEST(URLFixerTest, FixupFile) {
     //   {"file:///foo:/bar", "file://foo/bar"},
     //   {"file:/\\/server\\folder/file", "file://server/folder/file"},
   };
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 #if defined(OS_MACOSX)
 #define HOME "/Users/"
@@ -487,7 +492,7 @@ TEST(URLFixerTest, FixupFile) {
   };
 #endif
 
-  for (size_t i = 0; i < arraysize(cases); i++) {
+  for (size_t i = 0; i < base::size(cases); i++) {
     EXPECT_EQ(cases[i].output,
               url_formatter::FixupURL(cases[i].input, std::string())
                   .possibly_invalid_spec());
@@ -507,12 +512,13 @@ TEST(URLFixerTest, FixupRelativeFile) {
   ASSERT_FALSE(full_path.empty());
 
   // make sure we pass through good URLs
-  for (size_t i = 0; i < arraysize(fixup_cases); ++i) {
+  for (size_t i = 0; i < base::size(fixup_cases); ++i) {
     FixupCase value = fixup_cases[i];
     base::FilePath input = base::FilePath::FromUTF8Unsafe(value.input);
     EXPECT_EQ(value.output,
               url_formatter::FixupRelativeFile(temp_dir_.GetPath(), input)
-                  .possibly_invalid_spec());
+                  .possibly_invalid_spec())
+        << "input: " << value.input;
   }
 
   // make sure the existing file got fixed-up to a file URL, and that there

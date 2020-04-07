@@ -13,6 +13,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -317,21 +318,22 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   };
 
   struct TextureUnit {
-    TextureUnit()
-        : bound_texture_2d(0),
-          bound_texture_cube_map(0),
-          bound_texture_external_oes(0) {}
+    TextureUnit() {}
 
     // texture currently bound to this unit's GL_TEXTURE_2D with glBindTexture
-    GLuint bound_texture_2d;
+    GLuint bound_texture_2d = 0;
 
     // texture currently bound to this unit's GL_TEXTURE_CUBE_MAP with
     // glBindTexture
-    GLuint bound_texture_cube_map;
+    GLuint bound_texture_cube_map = 0;
 
     // texture currently bound to this unit's GL_TEXTURE_EXTERNAL_OES with
     // glBindTexture
-    GLuint bound_texture_external_oes;
+    GLuint bound_texture_external_oes = 0;
+
+    // texture currently bound to this unit's GL_TEXTURE_RECTANGLE_ARB with
+    // glBindTexture
+    GLuint bound_texture_rectangle_arb = 0;
   };
 
   // Prevents problematic reentrancy during error callbacks.
@@ -474,6 +476,30 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   void BufferSubDataHelperImpl(
       GLenum target, GLintptr offset, GLsizeiptr size, const void* data,
       ScopedTransferBufferPtr* buffer);
+
+  void MultiDrawArraysWEBGLHelper(GLenum mode,
+                                  const GLint* firsts,
+                                  const GLsizei* counts,
+                                  GLsizei drawcount);
+
+  void MultiDrawArraysInstancedWEBGLHelper(GLenum mode,
+                                           const GLint* firsts,
+                                           const GLsizei* counts,
+                                           const GLsizei* instanceCounts,
+                                           GLsizei drawcount);
+
+  void MultiDrawElementsWEBGLHelper(GLenum mode,
+                                    const GLsizei* counts,
+                                    GLenum type,
+                                    const GLsizei* offsets,
+                                    GLsizei drawcount);
+
+  void MultiDrawElementsInstancedWEBGLHelper(GLenum mode,
+                                             const GLsizei* counts,
+                                             GLenum type,
+                                             const GLsizei* offsets,
+                                             const GLsizei* instanceCounts,
+                                             GLsizei drawcount);
 
   GLuint CreateImageCHROMIUMHelper(ClientBuffer buffer,
                                    GLsizei width,
@@ -698,10 +724,12 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   GLuint current_program_;
 
   GLuint bound_array_buffer_;
+  GLuint bound_atomic_counter_buffer_;
   GLuint bound_copy_read_buffer_;
   GLuint bound_copy_write_buffer_;
   GLuint bound_pixel_pack_buffer_;
   GLuint bound_pixel_unpack_buffer_;
+  GLuint bound_shader_storage_buffer_;
   GLuint bound_transform_feedback_buffer_;
   GLuint bound_uniform_buffer_;
   // We don't cache the currently bound transform feedback buffer, because
@@ -756,7 +784,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   MappedBufferMap mapped_buffers_;
 
   // TODO(zmo): Consolidate |mapped_buffers_| and |mapped_buffer_range_map_|.
-  typedef base::hash_map<GLuint, MappedBuffer> MappedBufferRangeMap;
+  typedef std::unordered_map<GLuint, MappedBuffer> MappedBufferRangeMap;
   MappedBufferRangeMap mapped_buffer_range_map_;
 
   typedef std::map<const void*, MappedTexture> MappedTextureMap;
@@ -774,7 +802,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   base::Optional<ScopedMappedMemoryPtr> font_mapped_buffer_;
   base::Optional<ScopedTransferBufferPtr> raster_mapped_buffer_;
 
-  base::Callback<void(const char*, int32_t)> error_message_callback_;
+  base::RepeatingCallback<void(const char*, int32_t)> error_message_callback_;
   bool deferring_error_callbacks_ = false;
   std::deque<DeferredErrorCallback> deferred_error_callbacks_;
 
@@ -800,6 +828,8 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   base::flat_map<uint64_t, SwapCompletedCallback> pending_swap_callbacks_;
   base::flat_map<uint64_t, PresentationCallback>
       pending_presentation_callbacks_;
+
+  std::string last_active_url_;
 
   base::WeakPtrFactory<GLES2Implementation> weak_ptr_factory_;
 

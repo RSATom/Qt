@@ -64,8 +64,8 @@
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateToLocation:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation
 {
-    Q_UNUSED(manager)
-    Q_UNUSED(oldLocation)
+    Q_UNUSED(manager);
+    Q_UNUSED(oldLocation);
 
     // Convert location timestamp to QDateTime
     QDateTime timeStamp;
@@ -94,7 +94,7 @@
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error
 {
-    Q_UNUSED(manager)
+    Q_UNUSED(manager);
     m_positionInfoSource->setError(QGeoPositionInfoSource::AccessError);
 
     qWarning() << QString::fromNSString([error localizedDescription]);
@@ -309,7 +309,7 @@ void QGeoPositionInfoSourceCL::locationDataAvailable(QGeoPositionInfo location)
 
 QGeoPositionInfo QGeoPositionInfoSourceCL::lastKnownPosition(bool fromSatellitePositioningMethodsOnly) const
 {
-    Q_UNUSED(fromSatellitePositioningMethodsOnly)
+    Q_UNUSED(fromSatellitePositioningMethodsOnly);
 
     return m_lastUpdate;
 }
@@ -325,6 +325,6 @@ void QGeoPositionInfoSourceCL::setError(QGeoPositionInfoSource::Error positionEr
     emit QGeoPositionInfoSource::error(positionError);
 }
 
-#include "moc_qgeopositioninfosource_cl_p.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qgeopositioninfosource_cl_p.cpp"

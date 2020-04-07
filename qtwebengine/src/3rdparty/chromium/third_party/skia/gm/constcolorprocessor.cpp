@@ -16,7 +16,7 @@
 #include "SkGradientShader.h"
 #include "effects/GrConstColorProcessor.h"
 #include "ops/GrDrawOp.h"
-#include "ops/GrRectOpFactory.h"
+#include "ops/GrFillRectOp.h"
 
 namespace skiagm {
 /**
@@ -25,7 +25,7 @@ namespace skiagm {
 class ConstColorProcessor : public GM {
 public:
     ConstColorProcessor() {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
     }
 
 protected:
@@ -103,20 +103,22 @@ protected:
                                                     skPaint, viewMatrix, &grPaint));
 
                     GrConstColorProcessor::InputMode mode = (GrConstColorProcessor::InputMode) m;
-                    GrColor4f color = GrColor4f::FromGrColor(kColors[procColor]);
+                    SkPMColor4f color = SkPMColor4f::FromBytes_RGBA(kColors[procColor]);
                     auto fp = GrConstColorProcessor::Make(color, mode);
 
                     grPaint.addColorFragmentProcessor(std::move(fp));
                     renderTargetContext->priv().testingOnly_addDrawOp(
-                            GrRectOpFactory::MakeNonAAFill(context, std::move(grPaint), viewMatrix,
-                                                           renderRect, GrAAType::kNone));
+                            GrFillRectOp::Make(context, std::move(grPaint), GrAAType::kNone,
+                                               viewMatrix, renderRect));
 
                     // Draw labels for the input to the processor and the processor to the right of
                     // the test rect. The input label appears above the processor label.
+                    SkFont labelFont;
+                    labelFont.setTypeface(sk_tool_utils::create_portable_typeface());
+                    labelFont.setEdging(SkFont::Edging::kAntiAlias);
+                    labelFont.setSize(10.f);
                     SkPaint labelPaint;
-                    sk_tool_utils::set_portable_typeface(&labelPaint);
                     labelPaint.setAntiAlias(true);
-                    labelPaint.setTextSize(10.f);
                     SkString inputLabel;
                     inputLabel.set("Input: ");
                     if (paintType >= SK_ARRAY_COUNT(kPaintColors)) {
@@ -129,21 +131,19 @@ protected:
 
                     SkRect inputLabelBounds;
                     // get the bounds of the text in order to position it
-                    labelPaint.measureText(inputLabel.c_str(), inputLabel.size(),
-                                           &inputLabelBounds);
-                    canvas->drawString(inputLabel,
-                                     renderRect.fRight + kPad,
-                                     -inputLabelBounds.fTop, labelPaint);
+                    labelFont.measureText(inputLabel.c_str(), inputLabel.size(),
+                                          kUTF8_SkTextEncoding, &inputLabelBounds);
+                    canvas->drawString(inputLabel, renderRect.fRight + kPad, -inputLabelBounds.fTop,
+                                       labelFont, labelPaint);
                     // update the bounds to reflect the offset we used to draw it.
                     inputLabelBounds.offset(renderRect.fRight + kPad, -inputLabelBounds.fTop);
 
                     SkRect procLabelBounds;
-                    labelPaint.measureText(procLabel.c_str(), procLabel.size(),
-                                           &procLabelBounds);
-                    canvas->drawString(procLabel,
-                                     renderRect.fRight + kPad,
-                                     inputLabelBounds.fBottom + 2.f - procLabelBounds.fTop,
-                                     labelPaint);
+                    labelFont.measureText(procLabel.c_str(), procLabel.size(),
+                                          kUTF8_SkTextEncoding, &procLabelBounds);
+                    canvas->drawString(procLabel, renderRect.fRight + kPad,
+                                       inputLabelBounds.fBottom + 2.f - procLabelBounds.fTop,
+                                       labelFont, labelPaint);
                     procLabelBounds.offset(renderRect.fRight + kPad,
                                            inputLabelBounds.fBottom + 2.f - procLabelBounds.fTop);
 

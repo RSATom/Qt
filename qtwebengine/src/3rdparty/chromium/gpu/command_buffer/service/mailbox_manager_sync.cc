@@ -87,7 +87,7 @@ MailboxManagerSync::TextureGroup* MailboxManagerSync::TextureGroup::FromName(
     const Mailbox& name) {
   MailboxToGroupMap::iterator it = mailbox_to_group_.Get().find(name);
   if (it == mailbox_to_group_.Get().end())
-    return NULL;
+    return nullptr;
 
   return it->second.get();
 }
@@ -158,7 +158,7 @@ Texture* MailboxManagerSync::TextureGroup::FindTexture(
     if (it->first == manager)
       return it->second;
   }
-  return NULL;
+  return nullptr;
 }
 
 MailboxManagerSync::TextureGroupRef::TextureGroupRef(unsigned version,
@@ -198,7 +198,7 @@ Texture* MailboxManagerSync::ConsumeTexture(const Mailbox& mailbox) {
       scoped_allow_cross_thread_ref_count_access;
   TextureGroup* group = TextureGroup::FromName(mailbox);
   if (!group)
-    return NULL;
+    return nullptr;
 
   // Check if a texture already exists in this share group.
   Texture* texture = group->FindTexture(this);
@@ -233,7 +233,7 @@ void MailboxManagerSync::ProduceTexture(const Mailbox& mailbox,
     return;
   }
 
-  Texture* texture = static_cast<Texture*>(texture_base);
+  Texture* texture = Texture::CheckedCast(texture_base);
 
   TextureToGroupMap::iterator tex_it = texture_to_group_.find(texture);
   TextureGroup* group_for_texture = nullptr;
@@ -247,7 +247,7 @@ void MailboxManagerSync::ProduceTexture(const Mailbox& mailbox,
     TextureDefinition definition;
     if (!SkipTextureWorkarounds(texture)) {
       base::AutoUnlock unlock(g_lock.Get());
-      definition = TextureDefinition(texture, kNewTextureVersion, NULL);
+      definition = TextureDefinition(texture, kNewTextureVersion, nullptr);
     }
     group_for_texture = new TextureGroup(definition);
     group_for_texture->AddTexture(this, texture);
@@ -266,7 +266,7 @@ void MailboxManagerSync::TextureDeleted(TextureBase* texture_base) {
   base::ScopedAllowCrossThreadRefCountAccess
       scoped_allow_cross_thread_ref_count_access;
 
-  Texture* texture = static_cast<Texture*>(texture_base);
+  Texture* texture = Texture::CheckedCast(texture_base);
   DCHECK(texture != nullptr);
 
   TextureToGroupMap::iterator tex_it = texture_to_group_.find(texture);
@@ -281,7 +281,7 @@ void MailboxManagerSync::UpdateDefinitionLocked(TextureBase* texture_base,
                                                 TextureGroupRef* group_ref) {
   g_lock.Get().AssertAcquired();
 
-  Texture* texture = static_cast<Texture*>(texture_base);
+  Texture* texture = Texture::CheckedCast(texture_base);
   DCHECK(texture != nullptr);
 
   if (SkipTextureWorkarounds(texture))
@@ -301,13 +301,13 @@ void MailboxManagerSync::UpdateDefinitionLocked(TextureBase* texture_base,
   if (definition.Matches(texture))
     return;
 
-  if (image && (!image_buffer || !image_buffer->IsClient(image))) {
-    LOG(ERROR) << "MailboxSync: Incompatible attachment";
+  // Don't try to push updates to texture that have a bound image (not created
+  // by the MailboxManagerSync), as they were never shared to begin with.
+  if (image && (!image_buffer || !image_buffer->IsClient(image)))
     return;
-  }
 
   group->SetDefinition(TextureDefinition(texture, ++group_ref->version,
-                                         image ? image_buffer : NULL));
+                                         image ? image_buffer : nullptr));
 }
 
 void MailboxManagerSync::PushTextureUpdates(const SyncToken& token) {

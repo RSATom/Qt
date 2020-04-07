@@ -1,34 +1,22 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#ifndef LIBSPIRV_SPIRV_CONSTANT_H_
-#define LIBSPIRV_SPIRV_CONSTANT_H_
+#ifndef SOURCE_SPIRV_CONSTANT_H_
+#define SOURCE_SPIRV_CONSTANT_H_
 
+#include "source/latest_version_spirv_header.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/spirv.h"
 
 // Version number macros.
 
@@ -40,9 +28,6 @@
 #define SPV_SPIRV_VERSION_MAJOR_PART(WORD) ((uint32_t(WORD) >> 16) & 0xff)
 // Returns the minor version extracted from a version header word.
 #define SPV_SPIRV_VERSION_MINOR_PART(WORD) ((uint32_t(WORD) >> 8) & 0xff)
-
-// Returns the version number for the given SPIR-V target environment.
-uint32_t spvVersionForTargetEnv(spv_target_env env);
 
 // Header indices
 
@@ -112,4 +97,4 @@ typedef enum spv_generator_t {
 // Returns the misc part of the generator word.
 #define SPV_GENERATOR_MISC_PART(WORD) (uint32_t(WORD) & 0xFFFF)
 
-#endif  // LIBSPIRV_SPIRV_CONSTANT_H_
+#endif  // SOURCE_SPIRV_CONSTANT_H_

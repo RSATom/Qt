@@ -40,6 +40,7 @@
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "services/device/public/mojom/constants.mojom.h"
 #include "services/device/public/mojom/wake_lock_provider.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -126,12 +127,14 @@ const int DownloadRequestCore::kDownloadByteStreamSize = 100 * 1024;
 // static
 std::unique_ptr<net::URLRequest> DownloadRequestCore::CreateRequestOnIOThread(
     bool is_new_download,
-    download::DownloadUrlParameters* params) {
+    download::DownloadUrlParameters* params,
+    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(is_new_download || !params->content_initiated())
       << "Content initiated downloads should be a new download";
 
-  std::unique_ptr<net::URLRequest> request = CreateURLRequestOnIOThread(params);
+  std::unique_ptr<net::URLRequest> request =
+      CreateURLRequestOnIOThread(params, std::move(url_request_context_getter));
 
   DownloadRequestData::Attach(request.get(), params, is_new_download);
   return request;
@@ -245,7 +248,6 @@ bool DownloadRequestCore::OnResponseStarted(
     const std::string& override_mime_type) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DVLOG(20) << __func__ << "() " << DebugString();
-  download_start_time_ = base::TimeTicks::Now();
 
   download::DownloadInterruptReason result =
       request()->response_headers() ? download::HandleSuccessfulServerResponse(
@@ -341,7 +343,7 @@ bool DownloadRequestCore::OnWillRead(scoped_refptr<net::IOBuffer>* buf,
   DCHECK(!read_buffer_.get());
 
   *buf_size = kReadBufSize;
-  read_buffer_ = new net::IOBuffer(*buf_size);
+  read_buffer_ = base::MakeRefCounted<net::IOBuffer>(*buf_size);
   *buf = read_buffer_.get();
   return true;
 }
@@ -361,7 +363,6 @@ bool DownloadRequestCore::OnReadCompleted(int bytes_read, bool* defer) {
   if (!stream_writer_->Write(read_buffer_, bytes_read)) {
     PauseRequest();
     *defer = was_deferred_ = true;
-    last_stream_pause_time_ = base::TimeTicks::Now();
   }
 
   read_buffer_ = nullptr;  // Drop our reference.
@@ -411,10 +412,6 @@ void DownloadRequestCore::OnResponseCompleted(
     request()->response_headers()->EnumerateHeader(nullptr, "Accept-Ranges",
                                                    &accept_ranges);
   }
-  download::RecordAcceptsRanges(accept_ranges, bytes_read_,
-                                has_strong_validators);
-  download::RecordNetworkBlockage(base::TimeTicks::Now() - download_start_time_,
-                                  total_pause_time_);
 
   // Send the info down the stream.  Conditional is in case we get
   // OnResponseCompleted without OnResponseStarted.
@@ -462,10 +459,6 @@ void DownloadRequestCore::ResumeRequest() {
     return;
 
   was_deferred_ = false;
-  if (!last_stream_pause_time_.is_null()) {
-    total_pause_time_ += (base::TimeTicks::Now() - last_stream_pause_time_);
-    last_stream_pause_time_ = base::TimeTicks();
-  }
 
   delegate_->OnReadyToRead();
 }

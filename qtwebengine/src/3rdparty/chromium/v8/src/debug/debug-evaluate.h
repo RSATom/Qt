@@ -41,8 +41,11 @@ class DebugEvaluate : public AllStatic {
 
   static DebugInfo::SideEffectState FunctionGetSideEffectState(
       Isolate* isolate, Handle<SharedFunctionInfo> info);
-  static bool CallbackHasNoSideEffect(Object* callback_info);
   static void ApplySideEffectChecks(Handle<BytecodeArray> bytecode_array);
+
+#ifdef DEBUG
+  static void VerifyTransitiveBuiltins(Isolate* isolate);
+#endif  // DEBUG
 
  private:
   // This class builds a context chain for evaluation of expressions

@@ -10,7 +10,6 @@
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
-#include "core/fxge/fx_dib.h"
 #include "public/fpdf_doc.h"
 #include "public/fpdfview.h"
 
@@ -38,6 +37,7 @@ class CPDF_StructElement;
 class CPDF_StructTree;
 class CPDF_TextPage;
 class CPDF_TextPageFind;
+class CPDFSDK_FormFillEnvironment;
 class IPDFSDK_PauseAdapter;
 class FX_PATHPOINT;
 
@@ -197,7 +197,18 @@ inline CPDF_TextPageFind* CPDFTextPageFindFromFPDFSchHandle(
   return reinterpret_cast<CPDF_TextPageFind*>(handle);
 }
 
-ByteString CFXByteStringFromFPDFWideString(FPDF_WIDESTRING wide_string);
+inline FPDF_FORMHANDLE FPDFFormHandleFromCPDFSDKFormFillEnvironment(
+    CPDFSDK_FormFillEnvironment* handle) {
+  return reinterpret_cast<FPDF_FORMHANDLE>(handle);
+}
+inline CPDFSDK_FormFillEnvironment*
+CPDFSDKFormFillEnvironmentFromFPDFFormHandle(FPDF_FORMHANDLE handle) {
+  return reinterpret_cast<CPDFSDK_FormFillEnvironment*>(handle);
+}
+
+ByteString ByteStringFromFPDFWideString(FPDF_WIDESTRING wide_string);
+
+WideString WideStringFromFPDFWideString(FPDF_WIDESTRING wide_string);
 
 #ifdef PDF_ENABLE_XFA
 inline FPDF_WIDGET FPDFWidgetFromCXFAFFWidget(CXFA_FFWidget* widget) {
@@ -224,6 +235,8 @@ bool GetQuadPointsAtIndex(const CPDF_Array* array,
 CFX_FloatRect CFXFloatRectFromFSRECTF(const FS_RECTF& rect);
 void FSRECTFFromCFXFloatRect(const CFX_FloatRect& rect, FS_RECTF* out_rect);
 
+CFX_Matrix CFXMatrixFromFSMatrix(const FS_MATRIX& matrix);
+
 unsigned long Utf16EncodeMaybeCopyAndReturnLength(const WideString& text,
                                                   void* buffer,
                                                   unsigned long buflen);
@@ -235,16 +248,16 @@ void FSDK_SetSandBoxPolicy(FPDF_DWORD policy, FPDF_BOOL enable);
 FPDF_BOOL FSDK_IsSandBoxPolicyEnabled(FPDF_DWORD policy);
 
 // TODO(dsinclair): Where should this live?
-void FPDF_RenderPage_Retail(CPDF_PageRenderContext* pContext,
-                            FPDF_PAGE page,
-                            int start_x,
-                            int start_y,
-                            int size_x,
-                            int size_y,
-                            int rotate,
-                            int flags,
-                            bool bNeedToRestore,
-                            IPDFSDK_PauseAdapter* pause);
+void RenderPageWithContext(CPDF_PageRenderContext* pContext,
+                           FPDF_PAGE page,
+                           int start_x,
+                           int start_y,
+                           int size_x,
+                           int size_y,
+                           int rotate,
+                           int flags,
+                           bool bNeedToRestore,
+                           IPDFSDK_PauseAdapter* pause);
 
 void ReportUnsupportedFeatures(CPDF_Document* pDoc);
 void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot);

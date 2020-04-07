@@ -4,12 +4,15 @@
 
 #include "content/browser/gpu/browser_gpu_channel_host_factory.h"
 
+#include <utility>
+
 #include "base/android/orderfile/orderfile_buildflags.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
@@ -17,17 +20,21 @@
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "components/viz/common/features.h"
-#include "content/browser/gpu/browser_gpu_memory_buffer_manager.h"
+#include "components/viz/host/gpu_host_impl.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
+#include "content/browser/gpu/gpu_memory_buffer_manager_singleton.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/browser/gpu/shader_cache_factory.h"
 #include "content/common/child_process_host_impl.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
+#include "gpu/config/gpu_finch_features.h"
+#include "gpu/ipc/common/gpu_client_ids.h"
 #include "gpu/ipc/in_process_command_buffer.h"
 #include "services/resource_coordinator/public/mojom/memory_instrumentation/constants.mojom.h"
 #include "services/service_manager/runner/common/client_util.h"
@@ -74,7 +81,7 @@ class BrowserGpuChannelHostFactory::EstablishRequest
   void OnEstablishedOnIO(mojo::ScopedMessagePipeHandle channel_handle,
                          const gpu::GPUInfo& gpu_info,
                          const gpu::GpuFeatureInfo& gpu_feature_info,
-                         GpuProcessHost::EstablishChannelStatus status);
+                         viz::GpuHostImpl::EstablishChannelStatus status);
   void FinishOnIO();
   void FinishAndRunCallbacksOnMain();
   void FinishOnMain();
@@ -96,8 +103,8 @@ BrowserGpuChannelHostFactory::EstablishRequest::Create(
   scoped_refptr<EstablishRequest> establish_request =
       new EstablishRequest(gpu_client_id, gpu_client_tracing_id);
   // PostTask outside the constructor to ensure at least one reference exists.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
           &BrowserGpuChannelHostFactory::EstablishRequest::EstablishOnIO,
           establish_request));
@@ -134,13 +141,10 @@ void BrowserGpuChannelHostFactory::EstablishRequest::EstablishOnIO() {
     return;
   }
 
-  bool preempts = true;
-  bool allow_view_command_buffers = true;
-  bool allow_real_time_streams = true;
-  host->EstablishGpuChannel(
-      gpu_client_id_, gpu_client_tracing_id_, preempts,
-      allow_view_command_buffers, allow_real_time_streams,
-      base::Bind(
+  bool is_gpu_host = true;
+  host->gpu_host()->EstablishGpuChannel(
+      gpu_client_id_, gpu_client_tracing_id_, is_gpu_host,
+      base::BindOnce(
           &BrowserGpuChannelHostFactory::EstablishRequest::OnEstablishedOnIO,
           this));
 }
@@ -149,9 +153,9 @@ void BrowserGpuChannelHostFactory::EstablishRequest::OnEstablishedOnIO(
     mojo::ScopedMessagePipeHandle channel_handle,
     const gpu::GPUInfo& gpu_info,
     const gpu::GpuFeatureInfo& gpu_feature_info,
-    GpuProcessHost::EstablishChannelStatus status) {
+    viz::GpuHostImpl::EstablishChannelStatus status) {
   if (!channel_handle.is_valid() &&
-      status == GpuProcessHost::EstablishChannelStatus::GPU_HOST_INVALID &&
+      status == viz::GpuHostImpl::EstablishChannelStatus::kGpuHostInvalid &&
       // Ask client every time instead of passing this down from UI thread to
       // avoid having the value be stale.
       GetContentClient()->browser()->AllowGpuLaunchRetryOnIOThread()) {
@@ -162,8 +166,8 @@ void BrowserGpuChannelHostFactory::EstablishRequest::OnEstablishedOnIO(
         base::BindOnce(
             &BrowserGpuChannelHostFactory::EstablishRequest::RestartTimeout,
             this));
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(
             &BrowserGpuChannelHostFactory::EstablishRequest::EstablishOnIO,
             this));
@@ -217,7 +221,7 @@ void BrowserGpuChannelHostFactory::EstablishRequest::Wait() {
     // TODO(piman): Make this asynchronous (http://crbug.com/125248).
     TRACE_EVENT0("browser",
                  "BrowserGpuChannelHostFactory::EstablishGpuChannelSync");
-    base::ThreadRestrictions::ScopedAllowWait allow_wait;
+    base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
     event_.Wait();
   }
   FinishOnMain();
@@ -227,14 +231,6 @@ void BrowserGpuChannelHostFactory::EstablishRequest::Cancel() {
   DCHECK(main_task_runner_->BelongsToCurrentThread());
   finished_ = true;
   established_callbacks_.clear();
-}
-
-void BrowserGpuChannelHostFactory::CloseChannel() {
-  DCHECK(instance_);
-  if (instance_->gpu_channel_) {
-    instance_->gpu_channel_->DestroyChannel();
-    instance_->gpu_channel_ = nullptr;
-  }
 }
 
 void BrowserGpuChannelHostFactory::Initialize(bool establish_gpu_channel) {
@@ -251,24 +247,47 @@ void BrowserGpuChannelHostFactory::Terminate() {
   instance_ = nullptr;
 }
 
+void BrowserGpuChannelHostFactory::CloseChannel() {
+  if (gpu_channel_) {
+    gpu_channel_->DestroyChannel();
+    gpu_channel_ = nullptr;
+  }
+  gpu_memory_buffer_manager_ = nullptr;
+}
+
 BrowserGpuChannelHostFactory::BrowserGpuChannelHostFactory()
     : gpu_client_id_(ChildProcessHostImpl::GenerateChildProcessUniqueId()),
       gpu_client_tracing_id_(
           memory_instrumentation::mojom::kServiceTracingProcessId),
       gpu_memory_buffer_manager_(
-          new BrowserGpuMemoryBufferManager(gpu_client_id_,
-                                            gpu_client_tracing_id_)) {
+          new GpuMemoryBufferManagerSingleton(gpu_client_id_)) {
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableGpuShaderDiskCache)) {
     DCHECK(GetContentClient());
     base::FilePath cache_dir =
         GetContentClient()->browser()->GetShaderDiskCacheDirectory();
     if (!cache_dir.empty()) {
-      BrowserThread::PostTask(
-          BrowserThread::IO, FROM_HERE,
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::IO},
           base::BindOnce(
               &BrowserGpuChannelHostFactory::InitializeShaderDiskCacheOnIO,
               gpu_client_id_, cache_dir));
+    }
+
+    bool use_gr_shader_cache =
+        base::FeatureList::IsEnabled(
+            features::kDefaultEnableOopRasterization) ||
+        base::FeatureList::IsEnabled(features::kUseSkiaRenderer);
+    if (use_gr_shader_cache) {
+      base::FilePath gr_cache_dir =
+          GetContentClient()->browser()->GetGrShaderDiskCacheDirectory();
+      if (!gr_cache_dir.empty()) {
+        base::PostTaskWithTraits(
+            FROM_HERE, {BrowserThread::IO},
+            base::BindOnce(
+                &BrowserGpuChannelHostFactory::InitializeGrShaderDiskCacheOnIO,
+                gr_cache_dir));
+      }
     }
   }
 }
@@ -286,7 +305,7 @@ BrowserGpuChannelHostFactory::~BrowserGpuChannelHostFactory() {
 void BrowserGpuChannelHostFactory::EstablishGpuChannel(
     gpu::GpuChannelEstablishedCallback callback) {
 #if defined(USE_AURA)
-  DCHECK(features::IsAshInBrowserProcess());
+  DCHECK(!features::IsMultiProcessMash());
 #endif
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (gpu_channel_.get() && gpu_channel_->IsLost()) {
@@ -335,6 +354,21 @@ BrowserGpuChannelHostFactory::GetGpuMemoryBufferManager() {
   return gpu_memory_buffer_manager_.get();
 }
 
+// Ensures that any pending timeout is cancelled when we are backgrounded.
+// Restarts the timeout when we return to the foreground.
+void BrowserGpuChannelHostFactory::SetApplicationVisible(bool is_visible) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  if (is_visible_ == is_visible)
+    return;
+
+  is_visible_ = is_visible;
+  if (is_visible_) {
+    RestartTimeout();
+  } else {
+    timeout_.Stop();
+  }
+}
+
 gpu::GpuChannelHost* BrowserGpuChannelHostFactory::GetGpuChannel() {
   if (gpu_channel_.get() && !gpu_channel_->IsLost())
     return gpu_channel_.get();
@@ -361,7 +395,9 @@ void BrowserGpuChannelHostFactory::RestartTimeout() {
     return;
   }
 
-  if (!pending_request_)
+  // Don't restart the timeout if we aren't visible. This function will be
+  // re-called when we become visible again.
+  if (!pending_request_ || !is_visible_)
     return;
 
 #if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER) || \
@@ -386,8 +422,15 @@ void BrowserGpuChannelHostFactory::InitializeShaderDiskCacheOnIO(
   GetShaderCacheFactorySingleton()->SetCacheInfo(gpu_client_id, cache_dir);
   if (base::FeatureList::IsEnabled(features::kVizDisplayCompositor)) {
     GetShaderCacheFactorySingleton()->SetCacheInfo(
-        gpu::InProcessCommandBuffer::kGpuClientId, cache_dir);
+        gpu::kInProcessCommandBufferClientId, cache_dir);
   }
+}
+
+// static
+void BrowserGpuChannelHostFactory::InitializeGrShaderDiskCacheOnIO(
+    const base::FilePath& cache_dir) {
+  GetShaderCacheFactorySingleton()->SetCacheInfo(gpu::kGrShaderCacheClientId,
+                                                 cache_dir);
 }
 
 }  // namespace content

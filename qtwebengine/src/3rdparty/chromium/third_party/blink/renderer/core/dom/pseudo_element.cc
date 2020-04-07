@@ -41,7 +41,7 @@ namespace blink {
 PseudoElement* PseudoElement::Create(Element* parent, PseudoId pseudo_id) {
   if (pseudo_id == kPseudoIdFirstLetter)
     return FirstLetterPseudoElement::Create(parent);
-  return new PseudoElement(parent, pseudo_id);
+  return MakeGarbageCollected<PseudoElement>(parent, pseudo_id);
 }
 
 const QualifiedName& PseudoElementTagName(PseudoId pseudo_id) {
@@ -90,14 +90,14 @@ String PseudoElement::PseudoElementNameForEvents(PseudoId pseudo_id) {
 PseudoElement::PseudoElement(Element* parent, PseudoId pseudo_id)
     : Element(PseudoElementTagName(pseudo_id),
               &parent->GetDocument(),
-              kCreatePseudoElement),
+              kCreateElement),
       pseudo_id_(pseudo_id) {
   DCHECK_NE(pseudo_id, kPseudoIdNone);
   parent->GetTreeScope().AdoptIfNeeded(*this);
   SetParentOrShadowHostNode(parent);
   SetHasCustomStyleCallbacks();
   if ((pseudo_id == kPseudoIdBefore || pseudo_id == kPseudoIdAfter) &&
-      parent->HasTagName(HTMLNames::inputTag)) {
+      parent->HasTagName(html_names::kInputTag)) {
     UseCounter::Count(parent->GetDocument(),
                       WebFeature::kPseudoBeforeAfterForInputElement);
   }
@@ -142,7 +142,7 @@ void PseudoElement::Dispose() {
   Element* parent = ParentOrShadowHostElement();
   GetDocument().AdoptIfNeeded(*this);
   SetParentOrShadowHostNode(nullptr);
-  RemovedFrom(parent);
+  RemovedFrom(*parent);
 }
 
 void PseudoElement::AttachLayoutTree(AttachContext& context) {
@@ -184,57 +184,8 @@ bool PseudoElement::LayoutObjectIsNeeded(const ComputedStyle& style) const {
   return PseudoElementLayoutObjectIsNeeded(&style);
 }
 
-void PseudoElement::DidRecalcStyle(StyleRecalcChange change) {
-  // If the pseudo element is being re-attached, its anonymous LayoutObjects for
-  // generated content will be destroyed and possibly recreated during layout
-  // tree rebuild. Thus, propagating style to generated content now is futile.
-  if (change == kReattach)
-    return;
-  if (!GetLayoutObject())
-    return;
-
-  // The layoutObjects inside pseudo elements are anonymous so they don't get
-  // notified of recalcStyle and must have the style propagated downward
-  // manually similar to LayoutObject::PropagateStyleToAnonymousChildren.
-  LayoutObject* layout_object = GetLayoutObject();
-  for (LayoutObject* child = layout_object->NextInPreOrder(layout_object);
-       child; child = child->NextInPreOrder(layout_object)) {
-    // We only manage the style for the generated content items.
-    if (!child->IsText() && !child->IsQuote() && !child->IsImage())
-      continue;
-
-    child->SetPseudoStyle(layout_object->MutableStyle());
-  }
-}
-
-// With PseudoElements the DOM tree and Layout tree can differ. When you attach
-// a, first-letter for example, into the DOM we walk down the Layout
-// tree to find the correct insertion point for the LayoutObject. But, this
-// means if we ask for the parentOrShadowHost Node from the first-letter
-// pseudo element we will get some arbitrary ancestor of the LayoutObject.
-//
-// For hit testing, we need the parent Node of the LayoutObject for the
-// first-letter pseudo element. So, by walking up the Layout tree we know
-// we will get the parent and not some other ancestor.
-Node* PseudoElement::FindAssociatedNode() const {
-  // The ::backdrop element is parented to the LayoutView, not to the node
-  // that it's associated with. We need to make sure ::backdrop sends the
-  // events to the parent node correctly.
-  if (GetPseudoId() == kPseudoIdBackdrop)
-    return ParentOrShadowHostNode();
-
-  DCHECK(GetLayoutObject());
-  DCHECK(GetLayoutObject()->Parent());
-
-  // We can have any number of anonymous layout objects inserted between
-  // us and our parent so make sure we skip over them.
-  LayoutObject* ancestor = GetLayoutObject()->Parent();
-  while (ancestor->IsAnonymous() ||
-         (ancestor->GetNode() && ancestor->GetNode()->IsPseudoElement())) {
-    DCHECK(ancestor->Parent());
-    ancestor = ancestor->Parent();
-  }
-  return ancestor->GetNode();
+Node* PseudoElement::InnerNodeForHitTesting() const {
+  return ParentOrShadowHostNode();
 }
 
 const ComputedStyle* PseudoElement::VirtualEnsureComputedStyle(

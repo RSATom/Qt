@@ -64,7 +64,8 @@ const char kAsyncId2Str[] = "0x6";
 const int kFlowId = 7;
 const char kFlowIdStr[] = "0x7";
 
-const  char kRecordAllCategoryFilter[] = "*";
+constexpr const char kRecordAllCategoryFilter[] = "*";
+constexpr const char kAllCategory[] = "all";
 
 class TraceEventTestFixture : public testing::Test {
  public:
@@ -391,7 +392,7 @@ std::vector<const DictionaryValue*> FindTraceEntries(
   return hits;
 }
 
-const char kControlCharacters[] = "\001\002\003\n\r";
+constexpr const char kControlCharacters[] = "\001\002\003\n\r";
 
 void TraceWithAllMacroVariants(WaitableEvent* task_complete_event) {
   {
@@ -486,8 +487,8 @@ void TraceWithAllMacroVariants(WaitableEvent* task_complete_event) {
         "all", "tracked object 1", 0x42, "hello");
     TRACE_EVENT_OBJECT_DELETED_WITH_ID("all", "tracked object 1", 0x42);
 
-    TraceScopedTrackableObject<int> trackable("all", "tracked object 2",
-                                              0x2128506);
+    TraceScopedTrackableObject<int, kAllCategory> trackable("tracked object 2",
+                                                            0x2128506);
     trackable.snapshot("world");
 
     TRACE_EVENT_OBJECT_CREATED_WITH_ID(
@@ -1273,6 +1274,21 @@ TEST_F(TraceEventTestFixture, EnabledObserverFiresOnDisable) {
   TraceLog::GetInstance()->RemoveEnabledStateObserver(&observer);
 }
 
+TEST_F(TraceEventTestFixture, EnabledObserverOwnedByTraceLog) {
+  auto observer = std::make_unique<MockEnabledStateChangedObserver>();
+  EXPECT_CALL(*observer, OnTraceLogEnabled()).Times(1);
+  EXPECT_CALL(*observer, OnTraceLogDisabled()).Times(1);
+  TraceLog::GetInstance()->AddOwnedEnabledStateObserver(std::move(observer));
+  TraceLog::GetInstance()->SetEnabled(TraceConfig(kRecordAllCategoryFilter, ""),
+                                      TraceLog::RECORDING_MODE);
+  TraceLog::GetInstance()->SetDisabled();
+  TraceLog::ResetForTesting();
+  // These notifications won't be sent.
+  TraceLog::GetInstance()->SetEnabled(TraceConfig(kRecordAllCategoryFilter, ""),
+                                      TraceLog::RECORDING_MODE);
+  TraceLog::GetInstance()->SetDisabled();
+}
+
 // Tests the IsEnabled() state of TraceLog changes before callbacks.
 class AfterStateChangeEnabledStateObserver
     : public TraceLog::EnabledStateObserver {
@@ -1319,7 +1335,9 @@ class SelfRemovingEnabledStateObserver
   }
 };
 
-TEST_F(TraceEventTestFixture, SelfRemovingObserver) {
+// Self removing observers are not supported at the moment.
+// TODO(alph): We could add support once we have recursive locks.
+TEST_F(TraceEventTestFixture, DISABLED_SelfRemovingObserver) {
   ASSERT_EQ(0u, TraceLog::GetInstance()->GetObserverCountForTest());
 
   SelfRemovingEnabledStateObserver observer;
@@ -1445,32 +1463,6 @@ TEST_F(TraceEventTestFixture, AddMetadataEvent) {
 
 // Test that categories work.
 TEST_F(TraceEventTestFixture, Categories) {
-  // Test that categories that are used can be retrieved whether trace was
-  // enabled or disabled when the trace event was encountered.
-  TRACE_EVENT_INSTANT0("c1", "name", TRACE_EVENT_SCOPE_THREAD);
-  TRACE_EVENT_INSTANT0("c2", "name", TRACE_EVENT_SCOPE_THREAD);
-  BeginTrace();
-  TRACE_EVENT_INSTANT0("c3", "name", TRACE_EVENT_SCOPE_THREAD);
-  TRACE_EVENT_INSTANT0("c4", "name", TRACE_EVENT_SCOPE_THREAD);
-  // Category groups containing more than one category.
-  TRACE_EVENT_INSTANT0("c5,c6", "name", TRACE_EVENT_SCOPE_THREAD);
-  TRACE_EVENT_INSTANT0("c7,c8", "name", TRACE_EVENT_SCOPE_THREAD);
-  TRACE_EVENT_INSTANT0(TRACE_DISABLED_BY_DEFAULT("c9"), "name",
-                       TRACE_EVENT_SCOPE_THREAD);
-
-  EndTraceAndFlush();
-  std::vector<std::string> cat_groups;
-  TraceLog::GetInstance()->GetKnownCategoryGroups(&cat_groups);
-  EXPECT_TRUE(ContainsValue(cat_groups, "c1"));
-  EXPECT_TRUE(ContainsValue(cat_groups, "c2"));
-  EXPECT_TRUE(ContainsValue(cat_groups, "c3"));
-  EXPECT_TRUE(ContainsValue(cat_groups, "c4"));
-  EXPECT_TRUE(ContainsValue(cat_groups, "c5,c6"));
-  EXPECT_TRUE(ContainsValue(cat_groups, "c7,c8"));
-  EXPECT_TRUE(ContainsValue(cat_groups, "disabled-by-default-c9"));
-  // Make sure metadata isn't returned.
-  EXPECT_FALSE(ContainsValue(cat_groups, "__metadata"));
-
   const std::vector<std::string> empty_categories;
   std::vector<std::string> included_categories;
   std::vector<std::string> excluded_categories;
@@ -2129,7 +2121,13 @@ TEST_F(TraceEventTestFixture, TraceWithDefaultCategoryFilters) {
   trace_log->SetDisabled();
 }
 
-TEST_F(TraceEventTestFixture, TraceWithDisabledByDefaultCategoryFilters) {
+// Flaky on iOS device, see crbug.com/908002
+#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#define MAYBE_TraceWithDisabledByDefaultCategoryFilters DISABLED_TraceWithDisabledByDefaultCategoryFilters
+#else
+#define MAYBE_TraceWithDisabledByDefaultCategoryFilters TraceWithDisabledByDefaultCategoryFilters
+#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+TEST_F(TraceEventTestFixture, MAYBE_TraceWithDisabledByDefaultCategoryFilters) {
   TraceLog* trace_log = TraceLog::GetInstance();
 
   trace_log->SetEnabled(TraceConfig("foo,disabled-by-default-foo", ""),
@@ -2699,6 +2697,16 @@ TEST_F(TraceEventTestFixture, TraceRecordAsMuchAsPossibleMode) {
   TraceLog::GetInstance()->SetDisabled();
 }
 
+TEST_F(TraceEventTestFixture, ConfigTraceBufferLimit) {
+  const size_t kLimit = 2048;
+  TraceConfig config(kRecordAllCategoryFilter, RECORD_UNTIL_FULL);
+  config.SetTraceBufferSizeInEvents(kLimit);
+  TraceLog::GetInstance()->SetEnabled(config, TraceLog::RECORDING_MODE);
+  TraceBuffer* buffer = TraceLog::GetInstance()->trace_buffer();
+  EXPECT_EQ(kLimit, buffer->Capacity());
+  TraceLog::GetInstance()->SetDisabled();
+}
+
 void BlockUntilStopped(WaitableEvent* task_start_event,
                        WaitableEvent* task_stop_event) {
   task_start_event->Signal();
@@ -2845,7 +2853,13 @@ bool MockLogMessageHandler(int, const char*, int, size_t,
   return false;
 }
 
-TEST_F(TraceEventTestFixture, EchoToConsole) {
+// Flaky on iOS device, see crbug.com/908002
+#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#define MAYBE_EchoToConsole DISABLED_EchoToConsole
+#else
+#define MAYBE_EchoToConsole EchoToConsole
+#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+TEST_F(TraceEventTestFixture, MAYBE_EchoToConsole) {
   logging::LogMessageHandlerFunction old_log_message_handler =
       logging::GetLogMessageHandler();
   logging::SetLogMessageHandler(MockLogMessageHandler);
@@ -2930,7 +2944,13 @@ TEST_F(TraceEventTestFixture, TimeOffset) {
   }
 }
 
-TEST_F(TraceEventTestFixture, TraceFilteringMode) {
+// Flaky on iOS device, see crbug.com/908002
+#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#define MAYBE_TraceFilteringMode DISABLED_TraceFilteringMode
+#else
+#define MAYBE_TraceFilteringMode TraceFilteringMode
+#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+TEST_F(TraceEventTestFixture, MAYBE_TraceFilteringMode) {
   const char config_json[] =
       "{"
       "  \"event_filters\": ["
@@ -3031,7 +3051,13 @@ TEST_F(TraceEventTestFixture, TraceFilteringMode) {
   Clear();
 }
 
-TEST_F(TraceEventTestFixture, EventFiltering) {
+// Flaky on iOS device, see crbug.com/908002
+#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#define MAYBE_EventFiltering DISABLED_EventFiltering
+#else
+#define MAYBE_EventFiltering EventFiltering
+#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+TEST_F(TraceEventTestFixture, MAYBE_EventFiltering) {
   const char config_json[] =
       "{"
       "  \"included_categories\": ["
@@ -3075,7 +3101,13 @@ TEST_F(TraceEventTestFixture, EventFiltering) {
   EXPECT_EQ(1u, filter_hits_counter.end_event_hit_count);
 }
 
-TEST_F(TraceEventTestFixture, EventWhitelistFiltering) {
+// Flaky on iOS device, see crbug.com/908002
+#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#define MAYBE_EventWhitelistFiltering DISABLED_EventWhitelistFiltering
+#else
+#define MAYBE_EventWhitelistFiltering EventWhitelistFiltering
+#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+TEST_F(TraceEventTestFixture, MAYBE_EventWhitelistFiltering) {
   std::string config_json = StringPrintf(
       "{"
       "  \"included_categories\": ["
@@ -3117,7 +3149,13 @@ TEST_F(TraceEventTestFixture, EventWhitelistFiltering) {
   EXPECT_FALSE(FindMatchingValue("name", "a pony"));
 }
 
-TEST_F(TraceEventTestFixture, HeapProfilerFiltering) {
+// Flaky on iOS device, see crbug.com/908002
+#if defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+#define MAYBE_HeapProfilerFiltering DISABLED_HeapProfilerFiltering
+#else
+#define MAYBE_HeapProfilerFiltering HeapProfilerFiltering
+#endif  // defined(OS_IOS) && !(TARGET_OS_SIMULATOR)
+TEST_F(TraceEventTestFixture, MAYBE_HeapProfilerFiltering) {
   std::string config_json = StringPrintf(
       "{"
       "  \"included_categories\": ["

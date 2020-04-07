@@ -30,17 +30,17 @@
 
 #include "third_party/blink/renderer/core/svg/svg_static_string_list.h"
 
-#include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_string_list_tear_off.h"
 
 namespace blink {
 
 SVGStaticStringList::SVGStaticStringList(SVGElement* context_element,
-                                         const QualifiedName& attribute_name)
+                                         const QualifiedName& attribute_name,
+                                         SVGStringListBase* initial_value)
     : SVGAnimatedPropertyBase(kAnimatedUnknown,
                               context_element,
                               attribute_name),
-      value_(SVGStringList::Create()) {
+      value_(initial_value) {
   DCHECK(context_element);
 }
 
@@ -78,19 +78,16 @@ void SVGStaticStringList::AnimationEnded() {
   NOTREACHED();
 }
 
-bool SVGStaticStringList::NeedsSynchronizeAttribute() {
-  return tear_off_;
-}
-
 SVGStringListTearOff* SVGStaticStringList::TearOff() {
-  if (!tear_off_)
-    tear_off_ = SVGStringListTearOff::Create(
-        value_, contextElement(), kPropertyIsNotAnimVal, AttributeName());
-
+  if (!tear_off_) {
+    tear_off_ =
+        SVGStringListTearOff::Create(value_, this, kPropertyIsNotAnimVal);
+  }
   return tear_off_.Get();
 }
 
-SVGParsingError SVGStaticStringList::SetBaseValueAsString(const String& value) {
+SVGParsingError SVGStaticStringList::AttributeChanged(const String& value) {
+  ClearBaseValueNeedsSynchronization();
   return value_->SetValueAsString(value);
 }
 

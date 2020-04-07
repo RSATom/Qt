@@ -11,8 +11,8 @@ include_rules = [
   "+net/base/filename_util.h",
   "+services/service_manager/public/cpp",
   "+services/service_manager/public/mojom",
-  "+services/ui/common",
-  "+services/ui/public/interfaces",
+  "+services/ws/common",
+  "+services/ws/public/mojom",
   "+skia/ext",
   "+third_party/skia",
   "+ui/base",
@@ -20,6 +20,7 @@ include_rules = [
   "+ui/display",
   "+ui/events",
   "+ui/gfx",
+  "+ui/gl/test",
   "+ui/metro_viewer",  # TODO(beng): investigate moving remote_root_window_host
                        #             to ui/metro_viewer.
   "+ui/ozone/public",

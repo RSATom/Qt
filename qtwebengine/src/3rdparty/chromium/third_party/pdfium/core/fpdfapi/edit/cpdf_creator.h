@@ -29,8 +29,8 @@ class CPDF_Parser;
 
 class CPDF_Creator {
  public:
-  explicit CPDF_Creator(CPDF_Document* pDoc,
-                        const RetainPtr<IFX_WriteStream>& archive);
+  CPDF_Creator(CPDF_Document* pDoc,
+               const RetainPtr<IFX_RetainableWriteStream>& archive);
   ~CPDF_Creator();
 
   void RemoveSecurity();
@@ -69,16 +69,14 @@ class CPDF_Creator {
   bool WriteOldIndirectObject(uint32_t objnum);
   bool WriteOldObjs();
   bool WriteNewObjs();
-  bool WriteDirectObj(uint32_t objnum, const CPDF_Object* pObj, bool bEncrypt);
   bool WriteIndirectObj(uint32_t objnum, const CPDF_Object* pObj);
-
-  bool WriteStream(const CPDF_Object* pStream, uint32_t objnum);
 
   CPDF_CryptoHandler* GetCryptoHandler();
 
   UnownedPtr<CPDF_Document> const m_pDocument;
   UnownedPtr<const CPDF_Parser> const m_pParser;
-  UnownedPtr<CPDF_Dictionary> m_pEncryptDict;
+  UnownedPtr<const CPDF_Dictionary> m_pEncryptDict;
+  std::unique_ptr<CPDF_Dictionary> m_pNewEncryptDict;
   fxcrt::MaybeOwned<CPDF_SecurityHandler> m_pSecurityHandler;
   UnownedPtr<const CPDF_Object> m_pMetadata;
   uint32_t m_dwLastObjNum;

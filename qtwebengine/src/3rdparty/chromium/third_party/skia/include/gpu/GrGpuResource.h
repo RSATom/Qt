@@ -8,9 +8,9 @@
 #ifndef GrGpuResource_DEFINED
 #define GrGpuResource_DEFINED
 
+#include "../private/GrResourceKey.h"
 #include "../private/GrTypesPriv.h"
 #include "../private/SkNoncopyable.h"
-#include "GrResourceKey.h"
 
 class GrContext;
 class GrGpu;
@@ -85,8 +85,6 @@ protected:
         kPendingWrite_CntType,
     };
 
-    bool isPurgeable() const { return !this->internalHasRef() && !this->internalHasPendingIO(); }
-
     bool internalHasPendingRead() const { return SkToBool(fPendingReads); }
     bool internalHasPendingWrite() const { return SkToBool(fPendingWrites); }
     bool internalHasPendingIO() const { return SkToBool(fPendingWrites | fPendingReads); }
@@ -133,8 +131,6 @@ private:
     mutable int32_t fPendingReads;
     mutable int32_t fPendingWrites;
 
-    // This class is used to manage conversion of refs to pending reads/writes.
-    friend class GrGpuResourceRef;
     friend class GrResourceCache; // to check IO ref counts.
 
     template <typename, GrIOType> friend class GrPendingIOResource;
@@ -269,7 +265,7 @@ protected:
     // This must be called by every GrGpuObject that references any wrapped backend objects. It
     // should be called once the object is fully initialized (i.e. only from the constructors of the
     // final class).
-    void registerWithCacheWrapped();
+    void registerWithCacheWrapped(bool purgeImmediately = false);
 
     GrGpuResource(GrGpu*);
     virtual ~GrGpuResource();
@@ -303,6 +299,8 @@ protected:
 
 
 private:
+    bool isPurgeable() const { return !this->internalHasRef() && !this->internalHasPendingIO(); }
+
     /**
      * Called by the registerWithCache if the resource is available to be used as scratch.
      * Resource subclasses should override this if the instances should be recycled as scratch
@@ -317,6 +315,11 @@ private:
     void release();
 
     virtual size_t onGpuMemorySize() const = 0;
+
+    /**
+     * Called by GrResourceCache when a resource transitions from being unpurgeable to purgeable.
+     */
+    virtual void becamePurgeable() {}
 
     // See comments in CacheAccess and ResourcePriv.
     void setUniqueKey(const GrUniqueKey&);
@@ -337,7 +340,6 @@ private:
     // This value reflects how recently this resource was accessed in the cache. This is maintained
     // by the cache.
     uint32_t fTimestamp;
-    uint32_t fExternalFlushCntWhenBecamePurgeable;
     GrStdSteadyClock::time_point fTimeWhenBecamePurgeable;
 
     static const size_t kInvalidGpuMemorySize = ~static_cast<size_t>(0);
@@ -350,6 +352,7 @@ private:
     mutable size_t fGpuMemorySize;
 
     SkBudgeted fBudgeted;
+    bool fShouldPurgeImmediately;
     bool fRefsWrappedObjects;
     const UniqueID fUniqueID;
 

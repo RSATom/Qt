@@ -196,7 +196,7 @@ void QGeoTileProviderOsm::disableRedirection()
 
 void QGeoTileProviderOsm::onResolutionFinished(TileProvider *provider)
 {
-    Q_UNUSED(provider)
+    Q_UNUSED(provider);
     // provider and m_provider are the same, at this point. m_status is Resolving.
     m_status = Resolved;
     emit resolutionFinished(this);
@@ -204,7 +204,7 @@ void QGeoTileProviderOsm::onResolutionFinished(TileProvider *provider)
 
 void QGeoTileProviderOsm::onResolutionError(TileProvider *provider)
 {
-    Q_UNUSED(provider)
+    Q_UNUSED(provider);
     // provider and m_provider are the same at this point. m_status is Resolving.
     if (!m_provider || m_provider->isInvalid()) {
         m_provider = nullptr;

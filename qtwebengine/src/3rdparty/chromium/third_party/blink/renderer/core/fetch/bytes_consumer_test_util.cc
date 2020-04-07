@@ -6,6 +6,7 @@
 
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -55,6 +56,7 @@ Result BytesConsumerTestUtil::ReplayingBytesConsumer::BeginRead(
   }
   const Command& command = commands_[0];
   switch (command.GetName()) {
+    case Command::kDataAndDone:
     case Command::kData:
       DCHECK_LE(offset_, command.Body().size());
       *buffer = command.Body().data() + offset_;
@@ -86,7 +88,8 @@ Result BytesConsumerTestUtil::ReplayingBytesConsumer::BeginRead(
 Result BytesConsumerTestUtil::ReplayingBytesConsumer::EndRead(size_t read) {
   DCHECK(!commands_.IsEmpty());
   const Command& command = commands_[0];
-  DCHECK_EQ(Command::kData, command.GetName());
+  const auto name = command.GetName();
+  DCHECK(name == Command::kData || name == Command::kDataAndDone);
   offset_ += read;
   DCHECK_LE(offset_, command.Body().size());
   if (offset_ < command.Body().size())
@@ -94,7 +97,12 @@ Result BytesConsumerTestUtil::ReplayingBytesConsumer::EndRead(size_t read) {
 
   offset_ = 0;
   commands_.pop_front();
-  return Result::kOk;
+
+  if (name == Command::kData)
+    return Result::kOk;
+
+  Close();
+  return Result::kDone;
 }
 
 void BytesConsumerTestUtil::ReplayingBytesConsumer::SetClient(Client* client) {
@@ -176,7 +184,8 @@ void BytesConsumerTestUtil::TwoPhaseReader::OnStateChange() {
       // We don't use |available| as-is to test cases where endRead
       // is called with a number smaller than |available|. We choose 3
       // because of the same reasons as Reader::onStateChange.
-      size_t read = std::min(static_cast<size_t>(3), available);
+      wtf_size_t read =
+          static_cast<wtf_size_t>(std::min(static_cast<size_t>(3), available));
       data_.Append(buffer, read);
       result = consumer_->EndRead(read);
     }

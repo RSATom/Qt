@@ -11,10 +11,12 @@
 #include <vector>
 
 #include "base/format_macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/test_timeouts.h"
 #include "components/certificate_transparency/mock_log_dns_traffic.h"
 #include "crypto/sha2.h"
@@ -22,8 +24,8 @@
 #include "net/cert/merkle_audit_proof.h"
 #include "net/cert/signed_certificate_timestamp.h"
 #include "net/dns/dns_client.h"
-#include "net/dns/dns_config_service.h"
-#include "net/dns/dns_protocol.h"
+#include "net/dns/dns_config.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/log/net_log.h"
 #include "net/test/gtest_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -32,14 +34,24 @@
 namespace certificate_transparency {
 namespace {
 
+using net::test::IsError;
+using net::test::IsOk;
 using ::testing::AllOf;
 using ::testing::Eq;
 using ::testing::IsEmpty;
 using ::testing::Le;
 using ::testing::Not;
 using ::testing::NotNull;
-using net::test::IsError;
-using net::test::IsOk;
+
+// Histogram names.
+const char kLeafIndexErrorHistogram[] =
+    "Net.CertificateTransparency.DnsQueryLeafIndexError";
+const char kLeafIndexRcodeHistogram[] =
+    "Net.CertificateTransparency.DnsQueryLeafIndexRcode";
+const char kAuditProofErrorHistogram[] =
+    "Net.CertificateTransparency.DnsQueryAuditProofError";
+const char kAuditProofRcodeHistogram[] =
+    "Net.CertificateTransparency.DnsQueryAuditProofRcode";
 
 // Sample Merkle leaf hashes.
 const char* const kLeafHashes[] = {
@@ -124,9 +136,12 @@ class LogDnsClientTest : public ::testing::TestWithParam<net::IoMode> {
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   // Queues and handles asynchronous DNS tasks. Indirectly used by LogDnsClient,
   // the underlying net::DnsClient, and NetworkChangeNotifier.
-  base::MessageLoopForIO message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::IO};
   // Allows mock DNS sockets to be setup.
   MockLogDnsTraffic mock_dns_;
+  // Tests that histograms are populated as expected.
+  base::HistogramTester histograms_;
 };
 
 TEST_P(LogDnsClientTest, QueryAuditProofReportsThatLogDomainDoesNotExist) {
@@ -136,6 +151,12 @@ TEST_P(LogDnsClientTest, QueryAuditProofReportsThatLogDomainDoesNotExist) {
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
               IsError(net::ERR_NAME_NOT_RESOLVED));
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram,
+                                 -net::ERR_NAME_NOT_RESOLVED, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNXDOMAIN, 1);
+  histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 TEST_P(LogDnsClientTest,
@@ -146,6 +167,12 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
               IsError(net::ERR_DNS_SERVER_FAILED));
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram,
+                                 -net::ERR_DNS_SERVER_FAILED, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeSERVFAIL, 1);
+  histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 TEST_P(LogDnsClientTest,
@@ -156,76 +183,44 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
               IsError(net::ERR_DNS_SERVER_FAILED));
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram,
+                                 -net::ERR_DNS_SERVER_FAILED, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeREFUSED, 1);
+  histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
-TEST_P(
-    LogDnsClientTest,
-    QueryAuditProofReportsMalformedResponseIfLeafIndexResponseContainsNoStrings) {
-  ASSERT_TRUE(mock_dns_.ExpectRequestAndResponse(
-      kLeafIndexQnames[0], std::vector<base::StringPiece>()));
+TEST_P(LogDnsClientTest, QueryAuditProofReportsMalformedLeafIndexResponse) {
+  const struct {
+    std::string name;
+    std::vector<base::StringPiece> txt_strings;
+  } tests[] = {{"contains no strings", {}},
+               {"contains more than one string", {"123456", "7"}},
+               {"is not numeric", {"foo"}},
+               {"is floating point", {"123456.0"}},
+               {"is empty"},
+               {"has non-numeric prefix", {"foo123456"}},
+               {"has non-numeric suffix", {"123456foo"}}};
 
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
-}
+  for (auto test : tests) {
+    SCOPED_TRACE(test.name);
+    base::HistogramTester histograms;
 
-TEST_P(
-    LogDnsClientTest,
-    QueryAuditProofReportsMalformedResponseIfLeafIndexResponseContainsMoreThanOneString) {
-  ASSERT_TRUE(
-      mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0], {"123456", "7"}));
+    ASSERT_TRUE(mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0],
+                                                   test.txt_strings));
 
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
-}
-
-TEST_P(LogDnsClientTest,
-       QueryAuditProofReportsMalformedResponseIfLeafIndexIsNotNumeric) {
-  ASSERT_TRUE(mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0], {"foo"}));
-
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
-}
-
-TEST_P(LogDnsClientTest,
-       QueryAuditProofReportsMalformedResponseIfLeafIndexIsFloatingPoint) {
-  ASSERT_TRUE(
-      mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0], {"123456.0"}));
-
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
-}
-
-TEST_P(LogDnsClientTest,
-       QueryAuditProofReportsMalformedResponseIfLeafIndexIsEmpty) {
-  ASSERT_TRUE(mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0], {""}));
-
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
-}
-
-TEST_P(LogDnsClientTest,
-       QueryAuditProofReportsMalformedResponseIfLeafIndexHasNonNumericPrefix) {
-  ASSERT_TRUE(
-      mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0], {"foo123456"}));
-
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
-}
-
-TEST_P(LogDnsClientTest,
-       QueryAuditProofReportsMalformedResponseIfLeafIndexHasNonNumericSuffix) {
-  ASSERT_TRUE(
-      mock_dns_.ExpectRequestAndResponse(kLeafIndexQnames[0], {"123456foo"}));
-
-  std::unique_ptr<LogDnsClient::AuditProofQuery> query;
-  ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
-              IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+    std::unique_ptr<LogDnsClient::AuditProofQuery> query;
+    ASSERT_THAT(
+        QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
+        IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+    histograms.ExpectUniqueSample(kLeafIndexErrorHistogram,
+                                  -net::ERR_DNS_MALFORMED_RESPONSE, 1);
+    histograms.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                  net::dns_protocol::kRcodeNOERROR, 1);
+    histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+    histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
+  }
 }
 
 TEST_P(LogDnsClientTest, QueryAuditProofReportsInvalidArgIfLogDomainIsEmpty) {
@@ -254,6 +249,11 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
               IsError(net::ERR_CONNECTION_REFUSED));
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram,
+                                 -net::ERR_CONNECTION_REFUSED, 1);
+  histograms_.ExpectTotalCount(kLeafIndexRcodeHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 TEST_P(LogDnsClientTest,
@@ -263,6 +263,11 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], kTreeSizes[0], &query),
               IsError(net::ERR_DNS_TIMED_OUT));
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram,
+                                 -net::ERR_DNS_TIMED_OUT, 1);
+  histograms_.ExpectTotalCount(kLeafIndexRcodeHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 TEST_P(LogDnsClientTest, QueryAuditProof) {
@@ -291,6 +296,13 @@ TEST_P(LogDnsClientTest, QueryAuditProof) {
   EXPECT_THAT(proof.leaf_index, Eq(123456u));
   EXPECT_THAT(proof.tree_size, Eq(999999u));
   EXPECT_THAT(proof.nodes, Eq(audit_proof));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(LogDnsClientTest, QueryAuditProofHandlesResponsesWithShortAuditPaths) {
@@ -327,6 +339,13 @@ TEST_P(LogDnsClientTest, QueryAuditProofHandlesResponsesWithShortAuditPaths) {
   EXPECT_THAT(proof.leaf_index, Eq(123456u));
   EXPECT_THAT(proof.tree_size, Eq(999999u));
   EXPECT_THAT(proof.nodes, Eq(audit_proof));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(LogDnsClientTest,
@@ -339,6 +358,14 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_NAME_NOT_RESOLVED));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_NAME_NOT_RESOLVED, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNXDOMAIN, 1);
 }
 
 TEST_P(LogDnsClientTest,
@@ -351,6 +378,14 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_SERVER_FAILED));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_SERVER_FAILED, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeSERVFAIL, 1);
 }
 
 TEST_P(LogDnsClientTest,
@@ -363,6 +398,14 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_SERVER_FAILED));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_SERVER_FAILED, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeREFUSED, 1);
 }
 
 TEST_P(
@@ -378,6 +421,14 @@ TEST_P(
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_MALFORMED_RESPONSE, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(
@@ -403,6 +454,14 @@ TEST_P(
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_MALFORMED_RESPONSE, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(LogDnsClientTest,
@@ -418,6 +477,14 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_MALFORMED_RESPONSE, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(LogDnsClientTest, QueryAuditProofReportsResponseMalformedIfNodeTooLong) {
@@ -432,6 +499,14 @@ TEST_P(LogDnsClientTest, QueryAuditProofReportsResponseMalformedIfNodeTooLong) {
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_MALFORMED_RESPONSE, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(LogDnsClientTest, QueryAuditProofReportsResponseMalformedIfEmpty) {
@@ -445,6 +520,14 @@ TEST_P(LogDnsClientTest, QueryAuditProofReportsResponseMalformedIfEmpty) {
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_MALFORMED_RESPONSE));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_MALFORMED_RESPONSE, 1);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
 }
 
 TEST_P(LogDnsClientTest,
@@ -477,6 +560,13 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_CONNECTION_REFUSED));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_CONNECTION_REFUSED, 1);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 TEST_P(LogDnsClientTest,
@@ -489,6 +579,13 @@ TEST_P(LogDnsClientTest,
   std::unique_ptr<LogDnsClient::AuditProofQuery> query;
   ASSERT_THAT(QueryAuditProof("ct.test", kLeafHashes[0], 999999, &query),
               IsError(net::ERR_DNS_TIMED_OUT));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 1);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 1);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram,
+                                 -net::ERR_DNS_TIMED_OUT, 1);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 TEST_P(LogDnsClientTest, AdoptsLatestDnsConfigIfValid) {
@@ -581,8 +678,8 @@ TEST_P(LogDnsClientTest, CanPerformQueriesInParallel) {
   // Check that 3 queries can be performed in parallel.
   constexpr size_t kNumOfParallelQueries = 3;
   ASSERT_THAT(kNumOfParallelQueries,
-              AllOf(Le(arraysize(kLeafIndexQnames)),
-                    Le(arraysize(kLeafIndices)), Le(arraysize(kTreeSizes))))
+              AllOf(Le(base::size(kLeafIndexQnames)),
+                    Le(base::size(kLeafIndices)), Le(base::size(kTreeSizes))))
       << "Not enough test data for this many parallel queries";
 
   std::unique_ptr<LogDnsClient> log_client =
@@ -657,6 +754,13 @@ TEST_P(LogDnsClientTest, CanPerformQueriesInParallel) {
     EXPECT_THAT(proof.tree_size, Eq(kTreeSizes[i]));
     EXPECT_THAT(proof.nodes, Eq(audit_proofs[i]));
   }
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 3);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 3);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram, -net::OK, 3);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 3);
 }
 
 TEST_P(LogDnsClientTest, CanBeThrottledToOneQueryAtATime) {
@@ -732,6 +836,13 @@ TEST_P(LogDnsClientTest, CanBeThrottledToOneQueryAtATime) {
   EXPECT_THAT(proof3.leaf_index, Eq(666u));
   EXPECT_THAT(proof3.tree_size, Eq(999999u));
   EXPECT_THAT(proof3.nodes, Eq(audit_proof));
+
+  histograms_.ExpectUniqueSample(kLeafIndexErrorHistogram, -net::OK, 2);
+  histograms_.ExpectUniqueSample(kLeafIndexRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 2);
+  histograms_.ExpectUniqueSample(kAuditProofErrorHistogram, -net::OK, 2);
+  histograms_.ExpectUniqueSample(kAuditProofRcodeHistogram,
+                                 net::dns_protocol::kRcodeNOERROR, 2);
 }
 
 TEST_P(LogDnsClientTest, NotifiesWhenNoLongerThrottled) {
@@ -815,6 +926,11 @@ TEST_P(LogDnsClientTest, CanCancelQueries) {
   // Give |callback| a chance to run - it shouldn't though.
   base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(callback.have_result());
+
+  histograms_.ExpectTotalCount(kLeafIndexErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kLeafIndexRcodeHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofErrorHistogram, 0);
+  histograms_.ExpectTotalCount(kAuditProofRcodeHistogram, 0);
 }
 
 INSTANTIATE_TEST_CASE_P(ReadMode,

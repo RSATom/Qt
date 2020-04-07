@@ -120,16 +120,17 @@ const QImage &QWaylandAbstractDecoration::contentImage()
 {
     Q_D(QWaylandAbstractDecoration);
     if (d->m_isDirty) {
-        //Update the decoration backingstore
+        // Update the decoration backingstore
 
-        const int scale = waylandWindow()->scale();
-        const QSize imageSize = window()->frameGeometry().size() * scale;
+        const int bufferScale = waylandWindow()->scale();
+        const QSize imageSize = waylandWindow()->surfaceSize() * bufferScale;
         d->m_decorationContentImage = QImage(imageSize, QImage::Format_ARGB32_Premultiplied);
-        d->m_decorationContentImage.setDevicePixelRatio(scale);
+        // Only scale by buffer scale, not QT_SCALE_FACTOR etc.
+        d->m_decorationContentImage.setDevicePixelRatio(bufferScale);
         d->m_decorationContentImage.fill(Qt::transparent);
         this->paint(&d->m_decorationContentImage);
 
-        QRegion damage = marginsRegion(window()->geometry().size(), window()->frameMargins());
+        QRegion damage = marginsRegion(waylandWindow()->surfaceSize(), waylandWindow()->frameMargins());
         for (QRect r : damage)
             waylandWindow()->damage(r);
 
@@ -151,11 +152,11 @@ void QWaylandAbstractDecoration::setMouseButtons(Qt::MouseButtons mb)
     d->m_mouseButtons = mb;
 }
 
-void QWaylandAbstractDecoration::startResize(QWaylandInputDevice *inputDevice, enum wl_shell_surface_resize resize, Qt::MouseButtons buttons)
+void QWaylandAbstractDecoration::startResize(QWaylandInputDevice *inputDevice, Qt::Edges edges, Qt::MouseButtons buttons)
 {
     Q_D(QWaylandAbstractDecoration);
     if (isLeftClicked(buttons) && d->m_wayland_window->shellSurface()) {
-        d->m_wayland_window->shellSurface()->resize(inputDevice, resize);
+        d->m_wayland_window->shellSurface()->resize(inputDevice, edges);
         inputDevice->removeMouseButtonFromState(Qt::LeftButton);
     }
 }
@@ -169,20 +170,29 @@ void QWaylandAbstractDecoration::startMove(QWaylandInputDevice *inputDevice, Qt:
     }
 }
 
+void QWaylandAbstractDecoration::showWindowMenu(QWaylandInputDevice *inputDevice)
+{
+    Q_D(QWaylandAbstractDecoration);
+    if (auto *s = d->m_wayland_window->shellSurface())
+        s->showWindowMenu(inputDevice);
+}
+
 bool QWaylandAbstractDecoration::isLeftClicked(Qt::MouseButtons newMouseButtonState)
 {
     Q_D(QWaylandAbstractDecoration);
-    if (!(d->m_mouseButtons & Qt::LeftButton) && (newMouseButtonState & Qt::LeftButton))
-        return true;
-    return false;
+    return !(d->m_mouseButtons & Qt::LeftButton) && (newMouseButtonState & Qt::LeftButton);
+}
+
+bool QWaylandAbstractDecoration::isRightClicked(Qt::MouseButtons newMouseButtonState)
+{
+    Q_D(QWaylandAbstractDecoration);
+    return !(d->m_mouseButtons & Qt::RightButton) && (newMouseButtonState & Qt::RightButton);
 }
 
 bool QWaylandAbstractDecoration::isLeftReleased(Qt::MouseButtons newMouseButtonState)
 {
     Q_D(QWaylandAbstractDecoration);
-    if ((d->m_mouseButtons & Qt::LeftButton) && !(newMouseButtonState & Qt::LeftButton))
-        return true;
-    return false;
+    return (d->m_mouseButtons & Qt::LeftButton) && !(newMouseButtonState & Qt::LeftButton);
 }
 
 bool QWaylandAbstractDecoration::isDirty() const

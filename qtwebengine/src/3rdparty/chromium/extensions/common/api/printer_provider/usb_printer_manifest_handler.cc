@@ -32,7 +32,11 @@ bool UsbPrinterManifestHandler::Parse(Extension* extension,
 
 base::span<const char* const> UsbPrinterManifestHandler::Keys() const {
   static constexpr const char* kKeys[] = {manifest_keys::kUsbPrinters};
+#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 }  // namespace extensions

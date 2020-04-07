@@ -91,18 +91,24 @@ bool LocalTestServer::GetTestServerPath(base::FilePath* testserver_path) const {
 bool LocalTestServer::StartInBackground() {
   DCHECK(!started());
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io_from_test_code;
+  base::ScopedAllowBlockingForTesting allow_blocking;
 
   // Get path to Python server script.
   base::FilePath testserver_path;
-  if (!GetTestServerPath(&testserver_path))
+  if (!GetTestServerPath(&testserver_path)) {
+    LOG(ERROR) << "Could not get test server path.";
     return false;
+  }
 
-  if (!SetPythonPath())
+  if (!SetPythonPath()) {
+    LOG(ERROR) << "Could not set Python path.";
     return false;
+  }
 
-  if (!LaunchPython(testserver_path))
+  if (!LaunchPython(testserver_path)) {
+    LOG(ERROR) << "Could not launch Python with path " << testserver_path;
     return false;
+  }
 
   return true;
 }
@@ -201,8 +207,7 @@ bool LocalTestServer::AddCommandLineArguments(
       const base::ListValue* list = NULL;
       if (!value.GetAsList(&list) || !list || list->empty())
         return false;
-      for (base::ListValue::const_iterator list_it = list->begin();
-           list_it != list->end(); ++list_it) {
+      for (auto list_it = list->begin(); list_it != list->end(); ++list_it) {
         if (!AppendArgumentFromJSONValue(key, *list_it, command_line))
           return false;
       }
@@ -233,6 +238,9 @@ bool LocalTestServer::AddCommandLineArguments(
       break;
     case TYPE_BASIC_AUTH_PROXY:
       command_line->AppendArg("--basic-auth-proxy");
+      break;
+    case TYPE_PROXY:
+      command_line->AppendArg("--proxy");
       break;
     default:
       NOTREACHED();

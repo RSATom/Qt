@@ -11,8 +11,6 @@
 #ifndef MODULES_VIDEO_CODING_JITTER_BUFFER_COMMON_H_
 #define MODULES_VIDEO_CODING_JITTER_BUFFER_COMMON_H_
 
-#include "typedefs.h"  // NOLINT(build/include)
-
 namespace webrtc {
 
 // Used to estimate rolling average of packets per frame.
@@ -46,7 +44,6 @@ enum VCMFrameBufferEnum {
   kNoError = 0,
   kIncomplete = 1,        // Frame incomplete.
   kCompleteSession = 3,   // at least one layer in the frame complete.
-  kDecodableSession = 4,  // Frame incomplete, but ready to be decoded
   kDuplicatePacket = 5    // We're receiving a duplicate packet.
 };
 
@@ -54,7 +51,6 @@ enum VCMFrameBufferStateEnum {
   kStateEmpty,       // frame popped by the RTP receiver
   kStateIncomplete,  // frame that have one or more packet(s) stored
   kStateComplete,    // frame that have all packets
-  kStateDecodable    // Hybrid mode - frame can be decoded
 };
 
 enum { kH264StartCodeLengthBytes = 4 };

@@ -591,11 +591,9 @@ QJsonValue QMetaObjectPublisher::wrapResult(const QVariant &result, QWebChannelA
         } else if (wrappedObjects.contains(id)) {
             Q_ASSERT(object == wrappedObjects.value(id).object);
             // check if this transport is already assigned to the object
-            if (transport) {
-                if (!wrappedObjects.value(id).transports.contains(transport))
-                    wrappedObjects[id].transports.append(transport);
-                if (!transportedWrappedObjects.contains(transport, id))
-                    transportedWrappedObjects.insertMulti(transport, id);
+            if (transport && !wrappedObjects.value(id).transports.contains(transport)) {
+                wrappedObjects[id].transports.append(transport);
+                transportedWrappedObjects.insert(transport, id);
             }
             classInfo = wrappedObjects.value(id).classinfo;
         }

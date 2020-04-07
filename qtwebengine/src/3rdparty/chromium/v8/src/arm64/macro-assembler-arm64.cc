@@ -10,37 +10,26 @@
 #include "src/bootstrapper.h"
 #include "src/callable.h"
 #include "src/code-factory.h"
-#include "src/code-stubs.h"
+#include "src/counters.h"
 #include "src/debug/debug.h"
 #include "src/external-reference-table.h"
 #include "src/frame-constants.h"
 #include "src/frames-inl.h"
-#include "src/heap/heap-inl.h"
-#include "src/instruction-stream.h"
+#include "src/macro-assembler-inl.h"
 #include "src/register-configuration.h"
 #include "src/runtime/runtime.h"
+#include "src/snapshot/embedded-data.h"
 #include "src/snapshot/snapshot.h"
+#include "src/wasm/wasm-code-manager.h"
 
-#include "src/arm64/macro-assembler-arm64-inl.h"
-#include "src/arm64/macro-assembler-arm64.h"  // Cannot be the first include
+// Satisfy cpplint check, but don't include platform-specific header. It is
+// included recursively via macro-assembler.h.
+#if 0
+#include "src/arm64/macro-assembler-arm64.h"
+#endif
 
 namespace v8 {
 namespace internal {
-
-MacroAssembler::MacroAssembler(Isolate* isolate,
-                               const AssemblerOptions& options, void* buffer,
-                               int size, CodeObjectRequired create_code_object)
-    : TurboAssembler(isolate, options, buffer, size, create_code_object) {
-  if (create_code_object == CodeObjectRequired::kYes) {
-    // Unlike TurboAssembler, which can be used off the main thread and may not
-    // allocate, macro assembler creates its own copy of the self-reference
-    // marker in order to disambiguate between self-references during nested
-    // code generation (e.g.: codegen of the current object triggers stub
-    // compilation through CodeStub::GetCode()).
-    code_object_ = Handle<HeapObject>::New(
-        *isolate->factory()->NewSelfReferenceMarker(), isolate);
-  }
-}
 
 CPURegList TurboAssembler::DefaultTmpList() { return CPURegList(ip0, ip1); }
 
@@ -52,13 +41,27 @@ int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
                                                     Register exclusion) const {
   int bytes = 0;
   auto list = kCallerSaved;
-  DCHECK_EQ(list.Count() % 2, 0);
   // We only allow one exclusion register, so if the list is of even length
   // before exclusions, it must still be afterwards, to maintain alignment.
   // Therefore, we can ignore the exclusion register in the computation.
   // However, we leave it in the argument list to mirror the prototype for
   // Push/PopCallerSaved().
+
+#if defined(V8_OS_WIN)
+  // X18 is excluded from caller-saved register list on Windows ARM64 which
+  // makes caller-saved registers in odd number. padreg is used accordingly
+  // to maintain the alignment.
+  DCHECK_EQ(list.Count() % 2, 1);
+  if (exclusion.Is(no_reg)) {
+    bytes += kXRegSizeInBits / 8;
+  } else {
+    bytes -= kXRegSizeInBits / 8;
+  }
+#else
+  DCHECK_EQ(list.Count() % 2, 0);
   USE(exclusion);
+#endif
+
   bytes += list.Count() * kXRegSizeInBits / 8;
 
   if (fp_mode == kSaveFPRegs) {
@@ -72,12 +75,24 @@ int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode,
                                     Register exclusion) {
   int bytes = 0;
   auto list = kCallerSaved;
-  DCHECK_EQ(list.Count() % 2, 0);
+
+#if defined(V8_OS_WIN)
+  // X18 is excluded from caller-saved register list on Windows ARM64, use
+  // padreg accordingly to maintain alignment.
+  if (!exclusion.Is(no_reg)) {
+    list.Remove(exclusion);
+  } else {
+    list.Combine(padreg);
+  }
+#else
   if (!exclusion.Is(no_reg)) {
     // Replace the excluded register with padding to maintain alignment.
     list.Remove(exclusion);
     list.Combine(padreg);
   }
+#endif
+
+  DCHECK_EQ(list.Count() % 2, 0);
   PushCPURegList(list);
   bytes += list.Count() * kXRegSizeInBits / 8;
 
@@ -98,12 +113,24 @@ int TurboAssembler::PopCallerSaved(SaveFPRegsMode fp_mode, Register exclusion) {
   }
 
   auto list = kCallerSaved;
-  DCHECK_EQ(list.Count() % 2, 0);
+
+#if defined(V8_OS_WIN)
+  // X18 is excluded from caller-saved register list on Windows ARM64, use
+  // padreg accordingly to maintain alignment.
+  if (!exclusion.Is(no_reg)) {
+    list.Remove(exclusion);
+  } else {
+    list.Combine(padreg);
+  }
+#else
   if (!exclusion.Is(no_reg)) {
     // Replace the excluded register with padding to maintain alignment.
     list.Remove(exclusion);
     list.Combine(padreg);
   }
+#endif
+
+  DCHECK_EQ(list.Count() % 2, 0);
   PopCPURegList(list);
   bytes += list.Count() * kXRegSizeInBits / 8;
 
@@ -305,23 +332,35 @@ void TurboAssembler::Mov(const Register& rd, const Operand& operand,
   Register dst = (rd.IsSP()) ? temps.AcquireSameSizeAs(rd) : rd;
 
   if (operand.NeedsRelocation(this)) {
+    if (FLAG_embedded_builtins) {
+      if (root_array_available_ && options().isolate_independent_code) {
+        if (operand.ImmediateRMode() == RelocInfo::EXTERNAL_REFERENCE) {
+          Address addr = static_cast<Address>(operand.ImmediateValue());
+          ExternalReference reference = bit_cast<ExternalReference>(addr);
+          IndirectLoadExternalReference(rd, reference);
+          return;
+        } else if (operand.ImmediateRMode() == RelocInfo::EMBEDDED_OBJECT) {
+          Handle<HeapObject> x(
+              reinterpret_cast<Address*>(operand.ImmediateValue()));
+          IndirectLoadConstant(rd, x);
+          return;
+        }
+      }
+    }
     Ldr(dst, operand);
   } else if (operand.IsImmediate()) {
     // Call the macro assembler for generic immediates.
     Mov(dst, operand.ImmediateValue());
-
   } else if (operand.IsShiftedRegister() && (operand.shift_amount() != 0)) {
     // Emit a shift instruction if moving a shifted register. This operation
     // could also be achieved using an orr instruction (like orn used by Mvn),
     // but using a shift instruction makes the disassembly clearer.
     EmitShift(dst, operand.reg(), operand.shift(), operand.shift_amount());
-
   } else if (operand.IsExtendedRegister()) {
     // Emit an extend instruction if moving an extended register. This handles
     // extend with post-shift operations, too.
     EmitExtendShift(dst, operand.reg(), operand.extend(),
                     operand.shift_amount());
-
   } else {
     // Otherwise, emit a register move only if the registers are distinct, or
     // if they are not X registers.
@@ -347,14 +386,8 @@ void TurboAssembler::Mov(const Register& rd, const Operand& operand,
   }
 }
 
-void TurboAssembler::Mov(const Register& rd, ExternalReference reference) {
-  if (FLAG_embedded_builtins) {
-    if (root_array_available_ && options().isolate_independent_code) {
-      IndirectLoadExternalReference(rd, reference);
-      return;
-    }
-  }
-  Mov(rd, Operand(reference));
+void TurboAssembler::Mov(const Register& rd, Smi smi) {
+  return Mov(rd, Operand(smi));
 }
 
 void TurboAssembler::Movi16bitHelper(const VRegister& vd, uint64_t imm) {
@@ -1049,8 +1082,8 @@ void TurboAssembler::Push(const CPURegister& src0, const CPURegister& src1,
 
   int count = 1 + src1.IsValid() + src2.IsValid() + src3.IsValid();
   int size = src0.SizeInBytes();
+  DCHECK_EQ(0, (size * count) % 16);
 
-  PushPreamble(count, size);
   PushHelper(count, size, src0, src1, src2, src3);
 }
 
@@ -1062,8 +1095,8 @@ void TurboAssembler::Push(const CPURegister& src0, const CPURegister& src1,
 
   int count = 5 + src5.IsValid() + src6.IsValid() + src6.IsValid();
   int size = src0.SizeInBytes();
+  DCHECK_EQ(0, (size * count) % 16);
 
-  PushPreamble(count, size);
   PushHelper(4, size, src0, src1, src2, src3);
   PushHelper(count - 4, size, src4, src5, src6, src7);
 }
@@ -1078,9 +1111,9 @@ void TurboAssembler::Pop(const CPURegister& dst0, const CPURegister& dst1,
 
   int count = 1 + dst1.IsValid() + dst2.IsValid() + dst3.IsValid();
   int size = dst0.SizeInBytes();
+  DCHECK_EQ(0, (size * count) % 16);
 
   PopHelper(count, size, dst0, dst1, dst2, dst3);
-  PopPostamble(count, size);
 }
 
 void TurboAssembler::Pop(const CPURegister& dst0, const CPURegister& dst1,
@@ -1095,30 +1128,25 @@ void TurboAssembler::Pop(const CPURegister& dst0, const CPURegister& dst1,
 
   int count = 5 + dst5.IsValid() + dst6.IsValid() + dst7.IsValid();
   int size = dst0.SizeInBytes();
+  DCHECK_EQ(0, (size * count) % 16);
 
   PopHelper(4, size, dst0, dst1, dst2, dst3);
   PopHelper(count - 4, size, dst4, dst5, dst6, dst7);
-  PopPostamble(count, size);
 }
 
 void TurboAssembler::Push(const Register& src0, const VRegister& src1) {
   int size = src0.SizeInBytes() + src1.SizeInBytes();
+  DCHECK_EQ(0, size % 16);
 
-  PushPreamble(size);
   // Reserve room for src0 and push src1.
   str(src1, MemOperand(sp, -size, PreIndex));
   // Fill the gap with src0.
   str(src0, MemOperand(sp, src1.SizeInBytes()));
 }
 
-
-void MacroAssembler::PushPopQueue::PushQueued(
-    PreambleDirective preamble_directive) {
+void MacroAssembler::PushPopQueue::PushQueued() {
+  DCHECK_EQ(0, size_ % 16);
   if (queued_.empty()) return;
-
-  if (preamble_directive == WITH_PREAMBLE) {
-    masm_->PushPreamble(size_);
-  }
 
   size_t count = queued_.size();
   size_t index = 0;
@@ -1141,6 +1169,7 @@ void MacroAssembler::PushPopQueue::PushQueued(
 
 
 void MacroAssembler::PushPopQueue::PopQueued() {
+  DCHECK_EQ(0, size_ % 16);
   if (queued_.empty()) return;
 
   size_t count = queued_.size();
@@ -1159,14 +1188,13 @@ void MacroAssembler::PushPopQueue::PopQueued() {
                      batch[0], batch[1], batch[2], batch[3]);
   }
 
-  masm_->PopPostamble(size_);
   queued_.clear();
 }
 
 void TurboAssembler::PushCPURegList(CPURegList registers) {
   int size = registers.RegisterSizeInBytes();
+  DCHECK_EQ(0, (size * registers.Count()) % 16);
 
-  PushPreamble(registers.Count(), size);
   // Push up to four registers at a time.
   while (!registers.IsEmpty()) {
     int count_before = registers.Count();
@@ -1181,6 +1209,7 @@ void TurboAssembler::PushCPURegList(CPURegList registers) {
 
 void TurboAssembler::PopCPURegList(CPURegList registers) {
   int size = registers.RegisterSizeInBytes();
+  DCHECK_EQ(0, (size * registers.Count()) % 16);
 
   // Pop up to four registers at a time.
   while (!registers.IsEmpty()) {
@@ -1192,12 +1221,9 @@ void TurboAssembler::PopCPURegList(CPURegList registers) {
     int count = count_before - registers.Count();
     PopHelper(count, size, dst0, dst1, dst2, dst3);
   }
-  PopPostamble(registers.Count(), size);
 }
 
 void MacroAssembler::PushMultipleTimes(CPURegister src, Register count) {
-  PushPreamble(Operand(count, UXTW, WhichPowerOf2(src.SizeInBytes())));
-
   UseScratchRegisterScope temps(this);
   Register temp = temps.AcquireSameSizeAs(count);
 
@@ -1316,39 +1342,6 @@ void TurboAssembler::PopHelper(int count, int size, const CPURegister& dst0,
   }
 }
 
-void TurboAssembler::PushPreamble(Operand total_size) {
-  if (total_size.IsZero()) return;
-
-  // The stack pointer must be aligned to 16 bytes on entry, and the total
-  // size of the specified registers must also be a multiple of 16 bytes.
-  if (total_size.IsImmediate()) {
-    DCHECK_EQ(total_size.ImmediateValue() % 16, 0);
-  }
-
-  // Don't check access size for non-immediate sizes. It's difficult to do
-  // well, and it will be caught by hardware (or the simulator) anyway.
-}
-
-void TurboAssembler::PopPostamble(Operand total_size) {
-  if (total_size.IsZero()) return;
-
-  // The stack pointer must be aligned to 16 bytes on entry, and the total
-  // size of the specified registers must also be a multiple of 16 bytes.
-  if (total_size.IsImmediate()) {
-    DCHECK_EQ(total_size.ImmediateValue() % 16, 0);
-  }
-
-  // Don't check access size for non-immediate sizes. It's difficult to do
-  // well, and it will be caught by hardware (or the simulator) anyway.
-}
-
-void TurboAssembler::PushPreamble(int count, int size) {
-  PushPreamble(count * size);
-}
-void TurboAssembler::PopPostamble(int count, int size) {
-  PopPostamble(count * size);
-}
-
 void TurboAssembler::Poke(const CPURegister& src, const Operand& offset) {
   if (offset.IsImmediate()) {
     DCHECK_GE(offset.ImmediateValue(), 0);
@@ -1429,7 +1422,7 @@ void MacroAssembler::PopCalleeSavedRegisters() {
 
 void TurboAssembler::AssertSpAligned() {
   if (emit_debug_code()) {
-    TrapOnAbortScope trap_on_abort_scope(this);  // Avoid calls to Abort.
+    HardAbortScope hard_abort(this);  // Avoid calls to Abort.
     // Arm64 requires the stack pointer to be 16-byte aligned prior to address
     // calculation.
     UseScratchRegisterScope scope(this);
@@ -1553,35 +1546,24 @@ void TurboAssembler::CanonicalizeNaN(const VRegister& dst,
   Fsub(dst, src, fp_zero);
 }
 
-void TurboAssembler::LoadRoot(Register destination, Heap::RootListIndex index) {
+void TurboAssembler::LoadRoot(Register destination, RootIndex index) {
   // TODO(jbramley): Most root values are constants, and can be synthesized
   // without a load. Refer to the ARM back end for details.
-  Ldr(destination, MemOperand(kRootRegister, RootRegisterOffset(index)));
+  Ldr(destination,
+      MemOperand(kRootRegister, RootRegisterOffsetForRootIndex(index)));
 }
 
 
 void MacroAssembler::LoadObject(Register result, Handle<Object> object) {
   AllowDeferredHandleDereference heap_object_check;
   if (object->IsHeapObject()) {
-    Move(result, Handle<HeapObject>::cast(object));
+    Mov(result, Handle<HeapObject>::cast(object));
   } else {
     Mov(result, Operand(Smi::cast(*object)));
   }
 }
 
-void TurboAssembler::Move(Register dst, Register src) { Mov(dst, src); }
-
-void TurboAssembler::Move(Register dst, Handle<HeapObject> value) {
-  if (FLAG_embedded_builtins) {
-    if (root_array_available_ && options().isolate_independent_code) {
-      IndirectLoadConstant(dst, value);
-      return;
-    }
-  }
-  Mov(dst, value);
-}
-
-void TurboAssembler::Move(Register dst, Smi* src) { Mov(dst, src); }
+void TurboAssembler::Move(Register dst, Smi src) { Mov(dst, src); }
 
 void TurboAssembler::Swap(Register lhs, Register rhs) {
   DCHECK(lhs.IsSameSizeAndType(rhs));
@@ -1681,6 +1663,10 @@ void MacroAssembler::AssertGeneratorObject(Register object) {
   CompareInstanceType(temp, temp, JS_GENERATOR_OBJECT_TYPE);
   B(eq, &do_check);
 
+  // Check if JSAsyncFunctionObject
+  Cmp(temp, JS_ASYNC_FUNCTION_OBJECT_TYPE);
+  B(eq, &do_check);
+
   // Check if JSAsyncGeneratorObject
   Cmp(temp, JS_ASYNC_GENERATOR_OBJECT_TYPE);
 
@@ -1695,7 +1681,7 @@ void MacroAssembler::AssertUndefinedOrAllocationSite(Register object) {
     Register scratch = temps.AcquireX();
     Label done_checking;
     AssertNotSmi(object);
-    JumpIfRoot(object, Heap::kUndefinedValueRootIndex, &done_checking);
+    JumpIfRoot(object, RootIndex::kUndefinedValue, &done_checking);
     Ldr(scratch, FieldMemOperand(object, HeapObject::kMapOffset));
     CompareInstanceType(scratch, scratch, ALLOCATION_SITE_TYPE);
     Assert(eq, AbortReason::kExpectedUndefinedOrCell);
@@ -1713,29 +1699,6 @@ void TurboAssembler::AssertPositiveOrZero(Register value) {
   }
 }
 
-void TurboAssembler::CallStubDelayed(CodeStub* stub) {
-  DCHECK(AllowThisStubCall(stub));  // Stub calls are not allowed in some stubs.
-  BlockPoolsScope scope(this);
-#ifdef DEBUG
-  Label start_call;
-  Bind(&start_call);
-#endif
-  Operand operand = Operand::EmbeddedCode(stub);
-  near_call(operand.heap_object_request());
-#ifdef DEBUG
-  AssertSizeOfCodeGeneratedSince(&start_call, kNearCallSize);
-#endif
-}
-
-void MacroAssembler::CallStub(CodeStub* stub) {
-  DCHECK(AllowThisStubCall(stub));  // Stub calls are not allowed in some stubs.
-  Call(stub->GetCode(), RelocInfo::CODE_TARGET);
-}
-
-void MacroAssembler::TailCallStub(CodeStub* stub) {
-  Jump(stub->GetCode(), RelocInfo::CODE_TARGET);
-}
-
 void TurboAssembler::CallRuntimeWithCEntry(Runtime::FunctionId fid,
                                            Register centry) {
   const Runtime::Function* f = Runtime::FunctionForId(fid);
@@ -1746,8 +1709,7 @@ void TurboAssembler::CallRuntimeWithCEntry(Runtime::FunctionId fid,
   Mov(x0, f->nargs);
   Mov(x1, ExternalReference::Create(f));
   DCHECK(!AreAliased(centry, x0, x1));
-  Add(centry, centry, Operand(Code::kHeaderSize - kHeapObjectTag));
-  Call(centry);
+  CallCodeObject(centry);
 }
 
 void MacroAssembler::CallRuntime(const Runtime::Function* f,
@@ -1778,7 +1740,7 @@ void MacroAssembler::JumpToExternalReference(const ExternalReference& builtin,
 }
 
 void MacroAssembler::JumpToInstructionStream(Address entry) {
-  Mov(kOffHeapTrampolineRegister, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+  Ldr(kOffHeapTrampolineRegister, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
   Br(kOffHeapTrampolineRegister);
 }
 
@@ -1843,9 +1805,37 @@ void TurboAssembler::CallCFunction(Register function, int num_of_reg_args,
     DCHECK_LE(num_of_double_args + num_of_reg_args, 2);
   }
 
+  // Save the frame pointer and PC so that the stack layout remains iterable,
+  // even without an ExitFrame which normally exists between JS and C frames.
+  if (isolate() != nullptr) {
+    Register scratch1 = x4;
+    Register scratch2 = x5;
+    Push(scratch1, scratch2);
+
+    Label get_pc;
+    Bind(&get_pc);
+    Adr(scratch2, &get_pc);
+
+    Mov(scratch1, ExternalReference::fast_c_call_caller_pc_address(isolate()));
+    Str(scratch2, MemOperand(scratch1));
+    Mov(scratch1, ExternalReference::fast_c_call_caller_fp_address(isolate()));
+    Str(fp, MemOperand(scratch1));
+
+    Pop(scratch2, scratch1);
+  }
+
   // Call directly. The function called cannot cause a GC, or allow preemption,
   // so the return address in the link register stays correct.
   Call(function);
+
+  if (isolate() != nullptr) {
+    // We don't unset the PC; the FP is the source of truth.
+    Register scratch = x4;
+    Push(scratch, xzr);
+    Mov(scratch, ExternalReference::fast_c_call_caller_fp_address(isolate()));
+    Str(xzr, MemOperand(scratch));
+    Pop(xzr, scratch);
+  }
 
   if (num_of_reg_args > kRegisterPassedArguments) {
     // Drop the register passed arguments.
@@ -1856,9 +1846,8 @@ void TurboAssembler::CallCFunction(Register function, int num_of_reg_args,
 
 void TurboAssembler::LoadFromConstantsTable(Register destination,
                                             int constant_index) {
-  DCHECK(isolate()->heap()->RootCanBeTreatedAsConstant(
-      Heap::kBuiltinsConstantsTableRootIndex));
-  LoadRoot(destination, Heap::kBuiltinsConstantsTableRootIndex);
+  DCHECK(RootsTable::IsImmortalImmovable(RootIndex::kBuiltinsConstantsTable));
+  LoadRoot(destination, RootIndex::kBuiltinsConstantsTable);
   Ldr(destination,
       FieldMemOperand(destination,
                       FixedArray::kHeaderSize + constant_index * kPointerSize));
@@ -1871,9 +1860,9 @@ void TurboAssembler::LoadRootRelative(Register destination, int32_t offset) {
 void TurboAssembler::LoadRootRegisterOffset(Register destination,
                                             intptr_t offset) {
   if (offset == 0) {
-    Move(destination, kRootRegister);
+    Mov(destination, kRootRegister);
   } else {
-    Add(destination, kRootRegister, Operand(offset));
+    Add(destination, kRootRegister, offset);
   }
 }
 
@@ -1896,7 +1885,7 @@ void TurboAssembler::JumpHelper(int64_t offset, RelocInfo::Mode rmode,
   } else {
     UseScratchRegisterScope temps(this);
     Register temp = temps.AcquireX();
-    uint64_t imm = reinterpret_cast<uint64_t>(pc_) + offset * kInstructionSize;
+    uint64_t imm = reinterpret_cast<uint64_t>(pc_) + offset * kInstrSize;
     Mov(temp, Immediate(imm, rmode));
     Br(temp);
   }
@@ -1916,8 +1905,8 @@ static int64_t CalculateTargetOffset(Address target, RelocInfo::Mode rmode,
   // address at this point, and needs to be encoded as-is.
   if (rmode != RelocInfo::WASM_CALL && rmode != RelocInfo::WASM_STUB_CALL) {
     offset -= reinterpret_cast<int64_t>(pc);
-    DCHECK_EQ(offset % kInstructionSize, 0);
-    offset = offset / static_cast<int>(kInstructionSize);
+    DCHECK_EQ(offset % kInstrSize, 0);
+    offset = offset / static_cast<int>(kInstrSize);
   }
   return offset;
 }
@@ -1931,36 +1920,26 @@ void TurboAssembler::Jump(Address target, RelocInfo::Mode rmode,
 void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
                           Condition cond) {
   DCHECK(RelocInfo::IsCodeTarget(rmode));
-  if (FLAG_embedded_builtins) {
-    if (root_array_available_ && options().isolate_independent_code &&
-        !Builtins::IsIsolateIndependentBuiltin(*code)) {
-      // Calls to embedded targets are initially generated as standard
-      // pc-relative calls below. When creating the embedded blob, call offsets
-      // are patched up to point directly to the off-heap instruction start.
-      // Note: It is safe to dereference {code} above since code generation
-      // for builtins and code stubs happens on the main thread.
+  DCHECK_IMPLIES(options().isolate_independent_code,
+                 Builtins::IsIsolateIndependentBuiltin(*code));
+
+  if (options().inline_offheap_trampolines) {
+    int builtin_index = Builtins::kNoBuiltinId;
+    if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
+        Builtins::IsIsolateIndependent(builtin_index)) {
+      // Inline the trampoline.
+      RecordCommentForOffHeapTrampoline(builtin_index);
+      CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
       UseScratchRegisterScope temps(this);
       Register scratch = temps.AcquireX();
-      IndirectLoadConstant(scratch, code);
-      Add(scratch, scratch, Operand(Code::kHeaderSize - kHeapObjectTag));
+      EmbeddedData d = EmbeddedData::FromBlob();
+      Address entry = d.InstructionStartOfBuiltin(builtin_index);
+      Ldr(scratch, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
       Jump(scratch, cond);
       return;
-    } else if (options().inline_offheap_trampolines) {
-      int builtin_index = Builtins::kNoBuiltinId;
-      if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
-          Builtins::IsIsolateIndependent(builtin_index)) {
-        // Inline the trampoline.
-        CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
-        UseScratchRegisterScope temps(this);
-        Register scratch = temps.AcquireX();
-        EmbeddedData d = EmbeddedData::FromBlob();
-        Address entry = d.InstructionStartOfBuiltin(builtin_index);
-        Mov(scratch, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
-        Jump(scratch, cond);
-        return;
-      }
     }
   }
+
   if (CanUseNearCallOrJump(rmode)) {
     JumpHelper(static_cast<int64_t>(AddCodeTarget(code)), rmode, cond);
   } else {
@@ -1970,26 +1949,11 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
 
 void TurboAssembler::Call(Register target) {
   BlockPoolsScope scope(this);
-#ifdef DEBUG
-  Label start_call;
-  Bind(&start_call);
-#endif
-
   Blr(target);
-
-#ifdef DEBUG
-  AssertSizeOfCodeGeneratedSince(&start_call, CallSize(target));
-#endif
 }
 
-// TurboAssembler::CallSize is sensitive to changes in this function, as it
-// requires to know how many instructions are used to branch to the target.
 void TurboAssembler::Call(Address target, RelocInfo::Mode rmode) {
   BlockPoolsScope scope(this);
-#ifdef DEBUG
-  Label start_call;
-  Bind(&start_call);
-#endif
 
   if (CanUseNearCallOrJump(rmode)) {
     int64_t offset = CalculateTargetOffset(target, rmode, pc_);
@@ -1998,67 +1962,144 @@ void TurboAssembler::Call(Address target, RelocInfo::Mode rmode) {
   } else {
     IndirectCall(target, rmode);
   }
-#ifdef DEBUG
-  AssertSizeOfCodeGeneratedSince(&start_call, CallSize(target, rmode));
-#endif
 }
 
 void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode) {
+  DCHECK_IMPLIES(options().isolate_independent_code,
+                 Builtins::IsIsolateIndependentBuiltin(*code));
   BlockPoolsScope scope(this);
-#ifdef DEBUG
-  Label start_call;
-  Bind(&start_call);
-#endif
 
-  if (FLAG_embedded_builtins) {
-    if (root_array_available_ && options().isolate_independent_code &&
-        !Builtins::IsIsolateIndependentBuiltin(*code)) {
-      // Calls to embedded targets are initially generated as standard
-      // pc-relative calls below. When creating the embedded blob, call offsets
-      // are patched up to point directly to the off-heap instruction start.
-      // Note: It is safe to dereference {code} above since code generation
-      // for builtins and code stubs happens on the main thread.
+  if (options().inline_offheap_trampolines) {
+    int builtin_index = Builtins::kNoBuiltinId;
+    if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
+        Builtins::IsIsolateIndependent(builtin_index)) {
+      // Inline the trampoline.
+      RecordCommentForOffHeapTrampoline(builtin_index);
+      CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
       UseScratchRegisterScope temps(this);
       Register scratch = temps.AcquireX();
-      IndirectLoadConstant(scratch, code);
-      Add(scratch, scratch, Operand(Code::kHeaderSize - kHeapObjectTag));
+      EmbeddedData d = EmbeddedData::FromBlob();
+      Address entry = d.InstructionStartOfBuiltin(builtin_index);
+      Ldr(scratch, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
       Call(scratch);
       return;
-    } else if (options().inline_offheap_trampolines) {
-      int builtin_index = Builtins::kNoBuiltinId;
-      if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
-          Builtins::IsIsolateIndependent(builtin_index)) {
-        // Inline the trampoline.
-        CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
-        UseScratchRegisterScope temps(this);
-        Register scratch = temps.AcquireX();
-        EmbeddedData d = EmbeddedData::FromBlob();
-        Address entry = d.InstructionStartOfBuiltin(builtin_index);
-        Mov(scratch, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
-        Call(scratch);
-        return;
-      }
     }
   }
+
   if (CanUseNearCallOrJump(rmode)) {
     near_call(AddCodeTarget(code), rmode);
   } else {
     IndirectCall(code.address(), rmode);
   }
-
-#ifdef DEBUG
-  // Check the size of the code generated.
-  AssertSizeOfCodeGeneratedSince(&start_call, CallSize(code, rmode));
-#endif
 }
 
 void TurboAssembler::Call(ExternalReference target) {
   UseScratchRegisterScope temps(this);
   Register temp = temps.AcquireX();
-  // Immediate is in charge of setting the relocation mode to
-  // EXTERNAL_REFERENCE.
-  Mov(temp, Immediate(target));
+  Mov(temp, target);
   Call(temp);
+}
+
+void TurboAssembler::CallBuiltinPointer(Register builtin_pointer) {
+  STATIC_ASSERT(kSystemPointerSize == 8);
+  STATIC_ASSERT(kSmiShiftSize == 31);
+  STATIC_ASSERT(kSmiTagSize == 1);
+  STATIC_ASSERT(kSmiTag == 0);
+
+  // The builtin_pointer register contains the builtin index as a Smi.
+  // Untagging is folded into the indexing operand below.
+  Asr(builtin_pointer, builtin_pointer, kSmiShift - kSystemPointerSizeLog2);
+  Add(builtin_pointer, builtin_pointer,
+      IsolateData::builtin_entry_table_offset());
+  Ldr(builtin_pointer, MemOperand(kRootRegister, builtin_pointer));
+  Call(builtin_pointer);
+}
+
+void TurboAssembler::LoadCodeObjectEntry(Register destination,
+                                         Register code_object) {
+  // Code objects are called differently depending on whether we are generating
+  // builtin code (which will later be embedded into the binary) or compiling
+  // user JS code at runtime.
+  // * Builtin code runs in --jitless mode and thus must not call into on-heap
+  //   Code targets. Instead, we dispatch through the builtins entry table.
+  // * Codegen at runtime does not have this restriction and we can use the
+  //   shorter, branchless instruction sequence. The assumption here is that
+  //   targets are usually generated code and not builtin Code objects.
+
+  if (options().isolate_independent_code) {
+    DCHECK(root_array_available());
+    Label if_code_is_builtin, out;
+
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.AcquireX();
+
+    DCHECK(!AreAliased(destination, scratch));
+    DCHECK(!AreAliased(code_object, scratch));
+
+    // Check whether the Code object is a builtin. If so, call its (off-heap)
+    // entry point directly without going through the (on-heap) trampoline.
+    // Otherwise, just call the Code object as always.
+
+    Ldrsw(scratch, FieldMemOperand(code_object, Code::kBuiltinIndexOffset));
+    Cmp(scratch, Operand(Builtins::kNoBuiltinId));
+    B(ne, &if_code_is_builtin);
+
+    // A non-builtin Code object, the entry point is at
+    // Code::raw_instruction_start().
+    Add(destination, code_object, Code::kHeaderSize - kHeapObjectTag);
+    B(&out);
+
+    // A builtin Code object, the entry point is loaded from the builtin entry
+    // table.
+    // The builtin index is loaded in scratch.
+    bind(&if_code_is_builtin);
+    Lsl(destination, scratch, kSystemPointerSizeLog2);
+    Add(destination, destination, kRootRegister);
+    Ldr(destination,
+        MemOperand(destination, IsolateData::builtin_entry_table_offset()));
+
+    bind(&out);
+  } else {
+    Add(destination, code_object, Code::kHeaderSize - kHeapObjectTag);
+  }
+}
+
+void TurboAssembler::CallCodeObject(Register code_object) {
+  LoadCodeObjectEntry(code_object, code_object);
+  Call(code_object);
+}
+
+void TurboAssembler::JumpCodeObject(Register code_object) {
+  LoadCodeObjectEntry(code_object, code_object);
+  Jump(code_object);
+}
+
+void TurboAssembler::StoreReturnAddressAndCall(Register target) {
+  // This generates the final instruction sequence for calls to C functions
+  // once an exit frame has been constructed.
+  //
+  // Note that this assumes the caller code (i.e. the Code object currently
+  // being generated) is immovable or that the callee function cannot trigger
+  // GC, since the callee function will return to it.
+
+  UseScratchRegisterScope temps(this);
+  Register scratch1 = temps.AcquireX();
+
+  Label return_location;
+  Adr(scratch1, &return_location);
+  Poke(scratch1, 0);
+
+  if (emit_debug_code()) {
+    // Verify that the slot below fp[kSPOffset]-8 points to the return location.
+    Register scratch2 = temps.AcquireX();
+    Ldr(scratch2, MemOperand(fp, ExitFrameConstants::kSPOffset));
+    Ldr(scratch2, MemOperand(scratch2, -static_cast<int64_t>(kXRegSize)));
+    Cmp(scratch2, scratch1);
+    Check(eq, AbortReason::kReturnAddressNotFoundInFrame);
+  }
+
+  Blr(target);
+  Bind(&return_location);
 }
 
 void TurboAssembler::IndirectCall(Address target, RelocInfo::Mode rmode) {
@@ -2072,48 +2113,24 @@ bool TurboAssembler::IsNearCallOffset(int64_t offset) {
   return is_int26(offset);
 }
 
-void TurboAssembler::CallForDeoptimization(Address target, int deopt_id,
-                                           RelocInfo::Mode rmode) {
-  DCHECK_EQ(rmode, RelocInfo::RUNTIME_ENTRY);
-
+void TurboAssembler::CallForDeoptimization(Address target, int deopt_id) {
   BlockPoolsScope scope(this);
+  NoRootArrayScope no_root_array(this);
+
 #ifdef DEBUG
-  Label start_call;
-  Bind(&start_call);
+  Label start;
+  Bind(&start);
 #endif
-  // The deoptimizer requires the deoptimization id to be in x16.
-  UseScratchRegisterScope temps(this);
-  Register temp = temps.AcquireX();
-  DCHECK(temp.Is(x16));
   // Make sure that the deopt id can be encoded in 16 bits, so can be encoded
   // in a single movz instruction with a zero shift.
   DCHECK(is_uint16(deopt_id));
-  movz(temp, deopt_id);
+  movz(x26, deopt_id);
   int64_t offset = static_cast<int64_t>(target) -
                    static_cast<int64_t>(options().code_range_start);
-  DCHECK_EQ(offset % kInstructionSize, 0);
-  offset = offset / static_cast<int>(kInstructionSize);
+  DCHECK_EQ(offset % kInstrSize, 0);
+  offset = offset / static_cast<int>(kInstrSize);
   DCHECK(IsNearCallOffset(offset));
   near_call(static_cast<int>(offset), RelocInfo::RUNTIME_ENTRY);
-
-#ifdef DEBUG
-  AssertSizeOfCodeGeneratedSince(&start_call, kNearCallSize + kInstructionSize);
-#endif
-}
-
-int TurboAssembler::CallSize(Register target) {
-  USE(target);
-  return kInstructionSize;
-}
-
-int TurboAssembler::CallSize(Address target, RelocInfo::Mode rmode) {
-  USE(target);
-  return CanUseNearCallOrJump(rmode) ? kNearCallSize : kFarCallSize;
-}
-
-int TurboAssembler::CallSize(Handle<Code> code, RelocInfo::Mode rmode) {
-  USE(code);
-  return CanUseNearCallOrJump(rmode) ? kNearCallSize : kFarCallSize;
 }
 
 void MacroAssembler::TryRepresentDoubleAsInt(Register as_int, VRegister value,
@@ -2320,7 +2337,7 @@ void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
 
   // Clear the new.target register if not given.
   if (!new_target.is_valid()) {
-    LoadRoot(x3, Heap::kUndefinedValueRootIndex);
+    LoadRoot(x3, RootIndex::kUndefinedValue);
   }
 
   Label done;
@@ -2336,12 +2353,11 @@ void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
     // call sites.
     Register code = kJavaScriptCallCodeStartRegister;
     Ldr(code, FieldMemOperand(function, JSFunction::kCodeOffset));
-    Add(code, code, Operand(Code::kHeaderSize - kHeapObjectTag));
     if (flag == CALL_FUNCTION) {
-      Call(code);
+      CallCodeObject(code);
     } else {
       DCHECK(flag == JUMP_FUNCTION);
-      Jump(code);
+      JumpCodeObject(code);
     }
   }
 
@@ -2536,7 +2552,7 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, const Register& scratch,
   Mov(fp, sp);
   Mov(scratch, StackFrame::TypeToMarker(frame_type));
   Push(scratch, xzr);
-  Move(scratch, CodeObject());
+  Mov(scratch, CodeObject());
   Push(scratch, padreg);
   //          fp[8]: CallerPC (lr)
   //    fp -> fp[0]: CallerFP (old fp)
@@ -2622,9 +2638,14 @@ void MacroAssembler::LeaveExitFrame(bool restore_doubles,
   Pop(fp, lr);
 }
 
+void MacroAssembler::LoadGlobalProxy(Register dst) {
+  LoadNativeContextSlot(Context::GLOBAL_PROXY_INDEX, dst);
+}
+
 void MacroAssembler::LoadWeakValue(Register out, Register in,
                                    Label* target_if_cleared) {
-  CompareAndBranch(in, Operand(kClearedWeakHeapObject), eq, target_if_cleared);
+  CompareAndBranch(in.W(), Operand(kClearedWeakHeapObjectLower32), eq,
+                   target_if_cleared);
 
   and_(out, in, Operand(~kWeakHeapObjectMask));
 }
@@ -2692,8 +2713,7 @@ void MacroAssembler::LoadElementsKindFromMap(Register result, Register map) {
   DecodeField<Map::ElementsKindBits>(result);
 }
 
-void MacroAssembler::CompareRoot(const Register& obj,
-                                 Heap::RootListIndex index) {
+void MacroAssembler::CompareRoot(const Register& obj, RootIndex index) {
   UseScratchRegisterScope temps(this);
   Register temp = temps.AcquireX();
   DCHECK(!AreAliased(obj, temp));
@@ -2701,17 +2721,13 @@ void MacroAssembler::CompareRoot(const Register& obj,
   Cmp(obj, temp);
 }
 
-
-void MacroAssembler::JumpIfRoot(const Register& obj,
-                                Heap::RootListIndex index,
+void MacroAssembler::JumpIfRoot(const Register& obj, RootIndex index,
                                 Label* if_equal) {
   CompareRoot(obj, index);
   B(eq, if_equal);
 }
 
-
-void MacroAssembler::JumpIfNotRoot(const Register& obj,
-                                   Heap::RootListIndex index,
+void MacroAssembler::JumpIfNotRoot(const Register& obj, RootIndex index,
                                    Label* if_not_equal) {
   CompareRoot(obj, index);
   B(ne, if_not_equal);
@@ -2756,10 +2772,6 @@ void MacroAssembler::TestAndSplit(const Register& reg,
     TestAndBranchIfAnySet(reg, bit_pattern, if_any_set);
     B(if_all_clear);
   }
-}
-
-bool TurboAssembler::AllowThisStubCall(CodeStub* stub) {
-  return has_frame() || !stub->SometimesSetsUpAFrame();
 }
 
 void MacroAssembler::PopSafepointRegisters() {
@@ -2810,7 +2822,7 @@ int MacroAssembler::SafepointRegisterStackIndex(int reg_code) {
 void MacroAssembler::CheckPageFlag(const Register& object,
                                    const Register& scratch, int mask,
                                    Condition cc, Label* condition_met) {
-  And(scratch, object, ~Page::kPageAlignmentMask);
+  And(scratch, object, ~kPageAlignmentMask);
   Ldr(scratch, MemOperand(scratch, MemoryChunk::kFlagsOffset));
   if (cc == eq) {
     TestAndBranchIfAnySet(scratch, mask, condition_met);
@@ -2822,7 +2834,7 @@ void MacroAssembler::CheckPageFlag(const Register& object,
 void TurboAssembler::CheckPageFlagSet(const Register& object,
                                       const Register& scratch, int mask,
                                       Label* if_any_set) {
-  And(scratch, object, ~Page::kPageAlignmentMask);
+  And(scratch, object, ~kPageAlignmentMask);
   Ldr(scratch, MemOperand(scratch, MemoryChunk::kFlagsOffset));
   TestAndBranchIfAnySet(scratch, mask, if_any_set);
 }
@@ -2830,7 +2842,7 @@ void TurboAssembler::CheckPageFlagSet(const Register& object,
 void TurboAssembler::CheckPageFlagClear(const Register& object,
                                         const Register& scratch, int mask,
                                         Label* if_all_clear) {
-  And(scratch, object, ~Page::kPageAlignmentMask);
+  And(scratch, object, ~kPageAlignmentMask);
   Ldr(scratch, MemOperand(scratch, MemoryChunk::kFlagsOffset));
   TestAndBranchIfAllClear(scratch, mask, if_all_clear);
 }
@@ -2903,36 +2915,55 @@ void TurboAssembler::RestoreRegisters(RegList registers) {
 void TurboAssembler::CallRecordWriteStub(
     Register object, Register address,
     RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode) {
+  CallRecordWriteStub(
+      object, address, remembered_set_action, fp_mode,
+      isolate()->builtins()->builtin_handle(Builtins::kRecordWrite),
+      kNullAddress);
+}
+
+void TurboAssembler::CallRecordWriteStub(
+    Register object, Register address,
+    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
+    Address wasm_target) {
+  CallRecordWriteStub(object, address, remembered_set_action, fp_mode,
+                      Handle<Code>::null(), wasm_target);
+}
+
+void TurboAssembler::CallRecordWriteStub(
+    Register object, Register address,
+    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
+    Handle<Code> code_target, Address wasm_target) {
+  DCHECK_NE(code_target.is_null(), wasm_target == kNullAddress);
   // TODO(albertnetymk): For now we ignore remembered_set_action and fp_mode,
   // i.e. always emit remember set and save FP registers in RecordWriteStub. If
   // large performance regression is observed, we should use these values to
   // avoid unnecessary work.
 
-  Callable const callable =
-      Builtins::CallableFor(isolate(), Builtins::kRecordWrite);
-  RegList registers = callable.descriptor().allocatable_registers();
+  RecordWriteDescriptor descriptor;
+  RegList registers = descriptor.allocatable_registers();
 
   SaveRegisters(registers);
 
-  Register object_parameter(callable.descriptor().GetRegisterParameter(
-      RecordWriteDescriptor::kObject));
+  Register object_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kObject));
   Register slot_parameter(
-      callable.descriptor().GetRegisterParameter(RecordWriteDescriptor::kSlot));
-  Register isolate_parameter(callable.descriptor().GetRegisterParameter(
-      RecordWriteDescriptor::kIsolate));
-  Register remembered_set_parameter(callable.descriptor().GetRegisterParameter(
-      RecordWriteDescriptor::kRememberedSet));
-  Register fp_mode_parameter(callable.descriptor().GetRegisterParameter(
-      RecordWriteDescriptor::kFPMode));
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kSlot));
+  Register remembered_set_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kRememberedSet));
+  Register fp_mode_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kFPMode));
 
   Push(object, address);
 
   Pop(slot_parameter, object_parameter);
 
-  Mov(isolate_parameter, ExternalReference::isolate_address(isolate()));
-  Move(remembered_set_parameter, Smi::FromEnum(remembered_set_action));
-  Move(fp_mode_parameter, Smi::FromEnum(fp_mode));
-  Call(callable.code(), RelocInfo::CODE_TARGET);
+  Mov(remembered_set_parameter, Smi::FromEnum(remembered_set_action));
+  Mov(fp_mode_parameter, Smi::FromEnum(fp_mode));
+  if (code_target.is_null()) {
+    Call(wasm_target, RelocInfo::WASM_STUB_CALL);
+  } else {
+    Call(code_target, RelocInfo::CODE_TARGET);
+  }
 
   RestoreRegisters(registers);
 }
@@ -3010,8 +3041,7 @@ void TurboAssembler::AssertUnreachable(AbortReason reason) {
   if (emit_debug_code()) Abort(reason);
 }
 
-void MacroAssembler::AssertRegisterIsRoot(Register reg,
-                                          Heap::RootListIndex index,
+void MacroAssembler::AssertRegisterIsRoot(Register reg, RootIndex index,
                                           AbortReason reason) {
   if (emit_debug_code()) {
     CompareRoot(reg, index);
@@ -3044,38 +3074,26 @@ void TurboAssembler::Abort(AbortReason reason) {
   RegList old_tmp_list = TmpList()->list();
   TmpList()->Combine(MacroAssembler::DefaultTmpList());
 
-  if (use_real_aborts()) {
-    // Avoid infinite recursion; Push contains some assertions that use Abort.
-    NoUseRealAbortsScope no_real_aborts(this);
+  if (should_abort_hard()) {
+    // We don't care if we constructed a frame. Just pretend we did.
+    FrameScope assume_frame(this, StackFrame::NONE);
+    Mov(w0, static_cast<int>(reason));
+    Call(ExternalReference::abort_with_reason());
+    return;
+  }
 
-    Move(x1, Smi::FromInt(static_cast<int>(reason)));
+  // Avoid infinite recursion; Push contains some assertions that use Abort.
+  HardAbortScope hard_aborts(this);
 
-    if (!has_frame_) {
-      // We don't actually want to generate a pile of code for this, so just
-      // claim there is a stack frame, without generating one.
-      FrameScope scope(this, StackFrame::NONE);
-      Call(BUILTIN_CODE(isolate(), Abort), RelocInfo::CODE_TARGET);
-    } else {
-      Call(BUILTIN_CODE(isolate(), Abort), RelocInfo::CODE_TARGET);
-    }
+  Mov(x1, Smi::FromInt(static_cast<int>(reason)));
+
+  if (!has_frame_) {
+    // We don't actually want to generate a pile of code for this, so just
+    // claim there is a stack frame, without generating one.
+    FrameScope scope(this, StackFrame::NONE);
+    Call(BUILTIN_CODE(isolate(), Abort), RelocInfo::CODE_TARGET);
   } else {
-    // Load the string to pass to Printf.
-    Label msg_address;
-    Adr(x0, &msg_address);
-
-    // Call Printf directly to report the error.
-    CallPrintf();
-
-    // We need a way to stop execution on both the simulator and real hardware,
-    // and Unreachable() is the best option.
-    Unreachable();
-
-    // Emit the message string directly in the instruction stream.
-    {
-      BlockPoolsScope scope(this);
-      Bind(&msg_address);
-      EmitStringData(GetAbortReason(reason));
-    }
+    Call(BUILTIN_CODE(isolate(), Abort), RelocInfo::CODE_TARGET);
   }
 
   TmpList()->set_list(old_tmp_list);
@@ -3216,7 +3234,8 @@ void TurboAssembler::CallPrintf(int arg_count, const CPURegister* args) {
 // printf function will use a different instruction set and the procedure-call
 // standard will not be compatible.
 #ifdef USE_SIMULATOR
-  { InstructionAccurateScope scope(this, kPrintfLength / kInstructionSize);
+  {
+    InstructionAccurateScope scope(this, kPrintfLength / kInstrSize);
     hlt(kImmExceptionIsPrintf);
     dc32(arg_count);          // kPrintfArgCountOffset
 

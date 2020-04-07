@@ -68,7 +68,7 @@ InlineEditor.CSSShadowEditor = class extends UI.VBox {
    * @return {!Element}
    */
   _createSlider(field) {
-    const slider = UI.createSliderLabel(0, InlineEditor.CSSShadowEditor.maxRange, -1);
+    const slider = UI.createSlider(0, InlineEditor.CSSShadowEditor.maxRange, -1);
     slider.addEventListener('input', this._onSliderInput.bind(this), false);
     field.appendChild(slider);
     return slider;
@@ -86,8 +86,8 @@ InlineEditor.CSSShadowEditor = class extends UI.VBox {
    */
   setModel(model) {
     this._model = model;
-    this._typeField.hidden = !model.isBoxShadow();
-    this._spreadField.hidden = !model.isBoxShadow();
+    this._typeField.classList.toggle('hidden', !model.isBoxShadow());
+    this._spreadField.classList.toggle('hidden', !model.isBoxShadow());
     this._updateUI();
   }
 

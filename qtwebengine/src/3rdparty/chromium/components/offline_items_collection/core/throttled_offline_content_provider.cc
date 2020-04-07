@@ -38,8 +38,9 @@ ThrottledOfflineContentProvider::~ThrottledOfflineContentProvider() {
   wrapped_provider_->RemoveObserver(this);
 }
 
-void ThrottledOfflineContentProvider::OpenItem(const ContentId& id) {
-  wrapped_provider_->OpenItem(id);
+void ThrottledOfflineContentProvider::OpenItem(LaunchLocation location,
+                                               const ContentId& id) {
+  wrapped_provider_->OpenItem(location, id);
   FlushUpdates();
 }
 
@@ -96,8 +97,14 @@ void ThrottledOfflineContentProvider::OnGetItemByIdDone(
 
 void ThrottledOfflineContentProvider::GetVisualsForItem(
     const ContentId& id,
-    const VisualsCallback& callback) {
-  wrapped_provider_->GetVisualsForItem(id, callback);
+    VisualsCallback callback) {
+  wrapped_provider_->GetVisualsForItem(id, std::move(callback));
+}
+
+void ThrottledOfflineContentProvider::GetShareInfoForItem(
+    const ContentId& id,
+    ShareCallback callback) {
+  wrapped_provider_->GetShareInfoForItem(id, std::move(callback));
 }
 
 void ThrottledOfflineContentProvider::AddObserver(
@@ -143,14 +150,14 @@ void ThrottledOfflineContentProvider::OnItemUpdated(const OfflineItem& item) {
   update_queued_ = true;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&ThrottledOfflineContentProvider::FlushUpdates,
-                 weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&ThrottledOfflineContentProvider::FlushUpdates,
+                     weak_ptr_factory_.GetWeakPtr()),
       delay_between_updates_ - current_delay);
 }
 
 void ThrottledOfflineContentProvider::UpdateItemIfPresent(
     const OfflineItem& item) {
-  OfflineItemMap::iterator it = updates_.find(item.id);
+  auto it = updates_.find(item.id);
   if (it != updates_.end())
     it->second = item;
 }

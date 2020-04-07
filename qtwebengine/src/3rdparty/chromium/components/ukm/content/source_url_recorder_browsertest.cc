@@ -6,9 +6,9 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "components/ukm/test_ukm_recorder.h"
-#include "components/ukm/ukm_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -17,6 +17,7 @@
 #include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_source.h"
 
 class SourceUrlRecorderWebContentsObserverBrowserTest
     : public content::ContentBrowserTest {
@@ -82,7 +83,13 @@ class SourceUrlRecorderWebContentsObserverDownloadBrowserTest
   base::ScopedTempDir downloads_directory_;
 };
 
-IN_PROC_BROWSER_TEST_F(SourceUrlRecorderWebContentsObserverBrowserTest, Basic) {
+#if defined(OS_WIN)
+#define MAYBE_Basic DISABLED_Basic
+#else
+#define MAYBE_Basic Basic
+#endif
+IN_PROC_BROWSER_TEST_F(SourceUrlRecorderWebContentsObserverBrowserTest,
+                       MAYBE_Basic) {
   using Entry = ukm::builders::DocumentCreated;
 
   GURL url = embedded_test_server()->GetURL("/title1.html");
@@ -93,7 +100,7 @@ IN_PROC_BROWSER_TEST_F(SourceUrlRecorderWebContentsObserverBrowserTest, Basic) {
       GetSourceForNavigationId(observer.navigation_id());
   EXPECT_NE(nullptr, source);
   EXPECT_EQ(url, source->url());
-  EXPECT_TRUE(source->initial_url().is_empty());
+  EXPECT_EQ(1u, source->urls().size());
 
   EXPECT_EQ(url, GetAssociatedURLForWebContentsDocument());
 
@@ -107,8 +114,13 @@ IN_PROC_BROWSER_TEST_F(SourceUrlRecorderWebContentsObserverBrowserTest, Basic) {
   EXPECT_NE(source->id(), ukm_entries[0]->source_id);
 }
 
+#if defined(OS_WIN)
+#define MAYBE_IgnoreUrlInSubframe DISABLED_IgnoreUrlInSubframe
+#else
+#define MAYBE_IgnoreUrlInSubframe IgnoreUrlInSubframe
+#endif
 IN_PROC_BROWSER_TEST_F(SourceUrlRecorderWebContentsObserverBrowserTest,
-                       IgnoreUrlInSubframe) {
+                       MAYBE_IgnoreUrlInSubframe) {
   using Entry = ukm::builders::DocumentCreated;
 
   GURL main_url = embedded_test_server()->GetURL("/page_with_iframe.html");

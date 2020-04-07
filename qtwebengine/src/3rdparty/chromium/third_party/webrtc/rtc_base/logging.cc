@@ -20,28 +20,29 @@
 #include <CoreServices/CoreServices.h>
 #elif defined(WEBRTC_ANDROID)
 #include <android/log.h>
+
 // Android has a 1024 limit on log inputs. We use 60 chars as an
 // approx for the header/tag portion.
 // See android/system/core/liblog/logd_write.c
 static const int kMaxLogLineSize = 1024 - 60;
 #endif  // WEBRTC_MAC && !defined(WEBRTC_IOS) || WEBRTC_ANDROID
 
-#include <limits.h>
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
-
 #include <algorithm>
 #include <cstdarg>
-#include <iomanip>
-#include <ostream>
 #include <vector>
 
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/platform_thread_types.h"
-#include "rtc_base/stringencode.h"
+#include "rtc_base/string_encode.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/strings/string_builder.h"
-#include "rtc_base/stringutils.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/thread_annotations.h"
+#include "rtc_base/time_utils.h"
 
 namespace rtc {
 namespace {
@@ -64,16 +65,6 @@ const char* FilenameFromPath(const char* file) {
     return (end1 > end2) ? end1 + 1 : end2 + 1;
 }
 
-std::ostream& GetNoopStream() {
-  class NoopStreamBuf : public std::streambuf {
-   public:
-    int overflow(int c) override { return c; }
-  };
-  static NoopStreamBuf noop_buffer;
-  static std::ostream noop_stream(&noop_buffer);
-  return noop_stream;
-}
-
 // Global lock for log subsystem, only needed to serialize access to streams_.
 CriticalSection g_log_crit;
 }  // namespace
@@ -82,7 +73,12 @@ CriticalSection g_log_crit;
 void LogSink::OnLogMessage(const std::string& msg,
                            LoggingSeverity severity,
                            const char* tag) {
-  OnLogMessage(tag + (": " + msg));
+  OnLogMessage(tag + (": " + msg), severity);
+}
+
+void LogSink::OnLogMessage(const std::string& msg,
+                           LoggingSeverity /* severity */) {
+  OnLogMessage(msg);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -108,11 +104,7 @@ LogMessage::LogMessage(const char* file,
                        LoggingSeverity sev,
                        LogErrorContext err_ctx,
                        int err)
-    : severity_(sev), is_noop_(IsNoop(sev)) {
-  // If there's no need to do any work, let's not :)
-  if (is_noop_)
-    return;
-
+    : severity_(sev) {
   if (timestamp_) {
     // Use SystemTimeMillis so that even if tests use fake clocks, the timestamp
     // in log messages represents the real system time.
@@ -120,14 +112,14 @@ LogMessage::LogMessage(const char* file,
     // Also ensure WallClockStartTime is initialized, so that it matches
     // LogStartTime.
     WallClockStartTime();
-    print_stream_ << "[" << std::setfill('0') << std::setw(3) << (time / 1000)
-                  << ":" << std::setw(3) << (time % 1000) << std::setfill(' ')
+    print_stream_ << "[" << rtc::LeftPad('0', 3, rtc::ToString(time / 1000))
+                  << ":" << rtc::LeftPad('0', 3, rtc::ToString(time % 1000))
                   << "] ";
   }
 
   if (thread_) {
     PlatformThreadId id = CurrentThreadId();
-    print_stream_ << "[" << std::dec << id << "] ";
+    print_stream_ << "[" << id << "] ";
   }
 
   if (file != nullptr) {
@@ -184,10 +176,8 @@ LogMessage::LogMessage(const char* file,
                        LoggingSeverity sev,
                        const char* tag)
     : LogMessage(file, line, sev, ERRCTX_NONE, 0 /* err */) {
-  if (!is_noop_) {
-    tag_ = tag;
-    print_stream_ << tag << ": ";
-  }
+  tag_ = tag;
+  print_stream_ << tag << ": ";
 }
 #endif
 
@@ -199,21 +189,13 @@ LogMessage::LogMessage(const char* file,
                        LoggingSeverity sev,
                        const std::string& tag)
     : LogMessage(file, line, sev) {
-  if (!is_noop_)
-    print_stream_ << tag << ": ";
+  print_stream_ << tag << ": ";
 }
 
 LogMessage::~LogMessage() {
-  if (is_noop_)
-    return;
-
   FinishPrintStream();
 
-  // TODO(tommi): Unfortunately |ostringstream::str()| always returns a copy
-  // of the constructed string. This means that we always end up creating
-  // two copies here (one owned by the stream, one by the return value of
-  // |str()|). It would be nice to switch to something else.
-  const std::string str = print_stream_.str();
+  const std::string str = print_stream_.Release();
 
   if (severity_ >= g_dbg_sev) {
 #if defined(WEBRTC_ANDROID)
@@ -229,7 +211,7 @@ LogMessage::~LogMessage() {
 #if defined(WEBRTC_ANDROID)
       kv.first->OnLogMessage(str, severity_, tag_);
 #else
-      kv.first->OnLogMessage(str);
+      kv.first->OnLogMessage(str, severity_);
 #endif
     }
   }
@@ -237,18 +219,12 @@ LogMessage::~LogMessage() {
 
 void LogMessage::AddTag(const char* tag) {
 #ifdef WEBRTC_ANDROID
-  if (!is_noop_) {
-    tag_ = tag;
-  }
+  tag_ = tag;
 #endif
 }
 
-std::ostream& LogMessage::stream() {
-  return is_noop_ ? GetNoopStream() : print_stream_;
-}
-
-bool LogMessage::Loggable(LoggingSeverity sev) {
-  return sev >= g_min_sev;
+rtc::StringBuilder& LogMessage::stream() {
+  return print_stream_;
 }
 
 int LogMessage::GetMinLogSeverity() {
@@ -332,8 +308,6 @@ void LogMessage::ConfigureLogging(const char* params) {
       LogThreads();
 
       // Logging levels
-    } else if (token == "sensitive") {
-      current_level = LS_SENSITIVE;
     } else if (token == "verbose") {
       current_level = LS_VERBOSE;
     } else if (token == "info") {
@@ -351,7 +325,7 @@ void LogMessage::ConfigureLogging(const char* params) {
     }
   }
 
-#if defined(WEBRTC_WIN)
+#if defined(WEBRTC_WIN) && !defined(WINUWP)
   if ((LS_NONE != debug_level) && !::IsDebuggerPresent()) {
     // First, attempt to attach to our parent's console... so if you invoke
     // from the command line, we'll see the output there.  Otherwise, create
@@ -360,7 +334,7 @@ void LogMessage::ConfigureLogging(const char* params) {
     if (!AttachConsole(ATTACH_PARENT_PROCESS))
       ::AllocConsole();
   }
-#endif  // WEBRTC_WIN
+#endif  // defined(WEBRTC_WIN) && !defined(WINUWP)
 
   LogToDebug(debug_level);
 }
@@ -426,13 +400,6 @@ void LogMessage::OutputToDebug(const std::string& str,
   // from the shell.
   int prio;
   switch (severity) {
-    case LS_SENSITIVE:
-      __android_log_write(ANDROID_LOG_INFO, tag, "SENSITIVE");
-      if (log_to_stderr) {
-        fprintf(stderr, "SENSITIVE");
-        fflush(stderr);
-      }
-      return;
     case LS_VERBOSE:
       prio = ANDROID_LOG_VERBOSE;
       break;
@@ -476,22 +443,23 @@ void LogMessage::OutputToDebug(const std::string& str,
 
 // static
 bool LogMessage::IsNoop(LoggingSeverity severity) {
-  if (severity >= g_dbg_sev)
+  if (severity >= g_dbg_sev || severity >= g_min_sev)
     return false;
 
   // TODO(tommi): We're grabbing this lock for every LogMessage instance that
   // is going to be logged. This introduces unnecessary synchronization for
   // a feature that's mostly used for testing.
   CritScope cs(&g_log_crit);
-  return streams_.size() == 0;
+  if (streams_.size() > 0)
+    return false;
+
+  return true;
 }
 
 void LogMessage::FinishPrintStream() {
-  if (is_noop_)
-    return;
   if (!extra_.empty())
     print_stream_ << " : " << extra_;
-  print_stream_ << std::endl;
+  print_stream_ << "\n";
 }
 
 namespace webrtc_logging_impl {
@@ -525,6 +493,12 @@ void Log(const LogArgType* fmt, ...) {
       return;
     }
   }
+
+  if (LogMessage::IsNoop(meta.meta.Severity())) {
+    va_end(args);
+    return;
+  }
+
   LogMessage log_message(meta.meta.File(), meta.meta.Line(),
                          meta.meta.Severity(), meta.err_ctx, meta.err);
   if (tag) {
@@ -563,8 +537,12 @@ void Log(const LogArgType* fmt, ...) {
       case LogArgType::kStdString:
         log_message.stream() << *va_arg(args, const std::string*);
         break;
+      case LogArgType::kStringView:
+        log_message.stream() << *va_arg(args, const absl::string_view*);
+        break;
       case LogArgType::kVoidP:
-        log_message.stream() << va_arg(args, const void*);
+        log_message.stream() << rtc::ToHex(
+            reinterpret_cast<uintptr_t>(va_arg(args, const void*)));
         break;
       default:
         RTC_NOTREACHED();

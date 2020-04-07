@@ -9,7 +9,8 @@
 namespace fileManagerPrivate {
 // Type of the mounted volume.
 enum VolumeType { drive, downloads, removable, archive, provided, mtp,
-                  media_view, crostini, android_files, testing };
+                  media_view, crostini, android_files, documents_provider,
+                  testing };
 
 // Device type. Available if this is removable volume.
 enum DeviceType { usb, sd, optical, mobile, unknown };
@@ -43,9 +44,7 @@ enum MountCompletedStatus {
   error_invalid_device_path,
   error_unknown_filesystem,
   error_unsupported_filesystem,
-  error_invalid_archive,
-  error_authentication,
-  error_path_unmounted
+  error_invalid_archive
 };
 
 // File transfer progress state.
@@ -186,7 +185,10 @@ enum EntryPropertyName {
   canDelete,
   canRename,
   canAddChildren,
-  canShare
+  canShare,
+  isMachineRoot,
+  isExternalMedia,
+  isArbitrarySyncFolder
 };
 
 // Entry property visibility for setEntryTag();
@@ -223,6 +225,8 @@ enum SourceRestriction {
   // Allows native source and Drive source.
   native_or_drive_source
 };
+
+enum CrostiniSharedPathsChangedEventType { share, unshare };
 
 // A file task represents an action that the file manager can perform over the
 // currently selected files. See
@@ -337,6 +341,16 @@ dictionary EntryProperties {
 
   // True if the entry can be shared by the user.
   boolean? canShare;
+
+  // True if the entry is a machine root for backup and sync.
+  boolean? isMachineRoot;
+
+  // True if the entry is a external media folder, that contains one time only
+  // uploads for USB devices, SD cards etc.
+  boolean? isExternalMedia;
+
+  // True if the entry is an arbitrary sync folder.
+  boolean? isArbitrarySyncFolder;
 };
 
 // Information about total and remaining size on the mount point.
@@ -434,6 +448,10 @@ dictionary VolumeMetadata {
 
   // Icons for the volume.
   IconSet iconSet;
+
+  // Drive label of the volume. Removable partitions that belong to the
+  // same physical removable device share the same drive label.
+  DOMString? driveLabel;
 };
 
 // Payload data for mount event.
@@ -538,7 +556,6 @@ dictionary FileWatchEvent {
 dictionary Preferences {
   boolean driveEnabled;
   boolean cellularDisabled;
-  boolean hostedFilesDisabled;
   boolean searchSuggestEnabled;
   boolean use24hourClock;
   boolean allowRedeemOffers;
@@ -547,7 +564,6 @@ dictionary Preferences {
 
 dictionary PreferencesChange {
   boolean? cellularDisabled;
-  boolean? hostedFilesDisabled;
 };
 
 dictionary SearchParams {
@@ -629,6 +645,26 @@ dictionary Provider {
 
   // Source of file systems' data.
   manifestTypes.FileSystemProviderSource source;
+};
+
+// Information about a Linux package in response to GetLinuxPackageInfo.
+dictionary LinuxPackageInfo {
+  DOMString name;
+  DOMString version;
+
+  // A one-line summary of the project. Almost always present.
+  DOMString? summary;
+  // A longer description of the project. Almost always present.
+  DOMString? description;
+};
+
+// Payload data for crostini shared paths changed event.
+dictionary CrostiniSharedPathsChangedEvent {
+  // Is the event raised for shared or unshared.
+  CrostiniSharedPathsChangedEventType eventType;
+
+  // Paths that have been shared or unshared.
+  [instanceOf=Entry] object[] entries;
 };
 
 // Callback that does not take arguments.
@@ -738,10 +774,26 @@ callback GetDirectorySizeCallback = void(double size);
 // |entries| Recently modified entries.
 callback GetRecentFilesCallback = void([instanceOf=Entry] object[] entries);
 
+// |entries| Entries shared with crostini container.
+// |firstForSession| true the first time this is called for the session.
+callback GetCrostiniSharedPathsCallback =
+    void([instanceOf = Entry] object[] entries, boolean firstForSession);
+
+// |linux_package_info| Package info for the queried package.
+callback GetLinuxPackageInfoCallback =
+    void(LinuxPackageInfo linux_package_info);
+
 // |status| Result of starting the install
 // |failure_reason| Reason for failure for a 'failed' status
 callback InstallLinuxPackageCallback = void(
     InstallLinuxPackageResponse response, DOMString failure_reason);
+
+// |result| String representing the detected coding system.
+callback DetectCharacterEncodingCallback = void(DOMString result);
+
+// |thumbnailDataUrl| A data URL for the thumbnail as a PNG; |thumbnailDataUrl|
+// is empty if no thumbnail was available.
+callback GetThumbnailCallback = void(DOMString thumbnailDataUrl);
 
 interface Functions {
   // Logout the current user for navigating to the re-authentication screen for
@@ -912,10 +964,6 @@ interface Functions {
   static void cancelFileTransfers([instanceof=Entry] object[] entries,
                                   SimpleCallback callback);
 
-  // Cancels all ongoing file transfers.
-  // |callback| Completion callback of the cancel.
-  static void cancelAllFileTransfers(SimpleCallback callback);
-
   // Starts to copy an entry. If the source is a directory, the copy is done
   // recursively.
   // |entry| Entry of the source entry to be copied.
@@ -1016,13 +1064,6 @@ interface Functions {
   static void requestWebStoreAccessToken(
       RequestWebStoreAccessTokenCallback callback);
 
-  // Requests a share dialog url for the specified file.
-  // |entry| The entry to share.
-  // |callback|
-  [nocompile]
-  static void getShareUrl([instanceof=Entry] object entry,
-                          GetUrlCallback callback);
-
   // Requests a download url to download the file contents.
   // |entry| The entry to download.
   // |callback|
@@ -1115,12 +1156,53 @@ interface Functions {
 
   // Starts and mounts crostini container.
   // |callback|
-  static void mountCrostiniContainer(SimpleCallback callback);
+  static void mountCrostini(SimpleCallback callback);
+
+  // Shares paths with crostini container.
+  // |entries| Entries of the files or directories to share.
+  // |persist| If true, shares will persist across restarts.
+  // |callback|
+  [nocompile]
+  static void sharePathsWithCrostini(
+      [instanceof=Entry] object[] entries, boolean persist, SimpleCallback callback);
+
+  // Unshares path with crostini container.
+  // |entry| Entry of the file or directory to unshare.
+  // |callback|
+  [nocompile]
+  static void unsharePathWithCrostini(
+      [instanceof=Entry] object entry, SimpleCallback callback);
+
+  // Returns list of paths shared with crostini container.
+  [nocompile]
+  static void getCrostiniSharedPaths(GetCrostiniSharedPathsCallback callback);
+
+  // Requests information about a Linux package. |entry| is a .deb file.
+  [nocompile]
+  static void getLinuxPackageInfo([instanceof=Entry] object entry,
+                                  GetLinuxPackageInfoCallback callback);
 
   // Starts installation of a Linux package.
   [nocompile]
   static void installLinuxPackage([instanceof=Entry] object entry,
                                   InstallLinuxPackageCallback callback);
+
+  // For a file in DriveFS, retrieves its thumbnail. If |cropToSquare| is true,
+  // returns a thumbnail appropriate for file list or grid views; otherwise,
+  // returns a thumbnail appropriate for quickview.
+  [nocompile]
+  static void getThumbnail([instanceOf=FileEntry] object entry,
+                           boolean cropToSquare,
+                           GetThumbnailCallback callback);
+
+  // Returns a guessed character encoding of a hex-encoded string. Every 2
+  // characters of |bytes| represent one byte by 2-digit hexadecimal number.
+  // The result is preferred MIME name of the detected character encoding
+  // system. It is slightly different from IANA name.
+  // See third_party/ced/src/util/encodings/encodings.cc
+  // Returns an empty string if failed.
+  static DOMString detectCharacterEncoding(DOMString bytes,
+    DetectCharacterEncodingCallback callback);
 };
 
 interface Events {
@@ -1141,5 +1223,8 @@ interface Events {
   static void onDriveSyncError(DriveSyncErrorEvent event);
 
   static void onAppsUpdated();
+
+  static void onCrostiniSharedPathsChanged(
+      CrostiniSharedPathsChangedEvent event);
 };
 };

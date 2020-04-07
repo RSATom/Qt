@@ -64,18 +64,122 @@ std::pair<int, string_piece> DecodeLineDirective(string_piece directive) {
   directive = directive.strip("\" \n");
   return std::make_pair(line, directive);
 }
+
+// Returns the Glslang message rules for the given target environment,
+// source language, and whether we want HLSL offset rules.  We assume
+// only valid combinations are used.
+EShMessages GetMessageRules(shaderc_util::Compiler::TargetEnv env,
+                            shaderc_util::Compiler::SourceLanguage lang,
+                            bool hlsl_offsets,
+                            bool debug_info) {
+  using shaderc_util::Compiler;
+  EShMessages result = EShMsgCascadingErrors;
+  if (lang == Compiler::SourceLanguage::HLSL) {
+    result = static_cast<EShMessages>(result | EShMsgReadHlsl);
+  }
+  switch (env) {
+    case Compiler::TargetEnv::OpenGLCompat:
+      break;
+    case Compiler::TargetEnv::OpenGL:
+      result = static_cast<EShMessages>(result | EShMsgSpvRules);
+      break;
+    case Compiler::TargetEnv::Vulkan:
+      result =
+          static_cast<EShMessages>(result | EShMsgSpvRules | EShMsgVulkanRules);
+      break;
+  }
+  if (hlsl_offsets) {
+    result = static_cast<EShMessages>(result | EShMsgHlslOffsets);
+  }
+  if (debug_info) {
+    result = static_cast<EShMessages>(result | EShMsgDebugInfo);
+  }
+  return result;
+}
+
+// A GlslangClientInfo captures target client version and desired SPIR-V
+// version.
+struct GlslangClientInfo {
+  bool valid_client = false;
+  glslang::EShClient client = glslang::EShClientNone;
+  bool valid_client_version = false;
+  glslang::EShTargetClientVersion client_version;
+  glslang::EShTargetLanguage target_language = glslang::EShTargetSpv;
+  glslang::EShTargetLanguageVersion target_language_version =
+      glslang::EShTargetSpv_1_0;
+};
+
+// Returns the mappings to Glslang client, client version, and SPIR-V version.
+// Also indicates whether the input values were valid.
+GlslangClientInfo GetGlslangClientInfo(
+    shaderc_util::Compiler::TargetEnv env,
+    shaderc_util::Compiler::TargetEnvVersion version) {
+  GlslangClientInfo result;
+
+  using shaderc_util::Compiler;
+  switch (env) {
+    case Compiler::TargetEnv::Vulkan:
+      result.valid_client = true;
+      result.client = glslang::EShClientVulkan;
+      if (version == Compiler::TargetEnvVersion::Default ||
+          version == Compiler::TargetEnvVersion::Vulkan_1_0) {
+        result.client_version = glslang::EShTargetVulkan_1_0;
+        result.valid_client_version = true;
+      } else if (version == Compiler::TargetEnvVersion::Vulkan_1_1) {
+        result.client_version = glslang::EShTargetVulkan_1_1;
+        result.valid_client_version = true;
+        result.target_language_version = glslang::EShTargetSpv_1_3;
+      }
+      break;
+    case Compiler::TargetEnv::OpenGLCompat:  // TODO(dneto): remove this
+    case Compiler::TargetEnv::OpenGL:
+      result.valid_client = true;
+      result.client = glslang::EShClientOpenGL;
+      if (version == Compiler::TargetEnvVersion::Default ||
+          version == Compiler::TargetEnvVersion::OpenGL_4_5) {
+        result.client_version = glslang::EShTargetOpenGL_450;
+        result.valid_client_version = true;
+      }
+      break;
+  }
+  return result;
+}
+
 }  // anonymous namespace
 
 namespace shaderc_util {
+
+void Compiler::SetLimit(Compiler::Limit limit, int value) {
+  switch (limit) {
+#define RESOURCE(NAME, FIELD, CNAME) \
+  case Limit::NAME:                  \
+    limits_.FIELD = value;           \
+    break;
+#include "libshaderc_util/resources.inc"
+#undef RESOURCE
+  }
+}
+
+int Compiler::GetLimit(Compiler::Limit limit) const {
+  switch (limit) {
+#define RESOURCE(NAME, FIELD, CNAME) \
+  case Limit::NAME:                  \
+    return limits_.FIELD;
+#include "libshaderc_util/resources.inc"
+#undef RESOURCE
+  }
+  return 0;  // Unreachable
+}
+
 std::tuple<bool, std::vector<uint32_t>, size_t> Compiler::Compile(
     const string_piece& input_source_string, EShLanguage forced_shader_stage,
-    const std::string& error_tag,
+    const std::string& error_tag, const char* entry_point_name,
     const std::function<EShLanguage(std::ostream* error_stream,
                                     const string_piece& error_tag)>&
         stage_callback,
     CountingIncluder& includer, OutputType output_type,
     std::ostream* error_stream, size_t* total_warnings, size_t* total_errors,
-    GlslInitializer* initializer) const {
+    GlslangInitializer* initializer) const {
   // Compilation results to be returned:
   // Initialize the result tuple as a failed compilation. In error cases, we
   // should return result_tuple directly without setting its members.
@@ -87,7 +191,26 @@ std::tuple<bool, std::vector<uint32_t>, size_t> Compiler::Compile(
   std::vector<uint32_t>& compilation_output_data = std::get<1>(result_tuple);
   size_t& compilation_output_data_size_in_bytes = std::get<2>(result_tuple);
 
-  auto token = initializer->Acquire(GetMessageRules());
+  // Check target environment.
+  const auto target_client_info =
+      GetGlslangClientInfo(target_env_, target_env_version_);
+  if (!target_client_info.valid_client) {
+    *error_stream << "error:" << error_tag
+                  << ": Invalid target client environment " << int(target_env_);
+    *total_warnings = 0;
+    *total_errors = 1;
+    return result_tuple;
+  }
+  if (!target_client_info.valid_client_version) {
+    *error_stream << "error:" << error_tag << ": Invalid target client version "
+                  << static_cast<uint32_t>(target_env_version_)
+                  << " for environment " << int(target_env_);
+    *total_warnings = 0;
+    *total_errors = 1;
+    return result_tuple;
+  }
+
+  auto token = initializer->Acquire();
   EShLanguage used_shader_stage = forced_shader_stage;
   const std::string macro_definitions =
       shaderc_util::format(predefined_macros_, "#define ", " ", "\n");
@@ -156,12 +279,36 @@ std::tuple<bool, std::vector<uint32_t>, size_t> Compiler::Compile(
   shader.setStringsWithLengthsAndNames(&shader_strings, &shader_lengths,
                                        &string_names, 1);
   shader.setPreamble(preamble.c_str());
+  shader.setEntryPoint(entry_point_name);
+  shader.setAutoMapBindings(auto_bind_uniforms_);
+  shader.setAutoMapLocations(auto_map_locations_);
+  const auto& bases = auto_binding_base_[static_cast<int>(used_shader_stage)];
+  shader.setShiftImageBinding(bases[static_cast<int>(UniformKind::Image)]);
+  shader.setShiftSamplerBinding(bases[static_cast<int>(UniformKind::Sampler)]);
+  shader.setShiftTextureBinding(bases[static_cast<int>(UniformKind::Texture)]);
+  shader.setShiftUboBinding(bases[static_cast<int>(UniformKind::Buffer)]);
+  shader.setShiftSsboBinding(
+      bases[static_cast<int>(UniformKind::StorageBuffer)]);
+  shader.setShiftUavBinding(
+      bases[static_cast<int>(UniformKind::UnorderedAccessView)]);
+  shader.setHlslIoMapping(hlsl_iomap_);
+  shader.setResourceSetBinding(
+      hlsl_explicit_bindings_[static_cast<int>(used_shader_stage)]);
+  shader.setEnvClient(target_client_info.client,
+                      target_client_info.client_version);
+  shader.setEnvTarget(target_client_info.target_language,
+                      target_client_info.target_language_version);
+  if (hlsl_functionality1_enabled_) {
+    shader.setEnvTargetHlslFunctionality1();
+  }
 
-  // TODO(dneto): Generate source-level debug info if requested.
-  bool success =
-      shader.parse(&shaderc_util::kDefaultTBuiltInResource, default_version_,
-                   default_profile_, force_version_profile_,
-                   kNotForwardCompatible, message_rules_, includer);
+  const EShMessages rules = GetMessageRules(target_env_, source_language_,
+                                            hlsl_offsets_,
+                                            generate_debug_info_);
+
+  bool success = shader.parse(
+      &limits_, default_version_, default_profile_, force_version_profile_,
+      kNotForwardCompatible, rules, includer);
 
   success &= PrintFilteredErrors(error_tag, error_stream, warnings_as_errors_,
                                  suppress_warnings_, shader.getInfoLog(),
@@ -170,21 +317,57 @@ std::tuple<bool, std::vector<uint32_t>, size_t> Compiler::Compile(
 
   glslang::TProgram program;
   program.addShader(&shader);
-  success = program.link(EShMsgDefault);
+  success = program.link(EShMsgDefault) && program.mapIO();
   success &= PrintFilteredErrors(error_tag, error_stream, warnings_as_errors_,
                                  suppress_warnings_, program.getInfoLog(),
                                  total_warnings, total_errors);
   if (!success) return result_tuple;
 
   // 'spirv' is an alias for the compilation_output_data. This alias is added
-  // to
-  // serve as an input for the call to DissassemblyBinary.
+  // to serve as an input for the call to DissassemblyBinary.
   std::vector<uint32_t>& spirv = compilation_output_data;
+  glslang::SpvOptions options;
+  options.generateDebugInfo = generate_debug_info_;
+  options.disableOptimizer = true;
+  options.optimizeSize = false;
   // Note the call to GlslangToSpv also populates compilation_output_data.
-  glslang::GlslangToSpv(*program.getIntermediate(used_shader_stage), spirv);
+  glslang::GlslangToSpv(*program.getIntermediate(used_shader_stage), spirv,
+                        &options);
+
+  // Set the tool field (the top 16-bits) in the generator word to
+  // 'Shaderc over Glslang'.
+  const uint32_t shaderc_generator_word = 13;  // From SPIR-V XML Registry
+  const uint32_t generator_word_index = 2;     // SPIR-V 2.3: Physical layout
+  assert(spirv.size() > generator_word_index);
+  spirv[generator_word_index] =
+      (spirv[generator_word_index] & 0xffff) | (shaderc_generator_word << 16);
+
+  std::vector<PassId> opt_passes;
+
+  if (hlsl_legalization_enabled_ && source_language_ == SourceLanguage::HLSL) {
+    // If from HLSL, run this passes to "legalize" the SPIR-V for Vulkan
+    // eg. forward and remove memory writes of opaque types.
+    opt_passes.push_back(PassId::kLegalizationPasses);
+  }
+
+  opt_passes.insert(opt_passes.end(), enabled_opt_passes_.begin(),
+                    enabled_opt_passes_.end());
+
+  if (!opt_passes.empty()) {
+    std::string opt_errors;
+    if (!SpirvToolsOptimize(target_env_, target_env_version_, opt_passes,
+                            &spirv, &opt_errors)) {
+      *error_stream << "shaderc: internal error: compilation succeeded but "
+                       "failed to optimize: "
+                    << opt_errors << "\n";
+      return result_tuple;
+    }
+  }
+
   if (output_type == OutputType::SpirvAssemblyText) {
     std::string text_or_error;
-    if (!SpirvToolsDisassemble(spirv, &text_or_error)) {
+    if (!SpirvToolsDisassemble(target_env_, target_env_version_, spirv,
+                               &text_or_error)) {
       *error_stream << "shaderc: internal error: compilation succeeded but "
                        "failed to disassemble: "
                     << text_or_error << "\n";
@@ -209,9 +392,15 @@ void Compiler::AddMacroDefinition(const char* macro, size_t macro_length,
       definition ? std::string(definition, definition_length) : "";
 }
 
-void Compiler::SetMessageRules(EShMessages rules) { message_rules_ = rules; }
+void Compiler::SetTargetEnv(Compiler::TargetEnv env,
+                            Compiler::TargetEnvVersion version) {
+  target_env_ = env;
+  target_env_version_ = version;
+}
 
-EShMessages Compiler::GetMessageRules() const { return message_rules_; }
+void Compiler::SetSourceLanguage(Compiler::SourceLanguage lang) {
+  source_language_ = lang;
+}
 
 void Compiler::SetForcedVersionProfile(int version, EProfile profile) {
   default_version_ = version;
@@ -221,7 +410,44 @@ void Compiler::SetForcedVersionProfile(int version, EProfile profile) {
 
 void Compiler::SetWarningsAsErrors() { warnings_as_errors_ = true; }
 
-void Compiler::SetGenerateDebugInfo() { generate_debug_info_ = true; }
+void Compiler::SetGenerateDebugInfo() {
+  generate_debug_info_ = true;
+  for (size_t i = 0; i < enabled_opt_passes_.size(); ++i) {
+    if (enabled_opt_passes_[i] == PassId::kStripDebugInfo) {
+      enabled_opt_passes_[i] = PassId::kNullPass;
+    }
+  }
+}
+
+void Compiler::SetOptimizationLevel(Compiler::OptimizationLevel level) {
+  // Clear previous settings first.
+  enabled_opt_passes_.clear();
+
+  switch (level) {
+    case OptimizationLevel::Size:
+      if (!generate_debug_info_) {
+        enabled_opt_passes_.push_back(PassId::kStripDebugInfo);
+      }
+      enabled_opt_passes_.push_back(PassId::kSizePasses);
+      break;
+    case OptimizationLevel::Performance:
+      if (!generate_debug_info_) {
+        enabled_opt_passes_.push_back(PassId::kStripDebugInfo);
+      }
+      enabled_opt_passes_.push_back(PassId::kPerformancePasses);
+      break;
+    default:
+      break;
+  }
+}
+
+void Compiler::EnableHlslLegalization(bool hlsl_legalization_enabled) {
+  hlsl_legalization_enabled_ = hlsl_legalization_enabled;
+}
+
+void Compiler::EnableHlslFunctionality1(bool enable) {
+  hlsl_functionality1_enabled_ = enable;
+}
 
 void Compiler::SetSuppressWarnings() { suppress_warnings_ = true; }
 
@@ -236,18 +462,37 @@ std::tuple<bool, std::string, std::string> Compiler::PreprocessShader(
   shader.setStringsWithLengthsAndNames(&shader_strings, &shader_lengths,
                                        &string_names, 1);
   shader.setPreamble(shader_preamble.data());
+  auto target_client_info =
+      GetGlslangClientInfo(target_env_, target_env_version_);
+  if (!target_client_info.valid_client) {
+    std::ostringstream os;
+    os << "error:" << error_tag << ": Invalid target client "
+       << int(target_env_);
+    return std::make_tuple(false, "", os.str());
+  }
+  if (!target_client_info.valid_client_version) {
+    std::ostringstream os;
+    os << "error:" << error_tag << ": Invalid target client "
+       << int(target_env_version_) << " for environmnent " << int(target_env_);
+    return std::make_tuple(false, "", os.str());
+  }
+  shader.setEnvClient(target_client_info.client,
+                      target_client_info.client_version);
+  if (hlsl_functionality1_enabled_) {
+    shader.setEnvTargetHlslFunctionality1();
+  }
 
   // The preprocessor might be sensitive to the target environment.
   // So combine the existing rules with the just-give-me-preprocessor-output
   // flag.
-  const auto rules =
-      static_cast<EShMessages>(EShMsgOnlyPreprocessor | message_rules_);
+  const auto rules = static_cast<EShMessages>(
+      EShMsgOnlyPreprocessor |
+      GetMessageRules(target_env_, source_language_, hlsl_offsets_, false));
 
   std::string preprocessed_shader;
   const bool success = shader.preprocess(
-      &shaderc_util::kDefaultTBuiltInResource, default_version_,
-      default_profile_, force_version_profile_, kNotForwardCompatible, rules,
-      &preprocessed_shader, includer);
+      &limits_, default_version_, default_profile_, force_version_profile_,
+      kNotForwardCompatible, rules, &preprocessed_shader, includer);
 
   if (success) {
     return std::make_tuple(true, preprocessed_shader, shader.getInfoLog());
@@ -460,4 +705,4 @@ std::vector<uint32_t> ConvertStringToVector(const std::string& str) {
   return result_vec;
 }
 
-}  // namesapce shaderc_util
+}  // namespace shaderc_util

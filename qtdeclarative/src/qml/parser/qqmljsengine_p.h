@@ -52,13 +52,13 @@
 //
 
 #include "qqmljsglobal_p.h"
-#include "qqmljsastfwd_p.h"
 #include "qqmljsmemorypool_p.h"
+#include "qqmljssourcelocation_p.h"
 
 #include <QtCore/qstring.h>
 #include <QtCore/qset.h>
 
-QT_QML_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 namespace QQmlJS {
 
@@ -95,7 +95,7 @@ public:
 class QML_PARSER_EXPORT DiagnosticMessage
 {
 public:
-    enum Kind { Warning, Error };
+    enum Kind { Hint, Warning, Error };
 
     DiagnosticMessage() {}
 
@@ -150,6 +150,6 @@ double integerFromString(const char *buf, int size, int radix);
 
 } // end of namespace QQmlJS
 
-QT_QML_END_NAMESPACE
+QT_END_NAMESPACE
 
 #endif // QQMLJSENGINE_P_H

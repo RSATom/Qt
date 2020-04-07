@@ -9,42 +9,46 @@
 
 #include "core/fxcrt/unowned_ptr.h"
 #include "core/fxcrt/widestring.h"
+#include "fxbarcode/datamatrix/BC_HighLevelEncoder.h"
 
 class CBC_SymbolInfo;
 
 class CBC_EncoderContext {
  public:
-  CBC_EncoderContext(const WideString& msg,
-                     const WideString& ecLevel,
-                     int32_t& e);
+  explicit CBC_EncoderContext(const WideString& msg);
   ~CBC_EncoderContext();
 
-  void setAllowRectangular(bool allow);
   void setSkipAtEnd(int32_t count);
   wchar_t getCurrentChar();
   wchar_t getCurrent();
   void writeCodewords(const WideString& codewords);
   void writeCodeword(wchar_t codeword);
   size_t getCodewordCount();
-  void signalEncoderChange(int32_t encoding);
-  void resetEncoderSignal();
+  void SignalEncoderChange(CBC_HighLevelEncoder::Encoding encoding);
+  void ResetEncoderSignal();
   bool hasMoreCharacters();
   size_t getRemainingCharacters();
-  void updateSymbolInfo(int32_t& e);
-  void updateSymbolInfo(int32_t len, int32_t& e);
+  bool UpdateSymbolInfo();
+  bool UpdateSymbolInfo(size_t len);
   void resetSymbolInfo();
+
+  bool HasCharactersOutsideISO88591Encoding() const {
+    return m_bHasCharactersOutsideISO88591Encoding;
+  }
 
   WideString m_msg;
   WideString m_codewords;
-  size_t m_pos;
-  int32_t m_newEncoding;
-  UnownedPtr<CBC_SymbolInfo> m_symbolInfo;
+  size_t m_pos = 0;
+  CBC_HighLevelEncoder::Encoding m_newEncoding =
+      CBC_HighLevelEncoder::Encoding::UNKNOWN;
+  UnownedPtr<const CBC_SymbolInfo> m_symbolInfo;
 
  private:
   size_t getTotalMessageCharCount();
 
-  bool m_allowRectangular;  // Force square when false.
-  size_t m_skipAtEnd;
+  bool m_bAllowRectangular = false;  // Force square when false.
+  bool m_bHasCharactersOutsideISO88591Encoding = false;
+  size_t m_skipAtEnd = 0;
 };
 
 #endif  // FXBARCODE_DATAMATRIX_BC_ENCODERCONTEXT_H_

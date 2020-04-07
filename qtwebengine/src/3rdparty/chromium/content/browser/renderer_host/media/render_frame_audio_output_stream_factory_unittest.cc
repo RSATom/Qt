@@ -5,17 +5,20 @@
 #include "content/browser/renderer_host/media/render_frame_audio_output_stream_factory.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/task/post_task.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/unguessable_token.h"
 #include "content/browser/media/forwarding_audio_stream_factory.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -55,7 +58,8 @@ class RenderFrameAudioOutputStreamFactoryTest
         audio_system_(media::AudioSystemImpl::CreateInstance()),
         media_stream_manager_(std::make_unique<MediaStreamManager>(
             audio_system_.get(),
-            BrowserThread::GetTaskRunnerForThread(BrowserThread::UI))) {}
+            base::CreateSingleThreadTaskRunnerWithTraits(
+                {BrowserThread::UI}))) {}
 
   ~RenderFrameAudioOutputStreamFactoryTest() override {}
 
@@ -64,11 +68,12 @@ class RenderFrameAudioOutputStreamFactoryTest
     RenderFrameHostTester::For(main_rfh())->InitializeRenderFrameIfNeeded();
 
     // Set up the ForwardingAudioStreamFactory.
-    service_manager::Connector::TestApi connector_test_api(
+    service_manager::Connector* connector =
         ForwardingAudioStreamFactory::ForFrame(main_rfh())
-            ->get_connector_for_testing());
-    connector_test_api.OverrideBinderForTesting(
-        service_manager::Identity(audio::mojom::kServiceName),
+            ->core()
+            ->get_connector_for_testing();
+    connector->OverrideBinderForTesting(
+        service_manager::ServiceFilter::ByName(audio::mojom::kServiceName),
         audio::mojom::StreamFactory::Name_,
         base::BindRepeating(
             &RenderFrameAudioOutputStreamFactoryTest::BindFactory,
@@ -100,6 +105,7 @@ class RenderFrameAudioOutputStreamFactoryTest
         const std::string& output_device_id,
         const media::AudioParameters& params,
         const base::UnguessableToken& group_id,
+        const base::Optional<base::UnguessableToken>& processing_id,
         CreateOutputStreamCallback created_callback) override {
       last_created_callback = std::move(created_callback);
     }
@@ -151,7 +157,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
 
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(1u, factory.current_number_of_providers_for_testing());
+  EXPECT_EQ(1u, factory.CurrentNumberOfProvidersForTesting());
 }
 
 TEST_F(
@@ -174,7 +180,7 @@ TEST_F(
 
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(0u, factory.current_number_of_providers_for_testing());
+  EXPECT_EQ(0u, factory.CurrentNumberOfProvidersForTesting());
 }
 
 TEST_F(
@@ -196,7 +202,7 @@ TEST_F(
 
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(0u, factory.current_number_of_providers_for_testing());
+  EXPECT_EQ(0u, factory.CurrentNumberOfProvidersForTesting());
 }
 
 TEST_F(RenderFrameAudioOutputStreamFactoryTest,
@@ -214,7 +220,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
   {
     media::mojom::AudioOutputStreamProviderClientPtr client;
     mojo::MakeRequest(&client);
-    provider_ptr->Acquire(kParams, std::move(client));
+    provider_ptr->Acquire(kParams, std::move(client), base::nullopt);
   }
 
   audio::mojom::StreamFactory::CreateOutputStreamCallback created_callback;
@@ -224,7 +230,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(!!audio_service_stream_factory_.last_created_callback);
-  EXPECT_EQ(0u, factory.current_number_of_providers_for_testing());
+  EXPECT_EQ(0u, factory.CurrentNumberOfProvidersForTesting());
 }
 
 TEST_F(RenderFrameAudioOutputStreamFactoryTest,
@@ -251,7 +257,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
   {
     media::mojom::AudioOutputStreamProviderClientPtr client;
     mojo::MakeRequest(&client);
-    provider_ptr->Acquire(kParams, std::move(client));
+    provider_ptr->Acquire(kParams, std::move(client), base::nullopt);
   }
 
   base::RunLoop().RunUntilIdle();

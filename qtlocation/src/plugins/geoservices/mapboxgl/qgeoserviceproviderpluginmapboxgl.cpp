@@ -49,9 +49,9 @@ QGeoServiceProviderFactoryMapboxGL::QGeoServiceProviderFactoryMapboxGL()
 QGeoCodingManagerEngine *QGeoServiceProviderFactoryMapboxGL::createGeocodingManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -65,9 +65,9 @@ QGeoMappingManagerEngine *QGeoServiceProviderFactoryMapboxGL::createMappingManag
 QGeoRoutingManagerEngine *QGeoServiceProviderFactoryMapboxGL::createRoutingManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -75,9 +75,9 @@ QGeoRoutingManagerEngine *QGeoServiceProviderFactoryMapboxGL::createRoutingManag
 QPlaceManagerEngine *QGeoServiceProviderFactoryMapboxGL::createPlaceManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }

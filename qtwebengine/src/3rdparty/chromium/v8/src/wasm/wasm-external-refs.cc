@@ -10,8 +10,9 @@
 #include "include/v8config.h"
 
 #include "src/base/bits.h"
-#include "src/trap-handler/trap-handler.h"
+#include "src/memcopy.h"
 #include "src/utils.h"
+#include "src/v8memory.h"
 #include "src/wasm/wasm-external-refs.h"
 
 namespace v8 {
@@ -232,13 +233,13 @@ uint32_t word64_popcnt_wrapper(Address data) {
 uint32_t word32_rol_wrapper(Address data) {
   uint32_t input = ReadUnalignedValue<uint32_t>(data);
   uint32_t shift = ReadUnalignedValue<uint32_t>(data + sizeof(input)) & 31;
-  return (input << shift) | (input >> (32 - shift));
+  return (input << shift) | (input >> ((32 - shift) & 31));
 }
 
 uint32_t word32_ror_wrapper(Address data) {
   uint32_t input = ReadUnalignedValue<uint32_t>(data);
   uint32_t shift = ReadUnalignedValue<uint32_t>(data + sizeof(input)) & 31;
-  return (input >> shift) | (input << (32 - shift));
+  return (input >> shift) | (input << ((32 - shift) & 31));
 }
 
 void float64_pow_wrapper(Address data) {
@@ -247,9 +248,13 @@ void float64_pow_wrapper(Address data) {
   WriteUnalignedValue<double>(data, Pow(x, y));
 }
 
-void set_thread_in_wasm_flag() { trap_handler::SetThreadInWasm(); }
+void memory_copy_wrapper(Address dst, Address src, uint32_t size) {
+  MemMove(reinterpret_cast<void*>(dst), reinterpret_cast<void*>(src), size);
+}
 
-void clear_thread_in_wasm_flag() { trap_handler::ClearThreadInWasm(); }
+void memory_fill_wrapper(Address dst, uint32_t value, uint32_t size) {
+  memset(reinterpret_cast<void*>(dst), value, size);
+}
 
 static WasmTrapCallbackForTesting wasm_trap_callback_for_testing = nullptr;
 

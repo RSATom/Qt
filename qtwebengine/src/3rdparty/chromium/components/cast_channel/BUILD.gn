@@ -26,6 +26,8 @@ static_library("cast_channel") {
     "keep_alive_delegate.h",
     "logger.cc",
     "logger.h",
+    "mojo_data_pump.cc",
+    "mojo_data_pump.h",
   ]
   deps = [
     "//base",
@@ -39,6 +41,10 @@ static_library("cast_channel") {
     "//content/public/common",
     "//crypto",
     "//net",
+    "//services/data_decoder/public/cpp",
+  ]
+  public_deps = [
+    "//services/network/public/mojom",
   ]
 }
 
@@ -54,6 +60,7 @@ static_library("test_support") {
     "//components/cast_channel/proto:cast_channel_proto",
     "//net",
     "//net:test_support",
+    "//services/service_manager/public/cpp",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -84,6 +91,7 @@ source_set("unit_tests") {
     "//components/prefs:test_support",
     "//content/test:test_support",
     "//net:test_support",
+    "//services/data_decoder/public/cpp:test_support",
     "//testing/gmock",
     "//testing/gtest",
   ]

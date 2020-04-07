@@ -46,7 +46,7 @@ StyleResolverState::StyleResolverState(
       apply_property_to_visited_link_style_(false),
       has_dir_auto_attribute_(false),
       font_builder_(&document),
-      element_style_resources_(document, document.DevicePixelRatio()) {
+      element_style_resources_(*GetElement(), document.DevicePixelRatio()) {
   DCHECK(!!parent_style_ == !!layout_parent_style_);
 
   if (!parent_style_) {
@@ -169,7 +169,8 @@ StyleResolverState::ParsedPropertiesForPendingSubstitutionCache(
   HeapHashMap<CSSPropertyID, Member<const CSSValue>>* map =
       parsed_properties_for_pending_substitution_cache_.at(&value);
   if (!map) {
-    map = new HeapHashMap<CSSPropertyID, Member<const CSSValue>>;
+    map = MakeGarbageCollected<
+        HeapHashMap<CSSPropertyID, Member<const CSSValue>>>();
     parsed_properties_for_pending_substitution_cache_.Set(&value, map);
   }
   return *map;

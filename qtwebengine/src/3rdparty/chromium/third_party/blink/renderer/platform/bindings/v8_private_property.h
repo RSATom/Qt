@@ -33,7 +33,6 @@ class ScriptWrappable;
   X(CustomElementLifecycle, CreatedCallback)          \
   X(CustomElementLifecycle, DetachedCallback)         \
   X(DOMException, Error)                              \
-  X(ErrorEvent, Error)                                \
   X(Global, Event)                                    \
   X(IDBCursor, Request)                               \
   X(IntersectionObserver, Callback)                   \
@@ -50,9 +49,6 @@ class ScriptWrappable;
   X(SameObject, NotificationVibrate)                  \
   X(SameObject, PerformanceLongTaskTimingAttribution) \
   X(SameObject, PushManagerSupportedContentEncodings) \
-  X(V8ErrorHandler, ErrorHandler)                     \
-  X(V8EventListener, AttributeListener)               \
-  X(V8EventListener, Listener)                        \
   SCRIPT_PROMISE_PROPERTIES(X, Promise)               \
   SCRIPT_PROMISE_PROPERTIES(X, Resolver)
 

@@ -32,6 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GEOMETRY_LAYOUT_RECT_H_
 
 #include <iosfwd>
+#include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect_outsets.h"
@@ -45,13 +46,16 @@ class FloatRect;
 class DoubleRect;
 
 class PLATFORM_EXPORT LayoutRect {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
-  LayoutRect() = default;
-  LayoutRect(const LayoutPoint& location, const LayoutSize& size)
+  constexpr LayoutRect() = default;
+  constexpr LayoutRect(const LayoutPoint& location, const LayoutSize& size)
       : location_(location), size_(size) {}
-  LayoutRect(LayoutUnit x, LayoutUnit y, LayoutUnit width, LayoutUnit height)
+  constexpr LayoutRect(LayoutUnit x,
+                       LayoutUnit y,
+                       LayoutUnit width,
+                       LayoutUnit height)
       : location_(LayoutPoint(x, y)), size_(LayoutSize(width, height)) {}
   LayoutRect(int x, int y, int width, int height)
       : location_(LayoutPoint(x, y)), size_(LayoutSize(width, height)) {}
@@ -68,8 +72,8 @@ class PLATFORM_EXPORT LayoutRect {
   explicit LayoutRect(const FloatRect&);
   explicit LayoutRect(const DoubleRect&);
 
-  LayoutPoint Location() const { return location_; }
-  LayoutSize Size() const { return size_; }
+  constexpr LayoutPoint Location() const { return location_; }
+  constexpr LayoutSize Size() const { return size_; }
 
   IntPoint PixelSnappedLocation() const { return RoundedIntPoint(location_); }
   IntSize PixelSnappedSize() const {
@@ -80,12 +84,12 @@ class PLATFORM_EXPORT LayoutRect {
   void SetLocation(const LayoutPoint& location) { location_ = location; }
   void SetSize(const LayoutSize& size) { size_ = size; }
 
-  ALWAYS_INLINE LayoutUnit X() const { return location_.X(); }
-  ALWAYS_INLINE LayoutUnit Y() const { return location_.Y(); }
+  constexpr ALWAYS_INLINE LayoutUnit X() const { return location_.X(); }
+  constexpr ALWAYS_INLINE LayoutUnit Y() const { return location_.Y(); }
   ALWAYS_INLINE LayoutUnit MaxX() const { return X() + Width(); }
   ALWAYS_INLINE LayoutUnit MaxY() const { return Y() + Height(); }
-  LayoutUnit Width() const { return size_.Width(); }
-  LayoutUnit Height() const { return size_.Height(); }
+  constexpr LayoutUnit Width() const { return size_.Width(); }
+  constexpr LayoutUnit Height() const { return size_.Height(); }
 
   int PixelSnappedWidth() const { return SnapSizeToPixel(Width(), X()); }
   int PixelSnappedHeight() const { return SnapSizeToPixel(Height(), Y()); }
@@ -95,7 +99,7 @@ class PLATFORM_EXPORT LayoutRect {
   void SetWidth(LayoutUnit width) { size_.SetWidth(width); }
   void SetHeight(LayoutUnit height) { size_.SetHeight(height); }
 
-  ALWAYS_INLINE bool IsEmpty() const { return size_.IsEmpty(); }
+  constexpr ALWAYS_INLINE bool IsEmpty() const { return size_.IsEmpty(); }
 
   // NOTE: The result is rounded to integer values, and thus may be not the
   // exact center point.
@@ -169,7 +173,9 @@ class PLATFORM_EXPORT LayoutRect {
     SetHeight((Height() + delta).ClampNegativeToZero());
   }
 
-  LayoutPoint MinXMinYCorner() const { return location_; }  // typically topLeft
+  constexpr LayoutPoint MinXMinYCorner() const {
+    return location_;
+  }  // typically topLeft
   LayoutPoint MaxXMinYCorner() const {
     return LayoutPoint(location_.X() + size_.Width(), location_.Y());
   }  // typically topRight
@@ -277,12 +283,13 @@ inline LayoutRect UnionRectEvenIfEmpty(const LayoutRect& a,
 
 PLATFORM_EXPORT LayoutRect UnionRectEvenIfEmpty(const Vector<LayoutRect>&);
 
-ALWAYS_INLINE bool operator==(const LayoutRect& a, const LayoutRect& b) {
+constexpr ALWAYS_INLINE bool operator==(const LayoutRect& a,
+                                        const LayoutRect& b) {
   return a.Location() == b.Location() && a.Size() == b.Size();
 }
 
-inline bool operator!=(const LayoutRect& a, const LayoutRect& b) {
-  return a.Location() != b.Location() || a.Size() != b.Size();
+constexpr bool operator!=(const LayoutRect& a, const LayoutRect& b) {
+  return !(a == b);
 }
 
 inline IntRect PixelSnappedIntRect(const LayoutRect& rect) {
@@ -303,7 +310,13 @@ inline IntRect EnclosedIntRect(const LayoutRect& rect) {
   return IntRect(location, max_point - location);
 }
 
-PLATFORM_EXPORT LayoutRect EnclosingLayoutRect(const FloatRect&);
+inline LayoutRect EnclosingLayoutRect(const FloatRect& rect) {
+  LayoutUnit x = LayoutUnit::FromFloatFloor(rect.X());
+  LayoutUnit y = LayoutUnit::FromFloatFloor(rect.Y());
+  LayoutUnit max_x = LayoutUnit::FromFloatCeil(rect.MaxX());
+  LayoutUnit max_y = LayoutUnit::FromFloatCeil(rect.MaxY());
+  return LayoutRect(x, y, max_x - x, max_y - y);
+}
 
 inline IntRect PixelSnappedIntRect(LayoutUnit left,
                                    LayoutUnit top,

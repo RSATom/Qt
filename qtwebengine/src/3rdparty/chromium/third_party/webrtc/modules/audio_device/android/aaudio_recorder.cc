@@ -16,7 +16,7 @@
 #include "modules/audio_device/fine_audio_buffer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/sleep.h"
 
 namespace webrtc {
@@ -212,7 +212,6 @@ void AAudioRecorder::HandleStreamDisconnected() {
   // TODO(henrika): resolve issue where a one restart attempt leads to a long
   // sequence of new calls to OnErrorCallback().
   // See b/73148976 for details.
-  audio_device_buffer_->NativeAudioRecordingInterrupted();
   StopRecording();
   InitRecording();
   StartRecording();

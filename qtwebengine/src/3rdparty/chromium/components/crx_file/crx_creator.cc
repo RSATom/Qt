@@ -6,6 +6,7 @@
 
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/stl_util.h"
 #include "components/crx_file/crx3.pb.h"
 #include "components/crx_file/crx_file.h"
 #include "crypto/rsa_private_key.h"
@@ -31,7 +32,7 @@ CreatorResult ReadAndSignArchive(base::File* file,
   int read = 0;
   static_assert(sizeof(char) == sizeof(uint8_t), "Unsupported char size.");
   while ((read = file->ReadAtCurrentPos(reinterpret_cast<char*>(buffer),
-                                        arraysize(buffer))) > 0) {
+                                        base::size(buffer))) > 0) {
     if (!signer->Update(buffer, read))
       return CreatorResult::ERROR_SIGNING_FAILURE;
   }
@@ -49,7 +50,7 @@ bool WriteArchive(base::File* out, base::File* in) {
   char buffer[1 << 12] = {};
   int read = 0;
   in->Seek(base::File::Whence::FROM_BEGIN, 0);
-  while ((read = in->ReadAtCurrentPos(buffer, arraysize(buffer))) > 0) {
+  while ((read = in->ReadAtCurrentPos(buffer, base::size(buffer))) > 0) {
     if (out->WriteAtCurrentPos(buffer, read) != read)
       return false;
   }
@@ -73,16 +74,16 @@ CreatorResult Create(const base::FilePath& output_path,
       signed_header_data.SerializeAsString();
   const int signed_header_size = signed_header_data_str.size();
   const uint8_t signed_header_size_octets[] = {
-      signed_header_size, signed_header_size >> 8, signed_header_size >> 16,
-      signed_header_size >> 24};
+      uint8_t(signed_header_size), uint8_t(signed_header_size >> 8),
+      uint8_t(signed_header_size >> 16), uint8_t(signed_header_size >> 24)};
 
   // Create a signer, init with purpose, SignedData length, run SignedData
   // through, run ZIP through.
   auto signer = crypto::SignatureCreator::Create(
       signing_key, crypto::SignatureCreator::HashAlgorithm::SHA256);
-  signer->Update(kSignatureContext, arraysize(kSignatureContext));
+  signer->Update(kSignatureContext, base::size(kSignatureContext));
   signer->Update(signed_header_size_octets,
-                 arraysize(signed_header_size_octets));
+                 base::size(signed_header_size_octets));
   signer->Update(
       reinterpret_cast<const uint8_t*>(signed_header_data_str.data()),
       signed_header_data_str.size());
@@ -103,8 +104,9 @@ CreatorResult Create(const base::FilePath& output_path,
   header.set_signed_header_data(signed_header_data_str);
   const std::string header_str = header.SerializeAsString();
   const int header_size = header_str.size();
-  const uint8_t header_size_octets[] = {header_size, header_size >> 8,
-                                        header_size >> 16, header_size >> 24};
+  const uint8_t header_size_octets[] = {
+      uint8_t(header_size), uint8_t(header_size >> 8),
+      uint8_t(header_size >> 16), uint8_t(header_size >> 24)};
 
   // Write CRX.
   const uint8_t format_version_octets[] = {3, 0, 0, 0};
@@ -115,9 +117,9 @@ CreatorResult Create(const base::FilePath& output_path,
   static_assert(sizeof(char) == sizeof(uint8_t), "Unsupported char size.");
   if (!WriteBuffer(&crx, kCrxFileHeaderMagic, kCrxFileHeaderMagicSize) ||
       !WriteBuffer(&crx, reinterpret_cast<const char*>(format_version_octets),
-                   arraysize(format_version_octets)) ||
+                   base::size(format_version_octets)) ||
       !WriteBuffer(&crx, reinterpret_cast<const char*>(header_size_octets),
-                   arraysize(header_size_octets)) ||
+                   base::size(header_size_octets)) ||
       !WriteBuffer(&crx, header_str.c_str(), header_str.length()) ||
       !WriteArchive(&crx, &file)) {
     return CreatorResult::ERROR_FILE_WRITE_FAILURE;

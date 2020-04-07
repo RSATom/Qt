@@ -6,13 +6,13 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
 #include "device/bluetooth/test/test_bluetooth_adapter_observer.h"
+#include "device/bluetooth/test/test_pairing_delegate.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_ANDROID)
@@ -25,6 +25,8 @@
 #include "device/bluetooth/test/bluetooth_test_cast.h"
 #elif defined(OS_CHROMEOS) || defined(OS_LINUX)
 #include "device/bluetooth/test/bluetooth_test_bluez.h"
+#elif defined(OS_FUCHSIA)
+#include "device/bluetooth/test/bluetooth_test_fuchsia.h"
 #endif
 
 namespace device {
@@ -62,7 +64,7 @@ TEST(BluetoothDeviceTest, CanonicalizeAddressFormat_AcceptsAllValidFormats) {
     "1a2b3c4d5e6f",
   };
 
-  for (size_t i = 0; i < arraysize(kValidFormats); ++i) {
+  for (size_t i = 0; i < base::size(kValidFormats); ++i) {
     SCOPED_TRACE(std::string("Input format: '") + kValidFormats[i] + "'");
     EXPECT_EQ("1A:2B:3C:4D:5E:6F",
               BluetoothDevice::CanonicalizeAddress(kValidFormats[i]));
@@ -87,12 +89,177 @@ TEST(BluetoothDeviceTest, CanonicalizeAddressFormat_RejectsInvalidFormats) {
     "1:A2:B3:C4:D5:E6F",
   };
 
-  for (size_t i = 0; i < arraysize(kValidFormats); ++i) {
+  for (size_t i = 0; i < base::size(kValidFormats); ++i) {
     SCOPED_TRACE(std::string("Input format: '") + kValidFormats[i] + "'");
     EXPECT_EQ(std::string(),
               BluetoothDevice::CanonicalizeAddress(kValidFormats[i]));
   }
 }
+
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, DeviceIsPaired) {
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(1);
+
+  // By default a device should not be paired.
+  EXPECT_FALSE(device->IsPaired());
+
+  // Connect to the device and simulate a paired state.
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  SimulateDevicePaired(device, true);
+  EXPECT_TRUE(device->IsPaired());
+
+  SimulateDevicePaired(device, false);
+  EXPECT_FALSE(device->IsPaired());
+}
+
+// Tests that providing a correct pin code results in a paired device.
+TEST_P(BluetoothTestWinrtOnly, DevicePairRequestPinCodeCorrect) {
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(1);
+
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+
+  SimulatePairingPinCode(device, "123456");
+  TestPairingDelegate pairing_delegate;
+  device->Pair(&pairing_delegate, GetCallback(Call::EXPECTED),
+               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(1, pairing_delegate.call_count_);
+  EXPECT_EQ(1, pairing_delegate.request_pincode_count_);
+  EXPECT_TRUE(device->ExpectingPinCode());
+
+  device->SetPinCode("123456");
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+}
+
+// Tests that providing a wrong pin code does not result in a paired device.
+TEST_P(BluetoothTestWinrtOnly, DevicePairRequestPinCodeWrong) {
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(1);
+
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+
+  SimulatePairingPinCode(device, "123456");
+  TestPairingDelegate pairing_delegate;
+  device->Pair(&pairing_delegate, GetCallback(Call::NOT_EXPECTED),
+               GetConnectErrorCallback(Call::EXPECTED));
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(1, pairing_delegate.call_count_);
+  EXPECT_EQ(1, pairing_delegate.request_pincode_count_);
+  EXPECT_TRUE(device->ExpectingPinCode());
+
+  device->SetPinCode("000000");
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+  EXPECT_EQ(BluetoothDevice::ERROR_FAILED, last_connect_error_code_);
+}
+
+// Tests that rejecting the pairing does not result in a paired device.
+TEST_P(BluetoothTestWinrtOnly, DevicePairRequestPinCodeRejectPairing) {
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(1);
+
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+
+  SimulatePairingPinCode(device, "123456");
+  TestPairingDelegate pairing_delegate;
+  device->Pair(&pairing_delegate, GetCallback(Call::NOT_EXPECTED),
+               GetConnectErrorCallback(Call::EXPECTED));
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(1, pairing_delegate.call_count_);
+  EXPECT_EQ(1, pairing_delegate.request_pincode_count_);
+  EXPECT_TRUE(device->ExpectingPinCode());
+
+  device->RejectPairing();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+  EXPECT_EQ(BluetoothDevice::ERROR_AUTH_REJECTED, last_connect_error_code_);
+}
+
+// Tests that cancelling the pairing does not result in a paired device.
+TEST_P(BluetoothTestWinrtOnly, DevicePairRequestPinCodeCancelPairing) {
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(1);
+
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+
+  SimulatePairingPinCode(device, "123456");
+  TestPairingDelegate pairing_delegate;
+  device->Pair(&pairing_delegate, GetCallback(Call::NOT_EXPECTED),
+               GetConnectErrorCallback(Call::EXPECTED));
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(1, pairing_delegate.call_count_);
+  EXPECT_EQ(1, pairing_delegate.request_pincode_count_);
+  EXPECT_TRUE(device->ExpectingPinCode());
+
+  device->CancelPairing();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(device->IsPaired());
+  EXPECT_FALSE(device->ExpectingPinCode());
+  EXPECT_EQ(BluetoothDevice::ERROR_AUTH_CANCELED, last_connect_error_code_);
+}
+#endif
 
 // Verifies basic device properties, e.g. GetAddress, GetName, ...
 #if defined(OS_WIN)
@@ -125,6 +292,30 @@ TEST_F(BluetoothTest, LowEnergyDeviceProperties) {
       base::ContainsKey(uuids, BluetoothUUID(kTestUUIDGenericAttribute)));
 }
 
+// Verifies that the device name can be populated by later advertisement
+// packets and is persistent.
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrt, LowEnergyDeviceNameDelayed) {
+#else
+// This test does not yet pass on any other platform.
+TEST_F(BluetoothTest, DISABLED_LowEnergyDeviceNameDelayed) {
+#endif
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(3);
+  ASSERT_TRUE(device);
+  // GetName() returns a base::Optional<std:string> however some backends still
+  // return an empty string rather than nullopt when no name is available.
+  EXPECT_TRUE(!device->GetName().has_value() || device->GetName()->empty());
+
+  SimulateLowEnergyDevice(1);
+  EXPECT_EQ(base::UTF8ToUTF16(kTestDeviceName), device->GetNameForDisplay());
+}
+
 // Device with no advertised Service UUIDs.
 #if defined(OS_WIN)
 TEST_P(BluetoothTestWinrt, LowEnergyDeviceNoUUIDs) {
@@ -151,7 +342,11 @@ TEST_F(BluetoothTest, LowEnergyDeviceNoUUIDs) {
 #define MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID \
   DISABLED_GetServiceDataUUIDs_GetServiceDataForUUID
 #endif
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, GetServiceDataUUIDs_GetServiceDataForUUID) {
+#else
 TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -166,6 +361,7 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
 
   // Receive Advertisement with empty service data.
   BluetoothDevice* device1 = SimulateLowEnergyDevice(4);
+  EXPECT_FALSE(device1->GetAdvertisingDataFlags().has_value());
   EXPECT_TRUE(device1->GetServiceData().empty());
   EXPECT_TRUE(device1->GetServiceDataUUIDs().empty());
   EXPECT_TRUE(device1->GetManufacturerData().empty());
@@ -173,6 +369,10 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
   // Receive Advertisement with service data.
   BluetoothDevice* device2 = SimulateLowEnergyDevice(1);
 
+#if defined(OS_WIN)
+  EXPECT_TRUE(device2->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x04, device2->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(ServiceDataMap({{BluetoothUUID(kTestUUIDHeartRate), {1}}}),
             device2->GetServiceData());
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDHeartRate)}),
@@ -181,7 +381,7 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
             *device2->GetServiceDataForUUID(BluetoothUUID(kTestUUIDHeartRate)));
   EXPECT_EQ(std::vector<uint8_t>({1, 2, 3, 4}),
             *device2->GetManufacturerDataForID(kTestManufacturerId));
-  // Receive Advertisement with no service and manufacturer data.
+  // Receive Advertisement with no flags and no service and manufacturer data.
   SimulateLowEnergyDevice(3);
 
 // TODO(crbug.com/707039): Remove #if once the BlueZ caching behavior is
@@ -198,6 +398,7 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
   EXPECT_EQ(std::vector<uint8_t>({1}),
             *device2->GetServiceDataForUUID(BluetoothUUID(kTestUUIDHeartRate)));
 #else
+  EXPECT_FALSE(device2->GetAdvertisingDataFlags().has_value());
   EXPECT_TRUE(device2->GetServiceData().empty());
   EXPECT_TRUE(device2->GetServiceDataUUIDs().empty());
   EXPECT_TRUE(device2->GetManufacturerData().empty());
@@ -208,6 +409,10 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
   // Receive Advertisement with new service data and empty manufacturer data.
   SimulateLowEnergyDevice(2);
 
+#if defined(OS_WIN)
+  EXPECT_TRUE(device2->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x05, device2->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(ServiceDataMap(
                 {{BluetoothUUID(kTestUUIDHeartRate), std::vector<uint8_t>({})},
                  {BluetoothUUID(kTestUUIDImmediateAlert), {0, 2}}}),
@@ -229,9 +434,11 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
   // Stop discovery.
   discovery_sessions_[0]->Stop(GetCallback(Call::EXPECTED),
                                GetErrorCallback(Call::NOT_EXPECTED));
+  base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(adapter_->IsDiscovering());
   ASSERT_FALSE(discovery_sessions_[0]->IsActive());
 
+  EXPECT_FALSE(device2->GetAdvertisingDataFlags().has_value());
   EXPECT_TRUE(device2->GetServiceData().empty());
   EXPECT_TRUE(device2->GetServiceDataUUIDs().empty());
   EXPECT_EQ(nullptr,
@@ -248,7 +455,11 @@ TEST_F(BluetoothTest, MAYBE_GetServiceDataUUIDs_GetServiceDataForUUID) {
 #endif
 // Tests that the Advertisement Data fields are correctly updated during
 // discovery.
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, AdvertisementData_Discovery) {
+#else
 TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -259,6 +470,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   // Start Discovery Session and receive Advertisement, should
   // not notify of device changed because the device is new.
   //  - GetInquiryRSSI: Should return the packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return advertised flags.
   //  - GetUUIDs: Should return Advertised UUIDs.
   //  - GetServiceData: Should return advertised Service Data.
   //  - GetInquiryTxPower: Should return the packet's advertised Tx Power.
@@ -268,6 +480,10 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   EXPECT_EQ(0, observer.device_changed_count());
 
   EXPECT_EQ(ToInt8(TestRSSI::LOWEST), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x04, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDGenericAccess),
                      BluetoothUUID(kTestUUIDGenericAttribute)}),
             device->GetUUIDs());
@@ -277,9 +493,10 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
             device->GetManufacturerData());
   EXPECT_EQ(ToInt8(TestTxPower::LOWEST), device->GetInquiryTxPower().value());
 
-  // Receive Advertisement with no UUIDs, Service Data, or Tx Power, should
-  // notify device changed.
+  // Receive Advertisement with no flags, no UUIDs, Service Data, or Tx Power,
+  // should notify device changed.
   //  - GetInquiryRSSI: Should return packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return nullopt because of no flags.
   //  - GetUUIDs: Should return no UUIDs.
   //  - GetServiceData: Should return empty map.
   //  - GetInquiryTxPower: Should return nullopt because of no Tx Power.
@@ -287,6 +504,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   EXPECT_EQ(1, observer.device_changed_count());
 
   EXPECT_EQ(ToInt8(TestRSSI::LOW), device->GetInquiryRSSI().value());
+  EXPECT_FALSE(device->GetAdvertisingDataFlags().has_value());
   EXPECT_TRUE(device->GetUUIDs().empty());
   EXPECT_TRUE(device->GetServiceData().empty());
   EXPECT_TRUE(device->GetManufacturerData().empty());
@@ -295,6 +513,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   // Receive Advertisement with different UUIDs, Service Data, and Tx Power,
   // should notify device changed.
   //  - GetInquiryRSSI: Should return last packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return last advertised flags.
   //  - GetUUIDs: Should return latest Advertised UUIDs.
   //  - GetServiceData: Should return last advertised Service Data.
   //  - GetInquiryTxPower: Should return last advertised Tx Power.
@@ -302,6 +521,10 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   EXPECT_EQ(2, observer.device_changed_count());
 
   EXPECT_EQ(ToInt8(TestRSSI::LOWER), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x05, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDImmediateAlert),
                      BluetoothUUID(kTestUUIDLinkLoss)}),
             device->GetUUIDs());
@@ -317,6 +540,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   // Stop discovery session, should notify of device changed.
   //  - GetInquiryRSSI: Should return nullopt because we are no longer
   //    discovering.
+  //  - GetAdvertisingDataFlags: Should return no flags.
   //  - GetUUIDs: Should not return any UUIDs.
   //  - GetServiceData: Should return empty map.
   //  - GetMAnufacturerData: Should return empty map.
@@ -324,12 +548,14 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   //    discovering.
   discovery_sessions_[0]->Stop(GetCallback(Call::EXPECTED),
                                GetErrorCallback(Call::NOT_EXPECTED));
+  base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(adapter_->IsDiscovering());
   ASSERT_FALSE(discovery_sessions_[0]->IsActive());
 
   EXPECT_EQ(3, observer.device_changed_count());
 
   EXPECT_FALSE(device->GetInquiryRSSI());
+  EXPECT_FALSE(device->GetAdvertisingDataFlags().has_value());
   EXPECT_TRUE(device->GetUUIDs().empty());
   EXPECT_TRUE(device->GetServiceData().empty());
   EXPECT_TRUE(device->GetManufacturerData().empty());
@@ -338,6 +564,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   // Discover the device again with different UUIDs, should notify of device
   // changed.
   //  - GetInquiryRSSI: Should return last packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return last advertised flags.
   //  - GetUUIDs: Should return only the latest Advertised UUIDs.
   //  - GetServiceData: Should return last advertise Service Data.
   //  - GetInquiryTxPower: Should return last advertised Tx Power.
@@ -347,6 +574,10 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
   EXPECT_EQ(4, observer.device_changed_count());
 
   EXPECT_EQ(ToInt8(TestRSSI::LOWEST), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x04, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDGenericAccess),
                      BluetoothUUID(kTestUUIDGenericAttribute)}),
             device->GetUUIDs());
@@ -356,6 +587,44 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_Discovery) {
             device->GetManufacturerData());
   EXPECT_EQ(ToInt8(TestTxPower::LOWEST), device->GetInquiryTxPower().value());
 }
+
+#if defined(OS_MACOSX)
+// TODO(dougt) As I turn on new platforms for WebBluetooth Scanning,
+// I will relax this #ifdef
+TEST_F(BluetoothTest, DeviceAdvertisementReceived) {
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+
+  InitWithFakeAdapter();
+  TestBluetoothAdapterObserver observer(adapter_);
+
+  StartLowEnergyDiscoverySession();
+  SimulateLowEnergyDevice(1);
+
+  EXPECT_EQ(1, observer.device_advertisement_raw_received_count());
+  EXPECT_EQ(kTestDeviceAddress1,
+            observer.device_last_device_name().value_or(""));
+  EXPECT_EQ(kTestDeviceName,
+            observer.device_last_advertisement_name().value_or(""));
+
+  // TestRSSI::LOWEST
+  EXPECT_EQ(-81, observer.device_last_rssi().value_or(-1));
+
+  // TestTxPower::LOWEST
+  EXPECT_EQ(-40, observer.device_last_tx_power().value_or(-1));
+
+  // TODO(crbug.com/588083)
+  // EXPECT_EQ(0x04, observer.device_last_appearance());
+
+  // TODO(dougt): Service Data, ManufacturerData, Advertised UUID
+
+  // Double check that we can receive another advertisement.
+  SimulateLowEnergyDevice(2);
+  EXPECT_EQ(2, observer.device_advertisement_raw_received_count());
+}
+#endif
 
 #if defined(OS_ANDROID) || defined(OS_MACOSX)
 #define MAYBE_GetUUIDs_Connection GetUUIDs_Connection
@@ -558,7 +827,11 @@ TEST_F(BluetoothTest, ExtraDidDiscoverServicesCall) {
 #endif
 // Tests Advertisement Data is updated correctly when we start discovery
 // during a connection.
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, AdvertisementData_DiscoveryDuringConnection) {
+#else
 TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -575,6 +848,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
             device->GetUUIDs());
   discovery_sessions_[0]->Stop(GetCallback(Call::EXPECTED),
                                GetErrorCallback(Call::NOT_EXPECTED));
+  base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(adapter_->IsDiscovering());
   ASSERT_FALSE(discovery_sessions_[0]->IsActive());
   ASSERT_EQ(0u, device->GetUUIDs().size());
@@ -592,6 +866,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
   // Start Discovery and receive advertisement during connection,
   // should notify of device changed.
   //  - GetInquiryRSSI: Should return the packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return last advertised flags.
   //  - GetUUIDs: Should return only Advertised UUIDs since services haven't
   //    been discovered yet.
   //  - GetServiceData: Should return last advertised Service Data.
@@ -607,10 +882,12 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDGenericAccess),
                      BluetoothUUID(kTestUUIDGenericAttribute)}),
             device->GetUUIDs());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x04, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(ServiceDataMap({{BluetoothUUID(kTestUUIDHeartRate), {1}}}),
             device->GetServiceData());
-#endif  // defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ToInt8(TestTxPower::LOWEST), device->GetInquiryTxPower().value());
 
   // Discover services, should notify of device changed.
@@ -629,6 +906,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
 
   // Receive advertisement again, notify of device changed.
   //  - GetInquiryRSSI: Should return last packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return last advertised flags.
   //  - GetUUIDs: Should return only new Advertised UUIDs and Service UUIDs.
   //  - GetServiceData: Should return last advertised Service Data.
   //  - GetInquiryTxPower: Should return the last packet's advertised Tx Power.
@@ -636,20 +914,24 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
 
   EXPECT_EQ(3, observer.device_changed_count());
   EXPECT_EQ(ToInt8(TestRSSI::LOWER), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x05, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDLinkLoss),
                      BluetoothUUID(kTestUUIDImmediateAlert),
                      BluetoothUUID(kTestUUIDHeartRate)}),
             device->GetUUIDs());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ServiceDataMap(
                 {{BluetoothUUID(kTestUUIDHeartRate), std::vector<uint8_t>({})},
                  {BluetoothUUID(kTestUUIDImmediateAlert), {0, 2}}}),
             device->GetServiceData());
-#endif  // defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ToInt8(TestTxPower::LOWER), device->GetInquiryTxPower().value());
 
   // Stop discovery session, should notify of device changed.
   //  - GetInquiryRSSI: Should return nullopt because we are no longer
+  //    discovering.
+  //  - GetAdvertisingDataFlags: Should return no flags since we are no longer
   //    discovering.
   //  - GetUUIDs: Should only return Service UUIDs.
   //  - GetServiceData: Should return an empty map since we are no longer
@@ -658,15 +940,15 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
   //    discovering.
   discovery_sessions_[0]->Stop(GetCallback(Call::EXPECTED),
                                GetErrorCallback(Call::NOT_EXPECTED));
+  base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(adapter_->IsDiscovering());
   ASSERT_FALSE(discovery_sessions_[0]->IsActive());
 
   EXPECT_EQ(4, observer.device_changed_count());
   EXPECT_FALSE(device->GetInquiryRSSI());
+  EXPECT_FALSE(device->GetAdvertisingDataFlags().has_value());
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDHeartRate)}), device->GetUUIDs());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ServiceDataMap(), device->GetServiceData());
-#endif  // defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_FALSE(device->GetInquiryTxPower());
 
   // Disconnect device, should notify of device changed.
@@ -688,7 +970,11 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_DiscoveryDuringConnection) {
 #define MAYBE_AdvertisementData_ConnectionDuringDiscovery \
   DISABLED_AdvertisementData_ConnectionDuringDiscovery
 #endif
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, AdvertisementData_ConnectionDuringDiscovery) {
+#else
 TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
+#endif
   // Tests that the Advertisement Data is correctly updated when
   // the device connects during discovery.
   if (!PlatformSupportsLowEnergy()) {
@@ -702,6 +988,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
   // Start discovery session and receive and advertisement. No device changed
   // notification because it's a new device.
   //  - GetInquiryRSSI: Should return the packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return advertised flags.
   //  - GetUUIDs: Should return Advertised UUIDs.
   //  - GetServiceData: Should return advertised Service Data.
   //  - GetInquiryTxPower: Should return the packet's advertised Tx Power.
@@ -712,13 +999,15 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
 
   EXPECT_EQ(0, observer.device_changed_count());
   EXPECT_EQ(ToInt8(TestRSSI::LOWEST), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x04, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDGenericAccess),
                      BluetoothUUID(kTestUUIDGenericAttribute)}),
             device->GetUUIDs());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ServiceDataMap({{BluetoothUUID(kTestUUIDHeartRate), {1}}}),
             device->GetServiceData());
-#endif  // defined(OS_MACOSX)
   EXPECT_EQ(ToInt8(TestTxPower::LOWEST), device->GetInquiryTxPower().value());
 
   // Connect, should notify of device changed.
@@ -736,6 +1025,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
 
   // Receive Advertisement with new UUIDs, should notify of device changed.
   //  - GetInquiryRSSI: Should return the packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return advertised flags.
   //  - GetUUIDs: Should return new Advertised UUIDs.
   //  - GetServiceData: Should return new advertised Service Data.
   //  - GetInquiryTxPower: Should return the packet's advertised Tx Power.
@@ -743,15 +1033,17 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
 
   EXPECT_EQ(1, observer.device_changed_count());
   EXPECT_EQ(ToInt8(TestRSSI::LOWER), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x05, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDLinkLoss),
                      BluetoothUUID(kTestUUIDImmediateAlert)}),
             device->GetUUIDs());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ServiceDataMap(
                 {{BluetoothUUID(kTestUUIDHeartRate), std::vector<uint8_t>({})},
                  {BluetoothUUID(kTestUUIDImmediateAlert), {0, 2}}}),
             device->GetServiceData());
-#endif  // defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ToInt8(TestTxPower::LOWER), device->GetInquiryTxPower().value());
 
   // Discover Services, should notify of device changed.
@@ -770,6 +1062,7 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
 
   // Disconnect, should notify of device changed.
   //  - GetInquiryRSSI: Should return last packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return same advertised flags.
   //  - GetUUIDs: Should return only Advertised UUIDs.
   //  - GetServiceData: Should still return same advertised Service Data.
   //  - GetInquiryTxPower: Should return the last packet's advertised Tx Power.
@@ -780,20 +1073,23 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
 
   EXPECT_EQ(3, observer.device_changed_count());
   EXPECT_EQ(ToInt8(TestRSSI::LOWER), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x05, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDLinkLoss),
                      BluetoothUUID(kTestUUIDImmediateAlert)}),
             device->GetUUIDs());
 
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ServiceDataMap(
                 {{BluetoothUUID(kTestUUIDHeartRate), std::vector<uint8_t>({})},
                  {BluetoothUUID(kTestUUIDImmediateAlert), {0, 2}}}),
             device->GetServiceData());
-#endif  // defined(OS_MACOSX)
   EXPECT_EQ(ToInt8(TestTxPower::LOWER), device->GetInquiryTxPower().value());
 
   // Receive Advertisement with new UUIDs, should notify of device changed.
   //  - GetInquiryRSSI: Should return last packet's rssi.
+  //  - GetAdvertisingDataFlags: Should return the new advertised flags.
   //  - GetUUIDs: Should return only new Advertised UUIDs.
   //  - GetServiceData: Should return only new advertised Service Data.
   //  - GetInquiryTxPower: Should return the last packet's advertised Tx Power.
@@ -801,18 +1097,22 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
 
   EXPECT_EQ(4, observer.device_changed_count());
   EXPECT_EQ(ToInt8(TestRSSI::LOWEST), device->GetInquiryRSSI().value());
+#if defined(OS_WIN)
+  EXPECT_TRUE(device->GetAdvertisingDataFlags().has_value());
+  EXPECT_EQ(0x04, device->GetAdvertisingDataFlags().value());
+#endif
   EXPECT_EQ(UUIDSet({BluetoothUUID(kTestUUIDGenericAccess),
                      BluetoothUUID(kTestUUIDGenericAttribute)}),
             device->GetUUIDs());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ServiceDataMap({{BluetoothUUID(kTestUUIDHeartRate), {1}}}),
             device->GetServiceData());
-#endif  // defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_EQ(ToInt8(TestTxPower::LOWEST), device->GetInquiryTxPower().value());
 
   // Stop discovery session, should notify of device changed.
   //  - GetInquiryRSSI: Should return nullopt because we are no longer
   //    discovering.
+  //  - GetAdvertisingDataFlags: Should return no advertised flags since we are
+  //    no longer discovering.
   //  - GetUUIDs: Should return no UUIDs.
   //  - GetServiceData: Should return no UUIDs since we are no longer
   //    discovering.
@@ -820,13 +1120,13 @@ TEST_F(BluetoothTest, MAYBE_AdvertisementData_ConnectionDuringDiscovery) {
   //    discovering.
   discovery_sessions_[0]->Stop(GetCallback(Call::EXPECTED),
                                GetErrorCallback(Call::NOT_EXPECTED));
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(5, observer.device_changed_count());
 
   EXPECT_FALSE(device->GetInquiryRSSI());
+  EXPECT_FALSE(device->GetAdvertisingDataFlags().has_value());
   EXPECT_TRUE(device->GetUUIDs().empty());
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
   EXPECT_TRUE(device->GetServiceData().empty());
-#endif  // defined(OS_MACOSX)  || defined(OS_ANDROID)
   EXPECT_FALSE(device->GetInquiryTxPower());
 }
 
@@ -922,7 +1222,7 @@ TEST_F(BluetoothTest, MAYBE_DisconnectionNotifiesDeviceChanged) {
   EXPECT_TRUE(device->IsConnected());
   EXPECT_TRUE(device->IsGattConnected());
 
-  SimulateGattDisconnection(device);
+  SimulateDeviceBreaksConnection(device);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2, observer.device_changed_count());
   EXPECT_FALSE(device->IsConnected());
@@ -1622,7 +1922,7 @@ TEST_F(BluetoothTest, MAYBE_GattServicesDiscovered_AfterDisconnection) {
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, gatt_discovery_attempts_);
 
-  SimulateGattDisconnection(device);
+  SimulateDeviceBreaksConnection(device);
   base::RunLoop().RunUntilIdle();
 
   SimulateGattServicesDiscovered(
@@ -1713,6 +2013,36 @@ TEST_F(BluetoothTest, MAYBE_GetGattServices_and_GetGattService) {
   EXPECT_TRUE(device->GetGattService(service_id1));
   EXPECT_TRUE(device->GetGattService(service_id2));
   EXPECT_TRUE(device->GetGattService(service_id3));
+}
+
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#define MAYBE_GetGattServices_FindNone GetGattServices_FindNone
+#else
+#define MAYBE_GetGattServices_FindNone DISABLED_GetGattServices_FindNone
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, GetGattServices_FindNone) {
+#else
+TEST_F(BluetoothTest, MAYBE_GetGattServices_FindNone) {
+#endif
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(3);
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  ResetEventCounts();
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, gatt_discovery_attempts_);
+
+  // Simulate an empty set of discovered services.
+  SimulateGattServicesDiscovered(device, {} /* uuids */);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(0u, device->GetGattServices().size());
 }
 
 #if defined(OS_ANDROID) || defined(OS_MACOSX)
@@ -1859,6 +2189,36 @@ TEST_F(BluetoothTest, MAYBE_GetPrimaryServicesByUUID) {
 
     EXPECT_NE(services[0]->GetIdentifier(), services[1]->GetIdentifier());
   }
+}
+
+#if defined(OS_WIN)
+TEST_P(BluetoothTestWinrtOnly, GattConnectedNameChange) {
+#else
+// The SimulateGattNameChange() function is not yet available on other
+// platforms.
+TEST_F(BluetoothTest, DISABLED_GattConnectedNameChange) {
+#endif
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(3);
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  // GetName() returns a base::Optional<std:string> however some backends still
+  // return an empty string rather than nullopt when no name is available.
+  EXPECT_TRUE(!device->GetName() || device->GetName()->empty());
+
+  TestBluetoothAdapterObserver observer(adapter_);
+  SimulateGattNameChange(device, kTestDeviceName);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, observer.device_changed_count());
+  EXPECT_EQ(base::UTF8ToUTF16(kTestDeviceName), device->GetNameForDisplay());
 }
 
 }  // namespace device

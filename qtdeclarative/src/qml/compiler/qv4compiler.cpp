@@ -424,8 +424,14 @@ void QV4::Compiler::JSUnitGenerator::writeFunction(char *f, QV4::Compiler::Conte
     Q_ASSERT(function->lineNumberOffset() == currentOffset);
     currentOffset += function->nLineNumbers * sizeof(CompiledData::CodeOffsetToLine);
 
-
+    function->nTraceInfos = irFunction->nTraceInfos;
     function->nRegisters = irFunction->registerCountInFunction;
+
+    if (!irFunction->labelInfo.empty()) {
+        function->nLabelInfos = quint32(irFunction->labelInfo.size());
+        Q_ASSERT(function->labelInfosOffset() == currentOffset);
+        currentOffset += function->nLabelInfos * sizeof(quint32);
+    }
 
     function->location.line = irFunction->line;
     function->location.column = irFunction->column;
@@ -445,6 +451,11 @@ void QV4::Compiler::JSUnitGenerator::writeFunction(char *f, QV4::Compiler::Conte
 
     // write line numbers
     memcpy(f + function->lineNumberOffset(), irFunction->lineNumberMapping.constData(), irFunction->lineNumberMapping.size()*sizeof(CompiledData::CodeOffsetToLine));
+
+    quint32_le *labels = (quint32_le *)(f + function->labelInfosOffset());
+    for (unsigned u : irFunction->labelInfo) {
+        *labels++ = u;
+    }
 
     // write byte code
     memcpy(f + function->codeOffset, irFunction->code.constData(), irFunction->code.size());
@@ -643,7 +654,7 @@ QV4::CompiledData::Unit QV4::Compiler::JSUnitGenerator::generateHeader(QV4::Comp
         blockAndFunctionOffsets[i] = nextOffset;
 
         quint32 size = QV4::CompiledData::Function::calculateSize(f->arguments.size(), f->locals.size(), f->lineNumberMapping.size(), f->nestedContexts.size(),
-                                                                  f->code.size());
+                                                                  int(f->labelInfo.size()), f->code.size());
         functionSize += size - f->code.size();
         nextOffset += size;
     }

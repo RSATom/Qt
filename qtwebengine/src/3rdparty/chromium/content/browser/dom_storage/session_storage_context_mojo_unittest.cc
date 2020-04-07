@@ -17,6 +17,7 @@
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/services/leveldb/public/cpp/util.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/dom_storage/session_storage_database.h"
 #include "content/browser/dom_storage/test/fake_leveldb_database_error_on_write.h"
 #include "content/browser/dom_storage/test/fake_leveldb_service.h"
@@ -24,15 +25,12 @@
 #include "content/browser/dom_storage/test/storage_area_test_util.h"
 #include "content/common/dom_storage/dom_storage_types.h"
 #include "content/public/browser/session_storage_usage_info.h"
-#include "content/public/common/content_features.h"
 #include "content/public/test/test_utils.h"
 #include "mojo/core/embedder/embedder.h"
 #include "mojo/public/cpp/bindings/strong_associated_binding.h"
-#include "services/file/file_service.h"
 #include "services/file/public/mojom/constants.mojom.h"
-#include "services/service_manager/public/cpp/service_context.h"
-#include "services/service_manager/public/cpp/test/test_service_decorator.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 
 namespace content {
 namespace {
@@ -62,12 +60,16 @@ class SessionStorageContextMojoTest : public test::MojoTestWithFileService {
   }
 
   void SetUp() override {
-    features_.InitAndEnableFeature(features::kMojoSessionStorage);
+    features_.InitAndEnableFeature(blink::features::kOnionSoupDOMStorage);
     mojo::core::SetDefaultProcessErrorCallback(base::BindRepeating(
         &SessionStorageContextMojoTest::OnBadMessage, base::Unretained(this)));
+
+    ChildProcessSecurityPolicyImpl::GetInstance()->Add(kTestProcessId);
   }
 
   void TearDown() override {
+    ChildProcessSecurityPolicyImpl::GetInstance()->Remove(kTestProcessId);
+
     mojo::core::SetDefaultProcessErrorCallback(
         mojo::core::ProcessErrorCallback());
   }
@@ -623,11 +625,10 @@ TEST_F(SessionStorageContextMojoTest, RecreateOnCommitFailure) {
   url::Origin origin3 = url::Origin::Create(GURL("http://example.com"));
 
   test::FakeLevelDBService fake_leveldb_service;
-  ResetFileServiceAndConnector(
-      service_manager::TestServiceDecorator::CreateServiceWithUniqueOverride(
-          file::CreateFileService(), leveldb::mojom::LevelDBService::Name_,
-          base::BindRepeating(&test::FakeLevelDBService::Bind,
-                              base::Unretained(&fake_leveldb_service))));
+  file_service()->GetBinderRegistryForTesting()->AddInterface(
+      leveldb::mojom::LevelDBService::Name_,
+      base::BindRepeating(&test::FakeLevelDBService::Bind,
+                          base::Unretained(&fake_leveldb_service)));
 
   // Open three connections to the database.
   blink::mojom::StorageAreaAssociatedPtr area1;
@@ -687,7 +688,6 @@ TEST_F(SessionStorageContextMojoTest, RecreateOnCommitFailure) {
     area1->Put(leveldb::StringPieceToUint8Vector("key"), value, base::nullopt,
                "source", base::BindLambdaForTesting([&](bool success) {
                  EXPECT_TRUE(success);
-                 put_loop.Quit();
                }));
     area1.FlushForTesting();
     put_loop.RunUntilIdle();
@@ -698,6 +698,7 @@ TEST_F(SessionStorageContextMojoTest, RecreateOnCommitFailure) {
   // Make sure all messages to the DB have been processed (Flush above merely
   // schedules a commit, but there is no guarantee about those having been
   // processed yet).
+  fake_leveldb_service.FlushBindingsForTesting();
   if (mock_db)
     mock_db->FlushForTesting();
   // At this point enough commit failures should have happened to cause the
@@ -760,11 +761,10 @@ TEST_F(SessionStorageContextMojoTest, DontRecreateOnRepeatedCommitFailure) {
   url::Origin origin1 = url::Origin::Create(GURL("http://foobar.com"));
 
   test::FakeLevelDBService fake_leveldb_service;
-  ResetFileServiceAndConnector(
-      service_manager::TestServiceDecorator::CreateServiceWithUniqueOverride(
-          file::CreateFileService(), leveldb::mojom::LevelDBService::Name_,
-          base::BindRepeating(&test::FakeLevelDBService::Bind,
-                              base::Unretained(&fake_leveldb_service))));
+  file_service()->GetBinderRegistryForTesting()->AddInterface(
+      leveldb::mojom::LevelDBService::Name_,
+      base::BindRepeating(&test::FakeLevelDBService::Bind,
+                          base::Unretained(&fake_leveldb_service)));
 
   std::map<std::vector<uint8_t>, std::vector<uint8_t>> test_data;
 
@@ -908,6 +908,78 @@ TEST_F(SessionStorageContextMojoTest, GetUsage) {
   loop.Run();
 }
 
+// Tests that a SessionStorageContext still works if the database is
+// disconnected.
+TEST_F(SessionStorageContextMojoTest, MojoConnectionDisconnects) {
+  std::string namespace_id = base::GenerateGUID();
+  url::Origin origin = url::Origin::Create(GURL("http://foobar.com"));
+  auto key = StdStringToUint8Vector("key");
+  auto value = StdStringToUint8Vector("value");
+
+  std::map<std::vector<uint8_t>, std::vector<uint8_t>> test_data;
+  FakeLevelDBDatabase db(&test_data);
+  mojo::AssociatedBinding<leveldb::mojom::LevelDBDatabase> db_binding(&db);
+  leveldb::mojom::LevelDBDatabaseAssociatedPtr database_ptr;
+  leveldb::mojom::LevelDBDatabaseAssociatedRequest request =
+      MakeRequestAssociatedWithDedicatedPipe(&database_ptr);
+  context()->SetDatabaseForTesting(std::move(database_ptr));
+  db_binding.Bind(std::move(request));
+
+  // Put some data.
+  context()->CreateSessionNamespace(namespace_id);
+  blink::mojom::SessionStorageNamespacePtr ss_namespace;
+  context()->OpenSessionStorage(kTestProcessId, namespace_id,
+                                GetBadMessageCallback(),
+                                mojo::MakeRequest(&ss_namespace));
+  blink::mojom::StorageAreaAssociatedPtr area;
+  ss_namespace->OpenArea(origin, mojo::MakeRequest(&area));
+  EXPECT_TRUE(test::PutSync(area.get(), key, value, base::nullopt, "source"));
+  std::vector<uint8_t> result;
+
+  std::vector<blink::mojom::KeyValuePtr> data;
+  ASSERT_TRUE(test::GetAllSync(area.get(), &data));
+  EXPECT_EQ(1ul, data.size());
+
+  // Close the database connection.
+  db_binding.Close();
+  base::RunLoop().RunUntilIdle();
+
+  context()->CreateSessionNamespace(namespace_id);
+  context()->OpenSessionStorage(kTestProcessId, namespace_id,
+                                GetBadMessageCallback(),
+                                mojo::MakeRequest(&ss_namespace));
+  ss_namespace->OpenArea(origin, mojo::MakeRequest(&area));
+
+  // We can't access the data anymore.
+  ASSERT_TRUE(test::GetAllSync(area.get(), &data));
+  EXPECT_EQ(0ul, data.size());
+
+  // Check that session storage still works without a database.
+  EXPECT_TRUE(test::PutSync(area.get(), key, value, base::nullopt, "source"));
+  ASSERT_TRUE(test::GetAllSync(area.get(), &data));
+  EXPECT_EQ(1ul, data.size());
+
+  context()->DeleteStorage(origin, namespace_id, base::DoNothing());
+  ASSERT_TRUE(test::GetAllSync(area.get(), &data));
+  EXPECT_EQ(0ul, data.size());
+
+  EXPECT_TRUE(test::PutSync(area.get(), key, value, base::nullopt, "source"));
+  ASSERT_TRUE(test::GetAllSync(area.get(), &data));
+  EXPECT_EQ(1ul, data.size());
+  context()->DeleteSessionNamespace(namespace_id, true);
+  context()->ScavengeUnusedNamespaces(base::DoNothing());
+  ShutdownContext();
+
+  context()->CreateSessionNamespace(namespace_id);
+  context()->OpenSessionStorage(kTestProcessId, namespace_id,
+                                GetBadMessageCallback(),
+                                mojo::MakeRequest(&ss_namespace));
+  ss_namespace->OpenArea(origin, mojo::MakeRequest(&area));
+
+  ASSERT_TRUE(test::GetAllSync(area.get(), &data));
+  EXPECT_EQ(0ul, data.size());
+}
+
 TEST_F(SessionStorageContextMojoTest, DeleteStorage) {
   std::string namespace_id1 = base::GenerateGUID();
   url::Origin origin1 = url::Origin::Create(GURL("http://foobar.com"));
@@ -926,7 +998,7 @@ TEST_F(SessionStorageContextMojoTest, DeleteStorage) {
       leveldb_n1_o1.get(), leveldb::StringPieceToUint8Vector("key1"),
       leveldb::StringPieceToUint8Vector("value1"), base::nullopt, "source1"));
 
-  context()->DeleteStorage(origin1, namespace_id1);
+  context()->DeleteStorage(origin1, namespace_id1, base::DoNothing());
 
   std::vector<blink::mojom::KeyValuePtr> data;
   ASSERT_TRUE(test::GetAllSync(leveldb_n1_o1.get(), &data));
@@ -943,7 +1015,7 @@ TEST_F(SessionStorageContextMojoTest, DeleteStorage) {
   ShutdownContext();
 
   // This restarts the context, then deletes the storage.
-  context()->DeleteStorage(origin1, namespace_id1);
+  context()->DeleteStorage(origin1, namespace_id1, base::DoNothing());
 
   context()->CreateSessionNamespace(namespace_id1);
   context()->OpenSessionStorage(kTestProcessId, namespace_id1,

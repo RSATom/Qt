@@ -24,14 +24,14 @@
 #include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/controller_service_worker.mojom.h"
 #include "content/common/service_worker/embedded_worker.mojom.h"
-#include "content/common/service_worker/service_worker.mojom.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/controller_service_worker.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_installed_scripts_manager.mojom.h"
-#include "third_party/blink/public/platform/modules/cache_storage/cache_storage.mojom.h"
+#include "third_party/blink/public/web/web_console_message.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -194,11 +194,21 @@ class CONTENT_EXPORT EmbeddedWorkerInstance
   void OnWorkerVersionDoomed();
 
   // Add message to the devtools console.
-  void AddMessageToConsole(blink::WebConsoleMessage::Level level,
+  void AddMessageToConsole(blink::mojom::ConsoleMessageLevel level,
                            const std::string& message);
 
   static std::string StatusToString(EmbeddedWorkerStatus status);
   static std::string StartingPhaseToString(StartingPhase phase);
+
+  using CreateNetworkFactoryCallback = base::RepeatingCallback<void(
+      network::mojom::URLLoaderFactoryRequest request,
+      int process_id,
+      network::mojom::URLLoaderFactoryPtrInfo original_factory)>;
+  // Allows overriding the URLLoaderFactory creation for loading subresources
+  // from service workers (i.e., fetch()) and for loading non-installed service
+  // worker scripts.
+  static void SetNetworkFactoryForTesting(
+      const CreateNetworkFactoryCallback& url_loader_factory_callback);
 
   // Forces this instance into STOPPED status and releases any state about the
   // running worker. Called when connection with the renderer died or the
@@ -207,10 +217,15 @@ class CONTENT_EXPORT EmbeddedWorkerInstance
   // worker.
   void Detach();
 
+  // Examine the current state of the worker in order to determine if it should
+  // require foreground priority or not.  This should be called whenever state
+  // changes such that the decision might change.
+  void UpdateForegroundPriority();
+
   base::WeakPtr<EmbeddedWorkerInstance> AsWeakPtr();
 
  private:
-  typedef base::ObserverList<Listener> ListenerList;
+  typedef base::ObserverList<Listener>::Unchecked ListenerList;
   class StartTask;
   class WorkerProcessHandle;
   friend class EmbeddedWorkerRegistry;
@@ -253,7 +268,7 @@ class CONTENT_EXPORT EmbeddedWorkerInstance
 
   // Implements mojom::EmbeddedWorkerInstanceHost.
   // These functions all run on the IO thread.
-  void RequestTermination() override;
+  void RequestTermination(RequestTerminationCallback callback) override;
   void CountFeature(blink::mojom::WebFeature feature) override;
   void OnReadyForInspection() override;
   void OnScriptLoaded() override;
@@ -284,6 +299,11 @@ class CONTENT_EXPORT EmbeddedWorkerInstance
   void OnSetupFailed(StatusCallback callback,
                      blink::ServiceWorkerStatusCode status);
 
+  // Called when a foreground service worker is added/removed in a process.
+  // Called on the IO thread and dispatches task to the UI thread.
+  void NotifyForegroundServiceWorkerAdded();
+  void NotifyForegroundServiceWorkerRemoved();
+
   base::WeakPtr<ServiceWorkerContextCore> context_;
   scoped_refptr<EmbeddedWorkerRegistry> registry_;
   ServiceWorkerVersion* owner_version_;
@@ -313,6 +333,10 @@ class CONTENT_EXPORT EmbeddedWorkerInstance
   // True if the script load request accessed the network. If the script was
   // served from HTTPCache or ServiceWorkerDatabase this value is false.
   bool network_accessed_for_script_;
+
+  // True if the RenderProcessHost has been notified that this is a service
+  // worker requiring foreground priority.
+  bool foreground_notified_;
 
   ListenerList listener_list_;
   std::unique_ptr<DevToolsProxy> devtools_proxy_;

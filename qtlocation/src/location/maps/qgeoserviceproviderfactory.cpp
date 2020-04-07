@@ -80,9 +80,9 @@ QGeoCodingManagerEngine *QGeoServiceProviderFactory::createGeocodingManagerEngin
                                                                                   QGeoServiceProvider::Error *error,
                                                                                   QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -106,9 +106,9 @@ QGeoMappingManagerEngine *QGeoServiceProviderFactory::createMappingManagerEngine
                                                                                  QGeoServiceProvider::Error *error,
                                                                                  QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -131,9 +131,9 @@ QGeoRoutingManagerEngine *QGeoServiceProviderFactory::createRoutingManagerEngine
                                                                                  QString *errorString) const
 
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -156,9 +156,9 @@ QPlaceManagerEngine *QGeoServiceProviderFactory::createPlaceManagerEngine(const 
                                                                           QString *errorString) const
 
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -200,9 +200,9 @@ Destroys this QGeoServiceProviderFactoryV2 instance.
 */
 QNavigationManagerEngine *QGeoServiceProviderFactoryV2::createNavigationManagerEngine(const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -216,7 +216,7 @@ QNavigationManagerEngine *QGeoServiceProviderFactoryV2::createNavigationManagerE
 */
 void QGeoServiceProviderFactoryV3::setQmlEngine(QQmlEngine *engine)
 {
-    Q_UNUSED(engine)
+    Q_UNUSED(engine);
 }
 
 QT_END_NAMESPACE

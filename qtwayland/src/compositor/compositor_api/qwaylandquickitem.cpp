@@ -64,7 +64,7 @@
 #include <QtCore/QMutexLocker>
 #include <QtCore/QMutex>
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 #include <QThread>
 
 #ifndef GL_TEXTURE_EXTERNAL_OES
@@ -295,7 +295,8 @@ public:
                 }
 
                 auto texture = buffer.toOpenGLTexture();
-                m_sgTex = surfaceItem->window()->createTextureFromId(texture->textureId() , QSize(surfaceItem->width(), surfaceItem->height()), opt);
+                auto size = surface->bufferSize();
+                m_sgTex = surfaceItem->window()->createTextureFromId(texture->textureId(), size, opt);
             }
         }
         emit textureChanged();
@@ -414,7 +415,11 @@ QWaylandSurface *QWaylandQuickItem::surface() const
 void QWaylandQuickItem::setSurface(QWaylandSurface *surface)
 {
     Q_D(QWaylandQuickItem);
+    QWaylandCompositor *oldComp = d->view->surface() ? d->view->surface()->compositor() : nullptr;
     d->view->setSurface(surface);
+    QWaylandCompositor *newComp = d->view->surface() ? d->view->surface()->compositor() : nullptr;
+    if (oldComp != newComp)
+        emit compositorChanged();
     update();
 }
 
@@ -465,7 +470,7 @@ void QWaylandQuickItem::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (!inputRegionContains(event->pos())) {
+    if (!inputRegionContains(event->localPos())) {
         event->ignore();
         return;
     }
@@ -477,7 +482,7 @@ void QWaylandQuickItem::mousePressEvent(QMouseEvent *event)
 
     seat->sendMouseMoveEvent(d->view.data(), mapToSurface(event->localPos()), event->windowPos());
     seat->sendMousePressEvent(event->button());
-    d->hoverPos = event->pos();
+    d->hoverPos = event->localPos();
 }
 
 /*!
@@ -503,7 +508,7 @@ void QWaylandQuickItem::mouseMoveEvent(QMouseEvent *event)
 #endif // QT_CONFIG(draganddrop)
         {
             seat->sendMouseMoveEvent(d->view.data(), mapToSurface(event->localPos()), event->windowPos());
-            d->hoverPos = event->pos();
+            d->hoverPos = event->localPos();
         }
     } else {
         emit mouseMove(event->windowPos());
@@ -540,14 +545,14 @@ void QWaylandQuickItem::mouseReleaseEvent(QMouseEvent *event)
 void QWaylandQuickItem::hoverEnterEvent(QHoverEvent *event)
 {
     Q_D(QWaylandQuickItem);
-    if (!inputRegionContains(event->pos())) {
+    if (!inputRegionContains(event->posF())) {
         event->ignore();
         return;
     }
     if (d->shouldSendInputEvents()) {
         QWaylandSeat *seat = compositor()->seatFor(event);
-        seat->sendMouseMoveEvent(d->view.data(), event->pos(), mapToScene(event->pos()));
-        d->hoverPos = event->pos();
+        seat->sendMouseMoveEvent(d->view.data(), event->posF(), mapToScene(event->posF()));
+        d->hoverPos = event->posF();
     } else {
         event->ignore();
     }
@@ -560,16 +565,16 @@ void QWaylandQuickItem::hoverMoveEvent(QHoverEvent *event)
 {
     Q_D(QWaylandQuickItem);
     if (surface()) {
-        if (!inputRegionContains(event->pos())) {
+        if (!inputRegionContains(event->posF())) {
             event->ignore();
             return;
         }
     }
     if (d->shouldSendInputEvents()) {
         QWaylandSeat *seat = compositor()->seatFor(event);
-        if (event->pos() != d->hoverPos) {
-            seat->sendMouseMoveEvent(d->view.data(), mapToSurface(event->pos()), mapToScene(event->pos()));
-            d->hoverPos = event->pos();
+        if (event->posF() != d->hoverPos) {
+            seat->sendMouseMoveEvent(d->view.data(), mapToSurface(event->posF()), mapToScene(event->posF()));
+            d->hoverPos = event->posF();
         }
     } else {
         event->ignore();
@@ -598,7 +603,7 @@ void QWaylandQuickItem::wheelEvent(QWheelEvent *event)
 {
     Q_D(QWaylandQuickItem);
     if (d->shouldSendInputEvents()) {
-        if (!inputRegionContains(event->pos())) {
+        if (!inputRegionContains(event->posF())) {
             event->ignore();
             return;
         }
@@ -651,10 +656,10 @@ void QWaylandQuickItem::touchEvent(QTouchEvent *event)
     if (d->shouldSendInputEvents() && d->touchEventsEnabled) {
         QWaylandSeat *seat = compositor()->seatFor(event);
 
-        QPoint pointPos;
+        QPointF pointPos;
         const QList<QTouchEvent::TouchPoint> &points = event->touchPoints();
         if (!points.isEmpty())
-            pointPos = points.at(0).pos().toPoint();
+            pointPos = points.at(0).pos();
 
         if (event->type() == QEvent::TouchBegin && !inputRegionContains(pointPos)) {
             event->ignore();
@@ -821,7 +826,15 @@ void QWaylandQuickItem::setOutput(QWaylandOutput *output)
 }
 
 /*!
- * \property QWaylandQuickItem::isBufferLocked
+ * \qmlproperty bool QtWaylandCompositor::WaylandQuickItem::bufferLocked
+ *
+ * This property holds whether the item's buffer is currently locked. As long as
+ * the buffer is locked, it will not be released and returned to the client.
+ *
+ * The default is false.
+ */
+/*!
+ * \property QWaylandQuickItem::bufferLocked
  *
  * This property holds whether the item's buffer is currently locked. As long as
  * the buffer is locked, it will not be released and returned to the client.
@@ -886,7 +899,7 @@ void QWaylandQuickItem::handleSurfaceChanged()
     if (d->oldSurface) {
         disconnect(d->oldSurface.data(), &QWaylandSurface::hasContentChanged, this, &QWaylandQuickItem::surfaceMappedChanged);
         disconnect(d->oldSurface.data(), &QWaylandSurface::parentChanged, this, &QWaylandQuickItem::parentChanged);
-        disconnect(d->oldSurface.data(), &QWaylandSurface::sizeChanged, this, &QWaylandQuickItem::updateSize);
+        disconnect(d->oldSurface.data(), &QWaylandSurface::destinationSizeChanged, this, &QWaylandQuickItem::updateSize);
         disconnect(d->oldSurface.data(), &QWaylandSurface::bufferScaleChanged, this, &QWaylandQuickItem::updateSize);
         disconnect(d->oldSurface.data(), &QWaylandSurface::configure, this, &QWaylandQuickItem::updateBuffer);
         disconnect(d->oldSurface.data(), &QWaylandSurface::redraw, this, &QQuickItem::update);
@@ -903,7 +916,7 @@ void QWaylandQuickItem::handleSurfaceChanged()
     if (QWaylandSurface *newSurface = d->view->surface()) {
         connect(newSurface, &QWaylandSurface::hasContentChanged, this, &QWaylandQuickItem::surfaceMappedChanged);
         connect(newSurface, &QWaylandSurface::parentChanged, this, &QWaylandQuickItem::parentChanged);
-        connect(newSurface, &QWaylandSurface::sizeChanged, this, &QWaylandQuickItem::updateSize);
+        connect(newSurface, &QWaylandSurface::destinationSizeChanged, this, &QWaylandQuickItem::updateSize);
         connect(newSurface, &QWaylandSurface::bufferScaleChanged, this, &QWaylandQuickItem::updateSize);
         connect(newSurface, &QWaylandSurface::configure, this, &QWaylandQuickItem::updateBuffer);
         connect(newSurface, &QWaylandSurface::redraw, this, &QQuickItem::update);
@@ -992,7 +1005,7 @@ void QWaylandQuickItem::updateSize()
 
     QSize size(0, 0);
     if (surface())
-        size = surface()->size() * (d->scaleFactor() / surface()->bufferScale());
+        size = surface()->destinationSize() * d->scaleFactor();
 
     setImplicitSize(size.width(), size.height());
     if (d->sizeFollowsSurface)
@@ -1039,7 +1052,7 @@ void QWaylandQuickItem::setFocusOnClick(bool focus)
 bool QWaylandQuickItem::inputRegionContains(const QPointF &localPosition) const
 {
     if (QWaylandSurface *s = surface())
-        return s->inputRegionContains(mapToSurface(localPosition).toPoint());
+        return s->inputRegionContains(mapToSurface(localPosition));
     return false;
 }
 
@@ -1054,6 +1067,14 @@ bool QWaylandQuickItem::inputRegionContains(const QPointF &localPosition)
 }
 
 /*!
+ * \qmlmethod point WaylandQuickItem::mapToSurface(point point)
+ *
+ * Maps the given \a point in this item's coordinate system to the equivalent
+ * point within the Wayland surface's coordinate system, and returns the mapped
+ * coordinate.
+ */
+
+/*!
  * Maps the given \a point in this item's coordinate system to the equivalent
  * point within the Wayland surface's coordinate system, and returns the mapped
  * coordinate.
@@ -1061,13 +1082,39 @@ bool QWaylandQuickItem::inputRegionContains(const QPointF &localPosition)
 QPointF QWaylandQuickItem::mapToSurface(const QPointF &point) const
 {
     Q_D(const QWaylandQuickItem);
-    if (!surface() || surface()->size().isEmpty())
+    if (!surface() || surface()->destinationSize().isEmpty())
         return point / d->scaleFactor();
 
-    qreal xScale = width() / surface()->size().width() * surface()->bufferScale();
-    qreal yScale = height() / surface()->size().height() * surface()->bufferScale();
+    qreal xScale = width() / surface()->destinationSize().width();
+    qreal yScale = height() / surface()->destinationSize().height();
 
     return QPointF(point.x() / xScale, point.y() / yScale);
+}
+
+/*!
+ * \qmlmethod point WaylandQuickItem::mapFromSurface(point point)
+ * \since 5.13
+ *
+ * Maps the given \a point in the Wayland surfaces's coordinate system to the equivalent
+ * point within this item's coordinate system, and returns the mapped coordinate.
+ */
+
+/*!
+ * Maps the given \a point in the Wayland surfaces's coordinate system to the equivalent
+ * point within this item's coordinate system, and returns the mapped coordinate.
+ *
+ * \since 5.13
+ */
+QPointF QWaylandQuickItem::mapFromSurface(const QPointF &point) const
+{
+    Q_D(const QWaylandQuickItem);
+    if (!surface() || surface()->destinationSize().isEmpty())
+        return point * d->scaleFactor();
+
+    qreal xScale = width() / surface()->destinationSize().width();
+    qreal yScale = height() / surface()->destinationSize().height();
+
+    return QPointF(point.x() * xScale, point.y() * yScale);
 }
 
 /*!
@@ -1245,7 +1292,7 @@ void QWaylandQuickItem::updateInputMethod(Qt::InputMethodQueries queries)
  * If an animation is started, bufferLocked should be set to ensure the item keeps its content
  * until the animation finishes
  *
- * \sa isBufferLocked
+ * \sa bufferLocked
  */
 
 /*!
@@ -1258,7 +1305,7 @@ void QWaylandQuickItem::updateInputMethod(Qt::InputMethodQueries queries)
  * If an animation is started, bufferLocked should be set to ensure the item keeps its content
  * until the animation finishes
  *
- * \sa QWaylandQuickkItem::bufferLocked
+ * \sa QWaylandQuickItem::bufferLocked
  */
 
 QSGNode *QWaylandQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data)
@@ -1270,7 +1317,7 @@ QSGNode *QWaylandQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
     if (d->view->isBufferLocked() && !bufferHasContent && d->paintEnabled)
         return oldNode;
 
-    if (!bufferHasContent || !d->paintEnabled) {
+    if (!bufferHasContent || !d->paintEnabled || !surface()) {
         delete oldNode;
         return nullptr;
     }
@@ -1300,6 +1347,10 @@ QSGNode *QWaylandQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
 
         d->provider->setSmooth(smooth());
         node->setRect(rect);
+
+        qreal scale = surface()->bufferScale();
+        QRectF source = surface()->sourceGeometry();
+        node->setSourceRect(QRectF(source.topLeft() * scale, source.size() * scale));
 
         return node;
     } else {

@@ -282,11 +282,6 @@ void CountVideoConstraintUses(ExecutionContext* context,
           constraints, &WebMediaTrackConstraintSet::goog_noise_reduction)) {
     counter.Count(WebFeature::kMediaStreamConstraintsGoogNoiseReduction);
   }
-  if (RequestUsesNumericConstraint(
-          constraints,
-          &WebMediaTrackConstraintSet::goog_power_line_frequency)) {
-    counter.Count(WebFeature::kMediaStreamConstraintsGoogPowerLineFrequency);
-  }
 
   UseCounter::Count(context, WebFeature::kMediaStreamConstraintsVideo);
   if (counter.IsUnconstrained()) {
@@ -303,12 +298,12 @@ WebMediaConstraints ParseOptions(ExecutionContext* context,
   if (options.IsNull()) {
     // Do nothing.
   } else if (options.IsMediaTrackConstraints()) {
-    constraints = MediaConstraintsImpl::Create(
+    constraints = media_constraints_impl::Create(
         context, options.GetAsMediaTrackConstraints(), error_state);
   } else {
     DCHECK(options.IsBoolean());
     if (options.GetAsBoolean()) {
-      constraints = MediaConstraintsImpl::Create();
+      constraints = media_constraints_impl::Create();
     }
   }
 
@@ -322,9 +317,13 @@ class UserMediaRequest::V8Callbacks final : public UserMediaRequest::Callbacks {
   static V8Callbacks* Create(
       V8NavigatorUserMediaSuccessCallback* success_callback,
       V8NavigatorUserMediaErrorCallback* error_callback) {
-    return new V8Callbacks(success_callback, error_callback);
+    return MakeGarbageCollected<V8Callbacks>(success_callback, error_callback);
   }
 
+  V8Callbacks(V8NavigatorUserMediaSuccessCallback* success_callback,
+              V8NavigatorUserMediaErrorCallback* error_callback)
+      : success_callback_(ToV8PersistentCallbackFunction(success_callback)),
+        error_callback_(ToV8PersistentCallbackFunction(error_callback)) {}
   ~V8Callbacks() override = default;
 
   void Trace(blink::Visitor* visitor) override {
@@ -343,11 +342,6 @@ class UserMediaRequest::V8Callbacks final : public UserMediaRequest::Callbacks {
   }
 
  private:
-  V8Callbacks(V8NavigatorUserMediaSuccessCallback* success_callback,
-              V8NavigatorUserMediaErrorCallback* error_callback)
-      : success_callback_(ToV8PersistentCallbackFunction(success_callback)),
-        error_callback_(ToV8PersistentCallbackFunction(error_callback)) {}
-
   // As Blink does not hold a UserMediaRequest and lets content/ hold it,
   // we cannot use wrapper-tracing to keep the underlying callback functions.
   // Plus, it's guaranteed that the callbacks are one-shot type (not repeated
@@ -362,18 +356,65 @@ class UserMediaRequest::V8Callbacks final : public UserMediaRequest::Callbacks {
 UserMediaRequest* UserMediaRequest::Create(
     ExecutionContext* context,
     UserMediaController* controller,
-    const MediaStreamConstraints& options,
+    WebUserMediaRequest::MediaType media_type,
+    const MediaStreamConstraints* options,
     Callbacks* callbacks,
     MediaErrorState& error_state) {
   WebMediaConstraints audio =
-      ParseOptions(context, options.audio(), error_state);
+      ParseOptions(context, options->audio(), error_state);
   if (error_state.HadException())
     return nullptr;
 
   WebMediaConstraints video =
-      ParseOptions(context, options.video(), error_state);
+      ParseOptions(context, options->video(), error_state);
   if (error_state.HadException())
     return nullptr;
+
+  if (media_type == WebUserMediaRequest::MediaType::kDisplayMedia) {
+    // https://w3c.github.io/mediacapture-screen-share/#navigator-additions
+    // 5.1 Navigator Additions
+    // 1. Let constraints be the method's first argument.
+    // 2. For each member present in constraints whose value, value, is a
+    // dictionary, run the following steps:
+    //   1. If value contains a member named advanced, return a promise rejected
+    //   with a newly created TypeError.
+    //   2. If value contains a member which in turn is a dictionary containing
+    //   a member named either min or exact, return a promise rejected with a
+    //   newly created TypeError.
+    // 3. Let requestedMediaTypes be the set of media types in constraints with
+    // either a dictionary value or a value of true.
+    // 4. If requestedMediaTypes is the empty set, set requestedMediaTypes to a
+    // set containing "video".
+    if ((!audio.IsNull() && !audio.Advanced().empty()) ||
+        (!video.IsNull() && !video.Advanced().empty())) {
+      error_state.ThrowTypeError("Advanced constraints are not supported");
+      return nullptr;
+    }
+    if ((!audio.IsNull() && audio.Basic().HasMin()) ||
+        (!video.IsNull() && video.Basic().HasMin())) {
+      error_state.ThrowTypeError("min constraints are not supported");
+      return nullptr;
+    }
+    if ((!audio.IsNull() && audio.Basic().HasExact()) ||
+        (!video.IsNull() && video.Basic().HasExact())) {
+      error_state.ThrowTypeError("exact constraints are not supported");
+      return nullptr;
+    }
+    if (audio.IsNull() && video.IsNull()) {
+      video = ParseOptions(context,
+                           BooleanOrMediaTrackConstraints::FromBoolean(true),
+                           error_state);
+      if (error_state.HadException())
+        return nullptr;
+    }
+
+    // TODO(emircan): Enable when audio capture is actually supported, see
+    // https://crbug.com/896333.
+    if (!options->audio().IsNull() && options->audio().GetAsBoolean()) {
+      error_state.ThrowTypeError("Audio capture is not supported");
+      return nullptr;
+    }
+  }
 
   if (audio.IsNull() && video.IsNull()) {
     error_state.ThrowTypeError(
@@ -386,44 +427,49 @@ UserMediaRequest* UserMediaRequest::Create(
   if (!video.IsNull())
     CountVideoConstraintUses(context, video);
 
-  return new UserMediaRequest(context, controller, audio, video, callbacks);
+  return MakeGarbageCollected<UserMediaRequest>(context, controller, media_type,
+                                                audio, video, callbacks);
 }
 
 UserMediaRequest* UserMediaRequest::Create(
     ExecutionContext* context,
     UserMediaController* controller,
-    const MediaStreamConstraints& options,
+    const MediaStreamConstraints* options,
     V8NavigatorUserMediaSuccessCallback* success_callback,
     V8NavigatorUserMediaErrorCallback* error_callback,
     MediaErrorState& error_state) {
-  return Create(context, controller, options,
-                V8Callbacks::Create(success_callback, error_callback),
+  return Create(context, controller, WebUserMediaRequest::MediaType::kUserMedia,
+                options, V8Callbacks::Create(success_callback, error_callback),
                 error_state);
 }
 
 UserMediaRequest* UserMediaRequest::CreateForTesting(
     const WebMediaConstraints& audio,
     const WebMediaConstraints& video) {
-  return new UserMediaRequest(nullptr, nullptr, audio, video, nullptr);
+  return MakeGarbageCollected<UserMediaRequest>(
+      nullptr, nullptr, WebUserMediaRequest::MediaType::kUserMedia, audio,
+      video, nullptr);
 }
 
 UserMediaRequest::UserMediaRequest(ExecutionContext* context,
                                    UserMediaController* controller,
+                                   WebUserMediaRequest::MediaType media_type,
                                    WebMediaConstraints audio,
                                    WebMediaConstraints video,
                                    Callbacks* callbacks)
     : ContextLifecycleObserver(context),
+      media_type_(media_type),
       audio_(audio),
       video_(video),
       should_disable_hardware_noise_suppression_(
-          OriginTrials::DisableHardwareNoiseSuppressionEnabled(context)),
+          origin_trials::DisableHardwareNoiseSuppressionEnabled(context)),
       controller_(controller),
       callbacks_(callbacks) {
   if (should_disable_hardware_noise_suppression_) {
     UseCounter::Count(context,
                       WebFeature::kUserMediaDisableHardwareNoiseSuppression);
   }
-  if (OriginTrials::ExperimentalHardwareEchoCancellationEnabled(context)) {
+  if (origin_trials::ExperimentalHardwareEchoCancellationEnabled(context)) {
     UseCounter::Count(
         context,
         WebFeature::kUserMediaEnableExperimentalHardwareEchoCancellation);
@@ -431,6 +477,10 @@ UserMediaRequest::UserMediaRequest(ExecutionContext* context,
 }
 
 UserMediaRequest::~UserMediaRequest() = default;
+
+WebUserMediaRequest::MediaType UserMediaRequest::MediaRequestType() const {
+  return media_type_;
+}
 
 bool UserMediaRequest::Audio() const {
   return !audio_.IsNull();
@@ -463,27 +513,17 @@ bool UserMediaRequest::IsSecureContextUse(String& error_message) {
 
     // Feature policy deprecation messages.
     if (Audio()) {
-      if (RuntimeEnabledFeatures::FeaturePolicyForPermissionsEnabled()) {
-        if (!document->GetFrame()->IsFeatureEnabled(
-                mojom::FeaturePolicyFeature::kMicrophone)) {
-          UseCounter::Count(
-              document, WebFeature::kMicrophoneDisabledByFeaturePolicyEstimate);
-        }
-      } else {
-        Deprecation::CountDeprecationFeaturePolicy(
-            *document, mojom::FeaturePolicyFeature::kMicrophone);
+      if (!document->IsFeatureEnabled(mojom::FeaturePolicyFeature::kMicrophone,
+                                      ReportOptions::kReportOnFailure)) {
+        UseCounter::Count(
+            document, WebFeature::kMicrophoneDisabledByFeaturePolicyEstimate);
       }
     }
     if (Video()) {
-      if (RuntimeEnabledFeatures::FeaturePolicyForPermissionsEnabled()) {
-        if (!document->GetFrame()->IsFeatureEnabled(
-                mojom::FeaturePolicyFeature::kCamera)) {
-          UseCounter::Count(document,
-                            WebFeature::kCameraDisabledByFeaturePolicyEstimate);
-        }
-      } else {
-        Deprecation::CountDeprecationFeaturePolicy(
-            *document, mojom::FeaturePolicyFeature::kCamera);
+      if (!document->IsFeatureEnabled(mojom::FeaturePolicyFeature::kCamera,
+                                      ReportOptions::kReportOnFailure)) {
+        UseCounter::Count(document,
+                          WebFeature::kCameraDisabledByFeaturePolicyEstimate);
       }
     }
 
@@ -504,11 +544,7 @@ bool UserMediaRequest::IsSecureContextUse(String& error_message) {
 }
 
 Document* UserMediaRequest::OwnerDocument() {
-  if (ExecutionContext* context = GetExecutionContext()) {
-    return ToDocument(context);
-  }
-
-  return nullptr;
+  return To<Document>(GetExecutionContext());
 }
 
 void UserMediaRequest::Start() {
@@ -526,14 +562,12 @@ void UserMediaRequest::Succeed(MediaStreamDescriptor* stream_descriptor) {
   MediaStreamTrackVector audio_tracks = stream->getAudioTracks();
   for (MediaStreamTrackVector::iterator iter = audio_tracks.begin();
        iter != audio_tracks.end(); ++iter) {
-    (*iter)->Component()->Source()->SetConstraints(audio_);
     (*iter)->SetConstraints(audio_);
   }
 
   MediaStreamTrackVector video_tracks = stream->getVideoTracks();
   for (MediaStreamTrackVector::iterator iter = video_tracks.begin();
        iter != video_tracks.end(); ++iter) {
-    (*iter)->Component()->Source()->SetConstraints(video_);
     (*iter)->SetConstraints(video_);
   }
 
@@ -562,6 +596,7 @@ void UserMediaRequest::Fail(WebUserMediaRequest::Error name,
     case WebUserMediaRequest::Error::kInvalidState:
     case WebUserMediaRequest::Error::kFailedDueToShutdown:
     case WebUserMediaRequest::Error::kKillSwitchOn:
+    case WebUserMediaRequest::Error::kSystemPermissionDenied:
       exception_code = DOMExceptionCode::kNotAllowedError;
       break;
     case WebUserMediaRequest::Error::kDevicesNotFound:

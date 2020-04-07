@@ -12,7 +12,7 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
@@ -86,7 +86,7 @@ scoped_refptr<base::RefCountedData<GURL>> GeneratePNGDataUrl(
     ui::ScaleFactor scale_factor) {
   float scale = ui::GetScaleForScaleFactor(scale_factor);
   std::vector<unsigned char> output;
-  gfx::PNGCodec::EncodeBGRASkBitmap(image.GetRepresentation(scale).sk_bitmap(),
+  gfx::PNGCodec::EncodeBGRASkBitmap(image.GetRepresentation(scale).GetBitmap(),
                                     false /* discard_transparency */, &output);
   std::string encoded;
   base::Base64Encode(

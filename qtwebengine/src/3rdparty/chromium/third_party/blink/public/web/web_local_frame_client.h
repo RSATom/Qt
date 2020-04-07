@@ -36,9 +36,9 @@
 
 #include "base/unguessable_token.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/frame/frame_owner_element_type.h"
 #include "third_party/blink/public/common/frame/sandbox_flags.h"
 #include "third_party/blink/public/common/frame/user_activation_update_type.h"
-#include "third_party/blink/public/mojom/page/page_visibility_state.mojom-shared.h"
 #include "third_party/blink/public/platform/blame_context.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider.h"
 #include "third_party/blink/public/platform/web_application_cache_host.h"
@@ -47,7 +47,6 @@
 #include "third_party/blink/public/platform/web_content_security_policy_struct.h"
 #include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
-#include "third_party/blink/public/platform/web_file_system.h"
 #include "third_party/blink/public/platform/web_file_system_type.h"
 #include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "third_party/blink/public/platform/web_loading_behavior_flag.h"
@@ -62,18 +61,19 @@
 #include "third_party/blink/public/web/web_ax_object.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_dom_message_event.h"
-#include "third_party/blink/public/web/web_file_chooser_params.h"
 #include "third_party/blink/public/web/web_form_element.h"
 #include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_frame_load_type.h"
 #include "third_party/blink/public/web/web_frame_owner_properties.h"
-#include "third_party/blink/public/web/web_global_object_reuse_policy.h"
 #include "third_party/blink/public/web/web_history_commit_type.h"
 #include "third_party/blink/public/web/web_history_item.h"
 #include "third_party/blink/public/web/web_icon_url.h"
+#include "third_party/blink/public/web/web_navigation_params.h"
 #include "third_party/blink/public/web/web_navigation_policy.h"
 #include "third_party/blink/public/web/web_navigation_type.h"
 #include "third_party/blink/public/web/web_text_direction.h"
 #include "third_party/blink/public/web/web_triggering_event_info.h"
+#include "ui/accessibility/ax_enums.mojom-shared.h"
 #include "v8/include/v8.h"
 
 namespace service_manager {
@@ -96,13 +96,13 @@ class WebDocumentLoader;
 class WebEncryptedMediaClient;
 class WebExternalPopupMenu;
 class WebExternalPopupMenuClient;
-class WebFileChooserCompletion;
 class WebLayerTreeView;
 class WebLocalFrame;
 class WebMediaPlayer;
 class WebMediaPlayerClient;
 class WebMediaPlayerEncryptedMediaClient;
 class WebMediaPlayerSource;
+class WebNavigationControl;
 class WebServiceWorkerProvider;
 class WebPlugin;
 class WebPushClient;
@@ -130,8 +130,9 @@ class BLINK_EXPORT WebLocalFrameClient {
   // Initialization ------------------------------------------------------
   // Called exactly once during construction to notify the client about the
   // created WebLocalFrame. Guaranteed to be invoked before any other
-  // WebLocalFrameClient callbacks.
-  virtual void BindToFrame(WebLocalFrame*) {}
+  // WebLocalFrameClient callbacks. Note this takes WebNavigationControl
+  // to give the client full control over frame's navigation.
+  virtual void BindToFrame(WebNavigationControl*) {}
 
   // Factory methods -----------------------------------------------------
 
@@ -169,7 +170,7 @@ class BLINK_EXPORT WebLocalFrameClient {
 
   // Returns a new WebWorkerFetchContext for a dedicated worker. Ownership of
   // the returned object is transferred to the caller.
-  virtual std::unique_ptr<WebWorkerFetchContext> CreateWorkerFetchContext() {
+  virtual scoped_refptr<WebWorkerFetchContext> CreateWorkerFetchContext() {
     return nullptr;
   }
 
@@ -220,8 +221,16 @@ class BLINK_EXPORT WebLocalFrameClient {
       const WebString& fallback_name,
       WebSandboxFlags sandbox_flags,
       const ParsedFeaturePolicy& container_policy,
-      const WebFrameOwnerProperties&) {
+      const WebFrameOwnerProperties&,
+      FrameOwnerElementType) {
     return nullptr;
+  }
+
+  // Request the creation of a new portal.
+  virtual std::pair<WebRemoteFrame*, base::UnguessableToken> CreatePortal(
+      mojo::ScopedMessagePipeHandle pipe) {
+    return std::pair<WebRemoteFrame*, base::UnguessableToken>(
+        nullptr, base::UnguessableToken());
   }
 
   // Called when Blink cannot find a frame with the given name in the frame's
@@ -328,57 +337,24 @@ class BLINK_EXPORT WebLocalFrameClient {
 
   // Navigational queries ------------------------------------------------
 
-  // The client may choose to alter the navigation policy.  Otherwise,
-  // defaultPolicy should just be returned.
-
-  struct NavigationPolicyInfo {
-    WebDocumentLoader::ExtraData* extra_data;
-
-    // Note: if browser side navigations are enabled, the client may modify
-    // the urlRequest. However, should this happen, the client should change
-    // the WebNavigationPolicy to WebNavigationPolicyIgnore, and the load
-    // should stop in blink. In all other cases, the urlRequest should not
-    // be modified.
-    WebURLRequest& url_request;
-    WebNavigationType navigation_type;
-    WebNavigationPolicy default_policy;
-    bool replaces_current_history_item;
-    bool is_history_navigation_in_new_child_frame;
-    bool is_client_redirect;
-    bool is_opener_navigation;
-    bool blocking_downloads_in_sandbox_enabled;
-    WebTriggeringEventInfo triggering_event_info;
-    WebFormElement form;
-    WebSourceLocation source_location;
-    WebString devtools_initiator_info;
-    WebContentSecurityPolicyDisposition
-        should_check_main_world_content_security_policy;
-    mojo::ScopedMessagePipeHandle blob_url_token;
-
-    // Specify whether or not a MHTML Archive can be used to load a subframe
-    // resource instead of doing a network request.
-    enum class ArchiveStatus { Absent, Present };
-    ArchiveStatus archive_status;
-
-    explicit NavigationPolicyInfo(WebURLRequest& url_request)
-        : extra_data(nullptr),
-          url_request(url_request),
-          navigation_type(kWebNavigationTypeOther),
-          default_policy(kWebNavigationPolicyIgnore),
-          replaces_current_history_item(false),
-          is_history_navigation_in_new_child_frame(false),
-          is_client_redirect(false),
-          is_opener_navigation(false),
-          blocking_downloads_in_sandbox_enabled(false),
-          triggering_event_info(WebTriggeringEventInfo::kUnknown),
-          should_check_main_world_content_security_policy(
-              kWebContentSecurityPolicyDispositionCheck),
-          archive_status(ArchiveStatus::Absent) {}
-  };
-
-  virtual WebNavigationPolicy DecidePolicyForNavigation(
-      const NavigationPolicyInfo& info) {
-    return info.default_policy;
+  // Requests the client to begin a navigation for this frame.
+  //
+  // The client can just call CommitNavigation() on this frame's
+  // WebNavigationControl in response. This will effectively commit a navigation
+  // the frame has asked about. This usually happens for navigations which
+  // do not require a network request, e.g. about:blank or mhtml archive.
+  //
+  // In the case of a navigation which requires network request and goes
+  // to the browser process, client calls CreatePlaceholderDocumentLoader
+  // (see WebNavigationControl for more details) and commits/cancels
+  // the navigation later.
+  //
+  // It is also totally valid to ignore the request and abandon the
+  // navigation entirely.
+  //
+  // Note that ignoring this method effectively disables any navigations
+  // initiated by Blink in this frame.
+  virtual void BeginNavigation(std::unique_ptr<blink::WebNavigationInfo> info) {
   }
 
   // Asks the embedder whether the frame is allowed to navigate the main frame
@@ -392,7 +368,7 @@ class BLINK_EXPORT WebLocalFrameClient {
   // Navigational notifications ------------------------------------------
 
   // These notifications bracket any loading that occurs in the WebFrame.
-  virtual void DidStartLoading(bool to_different_document) {}
+  virtual void DidStartLoading() {}
   virtual void DidStopLoading() {}
 
   // Notification that some progress was made loading the current frame.
@@ -404,16 +380,12 @@ class BLINK_EXPORT WebLocalFrameClient {
   // hasn't yet had a chance to run (and possibly alter/interrupt the submit.)
   virtual void WillSendSubmitEvent(const WebFormElement&) {}
 
-  // A form submission is about to occur.
-  virtual void WillSubmitForm(const WebFormElement&) {}
-
   // A datasource has been created for a new navigation.  The given
   // datasource will become the provisional datasource for the frame.
   virtual void DidCreateDocumentLoader(WebDocumentLoader*) {}
 
   // A new provisional load has been started.
-  virtual void DidStartProvisionalLoad(WebDocumentLoader* document_loader,
-                                       WebURLRequest& request) {}
+  virtual void DidStartProvisionalLoad(WebDocumentLoader* document_loader) {}
 
   // The provisional load failed. The WebHistoryCommitType is the commit type
   // that would have been used had the load succeeded.
@@ -423,9 +395,17 @@ class BLINK_EXPORT WebLocalFrameClient {
   // The provisional datasource is now committed.  The first part of the
   // response body has been received, and the encoding of the response
   // body is known.
+  // The mojo::ScopedMessagePipeHandle is a DocumentInterfaceBroker handle. When
+  // a load commits and a new Document is created, Blink creates a new
+  // DocumentInterfaceBroker endpoint to ensure that interface requests in the
+  // newly committed Document are associated with the correct origin (even if
+  // the origin of the old and the new Document are the same). The one
+  // exception is if the Window object is reused; in that case, the old
+  // DocumentInterfaceBroker handle will be reused, and the endpoint won't be
+  // bound to any requests.
   virtual void DidCommitProvisionalLoad(const WebHistoryItem&,
                                         WebHistoryCommitType,
-                                        WebGlobalObjectReusePolicy) {}
+                                        mojo::ScopedMessagePipeHandle) {}
 
   // The frame's document has just been initialized.
   virtual void DidCreateNewDocument() {}
@@ -453,6 +433,7 @@ class BLINK_EXPORT WebLocalFrameClient {
 
   // The frame's document finished loading.
   // This method may not execute JavaScript code.
+  // TODO(dgozman): rename this to DidFireDOMContentLoadedEvent.
   virtual void DidFinishDocumentLoad() {}
 
   // Like |didFinishDocumentLoad|, except this method may run JavaScript
@@ -524,6 +505,11 @@ class BLINK_EXPORT WebLocalFrameClient {
     return base::UnguessableToken::Create();
   }
 
+  // When a same-site load fails and the original frame in parent process is
+  // owned by an <object> element, this call notifies the owner element that it
+  // should render fallback content of its own.
+  virtual void RenderFallbackContentInParentProcess() {}
+
   // PlzNavigate
   // Called to abort a navigation that is being handled by the browser process.
   virtual void AbortClientNavigation() {}
@@ -581,15 +567,6 @@ class BLINK_EXPORT WebLocalFrameClient {
   // the user selects 'OK' or false otherwise.
   virtual bool RunModalBeforeUnloadDialog(bool is_reload) { return true; }
 
-  // This method returns immediately after showing the dialog. When the
-  // dialog is closed, it should call the WebFileChooserCompletion to
-  // pass the results of the dialog. Returns false if
-  // WebFileChooseCompletion will never be called.
-  virtual bool RunFileChooser(const blink::WebFileChooserParams& params,
-                              WebFileChooserCompletion* chooser_completion) {
-    return false;
-  }
-
   // UI ------------------------------------------------------------------
 
   // Shows a context menu with commands relevant to a specific element on
@@ -630,9 +607,6 @@ class BLINK_EXPORT WebLocalFrameClient {
   virtual void DidRunInsecureContent(const WebSecurityOrigin&,
                                      const WebURL& insecure_url) {}
 
-  // A reflected XSS was encountered in the page and suppressed.
-  virtual void DidDetectXSS(const WebURL&, bool did_block_entire_page) {}
-
   // A PingLoader was created, and a request dispatched to a URL.
   virtual void DidDispatchPingLoader(const WebURL&) {}
 
@@ -647,6 +621,10 @@ class BLINK_EXPORT WebLocalFrameClient {
   // certificate that is slated for distrust (|did_fail|=false) or has already
   // been distrusted (|did_fail|=true).
   virtual void ReportLegacySymantecCert(const WebURL&, bool did_fail) {}
+
+  // The frame loaded a resource with a legacy TLS version that will be removed
+  // in the future. Prints a console message to warn about this.
+  virtual void ReportLegacyTLSVersion(const WebURL&) {}
 
   // A performance timing event (e.g. first paint) occurred
   virtual void DidChangePerformanceTiming() {}
@@ -672,6 +650,9 @@ class BLINK_EXPORT WebLocalFrameClient {
   // UseCounter CSS histograms.
   virtual void DidObserveNewCssPropertyUsage(int /*css_property*/,
                                              bool /*is_animated*/) {}
+
+  // Reports that visible elements in the frame shifted (bit.ly/lsm-explainer).
+  virtual void DidObserveLayoutJank(double jank_fraction) {}
 
   // Script notifications ------------------------------------------------
 
@@ -702,25 +683,6 @@ class BLINK_EXPORT WebLocalFrameClient {
   virtual void BubbleLogicalScrollInParentFrame(
       WebScrollDirection direction,
       WebScrollGranularity granularity) {}
-
-  // Find-in-page notifications ------------------------------------------
-
-  // Notifies how many matches have been found in this frame so far, for a
-  // given identifier.  |finalUpdate| specifies whether this is the last
-  // update for this frame.
-  virtual void ReportFindInPageMatchCount(int identifier,
-                                          int count,
-                                          bool final_update) {}
-
-  // Notifies what tick-mark rect is currently selected.   The given
-  // identifier lets the client know which request this message belongs
-  // to, so that it can choose to ignore the message if it has moved on
-  // to other things.  The selection rect is expected to have coordinates
-  // relative to the top left corner of the web page area and represent
-  // where on the screen the selection rect is currently located.
-  virtual void ReportFindInPageSelection(int identifier,
-                                         int active_match_ordinal,
-                                         const WebRect& selection) {}
 
   // MediaStream -----------------------------------------------------
 
@@ -758,7 +720,12 @@ class BLINK_EXPORT WebLocalFrameClient {
   // Accessibility -------------------------------------------------------
 
   // Notifies embedder about an accessibility event.
-  virtual void PostAccessibilityEvent(const WebAXObject&, WebAXEvent) {}
+  virtual void PostAccessibilityEvent(const WebAXObject&, ax::mojom::Event) {}
+
+  // Notifies embedder that a WebAXObject is dirty and its state needs
+  // to be serialized again. If |subtree| is true, the entire subtree is
+  // dirty.
+  virtual void MarkWebAXObjectDirty(const WebAXObject&, bool subtree) {}
 
   // Provides accessibility information about a find in page result.
   virtual void HandleAccessibilityFindInPageResult(int identifier,
@@ -803,23 +770,14 @@ class BLINK_EXPORT WebLocalFrameClient {
   // Audio Output Devices API --------------------------------------------
 
   // Checks that the given audio sink exists and is authorized. The result is
-  // provided via the callbacks.  This method takes ownership of the callbacks
-  // pointer.
+  // provided via the callbacks.
   virtual void CheckIfAudioSinkExistsAndIsAuthorized(
       const WebString& sink_id,
-      WebSetSinkIdCallbacks* callbacks) {
-    if (callbacks) {
-      callbacks->OnError(WebSetSinkIdError::kNotSupported);
-      delete callbacks;
-    }
+      std::unique_ptr<WebSetSinkIdCallbacks> callbacks) {
+    callbacks->OnError(WebSetSinkIdError::kNotSupported);
   }
 
   // Visibility ----------------------------------------------------------
-
-  // Returns the current visibility of the WebFrame.
-  virtual mojom::PageVisibilityState VisibilityState() const {
-    return mojom::PageVisibilityState::kVisible;
-  }
 
   // Overwrites the given URL to use an HTML5 embed if possible.
   // An empty URL is returned if the URL is not overriden.
@@ -844,6 +802,15 @@ class BLINK_EXPORT WebLocalFrameClient {
   virtual std::unique_ptr<WebSocketHandshakeThrottle>
   CreateWebSocketHandshakeThrottle() {
     return nullptr;
+  }
+
+  // Returns true when the contents of plugin are handled externally. This means
+  // the plugin element will own a content frame but the frame is than used
+  // externally to load the required handelrs.
+  virtual bool IsPluginHandledExternally(const WebElement& plugin_element,
+                                         const WebURL& url,
+                                         const WebString& suggested_mime_type) {
+    return false;
   }
 };
 

@@ -181,5 +181,6 @@ void QTiltSensor::calibrate()
      QMetaObject::invokeMethod(backend(), "calibrate", Qt::DirectConnection);
 }
 
-#include "moc_qtiltsensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qtiltsensor.cpp"

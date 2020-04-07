@@ -46,7 +46,9 @@
 #endif
 
 #if HAVE_OPENCL_VAAPI_INTEL_MEDIA
+#if CONFIG_LIBMFX
 #include <mfx/mfxstructures.h>
+#endif
 #include <va/va.h>
 #include <CL/va_ext.h>
 #include "hwcontext_vaapi.h"
@@ -926,7 +928,6 @@ static int opencl_enumerate_intel_media_vaapi_devices(AVHWDeviceContext *hwdev,
     clGetDeviceIDsFromVA_APIMediaAdapterINTEL_fn
         clGetDeviceIDsFromVA_APIMediaAdapterINTEL;
     cl_int cle;
-    int err;
 
     clGetDeviceIDsFromVA_APIMediaAdapterINTEL =
         clGetExtensionFunctionAddressForPlatform(platform_id,
@@ -1359,10 +1360,7 @@ static int opencl_device_derive(AVHWDeviceContext *hwdev,
         break;
     }
 
-    if (err < 0)
-        return err;
-
-    return opencl_device_init(hwdev);
+    return err;
 }
 
 static int opencl_get_plane_format(enum AVPixelFormat pixfmt,
@@ -1728,10 +1726,13 @@ static void opencl_frames_uninit(AVHWFramesContext *hwfc)
     av_freep(&priv->mapped_frames);
 #endif
 
-    cle = clReleaseCommandQueue(priv->command_queue);
-    if (cle != CL_SUCCESS) {
-        av_log(hwfc, AV_LOG_ERROR, "Failed to release frame "
-               "command queue: %d.\n", cle);
+    if (priv->command_queue) {
+        cle = clReleaseCommandQueue(priv->command_queue);
+        if (cle != CL_SUCCESS) {
+            av_log(hwfc, AV_LOG_ERROR, "Failed to release frame "
+                   "command queue: %d.\n", cle);
+        }
+        priv->command_queue = NULL;
     }
 }
 
@@ -2154,7 +2155,6 @@ static int opencl_map_from_vaapi(AVHWFramesContext *dst_fc,
                                  AVFrame *dst, const AVFrame *src,
                                  int flags)
 {
-    HWMapDescriptor *hwmap;
     AVFrame *tmp;
     int err;
 
@@ -2172,10 +2172,7 @@ static int opencl_map_from_vaapi(AVHWFramesContext *dst_fc,
     if (err < 0)
         goto fail;
 
-    // Adjust the map descriptor so that unmap works correctly.
-    hwmap = (HWMapDescriptor*)dst->buf[0]->data;
-    av_frame_unref(hwmap->source);
-    err = av_frame_ref(hwmap->source, src);
+    err = ff_hwframe_map_replace(dst, src);
 
 fail:
     av_frame_free(&tmp);
@@ -2249,10 +2246,13 @@ static int opencl_map_from_qsv(AVHWFramesContext *dst_fc, AVFrame *dst,
     cl_int cle;
     int err, p;
 
+#if CONFIG_LIBMFX
     if (src->format == AV_PIX_FMT_QSV) {
         mfxFrameSurface1 *mfx_surface = (mfxFrameSurface1*)src->data[3];
         va_surface = *(VASurfaceID*)mfx_surface->Data.MemId;
-    } else if (src->format == AV_PIX_FMT_VAAPI) {
+    } else
+#endif
+        if (src->format == AV_PIX_FMT_VAAPI) {
         va_surface = (VASurfaceID)(uintptr_t)src->data[3];
     } else {
         return AVERROR(ENOSYS);

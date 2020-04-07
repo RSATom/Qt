@@ -26,9 +26,9 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -36,7 +36,7 @@
 #include "crypto/rsa_private_key.h"
 #include "crypto/signature_creator.h"
 #include "net/base/address_list.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
@@ -137,8 +137,8 @@ class FakeDataChannel {
       return ERR_IO_PENDING;
     }
     // This function returns synchronously, so make a copy of the buffer.
-    data_.push(new DrainableIOBuffer(
-        new StringIOBuffer(std::string(buf->data(), buf_len)),
+    data_.push(base::MakeRefCounted<DrainableIOBuffer>(
+        base::MakeRefCounted<StringIOBuffer>(std::string(buf->data(), buf_len)),
         buf_len));
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FakeDataChannel::DoReadCallback,
@@ -316,17 +316,20 @@ TEST(FakeSocketTest, DataTransfer) {
   const char kTestData[] = "testing123";
   const int kTestDataSize = strlen(kTestData);
   const int kReadBufSize = 1024;
-  scoped_refptr<IOBuffer> write_buf = new StringIOBuffer(kTestData);
-  scoped_refptr<IOBuffer> read_buf = new IOBuffer(kReadBufSize);
+  scoped_refptr<IOBuffer> write_buf =
+      base::MakeRefCounted<StringIOBuffer>(kTestData);
+  scoped_refptr<IOBuffer> read_buf =
+      base::MakeRefCounted<IOBuffer>(kReadBufSize);
 
   // Write then read.
   int written =
-      server.Write(write_buf.get(), kTestDataSize, CompletionCallback(),
+      server.Write(write_buf.get(), kTestDataSize, CompletionOnceCallback(),
                    TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_GT(written, 0);
   EXPECT_LE(written, kTestDataSize);
 
-  int read = client.Read(read_buf.get(), kReadBufSize, CompletionCallback());
+  int read =
+      client.Read(read_buf.get(), kReadBufSize, CompletionOnceCallback());
   EXPECT_GT(read, 0);
   EXPECT_LE(read, written);
   EXPECT_EQ(0, memcmp(kTestData, read_buf->data(), read));
@@ -336,8 +339,9 @@ TEST(FakeSocketTest, DataTransfer) {
   EXPECT_EQ(ERR_IO_PENDING,
             server.Read(read_buf.get(), kReadBufSize, callback.callback()));
 
-  written = client.Write(write_buf.get(), kTestDataSize, CompletionCallback(),
-                         TRAFFIC_ANNOTATION_FOR_TESTS);
+  written =
+      client.Write(write_buf.get(), kTestDataSize, CompletionOnceCallback(),
+                   TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_GT(written, 0);
   EXPECT_LE(written, kTestDataSize);
 
@@ -486,6 +490,29 @@ class SSLServerSocketTest : public PlatformTest,
     return key;
   }
 
+  void PumpServerToClient() {
+    const int kReadBufSize = 1024;
+    scoped_refptr<StringIOBuffer> write_buf =
+        base::MakeRefCounted<StringIOBuffer>("testing123");
+    scoped_refptr<DrainableIOBuffer> read_buf =
+        base::MakeRefCounted<DrainableIOBuffer>(
+            base::MakeRefCounted<IOBuffer>(kReadBufSize), kReadBufSize);
+    TestCompletionCallback write_callback;
+    TestCompletionCallback read_callback;
+    int server_ret = server_socket_->Write(write_buf.get(), write_buf->size(),
+                                           write_callback.callback(),
+                                           TRAFFIC_ANNOTATION_FOR_TESTS);
+    EXPECT_TRUE(server_ret > 0 || server_ret == ERR_IO_PENDING);
+    int client_ret = client_socket_->Read(
+        read_buf.get(), read_buf->BytesRemaining(), read_callback.callback());
+    EXPECT_TRUE(client_ret > 0 || client_ret == ERR_IO_PENDING);
+
+    server_ret = write_callback.GetResult(server_ret);
+    EXPECT_GT(server_ret, 0);
+    client_ret = read_callback.GetResult(client_ret);
+    ASSERT_GT(client_ret, 0);
+  }
+
   std::unique_ptr<FakeDataChannel> channel_1_;
   std::unique_ptr<FakeDataChannel> channel_2_;
   SSLConfig client_ssl_config_;
@@ -547,8 +574,6 @@ TEST_F(SSLServerSocketTest, Handshake) {
   SSLCipherSuiteToStrings(&key_exchange, &cipher, &mac, &is_aead, &is_tls13,
                           cipher_suite);
   EXPECT_TRUE(is_aead);
-  ASSERT_FALSE(is_tls13);
-  EXPECT_STREQ("ECDHE_RSA", key_exchange);
 }
 
 // This test makes sure the session cache is working.
@@ -575,6 +600,9 @@ TEST_F(SSLServerSocketTest, HandshakeCached) {
   SSLInfo ssl_server_info;
   ASSERT_TRUE(server_socket_->GetSSLInfo(&ssl_server_info));
   EXPECT_EQ(ssl_server_info.handshake_type, SSLInfo::HANDSHAKE_FULL);
+
+  // Pump client read to get new session tickets.
+  PumpServerToClient();
 
   // Make sure the second connection is cached.
   ASSERT_NO_FATAL_FAILURE(CreateSockets());
@@ -716,6 +744,8 @@ TEST_F(SSLServerSocketTest, HandshakeWithClientCertCached) {
   ASSERT_TRUE(ssl_server_info.cert.get());
   EXPECT_TRUE(client_cert->EqualsExcludingChain(ssl_server_info.cert.get()));
   EXPECT_EQ(ssl_server_info.handshake_type, SSLInfo::HANDSHAKE_FULL);
+  // Pump client read to get new session tickets.
+  PumpServerToClient();
   server_socket_->Disconnect();
   client_socket_->Disconnect();
 
@@ -852,6 +882,41 @@ TEST_F(SSLServerSocketTest, HandshakeWithWrongClientCertSupplied) {
   TestCompletionCallback connect_callback;
   int client_ret = client_socket_->Connect(connect_callback.callback());
 
+  // In TLS 1.3, the client cert error isn't exposed until Read is called.
+  EXPECT_EQ(OK, connect_callback.GetResult(client_ret));
+  EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
+            handshake_callback.GetResult(server_ret));
+
+  // Pump client read to get client cert error.
+  const int kReadBufSize = 1024;
+  scoped_refptr<DrainableIOBuffer> read_buf =
+      base::MakeRefCounted<DrainableIOBuffer>(
+          base::MakeRefCounted<IOBuffer>(kReadBufSize), kReadBufSize);
+  TestCompletionCallback read_callback;
+  client_ret = client_socket_->Read(read_buf.get(), read_buf->BytesRemaining(),
+                                    read_callback.callback());
+  client_ret = read_callback.GetResult(client_ret);
+  EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT, client_ret);
+}
+
+TEST_F(SSLServerSocketTest, HandshakeWithWrongClientCertSuppliedTLS12) {
+  scoped_refptr<X509Certificate> client_cert =
+      ImportCertFromFile(GetTestCertsDirectory(), kClientCertFileName);
+  ASSERT_TRUE(client_cert);
+
+  client_ssl_config_.version_max = SSL_PROTOCOL_VERSION_TLS1_2;
+  ASSERT_NO_FATAL_FAILURE(ConfigureClientCertsForClient(
+      kWrongClientCertFileName, kWrongClientPrivateKeyFileName));
+  ASSERT_NO_FATAL_FAILURE(ConfigureClientCertsForServer());
+  ASSERT_NO_FATAL_FAILURE(CreateContext());
+  ASSERT_NO_FATAL_FAILURE(CreateSockets());
+
+  TestCompletionCallback handshake_callback;
+  int server_ret = server_socket_->Handshake(handshake_callback.callback());
+
+  TestCompletionCallback connect_callback;
+  int client_ret = client_socket_->Connect(connect_callback.callback());
+
   EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
             connect_callback.GetResult(client_ret));
   EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
@@ -875,10 +940,21 @@ TEST_F(SSLServerSocketTest, HandshakeWithWrongClientCertSuppliedCached) {
   TestCompletionCallback connect_callback;
   int client_ret = client_socket_->Connect(connect_callback.callback());
 
-  EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
-            connect_callback.GetResult(client_ret));
+  // In TLS 1.3, the client cert error isn't exposed until Read is called.
+  EXPECT_EQ(OK, connect_callback.GetResult(client_ret));
   EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
             handshake_callback.GetResult(server_ret));
+
+  // Pump client read to get client cert error.
+  const int kReadBufSize = 1024;
+  scoped_refptr<DrainableIOBuffer> read_buf =
+      base::MakeRefCounted<DrainableIOBuffer>(
+          base::MakeRefCounted<IOBuffer>(kReadBufSize), kReadBufSize);
+  TestCompletionCallback read_callback;
+  client_ret = client_socket_->Read(read_buf.get(), read_buf->BytesRemaining(),
+                                    read_callback.callback());
+  client_ret = read_callback.GetResult(client_ret);
+  EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT, client_ret);
 
   client_socket_->Disconnect();
   server_socket_->Disconnect();
@@ -891,10 +967,16 @@ TEST_F(SSLServerSocketTest, HandshakeWithWrongClientCertSuppliedCached) {
   TestCompletionCallback connect_callback2;
   int client_ret2 = client_socket_->Connect(connect_callback2.callback());
 
-  EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
-            connect_callback2.GetResult(client_ret2));
+  // In TLS 1.3, the client cert error isn't exposed until Read is called.
+  EXPECT_EQ(OK, connect_callback2.GetResult(client_ret2));
   EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT,
             handshake_callback2.GetResult(server_ret2));
+
+  // Pump client read to get client cert error.
+  client_ret = client_socket_->Read(read_buf.get(), read_buf->BytesRemaining(),
+                                    read_callback.callback());
+  client_ret = read_callback.GetResult(client_ret);
+  EXPECT_EQ(ERR_BAD_SSL_CLIENT_AUTH_CERT, client_ret);
 }
 
 TEST_F(SSLServerSocketTest, DataTransfer) {
@@ -917,9 +999,10 @@ TEST_F(SSLServerSocketTest, DataTransfer) {
 
   const int kReadBufSize = 1024;
   scoped_refptr<StringIOBuffer> write_buf =
-      new StringIOBuffer("testing123");
+      base::MakeRefCounted<StringIOBuffer>("testing123");
   scoped_refptr<DrainableIOBuffer> read_buf =
-      new DrainableIOBuffer(new IOBuffer(kReadBufSize), kReadBufSize);
+      base::MakeRefCounted<DrainableIOBuffer>(
+          base::MakeRefCounted<IOBuffer>(kReadBufSize), kReadBufSize);
 
   // Write then read.
   TestCompletionCallback write_callback;
@@ -951,7 +1034,7 @@ TEST_F(SSLServerSocketTest, DataTransfer) {
   EXPECT_EQ(0, memcmp(write_buf->data(), read_buf->data(), write_buf->size()));
 
   // Read then write.
-  write_buf = new StringIOBuffer("hello123");
+  write_buf = base::MakeRefCounted<StringIOBuffer>("hello123");
   server_ret = server_socket_->Read(
       read_buf.get(), read_buf->BytesRemaining(), read_callback.callback());
   EXPECT_TRUE(server_ret > 0 || server_ret == ERR_IO_PENDING);
@@ -1001,7 +1084,8 @@ TEST_F(SSLServerSocketTest, ClientWriteAfterServerClose) {
   server_ret = handshake_callback.GetResult(server_ret);
   ASSERT_THAT(server_ret, IsOk());
 
-  scoped_refptr<StringIOBuffer> write_buf = new StringIOBuffer("testing123");
+  scoped_refptr<StringIOBuffer> write_buf =
+      base::MakeRefCounted<StringIOBuffer>("testing123");
 
   // The server closes the connection. The server needs to write some
   // data first so that the client's Read() calls from the transport
@@ -1093,7 +1177,10 @@ TEST_F(SSLServerSocketTest, RequireEcdheFlag) {
       0xcca9,  // ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
   };
   client_ssl_config_.disabled_cipher_suites.assign(
-      kEcdheCiphers, kEcdheCiphers + arraysize(kEcdheCiphers));
+      kEcdheCiphers, kEcdheCiphers + base::size(kEcdheCiphers));
+
+  // Legacy RSA key exchange ciphers only exist in TLS 1.2 and below.
+  client_ssl_config_.version_max = SSL_PROTOCOL_VERSION_TLS1_2;
 
   // Require ECDHE on the server.
   server_ssl_config_.require_ecdhe = true;
@@ -1149,8 +1236,6 @@ TEST_F(SSLServerSocketTest, HandshakeServerSSLPrivateKey) {
   SSLCipherSuiteToStrings(&key_exchange, &cipher, &mac, &is_aead, &is_tls13,
                           cipher_suite);
   EXPECT_TRUE(is_aead);
-  ASSERT_FALSE(is_tls13);
-  EXPECT_STREQ("ECDHE_RSA", key_exchange);
 }
 
 // Verifies that non-ECDHE ciphers are disabled when using SSLPrivateKey as the
@@ -1170,7 +1255,7 @@ TEST_F(SSLServerSocketTest, HandshakeServerSSLPrivateKeyRequireEcdhe) {
       0xcca9,  // ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
   };
   client_ssl_config_.disabled_cipher_suites.assign(
-      kEcdheCiphers, kEcdheCiphers + arraysize(kEcdheCiphers));
+      kEcdheCiphers, kEcdheCiphers + base::size(kEcdheCiphers));
   // TLS 1.3 always works with SSLPrivateKey.
   client_ssl_config_.version_max = SSL_PROTOCOL_VERSION_TLS1_2;
 

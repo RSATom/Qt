@@ -18,7 +18,7 @@
 #include "media/base/sample_format.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_types.h"
-#include "media/remoting/rpc.pb.h"
+#include "media/remoting/media_remoting_rpc.pb.h"
 
 namespace media {
 namespace remoting {
@@ -66,11 +66,6 @@ base::Optional<VideoPixelFormat> ToMediaVideoPixelFormat(
     pb::VideoDecoderConfig::Format value);
 base::Optional<pb::VideoDecoderConfig::Format> ToProtoVideoDecoderConfigFormat(
     VideoPixelFormat value);
-
-base::Optional<ColorSpace> ToMediaColorSpace(
-    pb::VideoDecoderConfig::ColorSpace value);
-base::Optional<pb::VideoDecoderConfig::ColorSpace>
-ToProtoVideoDecoderConfigColorSpace(ColorSpace value);
 
 base::Optional<BufferingState> ToMediaBufferingState(
     pb::RendererClientOnBufferingStateChange::State value);

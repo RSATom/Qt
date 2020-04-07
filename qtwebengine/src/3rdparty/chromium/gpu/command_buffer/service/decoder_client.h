@@ -10,10 +10,9 @@
 #include <string>
 
 #include "gpu/gpu_export.h"
+#include "url/gurl.h"
 
 namespace gpu {
-
-struct SyncToken;
 
 class GPU_EXPORT DecoderClient {
  public:
@@ -29,14 +28,6 @@ class GPU_EXPORT DecoderClient {
   // Called when the decoder releases a fence sync. Allows the client to
   // reschedule waiting decoders.
   virtual void OnFenceSyncRelease(uint64_t release) = 0;
-
-  // Called when the decoder needs to wait on a sync token. If the wait is valid
-  // (fence sync is not released yet), the client must unschedule the command
-  // buffer and return true. The client is responsible for rescheduling the
-  // command buffer when the fence is released.  If the wait is a noop (fence is
-  // already released) or invalid, the client must leave the command buffer
-  // scheduled, and return false.
-  virtual bool OnWaitSyncToken(const gpu::SyncToken&) = 0;
 
   // Called when the decoder needs to be descheduled while waiting for a fence
   // completion. The client is responsible for descheduling the command buffer
@@ -55,6 +46,8 @@ class GPU_EXPORT DecoderClient {
   // Notifies the client that the shared GrContext may have been used by this
   // decoder and its GPU memory should be cleaned up.
   virtual void ScheduleGrContextCleanup() = 0;
+
+  virtual void SetActiveURL(GURL url) {}
 };
 
 }  // namespace gpu

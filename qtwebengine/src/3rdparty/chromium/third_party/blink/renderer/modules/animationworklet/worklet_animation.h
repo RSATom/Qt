@@ -16,7 +16,7 @@
 #include "third_party/blink/renderer/platform/animation/compositor_animation.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation_client.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation_delegate.h"
-#include "third_party/blink/renderer/platform/graphics/compositor_animators_state.h"
+#include "third_party/blink/renderer/platform/graphics/animation_worklet_mutators_state.h"
 
 namespace blink {
 
@@ -62,11 +62,18 @@ class MODULES_EXPORT WorkletAnimation : public WorkletAnimationBase,
       scoped_refptr<SerializedScriptValue>,
       ExceptionState&);
 
+  WorkletAnimation(WorkletAnimationId id,
+                   const String& animator_name,
+                   Document&,
+                   const HeapVector<Member<KeyframeEffect>>&,
+                   AnimationTimeline*,
+                   scoped_refptr<SerializedScriptValue>);
   ~WorkletAnimation() override = default;
 
   AnimationTimeline* timeline() { return timeline_; }
   String playState();
-  void play();
+  double currentTime(bool& is_null);
+  void play(ExceptionState& exception_state);
   void cancel();
 
   // AnimationEffectOwner implementation:
@@ -87,7 +94,8 @@ class MODULES_EXPORT WorkletAnimation : public WorkletAnimationBase,
 
   // WorkletAnimationBase implementation.
   void Update(TimingUpdateReason) override;
-  bool UpdateCompositingState() override;
+  void UpdateCompositingState() override;
+  void InvalidateCompositingState() override;
 
   // CompositorAnimationClient implementation.
   CompositorAnimation* GetCompositorAnimation() const override {
@@ -106,25 +114,45 @@ class MODULES_EXPORT WorkletAnimation : public WorkletAnimationBase,
   const String& Name() { return animator_name_; }
 
   KeyframeEffect* GetEffect() const override;
+  const WorkletAnimationId& GetWorkletAnimationId() const override {
+    return id_;
+  }
+  bool IsActiveAnimation() const override;
+
+  bool NeedsPeek(base::TimeDelta current_time);
+
+  void UpdateInputState(AnimationWorkletDispatcherInput* input_state) override;
+  void SetOutputState(
+      const AnimationWorkletOutput::AnimationState& state) override;
+
+  void SetRunningOnMainThreadForTesting(bool running_on_main_thread) {
+    running_on_main_thread_ = running_on_main_thread;
+  }
 
   void Trace(blink::Visitor*) override;
 
  private:
-  WorkletAnimation(WorkletAnimationId id,
-                   const String& animator_name,
-                   Document&,
-                   const HeapVector<Member<KeyframeEffect>>&,
-                   AnimationTimeline*,
-                   scoped_refptr<SerializedScriptValue>);
   void DestroyCompositorAnimation();
 
   // Attempts to start the animation on the compositor side, returning true if
-  // it succeeds or false otherwise. If false is returned and failure_message
-  // was non-null, failure_message may be filled with an error description.
-  bool StartOnCompositor(String* failure_message);
+  // it succeeds or false otherwise. If false is returned and the animation
+  // cannot be started on main.
+  bool StartOnCompositor();
+  void StartOnMain();
+  bool CheckCanStart(String* failure_message);
+  void SetStartTimeToNow();
 
   // Updates a running animation on the compositor side.
   void UpdateOnCompositor();
+
+  std::unique_ptr<cc::AnimationOptions> CloneOptions() const {
+    return options_ ? options_->Clone() : nullptr;
+  }
+
+  void SetPlayState(const Animation::AnimationPlayState& state) {
+    play_state_ = state;
+  }
+  base::Optional<base::TimeDelta> CurrentTime() const;
 
   unsigned sequence_number_;
 
@@ -132,8 +160,14 @@ class MODULES_EXPORT WorkletAnimation : public WorkletAnimationBase,
 
   const String animator_name_;
   Animation::AnimationPlayState play_state_;
-  // Start time in ms.
-  base::Optional<double> start_time_;
+  Animation::AnimationPlayState last_play_state_;
+  base::Optional<base::TimeDelta> start_time_;
+  Vector<base::Optional<base::TimeDelta>> local_times_;
+  // We use this to skip updating if current time has not changed since last
+  // update.
+  base::Optional<base::TimeDelta> last_current_time_;
+  // Time the main thread sends a peek request.
+  base::Optional<base::TimeDelta> last_peek_request_time_;
 
   Member<Document> document_;
 
@@ -142,6 +176,7 @@ class MODULES_EXPORT WorkletAnimation : public WorkletAnimationBase,
   std::unique_ptr<WorkletAnimationOptions> options_;
 
   std::unique_ptr<CompositorAnimation> compositor_animation_;
+  bool running_on_main_thread_;
 
   // Tracks whether any KeyframeEffect associated with this WorkletAnimation has
   // been invalidated and needs to be restarted. Used to avoid unnecessarily

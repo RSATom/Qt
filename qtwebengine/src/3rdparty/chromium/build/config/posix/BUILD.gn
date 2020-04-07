@@ -2,16 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//buildtools/deps_revisions.gni")
 import("//build/config/c++/c++.gni")
+import("//build/config/chrome_build.gni")
 import("//build/config/clang/clang.gni")
 import("//build/config/compiler/compiler.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/sysroot.gni")
 import("//build/toolchain/toolchain.gni")
+import("//buildtools/deps_revisions.gni")
 
-# TODO(crbug.com/830987): Come up with a better name for is POSIX + Fuchsia
-# configuration.
+# This build configuration is used by both Fuchsia and POSIX systems.
 assert(is_posix || is_fuchsia)
 
 group("posix") {
@@ -35,18 +35,18 @@ config("runtime_library") {
   libs = []
 
   if (use_custom_libcxx) {
-    if (libcpp_is_static) {
+    if (is_component_build) {
+      # In component builds, symbols from libc++.so are exported for all DSOs to
+      # use.  If the system libc++ gets loaded (indirectly through a system
+      # library), then it will conflict with our libc++.so.  Add a custom ABI
+      # version to avoid conflicts.
+      defines += [ "_LIBCPP_ABI_VERSION=Cr" ]
+    } else {
       # Don't leak any symbols on a static build.
-      defines += [
-        "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS",
-        "_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS",
-      ]
-    }
-    if (!is_clang) {
-      # Gcc has a built-in abs() definition with default visibility.
-      # If it was not disabled, it would conflict with libc++'s abs()
-      # with hidden visibility.
-      cflags += [ "-fno-builtin-abs" ]
+      defines += [ "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS" ]
+      if (!export_libcxxabi_from_executables) {
+        defines += [ "_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS" ]
+      }
     }
     cflags_cc += [
       "-nostdinc++",
@@ -56,7 +56,14 @@ config("runtime_library") {
     defines += [
       "CR_LIBCXX_REVISION=$libcxx_svn_revision",
       "CR_LIBCXXABI_REVISION=$libcxxabi_svn_revision",
+      "_LIBCPP_ENABLE_NODISCARD",
     ]
+
+    # TODO(xiaohuic): https://crbug/917533 Crashes on internal ChromeOS build.
+    # Do unconditionally once the underlying problem is fixed.
+    if (!(is_chromeos && is_chrome_branded)) {
+      defines += [ "_LIBCPP_ABI_UNSTABLE" ]
+    }
 
     # Make sure we don't link against libc++ or libstdc++.
     if (is_clang) {
@@ -67,6 +74,11 @@ config("runtime_library") {
         ldflags += [ "-nostdlib++" ]
       }
     } else {
+      # Gcc has a built-in abs() definition with default visibility.
+      # If it was not disabled, it would conflict with libc++'s abs()
+      # with hidden visibility.
+      cflags += [ "-fno-builtin-abs" ]
+
       ldflags += [ "-nodefaultlibs" ]
 
       # Unfortunately, there's no way to disable linking against just libc++

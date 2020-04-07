@@ -32,37 +32,43 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 inline HTMLBaseElement::HTMLBaseElement(Document& document)
-    : HTMLElement(baseTag, document) {}
+    : HTMLElement(kBaseTag, document) {}
 
 DEFINE_NODE_FACTORY(HTMLBaseElement)
 
+const AttrNameToTrustedType& HTMLBaseElement::GetCheckedAttributeTypes() const {
+  DEFINE_STATIC_LOCAL(AttrNameToTrustedType, attribute_map,
+                      ({{"href", SpecificTrustedType::kTrustedURL}}));
+  return attribute_map;
+}
+
 void HTMLBaseElement::ParseAttribute(
     const AttributeModificationParams& params) {
-  if (params.name == hrefAttr || params.name == targetAttr)
+  if (params.name == kHrefAttr || params.name == kTargetAttr)
     GetDocument().ProcessBaseElement();
   else
     HTMLElement::ParseAttribute(params);
 }
 
 Node::InsertionNotificationRequest HTMLBaseElement::InsertedInto(
-    ContainerNode* insertion_point) {
+    ContainerNode& insertion_point) {
   HTMLElement::InsertedInto(insertion_point);
-  if (insertion_point->isConnected())
+  if (insertion_point.isConnected())
     GetDocument().ProcessBaseElement();
   return kInsertionDone;
 }
 
-void HTMLBaseElement::RemovedFrom(ContainerNode* insertion_point) {
+void HTMLBaseElement::RemovedFrom(ContainerNode& insertion_point) {
   HTMLElement::RemovedFrom(insertion_point);
-  if (insertion_point->isConnected())
+  if (insertion_point.isConnected())
     GetDocument().ProcessBaseElement();
 }
 
 bool HTMLBaseElement::IsURLAttribute(const Attribute& attribute) const {
-  return attribute.GetName().LocalName() == hrefAttr ||
+  return attribute.GetName().LocalName() == kHrefAttr ||
          HTMLElement::IsURLAttribute(attribute);
 }
 
@@ -77,7 +83,7 @@ KURL HTMLBaseElement::href() const {
   // document's fallback base URL and ignore the base URL.
   // https://html.spec.whatwg.org/multipage/semantics.html#dom-base-href
 
-  const AtomicString& attribute_value = FastGetAttribute(hrefAttr);
+  const AtomicString& attribute_value = FastGetAttribute(kHrefAttr);
   if (attribute_value.IsNull())
     return GetDocument().Url();
 
@@ -96,21 +102,7 @@ KURL HTMLBaseElement::href() const {
 
 void HTMLBaseElement::setHref(const USVStringOrTrustedURL& stringOrUrl,
                               ExceptionState& exception_state) {
-  DCHECK(stringOrUrl.IsUSVString() ||
-         RuntimeEnabledFeatures::TrustedDOMTypesEnabled());
-  DCHECK(!stringOrUrl.IsNull());
-
-  if (stringOrUrl.IsUSVString() && GetDocument().RequireTrustedTypes()) {
-    exception_state.ThrowTypeError(
-        "This document requires `TrustedURL` assignment.");
-    return;
-  }
-
-  AtomicString value(stringOrUrl.IsUSVString()
-                         ? stringOrUrl.GetAsUSVString()
-                         : stringOrUrl.GetAsTrustedURL()->toString());
-
-  setAttribute(hrefAttr, value);
+  setAttribute(kHrefAttr, stringOrUrl, exception_state);
 }
 
 }  // namespace blink

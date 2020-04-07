@@ -15,10 +15,10 @@
 #include "src/mutator.h"
 
 #include <algorithm>
-#include <functional>
 #include <map>
 #include <random>
 #include <string>
+#include <vector>
 
 #include "src/field_instance.h"
 #include "src/utf8_fix.h"
@@ -120,15 +120,18 @@ struct AppendField : public FieldFunction<AppendField> {
   }
 };
 
-class IsEqualValueField : public FieldFunction<IsEqualValueField, bool> {
+class CanCopyAndDifferentField
+    : public FieldFunction<CanCopyAndDifferentField, bool> {
  public:
   template <class T>
-  bool ForType(const ConstFieldInstance& a, const ConstFieldInstance& b) const {
-    T aa;
-    a.Load(&aa);
-    T bb;
-    b.Load(&bb);
-    return IsEqual(aa, bb);
+  bool ForType(const ConstFieldInstance& src,
+               const ConstFieldInstance& dst) const {
+    T s;
+    src.Load(&s);
+    if (!dst.CanStore(s)) return false;
+    T d;
+    dst.Load(&d);
+    return !IsEqual(s, d);
   }
 
  private:
@@ -312,15 +315,14 @@ class DataSourceSampler {
         if (int field_size = reflection->FieldSize(*message, field)) {
           ConstFieldInstance source(message, field,
                                     GetRandomIndex(random_, field_size));
-          if (match_.EnforceUtf8() && !source.EnforceUtf8()) continue;
-          if (!IsEqualValueField()(match_, source))
+          if (CanCopyAndDifferentField()(source, match_))
             sampler_.Try(field_size, source);
         }
       } else {
         if (reflection->HasField(*message, field)) {
           ConstFieldInstance source(message, field);
-          if (match_.EnforceUtf8() && !source.EnforceUtf8()) continue;
-          if (!IsEqualValueField()(match_, source)) sampler_.Try(1, source);
+          if (CanCopyAndDifferentField()(source, match_))
+            sampler_.Try(1, source);
         }
       }
     }
@@ -461,7 +463,9 @@ void Mutator::Mutate(Message* message, size_t size_increase_hint) {
         CreateField()(mutation.field(), size_increase_hint / 2, this);
         break;
       case Mutation::Mutate:
-        MutateField()(mutation.field(), size_increase_hint / 2, this);
+        if (!ApplyCustomMutations(message, mutation.field().descriptor())) {
+          MutateField()(mutation.field(), size_increase_hint / 2, this);
+        }
         break;
       case Mutation::Delete:
         DeleteField()(mutation.field());
@@ -577,6 +581,12 @@ void Mutator::CrossOverImpl(const protobuf::Message& message1,
   }
 }
 
+void Mutator::RegisterCustomMutation(
+    const protobuf::FieldDescriptor* field,
+    std::function<void(protobuf::Message* message)> mutation) {
+  custom_mutations_[field].push_back(mutation);
+}
+
 void Mutator::InitializeAndTrim(Message* message, int max_depth) {
   const Descriptor* descriptor = message->GetDescriptor();
   const Reflection* reflection = message->GetReflection();
@@ -666,5 +676,27 @@ std::string Mutator::MutateUtf8String(const std::string& value,
   FixUtf8String(&str, random_);
   return str;
 }
+
+bool Mutator::ApplyCustomMutations(protobuf::Message* message,
+                                   const protobuf::FieldDescriptor* field) {
+  auto itr = custom_mutations_.find(field);
+  if (itr == custom_mutations_.end())
+    return false;
+
+  // Randomly select one of the registered mutators. The default behavior is
+  // performed for index 0.
+  size_t field_index = GetRandomIndex(random_, itr->second.size() + 1);
+  if (field_index == itr->second.size())
+    return false;
+
+  if (GetRandomBool(random_, 100))
+    itr->second[field_index](message);
+  return true;
+}
+
+std::unordered_map<
+    const protobuf::FieldDescriptor*,
+    std::vector<std::function<void(protobuf::Message* message)>>>
+    Mutator::custom_mutations_;
 
 }  // namespace protobuf_mutator

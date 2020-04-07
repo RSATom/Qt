@@ -10,9 +10,16 @@
 Polymer({
   is: 'site-details-permission',
 
-  behaviors: [SiteSettingsBehavior, WebUIListenerBehavior],
+  behaviors: [I18nBehavior, SiteSettingsBehavior, WebUIListenerBehavior],
 
   properties: {
+    /**
+     * If this is a sound content setting, then this controls whether it
+     * should use "Automatic" instead of "Allow" as the default setting
+     * allow label.
+     */
+    useAutomaticLabel: {type: Boolean, value: false},
+
     /**
      * The site that this widget is showing details for.
      * @type {RawSiteException}
@@ -25,6 +32,10 @@ Polymer({
      * @private
      */
     defaultSetting_: String,
+
+    label: String,
+
+    icon: String,
   },
 
   observers: ['siteChanged_(site)'],
@@ -85,8 +96,9 @@ Polymer({
    * @private
    */
   onDefaultSettingChanged_: function(category) {
-    if (category == this.category)
+    if (category == this.category) {
       this.updateDefaultPermission_(this.site);
+    }
   },
 
   /**
@@ -99,27 +111,63 @@ Polymer({
   },
 
   /**
+   * Returns if we should use the custom labels for the sound type.
+   * @param {!settings.ContentSettingsTypes} category The permission type.
+   * @return {boolean}
+   * @private
+   */
+  useCustomSoundLabels_: function(category) {
+    return category == settings.ContentSettingsTypes.SOUND &&
+        loadTimeData.getBoolean('enableAutoplayWhitelistContentSetting');
+  },
+
+  /**
    * Updates the string used for this permission category's default setting.
    * @param {!settings.ContentSetting} defaultSetting Value of the default
    *     setting for this permission category.
-   * @param {string} askString 'Ask' label, e.g. 'Ask (default)'.
-   * @param {string} allowString 'Allow' label, e.g. 'Allow (default)'.
-   * @param {string} blockString 'Block' label, e.g. 'Blocked (default)'.
+   * @param {!settings.ContentSettingsTypes} category The permission type.
+   * @param {boolean} useAutomaticLabel Whether to use the automatic label
+   *     if the default setting value is allow.
    * @return {string}
    * @private
    */
-  defaultSettingString_: function(
-      defaultSetting, askString, allowString, blockString) {
+  defaultSettingString_: function(defaultSetting, category, useAutomaticLabel) {
+    if (defaultSetting == undefined || category == undefined ||
+        useAutomaticLabel == undefined) {
+      return '';
+    }
+
     if (defaultSetting == settings.ContentSetting.ASK ||
         defaultSetting == settings.ContentSetting.IMPORTANT_CONTENT) {
-      return askString;
+      return this.i18n('siteSettingsActionAskDefault');
     } else if (defaultSetting == settings.ContentSetting.ALLOW) {
-      return allowString;
+      if (this.useCustomSoundLabels_(category) && useAutomaticLabel) {
+        return this.i18n('siteSettingsActionAutomaticDefault');
+      }
+      return this.i18n('siteSettingsActionAllowDefault');
     } else if (defaultSetting == settings.ContentSetting.BLOCK) {
-      return blockString;
+      if (this.useCustomSoundLabels_(category)) {
+        return this.i18n('siteSettingsActionMuteDefault');
+      }
+      return this.i18n('siteSettingsActionBlockDefault');
     }
     assertNotReached(
         `No string for ${this.category}'s default of ${defaultSetting}`);
+  },
+
+  /**
+   * Updates the string used for this permission category's block setting.
+   * @param {!settings.ContentSettingsTypes} category The permission type.
+   * @param {string} blockString 'Block' label.
+   * @param {string} muteString 'Mute' label.
+   * @return {string}
+   * @private
+   */
+  blockSettingString_: function(category, blockString, muteString) {
+    if (this.useCustomSoundLabels_(category)) {
+      return muteString;
+    }
+    return blockString;
   },
 
   /**
@@ -196,8 +244,9 @@ Polymer({
    */
   showAskSetting_: function(category, setting, source) {
     // For chooser-based permissions 'ask' takes the place of 'allow'.
-    if (category == settings.ContentSettingsTypes.USB_DEVICES)
+    if (category == settings.ContentSettingsTypes.USB_DEVICES) {
       return true;
+    }
 
     return this.isNonDefaultAsk_(setting, source);
   },
@@ -251,8 +300,9 @@ Polymer({
       extensionAllowString, extensionBlockString, extensionAskString,
       policyAllowString, policyBlockString, policyAskString,
       drmDisabledString) {
-    if (source == undefined || category == undefined || setting == undefined)
+    if (source == undefined || category == undefined || setting == undefined) {
       return null;
+    }
 
     /** @type {Object<!settings.ContentSetting, ?string>} */
     const extensionStrings = {};

@@ -5,19 +5,24 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_ACCESSIBILITY_AX_POSITION_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_ACCESSIBILITY_AX_POSITION_H_
 
-#include <base/logging.h>
 #include <stdint.h>
+
 #include <ostream>
 
+#include <base/logging.h>
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/editing/text_affinity.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class AXObject;
+class ContainerNode;
+class Document;
+class Node;
 
 // When converting to a DOM position from an |AXPosition| or vice versa, and the
 // corresponding position is invalid, doesn't exist, or is inside an ignored
@@ -36,22 +41,47 @@ enum class AXPositionAdjustmentBehavior { kMoveLeft, kMoveRight };
 // between two characters. Another way of calling these types of positions is
 // object anchored and text anchored.
 class MODULES_EXPORT AXPosition final {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
-  static const AXPosition CreatePositionBeforeObject(const AXObject& child);
-  static const AXPosition CreatePositionAfterObject(const AXObject& child);
+  //
+  // Convert between DOM and AX positions and vice versa.
+  // |Create...| and |FromPosition| methods will by default skip over any
+  // ignored object and return the next unignored position to the right of that
+  // object.
+  //
+
+  static const AXPosition CreatePositionBeforeObject(
+      const AXObject& child,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
+  static const AXPosition CreatePositionAfterObject(
+      const AXObject& child,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
   static const AXPosition CreateFirstPositionInObject(
-      const AXObject& container);
-  static const AXPosition CreateLastPositionInObject(const AXObject& container);
+      const AXObject& container,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
+  static const AXPosition CreateLastPositionInObject(
+      const AXObject& container,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
   static const AXPosition CreatePositionInTextObject(
       const AXObject& container,
       const int offset,
-      const TextAffinity = TextAffinity::kDownstream);
+      const TextAffinity = TextAffinity::kDownstream,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
   static const AXPosition FromPosition(
       const Position&,
-      const TextAffinity = TextAffinity::kDownstream);
-  static const AXPosition FromPosition(const PositionWithAffinity&);
+      const TextAffinity = TextAffinity::kDownstream,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
+  static const AXPosition FromPosition(
+      const PositionWithAffinity&,
+      const AXPositionAdjustmentBehavior =
+          AXPositionAdjustmentBehavior::kMoveRight);
 
   // Creates an empty position. |IsValid| will return false.
   AXPosition();
@@ -79,7 +109,8 @@ class MODULES_EXPORT AXPosition final {
   // When the same character offset could correspond to two possible caret
   // positions, upstream means it's on the previous line rather than the next
   // line.
-  TextAffinity Affinity() const { return affinity_; }
+  // Only valid for text positions.
+  TextAffinity Affinity() const;
 
   // Verifies if the anchor is present and if it's set to a live object with a
   // connected node.
@@ -104,22 +135,37 @@ class MODULES_EXPORT AXPosition final {
   // tree appear as children of its immediate unignored parent.
   const AXPosition AsUnignoredPosition(
       const AXPositionAdjustmentBehavior =
-          AXPositionAdjustmentBehavior::kMoveLeft) const;
+          AXPositionAdjustmentBehavior::kMoveRight) const;
 
   // Adjusts the position by skipping over any objects that don't have a
   // corresponding |node| in the DOM tree, e.g. list bullets.
   const AXPosition AsValidDOMPosition(
       const AXPositionAdjustmentBehavior =
-          AXPositionAdjustmentBehavior::kMoveLeft) const;
+          AXPositionAdjustmentBehavior::kMoveRight) const;
 
   // Converts to a DOM position.
   const PositionWithAffinity ToPositionWithAffinity(
       const AXPositionAdjustmentBehavior =
           AXPositionAdjustmentBehavior::kMoveLeft) const;
 
+  // Returns a string representation of this object.
+  String ToString() const;
+
  private:
   // Only used by static Create... methods.
   explicit AXPosition(const AXObject& container);
+
+  // Searches the DOM tree starting from a particular child node within a
+  // particular container node, and in the direction indicated by the adjustment
+  // behavior, until it finds a node whose corresponding AX object is not
+  // ignored. Returns nullptr if an unignored object is not found within the
+  // provided container node. The container node could be nullptr if the whole
+  // DOM tree needs to be searched.
+  static const AXObject* FindNeighboringUnignoredObject(
+      const Document& document,
+      const Node& child_node,
+      const ContainerNode* container_node,
+      const AXPositionAdjustmentBehavior adjustment_behavior);
 
   // The |AXObject| in which the position is present.
   // Only valid during a single document lifecycle hence no need to maintain a

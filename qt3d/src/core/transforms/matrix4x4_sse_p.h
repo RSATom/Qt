@@ -356,15 +356,13 @@ public:
 
     Q_ALWAYS_INLINE Vector3D_SSE mapVector(const Vector3D_SSE &vector) const
     {
-        const __m128 row1 = _mm_set_ps(0.0f, m13(), m12(), m11());
-        const __m128 row2 = _mm_set_ps(0.0f, m23(), m22(), m21());
-        const __m128 row3 = _mm_set_ps(0.0f, m33(), m32(), m31());
+        const Vector3D_SSE row1(m11(), m12(), m13());
+        const Vector3D_SSE row2(m21(), m22(), m23());
+        const Vector3D_SSE row3(m31(), m32(), m33());
 
-        const __m128 tmp = _mm_add_ps(_mm_mul_ps(vector.m_xyzw, row1), _mm_mul_ps(vector.m_xyzw, row2));
-
-        Vector3D_SSE v(Qt::Uninitialized);
-        v.m_xyzw = _mm_add_ps(tmp, _mm_mul_ps(vector.m_xyzw, row3));
-        return v;
+        return Vector3D(Vector3D_SSE::dotProduct(row1, vector),
+                        Vector3D_SSE::dotProduct(row2, vector),
+                        Vector3D_SSE::dotProduct(row3, vector));
     }
 
     friend Q_ALWAYS_INLINE Vector4D operator*(const Vector4D &vector, const Matrix4x4_SSE &matrix);
@@ -373,7 +371,7 @@ public:
     friend Q_ALWAYS_INLINE Vector3D operator*(const Vector3D &vector, const Matrix4x4_SSE &matrix);
     friend Q_ALWAYS_INLINE Vector3D operator*(const Matrix4x4_SSE &matrix, const Vector3D &vector);
 
-    friend QT3DCORE_PRIVATE_EXPORT QDebug operator<<(QDebug dbg, const Matrix4x4_SSE &m);
+    friend Q_3DCORE_PRIVATE_EXPORT QDebug operator<<(QDebug dbg, const Matrix4x4_SSE &m);
 private:
     // Internally we will store the matrix as indicated below
     //  Q_DECL_ALIGN(16)  // aligned on 16 bytes boundary for SSE (column major)
@@ -484,7 +482,7 @@ Q_ALWAYS_INLINE Vector3D operator*(const Vector3D &vector, const Matrix4x4_SSE &
     return v;
 }
 
-QT3DCORE_PRIVATE_EXPORT Q_ALWAYS_INLINE Vector3D operator*(const Matrix4x4_SSE &matrix, const Vector3D &vector)
+Q_3DCORE_PRIVATE_EXPORT Q_ALWAYS_INLINE Vector3D operator*(const Matrix4x4_SSE &matrix, const Vector3D &vector)
 {
     const Matrix4x4_SSE transposed = matrix.transposed();
     return vector * transposed;

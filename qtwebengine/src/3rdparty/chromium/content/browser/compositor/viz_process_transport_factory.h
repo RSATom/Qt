@@ -31,13 +31,13 @@ namespace gpu {
 class GpuChannelEstablishFactory;
 }
 
-namespace ui {
-class ContextProviderCommandBuffer;
-}
-
 namespace viz {
 class CompositingModeReporterImpl;
 class RasterContextProvider;
+}
+
+namespace ws {
+class ContextProviderCommandBuffer;
 }
 
 namespace content {
@@ -47,7 +47,6 @@ namespace content {
 // instead of in the browser process. Any interaction with the display
 // compositor must happen over IPC.
 class VizProcessTransportFactory : public ui::ContextFactory,
-                                   public ui::HostContextFactoryPrivate,
                                    public ImageTransportFactory,
                                    public viz::ContextLostObserver {
  public:
@@ -66,7 +65,6 @@ class VizProcessTransportFactory : public ui::ContextFactory,
   scoped_refptr<viz::ContextProvider> SharedMainThreadContextProvider()
       override;
   void RemoveCompositor(ui::Compositor* compositor) override;
-  double GetRefreshRate() const override;
   gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   void AddObserver(ui::ContextFactoryObserver* observer) override;
@@ -78,7 +76,6 @@ class VizProcessTransportFactory : public ui::ContextFactory,
   bool IsGpuCompositingDisabled() override;
   ui::ContextFactory* GetContextFactory() override;
   ui::ContextFactoryPrivate* GetContextFactoryPrivate() override;
-  viz::GLHelper* GetGLHelper() override;
 
   // viz::ContextLostObserver implementation.
   void OnContextLost() override;
@@ -105,8 +102,8 @@ class VizProcessTransportFactory : public ui::ContextFactory,
   // blacklisted.
   //
   // Returns kSuccess if caller can use GPU compositing, kTransientFailure if
-  // caller should try again or kFatalFailure if caller should fallback to
-  // software compositing.
+  // caller should try again or kFatalFailure/kSurfaceFailure if caller should
+  // fallback to software compositing.
   gpu::ContextResult TryCreateContextsForGpuCompositing(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host);
 
@@ -118,20 +115,21 @@ class VizProcessTransportFactory : public ui::ContextFactory,
   // are using.
   viz::CompositingModeReporterImpl* const compositing_mode_reporter_;
 
-  base::ObserverList<ui::ContextFactoryObserver> observer_list_;
+  base::ObserverList<ui::ContextFactoryObserver>::Unchecked observer_list_;
 
   // ContextProvider used on worker threads for rasterization.
   scoped_refptr<viz::RasterContextProvider> worker_context_provider_;
 
   // ContextProvider used on the main thread. Shared by ui::Compositors and also
   // returned from GetSharedMainThreadContextProvider().
-  scoped_refptr<ui::ContextProviderCommandBuffer> main_context_provider_;
+  scoped_refptr<ws::ContextProviderCommandBuffer> main_context_provider_;
 
   std::unique_ptr<cc::SingleThreadTaskGraphRunner> task_graph_runner_;
 
   // Will start and run the VizCompositorThread for using an in-process display
   // compositor.
   std::unique_ptr<viz::VizCompositorThreadRunner> viz_compositor_thread_;
+  ui::HostContextFactoryPrivate context_factory_private_;
 
   base::WeakPtrFactory<VizProcessTransportFactory> weak_ptr_factory_;
 

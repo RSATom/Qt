@@ -36,13 +36,17 @@ ManifestPermission* SocketsManifestHandler::CreateInitialRequiredPermission(
     const Extension* extension) {
   SocketsManifestData* data = SocketsManifestData::Get(extension);
   if (data)
-    return data->permission()->Clone();
+    return data->permission()->Clone().release();
   return NULL;
 }
 
 base::span<const char* const> SocketsManifestHandler::Keys() const {
   static constexpr const char* kKeys[] = {manifest_keys::kSockets};
+#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 }  // namespace extensions

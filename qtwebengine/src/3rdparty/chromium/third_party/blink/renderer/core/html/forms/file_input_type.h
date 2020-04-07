@@ -47,25 +47,25 @@ class FileList;
 
 class CORE_EXPORT FileInputType final : public InputType,
                                         public KeyboardClickableInputTypeView,
-                                        private FileChooserClient,
-                                        private PopupOpeningObserver {
+                                        private FileChooserClient {
   USING_GARBAGE_COLLECTED_MIXIN(FileInputType);
 
  public:
   static InputType* Create(HTMLInputElement&);
-  void Trace(blink::Visitor*) override;
+
+  FileInputType(HTMLInputElement&);
+
+  void Trace(Visitor*) override;
   using InputType::GetElement;
-  static Vector<FileChooserFileInfo> FilesFromFormControlState(
-      const FormControlState&);
-  static FileList* CreateFileList(const Vector<FileChooserFileInfo>& files,
-                                  bool has_webkit_directory_attr);
+  static Vector<String> FilesFromFormControlState(const FormControlState&);
+  static FileList* CreateFileList(const FileChooserFileInfoList& files,
+                                  const base::FilePath& base_dir);
 
   void CountUsage() override;
 
   void SetFilesFromPaths(const Vector<String>&) override;
 
  private:
-  FileInputType(HTMLInputElement&);
   InputTypeView* CreateView() override;
   const AtomicString& FormControlType() const override;
   FormControlState SaveFormControlState() const override;
@@ -73,11 +73,12 @@ class CORE_EXPORT FileInputType final : public InputType,
   void AppendToFormData(FormData&) const override;
   bool ValueMissing(const String&) const override;
   String ValueMissingText() const override;
-  void HandleDOMActivateEvent(Event*) override;
+  void HandleDOMActivateEvent(Event&) override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&) const override;
   bool CanSetStringValue() const override;
   FileList* Files() override;
-  void SetFiles(FileList*) override;
+  bool SetFiles(FileList*) override;
+  void SetFilesAndDispatchEvents(FileList*) override;
   ValueMode GetValueMode() const override;
   bool CanSetValue(const String&) override;
   String ValueInFilenameValueMode() const override;
@@ -94,11 +95,13 @@ class CORE_EXPORT FileInputType final : public InputType,
   void CopyNonAttributeProperties(const HTMLInputElement&) override;
 
   // KeyboardClickableInputTypeView overrides.
-  void HandleKeypressEvent(KeyboardEvent*) override;
-  void HandleKeyupEvent(KeyboardEvent*) override;
+  void HandleKeypressEvent(KeyboardEvent&) override;
+  void HandleKeyupEvent(KeyboardEvent&) override;
 
   // FileChooserClient implementation.
-  void FilesChosen(const Vector<FileChooserFileInfo>&) override;
+  void FilesChosen(FileChooserFileInfoList files,
+                   const base::FilePath& base_dir) override;
+  LocalFrame* FrameOrNull() const override;
 
   // PopupOpeningObserver implementation.
   void WillOpenPopup() override;

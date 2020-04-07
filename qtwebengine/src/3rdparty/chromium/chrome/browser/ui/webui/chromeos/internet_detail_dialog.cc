@@ -18,6 +18,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "content/public/common/content_features.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace chromeos {
@@ -87,6 +88,12 @@ void InternetDetailDialog::ShowDialog(const std::string& network_id) {
     LOG(ERROR) << "Network not found: " << network_id;
     return;
   }
+  auto* instance = SystemWebDialogDelegate::FindInstance(network->guid());
+  if (instance) {
+    instance->Focus();
+    return;
+  }
+
   InternetDetailDialog* dialog = new InternetDetailDialog(*network);
   dialog->ShowSystemDialog();
 }
@@ -102,6 +109,10 @@ InternetDetailDialog::InternetDetailDialog(const NetworkState& network)
 
 InternetDetailDialog::~InternetDetailDialog() {
   --s_internet_detail_dialog_count;
+}
+
+const std::string& InternetDetailDialog::Id() {
+  return network_id_;
 }
 
 void InternetDetailDialog::GetDialogSize(gfx::Size* size) const {
@@ -131,7 +142,10 @@ InternetDetailDialogUI::InternetDetailDialogUI(content::WebUI* web_ui)
   source->SetJsonPath("strings.js");
 #if BUILDFLAG(OPTIMIZE_WEBUI)
   source->UseGzip();
-  source->SetDefaultResource(IDR_INTERNET_DETAIL_DIALOG_VULCANIZED_HTML);
+  source->SetDefaultResource(
+      base::FeatureList::IsEnabled(features::kWebUIPolymer2)
+          ? IDR_INTERNET_DETAIL_DIALOG_VULCANIZED_P2_HTML
+          : IDR_INTERNET_DETAIL_DIALOG_VULCANIZED_HTML);
   source->AddResourcePath("crisper.js", IDR_INTERNET_DETAIL_DIALOG_CRISPER_JS);
 #else
   source->SetDefaultResource(IDR_INTERNET_DETAIL_DIALOG_HTML);

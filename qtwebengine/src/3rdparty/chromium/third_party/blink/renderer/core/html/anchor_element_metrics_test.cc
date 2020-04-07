@@ -7,6 +7,9 @@
 #include "base/optional.h"
 #include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html/html_iframe_element.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
@@ -31,7 +34,8 @@ class AnchorElementMetricsTest : public SimTest {
         ToHTMLAnchorElement(GetDocument().getElementById("anchor"));
     anchor_element->SetHref(AtomicString(target));
 
-    return AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element)
+    return AnchorElementMetrics::MaybeReportClickedMetricsOnClick(
+               anchor_element)
         .value()
         .GetIsUrlIncrementedByOne();
   }
@@ -41,8 +45,9 @@ class AnchorElementMetricsTest : public SimTest {
 
   void SetUp() override {
     SimTest::SetUp();
-    WebView().Resize(WebSize(kViewportWidth, kViewportHeight));
-    feature_list_.InitAndEnableFeature(kRecordAnchorMetricsClicked);
+    WebView().MainFrameWidget()->Resize(
+        WebSize(kViewportWidth, kViewportHeight));
+    feature_list_.InitAndEnableFeature(features::kNavigationPredictor);
   }
 
   base::test::ScopedFeatureList feature_list_;
@@ -80,19 +85,58 @@ TEST_F(AnchorElementMetricsTest, FinchControl) {
   HTMLAnchorElement* anchor_element =
       ToHTMLAnchorElement(GetDocument().getElementById("anchor"));
 
-  // With feature kRecordAnchorMetricsClicked disabled, we should not see any
+  // With feature kNavigationPredictor disabled, we should not see any
   // count in histograms.
   base::test::ScopedFeatureList disabled_feature_list;
-  disabled_feature_list.InitAndDisableFeature(kRecordAnchorMetricsClicked);
-  AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element);
+  disabled_feature_list.InitAndDisableFeature(features::kNavigationPredictor);
+  AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element);
   histogram_tester.ExpectTotalCount("AnchorElementMetrics.Clicked.RatioArea",
                                     0);
 
-  // If we enable feature kRecordAnchorMetricsClicked, we should see count is 1
+  // If we enable feature kNavigationPredictor, we should see count is 1
   // in histograms.
   base::test::ScopedFeatureList enabled_feature_list;
-  enabled_feature_list.InitAndEnableFeature(kRecordAnchorMetricsClicked);
-  AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element);
+  enabled_feature_list.InitAndEnableFeature(features::kNavigationPredictor);
+  AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element);
+  histogram_tester.ExpectTotalCount("AnchorElementMetrics.Clicked.RatioArea",
+                                    1);
+}
+
+// Test that non-HTTP URLs are not reported.
+TEST_F(AnchorElementMetricsTest, NonHTTPOnClick) {
+  HistogramTester histogram_tester;
+
+  // Tests that an HTTPS page with a data anchor is not reported when the anchor
+  // is clicked.
+  SimRequest http_resource("https://example.com/", "text/html");
+  LoadURL("https://example.com/");
+  http_resource.Complete("<a id='anchor' href='data://google.com/'>google</a>");
+  HTMLAnchorElement* anchor_element =
+      ToHTMLAnchorElement(GetDocument().getElementById("anchor"));
+
+  AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element);
+  histogram_tester.ExpectTotalCount("AnchorElementMetrics.Clicked.RatioArea",
+                                    0);
+
+  // Tests that a data page with an HTTPS anchor is not reported when the anchor
+  // is clicked.
+  LoadURL(
+      "data:text/html,<a id='anchor' href='https://google.com/'>google</a>");
+  anchor_element = ToHTMLAnchorElement(GetDocument().getElementById("anchor"));
+
+  AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element);
+  histogram_tester.ExpectTotalCount("AnchorElementMetrics.Clicked.RatioArea",
+                                    0);
+
+  // Tests that an HTTPS page with an HTTPS anchor is reported when the anchor
+  // is clicked.
+  SimRequest http_resource_2("https://example.com/", "text/html");
+  LoadURL("https://example.com/");
+  http_resource_2.Complete(
+      "<a id='anchor' href='https://google.com/'>google</a>");
+  anchor_element = ToHTMLAnchorElement(GetDocument().getElementById("anchor"));
+
+  AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element);
   histogram_tester.ExpectTotalCount("AnchorElementMetrics.Clicked.RatioArea",
                                     1);
 }
@@ -118,7 +162,8 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureImageLink) {
   HTMLAnchorElement* anchor_element = ToHTMLAnchorElement(anchor);
 
   auto feature =
-      AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element).value();
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .value();
   EXPECT_FLOAT_EQ(0.25, feature.GetRatioArea());
   EXPECT_FLOAT_EQ(0.25, feature.GetRatioVisibleArea());
   EXPECT_FLOAT_EQ(0.5, feature.GetRatioDistanceTopToVisibleTop());
@@ -152,7 +197,8 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureExtract) {
   HTMLAnchorElement* anchor_element = ToHTMLAnchorElement(anchor);
 
   auto feature =
-      AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element).value();
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .value();
   EXPECT_GT(feature.GetRatioArea(), 0);
   EXPECT_FLOAT_EQ(feature.GetRatioDistanceRootTop(), 2);
   EXPECT_FLOAT_EQ(feature.GetRatioDistanceTopToVisibleTop(), 2);
@@ -175,7 +221,8 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureExtract) {
       ScrollOffset(0, kViewportHeight * 1.5), kProgrammaticScroll);
 
   auto feature2 =
-      AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element).value();
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .value();
   EXPECT_LT(0, feature2.GetRatioVisibleArea());
   EXPECT_FLOAT_EQ(0.5, feature2.GetRatioDistanceTopToVisibleTop());
   EXPECT_LT(0.5, feature2.GetRatioDistanceCenterToVisibleTop());
@@ -190,7 +237,8 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureExtract) {
 TEST_F(AnchorElementMetricsTest, AnchorFeatureInIframe) {
   SimRequest main_resource("https://example.com/page1", "text/html");
   SimRequest iframe_resource("https://example.com/iframe.html", "text/html");
-  SimRequest image_resource("https://example.com/cat.png", "image/png");
+  SimSubresourceRequest image_resource("https://example.com/cat.png",
+                                       "image/png");
 
   LoadURL("https://example.com/page1");
 
@@ -223,7 +271,8 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureInIframe) {
   HTMLAnchorElement* anchor_element = ToHTMLAnchorElement(anchor);
 
   auto feature =
-      AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element).value();
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .value();
   EXPECT_LT(0, feature.GetRatioArea());
   EXPECT_FLOAT_EQ(0, feature.GetRatioVisibleArea());
   EXPECT_FLOAT_EQ(2.5, feature.GetRatioDistanceTopToVisibleTop());
@@ -239,7 +288,8 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureInIframe) {
       ScrollOffset(0, kViewportHeight * 1.8), kProgrammaticScroll);
 
   auto feature2 =
-      AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element).value();
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .value();
   EXPECT_LT(0, feature2.GetRatioVisibleArea());
   EXPECT_FLOAT_EQ(0.7, feature2.GetRatioDistanceTopToVisibleTop());
   EXPECT_FLOAT_EQ(2.5, feature2.GetRatioDistanceRootTop());
@@ -249,12 +299,54 @@ TEST_F(AnchorElementMetricsTest, AnchorFeatureInIframe) {
       ScrollOffset(0, kViewportHeight * 0.2), kProgrammaticScroll);
 
   auto feature3 =
-      AnchorElementMetrics::MaybeExtractMetricsClicked(anchor_element).value();
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .value();
   EXPECT_LT(0, feature3.GetRatioVisibleArea());
   EXPECT_FLOAT_EQ(0.5, feature3.GetRatioDistanceTopToVisibleTop());
   EXPECT_FLOAT_EQ(2.5, feature3.GetRatioDistanceRootTop());
   // The distance is expected to be 10.2 - height of the anchor element.
   EXPECT_GT(10.2, feature3.GetRatioDistanceRootBottom());
+}
+
+TEST_F(AnchorElementMetricsTest, AnchorFeatureInIframeNonHttp) {
+  SimRequest main_resource("content://example.com/page1", "text/html");
+  SimRequest iframe_resource("https://example.com/iframe.html", "text/html");
+  SimSubresourceRequest image_resource("https://example.com/cat.png",
+                                       "image/png");
+
+  LoadURL("content://example.com/page1");
+
+  main_resource.Complete(String::Format(
+      R"HTML(
+        <body style='margin: 0px'>
+        <div style='height: %dpx;'></div>
+        <iframe id='iframe' src='https://example.com/iframe.html'
+            style='width: 300px; height: %dpx;
+            border-style: none; padding: 0px; margin: 0px;'></iframe>
+        <div style='height: %dpx;'></div>
+        </body>)HTML",
+      2 * kViewportHeight, kViewportHeight / 2, 10 * kViewportHeight));
+
+  iframe_resource.Complete(String::Format(
+      R"HTML(
+    <body style='margin: 0px'>
+    <div style='height: %dpx;'></div>
+    <a id='anchor' href="https://example.com/page2">example</a>
+    <div style='height: %dpx;'></div>
+    </body>)HTML",
+      kViewportHeight / 2, 5 * kViewportHeight));
+
+  Element* iframe = GetDocument().getElementById("iframe");
+  HTMLIFrameElement* iframe_element = ToHTMLIFrameElement(iframe);
+  Frame* sub = iframe_element->ContentFrame();
+  LocalFrame* subframe = ToLocalFrame(sub);
+
+  Element* anchor = subframe->GetDocument()->getElementById("anchor");
+  HTMLAnchorElement* anchor_element = ToHTMLAnchorElement(anchor);
+
+  EXPECT_FALSE(
+      AnchorElementMetrics::MaybeReportClickedMetricsOnClick(anchor_element)
+          .has_value());
 }
 
 }  // namespace blink

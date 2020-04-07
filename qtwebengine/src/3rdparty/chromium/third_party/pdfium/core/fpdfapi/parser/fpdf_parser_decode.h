@@ -9,8 +9,10 @@
 
 #include <memory>
 
+#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/unowned_ptr.h"
+#include "third_party/base/span.h"
 
 class CCodec_ScanlineDecoder;
 class CPDF_Array;
@@ -22,66 +24,55 @@ extern const uint16_t PDFDocEncoding[256];
 bool ValidateDecoderPipeline(const CPDF_Array* pDecoders);
 
 ByteString PDF_EncodeString(const ByteString& src, bool bHex);
-WideString PDF_DecodeText(const uint8_t* pData, uint32_t size);
-WideString PDF_DecodeText(const ByteString& bstr);
-ByteString PDF_EncodeText(const wchar_t* pString, int len);
+WideString PDF_DecodeText(pdfium::span<const uint8_t> span);
 ByteString PDF_EncodeText(const WideString& str);
 
-bool FlateEncode(const uint8_t* src_buf,
-                 uint32_t src_size,
-                 uint8_t** dest_buf,
-                 uint32_t* dest_size);
-
-uint32_t FlateDecode(const uint8_t* src_buf,
-                     uint32_t src_size,
-                     uint8_t** dest_buf,
-                     uint32_t* dest_size);
-
-uint32_t RunLengthDecode(const uint8_t* src_buf,
-                         uint32_t src_size,
-                         uint8_t** dest_buf,
-                         uint32_t* dest_size);
-
-std::unique_ptr<CCodec_ScanlineDecoder> FPDFAPI_CreateFaxDecoder(
-    const uint8_t* src_buf,
-    uint32_t src_size,
+std::unique_ptr<CCodec_ScanlineDecoder> CreateFaxDecoder(
+    pdfium::span<const uint8_t> src_span,
     int width,
     int height,
     const CPDF_Dictionary* pParams);
 
-std::unique_ptr<CCodec_ScanlineDecoder> FPDFAPI_CreateFlateDecoder(
-    const uint8_t* src_buf,
-    uint32_t src_size,
+std::unique_ptr<CCodec_ScanlineDecoder> CreateFlateDecoder(
+    pdfium::span<const uint8_t> src_span,
     int width,
     int height,
     int nComps,
     int bpc,
     const CPDF_Dictionary* pParams);
 
-uint32_t A85Decode(const uint8_t* src_buf,
-                   uint32_t src_size,
-                   uint8_t** dest_buf,
+bool FlateEncode(pdfium::span<const uint8_t> src_span,
+                 std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
+                 uint32_t* dest_size);
+
+uint32_t FlateDecode(pdfium::span<const uint8_t> src_span,
+                     std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
+                     uint32_t* dest_size);
+
+uint32_t RunLengthDecode(pdfium::span<const uint8_t> src_span,
+                         std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
+                         uint32_t* dest_size);
+
+uint32_t A85Decode(pdfium::span<const uint8_t> src_span,
+                   std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                    uint32_t* dest_size);
 
-uint32_t HexDecode(const uint8_t* src_buf,
-                   uint32_t src_size,
-                   uint8_t** dest_buf,
+uint32_t HexDecode(pdfium::span<const uint8_t> src_span,
+                   std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                    uint32_t* dest_size);
 
-uint32_t FPDFAPI_FlateOrLZWDecode(bool bLZW,
-                                  const uint8_t* src_buf,
-                                  uint32_t src_size,
-                                  const CPDF_Dictionary* pParams,
-                                  uint32_t estimated_size,
-                                  uint8_t** dest_buf,
-                                  uint32_t* dest_size);
+uint32_t FlateOrLZWDecode(bool bLZW,
+                          pdfium::span<const uint8_t> src_span,
+                          const CPDF_Dictionary* pParams,
+                          uint32_t estimated_size,
+                          std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
+                          uint32_t* dest_size);
 
-bool PDF_DataDecode(const uint8_t* src_buf,
-                    uint32_t src_size,
+bool PDF_DataDecode(pdfium::span<const uint8_t> src_span,
                     const CPDF_Dictionary* pDict,
                     uint32_t estimated_size,
                     bool bImageAcc,
-                    uint8_t** dest_buf,
+                    std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                     uint32_t* dest_size,
                     ByteString* ImageEncoding,
                     UnownedPtr<const CPDF_Dictionary>* pImageParms);

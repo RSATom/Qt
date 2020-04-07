@@ -48,9 +48,64 @@
 
 QT_BEGIN_NAMESPACE
 
-QNSWindowBackingStore::QNSWindowBackingStore(QWindow *window)
+QCocoaBackingStore::QCocoaBackingStore(QWindow *window)
     : QRasterBackingStore(window)
 {
+    // Ideally this would be plumbed from the platform layer to QtGui, and
+    // the QBackingStore would be recreated, but we don't have that code yet,
+    // so at least make sure we invalidate our backingstore when the backing
+    // properties (color space e.g.) are changed.
+    NSView *view = static_cast<QCocoaWindow *>(window->handle())->view();
+    m_backingPropertiesObserver = QMacNotificationObserver(view.window,
+        NSWindowDidChangeBackingPropertiesNotification, [this]() {
+            qCDebug(lcQpaBackingStore) << "Backing properties for"
+                << this->window() << "did change";
+            backingPropertiesChanged();
+        });
+}
+
+QCFType<CGColorSpaceRef> QCocoaBackingStore::colorSpace() const
+{
+    NSView *view = static_cast<QCocoaWindow *>(window()->handle())->view();
+    return QCFType<CGColorSpaceRef>::constructFromGet(view.window.colorSpace.CGColorSpace);
+}
+
+// ----------------------------------------------------------------------------
+
+QNSWindowBackingStore::QNSWindowBackingStore(QWindow *window)
+    : QCocoaBackingStore(window)
+{
+    // Choose an appropriate window depth based on the requested surface format.
+    // On deep color displays the default bit depth is 16-bit, so unless we need
+    // that level of precision we opt out of it (and the expensive RGB32 -> RGB64
+    // conversions that come with it if our backingstore depth does not match).
+
+    NSWindow *nsWindow = static_cast<QCocoaWindow *>(window->handle())->view().window;
+    auto colorSpaceName = NSColorSpaceFromDepth(nsWindow.depthLimit);
+
+    static const int kDefaultBitDepth = 8;
+    auto surfaceFormat = window->requestedFormat();
+    auto bitsPerSample = qMax(kDefaultBitDepth, qMax(surfaceFormat.redBufferSize(),
+        qMax(surfaceFormat.greenBufferSize(), surfaceFormat.blueBufferSize())));
+
+    // NSBestDepth does not seem to guarantee a window depth deep enough for the
+    // given bits per sample, even if documented as such. For example, requesting
+    // 10 bits per sample will not give us a 16-bit format, even if that's what's
+    // available. Work around this by manually bumping the bit depth.
+    bitsPerSample = !(bitsPerSample & (bitsPerSample - 1))
+        ? bitsPerSample : qNextPowerOfTwo(bitsPerSample);
+
+    auto bestDepth = NSBestDepth(colorSpaceName, bitsPerSample, 0, NO, nullptr);
+
+    // Disable dynamic depth limit, otherwise our depth limit will be overwritten
+    // by AppKit if the window moves to a screen with a different depth. We call
+    // this before setting the depth limit, as the call will reset the depth to 0.
+    [nsWindow setDynamicDepthLimit:NO];
+
+    qCDebug(lcQpaBackingStore) << "Using" << NSBitsPerSampleFromDepth(bestDepth)
+        << "bit window depth for" << nsWindow;
+
+    nsWindow.depthLimit = bestDepth;
 }
 
 QNSWindowBackingStore::~QNSWindowBackingStore()
@@ -69,6 +124,24 @@ QImage::Format QNSWindowBackingStore::format() const
         return QImage::Format_ARGB32_Premultiplied;
 
     return QRasterBackingStore::format();
+}
+
+void QNSWindowBackingStore::resize(const QSize &size, const QRegion &staticContents)
+{
+    qCDebug(lcQpaBackingStore) << "Resize requested to" << size;
+    QRasterBackingStore::resize(size, staticContents);
+
+    // The window shadow rendered by AppKit is based on the shape/content of the
+    // NSWindow surface. Technically any flush of the backingstore can result in
+    // a potentially new shape of the window, and would need a shadow invalidation,
+    // but this is likely too expensive to do at every flush for the few cases where
+    // clients change the shape dynamically. One case where we do know that the shadow
+    // likely needs invalidation, if the window has partially transparent content,
+    // is after a resize, where AppKit's default shadow may be based on the previous
+    // window content.
+    QCocoaWindow *cocoaWindow = static_cast<QCocoaWindow *>(window()->handle());
+    if (cocoaWindow->isContentView() && !cocoaWindow->isOpaque())
+        cocoaWindow->m_needsInvalidateShadow = true;
 }
 
 /*!
@@ -157,11 +230,10 @@ void QNSWindowBackingStore::flush(QWindow *window, const QRegion &region, const 
     Q_ASSERT_X(graphicsContext, "QCocoaBackingStore",
         "Focusing the view should give us a current graphics context");
 
-    // Prevent potentially costly color conversion by assigning the display color space
-    // to the backingstore image. This does not copy the underlying image data.
-    CGColorSpaceRef displayColorSpace = view.window.screen.colorSpace.CGColorSpace;
+    // Tag backingstore image with color space based on the window.
+    // Note: This does not copy the underlying image data.
     QCFType<CGImageRef> cgImage = CGImageCreateCopyWithColorSpace(
-        QCFType<CGImageRef>(m_image.toCGImage()), displayColorSpace);
+        QCFType<CGImageRef>(m_image.toCGImage()), colorSpace());
 
     // Create temporary image to use for blitting, without copying image data
     NSImage *backingStoreImage = [[[NSImage alloc] initWithCGImage:cgImage size:NSZeroSize] autorelease];
@@ -181,9 +253,6 @@ void QNSWindowBackingStore::flush(QWindow *window, const QRegion &region, const 
             backingStoreRect.moveTop(m_image.height() - (backingStoreRect.y() + backingStoreRect.height()));
 
         CGRect viewRect = viewLocalRect.toCGRect();
-
-        if (windowHasUnifiedToolbar())
-            NSDrawWindowBackground(viewRect);
 
         [backingStoreImage drawInRect:viewRect fromRect:backingStoreRect.toCGRect()
             operation:compositingOperation fraction:1.0 respectFlipped:YES hints:nil];
@@ -217,6 +286,7 @@ void QNSWindowBackingStore::flush(QWindow *window, const QRegion &region, const 
 
     QCocoaWindow *topLevelCocoaWindow = static_cast<QCocoaWindow *>(topLevelWindow->handle());
     if (Q_UNLIKELY(topLevelCocoaWindow->m_needsInvalidateShadow)) {
+        qCDebug(lcQpaBackingStore) << "Invalidating window shadow for" << topLevelCocoaWindow;
         [topLevelView.window invalidateShadow];
         topLevelCocoaWindow->m_needsInvalidateShadow = false;
     }
@@ -271,22 +341,15 @@ void QNSWindowBackingStore::redrawRoundedBottomCorners(CGRect windowRect) const
 #endif
 }
 
+void QNSWindowBackingStore::backingPropertiesChanged()
+{
+    m_image = QImage();
+}
+
 // ----------------------------------------------------------------------------
 
-// https://stackoverflow.com/a/52722575/2761869
-template<class R>
-struct backwards_t {
-  R r;
-  constexpr auto begin() const { using std::rbegin; return rbegin(r); }
-  constexpr auto begin() { using std::rbegin; return rbegin(r); }
-  constexpr auto end() const { using std::rend; return rend(r); }
-  constexpr auto end() { using std::rend; return rend(r); }
-};
-template<class R>
-constexpr backwards_t<R> backwards(R&& r) { return {std::forward<R>(r)}; }
-
 QCALayerBackingStore::QCALayerBackingStore(QWindow *window)
-    : QPlatformBackingStore(window)
+    : QCocoaBackingStore(window)
 {
     qCDebug(lcQpaBackingStore) << "Creating QCALayerBackingStore for" << window;
     m_buffers.resize(1);
@@ -394,10 +457,11 @@ void QCALayerBackingStore::ensureBackBuffer()
 
 bool QCALayerBackingStore::recreateBackBufferIfNeeded()
 {
-    const qreal devicePixelRatio = window()->devicePixelRatio();
+    const QCocoaWindow *platformWindow = static_cast<QCocoaWindow *>(window()->handle());
+    const qreal devicePixelRatio = platformWindow->devicePixelRatio();
     QSize requestedBufferSize = m_requestedSize * devicePixelRatio;
 
-    const NSView *backingStoreView = static_cast<QCocoaWindow *>(window()->handle())->view();
+    const NSView *backingStoreView = platformWindow->view();
     Q_UNUSED(backingStoreView);
 
     auto bufferSizeMismatch = [&](const QSize requested, const QSize actual) {
@@ -424,11 +488,7 @@ bool QCALayerBackingStore::recreateBackBufferIfNeeded()
             << "based on requested" << m_requestedSize << "and dpr =" << devicePixelRatio;
 
         static auto pixelFormat = QImage::toPixelFormat(QImage::Format_ARGB32_Premultiplied);
-
-        NSView *view = static_cast<QCocoaWindow *>(window()->handle())->view();
-        auto colorSpace = QCFType<CGColorSpaceRef>::constructFromGet(view.window.screen.colorSpace.CGColorSpace);
-
-        m_buffers.back().reset(new GraphicsBuffer(requestedBufferSize, devicePixelRatio, pixelFormat, colorSpace));
+        m_buffers.back().reset(new GraphicsBuffer(requestedBufferSize, devicePixelRatio, pixelFormat, colorSpace()));
         return true;
     }
 
@@ -547,6 +607,12 @@ QImage QCALayerBackingStore::toImage() const
     QImage imageCopy = m_buffers.back()->asImage()->copy();
     m_buffers.back()->unlock();
     return imageCopy;
+}
+
+void QCALayerBackingStore::backingPropertiesChanged()
+{
+    m_buffers.clear();
+    m_buffers.resize(1);
 }
 
 QPlatformGraphicsBuffer *QCALayerBackingStore::graphicsBuffer() const

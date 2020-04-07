@@ -63,6 +63,9 @@ class MockStreamCaptureInterface : public StreamCaptureInterface {
   MOCK_METHOD2(DoProcessCaptureRequest,
                void(cros::mojom::Camera3CaptureRequestPtr& request,
                     base::OnceCallback<void(int32_t)>& callback));
+
+  void Flush(base::OnceCallback<void(int32_t)> callback) { DoFlush(callback); }
+  MOCK_METHOD1(DoFlush, void(base::OnceCallback<void(int32_t)>& callback));
 };
 
 const VideoCaptureFormat kDefaultCaptureFormat(gfx::Size(1280, 720),
@@ -382,7 +385,7 @@ TEST_F(StreamBufferManagerTest, DeviceErrorTest) {
         test->QuitCaptureLoop();
       },
       base::Unretained(this)));
-  EXPECT_CALL(*GetMockVideoCaptureClient(), OnError(_, _))
+  EXPECT_CALL(*GetMockVideoCaptureClient(), OnError(_, _, _))
       .Times(1)
       .WillOnce(
           InvokeWithoutArgs(this, &StreamBufferManagerTest::QuitCaptureLoop));

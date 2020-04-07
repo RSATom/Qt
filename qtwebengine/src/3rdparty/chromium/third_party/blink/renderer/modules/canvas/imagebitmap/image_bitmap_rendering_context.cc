@@ -32,7 +32,7 @@ void ImageBitmapRenderingContext::transferFromImageBitmap(
     return;
   }
 
-  if (image_bitmap && image_bitmap->WouldTaintOrigin(nullptr)) {
+  if (image_bitmap && image_bitmap->WouldTaintOrigin()) {
     Host()->SetOriginTainted();
   }
 
@@ -42,7 +42,7 @@ void ImageBitmapRenderingContext::transferFromImageBitmap(
 CanvasRenderingContext* ImageBitmapRenderingContext::Factory::Create(
     CanvasRenderingContextHost* host,
     const CanvasContextCreationAttributesCore& attrs) {
-  return new ImageBitmapRenderingContext(host, attrs);
+  return MakeGarbageCollected<ImageBitmapRenderingContext>(host, attrs);
 }
 
 }  // namespace blink

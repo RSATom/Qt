@@ -11,14 +11,18 @@
 #ifndef MODULES_VIDEO_CODING_FRAME_BUFFER_H_
 #define MODULES_VIDEO_CODING_FRAME_BUFFER_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <vector>
 
-#include "modules/include/module_common_types.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "modules/video_coding/codecs/h264/include/h264_globals.h"
+#include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "modules/video_coding/encoded_frame.h"
 #include "modules/video_coding/include/video_coding.h"
 #include "modules/video_coding/jitter_buffer_common.h"
+#include "modules/video_coding/packet.h"
 #include "modules/video_coding/session_info.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -31,7 +35,6 @@ class VCMFrameBuffer : public VCMEncodedFrame {
 
   VCMFrameBufferEnum InsertPacket(const VCMPacket& packet,
                                   int64_t timeInMs,
-                                  VCMDecodeErrorMode decode_error_mode,
                                   const FrameData& frame_data);
 
   // State

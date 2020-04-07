@@ -13,10 +13,10 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 inline HTMLPictureElement::HTMLPictureElement(Document& document)
-    : HTMLElement(pictureTag, document) {}
+    : HTMLElement(kPictureTag, document) {}
 
 DEFINE_NODE_FACTORY(HTMLPictureElement)
 
@@ -50,7 +50,7 @@ void HTMLPictureElement::AddListenerToSourceChildren() {
 }
 
 Node::InsertionNotificationRequest HTMLPictureElement::InsertedInto(
-    ContainerNode* insertion_point) {
+    ContainerNode& insertion_point) {
   UseCounter::Count(GetDocument(), WebFeature::kPicture);
   return HTMLElement::InsertedInto(insertion_point);
 }

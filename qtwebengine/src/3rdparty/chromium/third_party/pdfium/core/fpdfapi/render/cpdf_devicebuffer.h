@@ -7,8 +7,6 @@
 #ifndef CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_
 #define CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_
 
-#include <memory>
-
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
@@ -30,7 +28,7 @@ class CPDF_DeviceBuffer {
                   int max_dpi);
   void OutputToDevice();
   RetainPtr<CFX_DIBitmap> GetBitmap() const { return m_pBitmap; }
-  const CFX_Matrix* GetMatrix() const { return &m_Matrix; }
+  const CFX_Matrix& GetMatrix() const { return m_Matrix; }
 
  private:
   UnownedPtr<CFX_RenderDevice> m_pDevice;

@@ -10,7 +10,7 @@ qtConfig(qml-devtools) {
     qtConfig(commandlineparser):qtConfig(xmlstreamwriter): SUBDIRS += qmlcachegen
 }
 
-qtConfig(thread):!android|android_app {
+qtConfig(thread):!android|android_app:!wasm {
     SUBDIRS += \
         qml
 
@@ -28,7 +28,13 @@ qtConfig(thread):!android|android_app {
                     qmlplugindump
             }
         }
-        qtHaveModule(widgets): SUBDIRS += qmleasing
+        qtHaveModule(widgets) {
+            QT_FOR_CONFIG += widgets
+            qtConfig(dialogbuttonbox) {
+                SUBDIRS += \
+                    qmleasing
+            }
+        }
     }
     qtHaveModule(qmltest): SUBDIRS += qmltestrunner
     qtConfig(private_tests): SUBDIRS += qmljs

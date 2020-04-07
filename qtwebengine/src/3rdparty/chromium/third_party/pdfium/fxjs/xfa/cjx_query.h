@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_QUERY_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Query;
 
-class CJX_Query : public CJX_Node {
+class CJX_Query final : public CJX_Node {
  public:
   explicit CJX_Query(CXFA_Query* node);
   ~CJX_Query() override;
-
-  JS_PROP(commandType);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_QUERY_H_

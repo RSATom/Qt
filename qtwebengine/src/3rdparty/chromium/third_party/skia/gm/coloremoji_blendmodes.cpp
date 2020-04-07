@@ -20,9 +20,10 @@
 #include "SkShader.h"
 #include "SkSize.h"
 #include "SkString.h"
+#include "SkTextUtils.h"
 #include "SkTypeface.h"
 #include "SkTypes.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 #include "gm.h"
 #include "sk_tool_utils.h"
 
@@ -113,15 +114,11 @@ protected:
         auto s = SkShader::MakeBitmapShader(fBG, SkShader::kRepeat_TileMode,
                                             SkShader::kRepeat_TileMode, &m);
 
-        SkPaint labelP;
-        labelP.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&labelP);
-        labelP.setTextAlign(SkPaint::kCenter_Align);
+        SkFont labelFont(sk_tool_utils::create_portable_typeface());
 
         SkPaint textP;
         textP.setAntiAlias(true);
-        textP.setTypeface(fColorType);
-        textP.setTextSize(SkIntToScalar(70));
+        SkFont textFont(fColorType, 70);
 
         const int W = 5;
 
@@ -146,14 +143,16 @@ protected:
                 SkAutoCanvasRestore arc(canvas, true);
                 canvas->clipRect(r);
                 textP.setBlendMode(gModes[i]);
-                textP.setTextEncoding(SkPaint::kUTF32_TextEncoding);
                 const char* text = sk_tool_utils::emoji_sample_text();
-                SkUnichar unichar = SkUTF8_ToUnichar(text);
-                canvas->drawText(&unichar, 4, x+ w/10.f, y + 7.f*h/8.f, textP);
+                SkUnichar unichar = SkUTF::NextUTF8(&text, text + strlen(text));
+                SkASSERT(unichar >= 0);
+                canvas->drawSimpleText(&unichar, 4, kUTF32_SkTextEncoding, x+ w/10.f, y + 7.f*h/8.f,
+                                       textFont, textP);
             }
 #if 1
             const char* label = SkBlendMode_Name(gModes[i]);
-            canvas->drawString(label, x + w/2, y - labelP.getTextSize()/2, labelP);
+            SkTextUtils::DrawString(canvas, label, x + w/2, y - labelFont.getSize()/2, labelFont, SkPaint(),
+                                    SkTextUtils::kCenter_Align);
 #endif
             x += w + SkIntToScalar(10);
             if ((i % W) == W - 1) {

@@ -23,6 +23,7 @@
 #include "gpu/command_buffer/service/command_buffer_service.h"
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/service/decoder_client.h"
+#include "gpu/command_buffer/service/program_cache.h"
 #include "gpu/command_buffer/service/sequence_id.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/ipc/service/gpu_ipc_service_export.h"
@@ -97,12 +98,11 @@ class GPU_IPC_SERVICE_EXPORT CommandBufferStub
   void OnConsoleMessage(int32_t id, const std::string& message) override;
   void CacheShader(const std::string& key, const std::string& shader) override;
   void OnFenceSyncRelease(uint64_t release) override;
-  bool OnWaitSyncToken(const SyncToken& sync_token) override;
   void OnDescheduleUntilFinished() override;
   void OnRescheduleAfterFinished() override;
   void ScheduleGrContextCleanup() override;
 
-  gles2::MemoryTracker* GetMemoryTracker() const;
+  MemoryTracker* GetMemoryTracker() const;
 
   // Whether this command buffer can currently handle IPC messages.
   bool IsScheduled();
@@ -137,7 +137,7 @@ class GPU_IPC_SERVICE_EXPORT CommandBufferStub
                                size_t url_hash,
                                GpuChannel* channel);
 
-  std::unique_ptr<gles2::MemoryTracker> CreateMemoryTracker(
+  std::unique_ptr<MemoryTracker> CreateMemoryTracker(
       const GPUCreateCommandBufferConfig init_params) const;
 
   // Must be called during Initialize(). Takes ownership to co-ordinate
@@ -177,6 +177,8 @@ class GPU_IPC_SERVICE_EXPORT CommandBufferStub
 
   bool MakeCurrent();
 
+  gles2::ProgramCache::ScopedCacheUse CreateCacheUse();
+
   // Message handlers:
   void OnSetGetBuffer(int32_t shm_id);
   virtual void OnTakeFrontBuffer(const Mailbox& mailbox) = 0;
@@ -189,7 +191,9 @@ class GPU_IPC_SERVICE_EXPORT CommandBufferStub
                                  int32_t start,
                                  int32_t end,
                                  IPC::Message* reply_message);
-  void OnAsyncFlush(int32_t put_offset, uint32_t flush_id);
+  void OnAsyncFlush(int32_t put_offset,
+                    uint32_t flush_id,
+                    const std::vector<SyncToken>& sync_token_fences);
   void OnRegisterTransferBuffer(int32_t id,
                                 base::UnsafeSharedMemoryRegion transfer_buffer);
   void OnDestroyTransferBuffer(int32_t id);
@@ -204,9 +208,7 @@ class GPU_IPC_SERVICE_EXPORT CommandBufferStub
                                   const gfx::GpuFenceHandle& handle);
   void OnGetGpuFenceHandle(uint32_t gpu_fence_id);
 
-  void OnWaitSyncTokenCompleted(const SyncToken& sync_token);
-
-  void OnCreateImage(const GpuCommandBufferMsg_CreateImage_Params& params);
+  void OnCreateImage(GpuCommandBufferMsg_CreateImage_Params params);
   void OnDestroyImage(int32_t id);
   void OnCreateStreamTexture(uint32_t texture_id,
                              int32_t stream_id,
@@ -235,9 +237,7 @@ class GPU_IPC_SERVICE_EXPORT CommandBufferStub
 
   uint32_t last_flush_id_;
 
-  base::ObserverList<DestructionObserver> destruction_observers_;
-
-  bool waiting_for_sync_point_;
+  base::ObserverList<DestructionObserver>::Unchecked destruction_observers_;
 
   base::TimeTicks process_delayed_work_time_;
   uint32_t previous_processed_num_;

@@ -63,6 +63,22 @@
         <div class="enterprise-display-domain"></div>
       </div>
       <div class="status-entry" hidden>
+        <div class="label">$i18n{labelMachineEnrollmentMachineName}</div>
+        <div class="machine-enrollment-name"></div>
+      </div>
+      <div class="status-entry" hidden>
+        <div class="label">$i18n{labelMachineEnrollmentDomain}</div>
+        <div class="machine-enrollment-domain"></div>
+      </div>
+      <div class="status-entry" hidden>
+        <div class="label">$i18n{labelMachineEnrollmentToken}</div>
+        <div class="machine-enrollment-token"></div>
+      </div>
+      <div class="status-entry" hidden>
+        <div class="label">$i18n{labelMachineEntrollmentDeviceId}</div>
+        <div class="machine-enrollment-device-id"></div>
+      </div>
+      <div class="status-entry" hidden>
         <div class="label">$i18n{labelUsername}</div>
         <div class="username"></div>
       </div>
@@ -70,7 +86,7 @@
         <div class="label">$i18n{labelGaiaId}</div>
         <div class="gaia-id"></div>
       </div>
-      <div class="status-entry">
+      <div class="status-entry" hidden>
         <div class="label">$i18n{labelClientId}</div>
         <div class="client-id"></div>
       </div>
@@ -99,6 +115,7 @@
         <div class="status"></div>
       </div>
     </fieldset>
+
     <table>
       <tbody id="policy-template">
         <tr>
@@ -117,17 +134,35 @@
             </div>
           </td>
           <td class="value-column">
-            <div class="value-container">
-              <span class="value"></span>
-              <a is="action-link" class="toggle-expanded-value"></a>
+            <div class="value-container collapsible-cell"
+                 data-expandable-row=".expanded-value-container">
+              <span class="value cell-text"></span>
+              <a is="action-link"
+                 class="toggle-expanded-value overflow-link"
+                 data-show="showExpandedValue"
+                 data-hide="hideExpandedValue"
+                 hidden>
+              </a>
             </div>
           </td>
           <td class="status-column">
-            <div class="status elide"></div>
+            <div class="status-container collapsible-cell"
+                 data-expandable-row=".expanded-status-container">
+              <span class="status preformatted cell-text"></span>
+              <a is="action-link"
+                 class="toggle-expanded-status overflow-link"
+                 data-show="showExpandedStatus"
+                 data-hide="hideExpandedStatus"
+                 hidden>
+              </a>
+            </div>
           </td>
         </tr>
-        <tr class="expanded-value-container">
-          <td class="expanded-value" colspan=5></td>
+        <tr class="expanded-value-container" hidden>
+          <td class="expanded-text" colspan=6></td>
+        </tr>
+        <tr class="expanded-status-container" hidden>
+          <td class="expanded-text" colspan=6></td>
         </tr>
       </tbody>
     </table>
@@ -135,7 +170,6 @@
 </body>
 
 <script src="chrome://policy/strings.js"></script>
-<script src="chrome://resources/js/i18n_template.js"></script>
 <script src="chrome://policy/policy_base.js"></script>
 <script src="chrome://policy/policy.js"></script>
 </html>

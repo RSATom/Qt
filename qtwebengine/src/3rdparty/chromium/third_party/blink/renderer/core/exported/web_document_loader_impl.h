@@ -49,19 +49,22 @@ namespace blink {
 class CORE_EXPORT WebDocumentLoaderImpl final : public DocumentLoader,
                                                 public WebDocumentLoader {
  public:
-  static WebDocumentLoaderImpl* Create(
-      LocalFrame*,
-      const ResourceRequest&,
-      const SubstituteData&,
-      ClientRedirectPolicy,
-      const base::UnguessableToken& devtools_navigation_token);
+  WebDocumentLoaderImpl(LocalFrame*,
+                        WebNavigationType navigation_type,
+                        std::unique_ptr<WebNavigationParams> navigation_params);
 
   static WebDocumentLoaderImpl* FromDocumentLoader(DocumentLoader* loader) {
     return static_cast<WebDocumentLoaderImpl*>(loader);
   }
 
   // WebDocumentLoader methods:
-  const WebURLRequest& OriginalRequest() const override;
+  WebURL OriginalUrl() const override;
+  WebString OriginalReferrer() const override;
+  WebURL GetUrl() const override;
+  WebString HttpMethod() const override;
+  mojom::FetchCacheMode GetCacheMode() const override;
+  WebString Referrer() const override;
+  network::mojom::ReferrerPolicy GetReferrerPolicy() const override;
   const WebURLRequest& GetRequest() const override;
   const WebURLResponse& GetResponse() const override;
   bool HasUnreachableURL() const override;
@@ -77,30 +80,22 @@ class CORE_EXPORT WebDocumentLoaderImpl final : public DocumentLoader,
   void SetServiceWorkerNetworkProvider(
       std::unique_ptr<WebServiceWorkerNetworkProvider>) override;
   WebServiceWorkerNetworkProvider* GetServiceWorkerNetworkProvider() override;
-  void SetSourceLocation(const WebSourceLocation&) override;
-  void ResetSourceLocation() override;
-  void SetUserActivated() override;
   void BlockParser() override;
   void ResumeParser() override;
   bool IsArchive() const override;
   WebArchiveInfo GetArchiveInfo() const override;
+  bool HadUserGesture() const override;
+  bool IsListingFtpDirectory() const override;
 
   void Trace(blink::Visitor*) override;
 
  private:
-  WebDocumentLoaderImpl(
-      LocalFrame*,
-      const ResourceRequest&,
-      const SubstituteData&,
-      ClientRedirectPolicy,
-      const base::UnguessableToken& devtools_navigation_token);
   ~WebDocumentLoaderImpl() override;
-  void DetachFromFrame() override;
+  void DetachFromFrame(bool flush_microtask_queue) override;
   String DebugName() const override { return "WebDocumentLoaderImpl"; }
 
   // Mutable because the const getters will magically sync these to the
   // latest version from WebKit.
-  mutable WrappedResourceRequest original_request_wrapper_;
   mutable WrappedResourceRequest request_wrapper_;
   mutable WrappedResourceResponse response_wrapper_;
 

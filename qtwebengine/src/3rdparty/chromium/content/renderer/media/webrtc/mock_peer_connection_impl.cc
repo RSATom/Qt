@@ -13,8 +13,8 @@
 #include "content/renderer/media/webrtc/mock_data_channel_impl.h"
 #include "content/renderer/media/webrtc/mock_peer_connection_dependency_factory.h"
 #include "content/renderer/media/webrtc/webrtc_util.h"
-#include "third_party/webrtc/api/rtpreceiverinterface.h"
-#include "third_party/webrtc/rtc_base/refcountedobject.h"
+#include "third_party/webrtc/api/rtp_receiver_interface.h"
+#include "third_party/webrtc/rtc_base/ref_counted_object.h"
 
 using testing::_;
 using webrtc::AudioTrackInterface;
@@ -64,7 +64,7 @@ class MockStreamCollection : public webrtc::StreamCollectionInterface {
     streams_.push_back(stream);
   }
   void RemoveStream(MediaStreamInterface* stream) {
-    StreamVector::iterator it = streams_.begin();
+    auto it = streams_.begin();
     for (; it != streams_.end(); ++it) {
       if (it->get() == stream) {
         streams_.erase(it);
@@ -144,6 +144,11 @@ std::vector<std::string> FakeRtpSender::stream_ids() const {
   return stream_ids_;
 }
 
+std::vector<webrtc::RtpEncodingParameters> FakeRtpSender::init_send_encodings()
+    const {
+  return {};
+}
+
 webrtc::RtpParameters FakeRtpSender::GetParameters() {
   NOTIMPLEMENTED();
   return webrtc::RtpParameters();
@@ -175,6 +180,13 @@ rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> FakeRtpReceiver::track()
 std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>
 FakeRtpReceiver::streams() const {
   return streams_;
+}
+
+std::vector<std::string> FakeRtpReceiver::stream_ids() const {
+  std::vector<std::string> stream_ids;
+  for (const auto& stream : streams_)
+    stream_ids.push_back(stream->id());
+  return stream_ids;
 }
 
 cricket::MediaType FakeRtpReceiver::media_type() const {
@@ -262,11 +274,6 @@ FakeRtpTransceiver::current_direction() const {
 }
 
 void FakeRtpTransceiver::Stop() {
-  NOTIMPLEMENTED();
-}
-
-void FakeRtpTransceiver::SetCodecPreferences(
-    rtc::ArrayView<webrtc::RtpCodecCapability> codecs) {
   NOTIMPLEMENTED();
 }
 

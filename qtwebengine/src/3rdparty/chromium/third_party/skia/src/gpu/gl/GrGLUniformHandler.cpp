@@ -7,6 +7,7 @@
 
 #include "gl/GrGLUniformHandler.h"
 
+#include "GrTexturePriv.h"
 #include "gl/GrGLCaps.h"
 #include "gl/GrGLGpu.h"
 #include "gl/builders/GrGLProgramBuilder.h"
@@ -61,26 +62,27 @@ GrGLSLUniformHandler::UniformHandle GrGLUniformHandler::internalAddUniformArray(
     return GrGLSLUniformHandler::UniformHandle(fUniforms.count() - 1);
 }
 
-GrGLSLUniformHandler::SamplerHandle GrGLUniformHandler::addSampler(uint32_t visibility,
-                                                                   GrSwizzle swizzle,
-                                                                   GrSLType type,
-                                                                   GrSLPrecision precision,
-                                                                   const char* name) {
+GrGLSLUniformHandler::SamplerHandle GrGLUniformHandler::addSampler(const GrTexture* texture,
+                                                                   const GrSamplerState&,
+                                                                   const char* name,
+                                                                   const GrShaderCaps* shaderCaps) {
     SkASSERT(name && strlen(name));
-    SkASSERT(0 != visibility);
 
     SkString mangleName;
     char prefix = 'u';
     fProgramBuilder->nameVariable(&mangleName, prefix, name, true);
 
+    GrSLPrecision precision = GrSLSamplerPrecision(texture->config());
+    GrSwizzle swizzle = shaderCaps->configTextureSwizzle(texture->config());
+    GrTextureType type = texture->texturePriv().textureType();
+
     UniformInfo& sampler = fSamplers.push_back();
-    SkASSERT(GrSLTypeIsCombinedSamplerType(type));
-    sampler.fVariable.setType(type);
+    sampler.fVariable.setType(GrSLCombinedSamplerTypeForTextureType(type));
     sampler.fVariable.setTypeModifier(GrShaderVar::kUniform_TypeModifier);
     sampler.fVariable.setPrecision(precision);
     sampler.fVariable.setName(mangleName);
     sampler.fLocation = -1;
-    sampler.fVisibility = visibility;
+    sampler.fVisibility = kFragment_GrShaderFlag;
     fSamplerSwizzles.push_back(swizzle);
     SkASSERT(fSamplers.count() == fSamplerSwizzles.count());
     return GrGLSLUniformHandler::SamplerHandle(fSamplers.count() - 1);

@@ -7,52 +7,40 @@
 #ifndef FXJS_XFA_CJX_EXCLGROUP_H_
 #define FXJS_XFA_CJX_EXCLGROUP_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_ExclGroup;
 
-class CJX_ExclGroup : public CJX_Node {
+class CJX_ExclGroup final : public CJX_Node {
  public:
   explicit CJX_ExclGroup(CXFA_ExclGroup* group);
   ~CJX_ExclGroup() override;
 
-  JS_METHOD(execCalculate, CJX_ExclGroup);
-  JS_METHOD(execEvent, CJX_ExclGroup);
-  JS_METHOD(execInitialize, CJX_ExclGroup);
-  JS_METHOD(execValidate, CJX_ExclGroup);
-  JS_METHOD(selectedMember, CJX_ExclGroup);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(access);
-  JS_PROP(accessKey);
-  JS_PROP(anchorType);
-  JS_PROP(borderColor);
-  JS_PROP(borderWidth);
-  JS_PROP(colSpan);
-  JS_PROP(fillColor);
-  JS_PROP(h);
-  JS_PROP(hAlign);
-  JS_PROP(layout);
-  JS_PROP(mandatory);
-  JS_PROP(mandatoryMessage);
-  JS_PROP(maxH);
-  JS_PROP(maxW);
-  JS_PROP(minH);
-  JS_PROP(minW);
-  JS_PROP(presence);
-  JS_PROP(rawValue);
-  JS_PROP(relevant);
-  JS_PROP(transient);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(validationMessage);
-  JS_PROP(vAlign);
-  JS_PROP(w);
-  JS_PROP(x);
-  JS_PROP(y);
+  JSE_METHOD(execCalculate);
+  JSE_METHOD(execEvent);
+  JSE_METHOD(execInitialize);
+  JSE_METHOD(execValidate);
+  JSE_METHOD(selectedMember);
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(borderColor);
+  JSE_PROP(borderWidth);
+  JSE_PROP(fillColor);
+  JSE_PROP(mandatory);
+  JSE_PROP(mandatoryMessage);
+  JSE_PROP(rawValue);
+  JSE_PROP(transient);
+  JSE_PROP(validationMessage);
 
  private:
+  using Type__ = CJX_ExclGroup;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::ExclGroup;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

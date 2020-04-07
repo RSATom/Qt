@@ -61,25 +61,27 @@ class RenderbufferState final : angle::NonCopyable
     InitState mInitState;
 };
 
-class Renderbuffer final : public egl::ImageSibling,
-                           public LabeledObject
+class Renderbuffer final : public RefCountObject, public egl::ImageSibling, public LabeledObject
 {
   public:
     Renderbuffer(rx::GLImplFactory *implFactory, GLuint id);
     ~Renderbuffer() override;
 
-    Error onDestroy(const Context *context) override;
+    void onDestroy(const Context *context) override;
 
-    void setLabel(const std::string &label) override;
+    void setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
-    Error setStorage(const Context *context, GLenum internalformat, size_t width, size_t height);
-    Error setStorageMultisample(const Context *context,
-                                size_t samples,
-                                GLenum internalformat,
-                                size_t width,
-                                size_t height);
-    Error setStorageEGLImageTarget(const Context *context, egl::Image *imageTarget);
+    angle::Result setStorage(const Context *context,
+                             GLenum internalformat,
+                             size_t width,
+                             size_t height);
+    angle::Result setStorageMultisample(const Context *context,
+                                        size_t samples,
+                                        GLenum internalformat,
+                                        size_t width,
+                                        size_t height);
+    angle::Result setStorageEGLImageTarget(const Context *context, egl::Image *imageTarget);
 
     rx::RenderbufferImpl *getImplementation() const;
 
@@ -94,10 +96,15 @@ class Renderbuffer final : public egl::ImageSibling,
     GLuint getDepthSize() const;
     GLuint getStencilSize() const;
 
+    GLint getMemorySize() const;
+
     // FramebufferAttachmentObject Impl
     Extents getAttachmentSize(const ImageIndex &imageIndex) const override;
     Format getAttachmentFormat(GLenum binding, const ImageIndex &imageIndex) const override;
     GLsizei getAttachmentSamples(const ImageIndex &imageIndex) const override;
+    bool isRenderable(const Context *context,
+                      GLenum binding,
+                      const ImageIndex &imageIndex) const override;
 
     void onAttach(const Context *context) override;
     void onDetach(const Context *context) override;
@@ -117,4 +124,4 @@ class Renderbuffer final : public egl::ImageSibling,
 
 }  // namespace gl
 
-#endif   // LIBANGLE_RENDERBUFFER_H_
+#endif  // LIBANGLE_RENDERBUFFER_H_

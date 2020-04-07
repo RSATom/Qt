@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_COMMAND_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Command;
 
-class CJX_Command : public CJX_Node {
+class CJX_Command final : public CJX_Node {
  public:
   explicit CJX_Command(CXFA_Command* node);
   ~CJX_Command() override;
-
-  JS_PROP(timeout);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_COMMAND_H_

@@ -15,6 +15,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -62,8 +63,6 @@
 #include "ppapi/c/ppb_audio_buffer.h"
 #include "ppapi/c/ppb_audio_config.h"
 #include "ppapi/c/ppb_audio_encoder.h"
-#include "ppapi/c/ppb_compositor.h"
-#include "ppapi/c/ppb_compositor_layer.h"
 #include "ppapi/c/ppb_console.h"
 #include "ppapi/c/ppb_core.h"
 #include "ppapi/c/ppb_file_io.h"
@@ -110,7 +109,6 @@
 #include "ppapi/c/private/ppb_find_private.h"
 #include "ppapi/c/private/ppb_flash.h"
 #include "ppapi/c/private/ppb_flash_clipboard.h"
-#include "ppapi/c/private/ppb_flash_device_id.h"
 #include "ppapi/c/private/ppb_flash_drm.h"
 #include "ppapi/c/private/ppb_flash_file.h"
 #include "ppapi/c/private/ppb_flash_font_file.h"
@@ -128,8 +126,6 @@
 #include "ppapi/c/private/ppb_testing_private.h"
 #include "ppapi/c/private/ppb_udp_socket_private.h"
 #include "ppapi/c/private/ppb_uma_private.h"
-#include "ppapi/c/private/ppb_video_destination_private.h"
-#include "ppapi/c/private/ppb_video_source_private.h"
 #include "ppapi/c/private/ppb_x509_certificate_private.h"
 #include "ppapi/c/trusted/ppb_broker_trusted.h"
 #include "ppapi/c/trusted/ppb_browser_font_trusted.h"
@@ -176,8 +172,8 @@ HostGlobals* host_globals = nullptr;
 typedef std::set<PluginModule*> PluginModuleSet;
 
 PluginModuleSet* GetLivePluginSet() {
-  CR_DEFINE_STATIC_LOCAL(PluginModuleSet, live_plugin_libs, ());
-  return &live_plugin_libs;
+  static base::NoDestructor<PluginModuleSet> live_plugin_libs;
+  return live_plugin_libs.get();
 }
 
 class PowerSaverTestPluginDelegate : public PluginInstanceThrottler::Observer {
@@ -406,6 +402,7 @@ const void* InternalGetInterface(const char* name) {
 #include "ppapi/thunk/interfaces_ppb_private_pdf.h"
 #include "ppapi/thunk/interfaces_ppb_public_dev.h"
 #include "ppapi/thunk/interfaces_ppb_public_dev_channel.h"
+#include "ppapi/thunk/interfaces_ppb_public_socket.h"
 #include "ppapi/thunk/interfaces_ppb_public_stable.h"
 
 #undef PROXIED_IFACE
@@ -682,9 +679,7 @@ void PluginModule::PluginCrashed() {
   is_crashed_ = true;
 
   // Notify all instances that they crashed.
-  for (PluginInstanceSet::iterator i = instances_.begin();
-       i != instances_.end();
-       ++i)
+  for (auto i = instances_.begin(); i != instances_.end(); ++i)
     (*i)->InstanceCrashed();
 
   PepperPluginRegistry::GetInstance()->PluginModuleDead(this);
@@ -716,7 +711,8 @@ RendererPpapiHostImpl* PluginModule::CreateOutOfProcessModule(
     const IPC::ChannelHandle& channel_handle,
     base::ProcessId peer_pid,
     int plugin_child_id,
-    bool is_external) {
+    bool is_external,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   scoped_refptr<PepperHungPluginFilter> hung_filter(new PepperHungPluginFilter(
       path, render_frame->GetRoutingID(), plugin_child_id));
   std::unique_ptr<HostDispatcherWrapper> dispatcher(new HostDispatcherWrapper(
@@ -736,7 +732,7 @@ RendererPpapiHostImpl* PluginModule::CreateOutOfProcessModule(
                         ppapi::Preferences(PpapiPreferencesBuilder::Build(
                             render_frame->render_view()->webkit_preferences(),
                             gpu_feature_info)),
-                        hung_filter.get())) {
+                        hung_filter.get(), task_runner)) {
     return nullptr;
   }
 
@@ -773,7 +769,8 @@ scoped_refptr<PluginModule> PluginModule::Create(
     RenderFrameImpl* render_frame,
     const WebPluginInfo& webplugin_info,
     const base::Optional<url::Origin>& origin_lock,
-    bool* pepper_plugin_was_registered) {
+    bool* pepper_plugin_was_registered,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   *pepper_plugin_was_registered = true;
 
   // See if a module has already been loaded for this plugin.
@@ -822,13 +819,10 @@ scoped_refptr<PluginModule> PluginModule::Create(
   PepperPluginRegistry::GetInstance()->AddLiveModule(path, origin_lock,
                                                      module.get());
 
-  if (!module->CreateOutOfProcessModule(render_frame,
-                                        path,
-                                        permissions,
-                                        channel_handle,
-                                        peer_pid,
-                                        plugin_child_id,
-                                        false))  // is_external = false
+  if (!module->CreateOutOfProcessModule(render_frame, path, permissions,
+                                        channel_handle, peer_pid,
+                                        plugin_child_id, false,
+                                        task_runner))  // is_external = false
     return scoped_refptr<PluginModule>();
 
   return module;

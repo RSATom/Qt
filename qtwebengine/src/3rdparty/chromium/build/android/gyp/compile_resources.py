@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#
+# encoding: utf-8
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -26,6 +26,11 @@ from xml.etree import ElementTree
 
 from util import build_utils
 from util import resource_utils
+
+# Name of environment variable that can be used to force this script to
+# put temporary resource files into specific sub-directories, instead of
+# temporary ones.
+_ENV_DEBUG_VARIABLE = 'ANDROID_DEBUG_TEMP_RESOURCES_DIR'
 
 # Import jinja2 from third_party/jinja2
 sys.path.insert(1, os.path.join(build_utils.DIR_SOURCE_ROOT, 'third_party'))
@@ -60,6 +65,13 @@ def _PackageIdArgument(x):
   except ValueError:
     x = -1
   return x
+
+
+def _ListToDictionary(lst, separator):
+  """Splits each element of the passed-in |lst| using |separator| and creates
+  dictionary treating first element of the split as the key and second as the
+  value."""
+  return dict(item.split(separator, 1) for item in lst)
 
 
 def _ParseArgs(args):
@@ -117,14 +129,14 @@ def _ParseArgs(args):
           'be stripped out. List may include a combination of Android locales '
           'or Chrome locales.')
 
-  input_opts.add_argument('--exclude-xxxhdpi', action='store_true',
-                          help='Do not include xxxhdpi drawables.')
+  input_opts.add_argument('--resource-blacklist-regex', default='',
+                          help='Do not include matching drawables.')
 
   input_opts.add_argument(
-      '--xxxhdpi-whitelist',
+      '--resource-blacklist-exceptions',
       default='[]',
-      help='GN list of globs that say which xxxhdpi images to include even '
-           'when --exclude-xxxhdpi is set.')
+      help='GN list of globs that say which blacklisted images to include even '
+           'when --resource-blacklist-regex is set.')
 
   input_opts.add_argument('--png-to-webp', action='store_true',
                           help='Convert png files to webp format.')
@@ -136,6 +148,17 @@ def _ParseArgs(args):
                           action='store_true',
                           help='Whether to strip xml namespaces from processed '
                                'xml resources')
+  input_opts.add_argument(
+      '--resources-config-path', help='Path to aapt2 resources config file.')
+  input_opts.add_argument(
+      '--optimize-resources',
+      default=False,
+      action='store_true',
+      help='Whether to run the `aapt2 optimize` step on the resources.')
+  input_opts.add_argument(
+      '--unoptimized-resources-path',
+      help='Path to output the intermediate apk before running '
+      '`aapt2 optimize`.')
 
   input_opts.add_argument(
       '--check-resources-pkg-id', type=_PackageIdArgument,
@@ -166,7 +189,8 @@ def _ParseArgs(args):
   resource_utils.HandleCommonOptions(options)
 
   options.locale_whitelist = build_utils.ParseGnList(options.locale_whitelist)
-  options.xxxhdpi_whitelist = build_utils.ParseGnList(options.xxxhdpi_whitelist)
+  options.resource_blacklist_exceptions = build_utils.ParseGnList(
+      options.resource_blacklist_exceptions)
 
   if options.check_resources_pkg_id is not None:
     if options.check_resources_pkg_id < 0:
@@ -176,6 +200,12 @@ def _ParseArgs(args):
   if options.shared_resources and options.app_as_shared_lib:
     raise Exception('Only one of --app-as-shared-lib or --shared-resources '
                     'can be used.')
+
+  if options.package_name_to_id_mapping:
+    package_names_list = build_utils.ParseGnList(
+        options.package_name_to_id_mapping)
+    options.package_name_to_id_mapping = _ListToDictionary(
+        package_names_list, '=')
 
   return options
 
@@ -231,14 +261,80 @@ def _DuplicateZhResources(resource_dirs):
   return renamed_paths
 
 
-def _ToAaptLocales(locale_whitelist, support_zh_hk):
-  """Converts the list of Chrome locales to aapt config locales."""
+def _RenameLocaleResourceDirs(resource_dirs):
+  """Rename locale resource directories into standard names when necessary.
+
+  This is necessary to deal with the fact that older Android releases only
+  support ISO 639-1 two-letter codes, and sometimes even obsolete versions
+  of them.
+
+  In practice it means:
+    * 3-letter ISO 639-2 qualifiers are renamed under a corresponding
+      2-letter one. E.g. for Filipino, strings under values-fil/ will be moved
+      to a new corresponding values-tl/ sub-directory.
+
+    * Modern ISO 639-1 codes will be renamed to their obsolete variant
+      for Indonesian, Hebrew and Yiddish (e.g. 'values-in/ -> values-id/).
+
+    * Norwegian macrolanguage strings will be renamed to Bokmål (main
+      Norway language). See http://crbug.com/920960. In practice this
+      means that 'values-no/ -> values-nb/' unless 'values-nb/' already
+      exists.
+
+    * BCP 47 langauge tags will be renamed to an equivalent ISO 639-1
+      locale qualifier if possible (e.g. 'values-b+en+US/ -> values-en-rUS').
+      Though this is not necessary at the moment, because no third-party
+      package that Chromium links against uses these for the current list of
+      supported locales, this may change when the list is extended in the
+      future).
+
+  Args:
+    resource_dirs: list of top-level resource directories.
+  Returns:
+    A dictionary mapping renamed paths to their original location
+    (e.g. '.../values-tl/strings.xml' -> ' .../values-fil/strings.xml').
+  """
+  renamed_paths = dict()
+  for resource_dir in resource_dirs:
+    for path in _IterFiles(resource_dir):
+      locale = resource_utils.FindLocaleInStringResourceFilePath(path)
+      if not locale:
+        continue
+      cr_locale = resource_utils.ToChromiumLocaleName(locale)
+      if not cr_locale:
+        continue  # Unsupported Android locale qualifier!?
+      locale2 = resource_utils.ToAndroidLocaleName(cr_locale)
+      if locale != locale2:
+        path2 = path.replace('/values-%s/' % locale, '/values-%s/' % locale2)
+        if path == path2:
+          raise Exception('Could not substitute locale %s for %s in %s' %
+                          (locale, locale2, path))
+        if os.path.exists(path2):
+          # This happens sometimes, e.g. some libraries provide both
+          # values-nb/ and values-no/ with the same content.
+          continue
+        build_utils.MakeDirectory(os.path.dirname(path2))
+        shutil.move(path, path2)
+        renamed_paths[os.path.relpath(path2, resource_dir)] = os.path.relpath(
+            path, resource_dir)
+  return renamed_paths
+
+
+def _ToAndroidLocales(locale_whitelist, support_zh_hk):
+  """Converts the list of Chrome locales to Android config locale qualifiers.
+
+  Args:
+    locale_whitelist: A list of Chromium locale names.
+    support_zh_hk: True if we need to support zh-HK by duplicating
+      the zh-TW strings.
+  Returns:
+    A list of matching Android config locale qualifier names.
+  """
   ret = set()
   for locale in locale_whitelist:
-    locale = resource_utils.CHROME_TO_ANDROID_LOCALE_MAP.get(locale, locale)
+    locale = resource_utils.ToAndroidLocaleName(locale)
     if locale is None or ('-' in locale and '-r' not in locale):
-      raise Exception('CHROME_TO_ANDROID_LOCALE_MAP needs updating.'
-                      ' Found: %s' % locale)
+      raise Exception('Unsupported Chromium locale name: %s' % locale)
     ret.add(locale)
     # Always keep non-regional fall-backs.
     language = locale.split('-')[0]
@@ -284,6 +380,25 @@ def _MoveImagesToNonMdpiFolders(res_root):
   return renamed_paths
 
 
+def _GetLinkOptionsForPackage(options):
+  """Returns package-specific link options for aapt2 based on package_name and
+  package_name_to_id_mapping passed through command-line options."""
+  link_options = []
+  if not options.package_name:
+    return link_options
+
+  if options.package_name in options.package_name_to_id_mapping:
+    package_id = options.package_name_to_id_mapping[options.package_name]
+    link_options += ['--package-id', package_id]
+    if int(package_id, 16) < 0x7f:
+      link_options.append('--allow-reserved-package-id')
+  else:
+    raise Exception(
+        'Package name %s is not present in package_name_to_id_mapping.' %
+        options.package_name)
+  return link_options
+
+
 def _CreateLinkApkArgs(options):
   """Create command-line arguments list to invoke 'aapt2 link'.
 
@@ -300,10 +415,9 @@ def _CreateLinkApkArgs(options):
     '--version-name', options.version_name,
     '--auto-add-overlay',
     '--no-version-vectors',
-    '-o', options.apk_path,
   ]
 
-  for j in options.android_sdk_jars:
+  for j in options.include_resources:
     link_command += ['-I', j]
   if options.proguard_file:
     link_command += ['--proguard', options.proguard_file]
@@ -321,13 +435,10 @@ def _CreateLinkApkArgs(options):
   elif options.shared_resources:
     link_command.append('--shared-lib')
 
-  if options.locale_whitelist:
-    aapt_locales = _ToAaptLocales(
-        options.locale_whitelist, options.support_zh_hk)
-    link_command += ['-c', ','.join(aapt_locales)]
-
   if options.no_xml_namespaces:
     link_command.append('--no-xml-namespaces')
+
+  link_command += _GetLinkOptionsForPackage(options)
 
   return link_command
 
@@ -375,16 +486,19 @@ def _FixManifest(options, temp_dir):
     except build_utils.CalledProcessError:
       return None
 
-  extract_all = [maybe_extract_version(j) for j in options.android_sdk_jars]
+  android_sdk_jars = [j for j in options.include_resources
+                      if os.path.basename(j) in ('android.jar',
+                                                 'android_system.jar')]
+  extract_all = [maybe_extract_version(j) for j in android_sdk_jars]
   successful_extractions = [x for x in extract_all if x]
   if len(successful_extractions) == 0:
     raise Exception(
         'Unable to find android SDK jar among candidates: %s'
-            % ', '.join(options.android_sdk_jars))
+            % ', '.join(android_sdk_jars))
   elif len(successful_extractions) > 1:
     raise Exception(
         'Found multiple android SDK jars among candidates: %s'
-            % ', '.join(options.android_sdk_jars))
+            % ', '.join(android_sdk_jars))
   version_code, version_name = successful_extractions.pop()
 
   # ElementTree.find does not work if the required tag is the root.
@@ -411,28 +525,67 @@ def _ResourceNameFromPath(path):
   return os.path.splitext(os.path.basename(path))[0]
 
 
-def _CreateKeepPredicate(resource_dirs, exclude_xxxhdpi, xxxhdpi_whitelist):
-  """Return a predicate lambda to determine which resource files to keep."""
-  if not exclude_xxxhdpi:
+def _CreateKeepPredicate(resource_dirs, resource_blacklist_regex,
+                         resource_blacklist_exceptions,
+                         android_locale_whitelist):
+  """Return a predicate lambda to determine which resource files to keep.
+
+  Args:
+    resource_dirs: list of top-level resource directories.
+    resource_blacklist_regex: A regular expression describing all resources
+      to exclude, except if they are mip-maps, or if they are listed
+      in |resource_blacklist_exceptions|.
+    resource_blacklist_exceptions: A list of glob patterns corresponding
+      to exceptions to the |resource_blacklist_regex|.
+    android_locale_whitelist: An optional whitelist of Android locale names.
+      If set, any localized string resources that is not in this whitelist
+      will be removed.
+  Returns:
+    A lambda that takes a path, and returns true if the corresponding file
+    must be kept.
+  """
+  naive_predicate = lambda path: os.path.basename(path)[0] != '.'
+  if resource_blacklist_regex == '' and not android_locale_whitelist:
     # Do not extract dotfiles (e.g. ".gitkeep"). aapt ignores them anyways.
-    return lambda path: os.path.basename(path)[0] != '.'
+    return naive_predicate
 
-  # Returns False only for xxxhdpi non-mipmap, non-whitelisted drawables.
-  naive_predicate = lambda path: (
-      not re.search(r'[/-]xxxhdpi[/-]', path) or
-      re.search(r'[/-]mipmap[/-]', path) or
-      build_utils.MatchesGlob(path, xxxhdpi_whitelist))
+  if resource_blacklist_regex != '':
+    # A simple predicate that only removes (returns False for) paths covered by
+    # the blacklist regex, except if they are mipmaps, or listed as exceptions.
+    naive_predicate = lambda path: (
+        not re.search(resource_blacklist_regex, path) or
+        re.search(r'[/-]mipmap[/-]', path) or
+        build_utils.MatchesGlob(path, resource_blacklist_exceptions))
 
-  # Build a set of all non-xxxhdpi drawables to ensure that we never exclude any
-  # xxxhdpi drawable that does not exist in other densities.
-  non_xxxhdpi_drawables = set()
+  # Build a set of all names from drawables kept by naive_predicate().
+  # Used later to ensure that we never exclude drawables from densities
+  # that are filtered-out by naive_predicate().
+  non_filtered_drawables = set()
   for resource_dir in resource_dirs:
     for path in _IterFiles(resource_dir):
       if re.search(r'[/-]drawable[/-]', path) and naive_predicate(path):
-        non_xxxhdpi_drawables.add(_ResourceNameFromPath(path))
+        non_filtered_drawables.add(_ResourceNameFromPath(path))
 
-  return lambda path: (naive_predicate(path) or
-                       _ResourceNameFromPath(path) not in non_xxxhdpi_drawables)
+  # NOTE: Defined as a function because when using a lambda definition,
+  # 'git cl format' will expand everything on a very long line that is
+  # much larger than the column limit.
+  def drawable_predicate(path):
+    return (naive_predicate(path)
+            or _ResourceNameFromPath(path) not in non_filtered_drawables)
+
+  if not android_locale_whitelist:
+    return drawable_predicate
+
+  # A simple predicate that removes localized strings .xml files that are
+  # not part of |android_locale_whitelist|.
+  android_locale_whitelist = set(android_locale_whitelist)
+
+  def is_bad_locale(path):
+    """Return true iff |path| is a resource for a non-whitelisted locale."""
+    locale = resource_utils.FindLocaleInStringResourceFilePath(path)
+    return locale and locale not in android_locale_whitelist
+
+  return lambda path: drawable_predicate(path) and not is_bad_locale(path)
 
 
 def _ConvertToWebP(webp_binary, png_files):
@@ -471,7 +624,11 @@ def _CompileDeps(aapt2_path, dep_subdirs, temp_dir):
     partial_path = os.path.join(partials_dir, dirname + '.zip')
     compile_command = (partial_compile_command +
                        ['--dir', directory, '-o', partial_path])
-    build_utils.CheckOutput(compile_command)
+    build_utils.CheckOutput(
+        compile_command,
+        stderr_filter=lambda output:
+            build_utils.FilterLines(
+                output, r'ignoring configuration .* for styleable'))
 
     # Sorting the files in the partial ensures deterministic output from the
     # aapt2 link step which uses order of files in the partial.
@@ -496,7 +653,7 @@ def _CreateResourceInfoFile(
         lines.update(zip_info_file.readlines())
   for dest, source in renamed_paths.iteritems():
     lines.add('Rename:{},{}\n'.format(dest, source))
-  with open(apk_info_path, 'w') as info_file:
+  with build_utils.AtomicOutput(apk_info_path) as info_file:
     info_file.writelines(sorted(lines))
 
 
@@ -515,9 +672,15 @@ def _PackageApk(options, dep_subdirs, temp_dir, gen_dir, r_txt_path):
   """
   renamed_paths = dict()
   renamed_paths.update(_DuplicateZhResources(dep_subdirs))
+  renamed_paths.update(_RenameLocaleResourceDirs(dep_subdirs))
 
+  # Create a function that selects which resource files should be packaged
+  # into the final output. Any file that does not pass the predicate will
+  # be removed below.
   keep_predicate = _CreateKeepPredicate(
-      dep_subdirs, options.exclude_xxxhdpi, options.xxxhdpi_whitelist)
+      dep_subdirs, options.resource_blacklist_regex,
+      options.resource_blacklist_exceptions,
+      _ToAndroidLocales(options.locale_whitelist, options.support_zh_hk))
   png_paths = []
   for directory in dep_subdirs:
     for f in _IterFiles(directory):
@@ -530,7 +693,15 @@ def _PackageApk(options, dep_subdirs, temp_dir, gen_dir, r_txt_path):
   for directory in dep_subdirs:
     renamed_paths.update(_MoveImagesToNonMdpiFolders(directory))
 
+  if options.optimize_resources:
+    if options.unoptimized_resources_path:
+      unoptimized_apk_path = options.unoptimized_resources_path
+    else:
+      unoptimized_apk_path = os.path.join(gen_dir, 'intermediate.ap_')
+  else:
+    unoptimized_apk_path = options.apk_path
   link_command = _CreateLinkApkArgs(options)
+  link_command += ['-o', unoptimized_apk_path]
   link_command += ['--output-text-symbols', r_txt_path]
   # TODO(digit): Is this below actually required for R.txt generation?
   link_command += ['--java', gen_dir]
@@ -546,8 +717,67 @@ def _PackageApk(options, dep_subdirs, temp_dir, gen_dir, r_txt_path):
   # Also creates R.txt
   build_utils.CheckOutput(
       link_command, print_stdout=False, print_stderr=False)
+
+  if options.optimize_resources:
+    _OptimizeApk(options, temp_dir, unoptimized_apk_path, r_txt_path)
+
   _CreateResourceInfoFile(
       renamed_paths, options.apk_info_path, options.dependencies_res_zips)
+
+
+def _OptimizeApk(options, temp_dir, unoptimized_apk_path, r_txt_path):
+  """Optimize intermediate .ap_ file with aapt2.
+
+  Args:
+    options: The command-line options tuple. E.g. the generated apk
+      will be written to |options.apk_path|.
+    temp_dir: A temporary directory.
+    unoptimized_apk_path: path of the apk to optimize.
+    r_txt_path: path to the R.txt file of the unoptimized apk.
+  """
+  # Resources of type ID are references to UI elements/views. They are used by
+  # UI automation testing frameworks. They are kept in so that they dont break
+  # tests, even though they may not actually be used during runtime. See
+  # https://crbug.com/900993
+  id_resources = _ExtractIdResources(r_txt_path)
+  gen_config_path = os.path.join(temp_dir, 'aapt2.config')
+  if options.resources_config_path:
+    shutil.copyfile(options.resources_config_path, gen_config_path)
+  with open(gen_config_path, 'a+') as config:
+    for resource in id_resources:
+      config.write('{}#no_obfuscate\n'.format(resource))
+
+  # Optimize the resources.arsc file by obfuscating resource names and only
+  # allow usage via R.java constant.
+  optimize_command = [
+      options.aapt2_path,
+      'optimize',
+      '--enable-resource-obfuscation',
+      '-o',
+      options.apk_path,
+      '--resources-config-path',
+      gen_config_path,
+      unoptimized_apk_path,
+  ]
+  build_utils.CheckOutput(
+      optimize_command, print_stdout=False, print_stderr=False)
+
+
+def _ExtractIdResources(rtxt_path):
+  """Extract resources of type ID from the R.txt file
+
+  Args:
+    rtxt_path: Path to R.txt file with all the resources
+  Returns:
+    List of id resources in the form of id/<resource_name>
+  """
+  id_resources = []
+  with open(rtxt_path) as rtxt:
+    for line in rtxt:
+      if ' id ' in line:
+        resource_name = line.split()[2]
+        id_resources.append('id/{}'.format(resource_name))
+  return id_resources
 
 
 def _WriteFinalRTxtFile(options, aapt_r_txt_path):
@@ -575,8 +805,8 @@ def _WriteFinalRTxtFile(options, aapt_r_txt_path):
   return r_txt_file
 
 
-def _OnStaleMd5(options):
-  with resource_utils.BuildContext() as build:
+def _OnStaleMd5(options, debug_temp_resources_dir):
+  with resource_utils.BuildContext(debug_temp_resources_dir) as build:
     dep_subdirs = resource_utils.ExtractDeps(options.dependencies_res_zips,
                                              build.deps_dir)
 
@@ -604,10 +834,8 @@ def _OnStaleMd5(options):
       rjava_build_options.GenerateOnResourcesLoaded()
 
     resource_utils.CreateRJavaFiles(
-        build.srcjar_dir, None, r_txt_path,
-        options.extra_res_packages,
-        options.extra_r_text_files,
-        rjava_build_options)
+        build.srcjar_dir, None, r_txt_path, options.extra_res_packages,
+        options.extra_r_text_files, rjava_build_options)
 
     if options.srcjar_out:
       build_utils.ZipDir(options.srcjar_out, build.srcjar_dir)
@@ -628,36 +856,47 @@ def main(args):
   # Order of these must match order specified in GN so that the correct one
   # appears first in the depfile.
   possible_output_paths = [
-    options.apk_path,
-    options.apk_path + '.info',
-    options.r_text_out,
-    options.srcjar_out,
-    options.proguard_file,
-    options.proguard_file_main_dex,
+      options.apk_path,
+      options.apk_path + '.info',
+      options.r_text_out,
+      options.srcjar_out,
+      options.proguard_file,
+      options.proguard_file_main_dex,
+      options.unoptimized_resources_path,
   ]
   output_paths = [x for x in possible_output_paths if x]
 
   # List python deps in input_strings rather than input_paths since the contents
   # of them does not change what gets written to the depsfile.
   input_strings = options.extra_res_packages + [
-    options.shared_resources,
-    options.exclude_xxxhdpi,
-    options.xxxhdpi_whitelist,
-    str(options.debuggable),
-    str(options.png_to_webp),
-    str(options.support_zh_hk),
-    str(options.no_xml_namespaces),
+      options.shared_resources,
+      options.resource_blacklist_regex,
+      options.resource_blacklist_exceptions,
+      str(options.debuggable),
+      str(options.png_to_webp),
+      str(options.support_zh_hk),
+      str(options.no_xml_namespaces),
+      str(options.optimize_resources),
   ]
 
   input_strings.extend(_CreateLinkApkArgs(options))
 
+  debug_temp_resources_dir = os.environ.get(_ENV_DEBUG_VARIABLE)
+  if debug_temp_resources_dir:
+    debug_temp_resources_dir = os.path.join(debug_temp_resources_dir,
+                                            os.path.basename(options.apk_path))
+    build_utils.DeleteDirectory(debug_temp_resources_dir)
+    build_utils.MakeDirectory(debug_temp_resources_dir)
+
+
   possible_input_paths = [
-    options.aapt_path,
-    options.aapt2_path,
-    options.android_manifest,
-    options.shared_resources_whitelist,
+      options.aapt_path,
+      options.aapt2_path,
+      options.android_manifest,
+      options.shared_resources_whitelist,
+      options.resources_config_path,
   ]
-  possible_input_paths += options.android_sdk_jars
+  possible_input_paths += options.include_resources
   input_paths = [x for x in possible_input_paths if x]
   input_paths.extend(options.dependencies_res_zips)
   input_paths.extend(options.extra_r_text_files)
@@ -666,12 +905,14 @@ def main(args):
     input_paths.append(options.webp_binary)
 
   build_utils.CallAndWriteDepfileIfStale(
-      lambda: _OnStaleMd5(options),
+      lambda: _OnStaleMd5(options, debug_temp_resources_dir),
       options,
       input_paths=input_paths,
       input_strings=input_strings,
       output_paths=output_paths,
-      depfile_deps=options.dependencies_res_zips + options.extra_r_text_files)
+      force=bool(debug_temp_resources_dir),
+      depfile_deps=options.dependencies_res_zips + options.extra_r_text_files,
+      add_pydeps=False)
 
 
 if __name__ == '__main__':

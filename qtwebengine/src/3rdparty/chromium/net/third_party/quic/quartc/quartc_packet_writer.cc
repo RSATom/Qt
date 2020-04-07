@@ -56,12 +56,19 @@ bool QuartcPacketWriter::IsBatchMode() const {
   return false;
 }
 
-char* QuartcPacketWriter::GetNextWriteLocation() const {
+char* QuartcPacketWriter::GetNextWriteLocation(
+    const QuicIpAddress& self_address,
+    const QuicSocketAddress& peer_address) {
   return nullptr;
 }
 
 WriteResult QuartcPacketWriter::Flush() {
   return WriteResult(WRITE_STATUS_OK, 0);
+}
+
+void QuartcPacketWriter::SetPacketTransportDelegate(
+    QuartcPacketTransport::Delegate* delegate) {
+  packet_transport_->SetDelegate(delegate);
 }
 
 }  // namespace quic

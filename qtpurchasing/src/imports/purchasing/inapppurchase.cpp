@@ -55,7 +55,7 @@ public:
         qmlRegisterUncreatableType<QInAppTransaction>(uri,
                                                       1, 0,
                                                       "Transaction",
-                                                      trUtf8("Transaction is provided by InAppStore"));
+                                                      tr("Transaction is provided by InAppStore"));
 
         // Register the latest Qt version as QML type version
         qmlRegisterModule(uri, 1, QT_VERSION_MINOR);

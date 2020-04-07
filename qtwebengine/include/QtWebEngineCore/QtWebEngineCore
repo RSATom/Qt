@@ -3,8 +3,10 @@
 #include <QtWebEngineCore/QtWebEngineCoreDepends>
 #include "qtwebenginecoreglobal.h"
 #include "qwebenginecallback.h"
+#include "qwebengineclientcertificatestore.h"
 #include "qwebenginecookiestore.h"
 #include "qwebenginehttprequest.h"
+#include "qwebenginenotification.h"
 #include "qwebenginequotarequest.h"
 #include "qwebengineregisterprotocolhandlerrequest.h"
 #include "qwebengineurlrequestinfo.h"

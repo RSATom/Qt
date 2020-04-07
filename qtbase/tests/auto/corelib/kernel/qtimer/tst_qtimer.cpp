@@ -51,6 +51,8 @@ private slots:
     void singleShotTimeout();
     void timeout();
     void remainingTime();
+    void remainingTimeInitial_data();
+    void remainingTimeInitial();
     void remainingTimeDuringActivation_data();
     void remainingTimeDuringActivation();
     void basic_chrono();
@@ -133,14 +135,41 @@ void tst_QTimer::remainingTime()
     QCOMPARE(timeoutSpy.count(), 0);
 
     int remainingTime = timer.remainingTime();
-    QVERIFY2(qAbs(remainingTime - 150) < 50, qPrintable(QString::number(remainingTime)));
+    QVERIFY2(remainingTime >= 50 && remainingTime <= 200, qPrintable(QString::number(remainingTime)));
 
     QVERIFY(timeoutSpy.wait());
     QCOMPARE(timeoutSpy.count(), 1);
 
     // the timer is still active, so it should have a non-zero remaining time
     remainingTime = timer.remainingTime();
-    QVERIFY2(remainingTime > 150, qPrintable(QString::number(remainingTime)));
+    QVERIFY2(remainingTime >= 50, qPrintable(QString::number(remainingTime)));
+}
+
+void tst_QTimer::remainingTimeInitial_data()
+{
+    QTest::addColumn<int>("startTimeMs");
+    QTest::addColumn<Qt::TimerType>("timerType");
+
+    QTest::addRow("precise time 0ms") << 0 << Qt::PreciseTimer;
+    QTest::addRow("precise time 1ms") << 1 << Qt::PreciseTimer;
+    QTest::addRow("precise time 10ms") << 10 << Qt::PreciseTimer;
+
+    QTest::addRow("coarse time 0ms") << 0 << Qt::CoarseTimer;
+    QTest::addRow("coarse time 1ms") << 1 << Qt::CoarseTimer;
+    QTest::addRow("coarse time 10ms") << 10 << Qt::CoarseTimer;
+}
+
+void tst_QTimer::remainingTimeInitial()
+{
+    QFETCH(int, startTimeMs);
+    QFETCH(Qt::TimerType, timerType);
+
+    QTimer timer;
+    timer.setTimerType(timerType);
+    timer.start(startTimeMs);
+
+    const int rt = timer.remainingTime();
+    QVERIFY2(rt >= 0 && rt <= startTimeMs, qPrintable(QString::number(rt)));
 }
 
 void tst_QTimer::remainingTimeDuringActivation_data()
@@ -228,7 +257,7 @@ void tst_QTimer::basic_chrono()
     QCOMPARE(timeoutSpy.count(), 0);
 
     milliseconds rt = timer.remainingTimeAsDuration();
-    QVERIFY2(qAbs(rt.count() - 150) < 50, qPrintable(QString::number(rt.count())));
+    QVERIFY2(rt.count() >= 50 && rt.count() <= 200, qPrintable(QString::number(rt.count())));
 
     timeoutSpy.clear();
     timer.setSingleShot(true);

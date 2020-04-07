@@ -107,9 +107,8 @@ static xmlDocPtr DocLoaderFunc(const xmlChar* uri,
       xmlFree(base);
 
       ResourceLoaderOptions fetch_options;
-      fetch_options.initiator_info.name = FetchInitiatorTypeNames::xml;
+      fetch_options.initiator_info.name = fetch_initiator_type_names::kXml;
       FetchParameters params(ResourceRequest(url), fetch_options);
-      params.SetOriginRestriction(FetchParameters::kRestrictToSameOrigin);
       params.MutableResourceRequest().SetFetchRequestMode(
           network::mojom::FetchRequestMode::kSameOrigin);
       Resource* resource =
@@ -138,7 +137,8 @@ static xmlDocPtr DocLoaderFunc(const xmlChar* uri,
         size_t offset = 0;
         for (const auto& span : *data) {
           bool final_chunk = offset + span.size() == data->size();
-          if (!xmlParseChunk(ctx, span.data(), span.size(), final_chunk))
+          if (!xmlParseChunk(ctx, span.data(), static_cast<int>(span.size()),
+                             final_chunk))
             break;
           offset += span.size();
         }
@@ -182,17 +182,18 @@ static int WriteToStringBuilder(void* context, const char* buffer, int len) {
   UChar* buffer_u_char_end = buffer_u_char + len;
 
   const char* string_current = buffer;
-  WTF::Unicode::ConversionResult result = WTF::Unicode::ConvertUTF8ToUTF16(
+  WTF::unicode::ConversionResult result = WTF::unicode::ConvertUTF8ToUTF16(
       &string_current, buffer + len, &buffer_u_char, buffer_u_char_end);
-  if (result != WTF::Unicode::kConversionOK &&
-      result != WTF::Unicode::kSourceExhausted) {
+  if (result != WTF::unicode::kConversionOK &&
+      result != WTF::unicode::kSourceExhausted) {
     NOTREACHED();
     return -1;
   }
 
-  int utf16_length = buffer_u_char - string_buffer.Characters();
+  int utf16_length =
+      static_cast<int>(buffer_u_char - string_buffer.Characters());
   result_output.Append(string_buffer.Characters(), utf16_length);
-  return string_current - buffer;
+  return static_cast<int>(string_current - buffer);
 }
 
 static bool SaveResultToString(xmlDocPtr result_doc,

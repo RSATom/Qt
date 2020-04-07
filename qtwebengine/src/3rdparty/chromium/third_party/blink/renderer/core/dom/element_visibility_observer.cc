@@ -23,8 +23,7 @@ void ElementVisibilityObserver::Start(float threshold) {
   DCHECK(!intersection_observer_);
 
   ExecutionContext* context = element_->GetExecutionContext();
-  DCHECK(context->IsDocument());
-  Document& document = ToDocument(*context);
+  Document& document = To<Document>(*context);
 
   intersection_observer_ = IntersectionObserver::Create(
       {} /* root_margin */, {threshold}, &document,
@@ -46,7 +45,7 @@ void ElementVisibilityObserver::DeliverObservationsForTesting() {
   intersection_observer_->Deliver();
 }
 
-void ElementVisibilityObserver::Trace(blink::Visitor* visitor) {
+void ElementVisibilityObserver::Trace(Visitor* visitor) {
   visitor->Trace(element_);
   visitor->Trace(intersection_observer_);
 }

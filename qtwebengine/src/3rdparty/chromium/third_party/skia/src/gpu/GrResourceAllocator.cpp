@@ -7,6 +7,7 @@
 
 #include "GrResourceAllocator.h"
 
+#include "GrDeinstantiateProxyTracker.h"
 #include "GrGpuResourcePriv.h"
 #include "GrOpList.h"
 #include "GrRenderTargetProxy.h"
@@ -16,7 +17,19 @@
 #include "GrSurfaceProxy.h"
 #include "GrSurfaceProxyPriv.h"
 #include "GrTextureProxy.h"
-#include "GrUninstantiateProxyTracker.h"
+
+#if GR_TRACK_INTERVAL_CREATION
+    #include <atomic>
+
+    uint32_t GrResourceAllocator::Interval::CreateUniqueID() {
+        static std::atomic<uint32_t> nextID{1};
+        uint32_t id;
+        do {
+            id = nextID++;
+        } while (id == SK_InvalidUniqueID);
+        return id;
+    }
+#endif
 
 void GrResourceAllocator::Interval::assign(sk_sp<GrSurface> s) {
     SkASSERT(!fAssignedSurface);
@@ -47,93 +60,157 @@ void GrResourceAllocator::addInterval(GrSurfaceProxy* proxy, unsigned int start,
     SkASSERT(start <= end);
     SkASSERT(!fAssigned);      // We shouldn't be adding any intervals after (or during) assignment
 
-    if (Interval* intvl = fIntvlHash.find(proxy->uniqueID().asUInt())) {
-        // Revise the interval for an existing use
-#ifdef SK_DEBUG
-        if (0 == start && 0 == end) {
-            // This interval is for the initial upload to a deferred proxy. Due to the vagaries
-            // of how deferred proxies are collected they can appear as uploads multiple times in a
-            // single opLists' list and as uploads in several opLists.
-            SkASSERT(0 == intvl->start());
-        } else if (isDirectDstRead) {
-            // Direct reads from the render target itself should occur w/in the existing interval
-            SkASSERT(intvl->start() <= start && intvl->end() >= end);
-        } else {
-            SkASSERT(intvl->end() <= start && intvl->end() <= end);
-        }
-#endif
-        intvl->extendEnd(end);
-        return;
-    }
-
-    Interval* newIntvl;
-    if (fFreeIntervalList) {
-        newIntvl = fFreeIntervalList;
-        fFreeIntervalList = newIntvl->next();
-        newIntvl->resetTo(proxy, start, end);
+    // If a proxy is read only it must refer to a texture with specific content that cannot be
+    // recycled. We don't need to assign a texture to it and no other proxy can be instantiated
+    // with the same texture.
+    if (proxy->readOnly()) {
+        // Since we aren't going to add an interval we won't revisit this proxy in assign(). So it
+        // must already be instantiated or it must be a lazy proxy that we will instantiate below.
+        SkASSERT(proxy->isInstantiated() ||
+                 GrSurfaceProxy::LazyState::kNot != proxy->lazyInstantiationState());
     } else {
-        newIntvl = fIntervalAllocator.make<Interval>(proxy, start, end);
+        if (Interval* intvl = fIntvlHash.find(proxy->uniqueID().asUInt())) {
+            // Revise the interval for an existing use
+#ifdef SK_DEBUG
+            if (0 == start && 0 == end) {
+                // This interval is for the initial upload to a deferred proxy. Due to the vagaries
+                // of how deferred proxies are collected they can appear as uploads multiple times
+                // in a single opLists' list and as uploads in several opLists.
+                SkASSERT(0 == intvl->start());
+            } else if (isDirectDstRead) {
+                // Direct reads from the render target itself should occur w/in the existing
+                // interval
+                SkASSERT(intvl->start() <= start && intvl->end() >= end);
+            } else {
+                SkASSERT(intvl->end() <= start && intvl->end() <= end);
+            }
+#endif
+            intvl->extendEnd(end);
+            return;
+        }
+        Interval* newIntvl;
+        if (fFreeIntervalList) {
+            newIntvl = fFreeIntervalList;
+            fFreeIntervalList = newIntvl->next();
+            newIntvl->setNext(nullptr);
+            newIntvl->resetTo(proxy, start, end);
+        } else {
+            newIntvl = fIntervalAllocator.make<Interval>(proxy, start, end);
+        }
+
+        fIntvlList.insertByIncreasingStart(newIntvl);
+        fIntvlHash.add(newIntvl);
     }
 
-    fIntvlList.insertByIncreasingStart(newIntvl);
-    fIntvlHash.add(newIntvl);
-
-    if (!fResourceProvider->explicitlyAllocateGPUResources()) {
+    // Because readOnly proxies do not get a usage interval we must instantiate them here (since it
+    // won't occur in GrResourceAllocator::assign)
+    if (proxy->readOnly() || !fResourceProvider->explicitlyAllocateGPUResources()) {
         // FIXME: remove this once we can do the lazy instantiation from assign instead.
         if (GrSurfaceProxy::LazyState::kNot != proxy->lazyInstantiationState()) {
-            proxy->priv().doLazyInstantiation(fResourceProvider);
+            if (proxy->priv().doLazyInstantiation(fResourceProvider)) {
+                if (proxy->priv().lazyInstantiationType() ==
+                    GrSurfaceProxy::LazyInstantiationType::kDeinstantiate) {
+                    fDeinstantiateTracker->addProxy(proxy);
+                }
+            }
         }
     }
 }
 
 GrResourceAllocator::Interval* GrResourceAllocator::IntervalList::popHead() {
+    SkDEBUGCODE(this->validate());
+
     Interval* temp = fHead;
     if (temp) {
         fHead = temp->next();
+        if (!fHead) {
+            fTail = nullptr;
+        }
+        temp->setNext(nullptr);
     }
+
+    SkDEBUGCODE(this->validate());
     return temp;
 }
 
 // TODO: fuse this with insertByIncreasingEnd
 void GrResourceAllocator::IntervalList::insertByIncreasingStart(Interval* intvl) {
+    SkDEBUGCODE(this->validate());
+    SkASSERT(!intvl->next());
+
     if (!fHead) {
-        intvl->setNext(nullptr);
-        fHead = intvl;
+        // 14%
+        fHead = fTail = intvl;
     } else if (intvl->start() <= fHead->start()) {
+        // 3%
         intvl->setNext(fHead);
         fHead = intvl;
+    } else if (fTail->start() <= intvl->start()) {
+        // 83%
+        fTail->setNext(intvl);
+        fTail = intvl;
     } else {
+        // almost never
         Interval* prev = fHead;
         Interval* next = prev->next();
-        for (; next && intvl->start() > next->start(); prev = next, next = next->next()) {
+        for (; intvl->start() > next->start(); prev = next, next = next->next()) {
         }
+
+        SkASSERT(next);
         intvl->setNext(next);
         prev->setNext(intvl);
     }
+
+    SkDEBUGCODE(this->validate());
 }
 
 // TODO: fuse this with insertByIncreasingStart
 void GrResourceAllocator::IntervalList::insertByIncreasingEnd(Interval* intvl) {
+    SkDEBUGCODE(this->validate());
+    SkASSERT(!intvl->next());
+
     if (!fHead) {
-        intvl->setNext(nullptr);
-        fHead = intvl;
+        // 14%
+        fHead = fTail = intvl;
     } else if (intvl->end() <= fHead->end()) {
+        // 64%
         intvl->setNext(fHead);
         fHead = intvl;
+    } else if (fTail->end() <= intvl->end()) {
+        // 3%
+        fTail->setNext(intvl);
+        fTail = intvl;
     } else {
+        // 19% but 81% of those land right after the list's head
         Interval* prev = fHead;
         Interval* next = prev->next();
-        for (; next && intvl->end() > next->end(); prev = next, next = next->next()) {
+        for (; intvl->end() > next->end(); prev = next, next = next->next()) {
         }
+
+        SkASSERT(next);
         intvl->setNext(next);
         prev->setNext(intvl);
     }
+
+    SkDEBUGCODE(this->validate());
 }
 
+#ifdef SK_DEBUG
+void GrResourceAllocator::IntervalList::validate() const {
+    SkASSERT(SkToBool(fHead) == SkToBool(fTail));
+
+    Interval* prev = nullptr;
+    for (Interval* cur = fHead; cur; prev = cur, cur = cur->next()) {
+    }
+
+    SkASSERT(fTail == prev);
+}
+#endif
 
  GrResourceAllocator::Interval* GrResourceAllocator::IntervalList::detachAll() {
     Interval* tmp = fHead;
     fHead = nullptr;
+    fTail = nullptr;
     return tmp;
 }
 
@@ -163,6 +240,21 @@ void GrResourceAllocator::recycleSurface(sk_sp<GrSurface> surface) {
 // If we can't find a useable one, create a new one.
 sk_sp<GrSurface> GrResourceAllocator::findSurfaceFor(const GrSurfaceProxy* proxy,
                                                      bool needsStencil) {
+
+    if (proxy->asTextureProxy() && proxy->asTextureProxy()->getUniqueKey().isValid()) {
+        // First try to reattach to a cached version if the proxy is uniquely keyed
+        sk_sp<GrSurface> surface = fResourceProvider->findByUniqueKey<GrSurface>(
+                                                        proxy->asTextureProxy()->getUniqueKey());
+        if (surface) {
+            if (!GrSurfaceProxyPriv::AttachStencilIfNeeded(fResourceProvider, surface.get(),
+                                                           needsStencil)) {
+                return nullptr;
+            }
+
+            return surface;
+        }
+    }
+
     // First look in the free pool
     GrScratchKey key;
 
@@ -180,7 +272,11 @@ sk_sp<GrSurface> GrResourceAllocator::findSurfaceFor(const GrSurfaceProxy* proxy
             surface->resourcePriv().makeBudgeted();
         }
 
-        GrSurfaceProxyPriv::AttachStencilIfNeeded(fResourceProvider, surface.get(), needsStencil);
+        if (!GrSurfaceProxyPriv::AttachStencilIfNeeded(fResourceProvider, surface.get(),
+                                                       needsStencil)) {
+            return nullptr;
+        }
+        SkASSERT(!surface->getUniqueKey().isValid());
         return surface;
     }
 
@@ -193,6 +289,7 @@ sk_sp<GrSurface> GrResourceAllocator::findSurfaceFor(const GrSurfaceProxy* proxy
 void GrResourceAllocator::expire(unsigned int curIndex) {
     while (!fActiveIntvls.empty() && fActiveIntvls.peekHead()->end() < curIndex) {
         Interval* temp = fActiveIntvls.popHead();
+        SkASSERT(!temp->next());
 
         if (temp->wasAssignedSurface()) {
             sk_sp<GrSurface> surface = temp->detachSurface();
@@ -212,9 +309,7 @@ void GrResourceAllocator::expire(unsigned int curIndex) {
     }
 }
 
-bool GrResourceAllocator::assign(int* startIndex, int* stopIndex,
-                                 GrUninstantiateProxyTracker* uninstantiateTracker,
-                                 AssignError* outError) {
+bool GrResourceAllocator::assign(int* startIndex, int* stopIndex, AssignError* outError) {
     SkASSERT(outError);
     *outError = AssignError::kNoError;
 
@@ -247,10 +342,11 @@ bool GrResourceAllocator::assign(int* startIndex, int* stopIndex,
                                             ? cur->proxy()->asRenderTargetProxy()->needsStencil()
                                             : false;
 
-        if (cur->proxy()->priv().isInstantiated()) {
-            GrSurfaceProxyPriv::AttachStencilIfNeeded(fResourceProvider,
-                                                      cur->proxy()->priv().peekSurface(),
-                                                      needsStencil);
+        if (cur->proxy()->isInstantiated()) {
+            if (!GrSurfaceProxyPriv::AttachStencilIfNeeded(
+                        fResourceProvider, cur->proxy()->peekSurface(), needsStencil)) {
+                *outError = AssignError::kFailedProxyInstantiation;
+            }
 
             fActiveIntvls.insertByIncreasingEnd(cur);
 
@@ -259,6 +355,16 @@ bool GrResourceAllocator::assign(int* startIndex, int* stopIndex,
                 if (!fIntvlList.empty() &&
                     fEndOfOpListOpIndices[fCurOpListIndex] < fIntvlList.peekHead()->start()) {
                     *stopIndex = fCurOpListIndex+1;
+
+                    // This is interrupting the allocation of resources for this flush. We need to
+                    // proactively clear the active interval list of any intervals that aren't
+                    // guaranteed to survive the partial flush lest they become zombies (i.e.,
+                    // holding a deleted surface proxy).
+                    if (const Interval* tmp = fIntvlList.peekHead()) {
+                        this->expire(tmp->start());
+                    } else {
+                        this->expire(std::numeric_limits<unsigned int>::max());
+                    }
                     return true;
                 }
             }
@@ -270,17 +376,21 @@ bool GrResourceAllocator::assign(int* startIndex, int* stopIndex,
             if (!cur->proxy()->priv().doLazyInstantiation(fResourceProvider)) {
                 *outError = AssignError::kFailedProxyInstantiation;
             } else {
-                if (GrSurfaceProxy::LazyInstantiationType::kUninstantiate ==
+                if (GrSurfaceProxy::LazyInstantiationType::kDeinstantiate ==
                     cur->proxy()->priv().lazyInstantiationType()) {
-                    uninstantiateTracker->addProxy(cur->proxy());
+                    fDeinstantiateTracker->addProxy(cur->proxy());
                 }
             }
         } else if (sk_sp<GrSurface> surface = this->findSurfaceFor(cur->proxy(), needsStencil)) {
             // TODO: make getUniqueKey virtual on GrSurfaceProxy
-            GrTextureProxy* tex = cur->proxy()->asTextureProxy();
-            if (tex && tex->getUniqueKey().isValid()) {
-                fResourceProvider->assignUniqueKeyToResource(tex->getUniqueKey(), surface.get());
-                SkASSERT(surface->getUniqueKey() == tex->getUniqueKey());
+            GrTextureProxy* texProxy = cur->proxy()->asTextureProxy();
+
+            if (texProxy && texProxy->getUniqueKey().isValid()) {
+                if (!surface->getUniqueKey().isValid()) {
+                    fResourceProvider->assignUniqueKeyToResource(texProxy->getUniqueKey(),
+                                                                 surface.get());
+                }
+                SkASSERT(surface->getUniqueKey() == texProxy->getUniqueKey());
             }
 
 #if GR_ALLOCATION_SPEW
@@ -291,7 +401,7 @@ bool GrResourceAllocator::assign(int* startIndex, int* stopIndex,
 
             cur->assign(std::move(surface));
         } else {
-            SkASSERT(!cur->proxy()->priv().isInstantiated());
+            SkASSERT(!cur->proxy()->isInstantiated());
             *outError = AssignError::kFailedProxyInstantiation;
         }
 
@@ -302,6 +412,16 @@ bool GrResourceAllocator::assign(int* startIndex, int* stopIndex,
             if (!fIntvlList.empty() &&
                 fEndOfOpListOpIndices[fCurOpListIndex] < fIntvlList.peekHead()->start()) {
                 *stopIndex = fCurOpListIndex+1;
+
+                // This is interrupting the allocation of resources for this flush. We need to
+                // proactively clear the active interval list of any intervals that aren't
+                // guaranteed to survive the partial flush lest they become zombies (i.e.,
+                // holding a deleted surface proxy).
+                if (const Interval* tmp = fIntvlList.peekHead()) {
+                    this->expire(tmp->start());
+                } else {
+                    this->expire(std::numeric_limits<unsigned int>::max());
+                }
                 return true;
             }
         }
@@ -321,8 +441,7 @@ void GrResourceAllocator::dumpIntervals() {
     for(const Interval* cur = fIntvlList.peekHead(); cur; cur = cur->next()) {
         SkDebugf("{ %3d,%3d }: [%2d, %2d] - proxyRefs:%d surfaceRefs:%d R:%d W:%d\n",
                  cur->proxy()->uniqueID().asUInt(),
-                 cur->proxy()->priv().isInstantiated() ? cur->proxy()->underlyingUniqueID().asUInt()
-                                                       : -1,
+                 cur->proxy()->isInstantiated() ? cur->proxy()->underlyingUniqueID().asUInt() : -1,
                  cur->start(),
                  cur->end(),
                  cur->proxy()->priv().getProxyRefCnt(),
@@ -337,8 +456,7 @@ void GrResourceAllocator::dumpIntervals() {
     for(const Interval* cur = fIntvlList.peekHead(); cur; cur = cur->next()) {
         SkDebugf("{ %3d,%3d }: ",
                  cur->proxy()->uniqueID().asUInt(),
-                 cur->proxy()->priv().isInstantiated() ? cur->proxy()->underlyingUniqueID().asUInt()
-                                                       : -1);
+                 cur->proxy()->isInstantiated() ? cur->proxy()->underlyingUniqueID().asUInt() : -1);
         for (unsigned int i = min; i <= max; ++i) {
             if (i >= cur->start() && i <= cur->end()) {
                 SkDebugf("x");

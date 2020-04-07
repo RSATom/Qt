@@ -61,12 +61,12 @@ class FakeBackend : public QuotaReservationManager::QuotaBackend {
   void ReserveQuota(const url::Origin& origin,
                     storage::FileSystemType type,
                     int64_t delta,
-                    const ReserveQuotaCallback& callback) override {
+                    ReserveQuotaCallback callback) override {
     EXPECT_EQ(kOrigin, origin);
     EXPECT_EQ(kType, type);
     on_memory_usage_ += delta;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(base::IgnoreResult(callback),
+        FROM_HERE, base::BindOnce(base::IgnoreResult(std::move(callback)),
                                   base::File::FILE_OK, delta));
   }
 
@@ -176,7 +176,7 @@ void RefreshReservation(QuotaReservation* reservation, int64_t size) {
   DCHECK(reservation);
 
   bool done = false;
-  reservation->RefreshReservation(size, base::Bind(&ExpectSuccess, &done));
+  reservation->RefreshReservation(size, base::BindOnce(&ExpectSuccess, &done));
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(done);
 }
@@ -255,7 +255,7 @@ TEST_F(QuotaReservationManagerTest, BasicTest) {
   EXPECT_EQ(3, fake_backend()->on_disk_usage());
   EXPECT_EQ(3 + 5, fake_backend()->on_memory_usage());
 
-  reservation = NULL;
+  reservation = nullptr;
 
   EXPECT_EQ(3, fake_backend()->on_memory_usage());
 }
@@ -289,7 +289,7 @@ TEST_F(QuotaReservationManagerTest, MultipleWriter) {
             fake_backend()->on_memory_usage());
   EXPECT_EQ(kInitialFileSize + 20 + 30 + 40, fake_backend()->on_disk_usage());
 
-  reservation = NULL;
+  reservation = nullptr;
 
   EXPECT_EQ(kInitialFileSize + 20 + 30 + 40, fake_backend()->on_disk_usage());
 }
@@ -333,10 +333,10 @@ TEST_F(QuotaReservationManagerTest, MultipleClient) {
             fake_backend()->on_memory_usage());
   EXPECT_EQ(kInitialFileSize + 10 + 20, fake_backend()->on_disk_usage());
 
-  reservation1 = NULL;
+  reservation1 = nullptr;
   EXPECT_EQ(kInitialFileSize + 10 + 20 + 3, fake_backend()->on_memory_usage());
 
-  reservation2 = NULL;
+  reservation2 = nullptr;
   EXPECT_EQ(kInitialFileSize + 10 + 20, fake_backend()->on_memory_usage());
 }
 
@@ -357,13 +357,13 @@ TEST_F(QuotaReservationManagerTest, ClientCrash) {
     reservation1->OnClientCrash();
     writer.ClearWithoutUsageReport();
   }
-  reservation1 = NULL;
+  reservation1 = nullptr;
 
   EXPECT_EQ(kInitialFileSize + 10, GetFileSize(file_path()));
   EXPECT_EQ(kInitialFileSize + 15 + 20, fake_backend()->on_memory_usage());
   EXPECT_EQ(kInitialFileSize + 10, fake_backend()->on_disk_usage());
 
-  reservation2 = NULL;
+  reservation2 = nullptr;
   EXPECT_EQ(kInitialFileSize + 10, fake_backend()->on_memory_usage());
 }
 

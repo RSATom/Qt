@@ -8,15 +8,15 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/ozone/common/egl_util.h"
-#include "ui/ozone/platform/drm/gpu/drm_vsync_provider.h"
+#include "ui/ozone/platform/drm/gpu/drm_device.h"
+#include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
 #include "ui/ozone/platform/drm/gpu/gbm_surface_factory.h"
-#include "ui/ozone/platform/drm/gpu/scanout_buffer.h"
 
 namespace ui {
 
@@ -41,19 +41,17 @@ GbmSurfaceless::GbmSurfaceless(GbmSurfaceFactory* surface_factory,
           HasEGLExtension("EGL_ARM_implicit_external_sync")),
       weak_factory_(this) {
   surface_factory_->RegisterSurface(window_->widget(), this);
+  supports_plane_gpu_fences_ = window_->SupportsGpuFences();
   unsubmitted_frames_.push_back(std::make_unique<PendingFrame>());
 }
 
 void GbmSurfaceless::QueueOverlayPlane(DrmOverlayPlane plane) {
-  is_on_external_drm_device_ = plane.buffer->RequiresGlFinish();
+  is_on_external_drm_device_ = !plane.buffer->drm_device()->is_primary_device();
   planes_.push_back(std::move(plane));
 }
 
 bool GbmSurfaceless::Initialize(gl::GLSurfaceFormat format) {
   if (!SurfacelessEGL::Initialize(format))
-    return false;
-  vsync_provider_ = std::make_unique<DrmVSyncProvider>(window_.get());
-  if (!vsync_provider_)
     return false;
   return true;
 }
@@ -82,10 +80,6 @@ bool GbmSurfaceless::IsOffscreen() {
   return false;
 }
 
-gfx::VSyncProvider* GbmSurfaceless::GetVSyncProvider() {
-  return vsync_provider_.get();
-}
-
 bool GbmSurfaceless::SupportsPresentationCallback() {
   return true;
 }
@@ -96,6 +90,10 @@ bool GbmSurfaceless::SupportsAsyncSwap() {
 
 bool GbmSurfaceless::SupportsPostSubBuffer() {
   return true;
+}
+
+bool GbmSurfaceless::SupportsPlaneGpuFences() const {
+  return supports_plane_gpu_fences_;
 }
 
 gfx::SwapResult GbmSurfaceless::PostSubBuffer(
@@ -115,7 +113,7 @@ void GbmSurfaceless::SwapBuffersAsync(
   TRACE_EVENT0("drm", "GbmSurfaceless::SwapBuffersAsync");
   // If last swap failed, don't try to schedule new ones.
   if (!last_swap_buffers_result_) {
-    completion_callback.Run(gfx::SwapResult::SWAP_FAILED);
+    completion_callback.Run(gfx::SwapResult::SWAP_FAILED, nullptr);
     // Notify the caller, the buffer is never presented on a screen.
     presentation_callback.Run(gfx::PresentationFeedback::Failure());
     return;
@@ -132,7 +130,7 @@ void GbmSurfaceless::SwapBuffersAsync(
   unsubmitted_frames_.push_back(std::make_unique<PendingFrame>());
 
   // TODO(dcastagna): Remove the following workaround once we get explicit sync
-  // on Intel.
+  // on all Intel boards, currently we don't have it on legacy KMS.
   // We can not rely on implicit sync on external devices (crbug.com/692508).
   // NOTE: When on internal devices, |is_on_external_drm_device_| is set to true
   // by default conservatively, and it is correctly computed after the first
@@ -140,7 +138,8 @@ void GbmSurfaceless::SwapBuffersAsync(
   // GbmSurfaceless::SubmitFrame.
   // This means |is_on_external_drm_device_| could be incorrectly set to true
   // the first time we're testing it.
-  if (!use_egl_fence_sync_ && !is_on_external_drm_device_) {
+  if (supports_plane_gpu_fences_ ||
+      (!use_egl_fence_sync_ && !is_on_external_drm_device_)) {
     frame->ready = true;
     SubmitFrame();
     return;
@@ -150,7 +149,7 @@ void GbmSurfaceless::SwapBuffersAsync(
   // implemented in GL drivers.
   EGLSyncKHR fence = InsertFence(has_implicit_external_sync_);
   if (!fence) {
-    completion_callback.Run(gfx::SwapResult::SWAP_FAILED);
+    completion_callback.Run(gfx::SwapResult::SWAP_FAILED, nullptr);
     // Notify the caller, the buffer is never presented on a screen.
     presentation_callback.Run(gfx::PresentationFeedback::Failure());
     return;
@@ -202,10 +201,6 @@ EGLConfig GbmSurfaceless::GetConfig() {
 }
 
 void GbmSurfaceless::SetRelyOnImplicitSync() {
-  use_egl_fence_sync_ = false;
-}
-
-void GbmSurfaceless::SetUsePlaneGpuFences() {
   use_egl_fence_sync_ = false;
 }
 
@@ -279,7 +274,7 @@ void GbmSurfaceless::OnPresentation(const gfx::PresentationFeedback& feedback) {
   submitted_frame_->overlays.clear();
 
   gfx::SwapResult result = submitted_frame_->swap_result;
-  std::move(submitted_frame_->completion_callback).Run(result);
+  std::move(submitted_frame_->completion_callback).Run(result, nullptr);
   std::move(submitted_frame_->presentation_callback).Run(feedback);
   submitted_frame_.reset();
 

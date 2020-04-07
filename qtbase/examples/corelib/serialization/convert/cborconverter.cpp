@@ -56,7 +56,6 @@
 #include <QCborArray>
 #include <QCborValue>
 #include <QDataStream>
-#include <QDebug>
 #include <QFloat16>
 #include <QFile>
 #include <QMetaType>
@@ -83,19 +82,6 @@ static const char diagnosticHelp[] =
         ;
 
 QT_BEGIN_NAMESPACE
-
-QDataStream &operator<<(QDataStream &ds, QCborSimpleType st)
-{
-    return ds << quint8(st);
-}
-
-QDataStream &operator>>(QDataStream &ds, QCborSimpleType &st)
-{
-    quint8 v;
-    ds >> v;
-    st = QCborSimpleType(v);
-    return ds;
-}
 
 QDataStream &operator<<(QDataStream &ds, QCborTag tag)
 {

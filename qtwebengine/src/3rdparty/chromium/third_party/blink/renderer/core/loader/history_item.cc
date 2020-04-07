@@ -137,19 +137,6 @@ const AtomicString& HistoryItem::FormContentType() const {
   return form_content_type_;
 }
 
-void HistoryItem::SetFormInfoFromRequest(const ResourceRequest& request) {
-  if (DeprecatedEqualIgnoringCase(request.HttpMethod(), "POST")) {
-    // FIXME: Eventually we have to make this smart enough to handle the case
-    // where we have a stream for the body to handle the "data interspersed with
-    // files" feature.
-    form_data_ = request.HttpBody();
-    form_content_type_ = request.HttpContentType();
-  } else {
-    form_data_ = nullptr;
-    form_content_type_ = g_null_atom;
-  }
-}
-
 void HistoryItem::SetFormData(scoped_refptr<EncodedFormData> form_data) {
   form_data_ = std::move(form_data);
 }
@@ -165,10 +152,12 @@ EncodedFormData* HistoryItem::FormData() {
 ResourceRequest HistoryItem::GenerateResourceRequest(
     mojom::FetchCacheMode cache_mode) {
   ResourceRequest request(url_string_);
+  // TODO(domfarolino): Stop storing ResourceRequest's generated referrer as a
+  // header and instead use a separate member. See https://crbug.com/850813.
   request.SetHTTPReferrer(referrer_);
   request.SetCacheMode(cache_mode);
   if (form_data_) {
-    request.SetHTTPMethod(HTTPNames::POST);
+    request.SetHTTPMethod(http_names::kPOST);
     request.SetHTTPBody(form_data_);
     request.SetHTTPContentType(form_content_type_);
     request.SetHTTPOriginToMatchReferrerIfNeeded();

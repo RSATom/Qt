@@ -7,7 +7,7 @@
 
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/scroll/scrollable_area.h"
+#include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 
 namespace blink {
 
@@ -32,8 +32,12 @@ class CORE_EXPORT RootFrameViewport final
  public:
   static RootFrameViewport* Create(ScrollableArea& visual_viewport,
                                    ScrollableArea& layout_viewport) {
-    return new RootFrameViewport(visual_viewport, layout_viewport);
+    return MakeGarbageCollected<RootFrameViewport>(visual_viewport,
+                                                   layout_viewport);
   }
+
+  RootFrameViewport(ScrollableArea& visual_viewport,
+                    ScrollableArea& layout_viewport);
 
   void Trace(blink::Visitor*) override;
 
@@ -106,7 +110,7 @@ class CORE_EXPORT RootFrameViewport final
   CompositorElementId GetScrollbarElementId(
       ScrollbarOrientation orientation) override;
   bool ScrollAnimatorEnabled() const override;
-  PlatformChromeClient* GetChromeClient() const override;
+  ChromeClient* GetChromeClient() const override;
   SmoothScrollSequencer* GetSmoothScrollSequencer() const override;
   void ServiceScrollAnimations(double) override;
   void UpdateCompositorScrollAnimations() override;
@@ -121,9 +125,6 @@ class CORE_EXPORT RootFrameViewport final
   ScrollbarTheme& GetPageScrollbarTheme() const override;
 
  private:
-  RootFrameViewport(ScrollableArea& visual_viewport,
-                    ScrollableArea& layout_viewport);
-
   enum ViewportToScrollFirst { kVisualViewport, kLayoutViewport };
 
   ScrollOffset ScrollOffsetFromScrollAnimators() const;

@@ -48,6 +48,8 @@
 
 #include "type_conversion.h"
 
+#include <QDebug>
+
 QT_BEGIN_NAMESPACE
 
 using namespace QtWebEngineCore;
@@ -76,17 +78,40 @@ ClientCertSelectController::~ClientCertSelectController()
 void ClientCertSelectController::selectNone()
 {
     if (m_selected) {
-        qWarning() << "ClientCertSelectController::selectNone() certicate already selected";
+        LOG(WARNING) << "ClientCertSelectController::selectNone() certificate already selected";
         return;
     }
     m_selected = true;
     m_delegate->ContinueWithCertificate(nullptr, nullptr);
 }
 
+void ClientCertSelectController::select(int index)
+{
+    if (m_selected) {
+        LOG(WARNING) << "ClientCertSelectController::select() certificate already selected";
+        return;
+    }
+    for (auto &certInfo : m_clientCerts) {
+        if (index == 0) {
+            m_selected = true;
+            scoped_refptr<net::X509Certificate> cert = certInfo->certificate();
+            net::ClientCertIdentity::SelfOwningAcquirePrivateKey(
+                        std::move(certInfo),
+                        base::Bind(&content::ClientCertificateDelegate::ContinueWithCertificate,
+                                   base::Passed(std::move(m_delegate)), std::move(cert)));
+            return;
+        }
+        std::vector<std::string> pem_encoded;
+        if (certInfo->certificate()->GetPEMEncodedChain(&pem_encoded))
+            --index;
+    }
+    LOG(WARNING) << "ClientCertSelectController::select() index out of range:" << index;
+}
+
 void ClientCertSelectController::select(const QSslCertificate &certificate)
 {
     if (m_selected) {
-        qWarning() << "ClientCertSelectController::select() certicate already selected";
+        LOG(WARNING) << "ClientCertSelectController::select() certificate already selected";
         return;
     }
     QByteArray derCertificate = certificate.toDer();
@@ -103,19 +128,20 @@ void ClientCertSelectController::select(const QSslCertificate &certificate)
             return;
         }
     }
-    qWarning() << "ClientCertSelectController::select() - selected client certificate not recognized."
-               << "    Selected certificate needs to be one of the offered";
+    LOG(WARNING) << "ClientCertSelectController::select() - selected client certificate not recognized."
+                 << "    Selected certificate needs to be one of the offered";
 }
 
 QVector<QSslCertificate> ClientCertSelectController::certificates() const
 {
-    QVector<QSslCertificate> out;
+    if (!m_certificates.isEmpty())
+        return m_certificates;
     for (auto &cert : m_clientCerts) {
         std::vector<std::string> pem_encoded;
         if (cert->certificate()->GetPEMEncodedChain(&pem_encoded))
-            out.append(QSslCertificate(QByteArray::fromStdString(pem_encoded.front())));
+            m_certificates.append(QSslCertificate(QByteArray::fromStdString(pem_encoded.front())));
     }
-    return out;
+    return m_certificates;
 }
 
 #endif // !defined(QT_NO_SSL) || QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)

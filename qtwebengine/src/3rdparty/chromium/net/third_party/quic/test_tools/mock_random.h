@@ -5,7 +5,6 @@
 #ifndef NET_THIRD_PARTY_QUIC_TEST_TOOLS_MOCK_RANDOM_H_
 #define NET_THIRD_PARTY_QUIC_TEST_TOOLS_MOCK_RANDOM_H_
 
-#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "net/third_party/quic/core/crypto/quic_random.h"
 
@@ -17,6 +16,8 @@ class MockRandom : public QuicRandom {
   // Initializes base_ to 0xDEADBEEF.
   MockRandom();
   explicit MockRandom(uint32_t base);
+  MockRandom(const MockRandom&) = delete;
+  MockRandom& operator=(const MockRandom&) = delete;
 
   // QuicRandom:
   // Fills the |data| buffer with a repeating byte, initially 'r'.
@@ -31,8 +32,6 @@ class MockRandom : public QuicRandom {
  private:
   uint32_t base_;
   uint8_t increment_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockRandom);
 };
 
 }  // namespace test

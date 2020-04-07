@@ -4,6 +4,8 @@
 
 #include "extensions/common/constants.h"
 
+#include "base/stl_util.h"
+
 namespace extensions {
 
 const char kExtensionScheme[] = "chrome-extension";
@@ -81,14 +83,12 @@ const uint8_t kWebstoreSignaturesPublicKey[] = {
     0xcd, 0x02, 0x03, 0x01, 0x00, 0x01};
 
 const size_t kWebstoreSignaturesPublicKeySize =
-    arraysize(kWebstoreSignaturesPublicKey);
+    base::size(kWebstoreSignaturesPublicKey);
 
 const int kMainThreadId = 0;
 
 const char kMimeTypeJpeg[] = "image/jpeg";
 const char kMimeTypePng[] = "image/png";
-
-const int64_t kInvalidServiceWorkerVersionId = -1;
 
 }  // namespace extensions
 
@@ -110,6 +110,21 @@ const char kQuickOfficeInternalExtensionId[] =
 const char kQuickOfficeExtensionId[] = "gbkeegbaiigmenfmjfclcdgdpimamgkj";
 const char kMimeHandlerPrivateTestExtensionId[] =
     "oickdpebdnfbgkcaoklfcdhjniefkcji";
+const char kCameraAppId[] = "hfhhnacclhffhdffklopdkcgdhifgngh";
+const char kChromeAppId[] = "mgndgikekgjfcpckkfioiadnlibdjbkf";
+const char kFilesManagerAppId[] = "hhaomjibdihmijegdhdafkllkbggdgoj";
+const char kGoogleKeepAppId[] = "hmjkmjkepdijhoojdojkdfohbdgmmhki";
+const char kYoutubeAppId[] = "blpcfgokakmgnkcojhhkbfbldkacnbeo";
+const char kGeniusAppId[] = "ljoammodoonkhnehlncldjelhidljdpi";
+
+#if defined(OS_CHROMEOS)
+const char kHighlightsAppId[] = "lpmakjfjcconjeehbidjclhdlpjmfjjj";
+const char kHighlightsAlt1AppId[] = "iggildboghmjpbjcpmobahnkmoefkike";
+const char kHighlightsAlt2AppId[] = "elhbopodaklenjkeihkdhhfaghalllba";
+const char kScreensaverAppId[] = "mnoijifedipmbjaoekhadjcijipaijjc";
+const char kScreensaverAlt1AppId[] = "gdobaoeekhiklaljmhladjfdfkigampc";
+const char kScreensaverAlt2AppId[] = "lminefdanffajachfahfpmphfkhahcnj";
+#endif
 
 const char kProdHangoutsExtensionId[] = "nckgahadagoaajjgafhacjanaoiihapd";
 const char* const kHangoutsExtensionIds[6] = {

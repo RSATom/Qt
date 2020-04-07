@@ -16,6 +16,7 @@
 #include "net/third_party/quic/core/crypto/crypto_handshake_message.h"
 #include "net/third_party/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quic/core/crypto/crypto_secret_boxer.h"
+#include "net/third_party/quic/core/crypto/key_exchange.h"
 #include "net/third_party/quic/core/crypto/proof_source.h"
 #include "net/third_party/quic/core/crypto/quic_compressed_certs_cache.h"
 #include "net/third_party/quic/core/crypto/quic_crypto_proof.h"
@@ -34,7 +35,6 @@ namespace quic {
 
 class CryptoHandshakeMessage;
 class EphemeralKeySource;
-class KeyExchange;
 class ProofSource;
 class QuicClock;
 class QuicRandom;
@@ -73,11 +73,11 @@ class QuicCryptoServerConfigPeer;
 class PrimaryConfigChangedCallback {
  public:
   PrimaryConfigChangedCallback();
+  PrimaryConfigChangedCallback(const PrimaryConfigChangedCallback&) = delete;
+  PrimaryConfigChangedCallback& operator=(const PrimaryConfigChangedCallback&) =
+      delete;
   virtual ~PrimaryConfigChangedCallback();
   virtual void Run(const QuicString& scid) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PrimaryConfigChangedCallback);
 };
 
 // Callback used to accept the result of the |client_hello| validation step.
@@ -103,27 +103,29 @@ class QUIC_EXPORT_PRIVATE ValidateClientHelloResultCallback {
   };
 
   ValidateClientHelloResultCallback();
+  ValidateClientHelloResultCallback(const ValidateClientHelloResultCallback&) =
+      delete;
+  ValidateClientHelloResultCallback& operator=(
+      const ValidateClientHelloResultCallback&) = delete;
   virtual ~ValidateClientHelloResultCallback();
   virtual void Run(QuicReferenceCountedPointer<Result> result,
                    std::unique_ptr<ProofSource::Details> details) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ValidateClientHelloResultCallback);
 };
 
 // Callback used to accept the result of the ProcessClientHello method.
 class QUIC_EXPORT_PRIVATE ProcessClientHelloResultCallback {
  public:
   ProcessClientHelloResultCallback();
+  ProcessClientHelloResultCallback(const ProcessClientHelloResultCallback&) =
+      delete;
+  ProcessClientHelloResultCallback& operator=(
+      const ProcessClientHelloResultCallback&) = delete;
   virtual ~ProcessClientHelloResultCallback();
   virtual void Run(QuicErrorCode error,
                    const QuicString& error_details,
                    std::unique_ptr<CryptoHandshakeMessage> message,
                    std::unique_ptr<DiversificationNonce> diversification_nonce,
                    std::unique_ptr<ProofSource::Details> details) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProcessClientHelloResultCallback);
 };
 
 // Callback used to receive the results of a call to
@@ -132,10 +134,11 @@ class BuildServerConfigUpdateMessageResultCallback {
  public:
   BuildServerConfigUpdateMessageResultCallback() = default;
   virtual ~BuildServerConfigUpdateMessageResultCallback() {}
+  BuildServerConfigUpdateMessageResultCallback(
+      const BuildServerConfigUpdateMessageResultCallback&) = delete;
+  BuildServerConfigUpdateMessageResultCallback& operator=(
+      const BuildServerConfigUpdateMessageResultCallback&) = delete;
   virtual void Run(bool ok, const CryptoHandshakeMessage& message) = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(BuildServerConfigUpdateMessageResultCallback);
 };
 
 // Object that is interested in built rejections (which include REJ, SREJ and
@@ -144,12 +147,26 @@ class RejectionObserver {
  public:
   RejectionObserver() = default;
   virtual ~RejectionObserver() {}
+  RejectionObserver(const RejectionObserver&) = delete;
+  RejectionObserver& operator=(const RejectionObserver&) = delete;
   // Called after a rejection is built.
   virtual void OnRejectionBuilt(const std::vector<uint32_t>& reasons,
                                 CryptoHandshakeMessage* out) const = 0;
+};
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(RejectionObserver);
+// Factory for creating KeyExchange objects.
+class QUIC_EXPORT_PRIVATE KeyExchangeSource {
+ public:
+  virtual ~KeyExchangeSource() = default;
+
+  // Returns the default KeyExchangeSource.
+  static std::unique_ptr<KeyExchangeSource> Default();
+
+  // Create a new KeyExchange of the specified type using the specified
+  // private key.
+  virtual std::unique_ptr<KeyExchange> Create(QuicString /*server_config_id*/,
+                                              QuicTag type,
+                                              QuicStringPiece private_key) = 0;
 };
 
 // QuicCryptoServerConfig contains the crypto configuration of a QUIC server.
@@ -199,7 +216,10 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   QuicCryptoServerConfig(QuicStringPiece source_address_token_secret,
                          QuicRandom* server_nonce_entropy,
                          std::unique_ptr<ProofSource> proof_source,
+                         std::unique_ptr<KeyExchangeSource> key_exchange_source,
                          bssl::UniquePtr<SSL_CTX> ssl_ctx);
+  QuicCryptoServerConfig(const QuicCryptoServerConfig&) = delete;
+  QuicCryptoServerConfig& operator=(const QuicCryptoServerConfig&) = delete;
   ~QuicCryptoServerConfig();
 
   // TESTING is a magic parameter for passing to the constructor in tests.
@@ -368,6 +388,19 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // valid source-address token.
   void set_chlo_multiplier(size_t multiplier);
 
+  // When sender is allowed to not pad client hello (not standards compliant),
+  // we need to disable the client hello check.
+  void set_validate_chlo_size(bool new_value) {
+    validate_chlo_size_ = new_value;
+  }
+
+  // When QUIC is tunneled through some other mechanism, source token validation
+  // may be disabled. Do not disable it if you are not providing other
+  // protection. (|true| protects against UDP amplification attack.).
+  void set_validate_source_address_token(bool new_value) {
+    validate_source_address_token_ = new_value;
+  }
+
   // set_source_address_token_future_secs sets the number of seconds into the
   // future that source-address tokens will be accepted from. Since
   // source-address tokens are authenticated, this should only happen if
@@ -403,6 +436,12 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
     pre_shared_key_ = QuicString(psk);
   }
 
+  bool pad_rej() const { return pad_rej_; }
+  void set_pad_rej(bool new_value) { pad_rej_ = new_value; }
+
+  bool pad_shlo() const { return pad_shlo_; }
+  void set_pad_shlo(bool new_value) { pad_shlo_ = new_value; }
+
  private:
   friend class test::QuicCryptoServerConfigPeer;
   friend struct QuicSignedServerConfig;
@@ -413,6 +452,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
                                      public QuicReferenceCounted {
    public:
     Config();
+    Config(const Config&) = delete;
+    Config& operator=(const Config&) = delete;
 
     // TODO(rtenneti): since this is a class, we should probably do
     // getters/setters here.
@@ -467,8 +508,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
 
    private:
     ~Config() override;
-
-    DISALLOW_COPY_AND_ASSIGN(Config);
   };
 
   typedef std::map<ServerConfigID, QuicReferenceCountedPointer<Config>>
@@ -509,12 +548,10 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   friend class EvaluateClientHelloCallback;
 
   // Continuation of EvaluateClientHello after the call to
-  // ProofSource::GetProof.  |found_error| indicates whether an error was
-  // detected in EvaluateClientHello, and |get_proof_failed| indicates whether
-  // GetProof failed.  If GetProof was not run, then |get_proof_failed| will be
+  // ProofSource::GetProof. |get_proof_failed| indicates whether GetProof
+  // failed.  If GetProof was not run, then |get_proof_failed| will be
   // set to false.
   void EvaluateClientHelloAfterGetProof(
-      bool found_error,
       const QuicIpAddress& server_ip,
       QuicTransportVersion version,
       QuicReferenceCountedPointer<Config> requested_config,
@@ -535,7 +572,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   void ProcessClientHelloAfterGetProof(
       bool found_error,
       std::unique_ptr<ProofSource::Details> proof_source_details,
-      const ValidateClientHelloResultCallback::Result& validate_chlo_result,
+      QuicReferenceCountedPointer<ValidateClientHelloResultCallback::Result>
+          validate_chlo_result,
       bool reject_only,
       QuicConnectionId connection_id,
       const QuicSocketAddress& client_address,
@@ -550,6 +588,30 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
       QuicReferenceCountedPointer<QuicSignedServerConfig> crypto_proof,
       QuicByteCount total_framing_overhead,
       QuicByteCount chlo_packet_size,
+      const QuicReferenceCountedPointer<Config>& requested_config,
+      const QuicReferenceCountedPointer<Config>& primary_config,
+      std::unique_ptr<ProcessClientHelloResultCallback> done_cb) const;
+
+  // Callback class for bridging between ProcessClientHelloAfterGetProof and
+  // ProcessClientHelloAfterCalculateSharedKeys.
+  class ProcessClientHelloAfterGetProofCallback;
+  friend class ProcessClientHelloAfterGetProofCallback;
+
+  // Portion of ProcessClientHello which executes after CalculateSharedKeys.
+  void ProcessClientHelloAfterCalculateSharedKeys(
+      bool found_error,
+      std::unique_ptr<ProofSource::Details> proof_source_details,
+      const KeyExchange::Factory& key_exchange_factory,
+      std::unique_ptr<CryptoHandshakeMessage> out,
+      QuicStringPiece public_value,
+      const ValidateClientHelloResultCallback::Result& validate_chlo_result,
+      QuicConnectionId connection_id,
+      const QuicSocketAddress& client_address,
+      const ParsedQuicVersionVector& supported_versions,
+      const QuicClock* clock,
+      QuicRandom* rand,
+      QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters> params,
+      QuicReferenceCountedPointer<QuicSignedServerConfig> signed_config,
       const QuicReferenceCountedPointer<Config>& requested_config,
       const QuicReferenceCountedPointer<Config>& primary_config,
       std::unique_ptr<ProcessClientHelloResultCallback> done_cb) const;
@@ -686,6 +748,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
     const QuicString client_common_set_hashes_;
     const QuicString client_cached_cert_hashes_;
     const bool sct_supported_by_client_;
+    const QuicString sni_;
     CryptoHandshakeMessage message_;
     std::unique_ptr<BuildServerConfigUpdateMessageResultCallback> cb_;
   };
@@ -700,6 +763,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
       const QuicString& client_common_set_hashes,
       const QuicString& client_cached_cert_hashes,
       bool sct_supported_by_client,
+      const QuicString& sni,
       bool ok,
       const QuicReferenceCountedPointer<ProofSource::Chain>& chain,
       const QuicString& signature,
@@ -752,6 +816,10 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // signatures.
   std::unique_ptr<ProofSource> proof_source_;
 
+  // key_exchange_source_ contains an object that can provide key exchange
+  // objects.
+  std::unique_ptr<KeyExchangeSource> key_exchange_source_;
+
   // ssl_ctx_ contains the server configuration for doing TLS handshakes.
   bssl::UniquePtr<SSL_CTX> ssl_ctx_;
 
@@ -774,7 +842,22 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerConfig {
   // incorporating |pre_shared_key_| into the key schedule.
   QuicString pre_shared_key_;
 
-  DISALLOW_COPY_AND_ASSIGN(QuicCryptoServerConfig);
+  // Whether REJ message should be padded to max packet size.
+  bool pad_rej_;
+
+  // Whether SHLO message should be padded to max packet size.
+  bool pad_shlo_;
+
+  // If client is allowed to send a small client hello (by disabling padding),
+  // server MUST not check for the client hello size.
+  // DO NOT disable this unless you have some other way of validating client.
+  // (e.g. in realtime scenarios, where quic is tunneled through ICE, ICE will
+  // do its own peer validation using STUN pings with ufrag/upass).
+  bool validate_chlo_size_;
+
+  // When source address is validated by some other means (e.g. when using ICE),
+  // source address token validation may be disabled.
+  bool validate_source_address_token_;
 };
 
 struct QUIC_EXPORT_PRIVATE QuicSignedServerConfig

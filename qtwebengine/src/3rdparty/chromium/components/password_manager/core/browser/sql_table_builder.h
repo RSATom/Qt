@@ -13,7 +13,7 @@
 #include "base/strings/string_piece.h"
 
 namespace sql {
-class Connection;
+class Database;
 }
 
 namespace password_manager {
@@ -38,7 +38,7 @@ namespace password_manager {
 //
 // // Now, assuming that |db| has a table "logins" in a state corresponding
 // // version 0, this will migrate it to the latest version:
-// sql::Connection* db = ...;
+// sql::Database* db = ...;
 // builder.MigrateFrom(0, db);
 //
 // // And assuming |db| has no table called "logins", this will create one
@@ -56,13 +56,9 @@ class SQLTableBuilder {
   void AddColumn(std::string name, std::string type);
 
   // As AddColumn but also adds column |name| to the primary key of the table.
-  // SealVersion must not have been called yet (the builder does not currently
-  // support migration code for changing the primary key between versions).
   void AddColumnToPrimaryKey(std::string name, std::string type);
 
   // As AddColumn but also adds column |name| to the unique key of the table.
-  // SealVersion must not have been called yet (the builder does not currently
-  // support migration code for changing the unique key between versions).
   void AddColumnToUniqueKey(std::string name, std::string type);
 
   // Renames column |old_name| to |new_name|. |new_name| can not exist already.
@@ -92,21 +88,21 @@ class SQLTableBuilder {
   // Increments the internal version counter and marks the current state of the
   // table as that version. Returns the sealed version. Calling any of the
   // *Column* and *Index* methods above will result in starting a new version
-  // which is not considered sealed. The first version is 0. At least one call
-  // to AddColumnToUniqueKey must have been done before this is called the first
-  // time.
+  // which is not considered sealed.
   unsigned SealVersion();
 
   // Assuming that the database connected through |db| contains a table called
   // |table_name_| in a state described by version |old_version|, migrates it to
   // the current version, which must be sealed. Returns true on success.
-  bool MigrateFrom(unsigned old_version, sql::Connection* db) const;
+  bool MigrateFrom(unsigned old_version, sql::Database* db) const;
 
   // If |db| connects to a database where table |table_name_| already exists,
   // this is a no-op and returns true. Otherwise, |table_name_| is created in a
   // state described by the current version known to the builder. The current
-  // version must be sealed. Returns true on success.
-  bool CreateTable(sql::Connection* db) const;
+  // version must be sealed. Returns true on success. At least one call
+  // to AddColumnToUniqueKey must have been done before this is called the first
+  // time.
+  bool CreateTable(sql::Database* db) const;
 
   // Returns the comma-separated list of all column names present in the last
   // version. The last version must be sealed.
@@ -117,8 +113,8 @@ class SQLTableBuilder {
   // with names followed by " = ?".
   std::string ListAllNonuniqueKeyNames() const;
 
-  // Same as ListAllNonuniqueKeyNames, but for unique key names and separated by
-  // " AND ".
+  // Same as ListAllNonuniqueKeyNames, but for unique key names without the
+  // primary key names and separated by " AND ".
   std::string ListAllUniqueKeyNames() const;
 
   // Returns a vector of all PRIMARY KEY names that are present in the last
@@ -147,19 +143,21 @@ class SQLTableBuilder {
   static unsigned constexpr kInvalidVersion =
       std::numeric_limits<unsigned>::max();
 
+  // Computes the SQL CREATE TABLE constraints for given |version|.
+  std::string ComputeConstraints(unsigned version) const;
+
   // Assuming that the database connected through |db| contains a table called
   // |table_name_| in a state described by version |old_version|, migrates it to
   // version |old_version + 1|. The current version known to the builder must be
   // at least |old_version + 1| and sealed. Returns true on success.
-  bool MigrateToNextFrom(unsigned old_version, sql::Connection* db) const;
+  bool MigrateToNextFrom(unsigned old_version, sql::Database* db) const;
 
   // Assuming that the database connected through |db| contains a table called
   // |table_name_| in a state described by version |old_version|, migrates it
   // indices to version |old_version + 1|. The current version known to the
   // builder must be at least |old_version + 1| and sealed. Returns true on
   // success.
-  bool MigrateIndicesToNextFrom(unsigned old_version,
-                                sql::Connection* db) const;
+  bool MigrateIndicesToNextFrom(unsigned old_version, sql::Database* db) const;
 
   // Looks up column named |name| in |columns_|. If present, returns the last
   // one.
@@ -189,10 +187,6 @@ class SQLTableBuilder {
   std::vector<Column> columns_;  // Columns of the table, across all versions.
 
   std::vector<Index> indices_;  // Indices of the table, across all versions.
-
-  // The SQL CREATE TABLE constraints. This value is computed during sealing the
-  // first version (0).
-  std::string constraints_;
 
   // The name of the table.
   const std::string table_name_;

@@ -465,13 +465,19 @@ static void qt_quickitems_defineModule(const char *uri, int major, int minor)
     qRegisterMetaType<QQuickHandlerPoint>();
 
     // The rest of the 5.12 revisions
+#if QT_CONFIG(quick_sprite)
     qmlRegisterType<QQuickAnimatedSprite, 12>("QtQuick", 2, 12, "AnimatedSprite");
+#endif
     qmlRegisterType<QQuickGradient, 12>(uri, 2, 12, "Gradient");
     qmlRegisterType<QQuickFlickable, 12>(uri, 2, 12, "Flickable");
     qmlRegisterType<QQuickText, 12>(uri, 2, 12, "Text");
 #if QT_CONFIG(quick_tableview)
     qmlRegisterType<QQuickTableView>(uri, 2, 12, "TableView");
 #endif
+
+    qmlRegisterUncreatableType<QQuickItemView, 13>(uri, 2, 13, itemViewName, itemViewMessage);
+    qmlRegisterType<QQuickPathView, 13>(uri, 2, 13, "PathView");
+    qmlRegisterType<QQuickGridView, 13>(uri, 2, 13, "GridView");
 }
 
 static void initResources()

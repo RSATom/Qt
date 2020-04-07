@@ -42,6 +42,9 @@ Run the following in your chromium checkout:
     $ autoninja -C out/Default chrome
     $ out/Default/chrome
 
+(`autoninja` is a wrapper that automatically provides optimal values for the
+arguments passed to `ninja`).
+
 Some additional options you may wish to set by passing in `--args` to `gn gen`
 or running `gn args out/Default`:
 
@@ -88,8 +91,7 @@ testing it through Chromium Remote Desktop you might face drawing
 problems (e.g. Aura window not painting anything). Possible remedies:
 
 *   `--ui-enable-software-compositing --ui-disable-threaded-compositing`
-*   `--use-gl=osmesa`, but it's ultra slow, and you'll have to build osmesa
-    yourself.
+*   `--use-gl=swiftshader`, but it's slow.
 
 To more closely match the UI used on devices, you can install fonts used
 by Chrome OS, such as Roboto, on your Linux distro.

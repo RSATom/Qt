@@ -10,9 +10,11 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/stl_util.h"
 #include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
@@ -45,7 +47,7 @@ constexpr media::VideoPixelFormat
     FrameSinkVideoCapturerImpl::kDefaultPixelFormat;
 
 // static
-constexpr media::ColorSpace FrameSinkVideoCapturerImpl::kDefaultColorSpace;
+constexpr gfx::ColorSpace FrameSinkVideoCapturerImpl::kDefaultColorSpace;
 
 FrameSinkVideoCapturerImpl::FrameSinkVideoCapturerImpl(
     FrameSinkVideoCapturerManager* frame_sink_manager,
@@ -107,7 +109,7 @@ void FrameSinkVideoCapturerImpl::OnTargetWillGoAway() {
 }
 
 void FrameSinkVideoCapturerImpl::SetFormat(media::VideoPixelFormat format,
-                                           media::ColorSpace color_space) {
+                                           const gfx::ColorSpace& color_space) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   bool format_changed = false;
@@ -120,16 +122,19 @@ void FrameSinkVideoCapturerImpl::SetFormat(media::VideoPixelFormat format,
     pixel_format_ = format;
   }
 
-  if (color_space == media::COLOR_SPACE_UNSPECIFIED) {
-    color_space = kDefaultColorSpace;
+  gfx::ColorSpace color_space_copy = color_space;
+  if (!color_space_copy.IsValid()) {
+    color_space_copy = kDefaultColorSpace;
   }
-  // TODO(crbug/758057): Plumb output color space through to the
-  // CopyOutputRequests.
-  if (color_space != media::COLOR_SPACE_HD_REC709) {
+  // TODO(crbug/758057): Remove the color space argument from SetFormat(). This
+  // is already incorrect/misleading when PIXEL_FORMAT_ARGB is being used. The
+  // better strategy is for the consumer to always accept whatever it is given,
+  // and do the conversion downstream if absolutely necessary.
+  if (color_space_copy != gfx::ColorSpace::CreateREC709()) {
     LOG(DFATAL) << "Unsupported color space: Only BT.709 is supported.";
   } else {
     format_changed |= (color_space_ != color_space);
-    color_space_ = color_space;
+    color_space_ = color_space_copy;
   }
 
   if (format_changed) {
@@ -255,6 +260,17 @@ void FrameSinkVideoCapturerImpl::RequestRefreshFrame() {
   }
 }
 
+void FrameSinkVideoCapturerImpl::CreateOverlay(
+    int32_t stacking_index,
+    mojom::FrameSinkVideoCaptureOverlayRequest request) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  // This will cause an existing overlay with the same stacking index to be
+  // dropped, per mojom-documented behavior.
+  overlays_.emplace(stacking_index, std::make_unique<VideoCaptureOverlay>(
+                                        this, std::move(request)));
+}
+
 void FrameSinkVideoCapturerImpl::ScheduleRefreshFrame() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -327,7 +343,7 @@ void FrameSinkVideoCapturerImpl::OnFrameDamaged(
   DCHECK(resolved_target_);
 
   if (frame_size == oracle_.source_size()) {
-    dirty_rect_.Union(damage_rect);
+    InvalidateRect(damage_rect);
   } else {
     oracle_.SetSourceSize(frame_size);
     dirty_rect_ = kMaxRect;
@@ -335,6 +351,45 @@ void FrameSinkVideoCapturerImpl::OnFrameDamaged(
 
   MaybeCaptureFrame(VideoCaptureOracle::kCompositorUpdate, damage_rect,
                     expected_display_time, frame_metadata);
+}
+
+gfx::Size FrameSinkVideoCapturerImpl::GetSourceSize() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return oracle_.source_size();
+}
+
+void FrameSinkVideoCapturerImpl::InvalidateRect(const gfx::Rect& rect) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  gfx::Rect positive_rect = rect;
+  positive_rect.Intersect(kMaxRect);
+  dirty_rect_.Union(positive_rect);
+}
+
+void FrameSinkVideoCapturerImpl::OnOverlayConnectionLost(
+    VideoCaptureOverlay* overlay) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  const auto it =
+      std::find_if(overlays_.begin(), overlays_.end(),
+                   [&overlay](const decltype(overlays_)::value_type& entry) {
+                     return entry.second.get() == overlay;
+                   });
+  DCHECK(it != overlays_.end());
+  overlays_.erase(it);
+}
+
+std::vector<VideoCaptureOverlay*>
+FrameSinkVideoCapturerImpl::GetOverlaysInOrder() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  std::vector<VideoCaptureOverlay*> list;
+  list.reserve(overlays_.size());
+  for (const auto& entry : overlays_) {
+    list.push_back(entry.second.get());
+  }
+  return list;
 }
 
 void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
@@ -431,9 +486,6 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
   VideoFrameMetadata* const metadata = frame->metadata();
   metadata->SetTimeTicks(VideoFrameMetadata::CAPTURE_BEGIN_TIME,
                          clock_->NowTicks());
-  // See TODO in SetFormat(). For now, always assume Rec. 709.
-  metadata->SetInteger(VideoFrameMetadata::COLOR_SPACE,
-                       media::COLOR_SPACE_HD_REC709);
   metadata->SetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
                          oracle_.estimated_frame_duration());
   metadata->SetDouble(VideoFrameMetadata::FRAME_RATE,
@@ -454,7 +506,7 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
 
   oracle_.RecordCapture(utilization);
   const int64_t frame_number = next_capture_frame_number_++;
-  TRACE_EVENT_ASYNC_BEGIN2("gpu.capture", "Capture", frame.get(),
+  TRACE_EVENT_ASYNC_BEGIN2("gpu.capture", "Capture", oracle_frame_number,
                            "frame_number", frame_number, "trigger",
                            VideoCaptureOracle::EventAsString(event));
 
@@ -474,8 +526,10 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
   if (content_rect.IsEmpty()) {
     if (pixel_format_ == media::PIXEL_FORMAT_I420) {
       media::FillYUV(frame.get(), 0x00, 0x80, 0x80);
+      frame->set_color_space(gfx::ColorSpace::CreateREC709());
     } else {
       media::LetterboxVideoFrame(frame.get(), gfx::Rect());
+      frame->set_color_space(gfx::ColorSpace::CreateSRGB());
     }
     dirty_rect_ = gfx::Rect();
     DidCaptureFrame(frame_number, oracle_frame_number, gfx::Rect(),
@@ -497,7 +551,10 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
           : CopyOutputRequest::ResultFormat::RGBA_BITMAP,
       base::BindOnce(&FrameSinkVideoCapturerImpl::DidCopyFrame,
                      capture_weak_factory_.GetWeakPtr(), frame_number,
-                     oracle_frame_number, content_rect, std::move(frame))));
+                     oracle_frame_number, content_rect,
+                     VideoCaptureOverlay::MakeCombinedRenderer(
+                         GetOverlaysInOrder(), content_rect, frame->format()),
+                     std::move(frame))));
   request->set_source(copy_request_source_);
   request->set_area(gfx::Rect(source_size));
   request->SetScaleRatio(
@@ -515,6 +572,7 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
     int64_t frame_number,
     OracleFrameNumber oracle_frame_number,
     const gfx::Rect& content_rect,
+    VideoCaptureOverlay::OnceRenderer overlay_renderer,
     scoped_refptr<VideoFrame> frame,
     std::unique_ptr<CopyOutputResult> result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -544,15 +602,9 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
                        (content_rect.y() / 2) * v_stride +
                        (content_rect.x() / 2);
     if (result->ReadI420Planes(y, y_stride, u, u_stride, v, v_stride)) {
-      // The result may be smaller than what was requested, if unforeseen
-      // clamping to the source boundaries occurred by the executor of the
-      // CopyOutputRequest. However, the result should never contain more than
-      // what was requested.
-      DCHECK_LE(result->size().width(), content_rect.width());
-      DCHECK_LE(result->size().height(), content_rect.height());
-      media::LetterboxVideoFrame(
-          frame.get(), gfx::Rect(content_rect.origin(),
-                                 AdjustSizeForPixelFormat(result->size())));
+      // Per CopyOutputResult header comments, I420_PLANES results are always in
+      // the Rec.709 color space.
+      frame->set_color_space(gfx::ColorSpace::CreateREC709());
     } else {
       frame = nullptr;
     }
@@ -562,12 +614,26 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
     uint8_t* const pixels = frame->visible_data(VideoFrame::kARGBPlane) +
                             content_rect.y() * stride + content_rect.x() * 4;
     if (result->ReadRGBAPlane(pixels, stride)) {
-      media::LetterboxVideoFrame(
-          frame.get(), gfx::Rect(content_rect.origin(),
-                                 AdjustSizeForPixelFormat(result->size())));
+      frame->set_color_space(result->GetRGBAColorSpace());
     } else {
       frame = nullptr;
     }
+  }
+
+  if (frame) {
+    if (overlay_renderer) {
+      std::move(overlay_renderer).Run(frame.get());
+    }
+
+    // The result may be smaller than what was requested, if unforeseen
+    // clamping to the source boundaries occurred by the executor of the
+    // CopyOutputRequest. However, the result should never contain more than
+    // what was requested.
+    DCHECK_LE(result->size().width(), content_rect.width());
+    DCHECK_LE(result->size().height(), content_rect.height());
+    media::LetterboxVideoFrame(
+        frame.get(), gfx::Rect(content_rect.origin(),
+                               AdjustSizeForPixelFormat(result->size())));
   }
 
   DidCaptureFrame(frame_number, oracle_frame_number, content_rect,
@@ -613,18 +679,13 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
   // also rewrites the media timestamp in terms of the smooth flow of the
   // original source content.
   base::TimeTicks media_ticks;
-  const bool should_deliver_frame =
-      oracle_.CompleteCapture(oracle_frame_number, !!frame, &media_ticks);
-  DCHECK(frame || !should_deliver_frame);
+  if (!oracle_.CompleteCapture(oracle_frame_number, !!frame, &media_ticks)) {
+    // The following is used by
+    // chrome/browser/extension/api/cast_streaming/performance_test.cc, in
+    // addition to the usual runtime tracing.
+    TRACE_EVENT_ASYNC_END1("gpu.capture", "Capture", oracle_frame_number,
+                           "success", false);
 
-  // The following is used by
-  // chrome/browser/extension/api/cast_streaming/performance_test.cc, in
-  // addition to the usual runtime tracing.
-  TRACE_EVENT_ASYNC_END2("gpu.capture", "Capture", frame.get(), "success",
-                         should_deliver_frame, "timestamp",
-                         (media_ticks - base::TimeTicks()).InMicroseconds());
-
-  if (!should_deliver_frame) {
     // Mark the whole source as dirty, since this frame may have contained
     // updated content that will not be delivered.
     dirty_rect_ = kMaxRect;
@@ -638,12 +699,20 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
   }
   frame->set_timestamp(media_ticks - *first_frame_media_ticks_);
 
+  // The following is used by
+  // chrome/browser/extension/api/cast_streaming/performance_test.cc, in
+  // addition to the usual runtime tracing.
+  TRACE_EVENT_ASYNC_END2("gpu.capture", "Capture", oracle_frame_number,
+                         "success", true, "time_delta",
+                         frame->timestamp().InMicroseconds());
+
   // Clone a handle to the shared memory backing the populated video frame, to
   // send to the consumer. The handle is READ_WRITE because the consumer is free
   // to modify the content further (so long as it undoes its changes before the
   // InFlightFrameDelivery::Done() call).
-  auto buffer_and_size = frame_pool_.CloneHandleForDelivery(frame.get());
-  DCHECK(buffer_and_size.first.is_valid());
+  base::ReadOnlySharedMemoryRegion handle =
+      frame_pool_.CloneHandleForDelivery(frame.get());
+  DCHECK(handle.IsValid());
 
   // Assemble frame layout, format, and metadata into a mojo struct to send to
   // the consumer.
@@ -653,6 +722,8 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
   info->pixel_format = frame->format();
   info->coded_size = frame->coded_size();
   info->visible_rect = frame->visible_rect();
+  DCHECK(frame->ColorSpace().IsValid());  // Ensure it was set by this point.
+  info->color_space = frame->ColorSpace();
   const gfx::Rect update_rect = frame->visible_rect();
 
   // Create an InFlightFrameDelivery for this frame, owned by its mojo binding.
@@ -673,9 +744,8 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
       mojo::MakeRequest(&callbacks));
 
   // Send the frame to the consumer.
-  consumer_->OnFrameCaptured(std::move(buffer_and_size.first),
-                             buffer_and_size.second, std::move(info),
-                             update_rect, content_rect, std::move(callbacks));
+  consumer_->OnFrameCaptured(std::move(handle), std::move(info), update_rect,
+                             content_rect, std::move(callbacks));
 }
 
 gfx::Size FrameSinkVideoCapturerImpl::AdjustSizeForPixelFormat(

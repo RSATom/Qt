@@ -36,7 +36,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_error_handler.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
@@ -61,7 +60,7 @@
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/timing/memory_info.h"
-#include "third_party/blink/renderer/core/workers/main_thread_worklet_global_scope.h"
+#include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 #include "third_party/blink/renderer/core/xml/xpath_evaluator.h"
 #include "third_party/blink/renderer/core/xml/xpath_result.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
@@ -80,10 +79,10 @@ Mutex& CreationMutex() {
 LocalFrame* ToFrame(ExecutionContext* context) {
   if (!context)
     return nullptr;
-  if (context->IsDocument())
-    return ToDocument(context)->GetFrame();
+  if (auto* document = DynamicTo<Document>(context))
+    return document->GetFrame();
   if (context->IsMainThreadWorkletGlobalScope())
-    return ToMainThreadWorkletGlobalScope(context)->GetFrame();
+    return To<WorkletGlobalScope>(context)->GetFrame();
   return nullptr;
 }
 }
@@ -140,6 +139,12 @@ void MainThreadDebugger::ContextCreated(ScriptState* script_state,
   StringBuilder aux_data_builder;
   aux_data_builder.Append("{\"isDefault\":");
   aux_data_builder.Append(world.IsMainWorld() ? "true" : "false");
+  if (world.IsMainWorld())
+    aux_data_builder.Append(",\"type\":\"default\"");
+  else if (world.IsIsolatedWorld())
+    aux_data_builder.Append(",\"type\":\"isolated\"");
+  else if (world.IsWorkerWorld())
+    aux_data_builder.Append(",\"type\":\"worker\"");
   aux_data_builder.Append(",\"frameId\":\"");
   aux_data_builder.Append(IdentifiersFactory::FrameId(frame));
   aux_data_builder.Append("\"}");
@@ -167,19 +172,18 @@ void MainThreadDebugger::ExceptionThrown(ExecutionContext* context,
                                          ErrorEvent* event) {
   LocalFrame* frame = nullptr;
   ScriptState* script_state = nullptr;
-  if (context->IsDocument()) {
-    frame = ToDocument(context)->GetFrame();
+  if (auto* document = DynamicTo<Document>(context)) {
+    frame = document->GetFrame();
     if (!frame)
       return;
     script_state =
         event->World() ? ToScriptState(frame, *event->World()) : nullptr;
   } else if (context->IsMainThreadWorkletGlobalScope()) {
-    frame = ToMainThreadWorkletGlobalScope(context)->GetFrame();
+    auto* scope = To<WorkletGlobalScope>(context);
+    frame = scope->GetFrame();
     if (!frame)
       return;
-    script_state = ToMainThreadWorkletGlobalScope(context)
-                       ->ScriptController()
-                       ->GetScriptState();
+    script_state = scope->ScriptController()->GetScriptState();
   } else {
     NOTREACHED();
   }
@@ -191,9 +195,12 @@ void MainThreadDebugger::ExceptionThrown(ExecutionContext* context,
   const String default_message = "Uncaught";
   if (script_state && script_state->ContextIsValid()) {
     ScriptState::Scope scope(script_state);
+    ScriptValue error = event->error(script_state);
     v8::Local<v8::Value> exception =
-        V8ErrorHandler::LoadExceptionFromErrorEventWrapper(
-            script_state, event, script_state->GetContext()->Global());
+        error.IsEmpty()
+            ? v8::Local<v8::Value>(v8::Null(script_state->GetIsolate()))
+            : error.V8Value();
+
     SourceLocation* location = event->Location();
     String message = event->MessageForConsole();
     String url = location->Url();
@@ -275,8 +282,20 @@ void MainThreadDebugger::unmuteMetrics(int context_group_id) {
 v8::Local<v8::Context> MainThreadDebugger::ensureDefaultContextInGroup(
     int context_group_id) {
   LocalFrame* frame = WeakIdentifierMap<LocalFrame>::Lookup(context_group_id);
-  ScriptState* script_state =
-      frame ? ToScriptStateForMainWorld(frame) : nullptr;
+  if (!frame)
+    return v8::Local<v8::Context>();
+
+  // This is a workaround code with a bailout to avoid crashing in
+  // LocalWindowProxy::Initialize().
+  // We cannot request a ScriptState on a provisional frame as it would lead
+  // to a context creation on it, which is not allowed. Remove this extra check
+  // when provisional frames concept gets eliminated. See crbug.com/897816
+  // The DCHECK is kept to catch additional regressions earlier.
+  DCHECK(!frame->IsProvisional());
+  if (frame->IsProvisional())
+    return v8::Local<v8::Context>();
+
+  ScriptState* script_state = ToScriptStateForMainWorld(frame);
   return script_state ? script_state->GetContext() : v8::Local<v8::Context>();
 }
 
@@ -366,9 +385,7 @@ static Node* SecondArgumentAsNode(
   }
   ExecutionContext* execution_context =
       ToExecutionContext(info.GetIsolate()->GetCurrentContext());
-  if (execution_context->IsDocument())
-    return ToDocument(execution_context);
-  return nullptr;
+  return DynamicTo<Document>(execution_context);
 }
 
 void MainThreadDebugger::QuerySelectorCallback(
@@ -416,7 +433,7 @@ void MainThreadDebugger::QuerySelectorAllCallback(
   v8::Isolate* isolate = info.GetIsolate();
   v8::Local<v8::Context> context = isolate->GetCurrentContext();
   v8::Local<v8::Array> nodes = v8::Array::New(isolate, element_list->length());
-  for (size_t i = 0; i < element_list->length(); ++i) {
+  for (wtf_size_t i = 0; i < element_list->length(); ++i) {
     Element* element = element_list->item(i);
     if (!CreateDataPropertyInArray(
              context, nodes, i, ToV8(element, info.Holder(), info.GetIsolate()))
@@ -458,7 +475,7 @@ void MainThreadDebugger::XpathSelectorCallback(
     v8::Isolate* isolate = info.GetIsolate();
     v8::Local<v8::Context> context = isolate->GetCurrentContext();
     v8::Local<v8::Array> nodes = v8::Array::New(isolate);
-    size_t index = 0;
+    wtf_size_t index = 0;
     while (Node* node = result->iterateNext(exception_state)) {
       if (exception_state.HadException())
         return;

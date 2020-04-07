@@ -30,7 +30,7 @@ void NotifyTimezoneChangeToV8(v8::Isolate* isolate) {
 
 void NotifyTimezoneChangeOnWorkerThread(WorkerThread* worker_thread) {
   DCHECK(worker_thread->IsCurrentThread());
-  NotifyTimezoneChangeToV8(ToIsolate(worker_thread->GlobalScope()));
+  NotifyTimezoneChangeToV8(worker_thread->GlobalScope()->GetIsolate());
 }
 
 }  // namespace
@@ -57,7 +57,7 @@ void TimeZoneMonitorClient::OnTimeZoneChange(const String& time_zone_info) {
   DCHECK(IsMainThread());
 
   if (!time_zone_info.IsEmpty()) {
-    DCHECK(time_zone_info.ContainsOnlyASCII());
+    DCHECK(time_zone_info.ContainsOnlyASCIIOrEmpty());
     icu::TimeZone* zone = icu::TimeZone::createTimeZone(
         icu::UnicodeString(time_zone_info.Ascii().data(), -1, US_INV));
     icu::TimeZone::adoptDefault(zone);
@@ -65,21 +65,8 @@ void TimeZoneMonitorClient::OnTimeZoneChange(const String& time_zone_info) {
   }
 
   NotifyTimezoneChangeToV8(V8PerIsolateData::MainThreadIsolate());
-
-  HashSet<WorkerThread*>& threads = WorkerThread::WorkerThreads();
-  HashSet<WorkerBackingThread*> posted;
-  for (WorkerThread* thread : threads) {
-    // Ensure every WorkerBackingThread(holding one platform thread) only get
-    // the task posted once, because one WorkerBackingThread could be shared
-    // among multiple WorkerThreads.
-    if (posted.Contains(&thread->GetWorkerBackingThread()))
-      continue;
-    PostCrossThreadTask(*thread->GetTaskRunner(TaskType::kInternalDefault),
-                        FROM_HERE,
-                        CrossThreadBind(&NotifyTimezoneChangeOnWorkerThread,
-                                        WTF::CrossThreadUnretained(thread)));
-    posted.insert(&thread->GetWorkerBackingThread());
-  }
+  WorkerThread::CallOnAllWorkerThreads(&NotifyTimezoneChangeOnWorkerThread,
+                                       TaskType::kInternalDefault);
 }
 
 }  // namespace blink

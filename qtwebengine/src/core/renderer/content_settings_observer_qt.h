@@ -72,16 +72,15 @@ public:
                        const blink::WebString &display_name,
                        unsigned estimated_size) override;
     void RequestFileSystemAccessAsync(const blink::WebContentSettingCallbacks &callbacks) override;
-    bool AllowIndexedDB(const blink::WebString &name,
-                        const blink::WebSecurityOrigin &origin) override;
+    bool AllowIndexedDB(const blink::WebSecurityOrigin &origin) override;
     bool AllowStorage(bool local) override;
 
 private:
 
     // RenderFrameObserver implementation:
     bool OnMessageReceived(const IPC::Message &message) override;
-    void DidCommitProvisionalLoad(bool is_new_navigation,
-                                  bool is_same_document_navigation) override;
+    void DidCommitProvisionalLoad(bool is_same_document_navigation,
+                                  ui::PageTransition transition) override;
     void OnDestruct() override;
 
     // Message handlers.

@@ -55,7 +55,7 @@
 #include <QtQml/QQmlPropertyMap>
 #include <QtLocation/QPlace>
 
-#include <QtPositioning/private/qdeclarativegeolocation_p.h>
+#include <QtPositioningQuick/private/qdeclarativegeolocation_p.h>
 #include <QtLocation/private/qdeclarativecategory_p.h>
 #include <QtLocation/private/qdeclarativecontactdetail_p.h>
 #include <QtLocation/private/qdeclarativesupplier_p.h>

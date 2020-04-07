@@ -20,19 +20,18 @@ const CXFA_Node::PropertyData kEventPropertyData[] = {
     {XFA_Element::Extras, 1, 0},
     {XFA_Element::Submit, 1, XFA_PROPERTYFLAG_OneOf},
     {XFA_Element::Unknown, 0, 0}};
+
 const CXFA_Node::AttributeData kEventAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Ref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Listen, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::RefOnly},
+     (void*)XFA_AttributeValue::RefOnly},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Activity, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Click},
+     (void*)XFA_AttributeValue::Click},
     {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
-
-constexpr wchar_t kEventName[] = L"event";
 
 }  // namespace
 
@@ -44,12 +43,11 @@ CXFA_Event::CXFA_Event(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Event,
                 kEventPropertyData,
                 kEventAttributeData,
-                kEventName,
                 pdfium::MakeUnique<CJX_Event>(this)) {}
 
-CXFA_Event::~CXFA_Event() {}
+CXFA_Event::~CXFA_Event() = default;
 
-XFA_AttributeEnum CXFA_Event::GetActivity() {
+XFA_AttributeValue CXFA_Event::GetActivity() {
   return JSObject()->GetEnum(XFA_Attribute::Activity);
 }
 
@@ -73,6 +71,8 @@ CXFA_Script* CXFA_Event::GetScriptIfExists() {
   return GetChild<CXFA_Script>(0, XFA_Element::Script, false);
 }
 
+#ifdef PDF_XFA_ELEMENT_SUBMIT_ENABLED
 CXFA_Submit* CXFA_Event::GetSubmitIfExists() {
   return GetChild<CXFA_Submit>(0, XFA_Element::Submit, false);
 }
+#endif  // PDF_XFA_ELEMENT_SUBMIT_ENABLED

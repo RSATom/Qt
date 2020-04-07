@@ -13,6 +13,7 @@
 #include "components/viz/common/resources/release_callback.h"
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/common/resources/resource_settings.h"
+#include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/resources/single_release_callback.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "third_party/khronos/GLES2/gl2.h"
@@ -43,7 +44,7 @@ class ContextProvider;
 // created on (in practice, the impl thread).
 class VIZ_CLIENT_EXPORT ClientResourceProvider {
  public:
-  explicit ClientResourceProvider(bool delegated_sync_points_required);
+  explicit ClientResourceProvider(bool verified_sync_tokens_required);
   ~ClientResourceProvider();
 
   static gpu::SyncToken GenerateSyncTokenHelper(gpu::gles2::GLES2Interface* gl);
@@ -64,7 +65,7 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
   // NOTE: if the sync_token is set on any TransferableResource, this will
   // wait on it.
   void ReceiveReturnsFromParent(
-      const std::vector<ReturnedResource>& transferable_resources);
+      std::vector<ReturnedResource> transferable_resources);
 
   // Receives a resource from an external client that can be used in compositor
   // frames, via the returned ResourceId.
@@ -126,7 +127,7 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
   struct ImportedResource;
 
   THREAD_CHECKER(thread_checker_);
-  const bool delegated_sync_points_required_;
+  const bool verified_sync_tokens_required_;
 
   base::flat_map<ResourceId, ImportedResource> imported_resources_;
   // The ResourceIds in ClientResourceProvider start from 1 to avoid

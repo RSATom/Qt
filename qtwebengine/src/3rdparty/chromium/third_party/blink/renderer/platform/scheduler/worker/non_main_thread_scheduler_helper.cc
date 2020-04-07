@@ -5,7 +5,6 @@
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_helper.h"
 
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/renderer/platform/scheduler/child/task_queue_with_task_type.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_task_queue.h"
 
 namespace blink {
@@ -52,7 +51,7 @@ scoped_refptr<TaskQueue> NonMainThreadSchedulerHelper::ControlTaskQueue() {
 
 scoped_refptr<NonMainThreadTaskQueue>
 NonMainThreadSchedulerHelper::NewTaskQueue(const TaskQueue::Spec& spec) {
-  return sequence_manager_->CreateTaskQueue<NonMainThreadTaskQueue>(
+  return sequence_manager_->CreateTaskQueueWithType<NonMainThreadTaskQueue>(
       spec, non_main_thread_scheduler_);
 }
 

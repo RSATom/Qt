@@ -26,18 +26,29 @@
 
 #include "third_party/blink/renderer/core/page/create_window.h"
 
+#include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/network/public/mojom/request_context_frame_type.mojom-blink.h"
+#include "third_party/blink/public/common/dom_storage/session_storage_namespace_id.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/frame/from_ad_state.h"
 #include "third_party/blink/public/platform/web_input_event.h"
 #include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/public/web/web_view_client.h"
 #include "third_party/blink/public/web/web_window_features.h"
+#include "third_party/blink/renderer/core/core_initializer.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/events/current_input_event.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
+#include "third_party/blink/renderer/core/frame/ad_tracker.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/frame_client.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
+#include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
@@ -195,6 +206,30 @@ static Frame* ReuseExistingWindow(LocalFrame& active_frame,
   return nullptr;
 }
 
+static void MaybeLogWindowOpen(LocalFrame& opener_frame) {
+  AdTracker* ad_tracker = opener_frame.GetAdTracker();
+  if (!ad_tracker)
+    return;
+
+  bool is_ad_subframe = opener_frame.IsAdSubframe();
+  bool is_ad_script_in_stack = ad_tracker->IsAdScriptInStack();
+  FromAdState state =
+      blink::GetFromAdState(is_ad_subframe, is_ad_script_in_stack);
+
+  // Log to UMA.
+  UMA_HISTOGRAM_ENUMERATION("Blink.WindowOpen.FromAdState", state);
+
+  // Log to UKM.
+  ukm::UkmRecorder* ukm_recorder = opener_frame.GetDocument()->UkmRecorder();
+  ukm::SourceId source_id = opener_frame.GetDocument()->UkmSourceID();
+  if (source_id != ukm::kInvalidSourceId) {
+    ukm::builders::AbusiveExperienceHeuristic_WindowOpen(source_id)
+        .SetFromAdSubframe(is_ad_subframe)
+        .SetFromAdScript(is_ad_script_in_stack)
+        .Record(ukm_recorder);
+  }
+}
+
 static Frame* CreateNewWindow(LocalFrame& opener_frame,
                               const FrameLoadRequest& request,
                               const WebWindowFeatures& features,
@@ -214,8 +249,20 @@ static Frame* CreateNewWindow(LocalFrame& opener_frame,
           ? opener_frame.GetSecurityContext()->GetSandboxFlags()
           : kSandboxNone;
 
+  SessionStorageNamespaceId new_namespace_id =
+      AllocateSessionStorageNamespaceId();
+
+  if (base::FeatureList::IsEnabled(features::kOnionSoupDOMStorage)) {
+    // TODO(dmurph): Don't copy session storage when features.noopener is true:
+    // https://html.spec.whatwg.org/multipage/browsers.html#copy-session-storage
+    // https://crbug.com/771959
+    CoreInitializer::GetInstance().CloneSessionStorage(old_page,
+                                                       new_namespace_id);
+  }
+
   Page* page = old_page->GetChromeClient().CreateWindow(
-      &opener_frame, request, features, policy, sandbox_flags);
+      &opener_frame, request, features, policy, sandbox_flags,
+      new_namespace_id);
   if (!page)
     return nullptr;
 
@@ -256,6 +303,7 @@ static Frame* CreateNewWindow(LocalFrame& opener_frame,
   page->GetChromeClient().SetWindowRectWithAdjustment(window_rect, frame);
   page->GetChromeClient().Show(policy);
 
+  MaybeLogWindowOpen(opener_frame);
   created = true;
   return &frame;
 }
@@ -273,7 +321,8 @@ static Frame* CreateWindowHelper(LocalFrame& opener_frame,
             network::mojom::RequestContextFrameType::kAuxiliary);
   probe::windowOpen(opener_frame.GetDocument(),
                     request.GetResourceRequest().Url(), request.FrameName(),
-                    features, Frame::HasTransientUserActivation(&opener_frame));
+                    features,
+                    LocalFrame::HasTransientUserActivation(&opener_frame));
   created = false;
 
   Frame* window =
@@ -314,16 +363,17 @@ static Frame* CreateWindowHelper(LocalFrame& opener_frame,
 DOMWindow* CreateWindow(const String& url_string,
                         const AtomicString& frame_name,
                         const String& window_features_string,
-                        LocalDOMWindow& calling_window,
-                        LocalFrame& first_frame,
+                        LocalDOMWindow& incumbent_window,
+                        LocalFrame& entered_window_frame,
                         LocalFrame& opener_frame,
                         ExceptionState& exception_state) {
-  LocalFrame* active_frame = calling_window.GetFrame();
+  LocalFrame* active_frame = incumbent_window.GetFrame();
   DCHECK(active_frame);
 
-  KURL completed_url = url_string.IsEmpty()
-                           ? KURL(g_empty_string)
-                           : first_frame.GetDocument()->CompleteURL(url_string);
+  KURL completed_url =
+      url_string.IsEmpty()
+          ? KURL(g_empty_string)
+          : entered_window_frame.GetDocument()->CompleteURL(url_string);
   if (!completed_url.IsEmpty() && !completed_url.IsValid()) {
     UseCounter::Count(active_frame, WebFeature::kWindowOpenWithInvalidURL);
     exception_state.ThrowDOMException(
@@ -337,7 +387,8 @@ DOMWindow* CreateWindow(const String& url_string,
       opener_frame.GetDocument()->GetContentSecurityPolicy() &&
       !ContentSecurityPolicy::ShouldBypassMainWorld(
           opener_frame.GetDocument())) {
-    String script_source = DecodeURLEscapeSequences(completed_url.GetString());
+    String script_source = DecodeURLEscapeSequences(
+        completed_url.GetString(), DecodeURLMode::kUTF8OrIsomorphic);
 
     if (!opener_frame.GetDocument()
              ->GetContentSecurityPolicy()
@@ -351,7 +402,7 @@ DOMWindow* CreateWindow(const String& url_string,
   WebWindowFeatures window_features =
       GetWindowFeaturesFromString(window_features_string);
 
-  FrameLoadRequest frame_request(calling_window.document(),
+  FrameLoadRequest frame_request(incumbent_window.document(),
                                  ResourceRequest(completed_url), frame_name);
   frame_request.SetShouldSetOpener(window_features.noopener ? kNeverSetOpener
                                                             : kMaybeSetOpener);
@@ -364,6 +415,8 @@ DOMWindow* CreateWindow(const String& url_string,
   // an embedder-initiated navigation.  FrameLoader assumes no responsibility
   // for generating an embedder-initiated navigation's referrer, so we need to
   // ensure the proper referrer is set now.
+  // TODO(domfarolino): Stop setting ResourceRequest's HTTP Referrer and store
+  // this is a separate member. See https://crbug.com/850813.
   frame_request.GetResourceRequest().SetHTTPReferrer(
       SecurityPolicy::GenerateReferrer(
           active_frame->GetDocument()->GetReferrerPolicy(), completed_url,
@@ -372,7 +425,7 @@ DOMWindow* CreateWindow(const String& url_string,
   // Records HasUserGesture before the value is invalidated inside
   // createWindow(LocalFrame& openerFrame, ...).
   // This value will be set in ResourceRequest loaded in a new LocalFrame.
-  bool has_user_gesture = Frame::HasTransientUserActivation(&opener_frame);
+  bool has_user_gesture = LocalFrame::HasTransientUserActivation(&opener_frame);
 
   // We pass the opener frame for the lookupFrame in case the active frame is
   // different from the opener frame, and the name references a frame relative
@@ -383,7 +436,7 @@ DOMWindow* CreateWindow(const String& url_string,
       false /* force_new_foreground_tab */, created);
   if (!new_frame)
     return nullptr;
-  if (new_frame->DomWindow()->IsInsecureScriptAccess(calling_window,
+  if (new_frame->DomWindow()->IsInsecureScriptAccess(incumbent_window,
                                                      completed_url))
     return window_features.noopener ? nullptr : new_frame->DomWindow();
 
@@ -397,13 +450,16 @@ DOMWindow* CreateWindow(const String& url_string,
   // causes the navigation to be flagged as a client redirect, which is
   // observable via the webNavigation extension api.
   if (created) {
-    FrameLoadRequest request(calling_window.document(),
+    FrameLoadRequest request(incumbent_window.document(),
                              ResourceRequest(completed_url));
     request.GetResourceRequest().SetHasUserGesture(has_user_gesture);
-    new_frame->Navigate(request);
+    if (const WebInputEvent* input_event = CurrentInputEvent::Get()) {
+      request.SetInputStartTime(input_event->TimeStamp());
+    }
+    new_frame->Navigate(request, WebFrameLoadType::kStandard);
   } else if (!url_string.IsEmpty()) {
-    new_frame->ScheduleNavigation(*calling_window.document(), completed_url,
-                                  false,
+    new_frame->ScheduleNavigation(*incumbent_window.document(), completed_url,
+                                  WebFrameLoadType::kStandard,
                                   has_user_gesture ? UserGestureStatus::kActive
                                                    : UserGestureStatus::kNone);
   }
@@ -433,7 +489,8 @@ void CreateWindowForRequest(const FrameLoadRequest& request,
   if (!new_frame)
     return;
   if (request.GetShouldSendReferrer() == kMaybeSendReferrer) {
-    // TODO(japhet): Does ReferrerPolicy need to be proagated for RemoteFrames?
+    // TODO(japhet): Does network::mojom::ReferrerPolicy need to be proagated
+    // for RemoteFrames?
     if (new_frame->IsLocalFrame())
       ToLocalFrame(new_frame)->GetDocument()->SetReferrerPolicy(
           opener_frame.GetDocument()->GetReferrerPolicy());
@@ -442,6 +499,9 @@ void CreateWindowForRequest(const FrameLoadRequest& request,
   // TODO(japhet): Form submissions on RemoteFrames don't work yet.
   FrameLoadRequest new_request(nullptr, request.GetResourceRequest());
   new_request.SetForm(request.Form());
+  if (const WebInputEvent* input_event = CurrentInputEvent::Get()) {
+    new_request.SetInputStartTime(input_event->TimeStamp());
+  }
   auto blob_url_token = request.GetBlobURLToken();
   if (blob_url_token)
     new_request.SetBlobURLToken(std::move(blob_url_token));

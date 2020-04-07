@@ -52,6 +52,7 @@
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtCore/qpointer.h>
 #include <QtLocation/qgeoroute.h>
+#include <QtLocation/private/qdeclarativenavigator_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,11 +60,68 @@ class QDeclarativeGeoServiceProvider;
 class QDeclarativeGeoMap;
 class QNavigationManager;
 class QDeclarativeGeoRoute;
+class QDeclarativeGeoRouteLeg;
 class QDeclarativePositionSource;
 class QGeoMapParameter;
 class QDeclarativeGeoRouteSegment;
 class QParameterizableObject;
 class QAbstractNavigator;
+
+class Q_LOCATION_PRIVATE_EXPORT QDeclarativeNavigationBasicDirections : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QVariant nextManeuverIcon READ nextManeuverIcon NOTIFY nextManeuverIconChanged)
+    Q_PROPERTY(qreal distanceToNextManeuver READ distanceToNextManeuver NOTIFY progressInformationChanged)
+    Q_PROPERTY(qreal remainingTravelDistance READ remainingTravelDistance NOTIFY progressInformationChanged)
+    Q_PROPERTY(qreal remainingTravelDistanceToNextWaypoint READ remainingTravelDistanceToNextWaypoint NOTIFY progressInformationChanged)
+    Q_PROPERTY(qreal traveledDistance READ traveledDistance NOTIFY progressInformationChanged)
+    Q_PROPERTY(int timeToNextManeuver READ timeToNextManeuver NOTIFY progressInformationChanged)
+    Q_PROPERTY(int remainingTravelTime READ remainingTravelTime NOTIFY progressInformationChanged)
+    Q_PROPERTY(int remainingTravelTimeToNextWaypoint READ remainingTravelTimeToNextWaypoint NOTIFY progressInformationChanged)
+    Q_PROPERTY(int traveledTime READ traveledTime NOTIFY progressInformationChanged)
+    Q_PROPERTY(QDeclarativeGeoRoute *currentRoute READ currentRoute NOTIFY currentRouteChanged)
+    Q_PROPERTY(QDeclarativeGeoRouteLeg *currentRouteLeg READ currentRouteLeg NOTIFY currentRouteChanged)
+    Q_PROPERTY(int currentSegment READ currentSegment NOTIFY currentSegmentChanged)
+
+public:
+    explicit QDeclarativeNavigationBasicDirections(QDeclarativeNavigator *parent);
+
+    QVariant nextManeuverIcon() const;
+    qreal distanceToNextManeuver() const;
+    qreal remainingTravelDistance() const;
+    qreal remainingTravelDistanceToNextWaypoint() const;
+    qreal traveledDistance() const;
+    int timeToNextManeuver() const;
+    int remainingTravelTime() const;
+    int remainingTravelTimeToNextWaypoint() const;
+    int traveledTime() const;
+
+    QDeclarativeGeoRoute *currentRoute() const;
+    QDeclarativeGeoRouteLeg *currentRouteLeg() const;
+    int currentSegment() const;
+
+Q_SIGNALS:
+    void progressInformationChanged();
+    void nextManeuverIconChanged();
+    void currentRouteChanged();
+    void currentRouteLegChanged();
+    void currentSegmentChanged();
+    void waypointReached(const QDeclarativeGeoWaypoint *pos);
+    void destinationReached();
+
+protected slots:
+    void onCurrentRouteChanged();
+    void onCurrentRouteLegChanged();
+
+protected:
+    QDeclarativeNavigator *m_navigator;
+    QDeclarativeNavigatorPrivate *m_navigatorPrivate;
+    QPointer<QDeclarativeGeoRoute> m_currentRoute;
+    QPointer<QDeclarativeGeoRouteLeg> m_currentRouteLeg;
+
+    friend class QDeclarativeNavigator;
+};
 
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativeNavigatorParams
 {
@@ -81,16 +139,17 @@ class QDeclarativeNavigatorPrivate
 public:
     QDeclarativeNavigatorPrivate(QParameterizableObject *q_);
 
-    void updateReadyState();
     QParameterizableObject *q = nullptr;
     QSharedPointer<QDeclarativeNavigatorParams> m_params;
     QScopedPointer<QAbstractNavigator> m_navigator;
     QDeclarativeGeoServiceProvider *m_plugin = nullptr;
-    QPointer<QDeclarativeGeoRoute> m_currentRoute;
-    int m_currentSegment = 0;
+    QDeclarativeNavigationBasicDirections m_basicDirections;
+
     bool m_active = false;
     bool m_completed = false;
     bool m_ready = false;
+    QDeclarativeNavigator::NavigationError m_error = QDeclarativeNavigator::NoError;
+    QString m_errorString;
 };
 
 QT_END_NAMESPACE

@@ -34,9 +34,11 @@ class ExtensionCreator {
 
   // Settings to specify treatment of special or ignorable error conditions.
   enum RunFlags {
-    kNoRunFlags = 0x0,
-    kOverwriteCRX = 0x1,
-    kRequireModernManifestVersion = 0x2,
+    kNoRunFlags = 0,
+    kOverwriteCRX = 1 << 0,
+    kRequireModernManifestVersion = 1 << 1,
+    kBookmarkApp = 1 << 2,
+    kSystemApp = 1 << 3,
   };
 
   // Categories of error that may need special handling on the UI end.
@@ -54,6 +56,8 @@ class ExtensionCreator {
   ErrorType error_type() { return error_type_; }
 
  private:
+  friend class ExtensionCreatorTest;
+
   // Verifies input directory's existence. |extension_dir| is the source
   // directory that should contain all the extension resources. |crx_path| is
   // the path to which final crx will be written.

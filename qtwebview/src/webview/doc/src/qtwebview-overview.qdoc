@@ -36,7 +36,7 @@
   it makes sense.
 
   This is useful on mobile platforms such as \l {Qt for Android}{Android},
-  \l {Qt for iOS}{iOS}, and \l {Qt for WinRT}{WinRT}; especially
+  \l {Qt for iOS}{iOS}, and \l {Qt for UWP}{UWP (Universal Windows Platform)}; especially
   on iOS, where policy dictates that all web content is displayed using the
   operating system's web view.
 

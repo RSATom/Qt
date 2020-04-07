@@ -4,10 +4,12 @@
 
 #include "components/crash/content/browser/crash_metrics_reporter_android.h"
 
+#include <signal.h>
+
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -47,21 +49,17 @@ class CrashMetricsReporterTest : public testing::Test {
             base::test::ScopedTaskEnvironment::MainThreadType::UI) {}
   ~CrashMetricsReporterTest() override {}
 
-  static void CreateAndProcessCrashDump(
-      const ChildExitObserver::TerminationInfo& info,
-      const std::string& data) {
-    base::ScopedFD fd =
-        breakpad::CrashDumpManager::GetInstance()->CreateMinidumpFileForChild(
-            info.process_host_id);
-    EXPECT_TRUE(fd.is_valid());
-    base::WriteFileDescriptor(fd.get(), data.data(), data.size());
-    base::ScopedTempDir dump_dir;
-    EXPECT_TRUE(dump_dir.CreateUniqueTempDir());
-    breakpad::CrashDumpManager::GetInstance()->ProcessMinidumpFileFromChild(
-        dump_dir.GetPath(), info);
+ protected:
+  blink::OomInterventionMetrics InterventionMetrics(bool allocation_failed) {
+    blink::OomInterventionMetrics metrics;
+    metrics.allocation_failed = allocation_failed;
+    metrics.current_private_footprint_kb = 100;
+    metrics.current_swap_kb = 0;
+    metrics.current_vm_size_kb = 0;
+    metrics.current_blink_usage_kb = 0;
+    return metrics;
   }
 
- protected:
   void TestOomCrashProcessing(
       const ChildExitObserver::TerminationInfo& termination_info,
       CrashMetricsReporter::ReportedCrashTypeSet expected_crash_types,
@@ -71,9 +69,7 @@ class CrashMetricsReporterTest : public testing::Test {
     CrashMetricsReporterObserver crash_dump_observer;
     CrashMetricsReporter::GetInstance()->AddObserver(&crash_dump_observer);
 
-    CrashMetricsReporter::GetInstance()->CrashDumpProcessed(
-        termination_info,
-        breakpad::CrashDumpManager::CrashDumpStatus::kEmptyDump);
+    CrashMetricsReporter::GetInstance()->ChildProcessExited(termination_info);
     crash_dump_observer.WaitForProcessed();
 
     EXPECT_EQ(expected_crash_types, crash_dump_observer.recorded_crash_types());
@@ -102,6 +98,7 @@ TEST_F(CrashMetricsReporterTest, RendereMainFrameOOM) {
   termination_info.was_killed_intentionally_by_browser = false;
   termination_info.was_oom_protected_status = true;
   termination_info.renderer_has_visible_clients = true;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(termination_info,
                          {CrashMetricsReporter::ProcessedCrashCounts::
                               kRendererForegroundVisibleOom},
@@ -120,10 +117,71 @@ TEST_F(CrashMetricsReporterTest, GpuProcessOOM) {
   termination_info.was_killed_intentionally_by_browser = false;
   termination_info.was_oom_protected_status = true;
   termination_info.renderer_has_visible_clients = true;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(
       termination_info,
       {CrashMetricsReporter::ProcessedCrashCounts::kGpuForegroundOom},
       "GPU.GPUProcessDetailedExitStatus");
+}
+
+TEST_F(CrashMetricsReporterTest, UtilityProcessOOM) {
+  ChildExitObserver::TerminationInfo termination_info;
+  termination_info.process_host_id = 1;
+  termination_info.pid = base::kNullProcessHandle;
+  termination_info.process_type = content::PROCESS_TYPE_UTILITY;
+  termination_info.app_state =
+      base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES;
+  termination_info.normal_termination = false;
+  termination_info.binding_state = base::android::ChildBindingState::STRONG;
+  termination_info.was_killed_intentionally_by_browser = false;
+  termination_info.was_oom_protected_status = true;
+  termination_info.renderer_has_visible_clients = true;
+
+  TestOomCrashProcessing(
+      termination_info,
+      {CrashMetricsReporter::ProcessedCrashCounts::kUtilityForegroundOom},
+      nullptr);
+}
+
+TEST_F(CrashMetricsReporterTest, NormalTerminationIsNotOOMUtilityProcess) {
+  ChildExitObserver::TerminationInfo termination_info;
+  termination_info.process_host_id = 1;
+  termination_info.pid = base::kNullProcessHandle;
+  termination_info.process_type = content::PROCESS_TYPE_UTILITY;
+  termination_info.app_state =
+      base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES;
+  termination_info.normal_termination = true;
+  termination_info.binding_state = base::android::ChildBindingState::STRONG;
+  termination_info.was_killed_intentionally_by_browser = false;
+  termination_info.was_oom_protected_status = true;
+  termination_info.renderer_has_visible_clients = true;
+
+  TestOomCrashProcessing(termination_info, {}, nullptr);
+}
+
+TEST_F(CrashMetricsReporterTest, UtilityProcessAll) {
+  ChildExitObserver::TerminationInfo termination_info;
+  termination_info.process_host_id = 1;
+  termination_info.pid = base::kNullProcessHandle;
+  termination_info.process_type = content::PROCESS_TYPE_UTILITY;
+  termination_info.app_state =
+      base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES;
+  termination_info.crash_signo = SIGSEGV;
+  termination_info.normal_termination = false;
+  termination_info.binding_state = base::android::ChildBindingState::STRONG;
+  termination_info.was_killed_intentionally_by_browser = false;
+  termination_info.was_oom_protected_status = true;
+  termination_info.renderer_has_visible_clients = true;
+
+  CrashMetricsReporterObserver crash_dump_observer;
+  CrashMetricsReporter::GetInstance()->AddObserver(&crash_dump_observer);
+
+  CrashMetricsReporter::GetInstance()->ChildProcessExited(termination_info);
+  crash_dump_observer.WaitForProcessed();
+
+  EXPECT_EQ(CrashMetricsReporter::ReportedCrashTypeSet(
+                {CrashMetricsReporter::ProcessedCrashCounts::kUtilityCrashAll}),
+            crash_dump_observer.recorded_crash_types());
 }
 
 TEST_F(CrashMetricsReporterTest, RendererSubframeOOM) {
@@ -139,6 +197,7 @@ TEST_F(CrashMetricsReporterTest, RendererSubframeOOM) {
   termination_info.was_oom_protected_status = true;
   termination_info.renderer_has_visible_clients = true;
   termination_info.renderer_was_subframe = true;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(termination_info,
                          {CrashMetricsReporter::ProcessedCrashCounts::
                               kRendererForegroundVisibleSubframeOom},
@@ -157,6 +216,7 @@ TEST_F(CrashMetricsReporterTest, RendererNonVisibleStrongOOM) {
   termination_info.was_oom_protected_status = true;
   termination_info.was_killed_intentionally_by_browser = false;
   termination_info.renderer_has_visible_clients = false;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(termination_info,
                          {CrashMetricsReporter::ProcessedCrashCounts::
                               kRendererForegroundInvisibleWithStrongBindingOom},
@@ -175,11 +235,35 @@ TEST_F(CrashMetricsReporterTest, RendererNonVisibleModerateOOM) {
   termination_info.was_oom_protected_status = true;
   termination_info.was_killed_intentionally_by_browser = false;
   termination_info.renderer_has_visible_clients = false;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(
       termination_info,
       {CrashMetricsReporter::ProcessedCrashCounts::
            kRendererForegroundInvisibleWithModerateBindingOom},
       "Tab.RendererDetailedExitStatus");
+}
+
+TEST_F(CrashMetricsReporterTest, RendererForegroundVisibleAllocationFailure) {
+  ChildExitObserver::TerminationInfo termination_info;
+  termination_info.process_host_id = 1;
+  termination_info.pid = base::kNullProcessHandle;
+  termination_info.process_type = content::PROCESS_TYPE_RENDERER;
+  termination_info.app_state =
+      base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES;
+  termination_info.normal_termination = false;
+  termination_info.binding_state = base::android::ChildBindingState::MODERATE;
+  termination_info.was_oom_protected_status = true;
+  termination_info.was_killed_intentionally_by_browser = false;
+  termination_info.renderer_has_visible_clients = true;
+  termination_info.blink_oom_metrics = InterventionMetrics(true);
+  TestOomCrashProcessing(termination_info,
+                         {CrashMetricsReporter::ProcessedCrashCounts::
+                              kRendererForegroundVisibleAllocationFailure,
+                          CrashMetricsReporter::ProcessedCrashCounts::
+                              kRendererAllocationFailureAll,
+                          CrashMetricsReporter::ProcessedCrashCounts::
+                              kRendererForegroundVisibleOom},
+                         "Tab.RendererDetailedExitStatus");
 }
 
 TEST_F(CrashMetricsReporterTest, IntentionalKillIsNotOOM) {
@@ -194,6 +278,7 @@ TEST_F(CrashMetricsReporterTest, IntentionalKillIsNotOOM) {
   termination_info.was_killed_intentionally_by_browser = true;
   termination_info.was_oom_protected_status = true;
   termination_info.renderer_has_visible_clients = true;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(
       termination_info,
       {CrashMetricsReporter::ProcessedCrashCounts::
@@ -215,6 +300,7 @@ TEST_F(CrashMetricsReporterTest, NormalTerminationIsNotOOM) {
   termination_info.was_killed_intentionally_by_browser = false;
   termination_info.was_oom_protected_status = true;
   termination_info.renderer_has_visible_clients = true;
+  termination_info.blink_oom_metrics = InterventionMetrics(false);
   TestOomCrashProcessing(termination_info,
                          {CrashMetricsReporter::ProcessedCrashCounts::
                               kRendererForegroundVisibleNormalTermNoMinidump},
@@ -228,6 +314,7 @@ TEST_F(CrashMetricsReporterTest, RendererForegroundCrash) {
   termination_info.process_type = content::PROCESS_TYPE_RENDERER;
   termination_info.app_state =
       base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES;
+  termination_info.crash_signo = SIGSEGV;
   termination_info.normal_termination = true;
   termination_info.binding_state = base::android::ChildBindingState::STRONG;
   termination_info.was_killed_intentionally_by_browser = true;
@@ -237,9 +324,7 @@ TEST_F(CrashMetricsReporterTest, RendererForegroundCrash) {
   CrashMetricsReporterObserver crash_dump_observer;
   CrashMetricsReporter::GetInstance()->AddObserver(&crash_dump_observer);
 
-  CrashMetricsReporter::GetInstance()->CrashDumpProcessed(
-      termination_info,
-      breakpad::CrashDumpManager::CrashDumpStatus::kValidDump);
+  CrashMetricsReporter::GetInstance()->ChildProcessExited(termination_info);
   crash_dump_observer.WaitForProcessed();
 
   EXPECT_EQ(

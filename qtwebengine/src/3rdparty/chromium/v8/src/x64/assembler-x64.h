@@ -38,188 +38,20 @@
 #define V8_X64_ASSEMBLER_X64_H_
 
 #include <deque>
-#include <forward_list>
+#include <map>
 #include <vector>
 
 #include "src/assembler.h"
+#include "src/label.h"
+#include "src/objects/smi.h"
 #include "src/x64/constants-x64.h"
+#include "src/x64/register-x64.h"
 #include "src/x64/sse-instr.h"
 
 namespace v8 {
 namespace internal {
 
 // Utility functions
-
-#define GENERAL_REGISTERS(V) \
-  V(rax)                     \
-  V(rcx)                     \
-  V(rdx)                     \
-  V(rbx)                     \
-  V(rsp)                     \
-  V(rbp)                     \
-  V(rsi)                     \
-  V(rdi)                     \
-  V(r8)                      \
-  V(r9)                      \
-  V(r10)                     \
-  V(r11)                     \
-  V(r12)                     \
-  V(r13)                     \
-  V(r14)                     \
-  V(r15)
-
-#define ALLOCATABLE_GENERAL_REGISTERS(V) \
-  V(rax)                                 \
-  V(rbx)                                 \
-  V(rdx)                                 \
-  V(rcx)                                 \
-  V(rsi)                                 \
-  V(rdi)                                 \
-  V(r8)                                  \
-  V(r9)                                  \
-  V(r11)                                 \
-  V(r12)                                 \
-  V(r14)                                 \
-  V(r15)
-
-enum RegisterCode {
-#define REGISTER_CODE(R) kRegCode_##R,
-  GENERAL_REGISTERS(REGISTER_CODE)
-#undef REGISTER_CODE
-      kRegAfterLast
-};
-
-class Register : public RegisterBase<Register, kRegAfterLast> {
- public:
-  bool is_byte_register() const { return reg_code_ <= 3; }
-  // Return the high bit of the register code as a 0 or 1.  Used often
-  // when constructing the REX prefix byte.
-  int high_bit() const { return reg_code_ >> 3; }
-  // Return the 3 low bits of the register code.  Used when encoding registers
-  // in modR/M, SIB, and opcode bytes.
-  int low_bits() const { return reg_code_ & 0x7; }
-
- private:
-  friend class RegisterBase<Register, kRegAfterLast>;
-  explicit constexpr Register(int code) : RegisterBase(code) {}
-};
-
-ASSERT_TRIVIALLY_COPYABLE(Register);
-static_assert(sizeof(Register) == sizeof(int),
-              "Register can efficiently be passed by value");
-
-#define DECLARE_REGISTER(R) \
-  constexpr Register R = Register::from_code<kRegCode_##R>();
-GENERAL_REGISTERS(DECLARE_REGISTER)
-#undef DECLARE_REGISTER
-constexpr Register no_reg = Register::no_reg();
-
-constexpr int kNumRegs = 16;
-
-constexpr RegList kJSCallerSaved =
-    Register::ListOf<rax, rcx, rdx,
-                     rbx,  // used as a caller-saved register in JavaScript code
-                     rdi   // callee function
-                     >();
-
-constexpr int kNumJSCallerSaved = 5;
-
-// Number of registers for which space is reserved in safepoints.
-constexpr int kNumSafepointRegisters = 16;
-
-#ifdef _WIN64
-  // Windows calling convention
-constexpr Register arg_reg_1 = rcx;
-constexpr Register arg_reg_2 = rdx;
-constexpr Register arg_reg_3 = r8;
-constexpr Register arg_reg_4 = r9;
-#else
-  // AMD64 calling convention
-constexpr Register arg_reg_1 = rdi;
-constexpr Register arg_reg_2 = rsi;
-constexpr Register arg_reg_3 = rdx;
-constexpr Register arg_reg_4 = rcx;
-#endif  // _WIN64
-
-
-#define DOUBLE_REGISTERS(V) \
-  V(xmm0)                   \
-  V(xmm1)                   \
-  V(xmm2)                   \
-  V(xmm3)                   \
-  V(xmm4)                   \
-  V(xmm5)                   \
-  V(xmm6)                   \
-  V(xmm7)                   \
-  V(xmm8)                   \
-  V(xmm9)                   \
-  V(xmm10)                  \
-  V(xmm11)                  \
-  V(xmm12)                  \
-  V(xmm13)                  \
-  V(xmm14)                  \
-  V(xmm15)
-
-#define FLOAT_REGISTERS DOUBLE_REGISTERS
-#define SIMD128_REGISTERS DOUBLE_REGISTERS
-
-#define ALLOCATABLE_DOUBLE_REGISTERS(V) \
-  V(xmm0)                               \
-  V(xmm1)                               \
-  V(xmm2)                               \
-  V(xmm3)                               \
-  V(xmm4)                               \
-  V(xmm5)                               \
-  V(xmm6)                               \
-  V(xmm7)                               \
-  V(xmm8)                               \
-  V(xmm9)                               \
-  V(xmm10)                              \
-  V(xmm11)                              \
-  V(xmm12)                              \
-  V(xmm13)                              \
-  V(xmm14)
-
-constexpr bool kPadArguments = false;
-constexpr bool kSimpleFPAliasing = true;
-constexpr bool kSimdMaskRegisters = false;
-
-enum DoubleRegisterCode {
-#define REGISTER_CODE(R) kDoubleCode_##R,
-  DOUBLE_REGISTERS(REGISTER_CODE)
-#undef REGISTER_CODE
-      kDoubleAfterLast
-};
-
-class XMMRegister : public RegisterBase<XMMRegister, kDoubleAfterLast> {
- public:
-  // Return the high bit of the register code as a 0 or 1.  Used often
-  // when constructing the REX prefix byte.
-  int high_bit() const { return reg_code_ >> 3; }
-  // Return the 3 low bits of the register code.  Used when encoding registers
-  // in modR/M, SIB, and opcode bytes.
-  int low_bits() const { return reg_code_ & 0x7; }
-
- private:
-  friend class RegisterBase<XMMRegister, kDoubleAfterLast>;
-  explicit constexpr XMMRegister(int code) : RegisterBase(code) {}
-};
-
-ASSERT_TRIVIALLY_COPYABLE(XMMRegister);
-static_assert(sizeof(XMMRegister) == sizeof(int),
-              "XMMRegister can efficiently be passed by value");
-
-typedef XMMRegister FloatRegister;
-
-typedef XMMRegister DoubleRegister;
-
-typedef XMMRegister Simd128Register;
-
-#define DECLARE_REGISTER(R) \
-  constexpr DoubleRegister R = DoubleRegister::from_code<kDoubleCode_##R>();
-DOUBLE_REGISTERS(DECLARE_REGISTER)
-#undef DECLARE_REGISTER
-constexpr DoubleRegister no_double_reg = DoubleRegister::no_reg();
 
 enum Condition {
   // any value < 0 is considered no_condition
@@ -266,31 +98,6 @@ inline Condition NegateCondition(Condition cc) {
 }
 
 
-// Commute a condition such that {a cond b == b cond' a}.
-inline Condition CommuteCondition(Condition cc) {
-  switch (cc) {
-    case below:
-      return above;
-    case above:
-      return below;
-    case above_equal:
-      return below_equal;
-    case below_equal:
-      return above_equal;
-    case less:
-      return greater;
-    case greater:
-      return less;
-    case greater_equal:
-      return less_equal;
-    case less_equal:
-      return greater_equal;
-    default:
-      return cc;
-  }
-}
-
-
 enum RoundingMode {
   kRoundToNearest = 0x0,
   kRoundDown = 0x1,
@@ -307,8 +114,8 @@ class Immediate {
   explicit constexpr Immediate(int32_t value) : value_(value) {}
   explicit constexpr Immediate(int32_t value, RelocInfo::Mode rmode)
       : value_(value), rmode_(rmode) {}
-  explicit Immediate(Smi* value)
-      : value_(static_cast<int32_t>(reinterpret_cast<intptr_t>(value))) {
+  explicit Immediate(Smi value)
+      : value_(static_cast<int32_t>(static_cast<intptr_t>(value.ptr()))) {
     DCHECK(SmiValuesAre31Bits());  // Only available for 31-bit SMI.
   }
 
@@ -319,7 +126,7 @@ class Immediate {
   friend class Assembler;
 };
 ASSERT_TRIVIALLY_COPYABLE(Immediate);
-static_assert(sizeof(Immediate) <= kPointerSize,
+static_assert(sizeof(Immediate) <= kSystemPointerSize,
               "Immediate must be small enough to pass it by value");
 
 // -----------------------------------------------------------------------------
@@ -331,10 +138,11 @@ enum ScaleFactor : int8_t {
   times_4 = 2,
   times_8 = 3,
   times_int_size = times_4,
-  times_pointer_size = (kPointerSize == 8) ? times_8 : times_4
+  times_pointer_size = (kSystemPointerSize == 8) ? times_8 : times_4,
+  times_tagged_size = (kTaggedSize == 8) ? times_8 : times_4,
 };
 
-class Operand {
+class V8_EXPORT_PRIVATE Operand {
  public:
   struct Data {
     byte rex = 0;
@@ -365,7 +173,7 @@ class Operand {
   // [rip + disp/r]
   explicit Operand(Label* label, int addend = 0);
 
-  Operand(const Operand&) = default;
+  Operand(const Operand&) V8_NOEXCEPT = default;
 
   // Checks whether either base or index register is the given register.
   // Does not check the "reg" part of the Operand.
@@ -384,7 +192,7 @@ class Operand {
   const Data data_;
 };
 ASSERT_TRIVIALLY_COPYABLE(Operand);
-static_assert(sizeof(Operand) <= 2 * kPointerSize,
+static_assert(sizeof(Operand) <= 2 * kSystemPointerSize,
               "Operand must be small enough to pass it by value");
 
 #define ASSEMBLER_INSTRUCTION_LIST(V) \
@@ -411,8 +219,8 @@ static_assert(sizeof(Operand) <= 2 * kPointerSize,
   V(xchg)                             \
   V(xor)
 
-// Shift instructions on operands/registers with kPointerSize, kInt32Size and
-// kInt64Size.
+// Shift instructions on operands/registers with kSystemPointerSize, kInt32Size
+// and kInt64Size.
 #define SHIFT_INSTRUCTION_LIST(V) \
   V(rol, 0x0)                     \
   V(ror, 0x1)                     \
@@ -422,7 +230,68 @@ static_assert(sizeof(Operand) <= 2 * kPointerSize,
   V(shr, 0x5)                     \
   V(sar, 0x7)
 
-class Assembler : public AssemblerBase {
+// Partial Constant Pool
+// Different from complete constant pool (like arm does), partial constant pool
+// only takes effects for shareable constants in order to reduce code size.
+// Partial constant pool does not emit constant pool entries at the end of each
+// code object. Instead, it keeps the first shareable constant inlined in the
+// instructions and uses rip-relative memory loadings for the same constants in
+// subsequent instructions. These rip-relative memory loadings will target at
+// the position of the first inlined constant. For example:
+//
+//  REX.W movq r10,0x7f9f75a32c20   ; 10 bytes
+//  …
+//  REX.W movq r10,0x7f9f75a32c20   ; 10 bytes
+//  …
+//
+// turns into
+//
+//  REX.W movq r10,0x7f9f75a32c20   ; 10 bytes
+//  …
+//  REX.W movq r10,[rip+0xffffff96] ; 7 bytes
+//  …
+
+class ConstPool {
+ public:
+  explicit ConstPool(Assembler* assm) : assm_(assm) {}
+  // Returns true when partial constant pool is valid for this entry.
+  bool TryRecordEntry(intptr_t data, RelocInfo::Mode mode);
+  bool IsEmpty() const { return entries_.empty(); }
+
+  void PatchEntries();
+  // Discard any pending pool entries.
+  void Clear();
+
+ private:
+  // Adds a shared entry to entries_. Returns true if this is not the first time
+  // we add this entry, false otherwise.
+  bool AddSharedEntry(uint64_t data, int offset);
+
+  // Check if the instruction is a rip-relative move.
+  bool IsMoveRipRelative(byte* instr);
+
+  Assembler* assm_;
+
+  // Values, pc offsets of entries.
+  typedef std::multimap<uint64_t, int> EntryMap;
+  EntryMap entries_;
+
+  // Number of bytes taken up by the displacement of rip-relative addressing.
+  static constexpr int kRipRelativeDispSize = 4;  // 32-bit displacement.
+  // Distance between the address of the displacement in the rip-relative move
+  // instruction and the head address of the instruction.
+  static constexpr int kMoveRipRelativeDispOffset =
+      3;  // REX Opcode ModRM Displacement
+  // Distance between the address of the imm64 in the 'movq reg, imm64'
+  // instruction and the head address of the instruction.
+  static constexpr int kMoveImm64Offset = 2;  // REX Opcode imm64
+  // A mask for rip-relative move instruction.
+  static constexpr uint32_t kMoveRipRelativeMask = 0x00C7FFFB;
+  // The bits for a rip-relative move instruction after mask.
+  static constexpr uint32_t kMoveRipRelativeInstr = 0x00058B48;
+};
+
+class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
  private:
   // We check before assembling an instruction that there is sufficient
   // space to write an instruction and its relocation information.
@@ -442,21 +311,17 @@ class Assembler : public AssemblerBase {
   // for a detailed comment on the layout (globals.h).
   //
   // If the provided buffer is nullptr, the assembler allocates and grows its
-  // own buffer, and buffer_size determines the initial buffer size. The buffer
-  // is owned by the assembler and deallocated upon destruction of the
-  // assembler.
-  //
-  // If the provided buffer is not nullptr, the assembler uses the provided
-  // buffer for code generation and assumes its size to be buffer_size. If the
-  // buffer is too small, a fatal error occurs. No deallocation of the buffer is
-  // done upon destruction of the assembler.
-  Assembler(const AssemblerOptions& options, void* buffer, int buffer_size);
-  virtual ~Assembler() {}
+  // own buffer. Otherwise it takes ownership of the provided buffer.
+  explicit Assembler(const AssemblerOptions&,
+                     std::unique_ptr<AssemblerBuffer> = {});
+  ~Assembler() override = default;
 
   // GetCode emits any pending (non-emitted) code and fills the descriptor
   // desc. GetCode() is idempotent; it returns the same result if no other
   // Assembler functions are invoked in between GetCode() calls.
   void GetCode(Isolate* isolate, CodeDesc* desc);
+
+  void FinalizeJumpOptimizationInfo();
 
   // Read/Modify the code target in the relative branch/call instruction at pc.
   // On the x64 architecture, we use relative jumps with a 32-bit displacement
@@ -478,7 +343,7 @@ class Assembler : public AssemblerBase {
   // This sets the branch destination (which is in the instruction on x64).
   // This is for calls and branches within generated code.
   inline static void deserialization_set_special_target_at(
-      Address instruction_payload, Code* code, Address target);
+      Address instruction_payload, Code code, Address target);
 
   // Get the size of the special target encoded at 'instruction_payload'.
   inline static int deserialization_special_target_size(
@@ -497,17 +362,6 @@ class Assembler : public AssemblerBase {
   // Distance between the address of the code target in the call instruction
   // and the return address pushed on the stack.
   static constexpr int kCallTargetAddressOffset = 4;  // 32-bit displacement.
-  // The length of call(kScratchRegister).
-  static constexpr int kCallScratchRegisterInstructionLength = 3;
-  // The length of call(Immediate32).
-  static constexpr int kShortCallInstructionLength = 5;
-  // The length of movq(kScratchRegister, address).
-  static constexpr int kMoveAddressIntoScratchRegisterInstructionLength =
-      2 + kPointerSize;
-  // The length of movq(kScratchRegister, address) and call(kScratchRegister).
-  static constexpr int kCallSequenceLength =
-      kMoveAddressIntoScratchRegisterInstructionLength +
-      kCallScratchRegisterInstructionLength;
 
   // One byte opcode for test eax,0xXXXXXXXX.
   static constexpr byte kTestEaxByte = 0xA9;
@@ -546,52 +400,76 @@ class Assembler : public AssemblerBase {
   // - Instructions on 64-bit (quadword) operands/registers use 'q'.
   // - Instructions on operands/registers with pointer size use 'p'.
 
-  STATIC_ASSERT(kPointerSize == kInt64Size || kPointerSize == kInt32Size);
+  STATIC_ASSERT(kSystemPointerSize == kInt64Size ||
+                kSystemPointerSize == kInt32Size);
 
-#define DECLARE_INSTRUCTION(instruction)                \
-  template<class P1>                                    \
-  void instruction##p(P1 p1) {                          \
-    emit_##instruction(p1, kPointerSize);               \
-  }                                                     \
-                                                        \
-  template<class P1>                                    \
-  void instruction##l(P1 p1) {                          \
-    emit_##instruction(p1, kInt32Size);                 \
-  }                                                     \
-                                                        \
-  template<class P1>                                    \
-  void instruction##q(P1 p1) {                          \
-    emit_##instruction(p1, kInt64Size);                 \
-  }                                                     \
-                                                        \
-  template<class P1, class P2>                          \
-  void instruction##p(P1 p1, P2 p2) {                   \
-    emit_##instruction(p1, p2, kPointerSize);           \
-  }                                                     \
-                                                        \
-  template<class P1, class P2>                          \
-  void instruction##l(P1 p1, P2 p2) {                   \
-    emit_##instruction(p1, p2, kInt32Size);             \
-  }                                                     \
-                                                        \
-  template<class P1, class P2>                          \
-  void instruction##q(P1 p1, P2 p2) {                   \
-    emit_##instruction(p1, p2, kInt64Size);             \
-  }                                                     \
-                                                        \
-  template<class P1, class P2, class P3>                \
-  void instruction##p(P1 p1, P2 p2, P3 p3) {            \
-    emit_##instruction(p1, p2, p3, kPointerSize);       \
-  }                                                     \
-                                                        \
-  template<class P1, class P2, class P3>                \
-  void instruction##l(P1 p1, P2 p2, P3 p3) {            \
-    emit_##instruction(p1, p2, p3, kInt32Size);         \
-  }                                                     \
-                                                        \
-  template<class P1, class P2, class P3>                \
-  void instruction##q(P1 p1, P2 p2, P3 p3) {            \
-    emit_##instruction(p1, p2, p3, kInt64Size);         \
+#define DECLARE_INSTRUCTION(instruction)                                       \
+  template <class P1>                                                          \
+  void instruction##p(P1 p1) {                                                 \
+    emit_##instruction(p1, kSystemPointerSize);                                \
+  }                                                                            \
+                                                                               \
+  template <class P1>                                                          \
+  void instruction##_tagged(P1 p1) {                                           \
+    STATIC_ASSERT(kTaggedSize == kSystemPointerSize);                          \
+    /* TODO(ishell): change to kTaggedSize */                                  \
+    emit_##instruction(p1, COMPRESS_POINTERS_BOOL ? kInt32Size : kTaggedSize); \
+  }                                                                            \
+                                                                               \
+  template <class P1>                                                          \
+  void instruction##l(P1 p1) {                                                 \
+    emit_##instruction(p1, kInt32Size);                                        \
+  }                                                                            \
+                                                                               \
+  template <class P1>                                                          \
+  void instruction##q(P1 p1) {                                                 \
+    emit_##instruction(p1, kInt64Size);                                        \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2>                                                \
+  void instruction##p(P1 p1, P2 p2) {                                          \
+    emit_##instruction(p1, p2, kSystemPointerSize);                            \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2>                                                \
+  void instruction##_tagged(P1 p1, P2 p2) {                                    \
+    STATIC_ASSERT(kTaggedSize == kSystemPointerSize);                          \
+    /* TODO(ishell): change to kTaggedSize */                                  \
+    emit_##instruction(p1, p2,                                                 \
+                       COMPRESS_POINTERS_BOOL ? kInt32Size : kTaggedSize);     \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2>                                                \
+  void instruction##l(P1 p1, P2 p2) {                                          \
+    emit_##instruction(p1, p2, kInt32Size);                                    \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2>                                                \
+  void instruction##q(P1 p1, P2 p2) {                                          \
+    emit_##instruction(p1, p2, kInt64Size);                                    \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2, class P3>                                      \
+  void instruction##p(P1 p1, P2 p2, P3 p3) {                                   \
+    emit_##instruction(p1, p2, p3, kSystemPointerSize);                        \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2, class P3>                                      \
+  void instruction##_tagged(P1 p1, P2 p2, P3 p3) {                             \
+    STATIC_ASSERT(kTaggedSize == kSystemPointerSize);                          \
+    /* TODO(ishell): change to kTaggedSize */                                  \
+    emit_##instruction(p1, p2, p3,                                             \
+                       COMPRESS_POINTERS_BOOL ? kInt32Size : kTaggedSize);     \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2, class P3>                                      \
+  void instruction##l(P1 p1, P2 p2, P3 p3) {                                   \
+    emit_##instruction(p1, p2, p3, kInt32Size);                                \
+  }                                                                            \
+                                                                               \
+  template <class P1, class P2, class P3>                                      \
+  void instruction##q(P1 p1, P2 p2, P3 p3) {                                   \
+    emit_##instruction(p1, p2, p3, kInt64Size);                                \
   }
   ASSEMBLER_INSTRUCTION_LIST(DECLARE_INSTRUCTION)
 #undef DECLARE_INSTRUCTION
@@ -652,6 +530,8 @@ class Assembler : public AssemblerBase {
   // move.
   void movp_heap_number(Register dst, double value);
 
+  void movp_string(Register dst, const StringConstantBase* str);
+
   // Loads a 64-bit immediate into a register.
   void movq(Register dst, int64_t value,
             RelocInfo::Mode rmode = RelocInfo::NONE);
@@ -673,7 +553,7 @@ class Assembler : public AssemblerBase {
 
   void repmovsb();
   void repmovsw();
-  void repmovsp() { emit_repmovs(kPointerSize); }
+  void repmovsp() { emit_repmovs(kSystemPointerSize); }
   void repmovsl() { emit_repmovs(kInt32Size); }
   void repmovsq() { emit_repmovs(kInt64Size); }
 
@@ -752,41 +632,45 @@ class Assembler : public AssemblerBase {
   // Multiply rax by src, put the result in rdx:rax.
   void mulq(Register src);
 
-#define DECLARE_SHIFT_INSTRUCTION(instruction, subcode)                       \
-  void instruction##p(Register dst, Immediate imm8) {                         \
-    shift(dst, imm8, subcode, kPointerSize);                                  \
-  }                                                                           \
-                                                                              \
-  void instruction##l(Register dst, Immediate imm8) {                         \
-    shift(dst, imm8, subcode, kInt32Size);                                    \
-  }                                                                           \
-                                                                              \
-  void instruction##q(Register dst, Immediate imm8) {                         \
-    shift(dst, imm8, subcode, kInt64Size);                                    \
-  }                                                                           \
-                                                                              \
-  void instruction##p(Operand dst, Immediate imm8) {                          \
-    shift(dst, imm8, subcode, kPointerSize);                                  \
-  }                                                                           \
-                                                                              \
-  void instruction##l(Operand dst, Immediate imm8) {                          \
-    shift(dst, imm8, subcode, kInt32Size);                                    \
-  }                                                                           \
-                                                                              \
-  void instruction##q(Operand dst, Immediate imm8) {                          \
-    shift(dst, imm8, subcode, kInt64Size);                                    \
-  }                                                                           \
-                                                                              \
-  void instruction##p_cl(Register dst) { shift(dst, subcode, kPointerSize); } \
-                                                                              \
-  void instruction##l_cl(Register dst) { shift(dst, subcode, kInt32Size); }   \
-                                                                              \
-  void instruction##q_cl(Register dst) { shift(dst, subcode, kInt64Size); }   \
-                                                                              \
-  void instruction##p_cl(Operand dst) { shift(dst, subcode, kPointerSize); }  \
-                                                                              \
-  void instruction##l_cl(Operand dst) { shift(dst, subcode, kInt32Size); }    \
-                                                                              \
+#define DECLARE_SHIFT_INSTRUCTION(instruction, subcode)                     \
+  void instruction##p(Register dst, Immediate imm8) {                       \
+    shift(dst, imm8, subcode, kSystemPointerSize);                          \
+  }                                                                         \
+                                                                            \
+  void instruction##l(Register dst, Immediate imm8) {                       \
+    shift(dst, imm8, subcode, kInt32Size);                                  \
+  }                                                                         \
+                                                                            \
+  void instruction##q(Register dst, Immediate imm8) {                       \
+    shift(dst, imm8, subcode, kInt64Size);                                  \
+  }                                                                         \
+                                                                            \
+  void instruction##p(Operand dst, Immediate imm8) {                        \
+    shift(dst, imm8, subcode, kSystemPointerSize);                          \
+  }                                                                         \
+                                                                            \
+  void instruction##l(Operand dst, Immediate imm8) {                        \
+    shift(dst, imm8, subcode, kInt32Size);                                  \
+  }                                                                         \
+                                                                            \
+  void instruction##q(Operand dst, Immediate imm8) {                        \
+    shift(dst, imm8, subcode, kInt64Size);                                  \
+  }                                                                         \
+                                                                            \
+  void instruction##p_cl(Register dst) {                                    \
+    shift(dst, subcode, kSystemPointerSize);                                \
+  }                                                                         \
+                                                                            \
+  void instruction##l_cl(Register dst) { shift(dst, subcode, kInt32Size); } \
+                                                                            \
+  void instruction##q_cl(Register dst) { shift(dst, subcode, kInt64Size); } \
+                                                                            \
+  void instruction##p_cl(Operand dst) {                                     \
+    shift(dst, subcode, kSystemPointerSize);                                \
+  }                                                                         \
+                                                                            \
+  void instruction##l_cl(Operand dst) { shift(dst, subcode, kInt32Size); }  \
+                                                                            \
   void instruction##q_cl(Operand dst) { shift(dst, subcode, kInt64Size); }
   SHIFT_INSTRUCTION_LIST(DECLARE_SHIFT_INSTRUCTION)
 #undef DECLARE_SHIFT_INSTRUCTION
@@ -817,8 +701,12 @@ class Assembler : public AssemblerBase {
   void testw(Operand op, Register reg);
 
   // Bit operations.
-  void bt(Operand dst, Register src);
-  void bts(Operand dst, Register src);
+  void bswapl(Register dst);
+  void bswapq(Register dst);
+  void btq(Operand dst, Register src);
+  void btsq(Operand dst, Register src);
+  void btsq(Register dst, Immediate imm8);
+  void btrq(Register dst, Immediate imm8);
   void bsrq(Register dst, Register src);
   void bsrq(Register dst, Operand src);
   void bsrl(Register dst, Register src);
@@ -841,6 +729,10 @@ class Assembler : public AssemblerBase {
 
   void pshufw(XMMRegister dst, XMMRegister src, uint8_t shuffle);
   void pshufw(XMMRegister dst, Operand src, uint8_t shuffle);
+  void pblendw(XMMRegister dst, Operand src, uint8_t mask);
+  void pblendw(XMMRegister dst, XMMRegister src, uint8_t mask);
+  void palignr(XMMRegister dst, Operand src, uint8_t mask);
+  void palignr(XMMRegister dst, XMMRegister src, uint8_t mask);
 
   // Label operations & relative jumps (PPUM Appendix D)
   //
@@ -865,7 +757,6 @@ class Assembler : public AssemblerBase {
   void call(Address entry, RelocInfo::Mode rmode);
   void near_call(Address entry, RelocInfo::Mode rmode);
   void near_jmp(Address entry, RelocInfo::Mode rmode);
-  void call(CodeStub* stub);
   void call(Handle<Code> target,
             RelocInfo::Mode rmode = RelocInfo::CODE_TARGET);
 
@@ -1146,6 +1037,8 @@ class Assembler : public AssemblerBase {
   void cvttss2siq(Register dst, Operand src);
   void cvttsd2siq(Register dst, XMMRegister src);
   void cvttsd2siq(Register dst, Operand src);
+  void cvttps2dq(XMMRegister dst, Operand src);
+  void cvttps2dq(XMMRegister dst, XMMRegister src);
 
   void cvtlsi2sd(XMMRegister dst, Operand src);
   void cvtlsi2sd(XMMRegister dst, Register src);
@@ -1196,10 +1089,6 @@ class Assembler : public AssemblerBase {
   void cmpltsd(XMMRegister dst, XMMRegister src);
 
   void movmskpd(Register dst, XMMRegister src);
-
-  void punpckldq(XMMRegister dst, XMMRegister src);
-  void punpckldq(XMMRegister dst, Operand src);
-  void punpckhdq(XMMRegister dst, XMMRegister src);
 
   // SSE 4.1 instruction
   void insertps(XMMRegister dst, XMMRegister src, byte imm8);
@@ -1257,7 +1146,9 @@ class Assembler : public AssemblerBase {
   void pshufd(XMMRegister dst, XMMRegister src, uint8_t shuffle);
   void pshufd(XMMRegister dst, Operand src, uint8_t shuffle);
   void pshufhw(XMMRegister dst, XMMRegister src, uint8_t shuffle);
+  void pshufhw(XMMRegister dst, Operand src, uint8_t shuffle);
   void pshuflw(XMMRegister dst, XMMRegister src, uint8_t shuffle);
+  void pshuflw(XMMRegister dst, Operand src, uint8_t shuffle);
   void cvtdq2ps(XMMRegister dst, XMMRegister src);
   void cvtdq2ps(XMMRegister dst, Operand src);
 
@@ -1870,21 +1761,11 @@ class Assembler : public AssemblerBase {
     return pc_offset() - label->pos();
   }
 
-  // Record a comment relocation entry that can be used by a disassembler.
-  // Use --code-comments to enable.
-  void RecordComment(const char* msg);
-
   // Record a deoptimization reason that can be used by a log or cpu profiler.
   // Use --trace-deopt to enable.
   void RecordDeoptReason(DeoptimizeReason reason, SourcePosition position,
                          int id);
 
-  void PatchConstantPoolAccessInstruction(int pc_offset, int offset,
-                                          ConstantPoolEntry::Access access,
-                                          ConstantPoolEntry::Type type) {
-    // No embedded constant pool support.
-    UNREACHABLE();
-  }
 
   // Writes a single word of data in the code stream.
   // Used for inline tables, e.g., jump-tables.
@@ -1893,6 +1774,12 @@ class Assembler : public AssemblerBase {
   void dq(uint64_t data);
   void dp(uintptr_t data) { dq(data); }
   void dq(Label* label);
+
+  // Patch entries for partial constant pool.
+  void PatchConstPool();
+
+  // Check if use partial constant pool for this rmode.
+  static bool UseConstPoolFor(RelocInfo::Mode rmode);
 
   // Check if there is less than kGap bytes available in the buffer.
   // If this is the case, we need to grow the buffer before emitting
@@ -1911,15 +1798,15 @@ class Assembler : public AssemblerBase {
   // Avoid overflows for displacements etc.
   static constexpr int kMaximalBufferSize = 512 * MB;
 
-  byte byte_at(int pos)  { return buffer_[pos]; }
-  void set_byte_at(int pos, byte value) { buffer_[pos] = value; }
+  byte byte_at(int pos) { return buffer_start_[pos]; }
+  void set_byte_at(int pos, byte value) { buffer_start_[pos] = value; }
 
  protected:
   // Call near indirect
   void call(Operand operand);
 
  private:
-  byte* addr_at(int pos)  { return buffer_ + pos; }
+  byte* addr_at(int pos) { return buffer_start_ + pos; }
   uint32_t long_at(int pos)  {
     return *reinterpret_cast<uint32_t*>(addr_at(pos));
   }
@@ -1945,6 +1832,7 @@ class Assembler : public AssemblerBase {
   inline void emit_rex_64(XMMRegister reg, Register rm_reg);
   inline void emit_rex_64(Register reg, XMMRegister rm_reg);
   inline void emit_rex_64(Register reg, Register rm_reg);
+  inline void emit_rex_64(XMMRegister reg, XMMRegister rm_reg);
 
   // Emits a REX prefix that encodes a 64-bit operand size and
   // the top bit of the destination, index, and base register codes.
@@ -2359,6 +2247,8 @@ class Assembler : public AssemblerBase {
 
   void AllocateAndInstallRequestedHeapObjects(Isolate* isolate);
 
+  int WriteCodeComments();
+
   friend class EnsureSpace;
   friend class RegExpMacroAssemblerX64;
 
@@ -2374,6 +2264,10 @@ class Assembler : public AssemblerBase {
   int farjmp_num_ = 0;
   std::deque<int> farjmp_positions_;
   std::map<Label*, std::vector<int>> label_farjmp_maps_;
+
+  ConstPool constpool_;
+
+  friend class ConstPool;
 };
 
 
@@ -2381,7 +2275,7 @@ class Assembler : public AssemblerBase {
 // instructions and relocation information.  The constructor makes
 // sure that there is enough space and (in debug mode) the destructor
 // checks that we did not generate too much.
-class EnsureSpace BASE_EMBEDDED {
+class EnsureSpace {
  public:
   explicit EnsureSpace(Assembler* assembler) : assembler_(assembler) {
     if (assembler_->buffer_overflow()) assembler_->GrowBuffer();

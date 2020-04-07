@@ -9,13 +9,12 @@
 
 #include "core/fxcrt/fx_system.h"
 
+#include <Carbon/Carbon.h>
+
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
-#include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/fx_dib.h"
 #include "core/fxge/renderdevicedriver_iface.h"
-
-#include <Carbon/Carbon.h>
 
 class CQuartz2D {
  public:
@@ -31,8 +30,7 @@ class CQuartz2D {
                           uint16_t* glyphIndices,
                           CGPoint* glyphPositions,
                           int32_t chars,
-                          FX_ARGB argb,
-                          CFX_Matrix* matrix = nullptr);
+                          FX_ARGB argb);
   void saveGraphicsState(void* graphics);
   void restoreGraphicsState(void* graphics);
 };

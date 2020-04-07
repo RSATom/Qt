@@ -8,12 +8,12 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_external_delegate.h"
@@ -94,9 +94,11 @@ class MockAutofillClient : public TestAutofillClient {
 class MockAutofillManager : public AutofillManager {
  public:
   MockAutofillManager(AutofillDriver* driver, MockAutofillClient* client)
-      // Force to use the constructor designated for unit test, but we don't
-      // really need personal_data in this test so we pass a NULL pointer.
-      : AutofillManager(driver, client, nullptr) {}
+      // Force to use the constructor designated for unit test.
+      : AutofillManager(driver,
+                        client,
+                        client->GetPersonalDataManager(),
+                        client->GetAutocompleteHistoryManager()) {}
   ~MockAutofillManager() override {}
 
   PopupType GetPopupType(const FormData& form,
@@ -109,6 +111,15 @@ class MockAutofillManager : public AutofillManager {
 
   MOCK_METHOD2(ShouldShowCreditCardSigninPromo,
                bool(const FormData& form, const FormFieldData& field));
+
+  bool ShouldShowCardsFromAccountOption(const FormData& form,
+                                        const FormFieldData& field) {
+    return should_show_cards_from_account_option_;
+  }
+
+  void ShowCardsFromAccountOption() {
+    should_show_cards_from_account_option_ = true;
+  }
 
   MOCK_METHOD5(FillOrPreviewForm,
                void(AutofillDriver::RendererFormDataAction action,
@@ -125,6 +136,7 @@ class MockAutofillManager : public AutofillManager {
                     const base::string16& cvc));
 
  private:
+  bool should_show_cards_from_account_option_ = false;
   DISALLOW_COPY_AND_ASSIGN(MockAutofillManager);
 };
 
@@ -167,12 +179,23 @@ class AutofillExternalDelegateUnitTest : public testing::Test {
         kQueryId, suggestions, /*autoselect_first_suggestion=*/false);
   }
 
+  base::test::ScopedTaskEnvironment task_environment_;
+
   testing::NiceMock<MockAutofillClient> autofill_client_;
   std::unique_ptr<testing::NiceMock<MockAutofillDriver>> autofill_driver_;
   std::unique_ptr<MockAutofillManager> autofill_manager_;
   std::unique_ptr<AutofillExternalDelegate> external_delegate_;
+};
 
-  base::MessageLoop message_loop_;
+// Variant for use in cases when we expect the AutofillManager would normally
+// set the |should_show_cards_from_account_option_| bit.
+class AutofillExternalDelegateCardsFromAccountTest
+    : public AutofillExternalDelegateUnitTest {
+ protected:
+  void SetUp() override {
+    AutofillExternalDelegateUnitTest::SetUp();
+    autofill_manager_->ShowCardsFromAccountOption();
+  }
 };
 
 // Test that our external delegate called the virtual methods at the right time.
@@ -181,11 +204,7 @@ TEST_F(AutofillExternalDelegateUnitTest, TestExternalDelegateVirtualCalls) {
 
   // The enums must be cast to ints to prevent compile errors on linux_rel.
   auto element_ids = testing::ElementsAre(
-      kAutofillProfileId,
-#if !defined(OS_ANDROID)
-      static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
-#endif
-      static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
+      kAutofillProfileId, static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
   EXPECT_CALL(
       autofill_client_,
       ShowAutofillPopup(_, _, SuggestionVectorIdsAre(element_ids), false, _));
@@ -221,9 +240,6 @@ TEST_F(AutofillExternalDelegateUnitTest,
   // The enums must be cast to ints to prevent compile errors on linux_rel.
   auto element_ids =
       testing::ElementsAre(kAutofillProfileId,
-#if !defined(OS_ANDROID)
-                           static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
-#endif
                            static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
 
   EXPECT_CALL(
@@ -308,11 +324,7 @@ TEST_F(AutofillExternalDelegateUnitTest, ExternalDelegateDataList) {
 #if !defined(OS_ANDROID)
       static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
 #endif
-      kAutofillProfileId,
-#if !defined(OS_ANDROID)
-      static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
-#endif
-      static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
+      kAutofillProfileId, static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
   EXPECT_CALL(
       autofill_client_,
       ShowAutofillPopup(_, _, SuggestionVectorIdsAre(element_ids), false, _));
@@ -363,11 +375,7 @@ TEST_F(AutofillExternalDelegateUnitTest, UpdateDataListWhileShowingPopup) {
 #if !defined(OS_ANDROID)
       static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
 #endif
-      kAutofillProfileId,
-#if !defined(OS_ANDROID)
-      static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
-#endif
-      static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
+      kAutofillProfileId, static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
   EXPECT_CALL(
       autofill_client_,
       ShowAutofillPopup(_, _, SuggestionVectorIdsAre(element_ids), false, _));
@@ -411,17 +419,13 @@ TEST_F(AutofillExternalDelegateUnitTest, DuplicateAutofillDatalistValues) {
                                                data_list_items);
 
   // The enums must be cast to ints to prevent compile errors on linux_rel.
-  auto element_ids =
-      testing::ElementsAre(static_cast<int>(POPUP_ITEM_ID_DATALIST_ENTRY),
-                           static_cast<int>(POPUP_ITEM_ID_DATALIST_ENTRY),
+  auto element_ids = testing::ElementsAre(
+      static_cast<int>(POPUP_ITEM_ID_DATALIST_ENTRY),
+      static_cast<int>(POPUP_ITEM_ID_DATALIST_ENTRY),
 #if !defined(OS_ANDROID)
-                           static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
+      static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
 #endif
-                           kAutofillProfileId,
-#if !defined(OS_ANDROID)
-                           static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
-#endif
-                           static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
+      kAutofillProfileId, static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS));
   EXPECT_CALL(
       autofill_client_,
       ShowAutofillPopup(_, _, SuggestionVectorIdsAre(element_ids), false, _));
@@ -735,6 +739,9 @@ TEST_F(AutofillExternalDelegateUnitTest, ExternalDelegateFillFieldWithValue) {
   base::string16 dummy_string(ASCIIToUTF16("baz foo"));
   EXPECT_CALL(*autofill_driver_,
               RendererShouldFillFieldWithValue(dummy_string));
+  EXPECT_CALL(*autofill_client_.GetMockAutocompleteHistoryManager(),
+              OnAutocompleteEntrySelected(dummy_string))
+      .Times(1);
   base::HistogramTester histogram_tester;
   external_delegate_->DidAcceptSuggestion(dummy_string,
                                           POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY,
@@ -747,9 +754,6 @@ TEST_F(AutofillExternalDelegateUnitTest, ShouldShowGooglePayIcon) {
   IssueOnQuery(kQueryId);
 
   auto element_icons = testing::ElementsAre(
-#if !defined(OS_ANDROID)
-      base::string16(),
-#endif
       base::string16(), base::ASCIIToUTF16("googlePay"));
   EXPECT_CALL(autofill_client_,
               ShowAutofillPopup(_, _, SuggestionVectorIconsAre(element_icons),
@@ -774,7 +778,7 @@ TEST_F(AutofillExternalDelegateUnitTest, ShouldShowGooglePayIconOniOS) {
 
   auto element_icons =
       testing::ElementsAre(base::ASCIIToUTF16("googlePay"), base::string16(),
-                           base::string16(), base::ASCIIToUTF16("googlePay"));
+                           base::ASCIIToUTF16("googlePay"));
   EXPECT_CALL(autofill_client_,
               ShowAutofillPopup(_, _, SuggestionVectorIconsAre(element_icons),
                                 false, _));
@@ -797,7 +801,7 @@ TEST_F(AutofillExternalDelegateUnitTest,
   IssueOnQuery(kQueryId);
 
   auto element_icons = testing::ElementsAre(
-      base::string16(), base::string16(),
+      base::string16(),
       base::string16() /* Autofill setting item does not have icon. */);
   EXPECT_CALL(autofill_client_,
               ShowAutofillPopup(_, _, SuggestionVectorIconsAre(element_icons),
@@ -818,9 +822,6 @@ TEST_F(AutofillExternalDelegateUnitTest,
   IssueOnQuery(kQueryId);
 
   auto element_icons = testing::ElementsAre(
-#if !defined(OS_ANDROID)
-      base::string16(),
-#endif
       base::string16(),
       base::string16() /* Autofill setting item does not have icon. */);
   EXPECT_CALL(autofill_client_,
@@ -840,9 +841,6 @@ TEST_F(AutofillExternalDelegateUnitTest, ShouldUseNewSettingName) {
   IssueOnQuery(kQueryId);
 
   auto element_values = testing::ElementsAre(
-#if !defined(OS_ANDROID)
-      base::string16(),
-#endif
       base::string16(), l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE));
   EXPECT_CALL(autofill_client_,
               ShowAutofillPopup(_, _, SuggestionVectorValuesAre(element_values),
@@ -857,46 +855,45 @@ TEST_F(AutofillExternalDelegateUnitTest, ShouldUseNewSettingName) {
       kQueryId, autofill_item, /*autoselect_first_suggestion=*/false);
 }
 
-#if !defined(OS_ANDROID)
-// Test that the delegate includes a separator between the content rows and the
-// footer, if and only if the kAutofillExpandedPopupViews feature is disabled.
-TEST_F(AutofillExternalDelegateUnitTest, IncludeFooterSeparatorForOldUIOnly) {
-  // The guts of the test. This will be run once with the feature enabled,
-  // expecting not to find a separator, and a second time with the feature
-  // disabled, expecting to find a separator.
-  auto tester = [this](bool enabled, auto element_ids) {
-    base::test::ScopedFeatureList scoped_feature_list;
+// Tests that the prompt to show account cards shows up when the corresponding
+// bit is set, including any suggestions that are passed along and the "Manage"
+// row in the footer.
+TEST_F(AutofillExternalDelegateCardsFromAccountTest,
+       ShouldShowCardsFromAccountOptionWithCards) {
+  IssueOnQuery(kQueryId);
 
-    if (enabled) {
-      scoped_feature_list.InitAndEnableFeature(
-          autofill::kAutofillExpandedPopupViews);
-    } else {
-      scoped_feature_list.InitAndDisableFeature(
-          autofill::kAutofillExpandedPopupViews);
-    }
+  auto element_values = testing::ElementsAre(
+      base::string16(),
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_SHOW_ACCOUNT_CARDS),
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE));
+  EXPECT_CALL(autofill_client_,
+              ShowAutofillPopup(_, _, SuggestionVectorValuesAre(element_values),
+                                false, _));
 
-    IssueOnQuery(kQueryId);
+  std::vector<Suggestion> autofill_item;
+  autofill_item.push_back(Suggestion());
+  autofill_item[0].frontend_id = kAutofillProfileId;
 
-    EXPECT_CALL(
-        autofill_client_,
-        ShowAutofillPopup(_, _, SuggestionVectorIdsAre(element_ids), false, _));
-
-    std::vector<Suggestion> autofill_item;
-    autofill_item.push_back(Suggestion());
-    autofill_item[0].frontend_id = kAutofillProfileId;
-    external_delegate_->OnSuggestionsReturned(
-        kQueryId, autofill_item, /*autoselect_first_suggestion=*/false);
-  };
-
-  tester(false,
-         testing::ElementsAre(
-             kAutofillProfileId, static_cast<int>(POPUP_ITEM_ID_SEPARATOR),
-             static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS)));
-
-  tester(true, testing::ElementsAre(
-                   kAutofillProfileId,
-                   static_cast<int>(POPUP_ITEM_ID_AUTOFILL_OPTIONS)));
+  external_delegate_->OnSuggestionsReturned(
+      kQueryId, autofill_item, /*autoselect_first_suggestion=*/false);
 }
-#endif  // !defined(OS_ANDROID)
+
+// Tests that the prompt to show account cards shows up when the corresponding
+// bit is set, even if no suggestions are passed along. The "Manage" row should
+// *not* show up in this case.
+TEST_F(AutofillExternalDelegateCardsFromAccountTest,
+       ShouldShowCardsFromAccountOptionWithoutCards) {
+  IssueOnQuery(kQueryId);
+
+  auto element_values = testing::ElementsAre(
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_SHOW_ACCOUNT_CARDS));
+  EXPECT_CALL(autofill_client_,
+              ShowAutofillPopup(_, _, SuggestionVectorValuesAre(element_values),
+                                false, _));
+
+  external_delegate_->OnSuggestionsReturned(
+      kQueryId, std::vector<Suggestion>(),
+      /*autoselect_first_suggestion=*/false);
+}
 
 }  // namespace autofill

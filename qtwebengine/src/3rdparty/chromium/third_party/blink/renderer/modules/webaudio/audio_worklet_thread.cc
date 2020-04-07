@@ -23,91 +23,52 @@ namespace blink {
 
 template class WorkletThreadHolder<AudioWorkletThread>;
 
-WebThread* AudioWorkletThread::s_backing_thread_ = nullptr;
-
 unsigned AudioWorkletThread::s_ref_count_ = 0;
 
 std::unique_ptr<AudioWorkletThread> AudioWorkletThread::Create(
-    ThreadableLoadingContext* loading_context,
     WorkerReportingProxy& worker_reporting_proxy) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("audio-worklet"),
                "AudioWorkletThread::create");
-  return base::WrapUnique(
-      new AudioWorkletThread(loading_context, worker_reporting_proxy));
+  return base::WrapUnique(new AudioWorkletThread(worker_reporting_proxy));
 }
 
 AudioWorkletThread::AudioWorkletThread(
-    ThreadableLoadingContext* loading_context,
     WorkerReportingProxy& worker_reporting_proxy)
-    : WorkerThread(loading_context, worker_reporting_proxy) {
+    : WorkerThread(worker_reporting_proxy) {
   DCHECK(IsMainThread());
-  if (++s_ref_count_ == 1)
+  if (++s_ref_count_ == 1) {
     EnsureSharedBackingThread();
+  }
 }
 
 AudioWorkletThread::~AudioWorkletThread() {
   DCHECK(IsMainThread());
-  if (--s_ref_count_ == 0)
+  if (--s_ref_count_ == 0) {
     ClearSharedBackingThread();
+  }
 }
 
 WorkerBackingThread& AudioWorkletThread::GetWorkerBackingThread() {
   return *WorkletThreadHolder<AudioWorkletThread>::GetInstance()->GetThread();
 }
 
-void CollectAllGarbageOnAudioWorkletThread(WaitableEvent* done_event) {
-  blink::ThreadState::Current()->CollectAllGarbage();
-  done_event->Signal();
-}
-
-void AudioWorkletThread::CollectAllGarbage() {
-  DCHECK(IsMainThread());
-  WaitableEvent done_event;
-  WorkletThreadHolder<AudioWorkletThread>* worklet_thread_holder =
-      WorkletThreadHolder<AudioWorkletThread>::GetInstance();
-  if (!worklet_thread_holder)
-    return;
-  worklet_thread_holder->GetThread()->BackingThread().PostTask(
-      FROM_HERE, CrossThreadBind(&CollectAllGarbageOnAudioWorkletThread,
-                                 CrossThreadUnretained(&done_event)));
-  done_event.Wait();
-}
-
 void AudioWorkletThread::EnsureSharedBackingThread() {
   DCHECK(IsMainThread());
-  if (!s_backing_thread_)
-    s_backing_thread_ = Platform::Current()->CreateWebAudioThread().release();
-  WorkletThreadHolder<AudioWorkletThread>::EnsureInstance(s_backing_thread_);
+  WorkletThreadHolder<AudioWorkletThread>::EnsureInstance(
+      ThreadCreationParams(WebThreadType::kWebAudioThread));
 }
 
 void AudioWorkletThread::ClearSharedBackingThread() {
   DCHECK(IsMainThread());
-  DCHECK(s_backing_thread_);
   DCHECK_EQ(s_ref_count_, 0u);
   WorkletThreadHolder<AudioWorkletThread>::ClearInstance();
-  delete s_backing_thread_;
-  s_backing_thread_ = nullptr;
-}
-
-WebThread* AudioWorkletThread::GetSharedBackingThread() {
-  DCHECK(IsMainThread());
-  WorkletThreadHolder<AudioWorkletThread>* instance =
-      WorkletThreadHolder<AudioWorkletThread>::GetInstance();
-  return &(instance->GetThread()->BackingThread().PlatformThread());
-}
-
-void AudioWorkletThread::CreateSharedBackingThreadForTest() {
-  if (!s_backing_thread_)
-    s_backing_thread_ = Platform::Current()->CreateWebAudioThread().release();
-  WorkletThreadHolder<AudioWorkletThread>::CreateForTest(s_backing_thread_);
 }
 
 WorkerOrWorkletGlobalScope* AudioWorkletThread::CreateWorkerGlobalScope(
     std::unique_ptr<GlobalScopeCreationParams> creation_params) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("audio-worklet"),
                "AudioWorkletThread::createWorkerGlobalScope");
-  return AudioWorkletGlobalScope::Create(std::move(creation_params),
-                                         GetIsolate(), this);
+  return AudioWorkletGlobalScope::Create(std::move(creation_params), this);
 }
 
 }  // namespace blink

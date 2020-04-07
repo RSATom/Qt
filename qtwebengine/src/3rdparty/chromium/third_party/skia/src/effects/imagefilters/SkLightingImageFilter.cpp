@@ -9,7 +9,6 @@
 #include "SkBitmap.h"
 #include "SkColorData.h"
 #include "SkColorSpaceXformer.h"
-#include "SkFlattenablePriv.h"
 #include "SkImageFilterPriv.h"
 #include "SkPoint3.h"
 #include "SkReadBuffer.h"
@@ -465,11 +464,14 @@ sk_sp<SkSpecialImage> SkLightingImageFilterInternal::filterImageGPU(
     sk_sp<GrTextureProxy> inputProxy(input->asTextureProxyRef(context));
     SkASSERT(inputProxy);
 
+    SkColorType colorType = outputProperties.colorType();
+    GrBackendFormat format =
+            context->contextPriv().caps()->getBackendFormatFromColorType(colorType);
 
     sk_sp<GrRenderTargetContext> renderTargetContext(
         context->contextPriv().makeDeferredRenderTargetContext(
-                                SkBackingFit::kApprox, offsetBounds.width(), offsetBounds.height(),
-                                SkColorType2GrPixelConfig(outputProperties.colorType()),
+                                format, SkBackingFit::kApprox, offsetBounds.width(),
+                                offsetBounds.height(), SkColorType2GrPixelConfig(colorType),
                                 sk_ref_sp(outputProperties.colorSpace())));
     if (!renderTargetContext) {
         return nullptr;
@@ -529,7 +531,6 @@ public:
                                      sk_sp<SkImageFilter>,
                                      const CropRect*);
 
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkDiffuseLightingImageFilter)
     SkScalar kd() const { return fKD; }
 
 protected:
@@ -550,6 +551,7 @@ protected:
 #endif
 
 private:
+    SK_FLATTENABLE_HOOKS(SkDiffuseLightingImageFilter)
     friend class SkLightingImageFilter;
     SkScalar fKD;
 
@@ -562,8 +564,6 @@ public:
                                      SkScalar surfaceScale,
                                      SkScalar ks, SkScalar shininess,
                                      sk_sp<SkImageFilter>, const CropRect*);
-
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkSpecularLightingImageFilter)
 
     SkScalar ks() const { return fKS; }
     SkScalar shininess() const { return fShininess; }
@@ -587,6 +587,8 @@ protected:
 #endif
 
 private:
+    SK_FLATTENABLE_HOOKS(SkSpecularLightingImageFilter)
+
     SkScalar fKS;
     SkScalar fShininess;
     friend class SkLightingImageFilter;
@@ -613,6 +615,8 @@ protected:
     bool onIsEqual(const GrFragmentProcessor&) const override;
 
 private:
+    const TextureSampler& onTextureSampler(int) const override { return fTextureSampler; }
+
     GrCoordTransform fCoordTransform;
     GrTextureDomain fDomain;
     TextureSampler fTextureSampler;
@@ -1672,8 +1676,8 @@ private:
 static GrTextureDomain create_domain(GrTextureProxy* proxy, const SkIRect* srcBounds,
                                      GrTextureDomain::Mode mode) {
     if (srcBounds) {
-        SkRect texelDomain = GrTextureDomain::MakeTexelDomainForMode(*srcBounds, mode);
-        return GrTextureDomain(proxy, texelDomain, mode);
+        SkRect texelDomain = GrTextureDomain::MakeTexelDomain(*srcBounds, mode);
+        return GrTextureDomain(proxy, texelDomain, mode, mode);
     } else {
         return GrTextureDomain::IgnoredDomain();
     }
@@ -1696,7 +1700,7 @@ GrLightingEffect::GrLightingEffect(ClassID classID,
         , fFilterMatrix(matrix)
         , fBoundaryMode(boundaryMode) {
     this->addCoordTransform(&fCoordTransform);
-    this->addTextureSampler(&fTextureSampler);
+    this->setTextureSamplerCnt(1);
 }
 
 GrLightingEffect::GrLightingEffect(const GrLightingEffect& that)
@@ -1709,7 +1713,7 @@ GrLightingEffect::GrLightingEffect(const GrLightingEffect& that)
         , fFilterMatrix(that.fFilterMatrix)
         , fBoundaryMode(that.fBoundaryMode) {
     this->addCoordTransform(&fCoordTransform);
-    this->addTextureSampler(&fTextureSampler);
+    this->setTextureSamplerCnt(1);
 }
 
 bool GrLightingEffect::onIsEqual(const GrFragmentProcessor& sBase) const {
@@ -1817,7 +1821,7 @@ void GrGLLightingEffect::emitCode(EmitArgs& args) {
     GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
     SkString lightFunc;
     this->emitLightFunc(uniformHandler, fragBuilder, &lightFunc);
-    static const GrShaderVar gSobelArgs[] =  {
+    const GrShaderVar gSobelArgs[] =  {
         GrShaderVar("a", kHalf_GrSLType),
         GrShaderVar("b", kHalf_GrSLType),
         GrShaderVar("c", kHalf_GrSLType),
@@ -1835,7 +1839,7 @@ void GrGLLightingEffect::emitCode(EmitArgs& args) {
                               gSobelArgs,
                               "\treturn (-a + b - 2.0 * c + 2.0 * d -e + f) * scale;\n",
                               &sobelFuncName);
-    static const GrShaderVar gPointToNormalArgs[] =  {
+    const GrShaderVar gPointToNormalArgs[] =  {
         GrShaderVar("x", kHalf_GrSLType),
         GrShaderVar("y", kHalf_GrSLType),
         GrShaderVar("scale", kHalf_GrSLType),
@@ -1848,7 +1852,7 @@ void GrGLLightingEffect::emitCode(EmitArgs& args) {
                               "\treturn normalize(half3(-x * scale, -y * scale, 1));\n",
                               &pointToNormalName);
 
-    static const GrShaderVar gInteriorNormalArgs[] =  {
+    const GrShaderVar gInteriorNormalArgs[] =  {
         GrShaderVar("m", kHalf_GrSLType, 9),
         GrShaderVar("surfaceScale", kHalf_GrSLType),
     };
@@ -1915,14 +1919,14 @@ void GrGLLightingEffect::onSetData(const GrGLSLProgramDataManager& pdman,
     }
 
     GrTextureProxy* proxy = lighting.textureSampler(0).proxy();
-    GrTexture* texture = proxy->priv().peekTexture();
+    GrTexture* texture = proxy->peekTexture();
 
     float ySign = proxy->origin() == kTopLeft_GrSurfaceOrigin ? -1.0f : 1.0f;
     pdman.set2f(fImageIncrementUni, 1.0f / texture->width(), ySign / texture->height());
     pdman.set1f(fSurfaceScaleUni, lighting.surfaceScale());
     sk_sp<SkImageFilterLight> transformedLight(
             lighting.light()->transform(lighting.filterMatrix()));
-    fDomain.setData(pdman, lighting.domain(), proxy);
+    fDomain.setData(pdman, lighting.domain(), proxy, lighting.textureSampler(0).samplerState());
     fLight->setData(pdman, transformedLight.get());
 }
 
@@ -1936,14 +1940,14 @@ void GrGLDiffuseLightingEffect::emitLightFunc(GrGLSLUniformHandler* uniformHandl
     const char* kd;
     fKDUni = uniformHandler->addUniform(kFragment_GrShaderFlag, kHalf_GrSLType, "KD", &kd);
 
-    static const GrShaderVar gLightArgs[] = {
+    const GrShaderVar gLightArgs[] = {
         GrShaderVar("normal", kHalf3_GrSLType),
         GrShaderVar("surfaceToLight", kHalf3_GrSLType),
         GrShaderVar("lightColor", kHalf3_GrSLType)
     };
     SkString lightBody;
     lightBody.appendf("\thalf colorScale = %s * dot(normal, surfaceToLight);\n", kd);
-    lightBody.appendf("\treturn half4(lightColor * clamp(colorScale, 0.0, 1.0), 1.0);\n");
+    lightBody.appendf("\treturn half4(lightColor * saturate(colorScale), 1.0);\n");
     fragBuilder->emitFunction(kHalf4_GrSLType,
                               "light",
                               SK_ARRAY_COUNT(gLightArgs),
@@ -2032,7 +2036,7 @@ void GrGLSpecularLightingEffect::emitLightFunc(GrGLSLUniformHandler* uniformHand
                                                "Shininess",
                                                &shininess);
 
-    static const GrShaderVar gLightArgs[] = {
+    const GrShaderVar gLightArgs[] = {
         GrShaderVar("normal", kHalf3_GrSLType),
         GrShaderVar("surfaceToLight", kHalf3_GrSLType),
         GrShaderVar("lightColor", kHalf3_GrSLType)
@@ -2041,7 +2045,7 @@ void GrGLSpecularLightingEffect::emitLightFunc(GrGLSLUniformHandler* uniformHand
     lightBody.appendf("\thalf3 halfDir = half3(normalize(surfaceToLight + half3(0, 0, 1)));\n");
     lightBody.appendf("\tfloat colorScale = %s * pow(dot(normal, halfDir), %s);\n",
                       ks, shininess);
-    lightBody.appendf("\thalf3 color = lightColor * clamp(colorScale, 0.0, 1.0);\n");
+    lightBody.appendf("\thalf3 color = lightColor * saturate(colorScale);\n");
     lightBody.appendf("\treturn half4(color, max(max(color.r, color.g), color.b));\n");
     fragBuilder->emitFunction(kHalf4_GrSLType,
                               "light",
@@ -2162,7 +2166,7 @@ void GrGLSpotLight::emitLightColor(GrGLSLUniformHandler* uniformHandler,
                                                "ConeScale", &coneScale);
     fSUni = uniformHandler->addUniform(kFragment_GrShaderFlag, kHalf3_GrSLType, "S", &s);
 
-    static const GrShaderVar gLightColorArgs[] = {
+    const GrShaderVar gLightColorArgs[] = {
         GrShaderVar("surfaceToLight", kHalf3_GrSLType)
     };
     SkString lightColorBody;
@@ -2188,7 +2192,7 @@ void GrGLSpotLight::emitLightColor(GrGLSLUniformHandler* uniformHandler,
 
 #endif
 
-SK_DEFINE_FLATTENABLE_REGISTRAR_GROUP_START(SkLightingImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDiffuseLightingImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkSpecularLightingImageFilter)
-SK_DEFINE_FLATTENABLE_REGISTRAR_GROUP_END
+void SkLightingImageFilter::RegisterFlattenables() {
+    SK_REGISTER_FLATTENABLE(SkDiffuseLightingImageFilter);
+    SK_REGISTER_FLATTENABLE(SkSpecularLightingImageFilter);
+}

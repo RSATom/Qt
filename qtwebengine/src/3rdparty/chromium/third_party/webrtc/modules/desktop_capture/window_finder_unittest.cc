@@ -11,18 +11,18 @@
 #include "modules/desktop_capture/window_finder.h"
 
 #include <stdint.h>
-
 #include <memory>
 
 #include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/screen_drawer.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/scoped_ref_ptr.h"
 #include "test/gtest.h"
 
 #if defined(USE_X11)
 #include "absl/memory/memory.h"
-#include "modules/desktop_capture/x11/shared_x_display.h"
-#include "modules/desktop_capture/x11/x_atom_cache.h"
+#include "modules/desktop_capture/linux/shared_x_display.h"
+#include "modules/desktop_capture/linux/x_atom_cache.h"
 #endif
 
 #if defined(WEBRTC_WIN)

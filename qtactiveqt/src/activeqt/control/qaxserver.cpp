@@ -283,10 +283,11 @@ HRESULT UpdateRegistry(BOOL bRegister)
     }
 
     if (bRegister) {
-        if (qAxOutProcServer) {
-            settings->setValue(QLatin1String("/AppID/") + appId + QLatin1String("/."), module);
+        settings->setValue(QLatin1String("/AppID/") + appId + QLatin1String("/."), module);
+        if (qAxOutProcServer)
             settings->setValue(QLatin1String("/AppID/") + module + QLatin1String(".EXE/AppID"), appId);
-        }
+        else
+            settings->setValue(QLatin1String("/AppID/") + appId + QLatin1String("/DllSurrogate"), QString());
 
         const QStringList keys = qAxFactory()->featureList();
         for (const QString &classNameIn : keys) {
@@ -328,8 +329,7 @@ HRESULT UpdateRegistry(BOOL bRegister)
 
                 key = QLatin1String("/CLSID/") + classId;
                 settings->setValue(key + QLatin1String("/."), className + QLatin1String(" Class"));
-                if (file.endsWith(QLatin1String("exe"), Qt::CaseInsensitive))
-                    settings->setValue(key + QLatin1String("/AppID"), appId);
+                settings->setValue(key + QLatin1String("/AppID"), appId);
                 if (control)
                     settings->setValue(key + QLatin1String("/Control/."), QVariant(QLatin1String("")));
                 if (insertable)
@@ -390,10 +390,12 @@ HRESULT UpdateRegistry(BOOL bRegister)
             qAxFactory()->registerClass(classNameIn, settings.data());
         }
     } else {
-        if (qAxOutProcServer) {
-            settings->remove(QLatin1String("/AppID/") + appId + QLatin1String("/."));
+        settings->remove(QLatin1String("/AppID/") + appId + QLatin1String("/."));
+        if (qAxOutProcServer)
             settings->remove(QLatin1String("/AppID/") + module + QLatin1String(".EXE"));
-        }
+        else
+            settings->remove(QLatin1String("/AppID/") + appId + QLatin1String("/DllSurrogate"));
+
         const QStringList keys = qAxFactory()->featureList();
         for (const QString &classNameIn : keys) {
             const QMetaObject *mo = qAxFactory()->metaObject(classNameIn);

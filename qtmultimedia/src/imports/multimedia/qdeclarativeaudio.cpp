@@ -999,11 +999,13 @@ void QDeclarativeAudio::_q_mediaChanged(const QMediaContent &media)
 /*!
     \qmlsignal QtMultimedia::Audio::error(error, errorString)
 
-    This signal is emitted when an \l {QMediaPlayer::Error}{error} has
-    occurred.  The errorString parameter may contain more detailed
+    This signal is emitted when an \a error has
+    occurred.  The \a errorString parameter may contain more detailed
     information about the error.
 
     The corresponding handler is \c onError.
+
+    \sa QMediaPlayer::Error
 */
 
 /*!
@@ -1301,6 +1303,16 @@ void QDeclarativeAudio::_q_mediaChanged(const QMediaContent &media)
     This property holds the source URL of the media.
 
     Setting the \l source property clears the current \l playlist, if any.
+
+    Since Qt 5.12.2, the url scheme \c gst-pipeline provides custom pipelines
+    for the GStreamer backend.
+
+    If the pipeline contains a \c qtvideosink element,
+    the current VideoOutput will be used for rendering video.
+
+    \snippet multimedia-snippets/qtvideosink.qml complete
+
+    \sa QMediaPlayer::setMedia()
 */
 
 /*!
@@ -1531,11 +1543,13 @@ void QDeclarativeAudio::_q_mediaChanged(const QMediaContent &media)
 /*!
     \qmlsignal QtMultimedia::MediaPlayer::error(error, errorString)
 
-    This signal is emitted when an \l {QMediaPlayer::Error}{error} has
-    occurred.  The errorString parameter may contain more detailed
+    This signal is emitted when an \a error has
+    occurred.  The \a errorString parameter may contain more detailed
     information about the error.
 
     The corresponding handler is \c onError.
+
+    \sa QMediaPlayer::Error
 */
 
 /*!

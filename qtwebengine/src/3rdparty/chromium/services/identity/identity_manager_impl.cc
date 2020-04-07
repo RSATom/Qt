@@ -32,9 +32,9 @@ IdentityManagerImpl::AccessTokenRequest::~AccessTokenRequest() = default;
 
 void IdentityManagerImpl::AccessTokenRequest::OnGetTokenSuccess(
     const OAuth2TokenService::Request* request,
-    const std::string& access_token,
-    const base::Time& expiration_time) {
-  OnRequestCompleted(request, access_token, expiration_time,
+    const OAuth2AccessTokenConsumer::TokenResponse& token_response) {
+  OnRequestCompleted(request, token_response.access_token,
+                     token_response.expiration_time,
                      GoogleServiceAuthError::AuthErrorNone());
 }
 
@@ -165,9 +165,9 @@ void IdentityManagerImpl::OnRefreshTokenAvailable(
   OnAccountStateChange(account_id);
 }
 
-void IdentityManagerImpl::GoogleSigninSucceeded(const std::string& account_id,
-                                                const std::string& username) {
-  OnAccountStateChange(account_id);
+void IdentityManagerImpl::GoogleSigninSucceeded(
+    const AccountInfo& account_info) {
+  OnAccountStateChange(account_info.account_id);
 }
 
 void IdentityManagerImpl::OnAccountStateChange(const std::string& account_id) {

@@ -11,7 +11,6 @@
 #include "video/quality_threshold.h"
 
 #include "rtc_base/checks.h"
-#include "rtc_base/logging.h"
 
 namespace webrtc {
 
@@ -35,6 +34,8 @@ QualityThreshold::QualityThreshold(int low_threshold,
   RTC_CHECK_GT(max_measurements, 1);
   RTC_CHECK_LT(low_threshold, high_threshold);
 }
+
+QualityThreshold::~QualityThreshold() = default;
 
 void QualityThreshold::AddMeasurement(int measurement) {
   int prev_val = until_full_ > 0 ? 0 : buffer_[next_index_];

@@ -8,13 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <limits>
-#include <memory>
+#include <string.h>
 #include <string>
 
 #include "rtc_base/file.h"
-#include "rtc_base/gunit.h"
-#include "test/testsupport/fileutils.h"
+#include "test/gtest.h"
+#include "test/testsupport/file_utils.h"
 
 #if defined(WEBRTC_WIN)
 

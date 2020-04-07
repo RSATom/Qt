@@ -30,10 +30,15 @@ function is_android {
   return $?
 }
 
+function is_mac {
+  ! test -d /proc
+  return $?
+}
+
 function reset_tracing {
   if is_android $OUT; then
     adb shell 'echo 0 > /d/tracing/tracing_on'
-  else
+  elif ! is_mac; then
     if [ ! -w /sys/kernel/debug ]; then
       echo "debugfs not accessible, try sudo chown -R $USER /sys/kernel/debug"
       sudo chown -R $USER /sys/kernel/debug
@@ -44,7 +49,7 @@ function reset_tracing {
 }
 
 function adb_supports_push_sync {
-  adb --help | grep 'push.*\[--sync\]' 2>&1 >/dev/null
+  adb --help 2>&1 | grep 'push.*\[--sync\]' 2>&1 >/dev/null
 }
 
 function push {
@@ -93,6 +98,8 @@ CONFIG="${CONFIG:-:test}"
 
 if is_android $OUT ; then
   DIR=/data/local/tmp
+elif is_mac; then
+  DIR=$(mktemp -d $TMPDIR/perfetto.XXXXXX)
 else
   DIR=$(mktemp -p $TMPDIR -d perfetto.XXXXXX)
 fi
@@ -105,26 +112,38 @@ push $OUT/perfetto
 reset_tracing
 
 if is_android $OUT; then
-  PREFIX="PERFETTO_CONSUMER_SOCK_NAME=/data/misc/perfetto-traces/test_consumer_socket PERFETTO_PRODUCER_SOCK_NAME=/data/misc/perfetto-traces/test_producer_socket"
+  PREFIX="PERFETTO_CONSUMER_SOCK_NAME=@perfetto_test_consumer PERFETTO_PRODUCER_SOCK_NAME=@perfetto_test_producer"
 else
   PREFIX=""
 fi
 
 if ! is_monolithic $OUT; then
   PREFIX="$PREFIX LD_LIBRARY_PATH=$DIR"
-  push $OUT/libtraced_shared.so
+  push $OUT/libperfetto.so
 fi
 
-PREFIX="$PREFIX PERFETTO_METATRACE_FILE=$DIR/mtrace"
-
-CONFIG_DEVICE_PATH=$CONFIG
-if [[ "$CONFIG" != ":test" ]]; then
-  CONFIG_DEVICE_PATH=$DIR/$CONFIG.protobuf
+CONFIG_DEVICE_PATH="$CONFIG"
+CMD_OPTS=""
+if [[ "$CONFIG" == *.protobuf ]]; then
+  CONFIG_DEVICE_PATH="$CONFIG.protobuf"
   CONFIG_PATH=$OUT/$CONFIG.protobuf;
   if [[ ! -f $CONFIG_PATH ]]; then
     echo 'Config "'$CONFIG_PATH'" not known.'
     exit 1
   fi
+  push $CONFIG_PATH
+elif [[ "$CONFIG" != ":test" ]]; then
+  CONFIG_DEVICE_PATH="$(basename $CONFIG)"
+  CONFIG_PATH=test/configs/$CONFIG
+  # Check if this is a valid absolute path
+  if [[ ! -f $CONFIG_PATH ]]; then
+    CONFIG_PATH=$CONFIG
+    if [[ ! -f $CONFIG_PATH ]]; then
+      echo 'Config "'$CONFIG'" not known.'
+      exit 1
+    fi
+  fi
+  CMD_OPTS="--txt $CMD_OPTS"
   push $CONFIG_PATH
 fi
 
@@ -175,13 +194,19 @@ fi
 sleep 2
 
 tmux select-pane -t 1
-tmux send-keys "$PREFIX $DIR/traced $POSTFIX" Enter
+tmux send-keys "PS1='[traced_probes]$ '" Enter
+tmux send-keys "cd $DIR" Enter
+tmux send-keys "$PREFIX ./traced $POSTFIX" Enter
 
 tmux select-pane -t 0
-tmux send-keys "$PREFIX $DIR/traced_probes $POSTFIX" Enter
+tmux send-keys "PS1='[traced]$ '" Enter
+tmux send-keys "cd $DIR" Enter
+tmux send-keys "$PREFIX PERFETTO_METATRACE_FILE=mtrace ./traced_probes $POSTFIX" Enter
 
 tmux select-pane -t 2
-tmux send-keys "$PREFIX $DIR/perfetto -c $CONFIG_DEVICE_PATH -o $DIR/trace $POSTFIX"
+tmux send-keys "PS1='[consumer]$ '" Enter
+tmux send-keys "cd $DIR" Enter
+tmux send-keys "$PREFIX ./perfetto $CMD_OPTS -c $CONFIG_DEVICE_PATH -o trace $POSTFIX"
 
 # Select consumer pane.
 tmux select-pane -t 2
@@ -203,5 +228,5 @@ $OUT/trace_to_text systrace < /tmp/trace.protobuf > $TRACE.json
 pull mtrace /tmp/mtrace.json
 # Add [ to beginning of file and replace trailing , with ] to turn into valid
 # JSON array.
-sed -i '$ s/.$/]/' /tmp/mtrace.json
-sed -i '1s/^/[/' /tmp/mtrace.json
+sed -i -e '$ s/.$/]/' /tmp/mtrace.json
+sed -i -e '1s/^/[/' /tmp/mtrace.json

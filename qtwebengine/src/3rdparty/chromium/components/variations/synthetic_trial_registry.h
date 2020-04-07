@@ -50,7 +50,7 @@ class SyntheticTrialRegistry {
   // is registered for a given trial name will be recorded. The values passed
   // in must not correspond to any real field trial in the code.
   // Note: Should not be used to replace trials that were registered with
-  // RegisterMultiGroupSyntheticFieldTrial().
+  // RegisterSyntheticMultiGroupFieldTrial().
   void RegisterSyntheticFieldTrial(const SyntheticTrialGroup& trial_group);
 
   // Similar to RegisterSyntheticFieldTrial(), but registers a synthetic trial
@@ -72,7 +72,8 @@ class SyntheticTrialRegistry {
   std::vector<SyntheticTrialGroup> synthetic_trial_groups_;
 
   // List of observers of |synthetic_trial_groups_| changes.
-  base::ObserverList<SyntheticTrialObserver> synthetic_trial_observer_list_;
+  base::ObserverList<SyntheticTrialObserver>::Unchecked
+      synthetic_trial_observer_list_;
 };
 
 }  // namespace variations

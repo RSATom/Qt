@@ -7,11 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/public/common/platform_notification_data.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/notifications/platform_notification_data.h"
 #include "third_party/blink/public/platform/modules/notifications/web_notification_data.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
@@ -39,14 +39,16 @@ const char kAction2IconUrl[] = "https://example.com/action_icon_2.png";
 TEST(NotificationDataConversionsTest, ToWebNotificationData) {
   std::vector<int> vibration_pattern(
       kNotificationVibrationPattern,
-      kNotificationVibrationPattern + arraysize(kNotificationVibrationPattern));
+      kNotificationVibrationPattern +
+          base::size(kNotificationVibrationPattern));
 
   std::vector<char> developer_data(
-      kNotificationData, kNotificationData + arraysize(kNotificationData));
+      kNotificationData, kNotificationData + base::size(kNotificationData));
 
-  PlatformNotificationData platform_data;
+  blink::PlatformNotificationData platform_data;
   platform_data.title = base::ASCIIToUTF16(kNotificationTitle);
-  platform_data.direction = PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT;
+  platform_data.direction =
+      blink::PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT;
   platform_data.lang = kNotificationLang;
   platform_data.body = base::ASCIIToUTF16(kNotificationBody);
   platform_data.tag = kNotificationTag;
@@ -60,13 +62,14 @@ TEST(NotificationDataConversionsTest, ToWebNotificationData) {
   platform_data.require_interaction = true;
   platform_data.data = developer_data;
   platform_data.actions.resize(2);
-  platform_data.actions[0].type = PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON;
+  platform_data.actions[0].type =
+      blink::PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON;
   platform_data.actions[0].action = kAction1Name;
   platform_data.actions[0].title = base::ASCIIToUTF16(kAction1Title);
   platform_data.actions[0].icon = GURL(kAction1IconUrl);
   platform_data.actions[0].placeholder =
       base::NullableString16(base::ASCIIToUTF16(kAction1Placeholder), false);
-  platform_data.actions[1].type = PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT;
+  platform_data.actions[1].type = blink::PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT;
   platform_data.actions[1].action = kAction2Name;
   platform_data.actions[1].title = base::ASCIIToUTF16(kAction2Title);
   platform_data.actions[1].icon = GURL(kAction2IconUrl);
@@ -74,7 +77,7 @@ TEST(NotificationDataConversionsTest, ToWebNotificationData) {
 
   blink::WebNotificationData web_data = ToWebNotificationData(platform_data);
   EXPECT_EQ(kNotificationTitle, web_data.title);
-  EXPECT_EQ(blink::WebNotificationData::kDirectionLeftToRight,
+  EXPECT_EQ(blink::mojom::NotificationDirection::LEFT_TO_RIGHT,
             web_data.direction);
   EXPECT_EQ(kNotificationLang, web_data.lang);
   EXPECT_EQ(kNotificationBody, web_data.body);

@@ -3,18 +3,18 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
-import("//build/config/features.gni")
 import("//ppapi/buildflags/buildflags.gni")
-import("//ppapi/buildflags/buildflags.gni")
-import("//services/service_manager/public/cpp/service.gni")
+import("//services/catalog/public/tools/catalog.gni")
+import("//services/service_manager/public/cpp/service_executable.gni")
 import("//services/service_manager/public/service_manifest.gni")
-import("//services/service_manager/public/tools/test/service_test.gni")
 import("//testing/test.gni")
 
 source_set("lib") {
   sources = [
     "font_service_app.cc",
     "font_service_app.h",
+    "fontconfig_matching.cc",
+    "fontconfig_matching.h",
   ]
 
   deps = [
@@ -24,6 +24,7 @@ source_set("lib") {
     "//mojo/public/cpp/system",
     "//ppapi/buildflags:buildflags",
     "//services/service_manager/public/cpp",
+    "//third_party/fontconfig",
     "//ui/gfx",
   ]
 
@@ -51,12 +52,11 @@ if (is_linux && enable_plugins) {
       "//base:base",
       "//ppapi/buildflags:buildflags",
       "//ppapi/c",
-      "//third_party/fontconfig",
     ]
   }
 }
 
-service("font_service") {
+service_executable("font_service") {
   sources = [
     "main.cc",
   ]
@@ -66,6 +66,7 @@ service("font_service") {
     "//base",
     "//mojo/public/c/system",
     "//services/service_manager/public/cpp",
+    "//services/service_manager/public/mojom",
   ]
 }
 
@@ -74,24 +75,25 @@ service_manifest("manifest") {
   source = "manifest.json"
 }
 
-service_test("font_service_unittests") {
+test("font_service_unittests") {
   sources = [
-    "font_loader_test.cc",
-    "font_loader_test.h",
+    "font_loader_unittest.cc",
   ]
 
-  catalog = ":font_service_unittests_catalog"
-
   deps = [
+    ":font_service_unittests_catalog_source",
     "//base",
+    "//base/test:test_support",
     "//components/services/font/public/cpp",
     "//components/services/font/public/interfaces",
+    "//mojo/core/test:run_all_unittests",
     "//mojo/public/cpp/bindings",
     "//mojo/public/cpp/system",
     "//ppapi/buildflags:buildflags",
     "//services/service_manager/public/cpp",
-    "//services/service_manager/public/cpp:service_test_support",
+    "//services/service_manager/public/cpp/test:test_support",
     "//skia",
+    "//testing/gtest",
   ]
 
   if (enable_plugins) {
@@ -114,4 +116,10 @@ service_manifest("test_manifest") {
 catalog("font_service_unittests_catalog") {
   embedded_services = [ ":test_manifest" ]
   standalone_services = [ ":manifest" ]
+}
+
+catalog_cpp_source("font_service_unittests_catalog_source") {
+  testonly = true
+  catalog = ":font_service_unittests_catalog"
+  generated_function_name = "font_service::test::CreateTestCatalog"
 }

@@ -126,22 +126,22 @@ File* File::Create(
     ExecutionContext* context,
     const HeapVector<ArrayBufferOrArrayBufferViewOrBlobOrUSVString>& file_bits,
     const String& file_name,
-    const FilePropertyBag& options,
+    const FilePropertyBag* options,
     ExceptionState& exception_state) {
-  DCHECK(options.hasType());
+  DCHECK(options->hasType());
 
   double last_modified;
-  if (options.hasLastModified())
-    last_modified = static_cast<double>(options.lastModified());
+  if (options->hasLastModified())
+    last_modified = static_cast<double>(options->lastModified());
   else
     last_modified = CurrentTimeMS();
-  DCHECK(options.hasEndings());
-  bool normalize_line_endings_to_native = options.endings() == "native";
+  DCHECK(options->hasEndings());
+  bool normalize_line_endings_to_native = options->endings() == "native";
   if (normalize_line_endings_to_native)
     UseCounter::Count(context, WebFeature::kFileAPINativeLineEndings);
 
   std::unique_ptr<BlobData> blob_data = BlobData::Create();
-  blob_data->SetContentType(NormalizeType(options.type()));
+  blob_data->SetContentType(NormalizeType(options->type()));
   PopulateBlobData(blob_data.get(), file_bits,
                    normalize_line_endings_to_native);
 
@@ -152,7 +152,8 @@ File* File::Create(
 
 File* File::CreateWithRelativePath(const String& path,
                                    const String& relative_path) {
-  File* file = new File(path, File::kAllContentTypes, File::kIsUserVisible);
+  File* file = MakeGarbageCollected<File>(path, File::kAllContentTypes,
+                                          File::kIsUserVisible);
   file->relative_path_ = relative_path;
   return file;
 }
@@ -231,7 +232,8 @@ File::File(const KURL& file_system_url,
           metadata.length)),
       has_backing_file_(false),
       user_visibility_(user_visibility),
-      name_(DecodeURLEscapeSequences(file_system_url.LastPathComponent())),
+      name_(DecodeURLEscapeSequences(file_system_url.LastPathComponent(),
+                                     DecodeURLMode::kUTF8OrIsomorphic)),
       file_system_url_(file_system_url),
       snapshot_size_(metadata.length),
       snapshot_modification_time_ms_(metadata.modification_time) {}
@@ -248,7 +250,7 @@ File::File(const File& other)
       relative_path_(other.relative_path_) {}
 
 File* File::Clone(const String& name) const {
-  File* file = new File(*this);
+  File* file = MakeGarbageCollected<File>(*this);
   if (!name.IsNull())
     file->name_ = name;
   return file;

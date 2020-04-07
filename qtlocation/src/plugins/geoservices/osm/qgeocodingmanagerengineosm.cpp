@@ -38,7 +38,6 @@
 ****************************************************************************/
 
 #include "qgeocodingmanagerengineosm.h"
-#include "qgeocodereplyosm.h"
 
 #include <QtCore/QVariantMap>
 #include <QtCore/QUrl>
@@ -50,6 +49,8 @@
 #include <QtPositioning/QGeoAddress>
 #include <QtPositioning/QGeoShape>
 #include <QtPositioning/QGeoRectangle>
+#include "qgeocodereplyosm.h"
+
 
 QT_BEGIN_NAMESPACE
 
@@ -85,6 +86,11 @@ QGeoCodingManagerEngineOsm::QGeoCodingManagerEngineOsm(const QVariantMap &parame
     else
         m_urlPrefix = QStringLiteral("https://nominatim.openstreetmap.org");
 
+    if (parameters.contains(QStringLiteral("osm.geocoding.debug_query")))
+        m_debugQuery = parameters.value(QStringLiteral("osm.geocoding.debug_query")).toBool();
+    if (parameters.contains(QStringLiteral("osm.geocoding.include_extended_data")))
+        m_includeExtraData = parameters.value(QStringLiteral("osm.geocoding.include_extended_data")).toBool();
+
     *error = QGeoServiceProvider::NoError;
     errorString->clear();
 }
@@ -100,7 +106,7 @@ QGeoCodeReply *QGeoCodingManagerEngineOsm::geocode(const QGeoAddress &address, c
 
 QGeoCodeReply *QGeoCodingManagerEngineOsm::geocode(const QString &address, int limit, int offset, const QGeoShape &bounds)
 {
-    Q_UNUSED(offset)
+    Q_UNUSED(offset);
 
     QNetworkRequest request;
     request.setRawHeader("User-Agent", m_userAgent);
@@ -125,7 +131,12 @@ QGeoCodeReply *QGeoCodingManagerEngineOsm::geocode(const QString &address, int l
 
     QNetworkReply *reply = m_networkManager->get(request);
 
-    QGeoCodeReplyOsm *geocodeReply = new QGeoCodeReplyOsm(reply, this);
+    QGeoCodeReplyOsm *geocodeReply = new QGeoCodeReplyOsm(reply, m_includeExtraData, this);
+    if (m_debugQuery) {
+        QGeoCodeReplyOsmPrivate *replyPrivate
+                = static_cast<QGeoCodeReplyOsmPrivate *>(QGeoCodeReplyPrivate::get(*geocodeReply));
+        replyPrivate->m_extraData["request_url"] = url;
+    }
 
     connect(geocodeReply, SIGNAL(finished()), this, SLOT(replyFinished()));
     connect(geocodeReply, SIGNAL(error(QGeoCodeReply::Error,QString)),
@@ -137,7 +148,7 @@ QGeoCodeReply *QGeoCodingManagerEngineOsm::geocode(const QString &address, int l
 QGeoCodeReply *QGeoCodingManagerEngineOsm::reverseGeocode(const QGeoCoordinate &coordinate,
                                                           const QGeoShape &bounds)
 {
-    Q_UNUSED(bounds)
+    Q_UNUSED(bounds);
 
     QNetworkRequest request;
     request.setRawHeader("User-Agent", m_userAgent);
@@ -156,7 +167,12 @@ QGeoCodeReply *QGeoCodingManagerEngineOsm::reverseGeocode(const QGeoCoordinate &
 
     QNetworkReply *reply = m_networkManager->get(request);
 
-    QGeoCodeReplyOsm *geocodeReply = new QGeoCodeReplyOsm(reply, this);
+    QGeoCodeReplyOsm *geocodeReply = new QGeoCodeReplyOsm(reply, m_includeExtraData, this);
+    if (m_debugQuery) {
+        QGeoCodeReplyOsmPrivate *replyPrivate
+                = static_cast<QGeoCodeReplyOsmPrivate *>(QGeoCodeReplyPrivate::get(*geocodeReply));
+        replyPrivate->m_extraData["request_url"] = url;
+    }
 
     connect(geocodeReply, SIGNAL(finished()), this, SLOT(replyFinished()));
     connect(geocodeReply, SIGNAL(error(QGeoCodeReply::Error,QString)),

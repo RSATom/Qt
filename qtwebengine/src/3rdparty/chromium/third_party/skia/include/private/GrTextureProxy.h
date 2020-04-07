@@ -36,6 +36,22 @@ public:
     // generation later.
     GrMipMapped mipMapped() const;
 
+    // Returns the GrMipMapped value of the proxy from creation time regardless of whether it has
+    // been instantiated or not.
+    GrMipMapped proxyMipMapped() const { return fMipMapped; }
+
+    GrTextureType textureType() const { return this->backendFormat().textureType(); }
+
+    /** If true then the texture does not support MIP maps and only supports clamp wrap mode. */
+    bool hasRestrictedSampling() const {
+        return GrTextureTypeHasRestrictedSampling(this->textureType());
+    }
+
+    // Returns true if the passed in proxies can be used as dynamic state together when flushing
+    // draws to the gpu.
+    static bool ProxiesAreCompatibleAsDynamicState(const GrTextureProxy* first,
+                                                   const GrTextureProxy* second);
+
     /**
      * Return the texture proxy's unique key. It will be invalid if the proxy doesn't have one.
      */
@@ -72,12 +88,12 @@ protected:
     friend class GrTextureProxyPriv;
 
     // Deferred version - when constructed with data the origin is always kTopLeft.
-    GrTextureProxy(const GrSurfaceDesc& srcDesc, GrMipMapped, SkBackingFit, SkBudgeted,
-                   const void* srcData, size_t srcRowBytes, GrInternalSurfaceFlags);
+    GrTextureProxy(const GrBackendFormat&, const GrSurfaceDesc& srcDesc, GrMipMapped, SkBackingFit,
+                   SkBudgeted, const void* srcData, size_t srcRowBytes, GrInternalSurfaceFlags);
 
     // Deferred version - no data.
-    GrTextureProxy(const GrSurfaceDesc& srcDesc, GrSurfaceOrigin, GrMipMapped, SkBackingFit,
-                   SkBudgeted, GrInternalSurfaceFlags);
+    GrTextureProxy(const GrBackendFormat&, const GrSurfaceDesc& srcDesc, GrSurfaceOrigin,
+                   GrMipMapped, SkBackingFit, SkBudgeted, GrInternalSurfaceFlags);
 
     // Lazy-callback version
     // There are two main use cases for lazily-instantiated proxies:
@@ -89,9 +105,9 @@ protected:
     //
     // The minimal knowledge version is used for CCPR where we are generating an atlas but we do not
     // know the final size until flush time.
-    GrTextureProxy(LazyInstantiateCallback&&, LazyInstantiationType, const GrSurfaceDesc& desc,
-                   GrSurfaceOrigin, GrMipMapped, SkBackingFit, SkBudgeted,
-                   GrInternalSurfaceFlags);
+    GrTextureProxy(LazyInstantiateCallback&&, LazyInstantiationType, const GrBackendFormat&,
+                   const GrSurfaceDesc& desc, GrSurfaceOrigin, GrMipMapped, SkBackingFit,
+                   SkBudgeted, GrInternalSurfaceFlags);
 
     // Wrapped version
     GrTextureProxy(sk_sp<GrSurface>, GrSurfaceOrigin);
@@ -100,14 +116,15 @@ protected:
 
     sk_sp<GrSurface> createSurface(GrResourceProvider*) const override;
 
-    void setIsGLTextureRectangleOrExternal() {
-        fSurfaceFlags |= GrInternalSurfaceFlags::kIsGLTextureRectangleOrExternal;
-    }
-    bool isGLTextureRectangleOrExternal() const {
-        return fSurfaceFlags & GrInternalSurfaceFlags::kIsGLTextureRectangleOrExternal;
-    }
-
 private:
+    // WARNING: Be careful when adding or removing fields here. ASAN is likely to trigger warnings
+    // when instantiating GrTextureRenderTargetProxy. The std::function in GrSurfaceProxy makes
+    // each class in the diamond require 16 byte alignment. Clang appears to layout the fields for
+    // each class to achieve the necessary alignment. However, ASAN checks the alignment of 'this'
+    // in the constructors, and always looks for the full 16 byte alignment, even if the fields in
+    // that particular class don't require it. Changing the size of this object can move the start
+    // address of other types, leading to this problem.
+
     GrMipMapped      fMipMapped;
 
     GrUniqueKey      fUniqueKey;

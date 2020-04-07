@@ -201,7 +201,7 @@ TEST_F(TrafficAnnotationAuditorTest, GetFilesFromGit) {
 
   const std::vector<std::string> git_files = filter.git_files();
 
-  EXPECT_EQ(git_files.size(), arraysize(kRelevantFiles));
+  EXPECT_EQ(git_files.size(), base::size(kRelevantFiles));
   for (const char* filepath : kRelevantFiles) {
     EXPECT_TRUE(base::ContainsValue(git_files, filepath));
   }
@@ -909,7 +909,8 @@ TEST_F(TrafficAnnotationAuditorTest, AnnotationsXML) {
   TrafficAnnotationExporter exporter(source_path());
 
   EXPECT_TRUE(exporter.LoadAnnotationsXML());
-  EXPECT_TRUE(exporter.CheckArchivedAnnotations());
+  exporter.CheckArchivedAnnotations(errors());
+  EXPECT_TRUE(errors()->empty());
 }
 
 // Tests if 'annotations.xml' is read and has at least one item.

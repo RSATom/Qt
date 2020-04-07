@@ -10,18 +10,27 @@
 
 #include "test/fake_decoder.h"
 
+#include <string.h>
+
 #include "api/video/i420_buffer.h"
-#include "rtc_base/timeutils.h"
-#include "test/call_test.h"
-#include "test/gtest.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_rotation.h"
+#include "modules/video_coding/include/video_error_codes.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 namespace test {
 
+namespace {
+const int kDefaultWidth = 320;
+const int kDefaultHeight = 180;
+}  // namespace
+
 FakeDecoder::FakeDecoder()
-    : callback_(NULL),
-      width_(CallTest::kDefaultWidth),
-      height_(CallTest::kDefaultHeight) {}
+    : callback_(NULL), width_(kDefaultWidth), height_(kDefaultHeight) {}
 
 int32_t FakeDecoder::InitDecode(const VideoCodec* config,
                                 int32_t number_of_cores) {
@@ -37,10 +46,13 @@ int32_t FakeDecoder::Decode(const EncodedImage& input,
     height_ = input._encodedHeight;
   }
 
-  VideoFrame frame(I420Buffer::Create(width_, height_),
-                   webrtc::kVideoRotation_0,
-                   render_time_ms * rtc::kNumMicrosecsPerMillisec);
-  frame.set_timestamp(input._timeStamp);
+  VideoFrame frame =
+      VideoFrame::Builder()
+          .set_video_frame_buffer(I420Buffer::Create(width_, height_))
+          .set_rotation(webrtc::kVideoRotation_0)
+          .set_timestamp_ms(render_time_ms)
+          .build();
+  frame.set_timestamp(input.Timestamp());
   frame.set_ntp_time_ms(input.ntp_time_ms_);
 
   callback_->Decoded(frame);
@@ -68,14 +80,14 @@ int32_t FakeH264Decoder::Decode(const EncodedImage& input,
                                 const CodecSpecificInfo* codec_specific_info,
                                 int64_t render_time_ms) {
   uint8_t value = 0;
-  for (size_t i = 0; i < input._length; ++i) {
+  for (size_t i = 0; i < input.size(); ++i) {
     uint8_t kStartCode[] = {0, 0, 0, 1};
-    if (i < input._length - sizeof(kStartCode) &&
-        !memcmp(&input._buffer[i], kStartCode, sizeof(kStartCode))) {
+    if (i < input.size() - sizeof(kStartCode) &&
+        !memcmp(&input.data()[i], kStartCode, sizeof(kStartCode))) {
       i += sizeof(kStartCode) + 1;  // Skip start code and NAL header.
     }
-    if (input._buffer[i] != value) {
-      EXPECT_EQ(value, input._buffer[i])
+    if (input.data()[i] != value) {
+      RTC_CHECK_EQ(value, input.data()[i])
           << "Bitstream mismatch between sender and receiver.";
       return -1;
     }

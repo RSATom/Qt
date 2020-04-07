@@ -10,7 +10,9 @@
 #include "base/format_macros.h"
 #include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "components/version_info/version_info.h"
 #include "extensions/browser/api/declarative_net_request/constants.h"
 #include "extensions/common/api/declarative_net_request.h"
@@ -51,7 +53,7 @@ TEST_F(IndexedRuleTest, IDParsing) {
       {kMinValidID, ParseResult::SUCCESS},
       {kMinValidID + 1, ParseResult::SUCCESS},
   };
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->id = cases[i].id;
@@ -83,7 +85,7 @@ TEST_F(IndexedRuleTest, PriorityParsing) {
        kDefaultPriority},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->priority = std::move(cases[i].priority);
@@ -125,11 +127,15 @@ TEST_F(IndexedRuleTest, OptionsParsing) {
       {dnr_api::DOMAIN_TYPE_FIRSTPARTY, dnr_api::RULE_ACTION_TYPE_ALLOW,
        std::make_unique<bool>(true),
        flat_rule::OptionFlag_IS_WHITELIST |
+           flat_rule::OptionFlag_APPLIES_TO_FIRST_PARTY},
+      {dnr_api::DOMAIN_TYPE_FIRSTPARTY, dnr_api::RULE_ACTION_TYPE_ALLOW,
+       std::make_unique<bool>(false),
+       flat_rule::OptionFlag_IS_WHITELIST |
            flat_rule::OptionFlag_APPLIES_TO_FIRST_PARTY |
-           flat_rule::OptionFlag_IS_MATCH_CASE},
+           flat_rule::OptionFlag_IS_CASE_INSENSITIVE},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->condition.domain_type = cases[i].domain_type;
@@ -194,7 +200,7 @@ TEST_F(IndexedRuleTest, ResourceTypesParsing) {
        ParseResult::SUCCESS, flat_rule::ElementType_SCRIPT},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->condition.resource_types = std::move(cases[i].resource_types);
@@ -258,9 +264,14 @@ TEST_F(IndexedRuleTest, UrlFilterParsing) {
       {std::make_unique<std::string>("||google.com"),
        flat_rule::UrlPatternType_SUBSTRING, flat_rule::AnchorType_SUBDOMAIN,
        flat_rule::AnchorType_NONE, "google.com", ParseResult::SUCCESS},
+      // Url pattern with non-ascii characters -ⱴase.com.
+      {std::make_unique<std::string>(base::WideToUTF8(L"\x2c74"
+                                                      L"ase.com")),
+       flat_rule::UrlPatternType_SUBSTRING, flat_rule::AnchorType_NONE,
+       flat_rule::AnchorType_NONE, "", ParseResult::ERROR_NON_ASCII_URL_FILTER},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->condition.url_filter = std::move(cases[i].input_url_filter);
@@ -277,6 +288,31 @@ TEST_F(IndexedRuleTest, UrlFilterParsing) {
     EXPECT_EQ(cases[i].expected_anchor_left, indexed_rule.anchor_left);
     EXPECT_EQ(cases[i].expected_anchor_right, indexed_rule.anchor_right);
     EXPECT_EQ(cases[i].expected_url_pattern, indexed_rule.url_pattern);
+  }
+}
+
+// Ensure case-insensitive patterns are lower-cased as required by
+// url_pattern_index.
+TEST_F(IndexedRuleTest, CaseInsensitiveLowerCased) {
+  const std::string kPattern = "/QUERY";
+  struct {
+    std::unique_ptr<bool> is_url_filter_case_sensitive;
+    std::string expected_pattern;
+  } test_cases[] = {
+      {std::make_unique<bool>(false), "/query"},
+      {std::make_unique<bool>(true), "/QUERY"},
+      {nullptr, "/QUERY"}  // By default patterns are case sensitive.
+  };
+
+  for (auto& test_case : test_cases) {
+    std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
+    rule->condition.url_filter = std::make_unique<std::string>(kPattern);
+    rule->condition.is_url_filter_case_sensitive =
+        std::move(test_case.is_url_filter_case_sensitive);
+    IndexedRule indexed_rule;
+    ASSERT_EQ(ParseResult::SUCCESS,
+              IndexedRule::CreateIndexedRule(std::move(rule), &indexed_rule));
+    EXPECT_EQ(test_case.expected_pattern, indexed_rule.url_pattern);
   }
 }
 
@@ -306,9 +342,32 @@ TEST_F(IndexedRuleTest, DomainsParsing) {
            DomainVec({"g.com", "XY.COM", "zzz.com", "a.com", "google.com"})),
        ParseResult::SUCCESS,
        {"a.com", "a.com", "b.com"},
-       {"google.com", "zzz.com", "xy.com", "a.com", "g.com"}}};
+       {"google.com", "zzz.com", "xy.com", "a.com", "g.com"}},
+      // Domain with non-ascii characters.
+      {std::make_unique<DomainVec>(
+           DomainVec({base::WideToUTF8(L"abc\x2010" /*hyphen*/ L"def.com")})),
+       nullptr,
+       ParseResult::ERROR_NON_ASCII_DOMAIN,
+       {},
+       {}},
+      // Excluded domain with non-ascii characters.
+      {nullptr,
+       std::make_unique<DomainVec>(
+           DomainVec({base::WideToUTF8(L"36\x00b0"
+                                       L"c.com" /*36°c.com*/)})),
+       ParseResult::ERROR_NON_ASCII_EXCLUDED_DOMAIN,
+       {},
+       {}},
+      // Internationalized domain in punycode.
+      {std::make_unique<DomainVec>(
+           DomainVec({"xn--36c-tfa.com" /* punycode for 36°c.com*/})),
+       nullptr,
+       ParseResult::SUCCESS,
+       {"xn--36c-tfa.com"},
+       {}},
+  };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->condition.domains = std::move(cases[i].domains);
@@ -341,7 +400,7 @@ TEST_F(IndexedRuleTest, RedirectUrlParsing) {
                {std::make_unique<std::string>("abc"),
                 ParseResult::ERROR_INVALID_REDIRECT_URL, ""}};
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing case[%" PRIuS "]", i));
     std::unique_ptr<dnr_api::Rule> rule = CreateGenericParsedRule();
     rule->action.redirect_url = std::move(cases[i].redirect_url);

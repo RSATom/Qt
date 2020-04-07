@@ -52,7 +52,7 @@ bool RunGLES2ConformTest(const char* path) {
     return false;
   }
   gpu::GPUTestBotConfig bot_config;
-  if (!bot_config.LoadCurrentConfig(NULL)) {
+  if (!bot_config.LoadCurrentConfig(nullptr)) {
     LOG(ERROR) << "Fail to load bot configuration";
     return false;
   }
@@ -132,8 +132,6 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   base::TestSuite test_suite(argc, argv);
   int rt = base::LaunchUnitTestsSerially(
-      argc,
-      argv,
-      base::Bind(&RunHelper, base::Unretained(&test_suite)));
+      argc, argv, base::BindOnce(&RunHelper, base::Unretained(&test_suite)));
   return rt;
 }

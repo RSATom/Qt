@@ -49,6 +49,8 @@ class SVGSVGElement final : public SVGGraphicsElement,
  public:
   DECLARE_NODE_FACTORY(SVGSVGElement);
 
+  explicit SVGSVGElement(Document&);
+
   float IntrinsicWidth() const;
   float IntrinsicHeight() const;
   FloatSize CurrentViewportSize() const;
@@ -112,7 +114,6 @@ class SVGSVGElement final : public SVGGraphicsElement,
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit SVGSVGElement(Document&);
   ~SVGSVGElement() override;
 
   void SetViewSpec(const SVGViewSpec*);
@@ -129,8 +130,8 @@ class SVGSVGElement final : public SVGGraphicsElement,
   bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
 
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
 
   void SvgAttributeChanged(const QualifiedName&) override;
 

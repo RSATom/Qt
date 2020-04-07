@@ -16,8 +16,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/task_runner.h"
-#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "ui/snapshot/snapshot.h"
@@ -73,7 +73,7 @@ ScreenshotGrabber::~ScreenshotGrabber() {
 void ScreenshotGrabber::TakeScreenshot(gfx::NativeWindow window,
                                        const gfx::Rect& rect,
                                        ScreenshotCallback callback) {
-  DCHECK(base::MessageLoopForUI::IsCurrent());
+  DCHECK(base::MessageLoopCurrentForUI::IsSet());
   last_screenshot_timestamp_ = base::TimeTicks::Now();
 
   bool is_partial = true;
@@ -106,7 +106,7 @@ void ScreenshotGrabber::GrabWindowSnapshotAsyncCallback(
     bool is_partial,
     ScreenshotCallback callback,
     scoped_refptr<base::RefCountedMemory> png_data) {
-  DCHECK(base::MessageLoopForUI::IsCurrent());
+  DCHECK(base::MessageLoopCurrentForUI::IsSet());
 
 #if defined(USE_AURA)
   cursor_hider_.reset();

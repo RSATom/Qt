@@ -617,10 +617,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // Type is Boolean.
       CheckTypeIs(node, Type::Boolean());
       break;
-    case IrOpcode::kJSToInteger:
-      // Type is OrderedNumber.
-      CheckTypeIs(node, Type::OrderedNumber());
-      break;
     case IrOpcode::kJSToLength:
       CheckTypeIs(node, Type::Range(0, kMaxSafeInteger, zone));
       break;
@@ -629,6 +625,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::Name());
       break;
     case IrOpcode::kJSToNumber:
+    case IrOpcode::kJSToNumberConvertBigInt:
       // Type is Number.
       CheckTypeIs(node, Type::Number());
       break;
@@ -667,6 +664,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::Array());
       break;
     case IrOpcode::kJSCreateArrayIterator:
+      // Type is OtherObject.
+      CheckTypeIs(node, Type::OtherObject());
+      break;
+    case IrOpcode::kJSCreateAsyncFunctionObject:
       // Type is OtherObject.
       CheckTypeIs(node, Type::OtherObject());
       break;
@@ -714,8 +715,13 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // Type is Array.
       CheckTypeIs(node, Type::Array());
       break;
+    case IrOpcode::kJSCreateArrayFromIterable:
+      // Type is Array.
+      CheckTypeIs(node, Type::Array());
+      break;
     case IrOpcode::kJSCreateLiteralObject:
     case IrOpcode::kJSCreateEmptyLiteralObject:
+    case IrOpcode::kJSCloneObject:
     case IrOpcode::kJSCreateLiteralRegExp:
       // Type is OtherObject.
       CheckTypeIs(node, Type::OtherObject());
@@ -728,7 +734,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kJSLoadNamed:
       // Type can be anything.
       CheckTypeIs(node, Type::Any());
-      CHECK(NamedAccessOf(node->op()).feedback().IsValid());
       break;
     case IrOpcode::kJSLoadGlobal:
       // Type can be anything.
@@ -743,7 +748,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kJSStoreNamed:
       // Type is empty.
       CheckNotTyped(node);
-      CHECK(NamedAccessOf(node->op()).feedback().IsValid());
       break;
     case IrOpcode::kJSStoreGlobal:
       // Type is empty.
@@ -872,6 +876,23 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckNotTyped(node);
       break;
 
+    case IrOpcode::kJSAsyncFunctionEnter:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckValueInputIs(node, 1, Type::Any());
+      CheckTypeIs(node, Type::OtherObject());
+      break;
+    case IrOpcode::kJSAsyncFunctionReject:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckValueInputIs(node, 1, Type::Any());
+      CheckValueInputIs(node, 2, Type::Boolean());
+      CheckTypeIs(node, Type::OtherObject());
+      break;
+    case IrOpcode::kJSAsyncFunctionResolve:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckValueInputIs(node, 1, Type::Any());
+      CheckValueInputIs(node, 2, Type::Boolean());
+      CheckTypeIs(node, Type::OtherObject());
+      break;
     case IrOpcode::kJSFulfillPromise:
       CheckValueInputIs(node, 0, Type::Any());
       CheckValueInputIs(node, 1, Type::Any());
@@ -1088,6 +1109,12 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::PlainPrimitive());
       CheckTypeIs(node, Type::Number());
       break;
+    case IrOpcode::kStringConcat:
+      CheckValueInputIs(node, 0, TypeCache::Get()->kStringLengthType);
+      CheckValueInputIs(node, 1, Type::String());
+      CheckValueInputIs(node, 2, Type::String());
+      CheckTypeIs(node, Type::String());
+      break;
     case IrOpcode::kStringEqual:
     case IrOpcode::kStringLessThan:
     case IrOpcode::kStringLessThanOrEqual:
@@ -1132,7 +1159,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kStringLength:
       CheckValueInputIs(node, 0, Type::String());
-      CheckTypeIs(node, TypeCache::Get().kStringLengthType);
+      CheckTypeIs(node, TypeCache::Get()->kStringLengthType);
       break;
     case IrOpcode::kStringToLowerCaseIntl:
     case IrOpcode::kStringToUpperCaseIntl:
@@ -1171,7 +1198,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kObjectIsString:
     case IrOpcode::kObjectIsSymbol:
     case IrOpcode::kObjectIsUndetectable:
-    case IrOpcode::kArrayBufferWasNeutered:
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Boolean());
       break;
@@ -1183,6 +1209,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::Number());
       CheckTypeIs(node, Type::Boolean());
       break;
+    case IrOpcode::kNumberIsMinusZero:
     case IrOpcode::kNumberIsNaN:
       CheckValueInputIs(node, 0, Type::Number());
       CheckTypeIs(node, Type::Boolean());
@@ -1218,7 +1245,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kArgumentsLength:
       CheckValueInputIs(node, 0, Type::ExternalPointer());
-      CheckTypeIs(node, TypeCache::Get().kArgumentsLengthType);
+      CheckTypeIs(node, TypeCache::Get()->kArgumentsLengthType);
       break;
     case IrOpcode::kArgumentsFrame:
       CheckTypeIs(node, Type::ExternalPointer());
@@ -1231,13 +1258,17 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kNewArgumentsElements:
       CheckValueInputIs(node, 0, Type::ExternalPointer());
-      CheckValueInputIs(node, 1, Type::Unsigned30());
+      CheckValueInputIs(node, 1,
+                        Type::Range(0.0, FixedArray::kMaxLength, zone));
       CheckTypeIs(node, Type::OtherInternal());
       break;
     case IrOpcode::kNewConsString:
-      CheckValueInputIs(node, 0, TypeCache::Get().kStringLengthType);
+      CheckValueInputIs(node, 0, TypeCache::Get()->kStringLengthType);
       CheckValueInputIs(node, 1, Type::String());
       CheckValueInputIs(node, 2, Type::String());
+      CheckTypeIs(node, Type::String());
+      break;
+    case IrOpcode::kDelayedStringConstant:
       CheckTypeIs(node, Type::String());
       break;
     case IrOpcode::kAllocate:
@@ -1272,6 +1303,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kChangeTaggedSignedToInt64:
+      break;
     case IrOpcode::kChangeTaggedToInt32: {
       // Signed32 /\ Tagged -> Signed32 /\ UntaggedInt32
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1281,6 +1314,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kChangeTaggedToInt64:
+      break;
     case IrOpcode::kChangeTaggedToUint32: {
       // Unsigned32 /\ Tagged -> Unsigned32 /\ UntaggedInt32
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1329,6 +1364,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kChangeInt64ToTagged:
+      break;
     case IrOpcode::kChangeUint32ToTagged: {
       // Unsigned32 /\ UntaggedInt32 -> Unsigned32 /\ Tagged
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1338,6 +1375,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kChangeUint64ToTagged:
+      break;
     case IrOpcode::kChangeFloat64ToTagged: {
       // Number /\ UntaggedFloat64 -> Number /\ Tagged
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1382,8 +1421,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
 
     case IrOpcode::kCheckBounds:
       CheckValueInputIs(node, 0, Type::Any());
-      CheckValueInputIs(node, 1, Type::Unsigned31());
-      CheckTypeIs(node, Type::Unsigned31());
+      CheckValueInputIs(node, 1, TypeCache::Get()->kPositiveSafeInteger);
+      CheckTypeIs(node, TypeCache::Get()->kPositiveSafeInteger);
       break;
     case IrOpcode::kPoisonIndex:
       CheckValueInputIs(node, 0, Type::Unsigned32());
@@ -1416,6 +1455,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Receiver());
       break;
+    case IrOpcode::kCheckReceiverOrNullOrUndefined:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckTypeIs(node, Type::ReceiverOrNullOrUndefined());
+      break;
     case IrOpcode::kCheckSmi:
       CheckValueInputIs(node, 0, Type::Any());
       break;
@@ -1427,7 +1470,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Symbol());
       break;
-
     case IrOpcode::kConvertReceiver:
       // (Any, Any) -> Receiver
       CheckValueInputIs(node, 0, Type::Any());
@@ -1443,11 +1485,19 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kCheckedUint32Mod:
     case IrOpcode::kCheckedInt32Mul:
     case IrOpcode::kCheckedInt32ToTaggedSigned:
+    case IrOpcode::kCheckedInt64ToInt32:
+    case IrOpcode::kCheckedInt64ToTaggedSigned:
+    case IrOpcode::kCheckedUint32Bounds:
     case IrOpcode::kCheckedUint32ToInt32:
     case IrOpcode::kCheckedUint32ToTaggedSigned:
+    case IrOpcode::kCheckedUint64Bounds:
+    case IrOpcode::kCheckedUint64ToInt32:
+    case IrOpcode::kCheckedUint64ToTaggedSigned:
     case IrOpcode::kCheckedFloat64ToInt32:
+    case IrOpcode::kCheckedFloat64ToInt64:
     case IrOpcode::kCheckedTaggedSignedToInt32:
     case IrOpcode::kCheckedTaggedToInt32:
+    case IrOpcode::kCheckedTaggedToInt64:
     case IrOpcode::kCheckedTaggedToFloat64:
     case IrOpcode::kCheckedTaggedToTaggedSigned:
     case IrOpcode::kCheckedTaggedToTaggedPointer:
@@ -1686,12 +1736,15 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kChangeInt32ToInt64:
     case IrOpcode::kChangeUint32ToUint64:
     case IrOpcode::kChangeInt32ToFloat64:
+    case IrOpcode::kChangeInt64ToFloat64:
     case IrOpcode::kChangeUint32ToFloat64:
     case IrOpcode::kChangeFloat32ToFloat64:
     case IrOpcode::kChangeFloat64ToInt32:
+    case IrOpcode::kChangeFloat64ToInt64:
     case IrOpcode::kChangeFloat64ToUint32:
     case IrOpcode::kChangeFloat64ToUint64:
     case IrOpcode::kFloat64SilenceNaN:
+    case IrOpcode::kTruncateFloat64ToInt64:
     case IrOpcode::kTruncateFloat64ToUint32:
     case IrOpcode::kTruncateFloat32ToInt32:
     case IrOpcode::kTruncateFloat32ToUint32:
@@ -1735,6 +1788,15 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kWord64AtomicXor:
     case IrOpcode::kWord64AtomicExchange:
     case IrOpcode::kWord64AtomicCompareExchange:
+    case IrOpcode::kWord32AtomicPairLoad:
+    case IrOpcode::kWord32AtomicPairStore:
+    case IrOpcode::kWord32AtomicPairAdd:
+    case IrOpcode::kWord32AtomicPairSub:
+    case IrOpcode::kWord32AtomicPairAnd:
+    case IrOpcode::kWord32AtomicPairOr:
+    case IrOpcode::kWord32AtomicPairXor:
+    case IrOpcode::kWord32AtomicPairExchange:
+    case IrOpcode::kWord32AtomicPairCompareExchange:
     case IrOpcode::kSpeculationFence:
     case IrOpcode::kSignExtendWord8ToInt32:
     case IrOpcode::kSignExtendWord16ToInt32:

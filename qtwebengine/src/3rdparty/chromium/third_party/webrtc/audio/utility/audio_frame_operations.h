@@ -12,9 +12,9 @@
 #define AUDIO_UTILITY_AUDIO_FRAME_OPERATIONS_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "api/audio/audio_frame.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 

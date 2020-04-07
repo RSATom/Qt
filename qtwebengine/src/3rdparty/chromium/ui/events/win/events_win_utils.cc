@@ -3,12 +3,12 @@
 // found in the LICENSE file.
 
 #include <stdint.h>
-#include <windowsx.h>
 
 #include "ui/events/event_constants.h"
 
 #include "base/logging.h"
 #include "base/time/time.h"
+#include "base/win/windowsx_shim.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
@@ -254,7 +254,7 @@ gfx::Point EventLocationFromMSG(const MSG& native_event) {
     // Note: Wheel events are considered client, but their position is in screen
     //       coordinates.
     // Client message. The position is contained in the LPARAM.
-    return gfx::Point(native_event.lParam);
+    return gfx::Point(static_cast<DWORD>(native_event.lParam));
   } else {
     DCHECK(IsNonClientMouseEvent(native_event) ||
            IsMouseWheelEvent(native_event) || IsScrollEvent(native_event));
@@ -425,14 +425,14 @@ KeyEvent KeyEventFromMSG(const MSG& msg) {
   DCHECK(IsKeyEvent(msg));
   EventType type = EventTypeFromMSG(msg);
   KeyboardCode key_code = KeyboardCodeFromMSG(msg);
-  DomCode code = UsLayoutKeyboardCodeToDomCode(key_code);
+  DomCode code = CodeFromMSG(msg);
   int flags = EventFlagsFromMSG(msg);
   DomKey key;
   base::TimeTicks time_stamp = EventTimeFromMSG(msg);
 
   if (IsCharFromMSG(msg)) {
     flags = PlatformKeyMap::ReplaceControlAndAltWithAltGraph(flags);
-    return KeyEvent(msg.wParam, key_code, flags, time_stamp);
+    return KeyEvent(msg.wParam, key_code, code, flags, time_stamp);
   } else {
     key = PlatformKeyMap::DomKeyFromKeyboardCode(key_code, &flags);
     return KeyEvent(type, key_code, code, flags, key, time_stamp);

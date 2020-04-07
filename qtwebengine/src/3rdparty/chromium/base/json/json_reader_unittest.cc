@@ -11,8 +11,8 @@
 #include "base/base_paths.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -515,9 +515,9 @@ TEST(JSONReaderTest, InvalidUTF16Escapes) {
       "\"\\ud83\\u1\""       // Invalid upper surrogate.
   };
   std::unique_ptr<Value> root;
-  for (size_t i = 0; i < arraysize(cases); ++i) {
-    root = JSONReader().ReadToValue(cases[i]);
-    EXPECT_FALSE(root) << cases[i];
+  for (auto* i : cases) {
+    root = JSONReader().ReadToValue(i);
+    EXPECT_FALSE(root) << i;
   }
 }
 
@@ -636,7 +636,7 @@ TEST(JSONReaderTest, InvalidSanity) {
       "/* test *", "{\"foo\"", "{\"foo\":", "  [", "\"\\u123g\"", "{\n\"eh:\n}",
   };
 
-  for (size_t i = 0; i < arraysize(kInvalidJson); ++i) {
+  for (size_t i = 0; i < base::size(kInvalidJson); ++i) {
     JSONReader reader;
     LOG(INFO) << "Sanity test " << i << ": <" << kInvalidJson[i] << ">";
     EXPECT_FALSE(reader.ReadToValue(kInvalidJson[i]));

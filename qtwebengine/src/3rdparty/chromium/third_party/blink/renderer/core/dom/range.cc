@@ -45,6 +45,7 @@
 #include "third_party/blink/renderer/core/editing/set_selection_options.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect_list.h"
@@ -54,7 +55,7 @@
 #include "third_party/blink/renderer/core/layout/layout_text.h"
 #include "third_party/blink/renderer/core/layout/layout_text_fragment.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
-#include "third_party/blink/renderer/core/trustedtypes/trusted_html.h"
+#include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -128,7 +129,7 @@ inline Range::Range(Document& owner_document)
 }
 
 Range* Range::Create(Document& owner_document) {
-  return new Range(owner_document);
+  return MakeGarbageCollected<Range>(owner_document);
 }
 
 inline Range::Range(Document& owner_document,
@@ -152,17 +153,17 @@ Range* Range::Create(Document& owner_document,
                      unsigned start_offset,
                      Node* end_container,
                      unsigned end_offset) {
-  return new Range(owner_document, start_container, start_offset, end_container,
-                   end_offset);
+  return MakeGarbageCollected<Range>(owner_document, start_container,
+                                     start_offset, end_container, end_offset);
 }
 
 Range* Range::Create(Document& owner_document,
                      const Position& start,
                      const Position& end) {
-  return new Range(owner_document, start.ComputeContainerNode(),
-                   start.ComputeOffsetInContainerNode(),
-                   end.ComputeContainerNode(),
-                   end.ComputeOffsetInContainerNode());
+  return MakeGarbageCollected<Range>(
+      owner_document, start.ComputeContainerNode(),
+      start.ComputeOffsetInContainerNode(), end.ComputeContainerNode(),
+      end.ComputeOffsetInContainerNode());
 }
 
 void Range::Dispose() {
@@ -602,9 +603,8 @@ DocumentFragment* Range::ProcessContents(ActionType action,
   // delete all children of commonRoot between the start and end container
   Node* process_start = ChildOfCommonRootBeforeOffset(
       &original_start.Container(), original_start.Offset(), common_root);
-  if (process_start &&
-      original_start.Container() !=
-          common_root)  // processStart contains nodes before m_start.
+  // process_start contains nodes before start_.
+  if (process_start && original_start.Container() != common_root)
     process_start = process_start->nextSibling();
   Node* process_end = ChildOfCommonRootBeforeOffset(
       &original_end.Container(), original_end.Offset(), common_root);
@@ -823,7 +823,16 @@ DocumentFragment* Range::extractContents(ExceptionState& exception_state) {
     return nullptr;
 
   EventQueueScope scope;
-  return ProcessContents(EXTRACT_CONTENTS, exception_state);
+  DocumentFragment* fragment = ProcessContents(EXTRACT_CONTENTS,
+                                               exception_state);
+  // |extractContents| has extended attributes [NewObject, DoNotTestNewObject],
+  // so it's better to have a test that exercises the following condition:
+  //
+  //   !fragment || DOMDataStore::GetWrapper(fragment, isolate).IsEmpty()
+  //
+  // however, there is no access to |isolate| so far.  So, we simply omit the
+  // test so far.
+  return fragment;
 }
 
 DocumentFragment* Range::cloneContents(ExceptionState& exception_state) {
@@ -975,23 +984,16 @@ DocumentFragment* Range::createContextualFragment(
   // Algorithm:
   // http://domparsing.spec.whatwg.org/#extensions-to-the-range-interface
 
-  DCHECK(string_or_html.IsString() ||
-         RuntimeEnabledFeatures::TrustedDOMTypesEnabled());
   DCHECK(!string_or_html.IsNull());
 
   Document& document = start_.Container().GetDocument();
 
-  if (string_or_html.IsString() && document.RequireTrustedTypes()) {
-    exception_state.ThrowTypeError(
-        "This document requires `TrustedHTML` assignment.");
-    return nullptr;
+  String markup =
+      GetStringFromTrustedHTML(string_or_html, &document, exception_state);
+  if (!exception_state.HadException()) {
+    return createContextualFragmentFromString(markup, exception_state);
   }
-
-  String markup = string_or_html.IsString()
-                      ? string_or_html.GetAsString()
-                      : string_or_html.GetAsTrustedHTML()->toString();
-
-  return createContextualFragmentFromString(markup, exception_state);
+  return nullptr;
 }
 
 DocumentFragment* Range::createContextualFragmentFromString(
@@ -1433,10 +1435,31 @@ static inline void BoundaryNodeChildrenWillBeRemoved(
   }
 }
 
+static void BoundaryShadowNodeChildrenWillBeRemoved(
+    RangeBoundaryPoint& boundary,
+    ContainerNode& container) {
+  for (Node* node_to_be_removed = container.firstChild(); node_to_be_removed;
+       node_to_be_removed = node_to_be_removed->nextSibling()) {
+    for (Node* n = &boundary.Container(); n;
+         n = n->ParentOrShadowHostElement()) {
+      if (n == node_to_be_removed) {
+        boundary.SetToStartOfNode(container);
+        return;
+      }
+    }
+  }
+}
+
 void Range::NodeChildrenWillBeRemoved(ContainerNode& container) {
   DCHECK_EQ(container.GetDocument(), owner_document_);
   BoundaryNodeChildrenWillBeRemoved(start_, container);
   BoundaryNodeChildrenWillBeRemoved(end_, container);
+}
+
+void Range::FixupRemovedChildrenAcrossShadowBoundary(ContainerNode& container) {
+  DCHECK_EQ(container.GetDocument(), owner_document_);
+  BoundaryShadowNodeChildrenWillBeRemoved(start_, container);
+  BoundaryShadowNodeChildrenWillBeRemoved(end_, container);
 }
 
 static inline void BoundaryNodeWillBeRemoved(RangeBoundaryPoint& boundary,
@@ -1454,6 +1477,19 @@ static inline void BoundaryNodeWillBeRemoved(RangeBoundaryPoint& boundary,
   }
 }
 
+static inline void BoundaryShadowNodeWillBeRemoved(RangeBoundaryPoint& boundary,
+                                                   Node& node_to_be_removed) {
+  DCHECK_NE(boundary.ChildBefore(), node_to_be_removed);
+
+  for (Node* node = &boundary.Container(); node;
+       node = node->ParentOrShadowHostElement()) {
+    if (node == node_to_be_removed) {
+      boundary.SetToBeforeChild(node_to_be_removed);
+      return;
+    }
+  }
+}
+
 void Range::NodeWillBeRemoved(Node& node) {
   DCHECK_EQ(node.GetDocument(), owner_document_);
   DCHECK_NE(node, owner_document_.Get());
@@ -1464,6 +1500,11 @@ void Range::NodeWillBeRemoved(Node& node) {
     return;
   BoundaryNodeWillBeRemoved(start_, node);
   BoundaryNodeWillBeRemoved(end_, node);
+}
+
+void Range::FixupRemovedNodeAcrossShadowBoundary(Node& node) {
+  BoundaryShadowNodeWillBeRemoved(start_, node);
+  BoundaryShadowNodeWillBeRemoved(end_, node);
 }
 
 static inline void BoundaryTextInserted(RangeBoundaryPoint& boundary,
@@ -1577,11 +1618,12 @@ void Range::expand(const String& unit, ExceptionState& exception_state) {
   VisiblePosition start = CreateVisiblePosition(StartPosition());
   VisiblePosition end = CreateVisiblePosition(EndPosition());
   if (unit == "word") {
-    start = StartOfWord(start);
-    end = EndOfWord(end);
+    start = CreateVisiblePosition(StartOfWordPosition(start.DeepEquivalent()));
+    end = CreateVisiblePosition(EndOfWordPosition(end.DeepEquivalent()));
   } else if (unit == "sentence") {
-    start = StartOfSentence(start);
-    end = EndOfSentence(end);
+    start =
+        CreateVisiblePosition(StartOfSentencePosition(start.DeepEquivalent()));
+    end = CreateVisiblePosition(EndOfSentence(end.DeepEquivalent()));
   } else if (unit == "block") {
     start = StartOfParagraph(start);
     end = EndOfParagraph(end);
@@ -1781,7 +1823,7 @@ void Range::RemoveFromSelectionIfInDifferentRoot(Document& old_document) {
   selection.ClearDocumentCachedRange();
 }
 
-void Range::Trace(blink::Visitor* visitor) {
+void Range::Trace(Visitor* visitor) {
   visitor->Trace(owner_document_);
   visitor->Trace(start_);
   visitor->Trace(end_);

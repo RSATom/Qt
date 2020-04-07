@@ -878,7 +878,9 @@ void QQuickWidgetPrivate::createContext()
 
         context = new QOpenGLContext;
         context->setFormat(offscreenWindow->requestedFormat());
-
+        const QWindow *win = q->window()->windowHandle();
+        if (win && win->screen())
+            context->setScreen(win->screen());
         QOpenGLContext *shareContext = qt_gl_global_share_context();
         if (!shareContext)
             shareContext = QWidgetPrivate::get(q->window())->shareContext();
@@ -1314,9 +1316,13 @@ void QQuickWidget::mouseDoubleClickEvent(QMouseEvent *e)
 void QQuickWidget::showEvent(QShowEvent *)
 {
     Q_D(QQuickWidget);
+    bool shouldTriggerUpdate = true;
+
     if (!d->useSoftwareRenderer) {
         d->createContext();
+
         if (d->offscreenWindow->openglContext()) {
+            shouldTriggerUpdate = false;
             d->render(true);
             // render() may have led to a QQuickWindow::update() call (for
             // example, having a scene with a QQuickFramebufferObject::Renderer
@@ -1329,10 +1335,11 @@ void QQuickWidget::showEvent(QShowEvent *)
                 d->updatePending = false;
                 update();
             }
-        } else {
-            triggerUpdate();
         }
     }
+
+    if (shouldTriggerUpdate)
+        triggerUpdate();
 
     // note offscreenWindow  is "QQuickOffScreenWindow" instance
     d->offscreenWindow->setVisible(true);

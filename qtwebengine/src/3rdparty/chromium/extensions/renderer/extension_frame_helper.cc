@@ -28,6 +28,8 @@
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_settings.h"
+#include "third_party/blink/public/web/web_view.h"
 
 namespace extensions {
 
@@ -316,15 +318,16 @@ void ExtensionFrameHelper::ScheduleAtDocumentIdle(
 }
 
 void ExtensionFrameHelper::DidStartProvisionalLoad(
-    blink::WebDocumentLoader* document_loader) {
+    blink::WebDocumentLoader* document_loader,
+    bool is_content_initiated) {
   // New window created by chrome.app.window.create() must not start parsing the
   // document immediately. The chrome.app.window.create() callback (if any)
   // needs to be called prior to the new window's 'load' event. The parser will
   // be resumed when it happens. It doesn't apply to sandboxed pages.
   if (view_type_ == VIEW_TYPE_APP_WINDOW && render_frame()->IsMainFrame() &&
       !has_started_first_navigation_ &&
-      GURL(document_loader->GetRequest().Url()).SchemeIs(kExtensionScheme) &&
-      !ScriptContext::IsSandboxedPage(document_loader->GetRequest().Url())) {
+      GURL(document_loader->GetUrl()).SchemeIs(kExtensionScheme) &&
+      !ScriptContext::IsSandboxedPage(document_loader->GetUrl())) {
     document_loader->BlockParser();
   }
 
@@ -385,6 +388,8 @@ bool ExtensionFrameHelper::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ExtensionMsg_MessageInvoke, OnExtensionMessageInvoke)
     IPC_MESSAGE_HANDLER(ExtensionMsg_SetFrameName, OnSetFrameName)
     IPC_MESSAGE_HANDLER(ExtensionMsg_AppWindowClosed, OnAppWindowClosed)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_SetSpatialNavigationEnabled,
+                        OnSetSpatialNavigationEnabled)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -401,13 +406,12 @@ void ExtensionFrameHelper::OnExtensionDispatchOnConnect(
     const PortId& target_port_id,
     const std::string& channel_name,
     const ExtensionMsg_TabConnectionInfo& source,
-    const ExtensionMsg_ExternalConnectionInfo& info,
-    const std::string& tls_channel_id) {
+    const ExtensionMsg_ExternalConnectionInfo& info) {
   extension_dispatcher_->bindings_system()
       ->GetMessagingService()
       ->DispatchOnConnect(extension_dispatcher_->script_context_set(),
                           target_port_id, channel_name, source, info,
-                          tls_channel_id, render_frame());
+                          render_frame());
 }
 
 void ExtensionFrameHelper::OnExtensionDeliverMessage(const PortId& target_id,
@@ -481,6 +485,14 @@ void ExtensionFrameHelper::OnAppWindowClosed(bool send_onclosed) {
     return;
   script_context->module_system()->CallModuleMethodSafe("app.window",
                                                         "onAppWindowClosed");
+}
+
+void ExtensionFrameHelper::OnSetSpatialNavigationEnabled(bool enabled) {
+  render_frame()
+      ->GetRenderView()
+      ->GetWebView()
+      ->GetSettings()
+      ->SetSpatialNavigationEnabled(enabled);
 }
 
 void ExtensionFrameHelper::OnDestruct() {

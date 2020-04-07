@@ -323,31 +323,20 @@ SkMaskFilterBase::onAsFragmentProcessor(const GrFPArgs&) const {
 }
 bool SkMaskFilterBase::onHasFragmentProcessor() const { return false; }
 
-bool SkMaskFilterBase::canFilterMaskGPU(const SkRRect& devRRect,
+bool SkMaskFilterBase::canFilterMaskGPU(const GrShape& shape,
+                                        const SkIRect& devSpaceShapeBounds,
                                         const SkIRect& clipBounds,
                                         const SkMatrix& ctm,
-                                        SkRect* maskRect) const {
+                                        SkIRect* maskRect) const {
     return false;
 }
 
 bool SkMaskFilterBase::directFilterMaskGPU(GrContext*,
-                                           GrRenderTargetContext* renderTargetContext,
+                                           GrRenderTargetContext*,
                                            GrPaint&&,
                                            const GrClip&,
                                            const SkMatrix& viewMatrix,
-                                           const SkStrokeRec& strokeRec,
-                                           const SkPath& path) const {
-    return false;
-}
-
-bool SkMaskFilterBase::directFilterRRectMaskGPU(GrContext*,
-                                                GrRenderTargetContext* renderTargetContext,
-                                                GrPaint&&,
-                                                const GrClip&,
-                                                const SkMatrix& viewMatrix,
-                                                const SkStrokeRec& strokeRec,
-                                                const SkRRect& rrect,
-                                                const SkRRect& devRRect) const {
+                                           const GrShape&) const {
     return false;
 }
 
@@ -405,7 +394,6 @@ public:
     }
 
     SkMask::Format getFormat() const override { return SkMask::kA8_Format; }
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkComposeMF)
 
 protected:
 #if SK_SUPPORT_GPU
@@ -426,6 +414,8 @@ protected:
 #endif
 
 private:
+    SK_FLATTENABLE_HOOKS(SkComposeMF)
+
     sk_sp<SkMaskFilter> fOuter;
     sk_sp<SkMaskFilter> fInner;
 
@@ -493,7 +483,7 @@ public:
 
     SkMask::Format getFormat() const override { return SkMask::kA8_Format; }
 
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkCombineMF)
+    SK_FLATTENABLE_HOOKS(SkCombineMF)
 
 protected:
 #if SK_SUPPORT_GPU
@@ -642,7 +632,7 @@ public:
 
     SkMask::Format getFormat() const override { return as_MFB(fFilter)->getFormat(); }
 
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkLocalMatrixMF)
+    SK_FLATTENABLE_HOOKS(SkMatrixMF)
 
 protected:
 #if SK_SUPPORT_GPU
@@ -716,10 +706,10 @@ sk_sp<SkMaskFilter> SkMaskFilter::makeWithMatrix(const SkMatrix& lm) const {
     return sk_sp<SkMaskFilter>(new SkMatrixMF(std::move(me), lm));
 }
 
-void SkMaskFilter::InitializeFlattenables() {
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMatrixMF)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkComposeMF)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkCombineMF)
+void SkMaskFilter::RegisterFlattenables() {
+    SK_REGISTER_FLATTENABLE(SkMatrixMF);
+    SK_REGISTER_FLATTENABLE(SkComposeMF);
+    SK_REGISTER_FLATTENABLE(SkCombineMF);
     sk_register_blur_maskfilter_createproc();
 #if SK_SUPPORT_GPU
     gr_register_sdf_maskfilter_createproc();

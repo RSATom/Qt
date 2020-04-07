@@ -7,7 +7,10 @@
 
 #include "base/macros.h"
 #include "media/base/media_log.h"
+#include "media/base/mock_media_log.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+using testing::_;
 
 namespace media {
 
@@ -15,6 +18,9 @@ namespace media {
 class MediaLogTest : public testing::Test {
  public:
   static constexpr size_t kMaxUrlLength = MediaLog::kMaxUrlLength;
+
+ protected:
+  MediaLog media_log;
 };
 
 constexpr size_t MediaLogTest::kMaxUrlLength;
@@ -25,14 +31,14 @@ TEST_F(MediaLogTest, DontTruncateShortUrlString) {
 
   // Verify that CreatedEvent does not truncate the short URL.
   std::unique_ptr<MediaLogEvent> created_event =
-      MediaLog().CreateCreatedEvent(short_url);
+      media_log.CreateCreatedEvent(short_url);
   std::string stored_url;
   created_event->params.GetString("origin_url", &stored_url);
   EXPECT_EQ(stored_url, short_url);
 
   // Verify that LoadEvent does not truncate the short URL.
   std::unique_ptr<MediaLogEvent> load_event =
-      MediaLog().CreateLoadEvent(short_url);
+      media_log.CreateLoadEvent(short_url);
   load_event->params.GetString("url", &stored_url);
   EXPECT_EQ(stored_url, short_url);
 }
@@ -49,7 +55,7 @@ TEST_F(MediaLogTest, TruncateLongUrlStrings) {
 
   // Verify that long CreatedEvent URL...
   std::unique_ptr<MediaLogEvent> created_event =
-      MediaLog().CreateCreatedEvent(long_url);
+      media_log.CreateCreatedEvent(long_url);
   std::string stored_url;
   created_event->params.GetString("origin_url", &stored_url);
 
@@ -64,7 +70,7 @@ TEST_F(MediaLogTest, TruncateLongUrlStrings) {
 
   // Verify that long LoadEvent URL...
   std::unique_ptr<MediaLogEvent> load_event =
-      MediaLog().CreateCreatedEvent(long_url);
+      media_log.CreateCreatedEvent(long_url);
   load_event->params.GetString("url", &stored_url);
   // ... is truncated
   EXPECT_EQ(stored_url.length(), MediaLogTest::kMaxUrlLength);
@@ -74,6 +80,24 @@ TEST_F(MediaLogTest, TruncateLongUrlStrings) {
   EXPECT_EQ(stored_url.compare(0, MediaLogTest::kMaxUrlLength - 3, long_url, 0,
                                MediaLogTest::kMaxUrlLength - 3),
             0);
+}
+
+TEST_F(MediaLogTest, EventsAreForwarded) {
+  // Make sure that |root_log_| receives events.
+  std::unique_ptr<MockMediaLog> root_log(std::make_unique<MockMediaLog>());
+  std::unique_ptr<MediaLog> child_media_log(root_log->Clone());
+  EXPECT_CALL(*root_log, DoAddEventLogString(_)).Times(1);
+  child_media_log->AddLogEvent(MediaLog::MediaLogLevel::MEDIALOG_ERROR, "test");
+}
+
+TEST_F(MediaLogTest, EventsAreNotForwardedAfterInvalidate) {
+  // Make sure that |root_log_| doesn't forward things after we invalidate the
+  // underlying log.
+  std::unique_ptr<MockMediaLog> root_log(std::make_unique<MockMediaLog>());
+  std::unique_ptr<MediaLog> child_media_log(root_log->Clone());
+  EXPECT_CALL(*root_log, DoAddEventLogString(_)).Times(0);
+  root_log.reset();
+  child_media_log->AddLogEvent(MediaLog::MediaLogLevel::MEDIALOG_ERROR, "test");
 }
 
 }  // namespace media

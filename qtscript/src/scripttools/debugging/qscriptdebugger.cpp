@@ -656,7 +656,9 @@ public:
             }
             tip = lines.join(QLatin1String("\n"));
         }
+#if QT_CONFIG(tooltip)
         QToolTip::showText(m_pos, tip);
+#endif
         finish();
     }
 

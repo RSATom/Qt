@@ -10,6 +10,7 @@
 #ifndef MODULES_VIDEO_CODING_CODECS_VP9_SVC_CONFIG_H_
 #define MODULES_VIDEO_CODING_CODECS_VP9_SVC_CONFIG_H_
 
+#include <stddef.h>
 #include <vector>
 
 #include "common_types.h"  // NOLINT(build/include)
@@ -18,6 +19,7 @@ namespace webrtc {
 
 std::vector<SpatialLayer> GetSvcConfig(size_t input_width,
                                        size_t input_height,
+                                       float max_framerate_fps,
                                        size_t num_spatial_layers,
                                        size_t num_temporal_layers,
                                        bool is_screen_sharing);

@@ -14,15 +14,17 @@
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/fetch/request.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
-#include "third_party/blink/renderer/core/script/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/core/workers/worklet_pending_tasks.h"
+#include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher_properties.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace blink {
 
 Worklet::Worklet(Document* document)
     : ContextLifecycleObserver(document),
-      module_responses_map_(new WorkletModuleResponsesMap) {
+      module_responses_map_(MakeGarbageCollected<WorkletModuleResponsesMap>()) {
   DCHECK(IsMainThread());
 }
 
@@ -37,7 +39,7 @@ Worklet::~Worklet() {
 // https://drafts.css-houdini.org/worklets/#dom-worklet-addmodule
 ScriptPromise Worklet::addModule(ScriptState* script_state,
                                  const String& module_url,
-                                 const WorkletOptions& options) {
+                                 const WorkletOptions* options) {
   DCHECK(IsMainThread());
   if (!GetExecutionContext()) {
     return ScriptPromise::RejectWithDOMException(
@@ -67,7 +69,8 @@ ScriptPromise Worklet::addModule(ScriptState* script_state,
     return promise;
   }
 
-  WorkletPendingTasks* pending_tasks =  new WorkletPendingTasks(this, resolver);
+  WorkletPendingTasks* pending_tasks =
+      MakeGarbageCollected<WorkletPendingTasks>(this, resolver);
   pending_tasks_set_.insert(pending_tasks);
 
   // Step 5: "Return promise, and then continue running this algorithm in
@@ -76,9 +79,10 @@ ScriptPromise Worklet::addModule(ScriptState* script_state,
   // loading.
   GetExecutionContext()
       ->GetTaskRunner(TaskType::kInternalLoading)
-      ->PostTask(FROM_HERE, WTF::Bind(&Worklet::FetchAndInvokeScript,
-                                      WrapPersistent(this), module_url_record,
-                                      options, WrapPersistent(pending_tasks)));
+      ->PostTask(FROM_HERE,
+                 WTF::Bind(&Worklet::FetchAndInvokeScript, WrapPersistent(this),
+                           module_url_record, options->credentials(),
+                           WrapPersistent(pending_tasks)));
   return promise;
 }
 
@@ -108,7 +112,7 @@ WorkletGlobalScopeProxy* Worklet::FindAvailableGlobalScope() {
 // algorithm:
 // https://drafts.css-houdini.org/worklets/#dom-worklet-addmodule
 void Worklet::FetchAndInvokeScript(const KURL& module_url_record,
-                                   const WorkletOptions& options,
+                                   const String& credentials,
                                    WorkletPendingTasks* pending_tasks) {
   DCHECK(IsMainThread());
   if (!GetExecutionContext())
@@ -116,13 +120,16 @@ void Worklet::FetchAndInvokeScript(const KURL& module_url_record,
 
   // Step 6: "Let credentialOptions be the credentials member of options."
   network::mojom::FetchCredentialsMode credentials_mode;
-  bool result =
-      Request::ParseCredentialsMode(options.credentials(), &credentials_mode);
+  bool result = Request::ParseCredentialsMode(credentials, &credentials_mode);
   DCHECK(result);
 
   // Step 7: "Let outsideSettings be the relevant settings object of this."
   auto* outside_settings_object =
-      new FetchClientSettingsObjectSnapshot(*GetExecutionContext());
+      MakeGarbageCollected<FetchClientSettingsObjectSnapshot>(
+          GetExecutionContext()
+              ->Fetcher()
+              ->GetProperties()
+              .GetFetchClientSettingsObject());
   // Specify TaskType::kInternalLoading because it's commonly used for module
   // loading.
   scoped_refptr<base::SingleThreadTaskRunner> outside_settings_task_runner =
@@ -164,7 +171,7 @@ void Worklet::FetchAndInvokeScript(const KURL& module_url_record,
   }
 }
 
-size_t Worklet::SelectGlobalScope() {
+wtf_size_t Worklet::SelectGlobalScope() {
   DCHECK_EQ(GetNumberOfGlobalScopes(), 1u);
   return 0u;
 }

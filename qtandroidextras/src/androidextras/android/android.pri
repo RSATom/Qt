@@ -6,7 +6,8 @@ SOURCES += \
            $$PWD/qandroidparcel.cpp \
            $$PWD/qandroidintent.cpp \
            $$PWD/qjnionload.cpp \
-           $$PWD/qandroidserviceconnection.cpp
+           $$PWD/qandroidserviceconnection.cpp \
+           $$PWD/qandroidactivitycallbackresultreceiver.cpp
 
 HEADERS += \
            $$PWD/qandroidfunctions.h \

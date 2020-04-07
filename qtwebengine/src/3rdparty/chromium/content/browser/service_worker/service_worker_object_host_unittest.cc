@@ -51,20 +51,19 @@ class ExtendableMessageEventTestHelper : public EmbeddedWorkerTestHelper {
       : EmbeddedWorkerTestHelper(base::FilePath()) {}
 
   void OnExtendableMessageEvent(
-      mojom::ExtendableMessageEventPtr event,
-      mojom::ServiceWorker::DispatchExtendableMessageEventCallback callback)
-      override {
+      blink::mojom::ExtendableMessageEventPtr event,
+      blink::mojom::ServiceWorker::DispatchExtendableMessageEventCallback
+          callback) override {
     events_.push_back(std::move(event));
-    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED,
-                            base::Time::Now());
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED);
   }
 
-  const std::vector<mojom::ExtendableMessageEventPtr>& events() {
+  const std::vector<blink::mojom::ExtendableMessageEventPtr>& events() {
     return events_;
   }
 
  private:
-  std::vector<mojom::ExtendableMessageEventPtr> events_;
+  std::vector<blink::mojom::ExtendableMessageEventPtr> events_;
 };
 
 class FailToStartWorkerTestHelper : public ExtendableMessageEventTestHelper {
@@ -77,10 +76,10 @@ class FailToStartWorkerTestHelper : public ExtendableMessageEventTestHelper {
       const GURL& scope,
       const GURL& script_url,
       bool pause_after_download,
-      mojom::ServiceWorkerRequest service_worker_request,
-      mojom::ControllerServiceWorkerRequest controller_request,
+      blink::mojom::ServiceWorkerRequest service_worker_request,
+      blink::mojom::ControllerServiceWorkerRequest controller_request,
       mojom::EmbeddedWorkerInstanceHostAssociatedPtrInfo instance_host,
-      mojom::ServiceWorkerProviderInfoForStartWorkerPtr provider_info,
+      blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr provider_info,
       blink::mojom::ServiceWorkerInstalledScriptsInfoPtr installed_scripts_info)
       override {
     mojom::EmbeddedWorkerInstanceHostAssociatedPtr instance_host_ptr;
@@ -130,10 +129,10 @@ class ServiceWorkerObjectHostTest : public testing::Test {
     registration_ = new ServiceWorkerRegistration(
         options, helper_->context()->storage()->NewRegistrationId(),
         helper_->context()->AsWeakPtr());
-    version_ =
-        new ServiceWorkerVersion(registration_.get(), script_url,
-                                 helper_->context()->storage()->NewVersionId(),
-                                 helper_->context()->AsWeakPtr());
+    version_ = new ServiceWorkerVersion(
+        registration_.get(), script_url, blink::mojom::ScriptType::kClassic,
+        helper_->context()->storage()->NewVersionId(),
+        helper_->context()->AsWeakPtr());
     std::vector<ServiceWorkerDatabase::ResourceRecord> records;
     records.push_back(
         ServiceWorkerDatabase::ResourceRecord(10, version_->script_url(), 100));
@@ -180,8 +179,9 @@ class ServiceWorkerObjectHostTest : public testing::Test {
   }
 
   blink::mojom::ServiceWorkerRegistrationObjectInfoPtr
-  GetRegistrationFromRemote(mojom::ServiceWorkerContainerHost* container_host,
-                            const GURL& scope) {
+  GetRegistrationFromRemote(
+      blink::mojom::ServiceWorkerContainerHost* container_host,
+      const GURL& scope) {
     blink::mojom::ServiceWorkerRegistrationObjectInfoPtr registration_info;
     base::RunLoop run_loop;
     container_host->GetRegistration(
@@ -215,10 +215,10 @@ class ServiceWorkerObjectHostTest : public testing::Test {
 
 TEST_F(ServiceWorkerObjectHostTest, OnVersionStateChanged) {
   const int64_t kProviderId = 99;
-  const GURL pattern("https://www.example.com/");
+  const GURL scope("https://www.example.com/");
   const GURL script_url("https://www.example.com/service_worker.js");
   Initialize(std::make_unique<EmbeddedWorkerTestHelper>(base::FilePath()));
-  SetUpRegistration(pattern, script_url);
+  SetUpRegistration(scope, script_url);
   registration_->SetInstallingVersion(version_);
 
   ServiceWorkerRemoteProviderEndpoint remote_endpoint;
@@ -227,9 +227,9 @@ TEST_F(ServiceWorkerObjectHostTest, OnVersionStateChanged) {
           helper_->mock_render_process_id(), kProviderId,
           true /* is_parent_frame_secure */, helper_->context()->AsWeakPtr(),
           &remote_endpoint);
-  provider_host->SetDocumentUrl(pattern);
+  provider_host->UpdateUrls(scope, scope);
   blink::mojom::ServiceWorkerRegistrationObjectInfoPtr registration_info =
-      GetRegistrationFromRemote(remote_endpoint.host_ptr()->get(), pattern);
+      GetRegistrationFromRemote(remote_endpoint.host_ptr()->get(), scope);
   // |version_| is the installing version of |registration_| now.
   EXPECT_TRUE(registration_info->installing);
   EXPECT_EQ(version_->version_id(), registration_info->installing->version_id);
@@ -246,10 +246,10 @@ TEST_F(ServiceWorkerObjectHostTest, OnVersionStateChanged) {
 
 TEST_F(ServiceWorkerObjectHostTest,
        DispatchExtendableMessageEvent_FromServiceWorker) {
-  const GURL pattern("https://www.example.com/");
+  const GURL scope("https://www.example.com/");
   const GURL script_url("https://www.example.com/service_worker.js");
   Initialize(std::make_unique<ExtendableMessageEventTestHelper>());
-  SetUpRegistration(pattern, script_url);
+  SetUpRegistration(scope, script_url);
 
   base::SimpleTestTickClock tick_clock;
   // Set mock clock on version_ to check timeout behavior.
@@ -303,7 +303,7 @@ TEST_F(ServiceWorkerObjectHostTest,
   // should correspond to the pair (|version_->provider_host()|, |version_|),
   // means it should correspond to |sender_worker_object_host|.
   EXPECT_EQ(2u, GetBindingsCount(sender_worker_object_host));
-  const std::vector<mojom::ExtendableMessageEventPtr>& events =
+  const std::vector<blink::mojom::ExtendableMessageEventPtr>& events =
       static_cast<ExtendableMessageEventTestHelper*>(helper_.get())->events();
   EXPECT_EQ(1u, events.size());
   EXPECT_FALSE(events[0]->source_info_for_client);
@@ -321,10 +321,10 @@ TEST_F(ServiceWorkerObjectHostTest,
 
 TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_FromClient) {
   const int64_t kProviderId = 99;
-  const GURL pattern("https://www.example.com/");
+  const GURL scope("https://www.example.com/");
   const GURL script_url("https://www.example.com/service_worker.js");
   Initialize(std::make_unique<ExtendableMessageEventTestHelper>());
-  SetUpRegistration(pattern, script_url);
+  SetUpRegistration(scope, script_url);
 
   // Prepare a ServiceWorkerProviderHost for a window client. A
   // WebContents/RenderFrameHost must be created too because it's needed for
@@ -334,13 +334,13 @@ TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_FromClient) {
       WebContentsTester::CreateTestWebContents(helper_->browser_context(),
                                                nullptr));
   RenderFrameHost* frame_host = web_contents->GetMainFrame();
-  mojom::ServiceWorkerProviderHostInfoPtr provider_host_info =
+  blink::mojom::ServiceWorkerProviderHostInfoPtr provider_host_info =
       CreateProviderHostInfoForWindow(kProviderId, frame_host->GetRoutingID());
   std::unique_ptr<ServiceWorkerProviderHost> provider_host =
       ServiceWorkerProviderHost::Create(frame_host->GetProcess()->GetID(),
                                         std::move(provider_host_info),
                                         helper_->context()->AsWeakPtr());
-  provider_host->SetDocumentUrl(pattern);
+  provider_host->UpdateUrls(scope, scope);
   // Prepare a ServiceWorkerObjectHost for the above |provider_host|.
   blink::mojom::ServiceWorkerObjectInfoPtr info =
       provider_host->GetOrCreateServiceWorkerObjectHost(version_)
@@ -363,7 +363,7 @@ TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_FromClient) {
   // The dispatched ExtendableMessageEvent should be kept in
   // ExtendableMessageEventTestHelper, and its source client info should
   // correspond to |provider_host|.
-  const std::vector<mojom::ExtendableMessageEventPtr>& events =
+  const std::vector<blink::mojom::ExtendableMessageEventPtr>& events =
       static_cast<ExtendableMessageEventTestHelper*>(helper_.get())->events();
   EXPECT_EQ(1u, events.size());
   EXPECT_FALSE(events[0]->source_info_for_service_worker);
@@ -376,10 +376,10 @@ TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_FromClient) {
 
 TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_Fail) {
   const int64_t kProviderId = 99;
-  const GURL pattern("https://www.example.com/");
+  const GURL scope("https://www.example.com/");
   const GURL script_url("https://www.example.com/service_worker.js");
   Initialize(std::make_unique<FailToStartWorkerTestHelper>());
-  SetUpRegistration(pattern, script_url);
+  SetUpRegistration(scope, script_url);
 
   // Prepare a ServiceWorkerProviderHost for a window client. A
   // WebContents/RenderFrameHost must be created too because it's needed for
@@ -389,13 +389,13 @@ TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_Fail) {
       WebContentsTester::CreateTestWebContents(helper_->browser_context(),
                                                nullptr));
   RenderFrameHost* frame_host = web_contents->GetMainFrame();
-  mojom::ServiceWorkerProviderHostInfoPtr provider_host_info =
+  blink::mojom::ServiceWorkerProviderHostInfoPtr provider_host_info =
       CreateProviderHostInfoForWindow(kProviderId, frame_host->GetRoutingID());
   std::unique_ptr<ServiceWorkerProviderHost> provider_host =
       ServiceWorkerProviderHost::Create(frame_host->GetProcess()->GetID(),
                                         std::move(provider_host_info),
                                         helper_->context()->AsWeakPtr());
-  provider_host->SetDocumentUrl(pattern);
+  provider_host->UpdateUrls(scope, scope);
   // Prepare a ServiceWorkerObjectHost for the above |provider_host|.
   blink::mojom::ServiceWorkerObjectInfoPtr info =
       provider_host->GetOrCreateServiceWorkerObjectHost(version_)
@@ -416,7 +416,7 @@ TEST_F(ServiceWorkerObjectHostTest, DispatchExtendableMessageEvent_Fail) {
   EXPECT_TRUE(called);
   EXPECT_EQ(blink::ServiceWorkerStatusCode::kErrorStartWorkerFailed, status);
   // No ExtendableMessageEvent has been dispatched.
-  const std::vector<mojom::ExtendableMessageEventPtr>& events =
+  const std::vector<blink::mojom::ExtendableMessageEventPtr>& events =
       static_cast<ExtendableMessageEventTestHelper*>(helper_.get())->events();
   EXPECT_EQ(0u, events.size());
 }

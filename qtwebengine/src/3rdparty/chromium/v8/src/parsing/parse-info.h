@@ -12,7 +12,8 @@
 #include "include/v8.h"
 #include "src/globals.h"
 #include "src/handles.h"
-#include "src/parsing/preparsed-scope-data.h"
+#include "src/objects/script.h"
+#include "src/parsing/preparse-data.h"
 #include "src/pending-compilation-error-handler.h"
 
 namespace v8 {
@@ -25,22 +26,29 @@ class AccountingAllocator;
 class AstRawString;
 class AstStringConstants;
 class AstValueFactory;
+class CompilerDispatcher;
 class DeclarationScope;
 class FunctionLiteral;
 class RuntimeCallStats;
 class Logger;
 class SourceRangeMap;
-class UnicodeCache;
 class Utf16CharacterStream;
 class Zone;
 
 // A container for the inputs, configuration options, and outputs of parsing.
 class V8_EXPORT_PRIVATE ParseInfo {
  public:
-  ParseInfo(Isolate*);
+  explicit ParseInfo(AccountingAllocator* zone_allocator);
+  explicit ParseInfo(Isolate*);
   ParseInfo(Isolate*, AccountingAllocator* zone_allocator);
   ParseInfo(Isolate* isolate, Handle<Script> script);
   ParseInfo(Isolate* isolate, Handle<SharedFunctionInfo> shared);
+
+  // Creates a new parse info based on parent top-level |outer_parse_info| for
+  // function |literal|.
+  static std::unique_ptr<ParseInfo> FromParent(
+      const ParseInfo* outer_parse_info, AccountingAllocator* zone_allocator,
+      const FunctionLiteral* literal, const AstRawString* function_name);
 
   ~ParseInfo();
 
@@ -53,12 +61,6 @@ class V8_EXPORT_PRIVATE ParseInfo {
   AstValueFactory* GetOrCreateAstValueFactory();
 
   Zone* zone() const { return zone_.get(); }
-
-  // Sets this parse info to share the same zone as |other|
-  void ShareZone(ParseInfo* other);
-
-  // Sets this parse info to share the same ast value factory as |other|
-  void ShareAstValueFactory(ParseInfo* other);
 
 // Convenience accessor methods for flags.
 #define FLAG_ACCESSOR(flag, getter, setter)     \
@@ -79,6 +81,8 @@ class V8_EXPORT_PRIVATE ParseInfo {
   FLAG_ACCESSOR(kCollectTypeProfile, collect_type_profile,
                 set_collect_type_profile)
   FLAG_ACCESSOR(kIsAsmWasmBroken, is_asm_wasm_broken, set_asm_wasm_broken)
+  FLAG_ACCESSOR(kContainsAsmModule, contains_asm_module,
+                set_contains_asm_module)
   FLAG_ACCESSOR(kBlockCoverageEnabled, block_coverage_enabled,
                 set_block_coverage_enabled)
   FLAG_ACCESSOR(kOnBackgroundThread, on_background_thread,
@@ -86,6 +90,31 @@ class V8_EXPORT_PRIVATE ParseInfo {
   FLAG_ACCESSOR(kWrappedAsFunction, is_wrapped_as_function,
                 set_wrapped_as_function)
   FLAG_ACCESSOR(kAllowEvalCache, allow_eval_cache, set_allow_eval_cache)
+  FLAG_ACCESSOR(kIsDeclaration, is_declaration, set_declaration)
+  FLAG_ACCESSOR(kRequiresInstanceMembersInitializer,
+                requires_instance_members_initializer,
+                set_requires_instance_members_initializer);
+  FLAG_ACCESSOR(kMightAlwaysOpt, might_always_opt, set_might_always_opt)
+  FLAG_ACCESSOR(kAllowNativeSyntax, allow_natives_syntax,
+                set_allow_natives_syntax)
+  FLAG_ACCESSOR(kAllowLazyCompile, allow_lazy_compile, set_allow_lazy_compile)
+  FLAG_ACCESSOR(kAllowNativeSyntax, allow_native_syntax,
+                set_allow_native_syntax);
+  FLAG_ACCESSOR(kAllowHarmonyPublicFields, allow_harmony_public_fields,
+                set_allow_harmony_public_fields);
+  FLAG_ACCESSOR(kAllowHarmonyStaticFields, allow_harmony_static_fields,
+                set_allow_harmony_static_fields);
+  FLAG_ACCESSOR(kAllowHarmonyDynamicImport, allow_harmony_dynamic_import,
+                set_allow_harmony_dynamic_import);
+  FLAG_ACCESSOR(kAllowHarmonyImportMeta, allow_harmony_import_meta,
+                set_allow_harmony_import_meta);
+  FLAG_ACCESSOR(kAllowHarmonyNumericSeparator, allow_harmony_numeric_separator,
+                set_allow_harmony_numeric_separator);
+  FLAG_ACCESSOR(kAllowHarmonyPrivateFields, allow_harmony_private_fields,
+                set_allow_harmony_private_fields);
+  FLAG_ACCESSOR(kAllowHarmonyPrivateMethods, allow_harmony_private_methods,
+                set_allow_harmony_private_methods);
+  FLAG_ACCESSOR(kIsOneshotIIFE, is_oneshot_iife, set_is_oneshot_iife);
 #undef FLAG_ACCESSOR
 
   void set_parse_restriction(ParseRestriction restriction) {
@@ -107,9 +136,11 @@ class V8_EXPORT_PRIVATE ParseInfo {
   v8::Extension* extension() const { return extension_; }
   void set_extension(v8::Extension* extension) { extension_ = extension; }
 
-
-  ConsumedPreParsedScopeData* consumed_preparsed_scope_data() {
-    return &consumed_preparsed_scope_data_;
+  void set_consumed_preparse_data(std::unique_ptr<ConsumedPreparseData> data) {
+    consumed_preparse_data_.swap(data);
+  }
+  ConsumedPreparseData* consumed_preparse_data() {
+    return consumed_preparse_data_.get();
   }
 
   DeclarationScope* script_scope() const { return script_scope_; }
@@ -132,21 +163,11 @@ class V8_EXPORT_PRIVATE ParseInfo {
 
   DeclarationScope* scope() const;
 
-  UnicodeCache* unicode_cache() const { return unicode_cache_; }
-  void set_unicode_cache(UnicodeCache* unicode_cache) {
-    unicode_cache_ = unicode_cache;
-  }
-
   uintptr_t stack_limit() const { return stack_limit_; }
   void set_stack_limit(uintptr_t stack_limit) { stack_limit_ = stack_limit; }
 
   uint64_t hash_seed() const { return hash_seed_; }
   void set_hash_seed(uint64_t hash_seed) { hash_seed_ = hash_seed; }
-
-  int function_flags() const { return function_flags_; }
-  void set_function_flags(int function_flags) {
-    function_flags_ = function_flags;
-  }
 
   int start_position() const { return start_position_; }
   void set_start_position(int start_position) {
@@ -164,6 +185,11 @@ class V8_EXPORT_PRIVATE ParseInfo {
   int function_literal_id() const { return function_literal_id_; }
   void set_function_literal_id(int function_literal_id) {
     function_literal_id_ = function_literal_id;
+  }
+
+  FunctionKind function_kind() const { return function_kind_; }
+  void set_function_kind(FunctionKind function_kind) {
+    function_kind_ = function_kind;
   }
 
   int max_function_literal_id() const { return max_function_literal_id_; }
@@ -196,15 +222,37 @@ class V8_EXPORT_PRIVATE ParseInfo {
     return &pending_error_handler_;
   }
 
-  // Getters for individual function flags.
-  bool is_declaration() const;
-  FunctionKind function_kind() const;
-  bool requires_instance_fields_initializer() const;
+  class ParallelTasks {
+   public:
+    explicit ParallelTasks(CompilerDispatcher* compiler_dispatcher)
+        : dispatcher_(compiler_dispatcher) {
+      DCHECK(dispatcher_);
+    }
+
+    void Enqueue(ParseInfo* outer_parse_info, const AstRawString* function_name,
+                 FunctionLiteral* literal);
+
+    typedef std::forward_list<std::pair<FunctionLiteral*, uintptr_t>>::iterator
+        EnqueuedJobsIterator;
+
+    EnqueuedJobsIterator begin() { return enqueued_jobs_.begin(); }
+    EnqueuedJobsIterator end() { return enqueued_jobs_.end(); }
+
+    CompilerDispatcher* dispatcher() { return dispatcher_; }
+
+   private:
+    CompilerDispatcher* dispatcher_;
+    std::forward_list<std::pair<FunctionLiteral*, uintptr_t>> enqueued_jobs_;
+  };
+
+  ParallelTasks* parallel_tasks() { return parallel_tasks_.get(); }
 
   //--------------------------------------------------------------------------
   // TODO(titzer): these should not be part of ParseInfo.
   //--------------------------------------------------------------------------
   Handle<Script> script() const { return script_; }
+  void set_script(Handle<Script> script);
+
   MaybeHandle<ScopeInfo> maybe_outer_scope_info() const {
     return maybe_outer_scope_info_;
   }
@@ -223,12 +271,13 @@ class V8_EXPORT_PRIVATE ParseInfo {
     set_strict_mode(is_strict(language_mode));
   }
 
-  void EmitBackgroundParseStatisticsOnBackgroundThread();
-  void UpdateBackgroundParseStatisticsOnMainThread(Isolate* isolate);
-
  private:
   void SetScriptForToplevelCompile(Isolate* isolate, Handle<Script> script);
-  void set_script(Handle<Script> script);
+
+  // Set function info flags based on those in either FunctionLiteral or
+  // SharedFunctionInfo |function|
+  template <typename T>
+  void SetFunctionInfo(T function);
 
   // Various configuration flags for parsing.
   enum Flag {
@@ -249,19 +298,30 @@ class V8_EXPORT_PRIVATE ParseInfo {
     kOnBackgroundThread = 1 << 13,
     kWrappedAsFunction = 1 << 14,  // Implicitly wrapped as function.
     kAllowEvalCache = 1 << 15,
+    kIsDeclaration = 1 << 16,
+    kRequiresInstanceMembersInitializer = 1 << 17,
+    kContainsAsmModule = 1 << 18,
+    kMightAlwaysOpt = 1 << 19,
+    kAllowLazyCompile = 1 << 20,
+    kAllowNativeSyntax = 1 << 21,
+    kAllowHarmonyPublicFields = 1 << 22,
+    kAllowHarmonyStaticFields = 1 << 23,
+    kAllowHarmonyDynamicImport = 1 << 24,
+    kAllowHarmonyImportMeta = 1 << 25,
+    kAllowHarmonyNumericSeparator = 1 << 26,
+    kAllowHarmonyPrivateFields = 1 << 27,
+    kAllowHarmonyPrivateMethods = 1 << 28,
+    kIsOneshotIIFE = 1 << 29
   };
 
   //------------- Inputs to parsing and scope analysis -----------------------
-  std::shared_ptr<Zone> zone_;
+  std::unique_ptr<Zone> zone_;
   unsigned flags_;
   v8::Extension* extension_;
   DeclarationScope* script_scope_;
-  UnicodeCache* unicode_cache_;
   uintptr_t stack_limit_;
   uint64_t hash_seed_;
-  // TODO(leszeks): Move any remaining flags used here either to the flags_
-  // field or to other fields.
-  int function_flags_;
+  FunctionKind function_kind_;
   int script_id_;
   int start_position_;
   int end_position_;
@@ -275,17 +335,17 @@ class V8_EXPORT_PRIVATE ParseInfo {
 
   //----------- Inputs+Outputs of parsing and scope analysis -----------------
   std::unique_ptr<Utf16CharacterStream> character_stream_;
-  ConsumedPreParsedScopeData consumed_preparsed_scope_data_;
-  std::shared_ptr<AstValueFactory> ast_value_factory_;
+  std::unique_ptr<ConsumedPreparseData> consumed_preparse_data_;
+  std::unique_ptr<AstValueFactory> ast_value_factory_;
   const class AstStringConstants* ast_string_constants_;
   const AstRawString* function_name_;
   RuntimeCallStats* runtime_call_stats_;
   Logger* logger_;
   SourceRangeMap* source_range_map_;  // Used when block coverage is enabled.
+  std::unique_ptr<ParallelTasks> parallel_tasks_;
 
   //----------- Output of parsing and scope analysis ------------------------
   FunctionLiteral* literal_;
-  std::shared_ptr<DeferredHandles> deferred_handles_;
   PendingCompilationErrorHandler pending_error_handler_;
 
   void SetFlag(Flag f) { flags_ |= f; }

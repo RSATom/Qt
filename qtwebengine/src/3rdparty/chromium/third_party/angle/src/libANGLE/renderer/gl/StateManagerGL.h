@@ -20,10 +20,9 @@
 namespace gl
 {
 struct Caps;
-class ContextState;
-class State;
 class FramebufferState;
-}
+class State;
+}  // namespace gl
 
 namespace rx
 {
@@ -64,7 +63,7 @@ class StateManagerGL final : angle::NonCopyable
     void activeTexture(size_t unit);
     void bindTexture(gl::TextureType type, GLuint texture);
     void bindSampler(size_t unit, GLuint sampler);
-    void bindImageTexture(GLuint unit,
+    void bindImageTexture(size_t unit,
                           GLuint texture,
                           GLint level,
                           GLboolean layered,
@@ -77,7 +76,6 @@ class StateManagerGL final : angle::NonCopyable
     void onTransformFeedbackStateChange();
     void beginQuery(gl::QueryType type, QueryGL *queryObject, GLuint queryId);
     void endQuery(gl::QueryType type, QueryGL *queryObject, GLuint queryId);
-    void onBeginQuery(QueryGL *query);
 
     void setAttributeCurrentData(size_t index, const gl::VertexAttribCurrentValueData &data);
 
@@ -90,7 +88,6 @@ class StateManagerGL final : angle::NonCopyable
     void setViewportArrayv(GLuint first, const std::vector<gl::Rectangle> &viewports);
     void setDepthRange(float near, float far);
 
-    void setViewportOffsets(const std::vector<gl::Offset> &kviewportOffsets);
     void setSideBySide(bool isSideBySide);
 
     void setBlendEnabled(bool enabled);
@@ -153,62 +150,59 @@ class StateManagerGL final : angle::NonCopyable
     void setPathRenderingProjectionMatrix(const GLfloat *m);
     void setPathRenderingStencilState(GLenum func, GLint ref, GLuint mask);
 
-    gl::Error setDrawArraysState(const gl::Context *context,
-                                 GLint first,
-                                 GLsizei count,
-                                 GLsizei instanceCount);
-    gl::Error setDrawElementsState(const gl::Context *context,
-                                   GLsizei count,
-                                   GLenum type,
-                                   const void *indices,
-                                   GLsizei instanceCount,
-                                   const void **outIndices);
-    gl::Error setDrawIndirectState(const gl::Context *context);
-
-    gl::Error setDispatchComputeState(const gl::Context *context);
+    void setProvokingVertex(GLenum mode);
 
     void pauseTransformFeedback();
-    gl::Error pauseAllQueries();
-    gl::Error pauseQuery(gl::QueryType type);
-    gl::Error resumeAllQueries();
-    gl::Error resumeQuery(gl::QueryType type);
-    gl::Error onMakeCurrent(const gl::Context *context);
+    angle::Result pauseAllQueries(const gl::Context *context);
+    angle::Result pauseQuery(const gl::Context *context, gl::QueryType type);
+    angle::Result resumeAllQueries(const gl::Context *context);
+    angle::Result resumeQuery(const gl::Context *context, gl::QueryType type);
+    angle::Result onMakeCurrent(const gl::Context *context);
 
-    void syncState(const gl::Context *context, const gl::State::DirtyBits &glDirtyBits);
+    void syncState(const gl::Context *context,
+                   const gl::State::DirtyBits &glDirtyBits,
+                   const gl::State::DirtyBits &bitMask);
 
-    void updateMultiviewBaseViewLayerIndexUniform(
+    ANGLE_INLINE void updateMultiviewBaseViewLayerIndexUniform(
         const gl::Program *program,
-        const gl::FramebufferState &drawFramebufferState) const;
+        const gl::FramebufferState &drawFramebufferState) const
+    {
+        if (mIsMultiviewEnabled && program && program->usesMultiview())
+        {
+            updateMultiviewBaseViewLayerIndexUniformImpl(program, drawFramebufferState);
+        }
+    }
+
+    GLuint getVertexArrayID() const { return mVAO; }
+    GLuint getFramebufferID(angle::FramebufferBinding binding) const
+    {
+        return mFramebuffers[binding];
+    }
 
   private:
-    // Set state that's common among draw commands and compute invocations.
-    void setGenericShaderState(const gl::Context *context);
-
-    // Set state that's common among draw commands.
-    gl::Error setGenericDrawState(const gl::Context *context);
-
     void setTextureCubemapSeamlessEnabled(bool enabled);
 
     void applyViewportOffsetsAndSetScissors(const gl::Rectangle &scissor,
                                             const gl::Framebuffer &drawFramebuffer);
     void applyViewportOffsetsAndSetViewports(const gl::Rectangle &viewport,
                                              const gl::Framebuffer &drawFramebuffer);
-    void propagateNumViewsToVAO(const gl::Program *program, VertexArrayGL *vao);
+    void propagateProgramToVAO(const gl::Program *program, VertexArrayGL *vao);
 
-    void updateProgramTextureAndSamplerBindings(const gl::Context *context);
+    void updateProgramTextureBindings(const gl::Context *context);
     void updateProgramStorageBufferBindings(const gl::Context *context);
+    void updateProgramUniformBufferBindings(const gl::Context *context);
+    void updateProgramAtomicCounterBufferBindings(const gl::Context *context);
+    void updateProgramImageBindings(const gl::Context *context);
 
     void updateDispatchIndirectBufferBinding(const gl::Context *context);
     void updateDrawIndirectBufferBinding(const gl::Context *context);
 
+    void syncSamplersState(const gl::Context *context);
     void syncTransformFeedbackState(const gl::Context *context);
 
-    enum MultiviewDirtyBitType
-    {
-        MULTIVIEW_DIRTY_BIT_SIDE_BY_SIDE_LAYOUT,
-        MULTIVIEW_DIRTY_BIT_VIEWPORT_OFFSETS,
-        MULTIVIEW_DIRTY_BIT_MAX
-    };
+    void updateMultiviewBaseViewLayerIndexUniformImpl(
+        const gl::Program *program,
+        const gl::FramebufferState &drawFramebufferState) const;
 
     const FunctionsGL *mFunctions;
 
@@ -230,15 +224,14 @@ class StateManagerGL final : angle::NonCopyable
     angle::PackedEnumMap<gl::BufferBinding, std::vector<IndexedBufferBinding>> mIndexedBuffers;
 
     size_t mTextureUnitIndex;
-    angle::PackedEnumMap<gl::TextureType, std::vector<GLuint>> mTextures;
-    std::vector<GLuint> mSamplers;
+    angle::PackedEnumMap<gl::TextureType, gl::ActiveTextureArray<GLuint>> mTextures;
+    gl::ActiveTextureArray<GLuint> mSamplers;
 
     struct ImageUnitBinding
     {
         ImageUnitBinding()
             : texture(0), level(0), layered(false), layer(0), access(GL_READ_ONLY), format(GL_R32UI)
-        {
-        }
+        {}
 
         GLuint texture;
         GLint level;
@@ -355,15 +348,11 @@ class StateManagerGL final : angle::NonCopyable
     bool mIsSideBySideDrawFramebuffer;
     const bool mIsMultiviewEnabled;
 
+    GLenum mProvokingVertex;
+
     gl::State::DirtyBits mLocalDirtyBits;
     gl::AttributesMask mLocalDirtyCurrentValues;
-
-    // ANGLE_multiview dirty bits.
-    angle::BitSet<MULTIVIEW_DIRTY_BIT_MAX> mMultiviewDirtyBits;
-
-    bool mProgramTexturesAndSamplersDirty;
-    bool mProgramStorageBuffersDirty;
 };
-}
+}  // namespace rx
 
 #endif  // LIBANGLE_RENDERER_GL_STATEMANAGERGL_H_

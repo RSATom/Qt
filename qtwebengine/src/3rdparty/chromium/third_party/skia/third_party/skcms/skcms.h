@@ -27,6 +27,10 @@ typedef struct skcms_Matrix3x3 {
     float vals[3][3];
 } skcms_Matrix3x3;
 
+// It is _not_ safe to alias the pointers to invert in-place.
+SKCMS_API bool            skcms_Matrix3x3_invert(const skcms_Matrix3x3*, skcms_Matrix3x3*);
+SKCMS_API skcms_Matrix3x3 skcms_Matrix3x3_concat(const skcms_Matrix3x3*, const skcms_Matrix3x3*);
+
 // A row-major 3x4 matrix (ie vals[row][col])
 typedef struct skcms_Matrix3x4 {
     float vals[3][4];
@@ -42,6 +46,10 @@ typedef struct skcms_Matrix3x4 {
 typedef struct skcms_TransferFunction {
     float g, a,b,c,d,e,f;
 } skcms_TransferFunction;
+
+SKCMS_API float skcms_TransferFunction_eval  (const skcms_TransferFunction*, float);
+SKCMS_API bool  skcms_TransferFunction_invert(const skcms_TransferFunction*,
+                                              skcms_TransferFunction*);
 
 // Unified representation of 'curv' or 'para' tag data, or a 1D table from 'mft1' or 'mft2'
 typedef union skcms_Curve {
@@ -136,9 +144,6 @@ SKCMS_API bool skcms_TRCs_AreApproximateInverse(const skcms_ICCProfile* profile,
 // will be used.
 SKCMS_API bool skcms_Parse(const void*, size_t, skcms_ICCProfile*);
 
-// No-op, to be removed.
-static inline void skcms_OptimizeForSpeed(skcms_ICCProfile* p) { (void)p; }
-
 SKCMS_API bool skcms_ApproximateCurve(const skcms_Curve* curve,
                                       skcms_TransferFunction* approx,
                                       float* max_error);
@@ -170,6 +175,8 @@ typedef enum skcms_PixelFormat {
     skcms_PixelFormat_A_8_,
     skcms_PixelFormat_G_8,
     skcms_PixelFormat_G_8_,
+    skcms_PixelFormat_RGBA_8888_Palette8,
+    skcms_PixelFormat_BGRA_8888_Palette8,
 
     skcms_PixelFormat_RGB_565,
     skcms_PixelFormat_BGR_565,
@@ -185,10 +192,21 @@ typedef enum skcms_PixelFormat {
     skcms_PixelFormat_RGBA_1010102,
     skcms_PixelFormat_BGRA_1010102,
 
-    skcms_PixelFormat_RGB_161616,     // Big-endian.  Pointers must be 16-bit aligned.
-    skcms_PixelFormat_BGR_161616,
-    skcms_PixelFormat_RGBA_16161616,
-    skcms_PixelFormat_BGRA_16161616,
+    skcms_PixelFormat_RGB_161616LE,     // Little-endian.  Pointers must be 16-bit aligned.
+    skcms_PixelFormat_BGR_161616LE,
+    skcms_PixelFormat_RGBA_16161616LE,
+    skcms_PixelFormat_BGRA_16161616LE,
+
+    skcms_PixelFormat_RGB_161616BE,     // Big-endian.  Pointers must be 16-bit aligned.
+    skcms_PixelFormat_BGR_161616BE,
+    skcms_PixelFormat_RGBA_16161616BE,
+    skcms_PixelFormat_BGRA_16161616BE,
+
+    // TODO: clean up references to non-explicit endian 16161616
+    skcms_PixelFormat_RGB_161616    = skcms_PixelFormat_RGB_161616BE,
+    skcms_PixelFormat_BGR_161616    = skcms_PixelFormat_BGR_161616BE,
+    skcms_PixelFormat_RGBA_16161616 = skcms_PixelFormat_RGBA_16161616BE,
+    skcms_PixelFormat_BGRA_16161616 = skcms_PixelFormat_BGRA_16161616BE,
 
     skcms_PixelFormat_RGB_hhh,        // 1-5-10 half-precision float.
     skcms_PixelFormat_BGR_hhh,        // Pointers must be 16-bit aligned.
@@ -208,10 +226,8 @@ typedef enum skcms_PixelFormat {
 // any source alpha and treat it as 1.0, and will make sure that any destination alpha
 // channel is filled with the equivalent of 1.0.
 
-// When premultiplying and/or using a non-linear transfer function, it's important
-// that we know the order the operations are applied.  If you're used to working
-// with non-color-managed drawing systems, PremulAsEncoded is probably the "premul"
-// you're looking for; if you want linear blending, PremulLinear is the choice for you.
+// We used to offer multiple types of premultiplication, but now just one, PremulAsEncoded.
+// This is the premul you're probably used to working with.
 
 typedef enum skcms_AlphaFormat {
     skcms_AlphaFormat_Opaque,          // alpha is always opaque
@@ -220,8 +236,6 @@ typedef enum skcms_AlphaFormat {
                                        //   tf-1(r),   tf-1(g),   tf-1(b),   a
     skcms_AlphaFormat_PremulAsEncoded, // premultiplied while encoded
                                        //   tf-1(r)*a, tf-1(g)*a, tf-1(b)*a, a
-    skcms_AlphaFormat_PremulLinear,    // premultiplied while linear
-                                       //   tf-1(r*a), tf-1(g*a), tf-1(b*a), a
 } skcms_AlphaFormat;
 
 // Convert npixels pixels from src format and color profile to dst format and color profile
@@ -235,6 +249,18 @@ SKCMS_API bool skcms_Transform(const void*             src,
                                skcms_AlphaFormat       dstAlpha,
                                const skcms_ICCProfile* dstProfile,
                                size_t                  npixels);
+
+// As skcms_Transform(), supporting srcFmts with a palette.
+SKCMS_API bool skcms_TransformWithPalette(const void*             src,
+                                          skcms_PixelFormat       srcFmt,
+                                          skcms_AlphaFormat       srcAlpha,
+                                          const skcms_ICCProfile* srcProfile,
+                                          void*                   dst,
+                                          skcms_PixelFormat       dstFmt,
+                                          skcms_AlphaFormat       dstAlpha,
+                                          const skcms_ICCProfile* dstProfile,
+                                          size_t                  npixels,
+                                          const void*             palette);
 
 // If profile can be used as a destination in skcms_Transform, return true. Otherwise, attempt to
 // rewrite it with approximations where reasonable. If successful, return true. If no reasonable

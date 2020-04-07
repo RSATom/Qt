@@ -323,6 +323,6 @@ QBluetoothServer::Error QBluetoothServer::error() const
     return d->m_lastError;
 }
 
-#include "moc_qbluetoothserver.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qbluetoothserver.cpp"

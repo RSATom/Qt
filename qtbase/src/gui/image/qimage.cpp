@@ -117,7 +117,7 @@ QImageData::QImageData()
 */
 QImageData * QImageData::create(const QSize &size, QImage::Format format)
 {
-    if (!size.isValid() || format == QImage::Format_Invalid)
+    if (size.isEmpty() || format == QImage::Format_Invalid)
         return nullptr;                             // invalid parameter(s)
 
     int width = size.width();
@@ -288,6 +288,7 @@ bool QImageData::checkForAlphaPixels() const
     case QImage::Format_BGR30:
     case QImage::Format_RGB30:
     case QImage::Format_Grayscale8:
+    case QImage::Format_Grayscale16:
     case QImage::Format_RGBX64:
         break;
     case QImage::Format_Invalid:
@@ -710,8 +711,9 @@ bool QImageData::checkForAlphaPixels() const
     \value Format_A2RGB30_Premultiplied    The image is stored using a 32-bit premultiplied ARGB format (2-10-10-10). (added in Qt 5.4)
     \value Format_Alpha8     The image is stored using an 8-bit alpha only format. (added in Qt 5.5)
     \value Format_Grayscale8 The image is stored using an 8-bit grayscale format. (added in Qt 5.5)
+    \value Format_Grayscale16 The image is stored using an 16-bit grayscale format. (added in Qt 5.13)
     \value Format_RGBX64     The image is stored using a 64-bit halfword-ordered RGB(x) format (16-16-16-16).
-                             This is the same as the Format_RGBX64 except alpha must always be 65535. (added in Qt 5.12)
+                             This is the same as the Format_RGBA64 except alpha must always be 65535. (added in Qt 5.12)
     \value Format_RGBA64     The image is stored using a 64-bit halfword-ordered RGBA format (16-16-16-16). (added in Qt 5.12)
     \value Format_RGBA64_Premultiplied    The image is stored using a premultiplied 64-bit halfword-ordered
                              RGBA format (16-16-16-16). (added in Qt 5.12)
@@ -1464,6 +1466,7 @@ void QImage::setDevicePixelRatio(qreal scaleFactor)
         d->devicePixelRatio = scaleFactor;
 }
 
+#if QT_DEPRECATED_SINCE(5, 10)
 /*!
     \since 4.6
     \obsolete
@@ -1480,6 +1483,7 @@ int QImage::byteCount() const
     Q_ASSERT(!d || d->nbytes < std::numeric_limits<int>::max());
     return d ? int(d->nbytes) : 0;
 }
+#endif
 
 /*!
     \since 5.10
@@ -2063,6 +2067,7 @@ static bool highColorPrecision(QImage::Format format)
     case QImage::Format_RGBX64:
     case QImage::Format_RGBA64:
     case QImage::Format_RGBA64_Premultiplied:
+    case QImage::Format_Grayscale16:
         return true;
     default:
         break;
@@ -2084,13 +2089,7 @@ QImage QImage::convertToFormat_helper(Format format, Qt::ImageConversionFlags fl
     Image_Converter converter = qimage_converter_map[d->format][format];
     if (!converter && format > QImage::Format_Indexed8 && d->format > QImage::Format_Indexed8) {
         if (highColorPrecision(format) && highColorPrecision(d->format)) {
-            // Convert over RGBA64_Premultiplied
-            if (format == QImage::Format_RGBA64_Premultiplied)
-                converter = convert_generic_to_rgb64;
-            else {
-                Q_ASSERT(d->format != QImage::Format_RGBA64_Premultiplied);
-                return convertToFormat(Format_RGBA64_Premultiplied, flags).convertToFormat(format, flags);
-            }
+            converter = convert_generic_to_rgb64;
         } else
             converter = convert_generic;
     }
@@ -2268,6 +2267,29 @@ bool QImage::reinterpretAsFormat(Format format)
 
     d->format = format;
     return true;
+}
+
+/*!
+    \since 5.13
+
+    Detach and convert the image to the given \a format in place.
+
+    The specified image conversion \a flags control how the image data
+    is handled during the conversion process.
+
+    \sa convertToFormat()
+*/
+
+void QImage::convertTo(Format format, Qt::ImageConversionFlags flags)
+{
+    if (!d || format == QImage::Format_Invalid)
+        return;
+
+    detach();
+    if (convertToFormat_inplace(format, flags))
+        return;
+
+    *this = convertToFormat_helper(format, flags);
 }
 
 /*!
@@ -2556,6 +2578,10 @@ QColor QImage::pixelColor(int x, int y) const
     case Format_RGBA64_Premultiplied:
         c = reinterpret_cast<const QRgba64 *>(s)[x];
         break;
+    case Format_Grayscale16: {
+        quint16 v = reinterpret_cast<const quint16 *>(s)[x];
+        return QColor(qRgba64(v, v, v, 0xffff));
+    }
     default:
         c = QRgba64::fromArgb32(pixel(x, y));
         break;
@@ -2666,6 +2692,7 @@ bool QImage::allGray() const
     case Format_Alpha8:
         return false;
     case Format_Grayscale8:
+    case Format_Grayscale16:
         return true;
     case Format_RGB32:
     case Format_ARGB32:
@@ -2732,7 +2759,7 @@ bool QImage::isGrayscale() const
     if (d->format == QImage::Format_Alpha8)
         return false;
 
-    if (d->format == QImage::Format_Grayscale8)
+    if (d->format == QImage::Format_Grayscale8 || d->format == QImage::Format_Grayscale16)
         return true;
 
     switch (depth()) {
@@ -3371,6 +3398,7 @@ QImage QImage::rgbSwapped_helper() const
         break;
     case Format_Alpha8:
     case Format_Grayscale8:
+    case Format_Grayscale16:
         return *this;
     case Format_Mono:
     case Format_MonoLSB:
@@ -3482,6 +3510,7 @@ void QImage::rgbSwapped_inplace()
         break;
     case Format_Alpha8:
     case Format_Grayscale8:
+    case Format_Grayscale16:
         return;
     case Format_Mono:
     case Format_MonoLSB:
@@ -5376,6 +5405,19 @@ static Q_CONSTEXPR QPixelFormat pixelformats[] = {
                      /*PREMULTIPLIED*/     QPixelFormat::Premultiplied,
                      /*INTERPRETATION*/    QPixelFormat::UnsignedShort,
                      /*BYTE ORDER*/        QPixelFormat::CurrentSystemEndian),
+        //QImage::Format_Grayscale16:
+        QPixelFormat(QPixelFormat::Grayscale,
+                    /*GRAY*/               16,
+                    /*SECOND*/             0,
+                    /*THIRD*/              0,
+                    /*FOURTH*/             0,
+                    /*FIFTH*/              0,
+                    /*ALPHA*/              0,
+                    /*ALPHA USAGE*/       QPixelFormat::IgnoresAlpha,
+                    /*ALPHA POSITION*/    QPixelFormat::AtBeginning,
+                    /*PREMULTIPLIED*/     QPixelFormat::NotPremultiplied,
+                    /*INTERPRETATION*/    QPixelFormat::UnsignedShort,
+                    /*BYTE ORDER*/        QPixelFormat::CurrentSystemEndian),
 };
 Q_STATIC_ASSERT(sizeof(pixelformats) / sizeof(*pixelformats) == QImage::NImageFormats);
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -16,8 +15,8 @@ from grit import util
 from grit.extern import FP
 import grit.format.rc_header
 from grit.node import base
-from grit.node import io
 from grit.node import message
+from grit.node import node_io
 
 
 # RTL languages
@@ -306,6 +305,7 @@ class GritNode(base.Node):
     self.defines = {}
     self.substituter = None
     self.target_platform = sys.platform
+    self.whitelist_support = False
     self._predetermined_ids_file = None
     self._id_map = None  # Dict of textual_id -> numeric_id.
 
@@ -318,7 +318,7 @@ class GritNode(base.Node):
     if name not in ['base_dir', 'first_ids_file', 'source_lang_id',
                     'latest_public_release', 'current_release',
                     'enc_check', 'tc_project', 'grit_version',
-                    'output_all_resource_defines', 'rc_header_format']:
+                    'output_all_resource_defines']:
       return False
     if name in ['latest_public_release', 'current_release'] and value.strip(
       '0123456789') != '':
@@ -336,7 +336,6 @@ class GritNode(base.Node):
       'source_lang_id' : 'en',
       'enc_check' : constants.ENCODING_CHECK,
       'tc_project' : 'NEED_TO_SET_tc_project_ATTRIBUTE',
-      'rc_header_format': None
     }
 
   def EndParsing(self):
@@ -427,11 +426,11 @@ class GritNode(base.Node):
     """
     return self.attrs['base_dir']
 
-  def GetRcHeaderFormat(self):
-    return self.attrs['rc_header_format']
+  def IsWhitelistSupportEnabled(self):
+    return self.whitelist_support
 
-  def AssignRcHeaderFormat(self, rc_header_format):
-    self.attrs['rc_header_format'] = rc_header_format
+  def SetWhitelistSupportEnabled(self, whitelist_support):
+    self.whitelist_support = whitelist_support
 
   def GetInputFiles(self):
     """Returns the list of files that are read to produce the output."""
@@ -457,7 +456,7 @@ class GritNode(base.Node):
       self.SetFallbackToDefaultLayout(fallback)
 
       for node in self.ActiveDescendants():
-        if isinstance(node, (io.FileNode, include.IncludeNode,
+        if isinstance(node, (node_io.FileNode, include.IncludeNode,
                              structure.StructureNode, variant.SkeletonNode)):
           input_path = node.GetInputPath()
           if input_path is not None:

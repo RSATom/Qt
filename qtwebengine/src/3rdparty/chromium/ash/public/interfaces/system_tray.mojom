@@ -7,6 +7,15 @@ module ash.mojom;
 import "ash/public/interfaces/update.mojom";
 import "mojo/public/mojom/base/string16.mojom";
 
+// The locale info to show in the locale feature detailed view.
+struct LocaleInfo {
+  // This ISO code of the locale.
+  string iso_code;
+
+  // The display name of the locale.
+  mojo_base.mojom.String16 display_name;
+};
+
 // Allows clients (e.g. Chrome browser) to control the ash system tray menu.
 interface SystemTray {
   // Sets the client interface.
@@ -33,6 +42,10 @@ interface SystemTray {
   // tracing is running.
   SetPerformanceTracingIconVisible(bool visible);
 
+  // Sets the list of supported UI locales. |current_locale_iso_code| refers to
+  // the locale currently used by the UI.
+  SetLocaleList(array<LocaleInfo> locale_list, string current_locale_iso_code);
+
   // Shows an icon in the system tray or a notification on the unified system
   // menu indicating that a software update is available. Once shown, the icon
   // or the notification persists until reboot.
@@ -49,6 +62,21 @@ interface SystemTray {
                  bool factory_reset_required,
                  bool rollback,
                  UpdateType update_type);
+
+  // Sets new strings for update notification in the unified system menu,
+  // according to different policies, when there is an update available
+  // (it may be recommended or required, from Relaunch Notification policy,
+  // for example).
+  // Providing these strings allows the update countdown logic to remain in
+  // //chrome/browser, where it is shared with other platforms.
+  // |style| specifies the type of notification, according to the policy
+  // (default, recommended or required).
+  // |notification_title| the title of the notification, which overwrites
+  // the default.
+  // |notification_body| the new notification body which overwrites the default.
+  SetUpdateNotificationState(NotificationStyle style,
+                             mojo_base.mojom.String16 notification_title,
+                             mojo_base.mojom.String16 notification_body);
 
   // If |visible| is true, shows an icon in the system tray which indicates that
   // a software update is available but user's agreement is required as current
@@ -96,6 +124,9 @@ interface SystemTrayClient {
 
   // Shows settings related to input methods.
   ShowIMESettings();
+
+  // Shows settings related to MultiDevice features.
+  ShowConnectedDevicesSettings();
 
   // Shows the about chrome OS page and checks for updates after the page is
   // loaded.
@@ -148,4 +179,8 @@ interface SystemTrayClient {
 
   // Attempts to restart the system for update.
   RequestRestartForUpdate();
+
+  // Sets the UI locale to |locale_iso_code| and exit the session to take
+  // effect.
+  SetLocaleAndExit(string locale_iso_code);
 };

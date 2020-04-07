@@ -91,7 +91,7 @@ class CPDF_PSProc {
   bool Execute(CPDF_PSEngine* pEngine);
 
   // These methods are exposed for testing.
-  void AddOperatorForTesting(const ByteStringView& word);
+  void AddOperatorForTesting(ByteStringView word);
   size_t num_operators() const { return m_Operators.size(); }
   const std::unique_ptr<CPDF_PSOP>& last_operator() {
     return m_Operators.back();
@@ -100,7 +100,7 @@ class CPDF_PSProc {
  private:
   static const int kMaxDepth = 128;
 
-  void AddOperator(const ByteStringView& word);
+  void AddOperator(ByteStringView word);
 
   std::vector<std::unique_ptr<CPDF_PSOP>> m_Operators;
 };
@@ -122,7 +122,7 @@ class CPDF_PSEngine {
  private:
   static constexpr uint32_t kPSEngineStackSize = 100;
 
-  uint32_t m_StackCount;
+  uint32_t m_StackCount = 0;
   CPDF_PSProc m_MainProc;
   float m_Stack[kPSEngineStackSize];
 };

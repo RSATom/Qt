@@ -55,17 +55,27 @@
 #include <stdlib.h>
 #include <qglobal.h>
 #ifdef Q_OS_WIN
+# ifdef Q_CC_MINGW
+// <unistd.h> must be included before any other header pulls in <time.h>.
+#  include <unistd.h> // Define _POSIX_THREAD_SAFE_FUNCTIONS to obtain localtime_r()
+# endif
 # define _POSIX_
 # include <limits.h>
 # undef _POSIX_
 #endif
 #include <qcoreapplication.h>
+#include <qcoreevent.h>
+#include <qiodevice.h>
 #include <qlist.h>
 #include <qvariant.h>  /* All moc genereated code has this include */
 #include <qobject.h>
 #include <qregexp.h>
+#include <qscopedpointer.h>
+#include <qshareddata.h>
 #include <qstring.h>
 #include <qstringlist.h>
+#include <qtimer.h>
+#include <qvector.h>
 #if QT_CONFIG(textcodec)
 #include <qtextcodec.h>
 #endif

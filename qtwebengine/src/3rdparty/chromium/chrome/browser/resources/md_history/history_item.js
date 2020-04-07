@@ -2,76 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-class HistoryFocusRow extends cr.ui.FocusRow {
-  /**
-   * @param {!Element} root
-   * @param {?Element} boundary
-   * @param {cr.ui.FocusRow.Delegate} delegate
-   */
-  constructor(root, boundary, delegate) {
-    super(root, boundary, delegate);
-    this.addItems();
-  }
-
-  /** @override */
-  getCustomEquivalent(sampleElement) {
-    let equivalent;
-
-    if (this.getTypeForElement(sampleElement) == 'star')
-      equivalent = this.getFirstFocusable('title');
-
-    return equivalent || super.getCustomEquivalent(sampleElement);
-  }
-
-  addItems() {
-    this.destroy();
-
-    assert(this.addItem('checkbox', '#checkbox'));
-    assert(this.addItem('title', '#title'));
-    assert(this.addItem('menu-button', '#menu-button'));
-
-    this.addItem('star', '#bookmark-star');
-  }
-}
-
 cr.define('md_history', function() {
-  /** @implements {cr.ui.FocusRow.Delegate} */
-  class FocusRowDelegate {
-    /** @param {{lastFocused: Object}} historyItemElement */
-    constructor(historyItemElement) {
-      this.historyItemElement = historyItemElement;
-    }
-
-    /**
-     * @override
-     * @param {!cr.ui.FocusRow} row
-     * @param {!Event} e
-     */
-    onFocus(row, e) {
-      this.historyItemElement.lastFocused = e.path[0];
-    }
-
-    /**
-     * @override
-     * @param {!cr.ui.FocusRow} row The row that detected a keydown.
-     * @param {!Event} e
-     * @return {boolean} Whether the event was handled.
-     */
-    onKeydown(row, e) {
-      // Allow Home and End to move the history list.
-      if (e.key == 'Home' || e.key == 'End')
-        return true;
-
-      // Prevent iron-list from changing the focus on enter.
-      if (e.key == 'Enter')
-        e.stopPropagation();
-
-      return false;
-    }
-  }
-
   const HistoryItem = Polymer({
     is: 'history-item',
+
+    behaviors: [cr.ui.FocusRowBehavior],
 
     properties: {
       // Underlying HistoryEntry data for this item. Contains read-only fields
@@ -102,6 +37,11 @@ cr.define('md_history', function() {
         notify: true,
       },
 
+      listBlurred: {
+        type: Boolean,
+        notify: true,
+      },
+
       ironListTabIndex: {
         type: Number,
         observer: 'ironListTabIndexChanged_',
@@ -120,10 +60,12 @@ cr.define('md_history', function() {
 
       // Search term used to obtain this history-item.
       searchTerm: String,
-    },
 
-    /** @private {?HistoryFocusRow} */
-    row_: null,
+      overrideCustomEquivalent: {
+        type: Boolean,
+        value: true,
+      },
+    },
 
     /** @private {boolean} */
     mouseDown_: false,
@@ -134,54 +76,22 @@ cr.define('md_history', function() {
     /** @override */
     attached: function() {
       Polymer.RenderStatus.afterNextRender(this, function() {
-        this.row_ = new HistoryFocusRow(
-            this.$['main-container'], null, new FocusRowDelegate(this));
-        this.row_.makeActive(this.ironListTabIndex == 0);
-        this.listen(this, 'focus', 'onFocus_');
-        this.listen(this, 'dom-change', 'onDomChange_');
+        // Adding listeners asynchronously to reduce blocking time, since these
+        // history items are items in a potentially long list.
+        this.listen(this.$.checkbox, 'keydown', 'onCheckboxKeydown_');
       });
     },
 
     /** @override */
     detached: function() {
-      this.unlisten(this, 'focus', 'onFocus_');
-      this.unlisten(this, 'dom-change', 'onDomChange_');
-      if (this.row_)
-        this.row_.destroy();
+      this.unlisten(this.$.checkbox, 'keydown', 'onCheckboxKeydown_');
     },
 
-    /**
-     * @private
-     */
-    onFocus_: function() {
-      // Don't change the focus while the mouse is down, as it prevents text
-      // selection. Not changing focus here is acceptable because the checkbox
-      // will be focused in onItemClick_() anyway.
-      if (this.mouseDown_)
-        return;
-
-      if (this.lastFocused)
-        this.row_.getEquivalentElement(this.lastFocused).focus();
-      else
-        this.row_.getFirstFocusable().focus();
-
-      this.tabIndex = -1;
-    },
-
-    /**
-     * @private
-     */
-    ironListTabIndexChanged_: function() {
-      if (this.row_)
-        this.row_.makeActive(this.ironListTabIndex == 0);
-    },
-
-    /**
-     * @private
-     */
-    onDomChange_: function() {
-      if (this.row_)
-        this.row_.addItems();
+    /** @param {!KeyboardEvent} e */
+    onCheckboxKeydown_: function(e) {
+      if (e.shiftKey && e.key === 'Tab') {
+        this.focus();
+      }
     },
 
     /**
@@ -199,8 +109,9 @@ cr.define('md_history', function() {
         }
       }
 
-      if (this.selectionNotAllowed_)
+      if (this.selectionNotAllowed_) {
         return;
+      }
 
       this.$.checkbox.focus();
       this.fire('history-checkbox-select', {
@@ -241,13 +152,10 @@ cr.define('md_history', function() {
      * @private
      */
     onItemMousedown_: function(e) {
-      this.mouseDown_ = true;
-      listenOnce(document, 'mouseup', () => {
-        this.mouseDown_ = false;
-      });
       // Prevent shift clicking a checkbox from selecting text.
-      if (e.shiftKey)
+      if (e.shiftKey) {
         e.preventDefault();
+      }
     },
 
     /**
@@ -276,11 +184,13 @@ cr.define('md_history', function() {
      * @private
      */
     onRemoveBookmarkTap_: function() {
-      if (!this.item.starred)
+      if (!this.item.starred) {
         return;
+      }
 
-      if (this.$$('#bookmark-star') == this.root.activeElement)
+      if (this.$$('#bookmark-star') == this.root.activeElement) {
         this.$['menu-button'].focus();
+      }
 
       const browserService = md_history.BrowserService.getInstance();
       browserService.removeBookmark(this.item.url);
@@ -312,11 +222,13 @@ cr.define('md_history', function() {
       const browserService = md_history.BrowserService.getInstance();
       browserService.recordAction('EntryLinkClick');
 
-      if (this.searchTerm)
+      if (this.searchTerm) {
         browserService.recordAction('SearchResultClick');
+      }
 
-      if (this.index == undefined)
+      if (this.index == undefined) {
         return;
+      }
 
       browserService.recordHistogram(
           'HistoryPage.ClickPosition',
@@ -351,8 +263,13 @@ cr.define('md_history', function() {
      * @private
      */
     cardTitle_: function(numberOfItems, historyDate, search) {
-      if (!search)
+      if (this.item === undefined) {
+        return '';
+      }
+
+      if (!search) {
         return this.item.dateRelativeDay;
+      }
       return HistoryItem.searchResultsTitle(numberOfItems, search);
     },
 
@@ -361,6 +278,17 @@ cr.define('md_history', function() {
       const el = this.$['time-accessed'];
       el.setAttribute('title', new Date(this.item.time).toString());
       this.unlisten(el, 'mouseover', 'addTimeTitle_');
+    },
+
+    /**
+     * @param {!Element} sampleElement An element to find an equivalent for.
+     * @return {?Element} An equivalent element to focus, or null to use the
+     *     default element.
+     */
+    getCustomEquivalent(sampleElement) {
+      return sampleElement.getAttribute('focus-type') === 'star' ?
+          this.$.link :
+          null;
     },
   });
 

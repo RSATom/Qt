@@ -7,7 +7,6 @@
 #include "xfa/fxgraphics/cxfa_gepath.h"
 
 #include "core/fxge/cfx_pathdata.h"
-#include "third_party/base/ptr_util.h"
 
 CXFA_GEPath::CXFA_GEPath() {}
 
@@ -147,5 +146,5 @@ void CXFA_GEPath::AddSubpath(CXFA_GEPath* path) {
 }
 
 void CXFA_GEPath::TransformBy(const CFX_Matrix& mt) {
-  data_.Transform(&mt);
+  data_.Transform(mt);
 }

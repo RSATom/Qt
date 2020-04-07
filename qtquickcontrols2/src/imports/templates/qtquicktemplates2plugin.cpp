@@ -82,6 +82,7 @@
 #include <QtQuickTemplates2/private/qquickshortcutcontext_p_p.h>
 #include <QtQuickTemplates2/private/qquickslider_p.h>
 #include <QtQuickTemplates2/private/qquickspinbox_p.h>
+#include <QtQuickTemplates2/private/qquicksplitview_p.h>
 #include <QtQuickTemplates2/private/qquickstackview_p.h>
 #include <QtQuickTemplates2/private/qquickswipe_p.h>
 #include <QtQuickTemplates2/private/qquickswipedelegate_p.h>
@@ -347,6 +348,13 @@ void QtQuickTemplates2Plugin::registerTypes(const char *uri)
     qmlRegisterType<QQuickTextArea, 5>(uri, 2, 5, "TextArea");
     qmlRegisterType<QQuickTextField, 5>(uri, 2, 5, "TextField");
     qmlRegisterType<QQuickToolTip, 5>(uri, 2, 5, "ToolTip");
+
+    // QtQuick.Templates 2.13 (new types and revisions in Qt 5.13)
+    qmlRegisterType<QQuickSplitView>(uri, 2, 13, "SplitView");
+    qmlRegisterType<QQuickSplitViewAttached>();
+    qmlRegisterUncreatableType<QQuickSplitHandleAttached>(uri, 2, 13, "SplitHandle",
+        QStringLiteral("SplitHandle is only available as an attached property."));
+    qmlRegisterType<QQuickSplitHandleAttached>();
 }
 
 QT_END_NAMESPACE

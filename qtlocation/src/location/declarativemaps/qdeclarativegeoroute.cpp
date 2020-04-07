@@ -352,9 +352,40 @@ QList<QObject *> QDeclarativeGeoRoute::legs()
 }
 
 /*!
+    \qmlproperty Object Route::extendedAttributes
+
+    This property holds the extended attributes of the route and is a map.
+    These attributes are plugin specific, and can be empty.
+
+    Consult the \l {Qt Location#Plugin References and Parameters}{plugin documentation}
+    for what attributes are supported and how they should be used.
+
+    Note, due to limitations of the QQmlPropertyMap, it is not possible
+    to declaratively specify the attributes in QML, assignment of attributes keys
+    and values can only be accomplished by JavaScript.
+
+    \since QtLocation 5.13
+*/
+QQmlPropertyMap *QDeclarativeGeoRoute::extendedAttributes() const
+{
+    if (!m_extendedAttributes) {
+        QDeclarativeGeoRoute *self = const_cast<QDeclarativeGeoRoute *>(this);
+        self->m_extendedAttributes = new QQmlPropertyMap(self);
+        // Fill it
+        const QVariantMap &xAttrs = route_.extendedAttributes();
+        const QStringList &keys = xAttrs.keys();
+        for (const QString &key: keys)
+            self->m_extendedAttributes->insert(key, xAttrs.value(key));
+    }
+    return m_extendedAttributes;
+}
+
+/*!
     \qmlmethod bool QtLocation::Route::equals(Route other)
 
-    This method performs deep comparison.
+    This method performs deep comparison if the present route
+    is identical to the \a other route.
+    Returns \c true if the routes are equal.
 
     \since 5.12
 */

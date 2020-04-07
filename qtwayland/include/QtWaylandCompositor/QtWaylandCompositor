@@ -36,6 +36,8 @@
 #include "qwaylandtextinputmanager.h"
 #include "qwaylandtouch.h"
 #include "qwaylandview.h"
+#include "qwaylandviewporter.h"
+#include "qwaylandwlscaler.h"
 #include "qwaylandwlshell.h"
 #include "qwaylandxdgdecorationv1.h"
 #include "qwaylandxdgshell.h"

@@ -27,8 +27,8 @@
 #include "net/spdy/spdy_http_utils.h"
 #include "net/spdy/spdy_log_util.h"
 #include "net/spdy/spdy_session.h"
-#include "net/third_party/spdy/core/spdy_header_block.h"
-#include "net/third_party/spdy/core/spdy_protocol.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 
 namespace net {
 
@@ -142,9 +142,8 @@ int SpdyHttpStream::InitializeStream(const HttpRequestInfo* request_info,
 
   request_info_ = request_info;
   if (pushed_stream_id_ != kNoPushedStreamFound) {
-    int error =
-        spdy_session_->GetPushedStream(request_info_->url, pushed_stream_id_,
-                                       priority, &stream_, stream_net_log);
+    int error = spdy_session_->GetPushedStream(
+        request_info_->url, pushed_stream_id_, priority, &stream_);
     if (error != OK)
       return error;
 
@@ -294,7 +293,8 @@ int SpdyHttpStream::SendRequest(const HttpRequestHeaders& request_headers,
 
   CHECK(!request_body_buf_.get());
   if (HasUploadData()) {
-    request_body_buf_ = new IOBufferWithSize(kRequestBodyBufferSize);
+    request_body_buf_ =
+        base::MakeRefCounted<IOBufferWithSize>(kRequestBodyBufferSize);
     // The request body buffer is empty at first.
     request_body_buf_size_ = 0;
   }

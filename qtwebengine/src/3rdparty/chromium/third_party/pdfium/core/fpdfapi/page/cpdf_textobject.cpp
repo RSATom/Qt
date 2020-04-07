@@ -12,7 +12,6 @@
 #include "core/fpdfapi/font/cpdf_cidfont.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "third_party/base/ptr_util.h"
-#include "third_party/base/stl_util.h"
 
 CPDF_TextObjectItem::CPDF_TextObjectItem() : m_CharCode(0) {}
 
@@ -116,8 +115,7 @@ CPDF_PageObject::Type CPDF_TextObject::GetType() const {
 }
 
 void CPDF_TextObject::Transform(const CFX_Matrix& matrix) {
-  CFX_Matrix text_matrix = GetTextMatrix();
-  text_matrix.Concat(matrix);
+  CFX_Matrix text_matrix = GetTextMatrix() * matrix;
 
   float* pTextMatrix = m_TextState.GetMutableMatrix();
   pTextMatrix[0] = text_matrix.a;
@@ -165,7 +163,7 @@ void CPDF_TextObject::SetSegments(const ByteString* pStrs,
     size_t offset = 0;
     while (offset < segment.GetLength()) {
       ASSERT(index < m_CharCodes.size());
-      m_CharCodes[index++] = pFont->GetNextChar(segment, offset);
+      m_CharCodes[index++] = pFont->GetNextChar(segment, &offset);
     }
     if (i != nSegs - 1) {
       m_CharPos[index - 1] = kernings[i];
@@ -273,17 +271,17 @@ CFX_PointF CPDF_TextObject::CalcPositionData(float horz_scale) {
     min_y = min_y * fontsize / 1000;
     max_y = max_y * fontsize / 1000;
   }
-  std::tie(m_Left, m_Right, m_Top, m_Bottom) =
-      GetTextMatrix().TransformRect(min_x, max_x, max_y, min_y);
+  SetRect(
+      GetTextMatrix().TransformRect(CFX_FloatRect(min_x, min_y, max_x, max_y)));
 
   if (!TextRenderingModeIsStrokeMode(m_TextState.GetTextMode()))
     return ret;
 
   float half_width = m_GraphState.GetLineWidth() / 2;
-  m_Left -= half_width;
-  m_Right += half_width;
-  m_Top += half_width;
-  m_Bottom -= half_width;
+  m_Rect.left -= half_width;
+  m_Rect.right += half_width;
+  m_Rect.top += half_width;
+  m_Rect.bottom -= half_width;
 
   return ret;
 }
@@ -293,10 +291,7 @@ void CPDF_TextObject::SetPosition(float x, float y) {
   float dy = y - m_Pos.y;
   m_Pos.x = x;
   m_Pos.y = y;
-  m_Left += dx;
-  m_Right += dx;
-  m_Top += dy;
-  m_Bottom += dy;
+  m_Rect.Translate(dx, dy);
 }
 
 void CPDF_TextObject::RecalcPositionData() {

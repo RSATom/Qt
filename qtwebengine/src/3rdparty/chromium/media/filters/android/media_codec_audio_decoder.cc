@@ -60,14 +60,15 @@ std::string MediaCodecAudioDecoder::GetDisplayName() const {
   return "MediaCodecAudioDecoder";
 }
 
-void MediaCodecAudioDecoder::Initialize(
-    const AudioDecoderConfig& config,
-    CdmContext* cdm_context,
-    const InitCB& init_cb,
-    const OutputCB& output_cb,
-    const WaitingForDecryptionKeyCB& /* waiting_for_decryption_key_cb */) {
+void MediaCodecAudioDecoder::Initialize(const AudioDecoderConfig& config,
+                                        CdmContext* cdm_context,
+                                        const InitCB& init_cb,
+                                        const OutputCB& output_cb,
+                                        const WaitingCB& waiting_cb) {
   DVLOG(1) << __func__ << ": " << config.AsHumanReadableString();
   DCHECK_NE(state_, STATE_WAITING_FOR_MEDIA_CRYPTO);
+  DCHECK(output_cb);
+  DCHECK(waiting_cb);
 
   // Initialization and reinitialization should not be called during pending
   // decode.
@@ -104,7 +105,11 @@ void MediaCodecAudioDecoder::Initialize(
   }
 
   config_ = config;
+
+  // TODO(xhwang): Check whether BindToCurrentLoop is needed here.
   output_cb_ = BindToCurrentLoop(output_cb);
+  waiting_cb_ = BindToCurrentLoop(waiting_cb);
+
   SetInitialConfiguration();
 
   if (config_.is_encrypted() && !media_crypto_) {
@@ -141,7 +146,15 @@ bool MediaCodecAudioDecoder::CreateMediaCodecLoop() {
   const base::android::JavaRef<jobject>& media_crypto =
       media_crypto_ ? *media_crypto_ : nullptr;
   std::unique_ptr<MediaCodecBridge> audio_codec_bridge(
-      MediaCodecBridgeImpl::CreateAudioDecoder(config_, media_crypto));
+      MediaCodecBridgeImpl::CreateAudioDecoder(
+          config_, media_crypto,
+          // Use the asynchronous API if we're on Marshallow or higher.
+          base::android::BuildInfo::GetInstance()->sdk_int() >=
+                  base::android::SDK_VERSION_MARSHMALLOW
+              ? BindToCurrentLoop(base::BindRepeating(
+                    &MediaCodecAudioDecoder::PumpMediaCodecLoop,
+                    weak_factory_.GetWeakPtr()))
+              : base::RepeatingClosure()));
   if (!audio_codec_bridge) {
     DLOG(ERROR) << __func__ << " failed: cannot create MediaCodecBridge";
     return false;
@@ -458,6 +471,11 @@ bool MediaCodecAudioDecoder::OnDecodedFrame(
   return true;
 }
 
+void MediaCodecAudioDecoder::OnWaiting(WaitingReason reason) {
+  DVLOG(2) << __func__;
+  waiting_cb_.Run(reason);
+}
+
 bool MediaCodecAudioDecoder::OnOutputFormatChanged() {
   DVLOG(2) << __func__;
   MediaCodecBridge* media_codec = codec_loop_->GetCodec();
@@ -514,6 +532,10 @@ void MediaCodecAudioDecoder::SetInitialConfiguration() {
 
   sample_rate_ = config_.samples_per_second();
   timestamp_helper_.reset(new AudioTimestampHelper(sample_rate_));
+}
+
+void MediaCodecAudioDecoder::PumpMediaCodecLoop() {
+  codec_loop_->ExpectWork();
 }
 
 #undef RETURN_STRING

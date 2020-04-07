@@ -33,7 +33,8 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
-#include "third_party/blink/public/platform/web_file_writer.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
@@ -44,6 +45,7 @@
 #include "third_party/blink/renderer/modules/filesystem/dom_file_system_base.h"
 #include "third_party/blink/renderer/modules/filesystem/entry.h"
 #include "third_party/blink/renderer/modules/filesystem/file_entry.h"
+#include "third_party/blink/renderer/modules/filesystem/file_system_base_handle.h"
 #include "third_party/blink/renderer/modules/filesystem/file_writer.h"
 #include "third_party/blink/renderer/modules/filesystem/metadata.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
@@ -69,17 +71,15 @@ FileSystemCallbacksBase::~FileSystemCallbacksBase() {
     file_system_->RemovePendingCallbacks();
 }
 
-void FileSystemCallbacksBase::DidFail(int code) {
+void FileSystemCallbacksBase::DidFail(base::File::Error error) {
   if (error_callback_) {
     InvokeOrScheduleCallback(&ErrorCallbackBase::Invoke,
-                             error_callback_.Release(),
-                             static_cast<FileError::ErrorCode>(code));
+                             error_callback_.Release(), error);
   }
 }
 
 bool FileSystemCallbacksBase::ShouldScheduleCallback() const {
-  return !ShouldBlockUntilCompletion() && execution_context_ &&
-         execution_context_->IsContextPaused();
+  return execution_context_ && execution_context_->IsContextPaused();
 }
 
 template <typename CallbackMemberFunction,
@@ -111,7 +111,7 @@ ScriptErrorCallback* ScriptErrorCallback::Wrap(V8ErrorCallback* callback) {
   // and checking during invoke().
   if (!callback)
     return nullptr;
-  return new ScriptErrorCallback(callback);
+  return MakeGarbageCollected<ScriptErrorCallback>(callback);
 }
 
 void ScriptErrorCallback::Trace(blink::Visitor* visitor) {
@@ -119,13 +119,27 @@ void ScriptErrorCallback::Trace(blink::Visitor* visitor) {
   visitor->Trace(callback_);
 }
 
-void ScriptErrorCallback::Invoke(FileError::ErrorCode error) {
+void ScriptErrorCallback::Invoke(base::File::Error error) {
   callback_->InvokeAndReportException(nullptr,
-                                      FileError::CreateDOMException(error));
+                                      file_error::CreateDOMException(error));
 };
 
 ScriptErrorCallback::ScriptErrorCallback(V8ErrorCallback* callback)
     : callback_(ToV8PersistentCallbackInterface(callback)) {}
+
+// PromiseErrorCallback -------------------------------------------------------
+
+PromiseErrorCallback::PromiseErrorCallback(ScriptPromiseResolver* resolver)
+    : resolver_(resolver) {}
+
+void PromiseErrorCallback::Trace(Visitor* visitor) {
+  ErrorCallbackBase::Trace(visitor);
+  visitor->Trace(resolver_);
+}
+
+void PromiseErrorCallback::Invoke(base::File::Error error) {
+  resolver_->Reject(file_error::CreateDOMException(error));
+}
 
 // EntryCallbacks -------------------------------------------------------------
 
@@ -136,6 +150,19 @@ void EntryCallbacks::OnDidGetEntryV8Impl::Trace(blink::Visitor* visitor) {
 
 void EntryCallbacks::OnDidGetEntryV8Impl::OnSuccess(Entry* entry) {
   callback_->InvokeAndReportException(nullptr, entry);
+}
+
+EntryCallbacks::OnDidGetEntryPromiseImpl::OnDidGetEntryPromiseImpl(
+    ScriptPromiseResolver* resolver)
+    : resolver_(resolver) {}
+
+void EntryCallbacks::OnDidGetEntryPromiseImpl::Trace(Visitor* visitor) {
+  OnDidGetEntryCallback::Trace(visitor);
+  visitor->Trace(resolver_);
+}
+
+void EntryCallbacks::OnDidGetEntryPromiseImpl::OnSuccess(Entry* entry) {
+  resolver_->Resolve(entry->asFileSystemHandle());
 }
 
 std::unique_ptr<AsyncFileSystemCallbacks> EntryCallbacks::Create(
@@ -196,7 +223,7 @@ EntriesCallbacks::EntriesCallbacks(OnDidGetEntriesCallback* success_callback,
       success_callback_(success_callback),
       directory_reader_(directory_reader),
       base_path_(base_path),
-      entries_(new HeapVector<Member<Entry>>()) {
+      entries_(MakeGarbageCollected<HeapVector<Member<Entry>>>()) {
   DCHECK(directory_reader_);
 }
 
@@ -213,7 +240,8 @@ void EntriesCallbacks::DidReadDirectoryEntry(const String& name,
 
 void EntriesCallbacks::DidReadDirectoryEntries(bool has_more) {
   directory_reader_->SetHasMoreEntries(has_more);
-  EntryHeapVector* entries = new EntryHeapVector(std::move(*entries_));
+  EntryHeapVector* entries =
+      MakeGarbageCollected<EntryHeapVector>(std::move(*entries_));
 
   if (!success_callback_)
     return;
@@ -235,11 +263,26 @@ void FileSystemCallbacks::OnDidOpenFileSystemV8Impl::OnSuccess(
   callback_->InvokeAndReportException(nullptr, file_system);
 }
 
+FileSystemCallbacks::OnDidOpenFileSystemPromiseImpl::
+    OnDidOpenFileSystemPromiseImpl(ScriptPromiseResolver* resolver)
+    : resolver_(resolver) {}
+
+void FileSystemCallbacks::OnDidOpenFileSystemPromiseImpl::Trace(
+    Visitor* visitor) {
+  OnDidOpenFileSystemCallback::Trace(visitor);
+  visitor->Trace(resolver_);
+}
+
+void FileSystemCallbacks::OnDidOpenFileSystemPromiseImpl::OnSuccess(
+    DOMFileSystem* file_system) {
+  resolver_->Resolve(file_system->root()->asFileSystemHandle());
+}
+
 std::unique_ptr<AsyncFileSystemCallbacks> FileSystemCallbacks::Create(
     OnDidOpenFileSystemCallback* success_callback,
     ErrorCallbackBase* error_callback,
     ExecutionContext* context,
-    FileSystemType type) {
+    mojom::blink::FileSystemType type) {
   return base::WrapUnique(
       new FileSystemCallbacks(success_callback, error_callback, context, type));
 }
@@ -248,7 +291,7 @@ FileSystemCallbacks::FileSystemCallbacks(
     OnDidOpenFileSystemCallback* success_callback,
     ErrorCallbackBase* error_callback,
     ExecutionContext* context,
-    FileSystemType type)
+    mojom::blink::FileSystemType type)
     : FileSystemCallbacksBase(error_callback, nullptr, context),
       success_callback_(success_callback),
       type_(type) {}
@@ -284,7 +327,7 @@ ResolveURICallbacks::ResolveURICallbacks(
 
 void ResolveURICallbacks::DidResolveURL(const String& name,
                                         const KURL& root_url,
-                                        FileSystemType type,
+                                        mojom::blink::FileSystemType type,
                                         const String& file_path,
                                         bool is_directory) {
   DOMFileSystem* filesystem =
@@ -294,7 +337,7 @@ void ResolveURICallbacks::DidResolveURL(const String& name,
   String absolute_path;
   if (!DOMFileSystemBase::PathToAbsolutePath(type, root, file_path,
                                              absolute_path)) {
-    DidFail(FileError::kInvalidModificationErr);
+    DidFail(base::File::FILE_ERROR_INVALID_OPERATION);
     return;
   }
 
@@ -378,16 +421,13 @@ FileWriterCallbacks::FileWriterCallbacks(
       file_writer_(file_writer),
       success_callback_(success_callback) {}
 
-void FileWriterCallbacks::DidCreateFileWriter(
-    std::unique_ptr<WebFileWriter> file_writer,
-    long long length) {
-  file_writer_->Initialize(std::move(file_writer), length);
-
+void FileWriterCallbacks::DidCreateFileWriter(const KURL& path,
+                                              long long length) {
   if (!success_callback_)
     return;
-
+  file_writer_->Initialize(path, length);
   InvokeOrScheduleCallback(&OnDidCreateFileWriterCallback::OnSuccess,
-                           success_callback_.Release(), file_writer_.Release());
+                           success_callback_.Release(), file_writer_);
 }
 
 // SnapshotFileCallback -------------------------------------------------------
@@ -455,6 +495,19 @@ void VoidCallbacks::OnDidSucceedV8Impl::Trace(blink::Visitor* visitor) {
 void VoidCallbacks::OnDidSucceedV8Impl::OnSuccess(
     ExecutionContext* dummy_arg_for_sync_helper) {
   callback_->InvokeAndReportException(nullptr);
+}
+
+VoidCallbacks::OnDidSucceedPromiseImpl::OnDidSucceedPromiseImpl(
+    ScriptPromiseResolver* resolver)
+    : resolver_(resolver) {}
+
+void VoidCallbacks::OnDidSucceedPromiseImpl::Trace(Visitor* visitor) {
+  OnDidSucceedCallback::Trace(visitor);
+  visitor->Trace(resolver_);
+}
+
+void VoidCallbacks::OnDidSucceedPromiseImpl::OnSuccess(ExecutionContext*) {
+  resolver_->Resolve();
 }
 
 std::unique_ptr<AsyncFileSystemCallbacks> VoidCallbacks::Create(

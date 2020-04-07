@@ -81,9 +81,10 @@ Sources.SourcesPanel = class extends UI.Panel {
     if (UI.viewManager.hasViewsForLocation('run-view-sidebar')) {
       const navigatorSplitWidget = new UI.SplitWidget(false, true, 'sourcePanelNavigatorSidebarSplitViewState');
       navigatorSplitWidget.setMainWidget(tabbedPane);
-      navigatorSplitWidget.setSidebarWidget(
-          UI.viewManager.createTabbedLocation(this._revealNavigatorSidebar.bind(this), 'run-view-sidebar')
-              .tabbedPane());
+      const runViewTabbedPane =
+          UI.viewManager.createTabbedLocation(this._revealNavigatorSidebar.bind(this), 'run-view-sidebar').tabbedPane();
+      navigatorSplitWidget.setSidebarWidget(runViewTabbedPane);
+      navigatorSplitWidget.installResizer(runViewTabbedPane.headerElement());
       this.editorView.setSidebarWidget(navigatorSplitWidget);
     } else {
       this.editorView.setSidebarWidget(tabbedPane);
@@ -176,13 +177,12 @@ Sources.SourcesPanel = class extends UI.Panel {
   _showThreadsIfNeeded() {
     if (Sources.ThreadsSidebarPane.shouldBeShown() && !this._threadsSidebarPane) {
       this._threadsSidebarPane = /** @type {!UI.View} */ (UI.viewManager.view('sources.threads'));
-      if (this._sidebarPaneStack) {
+      if (this._sidebarPaneStack && this._threadsSidebarPane) {
         this._sidebarPaneStack.showView(
             this._threadsSidebarPane, this._splitWidget.isVertical() ? this._watchSidebarPane : this._callstackPane);
       }
     }
   }
-
 
   /**
    * @param {?SDK.Target} target
@@ -251,7 +251,8 @@ Sources.SourcesPanel = class extends UI.Panel {
    * @return {?UI.ViewLocation}
    */
   resolveLocation(locationName) {
-    if (locationName === 'sources-sidebar')
+    if (locationName === 'sources.sidebar-top' || locationName === 'sources.sidebar-bottom' ||
+        locationName === 'sources.sidebar-tabs')
       return this._sidebarPaneStack;
     else
       return this._navigatorTabbedLocation;
@@ -529,23 +530,11 @@ Sources.SourcesPanel = class extends UI.Panel {
     Common.moduleSetting('pauseOnExceptionEnabled').set(!this._pauseOnExceptionButton.toggled());
   }
 
-  /**
-   * @return {boolean}
-   */
   _runSnippet() {
     const uiSourceCode = this._sourcesView.currentUISourceCode();
     if (!uiSourceCode)
-      return false;
-
-    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
-    if (!currentExecutionContext)
-      return false;
-
-    if (uiSourceCode.project().type() !== Workspace.projectTypes.Snippets)
-      return false;
-
-    Snippets.scriptSnippetModel.evaluateScriptSnippet(currentExecutionContext, uiSourceCode);
-    return true;
+      return;
+    Snippets.evaluateScriptSnippet(uiSourceCode);
   }
 
   /**
@@ -672,9 +661,10 @@ Sources.SourcesPanel = class extends UI.Panel {
     if (!executionContext)
       return;
     // Always use 0 column.
-    const rawLocation =
-        Bindings.debuggerWorkspaceBinding.uiLocationToRawLocation(uiLocation.uiSourceCode, uiLocation.lineNumber, 0);
-    if (!rawLocation || rawLocation.debuggerModel !== executionContext.debuggerModel)
+    const rawLocations =
+        Bindings.debuggerWorkspaceBinding.uiLocationToRawLocations(uiLocation.uiSourceCode, uiLocation.lineNumber, 0);
+    const rawLocation = rawLocations.find(location => location.debuggerModel === executionContext.debuggerModel);
+    if (!rawLocation)
       return;
     if (!this._prepareToResume())
       return;
@@ -777,7 +767,7 @@ Sources.SourcesPanel = class extends UI.Panel {
   _appendUISourceCodeFrameItems(event, contextMenu, target) {
     if (!(target instanceof Sources.UISourceCodeFrame))
       return;
-    if (target.uiSourceCode().contentType().isFromSourceMap())
+    if (target.uiSourceCode().contentType().isFromSourceMap() || target.textEditor.selection().isEmpty())
       return;
     contextMenu.debugSection().appendAction('debugger.evaluate-selection');
   }
@@ -821,11 +811,12 @@ Sources.SourcesPanel = class extends UI.Panel {
     if (!(target instanceof SDK.RemoteObject))
       return;
     const remoteObject = /** @type {!SDK.RemoteObject} */ (target);
+    const executionContext = UI.context.flavor(SDK.ExecutionContext);
     contextMenu.debugSection().appendItem(
-        Common.UIString('Store as global variable'), this._saveToTempVariable.bind(this, remoteObject));
+        ls`Store as global variable`, () => SDK.consoleModel.saveToTempVariable(executionContext, remoteObject));
     if (remoteObject.type === 'function') {
       contextMenu.debugSection().appendItem(
-          Common.UIString('Show function definition'), this._showFunctionDefinition.bind(this, remoteObject));
+          ls`Show function definition`, this._showFunctionDefinition.bind(this, remoteObject));
     }
   }
 
@@ -842,63 +833,6 @@ Sources.SourcesPanel = class extends UI.Panel {
       return;
     const openText = Common.UIString('Open in Sources panel');
     contextMenu.revealSection().appendItem(openText, this.showUILocation.bind(this, uiSourceCode.uiLocation(0, 0)));
-  }
-
-  /**
-   * @param {!SDK.RemoteObject} remoteObject
-   */
-  async _saveToTempVariable(remoteObject) {
-    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
-    if (!currentExecutionContext)
-      return;
-
-    const result = await currentExecutionContext.globalObject(/* objectGroup */ '', /* generatePreview */ false);
-    if (!!result.exceptionDetails || !result.object) {
-      failedToSave(result.object || null);
-      return;
-    }
-
-    const globalObject = result.object;
-    const callFunctionResult =
-        await globalObject.callFunctionPromise(saveVariable, [SDK.RemoteObject.toCallArgument(remoteObject)]);
-    globalObject.release();
-    if (callFunctionResult.wasThrown || !callFunctionResult.object || callFunctionResult.object.type !== 'string') {
-      failedToSave(callFunctionResult.object || null);
-    } else {
-      const executionContext = /** @type {!SDK.ExecutionContext} */ (currentExecutionContext);
-      let text = /** @type {string} */ (callFunctionResult.object.value);
-      const message = SDK.consoleModel.addCommandMessage(executionContext, text);
-      text = SDK.RuntimeModel.wrapObjectLiteralExpressionIfNeeded(text);
-      SDK.consoleModel.evaluateCommandInConsole(
-          executionContext, message, text,
-          /* useCommandLineAPI */ false, /* awaitPromise */ false);
-    }
-    if (callFunctionResult.object)
-      callFunctionResult.object.release();
-
-    /**
-     * @suppressReceiverCheck
-     * @this {Window}
-     */
-    function saveVariable(value) {
-      const prefix = 'temp';
-      let index = 1;
-      while ((prefix + index) in this)
-        ++index;
-      const name = prefix + index;
-      this[name] = value;
-      return name;
-    }
-
-    /**
-     * @param {?SDK.RemoteObject} result
-     */
-    function failedToSave(result) {
-      let message = Common.UIString('Failed to save to temp variable.');
-      if (result)
-        message += ' ' + result.description;
-      Common.console.error(message);
-    }
   }
 
   /**
@@ -966,6 +900,7 @@ Sources.SourcesPanel = class extends UI.Panel {
     this._sidebarPaneStack.widget().element.classList.add('overflow-auto');
     this._sidebarPaneStack.widget().show(vbox.element);
     this._sidebarPaneStack.widget().element.appendChild(this._debuggerPausedMessage.element());
+    this._sidebarPaneStack.appendApplicableItems('sources.sidebar-top');
     vbox.element.appendChild(this._debugToolbar.element);
 
     if (this._threadsSidebarPane)
@@ -1004,11 +939,12 @@ Sources.SourcesPanel = class extends UI.Panel {
       this._splitWidget.installResizer(this._debugToolbar.gripElementForResize());
       tabbedLocation.appendView(scopeChainView);
       tabbedLocation.appendView(this._watchSidebarPane);
+      tabbedLocation.appendApplicableItems('sources.sidebar-tabs');
       this._extensionSidebarPanesContainer = tabbedLocation;
       this.sidebarPaneView = splitWidget;
     }
 
-    this._sidebarPaneStack.appendApplicableItems('sources-sidebar');
+    this._sidebarPaneStack.appendApplicableItems('sources.sidebar-bottom');
     const extensionSidebarPanes = Extensions.extensionServer.sidebarPanes();
     for (let i = 0; i < extensionSidebarPanes.length; ++i)
       this._addExtensionSidebarPane(extensionSidebarPanes[i]);
@@ -1202,7 +1138,7 @@ Sources.SourcesPanel.DebuggingActionDelegate = class {
           const executionContext = UI.context.flavor(SDK.ExecutionContext);
           if (executionContext) {
             const message = SDK.consoleModel.addCommandMessage(executionContext, text);
-            text = SDK.RuntimeModel.wrapObjectLiteralExpressionIfNeeded(text);
+            text = ObjectUI.JavaScriptREPL.wrapObjectLiteral(text);
             SDK.consoleModel.evaluateCommandInConsole(
                 executionContext, message, text, /* useCommandLineAPI */ true, /* awaitPromise */ false);
           }

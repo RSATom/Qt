@@ -66,7 +66,7 @@ class NodeManagers;
 class LevelOfDetail;
 class FrameGraphNode;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT UpdateLevelOfDetailJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT UpdateLevelOfDetailJob : public Qt3DCore::QAspectJob
 {
 public:
     UpdateLevelOfDetailJob();
@@ -81,12 +81,6 @@ public:
     Entity *root() const { return m_root; }
 
 private:
-    void updateEntityLod(Entity *entity);
-    void updateEntityLodByDistance(Entity *entity, LevelOfDetail *lod);
-    void updateEntityLodByScreenArea(Entity *entity, LevelOfDetail *lod);
-
-    QRect windowViewport(const QSize &area, const QRectF &relativeViewport) const;
-
     NodeManagers *m_manager;
     FrameGraphNode *m_frameGraphRoot;
     Entity *m_root;

@@ -138,7 +138,7 @@ bool AreIdenticalElements(const Node& first, const Node& second) {
   if (!first_element.HasTagName(second_element.TagQName()))
     return false;
 
-  if (!first_element.HasEquivalentAttributes(&second_element))
+  if (!first_element.HasEquivalentAttributes(second_element))
     return false;
 
   return HasEditableStyle(first_element) && HasEditableStyle(second_element);
@@ -351,7 +351,7 @@ bool LineBreakExistsAtVisiblePosition(const VisiblePosition& visible_position) {
 }
 
 HTMLElement* CreateHTMLElement(Document& document, const QualifiedName& name) {
-  DCHECK_EQ(name.NamespaceURI(), HTMLNames::xhtmlNamespaceURI)
+  DCHECK_EQ(name.NamespaceURI(), html_names::xhtmlNamespaceURI)
       << "Unexpected namespace: " << name;
   return ToHTMLElement(document.CreateElement(
       name, CreateElementFlags::ByCloneNode(), g_null_atom));
@@ -451,6 +451,7 @@ VisibleSelection SelectionForParagraphIteration(
   // we'll want modify is the last one inside the table, not the table itself (a
   // table is itself a paragraph).
   if (Element* table = TableElementJustBefore(end_of_selection)) {
+    DCHECK(start_of_selection.IsNotNull()) << new_selection;
     if (start_of_selection.DeepEquivalent().AnchorNode()->IsDescendantOf(
             table)) {
       const VisiblePosition& new_end =
@@ -475,6 +476,7 @@ VisibleSelection SelectionForParagraphIteration(
   // want to modify is the first one inside the table, not the paragraph
   // containing the table itself.
   if (Element* table = TableElementJustAfter(start_of_selection)) {
+    DCHECK(end_of_selection.IsNotNull()) << new_selection;
     if (end_of_selection.DeepEquivalent().AnchorNode()->IsDescendantOf(table)) {
       const VisiblePosition new_start =
           NextPositionOf(start_of_selection, kCannotCrossEditingBoundary);
@@ -579,11 +581,11 @@ void DispatchEditableContentChangedEvents(Element* start_root,
                                           Element* end_root) {
   if (start_root) {
     start_root->DispatchEvent(
-        Event::Create(EventTypeNames::webkitEditableContentChanged));
+        *Event::Create(event_type_names::kWebkitEditableContentChanged));
   }
   if (end_root && end_root != start_root) {
     end_root->DispatchEvent(
-        Event::Create(EventTypeNames::webkitEditableContentChanged));
+        *Event::Create(event_type_names::kWebkitEditableContentChanged));
   }
 }
 
@@ -593,11 +595,11 @@ static void DispatchInputEvent(Element* target,
                                InputEvent::EventIsComposing is_composing) {
   if (!target)
     return;
-  // TODO(chongz): Pass appreciate |ranges| after it's defined on spec.
+  // TODO(editing-dev): Pass appreciate |ranges| after it's defined on spec.
   // http://w3c.github.io/editing/input-events.html#dom-inputevent-inputtype
   InputEvent* const input_event =
       InputEvent::CreateInput(input_type, data, is_composing, nullptr);
-  target->DispatchScopedEvent(input_event);
+  target->DispatchScopedEvent(*input_event);
 }
 
 void DispatchInputEventEditableContentChanged(
@@ -615,11 +617,8 @@ void DispatchInputEventEditableContentChanged(
 SelectionInDOMTree CorrectedSelectionAfterCommand(
     const SelectionForUndoStep& passed_selection,
     const Document* document) {
-  if (!passed_selection.Base().IsConnected() ||
-      !passed_selection.Extent().IsConnected() ||
-      passed_selection.Base().GetDocument() != document ||
-      passed_selection.Base().GetDocument() !=
-          passed_selection.Extent().GetDocument())
+  if (!passed_selection.Base().IsValidFor(*document) ||
+      !passed_selection.Extent().IsValidFor(*document))
     return SelectionInDOMTree();
   return passed_selection.AsSelection();
 }

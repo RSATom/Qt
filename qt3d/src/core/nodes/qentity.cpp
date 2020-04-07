@@ -77,6 +77,13 @@ namespace Qt3DCore {
     \sa Qt3DCore::QComponent, Qt3DCore::QTransform
  */
 
+/*!
+    \fn template<typename T> QVector<T *> QEntity::componentsOfType() const
+
+    Returns all the components added to this entity that can be cast to
+    type T or an empty vector if there are no such components.
+*/
+
 /*! \internal */
 QEntityPrivate::QEntityPrivate()
     : QNodePrivate()
@@ -86,6 +93,26 @@ QEntityPrivate::QEntityPrivate()
 /*! \internal */
 QEntityPrivate::~QEntityPrivate()
 {
+}
+
+/*! \internal */
+void QEntityPrivate::removeDestroyedComponent(QComponent *comp)
+{
+    // comp is actually no longer a QComponent, just a QObject
+
+    Q_CHECK_PTR(comp);
+    qCDebug(Nodes) << Q_FUNC_INFO << comp;
+    Q_Q(QEntity);
+
+    if (m_changeArbiter) {
+        const auto componentRemovedChange = QComponentRemovedChangePtr::create(q, comp);
+        notifyObservers(componentRemovedChange);
+    }
+
+    m_components.removeOne(comp);
+
+    // Remove bookkeeping connection
+    unregisterDestructionHelper(comp);
 }
 
 /*!
@@ -157,7 +184,7 @@ void QEntity::addComponent(QComponent *comp)
     d->m_components.append(comp);
 
     // Ensures proper bookkeeping
-    d->registerDestructionHelper(comp, &QEntity::removeComponent, d->m_components);
+    d->registerPrivateDestructionHelper(comp, &QEntityPrivate::removeDestroyedComponent);
 
     if (d->m_changeArbiter) {
         const auto componentAddedChange = QComponentAddedChangePtr::create(this, comp);

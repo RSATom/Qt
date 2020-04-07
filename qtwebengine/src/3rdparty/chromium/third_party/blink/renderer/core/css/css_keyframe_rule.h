@@ -40,6 +40,7 @@ class CSSKeyframeRule final : public CSSRule {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  CSSKeyframeRule(StyleRuleKeyframe*, CSSKeyframesRule* parent);
   ~CSSKeyframeRule() override;
 
   String cssText() const override { return keyframe_->CssText(); }
@@ -53,12 +54,10 @@ class CSSKeyframeRule final : public CSSRule {
   void Trace(blink::Visitor*) override;
 
  private:
-  CSSKeyframeRule(StyleRuleKeyframe*, CSSKeyframesRule* parent);
-
   CSSRule::Type type() const override { return kKeyframeRule; }
 
-  Member<StyleRuleKeyframe> keyframe_;
-  mutable Member<KeyframeStyleRuleCSSStyleDeclaration>
+  TraceWrapperMember<StyleRuleKeyframe> keyframe_;
+  mutable TraceWrapperMember<KeyframeStyleRuleCSSStyleDeclaration>
       properties_cssom_wrapper_;
 
   friend class CSSKeyframesRule;

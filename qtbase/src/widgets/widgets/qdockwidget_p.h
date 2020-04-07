@@ -57,6 +57,10 @@
 #include "QtWidgets/qboxlayout.h"
 #include "QtWidgets/qdockwidget.h"
 
+#if QT_CONFIG(tabwidget)
+#  include "QtWidgets/qtabwidget.h"
+#endif
+
 QT_REQUIRE_CONFIG(dockwidget);
 
 QT_BEGIN_NAMESPACE
@@ -81,33 +85,32 @@ class QDockWidgetPrivate : public QWidgetPrivate
     };
 
 public:
-    inline QDockWidgetPrivate()
-        : QWidgetPrivate(), state(0),
-          features(QDockWidget::DockWidgetClosable
-                   | QDockWidget::DockWidgetMovable
-                   | QDockWidget::DockWidgetFloatable),
-          allowedAreas(Qt::AllDockWidgetAreas), resizer(0)
-    { }
-
     void init();
     void _q_toggleView(bool); // private slot
     void _q_toggleTopLevel(); // private slot
 
     void updateButtons();
-    DragState *state;
 
-    QDockWidget::DockWidgetFeatures features;
-    Qt::DockWidgetAreas allowedAreas;
+#if QT_CONFIG(tabwidget)
+    QTabWidget::TabPosition tabPosition = QTabWidget::North;
+#endif
+
+    DragState *state = nullptr;
+
+    QDockWidget::DockWidgetFeatures features = QDockWidget::DockWidgetClosable
+        | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable;
+    Qt::DockWidgetAreas allowedAreas = Qt::AllDockWidgetAreas;
 
     QFont font;
 
 #ifndef QT_NO_ACTION
-    QAction *toggleViewAction;
+    QAction *toggleViewAction = nullptr;
 #endif
 
 //    QMainWindow *findMainWindow(QWidget *widget) const;
     QRect undockedGeometry;
     QString fixedWindowTitle;
+    QString dockedWindowTitle;
 
     bool mousePressEvent(QMouseEvent *event);
     bool mouseDoubleClickEvent(QMouseEvent *event);
@@ -128,7 +131,7 @@ public:
     bool isAnimating() const;
 
 private:
-    QWidgetResizeHandler *resizer;
+    QWidgetResizeHandler *resizer = nullptr;
 };
 
 class Q_WIDGETS_EXPORT QDockWidgetLayout : public QLayout

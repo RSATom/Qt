@@ -39,11 +39,11 @@
 namespace blink {
 
 InputType* CheckboxInputType::Create(HTMLInputElement& element) {
-  return new CheckboxInputType(element);
+  return MakeGarbageCollected<CheckboxInputType>(element);
 }
 
 const AtomicString& CheckboxInputType::FormControlType() const {
-  return InputTypeNames::checkbox;
+  return input_type_names::kCheckbox;
 }
 
 bool CheckboxInputType::ValueMissing(const String&) const {
@@ -55,9 +55,8 @@ String CheckboxInputType::ValueMissingText() const {
       WebLocalizedString::kValidationValueMissingForCheckbox);
 }
 
-void CheckboxInputType::HandleKeyupEvent(KeyboardEvent* event) {
-  const String& key = event->key();
-  if (key != " ")
+void CheckboxInputType::HandleKeyupEvent(KeyboardEvent& event) {
+  if (event.key() != " ")
     return;
   DispatchSimulatedClickIfActive(event);
 }
@@ -67,7 +66,7 @@ ClickHandlingState* CheckboxInputType::WillDispatchClick() {
   // checking we do here.  The ClickHandlingState object contains what we need
   // to undo what we did here in didDispatchClick.
 
-  ClickHandlingState* state = new ClickHandlingState;
+  ClickHandlingState* state = MakeGarbageCollected<ClickHandlingState>();
 
   state->checked = GetElement().checked();
   state->indeterminate = GetElement().indeterminate();
@@ -80,9 +79,9 @@ ClickHandlingState* CheckboxInputType::WillDispatchClick() {
   return state;
 }
 
-void CheckboxInputType::DidDispatchClick(Event* event,
+void CheckboxInputType::DidDispatchClick(Event& event,
                                          const ClickHandlingState& state) {
-  if (event->defaultPrevented() || event->DefaultHandled()) {
+  if (event.defaultPrevented() || event.DefaultHandled()) {
     GetElement().setIndeterminate(state.indeterminate);
     GetElement().setChecked(state.checked);
   } else {
@@ -90,7 +89,7 @@ void CheckboxInputType::DidDispatchClick(Event* event,
   }
   is_in_click_handler_ = false;
   // The work we did in willDispatchClick was default handling.
-  event->SetDefaultHandled();
+  event.SetDefaultHandled();
 }
 
 bool CheckboxInputType::ShouldAppearIndeterminate() const {

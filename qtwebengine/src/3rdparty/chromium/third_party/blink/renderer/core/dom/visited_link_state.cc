@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_uri_reference.h"
 
 namespace blink {
@@ -42,7 +43,7 @@ namespace blink {
 static inline const AtomicString& LinkAttribute(const Element& element) {
   DCHECK(element.IsLink());
   if (element.IsHTMLElement())
-    return element.FastGetAttribute(HTMLNames::hrefAttr);
+    return element.FastGetAttribute(html_names::kHrefAttr);
   DCHECK(element.IsSVGElement());
   return SVGURIReference::LegacyHrefString(ToSVGElement(element));
 }
@@ -134,7 +135,7 @@ EInsideLink VisitedLinkState::DetermineLinkStateSlowCase(
   return EInsideLink::kInsideUnvisitedLink;
 }
 
-void VisitedLinkState::Trace(blink::Visitor* visitor) {
+void VisitedLinkState::Trace(Visitor* visitor) {
   visitor->Trace(document_);
 }
 

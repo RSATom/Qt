@@ -2500,6 +2500,15 @@ QColor QColor::fromHslF(qreal h, qreal s, qreal l, qreal a)
     return color;
 }
 
+/*!
+   \obsolete
+
+   Use the \c const overload instead.
+*/
+void QColor::getCmyk(int *c, int *m, int *y, int *k, int *a)
+{
+    const_cast<const QColor *>(this)->getCmyk(c, m, y, k, a);
+}
 
 /*!
     Sets the contents pointed to by \a c, \a m, \a y, \a k, and \a a, to the
@@ -2511,7 +2520,7 @@ QColor QColor::fromHslF(qreal h, qreal s, qreal l, qreal a)
 
     \sa setCmyk(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-void QColor::getCmyk(int *c, int *m, int *y, int *k, int *a)
+void QColor::getCmyk(int *c, int *m, int *y, int *k, int *a) const
 {
     if (!c || !m || !y || !k)
         return;
@@ -2531,6 +2540,16 @@ void QColor::getCmyk(int *c, int *m, int *y, int *k, int *a)
 }
 
 /*!
+   \obsolete
+
+   Use the \c const overload instead.
+*/
+void QColor::getCmykF(qreal *c, qreal *m, qreal *y, qreal *k, qreal *a)
+{
+    const_cast<const QColor *>(this)->getCmykF(c, m, y, k, a);
+}
+
+/*!
     Sets the contents pointed to by \a c, \a m, \a y, \a k, and \a a, to the
     cyan, magenta, yellow, black, and alpha-channel (transparency) components
     of the color's CMYK value.
@@ -2540,7 +2559,7 @@ void QColor::getCmyk(int *c, int *m, int *y, int *k, int *a)
 
     \sa setCmykF(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-void QColor::getCmykF(qreal *c, qreal *m, qreal *y, qreal *k, qreal *a)
+void QColor::getCmykF(qreal *c, qreal *m, qreal *y, qreal *k, qreal *a) const
 {
     if (!c || !m || !y || !k)
         return;
@@ -2689,18 +2708,13 @@ QColor QColor::fromCmykF(qreal c, qreal m, qreal y, qreal k, qreal a)
     recommend using the darker() function for this purpose. If the \a factor
     is 0 or negative, the return value is unspecified.
 
-    The function converts the current RGB color to HSV, multiplies the value
-    (V) component by \a factor and converts the color back to RGB.
+    The function converts the current color to HSV, multiplies the value
+    (V) component by \a factor and converts the color back to it's original
+    color spec.
 
     \sa darker(), isValid()
 */
-
-/*!
-    \obsolete
-
-    Use lighter(\a factor) instead.
-*/
-QColor QColor::light(int factor) const Q_DECL_NOTHROW
+QColor QColor::lighter(int factor) const Q_DECL_NOTHROW
 {
     if (factor <= 0)                                // invalid lightness factor
         return *this;
@@ -2739,18 +2753,13 @@ QColor QColor::light(int factor) const Q_DECL_NOTHROW
     but we recommend using the lighter() function for this purpose. If the
     \a factor is 0 or negative, the return value is unspecified.
 
-    The function converts the current RGB color to HSV, divides the value (V)
-    component by \a factor and converts the color back to RGB.
+    The function converts the current color to HSV, divides the value (V)
+    component by \a factor and converts the color back to it's original
+    color spec.
 
     \sa lighter(), isValid()
 */
-
-/*!
-    \obsolete
-
-    Use darker(\a factor) instead.
-*/
-QColor QColor::dark(int factor) const Q_DECL_NOTHROW
+QColor QColor::darker(int factor) const Q_DECL_NOTHROW
 {
     if (factor <= 0)                                // invalid darkness factor
         return *this;
@@ -2763,6 +2772,28 @@ QColor QColor::dark(int factor) const Q_DECL_NOTHROW
     // convert back to same color spec as original color
     return hsv.convertTo(cspec);
 }
+
+#if QT_DEPRECATED_SINCE(5, 13)
+/*!
+    \obsolete
+
+    Use lighter(\a factor) instead.
+*/
+QColor QColor::light(int factor) const Q_DECL_NOTHROW
+{
+    return lighter(factor);
+}
+
+/*!
+    \obsolete
+
+    Use darker(\a factor) instead.
+*/
+QColor QColor::dark(int factor) const Q_DECL_NOTHROW
+{
+    return darker(factor);
+}
+#endif
 
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 /*!

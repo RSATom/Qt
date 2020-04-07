@@ -133,37 +133,31 @@ VTVideoEncodeAccelerator::GetSupportedProfiles() {
   return profiles;
 }
 
-bool VTVideoEncodeAccelerator::Initialize(VideoPixelFormat format,
-                                          const gfx::Size& input_visible_size,
-                                          VideoCodecProfile output_profile,
-                                          uint32_t initial_bitrate,
+bool VTVideoEncodeAccelerator::Initialize(const Config& config,
                                           Client* client) {
-  DVLOG(3) << __func__ << ": input_format=" << VideoPixelFormatToString(format)
-           << ", input_visible_size=" << input_visible_size.ToString()
-           << ", output_profile=" << GetProfileName(output_profile)
-           << ", initial_bitrate=" << initial_bitrate;
+  DVLOG(3) << __func__ << ": " << config.AsHumanReadableString();
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(client);
 
-  if (PIXEL_FORMAT_I420 != format) {
+  if (PIXEL_FORMAT_I420 != config.input_format) {
     DLOG(ERROR) << "Input format not supported= "
-                << VideoPixelFormatToString(format);
+                << VideoPixelFormatToString(config.input_format);
     return false;
   }
   if (std::find(std::begin(kSupportedProfiles), std::end(kSupportedProfiles),
-                output_profile) == std::end(kSupportedProfiles)) {
+                config.output_profile) == std::end(kSupportedProfiles)) {
     DLOG(ERROR) << "Output profile not supported= "
-                << GetProfileName(output_profile);
+                << GetProfileName(config.output_profile);
     return false;
   }
-  h264_profile_ = output_profile;
+  h264_profile_ = config.output_profile;
 
   client_ptr_factory_.reset(new base::WeakPtrFactory<Client>(client));
   client_ = client_ptr_factory_->GetWeakPtr();
-  input_visible_size_ = input_visible_size;
+  input_visible_size_ = config.input_visible_size;
   frame_rate_ = kMaxFrameRateNumerator / kMaxFrameRateDenominator;
-  initial_bitrate_ = initial_bitrate;
-  bitstream_buffer_size_ = input_visible_size.GetArea();
+  initial_bitrate_ = config.initial_bitrate;
+  bitstream_buffer_size_ = config.input_visible_size.GetArea();
 
   if (!encoder_thread_.Start()) {
     DLOG(ERROR) << "Failed spawning encoder thread.";
@@ -189,8 +183,8 @@ void VTVideoEncodeAccelerator::Encode(const scoped_refptr<VideoFrame>& frame,
   DCHECK(thread_checker_.CalledOnValidThread());
 
   encoder_thread_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VTVideoEncodeAccelerator::EncodeTask,
-                            base::Unretained(this), frame, force_keyframe));
+      FROM_HERE, base::BindOnce(&VTVideoEncodeAccelerator::EncodeTask,
+                                base::Unretained(this), frame, force_keyframe));
 }
 
 void VTVideoEncodeAccelerator::UseOutputBitstreamBuffer(
@@ -244,8 +238,8 @@ void VTVideoEncodeAccelerator::Destroy() {
 
   if (encoder_thread_.IsRunning()) {
     encoder_thread_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&VTVideoEncodeAccelerator::DestroyTask,
-                              base::Unretained(this)));
+        FROM_HERE, base::BindOnce(&VTVideoEncodeAccelerator::DestroyTask,
+                                  base::Unretained(this)));
     encoder_thread_.Stop();
   } else {
     DestroyTask();
@@ -373,7 +367,7 @@ void VTVideoEncodeAccelerator::NotifyError(
     VideoEncodeAccelerator::Error error) {
   DCHECK(encoder_thread_task_runner_->BelongsToCurrentThread());
   client_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&Client::NotifyError, client_, error));
+      FROM_HERE, base::BindOnce(&Client::NotifyError, client_, error));
 }
 
 // static
@@ -401,9 +395,10 @@ void VTVideoEncodeAccelerator::CompressionCallback(void* encoder_opaque,
   // This method is NOT called on |encoder_thread_|, so we still need to
   // post a task back to it to do work.
   encoder->encoder_thread_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VTVideoEncodeAccelerator::CompressionCallbackTask,
-                            encoder->encoder_weak_ptr_, status,
-                            base::Passed(&encode_output)));
+      FROM_HERE,
+      base::BindOnce(&VTVideoEncodeAccelerator::CompressionCallbackTask,
+                     encoder->encoder_weak_ptr_, status,
+                     base::Passed(&encode_output)));
 }
 
 void VTVideoEncodeAccelerator::CompressionCallbackTask(
@@ -456,7 +451,7 @@ void VTVideoEncodeAccelerator::ReturnBitstreamBuffer(
   size_t used_buffer_size = 0;
   const bool copy_rv = video_toolbox::CopySampleBufferToAnnexBBuffer(
       encode_output->sample_buffer.get(), keyframe, buffer_ref->size,
-      reinterpret_cast<char*>(buffer_ref->shm->memory()), &used_buffer_size);
+      static_cast<char*>(buffer_ref->shm->memory()), &used_buffer_size);
   if (!copy_rv) {
     DLOG(ERROR) << "Cannot copy output from SampleBuffer to AnnexBBuffer.";
     used_buffer_size = 0;

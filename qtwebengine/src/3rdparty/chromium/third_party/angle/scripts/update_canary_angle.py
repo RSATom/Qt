@@ -11,21 +11,13 @@
 #   search paths, and copies that into the most recent Canary
 #   binary folder. Only works on Windows.
 
-import sys, os, shutil
+import glob, sys, os, shutil
 
 # Set of search paths.
-source_paths = [
-    os.path.join('..', 'gyp', 'Debug_x64'),
-    os.path.join('..', 'gyp', 'Debug_Win32'),
-    os.path.join('..', 'gyp', 'Release_x64'),
-    os.path.join('..', 'gyp', 'Release_Win32'),
-    os.path.join('..', 'out', 'Debug'),
-    os.path.join('..', 'out', 'Debug_x64'),
-    os.path.join('..', 'out', 'Release'),
-    os.path.join('..', 'out', 'Release_x64'),
-]
-
 script_dir = os.path.dirname(sys.argv[0])
+os.chdir(os.path.join(script_dir, ".."))
+
+source_paths = glob.glob('out/*')
 
 # Default Canary installation path.
 chrome_folder = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome SxS', 'Application')
@@ -35,11 +27,11 @@ binary_name = 'libGLESv2.dll'
 newest_folder = None
 newest_mtime = None
 for path in source_paths:
-    binary_path = os.path.join(script_dir, path, binary_name)
+    binary_path = os.path.join(path, binary_name)
     if os.path.exists(binary_path):
         binary_mtime = os.path.getmtime(binary_path)
         if (newest_folder is None) or (binary_mtime > newest_mtime):
-            newest_folder = os.path.join(script_dir, path)
+            newest_folder = path
             newest_mtime = binary_mtime
 
 if newest_folder is None:
@@ -66,3 +58,4 @@ for dll in ['libGLESv2.dll', 'libEGL.dll']:
         if not os.path.exists(backup):
             shutil.copyfile(src, backup)
         shutil.copyfile(src, os.path.join(dest_folder, dll))
+        shutil.copyfile(src + ".pdb", os.path.join(dest_folder, dll + ".pdb"))

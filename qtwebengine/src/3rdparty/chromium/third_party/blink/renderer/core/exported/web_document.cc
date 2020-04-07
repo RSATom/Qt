@@ -31,14 +31,13 @@
 #include "third_party/blink/public/web/web_document.h"
 
 #include "base/memory/scoped_refptr.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/web_distillability.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/web/web_dom_event.h"
 #include "third_party/blink/public/web/web_element.h"
 #include "third_party/blink/public/web/web_element_collection.h"
 #include "third_party/blink/public/web/web_form_element.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_value.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_element_registration_options.h"
 #include "third_party/blink/renderer/core/css/css_selector_watch.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
@@ -47,6 +46,8 @@
 #include "third_party/blink/renderer/core/dom/document_type.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/editing/ephemeral_range.h"
+#include "third_party/blink/renderer/core/editing/iterators/text_iterator.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/html_all_collection.h"
@@ -58,10 +59,8 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "v8/include/v8.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace {
 
@@ -156,9 +155,10 @@ WebString WebDocument::Title() const {
 }
 
 WebString WebDocument::ContentAsTextForTesting() const {
-  if (Element* document_element = ConstUnwrap<Document>()->documentElement())
-    return WebString(document_element->innerText());
-  return WebString();
+  Element* document_element = ConstUnwrap<Document>()->documentElement();
+  if (!document_element)
+    return WebString();
+  return document_element->innerText();
 }
 
 WebElementCollection WebDocument::All() {
@@ -222,9 +222,8 @@ void WebDocument::WatchCSSSelectors(const WebVector<WebString>& web_selectors) {
   CSSSelectorWatch::From(*document).WatchCSSSelectors(selectors);
 }
 
-WebReferrerPolicy WebDocument::GetReferrerPolicy() const {
-  return static_cast<WebReferrerPolicy>(
-      ConstUnwrap<Document>()->GetReferrerPolicy());
+network::mojom::ReferrerPolicy WebDocument::GetReferrerPolicy() const {
+  return ConstUnwrap<Document>()->GetReferrerPolicy();
 }
 
 WebString WebDocument::OutgoingReferrer() {
@@ -246,25 +245,6 @@ WebVector<WebDraggableRegion> WebDocument::DraggableRegions() const {
   return draggable_regions;
 }
 
-v8::Local<v8::Value> WebDocument::RegisterEmbedderCustomElement(
-    const WebString& name,
-    v8::Local<v8::Value> options) {
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
-  Document* document = Unwrap<Document>();
-  DummyExceptionStateForTesting exception_state;
-  ElementRegistrationOptions registration_options;
-  V8ElementRegistrationOptions::ToImpl(isolate, options, registration_options,
-                                       exception_state);
-  if (exception_state.HadException())
-    return v8::Local<v8::Value>();
-  ScriptValue constructor = document->registerElement(
-      ScriptState::Current(isolate), name, registration_options,
-      exception_state, V0CustomElement::kEmbedderNames);
-  if (exception_state.HadException())
-    return v8::Local<v8::Value>();
-  return constructor.V8Value();
-}
-
 WebURL WebDocument::ManifestURL() const {
   const Document* document = ConstUnwrap<Document>();
   HTMLLinkElement* link_element = document->LinkManifest();
@@ -279,7 +259,7 @@ bool WebDocument::ManifestUseCredentials() const {
   if (!link_element)
     return false;
   return EqualIgnoringASCIICase(
-      link_element->FastGetAttribute(HTMLNames::crossoriginAttr),
+      link_element->FastGetAttribute(html_names::kCrossoriginAttr),
       "use-credentials");
 }
 
@@ -305,7 +285,7 @@ WebDocument& WebDocument::operator=(Document* elem) {
 }
 
 WebDocument::operator Document*() const {
-  return ToDocument(private_.Get());
+  return blink::To<Document>(private_.Get());
 }
 
 }  // namespace blink

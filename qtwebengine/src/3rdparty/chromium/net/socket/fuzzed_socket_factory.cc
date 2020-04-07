@@ -67,8 +67,6 @@ class FailingSSLClientSocket : public SSLClientSocket {
 
   bool WasEverUsed() const override { return false; }
 
-  void EnableTCPFastOpenIfSupported() override {}
-
   bool WasAlpnNegotiated() const override { return false; }
 
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
@@ -91,13 +89,6 @@ class FailingSSLClientSocket : public SSLClientSocket {
   ChannelIDService* GetChannelIDService() const override {
     NOTREACHED();
     return nullptr;
-  }
-
-  Error GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                 TokenBindingType tb_type,
-                                 std::vector<uint8_t>* out) override {
-    NOTREACHED();
-    return ERR_UNEXPECTED;
   }
 
   crypto::ECPrivateKey* GetChannelIDKey() const override {
@@ -165,10 +156,12 @@ std::unique_ptr<ProxyClientSocket> FuzzedSocketFactory::CreateProxyClientSocket(
     std::unique_ptr<ClientSocketHandle> transport_socket,
     const std::string& user_agent,
     const HostPortPair& endpoint,
+    const ProxyServer& proxy_server,
     HttpAuthController* http_auth_controller,
     bool tunnel,
     bool using_spdy,
     NextProto negotiated_protocol,
+    ProxyDelegate* proxy_delegate,
     bool is_https_proxy,
     const NetworkTrafficAnnotationTag& traffic_annotation) {
   NOTIMPLEMENTED();

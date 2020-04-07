@@ -64,12 +64,11 @@ std::string FFmpegAudioDecoder::GetDisplayName() const {
   return "FFmpegAudioDecoder";
 }
 
-void FFmpegAudioDecoder::Initialize(
-    const AudioDecoderConfig& config,
-    CdmContext* /* cdm_context */,
-    const InitCB& init_cb,
-    const OutputCB& output_cb,
-    const WaitingForDecryptionKeyCB& /* waiting_for_decryption_key_cb */) {
+void FFmpegAudioDecoder::Initialize(const AudioDecoderConfig& config,
+                                    CdmContext* /* cdm_context */,
+                                    const InitCB& init_cb,
+                                    const OutputCB& output_cb,
+                                    const WaitingCB& /* waiting_cb */) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(config.IsValidConfig());
 
@@ -98,7 +97,7 @@ void FFmpegAudioDecoder::Initialize(
 void FFmpegAudioDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
                                 const DecodeCB& decode_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!decode_cb.is_null());
+  DCHECK(decode_cb);
   CHECK_NE(state_, kUninitialized);
   DecodeCB decode_cb_bound = BindToCurrentLoop(decode_cb);
 

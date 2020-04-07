@@ -167,7 +167,7 @@ QStyleOptionMenuItem QComboMenuDelegate::getStyleOption(const QStyleOptionViewIt
         break;
     }
     if (index.data(Qt::BackgroundRole).canConvert<QBrush>()) {
-        menuOption.palette.setBrush(QPalette::All, QPalette::Background,
+        menuOption.palette.setBrush(QPalette::All, QPalette::Window,
                                     qvariant_cast<QBrush>(index.data(Qt::BackgroundRole)));
     }
     menuOption.text = index.model()->data(index, Qt::DisplayRole).toString()
@@ -468,7 +468,7 @@ QComboBoxPrivateContainer::QComboBoxPrivateContainer(QAbstractItemView *itemView
     // we need a vertical layout
     QBoxLayout *layout =  new QBoxLayout(QBoxLayout::TopToBottom, this);
     layout->setSpacing(0);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
 
     // set item view
     setItemView(itemView);
@@ -891,6 +891,7 @@ QStyleOptionComboBox QComboBoxPrivateContainer::comboStyleOption() const
     currentIndex was reset.
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn void QComboBox::currentIndexChanged(const QString &text)
     \since 4.1
@@ -899,6 +900,7 @@ QStyleOptionComboBox QComboBoxPrivateContainer::comboStyleOption() const
     changes either through user interaction or programmatically.  The
     item's \a text is passed.
 */
+#endif
 
 /*!
     \fn void QComboBox::currentTextChanged(const QString &text)
@@ -1371,7 +1373,12 @@ void QComboBoxPrivate::_q_emitCurrentIndexChanged(const QModelIndex &index)
     Q_Q(QComboBox);
     const QString text = itemText(index);
     emit q->currentIndexChanged(index.row());
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
     emit q->currentIndexChanged(text);
+    QT_WARNING_POP
+#endif
     // signal lineEdit.textChanged already connected to signal currentTextChanged, so don't emit double here
     if (!lineEdit)
         emit q->currentTextChanged(text);
@@ -1479,6 +1486,7 @@ int QComboBox::maxCount() const
 }
 
 #if QT_CONFIG(completer)
+#if QT_DEPRECATED_SINCE(5, 13)
 
 /*!
     \property QComboBox::autoCompletion
@@ -1496,7 +1504,7 @@ int QComboBox::maxCount() const
 /*!
     \obsolete
 
-    Use setCompleter() instead.
+    Use completer() instead.
 */
 bool QComboBox::autoCompletion() const
 {
@@ -1572,6 +1580,7 @@ void QComboBox::setAutoCompletionCaseSensitivity(Qt::CaseSensitivity sensitivity
     if (d->lineEdit && d->lineEdit->completer())
         d->lineEdit->completer()->setCaseSensitivity(sensitivity);
 }
+#endif  //  QT_DEPRECATED_SINCE(5, 13)
 
 #endif // QT_CONFIG(completer)
 
@@ -1884,8 +1893,8 @@ void QComboBox::setLineEdit(QLineEdit *edit)
 }
 
 /*!
-    Returns the line edit used to edit items in the combobox, or 0 if there
-    is no line edit.
+    Returns the line edit used to edit items in the combobox, or
+    \nullptr if there is no line edit.
 
     Only editable combo boxes have a line edit.
 */
@@ -1937,12 +1946,15 @@ const QValidator *QComboBox::validator() const
     performs case insensitive inline completion is automatically created.
 
     \note The completer is removed when the \l editable property becomes \c false.
+    Setting a completer on a QComboBox that is not editable will be ignored.
 */
 void QComboBox::setCompleter(QCompleter *c)
 {
     Q_D(QComboBox);
-    if (!d->lineEdit)
+    if (!d->lineEdit) {
+        qWarning("Setting a QCompleter on non-editable QComboBox is not allowed.");
         return;
+    }
     d->lineEdit->setCompleter(c);
     if (c) {
         connect(c, SIGNAL(activated(QModelIndex)), this, SLOT(_q_completerActivated(QModelIndex)));
@@ -2013,7 +2025,7 @@ QAbstractItemModel *QComboBox::model() const
 }
 
 /*!
-    Sets the model to be \a model. \a model must not be 0.
+    Sets the model to be \a model. \a model must not be \nullptr.
     If you want to clear the contents of a model, call clear().
 
     \sa clear()
@@ -2599,7 +2611,7 @@ bool QComboBoxPrivate::showNativePopup()
 
 /*!
     Displays the list of items in the combobox. If the list is empty
-    then the no items will be shown.
+    then no items will be shown.
 
     If you reimplement this function to show a custom pop-up, make
     sure you call hidePopup() to reset the internal state.

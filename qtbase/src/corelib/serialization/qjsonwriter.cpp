@@ -43,6 +43,7 @@
 #include "qjsonwriter_p.h"
 #include "qjson_p.h"
 #include "private/qutfcodec_p.h"
+#include <private/qnumeric_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +59,6 @@ static inline uchar hexdig(uint u)
 
 static QByteArray escapedString(const QString &s)
 {
-    const uchar replacement = '?';
     QByteArray ba(s.length(), Qt::Uninitialized);
 
     uchar *cursor = reinterpret_cast<uchar *>(const_cast<char *>(ba.constData()));
@@ -111,9 +111,14 @@ static QByteArray escapedString(const QString &s)
             } else {
                 *cursor++ = (uchar)u;
             }
-        } else {
-            if (QUtf8Functions::toUtf8<QUtf8BaseTraits>(u, cursor, src, end) < 0)
-                *cursor++ = replacement;
+        } else if (QUtf8Functions::toUtf8<QUtf8BaseTraits>(u, cursor, src, end) < 0) {
+            // failed to get valid utf8 use JSON escape sequence
+            *cursor++ = '\\';
+            *cursor++ = 'u';
+            *cursor++ = hexdig(u>>12 & 0x0f);
+            *cursor++ = hexdig(u>>8 & 0x0f);
+            *cursor++ = hexdig(u>>4 & 0x0f);
+            *cursor++ = hexdig(u & 0x0f);
         }
     }
 
@@ -131,8 +136,9 @@ static void valueToJson(const QJsonPrivate::Base *b, const QJsonPrivate::Value &
     case QJsonValue::Double: {
         const double d = v.toDouble(b);
         if (qIsFinite(d)) { // +2 to format to ensure the expected precision
-            const double abs = std::abs(d);
-            json += QByteArray::number(d, abs == static_cast<quint64>(abs) ? 'f' : 'g', QLocale::FloatingPointShortest);
+            quint64 absInt;
+            json += QByteArray::number(d, convertDoubleTo(std::abs(d), &absInt) ? 'f' : 'g',
+                                       QLocale::FloatingPointShortest);
         } else {
             json += "null"; // +INF || -INF || NaN (see RFC4627#section2.4)
         }

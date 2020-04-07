@@ -47,7 +47,7 @@
 #include <QtWaylandCompositor/QWaylandWlShellSurface>
 #include <QtWaylandCompositor/QWaylandSeat>
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 #include <QHash>
 #include <QPoint>
 #include <QSet>

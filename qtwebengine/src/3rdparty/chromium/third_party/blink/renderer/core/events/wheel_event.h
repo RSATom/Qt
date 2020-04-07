@@ -42,15 +42,19 @@ class CORE_EXPORT WheelEvent final : public MouseEvent {
 
   enum DeltaMode { kDomDeltaPixel = 0, kDomDeltaLine, kDomDeltaPage };
 
-  static WheelEvent* Create() { return new WheelEvent; }
+  static WheelEvent* Create() { return MakeGarbageCollected<WheelEvent>(); }
 
   static WheelEvent* Create(const WebMouseWheelEvent& native_event,
                             AbstractView*);
 
   static WheelEvent* Create(const AtomicString& type,
-                            const WheelEventInit& initializer) {
-    return new WheelEvent(type, initializer);
+                            const WheelEventInit* initializer) {
+    return MakeGarbageCollected<WheelEvent>(type, initializer);
   }
+
+  WheelEvent();
+  WheelEvent(const AtomicString&, const WheelEventInit*);
+  WheelEvent(const WebMouseWheelEvent&, AbstractView*);
 
   double deltaX() const { return delta_x_; }  // Positive when scrolling right.
   double deltaY() const { return delta_y_; }  // Positive when scrolling down.
@@ -70,6 +74,8 @@ class CORE_EXPORT WheelEvent final : public MouseEvent {
   bool IsMouseEvent() const override;
   bool IsWheelEvent() const override;
 
+  void preventDefault() override;
+
   const WebMouseWheelEvent& NativeEvent() const { return native_event_; }
 
   // WheelEvent doesn't modify the event path, but its parent MouseEvent does.
@@ -79,10 +85,6 @@ class CORE_EXPORT WheelEvent final : public MouseEvent {
   void Trace(blink::Visitor*) override;
 
  private:
-  WheelEvent();
-  WheelEvent(const AtomicString&, const WheelEventInit&);
-  WheelEvent(const WebMouseWheelEvent&, AbstractView*);
-
   IntPoint wheel_delta_;
   double delta_x_;
   double delta_y_;

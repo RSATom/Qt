@@ -10,14 +10,13 @@
 
 #include "modules/desktop_capture/mac/full_screen_chrome_window_detector.h"
 
-#include <assert.h>
 #include <libproc.h>
 #include <string>
 
 #include "modules/desktop_capture/mac/window_list_utils.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/macutils.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/mac_utils.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 

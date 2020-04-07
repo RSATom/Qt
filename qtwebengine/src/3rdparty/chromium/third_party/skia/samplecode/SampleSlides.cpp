@@ -4,7 +4,7 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkBlurMask.h"
 #include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
@@ -13,7 +13,6 @@
 #include "SkGradientShader.h"
 #include "SkPaint.h"
 #include "SkVertices.h"
-#include "SkView.h"
 
 #include "sk_tool_utils.h"
 
@@ -237,73 +236,6 @@ static void gradient_slide(SkCanvas* canvas) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#include "SkPathMeasure.h"
-
-static SkScalar getpathlen(const SkPath& path) {
-    SkPathMeasure   meas(path, false);
-    return meas.getLength();
-}
-
-static void textonpath_slide(SkCanvas* canvas) {
-    const char* text = "Displacement";
-    size_t len =strlen(text);
-    SkPath path;
-    path.moveTo(100, 300);
-    path.quadTo(300, 100, 500, 300);
-    path.offset(0, -100);
-
-    SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setTextSize(40);
-
-    paint.setStyle(SkPaint::kStroke_Style);
-    canvas->drawPath(path, paint);
-    paint.setStyle(SkPaint::kFill_Style);
-
-    SkScalar x = 50;
-    paint.setColor(0xFF008800);
-    canvas->drawTextOnPathHV(text, len, path,
-                             x, paint.getTextSize()*2/3, paint);
-    paint.setColor(SK_ColorRED);
-    canvas->drawTextOnPathHV(text, len, path,
-                             x + 60, 0, paint);
-    paint.setColor(SK_ColorBLUE);
-    canvas->drawTextOnPathHV(text, len, path,
-                             x + 120, -paint.getTextSize()*2/3, paint);
-
-    path.offset(0, 200);
-    paint.setTextAlign(SkPaint::kRight_Align);
-
-    text = "Matrices";
-    len = strlen(text);
-    SkScalar pathLen = getpathlen(path);
-    SkMatrix matrix;
-
-    paint.setColor(SK_ColorBLACK);
-    paint.setStyle(SkPaint::kStroke_Style);
-    canvas->drawPath(path, paint);
-    paint.setStyle(SkPaint::kFill_Style);
-
-    paint.setTextSize(50);
-    canvas->drawTextOnPath(text, len, path, nullptr, paint);
-
-    paint.setColor(SK_ColorRED);
-    matrix.setScale(-SK_Scalar1, SK_Scalar1);
-    matrix.postTranslate(pathLen, 0);
-    canvas->drawTextOnPath(text, len, path, &matrix, paint);
-
-    paint.setColor(SK_ColorBLUE);
-    matrix.setScale(SK_Scalar1, -SK_Scalar1);
-    canvas->drawTextOnPath(text, len, path, &matrix, paint);
-
-    paint.setColor(0xFF008800);
-    matrix.setScale(-SK_Scalar1, -SK_Scalar1);
-    matrix.postTranslate(pathLen, 0);
-    canvas->drawTextOnPath(text, len, path, &matrix, paint);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
 #include "DecodeFile.h"
 #include "SkOSFile.h"
 #include "SkRandom.h"
@@ -466,11 +398,10 @@ static void mesh_slide(SkCanvas* canvas) {
 static const SlideProc gProc[] = {
     patheffect_slide,
     gradient_slide,
-    textonpath_slide,
     mesh_slide,
 };
 
-class SlideView : public SampleView {
+class SlideView : public Sample {
     int fIndex;
     bool fOnce;
 public:
@@ -504,10 +435,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Slides");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Slides");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -518,17 +448,16 @@ protected:
         gProc[fIndex](canvas);
     }
 
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
         this->init();
         fIndex = (fIndex + 1) % SK_ARRAY_COUNT(gProc);
         return nullptr;
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new SlideView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new SlideView(); )

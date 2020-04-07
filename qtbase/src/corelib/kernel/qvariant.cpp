@@ -1768,7 +1768,7 @@ Q_CORE_EXPORT void QVariantPrivate::registerHandler(const int /* Modules::Names 
     \fn QVariant::QVariant(int typeId, const void *copy)
 
     Constructs variant of type \a typeId, and initializes with
-    \a copy if \a copy is not 0.
+    \a copy if \a copy is not \nullptr.
 
     Note that you have to pass the address of the variable you want stored.
 
@@ -1797,7 +1797,7 @@ Q_CORE_EXPORT void QVariantPrivate::registerHandler(const int /* Modules::Names 
     \internal
 
     Constructs a variant private of type \a type, and initializes with \a copy if
-    \a copy is not 0.
+    \a copy is not \nullptr.
 */
 
 void QVariant::create(int type, const void *copy)
@@ -2408,7 +2408,7 @@ void QVariant::clear()
     Converts the int representation of the storage type, \a typeId, to
     its string representation.
 
-    Returns a null pointer if the type is QMetaType::UnknownType or doesn't exist.
+    Returns \nullptr if the type is QMetaType::UnknownType or doesn't exist.
 */
 const char *QVariant::typeToName(int typeId)
 {
@@ -4144,7 +4144,7 @@ void* QVariant::data()
 /*!
     Returns \c true if this is a null variant, false otherwise. A variant is
     considered null if it contains no initialized value, or the contained value
-    is a null pointer or is an instance of a built-in type that has an isNull
+    is \nullptr or is an instance of a built-in type that has an isNull
     method, in which case the result would be the same as calling isNull on the
     wrapped object.
 
@@ -4224,7 +4224,7 @@ QDebug operator<<(QDebug dbg, const QVariant::Type p)
 
     If the QVariant contains a pointer to a type derived from QObject then
     \c{T} may be any QObject type. If the pointer stored in the QVariant can be
-    qobject_cast to T, then that result is returned. Otherwise a null pointer is
+    qobject_cast to T, then that result is returned. Otherwise \nullptr is
     returned. Note that this only works for QObject subclasses which use the
     Q_OBJECT macro.
 

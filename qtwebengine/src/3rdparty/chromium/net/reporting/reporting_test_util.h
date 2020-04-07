@@ -79,8 +79,6 @@ class TestReportingUploader : public ReportingUploader {
                    int max_depth,
                    UploadCallback callback) override;
 
-  int GetUploadDepth(const URLRequest& request) override;
-
  private:
   std::vector<std::unique_ptr<PendingUpload>> pending_uploads_;
 
@@ -121,13 +119,8 @@ class TestReportingDelegate : public ReportingDelegate {
   bool CanUseClient(const url::Origin& origin,
                     const GURL& endpoint) const override;
 
-  void ParseJson(const std::string& unsafe_json,
-                 const JsonSuccessCallback& success_callback,
-                 const JsonFailureCallback& failure_callback) const override;
-
  private:
   std::unique_ptr<TestURLRequestContext> test_request_context_;
-  std::unique_ptr<ReportingDelegate> real_delegate_;
   bool disallow_report_uploads_ = false;
   bool pause_permissions_check_ = false;
 

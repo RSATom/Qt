@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2004 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,29 +11,9 @@
 #ifndef API_CRYPTOPARAMS_H_
 #define API_CRYPTOPARAMS_H_
 
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace cricket {
-
-// Parameters for SRTP negotiation, as described in RFC 4568.
-struct CryptoParams {
-  CryptoParams() : tag(0) {}
-  CryptoParams(int t,
-               const std::string& cs,
-               const std::string& kp,
-               const std::string& sp)
-      : tag(t), cipher_suite(cs), key_params(kp), session_params(sp) {}
-
-  bool Matches(const CryptoParams& params) const {
-    return (tag == params.tag && cipher_suite == params.cipher_suite);
-  }
-
-  int tag;
-  std::string cipher_suite;
-  std::string key_params;
-  std::string session_params;
-};
-
-}  // namespace cricket
+#include "api/crypto_params.h"
 
 #endif  // API_CRYPTOPARAMS_H_

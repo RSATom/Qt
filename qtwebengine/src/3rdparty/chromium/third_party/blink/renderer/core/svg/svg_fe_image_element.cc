@@ -35,11 +35,11 @@
 namespace blink {
 
 inline SVGFEImageElement::SVGFEImageElement(Document& document)
-    : SVGFilterPrimitiveStandardAttributes(SVGNames::feImageTag, document),
+    : SVGFilterPrimitiveStandardAttributes(svg_names::kFEImageTag, document),
       SVGURIReference(this),
       preserve_aspect_ratio_(SVGAnimatedPreserveAspectRatio::Create(
           this,
-          SVGNames::preserveAspectRatioAttr)) {
+          svg_names::kPreserveAspectRatioAttr)) {
   AddToPropertyMap(preserve_aspect_ratio_);
 }
 
@@ -108,7 +108,7 @@ void SVGFEImageElement::BuildPendingResource() {
 }
 
 void SVGFEImageElement::SvgAttributeChanged(const QualifiedName& attr_name) {
-  if (attr_name == SVGNames::preserveAspectRatioAttr) {
+  if (attr_name == svg_names::kPreserveAspectRatioAttr) {
     SVGElement::InvalidationGuard invalidation_guard(this);
     Invalidate();
     return;
@@ -124,15 +124,15 @@ void SVGFEImageElement::SvgAttributeChanged(const QualifiedName& attr_name) {
 }
 
 Node::InsertionNotificationRequest SVGFEImageElement::InsertedInto(
-    ContainerNode* root_parent) {
+    ContainerNode& root_parent) {
   SVGFilterPrimitiveStandardAttributes::InsertedInto(root_parent);
   BuildPendingResource();
   return kInsertionDone;
 }
 
-void SVGFEImageElement::RemovedFrom(ContainerNode* root_parent) {
+void SVGFEImageElement::RemovedFrom(ContainerNode& root_parent) {
   SVGFilterPrimitiveStandardAttributes::RemovedFrom(root_parent);
-  if (root_parent->isConnected())
+  if (root_parent.isConnected())
     ClearResourceReferences();
 }
 
@@ -160,6 +160,12 @@ FilterEffect* SVGFEImageElement::Build(SVGFilterBuilder*, Filter* filter) {
   return FEImage::CreateWithIRIReference(
       filter, GetTreeScope(), HrefString(),
       preserve_aspect_ratio_->CurrentValue());
+}
+
+bool SVGFEImageElement::TaintsOrigin(bool inputs_taint_origin) const {
+  if (cached_image_ && cached_image_->IsAccessAllowed())
+    return inputs_taint_origin;
+  return true;
 }
 
 }  // namespace blink

@@ -77,20 +77,20 @@ QT_BEGIN_NAMESPACE
 #define INSTR_StoreReg(op) INSTRUCTION(op, StoreReg, 1, reg)
 #define INSTR_MoveReg(op) INSTRUCTION(op, MoveReg, 2, srcReg, destReg)
 #define INSTR_LoadImport(op) INSTRUCTION(op, LoadImport, 1, index)
-#define INSTR_LoadLocal(op) INSTRUCTION(op, LoadLocal, 1, index)
+#define INSTR_LoadLocal(op) INSTRUCTION(op, LoadLocal, 2, index, traceSlot)
 #define INSTR_StoreLocal(op) INSTRUCTION(op, StoreLocal, 1, index)
-#define INSTR_LoadScopedLocal(op) INSTRUCTION(op, LoadScopedLocal, 2, scope, index)
+#define INSTR_LoadScopedLocal(op) INSTRUCTION(op, LoadScopedLocal, 3, scope, index, traceSlot)
 #define INSTR_StoreScopedLocal(op) INSTRUCTION(op, StoreScopedLocal, 2, scope, index)
 #define INSTR_LoadRuntimeString(op) INSTRUCTION(op, LoadRuntimeString, 1, stringId)
 #define INSTR_MoveRegExp(op) INSTRUCTION(op, MoveRegExp, 2, regExpId, destReg)
 #define INSTR_LoadClosure(op) INSTRUCTION(op, LoadClosure, 1, value)
-#define INSTR_LoadName(op) INSTRUCTION(op, LoadName, 1, name)
-#define INSTR_LoadGlobalLookup(op) INSTRUCTION(op, LoadGlobalLookup, 1, index)
-#define INSTR_LoadQmlContextPropertyLookup(op) INSTRUCTION(op, LoadQmlContextPropertyLookup, 1, index)
+#define INSTR_LoadName(op) INSTRUCTION(op, LoadName, 2, name, traceSlot)
+#define INSTR_LoadGlobalLookup(op) INSTRUCTION(op, LoadGlobalLookup, 2, index, traceSlot)
+#define INSTR_LoadQmlContextPropertyLookup(op) INSTRUCTION(op, LoadQmlContextPropertyLookup, 2, index, traceSlot)
 #define INSTR_StoreNameSloppy(op) INSTRUCTION(op, StoreNameSloppy, 1, name)
 #define INSTR_StoreNameStrict(op) INSTRUCTION(op, StoreNameStrict, 1, name)
-#define INSTR_LoadProperty(op) INSTRUCTION(op, LoadProperty, 1, name)
-#define INSTR_GetLookup(op) INSTRUCTION(op, GetLookup, 1, index)
+#define INSTR_LoadProperty(op) INSTRUCTION(op, LoadProperty, 2, name, traceSlot)
+#define INSTR_GetLookup(op) INSTRUCTION(op, GetLookup, 2, index, traceSlot)
 #define INSTR_LoadIdObject(op) INSTRUCTION(op, LoadIdObject, 2, index, base)
 #define INSTR_Yield(op) INSTRUCTION(op, Yield, 0)
 #define INSTR_YieldStar(op) INSTRUCTION(op, YieldStar, 0)
@@ -100,18 +100,18 @@ QT_BEGIN_NAMESPACE
 #define INSTR_SetLookup(op) INSTRUCTION(op, SetLookup, 2, index, base)
 #define INSTR_LoadSuperProperty(op) INSTRUCTION(op, LoadSuperProperty, 1, property)
 #define INSTR_StoreSuperProperty(op) INSTRUCTION(op, StoreSuperProperty, 1, property)
-#define INSTR_LoadElement(op) INSTRUCTION(op, LoadElement, 1, base)
-#define INSTR_StoreElement(op) INSTRUCTION(op, StoreElement, 2, base, index)
-#define INSTR_CallValue(op) INSTRUCTION(op, CallValue, 3, name, argc, argv)
-#define INSTR_CallWithReceiver(op) INSTRUCTION(op, CallWithReceiver, 4, name, thisObject, argc, argv)
-#define INSTR_CallProperty(op) INSTRUCTION(op, CallProperty, 4, name, base, argc, argv)
-#define INSTR_CallPropertyLookup(op) INSTRUCTION(op, CallPropertyLookup, 4, lookupIndex, base, argc, argv)
-#define INSTR_CallElement(op) INSTRUCTION(op, CallElement, 4, base, index, argc, argv)
-#define INSTR_CallName(op) INSTRUCTION(op, CallName, 3, name, argc, argv)
-#define INSTR_CallPossiblyDirectEval(op) INSTRUCTION(op, CallPossiblyDirectEval, 2, argc, argv)
-#define INSTR_CallGlobalLookup(op) INSTRUCTION(op, CallGlobalLookup, 3, index, argc, argv)
-#define INSTR_CallQmlContextPropertyLookup(op) INSTRUCTION(op, CallQmlContextPropertyLookup, 3, index, argc, argv)
-#define INSTR_CallWithSpread(op) INSTRUCTION(op, CallWithSpread, 4, func, thisObject, argc, argv)
+#define INSTR_LoadElement(op) INSTRUCTION(op, LoadElement, 2, base, traceSlot)
+#define INSTR_StoreElement(op) INSTRUCTION(op, StoreElement, 3, base, index, traceSlot)
+#define INSTR_CallValue(op) INSTRUCTION(op, CallValue, 4, name, argc, argv, traceSlot)
+#define INSTR_CallWithReceiver(op) INSTRUCTION(op, CallWithReceiver, 5, name, thisObject, argc, argv, traceSlot)
+#define INSTR_CallProperty(op) INSTRUCTION(op, CallProperty, 5, name, base, argc, argv, traceSlot)
+#define INSTR_CallPropertyLookup(op) INSTRUCTION(op, CallPropertyLookup, 5, lookupIndex, base, argc, argv, traceSlot)
+#define INSTR_CallElement(op) INSTRUCTION(op, CallElement, 5, base, index, argc, argv, traceSlot)
+#define INSTR_CallName(op) INSTRUCTION(op, CallName, 4, name, argc, argv, traceSlot)
+#define INSTR_CallPossiblyDirectEval(op) INSTRUCTION(op, CallPossiblyDirectEval, 3, argc, argv, traceSlot)
+#define INSTR_CallGlobalLookup(op) INSTRUCTION(op, CallGlobalLookup, 4, index, argc, argv, traceSlot)
+#define INSTR_CallQmlContextPropertyLookup(op) INSTRUCTION(op, CallQmlContextPropertyLookup, 4, index, argc, argv, traceSlot)
+#define INSTR_CallWithSpread(op) INSTRUCTION(op, CallWithSpread, 5, func, thisObject, argc, argv, traceSlot)
 #define INSTR_Construct(op) INSTRUCTION(op, Construct, 3, func, argc, argv)
 #define INSTR_ConstructWithSpread(op) INSTRUCTION(op, ConstructWithSpread, 3, func, argc, argv)
 #define INSTR_SetUnwindHandler(op) INSTRUCTION(op, SetUnwindHandler, 1, offset)
@@ -148,8 +148,8 @@ QT_BEGIN_NAMESPACE
 #define INSTR_LoadSuperConstructor(op) INSTRUCTION(op, LoadSuperConstructor, 0)
 #define INSTR_ToObject(op) INSTRUCTION(op, ToObject, 0)
 #define INSTR_Jump(op) INSTRUCTION(op, Jump, 1, offset)
-#define INSTR_JumpTrue(op) INSTRUCTION(op, JumpTrue, 1, offset)
-#define INSTR_JumpFalse(op) INSTRUCTION(op, JumpFalse, 1, offset)
+#define INSTR_JumpTrue(op) INSTRUCTION(op, JumpTrue, 2, traceSlot, offset)
+#define INSTR_JumpFalse(op) INSTRUCTION(op, JumpFalse, 2, traceSlot, offset)
 #define INSTR_JumpNotUndefined(op) INSTRUCTION(op, JumpNotUndefined, 1, offset)
 #define INSTR_JumpNoException(op) INSTRUCTION(op, JumpNoException, 1, offset)
 #define INSTR_CmpEqNull(op) INSTRUCTION(op, CmpEqNull, 0)
@@ -168,11 +168,11 @@ QT_BEGIN_NAMESPACE
 #define INSTR_CmpInstanceOf(op) INSTRUCTION(op, CmpInstanceOf, 1, lhs)
 #define INSTR_UNot(op) INSTRUCTION(op, UNot, 0)
 #define INSTR_UPlus(op) INSTRUCTION(op, UPlus, 0)
-#define INSTR_UMinus(op) INSTRUCTION(op, UMinus, 0)
+#define INSTR_UMinus(op) INSTRUCTION(op, UMinus, 1, traceSlot)
 #define INSTR_UCompl(op) INSTRUCTION(op, UCompl, 0)
-#define INSTR_Increment(op) INSTRUCTION(op, Increment, 0)
-#define INSTR_Decrement(op) INSTRUCTION(op, Decrement, 0)
-#define INSTR_Add(op) INSTRUCTION(op, Add, 1, lhs)
+#define INSTR_Increment(op) INSTRUCTION(op, Increment, 1, traceSlot)
+#define INSTR_Decrement(op) INSTRUCTION(op, Decrement, 1, traceSlot)
+#define INSTR_Add(op) INSTRUCTION(op, Add, 2, lhs, traceSlot)
 #define INSTR_BitAnd(op) INSTRUCTION(op, BitAnd, 1, lhs)
 #define INSTR_BitOr(op) INSTRUCTION(op, BitOr, 1, lhs)
 #define INSTR_BitXor(op) INSTRUCTION(op, BitXor, 1, lhs)
@@ -186,10 +186,10 @@ QT_BEGIN_NAMESPACE
 #define INSTR_ShrConst(op) INSTRUCTION(op, ShrConst, 1, rhs)
 #define INSTR_ShlConst(op) INSTRUCTION(op, ShlConst, 1, rhs)
 #define INSTR_Exp(op) INSTRUCTION(op, Exp, 1, lhs)
-#define INSTR_Mul(op) INSTRUCTION(op, Mul, 1, lhs)
+#define INSTR_Mul(op) INSTRUCTION(op, Mul, 2, lhs, traceSlot)
 #define INSTR_Div(op) INSTRUCTION(op, Div, 1, lhs)
-#define INSTR_Mod(op) INSTRUCTION(op, Mod, 1, lhs)
-#define INSTR_Sub(op) INSTRUCTION(op, Sub, 1, lhs)
+#define INSTR_Mod(op) INSTRUCTION(op, Mod, 2, lhs, traceSlot)
+#define INSTR_Sub(op) INSTRUCTION(op, Sub, 2, lhs, traceSlot)
 #define INSTR_LoadQmlImportedScripts(op) INSTRUCTION(op, LoadQmlImportedScripts, 1, result)
 #define INSTR_InitializeBlockDeadTemporalZone(op) INSTRUCTION(op, InitializeBlockDeadTemporalZone, 2, firstReg, count)
 #define INSTR_ThrowOnNullOrUndefined(op) INSTRUCTION(op, ThrowOnNullOrUndefined, 0)
@@ -334,11 +334,17 @@ QT_BEGIN_NAMESPACE
 
 #define MOTH_NUM_INSTRUCTIONS() (static_cast<int>(Moth::Instr::Type::Debug_Wide) + 1)
 
-#if defined(Q_CC_GNU) && !defined(Q_CC_INTEL)
+#if defined(Q_CC_GNU)
+#if defined(Q_CC_INTEL)
 // icc before version 1200 doesn't support computed goto, and at least up to version 18.0.0 the
 // current use results in an internal compiler error. We could enable this if/when it gets fixed
 // in a later version.
+# elif defined(Q_OS_WASM) && !defined(__asmjs)
+// Upstream llvm does not support computed goto for the wasm target, unlike the 'fastcomp' llvm fork
+// shipped with the emscripten SDK. Disable computed goto usage for non-fastcomp llvm on Wasm.
+#else
 #  define MOTH_COMPUTED_GOTO
+#endif
 #endif
 
 #define MOTH_INSTR_ALIGN_MASK (Q_ALIGNOF(QV4::Moth::Instr) - 1)
@@ -365,6 +371,12 @@ QT_BEGIN_NAMESPACE
     int arg2; \
     int arg3; \
     int arg4;
+#define MOTH_DEFINE_ARGS5(arg1, arg2, arg3, arg4, arg5) \
+    int arg1; \
+    int arg2; \
+    int arg3; \
+    int arg4; \
+    int arg5;
 
 #define MOTH_COLLECT_ENUMS(instr) \
     INSTR_##instr(MOTH_GET_ENUM)
@@ -435,6 +447,9 @@ QT_BEGIN_NAMESPACE
 #define MOTH_DECODE_ARGS4(name, type, nargs, arg1, arg2, arg3, arg4) \
         MOTH_DECODE_ARGS3(name, type, nargs, arg1, arg2, arg3); \
         MOTH_DECODE_ARG(arg4, type, nargs, 3);
+#define MOTH_DECODE_ARGS5(name, type, nargs, arg1, arg2, arg3, arg4, arg5) \
+        MOTH_DECODE_ARGS4(name, type, nargs, arg1, arg2, arg3, arg4); \
+        MOTH_DECODE_ARG(arg5, type, nargs, 4);
 
 #ifdef MOTH_COMPUTED_GOTO
 /* collect jump labels */

@@ -1,37 +1,26 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#include "diagnostic.h"
+#include "source/diagnostic.h"
 
-#include <assert.h>
-#include <string.h>
-
+#include <cassert>
+#include <cstring>
 #include <iostream>
+#include <sstream>
+#include <utility>
 
-#include "spirv-tools/libspirv.h"
+#include "source/table.h"
 
 // Diagnostic API
 
@@ -69,25 +58,76 @@ spv_result_t spvDiagnosticPrint(const spv_diagnostic diagnostic) {
               << diagnostic->position.column + 1 << ": " << diagnostic->error
               << "\n";
     return SPV_SUCCESS;
-  } else {
-    // NOTE: Assume this is a binary position
-    std::cerr << "error: " << diagnostic->position.index << ": "
-              << diagnostic->error << "\n";
-    return SPV_SUCCESS;
   }
 
-  return SPV_ERROR_INVALID_VALUE;
+  // NOTE: Assume this is a binary position
+  std::cerr << "error: ";
+  if (diagnostic->position.index > 0)
+    std::cerr << diagnostic->position.index << ": ";
+  std::cerr << diagnostic->error << "\n";
+  return SPV_SUCCESS;
 }
 
-namespace libspirv {
+namespace spvtools {
+
+DiagnosticStream::DiagnosticStream(DiagnosticStream&& other)
+    : stream_(),
+      position_(other.position_),
+      consumer_(other.consumer_),
+      disassembled_instruction_(std::move(other.disassembled_instruction_)),
+      error_(other.error_) {
+  // Prevent the other object from emitting output during destruction.
+  other.error_ = SPV_FAILED_MATCH;
+  // Some platforms are missing support for std::ostringstream functionality,
+  // including:  move constructor, swap method.  Either would have been a
+  // better choice than copying the string.
+  stream_ << other.stream_.str();
+}
 
 DiagnosticStream::~DiagnosticStream() {
-  if (pDiagnostic_ && error_ != SPV_FAILED_MATCH) {
-    *pDiagnostic_ = spvDiagnosticCreate(&position_, stream_.str().c_str());
+  if (error_ != SPV_FAILED_MATCH && consumer_ != nullptr) {
+    auto level = SPV_MSG_ERROR;
+    switch (error_) {
+      case SPV_SUCCESS:
+      case SPV_REQUESTED_TERMINATION:  // Essentially success.
+        level = SPV_MSG_INFO;
+        break;
+      case SPV_WARNING:
+        level = SPV_MSG_WARNING;
+        break;
+      case SPV_UNSUPPORTED:
+      case SPV_ERROR_INTERNAL:
+      case SPV_ERROR_INVALID_TABLE:
+        level = SPV_MSG_INTERNAL_ERROR;
+        break;
+      case SPV_ERROR_OUT_OF_MEMORY:
+        level = SPV_MSG_FATAL;
+        break;
+      default:
+        break;
+    }
+    if (disassembled_instruction_.size() > 0)
+      stream_ << std::endl << "  " << disassembled_instruction_ << std::endl;
+
+    consumer_(level, "input", position_, stream_.str().c_str());
   }
 }
-std::string
-spvResultToString(spv_result_t res) {
+
+void UseDiagnosticAsMessageConsumer(spv_context context,
+                                    spv_diagnostic* diagnostic) {
+  assert(diagnostic && *diagnostic == nullptr);
+
+  auto create_diagnostic = [diagnostic](spv_message_level_t, const char*,
+                                        const spv_position_t& position,
+                                        const char* message) {
+    auto p = position;
+    spvDiagnosticDestroy(*diagnostic);  // Avoid memory leak.
+    *diagnostic = spvDiagnosticCreate(&p, message);
+  };
+  SetContextMessageConsumer(context, std::move(create_diagnostic));
+}
+
+std::string spvResultToString(spv_result_t res) {
   std::string out;
   switch (res) {
     case SPV_SUCCESS:
@@ -150,4 +190,4 @@ spvResultToString(spv_result_t res) {
   return out;
 }
 
-}  // namespace libspirv
+}  // namespace spvtools

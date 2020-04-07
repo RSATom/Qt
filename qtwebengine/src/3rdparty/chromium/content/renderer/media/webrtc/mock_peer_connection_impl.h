@@ -13,8 +13,9 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/webrtc/api/peerconnectioninterface.h"
-#include "third_party/webrtc/api/stats/rtcstatsreport.h"
+#include "third_party/webrtc/api/dtls_transport_interface.h"
+#include "third_party/webrtc/api/peer_connection_interface.h"
+#include "third_party/webrtc/api/stats/rtc_stats_report.h"
 
 namespace content {
 
@@ -33,6 +34,8 @@ class FakeRtpSender : public webrtc::RtpSenderInterface {
   cricket::MediaType media_type() const override;
   std::string id() const override;
   std::vector<std::string> stream_ids() const override;
+  std::vector<webrtc::RtpEncodingParameters> init_send_encodings()
+      const override;
   webrtc::RtpParameters GetParameters() override;
   webrtc::RTCError SetParameters(
       const webrtc::RtpParameters& parameters) override;
@@ -54,6 +57,7 @@ class FakeRtpReceiver : public webrtc::RtpReceiverInterface {
   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track() const override;
   std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>> streams()
       const override;
+  std::vector<std::string> stream_ids() const override;
   cricket::MediaType media_type() const override;
   std::string id() const override;
   webrtc::RtpParameters GetParameters() const override;
@@ -90,8 +94,6 @@ class FakeRtpTransceiver : public webrtc::RtpTransceiverInterface {
   absl::optional<webrtc::RtpTransceiverDirection> current_direction()
       const override;
   void Stop() override;
-  void SetCodecPreferences(
-      rtc::ArrayView<webrtc::RtpCodecCapability> codecs) override;
 
  private:
   cricket::MediaType media_type_;
@@ -156,6 +158,10 @@ class MockPeerConnectionImpl : public webrtc::PeerConnectionInterface {
   void SetGetStatsResult(bool result) { getstats_result_ = result; }
   // Set the report that |GetStats(RTCStatsCollectorCallback*)| returns.
   void SetGetStatsReport(webrtc::RTCStatsReport* report);
+  rtc::scoped_refptr<webrtc::DtlsTransportInterface> LookupDtlsTransportByMid(
+      const std::string& mid) override {
+    return nullptr;
+  }
 
   SignalingState signaling_state() override {
     NOTIMPLEMENTED();

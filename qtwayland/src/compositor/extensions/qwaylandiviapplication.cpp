@@ -62,8 +62,9 @@ QT_BEGIN_NAMESPACE
  * To provide the functionality of the shell extension in a compositor, create
  * an instance of the IviApplication component and add it to the list of extensions
  * supported by the compositor:
- * \code
- * import QtWayland.Compositor 1.0
+ *
+ * \qml \QtMinorVersion
+ * import QtWayland.Compositor 1.\1
  *
  * WaylandCompositor {
  *     IviApplication {
@@ -74,7 +75,7 @@ QT_BEGIN_NAMESPACE
  *         }
  *     }
  * }
- * \endcode
+ * \endqml
  */
 
 /*!
@@ -131,6 +132,9 @@ const struct wl_interface *QWaylandIviApplication::interface()
     return QWaylandIviApplicationPrivate::interface();
 }
 
+/*!
+ * \internal
+ */
 QByteArray QWaylandIviApplication::interfaceName()
 {
     return QWaylandIviApplicationPrivate::interfaceName();
@@ -140,16 +144,17 @@ QByteArray QWaylandIviApplication::interfaceName()
  * \qmlsignal void QtWaylandCompositor::IviApplication::iviSurfaceRequested(WaylandSurface surface, int iviId, WaylandResource resource)
  *
  * This signal is emitted when the client has requested an \c ivi_surface to be associated
- * with \a surface, which is identified by \a id. The handler for this signal is
- * expected to create the ivi surface and initialize it within the scope of the
+ * with \a surface, which is identified by \a iviId. The handler for this signal is
+ * expected to create the ivi surface for \a resource and initialize it within the scope of the
  * signal emission. If no ivi surface is created, a default one will be created instead.
+ *
  */
 
 /*!
  * \fn void QWaylandIviApplication::iviSurfaceRequested(QWaylandSurface *surface, uint iviId, const QWaylandResource &resource)
  *
  * This signal is emitted when the client has requested an \c ivi_surface to be associated
- * with \a surface, which is identified by \a id. The handler for this signal is
+ * with \a surface, which is identified by \a iviId. The handler for this signal is
  * expected to create the ivi surface and initialize it within the scope of the
  * signal emission. If no ivi surface is created, a default one will be created instead.
  */

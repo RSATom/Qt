@@ -11,14 +11,14 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_constraint_space_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_test.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
-#include "third_party/blink/renderer/platform/calculation_value.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
-#include "third_party/blink/renderer/platform/length.h"
+#include "third_party/blink/renderer/platform/geometry/calculation_value.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
+#include "third_party/blink/renderer/platform/geometry/length.h"
 
 namespace blink {
 namespace {
 
-static scoped_refptr<NGConstraintSpace> ConstructConstraintSpace(
+static NGConstraintSpace ConstructConstraintSpace(
     int inline_size,
     int block_size,
     bool fixed_inline = false,
@@ -27,13 +27,13 @@ static scoped_refptr<NGConstraintSpace> ConstructConstraintSpace(
   NGLogicalSize size = {LayoutUnit(inline_size), LayoutUnit(block_size)};
 
   return NGConstraintSpaceBuilder(
-             writing_mode,
-             /* icb_size */ size.ConvertToPhysical(writing_mode))
+             writing_mode, writing_mode,
+             /* is_new_fc */ false)
       .SetAvailableSize(size)
       .SetPercentageResolutionSize(size)
       .SetIsFixedSizeInline(fixed_inline)
       .SetIsFixedSizeBlock(fixed_block)
-      .ToConstraintSpace(writing_mode);
+      .ToConstraintSpace();
 }
 
 class NGLengthUtilsTest : public testing::Test {
@@ -45,9 +45,8 @@ class NGLengthUtilsTest : public testing::Test {
       LengthResolveType type = LengthResolveType::kContentSize,
       LengthResolvePhase phase = LengthResolvePhase::kLayout,
       const base::Optional<MinMaxSize>& sizes = base::nullopt) {
-    scoped_refptr<NGConstraintSpace> constraint_space =
-        ConstructConstraintSpace(200, 300);
-    return ::blink::ResolveInlineLength(*constraint_space, *style_, sizes,
+    NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300);
+    return ::blink::ResolveInlineLength(constraint_space, *style_, sizes,
                                         length, type, phase);
   }
 
@@ -56,17 +55,15 @@ class NGLengthUtilsTest : public testing::Test {
       LengthResolveType type = LengthResolveType::kContentSize,
       LengthResolvePhase phase = LengthResolvePhase::kLayout,
       LayoutUnit content_size = LayoutUnit()) {
-    scoped_refptr<NGConstraintSpace> constraint_space =
-        ConstructConstraintSpace(200, 300);
-    return ::blink::ResolveBlockLength(*constraint_space, *style_, length,
+    NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300);
+    return ::blink::ResolveBlockLength(constraint_space, *style_, length,
                                        content_size, type, phase);
   }
 
   LayoutUnit ComputeBlockSizeForFragment(
-      scoped_refptr<const NGConstraintSpace> constraint_space =
-          ConstructConstraintSpace(200, 300),
+      NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300),
       LayoutUnit content_size = LayoutUnit()) {
-    return ::blink::ComputeBlockSizeForFragment(*constraint_space, *style_,
+    return ::blink::ComputeBlockSizeForFragment(constraint_space, *style_,
                                                 content_size);
   }
 
@@ -81,15 +78,14 @@ class NGLengthUtilsTestWithNode : public NGLayoutTest {
   }
 
   LayoutUnit ComputeInlineSizeForFragment(
-      scoped_refptr<const NGConstraintSpace> constraint_space =
-          ConstructConstraintSpace(200, 300),
+      NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300),
       const MinMaxSize& sizes = MinMaxSize()) {
     LayoutBox* body = ToLayoutBox(GetDocument().body()->GetLayoutObject());
     body->SetStyle(style_);
     body->SetPreferredLogicalWidthsDirty();
     NGBlockNode node(body);
-    return ::blink::ComputeInlineSizeForFragment(*constraint_space, node,
-                                                 &sizes);
+    return ::blink::ComputeInlineSizeForFragment(constraint_space, node,
+                                                 base::nullopt, &sizes);
   }
 
   scoped_refptr<ComputedStyle> style_;
@@ -109,7 +105,7 @@ TEST_F(NGLengthUtilsTest, testResolveInlineLength) {
       ResolveInlineLength(Length(30, kPercent), LengthResolveType::kMaxSize,
                           LengthResolvePhase::kIntrinsic));
   EXPECT_EQ(
-      LayoutUnit(200),
+      LayoutUnit::Max(),
       ResolveInlineLength(Length(kFillAvailable), LengthResolveType::kMaxSize,
                           LengthResolvePhase::kIntrinsic));
   MinMaxSize sizes;
@@ -258,7 +254,7 @@ TEST_F(NGLengthUtilsTestWithNode, testComputeInlineSizeForFragment) {
       PixelsAndPercent(100, -10), kValueRangeNonNegative)));
   EXPECT_EQ(LayoutUnit(80), ComputeInlineSizeForFragment());
 
-  scoped_refptr<NGConstraintSpace> constraint_space =
+  NGConstraintSpace constraint_space =
       ConstructConstraintSpace(120, 120, true, true);
   style_->SetLogicalWidth(Length(150, kFixed));
   EXPECT_EQ(LayoutUnit(120), ComputeInlineSizeForFragment(constraint_space));
@@ -318,10 +314,10 @@ TEST_F(NGLengthUtilsTest, testComputeBlockSizeForFragment) {
   style_->SetLogicalHeight(Length(kAuto));
   EXPECT_EQ(LayoutUnit(0), ComputeBlockSizeForFragment());
 
+  NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300);
   style_->SetLogicalHeight(Length(kAuto));
   EXPECT_EQ(LayoutUnit(120),
-            ComputeBlockSizeForFragment(ConstructConstraintSpace(200, 300),
-                                        LayoutUnit(120)));
+            ComputeBlockSizeForFragment(constraint_space, LayoutUnit(120)));
 
   style_->SetLogicalHeight(Length(kFillAvailable));
   EXPECT_EQ(LayoutUnit(300), ComputeBlockSizeForFragment());
@@ -330,8 +326,7 @@ TEST_F(NGLengthUtilsTest, testComputeBlockSizeForFragment) {
       PixelsAndPercent(100, -10), kValueRangeNonNegative)));
   EXPECT_EQ(LayoutUnit(70), ComputeBlockSizeForFragment());
 
-  scoped_refptr<NGConstraintSpace> constraint_space =
-      ConstructConstraintSpace(200, 200, true, true);
+  constraint_space = ConstructConstraintSpace(200, 200, true, true);
   style_->SetLogicalHeight(Length(150, kFixed));
   EXPECT_EQ(LayoutUnit(200), ComputeBlockSizeForFragment(constraint_space));
 
@@ -388,15 +383,15 @@ TEST_F(NGLengthUtilsTest, testMargins) {
   style_->SetMarginBottom(Length(kAuto));
   style_->SetMarginLeft(Length(11, kPercent));
 
-  scoped_refptr<NGConstraintSpace> constraint_space(
-      ConstructConstraintSpace(200, 300));
+  NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300);
 
-  NGBoxStrut margins = ComputeMarginsForContainer(*constraint_space, *style_);
+  NGPhysicalBoxStrut margins =
+      ComputePhysicalMargins(constraint_space, *style_);
 
-  EXPECT_EQ(LayoutUnit(20), margins.block_start);
-  EXPECT_EQ(LayoutUnit(52), margins.inline_end);
-  EXPECT_EQ(LayoutUnit(), margins.block_end);
-  EXPECT_EQ(LayoutUnit(22), margins.inline_start);
+  EXPECT_EQ(LayoutUnit(20), margins.top);
+  EXPECT_EQ(LayoutUnit(52), margins.right);
+  EXPECT_EQ(LayoutUnit(), margins.bottom);
+  EXPECT_EQ(LayoutUnit(22), margins.left);
 }
 
 TEST_F(NGLengthUtilsTest, testBorders) {
@@ -410,10 +405,9 @@ TEST_F(NGLengthUtilsTest, testBorders) {
   style_->SetBorderLeftStyle(EBorderStyle::kSolid);
   style_->SetWritingMode(WritingMode::kVerticalLr);
 
-  scoped_refptr<NGConstraintSpace> constraint_space(
-      ConstructConstraintSpace(200, 300));
+  NGConstraintSpace constraint_space = ConstructConstraintSpace(200, 300);
 
-  NGBoxStrut borders = ComputeBorders(*constraint_space, *style_);
+  NGBoxStrut borders = ComputeBorders(constraint_space, *style_);
 
   EXPECT_EQ(LayoutUnit(4), borders.block_start);
   EXPECT_EQ(LayoutUnit(3), borders.inline_end);
@@ -428,10 +422,10 @@ TEST_F(NGLengthUtilsTest, testPadding) {
   style_->SetPaddingLeft(Length(11, kPercent));
   style_->SetWritingMode(WritingMode::kVerticalRl);
 
-  scoped_refptr<NGConstraintSpace> constraint_space(ConstructConstraintSpace(
-      200, 300, false, false, WritingMode::kVerticalRl));
+  NGConstraintSpace constraint_space = ConstructConstraintSpace(
+      200, 300, false, false, WritingMode::kVerticalRl);
 
-  NGBoxStrut padding = ComputePadding(*constraint_space, *style_);
+  NGBoxStrut padding = ComputePadding(constraint_space, *style_);
 
   EXPECT_EQ(LayoutUnit(52), padding.block_start);
   EXPECT_EQ(LayoutUnit(), padding.inline_end);

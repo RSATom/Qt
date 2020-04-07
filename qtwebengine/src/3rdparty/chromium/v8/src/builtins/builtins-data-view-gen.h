@@ -5,37 +5,29 @@
 #ifndef V8_BUILTINS_BUILTINS_DATA_VIEW_GEN_H_
 #define V8_BUILTINS_BUILTINS_DATA_VIEW_GEN_H_
 
+#include "src/code-stub-assembler.h"
 #include "src/elements-kind.h"
 #include "src/objects/bigint.h"
-#include "torque-generated/builtins-base-from-dsl-gen.h"
 
 namespace v8 {
 namespace internal {
 
-class DataViewBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
+class DataViewBuiltinsAssembler : public CodeStubAssembler {
  public:
   explicit DataViewBuiltinsAssembler(compiler::CodeAssemblerState* state)
-      : BaseBuiltinsFromDSLAssembler(state) {}
+      : CodeStubAssembler(state) {}
 
-  TNode<Number> LoadDataViewByteOffset(TNode<JSDataView> data_view) {
-    return CAST(LoadObjectField(data_view, JSDataView::kByteOffsetOffset));
-  }
-
-  TNode<Number> LoadDataViewByteLength(TNode<JSDataView> data_view) {
-    return CAST(LoadObjectField(data_view, JSDataView::kByteLengthOffset));
-  }
-
-  TNode<Int32T> LoadUint8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset) {
+  TNode<Int32T> LoadUint8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset) {
     return UncheckedCast<Int32T>(
         Load(MachineType::Uint8(), data_pointer, offset));
   }
 
-  TNode<Int32T> LoadInt8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset) {
+  TNode<Int32T> LoadInt8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset) {
     return UncheckedCast<Int32T>(
         Load(MachineType::Int8(), data_pointer, offset));
   }
 
-  void StoreWord8(TNode<RawPtrT> data_pointer, TNode<IntPtrT> offset,
+  void StoreWord8(TNode<RawPtrT> data_pointer, TNode<UintPtrT> offset,
                   TNode<Word32T> value) {
     StoreNoWriteBarrier(MachineRepresentation::kWord8, data_pointer, offset,
                         value);
@@ -45,19 +37,19 @@ class DataViewBuiltinsAssembler : public BaseBuiltinsFromDSLAssembler {
     return ElementsKindToByteSize(elements_kind);
   }
 
-  TNode<IntPtrT> DataViewEncodeBigIntBits(bool sign, int32_t digits) {
-    return IntPtrConstant(BigInt::SignBits::encode(sign) |
-                          BigInt::LengthBits::encode(digits));
+  TNode<Uint32T> DataViewEncodeBigIntBits(bool sign, int32_t digits) {
+    return Unsigned(Int32Constant(BigInt::SignBits::encode(sign) |
+                                  BigInt::LengthBits::encode(digits)));
   }
 
-  TNode<UintPtrT> DataViewDecodeBigIntLength(TNode<BigInt> value) {
-    TNode<WordT> bitfield = LoadBigIntBitfield(value);
-    return DecodeWord<BigIntBase::LengthBits>(bitfield);
+  TNode<Uint32T> DataViewDecodeBigIntLength(TNode<BigInt> value) {
+    TNode<Word32T> bitfield = LoadBigIntBitfield(value);
+    return DecodeWord32<BigIntBase::LengthBits>(bitfield);
   }
 
-  TNode<UintPtrT> DataViewDecodeBigIntSign(TNode<BigInt> value) {
-    TNode<WordT> bitfield = LoadBigIntBitfield(value);
-    return DecodeWord<BigIntBase::SignBits>(bitfield);
+  TNode<Uint32T> DataViewDecodeBigIntSign(TNode<BigInt> value) {
+    TNode<Word32T> bitfield = LoadBigIntBitfield(value);
+    return DecodeWord32<BigIntBase::SignBits>(bitfield);
   }
 };
 

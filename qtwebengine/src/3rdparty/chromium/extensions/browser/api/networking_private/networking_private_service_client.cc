@@ -11,11 +11,12 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task_scheduler/lazy_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/lazy_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/onc/onc_constants.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/network_service_instance.h"
 #include "extensions/browser/api/networking_private/networking_private_api.h"
 #include "extensions/browser/api/networking_private/networking_private_delegate_observer.h"
 
@@ -68,7 +69,7 @@ NetworkingPrivateServiceClient::NetworkingPrivateServiceClient(
           base::Bind(&NetworkingPrivateServiceClient::
                          OnNetworkListChangedEventOnUIThread,
                      weak_factory_.GetWeakPtr())));
-  net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
+  content::GetNetworkConnectionTracker()->AddNetworkConnectionObserver(this);
 }
 
 NetworkingPrivateServiceClient::~NetworkingPrivateServiceClient() {
@@ -79,7 +80,7 @@ NetworkingPrivateServiceClient::~NetworkingPrivateServiceClient() {
 
 void NetworkingPrivateServiceClient::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
+  content::GetNetworkConnectionTracker()->RemoveNetworkConnectionObserver(this);
   // Clear callbacks map to release callbacks from UI thread.
   callbacks_map_.Clear();
   // Post ShutdownWifiServiceOnWorkerThread task to delete services when all
@@ -99,8 +100,8 @@ void NetworkingPrivateServiceClient::RemoveObserver(
   network_events_observers_.RemoveObserver(observer);
 }
 
-void NetworkingPrivateServiceClient::OnNetworkChanged(
-    net::NetworkChangeNotifier::ConnectionType type) {
+void NetworkingPrivateServiceClient::OnConnectionChanged(
+    network::mojom::ConnectionType type) {
   task_runner_->PostTask(FROM_HERE,
                          base::Bind(&WiFiService::RequestConnectedNetworkUpdate,
                                     base::Unretained(wifi_service_.get())));

@@ -23,6 +23,9 @@
 
 #include "gtest/gtest.h"
 
+#include "perfetto/base/file_utils.h"
+#include "perfetto/base/pipe.h"
+
 namespace perfetto {
 namespace base {
 namespace {
@@ -56,10 +59,11 @@ TEST(UtilsTest, ArraySize) {
   EXPECT_EQ(4u, ArraySize(bar_4));
 }
 
-int pipe_fd[2];
-
+// Fuchsia doesn't currently support sigaction(), see
+// fuchsia.atlassian.net/browse/ZX-560.
+#if !PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA)
 TEST(UtilsTest, EintrWrapper) {
-  ASSERT_EQ(0, pipe(pipe_fd));
+  Pipe pipe = Pipe::Create();
 
   struct sigaction sa = {};
   struct sigaction old_sa = {};
@@ -79,25 +83,26 @@ TEST(UtilsTest, EintrWrapper) {
   if (pid == 0 /* child */) {
     usleep(5000);
     kill(parent_pid, SIGUSR2);
-    ignore_result(write(pipe_fd[1], "foo\0", 4));
+    ignore_result(WriteAll(*pipe.wr, "foo\0", 4));
     _exit(0);
   }
 
   char buf[6] = {};
-  EXPECT_EQ(4, PERFETTO_EINTR(read(pipe_fd[0], buf, sizeof(buf))));
-  EXPECT_STREQ("foo", buf);
-  EXPECT_EQ(0, PERFETTO_EINTR(close(pipe_fd[0])));
-  EXPECT_EQ(0, PERFETTO_EINTR(close(pipe_fd[1])));
+  EXPECT_EQ(4, PERFETTO_EINTR(read(*pipe.rd, buf, sizeof(buf))));
+  EXPECT_EQ(0, PERFETTO_EINTR(close(*pipe.rd)));
+  pipe.wr.reset();
 
   // A 2nd close should fail with the proper errno.
-  int res = close(pipe_fd[0]);
+  int res = close(*pipe.rd);
   auto err = errno;
   EXPECT_EQ(-1, res);
   EXPECT_EQ(EBADF, err);
+  pipe.rd.release();
 
   // Restore the old handler.
   sigaction(SIGUSR2, &old_sa, nullptr);
 }
+#endif  // !PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA)
 
 TEST(UtilsTest, Align) {
   EXPECT_EQ(0u, AlignUp<4>(0));

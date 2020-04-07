@@ -85,7 +85,8 @@ class SurfaceAggregatorPerfTest : public testing::Test {
         quad->SetAll(sqs, rect, visible_rect, needs_blending, j, gfx::Size(),
                      premultiplied_alpha, uv_top_left, uv_bottom_right,
                      background_color, vertex_opacity, flipped,
-                     nearest_neighbor, false);
+                     nearest_neighbor, /*secure_output_only=*/false,
+                     ui::ProtectedVideoType::kClear);
       }
       sqs = pass->CreateAndAppendSharedQuadState();
       sqs->opacity = opacity;
@@ -93,8 +94,11 @@ class SurfaceAggregatorPerfTest : public testing::Test {
         auto* surface_quad = pass->CreateAndAppendDrawQuad<SurfaceDrawQuad>();
         surface_quad->SetNew(
             sqs, gfx::Rect(0, 0, 1, 1), gfx::Rect(0, 0, 1, 1),
-            SurfaceId(FrameSinkId(1, i), LocalSurfaceId(i, kArbitraryToken)),
-            base::nullopt, SK_ColorWHITE, false);
+            SurfaceRange(base::nullopt,
+                         SurfaceId(FrameSinkId(1, i),
+                                   LocalSurfaceId(i, kArbitraryToken))),
+            SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false,
+            /*ignores_input_event=*/false);
       }
 
       frame_builder.AddRenderPass(std::move(pass));
@@ -115,9 +119,12 @@ class SurfaceAggregatorPerfTest : public testing::Test {
       auto* surface_quad = pass->CreateAndAppendDrawQuad<SurfaceDrawQuad>();
       surface_quad->SetNew(
           sqs, gfx::Rect(0, 0, 100, 100), gfx::Rect(0, 0, 100, 100),
-          SurfaceId(FrameSinkId(1, num_surfaces),
-                    LocalSurfaceId(num_surfaces, kArbitraryToken)),
-          base::nullopt, SK_ColorWHITE, false);
+          SurfaceRange(
+              base::nullopt,
+              SurfaceId(FrameSinkId(1, num_surfaces),
+                        LocalSurfaceId(num_surfaces, kArbitraryToken))),
+          SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false,
+          /*ignores_input_event=*/false);
 
       pass->output_rect = gfx::Rect(0, 0, 100, 100);
 

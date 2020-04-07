@@ -34,6 +34,7 @@
     NoInterfaceObject // Always used on target of 'implements'
 ] interface GlobalEventHandlers {
     attribute EventHandler onabort;
+    [RuntimeEnabled=InvisibleDOM] attribute EventHandler onactivateinvisible;
     attribute EventHandler onblur;
     attribute EventHandler oncancel;
     attribute EventHandler oncanplay;
@@ -76,6 +77,7 @@
     attribute EventHandler onmouseover;
     attribute EventHandler onmouseup;
     attribute EventHandler onmousewheel;
+    [RuntimeEnabled=OverscrollCustomization] attribute EventHandler onoverscroll;
     attribute EventHandler onpause;
     attribute EventHandler onplay;
     attribute EventHandler onplaying;
@@ -84,6 +86,7 @@
     attribute EventHandler onreset;
     attribute EventHandler onresize;
     attribute EventHandler onscroll;
+    [RuntimeEnabled=OverscrollCustomization] attribute EventHandler onscrollend;
     attribute EventHandler onseeked;
     attribute EventHandler onseeking;
     attribute EventHandler onselect;
@@ -107,6 +110,7 @@
     attribute EventHandler onlostpointercapture;
     attribute EventHandler onpointerdown;
     attribute EventHandler onpointermove;
+    [RuntimeEnabled=PointerRawMove] attribute EventHandler onpointerrawmove;
     attribute EventHandler onpointerup;
     attribute EventHandler onpointercancel;
     attribute EventHandler onpointerover;
@@ -120,4 +124,9 @@
     [OriginTrialEnabled=TouchEventFeatureDetection] attribute EventHandler ontouchend;
     [OriginTrialEnabled=TouchEventFeatureDetection] attribute EventHandler ontouchmove;
     [OriginTrialEnabled=TouchEventFeatureDetection] attribute EventHandler ontouchstart;
+
+    // Selection API
+    // https://w3c.github.io/selection-api/#extensions-to-globaleventhandlers
+    attribute EventHandler onselectstart;
+    attribute EventHandler onselectionchange;
 };

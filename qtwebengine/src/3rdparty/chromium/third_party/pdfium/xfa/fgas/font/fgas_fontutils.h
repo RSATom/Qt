@@ -19,15 +19,15 @@ struct FGAS_FONTUSB {
 const FGAS_FONTUSB* FGAS_GetUnicodeBitField(wchar_t wUnicode);
 
 struct FGAS_FontInfo {
-  uint32_t dwFontNameHash;
-  const wchar_t* pPsName;
-  const wchar_t* pReplaceFont;
+  uint32_t dwFontNameHash;  // WideString hash.
+  const char* pPsName;
+  const char* pReplaceFont;
   uint16_t dwStyles;
   uint16_t wCodePage;
 };
 
-WideString FGAS_FontNameToEnglishName(const WideStringView& wsLocalName);
+WideString FGAS_FontNameToEnglishName(WideStringView wsLocalName);
 
-const FGAS_FontInfo* FGAS_FontInfoByFontName(const WideStringView& wsFontName);
+const FGAS_FontInfo* FGAS_FontInfoByFontName(WideStringView wsFontName);
 
 #endif  // XFA_FGAS_FONT_FGAS_FONTUTILS_H_

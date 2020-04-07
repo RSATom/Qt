@@ -48,7 +48,6 @@
 #include "base/version.h"
 #include "content/public/common/cdm_info.h"
 #include "content/public/common/content_constants.h"
-#include "content/public/common/user_agent.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
 #include "media/media_buildflags.h"
@@ -56,7 +55,6 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
-#include "net/qrc_protocol_handler_qt.h"
 #include "type_conversion.h"
 
 #include <QCoreApplication>
@@ -66,10 +64,9 @@
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 #include "media/cdm/cdm_paths.h"  // nogncheck
+#include "third_party/widevine/cdm/buildflags.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
-#include "widevine_cdm_version.h"  // In SHARED_INTERMEDIATE_DIR.
-#define WIDEVINE_CDM_AVAILABLE
-#if defined(WIDEVINE_CDM_AVAILABLE) && !defined(WIDEVINE_CDM_IS_COMPONENT)
+#if BUILDFLAG(ENABLE_WIDEVINE) && !BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
 #define WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT
 namespace switches {
 const char kCdmWidevinePath[] = "widevine-path";
@@ -85,6 +82,14 @@ const char kWidevineCdmFileName[] =
 #endif
 #endif
 
+#if QT_CONFIG(webengine_printing_and_pdf)
+#include "pdf/pdf.h"
+#include "pdf/pdf_ppapi.h"
+const char kPdfPluginMimeType[] = "application/x-google-chrome-pdf";
+const char kPdfPluginPath[] = "internal-pdf-viewer/";
+const char kPdfPluginSrc[] = "src";
+#endif // QT_CONFIG(webengine_printing_and_pdf)
+
 static QString webenginePluginsPath()
 {
     // Look for plugins in /plugins/webengine or application dir.
@@ -98,7 +103,6 @@ static QString webenginePluginsPath()
     return potentialPluginsPath;
 }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
-
 
 #if defined(Q_OS_WIN)
 #include <shlobj.h>
@@ -235,10 +239,30 @@ void AddPepperFlashFromCommandLine(std::vector<content::PepperPluginInfo>* plugi
     plugins->push_back(CreatePepperFlashInfo(base::FilePath(flash_path), flash_version));
 }
 
+void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins)
+{
+#if QT_CONFIG(webengine_printing_and_pdf)
+    content::PepperPluginInfo pdf_info;
+    pdf_info.is_internal = true;
+    pdf_info.is_out_of_process = true;
+    pdf_info.name = "Chromium PDF Viewer";
+    pdf_info.description = "Portable Document Format";
+    pdf_info.path = base::FilePath::FromUTF8Unsafe(kPdfPluginPath);
+    content::WebPluginMimeType pdf_mime_type(kPdfPluginMimeType, "pdf", "Portable Document Format");
+    pdf_info.mime_types.push_back(pdf_mime_type);
+    pdf_info.internal_entry_points.get_interface = chrome_pdf::PPP_GetInterface;
+    pdf_info.internal_entry_points.initialize_module = chrome_pdf::PPP_InitializeModule;
+    pdf_info.internal_entry_points.shutdown_module = chrome_pdf::PPP_ShutdownModule;
+    pdf_info.permissions = ppapi::PERMISSION_PRIVATE | ppapi::PERMISSION_DEV | ppapi::PERMISSION_PDF;
+    plugins->push_back(pdf_info);
+#endif // QT_CONFIG(webengine_printing_and_pdf)
+}
+
 namespace QtWebEngineCore {
 
 void ContentClientQt::AddPepperPlugins(std::vector<content::PepperPluginInfo>* plugins)
 {
+    ComputeBuiltInPlugins(plugins);
     AddPepperFlashFromSystem(plugins);
     AddPepperFlashFromCommandLine(plugins);
 }
@@ -330,7 +354,6 @@ static bool IsWidevineAvailable(base::FilePath *cdm_path,
 }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
 
-
 void ContentClientQt::AddContentDecryptionModules(std::vector<content::CdmInfo> *cdms,
                                                   std::vector<media::CdmHostFilePath> *cdm_host_file_paths)
 {
@@ -386,10 +409,9 @@ void ContentClientQt::AddContentDecryptionModules(std::vector<content::CdmInfo> 
     }
 }
 
-std::string ContentClientQt::getUserAgent()
+void ContentClientQt::AddAdditionalSchemes(Schemes* schemes)
 {
-    // Mention the Chromium version we're based on to get passed stupid UA-string-based feature detection (several WebRTC demos need this)
-    return content::BuildUserAgentFromProduct("QtWebEngine/" QTWEBENGINECORE_VERSION_STR " Chrome/" CHROMIUM_VERSION);
+    schemes->standard_schemes.push_back("chrome-extension");
 }
 
 base::StringPiece ContentClientQt::GetDataResource(int resource_id, ui::ScaleFactor scale_factor) const {
@@ -401,15 +423,14 @@ base::RefCountedMemory *ContentClientQt::GetDataResourceBytes(int resource_id) c
     return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytes(resource_id);
 }
 
+gfx::Image &ContentClientQt::GetNativeImageNamed(int resource_id) const
+{
+    return ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(resource_id);
+}
+
 base::string16 ContentClientQt::GetLocalizedString(int message_id) const
 {
     return l10n_util::GetStringUTF16(message_id);
-}
-
-std::string ContentClientQt::GetProduct() const
-{
-    QString productName(qApp->applicationName() % '/' % qApp->applicationVersion());
-    return productName.toStdString();
 }
 
 } // namespace QtWebEngineCore

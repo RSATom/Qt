@@ -19,10 +19,13 @@ struct Feature;
 
 namespace autofill {
 
-extern const base::Feature kAutofillKeyboardAccessory;
 extern const char kAutofillKeyboardAccessoryAnimationDurationKey[];
 extern const char kAutofillKeyboardAccessoryLimitLabelWidthKey[];
 extern const char kAutofillKeyboardAccessoryHintKey[];
+
+// The length of the GUIDs used for local autofill data. It is different than
+// the length used for server autofill data.
+constexpr int kLocalGuidSize = 36;
 
 // Returns true when command line switch |kEnableSuggestionsWithSubstringMatch|
 // is on.

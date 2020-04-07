@@ -50,7 +50,7 @@
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/system/devicetype.h"
+#include "chromeos/constants/devicetype.h"
 #endif
 
 using device::BluetoothAdapter;
@@ -217,6 +217,9 @@ void BluetoothAdapterBlueZ::Shutdown() {
       this);
   bluez::BluezDBusManager::Get()->GetBluetoothInputClient()->RemoveObserver(
       this);
+  bluez::BluezDBusManager::Get()
+      ->GetBluetoothAgentManagerClient()
+      ->RemoveObserver(this);
 
   BLUETOOTH_LOG(EVENT) << "Unregistering pairing agent";
   bluez::BluezDBusManager::Get()
@@ -266,6 +269,8 @@ void BluetoothAdapterBlueZ::Init() {
       this);
   bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->AddObserver(this);
   bluez::BluezDBusManager::Get()->GetBluetoothInputClient()->AddObserver(this);
+  bluez::BluezDBusManager::Get()->GetBluetoothAgentManagerClient()->AddObserver(
+      this);
 
   // Register the pairing agent.
   dbus::Bus* system_bus = bluez::BluezDBusManager::Get()->GetSystemBus();
@@ -683,6 +688,17 @@ void BluetoothAdapterBlueZ::DevicePropertyChanged(
   if (property_name == properties->mtu.name())
     NotifyDeviceMTUChanged(device_bluez, properties->mtu.value());
 
+  // We use the RSSI as a proxy for receiving an advertisement because it's
+  // usually updated whenever an advertisement is received.
+  if (property_name == properties->rssi.name() && properties->rssi.is_valid() &&
+      properties->eir.is_valid())
+    NotifyDeviceAdvertisementReceived(device_bluez, properties->rssi.value(),
+                                      properties->eir.value());
+
+  if (property_name == properties->connected.name())
+    NotifyDeviceConnectedStateChanged(device_bluez,
+                                      properties->connected.value());
+
   if (property_name == properties->services_resolved.name() &&
       properties->services_resolved.value()) {
     device_bluez->UpdateGattServices(object_path);
@@ -729,6 +745,22 @@ void BluetoothAdapterBlueZ::InputPropertyChanged(
     NotifyDeviceChanged(device_bluez);
   }
 }
+
+void BluetoothAdapterBlueZ::AgentManagerAdded(
+    const dbus::ObjectPath& object_path) {
+  BLUETOOTH_LOG(DEBUG) << "Registering pairing agent";
+  bluez::BluezDBusManager::Get()
+      ->GetBluetoothAgentManagerClient()
+      ->RegisterAgent(dbus::ObjectPath(kAgentPath),
+                      bluetooth_agent_manager::kKeyboardDisplayCapability,
+                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgent,
+                                 weak_ptr_factory_.GetWeakPtr()),
+                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgentError,
+                                 weak_ptr_factory_.GetWeakPtr()));
+}
+
+void BluetoothAdapterBlueZ::AgentManagerRemoved(
+    const dbus::ObjectPath& object_path) {}
 
 void BluetoothAdapterBlueZ::Released() {
   BLUETOOTH_LOG(EVENT) << "Released";
@@ -977,16 +1009,6 @@ void BluetoothAdapterBlueZ::SetAdapter(const dbus::ObjectPath& object_path) {
 
   BLUETOOTH_LOG(EVENT) << object_path_.value() << ": using adapter.";
 
-  BLUETOOTH_LOG(DEBUG) << "Registering pairing agent";
-  bluez::BluezDBusManager::Get()
-      ->GetBluetoothAgentManagerClient()
-      ->RegisterAgent(dbus::ObjectPath(kAgentPath),
-                      bluetooth_agent_manager::kKeyboardDisplayCapability,
-                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgent,
-                                 weak_ptr_factory_.GetWeakPtr()),
-                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgentError,
-                                 weak_ptr_factory_.GetWeakPtr()));
-
 #if defined(OS_CHROMEOS)
   SetStandardChromeOSAdapterName();
 #endif
@@ -1010,8 +1032,7 @@ void BluetoothAdapterBlueZ::SetAdapter(const dbus::ObjectPath& object_path) {
           ->GetBluetoothDeviceClient()
           ->GetDevicesForAdapter(object_path_);
 
-  for (std::vector<dbus::ObjectPath>::iterator iter = device_paths.begin();
-       iter != device_paths.end(); ++iter) {
+  for (auto iter = device_paths.begin(); iter != device_paths.end(); ++iter) {
     DeviceAdded(*iter);
   }
 }
@@ -1134,6 +1155,26 @@ void BluetoothAdapterBlueZ::NotifyDeviceMTUChanged(BluetoothDeviceBlueZ* device,
 
   for (auto& observer : observers_)
     observer.DeviceMTUChanged(this, device, mtu);
+}
+
+void BluetoothAdapterBlueZ::NotifyDeviceAdvertisementReceived(
+    BluetoothDeviceBlueZ* device,
+    int16_t rssi,
+    const std::vector<uint8_t>& eir) {
+  DCHECK(device->adapter_ == this);
+
+  for (auto& observer : observers_)
+    observer.DeviceAdvertisementReceived(this, device, rssi, eir);
+}
+
+void BluetoothAdapterBlueZ::NotifyDeviceConnectedStateChanged(
+    BluetoothDeviceBlueZ* device,
+    bool is_now_connected) {
+  DCHECK_EQ(device->adapter_, this);
+  DCHECK_EQ(device->IsConnected(), is_now_connected);
+
+  for (auto& observer : observers_)
+    observer.DeviceConnectedStateChanged(this, device, is_now_connected);
 }
 
 void BluetoothAdapterBlueZ::UseProfile(

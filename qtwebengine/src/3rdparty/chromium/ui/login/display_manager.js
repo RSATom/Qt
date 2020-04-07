@@ -8,6 +8,7 @@
 
 // TODO(xiyuan): Find a better to share those constants.
 /** @const */ var SCREEN_OOBE_WELCOME = 'connect';
+/** @const */ var SCREEN_OOBE_NETWORK = 'network-selection';
 /** @const */ var SCREEN_OOBE_HID_DETECTION = 'hid-detection';
 /** @const */ var SCREEN_OOBE_EULA = 'eula';
 /** @const */ var SCREEN_OOBE_ENABLE_DEBUGGING = 'debugging';
@@ -24,8 +25,6 @@
 /** @const */ var SCREEN_ERROR_MESSAGE = 'error-message';
 /** @const */ var SCREEN_TPM_ERROR = 'tpm-error-message';
 /** @const */ var SCREEN_PASSWORD_CHANGED = 'password-changed';
-/** @const */ var SCREEN_CREATE_SUPERVISED_USER_FLOW =
-    'supervised-user-creation';
 /** @const */ var SCREEN_APP_LAUNCH_SPLASH = 'app-launch-splash';
 /** @const */ var SCREEN_ARC_KIOSK_SPLASH = 'arc-kiosk-splash';
 /** @const */ var SCREEN_CONFIRM_PASSWORD = 'confirm-password';
@@ -41,9 +40,11 @@
 /** @const */ var SCREEN_ACTIVE_DIRECTORY_PASSWORD_CHANGE =
     'ad-password-change';
 /** @const */ var SCREEN_SYNC_CONSENT = 'sync-consent';
+/** @const */ var SCREEN_FINGERPRINT_SETUP = 'fingerprint-setup';
 /** @const */ var SCREEN_RECOMMEND_APPS = 'recommend-apps';
 /** @const */ var SCREEN_APP_DOWNLOADING = 'app-downloading';
 /** @const */ var SCREEN_DISCOVER = 'discover';
+/** @const */ var SCREEN_MARKETING_OPT_IN = 'marketing-opt-in';
 
 /* Accelerator identifiers. Must be kept in sync with webui_login_view.cc. */
 /** @const */ var ACCELERATOR_CANCEL = 'cancel';
@@ -55,12 +56,9 @@
 /** @const */ var ACCELERATOR_DEVICE_REQUISITION = 'device_requisition';
 /** @const */ var ACCELERATOR_DEVICE_REQUISITION_REMORA =
     'device_requisition_remora';
-/** @const */ var ACCELERATOR_DEVICE_REQUISITION_SHARK =
-    'device_requisition_shark';
 /** @const */ var ACCELERATOR_APP_LAUNCH_BAILOUT = 'app_launch_bailout';
 /** @const */ var ACCELERATOR_APP_LAUNCH_NETWORK_CONFIG =
     'app_launch_network_config';
-/** @const */ var ACCELERATOR_BOOTSTRAPPING_SLAVE = "bootstrapping_slave";
 /** @const */ var ACCELERATOR_DEMO_MODE = "demo_mode";
 /** @const */ var ACCELERATOR_SEND_FEEDBACK = "send_feedback";
 
@@ -70,11 +68,12 @@
   GAIA_SIGNIN: 1,
   ACCOUNT_PICKER: 2,
   WRONG_HWID_WARNING: 3,
-  SUPERVISED_USER_CREATION_FLOW: 4,
+  DEPRECATED_SUPERVISED_USER_CREATION_FLOW: 4,
   SAML_PASSWORD_CONFIRM: 5,
   PASSWORD_CHANGED: 6,
   ENROLLMENT: 7,
-  ERROR: 8
+  ERROR: 8,
+  SYNC_CONSENT: 9,
 };
 
 /* Possible UI states of the error screen. */
@@ -82,7 +81,6 @@
   UNKNOWN: 'ui-state-unknown',
   UPDATE: 'ui-state-update',
   SIGNIN: 'ui-state-signin',
-  SUPERVISED_USER_CREATION_FLOW: 'ui-state-supervised',
   KIOSK_MODE: 'ui-state-kiosk-mode',
   LOCAL_STATE_ERROR: 'ui-state-local-state-error',
   AUTO_ENROLLMENT_ERROR: 'ui-state-auto-enrollment-error',
@@ -137,8 +135,8 @@ cr.define('cr.ui.login', function() {
    * @const
    */
   var SCREEN_GROUPS = [[
-    SCREEN_OOBE_WELCOME, SCREEN_OOBE_EULA, SCREEN_OOBE_UPDATE,
-    SCREEN_OOBE_AUTO_ENROLLMENT_CHECK
+    SCREEN_OOBE_WELCOME, SCREEN_OOBE_NETWORK, SCREEN_OOBE_EULA,
+    SCREEN_OOBE_UPDATE, SCREEN_OOBE_AUTO_ENROLLMENT_CHECK
   ]];
   /**
    * Group of screens (screen IDs) where factory-reset screen invocation is
@@ -148,6 +146,7 @@ cr.define('cr.ui.login', function() {
    */
   var RESET_AVAILABLE_SCREEN_GROUP = [
     SCREEN_OOBE_WELCOME,
+    SCREEN_OOBE_NETWORK,
     SCREEN_OOBE_EULA,
     SCREEN_OOBE_UPDATE,
     SCREEN_OOBE_ENROLLMENT,
@@ -169,6 +168,7 @@ cr.define('cr.ui.login', function() {
     SCREEN_RECOMMEND_APPS,
     SCREEN_APP_DOWNLOADING,
     SCREEN_DISCOVER,
+    SCREEN_MARKETING_OPT_IN,
   ];
 
   /**
@@ -180,6 +180,7 @@ cr.define('cr.ui.login', function() {
   var ENABLE_DEBUGGING_AVAILABLE_SCREEN_GROUP = [
     SCREEN_OOBE_HID_DETECTION,
     SCREEN_OOBE_WELCOME,
+    SCREEN_OOBE_NETWORK,
     SCREEN_OOBE_EULA,
     SCREEN_OOBE_UPDATE,
     SCREEN_TERMS_OF_SERVICE
@@ -266,10 +267,23 @@ cr.define('cr.ui.login', function() {
     userCount_: 0,
 
     /**
-     * Stored OOBE configuration for newly registered screens.
-     * @type {dictionary}
+     * Number of reloadContent() calls since start for testing.
+     * @type {number}
      */
-    oobe_configuration_: {},
+    reloadContentNumEvents_: 0,
+
+    /**
+     * Stored OOBE configuration for newly registered screens.
+     * @type {!OobeTypes.OobeConfiguration}
+     */
+    oobe_configuration_: undefined,
+
+    /**
+     * Detects multi-tap gesture that invokes demo mode setup in OOBE.
+     * @type {?MultiTapDetector}
+     * @private
+     */
+    demoModeStartListener_: null,
 
     /**
      * Error message (bubble) was shown. This is checked in tests.
@@ -309,6 +323,7 @@ cr.define('cr.ui.login', function() {
     /**
      * Hides/shows header (Shutdown/Add User/Cancel buttons).
      * @param {boolean} hidden Whether header is hidden.
+     * TODO(crbug/914578): talk to the views login shelf through Mojo.
      */
     get headerHidden() {
       return $('login-header-bar').hidden;
@@ -327,11 +342,8 @@ cr.define('cr.ui.login', function() {
      * The header bar should be hidden when views-based shelf is shown.
      */
     get showingViewsBasedShelf() {
-      var showingViewsLock = loadTimeData.valueExists('showViewsLock') &&
-          loadTimeData.getString('showViewsLock') == 'on' &&
-          (this.displayType_ == DISPLAY_TYPE.LOCK ||
-           this.displayType_ == DISPLAY_TYPE.USER_ADDING);
-      return showingViewsLock || this.showingViewsLogin;
+      // TODO: remove this method once webui shelf has been removed.
+      return true;
     },
 
     /**
@@ -402,7 +414,7 @@ cr.define('cr.ui.login', function() {
 
     /**
      * Returns current OOBE configuration.
-     * @return {dictionary}
+     * @return {!OobeTypes.OobeConfiguration}
      */
     getOobeConfiguration: function() {
       return this.oobe_configuration_;
@@ -450,6 +462,7 @@ cr.define('cr.ui.login', function() {
           chrome.send('toggleEnrollmentScreen');
         } else if (
             currentStepId == SCREEN_OOBE_WELCOME ||
+            currentStepId == SCREEN_OOBE_NETWORK ||
             currentStepId == SCREEN_OOBE_EULA) {
           // In this case update check will be skipped and OOBE will
           // proceed straight to enrollment screen when EULA is accepted.
@@ -476,10 +489,6 @@ cr.define('cr.ui.login', function() {
         if (this.isOobeUI())
           this.showDeviceRequisitionRemoraPrompt_(
               'deviceRequisitionRemoraPromptText', 'remora');
-      } else if (name == ACCELERATOR_DEVICE_REQUISITION_SHARK) {
-        if (this.isOobeUI())
-          this.showDeviceRequisitionRemoraPrompt_(
-              'deviceRequisitionSharkPromptText', 'shark');
       } else if (name == ACCELERATOR_APP_LAUNCH_BAILOUT) {
         if (currentStepId == SCREEN_APP_LAUNCH_SPLASH)
           chrome.send('cancelAppLaunch');
@@ -488,13 +497,8 @@ cr.define('cr.ui.login', function() {
       } else if (name == ACCELERATOR_APP_LAUNCH_NETWORK_CONFIG) {
         if (currentStepId == SCREEN_APP_LAUNCH_SPLASH)
           chrome.send('networkConfigRequest');
-      } else if (name == ACCELERATOR_BOOTSTRAPPING_SLAVE) {
-        chrome.send('setOobeBootstrappingSlave');
       } else if (name == ACCELERATOR_DEMO_MODE) {
-        if (DEMO_MODE_SETUP_AVAILABLE_SCREEN_GROUP.indexOf(currentStepId) !=
-            -1) {
-          this.showEnableDemoModeDialog_();
-        }
+        this.startDemoModeFlow();
       } else if (name == ACCELERATOR_SEND_FEEDBACK) {
         chrome.send('sendFeedback');
       }
@@ -715,6 +719,19 @@ cr.define('cr.ui.login', function() {
       if (this.currentScreen.id == SCREEN_DEVICE_DISABLED)
         return;
 
+      // Prevent initial GAIA signin load from interrupting the kiosk splash
+      // screen.
+      // TODO: remove this special case when a better fix is found for the race
+      // condition. This if statement was introduced to fix http://b/113786350.
+      if ((this.currentScreen.id == SCREEN_APP_LAUNCH_SPLASH ||
+           this.currentScreen.id == SCREEN_ARC_KIOSK_SPLASH) &&
+          screen.id == SCREEN_GAIA_SIGNIN) {
+        console.log(
+            this.currentScreen.id +
+            ' screen showing. Ignoring switch to Gaia screen.');
+        return;
+      }
+
       var screenId = screen.id;
       if (screenId == SCREEN_ACCOUNT_PICKER && this.showingViewsLogin) {
         chrome.send('hideOobeDialog');
@@ -772,8 +789,8 @@ cr.define('cr.ui.login', function() {
       $('header-sections').appendChild(header);
       this.appendButtons_(el.buttons, screenId);
 
-      if (el.updateOobeConfiguration)
-        el.updateOobeConfiguration(oobe_configuration_);
+      if (el.updateOobeConfiguration && this.oobe_configuration_)
+        el.updateOobeConfiguration(this.oobe_configuration_);
     },
 
     /**
@@ -851,20 +868,21 @@ cr.define('cr.ui.login', function() {
       var currentScreenId = this.screens_[this.currentStep_];
       var currentScreen = $(currentScreenId);
       this.updateScreenSize(currentScreen);
+      ++this.reloadContentNumEvents_;
     },
 
     /**
      * Updates Oobe configuration for screens.
-     * @param {dictionary} configuration OOBE configuration.
+     * @param {!OobeTypes.OobeConfiguration} configuration OOBE configuration.
      */
     updateOobeConfiguration_: function(configuration) {
+      this.oobe_configuration_ = configuration;
       for (let i = 0; i < this.screens_.length; ++i) {
         let screenId = this.screens_[i];
         var screen = $(screenId);
         if (screen.updateOobeConfiguration)
           screen.updateOobeConfiguration(configuration);
       }
-      this.oobe_configuration_ = configuration;
     },
 
     /**
@@ -892,6 +910,14 @@ cr.define('cr.ui.login', function() {
       }
     },
 
+    /** Initializes demo mode start listener. */
+    initializeDemoModeMultiTapListener: function() {
+      if (this.displayType_ == DISPLAY_TYPE.OOBE) {
+        this.demoModeStartListener_ = new MultiTapDetector(
+            $('outer-container'), 10, this.startDemoModeFlow.bind(this));
+      }
+    },
+
     /**
      * Prepares screens to use in login display.
      */
@@ -903,9 +929,6 @@ cr.define('cr.ui.login', function() {
         screen.classList.remove('left');
       }
       if (this.showingViewsLogin) {
-        // Hide the shelf and version info because these should be
-        // displayed in views.
-        $('login-header-bar').hidden = true;
         $('top-header-bar').hidden = true;
       }
     },
@@ -984,10 +1007,19 @@ cr.define('cr.ui.login', function() {
     },
 
     /**
-     * Shows the enable demo mode dialog.
-     * @private
+     * Starts demo mode flow. Shows the enable demo mode dialog if needed.
      */
-    showEnableDemoModeDialog_: function(promptText, requisition) {
+    startDemoModeFlow: function() {
+      var isDemoModeEnabled = loadTimeData.getBoolean('isDemoModeEnabled');
+      if (!isDemoModeEnabled) {
+        console.warn('Cannot setup demo mode, because it is disabled.');
+        return;
+      }
+
+      var currentStepId = this.screens_[this.currentStep_];
+      if (!DEMO_MODE_SETUP_AVAILABLE_SCREEN_GROUP.includes(currentStepId))
+        return;
+
       if (!this.enableDemoModeDialog_) {
         this.enableDemoModeDialog_ =
             new cr.ui.dialogs.ConfirmDialog(document.body);
@@ -996,12 +1028,18 @@ cr.define('cr.ui.login', function() {
         this.enableDemoModeDialog_.setCancelLabel(
             loadTimeData.getString('enableDemoModeDialogCancel'));
       }
-      this.enableDemoModeDialog_.showWithTitle(
-          loadTimeData.getString('enableDemoModeDialogTitle'),
-          loadTimeData.getString('enableDemoModeDialogText'),
-          function() {  // onOk
-            chrome.send('setupDemoMode');
-          }, );
+      var configuration = Oobe.getInstance().getOobeConfiguration();
+      if (configuration && configuration.enableDemoMode) {
+        // Bypass showing dialog.
+        chrome.send('setupDemoMode');
+      } else {
+        this.enableDemoModeDialog_.showWithTitle(
+            loadTimeData.getString('enableDemoModeDialogTitle'),
+            loadTimeData.getString('enableDemoModeDialogText'),
+            function() {  // onOk
+              chrome.send('setupDemoMode');
+            });
+      }
     },
 
     /**
@@ -1020,7 +1058,19 @@ cr.define('cr.ui.login', function() {
      */
     toggleClass: function(className, enabled) {
       $('oobe').classList.toggle(className, enabled);
-    }
+    },
+
+    /**
+     * Notifies the C++ handler in views login that the OOBE signin state has
+     * been updated. This information is primarily used by the login shelf to
+     * update button visibility state.
+     * @param {number} state The state (see SIGNIN_UI_STATE) of the OOBE UI.
+     */
+    setSigninUIState: function(state) {
+      if (Oobe.getInstance().showingViewsLogin)
+        chrome.send('updateSigninUIState', [state]);
+    },
+
   };
 
   /**
@@ -1049,6 +1099,7 @@ cr.define('cr.ui.login', function() {
     }
 
     instance.initializeOOBEScreens();
+    instance.initializeDemoModeMultiTapListener();
 
     window.addEventListener('resize', instance.onWindowResize_.bind(instance));
   };
@@ -1088,7 +1139,6 @@ cr.define('cr.ui.login', function() {
    * Disables signin UI.
    */
   DisplayManager.disableSigninUI = function() {
-    $('login-header-bar').disabled = true;
     $('pod-row').disabled = true;
   };
 
@@ -1099,9 +1149,7 @@ cr.define('cr.ui.login', function() {
   DisplayManager.showSigninUI = function(opt_email) {
     var currentScreenId = Oobe.getInstance().currentScreen.id;
     if (currentScreenId == SCREEN_GAIA_SIGNIN)
-      $('login-header-bar').signinUIState = SIGNIN_UI_STATE.GAIA_SIGNIN;
-    else if (currentScreenId == SCREEN_ACCOUNT_PICKER)
-      $('login-header-bar').signinUIState = SIGNIN_UI_STATE.ACCOUNT_PICKER;
+      Oobe.getInstance().setSigninUIState(SIGNIN_UI_STATE.GAIA_SIGNIN);
     chrome.send('showAddUser', [opt_email]);
   };
 
@@ -1116,7 +1164,6 @@ cr.define('cr.ui.login', function() {
     if ($(SCREEN_GAIA_SIGNIN))
       $(SCREEN_GAIA_SIGNIN)
           .reset(currentScreenId == SCREEN_GAIA_SIGNIN, forceOnline);
-    $('login-header-bar').disabled = false;
     $('pod-row').reset(currentScreenId == SCREEN_ACCOUNT_PICKER);
   };
 
@@ -1216,13 +1263,6 @@ cr.define('cr.ui.login', function() {
    */
   DisplayManager.showPasswordChangedScreen = function(showError, email) {
     login.PasswordChangedScreen.show(showError, email);
-  };
-
-  /**
-   * Shows dialog to create a supervised user.
-   */
-  DisplayManager.showSupervisedUserCreationScreen = function() {
-    login.SupervisedUserCreationScreen.show();
   };
 
   /**

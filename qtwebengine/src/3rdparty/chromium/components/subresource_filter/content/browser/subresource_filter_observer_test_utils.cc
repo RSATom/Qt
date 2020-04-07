@@ -5,8 +5,9 @@
 #include "components/subresource_filter/content/browser/subresource_filter_observer_test_utils.h"
 
 #include "base/logging.h"
-#include "components/subresource_filter/core/common/activation_state.h"
+#include "components/subresource_filter/core/mojom/subresource_filter.mojom.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/render_frame_host.h"
 
 namespace subresource_filter {
 
@@ -28,9 +29,9 @@ void TestSubresourceFilterObserver::OnSubresourceFilterGoingAway() {
 
 void TestSubresourceFilterObserver::OnPageActivationComputed(
     content::NavigationHandle* navigation_handle,
-    const ActivationState& activation_state) {
+    const mojom::ActivationState& activation_state) {
   DCHECK(navigation_handle->IsInMainFrame());
-  ActivationLevel level = activation_state.activation_level;
+  mojom::ActivationLevel level = activation_state.activation_level;
   page_activations_[navigation_handle->GetURL()] = level;
   pending_activations_[navigation_handle] = level;
 }
@@ -40,7 +41,13 @@ void TestSubresourceFilterObserver::OnSubframeNavigationEvaluated(
     LoadPolicy load_policy,
     bool is_ad_subframe) {
   subframe_load_evaluations_[navigation_handle->GetURL()] = load_policy;
-  ad_subframe_evaluations_[navigation_handle->GetURL()] = is_ad_subframe;
+  ad_subframe_evaluations_[navigation_handle->GetFrameTreeNodeId()] =
+      is_ad_subframe;
+}
+
+void TestSubresourceFilterObserver::OnAdSubframeDetected(
+    content::RenderFrameHost* render_frame_host) {
+  ad_subframe_evaluations_[render_frame_host->GetFrameTreeNodeId()] = true;
 }
 
 void TestSubresourceFilterObserver::DidFinishNavigation(
@@ -58,21 +65,21 @@ void TestSubresourceFilterObserver::DidFinishNavigation(
     last_committed_activation_ = it->second;
     pending_activations_.erase(it);
   } else {
-    last_committed_activation_ = base::Optional<ActivationLevel>();
+    last_committed_activation_.reset();
   }
 }
 
-base::Optional<ActivationLevel>
+base::Optional<mojom::ActivationLevel>
 TestSubresourceFilterObserver::GetPageActivation(const GURL& url) const {
   auto it = page_activations_.find(url);
   if (it != page_activations_.end())
     return it->second;
-  return base::Optional<ActivationLevel>();
+  return base::nullopt;
 }
 
 base::Optional<bool> TestSubresourceFilterObserver::GetIsAdSubframe(
-    const GURL& url) const {
-  auto it = ad_subframe_evaluations_.find(url);
+    int frame_tree_node_id) const {
+  auto it = ad_subframe_evaluations_.find(frame_tree_node_id);
   if (it != ad_subframe_evaluations_.end())
     return it->second;
   return base::Optional<bool>();
@@ -86,7 +93,7 @@ base::Optional<LoadPolicy> TestSubresourceFilterObserver::GetSubframeLoadPolicy(
   return base::Optional<LoadPolicy>();
 }
 
-base::Optional<ActivationLevel>
+base::Optional<mojom::ActivationLevel>
 TestSubresourceFilterObserver::GetPageActivationForLastCommittedLoad() const {
   return last_committed_activation_;
 }

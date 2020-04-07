@@ -37,6 +37,7 @@
 #include "qmappolylineobject_p.h"
 #include "qmappolylineobject_p_p.h"
 #include <QtLocation/private/locationvaluetypehelper_p.h>
+#include <QtPositioning/QGeoPath>
 
 QT_BEGIN_NAMESPACE
 
@@ -126,6 +127,23 @@ bool QMapPolylineObjectPrivate::equals(const QGeoMapObjectPrivate &other) const
             && color() == o.color()
             && width() == o.width());
 }
+
+QGeoShape QMapPolylineObjectPrivate::geoShape() const
+{
+    return QGeoPath(path());
+}
+
+void QMapPolylineObjectPrivate::setGeoShape(const QGeoShape &shape)
+{
+    const QGeoPath p(shape);
+    if (p == path())
+        return;
+
+    setPath(p.path()); // to handle overrides
+    emit static_cast<QMapPolylineObject *>(q)->pathChanged();
+}
+
+
 
 QGeoMapObjectPrivate *QMapPolylineObjectPrivateDefault::clone()
 {

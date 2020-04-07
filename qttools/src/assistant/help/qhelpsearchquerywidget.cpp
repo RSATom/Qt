@@ -111,9 +111,11 @@ private:
     void retranslate()
     {
         m_searchLabel->setText(QHelpSearchQueryWidget::tr("Search for:"));
+        m_searchButton->setText(QHelpSearchQueryWidget::tr("Search"));
+#if QT_CONFIG(tooltip)
         m_prevQueryButton->setToolTip(QHelpSearchQueryWidget::tr("Previous search"));
         m_nextQueryButton->setToolTip(QHelpSearchQueryWidget::tr("Next search"));
-        m_searchButton->setText(QHelpSearchQueryWidget::tr("Search"));
+#endif
     }
 
     void saveQuery(const QString &query)
@@ -203,9 +205,6 @@ private:
     bool m_compactMode = false;
 };
 
-#include "qhelpsearchquerywidget.moc"
-
-
 /*!
     \class QHelpSearchQueryWidget
     \since 4.4
@@ -232,7 +231,7 @@ QHelpSearchQueryWidget::QHelpSearchQueryWidget(QWidget *parent)
     d = new QHelpSearchQueryWidgetPrivate();
 
     QVBoxLayout *vLayout = new QVBoxLayout(this);
-    vLayout->setMargin(0);
+    vLayout->setContentsMargins(QMargins());
 
     QHBoxLayout* hBoxLayout = new QHBoxLayout();
     d->m_searchLabel = new QLabel(this);
@@ -388,3 +387,5 @@ void QHelpSearchQueryWidget::changeEvent(QEvent *event)
 }
 
 QT_END_NAMESPACE
+
+#include "qhelpsearchquerywidget.moc"

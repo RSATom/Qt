@@ -43,6 +43,8 @@
   const _strategySizeAlgorithm =
         v8.createPrivateSymbol('[[strategySizeAlgorithm]]');
   const _writeAlgorithm = v8.createPrivateSymbol('[[writeAlgorithm]]');
+  const internalWritableStreamSymbol = v8.createPrivateSymbol(
+      'internal WritableStream in exposed WritableStream interface');
 
   // Numeric encodings of stream states. Stored in the _stateAndFlags slot.
   const WRITABLE = 0;
@@ -60,7 +62,6 @@
   // the global object may have been overwritten. See "V8 Extras Design Doc",
   // section "Security Considerations".
   // https://docs.google.com/document/d/1AT5-T0aHGp7Lt29vPWFr2-qG8r3l9CByyvKwEuA8Ec0/edit#heading=h.9yixony1a18r
-  const defineProperty = global.Object.defineProperty;
   const ObjectCreate = global.Object.create;
 
   const Function_call = v8.uncurryThis(global.Function.prototype.call);
@@ -93,13 +94,13 @@
     PeekQueueValue,
     ResetQueue,
     ValidateAndNormalizeHighWaterMark,
+    CreateCrossRealmTransformReadable,
+    CreateCrossRealmTransformWritable,
     CallOrNoop1,
   } = binding.streamOperations;
 
   // User-visible strings.
   const streamErrors = binding.streamErrors;
-  const errAbortLockedStream =
-        'Cannot abort a writable stream that is locked to a writer';
   const errWriterLockReleasedPrefix =
         'This writable stream writer has been released and cannot be ';
   const errCloseCloseRequestedStream = 'Cannot close a writable stream that ' +
@@ -145,9 +146,9 @@
       }
 
       InitializeWritableStream(this);
-      const type = underlyingSink.type;
       const size = strategy.size;
       let highWaterMark = strategy.highWaterMark;
+      const type = underlyingSink.type;
       if (type !== undefined) {
         throw new RangeError(streamErrors.invalidType);
       }
@@ -159,33 +160,13 @@
       SetUpWritableStreamDefaultControllerFromUnderlyingSink(
           this, underlyingSink, highWaterMark, sizeAlgorithm);
     }
-
-    get locked() {
-      if (!IsWritableStream(this)) {
-        throw new TypeError(streamErrors.illegalInvocation);
-      }
-      return IsWritableStreamLocked(this);
-    }
-
-    abort(reason) {
-      if (!IsWritableStream(this)) {
-        return Promise_reject(new TypeError(streamErrors.illegalInvocation));
-      }
-      if (IsWritableStreamLocked(this)) {
-        return Promise_reject(new TypeError(errAbortLockedStream));
-      }
-      return WritableStreamAbort(this, reason);
-    }
-
-    getWriter() {
-      if (!IsWritableStream(this)) {
-        throw new TypeError(streamErrors.illegalInvocation);
-      }
-      return AcquireWritableStreamDefaultWriter(this);
-    }
   }
 
   const WritableStream_prototype = WritableStream.prototype;
+
+  function createWritableStream(underlyingSink, strategy) {
+    return new WritableStream(underlyingSink, strategy);
+  }
 
   // General Writable Stream Abstract Operations
 
@@ -488,6 +469,34 @@
     }
   }
 
+  //
+  // Functions for transferable streams.
+  //
+
+  // The |port| which is passed to this function must be a MessagePort which is
+  // attached by a MessageChannel to the |port| that will be passed to
+  // WritableStreamDeserialize.
+  function WritableStreamSerialize(writable, port) {
+    // assert(IsWritableStream(writable),
+    //        `! IsWritableStream(_writable_) is true`);
+    if (IsWritableStreamLocked(writable)) {
+      throw new TypeError(streamErrors.cannotTransferLockedStream);
+    }
+
+    if (!binding.MessagePort_postMessage) {
+      throw new TypeError(streamErrors.cannotTransferContext);
+    }
+
+    const readable = CreateCrossRealmTransformReadable(port);
+    const promise =
+          binding.ReadableStreamPipeTo(readable, writable, false, false, false);
+    markPromiseAsHandled(promise);
+  }
+
+  function WritableStreamDeserialize(port) {
+    return CreateCrossRealmTransformWritable(port);
+  }
+
   // Functions to expose internals for ReadableStream.pipeTo. These are not
   // part of the standard.
   function isWritableStreamErrored(stream) {
@@ -530,6 +539,14 @@
 
   class WritableStreamDefaultWriter {
     constructor(stream) {
+      // |stream| here can be either an external WritableStream (i.e.,
+      // IDL defined WritableStream) or an internal WritableStream (i.e.,
+      // the class defined in this file). In the former case, the
+      // internal stream is stored in [internalWritableStreamSymbol], so use it
+      // from now on.
+      if (stream[internalWritableStreamSymbol] !== undefined) {
+        stream = stream[internalWritableStreamSymbol];
+      }
       if (!IsWritableStream(stream)) {
         throw new TypeError(streamErrors.illegalConstructor);
       }
@@ -832,7 +849,9 @@
   // or impossible, so use static dispatch for now. This will have to be fixed
   // when adding a byte controller.
   function WritableStreamDefaultControllerAbortSteps(controller, reason) {
-    return controller[_abortAlgorithm](reason);
+    const result = controller[_abortAlgorithm](reason);
+    WritableStreamDefaultControllerClearAlgorithms(controller);
+    return result;
   }
 
   function WritableStreamDefaultControllerErrorSteps(controller) {
@@ -905,6 +924,12 @@
     SetUpWritableStreamDefaultController(stream, controller, startAlgorithm,
         writeAlgorithm, closeAlgorithm, abortAlgorithm, highWaterMark,
         sizeAlgorithm);
+  }
+
+  function WritableStreamDefaultControllerClearAlgorithms(controller) {
+    controller[_writeAlgorithm] = undefined;
+    controller[_closeAlgorithm] = undefined;
+    controller[_abortAlgorithm] = undefined;
   }
 
   function WritableStreamDefaultControllerClose(controller) {
@@ -989,6 +1014,7 @@
     // assert(controller[_queue].length === 0,
     //        'controller.[[queue]] is empty.');
     const sinkClosePromise = controller[_closeAlgorithm]();
+    WritableStreamDefaultControllerClearAlgorithms(controller);
     thenPromise(
         sinkClosePromise, () => WritableStreamFinishInFlightClose(stream),
         reason => WritableStreamFinishInFlightCloseWithError(stream, reason));
@@ -1015,6 +1041,10 @@
           WritableStreamDefaultControllerAdvanceQueueIfNeeded(controller);
         },
         reason => {
+          const state = stream[_stateAndFlags] & STATE_MASK;
+          if (state === WRITABLE) {
+            WritableStreamDefaultControllerClearAlgorithms(controller);
+          }
           WritableStreamFinishInFlightWriteWithError(stream, reason);
         });
   }
@@ -1029,49 +1059,42 @@
     const stream = controller[_controlledWritableStream];
     // assert((stream[_stateAndFlags] & STATE_MASK) === WRITABLE,
     //        '_stream_.[[state]] is `"writable"`.');
+    WritableStreamDefaultControllerClearAlgorithms(controller);
     WritableStreamStartErroring(stream, error);
   }
 
-  //
-  // Additions to the global object
-  //
+  Object.assign(binding, {
+    // Exports for ReadableStream
+    AcquireWritableStreamDefaultWriter,
+    IsWritableStream,
+    isWritableStreamClosingOrClosed,
+    isWritableStreamErrored,
+    isWritableStreamWritable,
+    IsWritableStreamLocked,
+    WritableStreamAbort,
+    WritableStreamCloseQueuedOrInFlight,
+    WritableStreamDefaultWriterCloseWithErrorPropagation,
+    getWritableStreamDefaultWriterClosedPromise,
+    WritableStreamDefaultWriterGetDesiredSize,
+    getWritableStreamDefaultWriterReadyPromise,
+    WritableStreamDefaultWriterRelease,
+    WritableStreamDefaultWriterWrite,
+    getWritableStreamStoredError,
 
-  defineProperty(global, 'WritableStream', {
-    value: WritableStream,
-    enumerable: false,
-    configurable: true,
-    writable: true
+    // Exports for blink
+    createWritableStream,
+    internalWritableStreamSymbol,
+    WritableStreamSerialize,
+    WritableStreamDeserialize,
+
+    // Additional exports for TransformStream
+    CreateWritableStream,
+    WritableStream,
+    WritableStreamDefaultControllerErrorIfNeeded,
+    isWritableStreamErroring,
+    getWritableStreamController,
+
+    // Exports for CreateCrossRealmTransformWritable in CommonOperations.js
+    WritableStreamDefaultControllerClose,
   });
-
-  // TODO(ricea): Exports to Blink
-
-  // Exports for ReadableStream
-  binding.AcquireWritableStreamDefaultWriter =
-      AcquireWritableStreamDefaultWriter;
-  binding.IsWritableStream = IsWritableStream;
-  binding.isWritableStreamClosingOrClosed = isWritableStreamClosingOrClosed;
-  binding.isWritableStreamErrored = isWritableStreamErrored;
-  binding.IsWritableStreamLocked = IsWritableStreamLocked;
-  binding.WritableStreamAbort = WritableStreamAbort;
-  binding.WritableStreamDefaultWriterCloseWithErrorPropagation =
-      WritableStreamDefaultWriterCloseWithErrorPropagation;
-  binding.getWritableStreamDefaultWriterClosedPromise =
-      getWritableStreamDefaultWriterClosedPromise;
-  binding.WritableStreamDefaultWriterGetDesiredSize =
-      WritableStreamDefaultWriterGetDesiredSize;
-  binding.getWritableStreamDefaultWriterReadyPromise =
-      getWritableStreamDefaultWriterReadyPromise;
-  binding.WritableStreamDefaultWriterRelease =
-      WritableStreamDefaultWriterRelease;
-  binding.WritableStreamDefaultWriterWrite = WritableStreamDefaultWriterWrite;
-  binding.getWritableStreamStoredError = getWritableStreamStoredError;
-
-  // Exports for TransformStream
-  binding.CreateWritableStream = CreateWritableStream;
-  binding.WritableStream = WritableStream;
-  binding.WritableStreamDefaultControllerErrorIfNeeded =
-      WritableStreamDefaultControllerErrorIfNeeded;
-  binding.isWritableStreamWritable = isWritableStreamWritable;
-  binding.isWritableStreamErroring = isWritableStreamErroring;
-  binding.getWritableStreamController = getWritableStreamController;
 });

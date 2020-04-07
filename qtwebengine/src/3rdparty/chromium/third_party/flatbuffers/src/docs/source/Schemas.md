@@ -84,15 +84,19 @@ parent object, and use no virtual table).
 
 ### Types
 
-Built-in scalar types are:
+Built-in scalar types are 
 
--   8 bit: `byte`, `ubyte`, `bool`
+-   8 bit: `byte` (`int8`), `ubyte` (`uint8`), `bool`
 
--   16 bit: `short`, `ushort`
+-   16 bit: `short` (`int16`), `ushort` (`uint16`)
 
--   32 bit: `int`, `uint`, `float`
+-   32 bit: `int` (`int32`), `uint` (`uint32`), `float` (`float32`)
 
--   64 bit: `long`, `ulong`, `double`
+-   64 bit: `long` (`int64`), `ulong` (`uint64`), `double` (`float64`)
+
+The type names in parentheses are alias names such that for example
+`uint8` can be used in place of `ubyte`, and `int32` can be used in
+place of `int` without affecting code generation.
 
 Built-in non-scalar types:
 
@@ -278,7 +282,10 @@ Current understood attributes:
     IDs allow the fields to be placed in any order in the schema.
     When a new field is added to the schema it must use the next available ID.
 -   `deprecated` (on a field): do not generate accessors for this field
-    anymore, code should stop using this data.
+    anymore, code should stop using this data. Old data may still contain this
+    field, but it won't be accessible anymore by newer code. Note that if you
+    deprecate a field that was previous required, old code may fail to validate
+    new data (when using the optional verifier).
 -   `required` (on a non-scalar table field): this field must always be set.
     By default, all fields are optional, i.e. may be left out. This is
     desirable, as it helps with forwards/backwards compatibility, and
@@ -288,7 +295,10 @@ Current understood attributes:
     constructs FlatBuffers to ensure this field is initialized, so the reading
     code may access it directly, without checking for NULL. If the constructing
     code does not initialize this field, they will get an assert, and also
-    the verifier will fail on buffers that have missing required fields.
+    the verifier will fail on buffers that have missing required fields. Note
+    that if you add this attribute to an existing field, this will only be
+    valid if existing data always contains this field / existing code always
+    writes this field.
 -   `force_align: size` (on a struct): force the alignment of this struct
     to be something higher than what it is naturally aligned to. Causes
     these structs to be aligned to that amount inside a buffer, IF that
@@ -302,6 +312,9 @@ Current understood attributes:
     (which must be a vector of ubyte) contains flatbuffer data, for which the
     root type is given by `table_name`. The generated code will then produce
     a convenient accessor for the nested FlatBuffer.
+-   `flexbuffer` (on a field): this indicates that the field
+    (which must be a vector of ubyte) contains flexbuffer data. The generated
+    code will then produce a convenient accessor for the FlexBuffer root.
 -   `key` (on a field): this field is meant to be used as a key when sorting
     a vector of the type of table it sits in. Can be used for in-place
     binary search.

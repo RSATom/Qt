@@ -11,6 +11,7 @@
 
 #include "base/time/time.h"
 #include "net/nqe/effective_connection_type.h"
+#include "url/gurl.h"
 
 namespace previews {
 
@@ -41,9 +42,12 @@ enum class PreviewsType {
   // Request that resource loading hints be used during pageload.
   RESOURCE_LOADING_HINTS = 7,
 
+  // Allows the browser to redirect navigations to a Lite Page server.
+  LITE_PAGE_REDIRECT = 8,
+
   // Insert new enum values here. Keep values sequential to allow looping from
   // NONE+1 to LAST-1. Also add the enum to Previews.Types histogram suffix.
-  LAST = 8,
+  LAST = 9,
 };
 
 typedef std::vector<std::pair<PreviewsType, int>> PreviewsTypeList;
@@ -85,35 +89,83 @@ base::TimeDelta SingleOptOutDuration();
 // shown as a preview.
 base::TimeDelta OfflinePreviewFreshnessDuration();
 
-// The threshold of EffectiveConnectionType above which preview |type| will be
+// The amount of time that a Server Lite Page Preview navigation can take before
+// it is killed and the original page is loaded.
+base::TimeDelta LitePagePreviewsNavigationTimeoutDuration();
+
+// The host for Lite Page server previews.
+GURL GetLitePagePreviewsDomainURL();
+
+// The duration of a single bypass for Lite Page Server Previews.
+base::TimeDelta LitePagePreviewsSingleBypassDuration();
+
+// A list of all path suffixes to blacklist from Lite Page Server Previews.
+// Primarily used to prohibit URLs that look like media requests.
+std::vector<std::string> LitePagePreviewsBlacklistedPathSuffixes();
+
+// Whether or not to trigger a preview for a navigation to localhost. Provided
+// as an experiment for automated and manual testing.
+bool LitePagePreviewsTriggerOnLocalhost();
+
+// Whether to request a Lite Page Server Preview even if there are optimization
+// page hints for the host.
+bool LitePagePreviewsOverridePageHints();
+
+// The maximum data byte size for the server-provided blacklist. This is
+// a client-side safety limit for RAM use in case server sends too large of
+// a blacklist.
+int LitePageRedirectPreviewMaxServerBlacklistByteSize();
+
+// The maximum number of times that a Lite Page Redirect preview should restart
+// a navigation.
+size_t LitePageRedirectPreviewMaxNavigationRestarts();
+
+// The maximum number of seconds to loadshed the Previews server for.
+int PreviewServerLoadshedMaxSeconds();
+
+// The experimental config to send to the previews server.
+std::string LitePageRedirectPreviewExperiment();
+
+// Returns true if we should only report metrics and not trigger when the Lite
+// Page Redirect preview is enabled.
+bool IsInLitePageRedirectControl();
+
+// The default EffectiveConnectionType threshold where preview |type| will be
 // triggered.
 net::EffectiveConnectionType GetECTThresholdForPreview(
     previews::PreviewsType type);
 
+// The maximum EffectiveConnectionType threshold where this client session is
+// allowed to trigger previews (for slow page triggered previews). This may be
+// Finch configured on a session basis to limit the proportion of previews
+// triggered at faster connections.
+net::EffectiveConnectionType GetSessionMaxECTThreshold();
+
 // Whether any previews are allowed. Acts as a kill-switch or holdback check.
 bool ArePreviewsAllowed();
+
+// Whether the Previews UI is in the omnibox instead of an infobar.
+bool IsPreviewsOmniboxUiEnabled();
 
 // Whether the preview type is enabled.
 bool IsOfflinePreviewsEnabled();
 bool IsClientLoFiEnabled();
 bool IsNoScriptPreviewsEnabled();
 bool IsResourceLoadingHintsEnabled();
+bool IsLitePageServerPreviewsEnabled();
 
 // The blacklist version for each preview type.
 int OfflinePreviewsVersion();
 int ClientLoFiVersion();
+int LitePageServerPreviewsVersion();
 int NoScriptPreviewsVersion();
 int ResourceLoadingHintsVersion();
 
+// The maximum number of page hints that should be loaded to memory.
+size_t GetMaxPageHintsInMemoryThreshhold();
+
 // Whether server optimization hints are enabled.
 bool IsOptimizationHintsEnabled();
-
-// The threshold of EffectiveConnectionType above which Client Lo-Fi previews
-// should not be served.
-net::EffectiveConnectionType EffectiveConnectionTypeThresholdForClientLoFi();
-
-// Returns the hosts that are blacklisted by the Client Lo-Fi field trial.
-std::vector<std::string> GetBlackListedHostsForClientLoFiFieldTrial();
 
 // For estimating NoScript data savings, this is the percentage factor to
 // multiple by the network bytes for inflating the original_bytes count.
@@ -122,6 +174,15 @@ int NoScriptPreviewsInflationPercent();
 // For estimating NoScript data savings, this is the number of bytes to
 // for inflating the original_bytes count.
 int NoScriptPreviewsInflationBytes();
+
+// For estimating ResourceLoadingHints data savings, this is the percentage
+// factor to multiple by the network bytes for inflating the original_bytes
+// count.
+int ResourceLoadingHintsPreviewsInflationPercent();
+
+// For estimating ResourceLoadingHints data savings, this is the number of
+// bytes to for inflating the original_bytes count.
+int ResourceLoadingHintsPreviewsInflationBytes();
 
 }  // namespace params
 

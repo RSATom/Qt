@@ -74,4 +74,25 @@ gfx::BufferFormat GetBufferFormatFromFourCCFormat(int format) {
   }
 }
 
+bool IsValidBufferFormat(uint32_t current_format) {
+  switch (current_format) {
+    case DRM_FORMAT_R8:
+    case DRM_FORMAT_GR88:
+    case DRM_FORMAT_ABGR8888:
+    case DRM_FORMAT_XBGR8888:
+    case DRM_FORMAT_ARGB8888:
+    case DRM_FORMAT_XRGB8888:
+    case DRM_FORMAT_XRGB2101010:
+    case DRM_FORMAT_XBGR2101010:
+    case DRM_FORMAT_RGB565:
+    case DRM_FORMAT_UYVY:
+    case DRM_FORMAT_NV12:
+    case DRM_FORMAT_YVU420:
+      return true;
+    default:
+      return false;
+  }
+  return false;
+}
+
 }  // namespace ui

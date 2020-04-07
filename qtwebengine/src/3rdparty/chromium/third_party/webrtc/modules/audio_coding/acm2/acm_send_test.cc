@@ -14,12 +14,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "absl/strings/match.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
+#include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
 #include "modules/audio_coding/neteq/tools/input_audio_file.h"
 #include "modules/audio_coding/neteq/tools/packet.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/string_encode.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -56,29 +59,40 @@ AcmSendTestOldApi::AcmSendTestOldApi(InputAudioFile* audio_source,
 AcmSendTestOldApi::~AcmSendTestOldApi() = default;
 
 bool AcmSendTestOldApi::RegisterCodec(const char* payload_name,
-                                      int sampling_freq_hz,
-                                      int channels,
+                                      int clockrate_hz,
+                                      int num_channels,
                                       int payload_type,
                                       int frame_size_samples) {
-  CodecInst codec;
-  RTC_CHECK_EQ(0, AudioCodingModule::Codec(payload_name, &codec,
-                                           sampling_freq_hz, channels));
-  codec.pltype = payload_type;
-  codec.pacsize = frame_size_samples;
-  codec_registered_ = (acm_->RegisterSendCodec(codec) == 0);
-  input_frame_.num_channels_ = channels;
+  SdpAudioFormat format(payload_name, clockrate_hz, num_channels);
+  if (absl::EqualsIgnoreCase(payload_name, "g722")) {
+    RTC_CHECK_EQ(16000, clockrate_hz);
+    format.clockrate_hz = 8000;
+  } else if (absl::EqualsIgnoreCase(payload_name, "opus")) {
+    RTC_CHECK(num_channels == 1 || num_channels == 2);
+    if (num_channels == 2) {
+      format.parameters["stereo"] = "1";
+    }
+    format.num_channels = 2;
+  }
+  format.parameters["ptime"] = rtc::ToString(rtc::CheckedDivExact(
+      frame_size_samples, rtc::CheckedDivExact(clockrate_hz, 1000)));
+  auto factory = CreateBuiltinAudioEncoderFactory();
+  acm_->SetEncoder(
+      factory->MakeAudioEncoder(payload_type, format, absl::nullopt));
+  codec_registered_ = true;
+  input_frame_.num_channels_ = num_channels;
   assert(input_block_size_samples_ * input_frame_.num_channels_ <=
          AudioFrame::kMaxDataSizeSamples);
   return codec_registered_;
 }
 
-bool AcmSendTestOldApi::RegisterExternalCodec(
-    AudioEncoder* external_speech_encoder) {
-  acm_->RegisterExternalSendCodec(external_speech_encoder);
+void AcmSendTestOldApi::RegisterExternalCodec(
+    std::unique_ptr<AudioEncoder> external_speech_encoder) {
   input_frame_.num_channels_ = external_speech_encoder->NumChannels();
+  acm_->SetEncoder(std::move(external_speech_encoder));
   assert(input_block_size_samples_ * input_frame_.num_channels_ <=
          AudioFrame::kMaxDataSizeSamples);
-  return codec_registered_ = true;
+  codec_registered_ = true;
 }
 
 std::unique_ptr<Packet> AcmSendTestOldApi::NextPacket() {

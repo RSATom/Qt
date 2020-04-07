@@ -17,6 +17,11 @@
 #include "third_party/blink/renderer/platform/wtf/time.h"
 #include "v8/include/v8.h"
 
+#if BUILDFLAG(RCS_COUNT_EVERYTHING)
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
+#endif
+
 namespace base {
 class TickClock;
 }
@@ -194,7 +199,6 @@ class PLATFORM_EXPORT RuntimeCallStats {
 #define BINDINGS_COUNTERS(V)      \
   V(AssociateObjectWithWrapper)   \
   V(CreateWrapper)                \
-  V(GetEventListener)             \
   V(HasInstance)                  \
   V(ToExecutionContext)           \
   V(ToV8DOMWindow)                \

@@ -19,9 +19,13 @@ component("metrics_cpp") {
     "ukm_entry_builder_base.h",
     "ukm_recorder.cc",
     "ukm_recorder.h",
+    "ukm_source.cc",
+    "ukm_source.h",
     "ukm_source_id.cc",
     "ukm_source_id.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   defines = [ "METRICS_IMPLEMENTATION" ]
 
@@ -34,6 +38,7 @@ component("metrics_cpp") {
   deps = [
     "//mojo/public/cpp/bindings",
     "//services/service_manager/public/cpp",
+    "//third_party/metrics_proto",
   ]
 }
 

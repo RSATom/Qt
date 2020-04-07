@@ -229,7 +229,9 @@ def main():
   # Copy a whitelist of files to the directory we're going to tar up.
   # This supports the same patterns that the fnmatch module understands.
   exe_ext = '.exe' if sys.platform == 'win32' else ''
-  want = ['bin/llvm-symbolizer' + exe_ext,
+  want = ['bin/llvm-pdbutil' + exe_ext,
+          'bin/llvm-symbolizer' + exe_ext,
+          'bin/llvm-undname' + exe_ext,
           'bin/sancov' + exe_ext,
           # Copy built-in headers (lib/clang/3.x.y/include).
           'lib/clang/*/include/*',
@@ -240,42 +242,134 @@ def main():
     want.append('bin/clang-cl.exe')
     want.append('bin/lld-link.exe')
   else:
-    so_ext = 'dylib' if sys.platform == 'darwin' else 'so'
-    want.extend(['bin/clang',
-                 'lib/libFindBadConstructs.' + so_ext,
-                 'lib/libBlinkGCPlugin.' + so_ext,
-                 ])
+    want.append('bin/clang')
   if sys.platform == 'darwin':
-    want.extend([# Copy only the OSX and iossim (ASan, fuzzer and profile)
-                 # runtime libraries:
-                 'lib/clang/*/lib/darwin/*asan_osx*',
-                 'lib/clang/*/lib/darwin/*asan_iossim*',
-                 'lib/clang/*/lib/darwin/*fuzzer*',
-                 'lib/clang/*/lib/darwin/*profile_osx*',
-                 'lib/clang/*/lib/darwin/*profile_iossim*',
-                 # And the OSX and ios builtin libraries (iossim is lipo'd into
-                 # ios) for the _IsOSVersionAtLeast runtime function.
-                 'lib/clang/*/lib/darwin/*.ios.a',
-                 'lib/clang/*/lib/darwin/*.osx.a',
-                 ])
+    want.extend([
+        # AddressSanitizer runtime.
+        'lib/clang/*/lib/darwin/libclang_rt.asan_iossim_dynamic.dylib',
+        'lib/clang/*/lib/darwin/libclang_rt.asan_osx_dynamic.dylib',
+
+        # Fuzzing instrumentation (-fsanitize=fuzzer-no-link).
+        'lib/clang/*/lib/darwin/libclang_rt.fuzzer_no_main_osx.a',
+
+        # OS X and iOS builtin libraries (iossim is lipo'd into ios) for the
+        # _IsOSVersionAtLeast runtime function.
+        'lib/clang/*/lib/darwin/libclang_rt.ios.a',
+        'lib/clang/*/lib/darwin/libclang_rt.osx.a',
+
+        # Profile runtime (used by profiler and code coverage).
+        'lib/clang/*/lib/darwin/libclang_rt.profile_iossim.a',
+        'lib/clang/*/lib/darwin/libclang_rt.profile_osx.a',
+    ])
   elif sys.platform.startswith('linux'):
     # Add llvm-ar and lld for LTO.
     want.append('bin/llvm-ar')
     want.append('bin/lld')
-    # Copy only
-    # lib/clang/*/lib/linux/libclang_rt.{[atm]san,san,ubsan,fuzzer,profile}-*.a,
-    # but not dfsan.
-    want.extend(['lib/clang/*/lib/linux/*[atm]san*',
-                 'lib/clang/*/lib/linux/*ubsan*',
-                 'lib/clang/*/lib/linux/*libclang_rt.fuzzer*',
-                 'lib/clang/*/lib/linux/*libclang_rt.san*',
-                 'lib/clang/*/lib/linux/*profile*',
-                 'lib/clang/*/share/msan_blacklist.txt',
-                 ])
+    want.extend([
+        # AddressSanitizer C runtime (pure C won't link with *_cxx).
+        'lib/clang/*/lib/linux/libclang_rt.asan-i386.a',
+        'lib/clang/*/lib/linux/libclang_rt.asan-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.asan-x86_64.a.syms',
+
+        # AddressSanitizer C++ runtime.
+        'lib/clang/*/lib/linux/libclang_rt.asan_cxx-i386.a',
+        'lib/clang/*/lib/linux/libclang_rt.asan_cxx-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.asan_cxx-x86_64.a.syms',
+
+        # AddressSanitizer Android runtime.
+        'lib/clang/*/lib/linux/libclang_rt.asan-aarch64-android.so',
+        'lib/clang/*/lib/linux/libclang_rt.asan-arm-android.so',
+        'lib/clang/*/lib/linux/libclang_rt.asan-i686-android.so',
+
+        # Fuzzing instrumentation (-fsanitize=fuzzer-no-link).
+        'lib/clang/*/lib/linux/libclang_rt.fuzzer_no_main-x86_64.a',
+
+        # HWASAN Android runtime.
+        'lib/clang/*/lib/linux/libclang_rt.hwasan-aarch64-android.so',
+
+        # MemorySanitizer C runtime (pure C won't link with *_cxx).
+        'lib/clang/*/lib/linux/libclang_rt.msan-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.msan-x86_64.a.syms',
+
+        # MemorySanitizer C++ runtime.
+        'lib/clang/*/lib/linux/libclang_rt.msan_cxx-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.msan_cxx-x86_64.a.syms',
+
+        # Profile runtime (used by profiler and code coverage).
+        'lib/clang/*/lib/linux/libclang_rt.profile-i386.a',
+        'lib/clang/*/lib/linux/libclang_rt.profile-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.profile-aarch64-android.a',
+        'lib/clang/*/lib/linux/libclang_rt.profile-arm-android.a',
+
+        # ThreadSanitizer C runtime (pure C won't link with *_cxx).
+        'lib/clang/*/lib/linux/libclang_rt.tsan-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.tsan-x86_64.a.syms',
+
+        # ThreadSanitizer C++ runtime.
+        'lib/clang/*/lib/linux/libclang_rt.tsan_cxx-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.tsan_cxx-x86_64.a.syms',
+
+        # UndefinedBehaviorSanitizer C runtime (pure C won't link with *_cxx).
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone-i386.a',
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone-x86_64.a.syms',
+
+        # UndefinedBehaviorSanitizer C++ runtime.
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone_cxx-i386.a',
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone_cxx-x86_64.a',
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone_cxx-x86_64.a.syms',
+
+        # UndefinedBehaviorSanitizer Android runtime, needed for CFI.
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone-aarch64-android.so',
+        'lib/clang/*/lib/linux/libclang_rt.ubsan_standalone-arm-android.so',
+
+        # Blacklist for MemorySanitizer (used on Linux only).
+        'lib/clang/*/share/msan_blacklist.txt',
+    ])
   elif sys.platform == 'win32':
-    want.extend(['lib/clang/*/lib/windows/clang_rt.asan*.dll',
-                 'lib/clang/*/lib/windows/clang_rt.asan*.lib',
-                 'lib/clang/*/lib/windows/clang_rt.ubsan*.lib',
+    want.extend([
+        # AddressSanitizer C runtime (pure C won't link with *_cxx).
+        'lib/clang/*/lib/windows/clang_rt.asan-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.asan-x86_64.lib',
+
+        # AddressSanitizer C++ runtime.
+        'lib/clang/*/lib/windows/clang_rt.asan_cxx-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.asan_cxx-x86_64.lib',
+
+        # Fuzzing instrumentation (-fsanitize=fuzzer-no-link).
+        'lib/clang/*/lib/windows/clang_rt.fuzzer_no_main-x86_64.lib',
+
+        # Thunk for AddressSanitizer needed for static build of a shared lib.
+        'lib/clang/*/lib/windows/clang_rt.asan_dll_thunk-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.asan_dll_thunk-x86_64.lib',
+
+        # AddressSanitizer runtime for component build.
+        'lib/clang/*/lib/windows/clang_rt.asan_dynamic-i386.dll',
+        'lib/clang/*/lib/windows/clang_rt.asan_dynamic-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.asan_dynamic-x86_64.dll',
+        'lib/clang/*/lib/windows/clang_rt.asan_dynamic-x86_64.lib',
+
+        # Thunk for AddressSanitizer for component build of a shared lib.
+        'lib/clang/*/lib/windows/clang_rt.asan_dynamic_runtime_thunk-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib',
+
+        # Profile runtime (used by profiler and code coverage).
+        'lib/clang/*/lib/windows/clang_rt.profile-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.profile-x86_64.lib',
+
+        # UndefinedBehaviorSanitizer C runtime (pure C won't link with *_cxx).
+        'lib/clang/*/lib/windows/clang_rt.ubsan_standalone-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.ubsan_standalone-x86_64.lib',
+
+        # UndefinedBehaviorSanitizer C++ runtime.
+        'lib/clang/*/lib/windows/clang_rt.ubsan_standalone_cxx-i386.lib',
+        'lib/clang/*/lib/windows/clang_rt.ubsan_standalone_cxx-x86_64.lib',
+    ])
+
+  if sys.platform in ('linux2', 'darwin'):
+    # Include libclang_rt.builtins.a for Fuchsia targets.
+    want.extend(['lib/clang/*/aarch64-fuchsia/lib/libclang_rt.builtins.a',
+                 'lib/clang/*/x86_64-fuchsia/lib/libclang_rt.builtins.a',
                  ])
 
   for root, dirs, files in os.walk(LLVM_RELEASE_DIR):
@@ -298,15 +392,17 @@ def main():
             os.path.splitext(f)[1] in ['.so', '.a']):
         subprocess.call([EU_STRIP, '-g', dest])
 
-  stripped_binaries = ['clang', 'llvm-symbolizer', 'sancov']
+  stripped_binaries = ['clang',
+                       'llvm-pdbutil',
+                       'llvm-symbolizer',
+                       'llvm-undname',
+                       'sancov',
+                       ]
   if sys.platform.startswith('linux'):
     stripped_binaries.append('lld')
     stripped_binaries.append('llvm-ar')
   for f in stripped_binaries:
-    if sys.platform == 'darwin':
-      # See http://crbug.com/256342
-      subprocess.call(['strip', '-x', os.path.join(pdir, 'bin', f)])
-    elif sys.platform.startswith('linux'):
+    if sys.platform != 'win32':
       subprocess.call(['strip', os.path.join(pdir, 'bin', f)])
 
   # Set up symlinks.
@@ -389,12 +485,34 @@ def main():
     os.makedirs(os.path.join(llddir, 'bin'))
     shutil.copy(os.path.join(LLVM_RELEASE_DIR, 'bin', 'lld'),
                 os.path.join(llddir, 'bin'))
+    shutil.copy(os.path.join(LLVM_RELEASE_DIR, 'bin', 'llvm-ar'),
+                os.path.join(llddir, 'bin'))
     os.symlink('lld', os.path.join(llddir, 'bin', 'lld-link'))
     os.symlink('lld', os.path.join(llddir, 'bin', 'ld.lld'))
     with tarfile.open(llddir + '.tgz', 'w:gz') as tar:
       tar.add(os.path.join(llddir, 'bin'), arcname='bin',
               filter=PrintTarProgress)
     MaybeUpload(args, llddir, platform)
+
+  # On Linux and Mac, package and upload llvm-strip in a separate zip.
+  # This is used for the Fuchsia build.
+  if sys.platform == 'darwin' or sys.platform.startswith('linux'):
+    stripdir = 'llvmstrip-' + stamp
+    shutil.rmtree(stripdir, ignore_errors=True)
+    os.makedirs(os.path.join(stripdir, 'bin'))
+    shutil.copy(os.path.join(LLVM_RELEASE_DIR, 'bin', 'llvm-strip'),
+                os.path.join(stripdir, 'bin'))
+    llvmstrip_stamp_file_base = 'llvmstrip_build_revision'
+    llvmstrip_stamp_file = os.path.join(stripdir, llvmstrip_stamp_file_base)
+    with open(llvmstrip_stamp_file, 'w') as f:
+      f.write(expected_stamp)
+      f.write('\n')
+    with tarfile.open(stripdir + '.tgz', 'w:gz') as tar:
+      tar.add(os.path.join(stripdir, 'bin'), arcname='bin',
+              filter=PrintTarProgress)
+      tar.add(llvmstrip_stamp_file, arcname=llvmstrip_stamp_file_base,
+              filter=PrintTarProgress)
+    MaybeUpload(args, stripdir, platform)
 
   # Zip up the translation_unit tool.
   translation_unit_dir = 'translation_unit-' + stamp

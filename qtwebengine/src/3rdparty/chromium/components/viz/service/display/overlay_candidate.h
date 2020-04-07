@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "build/build_config.h"
 #include "components/viz/common/quads/render_pass.h"
 #include "components/viz/common/resources/resource_id.h"
@@ -41,11 +42,25 @@ class VIZ_SERVICE_EXPORT OverlayCandidate {
   // an overlay.
   static bool IsInvisibleQuad(const DrawQuad* quad);
 
-  // Returns true if any any of the quads in the list given by |quad_list_begin|
+  // Returns true if any of the quads in the list given by |quad_list_begin|
   // and |quad_list_end| are visible and on top of |candidate|.
   static bool IsOccluded(const OverlayCandidate& candidate,
                          QuadList::ConstIterator quad_list_begin,
                          QuadList::ConstIterator quad_list_end);
+
+  // Returns true if any of the quads in the list given by |quad_list_begin|
+  // and |quad_list_end| have a filter associated and occlude |candidate|.
+  static bool IsOccludedByFilteredQuad(
+      const OverlayCandidate& candidate,
+      QuadList::ConstIterator quad_list_begin,
+      QuadList::ConstIterator quad_list_end,
+      const base::flat_map<RenderPassId, cc::FilterOperations*>&
+          render_pass_backdrop_filters);
+
+  // Returns true if the |quad| cannot be displayed on the main plane. This is
+  // used in conjuction with protected content that can't be GPU composited and
+  // will be shown via an overlay.
+  static bool RequiresOverlay(const DrawQuad* quad);
 
   OverlayCandidate();
   OverlayCandidate(const OverlayCandidate& other);
@@ -135,8 +150,17 @@ class VIZ_SERVICE_EXPORT OverlayCandidateList
   // overlay, if one backs them with a SurfaceView.
   PromotionHintInfoMap promotion_hint_info_map_;
 
+  // Set of resources that have requested a promotion hint that also have quads
+  // that use them.
+  ResourceIdSet promotion_hint_requestor_set_;
+
   // Helper to insert |candidate| into |promotion_hint_info_|.
   void AddPromotionHint(const OverlayCandidate& candidate);
+
+  // Add |quad| to |promotion_hint_requestors_| if it is requesting a hint.
+  void AddToPromotionHintRequestorSetIfNeeded(
+      const DisplayResourceProvider* resource_provider,
+      const DrawQuad* quad);
 };
 
 }  // namespace viz

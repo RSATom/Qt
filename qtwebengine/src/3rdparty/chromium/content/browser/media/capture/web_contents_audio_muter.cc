@@ -10,8 +10,10 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
+#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "content/browser/media/capture/audio_mirroring_manager.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -80,33 +82,32 @@ class WebContentsAudioMuter::MuteDestination
  private:
   friend class base::RefCountedThreadSafe<MuteDestination>;
 
-  typedef AudioMirroringManager::SourceFrameRef SourceFrameRef;
-
   ~MuteDestination() override {}
 
-  void QueryForMatches(const std::set<SourceFrameRef>& candidates,
-                       const MatchesCallback& results_callback) override {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+  void QueryForMatches(const std::set<GlobalFrameRoutingId>& candidates,
+                       MatchesCallback results_callback) override {
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&MuteDestination::QueryForMatchesOnUIThread, this,
-                       candidates, media::BindToCurrentLoop(results_callback)));
+                       candidates,
+                       media::BindToCurrentLoop(std::move(results_callback))));
   }
 
-  void QueryForMatchesOnUIThread(const std::set<SourceFrameRef>& candidates,
-                                 const MatchesCallback& results_callback) {
+  void QueryForMatchesOnUIThread(
+      const std::set<GlobalFrameRoutingId>& candidates,
+      MatchesCallback results_callback) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    std::set<SourceFrameRef> matches;
+    std::set<GlobalFrameRoutingId> matches;
     // Add each ID to |matches| if it maps to a RenderFrameHost that maps to the
     // WebContents being muted.
-    for (std::set<SourceFrameRef>::const_iterator i = candidates.begin();
-         i != candidates.end(); ++i) {
+    for (const auto& it : candidates) {
       WebContents* const contents_containing_frame =
           WebContents::FromRenderFrameHost(
-              RenderFrameHost::FromID(i->first, i->second));
+              RenderFrameHost::FromID(it.child_id, it.frame_routing_id));
       if (contents_containing_frame == web_contents_)
-        matches.insert(*i);
+        matches.insert(it);
     }
-    results_callback.Run(matches, false);
+    std::move(results_callback).Run(matches, false);
   }
 
   media::AudioOutputStream* AddInput(
@@ -140,8 +141,8 @@ void WebContentsAudioMuter::StartMuting() {
   if (is_muting_)
     return;
   is_muting_ = true;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&AudioMirroringManager::StartMirroring,
                      base::Unretained(AudioMirroringManager::GetInstance()),
                      base::RetainedRef(destination_)));
@@ -152,8 +153,8 @@ void WebContentsAudioMuter::StopMuting() {
   if (!is_muting_)
     return;
   is_muting_ = false;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&AudioMirroringManager::StopMirroring,
                      base::Unretained(AudioMirroringManager::GetInstance()),
                      base::RetainedRef(destination_)));

@@ -6,6 +6,7 @@
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_SCRIPT_LOADER_FACTORY_H_
 
 #include "base/macros.h"
+#include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 
@@ -22,15 +23,14 @@ class ServiceWorkerProviderHost;
 // Created per one running service worker for loading its scripts. This is kept
 // alive while ServiceWorkerNetworkProvider in the renderer process is alive.
 //
-// This factory handles requests for the scripts of a new (installing)
-// service worker. For installed workers, service worker script streaming
-// (ServiceWorkerInstalledScriptsSender) is typically used instead. However,
-// this factory can still be used when an installed worker imports a
-// non-installed script (https://crbug.com/719052).
+// This factory handles requests for scripts from service workers that were
+// new (non-installed) when they started. For service workers that were already
+// installed when they started, ServiceWorkerInstalledScriptsManager is used
+// instead.
 //
 // This factory creates either a ServiceWorkerNewScriptLoader or a
 // ServiceWorkerInstalledScriptLoader to load a script.
-class ServiceWorkerScriptLoaderFactory
+class CONTENT_EXPORT ServiceWorkerScriptLoaderFactory
     : public network::mojom::URLLoaderFactory {
  public:
   // |loader_factory| is used to load scripts. Typically

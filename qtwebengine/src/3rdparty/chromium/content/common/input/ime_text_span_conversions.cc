@@ -38,29 +38,29 @@ ui::ImeTextSpan::Type ConvertWebImeTextSpanTypeToUiType(
   return ui::ImeTextSpan::Type::kComposition;
 }
 
-ui::mojom::ImeTextSpanThickness ConvertUiThicknessToUiImeTextSpanThickness(
+ws::mojom::ImeTextSpanThickness ConvertUiThicknessToUiImeTextSpanThickness(
     ui::ImeTextSpan::Thickness thickness) {
   switch (thickness) {
     case ui::ImeTextSpan::Thickness::kNone:
-      return ui::mojom::ImeTextSpanThickness::kNone;
+      return ws::mojom::ImeTextSpanThickness::kNone;
     case ui::ImeTextSpan::Thickness::kThin:
-      return ui::mojom::ImeTextSpanThickness::kThin;
+      return ws::mojom::ImeTextSpanThickness::kThin;
     case ui::ImeTextSpan::Thickness::kThick:
-      return ui::mojom::ImeTextSpanThickness::kThick;
+      return ws::mojom::ImeTextSpanThickness::kThick;
   }
 
   NOTREACHED();
-  return ui::mojom::ImeTextSpanThickness::kThin;
+  return ws::mojom::ImeTextSpanThickness::kThin;
 }
 
 ui::ImeTextSpan::Thickness ConvertUiImeTextSpanThicknessToUiThickness(
-    ui::mojom::ImeTextSpanThickness thickness) {
+    ws::mojom::ImeTextSpanThickness thickness) {
   switch (thickness) {
-    case ui::mojom::ImeTextSpanThickness::kNone:
+    case ws::mojom::ImeTextSpanThickness::kNone:
       return ui::ImeTextSpan::Thickness::kNone;
-    case ui::mojom::ImeTextSpanThickness::kThin:
+    case ws::mojom::ImeTextSpanThickness::kThin:
       return ui::ImeTextSpan::Thickness::kThin;
-    case ui::mojom::ImeTextSpanThickness::kThick:
+    case ws::mojom::ImeTextSpanThickness::kThick:
       return ui::ImeTextSpan::Thickness::kThick;
   }
 
@@ -78,6 +78,8 @@ blink::WebImeTextSpan ConvertUiImeTextSpanToBlinkImeTextSpan(
       ui_ime_text_span.suggestion_highlight_color,
       ui_ime_text_span.suggestions);
   blink_ime_text_span.underline_color = ui_ime_text_span.underline_color;
+  blink_ime_text_span.remove_on_finish_composing =
+      ui_ime_text_span.remove_on_finish_composing;
   return blink_ime_text_span;
 }
 
@@ -101,6 +103,8 @@ ui::ImeTextSpan ConvertBlinkImeTextSpanToUiImeTextSpan(
       blink_ime_text_span.suggestion_highlight_color,
       blink_ime_text_span.suggestions);
   ui_ime_text_span.underline_color = blink_ime_text_span.underline_color;
+  ui_ime_text_span.remove_on_finish_composing =
+      blink_ime_text_span.remove_on_finish_composing;
   return ui_ime_text_span;
 }
 

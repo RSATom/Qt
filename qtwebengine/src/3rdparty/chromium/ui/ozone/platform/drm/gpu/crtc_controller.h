@@ -60,25 +60,24 @@ class CrtcController {
   // gbm will pick a modifier as it allocates the bo.
   std::vector<uint64_t> GetFormatModifiers(uint32_t fourcc_format);
 
+  void SetCursor(uint32_t handle, const gfx::Size& size);
+  void MoveCursor(const gfx::Point& location);
 
-  bool SetCursor(const scoped_refptr<ScanoutBuffer>& buffer);
-  bool MoveCursor(const gfx::Point& location);
+  void OnPageFlipComplete();
 
  private:
-  bool ResetCursor();
+  void DisableCursor();
 
   const scoped_refptr<DrmDevice> drm_;
 
-  // Buffers need to be declared first so that they are destroyed last. Needed
-  // since the controllers may reference the buffers.
-  scoped_refptr<ScanoutBuffer> cursor_buffer_;
-
-  uint32_t crtc_;
+  const uint32_t crtc_;
 
   // TODO(dnicoara) Add support for hardware mirroring (multiple connectors).
-  uint32_t connector_;
+  const uint32_t connector_;
 
   drmModeModeInfo mode_ = {};
+
+  scoped_refptr<DrmFramebuffer> modeset_framebuffer_;
 
   // Keeps track of the CRTC state. If a surface has been bound, then the value
   // is set to false. Otherwise it is true.

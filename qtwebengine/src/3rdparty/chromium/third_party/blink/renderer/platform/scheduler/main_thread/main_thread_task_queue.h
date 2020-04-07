@@ -7,6 +7,7 @@
 
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
+#include "net/base/request_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 
 namespace base {
@@ -57,9 +58,14 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     // TODO(altimin): Move to the top when histogram is renumbered.
     kDetached = 19,
 
+    kCleanup = 20,
+
+    kWebSchedulingUserInteraction = 21,
+    kWebSchedulingBestEffort = 22,
+
     // Used to group multiple types when calculating Expected Queueing Time.
-    kOther = 20,
-    kCount = 21
+    kOther = 23,
+    kCount = 24
   };
 
   // Returns name of the given queue type. Returned string has application
@@ -91,7 +97,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
         : can_be_deferred(false),
           can_be_throttled(false),
           can_be_paused(false),
-          can_be_frozen(false) {}
+          can_be_frozen(false),
+          can_run_in_background(true) {}
 
     QueueTraits(const QueueTraits&) = default;
 
@@ -115,11 +122,17 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       return *this;
     }
 
+    QueueTraits SetCanRunInBackground(bool value) {
+      can_run_in_background = value;
+      return *this;
+    }
+
     bool operator==(const QueueTraits& other) const {
       return can_be_deferred == other.can_be_deferred &&
              can_be_throttled == other.can_be_throttled &&
              can_be_paused == other.can_be_paused &&
-             can_be_frozen == other.can_be_frozen;
+             can_be_frozen == other.can_be_frozen &&
+             can_run_in_background == other.can_run_in_background;
     }
 
     // Return a key suitable for WTF::HashMap.
@@ -130,6 +143,7 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       key |= can_be_throttled << 2;
       key |= can_be_paused << 3;
       key |= can_be_frozen << 4;
+      key |= can_run_in_background << 5;
       return key;
     }
 
@@ -137,6 +151,7 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     bool can_be_throttled : 1;
     bool can_be_paused : 1;
     bool can_be_frozen : 1;
+    bool can_run_in_background : 1;
   };
 
   struct QueueCreationParams {
@@ -162,26 +177,37 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     QueueCreationParams SetCanBeDeferred(bool value) {
       queue_traits = queue_traits.SetCanBeDeferred(value);
+      ApplyQueueTraitsToSpec();
       return *this;
     }
 
     QueueCreationParams SetCanBeThrottled(bool value) {
       queue_traits = queue_traits.SetCanBeThrottled(value);
+      ApplyQueueTraitsToSpec();
       return *this;
     }
 
     QueueCreationParams SetCanBePaused(bool value) {
       queue_traits = queue_traits.SetCanBePaused(value);
+      ApplyQueueTraitsToSpec();
       return *this;
     }
 
     QueueCreationParams SetCanBeFrozen(bool value) {
       queue_traits = queue_traits.SetCanBeFrozen(value);
+      ApplyQueueTraitsToSpec();
+      return *this;
+    }
+
+    QueueCreationParams SetCanRunInBackground(bool value) {
+      queue_traits = queue_traits.SetCanRunInBackground(value);
+      ApplyQueueTraitsToSpec();
       return *this;
     }
 
     QueueCreationParams SetQueueTraits(QueueTraits value) {
       queue_traits = value;
+      ApplyQueueTraitsToSpec();
       return *this;
     }
 
@@ -214,6 +240,11 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     FrameSchedulerImpl* frame_scheduler;
     QueueTraits queue_traits;
     bool freeze_when_keep_active;
+
+   private:
+    void ApplyQueueTraitsToSpec() {
+      spec = spec.SetDelayedFencesAllowed(queue_traits.can_be_throttled);
+    }
   };
 
   ~MainThreadTaskQueue() override;
@@ -235,16 +266,20 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
   bool CanBeFrozen() const { return queue_traits_.can_be_frozen; }
 
+  bool CanRunInBackground() const {
+    return queue_traits_.can_run_in_background;
+  }
+
   bool FreezeWhenKeepActive() const { return freeze_when_keep_active_; }
 
   QueueTraits GetQueueTraits() const { return queue_traits_; }
 
   void OnTaskStarted(
-      const base::sequence_manager::TaskQueue::Task& task,
+      const base::sequence_manager::Task& task,
       const base::sequence_manager::TaskQueue::TaskTiming& task_timing);
 
   void OnTaskCompleted(
-      const base::sequence_manager::TaskQueue::Task& task,
+      const base::sequence_manager::Task& task,
       const base::sequence_manager::TaskQueue::TaskTiming& task_timing);
 
   void DetachFromMainThreadScheduler();
@@ -254,6 +289,14 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
   FrameSchedulerImpl* GetFrameScheduler() const;
   void DetachFromFrameScheduler();
+
+  scoped_refptr<base::SingleThreadTaskRunner> CreateTaskRunner(
+      TaskType task_type) {
+    return TaskQueue::CreateTaskRunner(static_cast<int>(task_type));
+  }
+
+  void SetNetRequestPriority(net::RequestPriority net_request_priority);
+  base::Optional<net::RequestPriority> net_request_priority() const;
 
  protected:
   void SetFrameSchedulerForTest(FrameSchedulerImpl* frame_scheduler);
@@ -279,6 +322,13 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       fixed_priority_;
   const QueueTraits queue_traits_;
   const bool freeze_when_keep_active_;
+
+  // Warning: net_request_priority is not the same as the priority of the queue.
+  // It is the priority (at the loading stack level) of the resource associated
+  // to the queue, if one exists.
+  //
+  // Used to track UMA metrics for resource loading tasks split by net priority.
+  base::Optional<net::RequestPriority> net_request_priority_;
 
   // Needed to notify renderer scheduler about completed tasks.
   MainThreadSchedulerImpl* main_thread_scheduler_;  // NOT OWNED

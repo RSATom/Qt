@@ -80,6 +80,8 @@ if (!is_android) {
       "//base",
       "//base/third_party/dynamic_annotations",
       "//net",
+      "//services/network/public/cpp:cpp",
+      "//services/network/public/mojom",
       "//url",
     ]
 
@@ -90,7 +92,10 @@ if (!is_android) {
       ]
     }
     if (is_chromeos) {
-      deps += [ "//chromeos" ]
+      deps += [
+        "//chromeos",
+        "//chromeos/dbus",
+      ]
     }
 
     if (is_mac) {
@@ -121,6 +126,7 @@ if (!is_android) {
       ":rlz_lib",
       "//base",
       "//base/test:test_support",
+      "//services/network/public/cpp:cpp",
       "//testing/gtest",
     ]
     if (is_chromeos) {
@@ -149,13 +155,18 @@ if (!is_android) {
       ":rlz_utils",
       ":test_support",
       "//base",
+      "//mojo/core/embedder",
       "//net:test_support",
+      "//services/network:test_support",
       "//testing/gmock",
       "//testing/gtest",
       "//third_party/zlib",
     ]
     if (is_chromeos) {
-      deps += [ "//chromeos" ]
+      deps += [
+        "//chromeos:test_support",
+        "//chromeos/dbus:test_support",
+      ]
     }
   }
 }

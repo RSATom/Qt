@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2016 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,20 +11,9 @@
 #ifndef MEDIA_ENGINE_INTERNALDECODERFACTORY_H_
 #define MEDIA_ENGINE_INTERNALDECODERFACTORY_H_
 
-#include <memory>
-#include <vector>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "api/video_codecs/video_decoder_factory.h"
-
-namespace webrtc {
-
-class InternalDecoderFactory : public VideoDecoderFactory {
- public:
-  std::vector<SdpVideoFormat> GetSupportedFormats() const override;
-  std::unique_ptr<VideoDecoder> CreateVideoDecoder(
-      const SdpVideoFormat& format) override;
-};
-
-}  // namespace webrtc
+#include "media/engine/internal_decoder_factory.h"
 
 #endif  // MEDIA_ENGINE_INTERNALDECODERFACTORY_H_

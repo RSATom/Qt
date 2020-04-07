@@ -12,7 +12,7 @@
 
 #include "common_video/h264/h264_common.h"
 #include "rtc_base/arraysize.h"
-#include "rtc_base/bitbuffer.h"
+#include "rtc_base/bit_buffer.h"
 #include "rtc_base/buffer.h"
 #include "test/gtest.h"
 
@@ -114,7 +114,7 @@ void GenerateFakeSps(uint16_t width,
 class H264SpsParserTest : public ::testing::Test {
  public:
   H264SpsParserTest() {}
-  virtual ~H264SpsParserTest() {}
+  ~H264SpsParserTest() override {}
 
   absl::optional<SpsParser::SpsState> sps_;
 };

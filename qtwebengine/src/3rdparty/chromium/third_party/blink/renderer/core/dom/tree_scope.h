@@ -31,12 +31,14 @@
 #include "third_party/blink/renderer/core/dom/tree_ordered_map.h"
 #include "third_party/blink/renderer/core/html/forms/radio_button_group_scope.h"
 #include "third_party/blink/renderer/core/layout/hit_test_request.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
 
 class ContainerNode;
+class CSSStyleSheet;
 class DOMSelection;
 class Document;
 class Element;
@@ -76,8 +78,8 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
       const AtomicString&) const;
   bool HasElementWithId(const AtomicString& id) const;
   bool ContainsMultipleElementsWithId(const AtomicString& id) const;
-  void AddElementById(const AtomicString& element_id, Element*);
-  void RemoveElementById(const AtomicString& element_id, Element*);
+  void AddElementById(const AtomicString& element_id, Element&);
+  void RemoveElementById(const AtomicString& element_id, Element&);
 
   Document& GetDocument() const {
     DCHECK(document_);
@@ -86,8 +88,8 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
 
   Node* AncestorInThisScope(Node*) const;
 
-  void AddImageMap(HTMLMapElement*);
-  void RemoveImageMap(HTMLMapElement*);
+  void AddImageMap(HTMLMapElement&);
+  void RemoveImageMap(HTMLMapElement&);
   HTMLMapElement* GetImageMap(const String& url) const;
 
   Element* ElementFromPoint(double x, double y) const;
@@ -129,7 +131,7 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
 
   Element* GetElementByAccessKey(const String& key) const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   ScopedStyleResolver* GetScopedStyleResolver() const {
     return scoped_style_resolver_.Get();
@@ -138,6 +140,12 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
   void ClearScopedStyleResolver();
 
   SVGTreeScopeResources& EnsureSVGTreeScopedResources();
+
+  bool HasAdoptedStyleSheets() const;
+  const HeapVector<Member<CSSStyleSheet>>& AdoptedStyleSheets();
+  void SetAdoptedStyleSheets(HeapVector<Member<CSSStyleSheet>>&);
+  void SetAdoptedStyleSheets(HeapVector<Member<CSSStyleSheet>>&,
+                             ExceptionState&);
 
  protected:
   TreeScope(ContainerNode&, Document&);
@@ -168,6 +176,8 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
   RadioButtonGroupScope radio_button_group_scope_;
 
   Member<SVGTreeScopeResources> svg_tree_scoped_resources_;
+
+  HeapVector<Member<CSSStyleSheet>> adopted_style_sheets_;
 };
 
 inline bool TreeScope::HasElementWithId(const AtomicString& id) const {

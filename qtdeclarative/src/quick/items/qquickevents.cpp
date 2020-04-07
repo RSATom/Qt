@@ -913,10 +913,14 @@ void QQuickEventPoint::setGrabberPointerHandler(QQuickPointerHandler *grabber, b
                         passiveGrabber->onGrabChanged(grabber, OverrideGrabPassive, this);
                 }
             }
-            if (oldGrabberHandler)
+            if (oldGrabberHandler) {
                 oldGrabberHandler->onGrabChanged(oldGrabberHandler, (grabber ? CancelGrabExclusive : UngrabExclusive), this);
-            else if (oldGrabberItem && pointerEvent()->asPointerTouchEvent())
-                oldGrabberItem->touchUngrabEvent();
+            } else if (oldGrabberItem) {
+                if (pointerEvent()->asPointerTouchEvent())
+                    oldGrabberItem->touchUngrabEvent();
+                else if (pointerEvent()->asPointerMouseEvent())
+                    oldGrabberItem->mouseUngrabEvent();
+            }
             // touchUngrabEvent() can result in the grabber being set to null (MPTA does that, for example).
             // So set it again to ensure that final state is what we want.
             m_exclusiveGrabber = QPointer<QObject>(grabber);
@@ -1933,6 +1937,10 @@ Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug dbg, const QQuickPointerEvent *e
 {
     QDebugStateSaver saver(dbg);
     dbg.nospace();
+    if (!event) {
+        dbg << "QQuickPointerEvent(0)";
+        return dbg;
+    }
     dbg << "QQuickPointerEvent(";
     dbg << event->timestamp();
     dbg << " dev:";
@@ -1953,6 +1961,10 @@ Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug dbg, const QQuickEventPoint *eve
 {
     QDebugStateSaver saver(dbg);
     dbg.nospace();
+    if (!event) {
+        dbg << "QQuickEventPoint(0)";
+        return dbg;
+    }
     dbg << "QQuickEventPoint(accepted:" << event->isAccepted()
         << " state:";
     QtDebugUtils::formatQEnum(dbg, event->state());

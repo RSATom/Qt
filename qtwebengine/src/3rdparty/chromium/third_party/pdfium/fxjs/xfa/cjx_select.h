@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_SELECT_H_
 
 #include "fxjs/xfa/cjx_textnode.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Select;
 
-class CJX_Select : public CJX_TextNode {
+class CJX_Select final : public CJX_TextNode {
  public:
   explicit CJX_Select(CXFA_Select* node);
   ~CJX_Select() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_SELECT_H_

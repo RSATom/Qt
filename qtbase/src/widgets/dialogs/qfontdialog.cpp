@@ -163,7 +163,7 @@ QFontDialog::QFontDialog(QWidget *parent)
     \since 4.5
 
     Constructs a standard font dialog with the given \a parent and specified
-    \a initial color.
+    \a initial font.
 */
 QFontDialog::QFontDialog(const QFont &initial, QWidget *parent)
     : QFontDialog(parent)
@@ -534,7 +534,7 @@ void QFontDialogPrivate::updateFamilies()
 
         //and try some fall backs
         match_t type = MATCH_NONE;
-        if (bestFamilyType <= MATCH_NONE && familyName2 == f.lastResortFamily())
+        if (bestFamilyType <= MATCH_NONE && familyName2 == QStringLiteral("helvetica"))
             type = MATCH_LAST_RESORT;
         if (bestFamilyType <= MATCH_LAST_RESORT && familyName2 == f.family())
             type = MATCH_APP;

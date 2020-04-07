@@ -54,6 +54,7 @@
 #include <QtGui/private/qtriangulator_p.h>
 
 #include <QtPositioning/private/qclipperutils_p.h>
+#include <QtPositioning/private/qgeopath_p.h>
 #include <array>
 
 QT_BEGIN_NAMESPACE
@@ -739,6 +740,7 @@ QDeclarativePolylineMapItem::QDeclarativePolylineMapItem(QQuickItem *parent)
 :   QDeclarativeGeoMapItemBase(parent), line_(this), dirtyMaterial_(true), updatingGeometry_(false)
 {
     m_itemType = QGeoMap::MapPolyline;
+    geopath_ = QGeoPathEager();
     setFlag(ItemHasContents, true);
     QObject::connect(&line_, SIGNAL(colorChanged(QColor)),
                      this, SLOT(updateAfterLinePropertiesChanged()));
@@ -796,7 +798,7 @@ void QDeclarativePolylineMapItem::setPath(const QJSValue &value)
 /*!
     \qmlmethod int MapPolyline::setPath(geopath path)
 
-    Sets the \l path using a \l QGeoPath type.
+    Sets the \a path using a geopath type.
 
     \since 5.10
 
@@ -807,7 +809,7 @@ void QDeclarativePolylineMapItem::setPath(const QGeoPath &path)
     if (geopath_.path() == path.path())
         return;
 
-    geopath_ = path;
+    geopath_ = QGeoPathEager(path);
     regenerateCache();
     geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
     markSourceDirtyAndUpdate();
@@ -847,7 +849,7 @@ int QDeclarativePolylineMapItem::pathLength() const
 /*!
     \qmlmethod void MapPolyline::addCoordinate(coordinate)
 
-    Adds a coordinate to the end of the path.
+    Adds the specified \a coordinate to the end of the path.
 
     \sa insertCoordinate, removeCoordinate, path
 */
@@ -1136,18 +1138,8 @@ const QGeoShape &QDeclarativePolylineMapItem::geoShape() const
 
 void QDeclarativePolylineMapItem::setGeoShape(const QGeoShape &shape)
 {
-    if (shape == geopath_)
-        return;
-
     const QGeoPath geopath(shape); // if shape isn't a path, path will be created as a default-constructed path
-    const bool pathHasChanged = geopath.path() != geopath_.path();
-    geopath_ = geopath;
-
-    regenerateCache();
-    geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    markSourceDirtyAndUpdate();
-    if (pathHasChanged)
-        emit pathChanged();
+    setPath(geopath);
 }
 
 //////////////////////////////////////////////////////////////////////

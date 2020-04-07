@@ -6,6 +6,19 @@
 
 ### Physical Device Setup
 
+#### Root Access
+
+Running tests requires being able to run "adb root", which requires using a
+userdebug build on your device.
+
+To use a userdebug build, see
+[Running Builds](https://source.android.com/setup/build/running.html). Googlers
+can refer to [this page](https://goto.google.com/flashdevice).
+
+If you can't run "adb root", you will get an error when trying to install the
+test APKs like "adb: error: failed to copy" and "remote secure_mkdirs failed:
+Operation not permitted".
+
 #### ADB Debugging
 
 The adb executable exists within the Android SDK:
@@ -82,7 +95,6 @@ Java test files vary a bit more widely than their C++ counterparts:
     -   `webview_instrumentation_test_apk` for anything in `//android_webview`
     -   `content_shell_test_apk` for anything in `//content` or below
     -   `chrome_public_test_apk` for most things in `//chrome`
-    -   `chrome_sync_shell_test_apk` in a few exceptional cases
 -   JUnit or Robolectric test files -- i.e., tests that will run on the host --
     typically belong in `<top-level directory>_junit_tests` (e.g.
     `base_junit_tests` for `//base`), though here again there are cases
@@ -158,9 +170,7 @@ for example, `content_junit_tests` and `chrome_junit_tests`.
 
 When adding a new JUnit test, the associated `BUILD.gn` file must be updated.
 For example, adding a test to `chrome_junit_tests` requires to update
-`chrome/android/BUILD.gn`. If you are a GYP user, you will not need to do that
-step in order to run the test locally but it is still required for GN users to
-run the test.
+`chrome/android/BUILD.gn`.
 
 ```shell
 # Build the test suite.
@@ -287,9 +297,9 @@ out/Release/bin/java_deobfuscate out/Release/apks/ChromePublicTest.apk.mapping <
 Any stacks produced by test runner output will already be deobfuscated.
 
 
-## Running Blink Layout Tests
+## Running Blink Web Tests
 
-See [Layout Tests](testing/layout_tests.md).
+See [Web Tests](testing/web_tests.md).
 
 ## Running GPU tests
 

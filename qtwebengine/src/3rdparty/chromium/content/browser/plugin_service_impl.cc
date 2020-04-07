@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
@@ -18,8 +19,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "content/browser/ppapi_plugin_process_host.h"
@@ -30,6 +31,7 @@
 #include "content/common/pepper_plugin_list.h"
 #include "content/common/plugin_list.h"
 #include "content/common/view_messages.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/plugin_service_filter.h"
@@ -40,6 +42,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/webplugininfo.h"
+#include "ppapi/shared_impl/ppapi_permissions.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 
 namespace content {
@@ -172,12 +175,27 @@ PpapiPluginProcessHost* PluginServiceImpl::FindOrStartPpapiPluginProcess(
   }
 
   // Validate that the plugin is actually registered.
-  PepperPluginInfo* info = GetRegisteredPpapiPluginInfo(plugin_path);
+  const PepperPluginInfo* info = GetRegisteredPpapiPluginInfo(plugin_path);
   if (!info) {
     VLOG(1) << "Unable to find ppapi plugin registration for: "
             << plugin_path.MaybeAsASCII();
     return nullptr;
   }
+
+  // Flash has its own flavour of CORS, so CORB needs to allow all responses
+  // and rely on Flash to enforce same-origin policy.  See also
+  // https://crbug.com/874515 and https://crbug.com/816318#c5.
+  //
+  // Note that ppapi::PERMISSION_FLASH is present not only in the Flash plugin.
+  // This permission is also present in plugins added from the cmdline and so
+  // will be also present for "PPAPI Tests" plugin used for
+  // OutOfProcessPPAPITest.URLLoaderTrusted and related tests.
+  //
+  // TODO(lukasza, laforge): https://crbug.com/702995: Remove the code below
+  // once Flash support is removed from Chromium (probably around 2020 - see
+  // https://www.chromium.org/flash-roadmap).
+  if (info->permissions & ppapi::PERMISSION_FLASH)
+    RenderProcessHostImpl::AddCorbExceptionForPlugin(render_process_id);
 
   PpapiPluginProcessHost* plugin_host =
       FindPpapiPluginProcess(plugin_path, profile_data_directory, origin_lock);
@@ -224,12 +242,11 @@ PpapiPluginProcessHost* PluginServiceImpl::FindOrStartPpapiBrokerProcess(
     return plugin_host;
 
   // Validate that the plugin is actually registered.
-  PepperPluginInfo* info = GetRegisteredPpapiPluginInfo(plugin_path);
+  const PepperPluginInfo* info = GetRegisteredPpapiPluginInfo(plugin_path);
   if (!info)
     return nullptr;
 
-  // TODO(ddorwin): Uncomment once out of process is supported.
-  // DCHECK(info->is_out_of_process);
+  DCHECK(info->is_out_of_process);
 
   // This broker isn't loaded by any broker process, so create a new process.
   return PpapiPluginProcessHost::CreateBrokerHost(*info);
@@ -256,9 +273,9 @@ void PluginServiceImpl::OpenChannelToPpapiBroker(
     int render_frame_id,
     const base::FilePath& path,
     PpapiPluginProcessHost::BrokerClient* client) {
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                          base::BindOnce(&PluginServiceImpl::RecordBrokerUsage,
-                                         render_process_id, render_frame_id));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                           base::BindOnce(&PluginServiceImpl::RecordBrokerUsage,
+                                          render_process_id, render_frame_id));
 
   PpapiPluginProcessHost* plugin_host = FindOrStartPpapiBrokerProcess(
       render_process_id, path);
@@ -317,11 +334,9 @@ bool PluginServiceImpl::GetPluginInfoByPath(const base::FilePath& plugin_path,
   std::vector<WebPluginInfo> plugins;
   PluginList::Singleton()->GetPluginsNoRefresh(&plugins);
 
-  for (std::vector<WebPluginInfo>::iterator it = plugins.begin();
-       it != plugins.end();
-       ++it) {
-    if (it->path == plugin_path) {
-      *info = *it;
+  for (const WebPluginInfo& plugin : plugins) {
+    if (plugin.path == plugin_path) {
+      *info = plugin;
       return true;
     }
   }
@@ -339,11 +354,11 @@ base::string16 PluginServiceImpl::GetPluginDisplayNameByPath(
 #if defined(OS_MACOSX)
     // Many plugins on the Mac have .plugin in the actual name, which looks
     // terrible, so look for that and strip it off if present.
-    const std::string kPluginExtension = ".plugin";
+    static const char kPluginExtension[] = ".plugin";
     if (base::EndsWith(plugin_name, base::ASCIIToUTF16(kPluginExtension),
                        base::CompareCase::SENSITIVE))
-      plugin_name.erase(plugin_name.length() - kPluginExtension.length());
-#endif  // OS_MACOSX
+      plugin_name.erase(plugin_name.length() - strlen(kPluginExtension));
+#endif  // defined(OS_MACOSX)
   }
   return plugin_name;
 }
@@ -360,18 +375,18 @@ void PluginServiceImpl::GetPlugins(GetPluginsCallback callback) {
 
 void PluginServiceImpl::RegisterPepperPlugins() {
   ComputePepperPluginList(&ppapi_plugins_);
-  for (size_t i = 0; i < ppapi_plugins_.size(); ++i) {
-    RegisterInternalPlugin(ppapi_plugins_[i].ToWebPluginInfo(), true);
-  }
+  for (const auto& plugin : ppapi_plugins_)
+    RegisterInternalPlugin(plugin.ToWebPluginInfo(), /*add_at_beginning=*/true);
 }
 
 // There should generally be very few plugins so a brute-force search is fine.
-PepperPluginInfo* PluginServiceImpl::GetRegisteredPpapiPluginInfo(
+const PepperPluginInfo* PluginServiceImpl::GetRegisteredPpapiPluginInfo(
     const base::FilePath& plugin_path) {
-  for (size_t i = 0; i < ppapi_plugins_.size(); ++i) {
-    if (ppapi_plugins_[i].path == plugin_path)
-      return &ppapi_plugins_[i];
+  for (auto& plugin : ppapi_plugins_) {
+    if (plugin.path == plugin_path)
+      return &plugin;
   }
+
   // We did not find the plugin in our list. But wait! the plugin can also
   // be a latecomer, as it happens with pepper flash. This information
   // can be obtained from the PluginList singleton and we can use it to
@@ -400,8 +415,7 @@ static const unsigned int kCrashesInterval = 120;
 
 void PluginServiceImpl::RegisterPluginCrash(const base::FilePath& path) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  std::map<base::FilePath, std::vector<base::Time> >::iterator i =
-      crash_times_.find(path);
+  auto i = crash_times_.find(path);
   if (i == crash_times_.end()) {
     crash_times_[path] = std::vector<base::Time>();
     i = crash_times_.find(path);

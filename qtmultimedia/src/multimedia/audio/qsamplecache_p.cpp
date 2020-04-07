@@ -97,7 +97,7 @@ QT_BEGIN_NAMESPACE
 
 QSampleCache::QSampleCache(QObject *parent)
     : QObject(parent)
-    , m_networkAccessManager(0)
+    , m_networkAccessManager(nullptr)
     , m_mutex(QMutex::Recursive)
     , m_capacity(0)
     , m_usage(0)
@@ -295,9 +295,12 @@ void QSample::loadIfNecessary()
     }
 }
 
-// Called in both threads
+// Called in application thread
 bool QSampleCache::notifyUnreferencedSample(QSample* sample)
 {
+    if (m_loadingThread.isRunning())
+        m_loadingThread.wait();
+
     QMutexLocker locker(&m_mutex);
     if (m_capacity > 0)
         return false;
@@ -306,16 +309,17 @@ bool QSampleCache::notifyUnreferencedSample(QSample* sample)
     return true;
 }
 
-// Called in application threadd
+// Called in application thread
 void QSample::release()
 {
     QMutexLocker locker(&m_mutex);
 #ifdef QT_SAMPLECACHE_DEBUG
     qDebug() << "Sample:: release" << this << QThread::currentThread() << m_ref;
 #endif
-    m_ref--;
-    if (m_ref == 0)
+    if (--m_ref == 0) {
+        locker.unlock();
         m_parent->notifyUnreferencedSample(this);
+    }
 }
 
 // Called in dtor and when stream is loaded
@@ -327,8 +331,8 @@ void QSample::cleanup()
     if (m_stream)
         m_stream->deleteLater();
 
-    m_waveDecoder = 0;
-    m_stream = 0;
+    m_waveDecoder = nullptr;
+    m_stream = nullptr;
 }
 
 // Called in application thread
@@ -429,8 +433,8 @@ void QSample::onReady()
 // Called in application thread, then moved to loader thread
 QSample::QSample(const QUrl& url, QSampleCache *parent)
     : m_parent(parent)
-    , m_stream(0)
-    , m_waveDecoder(0)
+    , m_stream(nullptr)
+    , m_waveDecoder(nullptr)
     , m_url(url)
     , m_sampleReadLength(0)
     , m_state(Creating)

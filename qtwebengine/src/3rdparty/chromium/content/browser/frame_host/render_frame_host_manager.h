@@ -11,13 +11,12 @@
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
@@ -34,12 +33,10 @@ class NavigationControllerImpl;
 class NavigationEntry;
 class NavigationRequest;
 class NavigatorTestWithBrowserSideNavigation;
-class RenderFrameHostDelegate;
 class RenderFrameHostManagerTest;
 class RenderFrameProxyHost;
 class RenderViewHost;
 class RenderViewHostImpl;
-class RenderWidgetHostDelegate;
 class RenderWidgetHostView;
 class TestWebContents;
 class WebUIImpl;
@@ -160,7 +157,7 @@ class CONTENT_EXPORT RenderFrameHostManager
     virtual bool FocusLocationBarByDefault() = 0;
 
     // Focuses the location bar.
-    virtual void SetFocusToLocationBar(bool select_all) = 0;
+    virtual void SetFocusToLocationBar() = 0;
 
     // Returns true if views created for this delegate should be created in a
     // hidden state.
@@ -176,17 +173,11 @@ class CONTENT_EXPORT RenderFrameHostManager
     virtual ~Delegate() {}
   };
 
-  // All three delegate pointers must be non-NULL and are not owned by this
-  // class. They must outlive this class. The RenderViewHostDelegate and
-  // RenderWidgetHostDelegate are what will be installed into all
-  // RenderViewHosts that are created.
+  // The delegate pointer must be non-NULL and is not owned by this class. It
+  // must outlive this class.
   //
   // You must call Init() before using this class.
-  RenderFrameHostManager(
-      FrameTreeNode* frame_tree_node,
-      RenderFrameHostDelegate* render_frame_delegate,
-      RenderWidgetHostDelegate* render_widget_delegate,
-      Delegate* delegate);
+  RenderFrameHostManager(FrameTreeNode* frame_tree_node, Delegate* delegate);
   ~RenderFrameHostManager();
 
   // For arguments, see WebContentsImpl constructor.
@@ -326,6 +317,12 @@ class CONTENT_EXPORT RenderFrameHostManager
   // Returns whether it was deleted.
   bool DeleteFromPendingList(RenderFrameHostImpl* render_frame_host);
 
+  // BackForwardCache:
+  // During an history navigation, try to swap back a document from the
+  // BackForwardCache. The document is referenced from its navigation entry ID.
+  // Returns true when it succeed.
+  void RestoreFromBackForwardCache(std::unique_ptr<RenderFrameHostImpl>);
+
   // Deletes any proxy hosts associated with this node. Used during destruction
   // of WebContentsImpl.
   void ResetProxyHosts();
@@ -435,10 +432,21 @@ class CONTENT_EXPORT RenderFrameHostManager
   // RenderFrameProxyHost in its outer WebContents's SiteInstance,
   // |outer_contents_site_instance|. The frame in outer WebContents that is
   // hosting the inner WebContents is |render_frame_host|, and the frame will
-  // be swapped out with the proxy.Note that this method must only be called
+  // be swapped out with the proxy. Note that this method must only be called
   // for an OOPIF-based inner WebContents.
-  void CreateOuterDelegateProxy(SiteInstance* outer_contents_site_instance,
-                                RenderFrameHostImpl* render_frame_host);
+  RenderFrameProxyHost* CreateOuterDelegateProxy(
+      SiteInstance* outer_contents_site_instance);
+
+  // Called on an inner WebContents that's being detached from its outer
+  // WebContents. This will delete the proxy in the
+  // |outer_contents_site_instance|.
+  void DeleteOuterDelegateProxy(SiteInstance* outer_contents_site_instance);
+
+  // Tells the |render_frame_host|'s renderer that its RenderFrame is being
+  // swapped for a frame in another process, and that it should create a
+  // RenderFrameProxy to replace it using the |proxy| RenderFrameProxyHost.
+  void SwapOuterDelegateFrame(RenderFrameHostImpl* render_frame_host,
+                              RenderFrameProxyHost* proxy);
 
   // Sets the child RenderWidgetHostView for this frame, which must be part of
   // an inner WebContents.
@@ -504,8 +512,6 @@ class CONTENT_EXPORT RenderFrameHostManager
     UNRELATED,
     // A SiteInstance in the same browsing instance as the current.
     RELATED,
-    // The default subframe SiteInstance for the current browsing instance.
-    RELATED_DEFAULT_SUBFRAME,
   };
 
   // Stores information regarding a SiteInstance targeted at a specific URL to
@@ -655,7 +661,7 @@ class CONTENT_EXPORT RenderFrameHostManager
   // the node is added to |nodes_with_back_links|.
   void CollectOpenerFrameTrees(
       std::vector<FrameTree*>* opener_frame_trees,
-      base::hash_set<FrameTreeNode*>* nodes_with_back_links);
+      std::unordered_set<FrameTreeNode*>* nodes_with_back_links);
 
   // Create swapped out RenderViews and RenderFrameProxies in the given
   // SiteInstance for the current node's FrameTree.  Used as a helper function
@@ -693,9 +699,10 @@ class CONTENT_EXPORT RenderFrameHostManager
   // when the current RenderFrameHost commits and it has a pending WebUI.
   void CommitPendingWebUI();
 
-  // Sets the speculative RenderFrameHost to be the active one. Called when the
-  // pending RenderFrameHost commits.
-  void CommitPending();
+  // Sets the |pending_rfh| to be the active one. Called when the pending
+  // RenderFrameHost commits.
+  // BackForwardCache: Called to restore a RenderFrameHost.
+  void CommitPending(std::unique_ptr<RenderFrameHostImpl> pending_rfh);
 
   // Helper to call CommitPending() in all necessary cases.
   void CommitPendingIfNecessary(RenderFrameHostImpl* render_frame_host,
@@ -746,11 +753,6 @@ class CONTENT_EXPORT RenderFrameHostManager
 
   // Our delegate, not owned by us. Guaranteed non-NULL.
   Delegate* delegate_;
-
-  // Implemented by the owner of this class.  These delegates are installed into
-  // all the RenderFrameHosts that we create.
-  RenderFrameHostDelegate* render_frame_delegate_;
-  RenderWidgetHostDelegate* render_widget_delegate_;
 
   // Our RenderFrameHost which is responsible for all communication with a child
   // RenderFrame instance.

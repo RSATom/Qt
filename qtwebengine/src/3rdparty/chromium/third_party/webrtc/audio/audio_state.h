@@ -18,9 +18,9 @@
 #include "audio/audio_transport_impl.h"
 #include "audio/null_audio_poller.h"
 #include "call/audio_state.h"
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/criticalsection.h"
-#include "rtc_base/refcount.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/ref_count.h"
 #include "rtc_base/thread_checker.h"
 
 namespace webrtc {
@@ -30,16 +30,13 @@ class AudioReceiveStream;
 
 namespace internal {
 
-class AudioState final : public webrtc::AudioState {
+class AudioState : public webrtc::AudioState {
  public:
   explicit AudioState(const AudioState::Config& config);
   ~AudioState() override;
 
-  AudioProcessing* audio_processing() override {
-    RTC_DCHECK(config_.audio_processing);
-    return config_.audio_processing.get();
-  }
-  AudioTransport* audio_transport() override { return &audio_transport_; }
+  AudioProcessing* audio_processing() override;
+  AudioTransport* audio_transport() override;
 
   void SetPlayout(bool enabled) override;
   void SetRecording(bool enabled) override;
@@ -63,10 +60,6 @@ class AudioState final : public webrtc::AudioState {
   void RemoveSendingStream(webrtc::AudioSendStream* stream);
 
  private:
-  // rtc::RefCountInterface implementation.
-  void AddRef() const override;
-  rtc::RefCountReleaseStatus Release() const override;
-
   void UpdateAudioTransportWithSendingStreams();
 
   rtc::ThreadChecker thread_checker_;
@@ -74,10 +67,6 @@ class AudioState final : public webrtc::AudioState {
   const webrtc::AudioState::Config config_;
   bool recording_enabled_ = true;
   bool playout_enabled_ = true;
-
-  // Reference count; implementation copied from rtc::RefCountedObject.
-  // TODO(nisse): Use RefCountedObject or RefCountedBase instead.
-  mutable volatile int ref_count_ = 0;
 
   // Transports mixed audio from the mixer to the audio device and
   // recorded audio to the sending streams.

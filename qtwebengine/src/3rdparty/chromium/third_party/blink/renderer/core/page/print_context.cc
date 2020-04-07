@@ -148,11 +148,6 @@ void PrintContext::BeginPrintMode(float width, float height) {
   // without going back to screen mode.
   is_printing_ = true;
 
-  if (!use_printing_layout_) {
-    frame_->StartPrintingWithoutPrintingLayout();
-    return;
-  }
-
   FloatSize original_page_size = FloatSize(width, height);
   FloatSize min_layout_size = frame_->ResizePageRectsKeepingRatio(
       original_page_size, FloatSize(width * kPrintingMinimumShrinkFactor,
@@ -197,10 +192,10 @@ int PrintContext::PageNumberForElement(Element* element,
 
   int top = box->PixelSnappedOffsetTop(box->OffsetParent());
   int left = box->PixelSnappedOffsetLeft(box->OffsetParent());
-  for (size_t page_number = 0; page_number < print_context->PageCount();
+  for (wtf_size_t page_number = 0; page_number < print_context->PageCount();
        ++page_number) {
     if (IsCoordinateInPage(top, left, print_context->PageRect(page_number)))
-      return page_number;
+      return static_cast<int>(page_number);
   }
   return -1;
 }
@@ -211,7 +206,8 @@ void PrintContext::CollectLinkedDestinations(Node* node) {
 
   if (!node->IsLink() || !node->IsElementNode())
     return;
-  const AtomicString& href = ToElement(node)->getAttribute(HTMLNames::hrefAttr);
+  const AtomicString& href =
+      ToElement(node)->getAttribute(html_names::kHrefAttr);
   if (href.IsNull())
     return;
   KURL url = node->GetDocument().CompleteURL(href);
@@ -326,8 +322,14 @@ void PrintContext::Trace(blink::Visitor* visitor) {
   visitor->Trace(linked_destinations_);
 }
 
+bool PrintContext::use_printing_layout() const {
+  return use_printing_layout_;
+}
+
 ScopedPrintContext::ScopedPrintContext(LocalFrame* frame)
-    : context_(new PrintContext(frame, /*use_printing_layout=*/true)) {}
+    : context_(
+          MakeGarbageCollected<PrintContext>(frame,
+                                             /*use_printing_layout=*/true)) {}
 
 ScopedPrintContext::~ScopedPrintContext() {
   context_->EndPrintMode();

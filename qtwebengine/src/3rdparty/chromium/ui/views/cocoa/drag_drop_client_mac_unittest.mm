@@ -13,11 +13,12 @@
 #include "base/threading/thread_task_runner_handle.h"
 #import "ui/base/clipboard/clipboard_util_mac.h"
 #include "ui/gfx/image/image_unittest_util.h"
-#import "ui/views/cocoa/bridged_native_widget.h"
+#import "ui/views/cocoa/bridged_native_widget_host_impl.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/native_widget_mac.h"
 #include "ui/views/widget/widget.h"
+#import "ui/views_bridge_mac/bridged_native_widget_impl.h"
 
 using base::ASCIIToUTF16;
 
@@ -55,7 +56,7 @@ using base::ASCIIToUTF16;
 @synthesize draggingFormation;
 @synthesize springLoadingHighlight;
 
-- (id)initWithPasteboard:(NSPasteboard*)pasteboard {
+- (instancetype)initWithPasteboard:(NSPasteboard*)pasteboard {
   if ((self = [super init])) {
     pasteboard_ = pasteboard;
   }
@@ -129,7 +130,7 @@ class DragDropView : public View {
   // View:
   bool GetDropFormats(
       int* formats,
-      std::set<ui::Clipboard::FormatType>* format_types) override {
+      std::set<ui::ClipboardFormatType>* format_types) override {
     *formats |= formats_;
     return true;
   }
@@ -155,7 +156,9 @@ class DragDropClientMacTest : public WidgetTest {
  public:
   DragDropClientMacTest() : widget_(new Widget) {}
 
-  DragDropClientMac* drag_drop_client() { return bridge_->drag_drop_client(); }
+  DragDropClientMac* drag_drop_client() {
+    return bridge_host_->drag_drop_client();
+  }
 
   NSDragOperation DragUpdate(NSPasteboard* pasteboard) {
     DragDropClientMac* client = drag_drop_client();
@@ -185,8 +188,9 @@ class DragDropClientMacTest : public WidgetTest {
     gfx::Rect bounds(0, 0, 100, 100);
     widget_->SetBounds(bounds);
 
-    bridge_ =
-        NativeWidgetMac::GetBridgeForNativeWindow(widget_->GetNativeWindow());
+    bridge_host_ = BridgedNativeWidgetHostImpl::GetFromNativeWindow(
+        widget_->GetNativeWindow());
+    bridge_ = bridge_host_->bridge_impl();
     widget_->Show();
 
     target_ = new DragDropView();
@@ -204,7 +208,8 @@ class DragDropClientMacTest : public WidgetTest {
 
  protected:
   Widget* widget_ = nullptr;
-  BridgedNativeWidget* bridge_ = nullptr;
+  BridgedNativeWidgetImpl* bridge_ = nullptr;
+  BridgedNativeWidgetHostImpl* bridge_host_ = nullptr;
   DragDropView* target_ = nullptr;
   base::scoped_nsobject<MockDraggingInfo> dragging_info_;
 
@@ -236,7 +241,7 @@ TEST_F(DragDropClientMacTest, ReleaseCapture) {
   // since the runloop will exit before the system has any opportunity to
   // capture anything.
   bridge_->AcquireCapture();
-  EXPECT_TRUE(bridge_->HasCapture());
+  EXPECT_TRUE(bridge_host_->IsMouseCaptureActive());
 
   // Create the drop data
   OSExchangeData data;
@@ -262,7 +267,7 @@ TEST_F(DragDropClientMacTest, ReleaseCapture) {
       target_, data, 0, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
 
   // The capture should be released.
-  EXPECT_FALSE(bridge_->HasCapture());
+  EXPECT_FALSE(bridge_host_->IsMouseCaptureActive());
 }
 
 // Tests if the drag and drop target rejects the dropped data with the

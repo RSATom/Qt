@@ -62,15 +62,15 @@ const double DocumentTimeline::kMinimumDelay = 0.04;
 DocumentTimeline* DocumentTimeline::Create(Document* document,
                                            TimeDelta origin_time,
                                            PlatformTiming* timing) {
-  return new DocumentTimeline(document, origin_time, timing);
+  return MakeGarbageCollected<DocumentTimeline>(document, origin_time, timing);
 }
 
 DocumentTimeline* DocumentTimeline::Create(
     ExecutionContext* execution_context,
-    const DocumentTimelineOptions& options) {
-  Document* document = ToDocument(execution_context);
-  return new DocumentTimeline(
-      document, TimeDelta::FromMillisecondsD(options.originTime()), nullptr);
+    const DocumentTimelineOptions* options) {
+  Document* document = To<Document>(execution_context);
+  return MakeGarbageCollected<DocumentTimeline>(
+      document, TimeDelta::FromMillisecondsD(options->originTime()), nullptr);
 }
 
 DocumentTimeline::DocumentTimeline(Document* document,
@@ -84,7 +84,7 @@ DocumentTimeline::DocumentTimeline(Document* document,
       playback_rate_(1),
       last_current_time_internal_(0) {
   if (!timing)
-    timing_ = new DocumentTimelineTiming(this);
+    timing_ = MakeGarbageCollected<DocumentTimelineTiming>(this);
   else
     timing_ = timing;
 
@@ -95,7 +95,7 @@ DocumentTimeline::DocumentTimeline(Document* document,
 }
 
 bool DocumentTimeline::IsActive() {
-  return document_ && document_->GetPage();
+  return document_->GetPage();
 }
 
 void DocumentTimeline::AnimationAttached(Animation& animation) {
@@ -105,9 +105,6 @@ void DocumentTimeline::AnimationAttached(Animation& animation) {
 }
 
 Animation* DocumentTimeline::Play(AnimationEffect* child) {
-  if (!document_)
-    return nullptr;
-
   Animation* animation = Animation::Create(child, this);
   DCHECK(animations_.Contains(animation));
 
@@ -197,7 +194,7 @@ void DocumentTimeline::DocumentTimelineTiming::WakeAfter(double duration) {
 }
 
 void DocumentTimeline::DocumentTimelineTiming::ServiceOnNextFrame() {
-  if (timeline_->document_ && timeline_->document_->View())
+  if (timeline_->document_->View())
     timeline_->document_->View()->ScheduleAnimation();
 }
 
@@ -207,7 +204,7 @@ void DocumentTimeline::DocumentTimelineTiming::Trace(blink::Visitor* visitor) {
 }
 
 TimeTicks DocumentTimeline::ZeroTime() {
-  if (!zero_time_initialized_ && document_ && document_->Loader()) {
+  if (!zero_time_initialized_ && document_->Loader()) {
     zero_time_ = document_->Loader()->GetTiming().ReferenceMonotonicTime() +
                  origin_time_;
     zero_time_initialized_ = true;

@@ -41,7 +41,7 @@ class WaitingHandle final : public WebDataConsumerHandle {
 }  // namespace
 
 DataConsumerHandleTestUtil::Thread::Thread(
-    const WebThreadCreationParams& params,
+    const ThreadCreationParams& params,
     InitializationPolicy initialization_policy)
     : thread_(WebThreadSupportingGC::Create(params)),
       initialization_policy_(initialization_policy),
@@ -61,7 +61,8 @@ void DataConsumerHandleTestUtil::Thread::Initialize() {
   DCHECK(thread_->IsCurrentThread());
   if (initialization_policy_ >= kScriptExecution) {
     isolate_holder_ = std::make_unique<gin::IsolateHolder>(
-        scheduler::GetSingleThreadTaskRunnerForTesting());
+        scheduler::GetSingleThreadTaskRunnerForTesting(),
+        gin::IsolateHolder::IsolateType::kTest);
     GetIsolate()->Enter();
   }
   thread_->InitializeOnThread();
@@ -73,7 +74,7 @@ void DataConsumerHandleTestUtil::Thread::Initialize() {
                                 DOMWrapperWorld::WorldType::kTesting));
   }
   if (initialization_policy_ >= kWithExecutionContext) {
-    execution_context_ = new NullExecutionContext();
+    execution_context_ = MakeGarbageCollected<NullExecutionContext>();
   }
   waitable_event_->Signal();
 }
@@ -128,7 +129,7 @@ void DataConsumerHandleTestUtil::ReplayingHandle::Context::AttachReader(
   MutexLocker locker(mutex_);
   DCHECK(!reader_thread_);
   DCHECK(!client_);
-  reader_thread_ = Platform::Current()->CurrentThread();
+  reader_thread_ = blink::Thread::Current();
   client_ = client;
 
   if (client_ && !(IsEmpty() && result_ == kShouldWait))

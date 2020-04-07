@@ -149,8 +149,7 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
     kHibernationEndedWithFallbackToSW = 9,
     kHibernationEndedWithTeardown = 10,
     kHibernationAbortedBecauseNoSurface = 11,
-
-    kHibernationEventCount = 12,
+    kMaxValue = kHibernationAbortedBecauseNoSurface,
   };
 
   class PLATFORM_EXPORT Logger {
@@ -164,6 +163,7 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
   CanvasResourceProvider* GetOrCreateResourceProvider(
       AccelerationHint = kPreferAcceleration);
   CanvasResourceProvider* ResourceProvider() const;
+  void FlushRecording();
 
  private:
   bool IsHidden() { return is_hidden_; }
@@ -172,8 +172,6 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
 
   void StartRecording();
   void SkipQueuedDrawCommands();
-  void FlushRecording();
-  void ReportResourceProviderCreationFailure();
 
   bool ShouldAccelerate(AccelerationHint) const;
 
@@ -189,14 +187,13 @@ class PLATFORM_EXPORT Canvas2DLayerBridge : public cc::TextureLayerClient {
   bool is_hidden_;
   bool is_deferral_enabled_;
   bool software_rendering_while_hidden_;
-  bool resource_provider_creation_failed_at_least_once_ = false;
   bool hibernation_scheduled_ = false;
   bool dont_use_idle_scheduling_for_testing_ = false;
   bool context_lost_ = false;
 
   friend class Canvas2DLayerBridgeTest;
   friend class CanvasRenderingContext2DTest;
-  friend class HTMLCanvasPainterTestForSPv2;
+  friend class HTMLCanvasPainterTestForCAP;
 
   AccelerationMode acceleration_mode_;
   CanvasColorParams color_params_;

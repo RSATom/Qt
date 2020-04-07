@@ -37,6 +37,9 @@
         {
             "type": "action",
             "category": "Console",
+            "contextTypes": [
+                "Console.ConsoleView"
+            ],
             "actionId": "console.clear",
             "title": "Clear console",
             "iconClass": "largeicon-clear",
@@ -58,6 +61,14 @@
             "actionId": "console.clear.history",
             "title": "Clear console history",
             "className": "Console.ConsoleView.ActionDelegate"
+        },
+        {
+            "type": "action",
+            "category": "Console",
+            "actionId": "console.create-pin",
+            "iconClass": "largeicon-visibility",
+            "className": "Console.ConsoleView.ActionDelegate",
+            "title": "Create live expression"
         },
         {
             "type": "setting",
@@ -199,6 +210,7 @@
     "resources": [
         "consoleContextSelector.css",
         "consolePinPane.css",
+        "consolePrompt.css",
         "consoleSidebar.css",
         "consoleView.css"
     ]

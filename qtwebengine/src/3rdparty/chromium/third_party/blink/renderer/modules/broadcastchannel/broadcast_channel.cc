@@ -50,7 +50,7 @@ BroadcastChannel* BroadcastChannel::Create(ExecutionContext* execution_context,
           "Can't create BroadcastChannel");
       return nullptr;
   }
-  return new BroadcastChannel(execution_context, name);
+  return MakeGarbageCollected<BroadcastChannel>(execution_context, name);
 }
 
 BroadcastChannel::~BroadcastChannel() = default;
@@ -84,11 +84,11 @@ void BroadcastChannel::close() {
 }
 
 const AtomicString& BroadcastChannel::InterfaceName() const {
-  return EventTargetNames::BroadcastChannel;
+  return event_target_names::kBroadcastChannel;
 }
 
 bool BroadcastChannel::HasPendingActivity() const {
-  return binding_.is_bound() && HasEventListeners(EventTypeNames::message);
+  return binding_.is_bound() && HasEventListeners(event_type_names::kMessage);
 }
 
 void BroadcastChannel::ContextDestroyed(ExecutionContext*) {
@@ -102,10 +102,18 @@ void BroadcastChannel::Trace(blink::Visitor* visitor) {
 
 void BroadcastChannel::OnMessage(BlinkCloneableMessage message) {
   // Queue a task to dispatch the event.
-  MessageEvent* event = MessageEvent::Create(
-      nullptr, std::move(message.message),
-      GetExecutionContext()->GetSecurityOrigin()->ToString());
-  EnqueueEvent(event, TaskType::kInternalMedia);
+  MessageEvent* event;
+  if (!message.locked_agent_cluster_id ||
+      GetExecutionContext()->IsSameAgentCluster(
+          *message.locked_agent_cluster_id)) {
+    event = MessageEvent::Create(
+        nullptr, std::move(message.message),
+        GetExecutionContext()->GetSecurityOrigin()->ToString());
+  } else {
+    event = MessageEvent::CreateError(
+        GetExecutionContext()->GetSecurityOrigin()->ToString());
+  }
+  EnqueueEvent(*event, TaskType::kPostedMessage);
 }
 
 void BroadcastChannel::OnError() {

@@ -27,7 +27,7 @@
 #ifndef HB_MAIN_FONT_TEXT_HH
 #define HB_MAIN_FONT_TEXT_HH
 
-#include "hb-private.hh"
+#include "hb.hh"
 #include "options.hh"
 
 /* main() body for utilities taking font and processing text.*/
@@ -50,7 +50,7 @@ locale_to_utf8 (char *s)
 template <typename consumer_t, int default_font_size, int subpixel_bits>
 struct main_font_text_t
 {
-  main_font_text_t (void)
+  main_font_text_t ()
 		  : options ("[FONT-FILE] [TEXT]"),
 		    font_opts (&options, default_font_size, subpixel_bits),
 		    input (&options),

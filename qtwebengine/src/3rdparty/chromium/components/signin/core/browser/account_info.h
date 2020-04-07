@@ -8,12 +8,26 @@
 #include <string>
 
 #include "components/account_id/account_id.h"
+#include "ui/gfx/image/image.h"
+
+// Value representing no hosted domain associated with an account.
+extern const char kNoHostedDomainFound[];
+
+// Value representing no picture URL associated with an account.
+extern const char kNoPictureURLFound[];
 
 // Information about a specific account.
 struct AccountInfo {
   AccountInfo();
-  AccountInfo(const AccountInfo& other);
   ~AccountInfo();
+
+  // Copy/move constructors and assignment operators are defined out-of-line
+  // as they are identified as complex by clang plugin.
+  AccountInfo(const AccountInfo& other);
+  AccountInfo(AccountInfo&& other) noexcept;
+
+  AccountInfo& operator=(const AccountInfo& other);
+  AccountInfo& operator=(AccountInfo&& other) noexcept;
 
   std::string account_id;  // The account ID used by OAuth2TokenService.
   std::string gaia;
@@ -23,7 +37,9 @@ struct AccountInfo {
   std::string hosted_domain;
   std::string locale;
   std::string picture_url;
-  bool is_child_account;
+  gfx::Image account_image;
+  bool is_child_account = false;
+  bool is_under_advanced_protection = false;
 
   // Returns true if all fields in the account info are empty.
   bool IsEmpty() const;

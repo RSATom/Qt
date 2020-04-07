@@ -10,7 +10,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 
 namespace gpu {
@@ -103,8 +103,9 @@ void Scheduler::Sequence::UpdateSchedulingPriority() {
 }
 
 bool Scheduler::Sequence::NeedsRescheduling() const {
-  return running_state_ != IDLE &&
-         scheduling_state_.priority != current_priority();
+  return (running_state_ != IDLE &&
+          scheduling_state_.priority != current_priority()) ||
+         (running_state_ == SCHEDULED && !IsRunnable());
 }
 
 bool Scheduler::Sequence::IsRunnable() const {
@@ -122,16 +123,15 @@ bool Scheduler::Sequence::ShouldYieldTo(const Sequence* other) const {
 void Scheduler::Sequence::SetEnabled(bool enabled) {
   if (enabled_ == enabled)
     return;
-  DCHECK_EQ(running_state_, enabled ? IDLE : RUNNING);
   enabled_ = enabled;
   if (enabled) {
     TRACE_EVENT_ASYNC_BEGIN1("gpu", "SequenceEnabled", this, "sequence_id",
                              sequence_id_.GetUnsafeValue());
-    scheduler_->TryScheduleSequence(this);
   } else {
     TRACE_EVENT_ASYNC_END1("gpu", "SequenceEnabled", this, "sequence_id",
                            sequence_id_.GetUnsafeValue());
   }
+  scheduler_->TryScheduleSequence(this);
 }
 
 Scheduler::SchedulingState Scheduler::Sequence::SetScheduled() {

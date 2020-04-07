@@ -6,10 +6,11 @@ import("//build/config/compiler/compiler.gni")
 import("//build/config/features.gni")
 import("//build/config/freetype/freetype.gni")
 import("//build/config/sanitizers/sanitizers.gni")
+import("//gpu/vulkan/features.gni")
 import("//printing/buildflags/buildflags.gni")
 import("//testing/test.gni")
 import("//third_party/skia/gn/shared_sources.gni")
-import("//gpu/vulkan/features.gni")
+import("//third_party/skia/third_party/skcms/skcms.gni")
 
 if (current_cpu == "arm") {
   import("//build/config/arm.gni")
@@ -20,6 +21,7 @@ if (current_cpu == "mipsel" || current_cpu == "mips64el") {
 
 skia_support_gpu = !is_ios
 skia_support_pdf = !is_ios && enable_basic_printing
+skia_support_skottie = true
 
 declare_args() {
   skia_whitelist_serialized_typefaces = false
@@ -33,14 +35,11 @@ config("skia_config") {
     "//third_party/skia/include/c",
     "//third_party/skia/include/config",
     "//third_party/skia/include/core",
+    "//third_party/skia/include/docs",
     "//third_party/skia/include/effects",
     "//third_party/skia/include/encode",
     "//third_party/skia/include/gpu",
-    "//third_party/skia/include/images",
-    "//third_party/skia/include/lazy",
     "//third_party/skia/include/pathops",
-    "//third_party/skia/include/pdf",
-    "//third_party/skia/include/pipe",
     "//third_party/skia/include/ports",
     "//third_party/skia/include/utils",
   ]
@@ -52,13 +51,13 @@ config("skia_config") {
     configs = [ "//third_party/vulkan:vulkan_config" ]
   }
 
-  defines = skia_for_chromium_defines
-  defines += [
+  defines = [
     "SK_HAS_PNG_LIBRARY",
     "SK_HAS_WEBP_LIBRARY",
   ]
 
   if (!is_ios) {
+    include_dirs += [ "//third_party/skia/include/codec" ]
     defines += [ "SK_HAS_JPEG_LIBRARY" ]
   }
   if (enable_vulkan) {
@@ -112,6 +111,10 @@ config("skia_config") {
   if (skia_whitelist_serialized_typefaces) {
     defines += [ "SK_WHITELIST_SERIALIZED_TYPEFACES" ]
   }
+
+  if (skia_support_skottie) {
+    include_dirs += [ "//third_party/skia/modules/skottie/include" ]
+  }
 }
 
 # Internal-facing config for Skia library code.
@@ -153,9 +156,7 @@ config("skia_library_config") {
     defines += [ "SK_FREETYPE_MINIMUM_RUNTIME_VERSION=(((FREETYPE_MAJOR) * 0x01000000) | ((FREETYPE_MINOR) * 0x00010000) | ((FREETYPE_PATCH) * 0x00000100))" ]
   }
 
-  if (is_component_build) {
-    defines += [ "SKIA_IMPLEMENTATION=1" ]
-  }
+  defines += [ "SKIA_IMPLEMENTATION=1" ]
 
   if (current_cpu == "arm") {
     if (arm_use_neon) {
@@ -226,9 +227,15 @@ config("skia_library_config") {
       "/wd4800",  # forcing value to bool 'true/false'(assigning int to bool).
     ]
   }
+
+  if (skia_support_skottie) {
+    include_dirs += [
+      "//third_party/skia/modules/sksg/include",
+      "//third_party/skia/modules/skshaper/include",
+    ]
+  }
 }
 
-import("//third_party/skia/third_party/skcms/skcms.gni")
 source_set("skcms") {
   cflags = []
   if (!is_win || is_clang) {
@@ -322,6 +329,13 @@ component("skia") {
     }
   }
 
+  if (is_win) {
+    sources += [
+      # Select the right BitmapPlatformDevice.
+      "ext/raster_handle_allocator_win.cc",
+    ]
+  }
+
   # The imported Skia gni source paths are made absolute by gn.
   defines = skia_core_defines
   sources += skia_utils_sources
@@ -349,6 +363,7 @@ component("skia") {
       "//third_party/skia/src/codec/SkCodec.cpp",
       "//third_party/skia/src/codec/SkCodecImageGenerator.cpp",
       "//third_party/skia/src/codec/SkColorTable.cpp",
+      "//third_party/skia/src/codec/SkEncodedInfo.cpp",
       "//third_party/skia/src/codec/SkGifCodec.cpp",
       "//third_party/skia/src/codec/SkIcoCodec.cpp",
       "//third_party/skia/src/codec/SkJpegCodec.cpp",
@@ -373,27 +388,11 @@ component("skia") {
     sources += [ "//third_party/skia/src/core/SkUtilsArm.cpp" ]
   }
 
-  # GPU
-  if (skia_support_gpu) {
-    sources += skia_gpu_sources
-    sources += skia_null_gpu_sources
-    sources += skia_sksl_sources
-    if (enable_vulkan) {
-      sources += skia_vk_sources
-      sources += [
-        "//third_party/skia/third_party/vulkanmemoryallocator/GrVulkanMemoryAllocator.cpp",
-        "//third_party/skia/third_party/vulkanmemoryallocator/GrVulkanMemoryAllocator.h",
-      ]
-    }
-    deps += [ "//gpu/config:workaround_list" ]
-  }
-
   # Remove unused util sources.
   sources -= [
     "//third_party/skia/src/utils/SkCamera.cpp",
     "//third_party/skia/src/utils/SkFrontBufferedStream.cpp",
     "//third_party/skia/src/utils/SkInterpolator.cpp",
-    "//third_party/skia/src/utils/SkOSPath.cpp",
     "//third_party/skia/src/utils/SkParsePath.cpp",
   ]
 
@@ -486,21 +485,14 @@ component("skia") {
   if (is_fuchsia) {
     sources += [
       "//third_party/skia/src/ports/SkFontMgr_custom.cpp",
+      "//third_party/skia/src/ports/SkFontMgr_fuchsia.cpp",
       "ext/fontmgr_default_fuchsia.cc",
       "ext/fontmgr_default_fuchsia.h",
-      "ext/fontmgr_fuchsia.cc",
-      "ext/fontmgr_fuchsia.h",
     ]
     deps += [
-      "//third_party/fuchsia-sdk:fonts",
+      "//third_party/fuchsia-sdk/sdk:fonts",
+      "//third_party/fuchsia-sdk/sdk:zx",
       "//third_party/icu:icuuc",
-    ]
-  }
-
-  if (is_win) {
-    sources += [
-      # Select the right BitmapPlatformDevice.
-      "ext/raster_handle_allocator_win.cc",
     ]
   }
 
@@ -520,6 +512,7 @@ component("skia") {
   public_configs = [ ":skia_config" ]
 
   deps += [
+    ":skcms",
     ":skia_opts",
     "//base",
     "//base/third_party/dynamic_annotations",
@@ -553,17 +546,6 @@ component("skia") {
     ]
   }
 
-  if (skia_support_pdf) {
-    deps += [
-      "//third_party/sfntly",
-      "//third_party/sfntly:sfntly_chromium",
-      "//third_party/zlib",
-    ]
-    sources += skia_pdf_sources
-  } else {
-    sources += [ "//third_party/skia/src/pdf/SkDocument_PDF_None.cpp" ]
-  }
-
   if (!is_debug) {
     configs -= [ "//build/config/compiler:default_optimization" ]
     configs += [ "//build/config/compiler:optimize_max" ]
@@ -590,8 +572,39 @@ component("skia") {
     deps += [ "//third_party/expat" ]
   }
 
-  # skcms
-  deps += [ ":skcms" ]
+  if (skia_support_gpu) {
+    sources += skia_gpu_sources
+    sources += skia_null_gpu_sources
+    sources += skia_sksl_sources
+    if (enable_vulkan) {
+      sources += skia_vk_sources
+      sources += [
+        "//third_party/skia/third_party/vulkanmemoryallocator/GrVulkanMemoryAllocator.cpp",
+        "//third_party/skia/third_party/vulkanmemoryallocator/GrVulkanMemoryAllocator.h",
+      ]
+    }
+    deps += [ "//gpu/config:workaround_list" ]
+  }
+
+  if (skia_support_pdf) {
+    deps += [
+      "//third_party/sfntly",
+      "//third_party/sfntly:sfntly_chromium",
+      "//third_party/zlib",
+    ]
+    sources += skia_pdf_sources
+  } else {
+    sources += [ "//third_party/skia/src/pdf/SkDocument_PDF_None.cpp" ]
+  }
+
+  if (skia_support_skottie) {
+    import("//third_party/skia/modules/skottie/skottie.gni")
+    import("//third_party/skia/modules/sksg/sksg.gni")
+    import("//third_party/skia/modules/skshaper/skshaper.gni")
+    sources += skia_skottie_sources + skia_skottie_public
+    sources += skia_sksg_sources
+    sources += skia_shaper_primitive_sources
+  }
 }
 
 # Template for things that are logically part of :skia, but need to be split out
@@ -812,12 +825,16 @@ test("skia_unittests") {
   if (is_fuchsia) {
     sources += [ "ext/fontmgr_fuchsia_unittest.cc" ]
     deps += [
-      "//third_party/fuchsia-sdk:fonts",
+      "//third_party/fuchsia-sdk/sdk:fonts",
       "//third_party/test_fonts",
     ]
     data_deps = [
       "//third_party/test_fonts",
     ]
+  }
+
+  if (skia_support_skottie) {
+    sources += [ "ext/skottie_unittest.cc" ]
   }
 }
 

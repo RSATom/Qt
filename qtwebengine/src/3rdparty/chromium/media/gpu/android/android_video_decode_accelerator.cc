@@ -17,7 +17,7 @@
 #include "base/containers/queue.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
@@ -118,7 +118,7 @@ constexpr base::TimeDelta IdleTimerTimeOut = base::TimeDelta::FromSeconds(1);
 // On low end devices (< KitKat is always low-end due to buggy MediaCodec),
 // defer the surface creation until the codec is actually used if we know no
 // software fallback exists.
-bool ShouldDeferSurfaceCreation(AVDACodecAllocator* codec_allocator,
+bool ShouldDeferSurfaceCreation(CodecAllocator* codec_allocator,
                                 const OverlayInfo& overlay_info,
                                 VideoCodec codec,
                                 DeviceInfo* device_info) {
@@ -247,10 +247,8 @@ AndroidVideoDecodeAccelerator::BitstreamRecord::BitstreamRecord(
     const BitstreamBuffer& bitstream_buffer)
     : buffer(bitstream_buffer) {
   if (buffer.id() != -1) {
-    memory.reset(new WritableUnalignedMapping(buffer.handle(), buffer.size(),
-                                              buffer.offset()));
-    // The handle is no longer needed and can be closed.
-    bitstream_buffer.handle().Close();
+    memory.reset(
+        new UnalignedSharedMemory(buffer.handle(), buffer.size(), true));
   }
 }
 
@@ -261,11 +259,12 @@ AndroidVideoDecodeAccelerator::BitstreamRecord::BitstreamRecord(
 AndroidVideoDecodeAccelerator::BitstreamRecord::~BitstreamRecord() {}
 
 AndroidVideoDecodeAccelerator::AndroidVideoDecodeAccelerator(
-    AVDACodecAllocator* codec_allocator,
+    CodecAllocator* codec_allocator,
     std::unique_ptr<AndroidVideoSurfaceChooser> surface_chooser,
     const MakeGLContextCurrentCallback& make_context_current_cb,
     const GetContextGroupCallback& get_context_group_cb,
     const AndroidOverlayMojoFactoryCB& overlay_factory_cb,
+    const CreateAbstractTextureCallback& create_abstract_texture_cb,
     DeviceInfo* device_info)
     : client_(nullptr),
       codec_allocator_(codec_allocator),
@@ -285,11 +284,13 @@ AndroidVideoDecodeAccelerator::AndroidVideoDecodeAccelerator(
           std::move(surface_chooser),
           base::CommandLine::ForCurrentProcess()->HasSwitch(
               switches::kForceVideoOverlays),
-          base::FeatureList::IsEnabled(media::kUseAndroidOverlayAggressively)),
+          base::FeatureList::IsEnabled(media::kUseAndroidOverlayAggressively),
+          false /* always_use_texture_owner */),
       device_info_(device_info),
       force_defer_surface_creation_for_testing_(false),
       force_allow_software_decoding_for_testing_(false),
       overlay_factory_cb_(overlay_factory_cb),
+      create_abstract_texture_cb_(create_abstract_texture_cb),
       weak_this_factory_(this) {}
 
 AndroidVideoDecodeAccelerator::~AndroidVideoDecodeAccelerator() {
@@ -318,7 +319,7 @@ bool AndroidVideoDecodeAccelerator::Initialize(const Config& config,
   DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoReset<bool> scoper(&during_initialize_, true);
 
-  if (make_context_current_cb_.is_null() || get_context_group_cb_.is_null()) {
+  if (!make_context_current_cb_ || !get_context_group_cb_) {
     DLOG(ERROR) << "GL callbacks are required for this VDA";
     return false;
   }
@@ -648,15 +649,16 @@ bool AndroidVideoDecodeAccelerator::QueueInput() {
     return true;
   }
 
-  std::unique_ptr<WritableUnalignedMapping> shm;
+  std::unique_ptr<UnalignedSharedMemory> shm;
 
   if (pending_input_buf_index_ == -1) {
     // When |pending_input_buf_index_| is not -1, the buffer is already dequeued
     // from MediaCodec, filled with data and bitstream_buffer.handle() is
     // closed.
     shm = std::move(pending_bitstream_records_.front().memory);
+    auto* buffer = &pending_bitstream_records_.front().buffer;
 
-    if (!shm->IsValid()) {
+    if (!shm->MapAt(buffer->offset(), buffer->size())) {
       NOTIFY_ERROR(UNREADABLE_INPUT, "UnalignedSharedMemory::Map() failed");
       return false;
     }
@@ -1200,19 +1202,22 @@ void AndroidVideoDecodeAccelerator::OnDrainCompleted() {
     case DRAIN_FOR_FLUSH:
       ResetCodecState();
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&AndroidVideoDecodeAccelerator::NotifyFlushDone,
-                                weak_this_factory_.GetWeakPtr()));
+          FROM_HERE,
+          base::BindOnce(&AndroidVideoDecodeAccelerator::NotifyFlushDone,
+                         weak_this_factory_.GetWeakPtr()));
       break;
     case DRAIN_FOR_RESET:
       ResetCodecState();
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&AndroidVideoDecodeAccelerator::NotifyResetDone,
-                                weak_this_factory_.GetWeakPtr()));
+          FROM_HERE,
+          base::BindOnce(&AndroidVideoDecodeAccelerator::NotifyResetDone,
+                         weak_this_factory_.GetWeakPtr()));
       break;
     case DRAIN_FOR_DESTROY:
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&AndroidVideoDecodeAccelerator::ActualDestroy,
-                                weak_this_factory_.GetWeakPtr()));
+          FROM_HERE,
+          base::BindOnce(&AndroidVideoDecodeAccelerator::ActualDestroy,
+                         weak_this_factory_.GetWeakPtr()));
       break;
   }
   drain_type_.reset();
@@ -1279,8 +1284,9 @@ void AndroidVideoDecodeAccelerator::Reset() {
     DCHECK(pending_bitstream_records_.empty());
     DCHECK_EQ(state_, BEFORE_OVERLAY_INIT);
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&AndroidVideoDecodeAccelerator::NotifyResetDone,
-                              weak_this_factory_.GetWeakPtr()));
+        FROM_HERE,
+        base::BindOnce(&AndroidVideoDecodeAccelerator::NotifyResetDone,
+                       weak_this_factory_.GetWeakPtr()));
     return;
   }
 
@@ -1385,6 +1391,19 @@ const gfx::Size& AndroidVideoDecodeAccelerator::GetSize() const {
 gpu::gles2::ContextGroup* AndroidVideoDecodeAccelerator::GetContextGroup()
     const {
   return get_context_group_cb_.Run();
+}
+
+std::unique_ptr<gpu::gles2::AbstractTexture>
+AndroidVideoDecodeAccelerator::CreateAbstractTexture(GLenum target,
+                                                     GLenum internal_format,
+                                                     GLsizei width,
+                                                     GLsizei height,
+                                                     GLsizei depth,
+                                                     int border,
+                                                     GLenum format,
+                                                     GLenum type) {
+  return create_abstract_texture_cb_.Run(target, internal_format, width, height,
+                                         depth, border, format, type);
 }
 
 void AndroidVideoDecodeAccelerator::OnStopUsingOverlayImmediately(

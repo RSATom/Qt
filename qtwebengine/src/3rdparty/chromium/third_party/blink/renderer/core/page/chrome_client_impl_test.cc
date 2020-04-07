@@ -42,32 +42,18 @@
 #include "third_party/blink/renderer/core/html/forms/color_chooser_client.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_chooser.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_chooser_client.h"
+#include "third_party/blink/renderer/core/html/forms/file_chooser.h"
 #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
+#include "third_party/blink/renderer/core/html/forms/mock_file_chooser.h"
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/scoped_page_pauser.h"
-#include "third_party/blink/renderer/core/paint/compositing/composited_selection.h"
 #include "third_party/blink/renderer/platform/language.h"
 #include "third_party/blink/renderer/platform/testing/stub_graphics_layer_client.h"
 
 namespace blink {
 
-namespace {
-
-class TestWebViewClient : public FrameTestHelpers::TestWebViewClient {
- public:
-  explicit TestWebViewClient(WebNavigationPolicy* target) : target_(target) {}
-  ~TestWebViewClient() override = default;
-
-  void Show(WebNavigationPolicy policy) override { *target_ = policy; }
-
- private:
-  WebNavigationPolicy* target_;
-};
-
-}  // anonymous namespace
-
-class ViewCreatingClient : public FrameTestHelpers::TestWebViewClient {
+class ViewCreatingClient : public frame_test_helpers::TestWebViewClient {
  public:
   WebView* CreateView(WebLocalFrame* opener,
                       const WebURLRequest&,
@@ -75,12 +61,13 @@ class ViewCreatingClient : public FrameTestHelpers::TestWebViewClient {
                       const WebString& name,
                       WebNavigationPolicy,
                       bool,
-                      WebSandboxFlags) override {
+                      WebSandboxFlags,
+                      const SessionStorageNamespaceId&) override {
     return web_view_helper_.InitializeWithOpener(opener);
   }
 
  private:
-  FrameTestHelpers::WebViewHelper web_view_helper_;
+  frame_test_helpers::WebViewHelper web_view_helper_;
 };
 
 class CreateWindowTest : public testing::Test {
@@ -93,7 +80,7 @@ class CreateWindowTest : public testing::Test {
   }
 
   ViewCreatingClient web_view_client_;
-  FrameTestHelpers::WebViewHelper helper_;
+  frame_test_helpers::WebViewHelper helper_;
   WebViewImpl* web_view_;
   WebLocalFrame* main_frame_;
   Persistent<ChromeClientImpl> chrome_client_impl_;
@@ -106,7 +93,7 @@ TEST_F(CreateWindowTest, CreateWindowFromPausedPage) {
   WebWindowFeatures features;
   EXPECT_EQ(nullptr, chrome_client_impl_->CreateWindow(
                          frame, request, features,
-                         kNavigationPolicyNewForegroundTab, kSandboxNone));
+                         kNavigationPolicyNewForegroundTab, kSandboxNone, ""));
 }
 
 class FakeColorChooserClient
@@ -197,15 +184,15 @@ class PagePopupSuppressionTest : public testing::Test {
     chrome_client_impl_ =
         ToChromeClientImpl(&web_view_->GetPage()->GetChromeClient());
     LocalFrame* frame = helper_.LocalMainFrame()->GetFrame();
-    color_chooser_client_ =
-        new FakeColorChooserClient(frame->GetDocument()->documentElement());
-    date_time_chooser_client_ =
-        new FakeDateTimeChooserClient(frame->GetDocument()->documentElement());
+    color_chooser_client_ = MakeGarbageCollected<FakeColorChooserClient>(
+        frame->GetDocument()->documentElement());
+    date_time_chooser_client_ = MakeGarbageCollected<FakeDateTimeChooserClient>(
+        frame->GetDocument()->documentElement());
     select_ = HTMLSelectElement::Create(*(frame->GetDocument()));
   }
 
  protected:
-  FrameTestHelpers::WebViewHelper helper_;
+  frame_test_helpers::WebViewHelper helper_;
   WebViewImpl* web_view_;
   Persistent<WebLocalFrameImpl> main_frame_;
   Persistent<ChromeClientImpl> chrome_client_impl_;
@@ -240,97 +227,67 @@ TEST_F(PagePopupSuppressionTest, SuppressDateTimeChooser) {
   EXPECT_TRUE(CanOpenDateTimeChooser());
 }
 
-TEST(ChromeClientImplTest, SelectionHandles) {
-  FrameTestHelpers::WebViewHelper helper;
-  WebViewImpl* web_view = helper.Initialize();
-  ChromeClientImpl* chrome_client_impl =
-      ToChromeClientImpl(&web_view->GetPage()->GetChromeClient());
+// A FileChooserClient which makes FileChooser::OpenFileChooser() success.
+class MockFileChooserClient
+    : public GarbageCollectedFinalized<MockFileChooserClient>,
+      public FileChooserClient {
+  USING_GARBAGE_COLLECTED_MIXIN(MockFileChooserClient);
 
-  content::LayerTreeView* layer_tree_view = helper.GetLayerTreeView();
-  LocalFrame* main_frame = helper.LocalMainFrame()->GetFrame();
+ public:
+  explicit MockFileChooserClient(LocalFrame* frame) : frame_(frame) {}
+  void Trace(Visitor* visitor) override {
+    visitor->Trace(frame_);
+    FileChooserClient::Trace(visitor);
+  }
 
-  auto set_and_get_selection = [&](const CompositedSelection& selection) {
-    // Sets the selection on the LayerTreeHost, then return what it set.
-    chrome_client_impl->UpdateCompositedSelection(main_frame, selection);
-    return layer_tree_view->layer_tree_host()->selection();
-  };
+ private:
+  // FilesChosen() and WillOpenPopup() are never called in the test.
+  void FilesChosen(FileChooserFileInfoList, const base::FilePath&) override {}
+  void WillOpenPopup() override {}
 
-  StubGraphicsLayerClient graphics_layer_client;
-  std::unique_ptr<GraphicsLayer> graphics_layer =
-      GraphicsLayer::Create(graphics_layer_client);
+  LocalFrame* FrameOrNull() const override { return frame_; }
 
-  CompositedSelection selection;
-  cc::LayerSelection cc_selection;
+  Member<LocalFrame> frame_;
+};
 
-  selection.start.layer = graphics_layer.get();
-  selection.end.layer = graphics_layer.get();
+class FileChooserQueueTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    web_view_ = helper_.Initialize();
+    chrome_client_impl_ =
+        ToChromeClientImpl(&web_view_->GetPage()->GetChromeClient());
+  }
 
-  // An LTR range selection.
-  selection.type = kRangeSelection;
-  selection.start.is_text_direction_rtl = false;
-  selection.end.is_text_direction_rtl = false;
-  selection.start.edge_top_in_layer = FloatPoint(1.1f, 2.8f);
-  selection.start.edge_bottom_in_layer = FloatPoint(2.9f, 3.2f);
-  selection.end.edge_top_in_layer = FloatPoint(4.1f, 5.8f);
-  selection.end.edge_bottom_in_layer = FloatPoint(5.9f, 6.2f);
-  selection.start.hidden = false;
-  selection.end.hidden = false;
+  frame_test_helpers::WebViewHelper helper_;
+  WebViewImpl* web_view_;
+  Persistent<ChromeClientImpl> chrome_client_impl_;
+};
 
-  cc_selection = set_and_get_selection(selection);
-  // LTR means the start is left and the end is right.
-  EXPECT_EQ(cc_selection.start.type, gfx::SelectionBound::Type::LEFT);
-  EXPECT_EQ(cc_selection.end.type, gfx::SelectionBound::Type::RIGHT);
-  EXPECT_EQ(cc_selection.start.hidden, false);
-  EXPECT_EQ(cc_selection.end.hidden, false);
-  // Points are rounded.
-  EXPECT_EQ(cc_selection.start.edge_top, gfx::Point(1, 3));
-  EXPECT_EQ(cc_selection.start.edge_bottom, gfx::Point(3, 3));
-  EXPECT_EQ(cc_selection.end.edge_top, gfx::Point(4, 6));
-  EXPECT_EQ(cc_selection.end.edge_bottom, gfx::Point(6, 6));
+TEST_F(FileChooserQueueTest, DerefQueuedChooser) {
+  LocalFrame* frame = helper_.LocalMainFrame()->GetFrame();
+  base::RunLoop run_loop;
+  MockFileChooser chooser(&frame->GetInterfaceProvider(),
+                          run_loop.QuitClosure());
+  auto* client1 = MakeGarbageCollected<MockFileChooserClient>(frame);
+  auto* client2 = MakeGarbageCollected<MockFileChooserClient>(frame);
+  mojom::blink::FileChooserParams params;
+  params.title = g_empty_string;
+  scoped_refptr<FileChooser> chooser1 = FileChooser::Create(client1, params);
+  scoped_refptr<FileChooser> chooser2 = FileChooser::Create(client2, params);
 
-  // An RTL range selection.
-  selection.start.is_text_direction_rtl = true;
-  selection.end.is_text_direction_rtl = true;
+  chrome_client_impl_->OpenFileChooser(frame, chooser1);
+  chrome_client_impl_->OpenFileChooser(frame, chooser2);
+  EXPECT_EQ(2u, chrome_client_impl_->file_chooser_queue_.size());
+  chooser2.reset();
 
-  cc_selection = set_and_get_selection(selection);
-  // RTL means the start is right and the end is left.
-  EXPECT_EQ(cc_selection.start.type, gfx::SelectionBound::Type::RIGHT);
-  EXPECT_EQ(cc_selection.end.type, gfx::SelectionBound::Type::LEFT);
-  EXPECT_EQ(cc_selection.start.hidden, false);
-  EXPECT_EQ(cc_selection.end.hidden, false);
-  EXPECT_EQ(cc_selection.start.edge_top, gfx::Point(1, 3));
-  EXPECT_EQ(cc_selection.start.edge_bottom, gfx::Point(3, 3));
-  EXPECT_EQ(cc_selection.end.edge_top, gfx::Point(4, 6));
-  EXPECT_EQ(cc_selection.end.edge_bottom, gfx::Point(6, 6));
+  // Kicks ChromeClientImpl::DidCompleteFileChooser() for chooser1.
+  run_loop.Run();
+  chooser.ResponseOnOpenFileChooser(FileChooserFileInfoList());
 
-  // A hidden range selection.
-  selection.start.hidden = true;
-  selection.end.hidden = true;
+  EXPECT_EQ(1u, chrome_client_impl_->file_chooser_queue_.size());
 
-  cc_selection = set_and_get_selection(selection);
-  EXPECT_EQ(cc_selection.start.type, gfx::SelectionBound::Type::RIGHT);
-  EXPECT_EQ(cc_selection.end.type, gfx::SelectionBound::Type::LEFT);
-  // The hidden flag is propogated.
-  EXPECT_EQ(cc_selection.start.hidden, true);
-  EXPECT_EQ(cc_selection.end.hidden, true);
-  EXPECT_EQ(cc_selection.start.edge_top, gfx::Point(1, 3));
-  EXPECT_EQ(cc_selection.start.edge_bottom, gfx::Point(3, 3));
-  EXPECT_EQ(cc_selection.end.edge_top, gfx::Point(4, 6));
-  EXPECT_EQ(cc_selection.end.edge_bottom, gfx::Point(6, 6));
-
-  // A caret selection.
-  selection.type = kCaretSelection;
-
-  cc_selection = set_and_get_selection(selection);
-  // Caret selections have no left/right, only center.
-  EXPECT_EQ(cc_selection.start.type, gfx::SelectionBound::Type::CENTER);
-  EXPECT_EQ(cc_selection.end.type, gfx::SelectionBound::Type::CENTER);
-  EXPECT_EQ(cc_selection.start.hidden, true);
-  EXPECT_EQ(cc_selection.end.hidden, true);
-  EXPECT_EQ(cc_selection.start.edge_top, gfx::Point(1, 3));
-  EXPECT_EQ(cc_selection.start.edge_bottom, gfx::Point(3, 3));
-  EXPECT_EQ(cc_selection.end.edge_top, gfx::Point(4, 6));
-  EXPECT_EQ(cc_selection.end.edge_bottom, gfx::Point(6, 6));
+  // Cleanup for the second OpenFileChooser request.
+  chooser.ResponseOnOpenFileChooser(FileChooserFileInfoList());
 }
 
 }  // namespace blink

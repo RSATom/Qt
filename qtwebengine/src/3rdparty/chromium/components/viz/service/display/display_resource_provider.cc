@@ -12,9 +12,9 @@
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "components/viz/common/gpu/context_provider.h"
-#include "components/viz/common/resources/resource_format_utils.h"
 #include "components/viz/common/resources/resource_sizes.h"
 #include "components/viz/service/display/shared_bitmap_manager.h"
+#include "components/viz/service/display/skia_output_surface.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
@@ -168,12 +168,13 @@ bool DisplayResourceProvider::OnMemoryDump(
 
 #if defined(OS_ANDROID)
 void DisplayResourceProvider::SendPromotionHints(
-    const OverlayCandidateList::PromotionHintInfoMap& promotion_hints) {
+    const OverlayCandidateList::PromotionHintInfoMap& promotion_hints,
+    const ResourceIdSet& requestor_set) {
   GLES2Interface* gl = ContextGL();
   if (!gl)
     return;
 
-  for (const auto& id : wants_promotion_hints_set_) {
+  for (const auto& id : requestor_set) {
     auto it = resources_.find(id);
     if (it == resources_.end())
       continue;
@@ -210,14 +211,27 @@ bool DisplayResourceProvider::IsBackedBySurfaceTexture(ResourceId id) {
   return resource->transferable.is_backed_by_surface_texture;
 }
 
-bool DisplayResourceProvider::WantsPromotionHintForTesting(ResourceId id) {
-  return wants_promotion_hints_set_.count(id) > 0;
-}
-
 size_t DisplayResourceProvider::CountPromotionHintRequestsForTesting() {
   return wants_promotion_hints_set_.size();
 }
 #endif
+
+bool DisplayResourceProvider::DoesResourceWantPromotionHint(
+    ResourceId id) const {
+#if defined(OS_ANDROID)
+  return wants_promotion_hints_set_.count(id) > 0;
+#else
+  return false;
+#endif
+}
+
+bool DisplayResourceProvider::DoAnyResourcesWantPromotionHints() const {
+#if defined(OS_ANDROID)
+  return wants_promotion_hints_set_.size() > 0;
+#else
+  return false;
+#endif
+}
 
 bool DisplayResourceProvider::IsOverlayCandidate(ResourceId id) {
   ChildResource* resource = TryGetResource(id);
@@ -257,23 +271,16 @@ void DisplayResourceProvider::WaitSyncToken(ResourceId id) {
 #endif  // OS_ANDROID
 }
 
-int DisplayResourceProvider::CreateChild(
-    const ReturnCallback& return_callback) {
+int DisplayResourceProvider::CreateChild(const ReturnCallback& return_callback,
+                                         bool needs_sync_tokens) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   Child child_info;
   child_info.return_callback = return_callback;
-
+  child_info.needs_sync_tokens = needs_sync_tokens;
   int child = next_child_++;
   children_[child] = child_info;
   return child;
-}
-
-void DisplayResourceProvider::SetChildNeedsSyncTokens(int child_id,
-                                                      bool needs) {
-  auto it = children_.find(child_id);
-  DCHECK(it != children_.end());
-  it->second.needs_sync_tokens = needs;
 }
 
 void DisplayResourceProvider::DestroyChild(int child_id) {
@@ -296,8 +303,7 @@ void DisplayResourceProvider::ReceiveFromChild(
   CHECK(child_it != children_.end());
   Child& child_info = child_it->second;
   DCHECK(!child_info.marked_for_deletion);
-  for (std::vector<TransferableResource>::const_iterator it = resources.begin();
-       it != resources.end(); ++it) {
+  for (auto it = resources.begin(); it != resources.end(); ++it) {
     auto resource_in_map_it = child_info.child_to_parent_map.find(it->id);
     if (resource_in_map_it != child_info.child_to_parent_map.end()) {
       ChildResource* resource = GetResource(resource_in_map_it->second);
@@ -356,7 +362,7 @@ void DisplayResourceProvider::DeclareUsedResourcesFromChild(
 const std::unordered_map<ResourceId, ResourceId>&
 DisplayResourceProvider::GetChildToParentMap(int child) const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  ChildMap::const_iterator it = children_.find(child);
+  auto it = children_.find(child);
   DCHECK(it != children_.end());
   DCHECK(!it->second.marked_for_deletion);
   return it->second.child_to_parent_map;
@@ -515,18 +521,10 @@ ResourceMetadata DisplayResourceProvider::LockForExternalUse(ResourceId id) {
   // TODO(penghuang): support software resource.
   DCHECK(resource->is_gpu_resource_type());
 
-  metadata.mailbox = resource->transferable.mailbox_holder.mailbox;
-  metadata.backend_format = GrBackendFormat::MakeGL(
-      TextureStorageFormat(resource->transferable.format),
-      resource->transferable.mailbox_holder.texture_target);
+  metadata.mailbox_holder = resource->transferable.mailbox_holder;
   metadata.size = resource->transferable.size;
-  metadata.mip_mapped = GrMipMapped::kNo;
-  metadata.origin = kTopLeft_GrSurfaceOrigin;
-  metadata.color_type = ResourceFormatToClosestSkColorType(
-      !IsSoftware(), resource->transferable.format);
-  metadata.alpha_type = kPremul_SkAlphaType;
-  metadata.color_space = nullptr;
-  metadata.sync_token = resource->sync_token();
+  metadata.resource_format = resource->transferable.format;
+  metadata.mailbox_holder.sync_token = resource->sync_token();
 
   resource->locked_for_external_use = true;
   return metadata;
@@ -562,14 +560,8 @@ void DisplayResourceProvider::TryReleaseResource(ResourceMap::iterator it) {
   ChildResource* resource = &it->second;
   if (resource->marked_for_deletion && !resource->lock_for_read_count &&
       !resource->locked_for_external_use) {
-    if (batch_return_resources_) {
-      batched_returning_resources_[resource->child_id].push_back(id);
-    } else {
-      auto child_it = children_.find(resource->child_id);
-      std::vector<ResourceId> unused;
-      unused.push_back(id);
-      DeleteAndReturnUnusedResourcesToChild(child_it, NORMAL, unused);
-    }
+    auto child_it = children_.find(resource->child_id);
+    DeleteAndReturnUnusedResourcesToChild(child_it, NORMAL, {id});
   }
 }
 
@@ -624,8 +616,22 @@ void DisplayResourceProvider::DeleteAndReturnUnusedResourcesToChild(
   DCHECK(child_it != children_.end());
   Child* child_info = &child_it->second;
 
+  // No work is done in this case.
   if (unused.empty() && !child_info->marked_for_deletion)
     return;
+
+  // Store unused resources while batching is enabled.
+  if (batch_return_resources_lock_count_ > 0) {
+    int child_id = child_it->first;
+    // Ensure that we have an entry in |batched_returning_resources_| for child
+    // even if |unused| is empty, in case child is marked for deletion.
+    // Note: emplace() does not overwrite an entry if already present.
+    batched_returning_resources_.emplace(child_id, std::vector<ResourceId>());
+    auto& child_resources = batched_returning_resources_[child_id];
+    child_resources.reserve(child_resources.size() + unused.size());
+    child_resources.insert(child_resources.end(), unused.begin(), unused.end());
+    return;
+  }
 
   std::vector<ReturnedResource> to_return;
   to_return.reserve(unused.size());
@@ -639,6 +645,19 @@ void DisplayResourceProvider::DeleteAndReturnUnusedResourcesToChild(
     auto it = resources_.find(local_id);
     CHECK(it != resources_.end());
     ChildResource& resource = it->second;
+
+    // TODO(https://crbug.com/922592): Batch deletion for reduced overhead.
+    auto sk_image_it = resource_sk_images_.find(local_id);
+    if (sk_image_it != resource_sk_images_.end()) {
+      sk_sp<SkImage> found(std::move(sk_image_it->second));
+      resource_sk_images_.erase(sk_image_it);
+
+      if (external_use_client_) {
+        gpu::SyncToken token =
+            external_use_client_->QueueReleasePromiseSkImage(std::move(found));
+        resource.UpdateSyncToken(token);
+      }
+    }
 
     ResourceId child_id = resource.transferable.id;
     DCHECK(child_info->child_to_parent_map.count(child_id));
@@ -705,6 +724,9 @@ void DisplayResourceProvider::DeleteAndReturnUnusedResourcesToChild(
     DeleteResourceInternal(it, style);
   }
 
+  if (external_use_client_)
+    external_use_client_->FlushQueuedReleases();
+
   for (size_t i : to_return_indices_unverified)
     unverified_sync_tokens.push_back(to_return[i].sync_token.GetData());
 
@@ -757,15 +779,32 @@ void DisplayResourceProvider::DestroyChildInternal(ChildMap::iterator it,
 }
 
 void DisplayResourceProvider::SetBatchReturnResources(bool batch) {
-  DCHECK_NE(batch_return_resources_, batch);
-  batch_return_resources_ = batch;
-  if (!batch) {
-    for (const auto& resources : batched_returning_resources_) {
-      auto child_it = children_.find(resources.first);
-      DCHECK(child_it != children_.end());
-      DeleteAndReturnUnusedResourcesToChild(child_it, NORMAL, resources.second);
+  if (batch) {
+    DCHECK_GE(batch_return_resources_lock_count_, 0);
+    batch_return_resources_lock_count_++;
+  } else {
+    DCHECK_GT(batch_return_resources_lock_count_, 0);
+    batch_return_resources_lock_count_--;
+    if (batch_return_resources_lock_count_ == 0) {
+      for (auto& child_resources_kv : batched_returning_resources_) {
+        auto child_it = children_.find(child_resources_kv.first);
+
+        // Remove duplicates from child's unused resources.  Duplicates are
+        // possible when batching is enabled because resources are saved in
+        // |batched_returning_resources_| for removal, and not removed from the
+        // child's |child_to_parent_map|, so the same set of resources can be
+        // saved again using DeclareUsedResourcesForChild() or DestroyChild().
+        auto& unused_resources = child_resources_kv.second;
+        std::sort(unused_resources.begin(), unused_resources.end());
+        auto last =
+            std::unique(unused_resources.begin(), unused_resources.end());
+        unused_resources.erase(last, unused_resources.end());
+
+        DeleteAndReturnUnusedResourcesToChild(child_it, NORMAL,
+                                              unused_resources);
+      }
+      batched_returning_resources_.clear();
     }
-    batched_returning_resources_.clear();
   }
 }
 
@@ -818,8 +857,8 @@ DisplayResourceProvider::ScopedReadLockSkImage::ScopedReadLockSkImage(
   DCHECK(resource);
 
   // Use cached SkImage if possible.
-  auto it = resource_provider_->resource_sk_image_.find(resource_id);
-  if (it != resource_provider_->resource_sk_image_.end()) {
+  auto it = resource_provider_->resource_sk_images_.find(resource_id);
+  if (it != resource_provider_->resource_sk_images_.end()) {
     sk_image_ = it->second;
     return;
   }
@@ -839,6 +878,7 @@ DisplayResourceProvider::ScopedReadLockSkImage::ScopedReadLockSkImage(
         ResourceFormatToClosestSkColorType(!resource_provider->IsSoftware(),
                                            resource->transferable.format),
         kPremul_SkAlphaType, nullptr);
+    resource_provider_->resource_sk_images_[resource_id] = sk_image_;
     return;
   }
 
@@ -858,6 +898,7 @@ DisplayResourceProvider::ScopedReadLockSkImage::ScopedReadLockSkImage(
   resource_provider->PopulateSkBitmapWithResource(&sk_bitmap, resource);
   sk_bitmap.setImmutable();
   sk_image_ = SkImage::MakeFromBitmap(sk_bitmap);
+  resource_provider_->resource_sk_images_[resource_id] = sk_image_;
 }
 
 DisplayResourceProvider::ScopedReadLockSkImage::~ScopedReadLockSkImage() {
@@ -865,8 +906,12 @@ DisplayResourceProvider::ScopedReadLockSkImage::~ScopedReadLockSkImage() {
 }
 
 DisplayResourceProvider::LockSetForExternalUse::LockSetForExternalUse(
-    DisplayResourceProvider* resource_provider)
-    : resource_provider_(resource_provider) {}
+    DisplayResourceProvider* resource_provider,
+    SkiaOutputSurface* client)
+    : resource_provider_(resource_provider) {
+  DCHECK(!resource_provider_->external_use_client_);
+  resource_provider_->external_use_client_ = client;
+}
 
 DisplayResourceProvider::LockSetForExternalUse::~LockSetForExternalUse() {
   DCHECK(resources_.empty());
@@ -877,6 +922,19 @@ ResourceMetadata DisplayResourceProvider::LockSetForExternalUse::LockResource(
   DCHECK(!base::ContainsValue(resources_, id));
   resources_.push_back(id);
   return resource_provider_->LockForExternalUse(id);
+}
+
+sk_sp<SkImage>
+DisplayResourceProvider::LockSetForExternalUse::LockResourceAndCreateSkImage(
+    ResourceId id) {
+  auto metadata = LockResource(id);
+  auto& resource_sk_image = resource_provider_->resource_sk_images_[id];
+  if (!resource_sk_image) {
+    resource_sk_image =
+        resource_provider_->external_use_client_->MakePromiseSkImage(
+            std::move(metadata));
+  }
+  return resource_sk_image;
 }
 
 void DisplayResourceProvider::LockSetForExternalUse::UnlockResources(

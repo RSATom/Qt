@@ -18,6 +18,7 @@
 #ifndef SkColor_DEFINED
 #define SkColor_DEFINED
 
+#include "SkImageInfo.h"
 #include "SkScalar.h"
 #include "SkTypes.h"
 
@@ -227,91 +228,163 @@ SK_API SkPMColor SkPreMultiplyARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b);
 */
 SK_API SkPMColor SkPreMultiplyColor(SkColor c);
 
-struct SkPM4f;
+/** \struct SkRGBA4f
+    RGBA color value, holding four floating point components. Color components are always in
+    a known order. kAT determines if the SkRGBA4f's R, G, and B components are premultiplied
+    by alpha or not.
 
-/** \struct SkColor4f
-    Each component is stored as a 32-bit single precision floating point float value.
-    All values are allowed, but only the range from zero to one is meaningful.
-
-    Each component is independent of the others; fA alpha is not premultiplied
-    with fG green, fB blue, or fR red.
-
-    Values smaller than zero or larger than one are allowed. Values out of range
-    may be used with SkBlendMode so that the final component is in range.
+    Skia's public API always uses unpremultiplied colors, which can be stored as
+    SkRGBA4f<kUnpremul_SkAlphaType>. For convenience, this type can also be referred to
+    as SkColor4f.
 */
-struct SK_API SkColor4f {
-    float fR; //!< red component
-    float fG; //!< green component
-    float fB; //!< blue component
-    float fA; //!< alpha component
+template <SkAlphaType kAT>
+struct SkRGBA4f {
+    float fR;  //!< red component
+    float fG;  //!< green component
+    float fB;  //!< blue component
+    float fA;  //!< alpha component
 
-    /** Compares SkColor4f with other, and returns true if all components are equivalent.
+    /** Compares SkRGBA4f with other, and returns true if all components are equal.
 
-        @param other  SkColor4f to compare
-        @return       true if SkColor4f equals other
+        @param other  SkRGBA4f to compare
+        @return       true if SkRGBA4f equals other
     */
-    bool operator==(const SkColor4f& other) const {
+    bool operator==(const SkRGBA4f& other) const {
         return fA == other.fA && fR == other.fR && fG == other.fG && fB == other.fB;
     }
 
-    /** Compares SkColor4f with other, and returns true if all components are not
-        equivalent.
+    /** Compares SkRGBA4f with other, and returns true if not all components are equal.
 
-        @param other  SkColor4f to compare
-        @return       true if SkColor4f is not equal to other
+        @param other  SkRGBA4f to compare
+        @return       true if SkRGBA4f is not equal to other
     */
-    bool operator!=(const SkColor4f& other) const {
+    bool operator!=(const SkRGBA4f& other) const {
         return !(*this == other);
     }
 
-    /** Returns SkColor4f components as a read-only array.
+    /** Returns SkRGBA4f multiplied by scale.
 
-        @return  components as read-only array
+        @param scale  value to multiply by
+        @return       SkRGBA4f as (fR * scale, fG * scale, fB * scale, fA * scale)
+    */
+    SkRGBA4f operator*(float scale) const {
+        return { fR * scale, fG * scale, fB * scale, fA * scale };
+    }
+
+    /** Returns SkRGBA4f multiplied component-wise by scale.
+
+        @param scale  SkRGBA4f to multiply by
+        @return       SkRGBA4f as (fR * scale.fR, fG * scale.fG, fB * scale.fB, fA * scale.fA)
+    */
+    SkRGBA4f operator*(const SkRGBA4f& scale) const {
+        return { fR * scale.fR, fG * scale.fG, fB * scale.fB, fA * scale.fA };
+    }
+
+    /** Returns a pointer to components of SkRGBA4f, for array access.
+
+        @return       pointer to array [fR, fG, fB, fA]
     */
     const float* vec() const { return &fR; }
 
-    /** Returns SkColor4f components as a read-only array.
+    /** Returns a pointer to components of SkRGBA4f, for array access.
 
-        @return  components as read-only array
+        @return       pointer to array [fR, fG, fB, fA]
     */
     float* vec() { return &fR; }
 
-    /** Constructs and returns SkColor4f with each component pinned from zero to one.
+    /** Returns one component. Asserts if index is out of range and SK_DEBUG is defined.
 
-        @param r  red component
-        @param g  green component
-        @param b  blue component
-        @param a  alpha component
-        @return   SkColor4f with valid components
+        @param index  one of: 0 (fR), 1 (fG), 2 (fB), 3 (fA)
+        @return       value corresponding to index
     */
-    static SkColor4f Pin(float r, float g, float b, float a);
-
-    /** Converts to closest SkColor4f.
-
-        @param SkColor  color with alpha, red, blue, and green components
-        @return         SkColor4f equivalent
-    */
-    static SkColor4f FromColor(SkColor);
-
-    /** Converts to closest SkColor.
-
-        @return  closest color
-    */
-    SkColor toSkColor() const;
-
-    /** Returns SkColor4f with all components in the range from zero to one.
-
-        @return  SkColor4f with valid components
-    */
-    SkColor4f pin() const {
-        return Pin(fR, fG, fB, fA);
+    float operator[](int index) const {
+        SkASSERT(index >= 0 && index < 4);
+        return this->vec()[index];
     }
 
-    /** Internal use only.
+    /** Returns one component. Asserts if index is out of range and SK_DEBUG is defined.
 
-        @return  premultiplied color
+        @param index  one of: 0 (fR), 1 (fG), 2 (fB), 3 (fA)
+        @return       value corresponding to index
     */
-    SkPM4f premul() const;
+    float& operator[](int index) {
+        SkASSERT(index >= 0 && index < 4);
+        return this->vec()[index];
+    }
+
+    /** Returns true if SkRGBA4f is an opaque color. Asserts if fA is out of range and
+        SK_DEBUG is defined.
+
+        @return       true if SkRGBA4f is opaque
+    */
+    bool isOpaque() const {
+        SkASSERT(fA <= 1.0f && fA >= 0.0f);
+        return fA == 1.0f;
+    }
+
+    /** Returns closest SkRGBA4f to SkColor. Only allowed if SkRGBA4f is unpremultiplied.
+
+        @param color   Color with Alpha, red, blue, and green components
+        @return        SkColor as SkRGBA4f
+    */
+    static SkRGBA4f FromColor(SkColor color);  // impl. depends on kAT
+
+    /** Returns closest SkColor to SkRGBA4f. Only allowed if SkRGBA4f is unpremultiplied.
+
+        @return       color as SkColor
+    */
+    SkColor toSkColor() const;  // impl. depends on kAT
+
+    /** Returns closest SkRGBA4f to SkPMColor. Only allowed if SkRGBA4f is premultiplied.
+
+        @return        SkPMColor as SkRGBA4f
+    */
+    static SkRGBA4f FromPMColor(SkPMColor);  // impl. depends on kAT
+
+    /** Returns SkRGBA4f premultiplied by alpha. Asserts at compile time if SkRGBA4f is
+        already premultiplied.
+
+        @return       premultiplied color
+    */
+    SkRGBA4f<kPremul_SkAlphaType> premul() const {
+        static_assert(kAT == kUnpremul_SkAlphaType, "");
+        return { fR * fA, fG * fA, fB * fA, fA };
+    }
+
+    /** Returns SkRGBA4f unpremultiplied by alpha. Asserts at compile time if SkRGBA4f is
+        already unpremultiplied.
+
+        @return       unpremultiplied color
+    */
+    SkRGBA4f<kUnpremul_SkAlphaType> unpremul() const {
+        static_assert(kAT == kPremul_SkAlphaType, "");
+
+        if (fA == 0.0f) {
+            return { 0, 0, 0, 0 };
+        } else {
+            float invAlpha = 1 / fA;
+            return { fR * invAlpha, fG * invAlpha, fB * invAlpha, fA };
+        }
+    }
+
+    // This produces bytes in RGBA order (eg GrColor). Impl. is the same, regardless of kAT
+    uint32_t toBytes_RGBA() const;
+    static SkRGBA4f FromBytes_RGBA(uint32_t color);
+
+    SkRGBA4f makeOpaque() const {
+        return { fR, fG, fB, 1.0f };
+    }
 };
+
+/** \struct SkColor4f
+    RGBA color value, holding four floating point components. Color components are always in
+    a known order, and are unpremultiplied.
+
+    This is a specialization of SkRGBA4f. For details, @see SkRGBA4f.
+*/
+using SkColor4f = SkRGBA4f<kUnpremul_SkAlphaType>;
+
+template <> SK_API SkColor4f SkColor4f::FromColor(SkColor);
+template <> SK_API SkColor   SkColor4f::toSkColor() const;
 
 #endif

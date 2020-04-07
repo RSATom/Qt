@@ -45,14 +45,12 @@ HTMLInputElement* NextInputElement(const HTMLInputElement& element,
 
 }  // namespace
 
-using namespace HTMLNames;
-
 InputType* RadioInputType::Create(HTMLInputElement& element) {
-  return new RadioInputType(element);
+  return MakeGarbageCollected<RadioInputType>(element);
 }
 
 const AtomicString& RadioInputType::FormControlType() const {
-  return InputTypeNames::radio;
+  return input_type_names::kRadio;
 }
 
 bool RadioInputType::ValueMissing(const String&) const {
@@ -65,8 +63,8 @@ String RadioInputType::ValueMissingText() const {
       WebLocalizedString::kValidationValueMissingForRadio);
 }
 
-void RadioInputType::HandleClickEvent(MouseEvent* event) {
-  event->SetDefaultHandled();
+void RadioInputType::HandleClickEvent(MouseEvent& event) {
+  event.SetDefaultHandled();
 }
 
 HTMLInputElement* RadioInputType::FindNextFocusableRadioButtonInGroup(
@@ -82,19 +80,19 @@ HTMLInputElement* RadioInputType::FindNextFocusableRadioButtonInGroup(
   return nullptr;
 }
 
-void RadioInputType::HandleKeydownEvent(KeyboardEvent* event) {
+void RadioInputType::HandleKeydownEvent(KeyboardEvent& event) {
   // TODO(tkent): We should return more earlier.
   if (!GetElement().GetLayoutObject())
     return;
   BaseCheckableInputType::HandleKeydownEvent(event);
-  if (event->DefaultHandled())
+  if (event.DefaultHandled())
     return;
-  const String& key = event->key();
+  const String& key = event.key();
   if (key != "ArrowUp" && key != "ArrowDown" && key != "ArrowLeft" &&
       key != "ArrowRight")
     return;
 
-  if (event->ctrlKey() || event->metaKey() || event->altKey())
+  if (event.ctrlKey() || event.metaKey() || event.altKey())
     return;
 
   // Left and up mean "previous radio button".
@@ -132,15 +130,14 @@ void RadioInputType::HandleKeydownEvent(KeyboardEvent* event) {
     document.SetFocusedElement(input_element,
                                FocusParams(SelectionBehaviorOnFocus::kRestore,
                                            kWebFocusTypeNone, nullptr));
-    input_element->DispatchSimulatedClick(event, kSendNoEvents);
-    event->SetDefaultHandled();
+    input_element->DispatchSimulatedClick(&event, kSendNoEvents);
+    event.SetDefaultHandled();
     return;
   }
 }
 
-void RadioInputType::HandleKeyupEvent(KeyboardEvent* event) {
-  const String& key = event->key();
-  if (key != " ")
+void RadioInputType::HandleKeyupEvent(KeyboardEvent& event) {
+  if (event.key() != " ")
     return;
   // If an unselected radio is tabbed into (because the entire group has nothing
   // checked, or because of some explicit .focus() call), then allow space to
@@ -163,7 +160,7 @@ bool RadioInputType::IsKeyboardFocusable() const {
   Element* current_focused_element =
       GetElement().GetDocument().FocusedElement();
   if (auto* focused_input = ToHTMLInputElementOrNull(current_focused_element)) {
-    if (focused_input->type() == InputTypeNames::radio &&
+    if (focused_input->type() == input_type_names::kRadio &&
         focused_input->Form() == GetElement().Form() &&
         focused_input->GetName() == GetElement().GetName())
       return false;
@@ -190,7 +187,7 @@ ClickHandlingState* RadioInputType::WillDispatchClick() {
   // upcoming action to be "undone", since we want some object in the radio
   // group to actually get selected.
 
-  ClickHandlingState* state = new ClickHandlingState;
+  ClickHandlingState* state = MakeGarbageCollected<ClickHandlingState>();
 
   state->checked = GetElement().checked();
   state->checked_radio_button = GetElement().CheckedRadioButtonForGroup();
@@ -199,16 +196,16 @@ ClickHandlingState* RadioInputType::WillDispatchClick() {
   return state;
 }
 
-void RadioInputType::DidDispatchClick(Event* event,
+void RadioInputType::DidDispatchClick(Event& event,
                                       const ClickHandlingState& state) {
-  if (event->defaultPrevented() || event->DefaultHandled()) {
+  if (event.defaultPrevented() || event.DefaultHandled()) {
     // Restore the original selected radio button if possible.
     // Make sure it is still a radio button and only do the restoration if it
     // still belongs to our group.
     HTMLInputElement* checked_radio_button = state.checked_radio_button.Get();
     if (!checked_radio_button)
       GetElement().setChecked(false);
-    else if (checked_radio_button->type() == InputTypeNames::radio &&
+    else if (checked_radio_button->type() == input_type_names::kRadio &&
              checked_radio_button->Form() == GetElement().Form() &&
              checked_radio_button->GetName() == GetElement().GetName())
       checked_radio_button->setChecked(true);
@@ -217,7 +214,7 @@ void RadioInputType::DidDispatchClick(Event* event,
   }
   is_in_click_handler_ = false;
   // The work we did in willDispatchClick was default handling.
-  event->SetDefaultHandled();
+  event.SetDefaultHandled();
 }
 
 bool RadioInputType::ShouldAppearIndeterminate() const {
@@ -236,7 +233,7 @@ HTMLInputElement* RadioInputType::NextRadioButtonInGroup(
        input_element; input_element = NextInputElement(
                           *input_element, current->Form(), forward)) {
     if (current->Form() == input_element->Form() &&
-        input_element->type() == InputTypeNames::radio &&
+        input_element->type() == input_type_names::kRadio &&
         input_element->GetName() == current->GetName())
       return input_element;
   }

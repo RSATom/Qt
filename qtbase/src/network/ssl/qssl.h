@@ -62,12 +62,14 @@ namespace QSsl {
         Opaque,
         Rsa,
         Dsa,
-        Ec
+        Ec,
+        Dh,
     };
 
     enum AlternativeNameEntryType {
         EmailEntry,
-        DnsEntry
+        DnsEntry,
+        IpAddressEntry
     };
 
 #if QT_DEPRECATED_SINCE(5,0)

@@ -42,6 +42,7 @@
 #include "qwindowswindow.h"
 #include "qwindowsintegration.h"
 #include "qwindowscursor.h"
+#include "qwindowstheme.h"
 
 #include <QtCore/qt_windows.h>
 
@@ -91,7 +92,7 @@ static bool monitorData(HMONITOR hMonitor, QWindowsScreenData *data)
     } else {
         if (const HDC hdc = CreateDC(info.szDevice, nullptr, nullptr, nullptr)) {
             const QDpi dpi = monitorDPI(hMonitor);
-            data->dpi = dpi.first ? dpi : deviceDPI(hdc);
+            data->dpi = dpi.first > 0 ? dpi : deviceDPI(hdc);
             data->depth = GetDeviceCaps(hdc, BITSPIXEL);
             data->format = data->depth == 16 ? QImage::Format_RGB16 : QImage::Format_RGB32;
             data->physicalSizeMM = QSizeF(GetDeviceCaps(hdc, HORZSIZE), GetDeviceCaps(hdc, VERTSIZE));
@@ -303,23 +304,28 @@ void QWindowsScreen::handleChanges(const QWindowsScreenData &newData)
         m_data.hMonitor = newData.hMonitor;
     }
 
-    if (m_data.geometry != newData.geometry || m_data.availableGeometry != newData.availableGeometry) {
-        m_data.geometry = newData.geometry;
-        m_data.availableGeometry = newData.availableGeometry;
-        QWindowSystemInterface::handleScreenGeometryChange(screen(),
-                                                           newData.geometry, newData.availableGeometry);
-    }
-    if (!qFuzzyCompare(m_data.dpi.first, newData.dpi.first)
-        || !qFuzzyCompare(m_data.dpi.second, newData.dpi.second)) {
-        m_data.dpi = newData.dpi;
+    // QGuiApplicationPrivate::processScreenGeometryChange() checks and emits
+    // DPI and orientation as well, so, assign new values and emit DPI first.
+    const bool geometryChanged = m_data.geometry != newData.geometry
+        || m_data.availableGeometry != newData.availableGeometry;
+    const bool dpiChanged = !qFuzzyCompare(m_data.dpi.first, newData.dpi.first)
+        || !qFuzzyCompare(m_data.dpi.second, newData.dpi.second);
+    const bool orientationChanged = m_data.orientation != newData.orientation;
+    m_data.dpi = newData.dpi;
+    m_data.orientation = newData.orientation;
+    m_data.geometry = newData.geometry;
+    m_data.availableGeometry = newData.availableGeometry;
+
+    if (dpiChanged) {
         QWindowSystemInterface::handleScreenLogicalDotsPerInchChange(screen(),
                                                                      newData.dpi.first,
                                                                      newData.dpi.second);
     }
-    if (m_data.orientation != newData.orientation) {
-        m_data.orientation = newData.orientation;
-        QWindowSystemInterface::handleScreenOrientationChange(screen(),
-                                                              newData.orientation);
+    if (orientationChanged)
+       QWindowSystemInterface::handleScreenOrientationChange(screen(), newData.orientation);
+    if (geometryChanged) {
+        QWindowSystemInterface::handleScreenGeometryChange(screen(),
+                                                           newData.geometry, newData.availableGeometry);
     }
 }
 
@@ -542,10 +548,13 @@ bool QWindowsScreenManager::handleScreenChanges()
     // Look for changed monitors, add new ones
     const WindowsScreenDataList newDataList = monitorData();
     const bool lockScreen = newDataList.size() == 1 && (newDataList.front().flags & QWindowsScreenData::LockScreen);
+    bool primaryScreenChanged = false;
     for (const QWindowsScreenData &newData : newDataList) {
         const int existingIndex = indexOfMonitor(m_screens, newData.name);
         if (existingIndex != -1) {
             m_screens.at(existingIndex)->handleChanges(newData);
+            if (existingIndex == 0)
+                primaryScreenChanged = true;
         } else {
             QWindowsScreen *newScreen = new QWindowsScreen(newData);
             m_screens.push_back(newScreen);
@@ -562,6 +571,8 @@ bool QWindowsScreenManager::handleScreenChanges()
                 removeScreen(i);
         }     // for existing screens
     }     // not lock screen
+    if (primaryScreenChanged)
+        QWindowsTheme::instance()->refreshFonts();
     return true;
 }
 

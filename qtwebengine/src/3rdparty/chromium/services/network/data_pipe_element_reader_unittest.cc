@@ -17,7 +17,6 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
-#include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/test_completion_callback.h"
 #include "services/network/public/mojom/data_pipe_getter.mojom.h"
@@ -144,7 +143,7 @@ TEST_F(DataPipeElementReaderTest, InitInterruptsInit) {
   EXPECT_FALSE(element_reader_.IsInMemory());
 
   // Try to read from the body.
-  scoped_refptr<net::IOBufferWithSize> io_buffer(new net::IOBufferWithSize(10));
+  auto io_buffer = base::MakeRefCounted<net::IOBufferWithSize>(10);
   net::TestCompletionCallback read_callback;
   EXPECT_EQ(net::ERR_IO_PENDING,
             element_reader_.Read(io_buffer.get(), io_buffer->size(),
@@ -178,8 +177,7 @@ TEST_F(DataPipeElementReaderTest, InitInterruptsRead) {
 
   ASSERT_EQ(net::OK, first_init_callback.WaitForResult());
 
-  scoped_refptr<net::IOBufferWithSize> first_io_buffer(
-      new net::IOBufferWithSize(10));
+  auto first_io_buffer = base::MakeRefCounted<net::IOBufferWithSize>(10);
   net::TestCompletionCallback first_read_callback;
   EXPECT_EQ(net::ERR_IO_PENDING,
             element_reader_.Read(first_io_buffer.get(), first_io_buffer->size(),
@@ -210,7 +208,7 @@ TEST_F(DataPipeElementReaderTest, InitInterruptsRead) {
   EXPECT_FALSE(element_reader_.IsInMemory());
 
   // Try to read from the body.
-  scoped_refptr<net::IOBufferWithSize> io_buffer(new net::IOBufferWithSize(10));
+  auto io_buffer = base::MakeRefCounted<net::IOBufferWithSize>(10);
   net::TestCompletionCallback second_read_callback;
   EXPECT_EQ(net::ERR_IO_PENDING,
             element_reader_.Read(io_buffer.get(), io_buffer->size(),

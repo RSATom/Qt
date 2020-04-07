@@ -1,8 +1,10 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtgraphicaleffects.qdocconf)
 
 project                 = QtGraphicalEffects
 description             = Qt Graphical Effects Reference Documentation
 version                 = $QT_VERSION
+moduleheader            =
 
 qhp.projects            = QtGraphicalEffects
 

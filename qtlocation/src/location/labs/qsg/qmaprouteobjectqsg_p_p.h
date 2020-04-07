@@ -80,6 +80,7 @@ public:
     QGeoMapObjectPrivate *clone() override;
     void setMap(QGeoMap *map) override;
     void setVisible(bool visible) override;
+    virtual QGeoShape geoShape() const override;
 
     // Data Members
     QScopedPointer<QMapPolylineObjectPrivateQSG> m_polyline;

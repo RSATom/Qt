@@ -5,7 +5,6 @@
 #include "third_party/blink/renderer/core/paint/ellipsis_box_painter.h"
 
 #include "third_party/blink/renderer/core/layout/api/line_layout_item.h"
-#include "third_party/blink/renderer/core/layout/api/selection_state.h"
 #include "third_party/blink/renderer/core/layout/line/ellipsis_box.h"
 #include "third_party/blink/renderer/core/layout/line/root_inline_box.h"
 #include "third_party/blink/renderer/core/layout/text_run_constructor.h"
@@ -37,13 +36,11 @@ void EllipsisBoxPainter::PaintEllipsis(const PaintInfo& paint_info,
   box_origin.MoveBy(paint_offset);
 
   GraphicsContext& context = paint_info.context;
-  DisplayItem::Type display_item_type =
-      DisplayItem::PaintPhaseToDrawingType(paint_info.phase);
   if (DrawingRecorder::UseCachedDrawingIfPossible(context, ellipsis_box_,
-                                                  display_item_type))
+                                                  paint_info.phase))
     return;
 
-  DrawingRecorder recorder(context, ellipsis_box_, display_item_type);
+  DrawingRecorder recorder(context, ellipsis_box_, paint_info.phase);
 
   LayoutRect box_rect(box_origin,
                       LayoutSize(ellipsis_box_.LogicalWidth(),

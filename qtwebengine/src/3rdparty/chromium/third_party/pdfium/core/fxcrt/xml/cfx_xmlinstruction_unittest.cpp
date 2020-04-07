@@ -3,7 +3,10 @@
 // found in the LICENSE file.
 
 #include "core/fxcrt/xml/cfx_xmlinstruction.h"
-#include "core/fxcrt/cfx_memorystream.h"
+
+#include <memory>
+
+#include "core/fxcrt/cfx_readonlymemorystream.h"
 #include "core/fxcrt/xml/cfx_xmldocument.h"
 #include "core/fxcrt/xml/cfx_xmlelement.h"
 #include "core/fxcrt/xml/cfx_xmlparser.h"
@@ -52,8 +55,7 @@ TEST(CFX_XMLInstructionTest, Clone) {
   EXPECT_TRUE(clone != nullptr);
 
   ASSERT_EQ(FX_XMLNODE_Instruction, clone->GetType());
-  CFX_XMLInstruction* inst = static_cast<CFX_XMLInstruction*>(clone);
-
+  CFX_XMLInstruction* inst = ToXMLInstruction(clone);
   EXPECT_TRUE(inst->IsAcrobat());
 
   auto& data = inst->GetTargetData();
@@ -82,13 +84,12 @@ TEST(CFX_XMLInstructionTest, SaveAcrobat) {
 }
 
 TEST(CFX_XMLInstructionTest, ParseAndReSave) {
-  const char* input =
+  static const char input[] =
       "<?acrobat http://www.xfa.org/schema/xfa-template/3.3/ Display:1 ?>\n"
       "<node></node>";
 
-  auto in_stream = pdfium::MakeRetain<CFX_MemoryStream>(
-      reinterpret_cast<uint8_t*>(const_cast<char*>(input)), strlen(input),
-      false);
+  auto in_stream = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(
+      pdfium::as_bytes(pdfium::make_span(input)));
 
   CFX_XMLParser parser(in_stream);
   std::unique_ptr<CFX_XMLDocument> doc = parser.Parse();
@@ -98,8 +99,7 @@ TEST(CFX_XMLInstructionTest, ParseAndReSave) {
   ASSERT_TRUE(root->GetFirstChild() != nullptr);
   ASSERT_EQ(FX_XMLNODE_Instruction, root->GetFirstChild()->GetType());
 
-  CFX_XMLInstruction* node =
-      static_cast<CFX_XMLInstruction*>(root->GetFirstChild());
+  CFX_XMLInstruction* node = ToXMLInstruction(root->GetFirstChild());
   ASSERT_TRUE(node != nullptr);
   EXPECT_TRUE(node->IsAcrobat());
 
@@ -116,14 +116,13 @@ TEST(CFX_XMLInstructionTest, ParseAndReSave) {
 }
 
 TEST(CFX_XMLInstructionTest, ParseAndReSaveInnerInstruction) {
-  const char* input =
+  static const char input[] =
       "<node>\n"
       "<?acrobat http://www.xfa.org/schema/xfa-template/3.3/ Display:1 ?>\n"
       "</node>";
 
-  auto in_stream = pdfium::MakeRetain<CFX_MemoryStream>(
-      reinterpret_cast<uint8_t*>(const_cast<char*>(input)), strlen(input),
-      false);
+  auto in_stream = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(
+      pdfium::as_bytes(pdfium::make_span(input)));
 
   CFX_XMLParser parser(in_stream);
   std::unique_ptr<CFX_XMLDocument> doc = parser.Parse();
@@ -133,16 +132,13 @@ TEST(CFX_XMLInstructionTest, ParseAndReSaveInnerInstruction) {
   ASSERT_TRUE(root->GetFirstChild() != nullptr);
   ASSERT_TRUE(root->GetFirstChild()->GetType() == FX_XMLNODE_Element);
 
-  CFX_XMLElement* node = static_cast<CFX_XMLElement*>(root->GetFirstChild());
+  CFX_XMLElement* node = ToXMLElement(root->GetFirstChild());
   EXPECT_EQ(L"node", node->GetName());
 
   CFX_XMLInstruction* instruction = nullptr;
-  for (auto* elem = node->GetFirstChild(); elem;
+  for (auto* elem = node->GetFirstChild(); elem && !instruction;
        elem = elem->GetNextSibling()) {
-    if (elem->GetType() == FX_XMLNODE_Instruction) {
-      instruction = static_cast<CFX_XMLInstruction*>(elem);
-      break;
-    }
+    instruction = ToXMLInstruction(elem);
   }
   ASSERT_TRUE(instruction != nullptr);
   EXPECT_TRUE(instruction->IsAcrobat());

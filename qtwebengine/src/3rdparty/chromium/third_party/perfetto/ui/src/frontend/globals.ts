@@ -12,44 +12,121 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {Action} from '../common/actions';
-import {State} from '../common/state';
-import {Engine} from '../controller/engine';
+import {assertExists} from '../base/logging';
+import {DeferredAction} from '../common/actions';
+import {createEmptyState, State} from '../common/state';
 
-type Dispatch = (action: Action) => void;
+import {FrontendLocalState} from './frontend_local_state';
+import {RafScheduler} from './raf_scheduler';
+
+type Dispatch = (action: DeferredAction) => void;
+type TrackDataStore = Map<string, {}>;
+type QueryResultsStore = Map<string, {}>;
+
+export interface QuantizedLoad {
+  startSec: number;
+  endSec: number;
+  load: number;
+}
+type OverviewStore = Map<string, QuantizedLoad[]>;
+
+export interface ThreadDesc {
+  utid: number;
+  tid: number;
+  threadName: string;
+  pid?: number;
+  procName?: string;
+}
+type ThreadMap = Map<number, ThreadDesc>;
 
 /**
  * Global accessors for state/dispatch in the frontend.
  */
 class Globals {
-  _dispatch?: Dispatch = undefined;
-  _state?: State = undefined;
+  private _dispatch?: Dispatch = undefined;
+  private _controllerWorker?: Worker = undefined;
+  private _state?: State = undefined;
+  private _frontendLocalState?: FrontendLocalState = undefined;
+  private _rafScheduler?: RafScheduler = undefined;
 
-  get state(): State {
-    if (this._state === undefined) throw new Error('Global not set');
-    return this._state;
+  // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
+  private _trackDataStore?: TrackDataStore = undefined;
+  private _queryResults?: QueryResultsStore = undefined;
+  private _overviewStore?: OverviewStore = undefined;
+  private _threadMap?: ThreadMap = undefined;
+
+  initialize(dispatch: Dispatch, controllerWorker: Worker) {
+    this._dispatch = dispatch;
+    this._controllerWorker = controllerWorker;
+    this._state = createEmptyState();
+    this._frontendLocalState = new FrontendLocalState();
+    this._rafScheduler = new RafScheduler();
+
+    // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
+    this._trackDataStore = new Map<string, {}>();
+    this._queryResults = new Map<string, {}>();
+    this._overviewStore = new Map<string, QuantizedLoad[]>();
+    this._threadMap = new Map<number, ThreadDesc>();
   }
 
-  set state(value: State) {
-    this._state = value;
+  get state(): State {
+    return assertExists(this._state);
+  }
+
+  set state(state: State) {
+    this._state = assertExists(state);
   }
 
   get dispatch(): Dispatch {
-    if (this._dispatch === undefined) throw new Error('Global not set');
-    return this._dispatch;
+    return assertExists(this._dispatch);
   }
 
-  set dispatch(value: Dispatch) {
-    this._dispatch = value;
+  get frontendLocalState() {
+    return assertExists(this._frontendLocalState);
+  }
+
+  get rafScheduler() {
+    return assertExists(this._rafScheduler);
+  }
+
+  // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
+  get overviewStore(): OverviewStore {
+    return assertExists(this._overviewStore);
+  }
+
+  get trackDataStore(): TrackDataStore {
+    return assertExists(this._trackDataStore);
+  }
+
+  get queryResults(): QueryResultsStore {
+    return assertExists(this._queryResults);
+  }
+
+  get threads() {
+    return assertExists(this._threadMap);
   }
 
   resetForTesting() {
-    this._state = undefined;
     this._dispatch = undefined;
+    this._state = undefined;
+    this._frontendLocalState = undefined;
+    this._rafScheduler = undefined;
+
+    // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
+    this._trackDataStore = undefined;
+    this._queryResults = undefined;
+    this._overviewStore = undefined;
+    this._threadMap = undefined;
+  }
+
+  // Used when switching to the legacy TraceViewer UI.
+  // Most resources are cleaned up by replacing the current |window| object,
+  // however pending RAFs and workers seem to outlive the |window| and need to
+  // be cleaned up explicitly.
+  shutdown() {
+    this._controllerWorker!.terminate();
+    this._rafScheduler!.shutdown();
   }
 }
-
-// TODO(hjd): Temporary while bringing up controller worker.
-export const gEngines = new Map<string, Engine>();
 
 export const globals = new Globals();

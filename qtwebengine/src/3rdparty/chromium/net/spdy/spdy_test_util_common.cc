@@ -12,7 +12,6 @@
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "net/base/completion_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/ct_policy_status.h"
@@ -27,13 +26,13 @@
 #include "net/socket/socket_tag.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/transport_client_socket_pool.h"
+#include "net/socket/transport_connect_job.h"
 #include "net/spdy/buffered_spdy_framer.h"
 #include "net/spdy/spdy_http_utils.h"
-#include "net/spdy/spdy_session_pool.h"
 #include "net/spdy/spdy_stream.h"
 #include "net/test/gtest_util.h"
-#include "net/third_party/spdy/core/spdy_alt_svc_wire_format.h"
-#include "net/third_party/spdy/core/spdy_framer.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_framer.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_job_factory_impl.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -180,7 +179,8 @@ class PriorityGetter : public BufferedSpdyFramerVisitorInterface {
                  spdy::SpdyStreamId parent_stream_id,
                  bool exclusive,
                  bool fin,
-                 spdy::SpdyHeaderBlock headers) override {
+                 spdy::SpdyHeaderBlock headers,
+                 base::TimeTicks recv_first_byte_time) override {
     if (has_priority) {
       priority_ = spdy::Http2WeightToSpdy3Priority(weight);
     }
@@ -386,6 +386,7 @@ HttpNetworkSession::Params SpdySessionDependencies::CreateSessionParams(
       session_deps->enable_http2_alternative_service;
   params.enable_websocket_over_http2 =
       session_deps->enable_websocket_over_http2;
+  params.greased_http2_frame = session_deps->greased_http2_frame;
   params.http_09_on_non_default_ports_enabled =
       session_deps->http_09_on_non_default_ports_enabled;
   params.disable_idle_sockets_close_on_memory_pressure =
@@ -411,8 +412,12 @@ HttpNetworkSession::Context SpdySessionDependencies::CreateSessionContext(
   context.http_auth_handler_factory =
       session_deps->http_auth_handler_factory.get();
   context.http_server_properties = session_deps->http_server_properties.get();
-  context.proxy_delegate = session_deps->proxy_delegate.get();
   context.net_log = session_deps->net_log;
+#if BUILDFLAG(ENABLE_REPORTING)
+  context.reporting_service = session_deps->reporting_service.get();
+  context.network_error_logging_service =
+      session_deps->network_error_logging_service.get();
+#endif
   return context;
 }
 
@@ -479,8 +484,7 @@ base::WeakPtr<SpdySession> CreateSpdySessionHelper(
 
   auto transport_params = base::MakeRefCounted<TransportSocketParams>(
       key.host_port_pair(), /* disable_resolver_cache = */ false,
-      OnHostResolutionCallback(),
-      TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT);
+      OnHostResolutionCallback());
 
   auto connection = std::make_unique<ClientSocketHandle>();
   TestCompletionCallback callback;
@@ -488,7 +492,7 @@ base::WeakPtr<SpdySession> CreateSpdySessionHelper(
   SSLConfig ssl_config;
   auto ssl_params = base::MakeRefCounted<SSLSocketParams>(
       transport_params, nullptr, nullptr, key.host_port_pair(), ssl_config,
-      key.privacy_mode(), 0);
+      key.privacy_mode());
   int rv = connection->Init(
       key.host_port_pair().ToString(), ssl_params, MEDIUM, key.socket_tag(),
       ClientSocketPool::RespectLimits::ENABLED, callback.callback(),
@@ -709,8 +713,7 @@ std::string SpdyTestUtil::ConstructSpdyReplyString(
 spdy::SpdySerializedFrame SpdyTestUtil::ConstructSpdySettings(
     const spdy::SettingsMap& settings) {
   spdy::SpdySettingsIR settings_ir;
-  for (spdy::SettingsMap::const_iterator it = settings.begin();
-       it != settings.end(); ++it) {
+  for (auto it = settings.begin(); it != settings.end(); ++it) {
     settings_ir.AddSetting(it->first, it->second);
   }
   return spdy::SpdySerializedFrame(
@@ -1073,32 +1076,6 @@ HashValue GetTestHashValue(uint8_t label) {
   HashValue hash_value(HASH_VALUE_SHA256);
   memset(hash_value.data(), label, hash_value.size());
   return hash_value;
-}
-
-std::string GetTestPin(uint8_t label) {
-  HashValue hash_value = GetTestHashValue(label);
-  std::string base64;
-  base::Base64Encode(
-      base::StringPiece(reinterpret_cast<char*>(hash_value.data()),
-                        hash_value.size()),
-      &base64);
-
-  return std::string("pin-sha256=\"") + base64 + "\"";
-}
-
-void AddPin(TransportSecurityState* state,
-            const std::string& host,
-            uint8_t primary_label,
-            uint8_t backup_label) {
-  std::string primary_pin = GetTestPin(primary_label);
-  std::string backup_pin = GetTestPin(backup_label);
-  std::string header = "max-age = 10000; " + primary_pin + "; " + backup_pin;
-
-  // Construct a fake SSLInfo that will pass AddHPKPHeader's checks.
-  SSLInfo ssl_info;
-  ssl_info.is_issued_by_known_root = true;
-  ssl_info.public_key_hashes.push_back(GetTestHashValue(primary_label));
-  EXPECT_TRUE(state->AddHPKPHeader(host, header, ssl_info));
 }
 
 TestServerPushDelegate::TestServerPushDelegate() = default;

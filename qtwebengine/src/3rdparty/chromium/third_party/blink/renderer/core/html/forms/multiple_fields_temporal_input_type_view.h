@@ -55,13 +55,13 @@ class MultipleFieldsTemporalInputTypeView final
  public:
   static MultipleFieldsTemporalInputTypeView* Create(HTMLInputElement&,
                                                      BaseTemporalInputType&);
-  ~MultipleFieldsTemporalInputTypeView() override;
-  void Trace(blink::Visitor*) override;
 
- private:
   MultipleFieldsTemporalInputTypeView(HTMLInputElement&,
                                       BaseTemporalInputType&);
+  ~MultipleFieldsTemporalInputTypeView() override;
+  void Trace(Visitor*) override;
 
+ private:
   // DateTimeEditElement::EditControlOwner functions
   void DidBlurFromControl(WebFocusType) final;
   void DidFocusOnControl(WebFocusType) final;
@@ -101,10 +101,10 @@ class MultipleFieldsTemporalInputTypeView final
   void CreateShadowSubtree() final;
   void DestroyShadowSubtree() final;
   void DisabledAttributeChanged() final;
-  void ForwardEvent(Event*) final;
-  void HandleClickEvent(MouseEvent*) final;
+  void ForwardEvent(Event&) final;
+  void HandleClickEvent(MouseEvent&) final;
   void HandleFocusInEvent(Element* old_focused_element, WebFocusType) final;
-  void HandleKeydownEvent(KeyboardEvent*) final;
+  void HandleKeydownEvent(KeyboardEvent&) final;
   bool HasBadInput() const override;
   bool HasCustomFocusLogic() const final;
   void MinOrMaxAttributeChanged() final;

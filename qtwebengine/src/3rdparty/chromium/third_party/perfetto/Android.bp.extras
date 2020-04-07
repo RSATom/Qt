@@ -23,6 +23,7 @@ cc_library_static {
     "libprotobuf-cpp-lite",
   ],
   static_libs: [
+    "libgmock",
     "libgtest",
     "perfetto_src_tracing_ipc",
     "perfetto_trace_protos",
@@ -51,5 +52,15 @@ cc_library_static {
   ],
   cflags: [
     "-DPERFETTO_BUILD_WITH_ANDROID",
+  ],
+}
+
+java_library_host {
+  name: "perfetto_config-full",
+  proto: {
+      type: "full",
+  },
+  srcs: [
+    "protos/perfetto/config/perfetto_config.proto",
   ],
 }

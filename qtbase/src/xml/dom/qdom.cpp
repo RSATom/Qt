@@ -48,7 +48,9 @@
 #include <qhash.h>
 #include <qiodevice.h>
 #include <qlist.h>
-#include <qregexp.h>
+#if QT_CONFIG(regularexpression)
+#include <qregularexpression.h>
+#endif
 #if QT_CONFIG(textcodec)
 #include <qtextcodec.h>
 #endif
@@ -1949,7 +1951,7 @@ void QDomNodePrivate::setLocation(int lineNumber, int columnNumber)
     which return a QDomNode, e.g. firstChild(). You can make an
     independent (deep) copy of the node with cloneNode().
 
-    A QDomNode can be null, much like a null pointer. Creating a copy
+    A QDomNode can be null, much like \nullptr. Creating a copy
     of a null node results in another null node. It is not
     possible to modify a null node, but it is possible to assign another,
     possibly non-null node to it. In this case, the copy of the null node
@@ -5181,7 +5183,7 @@ QDomNodePrivate* QDomTextPrivate::cloneNode(bool deep)
 QDomTextPrivate* QDomTextPrivate::splitText(int offset)
 {
     if (!parent()) {
-        qWarning("QDomText::splitText  The node has no parent. So I can not split");
+        qWarning("QDomText::splitText  The node has no parent. So I cannot split");
         return 0;
     }
 
@@ -6430,7 +6432,7 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
     const QDomNodePrivate* n = first;
 
     if(encUsed == QDomNode::EncodingFromDocument) {
-#if QT_CONFIG(textcodec)
+#if QT_CONFIG(textcodec) && QT_CONFIG(regularexpression)
         const QDomNodePrivate* n = first;
 
         QTextCodec *codec = 0;
@@ -6438,11 +6440,11 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
         if (n && n->isProcessingInstruction() && n->nodeName() == QLatin1String("xml")) {
             // we have an XML declaration
             QString data = n->nodeValue();
-            QRegExp encoding(QString::fromLatin1("encoding\\s*=\\s*((\"([^\"]*)\")|('([^']*)'))"));
-            encoding.indexIn(data);
-            QString enc = encoding.cap(3);
+            QRegularExpression encoding(QString::fromLatin1("encoding\\s*=\\s*((\"([^\"]*)\")|('([^']*)'))"));
+            auto match = encoding.match(data);
+            QString enc = match.captured(3);
             if (enc.isEmpty())
-                enc = encoding.cap(5);
+                enc = match.captured(5);
             if (!enc.isEmpty())
                 codec = QTextCodec::codecForName(std::move(enc).toLatin1());
         }

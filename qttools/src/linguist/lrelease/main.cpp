@@ -28,9 +28,9 @@
 
 #include "translator.h"
 
-#include <qmakevfs.h>
-#include <qmakeparser.h>
-#include <profileevaluator.h>
+#include <profileutils.h>
+#include <projectdescriptionreader.h>
+#include <runqttool.h>
 
 #ifndef QT_BOOTSTRAPPED
 #include <QtCore/QCoreApplication>
@@ -49,14 +49,6 @@
 QT_USE_NAMESPACE
 
 #ifdef QT_BOOTSTRAPPED
-static QString binDir;
-
-static void initBinaryDir(
-#ifndef Q_OS_WIN
-        const char *argv0
-#endif
-        );
-
 struct LR {
     static inline QString tr(const char *sourceText, const char *comment = 0)
     {
@@ -85,11 +77,14 @@ static void printUsage()
 {
     printOut(LR::tr(
         "Usage:\n"
-        "    lrelease [options] project-file\n"
+        "    lrelease [options] -project project-file\n"
         "    lrelease [options] ts-files [-qm qm-file]\n\n"
         "lrelease is part of Qt's Linguist tool chain. It can be used as a\n"
         "stand-alone tool to convert XML-based translations files in the TS\n"
         "format into the 'compiled' QM format used by QTranslator objects.\n\n"
+        "Passing .pro files to lrelease is deprecated.\n"
+        "Please use the lrelease-pro tool instead, or use qmake's lrelease.prf\n"
+        "feature.\n\n"
         "Options:\n"
         "    -help  Display this information and exit\n"
         "    -idbased\n"
@@ -104,6 +99,9 @@ static void printUsage()
         "    -markuntranslated <prefix>\n"
         "           If a message has no real translation, use the source text\n"
         "           prefixed with the given string instead\n"
+        "    -project <filename>\n"
+        "           Name of a file containing the project's description in JSON format.\n"
+        "           Such a file may be generated from a .pro file using the lprodump tool.\n"
         "    -silent\n"
         "           Do not explain what is being done\n"
         "    -version\n"
@@ -178,50 +176,33 @@ static bool releaseTsFile(const QString& tsFileName,
     return releaseTranslator(tor, qmFileName, cd, removeIdentical);
 }
 
-static void print(const QString &fileName, int lineNo, const QString &msg)
+static QStringList translationsFromProjects(const Projects &projects, bool topLevel);
+
+static QStringList translationsFromProject(const Project &project, bool topLevel)
 {
-    if (lineNo > 0)
-        printErr(QString::fromLatin1("WARNING: %1:%2: %3\n").arg(fileName, QString::number(lineNo), msg));
-    else if (lineNo)
-        printErr(QString::fromLatin1("WARNING: %1: %2\n").arg(fileName, msg));
-    else
-        printErr(QString::fromLatin1("WARNING: %1\n").arg(msg));
+    QStringList result;
+    if (project.translations)
+        result = *project.translations;
+    result << translationsFromProjects(project.subProjects, false);
+    if (topLevel && result.isEmpty()) {
+        printErr(LR::tr("lrelease warning: Met no 'TRANSLATIONS' entry in project file '%1'\n")
+                 .arg(project.filePath));
+    }
+    return result;
 }
 
-class EvalHandler : public QMakeHandler {
-public:
-    virtual void message(int type, const QString &msg, const QString &fileName, int lineNo)
-    {
-        if (verbose && !(type & CumulativeEvalMessage) && (type & CategoryMask) == ErrorMessage)
-            print(fileName, lineNo, msg);
-    }
-
-    virtual void fileMessage(int type, const QString &msg)
-    {
-        if (verbose && !(type & CumulativeEvalMessage) && (type & CategoryMask) == ErrorMessage) {
-            // "Downgrade" errors, as we don't really care for them
-            printErr(QLatin1String("WARNING: ") + msg + QLatin1Char('\n'));
-        }
-    }
-
-    virtual void aboutToEval(ProFile *, ProFile *, EvalFileType) {}
-    virtual void doneWithEval(ProFile *) {}
-
-    bool verbose;
-};
-
-static EvalHandler evalHandler;
+static QStringList translationsFromProjects(const Projects &projects, bool topLevel = true)
+{
+    QStringList result;
+    for (const Project &p : projects)
+        result << translationsFromProject(p, topLevel);
+    return result;
+}
 
 int main(int argc, char **argv)
 {
-#ifdef QT_BOOTSTRAPPED
-    initBinaryDir(
-#ifndef Q_OS_WIN
-            argv[0]
-#endif
-            );
-#else
     QCoreApplication app(argc, argv);
+#ifndef QT_BOOTSTRAPPED
 #ifndef Q_OS_WIN32
     QTranslator translator;
     QTranslator qtTranslator;
@@ -241,6 +222,7 @@ int main(int argc, char **argv)
     Translator tor;
     QStringList inputFiles;
     QString outputFile;
+    QString projectDescriptionFile;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-compress")) {
@@ -264,6 +246,16 @@ int main(int argc, char **argv)
                 return 1;
             }
             cd.m_unTrPrefix = QString::fromLocal8Bit(argv[++i]);
+        } else if (!strcmp(argv[i], "-project")) {
+            if (i == argc - 1) {
+                printErr(LR::tr("The option -project requires a parameter.\n"));
+                return 1;
+            }
+            if (!projectDescriptionFile.isEmpty()) {
+                printErr(LR::tr("The option -project must appear only once.\n"));
+                return 1;
+            }
+            projectDescriptionFile = QString::fromLocal8Bit(argv[++i]);
         } else if (!strcmp(argv[i], "-silent")) {
             cd.m_verbose = false;
             continue;
@@ -290,65 +282,37 @@ int main(int argc, char **argv)
         }
     }
 
-    if (inputFiles.isEmpty()) {
+    if (inputFiles.isEmpty() && projectDescriptionFile.isEmpty()) {
         printUsage();
         return 1;
     }
 
+    QString errorString;
+    if (!extractProFiles(&inputFiles).isEmpty()) {
+        runQtTool(QStringLiteral("lrelease-pro"), app.arguments().mid(1));
+        return 0;
+    }
+
+    if (!projectDescriptionFile.isEmpty()) {
+        if (!inputFiles.isEmpty()) {
+            printErr(LR::tr("lrelease error: Do not specify TS files if -project is given.\n"));
+            return 1;
+        }
+        Projects projectDescription = readProjectDescription(projectDescriptionFile, &errorString);
+        if (!errorString.isEmpty()) {
+            printErr(LR::tr("lrelease error: %1\n").arg(errorString));
+            return 1;
+        }
+        inputFiles = translationsFromProjects(projectDescription);
+    }
+
     foreach (const QString &inputFile, inputFiles) {
-        if (inputFile.endsWith(QLatin1String(".pro"), Qt::CaseInsensitive)
-            || inputFile.endsWith(QLatin1String(".pri"), Qt::CaseInsensitive)) {
-            QFileInfo fi(inputFile);
-
-            evalHandler.verbose = cd.isVerbose();
-            ProFileGlobals option;
-            option.qmake_abslocation = QString::fromLocal8Bit(qgetenv("QMAKE"));
-            if (option.qmake_abslocation.isEmpty())
-#ifdef QT_BOOTSTRAPPED
-                option.qmake_abslocation = binDir + QLatin1String("/qmake");
-#else
-                option.qmake_abslocation = app.applicationDirPath() + QLatin1String("/qmake");
-#endif
-            option.initProperties();
-            QMakeVfs vfs;
-            QMakeParser parser(0, &vfs, &evalHandler);
-            ProFileEvaluator visitor(&option, &parser, &vfs, &evalHandler);
-            visitor.setCumulative(true);
-            visitor.setOutputDir(QDir::currentPath());
-
-            ProFile *pro;
-            if (!(pro = parser.parsedProFile(QDir::cleanPath(fi.absoluteFilePath()),
-                                             QMakeParser::ParseReportMissing))) {
-                continue;
-            }
-            if (!visitor.accept(pro)) {
-                printErr(LR::tr(
-                          "lrelease error: cannot process project file '%1'.\n")
-                          .arg(inputFile));
-                pro->deref();
-                continue;
-            }
-            pro->deref();
-
-            QStringList translations = visitor.values(QLatin1String("TRANSLATIONS"));
-            if (translations.isEmpty()) {
-                printErr(LR::tr(
-                          "lrelease warning: Met no 'TRANSLATIONS' entry in project file '%1'\n")
-                          .arg(inputFile));
-            } else {
-                QDir proDir(fi.absolutePath());
-                foreach (const QString &trans, translations)
-                    if (!releaseTsFile(QFileInfo(proDir, trans).filePath(), cd, removeIdentical))
-                        return 1;
-            }
+        if (outputFile.isEmpty()) {
+            if (!releaseTsFile(inputFile, cd, removeIdentical))
+                return 1;
         } else {
-            if (outputFile.isEmpty()) {
-                if (!releaseTsFile(inputFile, cd, removeIdentical))
-                    return 1;
-            } else {
-                if (!loadTsFile(tor, inputFile, cd.isVerbose()))
-                    return 1;
-            }
+            if (!loadTsFile(tor, inputFile, cd.isVerbose()))
+                return 1;
         }
     }
 
@@ -357,65 +321,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-
-#ifdef QT_BOOTSTRAPPED
-
-#ifdef Q_OS_WIN
-# include <windows.h>
-#endif
-
-static void initBinaryDir(
-#ifndef Q_OS_WIN
-        const char *_argv0
-#endif
-        )
-{
-#ifdef Q_OS_WIN
-    wchar_t module_name[MAX_PATH];
-    GetModuleFileName(0, module_name, MAX_PATH);
-    QFileInfo filePath = QString::fromWCharArray(module_name);
-    binDir = filePath.path();
-#else
-    QString argv0 = QFile::decodeName(QByteArray(_argv0));
-    QString absPath;
-
-    if (!argv0.isEmpty() && argv0.at(0) == QLatin1Char('/')) {
-        /*
-          If argv0 starts with a slash, it is already an absolute
-          file path.
-        */
-        absPath = argv0;
-    } else if (argv0.contains(QLatin1Char('/'))) {
-        /*
-          If argv0 contains one or more slashes, it is a file path
-          relative to the current directory.
-        */
-        absPath = QDir::current().absoluteFilePath(argv0);
-    } else {
-        /*
-          Otherwise, the file path has to be determined using the
-          PATH environment variable.
-        */
-        QByteArray pEnv = qgetenv("PATH");
-        QDir currentDir = QDir::current();
-        QStringList paths = QString::fromLocal8Bit(pEnv.constData()).split(QLatin1String(":"));
-        for (QStringList::const_iterator p = paths.constBegin(); p != paths.constEnd(); ++p) {
-            if ((*p).isEmpty())
-                continue;
-            QString candidate = currentDir.absoluteFilePath(*p + QLatin1Char('/') + argv0);
-            QFileInfo candidate_fi(candidate);
-            if (candidate_fi.exists() && !candidate_fi.isDir()) {
-                binDir = candidate_fi.canonicalPath();
-                return;
-            }
-        }
-        return;
-    }
-
-    QFileInfo fi(absPath);
-    if (fi.exists())
-        binDir = fi.canonicalPath();
-#endif
-}
-
-#endif // QT_BOOTSTRAPPED

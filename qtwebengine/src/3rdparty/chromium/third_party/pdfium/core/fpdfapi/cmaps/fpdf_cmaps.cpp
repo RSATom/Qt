@@ -15,15 +15,26 @@
 
 namespace {
 
+struct SingleCmap {
+  uint16_t code;
+  uint16_t cid;
+};
+
+struct RangeCmap {
+  uint16_t low;
+  uint16_t high;
+  uint16_t cid;
+};
+
 const FXCMAP_CMap* FindNextCMap(const FXCMAP_CMap* pMap) {
   return pMap->m_UseOffset ? pMap + pMap->m_UseOffset : nullptr;
 }
 
 }  // namespace
 
-const FXCMAP_CMap* FPDFAPI_FindEmbeddedCMap(const ByteString& bsName,
-                                            int charset,
-                                            int coding) {
+const FXCMAP_CMap* FindEmbeddedCMap(const ByteString& bsName,
+                                    int charset,
+                                    int coding) {
   CPDF_FontGlobals* pFontGlobals =
       CPDF_ModuleMgr::Get()->GetPageModule()->GetFontGlobals();
 
@@ -37,7 +48,7 @@ const FXCMAP_CMap* FPDFAPI_FindEmbeddedCMap(const ByteString& bsName,
   return nullptr;
 }
 
-uint16_t FPDFAPI_CIDFromCharCode(const FXCMAP_CMap* pMap, uint32_t charcode) {
+uint16_t CIDFromCharCode(const FXCMAP_CMap* pMap, uint32_t charcode) {
   ASSERT(pMap);
   const uint16_t loword = static_cast<uint16_t>(charcode);
   if (charcode >> 16) {
@@ -63,44 +74,44 @@ uint16_t FPDFAPI_CIDFromCharCode(const FXCMAP_CMap* pMap, uint32_t charcode) {
     return 0;
   }
 
-  while (pMap) {
-    if (!pMap->m_pWordMap)
-      return 0;
-    if (pMap->m_WordMapType == FXCMAP_CMap::Single) {
-      struct SingleCmap {
-        uint16_t code;
-        uint16_t cid;
-      };
-      const auto* begin = reinterpret_cast<const SingleCmap*>(pMap->m_pWordMap);
-      const auto* end = begin + pMap->m_WordCount;
-      const auto* found = std::lower_bound(
-          begin, end, loword, [](const SingleCmap& element, uint16_t code) {
-            return element.code < code;
-          });
-      if (found != end && found->code == loword)
-        return found->cid;
-    } else {
-      ASSERT(pMap->m_WordMapType == FXCMAP_CMap::Range);
-      struct RangeCmap {
-        uint16_t low;
-        uint16_t high;
-        uint16_t cid;
-      };
-      const auto* begin = reinterpret_cast<const RangeCmap*>(pMap->m_pWordMap);
-      const auto* end = begin + pMap->m_WordCount;
-      const auto* found = std::lower_bound(
-          begin, end, loword, [](const RangeCmap& element, uint16_t code) {
-            return element.high < code;
-          });
-      if (found != end && loword >= found->low && loword <= found->high)
-        return found->cid + loword - found->low;
+  while (pMap && pMap->m_pWordMap) {
+    switch (pMap->m_WordMapType) {
+      case FXCMAP_CMap::Single: {
+        const auto* begin =
+            reinterpret_cast<const SingleCmap*>(pMap->m_pWordMap);
+        const auto* end = begin + pMap->m_WordCount;
+        const auto* found = std::lower_bound(
+            begin, end, loword, [](const SingleCmap& element, uint16_t code) {
+              return element.code < code;
+            });
+        if (found != end && found->code == loword)
+          return found->cid;
+        break;
+      }
+      case FXCMAP_CMap::Range: {
+        const auto* begin =
+            reinterpret_cast<const RangeCmap*>(pMap->m_pWordMap);
+        const auto* end = begin + pMap->m_WordCount;
+        const auto* found = std::lower_bound(
+            begin, end, loword, [](const RangeCmap& element, uint16_t code) {
+              return element.high < code;
+            });
+        if (found != end && loword >= found->low && loword <= found->high)
+          return found->cid + loword - found->low;
+        break;
+      }
+      default: {
+        NOTREACHED();
+        break;
+      }
     }
     pMap = FindNextCMap(pMap);
   }
+
   return 0;
 }
 
-uint32_t FPDFAPI_CharCodeFromCID(const FXCMAP_CMap* pMap, uint16_t cid) {
+uint32_t CharCodeFromCID(const FXCMAP_CMap* pMap, uint16_t cid) {
   // TODO(dsinclair): This should be checking both pMap->m_WordMap and
   // pMap->m_DWordMap. There was a second while() but it was never reached as
   // the first always returns. Investigate and determine how this should
@@ -108,24 +119,31 @@ uint32_t FPDFAPI_CharCodeFromCID(const FXCMAP_CMap* pMap, uint16_t cid) {
   // second while loop.)
   ASSERT(pMap);
   while (pMap) {
-    if (pMap->m_WordMapType == FXCMAP_CMap::Single) {
-      const uint16_t* pCur = pMap->m_pWordMap;
-      const uint16_t* pEnd = pMap->m_pWordMap + pMap->m_WordCount * 2;
-      while (pCur < pEnd) {
-        if (pCur[1] == cid)
-          return pCur[0];
-
-        pCur += 2;
+    switch (pMap->m_WordMapType) {
+      case FXCMAP_CMap::Single: {
+        const auto* pCur =
+            reinterpret_cast<const SingleCmap*>(pMap->m_pWordMap);
+        const auto* pEnd = pCur + pMap->m_WordCount;
+        while (pCur < pEnd) {
+          if (pCur->cid == cid)
+            return pCur->code;
+          ++pCur;
+        }
+        break;
       }
-    } else {
-      ASSERT(pMap->m_WordMapType == FXCMAP_CMap::Range);
-      const uint16_t* pCur = pMap->m_pWordMap;
-      const uint16_t* pEnd = pMap->m_pWordMap + pMap->m_WordCount * 3;
-      while (pCur < pEnd) {
-        if (cid >= pCur[2] && cid <= pCur[2] + pCur[1] - pCur[0])
-          return pCur[0] + cid - pCur[2];
-
-        pCur += 3;
+      case FXCMAP_CMap::Range: {
+        const auto* pCur = reinterpret_cast<const RangeCmap*>(pMap->m_pWordMap);
+        const auto* pEnd = pCur + pMap->m_WordCount;
+        while (pCur < pEnd) {
+          if (cid >= pCur->cid && cid <= pCur->cid + pCur->high - pCur->low)
+            return pCur->low + cid - pCur->cid;
+          ++pCur;
+        }
+        break;
+      }
+      default: {
+        NOTREACHED();
+        break;
       }
     }
     pMap = FindNextCMap(pMap);

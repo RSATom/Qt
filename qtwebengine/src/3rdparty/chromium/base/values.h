@@ -80,7 +80,7 @@ class Value;
 //   }
 class BASE_EXPORT Value {
  public:
-  using BlobStorage = std::vector<char>;
+  using BlobStorage = std::vector<uint8_t>;
   using DictStorage = flat_map<std::string, std::unique_ptr<Value>>;
   using ListStorage = std::vector<Value>;
 
@@ -95,6 +95,10 @@ class BASE_EXPORT Value {
     LIST
     // Note: Do not add more types. See the file-level comment above for why.
   };
+
+  // Magic IsAlive signature to debug double frees.
+  // TODO(crbug.com/859477): Remove once root cause is found.
+  static constexpr uint32_t kMagicIsAlive = 0x15272f19;
 
   // For situations where you want to keep ownership of your buffer, this
   // factory method creates a new BinaryValue by copying the contents of the
@@ -130,7 +134,8 @@ class BASE_EXPORT Value {
   explicit Value(const char16* in_string16);
   explicit Value(StringPiece16 in_string16);
 
-  explicit Value(const BlobStorage& in_blob);
+  explicit Value(const std::vector<char>& in_blob);
+  explicit Value(base::span<const uint8_t> in_blob);
   explicit Value(BlobStorage&& in_blob) noexcept;
 
   explicit Value(const DictStorage& in_dict);
@@ -191,6 +196,16 @@ class BASE_EXPORT Value {
   //   auto* found = FindKey("foo", Type::DOUBLE);
   Value* FindKeyOfType(StringPiece key, Type type);
   const Value* FindKeyOfType(StringPiece key, Type type) const;
+
+  // These are convenience forms of |FindKey|. They return |base::nullopt| if
+  // the value is not found or doesn't have the type specified in the
+  // function's name.
+  base::Optional<bool> FindBoolKey(StringPiece key) const;
+  base::Optional<int> FindIntKey(StringPiece key) const;
+  base::Optional<double> FindDoubleKey(StringPiece key) const;
+
+  // |FindStringKey| returns |nullptr| if value is not found or not a string.
+  const std::string* FindStringKey(StringPiece key) const;
 
   // |SetKey| looks up |key| in the underlying dictionary and sets the mapped
   // value to |value|. If |key| could not be found, a new element is inserted.
@@ -301,6 +316,15 @@ class BASE_EXPORT Value {
   size_t DictSize() const;
   bool DictEmpty() const;
 
+  // Merge |dictionary| into this value. This is done recursively, i.e. any
+  // sub-dictionaries will be merged as well. In case of key collisions, the
+  // passed in dictionary takes precedence and data already present will be
+  // replaced. Values within |dictionary| are deep-copied, so |dictionary| may
+  // be freed any time after this call.
+  // Note: This fatally asserts if type() or dictionary->type() is not
+  // Type::DICTIONARY.
+  void MergeDictionary(const Value* dictionary);
+
   // These methods allow the convenient retrieval of the contents of the Value.
   // If the current object can be converted into the given type, the value is
   // returned through the |out_value| parameter and true is returned;
@@ -372,6 +396,10 @@ class BASE_EXPORT Value {
  private:
   void InternalMoveConstructFrom(Value&& that);
   void InternalCleanup();
+
+  // IsAlive member to debug double frees.
+  // TODO(crbug.com/859477): Remove once root cause is found.
+  uint32_t is_alive_ = kMagicIsAlive;
 
   DISALLOW_COPY_AND_ASSIGN(Value);
 };
@@ -490,16 +518,16 @@ class BASE_EXPORT DictionaryValue : public Value {
   bool GetWithoutPathExpansion(StringPiece key, const Value** out_value) const;
   // DEPRECATED, use Value::FindKey(key) instead.
   bool GetWithoutPathExpansion(StringPiece key, Value** out_value);
-  // DEPRECATED, use Value::FindKey(key) and Value::GetBool() instead.
+  // DEPRECATED, use Value::FindBoolKey(key) instead.
   bool GetBooleanWithoutPathExpansion(StringPiece key, bool* out_value) const;
-  // DEPRECATED, use Value::FindKey(key) and Value::GetInt() instead.
+  // DEPRECATED, use Value::FindIntKey(key) instead.
   bool GetIntegerWithoutPathExpansion(StringPiece key, int* out_value) const;
-  // DEPRECATED, use Value::FindKey(key) and Value::GetDouble() instead.
+  // DEPRECATED, use Value::FindDoubleKey(key) instead.
   bool GetDoubleWithoutPathExpansion(StringPiece key, double* out_value) const;
-  // DEPRECATED, use Value::FindKey(key) and Value::GetString() instead.
+  // DEPRECATED, use Value::FindStringKey(key) instead.
   bool GetStringWithoutPathExpansion(StringPiece key,
                                      std::string* out_value) const;
-  // DEPRECATED, use Value::FindKey(key) and Value::GetString() instead.
+  // DEPRECATED, use Value::FindStringKey(key) and UTF8ToUTF16() instead.
   bool GetStringWithoutPathExpansion(StringPiece key,
                                      string16* out_value) const;
   // DEPRECATED, use Value::FindKey(key) and Value's Dictionary API instead.
@@ -540,13 +568,6 @@ class BASE_EXPORT DictionaryValue : public Value {
   // Makes a copy of |this| but doesn't include empty dictionaries and lists in
   // the copy.  This never returns NULL, even if |this| itself is empty.
   std::unique_ptr<DictionaryValue> DeepCopyWithoutEmptyChildren() const;
-
-  // Merge |dictionary| into this dictionary. This is done recursively, i.e. any
-  // sub-dictionaries will be merged as well. In case of key collisions, the
-  // passed in dictionary takes precedence and data already present will be
-  // replaced. Values within |dictionary| are deep-copied, so |dictionary| may
-  // be freed any time after this call.
-  void MergeDictionary(const DictionaryValue* dictionary);
 
   // Swaps contents with the |other| dictionary.
   void Swap(DictionaryValue* other);

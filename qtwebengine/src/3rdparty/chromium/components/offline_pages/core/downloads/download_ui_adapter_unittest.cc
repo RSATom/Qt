@@ -84,11 +84,15 @@ class DownloadUIAdapterDelegate : public DownloadUIAdapter::Delegate {
   // DownloadUIAdapter::Delegate
   bool IsVisibleInUI(const ClientId& client_id) override { return is_visible; }
   void SetUIAdapter(DownloadUIAdapter* ui_adapter) override {}
-  void OpenItem(const OfflineItem& item, int64_t offline_id) override {}
+  void OpenItem(const OfflineItem& item,
+                int64_t offline_id,
+                LaunchLocation launch_location) override {}
   bool MaybeSuppressNotification(const std::string& origin,
                                  const ClientId& item) override {
     return maybe_suppress_notification_;
   }
+  MOCK_METHOD2(GetShareInfoForItem,
+               void(const ContentId&, OfflineContentProvider::ShareCallback));
 
   bool is_visible = true;
   bool maybe_suppress_notification_ = false;
@@ -347,19 +351,23 @@ TEST_F(DownloadUIAdapterTest, InitialItemConversion) {
   EXPECT_EQ(1UL, model->pages.size());
   EXPECT_EQ(kTestGuid1, model->pages[kTestOfflineId1].client_id.id);
 
-  auto callback = [](const base::Optional<OfflineItem>& item) {
-    EXPECT_EQ(kTestGuid1, item.value().id.id);
-    EXPECT_EQ(kTestUrl, item.value().page_url.spec());
-    EXPECT_EQ(OfflineItemState::COMPLETE, item.value().state);
-    EXPECT_EQ(0, item.value().received_bytes);
-    EXPECT_EQ(kTestFilePath, item.value().file_path);
-    EXPECT_EQ(kTestCreationTime, item.value().creation_time);
-    EXPECT_EQ(kFileSize, item.value().total_size_bytes);
-    EXPECT_EQ(kTestTitle, base::ASCIIToUTF16(item.value().title));
-  };
+  bool called = false;
+  auto callback =
+      base::BindLambdaForTesting([&](const base::Optional<OfflineItem>& item) {
+        EXPECT_EQ(kTestGuid1, item.value().id.id);
+        EXPECT_EQ(kTestUrl, item.value().page_url.spec());
+        EXPECT_EQ(OfflineItemState::COMPLETE, item.value().state);
+        EXPECT_EQ(kFileSize, item.value().received_bytes);
+        EXPECT_EQ(kTestFilePath, item.value().file_path);
+        EXPECT_EQ(kTestCreationTime, item.value().creation_time);
+        EXPECT_EQ(kFileSize, item.value().total_size_bytes);
+        EXPECT_EQ(kTestTitle, base::ASCIIToUTF16(item.value().title));
+        called = true;
+      });
 
-  adapter->GetItemById(kTestContentId1, base::BindOnce(callback));
+  adapter->GetItemById(kTestContentId1, callback);
   PumpLoop();
+  EXPECT_TRUE(called);
 }
 
 TEST_F(DownloadUIAdapterTest, ItemDeletedAdded) {
@@ -673,6 +681,18 @@ TEST_F(DownloadUIAdapterTest, GetVisualsForItemBadDecode) {
   histogram_tester.ExpectUniqueSample(
       "OfflinePages.DownloadUI.PrefetchedItemHasThumbnail", false, 1);
   EXPECT_TRUE(called);
+}
+
+TEST_F(DownloadUIAdapterTest, GetShareInfoForItem) {
+  AddInitialPage(kTestClientIdPrefetch);
+
+  EXPECT_CALL(*adapter_delegate, GetShareInfoForItem(kTestContentId1, _));
+  auto callback = base::BindLambdaForTesting(
+      [&](const offline_items_collection::ContentId& id,
+          std::unique_ptr<offline_items_collection::OfflineItemShareInfo>
+              share_info) {});
+  adapter->GetShareInfoForItem(kTestContentId1, callback);
+  PumpLoop();
 }
 
 TEST_F(DownloadUIAdapterTest, ThumbnailAddedUpdatesItem) {

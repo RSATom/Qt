@@ -311,6 +311,18 @@ LoadImageFunctionInfo COMPRESSED_RGBA8_ETC2_EAC_to_R8G8B8A8_UNORM(GLenum type)
     }
 }
 
+LoadImageFunctionInfo COMPRESSED_RGBA_BPTC_UNORM_EXT_to_default(GLenum type)
+{
+    switch (type)
+    {
+        case GL_UNSIGNED_BYTE:
+            return LoadImageFunctionInfo(LoadCompressedToNative<4, 4, 16>, true);
+        default:
+            UNREACHABLE();
+            return LoadImageFunctionInfo(UnreachableLoadFunction, true);
+    }
+}
+
 LoadImageFunctionInfo COMPRESSED_RGBA_S3TC_DXT1_EXT_to_default(GLenum type)
 {
     switch (type)
@@ -336,6 +348,30 @@ LoadImageFunctionInfo COMPRESSED_RGBA_S3TC_DXT3_ANGLE_to_default(GLenum type)
 }
 
 LoadImageFunctionInfo COMPRESSED_RGBA_S3TC_DXT5_ANGLE_to_default(GLenum type)
+{
+    switch (type)
+    {
+        case GL_UNSIGNED_BYTE:
+            return LoadImageFunctionInfo(LoadCompressedToNative<4, 4, 16>, true);
+        default:
+            UNREACHABLE();
+            return LoadImageFunctionInfo(UnreachableLoadFunction, true);
+    }
+}
+
+LoadImageFunctionInfo COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT_to_default(GLenum type)
+{
+    switch (type)
+    {
+        case GL_UNSIGNED_BYTE:
+            return LoadImageFunctionInfo(LoadCompressedToNative<4, 4, 16>, true);
+        default:
+            UNREACHABLE();
+            return LoadImageFunctionInfo(UnreachableLoadFunction, true);
+    }
+}
+
+LoadImageFunctionInfo COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT_to_default(GLenum type)
 {
     switch (type)
     {
@@ -440,6 +476,18 @@ COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_LOSSY_DECODE_ETC2_ANGLE_to_BC1_RGBA_UNORM_S
     {
         case GL_UNSIGNED_BYTE:
             return LoadImageFunctionInfo(LoadETC2SRGB8A1ToBC1, true);
+        default:
+            UNREACHABLE();
+            return LoadImageFunctionInfo(UnreachableLoadFunction, true);
+    }
+}
+
+LoadImageFunctionInfo COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT_to_default(GLenum type)
+{
+    switch (type)
+    {
+        case GL_UNSIGNED_BYTE:
+            return LoadImageFunctionInfo(LoadCompressedToNative<4, 4, 16>, true);
         default:
             UNREACHABLE();
             return LoadImageFunctionInfo(UnreachableLoadFunction, true);
@@ -1608,7 +1656,7 @@ LoadImageFunctionInfo STENCIL_INDEX8_to_default(GLenum type)
 
 }  // namespace
 
-LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleFormat)
+LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, FormatID angleFormat)
 {
     // clang-format off
     switch (internalFormat)
@@ -1617,9 +1665,9 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_FLOAT:
+                case FormatID::R16G16B16A16_FLOAT:
                     return ALPHA_to_R16G16B16A16_FLOAT;
-                case Format::ID::R32G32B32A32_FLOAT:
+                case FormatID::R32G32B32A32_FLOAT:
                     return ALPHA_to_R32G32B32A32_FLOAT;
                 default:
                     return ALPHA_to_default;
@@ -1633,11 +1681,11 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::A8_UNORM:
+                case FormatID::A8_UNORM:
                     return ALPHA8_EXT_to_A8_UNORM;
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return ALPHA8_EXT_to_R8G8B8A8_UNORM;
-                case Format::ID::R8_UNORM:
+                case FormatID::R8_UNORM:
                     return ALPHA8_EXT_to_R8_UNORM;
                 default:
                     break;
@@ -1648,7 +1696,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::B5G6R5_UNORM:
+                case FormatID::B5G6R5_UNORM:
                     return BGR565_ANGLEX_to_B5G6R5_UNORM;
                 default:
                     break;
@@ -1667,7 +1715,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_UNORM:
+                case FormatID::R16_UNORM:
                     return COMPRESSED_R11_EAC_to_R16_UNORM;
                 default:
                     break;
@@ -1678,7 +1726,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_UNORM:
+                case FormatID::R16G16_UNORM:
                     return COMPRESSED_RG11_EAC_to_R16G16_UNORM;
                 default:
                     break;
@@ -1689,7 +1737,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return COMPRESSED_RGB8_ETC2_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -1700,7 +1748,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::BC1_RGB_UNORM_BLOCK:
+                case FormatID::BC1_RGB_UNORM_BLOCK:
                     return COMPRESSED_RGB8_LOSSY_DECODE_ETC2_ANGLE_to_BC1_RGB_UNORM_BLOCK;
                 default:
                     break;
@@ -1711,7 +1759,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -1722,7 +1770,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::BC1_RGBA_UNORM_BLOCK:
+                case FormatID::BC1_RGBA_UNORM_BLOCK:
                     return COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_LOSSY_DECODE_ETC2_ANGLE_to_BC1_RGBA_UNORM_BLOCK;
                 default:
                     break;
@@ -1733,26 +1781,32 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return COMPRESSED_RGBA8_ETC2_EAC_to_R8G8B8A8_UNORM;
                 default:
                     break;
             }
             break;
         }
+        case GL_COMPRESSED_RGBA_BPTC_UNORM_EXT:
+            return COMPRESSED_RGBA_BPTC_UNORM_EXT_to_default;
         case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
             return COMPRESSED_RGBA_S3TC_DXT1_EXT_to_default;
         case GL_COMPRESSED_RGBA_S3TC_DXT3_ANGLE:
             return COMPRESSED_RGBA_S3TC_DXT3_ANGLE_to_default;
         case GL_COMPRESSED_RGBA_S3TC_DXT5_ANGLE:
             return COMPRESSED_RGBA_S3TC_DXT5_ANGLE_to_default;
+        case GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT:
+            return COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT_to_default;
+        case GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT:
+            return COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT_to_default;
         case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
             return COMPRESSED_RGB_S3TC_DXT1_EXT_to_default;
         case GL_COMPRESSED_SIGNED_R11_EAC:
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_SNORM:
+                case FormatID::R16_SNORM:
                     return COMPRESSED_SIGNED_R11_EAC_to_R16_SNORM;
                 default:
                     break;
@@ -1763,7 +1817,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_SNORM:
+                case FormatID::R16G16_SNORM:
                     return COMPRESSED_SIGNED_RG11_EAC_to_R16G16_SNORM;
                 default:
                     break;
@@ -1774,7 +1828,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM_SRGB:
+                case FormatID::R8G8B8A8_UNORM_SRGB:
                     return COMPRESSED_SRGB8_ALPHA8_ETC2_EAC_to_R8G8B8A8_UNORM_SRGB;
                 default:
                     break;
@@ -1785,7 +1839,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM_SRGB:
+                case FormatID::R8G8B8A8_UNORM_SRGB:
                     return COMPRESSED_SRGB8_ETC2_to_R8G8B8A8_UNORM_SRGB;
                 default:
                     break;
@@ -1796,7 +1850,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::BC1_RGB_UNORM_SRGB_BLOCK:
+                case FormatID::BC1_RGB_UNORM_SRGB_BLOCK:
                     return COMPRESSED_SRGB8_LOSSY_DECODE_ETC2_ANGLE_to_BC1_RGB_UNORM_SRGB_BLOCK;
                 default:
                     break;
@@ -1807,7 +1861,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM_SRGB:
+                case FormatID::R8G8B8A8_UNORM_SRGB:
                     return COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2_to_R8G8B8A8_UNORM_SRGB;
                 default:
                     break;
@@ -1818,13 +1872,15 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::BC1_RGBA_UNORM_SRGB_BLOCK:
+                case FormatID::BC1_RGBA_UNORM_SRGB_BLOCK:
                     return COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_LOSSY_DECODE_ETC2_ANGLE_to_BC1_RGBA_UNORM_SRGB_BLOCK;
                 default:
                     break;
             }
             break;
         }
+        case GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT:
+            return COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT_to_default;
         case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
             return COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT_to_default;
         case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
@@ -1837,7 +1893,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::D24_UNORM_S8_UINT:
+                case FormatID::D24_UNORM_S8_UINT:
                     return DEPTH24_STENCIL8_to_D24_UNORM_S8_UINT;
                 default:
                     break;
@@ -1848,7 +1904,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::D32_FLOAT_S8X24_UINT:
+                case FormatID::D32_FLOAT_S8X24_UINT:
                     return DEPTH32F_STENCIL8_to_D32_FLOAT_S8X24_UINT;
                 default:
                     break;
@@ -1859,7 +1915,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::D16_UNORM:
+                case FormatID::D16_UNORM:
                     return DEPTH_COMPONENT16_to_D16_UNORM;
                 default:
                     break;
@@ -1870,7 +1926,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::D24_UNORM_S8_UINT:
+                case FormatID::D24_UNORM_S8_UINT:
                     return DEPTH_COMPONENT24_to_D24_UNORM_S8_UINT;
                 default:
                     break;
@@ -1881,7 +1937,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::D32_FLOAT:
+                case FormatID::D32_FLOAT:
                     return DEPTH_COMPONENT32F_to_D32_FLOAT;
                 default:
                     break;
@@ -1894,7 +1950,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::BC1_RGB_UNORM_BLOCK:
+                case FormatID::BC1_RGB_UNORM_BLOCK:
                     return ETC1_RGB8_LOSSY_DECODE_ANGLE_to_BC1_RGB_UNORM_BLOCK;
                 default:
                     break;
@@ -1905,7 +1961,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return ETC1_RGB8_OES_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -1916,9 +1972,9 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_FLOAT:
+                case FormatID::R16G16B16A16_FLOAT:
                     return LUMINANCE_to_R16G16B16A16_FLOAT;
-                case Format::ID::R32G32B32A32_FLOAT:
+                case FormatID::R32G32B32A32_FLOAT:
                     return LUMINANCE_to_R32G32B32A32_FLOAT;
                 default:
                     return LUMINANCE_to_default;
@@ -1932,9 +1988,9 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return LUMINANCE8_ALPHA8_EXT_to_R8G8B8A8_UNORM;
-                case Format::ID::R8G8_UNORM:
+                case FormatID::R8G8_UNORM:
                     return LUMINANCE8_ALPHA8_EXT_to_R8G8_UNORM;
                 default:
                     break;
@@ -1945,9 +2001,9 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return LUMINANCE8_EXT_to_R8G8B8A8_UNORM;
-                case Format::ID::R8_UNORM:
+                case FormatID::R8_UNORM:
                     return LUMINANCE8_EXT_to_R8_UNORM;
                 default:
                     break;
@@ -1958,9 +2014,9 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_FLOAT:
+                case FormatID::R16G16B16A16_FLOAT:
                     return LUMINANCE_ALPHA_to_R16G16B16A16_FLOAT;
-                case Format::ID::R32G32B32A32_FLOAT:
+                case FormatID::R32G32B32A32_FLOAT:
                     return LUMINANCE_ALPHA_to_R32G32B32A32_FLOAT;
                 default:
                     return LUMINANCE_ALPHA_to_default;
@@ -1974,7 +2030,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R11G11B10_FLOAT:
+                case FormatID::R11G11B10_FLOAT:
                     return R11F_G11F_B10F_to_R11G11B10_FLOAT;
                 default:
                     break;
@@ -1985,7 +2041,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_FLOAT:
+                case FormatID::R16_FLOAT:
                     return R16F_to_R16_FLOAT;
                 default:
                     break;
@@ -1996,7 +2052,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_SINT:
+                case FormatID::R16_SINT:
                     return R16I_to_R16_SINT;
                 default:
                     break;
@@ -2007,7 +2063,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_UINT:
+                case FormatID::R16_UINT:
                     return R16UI_to_R16_UINT;
                 default:
                     break;
@@ -2018,7 +2074,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_UNORM:
+                case FormatID::R16_UNORM:
                     return R16_EXT_to_R16_UNORM;
                 default:
                     break;
@@ -2029,7 +2085,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16_SNORM:
+                case FormatID::R16_SNORM:
                     return R16_SNORM_EXT_to_R16_SNORM;
                 default:
                     break;
@@ -2040,7 +2096,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32_FLOAT:
+                case FormatID::R32_FLOAT:
                     return R32F_to_R32_FLOAT;
                 default:
                     break;
@@ -2051,7 +2107,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32_SINT:
+                case FormatID::R32_SINT:
                     return R32I_to_R32_SINT;
                 default:
                     break;
@@ -2062,7 +2118,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32_UINT:
+                case FormatID::R32_UINT:
                     return R32UI_to_R32_UINT;
                 default:
                     break;
@@ -2073,7 +2129,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8_UNORM:
+                case FormatID::R8_UNORM:
                     return R8_to_R8_UNORM;
                 default:
                     break;
@@ -2084,7 +2140,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8_SINT:
+                case FormatID::R8_SINT:
                     return R8I_to_R8_SINT;
                 default:
                     break;
@@ -2095,7 +2151,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8_UINT:
+                case FormatID::R8_UINT:
                     return R8UI_to_R8_UINT;
                 default:
                     break;
@@ -2106,7 +2162,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8_SNORM:
+                case FormatID::R8_SNORM:
                     return R8_SNORM_to_R8_SNORM;
                 default:
                     break;
@@ -2117,7 +2173,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_FLOAT:
+                case FormatID::R16G16_FLOAT:
                     return RG16F_to_R16G16_FLOAT;
                 default:
                     break;
@@ -2128,7 +2184,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_SINT:
+                case FormatID::R16G16_SINT:
                     return RG16I_to_R16G16_SINT;
                 default:
                     break;
@@ -2139,7 +2195,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_UINT:
+                case FormatID::R16G16_UINT:
                     return RG16UI_to_R16G16_UINT;
                 default:
                     break;
@@ -2150,7 +2206,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_UNORM:
+                case FormatID::R16G16_UNORM:
                     return RG16_EXT_to_R16G16_UNORM;
                 default:
                     break;
@@ -2161,7 +2217,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16_SNORM:
+                case FormatID::R16G16_SNORM:
                     return RG16_SNORM_EXT_to_R16G16_SNORM;
                 default:
                     break;
@@ -2172,7 +2228,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32_FLOAT:
+                case FormatID::R32G32_FLOAT:
                     return RG32F_to_R32G32_FLOAT;
                 default:
                     break;
@@ -2183,7 +2239,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32_SINT:
+                case FormatID::R32G32_SINT:
                     return RG32I_to_R32G32_SINT;
                 default:
                     break;
@@ -2194,7 +2250,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32_UINT:
+                case FormatID::R32G32_UINT:
                     return RG32UI_to_R32G32_UINT;
                 default:
                     break;
@@ -2205,7 +2261,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8_UNORM:
+                case FormatID::R8G8_UNORM:
                     return RG8_to_R8G8_UNORM;
                 default:
                     break;
@@ -2216,7 +2272,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8_SINT:
+                case FormatID::R8G8_SINT:
                     return RG8I_to_R8G8_SINT;
                 default:
                     break;
@@ -2227,7 +2283,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8_UINT:
+                case FormatID::R8G8_UINT:
                     return RG8UI_to_R8G8_UINT;
                 default:
                     break;
@@ -2238,7 +2294,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8_SNORM:
+                case FormatID::R8G8_SNORM:
                     return RG8_SNORM_to_R8G8_SNORM;
                 default:
                     break;
@@ -2251,7 +2307,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R10G10B10A2_UNORM:
+                case FormatID::R10G10B10A2_UNORM:
                     return RGB10_A2_to_R10G10B10A2_UNORM;
                 default:
                     break;
@@ -2262,7 +2318,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R10G10B10A2_UINT:
+                case FormatID::R10G10B10A2_UINT:
                     return RGB10_A2UI_to_R10G10B10A2_UINT;
                 default:
                     break;
@@ -2273,7 +2329,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_FLOAT:
+                case FormatID::R16G16B16A16_FLOAT:
                     return RGB16F_to_R16G16B16A16_FLOAT;
                 default:
                     break;
@@ -2284,7 +2340,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_SINT:
+                case FormatID::R16G16B16A16_SINT:
                     return RGB16I_to_R16G16B16A16_SINT;
                 default:
                     break;
@@ -2295,7 +2351,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_UINT:
+                case FormatID::R16G16B16A16_UINT:
                     return RGB16UI_to_R16G16B16A16_UINT;
                 default:
                     break;
@@ -2306,7 +2362,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_UNORM:
+                case FormatID::R16G16B16A16_UNORM:
                     return RGB16_EXT_to_R16G16B16A16_UNORM;
                 default:
                     break;
@@ -2317,7 +2373,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_SNORM:
+                case FormatID::R16G16B16A16_SNORM:
                     return RGB16_SNORM_EXT_to_R16G16B16A16_SNORM;
                 default:
                     break;
@@ -2328,7 +2384,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32B32A32_FLOAT:
+                case FormatID::R32G32B32A32_FLOAT:
                     return RGB32F_to_R32G32B32A32_FLOAT;
                 default:
                     break;
@@ -2339,7 +2395,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32B32A32_SINT:
+                case FormatID::R32G32B32A32_SINT:
                     return RGB32I_to_R32G32B32A32_SINT;
                 default:
                     break;
@@ -2350,7 +2406,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32B32A32_UINT:
+                case FormatID::R32G32B32A32_UINT:
                     return RGB32UI_to_R32G32B32A32_UINT;
                 default:
                     break;
@@ -2361,11 +2417,11 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::B5G6R5_UNORM:
+                case FormatID::B5G6R5_UNORM:
                     return RGB565_to_B5G6R5_UNORM;
-                case Format::ID::R5G6B5_UNORM:
+                case FormatID::R5G6B5_UNORM:
                     return RGB565_to_R5G6B5_UNORM;
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return RGB565_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -2376,11 +2432,11 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::A1R5G5B5_UNORM:
+                case FormatID::A1R5G5B5_UNORM:
                     return RGB5_A1_to_A1R5G5B5_UNORM;
-                case Format::ID::B5G5R5A1_UNORM:
+                case FormatID::B5G5R5A1_UNORM:
                     return RGB5_A1_to_B5G5R5A1_UNORM;
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return RGB5_A1_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -2391,7 +2447,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return RGB8_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -2402,7 +2458,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_SINT:
+                case FormatID::R8G8B8A8_SINT:
                     return RGB8I_to_R8G8B8A8_SINT;
                 default:
                     break;
@@ -2413,7 +2469,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UINT:
+                case FormatID::R8G8B8A8_UINT:
                     return RGB8UI_to_R8G8B8A8_UINT;
                 default:
                     break;
@@ -2424,7 +2480,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_SNORM:
+                case FormatID::R8G8B8A8_SNORM:
                     return RGB8_SNORM_to_R8G8B8A8_SNORM;
                 default:
                     break;
@@ -2435,7 +2491,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R9G9B9E5_SHAREDEXP:
+                case FormatID::R9G9B9E5_SHAREDEXP:
                     return RGB9_E5_to_R9G9B9E5_SHAREDEXP;
                 default:
                     break;
@@ -2448,7 +2504,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_FLOAT:
+                case FormatID::R16G16B16A16_FLOAT:
                     return RGBA16F_to_R16G16B16A16_FLOAT;
                 default:
                     break;
@@ -2459,7 +2515,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_SINT:
+                case FormatID::R16G16B16A16_SINT:
                     return RGBA16I_to_R16G16B16A16_SINT;
                 default:
                     break;
@@ -2470,7 +2526,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_UINT:
+                case FormatID::R16G16B16A16_UINT:
                     return RGBA16UI_to_R16G16B16A16_UINT;
                 default:
                     break;
@@ -2481,7 +2537,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_UNORM:
+                case FormatID::R16G16B16A16_UNORM:
                     return RGBA16_EXT_to_R16G16B16A16_UNORM;
                 default:
                     break;
@@ -2492,7 +2548,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R16G16B16A16_SNORM:
+                case FormatID::R16G16B16A16_SNORM:
                     return RGBA16_SNORM_EXT_to_R16G16B16A16_SNORM;
                 default:
                     break;
@@ -2503,7 +2559,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32B32A32_FLOAT:
+                case FormatID::R32G32B32A32_FLOAT:
                     return RGBA32F_to_R32G32B32A32_FLOAT;
                 default:
                     break;
@@ -2514,7 +2570,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32B32A32_SINT:
+                case FormatID::R32G32B32A32_SINT:
                     return RGBA32I_to_R32G32B32A32_SINT;
                 default:
                     break;
@@ -2525,7 +2581,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R32G32B32A32_UINT:
+                case FormatID::R32G32B32A32_UINT:
                     return RGBA32UI_to_R32G32B32A32_UINT;
                 default:
                     break;
@@ -2536,9 +2592,9 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::B4G4R4A4_UNORM:
+                case FormatID::B4G4R4A4_UNORM:
                     return RGBA4_to_B4G4R4A4_UNORM;
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return RGBA4_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -2549,7 +2605,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM:
+                case FormatID::R8G8B8A8_UNORM:
                     return RGBA8_to_R8G8B8A8_UNORM;
                 default:
                     break;
@@ -2560,7 +2616,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_SINT:
+                case FormatID::R8G8B8A8_SINT:
                     return RGBA8I_to_R8G8B8A8_SINT;
                 default:
                     break;
@@ -2571,7 +2627,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UINT:
+                case FormatID::R8G8B8A8_UINT:
                     return RGBA8UI_to_R8G8B8A8_UINT;
                 default:
                     break;
@@ -2582,7 +2638,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_SNORM:
+                case FormatID::R8G8B8A8_SNORM:
                     return RGBA8_SNORM_to_R8G8B8A8_SNORM;
                 default:
                     break;
@@ -2593,7 +2649,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM_SRGB:
+                case FormatID::R8G8B8A8_UNORM_SRGB:
                     return SRGB8_to_R8G8B8A8_UNORM_SRGB;
                 default:
                     break;
@@ -2604,7 +2660,7 @@ LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, Format::ID angleForma
         {
             switch (angleFormat)
             {
-                case Format::ID::R8G8B8A8_UNORM_SRGB:
+                case FormatID::R8G8B8A8_UNORM_SRGB:
                     return SRGB8_ALPHA8_to_R8G8B8A8_UNORM_SRGB;
                 default:
                     break;

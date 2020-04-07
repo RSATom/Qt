@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-library base.fuchsia.test_fidl;
+library base.fuchsia.testfidl;
 
 [Discoverable]
 interface TestInterface {
-    1: Add(int32 a, int32 b) -> (int32 sum);
+  Add(int32 a, int32 b) -> (int32 sum);
 };

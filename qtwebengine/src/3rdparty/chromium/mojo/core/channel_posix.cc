@@ -48,7 +48,7 @@ class MessageView {
       : message_(std::move(message)),
         offset_(offset),
         handles_(message_->TakeHandlesForTransport()) {
-    DCHECK_GT(message_->data_num_bytes(), offset_);
+    DCHECK(!message_->data_num_bytes() || message_->data_num_bytes() > offset_);
   }
 
   MessageView(MessageView&& other) { *this = std::move(other); }
@@ -70,8 +70,10 @@ class MessageView {
 
   size_t data_offset() const { return offset_; }
   void advance_data_offset(size_t num_bytes) {
-    DCHECK_GT(message_->data_num_bytes(), offset_ + num_bytes);
-    offset_ += num_bytes;
+    if (num_bytes) {
+      DCHECK_GT(message_->data_num_bytes(), offset_ + num_bytes);
+      offset_ += num_bytes;
+    }
   }
 
   std::vector<PlatformHandleInTransit> TakeHandles() {
@@ -100,8 +102,11 @@ class ChannelPosix : public Channel,
  public:
   ChannelPosix(Delegate* delegate,
                ConnectionParams connection_params,
+               HandlePolicy handle_policy,
                scoped_refptr<base::TaskRunner> io_task_runner)
-      : Channel(delegate), self_(this), io_task_runner_(io_task_runner) {
+      : Channel(delegate, handle_policy),
+        self_(this),
+        io_task_runner_(io_task_runner) {
     if (connection_params.server_endpoint().is_valid())
       server_ = connection_params.TakeServerEndpoint();
     else
@@ -470,6 +475,11 @@ class ChannelPosix : public Channel,
                  (errno != EAGAIN && errno != EWOULDBLOCK)) {
         read_error = true;
         break;
+      } else {
+        // We expect more data but there is none to read. The
+        // FileDescriptorWatcher will wake us up again once there is.
+        DCHECK(errno == EAGAIN || errno == EWOULDBLOCK);
+        return;
       }
     } while (bytes_read == buffer_capacity &&
              total_bytes_read < kMaxBatchReadCapacity && next_read_size > 0);
@@ -527,11 +537,11 @@ class ChannelPosix : public Channel,
           // letting us know that it is now safe to close the file
           // descriptor. For more information, see:
           // http://crbug.com/298276
-          MessagePtr fds_message(
-              new Channel::Message(sizeof(fds[0]) * fds.size(), 0,
-                                   Message::MessageType::HANDLES_SENT));
-          memcpy(fds_message->mutable_payload(), fds.data(),
-                 sizeof(fds[0]) * fds.size());
+          MessagePtr fds_message(new Channel::Message(
+              sizeof(int) * fds.size(), 0, Message::MessageType::HANDLES_SENT));
+          int* fd_data = reinterpret_cast<int*>(fds_message->mutable_payload());
+          for (size_t i = 0; i < fds.size(); ++i)
+            fd_data[i] = fds[i].get();
           outgoing_messages_.emplace_back(std::move(fds_message), 0);
           {
             base::AutoLock l(fds_to_close_lock_);
@@ -759,8 +769,9 @@ class ChannelPosix : public Channel,
 scoped_refptr<Channel> Channel::Create(
     Delegate* delegate,
     ConnectionParams connection_params,
+    HandlePolicy handle_policy,
     scoped_refptr<base::TaskRunner> io_task_runner) {
-  return new ChannelPosix(delegate, std::move(connection_params),
+  return new ChannelPosix(delegate, std::move(connection_params), handle_policy,
                           io_task_runner);
 }
 

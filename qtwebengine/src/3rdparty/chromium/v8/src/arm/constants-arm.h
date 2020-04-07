@@ -36,21 +36,23 @@ inline int DecodeConstantPoolLength(int instr) {
 }
 
 // Number of registers in normal ARM mode.
-const int kNumRegisters = 16;
+constexpr int kNumRegisters = 16;
+constexpr int kRegSizeInBitsLog2 = 5;
 
 // VFP support.
-const int kNumVFPSingleRegisters = 32;
-const int kNumVFPDoubleRegisters = 32;
-const int kNumVFPRegisters = kNumVFPSingleRegisters + kNumVFPDoubleRegisters;
+constexpr int kNumVFPSingleRegisters = 32;
+constexpr int kNumVFPDoubleRegisters = 32;
+constexpr int kNumVFPRegisters =
+    kNumVFPSingleRegisters + kNumVFPDoubleRegisters;
 
 // PC is register 15.
-const int kPCRegister = 15;
-const int kNoRegister = -1;
+constexpr int kPCRegister = 15;
+constexpr int kNoRegister = -1;
 
 // Used in embedded constant pool builder - max reach in bits for
 // various load instructions (unsigned)
-const int kLdrMaxReachBits = 12;
-const int kVldrMaxReachBits = 10;
+constexpr int kLdrMaxReachBits = 12;
+constexpr int kVldrMaxReachBits = 10;
 
 // Actual value of root register is offset from the root array's start
 // to take advantage of negative displacement values. Loads allow a uint12
@@ -102,31 +104,6 @@ enum Condition {
 inline Condition NegateCondition(Condition cond) {
   DCHECK(cond != al);
   return static_cast<Condition>(cond ^ ne);
-}
-
-
-// Commute a condition such that {a cond b == b cond' a}.
-inline Condition CommuteCondition(Condition cond) {
-  switch (cond) {
-    case lo:
-      return hi;
-    case hi:
-      return lo;
-    case hs:
-      return ls;
-    case ls:
-      return hs;
-    case lt:
-      return gt;
-    case gt:
-      return lt;
-    case ge:
-      return le;
-    case le:
-      return ge;
-    default:
-      return cond;
-  }
 }
 
 
@@ -461,14 +438,12 @@ inline Hint NegateHint(Hint ignored) { return no_hint; }
 //   return ((type == 0) || (type == 1)) && instr->HasS();
 // }
 //
+
+constexpr uint8_t kInstrSize = 4;
+constexpr uint8_t kInstrSizeLog2 = 2;
+
 class Instruction {
  public:
-  enum {
-    kInstrSize = 4,
-    kInstrSizeLog2 = 2,
-    kPCReadOffset = 8
-  };
-
   // Difference between address of current opcode and value read from pc
   // register.
   static constexpr int kPcLoadDelta = 8;

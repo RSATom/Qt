@@ -29,11 +29,13 @@ class MockMediaSessionObserver : public MediaSessionObserver {
         closure_on_actions_change_(closure_on_actions_change) {}
 
   void MediaSessionActionsChanged(
-      const std::set<blink::mojom::MediaSessionAction>& actions) override {
-    // The actions might be empty when the service becomes routed for the first
-    // time.
-    if (actions.size() == 1)
+      const std::set<media_session::mojom::MediaSessionAction>& actions)
+      override {
+    // Wait for the page action to be present.
+    if (base::ContainsKey(
+            actions, media_session::mojom::MediaSessionAction::kSeekForward)) {
       closure_on_actions_change_.Run();
+    }
   }
 
  private:
@@ -89,7 +91,7 @@ void NavigateToURLAndWaitForFinish(Shell* window, const GURL& url) {
 char kSetUpMediaSessionScript[] =
     "navigator.mediaSession.playbackState = \"playing\";\n"
     "navigator.mediaSession.metadata = new MediaMetadata({ title: \"foo\" });\n"
-    "navigator.mediaSession.setActionHandler(\"play\", _ => {});";
+    "navigator.mediaSession.setActionHandler(\"seekforward\", _ => {});";
 
 const int kPlayerId = 0;
 

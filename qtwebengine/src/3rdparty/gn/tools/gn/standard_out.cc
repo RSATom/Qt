@@ -35,6 +35,9 @@ bool is_console = false;
 
 bool is_markdown = false;
 
+// True while output is going into a markdown ```...``` code block.
+bool in_body = false;
+
 void EnsureInitialized() {
   if (initialized)
     return;
@@ -75,8 +78,8 @@ void WriteToStdOut(const std::string& output) {
 #endif  // !defined(OS_WIN)
 
 void OutputMarkdownDec(TextDecoration dec) {
-  // The markdown rendering turns "dim" text to italics and any
-  // other colored text to bold.
+// The markdown rendering turns "dim" text to italics and any
+// other colored text to bold.
 
 #if defined(OS_WIN)
   DWORD written = 0;
@@ -96,7 +99,9 @@ void OutputMarkdownDec(TextDecoration dec) {
 
 #if defined(OS_WIN)
 
-void OutputString(const std::string& output, TextDecoration dec) {
+void OutputString(const std::string& output,
+                  TextDecoration dec,
+                  HtmlEscaping escaping) {
   EnsureInitialized();
   DWORD written = 0;
 
@@ -135,6 +140,12 @@ void OutputString(const std::string& output, TextDecoration dec) {
     // at least escape the instances where this shows up in a heading.
     base::ReplaceSubstringsAfterOffset(&tmpstr, 0, "--", "\\--");
   }
+  if (is_markdown && !in_body && escaping == DEFAULT_ESCAPING) {
+    // Markdown auto-escapes < and > in code sections (and converts &lt; to
+    // &amp;tl; there), but not elsewhere.
+    base::ReplaceSubstringsAfterOffset(&tmpstr, 0, "<", "&lt;");
+    base::ReplaceSubstringsAfterOffset(&tmpstr, 0, ">", "&gt;");
+  }
   ::WriteFile(hstdout, tmpstr.c_str(), static_cast<DWORD>(tmpstr.size()),
               &written, nullptr);
 
@@ -147,7 +158,9 @@ void OutputString(const std::string& output, TextDecoration dec) {
 
 #else
 
-void OutputString(const std::string& output, TextDecoration dec) {
+void OutputString(const std::string& output,
+                  TextDecoration dec,
+                  HtmlEscaping escaping) {
   EnsureInitialized();
   if (is_markdown) {
     OutputMarkdownDec(dec);
@@ -168,7 +181,7 @@ void OutputString(const std::string& output, TextDecoration dec) {
         WriteToStdOut("\e[34m\e[1m");
         break;
       case DECORATION_YELLOW:
-        WriteToStdOut("\e[33m\e[1m");
+        WriteToStdOut("\e[33m");
         break;
     }
   }
@@ -180,6 +193,12 @@ void OutputString(const std::string& output, TextDecoration dec) {
     // Figuring out all instances of this might be difficult, but we can
     // at least escape the instances where this shows up in a heading.
     base::ReplaceSubstringsAfterOffset(&tmpstr, 0, "--", "\\--");
+  }
+  if (is_markdown && !in_body && escaping == DEFAULT_ESCAPING) {
+    // Markdown auto-escapes < and > in code sections (and converts &lt; to
+    // &amp;tl; there), but not elsewhere.
+    base::ReplaceSubstringsAfterOffset(&tmpstr, 0, "<", "&lt;");
+    base::ReplaceSubstringsAfterOffset(&tmpstr, 0, ">", "&gt;");
   }
   WriteToStdOut(tmpstr.data());
 
@@ -207,25 +226,23 @@ void PrintSectionHelp(const std::string& line,
   }
 }
 
-void PrintShortHelp(const std::string& line) {
+void PrintShortHelp(const std::string& line, const std::string& link_tag) {
   EnsureInitialized();
+
+  if (is_markdown) {
+    if (link_tag.empty())
+      OutputString("    *   " + line + "\n");
+    else
+      OutputString("    *   [" + line + "](#" + link_tag + ")\n");
+    return;
+  }
 
   size_t colon_offset = line.find(':');
   size_t first_normal = 0;
   if (colon_offset != std::string::npos) {
-    if (is_markdown) {
-      OutputString("    *   [" + line + "](#" + line.substr(0, colon_offset) +
-                   ")\n");
-    } else {
-      OutputString("  " + line.substr(0, colon_offset), DECORATION_YELLOW);
-      first_normal = colon_offset;
-    }
-  } else if (is_markdown) {
-    OutputString("    *   [" + line + "](" + line + ")\n");
+    OutputString("  " + line.substr(0, colon_offset), DECORATION_YELLOW);
+    first_normal = colon_offset;
   }
-
-  if (is_markdown)
-    return;
 
   // See if the colon is followed by a " [" and if so, dim the contents of [ ].
   if (first_normal > 0 && line.size() > first_normal + 2 &&
@@ -248,7 +265,7 @@ void PrintLongHelp(const std::string& text, const std::string& tag) {
   EnsureInitialized();
 
   bool first_header = true;
-  bool in_body = false;
+  in_body = false;
   std::size_t empty_lines = 0;
   for (const std::string& line : base::SplitString(
            text, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL)) {
@@ -270,16 +287,9 @@ void PrintLongHelp(const std::string& text, const std::string& tag) {
           in_body = false;
         }
 
-        if (first_header) {
-          std::string the_tag = tag;
-          if (the_tag.size() == 0) {
-            if (line.substr(0, 2) == "gn") {
-              the_tag = line.substr(3, line.substr(3).find(' '));
-            } else {
-              the_tag = line.substr(0, line.find(':'));
-            }
-          }
-          OutputString("### <a name=\"" + the_tag + "\"></a>", DECORATION_NONE);
+        if (first_header && !tag.empty()) {
+          OutputString("### <a name=\"" + tag + "\"></a>", DECORATION_NONE,
+                       NO_ESCAPING);
           first_header = false;
         } else {
           OutputString("#### ", DECORATION_NONE);

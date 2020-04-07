@@ -8,8 +8,9 @@
 #define CORE_FXCRT_CSS_CFX_CSSCOLORVALUE_H_
 
 #include "core/fxcrt/css/cfx_cssvalue.h"
+#include "core/fxge/fx_dib.h"
 
-class CFX_CSSColorValue : public CFX_CSSValue {
+class CFX_CSSColorValue final : public CFX_CSSValue {
  public:
   explicit CFX_CSSColorValue(FX_ARGB color);
   ~CFX_CSSColorValue() override;

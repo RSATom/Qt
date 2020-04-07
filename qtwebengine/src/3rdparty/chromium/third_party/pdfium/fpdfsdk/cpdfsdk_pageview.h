@@ -26,7 +26,7 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
   ~CPDFSDK_PageView();
 
   void PageView_OnDraw(CFX_RenderDevice* pDevice,
-                       CFX_Matrix* pUser2Device,
+                       const CFX_Matrix& mtUser2Device,
                        CPDF_RenderOptions* pOptions,
                        const FX_RECT& pClip);
 
@@ -65,6 +65,7 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
   bool OnFocus(const CFX_PointF& point, uint32_t nFlag);
   bool OnLButtonDown(const CFX_PointF& point, uint32_t nFlag);
   bool OnLButtonUp(const CFX_PointF& point, uint32_t nFlag);
+  bool OnLButtonDblClk(const CFX_PointF& point, uint32_t nFlag);
 
 #ifdef PDF_ENABLE_XFA
   bool OnRButtonDown(const CFX_PointF& point, uint32_t nFlag);
@@ -81,15 +82,15 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
                     const CFX_PointF& point,
                     int nFlag);
 
-  void GetCurrentMatrix(CFX_Matrix& matrix) { matrix = m_curMatrix; }
+  const CFX_Matrix& GetCurrentMatrix() const { return m_curMatrix; }
   void UpdateRects(const std::vector<CFX_FloatRect>& rects);
   void UpdateView(CPDFSDK_Annot* pAnnot);
 
   int GetPageIndex() const;
 
   void SetValid(bool bValid) { m_bValid = bValid; }
-  bool IsValid() { return m_bValid; }
-  bool IsLocked() { return m_bLocked; }
+  bool IsValid() const { return m_bValid; }
+  bool IsLocked() const { return m_bLocked; }
   void SetBeingDestroyed() { m_bBeingDestroyed = true; }
   bool IsBeingDestroyed() const { return m_bBeingDestroyed; }
   void TakePageOwnership() { m_pOwnsPage.Reset(ToPDFPage(m_page)); }

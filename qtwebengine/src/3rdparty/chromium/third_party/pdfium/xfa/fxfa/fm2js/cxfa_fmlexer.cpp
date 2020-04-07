@@ -9,7 +9,6 @@
 #include <algorithm>
 
 #include "core/fxcrt/fx_extension.h"
-#include "third_party/base/ptr_util.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
 
 namespace {
@@ -38,72 +37,74 @@ bool IsWhitespaceCharacter(wchar_t c) {
 }
 
 const XFA_FMKeyword keyWords[] = {
-    {TOKdo, L"do"},
-    {TOKkseq, L"eq"},
-    {TOKksge, L"ge"},
-    {TOKksgt, L"gt"},
-    {TOKif, L"if"},
-    {TOKin, L"in"},
-    {TOKksle, L"le"},
-    {TOKkslt, L"lt"},
-    {TOKksne, L"ne"},
-    {TOKksor, L"or"},
-    {TOKnull, L"null"},
-    {TOKbreak, L"break"},
-    {TOKksand, L"and"},
-    {TOKend, L"end"},
-    {TOKeof, L"eof"},
-    {TOKfor, L"for"},
-    {TOKnan, L"nan"},
-    {TOKksnot, L"not"},
-    {TOKvar, L"var"},
-    {TOKthen, L"then"},
-    {TOKelse, L"else"},
-    {TOKexit, L"exit"},
-    {TOKdownto, L"downto"},
-    {TOKreturn, L"return"},
-    {TOKinfinity, L"infinity"},
-    {TOKendwhile, L"endwhile"},
-    {TOKforeach, L"foreach"},
-    {TOKendfunc, L"endfunc"},
-    {TOKelseif, L"elseif"},
-    {TOKwhile, L"while"},
-    {TOKendfor, L"endfor"},
-    {TOKthrow, L"throw"},
-    {TOKstep, L"step"},
-    {TOKupto, L"upto"},
-    {TOKcontinue, L"continue"},
-    {TOKfunc, L"func"},
-    {TOKendif, L"endif"},
+    {TOKdo, "do"},
+    {TOKkseq, "eq"},
+    {TOKksge, "ge"},
+    {TOKksgt, "gt"},
+    {TOKif, "if"},
+    {TOKin, "in"},
+    {TOKksle, "le"},
+    {TOKkslt, "lt"},
+    {TOKksne, "ne"},
+    {TOKksor, "or"},
+    {TOKnull, "null"},
+    {TOKbreak, "break"},
+    {TOKksand, "and"},
+    {TOKend, "end"},
+    {TOKeof, "eof"},
+    {TOKfor, "for"},
+    {TOKnan, "nan"},
+    {TOKksnot, "not"},
+    {TOKvar, "var"},
+    {TOKthen, "then"},
+    {TOKelse, "else"},
+    {TOKexit, "exit"},
+    {TOKdownto, "downto"},
+    {TOKreturn, "return"},
+    {TOKinfinity, "infinity"},
+    {TOKendwhile, "endwhile"},
+    {TOKforeach, "foreach"},
+    {TOKendfunc, "endfunc"},
+    {TOKelseif, "elseif"},
+    {TOKwhile, "while"},
+    {TOKendfor, "endfor"},
+    {TOKthrow, "throw"},
+    {TOKstep, "step"},
+    {TOKupto, "upto"},
+    {TOKcontinue, "continue"},
+    {TOKfunc, "func"},
+    {TOKendif, "endif"},
 };
 
 #ifndef NDEBUG
-const wchar_t* const tokenStrings[] = {
-    L"TOKand",        L"TOKlparen",     L"TOKrparen",   L"TOKmul",
-    L"TOKplus",       L"TOKcomma",      L"TOKminus",    L"TOKdot",
-    L"TOKdiv",        L"TOKlt",         L"TOKassign",   L"TOKgt",
-    L"TOKlbracket",   L"TOKrbracket",   L"TOKor",       L"TOKdotscream",
-    L"TOKdotstar",    L"TOKdotdot",     L"TOKle",       L"TOKne",
-    L"TOKeq",         L"TOKge",         L"TOKdo",       L"TOKkseq",
-    L"TOKksge",       L"TOKksgt",       L"TOKif",       L"TOKin",
-    L"TOKksle",       L"TOKkslt",       L"TOKksne",     L"TOKksor",
-    L"TOKnull",       L"TOKbreak",      L"TOKksand",    L"TOKend",
-    L"TOKeof",        L"TOKfor",        L"TOKnan",      L"TOKksnot",
-    L"TOKvar",        L"TOKthen",       L"TOKelse",     L"TOKexit",
-    L"TOKdownto",     L"TOKreturn",     L"TOKinfinity", L"TOKendwhile",
-    L"TOKforeach",    L"TOKendfunc",    L"TOKelseif",   L"TOKwhile",
-    L"TOKendfor",     L"TOKthrow",      L"TOKstep",     L"TOKupto",
-    L"TOKcontinue",   L"TOKfunc",       L"TOKendif",    L"TOKstar",
-    L"TOKidentifier", L"TOKunderscore", L"TOKdollar",   L"TOKexclamation",
-    L"TOKcall",       L"TOKstring",     L"TOKnumber",   L"TOKreserver",
+const char* const tokenStrings[] = {
+    "TOKand",        "TOKlparen",     "TOKrparen",   "TOKmul",
+    "TOKplus",       "TOKcomma",      "TOKminus",    "TOKdot",
+    "TOKdiv",        "TOKlt",         "TOKassign",   "TOKgt",
+    "TOKlbracket",   "TOKrbracket",   "TOKor",       "TOKdotscream",
+    "TOKdotstar",    "TOKdotdot",     "TOKle",       "TOKne",
+    "TOKeq",         "TOKge",         "TOKdo",       "TOKkseq",
+    "TOKksge",       "TOKksgt",       "TOKif",       "TOKin",
+    "TOKksle",       "TOKkslt",       "TOKksne",     "TOKksor",
+    "TOKnull",       "TOKbreak",      "TOKksand",    "TOKend",
+    "TOKeof",        "TOKfor",        "TOKnan",      "TOKksnot",
+    "TOKvar",        "TOKthen",       "TOKelse",     "TOKexit",
+    "TOKdownto",     "TOKreturn",     "TOKinfinity", "TOKendwhile",
+    "TOKforeach",    "TOKendfunc",    "TOKelseif",   "TOKwhile",
+    "TOKendfor",     "TOKthrow",      "TOKstep",     "TOKupto",
+    "TOKcontinue",   "TOKfunc",       "TOKendif",    "TOKstar",
+    "TOKidentifier", "TOKunderscore", "TOKdollar",   "TOKexclamation",
+    "TOKcall",       "TOKstring",     "TOKnumber",   "TOKreserver",
 };
 #endif  // NDEBUG
 
-XFA_FM_TOKEN TokenizeIdentifier(const WideStringView& str) {
-  const XFA_FMKeyword* result = std::find_if(
-      std::begin(keyWords), std::end(keyWords),
-      [&str](const XFA_FMKeyword& iter) { return iter.m_keyword == str; });
-  if (result != std::end(keyWords) && result->m_keyword == str)
+XFA_FM_TOKEN TokenizeIdentifier(WideStringView str) {
+  const XFA_FMKeyword* result =
+      std::find_if(std::begin(keyWords), std::end(keyWords),
+                   [str](const XFA_FMKeyword& iter) {
+                     return str.EqualsASCII(iter.m_keyword);
+                   });
+  if (result != std::end(keyWords) && str.EqualsASCII(result->m_keyword))
     return result->m_type;
   return TOKidentifier;
 }
@@ -120,15 +121,15 @@ CXFA_FMToken::~CXFA_FMToken() = default;
 
 #ifndef NDEBUG
 WideString CXFA_FMToken::ToDebugString() const {
-  WideString str(L"type = ");
-  str += tokenStrings[m_type];
-  str += L", string = ";
+  WideString str = WideString::FromASCII("type = ");
+  str += WideString::FromASCII(tokenStrings[m_type]);
+  str += WideString::FromASCII(", string = ");
   str += m_string;
   return str;
 }
 #endif  // NDEBUG
 
-CXFA_FMLexer::CXFA_FMLexer(const WideStringView& wsFormCalc)
+CXFA_FMLexer::CXFA_FMLexer(WideStringView wsFormCalc)
     : m_cursor(wsFormCalc.unterminated_c_str()),
       m_end(m_cursor + wsFormCalc.GetLength()),
       m_lexer_error(false) {}
@@ -281,7 +282,7 @@ CXFA_FMToken CXFA_FMLexer::NextToken() {
           ++m_cursor;
           return CXFA_FMToken(TOKdotscream);
         }
-        if (*m_cursor <= '9' && *m_cursor >= '0') {
+        if (FXSYS_IsDecimalDigit(*m_cursor)) {
           --m_cursor;
           return AdvanceForNumber();
         }
@@ -304,10 +305,8 @@ CXFA_FMToken CXFA_FMLexer::NextToken() {
 CXFA_FMToken CXFA_FMLexer::AdvanceForNumber() {
   // This will set end to the character after the end of the number.
   int32_t used_length = 0;
-  if (m_cursor) {
-    FXSYS_wcstof(const_cast<wchar_t*>(m_cursor), m_end - m_cursor,
-                 &used_length);
-  }
+  if (m_cursor)
+    FXSYS_wcstof(m_cursor, m_end - m_cursor, &used_length);
 
   const wchar_t* end = m_cursor + used_length;
   if (used_length == 0 || !end || FXSYS_iswalpha(*end)) {

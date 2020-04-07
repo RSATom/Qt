@@ -7,7 +7,6 @@
 
 #include "SkBitmap.h"
 
-#include "SkAtomics.h"
 #include "SkColorData.h"
 #include "SkConvertPixels.h"
 #include "SkData.h"
@@ -255,9 +254,8 @@ bool SkBitmap::tryAllocPixelsFlags(const SkImageInfo& requestedInfo, uint32_t al
     // setInfo may have corrected info (e.g. 565 is always opaque).
     const SkImageInfo& correctedInfo = this->info();
 
-    sk_sp<SkPixelRef> pr = (allocFlags & kZeroPixels_AllocFlag) ?
-        SkMallocPixelRef::MakeZeroed(correctedInfo, correctedInfo.minRowBytes()) :
-        SkMallocPixelRef::MakeAllocate(correctedInfo, correctedInfo.minRowBytes());
+    sk_sp<SkPixelRef> pr = SkMallocPixelRef::MakeAllocate(correctedInfo,
+                                                          correctedInfo.minRowBytes());
     if (!pr) {
         return reset_return_false(this);
     }
@@ -382,34 +380,7 @@ void* SkBitmap::getAddr(int x, int y) const {
 
     char* base = (char*)this->getPixels();
     if (base) {
-        base += y * this->rowBytes();
-        switch (this->colorType()) {
-            case kRGBA_F32_SkColorType:
-                base += x << 4;
-                break;
-            case kRGBA_F16_SkColorType:
-                base += x << 3;
-                break;
-            case kRGB_888x_SkColorType:
-            case kRGBA_8888_SkColorType:
-            case kBGRA_8888_SkColorType:
-            case kRGB_101010x_SkColorType:
-            case kRGBA_1010102_SkColorType:
-                base += x << 2;
-                break;
-            case kARGB_4444_SkColorType:
-            case kRGB_565_SkColorType:
-                base += x << 1;
-                break;
-            case kAlpha_8_SkColorType:
-            case kGray_8_SkColorType:
-                base += x;
-                break;
-            default:
-                SkDEBUGFAIL("Can't return addr for config");
-                base = nullptr;
-                break;
-        }
+        base += (y * this->rowBytes()) + (x << this->shiftPerPixel());
     }
     return base;
 }
@@ -420,12 +391,9 @@ void* SkBitmap::getAddr(int x, int y) const {
 void SkBitmap::erase(SkColor c, const SkIRect& area) const {
     SkDEBUGCODE(this->validate();)
 
-    switch (this->colorType()) {
-        case kUnknown_SkColorType:
-            // TODO: can we ASSERT that we never get here?
-            return; // can't erase. Should we bzero so the memory is not uninitialized?
-        default:
-            break;
+    if (kUnknown_SkColorType == this->colorType()) {
+        // TODO: can we ASSERT that we never get here?
+        return; // can't erase. Should we bzero so the memory is not uninitialized?
     }
 
     SkPixmap result;
@@ -542,6 +510,9 @@ bool SkBitmap::extractAlpha(SkBitmap* dst, const SkPaint* paint,
     SkMatrix    identity;
     SkMask      srcM, dstM;
 
+    if (this->width() == 0 || this->height() == 0) {
+        return false;
+    }
     srcM.fBounds.set(0, 0, this->width(), this->height());
     srcM.fRowBytes = SkAlign4(this->width());
     srcM.fFormat = SkMask::kA8_Format;
@@ -604,17 +575,8 @@ bool SkBitmap::extractAlpha(SkBitmap* dst, const SkPaint* paint,
 void SkBitmap::validate() const {
     this->info().validate();
 
-    // ImageInfo may not require this, but Bitmap ensures that opaque-only
-    // colorTypes report opaque for their alphatype
-    if (kRGB_565_SkColorType == this->colorType()) {
-        SkASSERT(kOpaque_SkAlphaType == this->alphaType());
-    }
-
     SkASSERT(this->info().validRowBytes(this->rowBytes()));
     uint8_t allFlags = kImageIsVolatile_Flag;
-#ifdef SK_BUILD_FOR_ANDROID
-    allFlags |= kHasHardwareMipMap_Flag;
-#endif
     SkASSERT((~allFlags & fFlags) == 0);
 
     if (fPixelRef && fPixelRef->pixels()) {

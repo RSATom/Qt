@@ -31,7 +31,7 @@
 #include "modules/audio_coding/codecs/pcm16b/audio_encoder_pcm16b.h"
 #include "modules/audio_coding/neteq/tools/resample_input_audio_file.h"
 #include "test/gtest.h"
-#include "test/testsupport/fileutils.h"
+#include "test/testsupport/file_utils.h"
 
 namespace webrtc {
 
@@ -100,16 +100,16 @@ class AudioDecoderTest : public ::testing::Test {
         payload_type_(17),
         decoder_(NULL) {}
 
-  virtual ~AudioDecoderTest() {}
+  ~AudioDecoderTest() override {}
 
-  virtual void SetUp() {
+  void SetUp() override {
     if (audio_encoder_)
       codec_input_rate_hz_ = audio_encoder_->SampleRateHz();
     // Create arrays.
     ASSERT_GT(data_length_, 0u) << "The test must set data_length_ > 0";
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     delete decoder_;
     decoder_ = NULL;
   }

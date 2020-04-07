@@ -9,6 +9,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/unsafe_shared_memory_region.h"
+#include "ipc/ipc_test_sink.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -29,11 +30,16 @@ class TestGpuChannelManagerDelegate;
 class GpuChannelTestCommon : public testing::Test {
  public:
   GpuChannelTestCommon();
+  // Constructor which allows a custom set of GPU driver bug workarounds.
+  explicit GpuChannelTestCommon(std::vector<int32_t> enabled_workarounds);
   ~GpuChannelTestCommon() override;
 
  protected:
-  GpuChannelManager* channel_manager() { return channel_manager_.get(); }
-  base::TestSimpleTaskRunner* task_runner() { return task_runner_.get(); }
+  GpuChannelManager* channel_manager() const { return channel_manager_.get(); }
+  base::TestSimpleTaskRunner* task_runner() const { return task_runner_.get(); }
+  base::TestSimpleTaskRunner* io_task_runner() const {
+    return io_task_runner_.get();
+  }
 
   GpuChannel* CreateChannel(int32_t client_id, bool is_gpu_host);
 
@@ -42,6 +48,7 @@ class GpuChannelTestCommon : public testing::Test {
   base::UnsafeSharedMemoryRegion GetSharedMemoryRegion();
 
  private:
+  IPC::TestSink sink_;
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
   scoped_refptr<base::TestSimpleTaskRunner> io_task_runner_;
   std::unique_ptr<SyncPointManager> sync_point_manager_;

@@ -74,7 +74,6 @@ QMimeDatabasePrivate::QMimeDatabasePrivate()
 
 QMimeDatabasePrivate::~QMimeDatabasePrivate()
 {
-    qDeleteAll(m_providers);
 }
 
 #ifdef QT_BUILD_INTERNAL
@@ -107,52 +106,52 @@ void QMimeDatabasePrivate::loadProviders()
         mimeDirs.prepend(QLatin1String(":/qt-project.org/qmime"));
     //qDebug() << "mime dirs:" << mimeDirs;
 
-    QVector<QMimeProviderBase *> currentProviders = m_providers;
-    m_providers.clear();
+    Providers currentProviders;
+    std::swap(m_providers, currentProviders);
     m_providers.reserve(mimeDirs.size());
     for (const QString &mimeDir : qAsConst(mimeDirs)) {
         const QString cacheFile = mimeDir + QStringLiteral("/mime.cache");
         QFileInfo fileInfo(cacheFile);
         // Check if we already have a provider for this dir
-        const auto it = std::find_if(currentProviders.begin(), currentProviders.end(), [mimeDir](QMimeProviderBase *prov) { return prov->directory() == mimeDir; });
+        const auto predicate = [mimeDir](const std::unique_ptr<QMimeProviderBase> &prov)
+        {
+            return prov && prov->directory() == mimeDir;
+        };
+        const auto it = std::find_if(currentProviders.begin(), currentProviders.end(), predicate);
         if (it == currentProviders.end()) {
-            QMimeProviderBase *provider = nullptr;
+            std::unique_ptr<QMimeProviderBase> provider;
 #if defined(QT_USE_MMAP)
             if (qEnvironmentVariableIsEmpty("QT_NO_MIME_CACHE") && fileInfo.exists()) {
-                provider = new QMimeBinaryProvider(this, mimeDir);
+                provider.reset(new QMimeBinaryProvider(this, mimeDir));
                 //qDebug() << "Created binary provider for" << mimeDir;
                 if (!provider->isValid()) {
-                    delete provider;
-                    provider = nullptr;
+                    provider.reset();
                 }
             }
 #endif
             if (!provider) {
-                provider = new QMimeXMLProvider(this, mimeDir);
+                provider.reset(new QMimeXMLProvider(this, mimeDir));
                 //qDebug() << "Created XML provider for" << mimeDir;
             }
-            m_providers.append(provider);
+            m_providers.push_back(std::move(provider));
         } else {
-            QMimeProviderBase *provider = *it;
-            currentProviders.erase(it);
+            auto provider = std::move(*it); // take provider out of the vector
             provider->ensureLoaded();
             if (!provider->isValid()) {
-                delete provider;
-                provider = new QMimeXMLProvider(this, mimeDir);
+                provider.reset(new QMimeXMLProvider(this, mimeDir));
                 //qDebug() << "Created XML provider to replace binary provider for" << mimeDir;
             }
-            m_providers.append(provider);
+            m_providers.push_back(std::move(provider));
         }
     }
-    qDeleteAll(currentProviders);
 }
 
-QVector<QMimeProviderBase *> QMimeDatabasePrivate::providers()
+const QMimeDatabasePrivate::Providers &QMimeDatabasePrivate::providers()
 {
 #ifndef Q_OS_WASM // stub implementation always returns true
     Q_ASSERT(!mutex.tryLock()); // caller should have locked mutex
 #endif
-    if (m_providers.isEmpty()) {
+    if (m_providers.empty()) {
         loadProviders();
         m_lastCheck.start();
     } else {
@@ -164,8 +163,7 @@ QVector<QMimeProviderBase *> QMimeDatabasePrivate::providers()
 
 QString QMimeDatabasePrivate::resolveAlias(const QString &nameOrAlias)
 {
-    const auto allProviders = providers();
-    for (QMimeProviderBase *provider : allProviders) {
+    for (const auto &provider : providers()) {
         const QString ret = provider->resolveAlias(nameOrAlias);
         if (!ret.isEmpty())
             return ret;
@@ -179,9 +177,8 @@ QString QMimeDatabasePrivate::resolveAlias(const QString &nameOrAlias)
  */
 QMimeType QMimeDatabasePrivate::mimeTypeForName(const QString &nameOrAlias)
 {
-    const auto allProviders = providers();
     const QString mimeName = resolveAlias(nameOrAlias);
-    for (QMimeProviderBase *provider : allProviders) {
+    for (const auto &provider : providers()) {
         const QMimeType mime = provider->mimeTypeForName(mimeName);
         if (mime.isValid())
             return mime;
@@ -205,8 +202,7 @@ QMimeGlobMatchResult QMimeDatabasePrivate::findByFileName(const QString &fileNam
 {
     QMimeGlobMatchResult result;
     // TODO this parses in the order (local, global). Check that it handles "NOGLOBS" correctly.
-    const auto allProviders = providers();
-    for (QMimeProviderBase *provider : allProviders)
+    for (const auto &provider : providers())
         provider->addFileNameMatches(fileName, result);
     return result;
 }
@@ -227,8 +223,7 @@ void QMimeDatabasePrivate::loadGenericIcon(QMimeTypePrivate &mimePrivate)
     QMutexLocker locker(&mutex);
     if (mimePrivate.fromCache) {
         mimePrivate.genericIconName.clear();
-        const auto allProviders = providers();
-        for (QMimeProviderBase *provider : allProviders) {
+        for (const auto &provider : providers()) {
             provider->loadGenericIcon(mimePrivate);
             if (!mimePrivate.genericIconName.isEmpty())
                 break;
@@ -241,8 +236,7 @@ void QMimeDatabasePrivate::loadIcon(QMimeTypePrivate &mimePrivate)
     QMutexLocker locker(&mutex);
     if (mimePrivate.fromCache) {
         mimePrivate.iconName.clear();
-        const auto allProviders = providers();
-        for (QMimeProviderBase *provider : allProviders) {
+        for (const auto &provider : providers()) {
             provider->loadIcon(mimePrivate);
             if (!mimePrivate.iconName.isEmpty())
                 break;
@@ -276,8 +270,7 @@ QStringList QMimeDatabasePrivate::parents(const QString &mimeName)
 {
     Q_ASSERT(!mutex.tryLock());
     QStringList result;
-    const auto allProviders = providers();
-    for (QMimeProviderBase *provider : allProviders)
+    for (const auto &provider : providers())
         provider->addParents(mimeName, result);
     if (result.isEmpty()) {
         const QString parent = fallbackParent(mimeName);
@@ -291,8 +284,7 @@ QStringList QMimeDatabasePrivate::listAliases(const QString &mimeName)
 {
     QMutexLocker locker(&mutex);
     QStringList result;
-    const auto allProviders = providers();
-    for (QMimeProviderBase *provider : allProviders)
+    for (const auto &provider : providers())
         provider->addAliases(mimeName, result);
     return result;
 }
@@ -331,8 +323,7 @@ QMimeType QMimeDatabasePrivate::findByData(const QByteArray &data, int *accuracy
 
     *accuracyPtr = 0;
     QMimeType candidate;
-    const auto allProviders = providers();
-    for (QMimeProviderBase *provider : allProviders)
+    for (const auto &provider : providers())
         provider->findByMagic(data, accuracyPtr, candidate);
 
     if (candidate.isValid())
@@ -414,8 +405,7 @@ QMimeType QMimeDatabasePrivate::mimeTypeForFileNameAndData(const QString &fileNa
 QList<QMimeType> QMimeDatabasePrivate::allMimeTypes()
 {
     QList<QMimeType> result;
-    const auto allProviders = providers();
-    for (QMimeProviderBase *provider : allProviders)
+    for (const auto &provider : providers())
         provider->addAllMimeTypes(result);
     return result;
 }
@@ -432,7 +422,7 @@ bool QMimeDatabasePrivate::inherits(const QString &mime, const QString &parent)
         toCheck.pop();
         const auto parentList = parents(mimeName);
         for (const QString &par : parentList)
-            toCheck.push(par);
+            toCheck.push(resolveAlias(par));
     }
     return false;
 }

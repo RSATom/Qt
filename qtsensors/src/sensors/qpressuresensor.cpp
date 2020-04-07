@@ -178,5 +178,6 @@ QPressureReading *QPressureSensor::reading() const
     return static_cast<QPressureReading*>(QSensor::reading());
 }
 
-#include "moc_qpressuresensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qpressuresensor.cpp"

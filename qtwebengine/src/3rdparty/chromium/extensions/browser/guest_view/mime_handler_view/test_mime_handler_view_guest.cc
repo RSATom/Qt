@@ -4,7 +4,9 @@
 
 #include "extensions/browser/guest_view/mime_handler_view/test_mime_handler_view_guest.h"
 
+#include "base/task/post_task.h"
 #include "base/time/time.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 
@@ -42,14 +44,12 @@ void TestMimeHandlerViewGuest::CreateWebContents(
     WebContentsCreatedCallback callback) {
   // Delay the creation of the guest's WebContents if |delay_| is set.
   if (delay_) {
-    auto delta = base::TimeDelta::FromMilliseconds(
-        delay_);
-    std::unique_ptr<base::DictionaryValue> params(create_params.DeepCopy());
-    content::BrowserThread::PostDelayedTask(
-        content::BrowserThread::UI, FROM_HERE,
+    auto delta = base::TimeDelta::FromMilliseconds(delay_);
+    base::PostDelayedTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&TestMimeHandlerViewGuest::CallBaseCreateWebContents,
-                       weak_ptr_factory_.GetWeakPtr(), base::Passed(&params),
-                       std::move(callback)),
+                       weak_ptr_factory_.GetWeakPtr(),
+                       create_params.CreateDeepCopy(), std::move(callback)),
         delta);
 
     // Reset the delay for the next creation.

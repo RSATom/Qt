@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "components/cbor/cbor_values.h"
-#include "components/cbor/cbor_writer.h"
+#include "components/cbor/values.h"
+#include "components/cbor/writer.h"
 #include "device/fido/attestation_statement.h"
 #include "device/fido/fido_constants.h"
 
@@ -29,27 +29,33 @@ std::vector<uint8_t> AttestationObject::GetCredentialId() const {
   return authenticator_data_.GetCredentialId();
 }
 
-void AttestationObject::EraseAttestationStatement() {
+void AttestationObject::EraseAttestationStatement(
+    AttestationObject::AAGUID erase_aaguid) {
   attestation_statement_ = std::make_unique<NoneAttestationStatement>();
-  authenticator_data_.DeleteDeviceAaguid();
+  if (erase_aaguid == AAGUID::kErase) {
+    authenticator_data_.DeleteDeviceAaguid();
+  }
 
 // Attested credential data is optional section within authenticator data. But
 // if present, the first 16 bytes of it represents a device AAGUID which must
-// be set to zeros for none attestation statement format.
+// be set to zeros for none attestation statement format, unless explicitly
+// requested otherwise (we make an exception for platform authenticators).
 #if DCHECK_IS_ON()
   if (!authenticator_data_.attested_data())
     return;
-
-  std::vector<uint8_t> auth_data = authenticator_data_.SerializeToByteArray();
-  // See diagram at https://w3c.github.io/webauthn/#sctn-attestation
-  constexpr size_t kAaguidOffset =
-      32 /* RP ID hash */ + 1 /* flags */ + 4 /* signature counter */;
-  constexpr size_t kAaguidSize = 16;
-  DCHECK_GE(auth_data.size(), kAaguidOffset + kAaguidSize);
-  DCHECK(std::all_of(auth_data.data() + kAaguidOffset,
-                     auth_data.data() + kAaguidOffset + kAaguidSize,
-                     [](uint8_t v) { return v == 0; }));
+  DCHECK(erase_aaguid == AAGUID::kInclude ||
+         authenticator_data_.attested_data()->IsAaguidZero());
 #endif
+}
+
+bool AttestationObject::IsSelfAttestation() {
+  if (!attestation_statement_->IsSelfAttestation()) {
+    return false;
+  }
+  // Self-attestation also requires that the AAGUID be zero. See
+  // https://www.w3.org/TR/webauthn/#createCredential.
+  return !authenticator_data_.attested_data() ||
+         authenticator_data_.attested_data()->IsAaguidZero();
 }
 
 bool AttestationObject::IsAttestationCertificateInappropriatelyIdentifying() {
@@ -58,27 +64,27 @@ bool AttestationObject::IsAttestationCertificateInappropriatelyIdentifying() {
 }
 
 std::vector<uint8_t> AttestationObject::SerializeToCBOREncodedBytes() const {
-  cbor::CBORValue::MapValue map;
-  map[cbor::CBORValue(kFormatKey)] =
-      cbor::CBORValue(attestation_statement_->format_name());
-  map[cbor::CBORValue(kAuthDataKey)] =
-      cbor::CBORValue(authenticator_data_.SerializeToByteArray());
-  map[cbor::CBORValue(kAttestationStatementKey)] =
-      cbor::CBORValue(attestation_statement_->GetAsCBORMap());
-  return cbor::CBORWriter::Write(cbor::CBORValue(std::move(map)))
+  cbor::Value::MapValue map;
+  map[cbor::Value(kFormatKey)] =
+      cbor::Value(attestation_statement_->format_name());
+  map[cbor::Value(kAuthDataKey)] =
+      cbor::Value(authenticator_data_.SerializeToByteArray());
+  map[cbor::Value(kAttestationStatementKey)] =
+      cbor::Value(attestation_statement_->GetAsCBORMap());
+  return cbor::Writer::Write(cbor::Value(std::move(map)))
       .value_or(std::vector<uint8_t>());
 }
 
 std::vector<uint8_t> SerializeToCtapStyleCborEncodedBytes(
     const AttestationObject& object) {
-  cbor::CBORValue::MapValue map;
-  map[cbor::CBORValue(1)] =
-      cbor::CBORValue(object.attestation_statement().format_name());
-  map[cbor::CBORValue(2)] =
-      cbor::CBORValue(object.authenticator_data().SerializeToByteArray());
-  map[cbor::CBORValue(3)] =
-      cbor::CBORValue(object.attestation_statement().GetAsCBORMap());
-  auto encoded_bytes = cbor::CBORWriter::Write(cbor::CBORValue(std::move(map)));
+  cbor::Value::MapValue map;
+  map[cbor::Value(1)] =
+      cbor::Value(object.attestation_statement().format_name());
+  map[cbor::Value(2)] =
+      cbor::Value(object.authenticator_data().SerializeToByteArray());
+  map[cbor::Value(3)] =
+      cbor::Value(object.attestation_statement().GetAsCBORMap());
+  auto encoded_bytes = cbor::Writer::Write(cbor::Value(std::move(map)));
   DCHECK(encoded_bytes);
   return std::move(*encoded_bytes);
 }

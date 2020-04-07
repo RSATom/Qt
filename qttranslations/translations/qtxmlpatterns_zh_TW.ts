@@ -940,7 +940,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Variety of member types of %1 must be atomic.</source>
+        <source>Variety of member types of %1 must be atomic or union.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1954,6 +1954,10 @@
     <message>
         <source>Only the Unicode Codepoint Collation is supported(%1). %2 is unsupported.</source>
         <translation>只支援 Unicode Codepoint Collation（%1），不支援 %2。</translation>
+    </message>
+    <message>
+        <source>Variety of member types of %1 must be atomic.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 </TS>

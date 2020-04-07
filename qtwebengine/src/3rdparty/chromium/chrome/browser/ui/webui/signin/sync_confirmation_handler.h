@@ -12,15 +12,19 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "components/consent_auditor/consent_auditor.h"
-#include "components/signin/core/browser/account_tracker_service.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
 namespace base {
 class ListValue;
 }
 
+namespace identity {
+class IdentityManager;
+}
+
 class SyncConfirmationHandler : public content::WebUIMessageHandler,
-                                public AccountTrackerService::Observer,
+                                public identity::IdentityManager::Observer,
                                 public BrowserListObserver {
  public:
   // Creates a SyncConfirmationHandler for the |browser|. All strings in the
@@ -35,7 +39,7 @@ class SyncConfirmationHandler : public content::WebUIMessageHandler,
   // content::WebUIMessageHandler:
   void RegisterMessages() override;
 
-  // AccountTrackerService::Observer:
+  // identity::IdentityManager::Observer:
   void OnAccountUpdated(const AccountInfo& info) override;
 
   // BrowserListObserver:
@@ -63,6 +67,11 @@ class SyncConfirmationHandler : public content::WebUIMessageHandler,
   // a single integer value for the height the native view should resize to.
   virtual void HandleInitializedWithSize(const base::ListValue* args);
 
+  // Handles the "accountImageRequest" message sent after the
+  // "account-image-changed" WebUIListener was added. This method calls
+  // |SetUserImageURL| with the signed-in user's picture url.
+  virtual void HandleAccountImageRequest(const base::ListValue* args);
+
   // Records the user's consent to sync. Called from |HandleConfirm| and
   // |HandleGoToSettings|, and expects two parameters to be passed through
   // these methods from the WebUI:
@@ -82,10 +91,6 @@ class SyncConfirmationHandler : public content::WebUIMessageHandler,
   void CloseModalSigninWindow(
       LoginUIService::SyncConfirmationUIClosedResult result);
 
-  // Returns true if this is a unified consent bump dialog, and false if this is
-  // a regular sync confirmation.
-  bool IsUnifiedConsentBumpDialog();
-
  private:
   Profile* profile_;
 
@@ -101,6 +106,8 @@ class SyncConfirmationHandler : public content::WebUIMessageHandler,
 
   // Contains the features to use when the user consent decision is recorded.
   consent_auditor::Feature consent_feature_;
+
+  identity::IdentityManager* identity_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncConfirmationHandler);
 };

@@ -17,17 +17,19 @@
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation.h"
 #include "third_party/blink/renderer/modules/xr/xr.h"
+#include "third_party/blink/renderer/modules/xr/xr_bounded_reference_space.h"
 #include "third_party/blink/renderer/modules/xr/xr_canvas_input_provider.h"
-#include "third_party/blink/renderer/modules/xr/xr_device.h"
 #include "third_party/blink/renderer/modules/xr/xr_frame.h"
-#include "third_party/blink/renderer/modules/xr/xr_frame_of_reference.h"
-#include "third_party/blink/renderer/modules/xr/xr_frame_of_reference_options.h"
 #include "third_party/blink/renderer/modules/xr/xr_frame_provider.h"
 #include "third_party/blink/renderer/modules/xr/xr_hit_result.h"
 #include "third_party/blink/renderer/modules/xr/xr_input_source_event.h"
 #include "third_party/blink/renderer/modules/xr/xr_layer.h"
 #include "third_party/blink/renderer/modules/xr/xr_presentation_context.h"
+#include "third_party/blink/renderer/modules/xr/xr_reference_space.h"
+#include "third_party/blink/renderer/modules/xr/xr_reference_space_options.h"
 #include "third_party/blink/renderer/modules/xr/xr_session_event.h"
+#include "third_party/blink/renderer/modules/xr/xr_stationary_reference_space.h"
+#include "third_party/blink/renderer/modules/xr/xr_unbounded_reference_space.h"
 #include "third_party/blink/renderer/modules/xr/xr_view.h"
 #include "third_party/blink/renderer/modules/xr/xr_webgl_layer.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
@@ -38,10 +40,13 @@ namespace {
 
 const char kSessionEnded[] = "XRSession has already ended.";
 
-const char kUnknownFrameOfReference[] = "Unknown frame of reference type.";
+const char kUnknownReferenceSpace[] = "Unknown reference space type.";
 
-const char kNonEmulatedStageNotSupported[] =
-    "This device does not support a non-emulated 'stage' frame of reference.";
+const char kSubtypeRequired[] =
+    "Subtype must be specified when requesting a stationary reference space.";
+
+const char kReferenceSpaceNotSupported[] =
+    "This device does not support the requested reference space type.";
 
 const double kDegToRad = M_PI / 180.0;
 
@@ -89,17 +94,57 @@ class XRSession::XRSessionResizeObserverDelegate final
   Member<XRSession> session_;
 };
 
-XRSession::XRSession(XRDevice* device,
-                     bool immersive,
-                     bool environment_integration,
-                     XRPresentationContext* output_context,
-                     EnvironmentBlendMode environment_blend_mode)
-    : device_(device),
-      immersive_(immersive),
-      environment_integration_(environment_integration),
+XRSession::SessionMode XRSession::stringToSessionMode(
+    const String& mode_string) {
+  if (mode_string == "inline") {
+    return kModeInline;
+  }
+  if (mode_string == "legacy-inline-ar") {
+    return kModeInlineAR;
+  }
+  if (mode_string == "immersive-vr") {
+    return kModeImmersiveVR;
+  }
+  if (mode_string == "immersive-ar") {
+    return kModeImmersiveAR;
+  }
+
+  return kModeUnknown;
+}
+
+String XRSession::sessionModeToString(XRSession::SessionMode mode) {
+  if (mode == kModeInline) {
+    return "inline";
+  }
+  if (mode == kModeInlineAR) {
+    return "legacy-inline-ar";
+  }
+  if (mode == kModeImmersiveVR) {
+    return "immersive-vr";
+  }
+  if (mode == kModeImmersiveAR) {
+    return "immersive-ar";
+  }
+
+  return "";
+}
+
+XRSession::XRSession(
+    XR* xr,
+    device::mojom::blink::XRSessionClientRequest client_request,
+    XRSession::SessionMode mode,
+    XRPresentationContext* output_context,
+    EnvironmentBlendMode environment_blend_mode)
+    : xr_(xr),
+      mode_(mode),
+      mode_string_(sessionModeToString(mode)),
+      environment_integration_(mode == kModeInlineAR ||
+                               mode == kModeImmersiveAR),
       output_context_(output_context),
-      callback_collection_(new XRFrameRequestCallbackCollection(
-          device->xr()->GetExecutionContext())) {
+      client_binding_(this, std::move(client_request)),
+      callback_collection_(
+          MakeGarbageCollected<XRFrameRequestCallbackCollection>(
+              xr_->GetExecutionContext())) {
   blurred_ = !HasAppropriateFocus();
 
   // When an output context is provided, monitor it for resize events.
@@ -107,12 +152,14 @@ XRSession::XRSession(XRDevice* device,
     HTMLCanvasElement* canvas = outputContext()->canvas();
     if (canvas) {
       resize_observer_ = ResizeObserver::Create(
-          canvas->GetDocument(), new XRSessionResizeObserverDelegate(this));
+          canvas->GetDocument(),
+          MakeGarbageCollected<XRSessionResizeObserverDelegate>(this));
       resize_observer_->observe(canvas);
 
       // Begin processing input events on the output context's canvas.
-      if (!immersive_) {
-        canvas_input_provider_ = new XRCanvasInputProvider(this, canvas);
+      if (!immersive()) {
+        canvas_input_provider_ =
+            MakeGarbageCollected<XRCanvasInputProvider>(this, canvas);
       }
 
       // Get the initial canvas dimensions
@@ -136,6 +183,10 @@ XRSession::XRSession(XRDevice* device,
   }
 }
 
+bool XRSession::immersive() const {
+  return mode_ == kModeImmersiveVR || mode_ == kModeImmersiveAR;
+}
+
 void XRSession::setDepthNear(double value) {
   if (depth_near_ != value) {
     update_views_next_frame_ = true;
@@ -154,7 +205,7 @@ void XRSession::setBaseLayer(XRLayer* value) {
   base_layer_ = value;
   // Make sure that the layer's drawing buffer is updated to the right size
   // if this is a non-immersive session.
-  if (!immersive_ && base_layer_) {
+  if (!immersive() && base_layer_) {
     base_layer_->OnResize();
   }
 }
@@ -170,53 +221,75 @@ void XRSession::SetNonImmersiveProjectionMatrix(
 }
 
 ExecutionContext* XRSession::GetExecutionContext() const {
-  return device_->xr()->GetExecutionContext();
+  return xr_->GetExecutionContext();
 }
 
 const AtomicString& XRSession::InterfaceName() const {
-  return EventTargetNames::XRSession;
+  return event_target_names::kXRSession;
 }
 
-ScriptPromise XRSession::requestFrameOfReference(
+ScriptPromise XRSession::requestReferenceSpace(
     ScriptState* script_state,
-    const String& type,
-    const XRFrameOfReferenceOptions& options) {
+    const XRReferenceSpaceOptions* options) {
   if (ended_) {
     return ScriptPromise::RejectWithDOMException(
         script_state, DOMException::Create(DOMExceptionCode::kInvalidStateError,
                                            kSessionEnded));
   }
 
-  XRFrameOfReference* frameOfRef = nullptr;
-  if (type == "head-model") {
-    frameOfRef =
-        new XRFrameOfReference(this, XRFrameOfReference::kTypeHeadModel);
-  } else if (type == "eye-level") {
-    frameOfRef =
-        new XRFrameOfReference(this, XRFrameOfReference::kTypeEyeLevel);
-  } else if (type == "stage") {
-    if (!options.disableStageEmulation()) {
-      frameOfRef = new XRFrameOfReference(this, XRFrameOfReference::kTypeStage);
-      frameOfRef->UseEmulatedHeight(options.stageEmulationHeight());
-    } else if (device_->xrDisplayInfoPtr()->stageParameters) {
-      frameOfRef = new XRFrameOfReference(this, XRFrameOfReference::kTypeStage);
+  XRReferenceSpace* reference_space = nullptr;
+  if (options->type() == "stationary") {
+    if (!options->hasSubtype()) {
+      return ScriptPromise::RejectWithDOMException(
+          script_state,
+          DOMException::Create(DOMExceptionCode::kNotSupportedError,
+                               kSubtypeRequired));
+    }
+
+    XRStationaryReferenceSpace::Subtype subtype;
+
+    if (options->subtype() == "eye-level") {
+      subtype = XRStationaryReferenceSpace::kSubtypeEyeLevel;
+    } else if (options->subtype() == "floor-level") {
+      subtype = XRStationaryReferenceSpace::kSubtypeFloorLevel;
+    } else if (options->subtype() == "position-disabled") {
+      subtype = XRStationaryReferenceSpace::kSubtypePositionDisabled;
     } else {
       return ScriptPromise::RejectWithDOMException(
           script_state,
           DOMException::Create(DOMExceptionCode::kNotSupportedError,
-                               kNonEmulatedStageNotSupported));
+                               kSubtypeRequired));
+    }
+
+    reference_space =
+        MakeGarbageCollected<XRStationaryReferenceSpace>(this, subtype);
+  } else if (options->type() == "bounded") {
+    // TODO(https://crbug.com/917411): Bounded reference spaces cannot be
+    // returned unless they have bounds geometry. Until we implement that they
+    // will be considered unsupported.
+    return ScriptPromise::RejectWithDOMException(
+        script_state, DOMException::Create(DOMExceptionCode::kNotSupportedError,
+                                           kReferenceSpaceNotSupported));
+  } else if (options->type() == "unbounded") {
+    if (immersive() && environment_integration_) {
+      reference_space = MakeGarbageCollected<XRUnboundedReferenceSpace>(this);
+    } else {
+      return ScriptPromise::RejectWithDOMException(
+          script_state,
+          DOMException::Create(DOMExceptionCode::kNotSupportedError,
+                               kReferenceSpaceNotSupported));
     }
   }
 
-  if (!frameOfRef) {
+  if (!reference_space) {
     return ScriptPromise::RejectWithDOMException(
         script_state, DOMException::Create(DOMExceptionCode::kNotSupportedError,
-                                           kUnknownFrameOfReference));
+                                           kUnknownReferenceSpace));
   }
 
   ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
   ScriptPromise promise = resolver->Promise();
-  resolver->Resolve(frameOfRef);
+  resolver->Resolve(reference_space);
 
   return promise;
 }
@@ -235,7 +308,7 @@ int XRSession::requestAnimationFrame(V8XRFrameRequestCallback* callback) {
   int id = callback_collection_->RegisterCallback(callback);
   if (!pending_frame_) {
     // Kick off a request for a new XR frame.
-    device_->frameProvider()->RequestFrame(this);
+    xr_->frameProvider()->RequestFrame(this);
     pending_frame_ = true;
   }
   return id;
@@ -246,9 +319,9 @@ void XRSession::cancelAnimationFrame(int id) {
 }
 
 HeapVector<Member<XRInputSource>> XRSession::getInputSources() const {
-  Document* doc = ToDocumentOrNull(GetExecutionContext());
+  Document* doc = To<Document>(GetExecutionContext());
   if (!did_log_getInputSources_ && doc) {
-    ukm::builders::XR_WebXR(device_->GetSourceId())
+    ukm::builders::XR_WebXR(xr_->GetSourceId())
         .SetDidGetXRInputSources(1)
         .Record(doc->UkmRecorder());
     did_log_getInputSources_ = true;
@@ -272,47 +345,56 @@ HeapVector<Member<XRInputSource>> XRSession::getInputSources() const {
 ScriptPromise XRSession::requestHitTest(ScriptState* script_state,
                                         NotShared<DOMFloat32Array> origin,
                                         NotShared<DOMFloat32Array> direction,
-                                        XRCoordinateSystem* coordinate_system) {
+                                        XRSpace* space) {
   if (ended_) {
     return ScriptPromise::RejectWithDOMException(
         script_state, DOMException::Create(DOMExceptionCode::kInvalidStateError,
                                            kSessionEnded));
   }
 
-  if (!coordinate_system) {
+  if (!space) {
     return ScriptPromise::Reject(
         script_state, V8ThrowException::CreateTypeError(
-                          script_state->GetIsolate(),
-                          "The coordinateSystem parameter is empty."));
+                          script_state->GetIsolate(), "No XRSpace specified."));
   }
 
   if (origin.View()->length() != 3 || direction.View()->length() != 3) {
     return ScriptPromise::RejectWithDOMException(
         script_state, DOMException::Create(DOMExceptionCode::kNotSupportedError,
-                                           "Invalid ray!"));
+                                           "Invalid ray"));
   }
 
-  // TODO(https://crbug.com/846411): use coordinate_system.
+  // TODO(https://crbug.com/846411): use space.
 
-  // TODO(https://crbug.com/843376): Reject the promise if device doesn't
-  // support the hit-test API.
+  // Reject the promise if device doesn't support the hit-test API.
+  // TODO(https://crbug.com/878936): Get the environment provider without going
+  // up to xr_, since it doesn't know which runtime's environment provider
+  // we want.
+  if (!xr_->xrEnvironmentProviderPtr()) {
+    return ScriptPromise::RejectWithDOMException(
+        script_state,
+        DOMException::Create(DOMExceptionCode::kNotSupportedError,
+                             "Device does not support hit-test!"));
+  }
 
   device::mojom::blink::XRRayPtr ray = device::mojom::blink::XRRay::New();
-  ray->origin.resize(3);
-  ray->origin[0] = origin.View()->Data()[0];
-  ray->origin[1] = origin.View()->Data()[1];
-  ray->origin[2] = origin.View()->Data()[2];
-  ray->direction.resize(3);
-  ray->direction[0] = direction.View()->Data()[0];
-  ray->direction[1] = direction.View()->Data()[1];
-  ray->direction[2] = direction.View()->Data()[2];
+
+  ray->origin = gfx::mojom::blink::Point3F::New();
+  ray->origin->x = origin.View()->Data()[0];
+  ray->origin->y = origin.View()->Data()[1];
+  ray->origin->z = origin.View()->Data()[2];
+
+  ray->direction = gfx::mojom::blink::Vector3dF::New();
+  ray->direction->x = direction.View()->Data()[0];
+  ray->direction->y = direction.View()->Data()[1];
+  ray->direction->z = direction.View()->Data()[2];
 
   ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
   ScriptPromise promise = resolver->Promise();
 
   // TODO(https://crbug.com/845520): Promise should be rejected if session
   // is deleted.
-  device_->xrMagicWindowProviderPtr()->RequestHitTest(
+  xr_->xrEnvironmentProviderPtr()->RequestHitTest(
       std::move(ray),
       WTF::Bind(&XRSession::OnHitTestResults, WrapWeakPersistent(this),
                 WrapPersistent(resolver)));
@@ -330,15 +412,16 @@ void XRSession::OnHitTestResults(
 
   HeapVector<Member<XRHitResult>> hit_results;
   for (const auto& mojom_result : results.value()) {
-    XRHitResult* hit_result = new XRHitResult(TransformationMatrix::Create(
-        mojom_result->hit_matrix[0], mojom_result->hit_matrix[1],
-        mojom_result->hit_matrix[2], mojom_result->hit_matrix[3],
-        mojom_result->hit_matrix[4], mojom_result->hit_matrix[5],
-        mojom_result->hit_matrix[6], mojom_result->hit_matrix[7],
-        mojom_result->hit_matrix[8], mojom_result->hit_matrix[9],
-        mojom_result->hit_matrix[10], mojom_result->hit_matrix[11],
-        mojom_result->hit_matrix[12], mojom_result->hit_matrix[13],
-        mojom_result->hit_matrix[14], mojom_result->hit_matrix[15]));
+    XRHitResult* hit_result =
+        MakeGarbageCollected<XRHitResult>(TransformationMatrix::Create(
+            mojom_result->hit_matrix[0], mojom_result->hit_matrix[1],
+            mojom_result->hit_matrix[2], mojom_result->hit_matrix[3],
+            mojom_result->hit_matrix[4], mojom_result->hit_matrix[5],
+            mojom_result->hit_matrix[6], mojom_result->hit_matrix[7],
+            mojom_result->hit_matrix[8], mojom_result->hit_matrix[9],
+            mojom_result->hit_matrix[10], mojom_result->hit_matrix[11],
+            mojom_result->hit_matrix[12], mojom_result->hit_matrix[13],
+            mojom_result->hit_matrix[14], mojom_result->hit_matrix[15]));
     hit_results.push_back(hit_result);
   }
   resolver->Resolve(hit_results);
@@ -365,7 +448,7 @@ ScriptPromise XRSession::end(ScriptState* script_state) {
 }
 
 void XRSession::ForceEnd() {
-  // Detach this session from the device.
+  // Detach this session from the XR system.
   ended_ = true;
   pending_frame_ = false;
 
@@ -374,18 +457,18 @@ void XRSession::ForceEnd() {
     canvas_input_provider_ = nullptr;
   }
 
-  // If this session is the active immersive session for the device, notify the
-  // frameProvider that it's ended.
-  if (device_->frameProvider()->immersive_session() == this) {
-    device_->frameProvider()->OnImmersiveSessionEnded();
+  // If this session is the active immersive session, notify the frameProvider
+  // that it's ended.
+  if (xr_->frameProvider()->immersive_session() == this) {
+    xr_->frameProvider()->OnImmersiveSessionEnded();
   }
 
-  DispatchEvent(XRSessionEvent::Create(EventTypeNames::end, this));
+  DispatchEvent(*XRSessionEvent::Create(event_type_names::kEnd, this));
 }
 
 double XRSession::NativeFramebufferScale() const {
-  if (immersive_) {
-    double scale = device_->xrDisplayInfoPtr()->webxr_default_framebuffer_scale;
+  if (immersive()) {
+    double scale = display_info_->webxr_default_framebuffer_scale;
     DCHECK(scale);
 
     // Return the inverse of the default scale, since that's what we'll need to
@@ -396,16 +479,16 @@ double XRSession::NativeFramebufferScale() const {
 }
 
 DoubleSize XRSession::DefaultFramebufferSize() const {
-  if (!immersive_) {
+  if (!immersive()) {
     return OutputCanvasSize();
   }
 
-  double width = (device_->xrDisplayInfoPtr()->leftEye->renderWidth +
-                  device_->xrDisplayInfoPtr()->rightEye->renderWidth);
-  double height = std::max(device_->xrDisplayInfoPtr()->leftEye->renderHeight,
-                           device_->xrDisplayInfoPtr()->rightEye->renderHeight);
+  double width = (display_info_->leftEye->renderWidth +
+                  display_info_->rightEye->renderWidth);
+  double height = std::max(display_info_->leftEye->renderHeight,
+                           display_info_->rightEye->renderHeight);
 
-  double scale = device_->xrDisplayInfoPtr()->webxr_default_framebuffer_scale;
+  double scale = display_info_->webxr_default_framebuffer_scale;
   return DoubleSize(width * scale, height * scale);
 }
 
@@ -422,7 +505,7 @@ void XRSession::OnFocus() {
     return;
 
   blurred_ = false;
-  DispatchEvent(XRSessionEvent::Create(EventTypeNames::focus, this));
+  DispatchEvent(*XRSessionEvent::Create(event_type_names::kFocus, this));
 }
 
 void XRSession::OnBlur() {
@@ -430,15 +513,14 @@ void XRSession::OnBlur() {
     return;
 
   blurred_ = true;
-  DispatchEvent(XRSessionEvent::Create(EventTypeNames::blur, this));
+  DispatchEvent(*XRSessionEvent::Create(event_type_names::kBlur, this));
 }
 
 // Immersive sessions may still not be blurred in headset even if the page isn't
 // focused.  This prevents the in-headset experience from freezing on an
 // external display headset when the user clicks on another tab.
 bool XRSession::HasAppropriateFocus() {
-  return immersive_ ? device_->HasDeviceFocus()
-                    : device_->HasDeviceAndFrameFocus();
+  return immersive() ? has_xr_focus_ : has_xr_focus_ && xr_->IsFrameFocused();
 }
 
 void XRSession::OnFocusChanged() {
@@ -488,10 +570,8 @@ void XRSession::OnFrame(
       // If using a background image, the caller must provide its pixel size
       // also. The source size can differ from the current drawing buffer size.
       DCHECK(background_size);
-      // TODO(https://crbug.com/837509): Remove this static_cast.
-      XRWebGLLayer* webgl_layer = static_cast<XRWebGLLayer*>(frame_base_layer);
-      webgl_layer->OverwriteColorBufferFromMailboxTexture(
-          background_mailbox_holder.value(), background_size.value());
+      frame_base_layer->HandleBackgroundImage(background_mailbox_holder.value(),
+                                              background_size.value());
     }
 
     // Resolve the queued requestAnimationFrame callbacks. All XR rendering will
@@ -508,18 +588,18 @@ void XRSession::OnFrame(
 }
 
 void XRSession::LogGetPose() const {
-  Document* doc = ToDocumentOrNull(GetExecutionContext());
-  if (!did_log_getDevicePose_ && doc) {
-    did_log_getDevicePose_ = true;
+  Document* doc = To<Document>(GetExecutionContext());
+  if (!did_log_getViewerPose_ && doc) {
+    did_log_getViewerPose_ = true;
 
-    ukm::builders::XR_WebXR(device_->GetSourceId())
+    ukm::builders::XR_WebXR(xr_->GetSourceId())
         .SetDidRequestPose(1)
         .Record(doc->UkmRecorder());
   }
 }
 
 XRFrame* XRSession::CreatePresentationFrame() {
-  XRFrame* presentation_frame = new XRFrame(this);
+  XRFrame* presentation_frame = MakeGarbageCollected<XRFrame>(this);
   if (base_pose_matrix_) {
     presentation_frame->SetBasePoseMatrix(*base_pose_matrix_);
   }
@@ -531,7 +611,7 @@ void XRSession::UpdateCanvasDimensions(Element* element) {
   DCHECK(element);
 
   double devicePixelRatio = 1.0;
-  LocalFrame* frame = device_->xr()->GetFrame();
+  LocalFrame* frame = xr_->GetFrame();
   if (frame) {
     devicePixelRatio = frame->DevicePixelRatio();
   }
@@ -550,8 +630,8 @@ void XRSession::UpdateCanvasDimensions(Element* element) {
     DVLOG(2) << __FUNCTION__ << ": got angle=" << output_angle;
   }
 
-  if (device_->xrMagicWindowProviderPtr()) {
-    device_->xrMagicWindowProviderPtr()->UpdateSessionGeometry(
+  if (xr_->xrEnvironmentProviderPtr()) {
+    xr_->xrEnvironmentProviderPtr()->UpdateSessionGeometry(
         IntSize(output_width_, output_height_),
         display::Display::DegreesToRotation(output_angle));
   }
@@ -572,7 +652,8 @@ void XRSession::OnInputStateChange(
   for (const auto& input_state : input_states) {
     XRInputSource* input_source = input_sources_.at(input_state->source_id);
     if (!input_source) {
-      input_source = new XRInputSource(this, input_state->source_id);
+      input_source =
+          MakeGarbageCollected<XRInputSource>(this, input_state->source_id);
       input_sources_.Set(input_state->source_id, input_source);
       devices_changed = true;
     }
@@ -597,7 +678,7 @@ void XRSession::OnInputStateChange(
 
   if (devices_changed) {
     DispatchEvent(
-        XRSessionEvent::Create(EventTypeNames::inputsourceschange, this));
+        *XRSessionEvent::Create(event_type_names::kInputsourceschange, this));
   }
 }
 
@@ -610,8 +691,8 @@ void XRSession::OnSelectStart(XRInputSource* input_source) {
   input_source->selection_cancelled = false;
 
   XRInputSourceEvent* event =
-      CreateInputSourceEvent(EventTypeNames::selectstart, input_source);
-  DispatchEvent(event);
+      CreateInputSourceEvent(event_type_names::kSelectstart, input_source);
+  DispatchEvent(*event);
 
   if (event->defaultPrevented())
     input_source->selection_cancelled = true;
@@ -624,16 +705,16 @@ void XRSession::OnSelectEnd(XRInputSource* input_source) {
 
   input_source->primary_input_pressed = false;
 
-  LocalFrame* frame = device_->xr()->GetFrame();
+  LocalFrame* frame = xr_->GetFrame();
   if (!frame)
     return;
 
   std::unique_ptr<UserGestureIndicator> gesture_indicator =
-      Frame::NotifyUserActivation(frame);
+      LocalFrame::NotifyUserActivation(frame);
 
   XRInputSourceEvent* event =
-      CreateInputSourceEvent(EventTypeNames::selectend, input_source);
-  DispatchEvent(event);
+      CreateInputSourceEvent(event_type_names::kSelectend, input_source);
+  DispatchEvent(*event);
 
   if (event->defaultPrevented())
     input_source->selection_cancelled = true;
@@ -652,13 +733,13 @@ void XRSession::OnSelect(XRInputSource* input_source) {
 
   if (!input_source->selection_cancelled) {
     XRInputSourceEvent* event =
-        CreateInputSourceEvent(EventTypeNames::select, input_source);
-    DispatchEvent(event);
+        CreateInputSourceEvent(event_type_names::kSelect, input_source);
+    DispatchEvent(*event);
   }
 }
 
 void XRSession::OnPoseReset() {
-  DispatchEvent(XRSessionEvent::Create(EventTypeNames::resetpose, this));
+  DispatchEvent(*XRSessionEvent::Create(event_type_names::kResetpose, this));
 }
 
 void XRSession::UpdateInputSourceState(
@@ -723,29 +804,47 @@ XRInputSourceEvent* XRSession::CreateInputSourceEvent(
   return XRInputSourceEvent::Create(type, presentation_frame, input_source);
 }
 
+void XRSession::OnChanged(device::mojom::blink::VRDisplayInfoPtr display_info) {
+  DCHECK(display_info);
+  SetXRDisplayInfo(std::move(display_info));
+}
+
+void XRSession::OnExitPresent() {
+  if (immersive()) {
+    ForceEnd();
+  }
+}
+
+void XRSession::SetXRDisplayInfo(
+    device::mojom::blink::VRDisplayInfoPtr display_info) {
+  display_info_id_++;
+  display_info_ = std::move(display_info);
+  is_external_ = display_info_->capabilities->hasExternalDisplay;
+}
+
 const HeapVector<Member<XRView>>& XRSession::views() {
   // TODO(bajones): For now we assume that immersive sessions render a stereo
   // pair of views and non-immersive sessions render a single view. That doesn't
   // always hold true, however, so the view configuration should ultimately come
   // from the backing service.
   if (views_dirty_) {
-    if (immersive_) {
+    if (immersive()) {
       // If we don't already have the views allocated, do so now.
       if (views_.IsEmpty()) {
-        views_.push_back(new XRView(this, XRView::kEyeLeft));
-        views_.push_back(new XRView(this, XRView::kEyeRight));
+        views_.push_back(MakeGarbageCollected<XRView>(this, XRView::kEyeLeft));
+        views_.push_back(MakeGarbageCollected<XRView>(this, XRView::kEyeRight));
       }
       // In immersive mode the projection and view matrices must be aligned with
       // the device's physical optics.
       UpdateViewFromEyeParameters(views_[XRView::kEyeLeft],
-                                  device_->xrDisplayInfoPtr()->leftEye,
-                                  depth_near_, depth_far_);
+                                  display_info_->leftEye, depth_near_,
+                                  depth_far_);
       UpdateViewFromEyeParameters(views_[XRView::kEyeRight],
-                                  device_->xrDisplayInfoPtr()->rightEye,
-                                  depth_near_, depth_far_);
+                                  display_info_->rightEye, depth_near_,
+                                  depth_far_);
     } else {
       if (views_.IsEmpty()) {
-        views_.push_back(new XRView(this, XRView::kEyeLeft));
+        views_.push_back(MakeGarbageCollected<XRView>(this, XRView::kEyeLeft));
         views_[XRView::kEyeLeft]->UpdateOffset(0, 0, 0);
       }
 
@@ -782,8 +881,12 @@ const HeapVector<Member<XRView>>& XRSession::views() {
   return views_;
 }
 
+bool XRSession::HasPendingActivity() const {
+  return !callback_collection_->IsEmpty() && !ended_;
+}
+
 void XRSession::Trace(blink::Visitor* visitor) {
-  visitor->Trace(device_);
+  visitor->Trace(xr_);
   visitor->Trace(output_context_);
   visitor->Trace(base_layer_);
   visitor->Trace(views_);

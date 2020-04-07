@@ -16,11 +16,11 @@
 
 namespace blink {
 
-class FetchClientSettingsObjectSnapshot;
 class Modulator;
 class ModuleScript;
 class ModuleScriptFetchRequest;
 class ModuleScriptLoaderRegistry;
+class ResourceFetcher;
 class SingleModuleClient;
 enum class ModuleGraphLevel;
 enum class ModuleScriptCustomFetchType;
@@ -33,15 +33,18 @@ class CORE_EXPORT ModuleMap final : public GarbageCollected<ModuleMap>,
 
  public:
   static ModuleMap* Create(Modulator* modulator) {
-    return new ModuleMap(modulator);
+    return MakeGarbageCollected<ModuleMap>(modulator);
   }
+
+  explicit ModuleMap(Modulator*);
+
   void Trace(blink::Visitor*);
   const char* NameInHeapSnapshot() const override { return "ModuleMap"; }
 
   // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-single-module-script
   void FetchSingleModuleScript(
       const ModuleScriptFetchRequest&,
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
+      ResourceFetcher* fetch_client_settings_object_fetcher,
       ModuleGraphLevel,
       ModuleScriptCustomFetchType,
       SingleModuleClient*);
@@ -54,8 +57,6 @@ class CORE_EXPORT ModuleMap final : public GarbageCollected<ModuleMap>,
   Modulator* GetModulator() { return modulator_; }
 
  private:
-  explicit ModuleMap(Modulator*);
-
   using MapImpl = HeapHashMap<KURL, TraceWrapperMember<Entry>>;
 
   // A module map is a map of absolute URLs to map entry.

@@ -15,7 +15,7 @@
 #include "GrCoordTransform.h"
 class GrCircleBlurFragmentProcessor : public GrFragmentProcessor {
 public:
-    SkRect circleRect() const { return fCircleRect; }
+    const SkRect& circleRect() const { return fCircleRect; }
     float textureRadius() const { return fTextureRadius; }
     float solidRadius() const { return fSolidRadius; }
 
@@ -34,11 +34,12 @@ private:
             , fTextureRadius(textureRadius)
             , fSolidRadius(solidRadius)
             , fBlurProfileSampler(std::move(blurProfileSampler)) {
-        this->addTextureSampler(&fBlurProfileSampler);
+        this->setTextureSamplerCnt(1);
     }
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
     void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override;
     bool onIsEqual(const GrFragmentProcessor&) const override;
+    const TextureSampler& onTextureSampler(int) const override;
     GR_DECLARE_FRAGMENT_PROCESSOR_TEST
     SkRect fCircleRect;
     float fTextureRadius;

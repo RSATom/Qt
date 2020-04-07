@@ -25,6 +25,9 @@
 #include "components/update_client/update_client.h"
 #include "url/gurl.h"
 
+namespace base {
+class Value;
+}  // namespace base
 
 namespace update_client {
 
@@ -73,9 +76,11 @@ class Component {
 
   std::string id() const { return id_; }
 
-  const CrxComponent* crx_component() const { return crx_component_.get(); }
-  void set_crx_component(std::unique_ptr<CrxComponent> crx_component) {
-    crx_component_ = std::move(crx_component);
+  const base::Optional<CrxComponent>& crx_component() const {
+    return crx_component_;
+  }
+  void set_crx_component(const CrxComponent& crx_component) {
+    crx_component_ = crx_component;
   }
 
   const base::Version& previous_version() const { return previous_version_; }
@@ -95,8 +100,6 @@ class Component {
 
   bool is_foreground() const;
 
-  const std::vector<std::string>& events() const { return events_; }
-
   const std::vector<GURL>& crx_diffurls() const { return crx_diffurls_; }
 
   bool diff_update_failed() const { return !!diff_error_code_; }
@@ -113,6 +116,11 @@ class Component {
   scoped_refptr<Configurator> config() const;
 
   std::string session_id() const;
+
+  const std::vector<base::Value>& events() const { return events_; }
+
+  // Returns a clone of the component events.
+  std::vector<base::Value> GetEvents() const;
 
  private:
   friend class MockPingManagerImpl;
@@ -240,11 +248,10 @@ class Component {
     // State overrides.
     void DoHandle() override;
 
-    // Called when progress is being made downloading a CRX. The progress may
-    // not monotonically increase due to how the CRX downloader switches between
+    // Called when progress is being made downloading a CRX. Can be called
+    // multiple times due to how the CRX downloader switches between
     // different downloaders and fallback urls.
-    void DownloadProgress(const std::string& id,
-                          const CrxDownloader::Result& download_result);
+    void DownloadProgress(const std::string& id);
 
     void DownloadComplete(const std::string& id,
                           const CrxDownloader::Result& download_result);
@@ -264,11 +271,10 @@ class Component {
     // State overrides.
     void DoHandle() override;
 
-    // Called when progress is being made downloading a CRX. The progress may
-    // not monotonically increase due to how the CRX downloader switches between
+    // Called when progress is being made downloading a CRX. Can be called
+    // multiple times due to how the CRX downloader switches between
     // different downloaders and fallback urls.
-    void DownloadProgress(const std::string& id,
-                          const CrxDownloader::Result& download_result);
+    void DownloadProgress(const std::string& id);
 
     void DownloadComplete(const std::string& id,
                           const CrxDownloader::Result& download_result);
@@ -357,7 +363,7 @@ class Component {
   // by a downloader which can do bandwidth throttling on the client side.
   bool CanDoBackgroundDownload() const;
 
-  void AppendEvent(const std::string& event);
+  void AppendEvent(base::Value event);
 
   // Changes the component state and notifies the caller of the |Handle|
   // function that the handling of this component state is complete.
@@ -368,10 +374,20 @@ class Component {
 
   void SetParseResult(const ProtocolParser::Result& result);
 
+  // These functions return a specific event. Each data member of the event is
+  // represented as a key-value pair in a dictionary value.
+  base::Value MakeEventUpdateComplete() const;
+  base::Value MakeEventDownloadMetrics(
+      const CrxDownloader::DownloadMetrics& download_metrics) const;
+  base::Value MakeEventUninstalled() const;
+  base::Value MakeEventActionRun(bool succeeded,
+                                 int error_code,
+                                 int extra_code1) const;
+
   base::ThreadChecker thread_checker_;
 
   const std::string id_;
-  std::unique_ptr<CrxComponent> crx_component_;
+  base::Optional<CrxComponent> crx_component_;
 
   // The status of the updatecheck response.
   std::string status_;
@@ -421,8 +437,8 @@ class Component {
   int diff_error_code_ = 0;
   int diff_extra_code1_ = 0;
 
-  // Contains the events which are serialized in the pings.
-  std::vector<std::string> events_;
+  // Contains the events which are therefore serialized in the requests.
+  std::vector<base::Value> events_;
 
   CallbackHandleComplete callback_handle_complete_;
   std::unique_ptr<State> state_;

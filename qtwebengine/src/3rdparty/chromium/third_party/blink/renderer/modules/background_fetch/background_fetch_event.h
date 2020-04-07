@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BACKGROUND_FETCH_BACKGROUND_FETCH_EVENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BACKGROUND_FETCH_BACKGROUND_FETCH_EVENT_H_
 
+#include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom-blink.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/service_worker/extendable_event.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -13,6 +14,7 @@
 namespace blink {
 
 class BackgroundFetchEventInit;
+class BackgroundFetchRegistration;
 class WaitUntilObserver;
 
 class MODULES_EXPORT BackgroundFetchEvent : public ExtendableEvent {
@@ -21,34 +23,35 @@ class MODULES_EXPORT BackgroundFetchEvent : public ExtendableEvent {
  public:
   static BackgroundFetchEvent* Create(
       const AtomicString& type,
-      const BackgroundFetchEventInit& initializer) {
-    return new BackgroundFetchEvent(type, initializer, nullptr /* observer */);
+      const BackgroundFetchEventInit* initializer) {
+    return MakeGarbageCollected<BackgroundFetchEvent>(type, initializer,
+                                                      nullptr /* observer */);
   }
 
   static BackgroundFetchEvent* Create(
       const AtomicString& type,
-      const BackgroundFetchEventInit& initializer,
+      const BackgroundFetchEventInit* initializer,
       WaitUntilObserver* observer) {
-    return new BackgroundFetchEvent(type, initializer, observer);
+    return MakeGarbageCollected<BackgroundFetchEvent>(type, initializer,
+                                                      observer);
   }
 
+  BackgroundFetchEvent(const AtomicString& type,
+                       const BackgroundFetchEventInit* initializer,
+                       WaitUntilObserver* observer);
   ~BackgroundFetchEvent() override;
 
-  // Web Exposed attribute defined in the IDL file. Corresponds to the
-  // |developer_id| used elsewhere in the codebase.
-  String id() const;
+  // Web Exposed attribute defined in the IDL file.
+  BackgroundFetchRegistration* registration() const;
 
   // ExtendableEvent interface.
   const AtomicString& InterfaceName() const override;
 
- protected:
-  BackgroundFetchEvent(const AtomicString& type,
-                       const BackgroundFetchEventInit& initializer,
-                       WaitUntilObserver* observer);
+  void Trace(blink::Visitor* visitor) override;
 
-  // Corresponds to IDL 'id' attribute. Not unique - an active registration can
-  // have the same |developer_id_| as one or more inactive registrations.
-  String developer_id_;
+ protected:
+  // Corresponds to the 'registration' attribute in the idl.
+  Member<BackgroundFetchRegistration> registration_;
 };
 
 }  // namespace blink

@@ -64,7 +64,6 @@
 #include "qqmlproperty_p.h"
 #include "qqmlpropertycache_p.h"
 #include "qqmlmetatype_p.h"
-#include "qqmldirparser_p.h"
 #include <private/qintrusivelist_p.h>
 #include <private/qrecyclepool_p.h>
 #include <private/qfieldlist_p.h>
@@ -80,6 +79,7 @@
 
 #include <private/qv8engine_p.h>
 #include <private/qjsengine_p.h>
+#include <private/qqmldirparser_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -309,8 +309,8 @@ Returns true if the calling thread is the QQmlEngine thread.
 */
 bool QQmlEnginePrivate::isEngineThread() const
 {
-    Q_Q(const QQmlEngine);
-    return QThread::currentThread() == q->thread();
+
+    return QThread::currentThread() == q_ptr->thread();
 }
 
 /*!
@@ -335,8 +335,6 @@ the instance directly if not.
 template<typename T>
 void QQmlEnginePrivate::deleteInEngineThread(T *value)
 {
-    Q_Q(QQmlEngine);
-
     Q_ASSERT(value);
     if (isEngineThread()) {
         delete value;
@@ -352,7 +350,7 @@ void QQmlEnginePrivate::deleteInEngineThread(T *value)
         toDeleteInEngineThread.append(i);
         mutex.unlock();
         if (wasEmpty)
-            QCoreApplication::postEvent(q, new QEvent(QEvent::User));
+            QCoreApplication::postEvent(q_ptr, new QEvent(QEvent::User));
     }
 }
 

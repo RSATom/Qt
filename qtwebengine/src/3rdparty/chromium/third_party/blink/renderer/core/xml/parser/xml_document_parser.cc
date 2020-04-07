@@ -37,6 +37,7 @@
 #include <memory>
 
 #include "base/auto_reset.h"
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/cdata_section.h"
 #include "third_party/blink/renderer/core/dom/comment.h"
@@ -79,7 +80,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 // FIXME: HTMLConstructionSite has a limit of 512, should these match?
 static const unsigned kMaxXMLTreeDepth = 5000;
@@ -146,7 +147,8 @@ class PendingStartElementNSCallback final
       // name, prefix, uri, value and an end pointer.
       for (int j = 0; j < 3; ++j)
         attributes_[i * 5 + j] = xmlStrdup(attributes[i * 5 + j]);
-      int length = attributes[i * 5 + 4] - attributes[i * 5 + 3];
+      int length =
+          static_cast<int>(attributes[i * 5 + 4] - attributes[i * 5 + 3]);
       attributes_[i * 5 + 3] = xmlStrndup(attributes[i * 5 + 3], length);
       attributes_[i * 5 + 4] = attributes_[i * 5 + 3] + length;
     }
@@ -396,7 +398,10 @@ void XMLDocumentParser::end() {
   if (parser_paused_)
     return;
 
-  if (saw_error_)
+  // StopParsing() calls InsertErrorMessageBlock() if there was a parsing
+  // error. Avoid showing the error message block twice.
+  // TODO(crbug.com/898775): Rationalize this.
+  if (saw_error_ && !IsStopped())
     InsertErrorMessageBlock();
   else
     UpdateLeafTextNode();
@@ -448,8 +453,8 @@ bool XMLDocumentParser::ParseDocumentFragment(
   // http://www.whatwg.org/specs/web-apps/current-work/multipage/the-xhtml-syntax.html#xml-fragment-parsing-algorithm
   // For now we have a hack for script/style innerHTML support:
   if (context_element &&
-      (context_element->HasLocalName(scriptTag.LocalName()) ||
-       context_element->HasLocalName(styleTag.LocalName()))) {
+      (context_element->HasLocalName(kScriptTag.LocalName()) ||
+       context_element->HasLocalName(kStyleTag.LocalName()))) {
     fragment->ParserAppendChild(fragment->GetDocument().createTextNode(chunk));
     return true;
   }
@@ -486,7 +491,7 @@ static inline void SetAttributes(Element* element,
   element->ParserSetAttributes(attribute_vector);
 }
 
-static void SwitchEncoding(xmlParserCtxtPtr ctxt, bool is8_bit) {
+static void SwitchEncoding(xmlParserCtxtPtr ctxt, bool is_8bit) {
   // Make sure we don't call xmlSwitchEncoding in an error state.
   if ((ctxt->errNo != XML_ERR_OK) && (ctxt->disableSAX == 1))
     return;
@@ -495,7 +500,7 @@ static void SwitchEncoding(xmlParserCtxtPtr ctxt, bool is8_bit) {
   // resetting the encoding to UTF-16 before every chunk. Otherwise libxml
   // will detect <?xml version="1.0" encoding="<encoding name>"?> blocks and
   // switch encodings, causing the parse to fail.
-  if (is8_bit) {
+  if (is_8bit) {
     xmlSwitchEncoding(ctxt, XML_CHAR_ENCODING_8859_1);
     return;
   }
@@ -508,9 +513,9 @@ static void SwitchEncoding(xmlParserCtxtPtr ctxt, bool is8_bit) {
 }
 
 static void ParseChunk(xmlParserCtxtPtr ctxt, const String& chunk) {
-  bool is8_bit = chunk.Is8Bit();
-  SwitchEncoding(ctxt, is8_bit);
-  if (is8_bit)
+  bool is_8bit = chunk.Is8Bit();
+  SwitchEncoding(ctxt, is_8bit);
+  if (is_8bit)
     xmlParseChunk(ctxt, reinterpret_cast<const char*>(chunk.Characters8()),
                   sizeof(LChar) * chunk.length(), 0);
   else
@@ -598,7 +603,7 @@ static void* OpenFunc(const char* uri) {
     XMLDocumentParserScope scope(nullptr);
     // FIXME: We should restore the original global error handler as well.
     ResourceLoaderOptions options;
-    options.initiator_info.name = FetchInitiatorTypeNames::xml;
+    options.initiator_info.name = fetch_initiator_type_names::kXml;
     FetchParameters params(ResourceRequest(url), options);
     params.MutableResourceRequest().SetFetchRequestMode(
         network::mojom::FetchRequestMode::kSameOrigin);
@@ -606,7 +611,7 @@ static void* OpenFunc(const char* uri) {
         RawResource::FetchSynchronously(params, document->Fetcher());
     if (!resource->ErrorOccurred()) {
       data = resource->ResourceBuffer();
-      final_url = resource->GetResponse().Url();
+      final_url = resource->GetResponse().CurrentRequestUrl();
     }
   }
 
@@ -865,7 +870,7 @@ static inline void HandleNamespaceAttributes(
           WTF::g_xmlns_with_colon + ToAtomicString(namespaces[i].prefix);
 
     QualifiedName parsed_name = g_any_name;
-    if (!Element::ParseAttributeName(parsed_name, XMLNSNames::xmlnsNamespaceURI,
+    if (!Element::ParseAttributeName(parsed_name, xmlns_names::kNamespaceURI,
                                      namespace_q_name, exception_state))
       return;
 
@@ -973,7 +978,7 @@ void XMLDocumentParser::StartElementNs(const AtomicString& local_name,
                           prefix_to_namespace_map_, exception_state);
   AtomicString is;
   for (const auto& attr : prefixed_attributes) {
-    if (attr.GetName() == isAttr) {
+    if (attr.GetName() == kIsAttr) {
       is = attr.Value();
       break;
     }
@@ -1345,11 +1350,11 @@ static size_t ConvertUTF16EntityToUTF8(const UChar* utf16_entity,
                                        char* target,
                                        size_t target_size) {
   const char* original_target = target;
-  WTF::Unicode::ConversionResult conversion_result =
-      WTF::Unicode::ConvertUTF16ToUTF8(&utf16_entity,
+  WTF::unicode::ConversionResult conversion_result =
+      WTF::unicode::ConvertUTF16ToUTF8(&utf16_entity,
                                        utf16_entity + number_of_code_units,
                                        &target, target + target_size);
-  if (conversion_result != WTF::Unicode::kConversionOK)
+  if (conversion_result != WTF::unicode::kConversionOK)
     return 0;
 
   DCHECK_GT(target, original_target);
@@ -1367,7 +1372,7 @@ static xmlEntityPtr GetXHTMLEntity(const xmlChar* name) {
     return nullptr;
 
   constexpr size_t kSharedXhtmlEntityResultLength =
-      arraysize(g_shared_xhtml_entity_result);
+      base::size(g_shared_xhtml_entity_result);
   size_t entity_length_in_utf8;
   // Unlike HTML parser, XML parser parses the content of named
   // entities. So we need to escape '&' and '<'.
@@ -1408,7 +1413,7 @@ static xmlEntityPtr GetXHTMLEntity(const xmlChar* name) {
   DCHECK_LE(entity_length_in_utf8, kSharedXhtmlEntityResultLength);
 
   xmlEntityPtr entity = SharedXHTMLEntity();
-  entity->length = entity_length_in_utf8;
+  entity->length = SafeCast<int>(entity_length_in_utf8);
   entity->name = name;
   return entity;
 }
@@ -1579,6 +1584,9 @@ TextPosition XMLDocumentParser::GetTextPosition() const {
 }
 
 void XMLDocumentParser::StopParsing() {
+  // See comment before InsertErrorMessageBlock() in XMLDocumentParser::end.
+  if (saw_error_)
+    InsertErrorMessageBlock();
   DocumentParser::StopParsing();
   if (Context())
     xmlStopParser(Context());

@@ -82,11 +82,6 @@ extern wchar_t qAxModuleFilename[MAX_PATH];
     \snippet src_activeqt_control_qaxfactory.cpp 1
 
 
-    If your server supports just a single COM object, you can use
-    a default factory implementation through the \c QAXFACTORY_DEFAULT() macro.
-
-    \snippet src_activeqt_control_qaxfactory.cpp 2
-
     Only one QAxFactory implementation may be instantiated and
     exported by an ActiveX server application. This instance is accessible
     through the global qAxFactory() function.

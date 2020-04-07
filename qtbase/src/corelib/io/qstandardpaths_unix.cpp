@@ -134,7 +134,9 @@ QString QStandardPaths::writableLocation(StandardLocation type)
                     return QString();
                 }
             }
+#ifndef Q_OS_WASM
             qWarning("QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '%s'", qPrintable(xdgRuntimeDir));
+#endif
         } else {
             fileInfo.setFile(xdgRuntimeDir);
             if (!fileInfo.exists()) {
@@ -346,6 +348,9 @@ QStringList QStandardPaths::standardLocations(StandardLocation type)
         break;
     case FontsLocation:
         dirs += QDir::homePath() + QLatin1String("/.fonts");
+        dirs += xdgDataDirs();
+        for (int i = 1; i < dirs.count(); ++i)
+            dirs[i].append(QLatin1String("/fonts"));
         break;
     default:
         break;

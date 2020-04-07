@@ -55,7 +55,7 @@ public:
         ChangeTitle
     };
 
-    QWebGLWebSocketServer(QObject *parent = nullptr);
+    QWebGLWebSocketServer(quint16 port, QObject *parent = nullptr);
     ~QWebGLWebSocketServer() override;
 
     quint16 port() const;

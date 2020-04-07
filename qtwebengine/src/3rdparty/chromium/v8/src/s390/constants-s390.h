@@ -29,8 +29,7 @@
 namespace v8 {
 namespace internal {
 
-// TODO(sigurds): Change this value once we use relative jumps.
-constexpr size_t kMaxPCRelativeCodeRangeInMB = 0;
+constexpr size_t kMaxPCRelativeCodeRangeInMB = 4096;
 
 // Number of registers
 const int kNumRegisters = 16;
@@ -139,27 +138,6 @@ inline Condition NegateCondition(Condition cond) {
       DCHECK(false);
   }
   return al;
-}
-
-// Commute a condition such that {a cond b == b cond' a}.
-inline Condition CommuteCondition(Condition cond) {
-  switch (cond) {
-    case lt:
-      return gt;
-    case gt:
-      return lt;
-    case ge:
-      return le;
-    case le:
-      return ge;
-    case eq:
-      return eq;
-    case ne:
-      return ne;
-    default:
-      DCHECK(false);
-      return cond;
-  }
 }
 
 // -----------------------------------------------------------------------------

@@ -66,11 +66,6 @@ class ReportingService {
   // True iff reporting is currently enabled.
   bool reporting_active() const;
 
-  // Updates data usage tracking prefs with the specified values.
-  void UpdateMetricsUsagePrefs(const std::string& service_name,
-                               int message_size,
-                               bool is_cellular);
-
   // Registers local state prefs used by this class. This should only be called
   // once.
   static void RegisterPrefs(PrefRegistrySimple* registry);

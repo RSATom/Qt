@@ -13,7 +13,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "ui/base/touch/touch_device.h"
+#include "ui/base/pointer/pointer_device.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/image/image_skia.h"
@@ -108,7 +108,13 @@ float GetScaleFactorForNativeView(gfx::NativeView view) {
     return 1.0f;
   display::Display display =
       display::Screen::GetScreen()->GetDisplayNearestView(view);
-  DCHECK(display.is_valid());
+
+  // GetDisplayNearestView() may return null Display if the |view| is not shown
+  // on the screen and there is no primary display. In that case use scale
+  // factor 1.0.
+  if (!display.is_valid())
+    return 1.0f;
+
   return display.device_scale_factor();
 }
 

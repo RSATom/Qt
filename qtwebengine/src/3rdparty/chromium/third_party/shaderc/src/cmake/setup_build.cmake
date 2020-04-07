@@ -1,5 +1,17 @@
 # Find nosetests; see shaderc_add_nosetests() from utils.cmake for opting in to
 # nosetests in a specific directory.
+
+if(NOT COMMAND find_host_package)
+  macro(find_host_package)
+    find_package(${ARGN})
+  endmacro()
+endif()
+if(NOT COMMAND find_host_program)
+  macro(find_host_program)
+    find_program(${ARGN})
+  endmacro()
+endif()
+
 find_program(NOSETESTS_EXE NAMES nosetests PATHS $ENV{PYTHON_PACKAGE_PATH})
 if (NOT NOSETESTS_EXE)
   message(STATUS "nosetests was not found - python code will not be tested")
@@ -71,7 +83,7 @@ if (ENABLE_CODE_COVERAGE)
     # The symptom is that some .gcno files are wrong after code change and
     # recompiling. We don't know the exact reason yet. Figure it out.
     # Remove all .gcno files in the directory recursively.
-    COMMAND ${PYTHON_EXECUTABLE}
+    COMMAND ${PYTHON_EXE}
     ${shaderc_SOURCE_DIR}/utils/remove-file-by-suffix.py . ".gcno"
     # .gcno files are not tracked by CMake. So no recompiling is triggered
     # even if they are missing. Unfortunately, we just removed all of them

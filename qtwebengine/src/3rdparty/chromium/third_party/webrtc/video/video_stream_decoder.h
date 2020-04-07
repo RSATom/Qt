@@ -19,10 +19,9 @@
 #include "api/video/video_sink_interface.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
 #include "modules/video_coding/include/video_coding_defines.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/scoped_ref_ptr.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -48,7 +47,7 @@ class VideoStreamDecoder : public VCMReceiveCallback,
       bool enable_fec,
       ReceiveStatisticsProxy* receive_statistics_proxy,
       rtc::VideoSinkInterface<VideoFrame>* incoming_video_stream);
-  ~VideoStreamDecoder();
+  ~VideoStreamDecoder() override;
 
   // Implements VCMReceiveCallback.
   int32_t FrameToRender(VideoFrame& video_frame,

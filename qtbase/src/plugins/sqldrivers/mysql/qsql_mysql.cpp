@@ -197,6 +197,7 @@ protected:
     QSqlRecord record() const override;
     void virtual_hook(int id, void *data) override;
     bool nextResult() override;
+    void detachFromResultSet() override;
 
 #if MYSQL_VERSION_ID >= 40108
     bool prepare(const QString &stmt) override;
@@ -802,6 +803,15 @@ int QMYSQLResult::numRowsAffected()
 {
     Q_D(const QMYSQLResult);
     return d->rowsAffected;
+}
+
+void QMYSQLResult::detachFromResultSet()
+{
+    Q_D(QMYSQLResult);
+
+    if (d->preparedQuery) {
+        mysql_stmt_free_result(d->stmt);
+    }
 }
 
 QVariant QMYSQLResult::lastInsertId() const
@@ -1541,7 +1551,7 @@ QSqlIndex QMYSQLDriver::primaryIndex(const QString& tablename) const
     QSqlQuery i(createResult());
     QString stmt(QLatin1String("show index from %1;"));
     QSqlRecord fil = record(tablename);
-    i.exec(stmt.arg(tablename));
+    i.exec(stmt.arg(escapeIdentifier(tablename, QSqlDriver::TableName)));
     while (i.isActive() && i.next()) {
         if (i.value(2).toString() == QLatin1String("PRIMARY")) {
             idx.append(fil.field(i.value(4).toString()));

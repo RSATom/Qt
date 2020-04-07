@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_ENCODERS_IMAGE_ENCODER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_ENCODERS_IMAGE_ENCODER_H_
 
+#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkStream.h"
@@ -22,7 +23,8 @@ class VectorWStream : public SkWStream {
   }
 
   bool write(const void* buffer, size_t size) override {
-    dst_->Append((const unsigned char*)buffer, size);
+    DCHECK_LE(size, std::numeric_limits<wtf_size_t>::max());
+    dst_->Append((const unsigned char*)buffer, static_cast<wtf_size_t>(size));
     return true;
   }
 
@@ -47,14 +49,7 @@ class PLATFORM_EXPORT ImageEncoder {
                      const SkPixmap& src,
                      const SkWebpEncoder::Options&);
 
-  enum MimeType {
-    kMimeTypePng,
-    kMimeTypeJpeg,
-    kMimeTypeWebp,
-    kNumberOfMimeTypeSupported
-  };
-
-  static int MaxDimension(MimeType mime_type);
+  static int MaxDimension(ImageEncodingMimeType mime_type);
 
   static std::unique_ptr<ImageEncoder> Create(Vector<unsigned char>* dst,
                                               const SkPixmap& src,

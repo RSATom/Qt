@@ -41,11 +41,15 @@
 
 #include "profile_adapter.h"
 #include "content_browser_client_qt.h"
+#include "render_widget_host_view_qt.h"
 #include "render_widget_host_view_qt_delegate.h"
 #include "render_widget_host_view_qt.h"
+#include "touch_selection_controller_client_qt.h"
 #include "type_conversion.h"
+#include "web_contents_adapter_client.h"
 #include "web_contents_adapter.h"
 #include "web_engine_context.h"
+#include "web_contents_delegate_qt.h"
 
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -53,13 +57,25 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/context_menu_params.h"
-#include <ui/gfx/image/image_skia.h>
+#include "ui/gfx/image/image_skia.h"
 
 #include <QtGui/qpixmap.h>
 
 namespace QtWebEngineCore {
 
-void WebContentsViewQt::initialize(WebContentsAdapterClient* client)
+void WebContentsViewQt::setFactoryClient(WebContentsAdapterClient* client)
+{
+    if (m_factoryClient)
+        return;
+    m_factoryClient = client;
+
+    // Check if a RWHV was created before the pre-initialization.
+    if (auto view = static_cast<RenderWidgetHostViewQt *>(m_webContents->GetRenderWidgetHostView())) {
+        view->setDelegate(m_factoryClient->CreateRenderWidgetHostViewQtDelegate(view));
+    }
+}
+
+void WebContentsViewQt::setClient(WebContentsAdapterClient* client)
 {
     m_client = client;
     m_factoryClient = client;
@@ -75,15 +91,16 @@ content::RenderWidgetHostViewBase* WebContentsViewQt::CreateViewForWidget(conten
 {
     RenderWidgetHostViewQt *view = new RenderWidgetHostViewQt(render_widget_host);
 
-    Q_ASSERT(m_factoryClient);
-    view->setDelegate(m_factoryClient->CreateRenderWidgetHostViewQtDelegate(view));
-    if (m_client)
-        view->setAdapterClient(m_client);
+    if (m_factoryClient) {
+        view->setDelegate(m_factoryClient->CreateRenderWidgetHostViewQtDelegate(view));
+        if (m_client)
+            view->setAdapterClient(m_client);
+    }
 
     return view;
 }
 
-content::RenderWidgetHostViewBase* WebContentsViewQt::CreateViewForPopupWidget(content::RenderWidgetHost* render_widget_host)
+content::RenderWidgetHostViewBase* WebContentsViewQt::CreateViewForChildWidget(content::RenderWidgetHost* render_widget_host)
 {
     RenderWidgetHostViewQt *view = new RenderWidgetHostViewQt(render_widget_host);
 
@@ -96,15 +113,11 @@ content::RenderWidgetHostViewBase* WebContentsViewQt::CreateViewForPopupWidget(c
 
 void WebContentsViewQt::CreateView(const gfx::Size& initial_size, gfx::NativeView context)
 {
-    // This is passed through content::WebContents::CreateParams::context either as the native view's client
-    // directly or, in the case of a page-created new window, the client of the creating window's native view.
-    m_factoryClient = reinterpret_cast<WebContentsAdapterClient *>(context);
 }
 
 gfx::NativeView WebContentsViewQt::GetNativeView() const
 {
-    // Hack to provide the client to WebContentsImpl::CreateNewWindow.
-    return reinterpret_cast<gfx::NativeView>(m_client);
+    return nullptr;
 }
 
 void WebContentsViewQt::GetContainerBounds(gfx::Rect* out) const
@@ -203,6 +216,11 @@ static inline WebEngineContextMenuData fromParams(const content::ContextMenuPara
 
 void WebContentsViewQt::ShowContextMenu(content::RenderFrameHost *, const content::ContextMenuParams &params)
 {
+    if (auto rwhv = static_cast<RenderWidgetHostViewQt *>(m_webContents->GetRenderWidgetHostView())) {
+        if (rwhv && rwhv->getTouchSelectionControllerClient()->handleContextMenu(params))
+            return;
+    }
+
     WebEngineContextMenuData contextMenuData(fromParams(params));
 #if QT_CONFIG(webengine_spellchecker)
     // Do not use params.spellcheck_enabled, since it is never
@@ -247,7 +265,7 @@ void WebContentsViewQt::StartDragging(const content::DropData &drop_data,
 
     QPixmap pixmap;
     QPoint hotspot;
-    pixmap = QPixmap::fromImage(toQImage(image.GetRepresentation(m_client->dpiScale())));
+    pixmap = QPixmap::fromImage(toQImage(image.GetRepresentation(1.0)));
     if (!pixmap.isNull()) {
         hotspot.setX(image_offset.x());
         hotspot.setY(image_offset.y());

@@ -4,6 +4,7 @@
 
 #include "components/feed/core/feed_scheduler_host.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "components/feed/core/pref_names.h"
+#include "components/feed/core/refresh_throttler.h"
 #include "components/feed/core/time_serialization.h"
 #include "components/feed/core/user_classifier.h"
 #include "components/feed/feed_feature_list.h"
@@ -22,13 +24,17 @@
 #include "net/base/network_change_notifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using base::Time;
+using base::TimeDelta;
+
 namespace feed {
+
+namespace {
 
 // Fixed "now" to make tests more deterministic.
 char kNowString[] = "2018-06-11 15:41";
 
-using base::Time;
-using base::TimeDelta;
+}  // namespace
 
 class ForceDeviceOffline : public net::NetworkChangeNotifier {
  public:
@@ -44,9 +50,12 @@ class FeedSchedulerHostTest : public ::testing::Test {
  protected:
   FeedSchedulerHostTest() : weak_factory_(this) {
     FeedSchedulerHost::RegisterProfilePrefs(profile_prefs_.registry());
+    RefreshThrottler::RegisterProfilePrefs(profile_prefs_.registry());
     UserClassifier::RegisterProfilePrefs(profile_prefs_.registry());
     local_state()->registry()->RegisterBooleanPref(::prefs::kEulaAccepted,
                                                    true);
+    profile_prefs()->registry()->RegisterBooleanPref(
+        prefs::kArticlesListVisible, true);
 
     Time now;
     EXPECT_TRUE(Time::FromUTCString(kNowString, &now));
@@ -60,6 +69,8 @@ class FeedSchedulerHostTest : public ::testing::Test {
         base::BindRepeating(&FeedSchedulerHostTest::TriggerRefresh,
                             base::Unretained(this)),
         base::BindRepeating(&FeedSchedulerHostTest::ScheduleWakeUp,
+                            base::Unretained(this)),
+        base::BindRepeating(&FeedSchedulerHostTest::CancelWakeUp,
                             base::Unretained(this)));
   }
 
@@ -592,6 +603,13 @@ TEST_F(FeedSchedulerHostTest, OnFixedTimerActiveRareNtpUser) {
   EXPECT_EQ(3, refresh_call_count());
 }
 
+TEST_F(FeedSchedulerHostTest, OnFixedTimerWhileHidden) {
+  profile_prefs()->SetBoolean(prefs::kArticlesListVisible, false);
+  scheduler()->OnFixedTimer(base::OnceClosure());
+  EXPECT_EQ(0, refresh_call_count());
+  EXPECT_EQ(1, cancel_wake_up_call_count());
+}
+
 TEST_F(FeedSchedulerHostTest, OnFixedTimerActiveSuggestionsConsumer) {
   ClassifyAsActiveSuggestionsConsumer();
 
@@ -631,16 +649,54 @@ TEST_F(FeedSchedulerHostTest, ScheduleFixedTimerWakeUpOnSuccess) {
 
   // Make another scheduler to initialize, make sure it doesn't schedule a
   // wake up.
-  FeedSchedulerHost second_scheduler(profile_prefs(), local_state(),
-                                     test_clock());
-  InitializeScheduler(&second_scheduler);
+  NewScheduler();
   EXPECT_EQ(2U, schedule_wake_up_times().size());
 }
 
-TEST_F(FeedSchedulerHostTest, OnTaskReschedule) {
+TEST_F(FeedSchedulerHostTest, InitializedIntoHidden) {
+  // First wake up scheduled during Initialize().
   EXPECT_EQ(1U, schedule_wake_up_times().size());
-  scheduler()->OnTaskReschedule();
+
+  profile_prefs()->SetBoolean(prefs::kArticlesListVisible, false);
+  profile_prefs()->ClearPref(prefs::kBackgroundRefreshPeriod);
+  NewScheduler();
+  EXPECT_EQ(1U, schedule_wake_up_times().size());
+  EXPECT_EQ(0, cancel_wake_up_call_count());
+}
+
+TEST_F(FeedSchedulerHostTest, InitializedIntoHiddenWithPrevious) {
+  // First wake up scheduled during Initialize().
+  EXPECT_EQ(1U, schedule_wake_up_times().size());
+
+  profile_prefs()->SetBoolean(prefs::kArticlesListVisible, false);
+  profile_prefs()->SetTimeDelta(prefs::kBackgroundRefreshPeriod,
+                                base::TimeDelta::FromDays(12345));
+  NewScheduler();
+  EXPECT_EQ(1U, schedule_wake_up_times().size());
+  EXPECT_EQ(1, cancel_wake_up_call_count());
+}
+
+TEST_F(FeedSchedulerHostTest, InitializedIntoVisible) {
+  // First wake up scheduled during Initialize().
+  EXPECT_EQ(1U, schedule_wake_up_times().size());
+
+  profile_prefs()->SetBoolean(prefs::kArticlesListVisible, true);
+  profile_prefs()->ClearPref(prefs::kBackgroundRefreshPeriod);
+  NewScheduler();
   EXPECT_EQ(2U, schedule_wake_up_times().size());
+  EXPECT_EQ(0, cancel_wake_up_call_count());
+}
+
+TEST_F(FeedSchedulerHostTest, InitializedIntoVisibleWithPrevious) {
+  // First wake up scheduled during Initialize().
+  EXPECT_EQ(1U, schedule_wake_up_times().size());
+
+  profile_prefs()->SetBoolean(prefs::kArticlesListVisible, true);
+  profile_prefs()->SetTimeDelta(prefs::kBackgroundRefreshPeriod,
+                                base::TimeDelta::FromDays(12345));
+  NewScheduler();
+  EXPECT_EQ(2U, schedule_wake_up_times().size());
+  EXPECT_EQ(0, cancel_wake_up_call_count());
 }
 
 TEST_F(FeedSchedulerHostTest, ShouldRefreshOffline) {
@@ -674,7 +730,7 @@ TEST_F(FeedSchedulerHostTest, EulaNotAccepted) {
 TEST_F(FeedSchedulerHostTest, DisableOneTrigger) {
   variations::testing::VariationParamsManager variation_params(
       kInterestFeedContentSuggestions.name,
-      {{"disable_trigger_types", "foregrounded"}},
+      {{kDisableTriggerTypes.name, "foregrounded"}},
       {kInterestFeedContentSuggestions.name});
   NewScheduler();
 
@@ -693,7 +749,7 @@ TEST_F(FeedSchedulerHostTest, DisableOneTrigger) {
 TEST_F(FeedSchedulerHostTest, DisableAllTriggers) {
   variations::testing::VariationParamsManager variation_params(
       kInterestFeedContentSuggestions.name,
-      {{"disable_trigger_types", "ntp_shown,foregrounded,fixed_timer"}},
+      {{kDisableTriggerTypes.name, "ntp_shown,foregrounded,fixed_timer"}},
       {kInterestFeedContentSuggestions.name});
   NewScheduler();
 
@@ -712,7 +768,7 @@ TEST_F(FeedSchedulerHostTest, DisableAllTriggers) {
 TEST_F(FeedSchedulerHostTest, DisableBogusTriggers) {
   variations::testing::VariationParamsManager variation_params(
       kInterestFeedContentSuggestions.name,
-      {{"disable_trigger_types", "foo,123,#$*,,"}},
+      {{kDisableTriggerTypes.name, "foo,123,#$*,,"}},
       {kInterestFeedContentSuggestions.name});
 
   NewScheduler();
@@ -730,13 +786,13 @@ TEST_F(FeedSchedulerHostTest, DisableBogusTriggers) {
                 /*has_outstanding_request*/ false));
 }
 
-TEST_F(FeedSchedulerHostTest, OnHistoryCleared) {
+TEST_F(FeedSchedulerHostTest, OnArticlesCleared) {
   // OnForegrounded() does nothing because content is fresher than threshold.
   scheduler()->OnReceiveNewContent(test_clock()->Now());
   scheduler()->OnForegrounded();
   EXPECT_EQ(0, refresh_call_count());
 
-  scheduler()->OnHistoryCleared();
+  EXPECT_FALSE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ true));
 
   scheduler()->OnForegrounded();
   EXPECT_EQ(0, refresh_call_count());
@@ -765,9 +821,9 @@ TEST_F(FeedSchedulerHostTest, OnHistoryCleared) {
 TEST_F(FeedSchedulerHostTest, SuppressRefreshDuration) {
   variations::testing::VariationParamsManager variation_params(
       kInterestFeedContentSuggestions.name,
-      {{"suppress_refresh_duration_minutes", "100"}},
+      {{kSuppressRefreshDurationMinutes.name, "100"}},
       {kInterestFeedContentSuggestions.name});
-  scheduler()->OnHistoryCleared();
+  EXPECT_FALSE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ true));
 
   test_clock()->Advance(TimeDelta::FromMinutes(99));
   scheduler()->OnForegrounded();
@@ -775,6 +831,35 @@ TEST_F(FeedSchedulerHostTest, SuppressRefreshDuration) {
 
   test_clock()->Advance(TimeDelta::FromMinutes(1));
   scheduler()->OnForegrounded();
+  EXPECT_EQ(1, refresh_call_count());
+}
+
+TEST_F(FeedSchedulerHostTest, OnArticlesClearedNoSuppress) {
+  EXPECT_TRUE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ false));
+  scheduler()->OnReceiveNewContent(test_clock()->Now());
+
+  EXPECT_TRUE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ false));
+  scheduler()->OnReceiveNewContent(test_clock()->Now());
+
+  EXPECT_FALSE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ true));
+  EXPECT_FALSE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ false));
+
+  // OnArticlesCleared() should never trigger the refresh itself.
+  EXPECT_EQ(0, refresh_call_count());
+}
+
+TEST_F(FeedSchedulerHostTest, OnArticlesClearedIgnoresOutstanding) {
+  scheduler()->OnForegrounded();
+  EXPECT_EQ(1, refresh_call_count());
+
+  // Now that there's an outstanding request, new triggers are not acted upon.
+  scheduler()->OnForegrounded();
+  EXPECT_EQ(1, refresh_call_count());
+
+  // Clearing articles should disregard the outstanding request logic.
+  EXPECT_TRUE(scheduler()->OnArticlesCleared(/*suppress_refreshes*/ false));
+  // OnArticlesCleared() should have returned true instead of triggering a
+  // refresh directly.
   EXPECT_EQ(1, refresh_call_count());
 }
 
@@ -790,17 +875,16 @@ TEST_F(FeedSchedulerHostTest, OustandingRequest) {
                 /*has_content*/ false, /*content_creation_date_time*/ Time(),
                 /*has_outstanding_request*/ true));
 
-  test_clock()->Advance(TimeDelta::FromDays(7));
+  profile_prefs()->SetTime(prefs::kLastFetchAttemptTime, base::Time());
   scheduler()->OnForegrounded();
   EXPECT_EQ(1, refresh_call_count());
 
-  // Although this clears outstanding, it also updates last attempted time, so
-  // still expect no refresh.
-  scheduler()->OnRequestError(0);
+  test_clock()->Advance(
+      TimeDelta::FromSeconds(kTimeoutDurationSeconds.Get() - 1));
   scheduler()->OnForegrounded();
   EXPECT_EQ(1, refresh_call_count());
 
-  test_clock()->Advance(TimeDelta::FromDays(7));
+  test_clock()->Advance(TimeDelta::FromSeconds(2));
   scheduler()->OnForegrounded();
   EXPECT_EQ(2, refresh_call_count());
 
@@ -872,6 +956,20 @@ TEST_F(FeedSchedulerHostTest, TimeUntilFirstMetrics) {
   scheduler()->OnForegrounded();
   EXPECT_EQ(2, histogram_tester.GetBucketCount(ntpOpenedHistogram, 0));
   EXPECT_EQ(2, histogram_tester.GetBucketCount(forgroundedHistogram, 0));
+}
+
+TEST_F(FeedSchedulerHostTest, RefreshThrottler) {
+  variations::testing::VariationParamsManager variation_params(
+      kInterestFeedContentSuggestions.name,
+      {{"quota_SuggestionFetcherActiveNTPUser", "3"}},
+      {kInterestFeedContentSuggestions.name});
+  NewScheduler();
+
+  for (int i = 0; i < 5; i++) {
+    scheduler()->OnForegrounded();
+    ResetRefreshState(Time());
+    EXPECT_EQ(std::min(i + 1, 3), refresh_call_count());
+  }
 }
 
 }  // namespace feed

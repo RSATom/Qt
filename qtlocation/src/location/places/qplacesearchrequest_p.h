@@ -56,6 +56,7 @@
 #include <QtCore/QList>
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtCore/QVariant>
+#include <QtLocation/QGeoRoute>
 
 QT_BEGIN_NAMESPACE
 
@@ -79,6 +80,7 @@ public:
     QString recommendationId;
     QLocation::VisibilityScope visibilityScope;
     QPlaceSearchRequest::RelevanceHint relevanceHint;
+    QGeoRoute routeSearchArea;
     int limit;
     QVariant searchContext;
     bool related = false;

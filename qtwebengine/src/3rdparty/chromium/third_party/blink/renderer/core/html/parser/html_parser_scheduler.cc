@@ -26,10 +26,10 @@
 #include "third_party/blink/renderer/core/html/parser/html_parser_scheduler.h"
 
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/parser/html_document_parser.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
@@ -64,7 +64,7 @@ HTMLParserScheduler::HTMLParserScheduler(
 
 HTMLParserScheduler::~HTMLParserScheduler() = default;
 
-void HTMLParserScheduler::Trace(blink::Visitor* visitor) {
+void HTMLParserScheduler::Trace(Visitor* visitor) {
   visitor->Trace(parser_);
 }
 
@@ -105,10 +105,7 @@ void HTMLParserScheduler::Detach() {
 inline bool HTMLParserScheduler::ShouldYield(
     const SpeculationsPumpSession& session,
     bool starting_script) const {
-  if (Platform::Current()
-          ->CurrentThread()
-          ->Scheduler()
-          ->ShouldYieldForHighPriorityWork())
+  if (ThreadScheduler::Current()->ShouldYieldForHighPriorityWork())
     return true;
 
   const double kParserTimeLimit = 0.5;

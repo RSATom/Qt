@@ -7,15 +7,15 @@
 #include <utility>
 
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/renderer/platform/scheduler/child/task_queue_with_task_type.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread_scheduler.h"
 
 namespace blink {
 namespace scheduler {
 
 NonMainThreadSchedulerImpl::NonMainThreadSchedulerImpl(
-    std::unique_ptr<NonMainThreadSchedulerHelper> helper)
-    : helper_(std::move(helper)) {}
+    std::unique_ptr<base::sequence_manager::SequenceManager> manager,
+    TaskType default_task_type)
+    : helper_(std::move(manager), this, default_task_type) {}
 
 NonMainThreadSchedulerImpl::~NonMainThreadSchedulerImpl() = default;
 
@@ -25,7 +25,11 @@ std::unique_ptr<NonMainThreadSchedulerImpl> NonMainThreadSchedulerImpl::Create(
     WorkerSchedulerProxy* proxy) {
   return std::make_unique<WorkerThreadScheduler>(
       thread_type,
-      base::sequence_manager::CreateSequenceManagerOnCurrentThread(), proxy);
+      base::sequence_manager::CreateSequenceManagerOnCurrentThread(
+          base::sequence_manager::SequenceManager::Settings{
+              base::MessageLoop::TYPE_DEFAULT,
+              /* randomised_sampling_enabled */ true}),
+      proxy);
 }
 
 void NonMainThreadSchedulerImpl::Init() {
@@ -33,20 +37,20 @@ void NonMainThreadSchedulerImpl::Init() {
 }
 
 scoped_refptr<NonMainThreadTaskQueue>
-NonMainThreadSchedulerImpl::CreateTaskRunner(const char* name) {
-  helper_->CheckOnValidThread();
-  return helper_->NewTaskQueue(base::sequence_manager::TaskQueue::Spec(name)
-                                   .SetShouldMonitorQuiescence(true)
-                                   .SetTimeDomain(nullptr));
+NonMainThreadSchedulerImpl::CreateTaskQueue(const char* name) {
+  helper_.CheckOnValidThread();
+  return helper_.NewTaskQueue(base::sequence_manager::TaskQueue::Spec(name)
+                                  .SetShouldMonitorQuiescence(true)
+                                  .SetTimeDomain(nullptr));
 }
 
-void NonMainThreadSchedulerImpl::RunIdleTask(blink::WebThread::IdleTask task,
+void NonMainThreadSchedulerImpl::RunIdleTask(Thread::IdleTask task,
                                              base::TimeTicks deadline) {
   std::move(task).Run(deadline);
 }
 
 void NonMainThreadSchedulerImpl::PostIdleTask(const base::Location& location,
-                                              blink::WebThread::IdleTask task) {
+                                              Thread::IdleTask task) {
   IdleTaskRunner()->PostIdleTask(
       location, base::BindOnce(&NonMainThreadSchedulerImpl::RunIdleTask,
                                std::move(task)));
@@ -54,7 +58,7 @@ void NonMainThreadSchedulerImpl::PostIdleTask(const base::Location& location,
 
 void NonMainThreadSchedulerImpl::PostNonNestableIdleTask(
     const base::Location& location,
-    blink::WebThread::IdleTask task) {
+    Thread::IdleTask task) {
   IdleTaskRunner()->PostNonNestableIdleTask(
       location, base::BindOnce(&NonMainThreadSchedulerImpl::RunIdleTask,
                                std::move(task)));
@@ -79,26 +83,30 @@ NonMainThreadSchedulerImpl::MonotonicallyIncreasingVirtualTime() {
 
 scoped_refptr<base::SingleThreadTaskRunner>
 NonMainThreadSchedulerImpl::ControlTaskRunner() {
-  return helper_->ControlNonMainThreadTaskQueue();
+  return helper_.ControlNonMainThreadTaskQueue()->task_runner();
 }
 
 void NonMainThreadSchedulerImpl::RegisterTimeDomain(
     base::sequence_manager::TimeDomain* time_domain) {
-  return helper_->RegisterTimeDomain(time_domain);
+  return helper_.RegisterTimeDomain(time_domain);
 }
 
 void NonMainThreadSchedulerImpl::UnregisterTimeDomain(
     base::sequence_manager::TimeDomain* time_domain) {
-  return helper_->UnregisterTimeDomain(time_domain);
+  return helper_.UnregisterTimeDomain(time_domain);
 }
 
 base::sequence_manager::TimeDomain*
 NonMainThreadSchedulerImpl::GetActiveTimeDomain() {
-  return helper_->real_time_domain();
+  return helper_.real_time_domain();
 }
 
 const base::TickClock* NonMainThreadSchedulerImpl::GetTickClock() {
-  return helper_->GetClock();
+  return helper_.GetClock();
+}
+
+SchedulerHelper* NonMainThreadSchedulerImpl::GetHelper() {
+  return &helper_;
 }
 
 }  // namespace scheduler

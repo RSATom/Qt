@@ -74,12 +74,13 @@ DownloadResponseHandler::DownloadResponseHandler(
       download_source_(download_source),
       has_strong_validators_(false),
       is_partial_request_(save_info_->offset > 0),
+      completed_(false),
       abort_reason_(DOWNLOAD_INTERRUPT_REASON_NONE) {
   if (!is_parallel_request) {
     RecordDownloadCountWithSource(UNTHROTTLED_COUNT, download_source);
   }
   if (resource_request->request_initiator.has_value())
-    origin_ = resource_request->request_initiator.value().GetURL();
+    request_initiator_ = resource_request->request_initiator;
 }
 
 DownloadResponseHandler::~DownloadResponseHandler() = default;
@@ -102,10 +103,12 @@ void DownloadResponseHandler::OnReceiveResponse(
   // suggested name for the security origin of the downlaod URL. However, this
   // assumption doesn't hold if there were cross origin redirects. Therefore,
   // clear the suggested_name for such requests.
-  if (origin_.is_valid() && !create_info_->url_chain.back().SchemeIsBlob() &&
+  if (request_initiator_.has_value() &&
+      !create_info_->url_chain.back().SchemeIsBlob() &&
       !create_info_->url_chain.back().SchemeIs(url::kAboutScheme) &&
       !create_info_->url_chain.back().SchemeIs(url::kDataScheme) &&
-      origin_ != create_info_->url_chain.back().GetOrigin()) {
+      request_initiator_.value() !=
+          url::Origin::Create(create_info_->url_chain.back())) {
     create_info_->save_info->suggested_name.clear();
   }
 
@@ -142,6 +145,7 @@ DownloadResponseHandler::CreateDownloadCreateInfo(
   create_info->request_headers = request_headers_;
   create_info->request_origin = request_origin_;
   create_info->download_source = download_source_;
+  create_info->request_initiator = request_initiator_;
 
   HandleResponseHeaders(head.headers.get(), create_info.get());
   return create_info;
@@ -169,6 +173,14 @@ void DownloadResponseHandler::OnReceiveRedirect(
     OnComplete(network::URLLoaderCompletionStatus(net::OK));
     return;
   }
+
+  // Check if redirect URL is web safe.
+  if (delegate_ && !delegate_->CanRequestURL(redirect_info.new_url)) {
+    abort_reason_ = DOWNLOAD_INTERRUPT_REASON_NETWORK_INVALID_REQUEST;
+    OnComplete(network::URLLoaderCompletionStatus(net::OK));
+    return;
+  }
+
   url_chain_.push_back(redirect_info.new_url);
   method_ = redirect_info.new_method;
   referrer_ = GURL(redirect_info.new_referrer);
@@ -179,7 +191,10 @@ void DownloadResponseHandler::OnReceiveRedirect(
 void DownloadResponseHandler::OnUploadProgress(
     int64_t current_position,
     int64_t total_size,
-    OnUploadProgressCallback callback) {}
+    OnUploadProgressCallback callback) {
+  delegate_->OnUploadProgress(current_position);
+  std::move(callback).Run();
+}
 
 void DownloadResponseHandler::OnReceiveCachedMetadata(
     const std::vector<uint8_t>& data) {}
@@ -201,6 +216,10 @@ void DownloadResponseHandler::OnStartLoadingResponseBody(
 
 void DownloadResponseHandler::OnComplete(
     const network::URLLoaderCompletionStatus& status) {
+  if (completed_)
+    return;
+
+  completed_ = true;
   DownloadInterruptReason reason = HandleRequestCompletionStatus(
       static_cast<net::Error>(status.error_code), has_strong_validators_,
       cert_status_, abort_reason_);
@@ -215,10 +234,13 @@ void DownloadResponseHandler::OnComplete(
     return;
   }
 
-  // OnComplete() called without OnReceiveResponse(). This should only
+  // OnComplete() called without OnResponseStarted(). This should only
   // happen when the request was aborted.
-  create_info_ = CreateDownloadCreateInfo(network::ResourceResponseHead());
-  create_info_->result = reason;
+  if (!create_info_)
+    create_info_ = CreateDownloadCreateInfo(network::ResourceResponseHead());
+  create_info_->result = reason == DOWNLOAD_INTERRUPT_REASON_NONE
+                             ? DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED
+                             : reason;
 
   OnResponseStarted(mojom::DownloadStreamHandlePtr());
   delegate_->OnResponseCompleted();

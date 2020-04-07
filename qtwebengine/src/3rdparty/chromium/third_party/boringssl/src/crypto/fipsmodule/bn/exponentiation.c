@@ -125,12 +125,13 @@
 
 #include "rsaz_exp.h"
 
-void bn_mul_mont_gather5(BN_ULONG *rp, const BN_ULONG *ap, const void *table,
-                         const BN_ULONG *np, const BN_ULONG *n0, int num,
-                         int power);
-void bn_scatter5(const BN_ULONG *inp, size_t num, void *table, size_t power);
-void bn_gather5(BN_ULONG *out, size_t num, void *table, size_t power);
-void bn_power5(BN_ULONG *rp, const BN_ULONG *ap, const void *table,
+void bn_mul_mont_gather5(BN_ULONG *rp, const BN_ULONG *ap,
+                         const BN_ULONG *table, const BN_ULONG *np,
+                         const BN_ULONG *n0, int num, int power);
+void bn_scatter5(const BN_ULONG *inp, size_t num, BN_ULONG *table,
+                 size_t power);
+void bn_gather5(BN_ULONG *out, size_t num, BN_ULONG *table, size_t power);
+void bn_power5(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *table,
                const BN_ULONG *np, const BN_ULONG *n0, int num, int power);
 int bn_from_montgomery(BN_ULONG *rp, const BN_ULONG *ap,
                        const BN_ULONG *not_used, const BN_ULONG *np,
@@ -446,21 +447,18 @@ static int BN_window_bits_for_exponent_size(int b) {
 
 static int mod_exp_recp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
                         const BIGNUM *m, BN_CTX *ctx) {
-  int i, j, bits, ret = 0, wstart, window;
+  int i, j, ret = 0, wstart, window;
   int start = 1;
   BIGNUM *aa;
   // Table of variables obtained from 'ctx'
   BIGNUM *val[TABLE_SIZE];
   BN_RECP_CTX recp;
 
-  bits = BN_num_bits(p);
+  // This function is only called on even moduli.
+  assert(!BN_is_odd(m));
 
+  int bits = BN_num_bits(p);
   if (bits == 0) {
-    // x**0 mod 1 is still zero.
-    if (BN_is_one(m)) {
-      BN_zero(r);
-      return 1;
-    }
     return BN_one(r);
   }
 
@@ -586,6 +584,10 @@ err:
 
 int BN_mod_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, const BIGNUM *m,
                BN_CTX *ctx) {
+  if (m->neg) {
+    OPENSSL_PUT_ERROR(BN, BN_R_NEGATIVE_NUMBER);
+    return 0;
+  }
   if (a->neg || BN_ucmp(a, m) >= 0) {
     if (!BN_nnmod(r, a, m, ctx)) {
       return 0;
@@ -606,6 +608,10 @@ int BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
     OPENSSL_PUT_ERROR(BN, BN_R_CALLED_WITH_EVEN_MODULUS);
     return 0;
   }
+  if (m->neg) {
+    OPENSSL_PUT_ERROR(BN, BN_R_NEGATIVE_NUMBER);
+    return 0;
+  }
   if (a->neg || BN_ucmp(a, m) >= 0) {
     OPENSSL_PUT_ERROR(BN, BN_R_INPUT_NOT_REDUCED);
     return 0;
@@ -614,7 +620,7 @@ int BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   int bits = BN_num_bits(p);
   if (bits == 0) {
     // x**0 mod 1 is still zero.
-    if (BN_is_one(m)) {
+    if (BN_abs_is_word(m, 1)) {
       BN_zero(rr);
       return 1;
     }
@@ -844,69 +850,25 @@ void bn_mod_inverse_prime_mont_small(BN_ULONG *r, const BN_ULONG *a, size_t num,
   bn_mod_exp_mont_small(r, a, num, p_minus_two, num, mont);
 }
 
-
-// |BN_mod_exp_mont_consttime| stores the precomputed powers in a specific
-// layout so that accessing any of these table values shows the same access
-// pattern as far as cache lines are concerned. The following functions are
-// used to transfer a BIGNUM from/to that table.
-
-static void copy_to_prebuf(const BIGNUM *b, int top, unsigned char *buf,
-                           int idx, int window) {
-  int i, j;
-  const int width = 1 << window;
-  BN_ULONG *table = (BN_ULONG *) buf;
-
-  if (top > b->width) {
-    top = b->width;  // this works because 'buf' is explicitly zeroed
-  }
-
-  for (i = 0, j = idx; i < top; i++, j += width)  {
-    table[j] = b->d[i];
-  }
+static void copy_to_prebuf(const BIGNUM *b, int top, BN_ULONG *table, int idx,
+                           int window) {
+  int ret = bn_copy_words(table + idx * top, top, b);
+  assert(ret);  // |b| is guaranteed to fit.
+  (void)ret;
 }
 
-static int copy_from_prebuf(BIGNUM *b, int top, unsigned char *buf, int idx,
+static int copy_from_prebuf(BIGNUM *b, int top, const BN_ULONG *table, int idx,
                             int window) {
-  int i, j;
-  const int width = 1 << window;
-  volatile BN_ULONG *table = (volatile BN_ULONG *)buf;
-
   if (!bn_wexpand(b, top)) {
     return 0;
   }
 
-  if (window <= 3) {
-    for (i = 0; i < top; i++, table += width) {
-      BN_ULONG acc = 0;
-
-      for (j = 0; j < width; j++) {
-        acc |= table[j] & ((BN_ULONG)0 - (constant_time_eq_int(j, idx) & 1));
-      }
-
-      b->d[i] = acc;
-    }
-  } else {
-    int xstride = 1 << (window - 2);
-    BN_ULONG y0, y1, y2, y3;
-
-    i = idx >> (window - 2);  // equivalent of idx / xstride
-    idx &= xstride - 1;       // equivalent of idx % xstride
-
-    y0 = (BN_ULONG)0 - (constant_time_eq_int(i, 0) & 1);
-    y1 = (BN_ULONG)0 - (constant_time_eq_int(i, 1) & 1);
-    y2 = (BN_ULONG)0 - (constant_time_eq_int(i, 2) & 1);
-    y3 = (BN_ULONG)0 - (constant_time_eq_int(i, 3) & 1);
-
-    for (i = 0; i < top; i++, table += width) {
-      BN_ULONG acc = 0;
-
-      for (j = 0; j < xstride; j++) {
-        acc |= ((table[j + 0 * xstride] & y0) | (table[j + 1 * xstride] & y1) |
-                (table[j + 2 * xstride] & y2) | (table[j + 3 * xstride] & y3)) &
-               ((BN_ULONG)0 - (constant_time_eq_int(j, idx) & 1));
-      }
-
-      b->d[i] = acc;
+  OPENSSL_memset(b->d, 0, sizeof(BN_ULONG) * top);
+  const int width = 1 << window;
+  for (int i = 0; i < width; i++, table += top) {
+    BN_ULONG mask = constant_time_eq_int(i, idx);
+    for (int j = 0; j < top; j++) {
+      b->d[j] |= table[j] & mask;
     }
   }
 
@@ -949,9 +911,8 @@ static int copy_from_prebuf(BIGNUM *b, int top, unsigned char *buf, int idx,
    (MOD_EXP_CTIME_MIN_CACHE_LINE_WIDTH - \
     (((size_t)(x_)) & (MOD_EXP_CTIME_MIN_CACHE_LINE_MASK))))
 
-// This variant of BN_mod_exp_mont() uses fixed windows and the special
-// precomputation memory layout to limit data-dependency to a minimum
-// to protect secret exponents (cf. the hyper-threading timing attacks
+// This variant of |BN_mod_exp_mont| uses fixed windows and fixed memory access
+// patterns to protect secret exponents (cf. the hyper-threading timing attacks
 // pointed out by Colin Percival,
 // http://www.daemonology.net/hyperthreading-considered-harmful/)
 int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
@@ -963,11 +924,15 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   int numPowers;
   unsigned char *powerbufFree = NULL;
   int powerbufLen = 0;
-  unsigned char *powerbuf = NULL;
+  BN_ULONG *powerbuf = NULL;
   BIGNUM tmp, am;
 
   if (!BN_is_odd(m)) {
     OPENSSL_PUT_ERROR(BN, BN_R_CALLED_WITH_EVEN_MODULUS);
+    return 0;
+  }
+  if (m->neg) {
+    OPENSSL_PUT_ERROR(BN, BN_R_NEGATIVE_NUMBER);
     return 0;
   }
   if (a->neg || BN_ucmp(a, m) >= 0) {
@@ -981,7 +946,7 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
   int bits = max_bits;
   if (bits == 0) {
     // x**0 mod 1 is still zero.
-    if (BN_is_one(m)) {
+    if (BN_abs_is_word(m, 1)) {
       BN_zero(rr);
       return 1;
     }
@@ -1046,7 +1011,7 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
 
 #if defined(OPENSSL_BN_ASM_MONT5)
   if ((size_t)powerbufLen <= sizeof(storage)) {
-    powerbuf = (unsigned char *)storage;
+    powerbuf = storage;
   }
   // |storage| is more than large enough to handle 1024-bit inputs.
   assert(powerbuf != NULL || top * BN_BITS2 > 1024);
@@ -1057,12 +1022,12 @@ int BN_mod_exp_mont_consttime(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
     if (powerbufFree == NULL) {
       goto err;
     }
-    powerbuf = MOD_EXP_CTIME_ALIGN(powerbufFree);
+    powerbuf = (BN_ULONG *)MOD_EXP_CTIME_ALIGN(powerbufFree);
   }
   OPENSSL_memset(powerbuf, 0, powerbufLen);
 
   // lay down tmp and am right after powers table
-  tmp.d = (BN_ULONG *)(powerbuf + sizeof(m->d[0]) * top * numPowers);
+  tmp.d = powerbuf + top * numPowers;
   am.d = tmp.d + top;
   tmp.width = am.width = 0;
   tmp.dmax = am.dmax = top;

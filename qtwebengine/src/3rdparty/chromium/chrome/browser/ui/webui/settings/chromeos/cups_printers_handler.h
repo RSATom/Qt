@@ -78,6 +78,12 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
                                    const std::string& make_and_model,
                                    bool ipp_everywhere);
 
+  // Callback for PPD matching attempts;
+  void OnPpdResolved(const std::string& callback_id,
+                     base::Value info,
+                     PpdProvider::CallbackResultCode res,
+                     const Printer::PpdReference& ppd_ref);
+
   void HandleAddCupsPrinter(const base::ListValue* args);
 
   // Handles the result of adding a printer which the user specified the
@@ -138,7 +144,8 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
 
   // Code common between the discovered and manual add printer code paths.
   void OnAddedPrinterCommon(const Printer& printer,
-                            PrinterSetupResult result_code);
+                            PrinterSetupResult result_code,
+                            bool is_automatic);
 
   // CupsPrintersManager::Observer override:
   void OnPrintersChanged(CupsPrintersManager::PrinterClass printer_class,

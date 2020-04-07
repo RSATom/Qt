@@ -99,8 +99,8 @@ void ControlInfo::setControl(QWidget *activex)
         item->setText(0, QString::fromLatin1(property.name()));
         item->setText(1, QString::fromLatin1(property.typeName()));
         if (!property.isDesignable()) {
-            item->setTextColor(0, Qt::gray);
-            item->setTextColor(1, Qt::gray);
+            item->setForeground(0, Qt::gray);
+            item->setForeground(1, Qt::gray);
         }
     }
     group->setText(1, QString::number(count));

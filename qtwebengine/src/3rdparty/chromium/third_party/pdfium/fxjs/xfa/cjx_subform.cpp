@@ -8,8 +8,9 @@
 
 #include <vector>
 
-#include "fxjs/cfxjse_value.h"
+#include "fxjs/cfx_v8.h"
 #include "fxjs/js_resources.h"
+#include "fxjs/xfa/cfxjse_value.h"
 #include "xfa/fxfa/cxfa_eventparam.h"
 #include "xfa/fxfa/cxfa_ffnotify.h"
 #include "xfa/fxfa/fxfa.h"
@@ -28,56 +29,60 @@ CJX_Subform::CJX_Subform(CXFA_Node* node) : CJX_Container(node) {
 
 CJX_Subform::~CJX_Subform() {}
 
-CJS_Return CJX_Subform::execEvent(
+bool CJX_Subform::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
+}
+
+CJS_Result CJX_Subform::execEvent(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (params.size() != 1)
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
+    return CJS_Result::Failure(JSMessage::kParamError);
 
   execSingleEventByName(runtime->ToWideString(params[0]).AsStringView(),
                         XFA_Element::Subform);
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Subform::execInitialize(
+CJS_Result CJX_Subform::execInitialize(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
+    return CJS_Result::Failure(JSMessage::kParamError);
 
   CXFA_FFNotify* pNotify = GetDocument()->GetNotify();
   if (pNotify)
     pNotify->ExecEventByDeepFirst(GetXFANode(), XFA_EVENT_Initialize, false,
                                   true);
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Subform::execCalculate(
+CJS_Result CJX_Subform::execCalculate(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
+    return CJS_Result::Failure(JSMessage::kParamError);
 
   CXFA_FFNotify* pNotify = GetDocument()->GetNotify();
   if (pNotify)
     pNotify->ExecEventByDeepFirst(GetXFANode(), XFA_EVENT_Calculate, false,
                                   true);
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Subform::execValidate(
+CJS_Result CJX_Subform::execValidate(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
+    return CJS_Result::Failure(JSMessage::kParamError);
 
   CXFA_FFNotify* pNotify = GetDocument()->GetNotify();
   if (!pNotify)
-    return CJS_Return(runtime->NewBoolean(false));
+    return CJS_Result::Success(runtime->NewBoolean(false));
 
   int32_t iRet = pNotify->ExecEventByDeepFirst(GetXFANode(), XFA_EVENT_Validate,
                                                false, true);
-  return CJS_Return(runtime->NewBoolean(iRet != XFA_EVENTERROR_Error));
+  return CJS_Result::Success(runtime->NewBoolean(iRet != XFA_EVENTERROR_Error));
 }
 
 void CJX_Subform::locale(CFXJSE_Value* pValue,
@@ -89,143 +94,23 @@ void CJX_Subform::locale(CFXJSE_Value* pValue,
   }
 
   WideString wsLocaleName = GetXFANode()->GetLocaleName().value_or(L"");
-  pValue->SetString(wsLocaleName.UTF8Encode().AsStringView());
+  pValue->SetString(wsLocaleName.ToUTF8().AsStringView());
 }
 
 void CJX_Subform::instanceIndex(CFXJSE_Value* pValue,
                                 bool bSetting,
                                 XFA_Attribute eAttribute) {
-  Script_Som_InstanceIndex(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::allowMacro(CFXJSE_Value* pValue,
-                             bool bSetting,
-                             XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::anchorType(CFXJSE_Value* pValue,
-                             bool bSetting,
-                             XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::colSpan(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::columnWidths(CFXJSE_Value* pValue,
-                               bool bSetting,
-                               XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::h(CFXJSE_Value* pValue,
-                    bool bSetting,
-                    XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::hAlign(CFXJSE_Value* pValue,
-                         bool bSetting,
-                         XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomInstanceIndex(pValue, bSetting, eAttribute);
 }
 
 void CJX_Subform::layout(CFXJSE_Value* pValue,
                          bool bSetting,
                          XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::maxH(CFXJSE_Value* pValue,
-                       bool bSetting,
-                       XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::maxW(CFXJSE_Value* pValue,
-                       bool bSetting,
-                       XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::minH(CFXJSE_Value* pValue,
-                       bool bSetting,
-                       XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::minW(CFXJSE_Value* pValue,
-                       bool bSetting,
-                       XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::presence(CFXJSE_Value* pValue,
-                           bool bSetting,
-                           XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::relevant(CFXJSE_Value* pValue,
-                           bool bSetting,
-                           XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::restoreState(CFXJSE_Value* pValue,
-                               bool bSetting,
-                               XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::scope(CFXJSE_Value* pValue,
-                        bool bSetting,
-                        XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::use(CFXJSE_Value* pValue,
-                      bool bSetting,
-                      XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::usehref(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptAttributeString(pValue, bSetting, eAttribute);
 }
 
 void CJX_Subform::validationMessage(CFXJSE_Value* pValue,
                                     bool bSetting,
                                     XFA_Attribute eAttribute) {
-  Script_Som_ValidationMessage(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::vAlign(CFXJSE_Value* pValue,
-                         bool bSetting,
-                         XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::w(CFXJSE_Value* pValue,
-                    bool bSetting,
-                    XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::x(CFXJSE_Value* pValue,
-                    bool bSetting,
-                    XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Subform::y(CFXJSE_Value* pValue,
-                    bool bSetting,
-                    XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomValidationMessage(pValue, bSetting, eAttribute);
 }

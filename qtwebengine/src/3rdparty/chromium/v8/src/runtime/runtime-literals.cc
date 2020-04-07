@@ -2,15 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/runtime/runtime-utils.h"
-
-#include "src/allocation-site-scopes.h"
-#include "src/arguments.h"
+#include "src/allocation-site-scopes-inl.h"
+#include "src/arguments-inl.h"
 #include "src/ast/ast.h"
+#include "src/counters.h"
 #include "src/isolate-inl.h"
 #include "src/objects/hash-table-inl.h"
+#include "src/objects/heap-number-inl.h"
+#include "src/objects/heap-object-inl.h"
 #include "src/objects/js-regexp-inl.h"
 #include "src/objects/literal-objects-inl.h"
+#include "src/runtime/runtime-utils.h"
 #include "src/runtime/runtime.h"
 
 namespace v8 {
@@ -18,11 +20,11 @@ namespace internal {
 
 namespace {
 
-bool IsUninitializedLiteralSite(Object* literal_site) {
+bool IsUninitializedLiteralSite(Object literal_site) {
   return literal_site == Smi::kZero;
 }
 
-bool HasBoilerplate(Isolate* isolate, Handle<Object> literal_site) {
+bool HasBoilerplate(Handle<Object> literal_site) {
   return !literal_site->IsSmi();
 }
 
@@ -119,7 +121,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
         DCHECK_EQ(kData, descriptors->GetDetails(i).kind());
         FieldIndex index = FieldIndex::ForDescriptor(copy->map(), i);
         if (copy->IsUnboxedDoubleField(index)) continue;
-        Object* raw = copy->RawFastPropertyAt(index);
+        Object raw = copy->RawFastPropertyAt(index);
         if (raw->IsJSObject()) {
           Handle<JSObject> value(JSObject::cast(raw), isolate);
           ASSIGN_RETURN_ON_EXCEPTION(
@@ -136,7 +138,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
     } else {
       Handle<NameDictionary> dict(copy->property_dictionary(), isolate);
       for (int i = 0; i < dict->Capacity(); i++) {
-        Object* raw = dict->ValueAt(i);
+        Object raw = dict->ValueAt(i);
         if (!raw->IsJSObject()) continue;
         DCHECK(dict->KeyAt(i)->IsName());
         Handle<JSObject> value(JSObject::cast(raw), isolate);
@@ -163,7 +165,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
 #endif
       } else {
         for (int i = 0; i < elements->length(); i++) {
-          Object* raw = elements->get(i);
+          Object raw = elements->get(i);
           if (!raw->IsJSObject()) continue;
           Handle<JSObject> value(JSObject::cast(raw), isolate);
           ASSIGN_RETURN_ON_EXCEPTION(
@@ -178,7 +180,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
                                                   isolate);
       int capacity = element_dictionary->Capacity();
       for (int i = 0; i < capacity; i++) {
-        Object* raw = element_dictionary->ValueAt(i);
+        Object raw = element_dictionary->ValueAt(i);
         if (!raw->IsJSObject()) continue;
         Handle<JSObject> value(JSObject::cast(raw), isolate);
         ASSIGN_RETURN_ON_EXCEPTION(
@@ -196,7 +198,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
       UNREACHABLE();
       break;
 
-#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype, size) case TYPE##_ELEMENTS:
+#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype) case TYPE##_ELEMENTS:
 
       TYPED_ARRAYS(TYPED_ARRAY_CASE)
 #undef TYPED_ARRAY_CASE
@@ -251,7 +253,7 @@ class AllocationSiteCreationContext : public AllocationSiteContext {
       scope_site = Handle<AllocationSite>(*top(), isolate());
       if (FLAG_trace_creation_allocation_sites) {
         PrintF("*** Creating top level %s AllocationSite %p\n", "Fat",
-               static_cast<void*>(*scope_site));
+               reinterpret_cast<void*>(scope_site->ptr()));
       }
     } else {
       DCHECK(!current().is_null());
@@ -261,8 +263,9 @@ class AllocationSiteCreationContext : public AllocationSiteContext {
             "*** Creating nested %s AllocationSite (top, current, new) (%p, "
             "%p, "
             "%p)\n",
-            "Slim", static_cast<void*>(*top()), static_cast<void*>(*current()),
-            static_cast<void*>(*scope_site));
+            "Slim", reinterpret_cast<void*>(top()->ptr()),
+            reinterpret_cast<void*>(current()->ptr()),
+            reinterpret_cast<void*>(scope_site->ptr()));
       }
       current()->set_nested_site(*scope_site);
       update_current_site(*scope_site);
@@ -278,11 +281,13 @@ class AllocationSiteCreationContext : public AllocationSiteContext {
           !scope_site.is_null() && top().is_identical_to(scope_site);
       if (top_level) {
         PrintF("*** Setting AllocationSite %p transition_info %p\n",
-               static_cast<void*>(*scope_site), static_cast<void*>(*object));
+               reinterpret_cast<void*>(scope_site->ptr()),
+               reinterpret_cast<void*>(object->ptr()));
       } else {
         PrintF("*** Setting AllocationSite (%p, %p) transition_info %p\n",
-               static_cast<void*>(*top()), static_cast<void*>(*scope_site),
-               static_cast<void*>(*object));
+               reinterpret_cast<void*>(top()->ptr()),
+               reinterpret_cast<void*>(scope_site->ptr()),
+               reinterpret_cast<void*>(object->ptr()));
       }
     }
   }
@@ -317,11 +322,11 @@ MaybeHandle<JSObject> DeepCopy(Handle<JSObject> object,
   return copy;
 }
 
-struct ObjectBoilerplate {
+struct ObjectLiteralHelper {
   static Handle<JSObject> Create(Isolate* isolate,
                                  Handle<HeapObject> description, int flags,
                                  PretenureFlag pretenure_flag) {
-    Handle<Context> native_context = isolate->native_context();
+    Handle<NativeContext> native_context = isolate->native_context();
     Handle<ObjectBoilerplateDescription> object_boilerplate_description =
         Handle<ObjectBoilerplateDescription>::cast(description);
     bool use_fast_elements = (flags & ObjectLiteral::kFastElements) != 0;
@@ -392,7 +397,7 @@ struct ObjectBoilerplate {
   }
 };
 
-struct ArrayBoilerplate {
+struct ArrayLiteralHelper {
   static Handle<JSObject> Create(Isolate* isolate,
                                  Handle<HeapObject> description, int flags,
                                  PretenureFlag pretenure_flag) {
@@ -455,62 +460,76 @@ Handle<Object> InnerCreateBoilerplate(Isolate* isolate,
   if (description->IsObjectBoilerplateDescription()) {
     Handle<ObjectBoilerplateDescription> object_boilerplate_description =
         Handle<ObjectBoilerplateDescription>::cast(description);
-    return ObjectBoilerplate::Create(isolate, object_boilerplate_description,
-                                     object_boilerplate_description->flags(),
-                                     pretenure_flag);
+    return ObjectLiteralHelper::Create(isolate, object_boilerplate_description,
+                                       object_boilerplate_description->flags(),
+                                       pretenure_flag);
   } else {
     DCHECK(description->IsArrayBoilerplateDescription());
     Handle<ArrayBoilerplateDescription> array_boilerplate_description =
         Handle<ArrayBoilerplateDescription>::cast(description);
-    return ArrayBoilerplate::Create(
+    return ArrayLiteralHelper::Create(
         isolate, array_boilerplate_description,
         array_boilerplate_description->elements_kind(), pretenure_flag);
   }
 }
 
-template <typename Boilerplate>
-MaybeHandle<JSObject> CreateLiteral(Isolate* isolate,
-                                    Handle<FeedbackVector> vector,
-                                    int literals_index,
-                                    Handle<HeapObject> description, int flags) {
-  FeedbackSlot literals_slot(FeedbackVector::ToSlot(literals_index));
-  CHECK(literals_slot.ToInt() < vector->length());
-  Handle<Object> literal_site(vector->Get(literals_slot)->ToObject(), isolate);
+inline DeepCopyHints DecodeCopyHints(int flags) {
   DeepCopyHints copy_hints =
       (flags & AggregateLiteral::kIsShallow) ? kObjectIsShallow : kNoHints;
   if (FLAG_track_double_fields && !FLAG_unbox_double_fields) {
     // Make sure we properly clone mutable heap numbers on 32-bit platforms.
     copy_hints = kNoHints;
   }
+  return copy_hints;
+}
+
+template <typename LiteralHelper>
+MaybeHandle<JSObject> CreateLiteralWithoutAllocationSite(
+    Isolate* isolate, Handle<HeapObject> description, int flags) {
+  Handle<JSObject> literal =
+      LiteralHelper::Create(isolate, description, flags, NOT_TENURED);
+  DeepCopyHints copy_hints = DecodeCopyHints(flags);
+  if (copy_hints == kNoHints) {
+    DeprecationUpdateContext update_context(isolate);
+    RETURN_ON_EXCEPTION(isolate, DeepWalk(literal, &update_context), JSObject);
+  }
+  return literal;
+}
+
+template <typename LiteralHelper>
+MaybeHandle<JSObject> CreateLiteral(Isolate* isolate,
+                                    MaybeHandle<FeedbackVector> maybe_vector,
+                                    int literals_index,
+                                    Handle<HeapObject> description, int flags) {
+  if (maybe_vector.is_null()) {
+    return CreateLiteralWithoutAllocationSite<LiteralHelper>(
+        isolate, description, flags);
+  }
+
+  Handle<FeedbackVector> vector = maybe_vector.ToHandleChecked();
+  FeedbackSlot literals_slot(FeedbackVector::ToSlot(literals_index));
+  CHECK(literals_slot.ToInt() < vector->length());
+  Handle<Object> literal_site(vector->Get(literals_slot)->cast<Object>(),
+                              isolate);
+  DeepCopyHints copy_hints = DecodeCopyHints(flags);
 
   Handle<AllocationSite> site;
   Handle<JSObject> boilerplate;
 
-  if (HasBoilerplate(isolate, literal_site)) {
+  if (HasBoilerplate(literal_site)) {
     site = Handle<AllocationSite>::cast(literal_site);
     boilerplate = Handle<JSObject>(site->boilerplate(), isolate);
   } else {
     // Eagerly create AllocationSites for literals that contain an Array.
     bool needs_initial_allocation_site =
         (flags & AggregateLiteral::kNeedsInitialAllocationSite) != 0;
-    // TODO(cbruni): Even in the case where we need an initial allocation site
-    // we could still create the boilerplate lazily to save memory.
     if (!needs_initial_allocation_site &&
         IsUninitializedLiteralSite(*literal_site)) {
       PreInitializeLiteralSite(vector, literals_slot);
-      boilerplate =
-          Boilerplate::Create(isolate, description, flags, NOT_TENURED);
-      if (copy_hints == kNoHints) {
-        DeprecationUpdateContext update_context(isolate);
-        RETURN_ON_EXCEPTION(isolate, DeepWalk(boilerplate, &update_context),
-                            JSObject);
-      }
-      return boilerplate;
+      return CreateLiteralWithoutAllocationSite<LiteralHelper>(
+          isolate, description, flags);
     } else {
-      PretenureFlag pretenure_flag =
-          Heap::InNewSpace(*vector) ? NOT_TENURED : TENURED;
-      boilerplate =
-          Boilerplate::Create(isolate, description, flags, pretenure_flag);
+      boilerplate = LiteralHelper::Create(isolate, description, flags, TENURED);
     }
     // Install AllocationSite objects.
     AllocationSiteCreationContext creation_context(isolate);
@@ -539,41 +558,82 @@ MaybeHandle<JSObject> CreateLiteral(Isolate* isolate,
 RUNTIME_FUNCTION(Runtime_CreateObjectLiteral) {
   HandleScope scope(isolate);
   DCHECK_EQ(4, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(FeedbackVector, vector, 0);
+  CONVERT_ARG_HANDLE_CHECKED(HeapObject, maybe_vector, 0);
   CONVERT_SMI_ARG_CHECKED(literals_index, 1);
   CONVERT_ARG_HANDLE_CHECKED(ObjectBoilerplateDescription, description, 2);
   CONVERT_SMI_ARG_CHECKED(flags, 3);
+  Handle<FeedbackVector> vector = Handle<FeedbackVector>();
+  if (!maybe_vector->IsUndefined()) {
+    DCHECK(maybe_vector->IsFeedbackVector());
+    vector = Handle<FeedbackVector>::cast(maybe_vector);
+  }
   RETURN_RESULT_OR_FAILURE(
-      isolate, CreateLiteral<ObjectBoilerplate>(isolate, vector, literals_index,
-                                                description, flags));
+      isolate, CreateLiteral<ObjectLiteralHelper>(
+                   isolate, vector, literals_index, description, flags));
+}
+
+RUNTIME_FUNCTION(Runtime_CreateObjectLiteralWithoutAllocationSite) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(ObjectBoilerplateDescription, description, 0);
+  CONVERT_SMI_ARG_CHECKED(flags, 1);
+  RETURN_RESULT_OR_FAILURE(
+      isolate, CreateLiteralWithoutAllocationSite<ObjectLiteralHelper>(
+                   isolate, description, flags));
+}
+
+RUNTIME_FUNCTION(Runtime_CreateArrayLiteralWithoutAllocationSite) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(ArrayBoilerplateDescription, description, 0);
+  CONVERT_SMI_ARG_CHECKED(flags, 1);
+  RETURN_RESULT_OR_FAILURE(
+      isolate, CreateLiteralWithoutAllocationSite<ArrayLiteralHelper>(
+                   isolate, description, flags));
 }
 
 RUNTIME_FUNCTION(Runtime_CreateArrayLiteral) {
   HandleScope scope(isolate);
   DCHECK_EQ(4, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(FeedbackVector, vector, 0);
+  CONVERT_ARG_HANDLE_CHECKED(HeapObject, maybe_vector, 0);
   CONVERT_SMI_ARG_CHECKED(literals_index, 1);
   CONVERT_ARG_HANDLE_CHECKED(ArrayBoilerplateDescription, elements, 2);
   CONVERT_SMI_ARG_CHECKED(flags, 3);
+  Handle<FeedbackVector> vector = Handle<FeedbackVector>();
+  if (!maybe_vector->IsUndefined()) {
+    DCHECK(maybe_vector->IsFeedbackVector());
+    vector = Handle<FeedbackVector>::cast(maybe_vector);
+  }
   RETURN_RESULT_OR_FAILURE(
-      isolate, CreateLiteral<ArrayBoilerplate>(isolate, vector, literals_index,
-                                               elements, flags));
+      isolate, CreateLiteral<ArrayLiteralHelper>(
+                   isolate, vector, literals_index, elements, flags));
 }
 
 RUNTIME_FUNCTION(Runtime_CreateRegExpLiteral) {
   HandleScope scope(isolate);
   DCHECK_EQ(4, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(FeedbackVector, vector, 0);
+  CONVERT_ARG_HANDLE_CHECKED(HeapObject, maybe_vector, 0);
   CONVERT_SMI_ARG_CHECKED(index, 1);
   CONVERT_ARG_HANDLE_CHECKED(String, pattern, 2);
   CONVERT_SMI_ARG_CHECKED(flags, 3);
-
   FeedbackSlot literal_slot(FeedbackVector::ToSlot(index));
+  Handle<FeedbackVector> vector = Handle<FeedbackVector>();
+  if (!maybe_vector->IsUndefined()) {
+    DCHECK(maybe_vector->IsFeedbackVector());
+    vector = Handle<FeedbackVector>::cast(maybe_vector);
+  }
+  Handle<Object> boilerplate;
+  if (vector.is_null()) {
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+        isolate, boilerplate,
+        JSRegExp::New(isolate, pattern, JSRegExp::Flags(flags)));
+    return *JSRegExp::Copy(Handle<JSRegExp>::cast(boilerplate));
+  }
 
   // Check if boilerplate exists. If not, create it first.
-  Handle<Object> literal_site(vector->Get(literal_slot)->ToObject(), isolate);
-  Handle<Object> boilerplate;
-  if (!HasBoilerplate(isolate, literal_site)) {
+  Handle<Object> literal_site(vector->Get(literal_slot)->cast<Object>(),
+                              isolate);
+  if (!HasBoilerplate(literal_site)) {
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, boilerplate,
         JSRegExp::New(isolate, pattern, JSRegExp::Flags(flags)));

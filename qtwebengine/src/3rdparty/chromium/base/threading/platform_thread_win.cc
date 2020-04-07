@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/threading/platform_thread.h"
+#include "base/threading/platform_thread_win.h"
 
 #include <stddef.h>
 
@@ -12,15 +12,21 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_id_name_manager.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/win/scoped_handle.h"
+#include "base/win/windows_version.h"
 
 #include <windows.h>
 
 namespace base {
 
 namespace {
+
+// The value returned by ::GetThreadPriority() after background thread mode is
+// enabled on Windows 8+.
+constexpr int kWin8AboveBackgroundThreadModePriority = -4;
 
 // The information on how to set the thread name comes from
 // a MSDN article: http://msdn2.microsoft.com/en-us/library/xcb2z8hs.aspx
@@ -144,6 +150,36 @@ bool CreateThreadInternal(size_t stack_size,
 
 }  // namespace
 
+namespace features {
+const Feature kWindowsThreadModeBackground{"WindowsThreadModeBackground",
+                                           FEATURE_DISABLED_BY_DEFAULT};
+}  // namespace features
+
+namespace internal {
+
+void AssertMemoryPriority(HANDLE thread, int memory_priority) {
+#if DCHECK_IS_ON()
+  static const auto get_thread_information_fn =
+      reinterpret_cast<decltype(&::GetThreadInformation)>(::GetProcAddress(
+          ::GetModuleHandle(L"Kernel32.dll"), "GetThreadInformation"));
+
+  if (!get_thread_information_fn) {
+    DCHECK_EQ(win::GetVersion(), win::VERSION_WIN7);
+    return;
+  }
+
+  MEMORY_PRIORITY_INFORMATION memory_priority_information = {};
+  DCHECK(get_thread_information_fn(thread, ::ThreadMemoryPriority,
+                                   &memory_priority_information,
+                                   sizeof(memory_priority_information)));
+
+  DCHECK_EQ(memory_priority,
+            static_cast<int>(memory_priority_information.MemoryPriority));
+#endif
+}
+
+}  // namespace internal
+
 // static
 PlatformThreadId PlatformThread::CurrentId() {
   return ::GetCurrentThreadId();
@@ -224,12 +260,6 @@ bool PlatformThread::CreateNonJoinableWithPriority(size_t stack_size,
 // static
 void PlatformThread::Join(PlatformThreadHandle thread_handle) {
   DCHECK(thread_handle.platform_handle());
-  // TODO(willchan): Enable this check once I can get it to work for Windows
-  // shutdown.
-  // Joining another thread may block the current thread for a long time, since
-  // the thread referred to by |thread_handle| may still be running long-lived /
-  // blocking tasks.
-  // AssertBlockingAllowed();
 
   DWORD thread_id = 0;
   thread_id = ::GetThreadId(thread_handle.platform_handle());
@@ -244,6 +274,9 @@ void PlatformThread::Join(PlatformThreadHandle thread_handle) {
   // Record the event that this thread is blocking upon (for hang diagnosis).
   base::debug::ScopedThreadJoinActivity thread_activity(&thread_handle);
 
+  base::internal::ScopedBlockingCallWithBaseSyncPrimitives scoped_blocking_call(
+      base::BlockingType::MAY_BLOCK);
+
   // Wait for the thread to exit.  It should already have terminated but make
   // sure this assumption is valid.
   CHECK_EQ(WAIT_OBJECT_0,
@@ -257,16 +290,41 @@ void PlatformThread::Detach(PlatformThreadHandle thread_handle) {
 }
 
 // static
-bool PlatformThread::CanIncreaseCurrentThreadPriority() {
+bool PlatformThread::CanIncreaseThreadPriority(ThreadPriority priority) {
   return true;
 }
 
 // static
-void PlatformThread::SetCurrentThreadPriority(ThreadPriority priority) {
+void PlatformThread::SetCurrentThreadPriorityImpl(ThreadPriority priority) {
+  // A DCHECK is triggered on FeatureList initialization if the state of a
+  // feature has been checked before. We only want to trigger that DCHECK if the
+  // priority has been set to BACKGROUND before, so we are careful not to access
+  // the state of the feature needlessly. We don't DCHECK here because it is ok
+  // if the FeatureList is never initialized in the process (e.g. in tests).
+  //
+  // TODO(fdoray): Remove experiment code. https://crbug.com/872820
+  const bool use_thread_mode_background =
+      (priority == ThreadPriority::BACKGROUND
+           ? FeatureList::IsEnabled(features::kWindowsThreadModeBackground)
+           : (FeatureList::GetInstance() &&
+              FeatureList::IsEnabled(features::kWindowsThreadModeBackground)));
+
+  PlatformThreadHandle::Handle thread_handle =
+      PlatformThread::CurrentHandle().platform_handle();
+
+  if (use_thread_mode_background && priority != ThreadPriority::BACKGROUND) {
+    // Exit background mode if the new priority is not BACKGROUND. This is a
+    // no-op if not in background mode.
+    ::SetThreadPriority(thread_handle, THREAD_MODE_BACKGROUND_END);
+    internal::AssertMemoryPriority(thread_handle, MEMORY_PRIORITY_NORMAL);
+  }
+
   int desired_priority = THREAD_PRIORITY_ERROR_RETURN;
   switch (priority) {
     case ThreadPriority::BACKGROUND:
-      desired_priority = THREAD_PRIORITY_LOWEST;
+      desired_priority = use_thread_mode_background
+                             ? THREAD_MODE_BACKGROUND_BEGIN
+                             : THREAD_PRIORITY_LOWEST;
       break;
     case ThreadPriority::NORMAL:
       desired_priority = THREAD_PRIORITY_NORMAL;
@@ -286,17 +344,38 @@ void PlatformThread::SetCurrentThreadPriority(ThreadPriority priority) {
 #if DCHECK_IS_ON()
   const BOOL success =
 #endif
-      ::SetThreadPriority(PlatformThread::CurrentHandle().platform_handle(),
-                          desired_priority);
+      ::SetThreadPriority(thread_handle, desired_priority);
   DPLOG_IF(ERROR, !success) << "Failed to set thread priority to "
                             << desired_priority;
+
+  if (use_thread_mode_background && priority == ThreadPriority::BACKGROUND) {
+    // In a background process, THREAD_MODE_BACKGROUND_BEGIN lowers the memory
+    // and I/O priorities but not the CPU priority (kernel bug?). Use
+    // THREAD_PRIORITY_LOWEST to also lower the CPU priority.
+    // https://crbug.com/901483
+    if (GetCurrentThreadPriority() != ThreadPriority::BACKGROUND) {
+      ::SetThreadPriority(thread_handle, THREAD_PRIORITY_LOWEST);
+      // Make sure that using THREAD_PRIORITY_LOWEST didn't affect the memory
+      // priority set by THREAD_MODE_BACKGROUND_BEGIN. There is no practical
+      // way to verify the I/O priority.
+      internal::AssertMemoryPriority(thread_handle, MEMORY_PRIORITY_VERY_LOW);
+    }
+  }
+
+  DCHECK_EQ(GetCurrentThreadPriority(), priority);
 }
 
 // static
 ThreadPriority PlatformThread::GetCurrentThreadPriority() {
-  int priority =
+  const int priority =
       ::GetThreadPriority(PlatformThread::CurrentHandle().platform_handle());
+
   switch (priority) {
+    case THREAD_PRIORITY_IDLE:
+    case internal::kWin7BackgroundThreadModePriority:
+      DCHECK_EQ(win::GetVersion(), win::VERSION_WIN7);
+      FALLTHROUGH;
+    case kWin8AboveBackgroundThreadModePriority:
     case THREAD_PRIORITY_LOWEST:
       return ThreadPriority::BACKGROUND;
     case THREAD_PRIORITY_NORMAL:
@@ -307,11 +386,15 @@ ThreadPriority PlatformThread::GetCurrentThreadPriority() {
       return ThreadPriority::REALTIME_AUDIO;
     case THREAD_PRIORITY_ERROR_RETURN:
       DPCHECK(false) << "GetThreadPriority error";
-      FALLTHROUGH;
-    default:
-      NOTREACHED() << "Unexpected priority: " << priority;
-      return ThreadPriority::NORMAL;
   }
+
+  NOTREACHED() << "GetCurrentThreadPriority returned " << priority << ".";
+  return ThreadPriority::NORMAL;
+}
+
+// static
+size_t PlatformThread::GetDefaultThreadStackSize() {
+  return 0;
 }
 
 }  // namespace base

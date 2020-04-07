@@ -7,16 +7,14 @@
 #ifndef XFA_FXFA_PARSER_CXFA_NODELOCALE_H_
 #define XFA_FXFA_PARSER_CXFA_NODELOCALE_H_
 
-#include <memory>
-
-#include "core/fxcrt/locale_iface.h"
+#include "xfa/fgas/crt/locale_iface.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
 class CXFA_Node;
 
 WideString XFA_PatternToString(FX_LOCALENUMSUBCATEGORY category);
 
-class CXFA_NodeLocale : public LocaleIface {
+class CXFA_NodeLocale final : public LocaleIface {
  public:
   explicit CXFA_NodeLocale(CXFA_Node* pLocale);
   ~CXFA_NodeLocale() override;
@@ -40,10 +38,8 @@ class CXFA_NodeLocale : public LocaleIface {
   WideString GetNumPattern(FX_LOCALENUMSUBCATEGORY eType) const override;
 
  private:
-  CXFA_Node* GetNodeByName(CXFA_Node* pParent,
-                           const WideStringView& wsName) const;
-  WideString GetSymbol(XFA_Element eElement,
-                       const WideStringView& symbol_type) const;
+  CXFA_Node* GetNodeByName(CXFA_Node* pParent, WideStringView wsName) const;
+  WideString GetSymbol(XFA_Element eElement, WideStringView symbol_type) const;
   WideString GetCalendarSymbol(XFA_Element eElement,
                                int index,
                                bool bAbbr) const;

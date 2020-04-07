@@ -42,14 +42,16 @@ constexpr size_t MaxTableSize() {
 }  // namespace
 
 GCInfoTable* GCInfoTable::global_table_ = nullptr;
+constexpr uint32_t GCInfoTable::kMaxIndex;
 
 void GCInfoTable::CreateGlobalTable() {
   DEFINE_STATIC_LOCAL(GCInfoTable, table, ());
   global_table_ = &table;
 }
 
-void GCInfoTable::EnsureGCInfoIndex(const GCInfo* gc_info,
-                                    size_t* gc_info_index_slot) {
+uint32_t GCInfoTable::EnsureGCInfoIndex(
+    const GCInfo* gc_info,
+    std::atomic<uint32_t>* gc_info_index_slot) {
   DCHECK(gc_info);
   DCHECK(gc_info_index_slot);
 
@@ -61,17 +63,18 @@ void GCInfoTable::EnsureGCInfoIndex(const GCInfo* gc_info,
   // If more than one thread ends up allocating a slot for
   // the same GCInfo, have later threads reuse the slot
   // allocated by the first.
-  if (*gc_info_index_slot)
-    return;
+  uint32_t gc_info_index = gc_info_index_slot->load(std::memory_order_acquire);
+  if (gc_info_index)
+    return gc_info_index;
 
-  int index = ++current_index_;
-  size_t gc_info_index = static_cast<size_t>(index);
+  gc_info_index = ++current_index_;
   CHECK(gc_info_index < GCInfoTable::kMaxIndex);
   if (current_index_ >= limit_)
     Resize();
 
   table_[gc_info_index] = gc_info;
-  ReleaseStore(reinterpret_cast<int*>(gc_info_index_slot), index);
+  gc_info_index_slot->store(gc_info_index, std::memory_order_release);
+  return gc_info_index;
 }
 
 void GCInfoTable::Resize() {
@@ -90,11 +93,10 @@ void GCInfoTable::Resize() {
   // Commit the new size and allow read/write.
   // TODO(ajwong): SetSystemPagesAccess should be part of RecommitSystemPages to
   // avoid having two calls here.
-  bool ok = base::SetSystemPagesAccess(current_table_end, table_size_delta,
-                                       base::PageReadWrite);
-  CHECK(ok);
-  ok = base::RecommitSystemPages(current_table_end, table_size_delta,
-                                 base::PageReadWrite);
+  base::SetSystemPagesAccess(current_table_end, table_size_delta,
+                             base::PageReadWrite);
+  bool ok = base::RecommitSystemPages(current_table_end, table_size_delta,
+                                      base::PageReadWrite);
   CHECK(ok);
 
 #if DCHECK_IS_ON()
@@ -104,7 +106,7 @@ void GCInfoTable::Resize() {
   }
 #endif  // DCHECK_IS_ON()
 
-  limit_ = new_limit;
+  limit_ = static_cast<uint32_t>(new_limit);
 }
 
 GCInfoTable::GCInfoTable() {

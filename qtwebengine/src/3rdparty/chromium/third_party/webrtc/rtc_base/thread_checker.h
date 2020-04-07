@@ -20,7 +20,7 @@
 #define RTC_ENABLE_THREAD_CHECKER RTC_DCHECK_IS_ON
 
 #include "rtc_base/checks.h"
-#include "rtc_base/constructormagic.h"
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/thread_checker_impl.h"
 
@@ -152,12 +152,12 @@ class RTC_SCOPED_LOCKABLE AnnounceOnThread {
 //     // Will fail at runtime when DCHECK is enabled:
 //     // encoder_->Encode();
 //     // Will work:
-//     rtc::scoped_ref_ptr<Encoder> encoder = encoder_;
+//     rtc::scoped_refptr<Encoder> encoder = encoder_;
 //     encoder_->Queue()->PostTask([encoder] { encoder->Encode(); });
 //   }
 //
 //  private:
-//   rtc::scoped_ref_ptr<Encoder> encoder_;
+//   rtc::scoped_refptr<Encoder> encoder_;
 // }
 
 // Document if a function expected to be called from same thread/task queue.

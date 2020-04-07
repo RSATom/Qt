@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "sql/connection.h"
+#include "sql/database.h"
 #include "sql/statement.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -27,7 +27,7 @@ class SQLTableBuilderTest : public testing::Test {
   // |type| in the database.
   bool IsColumnOfType(const std::string& name, const std::string& type);
 
-  sql::Connection* db() { return &db_; }
+  sql::Database* db() { return &db_; }
 
   SQLTableBuilder* builder() { return &builder_; }
 
@@ -39,7 +39,7 @@ class SQLTableBuilderTest : public testing::Test {
   // statement details.
   void PrintDBError(int code, sql::Statement* statement);
 
-  sql::Connection db_;
+  sql::Database db_;
   SQLTableBuilder builder_;
 
   DISALLOW_COPY_AND_ASSIGN(SQLTableBuilderTest);
@@ -293,7 +293,7 @@ TEST_F(SQLTableBuilderTest, MigrateFrom_RenameAndAddColumns) {
   EXPECT_EQ("signon_realm, id, new_name, added",
             builder()->ListAllColumnNames());
   EXPECT_EQ("new_name=?, added=?", builder()->ListAllNonuniqueKeyNames());
-  EXPECT_EQ("signon_realm=? AND id=?", builder()->ListAllUniqueKeyNames());
+  EXPECT_EQ("signon_realm=?", builder()->ListAllUniqueKeyNames());
   EXPECT_THAT(builder()->AllPrimaryKeyNames(), UnorderedElementsAre("id"));
 }
 
@@ -348,8 +348,8 @@ TEST_F(SQLTableBuilderTest, MigrateFrom_RenameAndAddAndDropColumns) {
   EXPECT_EQ("signon_realm, pk_1, pk_2, uni, new_name",
             builder()->ListAllColumnNames());
   EXPECT_EQ("new_name=?", builder()->ListAllNonuniqueKeyNames());
-  EXPECT_EQ("signon_realm=? AND pk_1=? AND pk_2=? AND uni=?",
-            builder()->ListAllUniqueKeyNames());
+  EXPECT_EQ("signon_realm=? AND uni=?", builder()->ListAllUniqueKeyNames());
+
   EXPECT_THAT(builder()->AllPrimaryKeyNames(),
               UnorderedElementsAre("pk_1", "pk_2"));
 }
@@ -375,6 +375,25 @@ TEST_F(SQLTableBuilderTest, MigrateFrom_RenameAndAddAndDropIndices) {
   EXPECT_TRUE(db()->DoesIndexExist("new_name"));
   EXPECT_EQ(1u, builder()->NumberOfColumns());
   EXPECT_THAT(builder()->AllIndexNames(), UnorderedElementsAre("new_name"));
+}
+
+TEST_F(SQLTableBuilderTest, MigrateFrom_AddPrimaryKey) {
+  builder()->AddColumnToUniqueKey("uni", "VARCHAR NOT NULL");
+  EXPECT_EQ(0u, builder()->SealVersion());
+  EXPECT_TRUE(builder()->CreateTable(db()));
+
+  builder()->AddColumnToPrimaryKey("pk_1", "VARCHAR NOT NULL");
+  EXPECT_EQ(1u, builder()->SealVersion());
+
+  EXPECT_FALSE(db()->DoesColumnExist("my_logins_table", "pk_1"));
+  EXPECT_TRUE(db()->GetSchema().find("PRIMARY KEY (pk_1)") ==
+              std::string::npos);
+
+  EXPECT_TRUE(builder()->MigrateFrom(0, db()));
+
+  EXPECT_TRUE(db()->DoesColumnExist("my_logins_table", "pk_1"));
+  EXPECT_TRUE(db()->GetSchema().find("PRIMARY KEY (pk_1)") !=
+              std::string::npos);
 }
 
 }  // namespace password_manager

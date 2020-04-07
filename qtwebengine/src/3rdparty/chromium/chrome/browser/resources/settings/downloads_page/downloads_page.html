@@ -4,6 +4,7 @@
 <link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
 <link rel="import" href="../controls/controlled_button.html">
 <link rel="import" href="../controls/settings_toggle_button.html">
+<link rel="import" href="../prefs/prefs_behavior.html">
 <link rel="import" href="../route.html">
 <link rel="import" href="../settings_shared_css.html">
 <link rel="import" href="downloads_browser_proxy.html">
@@ -20,16 +21,16 @@
     </style>
   <settings-animated-pages id="pages" section="downloads"
       focus-config="[[focusConfig_]]">
-    <neon-animatable route-path="default">
+    <div route-path="default">
       <div class="settings-box first two-line">
         <div class="start">
           <div>$i18n{downloadLocation}</div>
-          <div class="secondary">
+          <div class="secondary" id="defaultDownloadPath">
 <if expr="not chromeos">
             [[prefs.download.default_directory.value]]
 </if>
 <if expr="chromeos">
-            [[getDownloadLocation_(prefs.download.default_directory.value)]]
+            [[downloadLocation_]]
 </if>
           </div>
         </div>
@@ -51,15 +52,13 @@
           label="$i18n{disconnectGoogleDriveAccount}"
           hidden="[[!pageVisibility.googleDrive]]">
       </settings-toggle-button>
-      <template is="dom-if" if="[[enableSmbSettings_]]">
-        <div id="smbShares" class="settings-box"
-            on-click="onTapSmbShares_" actionable>
-          <div class="start"> $i18n{smbSharesTitle} </div>
-          <paper-icon-button-light class="subpage-arrow">
-            <button aria-label="$i18n{smbSharesTitle}"></button>
-          </paper-icon-button-light>
-        </div>
-      </template>
+      <div id="smbShares" class="settings-box"
+          on-click="onTapSmbShares_" actionable>
+        <div class="start"> $i18n{smbSharesTitle} </div>
+        <paper-icon-button-light class="subpage-arrow">
+          <button aria-label="$i18n{smbSharesTitle}"></button>
+        </paper-icon-button-light>
+      </div>
 </if>
       <template is="dom-if" if="[[autoOpenDownloads_]]" restamp>
         <div class="settings-box">
@@ -73,14 +72,14 @@
           </paper-button>
         </div>
       </template>
-    </neon-animatable>
+    </div>
 
 <if expr="chromeos">
     <template is="dom-if" route-path="/smbShares">
       <settings-subpage
           associated-control="[[$$('#smbShares')]]"
           page-title="$i18n{smbSharesTitle}">
-        <settings-smb-shares-page>
+        <settings-smb-shares-page prefs="[[prefs]]">
         </settings-smb-shares-page>
       </settings-subpage>
     </template>

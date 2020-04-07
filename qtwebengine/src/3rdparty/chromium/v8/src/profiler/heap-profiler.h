@@ -27,7 +27,7 @@ class StringsStorage;
 class HeapProfiler : public HeapObjectAllocationTracker {
  public:
   explicit HeapProfiler(Heap* heap);
-  ~HeapProfiler();
+  ~HeapProfiler() override;
 
   HeapSnapshot* TakeSnapshot(
       v8::ActivityControl* control,
@@ -65,7 +65,7 @@ class HeapProfiler : public HeapObjectAllocationTracker {
       uint16_t class_id, v8::HeapProfiler::WrapperInfoCallback callback);
 
   v8::RetainedObjectInfo* ExecuteWrapperClassCallback(uint16_t class_id,
-                                                      Object** wrapper);
+                                                      Handle<Object> wrapper);
 
   void SetGetRetainerInfosCallback(
       v8::HeapProfiler::GetRetainerInfosCallback callback);
@@ -85,13 +85,15 @@ class HeapProfiler : public HeapObjectAllocationTracker {
   Handle<HeapObject> FindHeapObjectById(SnapshotObjectId id);
   void ClearHeapObjectMap();
 
-  Isolate* isolate() const { return heap()->isolate(); }
+  Isolate* isolate() const;
 
   void QueryObjects(Handle<Context> context,
                     debug::QueryObjectPredicate* predicate,
                     v8::PersistentValueVector<v8::Object>* objects);
 
  private:
+  void MaybeClearStringsStorage();
+
   Heap* heap() const;
 
   // Mapping from HeapObject addresses to objects' uids.

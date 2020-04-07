@@ -18,20 +18,21 @@
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
+#include "ui/base/buildflags.h"
 #include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
-#include "ui/base/ui_features.h"
 #include "ui/events/ozone/device/device_manager.h"
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+#include "ui/gfx/linux/client_native_pixmap_dmabuf.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
+#include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_gpu_display_manager.h"
 #include "ui/ozone/platform/drm/gpu/drm_thread_message_proxy.h"
 #include "ui/ozone/platform/drm/gpu/drm_thread_proxy.h"
 #include "ui/ozone/platform/drm/gpu/gbm_surface_factory.h"
 #include "ui/ozone/platform/drm/gpu/proxy_helpers.h"
-#include "ui/ozone/platform/drm/gpu/scanout_buffer.h"
 #include "ui/ozone/platform/drm/gpu/screen_manager.h"
 #include "ui/ozone/platform/drm/host/drm_cursor.h"
 #include "ui/ozone/platform/drm/host/drm_device_connector.h"
@@ -61,9 +62,8 @@ namespace {
 
 class OzonePlatformGbm : public OzonePlatform {
  public:
-  OzonePlatformGbm()
-      : using_mojo_(false), single_process_(false), weak_factory_(this) {}
-  ~OzonePlatformGbm() override {}
+  OzonePlatformGbm() = default;
+  ~OzonePlatformGbm() override = default;
 
   // OzonePlatform:
   ui::SurfaceFactoryOzone* GetSurfaceFactoryOzone() override {
@@ -172,6 +172,12 @@ class OzonePlatformGbm : public OzonePlatform {
     return std::make_unique<DrmNativeDisplayDelegate>(display_manager_.get());
   }
 
+  bool IsNativePixmapConfigSupported(gfx::BufferFormat format,
+                                     gfx::BufferUsage usage) const override {
+    return gfx::ClientNativePixmapDmaBuf::IsConfigurationSupported(format,
+                                                                   usage);
+  }
+
   void InitializeUI(const InitParams& args) override {
     // Ozone drm can operate in four modes configured at
     // runtime. Three process modes:
@@ -185,12 +191,13 @@ class OzonePlatformGbm : public OzonePlatform {
     //
     // and 2 connection modes
     //   a. Viz is launched via content::GpuProcessHost and it notifies the
-    //   ozone host when Viz becomes available. b. The ozone host uses a service
-    //   manager to launch and connect to Viz.
+    //   ozone host when Viz becomes available. b. The ozone host uses a
+    //   service manager to launch and connect to Viz.
     //
     // Combinations 1a, 2b, and 3a, and 3b are supported and expected to work.
     // Combination 1a will hopefully be deprecated and replaced with 3a.
-    // Combination 2b adds undesirable code-debt and the intent is to remove it.
+    // Combination 2b adds undesirable code-debt and the intent is to remove
+    // it.
 
     single_process_ = args.single_process;
     using_mojo_ = args.using_mojo || args.connector != nullptr;
@@ -199,6 +206,7 @@ class OzonePlatformGbm : public OzonePlatform {
     device_manager_ = CreateDeviceManager();
     window_manager_.reset(new DrmWindowHostManager());
     cursor_.reset(new DrmCursor(window_manager_.get()));
+
 #if BUILDFLAG(USE_XKBCOMMON)
     KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
         std::make_unique<XkbKeyboardLayoutEngine>(xkb_evdev_code_converter_));
@@ -266,16 +274,14 @@ class OzonePlatformGbm : public OzonePlatform {
     // BlockingStartDrmDevice API.
     // TODO(rjkroege): In a future when we have completed splitting Viz, it will
     // be possible to simplify this logic.
-    if (using_mojo_ && single_process_) {
-      CHECK(host_drm_device_)
-          << "Mojo single-process mode requires a HostDrmDevice.";
+    if (using_mojo_ && single_process_ &&
+        host_thread_ == base::PlatformThread::CurrentRef()) {
+      CHECK(host_drm_device_) << "Mojo single-thread mode requires "
+                                 "InitializeUI to be called first.";
 
-      // Wait here if host and gpu are one and the same thread.
-      if (host_thread_ == base::PlatformThread::CurrentRef()) {
-        // One-thread exection does not permit use of the sandbox.
-        AfterSandboxEntry();
-        host_drm_device_->BlockingStartDrmDevice();
-      }
+      // One-thread execution does not permit use of the sandbox.
+      AfterSandboxEntry();
+      host_drm_device_->BlockingStartDrmDevice();
     }
   }
 
@@ -293,8 +299,8 @@ class OzonePlatformGbm : public OzonePlatform {
   }
 
  private:
-  bool using_mojo_;
-  bool single_process_;
+  bool using_mojo_ = false;
+  bool single_process_ = false;
 
   // Objects in the GPU process.
   std::unique_ptr<DrmThreadProxy> drm_thread_proxy_;
@@ -306,7 +312,7 @@ class OzonePlatformGbm : public OzonePlatform {
   // running in single process mode.
   std::vector<ozone::mojom::DeviceCursorRequest> pending_cursor_requests_;
   std::vector<ozone::mojom::DrmDeviceRequest> pending_gpu_adapter_requests_;
-  bool drm_thread_started_;
+  bool drm_thread_started_ = false;
 
   // gpu_platform_support_host_ is the IPC bridge to the GPU process while
   // host_drm_device_ is the mojo bridge to the Viz process. Only one can be in
@@ -335,7 +341,7 @@ class OzonePlatformGbm : public OzonePlatform {
   XkbEvdevCodes xkb_evdev_code_converter_;
 #endif
 
-  base::WeakPtrFactory<OzonePlatformGbm> weak_factory_;
+  base::WeakPtrFactory<OzonePlatformGbm> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(OzonePlatformGbm);
 };

@@ -39,6 +39,7 @@
 
 #include "qcborarray.h"
 #include "qcborvalue_p.h"
+#include "qdatastream.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -272,7 +273,7 @@ QCborValue QCborArray::at(qsizetype i) const
     not be empty.
 
     QCborValueRef has the exact same API as \l QCborValue, with one important
-    difference: if you assign new values to it, this map will be updated with
+    difference: if you assign new values to it, this array will be updated with
     that new value.
 
     \sa operator[](), at(), last(), insert(), prepend(), append(),
@@ -286,7 +287,7 @@ QCborValue QCborArray::at(qsizetype i) const
     not be empty.
 
     QCborValueRef has the exact same API as \l QCborValue, with one important
-    difference: if you assign new values to it, this map will be updated with
+    difference: if you assign new values to it, this array will be updated with
     that new value.
 
     \sa operator[](), at(), first(), insert(), prepend(), append(),
@@ -301,7 +302,7 @@ QCborValue QCborArray::at(qsizetype i) const
     with undefined entries, until it has an entry at the specified index.
 
     QCborValueRef has the exact same API as \l QCborValue, with one important
-    difference: if you assign new values to it, this map will be updated with
+    difference: if you assign new values to it, this array will be updated with
     that new value.
 
     \sa at(), first(), last(), insert(), prepend(), append(),
@@ -1215,6 +1216,25 @@ QDebug operator<<(QDebug dbg, const QCborArray &a)
         comma = ", ";
     }
     return dbg << '}';
+}
+#endif
+
+#ifndef QT_NO_DATASTREAM
+QDataStream &operator<<(QDataStream &stream, const QCborArray &value)
+{
+    stream << value.toCborValue().toCbor();
+    return stream;
+}
+
+QDataStream &operator>>(QDataStream &stream, QCborArray &value)
+{
+    QByteArray buffer;
+    stream >> buffer;
+    QCborParserError parseError{};
+    value = QCborValue::fromCbor(buffer, &parseError).toArray();
+    if (parseError.error)
+        stream.setStatus(QDataStream::ReadCorruptData);
+    return stream;
 }
 #endif
 

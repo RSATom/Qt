@@ -13,9 +13,8 @@
 #include "GrOnFlushResourceProvider.h"
 #include "GrProxyProvider.h"
 
-class GrAtlasGlypCache;
-class GrTextStrike;
 struct GrGlyph;
+class GrTextStrike;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 /** The GrAtlasManager manages the lifetime of and access to GrDrawOpAtlases.
@@ -26,13 +25,13 @@ struct GrGlyph;
  */
 class GrAtlasManager : public GrOnFlushCallbackObject {
 public:
-    GrAtlasManager(GrProxyProvider*, GrGlyphCache*,
-                   float maxTextureBytes, GrDrawOpAtlas::AllowMultitexturing);
+    GrAtlasManager(GrProxyProvider*, GrStrikeCache*,
+                   size_t maxTextureBytes, GrDrawOpAtlas::AllowMultitexturing);
     ~GrAtlasManager() override;
 
     // Change an expected 565 mask format to 8888 if 565 is not supported (will happen when using
     // Metal on macOS). The actual conversion of the data is handled in get_packed_glyph_image() in
-    // GrGlyphCache.cpp
+    // GrStrikeCache.cpp
     GrMaskFormat resolveMaskFormat(GrMaskFormat format) const {
         if (kA565_GrMaskFormat == format &&
             !fProxyProvider->caps()->isConfigTexturable(kRGB_565_GrPixelConfig)) {
@@ -42,7 +41,7 @@ public:
     }
 
     // if getProxies returns nullptr, the client must not try to use other functions on the
-    // GrGlyphCache which use the atlas.  This function *must* be called first, before other
+    // GrStrikeCache which use the atlas.  This function *must* be called first, before other
     // functions which use the atlas. Note that we can have proxies available but none active
     // (i.e., none instantiated).
     const sk_sp<GrTextureProxy>* getProxies(GrMaskFormat format, unsigned int* numActiveProxies) {
@@ -54,11 +53,6 @@ public:
         *numActiveProxies = 0;
         return nullptr;
     }
-
-    SkScalar getGlyphSizeLimit() const { return fGlyphSizeLimit; }
-
-    static void ComputeAtlasLimits(int maxTextureSize, size_t maxTextureBytes, int* maxDim,
-                                   int* minDim, int* maxPlot, int* minPlot);
 
     void freeAll();
 
@@ -80,7 +74,7 @@ public:
 
     // add to texture atlas that matches this format
     GrDrawOpAtlas::ErrorCode addToAtlas(
-                    GrResourceProvider*, GrGlyphCache*, GrTextStrike*,
+                    GrResourceProvider*, GrStrikeCache*, GrTextStrike*,
                     GrDrawOpAtlas::AtlasID*, GrDeferredUploadTarget*, GrMaskFormat,
                     int width, int height, const void* image, SkIPoint16* loc);
 
@@ -121,7 +115,7 @@ public:
     void dump(GrContext* context) const;
 #endif
 
-    void setAtlasSizes_ForTesting(const GrDrawOpAtlasConfig configs[3]);
+    void setAtlasSizesToMinimum_ForTesting();
     void setMaxPages_TestingOnly(uint32_t maxPages);
 
 private:
@@ -147,13 +141,12 @@ private:
         return fAtlases[atlasIndex].get();
     }
 
-    sk_sp<const GrCaps> fCaps;
     GrDrawOpAtlas::AllowMultitexturing fAllowMultitexturing;
     std::unique_ptr<GrDrawOpAtlas> fAtlases[kMaskFormatCount];
-    GrDrawOpAtlasConfig fAtlasConfigs[kMaskFormatCount];
-    SkScalar fGlyphSizeLimit;
     GrProxyProvider* fProxyProvider;
-    GrGlyphCache* fGlyphCache;
+    sk_sp<const GrCaps> fCaps;
+    GrStrikeCache* fGlyphCache;
+    GrDrawOpAtlasConfig fAtlasConfig;
 
     typedef GrOnFlushCallbackObject INHERITED;
 };

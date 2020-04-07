@@ -61,7 +61,7 @@ class Q_LOCATION_PRIVATE_EXPORT QMapIconObject : public QGeoMapObject
     Q_OBJECT
     Q_PROPERTY(QGeoCoordinate coordinate READ coordinate WRITE setCoordinate NOTIFY coordinateChanged)
     Q_PROPERTY(QVariant content READ content WRITE setContent NOTIFY contentChanged)
-    Q_PROPERTY(QSizeF size READ size WRITE setSize NOTIFY sizeChanged)
+    Q_PROPERTY(QSizeF iconSize READ iconSize WRITE setIconSize NOTIFY iconSizeChanged)
 
 public:
     QMapIconObject(QObject *parent = nullptr);
@@ -69,18 +69,18 @@ public:
 
     QVariant content() const;
     QGeoCoordinate coordinate() const;
-    QSizeF size() const;
+    QSizeF iconSize() const;
 
     void setContent(QVariant content);
     void setCoordinate(const QGeoCoordinate &coordinate);
-    void setSize(const QSizeF &size);
+    void setIconSize(const QSizeF &size);
 
     void setMap(QGeoMap *map) override;
 
 signals:
     void contentChanged(QVariant content);
     void coordinateChanged(QGeoCoordinate coordinate);
-    void sizeChanged();
+    void iconSizeChanged();
 };
 
 QT_END_NAMESPACE

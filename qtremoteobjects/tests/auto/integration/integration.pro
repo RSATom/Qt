@@ -1,8 +1,5 @@
 TARGET = tst_integration
 
-# QTBUG-61552
-boot2qt: DEFINES += SKIP_LOCAL
-
 OTHER_FILES = engine.rep \
               ../repfiles/localdatacenter.rep \
               ../repfiles/tcpdatacenter.rep

@@ -9,6 +9,8 @@
 #include "SkSGNode.h"
 #include "SkSGInvalidationController.h"
 
+#include <algorithm>
+
 namespace sksg {
 
 class Node::ScopedFlag {
@@ -21,7 +23,7 @@ public:
     }
     ~ScopedFlag() {
         if (!fWasSet) {
-            fNode->fFlags &= ~fFlag;;
+            fNode->fFlags &= ~fFlag;
         }
     }
 
@@ -46,7 +48,7 @@ Node::Node(uint32_t invalTraits)
 
 Node::~Node() {
     if (fFlags & kObserverArray_Flag) {
-        SkASSERT(fInvalObserverArray->isEmpty());
+        SkASSERT(fInvalObserverArray->empty());
         delete fInvalObserverArray;
     } else {
         SkASSERT(!fInvalObserver);
@@ -61,18 +63,19 @@ void Node::observeInval(const sk_sp<Node>& node) {
             return;
         }
 
-        auto observers = new SkTDArray<Node*>();
-        observers->setReserve(2);
-        observers->push(node->fInvalObserver);
+        auto observers = new std::vector<Node*>();
+        observers->reserve(2);
+        observers->push_back(node->fInvalObserver);
 
         node->fInvalObserverArray = observers;
         node->fFlags |= kObserverArray_Flag;
     }
 
     // No duplicate observers.
-    SkASSERT(node->fInvalObserverArray->find(this) < 0);
+    SkASSERT(std::find(node->fInvalObserverArray->begin(),
+                       node->fInvalObserverArray->end(), this) == node->fInvalObserverArray->end());
 
-    node->fInvalObserverArray->push(this);
+    node->fInvalObserverArray->push_back(this);
 }
 
 void Node::unobserveInval(const sk_sp<Node>& node) {
@@ -83,9 +86,11 @@ void Node::unobserveInval(const sk_sp<Node>& node) {
         return;
     }
 
-    const auto idx = node->fInvalObserverArray->find(this);
-    SkASSERT(idx >= 0);
-    node->fInvalObserverArray->remove(idx);
+    SkDEBUGCODE(const auto origSize = node->fInvalObserverArray->size());
+    node->fInvalObserverArray->erase(std::remove(node->fInvalObserverArray->begin(),
+                                                 node->fInvalObserverArray->end(), this),
+                                     node->fInvalObserverArray->end());
+    SkASSERT(node->fInvalObserverArray->size() == origSize - 1);
 }
 
 template <typename Func>

@@ -103,11 +103,11 @@ class V8_EXPORT_PRIVATE InterpreterAssembler : public CodeStubAssembler {
   // - Resume copies only the registers from the generator, the arguments
   //   are copied by the ResumeGenerator trampoline.
   compiler::Node* ExportParametersAndRegisterFile(
-      compiler::Node* array, const RegListNodePair& registers,
-      compiler::Node* formal_parameter_count);
-  compiler::Node* ImportRegisterFile(compiler::Node* array,
+      TNode<FixedArray> array, const RegListNodePair& registers,
+      TNode<Int32T> formal_parameter_count);
+  compiler::Node* ImportRegisterFile(TNode<FixedArray> array,
                                      const RegListNodePair& registers,
-                                     compiler::Node* formal_parameter_count);
+                                     TNode<Int32T> formal_parameter_count);
 
   // Loads from and stores to the interpreter register file.
   compiler::Node* LoadRegister(Register reg);
@@ -147,6 +147,10 @@ class V8_EXPORT_PRIVATE InterpreterAssembler : public CodeStubAssembler {
   // Load the FeedbackVector for the current function.
   compiler::TNode<FeedbackVector> LoadFeedbackVector();
 
+  // Load the FeedbackVector for the current function. The returned node
+  // could be undefined.
+  compiler::Node* LoadFeedbackVectorUnchecked();
+
   // Increment the call count for a CALL_IC or construct call.
   // The call count is located at feedback_vector[slot_id + 1].
   void IncrementCallCount(compiler::Node* feedback_vector,
@@ -162,7 +166,7 @@ class V8_EXPORT_PRIVATE InterpreterAssembler : public CodeStubAssembler {
   // |feedback_vector| at |slot_id|, and the call counts in
   // the |feedback_vector| at |slot_id+1|.
   void CollectCallFeedback(compiler::Node* target, compiler::Node* context,
-                           compiler::Node* feedback_vector,
+                           compiler::Node* maybe_feedback_vector,
                            compiler::Node* slot_id);
 
   // Call JSFunction or Callable |function| with |args| arguments, possibly
@@ -269,9 +273,6 @@ class V8_EXPORT_PRIVATE InterpreterAssembler : public CodeStubAssembler {
   static bool TargetSupportsUnalignedAccess();
 
   void ToNumberOrNumeric(Object::Conversion mode);
-
-  // Lazily deserializes the current bytecode's handler and tail-calls into it.
-  void DeserializeLazyAndDispatch();
 
  private:
   // Returns a tagged pointer to the current function's BytecodeArray object.

@@ -25,7 +25,6 @@
 #include "base/synchronization/lock.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/win/registry.h"
@@ -33,7 +32,7 @@
 #include "net/base/ip_address.h"
 #include "net/base/network_change_notifier.h"
 #include "net/dns/dns_hosts.h"
-#include "net/dns/dns_protocol.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/dns/serial_worker.h"
 #include "url/url_canon.h"
 
@@ -122,7 +121,7 @@ class RegistryReader {
 // Wrapper for GetAdaptersAddresses. Returns NULL if failed.
 std::unique_ptr<IP_ADAPTER_ADDRESSES, base::FreeDeleter> ReadIpHelper(
     ULONG flags) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   std::unique_ptr<IP_ADAPTER_ADDRESSES, base::FreeDeleter> out;
   ULONG len = 15000;  // As recommended by MSDN for GetAdaptersAddresses.
@@ -137,35 +136,6 @@ std::unique_ptr<IP_ADAPTER_ADDRESSES, base::FreeDeleter> ReadIpHelper(
   if (rv != NO_ERROR)
     out.reset();
   return out;
-}
-
-// Converts a base::string16 domain name to ASCII, possibly using punycode.
-// Returns true if the conversion succeeds and output is not empty. In case of
-// failure, |domain| might become dirty.
-bool ParseDomainASCII(base::StringPiece16 widestr, std::string* domain) {
-  DCHECK(domain);
-  if (widestr.empty())
-    return false;
-
-  // Check if already ASCII.
-  if (base::IsStringASCII(widestr)) {
-    domain->assign(widestr.begin(), widestr.end());
-    return true;
-  }
-
-  // Otherwise try to convert it from IDN to punycode.
-  const int kInitialBufferSize = 256;
-  url::RawCanonOutputT<base::char16, kInitialBufferSize> punycode;
-  if (!url::IDNToASCII(widestr.data(), widestr.length(), &punycode))
-    return false;
-
-  // |punycode_output| should now be ASCII; convert it to a std::string.
-  // (We could use UTF16ToASCII() instead, but that requires an extra string
-  // copy. Since ASCII is a subset of UTF8 the following is equivalent).
-  bool success = base::UTF16ToUTF8(punycode.data(), punycode.length(), domain);
-  DCHECK(success);
-  DCHECK(base::IsStringASCII(*domain));
-  return success && !domain->empty();
 }
 
 bool ReadDevolutionSetting(const RegistryReader& reader,
@@ -465,6 +435,32 @@ DnsSystemSettings::DnsSystemSettings()
 }
 
 DnsSystemSettings::~DnsSystemSettings() {
+}
+
+bool ParseDomainASCII(base::StringPiece16 widestr, std::string* domain) {
+  DCHECK(domain);
+  if (widestr.empty())
+    return false;
+
+  // Check if already ASCII.
+  if (base::IsStringASCII(widestr)) {
+    domain->assign(widestr.begin(), widestr.end());
+    return true;
+  }
+
+  // Otherwise try to convert it from IDN to punycode.
+  const int kInitialBufferSize = 256;
+  url::RawCanonOutputT<base::char16, kInitialBufferSize> punycode;
+  if (!url::IDNToASCII(widestr.data(), widestr.length(), &punycode))
+    return false;
+
+  // |punycode_output| should now be ASCII; convert it to a std::string.
+  // (We could use UTF16ToASCII() instead, but that requires an extra string
+  // copy. Since ASCII is a subset of UTF8 the following is equivalent).
+  bool success = base::UTF16ToUTF8(punycode.data(), punycode.length(), domain);
+  DCHECK(success);
+  DCHECK(base::IsStringASCII(*domain));
+  return success && !domain->empty();
 }
 
 bool ParseSearchList(const base::string16& value,

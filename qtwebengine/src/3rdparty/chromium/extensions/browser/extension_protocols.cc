@@ -31,11 +31,12 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/timer/elapsed_timer.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/file_url_loader.h"
 #include "content/public/browser/navigation_ui_data.h"
@@ -123,9 +124,17 @@ class GeneratedBackgroundPageJob : public net::URLRequestSimpleJob {
   int GetData(std::string* mime_type,
               std::string* charset,
               std::string* data,
-              const net::CompletionCallback& callback) const override {
+              net::CompletionOnceCallback callback) const override {
     GenerateBackgroundPageContents(extension_.get(), mime_type, charset, data);
     return net::OK;
+  }
+
+  // base::PowerObserver override:
+  void OnSuspend() override {
+    // Unlike URLRequestJob, don't suspend active requests here. Requests for
+    // generated background pages need not be suspended when the system
+    // suspends. This is not needed for URLRequestExtensionJob since it inherits
+    // from URLRequestFileJob, which has the same behavior.
   }
 
   void GetResponseInfo(net::HttpResponseInfo* info) override {
@@ -196,15 +205,15 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
                          const std::string& content_security_policy,
                          bool send_cors_header,
                          bool follow_symlinks_anywhere,
-                         ContentVerifyJob* verify_job)
+                         scoped_refptr<ContentVerifyJob> verify_job)
       : net::URLRequestFileJob(
             request,
             network_delegate,
             base::FilePath(),
             base::CreateTaskRunnerWithTraits(
-                {base::MayBlock(), base::TaskPriority::BACKGROUND,
+                {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
                  base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
-        verify_job_(verify_job),
+        verify_job_(std::move(verify_job)),
         seek_position_(0),
         bytes_read_(0),
         directory_path_(directory_path),
@@ -281,7 +290,8 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
 
   void OnReadComplete(net::IOBuffer* buffer, int result) override {
     if (result >= 0)
-      UMA_HISTOGRAM_COUNTS("ExtensionUrlRequest.OnReadCompleteResult", result);
+      UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.OnReadCompleteResult",
+                              result);
     else
       base::UmaHistogramSparse("ExtensionUrlRequest.OnReadCompleteError",
                                -result);
@@ -300,8 +310,9 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
 
  private:
   ~URLRequestExtensionJob() override {
-    UMA_HISTOGRAM_COUNTS("ExtensionUrlRequest.TotalKbRead", bytes_read_ / 1024);
-    UMA_HISTOGRAM_COUNTS("ExtensionUrlRequest.SeekPosition", seek_position_);
+    UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.TotalKbRead",
+                            bytes_read_ / 1024);
+    UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.SeekPosition", seek_position_);
     if (request_timer_.get())
       UMA_HISTOGRAM_TIMES("ExtensionUrlRequest.Latency",
                           request_timer_->Elapsed());
@@ -643,7 +654,7 @@ ExtensionProtocolHandler::MaybeCreateJob(
   if (g_test_handler)
     g_test_handler->Run(&directory_path, &relative_path);
 
-  ContentVerifyJob* verify_job = nullptr;
+  scoped_refptr<ContentVerifyJob> verify_job;
   ContentVerifier* verifier = extension_info_map_->content_verifier();
   if (verifier) {
     verify_job =
@@ -652,15 +663,10 @@ ExtensionProtocolHandler::MaybeCreateJob(
       verify_job->Start(verifier);
   }
 
-  return new URLRequestExtensionJob(request,
-                                    network_delegate,
-                                    extension_id,
-                                    directory_path,
-                                    relative_path,
-                                    content_security_policy,
-                                    send_cors_header,
-                                    follow_symlinks_anywhere,
-                                    verify_job);
+  return new URLRequestExtensionJob(
+      request, network_delegate, extension_id, directory_path, relative_path,
+      content_security_policy, send_cors_header, follow_symlinks_anywhere,
+      std::move(verify_job));
 }
 
 bool ExtensionProtocolHandler::IsSafeRedirectTarget(
@@ -684,8 +690,9 @@ class FileLoaderObserver : public content::FileURLLoaderObserver {
       : verify_job_(std::move(verify_job)) {}
   ~FileLoaderObserver() override {
     base::AutoLock auto_lock(lock_);
-    UMA_HISTOGRAM_COUNTS("ExtensionUrlRequest.TotalKbRead", bytes_read_ / 1024);
-    UMA_HISTOGRAM_COUNTS("ExtensionUrlRequest.SeekPosition", seek_position_);
+    UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.TotalKbRead",
+                            bytes_read_ / 1024);
+    UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.SeekPosition", seek_position_);
     if (request_timer_.get())
       UMA_HISTOGRAM_TIMES("ExtensionUrlRequest.Latency",
                           request_timer_->Elapsed());
@@ -710,8 +717,8 @@ class FileLoaderObserver : public content::FileURLLoaderObserver {
                    size_t num_bytes_read,
                    base::File::Error read_result) override {
     if (read_result == base::File::FILE_OK) {
-      UMA_HISTOGRAM_COUNTS("ExtensionUrlRequest.OnReadCompleteResult",
-                           read_result);
+      UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.OnReadCompleteResult",
+                              read_result);
       base::AutoLock auto_lock(lock_);
       bytes_read_ += num_bytes_read;
       if (verify_job_.get())
@@ -946,8 +953,8 @@ class ExtensionURLLoaderFactory : public network::mojom::URLLoaderFactory {
       bool send_cors_header) {
     request.url = net::FilePathToFileURL(*read_file_path);
 
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::IO},
         base::BindOnce(
             &StartVerifyJob, std::move(request), std::move(loader),
             std::move(client), std::move(content_verifier), resource,
@@ -962,7 +969,7 @@ class ExtensionURLLoaderFactory : public network::mojom::URLLoaderFactory {
       scoped_refptr<ContentVerifier> content_verifier,
       const ExtensionResource& resource,
       scoped_refptr<net::HttpResponseHeaders> response_headers) {
-    ContentVerifyJob* verify_job = nullptr;
+    scoped_refptr<ContentVerifyJob> verify_job;
     if (content_verifier) {
       verify_job = content_verifier->CreateJobFor(resource.extension_id(),
                                                   resource.extension_root(),
@@ -973,8 +980,8 @@ class ExtensionURLLoaderFactory : public network::mojom::URLLoaderFactory {
 
     content::CreateFileURLLoader(
         request, std::move(loader), std::move(client),
-        std::make_unique<FileLoaderObserver>(verify_job),
-        std::move(response_headers));
+        std::make_unique<FileLoaderObserver>(std::move(verify_job)),
+        /* allow_directory_listing */ false, std::move(response_headers));
   }
 
   content::BrowserContext* browser_context_;

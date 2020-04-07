@@ -62,7 +62,7 @@ v8::Local<v8::Object> V8DOMWrapper::CreateWrapper(
     // V8PerContextData::createWrapperFromCache, though there is no need to
     // cache resulting objects or their constructors.
     const DOMWrapperWorld& world = DOMWrapperWorld::World(scope.GetContext());
-    wrapper = type->domTemplate(isolate, world)
+    wrapper = type->DomTemplate(isolate, world)
                   ->InstanceTemplate()
                   ->NewInstance(scope.GetContext())
                   .ToLocalChecked();
@@ -94,10 +94,11 @@ bool V8DOMWrapper::HasInternalFieldsSet(v8::Local<v8::Value> value) {
   if (object->InternalFieldCount() < kV8DefaultWrapperInternalFieldCount)
     return false;
 
-  const ScriptWrappable* untrusted_script_wrappable = ToScriptWrappable(object);
+  // The untyped wrappable can either be ScriptWrappable or CustomWrappable.
+  const void* untrused_wrappable = ToUntypedWrappable(object);
   const WrapperTypeInfo* untrusted_wrapper_type_info =
       ToWrapperTypeInfo(object);
-  return untrusted_script_wrappable && untrusted_wrapper_type_info &&
+  return untrused_wrappable && untrusted_wrapper_type_info &&
          untrusted_wrapper_type_info->gin_embedder == gin::kEmbedderBlink;
 }
 

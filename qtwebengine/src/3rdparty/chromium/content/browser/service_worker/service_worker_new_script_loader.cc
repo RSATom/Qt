@@ -90,6 +90,8 @@ ServiceWorkerNewScriptLoader::ServiceWorkerNewScriptLoader(
     // may be used by ServiceWorkerNavigationLoader for navigations handled
     // by this service worker.
     options |= network::mojom::kURLLoadOptionSendSSLInfoWithResponse;
+
+    resource_request.headers.SetHeader("Service-Worker", "script");
   }
 
   // Bypass the browser cache if needed, e.g., updateViaCache demands it or 24
@@ -103,8 +105,6 @@ ServiceWorkerNewScriptLoader::ServiceWorkerNewScriptLoader(
     resource_request.load_flags |= net::LOAD_BYPASS_CACHE;
   }
 
-  resource_request.headers.SetHeader("Service-Worker", "script");
-
   // Create response readers only when we have to do the byte-for-byte check.
   std::unique_ptr<ServiceWorkerResponseReader> compare_reader;
   std::unique_ptr<ServiceWorkerResponseReader> copy_reader;
@@ -115,7 +115,8 @@ ServiceWorkerNewScriptLoader::ServiceWorkerNewScriptLoader(
   }
   cache_writer_ = std::make_unique<ServiceWorkerCacheWriter>(
       std::move(compare_reader), std::move(copy_reader),
-      storage->CreateResponseWriter(cache_resource_id));
+      storage->CreateResponseWriter(cache_resource_id),
+      false /* pause_when_not_identical */);
 
   version_->script_cache_map()->NotifyStartedCaching(request_url_,
                                                      cache_resource_id);
@@ -136,9 +137,9 @@ ServiceWorkerNewScriptLoader::ServiceWorkerNewScriptLoader(
 ServiceWorkerNewScriptLoader::~ServiceWorkerNewScriptLoader() = default;
 
 void ServiceWorkerNewScriptLoader::FollowRedirect(
-    const base::Optional<std::vector<std::string>>&
-        to_be_removed_request_headers,
-    const base::Optional<net::HttpRequestHeaders>& modified_request_headers) {
+    const std::vector<std::string>& removed_headers,
+    const net::HttpRequestHeaders& modified_headers,
+    const base::Optional<GURL>& new_url) {
   // Resource requests for service worker scripts should not follow redirects.
   // See comments in OnReceiveRedirect().
   NOTREACHED();
@@ -150,15 +151,18 @@ void ServiceWorkerNewScriptLoader::ProceedWithResponse() {
 
 void ServiceWorkerNewScriptLoader::SetPriority(net::RequestPriority priority,
                                                int32_t intra_priority_value) {
-  network_loader_->SetPriority(priority, intra_priority_value);
+  if (network_loader_)
+    network_loader_->SetPriority(priority, intra_priority_value);
 }
 
 void ServiceWorkerNewScriptLoader::PauseReadingBodyFromNet() {
-  network_loader_->PauseReadingBodyFromNet();
+  if (network_loader_)
+    network_loader_->PauseReadingBodyFromNet();
 }
 
 void ServiceWorkerNewScriptLoader::ResumeReadingBodyFromNet() {
-  network_loader_->ResumeReadingBodyFromNet();
+  if (network_loader_)
+    network_loader_->ResumeReadingBodyFromNet();
 }
 
 // URLLoaderClient for network loader ------------------------------------------
@@ -184,6 +188,7 @@ void ServiceWorkerNewScriptLoader::OnReceiveResponse(
       response_head.alpn_negotiated_protocol;
   response_info->connection_info = response_head.connection_info;
   response_info->socket_address = response_head.socket_address;
+  response_info->response_time = response_head.response_time;
 
   // The following sequence is equivalent to
   // ServiceWorkerWriteToCacheJob::OnResponseStarted.
@@ -191,7 +196,7 @@ void ServiceWorkerNewScriptLoader::OnReceiveResponse(
   // there are slight differences, like we only bump last update check time on
   // OK status.
 
-  if (response_head.headers->response_code() / 100 != 2) {
+  if (response_head.headers && response_head.headers->response_code() / 100 != 2) {
     // Non-2XX HTTP status code is handled as an error.
     std::string error_message =
         base::StringPrintf(kServiceWorkerBadHTTPResponseError,
@@ -229,7 +234,7 @@ void ServiceWorkerNewScriptLoader::OnReceiveResponse(
     // Check the path restriction defined in the spec:
     // https://w3c.github.io/ServiceWorker/#service-worker-script-response
     std::string service_worker_allowed;
-    bool has_header = response_head.headers->EnumerateHeader(
+    bool has_header = response_head.headers && response_head.headers->EnumerateHeader(
         nullptr, kServiceWorkerAllowed, &service_worker_allowed);
     std::string error_message;
     if (!ServiceWorkerUtils::IsPathRestrictionSatisfied(
@@ -247,8 +252,10 @@ void ServiceWorkerNewScriptLoader::OnReceiveResponse(
     version_->SetMainScriptHttpResponseInfo(*response_info);
   }
 
+  network_loader_state_ = NetworkLoaderState::kWaitingForBody;
+
   WriteHeaders(
-      base::MakeRefCounted<HttpResponseInfoIOBuffer>(response_info.release()));
+      base::MakeRefCounted<HttpResponseInfoIOBuffer>(std::move(response_info)));
 
   // Don't pass SSLInfo to the client when the original request doesn't ask
   // to send it.
@@ -258,11 +265,9 @@ void ServiceWorkerNewScriptLoader::OnReceiveResponse(
     network::ResourceResponseHead new_response_head = response_head;
     new_response_head.ssl_info.reset();
     client_->OnReceiveResponse(new_response_head);
-  } else {
-    client_->OnReceiveResponse(response_head);
+    return;
   }
-
-  network_loader_state_ = NetworkLoaderState::kWaitingForBody;
+  client_->OnReceiveResponse(response_head);
 }
 
 void ServiceWorkerNewScriptLoader::OnReceiveRedirect(
@@ -316,14 +321,15 @@ void ServiceWorkerNewScriptLoader::OnStartLoadingResponseBody(
 
 void ServiceWorkerNewScriptLoader::OnComplete(
     const network::URLLoaderCompletionStatus& status) {
-  DCHECK(network_loader_state_ == NetworkLoaderState::kWaitingForBody ||
-         network_loader_state_ == NetworkLoaderState::kLoadingBody);
   NetworkLoaderState previous_state = network_loader_state_;
   network_loader_state_ = NetworkLoaderState::kCompleted;
   if (status.error_code != net::OK) {
     CommitCompleted(status, kServiceWorkerFetchScriptError);
     return;
   }
+
+  DCHECK(previous_state == NetworkLoaderState::kWaitingForBody ||
+         previous_state == NetworkLoaderState::kLoadingBody);
 
   // Response body is empty.
   if (previous_state == NetworkLoaderState::kWaitingForBody) {
@@ -561,7 +567,7 @@ void ServiceWorkerNewScriptLoader::CommitCompleted(
     // TODO(nhiroki): Consider replacing this hacky way with the new error code
     // handling mechanism in URLLoader.
     version_->embedded_worker()->AddMessageToConsole(
-        blink::WebConsoleMessage::kLevelError, status_message);
+        blink::mojom::ConsoleMessageLevel::kError, status_message);
   }
   version_->script_cache_map()->NotifyFinishedCaching(
       request_url_, bytes_written, error_code, status_message);

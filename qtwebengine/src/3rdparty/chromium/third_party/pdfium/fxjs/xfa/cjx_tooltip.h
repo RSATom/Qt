@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_TOOLTIP_H_
 
 #include "fxjs/xfa/cjx_textnode.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_ToolTip;
 
-class CJX_ToolTip : public CJX_TextNode {
+class CJX_ToolTip final : public CJX_TextNode {
  public:
   explicit CJX_ToolTip(CXFA_ToolTip* node);
   ~CJX_ToolTip() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_TOOLTIP_H_

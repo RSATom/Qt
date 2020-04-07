@@ -36,11 +36,11 @@
 
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/networkmonitor.h"
+#include "rtc_base/network_monitor.h"
 #include "rtc_base/socket.h"  // includes something that makes windows happy
-#include "rtc_base/stream.h"
-#include "rtc_base/stringencode.h"
-#include "rtc_base/stringutils.h"
+#include "rtc_base/string_encode.h"
+#include "rtc_base/string_utils.h"
+#include "rtc_base/strings/string_builder.h"
 #include "rtc_base/thread.h"
 
 namespace rtc {
@@ -95,6 +95,7 @@ bool SortNetworks(const Network* a, const Network* b) {
 std::string AdapterTypeToString(AdapterType type) {
   switch (type) {
     case ADAPTER_TYPE_ANY:
+      return "Wildcard";
     case ADAPTER_TYPE_UNKNOWN:
       return "Unknown";
     case ADAPTER_TYPE_ETHERNET:
@@ -180,9 +181,9 @@ const int kPublicPort = 53;  // DNS port.
 std::string MakeNetworkKey(const std::string& name,
                            const IPAddress& prefix,
                            int prefix_length) {
-  std::ostringstream ost;
+  rtc::StringBuilder ost;
   ost << name << "%" << prefix.ToString() << "/" << prefix_length;
-  return ost.str();
+  return ost.Release();
 }
 // Test if the network name matches the type<number> pattern, e.g. eth0. The
 // matching is case-sensitive.
@@ -258,9 +259,12 @@ bool NetworkManager::GetDefaultLocalAddress(int family, IPAddress* addr) const {
   return false;
 }
 
+webrtc::MdnsResponderInterface* NetworkManager::GetMdnsResponder() const {
+  return nullptr;
+}
+
 NetworkManagerBase::NetworkManagerBase()
-    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED),
-      ipv6_enabled_(true) {}
+    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED) {}
 
 NetworkManagerBase::~NetworkManagerBase() {
   for (const auto& kv : networks_map_) {
@@ -279,20 +283,20 @@ void NetworkManagerBase::GetAnyAddressNetworks(NetworkList* networks) {
     ipv4_any_address_network_.reset(
         new rtc::Network("any", "any", ipv4_any_address, 0, ADAPTER_TYPE_ANY));
     ipv4_any_address_network_->set_default_local_address_provider(this);
+    ipv4_any_address_network_->set_mdns_responder_provider(this);
     ipv4_any_address_network_->AddIP(ipv4_any_address);
   }
   networks->push_back(ipv4_any_address_network_.get());
 
-  if (ipv6_enabled()) {
-    if (!ipv6_any_address_network_) {
-      const rtc::IPAddress ipv6_any_address(in6addr_any);
-      ipv6_any_address_network_.reset(new rtc::Network(
-          "any", "any", ipv6_any_address, 0, ADAPTER_TYPE_ANY));
-      ipv6_any_address_network_->set_default_local_address_provider(this);
-      ipv6_any_address_network_->AddIP(ipv6_any_address);
-    }
-    networks->push_back(ipv6_any_address_network_.get());
+  if (!ipv6_any_address_network_) {
+    const rtc::IPAddress ipv6_any_address(in6addr_any);
+    ipv6_any_address_network_.reset(
+        new rtc::Network("any", "any", ipv6_any_address, 0, ADAPTER_TYPE_ANY));
+    ipv6_any_address_network_->set_default_local_address_provider(this);
+    ipv6_any_address_network_->set_mdns_responder_provider(this);
+    ipv6_any_address_network_->AddIP(ipv6_any_address);
   }
+  networks->push_back(ipv6_any_address_network_.get());
 }
 
 void NetworkManagerBase::GetNetworks(NetworkList* result) const {
@@ -379,6 +383,7 @@ void NetworkManagerBase::MergeNetworkList(const NetworkList& new_networks,
         delete net;
       }
     }
+    networks_map_[key]->set_mdns_responder_provider(this);
   }
   // It may still happen that the merged list is a subset of |networks_|.
   // To detect this change, we compare their sizes.
@@ -510,10 +515,6 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
     // Skip unknown family.
     if (cursor->ifa_addr->sa_family != AF_INET &&
         cursor->ifa_addr->sa_family != AF_INET6) {
-      continue;
-    }
-    // Skip IPv6 if not enabled.
-    if (cursor->ifa_addr->sa_family == AF_INET6 && !ipv6_enabled()) {
       continue;
     }
     // Convert to InterfaceAddress.
@@ -691,20 +692,16 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
             break;
           }
           case AF_INET6: {
-            if (ipv6_enabled()) {
-              sockaddr_in6* v6_addr =
-                  reinterpret_cast<sockaddr_in6*>(address->Address.lpSockaddr);
-              scope_id = v6_addr->sin6_scope_id;
-              ip = IPAddress(v6_addr->sin6_addr);
+            sockaddr_in6* v6_addr =
+                reinterpret_cast<sockaddr_in6*>(address->Address.lpSockaddr);
+            scope_id = v6_addr->sin6_scope_id;
+            ip = IPAddress(v6_addr->sin6_addr);
 
-              if (IsIgnoredIPv6(InterfaceAddress(ip))) {
-                continue;
-              }
-
-              break;
-            } else {
+            if (IsIgnoredIPv6(InterfaceAddress(ip))) {
               continue;
             }
+
+            break;
           }
           default: { continue; }
         }
@@ -742,6 +739,7 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
           std::unique_ptr<Network> network(new Network(
               name, description, prefix, prefix_length, adapter_type));
           network->set_default_local_address_provider(this);
+          network->set_mdns_responder_provider(this);
           network->set_scope_id(scope_id);
           network->AddIP(ip);
           bool ignored = IsIgnoredNetwork(*network);
@@ -766,26 +764,28 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
 
 #if defined(WEBRTC_LINUX)
 bool IsDefaultRoute(const std::string& network_name) {
-  FileStream fs;
-  if (!fs.Open("/proc/net/route", "r", nullptr)) {
+  FILE* f = fopen("/proc/net/route", "r");
+  if (!f) {
     RTC_LOG(LS_WARNING)
         << "Couldn't read /proc/net/route, skipping default "
         << "route check (assuming everything is a default route).";
     return true;
-  } else {
-    std::string line;
-    while (fs.ReadLine(&line) == SR_SUCCESS) {
-      char iface_name[256];
-      unsigned int iface_ip, iface_gw, iface_mask, iface_flags;
-      if (sscanf(line.c_str(), "%255s %8X %8X %4X %*d %*u %*d %8X", iface_name,
-                 &iface_ip, &iface_gw, &iface_flags, &iface_mask) == 5 &&
-          network_name == iface_name && iface_mask == 0 &&
-          (iface_flags & (RTF_UP | RTF_HOST)) == RTF_UP) {
-        return true;
-      }
+  }
+  bool is_default_route = false;
+  char line[500];
+  while (fgets(line, sizeof(line), f)) {
+    char iface_name[256];
+    unsigned int iface_ip, iface_gw, iface_mask, iface_flags;
+    if (sscanf(line, "%255s %8X %8X %4X %*d %*u %*d %8X", iface_name, &iface_ip,
+               &iface_gw, &iface_flags, &iface_mask) == 5 &&
+        network_name == iface_name && iface_mask == 0 &&
+        (iface_flags & (RTF_UP | RTF_HOST)) == RTF_UP) {
+      is_default_route = true;
+      break;
     }
   }
-  return false;
+  fclose(f);
+  return is_default_route;
 }
 #endif
 
@@ -1050,13 +1050,20 @@ IPAddress Network::GetBestIP() const {
   return static_cast<IPAddress>(selected_ip);
 }
 
+webrtc::MdnsResponderInterface* Network::GetMdnsResponder() const {
+  if (mdns_responder_provider_ == nullptr) {
+    return nullptr;
+  }
+  return mdns_responder_provider_->GetMdnsResponder();
+}
+
 uint16_t Network::GetCost() const {
   AdapterType type = IsVpn() ? underlying_type_for_vpn_ : type_;
   return ComputeNetworkCostByType(type);
 }
 
 std::string Network::ToString() const {
-  std::stringstream ss;
+  rtc::StringBuilder ss;
   // Print out the first space-terminated token of the network desc, plus
   // the IP address.
   ss << "Net[" << description_.substr(0, description_.find(' ')) << ":"
@@ -1066,7 +1073,7 @@ std::string Network::ToString() const {
     ss << "/" << AdapterTypeToString(underlying_type_for_vpn_);
   }
   ss << ":id=" << id_ << "]";
-  return ss.str();
+  return ss.Release();
 }
 
 }  // namespace rtc

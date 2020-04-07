@@ -12,11 +12,12 @@
 #include "ui/base/x/x11_util.h"
 #include "ui/display/manager/fake_display_delegate.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
-#include "ui/events/platform/x11/x11_event_source_libevent.h"
+#include "ui/events/platform/x11/x11_event_source_default.h"
 #include "ui/events/system_input_injector.h"
 #include "ui/gfx/x/x11.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
 #include "ui/ozone/platform/x11/x11_cursor_factory_ozone.h"
+#include "ui/ozone/platform/x11/x11_screen_ozone.h"
 #include "ui/ozone/platform/x11/x11_surface_factory.h"
 #include "ui/ozone/platform/x11/x11_window_manager_ozone.h"
 #include "ui/ozone/platform/x11/x11_window_ozone.h"
@@ -76,6 +77,10 @@ class OzonePlatformX11 : public OzonePlatform {
     return std::make_unique<display::FakeDisplayDelegate>();
   }
 
+  std::unique_ptr<PlatformScreen> CreateScreen() override {
+    return std::make_unique<X11ScreenOzone>();
+  }
+
   void InitializeUI(const InitParams& params) override {
     InitializeCommon(params);
     CreatePlatformEventSource();
@@ -131,7 +136,7 @@ class OzonePlatformX11 : public OzonePlatform {
       return;
 
     XDisplay* display = gfx::GetXDisplay();
-    event_source_ = std::make_unique<X11EventSourceLibevent>(display);
+    event_source_ = std::make_unique<X11EventSourceDefault>(display);
   }
 
   bool common_initialized_ = false;
@@ -147,7 +152,7 @@ class OzonePlatformX11 : public OzonePlatform {
   std::unique_ptr<X11SurfaceFactory> surface_factory_ozone_;
 
   // Objects in both UI and GPU process.
-  std::unique_ptr<X11EventSourceLibevent> event_source_;
+  std::unique_ptr<X11EventSourceDefault> event_source_;
 
   DISALLOW_COPY_AND_ASSIGN(OzonePlatformX11);
 };

@@ -8,63 +8,36 @@
 #ifndef SkImage_Gpu_DEFINED
 #define SkImage_Gpu_DEFINED
 
-#include "GrClip.h"
 #include "GrContext.h"
 #include "GrGpuResourcePriv.h"
 #include "GrSurfaceProxyPriv.h"
-#include "SkAtomics.h"
-#include "SkBitmap.h"
 #include "SkGr.h"
 #include "SkImagePriv.h"
-#include "SkImage_Base.h"
-#include "SkSurface.h"
+#include "SkImage_GpuBase.h"
 
 class GrTexture;
 
-class SkImage_Gpu : public SkImage_Base {
+class SkBitmap;
+struct SkYUVAIndex;
+
+class SkImage_Gpu : public SkImage_GpuBase {
 public:
     SkImage_Gpu(sk_sp<GrContext>, uint32_t uniqueID, SkAlphaType, sk_sp<GrTextureProxy>,
-                sk_sp<SkColorSpace>, SkBudgeted);
+                sk_sp<SkColorSpace>);
     ~SkImage_Gpu() override;
 
     SkImageInfo onImageInfo() const override;
-    SkColorType onColorType() const override;
-    SkAlphaType onAlphaType() const override { return fAlphaType; }
 
-    bool getROPixels(SkBitmap*, SkColorSpace* dstColorSpace, CachingHint) const override;
-    sk_sp<SkImage> onMakeSubset(const SkIRect&) const override;
-
-    GrContext* context() const override { return fContext.get(); }
     GrTextureProxy* peekProxy() const override {
         return fProxy.get();
     }
     sk_sp<GrTextureProxy> asTextureProxyRef() const override {
         return fProxy;
     }
-    sk_sp<GrTextureProxy> asTextureProxyRef(GrContext*, const GrSamplerState&, SkColorSpace*,
-                                            sk_sp<SkColorSpace>*,
-                                            SkScalar scaleAdjust[2]) const override;
 
-    sk_sp<GrTextureProxy> refPinnedTextureProxy(uint32_t* uniqueID) const override {
-        *uniqueID = this->uniqueID();
-        return fProxy;
-    }
+    virtual bool onIsTextureBacked() const override { return SkToBool(fProxy.get()); }
 
-    GrBackendTexture onGetBackendTexture(bool flushPendingGrContextIO,
-                                         GrSurfaceOrigin* origin) const override;
-
-    GrTexture* onGetTexture() const override;
-
-    bool onReadPixels(const SkImageInfo&, void* dstPixels, size_t dstRowBytes,
-                      int srcX, int srcY, CachingHint) const override;
-
-    sk_sp<SkColorSpace> refColorSpace() { return fColorSpace; }
-
-    sk_sp<SkImage> onMakeColorSpace(sk_sp<SkColorSpace>, SkColorType) const override;
-
-    typedef ReleaseContext TextureContext;
-    typedef void (*TextureFulfillProc)(TextureContext textureContext, GrBackendTexture* outTexture);
-    typedef void (*PromiseDoneProc)(TextureContext textureContext);
+    sk_sp<SkImage> onMakeColorTypeAndColorSpace(SkColorType, sk_sp<SkColorSpace>) const final;
 
     /**
         Create a new SkImage that is very similar to an SkImage created by MakeFromTexture. The main
@@ -105,8 +78,9 @@ public:
         @param colorSpace          range of colors; may be nullptr
         @param textureFulfillProc  function called to get actual gpu texture
         @param textureReleaseProc  function called when texture can be released
-        @param promiseDoneProc     function called when we will no longer call textureFulfillProc
-        @param textureContext      state passed to textureFulfillProc and textureReleaseProc
+        @param textureDoneProc     function called when we will no longer call textureFulfillProc
+        @param textureContext      state passed to textureFulfillProc, textureReleaseProc, and
+                                   promiseDoneProc
         @return                    created SkImage, or nullptr
      */
     static sk_sp<SkImage> MakePromiseTexture(GrContext* context,
@@ -118,37 +92,21 @@ public:
                                              SkColorType colorType,
                                              SkAlphaType alphaType,
                                              sk_sp<SkColorSpace> colorSpace,
-                                             TextureFulfillProc textureFulfillProc,
-                                             TextureReleaseProc textureReleaseProc,
-                                             PromiseDoneProc promiseDoneProc,
-                                             TextureContext textureContext);
+                                             PromiseImageTextureFulfillProc textureFulfillProc,
+                                             PromiseImageTextureReleaseProc textureReleaseProc,
+                                             PromiseImageTextureDoneProc textureDoneProc,
+                                             PromiseImageTextureContext textureContext);
 
-    /** Implementation of MakeFromYUVTexturesCopy and MakeFromNV12TexturesCopy */
-    static sk_sp<SkImage> MakeFromYUVATexturesCopyImpl(GrContext* ctx,
-                                                       SkYUVColorSpace colorSpace,
-                                                       const GrBackendTexture yuvaTextures[],
-                                                       SkYUVAIndex yuvaIndices[4],
-                                                       SkISize size,
-                                                       GrSurfaceOrigin origin,
-                                                       sk_sp<SkColorSpace> imageColorSpace);
-
-    bool onIsValid(GrContext*) const override;
-
-    void resetContext(sk_sp<GrContext> newContext) {
-        SkASSERT(fContext->uniqueID() == newContext->uniqueID());
-        fContext = newContext;
-    }
+    static sk_sp<SkImage> ConvertYUVATexturesToRGB(GrContext*, SkYUVColorSpace yuvColorSpace,
+                                                   const GrBackendTexture yuvaTextures[],
+                                                   const SkYUVAIndex yuvaIndices[4],
+                                                   SkISize imageSize, GrSurfaceOrigin imageOrigin,
+                                                   GrRenderTargetContext*);
 
 private:
-    sk_sp<GrContext>       fContext;
-    sk_sp<GrTextureProxy>  fProxy;
-    const SkAlphaType      fAlphaType;
-    const SkBudgeted       fBudgeted;
-    sk_sp<SkColorSpace>    fColorSpace;
-    mutable SkAtomic<bool> fAddedRasterVersionToCache;
+    sk_sp<GrTextureProxy> fProxy;
 
-
-    typedef SkImage_Base INHERITED;
+    typedef SkImage_GpuBase INHERITED;
 };
 
 #endif

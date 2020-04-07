@@ -14,6 +14,7 @@ mojom("video_capture") {
     "//gpu/ipc/common:interfaces",
     "//mojo/public/mojom/base",
     "//ui/gfx/geometry/mojo",
+    "//ui/gfx/mojo",
   ]
 }
 
@@ -21,6 +22,11 @@ mojom("image_capture") {
   sources = [
     "image_capture.mojom",
   ]
+
+  # ImageCapture Mojom interfaces are exposed publicly to layout tests which use
+  # prepackaged redistributable JS bindings. It is therefore not desirable to
+  # scramble these messages.
+  scramble_message_ids = false
 }
 
 source_set("image_capture_types") {

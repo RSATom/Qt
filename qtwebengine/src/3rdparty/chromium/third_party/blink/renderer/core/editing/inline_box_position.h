@@ -43,8 +43,9 @@ enum class UnicodeBidi : unsigned;
 struct InlineBoxPosition {
   STACK_ALLOCATED();
 
-  const InlineBox* const inline_box;
-  const int offset_in_box;
+ public:
+  const InlineBox* inline_box;
+  int offset_in_box;
 
   InlineBoxPosition() : inline_box(nullptr), offset_in_box(0) {}
 
@@ -82,7 +83,7 @@ InlineBoxPosition ComputeInlineBoxPositionForInlineAdjustedPosition(
 
 // The print for |InlineBoxPosition| is available only for testing
 // in "webkit_unit_tests", and implemented in
-// "core/editing/InlineBoxPositionTest.cpp".
+// "core/editing/inline_box_position_test.cc".
 std::ostream& operator<<(std::ostream&, const InlineBoxPosition&);
 
 }  // namespace blink

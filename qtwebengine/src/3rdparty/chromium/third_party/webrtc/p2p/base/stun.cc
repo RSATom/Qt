@@ -17,15 +17,32 @@
 #include <utility>
 
 #include "absl/memory/memory.h"
-#include "rtc_base/byteorder.h"
+#include "rtc_base/byte_order.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/crc32.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/messagedigest.h"
-#include "rtc_base/stringencode.h"
+#include "rtc_base/message_digest.h"
 
 using rtc::ByteBufferReader;
 using rtc::ByteBufferWriter;
+
+namespace {
+
+uint32_t ReduceTransactionId(const std::string& transaction_id) {
+  RTC_DCHECK(transaction_id.length() == cricket::kStunTransactionIdLength ||
+             transaction_id.length() ==
+                 cricket::kStunLegacyTransactionIdLength);
+  ByteBufferReader reader(transaction_id.c_str(), transaction_id.length(),
+                          rtc::ByteBuffer::ORDER_NETWORK);
+  uint32_t result = 0;
+  uint32_t next;
+  while (reader.ReadUInt32(&next)) {
+    result ^= next;
+  }
+  return result;
+}
+
+}  // namespace
 
 namespace cricket {
 
@@ -69,6 +86,7 @@ bool StunMessage::SetTransactionID(const std::string& str) {
     return false;
   }
   transaction_id_ = str;
+  reduced_transaction_id_ = ReduceTransactionId(transaction_id_);
   return true;
 }
 
@@ -355,6 +373,7 @@ bool StunMessage::Read(ByteBufferReader* buf) {
   }
   RTC_DCHECK(IsValidTransactionId(transaction_id));
   transaction_id_ = transaction_id;
+  reduced_transaction_id_ = ReduceTransactionId(transaction_id_);
 
   if (length_ != buf->Length())
     return false;

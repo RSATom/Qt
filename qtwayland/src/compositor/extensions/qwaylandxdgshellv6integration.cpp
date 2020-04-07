@@ -73,7 +73,7 @@ XdgToplevelV6Integration::XdgToplevelV6Integration(QWaylandQuickShellSurfaceItem
     connect(m_xdgSurface->shell(), &QWaylandXdgShellV6::popupCreated, this, [item](QWaylandXdgPopupV6 *popup, QWaylandXdgSurfaceV6 *){
         handlePopupCreated(item, popup);
     });
-    connect(m_xdgSurface->surface(), &QWaylandSurface::sizeChanged, this, &XdgToplevelV6Integration::handleSurfaceSizeChanged);
+    connect(m_xdgSurface->surface(), &QWaylandSurface::destinationSizeChanged, this, &XdgToplevelV6Integration::handleSurfaceSizeChanged);
     connect(m_toplevel, &QObject::destroyed, this, &XdgToplevelV6Integration::handleToplevelDestroyed);
 }
 
@@ -130,7 +130,7 @@ void XdgToplevelV6Integration::handleStartResize(QWaylandSeat *seat, Qt::Edges e
     resizeState.resizeEdges = edges;
     resizeState.initialWindowSize = m_xdgSurface->windowGeometry().size();
     resizeState.initialPosition = m_item->moveItem()->position();
-    resizeState.initialSurfaceSize = m_item->surface()->size();
+    resizeState.initialSurfaceSize = m_item->surface()->destinationSize();
     resizeState.initialized = false;
 }
 
@@ -247,14 +247,14 @@ void XdgToplevelV6Integration::handleActivatedChanged()
 void XdgToplevelV6Integration::handleSurfaceSizeChanged()
 {
     if (grabberState == GrabberState::Resize) {
-        qreal x = resizeState.initialPosition.x();
-        qreal y = resizeState.initialPosition.y();
+        qreal dx = 0;
+        qreal dy = 0;
         if (resizeState.resizeEdges & Qt::TopEdge)
-            y += resizeState.initialSurfaceSize.height() - m_item->surface()->size().height();
-
+            dy = resizeState.initialSurfaceSize.height() - m_item->surface()->destinationSize().height();
         if (resizeState.resizeEdges & Qt::LeftEdge)
-            x += resizeState.initialSurfaceSize.width() - m_item->surface()->size().width();
-        m_item->moveItem()->setPosition(QPointF(x, y));
+            dx = resizeState.initialSurfaceSize.width() - m_item->surface()->destinationSize().width();
+        QPointF offset = m_item->mapFromSurface({dx, dy});
+        m_item->moveItem()->setPosition(resizeState.initialPosition + offset);
     }
 }
 
@@ -285,11 +285,11 @@ void XdgPopupV6Integration::handleGeometryChanged()
 {
     if (m_item->view()->output()) {
         const QPoint windowOffset = m_popup->parentXdgSurface()->windowGeometry().topLeft();
-        const QPoint position = m_popup->unconstrainedPosition() + windowOffset;
+        const QPoint surfacePosition = m_popup->unconstrainedPosition() + windowOffset;
+        const QPoint itemPosition = m_item->mapFromSurface(surfacePosition).toPoint();
         //TODO: positioner size or other size...?
-        const float scaleFactor = m_item->view()->output()->scaleFactor();
         //TODO check positioner constraints etc... sliding, flipping
-        m_item->moveItem()->setPosition(position * scaleFactor);
+        m_item->moveItem()->setPosition(itemPosition);
     } else {
         qWarning() << "XdgPopupV6Integration popup item without output" << m_item;
     }

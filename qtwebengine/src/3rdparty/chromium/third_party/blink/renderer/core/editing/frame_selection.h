@@ -45,6 +45,7 @@ namespace blink {
 class DisplayItemClient;
 class Element;
 class LayoutBlock;
+class LayoutText;
 class LocalFrame;
 class FrameCaret;
 class GranularityStrategy;
@@ -77,6 +78,7 @@ enum class SelectSoftLineBreak { kNotSelected, kSelected };
 struct LayoutSelectionStatus {
   STACK_ALLOCATED();
 
+ public:
   LayoutSelectionStatus(unsigned passed_start,
                         unsigned passed_end,
                         SelectSoftLineBreak passed_line_break)
@@ -93,6 +95,29 @@ struct LayoutSelectionStatus {
   SelectSoftLineBreak line_break;
 };
 
+enum class SelectionIncludeEnd { kInclude, kNotInclude };
+
+struct LayoutTextSelectionStatus {
+  STACK_ALLOCATED();
+
+ public:
+  LayoutTextSelectionStatus(unsigned passed_start,
+                            unsigned passed_end,
+                            SelectionIncludeEnd passed_include_end)
+      : start(passed_start), end(passed_end), include_end(passed_include_end) {
+    DCHECK_LE(start, end);
+  }
+  bool operator==(const LayoutTextSelectionStatus& other) const {
+    return start == other.start && end == other.end &&
+           include_end == other.include_end;
+  }
+  bool IsEmpty() const { return start == 0 && end == 0; }
+
+  unsigned start;
+  unsigned end;
+  SelectionIncludeEnd include_end;
+};
+
 class CORE_EXPORT FrameSelection final
     : public GarbageCollectedFinalized<FrameSelection>,
       public SynchronousMutationObserver {
@@ -100,8 +125,10 @@ class CORE_EXPORT FrameSelection final
 
  public:
   static FrameSelection* Create(LocalFrame& frame) {
-    return new FrameSelection(frame);
+    return MakeGarbageCollected<FrameSelection>(frame);
   }
+
+  explicit FrameSelection(LocalFrame&);
   ~FrameSelection();
 
   bool IsAvailable() const { return LifecycleContext(); }
@@ -179,10 +206,9 @@ class CORE_EXPORT FrameSelection final
   SelectionInDOMTree GetSelectionInDOMTree() const;
   bool IsDirectional() const;
 
-  void DocumentAttached(Document*);
+  void DidAttachDocument(Document*);
 
   void DidLayout();
-  bool NeedsLayoutSelectionUpdate() const;
   void CommitAppearanceIfNeeded();
   void SetCaretVisible(bool caret_is_visible);
   void ScheduleVisualUpdate() const;
@@ -246,9 +272,8 @@ class CORE_EXPORT FrameSelection final
 
   FrameCaret& FrameCaretForTesting() const { return *frame_caret_; }
 
-  base::Optional<unsigned> LayoutSelectionStart() const;
-  base::Optional<unsigned> LayoutSelectionEnd() const;
-  void ClearLayoutSelection();
+  LayoutTextSelectionStatus ComputeLayoutSelectionStatus(
+      const LayoutText& text) const;
   LayoutSelectionStatus ComputeLayoutSelectionStatus(
       const NGPaintFragment&) const;
 
@@ -259,8 +284,6 @@ class CORE_EXPORT FrameSelection final
   friend class FrameSelectionTest;
   friend class PaintControllerPaintTestBase;
   friend class SelectionControllerTest;
-
-  explicit FrameSelection(LocalFrame&);
 
   const DisplayItemClient& CaretDisplayItemClientForTesting() const;
 

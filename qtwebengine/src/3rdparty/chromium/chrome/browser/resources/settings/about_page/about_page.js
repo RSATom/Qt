@@ -10,7 +10,12 @@
 Polymer({
   is: 'settings-about-page',
 
-  behaviors: [WebUIListenerBehavior, MainPageBehavior, I18nBehavior],
+  behaviors: [
+    WebUIListenerBehavior,
+    settings.MainPageBehavior,
+    settings.RouteObserverBehavior,
+    I18nBehavior,
+  ],
 
   properties: {
     /** @private {?UpdateStatusChangedEvent} */
@@ -41,7 +46,10 @@ Polymer({
     regulatoryInfo_: Object,
 
     /** @private */
-    hasEndOfLife_: Boolean,
+    hasEndOfLife_: {
+      type: Boolean,
+      value: false,
+    },
 
     /** @private */
     showCrostini: Boolean,
@@ -72,18 +80,25 @@ Polymer({
     // </if>
 
     /** @private */
-    showUpdateStatus_: Boolean,
+    showUpdateStatus_: {
+      type: Boolean,
+      value: false,
+    },
 
     /** @private */
     showButtonContainer_: Boolean,
 
     /** @private */
-    showRelaunch_: Boolean,
+    showRelaunch_: {
+      type: Boolean,
+      value: false,
+    },
 
     // <if expr="chromeos">
     /** @private */
     showRelaunchAndPowerwash_: {
       type: Boolean,
+      value: false,
       computed: 'computeShowRelaunchAndPowerwash_(' +
           'currentUpdateStatusEvent_, targetChannel_, currentChannel_)',
     },
@@ -146,7 +161,6 @@ Polymer({
     // </if>
   ],
 
-
   /** @private {?settings.AboutPageBrowserProxy} */
   aboutBrowserProxy_: null,
 
@@ -179,6 +193,7 @@ Polymer({
     this.aboutBrowserProxy_.getHasEndOfLife().then(result => {
       this.hasEndOfLife_ = result;
     });
+
     // </if>
     // <if expr="not chromeos">
     this.startListening_();
@@ -186,6 +201,20 @@ Polymer({
     if (settings.getQueryParameters().get('checkForUpdate') == 'true') {
       this.onCheckUpdatesTap_();
     }
+  },
+
+  /**
+   * @param {!settings.Route} newRoute
+   * @param {settings.Route} oldRoute
+   */
+  currentRouteChanged: function(newRoute, oldRoute) {
+    settings.MainPageBehavior.currentRouteChanged.call(
+        this, newRoute, oldRoute);
+  },
+
+  // Override settings.MainPageBehavior method.
+  containsRoute: function(route) {
+    return !route || settings.routes.ABOUT.contains(route);
   },
 
   /** @private */
@@ -238,8 +267,9 @@ Polymer({
   onPromoteUpdaterTap_: function() {
     // This is necessary because #promoteUpdater is not a button, so by default
     // disable doesn't do anything.
-    if (this.promoteUpdaterStatus_.disabled)
+    if (this.promoteUpdaterStatus_.disabled) {
       return;
+    }
     this.aboutBrowserProxy_.promoteUpdater();
   },
   // </if>
@@ -337,10 +367,12 @@ Polymer({
         return this.i18nAdvanced('aboutUpgradeCheckStarted');
       case UpdateStatus.NEARLY_UPDATED:
         // <if expr="chromeos">
-        if (this.currentChannel_ != this.targetChannel_)
+        if (this.currentChannel_ != this.targetChannel_) {
           return this.i18nAdvanced('aboutUpgradeSuccessChannelSwitch');
-        if (this.currentUpdateStatusEvent_.rollback)
+        }
+        if (this.currentUpdateStatusEvent_.rollback) {
           return this.i18nAdvanced('aboutRollbackSuccess');
+        }
         // </if>
         return this.i18nAdvanced('aboutUpgradeRelaunch');
       case UpdateStatus.UPDATED:
@@ -383,11 +415,13 @@ Polymer({
         }
         let result = '';
         const message = this.currentUpdateStatusEvent_.message;
-        if (message)
+        if (message) {
           result += formatMessage(message);
+        }
         const connectMessage = this.currentUpdateStatusEvent_.connectionTypes;
-        if (connectMessage)
+        if (connectMessage) {
           result += '<div>' + formatMessage(connectMessage) + '</div>';
+        }
         return result;
     }
   },
@@ -408,8 +442,9 @@ Polymer({
     // <if expr="not chromeos">
     // If this platform has reached the end of the line, display an error icon
     // and ignore UpdateStatus.
-    if (this.obsoleteSystemInfo_.endOfLine)
+    if (this.obsoleteSystemInfo_.endOfLine) {
       return 'cr:error';
+    }
     // </if>
 
     switch (this.currentUpdateStatusEvent_.status) {
@@ -437,8 +472,9 @@ Polymer({
     // </if>
 
     // <if expr="not chromeos">
-    if (this.obsoleteSystemInfo_.endOfLine)
+    if (this.obsoleteSystemInfo_.endOfLine) {
       return null;
+    }
     // </if>
 
     switch (this.currentUpdateStatusEvent_.status) {
@@ -547,8 +583,24 @@ Polymer({
    * @return {boolean}
    * @private
    */
+  shouldShowSafetyInfo_: function() {
+    return loadTimeData.getBoolean('shouldShowSafetyInfo');
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
   shouldShowRegulatoryInfo_: function() {
     return this.regulatoryInfo_ !== null;
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowRegulatoryOrSafetyInfo_: function() {
+    return this.shouldShowSafetyInfo_() || this.shouldShowRegulatoryInfo_();
   },
 
   /** @private */
@@ -603,12 +655,14 @@ Polymer({
    */
   shouldShowIcons_: function() {
     // <if expr="chromeos">
-    if (this.hasEndOfLife_)
+    if (this.hasEndOfLife_) {
       return true;
+    }
     // </if>
     // <if expr="not chromeos">
-    if (this.obsoleteSystemInfo_.endOfLine)
+    if (this.obsoleteSystemInfo_.endOfLine) {
       return true;
+    }
     // </if>
     return this.showUpdateStatus_;
   },

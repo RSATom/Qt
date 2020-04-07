@@ -59,7 +59,7 @@ static bool bridgeWinding(SkOpContourHead* contourList, SkPathWriter* writer) {
                 writer->finishContour();
             } else {
                 SkOpSpanBase* last;
-                if (!current->markAndChaseDone(start, end, &last)) {
+                 if (!current->markAndChaseDone(start, end, &last)) {
                     return false;
                 }
                 if (last && !last->chased()) {
@@ -127,10 +127,7 @@ static bool bridgeXor(SkOpContourHead* contourList, SkPathWriter* writer) {
         if (!writer->isClosed()) {
             SkOpSpan* spanStart = start->starter(end);
             if (!spanStart->done()) {
-                if (!current->addCurveTo(start, end, writer)) {
-                    return false;
-                }
-                current->markDone(spanStart);
+                return false;
             }
         }
         writer->finishContour();
@@ -167,19 +164,10 @@ bool SimplifyDebug(const SkPath& path, SkPath* result
         SkPathOpsDebug::DumpSimplify(path, testName);
     }
 #endif
-    SkScalar scaleFactor = ScaleFactor(path);
-    SkPath scaledPath;
-    const SkPath* workingPath;
-    if (scaleFactor > SK_Scalar1) {
-        ScalePath(path, 1.f / scaleFactor, &scaledPath);
-        workingPath = &scaledPath;
-    } else {
-        workingPath = &path;
-    }
 #if DEBUG_SORT
     SkPathOpsDebug::gSortCount = SkPathOpsDebug::gSortCountDefault;
 #endif
-    SkOpEdgeBuilder builder(*workingPath, contourList, &globalState);
+    SkOpEdgeBuilder builder(path, contourList, &globalState);
     if (!builder.finish()) {
         return false;
     }
@@ -220,9 +208,6 @@ bool SimplifyDebug(const SkPath& path, SkPath* result
         return false;
     }
     wrapper.assemble();  // if some edges could not be resolved, assemble remaining
-    if (scaleFactor > 1) {
-        ScalePath(*result, scaleFactor, result);
-    }
     return true;
 }
 

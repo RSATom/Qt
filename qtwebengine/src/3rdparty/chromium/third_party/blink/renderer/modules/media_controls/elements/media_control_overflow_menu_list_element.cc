@@ -6,10 +6,13 @@
 
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/modules/media_controls/elements/media_control_consts.h"
 #include "third_party/blink/renderer/modules/media_controls/elements/media_control_overflow_menu_button_element.h"
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
 #include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
@@ -18,6 +21,15 @@ MediaControlOverflowMenuListElement::MediaControlOverflowMenuListElement(
     : MediaControlPopupMenuElement(media_controls, kMediaOverflowList) {
   SetShadowPseudoId(
       AtomicString("-internal-media-controls-overflow-menu-list"));
+  CloseOverflowMenu();
+}
+
+void MediaControlOverflowMenuListElement::OpenOverflowMenu() {
+  classList().Remove(kClosedCSSClass);
+}
+
+void MediaControlOverflowMenuListElement::CloseOverflowMenu() {
+  classList().Add(kClosedCSSClass);
 }
 
 void MediaControlOverflowMenuListElement::MaybeRecordTimeTaken(
@@ -37,15 +49,20 @@ void MediaControlOverflowMenuListElement::MaybeRecordTimeTaken(
   time_shown_.reset();
 }
 
-void MediaControlOverflowMenuListElement::DefaultEventHandler(Event* event) {
-  if (event->type() == EventTypeNames::click)
-    event->SetDefaultHandled();
+void MediaControlOverflowMenuListElement::DefaultEventHandler(Event& event) {
+  if (event.type() == event_type_names::kClick)
+    event.SetDefaultHandled();
 
   MediaControlPopupMenuElement::DefaultEventHandler(event);
 }
 
 void MediaControlOverflowMenuListElement::SetIsWanted(bool wanted) {
   MediaControlPopupMenuElement::SetIsWanted(wanted);
+
+  if (wanted)
+    OpenOverflowMenu();
+  else if (!GetMediaControls().TextTrackListIsWanted())
+    CloseOverflowMenu();
 
   // Record the time the overflow menu was shown to a histogram.
   if (wanted) {

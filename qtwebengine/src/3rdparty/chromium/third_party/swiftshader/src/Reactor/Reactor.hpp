@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef sw_Reactor_hpp
-#define sw_Reactor_hpp
+#ifndef rr_Reactor_hpp
+#define rr_Reactor_hpp
 
 #include "Nucleus.hpp"
 #include "Routine.hpp"
@@ -23,7 +23,7 @@
 #include <cwchar>
 #undef Bool
 
-namespace sw
+namespace rr
 {
 	class Bool;
 	class Byte;
@@ -49,6 +49,7 @@ namespace sw
 	class Int4;
 	class UInt4;
 	class Long;
+	class Half;
 	class Float;
 	class Float2;
 	class Float4;
@@ -1923,11 +1924,20 @@ namespace sw
 	RValue<UInt4> Min(RValue<UInt4> x, RValue<UInt4> y);
 //	RValue<UInt4> RoundInt(RValue<Float4> cast);
 
+	class Half : public LValue<Half>
+	{
+	public:
+		explicit Half(RValue<Float> cast);
+
+		static Type *getType();
+	};
+
 	class Float : public LValue<Float>
 	{
 	public:
 		explicit Float(RValue<Int> cast);
 		explicit Float(RValue<UInt> cast);
+		explicit Float(RValue<Half> cast);
 
 		Float() = default;
 		Float(float x);
@@ -2268,7 +2278,7 @@ namespace sw
 	RValue<Long> Ticks();
 }
 
-namespace sw
+namespace rr
 {
 	template<class T>
 	LValue<T>::LValue(int arraySize)
@@ -2944,4 +2954,4 @@ namespace sw
 	else   // ELSE_BLOCK__
 }
 
-#endif   // sw_Reactor_hpp
+#endif   // rr_Reactor_hpp

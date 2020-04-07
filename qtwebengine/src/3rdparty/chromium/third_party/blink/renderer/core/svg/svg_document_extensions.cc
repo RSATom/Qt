@@ -43,7 +43,6 @@ void SVGDocumentExtensions::RemoveTimeContainer(SVGSVGElement* element) {
 
 void SVGDocumentExtensions::AddWebAnimationsPendingSVGElement(
     SVGElement& element) {
-  DCHECK(RuntimeEnabledFeatures::WebAnimationsSVGEnabled());
   web_animations_pending_svg_elements_.insert(&element);
 }
 
@@ -54,12 +53,10 @@ void SVGDocumentExtensions::ServiceOnAnimationFrame(Document& document) {
 }
 
 void SVGDocumentExtensions::ServiceAnimations() {
-  if (RuntimeEnabledFeatures::SMILEnabled()) {
-    HeapVector<Member<SVGSVGElement>> time_containers;
-    CopyToVector(time_containers_, time_containers);
-    for (const auto& container : time_containers)
-      container->TimeContainer()->ServiceAnimations();
-  }
+  HeapVector<Member<SVGSVGElement>> time_containers;
+  CopyToVector(time_containers_, time_containers);
+  for (const auto& container : time_containers)
+    container->TimeContainer()->ServiceAnimations();
 
   SVGElementSet web_animations_pending_svg_elements;
   web_animations_pending_svg_elements.swap(
@@ -127,11 +124,6 @@ void SVGDocumentExtensions::RemoveSVGRootWithRelativeLengthDescendents(
   relative_length_svg_roots_.erase(svg_root);
 }
 
-bool SVGDocumentExtensions::IsSVGRootWithRelativeLengthDescendents(
-    SVGSVGElement* svg_root) const {
-  return relative_length_svg_roots_.Contains(svg_root);
-}
-
 void SVGDocumentExtensions::InvalidateSVGRootsWithRelativeLengthDescendents(
     SubtreeLayoutScope* scope) {
 #if DCHECK_IS_ON()
@@ -145,9 +137,8 @@ void SVGDocumentExtensions::InvalidateSVGRootsWithRelativeLengthDescendents(
 }
 
 bool SVGDocumentExtensions::ZoomAndPanEnabled() const {
-  if (SVGSVGElement* svg = rootElement(*document_))
-    return svg->ZoomAndPanEnabled();
-  return false;
+  SVGSVGElement* svg = rootElement(*document_);
+  return !svg || svg->ZoomAndPanEnabled();
 }
 
 void SVGDocumentExtensions::StartPan(const FloatPoint& start) {

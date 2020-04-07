@@ -10,8 +10,10 @@
 #include "base/run_loop.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "ui/aura/client/cursor_client.h"
+#include "ui/aura/env.h"
+#include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
-#include "ui/aura/window_port.h"
 #include "ui/base/layout.h"
 #include "ui/compositor/compositor.h"
 #include "ui/events/event.h"
@@ -41,23 +43,29 @@ namespace aura {
 
 // static
 std::unique_ptr<WindowTreeHost> WindowTreeHost::Create(
-    ui::PlatformWindowInitProperties properties) {
-  return std::make_unique<WindowTreeHostPlatform>(std::move(properties));
+    ui::PlatformWindowInitProperties properties,
+    Env* env) {
+  return std::make_unique<WindowTreeHostPlatform>(
+      std::move(properties),
+      std::make_unique<aura::Window>(nullptr, client::WINDOW_TYPE_UNKNOWN,
+                                     env ? env : Env::GetInstance()));
 }
 
 WindowTreeHostPlatform::WindowTreeHostPlatform(
-    ui::PlatformWindowInitProperties properties) {
+    ui::PlatformWindowInitProperties properties,
+    std::unique_ptr<Window> window,
+    const char* trace_environment_name)
+    : WindowTreeHost(std::move(window)) {
   bounds_ = properties.bounds;
-  CreateCompositor();
+  CreateCompositor(viz::FrameSinkId(),
+                   /* force_software_compositor */ false,
+                   /* external_begin_frames_enabled */ nullptr,
+                   /* are_events_in_pixels */ true, trace_environment_name);
   CreateAndSetPlatformWindow(std::move(properties));
 }
 
-WindowTreeHostPlatform::WindowTreeHostPlatform()
-    : WindowTreeHostPlatform(nullptr) {}
-
-WindowTreeHostPlatform::WindowTreeHostPlatform(
-    std::unique_ptr<WindowPort> window_port)
-    : WindowTreeHost(std::move(window_port)),
+WindowTreeHostPlatform::WindowTreeHostPlatform(std::unique_ptr<Window> window)
+    : WindowTreeHost(std::move(window)),
       widget_(gfx::kNullAcceleratedWidget),
       current_cursor_(ui::CursorType::kNull) {}
 
@@ -86,7 +94,7 @@ WindowTreeHostPlatform::~WindowTreeHostPlatform() {
   DestroyCompositor();
   DestroyDispatcher();
 
-  // |platform_window_| might have already been destroyed by this time.
+  // |platform_window_| may not exist yet.
   if (platform_window_)
     platform_window_->Close();
 }
@@ -113,9 +121,9 @@ gfx::Rect WindowTreeHostPlatform::GetBoundsInPixels() const {
 
 void WindowTreeHostPlatform::SetBoundsInPixels(
     const gfx::Rect& bounds,
-    const viz::LocalSurfaceId& local_surface_id) {
+    const viz::LocalSurfaceIdAllocation& local_surface_id_allocation) {
   pending_size_ = bounds.size();
-  pending_local_surface_id_ = local_surface_id;
+  pending_local_surface_id_allocation_ = local_surface_id_allocation;
   platform_window_->SetBounds(bounds);
 }
 
@@ -137,7 +145,7 @@ bool WindowTreeHostPlatform::CaptureSystemKeyEventsImpl(
   // problems with event routing (i.e. which Hook takes precedence) and
   // destruction ordering.
   DCHECK(!keyboard_hook_);
-  keyboard_hook_ = ui::KeyboardHook::Create(
+  keyboard_hook_ = ui::KeyboardHook::CreateModifierKeyboardHook(
       std::move(dom_codes), GetAcceleratedWidget(),
       base::BindRepeating(
           [](ui::PlatformWindowDelegate* delegate, ui::KeyEvent* event) {
@@ -195,14 +203,14 @@ void WindowTreeHostPlatform::OnBoundsChanged(const gfx::Rect& new_bounds) {
   bounds_ = new_bounds;
   if (bounds_.origin() != old_bounds.origin())
     OnHostMovedInPixels(bounds_.origin());
-  if (pending_local_surface_id_.is_valid() ||
+  if (pending_local_surface_id_allocation_.IsValid() ||
       bounds_.size() != old_bounds.size() || current_scale != new_scale) {
-    auto local_surface_id = bounds_.size() == pending_size_
-                                ? pending_local_surface_id_
-                                : viz::LocalSurfaceId();
-    pending_local_surface_id_ = viz::LocalSurfaceId();
+    viz::LocalSurfaceIdAllocation local_surface_id_allocation;
+    if (bounds_.size() == pending_size_)
+      local_surface_id_allocation = pending_local_surface_id_allocation_;
+    pending_local_surface_id_allocation_ = viz::LocalSurfaceIdAllocation();
     pending_size_ = gfx::Size();
-    OnHostResizedInPixels(bounds_.size(), local_surface_id);
+    OnHostResizedInPixels(bounds_.size(), local_surface_id_allocation);
   }
 }
 
@@ -213,8 +221,23 @@ void WindowTreeHostPlatform::OnDamageRect(const gfx::Rect& damage_rect) {
 void WindowTreeHostPlatform::DispatchEvent(ui::Event* event) {
   TRACE_EVENT0("input", "WindowTreeHostPlatform::DispatchEvent");
   ui::EventDispatchDetails details = SendEventToSink(event);
-  if (details.dispatcher_destroyed)
+  if (details.dispatcher_destroyed) {
     event->SetHandled();
+    return;
+  }
+
+  // Reset the cursor on ET_MOUSE_EXITED, so that when the mouse re-enters the
+  // window, the cursor is updated correctly.
+  if (event->type() == ui::ET_MOUSE_EXITED) {
+    client::CursorClient* cursor_client = client::GetCursorClient(window());
+    if (cursor_client) {
+      // The cursor-change needs to happen through the CursorClient so that
+      // other external states are updated correctly, instead of just changing
+      // |current_cursor_| here.
+      cursor_client->SetCursor(ui::CursorType::kNone);
+      DCHECK_EQ(ui::CursorType::kNone, current_cursor_.native_type());
+    }
+  }
 }
 
 void WindowTreeHostPlatform::OnCloseRequest() {
@@ -236,15 +259,12 @@ void WindowTreeHostPlatform::OnLostCapture() {
 }
 
 void WindowTreeHostPlatform::OnAcceleratedWidgetAvailable(
-    gfx::AcceleratedWidget widget,
-    float device_pixel_ratio) {
+    gfx::AcceleratedWidget widget) {
   widget_ = widget;
   // This may be called before the Compositor has been created.
   if (compositor())
     WindowTreeHost::OnAcceleratedWidgetAvailable();
 }
-
-void WindowTreeHostPlatform::OnAcceleratedWidgetDestroying() {}
 
 void WindowTreeHostPlatform::OnAcceleratedWidgetDestroyed() {
   gfx::AcceleratedWidget widget = compositor()->ReleaseAcceleratedWidget();
@@ -253,8 +273,6 @@ void WindowTreeHostPlatform::OnAcceleratedWidgetDestroyed() {
 }
 
 void WindowTreeHostPlatform::OnActivationChanged(bool active) {
-  if (active)
-    OnHostActivated();
 }
 
 }  // namespace aura

@@ -6,7 +6,6 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_double.h"
-#include "third_party/blink/renderer/bindings/core/v8/string_or_double_or_performance_measure_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/core/dom/document_init.h"
@@ -144,7 +143,8 @@ TEST_F(WindowPerformanceTest, NavigateAway) {
   EXPECT_TRUE(ObservingLongTasks());
 
   // Simulate navigation commit.
-  DocumentInit init = DocumentInit::Create().WithFrame(GetFrame());
+  DocumentInit init = DocumentInit::Create().WithDocumentLoader(
+      GetFrame()->Loader().GetDocumentLoader());
   GetDocument()->Shutdown();
   GetFrame()->SetDOMWindow(LocalDOMWindow::Create(*GetFrame()));
   GetFrame()->DomWindow()->InstallNewDocument(AtomicString(), init, false);
@@ -178,7 +178,7 @@ TEST(PerformanceLifetimeTest, SurviveContextSwitch) {
   page_holder->GetDocument().Shutdown();
   page_holder->GetFrame().DomWindow()->InstallNewDocument(
       AtomicString(),
-      DocumentInit::Create().WithFrame(&page_holder->GetFrame()), false);
+      DocumentInit::Create().WithDocumentLoader(document_loader), false);
 
   EXPECT_EQ(perf, DOMWindowPerformance::performance(
                       *page_holder->GetFrame().DomWindow()));
@@ -198,22 +198,22 @@ TEST_F(WindowPerformanceTest, EnsureEntryListOrder) {
   DummyExceptionStateForTesting exception_state;
   clock.Advance(TimeDelta::FromSeconds(2));
   for (int i = 0; i < 8; i++) {
-    performance_->mark(scope.GetScriptState(), String::Number(i),
+    performance_->mark(scope.GetScriptState(), AtomicString::Number(i),
                        exception_state);
   }
   clock.Advance(TimeDelta::FromSeconds(2));
   for (int i = 8; i < 17; i++) {
-    performance_->mark(scope.GetScriptState(), String::Number(i),
+    performance_->mark(scope.GetScriptState(), AtomicString::Number(i),
                        exception_state);
   }
   PerformanceEntryVector entries = performance_->getEntries();
   EXPECT_EQ(17U, entries.size());
   for (int i = 0; i < 8; i++) {
-    EXPECT_EQ(String::Number(i), entries[i]->name());
+    EXPECT_EQ(AtomicString::Number(i), entries[i]->name());
     EXPECT_NEAR(2000, entries[i]->startTime(), 0.005);
   }
   for (int i = 8; i < 17; i++) {
-    EXPECT_EQ(String::Number(i), entries[i]->name());
+    EXPECT_EQ(AtomicString::Number(i), entries[i]->name());
     EXPECT_NEAR(4000, entries[i]->startTime(), 0.005);
   }
 }
@@ -305,7 +305,7 @@ TEST_F(WindowPerformanceTest, MultipleEventsSameSwap) {
 // Test for existence of 'firstInput' given different types of first events.
 TEST_F(WindowPerformanceTest, FirstInput) {
   struct {
-    String event_type;
+    AtomicString event_type;
     bool should_report;
   } inputs[] = {{"click", true},     {"keydown", true},
                 {"keypress", false}, {"pointerdown", false},
@@ -329,7 +329,7 @@ TEST_F(WindowPerformanceTest, FirstInput) {
 // Test that the 'firstInput' is populated after some irrelevant events are
 // ignored.
 TEST_F(WindowPerformanceTest, FirstInputAfterIgnored) {
-  String several_events[] = {"mousemove", "mouseover", "mousedown"};
+  AtomicString several_events[] = {"mousemove", "mouseover", "mousedown"};
   for (const auto& event : several_events) {
     performance_->RegisterEventTiming(
         event, GetTimeOrigin(),

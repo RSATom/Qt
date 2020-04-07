@@ -84,8 +84,8 @@ void QGeoUriProvider::setCurrentHost(const QString &host)
 
 void QGeoUriProvider::mobileCountryCodeChanged(int interfaceId, const QString& mcc)
 {
-    Q_UNUSED(interfaceId)
-    Q_UNUSED(mcc)
+    Q_UNUSED(interfaceId);
+    Q_UNUSED(mcc);
 
     setCurrentHost(isInternationalNetwork() || m_localizedHost.isEmpty() ? m_internationalHost : m_localizedHost);
 }

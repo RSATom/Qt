@@ -23,11 +23,13 @@ public:
 
     const char* name() const override { return "DebugMarker"; }
 
+#ifdef SK_DEBUG
     SkString dumpInfo() const override {
         SkString string;
         string.append(INHERITED::dumpInfo());
         return string;
     }
+#endif
 
 private:
     friend class GrOpMemoryPool; // for ctor
@@ -39,11 +41,9 @@ private:
         this->makeFullScreen(proxy);
     }
 
-    bool onCombineIfPossible(GrOp* that, const GrCaps& caps) override { return false; }
-
     void onPrepare(GrOpFlushState*) override {}
 
-    void onExecute(GrOpFlushState* state) override;
+    void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
     SkString fStr;
 

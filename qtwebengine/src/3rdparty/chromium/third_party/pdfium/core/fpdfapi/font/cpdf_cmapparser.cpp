@@ -31,7 +31,7 @@ CIDSet CIDSetFromSizeT(size_t index) {
   return static_cast<CIDSet>(index);
 }
 
-ByteStringView CMap_GetString(const ByteStringView& word) {
+ByteStringView CMap_GetString(ByteStringView word) {
   if (word.GetLength() <= 2)
     return ByteStringView();
   return word.Right(word.GetLength() - 2);
@@ -44,7 +44,7 @@ CPDF_CMapParser::CPDF_CMapParser(CPDF_CMap* pCMap)
 
 CPDF_CMapParser::~CPDF_CMapParser() {}
 
-void CPDF_CMapParser::ParseWord(const ByteStringView& word) {
+void CPDF_CMapParser::ParseWord(ByteStringView word) {
   if (word.IsEmpty()) {
     return;
   }
@@ -109,14 +109,19 @@ void CPDF_CMapParser::ParseWord(const ByteStringView& word) {
     m_Status = 0;
   } else if (m_Status == 7) {
     if (word == "endcodespacerange") {
-      size_t nSegs = m_CodeRanges.size();
+      const auto& code_ranges = m_pCMap->GetMixedFourByteLeadingRanges();
+      size_t nSegs = code_ranges.size() + m_PendingRanges.size();
       if (nSegs == 1) {
-        m_pCMap->SetCodingScheme((m_CodeRanges[0].m_CharSize == 2)
+        const auto& first_range =
+            code_ranges.size() > 0 ? code_ranges[0] : m_PendingRanges[0];
+        m_pCMap->SetCodingScheme((first_range.m_CharSize == 2)
                                      ? CPDF_CMap::TwoBytes
                                      : CPDF_CMap::OneByte);
       } else if (nSegs > 1) {
         m_pCMap->SetCodingScheme(CPDF_CMap::MixedFourBytes);
-        m_pCMap->SetMixedFourByteLeadingRanges(m_CodeRanges);
+        for (const auto& range : m_PendingRanges)
+          m_pCMap->AppendMixedFourByteLeadingRanges(range);
+        m_PendingRanges.clear();
       }
       m_Status = 0;
     } else {
@@ -126,7 +131,7 @@ void CPDF_CMapParser::ParseWord(const ByteStringView& word) {
       if (m_CodeSeq % 2) {
         CPDF_CMap::CodeRange range;
         if (GetCodeRange(range, m_LastWord.AsStringView(), word))
-          m_CodeRanges.push_back(range);
+          m_PendingRanges.push_back(range);
       }
       m_CodeSeq++;
     }
@@ -134,7 +139,7 @@ void CPDF_CMapParser::ParseWord(const ByteStringView& word) {
   m_LastWord = word;
 }
 
-uint32_t CPDF_CMapParser::GetCode(const ByteStringView& word) const {
+uint32_t CPDF_CMapParser::GetCode(ByteStringView word) const {
   if (word.IsEmpty())
     return 0;
 
@@ -157,8 +162,8 @@ uint32_t CPDF_CMapParser::GetCode(const ByteStringView& word) const {
 }
 
 bool CPDF_CMapParser::GetCodeRange(CPDF_CMap::CodeRange& range,
-                                   const ByteStringView& first,
-                                   const ByteStringView& second) const {
+                                   ByteStringView first,
+                                   ByteStringView second) const {
   if (first.GetLength() == 0 || first[0] != '<')
     return false;
 
@@ -190,7 +195,7 @@ bool CPDF_CMapParser::GetCodeRange(CPDF_CMap::CodeRange& range,
 }
 
 // static
-CIDSet CPDF_CMapParser::CharsetFromOrdering(const ByteStringView& ordering) {
+CIDSet CPDF_CMapParser::CharsetFromOrdering(ByteStringView ordering) {
   for (size_t charset = 1; charset < FX_ArraySize(g_CharsetNames); ++charset) {
     if (ordering == g_CharsetNames[charset])
       return CIDSetFromSizeT(charset);

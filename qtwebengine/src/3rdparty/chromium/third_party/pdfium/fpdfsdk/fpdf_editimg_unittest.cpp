@@ -5,15 +5,16 @@
 #include "public/fpdf_edit.h"
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
+#include "public/cpp/fpdf_scopers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-class PDFEditTest : public testing::Test {
+class PDFEditImgTest : public testing::Test {
   void SetUp() override { CPDF_ModuleMgr::Get()->Init(); }
 
   void TearDown() override { CPDF_ModuleMgr::Destroy(); }
 };
 
-TEST_F(PDFEditTest, InsertObjectWithInvalidPage) {
+TEST_F(PDFEditImgTest, InsertObjectWithInvalidPage) {
   FPDF_DOCUMENT doc = FPDF_CreateNewDocument();
   FPDF_PAGE page = FPDFPage_New(doc, 0, 100, 100);
   EXPECT_EQ(0, FPDFPage_CountObjects(page));
@@ -32,7 +33,7 @@ TEST_F(PDFEditTest, InsertObjectWithInvalidPage) {
   FPDF_CloseDocument(doc);
 }
 
-TEST_F(PDFEditTest, NewImageObj) {
+TEST_F(PDFEditImgTest, NewImageObj) {
   FPDF_DOCUMENT doc = FPDF_CreateNewDocument();
   FPDF_PAGE page = FPDFPage_New(doc, 0, 100, 100);
   EXPECT_EQ(0, FPDFPage_CountObjects(page));
@@ -46,7 +47,7 @@ TEST_F(PDFEditTest, NewImageObj) {
   FPDF_CloseDocument(doc);
 }
 
-TEST_F(PDFEditTest, NewImageObjGenerateContent) {
+TEST_F(PDFEditImgTest, NewImageObjGenerateContent) {
   FPDF_DOCUMENT doc = FPDF_CreateNewDocument();
   FPDF_PAGE page = FPDFPage_New(doc, 0, 100, 100);
   EXPECT_EQ(0, FPDFPage_CountObjects(page));
@@ -67,5 +68,80 @@ TEST_F(PDFEditTest, NewImageObjGenerateContent) {
 
   FPDFBitmap_Destroy(bitmap);
   FPDF_ClosePage(page);
+  FPDF_CloseDocument(doc);
+}
+
+TEST_F(PDFEditImgTest, SetBitmap) {
+  ScopedFPDFDocument doc(FPDF_CreateNewDocument());
+  ScopedFPDFPage page(FPDFPage_New(doc.get(), 0, 100, 100));
+  ScopedFPDFPageObject image(FPDFPageObj_NewImageObj(doc.get()));
+  ScopedFPDFBitmap bitmap(FPDFBitmap_Create(100, 100, 0));
+
+  FPDF_PAGE page_ptr = page.get();
+  FPDF_PAGE* pages = &page_ptr;
+  EXPECT_TRUE(FPDFImageObj_SetBitmap(nullptr, 1, image.get(), bitmap.get()));
+  EXPECT_TRUE(FPDFImageObj_SetBitmap(pages, 0, image.get(), bitmap.get()));
+  EXPECT_FALSE(FPDFImageObj_SetBitmap(pages, 1, nullptr, bitmap.get()));
+  EXPECT_FALSE(FPDFImageObj_SetBitmap(pages, 1, image.get(), nullptr));
+}
+
+TEST_F(PDFEditImgTest, GetSetImageMatrix) {
+  FPDF_DOCUMENT doc = FPDF_CreateNewDocument();
+  FPDF_PAGEOBJECT image = FPDFPageObj_NewImageObj(doc);
+
+  double a;
+  double b;
+  double c;
+  double d;
+  double e;
+  double f;
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(nullptr, nullptr, nullptr, nullptr,
+                                      nullptr, nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(nullptr, &a, nullptr, nullptr, nullptr,
+                                      nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(nullptr, &a, &b, nullptr, nullptr,
+                                      nullptr, nullptr));
+  EXPECT_FALSE(
+      FPDFImageObj_GetMatrix(nullptr, &a, &b, &c, nullptr, nullptr, nullptr));
+  EXPECT_FALSE(
+      FPDFImageObj_GetMatrix(nullptr, &a, &b, &c, nullptr, nullptr, nullptr));
+  EXPECT_FALSE(
+      FPDFImageObj_GetMatrix(nullptr, &a, &b, &c, &d, nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(nullptr, &a, &b, &c, &d, &e, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(nullptr, &a, &b, &c, &d, &e, &f));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(nullptr, &a, nullptr, &c, &d, &e, &f));
+
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(image, nullptr, nullptr, nullptr, nullptr,
+                                      nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(image, &a, nullptr, nullptr, nullptr,
+                                      nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(image, &a, &b, nullptr, nullptr, nullptr,
+                                      nullptr));
+  EXPECT_FALSE(
+      FPDFImageObj_GetMatrix(image, &a, &b, &c, nullptr, nullptr, nullptr));
+  EXPECT_FALSE(
+      FPDFImageObj_GetMatrix(image, &a, &b, &c, nullptr, nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(image, &a, &b, &c, &d, nullptr, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(image, &a, &b, &c, &d, &e, nullptr));
+  EXPECT_FALSE(FPDFImageObj_GetMatrix(image, &a, nullptr, &c, &d, &e, &f));
+
+  EXPECT_TRUE(FPDFImageObj_GetMatrix(image, &a, &b, &c, &d, &e, &f));
+  EXPECT_DOUBLE_EQ(1.0, a);
+  EXPECT_DOUBLE_EQ(0.0, b);
+  EXPECT_DOUBLE_EQ(0.0, c);
+  EXPECT_DOUBLE_EQ(1.0, d);
+  EXPECT_DOUBLE_EQ(0.0, e);
+  EXPECT_DOUBLE_EQ(0.0, f);
+
+  EXPECT_TRUE(FPDFImageObj_SetMatrix(image, 1, 2, 3, 4, 5, 6));
+  EXPECT_TRUE(FPDFImageObj_GetMatrix(image, &a, &b, &c, &d, &e, &f));
+  EXPECT_DOUBLE_EQ(1.0, a);
+  EXPECT_DOUBLE_EQ(2.0, b);
+  EXPECT_DOUBLE_EQ(3.0, c);
+  EXPECT_DOUBLE_EQ(4.0, d);
+  EXPECT_DOUBLE_EQ(5.0, e);
+  EXPECT_DOUBLE_EQ(6.0, f);
+
+  FPDFPageObj_Destroy(image);
   FPDF_CloseDocument(doc);
 }

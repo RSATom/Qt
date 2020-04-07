@@ -326,41 +326,6 @@ Item {
             verify(secondItem.y < thirdItem.y);
         }
 
-        property Component oneHundredItemColumn: TumblerColumn {
-            model: ListModel {
-                Component.onCompleted: {
-                    for (var i = 0; i < 100; ++i) {
-                        append({value: i.toString()});
-                    }
-                }
-            }
-        }
-
-        function test_resizeAfterFlicking() {
-            var tumbler = createTemporaryObject(tumblerComponent, container);
-            verify(tumbler);
-
-            // Test QTBUG-40367 (which is actually invalid because it was my fault :)).
-            var column = oneHundredItemColumn.createObject(tumbler);
-            compare(tumbler.addColumn(column), column);
-            waitForRendering(tumbler);
-
-            // Flick in some direction.
-            var pos = Qt.point(columnXCenter(tumbler, 0), tumbler.__style.padding.top);
-            mouseDrag(tumbler, pos.x, pos.y, 0, tumbler.height - tumbler.__style.padding.bottom,
-                Qt.LeftButton, Qt.NoModifier, 300);
-            tryCompare(tumbler.__viewAt(0), "offset", Settings.styleName === "Flat" ? 6.0 : 4.0);
-
-            tumbler.height += 100;
-            var padding = tumbler.__style.padding;
-            compare(tumbler.__style.__delegateHeight,
-                (tumbler.height - padding.top - padding.bottom) / tumbler.__style.visibleItemCount);
-            waitForRendering(tumbler);
-            pos = itemCenterPos(tumbler, 0, 1);
-            var ninetyEighthItem = tumbler.__viewAt(0).itemAt(pos.x, pos.y);
-            verify(ninetyEighthItem);
-        }
-
         property Component dayOfMonthColumn: TumblerColumn {
             model: ListModel {
                 Component.onCompleted: {

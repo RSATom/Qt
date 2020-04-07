@@ -81,6 +81,7 @@
 #include <Qt3DRender/private/updateentityhierarchyjob_p.h>
 #include <Qt3DRender/private/renderercache_p.h>
 #include <Qt3DRender/private/texture_p.h>
+#include <Qt3DRender/private/glfence_p.h>
 
 #include <QHash>
 #include <QMatrix4x4>
@@ -97,10 +98,15 @@
 
 #include <functional>
 
+#if defined(QT_BUILD_INTERNAL)
+class tst_Renderer;
+#endif
+
 QT_BEGIN_NAMESPACE
 
 class QSurface;
 class QMouseEvent;
+class QScreen;
 
 namespace Qt3DCore {
 class QEntity;
@@ -153,7 +159,7 @@ typedef QSharedPointer<UpdateLevelOfDetailJob> UpdateLevelOfDetailJobPtr;
 using SynchronizerJobPtr = GenericLambdaJobPtr<std::function<void()>>;
 using IntrospectShadersJobPtr = GenericLambdaJobPtr<std::function<void()>>;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT Renderer : public AbstractRenderer
+class Q_3DRENDERSHARED_PRIVATE_EXPORT Renderer : public AbstractRenderer
 {
 public:
     explicit Renderer(QRenderAspect::RenderType type);
@@ -197,6 +203,7 @@ public:
     bool shouldRender() override;
     void skipNextFrame() override;
 
+    QVector<Qt3DCore::QAspectJobPtr> preRenderingJobs() override;
     QVector<Qt3DCore::QAspectJobPtr> renderBinJobs() override;
     Qt3DCore::QAspectJobPtr pickBoundingVolumeJob() override;
     Qt3DCore::QAspectJobPtr rayCastingJob() override;
@@ -288,6 +295,8 @@ public:
     ViewSubmissionResultData submitRenderViews(const QVector<Render::RenderView *> &renderViews);
 
     RendererCache *cache() { return &m_cache; }
+    void setScreen(QScreen *scr) override;
+    QScreen *screen() const override;
 
 #ifdef QT3D_RENDER_UNIT_TESTS
 public:
@@ -376,6 +385,7 @@ private:
     GenericLambdaJobPtr<std::function<void ()>> m_vaoGathererJob;
     GenericLambdaJobPtr<std::function<void ()>> m_textureGathererJob;
     GenericLambdaJobPtr<std::function<void ()>> m_sendTextureChangesToFrontendJob;
+    GenericLambdaJobPtr<std::function<void ()>> m_sendSetFenceHandlesToFrontendJob;
     IntrospectShadersJobPtr m_introspectShaderJob;
 
     SynchronizerJobPtr m_syncTextureLoadingJob;
@@ -386,6 +396,7 @@ private:
     void lookForDirtyTextures();
     void reloadDirtyShaders();
     void sendTextureChangesToFrontend();
+    void sendSetFenceHandlesToFrontend();
 
     QMutex m_abandonedVaosMutex;
     QVector<HVao> m_abandonedVaos;
@@ -394,7 +405,8 @@ private:
     QVector<HBuffer> m_downloadableBuffers;
     QVector<HShader> m_dirtyShaders;
     QVector<HTexture> m_dirtyTextures;
-    QVector<QPair<TextureProperties, Qt3DCore::QNodeIdVector>> m_updatedTextureProperties;
+    QVector<QPair<Texture::TextureUpdateInfo, Qt3DCore::QNodeIdVector>> m_updatedTextureProperties;
+    QVector<QPair<Qt3DCore::QNodeId, GLFence>> m_updatedSetFences;
 
     bool m_ownedContext;
 
@@ -406,8 +418,13 @@ private:
     friend class Qt3DRender::Debug::CommandExecuter;
 #endif
 
+#ifdef QT_BUILD_INTERNAL
+    friend class ::tst_Renderer;
+#endif
+
     QMetaObject::Connection m_contextConnection;
     RendererCache m_cache;
+    QScreen *m_screen = nullptr;
 };
 
 } // namespace Render

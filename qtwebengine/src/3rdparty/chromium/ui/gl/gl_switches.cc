@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/macros.h"
 #include "ui/gl/gl_switches.h"
+
+#include "base/stl_util.h"
 
 namespace gl {
 
 const char kGLImplementationDesktopName[] = "desktop";
 const char kGLImplementationCoreProfileName[] = "core_profile";
-const char kGLImplementationOSMesaName[] = "osmesa";
 const char kGLImplementationAppleName[] = "apple";
 const char kGLImplementationEGLName[] = "egl";
 const char kGLImplementationANGLEName[] = "angle";
@@ -67,7 +67,6 @@ const char kUseANGLE[]                      = "use-angle";
 //           default).
 //  egl: whatever EGL / GLES2 the user has installed (Windows default - actually
 //       ANGLE).
-//  osmesa: The OSMesa software renderer.
 //  swiftshader: The SwiftShader software renderer.
 const char kUseGL[]                         = "use-gl";
 
@@ -75,9 +74,6 @@ const char kUseGL[]                         = "use-gl";
 // screen saving mode, etc.  Note that this flag does not ensure that a GPU
 // context will never be lost in any situations, say, a GPU reset.
 const char kGpuNoContextLost[]              = "gpu-no-context-lost";
-
-// Disables the use of DirectComposition to draw to the screen.
-const char kDisableDirectComposition[] = "disable-direct-composition";
 
 // Flag used for Linux tests: for desktop GL bindings, try to load this GL
 // library first, but fall back to regular library if loading fails.
@@ -104,6 +100,9 @@ const char kDisableGLExtensions[] = "disable-gl-extensions";
 // Enables SwapBuffersWithBounds if it is supported.
 const char kEnableSwapBuffersWithBounds[] = "enable-swap-buffers-with-bounds";
 
+// Disables DirectComposition surface.
+const char kDisableDirectComposition[] = "disable-direct-composition";
+
 // Enables using DirectComposition layers, even if hardware overlays aren't
 // supported.
 const char kEnableDirectCompositionLayers[] =
@@ -117,7 +116,6 @@ const char kDisableDirectCompositionLayers[] =
 // GpuProcessHost to the GPU Process. Add your switch to this list if you need
 // to read it in the GPU process, else don't add it.
 const char* const kGLSwitchesCopiedFromGpuProcessHost[] = {
-    kDisableDirectComposition,
     kDisableGpuVsync,
     kDisableD3D11,
     kDisableES3GLContext,
@@ -129,11 +127,12 @@ const char* const kGLSwitchesCopiedFromGpuProcessHost[] = {
     kOverrideUseSoftwareGLForTests,
     kUseANGLE,
     kEnableSwapBuffersWithBounds,
+    kDisableDirectComposition,
     kEnableDirectCompositionLayers,
     kDisableDirectCompositionLayers,
 };
 const int kGLSwitchesCopiedFromGpuProcessHostNumSwitches =
-    arraysize(kGLSwitchesCopiedFromGpuProcessHost);
+    base::size(kGLSwitchesCopiedFromGpuProcessHost);
 
 const char kCreateDefaultGLContext[] = "create-default-gl-context";
 

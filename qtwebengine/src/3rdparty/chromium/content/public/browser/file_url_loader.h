@@ -13,7 +13,15 @@
 #include "net/http/http_response_headers.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 
+namespace network {
+namespace mojom {
+class URLLoaderFactory;
+}
+}  // namespace network
+
 namespace content {
+
+class SharedCorsOriginAccessList;
 
 class CONTENT_EXPORT FileURLLoaderObserver
     : public mojo::FileDataPipeProducer::Observer {
@@ -45,7 +53,23 @@ CONTENT_EXPORT void CreateFileURLLoader(
     network::mojom::URLLoaderRequest loader,
     network::mojom::URLLoaderClientPtr client,
     std::unique_ptr<FileURLLoaderObserver> observer,
+    bool allow_directory_listing,
     scoped_refptr<net::HttpResponseHeaders> extra_response_headers = nullptr);
+
+// Helper to create a FileURLLoaderFactory instance. This exposes the ability
+// to load file:// URLs through SimpleURLLoader to non-content classes.
+//
+// When non-empty, |profile_path| is used to whitelist specific directories on
+// ChromeOS and Android. It is checked by
+// ContentBrowserClient::IsFileAccessAllowed.
+// |shared_cors_origin_access_list| can be specified if caller wants only
+// listed access pattern to be permitted for CORS requests. If nullptr is
+// passed, all file accesses are permitted even for CORS requests. This list
+// does not affect no-cors requests.
+CONTENT_EXPORT std::unique_ptr<network::mojom::URLLoaderFactory>
+CreateFileURLLoaderFactory(const base::FilePath& profile_path,
+                           scoped_refptr<const SharedCorsOriginAccessList>
+                               shared_cors_origin_access_list);
 
 }  // namespace content
 

@@ -1646,11 +1646,24 @@ HWND QAxServerBase::create(HWND hWndParent, RECT& rcPos)
     }
 
     Q_ASSERT(!m_hWnd);
+    // will fail if parent window belongs to a higher integrity level process
     HWND hWnd = ::CreateWindow(reinterpret_cast<const wchar_t *>(cn.utf16()), 0,
                                WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                                rcPos.left, rcPos.top, rcPos.right - rcPos.left,
                                rcPos.bottom - rcPos.top, hWndParent, 0, hInst, this);
     // m_hWnd is assigned in reponse to WM_CREATE
+    if (!hWnd) {
+        DWORD err = GetLastError();
+        if (err == ERROR_ACCESS_DENIED) {
+            // retry without parent window
+            // the window will now need to be re-parented in the container process
+            hWnd = ::CreateWindow(reinterpret_cast<const wchar_t *>(cn.utf16()), 0,
+                                  WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                                  rcPos.left, rcPos.top, rcPos.right - rcPos.left,
+                                  rcPos.bottom - rcPos.top, nullptr, 0, hInst, this);
+        }
+    }
+
     if (!hWnd) {
         qErrnoWarning("%s: CreateWindow() failed", __FUNCTION__);
         return nullptr;

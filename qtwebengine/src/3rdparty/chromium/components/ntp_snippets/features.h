@@ -33,13 +33,9 @@ extern const base::Feature* const kAllFeatures[];
 // helpers in chrome/browser/ntp_snippets/dependent_features.h instead.
 
 extern const base::Feature kBookmarkSuggestionsFeature;
-extern const base::Feature kForeignSessionsSuggestionsFeature;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Independent features. Treat as normal
-
-// Feature to allow show/hide article suggestions by clicking the header.
-extern const base::Feature kArticleSuggestionsExpandableHeader;
 
 extern const base::Feature kArticleSuggestionsFeature;
 
@@ -140,6 +136,8 @@ extern const base::Feature kContentSuggestionsDebugLog;
 // Return all the features as a vector.
 std::vector<const base::Feature*> GetAllFeatures();
 
+// Return a referrer URL for content suggestions.
+std::string GetContentSuggestionsReferrerURL();
 }  // namespace ntp_snippets
 
 #endif  // COMPONENTS_NTP_SNIPPETS_FEATURES_H_

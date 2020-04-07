@@ -225,7 +225,7 @@ float QDeclarativeGeoMapItemBase::zoomLevelOpacity() const
 
 bool QDeclarativeGeoMapItemBase::childMouseEventFilter(QQuickItem *item, QEvent *event)
 {
-    Q_UNUSED(item)
+    Q_UNUSED(item);
     if (event->type() == QEvent::MouseButtonPress && !contains(static_cast<QMouseEvent*>(event)->pos())) {
         // In case of items that are not rectangles, this filter is used to test if the event has landed
         // inside the actual item shape.

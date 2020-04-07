@@ -21,7 +21,7 @@ namespace gpu {
 // TODO(reveman): Rename to GpuMemoryBufferBase.
 class GPU_EXPORT GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
  public:
-  typedef base::Callback<void(const gpu::SyncToken& sync)> DestructionCallback;
+  using DestructionCallback = base::OnceCallback<void(const gpu::SyncToken&)>;
 
   ~GpuMemoryBufferImpl() override;
 
@@ -30,6 +30,11 @@ class GPU_EXPORT GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   gfx::BufferFormat GetFormat() const override;
   gfx::GpuMemoryBufferId GetId() const override;
   ClientBuffer AsClientBuffer() override;
+  void OnMemoryDump(
+      base::trace_event::ProcessMemoryDump* pmd,
+      const base::trace_event::MemoryAllocatorDumpGuid& buffer_dump_guid,
+      uint64_t tracing_process_id,
+      int importance) const override;
 
   void set_destruction_sync_token(const gpu::SyncToken& sync_token) {
     destruction_sync_token_ = sync_token;
@@ -39,12 +44,12 @@ class GPU_EXPORT GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   GpuMemoryBufferImpl(gfx::GpuMemoryBufferId id,
                       const gfx::Size& size,
                       gfx::BufferFormat format,
-                      const DestructionCallback& callback);
+                      DestructionCallback callback);
 
   const gfx::GpuMemoryBufferId id_;
   const gfx::Size size_;
   const gfx::BufferFormat format_;
-  const DestructionCallback callback_;
+  DestructionCallback callback_;
   bool mapped_;
   gpu::SyncToken destruction_sync_token_;
 

@@ -15,7 +15,7 @@ WorkerNavigatorUSB& WorkerNavigatorUSB::From(
   WorkerNavigatorUSB* supplement =
       Supplement<WorkerNavigator>::From<WorkerNavigatorUSB>(worker_navigator);
   if (!supplement) {
-    supplement = new WorkerNavigatorUSB(worker_navigator);
+    supplement = MakeGarbageCollected<WorkerNavigatorUSB>(worker_navigator);
     ProvideTo(worker_navigator, supplement);
   }
   return *supplement;
@@ -42,11 +42,8 @@ USB* WorkerNavigatorUSB::usb(ScriptState* script_state) {
     bool isDedicatedWorkerAndEnabled =
         context->IsDedicatedWorkerGlobalScope() &&
         RuntimeEnabledFeatures::WebUSBOnDedicatedWorkersEnabled();
-    bool isSharedWorkerAndEnabled =
-        context->IsSharedWorkerGlobalScope() &&
-        RuntimeEnabledFeatures::WebUSBOnSharedWorkersEnabled();
 
-    if (isDedicatedWorkerAndEnabled || isSharedWorkerAndEnabled) {
+    if (isDedicatedWorkerAndEnabled) {
       usb_ = USB::Create(*context);
     }
   }

@@ -100,11 +100,8 @@ void GLOutputSurface::SwapBuffers(OutputSurfaceFrame frame) {
       &GLOutputSurface::OnGpuSwapBuffersCompleted,
       weak_ptr_factory_.GetWeakPtr(), std::move(frame.latency_info), size_);
   gpu::ContextSupport::PresentationCallback presentation_callback;
-  if (frame.need_presentation_feedback) {
-    flags |= gpu::SwapBuffersFlags::kPresentationFeedback;
-    presentation_callback = base::BindOnce(&GLOutputSurface::OnPresentation,
-                                           weak_ptr_factory_.GetWeakPtr());
-  }
+  presentation_callback = base::BindOnce(&GLOutputSurface::OnPresentation,
+                                         weak_ptr_factory_.GetWeakPtr());
 
   set_draw_rectangle_for_frame_ = false;
   if (frame.sub_buffer_rect) {
@@ -117,10 +114,8 @@ void GLOutputSurface::SwapBuffers(OutputSurfaceFrame frame) {
 }
 
 uint32_t GLOutputSurface::GetFramebufferCopyTextureFormat() {
-  // TODO(danakj): What attributes are used for the default framebuffer here?
-  // Can it have alpha? VizProcessContextProvider doesn't take any
-  // attributes.
-  return GL_RGB;
+  auto* gl = static_cast<VizProcessContextProvider*>(context_provider());
+  return gl->GetCopyTextureInternalFormat();
 }
 
 OverlayCandidateValidator* GLOutputSurface::GetOverlayCandidateValidator()

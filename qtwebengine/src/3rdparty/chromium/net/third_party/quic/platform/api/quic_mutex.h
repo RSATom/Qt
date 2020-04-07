@@ -11,9 +11,11 @@
 namespace quic {
 
 // A class representing a non-reentrant mutex in QUIC.
-class QUIC_EXPORT_PRIVATE LOCKABLE QuicMutex {
+class LOCKABLE QUIC_EXPORT_PRIVATE QuicMutex {
  public:
   QuicMutex() = default;
+  QuicMutex(const QuicMutex&) = delete;
+  QuicMutex& operator=(const QuicMutex&) = delete;
 
   // Block until this Mutex is free, then acquire it exclusively.
   void WriterLock() EXCLUSIVE_LOCK_FUNCTION();
@@ -34,36 +36,52 @@ class QUIC_EXPORT_PRIVATE LOCKABLE QuicMutex {
 
  private:
   QuicLockImpl impl_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicMutex);
 };
 
 // A helper class that acquires the given QuicMutex shared lock while the
 // QuicReaderMutexLock is in scope.
-class QUIC_EXPORT_PRIVATE SCOPED_LOCKABLE QuicReaderMutexLock {
+class SCOPED_LOCKABLE QUIC_EXPORT_PRIVATE QuicReaderMutexLock {
  public:
   explicit QuicReaderMutexLock(QuicMutex* lock) SHARED_LOCK_FUNCTION(lock);
+  QuicReaderMutexLock(const QuicReaderMutexLock&) = delete;
+  QuicReaderMutexLock& operator=(const QuicReaderMutexLock&) = delete;
 
   ~QuicReaderMutexLock() UNLOCK_FUNCTION();
 
  private:
   QuicMutex* const lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicReaderMutexLock);
 };
 
 // A helper class that acquires the given QuicMutex exclusive lock while the
 // QuicWriterMutexLock is in scope.
-class QUIC_EXPORT_PRIVATE SCOPED_LOCKABLE QuicWriterMutexLock {
+class SCOPED_LOCKABLE QUIC_EXPORT_PRIVATE QuicWriterMutexLock {
  public:
   explicit QuicWriterMutexLock(QuicMutex* lock) EXCLUSIVE_LOCK_FUNCTION(lock);
+  QuicWriterMutexLock(const QuicWriterMutexLock&) = delete;
+  QuicWriterMutexLock& operator=(const QuicWriterMutexLock&) = delete;
 
   ~QuicWriterMutexLock() UNLOCK_FUNCTION();
 
  private:
   QuicMutex* const lock_;
+};
 
-  DISALLOW_COPY_AND_ASSIGN(QuicWriterMutexLock);
+// A Notification allows threads to receive notification of a single occurrence
+// of a single event.
+class QUIC_EXPORT_PRIVATE QuicNotification {
+ public:
+  QuicNotification() = default;
+  QuicNotification(const QuicNotification&) = delete;
+  QuicNotification& operator=(const QuicNotification&) = delete;
+
+  bool HasBeenNotified() { return impl_.HasBeenNotified(); }
+
+  void Notify() { impl_.Notify(); }
+
+  void WaitForNotification() { impl_.WaitForNotification(); }
+
+ private:
+  QuicNotificationImpl impl_;
 };
 
 }  // namespace quic

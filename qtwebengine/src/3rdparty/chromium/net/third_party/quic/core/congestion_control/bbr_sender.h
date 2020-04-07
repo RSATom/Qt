@@ -58,8 +58,6 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
     NOT_IN_RECOVERY,
     // Allow an extra outstanding byte for each byte acknowledged.
     CONSERVATION,
-    // Allow 1.5 extra outstanding bytes for each byte acknowledged.
-    MEDIUM_GROWTH,
     // Allow two extra outstanding bytes for each byte acknowledged (slow
     // start).
     GROWTH
@@ -96,12 +94,14 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
             QuicPacketCount initial_tcp_congestion_window,
             QuicPacketCount max_tcp_congestion_window,
             QuicRandom* random);
+  BbrSender(const BbrSender&) = delete;
+  BbrSender& operator=(const BbrSender&) = delete;
   ~BbrSender() override;
 
   // Start implementation of SendAlgorithmInterface.
   bool InSlowStart() const override;
   bool InRecovery() const override;
-  bool IsProbingForMoreBandwidth() const override;
+  bool ShouldSendProbingPacket() const override;
 
   void SetFromConfig(const QuicConfig& config,
                      Perspective perspective) override;
@@ -242,6 +242,10 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   void CalculateRecoveryWindow(QuicByteCount bytes_acked,
                                QuicByteCount bytes_lost);
 
+  // Returns true if there are enough bytes in flight to ensure more bandwidth
+  // will be observed if present.
+  bool IsPipeSufficientlyFull() const;
+
   const RttStats* rtt_stats_;
   const QuicUnackedPacketMap* unacked_packets_;
   QuicRandom* random_;
@@ -250,7 +254,7 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
 
   // Bandwidth sampler provides BBR with the bandwidth measurements at
   // individual points.
-  std::unique_ptr<BandwidthSamplerInterface> sampler_;
+  BandwidthSampler sampler_;
 
   // The number of the round trips that have occurred during the connection.
   QuicRoundTripCount round_trip_count_;
@@ -259,7 +263,7 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   QuicPacketNumber last_sent_packet_;
   // Acknowledgement of any packet after |current_round_trip_end_| will cause
   // the round trip counter to advance.
-  QuicPacketCount current_round_trip_end_;
+  QuicPacketNumber current_round_trip_end_;
 
   // The filter that tracks the maximum bandwidth over the multiple recent
   // round-trips.
@@ -344,6 +348,9 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   bool last_sample_is_app_limited_;
   // Indicates whether any non app-limited samples have been recorded.
   bool has_non_app_limited_sample_;
+  // Indicates app-limited calls should be ignored as long as there's
+  // enough data inflight to see more bandwidth when necessary.
+  bool flexible_app_limited_;
 
   // Current state of recovery.
   RecoveryState recovery_state_;
@@ -360,10 +367,17 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   bool slower_startup_;
   // When true, disables packet conservation in STARTUP.
   bool rate_based_startup_;
-  // Used as the initial packet conservation mode when first entering recovery.
-  RecoveryState initial_conservation_in_startup_;
+  // When non-zero, decreases the rate in STARTUP by the total number of bytes
+  // lost in STARTUP divided by CWND.
+  uint8_t startup_rate_reduction_multiplier_;
+  // Sum of bytes lost in STARTUP.
+  QuicByteCount startup_bytes_lost_;
+
   // When true, add the most recent ack aggregation measurement during STARTUP.
   bool enable_ack_aggregation_during_startup_;
+  // When true, expire the windowed ack aggregation values in STARTUP when
+  // bandwidth increases more than 25%.
+  bool expire_ack_aggregation_in_startup_;
 
   // If true, will not exit low gain mode until bytes_in_flight drops below BDP
   // or it's time for high gain mode.
@@ -381,8 +395,6 @@ class QUIC_EXPORT_PRIVATE BbrSender : public SendAlgorithmInterface {
   bool probe_rtt_disabled_if_app_limited_;
   bool app_limited_since_last_probe_rtt_;
   QuicTime::Delta min_rtt_since_last_probe_rtt_;
-
-  DISALLOW_COPY_AND_ASSIGN(BbrSender);
 };
 
 QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,

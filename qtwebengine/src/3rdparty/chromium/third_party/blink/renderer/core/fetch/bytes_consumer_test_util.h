@@ -24,7 +24,7 @@ class BytesConsumerTestUtil {
   class MockBytesConsumer : public BytesConsumer {
    public:
     static MockBytesConsumer* Create() {
-      return new testing::StrictMock<MockBytesConsumer>();
+      return MakeGarbageCollected<testing::StrictMock<MockBytesConsumer>>();
     }
 
     MOCK_METHOD2(BeginRead, Result(const char**, size_t*));
@@ -51,7 +51,8 @@ class BytesConsumerTestUtil {
 
    public:
     static testing::StrictMock<MockFetchDataLoaderClient>* Create() {
-      return new testing::StrictMock<MockFetchDataLoaderClient>;
+      return MakeGarbageCollected<
+          testing::StrictMock<MockFetchDataLoaderClient>>();
     }
 
     void Trace(blink::Visitor* visitor) override {
@@ -81,7 +82,7 @@ class BytesConsumerTestUtil {
   };
 
   class Command final {
-    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+    DISALLOW_NEW();
 
    public:
     enum Name {
@@ -89,14 +90,16 @@ class BytesConsumerTestUtil {
       kDone,
       kError,
       kWait,
+      kDataAndDone,
     };
 
     explicit Command(Name name) : name_(name) {}
     Command(Name name, const Vector<char>& body) : name_(name), body_(body) {}
-    Command(Name name, const char* body, size_t size) : name_(name) {
+    Command(Name name, const char* body, wtf_size_t size) : name_(name) {
       body_.Append(body, size);
     }
-    Command(Name name, const char* body) : Command(name, body, strlen(body)) {}
+    Command(Name name, const char* body)
+        : Command(name, body, static_cast<wtf_size_t>(strlen(body))) {}
     Name GetName() const { return name_; }
     const Vector<char>& Body() const { return body_; }
 

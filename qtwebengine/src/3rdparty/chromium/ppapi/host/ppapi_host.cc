@@ -241,9 +241,9 @@ void PpapiHost::OnHostMsgResourceCreated(
 #ifndef TOOLKIT_QT
     NOTREACHED();
 #else
-    LOG(INFO) << "Failed to create PPAPI resource host"
-              << IPC_MESSAGE_ID_CLASS(nested_msg.type())
-              << IPC_MESSAGE_ID_LINE(nested_msg.type());
+    LOG(INFO) << "Failed to create PPAPI resource host - "
+              << "Class: " << IPC_MESSAGE_ID_CLASS(nested_msg.type())
+              << "Line: " << IPC_MESSAGE_ID_LINE(nested_msg.type());
 #endif
     return;
   }
@@ -260,7 +260,11 @@ void PpapiHost::OnHostMsgAttachToPendingHost(PP_Resource pp_resource,
       pending_resource_hosts_.find(pending_host_id);
   if (found == pending_resource_hosts_.end()) {
     // Plugin sent a bad ID.
+#ifndef TOOLKIT_QT
     NOTREACHED();
+#else
+    LOG(INFO) << "Did not find resource host for id: " << pending_host_id;
+#endif
     return;
   }
   found->second->SetPPResourceForPendingHost(pp_resource);
@@ -271,7 +275,11 @@ void PpapiHost::OnHostMsgAttachToPendingHost(PP_Resource pp_resource,
 void PpapiHost::OnHostMsgResourceDestroyed(PP_Resource resource) {
   ResourceMap::iterator found = resources_.find(resource);
   if (found == resources_.end()) {
+#ifndef TOOLKIT_QT
     NOTREACHED();
+#else
+    LOG(INFO) << "Failed to find PPAPI resource: " << resource;
+#endif
     return;
   }
   // Invoking the HostResource destructor might result in looking up the

@@ -70,9 +70,11 @@
 #include "base/macros.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_annotations.h"
 #include "base/time/time.h"
 #include "media/audio/audio_device_thread.h"
 #include "media/audio/audio_output_ipc.h"
+#include "media/audio/audio_sink_parameters.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_renderer_sink.h"
 #include "media/base/media_export.h"
@@ -93,8 +95,7 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
   AudioOutputDevice(
       std::unique_ptr<AudioOutputIPC> ipc,
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
-      int session_id,
-      const std::string& device_id,
+      const AudioSinkParameters& sink_params,
       base::TimeDelta authorization_timeout);
 
   // Request authorization to use the device specified in the constructor.
@@ -109,6 +110,7 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
   void Pause() override;
   bool SetVolume(double volume) override;
   OutputDeviceInfo GetOutputDeviceInfo() override;
+  void GetOutputDeviceInfoAsync(OutputDeviceInfoCB info_cb) override;
   bool IsOptimizedForHardwareParameters() override;
   bool CurrentThreadIsRenderingThread() override;
 
@@ -170,6 +172,9 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
 
   void NotifyRenderCallbackOfError();
 
+  OutputDeviceInfo GetOutputDeviceInfo_Signaled();
+  void OnAuthSignal();
+
   const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   AudioParameters audio_parameters_;
@@ -201,11 +206,14 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
   // received in OnDeviceAuthorized().
   std::string matched_device_id_;
 
+  base::Optional<base::UnguessableToken> processing_id_;
+
   // In order to avoid a race between OnStreamCreated and Stop(), we use this
   // guard to control stopping and starting the audio thread.
   base::Lock audio_thread_lock_;
   std::unique_ptr<AudioOutputDeviceThreadCallback> audio_callback_;
-  std::unique_ptr<AudioDeviceThread> audio_thread_;
+  std::unique_ptr<AudioDeviceThread> audio_thread_
+      GUARDED_BY(audio_thread_lock_);
 
   // Temporary hack to ignore OnStreamCreated() due to the user calling Stop()
   // so we don't start the audio thread pointing to a potentially freed
@@ -213,7 +221,7 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
   //
   // TODO(scherkus): Replace this by changing AudioRendererSink to either accept
   // the callback via Start(). See http://crbug.com/151051 for details.
-  bool stopping_hack_;
+  bool stopping_hack_ GUARDED_BY(audio_thread_lock_);
 
   base::WaitableEvent did_receive_auth_;
   AudioParameters output_params_;
@@ -221,6 +229,14 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
 
   const base::TimeDelta auth_timeout_;
   std::unique_ptr<base::OneShotTimer> auth_timeout_action_;
+
+  // Pending callback for OutputDeviceInfo if it has not been received by the
+  // time a call to GetGetOutputDeviceInfoAsync() is called.
+  //
+  // Lock for use ONLY with |pending_device_info_cb_| and |did_receive_auth_|,
+  // if you add more usage of this lock ensure you have not added a deadlock.
+  base::Lock device_info_lock_;
+  OutputDeviceInfoCB pending_device_info_cb_ GUARDED_BY(device_info_lock_);
 
   DISALLOW_COPY_AND_ASSIGN(AudioOutputDevice);
 };

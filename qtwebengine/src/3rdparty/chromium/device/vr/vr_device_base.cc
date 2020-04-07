@@ -9,12 +9,12 @@
 
 namespace device {
 
-VRDeviceBase::VRDeviceBase(VRDeviceId id)
-    : id_(static_cast<unsigned int>(id)), runtime_binding_(this) {}
+VRDeviceBase::VRDeviceBase(mojom::XRDeviceId id)
+    : id_(id), runtime_binding_(this) {}
 
 VRDeviceBase::~VRDeviceBase() = default;
 
-unsigned int VRDeviceBase::GetId() const {
+mojom::XRDeviceId VRDeviceBase::GetId() const {
   return id_;
 }
 
@@ -23,7 +23,6 @@ void VRDeviceBase::PauseTracking() {}
 void VRDeviceBase::ResumeTracking() {}
 
 mojom::VRDisplayInfoPtr VRDeviceBase::GetVRDisplayInfo() {
-  DCHECK(display_info_);
   return display_info_.Clone();
 }
 
@@ -41,36 +40,27 @@ bool VRDeviceBase::HasExclusiveSession() {
   return presenting_;
 }
 
-void VRDeviceBase::SetMagicWindowEnabled(bool enabled) {
-  magic_window_enabled_ = enabled;
-}
-
 void VRDeviceBase::ListenToDeviceChanges(
-    mojom::XRRuntimeEventListenerPtr listener,
+    mojom::XRRuntimeEventListenerAssociatedPtrInfo listener_info,
     mojom::XRRuntime::ListenToDeviceChangesCallback callback) {
-  listener_ = std::move(listener);
+  listener_.Bind(std::move(listener_info));
   std::move(callback).Run(display_info_.Clone());
 }
 
-void VRDeviceBase::GetFrameData(
-    mojom::VRMagicWindowProvider::GetFrameDataCallback callback) {
-  if (!magic_window_enabled_) {
+void VRDeviceBase::GetInlineFrameData(
+    mojom::XRFrameDataProvider::GetFrameDataCallback callback) {
+  if (!inline_poses_enabled_) {
     std::move(callback).Run(nullptr);
     return;
   }
 
-  OnMagicWindowFrameDataRequest(std::move(callback));
+  OnGetInlineFrameData(std::move(callback));
 }
 
 void VRDeviceBase::SetVRDisplayInfo(mojom::VRDisplayInfoPtr display_info) {
   DCHECK(display_info);
-  DCHECK(display_info->index == id_);
-  bool initialized = !!display_info_;
+  DCHECK(display_info->id == id_);
   display_info_ = std::move(display_info);
-
-  // Don't notify when the VRDisplayInfo is initially set.
-  if (!initialized)
-    return;
 
   if (listener_)
     listener_->OnDisplayInfoChanged(display_info_.Clone());
@@ -94,8 +84,8 @@ bool VRDeviceBase::ShouldPauseTrackingWhenFrameDataRestricted() {
 
 void VRDeviceBase::OnListeningForActivate(bool listening) {}
 
-void VRDeviceBase::OnMagicWindowFrameDataRequest(
-    mojom::VRMagicWindowProvider::GetFrameDataCallback callback) {
+void VRDeviceBase::OnGetInlineFrameData(
+    mojom::XRFrameDataProvider::GetFrameDataCallback callback) {
   std::move(callback).Run(nullptr);
 }
 
@@ -103,20 +93,38 @@ void VRDeviceBase::SetListeningForActivate(bool is_listening) {
   OnListeningForActivate(is_listening);
 }
 
+void VRDeviceBase::EnsureInitialized(int render_process_id,
+                                     int render_frame_id,
+                                     EnsureInitializedCallback callback) {
+  std::move(callback).Run();
+}
+
+void VRDeviceBase::SetInlinePosesEnabled(bool enable) {
+  inline_poses_enabled_ = enable;
+}
+
 void VRDeviceBase::RequestHitTest(
     mojom::XRRayPtr ray,
-    mojom::VRMagicWindowProvider::RequestHitTestCallback callback) {
+    mojom::XREnvironmentIntegrationProvider::RequestHitTestCallback callback) {
   NOTREACHED() << "Unexpected call to a device without hit-test support";
   std::move(callback).Run(base::nullopt);
 }
 
-void VRDeviceBase::RequestMagicWindowSession(
-    mojom::XRRuntime::RequestMagicWindowSessionCallback callback) {
-  mojom::VRMagicWindowProviderPtr provider;
+void VRDeviceBase::ReturnNonImmersiveSession(
+    mojom::XRRuntime::RequestSessionCallback callback) {
+  mojom::XRFrameDataProviderPtr data_provider;
+  mojom::XREnvironmentIntegrationProviderPtr environment_provider;
   mojom::XRSessionControllerPtr controller;
   magic_window_sessions_.push_back(std::make_unique<VRDisplayImpl>(
-      this, mojo::MakeRequest(&provider), mojo::MakeRequest(&controller)));
-  std::move(callback).Run(std::move(provider), std::move(controller));
+      this, mojo::MakeRequest(&data_provider), mojo::MakeRequest(&controller)));
+
+  auto session = mojom::XRSession::New();
+  session->data_provider = data_provider.PassInterface();
+  if (display_info_) {
+    session->display_info = display_info_.Clone();
+  }
+
+  std::move(callback).Run(std::move(session), std::move(controller));
 }
 
 void VRDeviceBase::EndMagicWindowSession(VRDisplayImpl* session) {

@@ -5,13 +5,13 @@
 #ifndef COMPONENTS_METRICS_CHILD_CALL_STACK_PROFILE_COLLECTOR_H_
 #define COMPONENTS_METRICS_CHILD_CALL_STACK_PROFILE_COLLECTOR_H_
 
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
-#include "components/metrics/call_stack_profile_builder.h"
 #include "components/metrics/public/interfaces/call_stack_profile_collector.mojom.h"
 
 namespace service_manager {
@@ -19,6 +19,8 @@ class InterfaceProvider;
 }
 
 namespace metrics {
+
+class SampledProfile;
 
 // ChildCallStackProfileCollector collects stacks at startup, caching them
 // internally until a CallStackProfileCollector interface is available. If a
@@ -41,8 +43,8 @@ namespace metrics {
 //   base::LazyInstance<metrics::ChildCallStackProfileCollector>::Leaky
 //       g_call_stack_profile_collector = LAZY_INSTANCE_INITIALIZER;
 //
-// Then, invoke CreateCompletedCallback() to generate the CompletedCallback to
-// pass when creating the CallStackProfileBuilder.
+// Then, invoke Collect() in CallStackProfileBuilder::OnProfileCompleted() to
+// collect a profile.
 //
 // When the mojo InterfaceProvider becomes available, provide it via
 // SetParentProfileCollector().
@@ -51,55 +53,38 @@ class ChildCallStackProfileCollector {
   ChildCallStackProfileCollector();
   ~ChildCallStackProfileCollector();
 
-  // Get a callback for use with CallStackProfileBuilder that provides the
-  // completed profile to this object. The callback should be immediately passed
-  // to the CallStackProfileBuilder, and should not be reused between
-  // CallStackProfileBuilders. This function may be called on any thread.
-  CallStackProfileBuilder::CompletedCallback GetProfilerCallback(
-      const CallStackProfileParams& params,
-      base::TimeTicks profile_start_time);
-
   // Sets the CallStackProfileCollector interface from |parent_collector|. This
   // function MUST be invoked exactly once, regardless of whether
   // |parent_collector| is null, as it flushes pending data in either case.
   void SetParentProfileCollector(
       metrics::mojom::CallStackProfileCollectorPtr parent_collector);
 
+  // Collects |profile| whose collection start time is |start_timestamp|.
+  void Collect(base::TimeTicks start_timestamp, SampledProfile profile);
+
  private:
   friend class ChildCallStackProfileCollectorTest;
 
-  // Bundles together a collected profile and the collection state for
-  // storage, pending availability of the parent mojo interface. |profile|
-  // is not const& because it must be passed with std::move.
+  // Bundles together a collected serialized profile and the collection state
+  // for storage, pending availability of the parent mojo interface.
   struct ProfileState {
     ProfileState();
     ProfileState(ProfileState&&);
-    ProfileState(const CallStackProfileParams& params,
-                 base::TimeTicks start_timestamp,
-                 base::StackSamplingProfiler::CallStackProfile profile);
+    // |profile| is not const& because it can be very large and must be passed
+    // with std::move.
+    ProfileState(base::TimeTicks start_timestamp, std::string profile);
     ~ProfileState();
 
     ProfileState& operator=(ProfileState&&);
 
-    CallStackProfileParams params;
     base::TimeTicks start_timestamp;
 
-    // The sampled profile.
-    base::StackSamplingProfiler::CallStackProfile profile;
+    // The serialized sampled profile.
+    std::string profile;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(ProfileState);
   };
-
-  using CallStackProfile = base::StackSamplingProfiler::CallStackProfile;
-
-  void Collect(const CallStackProfileParams& params,
-               base::TimeTicks start_timestamp,
-               CallStackProfile profile);
-
-  void CollectImpl(const CallStackProfileParams& params,
-                   base::TimeTicks start_timestamp,
-                   CallStackProfile profile);
 
   // This object may be accessed on any thread, including the profiler
   // thread. The expected use case for the object is to be created and have

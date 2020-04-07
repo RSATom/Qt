@@ -8,10 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <assert.h>
 #include <stdlib.h>
 
-#include "modules/include/module_common_types.h"
+#include "modules/include/module_common_types_public.h"
 #include "modules/video_coding/timestamp_map.h"
 
 namespace webrtc {

@@ -30,18 +30,21 @@ class CORE_EXPORT PointerEventFactory {
   PointerEventFactory();
   ~PointerEventFactory();
 
-  PointerEvent* Create(const WebPointerEvent&,
-                       const Vector<WebPointerEvent>&,
-                       LocalDOMWindow*);
+  PointerEvent* Create(const WebPointerEvent& web_pointer_event,
+                       const Vector<WebPointerEvent>& coalesced_events,
+                       const Vector<WebPointerEvent>& predicted_events,
+                       LocalDOMWindow* view);
 
-  PointerEvent* CreatePointerCancelEvent(
-      const int pointer_id,
-      TimeTicks platfrom_time_stamp);
+  PointerEvent* CreatePointerCancelEvent(const PointerId pointer_id,
+                                         TimeTicks platfrom_time_stamp);
 
-  // For creating capture events (i.e got/lostpointercapture)
+  // For creating raw move events in chorded button case.
+  PointerEvent* CreatePointerRawMoveEvent(PointerEvent*);
+
+  // For creating capture events (i.e got/lostpointercapture).
   PointerEvent* CreatePointerCaptureEvent(PointerEvent*, const AtomicString&);
 
-  // For creating boundary events (i.e pointerout/leave/over/enter)
+  // For creating boundary events (i.e pointerout/leave/over/enter).
   PointerEvent* CreatePointerBoundaryEvent(PointerEvent*,
                                            const AtomicString&,
                                            EventTarget*);
@@ -52,16 +55,16 @@ class CORE_EXPORT PointerEventFactory {
   // When a particular pointerId is removed, the id is considered free even
   // though there might have been other PointerEvents that were generated with
   // the same id before.
-  bool Remove(const int);
+  bool Remove(const PointerId);
 
   // Returns all ids of pointers that are not hovering.
-  Vector<int> GetPointerIdsOfNonHoveringPointers() const;
+  Vector<PointerId> GetPointerIdsOfNonHoveringPointers() const;
 
   // Returns whether a pointer id exists and active.
-  bool IsActive(const int) const;
+  bool IsActive(const PointerId) const;
 
   // Returns whether a pointer id exists and has at least one pressed button.
-  bool IsActiveButtonsState(const int) const;
+  bool IsActiveButtonsState(const PointerId) const;
 
   // Returns the id of the pointer event corresponding to the given pointer
   // properties if exists otherwise s_invalidId.
@@ -69,15 +72,23 @@ class CORE_EXPORT PointerEventFactory {
 
   // Returns pointerType of for the given pointerId if such id is active.
   // Otherwise it returns WebPointerProperties::PointerType::Unknown.
-  WebPointerProperties::PointerType GetPointerType(int pointer_id) const;
+  WebPointerProperties::PointerType GetPointerType(PointerId pointer_id) const;
 
   // Returns whether a WebPoinerProperties is primary pointer.
   bool IsPrimary(const WebPointerProperties&) const;
 
-  static const int kMouseId;
+  static const PointerId kMouseId;
+
+  // Removes pointer_id from the map.
+  void RemoveLastPosition(const PointerId pointer_id);
+
+  // Returns last_position of for the given pointerId if such id is active.
+  // Otherwise it returns the PositionInScreen of the given events, so we will
+  // get movement = 0 when there is no last position.
+  FloatPoint GetLastPointerPosition(PointerId pointer_id,
+                                    const WebPointerProperties& event) const;
 
  private:
-  typedef WTF::UnsignedWithZeroKeyHashTraits<int> UnsignedHash;
   typedef struct IncomingId : public std::pair<int, int> {
     IncomingId() = default;
     IncomingId(WebPointerProperties::PointerType pointer_type, int raw_id)
@@ -102,12 +113,12 @@ class CORE_EXPORT PointerEventFactory {
           hovering(hovering) {}
   } PointerAttributes;
 
-  int AddIdAndActiveButtons(const IncomingId,
-                            bool is_active_buttons,
-                            bool hovering);
-  bool IsPrimary(const int) const;
-  void SetIdTypeButtons(PointerEventInit&, const WebPointerEvent&);
-  void SetEventSpecificFields(PointerEventInit&, const AtomicString& type);
+  PointerId AddIdAndActiveButtons(const IncomingId,
+                                  bool is_active_buttons,
+                                  bool hovering);
+  bool IsPrimary(const PointerId) const;
+  PointerEventInit* ConvertIdTypeButtonsEvent(const WebPointerEvent&);
+  void SetEventSpecificFields(PointerEventInit*, const AtomicString& type);
 
   // Creates pointerevents like boundary and capture events from another
   // pointerevent (i.e. up/down/move events).
@@ -115,15 +126,27 @@ class CORE_EXPORT PointerEventFactory {
                                        const AtomicString&,
                                        EventTarget*);
 
-  static const int kInvalidId;
+  HeapVector<Member<PointerEvent>> CreateEventSequence(
+      const WebPointerEvent& web_pointer_event,
+      const PointerEventInit* pointer_event_init,
+      const Vector<WebPointerEvent>& event_list,
+      LocalDOMWindow* view);
 
-  int current_id_;
+  void SetLastPosition(PointerId pointer_id, const WebPointerProperties& event);
+
+  static const PointerId kInvalidId;
+
+  PointerId current_id_;
   HashMap<IncomingId,
-          int,
+          PointerId,
           WTF::PairHash<int, int>,
-          WTF::PairHashTraits<UnsignedHash, UnsignedHash>>
+          WTF::PairHashTraits<WTF::UnsignedWithZeroKeyHashTraits<int>,
+                              WTF::UnsignedWithZeroKeyHashTraits<int>>>
       pointer_incoming_id_mapping_;
-  HashMap<int, PointerAttributes, WTF::IntHash<int>, UnsignedHash>
+  HashMap<PointerId,
+          PointerAttributes,
+          WTF::IntHash<PointerId>,
+          WTF::UnsignedWithZeroKeyHashTraits<PointerId>>
       pointer_id_mapping_;
   int primary_id_[static_cast<int>(
                       WebPointerProperties::PointerType::kLastEntry) +
@@ -131,6 +154,12 @@ class CORE_EXPORT PointerEventFactory {
   int id_count_[static_cast<int>(
                     WebPointerProperties::PointerType::kLastEntry) +
                 1];
+
+  HashMap<PointerId,
+          FloatPoint,
+          WTF::IntHash<PointerId>,
+          WTF::UnsignedWithZeroKeyHashTraits<PointerId>>
+      pointer_id_last_position_mapping_;
 };
 
 }  // namespace blink

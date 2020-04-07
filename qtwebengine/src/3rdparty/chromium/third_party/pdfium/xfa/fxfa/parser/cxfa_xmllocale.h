@@ -9,14 +9,13 @@
 
 #include <memory>
 
-#include "core/fxcrt/locale_iface.h"
-#include "third_party/base/ptr_util.h"
 #include "third_party/base/span.h"
+#include "xfa/fgas/crt/locale_iface.h"
 
 class CFX_XMLDocument;
 class CFX_XMLElement;
 
-class CXFA_XMLLocale : public LocaleIface {
+class CXFA_XMLLocale final : public LocaleIface {
  public:
   static std::unique_ptr<CXFA_XMLLocale> Create(pdfium::span<uint8_t> data);
 
@@ -44,9 +43,9 @@ class CXFA_XMLLocale : public LocaleIface {
 
  private:
   WideString GetPattern(CFX_XMLElement* pElement,
-                        const WideStringView& bsTag,
-                        const WideStringView& wsName) const;
-  WideString GetCalendarSymbol(const WideStringView& symbol,
+                        WideStringView bsTag,
+                        WideStringView wsName) const;
+  WideString GetCalendarSymbol(WideStringView symbol,
                                size_t index,
                                bool bAbbr) const;
 

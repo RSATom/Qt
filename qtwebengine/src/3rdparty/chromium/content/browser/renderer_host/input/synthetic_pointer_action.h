@@ -24,9 +24,12 @@ class CONTENT_EXPORT SyntheticPointerAction : public SyntheticGesture {
   SyntheticGesture::Result ForwardInputEvents(
       const base::TimeTicks& timestamp,
       SyntheticGestureTarget* target) override;
+  bool AllowHighFrequencyDispatch() const override;
+  void WaitForTargetAck(base::OnceClosure callback,
+                        SyntheticGestureTarget* target) const override;
 
  private:
-  enum GestureState { UNINITIALIZED, RUNNING, INVALID, DONE };
+  enum class GestureState { UNINITIALIZED, RUNNING, INVALID, DONE };
 
   GestureState ForwardTouchOrMouseInputEvents(const base::TimeTicks& timestamp,
                                               SyntheticGestureTarget* target);

@@ -118,4 +118,3 @@ void BoxWhiskersAnimation::setStartData(const BoxWhiskersData &endData)
 QT_CHARTS_END_NAMESPACE
 
 #include "moc_boxwhiskersanimation_p.cpp"
-

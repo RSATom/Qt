@@ -31,7 +31,6 @@ config("internal_config") {
     # TODO(davidben): Fix size_t truncations in BoringSSL.
     # https://crbug.com/boringssl/22
     "//build/config/compiler:no_size_t_to_int_warning",
-    "//build/config/sanitizers:cfi_icall_generalize_pointers",
   ]
   if (is_posix || is_fuchsia) {
     cflags_c = [ "-std=c99" ]
@@ -47,11 +46,11 @@ config("no_asm_config") {
 all_sources = crypto_sources + ssl_sources
 all_headers = crypto_headers + ssl_headers
 
-# Windows' assembly is built with Yasm. The other platforms use the platform
-# assembler.
-if (is_win && !is_msan) {
-  import("//third_party/yasm/yasm_assemble.gni")
-  yasm_assemble("boringssl_asm") {
+# Windows' assembly is built with NASM. The other platforms use the platform
+# assembler. Exclude Windows ARM64 because NASM targets x86 and x64 only.
+if (is_win && !is_msan && current_cpu != "arm64") {
+  import("//third_party/nasm/nasm_assemble.gni")
+  nasm_assemble("boringssl_asm") {
     if (current_cpu == "x64") {
       sources = crypto_sources_win_x86_64
     } else if (current_cpu == "x86") {
@@ -112,8 +111,14 @@ component("boringssl") {
   public = all_headers
   friend = [ ":*" ]
   deps = [
-    ":boringssl_asm",
     "//third_party/boringssl/src/third_party/fiat:fiat_license",
+  ]
+
+  # Mark boringssl_asm as a public dependency so the OPENSSL_NO_ASM
+  # config is forwarded to callers. In particular, boringssl_crypto_tests
+  # requires it.
+  public_deps = [
+    ":boringssl_asm",
   ]
 
   public_configs = [ ":external_config" ]
@@ -198,6 +203,13 @@ if (build_with_chromium) {
 
     sources = all_sources
     deps = [
+      "//third_party/boringssl/src/third_party/fiat:fiat_license",
+    ]
+
+    # Mark boringssl_asm as a public dependency so the OPENSSL_NO_ASM
+    # config is forwarded to callers. In particular, boringssl_crypto_tests
+    # requires it.
+    public_deps = [
       ":boringssl_asm",
     ]
 
@@ -260,6 +272,13 @@ if (build_with_chromium) {
 
     sources = all_sources
     deps = [
+      "//third_party/boringssl/src/third_party/fiat:fiat_license",
+    ]
+
+    # Mark boringssl_asm as a public dependency so the OPENSSL_NO_ASM
+    # config is forwarded to callers. In particular, boringssl_crypto_tests
+    # requires it.
+    public_deps = [
       ":boringssl_asm",
     ]
 

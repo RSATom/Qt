@@ -29,23 +29,13 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
 // about them and explicitly taken care of them.)
 //
 // DISALLOW_NEW(): Cannot be allocated with new operators but can be a
-// part of object.  If it has Members you need a trace method and the containing
-// object needs to call that trace method.
+// part of object, a value object in collections or stack allocated. If it has
+// Members you need a trace method and the containing object needs to call that
+// trace method.
 //
-// DISALLOW_NEW_EXCEPT_PLACEMENT_NEW(): Allows only placement new operator. This
-// disallows general allocation of this object but allows to put the object as a
-// value object in collections.  If these have Members you need to have a trace
-// method. That trace method will be called automatically by the on-heap
-// collections.
-//
-#define DISALLOW_NEW()                                    \
-  void* operator new(size_t) = delete;                    \
-  void* operator new(size_t, NotNullTag, void*) = delete; \
-  void* operator new(size_t, void*) = delete
-
-#define DISALLOW_NEW_EXCEPT_PLACEMENT_NEW()                                   \
+#define DISALLOW_NEW()                                                        \
  public:                                                                      \
-  using IsAllowOnlyPlacementNew = int;                                        \
+  using IsDisallowNewMarker = int;                                            \
   void* operator new(size_t, NotNullTag, void* location) { return location; } \
   void* operator new(size_t, void* location) { return location; }             \
                                                                               \
@@ -71,15 +61,20 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
   friend class ::WTF::internal::__thisIsHereToForceASemicolonAfterThisMacro
 
 #if defined(__clang__)
-#define STACK_ALLOCATED()                                                \
-  __attribute__((annotate("blink_stack_allocated"))) void* operator new( \
-      size_t) = delete;                                                  \
-  void* operator new(size_t, NotNullTag, void*) = delete;                \
-  void* operator new(size_t, void*) = delete
-
+#define ANNOTATE_STACK_ALLOCATED \
+  __attribute__((annotate("blink_stack_allocated")))
 #else
-#define STACK_ALLOCATED() DISALLOW_NEW()
+#define ANNOTATE_STACK_ALLOCATED
 #endif
+
+#define STACK_ALLOCATED()                                       \
+ public:                                                        \
+  using IsStackAllocatedTypeMarker = int;       \
+                                                                \
+ private:                                                       \
+  ANNOTATE_STACK_ALLOCATED void* operator new(size_t) = delete; \
+  void* operator new(size_t, NotNullTag, void*) = delete;       \
+  void* operator new(size_t, void*) = delete
 
 // Provides customizable overrides of fastMalloc/fastFree and operator
 // new/delete

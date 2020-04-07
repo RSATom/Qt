@@ -36,18 +36,24 @@ class VIZ_SERVICE_EXPORT OverlayProcessor {
     kMaxValue = kUnderlayCast,
   };
 
+  using FilterOperationsMap =
+      base::flat_map<RenderPassId, cc::FilterOperations*>;
+
   class VIZ_SERVICE_EXPORT Strategy {
    public:
     virtual ~Strategy() {}
     // Returns false if the strategy cannot be made to work with the
     // current set of render passes. Returns true if the strategy was successful
     // and adds any additional passes necessary to represent overlays to
-    // |render_passes|.
-    virtual bool Attempt(const SkMatrix44& output_color_matrix,
-                         DisplayResourceProvider* resource_provider,
-                         RenderPass* render_pass,
-                         OverlayCandidateList* candidates,
-                         std::vector<gfx::Rect>* content_bounds) = 0;
+    // |render_pass_list|. Most strategies should look at the primary
+    // RenderPass, the last element.
+    virtual bool Attempt(
+        const SkMatrix44& output_color_matrix,
+        const FilterOperationsMap& render_pass_backdrop_filters,
+        DisplayResourceProvider* resource_provider,
+        RenderPassList* render_pass_list,
+        OverlayCandidateList* candidates,
+        std::vector<gfx::Rect>* content_bounds) = 0;
 
     virtual StrategyType GetUMAEnum() const;
   };
@@ -60,9 +66,6 @@ class VIZ_SERVICE_EXPORT OverlayProcessor {
 
   gfx::Rect GetAndResetOverlayDamage();
 
-  using FilterOperationsMap =
-      base::flat_map<RenderPassId, cc::FilterOperations*>;
-
   // Attempt to replace quads from the specified root render pass with overlays
   // or CALayers. This must be called every frame.
   void ProcessForOverlays(
@@ -70,25 +73,30 @@ class VIZ_SERVICE_EXPORT OverlayProcessor {
       RenderPassList* render_passes,
       const SkMatrix44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
-      const FilterOperationsMap& render_pass_background_filters,
+      const FilterOperationsMap& render_pass_backdrop_filters,
       OverlayCandidateList* overlay_candidates,
       CALayerOverlayList* ca_layer_overlays,
       DCLayerOverlayList* dc_layer_overlays,
       gfx::Rect* damage_rect,
       std::vector<gfx::Rect>* content_bounds);
 
+  void SetDCHasHwOverlaySupportForTesting() {
+    dc_processor_.SetHasHwOverlaySupport();
+  }
+
  protected:
   StrategyList strategies_;
   OutputSurface* surface_;
   gfx::Rect overlay_damage_rect_;
   gfx::Rect previous_frame_underlay_rect_;
+  bool previous_frame_underlay_was_unoccluded_ = false;
 
  private:
   bool ProcessForCALayers(
       DisplayResourceProvider* resource_provider,
       RenderPass* render_pass,
       const FilterOperationsMap& render_pass_filters,
-      const FilterOperationsMap& render_pass_background_filters,
+      const FilterOperationsMap& render_pass_backdrop_filters,
       OverlayCandidateList* overlay_candidates,
       CALayerOverlayList* ca_layer_overlays,
       gfx::Rect* damage_rect);
@@ -96,13 +104,14 @@ class VIZ_SERVICE_EXPORT OverlayProcessor {
       DisplayResourceProvider* resource_provider,
       RenderPassList* render_passes,
       const FilterOperationsMap& render_pass_filters,
-      const FilterOperationsMap& render_pass_background_filters,
+      const FilterOperationsMap& render_pass_backdrop_filters,
       OverlayCandidateList* overlay_candidates,
       DCLayerOverlayList* dc_layer_overlays,
       gfx::Rect* damage_rect);
   // Update |damage_rect| by removing damage casued by |candidates|.
   void UpdateDamageRect(OverlayCandidateList* candidates,
                         const gfx::Rect& previous_frame_underlay_rect,
+                        bool previous_frame_underlay_was_unoccluded,
                         gfx::Rect* damage_rect);
 
   DCLayerOverlayProcessor dc_processor_;

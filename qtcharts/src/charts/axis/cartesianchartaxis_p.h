@@ -47,7 +47,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 class QAbstractAxis;
 
-class QT_CHARTS_PRIVATE_EXPORT CartesianChartAxis : public ChartAxisElement
+class Q_CHARTS_PRIVATE_EXPORT CartesianChartAxis : public ChartAxisElement
 {
     Q_OBJECT
     Q_INTERFACES(QGraphicsLayoutItem)
@@ -61,6 +61,8 @@ public:
     bool isEmpty();
 
     virtual QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const;
+
+    void setDateTimeLabelsFormat(const QString &format);
 
 protected:
     void setGeometry(const QRectF &size) { Q_UNUSED(size);}
@@ -76,6 +78,10 @@ public Q_SLOTS:
     virtual void handleMinorGridPenChanged(const QPen &pen);
     virtual void handleGridLineColorChanged(const QColor &color);
     virtual void handleMinorGridLineColorChanged(const QColor &color);
+
+protected:
+    void updateLabelsValues(QValueAxis *axis);
+    void updateLabelsDateTimes();
 
 private:
     void createItems(int count);

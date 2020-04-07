@@ -7,11 +7,11 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_object.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
+#include "third_party/blink/renderer/core/paint/embedded_content_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/platform/fonts/font.h"
 #include "third_party/blink/renderer/platform/fonts/font_selector.h"
 #include "third_party/blink/renderer/platform/fonts/text_run_paint_info.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/path.h"
 #include "third_party/blink/renderer/platform/text/text_run.h"
@@ -37,8 +37,11 @@ static Font ReplacementTextFont() {
 
 void EmbeddedObjectPainter::PaintReplaced(const PaintInfo& paint_info,
                                           const LayoutPoint& paint_offset) {
-  if (!layout_embedded_object_.ShowsUnavailablePluginIndicator())
+  if (!layout_embedded_object_.ShowsUnavailablePluginIndicator()) {
+    EmbeddedContentPainter(layout_embedded_object_)
+        .PaintReplaced(paint_info, paint_offset);
     return;
+  }
 
   if (paint_info.phase == PaintPhase::kSelection)
     return;
@@ -48,11 +51,9 @@ void EmbeddedObjectPainter::PaintReplaced(const PaintInfo& paint_info,
           context, layout_embedded_object_, paint_info.phase))
     return;
 
-  LayoutRect content_rect(layout_embedded_object_.ContentBoxRect());
+  LayoutRect content_rect(layout_embedded_object_.PhysicalContentBoxRect());
   content_rect.MoveBy(paint_offset);
   DrawingRecorder recorder(context, layout_embedded_object_, paint_info.phase);
-  GraphicsContextStateSaver state_saver(context);
-  context.Clip(PixelSnappedIntRect(content_rect));
 
   Font font = ReplacementTextFont();
   const SimpleFontData* font_data = font.PrimaryFont();

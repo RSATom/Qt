@@ -68,14 +68,15 @@ class CORE_EXPORT DataObject : public GarbageCollectedFinalized<DataObject>,
   static DataObject* Create();
   static DataObject* Create(WebDragData);
 
+  DataObject();
   virtual ~DataObject();
 
   // DataTransferItemList support.
-  size_t length() const;
-  DataObjectItem* Item(unsigned long index);
+  uint32_t length() const;
+  DataObjectItem* Item(uint32_t index);
   // FIXME: Implement V8DataTransferItemList::indexedPropertyDeleter to get this
   // called.
-  void DeleteItem(unsigned long index);
+  void DeleteItem(uint32_t index);
   void ClearAll();
   // Returns null if an item already exists with the provided type.
   DataObjectItem* Add(const String& data, const String& type);
@@ -128,8 +129,6 @@ class CORE_EXPORT DataObject : public GarbageCollectedFinalized<DataObject>,
   WebDragData ToWebDragData();
 
  private:
-  DataObject();
-
   DataObjectItem* FindStringItem(const String& type) const;
   bool InternalAddStringItem(DataObjectItem*);
   void InternalAddFileItem(DataObjectItem*);

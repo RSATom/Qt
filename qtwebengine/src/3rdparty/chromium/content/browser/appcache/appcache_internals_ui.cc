@@ -5,6 +5,7 @@
 #include "content/browser/appcache/appcache_internals_ui.h"
 
 #include <stddef.h>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/logging.h"
@@ -13,6 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
 #include "base/threading/platform_thread.h"
 #include "base/values.h"
 #include "content/browser/appcache/appcache.h"
@@ -20,6 +22,7 @@
 #include "content/browser/storage_partition_impl.h"
 #include "content/grit/content_resources.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -27,6 +30,8 @@
 #include "net/base/escape.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/view_cache_helper.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 
@@ -50,8 +55,8 @@ int64_t ToInt64(const std::string& str) {
   return i;
 }
 
-bool SortByResourceUrl(const AppCacheResourceInfo& lhs,
-                       const AppCacheResourceInfo& rhs) {
+bool SortByResourceUrl(const blink::mojom::AppCacheResourceInfo& lhs,
+                       const blink::mojom::AppCacheResourceInfo& rhs) {
   return lhs.url.spec() < rhs.url.spec();
 }
 
@@ -69,7 +74,7 @@ std::unique_ptr<base::DictionaryValue> GetDictionaryValueForResponseEnquiry(
 }
 
 std::unique_ptr<base::DictionaryValue> GetDictionaryValueForAppCacheInfo(
-    const content::AppCacheInfo& appcache_info) {
+    const blink::mojom::AppCacheInfo& appcache_info) {
   std::unique_ptr<base::DictionaryValue> dict_value(
       new base::DictionaryValue());
   dict_value->SetString("manifestURL", appcache_info.manifest_url.spec());
@@ -87,9 +92,9 @@ std::unique_ptr<base::DictionaryValue> GetDictionaryValueForAppCacheInfo(
 }
 
 std::unique_ptr<base::ListValue> GetListValueForAppCacheInfoVector(
-    const AppCacheInfoVector& appcache_info_vector) {
+    const std::vector<blink::mojom::AppCacheInfo> appcache_info_vector) {
   std::unique_ptr<base::ListValue> list(new base::ListValue());
-  for (const AppCacheInfo& info : appcache_info_vector)
+  for (const blink::mojom::AppCacheInfo& info : appcache_info_vector)
     list->Append(GetDictionaryValueForAppCacheInfo(info));
   return list;
 }
@@ -109,7 +114,7 @@ std::unique_ptr<base::ListValue> GetListValueFromAppCacheInfoCollection(
 
 std::unique_ptr<base::DictionaryValue>
 GetDictionaryValueForAppCacheResourceInfo(
-    const AppCacheResourceInfo& resource_info) {
+    const blink::mojom::AppCacheResourceInfo& resource_info) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue);
   dict->SetString("url", resource_info.url.spec());
   dict->SetString(
@@ -127,9 +132,10 @@ GetDictionaryValueForAppCacheResourceInfo(
 }
 
 std::unique_ptr<base::ListValue> GetListValueForAppCacheResourceInfoVector(
-    AppCacheResourceInfoVector* resource_info_vector) {
+    std::vector<blink::mojom::AppCacheResourceInfo>* resource_info_vector) {
   std::unique_ptr<base::ListValue> list(new base::ListValue);
-  for (const AppCacheResourceInfo& res_info : *resource_info_vector)
+  for (const blink::mojom::AppCacheResourceInfo& res_info :
+       *resource_info_vector)
     list->Append(GetDictionaryValueForAppCacheResourceInfo(res_info));
   return list;
 }
@@ -145,8 +151,8 @@ AppCacheInternalsUI::Proxy::Proxy(
 void AppCacheInternalsUI::Proxy::Initialize(
     const scoped_refptr<ChromeAppCacheService>& chrome_appcache_service) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&Proxy::Initialize, this, chrome_appcache_service));
     return;
   }
@@ -161,8 +167,8 @@ AppCacheInternalsUI::Proxy::~Proxy() {
 
 void AppCacheInternalsUI::Proxy::Shutdown() {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                            base::BindOnce(&Proxy::Shutdown, this));
+    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
+                             base::BindOnce(&Proxy::Shutdown, this));
     return;
   }
   shutdown_called_ = true;
@@ -175,8 +181,8 @@ void AppCacheInternalsUI::Proxy::Shutdown() {
 
 void AppCacheInternalsUI::Proxy::RequestAllAppCacheInfo() {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&Proxy::RequestAllAppCacheInfo, this));
     return;
   }
@@ -192,8 +198,8 @@ void AppCacheInternalsUI::Proxy::RequestAllAppCacheInfo() {
 void AppCacheInternalsUI::Proxy::OnAllAppCacheInfoReady(
     scoped_refptr<AppCacheInfoCollection> collection,
     int net_result_code) {
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&AppCacheInternalsUI::OnAllAppCacheInfoReady,
                      appcache_internals_ui_, collection, partition_path_));
 }
@@ -201,23 +207,23 @@ void AppCacheInternalsUI::Proxy::OnAllAppCacheInfoReady(
 void AppCacheInternalsUI::Proxy::DeleteAppCache(
     const std::string& manifest_url) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&Proxy::DeleteAppCache, this, manifest_url));
     return;
   }
   if (appcache_service_) {
     appcache_service_->DeleteAppCacheGroup(
         GURL(manifest_url),
-        base::Bind(&Proxy::OnAppCacheInfoDeleted, this, manifest_url));
+        base::BindOnce(&Proxy::OnAppCacheInfoDeleted, this, manifest_url));
   }
 }
 
 void AppCacheInternalsUI::Proxy::OnAppCacheInfoDeleted(
     const std::string& manifest_url,
     int net_result_code) {
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&AppCacheInternalsUI::OnAppCacheInfoDeleted,
                      appcache_internals_ui_, partition_path_, manifest_url,
                      net_result_code == net::OK));
@@ -226,8 +232,8 @@ void AppCacheInternalsUI::Proxy::OnAppCacheInfoDeleted(
 void AppCacheInternalsUI::Proxy::RequestAppCacheDetails(
     const std::string& manifest_url) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&Proxy::RequestAppCacheDetails, this, manifest_url));
     return;
   }
@@ -238,16 +244,18 @@ void AppCacheInternalsUI::Proxy::RequestAppCacheDetails(
 
 void AppCacheInternalsUI::Proxy::OnGroupLoaded(AppCacheGroup* appcache_group,
                                                const GURL& manifest_gurl) {
-  std::unique_ptr<AppCacheResourceInfoVector> resource_info_vector;
+  std::unique_ptr<std::vector<blink::mojom::AppCacheResourceInfo>>
+      resource_info_vector;
   if (appcache_group && appcache_group->newest_complete_cache()) {
-    resource_info_vector.reset(new AppCacheResourceInfoVector);
+    resource_info_vector.reset(
+        new std::vector<blink::mojom::AppCacheResourceInfo>);
     appcache_group->newest_complete_cache()->ToResourceInfoVector(
         resource_info_vector.get());
     std::sort(resource_info_vector->begin(), resource_info_vector->end(),
               SortByResourceUrl);
   }
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&AppCacheInternalsUI::OnAppCacheDetailsReady,
                      appcache_internals_ui_, partition_path_,
                      manifest_gurl.spec(), std::move(resource_info_vector)));
@@ -256,8 +264,8 @@ void AppCacheInternalsUI::Proxy::OnGroupLoaded(AppCacheGroup* appcache_group,
 void AppCacheInternalsUI::Proxy::RequestFileDetails(
     const ResponseEnquiry& response_enquiry) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&Proxy::RequestFileDetails, this, response_enquiry));
     return;
   }
@@ -289,11 +297,12 @@ void AppCacheInternalsUI::Proxy::OnResponseInfoLoaded(
     const int64_t kLimit = 100 * 1000;
     int64_t amount_to_read =
         std::min(kLimit, response_info->response_data_size());
-    scoped_refptr<net::IOBuffer> response_data(
-        new net::IOBuffer(base::checked_cast<size_t>(amount_to_read)));
-    std::unique_ptr<AppCacheResponseReader> reader(
+    scoped_refptr<net::IOBuffer> response_data =
+        base::MakeRefCounted<net::IOBuffer>(
+            base::checked_cast<size_t>(amount_to_read));
+    std::unique_ptr<AppCacheResponseReader> reader =
         appcache_service_->storage()->CreateResponseReader(
-            GURL(response_enquiry.manifest_url), response_enquiry.response_id));
+            GURL(response_enquiry.manifest_url), response_enquiry.response_id);
 
     reader->ReadData(response_data.get(), amount_to_read,
                      base::BindOnce(&Proxy::OnResponseDataReadComplete, this,
@@ -313,14 +322,14 @@ void AppCacheInternalsUI::Proxy::OnResponseDataReadComplete(
   if (shutdown_called_)
     return;
   if (!response_info || net_result_code < 0) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&AppCacheInternalsUI::OnFileDetailsFailed,
                        appcache_internals_ui_, response_enquiry,
                        net_result_code));
   } else {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&AppCacheInternalsUI::OnFileDetailsReady,
                        appcache_internals_ui_, response_enquiry, response_info,
                        response_data, net_result_code));
@@ -361,8 +370,8 @@ AppCacheInternalsUI::AppCacheInternalsUI(WebUI* web_ui)
 
   WebUIDataSource::Add(browser_context(), source);
 
-  BrowserContext::StoragePartitionCallback callback =
-      base::Bind(&AppCacheInternalsUI::CreateProxyForPartition, AsWeakPtr());
+  BrowserContext::StoragePartitionCallback callback = base::BindRepeating(
+      &AppCacheInternalsUI::CreateProxyForPartition, AsWeakPtr());
   BrowserContext::ForEachStoragePartition(browser_context(), callback);
 }
 
@@ -445,7 +454,8 @@ void AppCacheInternalsUI::OnAppCacheInfoDeleted(
 void AppCacheInternalsUI::OnAppCacheDetailsReady(
     const base::FilePath& partition_path,
     const std::string& manifest_url,
-    std::unique_ptr<AppCacheResourceInfoVector> resource_info_vector) {
+    std::unique_ptr<std::vector<blink::mojom::AppCacheResourceInfo>>
+        resource_info_vector) {
   if (resource_info_vector) {
     web_ui()->CallJavascriptFunctionUnsafe(
         kFunctionOnAppCacheDetailsReady, base::Value(manifest_url),
@@ -464,25 +474,22 @@ void AppCacheInternalsUI::OnFileDetailsReady(
     scoped_refptr<net::IOBuffer> response_data,
     int data_length) {
   std::string headers;
-  if (response_info->http_response_info()) {
-    headers.append("<hr><pre>");
-    headers.append(net::EscapeForHTML(
-        response_info->http_response_info()->headers->GetStatusLine()));
-    headers.push_back('\n');
+  headers.append("<hr><pre>");
+  headers.append(net::EscapeForHTML(
+      response_info->http_response_info().headers->GetStatusLine()));
+  headers.push_back('\n');
 
-    size_t iter = 0;
-    std::string name, value;
-    while (response_info->http_response_info()->headers->EnumerateHeaderLines(
-        &iter, &name, &value)) {
-      headers.append(net::EscapeForHTML(name));
-      headers.append(": ");
-      headers.append(net::EscapeForHTML(value));
-      headers.push_back('\n');
-    }
-    headers.append("</pre>");
-  } else {
-    headers.append("Failed to read response headers. <br>");
+  size_t iter = 0;
+  std::string name, value;
+  while (response_info->http_response_info().headers->EnumerateHeaderLines(
+      &iter, &name, &value)) {
+    headers.append(net::EscapeForHTML(name));
+    headers.append(": ");
+    headers.append(net::EscapeForHTML(value));
+    headers.push_back('\n');
   }
+  headers.append("</pre>");
+
   std::string hex_dump = base::StringPrintf(
       "<hr><pre> Showing %d of %d bytes\n\n", static_cast<int>(data_length),
       static_cast<int>(response_info->response_data_size()));

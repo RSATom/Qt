@@ -533,7 +533,7 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
                 if (ogl)
                     static_cast<QSGDefaultImageNode *>(node)->setAnisotropyLevel(QSGTexture::Anisotropy16x);
 #else
-    Q_UNUSED(ogl)
+    Q_UNUSED(ogl);
 #endif
                 dirtyBits |= QSGNode::DirtyMaterial;
             }

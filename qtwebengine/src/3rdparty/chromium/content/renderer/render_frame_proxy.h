@@ -112,6 +112,11 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
       const FrameReplicationState& replicated_state,
       const base::UnguessableToken& devtools_frame_token);
 
+  // Creates a RenderFrameProxy to be used with a portal owned by |parent|.
+  // |routing_id| is the routing id of this new RenderFrameProxy.
+  static RenderFrameProxy* CreateProxyForPortal(RenderFrameImpl* parent,
+                                                int proxy_routing_id);
+
   // Returns the RenderFrameProxy for the given routing ID.
   static RenderFrameProxy* FromRoutingID(int routing_id);
 
@@ -138,6 +143,10 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   // Out-of-process child frames receive a signal from RenderWidget when the
   // zoom level has changed.
   void OnZoomLevelChanged(double zoom_level);
+
+  // Out-of-process child frames receive a signal from RenderWidget when the
+  // page scale factor has changed.
+  void OnPageScaleFactorChanged(float page_scale_factor);
 
   // Invoked by RenderWidget when a new capture sequence number was set,
   // indicating that surfaces should be synchronized.
@@ -193,11 +202,13 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void Navigate(const blink::WebURLRequest& request,
                 bool should_replace_current_entry,
                 bool is_opener_navigation,
+                bool prevent_sandboxed_download,
                 mojo::ScopedMessagePipeHandle blob_url_token) override;
   void FrameRectsChanged(const blink::WebRect& local_frame_rect,
                          const blink::WebRect& screen_space_rect) override;
   void UpdateRemoteViewportIntersection(
-      const blink::WebRect& viewport_intersection) override;
+      const blink::WebRect& viewport_intersection,
+      bool occluded_or_obscured) override;
   void VisibilityChanged(bool visible) override;
   void SetIsInert(bool) override;
   void SetInheritedEffectiveTouchAction(cc::TouchAction) override;
@@ -213,12 +224,15 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   // IPC handlers
   void OnDidStartLoading();
 
+  void WasEvicted();
+
  private:
   RenderFrameProxy(int routing_id);
 
   void Init(blink::WebRemoteFrame* frame,
             RenderViewImpl* render_view,
-            RenderWidget* render_widget);
+            RenderWidget* render_widget,
+            bool parent_is_local);
 
   void ResendVisualProperties();
 
@@ -261,11 +275,10 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void OnEnableAutoResize(const gfx::Size& min_size, const gfx::Size& max_size);
   void OnDisableAutoResize();
   void OnSetHasReceivedUserGestureBeforeNavigation(bool value);
+  void OnRenderFallbackContent() const;
 
 #if defined(USE_AURA) && !defined(TOOLKIT_QT)
   // MusEmbeddedFrameDelegate
-  void OnMusEmbeddedFrameSurfaceChanged(
-      const viz::SurfaceInfo& surface_info) override;
   void OnMusEmbeddedFrameSinkIdAllocated(
       const viz::FrameSinkId& frame_sink_id) override;
 #endif
@@ -273,7 +286,8 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   // ChildFrameCompositor:
   cc::Layer* GetLayer() override;
   void SetLayer(scoped_refptr<cc::Layer> layer,
-                bool prevent_contents_opaque_changes) override;
+                bool prevent_contents_opaque_changes,
+                bool is_surface_layer) override;
   SkBitmap* GetSadPageBitmap() override;
 
   const viz::LocalSurfaceId& GetLocalSurfaceId() const;
@@ -288,6 +302,8 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   // Stores the WebRemoteFrame we are associated with.
   blink::WebRemoteFrame* web_frame_;
   std::string unique_name_;
+
+  // Can be nullptr when this RenderFrameProxy's parent is not a RenderFrame.
   std::unique_ptr<ChildFrameCompositingHelper> compositing_helper_;
 
   RenderViewImpl* render_view_;
@@ -317,6 +333,7 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   gfx::Rect last_intersection_rect_;
   gfx::Rect last_compositor_visible_rect_;
+  bool last_occluded_or_obscured_ = false;
 
 #if defined(USE_AURA) && !defined(TOOLKIT_QT)
   std::unique_ptr<MusEmbeddedFrame> mus_embedded_frame_;

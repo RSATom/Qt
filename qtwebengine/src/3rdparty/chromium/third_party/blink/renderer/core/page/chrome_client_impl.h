@@ -51,6 +51,7 @@ struct WebCursorInfo;
 class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
  public:
   static ChromeClientImpl* Create(WebViewImpl*);
+  explicit ChromeClientImpl(WebViewImpl*);
   ~ChromeClientImpl() override;
   void Trace(Visitor* visitor) override;
 
@@ -71,13 +72,14 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                      const WebDragData&,
                      WebDragOperationsMask,
                      const SkBitmap& drag_image,
-                     const WebPoint& drag_image_offset) override;
+                     const gfx::Point& drag_image_offset) override;
   bool AcceptsLoadDrops() const override;
-  Page* CreateWindow(LocalFrame*,
-                     const FrameLoadRequest&,
-                     const WebWindowFeatures&,
-                     NavigationPolicy,
-                     SandboxFlags) override;
+  Page* CreateWindowDelegate(LocalFrame*,
+                             const FrameLoadRequest&,
+                             const WebWindowFeatures&,
+                             NavigationPolicy,
+                             SandboxFlags,
+                             const SessionStorageNamespaceId&) override;
   void Show(NavigationPolicy) override;
   void DidOverscroll(const FloatSize& overscroll_delta,
                      const FloatSize& accumulated_overscroll,
@@ -111,12 +113,14 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   float WindowToViewportScalar(const float) const override;
   WebScreenInfo GetScreenInfo() const override;
   base::Optional<IntRect> VisibleContentRectForPainting() const override;
+  float InputEventsScaleForEmulation() const override;
   void ContentsSizeChanged(LocalFrame*, const IntSize&) const override;
+  bool DoubleTapToZoomEnabled() const override;
   void PageScaleFactorChanged() const override;
   float ClampPageScaleFactorToLimits(float scale) const override;
   void MainFrameScrollOffsetChanged() const override;
   void ResizeAfterLayout() const override;
-  void LayoutUpdated() const override;
+  void MainFrameLayoutUpdated() const override;
   void ShowMouseOverURL(const HitTestResult&) override;
   void SetToolTip(LocalFrame&, const String&, TextDirection) override;
   void DispatchViewportPropertiesDidChange(
@@ -129,7 +133,6 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
       DateTimeChooserClient*,
       const DateTimeChooserParameters&) override;
   void OpenFileChooser(LocalFrame*, scoped_refptr<FileChooser>) override;
-  void EnumerateChosenDirectory(FileChooser*) override;
   void SetCursor(const Cursor&, LocalFrame*) override;
   void SetCursorOverridden(bool) override;
   Cursor LastSetCursorForTesting() const override;
@@ -147,6 +150,7 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   // appropriate scroll optimizations can be chosen.
   void SetHasScrollEventHandlers(LocalFrame*, bool has_event_handlers) override;
   void SetNeedsLowLatencyInput(LocalFrame*, bool needs_low_latency) override;
+  void SetNeedsUnbufferedInputForDebugger(LocalFrame*, bool immediate) override;
   void RequestUnbufferedInputEvents(LocalFrame*) override;
   void SetTouchAction(LocalFrame*, TouchAction) override;
 
@@ -160,14 +164,13 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void DetachCompositorAnimationTimeline(CompositorAnimationTimeline*,
                                          LocalFrame*) override;
 
-  void EnterFullscreen(LocalFrame&, const FullscreenOptions&) override;
+  void EnterFullscreen(LocalFrame&, const FullscreenOptions*) override;
   void ExitFullscreen(LocalFrame&) override;
   void FullscreenElementChanged(Element* old_element,
                                 Element* new_element) override;
 
-  void ClearCompositedSelection(LocalFrame*) override;
-  void UpdateCompositedSelection(LocalFrame*,
-                                 const CompositedSelection&) override;
+  void ClearLayerSelection(LocalFrame*) override;
+  void UpdateLayerSelection(LocalFrame*, const cc::LayerSelection&) override;
 
   // ChromeClient methods:
   String AcceptLanguages() override;
@@ -175,6 +178,10 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
 
   // ChromeClientImpl:
   void SetNewWindowNavigationPolicy(WebNavigationPolicy);
+
+  // FileChooser calls this function to kick pending file chooser
+  // requests.
+  void DidCompleteFileChooser(FileChooser& file_chooser);
 
   void AutoscrollStart(WebFloatPoint viewport_point, LocalFrame*) override;
   void AutoscrollFling(WebFloatSize velocity, LocalFrame*) override;
@@ -191,9 +198,9 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                                bool shrinks_layout) override;
   void SetBrowserControlsShownRatio(float) override;
 
-  bool ShouldOpenModalDialogDuringPageDismissal(
+  bool ShouldOpenUIElementDuringPageDismissal(
       LocalFrame&,
-      DialogType,
+      UIElementType,
       const String& dialog_message,
       Document::PageDismissalType) const override;
 
@@ -216,6 +223,8 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
 
   void RegisterViewportLayers() const override;
 
+  TransformationMatrix GetDeviceEmulationTransform() const override;
+
   void OnMouseDown(Node&) override;
   void DidUpdateBrowserControls() const override;
   void SetOverscrollBehavior(const cc::OverscrollBehavior&) override;
@@ -233,8 +242,6 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                      base::OnceCallback<void(bool)>) override;
 
  private:
-  explicit ChromeClientImpl(WebViewImpl*);
-
   bool IsChromeClientImpl() const override { return true; }
 
   void SetCursor(const WebCursorInfo&, LocalFrame*);
@@ -245,9 +252,12 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
 
   WebViewImpl* web_view_;  // Weak pointer.
   HeapHashSet<WeakMember<PopupOpeningObserver>> popup_opening_observers_;
+  Vector<scoped_refptr<FileChooser>> file_chooser_queue_;
   Cursor last_set_mouse_cursor_for_testing_;
   bool cursor_overridden_;
   bool did_request_non_empty_tool_tip_;
+
+  FRIEND_TEST_ALL_PREFIXES(FileChooserQueueTest, DerefQueuedChooser);
 };
 
 DEFINE_TYPE_CASTS(ChromeClientImpl,

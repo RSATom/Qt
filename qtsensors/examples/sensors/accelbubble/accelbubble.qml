@@ -101,10 +101,10 @@ ApplicationWindow {
     }
 
     function calcPitch(x,y,z) {
-        return -Math.atan2(y, Math.sqrt(x * x + z * z)) * mainWindow.radians_to_degrees;
+        return -Math.atan2(y, Math.hypot(x, z)) * mainWindow.radians_to_degrees;
     }
     function calcRoll(x,y,z) {
-        return -Math.atan2(x, Math.sqrt(y * y + z * z)) * mainWindow.radians_to_degrees;
+        return -Math.atan2(x, Math.hypot(y, z)) * mainWindow.radians_to_degrees;
     }
 
     Image {

@@ -477,7 +477,7 @@ void QQuickTextNodeEngine::addTextObject(const QTextBlock &block, const QPointF 
         }
 
         qreal ascent;
-        QTextLine line = block.layout()->lineForTextPosition(pos);
+        QTextLine line = block.layout()->lineForTextPosition(pos - block.position());
         switch (format.verticalAlignment())
         {
         case QTextCharFormat::AlignTop:
@@ -781,8 +781,8 @@ void  QQuickTextNodeEngine::addToSceneGraph(QQuickTextNode *parentNode,
     for (int i = 0; i < m_backgrounds.size(); ++i) {
         const QRectF &rect = m_backgrounds.at(i).first;
         const QColor &color = m_backgrounds.at(i).second;
-
-        parentNode->addRectangleNode(rect, color);
+        if (color.alpha() != 0)
+            parentNode->addRectangleNode(rect, color);
     }
 
     // Add all text with unselected color first
@@ -1011,8 +1011,8 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
                 break;
             };
 
-            QSizeF size(fontMetrics.width(listItemBullet), fontMetrics.height());
-            qreal xoff = fontMetrics.width(QLatin1Char(' '));
+            QSizeF size(fontMetrics.horizontalAdvance(listItemBullet), fontMetrics.height());
+            qreal xoff = fontMetrics.horizontalAdvance(QLatin1Char(' '));
             if (block.textDirection() == Qt::LeftToRight)
                 xoff = -xoff - size.width();
             setPosition(pos + QPointF(xoff, 0));
@@ -1055,7 +1055,7 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
 
         if (text.contains(QChar::ObjectReplacementCharacter)) {
             QTextFrame *frame = qobject_cast<QTextFrame *>(textDocument->objectForFormat(charFormat));
-            if (frame && frame->frameFormat().position() == QTextFrameFormat::InFlow) {
+            if (!frame || frame->frameFormat().position() == QTextFrameFormat::InFlow) {
                 int blockRelativePosition = textPos - block.position();
                 QTextLine line = block.layout()->lineForTextPosition(blockRelativePosition);
                 if (!currentLine().isValid()

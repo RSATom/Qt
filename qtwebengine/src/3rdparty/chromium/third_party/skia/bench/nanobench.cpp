@@ -102,8 +102,6 @@ static SkString to_string(int n) {
     return str;
 }
 
-DECLARE_bool(undefok);
-
 DEFINE_int32(loops, kDefaultLoops, loops_help_txt().c_str());
 
 DEFINE_int32(samples, 10, "Number of samples to measure for each bench.");
@@ -215,7 +213,7 @@ struct GPUTarget : public Target {
     }
     void fillOptions(ResultsWriter* log) override {
         const GrGLubyte* version;
-        if (this->contextInfo.backend() == kOpenGL_GrBackend) {
+        if (this->contextInfo.backend() == GrBackendApi::kOpenGL) {
             const GrGLInterface* gl =
                     static_cast<GrGLGpu*>(this->contextInfo.grContext()->contextPriv().getGpu())
                             ->glInterface();
@@ -478,10 +476,7 @@ static void create_config(const SkCommandLineConfig* config, SkTArray<Config>* c
     CPU_CONFIG(565,  kRaster_Backend, kRGB_565_SkColorType, kOpaque_SkAlphaType, nullptr)
 
     // 'narrow' has a gamut narrower than sRGB, and different transfer function.
-    SkMatrix44 narrow_gamut(SkMatrix44::kUninitialized_Constructor);
-    narrow_gamut.set3x3RowMajorf(gNarrow_toXYZD50);
-
-    auto narrow = SkColorSpace::MakeRGB(k2Dot2Curve_SkGammaNamed, narrow_gamut),
+    auto narrow = SkColorSpace::MakeRGB(SkNamedTransferFn::k2Dot2, gNarrow_toXYZD50),
            srgb = SkColorSpace::MakeSRGB(),
      srgbLinear = SkColorSpace::MakeSRGBLinear();
 
@@ -506,13 +501,10 @@ void create_configs(SkTArray<Config>* configs) {
 
     // If no just default configs were requested, then we're okay.
     if (array.count() == 0 || FLAGS_config.count() == 0 ||
-        // If we've been told to ignore undefined flags, we're okay.
-        FLAGS_undefok ||
         // Otherwise, make sure that all specified configs have been created.
         array.count() == configs->count()) {
         return;
     }
-    SkDebugf("Invalid --config. Use --undefok to bypass this warning.\n");
     exit(1);
 }
 
@@ -599,7 +591,6 @@ public:
     BenchmarkStream() : fBenches(BenchRegistry::Head())
                       , fGMs(skiagm::GMRegistry::Head())
                       , fCurrentRecording(0)
-                      , fCurrentPiping(0)
                       , fCurrentDeserialPicture(0)
                       , fCurrentScale(0)
                       , fCurrentSKP(0)
@@ -670,13 +661,14 @@ public:
     }
 
     static sk_sp<SkPicture> ReadSVGPicture(const char* path) {
-        SkFILEStream stream(path);
-        if (!stream.isValid()) {
+        sk_sp<SkData> data(SkData::MakeFromFileName(path));
+        if (!data) {
             SkDebugf("Could not read %s.\n", path);
             return nullptr;
         }
 
 #ifdef SK_XML
+        SkMemoryStream stream(std::move(data));
         sk_sp<SkSVGDOM> svgDom = SkSVGDOM::MakeFromStream(stream);
         if (!svgDom) {
             SkDebugf("Could not parse %s.\n", path);
@@ -712,7 +704,7 @@ public:
 
     Benchmark* rawNext() {
         if (fBenches) {
-            Benchmark* bench = fBenches->factory()(nullptr);
+            Benchmark* bench = fBenches->get()(nullptr);
             fBenches = fBenches->next();
             fSourceType = "bench";
             fBenchType  = "micro";
@@ -720,7 +712,7 @@ public:
         }
 
         while (fGMs) {
-            std::unique_ptr<skiagm::GM> gm(fGMs->factory()(nullptr));
+            std::unique_ptr<skiagm::GM> gm(fGMs->get()(nullptr));
             fGMs = fGMs->next();
             if (gm->runAsBench()) {
                 fSourceType = "gm";
@@ -742,21 +734,6 @@ public:
             fSKPBytes = static_cast<double>(pic->approximateBytesUsed());
             fSKPOps   = pic->approximateOpCount();
             return new RecordingBench(name.c_str(), pic.get(), FLAGS_bbh, FLAGS_lite);
-        }
-
-        // Add all .skps as PipeBenches.
-        while (fCurrentPiping < fSKPs.count()) {
-            const SkString& path = fSKPs[fCurrentPiping++];
-            sk_sp<SkPicture> pic = ReadPicture(path.c_str());
-            if (!pic) {
-                continue;
-            }
-            SkString name = SkOSPath::Basename(path.c_str());
-            fSourceType = "skp";
-            fBenchType  = "piping";
-            fSKPBytes = static_cast<double>(pic->approximateBytesUsed());
-            fSKPOps   = pic->approximateOpCount();
-            return new PipingBench(name.c_str(), pic.get());
         }
 
         // Add all .skps as DeserializePictureBenchs.
@@ -1084,7 +1061,6 @@ private:
     const char* fSourceType;  // What we're benching: bench, GM, SKP, ...
     const char* fBenchType;   // How we bench it: micro, recording, playback, ...
     int fCurrentRecording;
-    int fCurrentPiping;
     int fCurrentDeserialPicture;
     int fCurrentScale;
     int fCurrentSKP;
@@ -1299,7 +1275,11 @@ int main(int argc, char** argv) {
                 write_canvas_png(target, pngFilename);
             }
 
-            Stats stats(samples);
+            // Building stats.plot often shows up in profiles,
+            // so skip building it when we're not going to print it anyway.
+            const bool want_plot = !FLAGS_quiet;
+
+            Stats stats(samples, want_plot);
             log->config(config);
             log->configOption("name", bench->getName());
             benchStream.fillCurrentOptions(log.get());
@@ -1329,14 +1309,16 @@ int main(int argc, char** argv) {
                          , config);
             } else if (FLAGS_quiet) {
                 const char* mark = " ";
-                const double stddev_percent = 100 * sqrt(stats.var) / stats.mean;
+                const double stddev_percent =
+                    sk_ieee_double_divide(100 * sqrt(stats.var), stats.mean);
                 if (stddev_percent >  5) mark = "?";
                 if (stddev_percent > 10) mark = "!";
 
                 SkDebugf("%10.2f %s\t%s\t%s\n",
                          stats.median*1e3, mark, bench->getUniqueName(), config);
             } else if (FLAGS_csv) {
-                const double stddev_percent = 100 * sqrt(stats.var) / stats.mean;
+                const double stddev_percent =
+                    sk_ieee_double_divide(100 * sqrt(stats.var), stats.mean);
                 SkDebugf("%g,%g,%g,%g,%g,%s,%s\n"
                          , stats.min
                          , stats.median
@@ -1348,7 +1330,8 @@ int main(int argc, char** argv) {
                          );
             } else {
                 const char* format = "%4d/%-4dMB\t%d\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t%s\t%s\n";
-                const double stddev_percent = 100 * sqrt(stats.var) / stats.mean;
+                const double stddev_percent =
+                    sk_ieee_double_divide(100 * sqrt(stats.var), stats.mean);
                 SkDebugf(format
                         , sk_tools::getCurrResidentSetSizeMB()
                         , sk_tools::getMaxResidentSetSizeMB()

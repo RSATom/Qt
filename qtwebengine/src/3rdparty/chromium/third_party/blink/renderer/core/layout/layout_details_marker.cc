@@ -27,23 +27,23 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 LayoutDetailsMarker::LayoutDetailsMarker(Element* element)
     : LayoutBlockFlow(element) {}
 
 LayoutDetailsMarker::Orientation LayoutDetailsMarker::GetOrientation() const {
-  switch (Style()->GetWritingMode()) {
+  switch (StyleRef().GetWritingMode()) {
     case WritingMode::kHorizontalTb:
-      if (Style()->IsLeftToRightDirection())
+      if (StyleRef().IsLeftToRightDirection())
         return IsOpen() ? kDown : kRight;
       return IsOpen() ? kDown : kLeft;
     case WritingMode::kVerticalRl:
-      if (Style()->IsLeftToRightDirection())
+      if (StyleRef().IsLeftToRightDirection())
         return IsOpen() ? kLeft : kDown;
       return IsOpen() ? kLeft : kUp;
     case WritingMode::kVerticalLr:
-      if (Style()->IsLeftToRightDirection())
+      if (StyleRef().IsLeftToRightDirection())
         return IsOpen() ? kRight : kDown;
       return IsOpen() ? kRight : kUp;
     // TODO(layout-dev): Sideways-lr and sideways-rl are not yet supported.
@@ -65,7 +65,7 @@ bool LayoutDetailsMarker::IsOpen() const {
       continue;
     if (IsHTMLDetailsElement(*layout_object->GetNode()))
       return !ToElement(layout_object->GetNode())
-                  ->getAttribute(openAttr)
+                  ->getAttribute(kOpenAttr)
                   .IsNull();
     if (IsHTMLInputElement(*layout_object->GetNode()))
       return true;

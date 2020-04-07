@@ -319,25 +319,6 @@ if (is_linux) {
       # TODO fix this and re-enable this warning.
       "-Wno-sign-compare",
     ]
-
-    import("//build/config/compiler/compiler.gni")
-    import("//build/config/sanitizers/sanitizers.gni")
-    if (is_component_build || using_sanitizer) {
-      # WARNING! We remove this config so that we don't accidentally
-      # pick up the //build/config:rpath_for_built_shared_libraries
-      # sub-config. However, this means that we need to duplicate any
-      # other flags that executable_config might have.
-      configs -= [ "//build/config:executable_config" ]
-      if (!use_gold) {
-        ldflags = [ "-Wl,--disable-new-dtags" ]
-      }
-    }
-
-    # We also do not want to pick up any of the other sanitizer
-    # flags (i.e. we do not want to build w/ the sanitizers at all).
-    # This is safe to delete unconditionally, because it is part of the
-    # default configs and empty when not using the sanitizers.
-    configs -= [ "//build/config/sanitizers:default_sanitizer_flags" ]
   }
 }
 
@@ -436,7 +417,6 @@ component("sandbox_services") {
 source_set("sandbox_services_headers") {
   sources = [
     "system_headers/arm64_linux_syscalls.h",
-    "system_headers/arm64_linux_ucontext.h",
     "system_headers/arm_linux_syscalls.h",
     "system_headers/arm_linux_ucontext.h",
     "system_headers/i386_linux_ucontext.h",
@@ -448,12 +428,9 @@ source_set("sandbox_services_headers") {
     "system_headers/linux_time.h",
     "system_headers/linux_ucontext.h",
     "system_headers/mips64_linux_syscalls.h",
-    "system_headers/mips64_linux_ucontext.h",
     "system_headers/mips_linux_syscalls.h",
-    "system_headers/mips_linux_ucontext.h",
     "system_headers/x86_32_linux_syscalls.h",
     "system_headers/x86_64_linux_syscalls.h",
-    "system_headers/x86_64_linux_ucontext.h",
   ]
 }
 

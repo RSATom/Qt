@@ -145,8 +145,6 @@ def get_put_forward_interfaces_from_definition(definition):
 
 
 def get_unforgeable_attributes_from_definition(definition):
-    if 'Unforgeable' in definition.extended_attributes:
-        return sorted(definition.attributes)
     return sorted(attribute for attribute in definition.attributes
                   if 'Unforgeable' in attribute.extended_attributes)
 
@@ -357,7 +355,7 @@ def main():
     options, _ = parse_options()
 
     # IDL files are passed in a file, due to OS command line length limits
-    idl_files = read_idl_files_list_from_file(options.idl_files_list, is_gyp_format=False)
+    idl_files = read_idl_files_list_from_file(options.idl_files_list)
 
     # Compute information for individual files
     # Information is stored in global variables interfaces_info and

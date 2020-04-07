@@ -47,29 +47,30 @@ class MODULES_EXPORT OfflineAudioContext final : public BaseAudioContext {
                                      ExceptionState&);
 
   static OfflineAudioContext* Create(ExecutionContext*,
-                                     const OfflineAudioContextOptions&,
+                                     const OfflineAudioContextOptions*,
                                      ExceptionState&);
 
+  OfflineAudioContext(Document*,
+                      unsigned number_of_channels,
+                      uint32_t number_of_frames,
+                      float sample_rate,
+                      ExceptionState&);
   ~OfflineAudioContext() override;
 
   void Trace(blink::Visitor*) override;
 
-  size_t length() const { return total_render_frames_; }
+  uint32_t length() const { return total_render_frames_; }
 
   ScriptPromise startOfflineRendering(ScriptState*);
 
   ScriptPromise suspendContext(ScriptState*, double);
-  ScriptPromise resumeContext(ScriptState*) final;
-
-  // This is to implement the pure virtual method from BaseAudioContext.
-  // CANNOT be called from an OfflineAudioContext.
-  ScriptPromise suspendContext(ScriptState*) final;
+  ScriptPromise resumeContext(ScriptState*);
 
   void RejectPendingResolvers() override;
 
   bool HasRealtimeConstraint() final { return false; }
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(complete);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(complete, kComplete);
 
   // Fire completion event when the rendering is finished.
   void FireCompletionEvent();
@@ -101,12 +102,6 @@ class MODULES_EXPORT OfflineAudioContext final : public BaseAudioContext {
   bool HasPendingActivity() const final;
 
  private:
-  OfflineAudioContext(Document*,
-                      unsigned number_of_channels,
-                      size_t number_of_frames,
-                      float sample_rate,
-                      ExceptionState&);
-
   // Fetch directly the destination handler.
   OfflineAudioDestinationHandler& DestinationHandler();
 
@@ -134,7 +129,7 @@ class MODULES_EXPORT OfflineAudioContext final : public BaseAudioContext {
   bool is_rendering_started_;
 
   // Total render sample length.
-  size_t total_render_frames_;
+  uint32_t total_render_frames_;
 };
 
 }  // namespace blink

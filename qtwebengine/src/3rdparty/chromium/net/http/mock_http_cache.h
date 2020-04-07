@@ -75,7 +75,8 @@ class MockDiskEntry : public disk_cache::Entry,
                         CompletionOnceCallback callback) override;
   bool CouldBeSparse() const override;
   void CancelSparseIO() override;
-  int ReadyForSparseIO(CompletionOnceCallback completion_callback) override;
+  net::Error ReadyForSparseIO(
+      CompletionOnceCallback completion_callback) override;
   void SetLastUsedTimeForTest(base::Time time) override;
 
   uint8_t in_memory_data() const { return in_memory_data_; }
@@ -98,6 +99,9 @@ class MockDiskEntry : public disk_cache::Entry,
   // Resumes deferred cache operation by posting |resume_callback_| with
   // |resume_return_code_|.
   void ResumeDiskEntryOperation();
+
+  // Sets the maximum length of a stream. This is only applied to stream 1.
+  void set_max_file_size(int val) { max_file_size_ = val; }
 
  private:
   friend class base::RefCounted<MockDiskEntry>;
@@ -125,6 +129,7 @@ class MockDiskEntry : public disk_cache::Entry,
   std::vector<char> data_[kNumCacheEntryDataIndices];
   uint8_t in_memory_data_;
   int test_mode_;
+  int max_file_size_;
   bool doomed_;
   bool sparse_;
   bool fail_requests_;
@@ -148,24 +153,25 @@ class MockDiskCache : public disk_cache::Backend {
 
   CacheType GetCacheType() const override;
   int32_t GetEntryCount() const override;
-  int OpenEntry(const std::string& key,
-                net::RequestPriority request_priority,
-                disk_cache::Entry** entry,
-                CompletionOnceCallback callback) override;
-  int CreateEntry(const std::string& key,
-                  net::RequestPriority request_priority,
-                  disk_cache::Entry** entry,
-                  CompletionOnceCallback callback) override;
-  int DoomEntry(const std::string& key,
-                net::RequestPriority request_priority,
-                CompletionOnceCallback callback) override;
-  int DoomAllEntries(CompletionOnceCallback callback) override;
-  int DoomEntriesBetween(base::Time initial_time,
-                         base::Time end_time,
-                         CompletionOnceCallback callback) override;
-  int DoomEntriesSince(base::Time initial_time,
+  net::Error OpenEntry(const std::string& key,
+                       net::RequestPriority request_priority,
+                       disk_cache::Entry** entry,
                        CompletionOnceCallback callback) override;
-  int CalculateSizeOfAllEntries(CompletionOnceCallback callback) override;
+  net::Error CreateEntry(const std::string& key,
+                         net::RequestPriority request_priority,
+                         disk_cache::Entry** entry,
+                         CompletionOnceCallback callback) override;
+  net::Error DoomEntry(const std::string& key,
+                       net::RequestPriority request_priority,
+                       CompletionOnceCallback callback) override;
+  net::Error DoomAllEntries(CompletionOnceCallback callback) override;
+  net::Error DoomEntriesBetween(base::Time initial_time,
+                                base::Time end_time,
+                                CompletionOnceCallback callback) override;
+  net::Error DoomEntriesSince(base::Time initial_time,
+                              CompletionOnceCallback callback) override;
+  int64_t CalculateSizeOfAllEntries(
+      Int64CompletionOnceCallback callback) override;
   std::unique_ptr<Iterator> CreateIterator() override;
   void GetStats(base::StringPairs* stats) override;
   void OnExternalCacheHit(const std::string& key) override;
@@ -174,6 +180,7 @@ class MockDiskCache : public disk_cache::Backend {
       const std::string& parent_absolute_name) const override;
   uint8_t GetEntryInMemoryData(const std::string& key) override;
   void SetEntryInMemoryData(const std::string& key, uint8_t data) override;
+  int64_t MaxFileSize() const override;
 
   // Returns number of times a cache entry was successfully opened.
   int open_count() const { return open_count_; }
@@ -190,6 +197,12 @@ class MockDiskCache : public disk_cache::Backend {
   // Return entries that fail some of their requests.
   void set_soft_failures(bool value) { soft_failures_ = value; }
 
+  // Returns entries that fail some of their requests, but only until
+  // the entry is re-created.
+  void set_soft_failures_one_instance(bool value) {
+    soft_failures_one_instance_ = value;
+  }
+
   // Makes sure that CreateEntry is not called twice for a given key.
   void set_double_create_check(bool value) { double_create_check_ = value; }
 
@@ -201,6 +214,10 @@ class MockDiskCache : public disk_cache::Backend {
 
   // Makes all requests for data ranges to fail as not implemented.
   void set_fail_sparse_requests() { fail_sparse_requests_ = true; }
+
+  // Sets the limit on how big entry streams can get. Only stream 1 enforces
+  // this, but MaxFileSize() will still report it.
+  void set_max_file_size(int new_size) { max_file_size_ = new_size; }
 
   void ReleaseAll();
 
@@ -218,6 +235,9 @@ class MockDiskCache : public disk_cache::Backend {
   // Returns a reference to the disk entry with the given |key|.
   scoped_refptr<MockDiskEntry> GetDiskEntryRef(const std::string& key);
 
+  // Returns a reference to the vector storing all keys for external cache hits.
+  const std::vector<std::string>& GetExternalCacheHits() const;
+
  private:
   using EntryMap = std::map<std::string, MockDiskEntry*>;
   class NotImplementedIterator;
@@ -225,11 +245,14 @@ class MockDiskCache : public disk_cache::Backend {
   void CallbackLater(CompletionOnceCallback callback, int result);
 
   EntryMap entries_;
+  std::vector<std::string> external_cache_hits_;
   int open_count_;
   int create_count_;
   int doomed_count_;
+  int max_file_size_;
   bool fail_requests_;
   bool soft_failures_;
+  bool soft_failures_one_instance_;
   bool double_create_check_;
   bool fail_sparse_requests_;
   bool support_in_memory_entry_data_;
@@ -318,10 +341,10 @@ class MockHttpCache {
 
 // This version of the disk cache doesn't invoke CreateEntry callbacks.
 class MockDiskCacheNoCB : public MockDiskCache {
-  int CreateEntry(const std::string& key,
-                  net::RequestPriority request_priority,
-                  disk_cache::Entry** entry,
-                  CompletionOnceCallback callback) override;
+  net::Error CreateEntry(const std::string& key,
+                         net::RequestPriority request_priority,
+                         disk_cache::Entry** entry,
+                         CompletionOnceCallback callback) override;
 };
 
 class MockBackendNoCbFactory : public HttpCache::BackendFactory {

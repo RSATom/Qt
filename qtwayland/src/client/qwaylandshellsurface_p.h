@@ -54,8 +54,6 @@
 #include <QtCore/QSize>
 #include <QObject>
 
-#include <wayland-client.h>
-
 #include <QtWaylandClient/private/qwayland-wayland.h>
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 
@@ -75,10 +73,10 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandShellSurface : public QObject
 public:
     explicit QWaylandShellSurface(QWaylandWindow *window);
     ~QWaylandShellSurface() override {}
-    virtual void resize(QWaylandInputDevice * /*inputDevice*/, enum wl_shell_surface_resize /*edges*/)
-    {}
+    virtual void resize(QWaylandInputDevice * /*inputDevice*/, Qt::Edges /*edges*/) {}
 
     virtual bool move(QWaylandInputDevice *) { return false; }
+    virtual bool showWindowMenu(QWaylandInputDevice *seat) { Q_UNUSED(seat); return false; }
     virtual void setTitle(const QString & /*title*/) {}
     virtual void setAppId(const QString & /*appId*/) {}
 
@@ -98,6 +96,10 @@ public:
     virtual void applyConfigure() {}
     virtual void requestWindowStates(Qt::WindowStates states) {Q_UNUSED(states);}
     virtual bool wantsDecorations() const { return false; }
+
+    virtual void propagateSizeHints() {}
+
+    virtual void setWindowGeometry(const QRect &rect) { Q_UNUSED(rect); }
 
 private:
     QWaylandWindow *m_window = nullptr;

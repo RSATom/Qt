@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_controller.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
@@ -12,10 +13,9 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_data.h"
-#include "third_party/blink/renderer/modules/device_orientation/device_orientation_dispatcher.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_event.h"
+#include "third_party/blink/renderer/modules/device_orientation/device_orientation_event_pump.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
-#include "third_party/blink/renderer/platform/feature_policy/feature_policy.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
@@ -41,7 +41,7 @@ DeviceOrientationController& DeviceOrientationController::From(
   DeviceOrientationController* controller =
       Supplement<Document>::From<DeviceOrientationController>(document);
   if (!controller) {
-    controller = new DeviceOrientationController(document);
+    controller = MakeGarbageCollected<DeviceOrientationController>(document);
     ProvideTo(document, controller);
   }
   return *controller;
@@ -94,7 +94,9 @@ void DeviceOrientationController::DidAddEventListener(
 DeviceOrientationData* DeviceOrientationController::LastData() const {
   return override_orientation_data_
              ? override_orientation_data_.Get()
-             : DispatcherInstance().LatestDeviceOrientationData();
+             : orientation_event_pump_
+                   ? orientation_event_pump_->LatestDeviceOrientationData()
+                   : nullptr;
 }
 
 bool DeviceOrientationController::HasLastData() {
@@ -102,11 +104,12 @@ bool DeviceOrientationController::HasLastData() {
 }
 
 void DeviceOrientationController::RegisterWithDispatcher() {
-  DispatcherInstance().AddController(this);
+  RegisterWithOrientationEventPump(false /* absolute */);
 }
 
 void DeviceOrientationController::UnregisterWithDispatcher() {
-  DispatcherInstance().RemoveController(this);
+  if (orientation_event_pump_)
+    orientation_event_pump_->RemoveController(this);
 }
 
 Event* DeviceOrientationController::LastEvent() const {
@@ -119,7 +122,7 @@ bool DeviceOrientationController::IsNullEvent(Event* event) const {
 }
 
 const AtomicString& DeviceOrientationController::EventTypeName() const {
-  return EventTypeNames::deviceorientation;
+  return event_type_names::kDeviceorientation;
 }
 
 void DeviceOrientationController::SetOverride(
@@ -137,15 +140,25 @@ void DeviceOrientationController::ClearOverride() {
     DidUpdateData();
 }
 
-DeviceOrientationDispatcher& DeviceOrientationController::DispatcherInstance()
-    const {
-  return DeviceOrientationDispatcher::Instance(false);
-}
-
 void DeviceOrientationController::Trace(blink::Visitor* visitor) {
   visitor->Trace(override_orientation_data_);
+  visitor->Trace(orientation_event_pump_);
   DeviceSingleWindowEventController::Trace(visitor);
   Supplement<Document>::Trace(visitor);
+}
+
+void DeviceOrientationController::RegisterWithOrientationEventPump(
+    bool absolute) {
+  if (!orientation_event_pump_) {
+    LocalFrame* frame = GetDocument().GetFrame();
+    if (!frame)
+      return;
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+        frame->GetTaskRunner(TaskType::kSensor);
+    orientation_event_pump_ =
+        MakeGarbageCollected<DeviceOrientationEventPump>(task_runner, absolute);
+  }
+  orientation_event_pump_->AddController(this);
 }
 
 // static

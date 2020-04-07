@@ -33,18 +33,19 @@
 #include <memory>
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_response.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_timing_info.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
 
@@ -62,21 +63,21 @@ class RawResourceTest : public testing::Test {
 };
 
 TEST_F(RawResourceTest, DontIgnoreAcceptForCacheReuse) {
-  ResourceRequest jpeg_request;
-  jpeg_request.SetHTTPAccept("image/jpeg");
-
   scoped_refptr<const SecurityOrigin> source_origin =
       SecurityOrigin::CreateUniqueOpaque();
 
+  ResourceRequest jpeg_request;
+  jpeg_request.SetHTTPAccept("image/jpeg");
+  jpeg_request.SetRequestorOrigin(source_origin);
+
   RawResource* jpeg_resource(
-      RawResource::CreateForTest(jpeg_request, Resource::kRaw));
-  jpeg_resource->SetSourceOrigin(source_origin);
+      RawResource::CreateForTest(jpeg_request, ResourceType::kRaw));
 
   ResourceRequest png_request;
   png_request.SetHTTPAccept("image/png");
-
-  EXPECT_FALSE(
-      jpeg_resource->CanReuse(FetchParameters(png_request), source_origin));
+  png_request.SetRequestorOrigin(source_origin);
+  EXPECT_NE(jpeg_resource->CanReuse(FetchParameters(png_request)),
+            Resource::MatchStatus::kOk);
 }
 
 class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
@@ -92,7 +93,7 @@ class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
   String DebugName() const override { return "DummyClient"; }
 
   void DataReceived(Resource*, const char* data, size_t length) override {
-    data_.Append(data, length);
+    data_.Append(data, SafeCast<wtf_size_t>(length));
   }
 
   bool RedirectReceived(Resource*,
@@ -130,15 +131,16 @@ class AddingClient final : public GarbageCollectedFinalized<AddingClient>,
 
   // ResourceClient implementation.
   void NotifyFinished(Resource* resource) override {
+    auto* platform = static_cast<TestingPlatformSupportWithMockScheduler*>(
+        Platform::Current());
+
     // First schedule an asynchronous task to remove the client.
     // We do not expect a client to be called if the client is removed before
     // a callback invocation task queued inside addClient() is scheduled.
-    Platform::Current()->CurrentThread()->GetTaskRunner()->PostTask(
+    platform->test_task_runner()->PostTask(
         FROM_HERE,
         WTF::Bind(&AddingClient::RemoveClient, WrapPersistent(this)));
-    resource->AddClient(
-        dummy_client_,
-        Platform::Current()->CurrentThread()->GetTaskRunner().get());
+    resource->AddClient(dummy_client_, platform->test_task_runner().get());
   }
   String DebugName() const override { return "AddingClient"; }
 
@@ -156,16 +158,17 @@ class AddingClient final : public GarbageCollectedFinalized<AddingClient>,
 };
 
 TEST_F(RawResourceTest, AddClientDuringCallback) {
-  Resource* raw = RawResource::CreateForTest("data:text/html,", Resource::kRaw);
+  Resource* raw = RawResource::CreateForTest(
+      KURL("data:text/html,"), SecurityOrigin::CreateUniqueOpaque(),
+      ResourceType::kRaw);
   raw->SetResponse(ResourceResponse(KURL("http://600.613/")));
   raw->FinishForTest();
   EXPECT_FALSE(raw->GetResponse().IsNull());
 
-  Persistent<DummyClient> dummy_client = new DummyClient();
+  Persistent<DummyClient> dummy_client = MakeGarbageCollected<DummyClient>();
   Persistent<AddingClient> adding_client =
-      new AddingClient(dummy_client.Get(), raw);
-  raw->AddClient(adding_client,
-                 Platform::Current()->CurrentThread()->GetTaskRunner().get());
+      MakeGarbageCollected<AddingClient>(dummy_client.Get(), raw);
+  raw->AddClient(adding_client, platform_->test_task_runner().get());
   platform_->RunUntilIdle();
   raw->RemoveClient(adding_client);
   EXPECT_FALSE(dummy_client->Called());
@@ -198,18 +201,18 @@ class RemovingClient : public GarbageCollectedFinalized<RemovingClient>,
 };
 
 TEST_F(RawResourceTest, RemoveClientDuringCallback) {
-  Resource* raw = RawResource::CreateForTest("data:text/html,", Resource::kRaw);
+  Resource* raw = RawResource::CreateForTest(
+      KURL("data:text/html,"), SecurityOrigin::CreateUniqueOpaque(),
+      ResourceType::kRaw);
   raw->SetResponse(ResourceResponse(KURL("http://600.613/")));
   raw->FinishForTest();
   EXPECT_FALSE(raw->GetResponse().IsNull());
 
-  Persistent<DummyClient> dummy_client = new DummyClient();
+  Persistent<DummyClient> dummy_client = MakeGarbageCollected<DummyClient>();
   Persistent<RemovingClient> removing_client =
-      new RemovingClient(dummy_client.Get());
-  raw->AddClient(dummy_client,
-                 Platform::Current()->CurrentThread()->GetTaskRunner().get());
-  raw->AddClient(removing_client,
-                 Platform::Current()->CurrentThread()->GetTaskRunner().get());
+      MakeGarbageCollected<RemovingClient>(dummy_client.Get());
+  raw->AddClient(dummy_client, platform_->test_task_runner().get());
+  raw->AddClient(removing_client, platform_->test_task_runner().get());
   platform_->RunUntilIdle();
   EXPECT_FALSE(raw->IsAlive());
 }

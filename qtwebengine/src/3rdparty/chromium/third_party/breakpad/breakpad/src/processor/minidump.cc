@@ -59,6 +59,7 @@
 #include "google_breakpad/processor/dump_context.h"
 #include "processor/basic_code_module.h"
 #include "processor/basic_code_modules.h"
+#include "processor/convert_old_arm64_context.h"
 #include "processor/logging.h"
 
 // All intentional fallthroughs in breakpad are in this file, so define
@@ -105,6 +106,8 @@ bool IsContextSizeUnique(uint32_t context_size) {
   if (context_size == sizeof(MDRawContextARM))
     num_matching_contexts++;
   if (context_size == sizeof(MDRawContextARM64))
+    num_matching_contexts++;
+  if (context_size == sizeof(MDRawContextARM64_Old))
     num_matching_contexts++;
   if (context_size == sizeof(MDRawContextMIPS))
     num_matching_contexts++;
@@ -471,8 +474,8 @@ bool MinidumpContext::Read(uint32_t expected_size) {
                  << "other raw context";
     return false;
   }
-  if (!IsContextSizeUnique(sizeof(MDRawContextARM64))) {
-    BPLOG(ERROR) << "sizeof(MDRawContextARM64) cannot match the size of any "
+  if (!IsContextSizeUnique(sizeof(MDRawContextARM64_Old))) {
+    BPLOG(ERROR) << "sizeof(MDRawContextARM64_Old) cannot match the size of any "
                  << "other raw context";
     return false;
   }
@@ -678,8 +681,8 @@ bool MinidumpContext::Read(uint32_t expected_size) {
     }
 
     SetContextPPC64(context_ppc64.release());
-  } else if (expected_size == sizeof(MDRawContextARM64)) {
-    // |context_flags| of MDRawContextARM64 is 64 bits, but other MDRawContext
+  } else if (expected_size == sizeof(MDRawContextARM64_Old)) {
+    // |context_flags| of MDRawContextARM64_Old is 64 bits, but other MDRawContext
     // in the else case have 32 bits |context_flags|, so special case it here.
     uint64_t context_flags;
 
@@ -692,7 +695,7 @@ bool MinidumpContext::Read(uint32_t expected_size) {
     if (minidump_->swap())
       Swap(&context_flags);
 
-    scoped_ptr<MDRawContextARM64> context_arm64(new MDRawContextARM64());
+    scoped_ptr<MDRawContextARM64_Old> context_arm64(new MDRawContextARM64_Old());
 
     uint32_t cpu_type = context_flags & MD_CONTEXT_CPU_MASK;
     if (cpu_type == 0) {
@@ -704,7 +707,7 @@ bool MinidumpContext::Read(uint32_t expected_size) {
       }
     }
 
-    if (cpu_type != MD_CONTEXT_ARM64) {
+    if (cpu_type != MD_CONTEXT_ARM64_OLD) {
       // TODO: Fall through to switch below.
       // https://bugs.chromium.org/p/google-breakpad/issues/detail?id=550
       BPLOG(ERROR) << "MinidumpContext not actually arm64 context";
@@ -720,7 +723,7 @@ bool MinidumpContext::Read(uint32_t expected_size) {
     uint8_t* context_after_flags =
         reinterpret_cast<uint8_t*>(context_arm64.get()) + flags_size;
     if (!minidump_->ReadBytes(context_after_flags,
-                              sizeof(MDRawContextARM64) - flags_size)) {
+                              sizeof(MDRawContextARM64_Old) - flags_size)) {
       BPLOG(ERROR) << "MinidumpContext could not read arm64 context";
       return false;
     }
@@ -745,24 +748,16 @@ bool MinidumpContext::Read(uint32_t expected_size) {
       for (unsigned int fpr_index = 0;
            fpr_index < MD_FLOATINGSAVEAREA_ARM64_FPR_COUNT;
            ++fpr_index) {
-        // While ARM64 is bi-endian, iOS (currently the only platform
-        // for which ARM64 support has been brought up) uses ARM64 exclusively
-        // in little-endian mode.
-        Normalize128(&context_arm64->float_save.regs[fpr_index], false);
+        Normalize128(&context_arm64->float_save.regs[fpr_index],
+                     minidump_->is_big_endian());
         Swap(&context_arm64->float_save.regs[fpr_index]);
       }
     }
-    SetContextFlags(static_cast<uint32_t>(context_arm64->context_flags));
 
-    // Check for data loss when converting context flags from uint64_t into
-    // uint32_t
-    if (static_cast<uint64_t>(GetContextFlags()) !=
-        context_arm64->context_flags) {
-      BPLOG(ERROR) << "Data loss detected when converting ARM64 context_flags";
-      return false;
-    }
-
-    SetContextARM64(context_arm64.release());
+    scoped_ptr<MDRawContextARM64> new_context(new MDRawContextARM64());
+    ConvertOldARM64Context(*context_arm64.get(), new_context.get());
+    SetContextFlags(new_context->context_flags);
+    SetContextARM64(new_context.release());
   } else {
     uint32_t context_flags;
     if (!minidump_->ReadBytes(&context_flags, sizeof(context_flags))) {
@@ -1059,6 +1054,58 @@ bool MinidumpContext::Read(uint32_t expected_size) {
         break;
       }
 
+      case MD_CONTEXT_ARM64: {
+        if (expected_size != sizeof(MDRawContextARM64)) {
+          BPLOG(ERROR) << "MinidumpContext arm64 size mismatch, " <<
+                       expected_size << " != " << sizeof(MDRawContextARM64);
+          return false;
+        }
+
+        scoped_ptr<MDRawContextARM64> context_arm64(new MDRawContextARM64());
+
+        // Set the context_flags member, which has already been read, and
+        // read the rest of the structure beginning with the first member
+        // after context_flags.
+        context_arm64->context_flags = context_flags;
+
+        size_t flags_size = sizeof(context_arm64->context_flags);
+        uint8_t* context_after_flags =
+            reinterpret_cast<uint8_t*>(context_arm64.get()) + flags_size;
+        if (!minidump_->ReadBytes(context_after_flags,
+                                  sizeof(*context_arm64) - flags_size)) {
+          BPLOG(ERROR) << "MinidumpContext could not read arm64 context";
+          return false;
+        }
+
+        // Do this after reading the entire MDRawContext structure because
+        // GetSystemInfo may seek minidump to a new position.
+        if (!CheckAgainstSystemInfo(cpu_type)) {
+          BPLOG(ERROR) << "MinidumpContext arm does not match system info";
+          return false;
+        }
+
+        if (minidump_->swap()) {
+          // context_arm64->context_flags was already swapped.
+          for (unsigned int ireg_index = 0;
+               ireg_index < MD_CONTEXT_ARM64_GPR_COUNT;
+               ++ireg_index) {
+            Swap(&context_arm64->iregs[ireg_index]);
+          }
+          Swap(&context_arm64->cpsr);
+          Swap(&context_arm64->float_save.fpsr);
+          Swap(&context_arm64->float_save.fpcr);
+          for (unsigned int fpr_index = 0;
+               fpr_index < MD_FLOATINGSAVEAREA_ARM64_FPR_COUNT;
+               ++fpr_index) {
+            Normalize128(&context_arm64->float_save.regs[fpr_index],
+                         minidump_->is_big_endian());
+            Swap(&context_arm64->float_save.regs[fpr_index]);
+          }
+        }
+        SetContextARM64(context_arm64.release());
+        break;
+      }
+
       case MD_CONTEXT_MIPS:
       case MD_CONTEXT_MIPS64: {
         if (expected_size != sizeof(MDRawContextMIPS)) {
@@ -1201,6 +1248,11 @@ bool MinidumpContext::CheckAgainstSystemInfo(uint32_t context_cpu_type) {
 
     case MD_CONTEXT_ARM64:
       if (system_info_cpu_type == MD_CPU_ARCHITECTURE_ARM64)
+        return_value = true;
+      break;
+
+    case MD_CONTEXT_ARM64_OLD:
+      if (system_info_cpu_type == MD_CPU_ARCHITECTURE_ARM64_OLD)
         return_value = true;
       break;
 
@@ -2347,7 +2399,11 @@ const uint8_t* MinidumpModule::GetCVRecord(uint32_t* size) {
                         module_.cv_record.data_size;
         return NULL;
       }
-      // There's nothing to swap in CVInfoELF, it's just raw bytes.
+      if (minidump_->swap()) {
+        MDCVInfoELF* cv_record_elf =
+            reinterpret_cast<MDCVInfoELF*>(&(*cv_record)[0]);
+        Swap(&cv_record_elf->cv_signature);
+      }
     }
 
     // If the signature doesn't match something above, it's not something
@@ -3488,6 +3544,7 @@ string MinidumpSystemInfo::GetCPU() {
       break;
 
     case MD_CPU_ARCHITECTURE_ARM64:
+    case MD_CPU_ARCHITECTURE_ARM64_OLD:
       cpu = "arm64";
       break;
 
@@ -4994,6 +5051,7 @@ Minidump::Minidump(const string& path, bool hexdump, unsigned int hexdump_width)
       path_(path),
       stream_(NULL),
       swap_(false),
+      is_big_endian_(false),
       valid_(false),
       hexdump_(hexdump),
       hexdump_width_(hexdump_width) {
@@ -5006,6 +5064,7 @@ Minidump::Minidump(istream& stream)
       path_(),
       stream_(&stream),
       swap_(false),
+      is_big_endian_(false),
       valid_(false),
       hexdump_(false),
       hexdump_width_(0) {
@@ -5089,6 +5148,9 @@ bool Minidump::GetContextCPUFlagsFromSystemInfo(uint32_t *context_cpu_flags) {
       case MD_CPU_ARCHITECTURE_ARM64:
         *context_cpu_flags = MD_CONTEXT_ARM64;
         break;
+      case MD_CPU_ARCHITECTURE_ARM64_OLD:
+        *context_cpu_flags = MD_CONTEXT_ARM64_OLD;
+        break;
       case MD_CPU_ARCHITECTURE_IA64:
         *context_cpu_flags = MD_CONTEXT_IA64;
         break;
@@ -5160,6 +5222,13 @@ bool Minidump::Read() {
     // if the object is being reused?)
     swap_ = false;
   }
+
+#if defined(__BIG_ENDIAN__) || \
+  (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  is_big_endian_ = !swap_;
+#else
+  is_big_endian_ = swap_;
+#endif
 
   BPLOG(INFO) << "Minidump " << (swap_ ? "" : "not ") <<
                  "byte-swapping minidump";

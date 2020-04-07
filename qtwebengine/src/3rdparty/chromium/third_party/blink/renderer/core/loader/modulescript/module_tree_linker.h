@@ -7,10 +7,10 @@
 
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/script/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
+#include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl_hash.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
@@ -25,6 +25,10 @@ class ModuleTreeLinkerRegistry;
 // a top-level [FDaI] "fetch the descendants of and instantiate", and all the
 // invocations of [IMSGF] and [FD] "fetch the descendants" under that.
 //
+// Modulator represents "a module map settings object" and
+// ResourceFetcher represents "a fetch client settings object"
+// by its |Context()->GetFetchClientSettingsObject()|.
+//
 // Spec links:
 // [IMSGF]
 // https://html.spec.whatwg.org/#internal-module-script-graph-fetching-procedure
@@ -37,26 +41,31 @@ class ModuleTreeLinkerRegistry;
 class CORE_EXPORT ModuleTreeLinker final : public SingleModuleClient {
  public:
   // https://html.spec.whatwg.org/#fetch-a-module-script-tree
-  static void Fetch(
-      const KURL&,
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-      WebURLRequest::RequestContext destination,
-      const ScriptFetchOptions&,
-      Modulator*,
-      ModuleScriptCustomFetchType,
-      ModuleTreeLinkerRegistry*,
-      ModuleTreeClient*);
+  static void Fetch(const KURL&,
+                    ResourceFetcher* fetch_client_settings_object_fetcher,
+                    mojom::RequestContextType destination,
+                    const ScriptFetchOptions&,
+                    Modulator*,
+                    ModuleScriptCustomFetchType,
+                    ModuleTreeLinkerRegistry*,
+                    ModuleTreeClient*);
 
   // [FDaI] for an inline script.
   static void FetchDescendantsForInlineScript(
       ModuleScript*,
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-      WebURLRequest::RequestContext destination,
+      ResourceFetcher* fetch_client_settings_object_fetcher,
+      mojom::RequestContextType destination,
       Modulator*,
       ModuleScriptCustomFetchType,
       ModuleTreeLinkerRegistry*,
       ModuleTreeClient*);
 
+  ModuleTreeLinker(ResourceFetcher* fetch_client_settings_object_fetcher,
+                   mojom::RequestContextType destination,
+                   Modulator*,
+                   ModuleScriptCustomFetchType,
+                   ModuleTreeLinkerRegistry*,
+                   ModuleTreeClient*);
   ~ModuleTreeLinker() override = default;
   void Trace(blink::Visitor*) override;
 
@@ -66,14 +75,6 @@ class CORE_EXPORT ModuleTreeLinker final : public SingleModuleClient {
   bool HasFinished() const { return state_ == State::kFinished; }
 
  private:
-  ModuleTreeLinker(
-      FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-      WebURLRequest::RequestContext destination,
-      Modulator*,
-      ModuleScriptCustomFetchType,
-      ModuleTreeLinkerRegistry*,
-      ModuleTreeClient*);
-
   enum class State {
     kInitial,
     // Running fetch of the module script corresponding to the target node.
@@ -112,8 +113,9 @@ class CORE_EXPORT ModuleTreeLinker final : public SingleModuleClient {
   ScriptValue FindFirstParseError(ModuleScript*,
                                   HeapHashSet<Member<ModuleScript>>*) const;
 
-  const Member<FetchClientSettingsObjectSnapshot> fetch_client_settings_object_;
-  const WebURLRequest::RequestContext destination_;
+  const Member<ResourceFetcher> fetch_client_settings_object_fetcher_;
+
+  const mojom::RequestContextType destination_;
   const Member<Modulator> modulator_;
   const ModuleScriptCustomFetchType custom_fetch_type_;
   HashSet<KURL> visited_set_;

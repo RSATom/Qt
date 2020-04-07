@@ -1,9 +1,10 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import("//build/config/jumbo.gni")
 import("//testing/test.gni")
 
-component("browser") {
+jumbo_component("browser") {
   output_name = "storage_browser"
   sources = [
     "blob/blob_builder_from_stream.cc",
@@ -112,6 +113,8 @@ component("browser") {
     "fileapi/file_system_usage_cache.h",
     "fileapi/file_writer_delegate.cc",
     "fileapi/file_writer_delegate.h",
+    "fileapi/file_writer_impl.cc",
+    "fileapi/file_writer_impl.h",
     "fileapi/isolated_context.cc",
     "fileapi/isolated_context.h",
     "fileapi/isolated_file_system_backend.cc",
@@ -171,10 +174,16 @@ component("browser") {
     "fileapi/watcher_manager.h",
     "quota/client_usage_tracker.cc",
     "quota/client_usage_tracker.h",
+    "quota/padding_key.cc",
+    "quota/padding_key.h",
     "quota/quota_callbacks.h",
+    "quota/quota_client.cc",
     "quota/quota_client.h",
     "quota/quota_database.cc",
     "quota/quota_database.h",
+    "quota/quota_features.cc",
+    "quota/quota_features.h",
+    "quota/quota_macros.h",
     "quota/quota_manager.cc",
     "quota/quota_manager.h",
     "quota/quota_manager_proxy.cc",
@@ -193,15 +202,11 @@ component("browser") {
     "quota/storage_observer.h",
     "quota/usage_tracker.cc",
     "quota/usage_tracker.h",
-    "storage_browser_export.h",
   ]
 
-  defines = [ "STORAGE_BROWSER_IMPLEMENTATION" ]
+  defines = [ "IS_STORAGE_BROWSER_IMPL" ]
   configs += [
     "//build/config:precompiled_headers",
-
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
     "//build/config/compiler:wexit_time_destructors",
   ]
 
@@ -274,6 +279,7 @@ source_set("unittests") {
     "fileapi/file_system_url_unittest.cc",
     "fileapi/file_system_usage_cache_unittest.cc",
     "fileapi/file_writer_delegate_unittest.cc",
+    "fileapi/file_writer_impl_unittest.cc",
     "fileapi/isolated_context_unittest.cc",
     "fileapi/local_file_stream_reader_unittest.cc",
     "fileapi/local_file_stream_writer_unittest.cc",
@@ -311,10 +317,11 @@ source_set("unittests") {
     "//sql:test_support",
     "//testing/gtest",
     "//third_party/leveldatabase",
+    "//third_party/sqlite",
   ]
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
 
   sources = [

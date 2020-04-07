@@ -77,14 +77,6 @@ protected:
     {
         m_client->forwardEvent(event);
     }
-    void keyPressEvent(QKeyEvent *event) override
-    {
-        m_client->forwardEvent(event);
-    }
-    void keyReleaseEvent(QKeyEvent *event) override
-    {
-        m_client->forwardEvent(event);
-    }
     void inputMethodEvent(QInputMethodEvent *event) override
     {
         m_client->forwardEvent(event);
@@ -132,25 +124,31 @@ RenderWidgetHostViewQtDelegateWidget::RenderWidgetHostViewQtDelegateWidget(Rende
                    "QSurfaceFormat before the QtGui application instance is created.");
         }
 #endif
+        int major;
+        int minor;
+        QSurfaceFormat::OpenGLContextProfile profile;
+#ifdef Q_OS_MACOS
+        // Due to QTBUG-63180, requesting the sharedFormat.majorVersion() on macOS will lead to
+        // a failed creation of QQuickWidget shared context. Thus make sure to request the
+        // major version specified in the defaultFormat instead.
+        major = defaultFormat.majorVersion();
+        minor = defaultFormat.minorVersion();
+        profile = defaultFormat.profile();
+#else
+        major = sharedFormat.majorVersion();
+        minor = sharedFormat.minorVersion();
+        profile = sharedFormat.profile();
+#endif
 
         // Make sure the OpenGL profile of the QQuickWidget matches the shared context profile.
-        if (sharedFormat.profile() == QSurfaceFormat::CoreProfile) {
-            int major;
-            int minor;
-            QSurfaceFormat::OpenGLContextProfile profile;
-
-#ifdef Q_OS_MACOS
-            // Due to QTBUG-63180, requesting the sharedFormat.majorVersion() on macOS will lead to
-            // a failed creation of QQuickWidget shared context. Thus make sure to request the
-            // major version specified in the defaultFormat instead.
-            major = defaultFormat.majorVersion();
-            minor = defaultFormat.minorVersion();
-            profile = defaultFormat.profile();
-#else
-            major = sharedFormat.majorVersion();
-            minor = sharedFormat.minorVersion();
-            profile = sharedFormat.profile();
+        // It covers the following cases:
+        // 1) Desktop OpenGL Core Profile.
+        // 2) Windows ANGLE OpenGL ES profile.
+        if (sharedFormat.profile() == QSurfaceFormat::CoreProfile
+#ifdef Q_OS_WIN
+                || globalSharedContext->isOpenGLES()
 #endif
+                ) {
             format.setMajorVersion(major);
             format.setMinorVersion(minor);
             format.setProfile(profile);
@@ -191,7 +189,7 @@ void RenderWidgetHostViewQtDelegateWidget::removeParentBeforeParentDelete()
 {
     // Unset the parent, because parent is being destroyed, but the owner of this
     // RenderWidgetHostViewQtDelegateWidget is actually a RenderWidgetHostViewQt instance.
-    setParent(Q_NULLPTR);
+    setParent(nullptr);
 
     // If this widget represents a popup window, make sure to close it, so that if the popup was the
     // last visible top level window, the application event loop can quit if it deems it necessarry.
@@ -227,15 +225,16 @@ void RenderWidgetHostViewQtDelegateWidget::closeEvent(QCloseEvent *event)
         m_client->closePopup();
 }
 
-QRectF RenderWidgetHostViewQtDelegateWidget::screenRect() const
+QRectF RenderWidgetHostViewQtDelegateWidget::viewGeometry() const
 {
-    return QRectF(x(), y(), width(), height());
+    return QRectF(mapToGlobal(pos()), size());
 }
 
-QRectF RenderWidgetHostViewQtDelegateWidget::contentsRect() const
+QRect RenderWidgetHostViewQtDelegateWidget::windowGeometry() const
 {
-    QPointF pos = mapToGlobal(QPoint(0, 0));
-    return QRectF(pos.x(), pos.y(), width(), height());
+    if (!window())
+        return QRect();
+    return window()->frameGeometry();
 }
 
 void RenderWidgetHostViewQtDelegateWidget::setKeyboardFocus()
@@ -373,14 +372,7 @@ QVariant RenderWidgetHostViewQtDelegateWidget::inputMethodQuery(Qt::InputMethodQ
 void RenderWidgetHostViewQtDelegateWidget::resizeEvent(QResizeEvent *resizeEvent)
 {
     QQuickWidget::resizeEvent(resizeEvent);
-
-    const QPoint globalPos = mapToGlobal(pos());
-    if (globalPos != m_lastGlobalPos) {
-        m_lastGlobalPos = globalPos;
-        m_client->windowBoundsChanged();
-    }
-
-    m_client->notifyResize();
+    m_client->visualPropertiesChanged();
 }
 
 void RenderWidgetHostViewQtDelegateWidget::showEvent(QShowEvent *event)
@@ -396,7 +388,7 @@ void RenderWidgetHostViewQtDelegateWidget::showEvent(QShowEvent *event)
         m_windowConnections.append(connect(w, SIGNAL(xChanged(int)), SLOT(onWindowPosChanged())));
         m_windowConnections.append(connect(w, SIGNAL(yChanged(int)), SLOT(onWindowPosChanged())));
     }
-    m_client->windowChanged();
+    m_client->visualPropertiesChanged();
     m_client->notifyShown();
 }
 
@@ -479,7 +471,7 @@ bool RenderWidgetHostViewQtDelegateWidget::event(QEvent *event)
         // where we can simply ignore the DblClick event.
         QMouseEvent *dblClick = static_cast<QMouseEvent *>(event);
         QMouseEvent press(QEvent::MouseButtonPress, dblClick->localPos(), dblClick->windowPos(), dblClick->screenPos(),
-            dblClick->button(), dblClick->buttons(), dblClick->modifiers());
+            dblClick->button(), dblClick->buttons(), dblClick->modifiers(), dblClick->source());
         press.setTimestamp(dblClick->timestamp());
         handled = m_client->forwardEvent(&press);
     } else
@@ -487,13 +479,14 @@ bool RenderWidgetHostViewQtDelegateWidget::event(QEvent *event)
 
     if (!handled)
         return QQuickWidget::event(event);
+    // Most events are accepted by default, but tablet events are not:
+    event->accept();
     return true;
 }
 
 void RenderWidgetHostViewQtDelegateWidget::onWindowPosChanged()
 {
-    m_lastGlobalPos = mapToGlobal(pos());
-    m_client->windowBoundsChanged();
+    m_client->visualPropertiesChanged();
 }
 
 } // namespace QtWebEngineCore

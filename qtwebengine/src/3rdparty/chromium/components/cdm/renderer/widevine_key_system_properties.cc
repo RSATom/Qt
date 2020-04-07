@@ -4,9 +4,12 @@
 
 #include "components/cdm/renderer/widevine_key_system_properties.h"
 
-#include "widevine_cdm_version.h"  // In SHARED_INTERMEDIATE_DIR.
+#include "third_party/widevine/cdm/buildflags.h"
+#include "third_party/widevine/cdm/widevine_cdm_common.h"
 
-#if defined(WIDEVINE_CDM_AVAILABLE)
+#if !BUILDFLAG(ENABLE_WIDEVINE)
+#error This file should only be built when Widevine is enabled.
+#endif
 
 using media::EmeConfigRule;
 using media::EmeFeatureSupport;
@@ -67,7 +70,7 @@ std::string WidevineKeySystemProperties::GetKeySystemName() const {
 
 bool WidevineKeySystemProperties::IsSupportedInitDataType(
     EmeInitDataType init_data_type) const {
-  // Here we assume that support for a container imples support for the
+  // Here we assume that support for a container implies support for the
   // associated initialization data type. KeySystems handles validating
   // |init_data_type| x |container| pairings.
   if (init_data_type == EmeInitDataType::WEBM)
@@ -183,5 +186,3 @@ EmeFeatureSupport WidevineKeySystemProperties::GetDistinctiveIdentifierSupport()
 }
 
 }  // namespace cdm
-
-#endif  // WIDEVINE_CDM_AVAILABLE

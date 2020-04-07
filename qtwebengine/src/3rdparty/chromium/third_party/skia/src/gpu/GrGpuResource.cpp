@@ -12,6 +12,7 @@
 #include "GrGpu.h"
 #include "GrGpuResourcePriv.h"
 #include "SkTraceMemoryDump.h"
+#include <atomic>
 
 static inline GrResourceCache* get_resource_cache(GrGpu* gpu) {
     SkASSERT(gpu);
@@ -21,10 +22,10 @@ static inline GrResourceCache* get_resource_cache(GrGpu* gpu) {
 }
 
 GrGpuResource::GrGpuResource(GrGpu* gpu)
-    : fExternalFlushCntWhenBecamePurgeable(0)
-    , fGpu(gpu)
+    : fGpu(gpu)
     , fGpuMemorySize(kInvalidGpuMemorySize)
     , fBudgeted(SkBudgeted::kNo)
+    , fShouldPurgeImmediately(false)
     , fRefsWrappedObjects(false)
     , fUniqueID(CreateUniqueID()) {
     SkDEBUGCODE(fCacheArrayIndex = -1);
@@ -32,14 +33,16 @@ GrGpuResource::GrGpuResource(GrGpu* gpu)
 
 void GrGpuResource::registerWithCache(SkBudgeted budgeted) {
     SkASSERT(fBudgeted == SkBudgeted::kNo);
+    SkASSERT(!fShouldPurgeImmediately);
     fBudgeted = budgeted;
     this->computeScratchKey(&fScratchKey);
     get_resource_cache(fGpu)->resourceAccess().insertResource(this);
 }
 
-void GrGpuResource::registerWithCacheWrapped() {
+void GrGpuResource::registerWithCacheWrapped(bool purgeImmediately) {
     SkASSERT(fBudgeted == SkBudgeted::kNo);
     // Currently resources referencing wrapped objects are not budgeted.
+    fShouldPurgeImmediately = purgeImmediately;
     fRefsWrappedObjects = true;
     get_resource_cache(fGpu)->resourceAccess().insertResource(this);
 }
@@ -204,10 +207,10 @@ void GrGpuResource::makeUnbudgeted() {
 }
 
 uint32_t GrGpuResource::CreateUniqueID() {
-    static int32_t gUniqueID = SK_InvalidUniqueID;
+    static std::atomic<uint32_t> nextID{1};
     uint32_t id;
     do {
-        id = static_cast<uint32_t>(sk_atomic_inc(&gUniqueID) + 1);
+        id = nextID++;
     } while (id == SK_InvalidUniqueID);
     return id;
 }

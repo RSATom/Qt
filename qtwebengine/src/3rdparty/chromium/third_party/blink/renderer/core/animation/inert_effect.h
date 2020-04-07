@@ -31,7 +31,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_INERT_EFFECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_INERT_EFFECT_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/animation/animation_effect.h"
 #include "third_party/blink/renderer/core/animation/keyframe_effect_model.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -47,7 +46,13 @@ class CORE_EXPORT InertEffect final : public AnimationEffect {
                              const Timing&,
                              bool paused,
                              double inherited_time);
-  void Sample(Vector<scoped_refptr<Interpolation>>&) const;
+
+  InertEffect(KeyframeEffectModelBase*,
+              const Timing&,
+              bool paused,
+              double inherited_time);
+
+  void Sample(HeapVector<Member<Interpolation>>&) const;
   KeyframeEffectModelBase* Model() const { return model_.Get(); }
   bool Paused() const { return paused_; }
 
@@ -63,10 +68,6 @@ class CORE_EXPORT InertEffect final : public AnimationEffect {
       double time_to_next_iteration) const override;
 
  private:
-  InertEffect(KeyframeEffectModelBase*,
-              const Timing&,
-              bool paused,
-              double inherited_time);
   Member<KeyframeEffectModelBase> model_;
   bool paused_;
   double inherited_time_;

@@ -14,7 +14,7 @@
 #include "base/macros.h"
 #include "base/md5.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/value_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -121,14 +121,12 @@ class SelectFileDialog : public ui::SelectFileDialog::Listener,
 };
 
 void WriteToFile(const base::FilePath& path, const std::string& content) {
-  base::AssertBlockingAllowed();
   DCHECK(!path.empty());
 
   base::WriteFile(path, content.c_str(), content.length());
 }
 
 void AppendToFile(const base::FilePath& path, const std::string& content) {
-  base::AssertBlockingAllowed();
   DCHECK(!path.empty());
 
   base::AppendToFile(path, content.c_str(), content.size());
@@ -231,7 +229,7 @@ void DevToolsFileHelper::Save(const std::string& url,
                               bool save_as,
                               const SaveCallback& saveCallback,
                               const CancelCallback& cancelCallback) {
-  PathsMap::iterator it = saved_files_.find(url);
+  auto it = saved_files_.find(url);
   if (it != saved_files_.end() && !save_as) {
     SaveAsFileSelected(url, content, saveCallback, it->second);
     return;
@@ -278,7 +276,7 @@ void DevToolsFileHelper::Save(const std::string& url,
 void DevToolsFileHelper::Append(const std::string& url,
                                 const std::string& content,
                                 const AppendCallback& callback) {
-  PathsMap::iterator it = saved_files_.find(url);
+  auto it = saved_files_.find(url);
   if (it == saved_files_.end())
     return;
   callback.Run();
@@ -296,8 +294,7 @@ void DevToolsFileHelper::SaveAsFileSelected(const std::string& url,
   DictionaryPrefUpdate update(profile_->GetPrefs(),
                               prefs::kDevToolsEditedFiles);
   base::DictionaryValue* files_map = update.Get();
-  files_map->SetWithoutPathExpansion(base::MD5String(url),
-                                     base::CreateFilePathValue(path));
+  files_map->SetKey(base::MD5String(url), base::CreateFilePathValue(path));
   std::string file_system_path = path.AsUTF8Unsafe();
   callback.Run(file_system_path);
   file_task_runner_->PostTask(FROM_HERE, BindOnce(&WriteToFile, path, content));

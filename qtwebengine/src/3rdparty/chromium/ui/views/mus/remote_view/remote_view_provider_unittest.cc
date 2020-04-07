@@ -14,6 +14,8 @@
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/test/mus/test_window_tree.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_tracker.h"
+#include "ui/aura/window_tree_host.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/mus/remote_view/remote_view_provider_test_api.h"
 
@@ -26,6 +28,7 @@ class RemoteViewProviderTest : public aura::test::AuraTestBase {
 
   // aura::test::AuraTestBase
   void SetUp() override {
+    env_ = aura::Env::CreateInstance();
     EnableMusWithTestWindowTree();
     AuraTestBase::SetUp();
 
@@ -101,13 +104,14 @@ class RemoteViewProviderTest : public aura::test::AuraTestBase {
         base::BindRepeating([](base::RunLoop* run_loop) { run_loop->Quit(); },
                             &run_loop));
 
-    const ui::Id embedder_window_id =
+    const ws::Id embedder_window_id =
         aura::WindowMus::Get(embedder)->server_id();
     window_tree()->RemoveEmbedderWindow(embedder_window_id);
     run_loop.Run();
   }
 
  protected:
+  std::unique_ptr<aura::Env> env_;
   std::unique_ptr<aura::Window> embedded_;
   std::unique_ptr<RemoteViewProvider> provider_;
 
@@ -159,11 +163,31 @@ TEST_F(RemoteViewProviderTest, EmbedAgain) {
   aura::Window* embedder = SimulateEmbed();
   ASSERT_TRUE(embedder);
 
+  aura::WindowTracker window_tracker;
+  window_tracker.Add(embedder);
   SimulateEmbedderClose(embedder);
+  // SimulateEmbedderClose() should delete |embedder|.
+  EXPECT_TRUE(window_tracker.windows().empty());
 
   aura::Window* new_embedder = SimulateEmbed();
+  // SimulateEmbed() should create a new window.
   ASSERT_TRUE(new_embedder);
-  EXPECT_NE(new_embedder, embedder);
+}
+
+TEST_F(RemoteViewProviderTest, ScreenBounds) {
+  aura::Window* embedder = SimulateEmbed();
+  ASSERT_TRUE(embedder);
+
+  const viz::LocalSurfaceId server_changed_local_surface_id(
+      1, base::UnguessableToken::Create());
+  aura::Window* root_window = embedded_->GetRootWindow();
+  ASSERT_TRUE(root_window);
+  const gfx::Rect root_bounds(101, 102, 100, 50);
+  window_tree_client()->OnWindowBoundsChanged(
+      aura::WindowMus::Get(root_window)->server_id(), gfx::Rect(), root_bounds,
+      server_changed_local_surface_id);
+  EXPECT_EQ(root_bounds, root_window->GetHost()->GetBoundsInPixels());
+  EXPECT_EQ(root_bounds.origin(), root_window->GetBoundsInScreen().origin());
 }
 
 }  // namespace views

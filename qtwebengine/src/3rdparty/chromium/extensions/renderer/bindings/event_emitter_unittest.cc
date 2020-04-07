@@ -6,6 +6,8 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "extensions/renderer/bindings/api_binding_test.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
@@ -17,6 +19,15 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace extensions {
+
+namespace {
+
+APIEventListeners::ContextOwnerIdGetter CreateContextOwnerIdGetter() {
+  return base::BindRepeating(
+      [](v8::Local<v8::Context>) { return std::string("context"); });
+}
+
+}  // namespace
 
 class EventEmitterUnittest : public APIBindingTest {
  public:
@@ -41,15 +52,16 @@ TEST_F(EventEmitterUnittest, TestDispatchMethod) {
 
   ListenerTracker tracker;
   auto listeners = std::make_unique<UnfilteredEventListeners>(
-      base::DoNothing(), "event", "context", binding::kNoListenerMax, true,
-      &tracker);
+      base::DoNothing(), "event", CreateContextOwnerIdGetter(),
+      binding::kNoListenerMax, true, &tracker);
 
   auto log_error = [](std::vector<std::string>* errors,
                       v8::Local<v8::Context> context,
                       const std::string& error) { errors->push_back(error); };
 
   std::vector<std::string> logged_errors;
-  ExceptionHandler exception_handler(base::Bind(log_error, &logged_errors));
+  ExceptionHandler exception_handler(
+      base::BindRepeating(log_error, &logged_errors));
 
   gin::Handle<EventEmitter> event = gin::CreateHandle(
       isolate(),
@@ -67,7 +79,7 @@ TEST_F(EventEmitterUnittest, TestDispatchMethod) {
     v8::Local<v8::Function> listener_function =
         FunctionFromString(context, listener);
     v8::Local<v8::Value> args[] = {v8_event, listener_function};
-    RunFunction(add_listener_function, context, arraysize(args), args);
+    RunFunction(add_listener_function, context, base::size(args), args);
   };
 
   const char kListener1[] =
@@ -106,7 +118,7 @@ TEST_F(EventEmitterUnittest, TestDispatchMethod) {
   TestJSRunner::AllowErrors allow_errors;
   v8::Local<v8::Value> dispatch_result =
       RunFunctionOnGlobal(FunctionFromString(context, kDispatch), context,
-                          arraysize(dispatch_args), dispatch_args);
+                          base::size(dispatch_args), dispatch_args);
 
   const char kExpectedEventArgs[] = "[\"arg1\",2]";
   for (const char* property :
@@ -144,8 +156,8 @@ TEST_F(EventEmitterUnittest, ListenersDestroyingContext) {
 
   ListenerTracker tracker;
   auto listeners = std::make_unique<UnfilteredEventListeners>(
-      base::DoNothing(), "event", "context", binding::kNoListenerMax, true,
-      &tracker);
+      base::DoNothing(), "event", CreateContextOwnerIdGetter(),
+      binding::kNoListenerMax, true, &tracker);
   ExceptionHandler exception_handler(base::BindRepeating(
       [](v8::Local<v8::Context> context, const std::string& error) {}));
   gin::Handle<EventEmitter> event = gin::CreateHandle(
@@ -168,7 +180,7 @@ TEST_F(EventEmitterUnittest, ListenersDestroyingContext) {
                           v8::External::New(isolate(), &closure_data))
             .ToLocalChecked();
     v8::Local<v8::Value> args[] = {v8_event, listener};
-    RunFunction(add_listener_function, context, arraysize(args), args);
+    RunFunction(add_listener_function, context, base::size(args), args);
   }
 
   EXPECT_EQ(kNumListeners, event->GetNumListeners());

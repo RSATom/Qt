@@ -21,7 +21,7 @@ class CORE_EXPORT FragmentData {
  public:
   FragmentData* NextFragment() const { return next_fragment_.get(); }
   FragmentData& EnsureNextFragment();
-  void ClearNextFragment() { next_fragment_.reset(); }
+  void ClearNextFragment() { DestroyTail(); }
 
   // Visual offset of this fragment's top-left position from the
   // "paint offset root" which is the containing root PaintLayer of the root
@@ -141,6 +141,7 @@ class CORE_EXPORT FragmentData {
     if (rare_data_)
       rare_data_->paint_properties = nullptr;
   }
+  void EnsureIdForTesting() { EnsureRareData(); }
 
   // This is a complete set of property nodes that should be used as a
   // starting point to paint a LayoutObject. This data is cached because some
@@ -187,7 +188,7 @@ class CORE_EXPORT FragmentData {
   // overflow clip, scroll translation) that apply to contents.
   PropertyTreeState ContentsProperties() const {
     return PropertyTreeState(PostScrollTranslation(), PostOverflowClip(),
-                             LocalBorderBoxProperties().Effect());
+                             PostIsolationEffect());
   }
 
   // This is the complete set of property nodes that can be used to
@@ -208,12 +209,25 @@ class CORE_EXPORT FragmentData {
   const ClipPaintPropertyNode* PostOverflowClip() const;
   const EffectPaintPropertyNode* PreEffect() const;
   const EffectPaintPropertyNode* PreFilter() const;
+  const EffectPaintPropertyNode* PostIsolationEffect() const;
+
+  // Map a rect from |this|'s local border box space to |fragment|'s local
+  // border box space. Both fragments must have local border box properties.
+  void MapRectToFragment(const FragmentData& fragment, IntRect&) const;
+  void MapRectToFragment(const FragmentData& fragment, LayoutRect&) const;
+
+  ~FragmentData() {
+    if (next_fragment_)
+      DestroyTail();
+  }
 
  private:
   friend class FragmentDataTest;
 
+  void DestroyTail();
+
   // Contains rare data that that is not needed on all fragments.
-  struct RareData {
+  struct CORE_EXPORT RareData {
     USING_FAST_MALLOC(RareData);
 
    public:

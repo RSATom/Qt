@@ -6,6 +6,8 @@
 #define COMPONENTS_SAFE_BROWSING_BROWSER_REFERRER_CHAIN_PROVIDER_H_
 
 #include "components/safe_browsing/proto/csd.pb.h"
+#include "components/sessions/core/session_id.h"
+#include "url/gurl.h"
 
 namespace content {
 class WebContents;
@@ -24,6 +26,8 @@ class ReferrerChainProvider {
     SUCCESS_LANDING_REFERRER = 3,  // Successfully identified landing referrer.
     INVALID_URL = 4,
     NAVIGATION_EVENT_NOT_FOUND = 5,
+    SUCCESS_REFERRER = 6,  // Successfully identified extra referrers beyond the
+                           // landing referrer.
 
     // Always at the end.
     ATTRIBUTION_FAILURE_TYPE_MAX
@@ -31,6 +35,12 @@ class ReferrerChainProvider {
 
   virtual AttributionResult IdentifyReferrerChainByWebContents(
       content::WebContents* web_contents,
+      int user_gesture_count_limit,
+      ReferrerChain* out_referrer_chain) = 0;
+
+  virtual AttributionResult IdentifyReferrerChainByEventURL(
+      const GURL& event_url,
+      SessionID event_tab_id,
       int user_gesture_count_limit,
       ReferrerChain* out_referrer_chain) = 0;
 };

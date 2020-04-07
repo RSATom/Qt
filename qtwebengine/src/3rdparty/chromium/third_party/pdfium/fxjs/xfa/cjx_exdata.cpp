@@ -12,44 +12,12 @@ CJX_ExData::CJX_ExData(CXFA_ExData* node) : CJX_Content(node) {}
 
 CJX_ExData::~CJX_ExData() = default;
 
-void CJX_ExData::use(CFXJSE_Value* pValue,
-                     bool bSetting,
-                     XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExData::contentType(CFXJSE_Value* pValue,
-                             bool bSetting,
-                             XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExData::transferEncoding(CFXJSE_Value* pValue,
-                                  bool bSetting,
-                                  XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+bool CJX_ExData::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
 void CJX_ExData::defaultValue(CFXJSE_Value* pValue,
                               bool bSetting,
                               XFA_Attribute eAttribute) {
-  Script_Som_DefaultValue(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExData::usehref(CFXJSE_Value* pValue,
-                         bool bSetting,
-                         XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExData::maxLength(CFXJSE_Value* pValue,
-                           bool bSetting,
-                           XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExData::href(CFXJSE_Value* pValue,
-                      bool bSetting,
-                      XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomDefaultValue(pValue, bSetting, eAttribute);
 }

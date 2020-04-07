@@ -52,12 +52,12 @@ namespace QtWebEngineCore {
 class RenderWidgetHostViewQtDelegateQuickWindow : public QQuickWindow , public RenderWidgetHostViewQtDelegate {
 
 public:
-    RenderWidgetHostViewQtDelegateQuickWindow(RenderWidgetHostViewQtDelegate *realDelegate);
+    RenderWidgetHostViewQtDelegateQuickWindow(RenderWidgetHostViewQtDelegateQuick *realDelegate);
     ~RenderWidgetHostViewQtDelegateQuickWindow();
 
     void initAsPopup(const QRect&) override;
-    QRectF screenRect() const override;
-    QRectF contentsRect() const override;
+    QRectF viewGeometry() const override;
+    QRect windowGeometry() const override;
     void setKeyboardFocus() override {}
     bool hasKeyboardFocus() override { return false; }
     void lockMouse() override {}
@@ -80,8 +80,11 @@ public:
     void setClearColor(const QColor &) override { }
     bool copySurface(const QRect &, const QSize &, QImage &) override { return false; }
 
+    void setVirtualParent(QQuickItem *virtualParent);
+
 private:
-    QScopedPointer<RenderWidgetHostViewQtDelegate> m_realDelegate;
+    QScopedPointer<RenderWidgetHostViewQtDelegateQuick> m_realDelegate;
+    QQuickItem *m_virtualParent;
 };
 
 } // namespace QtWebEngineCore

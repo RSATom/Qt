@@ -29,15 +29,17 @@
 #ifndef WEBXMLGENERATOR_H
 #define WEBXMLGENERATOR_H
 
-#include <QtCore/qxmlstream.h>
-
 #include "codemarker.h"
 #include "config.h"
 #include "htmlgenerator.h"
+#include "qdocindexfiles.h"
+
+#include <QtCore/qxmlstream.h>
+#include <QtCore/qscopedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
-class WebXMLGenerator : public HtmlGenerator
+class WebXMLGenerator : public HtmlGenerator, public IndexSectionWriter
 {
 public:
     explicit WebXMLGenerator() {}
@@ -46,24 +48,26 @@ public:
     void initializeGenerator(const Config &config) override;
     void terminateGenerator() override;
     QString format() override;
-    //void generateDocs() override;
+    // from IndexSectionWriter
+    void append(QXmlStreamWriter &writer, Node *node) override;
 
 protected:
     int generateAtom(const Atom *atom, const Node *relative, CodeMarker *marker) override;
-    void generateCppReferencePage(Node *node, CodeMarker *marker) override;
-    void generateDocumentNode(DocumentNode *dn, CodeMarker *marker) override;
+    void generateCppReferencePage(Aggregate *aggregate, CodeMarker *marker) override;
+    void generatePageNode(PageNode *pn, CodeMarker *marker) override;
     void generateDocumentation(Node *node) override;
+    void generateExampleFilePage(const Node *en, const QString &file, CodeMarker *marker) override;
     QString fileExtension() const override;
 
     virtual const Atom *addAtomElements(QXmlStreamWriter &writer, const Atom *atom,
                                  const Node *relative, CodeMarker *marker);
-    virtual void generateIndexSections(QXmlStreamWriter &writer, Node *node,
-                                       CodeMarker *marker);
+    virtual void generateIndexSections(QXmlStreamWriter &writer, Node *node);
 
 
 private:
     const QPair<QString,QString> anchorForNode(const Node *node);
     void generateAnnotatedList(QXmlStreamWriter &writer, const Node *relative, const NodeMap &nodeMap);
+    void generateAnnotatedList(QXmlStreamWriter &writer, const Node *relative, const NodeList &nodeList);
     void generateFullName(QXmlStreamWriter &writer, const Node *node,
                           const Node *relative);
     void generateRelations(QXmlStreamWriter &writer, const Node *node);
@@ -77,6 +81,8 @@ private:
     bool hasQuotingInformation;
     int numTableRows;
     QString quoteCommand;
+    QScopedPointer<QXmlStreamWriter> currentWriter;
+    bool supplement = false;
 };
 
 QT_END_NAMESPACE

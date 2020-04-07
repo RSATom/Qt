@@ -8,20 +8,14 @@
 #define FXJS_XFA_CJX_EDGE_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Edge;
 
-class CJX_Edge : public CJX_Node {
+class CJX_Edge final : public CJX_Node {
  public:
   explicit CJX_Edge(CXFA_Edge* node);
   ~CJX_Edge() override;
-
-  JS_PROP(cap);
-  JS_PROP(presence);
-  JS_PROP(stroke);
-  JS_PROP(thickness);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_EDGE_H_

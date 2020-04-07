@@ -4,6 +4,9 @@
 
 #include "ui/android/window_android.h"
 
+#include <utility>
+#include <vector>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
@@ -42,17 +45,36 @@ class WindowAndroid::WindowBeginFrameSource : public viz::BeginFrameSource {
   void RemoveObserver(viz::BeginFrameObserver* obs) override;
   void DidFinishFrame(viz::BeginFrameObserver* obs) override {}
   bool IsThrottled() const override { return true; }
+  void OnGpuNoLongerBusy() override;
 
   void OnVSync(base::TimeTicks frame_time, base::TimeDelta vsync_period);
   void OnPauseChanged(bool paused);
+  void AddBeginFrameCompletionCallback(base::OnceClosure callback);
 
  private:
+  friend class WindowAndroid::ScopedOnBeginFrame;
+
   WindowAndroid* const window_;
-  base::ObserverList<viz::BeginFrameObserver> observers_;
+  base::ObserverList<viz::BeginFrameObserver>::Unchecked observers_;
   int observer_count_;
   viz::BeginFrameArgs last_begin_frame_args_;
   uint64_t next_sequence_number_;
   bool paused_;
+
+  // Set by ScopedOnBeginFrame.
+  std::vector<base::OnceClosure>* vsync_complete_callbacks_ptr_ = nullptr;
+};
+
+class WindowAndroid::ScopedOnBeginFrame {
+ public:
+  explicit ScopedOnBeginFrame(WindowAndroid::WindowBeginFrameSource* bfs,
+                              bool allow_reentrancy);
+  ~ScopedOnBeginFrame();
+
+ private:
+  WindowAndroid::WindowBeginFrameSource* const begin_frame_source_;
+  const bool reentrant_;
+  std::vector<base::OnceClosure> vsync_complete_callbacks_;
 };
 
 void WindowAndroid::WindowBeginFrameSource::AddObserver(
@@ -80,6 +102,7 @@ void WindowAndroid::WindowBeginFrameSource::AddObserver(
       // BeginFrames.
       last_begin_frame_args_.deadline =
           base::TimeTicks::Now() + last_begin_frame_args_.interval;
+      ScopedOnBeginFrame scope(this, true /* allow_reentrancy */);
       obs->OnBeginFrame(last_begin_frame_args_);
     }
   }
@@ -96,6 +119,12 @@ void WindowAndroid::WindowBeginFrameSource::RemoveObserver(
     window_->SetNeedsBeginFrames(false);
 }
 
+void WindowAndroid::WindowBeginFrameSource::OnGpuNoLongerBusy() {
+  ScopedOnBeginFrame scope(this, false /* allow_reentrancy */);
+  for (auto& obs : observers_)
+    obs.OnBeginFrame(last_begin_frame_args_);
+}
+
 void WindowAndroid::WindowBeginFrameSource::OnVSync(
     base::TimeTicks frame_time,
     base::TimeDelta vsync_period) {
@@ -106,15 +135,49 @@ void WindowAndroid::WindowBeginFrameSource::OnVSync(
       deadline, vsync_period, viz::BeginFrameArgs::NORMAL);
   DCHECK(last_begin_frame_args_.IsValid());
   next_sequence_number_++;
-
-  for (auto& obs : observers_)
-    obs.OnBeginFrame(last_begin_frame_args_);
+  if (RequestCallbackOnGpuAvailable())
+    return;
+  OnGpuNoLongerBusy();
 }
 
 void WindowAndroid::WindowBeginFrameSource::OnPauseChanged(bool paused) {
   paused_ = paused;
   for (auto& obs : observers_)
     obs.OnBeginFrameSourcePausedChanged(paused_);
+}
+
+void WindowAndroid::WindowBeginFrameSource::AddBeginFrameCompletionCallback(
+    base::OnceClosure callback) {
+  CHECK(vsync_complete_callbacks_ptr_);
+  vsync_complete_callbacks_ptr_->emplace_back(std::move(callback));
+}
+
+WindowAndroid::ScopedOnBeginFrame::ScopedOnBeginFrame(
+    WindowAndroid::WindowBeginFrameSource* bfs,
+    bool allow_reentrancy)
+    : begin_frame_source_(bfs),
+      reentrant_(allow_reentrancy &&
+                 begin_frame_source_->vsync_complete_callbacks_ptr_) {
+  if (reentrant_) {
+    DCHECK(begin_frame_source_->vsync_complete_callbacks_ptr_);
+    return;
+  }
+  DCHECK(!begin_frame_source_->vsync_complete_callbacks_ptr_);
+  begin_frame_source_->vsync_complete_callbacks_ptr_ =
+      &vsync_complete_callbacks_;
+}
+
+WindowAndroid::ScopedOnBeginFrame::~ScopedOnBeginFrame() {
+  if (reentrant_) {
+    DCHECK_NE(&vsync_complete_callbacks_,
+              begin_frame_source_->vsync_complete_callbacks_ptr_);
+    return;
+  }
+  DCHECK_EQ(&vsync_complete_callbacks_,
+            begin_frame_source_->vsync_complete_callbacks_ptr_);
+  begin_frame_source_->vsync_complete_callbacks_ptr_ = nullptr;
+  for (base::OnceClosure& callback : vsync_complete_callbacks_)
+    std::move(callback).Run();
 }
 
 // static
@@ -172,8 +235,9 @@ void WindowAndroid::AddObserver(WindowAndroidObserver* observer) {
     observer_list_.AddObserver(observer);
 }
 
-void WindowAndroid::AddVSyncCompleteCallback(const base::Closure& callback) {
-  vsync_complete_callbacks_.push_back(callback);
+void WindowAndroid::AddBeginFrameCompletionCallback(
+    base::OnceClosure callback) {
+  begin_frame_source_->AddBeginFrameCompletionCallback(std::move(callback));
 }
 
 void WindowAndroid::RemoveObserver(WindowAndroidObserver* observer) {
@@ -191,6 +255,8 @@ void WindowAndroid::AttachCompositor(WindowAndroidCompositor* compositor) {
   compositor_ = compositor;
   for (WindowAndroidObserver& observer : observer_list_)
     observer.OnAttachCompositor();
+
+  compositor_->SetVSyncPaused(vsync_paused_);
 }
 
 void WindowAndroid::DetachCompositor() {
@@ -241,10 +307,6 @@ void WindowAndroid::OnVSync(JNIEnv* env,
 
   begin_frame_source_->OnVSync(frame_time, vsync_period);
 
-  for (const base::Closure& callback : vsync_complete_callbacks_)
-    callback.Run();
-  vsync_complete_callbacks_.clear();
-
   if (needs_begin_frames_)
     RequestVSyncUpdate();
 }
@@ -271,6 +333,11 @@ void WindowAndroid::OnActivityStarted(JNIEnv* env,
 void WindowAndroid::SetVSyncPaused(JNIEnv* env,
                                    const JavaParamRef<jobject>& obj,
                                    bool paused) {
+  vsync_paused_ = paused;
+
+  if (compositor_)
+    compositor_->SetVSyncPaused(paused);
+
   begin_frame_source_->OnPauseChanged(paused);
 }
 

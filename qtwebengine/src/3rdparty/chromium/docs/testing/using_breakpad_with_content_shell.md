@@ -1,6 +1,6 @@
 # Using breakpad with content shell
 
-When running layout tests, it is possible to use
+When running web tests, it is possible to use
 [breakpad](../../third_party/breakpad/) to capture stack traces on crashes while
 running without a debugger attached and with the sandbox enabled.
 
@@ -9,14 +9,16 @@ running without a debugger attached and with the sandbox enabled.
 On all platforms, build the target `blink_tests`.
 
 *** note
-**Mac:** Add `enable_dsyms = 1` to your
-[gn build arguments](../../tools/gn/docs/quick_start.md) before building. This
-slows down linking several minutes, so don't just always set it by default.
+**Mac:** Add `enable_dsyms = 1` to your [gn build
+arguments](https://gn.googlesource.com/gn/+/master/docs/quick_start.md) before
+building. This slows down linking several minutes, so don't just always set it
+by default.
 ***
 
 *** note
-**Linux:** Add `use_debug_fission = true` to your
-[gn build arguments](../../tools/gn/docs/quick_start.md) before building.
+**Linux:** Add `use_debug_fission = true` to your [gn build
+arguments](https://gn.googlesource.com/gn/+/master/docs/quick_start.md) before
+building.
 ***
 
 Then, create a directory where the crash dumps will be stored:

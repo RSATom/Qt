@@ -30,8 +30,14 @@ check_library_exists(crc32c crc32c_value "" HAVE_CRC32C)
 check_library_exists(snappy snappy_compress "" HAVE_SNAPPY)
 check_library_exists(tcmalloc malloc "" HAVE_TCMALLOC)
 
-include(CheckSymbolExists)
-check_symbol_exists(fdatasync "unistd.h" HAVE_FDATASYNC)
+include(CheckCXXSymbolExists)
+# Using check_cxx_symbol_exists() instead of check_c_symbol_exists() because
+# we're including the header from C++, and feature detection should use the same
+# compiler language that the project will use later. Principles aside, some
+# versions of do not expose fdatasync() in <unistd.h> in standard C mode
+# (-std=c11), but do expose the function in standard C++ mode (-std=c++11).
+check_cxx_symbol_exists(fdatasync "unistd.h" HAVE_FDATASYNC)
+check_cxx_symbol_exists(F_FULLFSYNC "fcntl.h" HAVE_FULLFSYNC)
 
 include(CheckCXXSourceCompiles)
 
@@ -149,6 +155,7 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/util/logging.cc"
     "${PROJECT_SOURCE_DIR}/util/logging.h"
     "${PROJECT_SOURCE_DIR}/util/mutexlock.h"
+    "${PROJECT_SOURCE_DIR}/util/no_destructor.h"
     "${PROJECT_SOURCE_DIR}/util/options.cc"
     "${PROJECT_SOURCE_DIR}/util/random.h"
     "${PROJECT_SOURCE_DIR}/util/status.cc"
@@ -278,6 +285,7 @@ if(LEVELDB_BUILD_TESTS)
 
   leveldb_test("${PROJECT_SOURCE_DIR}/util/env_test.cc")
   leveldb_test("${PROJECT_SOURCE_DIR}/util/status_test.cc")
+  leveldb_test("${PROJECT_SOURCE_DIR}/util/no_destructor_test.cc")
 
   if(NOT BUILD_SHARED_LIBS)
     leveldb_test("${PROJECT_SOURCE_DIR}/db/autocompact_test.cc")

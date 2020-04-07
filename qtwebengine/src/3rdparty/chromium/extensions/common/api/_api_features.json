@@ -7,7 +7,7 @@
 // well as feature.h, simple_feature.h, and feature_provider.h.
 //
 // Note that specifying "web_page", "blessed_web_page", or "all" as a context
-// type will require manually updating chrome/renderer/resources/dispatcher.cc.
+// type will require manually updating extensions/renderer/extension_bindings_system.cc.
 
 {
   "alarms": {
@@ -200,10 +200,12 @@
       "contexts": ["webui"],
       "matches": [
         "chrome://cast/*",
+        "chrome://discards/*",
         "chrome://extensions-frame/*",
         "chrome://extensions/*",
         "chrome://home/*",
         "chrome://chrome-signin/*",
+        "chrome://hats/*",
         "chrome://media-router/*",
         "chrome://mobilesetup/*",
         "chrome://oobe/*",
@@ -223,6 +225,9 @@
   "idle": {
     "dependencies": ["permission:idle"],
     "contexts": ["blessed_extension"]
+  },
+  "idle.getAutoLockDelay": {
+    "platforms": ["chromeos"]
   },
   "lockScreen.data": {
     "dependencies": ["permission:lockScreen"],
@@ -275,7 +280,8 @@
       "chrome://bookmarks/*",
       "chrome://extensions/*",
       "chrome://settings/*",
-      "chrome://sync-confirmation/*"
+      "chrome://sync-confirmation/*",
+      "chrome://welcome/*"
     ]
   }],
   "metricsPrivate.getIsCrashReportingEnabled": {
@@ -308,7 +314,10 @@
       "2B6C6A4A5940017146F3E58B7F90116206E84685",  // http://crbug.com/642141
       "B6C2EFAB3EC3BF6EF03701408B6B09A67B2D0069",  // http://crbug.com/642141
       "96FF2FFA5C9173C76D47184B3E86D267B37781DE",  // http://crbug.com/642141
-      "0136FCB13DB29FD5CD442F56E59E53B61F1DF96F"   // http://crbug.com/642141
+      "0136FCB13DB29FD5CD442F56E59E53B61F1DF96F",  // http://crbug.com/642141
+      "46578A13607D38F1DC8E280C4F499FB0A2F9565C",  // http://crbug.com/819404
+      "898FB5A39687D210766B8998BA4530B99C9E6586",  // http://crbug.com/819404
+      "82F30B65397BC3E4ADE627BBD857AB8A58210648"   // http://crbug.com/819404
     ]
   },
   "mimeHandlerPrivate": {
@@ -369,7 +378,7 @@
   "runtime": {
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
-    "contexts": ["blessed_extension", "lock_screen_extension"]
+    "contexts": ["blessed_extension", "lock_screen_extension", "extension_service_worker"]
   },
   "runtime.getManifest": {
     "contexts": [
@@ -567,6 +576,8 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
       "chrome://home/*",
       "chrome://media-router/*",
       "chrome://mobilesetup/*",
@@ -584,6 +595,8 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
       "chrome://home/*",
       "chrome://media-router/*",
       "chrome://mobilesetup/*",
@@ -599,6 +612,8 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
       "chrome://home/*",
       "chrome://media-router/*",
       "chrome://mobilesetup/*",

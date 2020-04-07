@@ -3,9 +3,8 @@
 # found in the LICENSE file.
 
 import("//services/catalog/public/tools/catalog.gni")
-import("//services/service_manager/public/cpp/service.gni")
+import("//services/service_manager/public/cpp/service_executable.gni")
 import("//services/service_manager/public/service_manifest.gni")
-import("//services/service_manager/public/tools/test/service_test.gni")
 import("//testing/test.gni")
 
 static_library("lib") {
@@ -36,7 +35,7 @@ static_library("lib") {
 
 if (!is_ios) {
   # service binaries are not supported on iOS.
-  service("filesystem") {
+  service_executable("filesystem") {
     sources = [
       "file_system_app.cc",
       "file_system_app.h",
@@ -58,7 +57,7 @@ if (!is_ios) {
     source = "manifest.json"
   }
 
-  service_test("filesystem_service_unittests") {
+  test("filesystem_service_unittests") {
     sources = [
       "directory_impl_unittest.cc",
       "file_impl_unittest.cc",
@@ -66,15 +65,17 @@ if (!is_ios) {
       "files_test_base.h",
     ]
 
-    catalog = ":filesystem_service_unittests_catalog"
-
     deps = [
+      ":filesystem_service_unittests_catalog_source",
       "//base",
+      "//base/test:test_support",
       "//components/services/filesystem/public/interfaces",
+      "//mojo/core/test:run_all_unittests",
       "//mojo/public/cpp/bindings",
       "//mojo/public/cpp/system",
       "//services/service_manager/public/cpp",
-      "//services/service_manager/public/cpp:service_test_support",
+      "//services/service_manager/public/cpp/test:test_support",
+      "//testing/gtest",
     ]
 
     data_deps = [
@@ -90,5 +91,11 @@ if (!is_ios) {
   catalog("filesystem_service_unittests_catalog") {
     embedded_services = [ ":test_manifest" ]
     standalone_services = [ ":manifest" ]
+  }
+
+  catalog_cpp_source("filesystem_service_unittests_catalog_source") {
+    testonly = true
+    catalog = ":filesystem_service_unittests_catalog"
+    generated_function_name = "filesystem::test::CreateTestCatalog"
   }
 }

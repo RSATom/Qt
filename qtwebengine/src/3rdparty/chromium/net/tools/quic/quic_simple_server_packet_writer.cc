@@ -36,7 +36,7 @@ quic::WriteResult QuicSimpleServerPacketWriter::WritePacketWithCallback(
   callback_ = callback;
   quic::WriteResult result =
       WritePacket(buffer, buf_len, self_address, peer_address, options);
-  if (result.status != quic::WRITE_STATUS_BLOCKED) {
+  if (!quic::IsWriteBlockedStatus(result.status)) {
     callback_.Reset();
   }
   return result;
@@ -72,8 +72,8 @@ quic::WriteResult QuicSimpleServerPacketWriter::WritePacket(
     const quic::QuicIpAddress& self_address,
     const quic::QuicSocketAddress& peer_address,
     quic::PerPacketOptions* options) {
-  scoped_refptr<StringIOBuffer> buf(
-      new StringIOBuffer(std::string(buffer, buf_len)));
+  scoped_refptr<StringIOBuffer> buf =
+      base::MakeRefCounted<StringIOBuffer>(std::string(buffer, buf_len));
   DCHECK(!IsWriteBlocked());
   int rv;
   if (buf_len <= static_cast<size_t>(std::numeric_limits<int>::max())) {
@@ -91,7 +91,7 @@ quic::WriteResult QuicSimpleServerPacketWriter::WritePacket(
       base::UmaHistogramSparse("Net.quic::QuicSession.WriteError", -rv);
       status = quic::WRITE_STATUS_ERROR;
     } else {
-      status = quic::WRITE_STATUS_BLOCKED;
+      status = quic::WRITE_STATUS_BLOCKED_DATA_BUFFERED;
       write_blocked_ = true;
     }
   }
@@ -111,7 +111,9 @@ bool QuicSimpleServerPacketWriter::IsBatchMode() const {
   return false;
 }
 
-char* QuicSimpleServerPacketWriter::GetNextWriteLocation() const {
+char* QuicSimpleServerPacketWriter::GetNextWriteLocation(
+    const quic::QuicIpAddress& self_address,
+    const quic::QuicSocketAddress& peer_address) {
   return nullptr;
 }
 

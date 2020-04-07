@@ -19,28 +19,15 @@
 #include <string>
 
 #include "perfetto/base/logging.h"
+#include "perfetto/trace_processor/trace_processor.h"
+
 #include "perfetto/trace_processor/raw_query.pb.h"
 #include "perfetto/trace_processor/sched.pb.h"
-#include "src/trace_processor/emscripten_task_runner.h"
-#include "src/trace_processor/trace_database.h"
 
 namespace perfetto {
 namespace trace_processor {
 
 using RequestID = uint32_t;
-
-// ReadTrace(): reads a portion of the trace file.
-// Invoked by the C++ code in the trace processor to ask the embedder (e.g. the
-// JS code for the case of the UI) to get read a chunk of the trace file.
-// Args:
-//   offset: the start offset (in bytes) in the trace file to read.
-//   len: maximum size of the buffered returned.
-// Returns:
-//   The embedder is supposed to asynchronously call ReadComplete(), passing
-//   back the offset, together with the actual buffer.
-using ReadTraceFunction = uint32_t (*)(uint32_t /*offset*/,
-                                       uint32_t /*len*/,
-                                       uint8_t* /*dst*/);
 
 // Reply(): replies to a RPC method invocation.
 // Called asynchronously (i.e. in a separate task) by the C++ code inside the
@@ -56,49 +43,46 @@ using ReplyFunction = void (*)(RequestID,
                                uint32_t /*len*/);
 
 namespace {
-
-EmscriptenTaskRunner* g_task_runner;
-TraceDatabase* g_trace_database;
-ReadTraceFunction g_read_trace;
+TraceProcessor* g_trace_processor;
 ReplyFunction g_reply;
-
-// Implements the BlobReader interface passed to the trace processor C++
-// classes. It simply routes the requests to the embedder (e.g. JS/TS).
-class BlobReaderImpl : public BlobReader {
- public:
-  ~BlobReaderImpl() override = default;
-
-  uint32_t Read(uint64_t offset, uint32_t len, uint8_t* dst) override {
-    return g_read_trace(static_cast<uint32_t>(offset), len, dst);
-  }
-};
-
-BlobReaderImpl* blob_reader() {
-  static BlobReaderImpl* instance = new BlobReaderImpl();
-  return instance;
-}
-
 }  // namespace
-
 // +---------------------------------------------------------------------------+
 // | Exported functions called by the JS/TS running in the worker.             |
 // +---------------------------------------------------------------------------+
 extern "C" {
 
-void EMSCRIPTEN_KEEPALIVE Initialize(RequestID,
-                                     ReadTraceFunction,
-                                     ReplyFunction);
-void Initialize(RequestID id,
-                ReadTraceFunction read_trace_function,
-                ReplyFunction reply_function) {
+void EMSCRIPTEN_KEEPALIVE Initialize(ReplyFunction);
+void Initialize(ReplyFunction reply_function) {
   PERFETTO_ILOG("Initializing WASM bridge");
-  g_task_runner = new EmscriptenTaskRunner();
-  g_trace_database = new TraceDatabase(g_task_runner);
-  g_read_trace = read_trace_function;
+  Config config;
+  config.optimization_mode = OptimizationMode::kMaxBandwidth;
+  g_trace_processor = TraceProcessor::CreateInstance(config).release();
   g_reply = reply_function;
-  g_trace_database->LoadTrace(blob_reader(), [id]() {
-    g_reply(id, true /* success */, nullptr /* ptr */, 0 /* size */);
-  });
+}
+
+void EMSCRIPTEN_KEEPALIVE trace_processor_parse(RequestID,
+                                                const uint8_t*,
+                                                uint32_t);
+void trace_processor_parse(RequestID id, const uint8_t* data, size_t size) {
+  // TODO(primiano): This copy is extremely unfortunate. Ideally there should be
+  // a way to take the Blob coming from JS (either from FileReader or from th
+  // fetch() stream) and move into WASM.
+  // See https://github.com/WebAssembly/design/issues/1162.
+  std::unique_ptr<uint8_t[]> buf(new uint8_t[size]);
+  memcpy(buf.get(), data, size);
+  g_trace_processor->Parse(std::move(buf), size);
+  g_reply(id, true, "", 0);
+}
+
+// We keep the same signature as other methods even though we don't take input
+// arguments for simplicity.
+void EMSCRIPTEN_KEEPALIVE trace_processor_notifyEof(RequestID,
+                                                    const uint8_t*,
+                                                    uint32_t);
+void trace_processor_notifyEof(RequestID id, const uint8_t*, uint32_t size) {
+  PERFETTO_DCHECK(!size);
+  g_trace_processor->NotifyEndOfFile();
+  g_reply(id, true, "", 0);
 }
 
 void EMSCRIPTEN_KEEPALIVE trace_processor_rawQuery(RequestID,
@@ -123,7 +107,7 @@ void trace_processor_rawQuery(RequestID id,
     g_reply(id, true, encoded.data(), static_cast<uint32_t>(encoded.size()));
   };
 
-  g_trace_database->ExecuteQuery(query, callback);
+  g_trace_processor->ExecuteQuery(query, callback);
 }
 
 }  // extern "C"

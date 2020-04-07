@@ -12,13 +12,13 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
+#include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autocomplete_history_manager.h"
 #include "components/autofill/core/browser/autofill_driver.h"
-#include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
@@ -28,6 +28,10 @@
 #include "components/strings/grit/components_strings.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
 #include "ui/base/l10n/l10n_util.h"
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#include "ui/native_theme/native_theme.h"  // nogncheck
+#endif
 
 namespace autofill {
 
@@ -43,14 +47,7 @@ bool IsAutofillWarningEntry(int frontend_id) {
 
 AutofillExternalDelegate::AutofillExternalDelegate(AutofillManager* manager,
                                                    AutofillDriver* driver)
-    : manager_(manager),
-      driver_(driver),
-      query_id_(0),
-      has_autofill_suggestions_(false),
-      should_show_scan_credit_card_(false),
-      popup_type_(PopupType::kUnspecified),
-      should_show_cc_signin_promo_(false),
-      weak_ptr_factory_(this) {
+    : manager_(manager), driver_(driver) {
   DCHECK(manager);
 }
 
@@ -72,6 +69,8 @@ void AutofillExternalDelegate::OnQuery(int query_id,
   popup_type_ = manager_->GetPopupType(query_form_, query_field_);
   should_show_cc_signin_promo_ =
       manager_->ShouldShowCreditCardSigninPromo(query_form_, query_field_);
+  should_show_cards_from_account_option_ =
+      manager_->ShouldShowCardsFromAccountOption(query_form_, query_field_);
 }
 
 void AutofillExternalDelegate::OnSuggestionsReturned(
@@ -86,17 +85,6 @@ void AutofillExternalDelegate::OnSuggestionsReturned(
 
   // Hide warnings as appropriate.
   PossiblyRemoveAutofillWarnings(&suggestions);
-
-#if !defined(OS_ANDROID)
-  // If there are above the fold suggestions at this point, add a separator to
-  // go between the values and menu items. Skip this when using the Native Views
-  // implementation, which has its own logic for distinguishing footer rows.
-  // TODO(crbug.com/831603): Remove this when the relevant feature is on 100%.
-  if (!suggestions.empty() && !autofill::ShouldUseNativeViews()) {
-    suggestions.push_back(Suggestion());
-    suggestions.back().frontend_id = POPUP_ITEM_ID_SEPARATOR;
-  }
-#endif
 
   if (should_show_scan_credit_card_) {
     Suggestion scan_credit_card(
@@ -116,22 +104,19 @@ void AutofillExternalDelegate::OnSuggestionsReturned(
     }
   }
 
+  if (should_show_cards_from_account_option_) {
+    suggestions.emplace_back(
+        l10n_util::GetStringUTF16(IDS_AUTOFILL_SHOW_ACCOUNT_CARDS));
+    suggestions.back().frontend_id = POPUP_ITEM_ID_SHOW_ACCOUNT_CARDS;
+    suggestions.back().icon = base::ASCIIToUTF16("google");
+  }
+
   if (has_autofill_suggestions_)
     ApplyAutofillOptions(&suggestions, is_all_server_suggestions);
 
   // Append the credit card signin promo, if appropriate (there are no other
   // suggestions).
   if (suggestions.empty() && should_show_cc_signin_promo_) {
-// No separator on Android.
-#if !defined(OS_ANDROID)
-    // If there are autofill suggestions, the "Autofill options" row was added
-    // above. Add a separator between it and the signin promo.
-    if (has_autofill_suggestions_) {
-      suggestions.push_back(Suggestion());
-      suggestions.back().frontend_id = POPUP_ITEM_ID_SEPARATOR;
-    }
-#endif
-
     Suggestion signin_promo_suggestion(
         l10n_util::GetStringUTF16(IDS_AUTOFILL_CREDIT_CARD_SIGNIN_PROMO));
     signin_promo_suggestion.frontend_id =
@@ -140,14 +125,6 @@ void AutofillExternalDelegate::OnSuggestionsReturned(
     signin_metrics::RecordSigninImpressionUserActionForAccessPoint(
         signin_metrics::AccessPoint::ACCESS_POINT_AUTOFILL_DROPDOWN);
   }
-
-#if !defined(OS_ANDROID)
-  // Remove the separator if there is one, and if it is the last element.
-  if (!suggestions.empty() &&
-      suggestions.back().frontend_id == POPUP_ITEM_ID_SEPARATOR) {
-    suggestions.pop_back();
-  }
-#endif
 
   // If anything else is added to modify the values after inserting the data
   // list, AutofillPopupControllerImpl::UpdateDataListValues will need to be
@@ -206,6 +183,10 @@ void AutofillExternalDelegate::OnPopupHidden() {
   driver_->PopupHidden();
 }
 
+void AutofillExternalDelegate::OnPopupSuppressed() {
+  manager_->DidSuppressPopup(query_form_, query_field_);
+}
+
 void AutofillExternalDelegate::DidSelectSuggestion(
     const base::string16& value,
     int identifier) {
@@ -223,7 +204,7 @@ void AutofillExternalDelegate::DidAcceptSuggestion(const base::string16& value,
                                                    int position) {
   if (identifier == POPUP_ITEM_ID_AUTOFILL_OPTIONS) {
     // User selected 'Autofill Options'.
-    manager_->ShowAutofillSettings();
+    manager_->ShowAutofillSettings(popup_type_ == PopupType::kCreditCards);
   } else if (identifier == POPUP_ITEM_ID_CLEAR_FORM) {
     // User selected 'Clear form'.
     driver_->RendererShouldClearFilledSection();
@@ -236,11 +217,14 @@ void AutofillExternalDelegate::DidAcceptSuggestion(const base::string16& value,
     // User selected an Autocomplete, so we fill directly.
     driver_->RendererShouldFillFieldWithValue(value);
     AutofillMetrics::LogAutocompleteSuggestionAcceptedIndex(position);
+    manager_->OnAutocompleteEntrySelected(value);
   } else if (identifier == POPUP_ITEM_ID_SCAN_CREDIT_CARD) {
     manager_->client()->ScanCreditCard(base::Bind(
         &AutofillExternalDelegate::OnCreditCardScanned, GetWeakPtr()));
   } else if (identifier == POPUP_ITEM_ID_CREDIT_CARD_SIGNIN_PROMO) {
     manager_->client()->ExecuteCommand(identifier);
+  } else if (identifier == POPUP_ITEM_ID_SHOW_ACCOUNT_CARDS) {
+    manager_->OnUserAcceptedCardsFromAccountOption();
   } else {
     if (identifier > 0)  // Denotes an Autofill suggestion.
       AutofillMetrics::LogAutofillSuggestionAcceptedIndex(position);
@@ -255,7 +239,12 @@ void AutofillExternalDelegate::DidAcceptSuggestion(const base::string16& value,
             : AutofillMetrics::SCAN_CARD_OTHER_ITEM_SELECTED);
   }
 
-  manager_->client()->HideAutofillPopup();
+  if (identifier == POPUP_ITEM_ID_SHOW_ACCOUNT_CARDS) {
+    should_show_cards_from_account_option_ = false;
+    manager_->RefetchCardsAndUpdatePopup(query_id_, query_form_, query_field_);
+  } else {
+    manager_->client()->HideAutofillPopup();
+  }
 }
 
 bool AutofillExternalDelegate::GetDeletionConfirmationText(
@@ -367,8 +356,16 @@ void AutofillExternalDelegate::ApplyAutofillOptions(
   suggestions->back().frontend_id = POPUP_ITEM_ID_AUTOFILL_OPTIONS;
   // On Android and Desktop, Google Pay branding is shown along with Settings.
   // So Google Pay Icon is just attached to an existing menu item.
-  if (is_all_server_suggestions)
+  if (is_all_server_suggestions) {
+#if defined(OS_ANDROID) || defined(OS_IOS)
     suggestions->back().icon = base::ASCIIToUTF16("googlePay");
+#else
+    suggestions->back().icon = base::ASCIIToUTF16(
+        ui::NativeTheme::GetInstanceForNativeUi()->SystemDarkModeEnabled()
+            ? "googlePayDark"
+            : "googlePay");
+#endif
+  }
 
 // On iOS, GooglePayIcon comes at the begining and hence prepended to the list.
 #if defined(OS_IOS)
@@ -404,14 +401,10 @@ void AutofillExternalDelegate::InsertDataListValues(
   // the list of datalist values.
   std::set<base::string16> data_list_set(data_list_values_.begin(),
                                          data_list_values_.end());
-  suggestions->erase(
-      std::remove_if(
-          suggestions->begin(), suggestions->end(),
-          [&data_list_set](const Suggestion& suggestion) {
-            return suggestion.frontend_id == POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY &&
-                   base::ContainsKey(data_list_set, suggestion.value);
-          }),
-      suggestions->end());
+  base::EraseIf(*suggestions, [&data_list_set](const Suggestion& suggestion) {
+    return suggestion.frontend_id == POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY &&
+           base::ContainsKey(data_list_set, suggestion.value);
+  });
 
 #if !defined(OS_ANDROID)
   // Insert the separator between the datalist and Autofill/Autocomplete values
@@ -434,14 +427,21 @@ void AutofillExternalDelegate::InsertDataListValues(
 
 base::string16 AutofillExternalDelegate::GetSettingsSuggestionValue()
     const {
-  if (GetPopupType() == PopupType::kAddresses)
-    return l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE_ADDRESSES);
+  switch (GetPopupType()) {
+    case PopupType::kAddresses:
+      return l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE_ADDRESSES);
 
-  if (GetPopupType() == PopupType::kCreditCards)
-    return l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE_PAYMENT_METHODS);
+    case PopupType::kCreditCards:
+      return l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE_PAYMENT_METHODS);
 
-  DCHECK_EQ(GetPopupType(), PopupType::kPersonalInformation);
-  return l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE);
+    case PopupType::kPersonalInformation:
+    case PopupType::kUnspecified:
+      return l10n_util::GetStringUTF16(IDS_AUTOFILL_MANAGE);
+
+    case PopupType::kPasswords:
+      NOTREACHED();
+      return base::string16();
+  }
 }
 
 }  // namespace autofill

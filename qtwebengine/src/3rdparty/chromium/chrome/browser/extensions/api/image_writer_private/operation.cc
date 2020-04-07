@@ -6,13 +6,13 @@
 
 #include <utility>
 
-#include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/error_messages.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation_manager.h"
 #include "chrome/browser/extensions/api/image_writer_private/unzip_helper.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "services/service_manager/public/cpp/connector.h"
 
@@ -39,6 +39,7 @@ Operation::Operation(base::WeakPtr<OperationManager> manager,
 #else
       device_path_(device_path),
 #endif
+      temp_dir_(std::make_unique<base::ScopedTempDir>()),
       connector_(std::move(connector)),
       stage_(image_writer_api::STAGE_UNKNOWN),
       progress_(0),
@@ -50,6 +51,11 @@ Operation::Operation(base::WeakPtr<OperationManager> manager,
 Operation::~Operation() {
   // The connector_ is bound to the |task_runner_| and must be deleted there.
   task_runner_->DeleteSoon(FROM_HERE, std::move(connector_));
+
+  // base::ScopedTempDir must be destroyed on a thread that allows blocking IO
+  // because it will try delete the directory if a call to Delete() hasn't been
+  // made or was unsuccessful.
+  task_runner_->DeleteSoon(FROM_HERE, std::move(temp_dir_));
 }
 
 void Operation::Cancel() {
@@ -81,9 +87,9 @@ void Operation::Start() {
   DCHECK(IsRunningInCorrectSequence());
 #if defined(OS_CHROMEOS)
   if (download_folder_.empty() ||
-      !temp_dir_.CreateUniqueTempDirUnderPath(download_folder_)) {
+      !temp_dir_->CreateUniqueTempDirUnderPath(download_folder_)) {
 #else
-  if (!temp_dir_.CreateUniqueTempDir()) {
+  if (!temp_dir_->CreateUniqueTempDir()) {
 #endif
     Error(error::kTempDirError);
     return;
@@ -91,7 +97,7 @@ void Operation::Start() {
 
   AddCleanUpFunction(
       base::BindOnce(base::IgnoreResult(&base::ScopedTempDir::Delete),
-                     base::Unretained(&temp_dir_)));
+                     base::Unretained(temp_dir_.get())));
 
   StartImpl();
 }
@@ -119,7 +125,7 @@ void Operation::Unzip(const base::Closure& continuation) {
       base::Bind(&Operation::CompleteAndContinue, this, continuation),
       base::Bind(&Operation::OnUnzipFailure, this),
       base::Bind(&Operation::OnUnzipProgress, this));
-  unzip_helper->Unzip(image_path_, temp_dir_.GetPath());
+  unzip_helper->Unzip(image_path_, temp_dir_->GetPath());
 }
 
 void Operation::Finish() {
@@ -127,16 +133,16 @@ void Operation::Finish() {
 
   CleanUp();
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&OperationManager::OnComplete, manager_, extension_id_));
 }
 
 void Operation::Error(const std::string& error_message) {
   DCHECK(IsRunningInCorrectSequence());
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&OperationManager::OnError, manager_, extension_id_,
                      stage_, progress_, error_message));
 
@@ -156,8 +162,8 @@ void Operation::SetProgress(int progress) {
 
   progress_ = progress;
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&OperationManager::OnProgress, manager_, extension_id_,
                      stage_, progress_));
 }
@@ -171,8 +177,8 @@ void Operation::SetStage(image_writer_api::Stage stage) {
   stage_ = stage;
   progress_ = 0;
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&OperationManager::OnProgress, manager_, extension_id_,
                      stage_, progress_));
 }
@@ -257,7 +263,6 @@ void Operation::GetMD5SumOfFile(
 }
 
 bool Operation::IsRunningInCorrectSequence() const {
-  base::AssertBlockingAllowed();
   return task_runner_->RunsTasksInCurrentSequence();
 }
 

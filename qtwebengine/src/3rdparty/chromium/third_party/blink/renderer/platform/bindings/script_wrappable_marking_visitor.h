@@ -24,6 +24,7 @@ class ScriptWrappable;
 class ScriptWrappableVisitor;
 template <typename T>
 class TraceWrapperV8Reference;
+struct WrapperTypeInfo;
 
 // ScriptWrappableVisitor is used to trace through Blink's heap to find all
 // reachable wrappers. V8 calls this visitor during its garbage collection,
@@ -56,6 +57,11 @@ class PLATFORM_EXPORT ScriptWrappableMarkingVisitor
   template <typename T>
   inline static void WriteBarrier(const T* dst_object);
 
+  template <typename T>
+  static void WriteBarrier(TraceWrapperMember<T>* array, size_t length);
+
+  static void WriteBarrier(v8::Isolate*, const WrapperTypeInfo*, void*);
+
   static void WriteBarrier(v8::Isolate*,
                            const TraceWrapperV8Reference<v8::Value>&);
 
@@ -63,26 +69,25 @@ class PLATFORM_EXPORT ScriptWrappableMarkingVisitor
                            DOMWrapperMap<ScriptWrappable>*,
                            ScriptWrappable* key);
 
-  ScriptWrappableMarkingVisitor(v8::Isolate* isolate) : isolate_(isolate){};
+  explicit ScriptWrappableMarkingVisitor(ThreadState* thread_state)
+      : ScriptWrappableVisitor(thread_state) {}
   ~ScriptWrappableMarkingVisitor() override;
 
   bool WrapperTracingInProgress() const { return tracing_in_progress_; }
 
-  // v8::EmbedderHeapTracer interface.
+  void AbortTracingForTermination();
 
+  // v8::EmbedderHeapTracer interface.
   void TracePrologue() override;
   void RegisterV8References(const std::vector<std::pair<void*, void*>>&
                                 internal_fields_of_potential_wrappers) override;
   void RegisterV8Reference(const std::pair<void*, void*>& internal_fields);
-  bool AdvanceTracing(double deadline_in_ms,
-                      v8::EmbedderHeapTracer::AdvanceTracingActions) override;
+  bool AdvanceTracing(double deadline_in_ms) override;
   void TraceEpilogue() override;
-  void AbortTracing() override;
-  void EnterFinalPause() override;
-  size_t NumberOfWrappersToTrace() override;
+  void EnterFinalPause(EmbedderStackState) override;
+  bool IsTracingDone() override;
 
   // ScriptWrappableVisitor interface.
-
   void Visit(const TraceWrapperV8Reference<v8::Value>&) override;
   void VisitWithWrappers(void*, TraceDescriptor) override;
   void Visit(DOMWrapperMap<ScriptWrappable>*,
@@ -93,8 +98,6 @@ class PLATFORM_EXPORT ScriptWrappableMarkingVisitor
 
  protected:
   using Visitor::Visit;
-
-  v8::Isolate* isolate() const { return isolate_; }
 
  private:
   class MarkingDequeItem {
@@ -154,11 +157,6 @@ class PLATFORM_EXPORT ScriptWrappableMarkingVisitor
   // TracePrologue has been called, and TraceEpilogue has not yet been called.
   bool tracing_in_progress_ = false;
 
-  // Is AdvanceTracing currently running? If not, we know that all calls of
-  // pushToMarkingDeque are from V8 or new wrapper associations. And this
-  // information is used by the verifier feature.
-  bool advancing_tracing_ = false;
-
   // Indicates whether an idle task for a lazy cleanup has already been
   // scheduled. The flag is used to avoid scheduling multiple idle tasks for
   // cleaning up.
@@ -192,7 +190,6 @@ class PLATFORM_EXPORT ScriptWrappableMarkingVisitor
   // - objects this headers belong to are invalidated by the oilpan GC in
   //   invalidateDeadObjectsInMarkingDeque.
   WTF::Vector<HeapObjectHeader*> headers_to_unmark_;
-  v8::Isolate* isolate_;
 
   FRIEND_TEST_ALL_PREFIXES(ScriptWrappableMarkingVisitorTest, MixinTracing);
   FRIEND_TEST_ALL_PREFIXES(ScriptWrappableMarkingVisitorTest,
@@ -233,6 +230,25 @@ inline void ScriptWrappableMarkingVisitor::WriteBarrier(const T* dst_object) {
   CurrentVisitor(thread_state->GetIsolate())
       ->VisitWithWrappers(const_cast<T*>(dst_object),
                           TraceDescriptorFor(dst_object));
+}
+
+template <typename T>
+inline void ScriptWrappableMarkingVisitor::WriteBarrier(
+    TraceWrapperMember<T>* array,
+    size_t length) {
+  if (!ThreadState::IsAnyWrapperTracing() || !array)
+    return;
+
+  const ThreadState* thread_state =
+      ThreadStateFor<ThreadingTrait<T>::kAffinity>::GetState();
+  DCHECK(thread_state);
+  // Bail out if tracing is not in progress.
+  if (!thread_state->IsWrapperTracing())
+    return;
+
+  for (size_t i = 0; i < length; ++i) {
+    CurrentVisitor(thread_state->GetIsolate())->Trace(array[i]);
+  }
 }
 
 }  // namespace blink

@@ -17,17 +17,18 @@
 #include <vector>
 
 #include "absl/memory/memory.h"
-#include "p2p/base/portallocator.h"
-#include "rtc_base/base64.h"
+#include "absl/strings/match.h"
+#include "p2p/base/port_allocator.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/crc32.h"
 #include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/messagedigest.h"
+#include "rtc_base/mdns_responder_interface.h"
+#include "rtc_base/message_digest.h"
 #include "rtc_base/network.h"
 #include "rtc_base/numerics/safe_minmax.h"
-#include "rtc_base/stringencode.h"
-#include "rtc_base/stringutils.h"
+#include "rtc_base/string_encode.h"
+#include "rtc_base/third_party/base64/base64.h"
 
 namespace {
 
@@ -182,7 +183,7 @@ const char* ProtoToString(ProtocolType proto) {
 
 bool StringToProto(const char* value, ProtocolType* proto) {
   for (size_t i = 0; i <= PROTO_LAST; ++i) {
-    if (_stricmp(PROTO_NAMES[i], value) == 0) {
+    if (absl::EqualsIgnoreCase(PROTO_NAMES[i], value)) {
       *proto = static_cast<ProtocolType>(i);
       return true;
     }
@@ -206,9 +207,9 @@ static std::string ComputeFoundation(const std::string& type,
                                      const std::string& protocol,
                                      const std::string& relay_protocol,
                                      const rtc::SocketAddress& base_address) {
-  std::ostringstream ost;
-  ost << type << base_address.ipaddr().ToString() << protocol << relay_protocol;
-  return rtc::ToString<uint32_t>(rtc::ComputeCrc32(ost.str()));
+  rtc::StringBuilder sb;
+  sb << type << base_address.ipaddr().ToString() << protocol << relay_protocol;
+  return rtc::ToString(rtc::ComputeCrc32(sb.Release()));
 }
 
 CandidateStats::CandidateStats() = default;
@@ -270,7 +271,8 @@ Port::Port(rtc::Thread* thread,
       enable_port_packets_(false),
       ice_role_(ICEROLE_UNKNOWN),
       tiebreaker_(0),
-      shared_socket_(true) {
+      shared_socket_(true),
+      weak_factory_(this) {
   Construct();
 }
 
@@ -297,7 +299,8 @@ Port::Port(rtc::Thread* thread,
       enable_port_packets_(false),
       ice_role_(ICEROLE_UNKNOWN),
       tiebreaker_(0),
-      shared_socket_(false) {
+      shared_socket_(false),
+      weak_factory_(this) {
   RTC_DCHECK(factory_ != NULL);
   Construct();
 }
@@ -396,9 +399,9 @@ void Port::AddAddress(const rtc::SocketAddress& address,
                       const std::string& type,
                       uint32_t type_preference,
                       uint32_t relay_preference,
-                      bool final) {
+                      bool is_final) {
   AddAddress(address, base_address, related_address, protocol, relay_protocol,
-             tcptype, type, type_preference, relay_preference, "", final);
+             tcptype, type, type_preference, relay_preference, "", is_final);
 }
 
 void Port::AddAddress(const rtc::SocketAddress& address,
@@ -411,7 +414,7 @@ void Port::AddAddress(const rtc::SocketAddress& address,
                       uint32_t type_preference,
                       uint32_t relay_preference,
                       const std::string& url,
-                      bool final) {
+                      bool is_final) {
   if (protocol == TCP_PROTOCOL_NAME && type == LOCAL_PORT_TYPE) {
     RTC_DCHECK(!tcptype.empty());
   }
@@ -426,12 +429,62 @@ void Port::AddAddress(const rtc::SocketAddress& address,
   c.set_tcptype(tcptype);
   c.set_network_name(network_->name());
   c.set_network_type(network_->type());
-  c.set_related_address(related_address);
   c.set_url(url);
+  c.set_related_address(related_address);
+
+  bool pending = MaybeObfuscateAddress(&c, type, is_final);
+
+  if (!pending) {
+    FinishAddingAddress(c, is_final);
+  }
+}
+
+bool Port::MaybeObfuscateAddress(Candidate* c,
+                                 const std::string& type,
+                                 bool is_final) {
+  // TODO(bugs.webrtc.org/9723): Use a config to control the feature of IP
+  // handling with mDNS.
+  if (network_->GetMdnsResponder() == nullptr) {
+    return false;
+  }
+  if (type != LOCAL_PORT_TYPE) {
+    return false;
+  }
+
+  auto copy = *c;
+  auto weak_ptr = weak_factory_.GetWeakPtr();
+  auto callback = [weak_ptr, copy, is_final](const rtc::IPAddress& addr,
+                                             const std::string& name) mutable {
+    RTC_DCHECK(copy.address().ipaddr() == addr);
+    rtc::SocketAddress hostname_address(name, copy.address().port());
+    // In Port and Connection, we need the IP address information to
+    // correctly handle the update of candidate type to prflx. The removal
+    // of IP address when signaling this candidate will take place in
+    // BasicPortAllocatorSession::OnCandidateReady, via SanitizeCandidate.
+    hostname_address.SetResolvedIP(addr);
+    copy.set_address(hostname_address);
+    copy.set_related_address(rtc::SocketAddress());
+    if (weak_ptr != nullptr) {
+      weak_ptr->set_mdns_name_registration_status(
+          MdnsNameRegistrationStatus::kCompleted);
+      weak_ptr->FinishAddingAddress(copy, is_final);
+    }
+  };
+  set_mdns_name_registration_status(MdnsNameRegistrationStatus::kInProgress);
+  network_->GetMdnsResponder()->CreateNameForAddress(copy.address().ipaddr(),
+                                                     callback);
+  return true;
+}
+
+void Port::FinishAddingAddress(const Candidate& c, bool is_final) {
   candidates_.push_back(c);
   SignalCandidateReady(this, c);
 
-  if (final) {
+  PostAddAddress(is_final);
+}
+
+void Port::PostAddAddress(bool is_final) {
+  if (is_final) {
     SignalPortComplete(this);
   }
 }
@@ -633,6 +686,11 @@ bool Port::IsCompatibleAddress(const rtc::SocketAddress& addr) {
   return true;
 }
 
+rtc::DiffServCodePoint Port::StunDscpValue() const {
+  // By default, inherit from whatever the MediaChannel sends.
+  return rtc::DSCP_NO_CHANGE;
+}
+
 bool Port::ParseStunUsername(const StunMessage* stun_msg,
                              std::string* local_ufrag,
                              std::string* remote_ufrag) const {
@@ -731,7 +789,7 @@ bool Port::HandleIncomingPacket(rtc::AsyncPacketSocket* socket,
                                 const char* data,
                                 size_t size,
                                 const rtc::SocketAddress& remote_addr,
-                                const rtc::PacketTime& packet_time) {
+                                int64_t packet_time_us) {
   RTC_NOTREACHED();
   return false;
 }
@@ -781,7 +839,7 @@ void Port::SendBindingResponse(StunMessage* request,
   // Send the response message.
   rtc::ByteBufferWriter buf;
   response.Write(&buf);
-  rtc::PacketOptions options(DefaultDscpValue());
+  rtc::PacketOptions options(StunDscpValue());
   options.info_signaled_after_sent.packet_type =
       rtc::PacketType::kIceConnectivityCheckResponse;
   auto err = SendTo(buf.Data(), buf.Length(), addr, options, false);
@@ -802,7 +860,8 @@ void Port::SendBindingResponse(StunMessage* request,
 
     conn->stats_.sent_ping_responses++;
     conn->LogCandidatePairEvent(
-        webrtc::IceCandidatePairEventType::kCheckResponseSent);
+        webrtc::IceCandidatePairEventType::kCheckResponseSent,
+        request->reduced_transaction_id());
   }
 }
 
@@ -834,7 +893,7 @@ void Port::SendBindingErrorResponse(StunMessage* request,
   // Send the response message.
   rtc::ByteBufferWriter buf;
   response.Write(&buf);
-  rtc::PacketOptions options(DefaultDscpValue());
+  rtc::PacketOptions options(StunDscpValue());
   options.info_signaled_after_sent.packet_type =
       rtc::PacketType::kIceConnectivityCheckResponse;
   SendTo(buf.Data(), buf.Length(), addr, options, false);
@@ -873,11 +932,11 @@ void Port::OnNetworkTypeChanged(const rtc::Network* network) {
 }
 
 std::string Port::ToString() const {
-  std::stringstream ss;
-  ss << "Port[" << std::hex << this << std::dec << ":" << content_name_ << ":"
-     << component_ << ":" << generation_ << ":" << type_ << ":"
-     << network_->ToString() << "]";
-  return ss.str();
+  rtc::StringBuilder ss;
+  ss << "Port[" << rtc::ToHex(reinterpret_cast<uintptr_t>(this)) << ":"
+     << content_name_ << ":" << component_ << ":" << generation_ << ":" << type_
+     << ":" << network_->ToString() << "]";
+  return ss.Release();
 }
 
 // TODO(honghaiz): Make the network cost configurable from user setting.
@@ -1043,7 +1102,8 @@ class ConnectionRequest : public StunRequest {
 Connection::Connection(Port* port,
                        size_t index,
                        const Candidate& remote_candidate)
-    : port_(port),
+    : id_(rtc::CreateRandomId()),
+      port_(port),
       local_candidate_index_(index),
       remote_candidate_(remote_candidate),
       recv_rate_tracker_(100, 10u),
@@ -1068,7 +1128,6 @@ Connection::Connection(Port* port,
   // TODO(mallinath) - Start connections from STATE_FROZEN.
   // Wire up to send stun packets
   requests_.SignalSendPacket.connect(this, &Connection::OnSendStunPacket);
-  hash_ = static_cast<uint32_t>(std::hash<std::string>{}(ToString()));
   RTC_LOG(LS_INFO) << ToString() << ": Connection created";
 }
 
@@ -1172,6 +1231,10 @@ int Connection::unwritable_min_checks() const {
   return unwritable_min_checks_.value_or(CONNECTION_WRITE_CONNECT_FAILURES);
 }
 
+int Connection::inactive_timeout() const {
+  return inactive_timeout_.value_or(CONNECTION_WRITE_TIMEOUT);
+}
+
 int Connection::receiving_timeout() const {
   return receiving_timeout_.value_or(WEAK_CONNECTION_RECEIVE_TIMEOUT);
 }
@@ -1179,7 +1242,7 @@ int Connection::receiving_timeout() const {
 void Connection::OnSendStunPacket(const void* data,
                                   size_t size,
                                   StunRequest* req) {
-  rtc::PacketOptions options(port_->DefaultDscpValue());
+  rtc::PacketOptions options(port_->StunDscpValue());
   options.info_signaled_after_sent.packet_type =
       rtc::PacketType::kIceConnectivityCheck;
   auto err =
@@ -1194,7 +1257,7 @@ void Connection::OnSendStunPacket(const void* data,
 
 void Connection::OnReadPacket(const char* data,
                               size_t size,
-                              const rtc::PacketTime& packet_time) {
+                              int64_t packet_time_us) {
   std::unique_ptr<IceMessage> msg;
   std::string remote_ufrag;
   const rtc::SocketAddress& addr(remote_candidate_.address());
@@ -1204,7 +1267,7 @@ void Connection::OnReadPacket(const char* data,
     last_data_received_ = rtc::TimeMillis();
     UpdateReceiving(last_data_received_);
     recv_rate_tracker_.AddSamples(size);
-    SignalReadPacket(this, data, size, packet_time);
+    SignalReadPacket(this, data, size, packet_time_us);
 
     // If timed out sending writability checks, start up again
     if (!pruned_ && (write_state_ == STATE_WRITE_TIMEOUT)) {
@@ -1282,7 +1345,8 @@ void Connection::HandleBindingRequest(IceMessage* msg) {
   }
 
   stats_.recv_ping_requests++;
-  LogCandidatePairEvent(webrtc::IceCandidatePairEventType::kCheckReceived);
+  LogCandidatePairEvent(webrtc::IceCandidatePairEventType::kCheckReceived,
+                        msg->reduced_transaction_id());
 
   // This is a validated stun request from remote peer.
   port_->SendBindingResponse(msg, remote_addr);
@@ -1366,8 +1430,7 @@ void Connection::FailAndPrune() {
 }
 
 void Connection::PrintPingsSinceLastResponse(std::string* s, size_t max) {
-  std::ostringstream oss;
-  oss << std::boolalpha;
+  rtc::StringBuilder oss;
   if (pings_since_last_response_.size() > max) {
     for (size_t i = 0; i < max; i++) {
       const SentPing& ping = pings_since_last_response_[i];
@@ -1424,8 +1487,8 @@ void Connection::UpdateState(int64_t now) {
   }
   if ((write_state_ == STATE_WRITE_UNRELIABLE ||
        write_state_ == STATE_WRITE_INIT) &&
-      TooLongWithoutResponse(pings_since_last_response_,
-                             CONNECTION_WRITE_TIMEOUT, now)) {
+      TooLongWithoutResponse(pings_since_last_response_, inactive_timeout(),
+                             now)) {
     RTC_LOG(LS_INFO) << ToString() << ": Timed out after "
                      << now - pings_since_last_response_[0].sent_time
                      << " ms without a response, rtt=" << rtt;
@@ -1529,9 +1592,7 @@ bool Connection::stable(int64_t now) const {
 }
 
 std::string Connection::ToDebugId() const {
-  std::stringstream ss;
-  ss << std::hex << this;
-  return ss.str();
+  return rtc::ToHex(reinterpret_cast<uintptr_t>(this));
 }
 
 uint32_t Connection::ComputeNetworkCost() const {
@@ -1540,33 +1601,33 @@ uint32_t Connection::ComputeNetworkCost() const {
 }
 
 std::string Connection::ToString() const {
-  const char CONNECT_STATE_ABBREV[2] = {
-      '-',  // not connected (false)
-      'C',  // connected (true)
+  const absl::string_view CONNECT_STATE_ABBREV[2] = {
+      "-",  // not connected (false)
+      "C",  // connected (true)
   };
-  const char RECEIVE_STATE_ABBREV[2] = {
-      '-',  // not receiving (false)
-      'R',  // receiving (true)
+  const absl::string_view RECEIVE_STATE_ABBREV[2] = {
+      "-",  // not receiving (false)
+      "R",  // receiving (true)
   };
-  const char WRITE_STATE_ABBREV[4] = {
-      'W',  // STATE_WRITABLE
-      'w',  // STATE_WRITE_UNRELIABLE
-      '-',  // STATE_WRITE_INIT
-      'x',  // STATE_WRITE_TIMEOUT
+  const absl::string_view WRITE_STATE_ABBREV[4] = {
+      "W",  // STATE_WRITABLE
+      "w",  // STATE_WRITE_UNRELIABLE
+      "-",  // STATE_WRITE_INIT
+      "x",  // STATE_WRITE_TIMEOUT
   };
-  const std::string ICESTATE[4] = {
+  const absl::string_view ICESTATE[4] = {
       "W",  // STATE_WAITING
       "I",  // STATE_INPROGRESS
       "S",  // STATE_SUCCEEDED
       "F"   // STATE_FAILED
   };
-  const std::string SELECTED_STATE_ABBREV[2] = {
+  const absl::string_view SELECTED_STATE_ABBREV[2] = {
       "-",  // candidate pair not selected (false)
       "S",  // selected (true)
   };
   const Candidate& local = local_candidate();
   const Candidate& remote = remote_candidate();
-  std::stringstream ss;
+  rtc::StringBuilder ss;
   ss << "Conn[" << ToDebugId() << ":" << port_->content_name() << ":"
      << port_->Network()->ToString() << ":" << local.id() << ":"
      << local.component() << ":" << local.generation() << ":" << local.type()
@@ -1583,7 +1644,7 @@ std::string Connection::ToString() const {
   } else {
     ss << "-]";
   }
-  return ss.str();
+  return ss.Release();
 }
 
 std::string Connection::ToSensitiveString() const {
@@ -1619,14 +1680,15 @@ void Connection::LogCandidatePairConfig(
   if (ice_event_log_ == nullptr) {
     return;
   }
-  ice_event_log_->LogCandidatePairConfig(type, hash(), ToLogDescription());
+  ice_event_log_->LogCandidatePairConfig(type, id(), ToLogDescription());
 }
 
-void Connection::LogCandidatePairEvent(webrtc::IceCandidatePairEventType type) {
+void Connection::LogCandidatePairEvent(webrtc::IceCandidatePairEventType type,
+                                       uint32_t transaction_id) {
   if (ice_event_log_ == nullptr) {
     return;
   }
-  ice_event_log_->LogCandidatePairEvent(type, hash());
+  ice_event_log_->LogCandidatePairEvent(type, id(), transaction_id);
 }
 
 void Connection::OnConnectionRequestResponse(ConnectionRequest* request,
@@ -1653,7 +1715,8 @@ void Connection::OnConnectionRequestResponse(ConnectionRequest* request,
 
   stats_.recv_ping_responses++;
   LogCandidatePairEvent(
-      webrtc::IceCandidatePairEventType::kCheckResponseReceived);
+      webrtc::IceCandidatePairEventType::kCheckResponseReceived,
+      response->reduced_transaction_id());
 
   MaybeUpdateLocalCandidate(request, response);
 }
@@ -1699,7 +1762,8 @@ void Connection::OnConnectionRequestSent(ConnectionRequest* request) {
                  << ", use_candidate=" << use_candidate_attr()
                  << ", nomination=" << nomination();
   stats_.sent_ping_requests_total++;
-  LogCandidatePairEvent(webrtc::IceCandidatePairEventType::kCheckSent);
+  LogCandidatePairEvent(webrtc::IceCandidatePairEventType::kCheckSent,
+                        request->reduced_transaction_id());
   if (stats_.recv_ping_responses == 0) {
     stats_.sent_ping_requests_before_first_response++;
   }
@@ -1762,14 +1826,13 @@ ConnectionInfo Connection::stats() {
   stats_.timeout = write_state_ == STATE_WRITE_TIMEOUT;
   stats_.new_connection = !reported_;
   stats_.rtt = rtt_;
-  stats_.local_candidate = local_candidate();
-  stats_.remote_candidate = remote_candidate();
   stats_.key = this;
   stats_.state = state_;
   stats_.priority = priority();
   stats_.nominated = nominated();
   stats_.total_round_trip_time_ms = total_round_trip_time_ms_;
   stats_.current_round_trip_time_ms = current_round_trip_time_ms_;
+  CopyCandidatesToStatsAndSanitizeIfNecessary();
   return stats_;
 }
 
@@ -1844,6 +1907,36 @@ void Connection::MaybeUpdateLocalCandidate(ConnectionRequest* request,
   // SignalStateChange to force a re-sort in P2PTransportChannel as this
   // Connection's local candidate has changed.
   SignalStateChange(this);
+}
+
+void Connection::CopyCandidatesToStatsAndSanitizeIfNecessary() {
+  auto get_sanitized_copy = [](const Candidate& c) {
+    bool use_hostname_address = c.type() == LOCAL_PORT_TYPE;
+    bool filter_related_address = c.type() == STUN_PORT_TYPE;
+    return c.ToSanitizedCopy(use_hostname_address, filter_related_address);
+  };
+
+  if (port_->Network()->GetMdnsResponder() != nullptr) {
+    // When the mDNS obfuscation of local IPs is enabled, we sanitize local
+    // candidates.
+    stats_.local_candidate = get_sanitized_copy(local_candidate());
+  } else {
+    stats_.local_candidate = local_candidate();
+  }
+
+  if (!remote_candidate().address().hostname().empty()) {
+    // If the remote endpoint signaled us a hostname candidate, we assume it is
+    // supposed to be sanitized in the stats.
+    //
+    // A prflx remote candidate should not have a hostname set.
+    RTC_DCHECK(remote_candidate().type() != PRFLX_PORT_TYPE);
+    // A remote hostname candidate should have a resolved IP before we can form
+    // a candidate pair.
+    RTC_DCHECK(!remote_candidate().address().IsUnresolvedIP());
+    stats_.remote_candidate = get_sanitized_copy(remote_candidate());
+  } else {
+    stats_.remote_candidate = remote_candidate();
+  }
 }
 
 bool Connection::rtt_converged() const {

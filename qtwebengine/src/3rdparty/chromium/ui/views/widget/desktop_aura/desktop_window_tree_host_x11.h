@@ -103,8 +103,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void Close() override;
   void CloseNow() override;
   aura::WindowTreeHost* AsWindowTreeHost() override;
-  void ShowWindowWithState(ui::WindowShowState show_state) override;
-  void ShowMaximizedWithBounds(const gfx::Rect& restored_bounds) override;
+  void Show(ui::WindowShowState show_state,
+            const gfx::Rect& restore_bounds) override;
   bool IsVisible() const override;
   void SetSize(const gfx::Size& requested_size) override;
   void StackAbove(aura::Window* window) override;
@@ -165,9 +165,10 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void ShowImpl() override;
   void HideImpl() override;
   gfx::Rect GetBoundsInPixels() const override;
-  void SetBoundsInPixels(const gfx::Rect& requested_bounds_in_pixels,
-                         const viz::LocalSurfaceId& local_surface_id =
-                             viz::LocalSurfaceId()) override;
+  void SetBoundsInPixels(
+      const gfx::Rect& requested_bounds_in_pixels,
+      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation =
+          viz::LocalSurfaceIdAllocation()) override;
   gfx::Point GetLocationOnScreenInPixels() const override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -183,12 +184,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // Overridden from display::DisplayObserver via aura::WindowTreeHost:
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
-
-  // Called after the window is maximized or restored.
-  virtual void OnMaximizedStateChanged();
-
-  // Called after the window is fullscreened or unfullscreened.
-  virtual void OnFullscreenStateChanged();
 
  private:
   friend class DesktopWindowTreeHostX11HighDPITest;
@@ -208,11 +203,20 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
 
   // If mapped, sends a message to the window manager to enable or disable the
   // states |state1| and |state2|.  Otherwise, the states will be enabled or
-  // disabled on the next map.
+  // disabled on the next map.  It's the caller's responsibility to make sure
+  // atoms are set and unset in the appropriate pairs.  For example, if a caller
+  // sets (_NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_MAXIMIZED_HORZ), it would
+  // be invalid to unset the maximized state by making two calls like
+  // (_NET_WM_STATE_MAXIMIZED_VERT, x11::None), (_NET_WM_STATE_MAXIMIZED_HORZ,
+  // x11::None).
   void SetWMSpecState(bool enabled, XAtom state1, XAtom state2);
 
   // Called when |xwindow_|'s _NET_WM_STATE property is updated.
   void OnWMStateUpdated();
+
+  // Updates |window_properties_| with |new_window_properties|.
+  void UpdateWindowProperties(
+      const base::flat_set<XAtom>& new_window_properties);
 
   // Called when |xwindow_|'s _NET_FRAME_EXTENTS property is updated.
   void OnFrameExtentsUpdated();
@@ -343,12 +347,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // _NET_WM_DESKTOP is unset.
   base::Optional<int> workspace_;
 
-  // The window manager state bits as indicated by the server.  May be
-  // out-of-sync.  May include bits set by non-Chrome apps.
-  base::flat_set<::Atom> window_properties_in_server_;
-
-  // The window manager state bits that Chrome has set.
-  base::flat_set<::Atom> window_properties_in_client_;
+  // The window manager state bits.
+  base::flat_set<XAtom> window_properties_;
 
   // Whether |xwindow_| was requested to be fullscreen via SetFullscreen().
   bool is_fullscreen_;
@@ -381,7 +381,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   DesktopWindowTreeHostX11* window_parent_;
   std::set<DesktopWindowTreeHostX11*> window_children_;
 
-  base::ObserverList<DesktopWindowTreeHostObserverX11> observer_list_;
+  base::ObserverList<DesktopWindowTreeHostObserverX11>::Unchecked
+      observer_list_;
 
   // The window shape if the window is non-rectangular.
   gfx::XScopedPtr<_XRegion, gfx::XObjectDeleter<_XRegion, int, XDestroyRegion>>

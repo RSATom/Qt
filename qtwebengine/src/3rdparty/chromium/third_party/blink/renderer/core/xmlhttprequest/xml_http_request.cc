@@ -26,9 +26,10 @@
 #include <memory>
 
 #include "base/auto_reset.h"
+#include "base/feature_list.h"
 #include "third_party/blink/public/common/blob/blob_utils.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
-#include "third_party/blink/public/platform/web_cors.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view_or_blob_or_document_or_string_or_form_data_or_url_search_params.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view_or_blob_or_usv_string.h"
@@ -69,8 +70,6 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
-#include "third_party/blink/renderer/platform/exported/wrapped_resource_response.h"
-#include "third_party/blink/renderer/platform/feature_policy/feature_policy.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
@@ -232,7 +231,14 @@ class XMLHttpRequest::BlobLoader final
  public:
   static BlobLoader* Create(XMLHttpRequest* xhr,
                             scoped_refptr<BlobDataHandle> handle) {
-    return new BlobLoader(xhr, std::move(handle));
+    return MakeGarbageCollected<BlobLoader>(xhr, std::move(handle));
+  }
+
+  BlobLoader(XMLHttpRequest* xhr, scoped_refptr<BlobDataHandle> handle)
+      : xhr_(xhr),
+        loader_(
+            FileReaderLoader::Create(FileReaderLoader::kReadByClient, this)) {
+    loader_->Start(std::move(handle));
   }
 
   // FileReaderLoaderClient functions.
@@ -242,22 +248,13 @@ class XMLHttpRequest::BlobLoader final
     xhr_->DidReceiveData(data, length);
   }
   void DidFinishLoading() override { xhr_->DidFinishLoadingFromBlob(); }
-  void DidFail(FileError::ErrorCode error) override {
-    xhr_->DidFailLoadingFromBlob();
-  }
+  void DidFail(FileErrorCode error) override { xhr_->DidFailLoadingFromBlob(); }
 
   void Cancel() { loader_->Cancel(); }
 
   void Trace(blink::Visitor* visitor) { visitor->Trace(xhr_); }
 
  private:
-  BlobLoader(XMLHttpRequest* xhr, scoped_refptr<BlobDataHandle> handle)
-      : xhr_(xhr),
-        loader_(
-            FileReaderLoader::Create(FileReaderLoader::kReadByClient, this)) {
-    loader_->Start(std::move(handle));
-  }
-
   Member<XMLHttpRequest> xhr_;
   std::unique_ptr<FileReaderLoader> loader_;
 };
@@ -267,23 +264,18 @@ XMLHttpRequest* XMLHttpRequest::Create(ScriptState* script_state) {
   DOMWrapperWorld& world = script_state->World();
   v8::Isolate* isolate = script_state->GetIsolate();
 
-  XMLHttpRequest* xml_http_request =
-      world.IsIsolatedWorld()
-          ? new XMLHttpRequest(context, isolate, true,
-                               world.IsolatedWorldSecurityOrigin())
-          : new XMLHttpRequest(context, isolate, false, nullptr);
-  xml_http_request->PauseIfNeeded();
-  return xml_http_request;
+  return world.IsIsolatedWorld()
+             ? MakeGarbageCollected<XMLHttpRequest>(
+                   context, isolate, true, world.IsolatedWorldSecurityOrigin())
+             : MakeGarbageCollected<XMLHttpRequest>(context, isolate, false,
+                                                    nullptr);
 }
 
 XMLHttpRequest* XMLHttpRequest::Create(ExecutionContext* context) {
-  v8::Isolate* isolate = ToIsolate(context);
+  v8::Isolate* isolate = context->GetIsolate();
   CHECK(isolate);
 
-  XMLHttpRequest* xml_http_request =
-      new XMLHttpRequest(context, isolate, false, nullptr);
-  xml_http_request->PauseIfNeeded();
-  return xml_http_request;
+  return MakeGarbageCollected<XMLHttpRequest>(context, isolate, false, nullptr);
 }
 
 XMLHttpRequest::XMLHttpRequest(
@@ -291,7 +283,7 @@ XMLHttpRequest::XMLHttpRequest(
     v8::Isolate* isolate,
     bool is_isolated_world,
     scoped_refptr<SecurityOrigin> isolated_world_security_origin)
-    : PausableObject(context),
+    : ContextLifecycleObserver(context),
       progress_event_throttle_(
           XMLHttpRequestProgressEventThrottle::Create(this)),
       isolate_(isolate),
@@ -306,8 +298,7 @@ XMLHttpRequest::~XMLHttpRequest() {
 }
 
 Document* XMLHttpRequest::GetDocument() const {
-  DCHECK(GetExecutionContext()->IsDocument());
-  return ToDocument(GetExecutionContext());
+  return To<Document>(GetExecutionContext());
 }
 
 const SecurityOrigin* XMLHttpRequest::GetSecurityOrigin() const {
@@ -364,7 +355,7 @@ void XMLHttpRequest::InitResponseDocument() {
 
   DocumentInit init = DocumentInit::Create()
                           .WithContextDocument(GetDocument()->ContextDocument())
-                          .WithURL(response_.Url());
+                          .WithURL(response_.ResponseUrl());
   if (is_html)
     response_document_ = HTMLDocument::Create(init);
   else
@@ -396,8 +387,12 @@ Document* XMLHttpRequest::responseXML(ExceptionState& exception_state) {
       return nullptr;
 
     response_document_->SetContent(response_text_.Flatten(isolate_));
-    if (!response_document_->WellFormed())
+    if (!response_document_->WellFormed()) {
       response_document_ = nullptr;
+    } else {
+      response_document_->OverrideLastModified(
+          response_.HttpHeaderField(http_names::kLastModified));
+    }
 
     parsed_response_ = true;
   }
@@ -477,7 +472,7 @@ void XMLHttpRequest::setTimeout(unsigned timeout,
     return;
   }
 
-  timeout_milliseconds_ = timeout;
+  timeout_ = TimeDelta::FromMilliseconds(timeout);
 
   // From http://www.w3.org/TR/XMLHttpRequest/#the-timeout-attribute:
   // Note: This implies that the timeout attribute can be set while fetching is
@@ -486,7 +481,7 @@ void XMLHttpRequest::setTimeout(unsigned timeout,
   //
   // The timeout may be overridden after send.
   if (loader_)
-    loader_->OverrideTimeout(timeout);
+    loader_->SetTimeout(timeout_);
 }
 
 void XMLHttpRequest::setResponseType(const String& response_type,
@@ -545,7 +540,7 @@ String XMLHttpRequest::responseType() {
 }
 
 String XMLHttpRequest::responseURL() {
-  KURL response_url(response_.Url());
+  KURL response_url(response_.ResponseUrl());
   if (!response_url.IsNull())
     response_url.RemoveFragmentIdentifier();
   return response_url.GetString();
@@ -563,7 +558,7 @@ void XMLHttpRequest::TrackProgress(long long length) {
   ChangeState(kLoading);
   if (async_) {
     // readyStateChange event is fired as well.
-    DispatchProgressEventFromSnapshot(EventTypeNames::progress);
+    DispatchProgressEventFromSnapshot(event_type_names::kProgress);
   }
 }
 
@@ -580,9 +575,9 @@ void XMLHttpRequest::DispatchReadyStateChangeEvent() {
 
   ScopedEventDispatchProtect protect(&event_dispatch_recursion_level_);
   if (async_ || (state_ <= kOpened || state_ == kDone)) {
-    TRACE_EVENT1(
-        "devtools.timeline", "XHRReadyStateChange", "data",
-        InspectorXhrReadyStateChangeEvent::Data(GetExecutionContext(), this));
+    TRACE_EVENT1("devtools.timeline", "XHRReadyStateChange", "data",
+                 inspector_xhr_ready_state_change_event::Data(
+                     GetExecutionContext(), this));
     XMLHttpRequestProgressEventThrottle::DeferredEventAction action =
         XMLHttpRequestProgressEventThrottle::kIgnore;
     if (state_ == kDone) {
@@ -592,14 +587,14 @@ void XMLHttpRequest::DispatchReadyStateChangeEvent() {
         action = XMLHttpRequestProgressEventThrottle::kFlush;
     }
     progress_event_throttle_->DispatchReadyStateChangeEvent(
-        Event::Create(EventTypeNames::readystatechange), action);
+        Event::Create(event_type_names::kReadystatechange), action);
   }
 
   if (state_ == kDone && !error_) {
     TRACE_EVENT1("devtools.timeline", "XHRLoad", "data",
-                 InspectorXhrLoadEvent::Data(GetExecutionContext(), this));
-    DispatchProgressEventFromSnapshot(EventTypeNames::load);
-    DispatchProgressEventFromSnapshot(EventTypeNames::loadend);
+                 inspector_xhr_load_event::Data(GetExecutionContext(), this));
+    DispatchProgressEventFromSnapshot(event_type_names::kLoad);
+    DispatchProgressEventFromSnapshot(event_type_names::kLoadend);
   }
 }
 
@@ -686,7 +681,7 @@ void XMLHttpRequest::open(const AtomicString& method,
     }
 
     // Similarly, timeouts are disabled for synchronous requests as well.
-    if (timeout_milliseconds_ > 0) {
+    if (!timeout_.is_zero()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kInvalidAccessError,
           "Synchronous requests must not set a timeout.");
@@ -746,10 +741,10 @@ bool XMLHttpRequest::InitSend(ExceptionState& exception_state) {
 
   if (!async_) {
     if (GetExecutionContext()->IsDocument() &&
-        !GetDocument()->GetFrame()->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kSyncXHR)) {
-      LogConsoleError(GetExecutionContext(),
-                      "Synchronous requests are disabled by Feature Policy.");
+        !GetDocument()->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kSyncXHR,
+            ReportOptions::kReportOnFailure,
+            "Synchronous requests are disabled by Feature Policy.")) {
       HandleNetworkError();
       ThrowForLoadFailureIfNeeded(exception_state, String());
       return false;
@@ -811,7 +806,7 @@ void XMLHttpRequest::send(
 }
 
 bool XMLHttpRequest::AreMethodAndURLValidForSend() {
-  return method_ != HTTPNames::GET && method_ != HTTPNames::HEAD &&
+  return method_ != http_names::kGET && method_ != http_names::kHEAD &&
          url_.ProtocolIsInHTTPFamily();
 }
 
@@ -827,17 +822,15 @@ void XMLHttpRequest::send(Document* document, ExceptionState& exception_state) {
   scoped_refptr<EncodedFormData> http_body;
 
   if (AreMethodAndURLValidForSend()) {
-    // FIXME: Per https://xhr.spec.whatwg.org/#dom-xmlhttprequest-send the
-    // Content-Type header and whether to serialize as HTML or XML should
-    // depend on |document->isHTMLDocument()|.
-    if (!HasContentTypeRequestHeader())
-      SetRequestHeaderInternal(HTTPNames::Content_Type,
-                               "application/xml;charset=UTF-8");
+    if (document->IsHTMLDocument())
+      UpdateContentTypeAndCharset("text/html;charset=UTF-8", "UTF-8");
+    else if (document->IsXMLDocument())
+      UpdateContentTypeAndCharset("application/xml;charset=UTF-8", "UTF-8");
 
     String body = CreateMarkup(document);
 
     http_body = EncodedFormData::Create(
-        UTF8Encoding().Encode(body, WTF::kEntitiesForUnencodables));
+        UTF8Encoding().Encode(body, WTF::kNoUnencodables));
   }
 
   CreateRequest(std::move(http_body), exception_state);
@@ -853,7 +846,7 @@ void XMLHttpRequest::send(const String& body, ExceptionState& exception_state) {
 
   if (!body.IsNull() && AreMethodAndURLValidForSend()) {
     http_body = EncodedFormData::Create(
-        UTF8Encoding().Encode(body, WTF::kEntitiesForUnencodables));
+        UTF8Encoding().Encode(body, WTF::kNoUnencodables));
     UpdateContentTypeAndCharset("text/plain;charset=UTF-8", "UTF-8");
   }
 
@@ -872,7 +865,7 @@ void XMLHttpRequest::send(Blob* body, ExceptionState& exception_state) {
     if (!HasContentTypeRequestHeader()) {
       const String& blob_type = FetchUtils::NormalizeHeaderValue(body->type());
       if (!blob_type.IsEmpty() && ParsedContentType(blob_type).IsValid()) {
-        SetRequestHeaderInternal(HTTPNames::Content_Type,
+        SetRequestHeaderInternal(http_names::kContentType,
                                  AtomicString(blob_type));
       }
     }
@@ -910,7 +903,7 @@ void XMLHttpRequest::send(FormData* body, ExceptionState& exception_state) {
       AtomicString content_type =
           AtomicString("multipart/form-data; boundary=") +
           FetchUtils::NormalizeHeaderValue(http_body->Boundary().data());
-      SetRequestHeaderInternal(HTTPNames::Content_Type, content_type);
+      SetRequestHeaderInternal(http_names::kContentType, content_type);
     }
   }
 
@@ -997,13 +990,23 @@ void XMLHttpRequest::ThrowForLoadFailureIfNeeded(
 void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
                                    ExceptionState& exception_state) {
   // Only GET request is supported for blob URL.
-  if (url_.ProtocolIs("blob") && method_ != HTTPNames::GET) {
+  if (url_.ProtocolIs("blob") && method_ != http_names::kGET) {
     HandleNetworkError();
 
     if (!async_) {
       ThrowForLoadFailureIfNeeded(
           exception_state,
           "'GET' is the only method allowed for 'blob:' URLs.");
+    }
+    return;
+  }
+
+  if (url_.ProtocolIs("ftp")) {
+    LogConsoleError(GetExecutionContext(), "FTP is not supported.");
+    HandleNetworkError();
+    if (!async_) {
+      ThrowForLoadFailureIfNeeded(
+          exception_state, "Making a request to a FTP URL is not supported.");
     }
     return;
   }
@@ -1019,7 +1022,7 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   bool upload_events = false;
   if (async_) {
     probe::AsyncTaskScheduled(&execution_context, "XMLHttpRequest.send", this);
-    DispatchProgressEvent(EventTypeNames::loadstart, 0, 0);
+    DispatchProgressEvent(event_type_names::kLoadstart, 0, 0);
     // Event handler could have invalidated this send operation,
     // (re)setting the send flag and/or initiating another send
     // operation; leave quietly if so.
@@ -1028,16 +1031,16 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
     if (http_body && upload_) {
       upload_events = upload_->HasEventListeners();
       upload_->DispatchEvent(
-          ProgressEvent::Create(EventTypeNames::loadstart, false, 0, 0));
+          *ProgressEvent::Create(event_type_names::kLoadstart, false, 0, 0));
       // See above.
       if (!send_flag_ || loader_)
         return;
     }
   }
 
-  same_origin_request_ = GetSecurityOrigin()->CanRequest(url_);
+  const bool same_origin_request = GetSecurityOrigin()->CanRequest(url_);
 
-  if (!same_origin_request_ && with_credentials_) {
+  if (!same_origin_request && with_credentials_) {
     UseCounter::Count(&execution_context,
                       WebFeature::kXMLHttpRequestCrossOriginWithCredentials);
   }
@@ -1045,16 +1048,17 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   // We also remember whether upload events should be allowed for this request
   // in case the upload listeners are added after the request is started.
   upload_events_allowed_ =
-      same_origin_request_ || upload_events ||
-      !CORS::IsCORSSafelistedMethod(method_) ||
-      !CORS::ContainsOnlyCORSSafelistedHeaders(request_headers_);
+      same_origin_request || upload_events ||
+      !cors::IsCorsSafelistedMethod(method_) ||
+      !cors::ContainsOnlyCorsSafelistedHeaders(request_headers_);
 
   ResourceRequest request(url_);
+  request.SetRequestorOrigin(GetSecurityOrigin());
   request.SetHTTPMethod(method_);
-  request.SetRequestContext(WebURLRequest::kRequestContextXMLHttpRequest);
+  request.SetRequestContext(mojom::RequestContextType::XML_HTTP_REQUEST);
   request.SetFetchRequestMode(
-      upload_events ? network::mojom::FetchRequestMode::kCORSWithForcedPreflight
-                    : network::mojom::FetchRequestMode::kCORS);
+      upload_events ? network::mojom::FetchRequestMode::kCorsWithForcedPreflight
+                    : network::mojom::FetchRequestMode::kCors);
   request.SetFetchCredentialsMode(
       with_credentials_ ? network::mojom::FetchCredentialsMode::kInclude
                         : network::mojom::FetchCredentialsMode::kSameOrigin);
@@ -1063,24 +1067,20 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
       execution_context.GetSecurityContext().AddressSpace());
 
   probe::willLoadXHR(&execution_context, this, this, method_, url_, async_,
-                     request_headers_, with_credentials_);
+                     http_body.get(), request_headers_, with_credentials_);
 
   if (http_body) {
-    DCHECK_NE(method_, HTTPNames::GET);
-    DCHECK_NE(method_, HTTPNames::HEAD);
+    DCHECK_NE(method_, http_names::kGET);
+    DCHECK_NE(method_, http_names::kHEAD);
     request.SetHTTPBody(std::move(http_body));
   }
 
   if (request_headers_.size() > 0)
     request.AddHTTPHeaderFields(request_headers_);
 
-  ThreadableLoaderOptions options;
-  options.timeout_milliseconds = timeout_milliseconds_;
-
   ResourceLoaderOptions resource_loader_options;
-  resource_loader_options.security_origin = GetSecurityOrigin();
   resource_loader_options.initiator_info.name =
-      FetchInitiatorTypeNames::xmlhttprequest;
+      fetch_initiator_type_names::kXmlhttprequest;
   if (blob_url_loader_factory_) {
     resource_loader_options.url_loader_factory = base::MakeRefCounted<
         base::RefCountedData<network::mojom::blink::URLLoaderFactoryPtr>>(
@@ -1100,9 +1100,6 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
   if (async_) {
     resource_loader_options.data_buffering_policy = kDoNotBufferData;
   }
-
-  exception_code_ = DOMExceptionCode::kNoError;
-  error_ = false;
 
   if (async_) {
     UseCounter::Count(&execution_context,
@@ -1124,29 +1121,48 @@ void XMLHttpRequest::CreateRequest(scoped_refptr<EncodedFormData> http_body,
     // TODO(yhirano): Turn this CHECK into DCHECK: see https://crbug.com/570946.
     CHECK(!loader_);
     DCHECK(send_flag_);
-    loader_ = ThreadableLoader::Create(execution_context, this, options,
-                                       resource_loader_options);
-    loader_->Start(request);
-
-    return;
-  }
-
-  // Use count for XHR synchronous requests.
-  UseCounter::Count(&execution_context, WebFeature::kXMLHttpRequestSynchronous);
-  if (GetExecutionContext()->IsDocument()) {
-    // Update histogram for usage of sync xhr within pagedismissal.
-    auto pagedismissal = GetDocument()->PageDismissalEventBeingDispatched();
-    if (pagedismissal != Document::kNoDismissal) {
-      UseCounter::Count(GetDocument(), WebFeature::kSyncXhrInPageDismissal);
-      DEFINE_STATIC_LOCAL(EnumerationHistogram, syncxhr_pagedismissal_histogram,
-                          ("XHR.Sync.PageDismissal", 5));
-      syncxhr_pagedismissal_histogram.Count(pagedismissal);
+  } else {
+    // Use count for XHR synchronous requests.
+    UseCounter::Count(&execution_context, WebFeature::kXMLHttpRequestSynchronous);
+    if (GetExecutionContext()->IsDocument()) {
+      // Update histogram for usage of sync xhr within pagedismissal.
+      auto pagedismissal = GetDocument()->PageDismissalEventBeingDispatched();
+      if (pagedismissal != Document::kNoDismissal) {
+        // Disallow synchronous requests on page dismissal
+        if (base::FeatureList::IsEnabled(
+                features::kForbidSyncXHRInPageDismissal)) {
+          UseCounter::Count(GetDocument(),
+                            WebFeature::kForbiddenSyncXhrInPageDismissal);
+          DEFINE_STATIC_LOCAL(EnumerationHistogram,
+                              forbidden_syncxhr_pagedismissal_histogram,
+                              ("XHR.Sync.PageDismissal_forbidden", 5));
+          forbidden_syncxhr_pagedismissal_histogram.Count(pagedismissal);
+          HandleNetworkError();
+          ThrowForLoadFailureIfNeeded(exception_state,
+                                      "Synchronous XHR in page dismissal.");
+          return;
+        } else {
+          UseCounter::Count(GetDocument(), WebFeature::kSyncXhrInPageDismissal);
+          DEFINE_STATIC_LOCAL(EnumerationHistogram,
+                              syncxhr_pagedismissal_histogram,
+                              ("XHR.Sync.PageDismissal", 5));
+          syncxhr_pagedismissal_histogram.Count(pagedismissal);
+        }
+      }
     }
+    resource_loader_options.synchronous_policy = kRequestSynchronously;
   }
-  ThreadableLoader::LoadResourceSynchronously(execution_context, request, *this,
-                                              options, resource_loader_options);
 
-  ThrowForLoadFailureIfNeeded(exception_state, String());
+  exception_code_ = DOMExceptionCode::kNoError;
+  error_ = false;
+
+  loader_ = MakeGarbageCollected<ThreadableLoader>(execution_context, this,
+                                                   resource_loader_options);
+  loader_->SetTimeout(timeout_);
+  loader_->Start(request);
+
+  if (!async_)
+    ThrowForLoadFailureIfNeeded(exception_state, String());
 }
 
 void XMLHttpRequest::abort() {
@@ -1173,7 +1189,7 @@ void XMLHttpRequest::abort() {
     if ((state_ == kOpened && send_flag_) || state_ == kHeadersReceived ||
         state_ == kLoading) {
       DCHECK(!loader_);
-      HandleRequestError(DOMExceptionCode::kNoError, EventTypeNames::abort,
+      HandleRequestError(DOMExceptionCode::kNoError, event_type_names::kAbort,
                          received_length, expected_length);
     }
   }
@@ -1204,6 +1220,11 @@ void XMLHttpRequest::ClearVariablesForLoading() {
 }
 
 bool XMLHttpRequest::InternalAbort() {
+  // If there is an existing pending abort event, cancel it. The caller of this
+  // function is responsible for firing any events on XMLHttpRequest, if
+  // needed.
+  pending_abort_event_.Cancel();
+
   // Fast path for repeated internalAbort()s; this
   // will happen if an XHR object is notified of context
   // destruction followed by finalization.
@@ -1223,7 +1244,7 @@ bool XMLHttpRequest::InternalAbort() {
   if (!loader_)
     return true;
 
-  // Cancelling the ThreadableLoader m_loader may result in calling
+  // Cancelling the ThreadableLoader loader_ may result in calling
   // window.onload synchronously. If such an onload handler contains open()
   // call on the same XMLHttpRequest object, reentry happens.
   //
@@ -1286,7 +1307,7 @@ void XMLHttpRequest::DispatchProgressEvent(const AtomicString& type,
 
   ExecutionContext* context = GetExecutionContext();
   probe::AsyncTask async_task(
-      context, this, type == EventTypeNames::loadend ? nullptr : "progress",
+      context, this, type == event_type_names::kLoadend ? nullptr : "progress",
       async_);
   progress_event_throttle_->DispatchProgressEvent(type, length_computable,
                                                   loaded, total);
@@ -1308,7 +1329,7 @@ void XMLHttpRequest::HandleNetworkError() {
   if (!InternalAbort())
     return;
 
-  HandleRequestError(DOMExceptionCode::kNetworkError, EventTypeNames::error,
+  HandleRequestError(DOMExceptionCode::kNetworkError, event_type_names::kError,
                      received_length, expected_length);
 }
 
@@ -1322,8 +1343,11 @@ void XMLHttpRequest::HandleDidCancel() {
   if (!InternalAbort())
     return;
 
-  HandleRequestError(DOMExceptionCode::kAbortError, EventTypeNames::abort,
-                     received_length, expected_length);
+  pending_abort_event_ = PostCancellableTask(
+      *GetExecutionContext()->GetTaskRunner(TaskType::kNetworking), FROM_HERE,
+      WTF::Bind(&XMLHttpRequest::HandleRequestError, WrapPersistent(this),
+                DOMExceptionCode::kAbortError, event_type_names::kAbort,
+                received_length, expected_length));
 }
 
 void XMLHttpRequest::HandleRequestError(DOMExceptionCode exception_code,
@@ -1359,10 +1383,10 @@ void XMLHttpRequest::HandleRequestError(DOMExceptionCode exception_code,
   // false|, when |handleRequestError| is called after |internalAbort()|.  This
   // is safe, however, as |this| will be kept alive from a strong ref
   // |Event::m_target|.
-  DispatchProgressEvent(EventTypeNames::progress, received_length,
+  DispatchProgressEvent(event_type_names::kProgress, received_length,
                         expected_length);
   DispatchProgressEvent(type, received_length, expected_length);
-  DispatchProgressEvent(EventTypeNames::loadend, received_length,
+  DispatchProgressEvent(event_type_names::kLoadend, received_length,
                         expected_length);
 }
 
@@ -1413,7 +1437,7 @@ void XMLHttpRequest::setRequestHeader(const AtomicString& name,
 
   // "5. Terminate these steps if |name| is a forbidden header name."
   // No script (privileged or not) can set unsafe headers.
-  if (CORS::IsForbiddenHeaderName(name)) {
+  if (cors::IsForbiddenHeaderName(name)) {
     LogConsoleError(GetExecutionContext(),
                     "Refused to set unsafe header \"" + name + "\"");
     return;
@@ -1435,7 +1459,7 @@ void XMLHttpRequest::SetRequestHeaderInternal(const AtomicString& name,
 }
 
 bool XMLHttpRequest::HasContentTypeRequestHeader() const {
-  return request_headers_.Find(HTTPNames::Content_Type) !=
+  return request_headers_.Find(http_names::kContentType) !=
          request_headers_.end();
 }
 
@@ -1446,10 +1470,10 @@ String XMLHttpRequest::getAllResponseHeaders() const {
   StringBuilder string_builder;
 
   WebHTTPHeaderSet access_control_expose_header_set =
-      WebCORS::ExtractCorsExposedHeaderNamesList(
+      cors::ExtractCorsExposedHeaderNamesList(
           with_credentials_ ? network::mojom::FetchCredentialsMode::kInclude
                             : network::mojom::FetchCredentialsMode::kSameOrigin,
-          WrappedResourceResponse(response_));
+          response_);
 
   HTTPHeaderMap::const_iterator end = response_.HttpHeaderFields().end();
   for (HTTPHeaderMap::const_iterator it = response_.HttpHeaderFields().begin();
@@ -1463,11 +1487,12 @@ String XMLHttpRequest::getAllResponseHeaders() const {
         !GetSecurityOrigin()->CanLoadLocalResources())
       continue;
 
-    if (!same_origin_request_ &&
-        !WebCORS::IsOnAccessControlResponseHeaderWhitelist(it->key) &&
+    if (response_.GetType() == network::mojom::FetchResponseType::kCors &&
+        !cors::IsOnAccessControlResponseHeaderWhitelist(it->key) &&
         access_control_expose_header_set.find(it->key.Ascii().data()) ==
-            access_control_expose_header_set.end())
+            access_control_expose_header_set.end()) {
       continue;
+    }
 
     string_builder.Append(it->key.LowerASCII());
     string_builder.Append(':');
@@ -1494,13 +1519,13 @@ const AtomicString& XMLHttpRequest::getResponseHeader(
   }
 
   WebHTTPHeaderSet access_control_expose_header_set =
-      WebCORS::ExtractCorsExposedHeaderNamesList(
+      cors::ExtractCorsExposedHeaderNamesList(
           with_credentials_ ? network::mojom::FetchCredentialsMode::kInclude
                             : network::mojom::FetchCredentialsMode::kSameOrigin,
-          WrappedResourceResponse(response_));
+          response_);
 
-  if (!same_origin_request_ &&
-      !WebCORS::IsOnAccessControlResponseHeaderWhitelist(name) &&
+  if (response_.GetType() == network::mojom::FetchResponseType::kCors &&
+      !cors::IsOnAccessControlResponseHeaderWhitelist(name) &&
       access_control_expose_header_set.find(name.Ascii().data()) ==
           access_control_expose_header_set.end()) {
     LogConsoleError(GetExecutionContext(),
@@ -1516,9 +1541,10 @@ AtomicString XMLHttpRequest::FinalResponseMIMEType() const {
   if (!overridden_type.IsEmpty())
     return overridden_type;
 
-  if (response_.IsHTTP())
+  if (response_.IsHTTP()) {
     return ExtractMIMETypeFromMediaType(
-        response_.HttpHeaderField(HTTPNames::Content_Type));
+        response_.HttpHeaderField(http_names::kContentType));
+  }
 
   return response_.MimeType();
 }
@@ -1544,14 +1570,14 @@ void XMLHttpRequest::UpdateContentTypeAndCharset(
     const String& charset) {
   // http://xhr.spec.whatwg.org/#the-send()-method step 4's concilliation of
   // "charset=" in any author-provided Content-Type: request header.
-  String content_type = request_headers_.Get(HTTPNames::Content_Type);
-  if (content_type.IsEmpty()) {
-    SetRequestHeaderInternal(HTTPNames::Content_Type, default_content_type);
+  String content_type = request_headers_.Get(http_names::kContentType);
+  if (content_type.IsNull()) {
+    SetRequestHeaderInternal(http_names::kContentType, default_content_type);
     return;
   }
   String original_content_type = content_type;
   ReplaceCharsetInMediaType(content_type, charset);
-  request_headers_.Set(HTTPNames::Content_Type, AtomicString(content_type));
+  request_headers_.Set(http_names::kContentType, AtomicString(content_type));
 
   if (original_content_type != content_type) {
     UseCounter::Count(GetExecutionContext(), WebFeature::kReplaceCharsetInXHR);
@@ -1724,7 +1750,7 @@ void XMLHttpRequest::EndLoading() {
     return;
 
   if (GetDocument() && GetDocument()->GetFrame() &&
-      GetDocument()->GetFrame()->GetPage() && CORS::IsOkStatus(status()))
+      GetDocument()->GetFrame()->GetPage() && cors::IsOkStatus(status()))
     GetDocument()->GetFrame()->GetPage()->GetChromeClient().AjaxSucceeded(
         GetDocument()->GetFrame());
 }
@@ -1743,9 +1769,10 @@ void XMLHttpRequest::DidSendData(unsigned long long bytes_sent,
 
   if (bytes_sent == total_bytes_to_be_sent && !upload_complete_) {
     upload_complete_ = true;
-    if (upload_events_allowed_)
-      upload_->DispatchEventAndLoadEnd(EventTypeNames::load, true, bytes_sent,
-                                       total_bytes_to_be_sent);
+    if (upload_events_allowed_) {
+      upload_->DispatchEventAndLoadEnd(event_type_names::kLoad, true,
+                                       bytes_sent, total_bytes_to_be_sent);
+    }
   }
 }
 
@@ -1793,6 +1820,8 @@ std::unique_ptr<TextResourceDecoder> XMLHttpRequest::CreateDecoder() const {
   if (!final_response_charset.IsEmpty()) {
     // If the final charset is given, use the charset without sniffing the
     // content.
+    // TODO(crbug/905968): If WTF::TextEncoding::IsValid() is false, this
+    // currently falls back to Latin1Encoding(). Fallback to UTF-8 instead.
     return TextResourceDecoder::Create(TextResourceDecoderOptions(
         TextResourceDecoderOptions::kPlainTextContent,
         WTF::TextEncoding(final_response_charset)));
@@ -1877,7 +1906,7 @@ void XMLHttpRequest::DidReceiveData(const char* data, unsigned len) {
   TrackProgress(len);
 }
 
-void XMLHttpRequest::DidDownloadData(int data_length) {
+void XMLHttpRequest::DidDownloadData(unsigned long long data_length) {
   ScopedEventDispatchProtect protect(&event_dispatch_recursion_level_);
   if (error_)
     return;
@@ -1944,16 +1973,9 @@ void XMLHttpRequest::HandleDidTimeout() {
   if (!InternalAbort())
     return;
 
-  HandleRequestError(DOMExceptionCode::kTimeoutError, EventTypeNames::timeout,
-                     received_length, expected_length);
-}
-
-void XMLHttpRequest::Pause() {
-  progress_event_throttle_->Pause();
-}
-
-void XMLHttpRequest::Unpause() {
-  progress_event_throttle_->Unpause();
+  HandleRequestError(DOMExceptionCode::kTimeoutError,
+                     event_type_names::kTimeout, received_length,
+                     expected_length);
 }
 
 void XMLHttpRequest::ContextDestroyed(ExecutionContext*) {
@@ -1977,11 +1999,11 @@ bool XMLHttpRequest::HasPendingActivity() const {
 }
 
 const AtomicString& XMLHttpRequest::InterfaceName() const {
-  return EventTargetNames::XMLHttpRequest;
+  return event_target_names::kXMLHttpRequest;
 }
 
 ExecutionContext* XMLHttpRequest::GetExecutionContext() const {
-  return PausableObject::GetExecutionContext();
+  return ContextLifecycleObserver::GetExecutionContext();
 }
 
 void XMLHttpRequest::ReportMemoryUsageToV8() {
@@ -2012,8 +2034,9 @@ void XMLHttpRequest::Trace(blink::Visitor* visitor) {
   visitor->Trace(blob_loader_);
   visitor->Trace(response_text_);
   XMLHttpRequestEventTarget::Trace(visitor);
+  ThreadableLoaderClient::Trace(visitor);
   DocumentParserClient::Trace(visitor);
-  PausableObject::Trace(visitor);
+  ContextLifecycleObserver::Trace(visitor);
 }
 
 std::ostream& operator<<(std::ostream& ostream, const XMLHttpRequest* xhr) {

@@ -32,7 +32,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
-#include "third_party/blink/renderer/platform/graphics/touch_action_rect.h"
+#include "third_party/blink/renderer/platform/graphics/hit_test_rect.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/scroll/main_thread_scrolling_reason.h"
 #include "third_party/blink/renderer/platform/scroll/scroll_types.h"
@@ -82,6 +82,7 @@ class CORE_EXPORT ScrollingCoordinator final
 
   static ScrollingCoordinator* Create(Page*);
 
+  explicit ScrollingCoordinator(Page*);
   ~ScrollingCoordinator();
   void Trace(blink::Visitor*);
 
@@ -139,7 +140,7 @@ class CORE_EXPORT ScrollingCoordinator final
   // blink uses a separate layer. To ensure the compositor scroll layer has the
   // updated scroll container bounds, this needs to be called when the scrolling
   // contents layer is resized.
-  bool ScrollableAreaScrollLayerDidChange(ScrollableArea*);
+  void ScrollableAreaScrollLayerDidChange(ScrollableArea*);
   void ScrollableAreaScrollbarLayerDidChange(ScrollableArea*,
                                              ScrollbarOrientation);
   void UpdateLayerPositionConstraint(PaintLayer*);
@@ -165,16 +166,20 @@ class CORE_EXPORT ScrollingCoordinator final
     return programmatic_scroll_animator_timeline_.get();
   }
 
+  // Traverses the frame tree to find the scrollable area using the element id.
+  // This function only checks the local frames. This function does not check
+  // the VisualViewport element id.
+  ScrollableArea* ScrollableAreaWithElementIdInAllLocalFrames(
+      const CompositorElementId&);
+
   // Callback for compositor-side layer scrolls.
   void DidScroll(const gfx::ScrollOffset&, const CompositorElementId&);
 
   // For testing purposes only. This ScrollingCoordinator is reused between
-  // layout test, and must be reset for the results to be valid.
+  // web tests, and must be reset for the results to be valid.
   void Reset(LocalFrame*);
 
  protected:
-  explicit ScrollingCoordinator(Page*);
-
   bool IsForRootLayer(ScrollableArea*) const;
   bool IsForMainFrame(ScrollableArea*) const;
 
@@ -192,7 +197,7 @@ class CORE_EXPORT ScrollingCoordinator final
 
   void SetShouldHandleScrollGestureOnMainThreadRegion(const Region&,
                                                       LocalFrameView*);
-  void SetTouchEventTargetRects(LocalFrame*, LayerHitTestRects&);
+  void SetTouchEventTargetRects(LocalFrame*, const LayerHitTestRects&);
   void ComputeTouchEventTargetRects(LocalFrame*, LayerHitTestRects&);
 
   void AddScrollbarLayerGroup(ScrollableArea*,

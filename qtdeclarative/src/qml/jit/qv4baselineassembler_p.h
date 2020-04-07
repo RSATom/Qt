@@ -135,11 +135,11 @@ public:
     void cmpStrictNotEqual(int lhs);
 
     // jumps
-    void jump(int offset);
-    void jumpTrue(int offset);
-    void jumpFalse(int offset);
-    void jumpNoException(int offset);
-    void jumpNotUndefined(int offset);
+    Q_REQUIRED_RESULT int jump(int offset);
+    Q_REQUIRED_RESULT int jumpTrue(int offset);
+    Q_REQUIRED_RESULT int jumpFalse(int offset);
+    Q_REQUIRED_RESULT int jumpNoException(int offset);
+    Q_REQUIRED_RESULT int jumpNotUndefined(int offset);
 
     // stuff for runtime calls
     void prepareCallWithArgCount(int argc);
@@ -150,8 +150,10 @@ public:
     void passJSSlotAsArg(int reg, int arg);
     void passCppFrameAsArg(int arg);
     void passInt32AsArg(int value, int arg);
+    void passPointerAsArg(void *ptr, int arg);
     void callRuntime(const char *functionName, const void *funcPtr, CallResultDestination dest);
     void saveAccumulatorInFrame();
+    void loadAccumulatorFromFrame();
     void jsTailCall(int func, int thisObject, int argc, int argv);
 
     // exception/context stuff
@@ -159,10 +161,10 @@ public:
     void gotoCatchException();
     void getException();
     void setException();
-    void setUnwindHandler(int offset);
+    Q_REQUIRED_RESULT int setUnwindHandler(int offset);
     void clearUnwindHandler();
     void unwindDispatch();
-    void unwindToLabel(int level, int offset);
+    Q_REQUIRED_RESULT int unwindToLabel(int level, int offset);
     void pushCatchContext(int index, int name);
     void popContext();
     void deadTemporalZoneCheck(int offsetForSavedIP, int variableName);

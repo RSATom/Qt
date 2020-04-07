@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_IMAGEEDIT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_ImageEdit;
 
-class CJX_ImageEdit : public CJX_Node {
+class CJX_ImageEdit final : public CJX_Node {
  public:
   explicit CJX_ImageEdit(CXFA_ImageEdit* node);
   ~CJX_ImageEdit() override;
-
-  JS_PROP(data);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_IMAGEEDIT_H_

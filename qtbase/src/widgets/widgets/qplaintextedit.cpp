@@ -1622,7 +1622,7 @@ void QPlainTextEdit::timerEvent(QTimerEvent *e)
             const QPoint globalPos = QCursor::pos();
             pos = d->viewport->mapFromGlobal(globalPos);
             QMouseEvent ev(QEvent::MouseMove, pos, d->viewport->mapTo(d->viewport->topLevelWidget(), pos), globalPos,
-                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                           Qt::LeftButton, Qt::LeftButton, QGuiApplication::keyboardModifiers());
             mouseMoveEvent(&ev);
         }
         int deltaY = qMax(pos.y() - visible.top(), visible.bottom() - pos.y()) - visible.height();
@@ -1957,6 +1957,7 @@ void QPlainTextEdit::paintEvent(QPaintEvent *e)
     }
 
     QAbstractTextDocumentLayout::PaintContext context = getPaintContext();
+    painter.setPen(context.palette.text().color());
 
     while (block.isValid()) {
 
@@ -2051,7 +2052,7 @@ void QPlainTextEdit::paintEvent(QPaintEvent *e)
 
     if (backgroundVisible() && !block.isValid() && offset.y() <= er.bottom()
         && (centerOnScroll() || verticalScrollBar()->maximum() == verticalScrollBar()->minimum())) {
-        painter.fillRect(QRect(QPoint((int)er.left(), (int)offset.y()), er.bottomRight()), palette().background());
+        painter.fillRect(QRect(QPoint((int)er.left(), (int)offset.y()), er.bottomRight()), palette().window());
     }
 }
 
@@ -2904,6 +2905,7 @@ void QPlainTextEdit::setCenterOnScroll(bool enabled)
     if (enabled == d->centerOnScroll)
         return;
     d->centerOnScroll = enabled;
+    d->_q_adjustScrollbars();
 }
 
 
@@ -2934,6 +2936,27 @@ bool QPlainTextEdit::find(const QString &exp, QTextDocument::FindFlags options)
 */
 #ifndef QT_NO_REGEXP
 bool QPlainTextEdit::find(const QRegExp &exp, QTextDocument::FindFlags options)
+{
+    Q_D(QPlainTextEdit);
+    return d->control->find(exp, options);
+}
+#endif
+
+/*!
+    \fn bool QPlainTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
+
+    \since 5.13
+    \overload
+
+    Finds the next occurrence, matching the regular expression, \a exp, using the given
+    \a options. The QTextDocument::FindCaseSensitively option is ignored for this overload,
+    use QRegularExpression::CaseInsensitiveOption instead.
+
+    Returns \c true if a match was found and changes the cursor to select the match;
+    otherwise returns \c false.
+*/
+#if QT_CONFIG(regularexpression)
+bool QPlainTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
 {
     Q_D(QPlainTextEdit);
     return d->control->find(exp, options);

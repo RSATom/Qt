@@ -12,7 +12,8 @@ CFX_CSSValueListParser::CFX_CSSValueListParser(const wchar_t* psz,
                                                int32_t iLen,
                                                wchar_t separator)
     : m_Separator(separator), m_pCur(psz), m_pEnd(psz + iLen) {
-  ASSERT(psz && iLen > 0);
+  ASSERT(psz);
+  ASSERT(iLen > 0);
 }
 
 bool CFX_CSSValueListParser::NextValue(CFX_CSSPrimitiveType* eType,
@@ -32,7 +33,8 @@ bool CFX_CSSValueListParser::NextValue(CFX_CSSPrimitiveType* eType,
     *iLength = SkipTo(' ', false, false);
     if (*iLength == 4 || *iLength == 7)
       *eType = CFX_CSSPrimitiveType::RGB;
-  } else if (std::iswdigit(wch) || wch == '.' || wch == '-' || wch == '+') {
+  } else if (FXSYS_IsDecimalDigit(wch) || wch == '.' || wch == '-' ||
+             wch == '+') {
     while (m_pCur < m_pEnd && (*m_pCur > ' ' && *m_pCur != m_Separator))
       ++m_pCur;
 

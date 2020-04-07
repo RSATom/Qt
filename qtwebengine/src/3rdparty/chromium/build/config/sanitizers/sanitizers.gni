@@ -97,21 +97,13 @@ declare_args() {
 
   # Value for -fsanitize-coverage flag. Setting this causes
   # use_sanitizer_coverage to be enabled.
+  # This flag is not used for libFuzzer (use_libfuzzer=true). Instead, we use:
+  #     -fsanitize=fuzzer-no-link
   # Default value when unset and use_fuzzing_engine=true:
   #     trace-pc-guard
   # Default value when unset and use_sanitizer_coverage=true:
   #     trace-pc-guard,indirect-calls
   sanitizer_coverage_flags = ""
-
-  # Keep symbol level when building with sanitizers. When sanitizers are
-  # enabled, the default is to compile with the minimum debug info level
-  # necessary, overriding any other symbol level arguments that may be set.
-  # Setting this to true prevents this.
-  sanitizer_keep_symbols = false
-
-  # Builds fuzzer/sanitizers without symbols.  Use with symbol_level=0.
-  # Useful for reducing binary size when building with use_clang_coverage=true.
-  sanitizer_no_symbols = false
 }
 
 # Disable sanitizers for non-default toolchains.
@@ -170,8 +162,8 @@ using_sanitizer =
     is_asan || is_lsan || is_tsan || is_msan || is_ubsan || is_ubsan_null ||
     is_ubsan_vptr || is_ubsan_security || use_sanitizer_coverage || use_cfi_diag
 
-assert(!using_sanitizer || is_clang,
-       "Sanitizers (is_*san) require setting is_clang = true in 'gn args'")
+#assert(!using_sanitizer || is_clang,
+#       "Sanitizers (is_*san) require setting is_clang = true in 'gn args'")
 
 assert(!is_cfi || is_clang,
        "is_cfi requires setting is_clang = true in 'gn args'")

@@ -20,6 +20,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_store.h"
 #include "components/sync/model/sync_change.h"
+#include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_data.h"
 #include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/model/syncable_service.h"
@@ -123,9 +124,8 @@ class PrefServiceSyncableTest : public testing::Test {
     sync_pb::PreferenceSpecifics* pref_one = entity.mutable_preference();
     pref_one->set_name(name);
     pref_one->set_value(serialized);
-    return syncer::SyncChange(
-        FROM_HERE, type,
-        syncer::SyncData::CreateRemoteData(id, entity, base::Time()));
+    return syncer::SyncChange(FROM_HERE, type,
+                              syncer::SyncData::CreateRemoteData(id, entity));
   }
 
   void AddToRemoteDataList(const std::string& name,
@@ -138,8 +138,8 @@ class PrefServiceSyncableTest : public testing::Test {
     sync_pb::PreferenceSpecifics* pref_one = one.mutable_preference();
     pref_one->set_name(name);
     pref_one->set_value(serialized);
-    out->push_back(SyncData::CreateRemoteData(++next_pref_remote_sync_node_id_,
-                                              one, base::Time()));
+    out->push_back(
+        SyncData::CreateRemoteData(++next_pref_remote_sync_node_id_, one));
   }
 
   void InitWithSyncDataTakeOutput(const syncer::SyncDataList& initial_data,
@@ -163,7 +163,7 @@ class PrefServiceSyncableTest : public testing::Test {
 
   std::unique_ptr<base::Value> FindValue(const std::string& name,
                                          const syncer::SyncChangeList& list) {
-    syncer::SyncChangeList::const_iterator it = list.begin();
+    auto it = list.begin();
     for (; it != list.end(); ++it) {
       if (syncer::SyncDataLocal(it->sync_data()).GetTag() == name) {
         return base::JSONReader::Read(
@@ -304,6 +304,13 @@ class TestPrefModelAssociatorClient : public PrefModelAssociatorClient {
     return true;
   }
 
+  std::unique_ptr<base::Value> MaybeMergePreferenceValues(
+      const std::string& pref_name,
+      const base::Value& local_value,
+      const base::Value& server_value) const override {
+    return nullptr;
+  }
+
  private:
   DISALLOW_COPY_AND_ASSIGN(TestPrefModelAssociatorClient);
 };
@@ -371,9 +378,8 @@ class PrefServiceSyncableMergeTest : public testing::Test {
     sync_pb::PreferenceSpecifics* pref_one = entity.mutable_preference();
     pref_one->set_name(name);
     pref_one->set_value(serialized);
-    return syncer::SyncChange(
-        FROM_HERE, type,
-        syncer::SyncData::CreateRemoteData(id, entity, base::Time()));
+    return syncer::SyncChange(FROM_HERE, type,
+                              syncer::SyncData::CreateRemoteData(id, entity));
   }
 
   void AddToRemoteDataList(const std::string& name,
@@ -386,8 +392,8 @@ class PrefServiceSyncableMergeTest : public testing::Test {
     sync_pb::PreferenceSpecifics* pref_one = one.mutable_preference();
     pref_one->set_name(name);
     pref_one->set_value(serialized);
-    out->push_back(SyncData::CreateRemoteData(++next_pref_remote_sync_node_id_,
-                                              one, base::Time()));
+    out->push_back(
+        SyncData::CreateRemoteData(++next_pref_remote_sync_node_id_, one));
   }
 
   void InitWithSyncDataTakeOutput(const syncer::SyncDataList& initial_data,
@@ -407,7 +413,7 @@ class PrefServiceSyncableMergeTest : public testing::Test {
 
   std::unique_ptr<base::Value> FindValue(const std::string& name,
                                          const syncer::SyncChangeList& list) {
-    syncer::SyncChangeList::const_iterator it = list.begin();
+    auto it = list.begin();
     for (; it != list.end(); ++it) {
       if (syncer::SyncDataLocal(it->sync_data()).GetTag() == name) {
         return base::JSONReader::Read(

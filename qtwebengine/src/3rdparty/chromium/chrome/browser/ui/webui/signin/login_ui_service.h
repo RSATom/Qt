@@ -15,7 +15,6 @@
 
 class Browser;
 class Profile;
-class ConsentBumpActivator;
 
 // The LoginUIService helps track per-profile information for the login related
 // UIs - for example, whether there is login UI currently on-screen.
@@ -107,11 +106,10 @@ class LoginUIService : public KeyedService {
   std::list<LoginUI*> ui_list_;
 #if !defined(OS_CHROMEOS)
   Profile* profile_;
-  std::unique_ptr<ConsentBumpActivator> consent_bump_activator_;
 #endif
 
   // List of observers.
-  base::ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer>::Unchecked observer_list_;
 
   base::string16 last_login_result_;
   base::string16 last_login_error_email_;

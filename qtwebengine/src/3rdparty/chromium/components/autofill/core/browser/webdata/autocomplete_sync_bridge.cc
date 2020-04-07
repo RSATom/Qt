@@ -17,6 +17,7 @@
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_backend.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/sync/model/entity_data.h"
 #include "components/sync/model/model_type_change_processor.h"
 #include "components/sync/model/mutable_data_batch.h"
@@ -50,7 +51,7 @@ const char kAutocompleteTagDelimiter[] = "|";
     return ret_val;                       \
   }
 
-void* UserDataKey() {
+void* AutocompleteSyncBridgeUserDataKey() {
   // Use the address of a static that COMDAT folding won't ever collide
   // with something else.
   static int user_data_key = 0;
@@ -283,7 +284,7 @@ void AutocompleteSyncBridge::CreateForWebDataServiceAndBackend(
     AutofillWebDataService* web_data_service,
     AutofillWebDataBackend* web_data_backend) {
   web_data_service->GetDBUserData()->SetUserData(
-      UserDataKey(),
+      AutocompleteSyncBridgeUserDataKey(),
       std::make_unique<AutocompleteSyncBridge>(
           web_data_backend,
           std::make_unique<ClientTagBasedModelTypeProcessor>(
@@ -294,7 +295,8 @@ void AutocompleteSyncBridge::CreateForWebDataServiceAndBackend(
 ModelTypeSyncBridge* AutocompleteSyncBridge::FromWebDataService(
     AutofillWebDataService* web_data_service) {
   return static_cast<AutocompleteSyncBridge*>(
-      web_data_service->GetDBUserData()->GetUserData(UserDataKey()));
+      web_data_service->GetDBUserData()->GetUserData(
+          AutocompleteSyncBridgeUserDataKey()));
 }
 
 AutocompleteSyncBridge::AutocompleteSyncBridge(
@@ -336,7 +338,14 @@ Optional<syncer::ModelError> AutocompleteSyncBridge::MergeSyncData(
   RETURN_IF_ERROR(tracker.FlushToLocal(web_data_backend_));
   RETURN_IF_ERROR(tracker.FlushToSync(true, std::move(metadata_change_list),
                                 change_processor()));
-  web_data_backend_->RemoveExpiredFormElements();
+
+  // TODO(crbug.com/920214) Deprecated, clean-up as part of the
+  // Autocomplete Retention Policy flag cleanup.
+  if (!base::FeatureList::IsEnabled(
+          autofill::features::kAutocompleteRetentionPolicyEnabled)) {
+    web_data_backend_->RemoveExpiredFormElements();
+  }
+
   web_data_backend_->NotifyThatSyncHasStarted(syncer::AUTOFILL);
   return {};
 }
@@ -360,7 +369,13 @@ Optional<ModelError> AutocompleteSyncBridge::ApplySyncChanges(
   RETURN_IF_ERROR(tracker.FlushToLocal(web_data_backend_));
   RETURN_IF_ERROR(tracker.FlushToSync(false, std::move(metadata_change_list),
                                       change_processor()));
-  web_data_backend_->RemoveExpiredFormElements();
+
+  // TODO(crbug.com/920214) Deprecated, clean-up as part of the
+  // Autocomplete Retention Policy flag cleanup.
+  if (!base::FeatureList::IsEnabled(
+          autofill::features::kAutocompleteRetentionPolicyEnabled)) {
+    web_data_backend_->RemoveExpiredFormElements();
+  }
   return {};
 }
 
@@ -436,6 +451,21 @@ void AutocompleteSyncBridge::ActOnLocalChanges(
       case AutofillChange::REMOVE: {
         change_processor()->Delete(storage_key, metadata_change_list.get());
         break;
+      }
+      case AutofillChange::EXPIRE: {
+        // For expired entries, unlink and delete the sync metadata.
+        // That way we are not sending tombstone updates to the sync servers.
+        bool success = GetAutofillTable()->ClearSyncMetadata(syncer::AUTOFILL,
+                                                             storage_key);
+        if (!success) {
+          change_processor()->ReportError(
+              {FROM_HERE,
+               "Failed to clear sync metadata for an expired autofill entry "
+               "from WebDatabase."});
+          return;
+        }
+
+        change_processor()->UntrackEntityForStorageKey(storage_key);
       }
     }
   }

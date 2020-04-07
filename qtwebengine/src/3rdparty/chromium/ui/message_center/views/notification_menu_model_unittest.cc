@@ -13,7 +13,6 @@
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_types.h"
-#include "ui/message_center/ui_controller.h"
 
 namespace message_center {
 namespace {
@@ -78,7 +77,7 @@ TEST_F(NotificationMenuModelTest, ContextMenuTestWithMessageCenter) {
   base::string16 display_source = base::ASCIIToUTF16("www.test.org");
   NotifierId notifier_id = DummyNotifierId();
 
-  NotifierId notifier_id2(NotifierId::APPLICATION, "sample-app");
+  NotifierId notifier_id2(NotifierType::APPLICATION, "sample-app");
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
       NOTIFICATION_TYPE_SIMPLE, id2,
       base::ASCIIToUTF16("Test Web Notification"),

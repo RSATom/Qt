@@ -41,15 +41,14 @@
 namespace blink {
 
 ServiceWorkerThread::ServiceWorkerThread(
-    ThreadableLoadingContext* loading_context,
     ServiceWorkerGlobalScopeProxy* global_scope_proxy,
     std::unique_ptr<ServiceWorkerInstalledScriptsManager>
         installed_scripts_manager,
     mojom::blink::CacheStoragePtrInfo cache_storage_info)
-    : WorkerThread(loading_context, *global_scope_proxy),
+    : WorkerThread(*global_scope_proxy),
       global_scope_proxy_(global_scope_proxy),
-      worker_backing_thread_(WorkerBackingThread::Create(
-          WebThreadCreationParams(GetThreadType()))),
+      worker_backing_thread_(
+          WorkerBackingThread::Create(ThreadCreationParams(GetThreadType()))),
       installed_scripts_manager_(std::move(installed_scripts_manager)),
       cache_storage_info_(std::move(cache_storage_info)) {}
 

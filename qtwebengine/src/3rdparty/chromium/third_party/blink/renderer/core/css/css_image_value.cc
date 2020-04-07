@@ -54,7 +54,7 @@ CSSImageValue::~CSSImageValue() = default;
 
 StyleImage* CSSImageValue::CacheImage(
     const Document& document,
-    FetchParameters::PlaceholderImageRequestType placeholder_image_request_type,
+    FetchParameters::ImageRequestOptimization image_request_optimization,
     CrossOriginAttributeValue cross_origin) {
   if (!cached_image_) {
     if (absolute_url_.IsEmpty())
@@ -64,7 +64,7 @@ StyleImage* CSSImageValue::CacheImage(
         referrer_.referrer_policy, resource_request.Url(), referrer_.referrer));
     ResourceLoaderOptions options;
     options.initiator_info.name = initiator_name_.IsEmpty()
-                                      ? FetchInitiatorTypeNames::css
+                                      ? fetch_initiator_type_names::kCSS
                                       : initiator_name_;
     FetchParameters params(resource_request, options);
 
@@ -74,12 +74,20 @@ StyleImage* CSSImageValue::CacheImage(
     }
 
     if (document.GetFrame() &&
-        placeholder_image_request_type == FetchParameters::kAllowPlaceholder)
-      document.GetFrame()->MaybeAllowImagePlaceholder(params);
+        image_request_optimization == FetchParameters::kAllowPlaceholder &&
+        document.GetFrame()->IsClientLoFiAllowed(params.GetResourceRequest())) {
+      params.SetClientLoFiPlaceholder();
+    }
+    bool is_lazily_loaded =
+        image_request_optimization == FetchParameters::kDeferImageLoad &&
+        // Only http/https images are eligible to be lazily loaded.
+        params.Url().ProtocolIsInHTTPFamily();
+    if (is_lazily_loaded)
+      params.SetLazyImageDeferred();
 
-    cached_image_ = StyleFetchedImage::Create(document, params);
+    cached_image_ =
+        StyleFetchedImage::Create(document, params, is_lazily_loaded);
   }
-
   return cached_image_.Get();
 }
 
@@ -94,7 +102,7 @@ void CSSImageValue::RestoreCachedResourceIfNeeded(
 
   resource->EmulateLoadStartedForInspector(
       document.Fetcher(), KURL(absolute_url_),
-      initiator_name_.IsEmpty() ? FetchInitiatorTypeNames::css
+      initiator_name_.IsEmpty() ? fetch_initiator_type_names::kCSS
                                 : initiator_name_);
 }
 

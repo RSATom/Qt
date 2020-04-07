@@ -17,7 +17,7 @@
 #include <memory>
 
 #include "modules/include/module.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/thread_checker.h"
 #include "video/stream_synchronization.h"
 
@@ -25,13 +25,10 @@ namespace webrtc {
 
 class Syncable;
 
-namespace vcm {
-class VideoReceiver;
-}  // namespace vcm
-
 class RtpStreamsSynchronizer : public Module {
  public:
   explicit RtpStreamsSynchronizer(Syncable* syncable_video);
+  ~RtpStreamsSynchronizer() override;
 
   void ConfigureSync(Syncable* syncable_audio);
 

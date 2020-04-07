@@ -93,8 +93,8 @@ bool ContentSettingsObserverQt::OnMessageReceived(const IPC::Message& message)
     return handled;
 }
 
-void ContentSettingsObserverQt::DidCommitProvisionalLoad(bool /*is_new_navigation*/,
-                                                         bool is_same_document_navigation)
+void ContentSettingsObserverQt::DidCommitProvisionalLoad(bool is_same_document_navigation,
+                                                         ui::PageTransition /*transition*/)
 {
     blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
     if (frame->Parent())
@@ -151,8 +151,7 @@ void ContentSettingsObserverQt::RequestFileSystemAccessAsync(const WebContentSet
              url::Origin(frame->Top()->GetSecurityOrigin()).GetURL()));
 }
 
-bool ContentSettingsObserverQt::AllowIndexedDB(const WebString &name,
-                                               const WebSecurityOrigin &/*origin*/)
+bool ContentSettingsObserverQt::AllowIndexedDB(const WebSecurityOrigin &origin)
 {
     blink::WebFrame *frame = render_frame()->GetWebFrame();
     if (IsUniqueFrame(frame))
@@ -160,8 +159,8 @@ bool ContentSettingsObserverQt::AllowIndexedDB(const WebString &name,
 
     bool result = false;
     Send(new QtWebEngineHostMsg_AllowIndexedDB(
-             routing_id(), url::Origin(frame->GetSecurityOrigin()).GetURL(),
-             url::Origin(frame->Top()->GetSecurityOrigin()).GetURL(), name.Utf16(),
+             routing_id(), url::Origin(origin).GetURL(),
+             url::Origin(frame->Top()->GetSecurityOrigin()).GetURL(),
              &result));
     return result;
 }

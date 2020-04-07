@@ -8,7 +8,7 @@
 
 #include <vector>
 
-#include "fxjs/cfxjse_value.h"
+#include "fxjs/xfa/cfxjse_value.h"
 #include "xfa/fxfa/parser/cscript_datawindow.h"
 
 const CJX_MethodSpec CJX_DataWindow::MethodSpecs[] = {
@@ -24,28 +24,32 @@ CJX_DataWindow::CJX_DataWindow(CScript_DataWindow* window)
 
 CJX_DataWindow::~CJX_DataWindow() {}
 
-CJS_Return CJX_DataWindow::moveCurrentRecord(
-    CFX_V8* runtime,
-    const std::vector<v8::Local<v8::Value>>& params) {
-  return CJS_Return();
+bool CJX_DataWindow::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
-CJS_Return CJX_DataWindow::record(
+CJS_Result CJX_DataWindow::moveCurrentRecord(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_DataWindow::gotoRecord(
+CJS_Result CJX_DataWindow::record(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_DataWindow::isRecordGroup(
+CJS_Result CJX_DataWindow::gotoRecord(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
-  return CJS_Return();
+  return CJS_Result::Success();
+}
+
+CJS_Result CJX_DataWindow::isRecordGroup(
+    CFX_V8* runtime,
+    const std::vector<v8::Local<v8::Value>>& params) {
+  return CJS_Result::Success();
 }
 
 void CJX_DataWindow::recordsBefore(CFXJSE_Value* pValue,

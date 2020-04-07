@@ -586,7 +586,7 @@ bool QAbstractFormBuilder::addItem(DomWidget *ui_widget, QWidget *widget, QWidge
 */
 void QAbstractFormBuilder::layoutInfo(DomLayout *ui_layout, QObject *parent, int *margin, int *spacing)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
     const DomPropertyHash properties = propertyMap(ui_layout->elementProperty());
 
@@ -671,7 +671,7 @@ QLayout *QAbstractFormBuilder::create(DomLayout *ui_layout, QLayout *parentLayou
     layoutInfo(ui_layout, p, &margin, &spacing);
 
     if (margin != INT_MIN) {
-        layout->setMargin(margin);
+        layout->setContentsMargins(margin, margin, margin, margin);
     } else {
         const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
         int left, top, right, bottom;
@@ -1487,7 +1487,7 @@ static QList<FormBuilderSaveLayoutEntry> saveFormLayoutEntries(const QFormLayout
 
 DomLayout *QAbstractFormBuilder::createDom(QLayout *layout, DomLayout *ui_layout, DomWidget *ui_parentWidget)
 {
-    Q_UNUSED(ui_layout)
+    Q_UNUSED(ui_layout);
     DomLayout *lay = new DomLayout();
     lay->setAttributeClass(QLatin1String(layout->metaObject()->className()));
     const QString objectName = layout->objectName();

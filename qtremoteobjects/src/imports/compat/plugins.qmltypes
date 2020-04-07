@@ -7,7 +7,7 @@ import QtQuick.tooling 1.2
 // 'qmlplugindump -nonrelocatable QtQml.RemoteObjects 1.0'
 
 Module {
-    dependencies: ["QtQuick 2.8"]
+    dependencies: ["QtQuick 2.0"]
     Component {
         name: "QRemoteObjectAbstractPersistedStore"
         prototype: "QObject"
@@ -33,7 +33,8 @@ Module {
                 "SourceNotRegistered": 7,
                 "MissingObjectName": 8,
                 "HostUrlInvalid": 9,
-                "ProtocolMismatch": 10
+                "ProtocolMismatch": 10,
+                "ListenFailed": 11
             }
         }
         Property { name: "registryUrl"; type: "QUrl" }

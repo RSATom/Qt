@@ -9,7 +9,9 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_caret_navigator.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -37,7 +39,7 @@ enum class NGOffsetMappingUnitType { kIdentity, kCollapsed, kExpanded };
 //   in the dom range is expanded into multiple characters.
 // See design doc https://goo.gl/CJbxky for details.
 class CORE_EXPORT NGOffsetMappingUnit {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   NGOffsetMappingUnit(NGOffsetMappingUnitType,
@@ -55,19 +57,25 @@ class CORE_EXPORT NGOffsetMappingUnit {
   unsigned TextContentStart() const { return text_content_start_; }
   unsigned TextContentEnd() const { return text_content_end_; }
 
+  // If the passed unit can be concatenated to |this| to create a bigger unit,
+  // replaces |this| by the result and returns true; Returns false otherwise.
+  bool Concatenate(const NGOffsetMappingUnit&);
+
   unsigned ConvertDOMOffsetToTextContent(unsigned) const;
 
   unsigned ConvertTextContentToFirstDOMOffset(unsigned) const;
   unsigned ConvertTextContentToLastDOMOffset(unsigned) const;
 
  private:
-  const NGOffsetMappingUnitType type_ = NGOffsetMappingUnitType::kIdentity;
+  NGOffsetMappingUnitType type_ = NGOffsetMappingUnitType::kIdentity;
 
-  const Persistent<const Node> owner_;
-  const unsigned dom_start_;
-  const unsigned dom_end_;
-  const unsigned text_content_start_;
-  const unsigned text_content_end_;
+  Persistent<const Node> owner_;
+  unsigned dom_start_;
+  unsigned dom_end_;
+  unsigned text_content_start_;
+  unsigned text_content_end_;
+
+  friend class NGOffsetMappingBuilder;
 };
 
 class NGMappingUnitRange {
@@ -98,14 +106,20 @@ class CORE_EXPORT NGOffsetMapping {
       HashMap<Persistent<const Node>, std::pair<unsigned, unsigned>>;
 
   NGOffsetMapping(NGOffsetMapping&&);
-  NGOffsetMapping(UnitVector&&, RangeMap&&, String);
+  NGOffsetMapping(UnitVector&&,
+                  RangeMap&&,
+                  String,
+                  std::unique_ptr<NGCaretNavigator>);
   ~NGOffsetMapping();
 
   const UnitVector& GetUnits() const { return units_; }
   const RangeMap& GetRanges() const { return ranges_; }
   const String& GetText() const { return text_; }
 
-  // ------ Mapping APIs from DOM to text content ------
+  // ------ Static getters for offset mapping objects  ------
+
+  // TODO(xiaochengh): Unify the following getters and make them work on both
+  // legacy and LayoutNG.
 
   // NGOffsetMapping APIs only accept the following positions:
   // 1. Offset-in-anchor in a text node;
@@ -123,6 +137,17 @@ class CORE_EXPORT NGOffsetMapping {
   // a LayoutObject at hand.
   static const NGOffsetMapping* GetFor(const LayoutObject*);
 
+  // Returns the inline formatting context (which is a block flow) where the
+  // given object is laid out -- this is the block flow whose offset mapping
+  // contains the given object. Note that the object can be in either legacy or
+  // NG layout, while NGOffsetMapping is supported on both of them.
+  static LayoutBlockFlow* GetInlineFormattingContextOf(const LayoutObject&);
+
+  // Variants taking position instead of |LayoutObject|.
+  static LayoutBlockFlow* GetInlineFormattingContextOf(const Position&);
+
+  // ------ Mapping APIs from DOM to text content ------
+
   // Returns the NGOffsetMappingUnit whose DOM range contains the position.
   // If there are multiple qualifying units, returns the last one.
   const NGOffsetMappingUnit* GetMappingUnitForPosition(const Position&) const;
@@ -131,6 +156,10 @@ class CORE_EXPORT NGOffsetMapping {
   // possibly collapsed) intersections with the passed in DOM range. This API
   // only accepts ranges whose start and end have the same anchor node.
   NGMappingUnitRange GetMappingUnitsForDOMRange(const EphemeralRange&) const;
+
+  // Returns all NGOffsetMappingUnits associated to |node|. Note: |node| should
+  // have associated mapping.
+  NGMappingUnitRange GetMappingUnitsForNode(const Node& node) const;
 
   // Returns the text content offset corresponding to the given position.
   // Returns nullopt when the position is not laid out in this context.
@@ -170,6 +199,20 @@ class CORE_EXPORT NGOffsetMapping {
   Position GetFirstPosition(unsigned) const;
   Position GetLastPosition(unsigned) const;
 
+  // Converts the given caret position on text content to a PositionWithAffinity
+  // in DOM. If |position| is before a character, the function creates a
+  // downstream position before |GetLastPosition()| of the character; otherwise,
+  // it returns an upstream position after |GetFirstPosition()| of the character
+  PositionWithAffinity GetPositionWithAffinity(
+      const NGCaretNavigator::Position& position) const;
+
+  // Returns all NGOffsetMappingUnits whose text content ranges has non-empty
+  // (but possibly collapsed) intersection with (start, end). Note that units
+  // that only "touch" |start| or |end| are excluded.
+  NGMappingUnitRange GetMappingUnitsForTextContentOffsetRange(
+      unsigned start,
+      unsigned end) const;
+
   // TODO(xiaochengh): Add offset-to-DOM APIs skipping generated contents.
 
   // ------ APIs inspecting the text content string ------
@@ -177,6 +220,10 @@ class CORE_EXPORT NGOffsetMapping {
   // Returns false if all characters in [start, end) of |text_| are bidi
   // control charcters. Returns true otherwise.
   bool HasBidiControlCharactersOnly(unsigned start, unsigned end) const;
+
+  const NGCaretNavigator* GetCaretNavigator() const {
+    return caret_navigator_.get();
+  }
 
  private:
   // The NGOffsetMappingUnits of the inline formatting context in osrted order.
@@ -189,10 +236,13 @@ class CORE_EXPORT NGOffsetMapping {
   // |NGInlineNodeData::text_content_|.
   String text_;
 
+  // Helper class for caret nagivation on |text_|.
+  std::unique_ptr<NGCaretNavigator> caret_navigator_;
+
   DISALLOW_COPY_AND_ASSIGN(NGOffsetMapping);
 };
 
-CORE_EXPORT const LayoutBlockFlow* NGInlineFormattingContextOf(const Position&);
+CORE_EXPORT LayoutBlockFlow* NGInlineFormattingContextOf(const Position&);
 
 }  // namespace blink
 

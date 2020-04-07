@@ -68,9 +68,9 @@ void V4Database::Create(
   const scoped_refptr<base::SingleThreadTaskRunner> callback_task_runner =
       base::ThreadTaskRunnerHandle::Get();
   db_task_runner->PostTask(
-      FROM_HERE, base::Bind(&V4Database::CreateOnTaskRunner, db_task_runner,
-                            base_path, list_infos, callback_task_runner,
-                            new_db_callback, TimeTicks::Now()));
+      FROM_HERE, base::BindOnce(&V4Database::CreateOnTaskRunner, db_task_runner,
+                                base_path, list_infos, callback_task_runner,
+                                new_db_callback, TimeTicks::Now()));
 }
 
 // static
@@ -280,14 +280,26 @@ void V4Database::VerifyChecksum(
     stores.push_back(std::make_pair(next_store.first, next_store.second.get()));
   }
 
-  base::PostTaskAndReplyWithResult(db_task_runner_.get(), FROM_HERE,
-                                   base::Bind(&VerifyChecksums, stores),
-                                   db_ready_for_updates_callback);
+  base::PostTaskAndReplyWithResult(
+      db_task_runner_.get(), FROM_HERE, base::Bind(&VerifyChecksums, stores),
+      base::Bind(&V4Database::OnChecksumVerified,
+                 weak_factory_on_io_.GetWeakPtr(),
+                 std::move(db_ready_for_updates_callback)));
+}
+
+void V4Database::OnChecksumVerified(
+    DatabaseReadyForUpdatesCallback db_ready_for_updates_callback,
+    const std::vector<ListIdentifier>& stores_to_reset) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  db_ready_for_updates_callback.Run(stores_to_reset);
 }
 
 bool V4Database::IsStoreAvailable(const ListIdentifier& identifier) const {
   const auto& store_pair = store_map_->find(identifier);
-  if (store_pair == store_map_->end()) {
+  bool store_found = store_pair != store_map_->end();
+  UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.V4Store.IsStoreAvailable.ValidStore",
+                        store_found);
+  if (!store_found) {
     // Store not in our list
     return false;
   }
@@ -306,7 +318,7 @@ void V4Database::RecordFileSizeHistograms() {
     db_size += size;
   }
   const int64_t db_size_kilobytes = static_cast<int64_t>(db_size / 1024);
-  UMA_HISTOGRAM_COUNTS(kV4DatabaseSizeMetric, db_size_kilobytes);
+  UMA_HISTOGRAM_COUNTS_1M(kV4DatabaseSizeMetric, db_size_kilobytes);
 }
 
 void V4Database::CollectDatabaseInfo(

@@ -36,7 +36,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 template <typename CharType>
 static String StripLeadingAndTrailingHTMLSpaces(String string,
@@ -316,7 +316,7 @@ static const size_t kCharsetLength = sizeof("charset") - 1;
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#extracting-character-encodings-from-meta-elements
 String ExtractCharset(const String& value) {
-  size_t pos = 0;
+  wtf_size_t pos = 0;
   unsigned length = value.length();
 
   while (pos < length) {
@@ -372,6 +372,7 @@ enum class MetaAttribute {
 WTF::TextEncoding EncodingFromMetaAttributes(
     const HTMLAttributeList& attributes) {
   bool got_pragma = false;
+  bool has_charset = false;
   MetaAttribute mode = MetaAttribute::kNone;
   String charset;
 
@@ -379,18 +380,17 @@ WTF::TextEncoding EncodingFromMetaAttributes(
     const String& attribute_name = html_attribute.first;
     const AtomicString& attribute_value = AtomicString(html_attribute.second);
 
-    if (ThreadSafeMatch(attribute_name, http_equivAttr)) {
+    if (ThreadSafeMatch(attribute_name, kHttpEquivAttr)) {
       if (DeprecatedEqualIgnoringCase(attribute_value, "content-type"))
         got_pragma = true;
-    } else if (charset.IsEmpty()) {
-      if (ThreadSafeMatch(attribute_name, charsetAttr)) {
-        charset = attribute_value;
-        mode = MetaAttribute::kCharset;
-      } else if (ThreadSafeMatch(attribute_name, contentAttr)) {
-        charset = ExtractCharset(attribute_value);
-        if (charset.length())
-          mode = MetaAttribute::kPragma;
-      }
+    } else if (ThreadSafeMatch(attribute_name, kCharsetAttr)) {
+      has_charset = true;
+      charset = attribute_value;
+      mode = MetaAttribute::kCharset;
+    } else if (!has_charset && ThreadSafeMatch(attribute_name, kContentAttr)) {
+      charset = ExtractCharset(attribute_value);
+      if (charset.length())
+        mode = MetaAttribute::kPragma;
     }
   }
 
@@ -440,7 +440,7 @@ inline StringImpl* FindStringIfStatic(const CharType* characters,
   return it->value;
 }
 
-String AttemptStaticStringCreation(const LChar* characters, size_t size) {
+String AttemptStaticStringCreation(const LChar* characters, wtf_size_t size) {
   String string(FindStringIfStatic(characters, size));
   if (string.Impl())
     return string;
@@ -448,7 +448,7 @@ String AttemptStaticStringCreation(const LChar* characters, size_t size) {
 }
 
 String AttemptStaticStringCreation(const UChar* characters,
-                                   size_t size,
+                                   wtf_size_t size,
                                    CharacterWidth width) {
   String string(FindStringIfStatic(characters, size));
   if (string.Impl())

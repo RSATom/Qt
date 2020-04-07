@@ -209,6 +209,7 @@ class _Generator(object):
     """
     props = []
     dicts = []
+    addition = 0
     for prop in type_.properties.values():
       t = prop.type_
 
@@ -245,31 +246,71 @@ class _Generator(object):
       else:
         props.append(move_str % ('additional_properties',
                                  'additional_properties'))
+        addition = True
 
-    return (props, dicts)
+    return (props, dicts, addition)
 
   def _GenerateMoveCtor(self, type_):
-    props, dicts = self._GetMoveProps(type_, '%s(rhs.%s)',
+    props, dicts, addition = self._GetMoveProps(type_, '%s(rhs.%s)',
                                       '%s(std::move(rhs.%s))')
     s = ''
+    s = s + '\n#if !defined(__GNUC__) || __GNUC__ > 5\n'
     if props:
       s = s + ': %s' % (',\n'.join(props))
-    s = s + '{'
+    s = s + '\n{'
     for item in dicts:
       s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
     s = s + '\n}'
 
+    s = s + '\n#else\n'
+    additional_props = None
+    if props:
+      if addition == True:
+        additional_props = props.pop()
+
+    if props:
+      s = s + ': %s' % (',\n'.join(props))
+    s = s + '\n{'
+    for item in dicts:
+      s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
+    if additional_props != None:
+      s = s + '\n  for (auto& x : rhs.additional_properties) {'
+      s = s + '\n    additional_properties.emplace(std::move(x.first) ,std::move( x.second));'
+      s = s + '\n  }'
+    s = s + '\n}'
+    s = s + '\n#endif'
+
     return Code().Append(s)
 
   def _GenerateMoveAssignOperator(self, type_):
-    props, dicts = self._GetMoveProps(type_, '%s = rhs.%s;',
+    props, dicts, addition = self._GetMoveProps(type_, '%s = rhs.%s;',
                                       '%s = std::move(rhs.%s);')
-    s = '{\n'
+    s = ''
+    s = s + '\n#if !defined(__GNUC__) || __GNUC__ > 5'
+    s = s + '\n{'
     if props:
       s = s + '\n'.join(props)
+
+    for item in dicts:
+      s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
+    s = s + '\nreturn *this;\n}'
+
+    s = s + '\n#else'
+    s = s + '\n{'
+    additional_props = None
+    if props:
+      if addition == True:
+        additional_props = props.pop()
+      s = s + '\n'.join(props)
+    if additional_props != None:
+      s = s + '\n  for (auto& x : rhs.additional_properties) {'
+      s = s + '\n    additional_properties.emplace(std::move(x.first), std::move(x.second));'
+      s = s + '\n  }'
+
     for item in dicts:
       s = s + ('%s.Swap(&rhs.%s);' % (item, item))
     s = s + '\nreturn *this;\n}'
+    s = s + '\n#endif'
 
     return Code().Append(s)
 
@@ -895,8 +936,8 @@ class _Generator(object):
         .Sblock('else {')
       )
       if is_ptr:
-        c.Append(
-            '%(dst_var)s.reset(new std::vector<char>(%(src_var)s->GetBlob()));')
+        c.Append('%(dst_var)s.reset(new std::vector<uint8_t>('
+                 '%(src_var)s->GetBlob()));')
       else:
         c.Append('%(dst_var)s = %(src_var)s->GetBlob();')
       c.Eblock('}')

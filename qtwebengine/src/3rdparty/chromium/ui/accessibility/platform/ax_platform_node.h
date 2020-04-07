@@ -11,8 +11,8 @@
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_export.h"
+#include "ui/accessibility/ax_mode.h"
 #include "ui/accessibility/ax_mode_observer.h"
-#include "ui/accessibility/ax_modes.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace ui {
@@ -62,12 +62,15 @@ class AX_EXPORT AXPlatformNode {
   // The availability of the popup changes the interactions that will occur
   // (down arrow will move the focus into the suggestion popup). An example of a
   // suggestion popup is seen in the Autofill feature.
+  // TODO(crbug.com/865101) Remove this once the autofill state works.
   static void OnInputSuggestionsAvailable();
   // Must be called when the system goes from a state of having an available
   // suggestion popup to none available. If the suggestion popup is still
   // available but just hidden, this method should not be called.
+  // TODO(crbug.com/865101) Remove this once the autofill state works.
   static void OnInputSuggestionsUnavailable();
 
+  // TODO(crbug.com/865101) Remove this once the autofill state works.
   static bool HasInputSuggestions();
 
   // Return the focused object in any UI popup overlaying content, or null.
@@ -108,8 +111,8 @@ class AX_EXPORT AXPlatformNode {
 
  private:
   // Global ObserverList for AXMode changes.
-  static base::LazyInstance<base::ObserverList<AXModeObserver>>::Leaky
-      ax_mode_observers_;
+  static base::LazyInstance<
+      base::ObserverList<AXModeObserver>::Unchecked>::Leaky ax_mode_observers_;
 
   static base::LazyInstance<NativeWindowHandlerCallback>::Leaky
       native_window_handler_;

@@ -96,31 +96,36 @@ inline bool qIsLikelyToBeNfs(const QString &path)
 }
 
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
-enum NtfsTargetType {
-    NtfsTargetFile = 0x0,
-    NtfsTargetDir = 0x1
-};
+#  ifndef SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE // MinGW
+#    define SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE (0x2)
+#  endif
 
-static bool createNtfsSymLinkHelper(const QString &path, const QString &target, NtfsTargetType targetType)
+static DWORD createSymbolicLink(const QString &symLinkName, const QString &target,
+                                QString *errorMessage)
 {
-    DWORD dwFlags = targetType;
-    DWORD err = ERROR_SUCCESS;
-
-    SetLastError(0);
-    const bool result = CreateSymbolicLink(reinterpret_cast<const wchar_t*>(path.utf16()),
-                                           reinterpret_cast<const wchar_t*>(target.utf16()), dwFlags);
-    err = GetLastError();
-
-    // CreateSymbolicLink can return TRUE & still fail to create the link,
-    // the error code in that case might be ERROR_PRIVILEGE_NOT_HELD (1314)
-    if (!result || err != ERROR_SUCCESS) {
-        qWarning() << "Error creating NTFS-symlink from:" << path << "to" << target << ":" << qt_error_string(err);
-
-        return false;
+    DWORD result = ERROR_SUCCESS;
+    const QString nativeSymLinkName = QDir::toNativeSeparators(symLinkName);
+    const QString nativeTarget = QDir::toNativeSeparators(target);
+    DWORD flags = 0;
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 14972))
+        flags |= SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
+    if (QFileInfo(target).isDir())
+        flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
+    if (CreateSymbolicLink(reinterpret_cast<const wchar_t*>(nativeSymLinkName.utf16()),
+                           reinterpret_cast<const wchar_t*>(nativeTarget.utf16()), flags) == FALSE) {
+        result = GetLastError();
+        QTextStream(errorMessage) << "CreateSymbolicLink(" <<  nativeSymLinkName << ", "
+            << nativeTarget << ", 0x" << hex << flags << dec << ") failed with error " << result
+            << ": " << qt_error_string(int(result));
     }
-    return true;
+    return result;
 }
-#endif
+
+static QByteArray msgInsufficientPrivileges(const QString &errorMessage)
+{
+    return "Insufficient privileges (" + errorMessage.toLocal8Bit() + ')';
+}
+#endif  // Q_OS_WIN && !Q_OS_WINRT
 
 static QString seedAndTemplate()
 {
@@ -650,6 +655,8 @@ void tst_QFileInfo::canonicalFilePath()
     QVERIFY(tempFile.open(QFile::WriteOnly));
     QFileInfo fi(tempFile.fileName());
     QCOMPARE(fi.canonicalFilePath(), QDir::currentPath() + "/" + fileName);
+    fi = QFileInfo(tempFile.fileName() + QString::fromLatin1("/"));
+    QCOMPARE(fi.canonicalFilePath(), QString::fromLatin1(""));
     tempFile.remove();
 
     // This used to crash on Mac, verify that it doesn't anymore.
@@ -731,13 +738,14 @@ void tst_QFileInfo::canonicalFilePath()
 
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
     {
+        QString errorMessage;
         const QString linkTarget = QStringLiteral("res");
-        BOOL ret = createNtfsSymLinkHelper(linkTarget, m_resourcesDir, NtfsTargetDir);
-        if (!ret)
-            QSKIP("Symbolic links aren't supported by FS");
+        const DWORD dwErr = createSymbolicLink(linkTarget, m_resourcesDir, &errorMessage);
+        if (dwErr == ERROR_PRIVILEGE_NOT_HELD)
+            QSKIP(msgInsufficientPrivileges(errorMessage));
+        QVERIFY2(dwErr == ERROR_SUCCESS, qPrintable(errorMessage));
         QString currentPath = QDir::currentPath();
-        bool is_res_Current = QDir::setCurrent(linkTarget);
-        QCOMPARE(is_res_Current, true);
+        QVERIFY(QDir::setCurrent(linkTarget));
         const QString actualCanonicalPath = QFileInfo("file1").canonicalFilePath();
         QVERIFY(QDir::setCurrent(currentPath));
         QCOMPARE(actualCanonicalPath, m_resourcesDir + QStringLiteral("/file1"));
@@ -1476,8 +1484,24 @@ void tst_QFileInfo::refresh()
 }
 
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+
+struct NtfsTestResource {
+
+    enum Type { None, SymLink, Junction };
+
+    explicit NtfsTestResource(Type tp = None, const QString &s = QString(), const QString &t = QString())
+        : source(s), target(t), type(tp) {}
+
+    QString source;
+    QString target;
+    Type type;
+};
+
+Q_DECLARE_METATYPE(NtfsTestResource)
+
 void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
 {
+    QTest::addColumn<NtfsTestResource>("resource");
     QTest::addColumn<QString>("path");
     QTest::addColumn<bool>("isSymLink");
     QTest::addColumn<QString>("linkTarget");
@@ -1500,25 +1524,20 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
         QString fileInSymlink(absSymlink);
         fileInSymlink.append("\\file");
         QFile file(fileInTarget);
-        file.open(QIODevice::ReadWrite);
+        QVERIFY2(file.open(QIODevice::ReadWrite), qPrintable(file.errorString()));
         file.close();
 
-        bool result = true;
-        if (!pwd.exists("abs_symlink"))
-            result = createNtfsSymLinkHelper(absSymlink, absTarget, NtfsTargetDir);
-        if (result && !pwd.exists(relSymlink))
-            result = createNtfsSymLinkHelper(relSymlink, relTarget, NtfsTargetDir);
-        if (!result) {
-            //we need at least one data set for the test not to assert fail when skipping _data function
-            QDir target("target");
-            QTest::newRow("dummy") << target.path() << false << "" << target.canonicalPath();
-            QSKIP("link not supported by FS or insufficient privilege");
-        }
         QVERIFY2(file.exists(), msgDoesNotExist(file.fileName()).constData());
 
-        QTest::newRow("absolute dir symlink") << absSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
-        QTest::newRow("relative dir symlink") << relSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
-        QTest::newRow("file in symlink dir") << fileInSymlink << false << "" << target.canonicalPath().append("/file");
+        QTest::newRow("absolute dir symlink")
+            << NtfsTestResource(NtfsTestResource::SymLink, absSymlink, absTarget)
+            << absSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
+        QTest::newRow("relative dir symlink")
+            << NtfsTestResource(NtfsTestResource::SymLink, relSymlink, relTarget)
+            << relSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalPath();
+        QTest::newRow("file in symlink dir")
+            << NtfsTestResource()
+            << fileInSymlink << false << "" << target.canonicalPath().append("/file");
     }
     {
         //File symlinks
@@ -1531,41 +1550,51 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
         QString relSymlink = "rel_symlink.cpp";
         QString relToRelTarget = QDir::toNativeSeparators(relativeDir.relativeFilePath(target.absoluteFilePath()));
         QString relToRelSymlink = "relative/rel_symlink";
-        QVERIFY(pwd.exists("abs_symlink.cpp") || createNtfsSymLinkHelper(absSymlink, absTarget, NtfsTargetFile));
-        QVERIFY(pwd.exists(relSymlink) || createNtfsSymLinkHelper(relSymlink, relTarget, NtfsTargetFile));
-        QVERIFY(pwd.exists(relToRelSymlink) || createNtfsSymLinkHelper(relToRelSymlink, relToRelTarget, NtfsTargetFile));
-        QTest::newRow("absolute file symlink") << absSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
-        QTest::newRow("relative file symlink") << relSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
-        QTest::newRow("relative to relative file symlink") << relToRelSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
+
+        QTest::newRow("absolute file symlink")
+            << NtfsTestResource(NtfsTestResource::SymLink, absSymlink, absTarget)
+            << absSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
+        QTest::newRow("relative file symlink")
+            << NtfsTestResource(NtfsTestResource::SymLink, relSymlink, relTarget)
+            << relSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
+        QTest::newRow("relative to relative file symlink")
+            << NtfsTestResource(NtfsTestResource::SymLink, relToRelSymlink, relToRelTarget)
+            << relToRelSymlink << true << QDir::fromNativeSeparators(absTarget) << target.canonicalFilePath();
     }
     {
         // Symlink to UNC share
         pwd.mkdir("unc");
+        QString errorMessage;
         QString uncTarget = QStringLiteral("//") + QtNetworkSettings::winServerName() + "/testshare";
         QString uncSymlink = QDir::toNativeSeparators(pwd.absolutePath().append("\\unc\\link_to_unc"));
-        QVERIFY(pwd.exists("link_to_unc") || createNtfsSymLinkHelper(uncSymlink, uncTarget, NtfsTargetDir));
-        QTest::newRow("UNC symlink") << uncSymlink << true << uncTarget << uncTarget;
+        QTest::newRow("UNC symlink")
+            << NtfsTestResource(NtfsTestResource::SymLink, uncSymlink, uncTarget)
+            << QDir::fromNativeSeparators(uncSymlink) << true << QDir::fromNativeSeparators(uncTarget) << uncTarget;
     }
 
     //Junctions
     QString target = "target";
     QString junction = "junction_pwd";
-    FileSystem::createNtfsJunction(target, junction);
     QFileInfo targetInfo(target);
-    QTest::newRow("junction_pwd") << junction << false << QString() << QString();
+    QTest::newRow("junction_pwd")
+        << NtfsTestResource(NtfsTestResource::Junction, junction, target)
+        << junction << false << QString() << QString();
 
     QFileInfo fileInJunction(targetInfo.absoluteFilePath().append("/file"));
     QFile file(fileInJunction.absoluteFilePath());
-    file.open(QIODevice::ReadWrite);
+    QVERIFY2(file.open(QIODevice::ReadWrite), qPrintable(file.errorString()));
     file.close();
     QVERIFY2(file.exists(), msgDoesNotExist(file.fileName()).constData());
-    QTest::newRow("file in junction") << fileInJunction.absoluteFilePath() << false << "" << fileInJunction.canonicalFilePath();
+    QTest::newRow("file in junction")
+        << NtfsTestResource()
+        << fileInJunction.absoluteFilePath() << false << QString() << fileInJunction.canonicalFilePath();
 
     target = QDir::rootPath();
     junction = "junction_root";
-    FileSystem::createNtfsJunction(target, junction);
     targetInfo.setFile(target);
-    QTest::newRow("junction_root") << junction << false << QString() << QString();
+    QTest::newRow("junction_root")
+        << NtfsTestResource(NtfsTestResource::Junction, junction, target)
+        << junction << false << QString() << QString();
 
     //Mountpoint
     wchar_t buffer[MAX_PATH];
@@ -1574,16 +1603,37 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks_data()
     QString rootVolume = QString::fromWCharArray(buffer);
     junction = "mountpoint";
     rootVolume.replace("\\\\?\\","\\??\\");
-    FileSystem::createNtfsJunction(rootVolume, junction);
-    QTest::newRow("mountpoint") << junction << false << QString() << QString();
+    QTest::newRow("mountpoint")
+        << NtfsTestResource(NtfsTestResource::Junction, junction, rootVolume)
+        << junction << false << QString() << QString();
 }
 
 void tst_QFileInfo::ntfsJunctionPointsAndSymlinks()
 {
+    QFETCH(NtfsTestResource, resource);
     QFETCH(QString, path);
     QFETCH(bool, isSymLink);
     QFETCH(QString, linkTarget);
     QFETCH(QString, canonicalFilePath);
+
+    QString errorMessage;
+    DWORD creationResult = ERROR_SUCCESS;
+    switch (resource.type) {
+    case NtfsTestResource::None:
+        break;
+    case NtfsTestResource::SymLink:
+        creationResult = createSymbolicLink(resource.source, resource.target, &errorMessage);
+        break;
+    case NtfsTestResource::Junction:
+        creationResult = FileSystem::createNtfsJunction(resource.target, resource.source, &errorMessage);
+        if (creationResult == ERROR_NOT_SUPPORTED) // Special value indicating non-NTFS drive
+            QSKIP(qPrintable(errorMessage));
+        break;
+    }
+
+    if (creationResult == ERROR_PRIVILEGE_NOT_HELD)
+        QSKIP(msgInsufficientPrivileges(errorMessage));
+    QVERIFY2(creationResult == ERROR_SUCCESS, qPrintable(errorMessage));
 
     QFileInfo fi(path);
     const bool actualIsSymLink = fi.isSymLink();
@@ -1984,7 +2034,7 @@ static void stateCheck(const QFileInfo &info, const QString &dirname, const QStr
     QVERIFY(!info.isRoot());
     QCOMPARE(info.isNativePath(), !filename.isEmpty());
 
-    QCOMPARE(info.readLink(), QString());
+    QCOMPARE(info.symLinkTarget(), QString());
     QCOMPARE(info.ownerId(), uint(-2));
     QCOMPARE(info.groupId(), uint(-2));
     QCOMPARE(info.owner(), QString());

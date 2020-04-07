@@ -7,12 +7,11 @@
 
 #include <cstddef>
 
-#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "net/third_party/quic/core/crypto/quic_decrypter.h"
-#include "net/third_party/quic/core/crypto/scoped_evp_aead_ctx.h"
 #include "net/third_party/quic/platform/api/quic_export.h"
 #include "net/third_party/quic/platform/api/quic_string_piece.h"
+#include "third_party/boringssl/src/include/openssl/aead.h"
 
 namespace quic {
 
@@ -26,6 +25,8 @@ class QUIC_EXPORT_PRIVATE AeadBaseDecrypter : public QuicDecrypter {
                     size_t auth_tag_size,
                     size_t nonce_size,
                     bool use_ietf_nonce_construction);
+  AeadBaseDecrypter(const AeadBaseDecrypter&) = delete;
+  AeadBaseDecrypter& operator=(const AeadBaseDecrypter&) = delete;
   ~AeadBaseDecrypter() override;
 
   // QuicDecrypter implementation
@@ -35,7 +36,7 @@ class QUIC_EXPORT_PRIVATE AeadBaseDecrypter : public QuicDecrypter {
   bool SetPreliminaryKey(QuicStringPiece key) override;
   bool SetDiversificationNonce(const DiversificationNonce& nonce) override;
   bool DecryptPacket(QuicTransportVersion version,
-                     QuicPacketNumber packet_number,
+                     uint64_t packet_number,
                      QuicStringPiece associated_data,
                      QuicStringPiece ciphertext,
                      char* output,
@@ -66,9 +67,7 @@ class QUIC_EXPORT_PRIVATE AeadBaseDecrypter : public QuicDecrypter {
   // The IV used to construct the nonce.
   unsigned char iv_[kMaxNonceSize];
 
-  ScopedEVPAEADCtx ctx_;
-
-  DISALLOW_COPY_AND_ASSIGN(AeadBaseDecrypter);
+  bssl::ScopedEVP_AEAD_CTX ctx_;
 };
 
 }  // namespace quic

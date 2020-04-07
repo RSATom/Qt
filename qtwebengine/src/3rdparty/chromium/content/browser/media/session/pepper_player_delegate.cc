@@ -28,7 +28,7 @@ PepperPlayerDelegate::PepperPlayerDelegate(
 PepperPlayerDelegate::~PepperPlayerDelegate() = default;
 
 void PepperPlayerDelegate::OnSuspend(int player_id) {
-  if (!media::IsAudioFocusDuckFlashEnabled())
+  if (!base::FeatureList::IsEnabled(media::kAudioFocusDuckFlash))
     return;
 
   // Pepper player cannot be really suspended. Duck the volume instead.
@@ -37,7 +37,7 @@ void PepperPlayerDelegate::OnSuspend(int player_id) {
 }
 
 void PepperPlayerDelegate::OnResume(int player_id) {
-  if (!media::IsAudioFocusDuckFlashEnabled())
+  if (!base::FeatureList::IsEnabled(media::kAudioFocusDuckFlash))
     return;
 
   DCHECK_EQ(player_id, kPlayerId);
@@ -56,7 +56,7 @@ void PepperPlayerDelegate::OnSeekBackward(int player_id,
 
 void PepperPlayerDelegate::OnSetVolumeMultiplier(int player_id,
                                                  double volume_multiplier) {
-  if (!media::IsAudioFocusDuckFlashEnabled())
+  if (!base::FeatureList::IsEnabled(media::kAudioFocusDuckFlash))
     return;
 
   DCHECK_EQ(player_id, kPlayerId);

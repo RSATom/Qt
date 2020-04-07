@@ -11,7 +11,6 @@
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
 #include "services/device/public/mojom/input_service.mojom.h"
-#include "services/service_manager/public/cpp/service_context.h"
 
 namespace device {
 
@@ -28,9 +27,7 @@ class FakeInputServiceLinux : public mojom::InputDeviceManager {
       GetDevicesCallback callback) override;
   void GetDevices(GetDevicesCallback callback) override;
 
-  void Bind(const std::string& interface_name,
-            mojo::ScopedMessagePipeHandle handle,
-            const service_manager::BindSourceInfo& source_info);
+  void Bind(mojom::InputDeviceManagerRequest request);
   void AddDevice(mojom::InputDeviceInfoPtr info);
   void RemoveDevice(const std::string& id);
 

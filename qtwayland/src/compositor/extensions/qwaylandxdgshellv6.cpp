@@ -37,9 +37,10 @@
 #include "qwaylandxdgshellv6.h"
 #include "qwaylandxdgshellv6_p.h"
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 #include "qwaylandxdgshellv6integration_p.h"
 #endif
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include <QtWaylandCompositor/QWaylandCompositor>
 #include <QtWaylandCompositor/QWaylandSeat>
@@ -158,15 +159,16 @@ void QWaylandXdgShellV6Private::zxdg_shell_v6_pong(Resource *resource, uint32_t 
  * To provide the functionality of the shell extension in a compositor, create
  * an instance of the XdgShellV6 component and add it to the list of extensions
  * supported by the compositor:
- * \code
- * import QtWayland.Compositor 1.1
+ *
+ * \qml \QtMinorVersion
+ * import QtWayland.Compositor 1.\1
  *
  * WaylandCompositor {
  *     XdgShellV6 {
  *         // ...
  *     }
  * }
- * \endcode
+ * \endqml
  */
 
 /*!
@@ -316,7 +318,7 @@ QRect QWaylandXdgSurfaceV6Private::calculateFallbackWindowGeometry() const
 {
     // TODO: The unset window geometry should include subsurfaces as well, so this solution
     // won't work too well on those kinds of clients.
-    return QRect(QPoint(0, 0), m_surface->size() / m_surface->bufferScale());
+    return QRect(QPoint(), m_surface->destinationSize());
 }
 
 void QWaylandXdgSurfaceV6Private::updateFallbackWindowGeometry()
@@ -390,12 +392,24 @@ void QWaylandXdgSurfaceV6Private::zxdg_surface_v6_get_popup(QtWaylandServer::zxd
                                "zxdg_surface_v6.get_popup without positioner");
         return;
     }
+
     if (!positioner->m_data.isComplete()) {
         QWaylandXdgPositionerV6Data p = positioner->m_data;
         wl_resource_post_error(resource->handle, ZXDG_SHELL_V6_ERROR_INVALID_POSITIONER,
                                "zxdg_surface_v6.get_popup with invalid positioner (size: %dx%d, anchorRect: %dx%d)",
                                p.size.width(), p.size.height(), p.anchorRect.width(), p.anchorRect.height());
         return;
+    }
+
+    QRect anchorBounds(QPoint(0, 0), parent->windowGeometry().size());
+    if (!anchorBounds.contains(positioner->m_data.anchorRect)) {
+        // TODO: this is a protocol error and should ideally be handled like this:
+        //wl_resource_post_error(resource->handle, ZXDG_SHELL_V6_ERROR_INVALID_POSITIONER,
+        //                       "zxdg_positioner_v6 anchor rect extends beyound its parent's window geometry");
+        //return;
+        // However, our own clients currently do this, so we'll settle for a gentle warning instead.
+        qCWarning(qLcWaylandCompositor) << "Ignoring client protocol error: zxdg_positioner_v6 anchor"
+                                        << "rect extends beyond its parent's window geometry";
     }
 
     if (!m_surface->setRole(QWaylandXdgPopupV6::role(), resource->handle, ZXDG_SHELL_V6_ERROR_ROLE))
@@ -515,7 +529,7 @@ void QWaylandXdgSurfaceV6::initialize(QWaylandXdgShellV6 *xdgShell, QWaylandSurf
     d->init(resource.resource());
     setExtensionContainer(surface);
     d->m_windowGeometry = d->calculateFallbackWindowGeometry();
-    connect(surface, &QWaylandSurface::sizeChanged, this, &QWaylandXdgSurfaceV6::handleSurfaceSizeChanged);
+    connect(surface, &QWaylandSurface::destinationSizeChanged, this, &QWaylandXdgSurfaceV6::handleSurfaceSizeChanged);
     connect(surface, &QWaylandSurface::bufferScaleChanged, this, &QWaylandXdgSurfaceV6::handleBufferScaleChanged);
     emit shellChanged();
     emit surfaceChanged();
@@ -679,13 +693,12 @@ QByteArray QWaylandXdgSurfaceV6::interfaceName()
  */
 QWaylandXdgSurfaceV6 *QWaylandXdgSurfaceV6::fromResource(wl_resource *resource)
 {
-    auto xsResource = QWaylandXdgSurfaceV6Private::Resource::fromResource(resource);
-    if (!xsResource)
-        return nullptr;
-    return static_cast<QWaylandXdgSurfaceV6Private *>(xsResource->zxdg_surface_v6_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandXdgSurfaceV6Private *>(resource))
+        return p->q_func();
+    return nullptr;
 }
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 QWaylandQuickShellIntegration *QWaylandXdgSurfaceV6::createIntegration(QWaylandQuickShellSurfaceItem *item)
 {
     Q_D(const QWaylandXdgSurfaceV6);
@@ -1800,16 +1813,13 @@ QWaylandXdgPopupV6Private::QWaylandXdgPopupV6Private(QWaylandXdgSurfaceV6 *xdgSu
                                                      QWaylandXdgPositionerV6 *positioner, const QWaylandResource &resource)
     : m_xdgSurface(xdgSurface)
     , m_parentXdgSurface(parentXdgSurface)
+    , m_positionerData(positioner->m_data)
 {
+    Q_ASSERT(m_positionerData.isComplete());
     init(resource.resource());
-    m_positionerData = positioner->m_data;
-
-    if (!m_positionerData.isComplete())
-        qWarning() << "Trying to create xdg popup with incomplete positioner";
 
     QWaylandXdgSurfaceV6Private::get(m_xdgSurface)->setWindowType(Qt::WindowType::Popup);
 
-    //TODO: positioner rect may not extend parent's window geometry, enforce this?
     //TODO: Need an API for sending a different initial configure
     sendConfigure(QRect(m_positionerData.unconstrainedPosition(), m_positionerData.size));
 }
@@ -1995,9 +2005,7 @@ void QWaylandXdgPositionerV6::zxdg_positioner_v6_set_offset(QtWaylandServer::zxd
 
 QWaylandXdgPositionerV6 *QWaylandXdgPositionerV6::fromResource(wl_resource *resource)
 {
-    if (auto *r = Resource::fromResource(resource))
-        return static_cast<QWaylandXdgPositionerV6 *>(r->zxdg_positioner_v6_object);
-    return nullptr;
+    return QtWayland::fromResource<QWaylandXdgPositionerV6 *>(resource);
 }
 
 QT_END_NAMESPACE

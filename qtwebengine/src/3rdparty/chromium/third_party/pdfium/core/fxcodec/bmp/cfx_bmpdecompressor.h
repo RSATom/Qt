@@ -7,14 +7,14 @@
 #ifndef CORE_FXCODEC_BMP_CFX_BMPDECOMPRESSOR_H_
 #define CORE_FXCODEC_BMP_CFX_BMPDECOMPRESSOR_H_
 
-#include "core/fxcodec/bmp/fx_bmp.h"
-
 #include <setjmp.h>
 
-#include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_memorystream.h"
+#include "core/fxcodec/bmp/fx_bmp.h"
+
+class CFX_BmpContext;
+class CFX_CodecMemory;
 
 class CFX_BmpDecompressor {
  public:
@@ -24,16 +24,13 @@ class CFX_BmpDecompressor {
   void Error();
   int32_t DecodeImage();
   int32_t ReadHeader();
-  void SetInputBuffer(uint8_t* src_buf, uint32_t src_size);
-  FX_FILESIZE GetAvailInput(uint8_t** avail_buf);
+  void SetInputBuffer(RetainPtr<CFX_CodecMemory> codec_memory);
+  FX_FILESIZE GetAvailInput() const;
 
   jmp_buf jmpbuf_;
-
-  void* context_ptr_;
-
+  CFX_BmpContext* context_ptr_;
   std::vector<uint8_t> out_row_buffer_;
   std::vector<uint32_t> palette_;
-
   uint32_t header_offset_;
   uint32_t width_;
   uint32_t height_;
@@ -56,7 +53,6 @@ class CFX_BmpDecompressor {
   uint32_t mask_red_;
   uint32_t mask_green_;
   uint32_t mask_blue_;
-
   int32_t decode_status_;
 
  private:
@@ -71,7 +67,7 @@ class CFX_BmpDecompressor {
   bool ValidateFlag() const;
   void SetHeight(int32_t signed_height);
 
-  RetainPtr<CFX_MemoryStream> input_buffer_;
+  RetainPtr<CFX_CodecMemory> input_buffer_;
 };
 
 #endif  // CORE_FXCODEC_BMP_CFX_BMPDECOMPRESSOR_H_

@@ -49,10 +49,9 @@ CoordinationUnitGraph::~CoordinationUnitGraph() {
 void CoordinationUnitGraph::OnStart(
     service_manager::BinderRegistryWithArgs<
         const service_manager::BindSourceInfo&>* registry,
-    service_manager::ServiceContextRefFactory* service_ref_factory) {
+    service_manager::ServiceKeepalive* keepalive) {
   // Create the singleton CoordinationUnitProvider.
-  provider_ =
-      std::make_unique<CoordinationUnitProviderImpl>(service_ref_factory, this);
+  provider_ = std::make_unique<CoordinationUnitProviderImpl>(keepalive, this);
   registry->AddInterface(base::BindRepeating(
       &CoordinationUnitProviderImpl::Bind, base::Unretained(provider_.get())));
 }
@@ -80,26 +79,26 @@ void CoordinationUnitGraph::OnBeforeCoordinationUnitDestroyed(
 
 FrameCoordinationUnitImpl* CoordinationUnitGraph::CreateFrameCoordinationUnit(
     const CoordinationUnitID& id,
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref) {
+    std::unique_ptr<service_manager::ServiceKeepaliveRef> service_ref) {
   return FrameCoordinationUnitImpl::Create(id, this, std::move(service_ref));
 }
 
 PageCoordinationUnitImpl* CoordinationUnitGraph::CreatePageCoordinationUnit(
     const CoordinationUnitID& id,
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref) {
+    std::unique_ptr<service_manager::ServiceKeepaliveRef> service_ref) {
   return PageCoordinationUnitImpl::Create(id, this, std::move(service_ref));
 }
 
 ProcessCoordinationUnitImpl*
 CoordinationUnitGraph::CreateProcessCoordinationUnit(
     const CoordinationUnitID& id,
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref) {
+    std::unique_ptr<service_manager::ServiceKeepaliveRef> service_ref) {
   return ProcessCoordinationUnitImpl::Create(id, this, std::move(service_ref));
 }
 
 SystemCoordinationUnitImpl*
 CoordinationUnitGraph::FindOrCreateSystemCoordinationUnit(
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref) {
+    std::unique_ptr<service_manager::ServiceKeepaliveRef> service_ref) {
   CoordinationUnitBase* system_cu =
       GetCoordinationUnitByID(system_coordination_unit_id_);
   if (system_cu)
@@ -127,25 +126,19 @@ CoordinationUnitGraph::GetProcessCoordinationUnitByPid(base::ProcessId pid) {
   return ProcessCoordinationUnitImpl::FromCoordinationUnitBase(it->second);
 }
 
-std::vector<CoordinationUnitBase*>
-CoordinationUnitGraph::GetCoordinationUnitsOfType(CoordinationUnitType type) {
-  std::vector<CoordinationUnitBase*> results;
-  for (const auto& el : coordination_units_) {
-    if (el.first.type == type)
-      results.push_back(el.second.get());
-  }
-  return results;
-}
-
 std::vector<ProcessCoordinationUnitImpl*>
 CoordinationUnitGraph::GetAllProcessCoordinationUnits() {
-  auto cus = GetCoordinationUnitsOfType(CoordinationUnitType::kProcess);
-  std::vector<ProcessCoordinationUnitImpl*> process_cus;
-  for (auto* process_cu : cus) {
-    process_cus.push_back(
-        ProcessCoordinationUnitImpl::FromCoordinationUnitBase(process_cu));
-  }
-  return process_cus;
+  return GetAllCoordinationUnitsOfType<ProcessCoordinationUnitImpl>();
+}
+
+std::vector<FrameCoordinationUnitImpl*>
+CoordinationUnitGraph::GetAllFrameCoordinationUnits() {
+  return GetAllCoordinationUnitsOfType<FrameCoordinationUnitImpl>();
+}
+
+std::vector<PageCoordinationUnitImpl*>
+CoordinationUnitGraph::GetAllPageCoordinationUnits() {
+  return GetAllCoordinationUnitsOfType<PageCoordinationUnitImpl>();
 }
 
 CoordinationUnitBase* CoordinationUnitGraph::AddNewCoordinationUnit(
@@ -181,6 +174,17 @@ void CoordinationUnitGraph::BeforeProcessPidChange(
   }
   if (new_pid != base::kNullProcessId)
     processes_by_pid_[new_pid] = process;
+}
+
+template <typename CUType>
+std::vector<CUType*> CoordinationUnitGraph::GetAllCoordinationUnitsOfType() {
+  const auto type = CUType::Type();
+  std::vector<CUType*> ret;
+  for (const auto& el : coordination_units_) {
+    if (el.first.type == type)
+      ret.push_back(CUType::FromCoordinationUnitBase(el.second.get()));
+  }
+  return ret;
 }
 
 }  // namespace resource_coordinator

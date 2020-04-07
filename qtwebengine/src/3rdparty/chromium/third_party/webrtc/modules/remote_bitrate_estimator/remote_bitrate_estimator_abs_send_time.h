@@ -11,21 +11,26 @@
 #ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_REMOTE_BITRATE_ESTIMATOR_ABS_SEND_TIME_H_
 #define MODULES_REMOTE_BITRATE_ESTIMATOR_REMOTE_BITRATE_ESTIMATOR_ABS_SEND_TIME_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <list>
 #include <map>
 #include <memory>
 #include <vector>
 
+#include "api/rtp_headers.h"
 #include "modules/remote_bitrate_estimator/aimd_rate_control.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
 #include "modules/remote_bitrate_estimator/inter_arrival.h"
 #include "modules/remote_bitrate_estimator/overuse_detector.h"
 #include "modules/remote_bitrate_estimator/overuse_estimator.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/race_checker.h"
 #include "rtc_base/rate_statistics.h"
+#include "rtc_base/thread_annotations.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -69,7 +74,7 @@ class RemoteBitrateEstimatorAbsSendTime : public RemoteBitrateEstimator {
  public:
   RemoteBitrateEstimatorAbsSendTime(RemoteBitrateObserver* observer,
                                     const Clock* clock);
-  virtual ~RemoteBitrateEstimatorAbsSendTime() {}
+  ~RemoteBitrateEstimatorAbsSendTime() override;
 
   void IncomingPacket(int64_t arrival_time_ms,
                       size_t payload_size,

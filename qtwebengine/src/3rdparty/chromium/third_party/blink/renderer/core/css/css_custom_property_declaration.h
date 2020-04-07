@@ -12,18 +12,35 @@
 
 namespace blink {
 
-class CSSCustomPropertyDeclaration : public CSSValue {
+class CORE_EXPORT CSSCustomPropertyDeclaration : public CSSValue {
  public:
   static CSSCustomPropertyDeclaration* Create(
       const AtomicString& name,
       scoped_refptr<CSSVariableData> value) {
-    return new CSSCustomPropertyDeclaration(name, std::move(value));
+    return MakeGarbageCollected<CSSCustomPropertyDeclaration>(name,
+                                                              std::move(value));
   }
 
   static CSSCustomPropertyDeclaration* Create(const AtomicString& name,
                                               CSSValueID id) {
-    return new CSSCustomPropertyDeclaration(name, id);
+    return MakeGarbageCollected<CSSCustomPropertyDeclaration>(name, id);
   }
+
+  CSSCustomPropertyDeclaration(const AtomicString& name, CSSValueID id)
+      : CSSValue(kCustomPropertyDeclarationClass),
+        name_(name),
+        value_(nullptr),
+        value_id_(id) {
+    DCHECK(id == CSSValueInherit || id == CSSValueInitial ||
+           id == CSSValueUnset);
+  }
+
+  CSSCustomPropertyDeclaration(const AtomicString& name,
+                               scoped_refptr<CSSVariableData> value)
+      : CSSValue(kCustomPropertyDeclarationClass),
+        name_(name),
+        value_(std::move(value)),
+        value_id_(CSSValueInvalid) {}
 
   const AtomicString& GetName() const { return name_; }
   CSSVariableData* Value() const { return value_.get(); }
@@ -46,22 +63,6 @@ class CSSCustomPropertyDeclaration : public CSSValue {
   void TraceAfterDispatch(blink::Visitor*);
 
  private:
-  CSSCustomPropertyDeclaration(const AtomicString& name, CSSValueID id)
-      : CSSValue(kCustomPropertyDeclarationClass),
-        name_(name),
-        value_(nullptr),
-        value_id_(id) {
-    DCHECK(id == CSSValueInherit || id == CSSValueInitial ||
-           id == CSSValueUnset);
-  }
-
-  CSSCustomPropertyDeclaration(const AtomicString& name,
-                               scoped_refptr<CSSVariableData> value)
-      : CSSValue(kCustomPropertyDeclarationClass),
-        name_(name),
-        value_(std::move(value)),
-        value_id_(CSSValueInvalid) {}
-
   const AtomicString name_;
   scoped_refptr<CSSVariableData> value_;
   CSSValueID value_id_;

@@ -14,10 +14,12 @@
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
+#include "services/metrics/public/cpp/mojo_ukm_recorder.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/renderer/platform/histogram.h"
-#include "third_party/blink/renderer/platform/scheduler/child/features.h"
-#include "third_party/blink/renderer/platform/scheduler/child/task_queue_with_task_type.h"
+#include "third_party/blink/renderer/platform/scheduler/common/features.h"
+#include "third_party/blink/renderer/platform/scheduler/common/process_state.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_helper.h"
@@ -97,23 +99,28 @@ WorkerThreadScheduler::WorkerThreadScheduler(
     WebThreadType thread_type,
     std::unique_ptr<base::sequence_manager::SequenceManager> sequence_manager,
     WorkerSchedulerProxy* proxy)
-    : NonMainThreadSchedulerImpl(std::make_unique<NonMainThreadSchedulerHelper>(
-          std::move(sequence_manager),
-          this,
-          TaskType::kWorkerThreadTaskQueueDefault)),
+    : NonMainThreadSchedulerImpl(std::move(sequence_manager),
+                                 TaskType::kWorkerThreadTaskQueueDefault),
+      thread_type_(thread_type),
       idle_helper_(helper(),
                    this,
                    "WorkerSchedulerIdlePeriod",
                    base::TimeDelta::FromMilliseconds(300),
                    helper()->NewTaskQueue(TaskQueue::Spec("worker_idle_tq"))),
-      idle_canceled_delayed_task_sweeper_(helper(),
-                                          idle_helper_.IdleTaskRunner()),
+      idle_memory_reclaimer_(helper(), idle_helper_.IdleTaskRunner()),
       load_tracker_(helper()->NowTicks(),
                     base::BindRepeating(&ReportWorkerTaskLoad),
                     kUnspecifiedWorkerThreadLoadTrackerReportingInterval),
       lifecycle_state_(proxy ? proxy->lifecycle_state()
                              : SchedulingLifecycleState::kNotThrottled),
-      worker_metrics_helper_(thread_type, helper()->HasCPUTimingForEachTask()) {
+      worker_metrics_helper_(thread_type, helper()->HasCPUTimingForEachTask()),
+      initial_frame_status_(proxy ? proxy->initial_frame_status()
+                                  : FrameStatus::kNone),
+      ukm_source_id_(proxy ? proxy->ukm_source_id() : ukm::kInvalidSourceId),
+      connector_(proxy ? proxy->TakeConnector() : nullptr) {
+  if (connector_) {
+    ukm_recorder_ = ukm::MojoUkmRecorder::Create(connector_.get());
+  }
   thread_start_time_ = helper()->NowTicks();
   load_tracker_.Resume(thread_start_time_);
   helper()->AddTaskTimeObserver(this);
@@ -157,6 +164,12 @@ WorkerThreadScheduler::CompositorTaskRunner() {
   return compositor_task_runner_;
 }
 
+scoped_refptr<base::SingleThreadTaskRunner>
+WorkerThreadScheduler::IPCTaskRunner() {
+  NOTREACHED() << "Not implemented";
+  return nullptr;
+}
+
 bool WorkerThreadScheduler::CanExceedIdleDeadlineIfRequired() const {
   DCHECK(initialized_);
   return idle_helper_.CanExceedIdleDeadlineIfRequired();
@@ -192,6 +205,7 @@ void WorkerThreadScheduler::Shutdown() {
       "WorkerThread.Runtime", delta, base::TimeDelta::FromSeconds(1),
       base::TimeDelta::FromDays(1), 50 /* bucket count */);
   task_queue_throttler_.reset();
+  idle_helper_.Shutdown();
   helper()->Shutdown();
 }
 
@@ -205,23 +219,24 @@ void WorkerThreadScheduler::InitImpl() {
   initialized_ = true;
   idle_helper_.EnableLongIdlePeriod();
 
-  v8_task_runner_ = TaskQueueWithTaskType::Create(
-      DefaultTaskQueue(), TaskType::kWorkerThreadTaskQueueV8);
-  compositor_task_runner_ = TaskQueueWithTaskType::Create(
-      DefaultTaskQueue(), TaskType::kWorkerThreadTaskQueueCompositor);
+  v8_task_runner_ =
+      DefaultTaskQueue()->CreateTaskRunner(TaskType::kWorkerThreadTaskQueueV8);
+  compositor_task_runner_ = DefaultTaskQueue()->CreateTaskRunner(
+      TaskType::kWorkerThreadTaskQueueCompositor);
 }
 
 void WorkerThreadScheduler::OnTaskCompleted(
-    NonMainThreadTaskQueue* worker_task_queue,
-    const TaskQueue::Task& task,
+    NonMainThreadTaskQueue* task_queue,
+    const base::sequence_manager::Task& task,
     const TaskQueue::TaskTiming& task_timing) {
-  worker_metrics_helper_.RecordTaskMetrics(worker_task_queue, task,
-                                           task_timing);
+  worker_metrics_helper_.RecordTaskMetrics(task_queue, task, task_timing);
 
   if (task_queue_throttler_) {
     task_queue_throttler_->OnTaskRunTimeReported(
-        worker_task_queue, task_timing.start_time(), task_timing.end_time());
+        task_queue, task_timing.start_time(), task_timing.end_time());
   }
+
+  RecordTaskUkm(task_queue, task, task_timing);
 }
 
 SchedulerHelper* WorkerThreadScheduler::GetSchedulerHelperForTesting() {
@@ -287,6 +302,34 @@ void WorkerThreadScheduler::CreateTaskQueueThrottler() {
   cpu_time_budget_pool_->SetTimeBudgetRecoveryRate(now,
                                                    GetBudgetRecoveryRate());
   cpu_time_budget_pool_->SetMaxThrottlingDelay(now, GetMaxThrottlingDelay());
+}
+
+void WorkerThreadScheduler::RecordTaskUkm(
+    NonMainThreadTaskQueue* worker_task_queue,
+    const base::sequence_manager::Task& task,
+    const base::sequence_manager::TaskQueue::TaskTiming& task_timing) {
+  if (!ShouldRecordTaskUkm(task_timing.has_thread_time()))
+    return;
+  ukm::builders::RendererSchedulerTask builder(ukm_source_id_);
+
+  builder.SetVersion(kUkmMetricVersion);
+  builder.SetThreadType(static_cast<int>(thread_type_));
+
+  builder.SetRendererBackgrounded(
+      internal::ProcessState::Get()->is_process_backgrounded);
+  builder.SetTaskType(task.task_type);
+  builder.SetFrameStatus(static_cast<int>(initial_frame_status_));
+  builder.SetTaskDuration(task_timing.wall_duration().InMicroseconds());
+
+  if (task_timing.has_thread_time())
+    builder.SetTaskCPUDuration(task_timing.thread_duration().InMicroseconds());
+
+  builder.Record(ukm_recorder_.get());
+}
+
+void WorkerThreadScheduler::SetUkmRecorderForTest(
+    std::unique_ptr<ukm::UkmRecorder> ukm_recorder) {
+  ukm_recorder_ = std::move(ukm_recorder);
 }
 
 void WorkerThreadScheduler::SetCPUTimeBudgetPoolForTesting(

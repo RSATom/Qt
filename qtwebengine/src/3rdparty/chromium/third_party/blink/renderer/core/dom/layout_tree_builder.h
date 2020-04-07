@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/dom/layout_tree_builder_traversal.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -86,7 +87,8 @@ class LayoutTreeBuilder {
     // AddChild() implementations to walk up the tree to find the correct
     // layout tree parent/siblings.
     if (next && next->IsText() && next->Parent()->IsAnonymous() &&
-        next->Parent()->IsInline()) {
+        next->Parent()->IsInline() &&
+        !ToLayoutInline(next->Parent())->IsFirstLineAnonymous()) {
       return next->Parent();
     }
     return next;
@@ -105,16 +107,13 @@ class LayoutTreeBuilderForElement : public LayoutTreeBuilder<Element> {
       CreateLayoutObject();
   }
 
-  ComputedStyle* ResolvedStyle() const { return style_.get(); }
-
  private:
   LayoutObject* ParentLayoutObject() const;
   LayoutObject* NextLayoutObject() const;
   bool ShouldCreateLayoutObject() const;
-  ComputedStyle& Style() const;
   void CreateLayoutObject();
 
-  mutable scoped_refptr<ComputedStyle> style_;
+  scoped_refptr<ComputedStyle> style_;
 };
 
 class LayoutTreeBuilderForText : public LayoutTreeBuilder<Text> {
@@ -158,10 +157,7 @@ class CORE_EXPORT ReattachLegacyLayoutObjectList final {
   }
   void ForceLegacyLayoutIfNeeded();
 
-  void DidRecalcStyle();
-  void WillRecalcStyle();
-
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   Member<Document> document_;
@@ -180,8 +176,6 @@ class CORE_EXPORT ReattachLegacyLayoutObjectList final {
     kCollecting,
     // Replaces LayoutNG objects to legacy layout objects.
     kForcingLegacyLayout,
-    // Doing style re-calculation.
-    kRecalcStyle,
   } state_ = State::kInvalid;
 
   DISALLOW_COPY_AND_ASSIGN(ReattachLegacyLayoutObjectList);

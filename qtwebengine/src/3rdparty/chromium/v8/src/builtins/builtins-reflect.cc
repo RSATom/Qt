@@ -2,9 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/builtins/builtins-utils-inl.h"
 #include "src/builtins/builtins.h"
-#include "src/builtins/builtins-utils.h"
-
 #include "src/counters.h"
 #include "src/keys.h"
 #include "src/lookup.h"
@@ -219,7 +218,7 @@ BUILTIN(ReflectSet) {
   LookupIterator it = LookupIterator::PropertyOrElement(
       isolate, receiver, name, Handle<JSReceiver>::cast(target));
   Maybe<bool> result = Object::SetSuperProperty(
-      &it, value, LanguageMode::kSloppy, Object::MAY_BE_STORE_FROM_KEYED);
+      &it, value, LanguageMode::kSloppy, StoreOrigin::kMaybeKeyed);
   MAYBE_RETURN(result, ReadOnlyRoots(isolate).exception());
   return *isolate->factory()->ToBoolean(result.FromJust());
 }

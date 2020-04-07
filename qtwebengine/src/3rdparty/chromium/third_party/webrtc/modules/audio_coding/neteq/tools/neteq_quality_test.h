@@ -14,14 +14,12 @@
 #include <fstream>
 #include <memory>
 
-#include "common_types.h"  // NOLINT(build/include)
 #include "modules/audio_coding/neteq/include/neteq.h"
 #include "modules/audio_coding/neteq/tools/audio_sink.h"
 #include "modules/audio_coding/neteq/tools/input_audio_file.h"
 #include "modules/audio_coding/neteq/tools/rtp_generator.h"
 #include "rtc_base/flags.h"
 #include "test/gtest.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 namespace test {
@@ -100,7 +98,7 @@ class NetEqQualityTest : public ::testing::Test {
   NetEqQualityTest(int block_duration_ms,
                    int in_sampling_khz,
                    int out_sampling_khz,
-                   NetEqDecoder decoder_type);
+                   const SdpAudioFormat& format);
   ~NetEqQualityTest() override;
 
   void SetUp() override;
@@ -134,7 +132,7 @@ class NetEqQualityTest : public ::testing::Test {
   // Write to log file. Usage Log() << ...
   std::ofstream& Log();
 
-  NetEqDecoder decoder_type_;
+  SdpAudioFormat audio_format_;
   const size_t channels_;
 
  private:

@@ -15,7 +15,7 @@
 #include "core/fxcrt/string_pool_template.h"
 #include "core/fxcrt/weak_ptr.h"
 
-class CPDF_String : public CPDF_Object {
+class CPDF_String final : public CPDF_Object {
  public:
   CPDF_String();
   CPDF_String(WeakPtr<ByteStringPool> pPool, const ByteString& str, bool bHex);
@@ -31,11 +31,12 @@ class CPDF_String : public CPDF_Object {
   bool IsString() const override;
   CPDF_String* AsString() override;
   const CPDF_String* AsString() const override;
-  bool WriteTo(IFX_ArchiveStream* archive) const override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
 
   bool IsHex() const { return m_bHex; }
 
- protected:
+ private:
   ByteString m_String;
   bool m_bHex;
 };

@@ -7,9 +7,9 @@
 #ifndef FXJS_CJS_GLOBALARRAYS_H_
 #define FXJS_CJS_GLOBALARRAYS_H_
 
-#include "fxjs/js_define.h"
+#include "fxjs/cjs_object.h"
 
-class CJS_GlobalArrays : public CJS_Object {
+class CJS_GlobalArrays final : public CJS_Object {
  public:
   static void DefineJSObjects(CJS_Runtime* pRuntmie);
 };

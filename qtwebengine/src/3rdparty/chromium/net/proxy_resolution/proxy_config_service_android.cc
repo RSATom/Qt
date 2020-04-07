@@ -199,6 +199,73 @@ void CreateStaticProxyConfig(const std::string& host,
   }
 }
 
+std::string ParseOverrideRules(
+    const std::vector<ProxyConfigServiceAndroid::ProxyOverrideRule>&
+        override_rules,
+    ProxyConfig::ProxyRules* proxy_rules) {
+  // If no rules were specified, use DIRECT for everything.
+  if (override_rules.empty()) {
+    DCHECK(proxy_rules->empty());
+    return "";
+  }
+
+  // Otherwise use a proxy list per URL scheme.
+  proxy_rules->type = ProxyConfig::ProxyRules::Type::PROXY_LIST_PER_SCHEME;
+
+  for (const auto& rule : override_rules) {
+    // Parse the proxy URL.
+    ProxyServer proxy_server =
+        ProxyServer::FromURI(rule.proxy_url, ProxyServer::Scheme::SCHEME_HTTP);
+    if (!proxy_server.is_valid()) {
+      return "Invalid Proxy URL: " + rule.proxy_url;
+    } else if (proxy_server.is_quic()) {
+      return "Unsupported proxy scheme: " + rule.proxy_url;
+    }
+
+    // Parse the URL scheme.
+    if (base::EqualsCaseInsensitiveASCII(rule.url_scheme, "http")) {
+      proxy_rules->proxies_for_http.AddProxyServer(proxy_server);
+    } else if (base::EqualsCaseInsensitiveASCII(rule.url_scheme, "https")) {
+      proxy_rules->proxies_for_https.AddProxyServer(proxy_server);
+    } else if (rule.url_scheme == "*") {
+      proxy_rules->fallback_proxies.AddProxyServer(proxy_server);
+    } else {
+      return "Unsupported URL scheme: " + rule.url_scheme;
+    }
+  }
+
+  // If there is no per-URL scheme distinction simplify the ProxyRules.
+  if (proxy_rules->proxies_for_http.IsEmpty() &&
+      proxy_rules->proxies_for_https.IsEmpty() &&
+      !proxy_rules->fallback_proxies.IsEmpty()) {
+    proxy_rules->type = ProxyConfig::ProxyRules::Type::PROXY_LIST;
+    std::swap(proxy_rules->single_proxies, proxy_rules->fallback_proxies);
+  }
+
+  return "";
+}
+
+std::string CreateOverrideProxyConfig(
+    const std::vector<ProxyConfigServiceAndroid::ProxyOverrideRule>&
+        proxy_rules,
+    const std::vector<std::string>& bypass_rules,
+    ProxyConfigWithAnnotation* config) {
+  ProxyConfig proxy_config;
+  auto result = ParseOverrideRules(proxy_rules, &proxy_config.proxy_rules());
+  if (!result.empty()) {
+    return result;
+  }
+
+  for (const auto& bypass_rule : bypass_rules) {
+    if (!proxy_config.proxy_rules().bypass_rules.AddRuleFromString(
+            bypass_rule)) {
+      return "Invalid bypass rule " + bypass_rule;
+    }
+  }
+  *config = ProxyConfigWithAnnotation(proxy_config, NO_TRAFFIC_ANNOTATION_YET);
+  return "";
+}
+
 }  // namespace
 
 class ProxyConfigServiceAndroid::Delegate
@@ -211,7 +278,8 @@ class ProxyConfigServiceAndroid::Delegate
         network_task_runner_(network_task_runner),
         jni_task_runner_(jni_task_runner),
         get_property_callback_(get_property_callback),
-        exclude_pac_url_(false) {
+        exclude_pac_url_(false),
+        has_proxy_override_(false) {
   }
 
   void SetupJNI() {
@@ -230,8 +298,8 @@ class ProxyConfigServiceAndroid::Delegate
     ProxyConfigWithAnnotation proxy_config;
     GetLatestProxyConfigInternal(get_property_callback_, &proxy_config);
     network_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&Delegate::SetNewConfigInNetworkSequence, this,
-                              proxy_config));
+        FROM_HERE, base::BindOnce(&Delegate::SetNewConfigInNetworkSequence,
+                                  this, proxy_config));
   }
 
   void Shutdown() {
@@ -265,11 +333,14 @@ class ProxyConfigServiceAndroid::Delegate
   // Called in the JNI sequence.
   void ProxySettingsChanged() {
     DCHECK(InJNISequence());
+    if (has_proxy_override_)
+      return;
+
     ProxyConfigWithAnnotation proxy_config;
     GetLatestProxyConfigInternal(get_property_callback_, &proxy_config);
     network_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&Delegate::SetNewConfigInNetworkSequence, this,
-                              proxy_config));
+        FROM_HERE, base::BindOnce(&Delegate::SetNewConfigInNetworkSequence,
+                                  this, proxy_config));
   }
 
   // Called in the JNI sequence.
@@ -278,6 +349,9 @@ class ProxyConfigServiceAndroid::Delegate
                               const std::string& pac_url,
                               const std::vector<std::string>& exclusion_list) {
     DCHECK(InJNISequence());
+    if (has_proxy_override_)
+      return;
+
     ProxyConfigWithAnnotation proxy_config;
     if (exclude_pac_url_) {
       CreateStaticProxyConfig(host, port, "", exclusion_list, &proxy_config);
@@ -286,12 +360,55 @@ class ProxyConfigServiceAndroid::Delegate
           &proxy_config);
     }
     network_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&Delegate::SetNewConfigInNetworkSequence, this,
-                              proxy_config));
+        FROM_HERE, base::BindOnce(&Delegate::SetNewConfigInNetworkSequence,
+                                  this, proxy_config));
   }
 
   void set_exclude_pac_url(bool enabled) {
     exclude_pac_url_ = enabled;
+  }
+
+  // Called in the JNI sequence.
+  std::string SetProxyOverride(
+      const std::vector<ProxyOverrideRule>& proxy_rules,
+      const std::vector<std::string>& bypass_rules,
+      base::OnceClosure callback) {
+    DCHECK(InJNISequence());
+    has_proxy_override_ = true;
+
+    // Creates a new proxy config
+    ProxyConfigWithAnnotation proxy_config;
+    std::string result =
+        CreateOverrideProxyConfig(proxy_rules, bypass_rules, &proxy_config);
+    if (!result.empty()) {
+      return result;
+    }
+
+    network_task_runner_->PostTaskAndReply(
+        FROM_HERE,
+        base::BindOnce(&Delegate::SetNewConfigInNetworkSequence, this,
+                       proxy_config),
+        std::move(callback));
+
+    return "";
+  }
+
+  // Called in the JNI sequence.
+  void ClearProxyOverride(base::OnceClosure callback) {
+    DCHECK(InJNISequence());
+    if (!has_proxy_override_) {
+      std::move(callback).Run();
+      return;
+    }
+
+    ProxyConfigWithAnnotation proxy_config;
+    GetLatestProxyConfigInternal(get_property_callback_, &proxy_config);
+    network_task_runner_->PostTaskAndReply(
+        FROM_HERE,
+        base::BindOnce(&Delegate::SetNewConfigInNetworkSequence, this,
+                       proxy_config),
+        std::move(callback));
+    has_proxy_override_ = false;
   }
 
  private:
@@ -359,12 +476,14 @@ class ProxyConfigServiceAndroid::Delegate
   ScopedJavaGlobalRef<jobject> java_proxy_change_listener_;
 
   JNIDelegateImpl jni_delegate_;
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
   scoped_refptr<base::SequencedTaskRunner> network_task_runner_;
   scoped_refptr<base::SequencedTaskRunner> jni_task_runner_;
   GetPropertyCallback get_property_callback_;
   ProxyConfigWithAnnotation proxy_config_;
   bool exclude_pac_url_;
+  // This may only be accessed or modified on the JNI thread
+  bool has_proxy_override_;
 
   DISALLOW_COPY_AND_ASSIGN(Delegate);
 };
@@ -412,6 +531,18 @@ ProxyConfigServiceAndroid::ProxyConfigServiceAndroid(
 
 void ProxyConfigServiceAndroid::ProxySettingsChanged() {
   delegate_->ProxySettingsChanged();
+}
+
+std::string ProxyConfigServiceAndroid::SetProxyOverride(
+    const std::vector<ProxyOverrideRule>& proxy_rules,
+    const std::vector<std::string>& bypass_rules,
+    base::OnceClosure callback) {
+  return delegate_->SetProxyOverride(proxy_rules, bypass_rules,
+                                     std::move(callback));
+}
+
+void ProxyConfigServiceAndroid::ClearProxyOverride(base::OnceClosure callback) {
+  delegate_->ClearProxyOverride(std::move(callback));
 }
 
 } // namespace net

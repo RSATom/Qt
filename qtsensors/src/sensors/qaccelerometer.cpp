@@ -276,6 +276,6 @@ QAccelerometerReading *QAccelerometer::reading() const
     \since 5.1
 */
 
-#include "moc_qaccelerometer.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qaccelerometer.cpp"

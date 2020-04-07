@@ -10,7 +10,7 @@
 
 #include "GrTypesPriv.h"
 #include "GrVkResource.h"
-#include "vk/GrVkDefines.h"
+#include "vk/GrVkTypes.h"
 
 class GrPipeline;
 class GrPrimitiveProcessor;
@@ -31,7 +31,7 @@ public:
                                 VkPipelineShaderStageCreateInfo* shaderStageInfo,
                                 int shaderStageCount,
                                 GrPrimitiveType primitiveType,
-                                const GrVkRenderPass& renderPass,
+                                VkRenderPass compatibleRenderPass,
                                 VkPipelineLayout layout,
                                 VkPipelineCache cache);
 
@@ -55,7 +55,7 @@ protected:
     VkPipeline  fPipeline;
 
 private:
-    void freeGPUData(const GrVkGpu* gpu) const override;
+    void freeGPUData(GrVkGpu* gpu) const override;
 
     typedef GrVkResource INHERITED;
 };

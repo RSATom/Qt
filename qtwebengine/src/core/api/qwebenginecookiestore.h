@@ -52,12 +52,12 @@
 namespace QtWebEngineCore {
 class ProfileAdapter;
 class CookieMonsterDelegateQt;
-}
+} // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
 class QWebEngineCookieStorePrivate;
-class QWEBENGINECORE_EXPORT QWebEngineCookieStore : public QObject {
+class Q_WEBENGINECORE_EXPORT QWebEngineCookieStore : public QObject {
     Q_OBJECT
 
 public:
@@ -93,6 +93,6 @@ private:
 
 QT_END_NAMESPACE
 
-Q_DECLARE_METATYPE(QWebEngineCookieStore*)
+Q_DECLARE_METATYPE(QWebEngineCookieStore *)
 
 #endif // QWEBENGINECOOKIESTORE_H

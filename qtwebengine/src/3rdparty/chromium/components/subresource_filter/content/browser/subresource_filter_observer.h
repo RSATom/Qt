@@ -12,11 +12,14 @@
 
 namespace content {
 class NavigationHandle;
+class RenderFrameHost;
 }  // namespace content
 
 namespace subresource_filter {
 
-struct ActivationState;
+namespace mojom {
+class ActivationState;
+}  // namespace mojom
 
 // Class to receive notifications of subresource filter events for a given
 // WebContents. Registered with a SubresourceFilterObserverManager.
@@ -44,7 +47,7 @@ class SubresourceFilterObserver {
   // will be called before ReadyToCommitNavigation.
   virtual void OnPageActivationComputed(
       content::NavigationHandle* navigation_handle,
-      const ActivationState& activation_state) {}
+      const mojom::ActivationState& activation_state) {}
 
   // Called before navigation commit, either at the WillStartRequest stage or
   // WillRedirectRequest stage. |is_ad_frame| is true if |load_policy| is
@@ -54,6 +57,9 @@ class SubresourceFilterObserver {
       content::NavigationHandle* navigation_handle,
       LoadPolicy load_policy,
       bool is_ad_subframe) {}
+
+  virtual void OnAdSubframeDetected(
+      content::RenderFrameHost* render_frame_host) {}
 };
 
 }  // namespace subresource_filter

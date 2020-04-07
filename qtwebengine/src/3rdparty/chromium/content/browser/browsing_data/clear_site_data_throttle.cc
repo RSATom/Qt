@@ -11,19 +11,21 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
+#include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/service_worker/service_worker_response_info.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/browsing_data_filter_builder.h"
-#include "content/public/browser/browsing_data_remover.h"
+#include "content/public/browser/clear_site_data_utils.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/common/resource_type.h"
 #include "net/base/load_flags.h"
-#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/redirect_info.h"
 #include "services/network/public/cpp/resource_response_info.h"
@@ -34,22 +36,24 @@ namespace content {
 
 namespace {
 
-const char kNameForLogging[] = "ClearSiteDataThrottle";
+// Appending '2' to avoid naming conflicts with 'clear_site_data_handler.h' in
+// jumbo builds. This file will be removed later as mentioned in the header.
+const char kNameForLogging2[] = "ClearSiteDataThrottle";
 
-const char kClearSiteDataHeader[] = "Clear-Site-Data";
+const char kClearSiteDataHeader2[] = "Clear-Site-Data";
 
 // Datatypes.
-const char kDatatypeWildcard[] = "\"*\"";
-const char kDatatypeCookies[] = "\"cookies\"";
-const char kDatatypeStorage[] = "\"storage\"";
-const char kDatatypeCache[] = "\"cache\"";
+const char kDatatypeWildcard2[] = "\"*\"";
+const char kDatatypeCookies2[] = "\"cookies\"";
+const char kDatatypeStorage2[] = "\"storage\"";
+const char kDatatypeCache2[] = "\"cache\"";
 
 // Pretty-printed log output.
-const char kConsoleMessageTemplate[] = "Clear-Site-Data header on '%s': %s";
-const char kConsoleMessageCleared[] = "Cleared data types: %s.";
-const char kConsoleMessageDatatypeSeparator[] = ", ";
+const char kConsoleMessageTemplate2[] = "Clear-Site-Data header on '%s': %s";
+const char kConsoleMessageCleared2[] = "Cleared data types: %s.";
+const char kConsoleMessageDatatypeSeparator2[] = ", ";
 
-bool AreExperimentalFeaturesEnabled() {
+bool AreExperimentalFeaturesEnabled2() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableExperimentalWebPlatformFeatures);
 }
@@ -60,7 +64,7 @@ bool IsNavigationRequest(net::URLRequest* request) {
 }
 
 // Represents the parameters as a single number to be recorded in a histogram.
-int ParametersMask(bool clear_cookies, bool clear_storage, bool clear_cache) {
+int ParametersMask2(bool clear_cookies, bool clear_storage, bool clear_cache) {
   return static_cast<int>(clear_cookies) * (1 << 0) +
          static_cast<int>(clear_storage) * (1 << 1) +
          static_cast<int>(clear_cache) * (1 << 2);
@@ -70,141 +74,28 @@ int ParametersMask(bool clear_cookies, bool clear_storage, bool clear_cache) {
 // the UI thread.
 void JumpFromUIToIOThread(base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, std::move(callback));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO}, std::move(callback));
 }
 
-// Finds the BrowserContext associated with the request and requests
-// the actual clearing of data for |origin|. The data types to be deleted
-// are determined by |clear_cookies|, |clear_storage|, and |clear_cache|.
-// |web_contents_getter| identifies the WebContents from which the request
-// originated. Must be run on the UI thread. The |callback| will be executed
-// on the IO thread.
-class UIThreadSiteDataClearer : public BrowsingDataRemover::Observer {
- public:
-  static void Run(
-      const ResourceRequestInfo::WebContentsGetter& web_contents_getter,
-      const url::Origin& origin,
-      bool clear_cookies,
-      bool clear_storage,
-      bool clear_cache,
-      base::OnceClosure callback) {
-    WebContents* web_contents = web_contents_getter.Run();
-    if (!web_contents)
-      return;
+BrowserContext* GetBrowserContext(
+    int process_id,
+    const ResourceRequestInfo::WebContentsGetter& web_contents_getter) {
+  // TODO(dullweber): Could we always use RenderProcessHost?
+  WebContents* web_contents = web_contents_getter.Run();
+  if (web_contents)
+    return web_contents->GetBrowserContext();
 
-    (new UIThreadSiteDataClearer(web_contents, origin, clear_cookies,
-                                 clear_storage, clear_cache,
-                                 std::move(callback)))
-        ->RunAndDestroySelfWhenDone();
-  }
+  RenderProcessHost* process_host = RenderProcessHostImpl::FromID(process_id);
+  if (process_host)
+    return process_host->GetBrowserContext();
 
- private:
-  UIThreadSiteDataClearer(const WebContents* web_contents,
-                          const url::Origin& origin,
-                          bool clear_cookies,
-                          bool clear_storage,
-                          bool clear_cache,
-                          base::OnceClosure callback)
-      : origin_(origin),
-        clear_cookies_(clear_cookies),
-        clear_storage_(clear_storage),
-        clear_cache_(clear_cache),
-        callback_(std::move(callback)),
-        pending_task_count_(0),
-        remover_(nullptr),
-        scoped_observer_(this) {
-    DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-    remover_ = BrowserContext::GetBrowsingDataRemover(
-        web_contents->GetBrowserContext());
-    DCHECK(remover_);
-    scoped_observer_.Add(remover_);
-  }
-
-  ~UIThreadSiteDataClearer() override {}
-
-  void RunAndDestroySelfWhenDone() {
-    DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-    // Cookies and channel IDs are scoped to
-    // a) eTLD+1 of |origin|'s host if |origin|'s host is a registrable domain
-    //    or a subdomain thereof
-    // b) |origin|'s host exactly if it is an IP address or an internal hostname
-    //    (e.g. "localhost" or "fileserver").
-    // TODO(msramek): What about plugin data?
-    if (clear_cookies_) {
-      std::string domain = GetDomainAndRegistry(
-          origin_.host(),
-          net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
-
-      if (domain.empty())
-        domain = origin_.host();  // IP address or internal hostname.
-
-      std::unique_ptr<BrowsingDataFilterBuilder> domain_filter_builder(
-          BrowsingDataFilterBuilder::Create(
-              BrowsingDataFilterBuilder::WHITELIST));
-      domain_filter_builder->AddRegisterableDomain(domain);
-
-      pending_task_count_++;
-      remover_->RemoveWithFilterAndReply(
-          base::Time(), base::Time::Max(),
-          BrowsingDataRemover::DATA_TYPE_COOKIES |
-              BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
-              BrowsingDataRemover::DATA_TYPE_AVOID_CLOSING_CONNECTIONS,
-          BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
-              BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB,
-          std::move(domain_filter_builder), this);
-    }
-
-    // Delete origin-scoped data.
-    int remove_mask = 0;
-    if (clear_storage_)
-      remove_mask |= BrowsingDataRemover::DATA_TYPE_DOM_STORAGE;
-    if (clear_cache_)
-      remove_mask |= BrowsingDataRemover::DATA_TYPE_CACHE;
-
-    if (remove_mask) {
-      std::unique_ptr<BrowsingDataFilterBuilder> origin_filter_builder(
-          BrowsingDataFilterBuilder::Create(
-              BrowsingDataFilterBuilder::WHITELIST));
-      origin_filter_builder->AddOrigin(origin_);
-
-      pending_task_count_++;
-      remover_->RemoveWithFilterAndReply(
-          base::Time(), base::Time::Max(), remove_mask,
-          BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
-              BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB,
-          std::move(origin_filter_builder), this);
-    }
-
-    DCHECK_GT(pending_task_count_, 0);
-  }
-
-  // BrowsingDataRemover::Observer:
-  void OnBrowsingDataRemoverDone() override {
-    DCHECK(pending_task_count_);
-    if (--pending_task_count_)
-      return;
-
-    JumpFromUIToIOThread(std::move(callback_));
-    delete this;
-  }
-
-  url::Origin origin_;
-  bool clear_cookies_;
-  bool clear_storage_;
-  bool clear_cache_;
-  base::OnceClosure callback_;
-  int pending_task_count_;
-  BrowsingDataRemover* remover_;
-  ScopedObserver<BrowsingDataRemover, BrowsingDataRemover::Observer>
-      scoped_observer_;
-};
+  return nullptr;
+}
 
 // Outputs a single |formatted_message| on the UI thread.
-void OutputFormattedMessage(WebContents* web_contents,
-                            ConsoleMessageLevel level,
-                            const std::string& formatted_text) {
+void OutputFormattedMessage2(WebContents* web_contents,
+                             ConsoleMessageLevel level,
+                             const std::string& formatted_text) {
   if (web_contents)
     web_contents->GetMainFrame()->AddMessageToConsole(level, formatted_text);
 }
@@ -222,10 +113,10 @@ void OutputMessagesOnUIThread(
   WebContents* web_contents = web_contents_getter.Run();
 
   for (const auto& message : messages) {
-    // Prefix each message with |kConsoleMessageTemplate|.
+    // Prefix each message with |kConsoleMessageTemplate2|.
     output_formatted_message_function.Run(
         web_contents, message.level,
-        base::StringPrintf(kConsoleMessageTemplate, message.url.spec().c_str(),
+        base::StringPrintf(kConsoleMessageTemplate2, message.url.spec().c_str(),
                            message.text.c_str()));
   }
 }
@@ -236,7 +127,8 @@ void OutputMessagesOnUIThread(
 // ConsoleMessagesDelegate
 
 ClearSiteDataThrottle::ConsoleMessagesDelegate::ConsoleMessagesDelegate()
-    : output_formatted_message_function_(base::Bind(&OutputFormattedMessage)) {}
+    : output_formatted_message_function_(
+          base::BindRepeating(&OutputFormattedMessage2)) {}
 
 ClearSiteDataThrottle::ConsoleMessagesDelegate::~ConsoleMessagesDelegate() {}
 
@@ -253,8 +145,8 @@ void ClearSiteDataThrottle::ConsoleMessagesDelegate::OutputMessages(
     return;
 
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&OutputMessagesOnUIThread, web_contents_getter,
                      std::move(messages_), output_formatted_message_function_));
 
@@ -292,7 +184,7 @@ ClearSiteDataThrottle::~ClearSiteDataThrottle() {
 }
 
 const char* ClearSiteDataThrottle::GetNameForLogging() const {
-  return kNameForLogging;
+  return kNameForLogging2;
 }
 
 void ClearSiteDataThrottle::WillRedirectRequest(
@@ -351,7 +243,7 @@ bool ClearSiteDataThrottle::HandleHeader() {
 
   std::string header_value;
   if (!headers ||
-      !headers->GetNormalizedHeader(kClearSiteDataHeader, &header_value)) {
+      !headers->GetNormalizedHeader(kClearSiteDataHeader2, &header_value)) {
     return false;
   }
 
@@ -364,7 +256,7 @@ bool ClearSiteDataThrottle::HandleHeader() {
   }
 
   url::Origin origin = url::Origin::Create(GetCurrentURL());
-  if (origin.unique()) {
+  if (origin.opaque()) {
     delegate_->AddMessage(GetCurrentURL(), "Not supported for unique origins.",
                           CONSOLE_MESSAGE_LEVEL_ERROR);
     return false;
@@ -422,7 +314,7 @@ bool ClearSiteDataThrottle::HandleHeader() {
   // Record the call parameters.
   UMA_HISTOGRAM_ENUMERATION(
       "Navigation.ClearSiteData.Parameters",
-      ParametersMask(clear_cookies, clear_storage, clear_cache), (1 << 3));
+      ParametersMask2(clear_cookies, clear_storage, clear_cache), (1 << 3));
 
   base::WeakPtr<ClearSiteDataThrottle> weak_ptr =
       weak_ptr_factory_.GetWeakPtr();
@@ -463,17 +355,17 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
   for (unsigned i = 0; i < input_types.size(); i++) {
     bool* data_type = nullptr;
 
-    if (AreExperimentalFeaturesEnabled() &&
-        input_types[i] == kDatatypeWildcard) {
-      input_types.push_back(kDatatypeCookies);
-      input_types.push_back(kDatatypeStorage);
-      input_types.push_back(kDatatypeCache);
+    if (AreExperimentalFeaturesEnabled2() &&
+        input_types[i] == kDatatypeWildcard2) {
+      input_types.push_back(kDatatypeCookies2);
+      input_types.push_back(kDatatypeStorage2);
+      input_types.push_back(kDatatypeCache2);
       continue;
-    } else if (input_types[i] == kDatatypeCookies) {
+    } else if (input_types[i] == kDatatypeCookies2) {
       data_type = clear_cookies;
-    } else if (input_types[i] == kDatatypeStorage) {
+    } else if (input_types[i] == kDatatypeStorage2) {
       data_type = clear_storage;
-    } else if (input_types[i] == kDatatypeCache) {
+    } else if (input_types[i] == kDatatypeCache2) {
       data_type = clear_cache;
     } else {
       delegate->AddMessage(
@@ -490,7 +382,7 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
 
     *data_type = true;
     if (!output_types.empty())
-      output_types += kConsoleMessageDatatypeSeparator;
+      output_types += kConsoleMessageDatatypeSeparator2;
     output_types += input_types[i];
   }
 
@@ -503,7 +395,7 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
   // Pretty-print which types are to be cleared.
   // TODO(crbug.com/798760): Remove the disclaimer about cookies.
   std::string console_output =
-      base::StringPrintf(kConsoleMessageCleared, output_types.c_str());
+      base::StringPrintf(kConsoleMessageCleared2, output_types.c_str());
   if (*clear_cookies) {
     console_output +=
         " Clearing channel IDs and HTTP authentication cache is currently not"
@@ -520,13 +412,16 @@ void ClearSiteDataThrottle::ExecuteClearingTask(const url::Origin& origin,
                                                 bool clear_cache,
                                                 base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&UIThreadSiteDataClearer::Run,
-                     ResourceRequestInfo::ForRequest(request_)
-                         ->GetWebContentsGetterForRequest(),
-                     origin, clear_cookies, clear_storage, clear_cache,
-                     std::move(callback)));
+  auto* request_info = ResourceRequestInfo::ForRequest(request_);
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(
+          &ClearSiteData,
+          base::BindRepeating(&GetBrowserContext, request_info->GetChildID(),
+                              request_info->GetWebContentsGetterForRequest()),
+          origin, clear_cookies, clear_storage, clear_cache,
+          true /*avoid_closing_connections*/,
+          base::BindOnce(&JumpFromUIToIOThread, std::move(callback))));
 }
 
 void ClearSiteDataThrottle::TaskFinished() {

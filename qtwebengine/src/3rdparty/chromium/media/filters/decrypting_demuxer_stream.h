@@ -15,6 +15,7 @@
 #include "media/base/demuxer_stream.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/video_decoder_config.h"
+#include "media/base/waiting.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -34,7 +35,7 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   DecryptingDemuxerStream(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
       MediaLog* media_log,
-      const base::Closure& waiting_for_decryption_key_cb);
+      const WaitingCB& waiting_cb);
 
   // Cancels all pending operations immediately and fires all pending callbacks.
   ~DecryptingDemuxerStream() override;
@@ -99,6 +100,10 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   // |demuxer_stream_|.
   void InitializeDecoderConfig();
 
+  // Completes traces for various pending states.
+  void CompletePendingDecrypt(Decryptor::Status status);
+  void CompleteWaitingForDecryptionKey();
+
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   MediaLog* media_log_;
@@ -108,7 +113,7 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   PipelineStatusCB init_cb_;
   ReadCB read_cb_;
   base::Closure reset_cb_;
-  base::Closure waiting_for_decryption_key_cb_;
+  WaitingCB waiting_cb_;
 
   // Pointer to the input demuxer stream that will feed us encrypted buffers.
   DemuxerStream* demuxer_stream_;

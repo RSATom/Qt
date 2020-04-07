@@ -9,19 +9,24 @@
  */
 #include "test/frame_generator.h"
 
-#include <math.h>
-#include <stdio.h>
 #include <string.h>
-
+#include <cstdint>
+#include <cstdio>
 #include <memory>
 
+#include "absl/memory/memory.h"
 #include "api/video/i010_buffer.h"
 #include "api/video/i420_buffer.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_rotation.h"
+#include "common_types.h"  // NOLINT(build/include)
 #include "common_video/include/video_frame_buffer.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
+#include "rtc_base/bind.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/keep_ref_until_done.h"
 #include "rtc_base/random.h"
+#include "rtc_base/scoped_ref_ptr.h"
 #include "system_wrappers/include/clock.h"
 #include "test/frame_utils.h"
 
@@ -96,8 +101,12 @@ class SquareGenerator : public FrameGenerator {
       buffer = I010Buffer::Copy(*buffer->ToI420());
     }
 
-    frame_.reset(
-        new VideoFrame(buffer, webrtc::kVideoRotation_0, 0 /* timestamp_us */));
+    frame_ = absl::make_unique<VideoFrame>(
+        VideoFrame::Builder()
+            .set_video_frame_buffer(buffer)
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build());
     return frame_.get();
   }
 
@@ -199,8 +208,12 @@ class YuvFileGenerator : public FrameGenerator {
     if (++current_display_count_ >= frame_display_count_)
       current_display_count_ = 0;
 
-    temp_frame_.reset(new VideoFrame(
-        last_read_buffer_, webrtc::kVideoRotation_0, 0 /* timestamp_us */));
+    temp_frame_ = absl::make_unique<VideoFrame>(
+        VideoFrame::Builder()
+            .set_video_frame_buffer(last_read_buffer_)
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build());
     return temp_frame_.get();
   }
 
@@ -256,8 +269,12 @@ class SlideGenerator : public FrameGenerator {
     if (++current_display_count_ >= frame_display_count_)
       current_display_count_ = 0;
 
-    frame_.reset(new VideoFrame(buffer_, webrtc::kVideoRotation_0,
-                                0 /* timestamp_us */));
+    frame_ = absl::make_unique<VideoFrame>(
+        VideoFrame::Builder()
+            .set_video_frame_buffer(buffer_)
+            .set_rotation(webrtc::kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build());
     return frame_.get();
   }
 
@@ -389,13 +406,16 @@ class ScrollingImageFrameGenerator : public FrameGenerator {
     int offset_v = (i420_buffer->StrideV() * (pixels_scrolled_y / 2)) +
                    (pixels_scrolled_x / 2);
 
-    current_frame_ = webrtc::VideoFrame(
-        new rtc::RefCountedObject<webrtc::WrappedI420Buffer>(
-            target_width_, target_height_, &i420_buffer->DataY()[offset_y],
-            i420_buffer->StrideY(), &i420_buffer->DataU()[offset_u],
-            i420_buffer->StrideU(), &i420_buffer->DataV()[offset_v],
-            i420_buffer->StrideV(), KeepRefUntilDone(i420_buffer)),
-        kVideoRotation_0, 0);
+    current_frame_ =
+        VideoFrame::Builder()
+            .set_video_frame_buffer(WrapI420Buffer(
+                target_width_, target_height_, &i420_buffer->DataY()[offset_y],
+                i420_buffer->StrideY(), &i420_buffer->DataU()[offset_u],
+                i420_buffer->StrideU(), &i420_buffer->DataV()[offset_v],
+                i420_buffer->StrideV(), KeepRefUntilDone(i420_buffer)))
+            .set_rotation(kVideoRotation_0)
+            .set_timestamp_us(0)
+            .build();
   }
 
   Clock* const clock_;
@@ -472,7 +492,7 @@ std::unique_ptr<FrameGenerator> FrameGenerator::CreateFromYuvFile(
   std::vector<FILE*> files;
   for (const std::string& filename : filenames) {
     FILE* file = fopen(filename.c_str(), "rb");
-    RTC_DCHECK(file != nullptr);
+    RTC_DCHECK(file != nullptr) << "Failed to open: '" << filename << "'\n";
     files.push_back(file);
   }
 

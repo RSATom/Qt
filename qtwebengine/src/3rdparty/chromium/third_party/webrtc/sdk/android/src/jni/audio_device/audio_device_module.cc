@@ -12,9 +12,11 @@
 
 #include <utility>
 
+#include "absl/memory/memory.h"
+#include "modules/audio_device/audio_device_buffer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/refcountedobject.h"
+#include "rtc_base/ref_counted_object.h"
 #include "rtc_base/thread_checker.h"
 #include "sdk/android/generated_audio_device_module_base_jni/jni/WebRtcAudioManager_jni.h"
 #include "system_wrappers/include/metrics.h"
@@ -504,7 +506,7 @@ class AndroidAudioDeviceModule : public AudioDeviceModule {
 
   int32_t PlayoutDelay(uint16_t* delay_ms) const override {
     // Best guess we can do is to use half of the estimated total delay.
-    *delay_ms = playout_delay_ms_;
+    *delay_ms = playout_delay_ms_ / 2;
     RTC_DCHECK_GT(*delay_ms, 0);
     return 0;
   }

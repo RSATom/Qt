@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "third_party/base/ptr_util.h"
 #include "xfa/fde/cfde_textout.h"
 #include "xfa/fde/cfde_wordbreak_data.h"
 #include "xfa/fgas/font/cfgas_gefont.h"
@@ -19,7 +20,7 @@ constexpr size_t kMaxEditOperations = 128;
 constexpr size_t kGapSize = 128;
 constexpr size_t kPageWidthMax = 0xffff;
 
-class InsertOperation : public CFDE_TextEditEngine::Operation {
+class InsertOperation final : public CFDE_TextEditEngine::Operation {
  public:
   InsertOperation(CFDE_TextEditEngine* engine,
                   size_t start_idx,
@@ -44,7 +45,7 @@ class InsertOperation : public CFDE_TextEditEngine::Operation {
   WideString added_text_;
 };
 
-class DeleteOperation : public CFDE_TextEditEngine::Operation {
+class DeleteOperation final : public CFDE_TextEditEngine::Operation {
  public:
   DeleteOperation(CFDE_TextEditEngine* engine,
                   size_t start_idx,
@@ -69,7 +70,7 @@ class DeleteOperation : public CFDE_TextEditEngine::Operation {
   WideString removed_text_;
 };
 
-class ReplaceOperation : public CFDE_TextEditEngine::Operation {
+class ReplaceOperation final : public CFDE_TextEditEngine::Operation {
  public:
   ReplaceOperation(CFDE_TextEditEngine* engine,
                    size_t start_idx,
@@ -789,7 +790,7 @@ void CFDE_TextEditEngine::SetSelection(size_t start_idx, size_t count) {
 
 WideString CFDE_TextEditEngine::GetSelectedText() const {
   if (!has_selection_)
-    return L"";
+    return WideString();
 
   WideString text;
   if (selection_.start_idx < gap_position_) {
@@ -823,7 +824,7 @@ WideString CFDE_TextEditEngine::GetSelectedText() const {
 WideString CFDE_TextEditEngine::DeleteSelectedText(
     RecordOperation add_operation) {
   if (!has_selection_)
-    return L"";
+    return WideString();
 
   return Delete(selection_.start_idx, selection_.count, add_operation);
 }
@@ -832,10 +833,10 @@ WideString CFDE_TextEditEngine::Delete(size_t start_idx,
                                        size_t length,
                                        RecordOperation add_operation) {
   if (start_idx >= text_length_)
-    return L"";
+    return WideString();
 
   TextChange change;
-  change.text = L"";
+  change.text.clear();
   change.cancelled = false;
   if (delegate_ && (add_operation != RecordOperation::kSkipRecord &&
                     add_operation != RecordOperation::kSkipNotify)) {
@@ -845,7 +846,7 @@ WideString CFDE_TextEditEngine::Delete(size_t start_idx,
 
     delegate_->OnTextWillChange(&change);
     if (change.cancelled)
-      return L"";
+      return WideString();
 
     start_idx = change.selection_start;
     length = change.selection_end - change.selection_start;
@@ -872,7 +873,7 @@ WideString CFDE_TextEditEngine::Delete(size_t start_idx,
   ClearSelection();
 
   // The JS requested the insertion of text instead of just a deletion.
-  if (change.text != L"")
+  if (!change.text.IsEmpty())
     Insert(start_idx, change.text, RecordOperation::kSkipRecord);
 
   if (delegate_)
@@ -1041,7 +1042,7 @@ std::vector<CFX_RectF> CFDE_TextEditEngine::GetCharRects(
   if (piece.nCount < 1)
     return std::vector<CFX_RectF>();
 
-  FX_TXTRUN tr;
+  CFX_TxtBreak::Run tr;
   tr.pEdtEngine = this;
   tr.iStart = piece.nStart;
   tr.iLength = piece.nCount;
@@ -1058,7 +1059,7 @@ std::vector<FXTEXT_CHARPOS> CFDE_TextEditEngine::GetDisplayPos(
   if (piece.nCount < 1)
     return std::vector<FXTEXT_CHARPOS>();
 
-  FX_TXTRUN tr;
+  CFX_TxtBreak::Run tr;
   tr.pEdtEngine = this;
   tr.iStart = piece.nStart;
   tr.iLength = piece.nCount;

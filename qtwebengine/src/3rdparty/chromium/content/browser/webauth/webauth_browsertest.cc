@@ -32,8 +32,9 @@
 #include "content/test/did_commit_provisional_load_interceptor.h"
 #include "device/base/features.h"
 #include "device/fido/fake_fido_discovery.h"
-#include "device/fido/fake_hid_impl_for_testing.h"
+#include "device/fido/fido_discovery_factory.h"
 #include "device/fido/fido_test_data.h"
+#include "device/fido/hid/fake_hid_impl_for_testing.h"
 #include "device/fido/mock_fido_device.h"
 #include "device/fido/scoped_virtual_fido_device.h"
 #include "device/fido/test_callback_receiver.h"
@@ -42,7 +43,7 @@
 #include "services/service_manager/public/cpp/connector.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/modules/webauth/authenticator.mojom.h"
+#include "third_party/blink/public/platform/modules/webauthn/authenticator.mojom.h"
 
 namespace content {
 
@@ -67,9 +68,9 @@ constexpr char kTimeoutErrorMessage[] =
     "webauth: NotAllowedError: The operation either timed out or was not "
     "allowed. See: https://w3c.github.io/webauthn/#sec-assertion-privacy.";
 
-constexpr char kInvalidStateErrorMessage[] =
-    "webauth: InvalidStateError: The user attempted to use an authenticator "
-    "that recognized none of the provided credentials.";
+constexpr char kResidentCredentialsErrorMessage[] =
+    "webauth: NotSupportedError: Resident credentials or empty "
+    "'allowCredentials' lists are not supported at this time.";
 
 constexpr char kRelyingPartySecurityErrorMessage[] =
     "webauth: SecurityError: The relying party ID 'localhost' is not a "
@@ -170,8 +171,8 @@ class ClosureExecutorBeforeNavigationCommit
   bool WillDispatchDidCommitProvisionalLoad(
       RenderFrameHost* render_frame_host,
       ::FrameHostMsg_DidCommitProvisionalLoad_Params* params,
-      service_manager::mojom::InterfaceProviderRequest*
-          interface_provider_request) override {
+      mojom::DidCommitProvisionalLoadInterfaceParamsPtr& interface_params)
+      override {
     if (closure_)
       std::move(closure_).Run();
     return true;
@@ -228,10 +229,6 @@ struct WebAuthBrowserTestState {
   // Set when |IsFocused| is called.
   bool focus_checked = false;
 
-  // If true, request a new render process for each site (i.e. site isolation).
-  // Otherwise have the default behaviour for |ContentBrowserClient|.
-  bool force_new_render_processes = false;
-
   // This is incremented when an |AuthenticatorRequestClientDelegate| is
   // created.
   int delegate_create_count = 0;
@@ -274,24 +271,6 @@ class WebAuthBrowserTestContentBrowserClient : public ContentBrowserClient {
       RenderFrameHost* render_frame_host) override {
     test_state_->delegate_create_count++;
     return std::make_unique<WebAuthBrowserTestClientDelegate>(test_state_);
-  }
-
-  bool ShouldUseProcessPerSite(BrowserContext* browser_context,
-                               const GURL& effective_url) override {
-    if (test_state_->force_new_render_processes) {
-      return true;
-    }
-    return ContentBrowserClient::ShouldUseProcessPerSite(browser_context,
-                                                         effective_url);
-  }
-
-  bool DoesSiteRequireDedicatedProcess(BrowserContext* browser_context,
-                                       const GURL& effective_url) override {
-    if (test_state_->force_new_render_processes) {
-      return true;
-    }
-    return ContentBrowserClient::DoesSiteRequireDedicatedProcess(
-        browser_context, effective_url);
   }
 
  private:
@@ -402,7 +381,8 @@ class WebAuthLocalClientBrowserTest : public WebAuthBrowserTestBase {
         std::move(rp), std::move(user), kTestChallenge, std::move(parameters),
         base::TimeDelta::FromSeconds(30),
         std::vector<blink::mojom::PublicKeyCredentialDescriptorPtr>(), nullptr,
-        blink::mojom::AttestationConveyancePreference::NONE, nullptr);
+        blink::mojom::AttestationConveyancePreference::NONE, nullptr,
+        false /* no hmac_secret */);
 
     return mojo_options;
   }
@@ -590,7 +570,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthLocalClientBrowserTest,
   // factory as one of the first steps. Here, the request should not have been
   // serviced at all, so the fake request should still be pending on the fake
   // factory.
-  auto hid_discovery = ::device::FidoDiscovery::Create(
+  auto hid_discovery = ::device::FidoDiscoveryFactory::Create(
       ::device::FidoTransportProtocol::kUsbHumanInterfaceDevice, nullptr);
   ASSERT_TRUE(!!hid_discovery);
 
@@ -735,7 +715,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
         shell()->web_contents()->GetMainFrame(),
         BuildCreateCallWithParameters(parameters), &result));
 
-    ASSERT_EQ(kTimeoutErrorMessage, result);
+    ASSERT_EQ(kResidentCredentialsErrorMessage, result);
   }
 }
 
@@ -806,7 +786,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
   ASSERT_TRUE(content::ExecuteScriptAndExtractString(
       shell()->web_contents()->GetMainFrame(),
       BuildGetCallWithParameters(parameters), &result));
-  ASSERT_EQ(kInvalidStateErrorMessage, result);
+  ASSERT_EQ(kResidentCredentialsErrorMessage, result);
 }
 
 // WebAuthBrowserBleDisabledTest
@@ -960,45 +940,6 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
     ASSERT_EQ("webauth: OK", *result);
     ASSERT_TRUE(prompt_callback_was_invoked);
   }
-}
-
-IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
-                       RegisterDuringUnload) {
-  // Request new render processes for each site in order to test concurrent
-  // unloading with a different RenderFrame showing the new page.
-  test_state()->force_new_render_processes = true;
-
-  NavigateToURL(shell(), GetHttpsURL("www.acme.com", "/title1.html"));
-  const std::string script = base::ReplaceStringPlaceholders(
-      R"(
-        window.addEventListener('unload', function(e) {
-          $1
-        });
-
-        // Trigger a webauthn operation so that the bindings are established
-        // before unload.
-        navigator.credentials.get({ publicKey: {
-          challenge: new TextEncoder().encode('climb a mountain'),
-          timeout: 1,
-        }}).catch(c => window.location = '$2');
-      )",
-      {BuildCreateCallWithParameters(CreateParameters()),
-       GetHttpsURL("www.acme2.com", "/title2.html").spec()},
-      nullptr);
-
-  RenderFrameHost* render_frame_host = shell()->web_contents()->GetMainFrame();
-  RenderFrameDeletedObserver observer(render_frame_host);
-  render_frame_host->ExecuteJavaScriptForTests(base::UTF8ToUTF16(script));
-  observer.WaitUntilDeleted();
-
-  // The |MakeCredential| call from the unload handler should not have reached
-  // the point where focus was checked.
-  EXPECT_FALSE(test_state()->focus_checked);
-
-  // Two delegates should have been created: one for the GetAssertion call that
-  // primes the binding and a second for the MakeCredential call in the unload
-  // handler.
-  ASSERT_EQ(2, test_state()->delegate_create_count);
 }
 
 // WebAuthBrowserCtapTest ----------------------------------------------

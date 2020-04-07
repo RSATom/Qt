@@ -47,12 +47,12 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 inline SVGAElement::SVGAElement(Document& document)
-    : SVGGraphicsElement(SVGNames::aTag, document),
+    : SVGGraphicsElement(svg_names::kATag, document),
       SVGURIReference(this),
-      svg_target_(SVGAnimatedString::Create(this, SVGNames::targetAttr)) {
+      svg_target_(SVGAnimatedString::Create(this, svg_names::kTargetAttr)) {
   AddToPropertyMap(svg_target_);
 }
 
@@ -66,7 +66,7 @@ DEFINE_NODE_FACTORY(SVGAElement)
 
 String SVGAElement::title() const {
   // If the xlink:title is set (non-empty string), use it.
-  const AtomicString& title = FastGetAttribute(XLinkNames::titleAttr);
+  const AtomicString& title = FastGetAttribute(xlink_names::kTitleAttr);
   if (!title.IsEmpty())
     return title;
 
@@ -104,11 +104,11 @@ LayoutObject* SVGAElement::CreateLayoutObject(const ComputedStyle&) {
   return new LayoutSVGTransformableContainer(this);
 }
 
-void SVGAElement::DefaultEventHandler(Event* event) {
+void SVGAElement::DefaultEventHandler(Event& event) {
   if (IsLink()) {
     if (IsFocused() && IsEnterKeyKeydownEvent(event)) {
-      event->SetDefaultHandled();
-      DispatchSimulatedClick(event);
+      event.SetDefaultHandled();
+      DispatchSimulatedClick(&event);
       return;
     }
 
@@ -120,15 +120,15 @@ void SVGAElement::DefaultEventHandler(Event* event) {
             GetTreeScope().getElementById(AtomicString(url.Substring(1)));
         if (target_element && IsSVGSMILElement(*target_element)) {
           ToSVGSMILElement(target_element)->BeginByLinkActivation();
-          event->SetDefaultHandled();
+          event.SetDefaultHandled();
           return;
         }
       }
 
       AtomicString target(svg_target_->CurrentValue()->Value());
-      if (target.IsEmpty() && FastGetAttribute(XLinkNames::showAttr) == "new")
+      if (target.IsEmpty() && FastGetAttribute(xlink_names::kShowAttr) == "new")
         target = AtomicString("_blank");
-      event->SetDefaultHandled();
+      event.SetDefaultHandled();
 
       LocalFrame* frame = GetDocument().GetFrame();
       if (!frame)
@@ -137,11 +137,11 @@ void SVGAElement::DefaultEventHandler(Event* event) {
           &GetDocument(), ResourceRequest(GetDocument().CompleteURL(url)),
           target);
       frame_request.SetTriggeringEventInfo(
-          event->isTrusted() ? WebTriggeringEventInfo::kFromTrustedEvent
-                             : WebTriggeringEventInfo::kFromUntrustedEvent);
+          event.isTrusted() ? WebTriggeringEventInfo::kFromTrustedEvent
+                            : WebTriggeringEventInfo::kFromUntrustedEvent);
       frame->Loader().StartNavigation(frame_request,
                                       WebFrameLoadType::kStandard,
-                                      NavigationPolicyFromEvent(event));
+                                      NavigationPolicyFromEvent(&event));
       return;
     }
   }
@@ -172,7 +172,7 @@ bool SVGAElement::ShouldHaveFocusAppearance() const {
 }
 
 bool SVGAElement::IsURLAttribute(const Attribute& attribute) const {
-  return attribute.GetName().LocalName() == hrefAttr ||
+  return attribute.GetName().LocalName() == kHrefAttr ||
          SVGGraphicsElement::IsURLAttribute(attribute);
 }
 

@@ -14,12 +14,14 @@
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/grit/generated_resources.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
@@ -155,8 +157,7 @@ PrintJobWorker::PrintJobWorker(int render_process_id,
       query_(query),
       thread_("Printing_Worker"),
       weak_factory_(this) {
-  // The object is created in the IO thread.
-  DCHECK(query_->RunsTasksInCurrentSequence());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 }
 
 PrintJobWorker::~PrintJobWorker() {
@@ -164,11 +165,11 @@ PrintJobWorker::~PrintJobWorker() {
   // user cancels printing or in the case of print preview, the worker is
   // destroyed with the PrinterQuery, which is on the I/O thread.
   if (query_) {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     DCHECK(!print_job_);
-    DCHECK(query_->RunsTasksInCurrentSequence());
   } else {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     DCHECK(print_job_);
-    DCHECK(print_job_->RunsTasksInCurrentSequence());
   }
   Stop();
 }
@@ -205,29 +206,28 @@ void PrintJobWorker::GetSettings(bool ask_user_for_settings,
   // When we delegate to a destination, we don't ask the user for settings.
   // TODO(mad): Ask the destination for settings.
   if (ask_user_for_settings) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(
             &WorkerHoldRefCallback, base::WrapRefCounted(query_),
             base::BindOnce(&PrintJobWorker::GetSettingsWithUI,
                            base::Unretained(this), document_page_count,
                            has_selection, is_scripted)));
   } else {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&WorkerHoldRefCallback, base::WrapRefCounted(query_),
                        base::BindOnce(&PrintJobWorker::UseDefaultSettings,
                                       base::Unretained(this))));
   }
 }
 
-void PrintJobWorker::SetSettings(
-    std::unique_ptr<base::DictionaryValue> new_settings) {
+void PrintJobWorker::SetSettings(base::Value new_settings) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(query_);
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(
           &WorkerHoldRefCallback, base::WrapRefCounted(query_),
           base::BindOnce(&PrintJobWorker::UpdatePrintSettings,
@@ -240,8 +240,8 @@ void PrintJobWorker::SetSettingsFromPOD(
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(query_);
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(
           &WorkerHoldRefCallback, base::WrapRefCounted(query_),
           base::BindOnce(&PrintJobWorker::UpdatePrintSettingsFromPOD,
@@ -249,11 +249,10 @@ void PrintJobWorker::SetSettingsFromPOD(
 }
 #endif
 
-void PrintJobWorker::UpdatePrintSettings(
-    std::unique_ptr<base::DictionaryValue> new_settings) {
+void PrintJobWorker::UpdatePrintSettings(base::Value new_settings) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   PrintingContext::Result result =
-      printing_context_->UpdatePrintSettings(*new_settings);
+      printing_context_->UpdatePrintSettings(std::move(new_settings));
   GetSettingsDone(result);
 }
 

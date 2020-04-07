@@ -16,7 +16,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/browser/download/drag_download_file.h"
@@ -31,6 +31,8 @@
 #include "net/base/escape.h"
 #include "net/base/filename_util.h"
 #include "net/base/mime_util.h"
+#include "ui/base/clipboard/clipboard_constants.h"
+#include "ui/base/clipboard/clipboard_util_mac.h"
 #include "ui/base/clipboard/custom_data_helper.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #include "ui/base/dragdrop/cocoa_dnd_util.h"
@@ -48,10 +50,6 @@ using content::PromiseFileFinalizer;
 using content::RenderViewHostImpl;
 
 namespace {
-
-// An unofficial standard pasteboard title type to be provided alongside the
-// |NSURLPboardType|.
-NSString* const kNSURLTitlePboardType = @"public.url-name";
 
 // This helper's sole task is to write out data for a promised file; the caller
 // is responsible for opening the file. It takes the drop data and an open file
@@ -139,23 +137,25 @@ void PromiseWriterHelper(const DropData& drop_data,
               forType:type];
 
   // URL.
-  } else if ([type isEqualToString:NSURLPboardType]) {
+  } else if ([type isEqualToString:NSURLPboardType] ||
+             [type isEqualToString:base::mac::CFToNSCast(kUTTypeURL)]) {
     DCHECK(dropData_->url.is_valid());
     NSURL* url = [NSURL URLWithString:SysUTF8ToNSString(dropData_->url.spec())];
     // If NSURL creation failed, check for a badly-escaped JavaScript URL.
     // Strip out any existing escapes and then re-escape uniformly.
     if (!url && dropData_->url.SchemeIs(url::kJavaScriptScheme)) {
-      std::string unescapedUrlString =
-          net::UnescapeBinaryURLComponent(dropData_->url.spec());
+      std::string unescapedUrlString;
+      net::UnescapeBinaryURLComponent(dropData_->url.spec(),
+                                      &unescapedUrlString);
       std::string escapedUrlString =
           net::EscapeUrlEncodedData(unescapedUrlString, false);
       url = [NSURL URLWithString:SysUTF8ToNSString(escapedUrlString)];
     }
     [url writeToPasteboard:pboard];
   // URL title.
-  } else if ([type isEqualToString:kNSURLTitlePboardType]) {
+  } else if ([type isEqualToString:ui::kUTTypeURLName]) {
     [pboard setString:SysUTF16ToNSString(dropData_->url_title)
-              forType:kNSURLTitlePboardType];
+              forType:ui::kUTTypeURLName];
 
   // File contents.
   } else if ([type isEqualToString:base::mac::CFToNSCast(fileUTI_)]) {
@@ -347,7 +347,9 @@ void PromiseWriterHelper(const DropData& drop_data,
 
   // URL (and title).
   if (dropData_->url.is_valid()) {
-    [pasteboard_ addTypes:@[ NSURLPboardType, kNSURLTitlePboardType ]
+    [pasteboard_ addTypes:@[
+      NSURLPboardType, ui::kUTTypeURLName, base::mac::CFToNSCast(kUTTypeURL)
+    ]
                     owner:contentsView_];
   }
 

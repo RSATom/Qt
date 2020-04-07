@@ -118,8 +118,10 @@ QUrl QQuickAbstractFileDialog::folder() const
 static QUrl fixupFolder(const QUrl &f)
 {
     QString lf = f.toLocalFile();
+#ifndef Q_OS_WIN // Don't mangle Windows network paths
     while (lf.startsWith("//"))
         lf.remove(0, 1);
+#endif
     if (lf.isEmpty())
         lf = QDir::currentPath();
     return QUrl::fromLocalFile(lf);

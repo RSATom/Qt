@@ -9,7 +9,6 @@
 #include "base/macros.h"
 #include "base/sequenced_task_runner.h"
 #include "services/tracing/public/mojom/perfetto_service.mojom.h"
-#include "third_party/perfetto/include/perfetto/base/task_runner.h"
 
 namespace tracing {
 

@@ -344,6 +344,8 @@ QTextLayout::QTextLayout(const QString& text)
 }
 
 /*!
+    \since 5.13
+    \fn QTextLayout::QTextLayout(const QString &text, const QFont &font, const QPaintDevice *paintdevice)
     Constructs a text layout to lay out the given \a text with the specified
     \a font.
 
@@ -351,11 +353,20 @@ QTextLayout::QTextLayout(const QString& text)
     the paint device, \a paintdevice. If \a paintdevice is 0 the
     calculations will be done in screen metrics.
 */
-QTextLayout::QTextLayout(const QString& text, const QFont &font, QPaintDevice *paintdevice)
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \fn QTextLayout::QTextLayout(const QString &text, const QFont &font, QPaintDevice *paintdevice)
+    \obsolete
+    Identical to QTextLayout::QTextLayout(const QString &text, const QFont &font, const QPaintDevice *paintdevice)
+*/
+
+QTextLayout::QTextLayout(const QString &text, const QFont &font, QPaintDevice *paintdevice)
+#else
+QTextLayout::QTextLayout(const QString &text, const QFont &font, const QPaintDevice *paintdevice)
+#endif
 {
-    QFont f(font);
-    if (paintdevice)
-        f = QFont(font, paintdevice);
+    const QFont f(paintdevice ? QFont(font, paintdevice) : font);
     d = new QTextEngine((text.isNull() ? (const QString&)QString::fromLatin1("") : text), f);
 }
 
@@ -1127,8 +1138,6 @@ void QTextLayout::draw(QPainter *p, const QPointF &pos, const QVector<FormatRang
     QPainterPath textDoneRegion;
     for (int i = 0; i < selections.size(); ++i) {
         FormatRange selection = selections.at(i);
-        const QBrush bg = selection.format.background();
-
         QPainterPath region;
         region.setFillRule(Qt::WindingFill);
 

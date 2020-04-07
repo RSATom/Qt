@@ -35,7 +35,8 @@ class EmptyScriptModuleResolver final : public ScriptModuleResolver {
 
 }  // namespace
 
-DummyModulator::DummyModulator() : resolver_(new EmptyScriptModuleResolver()) {}
+DummyModulator::DummyModulator()
+    : resolver_(MakeGarbageCollected<EmptyScriptModuleResolver>()) {}
 
 DummyModulator::~DummyModulator() = default;
 
@@ -63,8 +64,8 @@ base::SingleThreadTaskRunner* DummyModulator::TaskRunner() {
 };
 
 void DummyModulator::FetchTree(const KURL&,
-                               FetchClientSettingsObjectSnapshot*,
-                               WebURLRequest::RequestContext,
+                               ResourceFetcher*,
+                               mojom::RequestContextType,
                                const ScriptFetchOptions&,
                                ModuleScriptCustomFetchType,
                                ModuleTreeClient*) {
@@ -72,18 +73,17 @@ void DummyModulator::FetchTree(const KURL&,
 }
 
 void DummyModulator::FetchSingle(const ModuleScriptFetchRequest&,
-                                 FetchClientSettingsObjectSnapshot*,
+                                 ResourceFetcher*,
                                  ModuleGraphLevel,
                                  ModuleScriptCustomFetchType,
                                  SingleModuleClient*) {
   NOTREACHED();
 }
 
-void DummyModulator::FetchDescendantsForInlineScript(
-    ModuleScript*,
-    FetchClientSettingsObjectSnapshot* fetch_client_settings_object,
-    WebURLRequest::RequestContext,
-    ModuleTreeClient*) {
+void DummyModulator::FetchDescendantsForInlineScript(ModuleScript*,
+                                                     ResourceFetcher*,
+                                                     mojom::RequestContextType,
+                                                     ModuleTreeClient*) {
   NOTREACHED();
 }
 

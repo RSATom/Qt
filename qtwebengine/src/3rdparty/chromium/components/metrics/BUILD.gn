@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//testing/test.gni")
 
-static_library("metrics") {
+jumbo_static_library("metrics") {
   sources = [
     "call_stack_profile_metrics_provider.cc",
     "call_stack_profile_metrics_provider.h",
@@ -14,6 +15,8 @@ static_library("metrics") {
     "client_info.h",
     "cloned_install_detector.cc",
     "cloned_install_detector.h",
+    "cpu_metrics_provider.cc",
+    "cpu_metrics_provider.h",
     "daily_event.cc",
     "daily_event.h",
     "data_use_tracker.cc",
@@ -31,8 +34,6 @@ static_library("metrics") {
     "enabled_state_provider.h",
     "environment_recorder.cc",
     "environment_recorder.h",
-    "execution_phase.cc",
-    "execution_phase.h",
     "expired_histogram_util.cc",
     "expired_histogram_util.h",
     "expired_histograms_checker.cc",
@@ -105,7 +106,6 @@ static_library("metrics") {
   ]
 
   public_deps = [
-    ":call_stack_profile",
     "//third_party/metrics_proto",
   ]
 
@@ -115,6 +115,7 @@ static_library("metrics") {
     "//components/prefs",
     "//components/variations",
     "//components/version_info:version_info",
+    "//crypto",
     "//extensions/buildflags",
     "//third_party/zlib/google:compression_utils",
   ]
@@ -182,7 +183,7 @@ if (!is_ios) {
   }
 }
 
-static_library("net") {
+jumbo_static_library("net") {
   sources = [
     "net/cellular_logic_helper.cc",
     "net/cellular_logic_helper.h",
@@ -206,6 +207,7 @@ static_library("net") {
     "//components/encrypted_messages:encrypted_messages",
     "//components/variations",
     "//net",
+    "//services/network/public/cpp:cpp",
     "//third_party/metrics_proto",
     "//third_party/zlib/google:compression_utils",
     "//url",
@@ -216,7 +218,7 @@ static_library("net") {
       "net/wifi_access_point_info_provider_chromeos.cc",
       "net/wifi_access_point_info_provider_chromeos.h",
     ]
-    deps += [ "//chromeos" ]
+    deps += [ "//chromeos/network" ]
   }
 }
 
@@ -256,42 +258,72 @@ static_library("single_sample_metrics") {
   ]
 }
 
-source_set("call_stack_profile") {
-  sources = [
-    "call_stack_profile_builder.cc",
-    "call_stack_profile_builder.h",
+source_set("call_stack_profile_params") {
+  public = [
+    "call_stack_profile_encoding.h",
     "call_stack_profile_params.h",
+  ]
+  sources = [
+    "call_stack_profile_encoding.cc",
   ]
 
   deps = [
     "//base:base",
+    "//third_party/metrics_proto",
   ]
 }
 
-source_set("call_stacks") {
+# Dependency for child processes that use the CallStackProfileBuilder.
+source_set("child_call_stack_profile_builder") {
+  public = [
+    "call_stack_profile_builder.h",
+    "child_call_stack_profile_collector.h",
+    "legacy_call_stack_profile_builder.h",
+  ]
+  sources = [
+    "call_stack_profile_builder.cc",
+    "child_call_stack_profile_collector.cc",
+    "legacy_call_stack_profile_builder.cc",
+  ]
+  public_deps = [
+    ":call_stack_profile_params",
+  ]
+  deps = [
+    "//base",
+    "//components/metrics/public/interfaces:call_stack_mojo_bindings",
+    "//third_party/metrics_proto",
+  ]
+
+  # This target must not depend on :metrics because that code is intended solely
+  # for use in the browser process.
+  assert_no_deps = [ ":metrics" ]
+}
+
+# Dependency for browser process use of the CallStackProfileBuilder.
+source_set("call_stack_profile_builder") {
+  deps = [
+    ":metrics",
+  ]
+  public_deps = [
+    ":child_call_stack_profile_builder",
+  ]
+}
+
+# The browser process mojo service for collecting profiles from child
+# processes.
+source_set("call_stack_profile_collector") {
   sources = [
     "call_stack_profile_collector.cc",
     "call_stack_profile_collector.h",
   ]
   deps = [
+    ":call_stack_profile_params",
     ":metrics",
     "//components/metrics/public/interfaces:call_stack_mojo_bindings",
   ]
 }
 
-source_set("child_call_stacks") {
-  sources = [
-    "child_call_stack_profile_collector.cc",
-    "child_call_stack_profile_collector.h",
-  ]
-  deps = [
-    ":call_stack_profile",
-    "//components/metrics/public/interfaces:call_stack_mojo_bindings",
-    "//services/service_manager/public/cpp",
-  ]
-}
-
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "test_enabled_state_provider.cc",
@@ -342,6 +374,7 @@ source_set("unit_tests") {
     "field_trials_provider_unittest.cc",
     "file_metrics_provider_unittest.cc",
     "histogram_encoder_unittest.cc",
+    "legacy_call_stack_profile_builder_unittest.cc",
     "machine_id_provider_win_unittest.cc",
     "metrics_log_manager_unittest.cc",
     "metrics_log_store_unittest.cc",
@@ -361,8 +394,7 @@ source_set("unit_tests") {
   ]
 
   deps = [
-    ":call_stack_profile",
-    ":child_call_stacks",
+    ":call_stack_profile_builder",
     ":component_metrics",
     ":metrics",
     ":net",
@@ -372,12 +404,13 @@ source_set("unit_tests") {
     "//base/test:test_support",
     "//components/component_updater:test_support",
     "//components/encrypted_messages:encrypted_message_proto",
-    "//components/metrics/public/cpp:call_stack_unit_tests",
     "//components/prefs:test_support",
     "//components/variations",
     "//extensions/buildflags",
     "//mojo/public/cpp/bindings",
     "//net:test_support",
+    "//services/network:test_support",
+    "//services/network/public/cpp:cpp",
     "//services/service_manager/public/cpp",
     "//testing/gtest",
     "//third_party/zlib/google:compression_utils",
@@ -390,14 +423,24 @@ source_set("unit_tests") {
   }
 
   if (is_chromeos) {
-    deps += [ "//chromeos" ]
+    deps += [
+      "//chromeos/dbus:test_support",
+      "//chromeos/network:test_support",
+    ]
   }
 
   # iOS is not supported by the profiler and the ios-simulator bot chokes on
   # these tests.
   if (is_ios) {
     sources -= [ "child_call_stack_profile_collector_unittest.cc" ]
-    deps -= [ "//components/metrics/public/cpp:call_stack_unit_tests" ]
+  }
+
+  if (is_ios) {
+    deps += [ "//ios/web/public/test" ]
+  }
+
+  if (!is_ios) {
+    deps += [ "//content/test:test_support" ]
   }
 }
 

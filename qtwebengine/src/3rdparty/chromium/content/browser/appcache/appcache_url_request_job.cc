@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/appcache/appcache.h"
+#include "content/browser/appcache/appcache_frontend.h"
 #include "content/browser/appcache/appcache_group.h"
 #include "content/browser/appcache/appcache_histograms.h"
 #include "content/browser/appcache/appcache_host.h"
@@ -28,6 +29,7 @@
 #include "net/log/net_log_with_source.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_status.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 
@@ -65,7 +67,7 @@ void AppCacheURLRequestJob::DeliverAppCachedResponse(const GURL& manifest_url,
                                                      bool is_fallback) {
   DCHECK(!has_delivery_orders());
   DCHECK(entry.has_response_id());
-  delivery_type_ = APPCACHED_DELIVERY;
+  delivery_type_ = DeliveryType::kAppCached;
   manifest_url_ = manifest_url;
   cache_id_ = cache_id;
   entry_ = entry;
@@ -75,14 +77,14 @@ void AppCacheURLRequestJob::DeliverAppCachedResponse(const GURL& manifest_url,
 
 void AppCacheURLRequestJob::DeliverNetworkResponse() {
   DCHECK(!has_delivery_orders());
-  delivery_type_ = NETWORK_DELIVERY;
+  delivery_type_ = DeliveryType::kNetwork;
   storage_ = nullptr;  // not needed
   MaybeBeginDelivery();
 }
 
 void AppCacheURLRequestJob::DeliverErrorResponse() {
   DCHECK(!has_delivery_orders());
-  delivery_type_ = ERROR_DELIVERY;
+  delivery_type_ = DeliveryType::kError;
   storage_ = nullptr;  // not needed
   MaybeBeginDelivery();
 }
@@ -112,7 +114,7 @@ AppCacheURLRequestJob::AppCacheURLRequestJob(
       storage_(storage),
       has_been_started_(false),
       has_been_killed_(false),
-      cache_id_(kAppCacheNoCacheId),
+      cache_id_(blink::mojom::kAppCacheNoCacheId),
       is_fallback_(false),
       is_main_resource_(is_main_resource),
       on_prepare_to_restart_callback_(std::move(restart_callback)),
@@ -137,9 +139,7 @@ void AppCacheURLRequestJob::BeginDelivery() {
     return;
 
   switch (delivery_type_) {
-    case NETWORK_DELIVERY:
-      AppCacheHistograms::AddNetworkJobStartDelaySample(
-          base::TimeTicks::Now() - start_time_tick_);
+    case DeliveryType::kNetwork:
       // To fallthru to the network, we restart the request which will
       // cause a new job to be created to retrieve the resource from the
       // network. Our caller is responsible for arranging to not re-intercept
@@ -147,18 +147,14 @@ void AppCacheURLRequestJob::BeginDelivery() {
       NotifyRestartRequired();
       break;
 
-    case ERROR_DELIVERY:
-      AppCacheHistograms::AddErrorJobStartDelaySample(
-          base::TimeTicks::Now() - start_time_tick_);
+    case DeliveryType::kError:
       request()->net_log().AddEvent(
           net::NetLogEventType::APPCACHE_DELIVERING_ERROR_RESPONSE);
       NotifyStartError(net::URLRequestStatus(net::URLRequestStatus::FAILED,
                                              net::ERR_FAILED));
       break;
 
-    case APPCACHED_DELIVERY:
-      AppCacheHistograms::AddAppCacheJobStartDelaySample(
-          base::TimeTicks::Now() - start_time_tick_);
+    case DeliveryType::kAppCached:
       request()->net_log().AddEvent(
           is_fallback_
               ? net::NetLogEventType::APPCACHE_DELIVERING_FALLBACK_RESPONSE
@@ -176,7 +172,7 @@ void AppCacheURLRequestJob::BeginErrorDelivery(const char* message) {
   if (host_)
     host_->frontend()->OnLogMessage(host_->host_id(), APPCACHE_LOG_ERROR,
                                     message);
-  delivery_type_ = ERROR_DELIVERY;
+  delivery_type_ = DeliveryType::kError;
   storage_ = nullptr;
   BeginDelivery();
 }
@@ -187,8 +183,8 @@ void AppCacheURLRequestJob::OnResponseInfoLoaded(
   DCHECK(IsDeliveringAppCacheResponse());
   if (response_info) {
     info_ = response_info;
-    reader_.reset(
-        storage_->CreateResponseReader(manifest_url_, entry_.response_id()));
+    reader_ =
+        storage_->CreateResponseReader(manifest_url_, entry_.response_id());
 
     if (is_range_request())
       SetupRangeResponse();
@@ -222,7 +218,7 @@ const net::HttpResponseInfo* AppCacheURLRequestJob::http_info() const {
     return nullptr;
   if (range_response_info_)
     return range_response_info_.get();
-  return info_->http_response_info();
+  return &info_->http_response_info();
 }
 
 void AppCacheURLRequestJob::OnReadComplete(int result) {
@@ -255,7 +251,7 @@ net::LoadState AppCacheURLRequestJob::GetLoadState() const {
     return net::LOAD_STATE_IDLE;
   if (!has_delivery_orders())
     return net::LOAD_STATE_WAITING_FOR_APPCACHE;
-  if (delivery_type_ != APPCACHED_DELIVERY)
+  if (delivery_type_ != DeliveryType::kAppCached)
     return net::LOAD_STATE_IDLE;
   if (!info_.get())
     return net::LOAD_STATE_WAITING_FOR_APPCACHE;

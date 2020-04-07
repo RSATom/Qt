@@ -393,7 +393,7 @@ void QDeclarativeGeoMapItemView::removeDelegateFromMap(int index, bool transitio
             if (releaseStatus == QQmlInstanceModel::Referenced)
                 qWarning() << "item "<< index << "(" << item << ") still referenced";
 #else
-            Q_UNUSED(releaseStatus)
+            Q_UNUSED(releaseStatus);
 #endif
         }
     }
@@ -475,7 +475,7 @@ void QDeclarativeGeoMapItemView::exitTransitionFinished()
     if (releaseStatus == QQmlInstanceModel::Referenced)
         qWarning() << "item "<<item<<" still referenced";
 #else
-    Q_UNUSED(releaseStatus)
+    Q_UNUSED(releaseStatus);
 #endif
 }
 

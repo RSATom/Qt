@@ -11,10 +11,12 @@
 
 namespace ui {
 
-void CalculateIdleTime(IdleTimeCallback notify) {
+int CalculateIdleTime() {
 #if defined(USE_XSCRNSAVER)
   IdleQueryX11 idle_query;
-  notify.Run(idle_query.IdleTime());
+  return idle_query.IdleTime();
+#else
+  return 0;
 #endif
 }
 

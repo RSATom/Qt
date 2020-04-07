@@ -30,13 +30,14 @@ TEST_F(LayoutTableTest, OverflowViaOutline) {
   auto* target = GetTableByElementId("target");
   EXPECT_EQ(LayoutRect(0, 0, 100, 200), target->SelfVisualOverflowRect());
   ToElement(target->GetNode())
-      ->setAttribute(HTMLNames::styleAttr, "outline: 2px solid black");
+      ->setAttribute(html_names::kStyleAttr, "outline: 2px solid black");
 
   auto* child = GetTableByElementId("child");
   ToElement(child->GetNode())
-      ->setAttribute(HTMLNames::styleAttr, "outline: 2px solid black");
+      ->setAttribute(html_names::kStyleAttr, "outline: 2px solid black");
 
-  target->GetFrameView()->UpdateAllLifecyclePhases();
+  target->GetFrameView()->UpdateAllLifecyclePhases(
+      DocumentLifecycle::LifecycleUpdateReason::kTest);
   EXPECT_EQ(LayoutRect(-2, -2, 104, 204), target->SelfVisualOverflowRect());
 
   EXPECT_EQ(LayoutRect(-2, -2, 104, 204), child->SelfVisualOverflowRect());
@@ -65,14 +66,14 @@ TEST_F(LayoutTableTest, OverflowWithCollapsedBorders) {
 
   // The table's border box rect covers all collapsed borders of the first
   // row, and bottom collapsed borders of the last row.
-  LayoutRect expected_border_box_rect = table->ContentBoxRect();
+  LayoutRect expected_border_box_rect = table->PhysicalContentBoxRect();
   expected_border_box_rect.ExpandEdges(LayoutUnit(2), LayoutUnit(5),
                                        LayoutUnit(0), LayoutUnit(1));
   EXPECT_EQ(expected_border_box_rect, table->BorderBoxRect());
 
   // The table's self visual overflow rect covers all collapsed borders, but
   // not visual overflows (outlines) from descendants.
-  LayoutRect expected_self_visual_overflow = table->ContentBoxRect();
+  LayoutRect expected_self_visual_overflow = table->PhysicalContentBoxRect();
   expected_self_visual_overflow.ExpandEdges(LayoutUnit(2), LayoutUnit(10),
                                             LayoutUnit(0), LayoutUnit(10));
   EXPECT_EQ(expected_self_visual_overflow, table->SelfVisualOverflowRect());
@@ -81,7 +82,7 @@ TEST_F(LayoutTableTest, OverflowWithCollapsedBorders) {
 
   // The table's visual overflow covers self visual overflow and content visual
   // overflows.
-  LayoutRect expected_visual_overflow = table->ContentBoxRect();
+  LayoutRect expected_visual_overflow = table->PhysicalContentBoxRect();
   expected_visual_overflow.ExpandEdges(LayoutUnit(6), LayoutUnit(10),
                                        LayoutUnit(8), LayoutUnit(10));
   EXPECT_EQ(expected_visual_overflow, table->VisualOverflowRect());
@@ -316,6 +317,24 @@ TEST_F(LayoutTableTest, OutOfOrderHeadFootAndBody) {
             table->BottomSection());
   EXPECT_EQ(ToLayoutTableSection(GetLayoutObjectByElementId("foot")),
             table->BottomNonEmptySection());
+}
+
+TEST_F(LayoutTableTest, VisualOverflowCleared) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      #table {
+        width: 50px; height: 50px; box-shadow: 5px 5px 5px black;
+      }
+    </style>
+    <table id='table' style='width: 50px; height: 50px'></table>
+  )HTML");
+  auto* table = GetTableByElementId("table");
+  EXPECT_EQ(LayoutRect(-3, -3, 66, 66), table->SelfVisualOverflowRect());
+  ToElement(table->GetNode())
+      ->setAttribute(html_names::kStyleAttr, "box-shadow: initial");
+  GetDocument().View()->UpdateAllLifecyclePhases(
+      DocumentLifecycle::LifecycleUpdateReason::kTest);
+  EXPECT_EQ(LayoutRect(0, 0, 50, 50), table->SelfVisualOverflowRect());
 }
 
 }  // anonymous namespace

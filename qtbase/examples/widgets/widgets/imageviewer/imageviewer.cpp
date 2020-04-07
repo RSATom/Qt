@@ -48,6 +48,8 @@
 **
 ****************************************************************************/
 
+#include "imageviewer.h"
+
 #include <QtWidgets>
 #if defined(QT_PRINTSUPPORT_LIB)
 #include <QtPrintSupport/qtprintsupportglobal.h>
@@ -56,13 +58,10 @@
 #endif
 #endif
 
-#include "imageviewer.h"
-
 //! [0]
-ImageViewer::ImageViewer()
-   : imageLabel(new QLabel)
-   , scrollArea(new QScrollArea)
-   , scaleFactor(1)
+ImageViewer::ImageViewer(QWidget *parent)
+   : QMainWindow(parent), imageLabel(new QLabel),
+     scrollArea(new QScrollArea), scaleFactor(1)
 {
     imageLabel->setBackgroundRole(QPalette::Base);
     imageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -152,7 +151,7 @@ static void initializeImageFileDialog(QFileDialog &dialog, QFileDialog::AcceptMo
     QStringList mimeTypeFilters;
     const QByteArrayList supportedMimeTypes = acceptMode == QFileDialog::AcceptOpen
         ? QImageReader::supportedMimeTypes() : QImageWriter::supportedMimeTypes();
-    foreach (const QByteArray &mimeTypeName, supportedMimeTypes)
+    for (const QByteArray &mimeTypeName : supportedMimeTypes)
         mimeTypeFilters.append(mimeTypeName);
     mimeTypeFilters.sort();
     dialog.setMimeTypeFilters(mimeTypeFilters);

@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include "src/trace_processor/blob_reader.h"
+#include "src/trace_processor/chunked_trace_reader.h"
 
 namespace perfetto {
 namespace trace_processor {
 
-BlobReader::~BlobReader() {}
+ChunkedTraceReader::~ChunkedTraceReader() {}
 
 }  // namespace trace_processor
 }  // namespace perfetto

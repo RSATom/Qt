@@ -40,6 +40,20 @@
     </message>
 </context>
 <context>
+    <name>Print Device Input Slot</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatisch</translation>
+    </message>
+</context>
+<context>
+    <name>Print Device Output Bin</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatisch</translation>
+    </message>
+</context>
+<context>
     <name>QAbstractSocket</name>
     <message>
         <source>Socket operation timed out</source>
@@ -979,8 +993,8 @@ Drücken Sie ESC, um abzubrechen</translation>
         <translation>%1 kann nicht zum Lesen geöffnet werden</translation>
     </message>
     <message>
-        <source>Cannot open for output</source>
-        <translation>Öffnen zum Schreiben fehlgeschlagen</translation>
+        <source>Cannot open for output: %1</source>
+        <translation>Kann nicht zum Schreiben geöffnet werden: %1</translation>
     </message>
     <message>
         <source>Failure to write block</source>
@@ -2414,6 +2428,7 @@ Möchten Sie die Datei trotzdem löschen?</translation>
     </message>
     <message>
         <source>&lt;p&gt;Qt is a C++ toolkit for cross-platform application development.&lt;/p&gt;&lt;p&gt;Qt provides single-source portability across all major desktop operating systems. It is also available for embedded Linux and other embedded and mobile operating systems.&lt;/p&gt;&lt;p&gt;Qt is available under multiple licensing options designed to accommodate the needs of our various users.&lt;/p&gt;&lt;p&gt;Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of GNU (L)GPL.&lt;/p&gt;&lt;p&gt;Qt licensed under GNU (L)GPL is appropriate for the development of Qt&amp;nbsp;applications provided you can comply with the terms and conditions of the respective licenses.&lt;/p&gt;&lt;p&gt;Please see &lt;a href=&quot;http://%2/&quot;&gt;%2&lt;/a&gt; for an overview of Qt licensing.&lt;/p&gt;&lt;p&gt;Copyright (C) %1 The Qt Company Ltd and other contributors.&lt;/p&gt;&lt;p&gt;Qt and the Qt logo are trademarks of The Qt Company Ltd.&lt;/p&gt;&lt;p&gt;Qt is The Qt Company Ltd product developed as an open source project. See &lt;a href=&quot;http://%3/&quot;&gt;%3&lt;/a&gt; for more information.&lt;/p&gt;</source>
+        <extracomment>Leave this text untranslated or include a verbatim copy of it below and note that it is the authoritative version in case of doubt.</extracomment>
         <translation>&lt;p&gt;Qt is a C++ toolkit for cross-platform application development.&lt;/p&gt;&lt;p&gt;Qt provides single-source portability across all major desktop operating systems. It is also available for embedded Linux and other embedded and mobile operating systems.&lt;/p&gt;&lt;p&gt;Qt is available under multiple licensing options designed to accommodate the needs of our various users.&lt;/p&gt;&lt;p&gt;Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of GNU (L)GPL.&lt;/p&gt;&lt;p&gt;Qt licensed under GNU (L)GPL is appropriate for the development of Qt&amp;nbsp;applications provided you can comply with the terms and conditions of the respective licenses.&lt;/p&gt;&lt;p&gt;Please see &lt;a href=&quot;http://%2/&quot;&gt;%2&lt;/a&gt; for an overview of Qt licensing.&lt;/p&gt;&lt;p&gt;Copyright (C) %1 The Qt Company Ltd and other contributors.&lt;/p&gt;&lt;p&gt;Qt and the Qt logo are trademarks of The Qt Company Ltd.&lt;/p&gt;&lt;p&gt;Qt is The Qt Company Ltd product developed as an open source project. See &lt;a href=&quot;http://%3/&quot;&gt;%3&lt;/a&gt; for more information.&lt;/p&gt;</translation>
     </message>
     <message>
@@ -3722,10 +3737,6 @@ Bitte deaktivieren Sie eine der beiden.</translation>
     <message>
         <source>OK</source>
         <translation>OK</translation>
-    </message>
-    <message>
-        <source>Automatic</source>
-        <translation>Automatisch</translation>
     </message>
 </context>
 <context>
@@ -5930,6 +5941,7 @@ Bitte deaktivieren Sie eine der beiden.</translation>
     </message>
     <message>
         <source>+</source>
+        <extracomment>Key separator in shortcut string</extracomment>
         <translation>+</translation>
     </message>
     <message>
@@ -6466,6 +6478,50 @@ Role of an accessible object</extracomment>
         <translation>Das Zertifikat der Gegenstelle ist in einer Schwarzen Liste enthalten</translation>
     </message>
     <message>
+        <source>No OCSP status response found</source>
+        <translation>Es wurde keine OCSP-Status-Antwort gefunden</translation>
+    </message>
+    <message>
+        <source>The OCSP status request had invalid syntax</source>
+        <translation>Die OCSP Status-Anforderung hatte eine ungültige Syntax</translation>
+    </message>
+    <message>
+        <source>OCSP response contains an unexpected number of SingleResponse structures</source>
+        <translation>Die OCSP-Antwort enthält eine unerwartete Anzahl von SingleResponse-Strukturen</translation>
+    </message>
+    <message>
+        <source>OCSP responder reached an inconsistent internal state</source>
+        <translation>Der OCSP-Responder ist in einen inkonsistenten internen Zustand gelangt</translation>
+    </message>
+    <message>
+        <source>OCSP responder was unable to return a status for the requested certificate</source>
+        <translation>Der OCSP-Responder konnte keinen Status für das angeforderte Zertifikat zurückgeben</translation>
+    </message>
+    <message>
+        <source>The server requires the client to sign the OCSP request in order to construct a response</source>
+        <translation>Der Server verlangt, dass der Client die OCSP-Anforderung signiert, um eine Antwort zu erstellen</translation>
+    </message>
+    <message>
+        <source>The client is not authorized to request OCSP status from this server</source>
+        <translation>Der Client ist nicht berechtigt, einen OCSP-Status von diesem Server anzufordern</translation>
+    </message>
+    <message>
+        <source>OCSP responder&apos;s identity cannot be verified</source>
+        <translation>Die Identität des OCSP-Responders konnte nicht verifiziert werden</translation>
+    </message>
+    <message>
+        <source>The identity of a certificate in an OCSP response cannot be established</source>
+        <translation>Die Identität eines Zertifikats in einer OCSP-Antwort konnte nicht bestimmt werden</translation>
+    </message>
+    <message>
+        <source>The certificate status response has expired</source>
+        <translation>Die Gültigkeit der Status-Antwort des Zertifikats ist abgelaufen</translation>
+    </message>
+    <message>
+        <source>The certificate&apos;s status is unknown</source>
+        <translation>Der Status des Zertifikats ist unbekannt</translation>
+    </message>
+    <message>
         <source>Unknown error</source>
         <translation>Unbekannter Fehler</translation>
     </message>
@@ -6558,6 +6614,18 @@ Role of an accessible object</extracomment>
         <translation>Es konnte keine SSL-Sitzung erzeugt werden: %1</translation>
     </message>
     <message>
+        <source>Server-side QSslSocket does not support OCSP stapling</source>
+        <translation>Der serverseitige QSslSocket unterstützt das Anheften von OCSP nicht</translation>
+    </message>
+    <message>
+        <source>Failed to enable OCSP stapling</source>
+        <translation>Das OCSP-Anheften konnte nicht aktiviert werden</translation>
+    </message>
+    <message>
+        <source>Client-side sockets do not send OCSP responses</source>
+        <translation>Die clientseitigen Sockets senden keine OCSP-Antworten</translation>
+    </message>
+    <message>
         <source>Unable to init SSL Context: %1</source>
         <translation>Der SSL-Kontext konnte nicht initialisiert werden: %1</translation>
     </message>
@@ -6568,6 +6636,26 @@ Role of an accessible object</extracomment>
     <message>
         <source>Unable to decrypt data: %1</source>
         <translation>Die Daten konnten nicht entschlüsselt werden: %1</translation>
+    </message>
+    <message>
+        <source>Failed to decode OCSP response</source>
+        <translation>Die OCSP-Antworten konnten nicht dekodiert werden</translation>
+    </message>
+    <message>
+        <source>Failed to extract basic OCSP response</source>
+        <translation>Es konnte keine grundlegende OCSP-Antwort extrahiert werden</translation>
+    </message>
+    <message>
+        <source>No certificate verification store, cannot verify OCSP response</source>
+        <translation>Es ist kein Store zur Zertifikatsverifikation vorhanden; die OCSP-Antwort kann nicht überprüft werden</translation>
+    </message>
+    <message>
+        <source>Failed to decode a SingleResponse from OCSP status response</source>
+        <translation>Es konnte keine SingleResponse aus der OCSP-Status-Antwort dekodiert werden</translation>
+    </message>
+    <message>
+        <source>Failed to extract &apos;this update time&apos; from the SingleResponse</source>
+        <translation>&apos;this update time&apos; konnte nicht aus der SingleResponse extrahiert werden</translation>
     </message>
     <message>
         <source>The TLS/SSL connection has been closed</source>
@@ -6588,6 +6676,130 @@ Role of an accessible object</extracomment>
     <message>
         <source>TLS initialization failed</source>
         <translation>Die Initialisierung von TLS schlug fehl</translation>
+    </message>
+    <message>
+        <source>Attempted to use an unsupported protocol.</source>
+        <translation>Es wurde versucht, ein nicht unterstütztes Protokoll zu verwenden.</translation>
+    </message>
+    <message>
+        <source>Insufficient memory</source>
+        <translation>Zu wenig Speicher</translation>
+    </message>
+    <message>
+        <source>Internal error</source>
+        <translation>Interner Fehler</translation>
+    </message>
+    <message>
+        <source>An internal handle was invalid</source>
+        <translation>Ein interner Handle war ungültig</translation>
+    </message>
+    <message>
+        <source>An internal token was invalid</source>
+        <translation>Ein internes Token war ungültig</translation>
+    </message>
+    <message>
+        <source>Access denied</source>
+        <translation>Zugriff verweigert</translation>
+    </message>
+    <message>
+        <source>No authority could be contacted for authorization</source>
+        <translation>Es konnte keine Authentifizierungsstelle für eine Autorisierung erreicht werden</translation>
+    </message>
+    <message>
+        <source>No credentials</source>
+        <translation>Keine Zugangsdaten</translation>
+    </message>
+    <message>
+        <source>The target is unknown or unreachable</source>
+        <translation>Das Ziel ist unbekannt oder nicht erreichbar</translation>
+    </message>
+    <message>
+        <source>An unsupported function was requested</source>
+        <translation>Es wurde eine nicht unterstützte Funktion angefordert</translation>
+    </message>
+    <message>
+        <source>The hostname provided does not match the one received from the peer</source>
+        <translation>Der angegebene Hostname entspricht nicht dem der Gegenseite</translation>
+    </message>
+    <message>
+        <source>No common protocol exists between the client and the server</source>
+        <translation>Es gibt kein gemeinsames Protokoll zwischen Client und Server</translation>
+    </message>
+    <message>
+        <source>Unexpected or badly-formatted message received</source>
+        <translation>Die Nachricht ist unerwartet oder in einem fehlerhaften Format</translation>
+    </message>
+    <message>
+        <source>The data could not be encrypted</source>
+        <translation>Die Daten konnten nicht verschlüsselt werden</translation>
+    </message>
+    <message>
+        <source>No cipher suites in common</source>
+        <translation>Keine gemeinsamen Cipher Suites</translation>
+    </message>
+    <message>
+        <source>The credentials were not recognized / Invalid argument</source>
+        <translation>Die Zugangsdaten wurden nicht erkannt / Ungültiges Argument</translation>
+    </message>
+    <message>
+        <source>The message was tampered with, damaged or out of sequence.</source>
+        <translation>Die Nachricht wurde korrumpiert, beschädigt oder erscheint außerhalb der Reihenfolge.</translation>
+    </message>
+    <message>
+        <source>A message was received out of sequence.</source>
+        <translation>Die Nachricht wurde außerhalb der Reihenfolge empfangen.</translation>
+    </message>
+    <message>
+        <source>Unknown error occurred: %1</source>
+        <translation>Es ist ein unbekannter Fehler aufgetreten: %1</translation>
+    </message>
+    <message>
+        <source>Invalid protocol chosen</source>
+        <translation>Es wurde ein ungültiges Protokoll gewählt</translation>
+    </message>
+    <message>
+        <source>The certificate provided cannot be used for a client.</source>
+        <translation>Das bereitgestellte Zertifikat kann nicht für einen Client verwendet werden.</translation>
+    </message>
+    <message>
+        <source>The certificate provided cannot be used for a server.</source>
+        <translation>Das bereitgestellte Zertifikat kann nicht für einen Server verwendet werden.</translation>
+    </message>
+    <message>
+        <source>Server did not accept any certificate we could present.</source>
+        <translation>Der Server hat keines der angegebenen Zertifikate akzeptiert.</translation>
+    </message>
+    <message>
+        <source>Algorithm mismatch</source>
+        <translation>Algorithmen stimmen nicht überein</translation>
+    </message>
+    <message>
+        <source>Handshake failed: %1</source>
+        <translation>Der Handshake schlug fehl: %1</translation>
+    </message>
+    <message>
+        <source>Failed to query the TLS context: %1</source>
+        <translation>Der TLS-Kontext konnte nicht abgefragt werden: %1</translation>
+    </message>
+    <message>
+        <source>Did not get the required attributes for the connection.</source>
+        <translation>Die für die Verbindung erforderlichen Attribute konnten nicht erhalten werden.</translation>
+    </message>
+    <message>
+        <source>Unwanted protocol was negotiated</source>
+        <translation>Es wurde ein unerwünschtes Protokoll ausgehandelt</translation>
+    </message>
+    <message>
+        <source>Renegotiation was unsuccessful: %1</source>
+        <translation>Die Neuverhandlung schlug fehl: %1</translation>
+    </message>
+    <message>
+        <source>Schannel failed to encrypt data: %1</source>
+        <translation>Schannel konnte die Daten nicht verschlüsseln: %1</translation>
+    </message>
+    <message>
+        <source>Cannot provide a certificate with no key</source>
+        <translation>Es kann kein Zertifikat ohne Schlüssel bereitgestellt werden</translation>
     </message>
 </context>
 <context>

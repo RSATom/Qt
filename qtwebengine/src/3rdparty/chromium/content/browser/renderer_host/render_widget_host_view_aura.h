@@ -137,12 +137,14 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
   void SetTooltipText(const base::string16& tooltip_text) override;
   void DisplayTooltipText(const base::string16& tooltip_text) override;
   uint32_t GetCaptureSequenceNumber() const override;
+  bool DoBrowserControlsShrinkRendererSize() const override;
+  float GetTopControlsHeight() const override;
   bool IsSurfaceAvailableForCopy() const override;
   void CopyFromSurface(
       const gfx::Rect& src_rect,
       const gfx::Size& output_size,
       base::OnceCallback<void(const SkBitmap&)> callback) override;
-  void EnsureSurfaceSynchronizedForLayoutTest() override;
+  void EnsureSurfaceSynchronizedForWebTest() override;
   void TransformPointToRootSurface(gfx::PointF* point) override;
   gfx::Rect GetBoundsInRootWindow() override;
   void WheelEventAck(const blink::WebMouseWheelEvent& event,
@@ -162,7 +164,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
       BrowserAccessibilityDelegate* delegate, bool for_root_frame) override;
   gfx::AcceleratedWidget AccessibilityGetAcceleratedWidget() override;
   gfx::NativeViewAccessible AccessibilityGetNativeViewAccessible() override;
-  void SetMainFrameAXTreeID(ui::AXTreeIDRegistry::AXTreeID id) override;
+  void SetMainFrameAXTreeID(ui::AXTreeID id) override;
   bool LockMouse() override;
   void UnlockMouse() override;
   bool LockKeyboard(base::Optional<base::flat_set<ui::DomCode>> codes) override;
@@ -178,11 +180,13 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
       base::Optional<viz::HitTestRegionList> hit_test_region_list) override;
   void OnDidNotProduceFrame(const viz::BeginFrameAck& ack) override;
   void ClearCompositorFrame() override;
+  void ResetFallbackToFirstNavigationSurface() override;
   bool RequestRepaintForTesting() override;
   void DidStopFlinging() override;
   void OnDidNavigateMainFrameToNewPage() override;
   const viz::FrameSinkId& GetFrameSinkId() const override;
-  const viz::LocalSurfaceId& GetLocalSurfaceId() const override;
+  const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
+      const override;
   bool TransformPointToLocalCoordSpaceLegacy(
       const gfx::PointF& point,
       const viz::SurfaceId& original_surface,
@@ -197,14 +201,12 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   void FocusedNodeChanged(bool is_editable_node,
                           const gfx::Rect& node_bounds_in_screen) override;
-  void ScheduleEmbed(ui::mojom::WindowTreeClientPtr client,
+  void ScheduleEmbed(ws::mojom::WindowTreeClientPtr client,
                      base::OnceCallback<void(const base::UnguessableToken&)>
                          callback) override;
   void OnSynchronizedDisplayPropertiesChanged() override;
   viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(
       const cc::RenderFrameMetadata& metadata) override;
-
-  bool IsLocalSurfaceIdAllocationSuppressed() const override;
 
   void DidNavigate() override;
   void TakeFallbackContentFrom(RenderWidgetHostView* view) override;
@@ -227,8 +229,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
   ui::TextInputClient::FocusReason GetFocusReason() const override;
   bool GetTextRange(gfx::Range* range) const override;
   bool GetCompositionTextRange(gfx::Range* range) const override;
-  bool GetSelectionRange(gfx::Range* range) const override;
-  bool SetSelectionRange(const gfx::Range& range) override;
+  bool GetEditableSelectionRange(gfx::Range* range) const override;
+  bool SetEditableSelectionRange(const gfx::Range& range) override;
   bool DeleteRange(const gfx::Range& range) override;
   bool GetTextFromRange(const gfx::Range& range,
                         base::string16* text) const override;
@@ -243,8 +245,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
   bool ShouldDoLearning() override;
 
   // Overridden from display::DisplayObserver:
-  void OnDisplayAdded(const display::Display& new_display) override;
-  void OnDisplayRemoved(const display::Display& old_display) override;
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t metrics) override;
 
@@ -267,7 +267,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
   void OnWindowDestroyed(aura::Window* window) override;
   void OnWindowTargetVisibilityChanged(bool visible) override;
   bool HasHitTestMask() const override;
-  void GetHitTestMask(gfx::Path* mask) const override;
+  void GetHitTestMask(SkPath* mask) const override;
   bool RequiresDoubleTapGestureEvents() const override;
 
   // Overridden from ui::EventHandler:
@@ -329,6 +329,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
   gfx::Rect ConvertRectToScreen(const gfx::Rect& rect) const override;
   void ForwardKeyboardEventWithLatencyInfo(const NativeWebKeyboardEvent& event,
                                            const ui::LatencyInfo& latency,
+                                           ui::KeyEvent* original_key_event,
                                            bool* update_event) override;
   RenderFrameHostImpl* GetFocusedFrame() const;
   bool NeedsMouseCapture() override;
@@ -342,6 +343,12 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   void ScrollFocusedEditableNodeIntoRect(const gfx::Rect& rect);
 
+  // TODO(lanwei): Use TestApi interface to write functions that are used in
+  // tests and remove FRIEND_TEST_ALL_PREFIXES.
+  void SetLastPointerType(ui::EventPointerType last_pointer_type) {
+    last_pointer_type_ = last_pointer_type;
+  }
+
  protected:
   ~RenderWidgetHostViewAura() override;
 
@@ -354,11 +361,13 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   // RenderWidgetHostViewBase:
   void UpdateBackgroundColor() override;
+  bool HasFallbackSurface() const override;
 
  private:
   friend class DelegatedFrameHostClientAura;
   friend class InputMethodAuraTestBase;
   friend class RenderWidgetHostViewAuraTest;
+  friend class RenderWidgetHostViewAuraBrowserTest;
   friend class RenderWidgetHostViewAuraCopyRequestTest;
   friend class TestInputMethodObserver;
 #if defined(OS_WIN)
@@ -406,8 +415,12 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
                            HitTestRegionListSubmitted);
   FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraTest,
                            DiscardDelegatedFramesWithMemoryPressure);
+  FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraInputMethodTest,
+                           OnCaretBoundsChanged);
   FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraKeyboardTest,
                            KeyboardObserverDestroyed);
+  FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraKeyboardTest,
+                           KeyboardObserverForOnlyTouchInput);
   FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraSurfaceSynchronizationTest,
                            DropFallbackWhenHidden);
   FRIEND_TEST_ALL_PREFIXES(RenderWidgetHostViewAuraSurfaceSynchronizationTest,
@@ -451,13 +464,23 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   void CreateAuraWindow(aura::client::WindowType type);
 
+  // Returns true if a stale frame content needs to be set for the current RWHV.
+  // This is primarily useful during various CrOS animations to prevent showing
+  // a white screen and instead showing a snapshot of the frame content that
+  // was most recently evicted.
+  bool ShouldShowStaleContentOnEviction();
+
   void CreateDelegatedFrameHostClient();
 
   void UpdateCursorIfOverSelf();
 
-  bool SynchronizeVisualProperties(const cc::DeadlinePolicy& deadline_policy,
-                                   const base::Optional<viz::LocalSurfaceId>&
-                                       child_allocated_local_surface_id);
+  bool SynchronizeVisualProperties(
+      const cc::DeadlinePolicy& deadline_policy,
+      const base::Optional<viz::LocalSurfaceIdAllocation>&
+          child_local_surface_id_allocation);
+
+  void OnDidUpdateVisualPropertiesComplete(
+      const cc::RenderFrameMetadata& metadata);
 
   // Tracks whether SnapToPhysicalPixelBoundary() has been called.
   bool has_snapped_to_boundary() { return has_snapped_to_boundary_; }
@@ -518,7 +541,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   // Dismisses a Web Popup on a mouse or touch press outside the popup and its
   // parent.
-  void ApplyEventFilterForPopupExit(ui::LocatedEvent* event);
+  void ApplyEventObserverForPopupExit(const ui::LocatedEvent& event);
 
   // Converts |rect| from screen coordinate to window coordinate.
   gfx::Rect ConvertRectFromScreen(const gfx::Rect& rect) const;
@@ -541,6 +564,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   // Called when the window title is changed.
   void WindowTitleChanged();
+
+  void InvalidateLocalSurfaceIdOnEviction();
 
   const bool is_mus_browser_plugin_guest_;
 
@@ -570,9 +595,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
   // Our child popup host. NULL if we do not have a child popup.
   RenderWidgetHostViewAura* popup_child_host_view_;
 
-  class EventFilterForPopupExit;
-  friend class EventFilterForPopupExit;
-  std::unique_ptr<ui::EventHandler> event_filter_for_popup_exit_;
+  class EventObserverForPopupExit;
+  std::unique_ptr<EventObserverForPopupExit> event_observer_for_popup_exit_;
 
   // True when content is being loaded. Used to show an hourglass cursor.
   bool is_loading_;
@@ -664,7 +688,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAura
 
   // Latest capture sequence number which is incremented when the caller
   // requests surfaces be synchronized via
-  // EnsureSurfaceSynchronizedForLayoutTest().
+  // EnsureSurfaceSynchronizedForWebTest().
   uint32_t latest_capture_sequence_number_ = 0u;
 
   // The pointer type of the most recent gesture/mouse/touch event.

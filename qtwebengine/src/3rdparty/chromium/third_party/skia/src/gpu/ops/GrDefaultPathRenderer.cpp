@@ -9,6 +9,7 @@
 #include "GrContext.h"
 #include "GrDefaultGeoProcFactory.h"
 #include "GrDrawOpTest.h"
+#include "GrFillRectOp.h"
 #include "GrFixedClip.h"
 #include "GrMesh.h"
 #include "GrOpFlushState.h"
@@ -23,7 +24,6 @@
 #include "SkTLazy.h"
 #include "SkTraceEvent.h"
 #include "ops/GrMeshDrawOp.h"
-#include "ops/GrRectOpFactory.h"
 
 GrDefaultPathRenderer::GrDefaultPathRenderer() {
 }
@@ -65,12 +65,12 @@ namespace {
 class PathGeoBuilder {
 public:
     PathGeoBuilder(GrPrimitiveType primitiveType, GrMeshDrawOp::Target* target,
-                   GrGeometryProcessor* geometryProcessor, const GrPipeline* pipeline,
+                   sk_sp<const GrGeometryProcessor> geometryProcessor, const GrPipeline* pipeline,
                    const GrPipeline::FixedDynamicState* fixedDynamicState)
-            : fMesh(primitiveType)
+            : fPrimitiveType(primitiveType)
             , fTarget(target)
             , fVertexStride(sizeof(SkPoint))
-            , fGeometryProcessor(geometryProcessor)
+            , fGeometryProcessor(std::move(geometryProcessor))
             , fPipeline(pipeline)
             , fFixedDynamicState(fixedDynamicState)
             , fIndexBuffer(nullptr)
@@ -200,15 +200,15 @@ private:
      *  TODO: Cache some of these for better performance, rather than re-computing?
      */
     bool isIndexed() const {
-        return GrPrimitiveType::kLines == fMesh.primitiveType() ||
-               GrPrimitiveType::kTriangles == fMesh.primitiveType();
+        return GrPrimitiveType::kLines == fPrimitiveType ||
+               GrPrimitiveType::kTriangles == fPrimitiveType;
     }
     bool isHairline() const {
-        return GrPrimitiveType::kLines == fMesh.primitiveType() ||
-               GrPrimitiveType::kLineStrip == fMesh.primitiveType();
+        return GrPrimitiveType::kLines == fPrimitiveType ||
+               GrPrimitiveType::kLineStrip == fPrimitiveType;
     }
     int indexScale() const {
-        switch (fMesh.primitiveType()) {
+        switch (fPrimitiveType) {
             case GrPrimitiveType::kLines:
                 return 2;
             case GrPrimitiveType::kTriangles:
@@ -271,14 +271,15 @@ private:
         SkASSERT(indexCount <= fIndicesInChunk);
 
         if (this->isIndexed() ? SkToBool(indexCount) : SkToBool(vertexCount)) {
+            GrMesh* mesh = fTarget->allocMesh(fPrimitiveType);
             if (!this->isIndexed()) {
-                fMesh.setNonIndexedNonInstanced(vertexCount);
+                mesh->setNonIndexedNonInstanced(vertexCount);
             } else {
-                fMesh.setIndexed(fIndexBuffer, indexCount, fFirstIndex, 0, vertexCount - 1,
+                mesh->setIndexed(fIndexBuffer, indexCount, fFirstIndex, 0, vertexCount - 1,
                                  GrPrimitiveRestart::kNo);
             }
-            fMesh.setVertexData(fVertexBuffer, fFirstVertex);
-            fTarget->draw(fGeometryProcessor, fPipeline, fFixedDynamicState, fMesh);
+            mesh->setVertexData(fVertexBuffer, fFirstVertex);
+            fTarget->draw(fGeometryProcessor, fPipeline, fFixedDynamicState, mesh);
         }
 
         fTarget->putBackIndices((size_t)(fIndicesInChunk - indexCount));
@@ -311,10 +312,10 @@ private:
         }
     }
 
-    GrMesh fMesh;
+    GrPrimitiveType fPrimitiveType;
     GrMeshDrawOp::Target* fTarget;
     size_t fVertexStride;
-    GrGeometryProcessor* fGeometryProcessor;
+    sk_sp<const GrGeometryProcessor> fGeometryProcessor;
     const GrPipeline* fPipeline;
     const GrPipeline::FixedDynamicState* fFixedDynamicState;
 
@@ -356,13 +357,14 @@ public:
 
     const char* name() const override { return "DefaultPathOp"; }
 
-    void visitProxies(const VisitProxyFunc& func) const override {
+    void visitProxies(const VisitProxyFunc& func, VisitorType) const override {
         fHelper.visitProxies(func);
     }
 
+#ifdef SK_DEBUG
     SkString dumpInfo() const override {
         SkString string;
-        string.appendf("Color: 0x%08x Count: %d\n", fColor, fPaths.count());
+        string.appendf("Color: 0x%08x Count: %d\n", fColor.toBytes_RGBA(), fPaths.count());
         for (const auto& path : fPaths) {
             string.appendf("Tolerance: %.2f\n", path.fTolerance);
         }
@@ -370,8 +372,9 @@ public:
         string += INHERITED::dumpInfo();
         return string;
     }
+#endif
 
-    DefaultPathOp(const Helper::MakeArgs& helperArgs, GrColor color, const SkPath& path,
+    DefaultPathOp(const Helper::MakeArgs& helperArgs, const SkPMColor4f& color, const SkPath& path,
                   SkScalar tolerance, uint8_t coverage, const SkMatrix& viewMatrix, bool isHairline,
                   GrAAType aaType, const SkRect& devBounds,
                   const GrUserStencilSettings* stencilSettings)
@@ -389,11 +392,11 @@ public:
 
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
-    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
+    GrProcessorSet::Analysis finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
         GrProcessorAnalysisCoverage gpCoverage =
                 this->coverage() == 0xFF ? GrProcessorAnalysisCoverage::kNone
                                          : GrProcessorAnalysisCoverage::kSingleChannel;
-        return fHelper.xpRequiresDstTexture(caps, clip, gpCoverage, &fColor);
+        return fHelper.finalizeProcessors(caps, clip, gpCoverage, &fColor);
     }
 
 private:
@@ -412,7 +415,7 @@ private:
                                                this->viewMatrix());
         }
 
-        SkASSERT(gp->debugOnly_vertexStride() == sizeof(SkPoint));
+        SkASSERT(gp->vertexStride() == sizeof(SkPoint));
 
         int instanceCount = fPaths.count();
 
@@ -428,7 +431,7 @@ private:
             primitiveType = GrPrimitiveType::kTriangles;
         }
         auto pipe = fHelper.makePipeline(target);
-        PathGeoBuilder pathGeoBuilder(primitiveType, target, gp.get(), pipe.fPipeline,
+        PathGeoBuilder pathGeoBuilder(primitiveType, target, std::move(gp), pipe.fPipeline,
                                       pipe.fFixedDynamicState);
 
         // fill buffers
@@ -438,34 +441,33 @@ private:
         }
     }
 
-    bool onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
         DefaultPathOp* that = t->cast<DefaultPathOp>();
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
-            return false;
+            return CombineResult::kCannotCombine;
         }
 
         if (this->color() != that->color()) {
-            return false;
+            return CombineResult::kCannotCombine;
         }
 
         if (this->coverage() != that->coverage()) {
-            return false;
+            return CombineResult::kCannotCombine;
         }
 
         if (!this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
-            return false;
+            return CombineResult::kCannotCombine;
         }
 
         if (this->isHairline() != that->isHairline()) {
-            return false;
+            return CombineResult::kCannotCombine;
         }
 
         fPaths.push_back_n(that->fPaths.count(), that->fPaths.begin());
-        this->joinBounds(*that);
-        return true;
+        return CombineResult::kMerged;
     }
 
-    GrColor color() const { return fColor; }
+    const SkPMColor4f& color() const { return fColor; }
     uint8_t coverage() const { return fCoverage; }
     const SkMatrix& viewMatrix() const { return fViewMatrix; }
     bool isHairline() const { return fIsHairline; }
@@ -477,7 +479,7 @@ private:
 
     SkSTArray<1, PathData, true> fPaths;
     Helper fHelper;
-    GrColor fColor;
+    SkPMColor4f fColor;
     uint8_t fCoverage;
     SkMatrix fViewMatrix;
     bool fIsHairline;
@@ -609,11 +611,12 @@ bool GrDefaultPathRenderer::internalDrawPath(GrRenderTargetContext* renderTarget
             }
             const SkMatrix& viewM = (reverse && viewMatrix.hasPerspective()) ? SkMatrix::I() :
                                                                                viewMatrix;
+            // This is a non-coverage aa rect op since we assert aaType != kCoverage at the start
+            assert_alive(paint);
             renderTargetContext->addDrawOp(
                     clip,
-                    GrRectOpFactory::MakeNonAAFillWithLocalMatrix(
-                            context, std::move(paint), viewM, localMatrix,
-                            bounds, aaType, passes[p]));
+                    GrFillRectOp::MakeWithLocalMatrix(context, std::move(paint), aaType, viewM,
+                                                      localMatrix, bounds, passes[p]));
         } else {
             bool stencilPass = stencilOnly || passCount > 1;
             std::unique_ptr<GrDrawOp> op;
@@ -624,6 +627,7 @@ bool GrDefaultPathRenderer::internalDrawPath(GrRenderTargetContext* renderTarget
                                          newCoverage, viewMatrix, isHairline, aaType, devBounds,
                                          passes[p]);
             } else {
+                assert_alive(paint);
                 op = DefaultPathOp::Make(context, std::move(paint), path, srcSpaceTol, newCoverage,
                                          viewMatrix, isHairline, aaType, devBounds, passes[p]);
             }
@@ -637,7 +641,8 @@ GrPathRenderer::CanDrawPath
 GrDefaultPathRenderer::onCanDrawPath(const CanDrawPathArgs& args) const {
     bool isHairline = IsStrokeHairlineOrEquivalent(args.fShape->style(), *args.fViewMatrix, nullptr);
     // If we aren't a single_pass_shape or hairline, we require stencil buffers.
-    if (!(single_pass_shape(*args.fShape) || isHairline) && args.fCaps->avoidStencilBuffers()) {
+    if (!(single_pass_shape(*args.fShape) || isHairline) &&
+        (args.fCaps->avoidStencilBuffers() || args.fTargetIsWrappedVkSecondaryCB)) {
         return CanDrawPath::kNo;
     }
     // This can draw any path with any simple fill style but doesn't do coverage-based antialiasing.

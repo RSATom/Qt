@@ -38,6 +38,7 @@ class TouchEvent;
 }
 
 namespace aura {
+class Env;
 class MusMouseLocationUpdater;
 class TestScreen;
 class WindowTargeter;
@@ -63,6 +64,9 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   WindowEventDispatcher(WindowTreeHost* host, bool are_events_in_pixels);
   ~WindowEventDispatcher() override;
 
+  bool are_events_in_pixels() const { return are_events_in_pixels_; }
+
+  // Stops dispatching/synthesizing mouse events.
   void Shutdown();
 
   WindowTreeHost* host() { return host_; }
@@ -70,6 +74,8 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   Window* mouse_pressed_handler() { return mouse_pressed_handler_; }
   Window* mouse_moved_handler() { return mouse_moved_handler_; }
   Window* touchpad_pinch_handler() { return touchpad_pinch_handler_; }
+
+  WindowTargeter* event_targeter() { return event_targeter_.get(); }
 
   // Overridden from ui::EventProcessor:
   ui::EventTargeter* GetDefaultEventTargeter() override;
@@ -155,6 +161,7 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
     ~ObserverNotifier();
 
    private:
+    Env* env_;
     WindowEventDispatcher* dispatcher_;
 
     DISALLOW_COPY_AND_ASSIGN(ObserverNotifier);
@@ -282,6 +289,10 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   ui::EventDispatchDetails PreDispatchTouchEvent(Window* target,
                                                  ui::TouchEvent* event);
   ui::EventDispatchDetails PreDispatchKeyEvent(ui::KeyEvent* event);
+
+  // Comes from host_->window()->env(). Cached as it's needed in the destructor
+  // and at that time the window has been deleted.
+  Env* env_;
 
   WindowTreeHost* host_;
 

@@ -11,15 +11,3 @@
 CJX_Select::CJX_Select(CXFA_Select* node) : CJX_TextNode(node) {}
 
 CJX_Select::~CJX_Select() = default;
-
-void CJX_Select::use(CFXJSE_Value* pValue,
-                     bool bSetting,
-                     XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Select::usehref(CFXJSE_Value* pValue,
-                         bool bSetting,
-                         XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}

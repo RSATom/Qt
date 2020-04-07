@@ -26,6 +26,29 @@ typedef unsigned long VisualID;
 
 namespace gpu {
 
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class GpuSeriesType {
+  kUnknown = 0,
+  // Intel 6th gen
+  kIntelSandyBridge = 1,
+  // Intel 7th gen
+  kIntelValleyView = 2,  // BayTrail
+  kIntelIvyBridge = 3,
+  kIntelHaswell = 4,
+  // Intel 8th gen
+  kIntelCherryView = 5,  // Braswell
+  kIntelBroadwell = 6,
+  // Intel 9th gen
+  kIntelApolloLake = 7,
+  kIntelSkyLake = 8,
+  kIntelGeminiLake = 9,
+  kIntelKabyLake = 10,
+  kIntelCoffeeLake = 11,
+  // Please also update |gpu_series_map| in process_json.py.
+  kMaxValue = kIntelCoffeeLake,
+};
+
 // Video profile.  This *must* match media::VideoCodecProfile.
 enum VideoCodecProfile {
   VIDEO_CODEC_PROFILE_UNKNOWN = -1,
@@ -90,13 +113,11 @@ struct GPU_EXPORT VideoEncodeAcceleratorSupportedProfile {
 using VideoEncodeAcceleratorSupportedProfiles =
     std::vector<VideoEncodeAcceleratorSupportedProfile>;
 
-// Subset of DXGI_FORMAT that we're interested in.
-enum class OverlayFormat {
-  UNKNOWN,
-  BGRA,  // DXGI_FORMAT_B8G8R8A8_UNORM
-  YUY2,  // DXGI_FORMAT_YUY2
-  NV12,  // DXGI_FORMAT_NV12
-};
+#if defined(OS_WIN)
+// Common overlay formats that we're interested in. Must match the OverlayFormat
+// enum in //tools/metrics/histograms/enums.xml. Mapped to corresponding DXGI
+// formats in DirectCompositionSurfaceWin.
+enum class OverlayFormat { kBGRA = 0, kYUY2 = 1, kNV12 = 2, kMaxValue = kNV12 };
 
 GPU_EXPORT const char* OverlayFormatToString(OverlayFormat format);
 
@@ -106,6 +127,23 @@ struct GPU_EXPORT OverlayCapability {
   bool operator==(const OverlayCapability& other) const;
 };
 using OverlayCapabilities = std::vector<OverlayCapability>;
+
+struct GPU_EXPORT Dx12VulkanVersionInfo {
+  bool IsEmpty() const { return !d3d12_feature_level && !vulkan_version; }
+
+  // True if the GPU driver supports DX12.
+  bool supports_dx12 = false;
+
+  // True if the GPU driver supports Vulkan.
+  bool supports_vulkan = false;
+
+  // The supported d3d feature level in the gpu driver;
+  uint32_t d3d12_feature_level = 0;
+
+  // The support Vulkan API version in the gpu driver;
+  uint32_t vulkan_version = 0;
+};
+#endif
 
 struct GPU_EXPORT GPUInfo {
   struct GPU_EXPORT GPUDevice {
@@ -137,6 +175,10 @@ struct GPU_EXPORT GPUInfo {
     std::string driver_vendor;
     std::string driver_version;
     std::string driver_date;
+
+    // NVIDIA CUDA compute capability, major version. 0 if undetermined. Can be
+    // used to determine the hardware generation that the GPU belongs to.
+    int cuda_compute_capability_major;
   };
 
   GPUInfo();
@@ -233,10 +275,10 @@ struct GPU_EXPORT GPUInfo {
   bool can_support_threaded_texture_mailbox = false;
 
 #if defined(OS_WIN)
-  // True if we use direct composition surfaces on Windows.
+  // True if we use direct composition surface on Windows.
   bool direct_composition = false;
 
-  // True if the current set of outputs supports overlays.
+  // True if we use direct composition surface overlays on Windows.
   bool supports_overlays = false;
 
   OverlayCapabilities overlay_capabilities;
@@ -244,17 +286,7 @@ struct GPU_EXPORT GPUInfo {
   // The information returned by the DirectX Diagnostics Tool.
   DxDiagNode dx_diagnostics;
 
-  // True if the GPU driver supports DX12.
-  bool supports_dx12 = false;
-
-  // True if the GPU driver supports Vulkan.
-  bool supports_vulkan = false;
-
-  // The supported d3d feature level in the gpu driver;
-  uint32_t d3d12_feature_level = 0;
-
-  // The support Vulkan API version in the gpu driver;
-  uint32_t vulkan_version = 0;
+  Dx12VulkanVersionInfo dx12_vulkan_version_info;
 #endif
 
   VideoDecodeAcceleratorCapabilities video_decode_accelerator_capabilities;
@@ -310,6 +342,9 @@ struct GPU_EXPORT GPUInfo {
 
     virtual void BeginOverlayCapability() = 0;
     virtual void EndOverlayCapability() = 0;
+
+    virtual void BeginDx12VulkanVersionInfo() = 0;
+    virtual void EndDx12VulkanVersionInfo() = 0;
 
    protected:
     virtual ~Enumerator() = default;

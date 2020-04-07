@@ -9,6 +9,7 @@
 #define SkTestSVGTypeface_DEFINED
 
 #include "SkFontArguments.h"
+#include "SkFontMetrics.h"
 #include "SkMutex.h"
 #include "SkPaint.h"
 #include "SkPoint.h"
@@ -47,12 +48,12 @@ class SkTestSVGTypeface : public SkTypeface {
 public:
     SkTestSVGTypeface(const char* name,
                       int upem,
-                      const SkPaint::FontMetrics& metrics,
+                      const SkFontMetrics& metrics,
                       const SkSVGTestTypefaceGlyphData* data, int dataCount,
                       const SkFontStyle& style);
     ~SkTestSVGTypeface() override;
     void getAdvance(SkGlyph* glyph) const;
-    void getFontMetrics(SkPaint::FontMetrics* metrics) const;
+    void getFontMetrics(SkFontMetrics* metrics) const;
 
     static sk_sp<SkTestSVGTypeface> Default();
     void exportTtxCbdt(SkWStream*) const;
@@ -135,7 +136,7 @@ private:
     };
     SkString fName;
     int fUpem;
-    const SkPaint::FontMetrics fFontMetrics;
+    const SkFontMetrics fFontMetrics;
     std::unique_ptr<Glyph[]> fGlyphs;
     int fGlyphCount;
     SkTHashMap<SkUnichar, SkGlyphID> fCMap;

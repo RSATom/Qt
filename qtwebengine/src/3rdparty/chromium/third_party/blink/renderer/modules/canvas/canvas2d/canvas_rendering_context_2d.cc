@@ -33,16 +33,17 @@
 
 #include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.h"
 
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_scroll_into_view_params.h"
 #include "third_party/blink/renderer/bindings/modules/v8/rendering_context.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/css/css_font_selector.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -51,6 +52,7 @@
 #include "third_party/blink/renderer/core/layout/hit_test_canvas_result.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_style.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/hit_region.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/path_2d.h"
@@ -168,6 +170,12 @@ bool CanvasRenderingContext2D::IsAccelerated() const {
   return layer_bridge->IsAccelerated();
 }
 
+bool CanvasRenderingContext2D::IsOriginTopLeft() const {
+  // Accelerated 2D contexts have the origin of coordinates on the bottom left,
+  // except if they are single buffered (needed for front buffer rendering).
+  return !IsAccelerated() || canvas()->ResourceProvider()->IsSingleBuffered();
+}
+
 bool CanvasRenderingContext2D::IsComposited() const {
   return IsAccelerated();
 }
@@ -222,8 +230,8 @@ void CanvasRenderingContext2D::Trace(blink::Visitor* visitor) {
 
 void CanvasRenderingContext2D::DispatchContextLostEvent(TimerBase*) {
   if (canvas() && ContextLostRestoredEventsEnabled()) {
-    Event* event = Event::CreateCancelable(EventTypeNames::contextlost);
-    canvas()->DispatchEvent(event);
+    Event* event = Event::CreateCancelable(event_type_names::kContextlost);
+    canvas()->DispatchEvent(*event);
     if (event->defaultPrevented()) {
       context_restorable_ = false;
     }
@@ -267,8 +275,8 @@ void CanvasRenderingContext2D::DispatchContextRestoredEvent(TimerBase*) {
   Reset();
   context_lost_mode_ = kNotLostContext;
   if (ContextLostRestoredEventsEnabled()) {
-    Event* event(Event::Create(EventTypeNames::contextrestored));
-    canvas()->DispatchEvent(event);
+    Event* event(Event::Create(event_type_names::kContextrestored));
+    canvas()->DispatchEvent(*event);
   }
 }
 
@@ -350,7 +358,8 @@ void CanvasRenderingContext2D::ScrollPathIntoViewInternal(const Path& path) {
 
   // We first map canvas coordinates to layout coordinates.
   LayoutRect path_rect(bounding_rect);
-  IntRect canvas_rect = layout_box->AbsoluteContentBox();
+  LayoutRect canvas_rect = layout_box->PhysicalContentBoxRect();
+  canvas_rect.MoveBy(LayoutPoint(layout_box->LocalToAbsolute()));
   path_rect.SetX(
       (canvas_rect.X() + path_rect.X() * canvas_rect.Width() / Width()));
   path_rect.SetY(
@@ -359,7 +368,7 @@ void CanvasRenderingContext2D::ScrollPathIntoViewInternal(const Path& path) {
   path_rect.SetHeight((path_rect.Height() * canvas_rect.Height() / Height()));
 
   // Then we clip the bounding box to the canvas visible range.
-  path_rect.Intersect(LayoutRect(canvas_rect));
+  path_rect.Intersect(canvas_rect);
 
   bool is_horizontal_writing_mode =
       canvas()->EnsureComputedStyle()->IsHorizontalWritingMode();
@@ -497,9 +506,8 @@ void CanvasRenderingContext2D::setFont(const String& new_font) {
     HashMap<String, Font>::iterator i =
         fonts_resolved_using_current_style_.find(new_font);
     if (i != fonts_resolved_using_current_style_.end()) {
-      DCHECK(font_lru_list_.Contains(new_font));
-      font_lru_list_.erase(new_font);
-      font_lru_list_.insert(new_font);
+      auto add_result = font_lru_list_.PrependOrMoveToFirst(new_font);
+      DCHECK(!add_result.is_new_entry);
       ModifiableState().SetFont(i->value, Host()->GetFontSelector());
     } else {
       MutableCSSPropertyValueSet* parsed_style =
@@ -530,8 +538,8 @@ void CanvasRenderingContext2D::setFont(const String& new_font) {
       Font final_font(final_description);
 
       fonts_resolved_using_current_style_.insert(new_font, final_font);
-      DCHECK(!font_lru_list_.Contains(new_font));
-      font_lru_list_.insert(new_font);
+      auto add_result = font_lru_list_.PrependOrMoveToFirst(new_font);
+      DCHECK(add_result.is_new_entry);
       PruneLocalFontCache(canvas_font_cache->HardMaxFonts());  // hard limit
       should_prune_local_font_cache_ = true;  // apply soft limit
       ModifiableState().SetFont(final_font, Host()->GetFontSelector());
@@ -550,8 +558,9 @@ void CanvasRenderingContext2D::setFont(const String& new_font) {
   ModifiableState().SetUnparsedFont(new_font_safe_copy);
 }
 
-void CanvasRenderingContext2D::DidProcessTask() {
-  CanvasRenderingContext::DidProcessTask();
+void CanvasRenderingContext2D::DidProcessTask(
+    const base::PendingTask& pending_task) {
+  CanvasRenderingContext::DidProcessTask(pending_task);
   // This should be the only place where canvas() needs to be checked for
   // nullness because the circular refence with HTMLCanvasElement means the
   // canvas and the context keep each other alive. As long as the pair is
@@ -574,8 +583,8 @@ void CanvasRenderingContext2D::PruneLocalFontCache(size_t target_size) {
     return;
   }
   while (font_lru_list_.size() > target_size) {
-    fonts_resolved_using_current_style_.erase(font_lru_list_.front());
-    font_lru_list_.RemoveFirst();
+    fonts_resolved_using_current_style_.erase(font_lru_list_.back());
+    font_lru_list_.pop_back();
   }
 }
 
@@ -649,7 +658,7 @@ HitTestCanvasResult* CanvasRenderingContext2D::GetControlAndIdIfHitRegionExists(
   FloatPoint local_pos =
       box->AbsoluteToLocal(FloatPoint(location), kUseTransforms);
   if (box->HasBorderOrPadding())
-    local_pos.Move(-box->ContentBoxOffset());
+    local_pos.Move(-box->PhysicalContentBoxOffset());
   float scaleWidth = box->ContentWidth().ToFloat() == 0.0f
                          ? 1.0f
                          : canvas()->width() / box->ContentWidth();
@@ -835,7 +844,7 @@ void CanvasRenderingContext2D::DrawTextInternal(
   text_run.SetNormalizeSpace(true);
   // Draw the item text at the correct point.
   FloatPoint location(clampTo<float>(x),
-                      clampTo<float>(y + GetFontBaseline(font_metrics)));
+                      clampTo<float>(y + GetFontBaseline(*font_data)));
   double font_width = font.Width(text_run);
 
   bool use_max_width = (max_width && *max_width < font_width);
@@ -903,9 +912,8 @@ const Font& CanvasRenderingContext2D::AccessFont() {
 void CanvasRenderingContext2D::SetIsHidden(bool hidden) {
   if (IsPaintable())
     canvas()->GetCanvas2DLayerBridge()->SetIsHidden(hidden);
-  if (hidden) {
+  if (hidden)
     PruneLocalFontCache(0);
-  }
 }
 
 bool CanvasRenderingContext2D::IsTransformInvertible() const {
@@ -920,11 +928,18 @@ cc::Layer* CanvasRenderingContext2D::CcLayer() const {
   return IsPaintable() ? canvas()->GetCanvas2DLayerBridge()->Layer() : nullptr;
 }
 
-void CanvasRenderingContext2D::getContextAttributes(
-    CanvasRenderingContext2DSettings& settings) const {
-  settings.setAlpha(CreationAttributes().alpha);
-  settings.setColorSpace(ColorSpaceAsString());
-  settings.setPixelFormat(PixelFormatAsString());
+CanvasRenderingContext2DSettings*
+CanvasRenderingContext2D::getContextAttributes() const {
+  CanvasRenderingContext2DSettings* settings =
+      CanvasRenderingContext2DSettings::Create();
+  settings->setAlpha(CreationAttributes().alpha);
+  if (RuntimeEnabledFeatures::CanvasColorManagementEnabled()) {
+    settings->setColorSpace(ColorSpaceAsString());
+    settings->setPixelFormat(PixelFormatAsString());
+  }
+  if (origin_trials::LowLatencyCanvasEnabled(&canvas()->GetDocument()))
+    settings->setLowLatency(canvas()->LowLatencyEnabled());
+  return settings;
 }
 
 void CanvasRenderingContext2D::drawFocusIfNeeded(Element* element) {
@@ -1012,16 +1027,16 @@ void CanvasRenderingContext2D::UpdateElementAccessibility(const Path& path,
   ax_object_cache->SetCanvasObjectBounds(canvas(), element, element_rect);
 }
 
-void CanvasRenderingContext2D::addHitRegion(const HitRegionOptions& options,
+void CanvasRenderingContext2D::addHitRegion(const HitRegionOptions* options,
                                             ExceptionState& exception_state) {
-  if (options.id().IsEmpty() && !options.control()) {
+  if (options->id().IsEmpty() && !options->control()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "Both id and control are null.");
     return;
   }
 
-  if (options.control() &&
-      !canvas()->IsSupportedInteractiveCanvasFallback(*options.control())) {
+  if (options->control() &&
+      !canvas()->IsSupportedInteractiveCanvasFallback(*options->control())) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "The control is neither null nor a "
                                       "supported interactive canvas fallback "
@@ -1029,7 +1044,7 @@ void CanvasRenderingContext2D::addHitRegion(const HitRegionOptions& options,
     return;
   }
 
-  Path hit_region_path = options.path() ? options.path()->GetPath() : path_;
+  Path hit_region_path = options->path() ? options->path()->GetPath() : path_;
 
   cc::PaintCanvas* c = DrawingCanvas();
 
@@ -1054,8 +1069,8 @@ void CanvasRenderingContext2D::addHitRegion(const HitRegionOptions& options,
     hit_region_manager_ = HitRegionManager::Create();
 
   // Remove previous region (with id or control)
-  hit_region_manager_->RemoveHitRegionById(options.id());
-  hit_region_manager_->RemoveHitRegionByControl(options.control());
+  hit_region_manager_->RemoveHitRegionById(options->id());
+  hit_region_manager_->RemoveHitRegionByControl(options->control());
 
   HitRegion* hit_region = HitRegion::Create(hit_region_path, options);
   Element* element = hit_region->Control();
@@ -1089,6 +1104,9 @@ unsigned CanvasRenderingContext2D::HitRegionsCount() const {
 }
 
 void CanvasRenderingContext2D::DisableAcceleration() {
+  if (base::FeatureList::IsEnabled(features::kAlwaysAccelerateCanvas)) {
+    NOTREACHED();
+  }
   canvas()->DisableAcceleration();
 }
 

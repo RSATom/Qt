@@ -48,7 +48,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_sfobjs
+#define FT_COMPONENT  sfobjs
 
 
 
@@ -918,7 +918,9 @@
     /* Stream may have changed in sfnt_open_font. */
     stream = face->root.stream;
 
-    FT_TRACE2(( "sfnt_init_face: %08p, %d\n", face, face_instance_index ));
+    FT_TRACE2(( "sfnt_init_face: %08p (index %d)\n",
+                face,
+                face_instance_index ));
 
     face_index = FT_ABS( face_instance_index ) & 0xFFFF;
 
@@ -1529,7 +1531,8 @@
           error = FT_CMap_New( (FT_CMap_Class)&tt_cmap_unicode_class_rec,
                                NULL, &cmaprec, NULL );
           if ( error                                      &&
-               FT_ERR_NEQ( error, No_Unicode_Glyph_Name ) )
+               FT_ERR_NEQ( error, No_Unicode_Glyph_Name ) &&
+               FT_ERR_NEQ( error, Unimplemented_Feature ) )
             goto Exit;
           error = FT_Err_Ok;
 
@@ -1807,8 +1810,9 @@
     FT_FREE( face->sbit_strike_map );
     face->root.num_fixed_sizes = 0;
 
-#ifdef TT_CONFIG_OPTION_GX_VAR_SUPPORT
     FT_FREE( face->postscript_name );
+
+#ifdef TT_CONFIG_OPTION_GX_VAR_SUPPORT
     FT_FREE( face->var_postscript_prefix );
 #endif
 

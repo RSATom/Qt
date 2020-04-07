@@ -26,7 +26,8 @@ typedef enum {
 #endif                          //
   WEB_APP_IMAGES,               // WDResult<WDAppImagesResult>
   TOKEN_RESULT,                 // WDResult<TokenResult>
-  AUTOFILL_VALUE_RESULT,        // WDResult<std::vector<base::string16>>
+  AUTOFILL_VALUE_RESULT,        // WDResult<std::vector<AutofillEntry>>
+  AUTOFILL_CLEANUP_RESULT,      // WDResult<size_t>
   AUTOFILL_CHANGES,             // WDResult<std::vector<AutofillChange>>
   AUTOFILL_PROFILE_RESULT,      // WDResult<AutofillProfile>
   AUTOFILL_PROFILES_RESULT,     // WDResult<std::vector<
@@ -34,6 +35,8 @@ typedef enum {
   AUTOFILL_CREDITCARD_RESULT,   // WDResult<CreditCard>
   AUTOFILL_CREDITCARDS_RESULT,  // WDResult<std::vector<
                                 //     std::unique_ptr<CreditCard>>>
+  AUTOFILL_CUSTOMERDATA_RESULT,  // WDResult<std::unique_ptr<
+                                 //     PaymentsCustomerData>>
 #if !defined(OS_IOS)
   PAYMENT_WEB_APP_MANIFEST,  // WDResult<std::vector<
                              //     mojom::WebAppManifestSectionPtr>>

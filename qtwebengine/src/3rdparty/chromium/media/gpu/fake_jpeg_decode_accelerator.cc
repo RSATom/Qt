@@ -45,8 +45,6 @@ void FakeJpegDecodeAccelerator::Decode(
       new WritableUnalignedMapping(bitstream_buffer.handle(),
                                    bitstream_buffer.size(),
                                    bitstream_buffer.offset()));
-  // The handle is no longer needed.
-  bitstream_buffer.handle().Close();
   if (!src_shm->IsValid()) {
     DLOG(ERROR) << "Unable to map shared memory in FakeJpegDecodeAccelerator";
     NotifyError(bitstream_buffer.id(), JpegDecodeAccelerator::UNREADABLE_INPUT);
@@ -55,9 +53,10 @@ void FakeJpegDecodeAccelerator::Decode(
 
   // Unretained |this| is safe because |this| owns |decoder_thread_|.
   decoder_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&FakeJpegDecodeAccelerator::DecodeOnDecoderThread,
-                            base::Unretained(this), bitstream_buffer,
-                            video_frame, base::Passed(&src_shm)));
+      FROM_HERE,
+      base::BindOnce(&FakeJpegDecodeAccelerator::DecodeOnDecoderThread,
+                     base::Unretained(this), bitstream_buffer, video_frame,
+                     base::Passed(&src_shm)));
 }
 
 void FakeJpegDecodeAccelerator::DecodeOnDecoderThread(

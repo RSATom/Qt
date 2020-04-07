@@ -14,6 +14,7 @@
 #include "GrMesh.h"
 #include "GrTypes.h"
 #include "GrVkPipelineState.h"
+#include "vk/GrVkTypes.h"
 
 class GrVkGpu;
 class GrVkImage;
@@ -23,10 +24,7 @@ class GrVkSecondaryCommandBuffer;
 
 class GrVkGpuTextureCommandBuffer : public GrGpuTextureCommandBuffer {
 public:
-    GrVkGpuTextureCommandBuffer(GrVkGpu* gpu, GrTexture* texture, GrSurfaceOrigin origin)
-        : INHERITED(texture, origin)
-        , fGpu(gpu) {
-    }
+    GrVkGpuTextureCommandBuffer(GrVkGpu* gpu) : fGpu(gpu) {}
 
     ~GrVkGpuTextureCommandBuffer() override;
 
@@ -35,9 +33,14 @@ public:
 
     void insertEventMarker(const char*) override;
 
-private:
-    void submit() override;
+    void reset() {
+        fCopies.reset();
+        fTexture = nullptr;
+    }
 
+    void submit();
+
+private:
     struct CopyInfo {
         CopyInfo(GrSurface* src, GrSurfaceOrigin srcOrigin, const SkIRect& srcRect,
                  const SkIPoint& dstPoint)
@@ -57,9 +60,7 @@ private:
 
 class GrVkGpuRTCommandBuffer : public GrGpuRTCommandBuffer, private GrMesh::SendToGpuImpl {
 public:
-    GrVkGpuRTCommandBuffer(GrVkGpu*, GrRenderTarget*, GrSurfaceOrigin,
-                           const LoadAndStoreInfo&,
-                           const StencilLoadAndStoreInfo&);
+    GrVkGpuRTCommandBuffer(GrVkGpu*);
 
     ~GrVkGpuRTCommandBuffer() override;
 
@@ -74,10 +75,23 @@ public:
     void copy(GrSurface* src, GrSurfaceOrigin srcOrigin, const SkIRect& srcRect,
               const SkIPoint& dstPoint) override;
 
-    void submit() override;
+    void executeDrawable(std::unique_ptr<SkDrawable::GpuDrawHandler>) override;
+
+    void set(GrRenderTarget*, GrSurfaceOrigin,
+             const GrGpuRTCommandBuffer::LoadAndStoreInfo&,
+             const GrGpuRTCommandBuffer::StencilLoadAndStoreInfo&);
+    void reset();
+
+    void submit();
 
 private:
     void init();
+
+    // Called instead of init when we are drawing to a render target that already wraps a secondary
+    // command buffer.
+    void initWrapped();
+
+    bool wrapsSecondaryCommandBuffer() const;
 
     GrGpu* gpu() override;
 
@@ -127,7 +141,7 @@ private:
                                        const GrBuffer* instanceBuffer, int instanceCount,
                                        int baseInstance, GrPrimitiveRestart) final;
 
-    void onClear(const GrFixedClip&, GrColor color) override;
+    void onClear(const GrFixedClip&, const SkPMColor4f& color) override;
 
     void onClearStencilClip(const GrFixedClip&, bool insideStencilMask) override;
 
@@ -194,7 +208,7 @@ private:
     VkAttachmentStoreOp         fVkColorStoreOp;
     VkAttachmentLoadOp          fVkStencilLoadOp;
     VkAttachmentStoreOp         fVkStencilStoreOp;
-    GrColor4f                   fClearColor;
+    SkPMColor4f                 fClearColor;
     GrVkPipelineState*          fLastPipelineState;
 
     typedef GrGpuRTCommandBuffer INHERITED;

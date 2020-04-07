@@ -8,8 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "chrome/browser/net/nqe/ui_network_quality_estimator_service.h"
-#include "chrome/browser/net/nqe/ui_network_quality_estimator_service_factory.h"
 #include "chrome/browser/previews/previews_service.h"
 #include "chrome/browser/previews/previews_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -30,7 +28,7 @@ content::WebUIDataSource* GetSource() {
       IDR_INTERVENTIONS_INTERNALS_MOJO_INDEX_JS);
   source->AddResourcePath("url/mojom/url.mojom.js", IDR_URL_MOJO_JS);
   source->SetDefaultResource(IDR_INTERVENTIONS_INTERNALS_INDEX_HTML);
-  source->UseGzip(std::vector<std::string>());
+  source->UseGzip();
   return source;
 }
 
@@ -38,7 +36,7 @@ content::WebUIDataSource* GetUnsupportedSource() {
   content::WebUIDataSource* source = content::WebUIDataSource::Create(
       chrome::kChromeUIInterventionsInternalsHost);
   source->SetDefaultResource(IDR_INTERVENTIONS_INTERNALS_UNSUPPORTED_PAGE_HTML);
-  source->UseGzip(std::vector<std::string>());
+  source->UseGzip();
   return source;
 }
 
@@ -58,8 +56,6 @@ InterventionsInternalsUI::InterventionsInternalsUI(content::WebUI* web_ui)
   }
   content::WebUIDataSource::Add(profile, GetSource());
   previews_ui_service_ = previews_service->previews_ui_service();
-  ui_nqe_service_ =
-      UINetworkQualityEstimatorServiceFactory::GetForProfile(profile);
   AddHandlerToRegistry(base::BindRepeating(
       &InterventionsInternalsUI::BindInterventionsInternalsPageHandler,
       base::Unretained(this)));
@@ -70,7 +66,6 @@ InterventionsInternalsUI::~InterventionsInternalsUI() {}
 void InterventionsInternalsUI::BindInterventionsInternalsPageHandler(
     mojom::InterventionsInternalsPageHandlerRequest request) {
   DCHECK(previews_ui_service_);
-  DCHECK(ui_nqe_service_);
   page_handler_.reset(new InterventionsInternalsPageHandler(
-      std::move(request), previews_ui_service_, ui_nqe_service_));
+      std::move(request), previews_ui_service_));
 }

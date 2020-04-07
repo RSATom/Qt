@@ -7,13 +7,11 @@
 #ifndef CORE_FXCRT_CFX_SEEKABLESTREAMPROXY_H_
 #define CORE_FXCRT_CFX_SEEKABLESTREAMPROXY_H_
 
-#include <algorithm>
-
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/retain_ptr.h"
 
-class CFX_SeekableStreamProxy : public IFX_SeekableReadStream {
+class CFX_SeekableStreamProxy final : public IFX_SeekableReadStream {
  public:
   enum class From {
     Begin = 0,
@@ -27,9 +25,8 @@ class CFX_SeekableStreamProxy : public IFX_SeekableReadStream {
   FX_FILESIZE GetSize() override;
   FX_FILESIZE GetPosition() override;
   bool IsEOF() override;
-
   size_t ReadBlock(void* pStr, size_t size) override;
-  bool ReadBlock(void* pStr, FX_FILESIZE offset, size_t size) override;
+  bool ReadBlockAtOffset(void* pStr, FX_FILESIZE offset, size_t size) override;
 
   uint16_t GetCodePage() const { return m_wCodePage; }
   void SetCodePage(uint16_t wCodePage);

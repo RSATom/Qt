@@ -75,7 +75,7 @@ public:
     }
 
     MapMode mapMode() const { return NotMapped; }
-    uchar *map(MapMode, int*, int*) { return 0; }
+    uchar *map(MapMode, int*, int*) { return nullptr; }
     void unmap() {}
 
     QVariant handle() const
@@ -116,9 +116,9 @@ private:
 
 AVFVideoRendererControl::AVFVideoRendererControl(QObject *parent)
     : QVideoRendererControl(parent)
-    , m_surface(0)
-    , m_playerLayer(0)
-    , m_frameRenderer(0)
+    , m_surface(nullptr)
+    , m_playerLayer(nullptr)
+    , m_frameRenderer(nullptr)
     , m_enableOpenGL(false)
 
 {
@@ -132,7 +132,7 @@ AVFVideoRendererControl::~AVFVideoRendererControl()
     qDebug() << Q_FUNC_INFO;
 #endif
     m_displayLink->stop();
-    [(AVPlayerLayer*)m_playerLayer release];
+    [static_cast<AVPlayerLayer*>(m_playerLayer) release];
 }
 
 QAbstractVideoSurface *AVFVideoRendererControl::surface() const
@@ -160,10 +160,10 @@ void AVFVideoRendererControl::setSurface(QAbstractVideoSurface *surface)
 
     //If the surface changed, then the current frame renderer is no longer valid
     delete m_frameRenderer;
-    m_frameRenderer = 0;
+    m_frameRenderer = nullptr;
 
     //If there is now no surface to render too
-    if (m_surface == 0) {
+    if (m_surface == nullptr) {
         m_displayLink->stop();
         return;
     }
@@ -191,10 +191,9 @@ void AVFVideoRendererControl::setLayer(void *playerLayer)
     if (m_playerLayer == playerLayer)
         return;
 
-    [(AVPlayerLayer*)playerLayer retain];
-    [(AVPlayerLayer*)m_playerLayer release];
+    [static_cast<AVPlayerLayer*>(m_playerLayer) release];
 
-    m_playerLayer = playerLayer;
+    m_playerLayer = [static_cast<AVPlayerLayer*>(playerLayer) retain];
 
     //If there is an active surface, make sure it has been stopped so that
     //we can update it's state with the new content.
@@ -208,7 +207,7 @@ void AVFVideoRendererControl::setLayer(void *playerLayer)
 #endif
 
     //If there is no layer to render, stop scheduling updates
-    if (m_playerLayer == 0) {
+    if (m_playerLayer == nullptr) {
         m_displayLink->stop();
         return;
     }
@@ -225,7 +224,7 @@ void AVFVideoRendererControl::updateVideoFrame(const CVTimeStamp &ts)
 {
     Q_UNUSED(ts)
 
-    AVPlayerLayer *playerLayer = (AVPlayerLayer*)m_playerLayer;
+    AVPlayerLayer *playerLayer = static_cast<AVPlayerLayer*>(m_playerLayer);
 
     if (!playerLayer) {
         qWarning("updateVideoFrame called without AVPlayerLayer (which shouldn't happen");
@@ -240,7 +239,7 @@ void AVFVideoRendererControl::updateVideoFrame(const CVTimeStamp &ts)
         CVOGLTextureRef tex = m_frameRenderer->renderLayerToTexture(playerLayer);
 
         //Make sure we got a valid texture
-        if (tex == 0)
+        if (tex == nullptr)
             return;
 
         QAbstractVideoBuffer *buffer = new TextureCacheVideoBuffer(tex);
@@ -305,7 +304,7 @@ void AVFVideoRendererControl::updateVideoFrame(const CVTimeStamp &ts)
 
 void AVFVideoRendererControl::setupVideoOutput()
 {
-    AVPlayerLayer *playerLayer = (AVPlayerLayer*)m_playerLayer;
+    AVPlayerLayer *playerLayer = static_cast<AVPlayerLayer*>(m_playerLayer);
     if (playerLayer)
         m_nativeSize = QSize(playerLayer.bounds.size.width, playerLayer.bounds.size.height);
 }

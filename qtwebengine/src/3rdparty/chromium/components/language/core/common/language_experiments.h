@@ -13,6 +13,13 @@ namespace language {
 // the baseline model is used instead.
 extern const base::Feature kUseHeuristicLanguageModel;
 
+// The feature that enables explicitly asking for user preferences on startup on
+// Android.
+extern const base::Feature kExplicitLanguageAsk;
+
+// The feature that enables the use of improved geo-language data from ULP.
+extern const base::Feature kImprovedGeoLanguageData;
+
 // This feature controls the activation of the experiment to trigger Translate
 // in India on English pages independent of the user's UI language. The params
 // associated with the experiment dictate which model is used to determine the
@@ -23,6 +30,8 @@ extern const char kOverrideModelKey[];
 extern const char kEnforceRankerKey[];
 extern const char kOverrideModelHeuristicValue[];
 extern const char kOverrideModelGeoValue[];
+extern const char kOverrideModelDefaultValue[];
+extern const char kBackoffThresholdKey[];
 
 enum class OverrideLanguageModel {
   DEFAULT,
@@ -36,7 +45,8 @@ OverrideLanguageModel GetOverrideLanguageModel();
 
 // Returns true if kOverrideTranslateTriggerInIndia is enabled, false otherwise.
 // It should be interpreted as a signal to trigger translate UI on English
-// pages, even when the UI language is English.
+// pages, even when the UI language is English. This function also records
+// whether the backoff threshold was reached in UMA.
 bool ShouldForceTriggerTranslateOnEnglishPages(int force_trigger_count);
 
 // Returns true if kOverrideTranslateTriggerInIndia is enabled and the current

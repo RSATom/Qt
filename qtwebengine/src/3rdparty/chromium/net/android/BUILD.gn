@@ -15,6 +15,8 @@ android_library("net_java") {
     "java/src/org/chromium/net/GURLUtils.java",
     "java/src/org/chromium/net/HttpNegotiateAuthenticator.java",
     "java/src/org/chromium/net/HttpNegotiateConstants.java",
+    "java/src/org/chromium/net/HttpUtil.java",
+    "java/src/org/chromium/net/MimeTypeFilter.java",
     "java/src/org/chromium/net/NetStringUtil.java",
     "java/src/org/chromium/net/NetworkChangeNotifier.java",
     "java/src/org/chromium/net/NetworkChangeNotifierAutoDetect.java",
@@ -26,7 +28,7 @@ android_library("net_java") {
   deps = [
     ":net_thread_stats_uid_java",
     "//base:base_java",
-    "//third_party/android_tools:android_support_annotations_java",
+    "//third_party/android_deps:android_support_annotations_java",
     "//third_party/jsr-305:jsr_305_javalib",
   ]
   srcjar_deps = [
@@ -50,7 +52,7 @@ android_aidl("embedded_test_server_aidl") {
 android_library("embedded_test_server_aidl_java") {
   testonly = true
   deps = [
-    "//third_party/android_tools:android_support_annotations_java",
+    "//third_party/android_deps:android_support_annotations_java",
   ]
   srcjar_deps = [ ":embedded_test_server_aidl" ]
 }
@@ -70,9 +72,9 @@ android_library("net_java_test_support") {
     ":net_java",
     "//base:base_java",
     "//base:base_java_test_support",
+    "//third_party/android_deps:android_support_annotations_java",
     "//third_party/android_support_test_runner:rules_java",
     "//third_party/android_support_test_runner:runner_java",
-    "//third_party/android_tools:android_support_annotations_java",
     "//third_party/junit",
   ]
   srcjar_deps = [ ":net_java_test_support_enums_srcjar" ]
@@ -155,6 +157,8 @@ android_library("net_javatests") {
     "javatests/src/org/chromium/net/AndroidNetworkLibraryTestUtil.java",
     "javatests/src/org/chromium/net/AndroidProxyConfigServiceTestUtil.java",
     "javatests/src/org/chromium/net/AndroidProxySelectorTest.java",
+    "javatests/src/org/chromium/net/HttpUtilTest.java",
+    "javatests/src/org/chromium/net/MimeTypeFilterTest.java",
     "javatests/src/org/chromium/net/NetErrorsTest.java",
     "javatests/src/org/chromium/net/NetworkChangeNotifierNoNativeTest.java",
     "javatests/src/org/chromium/net/NetworkChangeNotifierTest.java",

@@ -6,7 +6,6 @@
 
 #include <map>
 
-#include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -49,6 +48,8 @@ std::string TaskTypeToHistogramSuffix(DownloadTaskType task_type) {
       return "DownloadTask";
     case DownloadTaskType::CLEANUP_TASK:
       return "CleanUpTask";
+    case DownloadTaskType::DOWNLOAD_AUTO_RESUMPTION_TASK:
+      return "DownloadAutoResumptionTask";
   }
   NOTREACHED();
   return std::string();
@@ -93,6 +94,8 @@ std::string ClientToHistogramSuffix(DownloadClient client) {
       return "Debugging";
     case DownloadClient::MOUNTAIN_INTERNAL:
       return "MountainInternal";
+    case DownloadClient::PLUGIN_VM_IMAGE:
+      return "PluginVmImage";
     case DownloadClient::BOUNDARY:
       NOTREACHED();
       break;

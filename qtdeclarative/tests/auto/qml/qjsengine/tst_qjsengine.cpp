@@ -237,6 +237,9 @@ private slots:
 
     void equality();
     void aggressiveGc();
+    void noAccumulatorInTemplateLiteral();
+
+    void triggerBackwardJumpWithDestructuring();
 
 public:
     Q_INVOKABLE QJSValue throwingCppMethod1();
@@ -505,7 +508,7 @@ void tst_QJSEngine::newVariant_valueOfToString()
         QJSValue value = object.property("valueOf").callWithInstance(object);
         QVERIFY(value.isObject());
         QVERIFY(value.strictlyEquals(object));
-        QCOMPARE(object.toString(), QString::fromLatin1("QVariant(QPoint)"));
+        QCOMPARE(object.toString(), QString::fromLatin1("QVariant(QPoint, QPoint(10,20))"));
     }
 }
 
@@ -3157,7 +3160,7 @@ void tst_QJSEngine::dateRoundtripJSQtJS()
 #ifdef Q_OS_WIN
     QSKIP("This test fails on Windows due to a bug in QDateTime.");
 #endif
-    uint secs = QDateTime(QDate(2009, 1, 1)).toUTC().toTime_t();
+    qint64 secs = QDateTime(QDate(2009, 1, 1)).toUTC().toSecsSinceEpoch();
     QJSEngine eng;
     for (int i = 0; i < 8000; ++i) {
         QJSValue jsDate = eng.evaluate(QString::fromLatin1("new Date(%0)").arg(secs * 1000.0));
@@ -3190,7 +3193,7 @@ void tst_QJSEngine::dateConversionJSQt()
 #ifdef Q_OS_WIN
     QSKIP("This test fails on Windows due to a bug in QDateTime.");
 #endif
-    uint secs = QDateTime(QDate(2009, 1, 1)).toUTC().toTime_t();
+    qint64 secs = QDateTime(QDate(2009, 1, 1)).toUTC().toSecsSinceEpoch();
     QJSEngine eng;
     for (int i = 0; i < 8000; ++i) {
         QJSValue jsDate = eng.evaluate(QString::fromLatin1("new Date(%0)").arg(secs * 1000.0));
@@ -3681,7 +3684,7 @@ void tst_QJSEngine::translateScript()
     QJSEngine engine;
 
     TranslationScope tranScope(":/translations/translatable_la");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QCOMPARE(engine.evaluate(expression, fileName).toString(), expectedTranslation);
 }
@@ -3690,7 +3693,7 @@ void tst_QJSEngine::translateScript_crossScript()
 {
     QJSEngine engine;
     TranslationScope tranScope(":/translations/translatable_la");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QString fileName = QString::fromLatin1("translatable.js");
     QString fileName2 = QString::fromLatin1("translatable2.js");
@@ -3712,7 +3715,7 @@ void tst_QJSEngine::translateScript_trNoOp()
 {
     QJSEngine engine;
     TranslationScope tranScope(":/translations/translatable_la");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QVERIFY(engine.evaluate("QT_TR_NOOP()").isUndefined());
     QCOMPARE(engine.evaluate("QT_TR_NOOP('One')").toString(), QString::fromLatin1("One"));
@@ -3726,7 +3729,7 @@ void tst_QJSEngine::translateScript_callQsTrFromCpp()
 {
     QJSEngine engine;
     TranslationScope tranScope(":/translations/translatable_la");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     // There is no context, but it shouldn't crash
     QCOMPARE(engine.globalObject().property("qsTr").call(QJSValueList() << "One").toString(), QString::fromLatin1("One"));
@@ -3759,7 +3762,7 @@ void tst_QJSEngine::translateWithInvalidArgs()
     QFETCH(QString, expression);
     QFETCH(QString, expectedError);
     QJSEngine engine;
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
     QJSValue result = engine.evaluate(expression);
     QVERIFY(result.isError());
     QCOMPARE(result.toString(), expectedError);
@@ -3795,7 +3798,7 @@ void tst_QJSEngine::translationContext()
     TranslationScope tranScope(":/translations/translatable_la");
 
     QJSEngine engine;
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QFETCH(QString, path);
     QFETCH(QString, text);
@@ -3810,7 +3813,7 @@ void tst_QJSEngine::translateScriptIdBased()
     QJSEngine engine;
 
     TranslationScope tranScope(":/translations/idtranslatable_la");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QString fileName = QString::fromLatin1("idtranslatable.js");
 
@@ -3892,7 +3895,7 @@ void tst_QJSEngine::translateScriptUnicode()
     QJSEngine engine;
 
     TranslationScope tranScope(":/translations/translatable-unicode");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QCOMPARE(engine.evaluate(expression, fileName).toString(), expectedTranslation);
 }
@@ -3922,7 +3925,7 @@ void tst_QJSEngine::translateScriptUnicodeIdBased()
     QJSEngine engine;
 
     TranslationScope tranScope(":/translations/idtranslatable-unicode");
-    engine.installTranslatorFunctions();
+    engine.installExtensions(QJSEngine::TranslationExtension);
 
     QCOMPARE(engine.evaluate(expression).toString(), expectedTranslation);
 }
@@ -3930,7 +3933,7 @@ void tst_QJSEngine::translateScriptUnicodeIdBased()
 void tst_QJSEngine::translateFromBuiltinCallback()
 {
     QJSEngine eng;
-    eng.installTranslatorFunctions();
+    eng.installExtensions(QJSEngine::TranslationExtension);
 
     // Callback has no translation context.
     eng.evaluate("function foo() { qsTr('foo'); }");
@@ -4671,6 +4674,36 @@ void tst_QJSEngine::aggressiveGc()
         QVERIFY(obj.isObject());
     }
     qputenv("QV4_MM_AGGRESSIVE_GC", origAggressiveGc);
+}
+
+void tst_QJSEngine::noAccumulatorInTemplateLiteral()
+{
+    const QByteArray origAggressiveGc = qgetenv("QV4_MM_AGGRESSIVE_GC");
+    qputenv("QV4_MM_AGGRESSIVE_GC", "true");
+    {
+        QJSEngine engine;
+
+        // getTemplateLiteral should not save the accumulator as it's garbage and trashes
+        // the next GC run. Instead, we want to see the stack overflow error.
+        QJSValue value = engine.evaluate("function a(){\nS=o=>s\nFunction``\na()}a()");
+
+        QVERIFY(value.isError());
+        QCOMPARE(value.toString(), "RangeError: Maximum call stack size exceeded.");
+    }
+    qputenv("QV4_MM_AGGRESSIVE_GC", origAggressiveGc);
+}
+
+void tst_QJSEngine::triggerBackwardJumpWithDestructuring()
+{
+    QJSEngine engine;
+    auto value = engine.evaluate(
+            "function makeArray(n) { return [...Array(n).keys()]; }\n"
+            "for (let i=0;i<100;++i) {\n"
+            "    let arr = makeArray(20)\n"
+            "    arr.sort( (a, b) => b - a )\n"
+            "}"
+            );
+    QVERIFY(!value.isError());
 }
 
 QTEST_MAIN(tst_QJSEngine)

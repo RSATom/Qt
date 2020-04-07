@@ -53,26 +53,29 @@
 
 namespace blink {
 
-class DoubleOrPerformanceMarkOptions;
+class PerformanceMarkOptions;
 class ExceptionState;
 class MemoryInfo;
-class PerformanceNavigation;
-class PerformanceObserver;
+class PerformanceElementTiming;
+class PerformanceEventTiming;
+class PerformanceLayoutJank;
 class PerformanceMark;
 class PerformanceMeasure;
+class PerformanceNavigation;
+class PerformanceObserver;
 class PerformanceTiming;
 class ResourceResponse;
 class ResourceTimingInfo;
-class SecurityOrigin;
-class UserTiming;
 class ScriptState;
 class ScriptValue;
+class SecurityOrigin;
+class StringOrPerformanceMeasureOptions;
 class SubTaskAttribution;
+class UserTiming;
 class V8ObjectBuilder;
-class PerformanceEventTiming;
-class StringOrDoubleOrPerformanceMeasureOptions;
 
-using PerformanceEntryVector = HeapVector<Member<PerformanceEntry>>;
+using PerformanceEntryVector = HeapVector<TraceWrapperMember<PerformanceEntry>>;
+using PerformanceEntryDeque = HeapDeque<TraceWrapperMember<PerformanceEntry>>;
 
 class CORE_EXPORT Performance : public EventTargetWithInlineData {
   DEFINE_WRAPPERTYPEINFO();
@@ -115,18 +118,19 @@ class CORE_EXPORT Performance : public EventTargetWithInlineData {
 
   PerformanceEntryVector getEntries();
   PerformanceEntryVector getEntriesByType(const AtomicString& entry_type);
-  PerformanceEntryVector getEntriesByName(const String& name,
+  PerformanceEntryVector getEntriesByName(const AtomicString& name,
                                           const AtomicString& entry_type);
 
   void clearResourceTimings();
   void setResourceTimingBufferSize(unsigned);
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(resourcetimingbufferfull);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(resourcetimingbufferfull,
+                                  kResourcetimingbufferfull);
 
   void AddLongTaskTiming(
       TimeTicks start_time,
       TimeTicks end_time,
-      const String& name,
+      const AtomicString& name,
       const String& culprit_frame_src,
       const String& culprit_frame_id,
       const String& culprit_frame_name,
@@ -146,7 +150,7 @@ class CORE_EXPORT Performance : public EventTargetWithInlineData {
       const ResourceTimingInfo&,
       ExecutionContext& context_for_use_counter);
   void AddResourceTiming(const WebResourceTimingInfo&,
-                         const AtomicString& initiator_type = g_null_atom);
+                         const AtomicString& initiator_type);
 
   void NotifyNavigationTimingToObservers();
 
@@ -154,47 +158,104 @@ class CORE_EXPORT Performance : public EventTargetWithInlineData {
 
   void AddFirstContentfulPaintTiming(TimeTicks start_time);
 
+  bool IsElementTimingBufferFull() const;
+  void AddElementTimingBuffer(PerformanceElementTiming&);
+  unsigned ElementTimingBufferSize() const;
+  void clearElementTimings();
+  void setElementTimingBufferMaxSize(unsigned);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(elementtimingbufferfull,
+                                  kElementtimingbufferfull);
+
   bool IsEventTimingBufferFull() const;
   void AddEventTimingBuffer(PerformanceEventTiming&);
   unsigned EventTimingBufferSize() const;
   void clearEventTimings();
   void setEventTimingBufferMaxSize(unsigned);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(eventtimingbufferfull);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(eventtimingbufferfull,
+                                  kEventtimingbufferfull);
 
-  PerformanceMark* mark(ScriptState*, const String& mark_name, ExceptionState&);
+  void AddLayoutJankBuffer(PerformanceLayoutJank&);
 
-  PerformanceMark* mark(
-      ScriptState*,
-      const String& mark_name,
-      DoubleOrPerformanceMarkOptions& start_time_or_mark_options,
-      ExceptionState&);
+  PerformanceMark* mark(ScriptState*,
+                        const AtomicString& mark_name,
+                        ExceptionState&);
 
-  void clearMarks(const String& mark_name);
+  PerformanceMark* mark(ScriptState*,
+                        const AtomicString& mark_name,
+                        PerformanceMarkOptions* mark_options,
+                        ExceptionState&);
+
+  void clearMarks(const AtomicString& mark_name);
+
+  // This enum is used to index different possible strings for for UMA enum
+  // histogram. New enum values can be added, but existing enums must never be
+  // renumbered or deleted and reused.
+  // This enum should be consistent with MeasureParameterType
+  // in tools/metrics/histograms/enums.xml.
+  enum class MeasureParameterType {
+    kObjectObject = 0,
+    // 1 to 8, 13 to 25 are navigation-timing types.
+    kUnloadEventStart = 1,
+    kUnloadEventEnd = 2,
+    kDomInteractive = 3,
+    kDomContentLoadedEventStart = 4,
+    kDomContentLoadedEventEnd = 5,
+    kDomComplete = 6,
+    kLoadEventStart = 7,
+    kLoadEventEnd = 8,
+    kOther = 9,
+    kUndefinedOrNull = 10,
+    // Intentionally leaves out kNumber = 11 since number has been casted to
+    // string when users pass number into the API.
+    kUnprovided = 12,
+    kNavigationStart = 13,
+    kRedirectStart = 14,
+    kRedirectEnd = 15,
+    kFetchStart = 16,
+    kDomainLookupStart = 17,
+    kDomainLookupEnd = 18,
+    kConnectStart = 19,
+    kConnectEnd = 20,
+    kSecureConnectionStart = 21,
+    kRequestStart = 22,
+    kResponseStart = 23,
+    kResponseEnd = 24,
+    kDomLoading = 25,
+    kMaxValue = kDomLoading
+  };
 
   PerformanceMeasure* measure(ScriptState*,
-                              const String& measure_name,
+                              const AtomicString& measure_name,
                               ExceptionState&);
 
   PerformanceMeasure* measure(
       ScriptState*,
-      const String& measure_name,
-      const StringOrDoubleOrPerformanceMeasureOptions& start_or_options,
+      const AtomicString& measure_name,
+      const StringOrPerformanceMeasureOptions& start_or_options,
       ExceptionState&);
 
   PerformanceMeasure* measure(
       ScriptState*,
-      const String& measure_name,
-      const StringOrDoubleOrPerformanceMeasureOptions& start_or_options,
-      const StringOrDouble& end,
+      const AtomicString& measure_name,
+      const StringOrPerformanceMeasureOptions& start_or_options,
+      const String& end,
       ExceptionState&);
 
-  void clearMeasures(const String& measure_name);
+  void clearMeasures(const AtomicString& measure_name);
 
   void UnregisterPerformanceObserver(PerformanceObserver&);
   void RegisterPerformanceObserver(PerformanceObserver&);
   void UpdatePerformanceObserverFilterOptions();
   void ActivateObserver(PerformanceObserver&);
   void ResumeSuspendedObservers();
+
+  bool HasObserverFor(PerformanceEntry::EntryType) const;
+
+  // TODO(npm): is the AtomicString parameter here actually needed?
+  static bool PassesTimingAllowCheck(const ResourceResponse&,
+                                     const SecurityOrigin&,
+                                     const AtomicString&,
+                                     ExecutionContext*);
 
   static bool AllowsTimingRedirect(const Vector<ResourceResponse>&,
                                    const ResourceResponse&,
@@ -206,27 +267,23 @@ class CORE_EXPORT Performance : public EventTargetWithInlineData {
   void Trace(blink::Visitor*) override;
 
  private:
-  static bool PassesTimingAllowCheck(const ResourceResponse&,
-                                     const SecurityOrigin&,
-                                     const AtomicString&,
-                                     ExecutionContext*);
-
   void AddPaintTiming(PerformancePaintTiming::PaintType, TimeTicks start_time);
 
-  PerformanceMeasure* measureInternal(
+  PerformanceMeasure* MeasureInternal(
       ScriptState*,
-      const String& measure_name,
-      const StringOrDoubleOrPerformanceMeasureOptions& start,
-      const StringOrDouble& end,
-      bool end_is_empty,
+      const AtomicString& measure_name,
+      const StringOrPerformanceMeasureOptions& start,
+      base::Optional<String> end,
       ExceptionState&);
 
-  PerformanceMeasure* measureInternal(ScriptState*,
-                                      const String& measure_name,
-                                      const StringOrDouble& start,
-                                      const StringOrDouble& end,
-                                      const ScriptValue& detail,
-                                      ExceptionState&);
+  PerformanceMeasure* MeasureWithDetail(ScriptState*,
+                                        const AtomicString& measure_name,
+                                        const StringOrDouble& start,
+                                        const StringOrDouble& end,
+                                        const ScriptValue& detail,
+                                        ExceptionState&);
+
+  void CopySecondaryBuffer();
 
  protected:
   Performance(TimeTicks time_origin,
@@ -238,25 +295,31 @@ class CORE_EXPORT Performance : public EventTargetWithInlineData {
     return nullptr;
   }
 
-  bool IsResourceTimingBufferFull();
-  void AddResourceTimingBuffer(PerformanceEntry&);
+  bool CanAddResourceTimingEntry();
+  void FireResourceTimingBufferFull(TimerBase*);
 
   void NotifyObserversOfEntry(PerformanceEntry&) const;
   void NotifyObserversOfEntries(PerformanceEntryVector&);
-  bool HasObserverFor(PerformanceEntry::EntryType) const;
 
   void DeliverObservationsTimerFired(TimerBase*);
 
   virtual void BuildJSONValue(V8ObjectBuilder&) const;
 
-  PerformanceEntryVector frame_timing_buffer_;
-  unsigned frame_timing_buffer_size_;
   PerformanceEntryVector resource_timing_buffer_;
-  unsigned resource_timing_buffer_size_;
+  // The secondary RT buffer, used to store incoming entries after the main
+  // buffer is full, until the resourcetimingbufferfull event fires.
+  PerformanceEntryDeque resource_timing_secondary_buffer_;
+  unsigned resource_timing_buffer_size_limit_;
+  // A flag indicating that the buffer became full, the appropriate event was
+  // queued, but haven't yet fired.
+  bool resource_timing_buffer_full_event_pending_ = false;
   PerformanceEntryVector event_timing_buffer_;
   unsigned event_timing_buffer_max_size_;
+  PerformanceEntryVector element_timing_buffer_;
+  unsigned element_timing_buffer_max_size_;
+  PerformanceEntryVector layout_jank_buffer_;
   Member<PerformanceEntry> navigation_timing_;
-  Member<UserTiming> user_timing_;
+  TraceWrapperMember<UserTiming> user_timing_;
   Member<PerformanceEntry> first_paint_timing_;
   Member<PerformanceEntry> first_contentful_paint_timing_;
   Member<PerformanceEventTiming> first_input_timing_;
@@ -267,7 +330,9 @@ class CORE_EXPORT Performance : public EventTargetWithInlineData {
   HeapLinkedHashSet<TraceWrapperMember<PerformanceObserver>> observers_;
   HeapLinkedHashSet<Member<PerformanceObserver>> active_observers_;
   HeapLinkedHashSet<Member<PerformanceObserver>> suspended_observers_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   TaskRunnerTimer<Performance> deliver_observations_timer_;
+  TaskRunnerTimer<Performance> resource_timing_buffer_full_timer_;
 };
 
 }  // namespace blink

@@ -31,9 +31,6 @@
 #include "ui/web_dialogs/web_dialog_web_contents_delegate.h"
 #include "url/gurl.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(
-    media_router::MediaRouterDialogControllerWebUIImpl);
-
 using content::LoadCommittedDetails;
 using content::NavigationController;
 using content::WebContents;
@@ -117,6 +114,13 @@ MediaRouterDialogControllerImplBase::GetOrCreateForWebContents(
   return MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
       web_contents);
 }
+
+// static
+MediaRouterDialogControllerImplBase*
+MediaRouterDialogControllerImplBase::FromWebContents(
+    content::WebContents* web_contents) {
+  return MediaRouterDialogControllerWebUIImpl::FromWebContents(web_contents);
+}
 #endif  // !defined(TOOLKIT_VIEWS)
 
 class MediaRouterDialogControllerWebUIImpl::DialogWebContentsObserver
@@ -154,8 +158,8 @@ MediaRouterDialogControllerWebUIImpl::GetOrCreateForWebContents(
     content::WebContents* web_contents) {
   DCHECK(web_contents);
   // This call does nothing if the controller already exists.
-  MediaRouterDialogControllerWebUIImpl::CreateForWebContents(web_contents);
-  return MediaRouterDialogControllerWebUIImpl::FromWebContents(web_contents);
+  CreateForWebContents(web_contents);
+  return FromWebContents(web_contents);
 }
 
 MediaRouterDialogControllerWebUIImpl::~MediaRouterDialogControllerWebUIImpl() {
@@ -313,5 +317,7 @@ void MediaRouterDialogControllerWebUIImpl::PopulateDialog(
 
   InitializeMediaRouterUI(media_router_ui);
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(MediaRouterDialogControllerWebUIImpl)
 
 }  // namespace media_router

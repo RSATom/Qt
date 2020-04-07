@@ -7,16 +7,20 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
+#include "chromeos/disks/disk.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
+#include "third_party/re2/src/re2/re2.h"
 
 using chromeos::disks::DiskMountManager;
 
 namespace arc {
 
 namespace {
+
+constexpr char kDummyUuid[] = "00000000000000000000000000000000DEADBEEF";
 
 // Singleton factory for ArcVolumeMounterBridge.
 class ArcVolumeMounterBridgeFactory
@@ -77,49 +81,25 @@ void ArcVolumeMounterBridge::OnConnectionReady() {
                                 weak_ptr_factory_.GetWeakPtr()));
 }
 
-void ArcVolumeMounterBridge::OnAutoMountableDiskEvent(
-    chromeos::disks::DiskMountManager::DiskEvent event,
-    const chromeos::disks::DiskMountManager::Disk& disk) {
-  // Ignored. DiskEvents will be maintained in Vold during MountEvents.
-}
-
-void ArcVolumeMounterBridge::OnBootDeviceDiskEvent(
-    chromeos::disks::DiskMountManager::DiskEvent event,
-    const chromeos::disks::DiskMountManager::Disk& disk) {
-  // Ignored. ARC doesn't care about boot device disk events.
-}
-
-void ArcVolumeMounterBridge::OnDeviceEvent(
-    chromeos::disks::DiskMountManager::DeviceEvent event,
-    const std::string& device_path) {
-  // Ignored. ARC doesn't care about events other than Disk and Mount events.
-}
-
-void ArcVolumeMounterBridge::OnFormatEvent(
-    chromeos::disks::DiskMountManager::FormatEvent event,
-    chromeos::FormatError error_code,
-    const std::string& device_path) {
-  // Ignored. ARC doesn't care about events other than Disk and Mount events.
-}
-
-void ArcVolumeMounterBridge::OnRenameEvent(
-    chromeos::disks::DiskMountManager::RenameEvent event,
-    chromeos::RenameError error_code,
-    const std::string& device_path) {
-  // Ignored. ARC doesn't care about events other than Disk and Mount events.
-}
-
 void ArcVolumeMounterBridge::OnMountEvent(
     DiskMountManager::MountEvent event,
     chromeos::MountError error_code,
     const chromeos::disks::DiskMountManager::MountPointInfo& mount_info) {
+  // ArcVolumeMounter is limited for local storage, as Android's StorageManager
+  // volume concept relies on assumption that it is local filesystem. Hence,
+  // special volumes like DriveFS should not come through this path.
+  if (RE2::FullMatch(mount_info.source_path, "[a-z]+://.*")) {
+    DVLOG(1) << "Ignoring mount event for source_path: "
+             << mount_info.source_path;
+    return;
+  }
   if (error_code != chromeos::MountError::MOUNT_ERROR_NONE) {
     DVLOG(1) << "Error " << error_code << "occurs during MountEvent " << event;
     return;
   }
 
   // Get disks informations that are needed by Android MountService.
-  const chromeos::disks::DiskMountManager::Disk* disk =
+  const chromeos::disks::Disk* disk =
       DiskMountManager::GetInstance()->FindDiskBySourcePath(
           mount_info.source_path);
   std::string fs_uuid, device_label;
@@ -133,6 +113,10 @@ void ArcVolumeMounterBridge::OnMountEvent(
     device_label = disk->device_label();
     device_type = disk->device_type();
   } else {
+    // This is needed by ChromeOS autotest (cheets_RemovableMedia) because it
+    // creates a diskless volume (hence, no uuid) and Android expects the volume
+    // to have a uuid.
+    fs_uuid = kDummyUuid;
     DVLOG(1) << "Disk at " << mount_info.source_path
              << " is null during MountEvent " << event;
   }

@@ -6,11 +6,14 @@
 
 #include "shader_utils.h"
 
-#include <vector>
-#include <iostream>
+#include <cstring>
 #include <fstream>
+#include <iostream>
+#include <vector>
 
-static std::string ReadFileToString(const std::string &source)
+namespace
+{
+std::string ReadFileToString(const std::string &source)
 {
     std::ifstream stream(source.c_str());
     if (!stream)
@@ -30,11 +33,62 @@ static std::string ReadFileToString(const std::string &source)
     return result;
 }
 
-GLuint CompileShader(GLenum type, const std::string &source)
+GLuint CompileProgramInternal(const char *vsSource,
+                              const char *gsSource,
+                              const char *fsSource,
+                              const std::function<void(GLuint)> &preLinkCallback)
+{
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, vsSource);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSource);
+
+    if (vs == 0 || fs == 0)
+    {
+        glDeleteShader(fs);
+        glDeleteShader(vs);
+        return 0;
+    }
+
+    GLuint program = glCreateProgram();
+
+    glAttachShader(program, vs);
+    glDeleteShader(vs);
+
+    glAttachShader(program, fs);
+    glDeleteShader(fs);
+
+    GLuint gs = 0;
+
+    if (strlen(gsSource) > 0)
+    {
+        gs = CompileShader(GL_GEOMETRY_SHADER_EXT, gsSource);
+        if (gs == 0)
+        {
+            glDeleteShader(vs);
+            glDeleteShader(fs);
+            glDeleteProgram(program);
+            return 0;
+        }
+
+        glAttachShader(program, gs);
+        glDeleteShader(gs);
+    }
+
+    if (preLinkCallback)
+    {
+        preLinkCallback(program);
+    }
+
+    glLinkProgram(program);
+
+    return CheckLinkStatusAndReturnProgram(program, true);
+}
+}  // namespace
+
+GLuint CompileShader(GLenum type, const char *source)
 {
     GLuint shader = glCreateShader(type);
 
-    const char *sourceArray[1] = { source.c_str() };
+    const char *sourceArray[1] = {source};
     glShaderSource(shader, 1, sourceArray, nullptr);
     glCompileShader(shader);
 
@@ -76,7 +130,7 @@ GLuint CompileShaderFromFile(GLenum type, const std::string &sourcePath)
         return 0;
     }
 
-    return CompileShader(type, source);
+    return CompileShader(type, source.c_str());
 }
 
 GLuint CheckLinkStatusAndReturnProgram(GLuint program, bool outputErrorMessages)
@@ -117,86 +171,45 @@ GLuint CheckLinkStatusAndReturnProgram(GLuint program, bool outputErrorMessages)
 }
 
 GLuint CompileProgramWithTransformFeedback(
-    const std::string &vsSource,
-    const std::string &fsSource,
+    const char *vsSource,
+    const char *fsSource,
     const std::vector<std::string> &transformFeedbackVaryings,
     GLenum bufferMode)
 {
-    return CompileProgramWithGSAndTransformFeedback(vsSource, "", fsSource,
-                                                    transformFeedbackVaryings, bufferMode);
-}
-
-GLuint CompileProgramWithGSAndTransformFeedback(
-    const std::string &vsSource,
-    const std::string &gsSource,
-    const std::string &fsSource,
-    const std::vector<std::string> &transformFeedbackVaryings,
-    GLenum bufferMode)
-{
-    GLuint program = glCreateProgram();
-
-    GLuint vs = CompileShader(GL_VERTEX_SHADER, vsSource);
-    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSource);
-
-    if (vs == 0 || fs == 0)
-    {
-        glDeleteShader(fs);
-        glDeleteShader(vs);
-        glDeleteProgram(program);
-        return 0;
-    }
-
-    glAttachShader(program, vs);
-    glDeleteShader(vs);
-
-    glAttachShader(program, fs);
-    glDeleteShader(fs);
-
-    if (!gsSource.empty())
-    {
-        GLuint gs = CompileShader(GL_GEOMETRY_SHADER_EXT, gsSource);
-        if (gs == 0)
+    auto preLink = [&](GLuint program) {
+        if (transformFeedbackVaryings.size() > 0)
         {
-            glDeleteShader(vs);
-            glDeleteShader(fs);
-            glDeleteProgram(program);
-            return 0;
+            std::vector<const char *> constCharTFVaryings;
+
+            for (const std::string &transformFeedbackVarying : transformFeedbackVaryings)
+            {
+                constCharTFVaryings.push_back(transformFeedbackVarying.c_str());
+            }
+
+            glTransformFeedbackVaryings(program,
+                                        static_cast<GLsizei>(transformFeedbackVaryings.size()),
+                                        &constCharTFVaryings[0], bufferMode);
         }
+    };
 
-        glAttachShader(program, gs);
-        glDeleteShader(gs);
-    }
-
-    if (transformFeedbackVaryings.size() > 0)
-    {
-        std::vector<const char *> constCharTFVaryings;
-
-        for (const std::string &transformFeedbackVarying : transformFeedbackVaryings)
-        {
-            constCharTFVaryings.push_back(transformFeedbackVarying.c_str());
-        }
-
-        glTransformFeedbackVaryings(program, static_cast<GLsizei>(transformFeedbackVaryings.size()),
-                                    &constCharTFVaryings[0], bufferMode);
-    }
-
-    glLinkProgram(program);
-
-    return CheckLinkStatusAndReturnProgram(program, true);
+    return CompileProgramInternal(vsSource, "", fsSource, preLink);
 }
 
-GLuint CompileProgram(const std::string &vsSource, const std::string &fsSource)
+GLuint CompileProgram(const char *vsSource, const char *fsSource)
 {
-    return CompileProgramWithGS(vsSource, "", fsSource);
+    return CompileProgramInternal(vsSource, "", fsSource, nullptr);
 }
 
-GLuint CompileProgramWithGS(const std::string &vsSource,
-                            const std::string &gsSource,
-                            const std::string &fsSource)
+GLuint CompileProgram(const char *vsSource,
+                      const char *fsSource,
+                      const std::function<void(GLuint)> &preLinkCallback)
 {
-    std::vector<std::string> emptyVector;
-    return CompileProgramWithGSAndTransformFeedback(vsSource, gsSource, fsSource, emptyVector,
-                                                    GL_NONE);
+    return CompileProgramInternal(vsSource, "", fsSource, preLinkCallback);
+}
+
+GLuint CompileProgramWithGS(const char *vsSource, const char *gsSource, const char *fsSource)
+{
+    return CompileProgramInternal(vsSource, gsSource, fsSource, nullptr);
 }
 
 GLuint CompileProgramFromFiles(const std::string &vsPath, const std::string &fsPath)
@@ -208,10 +221,10 @@ GLuint CompileProgramFromFiles(const std::string &vsPath, const std::string &fsP
         return 0;
     }
 
-    return CompileProgram(vsSource, fsSource);
+    return CompileProgram(vsSource.c_str(), fsSource.c_str());
 }
 
-GLuint CompileComputeProgram(const std::string &csSource, bool outputErrorMessages)
+GLuint CompileComputeProgram(const char *csSource, bool outputErrorMessages)
 {
     GLuint program = glCreateProgram();
 
@@ -289,7 +302,7 @@ void main()
 }
 
 // A shader that simply passes through attribute a_position, setting it to gl_Position and varying
-// pos.
+// v_position.
 const char *Passthrough()
 {
     return R"(precision highp float;
@@ -349,6 +362,17 @@ void main()
 })";
 }
 
+// A shader that fills with 100% opaque green.
+const char *Green()
+{
+    return R"(precision mediump float;
+
+void main()
+{
+    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+})";
+}
+
 // A shader that fills with 100% opaque blue.
 const char *Blue()
 {
@@ -392,6 +416,20 @@ in vec4 a_position;
 void main()
 {
     gl_Position = a_position;
+})";
+}
+
+// A shader that simply passes through attribute a_position, setting it to gl_Position and varying
+// v_position.
+const char *Passthrough()
+{
+    return R"(#version 300 es
+in vec4 a_position;
+out vec4 v_position;
+void main()
+{
+    gl_Position = a_position;
+    v_position = a_position;
 })";
 }
 
@@ -444,6 +482,20 @@ in vec4 a_position;
 void main()
 {
     gl_Position = a_position;
+})";
+}
+
+// A shader that simply passes through attribute a_position, setting it to gl_Position and varying
+// v_position.
+const char *Passthrough()
+{
+    return R"(#version 310 es
+in vec4 a_position;
+out vec4 v_position;
+void main()
+{
+    gl_Position = a_position;
+    v_position = a_position;
 })";
 }
 

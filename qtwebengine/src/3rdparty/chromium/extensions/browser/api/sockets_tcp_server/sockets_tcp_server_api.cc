@@ -4,6 +4,9 @@
 
 #include "extensions/browser/api/sockets_tcp_server/sockets_tcp_server_api.h"
 
+#include <unordered_set>
+#include <vector>
+
 #include "content/public/common/socket_permission_request.h"
 #include "extensions/browser/api/socket/tcp_socket.h"
 #include "extensions/browser/api/sockets_tcp_server/tcp_server_socket_event_dispatcher.h"
@@ -84,8 +87,8 @@ bool SocketsTcpServerCreateFunction::Prepare() {
 }
 
 void SocketsTcpServerCreateFunction::Work() {
-  ResumableTCPServerSocket* socket =
-      new ResumableTCPServerSocket(extension_->id());
+  auto* socket =
+      new ResumableTCPServerSocket(browser_context(), extension_->id());
 
   sockets_tcp_server::SocketProperties* properties = params_->properties.get();
   if (properties) {
@@ -190,10 +193,23 @@ void SocketsTcpServerListenFunction::AsyncWorkStart() {
     return;
   }
 
-  int net_result = socket->Listen(
+  socket->Listen(
       params_->address, params_->port,
       params_->backlog.get() ? *params_->backlog : kDefaultListenBacklog,
-      &error_);
+      base::BindOnce(&SocketsTcpServerListenFunction::OnCompleted, this));
+}
+
+void SocketsTcpServerListenFunction::OnCompleted(
+    int net_result,
+    const std::string& /* error_msg */) {
+  DCHECK_NE(net::ERR_IO_PENDING, net_result);
+
+  ResumableTCPServerSocket* socket = GetTcpSocket(params_->socket_id);
+  if (!socket) {
+    error_ = kSocketNotFoundError;
+    AsyncWorkCompleted();
+    return;
+  }
   results_ = sockets_tcp_server::Listen::Results::Create(net_result);
   if (net_result == net::OK) {
     socket_event_dispatcher_->OnServerSocketListen(extension_->id(),
@@ -279,7 +295,7 @@ bool SocketsTcpServerGetSocketsFunction::Prepare() { return true; }
 
 void SocketsTcpServerGetSocketsFunction::Work() {
   std::vector<sockets_tcp_server::SocketInfo> socket_infos;
-  base::hash_set<int>* resource_ids = GetSocketIds();
+  std::unordered_set<int>* resource_ids = GetSocketIds();
   if (resource_ids != NULL) {
     for (int socket_id : *resource_ids) {
       ResumableTCPServerSocket* socket = GetTcpSocket(socket_id);

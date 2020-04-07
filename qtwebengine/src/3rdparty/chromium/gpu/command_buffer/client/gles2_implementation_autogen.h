@@ -528,6 +528,30 @@ void ShallowFlushCHROMIUM() override;
 
 void OrderingBarrierCHROMIUM() override;
 
+void MultiDrawArraysWEBGL(GLenum mode,
+                          const GLint* firsts,
+                          const GLsizei* counts,
+                          GLsizei drawcount) override;
+
+void MultiDrawArraysInstancedWEBGL(GLenum mode,
+                                   const GLint* firsts,
+                                   const GLsizei* counts,
+                                   const GLsizei* instance_counts,
+                                   GLsizei drawcount) override;
+
+void MultiDrawElementsWEBGL(GLenum mode,
+                            const GLsizei* counts,
+                            GLenum type,
+                            const GLsizei* offsets,
+                            GLsizei drawcount) override;
+
+void MultiDrawElementsInstancedWEBGL(GLenum mode,
+                                     const GLsizei* counts,
+                                     GLenum type,
+                                     const GLsizei* offsets,
+                                     const GLsizei* instance_counts,
+                                     GLsizei drawcount) override;
+
 void StencilFunc(GLenum func, GLint ref, GLuint mask) override;
 
 void StencilFuncSeparate(GLenum face,
@@ -845,6 +869,24 @@ GLboolean IsVertexArrayOES(GLuint array) override;
 
 void BindVertexArrayOES(GLuint array) override;
 
+void FramebufferParameteri(GLenum target, GLenum pname, GLint param) override;
+
+void BindImageTexture(GLuint unit,
+                      GLuint texture,
+                      GLint level,
+                      GLboolean layered,
+                      GLint layer,
+                      GLenum access,
+                      GLenum format) override;
+
+void DispatchCompute(GLuint num_groups_x,
+                     GLuint num_groups_y,
+                     GLuint num_groups_z) override;
+
+void MemoryBarrierEXT(GLbitfield barriers) override;
+
+void MemoryBarrierByRegion(GLbitfield barriers) override;
+
 void SwapBuffers(GLuint64 swap_id, GLbitfield flags = 0) override;
 
 GLuint GetMaxValueInBufferCHROMIUM(GLuint buffer_id,
@@ -965,8 +1007,6 @@ void CopySubTextureCHROMIUM(GLuint source_id,
                             GLboolean unpack_premultiply_alpha,
                             GLboolean unpack_unmultiply_alpha) override;
 
-void CompressedCopyTextureCHROMIUM(GLuint source_id, GLuint dest_id) override;
-
 void DrawArraysInstancedANGLE(GLenum mode,
                               GLint first,
                               GLsizei count,
@@ -1063,20 +1103,31 @@ void FlushDriverCachesCHROMIUM() override;
 
 GLuint GetLastFlushIdCHROMIUM() override;
 
-void ScheduleDCLayerSharedStateCHROMIUM(GLfloat opacity,
-                                        GLboolean is_clipped,
-                                        const GLfloat* clip_rect,
-                                        GLint z_order,
-                                        const GLfloat* transform) override;
+void ScheduleDCLayerCHROMIUM(GLuint y_texture_id,
+                             GLuint uv_texture_id,
+                             GLint z_order,
+                             GLint content_x,
+                             GLint content_y,
+                             GLint content_width,
+                             GLint content_height,
+                             GLint quad_x,
+                             GLint quad_y,
+                             GLint quad_width,
+                             GLint quad_height,
+                             GLfloat transform_c1r1,
+                             GLfloat transform_c2r1,
+                             GLfloat transform_c1r2,
+                             GLfloat transform_c2r2,
+                             GLfloat transform_tx,
+                             GLfloat transform_ty,
+                             GLboolean is_clipped,
+                             GLint clip_x,
+                             GLint clip_y,
+                             GLint clip_width,
+                             GLint clip_height,
+                             GLuint protected_video_type) override;
 
-void ScheduleDCLayerCHROMIUM(GLsizei num_textures,
-                             const GLuint* contents_texture_ids,
-                             const GLfloat* contents_rect,
-                             GLuint background_color,
-                             GLuint edge_aa_mask,
-                             const GLfloat* bounds_rect,
-                             GLuint filter,
-                             bool is_protected_video) override;
+void SetActiveURLCHROMIUM(const char* url) override;
 
 void MatrixLoadfCHROMIUM(GLenum matrixMode, const GLfloat* m) override;
 
@@ -1259,5 +1310,20 @@ void WaitGpuFenceCHROMIUM(GLuint gpu_fence_id) override;
 void DestroyGpuFenceCHROMIUM(GLuint gpu_fence_id) override;
 
 void InvalidateReadbackBufferShadowDataCHROMIUM(GLuint buffer_id) override;
+
+void FramebufferTextureMultiviewLayeredANGLE(GLenum target,
+                                             GLenum attachment,
+                                             GLuint texture,
+                                             GLint level,
+                                             GLint baseViewIndex,
+                                             GLsizei numViews) override;
+
+void MaxShaderCompilerThreadsKHR(GLuint count) override;
+
+GLuint CreateAndTexStorage2DSharedImageCHROMIUM(const GLbyte* mailbox) override;
+
+void BeginSharedImageAccessDirectCHROMIUM(GLuint texture, GLenum mode) override;
+
+void EndSharedImageAccessDirectCHROMIUM(GLuint texture) override;
 
 #endif  // GPU_COMMAND_BUFFER_CLIENT_GLES2_IMPLEMENTATION_AUTOGEN_H_

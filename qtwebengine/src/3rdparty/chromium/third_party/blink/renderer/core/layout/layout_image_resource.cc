@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
+#include "third_party/blink/renderer/platform/graphics/placeholder_image.h"
 
 namespace blink {
 
@@ -143,7 +144,12 @@ void LayoutImageResource::UseBrokenImage() {
 }
 
 scoped_refptr<Image> LayoutImageResource::GetImage(
-    const LayoutSize& container_size) const {
+    const IntSize& container_size) const {
+  return GetImage(FloatSize(container_size));
+}
+
+scoped_refptr<Image> LayoutImageResource::GetImage(
+    const FloatSize& container_size) const {
   if (!cached_image_)
     return Image::NullImage();
 
@@ -154,6 +160,11 @@ scoped_refptr<Image> LayoutImageResource::GetImage(
     return Image::NullImage();
 
   Image* image = cached_image_->GetImage();
+  if (image->IsPlaceholderImage()) {
+    static_cast<PlaceholderImage*>(image)->SetIconAndTextScaleFactor(
+        layout_object_->StyleRef().EffectiveZoom());
+  }
+
   if (!image->IsSVGImage())
     return image;
 
@@ -164,7 +175,7 @@ scoped_refptr<Image> LayoutImageResource::GetImage(
     url = node->GetDocument().CompleteURL(url_string);
   }
   return SVGImageForContainer::Create(
-      ToSVGImage(image), FloatSize(container_size),
+      ToSVGImage(image), container_size,
       layout_object_->StyleRef().EffectiveZoom(), url);
 }
 

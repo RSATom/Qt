@@ -9,32 +9,25 @@
 #include <set>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/simple_test_clock.h"
 #include "base/values.h"
 #include "chrome/browser/history/web_history_service_factory.h"
-#include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
-#include "chrome/browser/signin/fake_signin_manager_builder.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
+#include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/browser_sync/test_profile_sync_service.h"
 #include "components/history/core/browser/browsing_history_service.h"
 #include "components/history/core/test/fake_web_history_service.h"
-#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
-#include "components/signin/core/browser/fake_signin_manager.h"
 #include "components/sync/base/model_type.h"
-#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_web_ui.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 namespace {
@@ -61,21 +54,28 @@ class TestSyncService : public browser_sync::TestProfileSyncService {
   explicit TestSyncService(Profile* profile)
       : browser_sync::TestProfileSyncService(
             CreateProfileSyncServiceParamsForTest(profile)),
-        state_(State::ACTIVE) {}
+        state_(TransportState::ACTIVE) {}
 
-  State GetState() const override { return state_; }
+  TransportState GetTransportState() const override { return state_; }
+
+  int GetDisableReasons() const override { return DISABLE_REASON_NONE; }
 
   syncer::ModelTypeSet GetActiveDataTypes() const override {
     return syncer::ModelTypeSet::All();
   }
 
-  void SetState(State state) {
+  // Overridden to be empty, to prevent the Sync machinery from actually
+  // starting up (which would fail, since not everything is properly set up,
+  // e.g. we're missing an authenticated account).
+  void StartUpSlowEngineComponents() override {}
+
+  void SetTransportState(TransportState state) {
     state_ = state;
     NotifyObservers();
   }
 
  private:
-  State state_;
+  TransportState state_;
 
   DISALLOW_COPY_AND_ASSIGN(TestSyncService);
 };
@@ -99,39 +99,35 @@ class BrowsingHistoryHandlerWithWebUIForTesting
 
 }  // namespace
 
-class BrowsingHistoryHandlerTest : public ::testing::Test {
+class BrowsingHistoryHandlerTest : public ChromeRenderViewHostTestHarness {
  public:
   void SetUp() override {
-    TestingProfile::Builder builder;
-    builder.AddTestingFactory(ProfileOAuth2TokenServiceFactory::GetInstance(),
-                              &BuildFakeProfileOAuth2TokenService);
-    builder.AddTestingFactory(SigninManagerFactory::GetInstance(),
-                              &BuildFakeSigninManagerBase);
-    builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
-                              &BuildFakeSyncService);
-    builder.AddTestingFactory(WebHistoryServiceFactory::GetInstance(),
-                              &BuildFakeWebHistoryService);
-    profile_ = builder.Build();
-    profile_->CreateBookmarkModel(false);
+    ChromeRenderViewHostTestHarness::SetUp();
+    profile()->CreateBookmarkModel(false);
 
     sync_service_ = static_cast<TestSyncService*>(
-        ProfileSyncServiceFactory::GetForProfile(profile_.get()));
+        ProfileSyncServiceFactory::GetForProfile(profile()));
     web_history_service_ = static_cast<history::FakeWebHistoryService*>(
-        WebHistoryServiceFactory::GetForProfile(profile_.get()));
+        WebHistoryServiceFactory::GetForProfile(profile()));
+    ASSERT_TRUE(web_history_service_);
 
-    web_contents_ = content::WebContents::Create(
-        content::WebContents::CreateParams(profile_.get()));
     web_ui_.reset(new content::TestWebUI);
-    web_ui_->set_web_contents(web_contents_.get());
+    web_ui_->set_web_contents(web_contents());
   }
 
   void TearDown() override {
-    web_contents_.reset();
     web_ui_.reset();
-    profile_.reset();
+    ChromeRenderViewHostTestHarness::TearDown();
   }
 
-  Profile* profile() { return profile_.get(); }
+  content::BrowserContext* CreateBrowserContext() override {
+    TestingProfile::Builder builder;
+    builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
+                              base::BindRepeating(&BuildFakeSyncService));
+    builder.AddTestingFactory(WebHistoryServiceFactory::GetInstance(),
+                              base::BindRepeating(&BuildFakeWebHistoryService));
+    return builder.Build().release();
+  }
   TestSyncService* sync_service() { return sync_service_; }
   history::WebHistoryService* web_history_service() {
     return web_history_service_;
@@ -141,8 +137,11 @@ class BrowsingHistoryHandlerTest : public ::testing::Test {
  private:
   static std::unique_ptr<KeyedService> BuildFakeSyncService(
       content::BrowserContext* context) {
-    return std::make_unique<TestSyncService>(
+    auto service = std::make_unique<TestSyncService>(
         static_cast<TestingProfile*>(context));
+    service->Initialize();
+    service->GetUserSettings()->SetFirstSetupComplete();
+    return service;
   }
 
   static std::unique_ptr<KeyedService> BuildFakeWebHistoryService(
@@ -150,15 +149,12 @@ class BrowsingHistoryHandlerTest : public ::testing::Test {
     std::unique_ptr<history::FakeWebHistoryService> service =
         std::make_unique<history::FakeWebHistoryService>();
     service->SetupFakeResponse(true /* success */, net::HTTP_OK);
-    return std::move(service);
+    return service;
   }
 
-  content::TestBrowserThreadBundle thread_bundle_;
-  std::unique_ptr<TestingProfile> profile_;
-  TestSyncService* sync_service_;
-  history::FakeWebHistoryService* web_history_service_;
+  TestSyncService* sync_service_ = nullptr;
+  history::FakeWebHistoryService* web_history_service_ = nullptr;
   std::unique_ptr<content::TestWebUI> web_ui_;
-  std::unique_ptr<content::WebContents> web_contents_;
 };
 
 // Tests that BrowsingHistoryHandler is informed about WebHistoryService
@@ -169,7 +165,8 @@ TEST_F(BrowsingHistoryHandlerTest, ObservingWebHistoryDeletions) {
   // BrowsingHistoryHandler is informed about WebHistoryService history
   // deletions.
   {
-    sync_service()->SetState(syncer::SyncService::State::ACTIVE);
+    sync_service()->SetTransportState(
+        syncer::SyncService::TransportState::ACTIVE);
     BrowsingHistoryHandlerWithWebUIForTesting handler(web_ui());
     handler.RegisterMessages();
 
@@ -184,10 +181,12 @@ TEST_F(BrowsingHistoryHandlerTest, ObservingWebHistoryDeletions) {
   // BrowsingHistoryHandler will be informed about WebHistoryService deletions
   // even if history sync is activated later.
   {
-    sync_service()->SetState(syncer::SyncService::State::INITIALIZING);
+    sync_service()->SetTransportState(
+        syncer::SyncService::TransportState::INITIALIZING);
     BrowsingHistoryHandlerWithWebUIForTesting handler(web_ui());
     handler.RegisterMessages();
-    sync_service()->SetState(syncer::SyncService::State::ACTIVE);
+    sync_service()->SetTransportState(
+        syncer::SyncService::TransportState::ACTIVE);
 
     web_history_service()->ExpireHistoryBetween(
         std::set<GURL>(), base::Time(), base::Time::Max(), callback,
@@ -200,7 +199,8 @@ TEST_F(BrowsingHistoryHandlerTest, ObservingWebHistoryDeletions) {
   // BrowsingHistoryHandler does not fire historyDeleted while a web history
   // delete request is happening.
   {
-    sync_service()->SetState(syncer::SyncService::State::ACTIVE);
+    sync_service()->SetTransportState(
+        syncer::SyncService::TransportState::ACTIVE);
     BrowsingHistoryHandlerWithWebUIForTesting handler(web_ui());
     handler.RegisterMessages();
 
@@ -222,7 +222,8 @@ TEST_F(BrowsingHistoryHandlerTest, ObservingWebHistoryDeletions) {
   // deletions. The WebHistoryService object still exists (because it's a
   // BrowserContextKeyedService), but is not visible to BrowsingHistoryHandler.
   {
-    sync_service()->SetState(syncer::SyncService::State::INITIALIZING);
+    sync_service()->SetTransportState(
+        syncer::SyncService::TransportState::INITIALIZING);
     BrowsingHistoryHandlerWithWebUIForTesting handler(web_ui());
     handler.RegisterMessages();
 

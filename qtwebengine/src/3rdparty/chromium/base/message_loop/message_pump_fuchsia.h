@@ -8,7 +8,6 @@
 #include <lib/async/wait.h>
 
 #include "base/base_export.h"
-#include "base/fuchsia/async_dispatcher.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -16,6 +15,10 @@
 #include "base/message_loop/watchable_io_message_pump_posix.h"
 
 typedef struct fdio fdio_t;
+
+namespace async {
+class Loop;
+}  // namespace async
 
 namespace base {
 
@@ -50,7 +53,7 @@ class BASE_EXPORT MessagePumpFuchsia : public MessagePump,
 
     virtual bool WaitBegin();
 
-    static void HandleSignal(async_t* async,
+    static void HandleSignal(async_dispatcher_t* async,
                              async_wait_t* wait,
                              zx_status_t status,
                              const zx_packet_signal_t* signal);
@@ -142,7 +145,7 @@ class BASE_EXPORT MessagePumpFuchsia : public MessagePump,
   // This flag is set to false when Run should return.
   bool keep_running_ = true;
 
-  AsyncDispatcher async_dispatcher_;
+  std::unique_ptr<async::Loop> async_loop_;
 
   // The time at which we should call DoDelayedWork.
   TimeTicks delayed_work_time_;

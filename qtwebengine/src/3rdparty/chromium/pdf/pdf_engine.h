@@ -7,20 +7,16 @@
 
 #include <stdint.h>
 
-#include "build/build_config.h"
-
-#if defined(OS_WIN)
-#include <windows.h>
-#endif
-
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "base/containers/span.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "ppapi/c/dev/pp_cursor_type_dev.h"
 #include "ppapi/c/dev/ppp_printing_dev.h"
 #include "ppapi/c/ppb_input_event.h"
@@ -34,12 +30,21 @@
 #include "ui/gfx/geometry/point_f.h"
 
 #if defined(OS_WIN)
+#include <windows.h>
+#endif
+
+#if defined(OS_WIN)
 typedef void (*PDFEnsureTypefaceCharactersAccessible)(const LOGFONT* font,
                                                       const wchar_t* text,
                                                       size_t text_length);
 #endif
 
 struct PP_PdfPrintSettings_Dev;
+
+namespace gfx {
+class Rect;
+class Size;
+}
 
 namespace pp {
 class InputEvent;
@@ -230,9 +235,6 @@ class PDFEngine {
         const base::char16* term,
         bool case_sensitive) = 0;
 
-    // Notifies the client that the engine has painted a page from the document.
-    virtual void DocumentPaintOccurred() {}
-
     // Notifies the client that the document has finished loading.
     virtual void DocumentLoadComplete(const DocumentFeatures& document_features,
                                       uint32_t file_size) {}
@@ -338,9 +340,6 @@ class PDFEngine {
   // Gets the named destination by name.
   virtual base::Optional<PDFEngine::NamedDestination> GetNamedDestination(
       const std::string& destination) = 0;
-  // Transforms an (x, y) point in page coordinates to screen coordinates.
-  virtual gfx::PointF TransformPagePoint(int page_index,
-                                         const gfx::PointF& page_xy) = 0;
   // Gets the index of the most visible page, or -1 if none are visible.
   virtual int GetMostVisiblePage() = 0;
   // Gets the rectangle of the page including shadow.
@@ -397,6 +396,7 @@ class PDFEngine {
   virtual void AppendPage(PDFEngine* engine, int index) = 0;
 
   virtual std::string GetMetadata(const std::string& key) = 0;
+  virtual std::vector<uint8_t> GetSaveData() = 0;
 
   virtual void SetCaretPosition(const pp::Point& position) = 0;
   virtual void MoveRangeSelectionExtent(const pp::Point& extent) = 0;
@@ -409,6 +409,9 @@ class PDFEngine {
 
   // Remove focus from form widgets, consolidating the user input.
   virtual void KillFormFocus() = 0;
+
+  virtual uint32_t GetLoadedByteSize() = 0;
+  virtual bool ReadLoadedBytes(uint32_t length, void* buffer) = 0;
 };
 
 // Interface for exports that wrap the PDF engine.
@@ -444,8 +447,7 @@ class PDFEngineExports {
 
 #if defined(OS_WIN)
   // See the definition of RenderPDFPageToDC in pdf.cc for details.
-  virtual bool RenderPDFPageToDC(const void* pdf_buffer,
-                                 int buffer_size,
+  virtual bool RenderPDFPageToDC(base::span<const uint8_t> pdf_buffer,
                                  int page_number,
                                  const RenderingSettings& settings,
                                  HDC dc) = 0;
@@ -458,20 +460,31 @@ class PDFEngineExports {
 #endif  // defined(OS_WIN)
 
   // See the definition of RenderPDFPageToBitmap in pdf.cc for details.
-  virtual bool RenderPDFPageToBitmap(const void* pdf_buffer,
-                                     int pdf_buffer_size,
+  virtual bool RenderPDFPageToBitmap(base::span<const uint8_t> pdf_buffer,
                                      int page_number,
                                      const RenderingSettings& settings,
                                      void* bitmap_buffer) = 0;
 
-  virtual bool GetPDFDocInfo(const void* pdf_buffer,
-                             int buffer_size,
+  // See the definition of ConvertPdfPagesToNupPdf in pdf.cc for details.
+  virtual std::vector<uint8_t> ConvertPdfPagesToNupPdf(
+      std::vector<base::span<const uint8_t>> input_buffers,
+      size_t pages_per_sheet,
+      const gfx::Size& page_size,
+      const gfx::Rect& printable_area) = 0;
+
+  // See the definition of ConvertPdfDocumentToNupPdf in pdf.cc for details.
+  virtual std::vector<uint8_t> ConvertPdfDocumentToNupPdf(
+      base::span<const uint8_t> input_buffer,
+      size_t pages_per_sheet,
+      const gfx::Size& page_size,
+      const gfx::Rect& printable_area) = 0;
+
+  virtual bool GetPDFDocInfo(base::span<const uint8_t> pdf_buffer,
                              int* page_count,
                              double* max_page_width) = 0;
 
   // See the definition of GetPDFPageSizeByIndex in pdf.cc for details.
-  virtual bool GetPDFPageSizeByIndex(const void* pdf_buffer,
-                                     int pdf_buffer_size,
+  virtual bool GetPDFPageSizeByIndex(base::span<const uint8_t> pdf_buffer,
                                      int page_number,
                                      double* width,
                                      double* height) = 0;

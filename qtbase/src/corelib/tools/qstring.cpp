@@ -120,7 +120,7 @@ QT_BEGIN_NAMESPACE
  * Whenever multiple alternatives are equivalent or near so, we prefer the one
  * using instructions from SSE2, since SSE2 is guaranteed to be enabled for all
  * 64-bit builds and we enable it for 32-bit builds by default. Use of higher
- * SSE versions should be done when there's a clear performance benefit and
+ * SSE versions should be done when there is a clear performance benefit and
  * requires fallback code to SSE2, if it exists.
  *
  * Performance measurement in the past shows that most strings are short in
@@ -1199,10 +1199,10 @@ static int qt_compare_strings(QLatin1String lhs, QStringView rhs, Qt::CaseSensit
 
 static int qt_compare_strings(QLatin1String lhs, QLatin1String rhs, Qt::CaseSensitivity cs) Q_DECL_NOTHROW
 {
-    if (cs == Qt::CaseInsensitive)
-        return qstrnicmp(lhs.data(), lhs.size(), rhs.data(), rhs.size());
     if (lhs.isEmpty())
         return lencmp(0, rhs.size());
+    if (cs == Qt::CaseInsensitive)
+        return qstrnicmp(lhs.data(), lhs.size(), rhs.data(), rhs.size());
     const auto l = std::min(lhs.size(), rhs.size());
     int r = qstrncmp(lhs.data(), rhs.data(), l);
     return r ? r : lencmp(lhs.size(), rhs.size());
@@ -1472,7 +1472,7 @@ const QString::Null QString::null = { };
     In all of the QString functions that take \c{const char *}
     parameters, the \c{const char *} is interpreted as a classic
     C-style '\\0'-terminated string encoded in UTF-8. It is legal for
-    the \c{const char *} parameter to be 0.
+    the \c{const char *} parameter to be \nullptr.
 
     You can also provide string data as an array of \l{QChar}s:
 
@@ -1556,7 +1556,7 @@ const QString::Null QString::null = { };
     functions. The former searches forward starting from a given index
     position, the latter searches backward. Both return the index
     position of the character or substring if they find it; otherwise,
-    they return -1.  For example, here's a typical loop that finds all
+    they return -1.  For example, here is a typical loop that finds all
     occurrences of a particular substring:
 
     \snippet qstring/main.cpp 6
@@ -1685,10 +1685,9 @@ const QString::Null QString::null = { };
     \snippet qstring/main.cpp 8
 
     All functions except isNull() treat null strings the same as empty
-    strings. For example, toUtf8().constData() returns a pointer to a
-    '\\0' character for a null string (\e not a null pointer), and
-    QString() compares equal to QString(""). We recommend that you
-    always use the isEmpty() function and avoid isNull().
+    strings. For example, toUtf8().constData() returns a valid pointer
+    (\e not nullptr) to a '\\0' character for a null string. We
+    recommend that you always use the isEmpty() function and avoid isNull().
 
     \section1 Argument Formats
 
@@ -1777,6 +1776,24 @@ const QString::Null QString::null = { };
 
     and the \c{'+'} will automatically be performed as the
     \c{QStringBuilder} \c{'%'} everywhere.
+
+    \section1 Maximum size and out-of-memory conditions
+
+    The current version of QString is limited to just under 2 GB (2^31 bytes)
+    in size. The exact value is architecture-dependent, since it depends on the
+    overhead required for managing the data block, but is no more than 32
+    bytes. Raw data blocks are also limited by the use of \c int type in the
+    current version to 2 GB minus 1 byte. Since QString uses two bytes per
+    character, that translates to just under 2^30 characters in one QString.
+
+    In case memory allocation fails, QString will throw a \c std::bad_alloc
+    exception. Out of memory conditions in the Qt containers are the only case
+    where Qt will throw exceptions.
+
+    Note that the operating system may impose further limits on applications
+    holding a lot of allocated memory, especially large, contiguous blocks.
+    Such considerations, the configuration of such behavior or any mitigation
+    are outside the scope of the Qt API.
 
     \sa fromRawData(), QChar, QLatin1String, QByteArray, QStringRef
 */
@@ -2045,7 +2062,7 @@ const QString::Null QString::null = { };
     the size of wchar. If wchar is 4 bytes, the \a string is interpreted as UCS-4,
     if wchar is 2 bytes it is interpreted as UTF-16.
 
-    If \a size is -1 (default), the \a string has to be 0 terminated.
+    If \a size is -1 (default), the \a string has to be \\0'-terminated.
 
     \sa fromUtf16(), fromLatin1(), fromLocal8Bit(), fromUtf8(), fromUcs4(), fromStdWString()
 */
@@ -2111,9 +2128,9 @@ int QString::toUcs4_helper(const ushort *uc, int length, uint *out)
 
     If \a unicode is 0, a null string is constructed.
 
-    If \a size is negative, \a unicode is assumed to point to a nul-terminated
+    If \a size is negative, \a unicode is assumed to point to a \\0'-terminated
     array and its length is determined dynamically. The terminating
-    nul-character is not considered part of the string.
+    null character is not considered part of the string.
 
     QString makes a deep copy of the string data. The unicode data is copied as
     is and the Byte Order Mark is preserved if present.
@@ -4553,7 +4570,7 @@ int QString::indexOf(const QRegularExpression& re, int from) const
     expression \a re in the string, searching forward from index
     position \a from. Returns -1 if \a re didn't match anywhere.
 
-    If the match is successful and \a rmatch is not a null pointer, it also
+    If the match is successful and \a rmatch is not \nullptr, it also
     writes the results of the match into the QRegularExpressionMatch object
     pointed to by \a rmatch.
 
@@ -4604,7 +4621,7 @@ int QString::lastIndexOf(const QRegularExpression &re, int from) const
     expression \a re in the string, which starts before the index
     position \a from. Returns -1 if \a re didn't match anywhere.
 
-    If the match is successful and \a rmatch is not a null pointer, it also
+    If the match is successful and \a rmatch is not \nullptr, it also
     writes the results of the match into the QRegularExpressionMatch object
     pointed to by \a rmatch.
 
@@ -4655,14 +4672,14 @@ bool QString::contains(const QRegularExpression &re) const
     Returns \c true if the regular expression \a re matches somewhere in this
     string; otherwise returns \c false.
 
-    If the match is successful and \a match is not a null pointer, it also
+    If the match is successful and \a rmatch is not \nullptr, it also
     writes the results of the match into the QRegularExpressionMatch object
-    pointed to by \a match.
+    pointed to by \a rmatch.
 
     \sa QRegularExpression::match()
 */
 
-bool QString::contains(const QRegularExpression &re, QRegularExpressionMatch *match) const
+bool QString::contains(const QRegularExpression &re, QRegularExpressionMatch *rmatch) const
 {
     if (!re.isValid()) {
         qWarning("QString::contains: invalid QRegularExpression object");
@@ -4670,8 +4687,8 @@ bool QString::contains(const QRegularExpression &re, QRegularExpressionMatch *ma
     }
     QRegularExpressionMatch m = re.match(*this);
     bool hasMatch = m.hasMatch();
-    if (hasMatch && match)
-        *match = qMove(m);
+    if (hasMatch && rmatch)
+        *rmatch = qMove(m);
     return hasMatch;
 }
 
@@ -5452,7 +5469,7 @@ static QVector<uint> qt_convert_to_ucs4(QStringView string);
     this string is replaced by the Unicode's replacement character
     (QChar::ReplacementCharacter, which corresponds to \c{U+FFFD}).
 
-    The returned vector is not NUL terminated.
+    The returned vector is not \\0'-terminated.
 
     \sa fromUtf8(), toUtf8(), toLatin1(), toLocal8Bit(), QTextCodec, fromUcs4(), toWCharArray()
 */
@@ -5484,7 +5501,7 @@ static QVector<uint> qt_convert_to_ucs4(QStringView string)
     this string is replaced by the Unicode's replacement character
     (QChar::ReplacementCharacter, which corresponds to \c{U+FFFD}).
 
-    The returned vector is not NUL terminated.
+    The returned vector is not \\0'-terminated.
 
     \sa QString::toUcs4(), QStringView::toUcs4(), QtPrivate::convertToLatin1(),
     QtPrivate::convertToLocal8Bit(), QtPrivate::convertToUtf8()
@@ -5642,8 +5659,7 @@ QString QString::fromUtf8_helper(const char *str, int size)
     Returns a QString initialized with the first \a size characters
     of the Unicode string \a unicode (ISO-10646-UTF-16 encoded).
 
-    If \a size is -1 (default), \a unicode must be terminated
-    with a 0.
+    If \a size is -1 (default), \a unicode must be \\0'-terminated.
 
     This function checks for a Byte Order Mark (BOM). If it is missing,
     host byte order is assumed.
@@ -5674,8 +5690,7 @@ QString QString::fromUtf16(const ushort *unicode, int size)
     Returns a QString initialized with the first \a size characters
     of the Unicode string \a str (ISO-10646-UTF-16 encoded).
 
-    If \a size is -1 (default), \a str must be terminated
-    with a 0.
+    If \a size is -1 (default), \a str must be \\0'-terminated.
 
     This function checks for a Byte Order Mark (BOM). If it is missing,
     host byte order is assumed.
@@ -5695,8 +5710,7 @@ QString QString::fromUtf16(const ushort *unicode, int size)
     Returns a QString initialized with the first \a size characters
     of the Unicode string \a str (ISO-10646-UCS-4 encoded).
 
-    If \a size is -1 (default), \a str must be terminated
-    with a 0.
+    If \a size is -1 (default), \a str must be \\0'-terminated.
 
     \sa toUcs4(), fromUtf16(), utf16(), setUtf16(), fromWCharArray(), fromStdU32String()
 */
@@ -5707,8 +5721,7 @@ QString QString::fromUtf16(const ushort *unicode, int size)
     Returns a QString initialized with the first \a size characters
     of the Unicode string \a unicode (ISO-10646-UCS-4 encoded).
 
-    If \a size is -1 (default), \a unicode must be terminated
-    with a 0.
+    If \a size is -1 (default), \a unicode must be \\0'-terminated.
 
     \sa toUcs4(), fromUtf16(), utf16(), setUtf16(), fromWCharArray(), fromStdU32String()
 */
@@ -5871,7 +5884,7 @@ QString QString::trimmed_helper(QString &str)
 
     The return value is of type QCharRef, a helper class for QString.
     When you get an object of type QCharRef, you can use it as if it
-    were a QChar &. If you assign to it, the assignment will apply to
+    were a reference to a QChar. If you assign to it, the assignment will apply to
     the character in the QString from which you got the reference.
 
     \sa at()
@@ -6718,7 +6731,7 @@ namespace QUnicodeTables {
     this function requires to be a valid, empty string) and \c{s} contains the
     only copy of the string, without reallocation (thus, \a it is still valid).
 
-    There's one pathological case left: when the in-place conversion needs to
+    There is one pathological case left: when the in-place conversion needs to
     reallocate memory to grow the buffer. In that case, we need to adjust the \a
     it pointer.
  */
@@ -6876,7 +6889,7 @@ QString &QString::sprintf(const char *cformat, ...)
     \warning We do not recommend using QString::asprintf() in new Qt
     code. Instead, consider using QTextStream or arg(), both of
     which support Unicode strings seamlessly and are type-safe.
-    Here's an example that uses QTextStream:
+    Here is an example that uses QTextStream:
 
     \snippet qstring/main.cpp 64
 
@@ -7237,7 +7250,7 @@ QString QString::vasprintf(const char *cformat, va_list ap)
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7279,7 +7292,7 @@ qlonglong QString::toIntegral_helper(const QChar *data, int len, bool *ok, int b
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7323,7 +7336,7 @@ qulonglong QString::toIntegral_helper(const QChar *data, uint len, bool *ok, int
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7354,7 +7367,7 @@ long QString::toLong(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7384,7 +7397,7 @@ ulong QString::toULong(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7413,7 +7426,7 @@ int QString::toInt(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7442,7 +7455,7 @@ uint QString::toUInt(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7471,7 +7484,7 @@ short QString::toShort(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -7502,7 +7515,7 @@ ushort QString::toUShort(bool *ok, int base) const
     Returns an infinity if the conversion overflows or 0.0 if the
     conversion fails for other reasons (e.g. underflow).
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     \snippet qstring/main.cpp 66
@@ -7541,7 +7554,7 @@ double QString::toDouble(bool *ok) const
     Returns an infinity if the conversion overflows or 0.0 if the
     conversion fails for other reasons (e.g. underflow).
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     \warning The QString content may only contain valid numerical characters
@@ -7843,7 +7856,7 @@ QStringList QString::split(const QString &sep, SplitBehavior behavior, Qt::CaseS
     the result.
 
     \note All references are valid as long this string is alive. Destroying this
-    string will cause all references be dangling pointers.
+    string will cause all references to be dangling pointers.
 
     \since 5.4
     \sa QStringRef split()
@@ -7877,7 +7890,7 @@ QVector<QStringRef> QString::splitRef(QChar sep, SplitBehavior behavior, Qt::Cas
     the result.
 
     \note All references are valid as long this string is alive. Destroying this
-    string will cause all references be dangling pointers.
+    string will cause all references to be dangling pointers.
 
     \since 5.4
 */
@@ -7926,17 +7939,17 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegEx
     does not match anywhere in the string, split() returns a
     single-element list containing this string.
 
-    Here's an example where we extract the words in a sentence
+    Here is an example where we extract the words in a sentence
     using one or more whitespace characters as the separator:
 
     \snippet qstring/main.cpp 59
 
-    Here's a similar example, but this time we use any sequence of
+    Here is a similar example, but this time we use any sequence of
     non-word characters as the separator:
 
     \snippet qstring/main.cpp 60
 
-    Here's a third example where we use a zero-length assertion,
+    Here is a third example where we use a zero-length assertion,
     \b{\\b} (word boundary), to split the string into an
     alternating sequence of non-word and word tokens:
 
@@ -7959,7 +7972,7 @@ QStringList QString::split(const QRegExp &rx, SplitBehavior behavior) const
     single-element vector containing this string reference.
 
     \note All references are valid as long this string is alive. Destroying this
-    string will cause all references be dangling pointers.
+    string will cause all references to be dangling pointers.
 
     \sa QStringRef split()
 */
@@ -8008,17 +8021,17 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegul
     does not match anywhere in the string, split() returns a
     single-element list containing this string.
 
-    Here's an example where we extract the words in a sentence
+    Here is an example where we extract the words in a sentence
     using one or more whitespace characters as the separator:
 
     \snippet qstring/main.cpp 90
 
-    Here's a similar example, but this time we use any sequence of
+    Here is a similar example, but this time we use any sequence of
     non-word characters as the separator:
 
     \snippet qstring/main.cpp 91
 
-    Here's a third example where we use a zero-length assertion,
+    Here is a third example where we use a zero-length assertion,
     \b{\\b} (word boundary), to split the string into an
     alternating sequence of non-word and word tokens:
 
@@ -8041,7 +8054,7 @@ QStringList QString::split(const QRegularExpression &re, SplitBehavior behavior)
     single-element vector containing this string reference.
 
     \note All references are valid as long this string is alive. Destroying this
-    string will cause all references be dangling pointers.
+    string will cause all references to be dangling pointers.
 
     \sa split() QStringRef
 */
@@ -9178,7 +9191,7 @@ bool QString::isRightToLeft() const
     to create a deep copy of the data, ensuring that the raw data
     isn't modified.
 
-    Here's an example of how we can use a QRegularExpression on raw data in
+    Here is an example of how we can use a QRegularExpression on raw data in
     memory without requiring to copy the data into a QString:
 
     \snippet qstring/main.cpp 22
@@ -9446,11 +9459,11 @@ QString &QString::setRawData(const QChar *unicode, int size)
     The range \c{[first,last)} must remain valid for the lifetime of
     this Latin-1 string object.
 
-    Passing \c nullptr as \a first is safe if \a last is \c nullptr,
+    Passing \nullptr as \a first is safe if \a last is \nullptr,
     too, and results in a null Latin-1 string.
 
     The behavior is undefined if \a last precedes \a first, \a first
-    is \c nullptr and \a last is not, or if \c{last - first >
+    is \nullptr and \a last is not, or if \c{last - first >
     INT_MAX}.
 */
 
@@ -10337,8 +10350,8 @@ ownership of it, no memory is freed when instances are destroyed.
 /*!
     \fn bool QStringRef::isNull() const
 
-    Returns \c true if string() returns a null pointer or a pointer to a
-    null string; otherwise returns \c true.
+    Returns \c true if this string reference does not reference a string or if
+    the string it references is null (i.e. QString::isNull() is true).
 
     \sa size()
 */
@@ -10358,7 +10371,7 @@ ownership of it, no memory is freed when instances are destroyed.
 
     Returns a Unicode representation of the string reference. Since
     the data stems directly from the referenced string, it is not
-    null-terminated unless the string reference includes the string's
+    \\0'-terminated unless the string reference includes the string's
     null terminator.
 
     \sa string()
@@ -11900,7 +11913,7 @@ QByteArray QStringRef::toUtf8() const
     this string is replaced by the Unicode's replacement character
     (QChar::ReplacementCharacter, which corresponds to \c{U+FFFD}).
 
-    The returned vector is not NUL terminated.
+    The returned vector is not \\0'-terminated.
 
     \sa toUtf8(), toLatin1(), toLocal8Bit(), QTextCodec
 */
@@ -11939,7 +11952,7 @@ QStringRef QStringRef::trimmed() const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -11964,7 +11977,7 @@ qint64 QStringRef::toLongLong(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -11991,7 +12004,7 @@ quint64 QStringRef::toULongLong(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -12018,7 +12031,7 @@ long QStringRef::toLong(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -12044,7 +12057,7 @@ ulong QStringRef::toULong(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -12069,7 +12082,7 @@ int QStringRef::toInt(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -12094,7 +12107,7 @@ uint QStringRef::toUInt(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -12119,7 +12132,7 @@ short QStringRef::toShort(bool *ok, int base) const
     base, which is 10 by default and must be between 2 and 36, or 0.
     Returns 0 if the conversion fails.
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     If \a base is 0, the C language convention is used: If the string
@@ -12146,7 +12159,7 @@ ushort QStringRef::toUShort(bool *ok, int base) const
     Returns an infinity if the conversion overflows or 0.0 if the
     conversion fails for other reasons (e.g. underflow).
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     The string conversion will always happen in the 'C' locale. For locale
@@ -12172,7 +12185,7 @@ double QStringRef::toDouble(bool *ok) const
     Returns an infinity if the conversion overflows or 0.0 if the
     conversion fails for other reasons (e.g. underflow).
 
-    If \a ok is not \c nullptr, failure is reported by setting *\a{ok}
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
     to \c false, and success by setting *\a{ok} to \c true.
 
     The string conversion will always happen in the 'C' locale. For locale

@@ -54,6 +54,8 @@ cc_component("cc") {
     "input/snap_fling_controller.h",
     "input/snap_fling_curve.cc",
     "input/snap_fling_curve.h",
+    "input/snap_selection_strategy.cc",
+    "input/snap_selection_strategy.h",
     "input/touch_action.h",
     "layers/append_quads_data.cc",
     "layers/append_quads_data.h",
@@ -148,6 +150,8 @@ cc_component("cc") {
     "raster/gpu_raster_buffer_provider.h",
     "raster/one_copy_raster_buffer_provider.cc",
     "raster/one_copy_raster_buffer_provider.h",
+    "raster/paint_worklet_image_provider.cc",
+    "raster/paint_worklet_image_provider.h",
     "raster/playback_image_provider.cc",
     "raster/playback_image_provider.h",
     "raster/raster_buffer.cc",
@@ -158,6 +162,7 @@ cc_component("cc") {
     "raster/raster_source.h",
     "raster/scoped_gpu_raster.cc",
     "raster/scoped_gpu_raster.h",
+    "raster/scoped_grcontext_access.h",
     "raster/single_thread_task_graph_runner.cc",
     "raster/single_thread_task_graph_runner.h",
     "raster/staging_buffer_pool.cc",
@@ -170,10 +175,6 @@ cc_component("cc") {
     "raster/task_graph_runner.h",
     "raster/task_graph_work_queue.cc",
     "raster/task_graph_work_queue.h",
-    "raster/texture_compressor.cc",
-    "raster/texture_compressor.h",
-    "raster/texture_compressor_etc1.cc",
-    "raster/texture_compressor_etc1.h",
     "raster/tile_task.cc",
     "raster/tile_task.h",
     "raster/zero_copy_raster_buffer_provider.cc",
@@ -222,8 +223,12 @@ cc_component("cc") {
     "tiles/image_controller.h",
     "tiles/image_decode_cache.cc",
     "tiles/image_decode_cache.h",
+    "tiles/image_decode_cache_utils.cc",
+    "tiles/image_decode_cache_utils.h",
     "tiles/mipmap_util.cc",
     "tiles/mipmap_util.h",
+    "tiles/paint_worklet_image_cache.cc",
+    "tiles/paint_worklet_image_cache.h",
     "tiles/picture_layer_tiling.cc",
     "tiles/picture_layer_tiling.h",
     "tiles/picture_layer_tiling_set.cc",
@@ -344,16 +349,6 @@ cc_component("cc") {
     "trees/ukm_manager.h",
   ]
 
-  if (current_cpu == "x86" || current_cpu == "x64") {
-    sources += [
-      "raster/texture_compressor_etc1_sse.cc",
-      "raster/texture_compressor_etc1_sse.h",
-    ]
-  }
-
-  # TODO(khushalsagar): Remove once crbug.com/683263 is fixed.
-  configs = [ "//build/config/compiler:no_size_t_to_int_warning" ]
-
   public_deps = [
     "//cc/base",
     "//cc/paint",
@@ -368,7 +363,6 @@ cc_component("cc") {
     "//gpu",
     "//gpu/command_buffer/client:gles2_interface",
     "//gpu/command_buffer/client:raster_interface",
-    "//gpu/ipc:gl_in_process_context",
     "//gpu/skia_bindings:skia_bindings",
     "//gpu/vulkan:buildflags",
     "//media",  # For VideoLayerImpl.
@@ -384,7 +378,7 @@ cc_component("cc") {
   defines = [ "CC_IMPLEMENTATION=1" ]
 }
 
-cc_static_library("test_support") {
+cc_test_static_library("test_support") {
   testonly = true
   sources = [
     "test/animation_test_common.cc",
@@ -502,6 +496,10 @@ cc_static_library("test_support") {
     "test/test_occlusion_tracker.h",
     "test/test_options_provider.cc",
     "test/test_options_provider.h",
+    "test/test_paint_worklet_input.cc",
+    "test/test_paint_worklet_input.h",
+    "test/test_paint_worklet_layer_painter.cc",
+    "test/test_paint_worklet_layer_painter.h",
     "test/test_skcanvas.cc",
     "test/test_skcanvas.h",
     "test/test_task_graph_runner.cc",
@@ -552,7 +550,7 @@ cc_static_library("test_support") {
   ]
   if (!is_android) {
     data_deps = [
-      "//third_party/mesa:osmesa",
+      "//third_party/mesa_headers",
     ]
   }
 }
@@ -619,6 +617,7 @@ cc_test("cc_unittests") {
     "paint/display_item_list_unittest.cc",
     "paint/filter_operations_unittest.cc",
     "paint/oop_pixeltest.cc",
+    "paint/paint_cache_unittest.cc",
     "paint/paint_filter_unittest.cc",
     "paint/paint_image_unittest.cc",
     "paint/paint_op_buffer_unittest.cc",
@@ -636,7 +635,6 @@ cc_test("cc_unittests") {
     "raster/staging_buffer_pool_unittest.cc",
     "raster/synchronous_task_graph_runner_unittest.cc",
     "raster/task_graph_work_queue_unittest.cc",
-    "raster/texture_compressor_etc1_unittest.cc",
     "resources/resource_pool_unittest.cc",
     "scheduler/compositor_timing_history_unittest.cc",
     "scheduler/scheduler_state_machine_unittest.cc",
@@ -647,6 +645,7 @@ cc_test("cc_unittests") {
     "tiles/gpu_image_decode_cache_unittest.cc",
     "tiles/image_controller_unittest.cc",
     "tiles/mipmap_util_unittest.cc",
+    "tiles/paint_worklet_image_cache_unittest.cc",
     "tiles/picture_layer_tiling_set_unittest.cc",
     "tiles/picture_layer_tiling_unittest.cc",
     "tiles/software_image_decode_cache_unittest.cc",
@@ -717,9 +716,6 @@ cc_test("cc_unittests") {
     cflags = [ "/wd4250" ]
   }
 
-  # TODO(khushalsagar): Remove once crbug.com/683263 is fixed.
-  configs = [ "//build/config/compiler:no_size_t_to_int_warning" ]
-
   deps = [
     ":cc",
     ":test_support",
@@ -751,9 +747,8 @@ cc_test("cc_unittests") {
     "//ui/gl",
     "//ui/gl:test_support",
   ]
-
   data_deps = [
-    "//third_party/mesa:osmesa",
+    "//third_party/mesa_headers",
   ]
 }
 
@@ -766,7 +761,6 @@ cc_test("cc_perftests") {
     "paint/paint_op_perftest.cc",
     "raster/raster_buffer_provider_perftest.cc",
     "raster/task_graph_runner_perftest.cc",
-    "raster/texture_compressor_perftest.cc",
     "test/cc_test_suite.cc",
     "test/cc_test_suite.h",
     "test/run_all_perftests.cc",

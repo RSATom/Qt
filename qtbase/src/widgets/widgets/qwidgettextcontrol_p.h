@@ -80,6 +80,7 @@ class QMenu;
 class QWidgetTextControlPrivate;
 class QAbstractScrollArea;
 class QEvent;
+class QRegularExpression;
 class QTimerEvent;
 
 class Q_WIDGETS_EXPORT QWidgetTextControl : public QInputControl
@@ -118,6 +119,9 @@ public:
     bool find(const QString &exp, QTextDocument::FindFlags options = 0);
 #ifndef QT_NO_REGEXP
     bool find(const QRegExp &exp, QTextDocument::FindFlags options = 0);
+#endif
+#if QT_CONFIG(regularexpression)
+    bool find(const QRegularExpression &exp, QTextDocument::FindFlags options = 0);
 #endif
 
     QString toPlainText() const;
@@ -263,7 +267,7 @@ protected:
     virtual bool event(QEvent *e) override;
 
 private:
-    Q_DISABLE_COPY(QWidgetTextControl)
+    Q_DISABLE_COPY_MOVE(QWidgetTextControl)
     Q_PRIVATE_SLOT(d_func(), void _q_updateCurrentCharFormatAndSelection())
     Q_PRIVATE_SLOT(d_func(), void _q_emitCursorPosChanged(const QTextCursor &))
     Q_PRIVATE_SLOT(d_func(), void _q_deleteSelected())

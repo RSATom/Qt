@@ -140,12 +140,12 @@ bool QSvgIOHandler::canRead() const
     return false;
 }
 
-
+#if QT_DEPRECATED_SINCE(5, 13)
 QByteArray QSvgIOHandler::name() const
 {
     return "svg";
 }
-
+#endif
 
 bool QSvgIOHandler::read(QImage *image)
 {

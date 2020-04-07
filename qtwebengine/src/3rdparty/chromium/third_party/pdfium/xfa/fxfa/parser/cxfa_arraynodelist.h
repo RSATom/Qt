@@ -14,7 +14,7 @@
 class CXFA_Document;
 class CXFA_Node;
 
-class CXFA_ArrayNodeList : public CXFA_TreeList {
+class CXFA_ArrayNodeList final : public CXFA_TreeList {
  public:
   explicit CXFA_ArrayNodeList(CXFA_Document* pDocument);
   ~CXFA_ArrayNodeList() override;
@@ -26,7 +26,7 @@ class CXFA_ArrayNodeList : public CXFA_TreeList {
   void Remove(CXFA_Node* pNode) override;
   CXFA_Node* Item(size_t iIndex) override;
 
-  void SetArrayNodeList(const std::vector<CXFA_Node*>& srcArray);
+  void SetArrayNodeList(std::vector<CXFA_Node*> srcArray);
 
  private:
   std::vector<CXFA_Node*> m_array;

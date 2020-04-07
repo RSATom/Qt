@@ -4,21 +4,27 @@
 
 #include "content/public/browser/url_data_source.h"
 
+#include <utility>
+
+#include "base/memory/ptr_util.h"
+#include "base/task/post_task.h"
 #include "content/browser/webui/url_data_manager.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/url_constants.h"
 #include "net/url_request/url_request.h"
 
 namespace content {
 
+// static
 void URLDataSource::Add(BrowserContext* browser_context,
-                        URLDataSource* source) {
-  URLDataManager::AddDataSource(browser_context, source);
+                        std::unique_ptr<URLDataSource> source) {
+  URLDataManager::AddDataSource(browser_context, std::move(source));
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
 URLDataSource::TaskRunnerForRequestPath(const std::string& path) const {
-  return BrowserThread::GetTaskRunnerForThread(BrowserThread::UI);
+  return base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::UI});
 }
 
 bool URLDataSource::ShouldReplaceExistingSource() const {

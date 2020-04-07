@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -14,12 +15,12 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/command_line.h"
-#include "base/containers/hash_tables.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/metrics/user_metrics.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "content/browser/accessibility/browser_accessibility_android.h"
 #include "content/browser/accessibility/browser_accessibility_manager_android.h"
 #include "content/browser/android/java/gin_java_bridge_dispatcher_host.h"
@@ -68,7 +69,7 @@ namespace {
 
 // Track all WebContentsAndroid objects here so that we don't deserialize a
 // destroyed WebContents object.
-base::LazyInstance<base::hash_set<WebContentsAndroid*>>::Leaky
+base::LazyInstance<std::unordered_set<WebContentsAndroid*>>::Leaky
     g_allocated_web_contents_androids = LAZY_INSTANCE_INITIALIZER;
 
 void JavaScriptResultCallback(const ScopedJavaGlobalRef<jobject>& callback,
@@ -142,7 +143,7 @@ void AXTreeSnapshotCallback(const ScopedJavaGlobalRef<jobject>& callback,
 
 std::string CompressAndSaveBitmap(const std::string& dir,
                                   const SkBitmap& bitmap) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
 
   std::vector<unsigned char> data;
   if (!gfx::JPEGCodec::Encode(bitmap, 85, &data)) {
@@ -199,7 +200,6 @@ WebContents* WebContents::FromJavaWebContents(
 // static
 static void JNI_WebContentsImpl_DestroyWebContents(
     JNIEnv* env,
-    const JavaParamRef<jclass>& clazz,
     jlong jweb_contents_android_ptr) {
   WebContentsAndroid* web_contents_android =
       reinterpret_cast<WebContentsAndroid*>(jweb_contents_android_ptr);
@@ -216,7 +216,6 @@ static void JNI_WebContentsImpl_DestroyWebContents(
 // static
 ScopedJavaLocalRef<jobject> JNI_WebContentsImpl_FromNativePtr(
     JNIEnv* env,
-    const JavaParamRef<jclass>& clazz,
     jlong web_contents_ptr) {
   WebContentsAndroid* web_contents_android =
       reinterpret_cast<WebContentsAndroid*>(web_contents_ptr);
@@ -469,13 +468,23 @@ void WebContentsAndroid::ScrollFocusedEditableNodeIntoView(
   frame->GetFrameInputHandler()->ScrollFocusedEditableNodeIntoRect(gfx::Rect());
 }
 
+void WebContentsAndroid::SelectWordAroundCaretAck(bool did_select,
+                                                  int start_adjust,
+                                                  int end_adjust) {
+  RenderWidgetHostViewAndroid* rwhva = GetRenderWidgetHostViewAndroid();
+  if (rwhva)
+    rwhva->SelectWordAroundCaretAck(did_select, start_adjust, end_adjust);
+}
+
 void WebContentsAndroid::SelectWordAroundCaret(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
-  RenderViewHost* host = web_contents_->GetRenderViewHost();
-  if (!host)
+  RenderFrameHostImpl* frame = web_contents_->GetFocusedFrame();
+  if (!frame)
     return;
-  host->SelectWordAroundCaret();
+  frame->GetFrameInputHandler()->SelectWordAroundCaret(
+      base::BindOnce(&WebContentsAndroid::SelectWordAroundCaretAck,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void WebContentsAndroid::AdjustSelectionByCharacterOffset(
@@ -858,16 +867,6 @@ void WebContentsAndroid::SetFocus(JNIEnv* env,
 bool WebContentsAndroid::IsBeingDestroyed(JNIEnv* env,
                                           const JavaParamRef<jobject>& obj) {
   return web_contents_->IsBeingDestroyed();
-}
-
-int WebContentsAndroid::GetTopControlsShrinkBlinkHeightPixForTesting(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj) {
-  RenderWidgetHostViewAndroid* rwhva = GetRenderWidgetHostViewAndroid();
-  float scale = web_contents_->GetNativeView()->GetDipScale();
-  return (rwhva && rwhva->DoBrowserControlsShrinkBlinkSize())
-             ? rwhva->GetTopControlsHeight() * scale
-             : 0;
 }
 
 void WebContentsAndroid::SetDisplayCutoutSafeArea(

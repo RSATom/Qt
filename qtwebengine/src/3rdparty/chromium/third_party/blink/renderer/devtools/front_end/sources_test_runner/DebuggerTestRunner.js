@@ -299,7 +299,8 @@ SourcesTestRunner.captureStackTraceIntoString = function(callFrames, asyncStackT
       const location = locationFunction.call(frame);
       const script = location.script();
       const uiLocation = Bindings.debuggerWorkspaceBinding.rawLocationToUILocation(location);
-      const isFramework = Bindings.blackboxManager.isBlackboxedRawLocation(location);
+      const isFramework =
+          uiLocation ? Bindings.blackboxManager.isBlackboxedUISourceCode(uiLocation.uiSourceCode) : false;
 
       if (options.dropFrameworkCallFrames && isFramework)
         continue;
@@ -446,6 +447,14 @@ SourcesTestRunner.waitForScriptSource = function(scriptName, callback) {
       SourcesTestRunner.waitForScriptSource.bind(SourcesTestRunner, scriptName, callback));
 };
 
+SourcesTestRunner.objectForPopover = function(sourceFrame, lineNumber, columnNumber) {
+  const debuggerPlugin = SourcesTestRunner.debuggerPlugin(sourceFrame);
+  const {x, y} = debuggerPlugin._textEditor.cursorPositionToCoordinates(lineNumber, columnNumber);
+  const promise = TestRunner.addSnifferPromise(ObjectUI.ObjectPopoverHelper, 'buildObjectPopover');
+  debuggerPlugin._getPopoverRequest({x, y}).show(new UI.GlassPane());
+  return promise;
+};
+
 SourcesTestRunner.setBreakpoint = function(sourceFrame, lineNumber, condition, enabled) {
   const debuggerPlugin = SourcesTestRunner.debuggerPlugin(sourceFrame);
   if (!debuggerPlugin._muted)
@@ -454,7 +463,11 @@ SourcesTestRunner.setBreakpoint = function(sourceFrame, lineNumber, condition, e
 
 SourcesTestRunner.removeBreakpoint = function(sourceFrame, lineNumber) {
   const debuggerPlugin = SourcesTestRunner.debuggerPlugin(sourceFrame);
-  debuggerPlugin._breakpointManager.findBreakpoints(sourceFrame._uiSourceCode, lineNumber)[0].remove();
+  const breakpointLocations = debuggerPlugin._breakpointManager.allBreakpointLocations();
+  const breakpointLocation = breakpointLocations.find(
+      breakpointLocation => breakpointLocation.uiLocation.uiSourceCode === sourceFrame._uiSourceCode &&
+          breakpointLocation.uiLocation.lineNumber === lineNumber);
+  breakpointLocation.breakpoint.remove();
 };
 
 SourcesTestRunner.createNewBreakpoint = function(sourceFrame, lineNumber, condition, enabled) {
@@ -481,8 +494,8 @@ SourcesTestRunner.waitBreakpointSidebarPane = function(waitUntilResolved) {
     if (!waitUntilResolved)
       return;
 
-    for (const breakpoint of Bindings.breakpointManager._allBreakpoints()) {
-      if (breakpoint._fakePrimaryLocation && breakpoint.enabled())
+    for (const {breakpoint} of Bindings.breakpointManager.allBreakpointLocations()) {
+      if (breakpoint._uiLocations.size === 0 && breakpoint.enabled())
         return SourcesTestRunner.waitBreakpointSidebarPane();
     }
   }
@@ -685,17 +698,17 @@ SourcesTestRunner.evaluateOnCurrentCallFrame = function(code) {
   return TestRunner.debuggerModel.evaluateOnSelectedCallFrame({expression: code, objectGroup: 'console'});
 };
 
-SourcesTestRunner.waitDebuggerPluginBreakpoints = function(sourceFrame) {
-  return waitUpdate().then(checkIfReady);
+SourcesTestRunner.waitDebuggerPluginDecorations = function(sourceFrame) {
+  return TestRunner.addSnifferPromise(Sources.DebuggerPlugin.prototype, '_breakpointDecorationsUpdatedForTest');
+};
 
-  async function waitUpdate() {
-    await TestRunner.addSnifferPromise(Sources.DebuggerPlugin.prototype, '_breakpointDecorationsUpdatedForTest');
-  }
+SourcesTestRunner.waitDebuggerPluginBreakpoints = function(sourceFrame) {
+  return SourcesTestRunner.waitDebuggerPluginDecorations().then(checkIfReady);
 
   function checkIfReady() {
-    for (const breakpoint of Bindings.breakpointManager._allBreakpoints()) {
-      if (breakpoint._fakePrimaryLocation && breakpoint.enabled())
-        return waitUpdate().then(checkIfReady);
+    for (const {breakpoint} of Bindings.breakpointManager.allBreakpointLocations()) {
+      if (breakpoint._uiLocations.size === 0 && breakpoint.enabled())
+        return SourcesTestRunner.waitDebuggerPluginDecorations().then(checkIfReady);
     }
 
     return Promise.resolve();

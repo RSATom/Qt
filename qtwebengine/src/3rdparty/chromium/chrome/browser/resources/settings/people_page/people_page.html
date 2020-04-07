@@ -1,8 +1,5 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="chrome://resources/cr_elements/cr_checkbox/cr_checkbox.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_expand_button/cr_expand_button.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
@@ -10,22 +7,21 @@
 <link rel="import" href="chrome://resources/html/icon.html">
 <link rel="import" href="chrome://resources/html/util.html">
 <link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-collapse/iron-collapse.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout-classes.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/neon-animatable.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 <link rel="import" href="../controls/settings_toggle_button.html">
-<link rel="import" href="sync_page.html">
 <link rel="import" href="profile_info_browser_proxy.html">
 <link rel="import" href="sync_browser_proxy.html">
+<link rel="import" href="sync_page.html">
 <link rel="import" href="../icons.html">
+<link rel="import" href="../open_window_proxy.html">
 <link rel="import" href="../route.html">
 <link rel="import" href="../settings_page/settings_animated_pages.html">
 <link rel="import" href="../settings_page/settings_subpage.html">
-<link rel="import" href="../passwords_and_forms_page/autofill_section.html">
-<link rel="import" href="../passwords_and_forms_page/passwords_section.html">
 <link rel="import" href="../settings_shared_css.html">
+<link rel="import" href="signout_dialog.html">
+<link rel="import" href="sync_controls.html">
 
 <if expr="chromeos">
 <link rel="import" href="account_manager.html">
@@ -48,7 +44,7 @@
     <style include="settings-shared iron-flex">
       setting-box.middle {
         /* Per spec, middle text is indented 20px in this section. */
-        -webkit-margin-start: 20px;
+        margin-inline-start: 20px;
       }
 
       #profile-icon {
@@ -57,10 +53,6 @@
         flex-shrink: 0;
         height: 40px;
         width: 40px;
-      }
-
-      #managed-by-domain-name {
-        font-weight: bold;
       }
 
       iron-icon[icon='cr:sync'] {
@@ -96,26 +88,8 @@
         width: 40px;
       }
 
-      #disconnectDialog [slot=footer] .settings-box {
-        --settings-box-row-padding: 0;
-      }
-
-      .delete-profile-warning {
-        -webkit-padding-end: var(--cr-section-padding);
-        /* In order to line up with the checkbox text. */
-        -webkit-padding-start: var(--cr-section-indent-padding);
-        padding-bottom: 10px;
-        padding-top: 10px;
-      }
-
-      #wideFooter {
-        /* Override the cr-dialog footer padding. */
-        padding: 16px 0;
-      }
-
 <if expr="not chromeos">
       #toast {
-        color: white;
         left: 0;
         z-index: 1;
       }
@@ -149,11 +123,12 @@
     </style>
     <settings-animated-pages id="pages" section="people"
         focus-config="[[focusConfig_]]">
-      <neon-animatable route-path="default">
+      <div route-path="default">
 <if expr="not chromeos">
         <template is="dom-if" if="[[shouldShowSyncAccountControl_(diceEnabled_,
             syncStatus.syncSystemEnabled, syncStatus.signinAllowed)]]">
           <settings-sync-account-control
+              unified-consent-enabled="[[unifiedConsentEnabled_]]"
               sync-status="[[syncStatus]]"
               promo-label-with-account="$i18n{peopleSignInPrompt}"
               promo-label-with-no-account="$i18n{peopleSignInPrompt}"
@@ -173,7 +148,7 @@
               </div>
               <div class="middle two-line no-min-width" on-click="onProfileTap_"
                   actionable>
-                <div class="flex text-elide">
+                <div class="flex text-elide settings-box-text">
                   <span id="profile-name">[[profileName_]]</span>
                   <div class="secondary" hidden="[[!syncStatus.signedIn]]">
                     [[syncStatus.signedInUsername]]
@@ -221,7 +196,7 @@
 </if>
             <div class="settings-box two-line" id="sync-overview"
                 hidden="[[!syncStatus.signinAllowed]]">
-              <div class="start">
+              <div class="start settings-box-text">
                 $i18n{syncOverview}
                 <a target="_blank" href="$i18n{syncLearnMoreUrl}">
                   $i18n{learnMore}
@@ -231,26 +206,11 @@
 <if expr="not chromeos">
           </template> <!-- if="[[!diceEnabled_]]" -->
 </if>
-          <div class="settings-box" hidden="[[syncStatus.signinAllowed]]">
-            $i18n{syncDisabledByAdministrator}
-          </div>
         </template>
 
-<if expr="not chromeos">
-        <template is="dom-if" if="[[syncStatus.domain]]">
-          <div class="settings-box">
-            <div class="icon-container">
-              <iron-icon icon="cr20:domain"></iron-icon>
-            </div>
-            <div class="middle"
-                inner-h-t-m-l="[[getDomainHtml_(syncStatus.domain)]]">
-            </div>
-          </div>
-        </template>
-</if>
-
-        <template is="dom-if" if="[[isAdvancedSyncSettingsVisible_(
-            syncStatus, unifiedConsentEnabled_)]]">
+        <template is="dom-if"
+            if="[[isPreUnifiedConsentAdvancedSyncSettingsVisible_(
+                syncStatus, unifiedConsentEnabled_)]]">
           <div class$="settings-box two-line
                   [[getSyncStatusClass_(syncStatus)]]"
               on-click="onSyncTap_" id="sync-status"
@@ -259,7 +219,7 @@
               <iron-icon id="sync-icon" icon$="[[getSyncIcon_(syncStatus)]]">
               </iron-icon>
             </div>
-            <div class="middle">
+            <div class="middle settings-box-text">
               $i18n{sync}
               <div class="secondary" id="syncSecondary">
                 [[syncStatus.statusText]]
@@ -274,32 +234,23 @@
 
         <template is="dom-if" if="[[unifiedConsentEnabled_]]">
           <cr-link-row id="sync-setup"
-              start-icon="settings20:googleg"
               label="$i18n{syncAndNonPersonalizedServices}"
               icon-class="subpage-arrow" on-click="onSyncTap_">
           </cr-link-row>
         </template>
 
-        <template is="dom-if" if="[[autofillHomeEnabled]]">
-          <cr-link-row id="passwordManagerButton"
-               start-icon="settings20:vpn-key"
-               label="$i18n{passwords}" icon-class="subpage-arrow"
-               on-click="onPasswordsTap_"></cr-link-row>
-          <cr-link-row id="paymentManagerButton"
-               start-icon="settings20:credit-card"
-               label="$i18n{creditCards}" icon-class="subpage-arrow"
-               on-click="onAutofillTap_"></cr-link-row>
-          <cr-link-row id="addressesManagerButton"
-               start-icon="settings20:location-on"
-               label="$i18n{addresses}" icon-class="subpage-arrow"
-               on-click="onAutofillTap_"></cr-link-row>
-        </template>
-
 <if expr="not chromeos">
         <template is="dom-if" if="[[diceEnabled_]]">
+          <cr-link-row id="manage-google-account"
+              label="$i18n{manageGoogleAccount}" icon-class="icon-external"
+              hidden="[[!shouldShowGoogleAccount_]]"
+              on-click="openGoogleAccount_"></cr-link-row>
+
           <div class="settings-box" id="edit-profile" on-click="onProfileTap_"
               actionable>
-            <div class="start">$i18n{profileNameAndPicture}</div>
+            <div class="start settings-box-text">
+              $i18n{profileNameAndPicture}
+            </div>
             <paper-icon-button-light class="subpage-arrow">
               <button aria-label="$i18n{editPerson}"></button>
             </paper-icon-button-light>
@@ -310,7 +261,7 @@
 <if expr="chromeos">
         <div id="lock-screen-subpage-trigger" class="settings-box two-line"
             actionable on-click="onConfigureLockTap_">
-          <div class="start">
+          <div class="start settings-box-text">
             [[selectLockScreenTitleString(hasPinLogin)]]
             <div class="secondary" id="lockScreenSecondary">
               [[getPasswordState_(hasPin,
@@ -323,20 +274,29 @@
                 aria-describedby="lockScreenSecondary"></button>
           </paper-icon-button-light>
         </div>
-</if>
 
-        <div id="manage-other-people-subpage-trigger"
-            class="settings-box" on-click="onManageOtherPeople_" actionable
-            hidden="[[isChild_]]">
-          <div class="start">$i18n{manageOtherPeople}</div>
-          <paper-icon-button-light class="subpage-arrow">
-            <button aria-label="$i18n{manageOtherPeople}"></button>
-          </paper-icon-button-light>
-        </div>
+        <template is="dom-if" if="[[isAccountManagerEnabled_]]">
+          <div id="account-manager-subpage-trigger" class="settings-box"
+              actionable on-click="onAccountManagerTap_">
+            <div class="start settings-box-text">
+              $i18n{accountManagerSubMenuLabel}
+            </div>
+            <paper-icon-button-light class="subpage-arrow">
+              <button aria-label="$i18n{accountManagerSubMenuLabel}"></button>
+            </paper-icon-button-light>
+          </div>
+        </template>
+
+        <cr-link-row id="manage-other-people-subpage-trigger"
+            label="$i18n{manageOtherPeople}" icon-class="subpage-arrow"
+            on-click="onManageOtherPeople_"></cr-link-row>
+</if>
 
 <if expr="not chromeos">
         <div class="settings-box" on-click="onImportDataTap_" actionable>
-          <div class="start">$i18n{importTitle}</div>
+          <div class="start settings-box-text">
+            $i18n{importTitle}
+          </div>
           <paper-icon-button-light class="subpage-arrow">
             <button id="importDataDialogTrigger"
                 aria-label="$i18n{importTitle}">
@@ -345,15 +305,16 @@
         </div>
 </if>
 
-      </neon-animatable>
+      </div>
       <template is="dom-if" route-path="/syncSetup"
-          no-search="[[!isAdvancedSyncSettingsVisible_(
+          no-search="[[!isAdvancedSyncSettingsSearchable_(
               syncStatus, unifiedConsentEnabled_)]]">
         <settings-subpage
-            associated-control="[[$$('#sync-status')]]"
+            associated-control="[[getAdvancedSyncSettingsAssociatedControl_(
+                unifiedConsentEnabled_)]]"
             page-title="$i18n{syncPageTitle}"
             learn-more-url="$i18n{syncAndGoogleServicesLearnMoreURL}"
-            no-search$="[[!isAdvancedSyncSettingsVisible_(syncStatus,
+            no-search$="[[!isAdvancedSyncSettingsSearchable_(syncStatus,
                 unifiedConsentEnabled_)]]">
           <settings-sync-page
 <if expr="not chromeos">
@@ -366,25 +327,12 @@
         </settings-subpage>
       </template>
 
-      <template is="dom-if" if="[[autofillHomeEnabled]]">
-        <template is="dom-if" route-path="/passwords">
-          <settings-subpage
-              associated-control="[[$$('#passwordManagerButton')]]"
-              page-title="$i18n{passwords}"
-              learn-more-url="$i18n{passwordManagerLearnMoreURL}"
-              search-label="$i18n{searchPasswords}"
-              search-term="{{passwordFilter_}}">
-            <passwords-section id="passwordSection" filter="[[passwordFilter_]]"
-                prefs="{{prefs}}">
-            </passwords-section>
-          </settings-subpage>
-        </template>
-        <template is="dom-if" route-path="/autofill">
-          <settings-subpage
-              associated-control="[[$$('#addressesManagerButton')]]"
-              page-title="$i18n{autofill}">
-            <settings-autofill-section id="autofillSection" prefs="{{prefs}}">
-            </settings-autofill-section>
+      <template is="dom-if" if="[[unifiedConsentEnabled_]]">
+        <template is="dom-if" route-path="/syncSetup/advanced" no-search>
+          <settings-subpage page-title="$i18n{syncAdvancedPageTitle}"
+              learn-more-url="$i18n{syncAndGoogleServicesLearnMoreURL}">
+            <settings-sync-controls sync-status="[[syncStatus]]">
+            </settings-sync-controls>
           </settings-subpage>
         </template>
       </template>
@@ -421,17 +369,20 @@
           <settings-change-picture></settings-change-picture>
         </settings-subpage>
       </template>
-      <template is="dom-if" route-path="/accountManager">
-        <settings-subpage
-          page-title="$i18n{accountManagerPageTitle}">
-          <settings-account-manager></settings-account-manager>
-        </settings-subpage>
+      <template is="dom-if" if="[[isAccountManagerEnabled_]]">
+        <template is="dom-if" route-path="/accountManager">
+          <settings-subpage
+              associated-control="[[$$('#account-manager-subpage-trigger')]]"
+              page-title="$i18n{accountManagerPageTitle}">
+            <settings-account-manager></settings-account-manager>
+          </settings-subpage>
+        </template>
       </template>
 </if>
 <if expr="not chromeos">
       <template is="dom-if" route-path="/manageProfile">
         <settings-subpage
-            associated-control="[[$$('#picture-subpage-trigger')]]"
+            associated-control="[[getEditPersonAssocControl_(diceEnabled_)]]"
             page-title="$i18n{editPerson}">
           <settings-manage-profile profile-name="[[profileName_]]"
               sync-status="[[syncStatus]]">
@@ -441,51 +392,10 @@
 </if>
     </settings-animated-pages>
 
-    <template is="dom-if" if="[[showDisconnectDialog_]]" restamp>
-      <cr-dialog id="disconnectDialog"
-          ignore-popstate ignore-enter-key
-          on-close="onDisconnectClosed_" close-text="$i18n{close}">
-        <div slot="title">$i18n{syncDisconnectTitle}</div>
-        <div slot="body">
-          <div inner-h-t-m-l="[[
-              getDisconnectExplanationHtml_(syncStatus.domain)]]">
-          </div>
-        </div>
-        <div slot="button-container">
-          <paper-button on-click="onDisconnectCancel_" class="cancel-button">
-            $i18n{cancel}
-          </paper-button>
-          <paper-button id="disconnectConfirm" class="action-button"
-              hidden="[[syncStatus.domain]]" on-click="onDisconnectConfirm_">
-            $i18n{syncDisconnect}
-          </paper-button>
-          <paper-button id="disconnectManagedProfileConfirm"
-              class="action-button" hidden="[[!syncStatus.domain]]"
-              on-click="onDisconnectConfirm_">
-            $i18n{syncDisconnectConfirm}
-          </paper-button>
-        </div>
-<if expr="(not chromeos and is_posix) or is_win or is_macosx">
-        <template is="dom-if" if="[[!syncStatus.domain]]">
-          <div id="wideFooter" slot="footer">
-            <div class="settings-box first">
-              <cr-checkbox id="deleteProfile" class="start"
-                  checked="{{deleteProfile_}}">
-                $i18n{syncDisconnectDeleteProfile}
-              </cr-checkbox>
-              <cr-expand-button expanded="{{deleteProfileWarningVisible_}}"
-                  alt="$i18n{deleteProfileWarningExpandA11yLabel}">
-              </cr-expand-button>
-            </div>
-            <iron-collapse opened="[[deleteProfileWarningVisible_]]">
-              <div class="delete-profile-warning">
-                [[deleteProfileWarning_]]
-              </div>
-            </iron-collapse>
-          </div>
-        </template>
-</if>
-      </cr-dialog>
+    <template is="dom-if" if="[[showSignoutDialog_]]" restamp>
+      <settings-signout-dialog sync-status="[[syncStatus]]"
+          on-close="onDisconnectDialogClosed_">
+      </settings-signout-dialog>
     </template>
 
     <template is="dom-if" if="[[showImportDataDialog_]]" restamp>
@@ -495,7 +405,7 @@
     </template>
 <if expr="not chromeos">
     <cr-toast duration="3000" id="toast">
-      $i18n{syncSettingsSavedToast}
+      <span>$i18n{syncSettingsSavedToast}</span>
     </cr-toast>
 </if>
   </template>

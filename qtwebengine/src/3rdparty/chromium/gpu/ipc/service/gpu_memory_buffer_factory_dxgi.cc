@@ -6,9 +6,9 @@
 #include <wrl.h>
 #include <vector>
 #include "base/trace_event/trace_event.h"
-#include "gpu/GLES2/gl2extchromium.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gl/gl_angle_util_win.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_image_dxgi.h"
 
 namespace gpu {
@@ -99,19 +99,18 @@ ImageFactory* GpuMemoryBufferFactoryDXGI::AsImageFactory() {
 
 scoped_refptr<gl::GLImage>
 GpuMemoryBufferFactoryDXGI::CreateImageForGpuMemoryBuffer(
-    const gfx::GpuMemoryBufferHandle& handle,
+    gfx::GpuMemoryBufferHandle handle,
     const gfx::Size& size,
     gfx::BufferFormat format,
-    unsigned internalformat,
     int client_id,
     SurfaceHandle surface_handle) {
   if (handle.type != gfx::DXGI_SHARED_HANDLE)
     return nullptr;
-  // Transfer ownership of handle to GLImageDXGIHandle.
+  // Transfer ownership of handle to GLImageDXGI.
   base::win::ScopedHandle handle_owner;
   handle_owner.Set(handle.dxgi_handle.GetHandle());
-  auto image = base::MakeRefCounted<gl::GLImageDXGIHandle>(size, 0, format);
-  if (!image->Initialize(std::move(handle_owner)))
+  auto image = base::MakeRefCounted<gl::GLImageDXGI>(size, nullptr);
+  if (!image->InitializeHandle(std::move(handle_owner), 0, format))
     return nullptr;
   return image;
 }

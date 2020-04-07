@@ -186,8 +186,8 @@ void SpellcheckService::InitForRenderer(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   content::BrowserContext* context =
-      content::BrowserContext::GetBrowserContextForServiceUserId(
-          renderer_identity.user_id());
+      content::BrowserContext::GetBrowserContextForServiceInstanceGroup(
+          renderer_identity.instance_group());
   if (SpellcheckServiceFactory::GetForContext(context) != this)
     return;
 
@@ -212,15 +212,15 @@ void SpellcheckService::InitForRenderer(
   spellcheck::mojom::SpellCheckerPtr spellchecker;
 #if defined (TOOLKIT_QT)
   ServiceQt::GetInstance()->connector()->BindInterface(
-      service_manager::Identity("qtwebengine_renderer",
-                                renderer_identity.user_id(),
-                                renderer_identity.instance()),
+      service_manager::ServiceFilter::ByNameWithIdInGroup(
+          "qtwebengine_renderer", renderer_identity.instance_id(),
+          renderer_identity.instance_group()),
       &spellchecker);
 #else
   ChromeService::GetInstance()->connector()->BindInterface(
-      service_manager::Identity(chrome::mojom::kRendererServiceName,
-                                renderer_identity.user_id(),
-                                renderer_identity.instance()),
+      service_manager::ServiceFilter::ByNameWithIdInGroup(
+          chrome::mojom::kRendererServiceName, renderer_identity.instance_id(),
+          renderer_identity.instance_group()),
       &spellchecker);
 #endif
   spellchecker->Initialize(std::move(dictionaries), custom_words, enable);
@@ -310,15 +310,17 @@ void SpellcheckService::OnCustomDictionaryChanged(
     spellcheck::mojom::SpellCheckerPtr spellchecker;
 #if defined (TOOLKIT_QT)
     ServiceQt::GetInstance()->connector()->BindInterface(
-        service_manager::Identity("qtwebengine_renderer",
-                                  renderer_identity.user_id(),
-                                  renderer_identity.instance()),
+        service_manager::ServiceFilter::ByNameWithIdInGroup(
+            "qtwebengine_renderer",
+            renderer_identity.instance_id(),
+            renderer_identity.instance_group()),
         &spellchecker);
 #else
     ChromeService::GetInstance()->connector()->BindInterface(
-        service_manager::Identity(chrome::mojom::kRendererServiceName,
-                                  renderer_identity.user_id(),
-                                  renderer_identity.instance()),
+        service_manager::ServiceFilter::ByNameWithIdInGroup(
+            chrome::mojom::kRendererServiceName,
+            renderer_identity.instance_id(),
+            renderer_identity.instance_group()),
         &spellchecker);
 #endif
     spellchecker->CustomDictionaryChanged(additions, deletions);

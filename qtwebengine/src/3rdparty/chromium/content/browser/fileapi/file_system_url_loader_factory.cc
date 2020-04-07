@@ -15,11 +15,12 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -94,10 +95,9 @@ class FileSystemEntryURLLoader
       : binding_(this), params_(std::move(params)) {}
 
   // network::mojom::URLLoader:
-  void FollowRedirect(const base::Optional<std::vector<std::string>>&
-                          to_be_removed_request_headers,
-                      const base::Optional<net::HttpRequestHeaders>&
-                          modified_request_headers) override {}
+  void FollowRedirect(const std::vector<std::string>& removed_headers,
+                      const net::HttpRequestHeaders& modified_headers,
+                      const base::Optional<GURL>& new_url) override {}
   void ProceedWithResponse() override {}
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override {}
@@ -158,8 +158,11 @@ class FileSystemEntryURLLoader
       return;
     }
 
+    // If the requested URL is not commitable in the current process, block the
+    // request.  This prevents one origin from fetching filesystem: resources
+    // belonging to another origin, see https://crbug.com/964245.
     if (params_.render_process_host_id != ChildProcessHost::kInvalidUniqueID &&
-        !ChildProcessSecurityPolicyImpl::GetInstance()->CanRequestURL(
+        !ChildProcessSecurityPolicyImpl::GetInstance()->CanCommitURL(
             params_.render_process_host_id, request.url)) {
       DVLOG(1) << "Denied unauthorized request for "
                << request.url.possibly_invalid_spec();
@@ -329,8 +332,18 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
   }
 
   void WriteDirectoryData() {
-    mojo::DataPipe pipe(std::max(data_.size(), kDefaultFileSystemUrlPipeSize));
-    if (!pipe.consumer_handle.is_valid()) {
+    MojoCreateDataPipeOptions options;
+    options.struct_size = sizeof(MojoCreateDataPipeOptions);
+    options.flags = MOJO_CREATE_DATA_PIPE_FLAG_NONE;
+    options.element_num_bytes = 1;
+    options.capacity_num_bytes =
+        std::max(data_.size(), kDefaultFileSystemUrlPipeSize);
+
+    mojo::ScopedDataPipeProducerHandle producer_handle;
+    mojo::ScopedDataPipeConsumerHandle consumer_handle;
+    MojoResult rv =
+        mojo::CreateDataPipe(&options, &producer_handle, &consumer_handle);
+    if (rv != MOJO_RESULT_OK) {
       OnClientComplete(net::ERR_FAILED);
       return;
     }
@@ -342,10 +355,10 @@ class FileSystemDirectoryURLLoader : public FileSystemEntryURLLoader {
     head.headers = CreateHttpResponseHeaders(200);
 
     client_->OnReceiveResponse(head);
-    client_->OnStartLoadingResponseBody(std::move(pipe.consumer_handle));
+    client_->OnStartLoadingResponseBody(std::move(consumer_handle));
 
     data_producer_ = std::make_unique<mojo::StringDataPipeProducer>(
-        std::move(pipe.producer_handle));
+        std::move(producer_handle));
 
     data_producer_->Write(
         base::StringPiece(data_),
@@ -446,14 +459,6 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
           original_request_.url.ReplaceComponents(replacements);
       head_.encoded_data_length = 0;
       client_->OnReceiveRedirect(redirect_info, head_);
-
-      // Restart the request with a directory loader.
-      network::ResourceRequest new_request = original_request_;
-      new_request.url = redirect_info.new_url;
-      FileSystemDirectoryURLLoader::CreateAndStart(
-          new_request, binding_.Unbind(), client_.PassInterface(),
-          std::move(params_), io_task_runner_);
-      MaybeDeleteSelf();
       return;
     }
 
@@ -466,12 +471,19 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
         url_, byte_range_.first_byte_position(), remaining_bytes_,
         base::Time());
 
-    mojo::DataPipe pipe(remaining_bytes_);
-    if (!pipe.consumer_handle.is_valid()) {
+    MojoCreateDataPipeOptions options;
+    options.struct_size = sizeof(MojoCreateDataPipeOptions);
+    options.flags = MOJO_CREATE_DATA_PIPE_FLAG_NONE;
+    options.element_num_bytes = 1;
+    options.capacity_num_bytes = remaining_bytes_;
+
+    mojo::ScopedDataPipeProducerHandle producer_handle;
+    MojoResult rv =
+        mojo::CreateDataPipe(&options, &producer_handle, &consumer_handle_);
+    if (rv != MOJO_RESULT_OK) {
       OnClientComplete(net::ERR_FAILED);
       return;
     }
-    consumer_handle_ = std::move(pipe.consumer_handle);
 
     head_.mime_type = "text/html";  // Will sniff file and possibly override.
     head_.charset = "utf-8";
@@ -479,9 +491,10 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
     head_.headers = CreateHttpResponseHeaders(200);
 
     data_producer_ = std::make_unique<mojo::StringDataPipeProducer>(
-        std::move(pipe.producer_handle));
+        std::move(producer_handle));
 
-    file_data_ = new net::IOBuffer(kDefaultFileSystemUrlPipeSize);
+    file_data_ =
+        base::MakeRefCounted<net::IOBuffer>(kDefaultFileSystemUrlPipeSize);
     ReadMoreFileData();
   }
 
@@ -490,9 +503,10 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
         static_cast<int64_t>(kDefaultFileSystemUrlPipeSize), remaining_bytes_);
     if (!bytes_to_read) {
       if (consumer_handle_.is_valid()) {
-        // This was an empty file; make sure to call OnReceiveResponse
-        // regardless.
+        // This was an empty file; make sure to call OnReceiveResponse and
+        // OnStartLoadingResponseBody regardless.
         client_->OnReceiveResponse(head_);
+        client_->OnStartLoadingResponseBody(std::move(consumer_handle_));
       }
       OnFileWritten(MOJO_RESULT_OK);
       return;
@@ -522,6 +536,7 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
         SniffMimeType(file_data_->data(), result, url_.ToGURL(), type_hint,
                       net::ForceSniffFileUrlsForHtml::kDisabled,
                       &head_.mime_type);
+        head_.did_mime_sniff = true;
       }
 
       client_->OnReceiveResponse(head_);
@@ -645,7 +660,7 @@ CreateFileSystemURLLoaderFactory(
 
   return std::make_unique<FileSystemURLLoaderFactory>(
       std::move(params),
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}));
 }
 
 }  // namespace content

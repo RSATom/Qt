@@ -51,12 +51,11 @@
 // We mean it.
 //
 
-#include <QtWebEngineCore/private/qtwebenginecoreglobal_p.h>
 #include <QtWebEngine/private/qtwebengineglobal_p.h>
-#include "qquickwebenginescript.h"
 #include <QQuickItem>
 #include <QtGui/qcolor.h>
 
+#include "qquickwebenginescript.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -65,6 +64,7 @@ class QQuickContextMenuBuilder;
 class QQuickWebEngineAction;
 class QQuickWebEngineAuthenticationDialogRequest;
 class QQuickWebEngineCertificateError;
+class QQuickWebEngineClientCertificateSelection;
 class QQuickWebEngineColorDialogRequest;
 class QQuickWebEngineContextMenuRequest;
 class QQuickWebEngineFaviconProvider;
@@ -104,7 +104,7 @@ private:
     const bool m_toggleOn;
 };
 
-#define LATEST_WEBENGINEVIEW_REVISION 7
+#define LATEST_WEBENGINEVIEW_REVISION 9
 
 class Q_WEBENGINE_PRIVATE_EXPORT QQuickWebEngineView : public QQuickItem {
     Q_OBJECT
@@ -209,7 +209,8 @@ public:
         MediaAudioVideoCapture,
         Geolocation,
         DesktopVideoCapture,
-        DesktopAudioVideoCapture
+        DesktopAudioVideoCapture,
+        Notifications,
     };
     Q_ENUM(Feature)
 
@@ -550,6 +551,7 @@ Q_SIGNALS:
     Q_REVISION(7) void devToolsViewChanged();
     Q_REVISION(7) void registerProtocolHandlerRequested(const QWebEngineRegisterProtocolHandlerRequest &request);
     Q_REVISION(8) void printRequested();
+    Q_REVISION(9) void selectClientCertificate(QQuickWebEngineClientCertificateSelection *clientCertSelection);
 
 #if QT_CONFIG(webengine_testsupport)
     void testSupportChanged();

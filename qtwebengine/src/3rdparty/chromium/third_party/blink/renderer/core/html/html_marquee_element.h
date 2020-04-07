@@ -33,12 +33,14 @@ class HTMLMarqueeElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   static HTMLMarqueeElement* Create(Document&);
 
-  InsertionNotificationRequest InsertedInto(ContainerNode*) final;
-  void RemovedFrom(ContainerNode*) final;
+  explicit HTMLMarqueeElement(Document&);
+
+  InsertionNotificationRequest InsertedInto(ContainerNode&) final;
+  void RemovedFrom(ContainerNode&) final;
 
   bool IsHorizontal() const;
 
@@ -55,7 +57,6 @@ class HTMLMarqueeElement final : public HTMLElement {
   void stop();
 
  private:
-  explicit HTMLMarqueeElement(Document&);
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
 
   bool IsPresentationAttribute(const QualifiedName&) const override;

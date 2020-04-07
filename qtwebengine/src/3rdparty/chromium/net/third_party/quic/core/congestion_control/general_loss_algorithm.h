@@ -27,6 +27,8 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
 
   GeneralLossAlgorithm();
   explicit GeneralLossAlgorithm(LossDetectionType loss_type);
+  GeneralLossAlgorithm(const GeneralLossAlgorithm&) = delete;
+  GeneralLossAlgorithm& operator=(const GeneralLossAlgorithm&) = delete;
   ~GeneralLossAlgorithm() override {}
 
   LossDetectionType GetLossDetectionType() const override;
@@ -40,6 +42,7 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
                     QuicTime time,
                     const RttStats& rtt_stats,
                     QuicPacketNumber largest_newly_acked,
+                    const AckedPacketVector& packets_acked,
                     LostPacketVector* packets_lost) override;
 
   // Returns a non-zero value when the early retransmit timer is active.
@@ -58,8 +61,8 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
   QuicTime loss_detection_timeout_;
   // Largest sent packet when a spurious retransmit is detected.
   // Prevents increasing the reordering threshold multiple times per epoch.
-  // TODO(ianswett): Deprecate when
-  // quic_reloadable_flag_quic_fix_adaptive_time_loss is deprecated.
+  // TODO(ianswett): Deprecate when quic_fix_adaptive_time_loss flag is
+  // deprecated.
   QuicPacketNumber largest_sent_on_spurious_retransmit_;
   LossDetectionType loss_type_;
   // Fraction of a max(SRTT, latest_rtt) to permit reordering before declaring
@@ -69,9 +72,14 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
   // The largest newly acked from the previous call to DetectLosses.
   QuicPacketNumber largest_previously_acked_;
   // The largest lost packet.
+  // TODO(fayang): Remove this variable when deprecating
+  // quic_faster_detect_loss.
   QuicPacketNumber largest_lost_;
-
-  DISALLOW_COPY_AND_ASSIGN(GeneralLossAlgorithm);
+  // The least in flight packet. Loss detection should start from this. Please
+  // note, least_in_flight_ could be largest packet ever sent + 1.
+  QuicPacketNumber least_in_flight_;
+  // Latched value of quic_faster_detect_loss flag.
+  const bool faster_detect_loss_;
 };
 
 }  // namespace quic

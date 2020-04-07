@@ -68,13 +68,14 @@ class Entity;
 class Renderer;
 class Buffer;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT SendBufferCaptureJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT SendBufferCaptureJob : public Qt3DCore::QAspectJob
 {
 public:
     explicit SendBufferCaptureJob();
     ~SendBufferCaptureJob();
 
     void addRequest(QPair<Buffer*, QByteArray> request);
+    bool hasRequests() const;
 
     void run() final;
 

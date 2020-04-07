@@ -8,14 +8,13 @@
 #include <memory>
 #include <string>
 
-#include "fxjs/cfxjs_engine.h"
-#include "fxjs/cfxjse_value.h"
 #include "testing/embedder_test.h"
 #include "xfa/fxfa/parser/cxfa_document.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
-#include "xfa/fxfa/parser/cxfa_object.h"
 
 class CFXJSE_Engine;
+class CFXJSE_Value;
+class CFX_V8ArrayBufferAllocator;
 
 class XFAJSEmbedderTest : public EmbedderTest {
  public:
@@ -31,12 +30,12 @@ class XFAJSEmbedderTest : public EmbedderTest {
                                JavaScriptOption javascript_option) override;
 
   v8::Isolate* GetIsolate() const { return isolate_; }
-  CXFA_Document* GetXFADocument();
+  CXFA_Document* GetXFADocument() const;
 
-  bool Execute(const ByteStringView& input);
-  bool ExecuteSilenceFailure(const ByteStringView& input);
+  bool Execute(ByteStringView input);
+  bool ExecuteSilenceFailure(ByteStringView input);
 
-  CFXJSE_Engine* GetScriptContext() { return script_context_; }
+  CFXJSE_Engine* GetScriptContext() const { return script_context_; }
   CFXJSE_Value* GetValue() const { return value_.get(); }
 
  private:
@@ -45,7 +44,7 @@ class XFAJSEmbedderTest : public EmbedderTest {
   v8::Isolate* isolate_ = nullptr;
   CFXJSE_Engine* script_context_ = nullptr;
 
-  bool ExecuteHelper(const ByteStringView& input);
+  bool ExecuteHelper(ByteStringView input);
 };
 
 #endif  // TESTING_XFA_JS_EMBEDDER_TEST_H_

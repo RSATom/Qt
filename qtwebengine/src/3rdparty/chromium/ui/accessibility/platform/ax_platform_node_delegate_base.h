@@ -15,8 +15,8 @@ namespace ui {
 // behavior.
 class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
  public:
-  AXPlatformNodeDelegateBase() {}
-  ~AXPlatformNodeDelegateBase() override {}
+  AXPlatformNodeDelegateBase();
+  ~AXPlatformNodeDelegateBase() override;
 
   // Get the accessibility data that should be exposed for this node.
   // Virtually all of the information is obtained from this structure
@@ -27,8 +27,8 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   // Get the accessibility tree data for this node.
   const AXTreeData& GetTreeData() const override;
 
-  // Get the window the node is contained in.
-  gfx::NativeWindow GetTopLevelWidget() override;
+  // See comments in AXPlatformNodeDelegate.
+  gfx::NativeViewAccessible GetNSWindow() override;
 
   // Get the parent of the node, which may be an AXPlatformNode or it may
   // be a native accessible object implemented by another class.
@@ -92,16 +92,40 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   // Tables. All of these should be called on a node that's a table-like
   // role.
   //
+  bool IsTable() const override;
+  int32_t GetTableColCount() const override;
+  int32_t GetTableRowCount() const override;
+  int32_t GetTableAriaColCount() const override;
+  int32_t GetTableAriaRowCount() const override;
+  int32_t GetTableCellCount() const override;
+  const std::vector<int32_t> GetColHeaderNodeIds() const override;
+  const std::vector<int32_t> GetColHeaderNodeIds(
+      int32_t col_index) const override;
+  const std::vector<int32_t> GetRowHeaderNodeIds() const override;
+  const std::vector<int32_t> GetRowHeaderNodeIds(
+      int32_t row_index) const override;
 
-  int GetTableRowCount() const override;
-  int GetTableColCount() const override;
-  std::vector<int32_t> GetColHeaderNodeIds() const override;
-  std::vector<int32_t> GetColHeaderNodeIds(int32_t col_index) const override;
-  std::vector<int32_t> GetRowHeaderNodeIds() const override;
-  std::vector<int32_t> GetRowHeaderNodeIds(int32_t row_index) const override;
+  // Table row-like nodes.
+  bool IsTableRow() const override;
+  int32_t GetTableRowRowIndex() const override;
+
+  // Table cell-like nodes.
+  bool IsTableCellOrHeader() const override;
+  int32_t GetTableCellIndex() const override;
+  int32_t GetTableCellColIndex() const override;
+  int32_t GetTableCellRowIndex() const override;
+  int32_t GetTableCellColSpan() const override;
+  int32_t GetTableCellRowSpan() const override;
+  int32_t GetTableCellAriaColIndex() const override;
+  int32_t GetTableCellAriaRowIndex() const override;
   int32_t GetCellId(int32_t row_index, int32_t col_index) const override;
-  int32_t CellIdToIndex(int32_t cell_id) const override;
   int32_t CellIndexToId(int32_t cell_index) const override;
+
+  // Ordered-set-like and item-like nodes.
+  bool IsOrderedSetItem() const override;
+  bool IsOrderedSet() const override;
+  int32_t GetPosInSet() const override;
+  int32_t GetSetSize() const override;
 
   //
   // Events.

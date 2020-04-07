@@ -43,6 +43,7 @@
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
@@ -55,6 +56,7 @@
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
 #include "third_party/blink/renderer/core/events/text_event.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -148,7 +150,7 @@ DragController::DragController(Page* page)
       did_initiate_drag_(false) {}
 
 DragController* DragController::Create(Page* page) {
-  return new DragController(page);
+  return MakeGarbageCollected<DragController>(page);
 }
 
 static DocumentFragment* DocumentFragmentFromDragData(
@@ -206,9 +208,7 @@ bool DragController::DragIsMove(FrameSelection& selection,
          !IsCopyKeyDown(drag_data);
 }
 
-// FIXME: This method is poorly named.  We're just clearing the selection from
-// the document this drag is exiting.
-void DragController::CancelDrag() {
+void DragController::ClearDragCaret() {
   page_->GetDragCaret().Clear();
 }
 
@@ -242,9 +242,10 @@ void DragController::PerformDrag(DragData* drag_data, LocalFrame& local_root) {
   DCHECK(drag_data);
   document_under_mouse_ =
       local_root.DocumentAtPoint(LayoutPoint(drag_data->ClientPosition()));
-  std::unique_ptr<UserGestureIndicator> gesture = Frame::NotifyUserActivation(
-      document_under_mouse_ ? document_under_mouse_->GetFrame() : nullptr,
-      UserGestureToken::kNewGesture);
+  std::unique_ptr<UserGestureIndicator> gesture =
+      LocalFrame::NotifyUserActivation(
+          document_under_mouse_ ? document_under_mouse_->GetFrame() : nullptr,
+          UserGestureToken::kNewGesture);
   if ((drag_destination_action_ & kDragDestinationActionDHTML) &&
       document_is_handling_drag_) {
     bool prevented_default = false;
@@ -275,7 +276,7 @@ void DragController::PerformDrag(DragData* drag_data, LocalFrame& local_root) {
     }
     if (prevented_default) {
       document_under_mouse_ = nullptr;
-      CancelDrag();
+      ClearDragCaret();
       return;
     }
   }
@@ -295,9 +296,10 @@ void DragController::PerformDrag(DragData* drag_data, LocalFrame& local_root) {
       // origin rather than the origin of the dragged data URL?
       resource_request.SetRequestorOrigin(
           SecurityOrigin::Create(KURL(drag_data->AsURL())));
-      resource_request.SetHasUserGesture(Frame::HasTransientUserActivation(
+      resource_request.SetHasUserGesture(LocalFrame::HasTransientUserActivation(
           document_under_mouse_ ? document_under_mouse_->GetFrame() : nullptr));
-      page_->MainFrame()->Navigate(FrameLoadRequest(nullptr, resource_request));
+      page_->MainFrame()->Navigate(FrameLoadRequest(nullptr, resource_request),
+                                   WebFrameLoadType::kStandard);
     }
 
     // TODO(bokan): This case happens when we end a URL drag inside a guest
@@ -315,7 +317,7 @@ void DragController::MouseMovedIntoDocument(Document* new_document) {
 
   // If we were over another document clear the selection
   if (document_under_mouse_)
-    CancelDrag();
+    ClearDragCaret();
   document_under_mouse_ = new_document;
 }
 
@@ -346,7 +348,7 @@ static HTMLInputElement* AsFileInput(Node* node) {
   DCHECK(node);
   for (; node; node = node->OwnerShadowHost()) {
     if (IsHTMLInputElement(*node) &&
-        ToHTMLInputElement(node)->type() == InputTypeNames::file)
+        ToHTMLInputElement(node)->type() == input_type_names::kFile)
       return ToHTMLInputElement(node);
   }
   return nullptr;
@@ -470,34 +472,34 @@ DragOperation DragController::OperationForLoad(DragData* drag_data,
 // |range|, otherwise returns false.
 // TODO(yosin): We should return |VisibleSelection| rather than three values.
 static bool SetSelectionToDragCaret(LocalFrame* frame,
-                                    VisibleSelection& drag_caret,
+                                    const SelectionInDOMTree& drag_caret,
                                     Range*& range,
                                     const LayoutPoint& point) {
-  frame->Selection().SetSelectionAndEndTyping(drag_caret.AsSelection());
-  if (frame->Selection()
-          .ComputeVisibleSelectionInDOMTreeDeprecated()
-          .IsNone()) {
-    // TODO(editing-dev): The use of
-    // updateStyleAndLayoutIgnorePendingStylesheets
-    // needs to be audited.  See http://crbug.com/590369 for more details.
-    // |LocalFrame::positinForPoint()| requires clean layout.
-    frame->GetDocument()->UpdateStyleAndLayoutIgnorePendingStylesheets();
-    const PositionWithAffinity& position = frame->PositionForPoint(point);
-    if (!position.IsConnected())
-      return false;
-
-    frame->Selection().SetSelectionAndEndTyping(
-        SelectionInDOMTree::Builder().Collapse(position).Build());
-    drag_caret =
-        frame->Selection().ComputeVisibleSelectionInDOMTreeDeprecated();
-    range = CreateRange(drag_caret.ToNormalizedEphemeralRange());
+  frame->Selection().SetSelectionAndEndTyping(drag_caret);
+  // TODO(editing-dev): The use of
+  // UpdateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  frame->GetDocument()->UpdateStyleAndLayoutIgnorePendingStylesheets();
+  if (!frame->Selection().ComputeVisibleSelectionInDOMTree().IsNone()) {
+    return frame->Selection()
+        .ComputeVisibleSelectionInDOMTree()
+        .IsContentEditable();
   }
-  return !frame->Selection()
-              .ComputeVisibleSelectionInDOMTreeDeprecated()
-              .IsNone() &&
-         frame->Selection()
-             .ComputeVisibleSelectionInDOMTreeDeprecated()
-             .IsContentEditable();
+
+  const PositionWithAffinity& position = frame->PositionForPoint(point);
+  if (!position.IsConnected())
+    return false;
+
+  frame->Selection().SetSelectionAndEndTyping(
+      SelectionInDOMTree::Builder().Collapse(position).Build());
+  // TODO(editing-dev): The use of
+  // UpdateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  frame->GetDocument()->UpdateStyleAndLayoutIgnorePendingStylesheets();
+  const VisibleSelection& visible_selection =
+      frame->Selection().ComputeVisibleSelectionInDOMTree();
+  range = CreateRange(visible_selection.ToNormalizedEphemeralRange());
+  return !visible_selection.IsNone() && visible_selection.IsContentEditable();
 }
 
 DispatchEventResult DragController::DispatchTextInputEventFor(
@@ -517,7 +519,7 @@ DispatchEventResult DragController::DispatchTextInputEventFor(
       CreateVisibleSelection(
           SelectionInDOMTree::Builder().Collapse(caret_position).Build()));
   return target->DispatchEvent(
-      TextEvent::CreateForDrop(inner_frame->DomWindow(), text));
+      *TextEvent::CreateForDrop(inner_frame->DomWindow(), text));
 }
 
 bool DragController::ConcludeEditDrag(DragData* drag_data) {
@@ -652,7 +654,8 @@ bool DragController::ConcludeEditDrag(DragData* drag_data) {
           return false;
       }
     } else {
-      if (SetSelectionToDragCaret(inner_frame, drag_caret, range, point)) {
+      if (SetSelectionToDragCaret(inner_frame, drag_caret.AsSelection(), range,
+                                  point)) {
         DCHECK(document_under_mouse_);
         if (!inner_frame->GetEditor().ReplaceSelectionAfterDraggingWithEvents(
                 element, drag_data, fragment, range,
@@ -667,7 +670,8 @@ bool DragController::ConcludeEditDrag(DragData* drag_data) {
     if (text.IsEmpty())
       return false;
 
-    if (SetSelectionToDragCaret(inner_frame, drag_caret, range, point)) {
+    if (SetSelectionToDragCaret(inner_frame, drag_caret.AsSelection(), range,
+                                point)) {
       DCHECK(document_under_mouse_);
       if (!inner_frame->GetEditor().ReplaceSelectionAfterDraggingWithEvents(
               element, drag_data,
@@ -928,7 +932,7 @@ bool DragController::PopulateDragDataTransfer(LocalFrame* src,
   HitTestResult hit_test_result =
       src->GetEventHandler().HitTestResultAtLocation(location);
   // FIXME: Can this even happen? I guess it's possible, but should verify
-  // with a layout test.
+  // with a web test.
   if (!state.drag_src_->IsShadowIncludingInclusiveAncestorOf(
           hit_test_result.InnerNode())) {
     // The original node being dragged isn't under the drag origin anymore...
@@ -1050,11 +1054,12 @@ static std::unique_ptr<DragImage> DragImageForImage(
     image = svg_image.get();
   }
 
-  InterpolationQuality interpolation_quality =
-      element->EnsureComputedStyle()->ImageRendering() ==
-              EImageRendering::kPixelated
-          ? kInterpolationNone
-          : kInterpolationDefault;
+  InterpolationQuality interpolation_quality = kInterpolationDefault;
+  if (const ComputedStyle* style = element->GetComputedStyle()) {
+    if (style->ImageRendering() == EImageRendering::kPixelated)
+      interpolation_quality = kInterpolationNone;
+  }
+
   RespectImageOrientationEnum should_respect_image_orientation =
       LayoutObject::ShouldRespectImageOrientation(element->GetLayoutObject());
   ImageOrientation orientation;
@@ -1139,8 +1144,9 @@ std::unique_ptr<DragImage> DragController::DragImageForSelection(
       kGlobalPaintSelectionOnly | kGlobalPaintFlattenCompositingLayers;
 
   PaintRecordBuilder builder;
-  frame.View()->PaintContents(builder.Context(), paint_flags,
-                              EnclosingIntRect(painting_rect));
+  frame.View()->PaintContentsOutsideOfLifecycle(
+      builder.Context(), paint_flags,
+      CullRect(EnclosingIntRect(painting_rect)));
 
   PropertyTreeState property_tree_state =
       frame.View()->GetLayoutView()->FirstFragment().LocalBorderBoxProperties();
@@ -1295,7 +1301,7 @@ void DragController::DoSystemDrag(DragImage* image,
       frame->View()->FrameToViewport(drag_location);
   IntPoint adjusted_event_pos = frame->View()->FrameToViewport(event_pos);
   IntSize offset_size(adjusted_event_pos - adjusted_drag_location);
-  WebPoint offset_point(offset_size.Width(), offset_size.Height());
+  gfx::Point offset_point(offset_size.Width(), offset_size.Height());
   WebDragData drag_data = data_transfer->GetDataObject()->ToWebDragData();
   WebDragOperationsMask drag_operation_mask =
       static_cast<WebDragOperationsMask>(data_transfer->SourceOperation());
@@ -1339,7 +1345,7 @@ bool DragController::IsCopyKeyDown(DragData* drag_data) {
 
 DragState& DragController::GetDragState() {
   if (!drag_state_)
-    drag_state_ = new DragState;
+    drag_state_ = MakeGarbageCollected<DragState>();
   return *drag_state_;
 }
 

@@ -75,14 +75,14 @@ StyleElement::ProcessingResult StyleElement::ProcessStyleSheet(
 }
 
 void StyleElement::RemovedFrom(Element& element,
-                               ContainerNode* insertion_point) {
-  if (!insertion_point->isConnected())
+                               ContainerNode& insertion_point) {
+  if (!insertion_point.isConnected())
     return;
 
   Document& document = element.GetDocument();
   if (registered_as_candidate_) {
     document.GetStyleEngine().RemoveStyleSheetCandidateNode(element,
-                                                            *insertion_point);
+                                                            insertion_point);
     registered_as_candidate_ = false;
   }
 
@@ -123,8 +123,7 @@ void StyleElement::ClearSheet(Element& owner_element) {
 
 static bool ShouldBypassMainWorldCSP(const Element& element) {
   // Main world CSP is bypassed within an isolated world.
-  LocalFrame* frame = element.GetDocument().GetFrame();
-  if (frame && frame->GetScriptController().ShouldBypassMainWorldCSP())
+  if (ContentSecurityPolicy::ShouldBypassMainWorld(&element.GetDocument()))
     return true;
 
   // Main world CSP is bypassed for style elements in user agent shadow DOM.

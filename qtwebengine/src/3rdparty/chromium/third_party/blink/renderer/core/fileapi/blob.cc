@@ -84,23 +84,24 @@ Blob::~Blob() = default;
 Blob* Blob::Create(
     ExecutionContext* context,
     const HeapVector<ArrayBufferOrArrayBufferViewOrBlobOrUSVString>& blob_parts,
-    const BlobPropertyBag& options,
+    const BlobPropertyBag* options,
     ExceptionState& exception_state) {
-  DCHECK(options.hasType());
+  DCHECK(options->hasType());
 
-  DCHECK(options.hasEndings());
-  bool normalize_line_endings_to_native = options.endings() == "native";
+  DCHECK(options->hasEndings());
+  bool normalize_line_endings_to_native = (options->endings() == "native");
   if (normalize_line_endings_to_native)
     UseCounter::Count(context, WebFeature::kFileAPINativeLineEndings);
 
   std::unique_ptr<BlobData> blob_data = BlobData::Create();
-  blob_data->SetContentType(NormalizeType(options.type()));
+  blob_data->SetContentType(NormalizeType(options->type()));
 
   PopulateBlobData(blob_data.get(), blob_parts,
                    normalize_line_endings_to_native);
 
   long long blob_size = blob_data->length();
-  return new Blob(BlobDataHandle::Create(std::move(blob_data), blob_size));
+  return MakeGarbageCollected<Blob>(
+      BlobDataHandle::Create(std::move(blob_data), blob_size));
 }
 
 Blob* Blob::Create(const unsigned char* data,
@@ -113,7 +114,8 @@ Blob* Blob::Create(const unsigned char* data,
   blob_data->AppendBytes(data, bytes);
   long long blob_size = blob_data->length();
 
-  return new Blob(BlobDataHandle::Create(std::move(blob_data), blob_size));
+  return MakeGarbageCollected<Blob>(
+      BlobDataHandle::Create(std::move(blob_data), blob_size));
 }
 
 // static

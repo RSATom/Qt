@@ -15,7 +15,7 @@
 #include "components/feature_engagement/internal/proto/availability.pb.h"
 #include "components/feature_engagement/internal/stats.h"
 #include "components/feature_engagement/public/feature_list.h"
-#include "components/leveldb_proto/proto_database.h"
+#include "components/leveldb_proto/public/proto_database.h"
 
 namespace feature_engagement {
 
@@ -100,14 +100,12 @@ void OnDBLoadComplete(
     Availability availability;
     availability.set_feature_name(feature->name);
     availability.set_day(current_day);
-    additions->push_back(
-        std::make_pair(availability.feature_name(), std::move(availability)));
-
+    additions->push_back({feature->name, std::move(availability)});
     // Since it will be written to the DB, also add to the callback result.
-    feature_availabilities->insert(
-        std::make_pair(feature->name, availability.day()));
+    feature_availabilities->insert({feature->name, current_day});
+
     DVLOG(2) << "Adding availability for " << feature->name << " @ "
-             << availability.day();
+             << current_day;
   }
 
   // Write all changes to the DB.
@@ -123,7 +121,8 @@ void OnDBInitComplete(
     FeatureVector feature_filter,
     PersistentAvailabilityStore::OnLoadedCallback on_loaded_callback,
     uint32_t current_day,
-    bool success) {
+    leveldb_proto::Enums::InitStatus status) {
+  bool success = status == leveldb_proto::Enums::InitStatus::kOK;
   stats::RecordDbInitEvent(success, stats::StoreType::AVAILABILITY_STORE);
 
   if (!success) {
@@ -148,8 +147,7 @@ void PersistentAvailabilityStore::LoadAndUpdateStore(
     PersistentAvailabilityStore::OnLoadedCallback on_loaded_callback,
     uint32_t current_day) {
   auto* db_ptr = db.get();
-  db_ptr->Init(kDatabaseUMAName, storage_dir,
-               leveldb_proto::CreateSimpleOptions(),
+  db_ptr->Init(kDatabaseUMAName,
                base::BindOnce(&OnDBInitComplete, std::move(db),
                               std::move(feature_filter),
                               std::move(on_loaded_callback), current_day));

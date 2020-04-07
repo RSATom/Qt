@@ -27,6 +27,7 @@ class QuicControlFrameManagerPeer {
 namespace {
 
 const QuicStreamId kTestStreamId = 5;
+const QuicStreamId kTestStopSendingCode = 321;
 
 class QuicControlFrameManagerTest : public QuicTest {
  public:
@@ -34,8 +35,20 @@ class QuicControlFrameManagerTest : public QuicTest {
     DeleteFrame(&const_cast<QuicFrame&>(frame));
     return true;
   }
+  bool SaveControlFrame(const QuicFrame& frame) {
+    frame_ = frame;
+    return true;
+  }
 
  protected:
+  // Pre-fills the control frame queue with the following frames:
+  //  ID Type
+  //  1  RST_STREAM
+  //  2  GO_AWAY
+  //  3  WINDOW_UPDATE
+  //  4  BLOCKED
+  //  5  STOP_SENDING
+  // This is verified. The tests then perform manipulations on these.
   void Initialize() {
     connection_ = new MockQuicConnection(&helper_, &alarm_factory_,
                                          Perspective::IS_SERVER);
@@ -51,14 +64,19 @@ class QuicControlFrameManagerTest : public QuicTest {
                                   "Going away.");
     manager_->WriteOrBufferWindowUpdate(kTestStreamId, 100);
     manager_->WriteOrBufferBlocked(kTestStreamId);
-    EXPECT_EQ(4u, QuicControlFrameManagerPeer::QueueSize(manager_.get()));
+    manager_->WriteOrBufferStopSending(kTestStopSendingCode, kTestStreamId);
+    number_of_frames_ = 5u;
+    ping_frame_id_ = 6u;
+    EXPECT_EQ(number_of_frames_,
+              QuicControlFrameManagerPeer::QueueSize(manager_.get()));
     EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&rst_stream_)));
     EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&goaway_)));
     EXPECT_TRUE(
         manager_->IsControlFrameOutstanding(QuicFrame(&window_update_)));
     EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&blocked_)));
-    EXPECT_FALSE(
-        manager_->IsControlFrameOutstanding(QuicFrame(QuicPingFrame(5))));
+    EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&stop_sending_)));
+    EXPECT_FALSE(manager_->IsControlFrameOutstanding(
+        QuicFrame(QuicPingFrame(ping_frame_id_))));
 
     EXPECT_FALSE(manager_->HasPendingRetransmission());
     EXPECT_TRUE(manager_->WillingToWrite());
@@ -69,11 +87,15 @@ class QuicControlFrameManagerTest : public QuicTest {
                              "Going away."};
   QuicWindowUpdateFrame window_update_ = {3, kTestStreamId, 100};
   QuicBlockedFrame blocked_ = {4, kTestStreamId};
+  QuicStopSendingFrame stop_sending_ = {5, kTestStreamId, kTestStopSendingCode};
   MockQuicConnectionHelper helper_;
   MockAlarmFactory alarm_factory_;
   MockQuicConnection* connection_;
   std::unique_ptr<StrictMock<MockQuicSession>> session_;
   std::unique_ptr<QuicControlFrameManager> manager_;
+  QuicFrame frame_;
+  size_t number_of_frames_;
+  int ping_frame_id_;
 };
 
 TEST_F(QuicControlFrameManagerTest, OnControlFrameAcked) {
@@ -90,19 +112,25 @@ TEST_F(QuicControlFrameManagerTest, OnControlFrameAcked) {
   EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&goaway_)));
   EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&window_update_)));
   EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&blocked_)));
-  EXPECT_FALSE(
-      manager_->IsControlFrameOutstanding(QuicFrame(QuicPingFrame(5))));
+  EXPECT_TRUE(manager_->IsControlFrameOutstanding(QuicFrame(&stop_sending_)));
 
+  EXPECT_FALSE(manager_->IsControlFrameOutstanding(
+      QuicFrame(QuicPingFrame(ping_frame_id_))));
   EXPECT_TRUE(manager_->OnControlFrameAcked(QuicFrame(&window_update_)));
   EXPECT_FALSE(manager_->IsControlFrameOutstanding(QuicFrame(&window_update_)));
-  EXPECT_EQ(4u, QuicControlFrameManagerPeer::QueueSize(manager_.get()));
+  EXPECT_EQ(number_of_frames_,
+            QuicControlFrameManagerPeer::QueueSize(manager_.get()));
 
   EXPECT_TRUE(manager_->OnControlFrameAcked(QuicFrame(&goaway_)));
   EXPECT_FALSE(manager_->IsControlFrameOutstanding(QuicFrame(&goaway_)));
-  EXPECT_EQ(4u, QuicControlFrameManagerPeer::QueueSize(manager_.get()));
+  EXPECT_EQ(number_of_frames_,
+            QuicControlFrameManagerPeer::QueueSize(manager_.get()));
   EXPECT_TRUE(manager_->OnControlFrameAcked(QuicFrame(&rst_stream_)));
   EXPECT_FALSE(manager_->IsControlFrameOutstanding(QuicFrame(&rst_stream_)));
-  EXPECT_EQ(1u, QuicControlFrameManagerPeer::QueueSize(manager_.get()));
+  // Only after the first frame in the queue is acked do the frames get
+  // removed ... now see that the length has been reduced by 3.
+  EXPECT_EQ(number_of_frames_ - 3u,
+            QuicControlFrameManagerPeer::QueueSize(manager_.get()));
   // Duplicate ack.
   EXPECT_FALSE(manager_->OnControlFrameAcked(QuicFrame(&goaway_)));
 
@@ -147,9 +175,9 @@ TEST_F(QuicControlFrameManagerTest, OnControlFrameLost) {
   EXPECT_FALSE(manager_->HasPendingRetransmission());
   EXPECT_TRUE(manager_->WillingToWrite());
 
-  // Send control frames 4, 5.
+  // Send control frames 4, 5, and 6.
   EXPECT_CALL(*connection_, SendControlFrame(_))
-      .Times(2)
+      .Times(number_of_frames_ - 2u)
       .WillRepeatedly(
           Invoke(this, &QuicControlFrameManagerTest::ClearControlFrame));
   manager_->OnCanWrite();
@@ -162,7 +190,7 @@ TEST_F(QuicControlFrameManagerTest, RetransmitControlFrame) {
   InSequence s;
   // Send control frames 1, 2, 3, 4.
   EXPECT_CALL(*connection_, SendControlFrame(_))
-      .Times(4)
+      .Times(number_of_frames_)
       .WillRepeatedly(
           Invoke(this, &QuicControlFrameManagerTest::ClearControlFrame));
   manager_->OnCanWrite();
@@ -189,14 +217,81 @@ TEST_F(QuicControlFrameManagerTest, DonotSendPingWithBufferedFrames) {
   EXPECT_CALL(*connection_, SendControlFrame(_))
       .WillOnce(Invoke(this, &QuicControlFrameManagerTest::ClearControlFrame));
   EXPECT_CALL(*connection_, SendControlFrame(_)).WillOnce(Return(false));
-  // Send control frames 1.
+  // Send control frame 1.
   manager_->OnCanWrite();
   EXPECT_FALSE(manager_->HasPendingRetransmission());
   EXPECT_TRUE(manager_->WillingToWrite());
 
   // Send PING when there is buffered frames.
   manager_->WritePing();
-  // Verify only the buffered 3 frames are sent.
+  // Verify only the buffered frames are sent.
+  EXPECT_CALL(*connection_, SendControlFrame(_))
+      .Times(number_of_frames_ - 1)
+      .WillRepeatedly(
+          Invoke(this, &QuicControlFrameManagerTest::ClearControlFrame));
+  manager_->OnCanWrite();
+  EXPECT_FALSE(manager_->HasPendingRetransmission());
+  EXPECT_FALSE(manager_->WillingToWrite());
+}
+
+TEST_F(QuicControlFrameManagerTest, DonotRetransmitOldWindowUpdates) {
+  Initialize();
+  // Send two more window updates of the same stream.
+  manager_->WriteOrBufferWindowUpdate(kTestStreamId, 200);
+  QuicWindowUpdateFrame window_update2(number_of_frames_ + 1, kTestStreamId,
+                                       200);
+
+  manager_->WriteOrBufferWindowUpdate(kTestStreamId, 300);
+  QuicWindowUpdateFrame window_update3(number_of_frames_ + 2, kTestStreamId,
+                                       300);
+  InSequence s;
+  // Flush all buffered control frames.
+  EXPECT_CALL(*connection_, SendControlFrame(_))
+      .WillRepeatedly(
+          Invoke(this, &QuicControlFrameManagerTest::ClearControlFrame));
+  manager_->OnCanWrite();
+
+  // Mark all 3 window updates as lost.
+  manager_->OnControlFrameLost(QuicFrame(&window_update_));
+  manager_->OnControlFrameLost(QuicFrame(&window_update2));
+  manager_->OnControlFrameLost(QuicFrame(&window_update3));
+  EXPECT_TRUE(manager_->HasPendingRetransmission());
+  EXPECT_TRUE(manager_->WillingToWrite());
+
+  // Verify only the latest window update gets retransmitted.
+  EXPECT_CALL(*connection_, SendControlFrame(_))
+      .WillOnce(Invoke(this, &QuicControlFrameManagerTest::SaveControlFrame));
+  manager_->OnCanWrite();
+  EXPECT_EQ(number_of_frames_ + 2u,
+            frame_.window_update_frame->control_frame_id);
+  EXPECT_FALSE(manager_->HasPendingRetransmission());
+  EXPECT_FALSE(manager_->WillingToWrite());
+  DeleteFrame(&frame_);
+}
+
+TEST_F(QuicControlFrameManagerTest, RetransmitWindowUpdateOfDifferentStreams) {
+  Initialize();
+  // Send two more window updates of different streams.
+  manager_->WriteOrBufferWindowUpdate(kTestStreamId + 2, 200);
+  QuicWindowUpdateFrame window_update2(5, kTestStreamId + 2, 200);
+
+  manager_->WriteOrBufferWindowUpdate(kTestStreamId + 4, 300);
+  QuicWindowUpdateFrame window_update3(6, kTestStreamId + 4, 300);
+  InSequence s;
+  // Flush all buffered control frames.
+  EXPECT_CALL(*connection_, SendControlFrame(_))
+      .WillRepeatedly(
+          Invoke(this, &QuicControlFrameManagerTest::ClearControlFrame));
+  manager_->OnCanWrite();
+
+  // Mark all 3 window updates as lost.
+  manager_->OnControlFrameLost(QuicFrame(&window_update_));
+  manager_->OnControlFrameLost(QuicFrame(&window_update2));
+  manager_->OnControlFrameLost(QuicFrame(&window_update3));
+  EXPECT_TRUE(manager_->HasPendingRetransmission());
+  EXPECT_TRUE(manager_->WillingToWrite());
+
+  // Verify all 3 window updates get retransmitted.
   EXPECT_CALL(*connection_, SendControlFrame(_))
       .Times(3)
       .WillRepeatedly(

@@ -29,7 +29,9 @@ qtConfig(ssl) {
                ssl/qsslsocket.h \
                ssl/qsslsocket_p.h \
                ssl/qsslpresharedkeyauthenticator.h \
-               ssl/qsslpresharedkeyauthenticator_p.h
+               ssl/qsslpresharedkeyauthenticator_p.h \
+               ssl/qocspresponse.h \
+               ssl/qocspresponse_p.h
     SOURCES += ssl/qsslconfiguration.cpp \
                ssl/qsslcipher.cpp \
                ssl/qssldiffiehellmanparameters.cpp \
@@ -37,7 +39,8 @@ qtConfig(ssl) {
                ssl/qsslkey_p.cpp \
                ssl/qsslerror.cpp \
                ssl/qsslsocket.cpp \
-               ssl/qsslpresharedkeyauthenticator.cpp
+               ssl/qsslpresharedkeyauthenticator.cpp \
+               ssl/qocspresponse.cpp
 
     winrt {
         HEADERS += ssl/qsslsocket_winrt_p.h
@@ -49,6 +52,19 @@ qtConfig(ssl) {
                    ssl/qsslellipticcurve_dummy.cpp
     }
 
+    qtConfig(schannel) {
+        HEADERS += ssl/qsslsocket_schannel_p.h
+        SOURCES += ssl/qsslsocket_schannel.cpp \
+                   ssl/qsslcertificate_schannel.cpp \
+                   ssl/qsslkey_schannel.cpp \
+                   ssl/qsslkey_qt.cpp \
+                   ssl/qssldiffiehellmanparameters_dummy.cpp \
+                   ssl/qsslellipticcurve_dummy.cpp \
+                   ssl/qsslsocket_qt.cpp
+
+        LIBS_PRIVATE += "-lSecur32" "-lCrypt32" "-lbcrypt" "-lncrypt"
+    }
+
     qtConfig(securetransport) {
         HEADERS += ssl/qsslsocket_mac_p.h
         SOURCES += ssl/qssldiffiehellmanparameters_dummy.cpp \
@@ -56,6 +72,7 @@ qtConfig(ssl) {
                    ssl/qsslkey_mac.cpp \
                    ssl/qsslsocket_mac_shared.cpp \
                    ssl/qsslsocket_mac.cpp \
+                   ssl/qsslsocket_qt.cpp \
                    ssl/qsslellipticcurve_dummy.cpp
     }
 
@@ -82,6 +99,8 @@ qtConfig(ssl) {
             HEADERS += ssl/qdtls_openssl_p.h
             SOURCES += ssl/qdtls_openssl.cpp
         }
+
+        qtConfig(ocsp): HEADERS += ssl/qocsp_p.h
 
         qtConfig(opensslv11) {
             HEADERS += ssl/qsslsocket_openssl11_symbols_p.h

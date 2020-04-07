@@ -13,6 +13,7 @@
 #include "src/interpreter/bytecode-source-info.h"
 #include "src/interpreter/interpreter-intrinsics.h"
 #include "src/objects-inl.h"
+#include "src/objects/smi.h"
 
 namespace v8 {
 namespace internal {
@@ -23,7 +24,7 @@ class RegisterTransferWriter final
       public NON_EXPORTED_BASE(ZoneObject) {
  public:
   RegisterTransferWriter(BytecodeArrayBuilder* builder) : builder_(builder) {}
-  ~RegisterTransferWriter() override {}
+  ~RegisterTransferWriter() override = default;
 
   void EmitLdar(Register input) override { builder_->OutputLdarRaw(input); }
 
@@ -393,7 +394,7 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::BinaryOperation(Token::Value op,
 }
 
 BytecodeArrayBuilder& BytecodeArrayBuilder::BinaryOperationSmiLiteral(
-    Token::Value op, Smi* literal, int feedback_slot) {
+    Token::Value op, Smi literal, int feedback_slot) {
   switch (op) {
     case Token::Value::ADD:
       OutputAddSmi(literal->value(), feedback_slot);
@@ -571,8 +572,7 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::LoadConstantPoolEntry(
   return *this;
 }
 
-BytecodeArrayBuilder& BytecodeArrayBuilder::LoadLiteral(
-    v8::internal::Smi* smi) {
+BytecodeArrayBuilder& BytecodeArrayBuilder::LoadLiteral(Smi smi) {
   int32_t raw_smi = smi->value();
   if (raw_smi == 0) {
     OutputLdaZero();
@@ -797,6 +797,13 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::LoadNamedProperty(
   return *this;
 }
 
+BytecodeArrayBuilder& BytecodeArrayBuilder::LoadNamedPropertyNoFeedback(
+    Register object, const AstRawString* name) {
+  size_t name_index = GetConstantPoolEntry(name);
+  OutputLdaNamedPropertyNoFeedback(object, name_index);
+  return *this;
+}
+
 BytecodeArrayBuilder& BytecodeArrayBuilder::LoadKeyedProperty(
     Register object, int feedback_slot) {
   OutputLdaKeyedProperty(object, feedback_slot);
@@ -845,6 +852,14 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::StoreNamedProperty(
     LanguageMode language_mode) {
   size_t name_index = GetConstantPoolEntry(name);
   return StoreNamedProperty(object, name_index, feedback_slot, language_mode);
+}
+
+BytecodeArrayBuilder& BytecodeArrayBuilder::StoreNamedPropertyNoFeedback(
+    Register object, const AstRawString* name, LanguageMode language_mode) {
+  size_t name_index = GetConstantPoolEntry(name);
+  OutputStaNamedPropertyNoFeedback(object, name_index,
+                                   static_cast<uint8_t>(language_mode));
+  return *this;
 }
 
 BytecodeArrayBuilder& BytecodeArrayBuilder::StoreNamedOwnProperty(
@@ -973,16 +988,26 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::CreateArrayLiteral(
   return *this;
 }
 
+BytecodeArrayBuilder& BytecodeArrayBuilder::CreateArrayFromIterable() {
+  OutputCreateArrayFromIterable();
+  return *this;
+}
+
 BytecodeArrayBuilder& BytecodeArrayBuilder::CreateObjectLiteral(
-    size_t constant_properties_entry, int literal_index, int flags,
-    Register output) {
-  OutputCreateObjectLiteral(constant_properties_entry, literal_index, flags,
-                            output);
+    size_t constant_properties_entry, int literal_index, int flags) {
+  OutputCreateObjectLiteral(constant_properties_entry, literal_index, flags);
   return *this;
 }
 
 BytecodeArrayBuilder& BytecodeArrayBuilder::CreateEmptyObjectLiteral() {
   OutputCreateEmptyObjectLiteral();
+  return *this;
+}
+
+BytecodeArrayBuilder& BytecodeArrayBuilder::CloneObject(Register source,
+                                                        int flags,
+                                                        int feedback_slot) {
+  OutputCloneObject(source, flags, feedback_slot);
   return *this;
 }
 
@@ -1367,6 +1392,12 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::CallAnyReceiver(Register callable,
                                                             RegisterList args,
                                                             int feedback_slot) {
   OutputCallAnyReceiver(callable, args, args.register_count(), feedback_slot);
+  return *this;
+}
+
+BytecodeArrayBuilder& BytecodeArrayBuilder::CallNoFeedback(Register callable,
+                                                           RegisterList args) {
+  OutputCallNoFeedback(callable, args, args.register_count());
   return *this;
 }
 

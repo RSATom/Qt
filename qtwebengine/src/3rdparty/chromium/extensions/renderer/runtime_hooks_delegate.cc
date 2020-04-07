@@ -5,6 +5,7 @@
 #include "extensions/renderer/runtime_hooks_delegate.h"
 
 #include "base/containers/span.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "content/public/renderer/render_frame.h"
@@ -78,7 +79,7 @@ void GetBackgroundPageCallback(
           isolate, script_context->extension()->id());
   v8::Local<v8::Value> args[] = {background_page};
   script_context->SafeCallFunction(info.Data().As<v8::Function>(),
-                                   arraysize(args), args);
+                                   base::size(args), args);
 }
 
 }  // namespace
@@ -178,13 +179,14 @@ RequestResult RuntimeHooksDelegate::HandleGetURL(
   DCHECK(arguments[0]->IsString());
   DCHECK(script_context->extension());
 
-  std::string path = gin::V8ToString(arguments[0]);
+  v8::Isolate* isolate = script_context->isolate();
+  std::string path = gin::V8ToString(isolate, arguments[0]);
 
   RequestResult result(RequestResult::HANDLED);
   std::string url = base::StringPrintf(
       "chrome-extension://%s%s%s", script_context->extension()->id().c_str(),
       !path.empty() && path[0] == '/' ? "" : "/", path.c_str());
-  result.return_value = gin::StringToV8(script_context->isolate(), url);
+  result.return_value = gin::StringToV8(isolate, url);
 
   return result;
 }
@@ -238,7 +240,8 @@ RequestResult RuntimeHooksDelegate::HandleSendNativeMessage(
     const std::vector<v8::Local<v8::Value>>& arguments) {
   DCHECK_EQ(3u, arguments.size());
 
-  std::string application_name = gin::V8ToString(arguments[0]);
+  std::string application_name =
+      gin::V8ToString(script_context->isolate(), arguments[0]);
 
   v8::Local<v8::Value> v8_message = arguments[1];
   DCHECK(!v8_message.IsEmpty());
@@ -301,7 +304,8 @@ RequestResult RuntimeHooksDelegate::HandleConnectNative(
   DCHECK_EQ(1u, arguments.size());
   DCHECK(arguments[0]->IsString());
 
-  std::string application_name = gin::V8ToString(arguments[0]);
+  std::string application_name =
+      gin::V8ToString(script_context->isolate(), arguments[0]);
   gin::Handle<GinPort> port = messaging_service_->Connect(
       script_context, MessageTarget::ForNativeApp(application_name),
       std::string(), false);

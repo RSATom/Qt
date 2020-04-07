@@ -7,15 +7,13 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context_cgl.h"
-#include "ui/gl/gl_context_osmesa.h"
 #include "ui/gl/gl_context_stub.h"
-#include "ui/gl/gl_features.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_surface.h"
-#include "ui/gl/gl_surface_osmesa.h"
 #include "ui/gl/gl_surface_stub.h"
 #include "ui/gl/gl_switches.h"
 
@@ -67,13 +65,12 @@ const int kOpenGL4_1Core = 0x4100;
 std::vector<GLImplementation> GetAllowedGLImplementations() {
   std::vector<GLImplementation> impls;
   impls.push_back(kGLImplementationDesktopGLCoreProfile);
+  impls.push_back(kGLImplementationDesktopGL);
+  impls.push_back(kGLImplementationAppleGL);
 #if BUILDFLAG(USE_EGL_ON_MAC)
   impls.push_back(kGLImplementationEGLGLES2);
   impls.push_back(kGLImplementationSwiftShaderGL);
 #endif  // BUILDFLAG(USE_EGL_ON_MAC)
-  impls.push_back(kGLImplementationDesktopGL);
-  impls.push_back(kGLImplementationAppleGL);
-  impls.push_back(kGLImplementationOSMesaGL);
   return impls;
 }
 
@@ -94,7 +91,6 @@ scoped_refptr<GLContext> tryCreateCoreProfileContext(GLShareGroup* share_group,
                              compatible_surface, attribs);
 }
 
-
 scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
                                          GLSurface* compatible_surface,
                                          const GLContextAttribs& attribs) {
@@ -107,15 +103,13 @@ scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
     case kGLImplementationDesktopGLCoreProfile:
       return tryCreateCoreProfileContext(share_group,
                                          compatible_surface, attribs);
+
 #if BUILDFLAG(USE_EGL_ON_MAC)
     case kGLImplementationEGLGLES2:
     case kGLImplementationSwiftShaderGL:
       return InitializeGLContext(new GLContextEGL(share_group),
                                  compatible_surface, attribs);
 #endif  // BUILDFLAG(USE_EGL_ON_MAC)
-    case kGLImplementationOSMesaGL:
-      return InitializeGLContext(new GLContextOSMesa(share_group),
-                                 compatible_surface, attribs);
     case kGLImplementationMockGL:
       return new GLContextStub(share_group);
     case kGLImplementationStubGL: {
@@ -141,9 +135,6 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
       NOTIMPLEMENTED() << "No onscreen support on Mac.";
       return nullptr;
     }
-    case kGLImplementationOSMesaGL: {
-      return InitializeGLSurface(new GLSurfaceOSMesaHeadless());
-    }
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
       return new GLSurfaceStub;
@@ -157,10 +148,6 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
     const gfx::Size& size, GLSurfaceFormat format) {
   TRACE_EVENT0("gpu", "gl::init::CreateOffscreenGLSurface");
   switch (GetGLImplementation()) {
-    case kGLImplementationOSMesaGL:
-      format.SetDefaultPixelLayout(GLSurfaceFormat::PIXEL_LAYOUT_RGBA);
-      return InitializeGLSurfaceWithFormat(
-          new GLSurfaceOSMesa(format, size), format);
     case kGLImplementationDesktopGL:
     case kGLImplementationDesktopGLCoreProfile:
     case kGLImplementationAppleGL:

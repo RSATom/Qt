@@ -85,6 +85,10 @@ public:
     void downloadRequested(DownloadItemInfo &info) override;
     void downloadUpdated(const DownloadItemInfo &info) override;
 
+    void useForGlobalCertificateVerificationChanged() override;
+
+    void showNotification(QSharedPointer<QtWebEngineCore::UserNotificationController> &controller) override;
+
     // QQmlListPropertyHelpers
     static void userScripts_append(QQmlListProperty<QQuickWebEngineScript> *p, QQuickWebEngineScript *script);
     static int userScripts_count(QQmlListProperty<QQuickWebEngineScript> *p);

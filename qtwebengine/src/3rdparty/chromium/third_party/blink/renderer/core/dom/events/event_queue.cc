@@ -35,7 +35,7 @@
 namespace blink {
 
 EventQueue* EventQueue::Create(ExecutionContext* context, TaskType task_type) {
-  return new EventQueue(context, task_type);
+  return MakeGarbageCollected<EventQueue>(context, task_type);
 }
 
 EventQueue::EventQueue(ExecutionContext* context, TaskType task_type)
@@ -48,21 +48,21 @@ EventQueue::EventQueue(ExecutionContext* context, TaskType task_type)
 
 EventQueue::~EventQueue() = default;
 
-void EventQueue::Trace(blink::Visitor* visitor) {
+void EventQueue::Trace(Visitor* visitor) {
   visitor->Trace(queued_events_);
   ContextLifecycleObserver::Trace(visitor);
 }
 
-bool EventQueue::EnqueueEvent(const base::Location& from_here, Event* event) {
+bool EventQueue::EnqueueEvent(const base::Location& from_here, Event& event) {
   if (is_closed_)
     return false;
 
-  DCHECK(event->target());
+  DCHECK(event.target());
   DCHECK(GetExecutionContext());
 
-  probe::AsyncTaskScheduled(GetExecutionContext(), event->type(), event);
+  probe::AsyncTaskScheduled(GetExecutionContext(), event.type(), &event);
 
-  bool was_added = queued_events_.insert(event).is_new_entry;
+  bool was_added = queued_events_.insert(&event).is_new_entry;
   DCHECK(was_added);  // It should not have already been in the list.
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
@@ -72,7 +72,7 @@ bool EventQueue::EnqueueEvent(const base::Location& from_here, Event* event) {
   // object like IDBTransaction as soon as possible.
   task_runner->PostTask(
       FROM_HERE, WTF::Bind(&EventQueue::DispatchEvent, WrapPersistent(this),
-                           WrapWeakPersistent(event)));
+                           WrapWeakPersistent(&event)));
 
   return true;
 }
@@ -85,8 +85,8 @@ void EventQueue::CancelAllEvents() {
   DoCancelAllEvents(GetExecutionContext());
 }
 
-bool EventQueue::RemoveEvent(Event* event) {
-  auto found = queued_events_.find(event);
+bool EventQueue::RemoveEvent(Event& event) {
+  auto found = queued_events_.find(&event);
   if (found == queued_events_.end())
     return false;
   queued_events_.erase(found);
@@ -94,7 +94,7 @@ bool EventQueue::RemoveEvent(Event* event) {
 }
 
 void EventQueue::DispatchEvent(Event* event) {
-  if (!event || !RemoveEvent(event))
+  if (!event || !RemoveEvent(*event))
     return;
 
   DCHECK(GetExecutionContext());
@@ -102,9 +102,9 @@ void EventQueue::DispatchEvent(Event* event) {
   probe::AsyncTask async_task(GetExecutionContext(), event);
   EventTarget* target = event->target();
   if (LocalDOMWindow* window = target->ToLocalDOMWindow())
-    window->DispatchEvent(event, nullptr);
+    window->DispatchEvent(*event, nullptr);
   else
-    target->DispatchEvent(event);
+    target->DispatchEvent(*event);
 }
 
 void EventQueue::ContextDestroyed(ExecutionContext* context) {

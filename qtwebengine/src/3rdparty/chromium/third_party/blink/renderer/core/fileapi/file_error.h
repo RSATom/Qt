@@ -31,6 +31,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FILEAPI_FILE_ERROR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FILEAPI_FILE_ERROR_H_
 
+#include "base/files/file.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -39,9 +40,7 @@ namespace blink {
 class DOMException;
 class ExceptionState;
 
-namespace FileError {
-
-enum ErrorCode {
+enum class FileErrorCode {
   kOK = 0,
   kNotFoundErr = 1,
   kSecurityErr = 2,
@@ -57,6 +56,8 @@ enum ErrorCode {
   kPathExistsErr = 12,
 };
 
+namespace file_error {
+
 CORE_EXPORT extern const char kAbortErrorMessage[];
 CORE_EXPORT extern const char kEncodingErrorMessage[];
 CORE_EXPORT extern const char kInvalidStateErrorMessage[];
@@ -70,11 +71,15 @@ CORE_EXPORT extern const char kSyntaxErrorMessage[];
 CORE_EXPORT extern const char kTypeMismatchErrorMessage[];
 
 CORE_EXPORT void ThrowDOMException(ExceptionState&,
-                                   ErrorCode,
+                                   FileErrorCode,
                                    String message = String());
-CORE_EXPORT DOMException* CreateDOMException(ErrorCode);
+CORE_EXPORT void ThrowDOMException(ExceptionState& exception_state,
+                                   base::File::Error error,
+                                   String message = String());
+CORE_EXPORT DOMException* CreateDOMException(FileErrorCode);
+CORE_EXPORT DOMException* CreateDOMException(base::File::Error);
 
-}  // namespace FileError
+}  // namespace file_error
 
 }  // namespace blink
 

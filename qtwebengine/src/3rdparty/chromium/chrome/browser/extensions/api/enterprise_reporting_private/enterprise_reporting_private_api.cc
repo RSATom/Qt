@@ -19,7 +19,6 @@
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/proto/device_management_backend.pb.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace em = enterprise_management;
@@ -38,8 +37,11 @@ namespace enterprise_reporting {
 const char kInvalidInputErrorMessage[] = "The report is not valid.";
 const char kUploadFailed[] = "Failed to upload the report.";
 const char kDeviceNotEnrolled[] = "This device has not been enrolled yet.";
+const char kDeviceIdNotFound[] = "Failed to retrieve the device id.";
 
 }  // namespace enterprise_reporting
+
+// UploadDesktopReport
 
 EnterpriseReportingPrivateUploadChromeDesktopReportFunction::
     EnterpriseReportingPrivateUploadChromeDesktopReportFunction()
@@ -60,7 +62,7 @@ EnterpriseReportingPrivateUploadChromeDesktopReportFunction::
   cloud_policy_client_ = std::make_unique<policy::CloudPolicyClient>(
       std::string() /* machine_id */, std::string() /* machine_model */,
       std::string() /* brand_code */, device_management_service,
-      g_browser_process->system_request_context(), url_loader_factory, nullptr,
+      std::move(url_loader_factory), nullptr,
       policy::CloudPolicyClient::DeviceDMTokenCallback());
   dm_token_ = policy::BrowserDMTokenStorage::Get()->RetrieveDMToken();
   client_id_ = policy::BrowserDMTokenStorage::Get()->RetrieveClientId();
@@ -139,5 +141,22 @@ void EnterpriseReportingPrivateUploadChromeDesktopReportFunction::
     Respond(Error(enterprise_reporting::kUploadFailed));
   }
 }
+
+// GetDeviceId
+
+EnterpriseReportingPrivateGetDeviceIdFunction::
+    EnterpriseReportingPrivateGetDeviceIdFunction() {}
+
+ExtensionFunction::ResponseAction
+EnterpriseReportingPrivateGetDeviceIdFunction::Run() {
+  std::string client_id =
+      policy::BrowserDMTokenStorage::Get()->RetrieveClientId();
+  if (client_id.empty())
+    return RespondNow(Error(enterprise_reporting::kDeviceIdNotFound));
+  return RespondNow(OneArgument(std::make_unique<base::Value>(client_id)));
+}
+
+EnterpriseReportingPrivateGetDeviceIdFunction::
+    ~EnterpriseReportingPrivateGetDeviceIdFunction() = default;
 
 }  // namespace extensions

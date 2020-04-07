@@ -15,101 +15,116 @@
 #define GPUGL static_cast<GrGLGpu*>(this->getGpu())
 #define GL_CALL(X) GR_GL_CALL(GPUGL->glInterface(), X)
 
-static inline GrSLType sampler_type(const GrGLTexture::IDDesc& idDesc, GrPixelConfig config,
-                                    const GrGLGpu* gpu) {
-    if (idDesc.fInfo.fTarget == GR_GL_TEXTURE_EXTERNAL) {
-        SkASSERT(gpu->caps()->shaderCaps()->externalTextureSupport());
-        return kTextureExternalSampler_GrSLType;
-    } else if (idDesc.fInfo.fTarget == GR_GL_TEXTURE_RECTANGLE) {
-        SkASSERT(gpu->glCaps().rectangleTextureSupport());
-        return kTexture2DRectSampler_GrSLType;
-    } else {
-        SkASSERT(idDesc.fInfo.fTarget == GR_GL_TEXTURE_2D);
-        return kTexture2DSampler_GrSLType;
+GrTextureType GrGLTexture::TextureTypeFromTarget(GrGLenum target) {
+    switch (target) {
+        case GR_GL_TEXTURE_2D:
+            return GrTextureType::k2D;
+        case GR_GL_TEXTURE_RECTANGLE:
+            return GrTextureType::kRectangle;
+        case GR_GL_TEXTURE_EXTERNAL:
+            return GrTextureType::kExternal;
     }
+    SK_ABORT("Unexpected texture target");
+    return GrTextureType::k2D;
 }
 
-// This method parallels GrTextureProxy::highestFilterMode
-static inline GrSamplerState::Filter highest_filter_mode(const GrGLTexture::IDDesc& idDesc,
-                                                         GrPixelConfig config) {
-    if (idDesc.fInfo.fTarget == GR_GL_TEXTURE_RECTANGLE ||
-        idDesc.fInfo.fTarget == GR_GL_TEXTURE_EXTERNAL) {
-        return GrSamplerState::Filter::kBilerp;
+static inline GrGLenum target_from_texture_type(GrTextureType type) {
+    switch (type) {
+        case GrTextureType::k2D:
+            return GR_GL_TEXTURE_2D;
+        case GrTextureType::kRectangle:
+            return GR_GL_TEXTURE_RECTANGLE;
+        case GrTextureType::kExternal:
+            return GR_GL_TEXTURE_EXTERNAL;
     }
-    return GrSamplerState::Filter::kMipMap;
+    SK_ABORT("Unexpected texture type");
+    return GR_GL_TEXTURE_2D;
 }
 
 // Because this class is virtually derived from GrSurface we must explicitly call its constructor.
 GrGLTexture::GrGLTexture(GrGLGpu* gpu, SkBudgeted budgeted, const GrSurfaceDesc& desc,
                          const IDDesc& idDesc, GrMipMapsStatus mipMapsStatus)
-    : GrSurface(gpu, desc)
-    , INHERITED(gpu, desc, sampler_type(idDesc, desc.fConfig, gpu),
-                highest_filter_mode(idDesc, desc.fConfig), mipMapsStatus) {
+        : GrSurface(gpu, desc)
+        , INHERITED(gpu, desc, TextureTypeFromTarget(idDesc.fInfo.fTarget), mipMapsStatus) {
     this->init(desc, idDesc);
     this->registerWithCache(budgeted);
+    if (GrPixelConfigIsCompressed(desc.fConfig)) {
+        this->setReadOnly();
+    }
 }
 
 GrGLTexture::GrGLTexture(GrGLGpu* gpu, Wrapped, const GrSurfaceDesc& desc,
-                         GrMipMapsStatus mipMapsStatus, const IDDesc& idDesc)
-    : GrSurface(gpu, desc)
-    , INHERITED(gpu, desc, sampler_type(idDesc, desc.fConfig, gpu),
-                highest_filter_mode(idDesc, desc.fConfig), mipMapsStatus) {
+                         GrMipMapsStatus mipMapsStatus, const IDDesc& idDesc, GrIOType ioType,
+                         bool purgeImmediately)
+        : GrSurface(gpu, desc)
+        , INHERITED(gpu, desc, TextureTypeFromTarget(idDesc.fInfo.fTarget), mipMapsStatus) {
     this->init(desc, idDesc);
-    this->registerWithCacheWrapped();
+    this->registerWithCacheWrapped(purgeImmediately);
+    if (ioType == kRead_GrIOType) {
+        this->setReadOnly();
+    }
 }
 
 GrGLTexture::GrGLTexture(GrGLGpu* gpu, const GrSurfaceDesc& desc, const IDDesc& idDesc,
                          GrMipMapsStatus mipMapsStatus)
-    : GrSurface(gpu, desc)
-    , INHERITED(gpu, desc, sampler_type(idDesc, desc.fConfig, gpu),
-                highest_filter_mode(idDesc, desc.fConfig), mipMapsStatus) {
+        : GrSurface(gpu, desc)
+        , INHERITED(gpu, desc, TextureTypeFromTarget(idDesc.fInfo.fTarget), mipMapsStatus) {
     this->init(desc, idDesc);
 }
 
 void GrGLTexture::init(const GrSurfaceDesc& desc, const IDDesc& idDesc) {
     SkASSERT(0 != idDesc.fInfo.fID);
     SkASSERT(0 != idDesc.fInfo.fFormat);
-    if (idDesc.fInfo.fTarget == GR_GL_TEXTURE_RECTANGLE ||
-        idDesc.fInfo.fTarget == GR_GL_TEXTURE_EXTERNAL) {
-        this->setIsGLTextureRectangleOrExternal();
-    }
-    fTexParams.invalidate();
-    fTexParamsTimestamp = GrGpu::kExpiredTimestamp;
-    fInfo = idDesc.fInfo;
+    fParamsTimestamp = GrGpu::kExpiredTimestamp;
+    fID = idDesc.fInfo.fID;
+    fFormat = idDesc.fInfo.fFormat;
     fTextureIDOwnership = idDesc.fOwnership;
 }
 
+GrGLenum GrGLTexture::target() const {
+    return target_from_texture_type(this->texturePriv().textureType());
+}
+
 void GrGLTexture::onRelease() {
-    if (fInfo.fID) {
+    if (fID) {
         if (GrBackendObjectOwnership::kBorrowed != fTextureIDOwnership) {
-            GL_CALL(DeleteTextures(1, &fInfo.fID));
+            GL_CALL(DeleteTextures(1, &fID));
         }
-        fInfo.fID = 0;
+        fID = 0;
     }
     this->invokeReleaseProc();
     INHERITED::onRelease();
 }
 
 void GrGLTexture::onAbandon() {
-    fInfo.fTarget = 0;
-    fInfo.fID = 0;
+    fID = 0;
     this->invokeReleaseProc();
     INHERITED::onAbandon();
 }
 
 GrBackendTexture GrGLTexture::getBackendTexture() const {
-    return GrBackendTexture(this->width(), this->height(), this->texturePriv().mipMapped(), fInfo);
+    GrGLTextureInfo info;
+    info.fTarget = target_from_texture_type(this->texturePriv().textureType());
+    info.fID = fID;
+    info.fFormat = fFormat;
+    return GrBackendTexture(this->width(), this->height(), this->texturePriv().mipMapped(), info);
+}
+
+GrBackendFormat GrGLTexture::backendFormat() const {
+    return GrBackendFormat::MakeGL(fFormat,
+                                   target_from_texture_type(this->texturePriv().textureType()));
 }
 
 sk_sp<GrGLTexture> GrGLTexture::MakeWrapped(GrGLGpu* gpu, const GrSurfaceDesc& desc,
-                                            GrMipMapsStatus mipMapsStatus, const IDDesc& idDesc) {
-    return sk_sp<GrGLTexture>(new GrGLTexture(gpu, kWrapped, desc, mipMapsStatus, idDesc));
+                                            GrMipMapsStatus mipMapsStatus, const IDDesc& idDesc,
+                                            GrIOType ioType, bool purgeImmediately) {
+    return sk_sp<GrGLTexture>(
+            new GrGLTexture(gpu, kWrapped, desc, mipMapsStatus, idDesc, ioType, purgeImmediately));
 }
 
 bool GrGLTexture::onStealBackendTexture(GrBackendTexture* backendTexture,
                                         SkImage::BackendTextureReleaseProc* releaseProc) {
-    *backendTexture = GrBackendTexture(this->width(), this->height(),
-                                       this->texturePriv().mipMapped(), fInfo);
+    *backendTexture = this->getBackendTexture();
     // Set the release proc to a no-op function. GL doesn't require any special cleanup.
     *releaseProc = [](GrBackendTexture){};
 

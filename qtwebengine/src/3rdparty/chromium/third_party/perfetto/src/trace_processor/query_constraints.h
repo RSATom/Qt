@@ -17,9 +17,11 @@
 #ifndef SRC_TRACE_PROCESSOR_QUERY_CONSTRAINTS_H_
 #define SRC_TRACE_PROCESSOR_QUERY_CONSTRAINTS_H_
 
+#include <sqlite3.h>
+
 #include <vector>
+
 #include "perfetto/base/scoped_file.h"
-#include "sqlite3.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -60,7 +62,7 @@ class QueryConstraints {
 
   // Converts the constraints and order by information to a string for
   // use by sqlite.
-  SqliteString ToNewSqlite3String();
+  SqliteString ToNewSqlite3String() const;
 
   // Deserializes the string into QueryConstraints. String given is in the form
   // C{# of constraints},col1,op1,col2,op2...,O{# of order by},col1,desc1...

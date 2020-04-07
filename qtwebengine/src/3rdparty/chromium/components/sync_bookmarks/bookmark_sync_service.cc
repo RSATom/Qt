@@ -22,10 +22,6 @@ BookmarkSyncService::BookmarkSyncService(
 
 BookmarkSyncService::~BookmarkSyncService() {}
 
-void BookmarkSyncService::Shutdown() {
-  bookmark_model_type_processor_.reset();
-}
-
 std::string BookmarkSyncService::EncodeBookmarkSyncMetadata() {
   if (!bookmark_model_type_processor_) {
     return std::string();
@@ -44,10 +40,13 @@ void BookmarkSyncService::DecodeBookmarkSyncMetadata(
 }
 
 base::WeakPtr<syncer::ModelTypeControllerDelegate>
-BookmarkSyncService::GetBookmarkSyncControllerDelegateOnUIThread() {
+BookmarkSyncService::GetBookmarkSyncControllerDelegate(
+    favicon::FaviconService* favicon_service) {
+  DCHECK(favicon_service);
   if (!bookmark_model_type_processor_) {
     return nullptr;
   }
+  bookmark_model_type_processor_->SetFaviconService(favicon_service);
   return bookmark_model_type_processor_->GetWeakPtr();
 }
 

@@ -59,12 +59,12 @@ ClientFontManager::ClientFontManager(Client* client,
 ClientFontManager::~ClientFontManager() = default;
 
 SkDiscardableHandleId ClientFontManager::createHandle() {
-  SkDiscardableHandleId handle_id = ++last_allocated_handle_id_;
   auto client_handle =
       client_discardable_manager_.CreateHandle(command_buffer_);
   if (client_handle.is_null())
     return kInvalidSkDiscardableHandleId;
 
+  SkDiscardableHandleId handle_id = ++last_allocated_handle_id_;
   discardable_handle_map_[handle_id] = client_handle;
   // Handles start with a ref-count.
   locked_handles_.insert(handle_id);
@@ -87,6 +87,19 @@ bool ClientFontManager::lockHandle(SkDiscardableHandleId handle_id) {
   }
 
   discardable_handle_map_.erase(it);
+  return false;
+}
+
+bool ClientFontManager::isHandleDeleted(SkDiscardableHandleId handle_id) {
+  auto it = discardable_handle_map_.find(handle_id);
+  if (it == discardable_handle_map_.end())
+    return true;
+
+  if (client_discardable_manager_.HandleIsDeleted(it->second)) {
+    discardable_handle_map_.erase(it);
+    return true;
+  }
+
   return false;
 }
 
@@ -143,6 +156,9 @@ void ClientFontManager::Serialize() {
        handle_id <= last_allocated_handle_id_; handle_id++) {
     auto it = discardable_handle_map_.find(handle_id);
     DCHECK(it != discardable_handle_map_.end());
+
+    // We must have a valid |client_handle| here since all new handles are
+    // currently in locked state.
     auto client_handle = client_discardable_manager_.GetHandle(it->second);
     DCHECK(client_handle.IsValid());
     SerializableSkiaHandle handle(handle_id, client_handle.shm_id(),
@@ -161,8 +177,7 @@ void ClientFontManager::Serialize() {
   DCHECK(base::IsValueInRangeForNumericType<uint32_t>(strike_data.size()));
   const uint32_t skia_data_size = strike_data.size();
   serializer.Write<uint32_t>(&skia_data_size);
-  serializer.WriteData(strike_data.data(), strike_data.size(),
-                       alignof(std::max_align_t));
+  serializer.WriteData(strike_data.data(), strike_data.size(), 16);
 
   // Reset all state for what has been serialized.
   last_serialized_handle_id_ = last_allocated_handle_id_;

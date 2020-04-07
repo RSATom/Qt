@@ -4,10 +4,11 @@
 
 #include "third_party/blink/renderer/core/loader/modulescript/worker_module_script_fetcher.h"
 
+#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
-#include "third_party/blink/renderer/platform/weborigin/referrer_policy.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
 namespace blink {
@@ -17,9 +18,11 @@ WorkerModuleScriptFetcher::WorkerModuleScriptFetcher(
     : global_scope_(global_scope) {}
 
 // https://html.spec.whatwg.org/multipage/workers.html#worker-processing-model
-void WorkerModuleScriptFetcher::Fetch(FetchParameters& fetch_params,
-                                      ModuleGraphLevel level,
-                                      ModuleScriptFetcher::Client* client) {
+void WorkerModuleScriptFetcher::Fetch(
+    FetchParameters& fetch_params,
+    ResourceFetcher* fetch_client_settings_object_fetcher,
+    ModuleGraphLevel level,
+    ModuleScriptFetcher::Client* client) {
   DCHECK(global_scope_->IsContextThread());
   client_ = client;
   level_ = level;
@@ -32,7 +35,8 @@ void WorkerModuleScriptFetcher::Fetch(FetchParameters& fetch_params,
   // Step 13.2. "Fetch request, and asynchronously wait to run the remaining
   // steps as part of fetch's process response for the response response." [spec
   // text]
-  ScriptResource::Fetch(fetch_params, global_scope_->EnsureFetcher(), this);
+  ScriptResource::Fetch(fetch_params, fetch_client_settings_object_fetcher,
+                        this, ScriptResource::kNoStreaming);
 }
 
 void WorkerModuleScriptFetcher::Trace(blink::Visitor* visitor) {
@@ -61,6 +65,19 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
     // and run them after module loading. This may require the spec change.
     // (https://crbug.com/845285)
 
+    // Ensure redirects don't affect SecurityOrigin.
+    const KURL request_url = resource->Url();
+    const KURL response_url = resource->GetResponse().CurrentRequestUrl();
+    if (request_url != response_url &&
+        !global_scope_->GetSecurityOrigin()->IsSameSchemeHostPort(
+            SecurityOrigin::Create(response_url).get())) {
+      error_messages.push_back(ConsoleMessage::Create(
+          kSecurityMessageSource, kErrorMessageLevel,
+          "Refused to cross-origin redirects of the top-level worker script."));
+      client_->NotifyFetchFinished(base::nullopt, error_messages);
+      return;
+    }
+
     // Step 13.3. "Set worker global scope's url to response's url." [spec text]
     // Step 13.4. "Set worker global scope's HTTPS state to response's HTTPS
     // state." [spec text]
@@ -68,9 +85,10 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
     // Step 13.5. "Set worker global scope's referrer policy to the result of
     // parsing the `Referrer-Policy` header of response." [spec text]
     const String referrer_policy_header =
-        resource->GetResponse().HttpHeaderField(HTTPNames::Referrer_Policy);
+        resource->GetResponse().HttpHeaderField(http_names::kReferrerPolicy);
     if (!referrer_policy_header.IsNull()) {
-      ReferrerPolicy referrer_policy = kReferrerPolicyDefault;
+      network::mojom::ReferrerPolicy referrer_policy =
+          network::mojom::ReferrerPolicy::kDefault;
       SecurityPolicy::ReferrerPolicyFromHeaderValue(
           referrer_policy_header, kDoNotSupportReferrerPolicyLegacyKeywords,
           &referrer_policy);
@@ -83,10 +101,9 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
   }
 
   ModuleScriptCreationParams params(
-      script_resource->GetResponse().Url(), script_resource->SourceText(),
-      script_resource->GetResourceRequest().GetFetchCredentialsMode(),
-      script_resource->CalculateAccessControlStatus(
-          global_scope_->EnsureFetcher()->Context().GetSecurityOrigin()));
+      script_resource->GetResponse().CurrentRequestUrl(),
+      script_resource->SourceText(),
+      script_resource->GetResourceRequest().GetFetchCredentialsMode());
 
   // Step 13.7. "Asynchronously complete the perform the fetch steps with
   // response." [spec text]

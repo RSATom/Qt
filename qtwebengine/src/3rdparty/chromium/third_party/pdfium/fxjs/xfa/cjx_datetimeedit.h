@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_DATETIMEEDIT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_DateTimeEdit;
 
-class CJX_DateTimeEdit : public CJX_Node {
+class CJX_DateTimeEdit final : public CJX_Node {
  public:
   explicit CJX_DateTimeEdit(CXFA_DateTimeEdit* node);
   ~CJX_DateTimeEdit() override;
-
-  JS_PROP(hScrollPolicy);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_DATETIMEEDIT_H_

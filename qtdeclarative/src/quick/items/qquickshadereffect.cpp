@@ -515,6 +515,20 @@ QQuickShaderEffect::QQuickShaderEffect(QQuickItem *parent)
         m_impl = new QQuickGenericShaderEffect(this, this);
 }
 
+QQuickShaderEffect::~QQuickShaderEffect()
+{
+    // Delete the implementations now, while they still have have
+    // valid references back to us.
+#if QT_CONFIG(opengl)
+    auto *glImpl = m_glImpl;
+    m_glImpl = nullptr;
+    delete glImpl;
+#endif
+    auto *impl = m_impl;
+    m_impl = nullptr;
+    delete impl;
+}
+
 /*!
     \qmlproperty string QtQuick::ShaderEffect::fragmentShader
 
@@ -795,7 +809,8 @@ bool QQuickShaderEffect::event(QEvent *e)
         return QQuickItem::event(e);
     }
 #endif
-    m_impl->handleEvent(e);
+    if (m_impl)
+        m_impl->handleEvent(e);
     return QQuickItem::event(e);
 }
 
@@ -864,6 +879,8 @@ QString QQuickShaderEffect::parseLog() // for OpenGL-based autotests
 void QQuickShaderEffectPrivate::updatePolish()
 {
     Q_Q(QQuickShaderEffect);
+    if (!qmlEngine(q))
+        return;
 #if QT_CONFIG(opengl)
     if (q->m_glImpl) {
         q->m_glImpl->maybeUpdateShaders();

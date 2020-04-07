@@ -1,36 +1,25 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#ifndef LIBSPIRV_UTIL_BITUTILS_H_
-#define LIBSPIRV_UTIL_BITUTILS_H_
+#ifndef SOURCE_UTIL_BITUTILS_H_
+#define SOURCE_UTIL_BITUTILS_H_
 
 #include <cstdint>
 #include <cstring>
 
-namespace spvutils {
+namespace spvtools {
+namespace utils {
 
 // Performs a bitwise copy of source to the destination type Dest.
 template <typename Dest, typename Src>
@@ -88,6 +77,20 @@ static_assert(SetBits<uint64_t, 31, 1>::get == uint64_t(0x0000000080000000LL),
 static_assert(SetBits<uint64_t, 16, 16>::get == uint64_t(0x00000000FFFF0000LL),
               "SetBits failed");
 
-}  // namespace spvutils
+// Returns number of '1' bits in a word.
+template <typename T>
+size_t CountSetBits(T word) {
+  static_assert(std::is_integral<T>::value,
+                "CountSetBits requires integer type");
+  size_t count = 0;
+  while (word) {
+    word &= word - 1;
+    ++count;
+  }
+  return count;
+}
 
-#endif  // LIBSPIRV_UTIL_BITUTILS_H_
+}  // namespace utils
+}  // namespace spvtools
+
+#endif  // SOURCE_UTIL_BITUTILS_H_

@@ -8,8 +8,9 @@
 #include <utility>
 
 #include "constants/stream_dict_common.h"
-#include "core/fdrm/crypto/fx_crypt.h"
+#include "core/fdrm/fx_crypt.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
@@ -21,18 +22,17 @@
 #include "core/fxcrt/cfx_datetime.h"
 #include "core/fxcrt/fx_extension.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
 constexpr char kChecksumKey[] = "CheckSum";
 
 ByteString CFXByteStringHexDecode(const ByteString& bsHex) {
-  uint8_t* result = nullptr;
+  std::unique_ptr<uint8_t, FxFreeDeleter> result;
   uint32_t size = 0;
-  HexDecode(bsHex.raw_str(), bsHex.GetLength(), &result, &size);
-  ByteString bsDecoded(result, size);
-  FX_Free(result);
-  return bsDecoded;
+  HexDecode(bsHex.AsRawSpan(), &result, &size);
+  return ByteString(result.get(), size);
 }
 
 ByteString GenerateMD5Base16(const void* contents, const unsigned long len) {
@@ -59,13 +59,15 @@ FPDFDoc_GetAttachmentCount(FPDF_DOCUMENT document) {
 FPDF_EXPORT FPDF_ATTACHMENT FPDF_CALLCONV
 FPDFDoc_AddAttachment(FPDF_DOCUMENT document, FPDF_WIDESTRING name) {
   CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
-  WideString wsName =
-      WideString::FromUTF16LE(name, WideString::WStringLength(name));
-  if (!pDoc || wsName.IsEmpty())
+  if (!pDoc)
     return nullptr;
 
   CPDF_Dictionary* pRoot = pDoc->GetRoot();
   if (!pRoot)
+    return nullptr;
+
+  WideString wsName = WideStringFromFPDFWideString(name);
+  if (wsName.IsEmpty())
     return nullptr;
 
   // Retrieve the document's Names dictionary; create it if missing.
@@ -170,7 +172,7 @@ FPDFAttachment_SetStringValue(FPDF_ATTACHMENT attachment,
     return false;
 
   ByteString bsKey = key;
-  ByteString bsValue = CFXByteStringFromFPDFWideString(value);
+  ByteString bsValue = ByteStringFromFPDFWideString(value);
   bool bEncodedAsHex = bsKey == kChecksumKey;
   if (bEncodedAsHex)
     bsValue = CFXByteStringHexDecode(bsValue);

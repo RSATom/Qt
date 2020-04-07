@@ -6,7 +6,7 @@
 
 #include <memory>
 #include "base/optional.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_op_buffer.h"
 #include "third_party/blink/renderer/platform/geometry/geometry_as_json.h"
@@ -32,7 +32,9 @@ ContentLayerClientImpl::ContentLayerClientImpl()
   cc_picture_layer_->SetLayerClient(weak_ptr_factory_.GetWeakPtr());
 }
 
-ContentLayerClientImpl::~ContentLayerClientImpl() = default;
+ContentLayerClientImpl::~ContentLayerClientImpl() {
+  cc_picture_layer_->ClearClient();
+}
 
 static int GetTransformId(const TransformPaintPropertyNode* transform,
                           ContentLayerClientImpl::LayerAsJSONContext& context) {
@@ -84,7 +86,7 @@ static int GetTransformId(const TransformPaintPropertyNode* transform,
   return transform_id;
 }
 
-// This is the SPv2 version of GraphicsLayer::LayerAsJSONInternal().
+// This is the CAP version of GraphicsLayer::LayerAsJSONInternal().
 std::unique_ptr<JSONObject> ContentLayerClientImpl::LayerAsJSON(
     LayerAsJSONContext& context) const {
   std::unique_ptr<JSONObject> json = JSONObject::Create();
@@ -201,9 +203,7 @@ scoped_refptr<cc::PictureLayer> ContentLayerClientImpl::UpdateCcPictureLayer(
     json->SetArray("displayItems",
                    paint_artifact->GetDisplayItemList().SubsequenceAsJSON(
                        chunk.begin_index, chunk.end_index,
-                       DisplayItemList::kSkipNonDrawings |
-                           DisplayItemList::kShownOnlyDisplayItemTypes));
-    json->SetString("propertyTreeState", chunk.properties.ToTreeString());
+                       DisplayItemList::kShownOnlyDisplayItemTypes));
     paint_chunk_debug_data_->PushObject(std::move(json));
   }
 #endif

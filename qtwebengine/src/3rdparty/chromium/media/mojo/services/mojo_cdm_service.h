@@ -52,7 +52,8 @@ class MEDIA_MOJO_EXPORT MojoCdmService : public mojom::ContentDecryptionModule {
   ~MojoCdmService() final;
 
   // mojom::ContentDecryptionModule implementation.
-  void SetClient(mojom::ContentDecryptionModuleClientPtr client) final;
+  void SetClient(
+      mojom::ContentDecryptionModuleClientAssociatedPtrInfo client) final;
   void Initialize(const std::string& key_system,
                   const url::Origin& security_origin,
                   const CdmConfig& cdm_config,
@@ -100,6 +101,8 @@ class MEDIA_MOJO_EXPORT MojoCdmService : public mojom::ContentDecryptionModule {
   // Callback for when |decryptor_| loses connectivity.
   void OnDecryptorConnectionError();
 
+  bool has_initialize_been_called_ = false;
+
   CdmFactory* cdm_factory_;
   MojoCdmServiceContext* const context_ = nullptr;
   scoped_refptr<::media::ContentDecryptionModule> cdm_;
@@ -112,9 +115,8 @@ class MEDIA_MOJO_EXPORT MojoCdmService : public mojom::ContentDecryptionModule {
   // Set to a valid CDM ID if the |cdm_| is successfully created.
   int cdm_id_;
 
-  mojom::ContentDecryptionModuleClientPtr client_;
+  mojom::ContentDecryptionModuleClientAssociatedPtr client_;
 
-  base::WeakPtr<MojoCdmService> weak_this_;
   base::WeakPtrFactory<MojoCdmService> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(MojoCdmService);

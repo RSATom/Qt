@@ -556,7 +556,7 @@ QPlaceIdReply *QPlaceManagerEngineNokiaV2::removePlace(const QString &placeId)
 
 QPlaceIdReply *QPlaceManagerEngineNokiaV2::saveCategory(const QPlaceCategory &category, const QString &parentId)
 {
-    Q_UNUSED(parentId)
+    Q_UNUSED(parentId);
 
     QPlaceIdReplyImpl *reply = new QPlaceIdReplyImpl(QPlaceIdReply::SaveCategory, this);
     reply->setId(category.categoryId());
@@ -735,7 +735,7 @@ QPlaceIcon QPlaceManagerEngineNokiaV2::icon(const QString &remotePath,
 QUrl QPlaceManagerEngineNokiaV2::constructIconUrl(const QPlaceIcon &icon,
                                                         const QSize &size) const
 {
-    Q_UNUSED(size)
+    Q_UNUSED(size);
     QVariantMap params = icon.parameters();
     QString nokiaIcon = params.value(NokiaIcon).toString();
 

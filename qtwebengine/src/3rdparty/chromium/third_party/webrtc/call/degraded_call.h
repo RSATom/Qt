@@ -11,22 +11,41 @@
 #ifndef CALL_DEGRADED_CALL_H_
 #define CALL_DEGRADED_CALL_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
 
 #include "absl/types/optional.h"
 #include "api/call/transport.h"
+#include "api/fec_controller.h"
+#include "api/media_types.h"
+#include "api/rtp_headers.h"
+#include "api/test/simulated_network.h"
+#include "api/video_codecs/video_encoder_config.h"
+#include "call/audio_receive_stream.h"
+#include "call/audio_send_stream.h"
 #include "call/call.h"
 #include "call/fake_network_pipe.h"
+#include "call/flexfec_receive_stream.h"
+#include "call/packet_receiver.h"
+#include "call/rtp_transport_controller_send_interface.h"
+#include "call/simulated_network.h"
+#include "call/video_receive_stream.h"
+#include "call/video_send_stream.h"
 #include "modules/utility/include/process_thread.h"
+#include "rtc_base/bitrate_allocation_strategy.h"
+#include "rtc_base/copy_on_write_buffer.h"
+#include "rtc_base/network/sent_packet.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
 class DegradedCall : public Call, private Transport, private PacketReceiver {
  public:
-  explicit DegradedCall(std::unique_ptr<Call> call,
-                        absl::optional<FakeNetworkPipe::Config> send_config,
-                        absl::optional<FakeNetworkPipe::Config> receive_config);
+  explicit DegradedCall(
+      std::unique_ptr<Call> call,
+      absl::optional<BuiltInNetworkBehaviorConfig> send_config,
+      absl::optional<BuiltInNetworkBehaviorConfig> receive_config);
   ~DegradedCall() override;
 
   // Implements Call.
@@ -67,10 +86,8 @@ class DegradedCall : public Call, private Transport, private PacketReceiver {
           bitrate_allocation_strategy) override;
 
   void SignalChannelNetworkState(MediaType media, NetworkState state) override;
-
-  void OnTransportOverheadChanged(MediaType media,
-                                  int transport_overhead_per_packet) override;
-
+  void OnAudioTransportOverheadChanged(
+      int transport_overhead_per_packet) override;
   void OnSentPacket(const rtc::SentPacket& sent_packet) override;
 
  protected:
@@ -84,18 +101,21 @@ class DegradedCall : public Call, private Transport, private PacketReceiver {
   // Implements PacketReceiver.
   DeliveryStatus DeliverPacket(MediaType media_type,
                                rtc::CopyOnWriteBuffer packet,
-                               const PacketTime& packet_time) override;
+                               int64_t packet_time_us) override;
 
  private:
   Clock* const clock_;
   const std::unique_ptr<Call> call_;
 
-  const absl::optional<FakeNetworkPipe::Config> send_config_;
+  void MediaTransportChange(MediaTransportInterface* media_transport) override;
+  const absl::optional<BuiltInNetworkBehaviorConfig> send_config_;
   const std::unique_ptr<ProcessThread> send_process_thread_;
+  SimulatedNetwork* send_simulated_network_;
   std::unique_ptr<FakeNetworkPipe> send_pipe_;
   size_t num_send_streams_;
 
-  const absl::optional<FakeNetworkPipe::Config> receive_config_;
+  const absl::optional<BuiltInNetworkBehaviorConfig> receive_config_;
+  SimulatedNetwork* receive_simulated_network_;
   std::unique_ptr<FakeNetworkPipe> receive_pipe_;
 };
 

@@ -19,6 +19,14 @@ namespace angle
 using VendorID = uint32_t;
 using DeviceID = uint32_t;
 
+struct VersionInfo
+{
+    uint32_t major    = 0;
+    uint32_t minor    = 0;
+    uint32_t subMinor = 0;
+    uint32_t patch    = 0;
+};
+
 struct GPUDeviceInfo
 {
     GPUDeviceInfo();
@@ -32,6 +40,9 @@ struct GPUDeviceInfo
     std::string driverVendor;
     std::string driverVersion;
     std::string driverDate;
+
+    // Only available on Android
+    VersionInfo detailedDriverVersion;
 };
 
 struct SystemInfo
@@ -48,10 +59,13 @@ struct SystemInfo
     int primaryGPUIndex = -1;
     // Index of the currently active GPU in `gpus`, can be -1 if the active GPU could not be
     // detected.
-    int activeGPUIndex  = -1;
+    int activeGPUIndex = -1;
 
     bool isOptimus       = false;
     bool isAMDSwitchable = false;
+
+    // Only available on Android, when added by the feature support utility
+    std::string machineManufacturer;
 
     // Only available on macOS
     std::string machineModelName;

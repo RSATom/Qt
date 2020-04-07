@@ -18,19 +18,18 @@ constexpr char kCredentialTypeKey[] = "type";
 
 // static
 base::Optional<PublicKeyCredentialDescriptor>
-PublicKeyCredentialDescriptor::CreateFromCBORValue(
-    const cbor::CBORValue& cbor) {
+PublicKeyCredentialDescriptor::CreateFromCBORValue(const cbor::Value& cbor) {
   if (!cbor.is_map()) {
     return base::nullopt;
   }
 
-  const cbor::CBORValue::MapValue& map = cbor.GetMap();
-  auto type = map.find(cbor::CBORValue(kCredentialTypeKey));
+  const cbor::Value::MapValue& map = cbor.GetMap();
+  auto type = map.find(cbor::Value(kCredentialTypeKey));
   if (type == map.end() || !type->second.is_string() ||
       type->second.GetString() != kPublicKey)
     return base::nullopt;
 
-  auto id = map.find(cbor::CBORValue(kCredentialIdKey));
+  auto id = map.find(cbor::Value(kCredentialIdKey));
   if (id == map.end() || !id->second.is_bytestring())
     return base::nullopt;
 
@@ -41,7 +40,22 @@ PublicKeyCredentialDescriptor::CreateFromCBORValue(
 PublicKeyCredentialDescriptor::PublicKeyCredentialDescriptor(
     CredentialType credential_type,
     std::vector<uint8_t> id)
-    : credential_type_(credential_type), id_(std::move(id)) {}
+    : PublicKeyCredentialDescriptor(
+          credential_type,
+          std::move(id),
+          {FidoTransportProtocol::kUsbHumanInterfaceDevice,
+           FidoTransportProtocol::kBluetoothLowEnergy,
+           FidoTransportProtocol::kNearFieldCommunication,
+           FidoTransportProtocol::kCloudAssistedBluetoothLowEnergy,
+           FidoTransportProtocol::kInternal}) {}
+
+PublicKeyCredentialDescriptor::PublicKeyCredentialDescriptor(
+    CredentialType credential_type,
+    std::vector<uint8_t> id,
+    base::flat_set<FidoTransportProtocol> transports)
+    : credential_type_(credential_type),
+      id_(std::move(id)),
+      transports_(std::move(transports)) {}
 
 PublicKeyCredentialDescriptor::PublicKeyCredentialDescriptor(
     const PublicKeyCredentialDescriptor& other) = default;
@@ -57,12 +71,12 @@ PublicKeyCredentialDescriptor& PublicKeyCredentialDescriptor::operator=(
 
 PublicKeyCredentialDescriptor::~PublicKeyCredentialDescriptor() = default;
 
-cbor::CBORValue PublicKeyCredentialDescriptor::ConvertToCBOR() const {
-  cbor::CBORValue::MapValue cbor_descriptor_map;
-  cbor_descriptor_map[cbor::CBORValue(kCredentialIdKey)] = cbor::CBORValue(id_);
-  cbor_descriptor_map[cbor::CBORValue(kCredentialTypeKey)] =
-      cbor::CBORValue(CredentialTypeToString(credential_type_));
-  return cbor::CBORValue(std::move(cbor_descriptor_map));
+cbor::Value PublicKeyCredentialDescriptor::ConvertToCBOR() const {
+  cbor::Value::MapValue cbor_descriptor_map;
+  cbor_descriptor_map[cbor::Value(kCredentialIdKey)] = cbor::Value(id_);
+  cbor_descriptor_map[cbor::Value(kCredentialTypeKey)] =
+      cbor::Value(CredentialTypeToString(credential_type_));
+  return cbor::Value(std::move(cbor_descriptor_map));
 }
 
 }  // namespace device

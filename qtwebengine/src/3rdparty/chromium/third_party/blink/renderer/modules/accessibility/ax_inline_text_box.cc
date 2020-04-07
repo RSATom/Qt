@@ -34,11 +34,9 @@
 #include "third_party/blink/renderer/modules/accessibility/ax_object_cache_impl.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_position.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_range.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 
 namespace blink {
-
-using namespace HTMLNames;
 
 AXInlineTextBox::AXInlineTextBox(
     scoped_refptr<AbstractInlineTextBox> inline_text_box,
@@ -48,7 +46,8 @@ AXInlineTextBox::AXInlineTextBox(
 AXInlineTextBox* AXInlineTextBox::Create(
     scoped_refptr<AbstractInlineTextBox> inline_text_box,
     AXObjectCacheImpl& ax_object_cache) {
-  return new AXInlineTextBox(std::move(inline_text_box), ax_object_cache);
+  return MakeGarbageCollected<AXInlineTextBox>(std::move(inline_text_box),
+                                               ax_object_cache);
 }
 
 void AXInlineTextBox::Init() {}
@@ -75,9 +74,8 @@ void AXInlineTextBox::GetRelativeBounds(AXObject** out_container,
 
   // Subtract the local bounding box of the parent because they're
   // both in the same coordinate system.
-  LayoutObject* parent_layout_object = ParentObject()->GetLayoutObject();
   FloatRect parent_bounding_box =
-      parent_layout_object->LocalBoundingBoxRectForAccessibility();
+      ParentObject()->LocalBoundingBoxRectForAccessibility();
   out_bounds_in_container.MoveBy(-parent_bounding_box.Location());
 }
 
@@ -113,28 +111,28 @@ void AXInlineTextBox::TextCharacterOffsets(Vector<int>& offsets) const {
   }
 }
 
-void AXInlineTextBox::GetWordBoundaries(Vector<AXRange>& words) const {
-  if (!inline_text_box_ || inline_text_box_->GetText().ContainsOnlyWhitespace())
+void AXInlineTextBox::GetWordBoundaries(Vector<int>& word_starts,
+                                        Vector<int>& word_ends) const {
+  if (!inline_text_box_ ||
+      inline_text_box_->GetText().ContainsOnlyWhitespaceOrEmpty())
     return;
 
   Vector<AbstractInlineTextBox::WordBoundaries> boundaries;
   inline_text_box_->GetWordBoundaries(boundaries);
-  words.ReserveCapacity(boundaries.size());
+  word_starts.ReserveCapacity(boundaries.size());
+  word_ends.ReserveCapacity(boundaries.size());
   for (const auto& boundary : boundaries) {
-    const AXRange range(
-        AXPosition::CreatePositionInTextObject(*this, boundary.start_index),
-        AXPosition::CreatePositionInTextObject(*this, boundary.end_index));
-    if (range.IsValid())
-      words.push_back(range);
+    word_starts.push_back(boundary.start_index);
+    word_ends.push_back(boundary.end_index);
   }
 }
 
-String AXInlineTextBox::GetName(AXNameFrom& name_from,
+String AXInlineTextBox::GetName(ax::mojom::NameFrom& name_from,
                                 AXObject::AXObjectVector* name_objects) const {
   if (!inline_text_box_)
     return String();
 
-  name_from = kAXNameFromContents;
+  name_from = ax::mojom::NameFrom::kContents;
   return inline_text_box_->GetText();
 }
 
@@ -150,19 +148,19 @@ AXObject* AXInlineTextBox::ComputeParent() const {
 
 // In addition to LTR and RTL direction, edit fields also support
 // top to bottom and bottom to top via the CSS writing-mode property.
-AccessibilityTextDirection AXInlineTextBox::GetTextDirection() const {
+ax::mojom::TextDirection AXInlineTextBox::GetTextDirection() const {
   if (!inline_text_box_)
     return AXObject::GetTextDirection();
 
   switch (inline_text_box_->GetDirection()) {
     case AbstractInlineTextBox::kLeftToRight:
-      return kAccessibilityTextDirectionLTR;
+      return ax::mojom::TextDirection::kLtr;
     case AbstractInlineTextBox::kRightToLeft:
-      return kAccessibilityTextDirectionRTL;
+      return ax::mojom::TextDirection::kRtl;
     case AbstractInlineTextBox::kTopToBottom:
-      return kAccessibilityTextDirectionTTB;
+      return ax::mojom::TextDirection::kTtb;
     case AbstractInlineTextBox::kBottomToTop:
-      return kAccessibilityTextDirectionBTT;
+      return ax::mojom::TextDirection::kBtt;
   }
 
   return AXObject::GetTextDirection();

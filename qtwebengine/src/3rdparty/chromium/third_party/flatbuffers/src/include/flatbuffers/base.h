@@ -1,24 +1,45 @@
 #ifndef FLATBUFFERS_BASE_H_
 #define FLATBUFFERS_BASE_H_
 
+// clang-format off
+#if defined(FLATBUFFERS_MEMORY_LEAK_TRACKING) && \
+    defined(_MSC_VER) && defined(_DEBUG)
+  #define _CRTDBG_MAP_ALLOC
+#endif
+
 #include <assert.h>
+
+#if !defined(FLATBUFFERS_ASSERT)
+#define FLATBUFFERS_ASSERT assert
+#endif
 
 #ifndef ARDUINO
 #include <cstdint>
 #endif
+
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#ifndef ARDUINO
-#include <utility>
-#else
-#include <utility.h>
+
+#if defined(FLATBUFFERS_MEMORY_LEAK_TRACKING) && \
+    defined(_MSC_VER) && defined(_DEBUG)
+  #include <crtdbg.h>
+  #define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+  #define new DEBUG_NEW
 #endif
+
+#if defined(ARDUINO) && !defined(ARDUINOSTL_M_H)
+  #include <utility.h>
+#else
+  #include <utility>
+#endif
+
+#include <string>
 #include <type_traits>
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <iterator>
 #include <memory>
 
 #ifdef _STLPORT_VERSION
@@ -27,6 +48,8 @@
 #ifndef FLATBUFFERS_CPP98_STL
   #include <functional>
 #endif
+
+#include "flatbuffers/stl_emulation.h"
 
 /// @cond FLATBUFFERS_INTERNAL
 #if __cplusplus <= 199711L && \
@@ -81,7 +104,7 @@
 #endif // !defined(FLATBUFFERS_LITTLEENDIAN)
 
 #define FLATBUFFERS_VERSION_MAJOR 1
-#define FLATBUFFERS_VERSION_MINOR 6
+#define FLATBUFFERS_VERSION_MINOR 9
 #define FLATBUFFERS_VERSION_REVISION 0
 #define FLATBUFFERS_STRING_EXPAND(X) #X
 #define FLATBUFFERS_STRING(X) FLATBUFFERS_STRING_EXPAND(X)
@@ -102,6 +125,13 @@
   #define FLATBUFFERS_CONSTEXPR
 #endif
 
+#if (defined(__cplusplus) && __cplusplus >= 201402L) || \
+    (defined(__cpp_constexpr) && __cpp_constexpr >= 201304)
+  #define FLATBUFFERS_CONSTEXPR_CPP14 FLATBUFFERS_CONSTEXPR
+#else
+  #define FLATBUFFERS_CONSTEXPR_CPP14
+#endif
+
 #if defined(__GXX_EXPERIMENTAL_CXX0X__) && __GNUC__ * 10 + __GNUC_MINOR__ >= 46 || \
     defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 190023026
   #define FLATBUFFERS_NOEXCEPT noexcept
@@ -119,9 +149,31 @@
 #endif
 
 #if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4127) // C4127: conditional expression is constant
+  #pragma warning(push)
+  #pragma warning(disable: 4127) // C4127: conditional expression is constant
 #endif
+
+#ifndef FLATBUFFERS_HAS_STRING_VIEW
+  // Only provide flatbuffers::string_view if __has_include can be used
+  // to detect a header that provides an implementation
+  #if defined(__has_include)
+    // Check for std::string_view (in c++17)
+    #if __has_include(<string_view>) && (__cplusplus >= 201606 || _HAS_CXX17)
+      #include <string_view>
+      namespace flatbuffers {
+        typedef std::string_view string_view;
+      }
+      #define FLATBUFFERS_HAS_STRING_VIEW 1
+    // Check for std::experimental::string_view (in c++14, compiler-dependent)
+    #elif __has_include(<experimental/string_view>) && (__cplusplus >= 201411)
+      #include <experimental/string_view>
+      namespace flatbuffers {
+        typedef std::experimental::string_view string_view;
+      }
+      #define FLATBUFFERS_HAS_STRING_VIEW 1
+    #endif
+  #endif // __has_include
+#endif // !FLATBUFFERS_HAS_STRING_VIEW
 
 /// @endcond
 
@@ -149,6 +201,45 @@ typedef uintmax_t largest_scalar_t;
 // We support aligning the contents of buffers up to this size.
 #define FLATBUFFERS_MAX_ALIGNMENT 16
 
+template<typename T> T EndianSwap(T t) {
+  #if defined(_MSC_VER)
+    #define FLATBUFFERS_BYTESWAP16 _byteswap_ushort
+    #define FLATBUFFERS_BYTESWAP32 _byteswap_ulong
+    #define FLATBUFFERS_BYTESWAP64 _byteswap_uint64
+  #else
+    #if defined(__GNUC__) && __GNUC__ * 100 + __GNUC_MINOR__ < 408 && !defined(__clang__)
+      // __builtin_bswap16 was missing prior to GCC 4.8.
+      #define FLATBUFFERS_BYTESWAP16(x) \
+        static_cast<uint16_t>(__builtin_bswap32(static_cast<uint32_t>(x) << 16))
+    #else
+      #define FLATBUFFERS_BYTESWAP16 __builtin_bswap16
+    #endif
+    #define FLATBUFFERS_BYTESWAP32 __builtin_bswap32
+    #define FLATBUFFERS_BYTESWAP64 __builtin_bswap64
+  #endif
+  if (sizeof(T) == 1) {   // Compile-time if-then's.
+    return t;
+  } else if (sizeof(T) == 2) {
+    union { T t; uint16_t i; } u;
+    u.t = t;
+    u.i = FLATBUFFERS_BYTESWAP16(u.i);
+    return u.t;
+  } else if (sizeof(T) == 4) {
+    union { T t; uint32_t i; } u;
+    u.t = t;
+    u.i = FLATBUFFERS_BYTESWAP32(u.i);
+    return u.t;
+  } else if (sizeof(T) == 8) {
+    union { T t; uint64_t i; } u;
+    u.t = t;
+    u.i = FLATBUFFERS_BYTESWAP64(u.i);
+    return u.t;
+  } else {
+    FLATBUFFERS_ASSERT(0);
+  }
+}
+
+
 template<typename T> T EndianScalar(T t) {
   #if FLATBUFFERS_LITTLEENDIAN
     return t;
@@ -172,5 +263,5 @@ inline size_t PaddingBytes(size_t buf_size, size_t scalar_size) {
   return ((~buf_size) + 1) & (scalar_size - 1);
 }
 
-}
+}  // namespace flatbuffers
 #endif  // FLATBUFFERS_BASE_H_

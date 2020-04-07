@@ -36,11 +36,15 @@
 #include "third_party/blink/renderer/core/dom/document_parser_timing.h"
 #include "third_party/blink/renderer/core/dom/document_timing.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/loader/document_load_timing.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/core/loader/interactive_detector.h"
+#include "third_party/blink/renderer/core/paint/image_paint_timing_detector.h"
 #include "third_party/blink/renderer/core/paint/paint_timing.h"
+#include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
+#include "third_party/blink/renderer/core/paint/text_paint_timing_detector.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_timing.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
@@ -49,7 +53,8 @@
 namespace blink {
 
 static unsigned long long ToIntegerMilliseconds(TimeDelta duration) {
-  DCHECK_GE(duration, TimeDelta());
+  // TODO(npm): add histograms to understand when/why |duration| is sometimes
+  // negative.
   double clamped_seconds =
       Performance::ClampTimeResolution(duration.InSecondsF());
   return static_cast<unsigned long long>(clamped_seconds * 1000.0);
@@ -64,6 +69,14 @@ unsigned long long PerformanceTiming::navigationStart() const {
     return 0;
 
   return MonotonicTimeToIntegerMilliseconds(timing->NavigationStart());
+}
+
+unsigned long long PerformanceTiming::inputStart() const {
+  DocumentLoadTiming* timing = GetDocumentLoadTiming();
+  if (!timing)
+    return 0;
+
+  return MonotonicTimeToIntegerMilliseconds(timing->InputStart());
 }
 
 unsigned long long PerformanceTiming::unloadEventStart() const {
@@ -221,16 +234,16 @@ unsigned long long PerformanceTiming::requestStart() const {
 
 unsigned long long PerformanceTiming::responseStart() const {
   ResourceLoadTiming* timing = GetResourceLoadTiming();
-  if (!timing || timing->ReceiveHeadersEnd().is_null())
+  if (!timing)
     return requestStart();
 
-  // FIXME: Response start needs to be the time of the first received byte.
-  // However, the ResourceLoadTiming API currently only supports the time
-  // the last header byte was received. For many responses with reasonable
-  // sized cookies, the HTTP headers fit into a single packet so this time
-  // is basically equivalent. But for some responses, particularly those with
-  // headers larger than a single packet, this time will be too late.
-  return MonotonicTimeToIntegerMilliseconds(timing->ReceiveHeadersEnd());
+  TimeTicks response_start = timing->ReceiveHeadersStart();
+  if (response_start.is_null())
+    response_start = timing->ReceiveHeadersEnd();
+  if (response_start.is_null())
+    return requestStart();
+
+  return MonotonicTimeToIntegerMilliseconds(response_start);
 }
 
 unsigned long long PerformanceTiming::responseEnd() const {
@@ -314,14 +327,6 @@ unsigned long long PerformanceTiming::FirstPaint() const {
   return MonotonicTimeToIntegerMilliseconds(timing->FirstPaint());
 }
 
-unsigned long long PerformanceTiming::FirstTextPaint() const {
-  const PaintTiming* timing = GetPaintTiming();
-  if (!timing)
-    return 0;
-
-  return MonotonicTimeToIntegerMilliseconds(timing->FirstTextPaint());
-}
-
 unsigned long long PerformanceTiming::FirstImagePaint() const {
   const PaintTiming* timing = GetPaintTiming();
   if (!timing)
@@ -353,6 +358,78 @@ unsigned long long PerformanceTiming::FirstMeaningfulPaintCandidate() const {
 
   return MonotonicTimeToIntegerMilliseconds(
       timing->FirstMeaningfulPaintCandidate());
+}
+
+unsigned long long PerformanceTiming::LargestImagePaint() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return MonotonicTimeToIntegerMilliseconds(
+      paint_timing_detector->GetImagePaintTimingDetector().LargestImagePaint());
+}
+
+uint64_t PerformanceTiming::LargestImagePaintSize() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return paint_timing_detector->GetImagePaintTimingDetector()
+      .LargestImagePaintSize();
+}
+
+unsigned long long PerformanceTiming::LastImagePaint() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return MonotonicTimeToIntegerMilliseconds(
+      paint_timing_detector->GetImagePaintTimingDetector().LastImagePaint());
+}
+
+uint64_t PerformanceTiming::LastImagePaintSize() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return paint_timing_detector->GetImagePaintTimingDetector()
+      .LastImagePaintSize();
+}
+
+unsigned long long PerformanceTiming::LargestTextPaint() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return MonotonicTimeToIntegerMilliseconds(
+      paint_timing_detector->GetTextPaintTimingDetector().LargestTextPaint());
+}
+
+uint64_t PerformanceTiming::LargestTextPaintSize() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return paint_timing_detector->GetTextPaintTimingDetector()
+      .LargestTextPaintSize();
+}
+
+unsigned long long PerformanceTiming::LastTextPaint() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return MonotonicTimeToIntegerMilliseconds(
+      paint_timing_detector->GetTextPaintTimingDetector().LastTextPaint());
+}
+
+uint64_t PerformanceTiming::LastTextPaintSize() const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return 0;
+
+  return paint_timing_detector->GetTextPaintTimingDetector()
+      .LastTextPaintSize();
 }
 
 unsigned long long PerformanceTiming::PageInteractive() const {
@@ -537,6 +614,24 @@ InteractiveDetector* PerformanceTiming::GetInteractiveDetector() const {
     return nullptr;
 
   return InteractiveDetector::From(*document);
+}
+
+PaintTimingDetector* PerformanceTiming::GetPaintTimingDetector() const {
+  if (!GetFrame())
+    return nullptr;
+
+  LocalFrameView* view = GetFrame()->View();
+  if (!view)
+    return nullptr;
+
+  return &view->GetPaintTimingDetector();
+}
+
+std::unique_ptr<TracedValue> PerformanceTiming::GetNavigationTracingData() {
+  std::unique_ptr<TracedValue> data = TracedValue::Create();
+  data->SetString("navigationId",
+                  IdentifiersFactory::LoaderId(GetDocumentLoader()));
+  return data;
 }
 
 ScriptValue PerformanceTiming::toJSONForBinding(

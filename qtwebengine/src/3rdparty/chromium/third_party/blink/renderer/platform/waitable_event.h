@@ -41,11 +41,11 @@ class WaitableEvent;
 
 namespace blink {
 
-// TODO(crbug.com/796799): Deprecate blink::WaitableEvent and use
-// base::WaitableEvent instead.
+// DEPRECATED, use base::WaitableEvent instead of blink::WaitableEvent.
 //
 // Provides a thread synchronization that can be used to allow one thread to
 // wait until another thread to finish some work.
+// TODO(crbug.com/796799): Remove this class in favor of base::WaitableEvent.
 class PLATFORM_EXPORT WaitableEvent {
  public:
   // If ResetPolicy::Manual is specified on creation, to set the event state
@@ -72,6 +72,10 @@ class PLATFORM_EXPORT WaitableEvent {
   // to be woken up. The event state is reset to non-signaled after
   // a waiting thread has been released.
   void Signal();
+
+  // Returns true if the event is in the signaled state, else false.  If this
+  // is not a manual reset event, then this test will cause a reset.
+  bool IsSignaled();
 
   // Waits on multiple events and returns the index of the object that
   // has been signaled. Any event objects given to this method must

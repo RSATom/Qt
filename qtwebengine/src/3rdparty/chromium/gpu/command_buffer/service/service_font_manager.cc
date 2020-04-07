@@ -36,7 +36,7 @@ class Deserializer {
     if (size == 0u)
       return true;
 
-    if (!AlignMemory(size, alignof(std::max_align_t)))
+    if (!AlignMemory(size, 16))
       return false;
 
     if (!strike_client->readStrikeData(memory_, size))
@@ -78,8 +78,8 @@ class Deserializer {
 class ServiceFontManager::SkiaDiscardableManager
     : public SkStrikeClient::DiscardableHandleManager {
  public:
-  SkiaDiscardableManager(base::WeakPtr<ServiceFontManager> font_manager)
-      : font_manager_(font_manager) {}
+  SkiaDiscardableManager(scoped_refptr<ServiceFontManager> font_manager)
+      : font_manager_(std::move(font_manager)) {}
   ~SkiaDiscardableManager() override = default;
 
   bool deleteHandle(SkDiscardableHandleId handle_id) override {
@@ -91,6 +91,10 @@ class ServiceFontManager::SkiaDiscardableManager
   void notifyCacheMiss(SkStrikeClient::CacheMissType type) override {
     UMA_HISTOGRAM_ENUMERATION("GPU.OopRaster.GlyphCacheMiss", type,
                               SkStrikeClient::CacheMissType::kLast + 1);
+    // In general, Skia analysis of glyphs should find all cases.
+    // If this is not happening, please file a bug with a repro so
+    // it can be fixed.
+    NOTREACHED();
 
     const bool no_fallback = (type == SkStrikeClient::kGlyphMetrics ||
                               type == SkStrikeClient::kGlyphPath ||
@@ -104,26 +108,35 @@ class ServiceFontManager::SkiaDiscardableManager
 
  private:
   int dump_count_ = 0;
-  base::WeakPtr<ServiceFontManager> font_manager_;
+  scoped_refptr<ServiceFontManager> font_manager_;
 };
 
 ServiceFontManager::ServiceFontManager(Client* client)
-    : client_(client), weak_factory_(this) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  strike_client_ = std::make_unique<SkStrikeClient>(
-      sk_make_sp<SkiaDiscardableManager>(weak_factory_.GetWeakPtr()));
-}
+    : client_(client),
+      strike_client_(std::make_unique<SkStrikeClient>(
+          sk_make_sp<SkiaDiscardableManager>(this))) {}
 
 ServiceFontManager::~ServiceFontManager() {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(destroyed_);
+}
+
+void ServiceFontManager::Destroy() {
+  base::AutoLock hold(lock_);
+
+  client_ = nullptr;
+  strike_client_.reset();
+  discardable_handle_map_.clear();
+  destroyed_ = true;
 }
 
 bool ServiceFontManager::Deserialize(
     const volatile char* memory,
     uint32_t memory_size,
     std::vector<SkDiscardableHandleId>* locked_handles) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::AutoLock hold(lock_);
+
   DCHECK(locked_handles->empty());
+  DCHECK(!destroyed_);
 
   // All new handles.
   Deserializer deserializer(memory, memory_size);
@@ -164,15 +177,18 @@ bool ServiceFontManager::Deserialize(
   if (!deserializer.Read<uint32_t>(&skia_data_size))
     return false;
 
-  if (!deserializer.ReadStrikeData(strike_client_.get(), skia_data_size))
-    return false;
+  {
+    base::AutoUnlock release(lock_);
+    if (!deserializer.ReadStrikeData(strike_client_.get(), skia_data_size))
+      return false;
+  }
 
   return true;
 }
 
 bool ServiceFontManager::AddHandle(SkDiscardableHandleId handle_id,
                                    ServiceDiscardableHandle handle) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  lock_.AssertAcquired();
 
   if (discardable_handle_map_.find(handle_id) != discardable_handle_map_.end())
     return false;
@@ -182,7 +198,8 @@ bool ServiceFontManager::AddHandle(SkDiscardableHandleId handle_id,
 
 bool ServiceFontManager::Unlock(
     const std::vector<SkDiscardableHandleId>& handles) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::AutoLock hold(lock_);
+  DCHECK(!destroyed_);
 
   for (auto handle_id : handles) {
     auto it = discardable_handle_map_.find(handle_id);
@@ -194,7 +211,10 @@ bool ServiceFontManager::Unlock(
 }
 
 bool ServiceFontManager::DeleteHandle(SkDiscardableHandleId handle_id) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::AutoLock hold(lock_);
+
+  if (destroyed_)
+    return true;
 
   auto it = discardable_handle_map_.find(handle_id);
   if (it == discardable_handle_map_.end()) {

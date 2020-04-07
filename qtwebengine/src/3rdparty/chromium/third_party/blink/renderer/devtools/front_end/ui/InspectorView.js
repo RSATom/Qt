@@ -138,8 +138,8 @@ UI.InspectorView = class extends UI.VBox {
   }
 
   createToolbars() {
-    this._tabbedPane.leftToolbar().appendLocationItems('main-toolbar-left');
-    this._tabbedPane.rightToolbar().appendLocationItems('main-toolbar-right');
+    this._tabbedPane.leftToolbar().appendItemsAtLocation('main-toolbar-left');
+    this._tabbedPane.rightToolbar().appendItemsAtLocation('main-toolbar-right');
   }
 
   /**
@@ -276,23 +276,13 @@ UI.InspectorView = class extends UI.VBox {
           keyboardEvent.location === KeyboardEvent.DOM_KEY_LOCATION_NUMPAD)
         panelIndex = event.keyCode - 0x61;
       if (panelIndex !== -1) {
-        const panelName = this._tabbedPane.allTabs()[panelIndex];
+        const panelName = this._tabbedPane.tabIds()[panelIndex];
         if (panelName) {
           if (!UI.Dialog.hasInstance() && !this._currentPanelLocked)
             this.showPanel(panelName);
           event.consume(true);
         }
       }
-    }
-
-    if (event.key === '[') {
-      this._tabbedPane.selectPrevTab();
-      event.consume(true);
-    }
-
-    if (event.key === ']') {
-      this._tabbedPane.selectNextTab();
-      event.consume(true);
     }
   }
 
@@ -358,7 +348,7 @@ UI.inspectorView;
  * @implements {UI.ActionDelegate}
  * @unrestricted
  */
-UI.InspectorView.DrawerToggleActionDelegate = class {
+UI.InspectorView.ActionDelegate = class {
   /**
    * @override
    * @param {!UI.Context} context
@@ -366,10 +356,22 @@ UI.InspectorView.DrawerToggleActionDelegate = class {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    if (UI.inspectorView.drawerVisible())
-      UI.inspectorView._closeDrawer();
-    else
-      UI.inspectorView._showDrawer(true);
-    return true;
+    switch (actionId) {
+      case 'main.toggle-drawer':
+        if (UI.inspectorView.drawerVisible())
+          UI.inspectorView._closeDrawer();
+        else
+          UI.inspectorView._showDrawer(true);
+        return true;
+      case 'main.next-tab':
+        UI.inspectorView._tabbedPane.selectNextTab();
+        UI.inspectorView._tabbedPane.focus();
+        return true;
+      case 'main.previous-tab':
+        UI.inspectorView._tabbedPane.selectPrevTab();
+        UI.inspectorView._tabbedPane.focus();
+        return true;
+    }
+    return false;
   }
 };

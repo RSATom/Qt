@@ -12,6 +12,7 @@
 
 #include "base/macros.h"
 #include "net/third_party/quic/core/crypto/crypto_handshake.h"
+#include "net/third_party/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quic/core/quic_packets.h"
 #include "net/third_party/quic/core/quic_server_id.h"
 #include "net/third_party/quic/platform/api/quic_export.h"
@@ -58,6 +59,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientConfig : public QuicCryptoConfig {
     };
 
     CachedState();
+    CachedState(const CachedState&) = delete;
+    CachedState& operator=(const CachedState&) = delete;
     ~CachedState();
 
     // IsComplete returns true if this object contains enough information to
@@ -192,8 +195,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientConfig : public QuicCryptoConfig {
     // nonces and connection_ids together in one queue.
     QuicQueue<QuicConnectionId> server_designated_connection_ids_;
     QuicQueue<QuicString> server_nonces_;
-
-    DISALLOW_COPY_AND_ASSIGN(CachedState);
   };
 
   // Used to filter server ids for partial config deletion.
@@ -207,6 +208,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientConfig : public QuicCryptoConfig {
 
   QuicCryptoClientConfig(std::unique_ptr<ProofVerifier> proof_verifier,
                          bssl::UniquePtr<SSL_CTX> ssl_ctx);
+  QuicCryptoClientConfig(const QuicCryptoClientConfig&) = delete;
+  QuicCryptoClientConfig& operator=(const QuicCryptoClientConfig&) = delete;
   ~QuicCryptoClientConfig();
 
   // LookupOrCreate returns a CachedState for the given |server_id|. If no such
@@ -333,11 +336,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientConfig : public QuicCryptoConfig {
   // suffix will be used to initialize the cached state for this server.
   void AddCanonicalSuffix(const QuicString& suffix);
 
-  // Prefers AES-GCM (kAESG) over other AEAD algorithms. Call this method if
-  // the CPU has hardware acceleration for AES-GCM. This method can only be
-  // called after SetDefaults().
-  void PreferAesGcm();
-
   // Saves the |user_agent_id| that will be passed in QUIC's CHLO message.
   void set_user_agent_id(const QuicString& user_agent_id) {
     user_agent_id_ = user_agent_id;
@@ -353,6 +351,14 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientConfig : public QuicCryptoConfig {
   void set_pre_shared_key(QuicStringPiece psk) {
     pre_shared_key_ = QuicString(psk);
   }
+
+  bool pad_inchoate_hello() const { return pad_inchoate_hello_; }
+  void set_pad_inchoate_hello(bool new_value) {
+    pad_inchoate_hello_ = new_value;
+  }
+
+  bool pad_full_hello() const { return pad_full_hello_; }
+  void set_pad_full_hello(bool new_value) { pad_full_hello_ = new_value; }
 
  private:
   // Sets the members to reasonable, default values.
@@ -406,7 +412,19 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientConfig : public QuicCryptoConfig {
   // incorporating |pre_shared_key_| into the key schedule.
   QuicString pre_shared_key_;
 
-  DISALLOW_COPY_AND_ASSIGN(QuicCryptoClientConfig);
+  // In QUIC, technically, client hello should be fully padded.
+  // However, fully padding on slow network connection (e.g. 50kbps) can add
+  // 150ms latency to one roundtrip. Therefore, you can disable padding of
+  // individual messages. It is recommend to leave at least one message in
+  // each direction fully padded (e.g. full CHLO and SHLO), but if you know
+  // the lower-bound MTU, you don't need to pad all of them (keep in mind that
+  // it's not OK to do it according to the standard).
+  //
+  // Also, if you disable padding, you must disable (change) the
+  // anti-amplification protection. You should only do so if you have some
+  // other means of verifying the client.
+  bool pad_inchoate_hello_ = true;
+  bool pad_full_hello_ = true;
 };
 
 }  // namespace quic

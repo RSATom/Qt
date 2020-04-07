@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "core/fxcrt/fx_extension.h"
-#include "third_party/base/ptr_util.h"
 
 #if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 static_assert(sizeof(FX_COLORREF) == sizeof(COLORREF),
@@ -55,6 +54,29 @@ const int16_t SDP_Table[513] = {
     0,   0,   0,
 };
 
+FXDIB_ResampleOptions::FXDIB_ResampleOptions() = default;
+
+FXDIB_ResampleOptions::FXDIB_ResampleOptions(bool downsample,
+                                             bool bilinear,
+                                             bool bicubic,
+                                             bool halftone,
+                                             bool no_smoothing,
+                                             bool lossy)
+    : bInterpolateDownsample(downsample),
+      bInterpolateBilinear(bilinear),
+      bInterpolateBicubic(bicubic),
+      bHalftone(halftone),
+      bNoSmoothing(no_smoothing),
+      bLossy(lossy) {}
+
+bool FXDIB_ResampleOptions::HasAnyOptions() const {
+  return bInterpolateDownsample || bInterpolateBilinear ||
+         bInterpolateBicubic || bHalftone || bNoSmoothing || bLossy;
+}
+
+const FXDIB_ResampleOptions kBilinearInterpolation = {
+    false, /*bilinear=*/true, false, false, false, false};
+
 FX_RECT FXDIB_SwapClipBox(const FX_RECT& clip,
                           int width,
                           int height,
@@ -97,7 +119,7 @@ FX_ARGB AlphaAndColorRefToArgb(int a, FX_COLORREF colorref) {
                     FXSYS_GetBValue(colorref));
 }
 
-FX_ARGB StringToFXARGB(const WideStringView& wsValue) {
+FX_ARGB StringToFXARGB(WideStringView wsValue) {
   static constexpr FX_ARGB kDefaultValue = 0xff000000;
   if (wsValue.GetLength() == 0)
     return kDefaultValue;
@@ -115,7 +137,7 @@ FX_ARGB StringToFXARGB(const WideStringView& wsValue) {
   uint8_t g = 0;
   uint8_t b = 0;
   while (cc < len) {
-    if (str[cc] == ',' || !FXSYS_isDecimalDigit(str[cc]))
+    if (str[cc] == ',' || !FXSYS_IsDecimalDigit(str[cc]))
       break;
 
     r = r * 10 + str[cc] - '0';
@@ -127,7 +149,7 @@ FX_ARGB StringToFXARGB(const WideStringView& wsValue) {
       cc++;
 
     while (cc < len) {
-      if (str[cc] == ',' || !FXSYS_isDecimalDigit(str[cc]))
+      if (str[cc] == ',' || !FXSYS_IsDecimalDigit(str[cc]))
         break;
 
       g = g * 10 + str[cc] - '0';
@@ -139,7 +161,7 @@ FX_ARGB StringToFXARGB(const WideStringView& wsValue) {
         cc++;
 
       while (cc < len) {
-        if (str[cc] == ',' || !FXSYS_isDecimalDigit(str[cc]))
+        if (str[cc] == ',' || !FXSYS_IsDecimalDigit(str[cc]))
           break;
 
         b = b * 10 + str[cc] - '0';

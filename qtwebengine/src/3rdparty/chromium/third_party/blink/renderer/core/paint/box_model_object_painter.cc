@@ -4,12 +4,10 @@
 
 #include "third_party/blink/renderer/core/paint/box_model_object_painter.h"
 
-#include "third_party/blink/renderer/core/layout/layout_block_flow.h"
+#include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
-#include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/line/root_inline_box.h"
 #include "third_party/blink/renderer/core/paint/background_image_geometry.h"
-#include "third_party/blink/renderer/core/paint/line_box_list_painter.h"
 #include "third_party/blink/renderer/core/paint/object_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -54,16 +52,18 @@ BoxModelObjectPainter::BoxModelObjectPainter(const LayoutBoxModelObject& box,
                                              const InlineFlowBox* flow_box)
     : BoxPainterBase(&box.GetDocument(),
                      box.StyleRef(),
-                     GeneratingNodeForObject(box),
-                     box.BorderBoxOutsets(),
-                     box.PaddingOutsets()),
+                     GeneratingNodeForObject(box)),
       box_model_(box),
       flow_box_(flow_box) {}
 
-bool BoxModelObjectPainter::
-    IsPaintingBackgroundOfPaintContainerIntoScrollingContentsLayer(
-        const LayoutBoxModelObject* box_model_,
-        const PaintInfo& paint_info) {
+bool BoxModelObjectPainter::IsPaintingScrollingBackground(
+    const LayoutBoxModelObject* box_model_,
+    const PaintInfo& paint_info) {
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    // TODO(wangxianzhu): For CAP, remove this method and let callers use
+    // PaintInfo::IsPaintScrollingBackground() directly.
+    return paint_info.IsPaintingScrollingBackground();
+  }
   return paint_info.PaintFlags() & kPaintLayerPaintingOverflowContents &&
          !(paint_info.PaintFlags() &
            kPaintLayerPaintingCompositingBackgroundPhase) &&
@@ -73,27 +73,26 @@ bool BoxModelObjectPainter::
 void BoxModelObjectPainter::PaintTextClipMask(GraphicsContext& context,
                                               const IntRect& mask_rect,
                                               const LayoutPoint& paint_offset,
-                                              bool) {
+                                              bool object_has_multiple_boxes) {
   PaintInfo paint_info(context, mask_rect, PaintPhase::kTextClip,
                        kGlobalPaintNormalPhase, 0);
   if (flow_box_) {
     LayoutSize local_offset = ToLayoutSize(flow_box_->Location());
-    if (box_model_.StyleRef().BoxDecorationBreak() ==
-        EBoxDecorationBreak::kSlice) {
+    if (object_has_multiple_boxes &&
+        box_model_.StyleRef().BoxDecorationBreak() ==
+            EBoxDecorationBreak::kSlice) {
       local_offset -= LogicalOffsetOnLine(*flow_box_);
     }
     const RootInlineBox& root = flow_box_->Root();
     flow_box_->Paint(paint_info, paint_offset - local_offset, root.LineTop(),
                      root.LineBottom());
+  } else if (box_model_.IsLayoutBlock()) {
+    ToLayoutBlock(box_model_).PaintObject(paint_info, paint_offset);
   } else {
-    const LineBoxList* line_boxes = nullptr;
-    if (box_model_.IsLayoutBlockFlow())
-      line_boxes = &ToLayoutBlockFlow(box_model_).LineBoxes();
-    else if (box_model_.IsLayoutInline())
-      line_boxes = ToLayoutInline(box_model_).LineBoxes();
-    if (!line_boxes)
-      return;
-    LineBoxListPainter(*line_boxes).Paint(box_model_, paint_info, paint_offset);
+    // We should go through the above path for LayoutInlines.
+    DCHECK(!box_model_.IsLayoutInline());
+    // Other types of objects don't have anything meaningful to paint for text
+    // clip mask.
   }
 }
 
@@ -104,8 +103,7 @@ LayoutRect BoxModelObjectPainter::AdjustRectForScrolledContent(
   LayoutRect scrolled_paint_rect = rect;
   GraphicsContext& context = paint_info.context;
   if (info.is_clipped_with_local_scrolling &&
-      !IsPaintingBackgroundOfPaintContainerIntoScrollingContentsLayer(
-          &box_model_, paint_info)) {
+      !IsPaintingScrollingBackground(&box_model_, paint_info)) {
     // Clip to the overflow area.
     const LayoutBox& this_box = ToLayoutBox(box_model_);
     // TODO(chrishtr): this should be pixel-snapped.
@@ -115,7 +113,7 @@ LayoutRect BoxModelObjectPainter::AdjustRectForScrolledContent(
     // the ends.
     IntSize offset = this_box.ScrolledContentOffset();
     scrolled_paint_rect.Move(-offset);
-    LayoutRectOutsets border = BorderOutsets(info);
+    LayoutRectOutsets border = AdjustedBorderOutsets(info);
     scrolled_paint_rect.SetWidth(border.Left() + this_box.ScrollWidth() +
                                  border.Right());
     scrolled_paint_rect.SetHeight(this_box.BorderTop() +
@@ -123,6 +121,14 @@ LayoutRect BoxModelObjectPainter::AdjustRectForScrolledContent(
                                   this_box.BorderBottom());
   }
   return scrolled_paint_rect;
+}
+
+LayoutRectOutsets BoxModelObjectPainter::ComputeBorders() const {
+  return box_model_.BorderBoxOutsets();
+}
+
+LayoutRectOutsets BoxModelObjectPainter::ComputePadding() const {
+  return box_model_.PaddingOutsets();
 }
 
 BoxPainterBase::FillLayerInfo BoxModelObjectPainter::GetFillLayerInfo(

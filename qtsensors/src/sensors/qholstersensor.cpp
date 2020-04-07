@@ -152,5 +152,6 @@ QHolsterReading *QHolsterSensor::reading() const
     return static_cast<QHolsterReading*>(QSensor::reading());
 }
 
-#include "moc_qholstersensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qholstersensor.cpp"

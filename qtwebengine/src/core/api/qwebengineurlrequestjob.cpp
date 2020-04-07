@@ -84,11 +84,10 @@ QT_BEGIN_NAMESPACE
 /*!
     \internal
  */
-QWebEngineUrlRequestJob::QWebEngineUrlRequestJob(URLRequestCustomJobDelegate * p)
+QWebEngineUrlRequestJob::QWebEngineUrlRequestJob(URLRequestCustomJobDelegate *p)
     : QObject(p) // owned by the jobdelegate and deleted when the job is done
     , d_ptr(p)
-{
-}
+{}
 
 /*!
     \internal
@@ -137,6 +136,15 @@ QByteArray QWebEngineUrlRequestJob::requestMethod() const
 QUrl QWebEngineUrlRequestJob::initiator() const
 {
     return d_ptr->initiator();
+}
+
+/*!
+    \since 5.13
+    Returns any HTTP headers added to the request.
+*/
+QMap<QByteArray, QByteArray> QWebEngineUrlRequestJob::requestHeaders() const
+{
+    return d_ptr->requestHeaders();
 }
 
 /*!

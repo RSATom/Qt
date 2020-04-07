@@ -26,7 +26,8 @@
 #include "media/audio/audio_manager.h"
 #include "media/audio/audio_power_monitor.h"
 #include "media/audio/audio_source_diverter.h"
-#include "services/audio/group_member.h"
+#include "services/audio/loopback_group_member.h"
+#include "services/audio/stream_monitor_coordinator.h"
 
 // An OutputController controls an AudioOutputStream and provides data to this
 // output stream. It executes audio operations like play, pause, stop, etc. on
@@ -60,8 +61,9 @@
 namespace audio {
 
 class OutputController : public media::AudioOutputStream::AudioSourceCallback,
-                         public GroupMember,
-                         public media::AudioManager::AudioDeviceListener {
+                         public LoopbackGroupMember,
+                         public media::AudioManager::AudioDeviceListener,
+                         public StreamMonitorCoordinator::Observer {
  public:
   // An event handler that receives events from the OutputController. The
   // following methods are called on the audio manager thread.
@@ -108,8 +110,9 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
                    EventHandler* handler,
                    const media::AudioParameters& params,
                    const std::string& output_device_id,
-                   const base::UnguessableToken& group_id,
-                   SyncReader* sync_reader);
+                   SyncReader* sync_reader,
+                   StreamMonitorCoordinator* stream_monitor_coordinator,
+                   const base::UnguessableToken& processing_id);
   ~OutputController() override;
 
   // Indicates whether audio power level analysis will be performed.  If false,
@@ -126,7 +129,7 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
 
   // Creates the audio output stream. This must be called before Play(). Returns
   // true if successful, and Play() may commence.
-  bool Create(bool is_for_device_change);
+  bool CreateStream();
 
   // Starts the playback of this audio output stream.
   void Play();
@@ -149,13 +152,17 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
                  media::AudioBus* dest) override;
   void OnError() override;
 
-  // GroupMember implementation.
-  const base::UnguessableToken& GetGroupId() override;
-  const media::AudioParameters& GetAudioParameters() override;
-  void StartSnooping(Snooper* snooper) override;
-  void StopSnooping(Snooper* snooper) override;
+  // LoopbackGroupMember implementation.
+  const media::AudioParameters& GetAudioParameters() const override;
+  std::string GetDeviceId() const override;
+  void StartSnooping(Snooper* snooper, SnoopingMode mode) override;
+  void StopSnooping(Snooper* snooper, SnoopingMode mode) override;
   void StartMuting() override;
   void StopMuting() override;
+
+  // StreamMonitorCoordinator::Observer implementation.
+  void OnMemberJoinedGroup(StreamMonitor* monitor) override;
+  void OnMemberLeftGroup(StreamMonitor* monitor) override;
 
   // AudioDeviceListener implementation.  When called OutputController will
   // shutdown the existing |stream_|, create a new stream, and then transition
@@ -182,6 +189,13 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
   enum { kPowerMeasurementTimeConstantMillis = 10 };
 
  private:
+  // Possible reasons for calling RecreateStream().
+  enum class RecreateReason : int8_t {
+    INITIAL_STREAM = 0,
+    DEVICE_CHANGE = 1,
+    LOCAL_OUTPUT_TOGGLE = 2,
+  };
+
   // Used to store various stats about a stream. The lifetime of this object is
   // from play until pause. The underlying physical stream may be changed when
   // resuming playback, hence separate stats are logged for each play/pause
@@ -211,6 +225,15 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
     base::OneShotTimer wedge_timer_;
   };
 
+  // Helper to call RecreateStream(), but with a scoped "CreateTime" UMA timing
+  // measurement surrounding the call.
+  void RecreateStreamWithTimingUMA(RecreateReason reason);
+
+  // Closes the current stream and re-creates a new one via the AudioManager. If
+  // reason is LOCAL_OUTPUT_TOGGLE, the new stream will be a fake one and UMA
+  // counts will not be incremented.
+  void RecreateStream(RecreateReason reason);
+
   // Notifies the EventHandler that an error has occurred.
   void ReportError();
 
@@ -227,6 +250,10 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
   // Log the current average power level measured by power_monitor_.
   void LogAudioPowerLevel(const char* call_name);
 
+  // Helper called by StartMuting() and StopMuting() to execute the stream
+  // change.
+  void ToggleLocalOutput();
+
   media::AudioManager* const audio_manager_;
   const media::AudioParameters params_;
   EventHandler* const handler_;
@@ -235,12 +262,13 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
   // via tasks run by this TaskRunner.
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
+  // Time when the controller is constructed. Used to record its lifetime on
+  // destruction.
+  const base::TimeTicks construction_time_;
+
   // Specifies the device id of the output device to open or empty for the
   // default output device.
   const std::string output_device_id_;
-
-  // A token indicating membership in a group of output controllers/streams.
-  const base::UnguessableToken group_id_;
 
   media::AudioOutputStream* stream_;
 
@@ -254,6 +282,9 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
   std::vector<Snooper*> snoopers_;
   base::AtomicRefCount should_duplicate_;
 
+  base::Lock realtime_snooper_lock_;
+  std::vector<Snooper*> realtime_snoopers_;
+
   // The current volume of the audio stream.
   double volume_;
 
@@ -261,6 +292,9 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
 
   // SyncReader is used only in low latency mode for synchronous reading.
   SyncReader* const sync_reader_;
+
+  StreamMonitorCoordinator* const stream_monitor_coordinator_;
+  base::UnguessableToken const processing_id_;
 
   // Scans audio samples from OnMoreData() as input to compute power levels.
   media::AudioPowerMonitor power_monitor_;

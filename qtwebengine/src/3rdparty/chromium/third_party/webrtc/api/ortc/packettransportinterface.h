@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,29 +11,9 @@
 #ifndef API_ORTC_PACKETTRANSPORTINTERFACE_H_
 #define API_ORTC_PACKETTRANSPORTINTERFACE_H_
 
-namespace rtc {
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-class PacketTransportInternal;
-
-}  // namespace rtc
-
-namespace webrtc {
-
-// Base class for different packet-based transports.
-class PacketTransportInterface {
- public:
-  virtual ~PacketTransportInterface() {}
-
- protected:
-  // Only for internal use. Returns a pointer to an internal interface, for use
-  // by the implementation.
-  virtual rtc::PacketTransportInternal* GetInternal() = 0;
-
-  // Classes that can use this internal interface.
-  friend class RtpTransportControllerAdapter;
-  friend class RtpTransportAdapter;
-};
-
-}  // namespace webrtc
+#include "api/ortc/packet_transport_interface.h"
 
 #endif  // API_ORTC_PACKETTRANSPORTINTERFACE_H_

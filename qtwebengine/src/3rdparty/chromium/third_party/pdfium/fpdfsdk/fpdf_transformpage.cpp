@@ -16,20 +16,25 @@
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/page/cpdf_path.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
 void SetBoundingBox(CPDF_Page* page,
                     const ByteString& key,
                     const CFX_FloatRect& rect) {
-  if (page)
-    page->GetDict()->SetRectFor(key, rect);
+  if (!page)
+    return;
+
+  page->GetDict()->SetRectFor(key, rect);
+  page->UpdateDimensions();
 }
 
 bool GetBoundingBox(CPDF_Page* page,
@@ -78,6 +83,33 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_SetCropBox(FPDF_PAGE page,
                  CFX_FloatRect(left, bottom, right, top));
 }
 
+FPDF_EXPORT void FPDF_CALLCONV FPDFPage_SetBleedBox(FPDF_PAGE page,
+                                                    float left,
+                                                    float bottom,
+                                                    float right,
+                                                    float top) {
+  SetBoundingBox(CPDFPageFromFPDFPage(page), pdfium::page_object::kBleedBox,
+                 CFX_FloatRect(left, bottom, right, top));
+}
+
+FPDF_EXPORT void FPDF_CALLCONV FPDFPage_SetTrimBox(FPDF_PAGE page,
+                                                   float left,
+                                                   float bottom,
+                                                   float right,
+                                                   float top) {
+  SetBoundingBox(CPDFPageFromFPDFPage(page), pdfium::page_object::kTrimBox,
+                 CFX_FloatRect(left, bottom, right, top));
+}
+
+FPDF_EXPORT void FPDF_CALLCONV FPDFPage_SetArtBox(FPDF_PAGE page,
+                                                  float left,
+                                                  float bottom,
+                                                  float right,
+                                                  float top) {
+  SetBoundingBox(CPDFPageFromFPDFPage(page), pdfium::page_object::kArtBox,
+                 CFX_FloatRect(left, bottom, right, top));
+}
+
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFPage_GetMediaBox(FPDF_PAGE page,
                                                          float* left,
                                                          float* bottom,
@@ -98,10 +130,39 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFPage_GetCropBox(FPDF_PAGE page,
                         top);
 }
 
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFPage_GetBleedBox(FPDF_PAGE page,
+                                                         float* left,
+                                                         float* bottom,
+                                                         float* right,
+                                                         float* top) {
+  return GetBoundingBox(CPDFPageFromFPDFPage(page),
+                        pdfium::page_object::kBleedBox, left, bottom, right,
+                        top);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFPage_GetTrimBox(FPDF_PAGE page,
+                                                        float* left,
+                                                        float* bottom,
+                                                        float* right,
+                                                        float* top) {
+  return GetBoundingBox(CPDFPageFromFPDFPage(page),
+                        pdfium::page_object::kTrimBox, left, bottom, right,
+                        top);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFPage_GetArtBox(FPDF_PAGE page,
+                                                       float* left,
+                                                       float* bottom,
+                                                       float* right,
+                                                       float* top) {
+  return GetBoundingBox(CPDFPageFromFPDFPage(page),
+                        pdfium::page_object::kArtBox, left, bottom, right, top);
+}
+
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFPage_TransFormWithClip(FPDF_PAGE page,
-                           FS_MATRIX* matrix,
-                           FS_RECTF* clipRect) {
+                           const FS_MATRIX* matrix,
+                           const FS_RECTF* clipRect) {
   if (!matrix && !clipRect)
     return false;
 
@@ -133,21 +194,19 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
   if (!pDoc)
     return false;
 
-  CPDF_Stream* pStream = pDoc->NewIndirect<CPDF_Stream>(
-      nullptr, 0,
-      pdfium::MakeUnique<CPDF_Dictionary>(pDoc->GetByteStringPool()));
-  pStream->SetData(&textBuf);
+  CPDF_Stream* pStream =
+      pDoc->NewIndirect<CPDF_Stream>(nullptr, 0, pDoc->New<CPDF_Dictionary>());
+  pStream->SetDataFromStringstream(&textBuf);
 
-  CPDF_Stream* pEndStream = pDoc->NewIndirect<CPDF_Stream>(
-      nullptr, 0,
-      pdfium::MakeUnique<CPDF_Dictionary>(pDoc->GetByteStringPool()));
-  pEndStream->SetData((const uint8_t*)" Q", 2);
+  CPDF_Stream* pEndStream =
+      pDoc->NewIndirect<CPDF_Stream>(nullptr, 0, pDoc->New<CPDF_Dictionary>());
+  pEndStream->SetData(ByteStringView(" Q").span());
 
   if (CPDF_Array* pContentArray = ToArray(pContentObj)) {
     pContentArray->InsertAt(0, pStream->MakeReference(pDoc));
     pContentArray->Add(pEndStream->MakeReference(pDoc));
   } else if (pContentObj->IsStream() && !pContentObj->IsInline()) {
-    CPDF_Array* pContentArray = pDoc->NewIndirect<CPDF_Array>();
+    pContentArray = pDoc->NewIndirect<CPDF_Array>();
     pContentArray->Add(pStream->MakeReference(pDoc));
     pContentArray->Add(pContentObj->MakeReference(pDoc));
     pContentArray->Add(pEndStream->MakeReference(pDoc));
@@ -158,27 +217,30 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
   // Need to transform the patterns as well.
   CPDF_Dictionary* pRes =
       pPageDict->GetDictFor(pdfium::page_object::kResources);
-  if (pRes) {
-    CPDF_Dictionary* pPattenDict = pRes->GetDictFor("Pattern");
-    if (pPattenDict) {
-      for (const auto& it : *pPattenDict) {
-        CPDF_Object* pObj = it.second.get();
-        if (pObj->IsReference())
-          pObj = pObj->GetDirect();
+  if (!pRes)
+    return true;
 
-        CPDF_Dictionary* pDict = nullptr;
-        if (pObj->IsDictionary())
-          pDict = pObj->AsDictionary();
-        else if (CPDF_Stream* pObjStream = pObj->AsStream())
-          pDict = pObjStream->GetDict();
-        else
-          continue;
+  CPDF_Dictionary* pPatternDict = pRes->GetDictFor("Pattern");
+  if (!pPatternDict)
+    return true;
 
-        CFX_Matrix m = pDict->GetMatrixFor("Matrix");
-        CFX_Matrix t = *(CFX_Matrix*)matrix;
-        m.Concat(t);
-        pDict->SetMatrixFor("Matrix", m);
-      }
+  CPDF_DictionaryLocker locker(pPatternDict);
+  for (const auto& it : locker) {
+    CPDF_Object* pObj = it.second.get();
+    if (pObj->IsReference())
+      pObj = pObj->GetDirect();
+
+    CPDF_Dictionary* pDict = nullptr;
+    if (pObj->IsDictionary())
+      pDict = pObj->AsDictionary();
+    else if (CPDF_Stream* pObjStream = pObj->AsStream())
+      pDict = pObjStream->GetDict();
+    else
+      continue;
+
+    if (matrix) {
+      CFX_Matrix m = CFXMatrixFromFSMatrix(*matrix);
+      pDict->SetMatrixFor("Matrix", pDict->GetMatrixFor("Matrix") * m);
     }
   }
 
@@ -292,10 +354,9 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_InsertClipPath(FPDF_PAGE page,
   if (!pDoc)
     return;
 
-  CPDF_Stream* pStream = pDoc->NewIndirect<CPDF_Stream>(
-      nullptr, 0,
-      pdfium::MakeUnique<CPDF_Dictionary>(pDoc->GetByteStringPool()));
-  pStream->SetData(&strClip);
+  CPDF_Stream* pStream =
+      pDoc->NewIndirect<CPDF_Stream>(nullptr, 0, pDoc->New<CPDF_Dictionary>());
+  pStream->SetDataFromStringstream(&strClip);
 
   if (CPDF_Array* pArray = ToArray(pContentObj)) {
     pArray->InsertAt(0, pStream->MakeReference(pDoc));

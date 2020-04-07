@@ -401,6 +401,8 @@ void ControllerImpl::HandleTaskFinished(DownloadTaskType task_type,
     case DownloadTaskType::CLEANUP_TASK:
       ScheduleCleanupTask();
       break;
+    case DownloadTaskType::DOWNLOAD_AUTO_RESUMPTION_TASK:
+      NOTREACHED();
   }
 }
 
@@ -426,6 +428,11 @@ void ControllerImpl::OnDownloadCreated(const DriverEntry& download) {
     HandleExternalDownload(download.guid, true);
     return;
   }
+
+  entry->url_chain = download.url_chain;
+  entry->response_headers = download.response_headers;
+  entry->did_received_response = true;
+  model_->Update(*entry);
 
   download::Client* client = clients_->GetClient(entry->client);
   DCHECK(client);
@@ -456,8 +463,8 @@ void ControllerImpl::OnDownloadFailed(const DriverEntry& download,
     // immediately again.
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&ControllerImpl::UpdateDriverStateWithGuid,
-                   weak_ptr_factory_.GetWeakPtr(), download.guid),
+        base::BindOnce(&ControllerImpl::UpdateDriverStateWithGuid,
+                       weak_ptr_factory_.GetWeakPtr(), download.guid),
         config_->download_retry_delay);
   } else {
     HandleCompleteDownload(CompletionType::FAIL, download.guid);
@@ -491,15 +498,29 @@ void ControllerImpl::OnDownloadUpdated(const DriverEntry& download) {
 
   log_sink_->OnServiceDownloadChanged(entry->guid);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&ControllerImpl::SendOnDownloadUpdated,
-                            weak_ptr_factory_.GetWeakPtr(), entry->client,
-                            download.guid, download.bytes_downloaded));
+      FROM_HERE, base::BindOnce(&ControllerImpl::SendOnDownloadUpdated,
+                                weak_ptr_factory_.GetWeakPtr(), entry->client,
+                                download.guid, entry->bytes_uploaded,
+                                download.bytes_downloaded));
 }
 
 bool ControllerImpl::IsTrackingDownload(const std::string& guid) const {
   if (controller_state_ != State::READY)
     return false;
   return !!model_->Get(guid);
+}
+
+void ControllerImpl::OnUploadProgress(const std::string& guid,
+                                      uint64_t bytes_uploaded) const {
+  Entry* entry = model_->Get(guid);
+  DCHECK(entry);
+
+  entry->bytes_uploaded = bytes_uploaded;
+
+  auto* client = clients_->GetClient(entry->client);
+  DCHECK(client);
+
+  client->OnDownloadUpdated(guid, bytes_uploaded, /* bytes_downloaded= */ 0u);
 }
 
 void ControllerImpl::OnFileMonitorReady(bool success) {
@@ -561,7 +582,7 @@ void ControllerImpl::OnItemUpdated(bool success,
   // DriverEntry.  If we restart we'll see a COMPLETE state and handle it
   // accordingly.
   if (entry->state == Entry::State::COMPLETE)
-    driver_->Remove(guid);
+    driver_->Remove(guid, false);
 
   // TODO(dtrainor): If failed, clean up any download state accordingly.
 
@@ -684,8 +705,8 @@ void ControllerImpl::HandleUnrecoverableSetup() {
 
   // If we cannot recover, notify Clients that the service is unavailable.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&ControllerImpl::SendOnServiceUnavailable,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&ControllerImpl::SendOnServiceUnavailable,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ControllerImpl::StartHardRecoveryAttempt() {
@@ -727,7 +748,7 @@ void ControllerImpl::CancelOrphanedRequests() {
   }
 
   for (const auto& guid : guids_to_remove) {
-    driver_->Remove(guid);
+    driver_->Remove(guid, false);
     model_->Remove(guid);
   }
 
@@ -790,6 +811,15 @@ void ControllerImpl::ResolveInitialRequestStates() {
           break;
         }
 
+        // We didn't persist the response headers in time, so just restart the
+        // the fetch. The driver entry and the temporary file will also be
+        // deleted.
+        if (state == Entry::State::ACTIVE && entry->require_response_headers &&
+            !entry->did_received_response) {
+          driver_->Remove(entry->guid, true /* remove_file */);
+          break;
+        }
+
         // If we have a real DriverEntry::State, we need to determine which of
         // those states makes sense for our Entry.  Our entry can either be in
         // two states now: It's effective 'active' state (ACTIVE or PAUSED) or
@@ -837,7 +867,7 @@ void ControllerImpl::ResolveInitialRequestStates() {
       case Entry::State::AVAILABLE:  // Intentional fallthrough.
         // We should not have a DriverEntry here.
         if (driver_entry.has_value())
-          driver_->Remove(entry->guid);
+          driver_->Remove(entry->guid, false);
         break;
       case Entry::State::ACTIVE:  // Intentional fallthrough.
       case Entry::State::PAUSED:
@@ -862,7 +892,7 @@ void ControllerImpl::ResolveInitialRequestStates() {
         } else {
           // We're staying in COMPLETE.  Make sure there is no DriverEntry here.
           if (driver_entry.has_value())
-            driver_->Remove(entry->guid);
+            driver_->Remove(entry->guid, false);
         }
         break;
       case Entry::State::COUNT:
@@ -1053,9 +1083,9 @@ void ControllerImpl::NotifyClientsOfStartup(bool state_lost) {
 
   for (auto client_id : clients_->GetRegisteredClients()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&ControllerImpl::SendOnServiceInitialized,
-                              weak_ptr_factory_.GetWeakPtr(), client_id,
-                              state_lost, categorized[client_id]));
+        FROM_HERE, base::BindOnce(&ControllerImpl::SendOnServiceInitialized,
+                                  weak_ptr_factory_.GetWeakPtr(), client_id,
+                                  state_lost, categorized[client_id]));
   }
 }
 
@@ -1098,7 +1128,7 @@ void ControllerImpl::HandleStartDownloadResponse(
   if (callback.is_null())
     return;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, guid, result));
+      FROM_HERE, base::BindOnce(callback, guid, result));
 }
 
 void ControllerImpl::HandleCompleteDownload(CompletionType type,
@@ -1124,26 +1154,32 @@ void ControllerImpl::HandleCompleteDownload(CompletionType type,
     entry->completion_time = driver_entry->completion_time;
     entry->bytes_downloaded = driver_entry->bytes_downloaded;
     CompletionInfo completion_info(driver_entry->current_file_path,
-                                   driver_entry->bytes_downloaded);
+                                   driver_entry->bytes_downloaded,
+                                   entry->url_chain, entry->response_headers);
     completion_info.blob_handle = driver_entry->blob_handle;
 
     entry->last_cleanup_check_time = driver_entry->completion_time;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&ControllerImpl::SendOnDownloadSucceeded,
-                              weak_ptr_factory_.GetWeakPtr(), entry->client,
-                              guid, completion_info));
+        FROM_HERE, base::BindOnce(&ControllerImpl::SendOnDownloadSucceeded,
+                                  weak_ptr_factory_.GetWeakPtr(), entry->client,
+                                  guid, completion_info));
     TransitTo(entry, Entry::State::COMPLETE, model_.get());
     ScheduleCleanupTask();
   } else {
+    CompletionInfo completion_info;
+    completion_info.url_chain = entry->url_chain;
+    completion_info.response_headers = entry->response_headers;
+
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&ControllerImpl::SendOnDownloadFailed,
-                              weak_ptr_factory_.GetWeakPtr(), entry->client,
-                              guid, FailureReasonFromCompletionType(type)));
+        FROM_HERE,
+        base::BindOnce(&ControllerImpl::SendOnDownloadFailed,
+                       weak_ptr_factory_.GetWeakPtr(), entry->client, guid,
+                       completion_info, FailureReasonFromCompletionType(type)));
     log_sink_->OnServiceDownloadFailed(type, *entry);
 
     // TODO(dtrainor): Handle the case where we crash before the model write
     // happens and we have no driver entry.
-    driver_->Remove(entry->guid);
+    driver_->Remove(entry->guid, false);
     model_->Remove(guid);
   }
 
@@ -1322,13 +1358,14 @@ void ControllerImpl::SendOnServiceUnavailable() {
 
 void ControllerImpl::SendOnDownloadUpdated(DownloadClient client_id,
                                            const std::string& guid,
+                                           uint64_t bytes_uploaded,
                                            uint64_t bytes_downloaded) {
   if (!model_->Get(guid))
     return;
 
   auto* client = clients_->GetClient(client_id);
   DCHECK(client);
-  client->OnDownloadUpdated(guid, bytes_downloaded);
+  client->OnDownloadUpdated(guid, bytes_uploaded, bytes_downloaded);
 }
 
 void ControllerImpl::SendOnDownloadSucceeded(
@@ -1343,10 +1380,11 @@ void ControllerImpl::SendOnDownloadSucceeded(
 void ControllerImpl::SendOnDownloadFailed(
     DownloadClient client_id,
     const std::string& guid,
+    const CompletionInfo& completion_info,
     download::Client::FailureReason reason) {
   auto* client = clients_->GetClient(client_id);
   DCHECK(client);
-  client->OnDownloadFailed(guid, reason);
+  client->OnDownloadFailed(guid, completion_info, reason);
 }
 
 }  // namespace download

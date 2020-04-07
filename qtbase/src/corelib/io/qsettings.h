@@ -129,6 +129,7 @@ public:
               const QString &application = QString(), QObject *parent = nullptr);
     QSettings(const QString &fileName, Format format, QObject *parent = nullptr);
     explicit QSettings(QObject *parent = nullptr);
+    explicit QSettings(Scope scope, QObject *parent = nullptr);
 #else
     explicit QSettings(const QString &organization,
                        const QString &application = QString());
@@ -137,6 +138,9 @@ public:
     QSettings(Format format, Scope scope, const QString &organization,
               const QString &application = QString());
     QSettings(const QString &fileName, Format format);
+#  ifndef QT_BUILD_QMAKE
+    explicit QSettings(Scope scope = UserScope);
+#  endif
 #endif
     ~QSettings();
 
@@ -183,8 +187,12 @@ public:
 
     static void setDefaultFormat(Format format);
     static Format defaultFormat();
-    static void setSystemIniPath(const QString &dir); // ### Qt 6: remove (use setPath() instead)
-    static void setUserIniPath(const QString &dir);   // ### Qt 6: remove (use setPath() instead)
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QSettings::setPath() instead")
+    static void setSystemIniPath(const QString &dir);
+    QT_DEPRECATED_X("Use QSettings::setPath() instead")
+    static void setUserIniPath(const QString &dir);
+#endif
     static void setPath(Format format, Scope scope, const QString &path);
 
     typedef QMap<QString, QVariant> SettingsMap;

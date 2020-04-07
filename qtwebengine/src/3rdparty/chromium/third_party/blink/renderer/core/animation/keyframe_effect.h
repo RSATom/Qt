@@ -71,12 +71,18 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
                                 ExceptionState&);
   static KeyframeEffect* Create(ScriptState*, KeyframeEffect*, ExceptionState&);
 
+  KeyframeEffect(Element*,
+                 KeyframeEffectModelBase*,
+                 const Timing&,
+                 Priority,
+                 EventDelegate*);
   ~KeyframeEffect() override;
 
   bool IsKeyframeEffect() const override { return true; }
 
   // IDL implementation.
   Element* target() const { return target_; }
+  void setTarget(Element*);
   String composite() const;
   void setComposite(String);
   Vector<ScriptValue> getKeyframes(ScriptState*);
@@ -98,6 +104,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void NotifySampledEffectRemovedFromEffectStack();
 
   CompositorAnimations::FailureCode CheckCanStartAnimationOnCompositor(
+      const base::Optional<CompositorElementIdSet>& composited_element_ids,
       double animation_playback_rate) const;
   // Must only be called once.
   void StartAnimationOnCompositor(int group,
@@ -126,12 +133,6 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void Trace(blink::Visitor*) override;
 
  private:
-  KeyframeEffect(Element*,
-                 KeyframeEffectModelBase*,
-                 const Timing&,
-                 Priority,
-                 EventDelegate*);
-
   EffectModel::CompositeOperation CompositeInternal() const;
 
   void ApplyEffects();
@@ -139,6 +140,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void UpdateChildrenAndEffects() const override;
   void Attach(AnimationEffectOwner*) override;
   void Detach() override;
+  void AttachTarget(Animation*);
+  void DetachTarget(Animation*);
   double CalculateTimeToEffectChange(
       bool forwards,
       double inherited_time,

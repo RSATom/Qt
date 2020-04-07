@@ -18,19 +18,12 @@ class CPDF_Dest {
  public:
   CPDF_Dest();
   CPDF_Dest(const CPDF_Dest& that);
-  explicit CPDF_Dest(const CPDF_Array* pObj);
+  explicit CPDF_Dest(const CPDF_Array* pArray);
   ~CPDF_Dest();
 
-  const CPDF_Array* GetObject() const { return m_pObj.Get(); }
+  const CPDF_Array* GetArray() const { return m_pArray.Get(); }
   ByteString GetRemoteName() const;
-
-  // Deprecated. Use GetDestPageIndex instead.
-  // This method is wrong. It returns 0 for errors, when it could mean the first
-  // page as well. Keeping it avoids changing the behavior of
-  // FPDFDest_GetPageIndex().
-  int GetPageIndexDeprecated(CPDF_Document* pDoc) const;
   int GetDestPageIndex(CPDF_Document* pDoc) const;
-  uint32_t GetPageObjNum() const;
 
   // Returns the zoom mode, as one of the PDFDEST_VIEW_* values in fpdf_doc.h.
   int GetZoomMode() const;
@@ -46,7 +39,7 @@ class CPDF_Dest {
               float* pZoom) const;
 
  private:
-  UnownedPtr<const CPDF_Array> const m_pObj;
+  UnownedPtr<const CPDF_Array> const m_pArray;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_DEST_H_

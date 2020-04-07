@@ -20,7 +20,7 @@
 #include "components/sync/engine/test_engine_components_factory.h"
 #include "components/sync/protocol/sync.pb.h"
 #include "components/sync/syncable/test_user_share.h"
-#include "google_apis/gaia/gaia_constants.h"
+#include "services/network/test/test_network_connection_tracker.h"
 
 using syncer::SyncBackendHostImpl;
 using syncer::ModelType;
@@ -80,10 +80,10 @@ void SyncEngineForProfileSyncTest::Initialize(InitParams params) {
   params.http_factory_getter = base::Bind(&GetHttpPostProviderFactory);
   params.sync_manager_factory =
       std::make_unique<syncer::SyncManagerFactoryForProfileSyncTest>(
-          std::move(callback_));
+          std::move(callback_),
+          network::TestNetworkConnectionTracker::GetInstance());
   params.credentials.email = "testuser@gmail.com";
   params.credentials.sync_token = "token";
-  params.credentials.scope_set.insert(GaiaConstants::kChromeSyncOAuth2Scope);
   params.restored_key_for_bootstrapping.clear();
 
   // It'd be nice if we avoided creating the EngineComponentsFactory in the
@@ -107,44 +107,13 @@ void SyncEngineForProfileSyncTest::ConfigureDataTypes(ConfigureParams params) {
   // Posted to avoid re-entrancy issues.
   base::SequencedTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(
+      base::BindOnce(
           &SyncEngineForProfileSyncTest::FinishConfigureDataTypesOnFrontendLoop,
           base::Unretained(this), params.to_download, params.to_download,
           syncer::ModelTypeSet(), params.ready_task));
 }
 
-// Helper function for return-type-upcasting of the callback.
-syncer::SyncService* GetSyncService(
-    base::Callback<TestProfileSyncService*(void)> get_sync_service_callback) {
-  return get_sync_service_callback.Run();
-}
-
 }  // namespace
-
-/* static */
-syncer::ImmutableChangeRecordList
-ProfileSyncServiceTestHelper::MakeSingletonChangeRecordList(
-    int64_t node_id,
-    syncer::ChangeRecord::Action action) {
-  syncer::ChangeRecord record;
-  record.action = action;
-  record.id = node_id;
-  syncer::ChangeRecordList records(1, record);
-  return syncer::ImmutableChangeRecordList(&records);
-}
-
-/* static */
-syncer::ImmutableChangeRecordList
-ProfileSyncServiceTestHelper::MakeSingletonDeletionChangeRecordList(
-    int64_t node_id,
-    const sync_pb::EntitySpecifics& specifics) {
-  syncer::ChangeRecord record;
-  record.action = syncer::ChangeRecord::ACTION_DELETE;
-  record.id = node_id;
-  record.specifics = specifics;
-  syncer::ChangeRecordList records(1, record);
-  return syncer::ImmutableChangeRecordList(&records);
-}
 
 AbstractProfileSyncServiceTest::AbstractProfileSyncServiceTest()
     : data_type_thread_("Extra thread") {
@@ -173,21 +142,14 @@ void AbstractProfileSyncServiceTest::CreateSyncService(
   syncer::SyncApiComponentFactoryMock* components =
       profile_sync_service_bundle_.component_factory();
   auto engine = std::make_unique<SyncEngineForProfileSyncTest>(
-      temp_dir_.GetPath(), sync_service_->GetSyncClient(),
+      temp_dir_.GetPath(), sync_service_->GetSyncClientForTest(),
       profile_sync_service_bundle_.fake_invalidation_service(),
       sync_service_->sync_prefs()->AsWeakPtr(),
       std::move(initialization_success_callback));
   EXPECT_CALL(*components, CreateSyncEngine(_, _, _, _))
       .WillOnce(Return(ByMove(std::move(engine))));
 
-  sync_service_->SetFirstSetupComplete();
-}
-
-base::Callback<syncer::SyncService*(void)>
-AbstractProfileSyncServiceTest::GetSyncServiceCallback() {
-  return base::Bind(GetSyncService,
-                    base::Bind(&AbstractProfileSyncServiceTest::sync_service,
-                               base::Unretained(this)));
+  sync_service_->sync_prefs()->SetFirstSetupComplete();
 }
 
 CreateRootHelper::CreateRootHelper(AbstractProfileSyncServiceTest* test,

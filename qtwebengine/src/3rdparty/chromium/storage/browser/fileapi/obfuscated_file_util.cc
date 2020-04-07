@@ -253,16 +253,17 @@ ObfuscatedFileUtil::ObfuscatedFileUtil(
     storage::SpecialStoragePolicy* special_storage_policy,
     const base::FilePath& file_system_directory,
     leveldb::Env* env_override,
-    const GetTypeStringForURLCallback& get_type_string_for_url,
+    GetTypeStringForURLCallback get_type_string_for_url,
     const std::set<std::string>& known_type_strings,
     SandboxFileSystemBackendDelegate* sandbox_delegate)
     : special_storage_policy_(special_storage_policy),
       file_system_directory_(file_system_directory),
       env_override_(env_override),
       db_flush_delay_seconds_(10 * 60),  // 10 mins.
-      get_type_string_for_url_(get_type_string_for_url),
+      get_type_string_for_url_(std::move(get_type_string_for_url)),
       known_type_strings_(known_type_strings),
       sandbox_delegate_(sandbox_delegate) {
+  DCHECK(!get_type_string_for_url_.is_null());
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
@@ -408,16 +409,8 @@ base::File::Error ObfuscatedFileUtil::GetFileInfo(
   if (!db->GetFileWithPath(url.path(), &file_id))
     return base::File::FILE_ERROR_NOT_FOUND;
   FileInfo local_info;
-  return GetFileInfoInternal(db, context, url,
-                             file_id, &local_info,
-                             file_info, platform_file_path);
-}
-
-std::unique_ptr<FileSystemFileUtil::AbstractFileEnumerator>
-ObfuscatedFileUtil::CreateFileEnumerator(FileSystemOperationContext* context,
-                                         const FileSystemURL& root_url) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return CreateFileEnumerator(context, root_url, false /* recursive */);
+  return GetFileInfoInternal(db, context, url, file_id, &local_info, file_info,
+                             platform_file_path);
 }
 
 base::File::Error ObfuscatedFileUtil::GetLocalFilePath(
@@ -874,7 +867,8 @@ bool ObfuscatedFileUtil::DeleteDirectoryForOriginAndType(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DestroyDirectoryDatabase(origin, type_string);
 
-  const base::FilePath origin_path = GetDirectoryForOrigin(origin, false, NULL);
+  const base::FilePath origin_path =
+      GetDirectoryForOrigin(origin, false, nullptr);
   if (origin_path.empty())
     return true;
 
@@ -1197,7 +1191,7 @@ SandboxDirectoryDatabase* ObfuscatedFileUtil::GetDirectoryDatabase(
   std::string key = GetDirectoryDatabaseKey(
       url.origin(), CallGetTypeStringForURL(url));
   if (key.empty())
-    return NULL;
+    return nullptr;
 
   auto iter = directories_.find(key);
   if (iter != directories_.end()) {
@@ -1210,7 +1204,7 @@ SandboxDirectoryDatabase* ObfuscatedFileUtil::GetDirectoryDatabase(
   if (error != base::File::FILE_OK) {
     LOG(WARNING) << "Failed to get origin+type directory: "
                  << url.DebugString() << " error:" << error;
-    return NULL;
+    return nullptr;
   }
   MarkUsed();
   directories_[key] =
@@ -1285,9 +1279,10 @@ void ObfuscatedFileUtil::MarkUsed() {
   if (timer_.IsRunning()) {
     timer_.Reset();
   } else {
-    timer_.Start(
-        FROM_HERE, base::TimeDelta::FromSeconds(db_flush_delay_seconds_),
-        base::Bind(&ObfuscatedFileUtil::DropDatabases, base::Unretained(this)));
+    timer_.Start(FROM_HERE,
+                 base::TimeDelta::FromSeconds(db_flush_delay_seconds_),
+                 base::BindOnce(&ObfuscatedFileUtil::DropDatabases,
+                                base::Unretained(this)));
   }
 }
 
@@ -1296,6 +1291,12 @@ void ObfuscatedFileUtil::DropDatabases() {
   origin_database_.reset();
   directories_.clear();
   timer_.Stop();
+}
+
+void ObfuscatedFileUtil::RewriteDatabases() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (origin_database_)
+    origin_database_->RewriteDatabase();
 }
 
 bool ObfuscatedFileUtil::InitOriginDatabase(const GURL& origin_hint,
@@ -1323,17 +1324,6 @@ bool ObfuscatedFileUtil::InitOriginDatabase(const GURL& origin_hint,
 
   const std::string isolated_origin_string =
       storage::GetIdentifierFromOrigin(origin_hint);
-
-  // TODO(kinuko): Deprecate this after a few release cycles, e.g. around M33.
-  base::FilePath isolated_origin_dir = file_system_directory_.Append(
-      SandboxIsolatedOriginDatabase::kObsoleteOriginDirectory);
-  if (base::DirectoryExists(isolated_origin_dir) &&
-      prioritized_origin_database->GetSandboxOriginDatabase()) {
-    SandboxIsolatedOriginDatabase::MigrateBackFromObsoleteOriginDatabase(
-        isolated_origin_string,
-        file_system_directory_,
-        prioritized_origin_database->GetSandboxOriginDatabase());
-  }
 
   prioritized_origin_database->InitializePrimaryOrigin(
       isolated_origin_string);

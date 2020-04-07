@@ -22,8 +22,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "printing/metafile.h"
@@ -47,8 +46,6 @@ base::LazyInstance<base::FilePath>::Leaky g_debug_dump_info =
 #if defined(OS_WIN)
 void DebugDumpPageTask(const base::string16& doc_name,
                        const PrintedPage* page) {
-  base::AssertBlockingAllowed();
-
   DCHECK(PrintedDocument::HasDebugDumpPath());
 
   static constexpr base::FilePath::CharType kExtension[] =
@@ -65,8 +62,6 @@ void DebugDumpPageTask(const base::string16& doc_name,
 
 void DebugDumpTask(const base::string16& doc_name,
                    const MetafilePlayer* metafile) {
-  base::AssertBlockingAllowed();
-
   DCHECK(PrintedDocument::HasDebugDumpPath());
 
   static constexpr base::FilePath::CharType kExtension[] =
@@ -82,8 +77,6 @@ void DebugDumpTask(const base::string16& doc_name,
 void DebugDumpDataTask(const base::string16& doc_name,
                        const base::FilePath::StringType& extension,
                        const base::RefCountedMemory* data) {
-  base::AssertBlockingAllowed();
-
   base::FilePath path =
       PrintedDocument::CreateDebugDumpPath(doc_name, extension);
   if (path.empty())
@@ -103,7 +96,7 @@ void DebugDumpSettings(const base::string16& doc_name,
   scoped_refptr<base::RefCountedMemory> data =
       base::RefCountedString::TakeString(&settings_str);
   base::PostTaskWithTraits(
-      FROM_HERE, {base::TaskPriority::BACKGROUND, base::MayBlock()},
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
       base::BindOnce(&DebugDumpDataTask, doc_name, FILE_PATH_LITERAL(".json"),
                      base::RetainedRef(data)));
 }
@@ -147,7 +140,7 @@ void PrintedDocument::SetPage(int page_number,
 
   if (HasDebugDumpPath()) {
     base::PostTaskWithTraits(
-        FROM_HERE, {base::TaskPriority::BACKGROUND, base::MayBlock()},
+        FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
         base::BindOnce(&DebugDumpPageTask, name(), base::RetainedRef(page)));
   }
 }
@@ -179,7 +172,7 @@ void PrintedDocument::SetDocument(std::unique_ptr<MetafilePlayer> metafile,
 
   if (HasDebugDumpPath()) {
     base::PostTaskWithTraits(
-        FROM_HERE, {base::TaskPriority::BACKGROUND, base::MayBlock()},
+        FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
         base::BindOnce(&DebugDumpTask, name(), mutable_.metafile_.get()));
   }
 }
@@ -277,7 +270,7 @@ void PrintedDocument::DebugDumpData(
     const base::FilePath::StringType& extension) {
   DCHECK(HasDebugDumpPath());
   base::PostTaskWithTraits(FROM_HERE,
-                           {base::TaskPriority::BACKGROUND, base::MayBlock()},
+                           {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
                            base::BindOnce(&DebugDumpDataTask, name(), extension,
                                           base::RetainedRef(data)));
 }
@@ -310,13 +303,5 @@ PrintedDocument::Immutable::Immutable(const PrintSettings& settings,
     : settings_(settings), name_(name), cookie_(cookie) {}
 
 PrintedDocument::Immutable::~Immutable() = default;
-
-#if defined(OS_ANDROID)
-// This function is not used on android.
-bool PrintedDocument::RenderPrintedDocument(PrintingContext* context) {
-  NOTREACHED();
-  return false;
-}
-#endif
 
 }  // namespace printing

@@ -51,7 +51,7 @@
 QT_BEGIN_NAMESPACE
 
 class QTextToSpeechPrivate;
-class QTEXTTOSPEECH_EXPORT QTextToSpeech : public QObject
+class Q_TEXTTOSPEECH_EXPORT QTextToSpeech : public QObject
 {
     Q_OBJECT
     Q_ENUMS(QTextToSpeech::State)

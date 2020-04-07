@@ -77,8 +77,7 @@ static_library("client") {
 
   public_configs = [ "..:crashpad_config" ]
 
-  deps = [
-    "../compat",
+  public_deps = [
     "../third_party/mini_chromium:base",
     "../util",
   ]
@@ -88,10 +87,11 @@ static_library("client") {
     cflags = [ "/wd4201" ]  # nonstandard extension used : nameless struct/union
   }
 
-  if (crashpad_is_fuchsia && crashpad_is_in_fuchsia) {
-    deps += [
-      "//zircon/public/lib/fdio",
-    ]
+  if (crashpad_is_fuchsia) {
+    deps = [ "../third_party/fuchsia:zx" ]
+    if (crashpad_is_in_fuchsia) {
+      deps += [ "//zircon/public/lib/fdio" ]
+    }
   }
 }
 

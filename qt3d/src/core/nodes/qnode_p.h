@@ -69,7 +69,7 @@ namespace Qt3DCore {
 class QNode;
 class QAspectEngine;
 
-class QT3DCORE_PRIVATE_EXPORT QNodePrivate : public QObjectPrivate, public QObservableInterface
+class Q_3DCORE_PRIVATE_EXPORT QNodePrivate : public QObjectPrivate, public QObservableInterface
 {
 public:
     QNodePrivate();
@@ -142,6 +142,14 @@ public:
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
         auto f = [q, func, resetValue]() { (static_cast<Caller *>(q)->*func)(resetValue); };
+        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+    }
+
+    template<typename Caller, typename NodeType>
+    void registerPrivateDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func)
+    {
+        // If the node is destoyed, we make sure not to keep a dangling pointer to it
+        auto f = [this, func, node]() { (static_cast<Caller *>(this)->*func)(node); };
         m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
     }
 

@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "components/zucchini/encoded_view.h"
 #include "components/zucchini/patch_reader.h"
 #include "components/zucchini/suffix_array.h"
@@ -59,12 +60,13 @@ double GetTokenSimilarity(
 
   const ReferenceSet& old_ref_set = old_image_index.refs(old_type);
   const ReferenceSet& new_ref_set = new_image_index.refs(new_type);
-  IndirectReference old_reference = old_ref_set.at(src);
-  IndirectReference new_reference = new_ref_set.at(dst);
+  Reference old_reference = old_ref_set.at(src);
+  Reference new_reference = new_ref_set.at(dst);
   PoolTag pool_tag = old_ref_set.pool_tag();
 
   double affinity = targets_affinities[pool_tag.value()].AffinityBetween(
-      old_reference.target_key, new_reference.target_key);
+      old_ref_set.target_pool().KeyForOffset(old_reference.target),
+      new_ref_set.target_pool().KeyForOffset(new_reference.target));
 
   // Both targets are not associated, which implies a weak match.
   if (affinity == 0.0)
@@ -213,8 +215,8 @@ EquivalenceCandidate VisitEquivalenceSeed(
 /******** OffsetMapper ********/
 
 OffsetMapper::OffsetMapper(std::vector<Equivalence>&& equivalences,
-                           size_t old_image_size,
-                           size_t new_image_size)
+                           offset_t old_image_size,
+                           offset_t new_image_size)
     : equivalences_(std::move(equivalences)),
       old_image_size_(old_image_size),
       new_image_size_(new_image_size) {
@@ -227,8 +229,8 @@ OffsetMapper::OffsetMapper(std::vector<Equivalence>&& equivalences,
 }
 
 OffsetMapper::OffsetMapper(EquivalenceSource&& equivalence_source,
-                           size_t old_image_size,
-                           size_t new_image_size)
+                           offset_t old_image_size,
+                           offset_t new_image_size)
     : old_image_size_(old_image_size), new_image_size_(new_image_size) {
   DCHECK_GT(new_image_size_, 0U);
   for (auto e = equivalence_source.GetNext(); e.has_value();
@@ -239,8 +241,8 @@ OffsetMapper::OffsetMapper(EquivalenceSource&& equivalence_source,
 }
 
 OffsetMapper::OffsetMapper(const EquivalenceMap& equivalence_map,
-                           size_t old_image_size,
-                           size_t new_image_size)
+                           offset_t old_image_size,
+                           offset_t new_image_size)
     : equivalences_(equivalence_map.size()),
       old_image_size_(old_image_size),
       new_image_size_(new_image_size) {
@@ -303,8 +305,7 @@ void OffsetMapper::ForwardProjectAll(std::vector<offset_t>* offsets) const {
       src = kInvalidOffset;
     }
   }
-  offsets->erase(std::remove(offsets->begin(), offsets->end(), kInvalidOffset),
-                 offsets->end());
+  base::Erase(*offsets, kInvalidOffset);
   offsets->shrink_to_fit();
 }
 
@@ -364,11 +365,9 @@ void OffsetMapper::PruneEquivalencesAndSortBySource(
   }
 
   // Discard all equivalences with length == 0.
-  equivalences->erase(std::remove_if(equivalences->begin(), equivalences->end(),
-                                     [](const Equivalence& equivalence) {
-                                       return equivalence.length == 0;
-                                     }),
-                      equivalences->end());
+  base::EraseIf(*equivalences, [](const Equivalence& equivalence) {
+    return equivalence.length == 0;
+  });
 }
 
 /******** EquivalenceMap ********/
@@ -540,12 +539,10 @@ void EquivalenceMap::Prune(
   }
 
   // Discard all candidates with similarity smaller than |min_similarity|.
-  candidates_.erase(
-      std::remove_if(candidates_.begin(), candidates_.end(),
-                     [min_similarity](const EquivalenceCandidate& candidate) {
-                       return candidate.similarity < min_similarity;
-                     }),
-      candidates_.end());
+  base::EraseIf(candidates_,
+                [min_similarity](const EquivalenceCandidate& candidate) {
+                  return candidate.similarity < min_similarity;
+                });
 }
 
 }  // namespace zucchini

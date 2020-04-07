@@ -52,6 +52,7 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
       int request_id,
       int render_frame_id,
       bool is_main_frame,
+      const base::UnguessableToken& fetch_window_id,
       ResourceType resource_type,
       ui::PageTransition transition_type,
       bool is_download,
@@ -62,7 +63,7 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
       bool enable_upload_progress,
       bool do_not_prompt_for_login,
       bool keepalive,
-      blink::WebReferrerPolicy referrer_policy,
+      network::mojom::ReferrerPolicy referrer_policy,
       bool is_prerendering,
       ResourceContext* context,
       bool report_raw_headers,
@@ -85,8 +86,7 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   int GetFrameTreeNodeId() const override;
   bool IsMainFrame() const override;
   ResourceType GetResourceType() const override;
-  int GetProcessType() const override;
-  blink::WebReferrerPolicy GetReferrerPolicy() const override;
+  network::mojom::ReferrerPolicy GetReferrerPolicy() const override;
   bool IsPrerendering() const override;
   ui::PageTransition GetPageTransition() const override;
   bool HasUserGesture() const override;
@@ -97,7 +97,6 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   // Returns a bitmask of potentially several Previews optimizations.
   PreviewsState GetPreviewsState() const override;
   NavigationUIData* GetNavigationUIData() const override;
-  DevToolsStatus GetDevToolsStatus() const override;
   void SetResourceRequestBlockedReason(
       blink::ResourceRequestBlockedReason reason) override;
   base::Optional<blink::ResourceRequestBlockedReason>
@@ -186,10 +185,6 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
     navigation_ui_data_ = std::move(navigation_ui_data);
   }
 
-  void set_devtools_status(DevToolsStatus devtools_status) {
-    devtools_status_ = devtools_status;
-  }
-
   void SetBlobHandles(BlobHandles blob_handles);
 
   bool blocked_response_from_reaching_renderer() const {
@@ -215,6 +210,10 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
     first_auth_attempt_ = first_auth_attempt;
   }
 
+  const base::UnguessableToken& fetch_window_id() const {
+    return fetch_window_id_;
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(ResourceDispatcherHostTest,
                            DeletedFilterDetached);
@@ -230,6 +229,7 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   int request_id_;
   int render_frame_id_;
   bool is_main_frame_;
+  base::UnguessableToken fetch_window_id_;
   bool is_download_;
   bool is_stream_;
   bool allow_download_;
@@ -242,13 +242,12 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   ResourceType resource_type_;
   ui::PageTransition transition_type_;
   int memory_cost_;
-  blink::WebReferrerPolicy referrer_policy_;
+  network::mojom::ReferrerPolicy referrer_policy_;
   bool is_prerendering_;
   ResourceContext* context_;
   bool report_raw_headers_;
   bool report_security_info_;
   bool is_async_;
-  DevToolsStatus devtools_status_;
   base::Optional<blink::ResourceRequestBlockedReason>
       resource_request_blocked_reason_;
   PreviewsState previews_state_;

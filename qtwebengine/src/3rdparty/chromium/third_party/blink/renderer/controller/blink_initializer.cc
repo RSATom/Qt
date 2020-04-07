@@ -36,7 +36,6 @@
 #include "third_party/blink/public/common/experiments/memory_ablation_experiment.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/public/web/blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_initializer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_context_snapshot_external_references.h"
@@ -51,12 +50,14 @@
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 #include "v8/include/v8.h"
 
 #if defined(OS_ANDROID)
+#include "third_party/blink/renderer/controller/crash_memory_metrics_reporter_impl.h"
 #include "third_party/blink/renderer/controller/oom_intervention_impl.h"
 #endif
 
@@ -64,29 +65,27 @@ namespace blink {
 
 namespace {
 
-class EndOfTaskRunner : public WebThread::TaskObserver {
+class EndOfTaskRunner : public Thread::TaskObserver {
  public:
-  void WillProcessTask() override { AnimationClock::NotifyTaskStart(); }
-  void DidProcessTask() override {
+  void WillProcessTask(const base::PendingTask&) override {
+    AnimationClock::NotifyTaskStart();
+  }
+  void DidProcessTask(const base::PendingTask&) override {
     Microtask::PerformCheckpoint(V8PerIsolateData::MainThreadIsolate());
     V8Initializer::ReportRejectedPromisesOnMainThread();
   }
 };
 
-}  // namespace
+Thread::TaskObserver* g_end_of_task_runner = nullptr;
 
-static WebThread::TaskObserver* g_end_of_task_runner = nullptr;
-
-static BlinkInitializer& GetBlinkInitializer() {
+BlinkInitializer& GetBlinkInitializer() {
   DEFINE_STATIC_LOCAL(std::unique_ptr<BlinkInitializer>, initializer,
                       (std::make_unique<BlinkInitializer>()));
   return *initializer;
 }
 
-void Initialize(Platform* platform, service_manager::BinderRegistry* registry) {
-  DCHECK(registry);
-  Platform::Initialize(platform);
-
+void InitializeCommon(Platform* platform,
+                      service_manager::BinderRegistry* registry) {
 #if !defined(ARCH_CPU_X86_64) && !defined(ARCH_CPU_ARM64) && defined(OS_WIN)
   // Reserve address space on 32 bit Windows, to make it likelier that large
   // array buffer allocations succeed.
@@ -124,34 +123,56 @@ void Initialize(Platform* platform, service_manager::BinderRegistry* registry) {
 
   GetBlinkInitializer().RegisterInterfaces(*registry);
 
-  // currentThread is null if we are running on a thread without a message loop.
-  if (WebThread* current_thread = platform->CurrentThread()) {
-    DCHECK(!g_end_of_task_runner);
-    g_end_of_task_runner = new EndOfTaskRunner;
-    current_thread->AddTaskObserver(g_end_of_task_runner);
-  }
+  DCHECK(!g_end_of_task_runner);
+  g_end_of_task_runner = new EndOfTaskRunner;
+  Thread::Current()->AddTaskObserver(g_end_of_task_runner);
 
-  if (WebThread* main_thread = Platform::Current()->MainThread()) {
-    scoped_refptr<base::SequencedTaskRunner> task_runner =
-        main_thread->GetTaskRunner();
-    if (task_runner)
-      MemoryAblationExperiment::MaybeStartForRenderer(task_runner);
-  }
+  scoped_refptr<base::SequencedTaskRunner> task_runner =
+      Thread::MainThread()->GetTaskRunner();
+  if (task_runner)
+    MemoryAblationExperiment::MaybeStartForRenderer(task_runner);
+
+#if defined(OS_ANDROID)
+  // Initialize CrashMemoryMetricsReporterImpl in order to assure that memory
+  // allocation does not happen in OnOOMCallback.
+  CrashMemoryMetricsReporterImpl::Instance();
+#endif
+}
+
+}  // namespace
+
+void Initialize(Platform* platform,
+                service_manager::BinderRegistry* registry,
+                scheduler::WebThreadScheduler* main_thread_scheduler) {
+  DCHECK(registry);
+  Platform::Initialize(platform, main_thread_scheduler);
+  InitializeCommon(platform, registry);
+}
+
+void CreateMainThreadAndInitialize(Platform* platform,
+                                   service_manager::BinderRegistry* registry) {
+  DCHECK(registry);
+  Platform::CreateMainThreadAndInitialize(platform);
+  InitializeCommon(platform, registry);
 }
 
 void BlinkInitializer::RegisterInterfaces(
     service_manager::BinderRegistry& registry) {
   ModulesInitializer::RegisterInterfaces(registry);
-  WebThread* main_thread = Platform::Current()->MainThread();
+  Thread* main_thread = Thread::MainThread();
   // GetSingleThreadTaskRunner() uses GetTaskRunner() internally.
   // crbug.com/781664
-  if (!main_thread || !main_thread->GetTaskRunner())
+  if (!main_thread->GetTaskRunner())
     return;
 
 #if defined(OS_ANDROID)
   registry.AddInterface(
       ConvertToBaseCallback(CrossThreadBind(&OomInterventionImpl::Create)),
       main_thread->GetTaskRunner());
+
+  registry.AddInterface(ConvertToBaseCallback(CrossThreadBind(
+                            &CrashMemoryMetricsReporterImpl::Bind)),
+                        main_thread->GetTaskRunner());
 #endif
 
   registry.AddInterface(

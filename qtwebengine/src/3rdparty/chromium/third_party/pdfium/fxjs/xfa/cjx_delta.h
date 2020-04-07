@@ -7,23 +7,30 @@
 #ifndef FXJS_XFA_CJX_DELTA_H_
 #define FXJS_XFA_CJX_DELTA_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_object.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Delta;
 
-class CJX_Delta : public CJX_Object {
+class CJX_Delta final : public CJX_Object {
  public:
   explicit CJX_Delta(CXFA_Delta* delta);
   ~CJX_Delta() override;
 
-  JS_METHOD(restore, CJX_Delta);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(currentValue);
-  JS_PROP(savedValue);
-  JS_PROP(target);
+  JSE_METHOD(restore);
+
+  JSE_PROP(currentValue);
+  JSE_PROP(savedValue);
+  JSE_PROP(target);
 
  private:
+  using Type__ = CJX_Delta;
+  using ParentType__ = CJX_Object;
+
+  static const TypeTag static_type__ = TypeTag::Delta;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

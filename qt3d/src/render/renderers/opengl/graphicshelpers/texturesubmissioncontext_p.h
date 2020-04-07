@@ -57,6 +57,8 @@
 
 QT_BEGIN_NAMESPACE
 
+class QOpenGLContext;
+
 namespace Qt3DRender {
 namespace Render {
 
@@ -78,7 +80,7 @@ public:
 
     void initialize(GraphicsContext *context);
     void endDrawing();
-    int activateTexture(TextureScope scope, GLTexture* tex);
+    int activateTexture(TextureScope scope, QOpenGLContext *gl, GLTexture* tex);
     void deactivateTexture(GLTexture *tex);
     void deactivateTexturesWithScope(TextureScope ts);
 

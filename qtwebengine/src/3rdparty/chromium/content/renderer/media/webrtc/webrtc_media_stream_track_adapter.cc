@@ -72,6 +72,21 @@ WebRtcMediaStreamTrackAdapter::WebRtcMediaStreamTrackAdapter(
 WebRtcMediaStreamTrackAdapter::~WebRtcMediaStreamTrackAdapter() {
   DCHECK(!remote_track_can_complete_initialization_.IsSignaled());
   DCHECK(is_disposed_);
+  // Ensured by destructor traits.
+  DCHECK(main_thread_->BelongsToCurrentThread());
+}
+
+// static
+void WebRtcMediaStreamTrackAdapterTraits::Destruct(
+    const WebRtcMediaStreamTrackAdapter* adapter) {
+  if (!adapter->main_thread_->BelongsToCurrentThread()) {
+    adapter->main_thread_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&WebRtcMediaStreamTrackAdapterTraits::Destruct,
+                       base::Unretained(adapter)));
+    return;
+  }
+  delete adapter;
 }
 
 void WebRtcMediaStreamTrackAdapter::Dispose() {
@@ -129,7 +144,7 @@ bool WebRtcMediaStreamTrackAdapter::IsEqual(
     const blink::WebMediaStreamTrack& web_track) {
   DCHECK(main_thread_->BelongsToCurrentThread());
   EnsureTrackIsInitialized();
-  return web_track_.GetTrackData() == web_track.GetTrackData();
+  return web_track_.GetPlatformTrack() == web_track.GetPlatformTrack();
 }
 
 void WebRtcMediaStreamTrackAdapter::InitializeLocalAudioTrack(
@@ -149,7 +164,7 @@ void WebRtcMediaStreamTrackAdapter::InitializeLocalAudioTrack(
   webrtc::AudioSourceInterface* source_interface = nullptr;
   local_track_audio_sink_.reset(
       new WebRtcAudioSink(web_track_.Id().Utf8(), source_interface,
-                          factory_->GetWebRtcSignalingThread()));
+                          factory_->GetWebRtcSignalingThread(), main_thread_));
 
   if (auto* media_stream_source = ProcessedLocalAudioSource::From(
           MediaStreamAudioSource::From(web_track_.Source()))) {
@@ -157,9 +172,9 @@ void WebRtcMediaStreamTrackAdapter::InitializeLocalAudioTrack(
     // The sink only grabs stats from the audio processor. Stats are only
     // available if audio processing is turned on. Therefore, only provide the
     // sink a reference to the processor if audio processing is turned on.
-    if (auto processor = media_stream_source->audio_processor()) {
-      if (processor->has_audio_processing())
-        local_track_audio_sink_->SetAudioProcessor(processor);
+    if (media_stream_source->has_audio_processing()) {
+      local_track_audio_sink_->SetAudioProcessor(
+          media_stream_source->audio_processor());
     }
   }
   native_track->AddSink(local_track_audio_sink_.get());

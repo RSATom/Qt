@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/core/events/animation_playback_event.h"
 
+#include "third_party/blink/renderer/core/event_interface_names.h"
+
 namespace blink {
 
 AnimationPlaybackEvent::AnimationPlaybackEvent(const AtomicString& type,
@@ -15,12 +17,12 @@ AnimationPlaybackEvent::AnimationPlaybackEvent(const AtomicString& type,
 
 AnimationPlaybackEvent::AnimationPlaybackEvent(
     const AtomicString& type,
-    const AnimationPlaybackEventInit& initializer)
+    const AnimationPlaybackEventInit* initializer)
     : Event(type, initializer) {
-  if (initializer.hasCurrentTime())
-    current_time_ = initializer.currentTime();
-  if (initializer.hasTimelineTime())
-    timeline_time_ = initializer.timelineTime();
+  if (initializer->hasCurrentTime())
+    current_time_ = initializer->currentTime();
+  if (initializer->hasTimelineTime())
+    timeline_time_ = initializer->timelineTime();
 }
 
 AnimationPlaybackEvent::~AnimationPlaybackEvent() = default;
@@ -36,7 +38,7 @@ double AnimationPlaybackEvent::timelineTime(bool& is_null) const {
 }
 
 const AtomicString& AnimationPlaybackEvent::InterfaceName() const {
-  return EventNames::AnimationPlaybackEvent;
+  return event_interface_names::kAnimationPlaybackEvent;
 }
 
 void AnimationPlaybackEvent::Trace(blink::Visitor* visitor) {

@@ -11,7 +11,7 @@ namespace blink {
 XRInputPose::XRInputPose(std::unique_ptr<TransformationMatrix> pointer_matrix,
                          std::unique_ptr<TransformationMatrix> grip_matrix,
                          bool emulated_position)
-    : target_ray_(new XRRay(std::move(pointer_matrix))),
+    : target_ray_(MakeGarbageCollected<XRRay>(std::move(pointer_matrix))),
       grip_matrix_(std::move(grip_matrix)),
       emulated_position_(emulated_position) {}
 
@@ -20,7 +20,7 @@ XRInputPose::~XRInputPose() {}
 DOMFloat32Array* XRInputPose::gripMatrix() const {
   if (!grip_matrix_)
     return nullptr;
-  return transformationMatrixToFloat32Array(*grip_matrix_);
+  return transformationMatrixToDOMFloat32Array(*grip_matrix_);
 }
 
 void XRInputPose::Trace(blink::Visitor* visitor) {

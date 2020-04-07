@@ -69,6 +69,10 @@ CONTENT_EXPORT extern const char kChromeUIProcessInternalsURL[];
 #if defined(OS_ANDROID)
 CONTENT_EXPORT extern const char kChromeUIGpuJavaCrashURL[];
 #endif
+#if defined(OS_WIN)
+CONTENT_EXPORT extern const char kChromeUIBrowserHeapCorruptionURL[];
+CONTENT_EXPORT extern const char kChromeUIHeapCorruptionCrashURL[];
+#endif
 #if defined(ADDRESS_SANITIZER)
 CONTENT_EXPORT extern const char kChromeUICrashHeapOverflowURL[];
 CONTENT_EXPORT extern const char kChromeUICrashHeapUnderflowURL[];
@@ -85,6 +89,10 @@ CONTENT_EXPORT extern const char kChromeUICrashDcheckURL[];
 
 // Special URL used to start a navigation to an error page.
 CONTENT_EXPORT extern const char kUnreachableWebDataURL[];
+
+// Special URL used to rewrite URLs coming from untrusted processes, when the
+// source process is not allowed access to the initially requested URL.
+CONTENT_EXPORT extern const char kBlockedURL[];
 
 // Full about URLs (including schemes).
 CONTENT_EXPORT extern const char kChromeUINetworkViewCacheURL[];

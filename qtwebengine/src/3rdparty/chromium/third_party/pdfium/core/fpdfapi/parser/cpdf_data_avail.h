@@ -112,7 +112,7 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
 
   const CPDF_HintTables* GetHintTables() const { return m_pHintTables.get(); }
 
- protected:
+ private:
   class PageNode {
    public:
     PageNode();
@@ -141,7 +141,7 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
   std::unique_ptr<CPDF_Object> ParseIndirectObjectAt(
       FX_FILESIZE pos,
       uint32_t objnum,
-      CPDF_IndirectObjectHolder* pObjList = nullptr) const;
+      CPDF_IndirectObjectHolder* pObjList) const;
   std::unique_ptr<CPDF_Object> GetObject(uint32_t objnum,
                                          bool* pExistInFile);
   bool GetPageKids(CPDF_Object* pPages);
@@ -184,7 +184,6 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
   bool m_bPagesLoad = false;
   std::unique_ptr<CPDF_PageObjectAvail> m_pFormAvail;
   std::vector<std::unique_ptr<CPDF_Object>> m_PagesArray;
-  uint32_t m_dwEncryptObjNum = 0;
   bool m_bTotalLoadPageTree = false;
   bool m_bCurPageDictLoadOK = false;
   PageNode m_PageNode;

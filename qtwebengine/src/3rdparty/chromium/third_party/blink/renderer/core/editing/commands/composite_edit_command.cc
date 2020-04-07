@@ -84,7 +84,7 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 CompositeEditCommand::CompositeEditCommand(Document& document)
     : EditCommand(document) {
@@ -135,8 +135,6 @@ bool CompositeEditCommand::Apply() {
       case InputEvent::InputType::kNone:
         break;
       default:
-        NOTREACHED() << "Not supported input type on plain-text only element:"
-                     << static_cast<int>(GetInputType());
         return false;
     }
   }
@@ -365,9 +363,9 @@ void CompositeEditCommand::AppendNode(Node* node,
   // TODO(yosin): We should get rid of |canHaveChildrenForEditing()|, since
   // |cloneParagraphUnderNewElement()| attempt to clone non-well-formed HTML,
   // produced by JavaScript.
-  ABORT_EDITING_COMMAND_IF(
-      !CanHaveChildrenForEditing(parent) &&
-      !(parent->IsElementNode() && ToElement(parent)->TagQName() == objectTag));
+  ABORT_EDITING_COMMAND_IF(!CanHaveChildrenForEditing(parent) &&
+                           !(parent->IsElementNode() &&
+                             ToElement(parent)->TagQName() == kObjectTag));
   ABORT_EDITING_COMMAND_IF(!HasEditableStyle(*parent) &&
                            parent->InActiveDocument());
   ApplyCommandToComposite(AppendNodeCommand::Create(parent, node),
@@ -384,7 +382,7 @@ void CompositeEditCommand::RemoveChildrenInRange(Node* node,
     children.push_back(child);
 
   size_t size = children.size();
-  for (size_t i = 0; i < size; ++i) {
+  for (wtf_size_t i = 0; i < size; ++i) {
     RemoveNode(children[i].Release(), editing_state);
     if (editing_state->IsAborted())
       return;
@@ -814,7 +812,7 @@ void CompositeEditCommand::DeleteInsignificantText(Text* text_node,
     return;
 
   Vector<InlineTextBox*> sorted_text_boxes;
-  size_t sorted_text_boxes_position = 0;
+  wtf_size_t sorted_text_boxes_position = 0;
 
   for (InlineTextBox* text_box : text_layout_object->TextBoxes())
     sorted_text_boxes.push_back(text_box);
@@ -1167,7 +1165,7 @@ void CompositeEditCommand::CloneParagraphUnderNewElement(
 
     // Clone every node between start.anchorNode() and outerBlock.
 
-    for (size_t i = ancestors.size(); i != 0; --i) {
+    for (wtf_size_t i = ancestors.size(); i != 0; --i) {
       Node* item = ancestors[i - 1].Get();
       Node* child = item->cloneNode(IsDisplayInsideTable(item));
       AppendNode(child, ToElement(last_node), editing_state);
@@ -1646,8 +1644,10 @@ bool CompositeEditCommand::BreakOutOfEmptyListItem(
   if (ContainerNode* block_enclosing_list = list_node->parentNode()) {
     if (IsHTMLLIElement(
             *block_enclosing_list)) {  // listNode is inside another list item
-      if (VisiblePositionAfterNode(*block_enclosing_list).DeepEquivalent() ==
-          VisiblePositionAfterNode(*list_node).DeepEquivalent()) {
+      if (CreateVisiblePosition(PositionAfterNode(*block_enclosing_list))
+              .DeepEquivalent() ==
+          CreateVisiblePosition(PositionAfterNode(*list_node))
+              .DeepEquivalent()) {
         // If listNode appears at the end of the outer list item, then move
         // listNode outside of this list item, e.g.
         //   <ul><li>hello <ul><li><br></li></ul> </li></ul>
@@ -1983,7 +1983,7 @@ bool CompositeEditCommand::IsNodeVisiblyContainedWithin(
     return true;
 
   bool start_is_visually_same =
-      VisiblePositionBeforeNode(node).DeepEquivalent() ==
+      CreateVisiblePosition(PositionBeforeNode(node)).DeepEquivalent() ==
       CreateVisiblePosition(selected_range.StartPosition()).DeepEquivalent();
   if (start_is_visually_same &&
       ComparePositions(Position::InParentAfterNode(node),
@@ -1991,7 +1991,7 @@ bool CompositeEditCommand::IsNodeVisiblyContainedWithin(
     return true;
 
   bool end_is_visually_same =
-      VisiblePositionAfterNode(node).DeepEquivalent() ==
+      CreateVisiblePosition(PositionAfterNode(node)).DeepEquivalent() ==
       CreateVisiblePosition(selected_range.EndPosition()).DeepEquivalent();
   if (end_is_visually_same &&
       ComparePositions(selected_range.StartPosition(),
@@ -2018,7 +2018,7 @@ void CompositeEditCommand::AppliedEditing() {
                                        undo_step.EndingRootEditableElement());
   LocalFrame* const frame = GetDocument().GetFrame();
   Editor& editor = frame->GetEditor();
-  // TODO(chongz): Filter empty InputType after spec is finalized.
+  // TODO(editing-dev): Filter empty InputType after spec is finalized.
   DispatchInputEventEditableContentChanged(
       undo_step.StartingRootEditableElement(),
       undo_step.EndingRootEditableElement(), GetInputType(),

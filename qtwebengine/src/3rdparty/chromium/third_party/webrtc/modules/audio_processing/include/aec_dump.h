@@ -11,14 +11,13 @@
 #ifndef MODULES_AUDIO_PROCESSING_INCLUDE_AEC_DUMP_H_
 #define MODULES_AUDIO_PROCESSING_INCLUDE_AEC_DUMP_H_
 
-#include <memory>
+#include <stdint.h>
 #include <string>
-#include <vector>
 
-#include "api/array_view.h"
 #include "api/audio/audio_frame.h"
 #include "modules/audio_processing/include/audio_frame_view.h"
 #include "modules/audio_processing/include/audio_processing.h"
+#include "rtc_base/deprecation.h"
 
 namespace webrtc {
 
@@ -49,7 +48,6 @@ struct InternalAPMConfig {
   bool ns_enabled = false;
   int ns_level = 0;
   bool transient_suppression_enabled = false;
-  bool intelligibility_enhancer_enabled = false;
   bool noise_robust_agc_enabled = false;
   bool pre_amplifier_enabled = false;
   float pre_amplifier_fixed_gain_factor = 1.f;
@@ -76,7 +74,11 @@ class AecDump {
   virtual ~AecDump() = default;
 
   // Logs Event::Type INIT message.
-  virtual void WriteInitMessage(const ProcessingConfig& api_format) = 0;
+  virtual void WriteInitMessage(const ProcessingConfig& api_format,
+                                int64_t time_now_ms) = 0;
+  RTC_DEPRECATED void WriteInitMessage(const ProcessingConfig& api_format) {
+    WriteInitMessage(api_format, 0);
+  }
 
   // Logs Event::Type STREAM message. To log an input/output pair,
   // call the AddCapture* and AddAudioProcessingState methods followed
@@ -94,6 +96,9 @@ class AecDump {
   virtual void WriteRenderStreamMessage(const AudioFrame& frame) = 0;
   virtual void WriteRenderStreamMessage(
       const AudioFrameView<const float>& src) = 0;
+
+  virtual void WriteRuntimeSetting(
+      const AudioProcessing::RuntimeSetting& runtime_setting) = 0;
 
   // Logs Event::Type CONFIG message.
   virtual void WriteConfig(const InternalAPMConfig& config) = 0;

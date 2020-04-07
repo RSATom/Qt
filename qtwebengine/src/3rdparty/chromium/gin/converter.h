@@ -135,6 +135,15 @@ struct GIN_EXPORT Converter<v8::Local<v8::Object> > {
                      v8::Local<v8::Object>* out);
 };
 
+template <>
+struct GIN_EXPORT Converter<v8::Local<v8::Promise>> {
+  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
+                                   v8::Local<v8::Promise> val);
+  static bool FromV8(v8::Isolate* isolate,
+                     v8::Local<v8::Value> val,
+                     v8::Local<v8::Promise>* out);
+};
+
 template<>
 struct GIN_EXPORT Converter<v8::Local<v8::ArrayBuffer> > {
   static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
@@ -255,10 +264,12 @@ GIN_EXPORT v8::Local<v8::String> StringToSymbol(v8::Isolate* isolate,
 template<typename T>
 bool ConvertFromV8(v8::Isolate* isolate, v8::Local<v8::Value> input,
                    T* result) {
+  DCHECK(isolate);
   return Converter<T>::FromV8(isolate, input, result);
 }
 
-GIN_EXPORT std::string V8ToString(v8::Local<v8::Value> value);
+GIN_EXPORT std::string V8ToString(v8::Isolate* isolate,
+                                  v8::Local<v8::Value> value);
 
 }  // namespace gin
 

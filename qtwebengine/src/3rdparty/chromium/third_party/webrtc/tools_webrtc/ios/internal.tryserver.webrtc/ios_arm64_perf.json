@@ -2,7 +2,7 @@
   "comments": [
     "Tests for 64-bit iOS devices."
   ],
-  "xcode build version": "9C40b",
+  "xcode build version": "10l232m",
   "gn_args": [
     "goma_dir=\"$(goma_dir)\"",
     "is_component_build=false",
@@ -23,16 +23,7 @@
       "include": "perf_trybot_tests.json",
       "device type": "iPhone 7",
       "os": "11.0.3",
-      "dimensions": [
-        {
-          "os": "Mac-10.12",
-          "pool": "Chrome"
-        },
-        {
-          "os": "Mac-10.13",
-          "pool": "Chrome"
-        }
-      ]
+      "max runtime seconds": 7200
     }
   ]
 }

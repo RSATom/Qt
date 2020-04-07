@@ -119,7 +119,7 @@ void QGeoRouteReplyNokia::appendResults(const QList<QGeoRoute> &routes)
 
 void QGeoRouteReplyNokia::parserError(const QString &errorString)
 {
-    Q_UNUSED(errorString)
+    Q_UNUSED(errorString);
     emit aborted();
     setError(QGeoRouteReply::ParseError,
              QCoreApplication::translate(NOKIA_PLUGIN_CONTEXT_NAME, RESPONSE_NOT_RECOGNIZABLE));

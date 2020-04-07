@@ -20,7 +20,6 @@
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_country.h"
-#include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_type.h"
@@ -30,6 +29,7 @@
 #include "components/autofill/core/browser/phone_number.h"
 #include "components/autofill/core/browser/phone_number_i18n.h"
 #include "components/autofill/core/browser/validation.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_util.h"
 
 namespace autofill {
@@ -138,7 +138,8 @@ void FormDataImporter::ImportFormData(const FormStructure& submitted_form,
   if (local_card_migration_manager_ &&
       local_card_migration_manager_->ShouldOfferLocalCardMigration(
           imported_credit_card_record_type_)) {
-    local_card_migration_manager_->AttemptToOfferLocalCardMigration();
+    local_card_migration_manager_->AttemptToOfferLocalCardMigration(
+        /*is_from_settings_page=*/false);
     return;
   }
 
@@ -182,7 +183,8 @@ void FormDataImporter::ImportFormData(const FormStructure& submitted_form,
     // If upload save is not allowed, new cards should be saved locally.
     DCHECK(imported_credit_card_record_type_ ==
            ImportedCreditCardRecordType::NEW_CARD);
-    credit_card_save_manager_->OfferCardLocalSave(*imported_credit_card);
+    credit_card_save_manager_->AttemptToOfferCardLocalSave(
+        *imported_credit_card);
   }
 }
 
@@ -378,7 +380,10 @@ bool FormDataImporter::ImportCreditCard(
   if (has_duplicate_field_type)
     return false;
 
-  if (!candidate_credit_card.IsValid()) {
+  if (candidate_credit_card.IsValid()) {
+    AutofillMetrics::LogSubmittedCardStateMetric(
+        AutofillMetrics::HAS_CARD_NUMBER_AND_EXPIRATION_DATE);
+  } else {
     if (candidate_credit_card.HasValidCardNumber()) {
       AutofillMetrics::LogSubmittedCardStateMetric(
           AutofillMetrics::HAS_CARD_NUMBER_ONLY);
@@ -387,11 +392,20 @@ bool FormDataImporter::ImportCreditCard(
       AutofillMetrics::LogSubmittedCardStateMetric(
           AutofillMetrics::HAS_EXPIRATION_DATE_ONLY);
     }
+  }
 
+  // If editable expiration date experiment is enabled, the card with invalid
+  // expiration date can be uploaded. However, the card with invalid card number
+  // must be ignored.
+  if (!candidate_credit_card.HasValidCardNumber()) {
     return false;
   }
-  AutofillMetrics::LogSubmittedCardStateMetric(
-      AutofillMetrics::HAS_CARD_NUMBER_AND_EXPIRATION_DATE);
+  if (!candidate_credit_card.HasValidExpirationDate() &&
+      !base::FeatureList::IsEnabled(
+          features::kAutofillUpstreamEditableExpirationDate)) {
+    return false;
+  }
+
   // Can import one valid card per form. Start by treating it as NEW_CARD, but
   // overwrite this type if we discover it is already a local or server card.
   imported_credit_card_record_type_ = ImportedCreditCardRecordType::NEW_CARD;
@@ -429,6 +443,11 @@ bool FormDataImporter::ImportCreditCard(
   for (const CreditCard* card :
        personal_data_manager_->GetServerCreditCards()) {
     if (candidate_credit_card.HasSameNumberAs(*card)) {
+      // Don't update card if the expiration date is missing
+      if (candidate_credit_card.expiration_month() == 0 ||
+          candidate_credit_card.expiration_year() == 0) {
+        return false;
+      }
       // Mark that the imported credit card is a server card.
       imported_credit_card_record_type_ =
           ImportedCreditCardRecordType::SERVER_CARD;
@@ -468,10 +487,17 @@ CreditCard FormDataImporter::ExtractCreditCardFromForm(
     base::TrimWhitespace(field->value, base::TRIM_ALL, &value);
 
     // If we don't know the type of the field, or the user hasn't entered any
-    // information into the field, or the field is non-focusable (hidden), then
-    // skip it.
-    if (!field->IsFieldFillable() || !field->is_focusable || value.empty())
+    // information into the field, then skip it.
+    if (!field->IsFieldFillable() || value.empty())
       continue;
+    // If the field is non-focusable (hidden) after the user entered information
+    // into it, then skip it, unless the experiment to import non-focusable
+    // forms is enabled.
+    if (!field->is_focusable &&
+        !base::FeatureList::IsEnabled(
+            features::kAutofillImportNonFocusableCreditCardForms)) {
+      continue;
+    }
 
     AutofillType field_type = field->Type();
     // Field was not identified as a credit card field.

@@ -67,7 +67,7 @@ void AutofillWebDataService::ShutdownOnUISequence() {
   weak_ptr_factory_.InvalidateWeakPtrs();
   db_task_runner_->PostTask(
       FROM_HERE,
-      Bind(&AutofillWebDataBackendImpl::ResetUserData, autofill_backend_));
+      BindOnce(&AutofillWebDataBackendImpl::ResetUserData, autofill_backend_));
   WebDataServiceBase::ShutdownOnUISequence();
 }
 
@@ -105,6 +105,11 @@ void AutofillWebDataService::AddAutofillProfile(
   wdbs_->ScheduleDBTask(FROM_HERE,
       Bind(&AutofillWebDataBackendImpl::AddAutofillProfile,
            autofill_backend_, profile));
+}
+
+void AutofillWebDataService::SetAutofillProfileChangedCallback(
+    base::RepeatingCallback<void(const AutofillProfileDeepChange&)> change_cb) {
+  autofill_backend_->SetAutofillProfileChangedCallback(std::move(change_cb));
 }
 
 void AutofillWebDataService::UpdateAutofillProfile(
@@ -213,6 +218,15 @@ void AutofillWebDataService::MaskServerCreditCard(const std::string& id) {
            autofill_backend_, id));
 }
 
+WebDataServiceBase::Handle AutofillWebDataService::GetPaymentsCustomerData(
+    WebDataServiceConsumer* consumer) {
+  return wdbs_->ScheduleDBTaskWithResult(
+      FROM_HERE,
+      Bind(&AutofillWebDataBackendImpl::GetPaymentsCustomerData,
+           autofill_backend_),
+      consumer);
+}
+
 void AutofillWebDataService::ClearAllServerData() {
   wdbs_->ScheduleDBTask(
       FROM_HERE,
@@ -298,11 +312,22 @@ base::SupportsUserData* AutofillWebDataService::GetDBUserData() {
 void AutofillWebDataService::GetAutofillBackend(
     const base::Callback<void(AutofillWebDataBackend*)>& callback) {
   db_task_runner_->PostTask(
-      FROM_HERE, base::Bind(callback, base::RetainedRef(autofill_backend_)));
+      FROM_HERE,
+      base::BindOnce(callback, base::RetainedRef(autofill_backend_)));
 }
 
 base::SingleThreadTaskRunner* AutofillWebDataService::GetDBTaskRunner() {
   return db_task_runner_.get();
+}
+
+WebDataServiceBase::Handle
+AutofillWebDataService::RemoveExpiredAutocompleteEntries(
+    WebDataServiceConsumer* consumer) {
+  return wdbs_->ScheduleDBTaskWithResult(
+      FROM_HERE,
+      Bind(&AutofillWebDataBackendImpl::RemoveExpiredAutocompleteEntries,
+           autofill_backend_),
+      consumer);
 }
 
 AutofillWebDataService::~AutofillWebDataService() {

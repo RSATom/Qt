@@ -44,19 +44,7 @@ namespace internal {
 //   replace its transition tree with a new branch for the updated descriptors.
 class MapUpdater {
  public:
-  MapUpdater(Isolate* isolate, Handle<Map> old_map)
-      : isolate_(isolate),
-        old_map_(old_map),
-        old_descriptors_(old_map->instance_descriptors(), isolate_),
-        old_nof_(old_map_->NumberOfOwnDescriptors()),
-        new_elements_kind_(old_map_->elements_kind()),
-        is_transitionable_fast_elements_kind_(
-            IsTransitionableFastElementsKind(new_elements_kind_)) {
-    // We shouldn't try to update remote objects.
-    DCHECK(!old_map->FindRootMap(isolate)
-                ->GetConstructor()
-                ->IsFunctionTemplateInfo());
-  }
+  MapUpdater(Isolate* isolate, Handle<Map> old_map);
 
   // Prepares for reconfiguring of a property at |descriptor| to data field
   // with given |attributes| and |representation|/|field_type| and
@@ -120,7 +108,7 @@ class MapUpdater {
   State CopyGeneralizeAllFields(const char* reason);
 
   // Returns name of a |descriptor| property.
-  inline Name* GetKey(int descriptor) const;
+  inline Name GetKey(int descriptor) const;
 
   // Returns property details of a |descriptor| in "updated" |old_descrtiptors_|
   // array.
@@ -128,11 +116,11 @@ class MapUpdater {
 
   // Returns value of a |descriptor| with kDescriptor location in "updated"
   // |old_descrtiptors_| array.
-  inline Object* GetValue(int descriptor) const;
+  inline Object GetValue(int descriptor) const;
 
   // Returns field type for a |descriptor| with kField location in "updated"
   // |old_descrtiptors_| array.
-  inline FieldType* GetFieldType(int descriptor) const;
+  inline FieldType GetFieldType(int descriptor) const;
 
   // If a |descriptor| property in "updated" |old_descriptors_| has kField
   // location then returns it's field type otherwise computes optimal field

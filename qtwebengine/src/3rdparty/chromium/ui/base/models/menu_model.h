@@ -35,6 +35,9 @@ class UI_BASE_EXPORT MenuModel {
     TYPE_BUTTON_ITEM,  // Shows a row of buttons.
     TYPE_SUBMENU,      // Presents a submenu within another menu.
     TYPE_ACTIONABLE_SUBMENU,  // A SUBMENU that is also a COMMAND.
+    TYPE_HIGHLIGHTED,  // Performs an action when selected, and has a different
+                       // colored background. When placed at the bottom, the
+                       // background matches the menu's rounded corners.
   };
 
   virtual ~MenuModel() {}
@@ -108,10 +111,6 @@ class UI_BASE_EXPORT MenuModel {
 
   // Returns the model for the submenu at the specified index.
   virtual MenuModel* GetSubmenuModelAt(int index) const = 0;
-
-  // Called when the highlighted menu item changes to the item at the specified
-  // index.
-  virtual void HighlightChangedTo(int index) = 0;
 
   // Called when the item at the specified index has been activated.
   virtual void ActivatedAt(int index) = 0;

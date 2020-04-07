@@ -87,6 +87,8 @@ class UsbServiceImpl :
   void EnumerationFailed(ScopedLibusbDeviceRef platform_device,
                          const base::Closure& refresh_complete);
 
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+
   // The libusb_context must outlive any references to libusb_device objects.
   scoped_refptr<UsbContext> context_;
   bool usb_unavailable_ = false;
@@ -121,6 +123,10 @@ class UsbServiceImpl :
 #if defined(OS_WIN)
   ScopedObserver<DeviceMonitorWin, DeviceMonitorWin::Observer> device_observer_;
 #endif  // OS_WIN
+
+  // This WeakPtr is used to safely post hotplug events back to the thread this
+  // object lives on.
+  base::WeakPtr<UsbServiceImpl> weak_self_;
 
   base::WeakPtrFactory<UsbServiceImpl> weak_factory_;
 

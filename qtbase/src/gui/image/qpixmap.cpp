@@ -858,6 +858,7 @@ bool QPixmap::doImageIO(QImageWriter *writer, int quality) const
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -878,6 +879,14 @@ void QPixmap::fill(const QPaintDevice *device, const QPoint &p)
 
     Use QPainter or the fill(QColor) overload instead.
 */
+void QPixmap::fill(const QPaintDevice *device, int xofs, int yofs)
+{
+    Q_UNUSED(device)
+    Q_UNUSED(xofs)
+    Q_UNUSED(yofs)
+    qWarning("this function is deprecated, ignored");
+}
+#endif
 
 
 /*!
@@ -961,6 +970,7 @@ static void sendResizeEvents(QWidget *target)
 }
 #endif
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -984,6 +994,14 @@ QPixmap QPixmap::grabWidget(QObject *widget, const QRect &rectangle)
 
     Use QWidget::grab() instead.
 */
+QPixmap QPixmap::grabWidget(QObject *widget, int x, int y, int w, int h)
+{
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+    return grabWidget(widget, QRect(x, y, w, h));
+QT_WARNING_POP
+}
+#endif
 
 /*****************************************************************************
   QPixmap stream functions
@@ -1358,12 +1376,6 @@ QPixmap QPixmap::transformed(const QMatrix &matrix, Qt::TransformationMode mode)
     The cacheKey() function returns a number that uniquely
     identifies the contents of the QPixmap object.
 
-    The x11Info() function returns information about the configuration
-    of the X display used by the screen to which the pixmap currently
-    belongs. The x11PictureHandle() function returns the X11 Picture
-    handle of the pixmap for XRender support. Note that the two latter
-    functions are only available on x11.
-
     \endtable
 
     \section1 Pixmap Conversion
@@ -1393,9 +1405,6 @@ QPixmap QPixmap::transformed(const QMatrix &matrix, Qt::TransformationMode mode)
     transformed points of the original pixmap. The static trueMatrix()
     function returns the actual matrix used for transforming the
     pixmap.
-
-    \note When using the native X11 graphics system, the pixmap
-    becomes invalid when the QApplication instance is destroyed.
 
     \sa QBitmap, QImage, QImageReader, QImageWriter
 */
@@ -1604,6 +1613,7 @@ QPixmap QPixmap::fromImageReader(QImageReader *imageReader, Qt::ImageConversionF
     return QPixmap(data.take());
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QPixmap QPixmap::grabWindow(WId window, int x, int y, int
     width, int height)
@@ -1657,6 +1667,7 @@ QPixmap QPixmap::grabWindow(WId window, int x, int y, int w, int h)
              " Defaulting to primary screen.");
     return QGuiApplication::primaryScreen()->grabWindow(window, x, y, w, h);
 }
+#endif
 
 /*!
   \internal

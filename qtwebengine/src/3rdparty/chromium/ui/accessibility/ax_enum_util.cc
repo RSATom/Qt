@@ -54,6 +54,8 @@ const char* ToString(ax::mojom::Event event) {
       return "liveRegionChanged";
     case ax::mojom::Event::kLoadComplete:
       return "loadComplete";
+    case ax::mojom::Event::kLoadStart:
+      return "loadStart";
     case ax::mojom::Event::kLocationChanged:
       return "locationChanged";
     case ax::mojom::Event::kMediaStartedPlaying:
@@ -68,6 +70,8 @@ const char* ToString(ax::mojom::Event event) {
       return "menuListValueChanged";
     case ax::mojom::Event::kMenuPopupEnd:
       return "menuPopupEnd";
+    case ax::mojom::Event::kMenuPopupHide:
+      return "menuPopupHide";
     case ax::mojom::Event::kMenuPopupStart:
       return "menuPopupStart";
     case ax::mojom::Event::kMenuStart:
@@ -108,6 +112,10 @@ const char* ToString(ax::mojom::Event event) {
       return "textChanged";
     case ax::mojom::Event::kTextSelectionChanged:
       return "textSelectionChanged";
+    case ax::mojom::Event::kWindowActivated:
+      return "windowActivated";
+    case ax::mojom::Event::kWindowDeactivated:
+      return "windowDeactivated";
     case ax::mojom::Event::kTreeChanged:
       return "treeChanged";
     case ax::mojom::Event::kValueChanged:
@@ -162,6 +170,8 @@ ax::mojom::Event ParseEvent(const char* event) {
     return ax::mojom::Event::kLiveRegionChanged;
   if (0 == strcmp(event, "loadComplete"))
     return ax::mojom::Event::kLoadComplete;
+  if (0 == strcmp(event, "loadStart"))
+    return ax::mojom::Event::kLoadStart;
   if (0 == strcmp(event, "locationChanged"))
     return ax::mojom::Event::kLocationChanged;
   if (0 == strcmp(event, "mediaStartedPlaying"))
@@ -176,6 +186,8 @@ ax::mojom::Event ParseEvent(const char* event) {
     return ax::mojom::Event::kMenuListValueChanged;
   if (0 == strcmp(event, "menuPopupEnd"))
     return ax::mojom::Event::kMenuPopupEnd;
+  if (0 == strcmp(event, "menuPopupHide"))
+    return ax::mojom::Event::kMenuPopupHide;
   if (0 == strcmp(event, "menuPopupStart"))
     return ax::mojom::Event::kMenuPopupStart;
   if (0 == strcmp(event, "menuStart"))
@@ -214,6 +226,10 @@ ax::mojom::Event ParseEvent(const char* event) {
     return ax::mojom::Event::kTextChanged;
   if (0 == strcmp(event, "textSelectionChanged"))
     return ax::mojom::Event::kTextSelectionChanged;
+  if (0 == strcmp(event, "windowActivated"))
+    return ax::mojom::Event::kWindowActivated;
+  if (0 == strcmp(event, "windowDeactivated"))
+    return ax::mojom::Event::kWindowDeactivated;
   if (0 == strcmp(event, "treeChanged"))
     return ax::mojom::Event::kTreeChanged;
   if (0 == strcmp(event, "valueChanged"))
@@ -419,6 +435,8 @@ const char* ToString(ax::mojom::Role role) {
       return "inlineTextBox";
     case ax::mojom::Role::kInputTime:
       return "inputTime";
+    case ax::mojom::Role::kKeyboard:
+      return "keyboard";
     case ax::mojom::Role::kLabelText:
       return "labelText";
     case ax::mojom::Role::kLayoutTable:
@@ -435,16 +453,18 @@ const char* ToString(ax::mojom::Role role) {
       return "lineBreak";
     case ax::mojom::Role::kLink:
       return "link";
+    case ax::mojom::Role::kList:
+      return "list";
     case ax::mojom::Role::kListBoxOption:
       return "listBoxOption";
     case ax::mojom::Role::kListBox:
       return "listBox";
+    case ax::mojom::Role::kListGrid:
+      return "listGrid";
     case ax::mojom::Role::kListItem:
       return "listItem";
     case ax::mojom::Role::kListMarker:
       return "listMarker";
-    case ax::mojom::Role::kList:
-      return "list";
     case ax::mojom::Role::kLog:
       return "log";
     case ax::mojom::Role::kMain:
@@ -533,10 +553,10 @@ const char* ToString(ax::mojom::Role role) {
       return "tabPanel";
     case ax::mojom::Role::kTab:
       return "tab";
-    case ax::mojom::Role::kTableHeaderContainer:
-      return "tableHeaderContainer";
     case ax::mojom::Role::kTable:
       return "table";
+    case ax::mojom::Role::kTableHeaderContainer:
+      return "tableHeaderContainer";
     case ax::mojom::Role::kTerm:
       return "term";
     case ax::mojom::Role::kTextField:
@@ -846,6 +866,8 @@ const char* ToString(ax::mojom::State state) {
   switch (state) {
     case ax::mojom::State::kNone:
       return "none";
+    case ax::mojom::State::kAutofillAvailable:
+      return "autofillAvailable";
     case ax::mojom::State::kCollapsed:
       return "collapsed";
     case ax::mojom::State::kDefault:
@@ -888,6 +910,8 @@ const char* ToString(ax::mojom::State state) {
 ax::mojom::State ParseState(const char* state) {
   if (0 == strcmp(state, "none"))
     return ax::mojom::State::kNone;
+  if (0 == strcmp(state, "autofillAvailable"))
+    return ax::mojom::State::kAutofillAvailable;
   if (0 == strcmp(state, "collapsed"))
     return ax::mojom::State::kCollapsed;
   if (0 == strcmp(state, "default"))
@@ -979,6 +1003,8 @@ const char* ToString(ax::mojom::Action action) {
       return "setValue";
     case ax::mojom::Action::kShowContextMenu:
       return "showContextMenu";
+    case ax::mojom::Action::kGetTextLocation:
+      return "getTextLocation";
   }
 
   return "";
@@ -1156,8 +1182,8 @@ const char* ToString(ax::mojom::StringAttribute string_attribute) {
       return "ariaInvalidValue";
     case ax::mojom::StringAttribute::kAutoComplete:
       return "autoComplete";
-    case ax::mojom::StringAttribute::kChromeChannel:
-      return "chromeChannel";
+    case ax::mojom::StringAttribute::kChildTreeId:
+      return "childTreeId";
     case ax::mojom::StringAttribute::kClassName:
       return "className";
     case ax::mojom::StringAttribute::kContainerLiveRelevant:
@@ -1210,8 +1236,8 @@ ax::mojom::StringAttribute ParseStringAttribute(const char* string_attribute) {
     return ax::mojom::StringAttribute::kAriaInvalidValue;
   if (0 == strcmp(string_attribute, "autoComplete"))
     return ax::mojom::StringAttribute::kAutoComplete;
-  if (0 == strcmp(string_attribute, "chromeChannel"))
-    return ax::mojom::StringAttribute::kChromeChannel;
+  if (0 == strcmp(string_attribute, "childTreeId"))
+    return ax::mojom::StringAttribute::kChildTreeId;
   if (0 == strcmp(string_attribute, "className"))
     return ax::mojom::StringAttribute::kClassName;
   if (0 == strcmp(string_attribute, "containerLiveRelevant"))
@@ -1327,8 +1353,6 @@ const char* ToString(ax::mojom::IntAttribute int_attribute) {
       return "nextOnLineId";
     case ax::mojom::IntAttribute::kPreviousOnLineId:
       return "previousOnLineId";
-    case ax::mojom::IntAttribute::kChildTreeId:
-      return "childTreeId";
     case ax::mojom::IntAttribute::kRestriction:
       return "restriction";
     case ax::mojom::IntAttribute::kSetSize:
@@ -1437,8 +1461,6 @@ ax::mojom::IntAttribute ParseIntAttribute(const char* int_attribute) {
     return ax::mojom::IntAttribute::kNextOnLineId;
   if (0 == strcmp(int_attribute, "previousOnLineId"))
     return ax::mojom::IntAttribute::kPreviousOnLineId;
-  if (0 == strcmp(int_attribute, "childTreeId"))
-    return ax::mojom::IntAttribute::kChildTreeId;
   if (0 == strcmp(int_attribute, "restriction"))
     return ax::mojom::IntAttribute::kRestriction;
   if (0 == strcmp(int_attribute, "setSize"))
@@ -1535,6 +1557,8 @@ const char* ToString(ax::mojom::BoolAttribute bool_attribute) {
       return "clipsChildren";
     case ax::mojom::BoolAttribute::kSelected:
       return "selected";
+    case ax::mojom::BoolAttribute::kSupportsTextLocation:
+      return "supportsTextLocation";
   }
 
   return "";
@@ -1567,6 +1591,8 @@ ax::mojom::BoolAttribute ParseBoolAttribute(const char* bool_attribute) {
     return ax::mojom::BoolAttribute::kClipsChildren;
   if (0 == strcmp(bool_attribute, "selected"))
     return ax::mojom::BoolAttribute::kSelected;
+  if (0 == strcmp(bool_attribute, "supportsTextLocation"))
+    return ax::mojom::BoolAttribute::kSupportsTextLocation;
   return ax::mojom::BoolAttribute::kNone;
 }
 
@@ -1586,8 +1612,6 @@ const char* ToString(ax::mojom::IntListAttribute int_list_attribute) {
       return "labelledbyIds";
     case ax::mojom::IntListAttribute::kRadioGroupIds:
       return "radioGroupIds";
-    case ax::mojom::IntListAttribute::kLineBreaks:
-      return "lineBreaks";
     case ax::mojom::IntListAttribute::kMarkerTypes:
       return "markerTypes";
     case ax::mojom::IntListAttribute::kMarkerStarts:
@@ -1625,8 +1649,6 @@ ax::mojom::IntListAttribute ParseIntListAttribute(
     return ax::mojom::IntListAttribute::kLabelledbyIds;
   if (0 == strcmp(int_list_attribute, "radioGroupIds"))
     return ax::mojom::IntListAttribute::kRadioGroupIds;
-  if (0 == strcmp(int_list_attribute, "lineBreaks"))
-    return ax::mojom::IntListAttribute::kLineBreaks;
   if (0 == strcmp(int_list_attribute, "markerTypes"))
     return ax::mojom::IntListAttribute::kMarkerTypes;
   if (0 == strcmp(int_list_attribute, "markerStarts"))
@@ -1864,77 +1886,17 @@ ax::mojom::TextPosition ParseTextPosition(const char* text_position) {
 
 const char* ToString(ax::mojom::TextStyle text_style) {
   switch (text_style) {
-    case ax::mojom::TextStyle::kNone:
-      return "none";
-    case ax::mojom::TextStyle::kTextStyleBold:
-      return "textStyleBold";
-    case ax::mojom::TextStyle::kTextStyleItalic:
-      return "textStyleItalic";
-    case ax::mojom::TextStyle::kTextStyleBoldItalic:
-      return "textStyleBoldItalic";
-    case ax::mojom::TextStyle::kTextStyleUnderline:
-      return "textStyleUnderline";
-    case ax::mojom::TextStyle::kTextStyleBoldUnderline:
-      return "textStyleBoldUnderline";
-    case ax::mojom::TextStyle::kTextStyleItalicUnderline:
-      return "textStyleItalicUnderline";
-    case ax::mojom::TextStyle::kTextStyleBoldItalicUnderline:
-      return "textStyleBoldItalicUnderline";
-    case ax::mojom::TextStyle::kTextStyleLineThrough:
-      return "textStyleLineThrough";
-    case ax::mojom::TextStyle::kTextStyleBoldLineThrough:
-      return "textStyleBoldLineThrough";
-    case ax::mojom::TextStyle::kTextStyleItalicLineThrough:
-      return "textStyleItalicLineThrough";
-    case ax::mojom::TextStyle::kTextStyleBoldItalicLineThrough:
-      return "textStyleBoldItalicLineThrough";
-    case ax::mojom::TextStyle::kTextStyleUnderlineLineThrough:
-      return "textStyleUnderlineLineThrough";
-    case ax::mojom::TextStyle::kTextStyleBoldUnderlineLineThrough:
-      return "textStyleBoldUnderlineLineThrough";
-    case ax::mojom::TextStyle::kTextStyleItalicUnderlineLineThrough:
-      return "textStyleItalicUnderlineLineThrough";
-    case ax::mojom::TextStyle::kTextStyleBoldItalicUnderlineLineThrough:
-      return "textStyleBoldItalicUnderlineLineThrough";
+    case ax::mojom::TextStyle::kBold:
+      return "bold";
+    case ax::mojom::TextStyle::kItalic:
+      return "italic";
+    case ax::mojom::TextStyle::kUnderline:
+      return "underline";
+    case ax::mojom::TextStyle::kLineThrough:
+      return "lineThrough";
   }
 
   return "";
-}
-
-ax::mojom::TextStyle ParseTextStyle(const char* text_style) {
-  if (0 == strcmp(text_style, "none"))
-    return ax::mojom::TextStyle::kNone;
-  if (0 == strcmp(text_style, "textStyleBold"))
-    return ax::mojom::TextStyle::kTextStyleBold;
-  if (0 == strcmp(text_style, "textStyleItalic"))
-    return ax::mojom::TextStyle::kTextStyleItalic;
-  if (0 == strcmp(text_style, "textStyleBoldItalic"))
-    return ax::mojom::TextStyle::kTextStyleBoldItalic;
-  if (0 == strcmp(text_style, "textStyleUnderline"))
-    return ax::mojom::TextStyle::kTextStyleUnderline;
-  if (0 == strcmp(text_style, "textStyleBoldUnderline"))
-    return ax::mojom::TextStyle::kTextStyleBoldUnderline;
-  if (0 == strcmp(text_style, "textStyleItalicUnderline"))
-    return ax::mojom::TextStyle::kTextStyleItalicUnderline;
-  if (0 == strcmp(text_style, "textStyleBoldItalicUnderline"))
-    return ax::mojom::TextStyle::kTextStyleBoldItalicUnderline;
-  if (0 == strcmp(text_style, "textStyleLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleLineThrough;
-  if (0 == strcmp(text_style, "textStyleBoldLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleBoldLineThrough;
-  if (0 == strcmp(text_style, "textStyleItalicLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleItalicLineThrough;
-  if (0 == strcmp(text_style, "textStyleBoldItalicLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleBoldItalicLineThrough;
-  if (0 == strcmp(text_style, "textStyleUnderlineLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleUnderlineLineThrough;
-  if (0 == strcmp(text_style, "textStyleBoldUnderlineLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleBoldUnderlineLineThrough;
-  if (0 == strcmp(text_style, "textStyleItalicUnderlineLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleItalicUnderlineLineThrough;
-  if (0 == strcmp(text_style, "textStyleBoldItalicUnderlineLineThrough"))
-    return ax::mojom::TextStyle::kTextStyleBoldItalicUnderlineLineThrough;
-  return ax::mojom::TextStyle::kNone;
 }
 
 const char* ToString(ax::mojom::AriaCurrentState aria_current_state) {
@@ -2149,12 +2111,16 @@ const char* ToString(ax::mojom::NameFrom name_from) {
       return "attribute";
     case ax::mojom::NameFrom::kAttributeExplicitlyEmpty:
       return "attributeExplicitlyEmpty";
+    case ax::mojom::NameFrom::kCaption:
+      return "caption";
     case ax::mojom::NameFrom::kContents:
       return "contents";
     case ax::mojom::NameFrom::kPlaceholder:
       return "placeholder";
     case ax::mojom::NameFrom::kRelatedElement:
       return "relatedElement";
+    case ax::mojom::NameFrom::kTitle:
+      return "title";
     case ax::mojom::NameFrom::kValue:
       return "value";
   }
@@ -2171,12 +2137,16 @@ ax::mojom::NameFrom ParseNameFrom(const char* name_from) {
     return ax::mojom::NameFrom::kAttribute;
   if (0 == strcmp(name_from, "attributeExplicitlyEmpty"))
     return ax::mojom::NameFrom::kAttributeExplicitlyEmpty;
+  if (0 == strcmp(name_from, "caption"))
+    return ax::mojom::NameFrom::kCaption;
   if (0 == strcmp(name_from, "contents"))
     return ax::mojom::NameFrom::kContents;
   if (0 == strcmp(name_from, "placeholder"))
     return ax::mojom::NameFrom::kPlaceholder;
   if (0 == strcmp(name_from, "relatedElement"))
     return ax::mojom::NameFrom::kRelatedElement;
+  if (0 == strcmp(name_from, "title"))
+    return ax::mojom::NameFrom::kTitle;
   if (0 == strcmp(name_from, "value"))
     return ax::mojom::NameFrom::kValue;
   return ax::mojom::NameFrom::kNone;

@@ -31,6 +31,7 @@
 #include "ui/display/screen_base.h"
 #include "ui/events/event.h"
 #include "ui/events/event_dispatcher.h"
+#include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -124,7 +125,7 @@ TEST_F(ShellDesktopControllerAuraTest, PowerButton) {
 // Tests that basic input events are handled and forwarded to the host.
 // TODO(michaelpg): Test other types of input.
 TEST_F(ShellDesktopControllerAuraTest, InputEvents) {
-  scoped_refptr<Extension> extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> extension = ExtensionBuilder("Test").Build();
   CreateAppWindow(extension.get());
 
   ui::InputMethod* input_method =
@@ -137,7 +138,8 @@ TEST_F(ShellDesktopControllerAuraTest, InputEvents) {
   EXPECT_EQ(0, client.insert_char_count());
 
   // Dispatch a keypress on the window tree host to verify it is processed.
-  ui::KeyEvent key_press(base::char16(97), ui::VKEY_A, ui::EF_NONE);
+  ui::KeyEvent key_press(base::char16(97), ui::VKEY_A, ui::DomCode::NONE,
+                         ui::EF_NONE);
   ui::EventDispatchDetails details =
       controller_->GetPrimaryHost()->dispatcher()->DispatchEvent(
           controller_->GetPrimaryHost()->window(), &key_press);
@@ -154,7 +156,7 @@ TEST_F(ShellDesktopControllerAuraTest, InputEvents) {
 TEST_F(ShellDesktopControllerAuraTest, CloseAppWindows) {
   const AppWindowRegistry* app_window_registry =
       AppWindowRegistry::Get(browser_context());
-  scoped_refptr<Extension> extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> extension = ExtensionBuilder("Test").Build();
   for (int i = 0; i < 3; i++)
     CreateAppWindow(extension.get());
   EXPECT_EQ(3u, app_window_registry->app_windows().size());
@@ -167,7 +169,7 @@ TEST_F(ShellDesktopControllerAuraTest, CloseAppWindows) {
 TEST_F(ShellDesktopControllerAuraTest, OnAppWindowClose) {
   const AppWindowRegistry* app_window_registry =
       AppWindowRegistry::Get(browser_context());
-  scoped_refptr<Extension> extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> extension = ExtensionBuilder("Test").Build();
   for (int i = 0; i < 3; i++)
     CreateAppWindow(extension.get());
   EXPECT_EQ(3u, app_window_registry->app_windows().size());
@@ -181,7 +183,7 @@ TEST_F(ShellDesktopControllerAuraTest, OnAppWindowClose) {
 TEST_F(ShellDesktopControllerAuraTest, MultipleDisplays) {
   const AppWindowRegistry* app_window_registry =
       AppWindowRegistry::Get(browser_context());
-  scoped_refptr<Extension> extension = ExtensionBuilder("Test").Build();
+  scoped_refptr<const Extension> extension = ExtensionBuilder("Test").Build();
 
   // Create two apps window on the primary display. Both should be hosted in the
   // same RootWindowController.

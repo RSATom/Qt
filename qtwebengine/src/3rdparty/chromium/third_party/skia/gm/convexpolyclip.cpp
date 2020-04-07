@@ -9,6 +9,7 @@
 #include "sk_tool_utils.h"
 
 #include "SkBitmap.h"
+#include "SkFont.h"
 #include "SkGradientShader.h"
 #include "SkPath.h"
 #include "SkTLList.h"
@@ -25,7 +26,7 @@ static SkBitmap make_bmp(int w, int h) {
 
     SkScalar    radius = 3 * SkMaxScalar(wScalar, hScalar);
 
-    SkColor     colors[] = { sk_tool_utils::color_to_565(SK_ColorDKGRAY),
+    SkColor     colors[] = { SK_ColorDKGRAY,
                              sk_tool_utils::color_to_565(0xFF222255),
                              sk_tool_utils::color_to_565(0xFF331133),
                              sk_tool_utils::color_to_565(0xFF884422),
@@ -56,18 +57,19 @@ static SkBitmap make_bmp(int w, int h) {
         mat.postScale(SK_Scalar1 / 3, SK_Scalar1 / 3);
     }
 
-    paint.setAntiAlias(true);
-    sk_tool_utils::set_portable_typeface(&paint);
-    paint.setTextSize(wScalar / 2.2f);
+    SkFont font(sk_tool_utils::create_portable_typeface(), wScalar / 2.2f);
+
     paint.setShader(nullptr);
-    paint.setColor(sk_tool_utils::color_to_565(SK_ColorLTGRAY));
+    paint.setColor(SK_ColorLTGRAY);
     constexpr char kTxt[] = "Skia";
-    SkPoint texPos = { wScalar / 17, hScalar / 2 + paint.getTextSize() / 2.5f };
-    canvas.drawText(kTxt, SK_ARRAY_COUNT(kTxt)-1, texPos.fX, texPos.fY, paint);
+    SkPoint texPos = { wScalar / 17, hScalar / 2 + font.getSize() / 2.5f };
+    canvas.drawSimpleText(kTxt, SK_ARRAY_COUNT(kTxt)-1, kUTF8_SkTextEncoding,
+                          texPos.fX, texPos.fY, font, paint);
     paint.setColor(SK_ColorBLACK);
     paint.setStyle(SkPaint::kStroke_Style);
     paint.setStrokeWidth(SK_Scalar1);
-    canvas.drawText(kTxt, SK_ARRAY_COUNT(kTxt)-1, texPos.fX, texPos.fY, paint);
+    canvas.drawSimpleText(kTxt, SK_ARRAY_COUNT(kTxt)-1, kUTF8_SkTextEncoding,
+                          texPos.fX, texPos.fY, font, paint);
     return bmp;
 }
 
@@ -148,12 +150,10 @@ protected:
         canvas->drawBitmapRect(fBmp, SkRect::MakeIWH(size.fWidth, size.fHeight), &bgPaint);
 
         constexpr char kTxt[] = "Clip Me!";
+        SkFont font(sk_tool_utils::create_portable_typeface(), 23);
+        SkScalar textW = font.measureText(kTxt, SK_ARRAY_COUNT(kTxt)-1, kUTF8_SkTextEncoding);
         SkPaint txtPaint;
-        txtPaint.setTextSize(23.f);
-        txtPaint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&txtPaint);
-        txtPaint.setColor(sk_tool_utils::color_to_565(SK_ColorDKGRAY));
-        SkScalar textW = txtPaint.measureText(kTxt, SK_ARRAY_COUNT(kTxt)-1);
+        txtPaint.setColor(SK_ColorDKGRAY);
 
         SkScalar startX = 0;
         int testLayers = kBench_Mode != this->getMode();
@@ -202,9 +202,8 @@ protected:
                     canvas->drawPath(closedClipPath, clipOutlinePaint);
                     clip->setOnCanvas(canvas, kIntersect_SkClipOp, SkToBool(aa));
                     canvas->scale(1.f, 1.8f);
-                    canvas->drawText(kTxt, SK_ARRAY_COUNT(kTxt)-1,
-                                     0, 1.5f * txtPaint.getTextSize(),
-                                     txtPaint);
+                    canvas->drawSimpleText(kTxt, SK_ARRAY_COUNT(kTxt)-1, kUTF8_SkTextEncoding,
+                                     0, 1.5f * font.getSize(), font, txtPaint);
                     canvas->restore();
                     x += textW + 2 * kMargin;
                 }

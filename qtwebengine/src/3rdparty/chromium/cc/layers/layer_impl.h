@@ -167,9 +167,7 @@ class CC_EXPORT LayerImpl {
 
   // True if either the layer draws content or has been marked as hit testable
   // without draws_content.
-  bool should_hit_test() const {
-    return draws_content_ || hit_testable_without_draws_content_;
-  }
+  bool ShouldHitTest() const;
 
   LayerImplTestProperties* test_properties() {
     if (!test_properties_)
@@ -195,9 +193,6 @@ class CC_EXPORT LayerImpl {
   // Stable identifier for clients. See comment in cc/trees/element_id.h.
   void SetElementId(ElementId element_id);
   ElementId element_id() const { return element_id_; }
-
-  void SetPosition(const gfx::PointF& position);
-  gfx::PointF position() const { return position_; }
 
   bool IsAffectedByPageScale() const;
 
@@ -273,6 +268,8 @@ class CC_EXPORT LayerImpl {
   // Viewport bounds delta are only used for viewport layers and account for
   // changes in the viewport layers from browser controls and page scale
   // factors. These deltas are only set on the active tree.
+  // TODO(bokan): These methods should be unneeded now that LTHI sets these
+  // directly on the property trees.
   void SetViewportBoundsDelta(const gfx::Vector2dF& bounds_delta);
   gfx::Vector2dF ViewportBoundsDelta() const;
 
@@ -307,14 +304,6 @@ class CC_EXPORT LayerImpl {
   gfx::Size scroll_container_bounds() const { return scroll_container_bounds_; }
   bool scrollable() const { return scrollable_; }
 
-  void set_main_thread_scrolling_reasons(
-      uint32_t main_thread_scrolling_reasons) {
-    main_thread_scrolling_reasons_ = main_thread_scrolling_reasons;
-  }
-  uint32_t main_thread_scrolling_reasons() const {
-    return main_thread_scrolling_reasons_;
-  }
-
   void SetNonFastScrollableRegion(const Region& region) {
     non_fast_scrollable_region_ = region;
   }
@@ -346,7 +335,7 @@ class CC_EXPORT LayerImpl {
   void AddDamageRect(const gfx::Rect& damage_rect);
   const gfx::Rect& damage_rect() const { return damage_rect_; }
 
-  virtual std::unique_ptr<base::DictionaryValue> LayerAsJson();
+  virtual std::unique_ptr<base::DictionaryValue> LayerAsJson() const;
   // TODO(pdr): This should be removed because there is no longer a tree
   // of layers, only a list.
   std::unique_ptr<base::DictionaryValue> LayerTreeAsJson();
@@ -396,9 +385,16 @@ class CC_EXPORT LayerImpl {
   virtual void GetAllPrioritizedTilesForTracing(
       std::vector<PrioritizedTile>* prioritized_tiles) const;
   virtual void AsValueInto(base::trace_event::TracedValue* dict) const;
+  std::string ToString() const;
 
   virtual size_t GPUMemoryUsageInBytes() const;
 
+  // Mark a layer on pending tree that needs to push its properties to the
+  // active tree. These properties should not be changed during pending tree
+  // lifetime, and only changed by being pushed from the main thread. There are
+  // two cases where this function needs to be called: when main thread layer
+  // has properties that need to be pushed, or when a new LayerImpl is created
+  // on pending tree when syncing layers from main thread.
   void SetNeedsPushProperties();
 
   virtual void RunMicroBenchmark(MicroBenchmarkImpl* benchmark);
@@ -413,9 +409,9 @@ class CC_EXPORT LayerImpl {
     return contributes_to_drawn_render_surface_;
   }
 
-  bool IsDrawnScrollbar() {
-    return ToScrollbarLayer() && contributes_to_drawn_render_surface_;
-  }
+  bool is_scrollbar() const { return is_scrollbar_; }
+
+  void set_is_scrollbar(bool is_scrollbar) { is_scrollbar_ = is_scrollbar; }
 
   void set_may_contain_video(bool yes) { may_contain_video_ = yes; }
   bool may_contain_video() const { return may_contain_video_; }
@@ -459,10 +455,12 @@ class CC_EXPORT LayerImpl {
   virtual bool is_surface_layer() const;
 
  protected:
+  // When |will_always_push_properties| is true, the layer will not itself set
+  // its SetNeedsPushProperties() state, as it expects to be always pushed to
+  // the active tree regardless.
   LayerImpl(LayerTreeImpl* layer_impl,
             int id,
-            scoped_refptr<SyncedScrollOffset> scroll_offset);
-  LayerImpl(LayerTreeImpl* layer_impl, int id);
+            bool will_always_push_properties = false);
 
   // Get the color and size of the layer's debug border.
   virtual void GetDebugBorderProperties(SkColor* color, float* width) const;
@@ -485,8 +483,9 @@ class CC_EXPORT LayerImpl {
 
   virtual const char* LayerTypeAsString() const;
 
-  int layer_id_;
-  LayerTreeImpl* layer_tree_impl_;
+  const int layer_id_;
+  LayerTreeImpl* const layer_tree_impl_;
+  const bool will_always_push_properties_ : 1;
 
   std::unique_ptr<LayerImplTestProperties> test_properties_;
 
@@ -494,7 +493,6 @@ class CC_EXPORT LayerImpl {
   gfx::Size bounds_;
 
   gfx::Vector2dF offset_to_transform_parent_;
-  uint32_t main_thread_scrolling_reasons_;
 
   // Size of the scroll container that this layer scrolls in.
   gfx::Size scroll_container_bounds_;
@@ -530,6 +528,8 @@ class CC_EXPORT LayerImpl {
   bool hit_testable_without_draws_content_ : 1;
   bool is_resized_by_browser_controls_ : 1;
 
+  // TODO(bokan): This can likely be removed after blink-gen-property-trees
+  // is shipped. https://crbug.com/836884.
   static_assert(LAST_VIEWPORT_LAYER_TYPE < (1u << 3),
                 "enough bits for ViewportLayerType (viewport_layer_type_)");
   uint8_t viewport_layer_type_ : 3;  // ViewportLayerType
@@ -539,8 +539,6 @@ class CC_EXPORT LayerImpl {
   Region wheel_event_handler_region_;
   SkColor background_color_;
   SkColor safe_opaque_background_color_;
-
-  gfx::PointF position_;
 
   int transform_tree_index_;
   int effect_tree_index_;
@@ -579,6 +577,7 @@ class CC_EXPORT LayerImpl {
 
   bool has_will_change_transform_hint_ : 1;
   bool needs_push_properties_ : 1;
+  bool is_scrollbar_ : 1;
   bool scrollbars_hidden_ : 1;
 
   // The needs_show_scrollbars_ bit tracks a pending request from Blink to show

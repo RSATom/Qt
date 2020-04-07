@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/core/accessibility/ax_context.h"
 #include "third_party/blink/renderer/core/aom/accessible_node.h"
 #include "third_party/blink/renderer/core/aom/accessible_node_list.h"
 #include "third_party/blink/renderer/core/html/html_body_element.h"
@@ -12,6 +13,7 @@
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
+namespace test {
 
 namespace {
 
@@ -24,9 +26,8 @@ class AccessibilityObjectModelTest
 
  protected:
   AXObjectCacheImpl* AXObjectCache() {
-    GetDocument().GetSettings()->SetAccessibilityEnabled(true);
     return static_cast<AXObjectCacheImpl*>(
-        GetDocument().GetOrCreateAXObjectCache());
+        GetDocument().ExistingAXObjectCache());
   }
 };
 
@@ -34,6 +35,7 @@ TEST_F(AccessibilityObjectModelTest, DOMElementsHaveAnAccessibleNode) {
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<button id=button>Click me</button>");
+  AXContext ax_context(GetDocument());
 
   auto* button = GetDocument().getElementById("button");
   EXPECT_NE(nullptr, button->accessibleNode());
@@ -45,6 +47,7 @@ TEST_F(AccessibilityObjectModelTest, SetAccessibleNodeRole) {
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<button id=button>Click me</button>");
+  AXContext ax_context(GetDocument());
 
   auto* cache = AXObjectCache();
   ASSERT_NE(nullptr, cache);
@@ -53,19 +56,20 @@ TEST_F(AccessibilityObjectModelTest, SetAccessibleNodeRole) {
   ASSERT_NE(nullptr, button);
 
   auto* axButton = cache->GetOrCreate(button);
-  EXPECT_EQ(kButtonRole, axButton->RoleValue());
+  EXPECT_EQ(ax::mojom::Role::kButton, axButton->RoleValue());
 
   button->accessibleNode()->setRole("slider");
   EXPECT_EQ("slider", button->accessibleNode()->role());
 
   axButton = cache->GetOrCreate(button);
-  EXPECT_EQ(kSliderRole, axButton->RoleValue());
+  EXPECT_EQ(ax::mojom::Role::kSlider, axButton->RoleValue());
 }
 
 TEST_F(AccessibilityObjectModelTest, AOMDoesNotReflectARIA) {
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<input id=textbox>");
+  AXContext ax_context(GetDocument());
 
   // Set ARIA attributes.
   auto* textbox = GetDocument().getElementById("textbox");
@@ -78,8 +82,8 @@ TEST_F(AccessibilityObjectModelTest, AOMDoesNotReflectARIA) {
   auto* cache = AXObjectCache();
   ASSERT_NE(nullptr, cache);
   auto* axTextBox = cache->GetOrCreate(textbox);
-  EXPECT_EQ(kTextFieldWithComboBoxRole, axTextBox->RoleValue());
-  AXNameFrom name_from;
+  EXPECT_EQ(ax::mojom::Role::kTextFieldWithComboBox, axTextBox->RoleValue());
+  ax::mojom::NameFrom name_from;
   AXObject::AXObjectVector name_objects;
   EXPECT_EQ("Combo", axTextBox->GetName(name_from, &name_objects));
   EXPECT_EQ(axTextBox->Restriction(), kDisabled);
@@ -96,6 +100,7 @@ TEST_F(AccessibilityObjectModelTest, AOMPropertiesCanBeCleared) {
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<input type=button id=button>");
+  AXContext ax_context(GetDocument());
 
   // Set ARIA attributes.
   auto* button = GetDocument().getElementById("button");
@@ -108,8 +113,8 @@ TEST_F(AccessibilityObjectModelTest, AOMPropertiesCanBeCleared) {
   auto* cache = AXObjectCache();
   ASSERT_NE(nullptr, cache);
   auto* axButton = cache->GetOrCreate(button);
-  EXPECT_EQ(kCheckBoxRole, axButton->RoleValue());
-  AXNameFrom name_from;
+  EXPECT_EQ(ax::mojom::Role::kCheckBox, axButton->RoleValue());
+  ax::mojom::NameFrom name_from;
   AXObject::AXObjectVector name_objects;
   EXPECT_EQ("Check", axButton->GetName(name_from, &name_objects));
   EXPECT_EQ(axButton->Restriction(), kDisabled);
@@ -121,7 +126,7 @@ TEST_F(AccessibilityObjectModelTest, AOMPropertiesCanBeCleared) {
 
   // Assert that the AX object was affected by AOM properties.
   axButton = cache->GetOrCreate(button);
-  EXPECT_EQ(kRadioButtonRole, axButton->RoleValue());
+  EXPECT_EQ(ax::mojom::Role::kRadioButton, axButton->RoleValue());
   EXPECT_EQ("Radio", axButton->GetName(name_from, &name_objects));
   EXPECT_EQ(axButton->Restriction(), kNone);
 
@@ -132,7 +137,7 @@ TEST_F(AccessibilityObjectModelTest, AOMPropertiesCanBeCleared) {
 
   // The AX Object should now revert to ARIA.
   axButton = cache->GetOrCreate(button);
-  EXPECT_EQ(kCheckBoxRole, axButton->RoleValue());
+  EXPECT_EQ(ax::mojom::Role::kCheckBox, axButton->RoleValue());
   EXPECT_EQ("Check", axButton->GetName(name_from, &name_objects));
   EXPECT_EQ(axButton->Restriction(), kDisabled);
 }
@@ -141,6 +146,7 @@ TEST_F(AccessibilityObjectModelTest, RangeProperties) {
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<div role=slider id=slider>");
+  AXContext ax_context(GetDocument());
 
   auto* slider = GetDocument().getElementById("slider");
   ASSERT_NE(nullptr, slider);
@@ -164,6 +170,7 @@ TEST_F(AccessibilityObjectModelTest, Level) {
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<div role=heading id=heading>");
+  AXContext ax_context(GetDocument());
 
   auto* heading = GetDocument().getElementById("heading");
   ASSERT_NE(nullptr, heading);
@@ -180,6 +187,7 @@ TEST_F(AccessibilityObjectModelTest, ListItem) {
   LoadURL("https://example.com/");
   main_resource.Complete(
       "<div role=list><div role=listitem id=listitem></div></div>");
+  AXContext ax_context(GetDocument());
 
   auto* listitem = GetDocument().getElementById("listitem");
   ASSERT_NE(nullptr, listitem);
@@ -204,6 +212,7 @@ TEST_F(AccessibilityObjectModelTest, Grid) {
       </div>
     </div>
   )HTML");
+  AXContext ax_context(GetDocument());
 
   auto* grid = GetDocument().getElementById("grid");
   ASSERT_NE(nullptr, grid);
@@ -231,8 +240,8 @@ TEST_F(AccessibilityObjectModelTest, Grid) {
 
   auto* ax_cell = cache->GetOrCreate(cell);
   EXPECT_TRUE(ax_cell->IsTableCellLikeRole());
-  EXPECT_EQ(8U, ax_cell->AriaColumnIndex());
-  EXPECT_EQ(5U, ax_cell->AriaRowIndex());
+  EXPECT_EQ(0U, ax_cell->AriaColumnIndex());
+  EXPECT_EQ(0U, ax_cell->AriaRowIndex());
 
   auto* ax_cell2 = cache->GetOrCreate(cell2);
   EXPECT_TRUE(ax_cell2->IsTableCellLikeRole());
@@ -293,6 +302,7 @@ TEST_F(AccessibilityObjectModelTest, SparseAttributes) {
     <div id=error role=article>Error</div>
     <div id=error2 role=banner>Error 2</div>
   )HTML");
+  AXContext ax_context(GetDocument());
 
   auto* target = GetDocument().getElementById("target");
   auto* cache = AXObjectCache();
@@ -307,16 +317,16 @@ TEST_F(AccessibilityObjectModelTest, SparseAttributes) {
   ASSERT_EQ("Widget",
             sparse_attributes
                 .string_attributes[AXStringAttribute::kAriaRoleDescription]);
-  ASSERT_EQ(kListBoxOptionRole,
+  ASSERT_EQ(ax::mojom::Role::kListBoxOption,
             sparse_attributes
                 .object_attributes[AXObjectAttribute::kAriaActiveDescendant]
                 ->RoleValue());
   ASSERT_EQ(
-      kContentInfoRole,
+      ax::mojom::Role::kContentInfo,
       sparse_attributes.object_attributes[AXObjectAttribute::kAriaDetails]
           ->RoleValue());
   ASSERT_EQ(
-      kArticleRole,
+      ax::mojom::Role::kArticle,
       sparse_attributes.object_attributes[AXObjectAttribute::kAriaErrorMessage]
           ->RoleValue());
 
@@ -338,14 +348,15 @@ TEST_F(AccessibilityObjectModelTest, SparseAttributes) {
   ASSERT_EQ("Object",
             sparse_attributes2
                 .string_attributes[AXStringAttribute::kAriaRoleDescription]);
-  ASSERT_EQ(kCellRole,
+  ASSERT_EQ(ax::mojom::Role::kCell,
             sparse_attributes2
                 .object_attributes[AXObjectAttribute::kAriaActiveDescendant]
                 ->RoleValue());
-  ASSERT_EQ(kFormRole, sparse_attributes2
-                           .object_attributes[AXObjectAttribute::kAriaDetails]
-                           ->RoleValue());
-  ASSERT_EQ(kBannerRole,
+  ASSERT_EQ(
+      ax::mojom::Role::kForm,
+      sparse_attributes2.object_attributes[AXObjectAttribute::kAriaDetails]
+          ->RoleValue());
+  ASSERT_EQ(ax::mojom::Role::kBanner,
             sparse_attributes2
                 .object_attributes[AXObjectAttribute::kAriaErrorMessage]
                 ->RoleValue());
@@ -360,6 +371,7 @@ TEST_F(AccessibilityObjectModelTest, LabeledBy) {
     <label id=l2>Label 2</label>
     <label id=l3>Label 3</label>
   )HTML");
+  AXContext ax_context(GetDocument());
 
   auto* target = GetDocument().getElementById("target");
   auto* l1 = GetDocument().getElementById("l1");
@@ -376,7 +388,7 @@ TEST_F(AccessibilityObjectModelTest, LabeledBy) {
   AccessibleNodeList* node_list = target->accessibleNode()->labeledBy();
   ASSERT_EQ(nullptr, node_list);
 
-  node_list = new AccessibleNodeList();
+  node_list = MakeGarbageCollected<AccessibleNodeList>();
   node_list->add(l3->accessibleNode());
   target->accessibleNode()->setLabeledBy(node_list);
 
@@ -389,4 +401,5 @@ TEST_F(AccessibilityObjectModelTest, LabeledBy) {
 
 }  // namespace
 
+}  // namespace test
 }  // namespace blink

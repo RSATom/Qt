@@ -11,9 +11,10 @@
 #ifndef MODULES_CONGESTION_CONTROLLER_GOOG_CC_BITRATE_ESTIMATOR_H_
 #define MODULES_CONGESTION_CONTROLLER_GOOG_CC_BITRATE_ESTIMATOR_H_
 
-#include <vector>
+#include <stdint.h>
 
 #include "absl/types/optional.h"
+#include "api/transport/webrtc_key_value_config.h"
 
 namespace webrtc {
 
@@ -24,11 +25,12 @@ namespace webrtc {
 // unrelated to congestion.
 class BitrateEstimator {
  public:
-  BitrateEstimator();
+  explicit BitrateEstimator(const WebRtcKeyValueConfig* key_value_config);
   virtual ~BitrateEstimator();
   virtual void Update(int64_t now_ms, int bytes);
 
   virtual absl::optional<uint32_t> bitrate_bps() const;
+  absl::optional<uint32_t> PeekBps() const;
 
   virtual void ExpectFastRateChange();
 

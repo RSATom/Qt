@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_INSPECTOR_DOM_SNAPSHOT_AGENT_H_
 
 #include "base/macros.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/DOMSnapshot.h"
@@ -28,9 +28,11 @@ class CORE_EXPORT InspectorDOMSnapshotAgent final
   static InspectorDOMSnapshotAgent* Create(
       InspectedFrames* inspected_frames,
       InspectorDOMDebuggerAgent* dom_debugger_agent) {
-    return new InspectorDOMSnapshotAgent(inspected_frames, dom_debugger_agent);
+    return MakeGarbageCollected<InspectorDOMSnapshotAgent>(inspected_frames,
+                                                           dom_debugger_agent);
   }
 
+  InspectorDOMSnapshotAgent(InspectedFrames*, InspectorDOMDebuggerAgent*);
   ~InspectorDOMSnapshotAgent() override;
   void Trace(blink::Visitor*) override;
 
@@ -55,15 +57,14 @@ class CORE_EXPORT InspectorDOMSnapshotAgent final
           documents,
       std::unique_ptr<protocol::Array<String>>* strings) override;
 
-  bool Enabled() const;
-
   // InspectorInstrumentation API.
   void CharacterDataModified(CharacterData*);
   void DidInsertDOMNode(Node*);
 
  private:
-  InspectorDOMSnapshotAgent(InspectedFrames*, InspectorDOMDebuggerAgent*);
-  void InnerEnable();
+  // Unconditionally enables the agent, even if |enabled_.Get()==true|.
+  // For idempotence, call enable().
+  void EnableAndReset();
 
   int VisitNode(Node*,
                 bool include_event_listeners,
@@ -95,12 +96,8 @@ class CORE_EXPORT InspectorDOMSnapshotAgent final
   void VisitContainerChildren2(Node* container, int parent_index);
 
   // Collect LayoutTreeNodes owned by a pseudo element.
-  void VisitPseudoLayoutChildren(Node* pseudo_node,
-                                 LayoutObject* layout_object,
-                                 int index);
-  void VisitPseudoLayoutChildren2(Node* pseudo_node,
-                                  LayoutObject* layout_object,
-                                  int index);
+  void VisitPseudoLayoutChildren(Node* pseudo_node, int index);
+  void VisitPseudoLayoutChildren2(Node* pseudo_node, int index);
 
   std::unique_ptr<protocol::Array<int>> VisitPseudoElements(
       Element* parent,
@@ -169,7 +166,7 @@ class CORE_EXPORT InspectorDOMSnapshotAgent final
   DocumentOrderMap document_order_map_;
   Member<InspectedFrames> inspected_frames_;
   Member<InspectorDOMDebuggerAgent> dom_debugger_agent_;
-
+  InspectorAgentState::Boolean enabled_;
   DISALLOW_COPY_AND_ASSIGN(InspectorDOMSnapshotAgent);
 };
 

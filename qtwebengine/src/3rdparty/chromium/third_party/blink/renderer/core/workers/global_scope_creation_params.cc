@@ -6,15 +6,18 @@
 
 #include <memory>
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
 GlobalScopeCreationParams::GlobalScopeCreationParams(
     const KURL& script_url,
-    ScriptType script_type,
+    mojom::ScriptType script_type,
+    OffMainThreadWorkerScriptFetchOption off_main_thread_fetch_option,
     const String& user_agent,
+    scoped_refptr<WebWorkerFetchContext> web_worker_fetch_context,
     const Vector<CSPHeaderAndType>& content_security_policy_parsed_headers,
-    ReferrerPolicy referrer_policy,
+    network::mojom::ReferrerPolicy referrer_policy,
     const SecurityOrigin* starter_origin,
     bool starter_secure_context,
     HttpsState starter_https_state,
@@ -28,10 +31,13 @@ GlobalScopeCreationParams::GlobalScopeCreationParams(
     service_manager::mojom::blink::InterfaceProviderPtrInfo
         interface_provider_info,
     BeginFrameProviderParams begin_frame_provider_params,
-    const FeaturePolicy* parent_feature_policy)
+    const FeaturePolicy* parent_feature_policy,
+    base::UnguessableToken agent_cluster_id)
     : script_url(script_url.Copy()),
       script_type(script_type),
+      off_main_thread_fetch_option(off_main_thread_fetch_option),
       user_agent(user_agent.IsolatedCopy()),
+      web_worker_fetch_context(std::move(web_worker_fetch_context)),
       referrer_policy(referrer_policy),
       starter_origin(starter_origin ? starter_origin->IsolatedCopy() : nullptr),
       starter_secure_context(starter_secure_context),
@@ -49,7 +55,21 @@ GlobalScopeCreationParams::GlobalScopeCreationParams(
       worker_feature_policy(FeaturePolicy::CreateFromParentPolicy(
           parent_feature_policy,
           ParsedFeaturePolicy() /* container_policy */,
-          starter_origin->ToUrlOrigin())) {
+          starter_origin->ToUrlOrigin())),
+      agent_cluster_id(agent_cluster_id) {
+  switch (this->script_type) {
+    case mojom::ScriptType::kClassic:
+      if (this->off_main_thread_fetch_option ==
+          OffMainThreadWorkerScriptFetchOption::kEnabled) {
+        DCHECK(RuntimeEnabledFeatures::OffMainThreadWorkerScriptFetchEnabled());
+      }
+      break;
+    case mojom::ScriptType::kModule:
+      DCHECK_EQ(this->off_main_thread_fetch_option,
+                OffMainThreadWorkerScriptFetchOption::kEnabled);
+      break;
+  }
+
   this->content_security_policy_parsed_headers.ReserveInitialCapacity(
       content_security_policy_parsed_headers.size());
   for (const auto& header : content_security_policy_parsed_headers) {

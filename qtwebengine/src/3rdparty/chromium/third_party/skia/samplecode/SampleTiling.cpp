@@ -5,8 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkPaint.h"
@@ -14,10 +13,11 @@
 #include "SkPictureRecorder.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 #include "SkColorPriv.h"
 #include "SkColorFilter.h"
 #include "SkPicture.h"
+#include "SkTextUtils.h"
 #include "SkTypeface.h"
 
 // effects
@@ -54,7 +54,7 @@ static const SkColorType gColorTypes[] = {
 static const int gWidth = 32;
 static const int gHeight = 32;
 
-class TilingView : public SampleView {
+class TilingView : public Sample {
     sk_sp<SkPicture>     fTextPicture;
     sk_sp<SkDrawLooper>  fLooper;
 public:
@@ -73,10 +73,9 @@ public:
     SkBitmap    fTexture[SK_ARRAY_COUNT(gColorTypes)];
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Tiling");
+    virtual bool onQuery(Sample::Event* evt) {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Tiling");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -107,13 +106,12 @@ protected:
                 for (size_t ky = 0; ky < SK_ARRAY_COUNT(gModes); ky++) {
                     SkPaint p;
                     SkString str;
-                    p.setAntiAlias(true);
                     p.setDither(true);
                     p.setLooper(fLooper);
                     str.printf("[%s,%s]", gModeNames[kx], gModeNames[ky]);
 
-                    p.setTextAlign(SkPaint::kCenter_Align);
-                    textCanvas->drawString(str, x + r.width()/2, y, p);
+                    SkTextUtils::DrawString(textCanvas, str.c_str(), x + r.width()/2, y, SkFont(), p,
+                                            SkTextUtils::kCenter_Align);
 
                     x += r.width() * 4 / 3;
                 }
@@ -141,11 +139,10 @@ protected:
                 }
                 if (textCanvas) {
                     SkPaint p;
-                    SkString str;
-                    p.setAntiAlias(true);
                     p.setLooper(fLooper);
-                    str.printf("%s, %s", gConfigNames[i], gFilterNames[j]);
-                    textCanvas->drawString(str, x, y + r.height() * 2 / 3, p);
+                    textCanvas->drawString(
+                            SkStringPrintf("%s, %s", gConfigNames[i], gFilterNames[j]),
+                            x, y + r.height() * 2 / 3, SkFont(), p);
                 }
 
                 y += r.height() * 4 / 3;
@@ -162,10 +159,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new TilingView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new TilingView(); )

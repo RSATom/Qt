@@ -46,23 +46,14 @@ std::unique_ptr<AuraInit> AuraInit::Create(const InitParams& params) {
 bool AuraInit::Init(const InitParams& params) {
   env_ = aura::Env::CreateInstance(aura::Env::Mode::MUS);
 
-  if (params.mode == Mode::AURA_MUS || params.mode == Mode::AURA_MUS2) {
-    MusClient::InitParams mus_params;
-    mus_params.connector = params.connector;
-    mus_params.identity = params.identity;
-    mus_params.io_task_runner = params.io_task_runner;
-    mus_params.wtc_config =
-        params.mode == Mode::AURA_MUS2
-            ? aura::WindowTreeClient::Config::kMus2
-            : aura::WindowTreeClient::Config::kMashDeprecated;
-    mus_params.create_wm_state = true;
-    mus_params.use_accessibility_host = params.use_accessibility_host;
-    mus_client_ = std::make_unique<MusClient>(mus_params);
-  }
-  // MaterialDesignController may have initialized already (such as happens
-  // in the utility process).
-  if (!ui::MaterialDesignController::is_mode_initialized())
-    ui::MaterialDesignController::Initialize();
+  MusClient::InitParams mus_params;
+  mus_params.connector = params.connector;
+  mus_params.identity = params.identity;
+  mus_params.io_task_runner = params.io_task_runner;
+  mus_params.create_wm_state = true;
+  mus_params.use_accessibility_host = params.use_accessibility_host;
+  mus_client_ = std::make_unique<MusClient>(mus_params);
+  ui::MaterialDesignController::Initialize();
   if (!InitializeResources(params))
     return false;
 

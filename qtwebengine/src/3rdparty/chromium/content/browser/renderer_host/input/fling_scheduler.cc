@@ -31,6 +31,7 @@ void FlingScheduler::ScheduleFlingProgress(
   // Don't do anything if a ui::Compositor is already being observed.
   if (observed_compositor_)
     return;
+
   ui::Compositor* compositor = GetCompositor();
   // If a ui::Compositor can't be obtained, ask the host for BeginFrames.
   if (!compositor) {
@@ -50,6 +51,10 @@ void FlingScheduler::DidStopFlingingOnBrowser(
   }
   fling_controller_ = nullptr;
   host_->DidStopFlinging();
+}
+
+bool FlingScheduler::NeedsBeginFrameForFlingProgress() {
+  return !GetCompositor();
 }
 
 void FlingScheduler::ProgressFlingOnBeginFrameIfneeded(

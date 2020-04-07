@@ -12,11 +12,9 @@ const CXFA_Node::AttributeData kLockDocumentAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Type, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Optional},
+     (void*)XFA_AttributeValue::Optional},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
-
-constexpr wchar_t kLockDocumentName[] = L"lockDocument";
 
 }  // namespace
 
@@ -27,7 +25,6 @@ CXFA_LockDocument::CXFA_LockDocument(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_ObjectType::ContentNode,
                 XFA_Element::LockDocument,
                 nullptr,
-                kLockDocumentAttributeData,
-                kLockDocumentName) {}
+                kLockDocumentAttributeData) {}
 
-CXFA_LockDocument::~CXFA_LockDocument() {}
+CXFA_LockDocument::~CXFA_LockDocument() = default;

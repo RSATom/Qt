@@ -26,7 +26,7 @@ using midi::mojom::Result;
 using mojom::blink::PermissionStatus;
 
 MIDIAccessInitializer::MIDIAccessInitializer(ScriptState* script_state,
-                                             const MIDIOptions& options)
+                                             const MIDIOptions* options)
     : ScriptPromiseResolver(script_state), options_(options) {}
 
 void MIDIAccessInitializer::ContextDestroyed(ExecutionContext* context) {
@@ -40,13 +40,17 @@ ScriptPromise MIDIAccessInitializer::Start() {
   ScriptPromise promise = this->Promise();
   accessor_ = MIDIAccessor::Create(this);
 
-  ConnectToPermissionService(GetExecutionContext(),
-                             mojo::MakeRequest(&permission_service_));
+  // See https://bit.ly/2S0zRAS for task types.
+  ConnectToPermissionService(
+      GetExecutionContext(),
+      mojo::MakeRequest(
+          &permission_service_,
+          GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI)));
 
-  Document* doc = ToDocumentOrNull(GetExecutionContext());
+  Document& doc = To<Document>(*GetExecutionContext());
   permission_service_->RequestPermission(
-      CreateMidiPermissionDescriptor(options_.hasSysex() && options_.sysex()),
-      Frame::HasTransientUserActivation(doc ? doc->GetFrame() : nullptr),
+      CreateMidiPermissionDescriptor(options_->hasSysex() && options_->sysex()),
+      LocalFrame::HasTransientUserActivation(doc.GetFrame()),
       WTF::Bind(&MIDIAccessInitializer::OnPermissionsUpdated,
                 WrapPersistent(this)));
 
@@ -96,7 +100,7 @@ void MIDIAccessInitializer::DidStartSession(Result result) {
       break;
     case Result::OK:
       return Resolve(MIDIAccess::Create(
-          std::move(accessor_), options_.hasSysex() && options_.sysex(),
+          std::move(accessor_), options_->hasSysex() && options_->sysex(),
           port_descriptors_, GetExecutionContext()));
     case Result::NOT_SUPPORTED:
       return Reject(DOMException::Create(DOMExceptionCode::kNotSupportedError));
@@ -108,6 +112,11 @@ void MIDIAccessInitializer::DidStartSession(Result result) {
   NOTREACHED();
   Reject(DOMException::Create(DOMExceptionCode::kInvalidStateError,
                               "Unknown internal error occurred."));
+}
+
+void MIDIAccessInitializer::Trace(Visitor* visitor) {
+  visitor->Trace(options_);
+  ScriptPromiseResolver::Trace(visitor);
 }
 
 ExecutionContext* MIDIAccessInitializer::GetExecutionContext() const {

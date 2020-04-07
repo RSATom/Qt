@@ -37,16 +37,17 @@ class PacketDroppingTestWriter : public QuicPacketWriterWrapper {
   };
 
   PacketDroppingTestWriter();
+  PacketDroppingTestWriter(const PacketDroppingTestWriter&) = delete;
+  PacketDroppingTestWriter& operator=(const PacketDroppingTestWriter&) = delete;
 
   ~PacketDroppingTestWriter() override;
 
   // Must be called before blocking, reordering or delaying (loss is OK). May be
   // called after connecting if the helper is not available before.
-  // |on_can_write| will be triggered when fake-unblocking; ownership will be
-  // assumed.
+  // |on_can_write| will be triggered when fake-unblocking.
   void Initialize(QuicConnectionHelperInterface* helper,
                   QuicAlarmFactory* alarm_factory,
-                  Delegate* on_can_write);
+                  std::unique_ptr<Delegate> on_can_write);
 
   // QuicPacketWriter methods:
   WriteResult WritePacket(const char* buffer,
@@ -59,7 +60,8 @@ class PacketDroppingTestWriter : public QuicPacketWriterWrapper {
 
   void SetWritable() override;
 
-  char* GetNextWriteLocation() const override {
+  char* GetNextWriteLocation(const QuicIpAddress& self_address,
+                             const QuicSocketAddress& peer_address) override {
     // If the wrapped writer supports zero-copy, disable it, because it is not
     // compatible with delayed writes in this class.
     return nullptr;
@@ -138,20 +140,19 @@ class PacketDroppingTestWriter : public QuicPacketWriterWrapper {
                  const QuicSocketAddress& peer_address,
                  std::unique_ptr<PerPacketOptions> options,
                  QuicTime send_time);
+    DelayedWrite(const DelayedWrite&) = delete;
+    DelayedWrite& operator=(const DelayedWrite&) = delete;
     // TODO(rtenneti): on windows RValue reference gives errors.
     DelayedWrite(DelayedWrite&& other);
     // TODO(rtenneti): on windows RValue reference gives errors.
     //    DelayedWrite& operator=(DelayedWrite&& other);
     ~DelayedWrite();
 
-    std::string buffer;
+    QuicString buffer;
     const QuicIpAddress self_address;
     const QuicSocketAddress peer_address;
     std::unique_ptr<PerPacketOptions> options;
     QuicTime send_time;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(DelayedWrite);
   };
 
   typedef std::list<DelayedWrite> DelayedPacketList;
@@ -175,8 +176,6 @@ class PacketDroppingTestWriter : public QuicPacketWriterWrapper {
   QuicBandwidth fake_bandwidth_ GUARDED_BY(config_mutex_);
   QuicByteCount buffer_size_ GUARDED_BY(config_mutex_);
   int32_t num_consecutive_packet_lost_ GUARDED_BY(config_mutex_);
-
-  DISALLOW_COPY_AND_ASSIGN(PacketDroppingTestWriter);
 };
 
 }  // namespace test

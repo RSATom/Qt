@@ -32,7 +32,12 @@ const TBuiltInResource kDefaultTBuiltInResource = {
     /*.maxCombinedTextureImageUnits = */ 80,
     /*.maxTextureImageUnits = */ 16,
     /*.maxFragmentUniformComponents = */ 1024,
-    /*.maxDrawBuffers = */ 2,
+
+    // glslang has 32 maxDrawBuffers.
+    // Pixel phone Vulkan driver in Android N has 8
+    // maxFragmentOutputAttachments.
+    /*.maxDrawBuffers = */ 8, 
+
     /*.maxVertexUniformVectors = */ 256,
     /*.maxVaryingVectors = */ 15,  // From OpenGLES 3.1 table 6.44.
     /*.maxFragmentUniformVectors = */ 256,
@@ -111,6 +116,16 @@ const TBuiltInResource kDefaultTBuiltInResource = {
     /*.maxCullDistances = */ 8,                 // ARB_cull_distance.
     /*.maxCombinedClipAndCullDistances = */ 8,  // ARB_cull_distance.
     /*.maxSamples = */ 4,
+    /* .maxMeshOutputVerticesNV = */ 256,
+    /* .maxMeshOutputPrimitivesNV = */ 512,
+    /* .maxMeshWorkGroupSizeX_NV = */ 32,
+    /* .maxMeshWorkGroupSizeY_NV = */ 1,
+    /* .maxMeshWorkGroupSizeZ_NV = */ 1,
+    /* .maxTaskWorkGroupSizeX_NV = */ 32,
+    /* .maxTaskWorkGroupSizeY_NV = */ 1,
+    /* .maxTaskWorkGroupSizeZ_NV = */ 1,
+    /* .maxMeshViewCountNV = */ 4,
+
     // This is the glslang TLimits structure.
     // It defines whether or not the following features are enabled.
     // We want them to all be enabled.

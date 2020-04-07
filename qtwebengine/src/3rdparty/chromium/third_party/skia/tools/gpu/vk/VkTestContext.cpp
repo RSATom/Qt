@@ -11,14 +11,13 @@
 
 #include "GrContext.h"
 #include "VkTestUtils.h"
-#include "vk/GrVkInterface.h"
-#include "vk/GrVkUtil.h"
+#include "vk/GrVkExtensions.h"
 
 namespace {
 
 #define ACQUIRE_VK_PROC(name, device)                                               \
     f##name = reinterpret_cast<PFN_vk##name>(getProc("vk" #name, nullptr, device)); \
-    SkASSERT(f##name);
+    SkASSERT(f##name)
 
 /**
  * Implements sk_gpu_test::FenceSync for Vulkan. It creates a single command
@@ -149,10 +148,15 @@ class VkTestContextImpl : public sk_gpu_test::VkTestContext {
 public:
     static VkTestContext* Create(VkTestContext* sharedContext) {
         GrVkBackendContext backendContext;
+        GrVkExtensions* extensions;
+        VkPhysicalDeviceFeatures2* features;
         bool ownsContext = true;
         VkDebugReportCallbackEXT debugCallback = VK_NULL_HANDLE;
+        PFN_vkDestroyDebugReportCallbackEXT destroyCallback = nullptr;
         if (sharedContext) {
             backendContext = sharedContext->getVkBackendContext();
+            extensions = const_cast<GrVkExtensions*>(sharedContext->getVkExtensions());
+            features = const_cast<VkPhysicalDeviceFeatures2*>(sharedContext->getVkFeatures());
             // We always delete the parent context last so make sure the child does not think they
             // own the vulkan context.
             ownsContext = false;
@@ -162,12 +166,29 @@ public:
             if (!sk_gpu_test::LoadVkLibraryAndGetProcAddrFuncs(&instProc, &devProc)) {
                 return nullptr;
             }
-            if (!sk_gpu_test::CreateVkBackendContext(instProc, devProc, &backendContext,
-                                                     &debugCallback)) {
+            auto getProc = [instProc, devProc](const char* proc_name,
+                                               VkInstance instance, VkDevice device) {
+                if (device != VK_NULL_HANDLE) {
+                    return devProc(device, proc_name);
+                }
+                return instProc(instance, proc_name);
+            };
+            extensions = new GrVkExtensions();
+            features = new VkPhysicalDeviceFeatures2;
+            memset(features, 0, sizeof(VkPhysicalDeviceFeatures2));
+            if (!sk_gpu_test::CreateVkBackendContext(getProc, &backendContext, extensions,
+                                                     features, &debugCallback)) {
+                sk_gpu_test::FreeVulkanFeaturesStructs(features);
+                delete features;
                 return nullptr;
             }
+            if (debugCallback != VK_NULL_HANDLE) {
+                destroyCallback = (PFN_vkDestroyDebugReportCallbackEXT) instProc(
+                        backendContext.fInstance, "vkDestroyDebugReportCallbackEXT");
+            }
         }
-        return new VkTestContextImpl(backendContext, ownsContext, debugCallback);
+        return new VkTestContextImpl(backendContext, extensions, features, ownsContext,
+                                     debugCallback, destroyCallback);
     }
 
     ~VkTestContextImpl() override { this->teardown(); }
@@ -184,13 +205,15 @@ public:
     }
 
 protected:
-#define ACQUIRE_VK_PROC_LOCAL(name, inst)                                          \
-    PFN_vk##name grVk##name =                                                      \
-        reinterpret_cast<PFN_vk##name>(fVk.fGetProc("vk" #name, inst, nullptr));   \
-    if (grVk##name == nullptr) {                                                   \
-        SkDebugf("Function ptr for vk%s could not be acquired\n", #name);          \
-        return;                                                                    \
-    }
+#define ACQUIRE_VK_PROC_LOCAL(name, inst)                                            \
+    PFN_vk##name grVk##name =                                                        \
+            reinterpret_cast<PFN_vk##name>(fVk.fGetProc("vk" #name, inst, nullptr)); \
+    do {                                                                             \
+        if (grVk##name == nullptr) {                                                 \
+            SkDebugf("Function ptr for vk%s could not be acquired\n", #name);        \
+            return;                                                                  \
+        }                                                                            \
+    } while (0)
 
     void teardown() override {
         INHERITED::teardown();
@@ -208,13 +231,20 @@ protected:
             }
 #endif
             grVkDestroyInstance(fVk.fInstance, nullptr);
+            delete fExtensions;
+
+            sk_gpu_test::FreeVulkanFeaturesStructs(fFeatures);
+            delete fFeatures;
         }
     }
 
 private:
-    VkTestContextImpl(const GrVkBackendContext& backendContext, bool ownsContext,
-                      VkDebugReportCallbackEXT debugCallback)
-            : VkTestContext(backendContext, ownsContext, debugCallback) {
+    VkTestContextImpl(const GrVkBackendContext& backendContext, const GrVkExtensions* extensions,
+                      VkPhysicalDeviceFeatures2* features, bool ownsContext,
+                      VkDebugReportCallbackEXT debugCallback,
+                      PFN_vkDestroyDebugReportCallbackEXT destroyCallback)
+            : VkTestContext(backendContext, extensions, features, ownsContext, debugCallback,
+                            destroyCallback) {
         fFenceSync.reset(new VkFenceSync(fVk.fGetProc, fVk.fDevice, fVk.fQueue,
                                          fVk.fGraphicsQueueIndex));
     }

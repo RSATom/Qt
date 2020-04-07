@@ -67,6 +67,20 @@
 
 QT_BEGIN_NAMESPACE
 
+/*!
+    \since 5.13
+
+    \enum QAxSelect::SandboxingLevel
+
+    The SandboxingLevel enumeration defines the desired level of ActiveX sandboxing.
+
+    \value SandboxingNone No specific sandboxing desired
+    \value SandboxingProcess Run ActiveX control in a separate process
+    \value SandboxingLowIntegrity Run ActiveX control in a separate low-integrity process
+
+    Sandboxing requires that the ActiveX is either built as an EXE, or as a DLL with AppID "DllSurrogate" enabled.
+*/
+
 enum ControlType { InProcessControl, OutOfProcessControl };
 
 struct Control
@@ -327,8 +341,9 @@ public:
     \inmodule QAxContainer
 
     QAxSelect dialog can be used to provide users with a way to browse the registered COM
-    components of the system and select one. The CLSID of the selected component can
-    then be used in the application to e.g. initialize a QAxWidget:
+    components of the system and select one. It also provides a combo box for selecting
+    desired sandboxing level. The CLSID of the selected component can then be used in the
+    application to e.g. initialize a QAxWidget:
 
     \snippet src_activeqt_container_qaxselect.cpp 0
 
@@ -359,6 +374,9 @@ QAxSelect::QAxSelect(QWidget *parent, Qt::WindowFlags flags)
     d->filterModel->setSourceModel(new ControlList(this));
     d->selectUi.ActiveXList->setModel(d->filterModel);
 
+    QStringList sandboxingOptions = { QLatin1String("None"), QLatin1String("Process isolation"), QLatin1String("Low integrity process") };
+    d->selectUi.SandboxingCombo->addItems(sandboxingOptions);
+
     connect(d->selectUi.ActiveXList->selectionModel(), &QItemSelectionModel::currentChanged,
             this, &QAxSelect::onActiveXListCurrentChanged);
     connect(d->selectUi.ActiveXList, &QAbstractItemView::activated,
@@ -388,6 +406,22 @@ QAxSelect::~QAxSelect() = default;
 QString QAxSelect::clsid() const
 {
     return d->selectUi.ActiveX->text().trimmed();
+}
+
+/*!
+    \since 5.13
+
+    Returns the desired level of sandboxing for the ActiveX control.
+*/
+QAxSelect::SandboxingLevel QAxSelect::sandboxingLevel() const
+{
+    int idx = d->selectUi.SandboxingCombo->currentIndex();
+    if (idx == 1)
+        return SandboxingProcess;
+    else if (idx == 2)
+        return SandboxingLowIntegrity;
+    else
+        return SandboxingNone;
 }
 
 void QAxSelect::onActiveXListCurrentChanged(const QModelIndex &index)

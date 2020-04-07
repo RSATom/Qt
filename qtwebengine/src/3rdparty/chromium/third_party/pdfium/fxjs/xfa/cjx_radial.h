@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_RADIAL_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Radial;
 
-class CJX_Radial : public CJX_Node {
+class CJX_Radial final : public CJX_Node {
  public:
   explicit CJX_Radial(CXFA_Radial* node);
   ~CJX_Radial() override;
-
-  JS_PROP(type);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_RADIAL_H_

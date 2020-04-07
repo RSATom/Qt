@@ -13,10 +13,10 @@ const char kPowerManagerServicePath[] = "/org/chromium/PowerManager";
 const char kPowerManagerServiceName[] = "org.chromium.PowerManager";
 
 // Methods exposed by powerd.
+const char kSetScreenBrightnessMethod[] = "SetScreenBrightness";
 const char kDecreaseScreenBrightnessMethod[] = "DecreaseScreenBrightness";
 const char kIncreaseScreenBrightnessMethod[] = "IncreaseScreenBrightness";
 const char kGetScreenBrightnessPercentMethod[] = "GetScreenBrightnessPercent";
-const char kSetScreenBrightnessPercentMethod[] = "SetScreenBrightnessPercent";
 const char kGetKeyboardBrightnessPercentMethod[] =
     "GetKeyboardBrightnessPercent";
 const char kDecreaseKeyboardBrightnessMethod[] = "DecreaseKeyboardBrightness";

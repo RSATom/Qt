@@ -102,16 +102,22 @@ QWaylandDataOffer *QWaylandDataDevice::dragOffer() const
     return m_dragOffer.data();
 }
 
-void QWaylandDataDevice::startDrag(QMimeData *mimeData, QWaylandWindow *icon)
+bool QWaylandDataDevice::startDrag(QMimeData *mimeData, QWaylandWindow *icon)
 {
-    m_dragSource.reset(new QWaylandDataSource(m_display->dndSelectionHandler(), mimeData));
-    connect(m_dragSource.data(), &QWaylandDataSource::cancelled, this, &QWaylandDataDevice::dragSourceCancelled);
-
     QWaylandWindow *origin = m_display->currentInputDevice()->pointerFocus();
     if (!origin)
         origin = m_display->currentInputDevice()->touchFocus();
 
+    if (!origin) {
+        qCDebug(lcQpaWayland) << "Couldn't start a drag because the origin window could not be found.";
+        return false;
+    }
+
+    m_dragSource.reset(new QWaylandDataSource(m_display->dndSelectionHandler(), mimeData));
+    connect(m_dragSource.data(), &QWaylandDataSource::cancelled, this, &QWaylandDataDevice::dragSourceCancelled);
+
     start_drag(m_dragSource->object(), origin->object(), icon->object(), m_display->currentInputDevice()->serial());
+    return true;
 }
 
 void QWaylandDataDevice::cancelDrag()
@@ -151,9 +157,13 @@ void QWaylandDataDevice::data_device_drop()
 
 void QWaylandDataDevice::data_device_enter(uint32_t serial, wl_surface *surface, wl_fixed_t x, wl_fixed_t y, wl_data_offer *id)
 {
-    m_enterSerial = serial;
-    m_dragWindow = QWaylandWindow::fromWlSurface(surface)->window();
+    auto *dragWaylandWindow = QWaylandWindow::fromWlSurface(surface);
+    if (!dragWaylandWindow)
+        return; // Ignore foreign surfaces
+
+    m_dragWindow = dragWaylandWindow->window();
     m_dragPoint = calculateDragPosition(x, y, m_dragWindow);
+    m_enterSerial = serial;
 
     QMimeData *dragData = nullptr;
     Qt::DropActions supportedActions;

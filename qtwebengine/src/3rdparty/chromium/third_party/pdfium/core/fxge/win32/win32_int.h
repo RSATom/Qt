@@ -23,12 +23,6 @@ class CFX_ImageRenderer;
 class FXTEXT_CHARPOS;
 struct WINDIB_Open_Args_;
 
-typedef HANDLE(__stdcall* FuncType_GdiAddFontMemResourceEx)(PVOID pbFont,
-                                                            DWORD cbFont,
-                                                            PVOID pdv,
-                                                            DWORD* pcFonts);
-typedef BOOL(__stdcall* FuncType_GdiRemoveFontMemResourceEx)(HANDLE handle);
-
 RetainPtr<CFX_DIBitmap> FX_WindowsDIB_LoadFromBuf(BITMAPINFO* pbmi,
                                                   LPVOID pData,
                                                   bool bAlpha);
@@ -39,16 +33,6 @@ class CGdiplusExt {
 
   void Load();
   bool IsAvailable() { return !!m_hModule; }
-  bool StretchBitMask(HDC hDC,
-                      BOOL bMonoDevice,
-                      const RetainPtr<CFX_DIBitmap>& pBitmap,
-                      int dest_left,
-                      int dest_top,
-                      int dest_width,
-                      int dest_height,
-                      uint32_t argb,
-                      const FX_RECT* pClipRect,
-                      int flags);
   bool StretchDIBits(HDC hDC,
                      const RetainPtr<CFX_DIBitmap>& pBitmap,
                      int dest_left,
@@ -56,7 +40,7 @@ class CGdiplusExt {
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     int flags);
+                     const FXDIB_ResampleOptions& options);
   bool DrawPath(HDC hDC,
                 const CFX_PathData* pPathData,
                 const CFX_Matrix* pObject2Device,
@@ -65,57 +49,9 @@ class CGdiplusExt {
                 uint32_t stroke_argb,
                 int fill_mode);
 
-  void* LoadMemFont(uint8_t* pData, uint32_t size);
-  void DeleteMemFont(void* pFontCollection);
-  bool GdipCreateFromImage(void* bitmap, void** graphics);
-  void GdipDeleteGraphics(void* graphics);
-  void GdipSetTextRenderingHint(void* graphics, int mode);
-  void GdipSetPageUnit(void* graphics, uint32_t unit);
-  void GdipSetWorldTransform(void* graphics, void* pMatrix);
-  bool GdipDrawDriverString(void* graphics,
-                            unsigned short* text,
-                            int length,
-                            void* font,
-                            void* brush,
-                            void* positions,
-                            int flags,
-                            const void* matrix);
-  void GdipCreateBrush(uint32_t fill_argb, void** pBrush);
-  void GdipDeleteBrush(void* pBrush);
-  void GdipCreateMatrix(float a,
-                        float b,
-                        float c,
-                        float d,
-                        float e,
-                        float f,
-                        void** matrix);
-  void GdipDeleteMatrix(void* matrix);
-  bool GdipCreateFontFamilyFromName(const wchar_t* name,
-                                    void* pFontCollection,
-                                    void** pFamily);
-  void GdipDeleteFontFamily(void* pFamily);
-  bool GdipCreateFontFromFamily(void* pFamily,
-                                float font_size,
-                                int fontstyle,
-                                int flag,
-                                void** pFont);
-  void* GdipCreateFontFromCollection(void* pFontCollection,
-                                     float font_size,
-                                     int fontstyle);
-  void GdipDeleteFont(void* pFont);
-  bool GdipCreateBitmap(const RetainPtr<CFX_DIBitmap>& pBitmap, void** bitmap);
-  void GdipDisposeImage(void* bitmap);
-  void GdipGetFontSize(void* pFont, float* size);
-  void* GdiAddFontMemResourceEx(void* pFontdata,
-                                uint32_t size,
-                                void* pdv,
-                                uint32_t* num_face);
-  bool GdiRemoveFontMemResourceEx(void* handle);
   RetainPtr<CFX_DIBitmap> LoadDIBitmap(WINDIB_Open_Args_ args);
 
   std::vector<FARPROC> m_Functions;
-  FuncType_GdiAddFontMemResourceEx m_pGdiAddFontMemResourceEx = nullptr;
-  FuncType_GdiRemoveFontMemResourceEx m_pGdiRemoveFontMemResourseEx = nullptr;
 
  protected:
   HMODULE m_hModule = nullptr;
@@ -149,20 +85,20 @@ class CGdiDeviceDriver : public RenderDeviceDriverIface {
                 uint32_t fill_color,
                 uint32_t stroke_color,
                 int fill_mode,
-                int blend_type) override;
+                BlendMode blend_type) override;
   bool FillRectWithBlend(const FX_RECT& rect,
                          uint32_t fill_color,
-                         int blend_type) override;
+                         BlendMode blend_type) override;
   bool DrawCosmeticLine(const CFX_PointF& ptMoveTo,
                         const CFX_PointF& ptLineTo,
                         uint32_t color,
-                        int blend_type) override;
+                        BlendMode blend_type) override;
   bool GetClipBox(FX_RECT* pRect) override;
 
   void DrawLine(float x1, float y1, float x2, float y2);
 
   bool GDI_SetDIBits(const RetainPtr<CFX_DIBitmap>& pBitmap,
-                     const FX_RECT* pSrcRect,
+                     const FX_RECT& src_rect,
                      int left,
                      int top);
   bool GDI_StretchDIBits(const RetainPtr<CFX_DIBitmap>& pBitmap,
@@ -170,14 +106,13 @@ class CGdiDeviceDriver : public RenderDeviceDriverIface {
                          int dest_top,
                          int dest_width,
                          int dest_height,
-                         uint32_t flags);
+                         const FXDIB_ResampleOptions& options);
   bool GDI_StretchBitMask(const RetainPtr<CFX_DIBitmap>& pBitmap,
                           int dest_left,
                           int dest_top,
                           int dest_width,
                           int dest_height,
-                          uint32_t bitmap_color,
-                          uint32_t flags);
+                          uint32_t bitmap_color);
 
   HDC m_hDC;
   bool m_bMetafileDCType;
@@ -188,76 +123,76 @@ class CGdiDeviceDriver : public RenderDeviceDriverIface {
   int m_RenderCaps;
 };
 
-class CGdiDisplayDriver : public CGdiDeviceDriver {
+class CGdiDisplayDriver final : public CGdiDeviceDriver {
  public:
   explicit CGdiDisplayDriver(HDC hDC);
   ~CGdiDisplayDriver() override;
 
- protected:
+ private:
   bool GetDIBits(const RetainPtr<CFX_DIBitmap>& pBitmap,
                  int left,
                  int top) override;
-  bool SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
-                 const FX_RECT* pSrcRect,
+                 const FX_RECT& src_rect,
                  int left,
                  int top,
-                 int blend_type) override;
-  bool StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                 BlendMode blend_type) override;
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     uint32_t flags,
-                     int blend_type) override;
-  bool StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                     const FXDIB_ResampleOptions& options,
+                     BlendMode blend_type) override;
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                    int bitmap_alpha,
                    uint32_t color,
-                   const CFX_Matrix* pMatrix,
-                   uint32_t render_flags,
+                   const CFX_Matrix& matrix,
+                   const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
-                   int blend_type) override;
-  bool UseFoxitStretchEngine(const RetainPtr<CFX_DIBSource>& pSource,
+                   BlendMode blend_type) override;
+  bool UseFoxitStretchEngine(const RetainPtr<CFX_DIBBase>& pSource,
                              uint32_t color,
                              int dest_left,
                              int dest_top,
                              int dest_width,
                              int dest_height,
                              const FX_RECT* pClipRect,
-                             int render_flags);
+                             const FXDIB_ResampleOptions& options);
 };
 
-class CGdiPrinterDriver : public CGdiDeviceDriver {
+class CGdiPrinterDriver final : public CGdiDeviceDriver {
  public:
   explicit CGdiPrinterDriver(HDC hDC);
   ~CGdiPrinterDriver() override;
 
- protected:
+ private:
   int GetDeviceCaps(int caps_id) const override;
-  bool SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
-                 const FX_RECT* pSrcRect,
+                 const FX_RECT& src_rect,
                  int left,
                  int top,
-                 int blend_type) override;
-  bool StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                 BlendMode blend_type) override;
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     uint32_t flags,
-                     int blend_type) override;
-  bool StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                     const FXDIB_ResampleOptions& options,
+                     BlendMode blend_type) override;
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                    int bitmap_alpha,
                    uint32_t color,
-                   const CFX_Matrix* pMatrix,
-                   uint32_t render_flags,
+                   const CFX_Matrix& matrix,
+                   const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
-                   int blend_type) override;
+                   BlendMode blend_type) override;
   bool DrawDeviceText(int nChars,
                       const FXTEXT_CHARPOS* pCharPos,
                       CFX_Font* pFont,
@@ -269,12 +204,12 @@ class CGdiPrinterDriver : public CGdiDeviceDriver {
   const int m_VertSize;
 };
 
-class CPSPrinterDriver : public RenderDeviceDriverIface {
+class CPSPrinterDriver final : public RenderDeviceDriverIface {
  public:
   CPSPrinterDriver(HDC hDC, WindowsPrintMode mode, bool bCmykOutput);
   ~CPSPrinterDriver() override;
 
- protected:
+ private:
   // RenderDeviceDriverIface
   int GetDeviceCaps(int caps_id) const override;
   bool StartRendering() override;
@@ -293,30 +228,30 @@ class CPSPrinterDriver : public RenderDeviceDriverIface {
                 uint32_t fill_color,
                 uint32_t stroke_color,
                 int fill_mode,
-                int blend_type) override;
+                BlendMode blend_type) override;
   bool GetClipBox(FX_RECT* pRect) override;
-  bool SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
-                 const FX_RECT* pSrcRect,
+                 const FX_RECT& src_rect,
                  int left,
                  int top,
-                 int blend_type) override;
-  bool StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                 BlendMode blend_type) override;
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     uint32_t flags,
-                     int blend_type) override;
-  bool StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                     const FXDIB_ResampleOptions& options,
+                     BlendMode blend_type) override;
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                    int bitmap_alpha,
                    uint32_t color,
-                   const CFX_Matrix* pMatrix,
-                   uint32_t render_flags,
+                   const CFX_Matrix& matrix,
+                   const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
-                   int blend_type) override;
+                   BlendMode blend_type) override;
   bool DrawDeviceText(int nChars,
                       const FXTEXT_CHARPOS* pCharPos,
                       CFX_Font* pFont,
@@ -334,12 +269,12 @@ class CPSPrinterDriver : public RenderDeviceDriverIface {
   CFX_PSRenderer m_PSRenderer;
 };
 
-class CTextOnlyPrinterDriver : public RenderDeviceDriverIface {
+class CTextOnlyPrinterDriver final : public RenderDeviceDriverIface {
  public:
   explicit CTextOnlyPrinterDriver(HDC hDC);
   ~CTextOnlyPrinterDriver() override;
 
- protected:
+ private:
   // RenderDeviceDriverIface
   int GetDeviceCaps(int caps_id) const override;
   void SaveState() override{};
@@ -356,30 +291,30 @@ class CTextOnlyPrinterDriver : public RenderDeviceDriverIface {
                 uint32_t fill_color,
                 uint32_t stroke_color,
                 int fill_mode,
-                int blend_type) override;
+                BlendMode blend_type) override;
   bool GetClipBox(FX_RECT* pRect) override;
-  bool SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
-                 const FX_RECT* pSrcRect,
+                 const FX_RECT& src_rect,
                  int left,
                  int top,
-                 int blend_type) override;
-  bool StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                 BlendMode blend_type) override;
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     uint32_t flags,
-                     int blend_type) override;
-  bool StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                     const FXDIB_ResampleOptions& options,
+                     BlendMode blend_type) override;
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                    int bitmap_alpha,
                    uint32_t color,
-                   const CFX_Matrix* pMatrix,
-                   uint32_t render_flags,
+                   const CFX_Matrix& matrix,
+                   const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
-                   int blend_type) override;
+                   BlendMode blend_type) override;
   bool DrawDeviceText(int nChars,
                       const FXTEXT_CHARPOS* pCharPos,
                       CFX_Font* pFont,

@@ -28,17 +28,11 @@
 #include "third_party/blink/renderer/core/html/parser/css_preload_scanner.h"
 
 #include <memory>
-#include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/frame/settings.h"
+
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
-#include "third_party/blink/renderer/core/html/parser/html_resource_preloader.h"
-#include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/core/loader/resource/css_style_sheet_resource.h"
-#include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/text/segmented_string.h"
-#include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
 namespace blink {
 
@@ -92,7 +86,8 @@ void CSSPreloadScanner::Scan(const String& tag_name,
              predicted_base_element_url);
 }
 
-void CSSPreloadScanner::SetReferrerPolicy(const ReferrerPolicy policy) {
+void CSSPreloadScanner::SetReferrerPolicy(
+    network::mojom::ReferrerPolicy policy) {
   referrer_policy_ = policy;
 }
 
@@ -162,12 +157,18 @@ inline void CSSPreloadScanner::Tokenize(UChar c,
       }
       break;
     case kRuleValue:
-      if (IsHTMLSpace<UChar>(c))
+      if (IsHTMLSpace<UChar>(c)) {
         state_ = kAfterRuleValue;
-      else if (c == ';')
+      } else if (c == ';') {
         EmitRule(source);
-      else
+      } else {
         rule_value_.Append(c);
+        // When reading the rule and hitting ')', which signifies the URL end,
+        // emit the rule.
+        if (c == ')') {
+          EmitRule(source);
+        }
+      }
       break;
     case kAfterRuleValue:
       if (IsHTMLSpace<UChar>(c))
@@ -188,17 +189,23 @@ inline void CSSPreloadScanner::Tokenize(UChar c,
 }
 
 static String ParseCSSStringOrURL(const String& string) {
-  size_t offset = 0;
-  size_t reduced_length = string.length();
+  wtf_size_t offset = 0;
+  wtf_size_t reduced_length = string.length();
 
+  // Remove whitespace from the rule start
   while (reduced_length && IsHTMLSpace<UChar>(string[offset])) {
     ++offset;
     --reduced_length;
   }
+  // Remove whitespace from the rule end
+  // TODO(yoav): Evaluate performance benefits of using raw string operations.
+  // TODO(yoav): Look into moving parsing to use better parsing primitives.
   while (reduced_length &&
-         IsHTMLSpace<UChar>(string[offset + reduced_length - 1]))
+         IsHTMLSpace<UChar>(string[offset + reduced_length - 1])) {
     --reduced_length;
+  }
 
+  // Skip the "url(" prefix and the ")" suffix
   if (reduced_length >= 5 && (string[offset] == 'u' || string[offset] == 'U') &&
       (string[offset + 1] == 'r' || string[offset + 1] == 'R') &&
       (string[offset + 2] == 'l' || string[offset + 2] == 'L') &&
@@ -207,28 +214,23 @@ static String ParseCSSStringOrURL(const String& string) {
     reduced_length -= 5;
   }
 
+  // Skip whitespace before and after the URL inside the "url()" parenthesis.
   while (reduced_length && IsHTMLSpace<UChar>(string[offset])) {
     ++offset;
     --reduced_length;
   }
   while (reduced_length &&
-         IsHTMLSpace<UChar>(string[offset + reduced_length - 1]))
-    --reduced_length;
-
-  if (reduced_length < 2 ||
-      string[offset] != string[offset + reduced_length - 1] ||
-      !(string[offset] == '\'' || string[offset] == '"'))
-    return String();
-  offset++;
-  reduced_length -= 2;
-
-  while (reduced_length && IsHTMLSpace<UChar>(string[offset])) {
-    ++offset;
+         IsHTMLSpace<UChar>(string[offset + reduced_length - 1])) {
     --reduced_length;
   }
-  while (reduced_length &&
-         IsHTMLSpace<UChar>(string[offset + reduced_length - 1]))
-    --reduced_length;
+
+  // Remove single-quotes or double-quotes from the URL
+  if ((reduced_length >= 2) &&
+      (string[offset] == string[offset + reduced_length - 1]) &&
+      (string[offset] == '\'' || string[offset] == '"')) {
+    offset++;
+    reduced_length -= 2;
+  }
 
   return string.Substring(offset, reduced_length);
 }
@@ -239,8 +241,8 @@ void CSSPreloadScanner::EmitRule(const SegmentedString& source) {
     TextPosition position =
         TextPosition(source.CurrentLine(), source.CurrentColumn());
     auto request = PreloadRequest::CreateIfNeeded(
-        FetchInitiatorTypeNames::css, position, url,
-        *predicted_base_element_url_, Resource::kCSSStyleSheet,
+        fetch_initiator_type_names::kCSS, position, url,
+        *predicted_base_element_url_, ResourceType::kCSSStyleSheet,
         referrer_policy_, PreloadRequest::kBaseUrlIsReferrer,
         ResourceFetcher::kImageNotImageSet);
     if (request) {
@@ -254,110 +256,6 @@ void CSSPreloadScanner::EmitRule(const SegmentedString& source) {
     state_ = kDoneParsingImportRules;
   rule_.Clear();
   rule_value_.Clear();
-}
-
-CSSPreloaderResourceClient::CSSPreloaderResourceClient(
-    HTMLResourcePreloader* preloader)
-    : policy_(preloader->GetDocument()
-                      ->GetSettings()
-                      ->GetCSSExternalScannerPreload()
-                  ? kScanAndPreload
-                  : kScanOnly),
-      preloader_(preloader) {}
-
-CSSPreloaderResourceClient::~CSSPreloaderResourceClient() = default;
-
-void CSSPreloaderResourceClient::NotifyFinished(Resource*) {
-  MaybeClearResource();
-}
-
-// Only attach for one appendData call, as that's where most imports will likely
-// be (according to spec).
-void CSSPreloaderResourceClient::DataReceived(Resource* resource,
-                                              const char*,
-                                              size_t) {
-  if (received_first_data_)
-    return;
-  received_first_data_ = true;
-  if (preloader_)
-    ScanCSS(ToCSSStyleSheetResource(resource));
-  MaybeClearResource();
-}
-
-void CSSPreloaderResourceClient::ScanCSS(
-    const CSSStyleSheetResource* resource) {
-  DCHECK(preloader_);
-
-  // Early abort if there is no document loader. Do this early to ensure that
-  // scan histograms and preload histograms do not count different quantities.
-  if (!preloader_->GetDocument()->Loader())
-    return;
-
-  // Passing an empty SegmentedString here results in PreloadRequest with no
-  // file/line information.
-  // TODO(csharrison): If this becomes an issue the CSSPreloadScanner may be
-  // augmented to take care of this case without performing an additional
-  // copy.
-  TimeTicks start_time = CurrentTimeTicks();
-  const String& chunk = resource->SheetText(nullptr);
-  if (chunk.IsNull())
-    return;
-  CSSPreloadScanner css_preload_scanner;
-
-  ReferrerPolicy referrer_policy = kReferrerPolicyDefault;
-  String referrer_policy_header =
-      resource->GetResponse().HttpHeaderField(HTTPNames::Referrer_Policy);
-  if (!referrer_policy_header.IsNull()) {
-    SecurityPolicy::ReferrerPolicyFromHeaderValue(
-        referrer_policy_header, kDoNotSupportReferrerPolicyLegacyKeywords,
-        &referrer_policy);
-  }
-  css_preload_scanner.SetReferrerPolicy(referrer_policy);
-  PreloadRequestStream preloads;
-  css_preload_scanner.Scan(chunk, SegmentedString(), preloads,
-                           resource->GetResponse().Url());
-  UMA_HISTOGRAM_CUSTOM_TIMES(
-      "PreloadScanner.ExternalCSS.ScanTime", CurrentTimeTicks() - start_time,
-      TimeDelta::FromMilliseconds(1), TimeDelta::FromSeconds(1000), 50);
-  FetchPreloads(preloads);
-}
-
-void CSSPreloaderResourceClient::FetchPreloads(PreloadRequestStream& preloads) {
-  if (preloads.size()) {
-    preloader_->GetDocument()->Loader()->DidObserveLoadingBehavior(
-        WebLoadingBehaviorFlag::kWebLoadingBehaviorCSSPreloadFound);
-  }
-
-  if (policy_ == kScanAndPreload) {
-    int current_preload_count = preloader_->CountPreloads();
-    preloader_->TakeAndPreload(preloads);
-    DEFINE_STATIC_LOCAL(
-        CustomCountHistogram, css_import_histogram,
-        ("PreloadScanner.ExternalCSS.PreloadCount", 1, 100, 50));
-    css_import_histogram.Count(preloader_->CountPreloads() -
-                               current_preload_count);
-  }
-}
-
-void CSSPreloaderResourceClient::MaybeClearResource() {
-  // Do not remove the client for unused, speculative markup preloads. This will
-  // trigger cancellation of the request and potential removal from memory
-  // cache. Link preloads are an exception because they support dynamic removal
-  // cancelling the request (and have their own passive resource client).
-  // Note: Speculative preloads which remain unused for their lifetime will
-  // never have this client removed. This should be fine because we only hold
-  // weak references to the resource.
-  if (GetResource() && GetResource()->IsUnusedPreload() &&
-      !GetResource()->IsLinkPreload()) {
-    return;
-  }
-
-  ClearResource();
-}
-
-void CSSPreloaderResourceClient::Trace(blink::Visitor* visitor) {
-  visitor->Trace(preloader_);
-  ResourceClient::Trace(visitor);
 }
 
 }  // namespace blink

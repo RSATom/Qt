@@ -25,7 +25,6 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
-#include "ui/gfx/range/range.h"
 
 namespace blink {
 namespace mojom {
@@ -264,9 +263,11 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
       ResourceType resource_type) {}
 
   // This method is invoked when a resource associate with the frame
-  // |render_frame_host| has been loaded, successfully or not.
+  // |render_frame_host| has been loaded, successfully or not. |request_id| will
+  // only be populated for main frame resources.
   virtual void ResourceLoadComplete(
       RenderFrameHost* render_frame_host,
+      const GlobalRequestID& request_id,
       const mojom::ResourceLoadInfo& resource_load_info) {}
 
   // This method is invoked when a new non-pending navigation entry is created.
@@ -323,6 +324,12 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // failure methods will also be invoked.
   virtual void NavigationStopped() {}
 
+  // This method is invoked when the WebContents reloads all the LoFi images in
+  // the frame. LoFi is a type of Preview where Chrome shows gray boxes in place
+  // of the images on a webpage in order to conserve data for data-sensitive
+  // users. See http://bit.ly/LoFiPublicDoc.
+  virtual void DidReloadLoFiImages() {}
+
   // Called when there has been direct user interaction with the WebContents.
   // The type argument specifies the kind of interaction. Direct user input
   // signalled through this callback includes:
@@ -345,6 +352,13 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // Invoked when the given frame changes its window.name property.
   virtual void FrameNameChanged(RenderFrameHost* render_frame_host,
                                 const std::string& name) {}
+
+  // Called when the sticky user activation bit has been set on the frame.
+  // This will not be called for new RenderFrameHosts whose underlying
+  // FrameTreeNode was already activated. This should not be used to determine a
+  // RenderFrameHost's user activation state.
+  virtual void FrameReceivedFirstUserActivation(
+      RenderFrameHost* render_frame_host) {}
 
   // This method is invoked when the title of the WebContents is set. Note that
   // |entry| may be null if the web page whose title changed has not yet had a
@@ -427,9 +441,11 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // Invoked before a form repost warning is shown.
   virtual void BeforeFormRepostWarningShow() {}
 
-  // Invoked when the beforeunload handler fires. The time is from the renderer
-  // process.
-  virtual void BeforeUnloadFired(const base::TimeTicks& proceed_time) {}
+  // Invoked when the beforeunload handler fires. |proceed| is set to true if
+  // the beforeunload can safely proceed, otherwise it should be interrupted.
+  // The time is from the renderer process.
+  virtual void BeforeUnloadFired(bool proceed,
+                                 const base::TimeTicks& proceed_time) {}
 
   // Invoked when a user cancels a before unload dialog.
   virtual void BeforeUnloadDialogCancelled() {}
@@ -444,10 +460,6 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
 
   // Invoked when theme color is changed to |theme_color|.
   virtual void DidChangeThemeColor(SkColor theme_color) {}
-
-  // Invoked when text selection is changed.
-  virtual void DidChangeTextSelection(const base::string16& text,
-                                      const gfx::Range& range) {}
 
   // Invoked when media is playing or paused.  |id| is unique per player and per
   // RenderFrameHost.  There may be multiple players within a RenderFrameHost
@@ -500,6 +512,7 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // There is a slight delay between media entering or exiting fullscreen
   // and it being detected.
   virtual void MediaEffectivelyFullscreenChanged(bool is_fullscreen) {}
+  virtual void MediaPictureInPictureChanged(bool is_picture_in_picture) {}
   virtual void MediaMutedStatusChanged(const MediaPlayerId& id, bool muted) {}
 
   // Invoked when the renderer process changes the page scale factor.
@@ -517,9 +530,6 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // focus.
   virtual void OnWebContentsLostFocus(RenderWidgetHost* render_widget_host) {}
 
-  // Notifes that a CompositorFrame was received from the renderer.
-  virtual void DidReceiveCompositorFrame() {}
-
   // Notifies that the manifest URL for the main frame changed to
   // |manifest_url|. This will be invoked when a document with a manifest loads
   // or when the manifest URL changes (possibly to nothing). It is not invoked
@@ -535,6 +545,18 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
       RenderFrameHost* render_frame_host,
       const std::string& interface_name,
       mojo::ScopedMessagePipeHandle* interface_pipe) {}
+
+  // Notifies that the RenderWidgetCompositor has issued a draw command. An
+  // observer can use this method to detect when Chrome visually updated a
+  // tab.
+  virtual void DidCommitAndDrawCompositorFrame() {}
+
+  // Called when "audible" playback starts or stops on a WebAudio AudioContext.
+  using AudioContextId = std::pair<RenderFrameHost*, int>;
+  virtual void AudioContextPlaybackStarted(
+      const AudioContextId& audio_context_id) {}
+  virtual void AudioContextPlaybackStopped(
+      const AudioContextId& audio_context_id) {}
 
   // IPC::Listener implementation.
   // DEPRECATED: Use (i.e. override) the other overload instead:

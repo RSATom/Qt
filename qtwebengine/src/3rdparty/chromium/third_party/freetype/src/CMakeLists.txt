@@ -353,6 +353,10 @@ target_compile_definitions(
 if (WIN32)
   target_compile_definitions(
     freetype PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
+  if (BUILD_SHARED_LIBS)
+    target_compile_definitions(
+      freetype PRIVATE DLL_EXPORT)
+  endif ()
 endif ()
 
 if (BUILD_SHARED_LIBS)
@@ -368,7 +372,7 @@ target_include_directories(
       $<INSTALL_INTERFACE:include/freetype2>
       $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    PRIVATE 
+    PRIVATE
       ${CMAKE_CURRENT_BINARY_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -465,6 +469,7 @@ if (NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL)
       EXPORT freetype-targets
       LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
       ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
       FRAMEWORK DESTINATION Library/Frameworks
       COMPONENT libraries)
   install(

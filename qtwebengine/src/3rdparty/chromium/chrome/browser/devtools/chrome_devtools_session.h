@@ -6,9 +6,13 @@
 #define CHROME_BROWSER_DEVTOOLS_CHROME_DEVTOOLS_SESSION_H_
 
 #include <memory>
+#include <string>
+#include <utility>
 
+#include "base/values.h"
 #include "chrome/browser/devtools/protocol/forward.h"
 #include "chrome/browser/devtools/protocol/protocol.h"
+#include "content/public/browser/devtools_manager_delegate.h"
 
 namespace content {
 class DevToolsAgentHost;
@@ -16,6 +20,7 @@ class DevToolsAgentHostClient;
 }
 
 class BrowserHandler;
+class CastHandler;
 class PageHandler;
 class TargetHandler;
 class WindowManagerHandler;
@@ -28,6 +33,11 @@ class ChromeDevToolsSession : public protocol::FrontendChannel {
 
   protocol::UberDispatcher* dispatcher() { return dispatcher_.get(); }
 
+  void HandleCommand(
+      std::unique_ptr<base::DictionaryValue> command_dict,
+      const std::string& message,
+      content::DevToolsManagerDelegate::NotHandledCallback callback);
+
   TargetHandler* target_handler() { return target_handler_.get(); }
 
  private:
@@ -38,12 +48,20 @@ class ChromeDevToolsSession : public protocol::FrontendChannel {
   void sendProtocolNotification(
       std::unique_ptr<protocol::Serializable> message) override;
   void flushProtocolNotifications() override;
+  void fallThrough(int call_id,
+                   const std::string& method,
+                   const std::string& message) override;
 
   content::DevToolsAgentHost* const agent_host_;
   content::DevToolsAgentHostClient* const client_;
+  using PendingCommand =
+      std::pair<content::DevToolsManagerDelegate::NotHandledCallback,
+                std::unique_ptr<base::DictionaryValue>>;
+  base::flat_map<int, PendingCommand> pending_commands_;
 
   std::unique_ptr<protocol::UberDispatcher> dispatcher_;
   std::unique_ptr<BrowserHandler> browser_handler_;
+  std::unique_ptr<CastHandler> cast_handler_;
   std::unique_ptr<PageHandler> page_handler_;
   std::unique_ptr<TargetHandler> target_handler_;
 #if defined(OS_CHROMEOS)

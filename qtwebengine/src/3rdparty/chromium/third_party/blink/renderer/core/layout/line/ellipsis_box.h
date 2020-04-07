@@ -20,7 +20,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_ELLIPSIS_BOX_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LINE_ELLIPSIS_BOX_H_
 
-#include "third_party/blink/renderer/core/layout/api/selection_state.h"
 #include "third_party/blink/renderer/core/layout/line/inline_box.h"
 
 namespace blink {
@@ -49,8 +48,7 @@ class EllipsisBox final : public InlineBox {
                   nullptr,
                   parent),
         height_(height),
-        str_(ellipsis_str),
-        selection_state_(SelectionState::kNone) {
+        str_(ellipsis_str) {
     SetHasVirtualLogicalHeight();
   }
 
@@ -63,11 +61,9 @@ class EllipsisBox final : public InlineBox {
                    const LayoutPoint& accumulated_offset,
                    LayoutUnit line_top,
                    LayoutUnit line_bottom) override;
-  void SetSelectionState(SelectionState s) { selection_state_ = s; }
   IntRect SelectionRect() const;
 
   LayoutUnit VirtualLogicalHeight() const override { return height_; }
-  SelectionState GetSelectionState() const override { return selection_state_; }
   const AtomicString& EllipsisStr() const { return str_; }
 
   const char* BoxName() const override;
@@ -75,7 +71,6 @@ class EllipsisBox final : public InlineBox {
  private:
   LayoutUnit height_;
   AtomicString str_;
-  SelectionState selection_state_;
 };
 
 }  // namespace blink

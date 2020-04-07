@@ -95,6 +95,7 @@ void ProducerIPCClientImpl::OnDisconnect() {
   PERFETTO_DLOG("Tracing service connection failure");
   connected_ = false;
   producer_->OnDisconnect();
+  data_sources_setup_.clear();
 }
 
 void ProducerIPCClientImpl::OnConnectionInitialized(bool connection_succeeded) {
@@ -109,18 +110,37 @@ void ProducerIPCClientImpl::OnConnectionInitialized(bool connection_succeeded) {
 void ProducerIPCClientImpl::OnServiceRequest(
     const protos::GetAsyncCommandResponse& cmd) {
   PERFETTO_DCHECK_THREAD(thread_checker_);
+
+  // This message is sent only when connecting to a service running Android Q+.
+  // See comment below in kStartDataSource.
+  if (cmd.cmd_case() == protos::GetAsyncCommandResponse::kSetupDataSource) {
+    const auto& req = cmd.setup_data_source();
+    const DataSourceInstanceID dsid = req.new_instance_id();
+    DataSourceConfig cfg;
+    cfg.FromProto(req.config());
+    data_sources_setup_.insert(dsid);
+    producer_->SetupDataSource(dsid, cfg);
+    return;
+  }
+
   if (cmd.cmd_case() == protos::GetAsyncCommandResponse::kStartDataSource) {
     const auto& req = cmd.start_data_source();
     const DataSourceInstanceID dsid = req.new_instance_id();
     DataSourceConfig cfg;
     cfg.FromProto(req.config());
-    producer_->CreateDataSourceInstance(dsid, cfg);
+    if (!data_sources_setup_.count(dsid)) {
+      // When connecting with an older (Android P) service, the service will not
+      // send a SetupDataSource message. We synthesize it here in that case.
+      producer_->SetupDataSource(dsid, cfg);
+    }
+    producer_->StartDataSource(dsid, cfg);
     return;
   }
 
   if (cmd.cmd_case() == protos::GetAsyncCommandResponse::kStopDataSource) {
     const DataSourceInstanceID dsid = cmd.stop_data_source().instance_id();
-    producer_->TearDownDataSourceInstance(dsid);
+    producer_->StopDataSource(dsid);
+    data_sources_setup_.erase(dsid);
     return;
   }
 
@@ -152,9 +172,8 @@ void ProducerIPCClientImpl::OnServiceRequest(
     return;
   }
 
-  PERFETTO_DLOG("Unknown async request %d received from tracing service",
-                cmd.cmd_case());
-  PERFETTO_DCHECK(false);
+  PERFETTO_DFATAL("Unknown async request %d received from tracing service",
+                  cmd.cmd_case());
 }
 
 void ProducerIPCClientImpl::RegisterDataSource(
@@ -188,6 +207,34 @@ void ProducerIPCClientImpl::UnregisterDataSource(const std::string& name) {
       req, ipc::Deferred<protos::UnregisterDataSourceResponse>());
 }
 
+void ProducerIPCClientImpl::RegisterTraceWriter(uint32_t writer_id,
+                                                uint32_t target_buffer) {
+  PERFETTO_DCHECK_THREAD(thread_checker_);
+  if (!connected_) {
+    PERFETTO_DLOG(
+        "Cannot RegisterTraceWriter(), not connected to tracing service");
+    return;
+  }
+  protos::RegisterTraceWriterRequest req;
+  req.set_trace_writer_id(writer_id);
+  req.set_target_buffer(target_buffer);
+  producer_port_.RegisterTraceWriter(
+      req, ipc::Deferred<protos::RegisterTraceWriterResponse>());
+}
+
+void ProducerIPCClientImpl::UnregisterTraceWriter(uint32_t writer_id) {
+  PERFETTO_DCHECK_THREAD(thread_checker_);
+  if (!connected_) {
+    PERFETTO_DLOG(
+        "Cannot UnregisterTraceWriter(), not connected to tracing service");
+    return;
+  }
+  protos::UnregisterTraceWriterRequest req;
+  req.set_trace_writer_id(writer_id);
+  producer_port_.UnregisterTraceWriter(
+      req, ipc::Deferred<protos::UnregisterTraceWriterResponse>());
+}
+
 void ProducerIPCClientImpl::CommitData(const CommitDataRequest& req,
                                        CommitDataCallback callback) {
   PERFETTO_DCHECK_THREAD(thread_checker_);
@@ -211,6 +258,19 @@ void ProducerIPCClientImpl::CommitData(const CommitDataRequest& req,
         });
   }
   producer_port_.CommitData(proto_req, std::move(async_response));
+}
+
+void ProducerIPCClientImpl::NotifyDataSourceStopped(DataSourceInstanceID id) {
+  PERFETTO_DCHECK_THREAD(thread_checker_);
+  if (!connected_) {
+    PERFETTO_DLOG(
+        "Cannot NotifyDataSourceStopped(), not connected to tracing service");
+    return;
+  }
+  protos::NotifyDataSourceStoppedRequest req;
+  req.set_data_source_id(id);
+  producer_port_.NotifyDataSourceStopped(
+      req, ipc::Deferred<protos::NotifyDataSourceStoppedResponse>());
 }
 
 std::unique_ptr<TraceWriter> ProducerIPCClientImpl::CreateTraceWriter(

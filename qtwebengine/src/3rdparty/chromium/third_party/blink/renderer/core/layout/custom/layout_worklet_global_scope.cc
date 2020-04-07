@@ -6,7 +6,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_parser.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -26,15 +26,16 @@ LayoutWorkletGlobalScope* LayoutWorkletGlobalScope::Create(
     WorkerReportingProxy& reporting_proxy,
     PendingLayoutRegistry* pending_layout_registry,
     size_t global_scope_number) {
-  auto* global_scope =
-      new LayoutWorkletGlobalScope(frame, std::move(creation_params),
-                                   reporting_proxy, pending_layout_registry);
+  auto* global_scope = MakeGarbageCollected<LayoutWorkletGlobalScope>(
+      frame, std::move(creation_params), reporting_proxy,
+      pending_layout_registry);
   String context_name("LayoutWorklet #");
   context_name.append(String::Number(global_scope_number));
-  global_scope->ScriptController()->InitializeContextIfNeeded(context_name);
+  global_scope->ScriptController()->InitializeContextIfNeeded(context_name,
+                                                              NullURL());
   MainThreadDebugger::Instance()->ContextCreated(
       global_scope->ScriptController()->GetScriptState(),
-      global_scope->GetFrame(), global_scope->GetSecurityOrigin());
+      global_scope->GetFrame(), global_scope->DocumentSecurityOrigin());
   return global_scope;
 }
 
@@ -43,9 +44,7 @@ LayoutWorkletGlobalScope::LayoutWorkletGlobalScope(
     std::unique_ptr<GlobalScopeCreationParams> creation_params,
     WorkerReportingProxy& reporting_proxy,
     PendingLayoutRegistry* pending_layout_registry)
-    : MainThreadWorkletGlobalScope(frame,
-                                   std::move(creation_params),
-                                   reporting_proxy),
+    : WorkletGlobalScope(std::move(creation_params), reporting_proxy, frame),
       pending_layout_registry_(pending_layout_registry) {}
 
 LayoutWorkletGlobalScope::~LayoutWorkletGlobalScope() = default;
@@ -54,7 +53,7 @@ void LayoutWorkletGlobalScope::Dispose() {
   MainThreadDebugger::Instance()->ContextWillBeDestroyed(
       ScriptController()->GetScriptState());
 
-  MainThreadWorkletGlobalScope::Dispose();
+  WorkletGlobalScope::Dispose();
 }
 
 // https://drafts.css-houdini.org/css-layout-api/#dom-layoutworkletglobalscope-registerlayout
@@ -114,7 +113,7 @@ void LayoutWorkletGlobalScope::registerLayout(
                                               &layout, &exception_state))
     return;
 
-  CSSLayoutDefinition* definition = new CSSLayoutDefinition(
+  CSSLayoutDefinition* definition = MakeGarbageCollected<CSSLayoutDefinition>(
       ScriptController()->GetScriptState(), constructor, intrinsic_sizes,
       layout, native_invalidation_properties, custom_invalidation_properties,
       child_native_invalidation_properties,
@@ -147,7 +146,7 @@ void LayoutWorkletGlobalScope::registerLayout(
       pending_layout_registry_->NotifyLayoutReady(name);
   } else {
     DocumentLayoutDefinition* document_definition =
-        new DocumentLayoutDefinition(definition);
+        MakeGarbageCollected<DocumentLayoutDefinition>(definition);
     document_definition_map->Set(name, document_definition);
   }
 }
@@ -160,7 +159,7 @@ CSSLayoutDefinition* LayoutWorkletGlobalScope::FindDefinition(
 void LayoutWorkletGlobalScope::Trace(blink::Visitor* visitor) {
   visitor->Trace(layout_definitions_);
   visitor->Trace(pending_layout_registry_);
-  MainThreadWorkletGlobalScope::Trace(visitor);
+  WorkletGlobalScope::Trace(visitor);
 }
 
 }  // namespace blink

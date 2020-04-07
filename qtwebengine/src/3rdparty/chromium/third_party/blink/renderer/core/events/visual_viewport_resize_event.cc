@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/core/events/visual_viewport_resize_event.h"
 
+#include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/event_type_names.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
 
 namespace blink {
@@ -11,7 +13,7 @@ namespace blink {
 VisualViewportResizeEvent::~VisualViewportResizeEvent() = default;
 
 VisualViewportResizeEvent::VisualViewportResizeEvent()
-    : Event(EventTypeNames::resize, Bubbles::kNo, Cancelable::kNo) {}
+    : Event(event_type_names::kResize, Bubbles::kNo, Cancelable::kNo) {}
 
 void VisualViewportResizeEvent::DoneDispatchingEventAtCurrentTarget() {
   UseCounter::Count(currentTarget()->GetExecutionContext(),

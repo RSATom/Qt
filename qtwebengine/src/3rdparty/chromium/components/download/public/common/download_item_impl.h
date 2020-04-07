@@ -16,6 +16,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/optional.h"
 #include "base/threading/thread_checker_impl.h"
 #include "base/time/time.h"
 #include "components/download/public/common/download_create_info.h"
@@ -27,6 +28,7 @@
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/download/public/common/resume_mode.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace net {
 class URLRequestContextGetter;
@@ -53,6 +55,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
                 const GURL& site_url,
                 const GURL& tab_url,
                 const GURL& tab_referrer_url,
+                const base::Optional<url::Origin>& request_initiator,
                 const std::string& suggested_filename,
                 const base::FilePath& forced_file_path,
                 ui::PageTransition transition_type,
@@ -78,6 +81,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
 
     // The URL of the referrer of the tab that initiated the download.
     GURL tab_referrer_url;
+
+    // The origin of the requester that originally initiated the download.
+    base::Optional<url::Origin> request_initiator;
 
     // Filename suggestion from DownloadSaveInfo. It could, among others, be the
     // suggested filename in 'download' attribute of an anchor. Details:
@@ -169,6 +175,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
       const GURL& site_url,
       const GURL& tab_url,
       const GURL& tab_referrer_url,
+      const base::Optional<url::Origin>& request_initiator,
       const std::string& mime_type,
       const std::string& original_mime_type,
       base::Time start_time,
@@ -177,10 +184,13 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
       const std::string& last_modified,
       int64_t received_bytes,
       int64_t total_bytes,
+      int32_t auto_resume_count,
       const std::string& hash,
       DownloadItem::DownloadState state,
       DownloadDangerType danger_type,
       DownloadInterruptReason interrupt_reason,
+      bool paused,
+      bool allow_metered,
       bool opened,
       base::Time last_access_time,
       bool transient,
@@ -212,7 +222,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   void StealDangerousDownload(bool need_removal,
                               const AcquireFileCallback& callback) override;
   void Pause() override;
-  void Resume() override;
+  void Resume(bool user_resume) override;
   void Cancel(bool user_cancel) override;
   void Remove() override;
   void OpenDownload() override;
@@ -222,10 +232,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   DownloadState GetState() const override;
   DownloadInterruptReason GetLastReason() const override;
   bool IsPaused() const override;
+  bool AllowMetered() const override;
   bool IsTemporary() const override;
   bool CanResume() const override;
   bool IsDone() const override;
   int64_t GetBytesWasted() const override;
+  int32_t GetAutoResumeCount() const override;
   const GURL& GetURL() const override;
   const std::vector<GURL>& GetUrlChain() const override;
   const GURL& GetOriginalUrl() const override;
@@ -233,6 +245,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   const GURL& GetSiteUrl() const override;
   const GURL& GetTabUrl() const override;
   const GURL& GetTabReferrerUrl() const override;
+  const base::Optional<url::Origin>& GetRequestInitiator() const override;
   std::string GetSuggestedFilename() const override;
   const scoped_refptr<const net::HttpResponseHeaders>& GetResponseHeaders()
       const override;
@@ -248,6 +261,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   const base::FilePath& GetFullPath() const override;
   const base::FilePath& GetTargetFilePath() const override;
   const base::FilePath& GetForcedFilePath() const override;
+  base::FilePath GetTemporaryFilePath() const override;
   base::FilePath GetFileNameToReportUser() const override;
   TargetDisposition GetTargetDisposition() const override;
   const std::string& GetHash() const override;
@@ -275,6 +289,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   base::Time GetLastAccessTime() const override;
   bool IsTransient() const override;
   bool IsParallelDownload() const override;
+  DownloadCreationType GetDownloadCreationType() const override;
   void OnContentCheckCompleted(DownloadDangerType danger_type,
                                DownloadInterruptReason reason) override;
   void SetOpenWhenComplete(bool open) override;
@@ -296,8 +311,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // parameters. It may be different from the DownloadCreateInfo used to create
   // the DownloadItem if Start() is being called in response for a
   // download resumption request.
-  // TODO(qinmin): Remove |url_request_context_getter| once network service is
-  // enabled.
   virtual void Start(std::unique_ptr<DownloadFile> download_file,
                      std::unique_ptr<DownloadRequestHandleInterface> req_handle,
                      const DownloadCreateInfo& new_create_info,
@@ -329,8 +342,6 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // should be considered complete.
   virtual void MarkAsComplete();
 
-  DownloadSource download_source() const { return download_source_; }
-
   // DownloadDestinationObserver
   void DestinationUpdate(
       int64_t bytes_so_far,
@@ -345,6 +356,16 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
       std::unique_ptr<crypto::SecureHash> hash_state) override;
 
   void SetDelegate(DownloadItemImplDelegate* delegate);
+
+  const DownloadUrlParameters::RequestHeadersType& request_headers() const {
+    return request_headers_;
+  }
+
+  bool fetch_error_body() const { return fetch_error_body_; }
+
+  DownloadSource download_source() const { return download_source_; }
+
+  uint64_t ukm_download_id() const { return ukm_download_id_; }
 
  private:
   // Fine grained states of a download.
@@ -507,7 +528,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // Construction common to all constructors. |active| should be true for new
   // downloads and false for downloads from the history.
   // |download_type| indicates to the trace event what kind of download this is.
-  void Init(bool active, DownloadItem::DownloadType download_type);
+  void Init(bool active, DownloadItem::DownloadCreationType download_type);
 
   // Callback from file thread when we initialize the DownloadFile.
   void OnDownloadFileInitialized(DownloadInterruptReason result,
@@ -571,6 +592,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
                                  DownloadInterruptReason reason);
 
   void UpdateProgress(int64_t bytes_so_far, int64_t bytes_per_sec);
+
+  void UpdateResumptionInfo(bool user_resume);
 
   // Set |hash_| and |hash_state_| based on |hash_state|.
   void SetHashState(std::unique_ptr<crypto::SecureHash> hash_state);
@@ -679,7 +702,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   DownloadDangerType danger_type_ = DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS;
 
   // The views of this item in the download shelf and download contents.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   // Our delegate.
   DownloadItemImplDelegate* delegate_ = nullptr;
@@ -697,6 +720,14 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
 
   // True if the item was downloaded temporarily.
   bool is_temporary_ = false;
+
+  // True if the item was explicity paused by the user. This should be checked
+  // in conjunction with the download state to determine whether the download
+  // was truly paused.
+  bool paused_ = false;
+
+  // True if the download can proceed in a metered network.
+  bool allow_metered_ = false;
 
   // Did the user open the item either directly or indirectly (such as by
   // setting always open files of this type)? The shelf also sets this field
@@ -734,7 +765,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   int64_t bytes_per_sec_ = 0;
 
   // The number of times this download has been resumed automatically. Will be
-  // reset to 0 if a resumption is performed in response to a Resume() call.
+  // reset to 0 if a resumption is performed in response to a Resume() call with
+  // user gesture.
   int auto_resume_count_ = 0;
 
   // In the event of an interruption, the DownloadDestinationObserver interface
@@ -770,6 +802,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
 
   // Source of the download, used in metrics.
   DownloadSource download_source_ = DownloadSource::UNKNOWN;
+
+  DownloadCreationType download_type_ =
+      DownloadCreationType::TYPE_ACTIVE_DOWNLOAD;
+
+  // UKM ID for reporting, default to 0 if uninitialized.
+  uint64_t ukm_download_id_ = 0;
 
   THREAD_CHECKER(thread_checker_);
 

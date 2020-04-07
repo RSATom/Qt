@@ -31,6 +31,14 @@
         <translation>In der Datei %1 konnten keine Index-Tabellen erzeugt werden.</translation>
     </message>
     <message>
+        <source>Cannot register index tables in file %1.</source>
+        <translation>Die Index-Tabellen können nicht in der Datei %1 registriert werden.</translation>
+    </message>
+    <message>
+        <source>Cannot unregister index tables in file %1.</source>
+        <translation>Die Index-Tabellen können nicht aus der Datei %1 entfernt werden.</translation>
+    </message>
+    <message>
         <source>The collection file &quot;%1&quot; already exists.</source>
         <translation>Die Katalogdatei &quot;%1&quot; existiert bereits.</translation>
     </message>
@@ -49,6 +57,10 @@
     <message>
         <source>Cannot register virtual folder &apos;%1&apos;.</source>
         <translation>Der virtuelle Ordner &apos;%1&apos; kann nicht registriert werden.</translation>
+    </message>
+    <message>
+        <source>Version %1</source>
+        <translation>Version %1</translation>
     </message>
     <message>
         <source>Cannot create directory: %1</source>

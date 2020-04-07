@@ -50,6 +50,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QLoggingCategory>
 
 #ifndef V4_BOOTSTRAP
 
@@ -133,6 +134,8 @@
 #endif // #ifndef V4_BOOTSTRAP
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcTracingAll, "qt.v4.tracing.all")
 
 using namespace QV4;
 
@@ -652,6 +655,13 @@ ExecutionEngine::ExecutionEngine(QJSEngine *jsEngine)
 
 ExecutionEngine::~ExecutionEngine()
 {
+    if (Q_UNLIKELY(lcTracingAll().isDebugEnabled())) {
+        for (auto cu : compilationUnits) {
+            for (auto f : qAsConst(cu->runtimeFunctions))
+                qCDebug(lcTracingAll).noquote().nospace() << f->traceInfoToString();
+        }
+    }
+
     modules.clear();
     delete m_multiplyWrappedQObjects;
     m_multiplyWrappedQObjects = nullptr;
@@ -1620,6 +1630,22 @@ static QV4::ReturnedValue variantListToJS(QV4::ExecutionEngine *v4, const QVaria
     return a.asReturnedValue();
 }
 
+// Converts a QSequentialIterable to JS.
+// The result is a new Array object with length equal to the length
+// of the QSequentialIterable, and the elements being the QSequentialIterable's
+// elements converted to JS, recursively.
+static QV4::ReturnedValue sequentialIterableToJS(QV4::ExecutionEngine *v4, const QSequentialIterable &lst)
+{
+    QV4::Scope scope(v4);
+    QV4::ScopedArrayObject a(scope, v4->newArrayObject());
+    a->arrayReserve(lst.size());
+    QV4::ScopedValue v(scope);
+    for (int i = 0; i < lst.size(); i++)
+        a->arrayPut(i, (v = variantToJS(v4, lst.at(i))));
+    a->setArrayLengthUnchecked(lst.size());
+    return a.asReturnedValue();
+}
+
 // Converts a QVariantMap to JS.
 // The result is a new Object object with property names being
 // the keys of the QVariantMap, and values being the values of
@@ -1724,9 +1750,18 @@ QV4::ReturnedValue ExecutionEngine::metaTypeToJS(int type, const void *data)
                 return QV4::Encode::null();
             }
             QMetaType mt(type);
-            if (mt.flags() & QMetaType::IsGadget) {
-                Q_ASSERT(mt.metaObject());
-                return QV4::QQmlValueTypeWrapper::create(this, QVariant(type, data), mt.metaObject(), type);
+            if (auto metaObject = mt.metaObject()) {
+                auto flags = mt.flags();
+                if (flags & QMetaType::IsGadget) {
+                    return QV4::QQmlValueTypeWrapper::create(this, QVariant(type, data), metaObject, type);
+                } else if (flags & QMetaType::PointerToQObject) {
+                    return QV4::QObjectWrapper::wrap(this, *reinterpret_cast<QObject* const *>(data));
+                }
+            }
+            if (QMetaType::hasRegisteredConverterFunction(type, qMetaTypeId<QtMetaTypePrivate::QSequentialIterableImpl>())) {
+                auto v = QVariant(type, data);
+                QSequentialIterable lst = v.value<QSequentialIterable>();
+                return sequentialIterableToJS(this, lst);
             }
             // Fall back to wrapping in a QVariant.
             return QV4::Encode(newVariantObject(QVariant(type, data)));
@@ -1743,6 +1778,13 @@ ReturnedValue ExecutionEngine::global()
 
 QQmlRefPointer<CompiledData::CompilationUnit> ExecutionEngine::compileModule(const QUrl &url)
 {
+    QQmlMetaType::CachedUnitLookupError cacheError = QQmlMetaType::CachedUnitLookupError::NoError;
+    if (const QV4::CompiledData::Unit *cachedUnit = QQmlMetaType::findCachedCompilationUnit(url, &cacheError)) {
+        QQmlRefPointer<QV4::CompiledData::CompilationUnit> jsUnit;
+        jsUnit.adopt(new QV4::CompiledData::CompilationUnit(cachedUnit, url.fileName(), url.toString()));
+        return jsUnit;
+    }
+
     QFile f(QQmlFile::urlToLocalFileOrQrc(url));
     if (!f.open(QIODevice::ReadOnly)) {
         throwError(QStringLiteral("Could not open module %1 for reading").arg(url.toString()));

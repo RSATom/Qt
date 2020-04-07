@@ -10,9 +10,22 @@
 
 #include "Resources.h"
 #include "SkCanvas.h"
+#include "SkFontMetrics.h"
 #include "SkStream.h"
+#include "SkTextBlob.h"
 #include "SkTo.h"
 #include "SkTypeface.h"
+
+static sk_sp<SkTextBlob> make_hpos_test_blob_utf8(const char* text, const SkFont& font) {
+    constexpr SkTextEncoding enc = SkTextEncoding::kUTF8;
+    SkTextBlobBuilder builder;
+    size_t len = strlen(text);
+    int glyphCount = font.countText(text, len, enc);
+    const auto& buffer = builder.allocRunPosH(font, glyphCount, 0);
+    (void)font.textToGlyphs(text, len, enc, buffer.glyphs, glyphCount);
+    font.getXPos(buffer.glyphs, glyphCount, buffer.pos);
+    return builder.make();
+}
 
 namespace skiagm {
 
@@ -41,22 +54,24 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
 
-        canvas->drawColor(sk_tool_utils::color_to_565(SK_ColorGRAY));
+        canvas->drawColor(SK_ColorGRAY);
 
         SkPaint paint;
-        paint.setTypeface(fEmojiFont.fTypeface);
+        SkFont font(fEmojiFont.fTypeface);
+        font.setEdging(SkFont::Edging::kAlias);
+
         const char* text = fEmojiFont.fText;
 
         // draw text at different point sizes
         // Testing GPU bitmap path, SDF path with no scaling,
         // SDF path with scaling, path rendering with scaling
-        SkPaint::FontMetrics metrics;
+        SkFontMetrics metrics;
         SkScalar y = 0;
         for (SkScalar textSize : { 70, 180, 270, 340 }) {
-            paint.setTextSize(textSize);
-            paint.getFontMetrics(&metrics);
+            font.setSize(textSize);
+            font.getMetrics(&metrics);
             y += -metrics.fAscent;
-            canvas->drawString(text, 10, y, paint);
+            canvas->drawSimpleText(text, strlen(text), kUTF8_SkTextEncoding, 10, y, font, paint);
             y += metrics.fDescent + metrics.fLeading;
         }
 
@@ -91,34 +106,33 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
 
-        canvas->drawColor(sk_tool_utils::color_to_565(SK_ColorGRAY));
+        canvas->drawColor(SK_ColorGRAY);
 
         SkPaint paint;
-        paint.setTypeface(fEmojiFont.fTypeface);
+        SkFont font;
+        font.setTypeface(fEmojiFont.fTypeface);
         const char* text = fEmojiFont.fText;
 
         // draw text at different point sizes
         // Testing GPU bitmap path, SDF path with no scaling,
         // SDF path with scaling, path rendering with scaling
-        SkPaint::FontMetrics metrics;
+        SkFontMetrics metrics;
         SkScalar y = 0;
         for (SkScalar textSize : { 70, 180, 270, 340 }) {
-            paint.setTextSize(textSize);
-            paint.getFontMetrics(&metrics);
+            font.setSize(textSize);
+            font.getMetrics(&metrics);
             y += -metrics.fAscent;
 
-            int len = SkToInt(strlen(text));
-            SkAutoTArray<SkPoint>  pos(len);
-            SkAutoTArray<SkScalar> widths(len);
-            paint.getTextWidths(text, len, &widths[0]);
+            sk_sp<SkTextBlob> blob = make_hpos_test_blob_utf8(text, font);
+            // Draw with an origin.
+            canvas->drawTextBlob(blob, 10, y, paint);
 
-            SkScalar x = SkIntToScalar(10);
-            for (int i = 0; i < len; ++i) {
-                pos[i].set(x, y);
-                x += widths[i];
-            }
+            // Draw with shifted canvas.
+            canvas->save();
+            canvas->translate(750, 0);
+            canvas->drawTextBlob(blob, 10, y, paint);
+            canvas->restore();
 
-            canvas->drawPosText(text, len, &pos[0], paint);
             y += metrics.fDescent + metrics.fLeading;
         }
 

@@ -12,22 +12,14 @@ CJX_Integer::CJX_Integer(CXFA_Integer* node) : CJX_Content(node) {}
 
 CJX_Integer::~CJX_Integer() = default;
 
-void CJX_Integer::use(CFXJSE_Value* pValue,
-                      bool bSetting,
-                      XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+bool CJX_Integer::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
 void CJX_Integer::defaultValue(CFXJSE_Value* pValue,
                                bool bSetting,
                                XFA_Attribute eAttribute) {
-  Script_Som_DefaultValue(pValue, bSetting, eAttribute);
-}
-
-void CJX_Integer::usehref(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomDefaultValue(pValue, bSetting, eAttribute);
 }
 
 void CJX_Integer::value(CFXJSE_Value* pValue,

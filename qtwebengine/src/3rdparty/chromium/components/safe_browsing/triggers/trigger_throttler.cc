@@ -147,7 +147,7 @@ bool TriggerThrottler::TriggerCanFire(const TriggerType trigger_type) const {
   // the current day or earlier.
   base::Time min_timestamp = clock_->Now() - kOneDayTimeDelta;
   const size_t pos = timestamps.size() - trigger_quota;
-  return timestamps.at(pos) < min_timestamp;
+  return timestamps[pos] < min_timestamp;
 }
 
 void TriggerThrottler::TriggerFired(const TriggerType trigger_type) {
@@ -245,6 +245,7 @@ size_t TriggerThrottler::GetDailyQuotaForTrigger(
   switch (trigger_type) {
     case TriggerType::SECURITY_INTERSTITIAL:
     case TriggerType::GAIA_PASSWORD_REUSE:
+    case TriggerType::APK_DOWNLOAD:
       return kUnlimitedTriggerQuota;
     case TriggerType::AD_SAMPLE:
       // Ad Samples have a non-zero default quota, but it can be overwritten

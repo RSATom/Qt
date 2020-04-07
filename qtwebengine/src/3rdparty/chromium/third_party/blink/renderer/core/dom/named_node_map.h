@@ -41,7 +41,12 @@ class NamedNodeMap final : public ScriptWrappable {
 
  public:
   static NamedNodeMap* Create(Element* element) {
-    return new NamedNodeMap(element);
+    return MakeGarbageCollected<NamedNodeMap>(element);
+  }
+
+  explicit NamedNodeMap(Element* element) : element_(element) {
+    // Only supports NamedNodeMaps with Element associated.
+    DCHECK(element_);
   }
 
   // Public DOM interface.
@@ -58,20 +63,15 @@ class NamedNodeMap final : public ScriptWrappable {
   Attr* setNamedItem(Attr*, ExceptionState&);
   Attr* setNamedItemNS(Attr*, ExceptionState&);
 
-  Attr* item(unsigned index) const;
-  size_t length() const;
+  Attr* item(uint32_t index) const;
+  uint32_t length() const;
 
   void NamedPropertyEnumerator(Vector<String>& names, ExceptionState&) const;
   bool NamedPropertyQuery(const AtomicString&, ExceptionState&) const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
-  explicit NamedNodeMap(Element* element) : element_(element) {
-    // Only supports NamedNodeMaps with Element associated.
-    DCHECK(element_);
-  }
-
   Member<Element> element_;
 };
 

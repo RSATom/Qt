@@ -11,7 +11,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_frame_request_callback.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/dom/pausable_object.h"
+#include "third_party/blink/renderer/core/execution_context/pausable_object.h"
 #include "third_party/blink/renderer/modules/vr/vr_display_capabilities.h"
 #include "third_party/blink/renderer/modules/vr/vr_layer_init.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/xr_frame_transport.h"
@@ -35,8 +35,41 @@ class VRController;
 class VREyeParameters;
 class VRFrameData;
 class VRStageParameters;
+class VRDisplay;
 
 class WebGLRenderingContextBase;
+
+// Wrapper class to allow the VRDisplay to distinguish between immersive and
+// non-immersive XRSession events.
+class SessionClientBinding
+    : public GarbageCollectedFinalized<SessionClientBinding>,
+      public device::mojom::blink::XRSessionClient {
+ public:
+  enum class SessionBindingType {
+    kImmersive = 0,
+    kNonImmersive = 1,
+  };
+
+  SessionClientBinding(VRDisplay* display,
+                       SessionBindingType immersive,
+                       device::mojom::blink::XRSessionClientRequest request);
+  ~SessionClientBinding() override;
+  void Close();
+
+  void Trace(blink::Visitor*);
+
+ private:
+  void OnChanged(device::mojom::blink::VRDisplayInfoPtr) override;
+  void OnExitPresent() override;
+  void OnBlur() override;
+  void OnFocus() override;
+
+  // VRDisplay keeps all references to SessionClientBinding, so as soon as
+  // VRDisplay is destroyed, so is the SessionClientBinding.
+  Member<VRDisplay> display_;
+  bool is_immersive_;
+  mojo::Binding<device::mojom::blink::XRSessionClient> client_binding_;
+};
 
 enum VREye { kVREyeNone, kVREyeLeft, kVREyeRight };
 
@@ -49,6 +82,7 @@ class VRDisplay final : public EventTargetWithInlineData,
   USING_PRE_FINALIZER(VRDisplay, Dispose);
 
  public:
+  VRDisplay(NavigatorVR*, device::mojom::blink::XRDevicePtr);
   ~VRDisplay() override;
 
   // We hand out at most one VRDisplay, so hardcode displayId to 1.
@@ -57,8 +91,10 @@ class VRDisplay final : public EventTargetWithInlineData,
 
   VRDisplayCapabilities* capabilities() const { return capabilities_; }
   VRStageParameters* stageParameters() const { return stage_parameters_; }
+  device::mojom::blink::XRDevice* device() { return device_ptr_.get(); }
 
   bool isPresenting() const { return is_presenting_; }
+  bool canPresent() const { return capabilities_->canPresent(); }
 
   bool getFrameData(VRFrameData*);
 
@@ -74,14 +110,15 @@ class VRDisplay final : public EventTargetWithInlineData,
   void cancelAnimationFrame(int id);
 
   ScriptPromise requestPresent(ScriptState*,
-                               const HeapVector<VRLayerInit>& layers);
+                               const HeapVector<Member<VRLayerInit>>& layers);
   ScriptPromise exitPresent(ScriptState*);
 
-  HeapVector<VRLayerInit> getLayers();
+  HeapVector<Member<VRLayerInit>> getLayers();
 
   void submitFrame();
 
   Document* GetDocument();
+  device::mojom::blink::VRDisplayClientPtr GetDisplayClient();
 
   // EventTarget overrides:
   ExecutionContext* GetExecutionContext() const override;
@@ -94,22 +131,22 @@ class VRDisplay final : public EventTargetWithInlineData,
   bool HasPendingActivity() const final;
 
   // PausableObject:
-  void Pause() override;
-  void Unpause() override;
+  void ContextUnpaused() override;
+
+  void OnChanged(device::mojom::blink::VRDisplayInfoPtr, bool is_immersive);
+  void OnExitPresent(bool is_immersive);
+  void OnBlur(bool is_immersive);
+  void OnFocus(bool is_immersive);
 
   void FocusChanged();
 
-  void OnMagicWindowVSync(TimeTicks timestamp);
-  int PendingMagicWindowVSyncId() { return pending_magic_window_vsync_id_; }
+  void OnNonImmersiveVSync(TimeTicks timestamp);
+  int PendingNonImmersiveVSyncId() { return pending_non_immersive_vsync_id_; }
 
   void Trace(blink::Visitor*) override;
 
  protected:
   friend class VRController;
-
-  VRDisplay(NavigatorVR*,
-            device::mojom::blink::VRDisplayHostPtr,
-            device::mojom::blink::VRDisplayClientRequest);
 
   void Update(const device::mojom::blink::VRDisplayInfoPtr&);
 
@@ -123,8 +160,10 @@ class VRDisplay final : public EventTargetWithInlineData,
   VRController* Controller();
 
  private:
-  void OnRequestSessionReturned(device::mojom::blink::XRSessionPtr session);
-  void OnMagicWindowRequestReturned(device::mojom::blink::XRSessionPtr session);
+  void OnRequestImmersiveSessionReturned(
+      device::mojom::blink::XRSessionPtr session);
+  void OnNonImmersiveSessionRequestReturned(
+      device::mojom::blink::XRSessionPtr session);
 
   void OnConnected();
   void OnDisconnected();
@@ -134,10 +173,6 @@ class VRDisplay final : public EventTargetWithInlineData,
   void OnPresentChange();
 
   // VRDisplayClient
-  void OnChanged(device::mojom::blink::VRDisplayInfoPtr) override;
-  void OnExitPresent() override;
-  void OnBlur() override;
-  void OnFocus() override;
   void OnActivate(device::mojom::blink::VRDisplayEventReason,
                   OnActivateCallback on_handled) override;
   void OnDeactivate(device::mojom::blink::VRDisplayEventReason) override;
@@ -145,7 +180,7 @@ class VRDisplay final : public EventTargetWithInlineData,
   void OnPresentingVSync(device::mojom::blink::XRFrameDataPtr);
   void OnPresentationProviderConnectionError();
 
-  void OnMagicWindowFrameData(device::mojom::blink::XRFrameDataPtr);
+  void OnNonImmersiveFrameData(device::mojom::blink::XRFrameDataPtr);
 
   bool FocusedOrPresenting();
 
@@ -163,7 +198,6 @@ class VRDisplay final : public EventTargetWithInlineData,
       std::unique_ptr<viz::SingleReleaseCallback>* out_release_callback);
 
   Member<NavigatorVR> navigator_vr_;
-  unsigned display_id_ = 0;
   String display_name_;
   bool is_connected_ = false;
   bool is_presenting_ = false;
@@ -183,7 +217,7 @@ class VRDisplay final : public EventTargetWithInlineData,
   // VR compositor so that it knows which poses to use, when to apply bounds
   // updates, etc.
   int16_t vr_frame_id_ = -1;
-  VRLayerInit layer_;
+  Member<VRLayerInit> layer_;
   double depth_near_ = 0.01;
   double depth_far_ = 10000.0;
 
@@ -202,11 +236,11 @@ class VRDisplay final : public EventTargetWithInlineData,
       scripted_animation_controller_;
   bool pending_vrdisplay_raf_ = false;
   bool pending_presenting_vsync_ = false;
-  bool pending_magic_window_vsync_ = false;
-  int pending_magic_window_vsync_id_ = -1;
-  base::OnceClosure magic_window_vsync_waiting_for_pose_;
-  WTF::TimeTicks magic_window_pose_request_time_;
-  WTF::TimeTicks magic_window_pose_received_time_;
+  bool pending_non_immersive_vsync_ = false;
+  int pending_non_immersive_vsync_id_ = -1;
+  base::OnceClosure non_immersive_vsync_waiting_for_pose_;
+  WTF::TimeTicks non_immersive_pose_request_time_;
+  WTF::TimeTicks non_immersive_pose_received_time_;
   bool in_animation_frame_ = false;
   bool did_submit_this_frame_ = false;
   bool display_blurred_ = false;
@@ -217,35 +251,45 @@ class VRDisplay final : public EventTargetWithInlineData,
   bool did_log_getFrameData_ = false;
   bool did_log_requestPresent_ = false;
 
-  device::mojom::blink::VRMagicWindowProviderPtr magic_window_provider_;
+  device::mojom::blink::XRFrameDataProviderPtr non_immersive_provider_;
 
-  device::mojom::blink::VRDisplayHostPtr display_;
+  device::mojom::blink::XRDevicePtr device_ptr_;
 
   bool present_image_needs_copy_ = false;
 
+  Member<SessionClientBinding> non_immersive_client_binding_;
+  Member<SessionClientBinding> immersive_client_binding_;
   mojo::Binding<device::mojom::blink::VRDisplayClient> display_client_binding_;
-  device::mojom::blink::VRPresentationProviderPtr vr_presentation_provider_;
+  device::mojom::blink::XRFrameDataProviderPtr vr_presentation_data_provider_;
+  device::mojom::blink::XRPresentationProviderPtr vr_presentation_provider_;
 
   HeapDeque<Member<ScriptPromiseResolver>> pending_present_resolvers_;
 };
 
 using VRDisplayVector = HeapVector<Member<VRDisplay>>;
 
+// When adding values, insert them before Max and add them to
+// VRPresentationResult in enums.xml. Do not reuse values.
+// Also, remove kPlaceholderForPreviousHighValue.
+// When values become obsolete, comment them out here and mark them deprecated
+// in enums.xml.
 enum class PresentationResult {
   kRequested = 0,
   kSuccess = 1,
   kSuccessAlreadyPresenting = 2,
   kVRDisplayCannotPresent = 3,
   kPresentationNotSupportedByDisplay = 4,
-  kVRDisplayNotFound = 5,
+  // kVRDisplayNotFound = 5,
   kNotInitiatedByUserGesture = 6,
   kInvalidNumberOfLayers = 7,
   kInvalidLayerSource = 8,
   kLayerSourceMissingWebGLContext = 9,
   kInvalidLayerBounds = 10,
-  kServiceInactive = 11,
-  kRequestDenied = 12,
-  kFullscreenNotEnabled = 13,
+  // kServiceInactive = 11,
+  // kRequestDenied = 12,
+  // kFullscreenNotEnabled = 13,
+  // TODO(ddorwin): Remove this placeholder when adding a new value.
+  kPlaceholderForPreviousHighValue = 13,
   kPresentationResultMax,  // Must be last member of enum.
 };
 

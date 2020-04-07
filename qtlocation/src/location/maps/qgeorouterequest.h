@@ -149,6 +149,10 @@ public:
     void setManeuverDetail(ManeuverDetail maneuverDetail);
     ManeuverDetail maneuverDetail() const;
 
+    // defaults to invalid datetime
+    void setDepartureTime(const QDateTime &departureTime);
+    QDateTime departureTime() const;
+
     void setExtraParameters(const QVariantMap &extraParameters);
     QVariantMap extraParameters() const;
 

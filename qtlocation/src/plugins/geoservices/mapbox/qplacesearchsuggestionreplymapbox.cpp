@@ -111,7 +111,7 @@ void QPlaceSearchSuggestionReplyMapbox::onReplyFinished()
 
 void QPlaceSearchSuggestionReplyMapbox::onNetworkError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(CommunicationError, reply->errorString());

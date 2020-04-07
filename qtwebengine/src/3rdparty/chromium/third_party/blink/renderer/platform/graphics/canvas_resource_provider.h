@@ -5,20 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_RESOURCE_PROVIDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_RESOURCE_PROVIDER_H_
 
-#include "base/macros.h"
-#include "base/memory/scoped_refptr.h"
-#include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "cc/raster/playback_image_provider.h"
-#include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom-blink.h"
-#include "third_party/blink/renderer/platform/geometry/int_size.h"
-#include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource.h"
-#include "third_party/blink/renderer/platform/graphics/web_graphics_context_3d_provider_wrapper.h"
-#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/vector.h"
-#include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
 class GrContext;
@@ -66,12 +55,26 @@ class PLATFORM_EXPORT CanvasResourceProvider
     kSoftwareCompositedResourceUsage,
     kAcceleratedResourceUsage,
     kAcceleratedCompositedResourceUsage,
+    kAcceleratedDirectResourceUsage,
   };
 
   enum PresentationMode {
     kDefaultPresentationMode,            // GPU Texture or shared memory bitmap
     kAllowImageChromiumPresentationMode  // Use CHROMIUM_image gl extension
   };
+
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum ResourceProviderType {
+    kTexture = 0,
+    kBitmap = 1,
+    kSharedBitmap = 2,
+    kTextureGpuMemoryBuffer = 3,
+    kBitmapGpuMemoryBuffer = 4,
+    kMaxValue = kBitmapGpuMemoryBuffer,
+  };
+
+  void static RecordTypeToUMA(ResourceProviderType type);
 
   static std::unique_ptr<CanvasResourceProvider> Create(
       const IntSize&,
@@ -80,11 +83,12 @@ class PLATFORM_EXPORT CanvasResourceProvider
       unsigned msaa_sample_count,
       const CanvasColorParams&,
       PresentationMode,
-      base::WeakPtr<CanvasResourceDispatcher>);
+      base::WeakPtr<CanvasResourceDispatcher>,
+      bool is_origin_top_left = true);
 
-  // Use this method for capturing a frame that is intended to be displayed via
-  // the compositor. Cases that need to acquire a snaptshot that is not destined
-  // to be transfered via TransferableResource should call Snapshot() instead.
+  // Use Snapshot() for capturing a frame that is intended to be displayed via
+  // the compositor. Cases that are destined to be transferred via a
+  // TransferableResource should call ProduceFrame() instead.
   virtual scoped_refptr<CanvasResource> ProduceFrame() = 0;
   scoped_refptr<StaticBitmapImage> Snapshot();
 
@@ -100,10 +104,24 @@ class PLATFORM_EXPORT CanvasResourceProvider
   virtual bool IsValid() const = 0;
   virtual bool IsAccelerated() const = 0;
   virtual bool SupportsDirectCompositing() const = 0;
+  virtual bool SupportsSingleBuffering() const { return false; }
   uint32_t ContentUniqueID() const;
   CanvasResourceDispatcher* ResourceDispatcher() {
     return resource_dispatcher_.get();
   }
+
+  // Indicates that the compositing path is single buffered, meaning that
+  // ProduceFrame() return a reference to the same resource each time, which
+  // implies that Producing an animation frame may overwrite the resource used
+  // by the previous frame. This results in graphics updates skipping the queue,
+  // thus reducing latency, but with the possible side effects of tearing (in
+  // cases where the resource is scanned out directly) and irregular frame rate.
+  bool IsSingleBuffered() { return !resource_recycling_enabled_; }
+
+  // Attempt to enable single buffering mode on this resource provider.  May
+  // fail if the CanvasResourcePRovider subclass does not support this mode of
+  // operation.
+  void TryEnableSingleBuffering();
 
   void RecycleResource(scoped_refptr<CanvasResource>);
   void SetResourceRecyclingEnabled(bool);
@@ -139,10 +157,6 @@ class PLATFORM_EXPORT CanvasResourceProvider
     return weak_ptr_factory_.GetWeakPtr();
   }
 
-  // Called by subclasses when the backing resource has changed and resources
-  // are not managed by skia, signaling that a new surface needs to be created.
-  void InvalidateSurface();
-
   CanvasResourceProvider(const IntSize&,
                          const CanvasColorParams&,
                          base::WeakPtr<WebGraphicsContext3DProviderWrapper>,
@@ -156,46 +170,34 @@ class PLATFORM_EXPORT CanvasResourceProvider
   cc::PaintImage MakeImageSnapshot();
 
  private:
-  class CanvasImageProvider : public cc::ImageProvider {
-   public:
-    CanvasImageProvider(cc::ImageDecodeCache*,
-                        const gfx::ColorSpace& target_color_space);
-    ~CanvasImageProvider() override;
-
-    // cc::ImageProvider implementation.
-    ScopedDecodedDrawImage GetDecodedDrawImage(const cc::DrawImage&) override;
-
-    void ReleaseLockedImages();
-
-   private:
-    void CanUnlockImage(ScopedDecodedDrawImage);
-
-    std::vector<ScopedDecodedDrawImage> locked_images_;
-    cc::PlaybackImageProvider playback_image_provider_;
-
-    base::WeakPtrFactory<CanvasImageProvider> weak_factory_;
-  };
+  class CanvasImageProvider;
 
   virtual sk_sp<SkSurface> CreateSkSurface() const = 0;
   virtual scoped_refptr<CanvasResource> CreateResource();
-  cc::ImageDecodeCache* ImageDecodeCache();
+  bool use_hardware_decode_cache() const {
+    return IsAccelerated() && context_provider_wrapper_;
+  }
+  cc::ImageDecodeCache* ImageDecodeCacheRGBA8();
+  cc::ImageDecodeCache* ImageDecodeCacheF16();
 
   base::WeakPtr<WebGraphicsContext3DProviderWrapper> context_provider_wrapper_;
   base::WeakPtr<CanvasResourceDispatcher> resource_dispatcher_;
   IntSize size_;
   CanvasColorParams color_params_;
-  base::Optional<CanvasImageProvider> canvas_image_provider_;
+  std::unique_ptr<CanvasImageProvider> canvas_image_provider_;
   std::unique_ptr<cc::SkiaPaintCanvas> canvas_;
   mutable sk_sp<SkSurface> surface_;  // mutable for lazy init
   std::unique_ptr<SkCanvas> xform_canvas_;
-  SkFilterQuality filter_quality_;
+  SkFilterQuality filter_quality_ = kLow_SkFilterQuality;
 
   const cc::PaintImage::Id snapshot_paint_image_id_;
   cc::PaintImage::ContentId snapshot_paint_image_content_id_ =
       cc::PaintImage::kInvalidContentId;
   uint32_t snapshot_sk_image_id_ = 0u;
 
-  WTF::Vector<scoped_refptr<CanvasResource>> recycled_resources_;
+  // When and if |resource_recycling_enabled_| is false, |canvas_resources_|
+  // will only hold one CanvasResource at most.
+  WTF::Vector<scoped_refptr<CanvasResource>> canvas_resources_;
   bool resource_recycling_enabled_ = true;
 
   base::WeakPtrFactory<CanvasResourceProvider> weak_ptr_factory_;

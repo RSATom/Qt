@@ -128,10 +128,7 @@ public:
         Format_RGBX64,
         Format_RGBA64,
         Format_RGBA64_Premultiplied,
-#if 0
-        // reserved for future use
         Format_Grayscale16,
-#endif
 #ifndef Q_QDOC
         NImageFormats
 #endif
@@ -198,6 +195,8 @@ public:
 #endif
     Q_REQUIRED_RESULT QImage convertToFormat(Format f, const QVector<QRgb> &colorTable, Qt::ImageConversionFlags flags = Qt::AutoColor) const;
     bool reinterpretAsFormat(Format f);
+
+    void convertTo(Format f, Qt::ImageConversionFlags flags = Qt::AutoColor);
 
     int width() const;
     int height() const;

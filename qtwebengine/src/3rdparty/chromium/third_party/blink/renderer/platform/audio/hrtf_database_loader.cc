@@ -31,8 +31,8 @@
 #include "base/location.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/waitable_event.h"
-#include "third_party/blink/renderer/platform/web_task_runner.h"
 
 namespace blink {
 
@@ -95,7 +95,7 @@ void HRTFDatabaseLoader::LoadAsynchronously() {
 
   // Start the asynchronous database loading process.
   thread_ = Platform::Current()->CreateThread(
-      WebThreadCreationParams(WebThreadType::kHRTFDatabaseLoaderThread));
+      ThreadCreationParams(WebThreadType::kHRTFDatabaseLoaderThread));
   // TODO(alexclarke): Should this be posted as a loading task?
   PostCrossThreadTask(*thread_->GetTaskRunner(), FROM_HERE,
                       CrossThreadBind(&HRTFDatabaseLoader::LoadTask,

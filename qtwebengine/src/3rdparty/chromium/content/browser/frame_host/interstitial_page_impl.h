@@ -99,9 +99,9 @@ class CONTENT_EXPORT InterstitialPageImpl : public InterstitialPage,
 
   // NavigatorDelegate implementation.
   WebContents* OpenURL(const OpenURLParams& params) override;
-  const std::string& GetUserAgentOverride() const override;
+  const std::string& GetUserAgentOverride() override;
   bool ShouldOverrideUserAgentInNewTabs() override;
-  bool ShowingInterstitialPage() const override;
+  bool ShowingInterstitialPage() override;
 
  protected:
   // NotificationObserver method:
@@ -117,7 +117,7 @@ class CONTENT_EXPORT InterstitialPageImpl : public InterstitialPage,
                    const base::string16& title,
                    base::i18n::TextDirection title_direction) override;
   InterstitialPage* GetAsInterstitialPage() override;
-  ui::AXMode GetAccessibilityMode() const override;
+  ui::AXMode GetAccessibilityMode() override;
   void ExecuteEditCommand(const std::string& command,
                           const base::Optional<base::string16>& value) override;
   void Cut() override;
@@ -130,6 +130,7 @@ class CONTENT_EXPORT InterstitialPageImpl : public InterstitialPage,
       int32_t main_frame_route_id,
       int32_t main_frame_widget_route_id,
       const mojom::CreateNewWindowParams& params,
+      bool has_user_gesture,
       SessionStorageNamespace* session_storage_namespace) override;
   void ShowCreatedWindow(int process_id,
                          int main_frame_widget_route_id,
@@ -137,13 +138,17 @@ class CONTENT_EXPORT InterstitialPageImpl : public InterstitialPage,
                          const gfx::Rect& initial_rect,
                          bool user_gesture) override;
   void SetFocusedFrame(FrameTreeNode* node, SiteInstance* source) override;
-  Visibility GetVisibility() const override;
+  Visibility GetVisibility() override;
+  void AudioContextPlaybackStarted(RenderFrameHost* host,
+                                   int context_id) override;
+  void AudioContextPlaybackStopped(RenderFrameHost* host,
+                                   int context_id) override;
 
   // RenderViewHostDelegate implementation:
   RenderViewHostDelegateView* GetDelegateView() override;
   bool OnMessageReceived(RenderViewHostImpl* render_view_host,
                          const IPC::Message& message) override;
-  const GURL& GetMainFrameLastCommittedURL() const override;
+  const GURL& GetMainFrameLastCommittedURL() override;
   void RenderViewTerminated(RenderViewHost* render_view_host,
                             base::TerminationStatus status,
                             int error_code) override;
@@ -151,8 +156,7 @@ class CONTENT_EXPORT InterstitialPageImpl : public InterstitialPage,
       BrowserContext* browser_context) const override;
   void CreateNewWidget(int32_t render_process_id,
                        int32_t route_id,
-                       mojom::WidgetPtr widget,
-                       blink::WebPopupType popup_type) override;
+                       mojom::WidgetPtr widget) override;
   void CreateNewFullscreenWidget(int32_t render_process_id,
                                  int32_t route_id,
                                  mojom::WidgetPtr widget) override;
@@ -170,7 +174,8 @@ class CONTENT_EXPORT InterstitialPageImpl : public InterstitialPage,
   void RenderWidgetDeleted(RenderWidgetHostImpl* render_widget_host) override;
   KeyboardEventProcessingResult PreHandleKeyboardEvent(
       const NativeWebKeyboardEvent& event) override;
-  void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) override;
+  bool PreHandleMouseEvent(const blink::WebMouseEvent& event) override;
+  bool HandleKeyboardEvent(const NativeWebKeyboardEvent& event) override;
   TextInputManager* GetTextInputManager() override;
   RenderWidgetHostInputEventRouter* GetInputEventRouter() override;
   BrowserAccessibilityManager* GetRootBrowserAccessibilityManager() override;

@@ -6,12 +6,12 @@
 
 #include <memory>
 #include "base/trace_event/trace_event.h"
-#include "third_party/blink/renderer/platform/graphics/compositor_mutator_impl.h"
+#include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator_dispatcher_impl.h"
 
 namespace blink {
 
 CompositorMutatorClient::CompositorMutatorClient(
-    std::unique_ptr<CompositorMutatorImpl> mutator)
+    std::unique_ptr<AnimationWorkletMutatorDispatcherImpl> mutator)
     : mutator_(std::move(mutator)) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("cc"),
                "CompositorMutatorClient::CompositorMutatorClient");
@@ -26,7 +26,9 @@ CompositorMutatorClient::~CompositorMutatorClient() {
 void CompositorMutatorClient::Mutate(
     std::unique_ptr<cc::MutatorInputState> input_state) {
   TRACE_EVENT0("cc", "CompositorMutatorClient::Mutate");
-  mutator_->Mutate(std::move(input_state));
+  // TODO(http://crbug.com/791280): Switch to asynchronous once plumbing is
+  // complete.
+  mutator_->MutateSynchronously(std::move(input_state));
 }
 
 void CompositorMutatorClient::SetMutationUpdate(
@@ -40,8 +42,8 @@ void CompositorMutatorClient::SetClient(cc::LayerTreeMutatorClient* client) {
   client_ = client;
 }
 
-bool CompositorMutatorClient::HasAnimators() {
-  return mutator_->HasAnimators();
+bool CompositorMutatorClient::HasMutators() {
+  return mutator_->HasMutators();
 }
 
 }  // namespace blink

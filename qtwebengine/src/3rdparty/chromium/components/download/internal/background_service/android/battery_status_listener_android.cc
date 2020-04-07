@@ -5,17 +5,20 @@
 #include "components/download/internal/background_service/android/battery_status_listener_android.h"
 
 #include "base/android/jni_android.h"
+#include "base/trace_event/trace_event.h"
 #include "jni/BatteryStatusListenerAndroid_jni.h"
 
 namespace download {
 
 BatteryStatusListenerAndroid::BatteryStatusListenerAndroid(
     const base::TimeDelta& battery_query_interval)
-    : BatteryStatusListener(battery_query_interval) {}
+    : BatteryStatusListenerImpl(battery_query_interval) {}
 
 BatteryStatusListenerAndroid::~BatteryStatusListenerAndroid() = default;
 
 int BatteryStatusListenerAndroid::GetBatteryPercentageInternal() {
+  TRACE_EVENT0("download_service",
+               "BatteryStatusListenerAndroid.GetBatteryPercentageInternal");
   return Java_BatteryStatusListenerAndroid_getBatteryPercentage(
       base::android::AttachCurrentThread());
 }

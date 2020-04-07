@@ -12,7 +12,6 @@
 
 #include "base/macros.h"
 #include "base/strings/string16.h"
-#include "components/autofill/content/renderer/password_form_conversion_utils.h"
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
 #include "third_party/blink/public/platform/web_vector.h"
@@ -22,6 +21,8 @@
 class GURL;
 
 namespace blink {
+enum class WebAutofillState;
+
 class WebDocument;
 class WebElement;
 class WebFormControlElement;
@@ -35,6 +36,8 @@ namespace autofill {
 
 struct FormData;
 struct FormFieldData;
+
+class FieldDataManager;
 
 namespace form_util {
 
@@ -121,7 +124,7 @@ bool IsWebElementVisible(const blink::WebElement& element);
 
 // Returns the form's |name| attribute if non-empty; otherwise the form's |id|
 // attribute.
-const base::string16 GetFormIdentifier(const blink::WebFormElement& form);
+base::string16 GetFormIdentifier(const blink::WebFormElement& form);
 
 // Returns text alignment for |element|.
 base::i18n::TextDirection GetTextDirectionForElement(
@@ -137,11 +140,11 @@ std::vector<blink::WebFormControlElement> ExtractAutofillableElementsInForm(
 
 // Fills out a FormField object from a given WebFormControlElement.
 // |extract_mask|: See the enum ExtractMask above for details. Field properties
-// will be copied from |field_value_and_properties_map|, if the argument is not
-// null and has entry for |element| (see properties in FieldPropertiesFlags).
+// will be copied from |field_data_manager|, if the argument is not null and
+// has entry for |element| (see properties in FieldPropertiesFlags).
 void WebFormControlElementToFormField(
     const blink::WebFormControlElement& element,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormFieldData* field);
 
@@ -150,12 +153,12 @@ void WebFormControlElementToFormField(
 // corresponding to the |form_control_element|. |extract_mask| controls what
 // data is extracted. Returns true if |form| is filled out.  Also returns false
 // if there are no fields or too many fields in the |form|. Field properties
-// will be copied from |field_value_and_properties_map|, if the argument is not
-// null and has entry for |element| (see properties in FieldPropertiesFlags).
+// will be copied from |field_data_manager|, if the argument is not null and
+// has entry for |element| (see properties in FieldPropertiesFlags).
 bool WebFormElementToFormData(
     const blink::WebFormElement& form_element,
     const blink::WebFormControlElement& form_control_element,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field);
@@ -192,14 +195,14 @@ bool UnownedCheckoutFormElementsAndFieldSetsToFormData(
 
 // Same as above, but without the requirement that the elements only be
 // related to checkout. Field properties of |control_elements| will be copied
-// from |field_value_and_properties_map|, if the argument is not null and has
-// corresponding entries (see properties in FieldPropertiesFlags).
+// from |field_data_manager|, if the argument is not null and has corresponding
+// entries (see properties in FieldPropertiesFlags).
 bool UnownedPasswordFormElementsAndFieldSetsToFormData(
     const std::vector<blink::WebElement>& fieldsets,
     const std::vector<blink::WebFormControlElement>& control_elements,
     const blink::WebFormControlElement* element,
     const blink::WebDocument& document,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field);
@@ -275,11 +278,19 @@ bool InferLabelForElementForTesting(const blink::WebFormControlElement& element,
                                     const std::vector<base::char16>& stop_words,
                                     base::string16* label,
                                     FormFieldData::LabelSource* label_source);
+ButtonTitleList InferButtonTitlesForTesting(
+    const blink::WebElement& form_element);
 
 // Returns form by unique renderer id. Return null element if there is no form
 // with given form renderer id.
 blink::WebFormElement FindFormByUniqueRendererId(blink::WebDocument doc,
                                                  uint32_t form_renderer_id);
+
+// Returns form control element by unique renderer id. Return null element if
+// there is no element with given renderer id.
+blink::WebFormControlElement FindFormControlElementsByUniqueRendererId(
+    blink::WebDocument doc,
+    uint32_t form_control_renderer_id);
 
 // Note: The vector-based API of the following two functions is a tax for limiting
 // the frequency and duration of retrieving a lot of DOM elements. Alternative
@@ -310,6 +321,17 @@ FindFormControlElementsByUniqueRendererId(
     blink::WebDocument doc,
     uint32_t form_renderer_id,
     const std::vector<uint32_t>& form_control_renderer_ids);
+
+// Returns the ARIA label text of the elements denoted by the aria-labelledby
+// attribute of |element| or the value of the aria-label attribute of
+// |element|, with priority given to the aria-labelledby attribute.
+base::string16 GetAriaLabel(const blink::WebDocument& document,
+                            const blink::WebFormControlElement& element);
+
+// Returns the ARIA label text of the elements denoted by the aria-describedby
+// attribute of |element|.
+base::string16 GetAriaDescription(const blink::WebDocument& document,
+                                  const blink::WebFormControlElement& element);
 
 }  // namespace form_util
 }  // namespace autofill

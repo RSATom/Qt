@@ -56,8 +56,8 @@ bool AccessibilityTreeContainsLoadedDocWithUrl(BrowserAccessibility* node,
       node->GetStringAttribute(ax::mojom::StringAttribute::kUrl) == url) {
     // Ensure the doc has finished loading and has a non-zero size.
     return node->manager()->GetTreeData().loaded &&
-           (node->GetData().location.width() > 0 &&
-            node->GetData().location.height() > 0);
+           (node->GetData().relative_bounds.bounds.width() > 0 &&
+            node->GetData().relative_bounds.bounds.height() > 0);
   }
   if (node->GetRole() == ax::mojom::Role::kWebArea &&
       node->GetStringAttribute(ax::mojom::StringAttribute::kUrl) == url) {
@@ -141,8 +141,8 @@ std::vector<int> DumpAccessibilityTestBase::DiffLines(
 
 void DumpAccessibilityTestBase::ParseHtmlForExtraDirectives(
     const std::string& test_html,
-    std::vector<Filter>* filters,
-    std::vector<std::string>* wait_for) {
+    std::vector<std::string>* wait_for,
+    std::vector<std::string>* run_until) {
   for (const std::string& line :
        base::SplitString(test_html, "\n", base::TRIM_WHITESPACE,
                          base::SPLIT_WANT_ALL)) {
@@ -150,32 +150,36 @@ void DumpAccessibilityTestBase::ParseHtmlForExtraDirectives(
     const std::string& allow_str = formatter_->GetAllowString();
     const std::string& deny_str = formatter_->GetDenyString();
     const std::string& wait_str = "@WAIT-FOR:";
+    const std::string& until_str = "@RUN-UNTIL-EVENT:";
     if (base::StartsWith(line, allow_empty_str,
                          base::CompareCase::SENSITIVE)) {
-      filters->push_back(
+      filters_.push_back(
           Filter(base::UTF8ToUTF16(line.substr(allow_empty_str.size())),
                  Filter::ALLOW_EMPTY));
     } else if (base::StartsWith(line, allow_str,
                                 base::CompareCase::SENSITIVE)) {
-      filters->push_back(Filter(base::UTF8ToUTF16(
+      filters_.push_back(Filter(base::UTF8ToUTF16(
           line.substr(allow_str.size())),
                                 Filter::ALLOW));
     } else if (base::StartsWith(line, deny_str,
                                 base::CompareCase::SENSITIVE)) {
-      filters->push_back(Filter(base::UTF8ToUTF16(
+      filters_.push_back(Filter(base::UTF8ToUTF16(
           line.substr(deny_str.size())),
                                 Filter::DENY));
     } else if (base::StartsWith(line, wait_str,
                                 base::CompareCase::SENSITIVE)) {
       wait_for->push_back(line.substr(wait_str.size()));
+    } else if (base::StartsWith(line, until_str,
+                                base::CompareCase::SENSITIVE)) {
+      run_until->push_back(line.substr(until_str.size()));
     }
   }
 }
 
-AccessibilityTreeFormatter*
-    DumpAccessibilityTestBase::CreateAccessibilityTreeFormatter() {
+std::unique_ptr<AccessibilityTreeFormatter>
+DumpAccessibilityTestBase::CreateAccessibilityTreeFormatter() {
   if (is_blink_pass_)
-    return new AccessibilityTreeFormatterBlink();
+    return std::make_unique<AccessibilityTreeFormatterBlink>();
   else
     return AccessibilityTreeFormatter::Create();
 }
@@ -194,7 +198,7 @@ void DumpAccessibilityTestBase::RunTest(
 
 void DumpAccessibilityTestBase::RunTestForPlatform(
     const base::FilePath file_path, const char* file_dir) {
-  formatter_.reset(CreateAccessibilityTreeFormatter());
+  formatter_ = CreateAccessibilityTreeFormatter();
 
   // Disable the "hot tracked" state (set when the mouse is hovering over
   // an object) because it makes test output change based on the mouse position.
@@ -213,7 +217,7 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
   base::FilePath expected_file;
   std::string expected_contents_raw;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_test_setup;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     base::ReadFileToString(file_path, &html_contents);
 
     // Read the expected file.
@@ -254,9 +258,10 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
 
   // Parse filters and other directives in the test file.
   std::vector<std::string> wait_for;
+  std::vector<std::string> run_until;
   filters_.clear();
   AddDefaultFilters(&filters_);
-  ParseHtmlForExtraDirectives(html_contents, &filters_, &wait_for);
+  ParseHtmlForExtraDirectives(html_contents, &wait_for, &run_until);
 
   // Get the test URL.
   GURL url(embedded_test_server()->GetURL(
@@ -354,7 +359,7 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
   }
 
   // Call the subclass to dump the output.
-  std::vector<std::string> actual_lines = Dump();
+  std::vector<std::string> actual_lines = Dump(run_until);
   std::string actual_contents_for_output =
       base::JoinString(actual_lines, "\n") + "\n";
 

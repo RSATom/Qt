@@ -65,6 +65,7 @@ class WebGLFramebuffer final : public WebGLContextObject {
     WebGLAttachment();
   };
 
+  explicit WebGLFramebuffer(WebGLRenderingContextBase*, bool opaque);
   ~WebGLFramebuffer() override;
 
   static WebGLFramebuffer* Create(WebGLRenderingContextBase*);
@@ -76,12 +77,15 @@ class WebGLFramebuffer final : public WebGLContextObject {
 
   GLuint Object() const { return object_; }
 
+  // For a non-multiview attachment, set the num_views parameter to 0. For a
+  // multiview attachment, set the layer to the base view index.
   void SetAttachmentForBoundFramebuffer(GLenum target,
                                         GLenum attachment,
                                         GLenum tex_target,
                                         WebGLTexture*,
                                         GLint level,
-                                        GLint layer);
+                                        GLint layer,
+                                        GLsizei num_views);
   void SetAttachmentForBoundFramebuffer(GLenum target,
                                         GLenum attachment,
                                         WebGLRenderbuffer*);
@@ -120,8 +124,6 @@ class WebGLFramebuffer final : public WebGLContextObject {
   const char* NameInHeapSnapshot() const override { return "WebGLFramebuffer"; }
 
  protected:
-  explicit WebGLFramebuffer(WebGLRenderingContextBase*, bool opaque);
-
   bool HasObject() const override { return object_ != 0; }
   void DeleteObjectImpl(gpu::gles2::GLES2Interface*) override;
 

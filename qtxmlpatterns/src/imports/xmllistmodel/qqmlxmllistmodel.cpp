@@ -91,12 +91,11 @@ typedef QPair<int, int> QQuickXmlListRange;
 
 /*!
     \qmltype XmlRole
-    \instantiates QQuickXmlListModelRole
     \inqmlmodule QtQuick.XmlListModel
     \brief For specifying a role to an XmlListModel.
     \ingroup qtquick-models
 
-    \sa {Qt QML}
+    \sa {All QML Types}{Qt QML}
 */
 
 /*!
@@ -133,7 +132,7 @@ typedef QPair<int, int> QQuickXmlListRange;
 
     For example, if there is an XML document like this:
 
-    \quotefile qml/xmlrole.xml
+    \quotefile qml/xmlrole.qml
     Here are some valid XPath expressions for XmlRole queries on this document:
 
     \snippet qml/xmlrole.qml 0
@@ -627,7 +626,6 @@ void QQuickXmlListModelPrivate::clear_role(QQmlListProperty<QQuickXmlListModelRo
 
 /*!
     \qmltype XmlListModel
-    \instantiates QQuickXmlListModel
     \inqmlmodule QtQuick.XmlListModel
     \brief For specifying a read-only model using XPath expressions.
     \ingroup qtquick-models
@@ -640,7 +638,7 @@ void QQuickXmlListModelPrivate::clear_role(QQmlListProperty<QQuickXmlListModelRo
 
     XmlListModel is used to create a read-only model from XML data. It can be used as a data source
     for view elements (such as ListView, PathView, GridView) and other elements that interact with model
-    data (such as \l Repeater).
+    data (such as \l [QML]{Repeater}).
 
     For example, if there is a XML document at http://www.mysite.com/feed.xml like this:
 

@@ -10,16 +10,19 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "content/browser/background_fetch/background_fetch_registration_id.h"
 #include "content/browser/background_fetch/storage/database_task.h"
 #include "content/browser/service_worker/service_worker_info.h"
 #include "content/common/background_fetch/background_fetch_types.h"
 #include "content/common/content_export.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
-#include "third_party/blink/public/platform/modules/background_fetch/background_fetch.mojom.h"
+#include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace content {
+
+class BackgroundFetchRequestInfo;
 
 namespace background_fetch {
 
@@ -31,12 +34,14 @@ struct CONTENT_EXPORT BackgroundFetchInitializationData {
   ~BackgroundFetchInitializationData();
 
   BackgroundFetchRegistrationId registration_id;
-  BackgroundFetchOptions options;
+  blink::mojom::BackgroundFetchOptionsPtr options =
+      blink::mojom::BackgroundFetchOptions::New();
   SkBitmap icon;
-  BackgroundFetchRegistration registration;
+  blink::mojom::BackgroundFetchRegistrationPtr registration =
+      blink::mojom::BackgroundFetchRegistration::New();
   size_t num_requests;
   size_t num_completed_requests;
-  std::vector<std::string> active_fetch_guids;
+  std::vector<scoped_refptr<BackgroundFetchRequestInfo>> active_fetch_requests;
   std::string ui_title;
 
   // The error, if any, when getting the registration data.
@@ -81,6 +86,8 @@ class GetInitializationDataTask : public DatabaseTask {
       blink::ServiceWorkerStatusCode status);
 
   void FinishWithError(blink::mojom::BackgroundFetchError error) override;
+
+  std::string HistogramName() const override;
 
   GetInitializationDataCallback callback_;
 

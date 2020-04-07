@@ -26,19 +26,17 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_EVENTS_EVENT_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/dom_high_res_time_stamp.h"
-#include "third_party/blink/renderer/core/dom/dom_time_stamp.h"
-#include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
-#include "third_party/blink/renderer/core/dom/events/event_init.h"
-#include "third_party/blink/renderer/core/dom/events/event_path.h"
+#include "third_party/blink/renderer/core/dom/events/event_dispatch_result.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
 class DOMWrapperWorld;
+class EventDispatcher;
+class EventInit;
+class EventPath;
 class EventTarget;
 class ScriptState;
 class ScriptValue;
@@ -89,25 +87,44 @@ class CORE_EXPORT Event : public ScriptWrappable {
     kPassiveDefault,
   };
 
-  static Event* Create() { return new Event; }
+  static Event* Create() { return MakeGarbageCollected<Event>(); }
 
   static Event* Create(const AtomicString& type) {
-    return new Event(type, Bubbles::kNo, Cancelable::kNo);
+    return MakeGarbageCollected<Event>(type, Bubbles::kNo, Cancelable::kNo);
   }
   static Event* CreateCancelable(const AtomicString& type) {
-    return new Event(type, Bubbles::kNo, Cancelable::kYes);
+    return MakeGarbageCollected<Event>(type, Bubbles::kNo, Cancelable::kYes);
   }
   static Event* CreateBubble(const AtomicString& type) {
-    return new Event(type, Bubbles::kYes, Cancelable::kNo);
+    return MakeGarbageCollected<Event>(type, Bubbles::kYes, Cancelable::kNo);
   }
   static Event* CreateCancelableBubble(const AtomicString& type) {
-    return new Event(type, Bubbles::kYes, Cancelable::kYes);
+    return MakeGarbageCollected<Event>(type, Bubbles::kYes, Cancelable::kYes);
   }
 
-  static Event* Create(const AtomicString& type, const EventInit& initializer) {
-    return new Event(type, initializer);
+  static Event* Create(const AtomicString& type, const EventInit* initializer) {
+    return MakeGarbageCollected<Event>(type, initializer);
   }
 
+  Event();
+  Event(const AtomicString& type,
+        Bubbles,
+        Cancelable,
+        ComposedMode,
+        TimeTicks platform_time_stamp);
+  Event(const AtomicString& type,
+        Bubbles,
+        Cancelable,
+        TimeTicks platform_time_stamp);
+  Event(const AtomicString& type,
+        Bubbles,
+        Cancelable,
+        ComposedMode = ComposedMode::kScoped);
+  Event(const AtomicString& type,
+        const EventInit*,
+        TimeTicks platform_time_stamp);
+  Event(const AtomicString& type, const EventInit* init)
+      : Event(type, init, CurrentTimeTicks()) {}
   ~Event() override;
 
   void initEvent(const AtomicString& type, bool bubbles, bool cancelable);
@@ -138,13 +155,34 @@ class CORE_EXPORT Event : public ScriptWrappable {
   unsigned short eventPhase() const { return event_phase_; }
   void SetEventPhase(unsigned short event_phase) { event_phase_ = event_phase; }
 
+  void SetFireOnlyCaptureListenersAtTarget(
+      bool fire_only_capture_listeners_at_target) {
+    DCHECK_EQ(event_phase_, kAtTarget);
+    fire_only_capture_listeners_at_target_ =
+        fire_only_capture_listeners_at_target;
+  }
+
+  void SetFireOnlyNonCaptureListenersAtTarget(
+      bool fire_only_non_capture_listeners_at_target) {
+    DCHECK_EQ(event_phase_, kAtTarget);
+    fire_only_non_capture_listeners_at_target_ =
+        fire_only_non_capture_listeners_at_target;
+  }
+
+  bool FireOnlyCaptureListenersAtTarget() const {
+    return fire_only_capture_listeners_at_target_;
+  }
+  bool FireOnlyNonCaptureListenersAtTarget() const {
+    return fire_only_non_capture_listeners_at_target_;
+  }
+
   bool bubbles() const { return bubbles_; }
   bool cancelable() const { return cancelable_; }
   bool composed() const { return composed_; }
   bool IsScopedInV0() const;
 
   // Event creation timestamp in milliseconds. It returns a DOMHighResTimeStamp
-  // using the platform timestamp (see |m_platformTimeStamp|).
+  // using the platform timestamp (see |platform_time_stamp_|).
   // For more info see http://crbug.com/160524
   double timeStamp(ScriptState*) const;
   TimeTicks PlatformTimeStamp() const { return platform_time_stamp_; }
@@ -189,6 +227,9 @@ class CORE_EXPORT Event : public ScriptWrappable {
   virtual bool IsBeforeTextInsertedEvent() const;
 
   virtual bool IsBeforeUnloadEvent() const;
+  virtual bool IsErrorEvent() const;
+
+  virtual bool IsActivateInvisibleEvent() const;
 
   bool PropagationStopped() const {
     return propagation_stopped_ || immediate_propagation_stopped_;
@@ -259,31 +300,26 @@ class CORE_EXPORT Event : public ScriptWrappable {
     executed_listener_or_default_action_ = true;
   }
 
+  bool LegacyDidListenersThrow() const {
+    return legacy_did_listeners_throw_flag_;
+  }
+
+  void LegacySetDidListenersThrowFlag() {
+    legacy_did_listeners_throw_flag_ = true;
+  }
+
+  // In general, event listeners do not run when related execution contexts are
+  // paused.  However, when this function returns true, event listeners ignore
+  // the pause and run.
+  virtual bool ShouldDispatchEvenWhenExecutionContextIsPaused() const {
+    return false;
+  }
+
   virtual DispatchEventResult DispatchEvent(EventDispatcher&);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
-  Event();
-  Event(const AtomicString& type,
-        Bubbles,
-        Cancelable,
-        ComposedMode,
-        TimeTicks platform_time_stamp);
-  Event(const AtomicString& type,
-        Bubbles,
-        Cancelable,
-        TimeTicks platform_time_stamp);
-  Event(const AtomicString& type,
-        Bubbles,
-        Cancelable,
-        ComposedMode = ComposedMode::kScoped);
-  Event(const AtomicString& type,
-        const EventInit&,
-        TimeTicks platform_time_stamp);
-  Event(const AtomicString& type, const EventInit& init)
-      : Event(type, init, CurrentTimeTicks()) {}
-
   virtual void ReceivedTarget();
 
   void SetBubbles(bool bubble) { bubbles_ = bubble; }
@@ -312,11 +348,22 @@ class CORE_EXPORT Event : public ScriptWrappable {
   // does Event Timing report it.
   unsigned executed_listener_or_default_action_ : 1;
 
-  // Whether preventDefault was called when |m_handlingPassive| is
-  // true. This field is reset on each call to setHandlingPassive.
+  // Whether preventDefault was called when |handling_passive_| is
+  // true. This field is reset on each call to SetHandlingPassive.
   unsigned prevent_default_called_during_passive_ : 1;
   // Whether preventDefault was called on uncancelable event.
   unsigned prevent_default_called_on_uncancelable_event_ : 1;
+
+  // Whether any of listeners have thrown an exception or not.
+  // Corresponds to |legacyOutputDidListenersThrowFlag| in DOM standard.
+  // https://dom.spec.whatwg.org/#dispatching-events
+  // https://dom.spec.whatwg.org/#concept-event-listener-inner-invoke
+  unsigned legacy_did_listeners_throw_flag_ : 1;
+
+  // This fields are effective only when
+  // CallCaptureListenersAtCapturePhaseAtShadowHosts runtime flag is enabled.
+  unsigned fire_only_capture_listeners_at_target_ : 1;
+  unsigned fire_only_non_capture_listeners_at_target_ : 1;
 
   PassiveMode handling_passive_;
   unsigned short event_phase_;

@@ -90,6 +90,9 @@ public:
     void setRouteLegs(const QList<QGeoRouteLeg> &legs);
     QList<QGeoRouteLeg> routeLegs() const;
 
+    void setExtendedAttributes(const QVariantMap &extendedAttributes);
+    QVariantMap extendedAttributes() const;
+
 protected:
     QGeoRoute(const QExplicitlySharedDataPointer<QGeoRoutePrivate> &dd);
     QExplicitlySharedDataPointer<QGeoRoutePrivate> &d();

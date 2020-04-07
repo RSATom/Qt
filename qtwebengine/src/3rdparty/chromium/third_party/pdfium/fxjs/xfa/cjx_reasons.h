@@ -8,17 +8,14 @@
 #define FXJS_XFA_CJX_REASONS_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Reasons;
 
-class CJX_Reasons : public CJX_Node {
+class CJX_Reasons final : public CJX_Node {
  public:
   explicit CJX_Reasons(CXFA_Reasons* node);
   ~CJX_Reasons() override;
-
-  JS_PROP(type);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_REASONS_H_

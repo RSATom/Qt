@@ -48,12 +48,13 @@
 #include "file_picker_controller.h"
 #include "javascript_dialog_controller.h"
 #if QT_CONFIG(webengine_printing_and_pdf)
-#include "printing/pdfium_document_wrapper_qt.h"
+#include "printer_worker.h"
 #endif
 #include "qwebenginecertificateerror.h"
 #include "qwebenginefullscreenrequest.h"
 #include "qwebenginehistory.h"
 #include "qwebenginehistory_p.h"
+#include "qwebenginenotification.h"
 #include "qwebengineprofile.h"
 #include "qwebengineprofile_p.h"
 #include "qwebenginequotarequest.h"
@@ -62,6 +63,7 @@
 #include "qwebenginesettings.h"
 #include "qwebengineview.h"
 #include "qwebengineview_p.h"
+#include "user_notification_controller.h"
 #include "render_widget_host_view_qt_delegate_widget.h"
 #include "web_contents_adapter.h"
 #include "web_engine_settings.h"
@@ -94,6 +96,7 @@
 #include <QMimeData>
 #if QT_CONFIG(webengine_printing_and_pdf)
 #include <QPrinter>
+#include <QThread>
 #endif
 #include <QStandardPaths>
 #include <QStyle>
@@ -105,89 +108,6 @@ QT_BEGIN_NAMESPACE
 using namespace QtWebEngineCore;
 
 static const int MaxTooltipLength = 1024;
-
-#if QT_CONFIG(webengine_printing_and_pdf)
-static bool printPdfDataOnPrinter(const QByteArray& data, QPrinter& printer)
-{
-    if (!data.size()) {
-        qWarning("Failure to print on printer %ls: Print result data is empty.",
-                 qUtf16Printable(printer.printerName()));
-        return false;
-    }
-
-    QSize pageSize = printer.pageRect().size();
-    PdfiumDocumentWrapperQt pdfiumWrapper(data.constData(), data.size(), pageSize);
-
-    int toPage = printer.toPage();
-    int fromPage = printer.fromPage();
-    bool ascendingOrder = true;
-
-    if (fromPage == 0 && toPage == 0) {
-        fromPage = 1;
-        toPage = pdfiumWrapper.pageCount();
-    }
-    fromPage = qMax(1, fromPage);
-    toPage = qMin(pdfiumWrapper.pageCount(), toPage);
-
-    if (printer.pageOrder() == QPrinter::LastPageFirst) {
-        qSwap(fromPage, toPage);
-        ascendingOrder = false;
-    }
-
-    int pageCopies = 1;
-    int documentCopies = 1;
-
-    if (!printer.supportsMultipleCopies())
-        documentCopies = printer.copyCount();
-
-    if (printer.collateCopies()) {
-        pageCopies = documentCopies;
-        documentCopies = 1;
-    }
-
-    QPainter painter;
-    if (!painter.begin(&printer)) {
-        qWarning("Failure to print on printer %ls: Could not open printer for painting.",
-                  qUtf16Printable(printer.printerName()));
-        return false;
-    }
-
-    for (int printedDocuments = 0; printedDocuments < documentCopies; printedDocuments++) {
-        int currentPageIndex = fromPage;
-        while (true) {
-            for (int printedPages = 0; printedPages < pageCopies; printedPages++) {
-                if (printer.printerState() == QPrinter::Aborted
-                        || printer.printerState() == QPrinter::Error)
-                    return false;
-
-                QImage currentImage = pdfiumWrapper.pageAsQImage(currentPageIndex - 1);
-                if (currentImage.isNull())
-                    return false;
-
-                // Painting operations are automatically clipped to the bounds of the drawable part of the page.
-                painter.drawImage(QRect(0, 0, pageSize.width(), pageSize.height()), currentImage, currentImage.rect());
-                if (printedPages < pageCopies - 1)
-                    printer.newPage();
-            }
-
-            if (currentPageIndex == toPage)
-                break;
-
-            if (ascendingOrder)
-                currentPageIndex++;
-            else
-                currentPageIndex--;
-
-            printer.newPage();
-        }
-        if (printedDocuments < documentCopies - 1)
-            printer.newPage();
-    }
-    painter.end();
-
-    return true;
-}
-#endif // QT_CONFIG(webengine_printing_and_pdf)
 
 static QWebEnginePage::WebWindowType toWindowType(WebContentsAdapterClient::WindowOpenDisposition disposition)
 {
@@ -241,6 +161,7 @@ QWebEnginePagePrivate::QWebEnginePagePrivate(QWebEngineProfile *_profile)
     , webChannelWorldId(QWebEngineScript::MainWorld)
     , defaultAudioMuted(false)
     , defaultZoomFactor(1.0)
+    , requestInterceptor(nullptr)
 #if QT_CONFIG(webengine_printing_and_pdf)
     , currentPrinter(nullptr)
 #endif
@@ -254,7 +175,6 @@ QWebEnginePagePrivate::QWebEnginePagePrivate(QWebEngineProfile *_profile)
     wasShownTimer.setSingleShot(true);
     QObject::connect(&wasShownTimer, &QTimer::timeout, [this](){
         ensureInitialized();
-        wasShown();
     });
 
     profile->d_ptr->addWebContentsAdapterClient(this);
@@ -262,6 +182,8 @@ QWebEnginePagePrivate::QWebEnginePagePrivate(QWebEngineProfile *_profile)
 
 QWebEnginePagePrivate::~QWebEnginePagePrivate()
 {
+    if (requestInterceptor)
+        profile->d_ptr->profileAdapter()->removePageRequestInterceptor();
     delete history;
     delete settings;
     profile->d_ptr->removeWebContentsAdapterClient(this);
@@ -291,6 +213,9 @@ void QWebEnginePagePrivate::initializationFinished()
         adapter->setAudioMuted(defaultAudioMuted);
     if (!qFuzzyCompare(adapter->currentZoomFactor(), defaultZoomFactor))
         adapter->setZoomFactor(defaultZoomFactor);
+
+    if (view && view->isVisible())
+        adapter->wasShown();
 
     scriptCollection.d->initializationFinished(adapter);
 
@@ -335,7 +260,7 @@ void QWebEnginePagePrivate::didUpdateTargetURL(const QUrl &hoveredUrl)
 void QWebEnginePagePrivate::selectionChanged()
 {
     Q_Q(QWebEnginePage);
-    Q_EMIT q->selectionChanged();
+    QTimer::singleShot(0, q, &QWebEnginePage::selectionChanged);
 }
 
 void QWebEnginePagePrivate::recentlyAudibleChanged(bool recentlyAudible)
@@ -347,11 +272,6 @@ void QWebEnginePagePrivate::recentlyAudibleChanged(bool recentlyAudible)
 QRectF QWebEnginePagePrivate::viewportRect() const
 {
     return view ? view->rect() : QRectF();
-}
-
-qreal QWebEnginePagePrivate::dpiScale() const
-{
-    return 1.0;
 }
 
 QColor QWebEnginePagePrivate::backgroundColor() const
@@ -502,19 +422,35 @@ void QWebEnginePagePrivate::didFindText(quint64 requestId, int matchCount)
     m_callbacks.invoke(requestId, matchCount > 0);
 }
 
-void QWebEnginePagePrivate::didPrintPage(quint64 requestId, const QByteArray &result)
+void QWebEnginePagePrivate::didPrintPage(quint64 requestId, QSharedPointer<QByteArray> result)
 {
 #if QT_CONFIG(webengine_printing_and_pdf)
+    Q_Q(QWebEnginePage);
+
     // If no currentPrinter is set that means that were printing to PDF only.
     if (!currentPrinter) {
-        m_callbacks.invoke(requestId, result);
+        if (!result.data())
+            return;
+        m_callbacks.invoke(requestId, *(result.data()));
         return;
     }
 
-    bool printerResult = printPdfDataOnPrinter(result, *currentPrinter);
+    QThread *printerThread = new QThread;
+    QObject::connect(printerThread, &QThread::finished, printerThread, &QThread::deleteLater);
+    printerThread->start();
 
-    currentPrinter = nullptr;
-    m_callbacks.invoke(requestId, printerResult);
+    PrinterWorker *printerWorker = new PrinterWorker(result, currentPrinter);
+    QObject::connect(printerWorker, &PrinterWorker::resultReady, q, [requestId, this](bool success) {
+        currentPrinter = nullptr;
+        m_callbacks.invoke(requestId, success);
+    });
+
+    QObject::connect(printerWorker, &PrinterWorker::resultReady, printerThread, &QThread::quit);
+    QObject::connect(printerThread, &QThread::finished, printerWorker, &PrinterWorker::deleteLater);
+
+    printerWorker->moveToThread(printerThread);
+    QMetaObject::invokeMethod(printerWorker, "print");
+
 #else
     // we should never enter this branch, but just for safe-keeping...
     Q_UNUSED(result);
@@ -551,7 +487,7 @@ void QWebEnginePagePrivate::authenticationRequired(QSharedPointer<Authentication
 
 void QWebEnginePagePrivate::releaseProfile()
 {
-    qDebug("Release of profile requested but WebEnginePage still not deleted. Expect troubles !");
+    qWarning("Release of profile requested but WebEnginePage still not deleted. Expect troubles !");
     // this is not the way to go, but might avoid the crash if user code does not make any calls to page.
     delete q_ptr->d_ptr.take();
 }
@@ -617,6 +553,12 @@ void QWebEnginePagePrivate::runRegisterProtocolHandlerRequest(QWebEngineRegister
     Q_EMIT q->registerProtocolHandlerRequested(request);
 }
 
+void QWebEnginePagePrivate::runUserNotificationPermissionRequest(const QUrl &securityOrigin)
+{
+    Q_Q(QWebEnginePage);
+    Q_EMIT q->featurePermissionRequested(securityOrigin, QWebEnginePage::Notifications);
+}
+
 QObject *QWebEnginePagePrivate::accessibilityParentObject()
 {
     return view;
@@ -650,6 +592,16 @@ void QWebEnginePagePrivate::updateAction(QWebEnginePage::WebAction action) const
     case QWebEnginePage::ViewSource:
         enabled = adapter->canViewSource();
         break;
+    case QWebEnginePage::Cut:
+    case QWebEnginePage::Copy:
+    case QWebEnginePage::Paste:
+    case QWebEnginePage::Undo:
+    case QWebEnginePage::Redo:
+    case QWebEnginePage::SelectAll:
+    case QWebEnginePage::PasteAndMatchStyle:
+    case QWebEnginePage::Unselect:
+        enabled = adapter->hasFocusedFrame();
+        break;
     default:
         break;
     }
@@ -666,6 +618,18 @@ void QWebEnginePagePrivate::updateNavigationActions()
     updateAction(QWebEnginePage::Reload);
     updateAction(QWebEnginePage::ReloadAndBypassCache);
     updateAction(QWebEnginePage::ViewSource);
+}
+
+void QWebEnginePagePrivate::updateEditActions()
+{
+    updateAction(QWebEnginePage::Cut);
+    updateAction(QWebEnginePage::Copy);
+    updateAction(QWebEnginePage::Paste);
+    updateAction(QWebEnginePage::Undo);
+    updateAction(QWebEnginePage::Redo);
+    updateAction(QWebEnginePage::SelectAll);
+    updateAction(QWebEnginePage::PasteAndMatchStyle);
+    updateAction(QWebEnginePage::Unselect);
 }
 
 #ifndef QT_NO_ACTION
@@ -1765,11 +1729,9 @@ void QWebEnginePagePrivate::allowCertificateError(const QSharedPointer<Certifica
     Q_Q(QWebEnginePage);
     bool accepted = false;
 
-    QWebEngineCertificateError error(controller->error(), controller->url(), controller->overridable() && !controller->strictEnforcement(), controller->errorString());
+    QWebEngineCertificateError error(controller->error(), controller->url(), controller->overridable(), controller->errorString());
     accepted = q->certificateError(error);
-
-    if (error.isOverridable())
-        controller->accept(accepted);
+    controller->accept(error.isOverridable() && accepted);
 }
 
 void QWebEnginePagePrivate::selectClientCert(const QSharedPointer<ClientCertSelectController> &controller)
@@ -1865,7 +1827,7 @@ void QWebEnginePagePrivate::setToolTip(const QString &toolTipText)
     }
 
     // Update tooltip if text was changed.
-    QString wrappedTip = QLatin1String("<p style=\"white-space:pre\">")
+    QString wrappedTip = QLatin1String("<p style=\"white-space:pre-wrap\">")
             % toolTipText.toHtmlEscaped().left(MaxTooltipLength)
             % QLatin1String("</p>");
     if (view->toolTip() != wrappedTip)
@@ -1878,6 +1840,40 @@ void QWebEnginePagePrivate::printRequested()
     QTimer::singleShot(0, q, [q](){
         Q_EMIT q->printRequested();
     });
+}
+
+/*!
+    \since 5.13
+
+    Registers the request interceptor \a interceptor to intercept URL requests.
+
+    The page does not take ownership of the pointer. This interceptor is called
+    after any interceptors on the profile, and unlike profile interceptors, is run
+    on the UI thread, making it thread-safer. Only URL requests from this page are
+    intercepted.
+
+    To unset the request interceptor, set a \c nullptr.
+
+    \sa QWebEngineUrlRequestInfo, QWebEngineProfile::setRequestInterceptor()
+*/
+
+void QWebEnginePage::setUrlRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
+{
+    Q_D(QWebEnginePage);
+    bool hadInterceptorChanged = bool(d->requestInterceptor) != bool(interceptor);
+    d->requestInterceptor = interceptor;
+    if (hadInterceptorChanged) {
+        if (interceptor)
+            d->profile->d_ptr->profileAdapter()->addPageRequestInterceptor();
+        else
+            d->profile->d_ptr->profileAdapter()->removePageRequestInterceptor();
+    }
+}
+
+void QWebEnginePagePrivate::interceptRequest(QWebEngineUrlRequestInfo &info)
+{
+    if (requestInterceptor)
+        requestInterceptor->interceptRequest(info);
 }
 
 #if QT_CONFIG(menu)
@@ -1938,6 +1934,7 @@ void QWebEnginePage::setFeaturePermission(const QUrl &securityOrigin, QWebEngine
             d->adapter->grantMouseLockPermission(true);
             break;
         case Notifications:
+            d->adapter->runUserNotificationRequestCallback(securityOrigin, true);
             break;
         }
     } else { // if (policy == PermissionDeniedByUser)
@@ -1956,6 +1953,7 @@ void QWebEnginePage::setFeaturePermission(const QUrl &securityOrigin, QWebEngine
             d->adapter->grantMouseLockPermission(false);
             break;
         case Notifications:
+            d->adapter->runUserNotificationRequestCallback(securityOrigin, false);
             break;
         }
     }
@@ -2161,7 +2159,7 @@ void QWebEnginePage::runJavaScript(const QString& scriptSource, quint32 worldId,
     In addition, a page might also execute scripts
     added through QWebEngineProfile::scripts().
 
-    \sa QWebEngineScriptCollection, QWebEngineScript
+    \sa QWebEngineScriptCollection, QWebEngineScript, {Script Injection}
 */
 
 QWebEngineScriptCollection &QWebEnginePage::scripts()
@@ -2468,10 +2466,7 @@ void QWebEnginePage::printToPdf(const QWebEngineCallback<const QByteArray&> &res
     It is the users responsibility to ensure the \a printer remains valid until \a resultCallback
     has been called.
 
-    \note The rendering of the current content into a temporary PDF document is asynchronous and does
-    not block the main thread. However, the subsequent rendering of PDF into \a printer runs on the
-    main thread and will therefore block the event loop. Moreover, printing runs on the browser
-    process, which is by default not sandboxed.
+    \note Printing runs on the browser process, which is by default not sandboxed.
 
     The \a resultCallback must take a boolean as parameter. If printing was successful, this
     boolean will have the value \c true, otherwise, its value will be \c false.
@@ -2544,16 +2539,13 @@ void QContextMenuBuilder::addMenuItem(ContextMenuItem menuItem)
 
     switch (menuItem) {
     case ContextMenuItem::Back:
-        action = new QAction(QIcon::fromTheme(QStringLiteral("go-previous")), QWebEnginePage::tr("&Back"), m_menu);
-        QObject::connect(action, &QAction::triggered, thisRef->d_ptr->view, &QWebEngineView::back);
+        action = thisRef->action(QWebEnginePage::Back);
         break;
     case ContextMenuItem::Forward:
-        action = new QAction(QIcon::fromTheme(QStringLiteral("go-next")), QWebEnginePage::tr("&Forward"), m_menu);
-        QObject::connect(action, &QAction::triggered, thisRef->d_ptr->view, &QWebEngineView::forward);
+        action = thisRef->action(QWebEnginePage::Forward);
         break;
     case ContextMenuItem::Reload:
-        action = new QAction(QIcon::fromTheme(QStringLiteral("view-refresh")), QWebEnginePage::tr("&Reload"), m_menu);
-        QObject::connect(action, &QAction::triggered, thisRef->d_ptr->view, &QWebEngineView::reload);
+        action = thisRef->action(QWebEnginePage::Reload);
         break;
     case ContextMenuItem::Cut:
         action = thisRef->action(QWebEnginePage::Cut);

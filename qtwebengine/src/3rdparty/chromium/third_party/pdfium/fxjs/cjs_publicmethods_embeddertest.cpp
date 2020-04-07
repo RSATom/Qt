@@ -21,7 +21,7 @@ double RoundDownDate(double date) {
 
 class CJS_PublicMethodsEmbedderTest : public JSEmbedderTest {};
 
-TEST_F(CJS_PublicMethodsEmbedderTest, MakeRegularDate) {
+TEST_F(CJS_PublicMethodsEmbedderTest, ParseDateUsingFormat) {
   v8::Isolate::Scope isolate_scope(isolate());
   v8::HandleScope handle_scope(isolate());
   v8::Context::Scope context_scope(GetV8Context());
@@ -30,144 +30,149 @@ TEST_F(CJS_PublicMethodsEmbedderTest, MakeRegularDate) {
 
   // 1968
   bWrongFormat = false;
-  date = CJS_PublicMethods::MakeRegularDate(L"06/25/1968", L"mm/dd/yyyy",
-                                            &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"06/25/1968", L"mm/dd/yyyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(-47865600000, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 1968
   bWrongFormat = false;
-  date = CJS_PublicMethods::MakeRegularDate(L"25061968", L"ddmmyyyy",
-                                            &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"25061968", L"ddmmyyyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(-47865600000, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 1968
   bWrongFormat = false;
-  date = CJS_PublicMethods::MakeRegularDate(L"19680625", L"yyyymmdd",
-                                            &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"19680625", L"yyyymmdd",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(-47865600000, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 1985
   bWrongFormat = false;
-  date = CJS_PublicMethods::MakeRegularDate(L"31121985", L"ddmmyyyy",
-                                            &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"31121985", L"ddmmyyyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(504835200000.0, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 2085, the other '85.
   bWrongFormat = false;
-  date =
-      CJS_PublicMethods::MakeRegularDate(L"311285", L"ddmmyy", &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"311285", L"ddmmyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(3660595200000.0, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 1995
   bWrongFormat = false;
-  date = CJS_PublicMethods::MakeRegularDate(L"01021995", L"ddmmyyyy",
-                                            &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"01021995", L"ddmmyyyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(791596800000.0, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 2095, the other '95.
   bWrongFormat = false;
-  date =
-      CJS_PublicMethods::MakeRegularDate(L"010295", L"ddmmyy", &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"010295", L"ddmmyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(3947356800000.0, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 2005
   bWrongFormat = false;
-  date = CJS_PublicMethods::MakeRegularDate(L"01022005", L"ddmmyyyy",
-                                            &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"01022005", L"ddmmyyyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(1107216000000.0, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 2005
   bWrongFormat = false;
-  date =
-      CJS_PublicMethods::MakeRegularDate(L"010205", L"ddmmyy", &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"010205", L"ddmmyy",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(1107216000000.0, date);
   EXPECT_FALSE(bWrongFormat);
 
   // 2005 in a different format. https://crbug.com/436572
   bWrongFormat = false;
-  date =
-      CJS_PublicMethods::MakeRegularDate(L"050201", L"yymmdd", &bWrongFormat);
+  date = CJS_PublicMethods::ParseDateUsingFormat(L"050201", L"yymmdd",
+                                                 &bWrongFormat);
   date = RoundDownDate(date);
   EXPECT_DOUBLE_EQ(1107216000000.0, date);
   EXPECT_FALSE(bWrongFormat);
 }
 
-TEST_F(CJS_PublicMethodsEmbedderTest, MakeFormatDate) {
+TEST_F(CJS_PublicMethodsEmbedderTest, PrintDateUsingFormat) {
   v8::Isolate::Scope isolate_scope(isolate());
   v8::HandleScope handle_scope(isolate());
   v8::Context::Scope context_scope(GetV8Context());
   WideString formatted_date;
 
   // 1968-06-25
-  formatted_date = CJS_PublicMethods::MakeFormatDate(-47952000000, L"ddmmyy");
+  formatted_date =
+      CJS_PublicMethods::PrintDateUsingFormat(-47952000000, L"ddmmyy");
   EXPECT_STREQ(L"250668", formatted_date.c_str());
-  formatted_date = CJS_PublicMethods::MakeFormatDate(-47952000000, L"yy/mm/dd");
+  formatted_date =
+      CJS_PublicMethods::PrintDateUsingFormat(-47952000000, L"yy/mm/dd");
   EXPECT_STREQ(L"68/06/25", formatted_date.c_str());
 
   // 1969-12-31
-  formatted_date = CJS_PublicMethods::MakeFormatDate(-0.0001, L"ddmmyy");
+  formatted_date = CJS_PublicMethods::PrintDateUsingFormat(-0.0001, L"ddmmyy");
   EXPECT_STREQ(L"311269", formatted_date.c_str());
-  formatted_date = CJS_PublicMethods::MakeFormatDate(-0.0001, L"yy!mmdd");
+  formatted_date = CJS_PublicMethods::PrintDateUsingFormat(-0.0001, L"yy!mmdd");
   EXPECT_STREQ(L"69!1231", formatted_date.c_str());
 
   // 1970-01-01
-  formatted_date = CJS_PublicMethods::MakeFormatDate(0, L"ddmmyy");
+  formatted_date = CJS_PublicMethods::PrintDateUsingFormat(0, L"ddmmyy");
   EXPECT_STREQ(L"010170", formatted_date.c_str());
-  formatted_date = CJS_PublicMethods::MakeFormatDate(0, L"mm-yyyy-dd");
+  formatted_date = CJS_PublicMethods::PrintDateUsingFormat(0, L"mm-yyyy-dd");
   EXPECT_STREQ(L"01-1970-01", formatted_date.c_str());
 
   // 1985-12-31
-  formatted_date = CJS_PublicMethods::MakeFormatDate(504835200000.0, L"ddmmyy");
+  formatted_date =
+      CJS_PublicMethods::PrintDateUsingFormat(504835200000.0, L"ddmmyy");
   EXPECT_STREQ(L"311285", formatted_date.c_str());
-  formatted_date = CJS_PublicMethods::MakeFormatDate(504835200000.0, L"yymmdd");
+  formatted_date =
+      CJS_PublicMethods::PrintDateUsingFormat(504835200000.0, L"yymmdd");
   EXPECT_STREQ(L"851231", formatted_date.c_str());
 
   // 1995-02-01
-  formatted_date = CJS_PublicMethods::MakeFormatDate(791596800000.0, L"ddmmyy");
+  formatted_date =
+      CJS_PublicMethods::PrintDateUsingFormat(791596800000.0, L"ddmmyy");
   EXPECT_STREQ(L"010295", formatted_date.c_str());
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(791596800000.0, L"yyyymmdd");
+      CJS_PublicMethods::PrintDateUsingFormat(791596800000.0, L"yyyymmdd");
   EXPECT_STREQ(L"19950201", formatted_date.c_str());
 
   // 2005-02-01
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(1107216000000.0, L"ddmmyy");
+      CJS_PublicMethods::PrintDateUsingFormat(1107216000000.0, L"ddmmyy");
   EXPECT_STREQ(L"010205", formatted_date.c_str());
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(1107216000000.0, L"yyyyddmm");
+      CJS_PublicMethods::PrintDateUsingFormat(1107216000000.0, L"yyyyddmm");
   EXPECT_STREQ(L"20050102", formatted_date.c_str());
 
   // 2085-12-31
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(3660595200000.0, L"ddmmyy");
+      CJS_PublicMethods::PrintDateUsingFormat(3660595200000.0, L"ddmmyy");
   EXPECT_STREQ(L"311285", formatted_date.c_str());
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(3660595200000.0, L"yyyydd");
+      CJS_PublicMethods::PrintDateUsingFormat(3660595200000.0, L"yyyydd");
   EXPECT_STREQ(L"208531", formatted_date.c_str());
 
   // 2095-02-01
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(3947356800000.0, L"ddmmyy");
+      CJS_PublicMethods::PrintDateUsingFormat(3947356800000.0, L"ddmmyy");
   EXPECT_STREQ(L"010295", formatted_date.c_str());
   formatted_date =
-      CJS_PublicMethods::MakeFormatDate(3947356800000.0, L"mmddyyyy");
+      CJS_PublicMethods::PrintDateUsingFormat(3947356800000.0, L"mmddyyyy");
   EXPECT_STREQ(L"02012095", formatted_date.c_str());
 }
 
@@ -180,22 +185,22 @@ TEST_F(CJS_PublicMethodsEmbedderTest, AFSimple_CalculateSum) {
   auto* page = LoadPage(0);
   ASSERT_TRUE(page);
 
-  CJS_Runtime runtime(static_cast<CPDFSDK_FormFillEnvironment*>(form_handle()));
+  CJS_Runtime runtime(
+      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(form_handle()));
   runtime.NewEventContext();
 
   WideString result;
   runtime.GetCurrentEventContext()->GetEventHandler()->m_pValue = &result;
 
   auto ary = runtime.NewArray();
-
-  runtime.PutArrayElement(ary, 0, runtime.NewString(L"Calc1_A"));
-  runtime.PutArrayElement(ary, 1, runtime.NewString(L"Calc1_B"));
+  runtime.PutArrayElement(ary, 0, runtime.NewString("Calc1_A"));
+  runtime.PutArrayElement(ary, 1, runtime.NewString("Calc1_B"));
 
   std::vector<v8::Local<v8::Value>> params;
   params.push_back(runtime.NewString("SUM"));
   params.push_back(ary);
 
-  CJS_Return ret = CJS_PublicMethods::AFSimple_Calculate(&runtime, params);
+  CJS_Result ret = CJS_PublicMethods::AFSimple_Calculate(&runtime, params);
   UnloadPage(page);
 
   runtime.GetCurrentEventContext()->GetEventHandler()->m_pValue = nullptr;
@@ -214,7 +219,8 @@ TEST_F(CJS_PublicMethodsEmbedderTest, AFNumber_Keystroke) {
   auto* page = LoadPage(0);
   ASSERT_TRUE(page);
 
-  CJS_Runtime runtime(static_cast<CPDFSDK_FormFillEnvironment*>(form_handle()));
+  CJS_Runtime runtime(
+      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(form_handle()));
   runtime.NewEventContext();
 
   auto* handler = runtime.GetCurrentEventContext()->GetEventHandler();
@@ -232,10 +238,10 @@ TEST_F(CJS_PublicMethodsEmbedderTest, AFNumber_Keystroke) {
   handler->SetSelEnd(0);
 
   std::vector<v8::Local<v8::Value>> params;
-  params.push_back(runtime.NewString(L"-10"));
-  params.push_back(runtime.NewString(L""));
+  params.push_back(runtime.NewString("-10"));
+  params.push_back(runtime.NewString(""));
 
-  CJS_Return ret = CJS_PublicMethods::AFNumber_Keystroke(&runtime, params);
+  CJS_Result ret = CJS_PublicMethods::AFNumber_Keystroke(&runtime, params);
   EXPECT_TRUE(valid);
   EXPECT_TRUE(!ret.HasError());
   EXPECT_TRUE(!ret.HasReturn());

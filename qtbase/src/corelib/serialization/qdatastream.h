@@ -99,10 +99,11 @@ public:
         Qt_5_10 = Qt_5_9,
         Qt_5_11 = Qt_5_10,
         Qt_5_12 = 18,
-#if QT_VERSION >= 0x050d00
+        Qt_5_13 = 19,
+#if QT_VERSION >= 0x050e00
 #error Add the datastream version for this Qt version and update Qt_DefaultCompiledVersion
 #endif
-        Qt_DefaultCompiledVersion = Qt_5_12
+        Qt_DefaultCompiledVersion = Qt_5_13
     };
 
     enum ByteOrder {
@@ -130,7 +131,10 @@ public:
 
     QIODevice *device() const;
     void setDevice(QIODevice *);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QDataStream::setDevice(nullptr) instead")
     void unsetDevice();
+#endif
 
     bool atEnd() const;
 

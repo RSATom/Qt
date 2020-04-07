@@ -7,7 +7,11 @@
 #include "cc/layers/layer.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/picture_in_picture/picture_in_picture_control_info.h"
+#include "third_party/blink/public/platform/web_fullscreen_video_status.h"
+#include "third_party/blink/public/platform/web_media_player.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
+#include "third_party/blink/renderer/core/html/media/html_media_test_helper.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
@@ -16,28 +20,23 @@
 
 namespace blink {
 
-class HTMLVideoElementFrameClient : public EmptyLocalFrameClient {
+class HTMLVideoElementMockMediaPlayer : public EmptyWebMediaPlayer {
  public:
-  HTMLVideoElementFrameClient()
-      : player_(std::make_unique<EmptyWebMediaPlayer>()) {}
-
-  std::unique_ptr<WebMediaPlayer> CreateWebMediaPlayer(
-      HTMLMediaElement&,
-      const WebMediaPlayerSource&,
-      WebMediaPlayerClient* client,
-      WebLayerTreeView*) override {
-    DCHECK(player_) << " Empty injected player - already used?";
-    return std::move(player_);
-  }
-
- private:
-  std::unique_ptr<WebMediaPlayer> player_;
+  MOCK_METHOD1(SetIsEffectivelyFullscreen, void(WebFullscreenVideoStatus));
+  MOCK_METHOD1(OnDisplayTypeChanged, void(WebMediaPlayer::DisplayType));
 };
 
 class HTMLVideoElementTest : public PageTestBase {
  public:
   void SetUp() override {
-    SetupPageWithClients(nullptr, new HTMLVideoElementFrameClient(), nullptr);
+    auto mock_media_player =
+        std::make_unique<HTMLVideoElementMockMediaPlayer>();
+    media_player_ = mock_media_player.get();
+
+    SetupPageWithClients(
+        nullptr,
+        test::MediaStubLocalFrameClient::Create(std::move(mock_media_player)),
+        nullptr);
     video_ = HTMLVideoElement::Create(GetDocument());
     GetDocument().body()->appendChild(video_);
   }
@@ -46,15 +45,22 @@ class HTMLVideoElementTest : public PageTestBase {
 
   HTMLVideoElement* video() { return video_.Get(); }
 
+  HTMLVideoElementMockMediaPlayer* MockWebMediaPlayer() {
+    return media_player_;
+  }
+
  private:
   Persistent<HTMLVideoElement> video_;
+
+  // Owned by HTMLVideoElementFrameClient.
+  HTMLVideoElementMockMediaPlayer* media_player_;
 };
 
 TEST_F(HTMLVideoElementTest, PictureInPictureInterstitialAndTextContainer) {
   scoped_refptr<cc::Layer> layer = cc::Layer::Create();
   SetFakeCcLayer(layer.get());
 
-  video()->SetBooleanAttribute(HTMLNames::controlsAttr, true);
+  video()->SetBooleanAttribute(html_names::kControlsAttr, true);
   video()->SetSrc("http://example.com/foo.mp4");
   test::RunPendingTasks();
 
@@ -78,7 +84,7 @@ TEST_F(HTMLVideoElementTest, PictureInPictureInterstitial_Reattach) {
   scoped_refptr<cc::Layer> layer = cc::Layer::Create();
   SetFakeCcLayer(layer.get());
 
-  video()->SetBooleanAttribute(HTMLNames::controlsAttr, true);
+  video()->SetBooleanAttribute(html_names::kControlsAttr, true);
   video()->SetSrc("http://example.com/foo.mp4");
   test::RunPendingTasks();
 
@@ -89,6 +95,45 @@ TEST_F(HTMLVideoElementTest, PictureInPictureInterstitial_Reattach) {
   GetDocument().body()->removeChild(video());
   GetDocument().body()->appendChild(video());
   GetDocument().body()->removeChild(video());
+}
+
+TEST_F(HTMLVideoElementTest, setPictureInPictureControls) {
+  EXPECT_FALSE(video()->HasPictureInPictureCustomControls());
+
+  std::vector<PictureInPictureControlInfo> test_controls;
+  test_controls.push_back(PictureInPictureControlInfo());
+  video()->SetPictureInPictureCustomControls(test_controls);
+
+  EXPECT_TRUE(video()->HasPictureInPictureCustomControls());
+}
+
+TEST_F(HTMLVideoElementTest, EffectivelyFullscreen_DisplayType) {
+  EXPECT_EQ(WebMediaPlayer::DisplayType::kInline, video()->DisplayType());
+
+  // Vector of data to use for tests. First value is to be set when calling
+  // SetIsEffectivelyFullscreen(). The second one is the expected DisplayType.
+  // This is testing all possible values of WebFullscreenVideoStatus and then
+  // sets the value back to a value that should put the DisplayType back to
+  // inline.
+  std::vector<std::pair<WebFullscreenVideoStatus, WebMediaPlayer::DisplayType>>
+      tests = {
+          {WebFullscreenVideoStatus::kNotEffectivelyFullscreen,
+           WebMediaPlayer::DisplayType::kInline},
+          {WebFullscreenVideoStatus::kFullscreenAndPictureInPictureEnabled,
+           WebMediaPlayer::DisplayType::kFullscreen},
+          {WebFullscreenVideoStatus::kFullscreenAndPictureInPictureDisabled,
+           WebMediaPlayer::DisplayType::kFullscreen},
+          {WebFullscreenVideoStatus::kNotEffectivelyFullscreen,
+           WebMediaPlayer::DisplayType::kInline},
+      };
+
+  for (const auto& test : tests) {
+    EXPECT_CALL(*MockWebMediaPlayer(), SetIsEffectivelyFullscreen(test.first));
+    EXPECT_CALL(*MockWebMediaPlayer(), OnDisplayTypeChanged(test.second));
+    video()->SetIsEffectivelyFullscreen(test.first);
+
+    EXPECT_EQ(test.second, video()->DisplayType());
+  }
 }
 
 }  // namespace blink

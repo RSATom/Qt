@@ -43,13 +43,21 @@ class SVGPointTearOff : public SVGPropertyTearOff<SVGPoint> {
 
  public:
   static SVGPointTearOff* Create(SVGPoint* target,
-                                 SVGElement* context_element,
-                                 PropertyIsAnimValType property_is_anim_val,
-                                 const QualifiedName& attribute_name) {
-    return new SVGPointTearOff(target, context_element, property_is_anim_val,
-                               attribute_name);
+                                 SVGAnimatedPropertyBase* binding,
+                                 PropertyIsAnimValType property_is_anim_val) {
+    return MakeGarbageCollected<SVGPointTearOff>(target, binding,
+                                                 property_is_anim_val);
+  }
+  static SVGPointTearOff* Create(SVGPoint* target,
+                                 SVGElement* context_element) {
+    return MakeGarbageCollected<SVGPointTearOff>(target, context_element);
   }
   static SVGPointTearOff* CreateDetached(const FloatPoint&);
+
+  SVGPointTearOff(SVGPoint*,
+                  SVGAnimatedPropertyBase* binding,
+                  PropertyIsAnimValType);
+  SVGPointTearOff(SVGPoint*, SVGElement*);
 
   void setX(float, ExceptionState&);
   void setY(float, ExceptionState&);
@@ -57,12 +65,6 @@ class SVGPointTearOff : public SVGPropertyTearOff<SVGPoint> {
   float y() { return Target()->Y(); }
 
   SVGPointTearOff* matrixTransform(SVGMatrixTearOff*);
-
- protected:
-  SVGPointTearOff(SVGPoint*,
-                  SVGElement* context_element,
-                  PropertyIsAnimValType,
-                  const QualifiedName& attribute_name);
 };
 
 }  // namespace blink

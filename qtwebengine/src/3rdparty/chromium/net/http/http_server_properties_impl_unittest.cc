@@ -42,7 +42,7 @@ class HttpServerPropertiesImplPeer {
       const AlternativeService& alternative_service,
       base::TimeTicks when) {
     BrokenAlternativeServiceList::iterator unused_it;
-    impl->broken_alternative_services_.AddToBrokenAlternativeServiceListAndMap(
+    impl->broken_alternative_services_.AddToBrokenListAndMap(
         alternative_service, when, &unused_it);
     auto it =
         impl->broken_alternative_services_.recently_broken_alternative_services_
@@ -448,19 +448,19 @@ TEST_F(AlternateProtocolServerPropertiesTest, Set) {
   // Verify alternative_service_map.
   const AlternativeServiceMap& map = impl_.alternative_service_map();
   ASSERT_EQ(3u, map.size());
-  AlternativeServiceMap::const_iterator map_it = map.begin();
+  auto map_it = map.begin();
 
-  EXPECT_TRUE(map_it->first.Equals(test_server2));
+  EXPECT_EQ(map_it->first, test_server2);
   ASSERT_EQ(1u, map_it->second.size());
   EXPECT_EQ(alternative_service3, map_it->second[0].alternative_service());
   EXPECT_EQ(expiration3, map_it->second[0].expiration());
   ++map_it;
-  EXPECT_TRUE(map_it->first.Equals(test_server1));
+  EXPECT_EQ(map_it->first, test_server1);
   ASSERT_EQ(1u, map_it->second.size());
   EXPECT_EQ(alternative_service1, map_it->second[0].alternative_service());
   EXPECT_EQ(expiration1, map_it->second[0].expiration());
   ++map_it;
-  EXPECT_TRUE(map_it->first.Equals(test_server3));
+  EXPECT_EQ(map_it->first, test_server3);
   ASSERT_EQ(1u, map_it->second.size());
   EXPECT_EQ(alternative_service4, map_it->second[0].alternative_service());
   EXPECT_EQ(expiration4, map_it->second[0].expiration());
@@ -602,8 +602,8 @@ TEST_F(AlternateProtocolServerPropertiesTest, MRUOfGetAlternativeServiceInfos) {
   SetAlternativeService(test_server2, alternative_service2);
 
   const AlternativeServiceMap& map = impl_.alternative_service_map();
-  AlternativeServiceMap::const_iterator it = map.begin();
-  EXPECT_TRUE(it->first.Equals(test_server2));
+  auto it = map.begin();
+  EXPECT_EQ(it->first, test_server2);
   ASSERT_EQ(1u, it->second.size());
   EXPECT_EQ(alternative_service2, it->second[0].alternative_service());
 
@@ -615,7 +615,7 @@ TEST_F(AlternateProtocolServerPropertiesTest, MRUOfGetAlternativeServiceInfos) {
 
   // GetAlternativeServices should reorder the AlternateProtocol map.
   it = map.begin();
-  EXPECT_TRUE(it->first.Equals(test_server1));
+  EXPECT_EQ(it->first, test_server1);
   ASSERT_EQ(1u, it->second.size());
   EXPECT_EQ(alternative_service1, it->second[0].alternative_service());
 }
@@ -633,6 +633,60 @@ TEST_F(AlternateProtocolServerPropertiesTest, SetBroken) {
 
   // GetAlternativeServiceInfos should return the broken alternative service.
   impl_.MarkAlternativeServiceBroken(alternative_service1);
+  alternative_service_info_vector =
+      impl_.GetAlternativeServiceInfos(test_server);
+  ASSERT_EQ(1u, alternative_service_info_vector.size());
+  EXPECT_EQ(alternative_service1,
+            alternative_service_info_vector[0].alternative_service());
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service1));
+
+  // SetAlternativeServices should add a broken alternative service to the map.
+  AlternativeServiceInfoVector alternative_service_info_vector2;
+  base::Time expiration = test_clock_.Now() + base::TimeDelta::FromDays(1);
+  alternative_service_info_vector2.push_back(
+      AlternativeServiceInfo::CreateHttp2AlternativeServiceInfo(
+          alternative_service1, expiration));
+  const AlternativeService alternative_service2(kProtoHTTP2, "foo", 1234);
+  alternative_service_info_vector2.push_back(
+      AlternativeServiceInfo::CreateHttp2AlternativeServiceInfo(
+          alternative_service2, expiration));
+  impl_.SetAlternativeServices(test_server, alternative_service_info_vector2);
+  alternative_service_info_vector =
+      impl_.GetAlternativeServiceInfos(test_server);
+  ASSERT_EQ(2u, alternative_service_info_vector.size());
+  EXPECT_EQ(alternative_service1,
+            alternative_service_info_vector[0].alternative_service());
+  EXPECT_EQ(alternative_service2,
+            alternative_service_info_vector[1].alternative_service());
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service1));
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service2));
+
+  // SetAlternativeService should add a broken alternative service to the map.
+  SetAlternativeService(test_server, alternative_service1);
+  alternative_service_info_vector =
+      impl_.GetAlternativeServiceInfos(test_server);
+  ASSERT_EQ(1u, alternative_service_info_vector.size());
+  EXPECT_EQ(alternative_service1,
+            alternative_service_info_vector[0].alternative_service());
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service1));
+}
+
+TEST_F(AlternateProtocolServerPropertiesTest,
+       SetBrokenUntilDefaultNetworkChanges) {
+  url::SchemeHostPort test_server("http", "foo", 80);
+  const AlternativeService alternative_service1(kProtoHTTP2, "foo", 443);
+  SetAlternativeService(test_server, alternative_service1);
+  AlternativeServiceInfoVector alternative_service_info_vector =
+      impl_.GetAlternativeServiceInfos(test_server);
+  ASSERT_EQ(1u, alternative_service_info_vector.size());
+  EXPECT_EQ(alternative_service1,
+            alternative_service_info_vector[0].alternative_service());
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service1));
+
+  // Mark the alternative service as broken until the default network changes.
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      alternative_service1);
+  // The alternative service should be persisted and marked as broken.
   alternative_service_info_vector =
       impl_.GetAlternativeServiceInfos(test_server);
   ASSERT_EQ(1u, alternative_service_info_vector.size());
@@ -747,8 +801,8 @@ TEST_F(AlternateProtocolServerPropertiesTest, AlternativeServiceWithScheme) {
   impl_.SetAlternativeServices(http_server, alternative_service_info_vector);
 
   const net::AlternativeServiceMap& map = impl_.alternative_service_map();
-  net::AlternativeServiceMap::const_iterator it = map.begin();
-  EXPECT_TRUE(it->first.Equals(http_server));
+  auto it = map.begin();
+  EXPECT_EQ(it->first, http_server);
   ASSERT_EQ(2u, it->second.size());
   EXPECT_EQ(alternative_service1, it->second[0].alternative_service());
   EXPECT_EQ(alternative_service2, it->second[1].alternative_service());
@@ -784,8 +838,8 @@ TEST_F(AlternateProtocolServerPropertiesTest, ClearAlternativeServices) {
   impl_.SetAlternativeServices(test_server, alternative_service_info_vector);
 
   const net::AlternativeServiceMap& map = impl_.alternative_service_map();
-  net::AlternativeServiceMap::const_iterator it = map.begin();
-  EXPECT_TRUE(it->first.Equals(test_server));
+  auto it = map.begin();
+  EXPECT_EQ(it->first, test_server);
   ASSERT_EQ(2u, it->second.size());
   EXPECT_EQ(alternative_service1, it->second[0].alternative_service());
   EXPECT_EQ(alternative_service2, it->second[1].alternative_service());
@@ -849,6 +903,71 @@ TEST_F(AlternateProtocolServerPropertiesTest, MarkRecentlyBroken) {
   EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
 
   impl_.ConfirmAlternativeService(alternative_service);
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+}
+
+TEST_F(AlternateProtocolServerPropertiesTest,
+       MarkBrokenUntilDefaultNetworkChanges) {
+  url::SchemeHostPort server("http", "foo", 80);
+  const AlternativeService alternative_service(kProtoHTTP2, "foo", 443);
+  SetAlternativeService(server, alternative_service);
+
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      alternative_service);
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  impl_.ConfirmAlternativeService(alternative_service);
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+}
+
+TEST_F(AlternateProtocolServerPropertiesTest, OnDefaultNetworkChanged) {
+  url::SchemeHostPort server("http", "foo", 80);
+  const AlternativeService alternative_service(kProtoHTTP2, "foo", 443);
+
+  SetAlternativeService(server, alternative_service);
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      alternative_service);
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  // Default network change clears alt svc broken until default network changes.
+  EXPECT_TRUE(impl_.OnDefaultNetworkChanged());
+  EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      alternative_service);
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  impl_.MarkAlternativeServiceBroken(alternative_service);
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  // Default network change doesn't affect alt svc that was simply marked broken
+  // most recently.
+  EXPECT_FALSE(impl_.OnDefaultNetworkChanged());
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      alternative_service);
+  EXPECT_TRUE(impl_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
+
+  // Default network change clears alt svc that was marked broken until default
+  // network change most recently even if the alt svc was initially marked
+  // broken.
+  EXPECT_TRUE(impl_.OnDefaultNetworkChanged());
   EXPECT_FALSE(impl_.IsAlternativeServiceBroken(alternative_service));
   EXPECT_FALSE(impl_.WasAlternativeServiceRecentlyBroken(alternative_service));
 }
@@ -918,7 +1037,22 @@ TEST_F(AlternateProtocolServerPropertiesTest, CanonicalBroken) {
                                                    "bar.c.youtube.com", 1234);
 
   SetAlternativeService(canonical_server, canonical_alternative_service);
+  EXPECT_TRUE(HasAlternativeService(test_server));
   impl_.MarkAlternativeServiceBroken(canonical_alternative_service);
+  EXPECT_FALSE(HasAlternativeService(test_server));
+}
+
+TEST_F(AlternateProtocolServerPropertiesTest,
+       CanonicalBrokenUntilDefaultNetworkChanges) {
+  url::SchemeHostPort test_server("https", "foo.c.youtube.com", 443);
+  url::SchemeHostPort canonical_server("https", "bar.c.youtube.com", 443);
+  AlternativeService canonical_alternative_service(kProtoQUIC,
+                                                   "bar.c.youtube.com", 1234);
+
+  SetAlternativeService(canonical_server, canonical_alternative_service);
+  EXPECT_TRUE(HasAlternativeService(test_server));
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      canonical_alternative_service);
   EXPECT_FALSE(HasAlternativeService(test_server));
 }
 
@@ -1100,11 +1234,20 @@ TEST_F(AlternateProtocolServerPropertiesTest,
           AlternativeService(kProtoQUIC, "bar", 443),
           now + base::TimeDelta::FromHours(1),
           HttpNetworkSession::Params().quic_supported_versions));
+  alternative_service_info_vector.push_back(
+      AlternativeServiceInfo::CreateQuicAlternativeServiceInfo(
+          AlternativeService(kProtoQUIC, "baz", 443),
+          now + base::TimeDelta::FromHours(1),
+          HttpNetworkSession::Params().quic_supported_versions));
+
   impl_.SetAlternativeServices(url::SchemeHostPort("https", "youtube.com", 443),
                                alternative_service_info_vector);
 
   impl_.MarkAlternativeServiceBroken(
       AlternativeService(kProtoQUIC, "bar", 443));
+
+  impl_.MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
+      AlternativeService(kProtoQUIC, "baz", 443));
 
   alternative_service_info_vector.clear();
   alternative_service_info_vector.push_back(
@@ -1125,6 +1268,8 @@ TEST_F(AlternateProtocolServerPropertiesTest,
       "\"alternative_service\":"
       "[\"h2 foo:443, expires 2018-01-24 15:13:53\","
       "\"quic bar:443, expires 2018-01-24 16:12:53"
+      " (broken until 2018-01-24 15:17:53)\","
+      "\"quic baz:443, expires 2018-01-24 16:12:53"
       " (broken until 2018-01-24 15:17:53)\"],"
       "\"server\":\"https://youtube.com\""
       "}"
@@ -1234,15 +1379,15 @@ TEST_F(ServerNetworkStatsServerPropertiesTest, Set) {
 
   const ServerNetworkStatsMap& map = impl_.server_network_stats_map();
   ASSERT_EQ(3u, map.size());
-  ServerNetworkStatsMap::const_iterator map_it = map.begin();
+  auto map_it = map.begin();
 
-  EXPECT_TRUE(map_it->first.Equals(docs_server));
+  EXPECT_EQ(map_it->first, docs_server);
   EXPECT_EQ(new_stats_docs, map_it->second);
   ++map_it;
-  EXPECT_TRUE(map_it->first.Equals(google_server));
+  EXPECT_EQ(map_it->first, google_server);
   EXPECT_EQ(stats_google, map_it->second);
   ++map_it;
-  EXPECT_TRUE(map_it->first.Equals(mail_server));
+  EXPECT_EQ(map_it->first, mail_server);
   EXPECT_EQ(stats_mail, map_it->second);
 }
 
@@ -1319,7 +1464,7 @@ TEST_F(QuicServerInfoServerPropertiesTest, Set) {
   // Recency order will be |docs_server| and |google_server|.
   const QuicServerInfoMap& map = impl_.quic_server_info_map();
   ASSERT_EQ(2u, map.size());
-  QuicServerInfoMap::const_iterator map_it = map.begin();
+  auto map_it = map.begin();
   EXPECT_EQ(map_it->first, docs_quic_server_id);
   EXPECT_EQ(docs_server_info, map_it->second);
   ++map_it;
@@ -1342,7 +1487,7 @@ TEST_F(QuicServerInfoServerPropertiesTest, Set) {
   // Recency order will be |docs_server|, |google_server| and |mail_server|.
   const QuicServerInfoMap& memory_map = impl_.quic_server_info_map();
   ASSERT_EQ(3u, memory_map.size());
-  QuicServerInfoMap::const_iterator memory_map_it = memory_map.begin();
+  auto memory_map_it = memory_map.begin();
   EXPECT_EQ(memory_map_it->first, docs_quic_server_id);
   EXPECT_EQ(new_docs_server_info, memory_map_it->second);
   ++memory_map_it;
@@ -1359,7 +1504,7 @@ TEST_F(QuicServerInfoServerPropertiesTest, Set) {
 
   const QuicServerInfoMap& memory_map1 = impl_.quic_server_info_map();
   ASSERT_EQ(2u, memory_map1.size());
-  QuicServerInfoMap::const_iterator memory_map1_it = memory_map1.begin();
+  auto memory_map1_it = memory_map1.begin();
   EXPECT_EQ(memory_map1_it->first, docs_quic_server_id);
   EXPECT_EQ(new_docs_server_info, memory_map1_it->second);
   ++memory_map1_it;

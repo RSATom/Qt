@@ -42,11 +42,15 @@ LIBS_PRIVATE += $$NINJA_LIB_DIRS $$NINJA_LIBS
 unix:qtConfig(webengine-noexecstack): \
     QMAKE_LFLAGS += -Wl,-z,noexecstack
 linux {
-    QMAKE_LFLAGS += -Wl,--gc-sections -Wl,-O1 -Wl,-z,now
-    # Embedded address sanitizer symbols are undefined and are picked up by the dynamic link loader
-    # at runtime. Thus we do not to pass the linker flag below, because the linker would complain
-    # about the undefined sanitizer symbols.
-    !sanitizer: QMAKE_LFLAGS += -Wl,-z,defs
+    # add chromium flags
+    for(flag, NINJA_LFLAGS) {
+        # filter out some flags
+        !contains(flag, .*noexecstack$): \
+        !contains(flag, .*as-needed$): \
+        !contains(flag, ^-B.*): \
+        !contains(flag, ^-fuse-ld.*): \
+        QMAKE_LFLAGS += $$flag
+    }
 } else {
     QMAKE_LFLAGS += $$NINJA_LFLAGS
 }
@@ -58,12 +62,12 @@ LIBS_PRIVATE += -L$$api_library_path
 CONFIG *= no_smart_library_merge
 osx {
     LIBS_PRIVATE += -Wl,-force_load,$${api_library_path}$${QMAKE_DIR_SEP}lib$${api_library_name}.a
-} else:msvc {
+} else: win32 {
     !isDeveloperBuild() {
         # Remove unused functions and data in debug non-developer builds, because the binaries will
         # be smaller in the shipped packages.
         QMAKE_LFLAGS += /OPT:REF
-    } else:CONFIG(debug, debug|release) {
+    } else:CONFIG(debug, debug|release):!clang_cl {
         # Make sure to override qtbase's QMAKE_LFLAGS_DEBUG option in debug developer builds,
         # because qmake chooses and overrides the option when it gets appended to QMAKE_LFLAGS in
         # qtbase\mkspecs\features\default_post.prf, regardless of what Chromium passes back from GN.
@@ -77,7 +81,7 @@ osx {
     QMAKE_LFLAGS += -Wl,-whole-archive -l$$api_library_name -Wl,-no-whole-archive
 }
 
-win32-msvc* {
+win32 {
     POST_TARGETDEPS += $${api_library_path}$${QMAKE_DIR_SEP}$${api_library_name}.lib
 } else {
     POST_TARGETDEPS += $${api_library_path}$${QMAKE_DIR_SEP}lib$${api_library_name}.a

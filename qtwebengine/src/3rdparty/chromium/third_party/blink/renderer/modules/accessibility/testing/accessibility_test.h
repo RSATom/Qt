@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 
+#include "third_party/blink/renderer/core/accessibility/ax_context.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 
@@ -17,6 +18,9 @@ namespace blink {
 class AXObject;
 class AXObjectCacheImpl;
 class LocalFrameClient;
+class Node;
+
+namespace test {
 
 class AccessibilityTest : public RenderingTest {
   USING_FAST_MALLOC(AccessibilityTest);
@@ -26,9 +30,10 @@ class AccessibilityTest : public RenderingTest {
 
  protected:
   void SetUp() override;
-  void TearDown() override;
 
   AXObjectCacheImpl& GetAXObjectCache() const;
+
+  AXObject* GetAXObject(const Node& node) const;
 
   AXObject* GetAXRootObject() const;
 
@@ -43,8 +48,11 @@ class AccessibilityTest : public RenderingTest {
   std::ostringstream& PrintAXTreeHelper(std::ostringstream&,
                                         const AXObject* root,
                                         size_t level) const;
+
+  std::unique_ptr<AXContext> ax_context_;
 };
 
+}  // namespace test
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_ACCESSIBILITY_TESTING_ACCESSIBILITY_TEST_H_

@@ -45,6 +45,7 @@ constexpr char kGetAccessTokenBodyWithScopeFormat[] =
 
 constexpr char kAccessTokenKey[] = "access_token";
 constexpr char kExpiresInKey[] = "expires_in";
+constexpr char kIdTokenKey[] = "id_token";
 constexpr char kErrorKey[] = "error";
 
 // Enumerated constants for logging server responses on 400 errors, matching
@@ -206,7 +207,8 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
 
   bool net_failure = false;
   int histogram_value;
-  if (url_loader_->ResponseInfo() && url_loader_->ResponseInfo()->headers) {
+  if (url_loader_->NetError() == net::OK && url_loader_->ResponseInfo() &&
+      url_loader_->ResponseInfo()->headers) {
     // Note that the SimpleURLLoader reports net::ERR_FAILED for HTTP codes
     // other than 200s.
     histogram_value = url_loader_->ResponseInfo()->headers->response_code();
@@ -225,6 +227,13 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
   switch (response_code) {
     case net::HTTP_OK:
       break;
+    case net::HTTP_PROXY_AUTHENTICATION_REQUIRED:
+      NOTREACHED() << "HTTP 407 should be treated as a network error.";
+      // If this ever happens in production, we treat it as a temporary error as
+      // it is similar to a network error.
+      OnGetTokenFailure(
+          GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_UNAVAILABLE));
+      return;
     case net::HTTP_FORBIDDEN:
       // HTTP_FORBIDDEN (403) is treated as temporary error, because it may be
       // '403 Rate Limit Exeeded.'
@@ -278,8 +287,9 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
   // Parse out the access token and the expiration time.
   std::string access_token;
   int expires_in;
-  if (!ParseGetAccessTokenSuccessResponse(std::move(response_body),
-                                          &access_token, &expires_in)) {
+  std::string id_token;
+  if (!ParseGetAccessTokenSuccessResponse(
+          std::move(response_body), &access_token, &expires_in, &id_token)) {
     DLOG(WARNING) << "Response doesn't match expected format";
     OnGetTokenFailure(
         GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_UNAVAILABLE));
@@ -287,15 +297,15 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
   }
   // The token will expire in |expires_in| seconds. Take a 10% error margin to
   // prevent reusing a token too close to its expiration date.
-  OnGetTokenSuccess(
+  OnGetTokenSuccess(OAuth2AccessTokenConsumer::TokenResponse(
       access_token,
-      base::Time::Now() + base::TimeDelta::FromSeconds(9 * expires_in / 10));
+      base::Time::Now() + base::TimeDelta::FromSeconds(9 * expires_in / 10),
+      id_token));
 }
 
 void OAuth2AccessTokenFetcherImpl::OnGetTokenSuccess(
-    const std::string& access_token,
-    const base::Time& expiration_time) {
-  FireOnGetTokenSuccess(access_token, expiration_time);
+    const OAuth2AccessTokenConsumer::TokenResponse& token_response) {
+  FireOnGetTokenSuccess(token_response);
 }
 
 void OAuth2AccessTokenFetcherImpl::OnGetTokenFailure(
@@ -346,12 +356,15 @@ std::string OAuth2AccessTokenFetcherImpl::MakeGetAccessTokenBody(
 bool OAuth2AccessTokenFetcherImpl::ParseGetAccessTokenSuccessResponse(
     std::unique_ptr<std::string> response_body,
     std::string* access_token,
-    int* expires_in) {
+    int* expires_in,
+    std::string* id_token) {
   CHECK(access_token);
   std::unique_ptr<base::DictionaryValue> value =
       ParseGetAccessTokenResponse(std::move(response_body));
   if (!value)
     return false;
+  // ID token field is optional.
+  value->GetString(kIdTokenKey, id_token);
   return value->GetString(kAccessTokenKey, access_token) &&
          value->GetInteger(kExpiresInKey, expires_in);
 }

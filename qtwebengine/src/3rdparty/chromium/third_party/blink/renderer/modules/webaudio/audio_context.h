@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_AUDIO_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_AUDIO_CONTEXT_H_
 
+#include "third_party/blink/public/mojom/webaudio/audio_context_manager.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/html/media/autoplay_policy.h"
@@ -18,6 +19,11 @@ class AudioContextOptions;
 class AudioTimestamp;
 class Document;
 class ExceptionState;
+class HTMLMediaElement;
+class MediaElementAudioSourceNode;
+class MediaStream;
+class MediaStreamAudioDestinationNode;
+class MediaStreamAudioSourceNode;
 class ScriptState;
 class WebAudioLatencyHint;
 
@@ -28,9 +34,10 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
 
  public:
   static AudioContext* Create(Document&,
-                              const AudioContextOptions&,
+                              const AudioContextOptions*,
                               ExceptionState&);
 
+  AudioContext(Document&, const WebAudioLatencyHint&);
   ~AudioContext() override;
   void Trace(blink::Visitor*) override;
 
@@ -40,13 +47,20 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
   ScriptPromise closeContext(ScriptState*);
   bool IsContextClosed() const final;
 
-  ScriptPromise suspendContext(ScriptState*) final;
-  ScriptPromise resumeContext(ScriptState*) final;
+  ScriptPromise suspendContext(ScriptState*);
+  ScriptPromise resumeContext(ScriptState*);
 
   bool HasRealtimeConstraint() final { return true; }
 
-  void getOutputTimestamp(ScriptState*, AudioTimestamp&);
+  AudioTimestamp* getOutputTimestamp(ScriptState*) const;
   double baseLatency() const;
+
+  MediaElementAudioSourceNode* createMediaElementSource(HTMLMediaElement*,
+                                                        ExceptionState&);
+  MediaStreamAudioSourceNode* createMediaStreamSource(MediaStream*,
+                                                      ExceptionState&);
+  MediaStreamAudioDestinationNode* createMediaStreamDestination(
+      ExceptionState&);
 
   // Called by handlers of AudioScheduledSourceNode and AudioBufferSourceNode to
   // notify their associated AudioContext when start() is called. It may resume
@@ -54,11 +68,11 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
   void NotifySourceNodeStart() final;
 
  protected:
-  AudioContext(Document&, const WebAudioLatencyHint&);
   void Uninitialize() final;
 
  private:
   friend class AudioContextAutoplayTest;
+  friend class AudioContextTest;
 
   // Do not change the order of this enum, it is used for metrics.
   enum AutoplayStatus {
@@ -105,6 +119,14 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
 
   void DidClose();
 
+  // Send notification to browser that an AudioContext has started or stopped
+  // playing audible audio.
+  void NotifyAudibleAudioStarted() final;
+  void NotifyAudibleAudioStopped() final;
+
+  void EnsureAudioContextManagerService();
+  void OnAudioContextManagerServiceConnectionError();
+
   unsigned context_id_;
   Member<ScriptPromiseResolver> close_resolver_;
 
@@ -123,6 +145,9 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
 
   // Records if start() was ever called for any source node in this context.
   bool source_node_started_ = false;
+
+  // AudioContextManager for reporting audibility.
+  mojom::blink::AudioContextManagerPtr audio_context_manager_;
 };
 
 }  // namespace blink

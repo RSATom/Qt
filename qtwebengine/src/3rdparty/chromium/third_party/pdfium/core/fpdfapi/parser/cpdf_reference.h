@@ -15,7 +15,7 @@
 
 class CPDF_IndirectObjectHolder;
 
-class CPDF_Reference : public CPDF_Object {
+class CPDF_Reference final : public CPDF_Object {
  public:
   CPDF_Reference(CPDF_IndirectObjectHolder* pDoc, uint32_t objnum);
   ~CPDF_Reference() override;
@@ -33,7 +33,8 @@ class CPDF_Reference : public CPDF_Object {
   bool IsReference() const override;
   CPDF_Reference* AsReference() override;
   const CPDF_Reference* AsReference() const override;
-  bool WriteTo(IFX_ArchiveStream* archive) const override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
   std::unique_ptr<CPDF_Object> MakeReference(
       CPDF_IndirectObjectHolder* holder) const override;
 
@@ -41,7 +42,7 @@ class CPDF_Reference : public CPDF_Object {
   uint32_t GetRefObjNum() const { return m_RefObjNum; }
   void SetRef(CPDF_IndirectObjectHolder* pDoc, uint32_t objnum);
 
- protected:
+ private:
   std::unique_ptr<CPDF_Object> CloneNonCyclic(
       bool bDirect,
       std::set<const CPDF_Object*>* pVisited) const override;

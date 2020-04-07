@@ -11,6 +11,7 @@
 #include "base/containers/queue.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -33,6 +34,7 @@
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_role_properties.h"
 
+using blink::WebAXContext;
 using blink::WebAXObject;
 using blink::WebDocument;
 using blink::WebElement;
@@ -41,7 +43,6 @@ using blink::WebLocalFrame;
 using blink::WebNode;
 using blink::WebPoint;
 using blink::WebRect;
-using blink::WebScopedAXContext;
 using blink::WebSettings;
 using blink::WebView;
 
@@ -72,7 +73,7 @@ void RenderAccessibilityImpl::SnapshotAccessibilityTree(
     return;
 
   WebDocument document = render_frame->GetWebFrame()->GetDocument();
-  WebScopedAXContext context(document);
+  WebAXContext context(document);
   WebAXObject root = context.Root();
   if (!root.UpdateLayoutAndCheckValidity())
     return;
@@ -112,7 +113,6 @@ RenderAccessibilityImpl::RenderAccessibilityImpl(RenderFrameImpl* render_frame,
   ack_token_ = g_next_ack_token++;
   WebView* web_view = render_frame_->GetRenderView()->GetWebView();
   WebSettings* settings = web_view->GetSettings();
-  settings->SetAccessibilityEnabled(true);
 
 #if defined(OS_ANDROID)
   // Password values are only passed through on Android.
@@ -128,6 +128,8 @@ RenderAccessibilityImpl::RenderAccessibilityImpl(RenderFrameImpl* render_frame,
 
   const WebDocument& document = GetMainDocument();
   if (!document.IsNull()) {
+    ax_context_.reset(new blink::WebAXContext(document));
+
     // It's possible that the webview has already loaded a webpage without
     // accessibility being enabled. Initialize the browser's cached
     // accessibility tree by sending it a notification.
@@ -137,6 +139,10 @@ RenderAccessibilityImpl::RenderAccessibilityImpl(RenderFrameImpl* render_frame,
 }
 
 RenderAccessibilityImpl::~RenderAccessibilityImpl() {
+}
+
+void RenderAccessibilityImpl::DidCreateNewDocument() {
+  ax_context_.reset(new blink::WebAXContext(GetMainDocument()));
 }
 
 void RenderAccessibilityImpl::AccessibilityModeChanged() {
@@ -196,8 +202,23 @@ bool RenderAccessibilityImpl::OnMessageReceived(const IPC::Message& message) {
 }
 
 void RenderAccessibilityImpl::HandleWebAccessibilityEvent(
-    const blink::WebAXObject& obj, blink::WebAXEvent event) {
-  HandleAXEvent(obj, AXEventFromBlink(event));
+    const blink::WebAXObject& obj,
+    ax::mojom::Event event) {
+  HandleAXEvent(obj, event);
+}
+
+void RenderAccessibilityImpl::MarkWebAXObjectDirty(
+    const blink::WebAXObject& obj,
+    bool subtree) {
+  DirtyObject dirty_object;
+  dirty_object.obj = obj;
+  dirty_object.event_from = GetEventFrom();
+  dirty_objects_.push_back(dirty_object);
+
+  if (subtree)
+    serializer_.InvalidateSubtree(obj);
+
+  ScheduleSendAccessibilityEventsIfNeeded();
 }
 
 void RenderAccessibilityImpl::HandleAccessibilityFindInPageResult(
@@ -229,22 +250,6 @@ void RenderAccessibilityImpl::AccessibilityFocusedNodeChanged(
     HandleAXEvent(WebAXObject::FromWebDocument(document),
                   ax::mojom::Event::kBlur);
   }
-}
-
-void RenderAccessibilityImpl::DisableAccessibility() {
-  RenderView* render_view = render_frame_->GetRenderView();
-  if (!render_view)
-    return;
-
-  WebView* web_view = render_view->GetWebView();
-  if (!web_view)
-    return;
-
-  WebSettings* settings = web_view->GetSettings();
-  if (!settings)
-    return;
-
-  settings->SetAccessibilityEnabled(false);
 }
 
 void RenderAccessibilityImpl::HandleAXEvent(const blink::WebAXObject& obj,
@@ -279,7 +284,7 @@ void RenderAccessibilityImpl::HandleAXEvent(const blink::WebAXObject& obj,
 
   // If some cell IDs have been added or removed, we need to update the whole
   // table.
-  if (obj.Role() == blink::kWebAXRoleRow &&
+  if (obj.Role() == ax::mojom::Role::kRow &&
       event == ax::mojom::Event::kChildrenChanged) {
     WebAXObject table_like_object = obj.ParentObject();
     if (!table_like_object.IsDetached()) {
@@ -290,7 +295,7 @@ void RenderAccessibilityImpl::HandleAXEvent(const blink::WebAXObject& obj,
 
   // If a select tag is opened or closed, all the children must be updated
   // because their visibility may have changed.
-  if (obj.Role() == blink::kWebAXRoleMenuListPopup &&
+  if (obj.Role() == ax::mojom::Role::kMenuListPopup &&
       event == ax::mojom::Event::kChildrenChanged) {
     WebAXObject popup_like_object = obj.ParentObject();
     if (!popup_like_object.IsDetached()) {
@@ -303,16 +308,7 @@ void RenderAccessibilityImpl::HandleAXEvent(const blink::WebAXObject& obj,
   ui::AXEvent acc_event;
   acc_event.id = obj.AxID();
   acc_event.event_type = event;
-
-  if (blink::WebUserGestureIndicator::IsProcessingUserGesture(
-          render_frame_->GetWebFrame())) {
-    acc_event.event_from = ax::mojom::EventFrom::kUser;
-  } else if (during_action_) {
-    acc_event.event_from = ax::mojom::EventFrom::kAction;
-  } else {
-    acc_event.event_from = ax::mojom::EventFrom::kPage;
-  }
-
+  acc_event.event_from = GetEventFrom();
   acc_event.action_request_id = action_request_id;
 
   // Discard duplicate accessibility events.
@@ -324,6 +320,10 @@ void RenderAccessibilityImpl::HandleAXEvent(const blink::WebAXObject& obj,
   }
   pending_events_.push_back(acc_event);
 
+  ScheduleSendAccessibilityEventsIfNeeded();
+}
+
+void RenderAccessibilityImpl::ScheduleSendAccessibilityEventsIfNeeded() {
   // Don't send accessibility events for frames that are not in the frame tree
   // yet (i.e., provisional frames used for remote-to-local navigations, which
   // haven't committed yet).  Doing so might trigger layout, which may not work
@@ -342,6 +342,18 @@ void RenderAccessibilityImpl::HandleAXEvent(const blink::WebAXObject& obj,
                        &RenderAccessibilityImpl::SendPendingAccessibilityEvents,
                        weak_factory_.GetWeakPtr()));
   }
+}
+
+ax::mojom::EventFrom RenderAccessibilityImpl::GetEventFrom() {
+  if (blink::WebUserGestureIndicator::IsProcessingUserGesture(
+          render_frame_->GetWebFrame())) {
+    return ax::mojom::EventFrom::kUser;
+  }
+
+  if (during_action_)
+    return ax::mojom::EventFrom::kAction;
+
+  return ax::mojom::EventFrom::kPage;
 }
 
 int RenderAccessibilityImpl::GenerateAXID() {
@@ -404,7 +416,7 @@ void RenderAccessibilityImpl::SendPendingAccessibilityEvents() {
   if (document.IsNull())
     return;
 
-  if (pending_events_.empty())
+  if (pending_events_.empty() && dirty_objects_.empty())
     return;
 
   ack_pending_ = true;
@@ -419,10 +431,14 @@ void RenderAccessibilityImpl::SendPendingAccessibilityEvents() {
   AccessibilityHostMsg_EventBundleParams bundle;
 
   // Keep track of nodes in the tree that need to be updated.
-  std::vector<DirtyObject> dirty_objects;
+  std::vector<DirtyObject> dirty_objects = dirty_objects_;
+  dirty_objects_.clear();
 
   // If there's a layout complete message, we need to send location changes.
   bool had_layout_complete_messages = false;
+
+  // If there's a load complete message, we need to send image metrics.
+  bool had_load_complete_messages = false;
 
   ScopedFreezeBlinkAXTreeSource freeze(&tree_source_);
 
@@ -431,6 +447,9 @@ void RenderAccessibilityImpl::SendPendingAccessibilityEvents() {
     ui::AXEvent& event = src_events[i];
     if (event.event_type == ax::mojom::Event::kLayoutComplete)
       had_layout_complete_messages = true;
+
+    if (event.event_type == ax::mojom::Event::kLoadComplete)
+      had_load_complete_messages = true;
 
     auto obj = WebAXObject::FromWebDocumentByID(document, event.id);
 
@@ -452,12 +471,11 @@ void RenderAccessibilityImpl::SendPendingAccessibilityEvents() {
 
     // Whenever there's a change within a table, invalidate the
     // whole table so that row and cell indexes are recomputed.
-    ax::mojom::Role role = AXRoleFromBlink(obj.Role());
-    if (ui::IsTableLikeRole(role) || role == ax::mojom::Role::kRow ||
-        ui::IsCellOrTableHeaderRole(role)) {
+    const ax::mojom::Role role = obj.Role();
+    if (ui::IsTableLike(role) || role == ax::mojom::Role::kRow ||
+        ui::IsCellOrTableHeader(role)) {
       auto table = obj;
-      while (!table.IsDetached() &&
-             !ui::IsTableLikeRole(AXRoleFromBlink(table.Role())))
+      while (!table.IsDetached() && !ui::IsTableLike(table.Role()))
         table = table.ParentObject();
       if (!table.IsDetached())
         serializer_.InvalidateSubtree(table);
@@ -500,17 +518,16 @@ void RenderAccessibilityImpl::SendPendingAccessibilityEvents() {
     for (size_t j = 0; j < update.nodes.size(); ++j) {
       ui::AXNodeData& src = update.nodes[j];
       ui::AXRelativeBounds& dst = locations_[update.nodes[j].id];
-      dst.offset_container_id = src.offset_container_id;
-      dst.bounds = src.location;
-      dst.transform.reset(nullptr);
-      if (src.transform)
-        dst.transform.reset(new gfx::Transform(*src.transform));
+      dst = src.relative_bounds;
     }
 
     for (size_t j = 0; j < update.nodes.size(); ++j)
       already_serialized_ids.insert(update.nodes[j].id);
 
     bundle.updates.push_back(update);
+
+    if (had_load_complete_messages)
+      RecordImageMetrics(&update);
 
     DVLOG(1) << "Accessibility tree update:\n" << update.ToString();
   }
@@ -534,7 +551,7 @@ void RenderAccessibilityImpl::SendLocationChanges() {
     return;
 
   // Do a breadth-first explore of the whole blink AX tree.
-  base::hash_map<int, ui::AXRelativeBounds> new_locations;
+  std::unordered_map<int, ui::AXRelativeBounds> new_locations;
   base::queue<WebAXObject> objs_to_explore;
   objs_to_explore.push(root);
   while (objs_to_explore.size()) {
@@ -655,16 +672,20 @@ void RenderAccessibilityImpl::OnPerformAction(
     case ax::mojom::Action::kShowContextMenu:
       target.ShowContextMenu();
       break;
-    case ax::mojom::Action::kCustomAction:
-    case ax::mojom::Action::kReplaceSelectedText:
     case ax::mojom::Action::kScrollBackward:
     case ax::mojom::Action::kScrollForward:
     case ax::mojom::Action::kScrollUp:
     case ax::mojom::Action::kScrollDown:
     case ax::mojom::Action::kScrollLeft:
     case ax::mojom::Action::kScrollRight:
+      Scroll(target, data.action);
+      break;
+    case ax::mojom::Action::kCustomAction:
+    case ax::mojom::Action::kReplaceSelectedText:
     case ax::mojom::Action::kNone:
       NOTREACHED();
+      break;
+    case ax::mojom::Action::kGetTextLocation:
       break;
   }
 }
@@ -803,6 +824,65 @@ void RenderAccessibilityImpl::AddPluginTreeToUpdate(
     update->has_tree_data = true;
 }
 
+void RenderAccessibilityImpl::Scroll(const WebAXObject& target,
+                                     ax::mojom::Action scroll_action) {
+  WebAXObject offset_container;
+  WebFloatRect bounds;
+  SkMatrix44 container_transform;
+  target.GetRelativeBounds(offset_container, bounds, container_transform);
+
+  if (bounds.IsEmpty())
+    return;
+
+  WebPoint initial = target.GetScrollOffset();
+  WebPoint min = target.MinimumScrollOffset();
+  WebPoint max = target.MaximumScrollOffset();
+
+  // TODO(anastasi): This 4/5ths came from the Android implementation, revisit
+  // to find the appropriate modifier to keep enough context onscreen after
+  // scrolling.
+  int page_x = std::max((int)(bounds.width * 4 / 5), 1);
+  int page_y = std::max((int)(bounds.height * 4 / 5), 1);
+
+  // Forward/backward defaults to down/up unless it can only be scrolled
+  // horizontally.
+  if (scroll_action == ax::mojom::Action::kScrollForward)
+    scroll_action = max.y > min.y ? ax::mojom::Action::kScrollDown
+                                  : ax::mojom::Action::kScrollRight;
+  if (scroll_action == ax::mojom::Action::kScrollBackward)
+    scroll_action = max.y > min.y ? ax::mojom::Action::kScrollUp
+                                  : ax::mojom::Action::kScrollLeft;
+
+  int x = initial.x;
+  int y = initial.y;
+  switch (scroll_action) {
+    case ax::mojom::Action::kScrollUp:
+      if (initial.y == min.y)
+        return;
+      y = std::max(initial.y - page_y, min.y);
+      break;
+    case ax::mojom::Action::kScrollDown:
+      if (initial.y == max.y)
+        return;
+      y = std::min(initial.y + page_y, max.y);
+      break;
+    case ax::mojom::Action::kScrollLeft:
+      if (initial.x == min.x)
+        return;
+      x = std::max(initial.x - page_x, min.x);
+      break;
+    case ax::mojom::Action::kScrollRight:
+      if (initial.x == max.x)
+        return;
+      x = std::min(initial.x + page_x, max.x);
+      break;
+    default:
+      NOTREACHED();
+  }
+
+  target.SetScrollOffset(WebPoint(x, y));
+}
+
 void RenderAccessibilityImpl::ScrollPlugin(int id_to_make_visible) {
   // Plugin content doesn't scroll itself, so when we're requested to
   // scroll to make a particular plugin node visible, get the
@@ -819,9 +899,9 @@ void RenderAccessibilityImpl::ScrollPlugin(int id_to_make_visible) {
   ui::AXNodeData target_data =
       plugin_tree_source_->GetFromId(id_to_make_visible)->data();
 
-  gfx::RectF bounds = target_data.location;
-  if (root_data.transform)
-    root_data.transform->TransformRect(&bounds);
+  gfx::RectF bounds = target_data.relative_bounds.bounds;
+  if (root_data.relative_bounds.transform)
+    root_data.relative_bounds.transform->TransformRect(&bounds);
 
   const WebDocument& document = GetMainDocument();
   if (document.IsNull())
@@ -829,6 +909,51 @@ void RenderAccessibilityImpl::ScrollPlugin(int id_to_make_visible) {
 
   WebAXObject::FromWebDocument(document).ScrollToMakeVisibleWithSubFocus(
       WebRect(bounds.x(), bounds.y(), bounds.width(), bounds.height()));
+}
+
+void RenderAccessibilityImpl::RecordImageMetrics(AXContentTreeUpdate* update) {
+  if (!render_frame_->accessibility_mode().has_mode(ui::AXMode::kScreenReader))
+    return;
+  float scale_factor = render_frame_->GetRenderView()->GetDeviceScaleFactor();
+  for (size_t i = 0; i < update->nodes.size(); ++i) {
+    ui::AXNodeData& node_data = update->nodes[i];
+    if (node_data.role != ax::mojom::Role::kImage)
+      continue;
+    // Convert to DIPs based on screen scale factor.
+    int width = node_data.relative_bounds.bounds.width() / scale_factor;
+    int height = node_data.relative_bounds.bounds.height() / scale_factor;
+    if (width == 0 || height == 0)
+      continue;
+    // We log the min size in a histogram with a max of 10000, so set a ceiling
+    // of 10000 on min_size.
+    int min_size = std::min(std::min(width, height), 10000);
+    int max_size = std::max(width, height);
+    // The ratio is always the smaller divided by the larger so as not to go
+    // over 100%.
+    int ratio = min_size * 100.0 / max_size;
+    const std::string name =
+        node_data.GetStringAttribute(ax::mojom::StringAttribute::kName);
+    bool explicitly_empty = node_data.GetNameFrom() ==
+                            ax::mojom::NameFrom::kAttributeExplicitlyEmpty;
+    if (!name.empty()) {
+      UMA_HISTOGRAM_PERCENTAGE(
+          "Accessibility.ScreenReader.Image.SizeRatio.Labeled", ratio);
+      UMA_HISTOGRAM_COUNTS_10000(
+          "Accessibility.ScreenReader.Image.MinSize.Labeled", min_size);
+    } else if (explicitly_empty) {
+      UMA_HISTOGRAM_PERCENTAGE(
+          "Accessibility.ScreenReader.Image.SizeRatio.ExplicitlyUnlabeled",
+          ratio);
+      UMA_HISTOGRAM_COUNTS_10000(
+          "Accessibility.ScreenReader.Image.MinSize.ExplicitlyUnlabeled",
+          min_size);
+    } else {
+      UMA_HISTOGRAM_PERCENTAGE(
+          "Accessibility.ScreenReader.Image.SizeRatio.Unlabeled", ratio);
+      UMA_HISTOGRAM_COUNTS_10000(
+          "Accessibility.ScreenReader.Image.MinSize.Unlabeled", min_size);
+    }
+  }
 }
 
 }  // namespace content

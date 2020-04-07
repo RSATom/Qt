@@ -94,6 +94,8 @@ class BlobDataHandleTest : public testing::Test {
   }
 
   void SetUp() override {
+    Platform::SetMainThreadTaskRunnerForTesting();
+
     small_test_data_.resize(1024);
     medium_test_data_.resize(1024 * 32);
     large_test_data_.resize(1024 * 512);
@@ -127,9 +129,14 @@ class BlobDataHandleTest : public testing::Test {
     mock_blob_registry_.registrations.clear();
   }
 
+  void TearDown() override {
+    scoped_task_environment_.RunUntilIdle();
+    Platform::UnsetMainThreadTaskRunnerForTesting();
+  }
+
   void TestCreateBlob(std::unique_ptr<BlobData> data,
                       Vector<ExpectedElement> expected_elements) {
-    size_t blob_size = data->length();
+    uint64_t blob_size = data->length();
     String type = data->ContentType();
     bool is_single_unknown_size_file = data->IsSingleUnknownSizeFile();
 

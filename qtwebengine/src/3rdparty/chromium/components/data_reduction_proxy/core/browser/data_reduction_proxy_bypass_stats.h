@@ -13,11 +13,10 @@
 #include "base/threading/thread_checker.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "net/base/host_port_pair.h"
-#include "net/base/network_change_notifier.h"
 #include "net/url_request/url_request.h"
+#include "services/network/public/cpp/network_connection_tracker.h"
 
 namespace net {
-class HttpResponseHeaders;
 class ProxyConfig;
 class ProxyServer;
 }
@@ -27,32 +26,17 @@ namespace data_reduction_proxy {
 class DataReductionProxyConfig;
 
 class DataReductionProxyBypassStats
-    : public net::NetworkChangeNotifier::NetworkChangeObserver {
+    : public network::NetworkConnectionTracker::NetworkConnectionObserver {
  public:
   typedef base::Callback<void(bool /* unreachable */)> UnreachableCallback;
-
-  // Records a data reduction proxy bypass event as a "BlockType" if
-  // |bypass_all| is true and as a "BypassType" otherwise. Records the event as
-  // "Primary" if |is_primary| is true and "Fallback" otherwise.
-  static void RecordDataReductionProxyBypassInfo(
-      bool is_primary,
-      bool bypass_all,
-      const net::ProxyServer& proxy_server,
-      DataReductionProxyBypassType bypass_type);
-
-  // For the given response |headers| that are expected to include the data
-  // reduction proxy via header, records response code UMA if the data reduction
-  // proxy via header is not present.
-  static void DetectAndRecordMissingViaHeaderResponseCode(
-      bool is_primary,
-      const net::HttpResponseHeaders& headers);
 
   // |config| outlives this class instance. |unreachable_callback| provides a
   // hook to inform the user that the Data Reduction Proxy is unreachable.
   // |config| must not be null.
   DataReductionProxyBypassStats(
       DataReductionProxyConfig* config,
-      UnreachableCallback unreachable_callback);
+      UnreachableCallback unreachable_callback,
+      network::NetworkConnectionTracker* network_connection_tracker);
 
   ~DataReductionProxyBypassStats() override;
 
@@ -110,9 +94,8 @@ class DataReductionProxyBypassStats
     BYPASSED_BYTES_TYPE_MAX   /* This must always be last.*/
   };
 
-  // NetworkChangeNotifier::NetworkChangeObserver:
-  void OnNetworkChanged(
-      net::NetworkChangeNotifier::ConnectionType type) override;
+  // network::NetworkConnectionTracker::NetworkConnectionObserver:
+  void OnConnectionChanged(network::mojom::ConnectionType type) override;
 
   void RecordBypassedBytes(DataReductionProxyBypassType bypass_type,
                            BypassedBytesType bypassed_bytes_type,
@@ -121,6 +104,9 @@ class DataReductionProxyBypassStats
   DataReductionProxyConfig* data_reduction_proxy_config_;
 
   UnreachableCallback unreachable_callback_;
+
+  // Watches for network changes.
+  network::NetworkConnectionTracker* network_connection_tracker_;
 
   // The last reason for bypass as determined by
   // MaybeBypassProxyAndPrepareToRetry

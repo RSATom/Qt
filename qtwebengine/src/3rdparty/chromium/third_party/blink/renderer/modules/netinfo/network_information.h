@@ -28,13 +28,15 @@ class NetworkInformation final
 
  public:
   static NetworkInformation* Create(ExecutionContext*);
+
+  explicit NetworkInformation(ExecutionContext*);
   ~NetworkInformation() override;
 
   String type() const;
   double downlinkMax() const;
-  String effectiveType() const;
-  unsigned long rtt() const;
-  double downlink() const;
+  String effectiveType();
+  unsigned long rtt();
+  double downlink();
   bool saveData() const;
 
   // NetworkStateObserver overrides.
@@ -59,8 +61,8 @@ class NetworkInformation final
 
   void Trace(blink::Visitor*) override;
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(change);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(typechange);  // Deprecated
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(change, kChange);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(typechange, kTypechange);  // Deprecated
 
  protected:
   // EventTarget overrides.
@@ -70,7 +72,6 @@ class NetworkInformation final
                             const RegisteredEventListener&) final;
 
  private:
-  explicit NetworkInformation(ExecutionContext*);
   void StartObserving();
   void StopObserving();
 
@@ -78,6 +79,8 @@ class NetworkInformation final
   bool IsObserving() const;
 
   const String Host() const;
+
+  void MaybeShowWebHoldbackConsoleMsg();
 
   // Touched only on context thread.
   WebConnectionType type_;
@@ -100,6 +103,11 @@ class NetworkInformation final
 
   // Whether the data saving mode is enabled.
   bool save_data_;
+
+  // True if the console message indicating that network quality is overridden
+  // using a holdback experiment has been shown. Set to true if the console
+  // message has been shown, or if the holdback experiment is not enabled.
+  bool web_holdback_console_message_shown_;
 
   // Whether ContextLifecycleObserver::contextDestroyed has been called.
   bool context_stopped_;

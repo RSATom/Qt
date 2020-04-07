@@ -220,7 +220,7 @@ QPlaceReply *QPlaceManagerEngineOsm::initializeCategories()
 
 QString QPlaceManagerEngineOsm::parentCategoryId(const QString &categoryId) const
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     // Only a two category levels
     return QString();

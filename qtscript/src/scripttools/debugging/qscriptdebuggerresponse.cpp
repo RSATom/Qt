@@ -310,7 +310,6 @@ bool QScriptDebuggerResponse::operator!=(const QScriptDebuggerResponse &other) c
 }
 
 /*!
-  \fn QDataStream &operator<<(QDataStream &stream, const QScriptDebuggerResponse &response)
   \relates QScriptDebuggerResponse
 
   Writes the given \a response to the specified \a stream.
@@ -325,7 +324,6 @@ QDataStream &operator<<(QDataStream &out, const QScriptDebuggerResponse &respons
 }
 
 /*!
-  \fn QDataStream &operator>>(QDataStream &stream, QScriptDebuggerResponse &response)
   \relates QScriptDebuggerResponse
 
   Reads a QScriptDebuggerResponse from the specified \a stream into the

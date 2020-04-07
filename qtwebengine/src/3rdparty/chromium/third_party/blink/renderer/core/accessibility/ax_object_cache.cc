@@ -31,6 +31,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "third_party/blink/public/web/web_ax_enums.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node.h"
@@ -60,30 +61,6 @@ AXObjectCache::AXObjectCache(Document& document)
 
 AXObjectCache::~AXObjectCache() = default;
 
-std::unique_ptr<ScopedAXObjectCache> ScopedAXObjectCache::Create(
-    Document& document) {
-  return base::WrapUnique(new ScopedAXObjectCache(document));
-}
-
-ScopedAXObjectCache::ScopedAXObjectCache(Document& document)
-    : document_(&document) {
-  if (!document_->GetOrCreateAXObjectCache())
-    cache_ = AXObjectCache::Create(*document_);
-}
-
-ScopedAXObjectCache::~ScopedAXObjectCache() {
-  if (cache_)
-    cache_->Dispose();
-}
-
-AXObjectCache* ScopedAXObjectCache::Get() {
-  if (cache_)
-    return cache_.Get();
-  AXObjectCache* cache = document_->GetOrCreateAXObjectCache();
-  DCHECK(cache);
-  return cache;
-}
-
 namespace {
 
 typedef HashSet<String, CaseFoldingHash> ARIAWidgetSet;
@@ -101,7 +78,7 @@ const char* g_aria_widgets[] = {
 
 static ARIAWidgetSet* CreateARIARoleWidgetSet() {
   ARIAWidgetSet* widget_set = new HashSet<String, CaseFoldingHash>();
-  for (size_t i = 0; i < arraysize(g_aria_widgets); ++i)
+  for (size_t i = 0; i < base::size(g_aria_widgets); ++i)
     widget_set->insert(String(g_aria_widgets[i]));
   return widget_set;
 }
@@ -135,7 +112,8 @@ const char* g_aria_interactive_widget_attributes[] = {
 };
 
 bool HasInteractiveARIAAttribute(const Element& element) {
-  for (size_t i = 0; i < arraysize(g_aria_interactive_widget_attributes); ++i) {
+  for (size_t i = 0; i < base::size(g_aria_interactive_widget_attributes);
+       ++i) {
     const char* attribute = g_aria_interactive_widget_attributes[i];
     if (element.hasAttribute(attribute)) {
       return true;

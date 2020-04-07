@@ -23,6 +23,8 @@ namespace {
 
 class GLSurfaceEGLTest : public testing::Test {};
 
+#if !defined(MEMORY_SANITIZER)
+// Fails under MSAN: crbug.com/886995
 TEST(GLSurfaceEGLTest, SurfaceFormatTest) {
   GLSurfaceTestSupport::InitializeOneOffImplementation(
       GLImplementation::kGLImplementationEGLGLES2, true);
@@ -46,6 +48,7 @@ TEST(GLSurfaceEGLTest, SurfaceFormatTest) {
   eglGetConfigAttrib(surface->GetDisplay(), config, EGL_SAMPLES, &attrib);
   EXPECT_EQ(0, attrib);
 }
+#endif
 
 #if defined(OS_WIN)
 
@@ -59,9 +62,7 @@ class TestPlatformDelegate : public ui::PlatformWindowDelegate {
   void OnClosed() override {}
   void OnWindowStateChanged(ui::PlatformWindowState new_state) override {}
   void OnLostCapture() override {}
-  void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget,
-                                    float device_pixel_ratio) override {}
-  void OnAcceleratedWidgetDestroying() override {}
+  void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) override {}
   void OnAcceleratedWidgetDestroyed() override {}
   void OnActivationChanged(bool active) override {}
 };

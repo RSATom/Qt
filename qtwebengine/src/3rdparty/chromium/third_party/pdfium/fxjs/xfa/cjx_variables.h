@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_VARIABLES_H_
 
 #include "fxjs/xfa/cjx_container.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Variables;
 
-class CJX_Variables : public CJX_Container {
+class CJX_Variables final : public CJX_Container {
  public:
   explicit CJX_Variables(CXFA_Variables* node);
   ~CJX_Variables() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_VARIABLES_H_

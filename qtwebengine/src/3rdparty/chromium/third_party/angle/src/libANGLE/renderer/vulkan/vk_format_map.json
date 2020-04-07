@@ -199,7 +199,7 @@
         "ASTC_12x10_UNORM_BLOCK": "VK_FORMAT_ASTC_12x10_UNORM_BLOCK",
         "ASTC_12x10_SRGB_BLOCK": "VK_FORMAT_ASTC_12x10_SRGB_BLOCK",
         "ASTC_12x12_UNORM_BLOCK": "VK_FORMAT_ASTC_12x12_UNORM_BLOCK",
-        "ASTC_12x12_SRGB_BLOC": "VK_FORMAT_ASTC_12x12_SRGB_BLOCK"
+        "ASTC_12x12_SRGB_BLOCK": "VK_FORMAT_ASTC_12x12_SRGB_BLOCK"
     },
     "overrides": {
         "A8_UNORM": {
@@ -227,17 +227,32 @@
         "D24_UNORM_X8_UINT": {
             "buffer": "NONE",
             "texture": "D24_UNORM_S8_UINT"
+        },
+        "R32_FIXED": {
+            "buffer": "R32_FLOAT"
+        },
+        "R32G32_FIXED": {
+            "buffer": "R32G32_FLOAT"
+        },
+        "R32G32B32_FIXED": {
+            "buffer": "R32G32B32_FLOAT"
+        },
+        "R32G32B32A32_FIXED": {
+            "buffer": "R32G32B32A32_FLOAT"
         }
     },
     "fallbacks": {
         "D32_FLOAT_S8X24_UINT": {
-            "texture": "D24_UNORM_S8_UINT"
+            "texture": ["D24_UNORM_S8_UINT", "D32_FLOAT_S8X24_UINT"]
         },
         "D24_UNORM_S8_UINT": {
-            "texture": "D32_FLOAT_S8X24_UINT"
+            "texture": ["D32_FLOAT_S8X24_UINT", "D24_UNORM_S8_UINT"]
         },
         "D24_UNORM_X8_UINT": {
-            "texture": "D32_FLOAT_S8X24_UINT"
+            "texture": ["D32_FLOAT_S8X24_UINT", "D24_UNORM_S8_UINT"]
+        },
+        "S8_UINT": {
+            "texture": ["D24_UNORM_S8_UINT", "D32_FLOAT_S8X24_UINT", "S8_UINT"]
         },
 
         "R8_UNORM": {
@@ -337,6 +352,5 @@
         "R16G16B16A16_SSCALED": {
             "buffer": "R32G32B32A32_FLOAT"
         }
-
     }
 }

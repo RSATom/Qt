@@ -208,6 +208,7 @@ public:
 
 private:
     void sendStartupMessage(const QByteArray &message) const;
+    int forcedDpi() const;
 
     QByteArray getOutputProperty(xcb_atom_t atom) const;
     QByteArray getEdid() const;
@@ -225,7 +226,7 @@ private:
     QRect m_availableGeometry;
     Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
     QXcbCursor *m_cursor;
-    int m_refreshRate = 60;
+    qreal m_refreshRate = 60.0;
     int m_pixelDensity = 1;
     QEdidParser m_edid;
 };

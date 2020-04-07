@@ -8,19 +8,14 @@
 #define FXJS_XFA_CJX_CHOICELIST_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_ChoiceList;
 
-class CJX_ChoiceList : public CJX_Node {
+class CJX_ChoiceList final : public CJX_Node {
  public:
   explicit CJX_ChoiceList(CXFA_ChoiceList* node);
   ~CJX_ChoiceList() override;
-
-  JS_PROP(commitOn);
-  JS_PROP(open);
-  JS_PROP(textEntry);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_CHOICELIST_H_

@@ -36,15 +36,9 @@ class StringDataTemplate {
     size_t usableLen = (totalSize - overhead) / sizeof(CharType);
     ASSERT(usableLen >= nLen);
 
-    void* pData = pdfium::base::PartitionAllocGeneric(
-        gStringPartitionAllocator.root(), totalSize, "StringDataTemplate");
+    void* pData = GetStringPartitionAllocator().root()->Alloc(
+        totalSize, "StringDataTemplate");
     return new (pData) StringDataTemplate(nLen, usableLen);
-  }
-
-  static StringDataTemplate* Create(const StringDataTemplate& other) {
-    StringDataTemplate* result = Create(other.m_nDataLength);
-    result->CopyContents(other);
-    return result;
   }
 
   static StringDataTemplate* Create(const CharType* pStr, size_t nLen) {
@@ -56,8 +50,7 @@ class StringDataTemplate {
   void Retain() { ++m_nRefs; }
   void Release() {
     if (--m_nRefs <= 0)
-      pdfium::base::PartitionFreeGeneric(gStringPartitionAllocator.root(),
-                                         this);
+      GetStringPartitionAllocator().root()->Free(this);
   }
 
   bool CanOperateInPlace(size_t nTotalLen) const {
@@ -71,13 +64,18 @@ class StringDataTemplate {
   }
 
   void CopyContents(const CharType* pStr, size_t nLen) {
-    ASSERT(nLen >= 0 && nLen <= m_nAllocLength);
+    ASSERT(nLen >= 0);
+    ASSERT(nLen <= m_nAllocLength);
+
     memcpy(m_String, pStr, nLen * sizeof(CharType));
     m_String[nLen] = 0;
   }
 
   void CopyContentsAt(size_t offset, const CharType* pStr, size_t nLen) {
-    ASSERT(offset >= 0 && nLen >= 0 && offset + nLen <= m_nAllocLength);
+    ASSERT(offset >= 0);
+    ASSERT(nLen >= 0);
+    ASSERT(offset + nLen <= m_nAllocLength);
+
     memcpy(m_String + offset, pStr, nLen * sizeof(CharType));
     m_String[offset + nLen] = 0;
   }

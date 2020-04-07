@@ -20,6 +20,7 @@
 #include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "media/base/media_switches.h"
+#include "services/media_session/public/cpp/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
@@ -72,6 +73,9 @@ class MediaSessionImplVisibilityBrowserTest
   ~MediaSessionImplVisibilityBrowserTest() override = default;
 
   void SetUpOnMainThread() override {
+    ms_feature_list_.InitAndEnableFeature(
+        media_session::features::kMediaSessionService);
+
     ContentBrowserTest::SetUpOnMainThread();
     web_contents_ = shell()->web_contents();
     media_session_ = MediaSessionImpl::Get(web_contents_);
@@ -106,9 +110,6 @@ class MediaSessionImplVisibilityBrowserTest
     command_line->AppendSwitchASCII(
         switches::kAutoplayPolicy,
         switches::autoplay::kNoUserGestureRequiredPolicy);
-#if !defined(OS_ANDROID)
-    command_line->AppendSwitch(switches::kEnableAudioFocus);
-#endif  // !defined(OS_ANDROID)
 
     VisibilityTestData params = GetVisibilityTestData();
 
@@ -224,6 +225,7 @@ class MediaSessionImplVisibilityBrowserTest
     }
   }
 
+  base::test::ScopedFeatureList ms_feature_list_;
   base::test::ScopedFeatureList scoped_feature_list_;
 
   WebContents* web_contents_;

@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/stl_util.h"
+
 namespace zucchini {
 
 /******** AddressTranslator::OffsetToRvaCache ********/
@@ -36,6 +38,8 @@ AddressTranslator::RvaToOffsetCache::RvaToOffsetCache(
     : translator_(translator) {}
 
 bool AddressTranslator::RvaToOffsetCache::IsValid(rva_t rva) const {
+  if (rva == kInvalidRva)
+    return false;
   if (!cached_unit_ || !cached_unit_->CoversRva(rva)) {
     const AddressTranslator::Unit* unit = translator_.RvaToUnit(rva);
     if (!unit)
@@ -77,9 +81,7 @@ AddressTranslator::Status AddressTranslator::Initialize(
   }
 
   // Remove all empty units.
-  units.erase(std::remove_if(units.begin(), units.end(),
-                             [](const Unit& unit) { return unit.IsEmpty(); }),
-              units.end());
+  base::EraseIf(units, [](const Unit& unit) { return unit.IsEmpty(); });
 
   // Sort |units| by RVA, then uniquefy.
   std::sort(units.begin(), units.end(), [](const Unit& a, const Unit& b) {

@@ -21,6 +21,8 @@
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 
 #include <memory>
+
+#include "base/numerics/safe_conversions.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
 #include "third_party/blink/renderer/platform/image-decoders/bmp/bmp_image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/fast_shared_buffer_reader.h"
@@ -29,7 +31,7 @@
 #include "third_party/blink/renderer/platform/image-decoders/jpeg/jpeg_image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/png/png_image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/webp/webp_image_decoder.h"
-#include "third_party/blink/renderer/platform/instrumentation/platform_instrumentation.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
 namespace blink {
 
@@ -64,6 +66,8 @@ inline bool MatchesBMPSignature(const char* contents) {
 }
 
 static constexpr size_t kLongestSignatureLength = sizeof("RIFF????WEBPVP") - 1;
+static const size_t k4BytesPerPixel = 4;
+static const size_t k8BytesPerPixel = 8;
 
 std::unique_ptr<ImageDecoder> ImageDecoder::Create(
     scoped_refptr<SegmentReader> data,
@@ -75,15 +79,24 @@ std::unique_ptr<ImageDecoder> ImageDecoder::Create(
   // At least kLongestSignatureLength bytes are needed to sniff the signature.
   if (data->size() < kLongestSignatureLength)
     return nullptr;
+  // On low end devices, always decode to 8888.
+  if (high_bit_depth_decoding_option == kHighBitDepthToHalfFloat &&
+      Platform::Current() && Platform::Current()->IsLowEndDevice()) {
+    high_bit_depth_decoding_option = kDefaultBitDepth;
+  }
 
   size_t max_decoded_bytes = Platform::Current()
                                  ? Platform::Current()->MaxDecodedImageBytes()
                                  : kNoDecodedImageByteLimit;
   if (!desired_size.isEmpty()) {
-    static const size_t kBytesPerPixels = 4;
-    size_t requested_decoded_bytes =
-        kBytesPerPixels * desired_size.width() * desired_size.height();
-    max_decoded_bytes = std::min(requested_decoded_bytes, max_decoded_bytes);
+    size_t num_pixels = desired_size.width() * desired_size.height();
+    if (high_bit_depth_decoding_option == kDefaultBitDepth) {
+      max_decoded_bytes =
+          std::min(k4BytesPerPixel * num_pixels, max_decoded_bytes);
+    } else {  // kHighBitDepthToHalfFloat
+      max_decoded_bytes =
+          std::min(k8BytesPerPixel * num_pixels, max_decoded_bytes);
+    }
   }
 
   // Access the first kLongestSignatureLength chars to sniff the signature.
@@ -139,13 +152,15 @@ size_t ImageDecoder::FrameCount() {
 }
 
 ImageFrame* ImageDecoder::DecodeFrameBufferAtIndex(size_t index) {
+  TRACE_EVENT0("blink", "ImageDecoder::DecodeFrameBufferAtIndex");
+
   if (index >= FrameCount())
     return nullptr;
   ImageFrame* frame = &frame_buffer_cache_[index];
   if (frame->GetStatus() != ImageFrame::kFrameComplete) {
-    PlatformInstrumentation::WillDecodeImage(FilenameExtension());
+    TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "Decode Image",
+                 "imageType", FilenameExtension().Ascii());
     Decode(index);
-    PlatformInstrumentation::DidDecodeImage();
   }
 
   if (!has_histogrammed_color_space_) {
@@ -180,16 +195,16 @@ size_t ImageDecoder::FrameBytesAtIndex(size_t index) const {
       frame_buffer_cache_[index].GetStatus() == ImageFrame::kFrameEmpty)
     return 0;
 
-  struct ImageSize {
-    explicit ImageSize(IntSize size) {
-      area = static_cast<uint64_t>(size.Width()) * size.Height();
-    }
-
-    uint64_t area;
-  };
-
-  return ImageSize(FrameSizeAtIndex(index)).area *
-         sizeof(ImageFrame::PixelData);
+  size_t decoded_bytes_per_pixel = k4BytesPerPixel;
+  if (frame_buffer_cache_[index].GetPixelFormat() ==
+      ImageFrame::PixelFormat::kRGBA_F16) {
+    decoded_bytes_per_pixel = k8BytesPerPixel;
+  }
+  IntSize size = FrameSizeAtIndex(index);
+  base::CheckedNumeric<size_t> area = size.Width();
+  area *= size.Height();
+  area *= decoded_bytes_per_pixel;
+  return area.ValueOrDie();
 }
 
 size_t ImageDecoder::ClearCacheExceptFrame(size_t clear_except_frame) {
@@ -391,12 +406,18 @@ void ImageDecoder::UpdateAggressivePurging(size_t index) {
   // As we decode we will learn the total number of frames, and thus total
   // possible image memory used.
 
+  size_t decoded_bytes_per_pixel = k4BytesPerPixel;
+
+  if (frame_buffer_cache_.size() && frame_buffer_cache_[0].GetPixelFormat() ==
+                                        ImageFrame::PixelFormat::kRGBA_F16) {
+    decoded_bytes_per_pixel = k8BytesPerPixel;
+  }
   const uint64_t frame_memory_usage =
-      DecodedSize().Area() * 4;  // 4 bytes per pixel
+      DecodedSize().Area() * decoded_bytes_per_pixel;
 
   // This condition never fails in the current code. Our existing image decoders
   // parse for the image size and SetFailed() if that size overflows
-  DCHECK_EQ(frame_memory_usage / 4, DecodedSize().Area());
+  DCHECK_EQ(frame_memory_usage / decoded_bytes_per_pixel, DecodedSize().Area());
 
   const uint64_t total_memory_usage = frame_memory_usage * index;
   if (total_memory_usage / frame_memory_usage != index) {  // overflow occurred

@@ -105,7 +105,7 @@ sk_sp<SkSpecialSurface> SkSpecialSurface::MakeRaster(const SkImageInfo& info,
         return nullptr;
     }
 
-    sk_sp<SkPixelRef> pr = SkMallocPixelRef::MakeZeroed(info, 0);
+    sk_sp<SkPixelRef> pr = SkMallocPixelRef::MakeAllocate(info, 0);
     if (!pr) {
         return nullptr;
     }
@@ -117,6 +117,7 @@ sk_sp<SkSpecialSurface> SkSpecialSurface::MakeRaster(const SkImageInfo& info,
 
 #if SK_SUPPORT_GPU
 ///////////////////////////////////////////////////////////////////////////////
+#include "GrBackendSurface.h"
 #include "GrContext.h"
 #include "SkGpuDevice.h"
 
@@ -164,16 +165,19 @@ private:
 };
 
 sk_sp<SkSpecialSurface> SkSpecialSurface::MakeRenderTarget(GrContext* context,
+                                                           const GrBackendFormat& format,
                                                            int width, int height,
                                                            GrPixelConfig config,
-                                                           sk_sp<SkColorSpace> colorSpace) {
+                                                           sk_sp<SkColorSpace> colorSpace,
+                                                           const SkSurfaceProps* props) {
     if (!context) {
         return nullptr;
     }
 
     sk_sp<GrRenderTargetContext> renderTargetContext(
         context->contextPriv().makeDeferredRenderTargetContext(
-                SkBackingFit::kApprox, width, height, config, std::move(colorSpace)));
+                format, SkBackingFit::kApprox, width, height, config, std::move(colorSpace), 1,
+                GrMipMapped::kNo, kBottomLeft_GrSurfaceOrigin, props));
     if (!renderTargetContext) {
         return nullptr;
     }

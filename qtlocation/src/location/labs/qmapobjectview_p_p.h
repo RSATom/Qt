@@ -65,6 +65,11 @@ public:
     QMapObjectViewPrivate(QGeoMapObject *q);
     ~QMapObjectViewPrivate() override;
 
+    virtual QVariant model() const = 0;
+    virtual void setModel(const QVariant &model) = 0;
+    virtual QQmlComponent *delegate() const = 0;
+    virtual void setDelegate(QQmlComponent *delegate) = 0;
+
     virtual QGeoMapObject::Type type() const override final;
 };
 
@@ -75,10 +80,20 @@ public:
     QMapObjectViewPrivateDefault(const QMapObjectViewPrivate &other);
     ~QMapObjectViewPrivateDefault() override;
 
+    virtual QVariant model() const override;
+    virtual void setModel(const QVariant &model) override;
+    virtual QQmlComponent *delegate() const override;
+    virtual void setDelegate(QQmlComponent *delegate) override;
 
     // QGeoMapObjectPrivate interface
 public:
     QGeoMapObjectPrivate *clone() override;
+    bool equals(const QGeoMapObjectPrivate &other) const override;
+    virtual QGeoShape geoShape() const override;
+    virtual void setGeoShape(const QGeoShape &shape) override;
+
+    QVariant m_model;
+    QQmlComponent *m_delegate = nullptr;
 };
 
 QT_END_NAMESPACE

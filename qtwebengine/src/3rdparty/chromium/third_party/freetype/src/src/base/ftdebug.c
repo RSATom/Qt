@@ -87,9 +87,19 @@
             int          line,
             const char*  file )
   {
+#if 0
+    /* activating the code in this block makes FreeType very chatty */
+    fprintf( stderr,
+             "%s:%d: error 0x%02x: %s\n",
+             file,
+             line,
+             error,
+             FT_Error_String( error ) );
+#else
     FT_UNUSED( error );
     FT_UNUSED( line );
     FT_UNUSED( file );
+#endif
 
     return 0;
   }
@@ -100,9 +110,16 @@
 
 #ifdef FT_DEBUG_LEVEL_TRACE
 
-  /* array of trace levels, initialized to 0 */
-  int  ft_trace_levels[trace_count];
+  /* array of trace levels, initialized to 0; */
+  /* this gets adjusted at run-time           */
+  static int  ft_trace_levels_enabled[trace_count];
 
+  /* array of trace levels, always initialized to 0 */
+  static int  ft_trace_levels_disabled[trace_count];
+
+  /* a pointer to either `ft_trace_levels_enabled' */
+  /* or `ft_trace_levels_disabled'                 */
+  int*  ft_trace_levels;
 
   /* define array of trace toggle names */
 #define FT_TRACE_DEF( x )  #x ,
@@ -137,6 +154,24 @@
       return ft_trace_toggles[idx];
     else
       return NULL;
+  }
+
+
+  /* documentation is in ftdebug.h */
+
+  FT_BASE_DEF( void )
+  FT_Trace_Disable( void )
+  {
+    ft_trace_levels = ft_trace_levels_disabled;
+  }
+
+
+  /* documentation is in ftdebug.h */
+
+  FT_BASE_DEF( void )
+  FT_Trace_Enable( void )
+  {
+    ft_trace_levels = ft_trace_levels_enabled;
   }
 
 
@@ -223,14 +258,16 @@
             {
               /* special case for `any' */
               for ( n = 0; n < trace_count; n++ )
-                ft_trace_levels[n] = level;
+                ft_trace_levels_enabled[n] = level;
             }
             else
-              ft_trace_levels[found] = level;
+              ft_trace_levels_enabled[found] = level;
           }
         }
       }
     }
+
+    ft_trace_levels = ft_trace_levels_enabled;
   }
 
 
@@ -257,6 +294,22 @@
     FT_UNUSED( idx );
 
     return NULL;
+  }
+
+
+  FT_BASE_DEF( void )
+  FT_Trace_Disable( void )
+  {
+    /* nothing */
+  }
+
+
+  /* documentation is in ftdebug.h */
+
+  FT_BASE_DEF( void )
+  FT_Trace_Enable( void )
+  {
+    /* nothing */
   }
 
 

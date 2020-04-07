@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_INSERT_H_
 
 #include "fxjs/xfa/cjx_textnode.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Insert;
 
-class CJX_Insert : public CJX_TextNode {
+class CJX_Insert final : public CJX_TextNode {
  public:
   explicit CJX_Insert(CXFA_Insert* node);
   ~CJX_Insert() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_INSERT_H_

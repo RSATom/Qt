@@ -31,19 +31,35 @@ source_set("probes_src") {
     "ftrace",
   ]
   deps = [
+    ":data_source",
     "../../../gn:default_deps",
     "../../../include/perfetto/traced",
     "../../../protos/perfetto/trace/ps:zero",
     "../../base",
     "../../tracing:ipc",
     "../../tracing:tracing",
+    "android_log",
     "filesystem",
+    "power",
+    "ps",
+    "sys_stats",
   ]
   sources = [
     "probes_producer.cc",
     "probes_producer.h",
-    "process_stats_data_source.cc",
-    "process_stats_data_source.h",
+  ]
+}
+
+# Base class for data sources in traced_probes.
+# Needs to be a separate target to avoid cyclical deps.
+source_set("data_source") {
+  deps = [
+    "../../../gn:default_deps",
+    "../../tracing",
+  ]
+  sources = [
+    "probes_data_source.cc",
+    "probes_data_source.h",
   ]
 }
 
@@ -54,8 +70,9 @@ source_set("unittests") {
     "../../../gn:default_deps",
     "../../../gn:gtest_deps",
     "../../tracing:test_support",
-  ]
-  sources = [
-    "process_stats_data_source_unittest.cc",
+    "android_log:unittests",
+    "filesystem:unittests",
+    "ps:unittests",
+    "sys_stats:unittests",
   ]
 }

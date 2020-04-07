@@ -12,7 +12,7 @@
 
 #include "modules/rtp_rtcp/source/byte_io.h"
 #include "modules/rtp_rtcp/source/forward_error_correction.h"
-#include "rtc_base/bytebuffer.h"
+#include "rtc_base/byte_buffer.h"
 #include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
@@ -26,6 +26,9 @@ constexpr size_t kMaxPacketsInBuffer = 48;
 }  // namespace
 
 void FuzzOneInput(const uint8_t* data, size_t size) {
+  if (size > 5000) {
+    return;
+  }
   // Object under test.
   std::unique_ptr<ForwardErrorCorrection> fec =
       ForwardErrorCorrection::CreateFlexfec(kFecSsrc, kMediaSsrc);

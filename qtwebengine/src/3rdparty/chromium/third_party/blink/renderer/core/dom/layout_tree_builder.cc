@@ -76,6 +76,7 @@ LayoutTreeBuilderForElement::LayoutTreeBuilderForElement(Element& element,
                                                          ComputedStyle* style)
     : LayoutTreeBuilder(element, nullptr), style_(style) {
   DCHECK(element.CanParticipateInFlatTree());
+  DCHECK(style_);
   // TODO(ecobos): Move the first-letter logic inside ParentLayoutObject too?
   // It's an extra (unnecessary) check for text nodes, though.
   if (element.IsFirstLetterPseudoElement()) {
@@ -127,34 +128,24 @@ bool LayoutTreeBuilderForElement::ShouldCreateLayoutObject() const {
       !CanHaveGeneratedChildren(*parent_layout_object)) {
     return false;
   }
-  return node_->LayoutObjectIsNeeded(Style());
-}
-
-ComputedStyle& LayoutTreeBuilderForElement::Style() const {
-  if (!style_) {
-    DCHECK(!node_->GetNonAttachedStyle());
-    DCHECK(node_->IsFirstLetterPseudoElement());
-    style_ = node_->StyleForLayoutObject();
-  }
-  return *style_;
+  return node_->LayoutObjectIsNeeded(*style_);
 }
 
 DISABLE_CFI_PERF
 void LayoutTreeBuilderForElement::CreateLayoutObject() {
-  ComputedStyle& style = Style();
   ReattachLegacyLayoutObjectList& legacy_layout_objects =
       node_->GetDocument().GetReattachLegacyLayoutObjectList();
   if (legacy_layout_objects.IsForcingLegacyLayout()) {
     DCHECK(!node_->GetLayoutObject());
-    style.SetForceLegacyLayout(true);
+    style_->SetForceLegacyLayout(true);
   }
-  LayoutObject* new_layout_object = node_->CreateLayoutObject(style);
+  LayoutObject* new_layout_object = node_->CreateLayoutObject(*style_);
   if (!new_layout_object)
     return;
 
   LayoutObject* parent_layout_object = ParentLayoutObject();
 
-  if (!parent_layout_object->IsChildAllowed(new_layout_object, style)) {
+  if (!parent_layout_object->IsChildAllowed(new_layout_object, *style_)) {
     new_layout_object->Destroy();
     return;
   }
@@ -169,7 +160,7 @@ void LayoutTreeBuilderForElement::CreateLayoutObject() {
   LayoutObject* next_layout_object = NextLayoutObject();
   node_->SetLayoutObject(new_layout_object);
   new_layout_object->SetStyle(
-      &style);  // SetStyle() can depend on LayoutObject() already being set.
+      style_);  // SetStyle() can depend on LayoutObject() already being set.
 
   // Note: Adding new_layout_object instead of LayoutObject(). LayoutObject()
   // may be a child of new_layout_object.
@@ -275,14 +266,14 @@ void ReattachLegacyLayoutObjectList::AddForceLegacyAtBFCAncestor(
       blocks_.begin(), blocks_.end(), [bfc](const LayoutObject* object) {
         return object->GetNode()->IsDescendantOf(bfc->GetNode());
       });
-  blocks_.resize(std::distance(blocks_.begin(), itr));
+  blocks_.resize(static_cast<wtf_size_t>(std::distance(blocks_.begin(), itr)));
   // Mark BFC root is added into the list.
   bfc->MutableStyle()->SetForceLegacyLayout(true);
   blocks_.push_back(bfc);
 }
 
 bool ReattachLegacyLayoutObjectList::IsCollecting() const {
-  return state_ == State::kCollecting || state_ == State::kRecalcStyle;
+  return state_ == State::kCollecting;
 }
 
 void ReattachLegacyLayoutObjectList::ForceLegacyLayoutIfNeeded() {
@@ -296,34 +287,12 @@ void ReattachLegacyLayoutObjectList::ForceLegacyLayoutIfNeeded() {
   for (const LayoutObject* block : blocks_)
     ToElement(*block->GetNode()).LazyReattachIfAttached();
   state_ = State::kForcingLegacyLayout;
-  Element& document_element = *document_->documentElement();
-  document_element.RecalcStyle(kNoChange);
-  WhitespaceAttacher whitespace_attacher;
-  document_element.RebuildLayoutTree(whitespace_attacher);
+  document_->GetStyleEngine().RecalcStyle(kNoChange);
+  document_->GetStyleEngine().RebuildLayoutTree();
   state_ = State::kClosed;
 }
 
-void ReattachLegacyLayoutObjectList::DidRecalcStyle() {
-  const State state = state_;
-  state_ = State::kClosed;
-  if (state == State::kBuildingLegacyLayoutTree)
-    return;
-  DCHECK_EQ(state, State::kRecalcStyle);
-  for (const LayoutObject* block : blocks_)
-    ToElement(*block->GetNode()).LazyReattachIfAttached();
-}
-
-void ReattachLegacyLayoutObjectList::WillRecalcStyle() {
-  // TODO(layout-dev): Once make |RecalcStyle()| not to create layout object,
-  // we don't need to have |WillRecalcStyle()| and |DidRecalcStyle()|.
-  // Note: "first-letter-removed-added.html" creates layout object during
-  // style recalc. See http://crbug.com/847218
-  if (state_ == State::kBuildingLegacyLayoutTree)
-    return;
-  state_ = State::kRecalcStyle;
-}
-
-void ReattachLegacyLayoutObjectList::Trace(blink::Visitor* visitor) {
+void ReattachLegacyLayoutObjectList::Trace(Visitor* visitor) {
   visitor->Trace(document_);
 }
 

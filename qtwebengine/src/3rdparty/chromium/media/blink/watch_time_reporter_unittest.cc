@@ -236,14 +236,16 @@ class WatchTimeReporterTest
         mojom::VideoDecodeStatsRecorderRequest request) override {
       FAIL();
     }
-    void Initialize(bool is_mse,
-                    bool is_top_frame,
-                    const url::Origin& untrusted_top_origin) override {}
+    void Initialize(bool is_mse, mojom::MediaURLScheme url_scheme) override {}
     void OnError(PipelineStatus status) override {}
+    void SetIsAdMedia() override {}
     void SetIsEME() override {}
     void SetTimeToMetadata(base::TimeDelta elapsed) override {}
     void SetTimeToFirstFrame(base::TimeDelta elapsed) override {}
     void SetTimeToPlayReady(base::TimeDelta elapsed) override {}
+    void SetContainerName(
+        container_names::MediaContainerName container_name) override {}
+    void AddBytesReceived(uint64_t bytes_received) override {}
 
    private:
     WatchTimeReporterTest* parent_;
@@ -785,6 +787,8 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporterSecondaryProperties) {
       has_video_ ? kCodecH264 : kUnknownVideoCodec,
       has_audio_ ? "FirstAudioDecoder" : "",
       has_video_ ? "FirstVideoDecoder" : "",
+      has_audio_ ? EncryptionMode::kCenc : EncryptionMode::kUnencrypted,
+      has_video_ ? EncryptionMode::kCbcs : EncryptionMode::kUnencrypted,
       has_video_ ? gfx::Size(800, 600) : gfx::Size());
 
   // Get a pointer to our original properties since we're not allowed to use

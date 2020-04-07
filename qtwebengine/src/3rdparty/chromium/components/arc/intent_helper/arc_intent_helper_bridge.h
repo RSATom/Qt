@@ -69,6 +69,8 @@ class ArcIntentHelperBridge
   void OpenWallpaperPicker() override;
   void SetWallpaperDeprecated(const std::vector<uint8_t>& jpeg_data) override;
   void OpenVolumeControl() override;
+  void OnOpenWebApp(const std::string& url) override;
+  void RecordShareFilesMetrics(mojom::ShareFiles flag) override;
 
   // Retrieves icons for the |activities| and calls |callback|.
   // See ActivityIconLoader::GetActivityIcons() for more details.
@@ -111,7 +113,7 @@ class ArcIntentHelperBridge
   // handle a URL without handing off to Android.
   std::vector<IntentFilter> intent_filters_;
 
-  base::ObserverList<ArcIntentHelperObserver> observer_list_;
+  base::ObserverList<ArcIntentHelperObserver>::Unchecked observer_list_;
 
   // about: and chrome://settings pages assistant requires to launch via
   // OnOpenChromePage.

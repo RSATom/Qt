@@ -17,6 +17,11 @@ import gold
 import pngdiffer
 import suppressor
 
+# Arbitrary timestamp, expressed in seconds since the epoch, used to make sure
+# that tests that depend on the current time are stable. Happens to be the
+# timestamp of the first commit to repo, 2014/5/9 17:48:50.
+TEST_SEED_TIME = "1399672130"
+
 class KeyboardInterruptError(Exception): pass
 
 # Nomenclature:
@@ -35,6 +40,13 @@ def TestOneFileParallel(this, test_case):
     raise KeyboardInterruptError()
 
 
+def DeleteFiles(files):
+  """Utility function to delete a list of files"""
+  for f in files:
+    if os.path.exists(f):
+      os.remove(f)
+
+
 class TestRunner:
   def __init__(self, dirname):
     # Currently the only used directories are corpus, javascript, and pixel,
@@ -43,6 +55,7 @@ class TestRunner:
     # an argument for the type will need to be added.
     self.test_dir = dirname
     self.test_type = dirname
+    self.delete_output_on_success = False
     self.enforce_expected_images = False
     self.oneshot_renderer = False
 
@@ -61,9 +74,7 @@ class TestRunner:
     # Remove any existing generated images from previous runs.
     actual_images = self.image_differ.GetActualFiles(input_filename, source_dir,
                                                      self.working_dir)
-    for image in actual_images:
-      if os.path.exists(image):
-        os.remove(image)
+    DeleteFiles(actual_images)
 
     sys.stdout.flush()
 
@@ -96,6 +107,8 @@ class TestRunner:
         print 'FAILURE: %s; Missing expected images' % input_filename
         return False, results
 
+    if self.delete_output_on_success:
+      DeleteFiles(actual_images)
     return True, results
 
   def RegenerateIfNeeded_(self, input_filename, source_dir):
@@ -132,14 +145,16 @@ class TestRunner:
     txt_path = os.path.join(self.working_dir, input_root + '.txt')
 
     with open(txt_path, 'w') as outfile:
-      cmd_to_run = [self.pdfium_test_path, '--send-events', pdf_path]
+      cmd_to_run = [self.pdfium_test_path, '--send-events',
+                    '--time=' + TEST_SEED_TIME, pdf_path]
       subprocess.check_call(cmd_to_run, stdout=outfile)
 
     cmd = [sys.executable, self.text_diff_path, expected_txt_path, txt_path]
     return common.RunCommand(cmd)
 
   def TestPixel(self, input_root, pdf_path, use_ahem):
-    cmd_to_run = [self.pdfium_test_path, '--send-events', '--png', '--md5']
+    cmd_to_run = [self.pdfium_test_path, '--send-events', '--png', '--md5',
+                  '--time=' + TEST_SEED_TIME]
 
     if self.oneshot_renderer:
       cmd_to_run.append('--render-oneshot')
@@ -249,6 +264,11 @@ class TestRunner:
                                                    '--show-config'])
     self.test_suppressor = suppressor.Suppressor(finder, self.feature_string)
     self.image_differ = pngdiffer.PNGDiffer(finder)
+    error_message = self.image_differ.CheckMissingTools(
+        self.options.regenerate_expected)
+    if error_message:
+      print "FAILURE: %s" % error_message
+      return 1
 
     self.gold_baseline = gold.GoldBaseline(self.options.gold_properties)
 
@@ -353,6 +373,10 @@ class TestRunner:
     print '  Failures: %d' % number_failures
     print
     print 'Test cases not executed: %d' % len(self.execution_suppressed_cases)
+
+  def SetDeleteOutputOnSuccess(self, new_value):
+    """Set whether to delete generated output if the test passes."""
+    self.delete_output_on_success = new_value
 
   def SetEnforceExpectedImages(self, new_value):
     """Set whether to enforce that each test case provide an expected image."""

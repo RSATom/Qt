@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -30,12 +30,12 @@
     \title GeoFlickr (QML)
     \ingroup qtpositioning-examples
 
-    \brief The GeoFlickr example shows how to use the user's current position to
-           fetch local content from a web service.
+    \brief The GeoFlickr example shows how to use the user's current
+           position to fetch local content from a web service.
 
-    This is a small example, illustrating one of the very core parts of the
-    \l{Qt Positioning} API: the ability to retrieve and use the user's current
-    geographic position.
+    This is a small example, illustrating one of the very core parts
+    of the \l{Qt Positioning} API: the ability to retrieve and use the
+    user's current geographic position.
 
     Key QML types shown in this example:
     \list
@@ -50,38 +50,38 @@
     \section1 Retrieving the Current Position
 
     Retrieving the user's current position is achieved using the PositionSource
-    type. In this example, we instantiate the PositionSource as part of the
-    GeoTab component (the floating "window" describing current position and
-    status).
+    type. In this example, we instantiate the PositionSource as part
+    of the GeoTab component (the floating "window" describing current
+    position and status).
 
     \snippet geoflickr/flickrmobile/GeoTab.qml possrc
 
-    When the "Locate and update" button is pressed, we first interrogate the
-    PositionSource to check if it has an available backend for positioning
-    data. If it does not, we fall back to using a pre-recorded NMEA log
-    for demonstration. We then instruct the PositionSource to update.
+    When the "Locate and update" button is pressed, we first interrogate
+    the PositionSource to check if it has an available backend for
+    positioning data. If it does not, we fall back to using a pre-recorded
+    NMEA log for demonstration. We then instruct the PositionSource to update.
 
     \snippet geoflickr/flickrmobile/GeoTab.qml locatebutton-top
     \snippet geoflickr/flickrmobile/GeoTab.qml locatebutton-clicked
 
-    To share the new position data with the rest of the application, we use
-    properties that we have created on the GeoTab component:
+    To share the new position data with the rest of the application, we
+    use properties that we have created on the GeoTab component:
 
     \snippet geoflickr/flickrmobile/GeoTab.qml props
 
     \section1 Using the Current Position
 
-    The longitude and latitude values retrieved here are eventually set on
-    in properties on the RestModel component. The RestModel is an XmlListModel,
-    which retrieves XML data from a URL and creates a data model by performing
-    XPath queries on it.
+    The longitude and latitude values retrieved here are eventually set
+    in the properties on the RestModel component. The RestModel is an
+    XmlListModel, which retrieves XML data from a URL and creates a data
+    model by performing XPath queries on it.
 
-    In this case, it retrieves data from the Flickr REST API online, based on
-    our current position
+    In this case, it retrieves data from the Flickr REST API online,
+    based on our current position
 
     \snippet geoflickr/flickrcommon/RestModel.qml restmodel
 
-    This model data is then shown in a variety of Qt Quick views to produce
-    the example application.
+    This model data is then shown in a variety of Qt Quick views to
+    produce the example application.
 
 */

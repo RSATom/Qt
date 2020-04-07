@@ -208,17 +208,13 @@ void ChromeRequireCTDelegate::UpdateCTPolicies(
   ParseSpkiHashes(excluded_legacy_spkis, &legacy_spkis_);
 
   // Filter out SPKIs that aren't for legacy CAs.
-  legacy_spkis_.erase(
-      std::remove_if(legacy_spkis_.begin(), legacy_spkis_.end(),
-                     [](const net::HashValue& hash) {
-                       if (!net::IsLegacyPubliclyTrustedCA(hash)) {
-                         LOG(ERROR) << "Non-legacy SPKI configured "
-                                    << hash.ToString();
-                         return true;
-                       }
-                       return false;
-                     }),
-      legacy_spkis_.end());
+  base::EraseIf(legacy_spkis_, [](const net::HashValue& hash) {
+    if (!net::IsLegacyPubliclyTrustedCA(hash)) {
+      LOG(ERROR) << "Non-legacy SPKI configured " << hash.ToString();
+      return true;
+    }
+    return false;
+  });
 }
 
 bool ChromeRequireCTDelegate::MatchHostname(const std::string& hostname,
@@ -236,8 +232,7 @@ bool ChromeRequireCTDelegate::MatchHostname(const std::string& hostname,
     return false;
 
   // Determine the overall policy by determining the most specific policy.
-  std::map<url_matcher::URLMatcherConditionSet::ID, Filter>::const_iterator it =
-      filters_.begin();
+  auto it = filters_.begin();
   const Filter* active_filter = nullptr;
   for (const auto& match : matching_ids) {
     // Because both |filters_| and |matching_ids| are sorted on the ID,

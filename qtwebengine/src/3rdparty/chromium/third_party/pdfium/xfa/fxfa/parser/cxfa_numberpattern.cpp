@@ -10,10 +10,8 @@ namespace {
 
 const CXFA_Node::AttributeData kNumberPatternAttributeData[] = {
     {XFA_Attribute::Name, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Numeric},
+     (void*)XFA_AttributeValue::Numeric},
     {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
-
-constexpr wchar_t kNumberPatternName[] = L"numberPattern";
 
 }  // namespace
 
@@ -25,7 +23,6 @@ CXFA_NumberPattern::CXFA_NumberPattern(CXFA_Document* doc,
                 XFA_ObjectType::ContentNode,
                 XFA_Element::NumberPattern,
                 nullptr,
-                kNumberPatternAttributeData,
-                kNumberPatternName) {}
+                kNumberPatternAttributeData) {}
 
-CXFA_NumberPattern::~CXFA_NumberPattern() {}
+CXFA_NumberPattern::~CXFA_NumberPattern() = default;

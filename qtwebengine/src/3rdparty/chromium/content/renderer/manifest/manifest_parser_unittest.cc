@@ -904,8 +904,10 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   const std::string kPurposeParseStringError =
       "property 'purpose' ignored, type string expected.";
   const std::string kPurposeInvalidValueError =
-      "found icon with invalid purpose. "
-      "Using default value 'any'.";
+      "found icon with no valid purpose; ignoring it.";
+  const std::string kSomeInvalidPurposeError =
+      "found icon with one or more invalid purposes; those purposes are "
+      "ignored.";
 
   // Smoke test.
   {
@@ -965,12 +967,14 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   {
     blink::Manifest manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"Any Badge\" } ] }");
-    ASSERT_EQ(manifest.icons[0].purpose.size(), 2u);
+        "\"purpose\": \"Any Badge Maskable\" } ] }");
+    ASSERT_EQ(manifest.icons[0].purpose.size(), 3u);
     EXPECT_EQ(manifest.icons[0].purpose[0],
               blink::Manifest::ImageResource::Purpose::ANY);
     EXPECT_EQ(manifest.icons[0].purpose[1],
               blink::Manifest::ImageResource::Purpose::BADGE);
+    EXPECT_EQ(manifest.icons[0].purpose[2],
+              blink::Manifest::ImageResource::Purpose::MASKABLE);
     EXPECT_EQ(0u, GetErrorCount());
   }
 
@@ -1004,19 +1008,30 @@ TEST_F(ManifestParserTest, IconPurposeParseRules) {
   {
     blink::Manifest manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"badge notification\" } ] }");
+        "\"purpose\": \"badge fizzbuzz\" } ] }");
     ASSERT_EQ(manifest.icons[0].purpose.size(), 1u);
     EXPECT_EQ(manifest.icons[0].purpose[0],
               blink::Manifest::ImageResource::Purpose::BADGE);
     ASSERT_EQ(1u, GetErrorCount());
-    EXPECT_EQ(kPurposeInvalidValueError, errors()[0]);
+    EXPECT_EQ(kSomeInvalidPurposeError, errors()[0]);
   }
 
-  // 'any' is added when developer-supplied purpose is invalid.
+  // If developer-supplied purpose is invalid, entire icon is removed.
   {
     blink::Manifest manifest = ParseManifest(
         "{ \"icons\": [ {\"src\": \"\","
-        "\"purpose\": \"notification\" } ] }");
+        "\"purpose\": \"fizzbuzz\" } ] }");
+    ASSERT_EQ(0u, manifest.icons.size());
+    ASSERT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(kPurposeInvalidValueError, errors()[0]);
+  }
+
+  // Two icons, one with an invalid purpose and the other normal.
+  {
+    blink::Manifest manifest = ParseManifest(
+        "{ \"icons\": [ {\"src\": \"\", \"purpose\": \"fizzbuzz\" }, "
+        "               {\"src\": \"\" }] }");
+    ASSERT_EQ(1u, manifest.icons.size());
     ASSERT_EQ(manifest.icons[0].purpose.size(), 1u);
     EXPECT_EQ(manifest.icons[0].purpose[0],
               blink::Manifest::ImageResource::Purpose::ANY);
@@ -1031,7 +1046,42 @@ TEST_F(ManifestParserTest, ShareTargetParseRules) {
     blink::Manifest manifest = ParseManifest("{ \"share_target\": {} }");
     EXPECT_FALSE(manifest.share_target.has_value());
     EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'share_target' ignored. Property 'action' is invalid.",
+              errors()[0]);
+  }
+
+  // Contains share_target field but no params key.
+  {
+    blink::Manifest manifest =
+        ParseManifest("{ \"share_target\": { \"action\": \"\" } }");
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_TRUE(manifest.IsEmpty());
+    EXPECT_EQ(3u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+    EXPECT_EQ(
+        "property 'share_target' ignored. Property 'params' type "
+        "dictionary expected.",
+        errors()[2]);
+  }
+
+  // Contains share_target field but no action key.
+  {
+    blink::Manifest manifest =
+        ParseManifest("{ \"share_target\": { \"params\": {} } }");
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_TRUE(manifest.IsEmpty());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'share_target' ignored. Property 'action' is invalid.",
+              errors()[0]);
   }
 
   // Key in share_target that isn't valid.
@@ -1040,7 +1090,9 @@ TEST_F(ManifestParserTest, ShareTargetParseRules) {
         "{ \"share_target\": {\"incorrect_key\": \"some_value\" } }");
     ASSERT_FALSE(manifest.share_target.has_value());
     EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'share_target' ignored. Property 'action' is invalid.",
+              errors()[0]);
   }
 }
 
@@ -1048,136 +1100,871 @@ TEST_F(ManifestParserTest, ShareTargetUrlTemplateParseRules) {
   GURL manifest_url = GURL("https://foo.com/manifest.json");
   GURL document_url = GURL("https://foo.com/index.html");
 
-  // Contains share_target and url_template, but url_template is empty.
+  // Contains share_target, but action is empty.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": { \"url_template\": \"\" } }", manifest_url,
-        document_url);
+        "{ \"share_target\": { \"action\": \"\", \"params\": {} } }",
+        manifest_url, document_url);
     ASSERT_TRUE(manifest.share_target.has_value());
-    EXPECT_EQ(manifest.share_target.value().url_template.spec(),
-              manifest_url.spec());
+    EXPECT_EQ(manifest.share_target->action.spec(), manifest_url.spec());
+    EXPECT_TRUE(manifest.share_target->params.text.is_null());
+    EXPECT_TRUE(manifest.share_target->params.title.is_null());
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
     EXPECT_FALSE(manifest.IsEmpty());
-    EXPECT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
   }
 
-  // Don't parse if property isn't a string.
-  {
-    blink::Manifest manifest =
-        ParseManifestWithURLs("{ \"share_target\": { \"url_template\": {} } }",
-                              manifest_url, document_url);
-    EXPECT_FALSE(manifest.share_target.has_value());
-    EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(1u, GetErrorCount());
-    EXPECT_EQ("property 'url_template' ignored, type string expected.",
-              errors()[0]);
-  }
-
-  // Don't parse if property isn't a string.
-  {
-    blink::Manifest manifest =
-        ParseManifestWithURLs("{ \"share_target\": { \"url_template\": 42 } }",
-                              manifest_url, document_url);
-    EXPECT_FALSE(manifest.share_target.has_value());
-    EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(1u, GetErrorCount());
-    EXPECT_EQ("property 'url_template' ignored, type string expected.",
-              errors()[0]);
-  }
-
-  // Don't parse if property isn't a valid URL.
+  // Parse but throw an error if url_template property isn't a string.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": { \"url_template\": \"https://foo.com:a\" } "
-        "}",
+        "{ \"share_target\": { \"action\": \"\", \"params\": {} } }",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->action.spec(), manifest_url.spec());
+    EXPECT_TRUE(manifest.share_target->params.text.is_null());
+    EXPECT_TRUE(manifest.share_target->params.title.is_null());
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
+    EXPECT_FALSE(manifest.IsEmpty());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+  }
+
+  // Don't parse if action property isn't a string.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": {}, \"params\": {} } }",
         manifest_url, document_url);
     EXPECT_FALSE(manifest.share_target.has_value());
     EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(1u, GetErrorCount());
-    EXPECT_EQ("property 'url_template' ignored, URL is invalid.", errors()[0]);
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'action' ignored, type string expected.", errors()[0]);
+    EXPECT_EQ("property 'share_target' ignored. Property 'action' is invalid.",
+              errors()[1]);
   }
 
-  // Fail parsing if url_template is at a different origin than the Web
+  // Don't parse if action property isn't a string.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": 42, \"params\": {} } }",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_TRUE(manifest.IsEmpty());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'action' ignored, type string expected.", errors()[0]);
+    EXPECT_EQ("property 'share_target' ignored. Property 'action' is invalid.",
+              errors()[1]);
+  }
+
+  // Don't parse if params property isn't a dict.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"\", \"params\": \"\" } }",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_TRUE(manifest.IsEmpty());
+    EXPECT_EQ(3u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+    EXPECT_EQ(
+        "property 'share_target' ignored. Property 'params' type "
+        "dictionary expected.",
+        errors()[2]);
+  }
+
+  // Don't parse if params property isn't a dict.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"\", \"params\": 42 } }",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_TRUE(manifest.IsEmpty());
+    EXPECT_EQ(3u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+    EXPECT_EQ(
+        "property 'share_target' ignored. Property 'params' type "
+        "dictionary expected.",
+        errors()[2]);
+  }
+
+  // Ignore params keys with invalid types.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"\", \"params\": { \"text\": 42 }"
+        " } }",
+        manifest_url, document_url);
+    ASSERT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->action.spec(), manifest_url.spec());
+    EXPECT_TRUE(manifest.share_target->params.text.is_null());
+    EXPECT_TRUE(manifest.share_target->params.title.is_null());
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
+    EXPECT_FALSE(manifest.IsEmpty());
+    EXPECT_EQ(3u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+    EXPECT_EQ("property 'text' ignored, type string expected.", errors()[2]);
+  }
+
+  // Ignore params keys with invalid types.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"\", "
+        "\"params\": { \"title\": 42 } } }",
+        manifest_url, document_url);
+    ASSERT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->action.spec(), manifest_url.spec());
+    EXPECT_TRUE(manifest.share_target->params.text.is_null());
+    EXPECT_TRUE(manifest.share_target->params.title.is_null());
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
+    EXPECT_FALSE(manifest.IsEmpty());
+    EXPECT_EQ(3u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+    EXPECT_EQ("property 'title' ignored, type string expected.", errors()[2]);
+  }
+
+  // Don't parse if params property has keys with invalid types.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"\", \"params\": { \"url\": {}, "
+        "\"text\": \"hi\" } } }",
+        manifest_url, document_url);
+    ASSERT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->action.spec(), manifest_url.spec());
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.text.string(), "hi"));
+    EXPECT_TRUE(manifest.share_target->params.title.is_null());
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
+    EXPECT_FALSE(manifest.IsEmpty());
+    EXPECT_EQ(3u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+    EXPECT_EQ("property 'url' ignored, type string expected.", errors()[2]);
+  }
+
+  // Don't parse if action property isn't a valid URL.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com:a\", \"params\": "
+        "{} } }",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_TRUE(manifest.IsEmpty());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'action' ignored, URL is invalid.", errors()[0]);
+    EXPECT_EQ("property 'share_target' ignored. Property 'action' is invalid.",
+              errors()[1]);
+  }
+
+  // Fail parsing if action is at a different origin than the Web
   // Manifest.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": { \"url_template\": \"https://foo2.com/\" } }",
+        "{ \"share_target\": { \"action\": \"https://foo2.com/\" }, "
+        "\"params\": {} }",
         manifest_url, document_url);
     EXPECT_FALSE(manifest.share_target.has_value());
     EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ("property 'action' ignored, should be same origin as document.",
+              errors()[0]);
     EXPECT_EQ(
-        "property 'url_template' ignored, should be same origin as document.",
-        errors()[0]);
+        "property 'share_target' ignored. Property 'action' is "
+        "invalid.",
+        errors()[1]);
   }
 
-  // Smoke test: Contains share_target and url_template, and url_template is
-  // valid template.
+  // Smoke test: Contains share_target and action, and action is valid.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": {\"url_template\": \"share/?title={title}\" } }",
+        "{ \"share_target\": {\"action\": \"share/\", \"params\": {} } }",
         manifest_url, document_url);
     ASSERT_TRUE(manifest.share_target.has_value());
-    EXPECT_EQ(manifest.share_target.value().url_template.spec(),
-              "https://foo.com/share/?title={title}");
+    EXPECT_EQ(manifest.share_target->action.spec(), "https://foo.com/share/");
+    EXPECT_TRUE(manifest.share_target->params.text.is_null());
+    EXPECT_TRUE(manifest.share_target->params.title.is_null());
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
     EXPECT_FALSE(manifest.IsEmpty());
-    EXPECT_EQ(0u, GetErrorCount());
-  }
-
-  // Smoke test: Contains share_target and url_template, and url_template is
-  // invalid template.
-  {
-    blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": {\"url_template\": \"share/?title={title\" } }",
-        manifest_url, document_url);
-    ASSERT_FALSE(manifest.share_target.has_value());
-    EXPECT_TRUE(manifest.IsEmpty());
-    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(2u, GetErrorCount());
     EXPECT_EQ(
-        "property 'url_template' ignored. Placeholders have incorrect "
-        "syntax.",
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
         errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
   }
 
-  // Smoke test: Contains share_target and url_template, and url_template
-  // contains unknown placeholder.
+  // Smoke test: Contains share_target and action, and action is valid, params
+  // is populated.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": {\"url_template\": \"share/?title={abcxyz}\" } }",
+        "{ \"share_target\": {\"action\": \"share/\", \"params\": { \"text\": "
+        "\"foo\", \"title\": \"bar\", \"url\": \"baz\" } } }",
         manifest_url, document_url);
     ASSERT_TRUE(manifest.share_target.has_value());
-    EXPECT_EQ(manifest.share_target.value().url_template.spec(),
-              "https://foo.com/share/?title={abcxyz}");
+    EXPECT_EQ(manifest.share_target->action.spec(), "https://foo.com/share/");
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.text.string(), "foo"));
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.title.string(), "bar"));
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.url.string(), "baz"));
     EXPECT_FALSE(manifest.IsEmpty());
-    EXPECT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
   }
 
-  // Smoke test: Contains share_target and url_template, and url_template has
-  // '{' and '}' in path, query and fragment. Only '{' and '}' in path should be
-  // escaped.
+  // Backwards compatibility test: Contains share_target, url_template and
+  // action, and action is valid, params is populated.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": {\"url_template\": "
-        "\"share/a{text}/?title={title}#{frag}\" } }",
+        "{ \"share_target\": { \"url_template\": "
+        "\"foo.com/share?title={title}\", "
+        "\"action\": \"share/\", \"params\": { \"text\": "
+        "\"foo\", \"title\": \"bar\", \"url\": \"baz\" } } }",
         manifest_url, document_url);
     ASSERT_TRUE(manifest.share_target.has_value());
-    EXPECT_EQ(manifest.share_target.value().url_template.spec(),
-              "https://foo.com/share/a%7Btext%7D/?title={title}#{frag}");
+    EXPECT_EQ(manifest.share_target->action.spec(), "https://foo.com/share/");
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.text.string(), "foo"));
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.title.string(), "bar"));
+    EXPECT_TRUE(
+        base::EqualsASCII(manifest.share_target->params.url.string(), "baz"));
     EXPECT_FALSE(manifest.IsEmpty());
-    EXPECT_EQ(0u, GetErrorCount());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
   }
 
-  // Smoke test: Contains share_target and url_template. url_template is
-  // valid template and is absolute.
+  // Smoke test: Contains share_target, action and params. action is
+  // valid and is absolute.
   {
     blink::Manifest manifest = ParseManifestWithURLs(
-        "{ \"share_target\": { \"url_template\": \"https://foo.com/#{text}\" } "
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
         "}",
         manifest_url, document_url);
     ASSERT_TRUE(manifest.share_target.has_value());
-    EXPECT_EQ(manifest.share_target.value().url_template.spec(),
-              "https://foo.com/#{text}");
+    EXPECT_EQ(manifest.share_target.value().action.spec(), "https://foo.com/#");
+    EXPECT_TRUE(manifest.share_target->params.text.is_null());
+    EXPECT_TRUE(base::EqualsASCII(manifest.share_target->params.title.string(),
+                                  "mytitle"));
+    EXPECT_TRUE(manifest.share_target->params.url.is_null());
     EXPECT_FALSE(manifest.IsEmpty());
+    EXPECT_EQ(2u, GetErrorCount());
+    EXPECT_EQ(
+        "Method should be set to either GET or POST. It currently defaults to "
+        "GET.",
+        errors()[0]);
+    EXPECT_EQ(
+        "Enctype should be set to either application/x-www-form-urlencoded or "
+        "multipart/form-data. It currently defaults to "
+        "application/x-www-form-urlencoded",
+        errors()[1]);
+  }
+
+  // Return undefined if method or enctype is not string.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "10, \"enctype\": 10, \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "invalid method. Allowed methods are:"
+        "GET and POST.",
+        errors()[0]);
+  }
+
+  // Valid method and enctype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"GET\", \"enctype\": \"application/x-www-form-urlencoded\", "
+        "\"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->method,
+              blink::Manifest::ShareTarget::Method::kGet);
+    EXPECT_EQ(manifest.share_target->enctype,
+              blink::Manifest::ShareTarget::Enctype::kApplication);
+  }
+
+  // Auto-fill in "GET" for method and "application/x-www-form-urlencoded" for
+  // enctype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->method,
+              blink::Manifest::ShareTarget::Method::kGet);
+    EXPECT_EQ(manifest.share_target->enctype,
+              blink::Manifest::ShareTarget::Enctype::kApplication);
+  }
+
+  // Invalid method values, return undefined.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"\", \"enctype\": \"application/x-www-form-urlencoded\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "invalid method. Allowed methods are:"
+        "GET and POST.",
+        errors()[0]);
+  }
+
+  // When method is "GET", enctype cannot be anything other than
+  // "application/x-www-form-urlencoded".
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"GET\", \"enctype\": \"RANDOM\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "invalid enctype. Allowed enctypes are:"
+        "application/x-www-form-urlencoded and multipart/form-data.",
+        errors()[0]);
+  }
+
+  // When method is "POST", enctype cannot be anything other than
+  // "application/x-www-form-urlencoded" or "multipart/form-data".
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"random\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "invalid enctype. Allowed enctypes are:"
+        "application/x-www-form-urlencoded and multipart/form-data.",
+        errors()[0]);
+  }
+
+  // Valid enctype for when method is "POST".
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"application/x-www-form-urlencoded\", "
+        "\"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->method,
+              blink::Manifest::ShareTarget::Method::kPost);
+    EXPECT_EQ(manifest.share_target->enctype,
+              blink::Manifest::ShareTarget::Enctype::kApplication);
     EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Valid enctype for when method is "POST".
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->method,
+              blink::Manifest::ShareTarget::Method::kPost);
+    EXPECT_EQ(manifest.share_target->enctype,
+              blink::Manifest::ShareTarget::Enctype::kMultipart);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Ascii in-sensitive.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"PosT\", \"enctype\": \"mUltIparT/Form-dAta\", \"params\": "
+        "{ \"title\": \"mytitle\" } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->method,
+              blink::Manifest::ShareTarget::Method::kPost);
+    EXPECT_EQ(manifest.share_target->enctype,
+              blink::Manifest::ShareTarget::Enctype::kMultipart);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // No files is okay.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->method,
+              blink::Manifest::ShareTarget::Method::kPost);
+    EXPECT_EQ(manifest.share_target->enctype,
+              blink::Manifest::ShareTarget::Enctype::kMultipart);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Nonempty file must have POST method and multipart/form-data enctype.
+  // GET method, for example, will cause an error in this case.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"GET\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"text/plain\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "invalid enctype for GET method. Only "
+        "application/x-www-form-urlencoded is allowed.",
+        errors()[0]);
+  }
+
+  // Nonempty file must have POST method and multipart/form-data enctype.
+  // Enctype other than multipart/form-data will cause an error.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"application/x-www-form-urlencoded\", "
+        "\"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"text/plain\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("files are only supported with multipart/form-data POST.",
+              errors()[0]);
+  }
+
+  // Nonempty file must have POST method and multipart/form-data enctype.
+  // This case is valid.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"text/plain\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, manifest.share_target->params.files.size());
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Invalid mimetype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("invalid mime type inside files.", errors()[0]);
+  }
+
+  // Invalid mimetype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"helloworld\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("invalid mime type inside files.", errors()[0]);
+  }
+
+  // Invalid mimetype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"^$/@$\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("invalid mime type inside files.", errors()[0]);
+  }
+
+  // Invalid mimetype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\"/\"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("invalid mime type inside files.", errors()[0]);
+  }
+
+  // Invalid mimetype.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": [\" \"]}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_FALSE(manifest.share_target.has_value());
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("invalid mime type inside files.", errors()[0]);
+  }
+
+  // Accept field is empty.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{ \"share_target\": { \"action\": \"https://foo.com/#\", \"method\": "
+        "\"POST\", \"enctype\": \"multipart/form-data\", \"params\": "
+        "{ \"title\": \"mytitle\", \"files\": [{ \"name\": \"name\", "
+        "\"accept\": []}] } } "
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+    EXPECT_EQ(manifest.share_target->params.files.size(), 0u);
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Accept sequence contains non-string elements.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": [{"
+        "        \"name\": \"name\","
+        "        \"accept\": [\"image/png\", 42]"
+        "      }]"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    const base::Optional<blink::Manifest::ShareTarget> share_target =
+        manifest.share_target;
+    EXPECT_TRUE(share_target.has_value());
+
+    const std::vector<blink::Manifest::ShareTargetFile>& files =
+        share_target->params.files;
+    EXPECT_EQ(1u, files.size());
+    EXPECT_TRUE(base::EqualsASCII(files.at(0).name, "name"));
+
+    const std::vector<base::string16>& accept = files.at(0).accept;
+    EXPECT_EQ(1u, accept.size());
+    EXPECT_TRUE(base::EqualsASCII(accept.at(0), "image/png"));
+
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("'accept' entry ignored, expected to be of type string.",
+              errors()[0]);
+  }
+
+  // Accept is just a single string.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": [{"
+        "        \"name\": \"name\","
+        "        \"accept\": \"image/png\""
+        "      }]"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    const base::Optional<blink::Manifest::ShareTarget> share_target =
+        manifest.share_target;
+    EXPECT_TRUE(share_target.has_value());
+
+    const std::vector<blink::Manifest::ShareTargetFile>& files =
+        share_target->params.files;
+    EXPECT_EQ(1u, files.size());
+    EXPECT_TRUE(base::EqualsASCII(files.at(0).name, "name"));
+
+    const std::vector<base::string16>& accept = files.at(0).accept;
+    EXPECT_EQ(1u, accept.size());
+    EXPECT_TRUE(base::EqualsASCII(accept.at(0), "image/png"));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Accept is neither a string nor an array of strings.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": [{"
+        "        \"name\": \"name\","
+        "        \"accept\": true"
+        "      }]"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    const base::Optional<blink::Manifest::ShareTarget> share_target =
+        manifest.share_target;
+    EXPECT_TRUE(share_target.has_value());
+
+    const std::vector<blink::Manifest::ShareTargetFile>& files =
+        share_target->params.files;
+    EXPECT_EQ(0u, files.size());
+
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'accept' ignored, type array or string expected.",
+              errors()[0]);
+  }
+
+  // Files is just a single ShareTargetFile (not an array).
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": {"
+        "        \"name\": \"name\","
+        "        \"accept\": \"image/png\""
+        "      }"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    EXPECT_TRUE(manifest.share_target.has_value());
+
+    const blink::Manifest::ShareTargetParams& params =
+        manifest.share_target->params;
+    EXPECT_EQ(1u, params.files.size());
+    EXPECT_TRUE(base::EqualsASCII(params.files.at(0).name, "name"));
+
+    const std::vector<base::string16>& accept = params.files.at(0).accept;
+    EXPECT_EQ(1u, accept.size());
+    EXPECT_TRUE(base::EqualsASCII(accept.at(0), "image/png"));
+    EXPECT_EQ(0u, GetErrorCount());
+  }
+
+  // Files is neither array nor ShareTargetFile.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": 3"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    const base::Optional<blink::Manifest::ShareTarget> share_target =
+        manifest.share_target;
+    EXPECT_TRUE(share_target.has_value());
+
+    const std::vector<blink::Manifest::ShareTargetFile>& files =
+        share_target->params.files;
+    EXPECT_EQ(0u, files.size());
+
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ(
+        "property 'files' ignored, type array or ShareTargetFile expected.",
+        errors()[0]);
+  }
+
+  // Files contains a non-dictionary entry.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": ["
+        "        {"
+        "          \"name\": \"name\","
+        "          \"accept\": \"image/png\""
+        "        },"
+        "        3"
+        "      ]"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    const base::Optional<blink::Manifest::ShareTarget> share_target =
+        manifest.share_target;
+    EXPECT_TRUE(share_target.has_value());
+
+    const std::vector<blink::Manifest::ShareTargetFile>& files =
+        share_target->params.files;
+    EXPECT_EQ(1u, files.size());
+    EXPECT_TRUE(base::EqualsASCII(files.at(0).name, "name"));
+
+    const std::vector<base::string16>& accept = files.at(0).accept;
+    EXPECT_EQ(1u, accept.size());
+    EXPECT_TRUE(base::EqualsASCII(accept.at(0), "image/png"));
+
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("files must be a sequence of non-empty file entries.",
+              errors()[0]);
+  }
+
+  // Files contains empty file.
+  {
+    blink::Manifest manifest = ParseManifestWithURLs(
+        "{"
+        "  \"share_target\": {"
+        "    \"action\": \"https://foo.com/#\","
+        "    \"method\": \"POST\","
+        "    \"enctype\": \"multipart/form-data\","
+        "    \"params\": {"
+        "      \"title\": \"mytitle\","
+        "      \"files\": ["
+        "        {"
+        "          \"name\": \"name\","
+        "          \"accept\": \"image/png\""
+        "        },"
+        "        {}"
+        "      ]"
+        "    }"
+        "  }"
+        "}",
+        manifest_url, document_url);
+    const base::Optional<blink::Manifest::ShareTarget> share_target =
+        manifest.share_target;
+    EXPECT_TRUE(share_target.has_value());
+
+    const std::vector<blink::Manifest::ShareTargetFile>& files =
+        share_target->params.files;
+    EXPECT_EQ(1u, files.size());
+    EXPECT_TRUE(base::EqualsASCII(files.at(0).name, "name"));
+
+    const std::vector<base::string16>& accept = files.at(0).accept;
+    EXPECT_EQ(1u, accept.size());
+    EXPECT_TRUE(base::EqualsASCII(accept.at(0), "image/png"));
+
+    EXPECT_EQ(1u, GetErrorCount());
+    EXPECT_EQ("property 'name' missing.", errors()[0]);
   }
 }
 

@@ -95,6 +95,10 @@ class TestUDPClientSocket : public DatagramClientSocket {
   void SetWriteMultiCoreEnabled(bool enabled) override {}
   void SetSendmmsgEnabled(bool enabled) override {}
   void SetWriteBatchingActive(bool active) override {}
+  int SetMulticastInterface(uint32_t interface_index) override {
+    NOTIMPLEMENTED();
+    return ERR_NOT_IMPLEMENTED;
+  }
 
   int ConnectUsingNetwork(NetworkChangeNotifier::NetworkHandle network,
                           const IPEndPoint& address) override {
@@ -114,7 +118,7 @@ class TestUDPClientSocket : public DatagramClientSocket {
   int Connect(const IPEndPoint& remote) override {
     if (connected_)
       return ERR_UNEXPECTED;
-    AddressMapping::const_iterator it = mapping_->find(remote.address());
+    auto it = mapping_->find(remote.address());
     if (it == mapping_->end())
       return ERR_FAILED;
     connected_ = true;
@@ -166,10 +170,12 @@ class TestSocketFactory : public ClientSocketFactory {
       std::unique_ptr<ClientSocketHandle> transport_socket,
       const std::string& user_agent,
       const HostPortPair& endpoint,
+      const ProxyServer& proxy_server,
       HttpAuthController* http_auth_controller,
       bool tunnel,
       bool using_spdy,
       NextProto negotiated_protocol,
+      ProxyDelegate* proxy_delegate,
       bool is_https_proxy,
       const NetworkTrafficAnnotationTag& traffic_annotation) override {
     NOTIMPLEMENTED();
@@ -227,8 +233,8 @@ class AddressSorterPosixTest : public testing::Test {
 
     AddressList result;
     TestCompletionCallback callback;
-    sorter_.Sort(list, base::Bind(&OnSortComplete, &result,
-                                  callback.callback()));
+    sorter_.Sort(list,
+                 base::BindOnce(&OnSortComplete, &result, callback.callback()));
     callback.WaitForResult();
 
     for (size_t i = 0; (i < result.size()) || (order[i] >= 0); ++i) {

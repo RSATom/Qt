@@ -72,9 +72,26 @@ ServiceWorkerWriteToCacheJob::ServiceWorkerWriteToCacheJob(
       version_(version),
       weak_factory_(this) {
   DCHECK(version_);
-  DCHECK(resource_type_ == RESOURCE_TYPE_SCRIPT ||
-         (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER &&
-          version_->script_url() == url_));
+
+#if DCHECK_IS_ON()
+  switch (version_->script_type()) {
+    case blink::mojom::ScriptType::kClassic:
+      // For classic scripts, the main service worker script should have the
+      // "service worker" resource type and imported scripts should have the
+      // "script" resource type.
+      DCHECK(resource_type_ == RESOURCE_TYPE_SCRIPT ||
+             (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER &&
+              version_->script_url() == url_));
+      break;
+    case blink::mojom::ScriptType::kModule:
+      // For module scripts, both the main service worker script and
+      // static-imported scripts should have the "service worker" resource type
+      // because static import inherits the resource type of the top-level
+      // module script.
+      DCHECK_EQ(RESOURCE_TYPE_SERVICE_WORKER, resource_type_);
+      break;
+  }
+#endif  // DCHECK_IS_ON()
   InitNetRequest(extra_load_flags);
 }
 
@@ -112,7 +129,8 @@ void ServiceWorkerWriteToCacheJob::StartAsync() {
   }
   cache_writer_ = std::make_unique<ServiceWorkerCacheWriter>(
       std::move(compare_reader), std::move(copy_reader),
-      context_->storage()->CreateResponseWriter(resource_id_));
+      context_->storage()->CreateResponseWriter(resource_id_),
+      false /* pause_when_not_identical */);
 
   version_->script_cache_map()->NotifyStartedCaching(url_, resource_id_);
   did_notify_started_ = true;
@@ -231,7 +249,9 @@ void ServiceWorkerWriteToCacheJob::InitNetRequest(
   if (extra_load_flags)
     net_request_->SetLoadFlags(net_request_->load_flags() | extra_load_flags);
 
-  if (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER) {
+  // Add the 'Service-Worker' header for the main script request.
+  // https://w3c.github.io/ServiceWorker/#service-worker-script-request
+  if (IsMainScript()) {
     // This will get copied into net_request_ when URLRequest::StartJob calls
     // ServiceWorkerWriteToCacheJob::SetExtraRequestHeaders.
     request()->SetExtraRequestHeaderByName("Service-Worker", "script", true);
@@ -331,7 +351,7 @@ void ServiceWorkerWriteToCacheJob::OnResponseStarted(net::URLRequest* request,
     return;
   }
 
-  if (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER) {
+  if (IsMainScript()) {
     std::string mime_type;
     request->GetMimeType(&mime_type);
     if (!blink::IsSupportedJavascriptMimeType(mime_type)) {
@@ -354,10 +374,12 @@ void ServiceWorkerWriteToCacheJob::OnResponseStarted(net::URLRequest* request,
     version_->embedded_worker()->OnNetworkAccessedForScriptLoad();
   }
 
-  http_info_.reset(new net::HttpResponseInfo(net_request_->response_info()));
+  http_info_ =
+      std::make_unique<net::HttpResponseInfo>(net_request_->response_info());
   scoped_refptr<HttpResponseInfoIOBuffer> info_buffer =
-      new HttpResponseInfoIOBuffer(
-          new net::HttpResponseInfo(net_request_->response_info()));
+      base::MakeRefCounted<HttpResponseInfoIOBuffer>(
+          std::make_unique<net::HttpResponseInfo>(
+              net_request_->response_info()));
   net::Error error = cache_writer_->MaybeWriteHeaders(
       info_buffer.get(),
       base::BindOnce(&ServiceWorkerWriteToCacheJob::OnWriteHeadersComplete,
@@ -466,7 +488,7 @@ net::Error ServiceWorkerWriteToCacheJob::NotifyFinishedCaching(
     // occurred because the worker stops soon after receiving the error
     // response.
     version_->embedded_worker()->AddMessageToConsole(
-        blink::WebConsoleMessage::kLevelError,
+        blink::mojom::ConsoleMessageLevel::kError,
         status_message.empty() ? kServiceWorkerFetchScriptError
                                : status_message);
   } else {
@@ -494,6 +516,11 @@ net::Error ServiceWorkerWriteToCacheJob::NotifyFinishedCaching(
 bool ServiceWorkerWriteToCacheJob::ShouldByteForByteCheck() const {
   return incumbent_resource_id_ != kInvalidServiceWorkerResourceId &&
          version_->pause_after_download();
+}
+
+bool ServiceWorkerWriteToCacheJob::IsMainScript() const {
+  return url_ == version_->script_url() &&
+         resource_type_ == RESOURCE_TYPE_SERVICE_WORKER;
 }
 
 }  // namespace content

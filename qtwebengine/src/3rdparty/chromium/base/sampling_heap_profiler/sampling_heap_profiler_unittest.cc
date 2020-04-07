@@ -14,27 +14,38 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
-namespace {
 
 class SamplingHeapProfilerTest : public ::testing::Test {
+ public:
+  void SetUp() override {
 #if defined(OS_MACOSX)
-  void SetUp() override { allocator::InitializeAllocatorShim(); }
+    allocator::InitializeAllocatorShim();
 #endif
+    SamplingHeapProfiler::Init();
+  }
+
+  size_t GetNextSample(size_t mean_interval) {
+    return PoissonAllocationSampler::GetNextSampleInterval(mean_interval);
+  }
 };
 
-class SamplesCollector : public SamplingHeapProfiler::SamplesObserver {
+class SamplesCollector : public PoissonAllocationSampler::SamplesObserver {
  public:
   explicit SamplesCollector(size_t watch_size) : watch_size_(watch_size) {}
 
-  void SampleAdded(uint32_t id, size_t size, size_t) override {
+  void SampleAdded(void* address,
+                   size_t size,
+                   size_t,
+                   PoissonAllocationSampler::AllocatorType,
+                   const char*) override {
     if (sample_added || size != watch_size_)
       return;
-    sample_id_ = id;
+    sample_address_ = address;
     sample_added = true;
   }
 
-  void SampleRemoved(uint32_t id) override {
-    if (id == sample_id_)
+  void SampleRemoved(void* address) override {
+    if (address == sample_address_)
       sample_removed = true;
   }
 
@@ -43,23 +54,56 @@ class SamplesCollector : public SamplingHeapProfiler::SamplesObserver {
 
  private:
   size_t watch_size_;
-  uint32_t sample_id_ = 0;
+  void* sample_address_ = nullptr;
 };
 
-TEST_F(SamplingHeapProfilerTest, CollectSamples) {
-  SamplingHeapProfiler::InitTLSSlot();
+TEST_F(SamplingHeapProfilerTest, SampleObserver) {
   SamplesCollector collector(10000);
-  SamplingHeapProfiler* profiler = SamplingHeapProfiler::GetInstance();
-  profiler->SuppressRandomnessForTest(true);
-  profiler->SetSamplingInterval(1024);
-  profiler->Start();
-  profiler->AddSamplesObserver(&collector);
+  auto* sampler = PoissonAllocationSampler::Get();
+  sampler->SuppressRandomnessForTest(true);
+  sampler->SetSamplingInterval(1024);
+  sampler->Start();
+  sampler->AddSamplesObserver(&collector);
   void* volatile p = malloc(10000);
   free(p);
-  profiler->Stop();
-  profiler->RemoveSamplesObserver(&collector);
-  CHECK(collector.sample_added);
-  CHECK(collector.sample_removed);
+  sampler->Stop();
+  sampler->RemoveSamplesObserver(&collector);
+  EXPECT_TRUE(collector.sample_added);
+  EXPECT_TRUE(collector.sample_removed);
+}
+
+TEST_F(SamplingHeapProfilerTest, SampleObserverMuted) {
+  SamplesCollector collector(10000);
+  auto* sampler = PoissonAllocationSampler::Get();
+  sampler->SuppressRandomnessForTest(true);
+  sampler->SetSamplingInterval(1024);
+  sampler->Start();
+  sampler->AddSamplesObserver(&collector);
+  {
+    PoissonAllocationSampler::ScopedMuteThreadSamples muted_scope;
+    void* volatile p = malloc(10000);
+    free(p);
+  }
+  sampler->Stop();
+  sampler->RemoveSamplesObserver(&collector);
+  EXPECT_FALSE(collector.sample_added);
+  EXPECT_FALSE(collector.sample_removed);
+}
+
+TEST_F(SamplingHeapProfilerTest, IntervalRandomizationSanity) {
+  PoissonAllocationSampler::Get()->SuppressRandomnessForTest(false);
+  constexpr int iterations = 50;
+  constexpr size_t target = 10000000;
+  int sum = 0;
+  for (int i = 0; i < iterations; ++i) {
+    int samples = 0;
+    for (size_t value = 0; value < target; value += GetNextSample(10000))
+      ++samples;
+    // There are should be ~ target/10000 = 1000 samples.
+    sum += samples;
+  }
+  int mean_samples = sum / iterations;
+  EXPECT_NEAR(1000, mean_samples, 100);  // 10% tolerance.
 }
 
 const int kNumberOfAllocations = 10000;
@@ -98,9 +142,8 @@ class MyThread2 : public SimpleThread {
 };
 
 void CheckAllocationPattern(void (*allocate_callback)()) {
-  SamplingHeapProfiler::InitTLSSlot();
-  SamplingHeapProfiler* profiler = SamplingHeapProfiler::GetInstance();
-  profiler->SuppressRandomnessForTest(false);
+  auto* profiler = SamplingHeapProfiler::Get();
+  PoissonAllocationSampler::Get()->SuppressRandomnessForTest(false);
   profiler->SetSamplingInterval(10240);
   base::TimeTicks t0 = base::TimeTicks::Now();
   std::map<size_t, size_t> sums;
@@ -161,5 +204,4 @@ TEST_F(SamplingHeapProfilerTest, DISABLED_SequentialLargeSmallStats) {
   });
 }
 
-}  // namespace
 }  // namespace base

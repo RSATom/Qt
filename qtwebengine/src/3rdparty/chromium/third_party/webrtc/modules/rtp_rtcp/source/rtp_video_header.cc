@@ -12,16 +12,13 @@
 
 namespace webrtc {
 
-RTPVideoHeader::RTPVideoHeader()
-    : width(),
-      height(),
-      rotation(),
-      playout_delay(),
-      content_type(),
-      video_timing(),
-      is_first_packet_in_frame(),
-      simulcastIdx(),
-      codec() {}
+RTPVideoHeader::RTPVideoHeader() : video_timing() {}
 RTPVideoHeader::RTPVideoHeader(const RTPVideoHeader& other) = default;
+RTPVideoHeader::~RTPVideoHeader() = default;
+
+RTPVideoHeader::GenericDescriptorInfo::GenericDescriptorInfo() = default;
+RTPVideoHeader::GenericDescriptorInfo::GenericDescriptorInfo(
+    const GenericDescriptorInfo& other) = default;
+RTPVideoHeader::GenericDescriptorInfo::~GenericDescriptorInfo() = default;
 
 }  // namespace webrtc

@@ -117,6 +117,7 @@ public:
 class Q_CORE_EXPORT QObject
 {
     Q_OBJECT
+
     Q_PROPERTY(QString objectName READ objectName WRITE setObjectName NOTIFY objectNameChanged)
     Q_DECLARE_PRIVATE(QObject)
 
@@ -127,7 +128,7 @@ public:
     virtual bool event(QEvent *event);
     virtual bool eventFilter(QObject *watched, QEvent *event);
 
-#if defined(QT_NO_TRANSLATION)
+#if defined(QT_NO_TRANSLATION) || defined(Q_CLANG_QDOC)
     static QString tr(const char *sourceText, const char * = nullptr, int = -1)
         { return QString::fromUtf8(sourceText); }
 #if QT_DEPRECATED_SINCE(5, 0)
@@ -176,7 +177,9 @@ public:
     }
 
 #ifndef QT_NO_REGEXP
+#if QT_DEPRECATED_SINCE(5, 13)
     template<typename T>
+    QT_DEPRECATED_X("Use findChildren(const QRegularExpression &, ...) instead.")
     inline QList<T> findChildren(const QRegExp &re, Qt::FindChildOptions options = Qt::FindChildrenRecursively) const
     {
         typedef typename std::remove_cv<typename std::remove_pointer<T>::type>::type ObjType;
@@ -185,6 +188,7 @@ public:
                                 reinterpret_cast<QList<void *> *>(&list), options);
         return list;
     }
+#endif
 #endif
 
 #if QT_CONFIG(regularexpression)
@@ -517,7 +521,10 @@ inline T qobject_cast(const QObject *object)
 template <class T> inline const char * qobject_interface_iid()
 { return nullptr; }
 
-#if !defined(Q_MOC_RUN) && !defined(Q_CLANG_QDOC)
+
+#if defined(Q_CLANG_QDOC)
+#  define Q_DECLARE_INTERFACE(IFace, IId)
+#elif !defined(Q_MOC_RUN)
 #  define Q_DECLARE_INTERFACE(IFace, IId) \
     template <> inline const char *qobject_interface_iid<IFace *>() \
     { return IId; } \

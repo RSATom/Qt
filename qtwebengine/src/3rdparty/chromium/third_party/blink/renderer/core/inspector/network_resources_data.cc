@@ -45,8 +45,10 @@ static bool IsHTTPErrorStatusCode(int status_code) {
 XHRReplayData* XHRReplayData::Create(const AtomicString& method,
                                      const KURL& url,
                                      bool async,
+                                     scoped_refptr<EncodedFormData> form_data,
                                      bool include_credentials) {
-  return new XHRReplayData(method, url, async, include_credentials);
+  return MakeGarbageCollected<XHRReplayData>(
+      method, url, async, std::move(form_data), include_credentials);
 }
 
 void XHRReplayData::AddHeader(const AtomicString& key,
@@ -57,10 +59,12 @@ void XHRReplayData::AddHeader(const AtomicString& key,
 XHRReplayData::XHRReplayData(const AtomicString& method,
                              const KURL& url,
                              bool async,
+                             scoped_refptr<EncodedFormData> form_data,
                              bool include_credentials)
     : method_(method),
       url_(url),
       async_(async),
+      form_data_(form_data),
       include_credentials_(include_credentials) {}
 
 // ResourceData
@@ -155,9 +159,9 @@ void NetworkResourcesData::ResourceData::ClearWeakMembers(Visitor* visitor) {
   cached_resource_ = nullptr;
 }
 
-size_t NetworkResourcesData::ResourceData::DataLength() const {
-  size_t data_buffer_size = data_buffer_ ? data_buffer_->size() : 0;
-  size_t post_data_size = post_data_ ? post_data_->SizeInBytes() : 0;
+uint64_t NetworkResourcesData::ResourceData::DataLength() const {
+  uint64_t data_buffer_size = data_buffer_ ? data_buffer_->size() : 0;
+  uint64_t post_data_size = post_data_ ? post_data_->SizeInBytes() : 0;
   return data_buffer_size + post_data_size;
 }
 
@@ -202,8 +206,8 @@ void NetworkResourcesData::ResourceCreated(
     const KURL& requested_url,
     scoped_refptr<EncodedFormData> post_data) {
   EnsureNoDataForRequestId(request_id);
-  ResourceData* data =
-      new ResourceData(this, context, request_id, loader_id, requested_url);
+  ResourceData* data = MakeGarbageCollected<ResourceData>(
+      this, context, request_id, loader_id, requested_url);
   request_id_to_resource_data_map_.Set(request_id, data);
   if (post_data &&
       PrepareToAddResourceData(request_id, post_data->SizeInBytes())) {
@@ -273,7 +277,7 @@ void NetworkResourcesData::SetResourceContent(const String& request_id,
 
 NetworkResourcesData::ResourceData*
 NetworkResourcesData::PrepareToAddResourceData(const String& request_id,
-                                               size_t data_length) {
+                                               uint64_t data_length) {
   ResourceData* resource_data = ResourceDataForRequestId(request_id);
   if (!resource_data)
     return nullptr;
@@ -294,10 +298,10 @@ NetworkResourcesData::PrepareToAddResourceData(const String& request_id,
 
 void NetworkResourcesData::MaybeAddResourceData(const String& request_id,
                                                 const char* data,
-                                                size_t data_length) {
+                                                uint64_t data_length) {
   if (ResourceData* resource_data =
           PrepareToAddResourceData(request_id, data_length)) {
-    resource_data->AppendData(data, data_length);
+    resource_data->AppendData(data, SafeCast<size_t>(data_length));
   }
 }
 
@@ -368,20 +372,21 @@ NetworkResourcesData::Resources() {
   return result;
 }
 
-int NetworkResourcesData::GetAndClearPendingEncodedDataLength(
+int64_t NetworkResourcesData::GetAndClearPendingEncodedDataLength(
     const String& request_id) {
   ResourceData* resource_data = ResourceDataForRequestId(request_id);
   if (!resource_data)
     return 0;
 
-  int pending_encoded_data_length = resource_data->PendingEncodedDataLength();
+  int64_t pending_encoded_data_length =
+      resource_data->PendingEncodedDataLength();
   resource_data->ClearPendingEncodedDataLength();
   return pending_encoded_data_length;
 }
 
 void NetworkResourcesData::AddPendingEncodedDataLength(
     const String& request_id,
-    int encoded_data_length) {
+    size_t encoded_data_length) {
   ResourceData* resource_data = ResourceDataForRequestId(request_id);
   if (!resource_data)
     return;
@@ -429,7 +434,7 @@ void NetworkResourcesData::EnsureNoDataForRequestId(const String& request_id) {
   request_id_to_resource_data_map_.erase(request_id);
 }
 
-bool NetworkResourcesData::EnsureFreeSpace(size_t size) {
+bool NetworkResourcesData::EnsureFreeSpace(uint64_t size) {
   if (size > maximum_resources_content_size_)
     return false;
 

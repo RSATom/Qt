@@ -326,6 +326,6 @@ bool QBluetoothLocalDevice::isValid() const
   the resulting local device selects the local default device.
 */
 
-#include "moc_qbluetoothlocaldevice.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qbluetoothlocaldevice.cpp"

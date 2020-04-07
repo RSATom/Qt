@@ -229,8 +229,8 @@ class CORE_EXPORT SVGElement : public Element {
       const AtomicString&,
       MutableCSSPropertyValueSet*) override;
 
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
   void ChildrenChanged(const ChildrenChange&) override;
 
   static CSSPropertyID CssPropertyIdForSVGAttributeName(const QualifiedName&);
@@ -329,6 +329,8 @@ struct SVGAttributeHashTranslator {
     return a.Matches(b);
   }
 };
+
+FloatRect ComputeSVGTransformReferenceBox(const LayoutObject&);
 
 DEFINE_ELEMENT_TYPE_CASTS(SVGElement, IsSVGElement());
 

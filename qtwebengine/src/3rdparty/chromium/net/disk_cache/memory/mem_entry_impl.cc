@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/numerics/safe_math.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "net/base/interval.h"
@@ -163,7 +164,13 @@ void MemEntryImpl::Close() {
   if (ref_count_ == 0 && !doomed_) {
     // At this point the user is clearly done writing, so make sure there isn't
     // wastage due to exponential growth of vector for main data stream.
-    data_[1].shrink_to_fit();
+    Compact();
+    if (children_) {
+      for (const auto& child_info : *children_) {
+        if (child_info.second != this)
+          child_info.second->Compact();
+      }
+    }
   }
   DCHECK_GE(ref_count_, 0);
   if (!ref_count_ && doomed_)
@@ -281,7 +288,7 @@ bool MemEntryImpl::CouldBeSparse() const {
   return (children_.get() != nullptr);
 }
 
-int MemEntryImpl::ReadyForSparseIO(CompletionOnceCallback callback) {
+net::Error MemEntryImpl::ReadyForSparseIO(CompletionOnceCallback callback) {
   return net::OK;
 }
 
@@ -353,7 +360,9 @@ int MemEntryImpl::InternalReadData(int index, int offset, IOBuffer* buf,
   if (offset >= entry_size || offset < 0 || !buf_len)
     return 0;
 
-  if (offset + buf_len > entry_size)
+  int end_offset;
+  if (!base::CheckAdd(offset, buf_len).AssignIfValid(&end_offset) ||
+      end_offset > entry_size)
     buf_len = entry_size - offset;
 
   UpdateStateOnUse(ENTRY_WAS_NOT_MODIFIED);
@@ -384,16 +393,17 @@ int MemEntryImpl::InternalWriteData(int index, int offset, IOBuffer* buf,
 
   int max_file_size = backend_->MaxFileSize();
 
-  // offset of buf_len could be negative numbers.
+  int end_offset;
   if (offset > max_file_size || buf_len > max_file_size ||
-      offset + buf_len > max_file_size) {
+      !base::CheckAdd(offset, buf_len).AssignIfValid(&end_offset) ||
+      end_offset > max_file_size) {
     RecordWriteResult(MEM_ENTRY_WRITE_RESULT_OVER_MAX_ENTRY_SIZE);
     return net::ERR_FAILED;
   }
 
   int old_data_size = data_[index].size();
-  if (truncate || old_data_size < offset + buf_len) {
-    int delta = offset + buf_len - old_data_size;
+  if (truncate || old_data_size < end_offset) {
+    int delta = end_offset - old_data_size;
     backend_->ModifyStorageSize(delta);
     if (backend_->HasExceededStorageSize()) {
       backend_->ModifyStorageSize(-delta);
@@ -401,7 +411,7 @@ int MemEntryImpl::InternalWriteData(int index, int offset, IOBuffer* buf,
       return net::ERR_INSUFFICIENT_RESOURCES;
     }
 
-    data_[index].resize(offset + buf_len);
+    data_[index].resize(end_offset);
 
     // Zero fill any hole.
     if (old_data_size < offset) {
@@ -428,12 +438,14 @@ int MemEntryImpl::InternalReadSparseData(int64_t offset,
   if (!InitSparseInfo())
     return net::ERR_CACHE_OPERATION_NOT_SUPPORTED;
 
-  if (offset < 0 || buf_len < 0)
+  // Check that offset + buf_len does not overflow. This ensures that
+  // offset + io_buf->BytesConsumed() never overflows below.
+  if (offset < 0 || buf_len < 0 || !base::CheckAdd(offset, buf_len).IsValid())
     return net::ERR_INVALID_ARGUMENT;
 
   // We will keep using this buffer and adjust the offset in this buffer.
-  scoped_refptr<net::DrainableIOBuffer> io_buf(
-      new net::DrainableIOBuffer(buf, buf_len));
+  scoped_refptr<net::DrainableIOBuffer> io_buf =
+      base::MakeRefCounted<net::DrainableIOBuffer>(buf, buf_len);
 
   // Iterate until we have read enough.
   while (io_buf->BytesRemaining()) {
@@ -491,11 +503,13 @@ int MemEntryImpl::InternalWriteSparseData(int64_t offset,
   if (!backend_)
     return net::ERR_FAILED;
 
-  if (offset < 0 || buf_len < 0)
+  // Check that offset + buf_len does not overflow. This ensures that
+  // offset + io_buf->BytesConsumed() never overflows below.
+  if (offset < 0 || buf_len < 0 || !base::CheckAdd(offset, buf_len).IsValid())
     return net::ERR_INVALID_ARGUMENT;
 
-  scoped_refptr<net::DrainableIOBuffer> io_buf(
-      new net::DrainableIOBuffer(buf, buf_len));
+  scoped_refptr<net::DrainableIOBuffer> io_buf =
+      base::MakeRefCounted<net::DrainableIOBuffer>(buf, buf_len);
 
   // This loop walks through child entries continuously starting from |offset|
   // and writes blocks of data (of maximum size kMaxSparseEntrySize) into each
@@ -560,6 +574,7 @@ int MemEntryImpl::InternalGetAvailableRange(int64_t offset,
   if (offset < 0 || len < 0 || !start)
     return net::ERR_INVALID_ARGUMENT;
 
+  // If offset + len overflows, this will just be the empty interval.
   net::Interval<int64_t> requested(offset, offset + len);
 
   // Find the first relevant child, if any --- may have to skip over
@@ -613,7 +628,7 @@ bool MemEntryImpl::InitSparseInfo() {
 MemEntryImpl* MemEntryImpl::GetChild(int64_t offset, bool create) {
   DCHECK_EQ(PARENT_ENTRY, type());
   int index = ToChildIndex(offset);
-  EntryMap::iterator i = children_->find(index);
+  auto i = children_->find(index);
   if (i != children_->end())
     return i->second;
   if (create)
@@ -632,6 +647,12 @@ net::Interval<int64_t> MemEntryImpl::ChildInterval(
   return net::Interval<int64_t>(
       child_responsibility_start + child->child_first_pos_,
       child_responsibility_start + child->GetDataSize(kSparseData));
+}
+
+void MemEntryImpl::Compact() {
+  // Stream 0 should already be fine since it's written out in a single WriteData().
+  data_[1].shrink_to_fit();
+  data_[2].shrink_to_fit();
 }
 
 }  // namespace disk_cache

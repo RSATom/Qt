@@ -18,7 +18,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/observer_list_threadsafe.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "crypto/scoped_nss_types.h"
 #include "net/base/net_errors.h"
@@ -87,25 +87,23 @@ ScopedCERTCertificateList NSSCertDatabase::ListCertsSync() {
   return ListCertsImpl(crypto::ScopedPK11Slot());
 }
 
-void NSSCertDatabase::ListCerts(const ListCertsCallback& callback) {
+void NSSCertDatabase::ListCerts(ListCertsCallback callback) {
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::Bind(&NSSCertDatabase::ListCertsImpl,
-                 base::Passed(crypto::ScopedPK11Slot())),
-      callback);
+      base::BindOnce(&NSSCertDatabase::ListCertsImpl, crypto::ScopedPK11Slot()),
+      std::move(callback));
 }
 
-void NSSCertDatabase::ListCertsInSlot(const ListCertsCallback& callback,
+void NSSCertDatabase::ListCertsInSlot(ListCertsCallback callback,
                                       PK11SlotInfo* slot) {
   DCHECK(slot);
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::Bind(
-          &NSSCertDatabase::ListCertsImpl,
-          base::Passed(crypto::ScopedPK11Slot(PK11_ReferenceSlot(slot)))),
-      callback);
+      base::BindOnce(&NSSCertDatabase::ListCertsImpl,
+                     crypto::ScopedPK11Slot(PK11_ReferenceSlot(slot))),
+      std::move(callback));
 }
 
 #if defined(OS_CHROMEOS)
@@ -347,6 +345,26 @@ bool NSSCertDatabase::IsUntrusted(const CERTCertificate* cert) const {
   return false;
 }
 
+bool NSSCertDatabase::IsWebTrustAnchor(const CERTCertificate* cert) const {
+  CERTCertTrust nsstrust;
+  SECStatus rv = CERT_GetCertTrust(cert, &nsstrust);
+  if (rv != SECSuccess) {
+    LOG(ERROR) << "CERT_GetCertTrust failed with error " << PORT_GetError();
+    return false;
+  }
+
+  // Note: This should return true iff a net::TrustStoreNSS instantiated with
+  // SECTrustType trustSSL would classify |cert| as a trust anchor.
+  const unsigned int ssl_trust_flags = nsstrust.sslFlags;
+
+  // Determine if the certificate is a trust anchor.
+  if ((ssl_trust_flags & CERTDB_TRUSTED_CA) == CERTDB_TRUSTED_CA) {
+    return true;
+  }
+
+  return false;
+}
+
 bool NSSCertDatabase::SetCertTrust(CERTCertificate* cert,
                                    CertType type,
                                    TrustBits trust_bits) {
@@ -364,16 +382,15 @@ bool NSSCertDatabase::DeleteCertAndKey(CERTCertificate* cert) {
   return true;
 }
 
-void NSSCertDatabase::DeleteCertAndKeyAsync(
-    ScopedCERTCertificate cert,
-    const DeleteCertCallback& callback) {
+void NSSCertDatabase::DeleteCertAndKeyAsync(ScopedCERTCertificate cert,
+                                            DeleteCertCallback callback) {
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&NSSCertDatabase::DeleteCertAndKeyImplScoped,
                      std::move(cert)),
       base::BindOnce(&NSSCertDatabase::NotifyCertRemovalAndCallBack,
-                     weak_factory_.GetWeakPtr(), callback));
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 bool NSSCertDatabase::IsReadOnly(const CERTCertificate* cert) const {
@@ -384,9 +401,6 @@ bool NSSCertDatabase::IsReadOnly(const CERTCertificate* cert) const {
 bool NSSCertDatabase::IsHardwareBacked(const CERTCertificate* cert) const {
   PK11SlotInfo* slot = cert->slot;
   return slot && PK11_IsHW(slot);
-}
-
-void NSSCertDatabase::LogUserCertificates(const std::string& log_reason) const {
 }
 
 void NSSCertDatabase::AddObserver(Observer* observer) {
@@ -422,31 +436,15 @@ ScopedCERTCertificateList NSSCertDatabase::ListCertsImpl(
   return certs;
 }
 
-void NSSCertDatabase::NotifyCertRemovalAndCallBack(
-    const DeleteCertCallback& callback,
-    bool success) {
+void NSSCertDatabase::NotifyCertRemovalAndCallBack(DeleteCertCallback callback,
+                                                   bool success) {
   if (success)
     NotifyObserversCertDBChanged();
-  callback.Run(success);
+  std::move(callback).Run(success);
 }
 
 void NSSCertDatabase::NotifyObserversCertDBChanged() {
-  LogUserCertificates("DBChanged");
-
   observer_list_->Notify(FROM_HERE, &Observer::OnCertDBChanged);
-}
-
-// static
-std::string NSSCertDatabase::GetCertIssuerCommonName(
-    const CERTCertificate* cert) {
-  char* nss_issuer_name = CERT_GetCommonName(&cert->issuer);
-  if (!nss_issuer_name)
-    return std::string();
-
-  std::string issuer_name = nss_issuer_name;
-  PORT_Free(nss_issuer_name);
-
-  return issuer_name;
 }
 
 // static
@@ -456,14 +454,6 @@ bool NSSCertDatabase::DeleteCertAndKeyImpl(CERTCertificate* cert) {
   // deadlocked, the base::ScopedBlockingCall below increments the thread pool
   // capacity if this method takes too much time to run.
   base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
-
-#if defined(OS_CHROMEOS)
-  // TODO(https://crbug.com/844537): Remove this after we've collected logs that
-  // show device-wide certificates disappearing.
-  std::string issuer_name = GetCertIssuerCommonName(cert);
-  VLOG(0) << "UserCertLogging: Deleting a certificate with issuer_name="
-          << issuer_name;
-#endif  // defined(OS_CHROMEOS)
 
   // For some reason, PK11_DeleteTokenCertAndKey only calls
   // SEC_DeletePermCertificate if the private key is found.  So, we check

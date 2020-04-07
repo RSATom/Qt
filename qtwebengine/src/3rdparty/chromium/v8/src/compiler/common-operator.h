@@ -5,18 +5,22 @@
 #ifndef V8_COMPILER_COMMON_OPERATOR_H_
 #define V8_COMPILER_COMMON_OPERATOR_H_
 
-#include "src/assembler.h"
 #include "src/base/compiler-specific.h"
 #include "src/compiler/frame-states.h"
 #include "src/deoptimize-reason.h"
 #include "src/globals.h"
 #include "src/machine-type.h"
+#include "src/reloc-info.h"
+#include "src/string-constants.h"
 #include "src/vector-slot-pair.h"
 #include "src/zone/zone-containers.h"
 #include "src/zone/zone-handle-set.h"
 
 namespace v8 {
 namespace internal {
+
+class StringConstantBase;
+
 namespace compiler {
 
 // Forward declarations.
@@ -255,7 +259,7 @@ class SparseInputMask final {
   // An iterator over a node's sparse inputs.
   class InputIterator final {
    public:
-    InputIterator() {}
+    InputIterator() = default;
     InputIterator(BitMaskType bit_mask, Node* parent);
 
     Node* parent() const { return parent_; }
@@ -406,15 +410,18 @@ MachineRepresentation DeadValueRepresentationOf(Operator const*)
 
 class IfValueParameters final {
  public:
-  IfValueParameters(int32_t value, int32_t comparison_order)
-      : value_(value), comparison_order_(comparison_order) {}
+  IfValueParameters(int32_t value, int32_t comparison_order,
+                    BranchHint hint = BranchHint::kNone)
+      : value_(value), comparison_order_(comparison_order), hint_(hint) {}
 
   int32_t value() const { return value_; }
   int32_t comparison_order() const { return comparison_order_; }
+  BranchHint hint() const { return hint_; }
 
  private:
   int32_t value_;
   int32_t comparison_order_;
+  BranchHint hint_;
 };
 
 V8_EXPORT_PRIVATE bool operator==(IfValueParameters const&,
@@ -432,6 +439,9 @@ const FrameStateInfo& FrameStateInfoOf(const Operator* op)
     V8_WARN_UNUSED_RESULT;
 
 Handle<HeapObject> HeapConstantOf(const Operator* op) V8_WARN_UNUSED_RESULT;
+
+const StringConstantBase* StringConstantBaseOf(const Operator* op)
+    V8_WARN_UNUSED_RESULT;
 
 // Interface for building common operators that can be used at any level of IR,
 // including JavaScript, mid-level, and low-level.
@@ -451,8 +461,9 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
   const Operator* IfSuccess();
   const Operator* IfException();
   const Operator* Switch(size_t control_output_count);
-  const Operator* IfValue(int32_t value, int32_t order = 0);
-  const Operator* IfDefault();
+  const Operator* IfValue(int32_t value, int32_t order = 0,
+                          BranchHint hint = BranchHint::kNone);
+  const Operator* IfDefault(BranchHint hint = BranchHint::kNone);
   const Operator* Throw();
   const Operator* Deoptimize(DeoptimizeKind kind, DeoptimizeReason reason,
                              VectorSlotPair const& feedback);
@@ -534,6 +545,8 @@ class V8_EXPORT_PRIVATE CommonOperatorBuilder final
 
   const Operator* MarkAsSafetyCheck(const Operator* op,
                                     IsSafetyCheck safety_check);
+
+  const Operator* DelayedStringConstant(const StringConstantBase* str);
 
  private:
   Zone* zone() const { return zone_; }

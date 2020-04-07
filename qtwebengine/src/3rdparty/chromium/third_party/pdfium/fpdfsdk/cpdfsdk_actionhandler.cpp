@@ -11,10 +11,10 @@
 
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfdoc/cpdf_formfield.h"
-#include "core/fpdfdoc/cpdf_interform.h"
+#include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fpdfsdk/cpdfsdk_interform.h"
+#include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "fxjs/ijs_event_context.h"
 #include "fxjs/ijs_runtime.h"
 #include "third_party/base/logging.h"
@@ -128,10 +128,10 @@ bool CPDFSDK_ActionHandler::ExecuteDocumentOpenAction(
     if (pFormFillEnv->IsJSPlatformPresent()) {
       WideString swJS = action.GetJavaScript();
       if (!swJS.IsEmpty())
-        RunDocumentOpenJavaScript(pFormFillEnv, L"", swJS);
+        RunDocumentOpenJavaScript(pFormFillEnv, WideString(), swJS);
     }
   } else {
-    DoAction_NoJs(action, CPDF_AAction::AActionType::DocumentOpen,
+    DoAction_NoJs(action, CPDF_AAction::AActionType::kDocumentOpen,
                   pFormFillEnv);
   }
 
@@ -212,9 +212,9 @@ bool CPDFSDK_ActionHandler::IsValidField(
     CPDF_Dictionary* pFieldDict) {
   ASSERT(pFieldDict);
 
-  CPDFSDK_InterForm* pInterForm = pFormFillEnv->GetInterForm();
-  CPDF_InterForm* pPDFInterForm = pInterForm->GetInterForm();
-  return !!pPDFInterForm->GetFieldByDict(pFieldDict);
+  CPDFSDK_InteractiveForm* pForm = pFormFillEnv->GetInteractiveForm();
+  CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
+  return !!pPDFForm->GetFieldByDict(pFieldDict);
 }
 
 bool CPDFSDK_ActionHandler::ExecuteFieldAction(
@@ -296,7 +296,7 @@ bool CPDFSDK_ActionHandler::ExecuteBookMark(
   ASSERT(pFormFillEnv);
   if (action.GetType() == CPDF_Action::JavaScript) {
     RunScriptForAction(action, pFormFillEnv,
-                       [pFormFillEnv, pBookmark](IJS_EventContext* context) {
+                       [pBookmark](IJS_EventContext* context) {
                          context->OnBookmark_MouseUp(pBookmark);
                        });
   } else {
@@ -371,10 +371,10 @@ void CPDFSDK_ActionHandler::DoAction_GoTo(
   CPDF_Dest MyDest = action.GetDest(pPDFDocument);
   int nPageIndex = MyDest.GetDestPageIndex(pPDFDocument);
   int nFitType = MyDest.GetZoomMode();
-  const CPDF_Array* pMyArray = ToArray(MyDest.GetObject());
+  const CPDF_Array* pMyArray = MyDest.GetArray();
   std::vector<float> posArray;
   if (pMyArray) {
-    for (size_t i = 2; i < pMyArray->GetCount(); i++)
+    for (size_t i = 2; i < pMyArray->size(); i++)
       posArray.push_back(pMyArray->GetFloatAt(i));
   }
   pFormFillEnv->DoGoToAction(nPageIndex, nFitType, posArray.data(),
@@ -405,44 +405,44 @@ void CPDFSDK_ActionHandler::RunFieldJavaScript(
     CPDF_AAction::AActionType type,
     CPDFSDK_FieldAction* data,
     const WideString& script) {
-  ASSERT(type != CPDF_AAction::Calculate);
-  ASSERT(type != CPDF_AAction::Format);
+  ASSERT(type != CPDF_AAction::kCalculate);
+  ASSERT(type != CPDF_AAction::kFormat);
 
   RunScript(
       pFormFillEnv, script,
       [type, data, pFormField](IJS_EventContext* context) {
         switch (type) {
-          case CPDF_AAction::CursorEnter:
+          case CPDF_AAction::kCursorEnter:
             context->OnField_MouseEnter(data->bModifier, data->bShift,
                                         pFormField);
             break;
-          case CPDF_AAction::CursorExit:
+          case CPDF_AAction::kCursorExit:
             context->OnField_MouseExit(data->bModifier, data->bShift,
                                        pFormField);
             break;
-          case CPDF_AAction::ButtonDown:
+          case CPDF_AAction::kButtonDown:
             context->OnField_MouseDown(data->bModifier, data->bShift,
                                        pFormField);
             break;
-          case CPDF_AAction::ButtonUp:
+          case CPDF_AAction::kButtonUp:
             context->OnField_MouseUp(data->bModifier, data->bShift, pFormField);
             break;
-          case CPDF_AAction::GetFocus:
+          case CPDF_AAction::kGetFocus:
             context->OnField_Focus(data->bModifier, data->bShift, pFormField,
                                    &data->sValue);
             break;
-          case CPDF_AAction::LoseFocus:
+          case CPDF_AAction::kLoseFocus:
             context->OnField_Blur(data->bModifier, data->bShift, pFormField,
                                   &data->sValue);
             break;
-          case CPDF_AAction::KeyStroke:
+          case CPDF_AAction::kKeyStroke:
             context->OnField_Keystroke(
                 &data->sChange, data->sChangeEx, data->bKeyDown,
                 data->bModifier, &data->nSelEnd, &data->nSelStart, data->bShift,
                 pFormField, &data->sValue, data->bWillCommit, data->bFieldFull,
                 &data->bRC);
             break;
-          case CPDF_AAction::Validate:
+          case CPDF_AAction::kValidate:
             context->OnField_Validate(&data->sChange, data->sChangeEx,
                                       data->bKeyDown, data->bModifier,
                                       data->bShift, pFormField, &data->sValue,
@@ -472,31 +472,31 @@ void CPDFSDK_ActionHandler::RunDocumentPageJavaScript(
   RunScript(pFormFillEnv, script,
             [type, pFormFillEnv](IJS_EventContext* context) {
               switch (type) {
-                case CPDF_AAction::OpenPage:
+                case CPDF_AAction::kOpenPage:
                   context->OnPage_Open(pFormFillEnv);
                   break;
-                case CPDF_AAction::ClosePage:
+                case CPDF_AAction::kClosePage:
                   context->OnPage_Close(pFormFillEnv);
                   break;
-                case CPDF_AAction::CloseDocument:
+                case CPDF_AAction::kCloseDocument:
                   context->OnDoc_WillClose(pFormFillEnv);
                   break;
-                case CPDF_AAction::SaveDocument:
+                case CPDF_AAction::kSaveDocument:
                   context->OnDoc_WillSave(pFormFillEnv);
                   break;
-                case CPDF_AAction::DocumentSaved:
+                case CPDF_AAction::kDocumentSaved:
                   context->OnDoc_DidSave(pFormFillEnv);
                   break;
-                case CPDF_AAction::PrintDocument:
+                case CPDF_AAction::kPrintDocument:
                   context->OnDoc_WillPrint(pFormFillEnv);
                   break;
-                case CPDF_AAction::DocumentPrinted:
+                case CPDF_AAction::kDocumentPrinted:
                   context->OnDoc_DidPrint(pFormFillEnv);
                   break;
-                case CPDF_AAction::PageVisible:
+                case CPDF_AAction::kPageVisible:
                   context->OnPage_InView(pFormFillEnv);
                   break;
-                case CPDF_AAction::PageInvisible:
+                case CPDF_AAction::kPageInvisible:
                   context->OnPage_OutView(pFormFillEnv);
                   break;
                 default:
@@ -509,8 +509,8 @@ void CPDFSDK_ActionHandler::RunDocumentPageJavaScript(
 bool CPDFSDK_ActionHandler::DoAction_Hide(
     const CPDF_Action& action,
     CPDFSDK_FormFillEnvironment* pFormFillEnv) {
-  CPDFSDK_InterForm* pInterForm = pFormFillEnv->GetInterForm();
-  if (pInterForm->DoAction_Hide(action)) {
+  CPDFSDK_InteractiveForm* pForm = pFormFillEnv->GetInteractiveForm();
+  if (pForm->DoAction_Hide(action)) {
     pFormFillEnv->SetChangeMark();
     return true;
   }
@@ -520,15 +520,15 @@ bool CPDFSDK_ActionHandler::DoAction_Hide(
 bool CPDFSDK_ActionHandler::DoAction_SubmitForm(
     const CPDF_Action& action,
     CPDFSDK_FormFillEnvironment* pFormFillEnv) {
-  CPDFSDK_InterForm* pInterForm = pFormFillEnv->GetInterForm();
-  return pInterForm->DoAction_SubmitForm(action);
+  CPDFSDK_InteractiveForm* pForm = pFormFillEnv->GetInteractiveForm();
+  return pForm->DoAction_SubmitForm(action);
 }
 
 void CPDFSDK_ActionHandler::DoAction_ResetForm(
     const CPDF_Action& action,
     CPDFSDK_FormFillEnvironment* pFormFillEnv) {
-  CPDFSDK_InterForm* pInterForm = pFormFillEnv->GetInterForm();
-  pInterForm->DoAction_ResetForm(action);
+  CPDFSDK_InteractiveForm* pForm = pFormFillEnv->GetInteractiveForm();
+  pForm->DoAction_ResetForm(action);
 }
 
 void CPDFSDK_ActionHandler::RunScriptForAction(

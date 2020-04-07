@@ -139,11 +139,6 @@ void LegacyRenderWidgetHostHWND::SetBounds(const gfx::Rect& bounds) {
     direct_manipulation_helper_->SetSize(bounds_in_pixel.size());
 }
 
-void LegacyRenderWidgetHostHWND::MoveCaretTo(const gfx::Rect& bounds) {
-  DCHECK(ax_system_caret_);
-  ax_system_caret_->MoveCaretTo(bounds);
-}
-
 void LegacyRenderWidgetHostHWND::OnFinalMessage(HWND hwnd) {
   if (host_) {
     host_->OnLegacyWindowDestroyed();
@@ -182,7 +177,7 @@ bool LegacyRenderWidgetHostHWND::Init() {
   DCHECK(SUCCEEDED(hr));
 
   ui::AXMode mode =
-      BrowserAccessibilityStateImpl::GetInstance()->accessibility_mode();
+      BrowserAccessibilityStateImpl::GetInstance()->GetAccessibilityMode();
   if (!mode.has_mode(ui::AXMode::kNativeAPIs)) {
     // Attempt to detect screen readers or other clients who want full
     // accessibility support, by seeing if they respond to this event.
@@ -344,7 +339,12 @@ LRESULT LegacyRenderWidgetHostHWND::OnMouseLeave(UINT message,
     // has moved outside the bounds of the parent.
     POINT cursor_pos;
     ::GetCursorPos(&cursor_pos);
-    if (::WindowFromPoint(cursor_pos) != GetParent()) {
+
+    // WindowFromPoint returns the top-most HWND. As hwnd() may not
+    // respond with HTTRANSPARENT to a WM_NCHITTEST message,
+    // it may be returned.
+    HWND window_from_point = ::WindowFromPoint(cursor_pos);
+    if (window_from_point != hwnd() && window_from_point != GetParent()) {
       bool msg_handled = false;
       ret = GetWindowEventTarget(GetParent())->HandleMouseMessage(
           message, w_param, l_param, &msg_handled);

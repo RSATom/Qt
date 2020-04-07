@@ -15,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "components/viz/common/resources/resource_format_utils.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/common/raster_cmd_format.h"
 #include "gpu/command_buffer/service/context_group.h"
@@ -23,8 +24,8 @@
 #include "gpu/command_buffer/service/logger.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/program_manager.h"
-#include "gpu/command_buffer/service/raster_decoder_context_state.h"
 #include "gpu/command_buffer/service/service_utils.h"
+#include "gpu/command_buffer/service/shared_context_state.h"
 #include "gpu/command_buffer/service/test_helper.h"
 #include "gpu/command_buffer/service/vertex_attrib_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -53,7 +54,6 @@ RasterDecoderTestBase::InitState::~InitState() = default;
 RasterDecoderTestBase::RasterDecoderTestBase()
     : surface_(nullptr),
       context_(nullptr),
-      client_texture_id_(106),
       shared_memory_id_(0),
       shared_memory_offset_(0),
       shared_memory_address_(nullptr),
@@ -71,37 +71,12 @@ void RasterDecoderTestBase::OnConsoleMessage(int32_t id,
 void RasterDecoderTestBase::CacheShader(const std::string& key,
                                         const std::string& shader) {}
 void RasterDecoderTestBase::OnFenceSyncRelease(uint64_t release) {}
-bool RasterDecoderTestBase::OnWaitSyncToken(const gpu::SyncToken&) {
-  return false;
-}
 void RasterDecoderTestBase::OnDescheduleUntilFinished() {}
 void RasterDecoderTestBase::OnRescheduleAfterFinished() {}
 void RasterDecoderTestBase::OnSwapBuffers(uint64_t swap_id, uint32_t flags) {}
 
 void RasterDecoderTestBase::SetUp() {
   InitDecoder(InitState());
-}
-
-void RasterDecoderTestBase::AddExpectationsForVertexAttribManager() {
-  for (GLint ii = 0; ii < kNumVertexAttribs; ++ii) {
-    EXPECT_CALL(*gl_, VertexAttrib4f(ii, 0.0f, 0.0f, 0.0f, 1.0f))
-        .Times(1)
-        .RetiresOnSaturation();
-  }
-}
-
-void RasterDecoderTestBase::AddExpectationsForBindVertexArrayOES() {
-  if (group_->feature_info()->feature_flags().native_vertex_array_object) {
-    EXPECT_CALL(*gl_, BindVertexArrayOES(_)).Times(1).RetiresOnSaturation();
-  } else {
-    for (uint32_t vv = 0; vv < group_->max_vertex_attribs(); ++vv) {
-      AddExpectationsForRestoreAttribState(vv);
-    }
-
-    EXPECT_CALL(*gl_, BindBuffer(GL_ELEMENT_ARRAY_BUFFER, _))
-        .Times(1)
-        .RetiresOnSaturation();
-  }
 }
 
 void RasterDecoderTestBase::AddExpectationsForRestoreAttribState(
@@ -166,6 +141,28 @@ void RasterDecoderTestBase::ExpectEnableDisable(GLenum cap, bool enable) {
   }
 }
 
+gpu::Mailbox RasterDecoderTestBase::CreateFakeTexture(
+    GLuint service_id,
+    viz::ResourceFormat resource_format,
+    GLsizei width,
+    GLsizei height,
+    bool cleared) {
+  // Create texture and temporary ref.
+  const GLuint kTempClientId = next_fake_texture_client_id_++;
+  auto* temp_ref =
+      group_->texture_manager()->CreateTexture(kTempClientId, service_id);
+  group_->texture_manager()->SetTarget(temp_ref, GL_TEXTURE_2D);
+  group_->texture_manager()->SetLevelInfo(
+      temp_ref, GL_TEXTURE_2D, 0, viz::GLInternalFormat(resource_format),
+      /*width=*/width, /*height=*/height, 1, 0,
+      viz::GLDataFormat(resource_format), viz::GLDataType(resource_format),
+      cleared ? gfx::Rect(width, height) : gfx::Rect());
+  gpu::Mailbox mailbox = gpu::Mailbox::Generate();
+  group_->mailbox_manager()->ProduceTexture(mailbox, temp_ref->texture());
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+  return mailbox;
+}
+
 void RasterDecoderTestBase::InitDecoder(const InitState& init) {
   std::string all_extensions;
   for (const std::string& extension : init.extensions) {
@@ -189,8 +186,8 @@ void RasterDecoderTestBase::InitDecoder(const InitState& init) {
       gpu_preferences_, false, &mailbox_manager_, nullptr /* memory_tracker */,
       &shader_translator_cache_, &framebuffer_completeness_cache_, feature_info,
       bind_generates_resource, &image_manager_, nullptr /* image_factory */,
-      nullptr /* progress_reporter */, gpu_feature_info,
-      &discardable_manager_));
+      nullptr /* progress_reporter */, gpu_feature_info, &discardable_manager_,
+      nullptr /* passthrough_discardable_manager */, &shared_image_manager_));
 
   InSequence sequence;
 
@@ -213,7 +210,10 @@ void RasterDecoderTestBase::InitDecoder(const InitState& init) {
   // we can use the ContextGroup to figure out how the real RasterDecoder
   // will initialize itself.
   command_buffer_service_.reset(new FakeCommandBufferServiceBase());
-  mock_decoder_.reset(new MockRasterDecoder(command_buffer_service_.get()));
+  command_buffer_service_for_mock_decoder_.reset(
+      new FakeCommandBufferServiceBase());
+  mock_decoder_.reset(
+      new MockRasterDecoder(command_buffer_service_for_mock_decoder_.get()));
 
   EXPECT_EQ(group_->Initialize(mock_decoder_.get(), context_type,
                                gles2::DisallowedFeatures()),
@@ -224,7 +224,7 @@ void RasterDecoderTestBase::InitDecoder(const InitState& init) {
                                                           &shared_memory_id_);
   shared_memory_offset_ = kSharedMemoryOffset;
   shared_memory_address_ =
-      reinterpret_cast<int8_t*>(buffer->memory()) + shared_memory_offset_;
+      static_cast<int8_t*>(buffer->memory()) + shared_memory_offset_;
   shared_memory_base_ = buffer->memory();
   ClearSharedMemory();
 
@@ -233,70 +233,50 @@ void RasterDecoderTestBase::InitDecoder(const InitState& init) {
       init.lose_context_when_out_of_memory;
   attribs.context_type = context_type;
 
-  if (group_->feature_info()->feature_flags().native_vertex_array_object) {
-    EXPECT_CALL(*gl_, GenVertexArraysOES(1, _))
-        .WillOnce(SetArgPointee<1>(kServiceVertexArrayId))
-        .RetiresOnSaturation();
-    EXPECT_CALL(*gl_, BindVertexArrayOES(_)).Times(1).RetiresOnSaturation();
-  }
-
-  if (group_->feature_info()->workarounds().init_vertex_attributes)
-    AddExpectationsForVertexAttribManager();
-
-  AddExpectationsForBindVertexArrayOES();
-
-  bool use_default_textures = bind_generates_resource;
-  for (GLint tt = 0; tt < gles2::TestHelper::kNumTextureUnits; ++tt) {
-    EXPECT_CALL(*gl_, ActiveTexture(GL_TEXTURE0 + tt))
-        .Times(1)
-        .RetiresOnSaturation();
-    EXPECT_CALL(*gl_,
-                BindTexture(GL_TEXTURE_2D,
-                            use_default_textures
-                                ? gles2::TestHelper::kServiceDefaultTexture2dId
-                                : 0))
-        .Times(1)
-        .RetiresOnSaturation();
-  }
-  EXPECT_CALL(*gl_, ActiveTexture(GL_TEXTURE0)).Times(1).RetiresOnSaturation();
-
+  // Setup expectations for SharedContextState::InitializeGL().
+  EXPECT_CALL(*gl_, GetIntegerv(GL_MAX_VERTEX_ATTRIBS, _))
+      .WillOnce(SetArgPointee<1>(8u))
+      .RetiresOnSaturation();
   SetupInitCapabilitiesExpectations(group_->feature_info()->IsES3Capable());
   SetupInitStateExpectations(group_->feature_info()->IsES3Capable());
 
-  scoped_refptr<raster::RasterDecoderContextState> context_state =
-      new raster::RasterDecoderContextState(
-          new gl::GLShareGroup(), surface_, context_,
-          feature_info->workarounds().use_virtualized_gl_contexts);
+  if (context_->HasRobustness()) {
+    EXPECT_CALL(*gl_, GetGraphicsResetStatusARB())
+        .WillOnce(Return(GL_NO_ERROR));
+  }
+
+  shared_context_state_ = base::MakeRefCounted<SharedContextState>(
+      new gl::GLShareGroup(), surface_, context_,
+      feature_info->workarounds().use_virtualized_gl_contexts,
+      base::DoNothing());
+
+  shared_context_state_->InitializeGL(GpuPreferences(), feature_info);
+
   decoder_.reset(RasterDecoder::Create(this, command_buffer_service_.get(),
                                        &outputter_, group_.get(),
-                                       std::move(context_state)));
+                                       shared_context_state_));
   decoder_->SetIgnoreCachedStateForTest(ignore_cached_state_for_test_);
+  decoder_->DisableFlushWorkaroundForTest();
   decoder_->GetLogger()->set_log_synthesized_gl_errors(false);
 
   copy_texture_manager_ = new gles2::MockCopyTextureResourceManager();
   decoder_->SetCopyTextureResourceManagerForTest(copy_texture_manager_);
 
-  ASSERT_EQ(decoder_->Initialize(surface_, context_, true,
-                                 gles2::DisallowedFeatures(), attribs),
+  ASSERT_EQ(decoder_->Initialize(surface_, shared_context_state_->context(),
+                                 true, gles2::DisallowedFeatures(), attribs),
             gpu::ContextResult::kSuccess);
 
   EXPECT_CALL(*context_, MakeCurrent(surface_.get())).WillOnce(Return(true));
-  if (context_->WasAllocatedUsingRobustnessExtension()) {
+  if (context_->HasRobustness()) {
     EXPECT_CALL(*gl_, GetGraphicsResetStatusARB())
         .WillOnce(Return(GL_NO_ERROR));
   }
   decoder_->MakeCurrent();
   decoder_->BeginDecoding();
 
-  EXPECT_CALL(*gl_, GenTextures(_, _))
-      .WillOnce(SetArgPointee<1>(kServiceTextureId))
-      .RetiresOnSaturation();
-  cmds::CreateTexture cmd;
-  cmd.Init(false /* use_buffer */, gfx::BufferUsage::GPU_READ,
-           viz::ResourceFormat::RGBA_8888, client_texture_id_);
-  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
-
-  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+  client_texture_mailbox_ = CreateFakeTexture(
+      kServiceTextureId, viz::ResourceFormat::RGBA_8888, /*width=*/2,
+      /*height=*/2, /*cleared=*/false);
 }
 
 void RasterDecoderTestBase::ResetDecoder() {
@@ -318,6 +298,7 @@ void RasterDecoderTestBase::ResetDecoder() {
   decoder_.reset();
   group_->Destroy(mock_decoder_.get(), false);
   command_buffer_service_.reset();
+  command_buffer_service_for_mock_decoder_.reset();
   ::gl::MockGLInterface::SetGLInterface(nullptr);
   gl_.reset();
   gl::init::ShutdownGL(false);
@@ -379,12 +360,11 @@ void RasterDecoderTestBase::SetBucketAsCStrings(uint32_t bucket_id,
   for (GLsizei ii = 0; ii < count; ++ii) {
     if (str && str[ii]) {
       size_t str_len = strlen(str[ii]);
-      memcpy(reinterpret_cast<char*>(shared_memory_address_) + offset, str[ii],
+      memcpy(static_cast<char*>(shared_memory_address_) + offset, str[ii],
              str_len);
       offset += str_len;
     }
-    memcpy(reinterpret_cast<char*>(shared_memory_address_) + offset, &str_end,
-           1);
+    memcpy(static_cast<char*>(shared_memory_address_) + offset, &str_end, 1);
     offset += 1;
   }
   cmd::SetBucketData cmd2;
@@ -393,57 +373,11 @@ void RasterDecoderTestBase::SetBucketAsCStrings(uint32_t bucket_id,
   ClearSharedMemory();
 }
 
-void RasterDecoderTestBase::DoDeleteTexture(GLuint client_id,
-                                            GLuint service_id) {
-  {
-    InSequence s;
-
-    // Calling DoDeleteTexture will unbind the texture from any texture units
-    // it's currently bound to.
-    EXPECT_CALL(*gl_, BindTexture(_, 0)).Times(AnyNumber());
-
-    EXPECT_CALL(*gl_, DeleteTextures(1, Pointee(service_id)))
-        .Times(1)
-        .RetiresOnSaturation();
-
-    GenHelper<cmds::DeleteTexturesImmediate>(client_id);
-  }
-}
-
 void RasterDecoderTestBase::SetScopedTextureBinderExpectations(GLenum target) {
   // ScopedTextureBinder
-  EXPECT_CALL(*gl_, ActiveTexture(_))
-      .Times(Between(1, 2))
-      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, ActiveTexture(_)).Times(1).RetiresOnSaturation();
   EXPECT_CALL(*gl_, BindTexture(target, Ne(0U))).Times(1).RetiresOnSaturation();
   EXPECT_CALL(*gl_, BindTexture(target, 0)).Times(1).RetiresOnSaturation();
-}
-
-void RasterDecoderTestBase::DoTexStorage2D(GLuint client_id,
-                                           GLsizei width,
-                                           GLsizei height) {
-  cmds::TexStorage2D tex_storage_cmd;
-  tex_storage_cmd.Init(client_id, width, height);
-
-  SetScopedTextureBinderExpectations(GL_TEXTURE_2D);
-
-  if (decoder_->GetCapabilities().texture_storage) {
-    EXPECT_CALL(*gl_,
-                TexStorage2DEXT(GL_TEXTURE_2D, /*levels=*/1, _, width, height))
-        .Times(1)
-        .RetiresOnSaturation();
-  } else {
-    EXPECT_CALL(*gl_, GetError())
-        .WillOnce(Return(GL_NO_ERROR))
-        .WillOnce(Return(GL_NO_ERROR))
-        .RetiresOnSaturation();
-    EXPECT_CALL(*gl_,
-                TexImage2D(GL_TEXTURE_2D, _, _, width, height, _, _, _, _))
-        .Times(1)
-        .RetiresOnSaturation();
-  }
-  EXPECT_EQ(error::kNoError, ExecuteCmd(tex_storage_cmd));
-  EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
 
 void RasterDecoderTestBase::SetupClearTextureExpectations(
@@ -459,11 +393,9 @@ void RasterDecoderTestBase::SetupClearTextureExpectations(
     GLsizei width,
     GLsizei height,
     GLuint bound_pixel_unpack_buffer) {
-  EXPECT_CALL(*gl_, BindTexture(bind_target, service_id))
-      .Times(1)
-      .RetiresOnSaturation();
+  SetScopedTextureBinderExpectations(bind_target);
   EXPECT_CALL(*gl_, PixelStorei(GL_UNPACK_ALIGNMENT, _))
-      .Times(2)
+      .Times(1)
       .RetiresOnSaturation();
   if (bound_pixel_unpack_buffer) {
     EXPECT_CALL(*gl_, BindBuffer(GL_PIXEL_UNPACK_BUFFER, _))
@@ -478,9 +410,6 @@ void RasterDecoderTestBase::SetupClearTextureExpectations(
   }
   EXPECT_CALL(*gl_, TexSubImage2D(target, level, xoffset, yoffset, width,
                                   height, format, type, _))
-      .Times(1)
-      .RetiresOnSaturation();
-  EXPECT_CALL(*gl_, BindTexture(bind_target, old_service_id))
       .Times(1)
       .RetiresOnSaturation();
 #if DCHECK_IS_ON()
@@ -499,7 +428,6 @@ void RasterDecoderTestBase::SetupClearTextureExpectations(
 #ifndef COMPILER_MSVC
 const GLint RasterDecoderTestBase::kMaxTextureSize;
 const GLint RasterDecoderTestBase::kNumTextureUnits;
-const GLint RasterDecoderTestBase::kNumVertexAttribs;
 
 const GLint RasterDecoderTestBase::kViewportX;
 const GLint RasterDecoderTestBase::kViewportY;

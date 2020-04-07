@@ -92,9 +92,15 @@ void AutofillProviderAndroid::StartNewSession(AutofillHandlerProxy* handler,
     return;
   }
 
+  FormStructure* form_structure = nullptr;
+  AutofillField* autofill_field = nullptr;
+  if (!handler->GetCachedFormAndField(form, field, &form_structure,
+                                      &autofill_field)) {
+    form_structure = nullptr;
+  }
   gfx::RectF transformed_bounding = ToClientAreaBound(bounding_box);
 
-  ScopedJavaLocalRef<jobject> form_obj = form_->GetJavaPeer();
+  ScopedJavaLocalRef<jobject> form_obj = form_->GetJavaPeer(form_structure);
   handler_ = handler->GetWeakPtr();
   Java_AutofillProvider_startAutofillSession(
       env, obj, form_obj, index, transformed_bounding.x(),
@@ -168,8 +174,7 @@ void AutofillProviderAndroid::FireSuccessfulSubmission(
 void AutofillProviderAndroid::OnFormSubmitted(AutofillHandlerProxy* handler,
                                               const FormData& form,
                                               bool known_success,
-                                              SubmissionSource source,
-                                              base::TimeTicks timestamp) {
+                                              SubmissionSource source) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!IsCurrentlyLinkedHandler(handler) || !IsCurrentlyLinkedForm(form))
     return;

@@ -214,9 +214,7 @@ private slots:
 #ifdef __QNXNTO__
         QTest::newRow("qnx") << QUrl(QLatin1String("qnx:replica")) << QUrl(QLatin1String("qnx:registry"));
 #endif
-#ifndef SKIP_LOCAL
-        QTest::newRow("local") << QUrl(QLatin1String("local:replica_local_integration")) << QUrl(QLatin1String("local:registry_local_integration"));
-#endif
+        QTest::newRow("local") << QUrl(QLatin1String("local:replicaLocalIntegration")) << QUrl(QLatin1String("local:registryLocalIntegration"));
         QTest::newRow("external") << QUrl() << QUrl();
     }
 
@@ -1299,7 +1297,7 @@ private slots:
         QVERIFY(invalidRegistry.lastError() == QRemoteObjectNode::RegistryNotAcquired);
     }
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_DARWIN) && !defined(SKIP_LOCAL)
+#if defined(Q_OS_LINUX) || defined(Q_OS_DARWIN)
     void localServerConnectionTest()
     {
         QFETCH_GLOBAL(QUrl, hostUrl);

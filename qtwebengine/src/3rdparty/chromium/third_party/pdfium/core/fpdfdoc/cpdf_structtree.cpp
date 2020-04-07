@@ -7,11 +7,13 @@
 #include "core/fpdfdoc/cpdf_structtree.h"
 
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfdoc/cpdf_numbertree.h"
 #include "core/fpdfdoc/cpdf_structelement.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -37,10 +39,9 @@ std::unique_ptr<CPDF_StructTree> CPDF_StructTree::LoadPage(
 
 CPDF_StructTree::CPDF_StructTree(const CPDF_Document* pDoc)
     : m_pTreeRoot(pDoc->GetRoot()->GetDictFor("StructTreeRoot")),
-      m_pRoleMap(m_pTreeRoot ? m_pTreeRoot->GetDictFor("RoleMap") : nullptr),
-      m_pPage(nullptr) {}
+      m_pRoleMap(m_pTreeRoot ? m_pTreeRoot->GetDictFor("RoleMap") : nullptr) {}
 
-CPDF_StructTree::~CPDF_StructTree() {}
+CPDF_StructTree::~CPDF_StructTree() = default;
 
 void CPDF_StructTree::LoadPageTree(const CPDF_Dictionary* pPageDict) {
   m_pPage = pPageDict;
@@ -55,7 +56,7 @@ void CPDF_StructTree::LoadPageTree(const CPDF_Dictionary* pPageDict) {
   if (pKids->IsDictionary())
     dwKids = 1;
   else if (const CPDF_Array* pArray = pKids->AsArray())
-    dwKids = pArray->GetCount();
+    dwKids = pArray->size();
   else
     return;
 
@@ -75,7 +76,7 @@ void CPDF_StructTree::LoadPageTree(const CPDF_Dictionary* pPageDict) {
     return;
 
   StructElementMap element_map;
-  for (size_t i = 0; i < pParentArray->GetCount(); i++) {
+  for (size_t i = 0; i < pParentArray->size(); i++) {
     if (const CPDF_Dictionary* pParent = pParentArray->GetDictAt(i))
       AddPageNode(pParent, &element_map, 0);
   }
@@ -134,7 +135,7 @@ bool CPDF_StructTree::AddTopLevelNode(
     return true;
 
   bool bSave = false;
-  for (size_t i = 0; i < pTopKids->GetCount(); i++) {
+  for (size_t i = 0; i < pTopKids->size(); i++) {
     const CPDF_Reference* pKidRef = ToReference(pTopKids->GetObjectAt(i));
     if (pKidRef && pKidRef->GetRefObjNum() == pDict->GetObjNum()) {
       m_Kids[i] = pElement;

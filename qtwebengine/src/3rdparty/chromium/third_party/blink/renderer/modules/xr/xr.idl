@@ -5,8 +5,10 @@
 // https://immersive-web.github.io/webxr/#xr-interface
 [
     SecureContext,
+    Exposed=Window,
     OriginTrialEnabled=WebXR
 ] interface XR : EventTarget {
   attribute EventHandler ondevicechange;
-  [CallWith=ScriptState, MeasureAs=XRRequestDevice] Promise requestDevice();
+  [CallWith=ScriptState, MeasureAs=XRSupportsSession] Promise<void> supportsSessionMode(XRSessionMode mode);
+  [CallWith=ScriptState, MeasureAs=XRRequestSession] Promise<XRSession> requestSession([PermissiveDictionaryConversion] optional XRSessionCreationOptions options);
 };

@@ -1001,7 +1001,7 @@ void tst_QMenu::task258920_mouseBorder()
     menu.setMouseTracking(true);
     QAction *action = menu.addAction("test");
 
-    const QPoint center = QApplication::desktop()->availableGeometry().center();
+    const QPoint center = QGuiApplication::primaryScreen()->availableGeometry().center();
     menu.popup(center);
     QVERIFY(QTest::qWaitForWindowExposed(&menu));
     QRect actionRect = menu.actionGeometry(action);
@@ -1073,9 +1073,9 @@ void tst_QMenu::pushButtonPopulateOnAboutToShow()
 
     QMenu *buttonMenu= new PopulateOnAboutToShowTestMenu(&b);
     b.setMenu(buttonMenu);
-    const int scrNumber = QApplication::desktop()->screenNumber(&b);
+    const QScreen *scr = QGuiApplication::screenAt(b.pos());
     b.show();
-    const QRect screen = QApplication::desktop()->screenGeometry(scrNumber);
+    const QRect screen = scr->geometry();
 
     QRect desiredGeometry = b.geometry();
     desiredGeometry.moveTopLeft(QPoint(screen.x() + 10, screen.bottom() - b.height() - 5));
@@ -1143,8 +1143,16 @@ void tst_QMenu::QTBUG7411_submenus_activate()
     QTRY_VERIFY(sub1.isVisible());
 }
 
+static bool isPlatformWayland()
+{
+    return !QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive);
+}
+
 void tst_QMenu::QTBUG30595_rtl_submenu()
 {
+    if (isPlatformWayland())
+        QSKIP("Creating xdg_popups on Wayland requires real input events. Positions would be off.");
+
     QMenu menu("Test Menu");
     menu.setLayoutDirection(Qt::RightToLeft);
     QMenu sub("&sub");
@@ -1179,6 +1187,9 @@ void tst_QMenu::QTBUG20403_nested_popup_on_shortcut_trigger()
 #ifndef Q_OS_MACOS
 void tst_QMenu::click_while_dismissing_submenu()
 {
+    if (isPlatformWayland())
+        QSKIP("Wayland: Creating (grabbing) popups requires real mouse events.");
+
     QMenu menu("Test Menu");
     QAction *action = menu.addAction("action");
     QMenu sub("&sub");
@@ -1439,13 +1450,14 @@ void tst_QMenu::QTBUG_56917_wideMenuScreenNumber()
     QString longString;
     longString.fill(QLatin1Char('Q'), 3000);
 
-    for (int i = 0; i < QApplication::desktop()->screenCount(); i++) {
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    for (QScreen *screen : screens) {
         QMenu menu;
         menu.addAction(longString);
-        menu.popup(QApplication::desktop()->screen(i)->geometry().center());
+        menu.popup(screen->geometry().center());
         QVERIFY(QTest::qWaitForWindowExposed(&menu));
         QVERIFY(menu.isVisible());
-        QCOMPARE(QApplication::desktop()->screenNumber(&menu), i);
+        QCOMPARE(QGuiApplication::screenAt(menu.pos()), screen);
     }
 }
 
@@ -1457,19 +1469,20 @@ void tst_QMenu::QTBUG_56917_wideSubmenuScreenNumber()
     QString longString;
     longString.fill(QLatin1Char('Q'), 3000);
 
-    for (int i = 0; i < QApplication::desktop()->screenCount(); i++) {
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    for (QScreen *screen : screens) {
         QMenu menu;
         QMenu submenu("Submenu");
         submenu.addAction(longString);
         QAction *action = menu.addMenu(&submenu);
-        menu.popup(QApplication::desktop()->screen(i)->geometry().center());
+        menu.popup(screen->geometry().center());
         QVERIFY(QTest::qWaitForWindowExposed(&menu));
         QVERIFY(menu.isVisible());
         QTest::mouseClick(&menu, Qt::LeftButton, 0, menu.actionGeometry(action).center());
         QTest::qWait(100);
         QVERIFY(QTest::qWaitForWindowExposed(&submenu));
         QVERIFY(submenu.isVisible());
-        QCOMPARE(QApplication::desktop()->screenNumber(&submenu), i);
+        QCOMPARE(QGuiApplication::screenAt(submenu.pos()), screen);
     }
 }
 
@@ -1566,6 +1579,13 @@ void tst_QMenu::menuSize_Scrolling()
 #ifdef Q_OS_WINRT
             QEXPECT_FAIL("", "Broken on WinRT - QTBUG-68297", Abort);
 #endif
+            if (!QGuiApplication::platformName().compare(QLatin1String("minimal"), Qt::CaseInsensitive)
+                || !QGuiApplication::platformName().compare(QLatin1String("offscreen"), Qt::CaseInsensitive)) {
+                QWARN("Skipping test on minimal/offscreen platforms - QTBUG-73522");
+                QMenu::showEvent(e);
+                return;
+            }
+
             QCOMPARE( s.width(), lastItem.right() + fw + hmargin + rightMargin + 1);
             QMenu::showEvent(e);
         }

@@ -114,9 +114,9 @@ enum ResultCodeValues : ResultCode {
   // longer used.
   // 27
 
-  // This code is used when the reporter didn't find any UwS but the signature
-  // matcher was invalid.
-  RESULT_CODE_NO_PUPS_FOUND_NO_SIGNATURE_MATCHER = 28,
+  // DEPRECATED. This code was used when the reporter didn't find any UwS but
+  // the signature matcher was invalid.
+  // 28
 
   // This code is used when the validation step detects that one or more PUP
   // files are remaining after a cleanup and fails to remove them.
@@ -213,6 +213,19 @@ enum ResultCodeValues : ResultCode {
 
   // Some of the scanning configuration switches have invalid values.
   RESULT_CODE_INVALID_SCANNING_SWITCHES = 53,
+
+  // The target process for the JSON parser sandbox disconnected from the IPC
+  // while the pipe was still needed by the broker process.
+  RESULT_CODE_PARSER_SANDBOX_DISCONNECTED_TOO_SOON = 54,
+
+  // The target process for the zip archiver sandbox disconnected from the IPC
+  // while the pipe was still needed by the broker process.
+  RESULT_CODE_ZIP_ARCHIVER_SANDBOX_DISCONNECTED_TOO_SOON = 55,
+
+  // Used when attempting to run a 32-bit version of the tool on a 64-bit
+  // machine, and vice versa. Since this can result in crashes and unexpected
+  // result, we don't allow it.
+  RESULT_CODE_WRONG_ARCHITECTURE = 56,
 
   // WHEN YOU ADD NEW EXIT CODES, DON'T FORGET TO UPDATE THE MONITORING RULES.
   // See http://go/chrome-cleaner-exit-codes. (Google internal only - external

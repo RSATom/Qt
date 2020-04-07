@@ -33,7 +33,6 @@ struct ResourceResponseHead;
 
 namespace content {
 class AppCacheJob;
-class AppCacheNavigationHandleCore;
 class AppCacheSubresourceURLFactory;
 class AppCacheRequest;
 class AppCacheRequestHandlerTest;
@@ -75,15 +74,19 @@ class CONTENT_EXPORT AppCacheRequestHandler
   // MaybeLoadResource and MaybeLoadFallbackForResponse.
   // Eventually one of the Deliver*Response() methods is called and the
   // LoaderCallback is invoked.
-  void MaybeCreateLoader(const network::ResourceRequest& resource_request,
-                         ResourceContext* resource_context,
-                         LoaderCallback callback) override;
+  void MaybeCreateLoader(
+      const network::ResourceRequest& tentative_resource_request,
+      ResourceContext* resource_context,
+      LoaderCallback callback,
+      FallbackCallback fallback_callback) override;
   // MaybeCreateLoaderForResponse always returns synchronously.
   bool MaybeCreateLoaderForResponse(
+      const network::ResourceRequest& request,
       const network::ResourceResponseHead& response,
       network::mojom::URLLoaderPtr* loader,
       network::mojom::URLLoaderClientRequest* client_request,
-      ThrottlingURLLoader* url_loader) override;
+      ThrottlingURLLoader* url_loader,
+      bool* skip_other_interceptors) override;
   base::Optional<SubresourceLoaderParams> MaybeCreateSubresourceLoaderParams()
       override;
 
@@ -106,10 +109,9 @@ class CONTENT_EXPORT AppCacheRequestHandler
                                       LoaderCallback callback);
 
   static std::unique_ptr<AppCacheRequestHandler>
-  InitializeForNavigationNetworkService(
+  InitializeForMainResourceNetworkService(
       const network::ResourceRequest& request,
-      AppCacheNavigationHandleCore* appcache_handle_core,
-      scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory);
+      base::WeakPtr<AppCacheHost> appcache_host);
 
   static bool IsMainResourceType(ResourceType type) {
     return IsResourceTypeFrame(type) || type == RESOURCE_TYPE_SHARED_WORKER;
@@ -256,9 +258,6 @@ class CONTENT_EXPORT AppCacheRequestHandler
   // (i.e. when |loader_callback_| is fired with a non-null
   // RequestHandler for non-error cases.
   bool should_create_subresource_loader_ = false;
-
-  // The network URL loader factory.
-  scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory_;
 
   // The AppCache host instance. We pass this to the
   // AppCacheSubresourceURLFactory instance on creation.

@@ -27,8 +27,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_PENDING_SCRIPT_H_
 
 #include "base/macros.h"
+#include "third_party/blink/public/mojom/script/script_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_scoped_virtual_time_pauser.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/script/script.h"
 #include "third_party/blink/renderer/core/script/script_element_base.h"
@@ -77,30 +77,27 @@ class CORE_EXPORT PendingScript
     return parser_blocking_load_start_time_;
   }
 
-  void WatchForLoad(PendingScriptClient*);
+  virtual void WatchForLoad(PendingScriptClient*);
   void StopWatchingForLoad();
   void PendingScriptFinished();
 
   ScriptElementBase* GetElement() const;
 
-  virtual ScriptType GetScriptType() const = 0;
+  virtual mojom::ScriptType GetScriptType() const = 0;
 
   virtual void Trace(blink::Visitor*);
   const char* NameInHeapSnapshot() const override { return "PendingScript"; }
 
-  virtual Script* GetSource(const KURL& document_url,
-                            bool& error_occurred) const = 0;
+  // Returns nullptr when "script's script is null", i.e. an error occurred.
+  virtual Script* GetSource(const KURL& document_url) const = 0;
 
   // https://html.spec.whatwg.org/multipage/scripting.html#the-script-is-ready
   virtual bool IsReady() const = 0;
   virtual bool IsExternal() const = 0;
-  virtual bool ErrorOccurred() const = 0;
   virtual bool WasCanceled() const = 0;
 
   // Support for script streaming.
-  virtual bool StartStreamingIfPossible(ScriptStreamer::Type,
-                                        base::OnceClosure) = 0;
-  virtual bool IsCurrentlyStreaming() const = 0;
+  virtual void StartStreamingIfPossible() = 0;
 
   // Used only for tracing, and can return a null URL.
   // TODO(hiroshige): It's preferable to return the base URL consistently
@@ -110,7 +107,7 @@ class CORE_EXPORT PendingScript
 
   // Used for DCHECK()s.
   bool IsExternalOrModule() const {
-    return IsExternal() || GetScriptType() == ScriptType::kModule;
+    return IsExternal() || GetScriptType() == mojom::ScriptType::kModule;
   }
 
   void Dispose();
@@ -152,7 +149,6 @@ class CORE_EXPORT PendingScript
  private:
   static void ExecuteScriptBlockInternal(
       Script*,
-      bool error_occurred,
       ScriptElementBase*,
       bool was_canceled,
       bool is_external,

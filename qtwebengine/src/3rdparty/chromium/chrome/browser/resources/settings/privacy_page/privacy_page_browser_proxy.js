@@ -7,9 +7,6 @@
 /** @typedef {{enabled: boolean, managed: boolean}} */
 let MetricsReporting;
 
-/** @typedef {{enabled: boolean, managed: boolean}} */
-let SberPrefState;
-
 cr.define('settings', function() {
   /** @interface */
   class PrivacyPageBrowserProxy {
@@ -28,11 +25,8 @@ cr.define('settings', function() {
 
     // </if>
 
-    /** @return {!Promise<!SberPrefState>} */
-    getSafeBrowsingExtendedReporting() {}
-
     /** @param {boolean} enabled */
-    setSafeBrowsingExtendedReportingEnabled(enabled) {}
+    setBlockAutoplayEnabled(enabled) {}
   }
 
   /**
@@ -53,13 +47,8 @@ cr.define('settings', function() {
     // </if>
 
     /** @override */
-    getSafeBrowsingExtendedReporting() {
-      return cr.sendWithPromise('getSafeBrowsingExtendedReporting');
-    }
-
-    /** @override */
-    setSafeBrowsingExtendedReportingEnabled(enabled) {
-      chrome.send('setSafeBrowsingExtendedReportingEnabled', [enabled]);
+    setBlockAutoplayEnabled(enabled) {
+      chrome.send('setBlockAutoplayEnabled', [enabled]);
     }
 
     // <if expr="is_win or is_macosx">

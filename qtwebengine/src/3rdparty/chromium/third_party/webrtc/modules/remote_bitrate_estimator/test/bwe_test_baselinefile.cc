@@ -11,15 +11,14 @@
 #include "modules/remote_bitrate_estimator/test/bwe_test_baselinefile.h"
 
 #include <stdio.h>
-
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "modules/remote_bitrate_estimator/test/bwe_test_fileutils.h"
-#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
-#include "rtc_base/constructormagic.h"
-#include "test/testsupport/fileutils.h"
+#include "rtc_base/constructor_magic.h"
+#include "test/testsupport/file_utils.h"
 
 namespace webrtc {
 namespace testing {
@@ -61,9 +60,9 @@ class BaseLineFileVerify : public BaseLineFileInterface {
       }
     }
   }
-  virtual ~BaseLineFileVerify() {}
+  ~BaseLineFileVerify() override {}
 
-  virtual void Estimate(int64_t time_ms, uint32_t estimate_bps) {
+  void Estimate(int64_t time_ms, uint32_t estimate_bps) override {
     if (reader_.get()) {
       uint32_t read_ms = 0;
       uint32_t read_bps = 0;
@@ -77,7 +76,7 @@ class BaseLineFileVerify : public BaseLineFileInterface {
     }
   }
 
-  virtual bool VerifyOrWrite() {
+  bool VerifyOrWrite() override {
     if (reader_.get()) {
       if (reader_->IsAtEnd()) {
         return true;
@@ -104,15 +103,15 @@ class BaseLineFileUpdate : public BaseLineFileInterface {
     output_content_.push_back(kMagicMarker);
     output_content_.push_back(kFileVersion1);
   }
-  virtual ~BaseLineFileUpdate() {}
+  ~BaseLineFileUpdate() override {}
 
-  virtual void Estimate(int64_t time_ms, uint32_t estimate_bps) {
+  void Estimate(int64_t time_ms, uint32_t estimate_bps) override {
     verifier_->Estimate(time_ms, estimate_bps);
     output_content_.push_back(static_cast<uint32_t>(time_ms));
     output_content_.push_back(estimate_bps);
   }
 
-  virtual bool VerifyOrWrite() {
+  bool VerifyOrWrite() override {
     if (!verifier_->VerifyOrWrite()) {
       std::string dir_path = webrtc::test::OutputPath() + kResourceSubDir;
       if (!webrtc::test::CreateDir(dir_path)) {

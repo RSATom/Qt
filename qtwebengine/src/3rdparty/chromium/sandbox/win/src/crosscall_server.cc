@@ -197,7 +197,7 @@ CrossCallParamsEx* CrossCallParamsEx::CreateFromBuffer(void* buffer_base,
         copied_params->GetRawParameter(ix, &size, &type));
     if ((!address) ||                                     // No null params.
         (INVALID_TYPE >= type) || (LAST_TYPE <= type) ||  // Unknown type.
-        (address < backing_mem_ptr) ||         // Start cannot point before buffer.
+        (address < backing_mem_ptr) ||     // Start cannot point before buffer.
         (address < first_byte) ||          // Start cannot point too low.
         (address > last_byte) ||           // Start cannot point past buffer.
         ((address + size) < address) ||    // Invalid size.

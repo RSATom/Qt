@@ -15,6 +15,7 @@
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/display/display_scheduler.h"
 #include "components/viz/service/display_embedder/gl_output_surface.h"
+#include "components/viz/service/display_embedder/gl_output_surface_offscreen.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/display_embedder/skia_output_surface_impl.h"
 #include "components/viz/service/display_embedder/software_output_surface.h"
@@ -23,6 +24,7 @@
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
 #include "gpu/command_buffer/service/image_factory.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/command_buffer_task_executor.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/ipc/service/gpu_channel_manager_delegate.h"
@@ -31,11 +33,11 @@
 #if defined(OS_WIN)
 #include "components/viz/service/display_embedder/gl_output_surface_win.h"
 #include "components/viz/service/display_embedder/software_output_device_win.h"
-#include "ui/gfx/win/rendering_window_manager.h"
 #endif
 
 #if defined(OS_ANDROID)
 #include "components/viz/service/display_embedder/gl_output_surface_android.h"
+#include "components/viz/service/display_embedder/gl_output_surface_buffer_queue_android.h"
 #endif
 
 #if defined(OS_MACOSX)
@@ -53,6 +55,7 @@
 #include "components/viz/service/display_embedder/software_output_device_ozone.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "ui/ozone/public/ozone_platform.h"
+#include "ui/ozone/public/platform_window_surface.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
 #include "ui/ozone/public/surface_ozone_canvas.h"
 #endif
@@ -124,14 +127,15 @@ std::unique_ptr<Display> GpuDisplayProvider::CreateDisplay(
   if (!gpu_compositing) {
     output_surface = std::make_unique<SoftwareOutputSurface>(
         CreateSoftwareOutputDeviceForPlatform(surface_handle, display_client));
-  } else if (renderer_settings.use_skia_deferred_display_list) {
+  } else if (renderer_settings.use_skia_renderer) {
 #if defined(OS_MACOSX) || defined(OS_WIN)
     // TODO(penghuang): Support DDL for all platforms.
     NOTIMPLEMENTED();
     return nullptr;
 #else
     output_surface = std::make_unique<SkiaOutputSurfaceImpl>(
-        gpu_service_impl_, surface_handle, synthetic_begin_frame_source);
+        gpu_service_impl_, surface_handle, synthetic_begin_frame_source,
+        renderer_settings.show_overdraw_feedback);
     skia_output_surface = static_cast<SkiaOutputSurface*>(output_surface.get());
 #endif
   } else {
@@ -142,19 +146,39 @@ std::unique_ptr<Display> GpuDisplayProvider::CreateDisplay(
     // Retry creating and binding |context_provider| on transient failures.
     gpu::ContextResult context_result = gpu::ContextResult::kTransientFailure;
     while (context_result != gpu::ContextResult::kSuccess) {
+      // We are about to exit the GPU process so don't try to create a context.
+      // It will be recreated after the GPU process restarts. The same check
+      // also happens on the GPU thread before the context gets initialized
+      // there. If GPU process starts to exit after this check but before
+      // context initialization we'll encounter a transient error, loop and hit
+      // this check again.
+      if (gpu_channel_manager_delegate_->IsExiting())
+        return nullptr;
+
       context_provider = base::MakeRefCounted<VizProcessContextProvider>(
           task_executor_, surface_handle, gpu_memory_buffer_manager_.get(),
-          image_factory_, gpu_channel_manager_delegate_,
-          gpu::SharedMemoryLimits());
+          image_factory_, gpu_channel_manager_delegate_, renderer_settings);
       context_result = context_provider->BindToCurrentThread();
 
-      if (context_result == gpu::ContextResult::kFatalFailure) {
+      if (IsFatalOrSurfaceFailure(context_result)) {
+#if defined(OS_ANDROID)
+        display_client->OnFatalOrSurfaceContextCreationFailure(context_result);
+#elif defined(OS_CHROMEOS) || defined(IS_CHROMECAST)
+        // TODO(kylechar): Chrome OS can't disable GPU compositing. This needs
+        // to be handled similar to Android.
+        CHECK(false);
+#else
         gpu_service_impl_->DisableGpuCompositing();
+#endif
+
         return nullptr;
       }
     }
 
-    if (context_provider->ContextCapabilities().surfaceless) {
+    if (surface_handle == gpu::kNullSurfaceHandle) {
+      output_surface = std::make_unique<GLOutputSurfaceOffscreen>(
+          std::move(context_provider), synthetic_begin_frame_source);
+    } else if (context_provider->ContextCapabilities().surfaceless) {
 #if defined(USE_OZONE)
       output_surface = std::make_unique<GLOutputSurfaceOzone>(
           std::move(context_provider), surface_handle,
@@ -165,14 +189,25 @@ std::unique_ptr<Display> GpuDisplayProvider::CreateDisplay(
           std::move(context_provider), surface_handle,
           synthetic_begin_frame_source, gpu_memory_buffer_manager_.get(),
           renderer_settings.allow_overlays);
+#elif defined(OS_ANDROID)
+      // TODO(khushalsagar): Use RGB_565 if specified by context provider.
+      auto buffer_format = gfx::BufferFormat::RGBA_8888;
+      output_surface = std::make_unique<GLOutputSurfaceBufferQueueAndroid>(
+          std::move(context_provider), surface_handle,
+          synthetic_begin_frame_source, gpu_memory_buffer_manager_.get(),
+          buffer_format);
 #else
       NOTREACHED();
 #endif
     } else {
 #if defined(OS_WIN)
       const auto& capabilities = context_provider->ContextCapabilities();
+      const bool use_overlays_for_sw_protected_video =
+          base::FeatureList::IsEnabled(
+              features::kUseDCOverlaysForSoftwareProtectedVideo);
       const bool use_overlays =
-          capabilities.dc_layers && capabilities.use_dc_overlays_for_video;
+          capabilities.dc_layers && (capabilities.use_dc_overlays_for_video ||
+                                     use_overlays_for_sw_protected_video);
       output_surface = std::make_unique<GLOutputSurfaceWin>(
           std::move(context_provider), synthetic_begin_frame_source,
           use_overlays);
@@ -214,26 +249,8 @@ GpuDisplayProvider::CreateSoftwareOutputDeviceForPlatform(
     return std::make_unique<SoftwareOutputDevice>();
 
 #if defined(OS_WIN)
-  HWND child_hwnd;
-  auto device = CreateSoftwareOutputDeviceWinGpu(
-      surface_handle, &output_device_backing_, display_client, &child_hwnd);
-
-  // If |child_hwnd| isn't null then a new child HWND was created.
-  if (child_hwnd) {
-    if (gpu_channel_manager_delegate_) {
-      // Send an IPC to browser process for SetParent().
-      gpu_channel_manager_delegate_->SendCreatedChildWindow(surface_handle,
-                                                            child_hwnd);
-    } else {
-      // We are already in the browser process.
-      if (!gfx::RenderingWindowManager::GetInstance()->RegisterChild(
-              surface_handle, child_hwnd)) {
-        LOG(ERROR) << "Bad parenting request.";
-      }
-    }
-  }
-
-  return device;
+  return CreateSoftwareOutputDeviceWinGpu(
+      surface_handle, &output_device_backing_, display_client);
 #elif defined(OS_MACOSX)
   return std::make_unique<SoftwareOutputDeviceMac>(task_runner_);
 #elif defined(OS_ANDROID)
@@ -243,10 +260,13 @@ GpuDisplayProvider::CreateSoftwareOutputDeviceForPlatform(
 #elif defined(USE_OZONE)
   ui::SurfaceFactoryOzone* factory =
       ui::OzonePlatform::GetInstance()->GetSurfaceFactoryOzone();
+  std::unique_ptr<ui::PlatformWindowSurface> platform_window_surface =
+      factory->CreatePlatformWindowSurface(surface_handle);
   std::unique_ptr<ui::SurfaceOzoneCanvas> surface_ozone =
       factory->CreateCanvasForWidget(surface_handle);
   CHECK(surface_ozone);
-  return std::make_unique<SoftwareOutputDeviceOzone>(std::move(surface_ozone));
+  return std::make_unique<SoftwareOutputDeviceOzone>(
+      std::move(platform_window_surface), std::move(surface_ozone));
 #elif defined(USE_X11)
   return std::make_unique<SoftwareOutputDeviceX11>(surface_handle);
 #endif

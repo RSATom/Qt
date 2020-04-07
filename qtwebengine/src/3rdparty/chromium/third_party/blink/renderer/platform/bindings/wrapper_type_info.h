@@ -40,8 +40,10 @@
 namespace blink {
 
 class ActiveScriptWrappableBase;
+class CustomWrappable;
 class DOMWrapperWorld;
 class ScriptWrappable;
+class Visitor;
 
 ScriptWrappable* ToScriptWrappable(
     const v8::PersistentBase<v8::Object>& wrapper);
@@ -53,7 +55,8 @@ static const int kV8DOMWrapperObjectIndex =
     static_cast<int>(gin::kEncodedValueIndex);
 static const int kV8DefaultWrapperInternalFieldCount =
     static_cast<int>(gin::kNumberOfInternalFields);
-static const int kV8PrototypeTypeIndex = 0;
+// The value of the following field isn't used (only its presence), hence no
+// corresponding Index constant exists for it.
 static const int kV8PrototypeInternalFieldcount = 1;
 
 typedef v8::Local<v8::FunctionTemplate> (
@@ -87,6 +90,7 @@ struct WrapperTypeInfo {
   enum WrapperClassId {
     kNodeClassId = 1,  // NodeClassId must be smaller than ObjectClassId.
     kObjectClassId,
+    kCustomWrappableId,
   };
 
   enum ActiveScriptWrappableInheritance {
@@ -118,7 +122,7 @@ struct WrapperTypeInfo {
     wrapper->SetWrapperClassId(wrapper_class_id);
   }
 
-  v8::Local<v8::FunctionTemplate> domTemplate(
+  v8::Local<v8::FunctionTemplate> DomTemplate(
       v8::Isolate* isolate,
       const DOMWrapperWorld& world) const {
     return dom_template_function(isolate, world);
@@ -142,6 +146,11 @@ struct WrapperTypeInfo {
     return active_script_wrappable_inheritance ==
            kInheritFromActiveScriptWrappable;
   }
+
+  // Garbage collection support for when the type depends the WrapperTypeInfo
+  // object.
+  PLATFORM_EXPORT void Trace(Visitor*, void*) const;
+  PLATFORM_EXPORT void TraceWithWrappers(Visitor*, void*) const;
 
   // This field must be the first member of the struct WrapperTypeInfo.
   // See also static_assert() in .cpp file.
@@ -180,6 +189,23 @@ inline ScriptWrappable* ToScriptWrappable(
 
 inline ScriptWrappable* ToScriptWrappable(v8::Local<v8::Object> wrapper) {
   return GetInternalField<ScriptWrappable, kV8DOMWrapperObjectIndex>(wrapper);
+}
+
+inline CustomWrappable* ToCustomWrappable(
+    const v8::PersistentBase<v8::Object>& wrapper) {
+  return GetInternalField<CustomWrappable, kV8DOMWrapperObjectIndex>(wrapper);
+}
+
+inline CustomWrappable* ToCustomWrappable(v8::Local<v8::Object> wrapper) {
+  return GetInternalField<CustomWrappable, kV8DOMWrapperObjectIndex>(wrapper);
+}
+
+inline void* ToUntypedWrappable(const v8::PersistentBase<v8::Object>& wrapper) {
+  return GetInternalField<void, kV8DOMWrapperObjectIndex>(wrapper);
+}
+
+inline void* ToUntypedWrappable(v8::Local<v8::Object> wrapper) {
+  return GetInternalField<void, kV8DOMWrapperObjectIndex>(wrapper);
 }
 
 inline const WrapperTypeInfo* ToWrapperTypeInfo(

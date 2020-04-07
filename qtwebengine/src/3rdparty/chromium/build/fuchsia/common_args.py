@@ -34,6 +34,9 @@ def AddCommonArgs(arg_parser):
                                  'are located (must include build type).'))
   common_args.add_argument('--target-cpu', required=True,
                            help='GN target_cpu setting for the build.')
+  common_args.add_argument('--target-staging-path',
+                           help='target path under which to stage packages '
+                           'during deployment.', default='/data')
   common_args.add_argument('--device', '-d', action='store_true', default=False,
                            help='Run on hardware device instead of QEMU.')
   common_args.add_argument('--host', help='The IP of the target device. ' +
@@ -44,6 +47,9 @@ def AddCommonArgs(arg_parser):
   common_args.add_argument('--ssh-config', '-F',
                            help='The path to the SSH configuration used for '
                                 'connecting to the target device.')
+  common_args.add_argument('--system-log-file',
+                           help='File to write system logs to. Specify - to '
+                                'log to stdout.')
   common_args.add_argument('--exclude-system-logs',
                            action='store_false',
                            dest='include_system_logs',
@@ -51,6 +57,12 @@ def AddCommonArgs(arg_parser):
   common_args.add_argument('--verbose', '-v', default=False,
                            action='store_true',
                            help='Enable debug-level logging.')
+  common_args.add_argument('--qemu-cpu-cores', type=int, default=4,
+                           help='Sets the number of CPU cores to provide if '
+                           'launching in a VM with QEMU.'),
+  common_args.add_argument('--qemu-require-kvm', action='store_true',
+                           help='Disables fall-back to emulated CPU if the '
+                           'host system does not support KVM acceleration.'),
 
 
 def ConfigureLogging(args):
@@ -74,8 +86,17 @@ def GetDeploymentTargetForArgs(args):
   """Constructs a deployment target object using parameters taken from
   command line arguments."""
 
-  if not args.device:
-    return QemuTarget(args.output_directory, args.target_cpu)
+  if args.system_log_file == '-':
+    system_log_file = sys.stdout
+  elif args.system_log_file:
+    system_log_file = open(args.system_log_file, 'w')
   else:
-    return DeviceTarget(args.output_directory, args.target_cpu,
-                        args.host, args.port, args.ssh_config)
+    system_log_file = None
+
+  if not args.device:
+    return QemuTarget(args.output_directory, args.target_cpu,
+                      args.qemu_cpu_cores, system_log_file,
+                      args.qemu_require_kvm)
+  else:
+    return DeviceTarget(args.output_directory, args.target_cpu, args.host,
+                        args.port, args.ssh_config, system_log_file)

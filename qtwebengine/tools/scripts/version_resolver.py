@@ -38,9 +38,9 @@ import json
 import urllib2
 import git_submodule as GitSubmodule
 
-chromium_version = '69.0.3497.113'
-chromium_branch = '3497'
-ninja_version = 'v1.8.2'
+chromium_version = '73.0.3683.105'
+chromium_branch = '3683'
+ninja_version = 'v1.9.0'
 
 json_url = 'http://omahaproxy.appspot.com/all.json'
 
@@ -51,7 +51,6 @@ upstream_src_dir = os.path.abspath(snapshot_src_dir + '_upstream')
 submodule_blacklist = [
     'third_party/WebKit/LayoutTests/w3c/csswg-test'
     , 'third_party/WebKit/LayoutTests/w3c/web-platform-tests'
-    , 'third_party/jsoncpp/source'
     , 'chrome/tools/test/reference_build/chrome_mac'
     , 'chrome/tools/test/reference_build/chrome_linux'
     , 'chrome/tools/test/reference_build/chrome_win'

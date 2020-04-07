@@ -11,12 +11,10 @@
 #ifndef MEDIA_BASE_VP9_PROFILE_H_
 #define MEDIA_BASE_VP9_PROFILE_H_
 
-#include <map>
 #include <string>
 
 #include "absl/types/optional.h"
 #include "api/video_codecs/sdp_video_format.h"
-#include "common_types.h"  // NOLINT(build/include)
 
 namespace webrtc {
 

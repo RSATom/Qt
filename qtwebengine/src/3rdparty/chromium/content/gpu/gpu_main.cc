@@ -15,12 +15,12 @@
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/sys_info.h"
-#include "base/third_party/dynamic_annotations/dynamic_annotations.h"
+#include "base/system/sys_info.h"
 #include "base/threading/platform_thread.h"
 #include "base/timer/hi_res_timer_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "components/tracing/common/tracing_sampler_profiler.h"
 #include "components/viz/service/main/viz_main_impl.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/content_switches_internal.h"
@@ -64,6 +64,7 @@
 #endif
 
 #if defined(OS_WIN)
+#include "base/trace_event/trace_event_etw_export_win.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/windows_version.h"
 #include "media/gpu/windows/dxva_video_decode_accelerator_win.h"
@@ -211,6 +212,11 @@ int GpuMain(const MainFunctionParams& parameters) {
   if (gpu_preferences.gpu_startup_dialog)
     WaitForDebugger("Gpu");
 
+#if defined(OS_WIN)
+  if (gpu_preferences.enable_trace_export_events_to_etw)
+    base::trace_event::TraceEventETWExport::EnableETWExport();
+#endif
+
   base::Time start_time = base::Time::Now();
 
 #if defined(OS_WIN)
@@ -329,13 +335,19 @@ int GpuMain(const MainFunctionParams& parameters) {
   if (client)
     client->PostIOThreadCreated(gpu_process.io_task_runner());
 
-  GpuChildThread* child_thread = new GpuChildThread(
-      std::move(gpu_init), std::move(deferred_messages.Get()));
+  base::RunLoop run_loop;
+  GpuChildThread* child_thread =
+      new GpuChildThread(run_loop.QuitClosure(), std::move(gpu_init),
+                         std::move(deferred_messages.Get()));
   deferred_messages.Get().clear();
 
   child_thread->Init(start_time);
 
   gpu_process.set_main_thread(child_thread);
+
+  // Setup tracing sampler profiler as early as possible.
+  std::unique_ptr<tracing::TracingSamplerProfiler> tracing_sampler_profiler =
+      tracing::TracingSamplerProfiler::CreateOnMainThread();
 
 #if defined(OS_ANDROID)
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
@@ -347,7 +359,7 @@ int GpuMain(const MainFunctionParams& parameters) {
 
   {
     TRACE_EVENT0("gpu", "Run Message Loop");
-    base::RunLoop().Run();
+    run_loop.Run();
   }
 
   return dead_on_arrival ? RESULT_CODE_GPU_DEAD_ON_ARRIVAL : 0;

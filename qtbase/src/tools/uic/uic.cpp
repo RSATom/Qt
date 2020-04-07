@@ -106,13 +106,13 @@ bool Uic::printDependencies()
 void Uic::writeCopyrightHeader(DomUI *ui)
 {
     QString comment = ui->elementComment();
-    if (comment.size())
+    if (!comment.isEmpty())
         out << "/*\n" << comment << "\n*/\n\n";
 
     out << "/********************************************************************************\n";
     out << "** Form generated from reading UI file '" << QFileInfo(opt.inputFile).fileName() << "'\n";
     out << "**\n";
-    out << "** Created by: Qt User Interface Compiler version " << QLatin1String(QT_VERSION_STR) << "\n";
+    out << "** Created by: Qt User Interface Compiler version " << QT_VERSION_STR << "\n";
     out << "**\n";
     out << "** WARNING! All changes made in this file will be lost when recompiling UI file!\n";
     out << "********************************************************************************/\n\n";
@@ -243,55 +243,34 @@ void Uic::writeHeaderProtectionEnd()
     out << "#endif // " << h << "\n";
 }
 
-bool Uic::isMainWindow(const QString &className) const
-{
-    return customWidgetsInfo()->extends(className, QLatin1String("QMainWindow"));
-}
-
-bool Uic::isToolBar(const QString &className) const
-{
-    return customWidgetsInfo()->extends(className, QLatin1String("QToolBar"));
-}
-
 bool Uic::isButton(const QString &className) const
 {
-    return customWidgetsInfo()->extends(className, QLatin1String("QRadioButton"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QToolButton"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QCheckBox"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QPushButton"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QCommandLinkButton"));
+    static const QStringList buttons = {
+        QLatin1String("QRadioButton"), QLatin1String("QToolButton"),
+        QLatin1String("QCheckBox"), QLatin1String("QPushButton"),
+        QLatin1String("QCommandLinkButton")
+    };
+    return customWidgetsInfo()->extendsOneOf(className, buttons);
 }
 
 bool Uic::isContainer(const QString &className) const
 {
-    return customWidgetsInfo()->extends(className, QLatin1String("QStackedWidget"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QToolBox"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QTabWidget"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QScrollArea"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QMdiArea"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QWizard"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QDockWidget"));
-}
+    static const QStringList containers = {
+        QLatin1String("QStackedWidget"), QLatin1String("QToolBox"),
+        QLatin1String("QTabWidget"), QLatin1String("QScrollArea"),
+        QLatin1String("QMdiArea"), QLatin1String("QWizard"),
+        QLatin1String("QDockWidget")
+    };
 
-bool Uic::isCustomWidgetContainer(const QString &className) const
-{
-    return customWidgetsInfo()->isCustomWidgetContainer(className);
-}
-
-bool Uic::isStatusBar(const QString &className) const
-{
-    return customWidgetsInfo()->extends(className, QLatin1String("QStatusBar"));
-}
-
-bool Uic::isMenuBar(const QString &className) const
-{
-    return customWidgetsInfo()->extends(className, QLatin1String("QMenuBar"));
+    return customWidgetsInfo()->extendsOneOf(className, containers);
 }
 
 bool Uic::isMenu(const QString &className) const
 {
-    return customWidgetsInfo()->extends(className, QLatin1String("QMenu"))
-        || customWidgetsInfo()->extends(className, QLatin1String("QPopupMenu"));
+    static const QStringList menus = {
+        QLatin1String("QMenu"), QLatin1String("QPopupMenu")
+    };
+    return customWidgetsInfo()->extendsOneOf(className, menus);
 }
 
 QT_END_NAMESPACE

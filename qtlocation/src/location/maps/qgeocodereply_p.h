@@ -48,22 +48,28 @@
 // We mean it.
 //
 
+#include <QtLocation/private/qlocationglobal_p.h>
 #include "qgeocodereply.h"
 
 #include "qgeoshape.h"
 
 #include <QList>
+#include <QVariantMap>
 
 QT_BEGIN_NAMESPACE
 
 class QGeoLocation;
 
-class QGeoCodeReplyPrivate
+class Q_LOCATION_PRIVATE_EXPORT QGeoCodeReplyPrivate
 {
 public:
     QGeoCodeReplyPrivate();
     QGeoCodeReplyPrivate(QGeoCodeReply::Error error, const QString &errorString);
-    ~QGeoCodeReplyPrivate();
+    virtual ~QGeoCodeReplyPrivate();
+
+    virtual QVariantMap extraData() const;
+    static const QGeoCodeReplyPrivate *get(const QGeoCodeReply &reply);
+    static QGeoCodeReplyPrivate *get(QGeoCodeReply &reply);
 
     QGeoCodeReply::Error error;
     QString errorString;

@@ -18,7 +18,7 @@
 
 namespace {
 
-class MockDownloadHints : public FX_DOWNLOADHINTS {
+class MockDownloadHints final : public FX_DOWNLOADHINTS {
  public:
   static void SAddSegment(FX_DOWNLOADHINTS* pThis, size_t offset, size_t size) {
   }
@@ -37,7 +37,7 @@ TEST(fpdf, CApiTest) {
   EXPECT_TRUE(CheckPDFiumCApi());
 }
 
-class FPDFViewEmbeddertest : public EmbedderTest {
+class FPDFViewEmbedderTest : public EmbedderTest {
  protected:
   void TestRenderPageBitmapWithMatrix(FPDF_PAGE page,
                                       const int bitmap_width,
@@ -47,7 +47,7 @@ class FPDFViewEmbeddertest : public EmbedderTest {
                                       const char* expected_md5);
 };
 
-TEST_F(FPDFViewEmbeddertest, Document) {
+TEST_F(FPDFViewEmbedderTest, Document) {
   EXPECT_TRUE(OpenDocument("about_blank.pdf"));
   EXPECT_EQ(1, GetPageCount());
   EXPECT_EQ(0, GetFirstPageNum());
@@ -60,14 +60,14 @@ TEST_F(FPDFViewEmbeddertest, Document) {
   EXPECT_EQ(-1, FPDF_GetSecurityHandlerRevision(document()));
 }
 
-TEST_F(FPDFViewEmbeddertest, LoadNonexistentDocument) {
+TEST_F(FPDFViewEmbedderTest, LoadNonexistentDocument) {
   FPDF_DOCUMENT doc = FPDF_LoadDocument("nonexistent_document.pdf", "");
   ASSERT_FALSE(doc);
   EXPECT_EQ(static_cast<int>(FPDF_GetLastError()), FPDF_ERR_FILE);
 }
 
 // See bug 465.
-TEST_F(FPDFViewEmbeddertest, EmptyDocument) {
+TEST_F(FPDFViewEmbedderTest, EmptyDocument) {
   EXPECT_TRUE(CreateEmptyDocument());
 
   {
@@ -100,14 +100,18 @@ TEST_F(FPDFViewEmbeddertest, EmptyDocument) {
   EXPECT_EQ(0u, FPDF_CountNamedDests(document()));
 }
 
-TEST_F(FPDFViewEmbeddertest, LinearizedDocument) {
+TEST_F(FPDFViewEmbedderTest, LinearizedDocument) {
   EXPECT_TRUE(OpenDocumentLinearized("feature_linearized_loading.pdf"));
   int version;
   EXPECT_TRUE(FPDF_GetFileVersion(document(), &version));
   EXPECT_EQ(16, version);
 }
 
-TEST_F(FPDFViewEmbeddertest, Page) {
+TEST_F(FPDFViewEmbedderTest, LoadCustomDocumentWithoutFileAccess) {
+  EXPECT_FALSE(FPDF_LoadCustomDocument(nullptr, ""));
+}
+
+TEST_F(FPDFViewEmbedderTest, Page) {
   EXPECT_TRUE(OpenDocument("about_blank.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
@@ -126,7 +130,7 @@ TEST_F(FPDFViewEmbeddertest, Page) {
   EXPECT_EQ(nullptr, LoadPage(1));
 }
 
-TEST_F(FPDFViewEmbeddertest, ViewerRefDummy) {
+TEST_F(FPDFViewEmbedderTest, ViewerRefDummy) {
   EXPECT_TRUE(OpenDocument("about_blank.pdf"));
   EXPECT_TRUE(FPDF_VIEWERREF_GetPrintScaling(document()));
   EXPECT_EQ(1, FPDF_VIEWERREF_GetNumCopies(document()));
@@ -143,7 +147,7 @@ TEST_F(FPDFViewEmbeddertest, ViewerRefDummy) {
   EXPECT_EQ(-1, FPDF_VIEWERREF_GetPrintPageRangeElement(page_range, 1));
 }
 
-TEST_F(FPDFViewEmbeddertest, ViewerRef) {
+TEST_F(FPDFViewEmbedderTest, ViewerRef) {
   EXPECT_TRUE(OpenDocument("viewer_ref.pdf"));
   EXPECT_TRUE(FPDF_VIEWERREF_GetPrintScaling(document()));
   EXPECT_EQ(5, FPDF_VIEWERREF_GetNumCopies(document()));
@@ -191,7 +195,7 @@ TEST_F(FPDFViewEmbeddertest, ViewerRef) {
   EXPECT_EQ(-1, FPDF_VIEWERREF_GetPrintPageRangeElement(page_range, 4));
 }
 
-TEST_F(FPDFViewEmbeddertest, NamedDests) {
+TEST_F(FPDFViewEmbedderTest, NamedDests) {
   EXPECT_TRUE(OpenDocument("named_dests.pdf"));
   long buffer_size;
   char fixed_buffer[512];
@@ -292,7 +296,7 @@ TEST_F(FPDFViewEmbeddertest, NamedDests) {
             static_cast<size_t>(buffer_size));  // unmodified.
 }
 
-TEST_F(FPDFViewEmbeddertest, NamedDestsByName) {
+TEST_F(FPDFViewEmbedderTest, NamedDestsByName) {
   EXPECT_TRUE(OpenDocument("named_dests.pdf"));
 
   // Null pointer returns nullptr.
@@ -330,43 +334,43 @@ TEST_F(FPDFViewEmbeddertest, NamedDestsByName) {
 }
 
 // The following tests pass if the document opens without crashing.
-TEST_F(FPDFViewEmbeddertest, Crasher_113) {
+TEST_F(FPDFViewEmbedderTest, Crasher_113) {
   EXPECT_TRUE(OpenDocument("bug_113.pdf"));
 }
 
-TEST_F(FPDFViewEmbeddertest, Crasher_451830) {
+TEST_F(FPDFViewEmbedderTest, Crasher_451830) {
   // Document is damaged and can't be opened.
   EXPECT_FALSE(OpenDocument("bug_451830.pdf"));
 }
 
-TEST_F(FPDFViewEmbeddertest, Crasher_452455) {
+TEST_F(FPDFViewEmbedderTest, Crasher_452455) {
   EXPECT_TRUE(OpenDocument("bug_452455.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
   UnloadPage(page);
 }
 
-TEST_F(FPDFViewEmbeddertest, Crasher_454695) {
+TEST_F(FPDFViewEmbedderTest, Crasher_454695) {
   // Document is damaged and can't be opened.
   EXPECT_FALSE(OpenDocument("bug_454695.pdf"));
 }
 
-TEST_F(FPDFViewEmbeddertest, Crasher_572871) {
+TEST_F(FPDFViewEmbedderTest, Crasher_572871) {
   EXPECT_TRUE(OpenDocument("bug_572871.pdf"));
 }
 
 // It tests that document can still be loaded even the trailer has no 'Size'
 // field if other information is right.
-TEST_F(FPDFViewEmbeddertest, Failed_213) {
+TEST_F(FPDFViewEmbedderTest, Failed_213) {
   EXPECT_TRUE(OpenDocument("bug_213.pdf"));
 }
 
 // The following tests pass if the document opens without infinite looping.
-TEST_F(FPDFViewEmbeddertest, Hang_298) {
+TEST_F(FPDFViewEmbedderTest, Hang_298) {
   EXPECT_FALSE(OpenDocument("bug_298.pdf"));
 }
 
-TEST_F(FPDFViewEmbeddertest, Crasher_773229) {
+TEST_F(FPDFViewEmbedderTest, Crasher_773229) {
   EXPECT_TRUE(OpenDocument("bug_773229.pdf"));
 }
 
@@ -374,7 +378,7 @@ TEST_F(FPDFViewEmbeddertest, Crasher_773229) {
 // Previously this test will hang in a loop inside LoadAllCrossRefV4. After
 // the fix, LoadAllCrossRefV4 will return false after detecting a cross
 // reference loop. Cross references will be rebuilt successfully.
-TEST_F(FPDFViewEmbeddertest, CrossRefV4Loop) {
+TEST_F(FPDFViewEmbedderTest, CrossRefV4Loop) {
   EXPECT_TRUE(OpenDocument("bug_xrefv4_loop.pdf"));
   MockDownloadHints hints;
 
@@ -388,36 +392,36 @@ TEST_F(FPDFViewEmbeddertest, CrossRefV4Loop) {
 
 // The test should pass when circular references to ParseIndirectObject will not
 // cause infinite loop.
-TEST_F(FPDFViewEmbeddertest, Hang_343) {
+TEST_F(FPDFViewEmbedderTest, Hang_343) {
   EXPECT_FALSE(OpenDocument("bug_343.pdf"));
 }
 
 // The test should pass when the absence of 'Contents' field in a signature
 // dictionary will not cause an infinite loop in CPDF_SyntaxParser::GetObject().
-TEST_F(FPDFViewEmbeddertest, Hang_344) {
+TEST_F(FPDFViewEmbedderTest, Hang_344) {
   EXPECT_FALSE(OpenDocument("bug_344.pdf"));
 }
 
 // The test should pass when there is no infinite recursion in
 // CPDF_SyntaxParser::GetString().
-TEST_F(FPDFViewEmbeddertest, Hang_355) {
+TEST_F(FPDFViewEmbedderTest, Hang_355) {
   EXPECT_FALSE(OpenDocument("bug_355.pdf"));
 }
 // The test should pass even when the file has circular references to pages.
-TEST_F(FPDFViewEmbeddertest, Hang_360) {
+TEST_F(FPDFViewEmbedderTest, Hang_360) {
   EXPECT_FALSE(OpenDocument("bug_360.pdf"));
 }
 
 // Deliberately damaged version of linearized.pdf with bad data in the shared
 // object hint table.
-TEST_F(FPDFViewEmbeddertest, Hang_1055) {
+TEST_F(FPDFViewEmbedderTest, Hang_1055) {
   EXPECT_TRUE(OpenDocumentLinearized("linearized_bug_1055.pdf"));
   int version;
   EXPECT_TRUE(FPDF_GetFileVersion(document(), &version));
   EXPECT_EQ(16, version);
 }
 
-void FPDFViewEmbeddertest::TestRenderPageBitmapWithMatrix(
+void FPDFViewEmbedderTest::TestRenderPageBitmapWithMatrix(
     FPDF_PAGE page,
     const int bitmap_width,
     const int bitmap_height,
@@ -431,7 +435,7 @@ void FPDFViewEmbeddertest::TestRenderPageBitmapWithMatrix(
   FPDFBitmap_Destroy(bitmap);
 }
 
-TEST_F(FPDFViewEmbeddertest, FPDF_RenderPageBitmapWithMatrix) {
+TEST_F(FPDFViewEmbedderTest, FPDF_RenderPageBitmapWithMatrix) {
   const char kOriginalMD5[] = "0a90de37f52127619c3dfb642b5fa2fe";
   const char kClippedMD5[] = "a84cab93c102b9b9290fba3047ba702c";
   const char kTopLeftQuarterMD5[] = "f11a11137c8834389e31cf555a4a6979";
@@ -591,7 +595,7 @@ TEST_F(FPDFViewEmbeddertest, FPDF_RenderPageBitmapWithMatrix) {
   UnloadPage(page);
 }
 
-TEST_F(FPDFViewEmbeddertest, FPDF_GetPageSizeByIndex) {
+TEST_F(FPDFViewEmbedderTest, FPDF_GetPageSizeByIndex) {
   EXPECT_TRUE(OpenDocument("rectangles.pdf"));
 
   double width = 0;
@@ -629,7 +633,7 @@ TEST_F(FPDFViewEmbeddertest, FPDF_GetPageSizeByIndex) {
   UnloadPage(page);
 }
 
-class UnSupRecordDelegate : public EmbedderTest::Delegate {
+class UnSupRecordDelegate final : public EmbedderTest::Delegate {
  public:
   UnSupRecordDelegate() : type_(-1) {}
   ~UnSupRecordDelegate() override {}
@@ -639,7 +643,7 @@ class UnSupRecordDelegate : public EmbedderTest::Delegate {
   int type_;
 };
 
-TEST_F(FPDFViewEmbeddertest, UnSupportedOperations_NotFound) {
+TEST_F(FPDFViewEmbedderTest, UnSupportedOperations_NotFound) {
   UnSupRecordDelegate delegate;
   SetDelegate(&delegate);
   ASSERT_TRUE(OpenDocument("hello_world.pdf"));
@@ -647,7 +651,7 @@ TEST_F(FPDFViewEmbeddertest, UnSupportedOperations_NotFound) {
   SetDelegate(nullptr);
 }
 
-TEST_F(FPDFViewEmbeddertest, UnSupportedOperations_LoadCustomDocument) {
+TEST_F(FPDFViewEmbedderTest, UnSupportedOperations_LoadCustomDocument) {
   UnSupRecordDelegate delegate;
   SetDelegate(&delegate);
   ASSERT_TRUE(OpenDocument("unsupported_feature.pdf"));
@@ -655,7 +659,7 @@ TEST_F(FPDFViewEmbeddertest, UnSupportedOperations_LoadCustomDocument) {
   SetDelegate(nullptr);
 }
 
-TEST_F(FPDFViewEmbeddertest, UnSupportedOperations_LoadDocument) {
+TEST_F(FPDFViewEmbedderTest, UnSupportedOperations_LoadDocument) {
   std::string file_path;
   ASSERT_TRUE(
       PathService::GetTestFilePath("unsupported_feature.pdf", &file_path));
@@ -667,4 +671,40 @@ TEST_F(FPDFViewEmbeddertest, UnSupportedOperations_LoadDocument) {
   EXPECT_EQ(FPDF_UNSP_DOC_PORTABLECOLLECTION, delegate.type_);
   FPDF_CloseDocument(doc);
   SetDelegate(nullptr);
+}
+
+TEST_F(FPDFViewEmbedderTest, DocumentHasValidCrossReferenceTable) {
+  ASSERT_TRUE(OpenDocument("hello_world.pdf"));
+  EXPECT_TRUE(FPDF_DocumentHasValidCrossReferenceTable(document()));
+}
+
+TEST_F(FPDFViewEmbedderTest, DocumentHasInvalidCrossReferenceTable) {
+  EXPECT_FALSE(FPDF_DocumentHasValidCrossReferenceTable(nullptr));
+
+  ASSERT_TRUE(OpenDocument("bug_664284.pdf"));
+  EXPECT_FALSE(FPDF_DocumentHasValidCrossReferenceTable(document()));
+}
+
+// Related to https://crbug.com/pdfium/1197
+TEST_F(FPDFViewEmbedderTest, LoadDocumentWithEmptyXRefConsistently) {
+  ASSERT_TRUE(OpenDocument("empty_xref.pdf"));
+  EXPECT_TRUE(FPDF_DocumentHasValidCrossReferenceTable(document()));
+
+  std::string file_path;
+  ASSERT_TRUE(PathService::GetTestFilePath("empty_xref.pdf", &file_path));
+  {
+    ScopedFPDFDocument doc(FPDF_LoadDocument(file_path.c_str(), ""));
+    ASSERT_TRUE(doc);
+    EXPECT_TRUE(FPDF_DocumentHasValidCrossReferenceTable(doc.get()));
+  }
+  {
+    size_t file_length = 0;
+    std::unique_ptr<char, pdfium::FreeDeleter> file_contents =
+        GetFileContents(file_path.c_str(), &file_length);
+    ASSERT(file_contents);
+    ScopedFPDFDocument doc(
+        FPDF_LoadMemDocument(file_contents.get(), file_length, ""));
+    ASSERT_TRUE(doc);
+    EXPECT_TRUE(FPDF_DocumentHasValidCrossReferenceTable(doc.get()));
+  }
 }

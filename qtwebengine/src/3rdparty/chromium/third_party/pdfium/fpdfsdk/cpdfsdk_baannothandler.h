@@ -22,7 +22,7 @@ class CPDFSDK_PageView;
 class CXFA_FFWidget;
 #endif  // PDF_ENABLE_XFA
 
-class CPDFSDK_BAAnnotHandler : public IPDFSDK_AnnotHandler {
+class CPDFSDK_BAAnnotHandler final : public IPDFSDK_AnnotHandler {
  public:
   CPDFSDK_BAAnnotHandler();
   ~CPDFSDK_BAAnnotHandler() override;
@@ -49,7 +49,7 @@ class CPDFSDK_BAAnnotHandler : public IPDFSDK_AnnotHandler {
   void OnDraw(CPDFSDK_PageView* pPageView,
               CPDFSDK_Annot* pAnnot,
               CFX_RenderDevice* pDevice,
-              CFX_Matrix* pUser2Device,
+              const CFX_Matrix& mtUser2Device,
               bool bDrawAnnots) override;
   void OnLoad(CPDFSDK_Annot* pAnnot) override;
 

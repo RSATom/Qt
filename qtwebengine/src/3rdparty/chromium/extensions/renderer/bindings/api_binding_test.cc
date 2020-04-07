@@ -30,11 +30,11 @@ void APIBindingTest::SetUp() {
 #endif
 
   gin::IsolateHolder::Initialize(gin::IsolateHolder::kStrictMode,
-                                 gin::IsolateHolder::kStableV8Extras,
                                  gin::ArrayBufferAllocator::SharedInstance());
 
-  isolate_holder_ =
-      std::make_unique<gin::IsolateHolder>(base::ThreadTaskRunnerHandle::Get());
+  isolate_holder_ = std::make_unique<gin::IsolateHolder>(
+      base::ThreadTaskRunnerHandle::Get(),
+      gin::IsolateHolder::IsolateType::kTest);
   isolate()->Enter();
 
   v8::HandleScope handle_scope(isolate());

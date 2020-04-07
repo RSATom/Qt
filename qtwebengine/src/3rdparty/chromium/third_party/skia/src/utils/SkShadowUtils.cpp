@@ -12,10 +12,8 @@
 #include "SkColorData.h"
 #include "SkDevice.h"
 #include "SkDrawShadowInfo.h"
-#include "SkFlattenablePriv.h"
 #include "SkMaskFilter.h"
 #include "SkPath.h"
-#include "SkPM4f.h"
 #include "SkRandom.h"
 #include "SkRasterPipeline.h"
 #include "SkResourceCache.h"
@@ -46,8 +44,6 @@ public:
             GrContext*, const GrColorSpaceInfo&) const override;
 #endif
 
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkGaussianColorFilter)
-
 protected:
     void flatten(SkWriteBuffer&) const override {}
     void onAppendStages(SkRasterPipeline* pipeline, SkColorSpace* dstCS, SkArenaAlloc* alloc,
@@ -55,6 +51,8 @@ protected:
         pipeline->append(SkRasterPipeline::gauss_a_to_rgba);
     }
 private:
+    SK_FLATTENABLE_HOOKS(SkGaussianColorFilter)
+
     SkGaussianColorFilter() : INHERITED() {}
 
     typedef SkColorFilter INHERITED;
@@ -602,8 +600,7 @@ void SkBaseDevice::drawShadow(const SkPath& path, const SkDrawShadowRec& rec) {
                 path.transform(viewMatrix, &devSpacePath);
 
                 // The tesselator outsets by AmbientBlurRadius (or 'r') to get the outer ring of
-                // the tesselation, uses the original path as the inner ring, and sets the alpha
-                // of the inner ring to 1/AmbientRecipAlpha (or 'a').
+                // the tesselation, and sets the alpha on the path to 1/AmbientRecipAlpha (or 'a').
                 //
                 // We want to emulate this with a blur. The full blur width (2*blurRadius or 'f')
                 // can be calculated by interpolating:
@@ -715,13 +712,14 @@ void SkBaseDevice::drawShadow(const SkPath& path, const SkDrawShadowRec& rec) {
 #endif
             if (!draw_shadow(factory, drawVertsProc, shadowedPath, color)) {
                 // draw with blur
-                SkVector translate;
-                SkDrawShadowMetrics::GetSpotParams(zPlaneParams.fZ, devLightPos.fX,
-                                                   devLightPos.fY, devLightPos.fZ,
-                                                   lightRadius, &radius, &scale, &translate);
                 SkMatrix shadowMatrix;
-                shadowMatrix.setScaleTranslate(scale, scale, translate.fX, translate.fY);
-                SkAutoDeviceCTMRestore adr(this, SkMatrix::Concat(shadowMatrix, viewMatrix));
+                if (!SkDrawShadowMetrics::GetSpotShadowTransform(devLightPos, lightRadius,
+                                                                 viewMatrix, zPlaneParams,
+                                                                 path.getBounds(),
+                                                                 &shadowMatrix, &radius)) {
+                    return;
+                }
+                SkAutoDeviceCTMRestore adr(this, shadowMatrix);
 
                 SkPaint paint;
                 paint.setColor(rec.fSpotColor);

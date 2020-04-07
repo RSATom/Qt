@@ -178,7 +178,7 @@ Persistence.Persistence = class extends Common.Object {
     }
 
     const target = Bindings.NetworkProject.targetForUISourceCode(binding.network);
-    if (target.isNodeJS()) {
+    if (target.type() === SDK.Target.Type.Node) {
       const newContent = uiSourceCode.workingCopy();
       other.requestContent().then(() => {
         const nodeJSContent = Persistence.Persistence.rewrapNodeJSContent(other, other.workingCopy(), newContent);
@@ -221,7 +221,7 @@ Persistence.Persistence = class extends Common.Object {
       return;
     const other = binding.network === uiSourceCode ? binding.fileSystem : binding.network;
     const target = Bindings.NetworkProject.targetForUISourceCode(binding.network);
-    if (target.isNodeJS()) {
+    if (target.type() === SDK.Target.Type.Node) {
       other.requestContent().then(currentContent => {
         const nodeJSContent = Persistence.Persistence.rewrapNodeJSContent(other, currentContent, newContent);
         setContent.call(this, nodeJSContent);
@@ -275,7 +275,8 @@ Persistence.Persistence = class extends Common.Object {
    * @param {!Workspace.UISourceCode} to
    */
   _moveBreakpoints(from, to) {
-    const breakpoints = this._breakpointManager.breakpointsForUISourceCode(from);
+    const breakpoints = this._breakpointManager.breakpointLocationsForUISourceCode(from).map(
+        breakpointLocation => breakpointLocation.breakpoint);
     for (const breakpoint of breakpoints) {
       breakpoint.remove(false /* keepInStorage */);
       this._breakpointManager.setBreakpoint(

@@ -48,6 +48,7 @@ HEADERS += atom.h \
            loggingcategory.h \
            node.h \
            openedlist.h \
+           parameters.h \
            puredocparser.h \
            qdocdatabase.h \
            qdoctagfiles.h \
@@ -58,7 +59,9 @@ HEADERS += atom.h \
            text.h \
            tokenizer.h \
            tree.h \
-           webxmlgenerator.h
+           webxmlgenerator.h \
+           qdocglobals.h \
+           qdoccommandlineparser.h
 
 SOURCES += atom.cpp \
            clangcodeparser.cpp \
@@ -77,6 +80,7 @@ SOURCES += atom.cpp \
            main.cpp \
            node.cpp \
            openedlist.cpp \
+           parameters.cpp \
            puredocparser.cpp \
            qdocdatabase.cpp \
            qdoctagfiles.cpp \
@@ -88,7 +92,9 @@ SOURCES += atom.cpp \
            tokenizer.cpp \
            tree.cpp \
            yyindent.cpp \
-           webxmlgenerator.cpp
+           webxmlgenerator.cpp \
+           qdocglobals.cpp \
+           qdoccommandlineparser.cpp
 
 ### QML/JS Parser ###
 

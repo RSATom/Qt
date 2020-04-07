@@ -9,7 +9,6 @@
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/address_sanitizer.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
-#include "third_party/blink/renderer/platform/wtf/atomics.h"
 
 namespace blink {
 
@@ -19,13 +18,13 @@ void MemoryRegion::Release() {
 
 bool MemoryRegion::Commit() {
   CHECK(base::RecommitSystemPages(base_, size_, base::PageReadWrite));
-  return base::SetSystemPagesAccess(base_, size_, base::PageReadWrite);
+  return base::TrySetSystemPagesAccess(base_, size_, base::PageReadWrite);
 }
 
 void MemoryRegion::Decommit() {
   ASAN_UNPOISON_MEMORY_REGION(base_, size_);
   base::DecommitSystemPages(base_, size_);
-  CHECK(base::SetSystemPagesAccess(base_, size_, base::PageInaccessible));
+  base::SetSystemPagesAccess(base_, size_, base::PageInaccessible);
 }
 
 PageMemoryRegion::PageMemoryRegion(Address base,

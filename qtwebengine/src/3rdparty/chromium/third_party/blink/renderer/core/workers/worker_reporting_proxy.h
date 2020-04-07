@@ -37,7 +37,6 @@
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/core/inspector/console_types.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/network/content_security_policy_response_headers.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
@@ -61,7 +60,6 @@ class CORE_EXPORT WorkerReportingProxy {
                                     MessageLevel,
                                     const String& message,
                                     SourceLocation*) {}
-  virtual void PostMessageToPageInspector(int session_id, const String&) {}
 
   // Invoked when the new WorkerGlobalScope is created on
   // WorkerThread::InitializeOnWorkerThread.
@@ -74,15 +72,20 @@ class CORE_EXPORT WorkerReportingProxy {
   // Invoked when the worker's main script is loaded on
   // WorkerThread::InitializeOnWorkerThread(). Only invoked when the script was
   // loaded on the worker thread, i.e., via InstalledScriptsManager rather than
-  // via ResourceLoader. ContentSecurityPolicy and ReferrerPolicy are read from
-  // the response header of the main script.
-  // This may block until CSP/ReferrerPolicy are set on the main thread
-  // since they are required for script evaluation, which happens soon after
-  // this function is called.
-  // Called before WillEvaluateClassicScript().
-  virtual void DidLoadInstalledScript(
-      const ContentSecurityPolicyResponseHeaders&,
-      const String& referrer_policy_on_worker_thread) {}
+  // via ResourceLoader. Called before WillEvaluateClassicScript().
+  virtual void DidLoadInstalledScript() {}
+
+  // Invoked when it's failed to load the worker's main script from
+  // InstalledScriptsManager.
+  virtual void DidFailToLoadInstalledClassicScript() {}
+
+  // Invoked on failure to fetch the worker's classic script from network. This
+  // is not called when the script is loaded from InstalledScriptsManager.
+  virtual void DidFailToFetchClassicScript() {}
+
+  // Invoked on failure to fetch the worker's module script (either from network
+  // or InstalledScriptsManager).
+  virtual void DidFailToFetchModuleScript() {}
 
   // Invoked when the main classic script is about to be evaluated.
   virtual void WillEvaluateClassicScript(size_t script_size,
@@ -92,12 +95,15 @@ class CORE_EXPORT WorkerReportingProxy {
   virtual void WillEvaluateImportedClassicScript(size_t script_size,
                                                  size_t cached_metadata_size) {}
 
+  // Invoked when the worker's main module script is about to be evaluated.
+  virtual void WillEvaluateModuleScript() {}
+
   // Invoked when the main classic script is evaluated. |success| is true if the
   // evaluation completed with no uncaught exception.
   virtual void DidEvaluateClassicScript(bool success) {}
 
-  // Invoked when the main module script is evaluated. |success| is true if the
-  // evaluation completed with no uncaught exception.
+  // Invoked when the worker's main module script is evaluated. |success| is
+  // true if the evaluation completed with no uncaught exception.
   virtual void DidEvaluateModuleScript(bool success) {}
 
   // Invoked when close() is invoked on the worker context.

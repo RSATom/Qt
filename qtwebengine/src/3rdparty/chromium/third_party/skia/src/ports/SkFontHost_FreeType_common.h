@@ -47,6 +47,7 @@ protected:
 
     void generateGlyphImage(FT_Face face, const SkGlyph& glyph, const SkMatrix& bitmapTransform);
     bool generateGlyphPath(FT_Face face, SkPath* path);
+    bool generateFacePath(FT_Face face, SkGlyphID glyphID, SkPath* path);
 private:
     typedef SkScalerContext INHERITED;
 };
@@ -84,6 +85,8 @@ public:
         mutable SkMutex fLibraryMutex;
     };
 
+    /** Fetch units/EM from "head" table if needed (ie for bitmap fonts) */
+    static int GetUnitsPerEm(FT_Face face);
 protected:
     SkTypeface_FreeType(const SkFontStyle& style, bool isFixedPitch)
         : INHERITED(style, isFixedPitch)

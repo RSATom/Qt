@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_EXCLUSIONS_NG_LINE_LAYOUT_OPPORTUNITY_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/wtf/allocator.h"
 
 namespace blink {
@@ -16,6 +16,7 @@ namespace blink {
 struct CORE_EXPORT NGLineLayoutOpportunity {
   STACK_ALLOCATED();
 
+ public:
   NGLineLayoutOpportunity() {}
   NGLineLayoutOpportunity(LayoutUnit inline_size)
       : line_right_offset(inline_size), float_line_right_offset(inline_size) {}

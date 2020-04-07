@@ -123,10 +123,6 @@ extern const char kBundleExecutableDir[];
 extern const char kBundleExecutableDir_HelpShort[];
 extern const char kBundleExecutableDir_Help[];
 
-extern const char kBundlePlugInsDir[];
-extern const char kBundlePlugInsDir_HelpShort[];
-extern const char kBundlePlugInsDir_Help[];
-
 extern const char kCflags[];
 extern const char kCflags_HelpShort[];
 extern const char* kCflags_Help;
@@ -183,6 +179,10 @@ extern const char kDataDeps[];
 extern const char kDataDeps_HelpShort[];
 extern const char kDataDeps_Help[];
 
+extern const char kDataKeys[];
+extern const char kDataKeys_HelpShort[];
+extern const char kDataKeys_Help[];
+
 extern const char kDefines[];
 extern const char kDefines_HelpShort[];
 extern const char kDefines_Help[];
@@ -218,6 +218,10 @@ extern const char kLibDirs_Help[];
 extern const char kLibs[];
 extern const char kLibs_HelpShort[];
 extern const char kLibs_Help[];
+
+extern const char kMetadata[];
+extern const char kMetadata_HelpShort[];
+extern const char kMetadata_Help[];
 
 extern const char kOutputDir[];
 extern const char kOutputDir_HelpShort[];
@@ -275,6 +279,10 @@ extern const char kPublicDeps[];
 extern const char kPublicDeps_HelpShort[];
 extern const char kPublicDeps_Help[];
 
+extern const char kRebase[];
+extern const char kRebase_HelpShort[];
+extern const char kRebase_Help[];
+
 extern const char kResponseFileContents[];
 extern const char kResponseFileContents_HelpShort[];
 extern const char kResponseFileContents_Help[];
@@ -302,6 +310,18 @@ extern const char kCreatePriFile_Help[];
 extern const char kVisibility[];
 extern const char kVisibility_HelpShort[];
 extern const char kVisibility_Help[];
+
+extern const char kWalkKeys[];
+extern const char kWalkKeys_HelpShort[];
+extern const char kWalkKeys_Help[];
+
+extern const char kWriteValueContents[];
+extern const char kWriteValueContents_HelpShort[];
+extern const char kWriteValueContents_Help[];
+
+extern const char kWriteOutputConversion[];
+extern const char kWriteOutputConversion_HelpShort[];
+extern const char kWriteOutputConversion_Help[];
 
 extern const char kWriteRuntimeDeps[];
 extern const char kWriteRuntimeDeps_HelpShort[];

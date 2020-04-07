@@ -75,6 +75,8 @@ public:
     virtual void setParentVisibility(bool visible);
     virtual void setMap(QGeoMap *map);
     virtual QGeoMapObjectPrivate *clone() = 0; // to allow proper detaching
+    virtual QGeoShape geoShape() const = 0;
+    virtual void setGeoShape(const QGeoShape &shape) = 0;
 
     QGeoMapObject *q = nullptr;
     QPointer<QGeoMap> m_map;

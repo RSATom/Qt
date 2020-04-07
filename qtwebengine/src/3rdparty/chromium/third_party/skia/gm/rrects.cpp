@@ -6,13 +6,12 @@
  */
 
 #include "gm.h"
-#include "sk_tool_utils.h"
 #include "GrCaps.h"
 #include "GrContext.h"
 #include "GrRenderTargetContextPriv.h"
 #include "effects/GrRRectEffect.h"
 #include "ops/GrDrawOp.h"
-#include "ops/GrRectOpFactory.h"
+#include "ops/GrFillRectOp.h"
 #include "SkRRect.h"
 
 namespace skiagm {
@@ -33,7 +32,7 @@ public:
 protected:
 
     void onOnceBeforeDraw() override {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
         this->setUpRRects();
     }
 
@@ -112,15 +111,14 @@ protected:
                             GrPaint grPaint;
                             grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
                             grPaint.addCoverageFragmentProcessor(std::move(fp));
-                            grPaint.setColor4f(GrColor4f(0, 0, 0, 1.f));
+                            grPaint.setColor4f({ 0, 0, 0, 1.f });
 
                             SkRect bounds = rrect.getBounds();
                             bounds.outset(2.f, 2.f);
 
                             renderTargetContext->priv().testingOnly_addDrawOp(
-                                    GrRectOpFactory::MakeNonAAFill(context, std::move(grPaint),
-                                                                   SkMatrix::I(), bounds,
-                                                                   GrAAType::kNone));
+                                    GrFillRectOp::Make(context, std::move(grPaint), GrAAType::kNone,
+                                                       SkMatrix::I(), bounds));
                         } else {
                             drew = false;
                         }

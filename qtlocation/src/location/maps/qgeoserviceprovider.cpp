@@ -131,6 +131,8 @@ Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
         The plugin did not find one of the parameters it was expecting.
     \value ConnectionError
         The plugin could not connect to its backend service or database.
+    \value LoaderError
+        The plugin failed to load.
 */
 
 /*!
@@ -446,9 +448,12 @@ Manager *QGeoServiceProviderPrivate::manager(QGeoServiceProvider::Error *_error,
 */
 QGeoCodingManager *QGeoServiceProvider::geocodingManager() const
 {
-    return d_ptr->manager<QGeoCodingManager, QGeoCodingManagerEngine>(
+    QGeoCodingManager *mgr = d_ptr->manager<QGeoCodingManager, QGeoCodingManagerEngine>(
                &(d_ptr->geocodeError), &(d_ptr->geocodeErrorString),
                &(d_ptr->geocodingManager));
+    if (!mgr)
+        qDebug() << d_ptr->error << ", " << d_ptr->errorString;
+    return mgr;
 }
 
 /*!
@@ -475,9 +480,12 @@ QGeoCodingManager *QGeoServiceProvider::geocodingManager() const
 */
 QGeoMappingManager *QGeoServiceProvider::mappingManager() const
 {
-    return d_ptr->manager<QGeoMappingManager, QGeoMappingManagerEngine>(
+    QGeoMappingManager *mgr = d_ptr->manager<QGeoMappingManager, QGeoMappingManagerEngine>(
                &(d_ptr->mappingError), &(d_ptr->mappingErrorString),
                &(d_ptr->mappingManager));
+    if (!mgr)
+        qDebug() << d_ptr->error << ", " << d_ptr->errorString;
+    return mgr;
 }
 
 /*!
@@ -502,9 +510,12 @@ QGeoMappingManager *QGeoServiceProvider::mappingManager() const
 */
 QGeoRoutingManager *QGeoServiceProvider::routingManager() const
 {
-    return d_ptr->manager<QGeoRoutingManager, QGeoRoutingManagerEngine>(
+    QGeoRoutingManager *mgr = d_ptr->manager<QGeoRoutingManager, QGeoRoutingManagerEngine>(
                &(d_ptr->routingError), &(d_ptr->routingErrorString),
                &(d_ptr->routingManager));
+    if (!mgr)
+        qDebug() << d_ptr->error << ", " << d_ptr->errorString;
+    return mgr;
 }
 
 /*!
@@ -525,9 +536,12 @@ QGeoRoutingManager *QGeoServiceProvider::routingManager() const
 */
 QPlaceManager *QGeoServiceProvider::placeManager() const
 {
-    return d_ptr->manager<QPlaceManager, QPlaceManagerEngine>(
+    QPlaceManager *mgr = d_ptr->manager<QPlaceManager, QPlaceManagerEngine>(
                &(d_ptr->placeError), &(d_ptr->placeErrorString),
                 &(d_ptr->placeManager));
+    if (!mgr)
+        qDebug() << d_ptr->error << ", " << d_ptr->errorString;
+    return mgr;
 }
 
 /*!
@@ -541,9 +555,8 @@ QNavigationManager *QGeoServiceProvider::navigationManager() const
     QNavigationManager * mgr = d_ptr->manager<QNavigationManager, QNavigationManagerEngine>(
                &(d_ptr->navigationError), &(d_ptr->navigationErrorString),
                 &(d_ptr->navigationManager));
-    if (!mgr) {
-        qDebug() << d_ptr->navigationError << d_ptr->navigationErrorString;
-    }
+    if (!mgr)
+        qDebug() << d_ptr->error << ", " << d_ptr->errorString;
     return mgr;
 }
 
@@ -563,6 +576,116 @@ QGeoServiceProvider::Error QGeoServiceProvider::error() const
 QString QGeoServiceProvider::errorString() const
 {
     return d_ptr->errorString;
+}
+
+/*!
+    Returns an error code describing the error which occurred during the
+    last attempt to create a mapping manager.
+
+    \since 5.13
+*/
+QGeoServiceProvider::Error QGeoServiceProvider::mappingError() const
+{
+    return d_ptr->mappingError;
+}
+
+/*!
+    Returns a string describing the error which occurred during the
+    last attempt to create a mapping manager.
+
+    \since 5.13
+*/
+QString QGeoServiceProvider::mappingErrorString() const
+{
+    return d_ptr->mappingErrorString;
+}
+
+/*!
+    Returns an error code describing the error which occurred during the
+    last attempt to create a geocoding manager.
+
+    \since 5.13
+*/
+QGeoServiceProvider::Error QGeoServiceProvider::geocodingError() const
+{
+    return d_ptr->geocodeError;
+}
+
+/*!
+    Returns a string describing the error which occurred during the
+    last attempt to create a geocoding manager.
+
+    \since 5.13
+*/
+QString QGeoServiceProvider::geocodingErrorString() const
+{
+    return d_ptr->geocodeErrorString;
+}
+
+/*!
+    Returns an error code describing the error which occurred during the
+    last attempt to create a routing manager.
+
+    \since 5.13
+*/
+QGeoServiceProvider::Error QGeoServiceProvider::routingError() const
+{
+    return d_ptr->routingError;
+}
+
+/*!
+    Returns a string describing the error which occurred during the
+    last attempt to create a routing manager.
+
+    \since 5.13
+*/
+QString QGeoServiceProvider::routingErrorString() const
+{
+    return d_ptr->routingErrorString;
+}
+
+/*!
+    Returns an error code describing the error which occurred during the
+    last attempt to create a places manager.
+
+    \since 5.13
+*/
+QGeoServiceProvider::Error QGeoServiceProvider::placesError() const
+{
+    return d_ptr->placeError;
+}
+
+/*!
+    Returns a string describing the error which occurred during the
+    last attempt to create a places manager.
+
+    \since 5.13
+*/
+QString QGeoServiceProvider::placesErrorString() const
+{
+    return d_ptr->placeErrorString;
+}
+
+/*!
+    Returns an error code describing the error which occurred during the
+    last attempt to create a navigation manager.
+
+    \since 5.13
+*/
+QGeoServiceProvider::Error QGeoServiceProvider::navigationError() const
+{
+    return d_ptr->navigationError;
+}
+
+/*!
+    Returns a string describing the error which occurred during the
+    last attempt to create a navigation manager.
+
+    \since 5.13
+*/
+QString QGeoServiceProvider::navigationErrorString() const
+{
+    return d_ptr->navigationErrorString;
 }
 
 /*!
@@ -739,7 +862,7 @@ void QGeoServiceProviderPrivate::loadMeta()
 
 void QGeoServiceProviderPrivate::loadPlugin(const QVariantMap &parameters)
 {
-    Q_UNUSED(parameters)
+    Q_UNUSED(parameters);
 
     if (int(metaData.value(QStringLiteral("index")).toDouble()) < 0) {
         error = QGeoServiceProvider::NotSupportedError;

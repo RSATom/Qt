@@ -13,7 +13,7 @@
 
 #include "modules/audio_processing/test/audio_processing_simulator.h"
 
-#include "rtc_base/constructormagic.h"
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/ignore_wundef.h"
 
 RTC_PUSH_IGNORING_WUNDEF()
@@ -42,6 +42,7 @@ class AecDumpBasedSimulator final : public AudioProcessingSimulator {
   void HandleMessage(const webrtc::audioproc::Stream& msg);
   void HandleMessage(const webrtc::audioproc::ReverseStream& msg);
   void HandleMessage(const webrtc::audioproc::Config& msg);
+  void HandleMessage(const webrtc::audioproc::RuntimeSetting& msg);
   void PrepareProcessStreamCall(const webrtc::audioproc::Stream& msg);
   void PrepareReverseProcessStreamCall(
       const webrtc::audioproc::ReverseStream& msg);

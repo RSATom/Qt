@@ -40,19 +40,23 @@
 #include "render_widget_host_view_qt.h"
 
 #include "browser_accessibility_manager_qt.h"
-#include "chromium_overrides.h"
 #include "common/qt_messages.h"
-#include "compositor.h"
+#include "compositor/compositor.h"
 #include "qtwebenginecoreglobal_p.h"
 #include "render_widget_host_view_qt_delegate.h"
+#include "touch_handle_drawable_client.h"
+#include "touch_selection_controller_client_qt.h"
+#include "touch_selection_menu_controller.h"
 #include "type_conversion.h"
 #include "web_contents_adapter_client.h"
 #include "web_event_factory.h"
 
 #include "components/viz/common/surfaces/frame_sink_id_allocator.h"
-#include "content/browser/accessibility/browser_accessibility_state_impl.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "components/viz/host/host_frame_sink_manager.h"
+#include "content/browser/compositor/surface_utils.h"
 #include "content/browser/frame_host/frame_tree.h"
+#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/common/content_switches_internal.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
@@ -62,9 +66,11 @@
 #include "third_party/blink/public/platform/web_cursor_info.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/event.h"
+#include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/gesture_detection/gesture_provider_config_helper.h"
 #include "ui/events/gesture_detection/motion_event.h"
-#include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/image/image_skia.h"
+#include "ui/touch_selection/touch_selection_controller.h"
 
 #if defined(USE_OZONE)
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -83,7 +89,6 @@
 #include <QFocusEvent>
 #include <QGuiApplication>
 #include <QInputMethodEvent>
-#include <QLoggingCategory>
 #include <QTextFormat>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -94,7 +99,6 @@
 #include <QWheelEvent>
 #include <QWindow>
 #include <QtGui/private/qinputcontrol_p.h>
-#include <QtGui/qaccessible.h>
 
 namespace QtWebEngineCore {
 
@@ -185,14 +189,13 @@ static inline bool isCommonTextEditShortcut(const QKeyEvent *ke)
 static uint32_t s_eventId = 0;
 class MotionEventQt : public ui::MotionEvent {
 public:
-    MotionEventQt(const QList<QTouchEvent::TouchPoint> &touchPoints, const base::TimeTicks &eventTime, Action action, const Qt::KeyboardModifiers modifiers, float dpiScale, int index = -1)
+    MotionEventQt(const QList<QTouchEvent::TouchPoint> &touchPoints, const base::TimeTicks &eventTime, Action action, const Qt::KeyboardModifiers modifiers, int index = -1)
         : touchPoints(touchPoints)
         , eventTime(eventTime)
         , action(action)
         , eventId(++s_eventId)
         , flags(flagsFromModifiers(modifiers))
         , index(index)
-        , dpiScale(dpiScale)
     {
         // ACTION_DOWN and ACTION_UP must be accesssed through pointer_index 0
         Q_ASSERT((action != Action::DOWN && action != Action::UP) || index == 0);
@@ -203,8 +206,8 @@ public:
     int GetActionIndex() const override { return index; }
     size_t GetPointerCount() const override { return touchPoints.size(); }
     int GetPointerId(size_t pointer_index) const override { return touchPoints.at(pointer_index).id(); }
-    float GetX(size_t pointer_index) const override { return touchPoints.at(pointer_index).pos().x() / dpiScale; }
-    float GetY(size_t pointer_index) const override { return touchPoints.at(pointer_index).pos().y() / dpiScale; }
+    float GetX(size_t pointer_index) const override { return touchPoints.at(pointer_index).pos().x(); }
+    float GetY(size_t pointer_index) const override { return touchPoints.at(pointer_index).pos().y(); }
     float GetRawX(size_t pointer_index) const override { return touchPoints.at(pointer_index).screenPos().x(); }
     float GetRawY(size_t pointer_index) const override { return touchPoints.at(pointer_index).screenPos().y(); }
     float GetTouchMajor(size_t pointer_index) const override
@@ -225,6 +228,8 @@ public:
     float GetPressure(size_t pointer_index) const override { return touchPoints.at(pointer_index).pressure(); }
     float GetTiltX(size_t pointer_index) const override { return 0; }
     float GetTiltY(size_t pointer_index) const override { return 0; }
+    float GetTwist(size_t) const override { return 0; }
+    float GetTangentialPressure(size_t) const override { return 0; }
     base::TimeTicks GetEventTime() const override { return eventTime; }
 
     size_t GetHistorySize() const override { return 0; }
@@ -232,7 +237,10 @@ public:
     float GetHistoricalTouchMajor(size_t pointer_index, size_t historical_index) const override { return 0; }
     float GetHistoricalX(size_t pointer_index, size_t historical_index) const override { return 0; }
     float GetHistoricalY(size_t pointer_index, size_t historical_index) const override { return 0; }
-    ToolType GetToolType(size_t pointer_index) const override { return ui::MotionEvent::ToolType::FINGER; }
+    ToolType GetToolType(size_t pointer_index) const override {
+        return (touchPoints.at(pointer_index).flags() & QTouchEvent::TouchPoint::InfoFlag::Pen) ? ui::MotionEvent::ToolType::STYLUS
+                                                                                                : ui::MotionEvent::ToolType::FINGER;
+    }
     int GetButtonState() const override { return 0; }
 
 private:
@@ -242,20 +250,22 @@ private:
     const uint32_t eventId;
     int flags;
     int index;
-    float dpiScale;
 };
 
-bool isAccessibilityEnabled() {
-    // On Linux accessibility is disabled by default due to performance issues,
-    // and can be re-enabled by setting the QTWEBENGINE_ENABLE_LINUX_ACCESSIBILITY environment
-    // variable. For details, see QTBUG-59922.
-#ifdef Q_OS_LINUX
-    static bool accessibility_enabled
-            = qEnvironmentVariableIsSet("QTWEBENGINE_ENABLE_LINUX_ACCESSIBILITY");
-#else
-    const bool accessibility_enabled = true;
-#endif
-    return accessibility_enabled;
+static content::ScreenInfo screenInfoFromQScreen(QScreen *screen)
+{
+    content::ScreenInfo r;
+    if (screen) {
+        r.device_scale_factor = screen->devicePixelRatio();
+        r.depth_per_component = 8;
+        r.depth = screen->depth();
+        r.is_monochrome = (r.depth == 1);
+        r.rect = toGfx(screen->geometry());
+        r.available_rect = toGfx(screen->availableGeometry());
+    } else {
+        r.device_scale_factor = qGuiApp->devicePixelRatio();
+    }
+    return r;
 }
 
 RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget)
@@ -263,7 +273,7 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget
     , m_gestureProvider(QtGestureProviderConfig(), this)
     , m_sendMotionActionDown(false)
     , m_touchMotionStarted(false)
-    , m_compositor(new Compositor(this))
+    , m_compositor(new Compositor(widget))
     , m_loadVisuallyCommittedState(NotCommitted)
     , m_adapterClient(0)
     , m_imeInProgress(false)
@@ -274,20 +284,10 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget
     , m_cursorPosition(0)
     , m_emptyPreviousSelection(true)
     , m_wheelAckPending(false)
-    , m_pendingResize(false)
     , m_mouseWheelPhaseHandler(this)
-    // This frame-sink id is based on what RenderWidgetHostViewChildFrame does:
-    , m_frameSinkId(base::checked_cast<uint32_t>(widget->GetProcess()->GetID()),
-                    base::checked_cast<uint32_t>(widget->GetRoutingID()))
+    , m_frameSinkId(host()->GetFrameSinkId())
 {
     host()->SetView(this);
-#ifndef QT_NO_ACCESSIBILITY
-    if (isAccessibilityEnabled()) {
-        QAccessible::installActivationObserver(this);
-        if (QAccessible::isActive())
-            content::BrowserAccessibilityStateImpl::GetInstance()->EnableAccessibility();
-    }
-#endif // QT_NO_ACCESSIBILITY
 
     if (GetTextInputManager())
         GetTextInputManager()->AddObserver(this);
@@ -295,27 +295,32 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget
     const QPlatformInputContext *context = QGuiApplicationPrivate::platformIntegration()->inputContext();
     m_imeHasHiddenTextCapability = context && context->hasCapability(QPlatformInputContext::HiddenTextCapability);
 
-    m_localSurfaceId = m_localSurfaceIdAllocator.GenerateId();
-
     if (host()->delegate() && host()->delegate()->GetInputEventRouter())
         host()->delegate()->GetInputEventRouter()->AddFrameSinkIdOwner(GetFrameSinkId(), this);
+
+    m_touchSelectionControllerClient.reset(new TouchSelectionControllerClientQt(this));
+    ui::TouchSelectionController::Config config;
+    config.max_tap_duration = base::TimeDelta::FromMilliseconds(ui::GestureConfiguration::GetInstance()->long_press_time_in_ms());
+    config.tap_slop = ui::GestureConfiguration::GetInstance()->max_touch_move_in_pixels_for_click();
+    config.enable_longpress_drag_selection = false;
+    m_touchSelectionController.reset(new ui::TouchSelectionController(m_touchSelectionControllerClient.get(), config));
 }
 
 RenderWidgetHostViewQt::~RenderWidgetHostViewQt()
 {
     QObject::disconnect(m_adapterClientDestroyedConnection);
-#ifndef QT_NO_ACCESSIBILITY
-    QAccessible::removeActivationObserver(this);
-#endif // QT_NO_ACCESSIBILITY
 
     if (text_input_manager_)
         text_input_manager_->RemoveObserver(this);
+
+    m_touchSelectionController.reset();
+    m_touchSelectionControllerClient.reset();
 }
 
 void RenderWidgetHostViewQt::setDelegate(RenderWidgetHostViewQtDelegate* delegate)
 {
     m_delegate.reset(delegate);
-    m_compositor->setViewDelegate(delegate);
+    visualPropertiesChanged();
 }
 
 void RenderWidgetHostViewQt::setAdapterClient(WebContentsAdapterClient *adapterClient)
@@ -342,30 +347,16 @@ void RenderWidgetHostViewQt::InitAsFullscreen(content::RenderWidgetHostView*)
 {
 }
 
-void RenderWidgetHostViewQt::SetSize(const gfx::Size& size)
+void RenderWidgetHostViewQt::SetSize(const gfx::Size &sizeInDips)
 {
-    int width = size.width();
-    int height = size.height();
-
-    m_delegate->resize(width,height);
+    m_delegate->resize(sizeInDips.width(), sizeInDips.height());
 }
 
-void RenderWidgetHostViewQt::SetBounds(const gfx::Rect& screenRect)
+void RenderWidgetHostViewQt::SetBounds(const gfx::Rect &windowRectInDips)
 {
-    // This is called when webkit has sent us a Move message.
-    if (IsPopup())
-        m_delegate->move(toQt(screenRect.origin()));
-    SetSize(screenRect.size());
-}
-
-gfx::Size RenderWidgetHostViewQt::GetCompositorViewportPixelSize() const
-{
-    if (!m_delegate || !m_delegate->window() || !m_delegate->window()->screen())
-        return gfx::Size();
-
-    const QScreen* screen = m_delegate->window()->screen();
-    gfx::SizeF size = toGfx(m_delegate->screenRect().size());
-    return gfx::ToCeiledSize(gfx::ScaleSize(size, screen->devicePixelRatio()));
+    DCHECK(IsPopup());
+    m_delegate->move(toQt(windowRectInDips.origin()));
+    m_delegate->resize(windowRectInDips.width(), windowRectInDips.height());
 }
 
 gfx::NativeView RenderWidgetHostViewQt::GetNativeView() const
@@ -444,11 +435,7 @@ bool RenderWidgetHostViewQt::IsShowing()
 // Retrieve the bounds of the View, in screen coordinates.
 gfx::Rect RenderWidgetHostViewQt::GetViewBounds() const
 {
-    QRectF p = m_delegate->contentsRect();
-    float s = dpiScale();
-    gfx::Point p1(floor(p.x() / s), floor(p.y() / s));
-    gfx::Point p2(ceil(p.right() /s), ceil(p.bottom() / s));
-    return gfx::BoundingRect(p1, p2);
+    return m_viewRectInDips;
 }
 
 void RenderWidgetHostViewQt::UpdateBackgroundColor()
@@ -603,15 +590,13 @@ void RenderWidgetHostViewQt::DisplayCursor(const content::WebCursor &webCursor)
     }
 #if defined(USE_AURA)
     if (auraType != ui::CursorType::kNull) {
-        QWindow *window = m_delegate->window();
-        qreal windowDpr = window ? window->devicePixelRatio() : 1.0f;
         int resourceId;
         gfx::Point hotspot;
         // GetCursorDataFor only knows hotspots for 1x and 2x cursor images, in physical pixels.
-        qreal hotspotDpr = windowDpr <= 1.0f ? 1.0f : 2.0f;
+        qreal hotspotDpr = m_screenInfo.device_scale_factor <= 1.0f ? 1.0f : 2.0f;
         if (ui::GetCursorDataFor(ui::CursorSize::kNormal, auraType, hotspotDpr, &resourceId, &hotspot)) {
             if (const gfx::ImageSkia *imageSkia = ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resourceId)) {
-                QImage imageQt = toQImage(imageSkia->GetRepresentation(windowDpr));
+                QImage imageQt = toQImage(imageSkia->GetRepresentation(m_screenInfo.device_scale_factor));
 
                 // Convert hotspot coordinates into device-independent pixels.
                 qreal hotX = hotspot.x() / hotspotDpr;
@@ -693,12 +678,9 @@ void RenderWidgetHostViewQt::SubmitCompositorFrame(const viz::LocalSurfaceId &lo
     if (frame_token)
         OnFrameTokenChangedForView(frame_token);
 
-    // Support experimental.viewport.devicePixelRatio, see GetScreenInfo implementation below.
-    float dpiScale = this->dpiScale();
-    if (dpiScale != 0 && dpiScale != 1)
-        frame.metadata.device_scale_factor /= dpiScale;
-
-    m_compositor->submitFrame(std::move(frame));
+    m_compositor->submitFrame(
+        std::move(frame),
+        base::BindOnce(&RenderWidgetHostViewQtDelegate::update, base::Unretained(m_delegate.get())));
 
     if (m_loadVisuallyCommittedState == NotCommitted) {
         m_loadVisuallyCommittedState = DidFirstCompositorFrameSwap;
@@ -711,31 +693,16 @@ void RenderWidgetHostViewQt::SubmitCompositorFrame(const viz::LocalSurfaceId &lo
         m_adapterClient->updateScrollPosition(toQt(m_lastScrollOffset));
     if (contentsSizeChanged)
         m_adapterClient->updateContentsSize(toQt(m_lastContentsSize));
-
-    if (m_pendingResize && host()) {
-        if (host()->SynchronizeVisualProperties())
-            m_pendingResize = false;
-    }
 }
 
 void RenderWidgetHostViewQt::GetScreenInfo(content::ScreenInfo *results) const
 {
-    QWindow *window = m_delegate->window();
-    if (!window)
-        return;
-    GetScreenInfoFromNativeWindow(window, results);
-
-    // Support experimental.viewport.devicePixelRatio
-    results->device_scale_factor *= dpiScale();
+    *results = m_screenInfo;
 }
 
 gfx::Rect RenderWidgetHostViewQt::GetBoundsInRootWindow()
 {
-    if (!m_delegate->window())
-        return gfx::Rect();
-
-    QRect r = m_delegate->window()->frameGeometry();
-    return gfx::Rect(r.x(), r.y(), r.width(), r.height());
+    return m_windowRectInDips;
 }
 
 void RenderWidgetHostViewQt::ClearCompositorFrame()
@@ -756,9 +723,12 @@ void RenderWidgetHostViewQt::OnUpdateTextInputStateCalled(content::TextInputMana
     }
 
     ui::TextInputType type = getTextInputType();
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
     m_delegate->setInputMethodHints(toQtInputMethodHints(getTextInputType()) | Qt::ImhNoPredictiveText | Qt::ImhNoTextHandles | Qt::ImhNoEditMenu);
-
-    m_surroundingText = QString::fromStdString(state->value);
+#else
+    m_delegate->setInputMethodHints(toQtInputMethodHints(getTextInputType()) | Qt::ImhNoPredictiveText);
+#endif
+    m_surroundingText = toQt(state->value);
     // Remove IME composition text from the surrounding text
     if (state->composition_start != -1 && state->composition_end != -1)
         m_surroundingText.remove(state->composition_start, state->composition_end - state->composition_start);
@@ -904,7 +874,33 @@ void RenderWidgetHostViewQt::OnGestureEvent(const ui::GestureEventData& gesture)
         return;
     }
 
-    host()->ForwardGestureEvent(ui::CreateWebGestureEventFromGestureEventData(gesture));
+    blink::WebGestureEvent event = ui::CreateWebGestureEventFromGestureEventData(gesture);
+
+    if (m_touchSelectionController && m_touchSelectionControllerClient) {
+        switch (event.GetType()) {
+        case blink::WebInputEvent::kGestureLongPress:
+            m_touchSelectionController->HandleLongPressEvent(event.TimeStamp(), event.PositionInWidget());
+            break;
+        case blink::WebInputEvent::kGestureTap:
+            m_touchSelectionController->HandleTapEvent(event.PositionInWidget(), event.data.tap.tap_count);
+            break;
+        case blink::WebInputEvent::kGestureScrollBegin:
+            m_touchSelectionControllerClient->onScrollBegin();
+            break;
+        case blink::WebInputEvent::kGestureScrollEnd:
+            m_touchSelectionControllerClient->onScrollEnd();
+            break;
+        default:
+            break;
+        }
+    }
+
+    host()->ForwardGestureEvent(event);
+}
+
+void RenderWidgetHostViewQt::DidStopFlinging()
+{
+    m_touchSelectionControllerClient->DidStopFlinging();
 }
 
 viz::ScopedSurfaceIdAllocator RenderWidgetHostViewQt::DidUpdateVisualProperties(const cc::RenderFrameMetadata &metadata)
@@ -917,27 +913,12 @@ viz::ScopedSurfaceIdAllocator RenderWidgetHostViewQt::DidUpdateVisualProperties(
 
 void RenderWidgetHostViewQt::OnDidUpdateVisualPropertiesComplete(const cc::RenderFrameMetadata &metadata)
 {
-    if (metadata.local_surface_id)
-        m_localSurfaceIdAllocator.UpdateFromChild(*metadata.local_surface_id);
-
-    m_localSurfaceId = m_localSurfaceIdAllocator.GenerateId();
-    host()->SendScreenRects();
-    if (m_pendingResize) {
-        if (host()->SynchronizeVisualProperties())
-            m_pendingResize = false;
-    }
+    synchronizeVisualProperties(metadata.local_surface_id_allocation);
 }
 
 QSGNode *RenderWidgetHostViewQt::updatePaintNode(QSGNode *oldNode)
 {
-    return m_compositor->updatePaintNode(oldNode);
-}
-
-void RenderWidgetHostViewQt::notifyResize()
-{
-    m_pendingResize = true;
-    if (host()->SynchronizeVisualProperties())
-        m_pendingResize = false;
+    return m_compositor->updatePaintNode(oldNode, m_delegate.get());
 }
 
 void RenderWidgetHostViewQt::notifyShown()
@@ -950,17 +931,26 @@ void RenderWidgetHostViewQt::notifyHidden()
     host()->WasHidden();
 }
 
-void RenderWidgetHostViewQt::windowBoundsChanged()
+void RenderWidgetHostViewQt::visualPropertiesChanged()
 {
-    host()->SendScreenRects();
-    if (m_delegate && m_delegate->window())
-        host()->NotifyScreenInfoChanged();
-}
+    if (!m_delegate)
+        return;
 
-void RenderWidgetHostViewQt::windowChanged()
-{
-    if (m_delegate && m_delegate->window())
-        host()->NotifyScreenInfoChanged();
+    gfx::Rect oldViewRect = m_viewRectInDips;
+    m_viewRectInDips = toGfx(m_delegate->viewGeometry().toAlignedRect());
+
+    gfx::Rect oldWindowRect = m_windowRectInDips;
+    m_windowRectInDips = toGfx(m_delegate->windowGeometry());
+
+    QWindow *window = m_delegate->window();
+    content::ScreenInfo oldScreenInfo = m_screenInfo;
+    m_screenInfo = screenInfoFromQScreen(window ? window->screen() : nullptr);
+
+    if (m_viewRectInDips != oldViewRect || m_windowRectInDips != oldWindowRect)
+        host()->SendScreenRects();
+
+    if (m_viewRectInDips.size() != oldViewRect.size() || m_screenInfo != oldScreenInfo)
+        synchronizeVisualProperties(base::nullopt);
 }
 
 bool RenderWidgetHostViewQt::forwardEvent(QEvent *event)
@@ -1114,7 +1104,11 @@ QVariant RenderWidgetHostViewQt::inputMethodQuery(Qt::InputMethodQuery query)
         // TODO: Implement this
         return QVariant(); // No limit.
     case Qt::ImHints:
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
         return int(toQtInputMethodHints(getTextInputType()) | Qt::ImhNoPredictiveText | Qt::ImhNoTextHandles | Qt::ImhNoEditMenu);
+#else
+        return int(toQtInputMethodHints(getTextInputType()) | Qt::ImhNoPredictiveText);
+#endif
     default:
         return QVariant();
     }
@@ -1166,14 +1160,9 @@ QList<QTouchEvent::TouchPoint> RenderWidgetHostViewQt::mapTouchPointIds(const QL
     return outputPoints;
 }
 
-float RenderWidgetHostViewQt::dpiScale() const
-{
-    return m_adapterClient ? m_adapterClient->dpiScale() : 1.0;
-}
-
 bool RenderWidgetHostViewQt::IsPopup() const
 {
-    return popup_type_ != blink::kWebPopupTypeNone;
+    return widget_type_ == content::WidgetType::kPopup;
 }
 
 void RenderWidgetHostViewQt::handleMouseEvent(QMouseEvent* event)
@@ -1315,9 +1304,9 @@ void RenderWidgetHostViewQt::handleInputMethodEvent(QInputMethodEvent *ev)
     }
 
     if (hasSelection) {
-        content::RenderFrameHostImpl *frameHost = static_cast<content::RenderFrameHostImpl *>(getFocusedFrameHost());
-        if (frameHost)
-            frameHost->GetFrameInputHandler()->SetEditableSelectionOffsets(selectionRange.start(), selectionRange.end());
+        content::mojom::FrameInputHandler *frameInputHandler = getFrameInputHandler();
+        if (frameInputHandler)
+            frameInputHandler->SetEditableSelectionOffsets(selectionRange.start(), selectionRange.end());
     }
 
     int replacementLength = ev->replacementLength();
@@ -1394,21 +1383,11 @@ void RenderWidgetHostViewQt::handleInputMethodQueryEvent(QInputMethodQueryEvent 
     ev->accept();
 }
 
-#ifndef QT_NO_ACCESSIBILITY
-void RenderWidgetHostViewQt::accessibilityActiveChanged(bool active)
-{
-    if (active)
-        content::BrowserAccessibilityStateImpl::GetInstance()->EnableAccessibility();
-    else
-        content::BrowserAccessibilityStateImpl::GetInstance()->DisableAccessibility();
-}
-#endif // QT_NO_ACCESSIBILITY
-
 void RenderWidgetHostViewQt::handleWheelEvent(QWheelEvent *ev)
 {
     if (!m_wheelAckPending) {
         Q_ASSERT(m_pendingWheelEvents.isEmpty());
-        blink::WebMouseWheelEvent webEvent = WebEventFactory::toWebWheelEvent(ev, dpiScale());
+        blink::WebMouseWheelEvent webEvent = WebEventFactory::toWebWheelEvent(ev);
         m_wheelAckPending = (webEvent.phase != blink::WebMouseWheelEvent::kPhaseEnded);
         m_mouseWheelPhaseHandler.AddPhaseIfNeededAndScheduleEndEvent(webEvent, false);
         host()->ForwardWheelEvent(webEvent);
@@ -1416,10 +1395,10 @@ void RenderWidgetHostViewQt::handleWheelEvent(QWheelEvent *ev)
     }
     if (!m_pendingWheelEvents.isEmpty()) {
         // Try to combine with this wheel event with the last pending one.
-        if (WebEventFactory::coalesceWebWheelEvent(m_pendingWheelEvents.last(), ev, dpiScale()))
+        if (WebEventFactory::coalesceWebWheelEvent(m_pendingWheelEvents.last(), ev))
             return;
     }
-    m_pendingWheelEvents.append(WebEventFactory::toWebWheelEvent(ev, dpiScale()));
+    m_pendingWheelEvents.append(WebEventFactory::toWebWheelEvent(ev));
 }
 
 void RenderWidgetHostViewQt::WheelEventAck(const blink::WebMouseWheelEvent &event, content::InputEventAckState /*ack_result*/)
@@ -1454,15 +1433,10 @@ void RenderWidgetHostViewQt::handleGestureEvent(QNativeGestureEvent *ev)
     const Qt::NativeGestureType type = ev->gestureType();
     // These are the only supported gestures by Chromium so far.
     if (type == Qt::ZoomNativeGesture || type == Qt::SmartZoomNativeGesture) {
-        host()->ForwardGestureEvent(WebEventFactory::toWebGestureEvent(
-                                        ev,
-                                        static_cast<double>(dpiScale())));
+        host()->ForwardGestureEvent(WebEventFactory::toWebGestureEvent(ev));
     }
 }
 #endif
-
-Q_DECLARE_LOGGING_CATEGORY(QWEBENGINE_TOUCH_HANDLING);
-Q_LOGGING_CATEGORY(QWEBENGINE_TOUCH_HANDLING, "qt.webengine.touch");
 
 void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
 {
@@ -1471,7 +1445,7 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
     if (ev->spontaneous()) {
         return;
     } else {
-        qCWarning(QWEBENGINE_TOUCH_HANDLING)
+        VLOG(1)
             << "Sending simulated touch events to Chromium does not work properly on macOS. "
                "Consider using QNativeGestureEvents or QMouseEvents.";
     }
@@ -1488,11 +1462,35 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
     eventTimestamp += m_eventsToNowDelta;
 
     QList<QTouchEvent::TouchPoint> touchPoints = mapTouchPointIds(ev->touchPoints());
+    {
+        ui::MotionEvent::Action action;
+        switch (touchPoints[0].state()) {
+        case Qt::TouchPointPressed:
+            action = ui::MotionEvent::Action::DOWN;
+            break;
+        case Qt::TouchPointMoved:
+            action = ui::MotionEvent::Action::MOVE;
+            break;
+        case Qt::TouchPointReleased:
+            action = ui::MotionEvent::Action::UP;
+            break;
+        default:
+            action = ui::MotionEvent::Action::NONE;
+            break;
+        }
+
+        MotionEventQt motionEvent(touchPoints, eventTimestamp, action, ev->modifiers(), 0);
+        if (m_touchSelectionController->WillHandleTouchEvent(motionEvent)) {
+            ev->accept();
+            return;
+        }
+    }
 
     switch (ev->type()) {
     case QEvent::TouchBegin:
         m_sendMotionActionDown = true;
         m_touchMotionStarted = true;
+        m_touchSelectionControllerClient->onTouchDown();
         break;
     case QEvent::TouchUpdate:
         m_touchMotionStarted = true;
@@ -1512,13 +1510,13 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
         if (touchPoints.isEmpty())
             touchPoints = m_previousTouchPoints;
         clearPreviousTouchMotionState();
-        MotionEventQt cancelEvent(touchPoints, eventTimestamp, ui::MotionEvent::Action::CANCEL,
-                                  ev->modifiers(), dpiScale());
+        MotionEventQt cancelEvent(touchPoints, eventTimestamp, ui::MotionEvent::Action::CANCEL, ev->modifiers());
         processMotionEvent(cancelEvent);
         return;
     }
     case QEvent::TouchEnd:
         clearPreviousTouchMotionState();
+        m_touchSelectionControllerClient->onTouchUp();
         break;
     default:
         break;
@@ -1565,8 +1563,7 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
             continue;
         }
 
-        MotionEventQt motionEvent(touchPoints, eventTimestamp, action, ev->modifiers(), dpiScale(),
-                                  i);
+        MotionEventQt motionEvent(touchPoints, eventTimestamp, action, ev->modifiers(), i);
         processMotionEvent(motionEvent);
     }
 }
@@ -1583,7 +1580,7 @@ void RenderWidgetHostViewQt::handlePointerEvent(T *event)
 {
     // Currently WebMouseEvent is a subclass of WebPointerProperties, so basically
     // tablet events are mouse events with extra properties.
-    blink::WebMouseEvent webEvent = WebEventFactory::toWebMouseEvent(event, dpiScale());
+    blink::WebMouseEvent webEvent = WebEventFactory::toWebMouseEvent(event);
     if ((webEvent.GetType() == blink::WebInputEvent::kMouseDown || webEvent.GetType() == blink::WebInputEvent::kMouseUp)
             && webEvent.button == blink::WebMouseEvent::Button::kNoButton) {
         // Blink can only handle the 3 main mouse-buttons and may assert when processing mouse-down for no button.
@@ -1629,7 +1626,7 @@ void RenderWidgetHostViewQt::handlePointerEvent(T *event)
 
 void RenderWidgetHostViewQt::handleHoverEvent(QHoverEvent *ev)
 {
-    host()->ForwardMouseEvent(WebEventFactory::toWebMouseEvent(ev, dpiScale()));
+    host()->ForwardMouseEvent(WebEventFactory::toWebMouseEvent(ev));
 }
 
 void RenderWidgetHostViewQt::handleFocusEvent(QFocusEvent *ev)
@@ -1656,11 +1653,6 @@ void RenderWidgetHostViewQt::SetNeedsBeginFrames(bool needs_begin_frames)
     m_compositor->setNeedsBeginFrames(needs_begin_frames);
 }
 
-void RenderWidgetHostViewQt::OnBeginFrame(base::TimeTicks frame_time)
-{
-    host()->ProgressFlingIfNeeded(frame_time);
-}
-
 content::RenderFrameHost *RenderWidgetHostViewQt::getFocusedFrameHost()
 {
     content::RenderViewHostImpl *viewHost = content::RenderViewHostImpl::From(host());
@@ -1672,6 +1664,15 @@ content::RenderFrameHost *RenderWidgetHostViewQt::getFocusedFrameHost()
         return nullptr;
 
     return focusedFrame->current_frame_host();
+}
+
+content::mojom::FrameInputHandler *RenderWidgetHostViewQt::getFrameInputHandler()
+{
+    content::RenderFrameHostImpl *frameHost = static_cast<content::RenderFrameHostImpl *>(getFocusedFrameHost());
+    if (!frameHost)
+        return nullptr;
+
+    return frameHost->GetFrameInputHandler();
 }
 
 ui::TextInputType RenderWidgetHostViewQt::getTextInputType() const
@@ -1696,9 +1697,9 @@ const viz::FrameSinkId &RenderWidgetHostViewQt::GetFrameSinkId() const
     return m_frameSinkId;
 }
 
-const viz::LocalSurfaceId &RenderWidgetHostViewQt::GetLocalSurfaceId() const
+const viz::LocalSurfaceIdAllocation &RenderWidgetHostViewQt::GetLocalSurfaceIdAllocation() const
 {
-    return m_localSurfaceId;
+    return m_localSurfaceIdAllocator.GetCurrentLocalSurfaceIdAllocation();
 }
 
 void RenderWidgetHostViewQt::TakeFallbackContentFrom(content::RenderWidgetHostView *view)
@@ -1710,16 +1711,40 @@ void RenderWidgetHostViewQt::TakeFallbackContentFrom(content::RenderWidgetHostVi
         SetBackgroundColor(*color);
 }
 
-void RenderWidgetHostViewQt::EnsureSurfaceSynchronizedForLayoutTest()
+void RenderWidgetHostViewQt::EnsureSurfaceSynchronizedForWebTest()
 {
-    ++m_latestCaptureSequenceNumber;
-    if (host())
-        host()->SynchronizeVisualProperties();
+    NOTIMPLEMENTED();
 }
 
 uint32_t RenderWidgetHostViewQt::GetCaptureSequenceNumber() const
 {
-    return m_latestCaptureSequenceNumber;
+    return 0;
+}
+
+void RenderWidgetHostViewQt::ResetFallbackToFirstNavigationSurface()
+{
+}
+
+void RenderWidgetHostViewQt::OnRenderFrameMetadataChangedAfterActivation()
+{
+    content::RenderWidgetHostViewBase::OnRenderFrameMetadataChangedAfterActivation();
+
+    const cc::RenderFrameMetadata &metadata = host()->render_frame_metadata_provider()->LastRenderFrameMetadata();
+    if (metadata.selection.start != m_selectionStart || metadata.selection.end != m_selectionEnd) {
+        m_selectionStart = metadata.selection.start;
+        m_selectionEnd = metadata.selection.end;
+        m_touchSelectionControllerClient->UpdateClientSelectionBounds(m_selectionStart, m_selectionEnd);
+    }
+}
+
+void RenderWidgetHostViewQt::synchronizeVisualProperties(const base::Optional<viz::LocalSurfaceIdAllocation> &childSurfaceId)
+{
+    if (childSurfaceId)
+        m_localSurfaceIdAllocator.UpdateFromChild(*childSurfaceId);
+    else
+        m_localSurfaceIdAllocator.GenerateId();
+
+    host()->SynchronizeVisualProperties();
 }
 
 } // namespace QtWebEngineCore

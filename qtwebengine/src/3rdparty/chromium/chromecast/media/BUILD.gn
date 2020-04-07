@@ -61,11 +61,17 @@ test("cast_media_unittests") {
     ":media",
     "//base",
     "//base/test:test_support",
+    "//chromecast:chromecast_buildflags",
     "//chromecast/base",
     "//chromecast/base/metrics:test_support",
+    "//chromecast/common/mojom",
     "//chromecast/media/cma:test_support",
     "//chromecast/public",
+    "//content/test:test_support",
     "//media:test_support",
+    "//media/mojo:test_support",
+    "//mojo/core/embedder",
+    "//services/service_manager/public/cpp",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -73,7 +79,10 @@ test("cast_media_unittests") {
   if (is_cast_using_cma_backend) {
     deps += [ "//chromecast/media/cma:unittests" ]
     if (is_android) {
-      deps += [ "//chromecast/media/cma/backend/android:audio_track_java" ]
+      deps += [
+        "//chromecast/media/cma/backend/android:audio_track_java",
+        "//media/base/android:media_java",
+      ]
       shard_timeout = 300
     }
   }

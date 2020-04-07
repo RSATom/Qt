@@ -19,14 +19,20 @@
 #include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
+#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
+#include "build/build_config.h"
+#include "chrome/browser/extensions/extension_action_runner.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
+#include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/browser/net/profile_network_context_service.h"
 #include "chrome/browser/net/profile_network_context_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -38,6 +44,7 @@
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
@@ -52,7 +59,9 @@
 #include "extensions/browser/api/declarative_net_request/ruleset_manager.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
 #include "extensions/browser/api/declarative_net_request/test_utils.h"
+#include "extensions/browser/api/declarative_net_request/utils.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
+#include "extensions/browser/blocked_action_type.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -63,9 +72,12 @@
 #include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/api/declarative_net_request/test_utils.h"
 #include "extensions/common/constants.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/file_util.h"
+#include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/url_pattern.h"
+#include "extensions/common/url_pattern_set.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "ipc/ipc_message.h"
 #include "net/base/net_errors.h"
@@ -189,8 +201,8 @@ class ScopedRulesetManagerTestObserver {
 
  private:
   void SetRulesetManagerTestObserver(RulesetManager::TestObserver* observer) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::IO},
         base::BindOnce(
             [](RulesetManager::TestObserver* observer, InfoMap* info_map) {
               info_map->GetRulesetManager()->SetObserverForTest(observer);
@@ -252,6 +264,8 @@ class DeclarativeNetRequestBrowserTest
     embedded_test_server()->RegisterRequestMonitor(
         base::BindRepeating(&DeclarativeNetRequestBrowserTest::MonitorRequest,
                             base::Unretained(this)));
+
+    content::SetupCrossSiteRedirector(embedded_test_server());
 
     ASSERT_TRUE(embedded_test_server()->Start());
 
@@ -338,17 +352,9 @@ class DeclarativeNetRequestBrowserTest
     }
 
     ASSERT_TRUE(extension);
-    EXPECT_TRUE(HasValidIndexedRuleset(*extension, profile()));
 
     // Ensure the ruleset is also loaded on the IO thread.
     content::RunAllTasksUntilIdle();
-
-    // Wait for the background page to load if needed.
-    if (has_background_script_)
-      WaitForBackgroundScriptToLoad(extension->id());
-
-    // Ensure no load errors were reported.
-    EXPECT_TRUE(LoadErrorReporter::GetInstance()->GetErrors()->empty());
 
     tester.ExpectTotalCount(kIndexRulesTimeHistogram, 1);
     tester.ExpectTotalCount(kIndexAndPersistRulesTimeHistogram, 1);
@@ -359,11 +365,19 @@ class DeclarativeNetRequestBrowserTest
     tester.ExpectUniqueSample(
         "Extensions.DeclarativeNetRequest.LoadRulesetResult",
         RulesetMatcher::kLoadSuccess /*sample*/, 1 /*count*/);
+
+    EXPECT_TRUE(HasValidIndexedRuleset(*extension, profile()));
+
+    // Wait for the background page to load if needed.
+    if (has_background_script_)
+      WaitForBackgroundScriptToLoad(extension->id());
+
+    // Ensure no load errors were reported.
+    EXPECT_TRUE(LoadErrorReporter::GetInstance()->GetErrors()->empty());
   }
 
   void LoadExtensionWithRules(const std::vector<TestRule>& rules) {
-    LoadExtensionWithRules(rules, "test_extension",
-                           {URLPattern::kAllUrlsPattern});
+    LoadExtensionWithRules(rules, "test_extension", {} /* hosts */);
   }
 
   void WaitForBackgroundScriptToLoad(const ExtensionId& extension_id) {
@@ -468,9 +482,15 @@ class DeclarativeNetRequestBrowserTest
 using DeclarativeNetRequestBrowserTest_Packed =
     DeclarativeNetRequestBrowserTest;
 
+#if defined(OS_WIN) && !defined(NDEBUG)
+// TODO: test times out on win7-debug. http://crbug.com/900447.
+#define MAYBE_BlockRequests_UrlFilter DISABLED_BlockRequests_UrlFilter
+#else
+#define MAYBE_BlockRequests_UrlFilter BlockRequests_UrlFilter
+#endif
 // Tests the "urlFilter" property of a declarative rule condition.
 IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
-                       BlockRequests_UrlFilter) {
+                       MAYBE_BlockRequests_UrlFilter) {
   struct {
     std::string url_filter;
     int id;
@@ -480,7 +500,10 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
       {"|http://*.us", 3},
       {"pages_with_script/page2.html|", 4},
       {"|http://msn*/pages_with_script/page.html|", 5},
-      {"%20", 6},  // Block any urls with space.
+      {"%20", 6},     // Block any urls with space.
+      {"%C3%A9", 7},  // Percent-encoded non-ascii character é.
+      // Internationalized domain "ⱴase.com" in punycode.
+      {"|http://xn--ase-7z0b.com", 8},
   };
 
   // Rule |i| is the rule with id |i|.
@@ -504,6 +527,12 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
       {"abc.com", "/pages_with_script/page.html?q=hi bye", false},    // Rule 6
       {"abc.com", "/pages_with_script/page.html?q=hi%20bye", false},  // Rule 6
       {"abc.com", "/pages_with_script/page.html?q=hibye", true},
+      {"abc.com",
+       "/pages_with_script/page.html?q=" + base::WideToUTF8(L"\u00E9"),
+       false},  // Rule 7
+      {base::WideToUTF8(L"\x2c74"
+                        L"ase.com"),
+       "/pages_with_script/page.html", false},  // Rule 8
   };
 
   // Load the extension.
@@ -592,10 +621,8 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
 }
 
 // Tests case sensitive url filters.
-// TODO(crbug.com/767605): Enable once case-insensitive matching is implemented
-// in url_pattern_index.
 IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
-                       DISABLED_BlockRequests_IsUrlFilterCaseSensitive) {
+                       BlockRequests_IsUrlFilterCaseSensitive) {
   struct {
     std::string url_filter;
     size_t id;
@@ -610,6 +637,7 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
     rule.id = rule_data.id;
     rule.condition->is_url_filter_case_sensitive =
         rule_data.is_url_filter_case_sensitive;
+    rule.condition->resource_types = std::vector<std::string>({"main_frame"});
     rules.push_back(rule);
   }
   ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(rules));
@@ -653,7 +681,10 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
     size_t id;
     std::vector<std::string> domains;
     std::vector<std::string> excluded_domains;
-  } rules_data[] = {{"child_frame.html?frame=1", 1, {"x.com"}, {"a.x.com"}},
+  } rules_data[] = {{"child_frame.html?frame=1",
+                     1,
+                     {"x.com", "xn--36c-tfa.com" /* punycode for 36°c.com */},
+                     {"a.x.com"}},
                     {"child_frame.html?frame=2", 2, {}, {"a.y.com"}}};
 
   std::vector<TestRule> rules;
@@ -679,6 +710,9 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
     bool expect_frame_2_loaded;
   } test_cases[] = {
       {"x.com", false /* Rule 1 */, false /* Rule 2 */},
+      {base::WideToUTF8(L"36\x00b0"
+                        L"c.com" /* 36°c.com */),
+       false /*Rule 1*/, false /*Rule 2*/},
       {"b.x.com", false /* Rule 1 */, false /* Rule 2 */},
       {"a.x.com", true, false /* Rule 2 */},
       {"b.a.x.com", true, false /* Rule 2 */},
@@ -1013,7 +1047,8 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest, BlockAndRedirect) {
     rule.action->redirect_url = rule_data.redirect_url;
     rules.push_back(rule);
   }
-  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(rules));
+  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(
+      rules, "test_extension", {URLPattern::kAllUrlsPattern}));
 
   struct {
     std::string hostname;
@@ -1099,7 +1134,8 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest, RedirectPriority) {
   // Shuffle the rules to ensure that the order in which rules are added has no
   // effect on the test.
   base::RandomShuffle(rules.begin(), rules.end());
-  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(rules));
+  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(
+      rules, "test_extension", {URLPattern::kAllUrlsPattern}));
 
   for (size_t i = 0; i <= kNumPatternTypes + 1; ++i) {
     GURL url = embedded_test_server()->GetURL(hostname_for_number(i),
@@ -1307,7 +1343,7 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
   // affecting requests.
   PrefService* pref_service = browser()->profile()->GetPrefs();
   pref_service->Set(proxy_config::prefs::kProxy,
-                    *ProxyConfigDictionary::CreatePacScript(
+                    ProxyConfigDictionary::CreatePacScript(
                         embedded_test_server()->GetURL("/self.pac").spec(),
                         true /* pac_mandatory */));
   // Flush the proxy configuration change over the Mojo pipe to avoid any races.
@@ -1315,8 +1351,9 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
       ->FlushProxyConfigMonitorForTesting();
 
   // Verify that the extension can't intercept the network request.
-  ui_test_utils::NavigateToURL(browser(), embedded_test_server()->GetURL(
-                                              "/pages_with_script/page.html"));
+  ui_test_utils::NavigateToURL(
+      browser(),
+      GURL("http://does.not.resolve.test/pages_with_script/page.html"));
   EXPECT_TRUE(WasFrameWithScriptLoaded(GetMainFrame()));
   EXPECT_EQ(content::PAGE_TYPE_NORMAL, GetPageType());
 }
@@ -1588,76 +1625,6 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
   verify_page_load(false /*expect_load*/);
 }
 
-// Tests that requests which can't be mapped to a render frame (e.g. non-
-// navigation browser requests) are not affected by the page allowing API.
-IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
-                       PageAllowingAPI_BrowserRequests) {
-  // Load an extension which blocks all requests.
-  set_has_background_script(true);
-  std::vector<TestRule> rules;
-  TestRule rule = CreateGenericRule();
-  rule.condition->url_filter = std::string("*");
-  rules.push_back(rule);
-  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(rules));
-
-  // Allow requests served from "google.com/*" pages.
-  AddAllowedPages(last_loaded_extension_id(), {"http://google.com:*/*"});
-
-  const GURL url = embedded_test_server()->GetURL(
-      "google.com", "/pages_with_script/index.html");
-
-  // A navigation to |url| should not be blocked as google.com/* pages have been
-  // allowed. This will cause two network requests to index.html and
-  // script.js.
-  ui_test_utils::NavigateToURL(browser(), url);
-  EXPECT_TRUE(WasFrameWithScriptLoaded(GetMainFrame()));
-  EXPECT_EQ(content::PAGE_TYPE_NORMAL, GetPageType());
-  std::set<GURL> requests_seen = GetAndResetRequestsToServer();
-
-  // The EmbeddedTestServer sees requests after the hostname has been resolved.
-  EXPECT_TRUE(base::ContainsKey(
-      requests_seen,
-      embedded_test_server()->GetURL("/pages_with_script/index.html")));
-  EXPECT_TRUE(base::ContainsKey(
-      requests_seen,
-      embedded_test_server()->GetURL("/pages_with_script/script.js")));
-
-  // But a non-navigation browser initiated resource request should still be
-  // blocked. This is because such a request can't be mapped to a top level
-  // frame and hence won't be considered for allowing by the page
-  // allowing API.
-  auto request = std::make_unique<network::ResourceRequest>();
-  request->url = embedded_test_server()->GetURL("google.com",
-                                                "/pages_with_script/script.js");
-  request->resource_type = content::ResourceType::RESOURCE_TYPE_SCRIPT;
-  request->render_frame_id = MSG_ROUTING_NONE;
-
-  // TODO(https://crbug.com/857577): remove this hack. When an unrelated
-  // browser issued request (typically from GaiaAuthFetcher) has run, it causes
-  // the StoragePartitionImpl to create and cache a URLLoaderFactory without the
-  // web request proxying. This resets it so one with the web request proxying
-  // is created the next time a request is made.
-  base::RunLoop().RunUntilIdle();
-  content::BrowserContext::GetDefaultStoragePartition(profile())
-      ->ResetURLLoaderFactoryForBrowserProcessForTesting();
-
-  auto loader = network::SimpleURLLoader::Create(std::move(request),
-                                                 TRAFFIC_ANNOTATION_FOR_TESTS);
-  content::SimpleURLLoaderTestHelper loader_helper;
-  loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-      content::BrowserContext::GetDefaultStoragePartition(profile())
-          ->GetURLLoaderFactoryForBrowserProcess()
-          .get(),
-      loader_helper.GetCallback());
-  loader_helper.WaitForCallback();
-
-  EXPECT_FALSE(loader_helper.response_body());
-  EXPECT_EQ(net::ERR_BLOCKED_BY_CLIENT, loader->NetError());
-  EXPECT_FALSE(base::ContainsKey(
-      GetAndResetRequestsToServer(),
-      embedded_test_server()->GetURL("/pages_with_script/script.js")));
-}
-
 // Ensures that any <img> elements blocked by the API are collapsed.
 IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest, ImageCollapsed) {
   // Loads a page with an image and returns whether the image was collapsed.
@@ -1816,10 +1783,11 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest_Packed,
     verify_page_load(false);
   }
 
-  // Overwrite the indexed ruleset file with arbitrary data to mimic corruption.
+  // Overwrite the indexed ruleset file with arbitrary data to mimic corruption,
+  // while maintaining the correct version header.
   {
     base::ScopedAllowBlockingForTesting scoped_allow_blocking;
-    std::string corrupted_data = "data";
+    std::string corrupted_data = GetVersionHeaderForTesting() + "data";
     ASSERT_EQ(static_cast<int>(corrupted_data.size()),
               base::WriteFile(file_util::GetIndexedRulesetPath(extension_path),
                               corrupted_data.c_str(), corrupted_data.size()));
@@ -1844,7 +1812,7 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest_Packed,
     EXPECT_EQ(1, tester.GetBucketCount(
                      "Extensions.DeclarativeNetRequest.LoadRulesetResult",
                      RulesetMatcher::LoadRulesetResult::
-                         kLoadErrorRulesetVerification /*sample*/));
+                         kLoadErrorChecksumMismatch /*sample*/));
     EXPECT_EQ(1,
               tester.GetBucketCount(
                   "Extensions.DeclarativeNetRequest.LoadRulesetResult",
@@ -1877,7 +1845,7 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
   // Mimic extension prefs corruption by overwriting the indexed ruleset
   // checksum.
   const int kInvalidRulesetChecksum = -1;
-  ExtensionPrefs::Get(profile())->SetDNRRulesetChecksumForTesting(
+  ExtensionPrefs::Get(profile())->SetDNRRulesetChecksum(
       extension_id, kInvalidRulesetChecksum);
 
   TestExtensionRegistryObserver registry_observer(
@@ -1904,7 +1872,7 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
   EXPECT_EQ(1, tester.GetBucketCount(
                    "Extensions.DeclarativeNetRequest.LoadRulesetResult",
                    RulesetMatcher::LoadRulesetResult::
-                       kLoadErrorRulesetVerification /*sample*/));
+                       kLoadErrorChecksumMismatch /*sample*/));
 
   // Verify that re-indexing the ruleset failed.
   tester.ExpectUniqueSample(
@@ -1912,37 +1880,277 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
       false /*sample*/, 1 /*count*/);
 }
 
+// Tests that we reindex the extension ruleset in case its ruleset format
+// version is not the same as one used by Chrome.
+IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest_Packed,
+                       ReindexOnRulesetVersionMismatch) {
+  // Set up an observer for RulesetMatcher to monitor the number of extension
+  // rulesets.
+  RulesetCountWaiter ruleset_count_waiter;
+  ScopedRulesetManagerTestObserver scoped_observer(
+      &ruleset_count_waiter,
+      base::WrapRefCounted(ExtensionSystem::Get(profile())->info_map()));
+
+  TestRule rule = CreateGenericRule();
+  rule.condition->url_filter = std::string("*");
+  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules({rule}));
+  ruleset_count_waiter.WaitForRulesetCount(1);
+
+  const ExtensionId extension_id = last_loaded_extension_id();
+  const auto* rules_monitor_service = BrowserContextKeyedAPIFactory<
+      declarative_net_request::RulesMonitorService>::Get(profile());
+  EXPECT_TRUE(rules_monitor_service->HasRegisteredRuleset(extension_id));
+
+  DisableExtension(extension_id);
+  ruleset_count_waiter.WaitForRulesetCount(0);
+  EXPECT_FALSE(rules_monitor_service->HasRegisteredRuleset(extension_id));
+
+  // Now change the current indexed ruleset format version. This should cause a
+  // version mismatch when the extension is loaded again, but reindexing should
+  // still succeed.
+  const int kIndexedRulesetFormatVersion = 100;
+  std::string old_version_header = GetVersionHeaderForTesting();
+  SetIndexedRulesetFormatVersionForTesting(kIndexedRulesetFormatVersion);
+  ASSERT_NE(old_version_header, GetVersionHeaderForTesting());
+
+  base::HistogramTester tester;
+  EnableExtension(extension_id);
+  ruleset_count_waiter.WaitForRulesetCount(1);
+  EXPECT_TRUE(rules_monitor_service->HasRegisteredRuleset(extension_id));
+
+  // Verify that loading the ruleset would have failed initially due to
+  // version header mismatch and later succeeded.
+  EXPECT_EQ(1, tester.GetBucketCount(
+                   "Extensions.DeclarativeNetRequest.LoadRulesetResult",
+                   RulesetMatcher::LoadRulesetResult::
+                       kLoadErrorVersionMismatch /*sample*/));
+  EXPECT_EQ(1, tester.GetBucketCount(
+                   "Extensions.DeclarativeNetRequest.LoadRulesetResult",
+                   RulesetMatcher::LoadRulesetResult::kLoadSuccess /*sample*/));
+
+  // Verify that reindexing succeeded.
+  tester.ExpectUniqueSample(
+      "Extensions.DeclarativeNetRequest.RulesetReindexSuccessful",
+      true /*sample*/, 1 /*count*/);
+}
+
+// Tests that redirecting requests using the declarativeNetRequest API works
+// with extensions_features::kRuntimeHostPermissions.
+IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
+                       WithheldPermissions_Redirect) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      extensions_features::kRuntimeHostPermissions);
+
+  // Load an extension which redirects all script requests made to
+  // "b.com/subresources/not_a_valid_script.js", to
+  // "b.com/subresources/script.js".
+  TestRule rule = CreateGenericRule();
+  rule.condition->url_filter =
+      std::string("b.com/subresources/not_a_valid_script.js");
+  rule.condition->resource_types = std::vector<std::string>({"script"});
+  rule.priority = kMinValidPriority;
+  rule.action->type = std::string("redirect");
+  rule.action->redirect_url =
+      embedded_test_server()->GetURL("b.com", "/subresources/script.js").spec();
+
+  std::vector<std::string> host_permissions = {"*://a.com/", "*://b.com/*"};
+  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(
+      {rule}, "extension" /* directory */, host_permissions));
+
+  const Extension* extension = extension_service()->GetExtensionById(
+      last_loaded_extension_id(), false /*include_disabled*/);
+  ASSERT_TRUE(extension);
+
+  auto verify_script_redirected = [this, extension](
+                                      const GURL& page_url,
+                                      bool expect_script_redirected,
+                                      int expected_blocked_actions) {
+    ui_test_utils::NavigateToURL(browser(), page_url);
+
+    // The page should have loaded correctly.
+    EXPECT_EQ(content::PAGE_TYPE_NORMAL, GetPageType());
+    EXPECT_EQ(expect_script_redirected,
+              WasFrameWithScriptLoaded(GetMainFrame()));
+
+    // The EmbeddedTestServer sees requests after the hostname has been
+    // resolved.
+    const GURL requested_script_url =
+        embedded_test_server()->GetURL("/subresources/not_a_valid_script.js");
+    const GURL redirected_script_url =
+        embedded_test_server()->GetURL("/subresources/script.js");
+
+    std::set<GURL> seen_requests = GetAndResetRequestsToServer();
+    EXPECT_EQ(!expect_script_redirected,
+              base::ContainsKey(seen_requests, requested_script_url));
+    EXPECT_EQ(expect_script_redirected,
+              base::ContainsKey(seen_requests, redirected_script_url));
+
+    ExtensionActionRunner* runner =
+        ExtensionActionRunner::GetForWebContents(web_contents());
+    ASSERT_TRUE(runner);
+    EXPECT_EQ(expected_blocked_actions, runner->GetBlockedActions(extension));
+  };
+
+  {
+    const GURL page_url = embedded_test_server()->GetURL(
+        "example.com", "/cross_site_script.html");
+    SCOPED_TRACE(
+        base::StringPrintf("Navigating to %s", page_url.spec().c_str()));
+
+    // The extension should not redirect the script request. It has access to
+    // the |requested_script_url| but not its initiator |page_url|.
+    bool expect_script_redirected = false;
+    verify_script_redirected(page_url, expect_script_redirected,
+                             BLOCKED_ACTION_NONE);
+  }
+
+  {
+    const GURL page_url =
+        embedded_test_server()->GetURL("a.com", "/cross_site_script.html");
+    SCOPED_TRACE(
+        base::StringPrintf("Navigating to %s", page_url.spec().c_str()));
+
+    // The extension should redirect the script request. It has access to both
+    // the |requested_script_url| and its initiator |page_url|.
+    bool expect_script_redirected = true;
+    verify_script_redirected(page_url, expect_script_redirected,
+                             BLOCKED_ACTION_NONE);
+  }
+
+  // Withhold access to all hosts.
+  ScriptingPermissionsModifier scripting_modifier(
+      profile(), base::WrapRefCounted(extension));
+  scripting_modifier.SetWithholdHostPermissions(true);
+
+  {
+    const GURL page_url =
+        embedded_test_server()->GetURL("a.com", "/cross_site_script.html");
+    SCOPED_TRACE(base::StringPrintf("Navigating to %s with all hosts withheld",
+                                    page_url.spec().c_str()));
+
+    // The extension should not redirect the script request. It's access to both
+    // the |requested_script_url| and its initiator |page_url| is withheld.
+    bool expect_script_redirected = false;
+    verify_script_redirected(page_url, expect_script_redirected,
+                             BLOCKED_ACTION_WEB_REQUEST);
+  }
+
+  // Grant access to only "b.com".
+  scripting_modifier.GrantHostPermission(GURL("http://b.com"));
+  {
+    const GURL page_url =
+        embedded_test_server()->GetURL("a.com", "/cross_site_script.html");
+    SCOPED_TRACE(base::StringPrintf("Navigating to %s with a.com withheld",
+                                    page_url.spec().c_str()));
+
+    // The extension should not redirect the script request. It has access to
+    // the |requested_script_url|, but its access to the request initiator
+    // |page_url| is withheld.
+    bool expect_script_redirected = false;
+    verify_script_redirected(page_url, expect_script_redirected,
+                             BLOCKED_ACTION_WEB_REQUEST);
+  }
+
+  // Grant access to only "a.com".
+  scripting_modifier.RemoveAllGrantedHostPermissions();
+  scripting_modifier.GrantHostPermission(GURL("http://a.com"));
+  {
+    const GURL page_url =
+        embedded_test_server()->GetURL("a.com", "/cross_site_script.html");
+    SCOPED_TRACE(base::StringPrintf("Navigating to %s with b.com withheld",
+                                    page_url.spec().c_str()));
+
+    // The extension should redirect the script request. It's access to the
+    // |requested_script_url| is withheld, but it has access to its initiator
+    // |page_url|.
+    bool expect_script_redirected = true;
+    verify_script_redirected(page_url, expect_script_redirected,
+                             BLOCKED_ACTION_NONE);
+  }
+}
+
+// Ensures that withholding permissions has no effect on blocking requests using
+// the declarative net request API.
+IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestBrowserTest,
+                       WithheldPermissions_Block) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      extensions_features::kRuntimeHostPermissions);
+
+  // Load an extension with access to <all_urls> which blocks all script
+  // requests made on example.com.
+  TestRule rule = CreateGenericRule();
+  rule.condition->url_filter = std::string("*");
+  rule.condition->domains = std::vector<std::string>({"example.com"});
+  rule.condition->resource_types = std::vector<std::string>({"script"});
+
+  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithRules(
+      {rule}, "test_extension", {URLPattern::kAllUrlsPattern}));
+
+  const Extension* extension = extension_service()->GetExtensionById(
+      last_loaded_extension_id(), false /*include_disabled*/);
+  ASSERT_TRUE(extension);
+
+  EXPECT_TRUE(extension->permissions_data()->HasEffectiveAccessToAllHosts());
+
+  // Withhold access to all hosts.
+  ScriptingPermissionsModifier scripting_modifier(
+      profile(), base::WrapRefCounted(extension));
+  scripting_modifier.SetWithholdHostPermissions(true);
+
+  EXPECT_EQ(
+      extension->permissions_data()->active_permissions().explicit_hosts(),
+      URLPatternSet(
+          {URLPattern(URLPattern::SCHEME_CHROMEUI, "chrome://favicon/*")}));
+
+  // Request made by index.html to script.js should be blocked despite the
+  // extension having no active host permissions to the request.
+  ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL(
+                     "example.com", "/pages_with_script/index.html"));
+  EXPECT_FALSE(WasFrameWithScriptLoaded(GetMainFrame()));
+
+  // Sanity check that the script.js request is not blocked if does not match a
+  // rule.
+  ui_test_utils::NavigateToURL(browser(),
+                               embedded_test_server()->GetURL(
+                                   "foo.com", "/pages_with_script/index.html"));
+  EXPECT_TRUE(WasFrameWithScriptLoaded(GetMainFrame()));
+}
+
 // Test fixture to verify that host permissions for the request url and the
-// request initiator are properly checked. Loads an example.com url with four
-// sub-frames named frame_[1..4] from hosts frame_[1..4].com. The initiator for
-// these frames will be example.com. Loads an extension set to block all sub-
-// frames. Verifies that the correct frames are blocked depending on the host
-// permissions for the extension.
+// request initiator are properly checked when redirecting requests. Loads an
+// example.com url with four sub-frames named frame_[1..4] from hosts
+// frame_[1..4].com. These subframes point to invalid sources. The initiator for
+// these frames will be example.com. Loads an extension which redirects these
+// sub-frames to a valid source. Verifies that the correct frames are redirected
+// depending on the host permissions for the extension.
 class DeclarativeNetRequestHostPermissionsBrowserTest
     : public DeclarativeNetRequestBrowserTest {
  public:
   DeclarativeNetRequestHostPermissionsBrowserTest() {}
 
  protected:
-  struct FrameLoadResult {
+  struct FrameRedirectResult {
     std::string child_frame_name;
-    bool expect_frame_loaded;
+    bool expect_frame_redirected;
   };
 
   void LoadExtensionWithHostPermissions(const std::vector<std::string>& hosts) {
-    std::vector<TestRule> rules;
-
-    // Block all sub-frame requests.
     TestRule rule = CreateGenericRule();
-    rule.condition->url_filter = std::string("*");
+    rule.priority = kMinValidPriority;
+    rule.condition->url_filter = std::string("not_a_valid_child_frame.html");
     rule.condition->resource_types = std::vector<std::string>({"sub_frame"});
-    rules.push_back(rule);
+    rule.action->type = std::string("redirect");
+    rule.action->redirect_url =
+        embedded_test_server()->GetURL("foo.com", "/child_frame.html").spec();
 
     ASSERT_NO_FATAL_FAILURE(
-        LoadExtensionWithRules(rules, "test_extension", hosts));
+        LoadExtensionWithRules({rule}, "test_extension", hosts));
   }
 
-  void RunTests(const std::vector<FrameLoadResult>& expected_results) {
+  void RunTests(const std::vector<FrameRedirectResult>& expected_results) {
     ASSERT_EQ(4u, expected_results.size());
 
     GURL url = embedded_test_server()->GetURL("example.com",
@@ -1956,8 +2164,8 @@ class DeclarativeNetRequestHostPermissionsBrowserTest
 
       content::RenderFrameHost* child =
           GetFrameByName(frame_result.child_frame_name);
-      EXPECT_TRUE(child);
-      EXPECT_EQ(frame_result.expect_frame_loaded,
+      ASSERT_TRUE(child);
+      EXPECT_EQ(frame_result.expect_frame_redirected,
                 WasFrameWithScriptLoaded(child));
     }
   }
@@ -1972,28 +2180,9 @@ class DeclarativeNetRequestHostPermissionsBrowserTest
 
 IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
                        AllURLs1) {
-  // All frames should be blocked since the extension has access to all hosts.
+  // All frames should be redirected since the extension has access to all
+  // hosts.
   ASSERT_NO_FATAL_FAILURE(LoadExtensionWithHostPermissions({"<all_urls>"}));
-  RunTests({{"frame_1", false},
-            {"frame_2", false},
-            {"frame_3", false},
-            {"frame_4", false}});
-}
-
-IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
-                       AllURLs2) {
-  // All frames should be blocked since the extension has access to all hosts.
-  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithHostPermissions({"*://*/*"}));
-  RunTests({{"frame_1", false},
-            {"frame_2", false},
-            {"frame_3", false},
-            {"frame_4", false}});
-}
-
-IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
-                       NoPermissions) {
-  // The extension has no host permissions. No frames should be blocked.
-  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithHostPermissions({}));
   RunTests({{"frame_1", true},
             {"frame_2", true},
             {"frame_3", true},
@@ -2001,30 +2190,26 @@ IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
-                       SubframesWithNoInitiatorPermissions) {
-  // The extension has access to requests to "frame_1.com" and "frame_2.com",
-  // but not the initiator of those requests (example.com). No frames should be
-  // blocked.
+                       NoPermissions) {
+  // The extension has no host permissions. No frames should be redirected.
+  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithHostPermissions({}));
+  RunTests({{"frame_1", false},
+            {"frame_2", false},
+            {"frame_3", false},
+            {"frame_4", false}});
+}
+
+IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
+                       SubframesRequireNoInitiatorPermissions) {
+  // The extension has access to requests to "frame_1.com" and "frame_2.com".
+  // These should be redirected. Note: extensions don't need access to the
+  // initiator of a navigation request to redirect it (See crbug.com/918137).
   ASSERT_NO_FATAL_FAILURE(
       LoadExtensionWithHostPermissions({GetMatchPatternForDomain("frame_1"),
                                         GetMatchPatternForDomain("frame_2")}));
   RunTests({{"frame_1", true},
             {"frame_2", true},
-            {"frame_3", true},
-            {"frame_4", true}});
-}
-
-IN_PROC_BROWSER_TEST_P(DeclarativeNetRequestHostPermissionsBrowserTest,
-                       SubframesWithInitiatorPermission) {
-  // The extension has access to requests to "frame_1.com" and "frame_4.com",
-  // and also the initiator of those requests (example.com). Hence |frame_1| and
-  // |frame_4| should be blocked.
-  ASSERT_NO_FATAL_FAILURE(LoadExtensionWithHostPermissions(
-      {GetMatchPatternForDomain("frame_1"), GetMatchPatternForDomain("frame_4"),
-       GetMatchPatternForDomain("example")}));
-  RunTests({{"frame_1", false},
-            {"frame_2", true},
-            {"frame_3", true},
+            {"frame_3", false},
             {"frame_4", false}});
 }
 

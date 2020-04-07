@@ -8,13 +8,19 @@
 #include <string>
 #include <utility>
 
+#include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/timer/elapsed_timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/extensions/chrome_extension_browser_constants.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/webui/dark_mode_handler.h"
+#include "chrome/browser/ui/webui/localized_string.h"
+#include "chrome/browser/ui/webui/managed_ui_handler.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -23,7 +29,7 @@
 #include "chrome/grit/extensions_resources_map.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -32,6 +38,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "content/public/common/content_features.h"
 #include "extensions/common/extension_urls.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -46,21 +53,8 @@ namespace extensions {
 namespace {
 
 constexpr char kInDevModeKey[] = "inDevMode";
+constexpr char kShowActivityLogKey[] = "showActivityLog";
 constexpr char kLoadTimeClassesKey[] = "loadTimeClasses";
-
-struct LocalizedString {
-  const char* name;
-  int id;
-};
-
-void AddLocalizedStringsBulk(content::WebUIDataSource* html_source,
-                             const LocalizedString localized_strings[],
-                             size_t num_strings) {
-  for (size_t i = 0; i < num_strings; i++) {
-    html_source->AddLocalizedString(localized_strings[i].name,
-                                    localized_strings[i].id);
-  }
-}
 
 class ExtensionWebUiTimer : public content::WebContentsObserver {
  public:
@@ -111,12 +105,13 @@ std::string GetLoadTimeClasses(bool in_dev_mode) {
   return in_dev_mode ? "in-dev-mode" : std::string();
 }
 
-content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
+content::WebUIDataSource* CreateMdExtensionsSource(Profile* profile,
+                                                   bool in_dev_mode) {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIExtensionsHost);
   source->SetJsonPath("strings.js");
 
-  constexpr LocalizedString localized_strings[] = {
+  static constexpr LocalizedString kLocalizedStrings[] = {
     // Add common strings.
     {"add", IDS_ADD},
     {"back", IDS_ACCNAME_BACK},
@@ -128,7 +123,12 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"learnMore", IDS_LEARN_MORE},
     {"noSearchResults", IDS_SEARCH_NO_RESULTS},
     {"ok", IDS_OK},
-    {"searchResults", IDS_SEARCH_RESULTS},
+    {"save", IDS_SAVE},
+    {"searchResultsPlural", IDS_SEARCH_RESULTS_PLURAL},
+    {"searchResultsSingular", IDS_SEARCH_RESULTS_SINGULAR},
+
+    // Multi-use strings defined in md_extensions_strings.grdp.
+    {"remove", IDS_MD_EXTENSIONS_REMOVE},
 
     // Add extension-specific strings.
     {"title", IDS_MANAGE_EXTENSIONS_SETTING_WINDOWS_TITLE},
@@ -145,6 +145,7 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"extensionWebsite", IDS_MD_EXTENSIONS_ITEM_EXTENSION_WEBSITE},
     {"dropToInstall", IDS_EXTENSIONS_INSTALL_DROP_TARGET},
     {"errorsPageHeading", IDS_MD_EXTENSIONS_ERROR_PAGE_HEADING},
+    {"clearActivities", IDS_MD_EXTENSIONS_CLEAR_ACTIVITIES},
     {"clearAll", IDS_MD_EXTENSIONS_ERROR_CLEAR_ALL},
     {"clearEntry", IDS_MD_EXTENSIONS_A11Y_CLEAR_ENTRY},
     {"logLevel", IDS_EXTENSIONS_LOG_LEVEL_INFO},
@@ -158,13 +159,15 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"openChromeWebStore", IDS_MD_EXTENSIONS_SIDEBAR_OPEN_CHROME_WEB_STORE},
     {"keyboardShortcuts", IDS_MD_EXTENSIONS_SIDEBAR_KEYBOARD_SHORTCUTS},
     {"incognitoInfoWarning", IDS_EXTENSIONS_INCOGNITO_WARNING},
-    {"itemHostPermissionsHeading",
-     IDS_MD_EXTENSIONS_ITEM_HOST_PERMISSIONS_HEADING},
-    {"itemHostAccessOnClick", IDS_MD_EXTENSIONS_HOST_ACCESS_ON_CLICK},
-    {"itemHostAccessOnSpecificSites",
+    {"hostPermissionsDescription",
+     IDS_MD_EXTENSIONS_HOST_PERMISSIONS_DESCRIPTION},
+    {"hostPermissionsEdit", IDS_MD_EXTENSIONS_HOST_PERMISSIONS_EDIT},
+    {"hostPermissionsHeading", IDS_MD_EXTENSIONS_ITEM_HOST_PERMISSIONS_HEADING},
+    {"hostAccessOnClick", IDS_MD_EXTENSIONS_HOST_ACCESS_ON_CLICK},
+    {"hostAccessOnSpecificSites",
      IDS_MD_EXTENSIONS_HOST_ACCESS_ON_SPECIFIC_SITES},
-    {"itemHostAccessOnAllSites", IDS_MD_EXTENSIONS_HOST_ACCESS_ON_ALL_SITES},
-    {"itemAllowedHosts", IDS_EXTENSIONS_ITEM_ALLOWED_HOSTS},
+    {"hostAccessOnAllSites", IDS_MD_EXTENSIONS_HOST_ACCESS_ON_ALL_SITES},
+    {"hostAllowedHosts", IDS_EXTENSIONS_ITEM_ALLOWED_HOSTS},
     {"itemId", IDS_MD_EXTENSIONS_ITEM_ID},
     {"itemInspectViews", IDS_MD_EXTENSIONS_ITEM_INSPECT_VIEWS},
     // NOTE: This text reads "<n> more". It's possible that it should be using
@@ -182,6 +185,8 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"accessibilityErrorLine", IDS_MD_EXTENSIONS_ACCESSIBILITY_ERROR_LINE},
     {"accessibilityErrorMultiLine",
      IDS_MD_EXTENSIONS_ACCESSIBILITY_ERROR_MULTI_LINE},
+    {"activityLogPageHeading", IDS_MD_EXTENSIONS_ACTIVITY_LOG_PAGE_HEADING},
+    {"activityLogSearchLabel", IDS_MD_EXTENSIONS_ACTIVITY_LOG_SEARCH_LABEL},
     {"appIcon", IDS_MD_EXTENSIONS_APP_ICON},
     {"extensionIcon", IDS_MD_EXTENSIONS_EXTENSION_ICON},
     {"extensionA11yAssociation", IDS_MD_EXTENSIONS_EXTENSION_A11Y_ASSOCIATION},
@@ -195,8 +200,10 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"itemOptions", IDS_MD_EXTENSIONS_ITEM_OPTIONS},
     {"itemPermissions", IDS_MD_EXTENSIONS_ITEM_PERMISSIONS},
     {"itemPermissionsEmpty", IDS_MD_EXTENSIONS_ITEM_PERMISSIONS_EMPTY},
-    {"itemRemove", IDS_MD_EXTENSIONS_ITEM_REMOVE},
     {"itemRemoveExtension", IDS_MD_EXTENSIONS_ITEM_REMOVE_EXTENSION},
+    {"itemSiteAccess", IDS_MD_EXTENSIONS_ITEM_SITE_ACCESS},
+    {"itemSiteAccessAddHost", IDS_MD_EXTENSIONS_ITEM_SITE_ACCESS_ADD_HOST},
+    {"itemSiteAccessEmpty", IDS_MD_EXTENSIONS_ITEM_SITE_ACCESS_EMPTY},
     {"itemSource", IDS_MD_EXTENSIONS_ITEM_SOURCE},
     {"itemSourcePolicy", IDS_MD_EXTENSIONS_ITEM_SOURCE_POLICY},
     {"itemSourceSideloaded", IDS_MD_EXTENSIONS_ITEM_SOURCE_SIDELOADED},
@@ -207,6 +214,7 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"itemSize", IDS_DIRECTORY_LISTING_SIZE},
     {"itemAllowOnFileUrls", IDS_EXTENSIONS_ALLOW_FILE_ACCESS},
     {"itemAllowOnAllSites", IDS_EXTENSIONS_ALLOW_ON_ALL_URLS},
+    {"itemAllowOnFollowingSites", IDS_EXTENSIONS_ALLOW_ON_FOLLOWING_SITES},
     {"itemCollectErrors", IDS_EXTENSIONS_ENABLE_ERROR_COLLECTION},
     {"itemCorruptInstall", IDS_EXTENSIONS_CORRUPTED_EXTENSION},
     {"itemRepair", IDS_EXTENSIONS_REPAIR_CORRUPTED},
@@ -217,7 +225,14 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"loadErrorFileLabel", IDS_MD_EXTENSIONS_LOAD_ERROR_FILE_LABEL},
     {"loadErrorErrorLabel", IDS_MD_EXTENSIONS_LOAD_ERROR_ERROR_LABEL},
     {"loadErrorRetry", IDS_MD_EXTENSIONS_LOAD_ERROR_RETRY},
+    {"loadingActivities", IDS_MD_EXTENSIONS_LOADING_ACTIVITIES},
+    {"noActivities", IDS_MD_EXTENSIONS_NO_ACTIVITIES},
     {"noErrorsToShow", IDS_EXTENSIONS_ERROR_NO_ERRORS_CODE_MESSAGE},
+    {"runtimeHostsDialogInputError",
+     IDS_MD_EXTENSIONS_RUNTIME_HOSTS_DIALOG_INPUT_ERROR},
+    {"runtimeHostsDialogInputLabel",
+     IDS_MD_EXTENSIONS_RUNTIME_HOSTS_DIALOG_INPUT_LABEL},
+    {"runtimeHostsDialogTitle", IDS_MD_EXTENSIONS_RUNTIME_HOSTS_DIALOG_TITLE},
     {"packDialogTitle", IDS_MD_EXTENSIONS_PACK_DIALOG_TITLE},
     {"packDialogWarningTitle", IDS_MD_EXTENSIONS_PACK_DIALOG_WARNING_TITLE},
     {"packDialogErrorTitle", IDS_MD_EXTENSIONS_PACK_DIALOG_ERROR_TITLE},
@@ -245,6 +260,7 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
     {"toolbarUpdatingToast", IDS_MD_EXTENSIONS_TOOLBAR_UPDATING_TOAST},
     {"updateRequiredByPolicy",
      IDS_MD_EXTENSIONS_DISABLED_UPDATE_REQUIRED_BY_POLICY},
+    {"viewActivityLog", IDS_EXTENSIONS_VIEW_ACTIVITY_LOG},
     {"viewBackgroundPage", IDS_EXTENSIONS_BACKGROUND_PAGE},
     {"viewIncognito", IDS_EXTENSIONS_VIEW_INCOGNITO},
     {"viewInactive", IDS_EXTENSIONS_VIEW_INACTIVE},
@@ -264,8 +280,8 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
      IDS_MD_EXTENSIONS_KIOSK_DISABLE_BAILOUT_SHORTCUT_WARNING_TITLE},
 #endif
   };
-  AddLocalizedStringsBulk(source, localized_strings,
-                          base::size(localized_strings));
+  AddLocalizedStringsBulk(source, kLocalizedStrings,
+                          base::size(kLocalizedStrings));
 
   source->AddString("errorLinesNotShownSingular",
                     l10n_util::GetPluralStringFUTF16(
@@ -298,13 +314,20 @@ content::WebUIDataSource* CreateMdExtensionsSource(bool in_dev_mode) {
               GURL(extension_urls::GetWebstoreExtensionsCategoryURL()),
               g_browser_process->GetApplicationLocale())
               .spec()));
-
+  source->AddString("hostPermissionsLearnMoreLink",
+                    chrome_extension_constants::kRuntimeHostPermissionsHelpURL);
   source->AddBoolean(kInDevModeKey, in_dev_mode);
+  source->AddBoolean(kShowActivityLogKey,
+                     base::CommandLine::ForCurrentProcess()->HasSwitch(
+                         ::switches::kEnableExtensionActivityLogging));
   source->AddString(kLoadTimeClassesKey, GetLoadTimeClasses(in_dev_mode));
 
 #if BUILDFLAG(OPTIMIZE_WEBUI)
   source->AddResourcePath("crisper.js", IDR_MD_EXTENSIONS_CRISPER_JS);
-  source->SetDefaultResource(IDR_MD_EXTENSIONS_VULCANIZED_HTML);
+  source->SetDefaultResource(
+      base::FeatureList::IsEnabled(features::kWebUIPolymer2) ?
+          IDR_MD_EXTENSIONS_VULCANIZED_P2_HTML :
+          IDR_MD_EXTENSIONS_VULCANIZED_HTML);
   source->UseGzip();
 #else
   // Add all MD Extensions resources.
@@ -328,7 +351,9 @@ ExtensionsUI::ExtensionsUI(content::WebUI* web_ui) : WebUIController(web_ui) {
       prefs::kExtensionsUIDeveloperMode, profile->GetPrefs(),
       base::Bind(&ExtensionsUI::OnDevModeChanged, base::Unretained(this)));
 
-  source = CreateMdExtensionsSource(*in_dev_mode_);
+  source = CreateMdExtensionsSource(profile, *in_dev_mode_);
+  DarkModeHandler::Initialize(web_ui, source);
+  ManagedUIHandler::Initialize(web_ui, source);
 
 #if defined(OS_CHROMEOS)
   auto kiosk_app_handler = std::make_unique<chromeos::KioskAppsHandler>(

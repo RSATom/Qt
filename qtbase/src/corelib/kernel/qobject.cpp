@@ -797,7 +797,7 @@ static bool check_parent_thread(QObject *parent,
 
     The destructor of a parent object destroys all child objects.
 
-    Setting \a parent to 0 constructs an object with no parent. If the
+    Setting \a parent to \nullptr constructs an object with no parent. If the
     object is a widget, it will become a top-level window.
 
     \sa parent(), findChild(), findChildren()
@@ -1769,7 +1769,7 @@ void QObject::killTimer(int id)
     \fn template<typename T> T *QObject::findChild(const QString &name, Qt::FindChildOptions options) const
 
     Returns the child of this object that can be cast into type T and
-    that is called \a name, or 0 if there is no such object.
+    that is called \a name, or \nullptr if there is no such object.
     Omitting the \a name argument causes all object names to be matched.
     The search is performed recursively, unless \a options specifies the
     option FindDirectChildrenOnly.
@@ -1830,12 +1830,15 @@ void QObject::killTimer(int id)
 /*!
     \fn template<typename T> QList<T> QObject::findChildren(const QRegExp &regExp, Qt::FindChildOptions options) const
     \overload findChildren()
+    \obsolete
 
     Returns the children of this object that can be cast to type T
     and that have names matching the regular expression \a regExp,
     or an empty list if there are no such objects.
     The search is performed recursively, unless \a options specifies the
     option FindDirectChildrenOnly.
+
+    Use the findChildren overload taking a QRegularExpression instead.
 */
 
 /*!
@@ -2154,7 +2157,8 @@ void QObject::removeEventFilter(QObject *obj)
     \fn void QObject::destroyed(QObject *obj)
 
     This signal is emitted immediately before the object \a obj is
-    destroyed, and can not be blocked.
+    destroyed, after any instances of QPointer have been notified,
+    and cannot be blocked.
 
     All the objects's children are destroyed immediately after this
     signal is emitted.
@@ -2163,6 +2167,8 @@ void QObject::removeEventFilter(QObject *obj)
 */
 
 /*!
+    \threadsafe
+
     Schedules this object for deletion.
 
     The object will be deleted when control returns to the event
@@ -2936,8 +2942,8 @@ QMetaObject::Connection QObject::connect(const QObject *sender, const QMetaMetho
     0 may be used as a wildcard, meaning "any signal", "any receiving
     object", or "any slot in the receiving object", respectively.
 
-    The \a sender may never be 0. (You cannot disconnect signals from
-    more than one object in a single call.)
+    The \a sender may never be \nullptr. (You cannot disconnect signals
+    from more than one object in a single call.)
 
     If \a signal is 0, it disconnects \a receiver and \a method from
     any signal. If not, only the specified signal is disconnected.
@@ -2948,8 +2954,8 @@ QMetaObject::Connection QObject::connect(const QObject *sender, const QMetaMetho
 
     If \a method is 0, it disconnects anything that is connected to \a
     receiver. If not, only slots named \a method will be disconnected,
-    and all other slots are left alone. The \a method must be 0 if \a
-    receiver is left out, so you cannot disconnect a
+    and all other slots are left alone. The \a method must be \nullptr
+    if \a receiver is left out, so you cannot disconnect a
     specifically-named slot on all objects.
 
     \sa connect()
@@ -3288,7 +3294,7 @@ QMetaObject::Connection QMetaObject::connect(const QObject *sender, int signal_i
     \internal
    Same as the QMetaObject::connect, but \a signal_index must be the result of QObjectPrivate::signalIndex
 
-    method_index is relative to the rmeta metaobject, if rmeta is null, then it is absolute index
+    method_index is relative to the rmeta metaobject, if rmeta is \nullptr, then it is absolute index
 
     the QObjectPrivate::Connection* has a refcount of 2, so it must be passed to a QMetaObject::Connection
  */
@@ -3378,7 +3384,7 @@ bool QMetaObject::disconnectOne(const QObject *sender, int signal_index,
 
 /*!
     \internal
-    Helper function to remove the connection from the senders list and setting the receivers to 0
+    Helper function to remove the connection from the senders list and set the receivers to \nullptr
  */
 bool QMetaObjectPrivate::disconnectHelper(QObjectPrivate::Connection *c,
                                           const QObject *receiver, int method_index, void **slot,
@@ -3680,10 +3686,12 @@ void QMetaObject::activate(QObject *sender, int signalOffset, int local_signal_i
         return;
     }
 
-    void *empty_argv[] = { 0 };
+    void *empty_argv[] = { nullptr };
+    if (!argv)
+        argv = empty_argv;
+
     if (qt_signal_spy_callback_set.signal_begin_callback != 0) {
-        qt_signal_spy_callback_set.signal_begin_callback(sender, signal_index,
-                                                         argv ? argv : empty_argv);
+        qt_signal_spy_callback_set.signal_begin_callback(sender, signal_index, argv);
     }
 
     {
@@ -3744,7 +3752,7 @@ void QMetaObject::activate(QObject *sender, int signalOffset, int local_signal_i
             // put into the event queue
             if ((c->connectionType == Qt::AutoConnection && !receiverInSameThread)
                 || (c->connectionType == Qt::QueuedConnection)) {
-                queued_activate(sender, signal_index, c, argv ? argv : empty_argv, locker);
+                queued_activate(sender, signal_index, c, argv, locker);
                 continue;
 #if QT_CONFIG(thread)
             } else if (c->connectionType == Qt::BlockingQueuedConnection) {
@@ -3756,8 +3764,8 @@ void QMetaObject::activate(QObject *sender, int signalOffset, int local_signal_i
                 }
                 QSemaphore semaphore;
                 QMetaCallEvent *ev = c->isSlotObject ?
-                    new QMetaCallEvent(c->slotObj, sender, signal_index, 0, 0, argv ? argv : empty_argv, &semaphore) :
-                    new QMetaCallEvent(c->method_offset, c->method_relative, c->callFunction, sender, signal_index, 0, 0, argv ? argv : empty_argv, &semaphore);
+                    new QMetaCallEvent(c->slotObj, sender, signal_index, 0, 0, argv, &semaphore) :
+                    new QMetaCallEvent(c->method_offset, c->method_relative, c->callFunction, sender, signal_index, 0, 0, argv, &semaphore);
                 QCoreApplication::postEvent(receiver, ev);
                 locker.unlock();
                 semaphore.acquire();
@@ -3778,7 +3786,7 @@ void QMetaObject::activate(QObject *sender, int signalOffset, int local_signal_i
 
                 {
                     Q_TRACE_SCOPE(QMetaObject_activate_slot_functor, obj.data());
-                    obj->call(receiver, argv ? argv : empty_argv);
+                    obj->call(receiver, argv);
                 }
 
                 // Make sure the slot object gets destroyed before the mutex is locked again, as the
@@ -3794,11 +3802,11 @@ void QMetaObject::activate(QObject *sender, int signalOffset, int local_signal_i
                 const auto callFunction = c->callFunction;
                 locker.unlock();
                 if (qt_signal_spy_callback_set.slot_begin_callback != 0)
-                    qt_signal_spy_callback_set.slot_begin_callback(receiver, methodIndex, argv ? argv : empty_argv);
+                    qt_signal_spy_callback_set.slot_begin_callback(receiver, methodIndex, argv);
 
                 {
                     Q_TRACE_SCOPE(QMetaObject_activate_slot, receiver, methodIndex);
-                    callFunction(receiver, QMetaObject::InvokeMetaMethod, method_relative, argv ? argv : empty_argv);
+                    callFunction(receiver, QMetaObject::InvokeMetaMethod, method_relative, argv);
                 }
 
                 if (qt_signal_spy_callback_set.slot_end_callback != 0)
@@ -3809,14 +3817,12 @@ void QMetaObject::activate(QObject *sender, int signalOffset, int local_signal_i
                 locker.unlock();
 
                 if (qt_signal_spy_callback_set.slot_begin_callback != 0) {
-                    qt_signal_spy_callback_set.slot_begin_callback(receiver,
-                                                                method,
-                                                                argv ? argv : empty_argv);
+                    qt_signal_spy_callback_set.slot_begin_callback(receiver, method, argv);
                 }
 
                 {
                     Q_TRACE_SCOPE(QMetaObject_activate_slot, receiver, method);
-                    metacall(receiver, QMetaObject::InvokeMetaMethod, method, argv ? argv : empty_argv);
+                    metacall(receiver, QMetaObject::InvokeMetaMethod, method, argv);
                 }
 
                 if (qt_signal_spy_callback_set.slot_end_callback != 0)
@@ -3860,7 +3866,7 @@ void QMetaObject::activate(QObject *sender, int signal_index, void **argv)
     It is different from QMetaObject::indexOfSignal():  indexOfSignal is the same as indexOfMethod
     while QObjectPrivate::signalIndex is smaller because it doesn't give index to slots.
 
-    If \a meta is not 0, it is set to the meta-object where the signal was found.
+    If \a meta is not \nullptr, it is set to the meta-object where the signal was found.
 */
 int QObjectPrivate::signalIndex(const char *signalName,
                                 const QMetaObject **meta) const
@@ -4285,21 +4291,17 @@ QDebug operator<<(QDebug dbg, const QObject *o)
     \relates QObject
     \obsolete
 
+    In new code, you should prefer the use of the Q_ENUM() macro, which makes the
+    type available also to the meta type system.
+    For instance, QMetaEnum::fromType() will not work with types declared with Q_ENUMS().
+
     This macro registers one or several enum types to the meta-object
     system.
-
-    For example:
-
-    \snippet code/src_corelib_kernel_qobject.cpp 38
 
     If you want to register an enum that is declared in another class,
     the enum must be fully qualified with the name of the class
     defining it. In addition, the class \e defining the enum has to
     inherit QObject as well as declare the enum using Q_ENUMS().
-
-    In new code, you should prefer the use of the Q_ENUM() macro, which makes the
-    type available also to the meta type system.
-    For instance, QMetaEnum::fromType() will not work with types declared with Q_ENUMS().
 
     \sa {Qt's Property System}
 */
@@ -4993,8 +4995,8 @@ bool QObject::disconnect(const QMetaObject::Connection &connection)
     0 may be used as a wildcard, meaning "any signal", "any receiving
     object", or "any slot in the receiving object", respectively.
 
-    The \a sender may never be 0. (You cannot disconnect signals from
-    more than one object in a single call.)
+    The \a sender may never be \nullptr. (You cannot disconnect signals
+    from more than one object in a single call.)
 
     If \a signal is 0, it disconnects \a receiver and \a method from
     any signal. If not, only the specified signal is disconnected.
@@ -5005,8 +5007,8 @@ bool QObject::disconnect(const QMetaObject::Connection &connection)
 
     If \a method is 0, it disconnects anything that is connected to \a
     receiver. If not, only slots named \a method will be disconnected,
-    and all other slots are left alone. The \a method must be 0 if \a
-    receiver is left out, so you cannot disconnect a
+    and all other slots are left alone. The \a method must be \nullptr
+    if \a receiver is left out, so you cannot disconnect a
     specifically-named slot on all objects.
 
     \note It is not possible to use this overload to diconnect signals

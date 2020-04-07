@@ -1,1 +1,1 @@
-#include "../../src/qml/qml/qqmlerror.h"
+#include "../../src/qml/qmldirparser/qqmlerror.h"

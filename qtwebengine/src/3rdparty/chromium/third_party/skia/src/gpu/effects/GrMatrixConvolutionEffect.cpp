@@ -87,14 +87,14 @@ void GrGLMatrixConvolutionEffect::emitCode(EmitArgs& args) {
                                   args.fTexSamplers[0]);
             if (!mce.convolveAlpha()) {
                 fragBuilder->codeAppend("c.rgb /= c.a;");
-                fragBuilder->codeAppend("c.rgb = clamp(c.rgb, 0.0, 1.0);");
+                fragBuilder->codeAppend("c.rgb = saturate(c.rgb);");
             }
             fragBuilder->codeAppend("sum += c * k;");
         }
     }
     if (mce.convolveAlpha()) {
         fragBuilder->codeAppendf("%s = sum * %s + %s;", args.fOutputColor, gain, bias);
-        fragBuilder->codeAppendf("%s.a = clamp(%s.a, 0, 1);", args.fOutputColor, args.fOutputColor);
+        fragBuilder->codeAppendf("%s.a = saturate(%s.a);", args.fOutputColor, args.fOutputColor);
         fragBuilder->codeAppendf("%s.rgb = clamp(%s.rgb, 0.0, %s.a);",
                                  args.fOutputColor, args.fOutputColor, args.fOutputColor);
     } else {
@@ -106,7 +106,7 @@ void GrGLMatrixConvolutionEffect::emitCode(EmitArgs& args) {
                               coords2D,
                               args.fTexSamplers[0]);
         fragBuilder->codeAppendf("%s.a = c.a;", args.fOutputColor);
-        fragBuilder->codeAppendf("%s.rgb = clamp(sum.rgb * %s + %s, 0, 1);", args.fOutputColor, gain, bias);
+        fragBuilder->codeAppendf("%s.rgb = saturate(sum.rgb * %s + %s);", args.fOutputColor, gain, bias);
         fragBuilder->codeAppendf("%s.rgb *= %s.a;", args.fOutputColor, args.fOutputColor);
     }
     fragBuilder->codeAppendf("%s *= %s;\n", args.fOutputColor, args.fInputColor);
@@ -125,8 +125,8 @@ void GrGLMatrixConvolutionEffect::GenKey(const GrProcessor& processor,
 void GrGLMatrixConvolutionEffect::onSetData(const GrGLSLProgramDataManager& pdman,
                                             const GrFragmentProcessor& processor) {
     const GrMatrixConvolutionEffect& conv = processor.cast<GrMatrixConvolutionEffect>();
-    GrSurfaceProxy* proxy = conv.textureSampler(0).proxy();
-    GrTexture* texture = proxy->priv().peekTexture();
+    GrTextureProxy* proxy = conv.textureSampler(0).proxy();
+    GrTexture* texture = proxy->peekTexture();
 
     float imageIncrement[2];
     float ySign = proxy->origin() == kTopLeft_GrSurfaceOrigin ? 1.0f : -1.0f;
@@ -140,7 +140,7 @@ void GrGLMatrixConvolutionEffect::onSetData(const GrGLSLProgramDataManager& pdma
     pdman.set4fv(fKernelUni, arrayCount, conv.kernel());
     pdman.set1f(fGainUni, conv.gain());
     pdman.set1f(fBiasUni, conv.bias());
-    fDomain.setData(pdman, conv.domain(), proxy);
+    fDomain.setData(pdman, conv.domain(), proxy, conv.textureSampler(0).samplerState());
 }
 
 GrMatrixConvolutionEffect::GrMatrixConvolutionEffect(sk_sp<GrTextureProxy> srcProxy,
@@ -156,16 +156,15 @@ GrMatrixConvolutionEffect::GrMatrixConvolutionEffect(sk_sp<GrTextureProxy> srcPr
         // parameters.
         : INHERITED(kGrMatrixConvolutionEffect_ClassID, kNone_OptimizationFlags)
         , fCoordTransform(srcProxy.get())
-        , fDomain(srcProxy.get(),
-                  GrTextureDomain::MakeTexelDomainForMode(srcBounds, tileMode),
-                  tileMode)
+        , fDomain(srcProxy.get(), GrTextureDomain::MakeTexelDomain(srcBounds, tileMode),
+                  tileMode, tileMode)
         , fTextureSampler(std::move(srcProxy))
         , fKernelSize(kernelSize)
         , fGain(SkScalarToFloat(gain))
         , fBias(SkScalarToFloat(bias) / 255.0f)
         , fConvolveAlpha(convolveAlpha) {
     this->addCoordTransform(&fCoordTransform);
-    this->addTextureSampler(&fTextureSampler);
+    this->setTextureSamplerCnt(1);
     for (int i = 0; i < kernelSize.width() * kernelSize.height(); i++) {
         fKernel[i] = SkScalarToFloat(kernel[i]);
     }
@@ -183,7 +182,7 @@ GrMatrixConvolutionEffect::GrMatrixConvolutionEffect(const GrMatrixConvolutionEf
         , fBias(that.fBias)
         , fConvolveAlpha(that.fConvolveAlpha) {
     this->addCoordTransform(&fCoordTransform);
-    this->addTextureSampler(&fTextureSampler);
+    this->setTextureSamplerCnt(1);
     memcpy(fKernel, that.fKernel, sizeof(float) * fKernelSize.width() * fKernelSize.height());
     memcpy(fKernelOffset, that.fKernelOffset, sizeof(fKernelOffset));
 }

@@ -21,7 +21,15 @@
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "third_party/blink/public/platform/modules/indexeddb/web_idb_database_exception.h"
 
+using blink::IndexedDBIndexKeys;
+using blink::IndexedDBKey;
+using blink::IndexedDBKeyPath;
+using blink::IndexedDBKeyRange;
 using std::swap;
+
+namespace blink {
+class IndexedDBKeyRange;
+}
 
 namespace content {
 class IndexedDBDatabaseError;
@@ -52,7 +60,7 @@ class DatabaseImpl::IDBSequenceHelper {
                          const base::string16& new_name);
   void CreateTransaction(int64_t transaction_id,
                          const std::vector<int64_t>& object_store_ids,
-                         blink::WebIDBTransactionMode mode);
+                         blink::mojom::IDBTransactionMode mode);
   void Close();
   void VersionChangeIgnored();
   void AddObserver(int64_t transaction_id,
@@ -60,7 +68,7 @@ class DatabaseImpl::IDBSequenceHelper {
                    bool include_transaction,
                    bool no_records,
                    bool values,
-                   uint16_t operation_types);
+                   uint32_t operation_types);
   void RemoveObservers(const std::vector<int32_t>& observers);
   void Get(int64_t transaction_id,
            int64_t object_store_id,
@@ -77,11 +85,10 @@ class DatabaseImpl::IDBSequenceHelper {
               scoped_refptr<IndexedDBCallbacks> callbacks);
   void Put(int64_t transaction_id,
            int64_t object_store_id,
-           ::indexed_db::mojom::ValuePtr value,
-           std::vector<std::unique_ptr<storage::BlobDataHandle>> handles,
+           blink::mojom::IDBValuePtr value,
            std::vector<IndexedDBBlobInfo> blob_info,
            const IndexedDBKey& key,
-           blink::WebIDBPutMode mode,
+           blink::mojom::IDBPutMode mode,
            const std::vector<IndexedDBIndexKeys>& index_keys,
            scoped_refptr<IndexedDBCallbacks> callbacks);
   void SetIndexKeys(int64_t transaction_id,
@@ -95,9 +102,9 @@ class DatabaseImpl::IDBSequenceHelper {
                   int64_t object_store_id,
                   int64_t index_id,
                   const IndexedDBKeyRange& key_range,
-                  blink::WebIDBCursorDirection direction,
+                  blink::mojom::IDBCursorDirection direction,
                   bool key_only,
-                  blink::WebIDBTaskType task_type,
+                  blink::mojom::IDBTaskType task_type,
                   scoped_refptr<IndexedDBCallbacks> callbacks);
   void Count(int64_t transaction_id,
              int64_t object_store_id,
@@ -129,7 +136,7 @@ class DatabaseImpl::IDBSequenceHelper {
   void AbortWithError(int64_t transaction_id,
                       scoped_refptr<IndexedDBCallbacks> callbacks,
                       const IndexedDBDatabaseError& error);
-  void Commit(int64_t transaction_id);
+  void Commit(int64_t transaction_id, int64_t num_errors_handled);
   void OnGotUsageAndQuotaForCommit(int64_t transaction_id,
                                    blink::mojom::QuotaStatusCode status,
                                    int64_t usage,
@@ -194,7 +201,7 @@ void DatabaseImpl::RenameObjectStore(int64_t transaction_id,
 void DatabaseImpl::CreateTransaction(
     int64_t transaction_id,
     const std::vector<int64_t>& object_store_ids,
-    blink::WebIDBTransactionMode mode) {
+    blink::mojom::IDBTransactionMode mode) {
   idb_runner_->PostTask(
       FROM_HERE, base::BindOnce(&IDBSequenceHelper::CreateTransaction,
                                 base::Unretained(helper_), transaction_id,
@@ -217,7 +224,7 @@ void DatabaseImpl::AddObserver(int64_t transaction_id,
                                bool include_transaction,
                                bool no_records,
                                bool values,
-                               uint16_t operation_types) {
+                               uint32_t operation_types) {
   idb_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&IDBSequenceHelper::AddObserver, base::Unretained(helper_),
@@ -237,7 +244,7 @@ void DatabaseImpl::Get(
     int64_t index_id,
     const IndexedDBKeyRange& key_range,
     bool key_only,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
@@ -255,7 +262,7 @@ void DatabaseImpl::GetAll(
     const IndexedDBKeyRange& key_range,
     bool key_only,
     int64_t max_count,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
@@ -269,11 +276,11 @@ void DatabaseImpl::GetAll(
 void DatabaseImpl::Put(
     int64_t transaction_id,
     int64_t object_store_id,
-    ::indexed_db::mojom::ValuePtr value,
+    blink::mojom::IDBValuePtr value,
     const IndexedDBKey& key,
-    blink::WebIDBPutMode mode,
+    blink::mojom::IDBPutMode mode,
     const std::vector<IndexedDBIndexKeys>& index_keys,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   ChildProcessSecurityPolicyImpl* policy =
       ChildProcessSecurityPolicyImpl::GetInstance();
 
@@ -281,12 +288,10 @@ void DatabaseImpl::Put(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
 
-  std::vector<std::unique_ptr<storage::BlobDataHandle>> handles(
-      value->blob_or_file_info.size());
   base::CheckedNumeric<uint64_t> total_blob_size = 0;
   std::vector<IndexedDBBlobInfo> blob_info(value->blob_or_file_info.size());
   for (size_t i = 0; i < value->blob_or_file_info.size(); ++i) {
-    ::indexed_db::mojom::BlobInfoPtr& info = value->blob_or_file_info[i];
+    blink::mojom::IDBBlobInfoPtr& info = value->blob_or_file_info[i];
 
     std::unique_ptr<storage::BlobDataHandle> handle =
         dispatcher_host_->blob_storage_context()->GetBlobDataFromUUID(
@@ -309,7 +314,6 @@ void DatabaseImpl::Put(
     uint64_t size = handle->size();
     UMA_HISTOGRAM_MEMORY_KB("Storage.IndexedDB.PutBlobSizeKB", size / 1024ull);
     total_blob_size += size;
-    handles[i] = std::move(handle);
 
     if (info->file) {
       if (!info->file->path.empty() &&
@@ -318,14 +322,15 @@ void DatabaseImpl::Put(
         mojo::ReportBadMessage(kInvalidBlobFilePath);
         return;
       }
-      blob_info[i] = IndexedDBBlobInfo(info->uuid, info->file->path,
+      blob_info[i] = IndexedDBBlobInfo(std::move(handle), info->file->path,
                                        info->file->name, info->mime_type);
       if (info->size != -1) {
         blob_info[i].set_last_modified(info->file->last_modified);
         blob_info[i].set_size(info->size);
       }
     } else {
-      blob_info[i] = IndexedDBBlobInfo(info->uuid, info->mime_type, info->size);
+      blob_info[i] =
+          IndexedDBBlobInfo(std::move(handle), info->mime_type, info->size);
     }
   }
   UMA_HISTOGRAM_COUNTS_1000("WebCore.IndexedDB.PutBlobsCount",
@@ -340,8 +345,8 @@ void DatabaseImpl::Put(
       FROM_HERE,
       base::BindOnce(&IDBSequenceHelper::Put, base::Unretained(helper_),
                      transaction_id, object_store_id, std::move(value),
-                     std::move(handles), std::move(blob_info), key, mode,
-                     index_keys, std::move(callbacks)));
+                     std::move(blob_info), key, mode, index_keys,
+                     std::move(callbacks)));
 }
 
 void DatabaseImpl::SetIndexKeys(
@@ -369,10 +374,10 @@ void DatabaseImpl::OpenCursor(
     int64_t object_store_id,
     int64_t index_id,
     const IndexedDBKeyRange& key_range,
-    blink::WebIDBCursorDirection direction,
+    blink::mojom::IDBCursorDirection direction,
     bool key_only,
-    blink::WebIDBTaskType task_type,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBTaskType task_type,
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
@@ -388,7 +393,7 @@ void DatabaseImpl::Count(
     int64_t object_store_id,
     int64_t index_id,
     const IndexedDBKeyRange& key_range,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
@@ -403,7 +408,7 @@ void DatabaseImpl::DeleteRange(
     int64_t transaction_id,
     int64_t object_store_id,
     const IndexedDBKeyRange& key_range,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
@@ -417,7 +422,7 @@ void DatabaseImpl::DeleteRange(
 void DatabaseImpl::Clear(
     int64_t transaction_id,
     int64_t object_store_id,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
@@ -466,10 +471,11 @@ void DatabaseImpl::Abort(int64_t transaction_id) {
                                 base::Unretained(helper_), transaction_id));
 }
 
-void DatabaseImpl::Commit(int64_t transaction_id) {
+void DatabaseImpl::Commit(int64_t transaction_id, int64_t num_errors_handled) {
   idb_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&IDBSequenceHelper::Commit,
-                                base::Unretained(helper_), transaction_id));
+      FROM_HERE,
+      base::BindOnce(&IDBSequenceHelper::Commit, base::Unretained(helper_),
+                     transaction_id, num_errors_handled));
 }
 
 DatabaseImpl::IDBSequenceHelper::IDBSequenceHelper(
@@ -550,7 +556,7 @@ void DatabaseImpl::IDBSequenceHelper::RenameObjectStore(
 void DatabaseImpl::IDBSequenceHelper::CreateTransaction(
     int64_t transaction_id,
     const std::vector<int64_t>& object_store_ids,
-    blink::WebIDBTransactionMode mode) {
+    blink::mojom::IDBTransactionMode mode) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!connection_->IsConnected())
     return;
@@ -559,8 +565,12 @@ void DatabaseImpl::IDBSequenceHelper::CreateTransaction(
   if (connection_->GetTransaction(transaction_id))
     return;
 
-  connection_->database()->CreateTransaction(transaction_id, connection_.get(),
-                                             object_store_ids, mode);
+  IndexedDBTransaction* transaction = connection_->CreateTransaction(
+      transaction_id,
+      std::set<int64_t>(object_store_ids.begin(), object_store_ids.end()), mode,
+      new IndexedDBBackingStore::Transaction(
+          connection_->database()->backing_store()));
+  connection_->database()->RegisterAndScheduleTransaction(transaction);
 }
 
 void DatabaseImpl::IDBSequenceHelper::Close() {
@@ -584,7 +594,7 @@ void DatabaseImpl::IDBSequenceHelper::AddObserver(int64_t transaction_id,
                                                   bool include_transaction,
                                                   bool no_records,
                                                   bool values,
-                                                  uint16_t operation_types) {
+                                                  uint32_t operation_types) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!connection_->IsConnected())
     return;
@@ -656,11 +666,10 @@ void DatabaseImpl::IDBSequenceHelper::GetAll(
 void DatabaseImpl::IDBSequenceHelper::Put(
     int64_t transaction_id,
     int64_t object_store_id,
-    ::indexed_db::mojom::ValuePtr mojo_value,
-    std::vector<std::unique_ptr<storage::BlobDataHandle>> handles,
+    blink::mojom::IDBValuePtr mojo_value,
     std::vector<IndexedDBBlobInfo> blob_info,
     const IndexedDBKey& key,
-    blink::WebIDBPutMode mode,
+    blink::mojom::IDBPutMode mode,
     const std::vector<IndexedDBIndexKeys>& index_keys,
     scoped_refptr<IndexedDBCallbacks> callbacks) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -679,9 +688,12 @@ void DatabaseImpl::IDBSequenceHelper::Put(
 
   uint64_t commit_size = mojo_value->bits.size() + key.size_estimate();
   IndexedDBValue value;
-  swap(value.bits, mojo_value->bits);
+  // TODO(crbug.com/902498): Use mojom traits to map directly to std::string.
+  value.bits = std::string(mojo_value->bits.begin(), mojo_value->bits.end());
+  // Release mojo_value->bits std::vector.
+  mojo_value->bits.clear();
   swap(value.blob_info, blob_info);
-  connection_->database()->Put(transaction, object_store_id, &value, &handles,
+  connection_->database()->Put(transaction, object_store_id, &value,
                                std::make_unique<IndexedDBKey>(key), mode,
                                std::move(callbacks), index_keys);
 
@@ -731,9 +743,9 @@ void DatabaseImpl::IDBSequenceHelper::OpenCursor(
     int64_t object_store_id,
     int64_t index_id,
     const IndexedDBKeyRange& key_range,
-    blink::WebIDBCursorDirection direction,
+    blink::mojom::IDBCursorDirection direction,
     bool key_only,
-    blink::WebIDBTaskType task_type,
+    blink::mojom::IDBTaskType task_type,
     scoped_refptr<IndexedDBCallbacks> callbacks) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!connection_->IsConnected())
@@ -893,7 +905,8 @@ void DatabaseImpl::IDBSequenceHelper::AbortWithError(
   connection_->AbortTransaction(transaction, error);
 }
 
-void DatabaseImpl::IDBSequenceHelper::Commit(int64_t transaction_id) {
+void DatabaseImpl::IDBSequenceHelper::Commit(int64_t transaction_id,
+                                             int64_t num_errors_handled) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!connection_->IsConnected())
     return;
@@ -902,6 +915,8 @@ void DatabaseImpl::IDBSequenceHelper::Commit(int64_t transaction_id) {
       connection_->GetTransaction(transaction_id);
   if (!transaction)
     return;
+
+  transaction->SetNumErrorsHandled(num_errors_handled);
 
   // Always allow empty or delete-only transactions.
   if (transaction->size() == 0) {

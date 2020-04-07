@@ -381,8 +381,6 @@ QWidget *QApplication::topLevelAt(const QPoint &pos)
     0 if there is no such widget.
 */
 
-void qt_init(QApplicationPrivate *priv, int type
-   );
 void qt_init_tooltip_palette();
 void qt_cleanup();
 
@@ -428,16 +426,10 @@ bool Q_WIDGETS_EXPORT qt_tab_all_widgets()
 // ######## move to QApplicationPrivate
 // Default application palettes and fonts (per widget type)
 Q_GLOBAL_STATIC(PaletteHash, app_palettes)
-PaletteHash *qt_app_palettes_hash()
-{
-    return app_palettes();
-}
-
 Q_GLOBAL_STATIC(FontHash, app_fonts)
-FontHash *qt_app_fonts_hash()
-{
-    return app_fonts();
-}
+// Exported accessors for use outside of this file
+PaletteHash *qt_app_palettes_hash() { return app_palettes(); }
+FontHash *qt_app_fonts_hash() { return app_fonts(); }
 
 QWidgetList *QApplicationPrivate::popupWidgets = 0;        // has keyboard input focus
 
@@ -571,7 +563,10 @@ void QApplicationPrivate::init()
     process_cmdline();
 
     // Must be called before initialize()
-    qt_init(this, application_type);
+    QColormap::initialize();
+    qt_init_tooltip_palette();
+    QApplicationPrivate::initializeWidgetFontHash();
+
     initialize();
     eventDispatcher->startingUp();
 
@@ -584,18 +579,6 @@ void QApplicationPrivate::init()
     QAccessible::installFactory(&qAccessibleFactory);
 #endif
 
-}
-
-void qt_init(QApplicationPrivate *priv, int type)
-{
-    Q_UNUSED(priv);
-    Q_UNUSED(type);
-
-    QColormap::initialize();
-
-    qt_init_tooltip_palette();
-
-    QApplicationPrivate::initializeWidgetFontHash();
 }
 
 void qt_init_tooltip_palette()
@@ -663,7 +646,7 @@ void QApplicationPrivate::initializeWidgetPaletteHash()
     QPlatformTheme *platformTheme = QGuiApplicationPrivate::platformTheme();
     if (!platformTheme)
         return;
-    qt_app_palettes_hash()->clear();
+    app_palettes()->clear();
 
     setPossiblePalette(platformTheme->palette(QPlatformTheme::ToolButtonPalette), "QToolButton");
     setPossiblePalette(platformTheme->palette(QPlatformTheme::ButtonPalette), "QAbstractButton");
@@ -687,7 +670,7 @@ void QApplicationPrivate::initializeWidgetFontHash()
     const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme();
     if (!theme)
         return;
-    FontHash *fontHash = qt_app_fonts_hash();
+    FontHash *fontHash = app_fonts();
     fontHash->clear();
 
     if (const QFont *font = theme->font(QPlatformTheme::MenuFont))
@@ -784,7 +767,7 @@ QWidget *QApplication::activeModalWidget()
 
 /*!
     Cleans up any window system resources that were allocated by this
-    application. Sets the global variable \c qApp to 0.
+    application. Sets the global variable \c qApp to \nullptr.
 */
 
 QApplication::~QApplication()
@@ -893,8 +876,8 @@ void qt_cleanup()
 /*!
     \fn QWidget *QApplication::widgetAt(const QPoint &point)
 
-    Returns the widget at global screen position \a point, or 0 if there is no
-    Qt widget there.
+    Returns the widget at global screen position \a point, or \nullptr
+    if there is no Qt widget there.
 
     This function can be slow.
 
@@ -904,9 +887,9 @@ QWidget *QApplication::widgetAt(const QPoint &p)
 {
     QWidget *window = QApplication::topLevelAt(p);
     if (!window)
-        return 0;
+        return nullptr;
 
-    QWidget *child = 0;
+    QWidget *child = nullptr;
 
     if (!window->testAttribute(Qt::WA_TransparentForMouseEvents))
         child = window->childAt(window->mapFromGlobal(p));
@@ -942,8 +925,8 @@ QWidget *QApplication::widgetAt(const QPoint &p)
 
     \overload
 
-    Returns the widget at global screen position (\a x, \a y), or 0 if there is
-    no Qt widget there.
+    Returns the widget at global screen position (\a x, \a y), or
+    \nullptr if there is no Qt widget there.
 */
 
 /*!
@@ -1166,9 +1149,7 @@ void QApplication::setStyle(QStyle *style)
     } else if (QApplicationPrivate::sys_pal) {
         clearSystemPalette();
         initSystemPalette();
-        QApplicationPrivate::initializeWidgetPaletteHash();
         QApplicationPrivate::initializeWidgetFontHash();
-        QApplicationPrivate::setPalette_helper(*QApplicationPrivate::sys_pal, /*className=*/0, /*clearWidgetPaletteHash=*/false);
     } else if (!QApplicationPrivate::sys_pal) {
         // Initialize the sys_pal if it hasn't happened yet...
         QApplicationPrivate::setSystemPalette(QApplicationPrivate::app_style->standardPalette());
@@ -1243,6 +1224,7 @@ QStyle* QApplication::setStyle(const QString& style)
     return s;
 }
 
+#if QT_DEPRECATED_SINCE(5, 8)
 /*!
     Returns the color specification.
     \obsolete
@@ -1317,6 +1299,7 @@ void QApplication::setColorSpec(int spec)
 {
     Q_UNUSED(spec)
 }
+#endif
 
 /*!
     \property QApplication::globalStrut
@@ -1428,6 +1411,7 @@ void QApplicationPrivate::setPalette_helper(const QPalette &palette, const char*
         else
             *QApplicationPrivate::set_pal = palette;
         QCoreApplication::setAttribute(Qt::AA_SetPalette);
+        emit qGuiApp->paletteChanged(*QGuiApplicationPrivate::app_pal);
     }
 }
 
@@ -1463,28 +1447,10 @@ void QApplication::setPalette(const QPalette &palette, const char* className)
 
 void QApplicationPrivate::setSystemPalette(const QPalette &pal)
 {
-    QPalette adjusted;
-
-#if 0
-    // adjust the system palette to avoid dithering
-    QColormap cmap = QColormap::instance();
-    if (cmap.depths() > 4 && cmap.depths() < 24) {
-        for (int g = 0; g < QPalette::NColorGroups; g++)
-            for (int i = 0; i < QPalette::NColorRoles; i++) {
-                QColor color = pal.color((QPalette::ColorGroup)g, (QPalette::ColorRole)i);
-                color = cmap.colorAt(cmap.pixel(color));
-                adjusted.setColor((QPalette::ColorGroup)g, (QPalette::ColorRole) i, color);
-            }
-    }
-#else
-    adjusted = pal;
-#endif
-
     if (!sys_pal)
-        sys_pal = new QPalette(adjusted);
+        sys_pal = new QPalette(pal);
     else
-        *sys_pal = adjusted;
-
+        *sys_pal = pal;
 
     if (!QApplicationPrivate::set_pal)
         QApplication::setPalette(*sys_pal);
@@ -1727,8 +1693,8 @@ QWidgetList QApplication::allWidgets()
 }
 
 /*!
-    Returns the application widget that has the keyboard input focus, or 0 if
-    no widget in this application has the focus.
+    Returns the application widget that has the keyboard input focus,
+    or \nullptr if no widget in this application has the focus.
 
     \sa QWidget::setFocus(), QWidget::hasFocus(), activeWindow(), focusChanged()
 */
@@ -1796,7 +1762,7 @@ void QApplicationPrivate::setFocusWidget(QWidget *focus, Qt::FocusReason reason)
 
 /*!
     Returns the application top-level window that has the keyboard input focus,
-    or 0 if no application window has the focus. There might be an
+    or \nullptr if no application window has the focus. There might be an
     activeWindow() even if there is no focusWidget(), for example if no widget
     in that window accepts key events.
 
@@ -1901,8 +1867,8 @@ void QApplication::aboutQt()
 
     This signal is emitted when the widget that has keyboard focus changed from
     \a old to \a now, i.e., because the user pressed the tab-key, clicked into
-    a widget or changed the active window. Both \a old and \a now can be the
-    null-pointer.
+    a widget or changed the active window. Both \a old and \a now can be \nullptr.
+
 
     The signal is emitted after both widget have been notified about the change
     through QFocusEvent.
@@ -1999,7 +1965,7 @@ bool QApplication::event(QEvent *e)
 */
 
 // ### FIXME: topLevelWindows does not contain QWidgets without a parent
-// until create_sys is called. So we have to override the
+// until QWidgetPrivate::create is called. So we have to override the
 // QGuiApplication::notifyLayoutDirectionChange
 // to do the right thing.
 void QApplicationPrivate::notifyLayoutDirectionChange()
@@ -3890,6 +3856,7 @@ Qt::NavigationMode QApplication::navigationMode()
     return QApplicationPrivate::navigationMode;
 }
 
+# if QT_DEPRECATED_SINCE(5, 13)
 /*!
     Sets whether Qt should use focus navigation suitable for use with a
     minimal keypad.
@@ -3932,6 +3899,7 @@ bool QApplication::keypadNavigationEnabled()
     return QApplicationPrivate::navigationMode == Qt::NavigationModeKeypadTabOrder ||
         QApplicationPrivate::navigationMode == Qt::NavigationModeKeypadDirectional;
 }
+# endif
 #endif
 
 /*!

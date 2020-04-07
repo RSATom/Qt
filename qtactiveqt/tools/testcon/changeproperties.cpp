@@ -202,9 +202,9 @@ void ChangeProperties::updateProperties()
             item->setText(0, QString::fromLatin1(property.name()));
             item->setText(1, QString::fromLatin1(property.typeName()));
             if (!property.isDesignable()) {
-                item->setTextColor(0, Qt::gray);
-                item->setTextColor(1, Qt::gray);
-                item->setTextColor(2, Qt::gray);
+                item->setForeground(0, Qt::gray);
+                item->setForeground(1, Qt::gray);
+                item->setForeground(2, Qt::gray);
             }
             QVariant var = activex->property(property.name());
 

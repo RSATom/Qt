@@ -201,6 +201,6 @@ QOrientationReading *QOrientationSensor::reading() const
     return static_cast<QOrientationReading*>(QSensor::reading());
 }
 
-#include "moc_qorientationsensor.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qorientationsensor.cpp"

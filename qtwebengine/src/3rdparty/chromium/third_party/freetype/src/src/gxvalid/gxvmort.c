@@ -36,7 +36,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_gxvmort
+#define FT_COMPONENT  gxvmort
 
 
   static void
@@ -123,6 +123,7 @@
                               GXV_Validator  gxvalid )
   {
     FT_UNUSED( gxvalid );
+    FT_UNUSED( coverage );
 
 #ifdef FT_DEBUG_LEVEL_TRACE
     if ( coverage & 0x8000U )

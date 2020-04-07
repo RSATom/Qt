@@ -25,6 +25,7 @@
 
 #include <algorithm>
 
+#include "base/numerics/safe_conversions.h"
 #include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer_source_node.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer_source_options.h"
@@ -93,7 +94,7 @@ AudioBufferSourceHandler::~AudioBufferSourceHandler() {
   Uninitialize();
 }
 
-void AudioBufferSourceHandler::Process(size_t frames_to_process) {
+void AudioBufferSourceHandler::Process(uint32_t frames_to_process) {
   AudioBus* output_bus = Output(0).Bus();
 
   if (!IsInitialized()) {
@@ -119,12 +120,13 @@ void AudioBufferSourceHandler::Process(size_t frames_to_process) {
       return;
     }
 
-    size_t quantum_frame_offset;
-    size_t buffer_frames_to_process;
+    uint32_t quantum_frame_offset;
+    uint32_t buffer_frames_to_process;
     double start_time_offset;
 
-    UpdateSchedulingInfo(frames_to_process, output_bus, quantum_frame_offset,
-                         buffer_frames_to_process, start_time_offset);
+    std::tie(quantum_frame_offset, buffer_frames_to_process,
+             start_time_offset) =
+        UpdateSchedulingInfo(frames_to_process, output_bus);
 
     if (!buffer_frames_to_process) {
       output_bus->Zero();
@@ -153,7 +155,7 @@ void AudioBufferSourceHandler::Process(size_t frames_to_process) {
 bool AudioBufferSourceHandler::RenderSilenceAndFinishIfNotLooping(
     AudioBus*,
     unsigned index,
-    size_t frames_to_process) {
+    uint32_t frames_to_process) {
   if (!Loop()) {
     // If we're not looping, then stop playing when we get to the end.
 
@@ -175,7 +177,7 @@ bool AudioBufferSourceHandler::RenderSilenceAndFinishIfNotLooping(
 bool AudioBufferSourceHandler::RenderFromBuffer(
     AudioBus* bus,
     unsigned destination_frame_offset,
-    size_t number_of_frames) {
+    uint32_t number_of_frames) {
   DCHECK(Context()->IsAudioThread());
 
   // Basic sanity checking
@@ -197,8 +199,8 @@ bool AudioBufferSourceHandler::RenderFromBuffer(
   size_t destination_length = bus->length();
 
   bool is_length_good =
-      destination_length <= AudioUtilities::kRenderQuantumFrames &&
-      number_of_frames <= AudioUtilities::kRenderQuantumFrames;
+      destination_length <= audio_utilities::kRenderQuantumFrames &&
+      number_of_frames <= audio_utilities::kRenderQuantumFrames;
   DCHECK(is_length_good);
   if (!is_length_good)
     return false;
@@ -220,15 +222,16 @@ bool AudioBufferSourceHandler::RenderFromBuffer(
   // Offset the pointers to the correct offset frame.
   unsigned write_index = destination_frame_offset;
 
-  size_t buffer_length = Buffer()->length();
+  uint32_t buffer_length = Buffer()->length();
   double buffer_sample_rate = Buffer()->sampleRate();
 
   // Avoid converting from time to sample-frames twice by computing
   // the grain end time first before computing the sample frame.
   unsigned end_frame =
-      is_grain_ ? AudioUtilities::TimeToSampleFrame(
-                      grain_offset_ + grain_duration_, buffer_sample_rate)
-                : buffer_length;
+      is_grain_
+          ? base::saturated_cast<uint32_t>(audio_utilities::TimeToSampleFrame(
+                grain_offset_ + grain_duration_, buffer_sample_rate))
+          : buffer_length;
 
   // Do some sanity checking.
   if (end_frame > buffer_length)
@@ -348,12 +351,20 @@ bool AudioBufferSourceHandler::RenderFromBuffer(
       for (unsigned i = 0; i < number_of_channels; ++i) {
         float* destination = destination_channels[i];
         const float* source = source_channels[i];
+        double sample;
 
-        double sample1 = source[read_index];
-        double sample2 = source[read_index2];
-        double sample = (1.0 - interpolation_factor) * sample1 +
-                        interpolation_factor * sample2;
-
+        if (read_index == read_index2 && read_index >= 1) {
+          // We're at the end of the buffer, so just linearly extrapolate from
+          // the last two samples.
+          double sample1 = source[read_index - 1];
+          double sample2 = source[read_index];
+          sample = sample2 + (sample2 - sample1) * interpolation_factor;
+        } else {
+          double sample1 = source[read_index];
+          double sample2 = source[read_index2];
+          sample = (1.0 - interpolation_factor) * sample1 +
+                   interpolation_factor * sample2;
+        }
         destination[write_index] = clampTo<float>(sample);
       }
       write_index++;
@@ -473,7 +484,7 @@ void AudioBufferSourceHandler::ClampGrainParameters(const AudioBuffer* buffer) {
   // identical to the PCM data stored in the buffer. Since playbackRate == 1 is
   // very common, it's worth considering quality.
   virtual_read_index_ =
-      AudioUtilities::TimeToSampleFrame(grain_offset_, buffer->sampleRate());
+      audio_utilities::TimeToSampleFrame(grain_offset_, buffer->sampleRate());
 }
 
 void AudioBufferSourceHandler::Start(double when,
@@ -673,12 +684,12 @@ AudioBufferSourceNode* AudioBufferSourceNode::Create(
     return nullptr;
   }
 
-  return new AudioBufferSourceNode(context);
+  return MakeGarbageCollected<AudioBufferSourceNode>(context);
 }
 
 AudioBufferSourceNode* AudioBufferSourceNode::Create(
     BaseAudioContext* context,
-    AudioBufferSourceOptions& options,
+    AudioBufferSourceOptions* options,
     ExceptionState& exception_state) {
   DCHECK(IsMainThread());
 
@@ -687,13 +698,13 @@ AudioBufferSourceNode* AudioBufferSourceNode::Create(
   if (!node)
     return nullptr;
 
-  if (options.hasBuffer())
-    node->setBuffer(options.buffer(), exception_state);
-  node->detune()->setValue(options.detune());
-  node->setLoop(options.loop());
-  node->setLoopEnd(options.loopEnd());
-  node->setLoopStart(options.loopStart());
-  node->playbackRate()->setValue(options.playbackRate());
+  if (options->hasBuffer())
+    node->setBuffer(options->buffer(), exception_state);
+  node->detune()->setValue(options->detune());
+  node->setLoop(options->loop());
+  node->setLoopEnd(options->loopEnd());
+  node->setLoopStart(options->loopStart());
+  node->playbackRate()->setValue(options->playbackRate());
 
   return node;
 }

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,21 +11,9 @@
 #ifndef API_SETREMOTEDESCRIPTIONOBSERVERINTERFACE_H_
 #define API_SETREMOTEDESCRIPTIONOBSERVERINTERFACE_H_
 
-#include "api/rtcerror.h"
-#include "rtc_base/refcount.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace webrtc {
-
-// An observer for PeerConnectionInterface::SetRemoteDescription(). The
-// callback is invoked such that the state of the peer connection can be
-// examined to accurately reflect the effects of the SetRemoteDescription
-// operation.
-class SetRemoteDescriptionObserverInterface : public rtc::RefCountInterface {
- public:
-  // On success, |error.ok()| is true.
-  virtual void OnSetRemoteDescriptionComplete(RTCError error) = 0;
-};
-
-}  // namespace webrtc
+#include "api/set_remote_description_observer_interface.h"
 
 #endif  // API_SETREMOTEDESCRIPTIONOBSERVERINTERFACE_H_

@@ -197,7 +197,7 @@ QPixmap QSvgIconEngine::pixmap(const QSize &size, QIcon::Mode mode,
     QPixmap pm;
 
     QString pmckey(d->pmcKey(size, mode, state));
-    if (QPixmapCache::find(pmckey, pm))
+    if (QPixmapCache::find(pmckey, &pm))
         return pm;
 
     if (d->addedPixmaps) {

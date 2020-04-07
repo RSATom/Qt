@@ -3,7 +3,7 @@ function Verify-Checksum
     Param (
         [string]$File=$(throw("You must specify a filename to get the checksum of.")),
         [string]$Expected=$(throw("Checksum required")),
-        [ValidateSet("sha1","md5")][string]$Algorithm="sha1"
+        [ValidateSet("sha256","sha1","md5")][string]$Algorithm="sha1"
     )
     Write-Host "Verifying checksum of $File"
     $fs = new-object System.IO.FileStream $File, "Open"
@@ -22,13 +22,45 @@ function Run-Executable
         [string]$Executable=$(throw("You must specify a program to run.")),
         [string[]]$Arguments
     )
+
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+
     if ([string]::IsNullOrEmpty($Arguments)) {
         Write-Host "Running `"$Executable`""
-        $p = Start-Process -FilePath "$Executable" -Wait -PassThru
+        $p = Start-Process -FilePath "$Executable" -Wait -PassThru `
+            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
     } else {
         Write-Host "Running `"$Executable`" with arguments `"$Arguments`""
-        $p = Start-Process -FilePath "$Executable" -ArgumentList $Arguments -PassThru
+        $p = Start-Process -FilePath "$Executable" -ArgumentList $Arguments -PassThru `
+            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
         Wait-Process -InputObject $p
+    }
+
+    $stdoutContent = [System.IO.File]::ReadAllText($stdoutFile)
+    $stderrContent = [System.IO.File]::ReadAllText($stderrFile)
+    Remove-Item -Path $stdoutFile, $stderrFile -Force -ErrorAction Ignore
+
+    $hasOutput = $false
+    if ([string]::IsNullOrEmpty($stdoutContent) -eq $false -or [string]::IsNullOrEmpty($stderrContent) -eq $false) {
+        $hasOutput = $true
+        Write-Host
+        Write-Host "======================================================================"
+    }
+    if ([string]::IsNullOrEmpty($stdoutContent) -eq $false) {
+        Write-Host "stdout of `"$Executable`":"
+        Write-Host "======================================================================"
+        Write-Host $stdoutContent
+        Write-Host "======================================================================"
+    }
+    if ([string]::IsNullOrEmpty($stderrContent) -eq $false) {
+        Write-Host "stderr of `"$Executable`":"
+        Write-Host "======================================================================"
+        Write-Host $stderrContent
+        Write-Host "======================================================================"
+    }
+    if ($hasOutput) {
+        Write-Host
     }
     if ($p.ExitCode -ne 0) {
         throw "Process $($Executable) exited with exit code $($p.ExitCode)"
@@ -189,4 +221,24 @@ function Remove {
             Start-Sleep -seconds 5
         }
     }
+}
+
+function DisableSchedulerTask {
+
+    Param (
+        [string]$Task = $(BadParam("a task"))
+    )
+
+    Write-Host "Disabling $Task from Task Scheduler"
+    SCHTASKS /Change /TN "Microsoft\Windows\$Task" /DISABLE
+}
+
+function DeleteSchedulerTask {
+
+   Param (
+        [string]$Task = $(BadParam("a task"))
+    )
+
+    Write-Host "Disabling $Task from Task Scheduler"
+    SCHTASKS /DELETE /TN "Microsoft\Windows\$Task" /F
 }

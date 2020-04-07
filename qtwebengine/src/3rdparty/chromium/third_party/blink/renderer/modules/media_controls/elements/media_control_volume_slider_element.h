@@ -19,18 +19,21 @@ class MediaControlVolumeSliderElement final : public MediaControlSliderElement {
   // TODO: who calls this?
   void SetVolume(double);
 
+  void OpenSlider();
+  void CloseSlider();
+
   // MediaControlInputElement overrides.
   bool WillRespondToMouseMoveEvents() override;
   bool WillRespondToMouseClickEvents() override;
 
-  void OnMediaKeyboardEvent(Event* event) { DefaultEventHandler(event); }
+  void OnMediaKeyboardEvent(Event* event) { DefaultEventHandler(*event); }
 
  protected:
   const char* GetNameForHistograms() const override;
 
  private:
-  void DefaultEventHandler(Event*) override;
-  bool KeepEventInNode(Event*) override;
+  void DefaultEventHandler(Event&) override;
+  bool KeepEventInNode(const Event&) const override;
   void SetVolumeInternal(double);
 };
 

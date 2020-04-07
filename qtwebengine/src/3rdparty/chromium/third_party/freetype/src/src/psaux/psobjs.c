@@ -36,7 +36,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_psobjs
+#define FT_COMPONENT  psobjs
 
 
   /*************************************************************************/
@@ -1108,18 +1108,22 @@
       {
       case T1_FIELD_TYPE_BOOL:
         val = ps_tobool( &cur, limit );
+        FT_TRACE4(( " %s", val ? "true" : "false" ));
         goto Store_Integer;
 
       case T1_FIELD_TYPE_FIXED:
         val = PS_Conv_ToFixed( &cur, limit, 0 );
+        FT_TRACE4(( " %f", (double)val / 65536 ));
         goto Store_Integer;
 
       case T1_FIELD_TYPE_FIXED_1000:
         val = PS_Conv_ToFixed( &cur, limit, 3 );
+        FT_TRACE4(( " %f", (double)val / 65536 / 1000 ));
         goto Store_Integer;
 
       case T1_FIELD_TYPE_INTEGER:
         val = PS_Conv_ToInt( &cur, limit );
+        FT_TRACE4(( " %ld", val ));
         /* fall through */
 
       Store_Integer:
@@ -1196,6 +1200,13 @@
           FT_MEM_COPY( string, cur, len );
           string[len] = 0;
 
+#ifdef FT_DEBUG_LEVEL_TRACE
+          if ( token.type == T1_TOKEN_TYPE_STRING )
+            FT_TRACE4(( " (%s)", string ));
+          else
+            FT_TRACE4(( " /%s", string ));
+#endif
+
           *(FT_String**)q = string;
         }
         break;
@@ -1221,6 +1232,12 @@
           bbox->yMin = FT_RoundFix( temp[1] );
           bbox->xMax = FT_RoundFix( temp[2] );
           bbox->yMax = FT_RoundFix( temp[3] );
+
+          FT_TRACE4(( " [%d %d %d %d]",
+                      bbox->xMin / 65536,
+                      bbox->yMin / 65536,
+                      bbox->xMax / 65536,
+                      bbox->yMax / 65536 ));
         }
         break;
 
@@ -1259,6 +1276,7 @@
             skip_spaces( &cur, limit );
           }
 
+          FT_TRACE4(( " [" ));
           for ( i = 0; i < max_objects; i++ )
           {
             FT_BBox*  bbox = (FT_BBox*)objects[i];
@@ -1268,7 +1286,14 @@
             bbox->yMin = FT_RoundFix( temp[i +     max_objects] );
             bbox->xMax = FT_RoundFix( temp[i + 2 * max_objects] );
             bbox->yMax = FT_RoundFix( temp[i + 3 * max_objects] );
+
+            FT_TRACE4(( " [%d %d %d %d]",
+                        bbox->xMin / 65536,
+                        bbox->yMin / 65536,
+                        bbox->xMax / 65536,
+                        bbox->yMax / 65536 ));
           }
+          FT_TRACE4(( "]" ));
 
           FT_FREE( temp );
         }
@@ -1341,6 +1366,8 @@
       *(FT_Byte*)( (FT_Byte*)objects[0] + field->count_offset ) =
         (FT_Byte)num_elements;
 
+    FT_TRACE4(( " [" ));
+
     /* we now load each element, adjusting the field.offset on each one */
     token = elements;
     for ( ; num_elements > 0; num_elements--, token++ )
@@ -1358,6 +1385,8 @@
 
       fieldrec.offset += fieldrec.size;
     }
+
+    FT_TRACE4(( "]" ));
 
 #if 0  /* obsolete -- keep for reference */
     if ( pflags )
@@ -1418,6 +1447,8 @@
                                           bytes,
                                           max_bytes );
 
+    parser->cursor = cur;
+
     if ( delimiters )
     {
       if ( cur < parser->limit && *cur != '>' )
@@ -1427,10 +1458,8 @@
         goto Exit;
       }
 
-      cur++;
+      parser->cursor++;
     }
-
-    parser->cursor = cur;
 
   Exit:
     return error;
@@ -2012,6 +2041,14 @@
 
     first = outline->n_contours <= 1
             ? 0 : outline->contours[outline->n_contours - 2] + 1;
+
+    /* in malformed fonts it can happen that a contour was started */
+    /* but no points were added                                    */
+    if ( outline->n_contours && first == outline->n_points )
+    {
+      outline->n_contours--;
+      return;
+    }
 
     /* We must not include the last point in the path if it */
     /* is located on the first point.                       */

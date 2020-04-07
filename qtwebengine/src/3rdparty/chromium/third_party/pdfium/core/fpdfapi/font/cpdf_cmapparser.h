@@ -7,7 +7,6 @@
 #ifndef CORE_FPDFAPI_FONT_CPDF_CMAPPARSER_H_
 #define CORE_FPDFAPI_FONT_CPDF_CMAPPARSER_H_
 
-#include <map>
 #include <utility>
 #include <vector>
 
@@ -20,7 +19,7 @@ class CPDF_CMapParser {
   explicit CPDF_CMapParser(CPDF_CMap* pMap);
   ~CPDF_CMapParser();
 
-  void ParseWord(const ByteStringView& str);
+  void ParseWord(ByteStringView str);
   bool HasAdditionalMappings() const {
     return !m_AdditionalCharcodeToCIDMappings.empty();
   }
@@ -28,19 +27,18 @@ class CPDF_CMapParser {
     return std::move(m_AdditionalCharcodeToCIDMappings);
   }
 
-  uint32_t GetCode(const ByteStringView& word) const;
+  uint32_t GetCode(ByteStringView word) const;
   bool GetCodeRange(CPDF_CMap::CodeRange& range,
-                    const ByteStringView& first,
-                    const ByteStringView& second) const;
+                    ByteStringView first,
+                    ByteStringView second) const;
 
-  static CIDSet CharsetFromOrdering(const ByteStringView& ordering);
+  static CIDSet CharsetFromOrdering(ByteStringView ordering);
 
  private:
-
   UnownedPtr<CPDF_CMap> const m_pCMap;
   int m_Status;
   int m_CodeSeq;
-  std::vector<CPDF_CMap::CodeRange> m_CodeRanges;
+  std::vector<CPDF_CMap::CodeRange> m_PendingRanges;
   std::vector<CPDF_CMap::CIDRange> m_AdditionalCharcodeToCIDMappings;
   ByteString m_LastWord;
   uint32_t m_CodePoints[4];

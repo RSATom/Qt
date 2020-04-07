@@ -120,7 +120,7 @@ unsigned TextTrackCue::CueIndex() {
   return cue_index_;
 }
 
-DispatchEventResult TextTrackCue::DispatchEventInternal(Event* event) {
+DispatchEventResult TextTrackCue::DispatchEventInternal(Event& event) {
   // When a TextTrack's mode is disabled: no cues are active, no events fired.
   if (!track() || track()->mode() == TextTrack::DisabledKeyword())
     return DispatchEventResult::kCanceledBeforeDispatch;
@@ -129,10 +129,10 @@ DispatchEventResult TextTrackCue::DispatchEventInternal(Event* event) {
 }
 
 const AtomicString& TextTrackCue::InterfaceName() const {
-  return EventTargetNames::TextTrackCue;
+  return event_target_names::kTextTrackCue;
 }
 
-void TextTrackCue::Trace(blink::Visitor* visitor) {
+void TextTrackCue::Trace(Visitor* visitor) {
   visitor->Trace(track_);
   EventTargetWithInlineData::Trace(visitor);
 }

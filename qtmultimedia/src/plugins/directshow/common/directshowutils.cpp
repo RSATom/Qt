@@ -56,8 +56,10 @@ bool DirectShowUtils::isPinConnected(IPin *pin, HRESULT *hrOut)
         hrOut = &hr;
 
     *hrOut = pin->ConnectedTo(&connectedPin);
-    if (*hrOut == VFW_E_NOT_CONNECTED) // Not an error in this case
+    if (*hrOut == VFW_E_NOT_CONNECTED) { // Not an error in this case
         *hrOut = S_OK;
+        return false;
+    }
 
     if (FAILED(*hrOut)) {
         qCDebug(qtDirectShowPlugin, "Querying pin connection failed!");
@@ -115,7 +117,7 @@ bool DirectShowUtils::getPin(IBaseFilter *filter, PIN_DIRECTION pinDirection, IP
 
     enumPins->Reset();
     IPin *nextPin = nullptr;
-    while (enumPins->Next(1, &nextPin, NULL) == S_OK) {
+    while (enumPins->Next(1, &nextPin, nullptr) == S_OK) {
         const ScopedSafeRelease<IPin> releasePin { &nextPin };
         PIN_DIRECTION currentPinDir;
         *hrOut = nextPin->QueryDirection(&currentPinDir);
@@ -282,7 +284,7 @@ bool DirectShowUtils::connectFilters(IGraphBuilder *graph,
 
     // Try to connect to the upstream filter first.
     if (findAndConnect(upstreamFilter))
-        return false;
+        return true;
 
     const auto getFilters = [graph, hrOut]() -> IEnumFilters * {
         IEnumFilters *f = nullptr;
@@ -305,6 +307,19 @@ bool DirectShowUtils::connectFilters(IGraphBuilder *graph,
     }
 
     return false;
+}
+
+thread_local static int g_refCount = 0;
+void DirectShowUtils::CoInitializeIfNeeded()
+{
+    if (++g_refCount == 1)
+        ::CoInitialize(nullptr);
+}
+
+void DirectShowUtils::CoUninitializeIfNeeded()
+{
+    if (--g_refCount == 0)
+        ::CoUninitialize();
 }
 
 QT_END_NAMESPACE

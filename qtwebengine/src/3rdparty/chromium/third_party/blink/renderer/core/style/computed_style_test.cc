@@ -93,6 +93,14 @@ TEST(ComputedStyleTest, Preserve3dForceStackingContext) {
   EXPECT_TRUE(style->IsStackingContext());
 }
 
+TEST(ComputedStyleTest, LayoutContainmentStackingContext) {
+  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  EXPECT_FALSE(style->IsStackingContext());
+  style->SetContain(kContainsLayout);
+  style->UpdateIsStackingContext(false, false, false);
+  EXPECT_TRUE(style->IsStackingContext());
+}
+
 TEST(ComputedStyleTest, FirstPublicPseudoStyle) {
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
   style->SetHasPseudoStyle(kPseudoIdFirstLine);
@@ -235,6 +243,39 @@ TEST(ComputedStyleTest,
   EXPECT_TRUE(diff.CompositingReasonsChanged());
 }
 
+TEST(ComputedStyleTest, UpdateBackgroundColorDifferencesHasAlpha) {
+  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  scoped_refptr<ComputedStyle> other = ComputedStyle::Clone(*style);
+
+  StyleDifference diff;
+  style->AdjustDiffForBackgroundVisuallyEqual(*other, diff);
+  EXPECT_FALSE(diff.HasAlphaChanged());
+
+  style->SetBackgroundColor(StyleColor(Color(255, 255, 255, 255)));
+  other->SetBackgroundColor(StyleColor(Color(255, 255, 255, 128)));
+
+  EXPECT_FALSE(
+      style->VisitedDependentColor(GetCSSPropertyBackgroundColor()).HasAlpha());
+  EXPECT_TRUE(
+      other->VisitedDependentColor(GetCSSPropertyBackgroundColor()).HasAlpha());
+
+  style->AdjustDiffForBackgroundVisuallyEqual(*other, diff);
+  EXPECT_TRUE(diff.HasAlphaChanged());
+}
+
+TEST(ComputedStyleTest, UpdateBackgroundLayerDifferencesHasAlpha) {
+  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  scoped_refptr<ComputedStyle> other = ComputedStyle::Clone(*style);
+
+  StyleDifference diff;
+  style->AdjustDiffForBackgroundVisuallyEqual(*other, diff);
+  EXPECT_FALSE(diff.HasAlphaChanged());
+
+  other->AccessBackgroundLayers().EnsureNext();
+  style->AdjustDiffForBackgroundVisuallyEqual(*other, diff);
+  EXPECT_TRUE(diff.HasAlphaChanged());
+}
+
 TEST(ComputedStyleTest, HasOutlineWithCurrentColor) {
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
   EXPECT_FALSE(style->HasOutline());
@@ -284,6 +325,71 @@ TEST(ComputedStyleTest, CursorList) {
   style->AddCursor(image_value, false);
   other->AddCursor(other_image_value, false);
   EXPECT_EQ(*style, *other);
+}
+
+TEST(ComputedStyleTest, BorderStyle) {
+  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  scoped_refptr<ComputedStyle> other = ComputedStyle::Create();
+  style->SetBorderLeftStyle(EBorderStyle::kSolid);
+  style->SetBorderTopStyle(EBorderStyle::kSolid);
+  style->SetBorderRightStyle(EBorderStyle::kSolid);
+  style->SetBorderBottomStyle(EBorderStyle::kSolid);
+  other->SetBorderLeftStyle(EBorderStyle::kSolid);
+  other->SetBorderTopStyle(EBorderStyle::kSolid);
+  other->SetBorderRightStyle(EBorderStyle::kSolid);
+  other->SetBorderBottomStyle(EBorderStyle::kSolid);
+
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+  style->SetBorderLeftWidth(1.0);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  other->SetBorderLeftWidth(1.0);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+  style->SetBorderTopWidth(1.0);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  other->SetBorderTopWidth(1.0);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+  style->SetBorderRightWidth(1.0);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  other->SetBorderRightWidth(1.0);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+  style->SetBorderBottomWidth(1.0);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  other->SetBorderBottomWidth(1.0);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  style->SetBorderLeftStyle(EBorderStyle::kHidden);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderLeftStyle(EBorderStyle::kNone);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderLeftStyle(EBorderStyle::kSolid);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  style->SetBorderTopStyle(EBorderStyle::kHidden);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderTopStyle(EBorderStyle::kNone);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderTopStyle(EBorderStyle::kSolid);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  style->SetBorderRightStyle(EBorderStyle::kHidden);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderRightStyle(EBorderStyle::kNone);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderRightStyle(EBorderStyle::kSolid);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
+
+  style->SetBorderBottomStyle(EBorderStyle::kHidden);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderBottomStyle(EBorderStyle::kNone);
+  EXPECT_FALSE(style->BorderSizeEquals(*other));
+  style->SetBorderBottomStyle(EBorderStyle::kSolid);
+  EXPECT_TRUE(style->BorderSizeEquals(*other));
 }
 
 }  // namespace blink

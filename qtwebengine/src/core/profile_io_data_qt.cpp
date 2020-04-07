@@ -39,9 +39,10 @@
 
 #include "profile_io_data_qt.h"
 
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "components/certificate_transparency/ct_known_logs.h"
 #include "components/network_session_configurator/common/network_features.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/cookie_store_factory.h"
@@ -49,6 +50,7 @@
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_factory.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/proxy_config/pref_proxy_config_tracker_impl.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/ct_log_verifier.h"
 #include "net/cert/ct_policy_enforcer.h"
@@ -77,15 +79,25 @@
 #include "services/file/user_id_map.h"
 #include "services/network/proxy_service_mojo.h"
 
+#include "net/client_cert_override.h"
+#include "net/client_cert_store_data.h"
 #include "net/cookie_monster_delegate_qt.h"
 #include "net/custom_protocol_handler.h"
 #include "net/network_delegate_qt.h"
 #include "net/proxy_config_service_qt.h"
-#include "net/qrc_protocol_handler_qt.h"
 #include "net/url_request_context_getter_qt.h"
 #include "profile_qt.h"
 #include "resource_context_qt.h"
 #include "type_conversion.h"
+
+#if defined(USE_NSS_CERTS)
+#include "net/cert_net/nss_ocsp.h"
+#endif
+
+#if defined(OS_LINUX) || defined(OS_MACOSX)
+#include "net/cert/cert_net_fetcher.h"
+#include "net/cert_net/cert_net_fetcher_impl.h"
+#endif
 
 namespace QtWebEngineCore {
 
@@ -95,8 +107,6 @@ static bool doNetworkSessionParamsMatch(const net::HttpNetworkSession::Params &f
     if (first.ignore_certificate_errors != second.ignore_certificate_errors)
         return false;
     if (first.enable_channel_id != second.enable_channel_id)
-        return false;
-    if (first.enable_token_binding != second.enable_token_binding)
         return false;
     return true;
 }
@@ -147,14 +157,16 @@ static net::HttpNetworkSession::Params generateNetworkSessionParams(bool ignoreC
 {
     net::HttpNetworkSession::Params network_session_params;
     network_session_params.ignore_certificate_errors = ignoreCertificateErrors;
-    network_session_params.enable_token_binding = base::FeatureList::IsEnabled(features::kTokenBinding);
-    network_session_params.enable_channel_id = base::FeatureList::IsEnabled(features::kChannelID);
     return network_session_params;
 }
 
 ProfileIODataQt::ProfileIODataQt(ProfileQt *profile)
     : m_profile(profile),
+#if QT_CONFIG(ssl)
+      m_clientCertificateStoreData(new ClientCertificateStoreData),
+#endif
       m_mutex(QMutex::Recursive),
+      m_removerObserver(this),
       m_weakPtrFactory(this)
 {
     if (content::BrowserThread::IsThreadInitialized(content::BrowserThread::UI))
@@ -165,8 +177,19 @@ ProfileIODataQt::~ProfileIODataQt()
 {
     if (content::BrowserThread::IsThreadInitialized(content::BrowserThread::IO))
         DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+    if (m_useForGlobalCertificateVerification) {
+#if defined(USE_NSS_CERTS)
+        net::SetURLRequestContextForNSSHttpIO(nullptr);
+#endif
+#if defined(OS_LINUX) ||defined(OS_MACOSX)
+        net::ShutdownGlobalCertNetFetcher();
+#endif
+    }
+
     if (m_urlRequestContext && m_urlRequestContext->proxy_resolution_service())
         m_urlRequestContext->proxy_resolution_service()->OnShutdown();
+
     m_resourceContext.reset();
     if (m_cookieDelegate)
         m_cookieDelegate->setCookieMonster(0); // this will let CookieMonsterDelegateQt be deleted
@@ -174,9 +197,18 @@ ProfileIODataQt::~ProfileIODataQt()
     delete m_proxyConfigService.fetchAndStoreAcquire(0);
 }
 
+QPointer<ProfileAdapter> ProfileIODataQt::profileAdapter()
+{
+    return m_profileAdapter;
+}
+
 void ProfileIODataQt::shutdownOnUIThread()
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+#if QT_CONFIG(ssl)
+    delete m_clientCertificateStoreData;
+    m_clientCertificateStoreData = nullptr;
+#endif
     bool posted = content::BrowserThread::DeleteSoon(content::BrowserThread::IO, FROM_HERE, this);
     if (!posted) {
         qWarning() << "Could not delete ProfileIODataQt on io thread !";
@@ -197,17 +229,27 @@ content::ResourceContext *ProfileIODataQt::resourceContext()
     return m_resourceContext.get();
 }
 
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+extensions::ExtensionSystemQt* ProfileIODataQt::GetExtensionSystem()
+{
+    return m_profile->GetExtensionSystem();
+}
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
+
 void ProfileIODataQt::initializeOnIOThread()
 {
     m_networkDelegate.reset(new NetworkDelegateQt(this));
+    m_hostResolver = net::HostResolver::CreateDefaultResolver(NULL);
     m_urlRequestContext.reset(new net::URLRequestContext());
     m_urlRequestContext->set_network_delegate(m_networkDelegate.get());
     m_urlRequestContext->set_enable_brotli(base::FeatureList::IsEnabled(features::kBrotliEncoding));
+    m_urlRequestContext->set_host_resolver(m_hostResolver.get());
     // this binds factory to io thread
     m_weakPtr = m_weakPtrFactory.GetWeakPtr();
     QMutexLocker lock(&m_mutex);
     generateAllStorage();
     generateJobFactory();
+    setGlobalCertificateVerification();
     m_initialized = true;
 }
 
@@ -274,7 +316,15 @@ void ProfileIODataQt::generateStorage()
     net::ProxyConfigService *proxyConfigService = m_proxyConfigService.fetchAndStoreAcquire(0);
     Q_ASSERT(proxyConfigService);
 
-    m_storage->set_cert_verifier(net::CertVerifier::CreateDefault());
+    std::unique_ptr<net::CertVerifier> cert_verifier = net::CertVerifier::CreateDefault();
+    net::CertVerifier::Config config;
+    // Enable revocation checking:
+    config.enable_rev_checking = true;
+    // Mirroring Android WebView (we have no beef with Symantec, and our users might use them):
+    config.disable_symantec_enforcement = true;
+    cert_verifier->SetConfig(config);
+
+    m_storage->set_cert_verifier(std::move(cert_verifier));
     std::unique_ptr<net::MultiLogCTVerifier> ct_verifier(new net::MultiLogCTVerifier());
     std::vector<scoped_refptr<const net::CTLogVerifier>> ct_logs;
     for (const auto &ct_log : certificate_transparency::GetKnownLogs()) {
@@ -289,7 +339,6 @@ void ProfileIODataQt::generateStorage()
     ct_verifier->AddLogs(ct_logs);
     m_storage->set_cert_transparency_verifier(std::move(ct_verifier));
     m_storage->set_ct_policy_enforcer(base::WrapUnique(new net::DefaultCTPolicyEnforcer()));
-    m_storage->set_host_resolver(net::HostResolver::CreateDefaultResolver(NULL));
     m_storage->set_ssl_config_service(std::make_unique<net::SSLConfigServiceDefaults>());
     if (!m_httpAuthPreferences) {
         m_httpAuthPreferences.reset(new net::HttpAuthPreferences());
@@ -305,7 +354,7 @@ void ProfileIODataQt::generateStorage()
         scoped_refptr<base::SequencedTaskRunner> background_task_runner(
                     base::CreateSequencedTaskRunnerWithTraits(
         {base::MayBlock(),
-         base::TaskPriority::BACKGROUND,
+         base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::BLOCK_SHUTDOWN}));
         m_transportSecurityPersister =
                 std::make_unique<net::TransportSecurityPersister>(
@@ -346,7 +395,7 @@ void ProfileIODataQt::generateCookieStore()
         channel_id_db = new net::SQLiteChannelIDStore(
                 toFilePath(m_channelIdPath),
                 base::CreateSequencedTaskRunnerWithTraits(
-                                {base::MayBlock(), base::TaskPriority::BACKGROUND}));
+                                {base::MayBlock(), base::TaskPriority::BEST_EFFORT}));
     }
 
     m_storage->set_channel_id_service(
@@ -361,8 +410,8 @@ void ProfileIODataQt::generateCookieStore()
                 base::FilePath(),
                 false,
                 false,
-                nullptr)
-        );
+                nullptr),
+            nullptr);
         break;
     case ProfileAdapter::AllowPersistentCookies:
         cookieStore = content::CreateCookieStore(
@@ -370,8 +419,8 @@ void ProfileIODataQt::generateCookieStore()
                 toFilePath(m_cookiesPath),
                 false,
                 true,
-                nullptr)
-            );
+                nullptr),
+            nullptr);
         break;
     case ProfileAdapter::ForcePersistentCookies:
         cookieStore = content::CreateCookieStore(
@@ -379,8 +428,8 @@ void ProfileIODataQt::generateCookieStore()
                 toFilePath(m_cookiesPath),
                 true,
                 true,
-                nullptr)
-            );
+                nullptr),
+            nullptr);
         break;
     }
 
@@ -390,7 +439,7 @@ void ProfileIODataQt::generateCookieStore()
     m_storage->set_cookie_store(std::move(cookieStore));
 
     const std::vector<std::string> cookieableSchemes(kCookieableSchemes,
-                                                     kCookieableSchemes + arraysize(kCookieableSchemes));
+                                                     kCookieableSchemes + base::size(kCookieableSchemes));
     cookieMonster->SetCookieableSchemes(cookieableSchemes);
 }
 
@@ -477,13 +526,10 @@ void ProfileIODataQt::generateJobFactory()
                                    std::unique_ptr<net::URLRequestJobFactory::ProtocolHandler>(
                                        new net::DataProtocolHandler()));
     scoped_refptr<base::TaskRunner> taskRunner(base::CreateTaskRunnerWithTraits({base::MayBlock(),
-                                      base::TaskPriority::BACKGROUND,
+                                      base::TaskPriority::BEST_EFFORT,
                                       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
     jobFactory->SetProtocolHandler(url::kFileScheme,
                                    std::make_unique<net::FileProtocolHandler>(taskRunner));
-    jobFactory->SetProtocolHandler(kQrcSchemeQt,
-                                   std::unique_ptr<net::URLRequestJobFactory::ProtocolHandler>(
-                                       new QrcProtocolHandlerQt()));
     jobFactory->SetProtocolHandler(url::kFtpScheme,
             net::FtpProtocolHandler::Create(m_urlRequestContext->host_resolver()));
 
@@ -541,6 +587,21 @@ void ProfileIODataQt::regenerateJobFactory()
     }
 }
 
+void ProfileIODataQt::setGlobalCertificateVerification()
+{
+    Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+    QMutexLocker lock(&m_mutex);
+    if (m_useForGlobalCertificateVerification) {
+#if defined(USE_NSS_CERTS)
+        // Set request context used by NSS for OCSP requests.
+        net::SetURLRequestContextForNSSHttpIO(m_urlRequestContext.get());
+#endif
+#if defined(OS_LINUX) || defined(OS_MACOSX)
+        net::SetGlobalCertNetFetcher(net::CreateCertNetFetcher(m_urlRequestContext.get()));
+#endif
+    }
+}
+
 void ProfileIODataQt::setRequestContextData(content::ProtocolHandlerMap *protocolHandlers,
                                             content::URLRequestInterceptorScopedVector request_interceptors)
 {
@@ -553,7 +614,6 @@ void ProfileIODataQt::setRequestContextData(content::ProtocolHandlerMap *protoco
 void ProfileIODataQt::setFullConfiguration()
 {
     Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-    m_requestInterceptor = m_profileAdapter->requestInterceptor();
     m_persistentCookiesPolicy = m_profileAdapter->persistentCookiesPolicy();
     m_cookiesPath = m_profileAdapter->cookiesPath();
     m_channelIdPath = m_profileAdapter->channelIdPath();
@@ -563,6 +623,7 @@ void ProfileIODataQt::setFullConfiguration()
     m_httpCachePath = m_profileAdapter->httpCachePath();
     m_httpCacheMaxSize = m_profileAdapter->httpCacheMaxSize();
     m_customUrlSchemes = m_profileAdapter->customUrlSchemes();
+    m_useForGlobalCertificateVerification = m_profileAdapter->isUsedForGlobalCertificateVerification();
     m_dataPath = m_profileAdapter->dataPath();
 }
 
@@ -572,8 +633,8 @@ void ProfileIODataQt::requestStorageGeneration() {
     if (m_initialized && !m_updateAllStorage) {
         m_updateAllStorage = true;
         createProxyConfig();
-        content::BrowserThread::PostTask(content::BrowserThread::IO, FROM_HERE,
-                                         base::Bind(&ProfileIODataQt::generateAllStorage, m_weakPtr));
+        base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::IO},
+                                 base::BindOnce(&ProfileIODataQt::generateAllStorage, m_weakPtr));
     }
 }
 
@@ -586,10 +647,14 @@ void ProfileIODataQt::createProxyConfig()
     // must synchronously run on the glib message loop. This will be passed to
     // the URLRequestContextStorage on the IO thread in GetURLRequestContext().
     Q_ASSERT(m_proxyConfigService == 0);
+    net::ProxyConfigWithAnnotation initialConfig;
+    ProxyPrefs::ConfigState initialConfigState = PrefProxyConfigTrackerImpl::ReadPrefConfig(
+                m_profileAdapter->profile()->GetPrefs(), &initialConfig);
     m_proxyConfigService =
             new ProxyConfigServiceQt(
                 net::ProxyResolutionService::CreateSystemProxyConfigService(
-                    content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::IO)));
+                    base::CreateSingleThreadTaskRunnerWithTraits({content::BrowserThread::IO})),
+                    initialConfig, initialConfigState);
     //pass interface to io thread
     m_proxyResolverFactoryInterface = ChromeMojoProxyResolverFactory::CreateWithStrongBinding().PassInterface();
 }
@@ -601,12 +666,13 @@ void ProfileIODataQt::updateStorageSettings()
     QMutexLocker lock(&m_mutex);
     setFullConfiguration();
 
-    std::string userId = content::BrowserContext::GetServiceUserIdFor(m_profile);
-    if (file::GetUserDirForUserId(userId) != toFilePath(m_profileAdapter->dataPath())) {
-        file::ForgetServiceUserIdUserDirAssociation(userId);
-        file::AssociateServiceUserIdWithUserDir(userId, toFilePath(m_profileAdapter->dataPath()));
+    base::Token groupId = content::BrowserContext::GetServiceInstanceGroupFor(m_profile);
+    if (file::GetUserDirForInstanceGroup(groupId) != toFilePath(m_profileAdapter->dataPath())) {
+        file::ForgetServiceInstanceGroupUserDirAssociation(groupId);
+        file::AssociateServiceInstanceGroupWithUserDir(groupId, toFilePath(m_profileAdapter->dataPath()));
     }
-    requestStorageGeneration();
+    if (!m_pendingStorageRequestGeneration)
+        requestStorageGeneration();
 }
 
 void ProfileIODataQt::updateCookieStore()
@@ -616,7 +682,8 @@ void ProfileIODataQt::updateCookieStore()
     m_persistentCookiesPolicy = m_profileAdapter->persistentCookiesPolicy();
     m_cookiesPath = m_profileAdapter->cookiesPath();
     m_channelIdPath = m_profileAdapter->channelIdPath();
-    requestStorageGeneration();
+    if (!m_pendingStorageRequestGeneration)
+        requestStorageGeneration();
 }
 
 void ProfileIODataQt::updateUserAgent()
@@ -625,7 +692,8 @@ void ProfileIODataQt::updateUserAgent()
     QMutexLocker lock(&m_mutex);
     m_httpAcceptLanguage = m_profileAdapter->httpAcceptLanguage();
     m_httpUserAgent = m_profileAdapter->httpUserAgent();
-    requestStorageGeneration();
+    if (!m_pendingStorageRequestGeneration)
+        requestStorageGeneration();
 }
 
 void ProfileIODataQt::updateHttpCache()
@@ -637,14 +705,19 @@ void ProfileIODataQt::updateHttpCache()
     m_httpCacheMaxSize = m_profileAdapter->httpCacheMaxSize();
 
     if (m_httpCacheType == ProfileAdapter::NoCache) {
+        m_pendingStorageRequestGeneration = true;
         content::BrowsingDataRemover *remover =
                 content::BrowserContext::GetBrowsingDataRemover(m_profileAdapter->profile());
-        remover->Remove(base::Time(), base::Time::Max(),
+        remover->AddObserver(&m_removerObserver);
+        remover->RemoveAndReply(base::Time(), base::Time::Max(),
             content::BrowsingDataRemover::DATA_TYPE_CACHE,
             content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
-                        content::BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB);
+                        content::BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB,
+            &m_removerObserver);
+        return;
     }
-    requestStorageGeneration();
+    if (!m_pendingStorageRequestGeneration)
+        requestStorageGeneration();
 }
 
 void ProfileIODataQt::updateJobFactory()
@@ -656,8 +729,8 @@ void ProfileIODataQt::updateJobFactory()
 
     if (m_initialized && !m_updateJobFactory) {
         m_updateJobFactory = true;
-        content::BrowserThread::PostTask(content::BrowserThread::IO, FROM_HERE,
-                                         base::Bind(&ProfileIODataQt::regenerateJobFactory, m_weakPtr));
+        base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::IO},
+                                 base::BindOnce(&ProfileIODataQt::regenerateJobFactory, m_weakPtr));
     }
 }
 
@@ -666,13 +739,35 @@ void ProfileIODataQt::updateRequestInterceptor()
     Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
     QMutexLocker lock(&m_mutex);
     m_requestInterceptor = m_profileAdapter->requestInterceptor();
+    m_hasPageInterceptors = m_profileAdapter->hasPageRequestInterceptor();
+    if (m_requestInterceptor)
+        m_isInterceptorDeprecated = m_requestInterceptor->property("deprecated").toBool();
+    else
+        m_isInterceptorDeprecated = false;
     // We in this case do not need to regenerate any Chromium classes.
+}
+
+bool ProfileIODataQt::isInterceptorDeprecated() const
+{
+    return m_isInterceptorDeprecated;
 }
 
 QWebEngineUrlRequestInterceptor *ProfileIODataQt::acquireInterceptor()
 {
     m_mutex.lock();
     return m_requestInterceptor;
+}
+
+QWebEngineUrlRequestInterceptor *ProfileIODataQt::requestInterceptor()
+{
+    return m_requestInterceptor;
+}
+
+bool ProfileIODataQt::hasPageInterceptors()
+{
+    // used in NetworkDelegateQt::OnBeforeURLRequest
+    Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+    return m_hasPageInterceptors;
 }
 
 void ProfileIODataQt::releaseInterceptor()
@@ -688,6 +783,59 @@ bool ProfileIODataQt::canSetCookie(const QUrl &firstPartyUrl, const QByteArray &
 bool ProfileIODataQt::canGetCookies(const QUrl &firstPartyUrl, const QUrl &url) const
 {
     return m_cookieDelegate->canGetCookies(firstPartyUrl, url);
+}
+
+void ProfileIODataQt::updateUsedForGlobalCertificateVerification()
+{
+    Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    QMutexLocker lock(&m_mutex);
+    m_useForGlobalCertificateVerification = m_profileAdapter->isUsedForGlobalCertificateVerification();
+
+    if (m_useForGlobalCertificateVerification)
+        base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::IO},
+                                 base::BindOnce(&ProfileIODataQt::setGlobalCertificateVerification, m_weakPtr));
+}
+
+#if QT_CONFIG(ssl)
+ClientCertificateStoreData *ProfileIODataQt::clientCertificateStoreData()
+{
+    return m_clientCertificateStoreData;
+}
+#endif
+
+std::unique_ptr<net::ClientCertStore> ProfileIODataQt::CreateClientCertStore()
+{
+#if QT_CONFIG(ssl)
+    return std::unique_ptr<net::ClientCertStore>(new ClientCertOverrideStore(m_clientCertificateStoreData));
+#else
+    return nullptr;
+#endif
+}
+
+// static
+ProfileIODataQt *ProfileIODataQt::FromResourceContext(content::ResourceContext *resource_context)
+{
+    return static_cast<ResourceContextQt *>(resource_context)->m_io_data;
+}
+
+void ProfileIODataQt::removeBrowsingDataRemoverObserver()
+{
+    content::BrowsingDataRemover *remover =
+            content::BrowserContext::GetBrowsingDataRemover(m_profileAdapter->profile());
+    remover->RemoveObserver(&m_removerObserver);
+}
+
+BrowsingDataRemoverObserverQt::BrowsingDataRemoverObserverQt(ProfileIODataQt *profileIOData)
+    : m_profileIOData(profileIOData)
+{
+}
+
+void BrowsingDataRemoverObserverQt::OnBrowsingDataRemoverDone()
+{
+    Q_ASSERT(m_profileIOData->m_pendingStorageRequestGeneration);
+    m_profileIOData->requestStorageGeneration();
+    m_profileIOData->removeBrowsingDataRemoverObserver();
+    m_profileIOData->m_pendingStorageRequestGeneration = false;
 }
 
 } // namespace QtWebEngineCore

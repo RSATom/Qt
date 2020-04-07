@@ -5,15 +5,18 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_MEDIA_IN_PROCESS_VIDEO_CAPTURE_DEVICE_LAUNCHER_H_
 #define CONTENT_BROWSER_RENDERER_HOST_MEDIA_IN_PROCESS_VIDEO_CAPTURE_DEVICE_LAUNCHER_H_
 
+#include <memory>
+#include <string>
+
 #include "base/single_thread_task_runner.h"
 #include "content/browser/renderer_host/media/video_capture_controller.h"
 #include "content/browser/renderer_host/media/video_capture_provider.h"
 #include "content/public/browser/video_capture_device_launcher.h"
-#include "content/public/common/media_stream_request.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video/video_capture_device_client.h"
 #include "media/capture/video/video_capture_device_descriptor.h"
 #include "media/capture/video/video_capture_system.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace content {
 
@@ -31,7 +34,7 @@ class InProcessVideoCaptureDeviceLauncher : public VideoCaptureDeviceLauncher {
   ~InProcessVideoCaptureDeviceLauncher() override;
 
   void LaunchDeviceAsync(const std::string& device_id,
-                         MediaStreamType stream_type,
+                         blink::MediaStreamType stream_type,
                          const media::VideoCaptureParams& params,
                          base::WeakPtr<media::VideoFrameReceiver> receiver,
                          base::OnceClosure connection_lost_cb,
@@ -79,6 +82,12 @@ class InProcessVideoCaptureDeviceLauncher : public VideoCaptureDeviceLauncher {
       ReceiveDeviceCallback result_callback);
 
   void DoStartDesktopCaptureOnDeviceThread(
+      const DesktopMediaID& desktop_id,
+      const media::VideoCaptureParams& params,
+      std::unique_ptr<media::VideoCaptureDeviceClient> client,
+      ReceiveDeviceCallback result_callback);
+
+  void DoStartFakeDisplayCaptureOnDeviceThread(
       const DesktopMediaID& desktop_id,
       const media::VideoCaptureParams& params,
       std::unique_ptr<media::VideoCaptureDeviceClient> client,

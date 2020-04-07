@@ -15,10 +15,14 @@
 namespace content {
 
 FlingingRenderer::FlingingRenderer(
-    std::unique_ptr<media::MediaController> controller)
-    : controller_(std::move(controller)) {}
+    std::unique_ptr<media::FlingingController> controller)
+    : controller_(std::move(controller)) {
+  controller_->AddMediaStatusObserver(this);
+}
 
-FlingingRenderer::~FlingingRenderer() = default;
+FlingingRenderer::~FlingingRenderer() {
+  controller_->RemoveMediaStatusObserver(this);
+};
 
 // static
 std::unique_ptr<FlingingRenderer> FlingingRenderer::Create(
@@ -43,15 +47,15 @@ std::unique_ptr<FlingingRenderer> FlingingRenderer::Create(
   if (!presentation_delegate)
     return nullptr;
 
-  auto media_controller = presentation_delegate->GetMediaController(
+  auto flinging_controller = presentation_delegate->GetFlingingController(
       render_frame_host->GetProcess()->GetID(),
       render_frame_host->GetRoutingID(), presentation_id);
 
-  if (!media_controller)
+  if (!flinging_controller)
     return nullptr;
 
   return base::WrapUnique<FlingingRenderer>(
-      new FlingingRenderer(std::move(media_controller)));
+      new FlingingRenderer(std::move(flinging_controller)));
 }
 
 // media::Renderer implementation
@@ -59,6 +63,7 @@ void FlingingRenderer::Initialize(media::MediaResource* media_resource,
                                   media::RendererClient* client,
                                   const media::PipelineStatusCB& init_cb) {
   DVLOG(2) << __func__;
+  client_ = client;
   init_cb.Run(media::PIPELINE_OK);
 }
 
@@ -76,26 +81,84 @@ void FlingingRenderer::Flush(const base::Closure& flush_cb) {
 
 void FlingingRenderer::StartPlayingFrom(base::TimeDelta time) {
   DVLOG(2) << __func__;
-  controller_->Seek(time);
-  controller_->Play();
+  controller_->GetMediaController()->Seek(time);
+
+  // After a seek when using the FlingingRenderer, WMPI will never get back to
+  // BUFFERING_HAVE_ENOUGH. This prevents Blink from getting the appropriate
+  // seek completion signals, and time updates are never re-scheduled.
+  //
+  // The FlingingRenderer doesn't need to buffer, since playback happens on a
+  // different device. This means it's ok to always send BUFFERING_HAVE_ENOUGH
+  // when sending buffering state changes. That being said, sending state
+  // changes here might be surprising, but the same signals are sent from
+  // MediaPlayerRenderer::StartPlayingFrom(), and it has been working mostly
+  // smoothly for all HLS playback.
+  client_->OnBufferingStateChange(media::BUFFERING_HAVE_ENOUGH);
 }
 
 void FlingingRenderer::SetPlaybackRate(double playback_rate) {
   DVLOG(2) << __func__;
-  if (playback_rate == 0)
-    controller_->Pause();
-  else
-    controller_->Play();
+  if (playback_rate == 0) {
+    SetTargetPlayState(PlayState::PAUSED);
+    controller_->GetMediaController()->Pause();
+  } else {
+    SetTargetPlayState(PlayState::PLAYING);
+    controller_->GetMediaController()->Play();
+  }
 }
 
 void FlingingRenderer::SetVolume(float volume) {
   DVLOG(2) << __func__;
-  controller_->SetVolume(volume);
+  controller_->GetMediaController()->SetVolume(volume);
 }
 
 base::TimeDelta FlingingRenderer::GetMediaTime() {
-  // TODO(https://crbug.com/830871): return correct media time.
-  return base::TimeDelta();
+  return controller_->GetApproximateCurrentTime();
+}
+
+void FlingingRenderer::SetTargetPlayState(PlayState state) {
+  DVLOG(3) << __func__ << " : state " << static_cast<int>(state);
+  DCHECK(state == PlayState::PLAYING || state == PlayState::PAUSED);
+  reached_target_play_state_ = false;
+  target_play_state_ = state;
+}
+
+void FlingingRenderer::OnMediaStatusUpdated(const media::MediaStatus& status) {
+  const auto& current_state = status.state;
+
+  if (current_state == target_play_state_)
+    reached_target_play_state_ = true;
+
+  // Because we can get a MediaStatus update at any time from the device, only
+  // handle state updates after we have reached the target state.
+  // If we do not, we can encounter the following scenario:
+  // - A user pauses the video.
+  // - While the PAUSE command is in flight, an unrelated MediaStatus with a
+  //   PLAYING state is sent from the cast device.
+  // - We call OnRemotePlaybackStateChange(PLAYING).
+  // - As the PAUSE command completes and we receive a PlayState::PAUSE, we
+  //   queue a new PLAYING.
+  // - The local device enters a tick/tock feedback loop of constantly
+  //   requesting the wrong state of PLAYING/PAUSED.
+  if (!reached_target_play_state_)
+    return;
+
+  // Ignore all non PLAYING/PAUSED states.
+  // UNKNOWN and BUFFERING states are uninteresting and can be safely ignored.
+  // STOPPED normally causes the session to teardown, and |this| is destroyed
+  // shortly after.
+  if (current_state != PlayState::PLAYING &&
+      current_state != PlayState::PAUSED) {
+    DVLOG(3) << __func__ << " : external state ignored: "
+             << static_cast<int>(current_state);
+    return;
+  }
+
+  // We previously reached a stable target PlayState, and the cast device has
+  // reached a new stable PlayState without WMPI having asked for it.
+  // Let WMPI know it should update itself.
+  if (current_state != target_play_state_)
+    client_->OnRemotePlayStateChange(current_state);
 }
 
 }  // namespace content

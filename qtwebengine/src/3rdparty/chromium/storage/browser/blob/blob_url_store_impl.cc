@@ -89,7 +89,7 @@ void BlobURLStoreImpl::Register(blink::mojom::BlobPtr blob,
 }
 
 void BlobURLStoreImpl::Revoke(const GURL& url) {
-  if (!url.SchemeIsBlob() || !delegate_->CanCommitURL(url) ||
+  if (!url.SchemeIsBlob() || (!delegate_->CanCommitURL(url) && delegate_->IsProcessValid()) ||
       BlobUrlUtils::UrlHasFragment(url)) {
     mojo::ReportBadMessage("Invalid Blob URL passed to BlobURLStore::Revoke");
     return;

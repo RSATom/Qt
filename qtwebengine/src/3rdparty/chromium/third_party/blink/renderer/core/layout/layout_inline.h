@@ -35,7 +35,6 @@ namespace blink {
 
 class LayoutBlockFlow;
 class NGPaintFragment;
-
 // LayoutInline is the LayoutObject associated with display: inline.
 // This is called an "inline box" in CSS 2.1.
 // http://www.w3.org/TR/CSS2/visuren.html#inline-boxes
@@ -116,7 +115,13 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
  public:
   explicit LayoutInline(Element*);
 
+  ~LayoutInline() override;
+
   static LayoutInline* CreateAnonymous(Document*);
+
+  // Create an anonymous inline box for ::first-line. The instance created by
+  // this function has IsFirstLineAnonymous() == true.
+  static LayoutInline* CreateAnonymousForFirstLine(Document*);
 
   LayoutObject* FirstChild() const {
     DCHECK_EQ(Children(), VirtualChildren());
@@ -140,7 +145,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   // True if this is an anonymous inline box for ::first-line that wraps the
   // whole inline formatting context.
-  bool IsFirstLineAnonymous() const;
+  virtual bool IsFirstLineAnonymous() const;
 
   LayoutUnit MarginLeft() const final;
   LayoutUnit MarginRight() const final;
@@ -153,16 +158,22 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   LayoutRect LinesBoundingBox() const;
   LayoutRect VisualOverflowRect() const final;
+  LayoutRect ReferenceBoxForClipPath() const;
 
   InlineFlowBox* CreateAndAppendInlineFlowBox();
 
   void DirtyLineBoxes(bool full_layout);
 
-  LineBoxList* LineBoxes() { return &line_boxes_; }
-  const LineBoxList* LineBoxes() const { return &line_boxes_; }
+  // LineBoxes() and FirstInlineFragment() are mutually exclusive,
+  // depends on IsInLayoutNGInlineFormattingContext().
+  const LineBoxList* LineBoxes() const {
+    return IsInLayoutNGInlineFormattingContext() ? &LineBoxList::Empty()
+                                                 : &line_boxes_;
+  }
+  LineBoxList* MutableLineBoxes();
 
-  InlineFlowBox* FirstLineBox() const { return line_boxes_.First(); }
-  InlineFlowBox* LastLineBox() const { return line_boxes_.Last(); }
+  InlineFlowBox* FirstLineBox() const { return LineBoxes()->First(); }
+  InlineFlowBox* LastLineBox() const { return LineBoxes()->Last(); }
   InlineBox* FirstLineBoxIncludingCulling() const {
     return AlwaysCreateLineBoxes() ? FirstLineBox()
                                    : CulledInlineFirstLineBox();
@@ -170,6 +181,13 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   InlineBox* LastLineBoxIncludingCulling() const {
     return AlwaysCreateLineBoxes() ? LastLineBox() : CulledInlineLastLineBox();
   }
+
+  NGPaintFragment* FirstInlineFragment() const final;
+  void SetFirstInlineFragment(NGPaintFragment*) final;
+
+  // Return true if this inline doesn't occur on any lines, i.e. when it creates
+  // no fragments.
+  bool IsEmpty() const { return !FirstLineBox() && !FirstInlineFragment(); }
 
   LayoutBoxModelObject* VirtualContinuation() const final {
     return Continuation();
@@ -180,27 +198,39 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   void AddOutlineRects(Vector<LayoutRect>&,
                        const LayoutPoint& additional_offset,
-                       IncludeBlockVisualOverflowOrNot) const final;
+                       NGOutlineType) const final;
   // The following methods are called from the container if it has already added
   // outline rects for line boxes and/or children of this LayoutInline.
   void AddOutlineRectsForChildrenAndContinuations(
       Vector<LayoutRect>&,
       const LayoutPoint& additional_offset,
-      IncludeBlockVisualOverflowOrNot) const;
+      NGOutlineType) const;
   void AddOutlineRectsForContinuations(Vector<LayoutRect>&,
                                        const LayoutPoint& additional_offset,
-                                       IncludeBlockVisualOverflowOrNot) const;
+                                       NGOutlineType) const;
 
   using LayoutBoxModelObject::Continuation;
   using LayoutBoxModelObject::SetContinuation;
 
   bool AlwaysCreateLineBoxes() const {
+    DCHECK(!IsInLayoutNGInlineFormattingContext());
     return AlwaysCreateLineBoxesForLayoutInline();
   }
   void SetAlwaysCreateLineBoxes(bool always_create_line_boxes = true) {
+    DCHECK(!IsInLayoutNGInlineFormattingContext());
     SetAlwaysCreateLineBoxesForLayoutInline(always_create_line_boxes);
   }
   void UpdateAlwaysCreateLineBoxes(bool full_layout);
+
+  // True if this inline box should force creation of NGPhysicalBoxFragment.
+  bool ShouldCreateBoxFragment() const {
+    DCHECK(IsInLayoutNGInlineFormattingContext());
+    return AlwaysCreateLineBoxesForLayoutInline();
+  }
+  void SetShouldCreateBoxFragment(bool value = true) {
+    SetAlwaysCreateLineBoxesForLayoutInline(value);
+  }
+  void UpdateShouldCreateBoxFragment();
 
   LayoutRect LocalCaretRect(const InlineBox*,
                             int,
@@ -229,6 +259,10 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
  protected:
   void WillBeDestroyed() override;
 
+  void InLayoutNGInlineFormattingContextWillChange(bool) final;
+
+  void DeleteLineBoxes();
+
   void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
 
   void ComputeSelfHitTestRects(Vector<LayoutRect>& rects,
@@ -243,6 +277,8 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
                                          bool ignore_scroll_offset) const final;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(ParameterizedLayoutInlineTest, VisualRectInDocument);
+
   LayoutObjectChildList* VirtualChildren() final { return Children(); }
   const LayoutObjectChildList* VirtualChildren() const final {
     return Children();
@@ -251,6 +287,11 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   LayoutObjectChildList* Children() { return &children_; }
 
   bool IsLayoutInline() const final { return true; }
+
+  // Compute the initial value of |ShouldCreateBoxFragment()| for this
+  // LayoutInline. It maybe flipped to true later for other conditions.
+  bool ComputeInitialShouldCreateBoxFragment() const;
+  bool ComputeInitialShouldCreateBoxFragment(const ComputedStyle& style) const;
 
   LayoutRect CulledInlineVisualOverflowBoundingBox() const;
   InlineBox* CulledInlineFirstLineBox() const;
@@ -300,8 +341,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   LayoutUnit OffsetWidth() const final { return LinesBoundingBox().Width(); }
   LayoutUnit OffsetHeight() const final { return LinesBoundingBox().Height(); }
 
-  LayoutRect AbsoluteVisualRect() const override;
-
+  LayoutRect VisualRectInDocument() const override;
   // This method differs from visualOverflowRect in that it doesn't include the
   // rects for culled inline boxes, which aren't necessary for paint
   // invalidation.
@@ -339,9 +379,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   void UpdateHitTestResult(HitTestResult&, const LayoutPoint&) const final;
 
-  void ImageChanged(WrappedImagePtr,
-                    CanDeferInvalidation,
-                    const IntRect* = nullptr) final;
+  void ImageChanged(WrappedImagePtr, CanDeferInvalidation) final;
 
   void AddAnnotatedRegions(Vector<AnnotatedRegionValue>&) final;
 
@@ -353,10 +391,27 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   LayoutBoxModelObject* ContinuationBefore(LayoutObject* before_child);
 
   LayoutObjectChildList children_;
-  // All of the line boxes created for this inline flow. For example,
-  // <i>Hello<br>world.</i> will have two <i> line boxes.
-  LineBoxList line_boxes_;
+
+  union {
+    // All of the line boxes created for this inline flow. For example,
+    // <i>Hello<br>world.</i> will have two <i> line boxes.
+    // Valid only when !IsInLayoutNGInlineFormattingContext().
+    LineBoxList line_boxes_;
+    // The first fragment of inline boxes associated with this object.
+    // Valid only when IsInLayoutNGInlineFormattingContext().
+    NGPaintFragment* first_paint_fragment_;
+  };
 };
+
+inline LineBoxList* LayoutInline::MutableLineBoxes() {
+  CHECK(!IsInLayoutNGInlineFormattingContext());
+  return &line_boxes_;
+}
+
+inline NGPaintFragment* LayoutInline::FirstInlineFragment() const {
+  return IsInLayoutNGInlineFormattingContext() ? first_paint_fragment_
+                                               : nullptr;
+}
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutInline, IsLayoutInline());
 

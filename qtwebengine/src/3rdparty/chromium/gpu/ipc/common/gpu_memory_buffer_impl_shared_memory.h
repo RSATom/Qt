@@ -28,7 +28,7 @@ class GPU_EXPORT GpuMemoryBufferImplSharedMemory : public GpuMemoryBufferImpl {
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      const DestructionCallback& callback);
+      DestructionCallback callback);
 
   static gfx::GpuMemoryBufferHandle CreateGpuMemoryBuffer(
       gfx::GpuMemoryBufferId id,
@@ -41,7 +41,7 @@ class GPU_EXPORT GpuMemoryBufferImplSharedMemory : public GpuMemoryBufferImpl {
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      const DestructionCallback& callback);
+      DestructionCallback callback);
 
   static bool IsUsageSupported(gfx::BufferUsage usage);
   static bool IsConfigurationSupported(gfx::BufferFormat format,
@@ -49,19 +49,27 @@ class GPU_EXPORT GpuMemoryBufferImplSharedMemory : public GpuMemoryBufferImpl {
   static bool IsSizeValidForFormat(const gfx::Size& size,
                                    gfx::BufferFormat format);
 
-  static base::Closure AllocateForTesting(const gfx::Size& size,
-                                          gfx::BufferFormat format,
-                                          gfx::BufferUsage usage,
-                                          gfx::GpuMemoryBufferHandle* handle);
+  static base::OnceClosure AllocateForTesting(
+      const gfx::Size& size,
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage,
+      gfx::GpuMemoryBufferHandle* handle);
 
   // Overridden from gfx::GpuMemoryBuffer:
   bool Map() override;
   void* memory(size_t plane) override;
   void Unmap() override;
   int stride(size_t plane) const override;
-  gfx::GpuMemoryBufferHandle GetHandle() const override;
-  base::trace_event::MemoryAllocatorDumpGuid GetGUIDForTracing(
-      uint64_t tracing_process_id) const override;
+  gfx::GpuMemoryBufferType GetType() const override;
+  gfx::GpuMemoryBufferHandle CloneHandle() const override;
+  void OnMemoryDump(
+      base::trace_event::ProcessMemoryDump* pmd,
+      const base::trace_event::MemoryAllocatorDumpGuid& buffer_dump_guid,
+      uint64_t tracing_process_id,
+      int importance) const override;
+
+  // Returns the shared memory GUID associated with buffer.
+  base::UnguessableToken GetSharedMemoryGUID() const;
 
  private:
   GpuMemoryBufferImplSharedMemory(
@@ -69,12 +77,14 @@ class GPU_EXPORT GpuMemoryBufferImplSharedMemory : public GpuMemoryBufferImpl {
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
-      const DestructionCallback& callback,
-      std::unique_ptr<base::SharedMemory> shared_memory,
+      DestructionCallback callback,
+      base::UnsafeSharedMemoryRegion shared_memory_region,
+      base::WritableSharedMemoryMapping shared_memory_mapping,
       size_t offset,
       int stride);
 
-  std::unique_ptr<base::SharedMemory> shared_memory_;
+  base::UnsafeSharedMemoryRegion shared_memory_region_;
+  base::WritableSharedMemoryMapping shared_memory_mapping_;
   size_t offset_;
   int stride_;
 

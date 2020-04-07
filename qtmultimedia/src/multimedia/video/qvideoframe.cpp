@@ -75,7 +75,7 @@ public:
         , planeCount(0)
         , pixelFormat(QVideoFrame::Format_Invalid)
         , fieldType(QVideoFrame::ProgressiveFrame)
-        , buffer(0)
+        , buffer(nullptr)
         , mappedCount(0)
     {
         memset(data, 0, sizeof(data));
@@ -90,7 +90,7 @@ public:
         , planeCount(0)
         , pixelFormat(format)
         , fieldType(QVideoFrame::ProgressiveFrame)
-        , buffer(0)
+        , buffer(nullptr)
         , mappedCount(0)
     {
         memset(data, 0, sizeof(data));
@@ -194,6 +194,9 @@ private:
 
     \value Format_BGRA32_Premultiplied
     The frame is stored using a premultiplied 32bit BGRA format.
+
+    \value Format_ABGR32
+    The frame is stored using a 32-bit ABGR format (0xAABBGGRR).
 
     \value Format_BGR32
     The frame is stored using a 32-bit BGR format (0xBBGGRRff).
@@ -401,6 +404,15 @@ QVideoFrame::~QVideoFrame()
 }
 
 /*!
+    \return underlying video buffer or \c null if there is none.
+    \since 5.13
+*/
+QAbstractVideoBuffer *QVideoFrame::buffer() const
+{
+    return d->buffer;
+}
+
+/*!
     Identifies whether a video frame is valid.
 
     An invalid frame has no video buffer associated with it.
@@ -409,7 +421,7 @@ QVideoFrame::~QVideoFrame()
 */
 bool QVideoFrame::isValid() const
 {
-    return d->buffer != 0;
+    return d->buffer != nullptr;
 }
 
 /*!
@@ -485,7 +497,7 @@ void QVideoFrame::setFieldType(QVideoFrame::FieldType field)
 
 bool QVideoFrame::isMapped() const
 {
-    return d->buffer != 0 && d->buffer->mapMode() != QAbstractVideoBuffer::NotMapped;
+    return d->buffer != nullptr && d->buffer->mapMode() != QAbstractVideoBuffer::NotMapped;
 }
 
 /*!
@@ -504,7 +516,7 @@ bool QVideoFrame::isMapped() const
 */
 bool QVideoFrame::isWritable() const
 {
-    return d->buffer != 0 && (d->buffer->mapMode() & QAbstractVideoBuffer::WriteOnly);
+    return d->buffer != nullptr && (d->buffer->mapMode() & QAbstractVideoBuffer::WriteOnly);
 }
 
 /*!
@@ -520,7 +532,7 @@ bool QVideoFrame::isWritable() const
 */
 bool QVideoFrame::isReadable() const
 {
-    return d->buffer != 0 && (d->buffer->mapMode() & QAbstractVideoBuffer::ReadOnly);
+    return d->buffer != nullptr && (d->buffer->mapMode() & QAbstractVideoBuffer::ReadOnly);
 }
 
 /*!
@@ -530,7 +542,7 @@ bool QVideoFrame::isReadable() const
 */
 QAbstractVideoBuffer::MapMode QVideoFrame::mapMode() const
 {
-    return d->buffer != 0 ? d->buffer->mapMode() : QAbstractVideoBuffer::NotMapped;
+    return d->buffer != nullptr ? d->buffer->mapMode() : QAbstractVideoBuffer::NotMapped;
 }
 
 /*!
@@ -584,7 +596,7 @@ bool QVideoFrame::map(QAbstractVideoBuffer::MapMode mode)
         }
     }
 
-    Q_ASSERT(d->data[0] == 0);
+    Q_ASSERT(d->data[0] == nullptr);
     Q_ASSERT(d->bytesPerLine[0] == 0);
     Q_ASSERT(d->planeCount == 0);
     Q_ASSERT(d->mappedBytes == 0);
@@ -606,6 +618,7 @@ bool QVideoFrame::map(QAbstractVideoBuffer::MapMode mode)
     case Format_ARGB8565_Premultiplied:
     case Format_BGRA32:
     case Format_BGRA32_Premultiplied:
+    case Format_ABGR32:
     case Format_BGR32:
     case Format_BGR24:
     case Format_BGR565:
@@ -763,7 +776,7 @@ uchar *QVideoFrame::bits()
 */
 uchar *QVideoFrame::bits(int plane)
 {
-    return plane >= 0 && plane < d->planeCount ? d->data[plane] : 0;
+    return plane >= 0 && plane < d->planeCount ? d->data[plane] : nullptr;
 }
 
 /*!
@@ -794,7 +807,7 @@ const uchar *QVideoFrame::bits() const
 */
 const uchar *QVideoFrame::bits(int plane) const
 {
-    return plane >= 0 && plane < d->planeCount ?  d->data[plane] : 0;
+    return plane >= 0 && plane < d->planeCount ?  d->data[plane] : nullptr;
 }
 
 /*!
@@ -832,7 +845,7 @@ int QVideoFrame::planeCount() const
 */
 QVariant QVideoFrame::handle() const
 {
-    return d->buffer != 0 ? d->buffer->handle() : QVariant();
+    return d->buffer != nullptr ? d->buffer->handle() : QVariant();
 }
 
 /*!
@@ -1057,7 +1070,9 @@ static VideoFrameConvertFunc qConvertFuncs[QVideoFrame::NPixelFormats] = {
     /* Format_Y16 */                    nullptr,
     /* Format_Jpeg */                   nullptr, // Not needed
     /* Format_CameraRaw */              nullptr,
-    /* Format_AdobeDng */               nullptr
+    /* Format_AdobeDng */               nullptr,
+    /* Format_ABGR32 */                 nullptr, // ### Qt 6: reorder
+
 };
 
 static void qInitConvertFuncsAsm()
@@ -1102,7 +1117,7 @@ QImage qt_imageFromVideoFrame(const QVideoFrame &f)
     // Formats supported by QImage don't need conversion
     QImage::Format imageFormat = QVideoFrame::imageFormatFromPixelFormat(frame.pixelFormat());
     if (imageFormat != QImage::Format_Invalid) {
-        result = QImage(frame.bits(), frame.width(), frame.height(), imageFormat).copy();
+        result = QImage(frame.bits(), frame.width(), frame.height(), frame.bytesPerLine(), imageFormat).copy();
     }
 
     // Load from JPG
@@ -1157,6 +1172,8 @@ QDebug operator<<(QDebug dbg, QVideoFrame::PixelFormat pf)
             return dbg << "Format_BGRA32";
         case QVideoFrame::Format_BGRA32_Premultiplied:
             return dbg << "Format_BGRA32_Premultiplied";
+        case QVideoFrame::Format_ABGR32:
+            return dbg << "Format_ABGR32";
         case QVideoFrame::Format_BGR32:
             return dbg << "Format_BGR32";
         case QVideoFrame::Format_BGR24:

@@ -6,7 +6,7 @@
 #define COMPONENTS_OFFLINE_PAGES_CORE_OFFLINE_PAGE_TYPES_H_
 
 #include <stdint.h>
-
+#include <memory>
 #include <set>
 #include <vector>
 
@@ -20,7 +20,8 @@ class GURL;
 // temporary step to refactor and interface of the model out of the
 // implementation.
 namespace offline_pages {
-// Result of saving a page offline.
+// Result of saving a page offline. Must be kept with sync with
+// OfflinePagesSavePageResult in metrics' enum.xml
 // A Java counterpart will be generated for this enum.
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.offlinepages
 enum class SavePageResult {
@@ -47,10 +48,7 @@ enum class SavePageResult {
   ADD_TO_DOWNLOAD_MANAGER_FAILED,
   // Unable to get write permission on public directory.
   PERMISSION_DENIED,
-  // NOTE: always keep this entry at the end. Add new result types only
-  // immediately above this line. Make sure to update the corresponding
-  // histogram enum accordingly.
-  RESULT_COUNT,
+  kMaxValue = PERMISSION_DENIED,
 };
 
 // Result of adding an offline page.
@@ -58,13 +56,11 @@ enum class AddPageResult {
   SUCCESS,
   STORE_FAILURE,
   ALREADY_EXISTS,
-  // NOTE: always keep this entry at the end. Add new result types only
-  // immediately above this line. Make sure to update the corresponding
-  // histogram enum accordingly.
-  RESULT_COUNT,
+  kMaxValue = ALREADY_EXISTS,
 };
 
-// Result of deleting an offline page.
+// Result of deleting an offline page. Must be kept with sync with
+// OfflinePagesDeletePageResult in metrics' enum.xml.
 // A Java counterpart will be generated for this enum.
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.offlinepages
 enum class DeletePageResult {
@@ -74,26 +70,22 @@ enum class DeletePageResult {
   DEVICE_FAILURE,
   // Deprecated. Deleting pages which are not in metadata store would be
   // returing |SUCCESS|. Should not be used anymore.
-  NOT_FOUND,
-  // NOTE: always keep this entry at the end. Add new result types only
-  // immediately above this line. Make sure to update the corresponding
-  // histogram enum accordingly.
-  RESULT_COUNT,
+  DEPRECATED_NOT_FOUND,
+  kMaxValue = DEPRECATED_NOT_FOUND,
 };
 
-// Controls how to search on differnt URLs for pages.
-enum class URLSearchMode {
-  // Match against the last committed URL only.
-  SEARCH_BY_FINAL_URL_ONLY,
-  // Match against all stored URLs, including the last committed URL and
-  // the original request URL.
-  SEARCH_BY_ALL_URLS,
+// The result when trying to share offline page to other apps.
+enum class ShareResult {
+  // Successfully shared.
+  kSuccess,
+
+  // Failed due to no file access permission.
+  kFileAccessPermissionDenied,
 };
 
 typedef std::vector<int64_t> MultipleOfflineIdResult;
 typedef std::vector<OfflinePageItem> MultipleOfflinePageItemResult;
 
-// TODO(carlosk): All or most of these should use base::OnceCallback.
 typedef base::OnceCallback<void(SavePageResult, int64_t)> SavePageCallback;
 typedef base::OnceCallback<void(AddPageResult, int64_t)> AddPageCallback;
 typedef base::OnceCallback<void(DeletePageResult)> DeletePageCallback;

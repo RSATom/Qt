@@ -14,7 +14,8 @@
 namespace blink {
 
 BatteryManager* BatteryManager::Create(ExecutionContext* context) {
-  BatteryManager* battery_manager = new BatteryManager(context);
+  BatteryManager* battery_manager =
+      MakeGarbageCollected<BatteryManager>(context);
   battery_manager->PauseIfNeeded();
   return battery_manager;
 }
@@ -22,11 +23,11 @@ BatteryManager* BatteryManager::Create(ExecutionContext* context) {
 BatteryManager::~BatteryManager() = default;
 
 BatteryManager::BatteryManager(ExecutionContext* context)
-    : PausableObject(context), PlatformEventController(ToDocument(context)) {}
+    : PausableObject(context), PlatformEventController(To<Document>(context)) {}
 
 ScriptPromise BatteryManager::StartRequest(ScriptState* script_state) {
   if (!battery_property_) {
-    battery_property_ = new BatteryProperty(
+    battery_property_ = MakeGarbageCollected<BatteryProperty>(
         ExecutionContext::From(script_state), this, BatteryProperty::kReady);
 
     // If the context is in a stopped state already, do not start updating.
@@ -68,19 +69,19 @@ void BatteryManager::DidUpdateData() {
     return;
   }
 
-  Document* document = ToDocument(GetExecutionContext());
+  Document* document = To<Document>(GetExecutionContext());
   DCHECK(document);
   if (document->IsContextPaused() || document->IsContextDestroyed())
     return;
 
   if (battery_status_.Charging() != old_status.Charging())
-    DispatchEvent(Event::Create(EventTypeNames::chargingchange));
+    DispatchEvent(*Event::Create(event_type_names::kChargingchange));
   if (battery_status_.charging_time() != old_status.charging_time())
-    DispatchEvent(Event::Create(EventTypeNames::chargingtimechange));
+    DispatchEvent(*Event::Create(event_type_names::kChargingtimechange));
   if (battery_status_.discharging_time() != old_status.discharging_time())
-    DispatchEvent(Event::Create(EventTypeNames::dischargingtimechange));
+    DispatchEvent(*Event::Create(event_type_names::kDischargingtimechange));
   if (battery_status_.Level() != old_status.Level())
-    DispatchEvent(Event::Create(EventTypeNames::levelchange));
+    DispatchEvent(*Event::Create(event_type_names::kLevelchange));
 }
 
 void BatteryManager::RegisterWithDispatcher() {
@@ -95,12 +96,12 @@ bool BatteryManager::HasLastData() {
   return BatteryDispatcher::Instance().LatestData();
 }
 
-void BatteryManager::Pause() {
+void BatteryManager::ContextPaused(PauseState) {
   has_event_listener_ = false;
   StopUpdating();
 }
 
-void BatteryManager::Unpause() {
+void BatteryManager::ContextUnpaused() {
   has_event_listener_ = true;
   StartUpdating();
 }

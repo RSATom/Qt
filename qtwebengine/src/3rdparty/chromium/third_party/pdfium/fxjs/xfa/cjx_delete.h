@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_DELETE_H_
 
 #include "fxjs/xfa/cjx_textnode.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Delete;
 
-class CJX_Delete : public CJX_TextNode {
+class CJX_Delete final : public CJX_TextNode {
  public:
   explicit CJX_Delete(CXFA_Delete* node);
   ~CJX_Delete() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_DELETE_H_

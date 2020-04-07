@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/task_runner.h"
 #include "base/task_runner_util.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "dbus/bus.h"
@@ -288,7 +289,7 @@ void ObjectProxy::WaitForServiceToBeAvailable(
 void ObjectProxy::Detach() {
   bus_->AssertOnDBusThread();
 
-  if (bus_->is_connected())
+  if (bus_->IsConnected())
     bus_->RemoveFilterFunction(&ObjectProxy::HandleMessageThunk, this);
 
   for (const auto& match_rule : match_rules_) {
@@ -302,6 +303,9 @@ void ObjectProxy::Detach() {
   match_rules_.clear();
 
   for (auto* pending_call : pending_calls_) {
+    base::ScopedBlockingCall scoped_blocking_call(
+        base::BlockingType::MAY_BLOCK);
+
     dbus_pending_call_cancel(pending_call);
     dbus_pending_call_unref(pending_call);
   }
@@ -313,6 +317,7 @@ void ObjectProxy::StartAsyncMethodCall(int timeout_ms,
                                        ReplyCallbackHolder callback_holder,
                                        base::TimeTicks start_time) {
   bus_->AssertOnDBusThread();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   if (!bus_->Connect() || !bus_->SetUpAsyncOperations()) {
     // In case of a failure, run the error callback with nullptr.
@@ -353,6 +358,7 @@ void ObjectProxy::OnPendingCallIsComplete(ReplyCallbackHolder callback_holder,
                                           base::TimeTicks start_time,
                                           DBusPendingCall* pending_call) {
   bus_->AssertOnDBusThread();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   DBusMessage* response_message = dbus_pending_call_steal_reply(pending_call);
 
@@ -519,6 +525,11 @@ DBusHandlerResult ObjectProxy::HandleMessage(
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
   }
 
+  std::string sender = signal->GetSender();
+  // Ignore message from sender we are not interested in.
+  if (service_name_owner_ != sender)
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+
   const std::string interface = signal->GetInterface();
   const std::string member = signal->GetMember();
 
@@ -533,12 +544,6 @@ DBusHandlerResult ObjectProxy::HandleMessage(
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
   }
   VLOG(1) << "Signal received: " << signal->ToString();
-
-  std::string sender = signal->GetSender();
-  if (service_name_owner_ != sender) {
-    LOG(ERROR) << "Rejecting a message from a wrong sender.";
-    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-  }
 
   const base::TimeTicks start_time = base::TimeTicks::Now();
   if (bus_->HasDBusThread()) {

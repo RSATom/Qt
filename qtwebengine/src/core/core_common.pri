@@ -1,3 +1,6 @@
+include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri)
+QT_FOR_CONFIG += webenginecore webenginecore-private
+
 # NOTE: The TARGET, QT, QT_PRIVATE variables are used in both core_module.pro and core_gyp_generator.pro
 # gyp/ninja will take care of the compilation, qmake/make will finish with linking and install.
 
@@ -13,3 +16,4 @@ CONFIG -= ltcg
 
 # Chromium requires C++14
 CONFIG += c++14
+

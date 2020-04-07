@@ -4,10 +4,13 @@
 
 #include "content/browser/appcache/appcache_frontend_proxy.h"
 
-#include "content/common/appcache.mojom.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/bind_interface_helpers.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 
@@ -17,17 +20,18 @@ AppCacheFrontendProxy::AppCacheFrontendProxy(int process_id)
 AppCacheFrontendProxy::~AppCacheFrontendProxy() {}
 
 namespace {
-void BindOnUIThread(int process_id, mojom::AppCacheFrontendRequest request) {
+void BindOnUIThread(int process_id,
+                    blink::mojom::AppCacheFrontendRequest request) {
   if (auto* render_process_host = RenderProcessHost::FromID(process_id)) {
     BindInterface(render_process_host, std::move(request));
   }
 }
 }  // namespace
 
-mojom::AppCacheFrontend* AppCacheFrontendProxy::GetAppCacheFrontend() {
+blink::mojom::AppCacheFrontend* AppCacheFrontendProxy::GetAppCacheFrontend() {
   if (!app_cache_renderer_ptr_) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&BindOnUIThread, process_id_,
                        mojo::MakeRequest(&app_cache_renderer_ptr_)));
   }
@@ -35,19 +39,22 @@ mojom::AppCacheFrontend* AppCacheFrontendProxy::GetAppCacheFrontend() {
 }
 
 void AppCacheFrontendProxy::OnCacheSelected(
-    int host_id, const AppCacheInfo& info) {
+    int host_id,
+    const blink::mojom::AppCacheInfo& info) {
   // TODO(crbug:611938) Get rid of the need to Clone().
   GetAppCacheFrontend()->CacheSelected(host_id, info.Clone());
 }
 
-void AppCacheFrontendProxy::OnStatusChanged(const std::vector<int>& host_ids,
-                                            AppCacheStatus status) {
+void AppCacheFrontendProxy::OnStatusChanged(
+    const std::vector<int>& host_ids,
+    blink::mojom::AppCacheStatus status) {
   GetAppCacheFrontend()->StatusChanged(host_ids, status);
 }
 
-void AppCacheFrontendProxy::OnEventRaised(const std::vector<int>& host_ids,
-                                          AppCacheEventID event_id) {
-  DCHECK_NE(AppCacheEventID::APPCACHE_PROGRESS_EVENT,
+void AppCacheFrontendProxy::OnEventRaised(
+    const std::vector<int>& host_ids,
+    blink::mojom::AppCacheEventID event_id) {
+  DCHECK_NE(blink::mojom::AppCacheEventID::APPCACHE_PROGRESS_EVENT,
             event_id);  // See OnProgressEventRaised.
   GetAppCacheFrontend()->EventRaised(host_ids, event_id);
 }
@@ -61,7 +68,7 @@ void AppCacheFrontendProxy::OnProgressEventRaised(
 
 void AppCacheFrontendProxy::OnErrorEventRaised(
     const std::vector<int>& host_ids,
-    const AppCacheErrorDetails& details) {
+    const blink::mojom::AppCacheErrorDetails& details) {
   GetAppCacheFrontend()->ErrorEventRaised(host_ids, details.Clone());
 }
 

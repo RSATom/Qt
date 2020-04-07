@@ -30,6 +30,7 @@ class RemoteFrameView final : public GarbageCollectedFinalized<RemoteFrameView>,
  public:
   static RemoteFrameView* Create(RemoteFrame*);
 
+  explicit RemoteFrameView(RemoteFrame*);
   ~RemoteFrameView() override;
 
   void AttachToLayout() override;
@@ -73,9 +74,13 @@ class RemoteFrameView final : public GarbageCollectedFinalized<RemoteFrameView>,
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit RemoteFrameView(RemoteFrame*);
-
   LocalFrameView* ParentFrameView() const;
+
+  // This function returns the LocalFrameView associated with the parent frame's
+  // local root, or nullptr if the parent frame is not a local frame. For
+  // portals, this will return the local root associated with the portal's
+  // owner.
+  LocalFrameView* ParentLocalRootFrameView() const;
 
   void UpdateRenderThrottlingStatus(bool hidden, bool subtree_throttled);
   bool CanThrottleRendering() const;
@@ -88,6 +93,7 @@ class RemoteFrameView final : public GarbageCollectedFinalized<RemoteFrameView>,
   Member<RemoteFrame> remote_frame_;
   bool is_attached_;
   IntRect last_viewport_intersection_;
+  bool last_occluded_or_obscured_ = false;
   IntRect frame_rect_;
   bool self_visible_;
   bool parent_visible_;

@@ -10,30 +10,43 @@
 
 #include "modules/video_coding/codecs/test/videocodec_test_fixture_impl.h"
 
+#include <stdint.h>
+#include <stdio.h>
 #include <algorithm>
+#include <cmath>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/memory/memory.h"
+#include "absl/types/optional.h"
+#include "api/array_view.h"
+#include "api/video/video_bitrate_allocation.h"
 #include "api/video_codecs/sdp_video_format.h"
-#include "call/video_config.h"
+#include "api/video_codecs/video_codec.h"
+#include "api/video_codecs/video_decoder.h"
+#include "api/video_codecs/video_encoder_config.h"
 #include "common_types.h"  // NOLINT(build/include)
+#include "common_video/h264/h264_common.h"
 #include "media/base/h264_profile_level_id.h"
-#include "media/base/mediaconstants.h"
-#include "media/engine/internaldecoderfactory.h"
-#include "media/engine/internalencoderfactory.h"
+#include "media/base/media_constants.h"
+#include "media/engine/internal_decoder_factory.h"
+#include "media/engine/internal_encoder_factory.h"
 #include "media/engine/simulcast.h"
+#include "modules/video_coding/codecs/h264/include/h264_globals.h"
 #include "modules/video_coding/codecs/vp9/svc_config.h"
-#include "modules/video_coding/include/video_codec_interface.h"
+#include "modules/video_coding/utility/ivf_file_writer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/cpu_time.h"
 #include "rtc_base/event.h"
 #include "rtc_base/file.h"
 #include "rtc_base/strings/string_builder.h"
+#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/cpu_info.h"
 #include "system_wrappers/include/sleep.h"
 #include "test/gtest.h"
-#include "test/testsupport/fileutils.h"
+#include "test/testsupport/file_utils.h"
+#include "test/testsupport/frame_writer.h"
 #include "test/video_codec_settings.h"
 
 namespace webrtc {
@@ -71,11 +84,11 @@ void ConfigureSimulcast(VideoCodec* codec_settings) {
 void ConfigureSvc(VideoCodec* codec_settings) {
   RTC_CHECK_EQ(kVideoCodecVP9, codec_settings->codecType);
 
-  const std::vector<SpatialLayer> layers =
-      GetSvcConfig(codec_settings->width, codec_settings->height,
-                   codec_settings->VP9()->numberOfSpatialLayers,
-                   codec_settings->VP9()->numberOfTemporalLayers,
-                   /* is_screen_sharing = */ false);
+  const std::vector<SpatialLayer> layers = GetSvcConfig(
+      codec_settings->width, codec_settings->height, kMaxFramerateFps,
+      codec_settings->VP9()->numberOfSpatialLayers,
+      codec_settings->VP9()->numberOfTemporalLayers,
+      /* is_screen_sharing = */ false);
   ASSERT_EQ(codec_settings->VP9()->numberOfSpatialLayers, layers.size())
       << "GetSvcConfig returned fewer spatial layers than configured.";
 
@@ -122,22 +135,15 @@ std::string CodecSpecificToString(const VideoCodec& codec) {
 }
 
 bool RunEncodeInRealTime(const VideoCodecTestFixtureImpl::Config& config) {
-  if (config.measure_cpu) {
+  if (config.measure_cpu || config.encode_in_real_time) {
     return true;
   }
-#if defined(WEBRTC_ANDROID)
-  // In order to not overwhelm the OpenMAX buffers in the Android MediaCodec.
-  return (config.hw_encoder || config.hw_decoder);
-#else
   return false;
-#endif
 }
 
 std::string FilenameWithParams(
     const VideoCodecTestFixtureImpl::Config& config) {
-  std::string implementation_type = config.hw_encoder ? "hw" : "sw";
   return config.filename + "_" + config.CodecName() + "_" +
-         implementation_type + "_" +
          std::to_string(config.codec_settings.startBitrate);
 }
 
@@ -245,7 +251,7 @@ size_t VideoCodecTestFixtureImpl::Config::NumberOfSimulcastStreams() const {
 
 std::string VideoCodecTestFixtureImpl::Config::ToString() const {
   std::string codec_type = CodecTypeToPayloadString(codec_settings.codecType);
-  std::stringstream ss;
+  rtc::StringBuilder ss;
   ss << "filename: " << filename;
   ss << "\nnum_frames: " << num_frames;
   ss << "\nmax_payload_size_bytes: " << max_payload_size_bytes;
@@ -284,7 +290,7 @@ std::string VideoCodecTestFixtureImpl::Config::ToString() const {
     }
   }
   ss << "\n";
-  return ss.str();
+  return ss.Release();
 }
 
 std::string VideoCodecTestFixtureImpl::Config::CodecName() const {
@@ -304,10 +310,6 @@ std::string VideoCodecTestFixtureImpl::Config::CodecName() const {
   return name;
 }
 
-bool VideoCodecTestFixtureImpl::Config::IsAsyncCodec() const {
-  return hw_encoder || hw_decoder;
-}
-
 // TODO(kthelgason): Move this out of the test fixture impl and
 // make available as a shared utility class.
 void VideoCodecTestFixtureImpl::H264KeyframeChecker::CheckEncodedFrame(
@@ -318,11 +320,10 @@ void VideoCodecTestFixtureImpl::H264KeyframeChecker::CheckEncodedFrame(
   bool contains_pps = false;
   bool contains_idr = false;
   const std::vector<webrtc::H264::NaluIndex> nalu_indices =
-      webrtc::H264::FindNaluIndices(encoded_frame._buffer,
-                                    encoded_frame._length);
+      webrtc::H264::FindNaluIndices(encoded_frame.data(), encoded_frame.size());
   for (const webrtc::H264::NaluIndex& index : nalu_indices) {
     webrtc::H264::NaluType nalu_type = webrtc::H264::ParseNaluType(
-        encoded_frame._buffer[index.payload_start_offset]);
+        encoded_frame.data()[index.payload_start_offset]);
     if (nalu_type == webrtc::H264::NaluType::kSps) {
       contains_sps = true;
     } else if (nalu_type == webrtc::H264::NaluType::kPps) {
@@ -420,27 +421,22 @@ void VideoCodecTestFixtureImpl::RunTest(
 void VideoCodecTestFixtureImpl::ProcessAllFrames(
     rtc::TaskQueue* task_queue,
     const std::vector<RateProfile>& rate_profiles) {
-  // Process all frames.
-  size_t rate_update_index = 0;
-
   // Set initial rates.
-  task_queue->PostTask([this, &rate_profiles, rate_update_index] {
-    processor_->SetRates(rate_profiles[rate_update_index].target_kbps,
-                         rate_profiles[rate_update_index].input_fps);
+  auto rate_profile = rate_profiles.begin();
+  task_queue->PostTask([this, rate_profile] {
+    processor_->SetRates(rate_profile->target_kbps, rate_profile->input_fps);
   });
 
   cpu_process_time_->Start();
 
-  for (size_t frame_number = 0; frame_number < config_.num_frames;
-       ++frame_number) {
-    if (frame_number ==
-        rate_profiles[rate_update_index].frame_index_rate_update) {
-      ++rate_update_index;
-      RTC_DCHECK_GT(rate_profiles.size(), rate_update_index);
-
-      task_queue->PostTask([this, &rate_profiles, rate_update_index] {
-        processor_->SetRates(rate_profiles[rate_update_index].target_kbps,
-                             rate_profiles[rate_update_index].input_fps);
+  for (size_t frame_num = 0; frame_num < config_.num_frames; ++frame_num) {
+    auto next_rate_profile = std::next(rate_profile);
+    if (next_rate_profile != rate_profiles.end() &&
+        frame_num == next_rate_profile->frame_num) {
+      rate_profile = next_rate_profile;
+      task_queue->PostTask([this, rate_profile] {
+        processor_->SetRates(rate_profile->target_kbps,
+                             rate_profile->input_fps);
       });
     }
 
@@ -449,22 +445,19 @@ void VideoCodecTestFixtureImpl::ProcessAllFrames(
     if (RunEncodeInRealTime(config_)) {
       // Roughly pace the frames.
       const size_t frame_duration_ms =
-          rtc::kNumMillisecsPerSec / rate_profiles[rate_update_index].input_fps;
+          rtc::kNumMillisecsPerSec / rate_profile->input_fps;
       SleepMs(static_cast<int>(frame_duration_ms));
     }
   }
 
   // Wait until we know that the last frame has been sent for encode.
-  rtc::Event sync_event(false, false);
+  rtc::Event sync_event;
   task_queue->PostTask([&sync_event] { sync_event.Set(); });
   sync_event.Wait(rtc::Event::kForever);
 
   // Give the VideoProcessor pipeline some time to process the last frame,
   // and then release the codecs.
-  if (config_.IsAsyncCodec()) {
-    SleepMs(1 * rtc::kNumMillisecsPerSec);
-  }
-
+  SleepMs(1 * rtc::kNumMillisecsPerSec);
   cpu_process_time_->Stop();
 }
 
@@ -473,14 +466,13 @@ void VideoCodecTestFixtureImpl::AnalyzeAllFrames(
     const std::vector<RateControlThresholds>* rc_thresholds,
     const std::vector<QualityThresholds>* quality_thresholds,
     const BitstreamThresholds* bs_thresholds) {
-  for (size_t rate_update_idx = 0; rate_update_idx < rate_profiles.size();
-       ++rate_update_idx) {
-    const size_t first_frame_num =
-        (rate_update_idx == 0)
-            ? 0
-            : rate_profiles[rate_update_idx - 1].frame_index_rate_update;
+  for (size_t rate_profile_idx = 0; rate_profile_idx < rate_profiles.size();
+       ++rate_profile_idx) {
+    const size_t first_frame_num = rate_profiles[rate_profile_idx].frame_num;
     const size_t last_frame_num =
-        rate_profiles[rate_update_idx].frame_index_rate_update - 1;
+        rate_profile_idx + 1 < rate_profiles.size()
+            ? rate_profiles[rate_profile_idx + 1].frame_num - 1
+            : config_.num_frames - 1;
     RTC_CHECK(last_frame_num >= first_frame_num);
 
     std::vector<VideoStatistics> layer_stats =
@@ -496,14 +488,14 @@ void VideoCodecTestFixtureImpl::AnalyzeAllFrames(
     printf("%s\n", send_stat.ToString("send_").c_str());
 
     const RateControlThresholds* rc_threshold =
-        rc_thresholds ? &(*rc_thresholds)[rate_update_idx] : nullptr;
+        rc_thresholds ? &(*rc_thresholds)[rate_profile_idx] : nullptr;
     const QualityThresholds* quality_threshold =
-        quality_thresholds ? &(*quality_thresholds)[rate_update_idx] : nullptr;
+        quality_thresholds ? &(*quality_thresholds)[rate_profile_idx] : nullptr;
 
     VerifyVideoStatistic(send_stat, rc_threshold, quality_threshold,
                          bs_thresholds,
-                         rate_profiles[rate_update_idx].target_kbps,
-                         rate_profiles[rate_update_idx].input_fps);
+                         rate_profiles[rate_profile_idx].target_kbps,
+                         rate_profiles[rate_profile_idx].input_fps);
   }
 
   if (config_.print_frame_level_stats) {
@@ -685,7 +677,7 @@ void VideoCodecTestFixtureImpl::PrintSettings(
   std::string encoder_name;
   std::string decoder_name;
   task_queue->SendTask([this, &encoder_name, &decoder_name] {
-    encoder_name = encoder_->ImplementationName();
+    encoder_name = encoder_->GetEncoderInfo().implementation_name;
     decoder_name = decoders_.at(0)->ImplementationName();
   });
   printf("enc_impl_name: %s\n", encoder_name.c_str());

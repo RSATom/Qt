@@ -141,7 +141,7 @@ void VisitedLinkEventListener::NewTable(
     return;
 
   // Send to all RenderProcessHosts.
-  for (Updaters::iterator i = updaters_.begin(); i != updaters_.end(); ++i) {
+  for (auto i = updaters_.begin(); i != updaters_.end(); ++i) {
     // Make sure to not send to incognito renderers.
     content::RenderProcessHost* process =
         content::RenderProcessHost::FromID(i->first);
@@ -158,8 +158,8 @@ void VisitedLinkEventListener::Add(VisitedLinkMaster::Fingerprint fingerprint) {
   if (!coalesce_timer_->IsRunning()) {
     coalesce_timer_->Start(
         FROM_HERE, TimeDelta::FromMilliseconds(kCommitIntervalMs),
-        base::Bind(&VisitedLinkEventListener::CommitVisitedLinks,
-                   base::Unretained(this)));
+        base::BindOnce(&VisitedLinkEventListener::CommitVisitedLinks,
+                       base::Unretained(this)));
   }
 }
 
@@ -167,7 +167,7 @@ void VisitedLinkEventListener::Reset(bool invalidate_hashes) {
   pending_visited_links_.clear();
   coalesce_timer_->Stop();
 
-  for (Updaters::iterator i = updaters_.begin(); i != updaters_.end(); ++i) {
+  for (auto i = updaters_.begin(); i != updaters_.end(); ++i) {
     i->second->AddReset(invalidate_hashes);
     i->second->Update();
   }
@@ -180,7 +180,7 @@ void VisitedLinkEventListener::SetCoalesceTimerForTest(
 
 void VisitedLinkEventListener::CommitVisitedLinks() {
   // Send to all RenderProcessHosts.
-  for (Updaters::iterator i = updaters_.begin(); i != updaters_.end(); ++i) {
+  for (auto i = updaters_.begin(); i != updaters_.end(); ++i) {
     i->second->AddLinks(pending_visited_links_);
     i->second->Update();
   }

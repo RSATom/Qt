@@ -307,7 +307,7 @@ LayoutUnit RootInlineBox::AlignBoxesInBlockDirection(
 LayoutUnit RootInlineBox::BeforeAnnotationsAdjustment() const {
   LayoutUnit result;
 
-  if (!GetLineLayoutItem().Style()->IsFlippedLinesWritingMode()) {
+  if (!GetLineLayoutItem().StyleRef().IsFlippedLinesWritingMode()) {
     // Annotations under the previous line may push us down.
     if (PrevRootBox() && PrevRootBox()->HasAnnotationsAfter())
       result = PrevRootBox()->ComputeUnderAnnotationAdjustment(LineTop());
@@ -342,37 +342,18 @@ LayoutUnit RootInlineBox::BeforeAnnotationsAdjustment() const {
   return result;
 }
 
-SelectionState RootInlineBox::GetSelectionState() const {
+bool RootInlineBox::IsSelected() const {
   // Walk over all of the selected boxes.
-  SelectionState state = SelectionState::kNone;
   for (InlineBox* box = FirstLeafChild(); box; box = box->NextLeafChild()) {
-    SelectionState box_state = box->GetSelectionState();
-    if ((box_state == SelectionState::kStart &&
-         state == SelectionState::kEnd) ||
-        (box_state == SelectionState::kEnd &&
-         state == SelectionState::kStart)) {
-      state = SelectionState::kStartAndEnd;
-    } else if (state == SelectionState::kNone ||
-               ((box_state == SelectionState::kStart ||
-                 box_state == SelectionState::kEnd) &&
-                (state == SelectionState::kNone ||
-                 state == SelectionState::kInside))) {
-      state = box_state;
-    } else if (box_state == SelectionState::kNone &&
-               state == SelectionState::kStart) {
-      // We are past the end of the selection.
-      state = SelectionState::kStartAndEnd;
-    }
-    if (state == SelectionState::kStartAndEnd)
-      break;
+    if (box->IsSelected())
+      return true;
   }
-
-  return state;
+  return false;
 }
 
 InlineBox* RootInlineBox::FirstSelectedBox() const {
   for (InlineBox* box = FirstLeafChild(); box; box = box->NextLeafChild()) {
-    if (box->GetSelectionState() != SelectionState::kNone)
+    if (box->IsSelected())
       return box;
   }
 
@@ -381,7 +362,7 @@ InlineBox* RootInlineBox::FirstSelectedBox() const {
 
 InlineBox* RootInlineBox::LastSelectedBox() const {
   for (InlineBox* box = LastLeafChild(); box; box = box->PrevLeafChild()) {
-    if (box->GetSelectionState() != SelectionState::kNone)
+    if (box->IsSelected())
       return box;
   }
 
@@ -391,11 +372,11 @@ InlineBox* RootInlineBox::LastSelectedBox() const {
 LayoutUnit RootInlineBox::SelectionTop() const {
   LayoutUnit selection_top = line_top_;
   if (has_annotations_before_)
-    selection_top -= !GetLineLayoutItem().Style()->IsFlippedLinesWritingMode()
+    selection_top -= !GetLineLayoutItem().StyleRef().IsFlippedLinesWritingMode()
                          ? ComputeOverAnnotationAdjustment(line_top_)
                          : ComputeUnderAnnotationAdjustment(line_top_);
 
-  if (GetLineLayoutItem().Style()->IsFlippedLinesWritingMode() ||
+  if (GetLineLayoutItem().StyleRef().IsFlippedLinesWritingMode() ||
       !PrevRootBox())
     return selection_top;
 
@@ -409,11 +390,11 @@ LayoutUnit RootInlineBox::SelectionBottom() const {
 
   if (has_annotations_after_)
     selection_bottom +=
-        !GetLineLayoutItem().Style()->IsFlippedLinesWritingMode()
+        !GetLineLayoutItem().StyleRef().IsFlippedLinesWritingMode()
             ? ComputeUnderAnnotationAdjustment(line_bottom_)
             : ComputeOverAnnotationAdjustment(line_bottom_);
 
-  if (!GetLineLayoutItem().Style()->IsFlippedLinesWritingMode() ||
+  if (!GetLineLayoutItem().StyleRef().IsFlippedLinesWritingMode() ||
       !NextRootBox())
     return selection_bottom;
 
@@ -421,7 +402,7 @@ LayoutUnit RootInlineBox::SelectionBottom() const {
 }
 
 LayoutUnit RootInlineBox::BlockDirectionPointInLine() const {
-  return !Block().Style()->IsFlippedBlocksWritingMode()
+  return !Block().StyleRef().IsFlippedBlocksWritingMode()
              ? std::max(LineTop(), SelectionTop())
              : std::min(LineBottom(), SelectionBottom());
 }
@@ -497,10 +478,10 @@ InlineBox* RootInlineBox::ClosestLeafChildForLogicalLeftPosition(
 
 BidiStatus RootInlineBox::LineBreakBidiStatus() const {
   return BidiStatus(
-      static_cast<WTF::Unicode::CharDirection>(line_break_bidi_status_eor_),
-      static_cast<WTF::Unicode::CharDirection>(
+      static_cast<WTF::unicode::CharDirection>(line_break_bidi_status_eor_),
+      static_cast<WTF::unicode::CharDirection>(
           line_break_bidi_status_last_strong_),
-      static_cast<WTF::Unicode::CharDirection>(line_break_bidi_status_last_),
+      static_cast<WTF::unicode::CharDirection>(line_break_bidi_status_last_),
       line_break_context_);
 }
 
@@ -623,8 +604,8 @@ void RootInlineBox::AscentAndDescentForBox(
                                              .PrimaryFont();
     if (primary_font)
       used_fonts->push_back(primary_font);
-    for (size_t i = 0; i < used_fonts->size(); ++i) {
-      const FontMetrics& font_metrics = used_fonts->at(i)->GetFontMetrics();
+    for (const SimpleFontData* font_data : *used_fonts) {
+      const FontMetrics& font_metrics = font_data->GetFontMetrics();
       LayoutUnit used_font_ascent(font_metrics.Ascent(BaselineType()));
       LayoutUnit used_font_descent(font_metrics.Descent(BaselineType()));
       LayoutUnit half_leading(
@@ -689,15 +670,15 @@ LayoutUnit RootInlineBox::VerticalPositionForBox(
   }
 
   LayoutUnit vertical_position;
-  EVerticalAlign vertical_align = box_model.Style()->VerticalAlign();
+  EVerticalAlign vertical_align = box_model.StyleRef().VerticalAlign();
   if (vertical_align == EVerticalAlign::kTop ||
       vertical_align == EVerticalAlign::kBottom)
     return LayoutUnit();
 
   LineLayoutItem parent = box_model.Parent();
   if (parent.IsLayoutInline() &&
-      parent.Style()->VerticalAlign() != EVerticalAlign::kTop &&
-      parent.Style()->VerticalAlign() != EVerticalAlign::kBottom)
+      parent.StyleRef().VerticalAlign() != EVerticalAlign::kTop &&
+      parent.StyleRef().VerticalAlign() != EVerticalAlign::kBottom)
     vertical_position = box->Parent()->LogicalTop();
 
   if (vertical_align != EVerticalAlign::kBaseline) {
@@ -745,12 +726,12 @@ LayoutUnit RootInlineBox::VerticalPositionForBox(
       LayoutUnit line_height;
       // Per http://www.w3.org/TR/CSS21/visudet.html#propdef-vertical-align:
       // 'Percentages: refer to the 'line-height' of the element itself'.
-      if (box_model.Style()->GetVerticalAlignLength().IsPercentOrCalc())
-        line_height = LayoutUnit(box_model.Style()->ComputedLineHeight());
+      if (box_model.StyleRef().GetVerticalAlignLength().IsPercentOrCalc())
+        line_height = LayoutUnit(box_model.StyleRef().ComputedLineHeight());
       else
         line_height = box_model.LineHeight(first_line, line_direction);
       vertical_position -= ValueForLength(
-          box_model.Style()->GetVerticalAlignLength(), line_height);
+          box_model.StyleRef().GetVerticalAlignLength(), line_height);
     }
   }
 
@@ -767,12 +748,69 @@ bool RootInlineBox::IncludeLeadingForBox(InlineBox* box) const {
            (box->GetLineLayoutItem().IsText() && !box->IsText()));
 }
 
+void RootInlineBox::CollectLeafBoxesInLogicalOrder(
+    Vector<InlineBox*>& leaf_boxes_in_logical_order,
+    CustomInlineBoxRangeReverse custom_reverse_implementation) const {
+  InlineBox* leaf = FirstLeafChild();
+
+  // FIXME: The reordering code is a copy of parts from BidiResolver::
+  // createBidiRunsForLine, operating directly on InlineBoxes, instead of
+  // BidiRuns. Investigate on how this code could possibly be shared.
+  unsigned char min_level = 128;
+  unsigned char max_level = 0;
+
+  // First find highest and lowest levels, and initialize
+  // leafBoxesInLogicalOrder with the leaf boxes in visual order.
+  for (; leaf; leaf = leaf->NextLeafChild()) {
+    min_level = std::min(min_level, leaf->BidiLevel());
+    max_level = std::max(max_level, leaf->BidiLevel());
+    leaf_boxes_in_logical_order.push_back(leaf);
+  }
+
+  if (GetLineLayoutItem().StyleRef().RtlOrdering() == EOrder::kVisual)
+    return;
+
+  // Reverse of reordering of the line (L2 according to Bidi spec):
+  // L2. From the highest level found in the text to the lowest odd level on
+  // each line, reverse any contiguous sequence of characters that are at that
+  // level or higher.
+
+  // Reversing the reordering of the line is only done up to the lowest odd
+  // level.
+  if (!(min_level % 2))
+    ++min_level;
+
+  Vector<InlineBox*>::iterator end = leaf_boxes_in_logical_order.end();
+  while (min_level <= max_level) {
+    Vector<InlineBox*>::iterator it = leaf_boxes_in_logical_order.begin();
+    while (it != end) {
+      while (it != end) {
+        if ((*it)->BidiLevel() >= min_level)
+          break;
+        ++it;
+      }
+      Vector<InlineBox*>::iterator first = it;
+      while (it != end) {
+        if ((*it)->BidiLevel() < min_level)
+          break;
+        ++it;
+      }
+      Vector<InlineBox*>::iterator last = it;
+      if (custom_reverse_implementation)
+        (*custom_reverse_implementation)(first, last);
+      else
+        std::reverse(first, last);
+    }
+    ++min_level;
+  }
+}
+
 const InlineBox* RootInlineBox::GetLogicalStartNonPseudoBox() const {
   Vector<InlineBox*> leaf_boxes_in_logical_order;
   CollectLeafBoxesInLogicalOrder(leaf_boxes_in_logical_order);
-  for (size_t i = 0; i < leaf_boxes_in_logical_order.size(); ++i) {
-    if (leaf_boxes_in_logical_order[i]->GetLineLayoutItem().NonPseudoNode())
-      return leaf_boxes_in_logical_order[i];
+  for (InlineBox* box : leaf_boxes_in_logical_order) {
+    if (box->GetLineLayoutItem().NonPseudoNode())
+      return box;
   }
   return nullptr;
 }
@@ -780,7 +818,7 @@ const InlineBox* RootInlineBox::GetLogicalStartNonPseudoBox() const {
 const InlineBox* RootInlineBox::GetLogicalEndNonPseudoBox() const {
   Vector<InlineBox*> leaf_boxes_in_logical_order;
   CollectLeafBoxesInLogicalOrder(leaf_boxes_in_logical_order);
-  for (size_t i = leaf_boxes_in_logical_order.size(); i > 0; --i) {
+  for (wtf_size_t i = leaf_boxes_in_logical_order.size(); i > 0; --i) {
     if (leaf_boxes_in_logical_order[i - 1]
             ->GetLineLayoutItem()
             .NonPseudoNode()) {

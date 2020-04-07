@@ -26,8 +26,7 @@ public:
         (void)matrix;
         SkString sk_TransformedCoords2D_0 = fragBuilder->ensureCoords2D(args.fTransformedCoords[0]);
         fragBuilder->codeAppendf(
-                "%s = %s * texture(%s, %s).%s;\n", args.fOutputColor,
-                args.fInputColor ? args.fInputColor : "half4(1)",
+                "%s = %s * texture(%s, %s).%s;\n", args.fOutputColor, args.fInputColor,
                 fragBuilder->getProgramBuilder()->samplerVariable(args.fTexSamplers[0]).c_str(),
                 sk_TransformedCoords2D_0.c_str(),
                 fragBuilder->getProgramBuilder()->samplerSwizzle(args.fTexSamplers[0]).c_str());
@@ -54,11 +53,15 @@ GrSimpleTextureEffect::GrSimpleTextureEffect(const GrSimpleTextureEffect& src)
         , fImage(src.fImage)
         , fMatrix(src.fMatrix)
         , fImageCoordTransform(src.fImageCoordTransform) {
-    this->addTextureSampler(&fImage);
+    this->setTextureSamplerCnt(1);
     this->addCoordTransform(&fImageCoordTransform);
 }
 std::unique_ptr<GrFragmentProcessor> GrSimpleTextureEffect::clone() const {
     return std::unique_ptr<GrFragmentProcessor>(new GrSimpleTextureEffect(*this));
+}
+const GrFragmentProcessor::TextureSampler& GrSimpleTextureEffect::onTextureSampler(
+        int index) const {
+    return IthTextureSampler(index, fImage);
 }
 GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrSimpleTextureEffect);
 #if GR_TEST_UTILS

@@ -176,6 +176,7 @@
         "_2D": "GL_TEXTURE_2D",
         "_2DArray": "GL_TEXTURE_2D_ARRAY",
         "_2DMultisample": "GL_TEXTURE_2D_MULTISAMPLE",
+        "_2DMultisampleArray": "GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES",
         "_3D": "GL_TEXTURE_3D",
         "External": "GL_TEXTURE_EXTERNAL_OES",
         "Rectangle": "GL_TEXTURE_RECTANGLE_ANGLE",
@@ -186,6 +187,7 @@
         "_2D": "GL_TEXTURE_2D",
         "_2DArray": "GL_TEXTURE_2D_ARRAY",
         "_2DMultisample": "GL_TEXTURE_2D_MULTISAMPLE",
+        "_2DMultisampleArray": "GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES",
         "_3D": "GL_TEXTURE_3D",
         "External": "GL_TEXTURE_EXTERNAL_OES",
         "Rectangle": "GL_TEXTURE_RECTANGLE_ANGLE",
@@ -227,25 +229,31 @@
         "SpotDirection": "GL_SPOT_DIRECTION",
         "SpotExponent": "GL_SPOT_EXPONENT"
     },
-    "PrimitiveMode":
-    {
-        "Points": "GL_POINTS",
-        "Lines": "GL_LINES",
-        "LineLoop": "GL_LINE_LOOP",
-        "LineStrip": "GL_LINE_STRIP",
-        "Triangles": "GL_TRIANGLES",
-        "TriangleStrip": "GL_TRIANGLE_STRIP",
-        "TriangleFan": "GL_TRIANGLE_FAN",
-        "LinesAdjacency": "GL_LINES_ADJACENCY_EXT",
-        "LineStripAdjacency": "GL_LINE_STRIP_ADJACENCY_EXT",
-        "TrianglesAdjacency": "GL_TRIANGLES_ADJACENCY_EXT",
-        "TriangleStripAdjacency": "GL_TRIANGLE_STRIP_ADJACENCY_EXT"
-    },
     "PointParameter":
     {
         "PointSizeMin" : "GL_POINT_SIZE_MIN",
         "PointSizeMax" : "GL_POINT_SIZE_MAX",
         "PointFadeThresholdSize" : "GL_POINT_FADE_THRESHOLD_SIZE",
         "PointDistanceAttenuation" : "GL_POINT_DISTANCE_ATTENUATION"
+    },
+    "FilterMode":
+    {
+        "Nearest": "GL_NEAREST",
+        "Linear": "GL_LINEAR",
+        "NearestMipmapNearest": "GL_NEAREST_MIPMAP_NEAREST",
+        "NearestMipmapLinear": "GL_NEAREST_MIPMAP_LINEAR",
+        "LinearMipmapLinear": "GL_LINEAR_MIPMAP_LINEAR"
+    },
+    "WrapMode":
+    {
+        "ClampToEdge": "GL_CLAMP_TO_EDGE",
+        "ClampToBorder": "GL_CLAMP_TO_BORDER",
+        "MirroredRepeat": "GL_MIRRORED_REPEAT",
+        "Repeat": "GL_REPEAT"
+    },
+    "ProvokingVertex":
+    {
+        "FirstVertexConvention": "GL_FIRST_VERTEX_CONVENTION",
+        "LastVertexConvention": "GL_LAST_VERTEX_CONVENTION"
     }
 }

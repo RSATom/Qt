@@ -112,14 +112,8 @@ void TestReportingUploader::StartUpload(const url::Origin& report_origin,
       base::BindOnce(&ErasePendingUpload, &pending_uploads_)));
 }
 
-int TestReportingUploader::GetUploadDepth(const URLRequest& request) {
-  NOTIMPLEMENTED();
-  return 0;
-}
-
 TestReportingDelegate::TestReportingDelegate()
-    : test_request_context_(std::make_unique<TestURLRequestContext>()),
-      real_delegate_(ReportingDelegate::Create(test_request_context_.get())) {}
+    : test_request_context_(std::make_unique<TestURLRequestContext>()) {}
 
 TestReportingDelegate::~TestReportingDelegate() = default;
 
@@ -159,13 +153,6 @@ bool TestReportingDelegate::CanSetClient(const url::Origin& origin,
 bool TestReportingDelegate::CanUseClient(const url::Origin& origin,
                                          const GURL& endpoint) const {
   return true;
-}
-
-void TestReportingDelegate::ParseJson(
-    const std::string& unsafe_json,
-    const JsonSuccessCallback& success_callback,
-    const JsonFailureCallback& failure_callback) const {
-  real_delegate_->ParseJson(unsafe_json, success_callback, failure_callback);
 }
 
 TestReportingContext::TestReportingContext(base::Clock* clock,

@@ -12,6 +12,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/navigation_handle.h"
+#include "media/base/android/media_drm_key_type.h"
 
 // The storage will be managed by PrefService. All data will be stored in a
 // dictionary under the key "media.media_drm_storage". The dictionary is
@@ -25,7 +26,8 @@
 //             $session_id: {
 //                 "key_set_id": $key_set_id,
 //                 "mime_type": $mime_type,
-//                 "creation_time": $creation_time
+//                 "creation_time": $creation_time,
+//                 "key_type": $key_type (enum of MediaDrmKeyType)
 //             },
 //             # more session_id map...
 //         }
@@ -48,7 +50,29 @@ const char kCreationTime[] = "creation_time";
 const char kSessions[] = "sessions";
 const char kKeySetId[] = "key_set_id";
 const char kMimeType[] = "mime_type";
+const char kKeyType[] = "key_type";
 const char kOriginId[] = "origin_id";
+
+bool GetMediaDrmKeyTypeFromDict(const base::Value& dict,
+                                media::MediaDrmKeyType* value_out) {
+  DCHECK(dict.is_dict());
+  DCHECK(value_out);
+
+  const base::Value* value =
+      dict.FindKeyOfType(kKeyType, base::Value::Type::INTEGER);
+  if (!value)
+    return false;
+
+  int key_type = value->GetInt();
+  if (key_type < static_cast<int>(media::MediaDrmKeyType::UNKNOWN) ||
+      key_type > static_cast<int>(media::MediaDrmKeyType::MAX)) {
+    DVLOG(1) << "Corrupted key type.";
+    return false;
+  }
+
+  *value_out = static_cast<media::MediaDrmKeyType>(key_type);
+  return true;
+}
 
 bool GetStringFromDict(const base::Value& dict,
                        const std::string& key,
@@ -98,8 +122,7 @@ class OriginData {
   base::Value ToDictValue() const {
     base::Value dict(base::Value::Type::DICTIONARY);
 
-    dict.SetKey(kOriginId, base::Value::FromUniquePtrValue(
-                               base::CreateUnguessableTokenValue(origin_id_)));
+    dict.SetKey(kOriginId, base::CreateUnguessableTokenValue(origin_id_));
     dict.SetKey(kCreationTime, base::Value(provision_time_.ToDoubleT()));
 
     return dict;
@@ -140,8 +163,9 @@ class OriginData {
 class SessionData {
  public:
   SessionData(const std::vector<uint8_t>& key_set_id,
-              const std::string& mime_type)
-      : SessionData(key_set_id, mime_type, base::Time::Now()) {}
+              const std::string& mime_type,
+              media::MediaDrmKeyType key_type)
+      : SessionData(key_set_id, mime_type, key_type, base::Time::Now()) {}
 
   base::Time creation_time() const { return creation_time_; }
 
@@ -153,13 +177,14 @@ class SessionData {
                     reinterpret_cast<const char*>(key_set_id_.data()),
                     key_set_id_.size())));
     dict.SetKey(kMimeType, base::Value(mime_type_));
+    dict.SetKey(kKeyType, base::Value(static_cast<int>(key_type_)));
     dict.SetKey(kCreationTime, base::Value(creation_time_.ToDoubleT()));
 
     return dict;
   }
 
   media::mojom::SessionDataPtr ToMojo() const {
-    return media::mojom::SessionData::New(key_set_id_, mime_type_);
+    return media::mojom::SessionData::New(key_set_id_, mime_type_, key_type_);
   }
 
   // Convert |session_dict| to SessionData. |session_dict| contains information
@@ -181,22 +206,31 @@ class SessionData {
     if (!GetCreationTimeFromDict(session_dict, &time))
       return nullptr;
 
+    media::MediaDrmKeyType key_type;
+    if (!GetMediaDrmKeyTypeFromDict(session_dict, &key_type)) {
+      DVLOG(1) << "Missing key type.";
+      key_type = media::MediaDrmKeyType::UNKNOWN;
+    }
+
     return base::WrapUnique(
         new SessionData(std::vector<uint8_t>(key_set_id_string.begin(),
                                              key_set_id_string.end()),
-                        std::move(mime_type), time));
+                        std::move(mime_type), key_type, time));
   }
 
  private:
   SessionData(std::vector<uint8_t> key_set_id,
               std::string mime_type,
+              media::MediaDrmKeyType key_type,
               base::Time time)
       : key_set_id_(std::move(key_set_id)),
         mime_type_(std::move(mime_type)),
+        key_type_(key_type),
         creation_time_(time) {}
 
   std::vector<uint8_t> key_set_id_;
   std::string mime_type_;
+  media::MediaDrmKeyType key_type_;
   base::Time creation_time_;
 };
 
@@ -234,12 +268,13 @@ DictValue* GetSessionsDictFromStorageDict(DictValue* storage_dict,
 // information. Note that this clears any existing session information.
 base::Value* CreateOriginDictAndReturnSessionsDict(
     base::Value* storage_dict,
-    const std::string& origin,
+    const url::Origin& origin,
     const base::UnguessableToken& origin_id) {
   DCHECK(storage_dict);
   DCHECK(storage_dict->is_dict());
 
-  return storage_dict->SetKey(origin, OriginData(origin_id).ToDictValue())
+  return storage_dict
+      ->SetKey(origin.Serialize(), OriginData(origin_id).ToDictValue())
       ->SetKey(kSessions, base::Value(base::Value::Type::DICTIONARY));
 }
 
@@ -347,6 +382,51 @@ std::vector<base::UnguessableToken> ClearMatchingLicenseData(
   return origin_ids_to_unprovision;
 }
 
+// Returns true if any session in |sessions_dict| has been modified more
+// recently than |modified_since|, and otherwise returns false.
+bool SessionsModifiedSince(const base::Value* sessions_dict,
+                           base::Time modified_since) {
+  DCHECK(sessions_dict->is_dict());
+  for (const auto& key_value : sessions_dict->DictItems()) {
+    const base::Value* session_dict = &key_value.second;
+    if (!session_dict->is_dict())
+      continue;
+
+    std::unique_ptr<SessionData> session_data =
+        SessionData::FromDictValue(*session_dict);
+    if (!session_data)
+      continue;
+
+    if (session_data->creation_time() >= modified_since)
+      return true;
+  }
+
+  // No session creation time >= |modified_since|.
+  return false;
+}
+
+// Returns the origin ID for |origin|, if it exists. Will return an empty value
+// if the origin ID can not be found in |storage_dict|.
+base::UnguessableToken GetOriginIdForOrigin(
+    const base::DictionaryValue* storage_dict,
+    const url::Origin& origin) {
+  DCHECK(storage_dict);
+
+  const base::Value* origin_dict = storage_dict->FindKeyOfType(
+      origin.Serialize(), base::Value::Type::DICTIONARY);
+  if (!origin_dict)
+    return base::UnguessableToken::Null();
+
+  std::unique_ptr<OriginData> origin_data =
+      OriginData::FromDictValue(*origin_dict);
+  if (!origin_data)
+    return base::UnguessableToken::Null();
+
+  // |origin_id| can be empty even if |origin_dict| exists. This can happen
+  // if |origin_dict| was created with an old version of Chrome.
+  return origin_data->origin_id();
+}
+
 }  // namespace
 
 // static
@@ -375,6 +455,57 @@ std::set<GURL> MediaDrmStorageImpl::GetAllOrigins(
 }
 
 // static
+std::vector<GURL> MediaDrmStorageImpl::GetOriginsModifiedSince(
+    const PrefService* pref_service,
+    base::Time modified_since) {
+  DCHECK(pref_service);
+
+  const base::DictionaryValue* storage_dict =
+      pref_service->GetDictionary(kMediaDrmStorage);
+  if (!storage_dict)
+    return {};
+
+  // Check each origin to see if it has been modified since |modified_since|.
+  // If there are any errors in kMediaDrmStorage, ignore them.
+  std::vector<GURL> matching_origins;
+  for (const auto& key_value : storage_dict->DictItems()) {
+    GURL origin(key_value.first);
+    if (!origin.is_valid())
+      continue;
+
+    const base::Value* origin_dict = &key_value.second;
+    if (!origin_dict->is_dict())
+      continue;
+
+    std::unique_ptr<OriginData> origin_data =
+        OriginData::FromDictValue(*origin_dict);
+    if (!origin_data)
+      continue;
+
+    // There is no need to check the sessions if the origin was provisioned
+    // after |modified_since|.
+    if (origin_data->provision_time() < modified_since) {
+      // See if any session created recently.
+      const base::Value* sessions =
+          origin_dict->FindKeyOfType(kSessions, base::Value::Type::DICTIONARY);
+      if (!sessions)
+        continue;
+
+      // If no sessions modified recently, move on to the next origin.
+      if (!SessionsModifiedSince(sessions, modified_since))
+        continue;
+    }
+
+    // Either the origin has been provisioned after |modified_since| or there
+    // are sessions created after |modified_since|, so add the origin to the
+    // list returned.
+    matching_origins.push_back(origin);
+  }
+
+  return matching_origins;
+}
+
+// static
 std::vector<base::UnguessableToken> MediaDrmStorageImpl::ClearMatchingLicenses(
     PrefService* pref_service,
     base::Time start,
@@ -392,61 +523,80 @@ std::vector<base::UnguessableToken> MediaDrmStorageImpl::ClearMatchingLicenses(
 MediaDrmStorageImpl::MediaDrmStorageImpl(
     content::RenderFrameHost* render_frame_host,
     PrefService* pref_service,
+    GetOriginIdCB get_origin_id_cb,
     media::mojom::MediaDrmStorageRequest request)
     : FrameServiceBase(render_frame_host, std::move(request)),
-      pref_service_(pref_service) {
+      pref_service_(pref_service),
+      get_origin_id_cb_(get_origin_id_cb),
+      weak_factory_(this) {
   DVLOG(1) << __func__ << ": origin = " << origin();
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(pref_service_);
-  DCHECK(!origin().unique());
+  DCHECK(!origin().opaque());
 }
 
 MediaDrmStorageImpl::~MediaDrmStorageImpl() {
   DVLOG(1) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  if (init_cb_)
+    std::move(init_cb_).Run(base::UnguessableToken::Null());
 }
 
 void MediaDrmStorageImpl::Initialize(InitializeCallback callback) {
   DVLOG(1) << __func__ << ": origin = " << origin();
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(!init_cb_);
 
   if (IsInitialized()) {
     std::move(callback).Run(origin_id_);
     return;
   }
+  DCHECK(!origin_id_);
 
+  // Check if the preference has an existing origin ID.
+  const base::DictionaryValue* storage_dict =
+      pref_service_->GetDictionary(kMediaDrmStorage);
+  origin_id_ = GetOriginIdForOrigin(storage_dict, origin());
+  if (origin_id_) {
+    std::move(callback).Run(origin_id_);
+    return;
+  }
+
+  // No origin ID, so fetch one asynchronously. OnOriginIdObtained() is called
+  // to finish initialization.
+  init_cb_ = std::move(callback);
+  get_origin_id_cb_.Run(base::BindOnce(&MediaDrmStorageImpl::OnOriginIdObtained,
+                                       weak_factory_.GetWeakPtr()));
+}
+
+void MediaDrmStorageImpl::OnOriginIdObtained(
+    const base::UnguessableToken& origin_id) {
+  // If multiple MediaDrmStorage instances from the same web origin call
+  // Initialize concurrently, then a previous instance may have successfully
+  // obtained an origin ID and stored it for this origin. So check again to see
+  // if an origin ID has been saved, and use it instead of |origin_id|. This
+  // does mean that |origin_id| will be lost.
+  // TODO(crbug.com/919228): Once pre-provisioned origins are used, |origin_id|
+  // needs to be unprovisioned rather than dropped.
   DictionaryPrefUpdate update(pref_service_, kMediaDrmStorage);
-  base::DictionaryValue* storage_dict = update.Get();
-  DCHECK(storage_dict);
-
-  const base::Value* origin_dict = storage_dict->FindKeyOfType(
-      origin().Serialize(), base::Value::Type::DICTIONARY);
-
-  base::UnguessableToken origin_id;
-  if (origin_dict) {
-    std::unique_ptr<OriginData> origin_data =
-        OriginData::FromDictValue(*origin_dict);
-    if (origin_data)
-      origin_id = origin_data->origin_id();
+  auto stored_origin_id = GetOriginIdForOrigin(update.Get(), origin());
+  if (stored_origin_id) {
+    origin_id_ = stored_origin_id;
+    std::move(init_cb_).Run(origin_id_);
+    return;
   }
 
-  // |origin_id| can be empty even if |origin_dict| exists. This can happen if
-  // |origin_dict| was created with an old version of Chrome. When this happens,
-  // there's no origin ID. Generate a new one and store it in the storage.
-  if (origin_id.is_empty()) {
-    origin_id = base::UnguessableToken::Create();
-
-    // Persist the origin ID into storage now. If multiple MediaDrmStorage
-    // instances from the same web origin call Initialize concurrently, they can
-    // get the same origin ID.
-    CreateOriginDictAndReturnSessionsDict(storage_dict, origin().Serialize(),
-                                          origin_id);
-  }
-
+  // As there is no current value, persist the origin ID into storage now.
+  // TODO(crbug.com/917527): When pre-provisioned origins are supported, there
+  // may not be any available, so an empty origin ID can be used temporarily.
+  // The empty origin ID should not be saved in the preference, but should be
+  // returned. Note that having |origin_id_| set is used to determine if this
+  // object is initialized or not, so temporarily using an empty origin ID will
+  // affect that, and that needs to be fixed too.
+  DCHECK(origin_id) << "Empty origin ID not handled.";
   origin_id_ = origin_id;
-
-  DCHECK(origin_id_);
-  std::move(callback).Run(origin_id_);
+  CreateOriginDictAndReturnSessionsDict(update.Get(), origin(), origin_id_);
+  std::move(init_cb_).Run(origin_id_);
 }
 
 void MediaDrmStorageImpl::OnProvisioned(OnProvisionedCallback callback) {
@@ -466,8 +616,7 @@ void MediaDrmStorageImpl::OnProvisioned(OnProvisionedCallback callback) {
   // Update origin dict once origin provisioning completes. There may be
   // orphaned session info from a previous provisioning. Clear them by
   // recreating the dicts.
-  CreateOriginDictAndReturnSessionsDict(storage_dict, origin().Serialize(),
-                                        origin_id_);
+  CreateOriginDictAndReturnSessionsDict(storage_dict, origin(), origin_id_);
   std::move(callback).Run(true);
 }
 
@@ -497,16 +646,22 @@ void MediaDrmStorageImpl::SavePersistentSession(
   // branch. Deleting the profile causes reprovisioning of the origin.
   if (!sessions_dict) {
     DVLOG(1) << __func__ << ": No entry for origin " << origin();
-    sessions_dict = CreateOriginDictAndReturnSessionsDict(
-        storage_dict, origin().Serialize(), origin_id_);
+    sessions_dict = CreateOriginDictAndReturnSessionsDict(storage_dict,
+                                                          origin(), origin_id_);
     DCHECK(sessions_dict);
   }
 
   DVLOG_IF(1, sessions_dict->FindKey(session_id))
       << __func__ << ": Session ID already exists and will be replaced.";
 
+  // The key type of the session should be valid. MeidaDrmKeyType::MIN/UNKNOWN
+  // is an invalid type and caller should never pass it here.
+  DCHECK_GT(session_data->key_type, media::MediaDrmKeyType::MIN);
+  DCHECK_LE(session_data->key_type, media::MediaDrmKeyType::MAX);
+
   sessions_dict->SetKey(
-      session_id, SessionData(session_data->key_set_id, session_data->mime_type)
+      session_id, SessionData(session_data->key_set_id, session_data->mime_type,
+                              session_data->key_type)
                       .ToDictValue());
 
   std::move(callback).Run(true);

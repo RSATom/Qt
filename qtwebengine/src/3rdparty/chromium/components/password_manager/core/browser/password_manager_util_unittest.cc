@@ -5,13 +5,18 @@
 #include "components/password_manager/core/browser/password_manager_util.h"
 
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "base/bind_helpers.h"
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/password_manager/core/browser/mock_password_store.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
+#include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -25,7 +30,6 @@ namespace {
 
 constexpr char kTestAndroidRealm[] = "android://hash@com.example.beta.android";
 constexpr char kTestFederationURL[] = "https://google.com/";
-constexpr char kTestURL[] = "https://example.com/";
 constexpr char kTestUsername[] = "Username";
 constexpr char kTestUsername2[] = "Username2";
 constexpr char kTestPassword[] = "12345";
@@ -37,12 +41,6 @@ autofill::PasswordForm GetTestAndroidCredentials(const char* signon_realm) {
   form.username_value = base::ASCIIToUTF16(kTestUsername);
   form.password_value = base::ASCIIToUTF16(kTestPassword);
   return form;
-}
-
-// The argument is std::vector<autofill::PasswordForm*>*. The caller is
-// responsible for the lifetime of all the password forms.
-ACTION_P(AppendForm, form) {
-  arg0->push_back(std::make_unique<autofill::PasswordForm>(form));
 }
 
 }  // namespace
@@ -79,56 +77,23 @@ TEST(PasswordManagerUtil, TrimUsernameOnlyCredentials) {
   EXPECT_THAT(forms, UnorderedPasswordFormElementsAre(&expected_forms));
 }
 
-TEST(PasswordManagerUtil, CleanBlacklistedUsernamePassword) {
-  autofill::PasswordForm blacklisted;
-  blacklisted.blacklisted_by_user = true;
-  blacklisted.signon_realm = kTestURL;
-  blacklisted.origin = GURL(kTestURL);
+TEST(PasswordManagerUtil, GetSignonRealmWithProtocolExcluded) {
+  autofill::PasswordForm http_form;
+  http_form.origin = GURL("http://www.google.com/page-1/");
+  http_form.signon_realm = "http://www.google.com/";
+  EXPECT_EQ(GetSignonRealmWithProtocolExcluded(http_form), "www.google.com/");
 
-  autofill::PasswordForm blacklisted_with_username = blacklisted;
-  blacklisted_with_username.username_value = base::ASCIIToUTF16(kTestUsername);
+  autofill::PasswordForm https_form;
+  https_form.origin = GURL("https://www.google.com/page-1/");
+  https_form.signon_realm = "https://www.google.com/";
+  EXPECT_EQ(GetSignonRealmWithProtocolExcluded(https_form), "www.google.com/");
 
-  autofill::PasswordForm blacklisted_with_password = blacklisted;
-  blacklisted_with_password.password_value = base::ASCIIToUTF16(kTestPassword);
-
-  base::test::ScopedTaskEnvironment scoped_task_environment;
-  TestingPrefServiceSimple prefs;
-  prefs.registry()->RegisterBooleanPref(
-      password_manager::prefs::kBlacklistedCredentialsStripped, false);
-  auto password_store = base::MakeRefCounted<
-      testing::StrictMock<password_manager::MockPasswordStore>>();
-  ASSERT_TRUE(
-      password_store->Init(syncer::SyncableService::StartSyncFlare(), nullptr));
-
-  EXPECT_CALL(*password_store, FillBlacklistLogins(_))
-      .WillOnce(DoAll(AppendForm(blacklisted),
-                      AppendForm(blacklisted_with_username),
-                      AppendForm(blacklisted_with_password), Return(true)));
-  // Wrong credentials are to be cleaned.
-  EXPECT_CALL(*password_store, RemoveLogin(blacklisted_with_username));
-  EXPECT_CALL(*password_store, RemoveLogin(blacklisted_with_password));
-  EXPECT_CALL(*password_store, AddLogin(blacklisted)).Times(2);
-  CleanUserDataInBlacklistedCredentials(password_store.get(), &prefs, 0);
-  scoped_task_environment.RunUntilIdle();
-
-  EXPECT_FALSE(prefs.GetBoolean(
-      password_manager::prefs::kBlacklistedCredentialsStripped));
-
-  // Clean up with no credentials to be updated.
-  EXPECT_CALL(*password_store, FillBlacklistLogins(_))
-      .WillOnce(DoAll(AppendForm(blacklisted), Return(true)));
-  CleanUserDataInBlacklistedCredentials(password_store.get(), &prefs, 0);
-  scoped_task_environment.RunUntilIdle();
-
-  EXPECT_TRUE(prefs.GetBoolean(
-      password_manager::prefs::kBlacklistedCredentialsStripped));
-
-  // Clean up again. Nothing should happen.
-  EXPECT_CALL(*password_store, FillBlacklistLogins(_)).Times(0);
-  CleanUserDataInBlacklistedCredentials(password_store.get(), &prefs, 0);
-  scoped_task_environment.RunUntilIdle();
-
-  password_store->ShutdownOnUIThread();
+  autofill::PasswordForm federated_form;
+  federated_form.origin = GURL("http://localhost:8000/");
+  federated_form.signon_realm =
+      "federation://localhost/accounts.federation.com";
+  EXPECT_EQ(GetSignonRealmWithProtocolExcluded(federated_form),
+            "localhost/accounts.federation.com");
 }
 
 TEST(PasswordManagerUtil, FindBestMatches) {
@@ -236,8 +201,7 @@ TEST(PasswordManagerUtil, FindBestMatches) {
         // A non-best match form must not be in |best_matches|.
         EXPECT_NE(best_matches[form->username_value], form);
 
-        matches.erase(std::remove(matches.begin(), matches.end(), form),
-                      matches.end());
+        base::Erase(matches, form);
       }
       // Expect that all non-best matches were found in |matches| and only best
       // matches left.

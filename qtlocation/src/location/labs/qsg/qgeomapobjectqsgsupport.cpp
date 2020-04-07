@@ -126,7 +126,11 @@ QGeoMapObjectPrivate *QGeoMapObjectQSGSupport::createMapObjectImplementationPriv
 
 QList<QGeoMapObject *> QGeoMapObjectQSGSupport::mapObjects() const
 {
-    return QList<QGeoMapObject *>();
+    QList<QGeoMapObject *> res;
+    for (int i = 0; i < m_mapObjects.size(); ++i) {
+        res.append(m_mapObjects.at(i).object.data());
+    }
+    return res;
 }
 
 void QGeoMapObjectQSGSupport::removeMapObject(QGeoMapObject *obj)

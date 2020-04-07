@@ -72,6 +72,9 @@ Polymer({
 
     /** @private */
     lastFocused_: Object,
+
+    /** @private */
+    listBlurred_: Boolean,
   },
 
   /** @private {settings.LocalDataBrowserProxy} */
@@ -114,19 +117,6 @@ Polymer({
   },
 
   /**
-   * Returns the icon to use for a given site.
-   * @param {string} url The url of the site to fetch the icon for.
-   * @return {string} Value for background-image style.
-   * @private
-   */
-  favicon_: function(url) {
-    // If the url doesn't have a scheme, inject HTTP as the scheme. Otherwise,
-    // the URL isn't valid and no icon will be returned.
-    const urlWithScheme = url.includes('://') ? url : 'http://' + url;
-    return cr.icon.getFavicon(urlWithScheme);
-  },
-
-  /**
    * @param {!Map<string, (string|Function)>} newConfig
    * @param {?Map<string, (string|Function)>} oldConfig
    * @private
@@ -141,8 +131,9 @@ Polymer({
     // elements residing in this element's Shadow DOM.
     if (settings.routes.SITE_SETTINGS_DATA_DETAILS) {
       const onNavigatedTo = () => this.async(() => {
-        if (this.lastSelected_ == null || this.sites.length == 0)
+        if (this.lastSelected_ == null || this.sites.length == 0) {
           return;
+        }
 
         const lastSelectedSite = this.lastSelected_.item.site;
         const lastSelectedIndex = this.lastSelected_.index;
@@ -158,17 +149,25 @@ Polymer({
             lastSelectedIndex :
             this.sites.length - 1;
         const index = indexFromId > -1 ? indexFromId : indexFallback;
-        const ironList =
-            /** @type {!IronListElement} */ (this.$$('iron-list'));
-        ironList.focusItem(index);
-        const siteToSelect = this.sites[index].site.replace(/[.]/g, '\\.');
-        const button =
-            this.$$(`#siteItem_${siteToSelect}`).$$('.subpage-arrow button');
-        cr.ui.focusWithoutInk(assert(button));
+        this.focusOnSiteSelectButton_(index);
       });
       this.focusConfig.set(
           settings.routes.SITE_SETTINGS_DATA_DETAILS.path, onNavigatedTo);
     }
+  },
+
+  /**
+   * @param {number} index
+   * @private
+   */
+  focusOnSiteSelectButton_: function(index) {
+    const ironList =
+        /** @type {!IronListElement} */ (this.$$('iron-list'));
+    ironList.focusItem(index);
+    const siteToSelect = this.sites[index].site.replace(/[.]/g, '\\.');
+    const button =
+        this.$$(`#siteItem_${siteToSelect}`).$$('.subpage-arrow button');
+    cr.ui.focusWithoutInk(assert(button));
   },
 
   /**
@@ -192,8 +191,9 @@ Polymer({
    * @private
    */
   computeRemoveLabel_: function(filter) {
-    if (filter.length == 0)
+    if (filter.length == 0) {
       return loadTimeData.getString('siteSettingsCookieRemoveAll');
+    }
     return loadTimeData.getString('siteSettingsCookieRemoveAllShown');
   },
 
@@ -239,6 +239,10 @@ Polymer({
    * @private
    */
   onSiteClick_: function(event) {
+    // If any delete button is selected, the focus will be in a bad state when
+    // returning to this page. To avoid this, the site select button is given
+    // focus. See https://crbug.com/872197.
+    this.focusOnSiteSelectButton_(event.model.index);
     settings.navigateTo(
         settings.routes.SITE_SETTINGS_DATA_DETAILS,
         new URLSearchParams('site=' + event.model.item.site));

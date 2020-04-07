@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//build/config/jumbo.gni")
 import("//media/media_options.gni")
 import("//testing/test.gni")
 
@@ -17,7 +18,7 @@ group("capture") {
 }
 
 # Things needed by //media/capture/mojom/video_capture_types.mojom.
-component("capture_base") {
+jumbo_component("capture_base") {
   defines = [ "CAPTURE_IMPLEMENTATION" ]
   sources = [
     "capture_export.h",
@@ -37,7 +38,7 @@ component("capture_base") {
 }
 
 # Target which allows breakout of Android BUILD.gn files.
-source_set("capture_device_specific") {
+jumbo_source_set("capture_device_specific") {
   visibility = [
     ":capture_lib",
     "//media/capture/content/android",
@@ -90,12 +91,14 @@ source_set("capture_device_specific") {
   ]
 }
 
-component("capture_lib") {
+jumbo_component("capture_lib") {
   defines = [ "CAPTURE_IMPLEMENTATION" ]
   sources = [
     "video/create_video_capture_device_factory.cc",
     "video/create_video_capture_device_factory.h",
     "video/scoped_buffer_pool_reservation.h",
+    "video/scoped_video_capture_jpeg_decoder.cc",
+    "video/scoped_video_capture_jpeg_decoder.h",
     "video/shared_memory_buffer_tracker.cc",
     "video/shared_memory_buffer_tracker.h",
     "video/shared_memory_handle_provider.cc",
@@ -199,7 +202,7 @@ component("capture_lib") {
       "video/win/video_capture_device_win.cc",
       "video/win/video_capture_device_win.h",
     ]
-    deps += [ "//media/base/win" ]
+    deps += [ "//media/base/win:media_foundation_util" ]
     libs = [
       "mf.lib",
       "mfplat.lib",
@@ -221,6 +224,8 @@ component("capture_lib") {
     sources += [
       "video/linux/camera_config_chromeos.cc",
       "video/linux/camera_config_chromeos.h",
+      "video/linux/scoped_v4l2_device_fd.cc",
+      "video/linux/scoped_v4l2_device_fd.h",
       "video/linux/v4l2_capture_delegate.cc",
       "video/linux/v4l2_capture_delegate.h",
       "video/linux/v4l2_capture_device.h",
@@ -264,16 +269,31 @@ component("capture_lib") {
     ]
     public_deps += [ "//media/capture/video/chromeos/public" ]
     deps += [
-      "//chromeos:chromeos",
+      "//build/config/linux/libdrm",
+      "//chromeos/dbus",
       "//media/capture/video/chromeos/mojo:cros_camera",
-      "//third_party/libdrm",
       "//third_party/libsync",
+    ]
+  }
+
+  if (is_fuchsia) {
+    sources += [
+      "video/fuchsia/video_capture_device_factory_fuchsia.cc",
+      "video/fuchsia/video_capture_device_factory_fuchsia.h",
     ]
   }
 }
 
 source_set("test_support") {
+  testonly = true
+
   sources = [
+    "video/mock_device.cc",
+    "video/mock_device.h",
+    "video/mock_device_factory.cc",
+    "video/mock_device_factory.h",
+    "video/mock_video_capture_device_client.cc",
+    "video/mock_video_capture_device_client.h",
     "video/mock_video_frame_receiver.cc",
     "video/mock_video_frame_receiver.h",
   ]
@@ -374,10 +394,11 @@ test("capture_unittests") {
       "video/chromeos/stream_buffer_manager_unittest.cc",
     ]
     deps += [
-      "//chromeos:chromeos",
+      "//build/config/linux/libdrm",
+      "//chromeos/dbus:test_support",
       "//media/capture/video/chromeos/mojo:cros_camera",
+      "//media/capture/video/chromeos/public",
       "//mojo/core/embedder",
-      "//third_party/libdrm",
       "//third_party/libsync",
       "//third_party/minigbm",
     ]

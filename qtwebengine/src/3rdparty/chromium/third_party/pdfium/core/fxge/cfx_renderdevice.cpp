@@ -18,6 +18,7 @@
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/cfx_imagerenderer.h"
 #include "core/fxge/renderdevicedriver_iface.h"
 
@@ -35,7 +36,7 @@ void AdjustGlyphSpace(std::vector<FXTEXT_GLYPHPOS>* pGlyphAndPos) {
     return;
 
   for (size_t i = glyphs.size() - 1; i > 1; --i) {
-    const FXTEXT_GLYPHPOS& next = glyphs[i];
+    FXTEXT_GLYPHPOS& next = glyphs[i];
     int next_origin = bVertical ? next.m_Origin.y : next.m_Origin.x;
     float next_origin_f = bVertical ? next.m_fOrigin.y : next.m_fOrigin.x;
 
@@ -375,21 +376,23 @@ FXTEXT_CHARPOS::FXTEXT_CHARPOS()
 
 FXTEXT_CHARPOS::FXTEXT_CHARPOS(const FXTEXT_CHARPOS&) = default;
 
-FXTEXT_CHARPOS::~FXTEXT_CHARPOS(){};
+FXTEXT_CHARPOS::~FXTEXT_CHARPOS() = default;
 
-CFX_RenderDevice::CFX_RenderDevice()
-    : m_pBitmap(nullptr),
-      m_Width(0),
-      m_Height(0),
-      m_bpp(0),
-      m_RenderCaps(0),
-      m_DeviceClass(0) {}
+CFX_RenderDevice::CFX_RenderDevice() = default;
 
 CFX_RenderDevice::~CFX_RenderDevice() {
   RestoreState(false);
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
   Flush(true);
 #endif
+}
+
+// static
+CFX_Matrix CFX_RenderDevice::GetFlipMatrix(float width,
+                                           float height,
+                                           float left,
+                                           float top) {
+  return CFX_Matrix(width, 0, 0, -height, left, top + height);
 }
 
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
@@ -522,7 +525,7 @@ bool CFX_RenderDevice::DrawPathWithBlend(const CFX_PathData* pPathData,
                                          uint32_t fill_color,
                                          uint32_t stroke_color,
                                          int fill_mode,
-                                         int blend_type) {
+                                         BlendMode blend_type) {
   uint8_t stroke_alpha = pGraphState ? FXARGB_A(stroke_color) : 0;
   uint8_t fill_alpha = (fill_mode & 3) ? FXARGB_A(fill_color) : 0;
   const std::vector<FX_PATHPOINT>& pPoints = pPathData->GetPoints();
@@ -630,7 +633,7 @@ bool CFX_RenderDevice::DrawFillStrokePath(const CFX_PathData* pPathData,
                                           uint32_t fill_color,
                                           uint32_t stroke_color,
                                           int fill_mode,
-                                          int blend_type) {
+                                          BlendMode blend_type) {
   if (!(m_RenderCaps & FXRC_GET_BITS))
     return false;
   CFX_FloatRect bbox;
@@ -676,13 +679,13 @@ bool CFX_RenderDevice::DrawFillStrokePath(const CFX_PathData* pPathData,
   bitmap_device.GetDeviceDriver()->Flush();
 #endif
   FX_RECT src_rect(0, 0, rect.Width(), rect.Height());
-  return m_pDeviceDriver->SetDIBits(bitmap, 0, &src_rect, rect.left, rect.top,
-                                    FXDIB_BLEND_NORMAL);
+  return m_pDeviceDriver->SetDIBits(bitmap, 0, src_rect, rect.left, rect.top,
+                                    BlendMode::kNormal);
 }
 
 bool CFX_RenderDevice::FillRectWithBlend(const FX_RECT& rect,
                                          uint32_t fill_color,
-                                         int blend_type) {
+                                         BlendMode blend_type) {
   if (m_pDeviceDriver->FillRectWithBlend(rect, fill_color, blend_type))
     return true;
 
@@ -701,8 +704,8 @@ bool CFX_RenderDevice::FillRectWithBlend(const FX_RECT& rect,
     return false;
   }
   FX_RECT src_rect(0, 0, rect.Width(), rect.Height());
-  m_pDeviceDriver->SetDIBits(bitmap, 0, &src_rect, rect.left, rect.top,
-                             FXDIB_BLEND_NORMAL);
+  m_pDeviceDriver->SetDIBits(bitmap, 0, src_rect, rect.left, rect.top,
+                             BlendMode::kNormal);
   return true;
 }
 
@@ -710,7 +713,7 @@ bool CFX_RenderDevice::DrawCosmeticLine(const CFX_PointF& ptMoveTo,
                                         const CFX_PointF& ptLineTo,
                                         uint32_t color,
                                         int fill_mode,
-                                        int blend_type) {
+                                        BlendMode blend_type) {
   if ((color >= 0xff000000) && m_pDeviceDriver->DrawCosmeticLine(
                                    ptMoveTo, ptLineTo, color, blend_type)) {
     return true;
@@ -734,11 +737,10 @@ RetainPtr<CFX_DIBitmap> CFX_RenderDevice::GetBackDrop() {
   return m_pDeviceDriver->GetBackDrop();
 }
 
-bool CFX_RenderDevice::SetDIBitsWithBlend(
-    const RetainPtr<CFX_DIBSource>& pBitmap,
-    int left,
-    int top,
-    int blend_mode) {
+bool CFX_RenderDevice::SetDIBitsWithBlend(const RetainPtr<CFX_DIBBase>& pBitmap,
+                                          int left,
+                                          int top,
+                                          BlendMode blend_mode) {
   ASSERT(!pBitmap->IsAlphaMask());
   FX_RECT dest_rect(left, top, left + pBitmap->GetWidth(),
                     top + pBitmap->GetHeight());
@@ -749,9 +751,9 @@ bool CFX_RenderDevice::SetDIBitsWithBlend(
   FX_RECT src_rect(dest_rect.left - left, dest_rect.top - top,
                    dest_rect.left - left + dest_rect.Width(),
                    dest_rect.top - top + dest_rect.Height());
-  if ((blend_mode == FXDIB_BLEND_NORMAL || (m_RenderCaps & FXRC_BLEND_MODE)) &&
+  if ((blend_mode == BlendMode::kNormal || (m_RenderCaps & FXRC_BLEND_MODE)) &&
       (!pBitmap->HasAlpha() || (m_RenderCaps & FXRC_ALPHA_IMAGE))) {
-    return m_pDeviceDriver->SetDIBits(pBitmap, 0, &src_rect, dest_rect.left,
+    return m_pDeviceDriver->SetDIBits(pBitmap, 0, src_rect, dest_rect.left,
                                       dest_rect.top, blend_mode);
   }
   if (!(m_RenderCaps & FXRC_GET_BITS))
@@ -774,71 +776,71 @@ bool CFX_RenderDevice::SetDIBitsWithBlend(
     return false;
   }
   FX_RECT rect(0, 0, bg_pixel_width, bg_pixel_height);
-  return m_pDeviceDriver->SetDIBits(background, 0, &rect, dest_rect.left,
-                                    dest_rect.top, FXDIB_BLEND_NORMAL);
+  return m_pDeviceDriver->SetDIBits(background, 0, rect, dest_rect.left,
+                                    dest_rect.top, BlendMode::kNormal);
 }
 
 bool CFX_RenderDevice::StretchDIBitsWithFlagsAndBlend(
-    const RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBBase>& pBitmap,
     int left,
     int top,
     int dest_width,
     int dest_height,
-    uint32_t flags,
-    int blend_mode) {
+    const FXDIB_ResampleOptions& options,
+    BlendMode blend_mode) {
   FX_RECT dest_rect(left, top, left + dest_width, top + dest_height);
   FX_RECT clip_box = m_ClipBox;
   clip_box.Intersect(dest_rect);
   return clip_box.IsEmpty() || m_pDeviceDriver->StretchDIBits(
                                    pBitmap, 0, left, top, dest_width,
-                                   dest_height, &clip_box, flags, blend_mode);
+                                   dest_height, &clip_box, options, blend_mode);
 }
 
-bool CFX_RenderDevice::SetBitMask(const RetainPtr<CFX_DIBSource>& pBitmap,
+bool CFX_RenderDevice::SetBitMask(const RetainPtr<CFX_DIBBase>& pBitmap,
                                   int left,
                                   int top,
                                   uint32_t argb) {
   FX_RECT src_rect(0, 0, pBitmap->GetWidth(), pBitmap->GetHeight());
-  return m_pDeviceDriver->SetDIBits(pBitmap, argb, &src_rect, left, top,
-                                    FXDIB_BLEND_NORMAL);
+  return m_pDeviceDriver->SetDIBits(pBitmap, argb, src_rect, left, top,
+                                    BlendMode::kNormal);
 }
 
-bool CFX_RenderDevice::StretchBitMask(const RetainPtr<CFX_DIBSource>& pBitmap,
+bool CFX_RenderDevice::StretchBitMask(const RetainPtr<CFX_DIBBase>& pBitmap,
                                       int left,
                                       int top,
                                       int dest_width,
                                       int dest_height,
                                       uint32_t color) {
   return StretchBitMaskWithFlags(pBitmap, left, top, dest_width, dest_height,
-                                 color, 0);
+                                 color, FXDIB_ResampleOptions());
 }
 
 bool CFX_RenderDevice::StretchBitMaskWithFlags(
-    const RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBBase>& pBitmap,
     int left,
     int top,
     int dest_width,
     int dest_height,
     uint32_t argb,
-    uint32_t flags) {
+    const FXDIB_ResampleOptions& options) {
   FX_RECT dest_rect(left, top, left + dest_width, top + dest_height);
   FX_RECT clip_box = m_ClipBox;
   clip_box.Intersect(dest_rect);
   return m_pDeviceDriver->StretchDIBits(pBitmap, argb, left, top, dest_width,
-                                        dest_height, &clip_box, flags,
-                                        FXDIB_BLEND_NORMAL);
+                                        dest_height, &clip_box, options,
+                                        BlendMode::kNormal);
 }
 
 bool CFX_RenderDevice::StartDIBitsWithBlend(
-    const RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBBase>& pBitmap,
     int bitmap_alpha,
     uint32_t argb,
-    const CFX_Matrix* pMatrix,
-    uint32_t flags,
+    const CFX_Matrix& matrix,
+    const FXDIB_ResampleOptions& options,
     std::unique_ptr<CFX_ImageRenderer>* handle,
-    int blend_mode) {
-  return m_pDeviceDriver->StartDIBits(pBitmap, bitmap_alpha, argb, pMatrix,
-                                      flags, handle, blend_mode);
+    BlendMode blend_mode) {
+  return m_pDeviceDriver->StartDIBits(pBitmap, bitmap_alpha, argb, matrix,
+                                      options, handle, blend_mode);
 }
 
 bool CFX_RenderDevice::ContinueDIBits(CFX_ImageRenderer* handle,
@@ -851,12 +853,12 @@ void CFX_RenderDevice::DebugVerifyBitmapIsPreMultiplied() const {
   SkASSERT(0);
 }
 
-bool CFX_RenderDevice::SetBitsWithMask(const RetainPtr<CFX_DIBSource>& pBitmap,
-                                       const RetainPtr<CFX_DIBSource>& pMask,
+bool CFX_RenderDevice::SetBitsWithMask(const RetainPtr<CFX_DIBBase>& pBitmap,
+                                       const RetainPtr<CFX_DIBBase>& pMask,
                                        int left,
                                        int top,
                                        int bitmap_alpha,
-                                       int blend_type) {
+                                       BlendMode blend_type) {
   return m_pDeviceDriver->SetBitsWithMask(pBitmap, pMask, left, top,
                                           bitmap_alpha, blend_type);
 }
@@ -1046,7 +1048,7 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
     if (anti_alias == FXFT_RENDER_MODE_NORMAL) {
       if (!bitmap->CompositeMask(left.ValueOrDie(), top.ValueOrDie(), ncols,
                                  nrows, pGlyph, fill_color, 0, 0,
-                                 FXDIB_BLEND_NORMAL, nullptr, false, 0)) {
+                                 BlendMode::kNormal, nullptr, false, 0)) {
         return false;
       }
       continue;
@@ -1106,7 +1108,7 @@ bool CFX_RenderDevice::DrawTextPath(int nChars,
     matrix.Concat(*pText2User);
 
     CFX_PathData TransformedPath(*pPath);
-    TransformedPath.Transform(&matrix);
+    TransformedPath.Transform(matrix);
     if (fill_color || stroke_color) {
       int fill_mode = nFlag;
       if (fill_color)
@@ -1114,7 +1116,7 @@ bool CFX_RenderDevice::DrawTextPath(int nChars,
       fill_mode |= FX_FILL_TEXT_MODE;
       if (!DrawPathWithBlend(&TransformedPath, pUser2Device, pGraphState,
                              fill_color, stroke_color, fill_mode,
-                             FXDIB_BLEND_NORMAL)) {
+                             BlendMode::kNormal)) {
         return false;
       }
     }
@@ -1256,11 +1258,8 @@ void CFX_RenderDevice::DrawBorder(const CFX_Matrix* pUser2Device,
             FXPT_TYPE::LineTo, false);
 
         CFX_GraphStateData gsd;
-        gsd.SetDashCount(2);
-        gsd.m_DashArray[0] = 3.0f;
-        gsd.m_DashArray[1] = 3.0f;
+        gsd.m_DashArray = {3.0f, 3.0f};
         gsd.m_DashPhase = 0;
-
         gsd.m_LineWidth = fWidth;
         DrawPath(&path, pUser2Device, &gsd, 0, color.ToFXColor(nTransparency),
                  FXFILL_WINDING);

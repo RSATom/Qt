@@ -37,8 +37,9 @@ struct SupportRequirement
     // Extensions that are required if the minimum version is not met
     std::vector<std::string> versionExtensions;
 
-    // Extensions that are always required to support this format
-    std::vector<std::string> requiredExtensions;
+    // Sets of extensions that are required to support this format
+    // All the extensions in one of the sets have to be available for a format to be supported
+    std::vector<std::vector<std::string>> requiredExtensions;
 };
 
 struct InternalFormat
@@ -128,8 +129,8 @@ ReadPixelsFormat GetReadPixelsFormat(const FunctionsGL *functions,
                                      const WorkaroundsGL &workarounds,
                                      GLenum format,
                                      GLenum type);
-}
+}  // namespace nativegl
 
-}
+}  // namespace rx
 
-#endif // LIBANGLE_RENDERER_GL_FORMATUTILSGL_H_
+#endif  // LIBANGLE_RENDERER_GL_FORMATUTILSGL_H_

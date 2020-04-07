@@ -10,17 +10,16 @@
 
 namespace {
 
-class TestNode : public CXFA_Node {
+class TestNode final : public CXFA_Node {
  public:
   explicit TestNode(CXFA_Document* doc)
       : CXFA_Node(doc,
                   XFA_PacketType::Form,
                   (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                   XFA_ObjectType::Node,
-                  XFA_Element::Unknown,
+                  XFA_Element::Node,
                   nullptr,
-                  nullptr,
-                  L"TestNode") {}
+                  nullptr) {}
 
   ~TestNode() override = default;
 };
@@ -46,25 +45,6 @@ class CXFANodeTest : public testing::Test {
   std::unique_ptr<CXFA_Document> doc_;
   std::unique_ptr<TestNode> node_;
 };
-
-TEST_F(CXFANodeTest, NameToAttribute) {
-  EXPECT_EQ(XFA_Attribute::Unknown, CXFA_Node::NameToAttribute(L""));
-  EXPECT_EQ(XFA_Attribute::Unknown, CXFA_Node::NameToAttribute(L"nonesuch"));
-  EXPECT_EQ(XFA_Attribute::H, CXFA_Node::NameToAttribute(L"h"));
-  EXPECT_EQ(XFA_Attribute::Short, CXFA_Node::NameToAttribute(L"short"));
-  EXPECT_EQ(XFA_Attribute::DecipherOnly,
-            CXFA_Node::NameToAttribute(L"decipherOnly"));
-}
-
-TEST_F(CXFANodeTest, GetAttributeEnumByName) {
-  EXPECT_FALSE(!!CXFA_Node::NameToAttributeEnum(L""));
-  EXPECT_FALSE(!!CXFA_Node::NameToAttributeEnum(L"nonesuch"));
-  EXPECT_EQ(XFA_AttributeEnum::Asterisk, *CXFA_Node::NameToAttributeEnum(L"*"));
-  EXPECT_EQ(XFA_AttributeEnum::Visible,
-            *CXFA_Node::NameToAttributeEnum(L"visible"));
-  EXPECT_EQ(XFA_AttributeEnum::Lowered,
-            *CXFA_Node::NameToAttributeEnum(L"lowered"));
-}
 
 TEST_F(CXFANodeTest, InsertFirstChild) {
   EXPECT_EQ(nullptr, GetNode()->GetFirstChild());

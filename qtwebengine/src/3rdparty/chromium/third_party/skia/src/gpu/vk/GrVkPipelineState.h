@@ -12,7 +12,7 @@
 #include "GrVkDescriptorSetManager.h"
 #include "GrVkPipelineStateDataManager.h"
 #include "glsl/GrGLSLProgramBuilder.h"
-#include "vk/GrVkDefines.h"
+#include "vk/GrVkTypes.h"
 
 class GrPipeline;
 class GrStencilSettings;
@@ -25,6 +25,7 @@ class GrVkImageView;
 class GrVkPipeline;
 class GrVkPipelineLayout;
 class GrVkSampler;
+class GrVkTexture;
 class GrVkUniformBuffer;
 
 /**
@@ -47,7 +48,7 @@ public:
             const UniformInfoArray& uniforms,
             uint32_t geometryUniformSize,
             uint32_t fragmentUniformSize,
-            uint32_t numSamplers,
+            const UniformInfoArray& samplers,
             std::unique_ptr<GrGLSLPrimitiveProcessor> geometryProcessor,
             std::unique_ptr<GrGLSLXferProcessor> xferProcessor,
             std::unique_ptr<std::unique_ptr<GrGLSLFragmentProcessor>[]> fragmentProcessors,
@@ -55,32 +56,32 @@ public:
 
     ~GrVkPipelineState();
 
-    void setData(GrVkGpu*, const GrPrimitiveProcessor&, const GrPipeline&);
+    void setAndBindUniforms(GrVkGpu*, const GrPrimitiveProcessor&, const GrPipeline&,
+                            GrVkCommandBuffer*);
+    /**
+     * This must be called after setAndBindUniforms() since that function invalidates texture
+     * bindings.
+     */
+    void setAndBindTextures(GrVkGpu*, const GrPrimitiveProcessor&, const GrPipeline&,
+                            const GrTextureProxy* const primitiveProcessorTextures[],
+                            GrVkCommandBuffer*);
 
-    void bind(const GrVkGpu* gpu, GrVkCommandBuffer* commandBuffer);
+    void bindPipeline(const GrVkGpu* gpu, GrVkCommandBuffer* commandBuffer);
 
-    void addUniformResources(GrVkCommandBuffer&);
+    void addUniformResources(GrVkCommandBuffer&, GrVkSampler*[], GrVkTexture*[], int numTextures);
 
-    void freeGPUResources(const GrVkGpu* gpu);
-
-    // This releases resources that only a given instance of a GrVkPipelineState needs to hold onto
-    // and don't need to survive across new uses of the GrVkPipelineState.
-    void freeTempResources(const GrVkGpu* gpu);
+    void freeGPUResources(GrVkGpu* gpu);
 
     void abandonGPUResources();
 
 private:
     void writeUniformBuffers(const GrVkGpu* gpu);
 
-    void writeSamplers(
-            GrVkGpu* gpu,
-            const SkTArray<const GrResourceIOProcessor::TextureSampler*>& textureBindings);
-
     /**
-    * We use the RT's size and origin to adjust from Skia device space to vulkan normalized device
-    * space and to make device space positions have the correct origin for processors that require
-    * them.
-    */
+     * We use the RT's size and origin to adjust from Skia device space to vulkan normalized device
+     * space and to make device space positions have the correct origin for processors that require
+     * them.
+     */
     struct RenderTargetState {
         SkISize         fRenderTargetSize;
         GrSurfaceOrigin fRenderTargetOrigin;
@@ -134,13 +135,10 @@ private:
 
     const GrVkDescriptorSetManager::Handle fSamplerDSHandle;
 
+    SkSTArray<4, const GrVkSampler*>   fImmutableSamplers;
+
     std::unique_ptr<GrVkUniformBuffer> fGeometryUniformBuffer;
     std::unique_ptr<GrVkUniformBuffer> fFragmentUniformBuffer;
-
-    // GrVkResources used for sampling textures
-    SkTDArray<GrVkSampler*> fSamplers;
-    SkTDArray<const GrVkImageView*> fTextureViews;
-    SkTDArray<const GrVkResource*> fTextures;
 
     // Tracks the current render target uniforms stored in the vertex buffer.
     RenderTargetState fRenderTargetState;

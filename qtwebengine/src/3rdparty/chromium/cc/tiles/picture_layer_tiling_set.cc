@@ -242,8 +242,7 @@ void PictureLayerTilingSet::CleanUpTilings(
       continue;
 
     // Don't remove tilings that are required.
-    if (std::find(needed_tilings.begin(), needed_tilings.end(), tiling.get()) !=
-        needed_tilings.end()) {
+    if (base::ContainsValue(needed_tilings, tiling.get())) {
       continue;
     }
 
@@ -515,10 +514,10 @@ void PictureLayerTilingSet::UpdatePriorityRects(
   // Finally, update our visible rect history. Note that we use the original
   // visible rect here, since we want as accurate of a history as possible for
   // stable skewports.
+  if (visible_rect_history_.size() == 2)
+    visible_rect_history_.pop_back();
   visible_rect_history_.push_front(FrameVisibleRect(
       visible_rect_in_layer_space_, current_frame_time_in_seconds));
-  if (visible_rect_history_.size() > 2)
-    visible_rect_history_.pop_back();
 }
 
 bool PictureLayerTilingSet::UpdateTilePriorities(

@@ -8,6 +8,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "third_party/blink/public/mojom/notifications/notification.mojom-shared.h"
 #include "third_party/blink/public/platform/modules/notifications/web_notification_action.h"
 #include "third_party/blink/public/platform/url_conversion.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -20,19 +21,18 @@ using blink::WebString;
 namespace content {
 
 WebNotificationData ToWebNotificationData(
-    const PlatformNotificationData& platform_data) {
+    const blink::PlatformNotificationData& platform_data) {
   WebNotificationData web_data;
   web_data.title = WebString::FromUTF16(platform_data.title);
-
   switch (platform_data.direction) {
-    case PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT:
-      web_data.direction = WebNotificationData::kDirectionLeftToRight;
+    case blink::PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT:
+      web_data.direction = blink::mojom::NotificationDirection::LEFT_TO_RIGHT;
       break;
-    case PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT:
-      web_data.direction = WebNotificationData::kDirectionRightToLeft;
+    case blink::PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT:
+      web_data.direction = blink::mojom::NotificationDirection::RIGHT_TO_LEFT;
       break;
-    case PlatformNotificationData::DIRECTION_AUTO:
-      web_data.direction = WebNotificationData::kDirectionAuto;
+    case blink::PlatformNotificationData::DIRECTION_AUTO:
+      web_data.direction = blink::mojom::NotificationDirection::AUTO;
       break;
   }
 
@@ -53,10 +53,10 @@ WebNotificationData ToWebNotificationData(
   web_data.actions.Swap(resized);
   for (size_t i = 0; i < platform_data.actions.size(); ++i) {
     switch (platform_data.actions[i].type) {
-      case PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON:
+      case blink::PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON:
         web_data.actions[i].type = blink::WebNotificationAction::kButton;
         break;
-      case PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT:
+      case blink::PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT:
         web_data.actions[i].type = blink::WebNotificationAction::kText;
         break;
       default:

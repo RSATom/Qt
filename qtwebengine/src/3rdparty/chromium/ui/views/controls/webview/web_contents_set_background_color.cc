@@ -9,8 +9,6 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(views::WebContentsSetBackgroundColor);
-
 namespace views {
 
 // static
@@ -53,5 +51,7 @@ void WebContentsSetBackgroundColor::RenderViewHostChanged(
     content::RenderViewHost* new_host) {
   new_host->GetWidget()->GetView()->SetBackgroundColor(color_);
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(WebContentsSetBackgroundColor)
 
 }  // namespace views

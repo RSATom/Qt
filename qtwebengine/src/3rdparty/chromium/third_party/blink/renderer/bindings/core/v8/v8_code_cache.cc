@@ -62,6 +62,14 @@ bool IsResourceHotForCaching(SingleCachedMetadataHandler* cache_handler,
 
 }  // namespace
 
+bool V8CodeCache::HasCodeCache(SingleCachedMetadataHandler* cache_handler) {
+  if (!cache_handler)
+    return false;
+
+  uint32_t code_cache_tag = V8CodeCache::TagForCodeCache(cache_handler);
+  return cache_handler->GetCachedMetadata(code_cache_tag).get();
+}
+
 v8::ScriptCompiler::CachedData* V8CodeCache::CreateCachedData(
     SingleCachedMetadataHandler* cache_handler) {
   DCHECK(cache_handler);
@@ -69,11 +77,10 @@ v8::ScriptCompiler::CachedData* V8CodeCache::CreateCachedData(
   scoped_refptr<CachedMetadata> cached_metadata =
       cache_handler->GetCachedMetadata(code_cache_tag);
   DCHECK(cached_metadata);
-  const char* data = cached_metadata->Data();
+  const uint8_t* data = cached_metadata->Data();
   int length = cached_metadata->size();
   return new v8::ScriptCompiler::CachedData(
-      reinterpret_cast<const uint8_t*>(data), length,
-      v8::ScriptCompiler::CachedData::BufferNotOwned);
+      data, length, v8::ScriptCompiler::CachedData::BufferNotOwned);
 }
 
 std::tuple<v8::ScriptCompiler::CompileOptions,
@@ -124,10 +131,7 @@ V8CodeCache::GetCompileOptions(V8CacheOptions cache_options,
                            no_cache_reason);
   }
 
-  uint32_t code_cache_tag = V8CodeCache::TagForCodeCache(cache_handler);
-  scoped_refptr<CachedMetadata> code_cache =
-      cache_handler->GetCachedMetadata(code_cache_tag);
-  if (code_cache) {
+  if (HasCodeCache(cache_handler)) {
     return std::make_tuple(v8::ScriptCompiler::kConsumeCodeCache,
                            ProduceCacheOptions::kNoProduceCache,
                            no_cache_reason);
@@ -197,7 +201,7 @@ void V8CodeCache::ProduceCache(
       std::unique_ptr<v8::ScriptCompiler::CachedData> cached_data(
           v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript()));
       if (cached_data) {
-        const char* data = reinterpret_cast<const char*>(cached_data->data);
+        const uint8_t* data = cached_data->data;
         int length = cached_data->length;
         if (length > 1024) {
           // Omit histogram samples for small cache data to avoid outliers.
@@ -218,14 +222,14 @@ void V8CodeCache::ProduceCache(
 
       TRACE_EVENT_END1(
           kTraceEventCategoryGroup, "v8.compile", "data",
-          InspectorCompileScriptEvent::Data(
+          inspector_compile_script_event::Data(
               source.Url().GetString(), source.StartPosition(),
-              InspectorCompileScriptEvent::V8CacheResult(
-                  InspectorCompileScriptEvent::V8CacheResult::ProduceResult(
+              inspector_compile_script_event::V8CacheResult(
+                  inspector_compile_script_event::V8CacheResult::ProduceResult(
                       compile_options, cached_data ? cached_data->length : 0),
-                  base::Optional<InspectorCompileScriptEvent::V8CacheResult::
+                  base::Optional<inspector_compile_script_event::V8CacheResult::
                                      ConsumeResult>()),
-              source.Streamer()));
+              source.Streamer(), source.NotStreamingReason()));
       break;
     }
     case ProduceCacheOptions::kNoProduceCache:
@@ -248,9 +252,9 @@ void V8CodeCache::SetCacheTimeStamp(
     SingleCachedMetadataHandler* cache_handler) {
   double now = WTF::CurrentTime();
   cache_handler->ClearCachedMetadata(CachedMetadataHandler::kCacheLocally);
-  cache_handler->SetCachedMetadata(TagForTimeStamp(cache_handler),
-                                   reinterpret_cast<char*>(&now), sizeof(now),
-                                   CachedMetadataHandler::kSendToPlatform);
+  cache_handler->SetCachedMetadata(
+      TagForTimeStamp(cache_handler), reinterpret_cast<uint8_t*>(&now),
+      sizeof(now), CachedMetadataHandler::kSendToPlatform);
 }
 
 // static
@@ -297,34 +301,34 @@ scoped_refptr<CachedMetadata> V8CodeCache::GenerateFullCodeCache(
           .ToLocal(&unbound_script)) {
     cached_data.reset(v8::ScriptCompiler::CreateCodeCache(unbound_script));
     if (cached_data && cached_data->length) {
-      cached_metadata = CachedMetadata::Create(
-          CacheTag(kCacheTagCode, encoding.GetName()),
-          reinterpret_cast<const char*>(cached_data->data),
-          cached_data->length);
+      cached_metadata =
+          CachedMetadata::Create(CacheTag(kCacheTagCode, encoding.GetName()),
+                                 cached_data->data, cached_data->length);
     }
   }
 
   TRACE_EVENT_END1(
       kTraceEventCategoryGroup, "v8.compile", "data",
-      InspectorCompileScriptEvent::Data(
+      inspector_compile_script_event::Data(
           file_name, TextPosition(),
-          InspectorCompileScriptEvent::V8CacheResult(
-              InspectorCompileScriptEvent::V8CacheResult::ProduceResult(
+          inspector_compile_script_event::V8CacheResult(
+              inspector_compile_script_event::V8CacheResult::ProduceResult(
                   v8::ScriptCompiler::kEagerCompile,
                   cached_data ? cached_data->length : 0),
-              base::Optional<
-                  InspectorCompileScriptEvent::V8CacheResult::ConsumeResult>()),
-          false));
+              base::Optional<inspector_compile_script_event::V8CacheResult::
+                                 ConsumeResult>()),
+          false, ScriptStreamer::kHasCodeCache));
 
   return cached_metadata;
 }
 
-STATIC_ASSERT_ENUM(WebSettings::kV8CacheOptionsDefault, kV8CacheOptionsDefault);
-STATIC_ASSERT_ENUM(WebSettings::kV8CacheOptionsNone, kV8CacheOptionsNone);
-STATIC_ASSERT_ENUM(WebSettings::kV8CacheOptionsCode, kV8CacheOptionsCode);
-STATIC_ASSERT_ENUM(WebSettings::kV8CacheOptionsCodeWithoutHeatCheck,
+STATIC_ASSERT_ENUM(WebSettings::V8CacheOptions::kDefault,
+                   kV8CacheOptionsDefault);
+STATIC_ASSERT_ENUM(WebSettings::V8CacheOptions::kNone, kV8CacheOptionsNone);
+STATIC_ASSERT_ENUM(WebSettings::V8CacheOptions::kCode, kV8CacheOptionsCode);
+STATIC_ASSERT_ENUM(WebSettings::V8CacheOptions::kCodeWithoutHeatCheck,
                    kV8CacheOptionsCodeWithoutHeatCheck);
-STATIC_ASSERT_ENUM(WebSettings::kV8CacheOptionsFullCodeWithoutHeatCheck,
+STATIC_ASSERT_ENUM(WebSettings::V8CacheOptions::kFullCodeWithoutHeatCheck,
                    kV8CacheOptionsFullCodeWithoutHeatCheck);
 
 }  // namespace blink

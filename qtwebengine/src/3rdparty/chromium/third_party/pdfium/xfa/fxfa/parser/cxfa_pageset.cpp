@@ -15,19 +15,18 @@ const CXFA_Node::PropertyData kPageSetPropertyData[] = {
     {XFA_Element::Extras, 1, 0},
     {XFA_Element::Occur, 1, 0},
     {XFA_Element::Unknown, 0, 0}};
+
 const CXFA_Node::AttributeData kPageSetAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Relation, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::OrderedOccurrence},
+     (void*)XFA_AttributeValue::OrderedOccurrence},
     {XFA_Attribute::Relevant, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::DuplexImposition, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::LongEdge},
+     (void*)XFA_AttributeValue::LongEdge},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
-
-constexpr wchar_t kPageSetName[] = L"pageSet";
 
 }  // namespace
 
@@ -39,7 +38,6 @@ CXFA_PageSet::CXFA_PageSet(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::PageSet,
                 kPageSetPropertyData,
                 kPageSetAttributeData,
-                kPageSetName,
                 pdfium::MakeUnique<CJX_PageSet>(this)) {}
 
-CXFA_PageSet::~CXFA_PageSet() {}
+CXFA_PageSet::~CXFA_PageSet() = default;

@@ -47,7 +47,7 @@
 
 QT_CHARTS_BEGIN_NAMESPACE
 
-class QT_QMLCHARTS_PRIVATE_EXPORT DeclarativeCategoryRange : public QObject
+class Q_QMLCHARTS_PRIVATE_EXPORT DeclarativeCategoryRange : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(qreal endValue READ endValue WRITE setEndValue)
@@ -58,7 +58,7 @@ public:
     qreal endValue() { return m_endValue; }
     void setEndValue(qreal endValue) { m_endValue = endValue; }
     QString label() { return m_label; }
-    void setLabel(QString label) { m_label = label; }
+    void setLabel(const QString &label);
 
 private:
     qreal m_endValue;

@@ -20,7 +20,7 @@ ConstantSourceHandler::ConstantSourceHandler(AudioNode& node,
                                              AudioParamHandler& offset)
     : AudioScheduledSourceHandler(kNodeTypeConstantSource, node, sample_rate),
       offset_(&offset),
-      sample_accurate_values_(AudioUtilities::kRenderQuantumFrames) {
+      sample_accurate_values_(audio_utilities::kRenderQuantumFrames) {
   // A ConstantSource is always mono.
   AddOutput(1);
 
@@ -38,7 +38,7 @@ ConstantSourceHandler::~ConstantSourceHandler() {
   Uninitialize();
 }
 
-void ConstantSourceHandler::Process(size_t frames_to_process) {
+void ConstantSourceHandler::Process(uint32_t frames_to_process) {
   AudioBus* output_bus = Output(0).Bus();
   DCHECK(output_bus);
 
@@ -61,8 +61,9 @@ void ConstantSourceHandler::Process(size_t frames_to_process) {
 
   // Figure out where in the current rendering quantum that the source is
   // active and for how many frames.
-  UpdateSchedulingInfo(frames_to_process, output_bus, quantum_frame_offset,
-                       non_silent_frames_to_process, start_frame_offset);
+  std::tie(quantum_frame_offset, non_silent_frames_to_process,
+           start_frame_offset) =
+      UpdateSchedulingInfo(frames_to_process, output_bus);
 
   if (!non_silent_frames_to_process) {
     output_bus->Zero();
@@ -126,12 +127,12 @@ ConstantSourceNode* ConstantSourceNode::Create(
     return nullptr;
   }
 
-  return new ConstantSourceNode(context);
+  return MakeGarbageCollected<ConstantSourceNode>(context);
 }
 
 ConstantSourceNode* ConstantSourceNode::Create(
     BaseAudioContext* context,
-    const ConstantSourceOptions& options,
+    const ConstantSourceOptions* options,
     ExceptionState& exception_state) {
   DCHECK(IsMainThread());
 
@@ -140,7 +141,7 @@ ConstantSourceNode* ConstantSourceNode::Create(
   if (!node)
     return nullptr;
 
-  node->offset()->setValue(options.offset());
+  node->offset()->setValue(options->offset());
 
   return node;
 }

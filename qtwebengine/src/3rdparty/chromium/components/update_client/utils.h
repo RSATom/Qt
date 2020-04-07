@@ -5,13 +5,13 @@
 #ifndef COMPONENTS_UPDATE_CLIENT_UTILS_H_
 #define COMPONENTS_UPDATE_CLIENT_UTILS_H_
 
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/flat_map.h"
 #include "base/memory/ref_counted.h"
 #include "components/update_client/update_client.h"
 
@@ -20,10 +20,6 @@ class GURL;
 namespace base {
 class DictionaryValue;
 class FilePath;
-}
-
-namespace net {
-class URLFetcher;
 }
 
 namespace network {
@@ -49,19 +45,11 @@ using LoadCompleteCallback =
 // expected to contain XML data. The caller owns the returned object.
 std::unique_ptr<network::SimpleURLLoader> SendProtocolRequest(
     const GURL& url,
-    const std::map<std::string, std::string>& protocol_request_extra_headers,
+    const base::flat_map<std::string, std::string>&
+        protocol_request_extra_headers,
     const std::string& protocol_request,
     LoadCompleteCallback callback,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
-
-// Returns true if the url request of |fetcher| was succesful.
-bool FetchSuccess(const net::URLFetcher& fetcher);
-
-// Returns the error code which occured during the fetch. The function returns 0
-// if the fetch was successful. If errors happen, the function could return a
-// network error, an http response code, or the status of the fetch, if the
-// fetch is pending or canceled.
-int GetFetchError(const net::URLFetcher& fetcher);
 
 // Returns true if the |component| contains a valid differential update url.
 bool HasDiffUpdate(const Component& component);

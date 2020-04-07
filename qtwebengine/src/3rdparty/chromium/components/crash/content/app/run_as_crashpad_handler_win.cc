@@ -12,9 +12,11 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/process/memory.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/browser_watcher/stability_report_user_stream_data_source.h"
+#include "components/gwp_asan/crash_handler/crash_handler.h"
 #include "third_party/crashpad/crashpad/client/crashpad_info.h"
 #include "third_party/crashpad/crashpad/client/simple_string_dictionary.h"
 #include "third_party/crashpad/crashpad/handler/handler_main.h"
@@ -52,17 +54,14 @@ int RunAsCrashpadHandler(const base::CommandLine& command_line,
       base::string16(L"--") + base::UTF8ToUTF16(process_type_switch) + L"=";
   const base::string16 user_data_dir_arg_prefix =
       base::string16(L"--") + base::UTF8ToUTF16(user_data_dir_switch) + L"=";
-  argv.erase(
-      std::remove_if(argv.begin(), argv.end(),
-                     [&process_type_arg_prefix,
-                      &user_data_dir_arg_prefix](const base::string16& str) {
-                       return base::StartsWith(str, process_type_arg_prefix,
-                                               base::CompareCase::SENSITIVE) ||
-                              base::StartsWith(str, user_data_dir_arg_prefix,
-                                               base::CompareCase::SENSITIVE) ||
-                              (!str.empty() && str[0] == L'/');
-                     }),
-      argv.end());
+  base::EraseIf(argv, [&process_type_arg_prefix,
+                       &user_data_dir_arg_prefix](const base::string16& str) {
+    return base::StartsWith(str, process_type_arg_prefix,
+                            base::CompareCase::SENSITIVE) ||
+           base::StartsWith(str, user_data_dir_arg_prefix,
+                            base::CompareCase::SENSITIVE) ||
+           (!str.empty() && str[0] == L'/');
+  });
 
   std::unique_ptr<char* []> argv_as_utf8(new char*[argv.size() + 1]);
   std::vector<std::string> storage;
@@ -84,6 +83,9 @@ int RunAsCrashpadHandler(const base::CommandLine& command_line,
         std::make_unique<browser_watcher::StabilityReportUserStreamDataSource>(
             user_data_dir));
   }
+
+  user_stream_data_sources.push_back(
+      std::make_unique<gwp_asan::UserStreamDataSource>());
 
   return crashpad::HandlerMain(static_cast<int>(storage.size()),
                                argv_as_utf8.get(), &user_stream_data_sources);

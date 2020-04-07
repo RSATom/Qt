@@ -6,12 +6,12 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
+#include "base/test/bind_test_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_management.h"
@@ -31,6 +31,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/url_loader_interceptor.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -256,7 +257,7 @@ class NotificationListener : public content::NotificationObserver {
   NotificationListener() : started_(false), finished_(false) {
     int types[] = {extensions::NOTIFICATION_EXTENSION_UPDATING_STARTED,
                    extensions::NOTIFICATION_EXTENSION_UPDATE_FOUND};
-    for (size_t i = 0; i < arraysize(types); i++) {
+    for (size_t i = 0; i < base::size(types); i++) {
       registrar_.Add(
           this, types[i], content::NotificationService::AllSources());
     }
@@ -343,18 +344,32 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, MAYBE_AutoUpdate) {
       basedir.AppendASCII("v2"), temp_dir.GetPath().AppendASCII("v2.crx"),
       pem_path, base::FilePath());
 
-  // Note: This interceptor gets requests on the IO thread.
-  net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-      base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
-
-  interceptor.SetResponseIgnoreQuery(
-      GURL("http://localhost/autoupdate/manifest"),
-      basedir.AppendASCII("manifest_v2.xml"));
-  interceptor.SetResponseIgnoreQuery(GURL("http://localhost/autoupdate/v2.crx"),
-                                     v2_path);
+  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](content::URLLoaderInterceptor::RequestParams* params) -> bool {
+        if (params->url_request.url.path() == "/autoupdate/v2.crx") {
+          content::URLLoaderInterceptor::WriteResponse(v2_path,
+                                                       params->client.get());
+          return true;
+        }
+        if (params->url_request.url.path() == "/autoupdate/v3.crx") {
+          content::URLLoaderInterceptor::WriteResponse(
+              basedir.AppendASCII("v3.crx"), params->client.get());
+          return true;
+        }
+        if (params->url_request.url.path() == "/autoupdate/manifest") {
+          static bool first = true;
+          if (first) {
+            content::URLLoaderInterceptor::WriteResponse(
+                basedir.AppendASCII("manifest_v2.xml"), params->client.get());
+            first = false;
+          } else {
+            content::URLLoaderInterceptor::WriteResponse(
+                basedir.AppendASCII("manifest_v3.xml"), params->client.get());
+          }
+          return true;
+        }
+        return false;
+      }));
 
   // Install version 1 of the extension.
   ExtensionTestMessageListener listener1("v1 installed", false);
@@ -394,11 +409,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, MAYBE_AutoUpdate) {
 
   // Now try doing an update to version 3, which has been incorrectly
   // signed. This should fail.
-  interceptor.SetResponseIgnoreQuery(
-      GURL("http://localhost/autoupdate/manifest"),
-      basedir.AppendASCII("manifest_v3.xml"));
-  interceptor.SetResponseIgnoreQuery(GURL("http://localhost/autoupdate/v3.crx"),
-                                     basedir.AppendASCII("v3.crx"));
 
   extensions::ExtensionUpdater::CheckParams params2;
   params2.callback = base::BindOnce(&NotificationListener::OnFinished,
@@ -447,18 +457,20 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
       basedir.AppendASCII("v2"), temp_dir.GetPath().AppendASCII("v2.crx"),
       pem_path, base::FilePath());
 
-  // Note: This interceptor gets requests on the IO thread.
-  net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-      base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
-
-  interceptor.SetResponseIgnoreQuery(
-      GURL("http://localhost/autoupdate/manifest"),
-      basedir.AppendASCII("manifest_v2.xml"));
-  interceptor.SetResponseIgnoreQuery(GURL("http://localhost/autoupdate/v2.crx"),
-                                     v2_path);
+  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](content::URLLoaderInterceptor::RequestParams* params) -> bool {
+        if (params->url_request.url.path() == "/autoupdate/manifest") {
+          content::URLLoaderInterceptor::WriteResponse(
+              basedir.AppendASCII("manifest_v2.xml"), params->client.get());
+          return true;
+        }
+        if (params->url_request.url.path() == "/autoupdate/v2.crx") {
+          content::URLLoaderInterceptor::WriteResponse(v2_path,
+                                                       params->client.get());
+          return true;
+        }
+        return false;
+      }));
 
   // Install version 1 of the extension.
   ExtensionTestMessageListener listener1("v1 installed", false);
@@ -523,18 +535,20 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
       basedir.AppendASCII("v2"), temp_dir.GetPath().AppendASCII("v2.crx"),
       pem_path, base::FilePath());
 
-  // Note: This interceptor gets requests on the IO thread.
-  net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-      base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
-
-  interceptor.SetResponseIgnoreQuery(
-      GURL("http://localhost/autoupdate/manifest"),
-      basedir.AppendASCII("manifest_v2.xml"));
-  interceptor.SetResponseIgnoreQuery(GURL("http://localhost/autoupdate/v2.crx"),
-                                     v2_path);
+  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](content::URLLoaderInterceptor::RequestParams* params) -> bool {
+        if (params->url_request.url.path() == "/autoupdate/manifest") {
+          content::URLLoaderInterceptor::WriteResponse(
+              basedir.AppendASCII("manifest_v2.xml"), params->client.get());
+          return true;
+        }
+        if (params->url_request.url.path() == "/autoupdate/v2.crx") {
+          content::URLLoaderInterceptor::WriteResponse(v2_path,
+                                                       params->client.get());
+          return true;
+        }
+        return false;
+      }));
 
   ExtensionRegistry* registry = ExtensionRegistry::Get(browser()->profile());
   const size_t size_before = registry->enabled_extensions().size();
@@ -630,18 +644,20 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
       basedir.AppendASCII("v2"), temp_dir.GetPath().AppendASCII("v2.crx"),
       pem_path, base::FilePath());
 
-  // Note: This interceptor gets requests on the IO thread.
-  net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-      base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
-
-  interceptor.SetResponseIgnoreQuery(
-      GURL("http://localhost/autoupdate/manifest"),
-      basedir.AppendASCII("manifest_v2.xml"));
-  interceptor.SetResponseIgnoreQuery(GURL("http://localhost/autoupdate/v2.crx"),
-                                     v2_path);
+  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](content::URLLoaderInterceptor::RequestParams* params) -> bool {
+        if (params->url_request.url.path() == "/autoupdate/manifest") {
+          content::URLLoaderInterceptor::WriteResponse(
+              basedir.AppendASCII("manifest_v2.xml"), params->client.get());
+          return true;
+        }
+        if (params->url_request.url.path() == "/autoupdate/v2.crx") {
+          content::URLLoaderInterceptor::WriteResponse(v2_path,
+                                                       params->client.get());
+          return true;
+        }
+        return false;
+      }));
 
   ExtensionRegistry* registry = ExtensionRegistry::Get(browser()->profile());
   const size_t size_before = registry->enabled_extensions().size();
@@ -722,18 +738,20 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest,
       basedir.AppendASCII("v2"), temp_dir.GetPath().AppendASCII("v2.crx"),
       pem_path, base::FilePath());
 
-  // Note: This interceptor gets requests on the IO thread.
-  net::LocalHostTestURLRequestInterceptor interceptor(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-      base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
-
-  interceptor.SetResponseIgnoreQuery(
-      GURL("http://localhost/autoupdate/manifest"),
-      basedir.AppendASCII("manifest_v2.xml"));
-  interceptor.SetResponseIgnoreQuery(GURL("http://localhost/autoupdate/v2.crx"),
-                                     v2_path);
+  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](content::URLLoaderInterceptor::RequestParams* params) -> bool {
+        if (params->url_request.url.path() == "/autoupdate/manifest") {
+          content::URLLoaderInterceptor::WriteResponse(
+              basedir.AppendASCII("manifest_v2.xml"), params->client.get());
+          return true;
+        }
+        if (params->url_request.url.path() == "/autoupdate/v2.crx") {
+          content::URLLoaderInterceptor::WriteResponse(v2_path,
+                                                       params->client.get());
+          return true;
+        }
+        return false;
+      }));
 
   // Check that the policy is initially empty.
   ASSERT_TRUE(extensions::ExtensionManagementFactory::GetForBrowserContext(

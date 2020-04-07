@@ -10,7 +10,7 @@
 #include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fxfa/cxfa_ffdropdown.h"
 
-class CXFA_FFListBox : public CXFA_FFDropDown {
+class CXFA_FFListBox final : public CXFA_FFDropDown {
  public:
   explicit CXFA_FFListBox(CXFA_Node* pNode);
   ~CXFA_FFListBox() override;
@@ -25,7 +25,7 @@ class CXFA_FFListBox : public CXFA_FFDropDown {
   FormFieldType GetFormFieldType() override;
 
   // CXFA_FFDropDown
-  void InsertItem(const WideStringView& wsLabel, int32_t nIndex) override;
+  void InsertItem(WideStringView wsLabel, int32_t nIndex) override;
   void DeleteItem(int32_t nIndex) override;
 
   void OnSelectChanged(CFWL_Widget* pWidget);

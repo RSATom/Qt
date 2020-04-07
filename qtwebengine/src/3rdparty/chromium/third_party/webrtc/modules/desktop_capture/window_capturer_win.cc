@@ -18,9 +18,9 @@
 #include "modules/desktop_capture/win/window_capture_utils.h"
 #include "modules/desktop_capture/window_finder_win.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/constructormagic.h"
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/stringutils.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/trace_event.h"
 #include "rtc_base/win32.h"
 
@@ -39,6 +39,14 @@ BOOL CALLBACK WindowsEnumerationHandler(HWND hwnd, LPARAM param) {
   LONG exstyle = GetWindowLong(hwnd, GWL_EXSTYLE);
   if (len == 0 || IsIconic(hwnd) || !IsWindowVisible(hwnd) ||
       (owner && !(exstyle & WS_EX_APPWINDOW))) {
+    return TRUE;
+  }
+  // Skip unresponsive windows. Set timout with 50ms, in case system is under
+  // heavy load, the check can wait longer but wont' be too long to delay the
+  // the enumeration.
+  const UINT uTimeout = 50;  // ms
+  if (!SendMessageTimeout(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, uTimeout,
+                          nullptr)) {
     return TRUE;
   }
 

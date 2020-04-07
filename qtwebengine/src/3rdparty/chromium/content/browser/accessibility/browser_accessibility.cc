@@ -4,19 +4,19 @@
 
 #include "content/browser/accessibility/browser_accessibility.h"
 
-#include <stddef.h>
+#include <cstddef>
 
 #include <algorithm>
 #include <iterator>
 
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
 #include "content/common/accessibility_messages.h"
 #include "ui/accessibility/ax_role_properties.h"
-#include "ui/accessibility/ax_table_info.h"
 #include "ui/accessibility/ax_text_utils.h"
 #include "ui/accessibility/platform/ax_unique_id.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -73,11 +73,17 @@ bool BrowserAccessibility::PlatformIsLeaf() const {
   }
 }
 
+bool BrowserAccessibility::CanFireEvents() const {
+  // Allow events unless this object would be trimmed away.
+  return !PlatformIsChildOfLeaf();
+}
+
 uint32_t BrowserAccessibility::PlatformChildCount() const {
-  if (HasIntAttribute(ax::mojom::IntAttribute::kChildTreeId)) {
+  if (HasStringAttribute(ax::mojom::StringAttribute::kChildTreeId)) {
+    AXTreeID child_tree_id = AXTreeID::FromString(
+        GetStringAttribute(ax::mojom::StringAttribute::kChildTreeId));
     BrowserAccessibilityManager* child_manager =
-        BrowserAccessibilityManager::FromID(
-            GetIntAttribute(ax::mojom::IntAttribute::kChildTreeId));
+        BrowserAccessibilityManager::FromID(child_tree_id);
     if (child_manager && child_manager->GetRoot()->PlatformGetParent() == this)
       return 1;
 
@@ -127,10 +133,11 @@ BrowserAccessibility* BrowserAccessibility::PlatformGetChild(
   BrowserAccessibility* result = nullptr;
 
   if (child_index == 0 &&
-      HasIntAttribute(ax::mojom::IntAttribute::kChildTreeId)) {
+      HasStringAttribute(ax::mojom::StringAttribute::kChildTreeId)) {
+    AXTreeID child_tree_id = AXTreeID::FromString(
+        GetStringAttribute(ax::mojom::StringAttribute::kChildTreeId));
     BrowserAccessibilityManager* child_manager =
-        BrowserAccessibilityManager::FromID(
-            GetIntAttribute(ax::mojom::IntAttribute::kChildTreeId));
+        BrowserAccessibilityManager::FromID(child_tree_id);
     if (child_manager && child_manager->GetRoot()->PlatformGetParent() == this)
       result = child_manager->GetRoot();
   } else {
@@ -318,7 +325,7 @@ int32_t BrowserAccessibility::GetId() const {
 }
 
 gfx::RectF BrowserAccessibility::GetLocation() const {
-  return GetData().location;
+  return GetData().relative_bounds.bounds;
 }
 
 ax::mojom::Role BrowserAccessibility::GetRole() const {
@@ -343,8 +350,9 @@ gfx::Rect BrowserAccessibility::GetPageBoundsRect(bool* offscreen,
   return RelativeToAbsoluteBounds(gfx::RectF(), false, offscreen, clip_bounds);
 }
 
-gfx::Rect BrowserAccessibility::GetPageBoundsForRange(int start, int len)
-    const {
+gfx::Rect BrowserAccessibility::GetPageBoundsForRange(int start,
+                                                      int len,
+                                                      bool clipped) const {
   DCHECK_GE(start, 0);
   DCHECK_GE(len, 0);
 
@@ -379,7 +387,9 @@ gfx::Rect BrowserAccessibility::GetPageBoundsForRange(int start, int len)
       else
         start = 0;
     }
-    return bounds;
+    // When past the end of text, the area will be 0.
+    // In this case, use bounds provided for the caret.
+    return bounds.IsEmpty() ? GetPageBoundsPastEndOfText() : bounds;
   }
 
   int end = start + len;
@@ -464,9 +474,11 @@ gfx::Rect BrowserAccessibility::GetPageBoundsForRange(int start, int len)
       }
     }
 
+    // Don't clip bounds. Some screen magnifiers (e.g. ZoomText) prefer to
+    // get unclipped bounds so that they can make smooth scrolling calculations.
     gfx::Rect absolute_child_rect = child->RelativeToAbsoluteBounds(
         child_overlap_rect, false /* frame_only */, nullptr /* offscreen */,
-        true /* clip_bounds */);
+        clipped /* clip_bounds */);
     if (bounds.width() == 0 && bounds.height() == 0) {
       bounds = absolute_child_rect;
     } else {
@@ -477,14 +489,62 @@ gfx::Rect BrowserAccessibility::GetPageBoundsForRange(int start, int len)
   return bounds;
 }
 
-gfx::Rect BrowserAccessibility::GetScreenBoundsForRange(int start, int len)
-    const {
-  gfx::Rect bounds = GetPageBoundsForRange(start, len);
+gfx::Rect BrowserAccessibility::GetScreenBoundsForRange(int start,
+                                                        int len,
+                                                        bool clipped) const {
+  gfx::Rect bounds = GetPageBoundsForRange(start, len, clipped);
 
   // Adjust the bounds by the top left corner of the containing view's bounds
   // in screen coordinates.
   bounds.Offset(manager_->GetViewBounds().OffsetFromOrigin());
 
+  return bounds;
+}
+
+// Get a rect for a 1-width character past the end of text. This is what ATs
+// expect when getting the character extents past the last character in a line,
+// and equals what the caret bounds would be when past the end of the text.
+gfx::Rect BrowserAccessibility::GetPageBoundsPastEndOfText() const {
+  // Step 1: get approximate caret bounds. The thickness may not yet be correct.
+  gfx::Rect bounds;
+  if (InternalChildCount() > 0) {
+    // When past the end of text, use bounds provided by a last child if
+    // available, and then correct for thickness of caret.
+    BrowserAccessibility* child = InternalGetChild(InternalChildCount() - 1);
+    int child_text_len = child->GetText().size();
+    bounds = child->GetPageBoundsForRange(child_text_len, child_text_len);
+    if (bounds.width() == 0 && bounds.height() == 0)
+      return bounds;  // Inline text boxes info not yet available.
+  } else {
+    // Compute bounds of where caret would be, based on bounds of object.
+    bounds = GetPageBoundsRect();
+  }
+
+  // Step 2: correct for the thickness of the caret.
+  auto text_direction = static_cast<ax::mojom::TextDirection>(
+      GetIntAttribute(ax::mojom::IntAttribute::kTextDirection));
+  constexpr int kCaretThickness = 1;
+  switch (text_direction) {
+    case ax::mojom::TextDirection::kNone:
+    case ax::mojom::TextDirection::kLtr: {
+      bounds.set_width(kCaretThickness);
+      break;
+    }
+    case ax::mojom::TextDirection::kRtl: {
+      bounds.set_x(bounds.right() - kCaretThickness);
+      bounds.set_width(kCaretThickness);
+      break;
+    }
+    case ax::mojom::TextDirection::kTtb: {
+      bounds.set_height(kCaretThickness);
+      break;
+    }
+    case ax::mojom::TextDirection::kBtt: {
+      bounds.set_y(bounds.bottom() - kCaretThickness);
+      bounds.set_height(kCaretThickness);
+      break;
+    }
+  }
   return bounds;
 }
 
@@ -687,20 +747,24 @@ bool BrowserAccessibility::HasAction(ax::mojom::Action action_enum) const {
   return GetData().HasAction(action_enum);
 }
 
-bool BrowserAccessibility::HasCaret() const {
-  if (IsPlainTextField() &&
-      HasIntAttribute(ax::mojom::IntAttribute::kTextSelStart) &&
-      HasIntAttribute(ax::mojom::IntAttribute::kTextSelEnd)) {
-    return true;
-  }
-
-  // The caret is always at the focus of the selection.
+bool BrowserAccessibility::HasVisibleCaretOrSelection() const {
   int32_t focus_id = manager()->GetTreeData().sel_focus_object_id;
   BrowserAccessibility* focus_object = manager()->GetFromID(focus_id);
   if (!focus_object)
     return false;
 
-  return focus_object->IsDescendantOf(this);
+  // Selection or caret will be visible in a focused editable area.
+  if (HasState(ax::mojom::State::kEditable)) {
+    return IsPlainTextField() ? focus_object == this
+                              : focus_object->IsDescendantOf(this);
+  }
+
+  // The selection will be visible in non-editable content only if it is not
+  // collapsed into a caret.
+  return (focus_id != manager()->GetTreeData().sel_anchor_object_id ||
+          manager()->GetTreeData().sel_focus_offset !=
+              manager()->GetTreeData().sel_anchor_offset) &&
+         focus_object->IsDescendantOf(this);
 }
 
 bool BrowserAccessibility::IsWebAreaForPresentationalIframe() const {
@@ -717,7 +781,7 @@ bool BrowserAccessibility::IsWebAreaForPresentationalIframe() const {
 }
 
 bool BrowserAccessibility::IsClickable() const {
-  return ui::IsRoleClickable(GetRole());
+  return ui::IsClickable(GetRole());
 }
 
 bool BrowserAccessibility::IsPlainTextField() const {
@@ -762,6 +826,24 @@ std::string BrowserAccessibility::ComputeAccessibleNameFromDescendants() const {
   }
 
   return name;
+}
+
+std::string BrowserAccessibility::GetLiveRegionText() const {
+  if (GetRole() == ax::mojom::Role::kIgnored)
+    return "";
+
+  std::string text = GetStringAttribute(ax::mojom::StringAttribute::kName);
+  if (!text.empty())
+    return text;
+
+  for (size_t i = 0; i < InternalChildCount(); ++i) {
+    BrowserAccessibility* child = InternalGetChild(i);
+    if (!child)
+      continue;
+
+    text += child->GetLiveRegionText();
+  }
+  return text;
 }
 
 std::vector<int> BrowserAccessibility::GetLineStartOffsets() const {
@@ -860,22 +942,22 @@ gfx::NativeViewAccessible BrowserAccessibility::GetNativeViewAccessible() {
 // AXPlatformNodeDelegate.
 //
 const ui::AXNodeData& BrowserAccessibility::GetData() const {
-  CR_DEFINE_STATIC_LOCAL(ui::AXNodeData, empty_data, ());
+  static base::NoDestructor<ui::AXNodeData> empty_data;
   if (node_)
     return node_->data();
   else
-    return empty_data;
+    return *empty_data;
 }
 
 const ui::AXTreeData& BrowserAccessibility::GetTreeData() const {
-  CR_DEFINE_STATIC_LOCAL(ui::AXTreeData, empty_data, ());
+  static base::NoDestructor<ui::AXTreeData> empty_data;
   if (manager())
     return manager()->GetTreeData();
   else
-    return empty_data;
+    return *empty_data;
 }
 
-gfx::NativeWindow BrowserAccessibility::GetTopLevelWidget() {
+gfx::NativeViewAccessible BrowserAccessibility::GetNSWindow() {
   NOTREACHED();
   return nullptr;
 }
@@ -963,109 +1045,110 @@ BrowserAccessibility::GetTargetForNativeAccessibilityEvent() {
   return root_delegate->AccessibilityGetAcceleratedWidget();
 }
 
-int BrowserAccessibility::GetTableRowCount() const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return 0;
-
-  return table_info->row_count;
+bool BrowserAccessibility::IsTable() const {
+  return node()->IsTable();
 }
 
-int BrowserAccessibility::GetTableColCount() const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return 0;
-
-  return table_info->col_count;
+int32_t BrowserAccessibility::GetTableRowCount() const {
+  return node()->GetTableRowCount();
 }
 
-std::vector<int32_t> BrowserAccessibility::GetColHeaderNodeIds() const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return {};
-
-  std::vector<std::vector<int32_t>> headers = table_info->col_headers;
-  std::vector<int32_t> all_ids;
-  for (const auto& col_ids : headers) {
-    all_ids.insert(all_ids.end(), col_ids.begin(), col_ids.end());
-  }
-
-  return all_ids;
+int32_t BrowserAccessibility::GetTableColCount() const {
+  return node()->GetTableColCount();
 }
 
-std::vector<int32_t> BrowserAccessibility::GetColHeaderNodeIds(
+int32_t BrowserAccessibility::GetTableAriaColCount() const {
+  return node()->GetTableAriaColCount();
+}
+
+int32_t BrowserAccessibility::GetTableAriaRowCount() const {
+  return node()->GetTableAriaRowCount();
+}
+
+int32_t BrowserAccessibility::GetTableCellCount() const {
+  return node()->GetTableCellCount();
+}
+
+const std::vector<int32_t> BrowserAccessibility::GetColHeaderNodeIds() const {
+  std::vector<int32_t> result;
+  node()->GetTableCellColHeaderNodeIds(&result);
+  return result;
+}
+
+const std::vector<int32_t> BrowserAccessibility::GetColHeaderNodeIds(
     int32_t col_index) const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return {};
-
-  if (col_index < 0 || col_index >= table_info->col_count)
-    return {};
-
-  return table_info->col_headers[col_index];
+  std::vector<int32_t> result;
+  node()->GetTableColHeaderNodeIds(col_index, &result);
+  return result;
 }
 
-std::vector<int32_t> BrowserAccessibility::GetRowHeaderNodeIds() const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return {};
-
-  std::vector<std::vector<int32_t>> headers = table_info->row_headers;
-  std::vector<int32_t> all_ids;
-  for (const auto& col_ids : headers) {
-    all_ids.insert(all_ids.end(), col_ids.begin(), col_ids.end());
-  }
-
-  return all_ids;
+const std::vector<int32_t> BrowserAccessibility::GetRowHeaderNodeIds() const {
+  std::vector<int32_t> result;
+  node()->GetTableCellRowHeaderNodeIds(&result);
+  return result;
 }
 
-std::vector<int32_t> BrowserAccessibility::GetRowHeaderNodeIds(
+const std::vector<int32_t> BrowserAccessibility::GetRowHeaderNodeIds(
     int32_t row_index) const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return {};
+  std::vector<int32_t> result;
+  node()->GetTableRowHeaderNodeIds(row_index, &result);
+  return result;
+}
 
-  if (row_index < 0 || row_index >= table_info->row_count)
-    return {};
+bool BrowserAccessibility::IsTableRow() const {
+  return node()->IsTableRow();
+}
 
-  return table_info->row_headers[row_index];
+int32_t BrowserAccessibility::GetTableRowRowIndex() const {
+  return node()->GetTableRowRowIndex();
+}
+
+bool BrowserAccessibility::IsTableCellOrHeader() const {
+  return node()->IsTableCellOrHeader();
+}
+
+int32_t BrowserAccessibility::GetTableCellColIndex() const {
+  return node()->GetTableCellColIndex();
+}
+
+int32_t BrowserAccessibility::GetTableCellRowIndex() const {
+  return node()->GetTableCellRowIndex();
+}
+
+int32_t BrowserAccessibility::GetTableCellColSpan() const {
+  return node()->GetTableCellColSpan();
+}
+
+int32_t BrowserAccessibility::GetTableCellRowSpan() const {
+  return node()->GetTableCellRowSpan();
+}
+
+int32_t BrowserAccessibility::GetTableCellAriaColIndex() const {
+  return node()->GetTableCellAriaColIndex();
+}
+
+int32_t BrowserAccessibility::GetTableCellAriaRowIndex() const {
+  return node()->GetTableCellAriaRowIndex();
 }
 
 int32_t BrowserAccessibility::GetCellId(int32_t row_index,
                                         int32_t col_index) const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return -1;
-
-  if (row_index < 0 || row_index >= table_info->row_count || col_index < 0 ||
-      col_index >= table_info->col_count)
-    return -1;
-
-  return table_info->cell_ids[row_index][col_index];
-}
-
-int32_t BrowserAccessibility::CellIdToIndex(int32_t cell_id) const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return -1;
-
-  const auto& iter = table_info->cell_id_to_index.find(cell_id);
-  if (iter != table_info->cell_id_to_index.end())
-    return iter->second;
+  ui::AXNode* cell = node()->GetTableCellFromCoords(row_index, col_index);
+  if (cell)
+    return cell->id();
 
   return -1;
 }
 
+int32_t BrowserAccessibility::GetTableCellIndex() const {
+  return node()->GetTableCellIndex();
+}
+
 int32_t BrowserAccessibility::CellIndexToId(int32_t cell_index) const {
-  ui::AXTableInfo* table_info = manager()->ax_tree()->GetTableInfo(node());
-  if (!table_info)
-    return -1;
-
-  if (cell_index < 0 ||
-      cell_index >= static_cast<int32_t>(table_info->unique_cell_ids.size()))
-    return -1;
-
-  return table_info->unique_cell_ids[cell_index];
+  ui::AXNode* cell = node()->GetTableCellFromIndex(cell_index);
+  if (cell)
+    return cell->id();
+  return -1;
 }
 
 bool BrowserAccessibility::AccessibilityPerformAction(
@@ -1102,6 +1185,22 @@ bool BrowserAccessibility::ShouldIgnoreHoveredStateForTesting() {
   BrowserAccessibilityStateImpl* accessibility_state =
       BrowserAccessibilityStateImpl::GetInstance();
   return accessibility_state->disable_hot_tracking_for_testing();
+}
+
+bool BrowserAccessibility::IsOrderedSetItem() const {
+  return node()->IsOrderedSetItem();
+}
+
+bool BrowserAccessibility::IsOrderedSet() const {
+  return node()->IsOrderedSet();
+}
+
+int32_t BrowserAccessibility::GetPosInSet() const {
+  return node()->GetPosInSet();
+}
+
+int32_t BrowserAccessibility::GetSetSize() const {
+  return node()->GetSetSize();
 }
 
 }  // namespace content

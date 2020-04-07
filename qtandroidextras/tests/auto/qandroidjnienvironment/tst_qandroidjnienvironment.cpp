@@ -66,9 +66,10 @@ void tst_QAndroidJniEnvironment::jniEnv()
         env->ExceptionClear();
     }
 
-    // The environment should automatically be detached when QAndroidJniEnvironment goes out of scope
-    JNIEnv *jni = 0;
-    QCOMPARE(javaVM->GetEnv((void**)&jni, JNI_VERSION_1_6), JNI_EDETACHED);
+    // The env does not detach automatically, even if it goes out of scope. The only way it can
+    // be detached is if it's done explicitly, or if the thread we attached to gets killed (TLS clean-up).
+    JNIEnv *jni = nullptr;
+    QCOMPARE(javaVM->GetEnv((void**)&jni, JNI_VERSION_1_6), JNI_OK);
 }
 
 void tst_QAndroidJniEnvironment::javaVM()

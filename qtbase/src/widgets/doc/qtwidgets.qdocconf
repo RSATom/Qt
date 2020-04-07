@@ -1,8 +1,12 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
 
 project                 = QtWidgets
 description             = Qt Widgets Reference Documentation
 version                 = $QT_VERSION
+
+# dummy macOS headers for generating docs under non-mac platforms
+includepaths           += -I./macOS
 
 examplesinstallpath     = widgets
 

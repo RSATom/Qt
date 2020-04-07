@@ -32,25 +32,25 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 inline HTMLTitleElement::HTMLTitleElement(Document& document)
-    : HTMLElement(titleTag, document),
+    : HTMLElement(kTitleTag, document),
       ignore_title_updates_when_children_change_(false) {}
 
 DEFINE_NODE_FACTORY(HTMLTitleElement)
 
 Node::InsertionNotificationRequest HTMLTitleElement::InsertedInto(
-    ContainerNode* insertion_point) {
+    ContainerNode& insertion_point) {
   HTMLElement::InsertedInto(insertion_point);
   if (IsInDocumentTree())
     GetDocument().SetTitleElement(this);
   return kInsertionDone;
 }
 
-void HTMLTitleElement::RemovedFrom(ContainerNode* insertion_point) {
+void HTMLTitleElement::RemovedFrom(ContainerNode& insertion_point) {
   HTMLElement::RemovedFrom(insertion_point);
-  if (insertion_point->IsInDocumentTree())
+  if (insertion_point.IsInDocumentTree())
     GetDocument().RemoveTitle(this);
 }
 

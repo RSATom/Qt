@@ -42,7 +42,7 @@ static GrGLenum gr_stencil_op_to_gl_path_rendering_fill_mode(GrStencilOp op) {
     switch (op) {
         default:
             SK_ABORT("Unexpected path fill.");
-            /* fallthrough */;
+            /* fallthrough */
         case GrStencilOp::kIncWrap:
             return GR_GL_COUNT_UP;
         case GrStencilOp::kInvert:
@@ -66,7 +66,7 @@ GrGLPathRendering::~GrGLPathRendering() {
 void GrGLPathRendering::disconnect(GrGpu::DisconnectType type) {
     if (GrGpu::DisconnectType::kCleanup == type) {
         this->deletePaths(fFirstPreallocatedPathID, fPreallocatedPathCount);
-    };
+    }
     fPreallocatedPathCount = 0;
 }
 
@@ -87,7 +87,7 @@ void GrGLPathRendering::onStencilPath(const StencilPathArgs& args, const GrPath*
     SkASSERT(gpu->caps()->shaderCaps()->pathRenderingSupport());
     gpu->flushColorWrite(false);
 
-    GrGLRenderTarget* rt = static_cast<GrGLRenderTarget*>(args.fProxy->priv().peekRenderTarget());
+    GrGLRenderTarget* rt = static_cast<GrGLRenderTarget*>(args.fProxy->peekRenderTarget());
     SkISize size = SkISize::Make(rt->width(), rt->height());
     this->setProjectionMatrix(*args.fViewMatrix, size, args.fProxy->origin());
     gpu->flushScissor(*args.fScissor, rt->getViewport(), args.fProxy->origin());
@@ -116,7 +116,7 @@ void GrGLPathRendering::onDrawPath(const GrPrimitiveProcessor& primProc,
                                    const GrPipeline::FixedDynamicState& fixedDynamicState,
                                    const GrStencilSettings& stencilPassSettings,
                                    const GrPath* path) {
-    if (!this->gpu()->flushGLState(primProc, pipeline, &fixedDynamicState, false)) {
+    if (!this->gpu()->flushGLState(primProc, pipeline, &fixedDynamicState, nullptr, 1, false)) {
         return;
     }
     const GrGLPath* glPath = static_cast<const GrGLPath*>(path);

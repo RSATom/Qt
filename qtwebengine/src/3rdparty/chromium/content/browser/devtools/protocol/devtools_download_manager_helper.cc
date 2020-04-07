@@ -6,9 +6,6 @@
 
 #include "base/bind.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(
-    content::protocol::DevToolsDownloadManagerHelper);
-
 namespace content {
 namespace protocol {
 
@@ -42,6 +39,8 @@ std::string DevToolsDownloadManagerHelper::GetDownloadPath() {
 void DevToolsDownloadManagerHelper::SetDownloadPath(const std::string& path) {
   download_path_ = path;
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(DevToolsDownloadManagerHelper)
 
 }  // namespace protocol
 }  // namespace content

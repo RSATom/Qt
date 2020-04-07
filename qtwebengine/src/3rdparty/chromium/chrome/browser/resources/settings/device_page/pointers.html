@@ -11,12 +11,12 @@
   <template>
     <style include="settings-shared">
       h2 {
-        -webkit-padding-start: var(--settings-box-row-padding);
+        padding-inline-start: var(--settings-box-row-padding);
       }
 
       .subsection {
-        -webkit-padding-end: var(--settings-box-row-padding);
-        -webkit-padding-start: var(--settings-box-row-indent);
+        padding-inline-end: var(--settings-box-row-padding);
+        padding-inline-start: var(--settings-box-row-indent);
       }
 
       .subsection > settings-toggle-button,
@@ -45,7 +45,7 @@
         <div class="settings-box">
           <div class="start" id="mouseSpeedLabel">$i18n{mouseSpeed}</div>
           <settings-slider pref="{{prefs.settings.mouse.sensitivity2}}"
-              tick-values="[[sensitivityValues_]]"
+              ticks="[[sensitivityValues_]]"
               aria-labelledby="mouseSpeedLabel"
               label-min="$i18n{pointerSlow}"
               label-max="$i18n{pointerFast}">
@@ -69,7 +69,7 @@
           <div class="start" id="touchpadSpeedLabel">$i18n{touchpadSpeed}</div>
             <settings-slider id="touchpadSensitivity"
                 pref="{{prefs.settings.touchpad.sensitivity2}}"
-                tick-values="[[sensitivityValues_]]"
+                ticks="[[sensitivityValues_]]"
                 aria-labelledby="touchpadSpeedLabel"
                 label-min="$i18n{pointerSlow}"
                 label-max="$i18n{pointerFast}">

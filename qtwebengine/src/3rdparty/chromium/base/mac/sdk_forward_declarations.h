@@ -328,7 +328,44 @@ typedef NSString* VNImageOption NS_STRING_ENUM;
 @property(readonly, nonatomic, strong) VNFaceLandmarks2D* landmarks;
 @end
 
+// VNDetectBarcodesRequest forward declarations.
+typedef NSString* VNBarcodeSymbology NS_STRING_ENUM;
+
+@interface VNDetectBarcodesRequest : VNImageBasedRequest
+@property(readwrite, nonatomic, copy) NSArray<VNBarcodeSymbology>* symbologies;
+@end
+
+// VNBarcodeObservation forward declarations.
+@interface VNRectangleObservation : VNDetectedObjectObservation
+@end
+
+@interface VNBarcodeObservation : VNRectangleObservation
+@property(readonly, nonatomic, copy) NSString* payloadStringValue;
+@end
+
 #endif  // MAC_OS_X_VERSION_10_13
+
+// Once Chrome no longer supports macOS 10.13, everything within this
+// preprocessor block can be removed.
+#if !defined(MAC_OS_X_VERSION_10_14) || \
+    MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_14
+
+typedef NSString* NSAppearanceName;
+
+@interface NSApplication (ForwardDeclare)
+@property(strong) NSAppearance* appearance;
+@property(readonly, strong) NSAppearance* effectiveAppearance;
+@end
+
+@interface NSAppearance (ForwardDeclare)
+- (NSAppearanceName)bestMatchFromAppearancesWithNames:
+    (NSArray<NSAppearanceName>*)appearances;
+@end
+
+BASE_EXPORT extern NSAppearanceName const NSAppearanceNameDarkAqua;
+
+#endif
+
 // ----------------------------------------------------------------------------
 // The symbol for kCWSSIDDidChangeNotification is available in the
 // CoreWLAN.framework for OSX versions 10.6 through 10.10. The symbol is not
@@ -336,5 +373,11 @@ typedef NSString* VNImageOption NS_STRING_ENUM;
 // declare the symbol.
 // ----------------------------------------------------------------------------
 BASE_EXPORT extern "C" NSString* const kCWSSIDDidChangeNotification;
+
+// Once Chrome is built with at least the macOS 10.13 SDK, everything within
+// this preprocessor block can be removed.
+#if !defined(MAC_OS_X_VERSION_10_13)
+typedef NSString* NSTextCheckingOptionKey;
+#endif
 
 #endif  // BASE_MAC_SDK_FORWARD_DECLARATIONS_H_

@@ -28,9 +28,9 @@ PepperPluginRegistry* PepperPluginRegistry::GetInstance() {
 
 const PepperPluginInfo* PepperPluginRegistry::GetInfoForPlugin(
     const WebPluginInfo& info) {
-  for (size_t i = 0; i < plugin_list_.size(); ++i) {
-    if (info.path == plugin_list_[i].path)
-      return &plugin_list_[i];
+  for (const auto& plugin : plugin_list_) {
+    if (info.path == plugin.path)
+      return &plugin;
   }
   // We did not find the plugin in our list. But wait! the plugin can also
   // be a latecomer, as it happens with pepper flash. This information
@@ -48,8 +48,7 @@ const PepperPluginInfo* PepperPluginRegistry::GetInfoForPlugin(
 PluginModule* PepperPluginRegistry::GetLiveModule(
     const base::FilePath& path,
     const base::Optional<url::Origin>& origin_lock) {
-  NonOwningModuleMap::iterator module_iter =
-      live_modules_.find({path, origin_lock});
+  auto module_iter = live_modules_.find({path, origin_lock});
   if (module_iter == live_modules_.end())
     return nullptr;
 
@@ -64,8 +63,7 @@ PluginModule* PepperPluginRegistry::GetLiveModule(
   if (instance_set.empty())
     return module_iter->second;
 
-  PluginModule::PluginInstanceSet::const_iterator instance_iter =
-      instance_set.begin();
+  auto instance_iter = instance_set.begin();
   while (instance_iter != instance_set.end()) {
     if (!(*instance_iter)->is_deleted())
       return module_iter->second;
@@ -88,9 +86,7 @@ void PepperPluginRegistry::PluginModuleDead(PluginModule* dead_module) {
 
   // Modules aren't destroyed very often and there are normally at most a
   // couple of them. So for now we just do a brute-force search.
-  for (NonOwningModuleMap::iterator i = live_modules_.begin();
-       i != live_modules_.end();
-       ++i) {
+  for (auto i = live_modules_.begin(); i != live_modules_.end(); ++i) {
     if (i->second == dead_module) {
       live_modules_.erase(i);
       return;
@@ -117,16 +113,13 @@ void PepperPluginRegistry::Initialize() {
   // initialization. If we bail out (in the continue clauses) before saving
   // the initialized module, it will still try to unregister itself in its
   // destructor.
-  for (size_t i = 0; i < plugin_list_.size(); i++) {
-    const PepperPluginInfo& current = plugin_list_[i];
+  for (const auto& current : plugin_list_) {
     if (current.is_out_of_process)
       continue;  // Out of process plugins need no special pre-initialization.
 
-    scoped_refptr<PluginModule> module =
-        new PluginModule(current.name,
-                         current.version,
-                         current.path,
-                         ppapi::PpapiPermissions(current.permissions));
+    auto module = base::MakeRefCounted<PluginModule>(
+        current.name, current.version, current.path,
+        ppapi::PpapiPermissions(current.permissions));
     AddLiveModule(current.path, base::Optional<url::Origin>(), module.get());
     if (current.is_internal) {
       if (!module->InitAsInternalPlugin(current.internal_entry_points)) {

@@ -9,10 +9,12 @@
 #include <algorithm>
 #include <memory>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfdoc/cpvt_word.h"
+#include "core/fpdfdoc/ipvt_fontmap.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
@@ -21,20 +23,16 @@
 #include "fpdfsdk/pwl/cpwl_caret.h"
 #include "fpdfsdk/pwl/cpwl_edit_ctrl.h"
 #include "fpdfsdk/pwl/cpwl_edit_impl.h"
-#include "fpdfsdk/pwl/cpwl_font_map.h"
 #include "fpdfsdk/pwl/cpwl_scroll_bar.h"
 #include "fpdfsdk/pwl/cpwl_wnd.h"
 #include "public/fpdf_fwlevent.h"
-#include "third_party/base/stl_util.h"
 
-CPWL_Edit::CPWL_Edit() : m_bFocus(false) {}
+CPWL_Edit::CPWL_Edit(const CreateParams& cp,
+                     std::unique_ptr<PrivateData> pAttachedData)
+    : CPWL_EditCtrl(cp, std::move(pAttachedData)) {}
 
 CPWL_Edit::~CPWL_Edit() {
   ASSERT(!m_bFocus);
-}
-
-ByteString CPWL_Edit::GetClassName() const {
-  return PWL_CLASSNAME_EDIT;
 }
 
 void CPWL_Edit::SetText(const WideString& csText) {
@@ -80,8 +78,8 @@ CFX_FloatRect CPWL_Edit::GetClientRect() const {
   return rcClient;
 }
 
-void CPWL_Edit::SetAlignFormatV(PWL_EDIT_ALIGNFORMAT_V nFormat, bool bPaint) {
-  m_pEdit->SetAlignmentV((int32_t)nFormat, bPaint);
+void CPWL_Edit::SetAlignFormatVerticalCenter() {
+  m_pEdit->SetAlignmentV(static_cast<int32_t>(PEAV_CENTER), true);
 }
 
 bool CPWL_Edit::CanSelectAll() const {
@@ -201,12 +199,10 @@ void CPWL_Edit::DrawThisAppearance(CFX_RenderDevice* pDevice,
       }
       case BorderStyle::DASH: {
         CFX_GraphStateData gsd;
-        gsd.m_LineWidth = (float)GetBorderWidth();
-
-        gsd.SetDashCount(2);
-        gsd.m_DashArray[0] = (float)GetBorderDash().nDash;
-        gsd.m_DashArray[1] = (float)GetBorderDash().nGap;
-        gsd.m_DashPhase = (float)GetBorderDash().nPhase;
+        gsd.m_LineWidth = static_cast<float>(GetBorderWidth());
+        gsd.m_DashArray = {static_cast<float>(GetBorderDash().nDash),
+                           static_cast<float>(GetBorderDash().nGap)};
+        gsd.m_DashPhase = static_cast<float>(GetBorderDash().nPhase);
 
         CFX_PathData path;
         for (int32_t i = 0; i < nCharArray - 1; i++) {
@@ -369,14 +365,13 @@ bool CPWL_Edit::IsTextFull() const {
   return m_pEdit->IsTextFull();
 }
 
-float CPWL_Edit::GetCharArrayAutoFontSize(CPDF_Font* pFont,
+float CPWL_Edit::GetCharArrayAutoFontSize(const CPDF_Font* pFont,
                                           const CFX_FloatRect& rcPlate,
                                           int32_t nCharArray) {
   if (!pFont || pFont->IsStandardFont())
     return 0.0f;
 
-  FX_RECT rcBBox;
-  pFont->GetFontBBox(rcBBox);
+  const FX_RECT& rcBBox = pFont->GetFontBBox();
 
   CFX_FloatRect rcCell = rcPlate;
   float xdiv = rcCell.Width() / nCharArray * 1000.0f / rcBBox.Width();
@@ -638,8 +633,6 @@ CPVT_WordRange CPWL_Edit::GetLatinWordsRange(
 CPVT_WordRange CPWL_Edit::GetSameWordsRange(const CPVT_WordPlace& place,
                                             bool bLatin,
                                             bool bArabic) const {
-  CPVT_WordRange range;
-
   CPWL_EditImpl_Iterator* pIterator = m_pEdit->GetIterator();
   CPVT_Word wordinfo;
   CPVT_WordPlace wpStart(place), wpEnd(place);
@@ -683,6 +676,5 @@ CPVT_WordRange CPWL_Edit::GetSameWordsRange(const CPVT_WordPlace& place,
     } while (pIterator->PrevWord());
   }
 
-  range.Set(wpStart, wpEnd);
-  return range;
+  return CPVT_WordRange(wpStart, wpEnd);
 }

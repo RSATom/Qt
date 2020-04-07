@@ -13,18 +13,17 @@
 
 namespace webrtc {
 
-VideoReceiveStream::Decoder::Decoder() = default;
+VideoReceiveStream::Decoder::Decoder() : video_format("Unset") {}
 VideoReceiveStream::Decoder::Decoder(const Decoder&) = default;
 VideoReceiveStream::Decoder::~Decoder() = default;
 
 std::string VideoReceiveStream::Decoder::ToString() const {
   char buf[1024];
   rtc::SimpleStringBuilder ss(buf);
-  ss << "{decoder: " << (decoder ? "(VideoDecoder)" : "nullptr");
-  ss << ", payload_type: " << payload_type;
-  ss << ", payload_name: " << payload_name;
+  ss << "{payload_type: " << payload_type;
+  ss << ", payload_name: " << video_format.name;
   ss << ", codec_params: {";
-  for (const auto& it : codec_params)
+  for (const auto& it : video_format.parameters)
     ss << it.first << ": " << it.second;
   ss << '}';
   ss << '}';
@@ -36,7 +35,7 @@ VideoReceiveStream::Stats::Stats() = default;
 VideoReceiveStream::Stats::~Stats() = default;
 
 std::string VideoReceiveStream::Stats::ToString(int64_t time_ms) const {
-  char buf[1024];
+  char buf[2048];
   rtc::SimpleStringBuilder ss(buf);
   ss << "VideoReceiveStream stats: " << time_ms << ", {ssrc: " << ssrc << ", ";
   ss << "total_bps: " << total_bitrate_bps << ", ";
@@ -49,6 +48,8 @@ std::string VideoReceiveStream::Stats::ToString(int64_t time_ms) const {
   ss << "render_fps: " << render_frame_rate << ", ";
   ss << "decode_ms: " << decode_ms << ", ";
   ss << "max_decode_ms: " << max_decode_ms << ", ";
+  ss << "first_frame_received_to_decoded_ms: "
+     << first_frame_received_to_decoded_ms << ", ";
   ss << "cur_delay_ms: " << current_delay_ms << ", ";
   ss << "targ_delay_ms: " << target_delay_ms << ", ";
   ss << "jb_delay_ms: " << jitter_buffer_ms << ", ";
@@ -66,8 +67,12 @@ std::string VideoReceiveStream::Stats::ToString(int64_t time_ms) const {
 
 VideoReceiveStream::Config::Config(const Config&) = default;
 VideoReceiveStream::Config::Config(Config&&) = default;
+VideoReceiveStream::Config::Config(Transport* rtcp_send_transport,
+                                   MediaTransportInterface* media_transport)
+    : rtcp_send_transport(rtcp_send_transport),
+      media_transport(media_transport) {}
 VideoReceiveStream::Config::Config(Transport* rtcp_send_transport)
-    : rtcp_send_transport(rtcp_send_transport) {}
+    : Config(rtcp_send_transport, nullptr) {}
 
 VideoReceiveStream::Config& VideoReceiveStream::Config::operator=(Config&&) =
     default;

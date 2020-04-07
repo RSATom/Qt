@@ -83,7 +83,10 @@ enum {
     WM_QT_SOCKETNOTIFIER = WM_USER,
     WM_QT_SENDPOSTEDEVENTS = WM_USER + 1,
     WM_QT_ACTIVATENOTIFIERS = WM_USER + 2,
-    SendPostedEventsWindowsTimerId = ~1u
+};
+
+enum : UINT_PTR {
+    SendPostedEventsWindowsTimerId = ~UINT_PTR(1)
 };
 
 class QEventDispatcherWin32Private;
@@ -278,7 +281,7 @@ LRESULT QT_WIN_CALLBACK qt_GetMessageHook(int code, WPARAM wp, LPARAM lp)
                 // no more input or timer events in the message queue, we can allow posted events to be sent normally now
                 if (d->sendPostedEventsWindowsTimerId != 0) {
                     // stop the timer to send posted events, since we now allow the WM_QT_SENDPOSTEDEVENTS message
-                    KillTimer(d->internalHwnd, d->sendPostedEventsWindowsTimerId);
+                    KillTimer(d->internalHwnd, SendPostedEventsWindowsTimerId);
                     d->sendPostedEventsWindowsTimerId = 0;
                 }
                 (void) d->wakeUps.fetchAndStoreRelease(0);
@@ -992,8 +995,14 @@ int QEventDispatcherWin32::remainingTime(int timerId)
     quint64 currentTime = qt_msectime();
 
     for (const WinTimerInfo *t : qAsConst(d->timerVec)) {
-        if (t && t->timerId == timerId) // timer found, return time to wait
-            return t->timeout > currentTime ? t->timeout - currentTime : 0;
+        if (t && t->timerId == timerId) {
+            // timer found, return time to wait
+
+            if (d->internalHwnd)
+                return t->timeout > currentTime ? t->timeout - currentTime : 0;
+            else
+                return t->interval;
+        }
     }
 
 #ifndef QT_NO_DEBUG

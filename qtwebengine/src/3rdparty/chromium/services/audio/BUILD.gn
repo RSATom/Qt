@@ -2,16 +2,17 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromecast_build.gni")
+import("//media/webrtc/audio_processing.gni")
 import("//services/catalog/public/tools/catalog.gni")
-import("//services/service_manager/public/cpp/service.gni")
+import("//services/service_manager/public/cpp/service_executable.gni")
 import("//services/service_manager/public/service_manifest.gni")
-import("//services/service_manager/public/tools/test/service_test.gni")
 import("//testing/test.gni")
 
 # Currently standalone service binaries are not supported on Android or iOS.
 standalone_supported = !(is_android || is_ios)
 
-service("audio") {
+service_executable("audio") {
   sources = [
     "service_main.cc",
   ]
@@ -30,17 +31,14 @@ service_manifest("manifest") {
 
 source_set("lib") {
   sources = [
-    "audio_sandbox_win.cc",
-    "audio_sandbox_win.h",
     "debug_recording.cc",
     "debug_recording.h",
     "delay_buffer.cc",
     "delay_buffer.h",
     "device_notifier.cc",
     "device_notifier.h",
-    "group_coordinator.cc",
+    "group_coordinator-impl.h",
     "group_coordinator.h",
-    "group_member.h",
     "in_process_audio_manager_accessor.cc",
     "in_process_audio_manager_accessor.h",
     "input_controller.cc",
@@ -57,6 +55,9 @@ source_set("lib") {
     "log_factory_adapter.h",
     "log_factory_manager.cc",
     "log_factory_manager.h",
+    "loopback_coordinator.cc",
+    "loopback_coordinator.h",
+    "loopback_group_member.h",
     "loopback_stream.cc",
     "loopback_stream.h",
     "output_controller.cc",
@@ -75,6 +76,9 @@ source_set("lib") {
     "snooper_node.h",
     "stream_factory.cc",
     "stream_factory.h",
+    "stream_monitor.h",
+    "stream_monitor_coordinator.cc",
+    "stream_monitor_coordinator.h",
     "sync_reader.cc",
     "sync_reader.h",
     "system_info.cc",
@@ -85,16 +89,46 @@ source_set("lib") {
     "user_input_monitor.h",
   ]
 
+  deps = [
+    "//components/crash/core/common:crash_key",  # Temporary: crbug.com/888478
+  ]
+
+  if (audio_processing_in_audio_service_supported) {
+    deps += [ "//media/webrtc" ]
+  }
+
   public_deps = [
     "//base",
     "//media",
+    "//media/webrtc",
     "//services/audio/public/mojom",
     "//services/service_manager/public/cpp",
     "//services/service_manager/sandbox:sandbox",
   ]
 
+  if (is_linux) {
+    sources += [
+      "audio_sandbox_hook_linux.cc",
+      "audio_sandbox_hook_linux.h",
+    ]
+    public_deps += [ "//sandbox/linux:sandbox_services" ]
+  }
+
   if (is_win) {
+    sources += [
+      "audio_sandbox_win.cc",
+      "audio_sandbox_win.h",
+    ]
     public_deps += [ "//sandbox/win:sandbox" ]
+  }
+  configs += [
+    "//build/config/compiler:wexit_time_destructors",
+    "//media:media_config",
+    "//media/audio:platform_config",
+  ]
+
+  if (is_chromecast) {
+    defines = [ "IS_CHROMECAST" ]
   }
 }
 
@@ -124,9 +158,11 @@ source_set("tests") {
     "test/debug_recording_session_unittest.cc",
     "test/fake_consumer.cc",
     "test/fake_consumer.h",
-    "test/fake_group_member.cc",
-    "test/fake_group_member.h",
+    "test/fake_loopback_group_member.cc",
+    "test/fake_loopback_group_member.h",
     "test/in_process_service_test.cc",
+    "test/mock_group_coordinator.cc",
+    "test/mock_group_coordinator.h",
     "test/mock_group_member.cc",
     "test/mock_group_member.h",
     "test/mock_log.cc",
@@ -141,6 +177,7 @@ source_set("tests") {
   deps = [
     ":audio",
     ":lib",
+    ":tests_catalog_source",
     "//base/test:test_support",
     "//media:test_support",
     "//mojo/core/embedder",
@@ -148,7 +185,6 @@ source_set("tests") {
     "//services/audio/public/cpp:test_support",
     "//services/audio/public/mojom",
     "//services/service_manager/public/cpp",
-    "//services/service_manager/public/cpp:service_test_support",
     "//services/service_manager/public/cpp/test:test_support",
     "//testing/gmock",
     "//testing/gtest",
@@ -176,11 +212,18 @@ catalog("tests_catalog") {
   embedded_services = [ ":unittest_manifest" ]
 }
 
+catalog_cpp_source("tests_catalog_source") {
+  testonly = true
+  catalog = ":tests_catalog"
+  generated_function_name = "audio::CreateUnittestCatalog"
+}
+
 # Standalone tests support.
 if (standalone_supported) {
   service_manifest("standalone_unittest_manifest") {
     name = "audio_unittests"
     source = "test/service_unittest_manifest.json"
+    generated_namespace = "standalone_audio_unittest"
   }
 
   catalog("standalone_unittest_catalog") {

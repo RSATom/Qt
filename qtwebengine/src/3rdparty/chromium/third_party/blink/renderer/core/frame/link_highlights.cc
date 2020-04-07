@@ -10,6 +10,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/renderer/core/dom/node.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
@@ -30,9 +31,13 @@ void LinkHighlights::Trace(blink::Visitor* visitor) {
 }
 
 void LinkHighlights::RemoveAllHighlights() {
-  if (timeline_) {
-    for (auto& highlight : link_highlights_)
+  for (auto& highlight : link_highlights_) {
+    if (timeline_)
       timeline_->AnimationDestroyed(*highlight);
+    if (auto* node = highlight->GetNode()) {
+      if (auto* layout_object = node->GetLayoutObject())
+        layout_object->SetNeedsPaintPropertyUpdate();
+    }
   }
   link_highlights_.clear();
 }
@@ -47,14 +52,14 @@ void LinkHighlights::SetTapHighlights(
   // don't get a new target to highlight.
   RemoveAllHighlights();
 
-  for (size_t i = 0; i < highlight_nodes.size(); ++i) {
+  for (wtf_size_t i = 0; i < highlight_nodes.size(); ++i) {
     Node* node = highlight_nodes[i];
 
     if (!node || !node->GetLayoutObject())
       continue;
 
     Color highlight_color =
-        node->GetLayoutObject()->Style()->TapHighlightColor();
+        node->GetLayoutObject()->StyleRef().TapHighlightColor();
     // Safari documentation for -webkit-tap-highlight-color says if the
     // specified color has 0 alpha, then tap highlighting is disabled.
     // http://developer.apple.com/library/safari/#documentation/appleapplications/reference/safaricssref/articles/standardcssproperties.html
@@ -64,6 +69,7 @@ void LinkHighlights::SetTapHighlights(
     link_highlights_.push_back(LinkHighlightImpl::Create(node));
     if (timeline_)
       timeline_->AnimationAttached(*link_highlights_.back());
+    node->GetLayoutObject()->SetNeedsPaintPropertyUpdate();
   }
 }
 
@@ -103,6 +109,33 @@ void LinkHighlights::WillCloseLayerTreeView(WebLayerTreeView& layer_tree_view) {
     timeline_.reset();
   }
   animation_host_ = nullptr;
+}
+
+bool LinkHighlights::NeedsHighlightEffectInternal(
+    const LayoutObject& object) const {
+  for (auto& highlight : link_highlights_) {
+    if (auto* node = highlight->GetNode()) {
+      if (node->GetLayoutObject() == &object)
+        return true;
+    }
+  }
+  return false;
+}
+
+CompositorElementId LinkHighlights::element_id(const LayoutObject& object) {
+  for (auto& highlight : link_highlights_) {
+    if (auto* node = highlight->GetNode()) {
+      if (node->GetLayoutObject() == &object)
+        return highlight->element_id();
+    }
+  }
+  return CompositorElementId();
+}
+
+void LinkHighlights::Paint(GraphicsContext& context) const {
+  DCHECK(RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
+  for (const auto& highlight : link_highlights_)
+    highlight->Paint(context);
 }
 
 }  // namespace blink

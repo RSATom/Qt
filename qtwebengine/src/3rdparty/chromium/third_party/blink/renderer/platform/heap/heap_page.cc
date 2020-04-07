@@ -42,7 +42,6 @@
 #include "third_party/blink/renderer/platform/heap/marking_verifier.h"
 #include "third_party/blink/renderer/platform/heap/page_memory.h"
 #include "third_party/blink/renderer/platform/heap/page_pool.h"
-#include "third_party/blink/renderer/platform/heap/safe_point.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
@@ -741,12 +740,17 @@ void NormalPageArena::PromptlyFreeObject(HeapObjectHeader* header) {
           ->ClearBit(address);
       return;
     }
+    // The object may be on a page that has not been swept yet and requires
+    // manual unmarking.
+    if (header->IsMarked())
+      header->Unmark();
     PromptlyFreeObjectInFreeList(header, size);
   }
 }
 
 void NormalPageArena::PromptlyFreeObjectInFreeList(HeapObjectHeader* header,
                                                    size_t size) {
+  DCHECK(!header->IsMarked());
   Address address = reinterpret_cast<Address>(header);
   NormalPage* page = reinterpret_cast<NormalPage*>(PageFromObject(header));
   if (page->HasBeenSwept()) {
@@ -760,10 +764,6 @@ void NormalPageArena::PromptlyFreeObjectInFreeList(HeapObjectHeader* header,
     CHECK_MEMORY_INACCESSIBLE(payload, payload_size);
     AddToFreeList(address, size);
     promptly_freed_size_ += size;
-  } else {
-    // If we do not have free list entries the sweeper will take care of
-    // coalescing.
-    header->Unmark();
   }
   GetThreadState()->Heap().DecreaseAllocatedObjectSize(size);
 }
@@ -1496,6 +1496,7 @@ void NormalPage::SweepAndCompact(CompactionContext& context) {
 
 void NormalPage::MakeConsistentForMutator() {
   object_start_bit_map()->Clear();
+  size_t marked_object_size = 0;
   Address start_of_gap = Payload();
   NormalPageArena* normal_arena = ArenaForNormalPage();
   for (Address header_address = Payload(); header_address < PayloadEnd();) {
@@ -1519,6 +1520,7 @@ void NormalPage::MakeConsistentForMutator() {
       normal_arena->AddToFreeList(start_of_gap, header_address - start_of_gap);
     if (header->IsMarked()) {
       header->Unmark();
+      marked_object_size += size;
     }
     object_start_bit_map()->SetBit(header_address);
     header_address += size;
@@ -1527,6 +1529,11 @@ void NormalPage::MakeConsistentForMutator() {
   }
   if (start_of_gap != PayloadEnd())
     normal_arena->AddToFreeList(start_of_gap, PayloadEnd() - start_of_gap);
+
+  if (marked_object_size) {
+    ArenaForNormalPage()->GetThreadState()->Heap().IncreaseMarkedObjectSize(
+        marked_object_size);
+  }
 
   VerifyObjectStartBitmapIsConsistentWithPayload();
 }
@@ -1646,14 +1653,14 @@ void NormalPage::TakeSnapshot(base::trace_event::MemoryAllocatorDump* page_dump,
       live_count++;
       live_size += header->size();
 
-      size_t gc_info_index = header->GcInfoIndex();
+      uint32_t gc_info_index = header->GcInfoIndex();
       info.live_count[gc_info_index]++;
       info.live_size[gc_info_index] += header->size();
     } else {
       dead_count++;
       dead_size += header->size();
 
-      size_t gc_info_index = header->GcInfoIndex();
+      uint32_t gc_info_index = header->GcInfoIndex();
       info.dead_count[gc_info_index]++;
       info.dead_size[gc_info_index] += header->size();
     }
@@ -1709,8 +1716,10 @@ bool LargeObjectPage::Sweep() {
 
 void LargeObjectPage::MakeConsistentForMutator() {
   HeapObjectHeader* header = ObjectHeader();
-  if (header->IsMarked())
+  if (header->IsMarked()) {
     header->Unmark();
+    Arena()->GetThreadState()->Heap().IncreaseMarkedObjectSize(size());
+  }
 }
 
 #if defined(ADDRESS_SANITIZER)
@@ -1730,7 +1739,7 @@ void LargeObjectPage::TakeSnapshot(
   size_t live_count = 0;
   size_t dead_count = 0;
   HeapObjectHeader* header = ObjectHeader();
-  size_t gc_info_index = header->GcInfoIndex();
+  uint32_t gc_info_index = header->GcInfoIndex();
   size_t payload_size = header->PayloadSize();
   if (header->IsMarked()) {
     live_count = 1;
@@ -1777,8 +1786,9 @@ uint32_t ComputeRandomMagic() {
   // Get an ASLR'd address from one of our own DLLs/.sos, and then another from
   // a system DLL/.so:
 
-  const uint32_t random1 = ~(RotateLeft16(reinterpret_cast<uintptr_t>(
-      base::trace_event::MemoryAllocatorDump::kNameSize)));
+  const uint32_t random1 =
+      ~(RotateLeft16(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(
+          base::trace_event::MemoryAllocatorDump::kNameSize))));
 
 #if defined(OS_WIN)
   uintptr_t random2 = reinterpret_cast<uintptr_t>(::ReadFile);
@@ -1802,7 +1812,7 @@ uint32_t ComputeRandomMagic() {
 #error architecture not supported
 #endif
 
-  random2 = ~(RotateLeft16(random2));
+  random2 = ~(RotateLeft16(static_cast<uint32_t>(random2)));
 
   // Combine the 2 values:
   const uint32_t random = (random1 & 0x0000FFFFUL) |

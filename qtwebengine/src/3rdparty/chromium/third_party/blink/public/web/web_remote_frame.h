@@ -6,8 +6,10 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_REMOTE_FRAME_H_
 
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/frame/frame_owner_element_type.h"
 #include "third_party/blink/public/common/frame/sandbox_flags.h"
 #include "third_party/blink/public/common/frame/user_activation_update_type.h"
+#include "third_party/blink/public/mojom/csp/content_security_policy.mojom-shared.h"
 #include "third_party/blink/public/platform/web_content_security_policy.h"
 #include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "third_party/blink/public/platform/web_scroll_types.h"
@@ -53,20 +55,25 @@ class WebRemoteFrame : public WebFrame {
                                           WebSandboxFlags,
                                           WebLocalFrameClient*,
                                           blink::InterfaceRegistry*,
+                                          mojo::ScopedMessagePipeHandle,
                                           WebFrame* previous_sibling,
                                           const ParsedFeaturePolicy&,
                                           const WebFrameOwnerProperties&,
+                                          FrameOwnerElementType,
                                           WebFrame* opener) = 0;
 
   virtual WebRemoteFrame* CreateRemoteChild(WebTreeScopeType,
                                             const WebString& name,
                                             WebSandboxFlags,
                                             const ParsedFeaturePolicy&,
+                                            FrameOwnerElementType,
                                             WebRemoteFrameClient*,
                                             WebFrame* opener) = 0;
 
   // Layer for the in-process compositor.
-  virtual void SetCcLayer(cc::Layer*, bool prevent_contents_opaque_changes) = 0;
+  virtual void SetCcLayer(cc::Layer*,
+                          bool prevent_contents_opaque_changes,
+                          bool is_surface_layer) = 0;
 
   // Set security origin replicated from another process.
   virtual void SetReplicatedOrigin(
@@ -85,7 +92,7 @@ class WebRemoteFrame : public WebFrame {
   // Adds |header| to the set of replicated CSP headers.
   virtual void AddReplicatedContentSecurityPolicyHeader(
       const WebString& header_value,
-      WebContentSecurityPolicyType,
+      mojom::ContentSecurityPolicyType,
       WebContentSecurityPolicySource) = 0;
 
   // Resets replicated CSP headers to an empty set.
@@ -137,6 +144,12 @@ class WebRemoteFrame : public WebFrame {
   virtual void IntrinsicSizingInfoChanged(const WebIntrinsicSizingInfo&) = 0;
 
   virtual WebRect GetCompositingRect() = 0;
+
+  // When a cross-process navigation or loading fails, the browser notifies the
+  // parent process to render its own fallback content if any. This only occurs
+  // if the owner element is capable of rendering its own fallback (e.g.,
+  // <object>).
+  virtual void RenderFallbackContent() const = 0;
 
  protected:
   explicit WebRemoteFrame(WebTreeScopeType scope) : WebFrame(scope) {}

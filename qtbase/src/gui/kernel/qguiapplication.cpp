@@ -210,6 +210,8 @@ bool QGuiApplicationPrivate::obey_desktop_settings = true;
 
 QInputDeviceManager *QGuiApplicationPrivate::m_inputDeviceManager = 0;
 
+qreal QGuiApplicationPrivate::m_maxDevicePixelRatio = 0.0;
+
 static qreal fontSmoothingGamma = 1.7;
 
 extern void qRegisterGuiVariant();
@@ -1029,7 +1031,7 @@ QList<QScreen *> QGuiApplication::screens()
 }
 
 /*!
-    Returns the screen at \a point, or \c nullptr if outside of any screen.
+    Returns the screen at \a point, or \nullptr if outside of any screen.
 
     The \a point is in relation to the virtualGeometry() of each set of virtual
     siblings. If the point maps to more than one set of virtual siblings the first
@@ -1101,17 +1103,19 @@ QScreen *QGuiApplication::screenAt(const QPoint &point)
 */
 qreal QGuiApplication::devicePixelRatio() const
 {
-    // Cache topDevicePixelRatio, iterate through the screen list once only.
-    static qreal topDevicePixelRatio = 0.0;
-    if (!qFuzzyIsNull(topDevicePixelRatio)) {
-        return topDevicePixelRatio;
-    }
+    if (!qFuzzyIsNull(QGuiApplicationPrivate::m_maxDevicePixelRatio))
+        return QGuiApplicationPrivate::m_maxDevicePixelRatio;
 
-    topDevicePixelRatio = 1.0; // make sure we never return 0.
+    QGuiApplicationPrivate::m_maxDevicePixelRatio = 1.0; // make sure we never return 0.
     for (QScreen *screen : qAsConst(QGuiApplicationPrivate::screen_list))
-        topDevicePixelRatio = qMax(topDevicePixelRatio, screen->devicePixelRatio());
+        QGuiApplicationPrivate::m_maxDevicePixelRatio = qMax(QGuiApplicationPrivate::m_maxDevicePixelRatio, screen->devicePixelRatio());
 
-    return topDevicePixelRatio;
+    return QGuiApplicationPrivate::m_maxDevicePixelRatio;
+}
+
+void QGuiApplicationPrivate::resetCachedDevicePixelRatio()
+{
+    m_maxDevicePixelRatio = 0.0;
 }
 
 /*!
@@ -1176,7 +1180,7 @@ static void init_platform(const QString &pluginNamesWithArguments, const QString
     QStringList plugins = pluginNamesWithArguments.split(QLatin1Char(';'));
     QStringList platformArguments;
     QStringList availablePlugins = QPlatformIntegrationFactory::keys(platformPluginPath);
-    for (auto pluginArgument : plugins) {
+    for (const auto &pluginArgument : plugins) {
         // Split into platform name and arguments
         QStringList arguments = pluginArgument.split(QLatin1Char(':'));
         const QString name = arguments.takeFirst().toLower();
@@ -2188,8 +2192,6 @@ void QGuiApplicationPrivate::processWheelEvent(QWindowSystemInterfacePrivate::Wh
 #endif // QT_CONFIG(wheelevent)
 }
 
-// Remember, Qt convention is:  keyboard state is state *before*
-
 void QGuiApplicationPrivate::processKeyEvent(QWindowSystemInterfacePrivate::KeyEvent *e)
 {
     QWindow *window = e->window.data();
@@ -2428,9 +2430,9 @@ void QGuiApplicationPrivate::processGeometryChangeEvent(QWindowSystemInterfacePr
         window->d_func()->resizeEventPending = false;
 
         if (actualGeometry.width() != lastReportedGeometry.width())
-            window->widthChanged(actualGeometry.width());
+            emit window->widthChanged(actualGeometry.width());
         if (actualGeometry.height() != lastReportedGeometry.height())
-            window->heightChanged(actualGeometry.height());
+            emit window->heightChanged(actualGeometry.height());
     }
 
     if (isMove) {
@@ -2439,9 +2441,9 @@ void QGuiApplicationPrivate::processGeometryChangeEvent(QWindowSystemInterfacePr
         QGuiApplication::sendSpontaneousEvent(window, &e);
 
         if (actualGeometry.x() != lastReportedGeometry.x())
-            window->xChanged(actualGeometry.x());
+            emit window->xChanged(actualGeometry.x());
         if (actualGeometry.y() != lastReportedGeometry.y())
-            window->yChanged(actualGeometry.y());
+            emit window->yChanged(actualGeometry.y());
     }
 }
 
@@ -2695,7 +2697,7 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
     QWindow *window = e->window.data();
     typedef QPair<Qt::TouchPointStates, QList<QTouchEvent::TouchPoint> > StatesAndTouchPoints;
     QHash<QWindow *, StatesAndTouchPoints> windowsNeedingEvents;
-    bool stationaryTouchPointChangedVelocity = false;
+    bool stationaryTouchPointChangedProperty = false;
 
     for (int i = 0; i < e->points.count(); ++i) {
         QTouchEvent::TouchPoint touchPoint = e->points.at(i);
@@ -2775,7 +2777,11 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
             if (touchPoint.state() == Qt::TouchPointStationary) {
                 if (touchInfo.touchPoint.velocity() != touchPoint.velocity()) {
                     touchInfo.touchPoint.setVelocity(touchPoint.velocity());
-                    stationaryTouchPointChangedVelocity = true;
+                    stationaryTouchPointChangedProperty = true;
+                }
+                if (!qFuzzyCompare(touchInfo.touchPoint.pressure(), touchPoint.pressure())) {
+                    touchInfo.touchPoint.setPressure(touchPoint.pressure());
+                    stationaryTouchPointChangedProperty = true;
                 }
             } else {
                 touchInfo.touchPoint = touchPoint;
@@ -2816,7 +2822,7 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
             break;
         case Qt::TouchPointStationary:
             // don't send the event if nothing changed
-            if (!stationaryTouchPointChangedVelocity)
+            if (!stationaryTouchPointChangedProperty)
                 continue;
             Q_FALLTHROUGH();
         default:
@@ -3005,6 +3011,8 @@ void QGuiApplicationPrivate::processScreenGeometryChange(QWindowSystemInterfaceP
         for (QScreen* sibling : siblings)
             emit sibling->virtualGeometryChanged(sibling->virtualGeometry());
     }
+
+    resetCachedDevicePixelRatio();
 }
 
 void QGuiApplicationPrivate::processScreenLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e)
@@ -3020,6 +3028,8 @@ void QGuiApplicationPrivate::processScreenLogicalDotsPerInchChange(QWindowSystem
     s->d_func()->logicalDpi = QDpi(e->dpiX, e->dpiY);
 
     emit s->logicalDotsPerInchChanged(s->logicalDotsPerInch());
+
+    resetCachedDevicePixelRatio();
 }
 
 void QGuiApplicationPrivate::processScreenRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e)
@@ -3075,41 +3085,8 @@ void QGuiApplicationPrivate::processExposeEvent(QWindowSystemInterfacePrivate::E
 
 /*! \internal
 
-  This function updates an internal state to keep the source compatibility. Documentation of
-  QGuiApplication::mouseButtons() states - "The current state is updated synchronously as
-  the event queue is emptied of events that will spontaneously change the mouse state
-  (QEvent::MouseButtonPress and QEvent::MouseButtonRelease events)". But internally we have
-  been updating these state variables from various places to keep buttons returned by
-  mouseButtons() in sync with the systems state. This is not the documented behavior.
-
-  ### Qt6 - Remove QGuiApplication::mouseButtons()/keyboardModifiers() API? And here
-  are the reasons:
-
-  - It is an easy to misuse API by:
-
-   a) Application developers: The only place where the values of this API can be trusted is
-      when using within mouse handling callbacks. In these callbacks we work with the state
-      that was provided directly by the windowing system. Anywhere else it might not reflect what
-      user wrongly expects. We might not always receive a matching mouse release for a press event
-      (e.g. When dismissing a popup window on X11. Or when dnd enter Qt application with mouse
-      button down, we update mouse_buttons and then dnd leaves Qt application and does a drop
-      somewhere else) and hence mouseButtons() will be out-of-sync from users perspective, see
-      for example QTBUG-33161. BUT THIS IS NOT HOW THE API IS SUPPOSED TO BE USED. Since the only
-      safe place to use this API is from mouse event handlers, we might as well deprecate it and
-      pass down the button state if we are not already doing that everywhere where it matters.
-
-   b) Qt framework developers:
-
-      We see users complaining, we start adding hacks everywhere just to keep buttons in sync ;)
-      There are corner cases that can not be solved and adding this kind of hacks is never ending
-      task.
-
-  - Real mouse events, tablet mouse events, etc: all go through QGuiApplication::processMouseEvent,
-    and all share mouse_buttons. What if we want to support multiple mice in future? The API must
-    go.
-
-  - Motivation why this API is public is not clear. Could the same be achieved by a user by
-    installing an event filter?
+  This function updates an internal state to keep the source compatibility.
+  ### Qt 6 - Won't need after QTBUG-73829
 */
 static void updateMouseAndModifierButtonState(Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers)
 {
@@ -3233,9 +3210,12 @@ void QGuiApplication::setPalette(const QPalette &pal)
         QGuiApplicationPrivate::app_pal = new QPalette(pal);
     else
         *QGuiApplicationPrivate::app_pal = pal;
+
     applicationResourceFlags |= ApplicationPaletteExplicitlySet;
     QCoreApplication::setAttribute(Qt::AA_SetPalette);
-    emit qGuiApp->paletteChanged(*QGuiApplicationPrivate::app_pal);
+
+    if (qGuiApp)
+        emit qGuiApp->paletteChanged(*QGuiApplicationPrivate::app_pal);
 }
 
 void QGuiApplicationPrivate::applyWindowGeometrySpecificationTo(QWindow *window)
@@ -3281,8 +3261,11 @@ void QGuiApplication::setFont(const QFont &font)
         *QGuiApplicationPrivate::app_font = font;
     applicationResourceFlags |= ApplicationFontExplicitlySet;
 
-    if (emitChange && qGuiApp)
-        emit qGuiApp->fontChanged(*QGuiApplicationPrivate::app_font);
+    if (emitChange && qGuiApp) {
+        auto font = *QGuiApplicationPrivate::app_font;
+        locker.unlock();
+        emit qGuiApp->fontChanged(font);
+    }
 }
 
 /*!

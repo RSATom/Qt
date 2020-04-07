@@ -6,15 +6,28 @@
  * found in the LICENSE file.
  */
 
-#include <Windows.h>
-#include <GL/gl.h>
 #include "../GLWindowContext.h"
 #include "gl/GrGLInterface.h"
 #include "WindowContextFactory_win.h"
 #include "win/SkWGL.h"
 
+#include <Windows.h>
+#include <GL/gl.h>
+
 using sk_app::GLWindowContext;
 using sk_app::DisplayParams;
+
+#if defined(_M_ARM64)
+
+namespace sk_app {
+namespace window_context_factory {
+
+WindowContext* NewGLForWin(HWND, const DisplayParams&) { return nullptr; }
+
+}  // namespace window_context_factory
+}  // namespace sk_app
+
+#else
 
 namespace {
 
@@ -140,3 +153,5 @@ WindowContext* NewGLForWin(HWND wnd, const DisplayParams& params) {
 
 }  // namespace window_context_factory
 }  // namespace sk_app
+
+#endif

@@ -14,6 +14,7 @@
 #include "net/base/auth.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
+#include "net/base/proxy_delegate.h"
 #include "net/http/http_basic_stream.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_request_info.h"
@@ -27,14 +28,18 @@
 
 namespace net {
 
+const int HttpProxyClientSocket::kDrainBodyBufferSize;
+
 HttpProxyClientSocket::HttpProxyClientSocket(
     std::unique_ptr<ClientSocketHandle> transport_socket,
     const std::string& user_agent,
     const HostPortPair& endpoint,
+    const ProxyServer& proxy_server,
     HttpAuthController* http_auth_controller,
     bool tunnel,
     bool using_spdy,
     NextProto negotiated_protocol,
+    ProxyDelegate* proxy_delegate,
     bool is_https_proxy,
     const NetworkTrafficAnnotationTag& traffic_annotation)
     : io_callback_(base::BindRepeating(&HttpProxyClientSocket::OnIOComplete,
@@ -48,6 +53,8 @@ HttpProxyClientSocket::HttpProxyClientSocket(
       negotiated_protocol_(negotiated_protocol),
       is_https_proxy_(is_https_proxy),
       redirect_has_load_timing_info_(false),
+      proxy_server_(proxy_server),
+      proxy_delegate_(proxy_delegate),
       traffic_annotation_(traffic_annotation),
       net_log_(transport_->socket()->NetLog()) {
   // Synthesize the bits of a request that we actually use.
@@ -198,20 +205,24 @@ int HttpProxyClientSocket::Read(IOBuffer* buf,
                                 int buf_len,
                                 CompletionOnceCallback callback) {
   DCHECK(user_callback_.is_null());
-  if (next_state_ != STATE_DONE) {
-    // We're trying to read the body of the response but we're still trying
-    // to establish an SSL tunnel through the proxy.  We can't read these
-    // bytes when establishing a tunnel because they might be controlled by
-    // an active network attacker.  We don't worry about this for HTTP
-    // because an active network attacker can already control HTTP sessions.
-    // We reach this case when the user cancels a 407 proxy auth prompt.
-    // See http://crbug.com/8473.
-    DCHECK_EQ(407, response_.headers->response_code());
-
+  if (!CheckDone())
     return ERR_TUNNEL_CONNECTION_FAILED;
-  }
 
   return transport_->socket()->Read(buf, buf_len, std::move(callback));
+}
+
+int HttpProxyClientSocket::ReadIfReady(IOBuffer* buf,
+                                       int buf_len,
+                                       CompletionOnceCallback callback) {
+  DCHECK(user_callback_.is_null());
+  if (!CheckDone())
+    return ERR_TUNNEL_CONNECTION_FAILED;
+
+  return transport_->socket()->ReadIfReady(buf, buf_len, std::move(callback));
+}
+
+int HttpProxyClientSocket::CancelReadIfReady() {
+  return transport_->socket()->CancelReadIfReady();
 }
 
 int HttpProxyClientSocket::Write(
@@ -259,7 +270,7 @@ int HttpProxyClientSocket::PrepareForAuthRestart() {
   // If the auth request had a body, need to drain it before reusing the socket.
   if (!http_stream_parser_->IsResponseBodyComplete()) {
     next_state_ = STATE_DRAIN_BODY;
-    drain_buf_ = new IOBuffer(kDrainBodyBufferSize);
+    drain_buf_ = base::MakeRefCounted<IOBuffer>(kDrainBodyBufferSize);
     return OK;
   }
 
@@ -376,16 +387,25 @@ int HttpProxyClientSocket::DoSendRequest() {
   // we have proxy info available.
   if (request_line_.empty()) {
     DCHECK(request_headers_.IsEmpty());
-    HttpRequestHeaders authorization_headers;
+
+    HttpRequestHeaders extra_headers;
     if (auth_->HaveAuth())
-      auth_->AddAuthorizationHeader(&authorization_headers);
+      auth_->AddAuthorizationHeader(&extra_headers);
+
+    if (proxy_delegate_) {
+      HttpRequestHeaders proxy_delegate_headers;
+      proxy_delegate_->OnBeforeTunnelRequest(proxy_server_,
+                                             &proxy_delegate_headers);
+      extra_headers.MergeFrom(proxy_delegate_headers);
+    }
+
     std::string user_agent;
     if (!request_.extra_headers.GetHeader(HttpRequestHeaders::kUserAgent,
                                           &user_agent)) {
       user_agent.clear();
     }
-    BuildTunnelRequest(endpoint_, authorization_headers, user_agent,
-                       &request_line_, &request_headers_);
+    BuildTunnelRequest(endpoint_, extra_headers, user_agent, &request_line_,
+                       &request_headers_);
 
     net_log_.AddEvent(
         NetLogEventType::HTTP_TRANSACTION_SEND_TUNNEL_HEADERS,
@@ -393,7 +413,7 @@ int HttpProxyClientSocket::DoSendRequest() {
                    base::Unretained(&request_headers_), &request_line_));
   }
 
-  parser_buf_ = new GrowableIOBuffer();
+  parser_buf_ = base::MakeRefCounted<GrowableIOBuffer>();
   http_stream_parser_.reset(new HttpStreamParser(
       transport_.get(), &request_, parser_buf_.get(), net_log_));
   return http_stream_parser_->SendRequest(request_line_, request_headers_,
@@ -426,6 +446,15 @@ int HttpProxyClientSocket::DoReadHeadersComplete(int result) {
       NetLogEventType::HTTP_TRANSACTION_READ_TUNNEL_RESPONSE_HEADERS,
       base::Bind(&HttpResponseHeaders::NetLogCallback, response_.headers));
 
+  if (proxy_delegate_) {
+    int rv = proxy_delegate_->OnTunnelHeadersReceived(proxy_server_,
+                                                      *response_.headers);
+    if (rv != OK) {
+      DCHECK_NE(ERR_IO_PENDING, rv);
+      return rv;
+    }
+  }
+
   switch (response_.headers->response_code()) {
     case 200:  // OK
       if (http_stream_parser_->IsMoreDataBuffered())
@@ -455,7 +484,7 @@ int HttpProxyClientSocket::DoReadHeadersComplete(int result) {
           &redirect_load_timing_info_);
       transport_.reset();
       http_stream_parser_.reset();
-      return ERR_HTTPS_PROXY_TUNNEL_RESPONSE;
+      return ERR_HTTPS_PROXY_TUNNEL_RESPONSE_REDIRECT;
 
     case 407:  // Proxy Authentication Required
       // We need this status code to allow proxy authentication.  Our
@@ -495,6 +524,22 @@ int HttpProxyClientSocket::DoDrainBodyComplete(int result) {
   }
 
   return DidDrainBodyForAuthRestart();
+}
+
+bool HttpProxyClientSocket::CheckDone() {
+  if (next_state_ != STATE_DONE) {
+    // We're trying to read the body of the response but we're still trying
+    // to establish an SSL tunnel through the proxy.  We can't read these
+    // bytes when establishing a tunnel because they might be controlled by
+    // an active network attacker.  We don't worry about this for HTTP
+    // because an active network attacker can already control HTTP sessions.
+    // We reach this case when the user cancels a 407 proxy auth prompt.
+    // See http://crbug.com/8473.
+    DCHECK_EQ(407, response_.headers->response_code());
+
+    return false;
+  }
+  return true;
 }
 
 //----------------------------------------------------------------

@@ -5,7 +5,7 @@
 //
 
 #if defined(_MSC_VER)
-#pragma warning(disable : 4718)
+#    pragma warning(disable : 4718)
 #endif
 
 #include "compiler/translator/Types.h"
@@ -52,6 +52,8 @@ const char *getBasicString(TBasicType t)
             return "sampler2DArray";
         case EbtSampler2DMS:
             return "sampler2DMS";
+        case EbtSampler2DMSArray:
+            return "sampler2DMSArray";
         case EbtISampler2D:
             return "isampler2D";
         case EbtISampler3D:
@@ -62,6 +64,8 @@ const char *getBasicString(TBasicType t)
             return "isampler2DArray";
         case EbtISampler2DMS:
             return "isampler2DMS";
+        case EbtISampler2DMSArray:
+            return "isampler2DMSArray";
         case EbtUSampler2D:
             return "usampler2D";
         case EbtUSampler3D:
@@ -72,6 +76,8 @@ const char *getBasicString(TBasicType t)
             return "usampler2DArray";
         case EbtUSampler2DMS:
             return "usampler2DMS";
+        case EbtUSampler2DMSArray:
+            return "usampler2DMSArray";
         case EbtSampler2DShadow:
             return "sampler2DShadow";
         case EbtSamplerCubeShadow:
@@ -129,8 +135,7 @@ TType::TType()
       mStructure(nullptr),
       mIsStructSpecifier(false),
       mMangledName(nullptr)
-{
-}
+{}
 
 TType::TType(TBasicType t, unsigned char ps, unsigned char ss)
     : type(t),
@@ -146,8 +151,7 @@ TType::TType(TBasicType t, unsigned char ps, unsigned char ss)
       mStructure(nullptr),
       mIsStructSpecifier(false),
       mMangledName(nullptr)
-{
-}
+{}
 
 TType::TType(TBasicType t, TPrecision p, TQualifier q, unsigned char ps, unsigned char ss)
     : type(t),
@@ -163,8 +167,7 @@ TType::TType(TBasicType t, TPrecision p, TQualifier q, unsigned char ps, unsigne
       mStructure(nullptr),
       mIsStructSpecifier(false),
       mMangledName(nullptr)
-{
-}
+{}
 
 TType::TType(const TPublicType &p)
     : type(p.getBasicType()),
@@ -208,8 +211,7 @@ TType::TType(const TStructure *userDef, bool isStructSpecifier)
       mStructure(userDef),
       mIsStructSpecifier(isStructSpecifier),
       mMangledName(nullptr)
-{
-}
+{}
 
 TType::TType(const TInterfaceBlock *interfaceBlockIn,
              TQualifier qualifierIn,
@@ -227,8 +229,7 @@ TType::TType(const TInterfaceBlock *interfaceBlockIn,
       mStructure(0),
       mIsStructSpecifier(false),
       mMangledName(nullptr)
-{
-}
+{}
 
 TType::TType(const TType &t)
     : type(t.type),
@@ -244,8 +245,7 @@ TType::TType(const TType &t)
       mStructure(t.mStructure),
       mIsStructSpecifier(t.mIsStructSpecifier),
       mMangledName(t.mMangledName)
-{
-}
+{}
 
 TType &TType::operator=(const TType &t)
 {
@@ -785,8 +785,7 @@ void TType::createSamplerSymbols(const ImmutableString &namePrefix,
 
 TFieldListCollection::TFieldListCollection(const TFieldList *fields)
     : mFields(fields), mObjectSize(0), mDeepestNesting(0)
-{
-}
+{}
 
 bool TFieldListCollection::containsArrays() const
 {

@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
+#include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 namespace blink {
@@ -41,13 +42,14 @@ class WebHitTestResultPrivate
  public:
   static WebHitTestResultPrivate* Create(const HitTestResult&);
   static WebHitTestResultPrivate* Create(const WebHitTestResultPrivate&);
+
+  WebHitTestResultPrivate(const HitTestResult&);
+  WebHitTestResultPrivate(const WebHitTestResultPrivate&);
+
   void Trace(blink::Visitor* visitor) { visitor->Trace(result_); }
   const HitTestResult& Result() const { return result_; }
 
  private:
-  WebHitTestResultPrivate(const HitTestResult&);
-  WebHitTestResultPrivate(const WebHitTestResultPrivate&);
-
   HitTestResult result_;
 };
 
@@ -61,12 +63,12 @@ inline WebHitTestResultPrivate::WebHitTestResultPrivate(
 
 WebHitTestResultPrivate* WebHitTestResultPrivate::Create(
     const HitTestResult& result) {
-  return new WebHitTestResultPrivate(result);
+  return MakeGarbageCollected<WebHitTestResultPrivate>(result);
 }
 
 WebHitTestResultPrivate* WebHitTestResultPrivate::Create(
     const WebHitTestResultPrivate& result) {
-  return new WebHitTestResultPrivate(result);
+  return MakeGarbageCollected<WebHitTestResultPrivate>(result);
 }
 
 WebNode WebHitTestResult::GetNode() const {
@@ -75,6 +77,16 @@ WebNode WebHitTestResult::GetNode() const {
 
 WebPoint WebHitTestResult::LocalPoint() const {
   return RoundedIntPoint(private_->Result().LocalPoint());
+}
+
+WebPoint WebHitTestResult::LocalPointWithoutContentBoxOffset() const {
+  IntPoint local_point = RoundedIntPoint(private_->Result().LocalPoint());
+  LayoutObject* object = private_->Result().GetLayoutObject();
+  if (object->IsBox()) {
+    LayoutBox* box = ToLayoutBox(object);
+    local_point.Move(-RoundedIntSize(box->PhysicalContentBoxOffset()));
+  }
+  return local_point;
 }
 
 WebElement WebHitTestResult::UrlElement() const {

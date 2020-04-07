@@ -58,16 +58,24 @@ enum {
   kRelationNoOpener = 0x00040000,
 };
 
+class ExceptionState;
+class USVStringOrTrustedURL;
+
 class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   static HTMLAnchorElement* Create(Document&);
 
+  HTMLAnchorElement(const QualifiedName&, Document&);
   ~HTMLAnchorElement() override;
+
+  // Returns attributes that should be checked against Trusted Types
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override;
 
   KURL Href() const;
   void SetHref(const AtomicString&);
+  void setHref(const USVStringOrTrustedURL&, ExceptionState&);
 
   const AtomicString& GetName() const;
 
@@ -92,11 +100,9 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
 
   void SendPings(const KURL& destination_url) const;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
-  HTMLAnchorElement(const QualifiedName&, Document&);
-
   void ParseAttribute(const AttributeModificationParams&) override;
   bool SupportsFocus() const override;
   bool MatchesEnabledPseudoClass() const override;
@@ -106,7 +112,7 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
   bool ShouldHaveFocusAppearance() const final;
   bool IsMouseFocusable() const override;
   bool IsKeyboardFocusable() const override;
-  void DefaultEventHandler(Event*) final;
+  void DefaultEventHandler(Event&) final;
   bool HasActivationBehavior() const override;
   void SetActive(bool = true) final;
   void AccessKeyAction(bool send_mouse_events) final;
@@ -116,8 +122,8 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
   int tabIndex() const final;
   bool draggable() const final;
   bool IsInteractiveContent() const final;
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void HandleClick(Event*);
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void HandleClick(Event&);
 
   unsigned link_relations_ : 31;
   mutable LinkHash cached_visited_link_hash_;
@@ -125,16 +131,17 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
 };
 
 inline LinkHash HTMLAnchorElement::VisitedLinkHash() const {
-  if (!cached_visited_link_hash_)
+  if (!cached_visited_link_hash_) {
     cached_visited_link_hash_ = blink::VisitedLinkHash(
-        GetDocument().BaseURL(), FastGetAttribute(HTMLNames::hrefAttr));
+        GetDocument().BaseURL(), FastGetAttribute(html_names::kHrefAttr));
+  }
   return cached_visited_link_hash_;
 }
 
 // Functions shared with the other anchor elements (i.e., SVG).
 
-bool IsEnterKeyKeydownEvent(Event*);
-bool IsLinkClick(Event*);
+bool IsEnterKeyKeydownEvent(Event&);
+bool IsLinkClick(Event&);
 
 }  // namespace blink
 

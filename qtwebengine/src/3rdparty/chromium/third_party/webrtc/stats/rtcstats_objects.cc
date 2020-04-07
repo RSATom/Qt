@@ -10,6 +10,10 @@
 
 #include "api/stats/rtcstats_objects.h"
 
+#include <utility>
+
+#include "rtc_base/checks.h"
+
 namespace webrtc {
 
 const char* const RTCDataChannelState::kConnecting = "connecting";
@@ -246,6 +250,7 @@ WEBRTC_RTCSTATS_IMPL(RTCIceCandidateStats, RTCStats, "abstract-ice-candidate",
     &ip,
     &port,
     &protocol,
+    &relay_protocol,
     &candidate_type,
     &priority,
     &url,
@@ -267,6 +272,7 @@ RTCIceCandidateStats::RTCIceCandidateStats(std::string&& id,
       ip("ip"),
       port("port"),
       protocol("protocol"),
+      relay_protocol("relayProtocol"),
       candidate_type("candidateType"),
       priority("priority"),
       url("url"),
@@ -280,6 +286,7 @@ RTCIceCandidateStats::RTCIceCandidateStats(const RTCIceCandidateStats& other)
       ip(other.ip),
       port(other.port),
       protocol(other.protocol),
+      relay_protocol(other.relay_protocol),
       candidate_type(other.candidate_type),
       priority(other.priority),
       url(other.url),
@@ -353,6 +360,7 @@ WEBRTC_RTCSTATS_IMPL(RTCMediaStreamTrackStats, RTCStats, "track",
                      &detached,
                      &kind,
                      &jitter_buffer_delay,
+                     &jitter_buffer_emitted_count,
                      &frame_width,
                      &frame_height,
                      &frames_per_second,
@@ -371,7 +379,9 @@ WEBRTC_RTCSTATS_IMPL(RTCMediaStreamTrackStats, RTCStats, "track",
                      &total_samples_received,
                      &total_samples_duration,
                      &concealed_samples,
-                     &concealment_events);
+                     &concealment_events,
+                     &jitter_buffer_flushes,
+                     &delayed_packet_outage_samples);
 // clang-format on
 
 RTCMediaStreamTrackStats::RTCMediaStreamTrackStats(const std::string& id,
@@ -389,6 +399,7 @@ RTCMediaStreamTrackStats::RTCMediaStreamTrackStats(std::string&& id,
       detached("detached"),
       kind("kind", kind),
       jitter_buffer_delay("jitterBufferDelay"),
+      jitter_buffer_emitted_count("jitterBufferEmittedCount"),
       frame_width("frameWidth"),
       frame_height("frameHeight"),
       frames_per_second("framesPerSecond"),
@@ -407,7 +418,9 @@ RTCMediaStreamTrackStats::RTCMediaStreamTrackStats(std::string&& id,
       total_samples_received("totalSamplesReceived"),
       total_samples_duration("totalSamplesDuration"),
       concealed_samples("concealedSamples"),
-      concealment_events("concealmentEvents") {
+      concealment_events("concealmentEvents"),
+      jitter_buffer_flushes("jitterBufferFlushes"),
+      delayed_packet_outage_samples("delayedPacketOutageSamples") {
   RTC_DCHECK(kind == RTCMediaStreamTrackKind::kAudio ||
              kind == RTCMediaStreamTrackKind::kVideo);
 }
@@ -421,6 +434,7 @@ RTCMediaStreamTrackStats::RTCMediaStreamTrackStats(
       detached(other.detached),
       kind(other.kind),
       jitter_buffer_delay(other.jitter_buffer_delay),
+      jitter_buffer_emitted_count(other.jitter_buffer_emitted_count),
       frame_width(other.frame_width),
       frame_height(other.frame_height),
       frames_per_second(other.frames_per_second),
@@ -439,7 +453,9 @@ RTCMediaStreamTrackStats::RTCMediaStreamTrackStats(
       total_samples_received(other.total_samples_received),
       total_samples_duration(other.total_samples_duration),
       concealed_samples(other.concealed_samples),
-      concealment_events(other.concealment_events) {}
+      concealment_events(other.concealment_events),
+      jitter_buffer_flushes(other.jitter_buffer_flushes),
+      delayed_packet_outage_samples(other.delayed_packet_outage_samples) {}
 
 RTCMediaStreamTrackStats::~RTCMediaStreamTrackStats() {}
 
@@ -473,6 +489,7 @@ WEBRTC_RTCSTATS_IMPL(RTCRTPStreamStats, RTCStats, "rtp",
     &associate_stats_id,
     &is_remote,
     &media_type,
+    &kind,
     &track_id,
     &transport_id,
     &codec_id,
@@ -493,6 +510,7 @@ RTCRTPStreamStats::RTCRTPStreamStats(std::string&& id, int64_t timestamp_us)
       associate_stats_id("associateStatsId"),
       is_remote("isRemote", false),
       media_type("mediaType"),
+      kind("kind"),
       track_id("trackId"),
       transport_id("transportId"),
       codec_id("codecId"),
@@ -508,6 +526,7 @@ RTCRTPStreamStats::RTCRTPStreamStats(const RTCRTPStreamStats& other)
       associate_stats_id(other.associate_stats_id),
       is_remote(other.is_remote),
       media_type(other.media_type),
+      kind(other.kind),
       track_id(other.track_id),
       transport_id(other.transport_id),
       codec_id(other.codec_id),

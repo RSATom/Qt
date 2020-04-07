@@ -12,11 +12,8 @@
 #include "third_party/base/stl_util.h"
 #include "xfa/fgas/font/cfgas_gefont.h"
 
-namespace {
-
-const int kMinimumTabWidth = 160000;
-
-}  // namespace
+const float CFX_Break::kConversionFactor = 20000.0f;
+const int CFX_Break::kMinimumTabWidth = 160000;
 
 CFX_Break::CFX_Break(uint32_t dwLayoutStyles)
     : m_dwLayoutStyles(dwLayoutStyles) {
@@ -26,7 +23,7 @@ CFX_Break::CFX_Break(uint32_t dwLayoutStyles)
 CFX_Break::~CFX_Break() = default;
 
 void CFX_Break::Reset() {
-  m_eCharType = FX_CHARTYPE_Unknown;
+  m_eCharType = FX_CHARTYPE::kUnknown;
   m_Line[0].Clear();
   m_Line[1].Clear();
 }
@@ -86,7 +83,7 @@ void CFX_Break::SetBreakStatus() {
 }
 
 FX_CHARTYPE CFX_Break::GetUnifiedCharType(FX_CHARTYPE chartype) const {
-  return chartype >= FX_CHARTYPE_ArabicAlef ? FX_CHARTYPE_Arabic : chartype;
+  return chartype >= FX_CHARTYPE::kArabicAlef ? FX_CHARTYPE::kArabic : chartype;
 }
 
 void CFX_Break::FontChanged() {
@@ -102,7 +99,8 @@ void CFX_Break::SetTabWidth(float fTabWidth) {
   // Note, the use of max here was only done in the TxtBreak code. Leaving this
   // in for the RTFBreak code for consistency. If we see issues with tab widths
   // we may need to fix this.
-  m_iTabWidth = std::max(FXSYS_round(fTabWidth * 20000.0f), kMinimumTabWidth);
+  m_iTabWidth =
+      std::max(FXSYS_round(fTabWidth * kConversionFactor), kMinimumTabWidth);
 }
 
 void CFX_Break::SetDefaultChar(wchar_t wch) {
@@ -125,19 +123,19 @@ void CFX_Break::SetParagraphBreakChar(wchar_t wch) {
 }
 
 void CFX_Break::SetLineBreakTolerance(float fTolerance) {
-  m_iTolerance = FXSYS_round(fTolerance * 20000.0f);
+  m_iTolerance = FXSYS_round(fTolerance * kConversionFactor);
 }
 
 void CFX_Break::SetCharSpace(float fCharSpace) {
-  m_iCharSpace = FXSYS_round(fCharSpace * 20000.0f);
+  m_iCharSpace = FXSYS_round(fCharSpace * kConversionFactor);
 }
 
 void CFX_Break::SetLineBoundary(float fLineStart, float fLineEnd) {
   if (fLineStart > fLineEnd)
     return;
 
-  m_iLineStart = FXSYS_round(fLineStart * 20000.0f);
-  m_iLineWidth = FXSYS_round(fLineEnd * 20000.0f);
+  m_iLineStart = FXSYS_round(fLineStart * kConversionFactor);
+  m_iLineWidth = FXSYS_round(fLineEnd * kConversionFactor);
   m_pCurLine->m_iStart = std::min(m_pCurLine->m_iStart, m_iLineWidth);
   m_pCurLine->m_iStart = std::max(m_pCurLine->m_iStart, m_iLineStart);
 }
@@ -153,7 +151,7 @@ CFX_Char* CFX_Break::GetLastChar(int32_t index,
   while (iStart > -1) {
     CFX_Char* pTC = &tca[iStart--];
     if (((bRichText && pTC->m_iCharWidth < 0) || bOmitChar) &&
-        pTC->GetCharType() == FX_CHARTYPE_Combination) {
+        pTC->GetCharType() == FX_CHARTYPE::kCombination) {
       continue;
     }
     if (--index < 0)

@@ -32,9 +32,13 @@ class CORE_EXPORT WorkerAnimationFrameProvider
   static WorkerAnimationFrameProvider* Create(
       ExecutionContext* context,
       const BeginFrameProviderParams& begin_frame_provider_params) {
-    return new WorkerAnimationFrameProvider(context,
-                                            begin_frame_provider_params);
+    return MakeGarbageCollected<WorkerAnimationFrameProvider>(
+        context, begin_frame_provider_params);
   }
+
+  WorkerAnimationFrameProvider(
+      ExecutionContext* context,
+      const BeginFrameProviderParams& begin_frame_provider_params);
 
   int RegisterCallback(FrameRequestCallbackCollection::FrameCallback* callback);
   void CancelCallback(int id);
@@ -48,10 +52,7 @@ class CORE_EXPORT WorkerAnimationFrameProvider
   void RegisterOffscreenCanvas(OffscreenCanvas*);
   void DeregisterOffscreenCanvas(OffscreenCanvas*);
 
- protected:
-  WorkerAnimationFrameProvider(
-      ExecutionContext* context,
-      const BeginFrameProviderParams& begin_frame_provider_params);
+  static const int kInvalidCallbackId = -1;
 
  private:
   const std::unique_ptr<BeginFrameProvider> begin_frame_provider_;

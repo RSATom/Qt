@@ -18,6 +18,9 @@
 #include "SkSLProgramElement.h"
 #include "SkSLSymbolTable.h"
 
+// name of the render target width uniform
+#define SKSL_RTWIDTH_NAME "u_skRTWidth"
+
 // name of the render target height uniform
 #define SKSL_RTHEIGHT_NAME "u_skRTHeight"
 
@@ -36,6 +39,10 @@ struct Program {
             , fValue(b) {}
 
             Value(int i)
+            : fKind(kInt_Kind)
+            , fValue(i) {}
+
+            Value(unsigned int i)
             : fKind(kInt_Kind)
             , fValue(i) {}
 
@@ -84,6 +91,9 @@ struct Program {
     };
 
     struct Inputs {
+        // if true, this program requires the render target width uniform to be defined
+        bool fRTWidth;
+
         // if true, this program requires the render target height uniform to be defined
         bool fRTHeight;
 
@@ -92,12 +102,13 @@ struct Program {
         bool fFlipY;
 
         void reset() {
+            fRTWidth = false;
             fRTHeight = false;
             fFlipY = false;
         }
 
         bool isEmpty() {
-            return !fRTHeight && !fFlipY;
+            return !fRTWidth && !fRTHeight && !fFlipY;
         }
     };
 
@@ -192,7 +203,7 @@ struct Program {
         kVertex_Kind,
         kGeometry_Kind,
         kFragmentProcessor_Kind,
-        kCPU_Kind
+        kPipelineStage_Kind
     };
 
     Program(Kind kind,
@@ -252,10 +263,13 @@ struct Program {
     // because destroying elements can modify reference counts in symbols
     std::shared_ptr<SymbolTable> fSymbols;
     Inputs fInputs;
+    bool fIsOptimized = false;
 
 private:
     std::vector<std::unique_ptr<ProgramElement>>* fInheritedElements;
     std::vector<std::unique_ptr<ProgramElement>> fElements;
+
+    friend class Compiler;
 };
 
 } // namespace

@@ -9,14 +9,14 @@
 
 #include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Button : public CXFA_Node {
+class CXFA_Button final : public CXFA_Node {
  public:
   CXFA_Button(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_Button() override;
 
   XFA_FFWidgetType GetDefaultFFWidgetType() const override;
 
-  XFA_AttributeEnum GetHighlight();
+  XFA_AttributeValue GetHighlight();
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_BUTTON_H_

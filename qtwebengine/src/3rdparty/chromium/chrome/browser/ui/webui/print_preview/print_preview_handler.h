@@ -7,6 +7,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 
 #include "base/files/file_path.h"
@@ -16,14 +17,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "chrome/common/buildflags.h"
-#include "components/signin/core/browser/gaia_cookie_manager_service.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "printing/backend/print_backend.h"
 #include "printing/buildflags/buildflags.h"
-
-class PdfPrinterHandler;
-class PrinterHandler;
-class PrintPreviewUI;
+#include "services/identity/public/cpp/identity_manager.h"
 
 namespace base {
 class DictionaryValue;
@@ -36,6 +33,10 @@ class WebContents;
 
 namespace printing {
 
+class PdfPrinterHandler;
+class PrinterHandler;
+class PrintPreviewUI;
+
 // Must match print_preview.PrinterType in
 // chrome/browser/resources/print_preview/native_layer.js
 enum PrinterType {
@@ -46,12 +47,9 @@ enum PrinterType {
   kCloudPrinter
 };
 
-}  // namespace printing
-
 // The handler for Javascript messages related to the print preview dialog.
-class PrintPreviewHandler
-    : public content::WebUIMessageHandler,
-      public GaiaCookieManagerService::Observer {
+class PrintPreviewHandler : public content::WebUIMessageHandler,
+                            public identity::IdentityManager::Observer {
  public:
   PrintPreviewHandler();
   ~PrintPreviewHandler() override;
@@ -61,7 +59,7 @@ class PrintPreviewHandler
   void OnJavascriptAllowed() override;
   void OnJavascriptDisallowed() override;
 
-  // GaiaCookieManagerService::Observer implementation.
+  // IdentityManager::Observer implementation.
   void OnAddAccountToCookieCompleted(
       const std::string& account_id,
       const GoogleServiceAuthError& error) override;
@@ -92,8 +90,8 @@ class PrintPreviewHandler
 
   // Send the print preview page count and fit to page scaling
   void SendPageCountReady(int page_count,
-                          int request_id,
-                          int fit_to_page_scaling);
+                          int fit_to_page_scaling,
+                          int request_id);
 
   // Send the default page layout
   void SendPageLayoutReady(const base::DictionaryValue& layout,
@@ -103,7 +101,7 @@ class PrintPreviewHandler
   // Notify the WebUI that the page preview is ready.
   void SendPagePreviewReady(int page_index,
                             int preview_uid,
-                            int preview_response_id);
+                            int preview_request_id);
 
   int regenerate_preview_request_count() const {
     return regenerate_preview_request_count_;
@@ -125,7 +123,7 @@ class PrintPreviewHandler
 
  protected:
   // Protected so unit tests can override.
-  virtual PrinterHandler* GetPrinterHandler(printing::PrinterType printer_type);
+  virtual PrinterHandler* GetPrinterHandler(PrinterType printer_type);
 
   // Shuts down the initiator renderer. Called when a bad IPC message is
   // received.
@@ -144,17 +142,29 @@ class PrintPreviewHandler
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewPdfGeneratedBrowserTest,
                            MANUAL_DummyTest);
   friend class PrintPreviewHandlerTest;
-  FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, InitialSettings);
+  FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, InitialSettingsSimple);
+  FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest,
+                           InitialSettingsEnableHeaderFooter);
+  FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest,
+                           InitialSettingsDisableHeaderFooter);
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, GetPrinters);
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, GetPrinterCapabilities);
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, Print);
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, GetPreview);
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerTest, SendPreviewUpdates);
+  friend class PrintPreviewHandlerFailingTest;
+  FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerFailingTest,
+                           GetPrinterCapabilities);
+
+#if defined(OS_CHROMEOS)
   class AccessTokenService;
+#endif
 
   content::WebContents* preview_web_contents() const;
 
   PrintPreviewUI* print_preview_ui() const;
+
+  PrefService* GetPrefs() const;
 
   // Whether the the handler should be receiving messages from the renderer to
   // forward to the Print Preview JS in response to preview request with id
@@ -217,12 +227,10 @@ class PrintPreviewHandler
   // |args| is unused.
   void HandleSignin(const base::ListValue* args);
 
+#if defined(OS_CHROMEOS)
   // Generates new token and sends back to UI.
   void HandleGetAccessToken(const base::ListValue* args);
-
-  // Brings up Chrome printing setting page to allow the user to configure local
-  // printers or Google Cloud printers. |args| is unused.
-  void HandleManagePrinters(const base::ListValue* args);
+#endif
 
   // Gathers UMA stats when the print preview dialog is about to close.
   // |args| is unused.
@@ -232,34 +240,26 @@ class PrintPreviewHandler
   // preview is displayed.
   void HandleGetInitialSettings(const base::ListValue* args);
 
-  // Forces the opening of a new tab. |args| should consist of one element: the
-  // URL to set the new tab to.
-  //
-  // NOTE: This is needed to open register promo for Cloud Print as a new tab.
-  // Javascript's "window.open" opens a new window popup (since initiated from
-  // async HTTP request) and worse yet, on Windows and Chrome OS, the opened
-  // window opens behind the initiator window.
-  void HandleForceOpenNewTab(const base::ListValue* args);
-
   void SendInitialSettings(const std::string& callback_id,
                            const std::string& default_printer);
 
+#if defined(OS_CHROMEOS)
   // Send OAuth2 access token.
   void SendAccessToken(const std::string& callback_id,
                        const std::string& access_token);
+#endif
 
   // Sends the printer capabilities to the Web UI. |settings_info| contains
   // printer capabilities information. If |settings_info| is empty, sends
   // error notification to the Web UI instead.
-  void SendPrinterCapabilities(
-      const std::string& callback_id,
-      std::unique_ptr<base::DictionaryValue> settings_info);
+  void SendPrinterCapabilities(const std::string& callback_id,
+                               base::Value settings_info);
 
   // Send the result of performing printer setup. |settings_info| contains
   // printer capabilities.
   void SendPrinterSetup(const std::string& callback_id,
                         const std::string& printer_name,
-                        std::unique_ptr<base::DictionaryValue> settings_info);
+                        base::Value settings_info);
 
   // Send whether cloud print integration should be enabled.
   void SendCloudPrintEnabled();
@@ -283,7 +283,7 @@ class PrintPreviewHandler
   // |printer_type|: The type of printers that were added.
   // |printers|: A non-empty list containing information about the printer or
   //     printers that have been added.
-  void OnAddedPrinters(printing::PrinterType printer_type,
+  void OnAddedPrinters(PrinterType printer_type,
                        const base::ListValue& printers);
 
   // Called when printer search is done for some destination type.
@@ -317,12 +317,17 @@ class PrintPreviewHandler
   // Whether we have already logged the number of printers this session.
   bool has_logged_printers_count_;
 
+  // The settings used for the most recent preview request.
+  std::unique_ptr<base::DictionaryValue> last_preview_settings_;
+
+#if defined(OS_CHROMEOS)
   // Holds token service to get OAuth2 access tokens.
   std::unique_ptr<AccessTokenService> token_service_;
+#endif
 
-  // Pointer to cookie manager service so that print preview can listen for GAIA
-  // cookie changes.
-  GaiaCookieManagerService* gaia_cookie_manager_service_;
+  // Pointer to the identity manager service so that print preview can listen
+  // for GAIA cookie changes.
+  identity::IdentityManager* identity_manager_;
 
   // Handles requests for cloud printers. Created lazily by calling
   // GetPrinterHandler().
@@ -347,9 +352,14 @@ class PrintPreviewHandler
   // Maps preview request ids to callbacks.
   std::map<int, std::string> preview_callbacks_;
 
+  // Set of preview request ids for failed previews.
+  std::set<int> preview_failures_;
+
   base::WeakPtrFactory<PrintPreviewHandler> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewHandler);
 };
+
+}  // namespace printing
 
 #endif  // CHROME_BROWSER_UI_WEBUI_PRINT_PREVIEW_PRINT_PREVIEW_HANDLER_H_

@@ -34,6 +34,8 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     this._otherSWFilter.setAttribute('role', 'switch');
     this._otherSWFilter.setAttribute('aria-checked', false);
     this._otherSWFilter.addEventListener('keydown', event => {
+      if (event.target !== this._otherSWFilter)
+        return;
       if (isEnterKey(event) || event.keyCode === UI.KeyboardShortcut.Keys.Space.code)
         this._toggleFilter();
     });
@@ -58,12 +60,12 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     const updateOnReloadSetting = Common.settings.createSetting('serviceWorkerUpdateOnReload', false);
     updateOnReloadSetting.setTitle(Common.UIString('Update on reload'));
     const forceUpdate = new UI.ToolbarSettingCheckbox(
-        updateOnReloadSetting, Common.UIString('Force update Service Worker on page reload'));
+        updateOnReloadSetting, ls`On page reload, force the service worker to update, and activate it`);
     this._toolbar.appendToolbarItem(forceUpdate);
     const bypassServiceWorkerSetting = Common.settings.createSetting('bypassServiceWorker', false);
     bypassServiceWorkerSetting.setTitle(Common.UIString('Bypass for network'));
     const fallbackToNetwork = new UI.ToolbarSettingCheckbox(
-        bypassServiceWorkerSetting, Common.UIString('Bypass Service Worker and load resources from the network'));
+        bypassServiceWorkerSetting, ls`Bypass the service worker and load resources from the network`);
     this._toolbar.appendToolbarItem(fallbackToNetwork);
 
     /** @type {!Map<!SDK.ServiceWorkerManager, !Array<!Common.EventTarget.EventDescriptor>>}*/
@@ -534,12 +536,14 @@ Resources.ServiceWorkersView.Section = class {
    */
   _updateClientInfo(element, targetInfo) {
     if (targetInfo.type !== 'page' && targetInfo.type === 'iframe') {
-      element.createTextChild(Common.UIString('Worker: %s', targetInfo.url));
+      const clientString = element.createChild('span', 'service-worker-client-string');
+      clientString.createTextChild(ls`Worker: ` + targetInfo.url);
       return;
     }
     element.removeChildren();
-    element.createTextChild(targetInfo.url);
-    const focusLabel = element.createChild('label', 'link');
+    const clientString = element.createChild('span', 'service-worker-client-string');
+    clientString.createTextChild(targetInfo.url);
+    const focusLabel = element.createChild('label', 'link service-worker-client-focus-link');
     focusLabel.createTextChild('focus');
     focusLabel.addEventListener('click', this._activateTarget.bind(this, targetInfo.targetId), true);
   }

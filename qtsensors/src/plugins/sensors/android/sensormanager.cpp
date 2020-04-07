@@ -73,7 +73,7 @@ ALooper *SensorManager::looper() const
 static inline ASensorManager* androidManager()
 {
 #if __ANDROID_API__ >= 26
-    retrun ASensorManager_getInstanceForPackage(QJNIObjectPrivate{QtAndroidPrivate::context()}
+    return ASensorManager_getInstanceForPackage(QJNIObjectPrivate{QtAndroidPrivate::context()}
                                                 .callObjectMethod("getPackageName", "()Ljava/lang/String;")
                                                 .toString().toUtf8().constData());
 #else

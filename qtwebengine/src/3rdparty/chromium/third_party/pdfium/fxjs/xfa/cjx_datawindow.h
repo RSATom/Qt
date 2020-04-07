@@ -7,29 +7,36 @@
 #ifndef FXJS_XFA_CJX_DATAWINDOW_H_
 #define FXJS_XFA_CJX_DATAWINDOW_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_object.h"
+#include "fxjs/xfa/jse_define.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
 class CFXJSE_Value;
 class CScript_DataWindow;
 
-class CJX_DataWindow : public CJX_Object {
+class CJX_DataWindow final : public CJX_Object {
  public:
   explicit CJX_DataWindow(CScript_DataWindow* window);
   ~CJX_DataWindow() override;
 
-  JS_METHOD(gotoRecord, CJX_DataWindow);
-  JS_METHOD(isRecordGroup, CJX_DataWindow);
-  JS_METHOD(moveCurrentRecord, CJX_DataWindow);
-  JS_METHOD(record, CJX_DataWindow);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(currentRecordNumber);
-  JS_PROP(isDefined);
-  JS_PROP(recordsAfter);
-  JS_PROP(recordsBefore);
+  JSE_METHOD(gotoRecord);
+  JSE_METHOD(isRecordGroup);
+  JSE_METHOD(moveCurrentRecord);
+  JSE_METHOD(record);
+
+  JSE_PROP(currentRecordNumber);
+  JSE_PROP(isDefined);
+  JSE_PROP(recordsAfter);
+  JSE_PROP(recordsBefore);
 
  private:
+  using Type__ = CJX_DataWindow;
+  using ParentType__ = CJX_Object;
+
+  static const TypeTag static_type__ = TypeTag::DataWindow;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

@@ -60,7 +60,7 @@ class DateTimeFieldElement : public HTMLSpanElement {
     virtual void FieldDidChangeValueByKeyboard() = 0;
   };
 
-  void DefaultEventHandler(Event*) override;
+  void DefaultEventHandler(Event&) override;
   virtual bool HasValue() const = 0;
   bool IsDisabled() const;
   virtual float MaximumWidth(const ComputedStyle&);
@@ -76,14 +76,14 @@ class DateTimeFieldElement : public HTMLSpanElement {
   virtual void StepUp() = 0;
   virtual String Value() const = 0;
   virtual String VisibleValue() const = 0;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   static float ComputeTextWidth(const ComputedStyle&, const String&);
 
  protected:
   DateTimeFieldElement(Document&, FieldOwner&);
   void FocusOnNextField();
-  virtual void HandleKeyboardEvent(KeyboardEvent*) = 0;
+  virtual void HandleKeyboardEvent(KeyboardEvent&) = 0;
   void Initialize(const AtomicString& pseudo,
                   const String& ax_help_text,
                   int ax_minimum,
@@ -98,7 +98,7 @@ class DateTimeFieldElement : public HTMLSpanElement {
   void SetFocused(bool, WebFocusType) override;
 
  private:
-  void DefaultKeyboardEventHandler(KeyboardEvent*);
+  void DefaultKeyboardEventHandler(KeyboardEvent&);
   bool IsDateTimeFieldElement() const final;
   bool IsFieldOwnerDisabled() const;
   bool IsFieldOwnerReadOnly() const;

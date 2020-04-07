@@ -8,8 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "core/fxcrt/cfx_memorystream.h"
-#include "core/fxcrt/fx_stream.h"
+#include "core/fxcrt/cfx_readonlymemorystream.h"
 #include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,7 +20,7 @@ std::pair<FX_FILESIZE, FX_FILESIZE> MakeRange(uint32_t start, uint32_t end) {
   return std::pair<FX_FILESIZE, FX_FILESIZE>(start, end);
 }
 
-class MockFileAvail : public CPDF_DataAvail::FileAvail {
+class MockFileAvail final : public CPDF_DataAvail::FileAvail {
  public:
   MockFileAvail() : available_range_(0, 0) {}
   ~MockFileAvail() override {}
@@ -43,7 +42,7 @@ class MockFileAvail : public CPDF_DataAvail::FileAvail {
   std::pair<FX_FILESIZE, FX_FILESIZE> available_range_;
 };
 
-class MockDownloadHints : public CPDF_DataAvail::DownloadHints {
+class MockDownloadHints final : public CPDF_DataAvail::DownloadHints {
  public:
   MockDownloadHints() : last_requested_range_(0, 0) {}
   ~MockDownloadHints() override {}
@@ -67,14 +66,13 @@ class MockDownloadHints : public CPDF_DataAvail::DownloadHints {
 
 TEST(CPDF_ReadValidatorTest, UnavailableData) {
   std::vector<uint8_t> test_data(kTestDataSize);
-  auto file = pdfium::MakeRetain<CFX_MemoryStream>(test_data.data(),
-                                                   test_data.size(), false);
+  auto file = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(test_data);
   MockFileAvail file_avail;
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, &file_avail);
 
   std::vector<uint8_t> read_buffer(100);
-  EXPECT_FALSE(
-      validator->ReadBlock(read_buffer.data(), 5000, read_buffer.size()));
+  EXPECT_FALSE(validator->ReadBlockAtOffset(read_buffer.data(), 5000,
+                                            read_buffer.size()));
 
   EXPECT_FALSE(validator->read_error());
   EXPECT_TRUE(validator->has_unavailable_data());
@@ -83,16 +81,15 @@ TEST(CPDF_ReadValidatorTest, UnavailableData) {
 
   file_avail.SetAvailableRange(5000, 5000 + read_buffer.size());
 
-  EXPECT_TRUE(
-      validator->ReadBlock(read_buffer.data(), 5000, read_buffer.size()));
+  EXPECT_TRUE(validator->ReadBlockAtOffset(read_buffer.data(), 5000,
+                                           read_buffer.size()));
   EXPECT_FALSE(validator->read_error());
   EXPECT_FALSE(validator->has_unavailable_data());
 }
 
 TEST(CPDF_ReadValidatorTest, UnavailableDataWithHints) {
   std::vector<uint8_t> test_data(kTestDataSize);
-  auto file = pdfium::MakeRetain<CFX_MemoryStream>(test_data.data(),
-                                                   test_data.size(), false);
+  auto file = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(test_data);
   MockFileAvail file_avail;
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, &file_avail);
 
@@ -101,8 +98,8 @@ TEST(CPDF_ReadValidatorTest, UnavailableDataWithHints) {
 
   std::vector<uint8_t> read_buffer(100);
 
-  EXPECT_FALSE(
-      validator->ReadBlock(read_buffer.data(), 5000, read_buffer.size()));
+  EXPECT_FALSE(validator->ReadBlockAtOffset(read_buffer.data(), 5000,
+                                            read_buffer.size()));
   EXPECT_FALSE(validator->read_error());
   EXPECT_TRUE(validator->has_unavailable_data());
 
@@ -113,8 +110,8 @@ TEST(CPDF_ReadValidatorTest, UnavailableDataWithHints) {
   hints.Reset();
 
   validator->ResetErrors();
-  EXPECT_TRUE(
-      validator->ReadBlock(read_buffer.data(), 5000, read_buffer.size()));
+  EXPECT_TRUE(validator->ReadBlockAtOffset(read_buffer.data(), 5000,
+                                           read_buffer.size()));
   // No new request on already available data.
   EXPECT_EQ(MakeRange(0, 0), hints.GetLastRequstedRange());
   EXPECT_FALSE(validator->read_error());
@@ -122,9 +119,9 @@ TEST(CPDF_ReadValidatorTest, UnavailableDataWithHints) {
 
   validator->ResetErrors();
   // Try read unavailable data at file end.
-  EXPECT_FALSE(validator->ReadBlock(read_buffer.data(),
-                                    validator->GetSize() - read_buffer.size(),
-                                    read_buffer.size()));
+  EXPECT_FALSE(validator->ReadBlockAtOffset(
+      read_buffer.data(), validator->GetSize() - read_buffer.size(),
+      read_buffer.size()));
   // Should not enlarge request at file end.
   EXPECT_EQ(validator->GetSize(), hints.GetLastRequstedRange().second);
   EXPECT_FALSE(validator->read_error());
@@ -140,15 +137,14 @@ TEST(CPDF_ReadValidatorTest, ReadError) {
   static const uint32_t kBufferSize = 3 * 1000;
   std::vector<uint8_t> buffer(kBufferSize);
 
-  EXPECT_FALSE(validator->ReadBlock(buffer.data(), 5000, 100));
+  EXPECT_FALSE(validator->ReadBlockAtOffset(buffer.data(), 5000, 100));
   EXPECT_TRUE(validator->read_error());
   EXPECT_TRUE(validator->has_unavailable_data());
 }
 
 TEST(CPDF_ReadValidatorTest, IntOverflow) {
   std::vector<uint8_t> test_data(kTestDataSize);
-  auto file = pdfium::MakeRetain<CFX_MemoryStream>(test_data.data(),
-                                                   test_data.size(), false);
+  auto file = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(test_data);
   MockFileAvail file_avail;
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, &file_avail);
 
@@ -157,9 +153,9 @@ TEST(CPDF_ReadValidatorTest, IntOverflow) {
   // If we have int overflow, this is equal reading after file end. This is not
   // read_error, and in this case we have not unavailable data. It is just error
   // of input params.
-  EXPECT_FALSE(validator->ReadBlock(read_buffer.data(),
-                                    std::numeric_limits<FX_FILESIZE>::max() - 1,
-                                    read_buffer.size()));
+  EXPECT_FALSE(validator->ReadBlockAtOffset(
+      read_buffer.data(), std::numeric_limits<FX_FILESIZE>::max() - 1,
+      read_buffer.size()));
   EXPECT_FALSE(validator->read_error());
   EXPECT_FALSE(validator->has_unavailable_data());
 }
@@ -177,7 +173,7 @@ TEST(CPDF_ReadValidatorTest, Session) {
   ASSERT_FALSE(validator->has_read_problems());
 
   // Data is unavailable
-  validator->ReadBlock(test_data.data(), 0, 100);
+  validator->ReadBlockAtOffset(test_data.data(), 0, 100);
 
   EXPECT_TRUE(validator->has_read_problems());
   EXPECT_TRUE(validator->has_unavailable_data());
@@ -190,7 +186,7 @@ TEST(CPDF_ReadValidatorTest, Session) {
 
     file_avail.SetAvailableRange(0, 100);
     // Read fail.
-    validator->ReadBlock(test_data.data(), 0, 100);
+    validator->ReadBlockAtOffset(test_data.data(), 0, 100);
     EXPECT_TRUE(validator->has_read_problems());
     EXPECT_TRUE(validator->has_unavailable_data());
     EXPECT_TRUE(validator->read_error());
@@ -215,7 +211,7 @@ TEST(CPDF_ReadValidatorTest, SessionReset) {
   ASSERT_FALSE(validator->has_read_problems());
 
   // Data is unavailable
-  validator->ReadBlock(test_data.data(), 0, 100);
+  validator->ReadBlockAtOffset(test_data.data(), 0, 100);
 
   EXPECT_TRUE(validator->has_read_problems());
   EXPECT_TRUE(validator->has_unavailable_data());
@@ -228,7 +224,7 @@ TEST(CPDF_ReadValidatorTest, SessionReset) {
 
     file_avail.SetAvailableRange(0, 100);
     // Read fail.
-    validator->ReadBlock(test_data.data(), 0, 100);
+    validator->ReadBlockAtOffset(test_data.data(), 0, 100);
     EXPECT_TRUE(validator->has_read_problems());
     EXPECT_TRUE(validator->has_unavailable_data());
     EXPECT_TRUE(validator->read_error());
@@ -246,8 +242,7 @@ TEST(CPDF_ReadValidatorTest, SessionReset) {
 
 TEST(CPDF_ReadValidatorTest, CheckDataRangeAndRequestIfUnavailable) {
   std::vector<uint8_t> test_data(kTestDataSize);
-  auto file = pdfium::MakeRetain<CFX_MemoryStream>(test_data.data(),
-                                                   test_data.size(), false);
+  auto file = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(test_data);
   MockFileAvail file_avail;
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, &file_avail);
 
@@ -272,8 +267,8 @@ TEST(CPDF_ReadValidatorTest, CheckDataRangeAndRequestIfUnavailable) {
   EXPECT_FALSE(validator->has_unavailable_data());
 
   std::vector<uint8_t> read_buffer(100);
-  EXPECT_TRUE(
-      validator->ReadBlock(read_buffer.data(), 5000, read_buffer.size()));
+  EXPECT_TRUE(validator->ReadBlockAtOffset(read_buffer.data(), 5000,
+                                           read_buffer.size()));
   // No new request on already available data.
   EXPECT_EQ(MakeRange(0, 0), hints.GetLastRequstedRange());
   EXPECT_FALSE(validator->read_error());

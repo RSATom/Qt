@@ -58,7 +58,8 @@ QT_END_NAMESPACE
 
 #ifndef QT_NO_OPENGL
 #ifdef Q_OS_MACOS
-static bool needsOfflineRendererWorkaround() {
+static bool needsOfflineRendererWorkaround()
+{
     size_t hwmodelsize = 0;
 
     if (sysctlbyname("hw.model", nullptr, &hwmodelsize, nullptr, 0) == -1)
@@ -79,6 +80,8 @@ static QOpenGLContext *shareContext;
 
 static void deleteShareContext()
 {
+    if (qt_gl_global_share_context() == shareContext)
+        qt_gl_set_global_share_context(nullptr);
     delete shareContext;
     shareContext = 0;
 }
@@ -89,7 +92,7 @@ static void deleteShareContext()
 // after the QGuiApplication creation, when AA_ShareOpenGLContexts fills
 // the same need but the flag has to be set earlier.
 
-QWEBENGINECORE_PRIVATE_EXPORT void initialize()
+Q_WEBENGINECORE_PRIVATE_EXPORT void initialize()
 {
 #ifndef QT_NO_OPENGL
 #ifdef Q_OS_WIN32
@@ -105,7 +108,7 @@ QWEBENGINECORE_PRIVATE_EXPORT void initialize()
 
     QCoreApplication *app = QCoreApplication::instance();
     if (!app) {
-        qFatal("QtWebEngine::initialize() must be called after the construction of the application object.");
+        qFatal("QtWebEngine::initialize() but no core application instance.");
         return;
     }
 
@@ -131,4 +134,3 @@ QWEBENGINECORE_PRIVATE_EXPORT void initialize()
 #endif // QT_NO_OPENGL
 }
 } // namespace QtWebEngineCore
-

@@ -291,8 +291,9 @@ void CoordinatorImpl::RequestGlobalMemoryDumpInternal(
     RequestGlobalMemoryDumpInternalCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  UMA_HISTOGRAM_COUNTS_1000("Memory.Experimental.Debug.GlobalDumpQueueLength",
-                            queued_memory_dump_requests_.size());
+  UMA_HISTOGRAM_COUNTS_1000(
+      "Memory.Experimental.Debug.GlobalDumpQueueLength",
+      base::saturated_cast<int32_t>(queued_memory_dump_requests_.size()));
 
   bool another_dump_is_queued = !queued_memory_dump_requests_.empty();
 
@@ -377,8 +378,8 @@ void CoordinatorImpl::PerformNextQueuedGlobalMemoryDump() {
     auto client_identity = kv.second->identity;
     const base::ProcessId pid = GetProcessIdForClientIdentity(client_identity);
     if (pid == base::kNullProcessId) {
-      VLOG(1) << "Couldn't find a PID for client \"" << client_identity.name()
-              << "." << client_identity.instance() << "\"";
+      VLOG(1) << "Couldn't find a PID for client "
+              << client_identity.ToString();
       continue;
     }
     clients.emplace_back(kv.second->client.get(), pid, kv.second->process_type);

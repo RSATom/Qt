@@ -99,7 +99,7 @@ public:
     bool unregisterNdefMessageHandler(int handlerId);
 
 Q_SIGNALS:
-    void adapterStateChanged(AdapterState state);
+    void adapterStateChanged(QNearFieldManager::AdapterState state);
     void targetDetected(QNearFieldTarget *target);
     void targetLost(QNearFieldTarget *target);
 

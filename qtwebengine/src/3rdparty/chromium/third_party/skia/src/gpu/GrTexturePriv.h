@@ -40,10 +40,15 @@ public:
         return fTexture->fMaxMipMapLevel;
     }
 
-    GrSLType samplerType() const { return fTexture->fSamplerType; }
-
-    /** The filter used is clamped to this value in GrProcessor::TextureSampler. */
-    GrSamplerState::Filter highestFilterMode() const { return fTexture->fHighestFilterMode; }
+    GrTextureType textureType() const { return fTexture->fTextureType; }
+    bool hasRestrictedSampling() const {
+        return GrTextureTypeHasRestrictedSampling(this->textureType());
+    }
+    /** Filtering is clamped to this value. */
+    GrSamplerState::Filter highestFilterMode() const {
+        return this->hasRestrictedSampling() ? GrSamplerState::Filter::kBilerp
+                                             : GrSamplerState::Filter::kMipMap;
+    }
 
     static void ComputeScratchKey(const GrSurfaceDesc&, GrScratchKey*);
     static void ComputeScratchKey(GrPixelConfig config, int width, int height,

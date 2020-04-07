@@ -33,7 +33,7 @@ const int LayoutSlider::kDefaultTrackLength = 129;
 LayoutSlider::LayoutSlider(HTMLInputElement* element)
     : LayoutFlexibleBox(element) {
   // We assume LayoutSlider works only with <input type=range>.
-  DCHECK_EQ(element->type(), InputTypeNames::range);
+  DCHECK_EQ(element->type(), input_type_names::kRange);
 }
 
 LayoutSlider::~LayoutSlider() = default;
@@ -52,15 +52,15 @@ void LayoutSlider::ComputeIntrinsicLogicalWidths(
     LayoutUnit& min_logical_width,
     LayoutUnit& max_logical_width) const {
   max_logical_width =
-      LayoutUnit(kDefaultTrackLength * Style()->EffectiveZoom());
-  if (!Style()->Width().IsPercentOrCalc())
+      LayoutUnit(kDefaultTrackLength * StyleRef().EffectiveZoom());
+  if (!StyleRef().Width().IsPercentOrCalc())
     min_logical_width = max_logical_width;
 }
 
 inline SliderThumbElement* LayoutSlider::GetSliderThumbElement() const {
   return ToSliderThumbElement(
       ToElement(GetNode())->UserAgentShadowRoot()->getElementById(
-          ShadowElementNames::SliderThumb()));
+          shadow_element_names::SliderThumb()));
 }
 
 bool LayoutSlider::InDragMode() const {

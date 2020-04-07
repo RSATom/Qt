@@ -11,7 +11,21 @@
 namespace v8 {
 namespace internal {
 
-enum ElementsKind {
+// V has parameters (Type, type, TYPE, C type)
+#define TYPED_ARRAYS(V)                                  \
+  V(Uint8, uint8, UINT8, uint8_t)                        \
+  V(Int8, int8, INT8, int8_t)                            \
+  V(Uint16, uint16, UINT16, uint16_t)                    \
+  V(Int16, int16, INT16, int16_t)                        \
+  V(Uint32, uint32, UINT32, uint32_t)                    \
+  V(Int32, int32, INT32, int32_t)                        \
+  V(Float32, float32, FLOAT32, float)                    \
+  V(Float64, float64, FLOAT64, double)                   \
+  V(Uint8Clamped, uint8_clamped, UINT8_CLAMPED, uint8_t) \
+  V(BigUint64, biguint64, BIGUINT64, uint64_t)           \
+  V(BigInt64, bigint64, BIGINT64, int64_t)
+
+enum ElementsKind : uint8_t {
   // The "fast" kind for elements that only contain SMI values. Must be first
   // to make it possible to efficiently check maps for this kind.
   PACKED_SMI_ELEMENTS,
@@ -39,18 +53,10 @@ enum ElementsKind {
   FAST_STRING_WRAPPER_ELEMENTS,
   SLOW_STRING_WRAPPER_ELEMENTS,
 
-  // Fixed typed arrays.
-  UINT8_ELEMENTS,
-  INT8_ELEMENTS,
-  UINT16_ELEMENTS,
-  INT16_ELEMENTS,
-  UINT32_ELEMENTS,
-  INT32_ELEMENTS,
-  FLOAT32_ELEMENTS,
-  FLOAT64_ELEMENTS,
-  UINT8_CLAMPED_ELEMENTS,
-  BIGUINT64_ELEMENTS,
-  BIGINT64_ELEMENTS,
+// Fixed typed arrays.
+#define TYPED_ARRAY_ELEMENTS_KIND(Type, type, TYPE, ctype) TYPE##_ELEMENTS,
+  TYPED_ARRAYS(TYPED_ARRAY_ELEMENTS_KIND)
+#undef TYPED_ARRAY_ELEMENTS_KIND
 
   // Sentinel ElementsKind for objects with no elements.
   NO_ELEMENTS,
@@ -62,15 +68,22 @@ enum ElementsKind {
   LAST_FAST_ELEMENTS_KIND = HOLEY_DOUBLE_ELEMENTS,
   FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND = UINT8_ELEMENTS,
   LAST_FIXED_TYPED_ARRAY_ELEMENTS_KIND = BIGINT64_ELEMENTS,
-  TERMINAL_FAST_ELEMENTS_KIND = HOLEY_ELEMENTS
+  TERMINAL_FAST_ELEMENTS_KIND = HOLEY_ELEMENTS,
+
+// Alias for kSystemPointerSize-sized elements
+#ifdef V8_COMPRESS_POINTERS
+  SYSTEM_POINTER_ELEMENTS = PACKED_DOUBLE_ELEMENTS,
+#else
+  SYSTEM_POINTER_ELEMENTS = PACKED_ELEMENTS,
+#endif
 };
 
-const int kElementsKindCount = LAST_ELEMENTS_KIND - FIRST_ELEMENTS_KIND + 1;
-const int kFastElementsKindCount =
+constexpr int kElementsKindCount = LAST_ELEMENTS_KIND - FIRST_ELEMENTS_KIND + 1;
+constexpr int kFastElementsKindCount =
     LAST_FAST_ELEMENTS_KIND - FIRST_FAST_ELEMENTS_KIND + 1;
 
 // The number to add to a packed elements kind to reach a holey elements kind
-const int kFastElementsKindPackedToHoley =
+constexpr int kFastElementsKindPackedToHoley =
     HOLEY_SMI_ELEMENTS - PACKED_SMI_ELEMENTS;
 
 int ElementsKindToShiftSize(ElementsKind elements_kind);

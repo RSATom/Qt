@@ -12,11 +12,10 @@
 
 CXFA_ThisProxy::CXFA_ThisProxy(CXFA_Node* pThisNode, CXFA_Node* pScriptNode)
     : CXFA_Object(pThisNode->GetDocument(),
-                  XFA_ObjectType::VariablesThis,
-                  XFA_Element::Unknown,
-                  WideStringView(),
+                  XFA_ObjectType::ThisProxy,
+                  XFA_Element::Object,
                   pdfium::MakeUnique<CJX_Object>(this)),
       m_pThisNode(pThisNode),
       m_pScriptNode(pScriptNode) {}
 
-CXFA_ThisProxy::~CXFA_ThisProxy() {}
+CXFA_ThisProxy::~CXFA_ThisProxy() = default;

@@ -47,14 +47,22 @@ class BackgroundFetchTestBase : public ::testing::Test {
 
   // Unregisters the test Service Worker and verifies that the unregistration
   // succeeded.
-  void UnregisterServiceWorker();
+  void UnregisterServiceWorker(int64_t service_worker_registration_id);
 
-  // Creates a ServiceWorkerFetchRequest instance for the given details and
+  // Creates a FetchAPIRequestPtr instance for the given details and
   // provides a faked |response|.
-  ServiceWorkerFetchRequest CreateRequestWithProvidedResponse(
+  blink::mojom::FetchAPIRequestPtr CreateRequestWithProvidedResponse(
       const std::string& method,
       const GURL& url,
       std::unique_ptr<TestResponse> response);
+
+  // Creates a blink::mojom::BackgroundFetchRegistrationPtr object.
+  blink::mojom::BackgroundFetchRegistrationPtr
+  CreateBackgroundFetchRegistration(
+      const std::string& developer_id,
+      const std::string& unique_id,
+      blink::mojom::BackgroundFetchResult result,
+      blink::mojom::BackgroundFetchFailureReason failure_reason);
 
   // Returns the embedded worker test helper instance, which can be used to
   // influence the behavior of the Service Worker events.
@@ -84,6 +92,8 @@ class BackgroundFetchTestBase : public ::testing::Test {
   url::Origin origin_;
 
   StoragePartition* storage_partition_;
+
+  int next_pattern_id_ = 0;
 
   // Vector of ServiceWorkerRegistration instances that have to be kept alive
   // for the lifetime of this test.

@@ -828,7 +828,8 @@ class FtpNetworkTransactionTest : public PlatformTest,
     EXPECT_NE(LOAD_STATE_IDLE, transaction_->GetLoadState());
     ASSERT_EQ(expected_result, callback_.WaitForResult());
     if (expected_result == OK) {
-      scoped_refptr<IOBuffer> io_buffer(new IOBuffer(kBufferSize));
+      scoped_refptr<IOBuffer> io_buffer =
+          base::MakeRefCounted<IOBuffer>(kBufferSize);
       memset(io_buffer->data(), 0, kBufferSize);
       ASSERT_EQ(ERR_IO_PENDING, transaction_->Read(io_buffer.get(), kBufferSize,
                                                    callback_.callback()));
@@ -1160,8 +1161,8 @@ TEST_P(FtpNetworkTransactionTest, DownloadTransactionEvilPasvUnsafeHost) {
   // Even if the PASV response specified some other address, we connect
   // to the address we used for control connection (which could be 127.0.0.1
   // or ::1 depending on whether we use IPv6).
-  for (AddressList::const_iterator it = data_socket->addresses().begin();
-      it != data_socket->addresses().end(); ++it) {
+  for (auto it = data_socket->addresses().begin();
+       it != data_socket->addresses().end(); ++it) {
     EXPECT_NE("10.1.2.3", it->ToStringWithoutPort());
   }
 }

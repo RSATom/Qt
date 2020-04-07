@@ -78,12 +78,12 @@ class PLATFORM_EXPORT Character {
   }
 
   static unsigned ExpansionOpportunityCount(const LChar*,
-                                            size_t length,
+                                            unsigned length,
                                             TextDirection,
                                             bool& is_after_expansion,
                                             const TextJustify);
   static unsigned ExpansionOpportunityCount(const UChar*,
-                                            size_t length,
+                                            unsigned length,
                                             TextDirection,
                                             bool& is_after_expansion,
                                             const TextJustify);
@@ -174,7 +174,7 @@ class PLATFORM_EXPORT Character {
     // http://www.whatwg.org/specs/web-apps/current-work/multipage/common-microsyntaxes.html#space-character
     // This function returns true for 0x000B also, so that this is backward
     // compatible.  Otherwise, the test
-    // LayoutTests/canvas/philip/tests/2d.text.draw.space.collapse.space.html
+    // web_tests/canvas/philip/tests/2d.text.draw.space.collapse.space.html
     // will fail
     return c == 0x0009 || (c >= 0x000A && c <= 0x000D);
   }
@@ -185,6 +185,10 @@ class PLATFORM_EXPORT Character {
   static bool IsCommonOrInheritedScript(UChar32);
   static bool IsPrivateUse(UChar32);
   static bool IsNonCharacter(UChar32);
+
+  // Returns whether a script code could be determined for the given character
+  // and that script code is not USCRIPT_COMMON or USCRIPT_INHERITED.
+  static bool HasDefiniteScript(UChar32);
 
   static bool IsModernGeorgianUppercase(UChar32 c) {
     return IsInRange(c, 0x1C90, 0x1CBF);

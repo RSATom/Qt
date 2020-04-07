@@ -127,6 +127,34 @@ mr.ProviderManagerMirrorServiceCallbacks = class {
    * @param {!mr.mirror.Activity} mirrorActivity
    */
   handleMirrorActivityUpdate(route, mirrorActivity) {}
+
+  /**
+   * Invoked by the mirror service to start Tab mirroring use the Mirroring
+   * Service.
+   * @param {number} targetTabId
+   * @param {!mojo.InterfaceRequest} request
+   */
+  getMirroringServiceHostForTab(targetTabId, request) {}
+
+  /**
+   * Invoked by the mirror service to start Desktop mirroring use the Mirroring
+   * Service.
+   * @param {number} initiatorTabId
+   * @param {string} desktopStreamId
+   * @param {!mojo.InterfaceRequest} request
+   */
+  getMirroringServiceHostForDesktop(initiatorTabId, desktopStreamId, request) {}
+
+
+  /**
+   * Invoked by the mirror service to start OffscreenTab mirroring use the
+   * Mirroring Service.
+   * @param {!mojo.Url} presentationUrl
+   * @param {string} presentationId
+   * @param {!mojo.InterfaceRequest} request
+   */
+  getMirroringServiceHostForOffscreenTab(
+      presentationUrl, presentationId, request) {}
 };
 
 
@@ -194,16 +222,6 @@ mr.ProviderManagerCallbacks = class {
       opt_streamStartedCallback) {}
 
   /**
-   * Register a callback with the provider manager that will either be executed
-   * immediately if mDNS discovery is currently enabled or saved to be executed
-   * when mDNS discovery becomes enabled. This should allow duplicate calls to
-   * be
-   * made with the same function address but only call the function once.
-   * @param {function()} callback Callback that depends on mDNS discovery.
-   */
-  registerMdnsDiscoveryEnabledCallback(callback) {}
-
-  /**
    * Called by a component with |keepAlive| set to true when it requires the
    * extension to be kept alive. When a component no longer requires the
    * extension
@@ -215,9 +233,4 @@ mr.ProviderManagerCallbacks = class {
    * @param {boolean} keepAlive
    */
   requestKeepAlive(componentId, keepAlive) {}
-
-  /**
-   * @return {boolean} Whether mDNS discovery is currently enabled.
-   */
-  isMdnsDiscoveryEnabled() {}
 };

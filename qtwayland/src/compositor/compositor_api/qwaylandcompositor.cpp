@@ -72,7 +72,6 @@
 
 #include "extensions/qwaylandqtwindowmanager.h"
 
-#include "qwaylandxkb_p.h"
 #include "qwaylandsharedmemoryformathelper_p.h"
 
 #include <QtCore/QCoreApplication>
@@ -129,12 +128,12 @@ public:
         bool isDown = ke->keyType == QEvent::KeyPress;
 
 #if QT_CONFIG(xkbcommon)
-        QString text;
-        Qt::KeyboardModifiers modifiers = QWaylandXkb::modifiers(keyb->xkbState());
+        xkb_state *xkbState = keyb->xkbState();
+        Qt::KeyboardModifiers modifiers = QXkbCommon::modifiers(xkbState);
 
-        const xkb_keysym_t sym = xkb_state_key_get_one_sym(keyb->xkbState(), code);
-        int qtkey;
-        std::tie(qtkey, text) = QWaylandXkb::keysymToQtKey(sym, modifiers);
+        const xkb_keysym_t sym = xkb_state_key_get_one_sym(xkbState, code);
+        int qtkey = QXkbCommon::keysymToQtKey(sym, modifiers, xkbState, code);
+        QString text = QXkbCommon::lookupString(xkbState, code);
 
         ke->key = qtkey;
         ke->modifiers = modifiers;
@@ -162,12 +161,24 @@ QWaylandCompositorPrivate::QWaylandCompositorPrivate(QWaylandCompositor *composi
 {
     if (QGuiApplication::platformNativeInterface())
         display = static_cast<wl_display*>(QGuiApplication::platformNativeInterface()->nativeResourceForIntegration("server_wl_display"));
-    if (!display)
+
+    if (!display) {
         display = wl_display_create();
+        ownsDisplay = true;
+    }
+
     eventHandler.reset(new QtWayland::WindowSystemEventHandler(compositor));
     timer.start();
 
     QWindowSystemInterfacePrivate::installWindowSystemEventHandler(eventHandler.data());
+
+#if QT_CONFIG(xkbcommon)
+    mXkbContext.reset(xkb_context_new(XKB_CONTEXT_NO_FLAGS));
+    if (!mXkbContext) {
+        qWarning("Failed to create a XKB context: keymap will not be supported");
+        return;
+    }
+#endif
 }
 
 void QWaylandCompositorPrivate::init()
@@ -243,10 +254,13 @@ QWaylandCompositorPrivate::~QWaylandCompositorPrivate()
     delete data_device_manager;
 #endif
 
+#if QT_CONFIG(opengl)
     // Some client buffer integrations need to clean up before the destroying the wl_display
     client_buffer_integration.reset();
+#endif
 
-    wl_display_destroy(display);
+    if (ownsDisplay)
+        wl_display_destroy(display);
 }
 
 void QWaylandCompositorPrivate::preInit()
@@ -586,7 +600,7 @@ QByteArray QWaylandCompositor::socketName() const
  * \qmlmethod QtWaylandCompositor::WaylandCompositor::addSocketDescriptor(fd)
  * \since 5.12
  *
- * Listen for client connections on a file descriptor referring to a
+ * Listen for client connections on a file descriptor, \a fd, referring to a
  * server socket already bound and listening.
  *
  * Does not take ownership of the file descriptor; it must be closed
@@ -598,7 +612,7 @@ QByteArray QWaylandCompositor::socketName() const
  */
 
 /*!
- * Listen for client connections on a file descriptor referring to a
+ * Listen for client connections on a file descriptor, \a fd, referring to a
  * server socket already bound and listening.
  *
  * Does not take ownership of the file descriptor; it must be closed

@@ -15,34 +15,26 @@ cr.exportPath('settings');
 Polymer({
   is: 'settings-multidevice-feature-item',
 
+  behaviors: [MultiDeviceFeatureBehavior],
+
   properties: {
-    /**
-     * The localized string representing the name of the feature.
-     * @type {string}
-     */
-    featureName: String,
+    /** @type {!settings.MultiDeviceFeature} */
+    feature: Number,
 
     /**
-     * The localized string providing a description or useful status information
-     * concertning the feature.
-     * @type {string}
-     */
-    featureSummaryHtml: String,
-
-    /**
-     * The full icon name used provided by the containing iron-iconset-svg
-     * (i.e. [iron-iconset-svg name]:[SVG <g> tag id]
-     * @type {string}
-     */
-    iconName: String,
-
-    /**
-     * If it is non-null, the item should be actionable and clicking on it
-     * should navigate there. If it is undefined, the item is simply not
+     * If it is truthy, the item should be actionable and clicking on it should
+     * navigate to the provided route. Otherwise, the item is simply not
      * actionable.
      * @type {settings.Route|undefined}
      */
     subpageRoute: Object,
+
+    /**
+     * URLSearchParams for subpage route. No param is provided if it is
+     * undefined.
+     * @type {URLSearchParams|undefined}
+     */
+    subpageRouteUrlSearchParams: Object,
   },
 
   /**
@@ -50,24 +42,21 @@ Polymer({
    * @private
    */
   hasSubpageClickHandler_: function() {
-    return !!this.subpageRoute;
-  },
-
-  /** @private */
-  onChangeToggle_: function() {
-    // TODO (jordynass): Trigger the correct workflow.
-    console.log('Toggle changed');
+    return !!this.subpageRoute && this.isFeatureAllowedByPolicy(this.feature);
   },
 
   /** @private */
   handleItemClick_: function(event) {
-    if (!this.subpageRoute)
+    if (!this.hasSubpageClickHandler_()) {
       return;
+    }
 
     // We do not navigate away if the click was on a link.
-    if (event.path[0].tagName === 'A')
+    if (event.path[0].tagName === 'A') {
+      event.stopPropagation();
       return;
+    }
 
-    settings.navigateTo(this.subpageRoute);
+    settings.navigateTo(this.subpageRoute, this.subpageRouteUrlSearchParams);
   },
 });

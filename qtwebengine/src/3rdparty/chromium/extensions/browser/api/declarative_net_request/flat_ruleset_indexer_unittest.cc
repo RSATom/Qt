@@ -195,15 +195,15 @@ void AddRulesAndVerifyIndex(const std::vector<IndexedRule>& blocking_rules,
     indexer.AddUrlRule(rule);
 
   indexer.Finish();
-  FlatRulesetIndexer::SerializedData data = indexer.GetData();
+  base::span<const uint8_t> data = indexer.GetData();
   EXPECT_EQ(
       blocking_rules.size() + allowing_rules.size() + redirect_rules.size(),
       indexer.indexed_rules_count());
-  flatbuffers::Verifier verifier(data.first, data.second);
+  flatbuffers::Verifier verifier(data.data(), data.size());
   ASSERT_TRUE(flat::VerifyExtensionIndexedRulesetBuffer(verifier));
 
   const flat::ExtensionIndexedRuleset* ruleset =
-      flat::GetExtensionIndexedRuleset(data.first);
+      flat::GetExtensionIndexedRuleset(data.data());
   ASSERT_TRUE(ruleset);
 
   VerifyIndexEquality(blocking_rules, ruleset->blocking_index());
@@ -262,7 +262,8 @@ TEST_F(FlatRulesetIndexerTest, MultipleRules) {
       "example1.com", {"xyz.com"}, {}, ""));
   allowing_rules.push_back(CreateIndexedRule(
       16, kMinValidPriority,
-      flat_rule::OptionFlag_IS_WHITELIST | flat_rule::OptionFlag_IS_MATCH_CASE,
+      flat_rule::OptionFlag_IS_WHITELIST |
+          flat_rule::OptionFlag_IS_CASE_INSENSITIVE,
       flat_rule::ElementType_IMAGE, flat_rule::ActivationType_NONE,
       flat_rule::UrlPatternType_SUBSTRING, flat_rule::AnchorType_NONE,
       flat_rule::AnchorType_NONE, "example3", {}, {}, ""));

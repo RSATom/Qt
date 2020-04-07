@@ -34,6 +34,11 @@ class TestAdTracker : public AdTracker {
     AdTracker::Trace(visitor);
   }
 
+  bool RequestWithUrlTaggedAsAd(const String& url) const {
+    DCHECK(is_ad_.Contains(url));
+    return is_ad_.at(url);
+  }
+
  protected:
   String ScriptAtTopOfStack(ExecutionContext* execution_context) override {
     if (script_at_top_.IsEmpty())
@@ -55,7 +60,7 @@ class TestAdTracker : public AdTracker {
                        ResourceRequest& resource_request,
                        const ResourceResponse& redirect_response,
                        const FetchInitiatorInfo& fetch_initiator_info,
-                       Resource::Type resource_type) override {
+                       ResourceType resource_type) override {
     if (!ad_suffix_.IsEmpty() &&
         resource_request.Url().GetString().EndsWith(ad_suffix_)) {
       resource_request.SetIsAdResource();
@@ -63,9 +68,12 @@ class TestAdTracker : public AdTracker {
     AdTracker::WillSendRequest(execution_context, identifier, document_loader,
                                resource_request, redirect_response,
                                fetch_initiator_info, resource_type);
+    is_ad_.insert(resource_request.Url().GetString(),
+                  resource_request.IsAdResource());
   }
 
  private:
+  HashMap<String, bool> is_ad_;
   String script_at_top_;
   Member<ExecutionContext> execution_context_;
   String ad_suffix_;
@@ -86,6 +94,8 @@ class AdTrackerTest : public testing::Test {
                                    String(script_url));
   }
 
+  void DidExecuteScript() { ad_tracker_->DidExecuteScript(); }
+
   bool AnyExecutingScriptsTaggedAsAdResource() {
     return ad_tracker_->IsAdScriptInStack();
   }
@@ -101,7 +111,7 @@ class AdTrackerTest : public testing::Test {
 void AdTrackerTest::SetUp() {
   page_holder_ = DummyPageHolder::Create(IntSize(800, 600));
   page_holder_->GetDocument().SetURL(KURL("https://example.com/foo"));
-  ad_tracker_ = new TestAdTracker(GetFrame());
+  ad_tracker_ = MakeGarbageCollected<TestAdTracker>(GetFrame());
   ad_tracker_->SetExecutionContext(&page_holder_->GetDocument());
 }
 
@@ -153,6 +163,39 @@ TEST_F(AdTrackerTest, TopOfStackIncluded) {
   EXPECT_TRUE(AnyExecutingScriptsTaggedAsAdResource());
 }
 
+TEST_F(AdTrackerTest, AdStackFrameCounting) {
+  AppendToKnownAdScripts("https://example.com/ad.js");
+
+  WillExecuteScript("https://example.com/vanilla.js");
+  WillExecuteScript("https://example.com/vanilla.js");
+  EXPECT_FALSE(AnyExecutingScriptsTaggedAsAdResource());
+
+  WillExecuteScript("https://example.com/ad.js");
+  EXPECT_TRUE(AnyExecutingScriptsTaggedAsAdResource());
+
+  DidExecuteScript();
+  EXPECT_FALSE(AnyExecutingScriptsTaggedAsAdResource());
+
+  WillExecuteScript("https://example.com/ad.js");
+  WillExecuteScript("https://example.com/ad.js");
+  WillExecuteScript("https://example.com/vanilla.js");
+  EXPECT_TRUE(AnyExecutingScriptsTaggedAsAdResource());
+
+  DidExecuteScript();
+  DidExecuteScript();
+  EXPECT_TRUE(AnyExecutingScriptsTaggedAsAdResource());
+
+  DidExecuteScript();
+  EXPECT_FALSE(AnyExecutingScriptsTaggedAsAdResource());
+
+  DidExecuteScript();
+  DidExecuteScript();
+  EXPECT_FALSE(AnyExecutingScriptsTaggedAsAdResource());
+
+  WillExecuteScript("https://example.com/ad.js");
+  EXPECT_TRUE(AnyExecutingScriptsTaggedAsAdResource());
+}
+
 class AdTrackerSimTest : public SimTest {
  protected:
   void SetUp() override {
@@ -161,8 +204,7 @@ class AdTrackerSimTest : public SimTest {
         "https://example.com/test.html", "text/html");
 
     LoadURL("https://example.com/test.html");
-    main_resource_->Start();
-    ad_tracker_ = new TestAdTracker(GetDocument().GetFrame());
+    ad_tracker_ = MakeGarbageCollected<TestAdTracker>(GetDocument().GetFrame());
     GetDocument().GetFrame()->SetAdTrackerForTesting(ad_tracker_);
   }
 
@@ -179,11 +221,12 @@ class AdTrackerSimTest : public SimTest {
   Persistent<TestAdTracker> ad_tracker_;
 };
 
-// Resources loaded by ad script are tagged as ads.
-TEST_F(AdTrackerSimTest, ResourceLoadedWhileExecutingAdScript) {
-  SimRequest ad_resource("https://example.com/ad_script.js", "text/javascript");
-  SimRequest vanilla_script("https://example.com/vanilla_script.js",
-                            "text/javascript");
+// Script loaded by ad script is tagged as ad.
+TEST_F(AdTrackerSimTest, ScriptLoadedWhileExecutingAdScript) {
+  const char kAdUrl[] = "https://example.com/ad_script.js";
+  const char kVanillaUrl[] = "https://example.com/vanilla_script.js";
+  SimSubresourceRequest ad_resource(kAdUrl, "text/javascript");
+  SimSubresourceRequest vanilla_script(kVanillaUrl, "text/javascript");
 
   ad_tracker_->SetAdSuffix("ad_script.js");
 
@@ -196,10 +239,149 @@ TEST_F(AdTrackerSimTest, ResourceLoadedWhileExecutingAdScript) {
     )SCRIPT");
   vanilla_script.Complete("");
 
-  EXPECT_TRUE(IsKnownAdScript(&GetDocument(),
-                              String("https://example.com/ad_script.js")));
-  EXPECT_TRUE(IsKnownAdScript(&GetDocument(),
-                              String("https://example.com/vanilla_script.js")));
+  EXPECT_TRUE(IsKnownAdScript(&GetDocument(), kAdUrl));
+  EXPECT_TRUE(IsKnownAdScript(&GetDocument(), kVanillaUrl));
+  EXPECT_TRUE(ad_tracker_->RequestWithUrlTaggedAsAd(kAdUrl));
+  EXPECT_TRUE(ad_tracker_->RequestWithUrlTaggedAsAd(kVanillaUrl));
+}
+
+// Unknown script running in an ad context should be labeled as ad script.
+TEST_F(AdTrackerSimTest, ScriptDetectedByContext) {
+  const char kAdScriptUrl[] = "https://example.com/ad_script.js";
+  SimSubresourceRequest ad_script(kAdScriptUrl, "text/javascript");
+
+  ad_tracker_->SetAdSuffix("ad_script.js");
+
+  // Create an iframe that's considered an ad.
+  main_resource_->Complete("<body><script src='ad_script.js'></script></body>");
+  ad_script.Complete(R"SCRIPT(
+    frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    )SCRIPT");
+
+  // The child frame should be an ad subframe.
+  LocalFrame* child_frame =
+      ToLocalFrame(GetDocument().GetFrame()->Tree().FirstChild());
+  EXPECT_TRUE(child_frame->IsAdSubframe());
+
+  // Now run unknown script in the child's context. It should be considered an
+  // ad based on context alone.
+  ad_tracker_->SetExecutionContext(child_frame->GetDocument());
+  ad_tracker_->SetScriptAtTopOfStack("foo.js");
+  EXPECT_TRUE(ad_tracker_->IsAdScriptInStack());
+}
+
+TEST_F(AdTrackerSimTest, AdResourceDetectedByContext) {
+  SimSubresourceRequest ad_script("https://example.com/ad_script.js",
+                                  "text/javascript");
+  SimRequest ad_frame("https://example.com/ad_frame.html", "text/html");
+  SimSubresourceRequest foo_css("https://example.com/foo.css", "text/style");
+  ad_tracker_->SetAdSuffix("ad_script.js");
+
+  // Create an iframe that's considered an ad.
+  main_resource_->Complete("<body><script src='ad_script.js'></script></body>");
+  ad_script.Complete(R"SCRIPT(
+    frame = document.createElement("iframe");
+    frame.src="ad_frame.html";
+    document.body.appendChild(frame);
+    )SCRIPT");
+
+  // The child frame should be an ad subframe.
+  LocalFrame* child_frame =
+      ToLocalFrame(GetDocument().GetFrame()->Tree().FirstChild());
+  EXPECT_TRUE(child_frame->IsAdSubframe());
+
+  // Load a resource from the frame. It should be detected as an ad resource due
+  // to its context.
+  ad_frame.Complete(R"HTML(
+    <link rel="stylesheet" href="foo.css">
+    )HTML");
+
+  foo_css.Complete("");
+
+  EXPECT_TRUE(
+      ad_tracker_->RequestWithUrlTaggedAsAd("https://example.com/foo.css"));
+}
+
+// When inline script in an ad frame inserts an iframe into a non-ad frame, the
+// new frame should be considered an ad.
+TEST_F(AdTrackerSimTest, InlineAdScriptRunningInNonAdContext) {
+  SimSubresourceRequest ad_script("https://example.com/ad_script.js",
+                                  "text/javascript");
+  SimRequest ad_iframe("https://example.com/ad_frame.html", "text/html");
+  ad_tracker_->SetAdSuffix("ad_script.js");
+
+  main_resource_->Complete("<body><script src='ad_script.js'></script></body>");
+  ad_script.Complete(R"SCRIPT(
+    frame = document.createElement("iframe");
+    frame.src = "ad_frame.html";
+    document.body.appendChild(frame);
+    )SCRIPT");
+
+  // Verify that the new frame is an ad frame.
+  EXPECT_TRUE(ToLocalFrame(GetDocument().GetFrame()->Tree().FirstChild())
+                  ->IsAdSubframe());
+
+  // Create a new sibling frame to the ad frame. The ad context calls the non-ad
+  // context's (top frame) appendChild.
+  ad_iframe.Complete(R"HTML(
+    <script>
+      frame = document.createElement("iframe");
+      frame.name = "ad_sibling";
+      parent.document.body.appendChild(frame);
+    </script>
+    )HTML");
+
+  // The new sibling frame should also be identified as an ad.
+  EXPECT_TRUE(ToLocalFrame(GetDocument().GetFrame()->Tree().Find("ad_sibling"))
+                  ->IsAdSubframe());
+}
+
+// Image loaded by ad script is tagged as ad.
+TEST_F(AdTrackerSimTest, ImageLoadedWhileExecutingAdScript) {
+  const char kAdUrl[] = "https://example.com/ad_script.js";
+  const char kVanillaUrl[] = "https://example.com/vanilla_image.jpg";
+  SimSubresourceRequest ad_resource(kAdUrl, "text/javascript");
+  SimSubresourceRequest vanilla_image(kVanillaUrl, "image/jpeg");
+
+  ad_tracker_->SetAdSuffix("ad_script.js");
+
+  main_resource_->Complete("<body></body><script src=ad_script.js></script>");
+
+  ad_resource.Complete(R"SCRIPT(
+    image = document.createElement("img");
+    image.src = "vanilla_image.jpg";
+    document.body.appendChild(image);
+    )SCRIPT");
+  vanilla_image.Complete("");
+
+  EXPECT_TRUE(IsKnownAdScript(&GetDocument(), kAdUrl));
+  EXPECT_TRUE(ad_tracker_->RequestWithUrlTaggedAsAd(kAdUrl));
+  // TODO(crbug.com/848916): Should be true.
+  EXPECT_FALSE(ad_tracker_->RequestWithUrlTaggedAsAd(kVanillaUrl));
+}
+
+// Frame loaded by ad script is tagged as ad.
+TEST_F(AdTrackerSimTest, FrameLoadedWhileExecutingAdScript) {
+  const char kAdUrl[] = "https://example.com/ad_script.js";
+  const char kVanillaUrl[] = "https://example.com/vanilla_page.html";
+  SimSubresourceRequest ad_resource(kAdUrl, "text/javascript");
+  SimRequest vanilla_page(kVanillaUrl, "text/html");
+
+  ad_tracker_->SetAdSuffix("ad_script.js");
+
+  main_resource_->Complete("<body></body><script src=ad_script.js></script>");
+
+  ad_resource.Complete(R"SCRIPT(
+    iframe = document.createElement("iframe");
+    iframe.src = "vanilla_page.html";
+    document.body.appendChild(iframe);
+    )SCRIPT");
+  vanilla_page.Complete("");
+
+  EXPECT_TRUE(IsKnownAdScript(&GetDocument(), kAdUrl));
+  EXPECT_TRUE(ad_tracker_->RequestWithUrlTaggedAsAd(kAdUrl));
+  EXPECT_TRUE(ad_tracker_->RequestWithUrlTaggedAsAd(kVanillaUrl));
 }
 
 // A script tagged as an ad in one frame shouldn't cause it to be considered
@@ -210,8 +392,8 @@ TEST_F(AdTrackerSimTest, Contexts) {
   // gets tagged as an ad script in the subframe, that shouldn't cause it to
   // be treated as an ad in the main frame.
   SimRequest iframe_resource("https://example.com/iframe.html", "text/html");
-  SimRequest library_resource("https://example.com/library.js",
-                              "text/javascript");
+  SimSubresourceRequest library_resource("https://example.com/library.js",
+                                         "text/javascript");
 
   main_resource_->Complete(R"HTML(
     <script src=library.js></script>
@@ -223,8 +405,8 @@ TEST_F(AdTrackerSimTest, Contexts) {
 
   // The library script is loaded for a second time, this time in the
   // subframe. Mark it as an ad.
-  SimRequest library_resource_for_subframe("https://example.com/library.js",
-                                           "text/javascript");
+  SimSubresourceRequest library_resource_for_subframe(
+      "https://example.com/library.js", "text/javascript");
   ad_tracker_->SetAdSuffix("library.js");
 
   iframe_resource.Complete(R"HTML(
@@ -245,7 +427,8 @@ TEST_F(AdTrackerSimTest, Contexts) {
 }
 
 TEST_F(AdTrackerSimTest, SameOriginSubframeFromAdScript) {
-  SimRequest ad_resource("https://example.com/ad_script.js", "text/javascript");
+  SimSubresourceRequest ad_resource("https://example.com/ad_script.js",
+                                    "text/javascript");
   SimRequest iframe_resource("https://example.com/iframe.html", "text/html");
   ad_tracker_->SetAdSuffix("ad_script.js");
 
@@ -267,7 +450,8 @@ TEST_F(AdTrackerSimTest, SameOriginSubframeFromAdScript) {
 }
 
 TEST_F(AdTrackerSimTest, SameOriginDocWrittenSubframeFromAdScript) {
-  SimRequest ad_resource("https://example.com/ad_script.js", "text/javascript");
+  SimSubresourceRequest ad_resource("https://example.com/ad_script.js",
+                                    "text/javascript");
   ad_tracker_->SetAdSuffix("ad_script.js");
 
   main_resource_->Complete(R"HTML(
@@ -298,23 +482,14 @@ class AdTrackerDisabledSimTest : public SimTest {
         "https://example.com/test.html", "text/html");
 
     LoadURL("https://example.com/test.html");
-    main_resource_->Start();
   }
-
-  void TearDown() override { SimTest::TearDown(); }
 
   std::unique_ptr<SimRequest> main_resource_;
 };
 
-TEST_F(AdTrackerDisabledSimTest, ResourceLoadedWhenAdTaggingDisabled) {
-  SimRequest iframe_resource("https://example.com/iframe.html", "text/html");
-
-  main_resource_->Complete(R"HTML(
-    <iframe src=https://example.com/iframe.html></iframe>
-    )HTML");
-
-  iframe_resource.Complete("<body></body>");
-
+TEST_F(AdTrackerDisabledSimTest, VerifyAdTrackingDisabled) {
+  main_resource_->Complete("<body></body>");
+  EXPECT_FALSE(GetDocument().GetFrame()->GetAdTracker());
   EXPECT_FALSE(GetDocument().GetFrame()->IsAdSubframe());
 }
 

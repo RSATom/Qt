@@ -146,7 +146,10 @@ static const int maxSizeSection = 1048575; // since section size is in a bitfiel
     Not all \l{Qt::}{ItemDataRole}s will have an effect on a
     QHeaderView. If you need to draw other roles, you can subclass
     QHeaderView and reimplement \l{QHeaderView::}{paintEvent()}.
-    QHeaderView respects the following item data roles:
+    QHeaderView respects the following item data roles, unless they are
+    in conflict with the style (which can happen for styles that follow
+    the desktop theme):
+
     \l{Qt::}{TextAlignmentRole}, \l{Qt::}{DisplayRole},
     \l{Qt::}{FontRole}, \l{Qt::}{DecorationRole},
     \l{Qt::}{ForegroundRole}, and \l{Qt::}{BackgroundRole}.
@@ -2283,13 +2286,15 @@ void QHeaderViewPrivate::_q_sectionsChanged(const QList<QPersistentModelIndex> &
                                      : index.row());
         // the new visualIndices are already adjusted / reset by initializeSections()
         const int newVisualIndex = visualIndex(newLogicalIndex);
-        auto &newSection = sectionItems[newVisualIndex];
-        newSection = item.section;
+        if (newVisualIndex < sectionItems.count()) {
+            auto &newSection = sectionItems[newVisualIndex];
+            newSection = item.section;
 
-        if (newSection.isHidden) {
-            // otherwise setSectionHidden will return without doing anything
-            newSection.isHidden = false;
-            q->setSectionHidden(newLogicalIndex, true);
+            if (newSection.isHidden) {
+                // otherwise setSectionHidden will return without doing anything
+                newSection.isHidden = false;
+                q->setSectionHidden(newLogicalIndex, true);
+            }
         }
     }
 
@@ -2321,9 +2326,10 @@ void QHeaderView::initializeSections()
         if (stretchLastSection())   // we've already gotten the size hint
             d->maybeRestorePrevLastSectionAndStretchLast();
 
-        //make sure we update the hidden sections
+        // make sure we update the hidden sections
+        // simulate remove from newCount to oldCount
         if (newCount < oldCount)
-            d->updateHiddenSections(0, newCount-1);
+            d->updateHiddenSections(newCount, oldCount);
     }
 }
 
@@ -3116,9 +3122,25 @@ void QHeaderView::scrollContentsBy(int dx, int dy)
     \reimp
     \internal
 */
-void QHeaderView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &)
+void QHeaderView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles)
 {
     Q_D(QHeaderView);
+    if (!roles.isEmpty()) {
+        const auto doesRoleAffectSize = [](int role) -> bool {
+            switch (role) {
+            case Qt::DisplayRole:
+            case Qt::DecorationRole:
+            case Qt::SizeHintRole:
+            case Qt::FontRole:
+                return true;
+            default:
+                // who knows what a subclass or custom style might do
+                return role >= Qt::UserRole;
+            }
+        };
+        if (std::none_of(roles.begin(), roles.end(), doesRoleAffectSize))
+            return;
+    }
     d->invalidateCachedSizeHint();
     if (d->hasAutoResizeSections()) {
         bool resizeRequired = d->globalResizeMode == ResizeToContents;
@@ -3874,9 +3896,9 @@ void QHeaderViewPrivate::updateDefaultSectionSizeFromStyle()
 void QHeaderViewPrivate::recalcSectionStartPos() const // linear (but fast)
 {
     int pixelpos = 0;
-    for (QVector<SectionItem>::const_iterator i = sectionItems.constBegin(); i != sectionItems.constEnd(); ++i) {
-        i->calculated_startpos = pixelpos; // write into const mutable
-        pixelpos += i->size;
+    for (const SectionItem &i : sectionItems) {
+        i.calculated_startpos = pixelpos; // write into const mutable
+        pixelpos += i.size;
     }
     sectionStartposRecalc = false;
 }

@@ -76,7 +76,7 @@ void LayoutSliderContainer::ComputeLogicalHeight(
       int tick_length = LayoutTheme::GetTheme().SliderTickSize().Height();
       track_height = LayoutUnit(2 * (offset_from_center + tick_length));
     }
-    float zoom_factor = Style()->EffectiveZoom();
+    float zoom_factor = StyleRef().EffectiveZoom();
     if (zoom_factor != 1.0)
       track_height *= zoom_factor;
 
@@ -102,9 +102,9 @@ void LayoutSliderContainer::UpdateLayout() {
   bool is_vertical = HasVerticalAppearance(input);
 
   Element* thumb_element = input->UserAgentShadowRoot()->getElementById(
-      ShadowElementNames::SliderThumb());
+      shadow_element_names::SliderThumb());
   Element* track_element = input->UserAgentShadowRoot()->getElementById(
-      ShadowElementNames::SliderTrack());
+      shadow_element_names::SliderTrack());
   LayoutBox* thumb = thumb_element ? thumb_element->GetLayoutBox() : nullptr;
   LayoutBox* track = track_element ? track_element->GetLayoutBox() : nullptr;
 
@@ -133,7 +133,7 @@ void LayoutSliderContainer::UpdateLayout() {
   if (is_vertical) {
     thumb_location.SetY(thumb_location.Y() + track->ContentHeight() -
                         thumb->Size().Height() - offset);
-  } else if (Style()->IsLeftToRightDirection()) {
+  } else if (StyleRef().IsLeftToRightDirection()) {
     thumb_location.SetX(thumb_location.X() + offset);
   } else {
     thumb_location.SetX(thumb_location.X() - offset);

@@ -116,6 +116,7 @@ public:
         EVP_PKEY *opaque;
         RSA *rsa;
         DSA *dsa;
+        DH *dh;
 #ifndef OPENSSL_NO_EC
         EC_KEY *ec;
 #endif
@@ -129,7 +130,7 @@ public:
     QAtomicInt ref;
 
 private:
-    Q_DISABLE_COPY(QSslKeyPrivate)
+    Q_DISABLE_COPY_MOVE(QSslKeyPrivate)
 };
 
 QT_END_NAMESPACE

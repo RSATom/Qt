@@ -15,8 +15,8 @@
 
 ### Build maintenance
  1. If you added or removed source files:
-    * You _must_ update the gyp build scripts lists with your changes. See `src/libEGL.gypi`, `src/libGLESv2.gypi`, and `src/compiler.gypi`.
- 2. ANGLE also now maintains a BUILD.gn script for  [Chromium's gn build](https://www.chromium.org/developers/gn-build-configuration).  If you changed the gyp files other than to add or remove new files, you will also need to update BUILD.gn. Ask a project member for help with testing if you don't have a Chromium checkout.
+    * You _must_ update the build files with your changes. See `src/libGLESv2.gni` and `src/compiler.gni`.
+ 2. ANGLE's BUILD.gn script is used by [Chromium's gn build](https://www.chromium.org/developers/gn-build-configuration). If you change build files other than to add or remove source files be aware you could break the Chromium build. ANGLE's commit queue (CQ) will detect such breakage. Ask a project member for help with Chromium issues if you don't have a Chromium checkout.
  3. If you modified `glslang.y` or `glslang.l`:
     * You _must_ update the bison-generated compiler sources. Download and install the latest 64-bit Bison and flex from official [Cygwin](https://cygwin.com/install.html) on _Windows_. From the Cygwin shell run `generate_parser.sh` in `src/compiler/translator` and update your CL. Do not edit the generated files by hand.
     * _NOTE:_ You can ignore failing chunk messages if there are no compile errors.
@@ -37,7 +37,7 @@
       * If you aren't a browser developer, you should be able to drop your compiled DLLs into a Chrome installation, in place of those distributed with Chrome, to check WebGL conformance. [Chrome Canary](https://www.google.com/chrome/browser/canary.html) is well-suited for this.
     * If your code isn't covered by an existing test, you are *strongly encouraged* to add new test coverage. This both ensures that your code is correct and that new contributors won't break it in the future.
     * Add new tests to `angle_end2end_tests` for OpenGL-based API tests, `angle_unittests` for cross-platform internal tests, and `angle_white_box_tests` for rendering tests which also need visibility into internal ANGLE classes.
-   * If you are submitting a performance fix, test your code with `angle_perftests` and add a new performance test if it is not covered by the existing benchmarks.
+   * If you are submitting a performance fix, test your code with `angle_perftests` and add a new performance test if it is not covered by the existing benchmarks. For more documentation on `angle_perftests` see the [README](../src/tests/perf_tests/README.md).
    * The [Chromium GPU FYI bot waterfall](http://build.chromium.org/p/chromium.gpu.fyi/console) provides continuous integration for ANGLE patches that have been committed.  There may be hardware configurations that are not tested by the ANGLE trybots, if you notice breakage on this waterfall after landing a patch, please notify a project member.
    * ANGLE also includes the [drawElements Quality Program (dEQP)](dEQP.md) for additional testing. If you're working on a new feature, there may be some extensive tests for it already written.
 
@@ -121,5 +121,4 @@ See also:
 * [ANGLE Gerrit](https://chromium-review.googlesource.com/q/project:angle/angle)
 * [Chromium Projects: Contributing Code](http://www.chromium.org/developers/contributing-code/)
 * [depot_tools tutorial](http://commondatastorage.googleapis.com/chrome-infra-docs/flat/depot_tools/docs/html/depot_tools_tutorial.html)
-
-
+* [angle_perftests README](../src/tests/perf_tests/README.md)

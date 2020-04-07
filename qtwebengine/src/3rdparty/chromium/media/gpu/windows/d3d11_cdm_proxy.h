@@ -16,8 +16,8 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "media/base/win/d3d11_create_device_cb.h"
 #include "media/gpu/media_gpu_export.h"
-#include "media/gpu/windows/d3d11_create_device_cb.h"
 
 namespace media {
 
@@ -58,9 +58,12 @@ class MEDIA_GPU_EXPORT D3D11CdmProxy : public CdmProxy {
       CreateMediaCryptoSessionCB create_media_crypto_session_cb) override;
   void SetKey(uint32_t crypto_session_id,
               const std::vector<uint8_t>& key_id,
-              const std::vector<uint8_t>& key_blob) override;
+              KeyType key_type,
+              const std::vector<uint8_t>& key_blob,
+              SetKeyCB set_key_cb) override;
   void RemoveKey(uint32_t crypto_session_id,
-                 const std::vector<uint8_t>& key_id) override;
+                 const std::vector<uint8_t>& key_id,
+                 RemoveKeyCB remove_key_cb) override;
 
   void SetCreateDeviceCallbackForTesting(D3D11CreateDeviceCB callback);
 

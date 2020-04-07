@@ -47,9 +47,9 @@ QT_BEGIN_NAMESPACE
 QGeoMappingManagerEngineItemsOverlay::QGeoMappingManagerEngineItemsOverlay(const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString)
 :   QGeoMappingManagerEngine()
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
     QGeoCameraCapabilities cameraCaps;
     cameraCaps.setMinimumZoomLevel(0.0);
     cameraCaps.setMaximumZoomLevel(30.0);

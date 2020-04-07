@@ -29,7 +29,11 @@
 
 #include "qwasmscreen.h"
 #include "qwasmwindow.h"
+#include "qwasmeventtranslator.h"
 #include "qwasmcompositor.h"
+#include "qwasmintegration.h"
+#include <emscripten/bind.h>
+#include <emscripten/val.h>
 
 #include <QtEglSupport/private/qeglconvenience_p.h>
 #ifndef QT_NO_OPENGL
@@ -43,17 +47,48 @@
 
 QT_BEGIN_NAMESPACE
 
-QWasmScreen::QWasmScreen(QWasmCompositor *compositor)
-    : m_compositor(compositor)
-    , m_depth(32)
-    , m_format(QImage::Format_RGB32)
+QWasmScreen::QWasmScreen(const QString &canvasId)
+    : m_canvasId(canvasId)
+
 {
-    m_compositor->setScreen(this);
+    m_compositor = new QWasmCompositor(this);
+    m_eventTranslator = new QWasmEventTranslator(this);
+    updateQScreenAndCanvasRenderSize();
 }
 
 QWasmScreen::~QWasmScreen()
 {
+    destroy();
+}
 
+void QWasmScreen::destroy()
+{
+    m_compositor->destroy();
+}
+
+QWasmScreen *QWasmScreen::get(QPlatformScreen *screen)
+{
+    return static_cast<QWasmScreen *>(screen);
+}
+
+QWasmScreen *QWasmScreen::get(QScreen *screen)
+{
+    return get(screen->handle());
+}
+
+QWasmCompositor *QWasmScreen::compositor()
+{
+    return m_compositor;
+}
+
+QWasmEventTranslator *QWasmScreen::eventTranslator()
+{
+    return m_eventTranslator;
+}
+
+QString QWasmScreen::canvasId() const
+{
+    return m_canvasId;
 }
 
 QRect QWasmScreen::geometry() const
@@ -71,16 +106,30 @@ QImage::Format QWasmScreen::format() const
     return m_format;
 }
 
+QDpi QWasmScreen::logicalDpi() const
+{
+    emscripten::val dpi = emscripten::val::module_property("qtFontDpi");
+    if (!dpi.isUndefined()) {
+        qreal dpiValue = dpi.as<qreal>();
+        return QDpi(dpiValue, dpiValue);
+    }
+    const qreal defaultDpi = 96;
+    return QDpi(defaultDpi, defaultDpi);
+}
+
 qreal QWasmScreen::devicePixelRatio() const
 {
     // FIXME: The effective device pixel ratio may be different from the
     // HTML window dpr if the OpenGL driver/GPU allocates a less than
     // full resolution surface. Use emscripten_webgl_get_drawing_buffer_size()
     // and compute the dpr instead.
-    double htmlWindowDpr = EM_ASM_DOUBLE({
-        return window.devicePixelRatio;
-    });
+    double htmlWindowDpr = emscripten::val::global("window")["devicePixelRatio"].as<double>();
     return qreal(htmlWindowDpr);
+}
+
+QString QWasmScreen::name() const
+{
+    return m_canvasId;
 }
 
 QPlatformCursor *QWasmScreen::cursor() const
@@ -90,6 +139,8 @@ QPlatformCursor *QWasmScreen::cursor() const
 
 void QWasmScreen::resizeMaximizedWindows()
 {
+    if (!screen())
+        return;
     QPlatformScreen::resizeMaximizedWindows();
 }
 
@@ -113,6 +164,33 @@ void QWasmScreen::setGeometry(const QRect &rect)
     m_geometry = rect;
     QWindowSystemInterface::handleScreenGeometryChange(QPlatformScreen::screen(), geometry(), availableGeometry());
     resizeMaximizedWindows();
+}
+
+void QWasmScreen::updateQScreenAndCanvasRenderSize()
+{
+    // The HTML canvas has two sizes: the CSS size and the canvas render size.
+    // The CSS size is determined according to standard CSS rules, while the
+    // render size is set using the "width" and "height" attributes. The render
+    // size must be set manually and is not auto-updated on CSS size change.
+    // Setting the render size to a value larger than the CSS size enables high-dpi
+    // rendering.
+
+    QByteArray canvasId = m_canvasId.toUtf8();
+    double css_width;
+    double css_height;
+    emscripten_get_element_css_size(canvasId.constData(), &css_width, &css_height);
+    QSizeF cssSize(css_width, css_height);
+
+    QSizeF canvasSize = cssSize * devicePixelRatio();
+    emscripten::val canvas = emscripten::val::global(canvasId.constData());
+    canvas.set("width", canvasSize.width());
+    canvas.set("height", canvasSize.height());
+
+    emscripten::val rect = canvas.call<emscripten::val>("getBoundingClientRect");
+    QPoint position(rect["left"].as<int>(), rect["top"].as<int>());
+
+    setGeometry(QRect(position, cssSize.toSize()));
+    m_compositor->redrawWindowContent();
 }
 
 QT_END_NAMESPACE

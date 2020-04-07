@@ -61,7 +61,7 @@ class TestRunResults(object):
         self.unexpected_failures = 0
         self.unexpected_timeouts = 0
 
-        # The wall clock time spent running the tests (layout_test_runner.run()).
+        # The wall clock time spent running the tests (web_test_runner.run()).
         self.run_time = 0
 
         # Map of test name to the *last* result for the test.
@@ -123,13 +123,12 @@ class RunDetails(object):
 
     def __init__(self, exit_code, summarized_full_results=None,
                  summarized_failing_results=None, initial_results=None,
-                 all_retry_results=None, enabled_pixel_tests_in_retry=False):
+                 all_retry_results=None):
         self.exit_code = exit_code
         self.summarized_full_results = summarized_full_results
         self.summarized_failing_results = summarized_failing_results
         self.initial_results = initial_results
         self.all_retry_results = all_retry_results or []
-        self.enabled_pixel_tests_in_retry = enabled_pixel_tests_in_retry
 
 
 def _interpret_test_failures(failures):
@@ -156,8 +155,7 @@ def _interpret_test_failures(failures):
 
 
 def summarize_results(port_obj, expectations, initial_results,
-                      all_retry_results, enabled_pixel_tests_in_retry,
-                      only_include_failing=False):
+                      all_retry_results, only_include_failing=False):
     """Returns a dictionary containing a summary of the test runs, with the following fields:
         'version': a version indicator
         'fixable': The number of fixable tests (NOW - PASS)
@@ -245,16 +243,28 @@ def summarize_results(port_obj, expectations, initial_results,
                     has_unexpected_pass = True
             else:
                 has_expected = True
-        # A test is flaky if it has both expected and unexpected runs (NOT pass
-        # and failure).
+
+        # TODO(crbug.com/855255): This code calls a test flaky if it has both
+        # expected and unexpected runs (NOT pass and failure); this is generally
+        # wrong (really it should just be if there are multiple kinds of results),
+        # but this works in the normal case because a test will only be retried
+        # if a result is unexpected, and if you get an expected result on the
+        # retry, then you did get multiple results. This fails if you get
+        # one kind of unexpected failure initially and another kind of
+        # unexpected failure on the retry (e.g., TIMEOUT CRASH), or if you
+        # explicitly run a test multiple times and get multiple expected results.
         is_flaky = has_expected and has_unexpected
 
-        if len(set(actual)) == 1:
-            actual = [actual[0]]
-            actual_types = [actual_types[0]]
+        test_dict = {}
+        test_dict['expected'] = expected
+        test_dict['actual'] = ' '.join(actual)
+
+        # Fields below are optional. To avoid bloating the output results json
+        # too much, only add them when they are True or non-empty.
 
         if is_flaky:
             num_flaky += 1
+            test_dict['is_flaky'] = True
         elif all_pass or has_unexpected_pass:
             # We count two situations as a "pass":
             # 1. All test runs pass (which is obviously non-flaky, but does not
@@ -268,19 +278,10 @@ def summarize_results(port_obj, expectations, initial_results,
             num_passes += 1
             if not has_stderr and only_include_failing:
                 continue
-        elif has_unexpected and result.type != test_expectations.SKIP:
+        elif has_unexpected:
             # Either no retries or all retries failed unexpectedly.
-            # TODO(robertma): When will there be unexpected skip? Do we really
-            # want to ignore them when counting regressions?
             num_regressions += 1
 
-        test_dict = {}
-
-        test_dict['expected'] = expected
-        test_dict['actual'] = ' '.join(actual)
-
-        # Fields below are optional. To avoid bloating the output results json
-        # too much, only add them when they are True or non-empty.
 
         rounded_run_time = round(initial_result.test_run_time, 1)
         if rounded_run_time:
@@ -315,14 +316,17 @@ def summarize_results(port_obj, expectations, initial_results,
 
         def is_expected(actual_result):
             return expectations.matches_an_expected_result(test_name, actual_result,
-                                                           port_obj.get_option('pixel_tests') or initial_result.reftest_type,
                                                            port_obj.get_option('enable_sanitizer'))
 
-        # Note: is_unexpected is intended to capture the *last* result. In the
-        # normal use case (stop retrying failures once they pass), this is
-        # equivalent to checking if none of the results is expected.
-        if not any(is_expected(actual_result) for actual_result in actual_types):
+        # Note: is_unexpected and is_regression are intended to reflect the
+        # *last* result. In the normal use case (stop retrying failures
+        # once they pass), this is equivalent to saying that all of the
+        # results were unexpected failures.
+        last_result = actual_types[-1]
+        if not is_expected(last_result):
             test_dict['is_unexpected'] = True
+            if last_result != test_expectations.PASS:
+                test_dict['is_regression'] = True
 
         if initial_result.has_repaint_overlay:
             test_dict['has_repaint_overlay'] = True
@@ -361,8 +365,7 @@ def summarize_results(port_obj, expectations, initial_results,
     # Does results.html have enough information to compute this itself? (by
     # checking total number of results vs. total number of tests?)
     results['interrupted'] = initial_results.interrupted
-    results['layout_tests_dir'] = port_obj.layout_tests_dir()
-    results['pixel_tests_enabled'] = port_obj.get_option('pixel_tests')
+    results['layout_tests_dir'] = port_obj.web_tests_dir()
     results['seconds_since_epoch'] = int(time.time())
     results['build_number'] = port_obj.get_option('build_number')
     results['builder_name'] = port_obj.get_option('builder_name')

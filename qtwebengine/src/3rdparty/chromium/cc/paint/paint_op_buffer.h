@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -17,10 +18,10 @@
 #include "base/memory/aligned_memory.h"
 #include "base/optional.h"
 #include "cc/base/math_util.h"
-#include "cc/paint/image_provider.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_flags.h"
+#include "cc/paint/skottie_wrapper.h"
 #include "cc/paint/transfer_cache_deserialize_helper.h"
 #include "cc/paint/transfer_cache_serialize_helper.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -37,6 +38,10 @@ class SkStrikeServer;
 // PaintOpBuffer is a reimplementation of SkLiteDL.
 // See: third_party/skia/src/core/SkLiteDL.h.
 namespace cc {
+class ClientPaintCache;
+class ImageProvider;
+class ServicePaintCache;
+class PaintWorkletImageProvider;
 
 class CC_PAINT_EXPORT ThreadsafeMatrix : public SkMatrix {
  public:
@@ -81,6 +86,7 @@ enum class PaintOpType : uint8_t {
   DrawRecord,
   DrawRect,
   DrawRRect,
+  DrawSkottie,
   DrawTextBlob,
   Noop,
   Restore,
@@ -102,7 +108,9 @@ struct CC_PAINT_EXPORT PlaybackParams {
       base::RepeatingCallback<void(SkCanvas* canvas, uint32_t id)>;
   using DidDrawOpCallback = base::RepeatingCallback<void()>;
 
-  explicit PlaybackParams(ImageProvider* image_provider);
+  explicit PlaybackParams(
+      ImageProvider* image_provider,
+      PaintWorkletImageProvider* paint_worklet_image_provider = nullptr);
   PlaybackParams(
       ImageProvider* image_provider,
       const SkMatrix& original_ctm,
@@ -114,6 +122,7 @@ struct CC_PAINT_EXPORT PlaybackParams {
   PlaybackParams& operator=(const PlaybackParams& other);
 
   ImageProvider* image_provider;
+  PaintWorkletImageProvider* paint_worklet_image_provider;
   SkMatrix original_ctm;
   CustomDataRasterCallback custom_callback;
   DidDrawOpCallback did_draw_op_callback;
@@ -142,6 +151,7 @@ class CC_PAINT_EXPORT PaintOp {
   struct CC_PAINT_EXPORT SerializeOptions {
     SerializeOptions(ImageProvider* image_provider,
                      TransferCacheSerializeHelper* transfer_cache,
+                     ClientPaintCache* paint_cache,
                      SkCanvas* canvas,
                      SkStrikeServer* strike_server,
                      SkColorSpace* color_space,
@@ -156,6 +166,7 @@ class CC_PAINT_EXPORT PaintOp {
     // Required.
     ImageProvider* image_provider = nullptr;
     TransferCacheSerializeHelper* transfer_cache = nullptr;
+    ClientPaintCache* paint_cache = nullptr;
     SkCanvas* canvas = nullptr;
     SkStrikeServer* strike_server = nullptr;
     SkColorSpace* color_space = nullptr;
@@ -173,10 +184,17 @@ class CC_PAINT_EXPORT PaintOp {
 
   struct CC_PAINT_EXPORT DeserializeOptions {
     DeserializeOptions(TransferCacheDeserializeHelper* transfer_cache,
-                       SkStrikeClient* strike_client);
+                       ServicePaintCache* paint_cache,
+                       SkStrikeClient* strike_client,
+                       std::vector<uint8_t>* scratch_buffer);
     TransferCacheDeserializeHelper* transfer_cache = nullptr;
-    uint32_t raster_color_space_id = gfx::ColorSpace::kInvalidId;
+    ServicePaintCache* paint_cache = nullptr;
     SkStrikeClient* strike_client = nullptr;
+    uint32_t raster_color_space_id = gfx::ColorSpace::kInvalidId;
+    // Do a DumpWithoutCrashing when serialization fails.
+    bool crash_dump_on_failure = false;
+    // Used to memcpy Skia flattenables into to avoid TOCTOU issues.
+    std::vector<uint8_t>* scratch_buffer = nullptr;
   };
 
   // Indicates how PaintImages are serialized.
@@ -259,9 +277,7 @@ class CC_PAINT_EXPORT PaintOp {
            static_cast<uint32_t>(SkClipOp::kMax_EnumValue);
   }
 
-  static bool IsValidPath(const SkPath& path) {
-    return path.isValid() && path.pathRefIsValid();
-  }
+  static bool IsValidPath(const SkPath& path) { return path.isValid(); }
 
   static bool IsUnsetRect(const SkRect& rect) {
     return rect.fLeft == SK_ScalarInfinity;
@@ -694,11 +710,34 @@ class CC_PAINT_EXPORT DrawRRectOp final : public PaintOpWithFlags {
   DrawRRectOp() : PaintOpWithFlags(kType) {}
 };
 
+class CC_PAINT_EXPORT DrawSkottieOp final : public PaintOp {
+ public:
+  static constexpr PaintOpType kType = PaintOpType::DrawSkottie;
+  static constexpr bool kIsDrawOp = true;
+  DrawSkottieOp(scoped_refptr<SkottieWrapper> skottie, SkRect dst, float t);
+  ~DrawSkottieOp();
+  static void Raster(const DrawSkottieOp* op,
+                     SkCanvas* canvas,
+                     const PlaybackParams& params);
+  bool IsValid() const {
+    return !!skottie && !dst.isEmpty() && t >= 0 && t <= 1.f;
+  }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
+  HAS_SERIALIZATION_FUNCTIONS();
+
+  scoped_refptr<SkottieWrapper> skottie;
+  SkRect dst;
+  float t;
+
+ private:
+  DrawSkottieOp();
+};
+
 class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
  public:
   static constexpr PaintOpType kType = PaintOpType::DrawTextBlob;
   static constexpr bool kIsDrawOp = true;
-  DrawTextBlobOp(scoped_refptr<PaintTextBlob> blob,
+  DrawTextBlobOp(sk_sp<SkTextBlob> blob,
                  SkScalar x,
                  SkScalar y,
                  const PaintFlags& flags);
@@ -711,7 +750,7 @@ class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
   static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
-  scoped_refptr<PaintTextBlob> blob;
+  sk_sp<SkTextBlob> blob;
   SkScalar x;
   SkScalar y;
 
@@ -793,13 +832,8 @@ class CC_PAINT_EXPORT SaveLayerOp final : public PaintOpWithFlags {
 class CC_PAINT_EXPORT SaveLayerAlphaOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::SaveLayerAlpha;
-  SaveLayerAlphaOp(const SkRect* bounds,
-                   uint8_t alpha,
-                   bool preserve_lcd_text_requests)
-      : PaintOp(kType),
-        bounds(bounds ? *bounds : kUnsetRect),
-        alpha(alpha),
-        preserve_lcd_text_requests(preserve_lcd_text_requests) {}
+  SaveLayerAlphaOp(const SkRect* bounds, uint8_t alpha)
+      : PaintOp(kType), bounds(bounds ? *bounds : kUnsetRect), alpha(alpha) {}
   static void Raster(const SaveLayerAlphaOp* op,
                      SkCanvas* canvas,
                      const PlaybackParams& params);
@@ -809,7 +843,6 @@ class CC_PAINT_EXPORT SaveLayerAlphaOp final : public PaintOp {
 
   SkRect bounds;
   uint8_t alpha;
-  bool preserve_lcd_text_requests;
 };
 
 class CC_PAINT_EXPORT ScaleOp final : public PaintOp {
@@ -877,9 +910,7 @@ using LargestPaintOp =
 class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
  public:
   enum { kInitialBufferSize = 4096 };
-  // It's not necessarily the case that the op with the maximum alignment
-  // requirements is also the biggest op, but for now that's true.
-  static constexpr size_t PaintOpAlign = alignof(DrawDRRectOp);
+  static constexpr size_t PaintOpAlign = 8;
   static inline size_t ComputeOpSkip(size_t sizeof_op) {
     return MathUtil::UncheckedRoundUp(sizeof_op, PaintOpBuffer::PaintOpAlign);
   }
@@ -932,11 +963,12 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
   void push(Args&&... args) {
     static_assert(std::is_convertible<T, PaintOp>::value, "T not a PaintOp.");
     static_assert(alignof(T) <= PaintOpAlign, "");
-
-    size_t skip = ComputeOpSkip(sizeof(T));
+    static_assert(sizeof(T) < std::numeric_limits<uint16_t>::max(),
+                  "Cannot fit op code in skip");
+    uint16_t skip = static_cast<uint16_t>(ComputeOpSkip(sizeof(T)));
     T* op = reinterpret_cast<T*>(AllocatePaintOp(skip));
 
-    new (op) T{std::forward<Args>(args)...};
+    new (op) T(std::forward<Args>(args)...);
     DCHECK_EQ(op->type, static_cast<uint32_t>(T::kType));
     op->skip = skip;
     AnalyzeAddedOp(op);

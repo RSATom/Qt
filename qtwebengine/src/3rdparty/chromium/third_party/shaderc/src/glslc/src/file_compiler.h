@@ -25,20 +25,40 @@
 
 namespace glslc {
 
+// Describes an input file to be compiled.
+struct InputFileSpec {
+  std::string name;
+  shaderc_shader_kind stage;
+  shaderc_source_language language;
+  std::string entry_point_name;
+};
+
 // Context for managing compilation of source GLSL files into destination
 // SPIR-V files or preprocessed output.
 class FileCompiler {
  public:
+  enum class SpirvBinaryEmissionFormat {
+    Unspecified,  // No binary output format specified, this is the only valid
+                  // option when the compilation output is not in SPIR-V binary
+                  // code form.
+    Binary,       // Emits SPIR-V binary code directly.
+    Numbers,      // Emits SPIR-V binary code as a list of hex numbers.
+    CInitList,    // Emits SPIR-V bianry code as a C-style initializer list
+                  // of hex numbers.
+  };
+
   FileCompiler()
       : output_type_(OutputType::SpirvBinary),
+        binary_emission_format_(SpirvBinaryEmissionFormat::Unspecified),
         needs_linking_(true),
         total_warnings_(0),
         total_errors_(0) {}
 
-  // Compiles a shader received in input_file, returning true on success and
-  // false otherwise. If force_shader_stage is not shaderc_glsl_infer_source or
-  // any default shader stage then the given shader_stage will be used,
-  // otherwise it will be determined from the source or the file type.
+  // Compiles a shader received as specified by input_file, returning true
+  // on success and false otherwise. If force_shader_stage is not
+  // shaderc_glsl_infer_source or any default shader stage then the given
+  // shader_stage will be used, otherwise it will be determined from the source
+  // or the file type.
   //
   // Places the compilation output into a new file whose name is derived from
   // input_file according to the rules from glslc/README.asciidoc.
@@ -48,8 +68,7 @@ class FileCompiler {
   //
   // Any errors/warnings found in the shader source will be output to std::cerr
   // and increment the counts reported by OutputMessages().
-  bool CompileShaderFile(const std::string& input_file,
-                         shaderc_shader_kind shader_stage);
+  bool CompileShaderFile(const InputFileSpec& input_file);
 
   // Adds a directory to be searched when processing #include directives.
   //
@@ -61,6 +80,11 @@ class FileCompiler {
   // Sets the output filename. A name of "-" indicates standard output.
   void SetOutputFileName(const shaderc_util::string_piece& file) {
     output_file_name_ = file;
+  }
+
+  // Sets the format for SPIR-V binary compilation output.
+  void SetSpirvBinaryOutputFormat(SpirvBinaryEmissionFormat format) {
+    binary_emission_format_ = format;
   }
 
   // Returns false if any options are incompatible. The num_files parameter
@@ -112,16 +136,16 @@ class FileCompiler {
   };
 
   // Emits the compilation output from the given result to the given output
-  // stream and returns true if the result represents a successful compilation
-  // step.  Otherwise returns false and possibly emits messages to the standard
-  // error stream.  Accumulates error and warning counts for use by the
-  // OutputMessages() method.
+  // file and returns true if the result represents a successful compilation
+  // step.  Otherwise returns false, possibly emits messages to the standard
+  // error stream, and does not produce an output file.  Accumulates error
+  // and warning counts for use by the OutputMessages() method.
   template <typename CompilationResultType>
   bool EmitCompiledResult(
       const CompilationResultType& result, const std::string& input_file_name,
+      const std::string& output_file_name,
       shaderc_util::string_piece error_file_name,
-      const std::unordered_set<std::string>& used_source_files,
-      std::ostream* out);
+      const std::unordered_set<std::string>& used_source_files);
 
   // Returns the final file name to be used for the output file.
   //
@@ -166,7 +190,9 @@ class FileCompiler {
   std::string GetCandidateOutputFileName(std::string input_filename);
 
   // Returns true if the compiler's output is preprocessed text.
-  bool PreprocessingOnly() { return output_type_ == OutputType::PreprocessedText; }
+  bool PreprocessingOnly() {
+    return output_type_ == OutputType::PreprocessedText;
+  }
 
   // Performs actual SPIR-V compilation on the contents of input files.
   shaderc::Compiler compiler_;
@@ -177,6 +203,10 @@ class FileCompiler {
 
   // What kind of output will be produced?
   OutputType output_type_;
+
+  // The Flag to indicate to which format the output SPIR-V binary code should
+  // be emitted.
+  SpirvBinaryEmissionFormat binary_emission_format_;
 
   // A FileFinder used to substitute #include directives in the source code.
   shaderc_util::FileFinder include_file_finder_;

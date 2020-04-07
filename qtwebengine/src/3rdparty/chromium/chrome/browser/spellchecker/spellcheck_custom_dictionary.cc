@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 #include <vector>
@@ -13,12 +14,13 @@
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
 #include "base/md5.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #ifndef TOOLKIT_QT
 #include "chrome/common/chrome_constants.h"
 #endif
@@ -26,15 +28,18 @@
 #include "components/spellcheck/common/spellcheck_common.h"
 #ifndef TOOLKIT_QT
 #include "components/sync/model/sync_change.h"
+#include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_error_factory.h"
 #include "components/sync/protocol/sync.pb.h"
-#else
-#include "base/stl_util.h"
+#endif
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
+
+#ifdef TOOLKIT_QT
 namespace chrome {
     const base::FilePath::CharType kCustomDictionaryFileName[] = FILE_PATH_LITERAL("Custom Dictionary.txt");
 }
 #endif
-#include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
 
@@ -72,11 +77,14 @@ enum ChangeSanitationResult {
 // invalid checksum, then returns ChecksumStatus::INVALID and clears |words|.
 ChecksumStatus LoadFile(const base::FilePath& file_path,
                         std::set<std::string>* words) {
-  base::AssertBlockingAllowed();
   DCHECK(words);
   words->clear();
   std::string contents;
-  base::ReadFileToString(file_path, &contents);
+  {
+    base::ScopedBlockingCall scoped_blocking_call(
+        base::BlockingType::MAY_BLOCK);
+    base::ReadFileToString(file_path, &contents);
+  }
   size_t pos = contents.rfind(CHECKSUM_PREFIX);
   if (pos != std::string::npos) {
     std::string checksum = contents.substr(pos + strlen(CHECKSUM_PREFIX));
@@ -131,7 +139,6 @@ int SanitizeWordsToAdd(const std::set<std::string>& existing,
 // called on the file thread.
 std::unique_ptr<SpellcheckCustomDictionary::LoadFileResult>
 LoadDictionaryFileReliably(const base::FilePath& path) {
-  base::AssertBlockingAllowed();
   // Load the contents and verify the checksum.
   std::unique_ptr<SpellcheckCustomDictionary::LoadFileResult> result(
       new SpellcheckCustomDictionary::LoadFileResult);
@@ -153,22 +160,24 @@ LoadDictionaryFileReliably(const base::FilePath& path) {
 // the custom spellcheck dictionary at |path|.
 void SaveDictionaryFileReliably(const base::FilePath& path,
                                 const std::set<std::string>& custom_words) {
-  base::AssertBlockingAllowed();
   std::stringstream content;
   for (const std::string& word : custom_words)
     content << word << '\n';
 
   std::string checksum = base::MD5String(content.str());
   content << CHECKSUM_PREFIX << checksum;
-  base::CopyFile(path, path.AddExtension(BACKUP_EXTENSION));
-  base::ImportantFileWriter::WriteFileAtomically(path, content.str());
+  {
+    base::ScopedBlockingCall scoped_blocking_call(
+        base::BlockingType::MAY_BLOCK);
+    base::CopyFile(path, path.AddExtension(BACKUP_EXTENSION));
+    base::ImportantFileWriter::WriteFileAtomically(path, content.str());
+  }
 }
 
 void SavePassedWordsToDictionaryFileReliably(
     const base::FilePath& path,
     std::unique_ptr<SpellcheckCustomDictionary::LoadFileResult>
         load_file_result) {
-  base::AssertBlockingAllowed();
   DCHECK(load_file_result);
   SaveDictionaryFileReliably(path, load_file_result->words);
 }
@@ -266,7 +275,7 @@ bool SpellcheckCustomDictionary::RemoveWord(const std::string& word) {
 }
 
 bool SpellcheckCustomDictionary::HasWord(const std::string& word) const {
-  return !!words_.count(word);
+  return base::ContainsKey(words_, word);
 }
 
 void SpellcheckCustomDictionary::AddObserver(Observer* observer) {
@@ -408,7 +417,6 @@ SpellcheckCustomDictionary::LoadFileResult::~LoadFileResult() {}
 // static
 std::unique_ptr<SpellcheckCustomDictionary::LoadFileResult>
 SpellcheckCustomDictionary::LoadDictionaryFile(const base::FilePath& path) {
-  base::AssertBlockingAllowed();
   std::unique_ptr<LoadFileResult> result = LoadDictionaryFileReliably(path);
   SpellCheckHostMetrics::RecordCustomWordCountStats(result->words.size());
   return result;
@@ -418,7 +426,6 @@ SpellcheckCustomDictionary::LoadDictionaryFile(const base::FilePath& path) {
 void SpellcheckCustomDictionary::UpdateDictionaryFile(
     std::unique_ptr<Change> dictionary_change,
     const base::FilePath& path) {
-  base::AssertBlockingAllowed();
   DCHECK(dictionary_change);
 
   if (dictionary_change->empty())
@@ -456,7 +463,8 @@ void SpellcheckCustomDictionary::OnLoaded(
         base::BindOnce(&SpellcheckCustomDictionary::FixInvalidFile,
                        weak_ptr_factory_.GetWeakPtr(), std::move(result)));
     BrowserThread::PostAfterStartupTask(
-        FROM_HERE, BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
+        FROM_HERE,
+        base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::UI}),
         fix_invalid_file_.callback());
   }
 }

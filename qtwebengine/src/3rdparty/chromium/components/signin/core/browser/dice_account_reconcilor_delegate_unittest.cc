@@ -6,8 +6,8 @@
 
 #include <vector>
 
-#include "components/pref_registry/pref_registry_syncable.h"
-#include "components/signin/core/browser/profile_management_switches.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/signin/core/browser/account_consistency_method.h"
 #include "components/signin/core/browser/signin_pref_names.h"
 #include "components/signin/core/browser/test_signin_client.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -66,20 +66,11 @@ TEST(DiceAccountReconcilorDelegateTest, OnReconcileFinished) {
   DiceTestSigninClient client(&pref_service);
 
   {
-    // Dice migration not enabled.
-    testing::InSequence mock_sequence;
-    EXPECT_CALL(client, SetReadyForDiceMigration(testing::_)).Times(0);
-    DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDiceFixAuthErrors);
-    delegate.OnReconcileFinished("account", true /* is_reconcile_noop */);
-  }
-
-  {
     // Dice migration enabled, but token service is not ready.
     testing::InSequence mock_sequence;
     EXPECT_CALL(client, SetReadyForDiceMigration(false)).Times(1);
     DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDicePrepareMigration);
+        &client, AccountConsistencyMethod::kDiceMigration);
     delegate.OnReconcileFinished("account", true /* is_reconcile_noop */);
   }
 
@@ -91,7 +82,7 @@ TEST(DiceAccountReconcilorDelegateTest, OnReconcileFinished) {
     testing::InSequence mock_sequence;
     EXPECT_CALL(client, SetReadyForDiceMigration(false)).Times(1);
     DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDicePrepareMigration);
+        &client, AccountConsistencyMethod::kDiceMigration);
     delegate.OnReconcileFinished("account", false /* is_reconcile_noop */);
   }
 
@@ -100,8 +91,25 @@ TEST(DiceAccountReconcilorDelegateTest, OnReconcileFinished) {
     testing::InSequence mock_sequence;
     EXPECT_CALL(client, SetReadyForDiceMigration(true)).Times(1);
     DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDicePrepareMigration);
+        &client, AccountConsistencyMethod::kDiceMigration);
     delegate.OnReconcileFinished("account", true /* is_reconcile_noop */);
+  }
+}
+
+TEST(DiceAccountReconcilorDelegateTest, ShouldRevokeTokensOnCookieDeleted) {
+  sync_preferences::TestingPrefServiceSyncable pref_service;
+  TestSigninClient client(&pref_service);
+  {
+    // Dice is enabled, revoke tokens when Gaia cookie is deleted.
+    DiceAccountReconcilorDelegate delegate(&client,
+                                           AccountConsistencyMethod::kDice);
+    EXPECT_EQ(true, delegate.ShouldRevokeTokensOnCookieDeleted());
+  }
+  {
+    // Dice is not enabled, do not revoke tokens when Gaia cookie is deleted.
+    DiceAccountReconcilorDelegate delegate(
+        &client, AccountConsistencyMethod::kDiceMigration);
+    EXPECT_EQ(false, delegate.ShouldRevokeTokensOnCookieDeleted());
   }
 }
 

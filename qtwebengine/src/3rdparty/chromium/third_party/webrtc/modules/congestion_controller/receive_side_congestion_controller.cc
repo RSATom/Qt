@@ -11,6 +11,7 @@
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
 
 #include "modules/pacing/packet_router.h"
+#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
 #include "rtc_base/logging.h"
@@ -30,6 +31,9 @@ ReceiveSideCongestionController::WrappingBitrateEstimator::
       using_absolute_send_time_(false),
       packets_since_absolute_send_time_(0),
       min_bitrate_bps_(congestion_controller::GetMinBitrateBps()) {}
+
+ReceiveSideCongestionController::WrappingBitrateEstimator::
+    ~WrappingBitrateEstimator() = default;
 
 void ReceiveSideCongestionController::WrappingBitrateEstimator::IncomingPacket(
     int64_t arrival_time_ms,

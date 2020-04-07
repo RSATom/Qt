@@ -96,11 +96,8 @@ class CONTENT_EXPORT CrossProcessFrameConnector
       const viz::SurfaceId& local_surface_id,
       gfx::PointF* transformed_point,
       viz::EventSource source = viz::EventSource::ANY) override;
-  void ForwardProcessAckedTouchEvent(const TouchEventWithLatencyInfo& touch,
+  void ForwardAckedTouchpadZoomEvent(const blink::WebGestureEvent& event,
                                      InputEventAckState ack_result) override;
-  void ForwardAckedTouchpadPinchGestureEvent(
-      const blink::WebGestureEvent& event,
-      InputEventAckState ack_result) override;
   void BubbleScrollEvent(const blink::WebGestureEvent& event) override;
   bool HasFocus() override;
   void FocusRootView() override;
@@ -116,7 +113,7 @@ class CONTENT_EXPORT CrossProcessFrameConnector
   bool IsSubtreeThrottled() const override;
 #if defined(USE_AURA)
   void EmbedRendererWindowTreeClientInParent(
-      ui::mojom::WindowTreeClientPtr window_tree_client) override;
+      ws::mojom::WindowTreeClientPtr window_tree_client) override;
 #endif
   void DidUpdateVisualProperties(
       const cc::RenderFrameMetadata& metadata) override;
@@ -132,25 +129,34 @@ class CONTENT_EXPORT CrossProcessFrameConnector
     return GetRootRenderWidgetHostView();
   }
 
-  // This enum backs a histogram - please do not modify or remove the existing
-  // enum values below (adding new values is okay, but please remember to also
-  // update enums.xml in this case). See enums.xml for descriptions of enum
-  // values.
+  // These enums back crashed frame histograms - see MaybeLogCrash() and
+  // MaybeLogShownCrash() below.  Please do not modify or remove existing enum
+  // values.  When adding new values, please also update enums.xml. See
+  // enums.xml for descriptions of enum values.
   enum class CrashVisibility {
     kCrashedWhileVisible = 0,
     kShownAfterCrashing = 1,
     kNeverVisibleAfterCrash = 2,
     kMaxValue = kNeverVisibleAfterCrash
   };
-  // Logs the Stability.ChildFrameCrash.Visibility metric after checking that a
-  // crash has indeed happened and checking that the crash has not already been
-  // logged in UMA.
-  void MaybeLogCrash(CrashVisibility visibility);
+
+  enum class ShownAfterCrashingReason {
+    kTabWasShown = 0,
+    kViewportIntersection = 1,
+    kVisibility = 2,
+    kViewportIntersectionAfterTabWasShown = 3,
+    kVisibilityAfterTabWasShown = 4,
+    kMaxValue = kVisibilityAfterTabWasShown
+  };
 
   // Returns whether the child widget is actually visible to the user.  This is
   // different from the IsHidden override, and takes into account viewport
   // intersection as well as the visibility of the RenderFrameHostDelegate.
   bool IsVisible();
+
+  // This function is called by the RenderFrameHostDelegate to signal that it
+  // became visible.
+  void DelegateWasShown();
 
  private:
   friend class MockCrossProcessFrameConnector;
@@ -159,12 +165,22 @@ class CONTENT_EXPORT CrossProcessFrameConnector
   // unguessable surface ID is not reused after a cross-process navigation.
   void ResetScreenSpaceRect();
 
+  // Logs the Stability.ChildFrameCrash.Visibility metric after checking that a
+  // crash has indeed happened and checking that the crash has not already been
+  // logged in UMA.  Returns true if this metric was actually logged.
+  bool MaybeLogCrash(CrashVisibility visibility);
+
+  // Check if a crashed child frame has become visible, and if so, log the
+  // Stability.ChildFrameCrash.Visibility.ShownAfterCrashing* metrics.
+  void MaybeLogShownCrash(ShownAfterCrashingReason reason);
+
   // Handlers for messages received from the parent frame.
   void OnSynchronizeVisualProperties(
-      const viz::SurfaceId& surface_id,
+      const viz::FrameSinkId& frame_sink_id,
       const FrameVisualProperties& visual_properties);
   void OnUpdateViewportIntersection(const gfx::Rect& viewport_intersection,
-                                    const gfx::Rect& compositor_visible_rect);
+                                    const gfx::Rect& compositor_visible_rect,
+                                    bool occluded_or_obscured);
   void OnVisibilityChanged(bool visible);
   void OnSetIsInert(bool);
   void OnSetInheritedEffectiveTouchAction(cc::TouchAction);
@@ -186,8 +202,6 @@ class CONTENT_EXPORT CrossProcessFrameConnector
   // which is set through CSS.
   bool is_hidden_ = false;
 
-  bool is_scroll_bubbling_;
-
   // Used to make sure we only log UMA once per renderer crash.
   bool is_crash_already_logged_ = false;
 
@@ -195,6 +209,10 @@ class CONTENT_EXPORT CrossProcessFrameConnector
   // crash (in case it is called from the destructor of
   // CrossProcessFrameConnector or when WebContentsImpl::WasShown is called).
   bool has_crashed_ = false;
+
+  // Remembers whether or not the RenderFrameHostDelegate (i.e., tab) was
+  // shown after a crash. This is only used when recording renderer crashes.
+  bool delegate_was_shown_after_crash_ = false;
 
   // The last pre-transform frame size received from the parent renderer.
   // |last_received_local_frame_size_| may be in DIP if use zoom for DSF is

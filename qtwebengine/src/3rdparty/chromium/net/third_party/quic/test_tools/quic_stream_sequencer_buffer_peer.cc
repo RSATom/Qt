@@ -4,7 +4,6 @@
 
 #include "net/third_party/quic/test_tools/quic_stream_sequencer_buffer_peer.h"
 
-#include "net/test/gtest_util.h"
 #include "net/third_party/quic/platform/api/quic_flags.h"
 #include "net/third_party/quic/platform/api/quic_logging.h"
 #include "net/third_party/quic/platform/api/quic_test.h"
@@ -28,7 +27,7 @@ size_t QuicStreamSequencerBufferPeer::Read(char* dest_buffer, size_t size) {
   iovec dest;
   dest.iov_base = dest_buffer, dest.iov_len = size;
   size_t bytes_read;
-  std::string error_details;
+  QuicString error_details;
   EXPECT_EQ(QUIC_NO_ERROR,
             buffer_->Readv(&dest, 1, &bytes_read, &error_details));
   return bytes_read;

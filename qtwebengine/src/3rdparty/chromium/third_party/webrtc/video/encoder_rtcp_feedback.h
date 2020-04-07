@@ -13,9 +13,8 @@
 #include <vector>
 
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "system_wrappers/include/clock.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -30,14 +29,13 @@ class EncoderRtcpFeedback : public RtcpIntraFrameObserver {
 
  private:
   bool HasSsrc(uint32_t ssrc);
-  size_t GetStreamIndex(uint32_t ssrc);
 
   Clock* const clock_;
   const std::vector<uint32_t> ssrcs_;
   VideoStreamEncoderInterface* const video_stream_encoder_;
 
   rtc::CriticalSection crit_;
-  std::vector<int64_t> time_last_intra_request_ms_ RTC_GUARDED_BY(crit_);
+  int64_t time_last_intra_request_ms_ RTC_GUARDED_BY(crit_);
 };
 
 }  // namespace webrtc

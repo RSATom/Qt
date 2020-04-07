@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
+#include <QScreen>
 #include <QXmlStreamReader>
 
 #include "fluidlauncher.h"
-
 
 #define DEFAULT_INPUT_TIMEOUT 10000
 #define SIZING_FACTOR_HEIGHT 6/10
@@ -68,7 +68,7 @@ FluidLauncher::FluidLauncher(QStringList* args)
     setCurrentWidget(pictureFlowWidget);
     pictureFlowWidget->setFocus();
 
-    QRect screen_size = QApplication::desktop()->screenGeometry();
+    QRect screen_size = QGuiApplication::primaryScreen()->geometry();
 
     QObject::connect(pictureFlowWidget, SIGNAL(itemActivated(int)), this, SLOT(launchApplication(int)));
     QObject::connect(pictureFlowWidget, SIGNAL(inputReceived()),    this, SLOT(resetInputTimeout()));

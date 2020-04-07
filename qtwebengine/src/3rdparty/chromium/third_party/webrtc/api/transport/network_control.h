@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "api/transport/network_types.h"
+#include "api/transport/webrtc_key_value_config.h"
 
 namespace webrtc {
 
@@ -23,21 +24,26 @@ class TargetTransferRateObserver {
   // Called to indicate target transfer rate as well as giving information about
   // the current estimate of network parameters.
   virtual void OnTargetTransferRate(TargetTransferRate) = 0;
+  // Called to provide updates to the expected target rate in case it changes
+  // before the first call to OnTargetTransferRate.
+  virtual void OnStartRateUpdate(DataRate) {}
 };
 
 // Configuration sent to factory create function. The parameters here are
 // optional to use for a network controller implementation.
 struct NetworkControllerConfig {
   // The initial constraints to start with, these can be changed at any later
-  // time by calls to OnTargetRateConstraints.
+  // time by calls to OnTargetRateConstraints. Note that the starting rate
+  // has to be set initially to provide a starting state for the network
+  // controller, even though the field is marked as optional.
   TargetRateConstraints constraints;
   // Initial stream specific configuration, these are changed at any later time
   // by calls to OnStreamsConfig.
   StreamsConfig stream_based_config;
-  // The initial bandwidth estimate to base target rate on. This should be used
-  // as the basis for initial OnTargetTransferRate and OnPacerConfig callbacks.
-  // Note that starting rate is only provided on construction.
-  DataRate starting_bandwidth = DataRate::Infinity();
+
+  // Optional override of configuration of WebRTC internals. Using nullptr here
+  // indicates that the field trial API will be used.
+  const WebRtcKeyValueConfig* key_value_config = nullptr;
 };
 
 // NetworkControllerInterface is implemented by network controllers. A network

@@ -8,6 +8,8 @@
 #include "src/objects/api-callbacks.h"
 
 #include "src/heap/heap-inl.h"
+#include "src/heap/heap-write-barrier.h"
+#include "src/objects/foreign-inl.h"
 #include "src/objects/name.h"
 #include "src/objects/templates.h"
 
@@ -16,6 +18,11 @@
 
 namespace v8 {
 namespace internal {
+
+OBJECT_CONSTRUCTORS_IMPL(AccessCheckInfo, Struct)
+OBJECT_CONSTRUCTORS_IMPL(AccessorInfo, Struct)
+OBJECT_CONSTRUCTORS_IMPL(InterceptorInfo, Struct)
+OBJECT_CONSTRUCTORS_IMPL(CallHandlerInfo, Tuple3)
 
 CAST_ACCESSOR(AccessorInfo)
 CAST_ACCESSOR(AccessCheckInfo)
@@ -59,12 +66,26 @@ BIT_FIELD_ACCESSORS(AccessorInfo, flags, is_special_data_property,
 BIT_FIELD_ACCESSORS(AccessorInfo, flags, replace_on_access,
                     AccessorInfo::ReplaceOnAccessBit)
 BIT_FIELD_ACCESSORS(AccessorInfo, flags, is_sloppy, AccessorInfo::IsSloppyBit)
-BIT_FIELD_ACCESSORS(AccessorInfo, flags, has_no_side_effect,
-                    AccessorInfo::HasNoSideEffectBit)
+BIT_FIELD_ACCESSORS(AccessorInfo, flags, getter_side_effect_type,
+                    AccessorInfo::GetterSideEffectTypeBits)
+
+SideEffectType AccessorInfo::setter_side_effect_type() const {
+  return SetterSideEffectTypeBits::decode(flags());
+}
+
+void AccessorInfo::set_setter_side_effect_type(SideEffectType value) {
+  // We do not support describing setters as having no side effect, since
+  // calling set accessors must go through a store bytecode. Store bytecodes
+  // support checking receivers for temporary objects, but still expect
+  // the receiver to be written to.
+  CHECK_NE(value, SideEffectType::kHasNoSideEffect);
+  set_flags(SetterSideEffectTypeBits::update(flags(), value));
+}
+
 BIT_FIELD_ACCESSORS(AccessorInfo, flags, initial_property_attributes,
                     AccessorInfo::InitialAttributesBits)
 
-bool AccessorInfo::IsCompatibleReceiver(Object* receiver) {
+bool AccessorInfo::IsCompatibleReceiver(Object receiver) {
   if (!HasExpectedReceiverType()) return true;
   if (!receiver->IsJSObject()) return false;
   return FunctionTemplateInfo::cast(expected_receiver_type())

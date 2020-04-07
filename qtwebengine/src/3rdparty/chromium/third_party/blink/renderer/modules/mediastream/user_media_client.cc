@@ -46,10 +46,10 @@ UserMediaClient::UserMediaClient(WebUserMediaClient* client)
 void UserMediaClient::RequestUserMedia(UserMediaRequest* request) {
   if (client_) {
     client_->RequestUserMedia(request);
-  } else {
-    request->Fail(WebUserMediaRequest::Error::kNotSupported,
-                  "User Media support is disabled");
+    return;
   }
+  request->Fail(WebUserMediaRequest::Error::kNotSupported,
+                "User Media support is disabled");
 }
 
 void UserMediaClient::CancelUserMediaRequest(UserMediaRequest* request) {
@@ -67,6 +67,13 @@ void UserMediaClient::StopTrack(MediaStreamComponent* track) {
   if (client_) {
     client_->StopTrack(WebMediaStreamTrack(track));
   }
+}
+
+bool UserMediaClient::IsCapturing() {
+  if (!client_)
+    return false;
+
+  return client_->IsCapturing();
 }
 
 }  // namespace blink

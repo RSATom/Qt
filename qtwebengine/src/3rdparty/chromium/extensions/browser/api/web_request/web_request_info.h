@@ -59,6 +59,8 @@ struct WebRequestInfo {
   };
 
   WebRequestInfo();
+  WebRequestInfo(WebRequestInfo&& other);
+  WebRequestInfo& operator=(WebRequestInfo&& other);
 
   // Initializes a WebRequestInfo from a net::URLRequest. Should be used
   // sparingly, as we are moving away from direct URLRequest usage and toward
@@ -75,7 +77,9 @@ struct WebRequestInfo {
                  std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
                  int32_t routing_id,
                  content::ResourceContext* resource_context,
-                 const network::ResourceRequest& request);
+                 const network::ResourceRequest& request,
+                 bool is_download,
+                 bool is_async);
 
   ~WebRequestInfo();
 

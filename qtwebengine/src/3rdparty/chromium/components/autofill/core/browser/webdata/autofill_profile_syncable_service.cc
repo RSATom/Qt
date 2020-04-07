@@ -22,6 +22,7 @@
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_constants.h"
+#include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_error.h"
 #include "components/sync/model/sync_error_factory.h"
 #include "components/sync/protocol/sync.pb.h"
@@ -42,7 +43,7 @@ std::string LimitData(const std::string& data) {
   return sanitized_value;
 }
 
-void* UserDataKey() {
+void* AutofillProfileSyncableServiceUserDataKey() {
   // Use the address of a static that COMDAT folding won't ever fold
   // with something else.
   static int user_data_key = 0;
@@ -74,8 +75,9 @@ void AutofillProfileSyncableService::CreateForWebDataServiceAndBackend(
     AutofillWebDataBackend* webdata_backend,
     const std::string& app_locale) {
   web_data_service->GetDBUserData()->SetUserData(
-      UserDataKey(), base::WrapUnique(new AutofillProfileSyncableService(
-                         webdata_backend, app_locale)));
+      AutofillProfileSyncableServiceUserDataKey(),
+      std::make_unique<AutofillProfileSyncableService>(webdata_backend,
+                                                       app_locale));
 }
 
 // static
@@ -83,7 +85,8 @@ AutofillProfileSyncableService*
 AutofillProfileSyncableService::FromWebDataService(
     AutofillWebDataService* web_data_service) {
   return static_cast<AutofillProfileSyncableService*>(
-      web_data_service->GetDBUserData()->GetUserData(UserDataKey()));
+      web_data_service->GetDBUserData()->GetUserData(
+          AutofillProfileSyncableServiceUserDataKey()));
 }
 
 AutofillProfileSyncableService::AutofillProfileSyncableService()
@@ -413,8 +416,9 @@ bool AutofillProfileSyncableService::OverwriteProfileWithServerData(
   // Update the validity state bitfield.
   if (specifics.has_validity_state_bitfield() &&
       specifics.validity_state_bitfield() !=
-          profile->GetValidityBitfieldValue()) {
-    profile->SetValidityFromBitfieldValue(specifics.validity_state_bitfield());
+          profile->GetClientValidityBitfieldValue()) {
+    profile->SetClientValidityFromBitfieldValue(
+        specifics.validity_state_bitfield());
     diff = true;
   }
 
@@ -428,6 +432,12 @@ bool AutofillProfileSyncableService::OverwriteProfileWithServerData(
     diff = true;
   }
 
+  if (specifics.is_client_validity_states_updated() !=
+      profile->is_client_validity_states_updated()) {
+    profile->set_is_client_validity_states_updated(
+        specifics.is_client_validity_states_updated());
+    diff = true;
+  }
   return diff;
 }
 
@@ -482,7 +492,10 @@ void AutofillProfileSyncableService::WriteAutofillProfile(
       LimitData(
           UTF16ToUTF8(profile.GetRawInfo(ADDRESS_HOME_DEPENDENT_LOCALITY))));
   specifics->set_address_home_language_code(LimitData(profile.language_code()));
-  specifics->set_validity_state_bitfield(profile.GetValidityBitfieldValue());
+  specifics->set_validity_state_bitfield(
+      profile.GetClientValidityBitfieldValue());
+  specifics->set_is_client_validity_states_updated(
+      profile.is_client_validity_states_updated());
 
   // TODO(estade): this should be set_email_address.
   specifics->add_email_address(
@@ -615,12 +628,15 @@ void AutofillProfileSyncableService::ActOnChange(
       break;
     }
     case AutofillProfileChange::REMOVE: {
-      AutofillProfile empty_profile(change.key(), std::string());
-      new_changes.push_back(
-          syncer::SyncChange(FROM_HERE,
-                             syncer::SyncChange::ACTION_DELETE,
-                             CreateData(empty_profile)));
-      profiles_map_.erase(change.key());
+      // Removals have no data_model() so this change can still be for a
+      // SERVER_PROFILE. Rule it out by a lookup in profiles_map_.
+      if (profiles_map_.find(change.key()) != profiles_map_.end()) {
+        AutofillProfile empty_profile(change.key(), std::string());
+        new_changes.push_back(
+            syncer::SyncChange(FROM_HERE, syncer::SyncChange::ACTION_DELETE,
+                               CreateData(empty_profile)));
+        profiles_map_.erase(change.key());
+      }
       break;
     }
     default:
@@ -635,6 +651,11 @@ void AutofillProfileSyncableService::ActOnChange(
             << "  Error: " << error.message() << "\n"
             << "  Guid: " << change.key();
   }
+}
+
+void AutofillProfileSyncableService::set_sync_processor(
+    syncer::SyncChangeProcessor* sync_processor) {
+  sync_processor_.reset(sync_processor);
 }
 
 syncer::SyncData AutofillProfileSyncableService::CreateData(

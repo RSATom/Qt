@@ -350,6 +350,6 @@ void QSensorBackend::sensorError(int error)
     Q_EMIT d->m_sensor->sensorError(error);
 }
 
-#include "moc_qsensorbackend.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qsensorbackend.cpp"

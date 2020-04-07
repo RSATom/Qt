@@ -4,7 +4,6 @@
 
 #include "components/feed/core/feed_scheduler_host.h"
 
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,18 +36,13 @@ struct ParamPair {
   double default_value;
 };
 
-const base::FeatureParam<int> kSuppressRefreshDurationMinutes{
-    &kInterestFeedContentSuggestions, "suppress_refresh_duration_minutes", 30};
-const base::FeatureParam<std::string> kDisableTriggerTypes{
-    &kInterestFeedContentSuggestions, "disable_trigger_types", ""};
-
 // The Cartesian product of TriggerType and UserClass each need a different
 // param name in case we decide to change it via a config change. This nested
 // switch lookup ensures that all combinations are defined, along with a
 // default value.
 ParamPair LookupParam(UserClass user_class, TriggerType trigger) {
   switch (user_class) {
-    case UserClass::kRareNtpUser:
+    case UserClass::kRareSuggestionsViewer:
       switch (trigger) {
         case TriggerType::kNtpShown:
           return {"ntp_shown_hours_rare_ntp_user", 4.0};
@@ -57,7 +51,7 @@ ParamPair LookupParam(UserClass user_class, TriggerType trigger) {
         case TriggerType::kFixedTimer:
           return {"fixed_timer_hours_rare_ntp_user", 96.0};
       }
-    case UserClass::kActiveNtpUser:
+    case UserClass::kActiveSuggestionsViewer:
       switch (trigger) {
         case TriggerType::kNtpShown:
           return {"ntp_shown_hours_active_ntp_user", 4.0};
@@ -120,9 +114,9 @@ void TryRun(base::OnceClosure closure) {
 // entries in histogram suffix "UserClasses".
 std::string UserClassToHistogramSuffix(UserClassifier::UserClass user_class) {
   switch (user_class) {
-    case UserClassifier::UserClass::kRareNtpUser:
+    case UserClassifier::UserClass::kRareSuggestionsViewer:
       return "RareNTPUser";
-    case UserClassifier::UserClass::kActiveNtpUser:
+    case UserClassifier::UserClass::kActiveSuggestionsViewer:
       return "ActiveNTPUser";
     case UserClassifier::UserClass::kActiveSuggestionsConsumer:
       return "ActiveSuggestionsConsumer";
@@ -159,6 +153,19 @@ FeedSchedulerHost::FeedSchedulerHost(PrefService* profile_prefs,
   if (eula_accepted_notifier_) {
     eula_accepted_notifier_->Init(this);
   }
+
+  throttlers_.emplace(UserClassifier::UserClass::kRareSuggestionsViewer,
+                      std::make_unique<RefreshThrottler>(
+                          UserClassifier::UserClass::kRareSuggestionsViewer,
+                          profile_prefs_, clock_));
+  throttlers_.emplace(UserClassifier::UserClass::kActiveSuggestionsViewer,
+                      std::make_unique<RefreshThrottler>(
+                          UserClassifier::UserClass::kActiveSuggestionsViewer,
+                          profile_prefs_, clock_));
+  throttlers_.emplace(UserClassifier::UserClass::kActiveSuggestionsConsumer,
+                      std::make_unique<RefreshThrottler>(
+                          UserClassifier::UserClass::kActiveSuggestionsConsumer,
+                          profile_prefs_, clock_));
 }
 
 FeedSchedulerHost::~FeedSchedulerHost() = default;
@@ -172,16 +179,24 @@ void FeedSchedulerHost::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 
 void FeedSchedulerHost::Initialize(
     base::RepeatingClosure refresh_callback,
-    ScheduleBackgroundTaskCallback schedule_background_task_callback) {
+    ScheduleBackgroundTaskCallback schedule_background_task_callback,
+    base::RepeatingClosure cancel_background_task_callback) {
   // There should only ever be one scheduler host and bridge created. Neither
   // are ever destroyed before shutdown, and this method should only be called
   // once as the bridge is constructed.
   DCHECK(!refresh_callback_);
   DCHECK(!schedule_background_task_callback_);
+  DCHECK(!cancel_background_task_callback_);
 
   refresh_callback_ = std::move(refresh_callback);
   schedule_background_task_callback_ =
       std::move(schedule_background_task_callback);
+  cancel_background_task_callback_ = std::move(cancel_background_task_callback);
+
+  if (!profile_prefs_->GetBoolean(prefs::kArticlesListVisible)) {
+    CancelFixedTimerWakeUp();
+    return;
+  }
 
   base::TimeDelta old_period =
       profile_prefs_->GetTimeDelta(prefs::kBackgroundRefreshPeriod);
@@ -200,10 +215,14 @@ NativeRequestBehavior FeedSchedulerHost::ShouldSessionRequestData(
   // completion of all requests. We should never encounter a scenario where only
   // the scheduler thinks there is an outstanding request.
 
-  // TODO(skym): Resolve ambiguity around this expectation.
+  // TODO(skym): Update this to use kTimeoutDurationSeconds.
   // DCHECK(has_outstanding_request || !tracking_oustanding_request_);
 
-  tracking_oustanding_request_ |= has_outstanding_request;
+  if (outstanding_request_until_.is_null() && has_outstanding_request) {
+    outstanding_request_until_ =
+        clock_->Now() +
+        base::TimeDelta::FromSeconds(kTimeoutDurationSeconds.Get());
+  }
 
   NativeRequestBehavior behavior;
   if (ShouldRefresh(TriggerType::kNtpShown)) {
@@ -231,10 +250,11 @@ NativeRequestBehavior FeedSchedulerHost::ShouldSessionRequestData(
     }
   }
 
-  user_classifier_.OnEvent(UserClassifier::Event::kNtpOpened);
+  OnSuggestionsShown();
   DVLOG(2) << "Specifying NativeRequestBehavior of "
            << static_cast<int>(behavior);
-  UMA_HISTOGRAM_ENUMERATION("Feed.Scheduler.RequestBehavior", behavior);
+  UMA_HISTOGRAM_ENUMERATION("ContentSuggestions.Feed.Scheduler.RequestBehavior",
+                            behavior);
   return behavior;
 }
 
@@ -244,7 +264,7 @@ void FeedSchedulerHost::OnReceiveNewContent(
                           content_creation_date_time);
   TryRun(std::move(fixed_timer_completion_));
   ScheduleFixedTimerWakeUp(GetTriggerThreshold(TriggerType::kFixedTimer));
-  tracking_oustanding_request_ = false;
+  outstanding_request_until_ = base::Time();
   time_until_first_shown_trigger_reported_ = false;
   time_until_first_foregrounded_trigger_reported_ = false;
   DVLOG(2) << "Received OnReceiveNewContent with time "
@@ -254,7 +274,7 @@ void FeedSchedulerHost::OnReceiveNewContent(
 void FeedSchedulerHost::OnRequestError(int network_response_code) {
   profile_prefs_->SetTime(prefs::kLastFetchAttemptTime, clock_->Now());
   TryRun(std::move(fixed_timer_completion_));
-  tracking_oustanding_request_ = false;
+  outstanding_request_until_ = base::Time();
   time_until_first_shown_trigger_reported_ = false;
   time_until_first_foregrounded_trigger_reported_ = false;
   DVLOG(2) << "Received OnRequestError with code " << network_response_code;
@@ -269,6 +289,15 @@ void FeedSchedulerHost::OnForegrounded() {
 
 void FeedSchedulerHost::OnFixedTimer(base::OnceClosure on_completion) {
   DCHECK(refresh_callback_);
+  DCHECK(cancel_background_task_callback_);
+
+  // While the check and cancel isn't strictly necessary, a long lived session
+  // could be issuing refreshes due to the background trigger while articles are
+  // not visible. So check and cancel.
+  if (!profile_prefs_->GetBoolean(prefs::kArticlesListVisible)) {
+    CancelFixedTimerWakeUp();
+  }
+
   if (ShouldRefresh(TriggerType::kFixedTimer)) {
     // There shouldn't typically be anything in |fixed_timer_completion_| right
     // now, but if there was, run it before we replace it.
@@ -283,23 +312,45 @@ void FeedSchedulerHost::OnFixedTimer(base::OnceClosure on_completion) {
   }
 }
 
-void FeedSchedulerHost::OnTaskReschedule() {
-  ScheduleFixedTimerWakeUp(GetTriggerThreshold(TriggerType::kFixedTimer));
-}
-
 void FeedSchedulerHost::OnSuggestionConsumed() {
   user_classifier_.OnEvent(UserClassifier::Event::kSuggestionsUsed);
 }
 
-void FeedSchedulerHost::OnHistoryCleared() {
-  // Due to privacy, we should not fetch for a while (unless the user explicitly
-  // asks for new suggestions) to give sync the time to propagate the changes in
-  // history to the server.
-  suppress_refreshes_until_ =
-      clock_->Now() +
-      base::TimeDelta::FromMinutes(kSuppressRefreshDurationMinutes.Get());
-  // After that time elapses, we should fetch as soon as possible.
+void FeedSchedulerHost::OnSuggestionsShown() {
+  user_classifier_.OnEvent(UserClassifier::Event::kSuggestionsViewed);
+}
+
+bool FeedSchedulerHost::OnArticlesCleared(bool suppress_refreshes) {
+  base::TimeDelta attempt_age =
+      clock_->Now() - profile_prefs_->GetTime(prefs::kLastFetchAttemptTime);
+  UMA_HISTOGRAM_CUSTOM_TIMES(
+      "ContentSuggestions.Feed.Scheduler.TimeSinceLastFetchOnClear",
+      attempt_age, base::TimeDelta::FromSeconds(1),
+      base::TimeDelta::FromDays(7),
+      /*bucket_count=*/50);
+
+  // Since there are no stored articles, a refresh will be needed soon.
   profile_prefs_->ClearPref(prefs::kLastFetchAttemptTime);
+
+  // The Feed will try to drop any outstanding refresh request, so we should
+  // stop tracking one as well.
+  outstanding_request_until_ = base::Time();
+
+  if (suppress_refreshes) {
+    // Due to privacy, we should not fetch for a while (unless the user
+    // explicitly asks for new suggestions) to give sync the time to propagate
+    // the changes in history to the server.
+    suppress_refreshes_until_ =
+        clock_->Now() +
+        base::TimeDelta::FromMinutes(kSuppressRefreshDurationMinutes.Get());
+  } else if (ShouldRefresh(TriggerType::kNtpShown)) {
+    // Instead of using |refresh_callback_|, instead return our desire to
+    // refresh back up to our caller. This allows more information to be given
+    // all at once to the Feed which allows it to act more intelligently.
+    return true;
+  }
+
+  return false;
 }
 
 void FeedSchedulerHost::OnEulaAccepted() {
@@ -307,7 +358,7 @@ void FeedSchedulerHost::OnEulaAccepted() {
 }
 
 bool FeedSchedulerHost::ShouldRefresh(TriggerType trigger) {
-  if (tracking_oustanding_request_) {
+  if (clock_->Now() < outstanding_request_until_) {
     DVLOG(2) << "Outstanding request stopped refresh from trigger "
              << static_cast<int>(trigger);
     return false;
@@ -331,10 +382,15 @@ bool FeedSchedulerHost::ShouldRefresh(TriggerType trigger) {
     return false;
   }
 
+  if (!profile_prefs_->GetBoolean(prefs::kArticlesListVisible)) {
+    DVLOG(2) << "Articles being hidden stopped refresh from trigger "
+             << static_cast<int>(trigger);
+    return false;
+  }
+
   base::TimeDelta attempt_age =
       clock_->Now() - profile_prefs_->GetTime(prefs::kLastFetchAttemptTime);
   UserClassifier::UserClass user_class = user_classifier_.GetUserClass();
-
   if (trigger == TriggerType::kNtpShown &&
       !time_until_first_shown_trigger_reported_) {
     time_until_first_shown_trigger_reported_ = true;
@@ -360,7 +416,13 @@ bool FeedSchedulerHost::ShouldRefresh(TriggerType trigger) {
     return false;
   }
 
-  // TODO(skym): Check with throttler.
+  auto throttlerIter = throttlers_.find(user_class);
+  if (throttlerIter == throttlers_.end() ||
+      !throttlerIter->second->RequestQuota()) {
+    DVLOG(2) << "Throttler stopped refresh from trigger "
+             << static_cast<int>(trigger);
+    return false;
+  }
 
   switch (trigger) {
     case TriggerType::kNtpShown:
@@ -375,8 +437,12 @@ bool FeedSchedulerHost::ShouldRefresh(TriggerType trigger) {
   }
 
   DVLOG(2) << "Requesting refresh from trigger " << static_cast<int>(trigger);
-  UMA_HISTOGRAM_ENUMERATION("Feed.Scheduler.RefreshTrigger", trigger);
-  tracking_oustanding_request_ = true;
+  UMA_HISTOGRAM_ENUMERATION("ContentSuggestions.Feed.Scheduler.RefreshTrigger",
+                            trigger);
+  outstanding_request_until_ =
+      clock_->Now() +
+      base::TimeDelta::FromSeconds(kTimeoutDurationSeconds.Get());
+
   return true;
 }
 
@@ -397,7 +463,23 @@ base::TimeDelta FeedSchedulerHost::GetTriggerThreshold(TriggerType trigger) {
 
 void FeedSchedulerHost::ScheduleFixedTimerWakeUp(base::TimeDelta period) {
   profile_prefs_->SetTimeDelta(prefs::kBackgroundRefreshPeriod, period);
+
+  // CancelFixedTimerWakeUp() uses Preference::IsDefaultValue() to check if the
+  // cancellation logic needs to be run. We should therefor never schedule and
+  // set the preference to the default value. This DCHECK after SetTimeDelta
+  // verifies that this isn't happening.
+  DCHECK(!profile_prefs_->FindPreference(prefs::kBackgroundRefreshPeriod)
+              ->IsDefaultValue());
+
   schedule_background_task_callback_.Run(period);
+}
+
+void FeedSchedulerHost::CancelFixedTimerWakeUp() {
+  if (!profile_prefs_->FindPreference(prefs::kBackgroundRefreshPeriod)
+           ->IsDefaultValue()) {
+    profile_prefs_->ClearPref(prefs::kBackgroundRefreshPeriod);
+    cancel_background_task_callback_.Run();
+  }
 }
 
 }  // namespace feed

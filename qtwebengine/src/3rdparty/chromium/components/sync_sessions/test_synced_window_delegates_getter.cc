@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/stl_util.h"
 #include "components/sessions/core/serialized_navigation_entry_test_helper.h"
 #include "components/sync_sessions/synced_session.h"
 #include "components/sync_sessions/tab_node_pool.h"
@@ -246,7 +247,16 @@ TestSyncedWindowDelegate::~TestSyncedWindowDelegate() = default;
 
 void TestSyncedWindowDelegate::OverrideTabAt(int index,
                                              SyncedTabDelegate* delegate) {
+  if (index >= static_cast<int>(tab_delegates_.size()))
+    tab_delegates_.resize(index + 1, nullptr);
+
   tab_delegates_[index] = delegate;
+}
+
+void TestSyncedWindowDelegate::CloseTab(SessionID tab_id) {
+  base::EraseIf(tab_delegates_, [tab_id](SyncedTabDelegate* tab) {
+    return tab->GetSessionId() == tab_id;
+  });
 }
 
 void TestSyncedWindowDelegate::SetIsSessionRestoreInProgress(bool value) {
@@ -286,10 +296,10 @@ bool TestSyncedWindowDelegate::IsTabPinned(const SyncedTabDelegate* tab) const {
 }
 
 SyncedTabDelegate* TestSyncedWindowDelegate::GetTabAt(int index) const {
-  if (tab_delegates_.find(index) != tab_delegates_.end())
-    return tab_delegates_.find(index)->second;
+  if (index >= static_cast<int>(tab_delegates_.size()))
+    return nullptr;
 
-  return nullptr;
+  return tab_delegates_[index];
 }
 
 SessionID TestSyncedWindowDelegate::GetTabIdAt(int index) const {
@@ -344,6 +354,14 @@ TestSyncedTabDelegate* TestSyncedWindowDelegatesGetter::AddTab(
   // navigations.
   router_.NotifyNav(tabs_.back().get());
   return tabs_.back().get();
+}
+
+void TestSyncedWindowDelegatesGetter::CloseTab(SessionID tab_id) {
+  for (auto& window : windows_) {
+    // CloseTab() will only take effect with the belonging window, the rest will
+    // simply ignore the call.
+    window->CloseTab(tab_id);
+  }
 }
 
 void TestSyncedWindowDelegatesGetter::SessionRestoreComplete() {

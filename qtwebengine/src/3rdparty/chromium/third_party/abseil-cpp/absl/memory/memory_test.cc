@@ -69,6 +69,45 @@ TEST(MakeUniqueTest, Basic) {
   EXPECT_EQ("hi", *p);
 }
 
+// InitializationVerifier fills in a pattern when allocated so we can
+// distinguish between its default and value initialized states (without
+// accessing truly uninitialized memory).
+struct InitializationVerifier {
+  static constexpr int kDefaultScalar = 0x43;
+  static constexpr int kDefaultArray = 0x4B;
+
+  static void* operator new(size_t n) {
+    void* ret = ::operator new(n);
+    memset(ret, kDefaultScalar, n);
+    return ret;
+  }
+
+  static void* operator new[](size_t n) {
+    void* ret = ::operator new[](n);
+    memset(ret, kDefaultArray, n);
+    return ret;
+  }
+
+  int a;
+  int b;
+};
+
+TEST(Initialization, MakeUnique) {
+  auto p = absl::make_unique<InitializationVerifier>();
+
+  EXPECT_EQ(0, p->a);
+  EXPECT_EQ(0, p->b);
+}
+
+TEST(Initialization, MakeUniqueArray) {
+  auto p = absl::make_unique<InitializationVerifier[]>(2);
+
+  EXPECT_EQ(0, p[0].a);
+  EXPECT_EQ(0, p[0].b);
+  EXPECT_EQ(0, p[1].a);
+  EXPECT_EQ(0, p[1].b);
+}
+
 struct MoveOnly {
   MoveOnly() = default;
   explicit MoveOnly(int i1) : ip1{new int{i1}} {}
@@ -145,11 +184,10 @@ TEST(Make_UniqueTest, NotAmbiguousWithStdMakeUnique) {
     explicit TakesStdType(const std::vector<int> &vec) {}
   };
   using absl::make_unique;
-  make_unique<TakesStdType>(std::vector<int>());
+  (void)make_unique<TakesStdType>(std::vector<int>());
 }
 
 #if 0
-// TODO(billydonahue): Make a proper NC test.
 // These tests shouldn't compile.
 TEST(MakeUniqueTestNC, AcceptMoveOnlyLvalue) {
   auto m = MoveOnly();
@@ -609,49 +647,6 @@ TEST(AllocatorNoThrowTest, CustomAllocator) {
   EXPECT_TRUE(absl::allocator_is_nothrow<NoThrowAllocator>::value);
   EXPECT_FALSE(absl::allocator_is_nothrow<CanThrowAllocator>::value);
   EXPECT_FALSE(absl::allocator_is_nothrow<UnspecifiedAllocator>::value);
-}
-
-TEST(MemoryInternal, UninitDefaultConstructNTrivial) {
-  constexpr int kInitialValue = 123;
-  constexpr int kExpectedValue = kInitialValue;  // Expect no-op behavior
-  constexpr int len = 5;
-
-  struct TestObj {
-    int val;
-  };
-  static_assert(absl::is_trivially_default_constructible<TestObj>::value, "");
-  static_assert(absl::is_trivially_destructible<TestObj>::value, "");
-
-  TestObj objs[len];
-  for (auto& obj : objs) {
-    obj.val = kInitialValue;
-  }
-
-  absl::memory_internal::uninitialized_default_construct_n(objs, len);
-  for (auto& obj : objs) {
-    EXPECT_EQ(obj.val, kExpectedValue);
-  }
-}
-
-TEST(MemoryInternal, UninitDefaultConstructNNonTrivial) {
-  constexpr int kInitialValue = 123;
-  constexpr int kExpectedValue = 0;  // Expect value-construction behavior
-  constexpr int len = 5;
-
-  struct TestObj {
-    int val{kExpectedValue};
-  };
-  static_assert(absl::is_trivially_destructible<TestObj>::value, "");
-
-  TestObj objs[len];
-  for (auto& obj : objs) {
-    obj.val = kInitialValue;
-  }
-
-  absl::memory_internal::uninitialized_default_construct_n(objs, len);
-  for (auto& obj : objs) {
-    EXPECT_EQ(obj.val, kExpectedValue);
-  }
 }
 
 }  // namespace

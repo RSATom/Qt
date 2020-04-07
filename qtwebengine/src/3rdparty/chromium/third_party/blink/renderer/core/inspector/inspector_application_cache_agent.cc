@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/core/inspector/inspector_application_cache_agent.h"
 
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom-blink.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
@@ -35,36 +36,32 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
-
 using protocol::Response;
-
-namespace ApplicationCacheAgentState {
-static const char kApplicationCacheAgentEnabled[] =
-    "applicationCacheAgentEnabled";
-}
 
 InspectorApplicationCacheAgent::InspectorApplicationCacheAgent(
     InspectedFrames* inspected_frames)
-    : inspected_frames_(inspected_frames) {}
+    : inspected_frames_(inspected_frames),
+      enabled_(&agent_state_, /*default_value=*/false) {}
+
+void InspectorApplicationCacheAgent::InnerEnable() {
+  enabled_.Set(true);
+  instrumenting_agents_->addInspectorApplicationCacheAgent(this);
+  GetFrontend()->networkStateUpdated(GetNetworkStateNotifier().OnLine());
+}
 
 void InspectorApplicationCacheAgent::Restore() {
-  if (state_->booleanProperty(
-          ApplicationCacheAgentState::kApplicationCacheAgentEnabled, false)) {
-    enable();
-  }
+  if (enabled_.Get())
+    InnerEnable();
 }
 
 Response InspectorApplicationCacheAgent::enable() {
-  state_->setBoolean(ApplicationCacheAgentState::kApplicationCacheAgentEnabled,
-                     true);
-  instrumenting_agents_->addInspectorApplicationCacheAgent(this);
-  GetFrontend()->networkStateUpdated(GetNetworkStateNotifier().OnLine());
+  if (!enabled_.Get())
+    InnerEnable();
   return Response::OK();
 }
 
 Response InspectorApplicationCacheAgent::disable() {
-  state_->setBoolean(ApplicationCacheAgentState::kApplicationCacheAgentEnabled,
-                     false);
+  enabled_.Clear();
   instrumenting_agents_->removeInspectorApplicationCacheAgent(this);
   return Response::OK();
 }
@@ -76,7 +73,7 @@ void InspectorApplicationCacheAgent::UpdateApplicationCacheStatus(
     return;
 
   ApplicationCacheHost* host = document_loader->GetApplicationCacheHost();
-  ApplicationCacheHost::Status status = host->GetStatus();
+  mojom::AppCacheStatus status = host->GetStatus();
   ApplicationCacheHost::CacheInfo info = host->ApplicationCacheInfo();
 
   String manifest_url = info.manifest_.GetString();

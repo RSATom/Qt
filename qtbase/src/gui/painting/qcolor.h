@@ -172,10 +172,12 @@ public:
     qreal yellowF() const Q_DECL_NOTHROW;
     qreal blackF() const Q_DECL_NOTHROW;
 
-    void getCmyk(int *c, int *m, int *y, int *k, int *a = nullptr);
+    void getCmyk(int *c, int *m, int *y, int *k, int *a = nullptr); // ### Qt 6: remove
+    void getCmyk(int *c, int *m, int *y, int *k, int *a = nullptr) const;
     void setCmyk(int c, int m, int y, int k, int a = 255);
 
-    void getCmykF(qreal *c, qreal *m, qreal *y, qreal *k, qreal *a = nullptr);
+    void getCmykF(qreal *c, qreal *m, qreal *y, qreal *k, qreal *a = nullptr); // ### Qt 6: remove
+    void getCmykF(qreal *c, qreal *m, qreal *y, qreal *k, qreal *a = nullptr) const;
     void setCmykF(qreal c, qreal m, qreal y, qreal k, qreal a = 1.0);
 
     int hslHue() const Q_DECL_NOTHROW; // 0 <= hue < 360
@@ -217,9 +219,13 @@ public:
     static QColor fromHsl(int h, int s, int l, int a = 255);
     static QColor fromHslF(qreal h, qreal s, qreal l, qreal a = 1.0);
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QColor::lighter() instead")
     Q_REQUIRED_RESULT QColor light(int f = 150) const Q_DECL_NOTHROW;
-    Q_REQUIRED_RESULT QColor lighter(int f = 150) const Q_DECL_NOTHROW;
+    QT_DEPRECATED_X("Use QColor::darker() instead")
     Q_REQUIRED_RESULT QColor dark(int f = 200) const Q_DECL_NOTHROW;
+#endif
+    Q_REQUIRED_RESULT QColor lighter(int f = 150) const Q_DECL_NOTHROW;
     Q_REQUIRED_RESULT QColor darker(int f = 200) const Q_DECL_NOTHROW;
 
     bool operator==(const QColor &c) const Q_DECL_NOTHROW;
@@ -305,12 +311,6 @@ inline QColor::QColor(const QColor &acolor) Q_DECL_NOTHROW
 
 inline bool QColor::isValid() const Q_DECL_NOTHROW
 { return cspec != Invalid; }
-
-inline QColor QColor::lighter(int f) const Q_DECL_NOTHROW
-{ return light(f); }
-
-inline QColor QColor::darker(int f) const Q_DECL_NOTHROW
-{ return dark(f); }
 
 QT_END_NAMESPACE
 

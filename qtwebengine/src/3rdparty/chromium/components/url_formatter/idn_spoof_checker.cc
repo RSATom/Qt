@@ -35,30 +35,35 @@ class TopDomainPreloadDecoder : public net::extras::PreloadDecoder {
     if (!reader->Next(&is_same_skeleton))
       return false;
 
-    if (is_same_skeleton) {
-      *out_found = true;
-      return true;
-    }
-
-    bool has_com_suffix = false;
-    if (!reader->Next(&has_com_suffix))
-      return false;
-
     std::string top_domain;
-    for (char c;; top_domain += c) {
-      huffman_decoder().Decode(reader, &c);
-      if (c == net::extras::PreloadDecoder::kEndOfTable)
-        break;
+    if (is_same_skeleton) {
+      top_domain = search;
+    } else {
+      bool has_com_suffix = false;
+      if (!reader->Next(&has_com_suffix))
+        return false;
+
+      for (char c;; top_domain += c) {
+        huffman_decoder().Decode(reader, &c);
+        if (c == net::extras::PreloadDecoder::kEndOfTable)
+          break;
+      }
+      if (has_com_suffix)
+        top_domain += ".com";
     }
-    if (has_com_suffix)
-      top_domain += ".com";
 
     if (current_search_offset == 0) {
       *out_found = true;
       DCHECK(!top_domain.empty());
+      result_ = top_domain;
     }
     return true;
   }
+
+  std::string matching_top_domain() const { return result_; }
+
+ private:
+  std::string result_;
 };
 
 void OnThreadTermination(void* regex_matcher) {
@@ -79,38 +84,6 @@ const size_t kNumberOfLabelsToCheck = 3;
 IDNSpoofChecker::HuffmanTrieParams g_trie_params{
     kTopDomainsHuffmanTree, sizeof(kTopDomainsHuffmanTree), kTopDomainsTrie,
     kTopDomainsTrieBits, kTopDomainsRootPosition};
-
-bool LookupMatchInTopDomains(const icu::UnicodeString& ustr_skeleton) {
-  TopDomainPreloadDecoder preload_decoder(
-      g_trie_params.huffman_tree, g_trie_params.huffman_tree_size,
-      g_trie_params.trie, g_trie_params.trie_bits,
-      g_trie_params.trie_root_position);
-  std::string skeleton;
-  ustr_skeleton.toUTF8String(skeleton);
-  DCHECK_NE(skeleton.back(), '.');
-  auto labels = base::SplitStringPiece(skeleton, ".", base::KEEP_WHITESPACE,
-                                       base::SPLIT_WANT_ALL);
-
-  if (labels.size() > kNumberOfLabelsToCheck) {
-    labels.erase(labels.begin(),
-                 labels.begin() + labels.size() - kNumberOfLabelsToCheck);
-  }
-
-  while (labels.size() > 1) {
-    std::string partial_skeleton = base::JoinString(labels, ".");
-    bool match = false;
-    bool decoded = preload_decoder.Decode(partial_skeleton, &match);
-    DCHECK(decoded);
-    if (!decoded)
-      return false;
-
-    if (match)
-      return true;
-
-    labels.erase(labels.begin());
-  }
-  return false;
-}
 
 }  // namespace
 
@@ -226,8 +199,8 @@ IDNSpoofChecker::IDNSpoofChecker() {
   //   - {U+0493 (ғ), U+04FB (ӻ)} => f
   //   - {U+04AB (ҫ), U+1004 (င)} => c
   //   - U+04B1 (ұ) => y
-  //   - U+03C7 (χ), U+04B3 (ҳ), U+04FD (ӽ), U+04FF (ӿ) => x
-  //   - U+0503 (ԃ) => d
+  //   - {U+03C7 (χ), U+04B3 (ҳ), U+04FD (ӽ), U+04FF (ӿ)} => x
+  //   - {U+0503 (ԃ), U+10EB (ძ)} => d
   //   - {U+050D (ԍ), U+100c (ဌ)} => g
   //   - {U+0D1F (ട), U+0E23 (ร), U+0EA3 (ຣ), U+0EAE (ຮ)} => s
   //   - U+1042 (၂) => j
@@ -251,7 +224,7 @@ IDNSpoofChecker::IDNSpoofChecker() {
           "[ŧтҭԏ] > t; [ƅьҍв] > b;  [ωшщพฟພຟ] > w;"
           "[мӎ] > m; [єҽҿၔ] > e; ґ > r; [ғӻ] > f;"
           "[ҫင] > c; ұ > y; [χҳӽӿ] > x;"
-          "ԃ  > d; [ԍဌ] > g; [ടรຣຮ] > s; ၂ > j;"
+          "[ԃძ]  > d; [ԍဌ] > g; [ടรຣຮ] > s; ၂ > j;"
           "[०০੦૦ଠ୦೦] > o;"
           "[৭੧૧] > q;"
           "[บບ] > u;"
@@ -259,8 +232,7 @@ IDNSpoofChecker::IDNSpoofChecker() {
           "[зҙӡउওਤ੩૩౩ဒვპ] > 3;"
           "[੫] > 4;"
           "[৪੪୫] > 8;"
-          "[૭୨౨] > 9;"
-      ),
+          "[૭୨౨] > 9;"),
       UTRANS_FORWARD, parse_error, status));
   DCHECK(U_SUCCESS(status))
       << "Spoofchecker initalization failed due to an error: "
@@ -332,42 +304,70 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(base::StringPiece16 label,
   icu::RegexMatcher* dangerous_pattern =
       reinterpret_cast<icu::RegexMatcher*>(DangerousPatternTLS().Get());
   if (!dangerous_pattern) {
-    // Disallow the katakana no, so, zo, or n, as they may be mistaken for
-    // slashes when they're surrounded by non-Japanese scripts (i.e. scripts
-    // other than Katakana, Hiragana or Han). If {no, so, zo, n} next to a
-    // non-Japanese script on either side is disallowed, legitimate cases like
-    // '{vitamin in Katakana}b6' are blocked. Note that trying to block those
-    // characters when used alone as a label is futile because those cases
-    // would not reach here.
-    // Also disallow what used to be blocked by mixed-script-confusable (MSC)
-    // detection. ICU 58 does not detect MSC any more for a single input string.
-    // See http://bugs.icu-project.org/trac/ticket/12823 .
-    // TODO(jshin): adjust the pattern once the above ICU bug is fixed.
-    // - Disallow U+30FB (Katakana Middle Dot) and U+30FC (Hiragana-Katakana
-    //   Prolonged Sound) used out-of-context.
-    // - Dislallow U+30FD/E (Katakana iteration mark/voiced iteration mark)
-    //   unless they're preceded by a Katakana.
-    // - Disallow three Hiragana letters (U+307[8-A]) or Katakana letters
-    //   (U+30D[8-A]) that look exactly like each other when they're used in a
-    //   label otherwise entirely in Katakna or Hiragana.
-    // - Disallow combining diacritical mark (U+0300-U+0339) after a non-LGC
-    //   character. Other combining diacritical marks are not in the allowed
-    //   character set.
-    // - Disallow dotless i (U+0131) followed by a combining mark.
-    // - Disallow U+0307 (dot above) after 'i', 'j', 'l' or dotless i (U+0131).
-    //   Dotless j (U+0237) is not in the allowed set to begin with.
+    // The parentheses in the below strings belong to the raw string sequence
+    // R"(...)". They are NOT part of the regular expression. Each sub
+    // regex is OR'ed with the | operator.
     dangerous_pattern = new icu::RegexMatcher(
         icu::UnicodeString(
+            // Disallow the following as they may be mistaken for slashes when
+            // they're surrounded by non-Japanese scripts (i.e. scripts other
+            // than Katakana, Hiragana or Han):
+            // "ノ" (Katakana no, U+30ce), "ソ" (Katakana so, U+30bd),
+            // "ゾ" (Katakana zo, U+30be), "ン" (Katakana n, U+30f3),
+            // "丶" (CJK unified ideograph, U+4E36),
+            // "乀" (CJK unified ideograph, U+4E40),
+            // "乁" (CJK unified ideograph, U+4E41),
+            // "丿" (CJK unified ideograph, U+4E3F).
+            // If {no, so, zo, n} next to a
+            // non-Japanese script on either side is disallowed, legitimate
+            // cases like '{vitamin in Katakana}b6' are blocked. Note that
+            // trying to block those characters when used alone as a label is
+            // futile because those cases would not reach here. Also disallow
+            // what used to be blocked by mixed-script-confusable (MSC)
+            // detection. ICU 58 does not detect MSC any more for a single input
+            // string. See http://bugs.icu-project.org/trac/ticket/12823 .
+            // TODO(jshin): adjust the pattern once the above ICU bug is fixed.
             R"([^\p{scx=kana}\p{scx=hira}\p{scx=hani}])"
-            R"([\u30ce\u30f3\u30bd\u30be])"
+            R"([\u30ce\u30f3\u30bd\u30be\u4e36\u4e40\u4e41\u4e3f])"
             R"([^\p{scx=kana}\p{scx=hira}\p{scx=hani}]|)"
-            R"([^\p{scx=kana}\p{scx=hira}]\u30fc|^\u30fc|)"
+
+            // Disallow U+30FD (Katakana iteration mark) and U+30FE (Katakana
+            // voiced iteration mark) unless they're preceded by a Katakana.
             R"([^\p{scx=kana}][\u30fd\u30fe]|^[\u30fd\u30fe]|)"
+
+            // Disallow three Hiragana letters (U+307[8-A]) or Katakana letters
+            // (U+30D[8-A]) that look exactly like each other when they're used
+            // in a label otherwise entirely in Katakana or Hiragana.
             R"(^[\p{scx=kana}]+[\u3078-\u307a][\p{scx=kana}]+$|)"
             R"(^[\p{scx=hira}]+[\u30d8-\u30da][\p{scx=hira}]+$|)"
+
+            // Disallow U+30FB (Katakana Middle Dot) and U+30FC (Hiragana-
+            // Katakana Prolonged Sound) used out-of-context.
+            R"([^\p{scx=kana}\p{scx=hira}]\u30fc|^\u30fc|)"
             R"([a-z]\u30fb|\u30fb[a-z]|)"
+
+            // Disallow U+4E00 (CJK unified ideograph) and U+3127 (Bopomofo
+            // Letter I) unless they are next to Hiragana, Katagana or Han.
+            // U+2F00 (Kangxi Radical One) is similar, but it's normalized to
+            // U+4E00 so it's not explicitly checked here.
+            R"([^\p{scx=kana}\p{scx=hira}\p{scx=hani}])"
+            R"([\u4e00\u3127])"
+            R"([^\p{scx=kana}\p{scx=hira}\p{scx=hani}]|)"
+
+            // Disallow combining diacritical mark (U+0300-U+0339) after a
+            // non-LGC character. Other combining diacritical marks are not in
+            // the allowed character set.
             R"([^\p{scx=latn}\p{scx=grek}\p{scx=cyrl}][\u0300-\u0339]|)"
+
+            // Disallow dotless i (U+0131) followed by a combining mark.
             R"(\u0131[\u0300-\u0339]|)"
+
+            // Disallow combining Kana voiced sound marks.
+            R"(\u3099|\u309A|)"
+
+            // Disallow U+0307 (dot above) after 'i', 'j', 'l' or dotless i
+            // (U+0131). Dotless j (U+0237) is not in the allowed set to begin
+            // with.
             R"([ijl]\u0307)",
             -1, US_INV),
         0, status);
@@ -377,7 +377,20 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(base::StringPiece16 label,
   return !dangerous_pattern->find();
 }
 
-bool IDNSpoofChecker::SimilarToTopDomains(base::StringPiece16 hostname) {
+std::string IDNSpoofChecker::GetSimilarTopDomain(base::StringPiece16 hostname) {
+  DCHECK(!hostname.empty());
+  for (const std::string& skeleton : GetSkeletons(hostname)) {
+    DCHECK(!skeleton.empty());
+    std::string matching_top_domain = LookupSkeletonInTopDomains(skeleton);
+    if (!matching_top_domain.empty()) {
+      return matching_top_domain;
+    }
+  }
+  return std::string();
+}
+
+Skeletons IDNSpoofChecker::GetSkeletons(base::StringPiece16 hostname) {
+  Skeletons skeletons;
   size_t hostname_length = hostname.length() - (hostname.back() == '.' ? 1 : 0);
   icu::UnicodeString host(FALSE, hostname.data(), hostname_length);
   // If input has any characters outside Latin-Greek-Cyrillic and [0-9._-],
@@ -388,7 +401,7 @@ bool IDNSpoofChecker::SimilarToTopDomains(base::StringPiece16 hostname) {
   extra_confusable_mapper_->transliterate(host);
 
   UErrorCode status = U_ZERO_ERROR;
-  icu::UnicodeString skeleton;
+  icu::UnicodeString ustr_skeleton;
 
   // Map U+04CF (ӏ) to lowercase L in addition to what uspoof_getSkeleton does
   // (mapping it to lowercase I).
@@ -397,37 +410,60 @@ bool IDNSpoofChecker::SimilarToTopDomains(base::StringPiece16 hostname) {
     icu::UnicodeString host_alt(host);
     size_t length = host_alt.length();
     char16_t* buffer = host_alt.getBuffer(-1);
-    for (char16_t* uc = buffer + u04cf_pos ; uc < buffer + length; ++uc) {
+    for (char16_t* uc = buffer + u04cf_pos; uc < buffer + length; ++uc) {
       if (*uc == 0x4CF)
         *uc = 0x6C;  // Lowercase L
     }
     host_alt.releaseBuffer(length);
-    uspoof_getSkeletonUnicodeString(checker_, 0, host_alt, skeleton, &status);
-    if (U_SUCCESS(status) && LookupMatchInTopDomains(skeleton))
-      return true;
+    uspoof_getSkeletonUnicodeString(checker_, 0, host_alt, ustr_skeleton,
+                                    &status);
+    if (U_SUCCESS(status)) {
+      std::string skeleton;
+      ustr_skeleton.toUTF8String(skeleton);
+      skeletons.insert(skeleton);
+    }
   }
 
-  uspoof_getSkeletonUnicodeString(checker_, 0, host, skeleton, &status);
-  return U_SUCCESS(status) && LookupMatchInTopDomains(skeleton);
+  uspoof_getSkeletonUnicodeString(checker_, 0, host, ustr_skeleton, &status);
+  if (U_SUCCESS(status)) {
+    std::string skeleton;
+    ustr_skeleton.toUTF8String(skeleton);
+    skeletons.insert(skeleton);
+  }
+  return skeletons;
 }
 
-bool IDNSpoofChecker::IsMadeOfLatinAlikeCyrillic(
-    const icu::UnicodeString& label) {
-  // Collect all the Cyrillic letters in |label_string| and see if they're
-  // a subset of |cyrillic_letters_latin_alike_|.
-  // A shortcut of defining cyrillic_letters_latin_alike_ to include [0-9] and
-  // [_-] and checking if the set contains all letters of |label|
-  // would work in most cases, but not if a label has non-letters outside
-  // ASCII.
-  icu::UnicodeSet cyrillic_in_label;
-  icu::StringCharacterIterator it(label);
-  for (it.setToStart(); it.hasNext();) {
-    const UChar32 c = it.next32PostInc();
-    if (cyrillic_letters_.contains(c))
-      cyrillic_in_label.add(c);
+std::string IDNSpoofChecker::LookupSkeletonInTopDomains(
+    const std::string& skeleton) {
+  DCHECK(!skeleton.empty());
+  // There are no other guarantees about a skeleton string such as not including
+  // a dot. Skeleton of certain characters are dots (e.g. "۰" (U+06F0)).
+  TopDomainPreloadDecoder preload_decoder(
+      g_trie_params.huffman_tree, g_trie_params.huffman_tree_size,
+      g_trie_params.trie, g_trie_params.trie_bits,
+      g_trie_params.trie_root_position);
+  auto labels = base::SplitStringPiece(skeleton, ".", base::KEEP_WHITESPACE,
+                                       base::SPLIT_WANT_ALL);
+
+  if (labels.size() > kNumberOfLabelsToCheck) {
+    labels.erase(labels.begin(),
+                 labels.begin() + labels.size() - kNumberOfLabelsToCheck);
   }
-  return !cyrillic_in_label.isEmpty() &&
-         cyrillic_letters_latin_alike_.containsAll(cyrillic_in_label);
+
+  while (labels.size() > 1) {
+    std::string partial_skeleton = base::JoinString(labels, ".");
+    bool match = false;
+    bool decoded = preload_decoder.Decode(partial_skeleton, &match);
+    DCHECK(decoded);
+    if (!decoded)
+      return std::string();
+
+    if (match)
+      return preload_decoder.matching_top_domain();
+
+    labels.erase(labels.begin());
+  }
+  return std::string();
 }
 
 void IDNSpoofChecker::SetAllowedUnicodeSet(UErrorCode* status) {
@@ -482,6 +518,9 @@ void IDNSpoofChecker::SetAllowedUnicodeSet(UErrorCode* status) {
   // Block modifier letter voicing.
   allowed_set.remove(0x2ecu);
 
+  // Block historic character Latin Kra (also blocked by Mozilla).
+  allowed_set.remove(0x0138);
+
   // No need to block U+144A (Canadian Syllabics West-Cree P) separately
   // because it's blocked from mixing with other scripts including Latin.
 
@@ -510,6 +549,25 @@ void IDNSpoofChecker::SetAllowedUnicodeSet(UErrorCode* status) {
   allowed_set.remove(0xA720u, 0xA7FFu);  // Latin Extended-D
 
   uspoof_setAllowedUnicodeSet(checker_, &allowed_set, status);
+}
+
+bool IDNSpoofChecker::IsMadeOfLatinAlikeCyrillic(
+    const icu::UnicodeString& label) {
+  // Collect all the Cyrillic letters in |label_string| and see if they're
+  // a subset of |cyrillic_letters_latin_alike_|.
+  // A shortcut of defining cyrillic_letters_latin_alike_ to include [0-9] and
+  // [_-] and checking if the set contains all letters of |label|
+  // would work in most cases, but not if a label has non-letters outside
+  // ASCII.
+  icu::UnicodeSet cyrillic_in_label;
+  icu::StringCharacterIterator it(label);
+  for (it.setToStart(); it.hasNext();) {
+    const UChar32 c = it.next32PostInc();
+    if (cyrillic_letters_.contains(c))
+      cyrillic_in_label.add(c);
+  }
+  return !cyrillic_in_label.isEmpty() &&
+         cyrillic_letters_latin_alike_.containsAll(cyrillic_in_label);
 }
 
 // static

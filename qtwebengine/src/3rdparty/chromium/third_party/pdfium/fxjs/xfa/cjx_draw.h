@@ -8,34 +8,26 @@
 #define FXJS_XFA_CJX_DRAW_H_
 
 #include "fxjs/xfa/cjx_container.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Draw;
 
-class CJX_Draw : public CJX_Container {
+class CJX_Draw final : public CJX_Container {
  public:
   explicit CJX_Draw(CXFA_Draw* node);
   ~CJX_Draw() override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(anchorType);
-  JS_PROP(colSpan);
-  JS_PROP(h);
-  JS_PROP(hAlign);
-  JS_PROP(locale);
-  JS_PROP(maxH);
-  JS_PROP(maxW);
-  JS_PROP(minH);
-  JS_PROP(minW);
-  JS_PROP(presence);
-  JS_PROP(rawValue);
-  JS_PROP(relevant);
-  JS_PROP(rotate);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(vAlign);
-  JS_PROP(w);
-  JS_PROP(x);
-  JS_PROP(y);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(rawValue);
+
+ private:
+  using Type__ = CJX_Draw;
+  using ParentType__ = CJX_Container;
+
+  static const TypeTag static_type__ = TypeTag::Draw;
 };
 
 #endif  // FXJS_XFA_CJX_DRAW_H_

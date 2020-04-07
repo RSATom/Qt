@@ -68,8 +68,10 @@ ASSERT_ENUMS_MATCH(QWebEngineUrlRequestInfo::ResourceTypeLast, content::RESOURCE
 
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::LinkNavigation, QWebEngineUrlRequestInfo::NavigationTypeLink)
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::TypedNavigation, QWebEngineUrlRequestInfo::NavigationTypeTyped)
-ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::FormSubmittedNavigation, QWebEngineUrlRequestInfo::NavigationTypeFormSubmitted)
-ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::BackForwardNavigation, QWebEngineUrlRequestInfo::NavigationTypeBackForward)
+ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::FormSubmittedNavigation,
+                   QWebEngineUrlRequestInfo::NavigationTypeFormSubmitted)
+ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::BackForwardNavigation,
+                   QWebEngineUrlRequestInfo::NavigationTypeBackForward)
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::ReloadNavigation, QWebEngineUrlRequestInfo::NavigationTypeReload)
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, QWebEngineUrlRequestInfo::NavigationTypeOther)
 
@@ -96,8 +98,8 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
     interceptor on the profile enables intercepting, blocking, and modifying URL requests
     before they reach the networking stack of Chromium.
 
-    You can install the interceptor on a profile via QWebEngineProfile::setRequestInterceptor()
-    or QQuickWebEngineProfile::setRequestInterceptor().
+    You can install the interceptor on a profile via QWebEngineProfile::setUrlRequestInterceptor()
+    or QQuickWebEngineProfile::setUrlRequestInterceptor().
 
     When using the \l{Qt WebEngine Widgets Module}, \l{QWebEnginePage::acceptNavigationRequest()}
     offers further options to accept or block requests.
@@ -115,8 +117,7 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
     \fn void QWebEngineUrlRequestInterceptor::interceptRequest(QWebEngineUrlRequestInfo &info)
 
     Reimplementing this virtual function makes it possible to intercept URL
-    requests. This function is executed on the IO thread, and therefore running
-    long tasks here will block networking.
+    requests. This method will be stalling the URL request until handled.
 
     \a info contains the information about the URL request and will track internally
     whether its members have been altered.
@@ -125,8 +126,9 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
     execution of this function is finished.
 */
 
-
-QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRequestInfo::ResourceType resource, QWebEngineUrlRequestInfo::NavigationType navigation, const QUrl &u, const QUrl &fpu, const QByteArray &m)
+QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRequestInfo::ResourceType resource,
+                                                                 QWebEngineUrlRequestInfo::NavigationType navigation,
+                                                                 const QUrl &u, const QUrl &fpu, const QByteArray &m)
     : resourceType(resource)
     , navigationType(navigation)
     , shouldBlockRequest(false)
@@ -134,24 +136,24 @@ QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRe
     , firstPartyUrl(fpu)
     , method(m)
     , changed(false)
-{
-}
+{}
+
+/*!
+    \internal
+*/
+QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfo &&p) : d_ptr(p.d_ptr.take()) {}
 
 /*!
     \internal
 */
 
-QWebEngineUrlRequestInfo::~QWebEngineUrlRequestInfo()
-{
-
-}
+QWebEngineUrlRequestInfo::~QWebEngineUrlRequestInfo() {}
 
 /*!
     \internal
 */
 
-QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPrivate *p)
-    : d_ptr(p)
+QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPrivate *p) : d_ptr(p)
 {
     d_ptr->q_ptr = this;
 }
@@ -241,7 +243,6 @@ QUrl QWebEngineUrlRequestInfo::firstPartyUrl() const
     return d_ptr->firstPartyUrl;
 }
 
-
 /*!
     Returns the HTTP method of the request (for example, GET or POST).
 */
@@ -257,6 +258,14 @@ QByteArray QWebEngineUrlRequestInfo::requestMethod() const
 bool QWebEngineUrlRequestInfo::changed() const
 {
     return d_ptr->changed;
+}
+
+/*!
+    \internal
+*/
+void QWebEngineUrlRequestInfo::resetChanged()
+{
+    d_ptr->changed = false;
 }
 
 /*!

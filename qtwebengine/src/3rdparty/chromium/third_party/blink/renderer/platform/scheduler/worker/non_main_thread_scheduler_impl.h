@@ -9,13 +9,13 @@
 
 #include "base/macros.h"
 #include "base/task/sequence_manager/task_queue.h"
-#include "third_party/blink/public/platform/scheduler/single_thread_idle_task_runner.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_thread_type.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/scheduler/common/single_thread_idle_task_runner.h"
 #include "third_party/blink/renderer/platform/scheduler/common/thread_scheduler_impl.h"
+#include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
-#include "third_party/blink/renderer/platform/scheduler/util/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_task_queue.h"
 
@@ -42,7 +42,7 @@ class PLATFORM_EXPORT NonMainThreadSchedulerImpl : public ThreadSchedulerImpl {
 
   virtual void OnTaskCompleted(
       NonMainThreadTaskQueue* worker_task_queue,
-      const base::sequence_manager::TaskQueue::Task& task,
+      const base::sequence_manager::Task& task,
       const base::sequence_manager::TaskQueue::TaskTiming& task_timing) = 0;
 
   // ThreadSchedulerImpl:
@@ -58,9 +58,9 @@ class PLATFORM_EXPORT NonMainThreadSchedulerImpl : public ThreadSchedulerImpl {
   // TODO(yutak): Some functions are only meaningful in main thread. Move them
   // to MainThreadScheduler.
   void PostIdleTask(const base::Location& location,
-                    WebThread::IdleTask task) override;
+                    Thread::IdleTask task) override;
   void PostNonNestableIdleTask(const base::Location& location,
-                               WebThread::IdleTask task) override;
+                               Thread::IdleTask task) override;
   std::unique_ptr<PageScheduler> CreatePageScheduler(
       PageScheduler::Delegate*) override;
   std::unique_ptr<RendererPauseHandle> PauseScheduler() override
@@ -83,23 +83,26 @@ class PLATFORM_EXPORT NonMainThreadSchedulerImpl : public ThreadSchedulerImpl {
   //
   // virtual void Shutdown();
 
-  scoped_refptr<NonMainThreadTaskQueue> CreateTaskRunner(const char* name);
+  scoped_refptr<NonMainThreadTaskQueue> CreateTaskQueue(const char* name);
 
  protected:
-  static void RunIdleTask(WebThread::IdleTask task, base::TimeTicks deadline);
+  static void RunIdleTask(Thread::IdleTask task, base::TimeTicks deadline);
 
   explicit NonMainThreadSchedulerImpl(
-      std::unique_ptr<NonMainThreadSchedulerHelper> helper);
+      std::unique_ptr<base::sequence_manager::SequenceManager> sequence_manager,
+      TaskType default_task_type);
 
   friend class WorkerScheduler;
 
   // Called during Init() for delayed initialization for subclasses.
   virtual void InitImpl() = 0;
 
-  NonMainThreadSchedulerHelper* helper() { return helper_.get(); }
+  NonMainThreadSchedulerHelper* helper() { return &helper_; }
 
  private:
-  std::unique_ptr<NonMainThreadSchedulerHelper> helper_;
+  SchedulerHelper* GetHelper() override;
+
+  NonMainThreadSchedulerHelper helper_;
 
   DISALLOW_COPY_AND_ASSIGN(NonMainThreadSchedulerImpl);
 };

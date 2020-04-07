@@ -7,9 +7,9 @@
 #include <memory>
 
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "content/child/child_process.h"
 #include "content/renderer/media/stream/media_stream_audio_source.h"
@@ -25,8 +25,8 @@
 #include "third_party/blink/public/platform/web_rtc_void_request.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_heap.h"
+#include "third_party/webrtc/api/stats/rtc_stats_report.h"
 #include "third_party/webrtc/api/stats/rtcstats_objects.h"
-#include "third_party/webrtc/api/stats/rtcstatsreport.h"
 #include "third_party/webrtc/api/test/mock_rtpsender.h"
 
 using ::testing::_;
@@ -72,7 +72,7 @@ class RTCRtpSenderTest : public ::testing::Test {
         blink::WebString::FromUTF8("local_audio_track"), false);
     MediaStreamAudioSource* audio_source = new MediaStreamAudioSource(true);
     // Takes ownership of |audio_source|.
-    web_source.SetExtraData(audio_source);
+    web_source.SetPlatformSource(base::WrapUnique(audio_source));
     blink::WebMediaStreamTrack web_track;
     web_track.Initialize(web_source.Id(), web_source);
     audio_source->ConnectToTrack(web_track);
@@ -118,7 +118,8 @@ class RTCRtpSenderTest : public ::testing::Test {
   scoped_refptr<WebRTCStatsReportObtainer> CallGetStats() {
     scoped_refptr<WebRTCStatsReportObtainer> obtainer =
         new WebRTCStatsReportObtainer();
-    sender_->GetStats(obtainer->GetStatsCallbackWrapper());
+    sender_->GetStats(obtainer->GetStatsCallbackWrapper(),
+                      blink::RTCStatsFilter::kIncludeOnlyStandardMembers);
     return obtainer;
   }
 
@@ -136,9 +137,10 @@ class RTCRtpSenderTest : public ::testing::Test {
     return *result_holder;
   }
 
-  // Message loop and child processes is needed for task queues and threading to
-  // work, as is necessary to create tracks and adapters.
-  base::MessageLoop message_loop_;
+  // Code under test expects to be run in a process with an initialized
+  // ChildProcess, which requires TaskScheduler, and a main-thread MessageLoop,
+  // which the ScopedTaskEnvironment also provides.
+  base::test::ScopedTaskEnvironment task_environment_;
   ChildProcess child_process_;
 
   std::unique_ptr<MockPeerConnectionDependencyFactory> dependency_factory_;

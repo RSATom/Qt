@@ -15,8 +15,7 @@
 
 #include "modules/audio_coding/include/audio_coding_module.h"
 #include "modules/include/module_common_types.h"
-#include "rtc_base/criticalsection.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include "rtc_base/critical_section.h"
 
 namespace webrtc {
 
@@ -58,14 +57,6 @@ class Channel : public AudioPacketizationCallback {
   void RegisterReceiverACM(AudioCodingModule* acm);
 
   void ResetStats();
-
-  int16_t Stats(CodecInst& codecInst, ACMTestPayloadStats& payloadStats);
-
-  void Stats(uint32_t* numPackets);
-
-  void Stats(uint8_t* payloadType, uint32_t* payloadLenByte);
-
-  void PrintStats(CodecInst& codecInst);
 
   void SetIsStereo(bool isStereo) { _isStereo = isStereo; }
 

@@ -32,18 +32,17 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_MODULES_SERVICE_WORKER_WEB_SERVICE_WORKER_CONTEXT_PROXY_H_
 
 #include "base/time/time.h"
-#include "third_party/blink/public/common/message_port/transferable_message.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_registration.h"
+#include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
+#include "third_party/blink/public/common/messaging/transferable_message.h"
+#include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom-shared.h"
+#include "third_party/blink/public/platform/modules/background_fetch/web_background_fetch_registration.h"
 #include "third_party/blink/public/platform/web_canonical_cookie.h"
 
 #include <memory>
 
 namespace blink {
 
-struct WebBackgroundFetchSettledFetch;
 struct WebCanMakePaymentEventData;
-class WebDataConsumerHandle;
 class WebSecurityOrigin;
 class WebServiceWorkerRequest;
 class WebString;
@@ -51,6 +50,8 @@ struct WebNotificationData;
 struct WebPaymentRequestEventData;
 struct WebServiceWorkerClientInfo;
 struct WebServiceWorkerError;
+struct WebServiceWorkerObjectInfo;
+struct WebServiceWorkerRegistrationObjectInfo;
 class WebURLResponse;
 
 // A proxy interface to talk to the worker's GlobalScope implementation.
@@ -59,35 +60,28 @@ class WebServiceWorkerContextProxy {
  public:
   virtual ~WebServiceWorkerContextProxy() = default;
 
-  virtual void SetRegistration(
-      std::unique_ptr<WebServiceWorkerRegistration::Handle>) = 0;
+  virtual void BindServiceWorkerHost(
+      mojo::ScopedInterfaceEndpointHandle service_worker_host) = 0;
+
+  virtual void SetRegistration(WebServiceWorkerRegistrationObjectInfo) = 0;
 
   // Script evaluation does not start until this function is called.
   virtual void ReadyToEvaluateScript() = 0;
 
   virtual void DispatchActivateEvent(int event_id) = 0;
 
-  enum class BackgroundFetchState { kPending, kSucceeded, kFailed };
-
   virtual void DispatchBackgroundFetchAbortEvent(
       int event_id,
-      const WebString& developer_id,
-      const WebString& unique_id,
-      const WebVector<WebBackgroundFetchSettledFetch>& fetches) = 0;
+      const WebBackgroundFetchRegistration& registration) = 0;
   virtual void DispatchBackgroundFetchClickEvent(
       int event_id,
-      const WebString& developer_id,
-      BackgroundFetchState status) = 0;
+      const WebBackgroundFetchRegistration& registration) = 0;
   virtual void DispatchBackgroundFetchFailEvent(
       int event_id,
-      const WebString& developer_id,
-      const WebString& unique_id,
-      const WebVector<WebBackgroundFetchSettledFetch>& fetches) = 0;
-  virtual void DispatchBackgroundFetchedEvent(
+      const WebBackgroundFetchRegistration& registration) = 0;
+  virtual void DispatchBackgroundFetchSuccessEvent(
       int event_id,
-      const WebString& developer_id,
-      const WebString& unique_id,
-      const WebVector<WebBackgroundFetchSettledFetch>& fetches) = 0;
+      const WebBackgroundFetchRegistration& registration) = 0;
   virtual void DispatchCookieChangeEvent(
       int event_id,
       const WebCanonicalCookie& cookie,
@@ -101,7 +95,7 @@ class WebServiceWorkerContextProxy {
       int event_id,
       TransferableMessage,
       const WebSecurityOrigin& source_origin,
-      std::unique_ptr<WebServiceWorker::Handle>) = 0;
+      WebServiceWorkerObjectInfo) = 0;
   virtual void DispatchInstallEvent(int event_id) = 0;
   virtual void DispatchFetchEvent(int fetch_event_id,
                                   const WebServiceWorkerRequest& web_request,
@@ -137,7 +131,7 @@ class WebServiceWorkerContextProxy {
   virtual void OnNavigationPreloadResponse(
       int fetch_event_id,
       std::unique_ptr<WebURLResponse>,
-      std::unique_ptr<WebDataConsumerHandle>) = 0;
+      mojo::ScopedDataPipeConsumerHandle) = 0;
   virtual void OnNavigationPreloadError(
       int fetch_event_id,
       std::unique_ptr<WebServiceWorkerError>) = 0;

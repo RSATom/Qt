@@ -23,37 +23,41 @@
 // Using __pragma instead of #pragma inside macros:
 // http://msdn.microsoft.com/en-us/library/d9x1s805.aspx
 
-// MSVC_SUPPRESS_WARNING disables warning |n| for the remainder of the line and
-// for the next line of the source file.
-#define MSVC_SUPPRESS_WARNING(n) __pragma(warning(suppress:n))
-
 // MSVC_PUSH_DISABLE_WARNING pushes |n| onto a stack of warnings to be disabled.
 // The warning remains disabled until popped by MSVC_POP_WARNING.
 #define MSVC_PUSH_DISABLE_WARNING(n) __pragma(warning(push)) \
                                      __pragma(warning(disable:n))
 
-// MSVC_PUSH_WARNING_LEVEL pushes |n| as the global warning level.  The level
-// remains in effect until popped by MSVC_POP_WARNING().  Use 0 to disable all
-// warnings.
-#define MSVC_PUSH_WARNING_LEVEL(n) __pragma(warning(push, n))
-
 // Pop effects of innermost MSVC_PUSH_* macro.
 #define MSVC_POP_WARNING() __pragma(warning(pop))
-
-#define MSVC_DISABLE_OPTIMIZE() __pragma(optimize("", off))
-#define MSVC_ENABLE_OPTIMIZE() __pragma(optimize("", on))
 
 #else  // Not MSVC
 
 #define _Printf_format_string_
-#define MSVC_SUPPRESS_WARNING(n)
 #define MSVC_PUSH_DISABLE_WARNING(n)
-#define MSVC_PUSH_WARNING_LEVEL(n)
 #define MSVC_POP_WARNING()
 #define MSVC_DISABLE_OPTIMIZE()
 #define MSVC_ENABLE_OPTIMIZE()
 
 #endif  // COMPILER_MSVC
+
+// These macros can be helpful when investigating compiler bugs or when
+// investigating issues in local optimized builds, by temporarily disabling
+// optimizations for a single function or file. These macros should never be
+// used to permanently work around compiler bugs or other mysteries, and should
+// not be used in landed changes.
+#if !defined(OFFICIAL_BUILD)
+#if defined(__clang__)
+#define DISABLE_OPTIMIZE() __pragma(clang optimize off)
+#define ENABLE_OPTIMIZE() __pragma(clang optimize on)
+#elif defined(COMPILER_MSVC)
+#define DISABLE_OPTIMIZE() __pragma(optimize("", off))
+#define ENABLE_OPTIMIZE() __pragma(optimize("", on))
+#else
+// These macros are not currently available for other compiler options.
+#endif
+// These macros are not available in official builds.
+#endif  // !defined(OFFICIAL_BUILD)
 
 // Annotate a variable indicating it's ok if the variable is not used.
 // (Typically used to silence a compiler warning when the assignment
@@ -83,9 +87,9 @@
 #define NOINLINE
 #endif
 
-#if COMPILER_GCC && defined(NDEBUG)
+#if defined(COMPILER_GCC) && defined(NDEBUG)
 #define ALWAYS_INLINE inline __attribute__((__always_inline__))
-#elif COMPILER_MSVC && defined(NDEBUG)
+#elif defined(COMPILER_MSVC) && defined(NDEBUG)
 #define ALWAYS_INLINE __forceinline
 #else
 #define ALWAYS_INLINE inline
@@ -226,6 +230,15 @@
 #define FALLTHROUGH [[clang::fallthrough]]
 #else
 #define FALLTHROUGH
+#endif
+
+#if defined(COMPILER_GCC)
+#define PRETTY_FUNCTION __PRETTY_FUNCTION__
+#elif defined(COMPILER_MSVC)
+#define PRETTY_FUNCTION __FUNCSIG__
+#else
+// See https://en.cppreference.com/w/c/language/function_definition#func
+#define PRETTY_FUNCTION __func__
 #endif
 
 #endif  // BASE_COMPILER_SPECIFIC_H_

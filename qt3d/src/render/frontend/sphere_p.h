@@ -64,12 +64,12 @@ namespace Qt3DRender {
 
 namespace Render {
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT Sphere : public RayCasting::BoundingSphere
+class Q_3DRENDERSHARED_PRIVATE_EXPORT Sphere : public RayCasting::BoundingSphere
 {
 public:
     inline Sphere(Qt3DCore::QNodeId i = Qt3DCore::QNodeId())
         : m_center()
-        , m_radius(0.0f)
+        , m_radius(-1.0f)
         , m_id(i)
     {}
 
@@ -82,7 +82,7 @@ public:
     void setCenter(const Vector3D &c);
     Vector3D center() const override;
 
-    inline bool isNull() { return m_center == Vector3D() && m_radius == 0.0f; }
+    bool isNull() const { return m_center == Vector3D() && m_radius == -1.0f; }
 
     void setRadius(float r);
     float radius() const override;
@@ -131,7 +131,9 @@ inline Vector3D Sphere::center() const
 
 inline void Sphere::setRadius(float r)
 {
-    m_radius = r;
+    Q_ASSERT(r >= 0.0f);
+    if (r >= 0.0f)
+        m_radius = r;
 }
 
 inline float Sphere::radius() const
@@ -142,11 +144,14 @@ inline float Sphere::radius() const
 inline void Sphere::clear()
 {
     m_center = Vector3D();
-    m_radius = 0.0f;
+    m_radius = -1.0f;
 }
 
 inline bool intersects(const Sphere &a, const Sphere &b)
 {
+    if (a.isNull() || b.isNull())
+        return false;
+
     // Calculate squared distance between sphere centers
     const Vector3D d = a.center() - b.center();
     const float distSq = Vector3D::dotProduct(d, d);
@@ -158,7 +163,7 @@ inline bool intersects(const Sphere &a, const Sphere &b)
 }
 
 #ifndef QT_NO_DEBUG_STREAM
-QT3DRENDERSHARED_EXPORT QDebug operator<<(QDebug dbg, const Sphere &sphere);
+Q_3DRENDERSHARED_EXPORT QDebug operator<<(QDebug dbg, const Sphere &sphere);
 #endif
 
 } // Render

@@ -2,15 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "fxbarcode/oned/BC_OnedCode39Writer.h"
+
 #include <cstring>
 
-#include "fxbarcode/oned/BC_OnedCode39Writer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
 // 3 wide and 6 narrow modules per char. 1 space between chars.
-const int MODULES_PER_CHAR = 3 * 3 + 6 * 1 + 1;
+constexpr int MODULES_PER_CHAR = 3 * 3 + 6 + 1;
 
 // '*' is added as the first and last char.
 const int DELIMITER_CHARS = 2;

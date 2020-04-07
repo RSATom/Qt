@@ -86,7 +86,6 @@ public:
         this->setupIntrinsics();
     }
 
-    bool generateCode(int shaderNum); // FIXME - remove when done inserting MSL
     bool generateCode() override;
 
 protected:
@@ -183,6 +182,8 @@ protected:
 
     void writeFunctionCall(const FunctionCall& c);
 
+    void writeInverseHack(const Expression& mat);
+
     void writeSpecialIntrinsic(const FunctionCall& c, SpecialIntrinsic kind);
 
     void writeConstructor(const Constructor& c);
@@ -251,6 +252,7 @@ protected:
     const Context& fContext;
     StringStream fHeader;
     String fFunctionHeader;
+    StringStream fExtraFunctions;
     Program::Kind fProgramKind;
     int fVarCount = 0;
     int fIndentation = 0;
@@ -259,6 +261,7 @@ protected:
     // more than one or two structs per shader, a simple linear search will be faster than anything
     // fancier.
     std::vector<const Type*> fWrittenStructs;
+    std::set<String> fWrittenIntrinsics;
     // true if we have run into usages of dFdx / dFdy
     bool fFoundDerivatives = false;
     bool fFoundImageDecl = false;

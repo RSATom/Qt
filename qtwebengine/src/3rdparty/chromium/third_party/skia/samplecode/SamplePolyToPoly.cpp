@@ -4,16 +4,18 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
-#include "SkView.h"
+
+#include "Sample.h"
 #include "SkCanvas.h"
+#include "SkFontMetrics.h"
 #include "SkGraphics.h"
 #include "SkPath.h"
 #include "SkRandom.h"
 #include "SkString.h"
+#include "SkTextUtils.h"
 #include "SkTime.h"
 
-class PolyToPolyView : public SampleView {
+class PolyToPolyView : public Sample {
 public:
     PolyToPolyView() {
         // tests
@@ -67,16 +69,15 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt)  {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "PolyToPolyView");
+    virtual bool onQuery(Sample::Event* evt)  {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "PolyToPolyView");
             return true;
         }
         return this->INHERITED::onQuery(evt);
     }
 
-    static void doDraw(SkCanvas* canvas, SkPaint* paint, const int isrc[],
+    static void doDraw(SkCanvas* canvas, SkPaint* paint, const SkFont& font, const int isrc[],
                        const int idst[], int count) {
         SkMatrix matrix;
         SkPoint src[4], dst[4];
@@ -97,17 +98,15 @@ protected:
         canvas->drawLine(0, 0, D, D, *paint);
         canvas->drawLine(0, D, D, 0, *paint);
 
-        SkPaint::FontMetrics fm;
-        paint->getFontMetrics(&fm);
+        SkFontMetrics fm;
+        font.getMetrics(&fm);
         paint->setColor(SK_ColorRED);
         paint->setStyle(SkPaint::kFill_Style);
         SkScalar x = D/2;
         float y = D/2 - (fm.fAscent + fm.fDescent)/2;
         SkString str;
         str.appendS32(count);
-        canvas->drawString(str,
-                         x, y,
-                         *paint);
+        SkTextUtils::DrawString(canvas, str.c_str(), x, y, font, *paint, SkTextUtils::kCenter_Align);
 
         canvas->restore();
     }
@@ -116,15 +115,16 @@ protected:
         SkPaint paint;
         paint.setAntiAlias(true);
         paint.setStrokeWidth(SkIntToScalar(4));
-        paint.setTextSize(SkIntToScalar(40));
-        paint.setTextAlign(SkPaint::kCenter_Align);
+
+        SkFont font;
+        font.setSize(40);
 
         canvas->save();
         canvas->translate(SkIntToScalar(10), SkIntToScalar(10));
         // translate (1 point)
         const int src1[] = { 0, 0 };
         const int dst1[] = { 5, 5 };
-        doDraw(canvas, &paint, src1, dst1, 1);
+        doDraw(canvas, &paint, font, src1, dst1, 1);
         canvas->restore();
 
         canvas->save();
@@ -132,7 +132,7 @@ protected:
         // rotate/uniform-scale (2 points)
         const int src2[] = { 32, 32, 64, 32 };
         const int dst2[] = { 32, 32, 64, 48 };
-        doDraw(canvas, &paint, src2, dst2, 2);
+        doDraw(canvas, &paint, font, src2, dst2, 2);
         canvas->restore();
 
         canvas->save();
@@ -140,7 +140,7 @@ protected:
         // rotate/skew (3 points)
         const int src3[] = { 0, 0, 64, 0, 0, 64 };
         const int dst3[] = { 0, 0, 96, 0, 24, 64 };
-        doDraw(canvas, &paint, src3, dst3, 3);
+        doDraw(canvas, &paint, font, src3, dst3, 3);
         canvas->restore();
 
         canvas->save();
@@ -148,15 +148,14 @@ protected:
         // perspective (4 points)
         const int src4[] = { 0, 0, 64, 0, 64, 64, 0, 64 };
         const int dst4[] = { 0, 0, 96, 0, 64, 96, 0, 64 };
-        doDraw(canvas, &paint, src4, dst4, 4);
+        doDraw(canvas, &paint, font, src4, dst4, 4);
         canvas->restore();
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new PolyToPolyView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new PolyToPolyView(); )

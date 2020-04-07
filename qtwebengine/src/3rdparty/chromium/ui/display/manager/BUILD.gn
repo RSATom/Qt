@@ -19,8 +19,6 @@ jumbo_component("manager") {
     "fake_display_delegate.h",
     "fake_display_snapshot.cc",
     "fake_display_snapshot.h",
-    "forwarding_display_delegate.cc",
-    "forwarding_display_delegate.h",
     "json_converter.cc",
     "json_converter.h",
     "managed_display_info.cc",
@@ -53,6 +51,8 @@ jumbo_component("manager") {
       "update_display_configuration_task.h",
     ]
   }
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   public_deps = [
     "//ui/display",

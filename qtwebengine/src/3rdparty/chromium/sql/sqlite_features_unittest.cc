@@ -12,7 +12,7 @@
 #include "base/files/memory_mapped_file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "build/build_config.h"
-#include "sql/connection.h"
+#include "sql/database.h"
 #include "sql/statement.h"
 #include "sql/test/sql_test_base.h"
 #include "sql/test/test_helpers.h"
@@ -317,13 +317,11 @@ base::ScopedCFTypeRef<CFURLRef> CFURLRefForPath(const base::FilePath& path){
 
 // If a database file is marked to be excluded from Time Machine, verify that
 // journal files are also excluded.
-// TODO(shess): Disabled because CSBackupSetItemExcluded() does not work on the
-// bots, though it's fine on dev machines.  See <http://crbug.com/410350>.
-TEST_F(SQLiteFeaturesTest, DISABLED_TimeMachine) {
+TEST_F(SQLiteFeaturesTest, TimeMachine) {
   ASSERT_TRUE(db().Execute("CREATE TABLE t (id INTEGER PRIMARY KEY)"));
   db().Close();
 
-  base::FilePath journal(db_path().value() + FILE_PATH_LITERAL("-journal"));
+  base::FilePath journal = sql::Database::JournalPath(db_path());
   ASSERT_TRUE(GetPathExists(db_path()));
   ASSERT_TRUE(GetPathExists(journal));
 
@@ -354,105 +352,12 @@ TEST_F(SQLiteFeaturesTest, DISABLED_TimeMachine) {
 }
 #endif
 
-// Test that Chromium's patch to make auto_vacuum integrate with
-// SQLITE_FCNTL_CHUNK_SIZE is working.
-TEST_F(SQLiteFeaturesTest, SmartAutoVacuum) {
-  // Turn on auto_vacuum, and set the page size low to make results obvious.
-  // These settings require re-writing the database, which VACUUM does.
-  ASSERT_TRUE(db().Execute("PRAGMA auto_vacuum = FULL"));
-  ASSERT_TRUE(db().Execute("PRAGMA page_size = 1024"));
-  ASSERT_TRUE(db().Execute("VACUUM"));
-
-  // Code-coverage of the PRAGMA set/get implementation.
-  static const char kPragmaSql[] = "PRAGMA auto_vacuum_slack_pages";
-  ASSERT_EQ("0", sql::test::ExecuteWithResult(&db(), kPragmaSql));
-  ASSERT_TRUE(db().Execute("PRAGMA auto_vacuum_slack_pages = 4"));
-  ASSERT_EQ("4", sql::test::ExecuteWithResult(&db(), kPragmaSql));
-  // Max out at 255.
-  ASSERT_TRUE(db().Execute("PRAGMA auto_vacuum_slack_pages = 1000"));
-  ASSERT_EQ("255", sql::test::ExecuteWithResult(&db(), kPragmaSql));
-  ASSERT_TRUE(db().Execute("PRAGMA auto_vacuum_slack_pages = 0"));
-
-  // With page_size=1024, the following will insert rows which take up an
-  // overflow page, plus a small header in a b-tree node.  An empty table takes
-  // a single page, so for small row counts each insert will add one page, and
-  // each delete will remove one page.
-  static const char kCreateSql[] =
-      "CREATE TABLE t (id INTEGER PRIMARY KEY, value)";
-  static const char kInsertSql[] =
-      "INSERT INTO t (value) VALUES (randomblob(980))";
-#if !defined(OS_WIN)
-  static const char kDeleteSql[] =
-      "DELETE FROM t WHERE id = (SELECT MIN(id) FROM t)";
-#endif
-
-  // This database will be 34 overflow pages plus the table's root page plus the
-  // SQLite header page plus the freelist page.
-  ASSERT_TRUE(db().Execute(kCreateSql));
-  {
-    sql::Statement s(db().GetUniqueStatement(kInsertSql));
-    for (int i = 0; i < 34; ++i) {
-      s.Reset(true);
-      ASSERT_TRUE(s.Run());
-    }
-  }
-  ASSERT_EQ("37", sql::test::ExecuteWithResult(&db(), "PRAGMA page_count"));
-
-  // http://sqlite.org/mmap.html indicates that Windows will silently fail when
-  // truncating a memory-mapped file.  That pretty much invalidates these tests
-  // against the actual file size.
-#if !defined(OS_WIN)
-  // Each delete will delete a single page, including crossing a
-  // multiple-of-four boundary.
-  {
-    sql::Statement s(db().GetUniqueStatement(kDeleteSql));
-    for (int i = 0; i < 5; ++i) {
-      int64_t file_size_before, file_size_after;
-      ASSERT_TRUE(base::GetFileSize(db_path(), &file_size_before));
-
-      s.Reset(true);
-      ASSERT_TRUE(s.Run());
-
-      ASSERT_TRUE(base::GetFileSize(db_path(), &file_size_after));
-      ASSERT_EQ(file_size_after, file_size_before - 1024);
-    }
-  }
-
-  // Turn on "smart" auto-vacuum to remove 4 pages at a time.
-  ASSERT_TRUE(db().Execute("PRAGMA auto_vacuum_slack_pages = 4"));
-
-  // No pages removed, then four deleted at once.
-  {
-    sql::Statement s(db().GetUniqueStatement(kDeleteSql));
-    for (int i = 0; i < 3; ++i) {
-      int64_t file_size_before, file_size_after;
-      ASSERT_TRUE(base::GetFileSize(db_path(), &file_size_before));
-
-      s.Reset(true);
-      ASSERT_TRUE(s.Run());
-
-      ASSERT_TRUE(base::GetFileSize(db_path(), &file_size_after));
-      ASSERT_EQ(file_size_after, file_size_before);
-    }
-
-    int64_t file_size_before, file_size_after;
-    ASSERT_TRUE(base::GetFileSize(db_path(), &file_size_before));
-
-    s.Reset(true);
-    ASSERT_TRUE(s.Run());
-
-    ASSERT_TRUE(base::GetFileSize(db_path(), &file_size_after));
-    ASSERT_EQ(file_size_after, file_size_before - 4096);
-  }
-#endif
-}
-
 #if !defined(OS_FUCHSIA)
 // SQLite WAL mode defaults to checkpointing the WAL on close.  This would push
 // additional work into Chromium shutdown.  Verify that SQLite supports a config
 // option to not checkpoint on close.
 TEST_F(SQLiteFeaturesTest, WALNoClose) {
-  base::FilePath wal_path(db_path().value() + FILE_PATH_LITERAL("-wal"));
+  base::FilePath wal_path = sql::Database::WriteAheadLogPath(db_path());
 
   // Turn on WAL mode, then verify that the mode changed (WAL is supported).
   ASSERT_TRUE(db().Execute("PRAGMA journal_mode = WAL"));

@@ -41,13 +41,6 @@
 
 namespace blink {
 
-MessageEvent* CreateConnectEvent(MessagePort* port) {
-  MessageEvent* event = MessageEvent::Create(new MessagePortArray(1, port),
-                                             String(), String(), port);
-  event->initEvent(EventTypeNames::connect, false, false);
-  return event;
-}
-
 SharedWorkerGlobalScope::SharedWorkerGlobalScope(
     const String& name,
     std::unique_ptr<GlobalScopeCreationParams> creation_params,
@@ -59,7 +52,7 @@ SharedWorkerGlobalScope::SharedWorkerGlobalScope(
 SharedWorkerGlobalScope::~SharedWorkerGlobalScope() = default;
 
 const AtomicString& SharedWorkerGlobalScope::InterfaceName() const {
-  return EventTargetNames::SharedWorkerGlobalScope;
+  return event_target_names::kSharedWorkerGlobalScope;
 }
 
 // https://html.spec.whatwg.org/multipage/workers.html#worker-processing-model
@@ -79,6 +72,17 @@ void SharedWorkerGlobalScope::ImportModuleScript(
   NOTREACHED();
 }
 
+void SharedWorkerGlobalScope::Connect(MessagePortChannel channel) {
+  DCHECK(!IsContextPaused());
+  MessagePort* port = MessagePort::Create(*this);
+  port->Entangle(std::move(channel));
+  MessageEvent* event =
+      MessageEvent::Create(MakeGarbageCollected<MessagePortArray>(1, port),
+                           String(), String(), port);
+  event->initEvent(event_type_names::kConnect, false, false);
+  DispatchEvent(*event);
+}
+
 void SharedWorkerGlobalScope::ExceptionThrown(ErrorEvent* event) {
   WorkerGlobalScope::ExceptionThrown(event);
   if (WorkerThreadDebugger* debugger =
@@ -88,6 +92,11 @@ void SharedWorkerGlobalScope::ExceptionThrown(ErrorEvent* event) {
 
 void SharedWorkerGlobalScope::Trace(blink::Visitor* visitor) {
   WorkerGlobalScope::Trace(visitor);
+}
+
+mojom::RequestContextType
+SharedWorkerGlobalScope::GetDestinationForMainScript() {
+  return mojom::RequestContextType::SHARED_WORKER;
 }
 
 }  // namespace blink

@@ -1081,13 +1081,6 @@ QString QQmlType::noCreationReason() const
     return d->extraData.cd->noCreationReason;
 }
 
-int QQmlType::createSize() const
-{
-    if (!d || d->regType != CppType)
-        return 0;
-    return d->extraData.cd->allocationSize;
-}
-
 bool QQmlType::isCreatable() const
 {
     return d && d->regType == CppType && d->extraData.cd->newFunc;
@@ -1648,7 +1641,14 @@ void qmlClearTypeRegistrations() // Declared in qqml.h
 #endif
 }
 
-static int registerAutoParentFunction(QQmlPrivate::RegisterAutoParent &autoparent)
+static void unregisterAutoParentFunction(const QQmlPrivate::AutoParentFunction &function)
+{
+    QMutexLocker lock(metaTypeDataLock());
+    QQmlMetaTypeData *data = metaTypeData();
+    data->parentFunctions.removeOne(function);
+}
+
+static int registerAutoParentFunction(const QQmlPrivate::RegisterAutoParent &autoparent)
 {
     QMutexLocker lock(metaTypeDataLock());
     QQmlMetaTypeData *data = metaTypeData();
@@ -1957,6 +1957,26 @@ int QQmlPrivate::qmlregister(RegistrationType type, void *data)
     return dtype.index();
 }
 
+void QQmlPrivate::qmlunregister(RegistrationType type, quintptr data)
+{
+    switch (type) {
+        case AutoParentRegistration:
+            unregisterAutoParentFunction(reinterpret_cast<AutoParentFunction>(data));
+            break;
+        case QmlUnitCacheHookRegistration:
+            QQmlMetaType::removeCachedUnitLookupFunction(
+                    reinterpret_cast<QmlUnitCacheLookupFunction>(data));
+            break;
+        case TypeRegistration:
+        case InterfaceRegistration:
+        case SingletonRegistration:
+        case CompositeRegistration:
+        case CompositeSingletonRegistration:
+            qmlUnregisterType(data);
+            break;
+    }
+}
+
 //From qqml.h
 bool qmlProtectModule(const char *uri, int majVersion)
 {
@@ -2151,11 +2171,14 @@ int QQmlMetaType::attachedPropertiesFuncId(QQmlEnginePrivate *engine, const QMet
     QMutexLocker lock(metaTypeDataLock());
     QQmlMetaTypeData *data = metaTypeData();
 
-    QQmlType type(data->metaObjectToType.value(mo));
-    if (type.attachedPropertiesFunction(engine))
-        return type.attachedPropertiesId(engine);
-    else
-        return -1;
+    for (auto it = data->metaObjectToType.constFind(mo), end = data->metaObjectToType.constEnd();
+         it != end && it.key() == mo; ++it) {
+        const QQmlType type(it.value());
+        if (type.attachedPropertiesFunction(engine))
+            return type.attachedPropertiesId(engine);
+    }
+
+    return -1;
 }
 
 QQmlAttachedPropertiesFunc QQmlMetaType::attachedPropertiesFuncById(QQmlEnginePrivate *engine, int id)
@@ -2572,7 +2595,8 @@ void qmlUnregisterType(int typeIndex)
     QMutexLocker lock(metaTypeDataLock());
     QQmlMetaTypeData *data = metaTypeData();
     {
-        const QQmlTypePrivate *d = data->types.value(typeIndex).priv();
+        const QQmlType type = data->types.value(typeIndex);
+        const QQmlTypePrivate *d = type.priv();
         if (d) {
             removeQQmlTypePrivate(data->idToType, d);
             removeQQmlTypePrivate(data->nameToType, d);
@@ -2584,6 +2608,7 @@ void qmlUnregisterType(int typeIndex)
                  modulePrivate->remove(d);
             }
             data->types[typeIndex] = QQmlType();
+            data->undeletableTypes.remove(type);
         }
     }
 }

@@ -51,14 +51,6 @@ namespace es2
 			matrixStride = uniform.blockInfo.matrixStride;
 			isRowMajorMatrix = uniform.blockInfo.isRowMajorMatrix;
 		}
-		else
-		{
-			index = -1;
-			offset = -1;
-			arrayStride = -1;
-			matrixStride = -1;
-			isRowMajorMatrix = false;
-		}
 	}
 
 	Uniform::Uniform(const glsl::Uniform &uniform, const BlockInfo &blockInfo)
@@ -71,14 +63,6 @@ namespace es2
 			data = new unsigned char[bytes];
 			memset(data, 0, bytes);
 		}
-		else
-		{
-			data = nullptr;
-		}
-		dirty = true;
-
-		psRegisterIndex = -1;
-		vsRegisterIndex = -1;
 	}
 
 	Uniform::~Uniform()
@@ -293,19 +277,7 @@ namespace es2
 
 	GLint Program::getAttributeLocation(const char *name)
 	{
-		if(name)
-		{
-			std::string strName(name);
-			for(auto const &it : linkedAttribute)
-			{
-				if(it.name == strName)
-				{
-					return getAttributeBinding(it);
-				}
-			}
-		}
-
-		return -1;
+		return name ? getAttributeLocation(std::string(name)) : -1;
 	}
 
 	int Program::getAttributeStream(int attributeIndex)
@@ -368,24 +340,20 @@ namespace es2
 		return TEXTURE_2D;
 	}
 
-	bool Program::isUniformDefined(const std::string &name) const
+	Uniform *Program::getUniform(const std::string &name) const
 	{
 		unsigned int subscript = GL_INVALID_INDEX;
 		std::string baseName = es2::ParseUniformName(name, &subscript);
 
-		size_t numUniforms = uniformIndex.size();
-		for(size_t location = 0; location < numUniforms; location++)
+		for(size_t index = 0; index < uniforms.size(); index++)
 		{
-			const unsigned int index = uniformIndex[location].index;
-			if((uniformIndex[location].name == baseName) && ((index == GL_INVALID_INDEX) ||
-			   ((uniforms[index]->isArray() && uniformIndex[location].element == subscript) ||
-			    (subscript == GL_INVALID_INDEX))))
+			if(uniforms[index]->name == baseName)
 			{
-				return true;
+				return uniforms[index];
 			}
 		}
 
-		return false;
+		return nullptr;
 	}
 
 	GLint Program::getUniformLocation(const std::string &name) const
@@ -393,15 +361,26 @@ namespace es2
 		unsigned int subscript = GL_INVALID_INDEX;
 		std::string baseName = es2::ParseUniformName(name, &subscript);
 
-		size_t numUniforms = uniformIndex.size();
-		for(size_t location = 0; location < numUniforms; location++)
+		for(size_t location = 0; location < uniformIndex.size(); location++)
 		{
-			const unsigned int index = uniformIndex[location].index;
-			if((index != GL_INVALID_INDEX) && (uniformIndex[location].name == baseName) &&
-			   ((uniforms[index]->isArray() && uniformIndex[location].element == subscript) ||
-			    (subscript == GL_INVALID_INDEX)))
+			if(uniformIndex[location].name == baseName)
 			{
-				return (GLint)location;
+				const unsigned int index = uniformIndex[location].index;
+
+				if(index != GL_INVALID_INDEX)
+				{
+					if(subscript == GL_INVALID_INDEX)
+					{
+						return (GLint)location;
+					}
+					else if(uniforms[index]->isArray())
+					{
+						if(uniformIndex[location].element == subscript)
+						{
+							return (GLint)location;
+						}
+					}
+				}
 			}
 		}
 
@@ -493,20 +472,15 @@ namespace es2
 
 	void Program::bindUniformBlock(GLuint uniformBlockIndex, GLuint uniformBlockBinding)
 	{
-		if(uniformBlockIndex >= getActiveUniformBlockCount())
-		{
-			return error(GL_INVALID_VALUE);
-		}
+		ASSERT(uniformBlockIndex < getActiveUniformBlockCount());
 
 		uniformBlockBindings[uniformBlockIndex] = uniformBlockBinding;
 	}
 
 	GLuint Program::getUniformBlockBinding(GLuint uniformBlockIndex) const
 	{
-		if(uniformBlockIndex >= getActiveUniformBlockCount())
-		{
-			return error(GL_INVALID_VALUE, GL_INVALID_INDEX);
-		}
+		ASSERT(uniformBlockIndex < getActiveUniformBlockCount());
+
 		return uniformBlockBindings[uniformBlockIndex];
 	}
 
@@ -1605,80 +1579,55 @@ namespace es2
 	// Determines the mapping between GL attributes and vertex stream usage indices
 	bool Program::linkAttributes()
 	{
+		static_assert(MAX_VERTEX_ATTRIBS <= 32, "attribute count exceeds bitfield count");
 		unsigned int usedLocations = 0;
 
-		// Link attributes that have a binding location
+		// Link attributes that have a GLSL layout location qualifier
 		for(auto const &attribute : vertexShader->activeAttributes)
 		{
-			int location = (attributeBinding.find(attribute.name) != attributeBinding.end()) ? attributeBinding[attribute.name] : -1;
-
-			if(location != -1)   // Set by glBindAttribLocation
+			if(attribute.layoutLocation != -1)
 			{
-				int rows = VariableRegisterCount(attribute.type);
-
-				if(rows + location > MAX_VERTEX_ATTRIBS)
+				if(!linkAttribute(attribute, attribute.layoutLocation, usedLocations))
 				{
-					appendToInfoLog("Active attribute (%s) at location %d is too big to fit", attribute.name.c_str(), location);
 					return false;
 				}
-
-				// In GLSL 3.00, attribute aliasing produces a link error
-				// In GLSL 1.00, attribute aliasing is allowed
-				if(vertexShader->getShaderVersion() >= 300)
-				{
-					for(auto const &it : linkedAttribute)
-					{
-						int itLocStart = getAttributeBinding(it);
-						ASSERT(itLocStart >= 0);
-						int itLocEnd = itLocStart + VariableRegisterCount(it.type);
-						for(int i = 0; i < rows; i++)
-						{
-							int loc = location + i;
-							if((loc >= itLocStart) && (loc < itLocEnd))
-							{
-								appendToInfoLog("Attribute '%s' aliases attribute '%s' at location %d", attribute.name.c_str(), it.name.c_str(), location);
-								return false;
-							}
-						}
-					}
-				}
-
-				linkedAttributeLocation[attribute.name] = location;
-				linkedAttribute.push_back(attribute);
-				for(int i = 0; i < rows; i++)
-				{
-					usedLocations |= 1 << (location + i);
-				}
 			}
 		}
 
-		// Link attributes that don't have a binding location
+		// Link attributes that have an API provided binding location but no GLSL layout location
 		for(auto const &attribute : vertexShader->activeAttributes)
 		{
-			int location = (attributeBinding.find(attribute.name) != attributeBinding.end()) ? attributeBinding[attribute.name] : -1;
+			int bindingLocation = (attributeBinding.find(attribute.name) != attributeBinding.end()) ? attributeBinding[attribute.name] : -1;
 
-			if(location == -1)   // Not set by glBindAttribLocation
+			if(attribute.layoutLocation == -1 && bindingLocation != -1)
 			{
-				int rows = VariableRegisterCount(attribute.type);
-				int availableIndex = AllocateFirstFreeBits(&usedLocations, rows, MAX_VERTEX_ATTRIBS);
-
-				if(availableIndex == -1 || availableIndex + rows > MAX_VERTEX_ATTRIBS)
+				if(!linkAttribute(attribute, bindingLocation, usedLocations))
 				{
-					appendToInfoLog("Too many active attributes (%s)", attribute.name.c_str());
-					return false;   // Fail to link
+					return false;
 				}
-
-				linkedAttributeLocation[attribute.name] = availableIndex;
-				linkedAttribute.push_back(attribute);
 			}
 		}
 
-		for(auto const &it : linkedAttribute)
+		// Link attributes that don't have a binding location nor a layout location
+		for(auto const &attribute : vertexShader->activeAttributes)
 		{
-			int location = getAttributeBinding(it);
+			if(attribute.layoutLocation == -1 && attributeBinding.find(attribute.name) == attributeBinding.end())
+			{
+				if(!linkAttribute(attribute, -1, usedLocations))
+				{
+					return false;
+				}
+			}
+		}
+
+		ASSERT(linkedAttribute.size() == vertexShader->activeAttributes.size());
+
+		for(auto const &attribute : linkedAttribute)
+		{
+			int location = getAttributeLocation(attribute.name);
 			ASSERT(location >= 0);
-			int index = vertexShader->getSemanticIndex(it.name);
-			int rows = std::max(VariableRegisterCount(it.type), 1);
+			int index = vertexShader->getSemanticIndex(attribute.name);
+			int rows = VariableRegisterCount(attribute.type);
 
 			for(int r = 0; r < rows; r++)
 			{
@@ -1689,17 +1638,69 @@ namespace es2
 		return true;
 	}
 
-	int Program::getAttributeBinding(const glsl::Attribute &attribute)
+	bool Program::linkAttribute(const glsl::Attribute &attribute, int location, unsigned int &usedLocations)
 	{
-		if(attribute.location != -1)
+		int rows = VariableRegisterCount(attribute.type);
+
+		if(location == -1)
 		{
-			return attribute.location;
+			location = AllocateFirstFreeBits(&usedLocations, rows, MAX_VERTEX_ATTRIBS);
+
+			if(location == -1 || location + rows > MAX_VERTEX_ATTRIBS)
+			{
+				appendToInfoLog("Too many active attributes (%s)", attribute.name.c_str());
+				return false;   // Fail to link
+			}
+		}
+		else
+		{
+			if(rows + location > MAX_VERTEX_ATTRIBS)
+			{
+				appendToInfoLog("Active attribute (%s) at location %d is too big to fit", attribute.name.c_str(), location);
+				return false;
+			}
+
+			// In GLSL 3.00, attribute aliasing produces a link error
+			// In GLSL 1.00, attribute aliasing is allowed
+			if(vertexShader->getShaderVersion() >= 300)
+			{
+				for(auto const &previousAttrib : linkedAttribute)
+				{
+					int previousLocation = getAttributeLocation(previousAttrib.name);
+					int previousRows = VariableRegisterCount(previousAttrib.type);
+
+					if(location >= previousLocation && location < previousLocation + previousRows)
+					{
+						appendToInfoLog("Attribute '%s' aliases attribute '%s' at location %d", attribute.name.c_str(), previousAttrib.name.c_str(), location);
+						return false;
+					}
+
+					if(location <= previousLocation && location + rows > previousLocation)
+					{
+						appendToInfoLog("Attribute '%s' aliases attribute '%s' at location %d", attribute.name.c_str(), previousAttrib.name.c_str(), previousLocation);
+						return false;
+					}
+				}
+			}
+
+			for(int i = 0; i < rows; i++)
+			{
+				usedLocations |= 1 << (location + i);
+			}
 		}
 
-		std::map<std::string, GLuint>::const_iterator it = linkedAttributeLocation.find(attribute.name);
-		if(it != linkedAttributeLocation.end())
+		linkedAttributeLocation[attribute.name] = location;
+		linkedAttribute.push_back(attribute);
+
+		return true;
+	}
+
+	int Program::getAttributeLocation(const std::string &name)
+	{
+		std::map<std::string, GLuint>::const_iterator attribute = linkedAttributeLocation.find(name);
+		if(attribute != linkedAttributeLocation.end())
 		{
-			return it->second;
+			return attribute->second;
 		}
 
 		return -1;
@@ -1714,9 +1715,26 @@ namespace es2
 			{
 				const glsl::ActiveUniformBlocks &activeUniformBlocks = shader->activeUniformBlocks;
 				ASSERT(static_cast<size_t>(uniform.blockId) < activeUniformBlocks.size());
-				blockIndex = getUniformBlockIndex(activeUniformBlocks[uniform.blockId].name);
+				const std::string &uniformBlockName = activeUniformBlocks[uniform.blockId].name;
+				blockIndex = getUniformBlockIndex(uniformBlockName);
 				ASSERT(blockIndex != GL_INVALID_INDEX);
+
+				if(activeUniformBlocks[uniform.blockId].dataSize > MAX_UNIFORM_BLOCK_SIZE)
+				{
+					if(shader->getType() == GL_VERTEX_SHADER)
+					{
+						appendToInfoLog("Vertex shader active uniform block (%s) exceeds GL_MAX_UNIFORM_BLOCK_SIZE (%d)", uniformBlockName.c_str(), MAX_UNIFORM_BLOCK_SIZE);
+						return false;
+					}
+					else if(shader->getType() == GL_FRAGMENT_SHADER)
+					{
+						appendToInfoLog("Fragment shader active uniform block (%s) exceeds GL_MAX_UNIFORM_BLOCK_SIZE (%d)", uniformBlockName.c_str(), MAX_UNIFORM_BLOCK_SIZE);
+						return false;
+					}
+					else UNREACHABLE(shader->getType());
+				}
 			}
+
 			if(!defineUniform(shader->getType(), uniform, Uniform::BlockInfo(uniform, blockIndex)))
 			{
 				return false;
@@ -1737,7 +1755,7 @@ namespace es2
 	bool Program::defineUniform(GLenum shader, const glsl::Uniform &glslUniform, const Uniform::BlockInfo& blockInfo)
 	{
 		if(IsSamplerUniform(glslUniform.type))
-	    {
+		{
 			int index = glslUniform.registerIndex;
 
 			do
@@ -1819,15 +1837,24 @@ namespace es2
 				index++;
 			}
 			while(index < glslUniform.registerIndex + static_cast<int>(glslUniform.arraySize));
-	    }
+		}
 
-		Uniform *uniform = 0;
-		GLint location = getUniformLocation(glslUniform.name);
+		Uniform *uniform = getUniform(glslUniform.name);
 
-		if(location >= 0)   // Previously defined, types must match
+		if(!uniform)
 		{
-			uniform = uniforms[uniformIndex[location].index];
+			uniform = new Uniform(glslUniform, blockInfo);
+			uniforms.push_back(uniform);
 
+			unsigned int index = (blockInfo.index == -1) ? static_cast<unsigned int>(uniforms.size() - 1) : GL_INVALID_INDEX;
+
+			for(int i = 0; i < uniform->size(); i++)
+			{
+				uniformIndex.push_back(UniformLocation(glslUniform.name, i, index));
+			}
+		}
+		else   // Previously defined, types must match
+		{
 			if(uniform->type != glslUniform.type)
 			{
 				appendToInfoLog("Types for uniform %s do not match between the vertex and fragment shader", uniform->name.c_str());
@@ -1845,15 +1872,6 @@ namespace es2
 				return false;
 			}
 		}
-		else
-		{
-			uniform = new Uniform(glslUniform, blockInfo);
-		}
-
-		if(!uniform)
-		{
-			return false;
-		}
 
 		if(shader == GL_VERTEX_SHADER)
 		{
@@ -1865,34 +1883,26 @@ namespace es2
 		}
 		else UNREACHABLE(shader);
 
-		if(!isUniformDefined(glslUniform.name))
+		if(uniform->blockInfo.index < 0)
 		{
-			uniforms.push_back(uniform);
-			unsigned int index = (blockInfo.index == -1) ? static_cast<unsigned int>(uniforms.size() - 1) : GL_INVALID_INDEX;
-
-			for(int i = 0; i < uniform->size(); i++)
+			if(shader == GL_VERTEX_SHADER)
 			{
-				uniformIndex.push_back(UniformLocation(glslUniform.name, i, index));
+				if(glslUniform.registerIndex + uniform->registerCount() > MAX_VERTEX_UNIFORM_VECTORS)
+				{
+					appendToInfoLog("Vertex shader active uniforms exceed GL_MAX_VERTEX_UNIFORM_VECTORS (%d)", MAX_VERTEX_UNIFORM_VECTORS);
+					return false;
+				}
 			}
-		}
-
-		if(shader == GL_VERTEX_SHADER)
-		{
-			if(glslUniform.registerIndex + uniform->registerCount() > MAX_VERTEX_UNIFORM_VECTORS)
+			else if(shader == GL_FRAGMENT_SHADER)
 			{
-				appendToInfoLog("Vertex shader active uniforms exceed GL_MAX_VERTEX_UNIFORM_VECTORS (%d)", MAX_VERTEX_UNIFORM_VECTORS);
-				return false;
+				if(glslUniform.registerIndex + uniform->registerCount() > MAX_FRAGMENT_UNIFORM_VECTORS)
+				{
+					appendToInfoLog("Fragment shader active uniforms exceed GL_MAX_FRAGMENT_UNIFORM_VECTORS (%d)", MAX_FRAGMENT_UNIFORM_VECTORS);
+					return false;
+				}
 			}
+			else UNREACHABLE(shader);
 		}
-		else if(shader == GL_FRAGMENT_SHADER)
-		{
-			if(glslUniform.registerIndex + uniform->registerCount() > MAX_FRAGMENT_UNIFORM_VECTORS)
-			{
-				appendToInfoLog("Fragment shader active uniforms exceed GL_MAX_FRAGMENT_UNIFORM_VECTORS (%d)", MAX_FRAGMENT_UNIFORM_VECTORS);
-				return false;
-			}
-		}
-		else UNREACHABLE(shader);
 
 		return true;
 	}
@@ -2870,10 +2880,7 @@ namespace es2
 
 	void Program::getActiveUniformBlockName(GLuint index, GLsizei bufSize, GLsizei *length, GLchar *name) const
 	{
-		if(index >= getActiveUniformBlockCount())
-		{
-			return error(GL_INVALID_VALUE);
-		}
+		ASSERT(index < getActiveUniformBlockCount());
 
 		const UniformBlock &uniformBlock = *uniformBlocks[index];
 

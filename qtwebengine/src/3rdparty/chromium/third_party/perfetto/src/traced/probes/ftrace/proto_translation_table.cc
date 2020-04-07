@@ -21,14 +21,20 @@
 #include <algorithm>
 
 #include "perfetto/base/string_utils.h"
+#include "perfetto/protozero/proto_utils.h"
 #include "src/traced/probes/ftrace/event_info.h"
 #include "src/traced/probes/ftrace/ftrace_procfs.h"
 
+#include "perfetto/trace/ftrace/ftrace_event.pbzero.h"
 #include "perfetto/trace/ftrace/ftrace_event_bundle.pbzero.h"
+#include "perfetto/trace/ftrace/generic.pbzero.h"
 
 namespace perfetto {
 
 namespace {
+
+using protozero::proto_utils::ProtoSchemaType;
+using protos::pbzero::GenericFtraceEvent;
 
 ProtoTranslationTable::FtracePageHeaderSpec MakeFtracePageHeaderSpec(
     const std::vector<FtraceEvent::Field>& fields) {
@@ -42,7 +48,7 @@ ProtoTranslationTable::FtracePageHeaderSpec MakeFtracePageHeaderSpec(
     else if (name == "overwrite")
       spec.overwrite = field;
     else if (name != "data")
-      PERFETTO_DCHECK(false);
+      PERFETTO_DFATAL("Invalid field in header spec: %s", name.c_str());
   }
   return spec;
 }
@@ -70,20 +76,20 @@ bool MergeFieldInfo(const FtraceEvent::Field& ftrace_field,
                     const char* event_name_for_debug) {
   PERFETTO_DCHECK(field->ftrace_name);
   PERFETTO_DCHECK(field->proto_field_id);
-  PERFETTO_DCHECK(field->proto_field_type);
+  PERFETTO_DCHECK(static_cast<int>(field->proto_field_type));
   PERFETTO_DCHECK(!field->ftrace_offset);
   PERFETTO_DCHECK(!field->ftrace_size);
   PERFETTO_DCHECK(!field->ftrace_type);
 
   if (!InferFtraceType(ftrace_field.type_and_name, ftrace_field.size,
                        ftrace_field.is_signed, &field->ftrace_type)) {
-    PERFETTO_DLOG(
-        "Failed to infer ftrace field type for \"%s.%s\" (type:\"%s\" size:%d "
+    PERFETTO_FATAL(
+        "Failed to infer ftrace field type for \"%s.%s\" (type:\"%s\" "
+        "size:%d "
         "signed:%d)",
         event_name_for_debug, field->ftrace_name,
         ftrace_field.type_and_name.c_str(), ftrace_field.size,
         ftrace_field.is_signed);
-    PERFETTO_DCHECK(false);
     return false;
   }
 
@@ -93,12 +99,12 @@ bool MergeFieldInfo(const FtraceEvent::Field& ftrace_field,
   if (!SetTranslationStrategy(field->ftrace_type, field->proto_field_type,
                               &field->strategy)) {
     PERFETTO_DLOG(
-        "Failed to find translation stratagy for ftrace field \"%s.%s\" (%s -> "
+        "Failed to find translation strategy for ftrace field \"%s.%s\" (%s -> "
         "%s)",
         event_name_for_debug, field->ftrace_name, ToString(field->ftrace_type),
-        ToString(field->proto_field_type));
+        protozero::proto_utils::ProtoSchemaToString(field->proto_field_type));
     // TODO(hjd): Uncomment DCHECK when proto generation is fixed.
-    // PERFETTO_DCHECK(false);
+    // PERFETTO_DFATAL("Failed to find translation strategy");
     return false;
   }
 
@@ -160,6 +166,42 @@ bool Match(const char* string, const char* pattern) {
   ret = regexec(&re, string, 0, nullptr, 0);
   regfree(&re);
   return ret != REG_NOMATCH;
+}
+
+// Set proto field type and id based on the ftrace type.
+void SetProtoType(FtraceFieldType ftrace_type,
+                  ProtoSchemaType* proto_type,
+                  uint32_t* proto_field_id) {
+  switch (ftrace_type) {
+    case kFtraceCString:
+    case kFtraceFixedCString:
+    case kFtraceStringPtr:
+    case kFtraceDataLoc:
+      *proto_type = ProtoSchemaType::kString;
+      *proto_field_id = GenericFtraceEvent::Field::kStrValueFieldNumber;
+      break;
+    case kFtraceInt8:
+    case kFtraceInt16:
+    case kFtraceInt32:
+    case kFtracePid32:
+    case kFtraceCommonPid32:
+    case kFtraceInt64:
+      *proto_type = ProtoSchemaType::kInt64;
+      *proto_field_id = GenericFtraceEvent::Field::kIntValueFieldNumber;
+      break;
+    case kFtraceUint8:
+    case kFtraceUint16:
+    case kFtraceUint32:
+    case kFtraceBool:
+    case kFtraceDevId32:
+    case kFtraceDevId64:
+    case kFtraceUint64:
+    case kFtraceInode32:
+    case kFtraceInode64:
+      *proto_type = ProtoSchemaType::kUint64;
+      *proto_field_id = GenericFtraceEvent::Field::kUintValueFieldNumber;
+      break;
+  }
 }
 
 }  // namespace
@@ -300,11 +342,21 @@ std::unique_ptr<ProtoTranslationTable> ProtoTranslationTable::Create(
 
   std::vector<FtraceEvent::Field> page_header_fields;
   std::string page_header = ftrace_procfs->ReadPageHeaderFormat();
-  PERFETTO_CHECK(!page_header.empty());
-  PERFETTO_CHECK(ParseFtraceEventBody(std::move(page_header), nullptr,
-                                      &page_header_fields));
+  if (page_header.empty()) {
+    PERFETTO_DFATAL("Empty page header.");
+    return nullptr;
+  }
+  if (!ParseFtraceEventBody(std::move(page_header), nullptr,
+                            &page_header_fields)) {
+    PERFETTO_DFATAL("Failed to parse page header.");
+    return nullptr;
+  }
 
   for (Event& event : events) {
+    if (event.proto_field_id ==
+        protos::pbzero::FtraceEvent::kGenericFieldNumber) {
+      continue;
+    }
     PERFETTO_DCHECK(event.name);
     PERFETTO_DCHECK(event.group);
     PERFETTO_DCHECK(event.proto_field_id);
@@ -339,22 +391,151 @@ std::unique_ptr<ProtoTranslationTable> ProtoTranslationTable::Create(
                events.end());
 
   auto table = std::unique_ptr<ProtoTranslationTable>(
-      new ProtoTranslationTable(events, std::move(common_fields),
+      new ProtoTranslationTable(ftrace_procfs, events, std::move(common_fields),
                                 MakeFtracePageHeaderSpec(page_header_fields)));
   return table;
 }
 
 ProtoTranslationTable::ProtoTranslationTable(
+    const FtraceProcfs* ftrace_procfs,
     const std::vector<Event>& events,
     std::vector<Field> common_fields,
     FtracePageHeaderSpec ftrace_page_header_spec)
-    : events_(BuildEventsVector(events)),
+    : ftrace_procfs_(ftrace_procfs),
+      events_(BuildEventsVector(events)),
       largest_id_(events_.size() - 1),
       common_fields_(std::move(common_fields)),
       ftrace_page_header_spec_(ftrace_page_header_spec) {
   for (const Event& event : events) {
-    name_to_event_[event.name] = &events_.at(event.ftrace_event_id);
+    group_and_name_to_event_[GroupAndName(event.group, event.name)] =
+        &events_.at(event.ftrace_event_id);
+    name_to_events_[event.name].push_back(&events_.at(event.ftrace_event_id));
     group_to_events_[event.group].push_back(&events_.at(event.ftrace_event_id));
+  }
+}
+
+const Event* ProtoTranslationTable::GetOrCreateEvent(
+    const GroupAndName& group_and_name) {
+  const Event* event = GetEvent(group_and_name);
+  if (event)
+    return event;
+  // The ftrace event does not already exist so a new one will be created
+  // by parsing the format file.
+  std::string contents = ftrace_procfs_->ReadEventFormat(group_and_name.group(),
+                                                         group_and_name.name());
+  if (contents.empty())
+    return nullptr;
+  FtraceEvent ftrace_event = {};
+  ParseFtraceEvent(contents, &ftrace_event);
+
+  // Ensure events vector is large enough
+  if (ftrace_event.id > largest_id_) {
+    events_.resize(ftrace_event.id + 1);
+    largest_id_ = ftrace_event.id;
+  }
+
+  // Set known event variables
+  Event* e = &events_.at(ftrace_event.id);
+  e->ftrace_event_id = ftrace_event.id;
+  e->proto_field_id = protos::pbzero::FtraceEvent::kGenericFieldNumber;
+  e->name = InternString(group_and_name.name());
+  e->group = InternString(group_and_name.group());
+
+  // Calculate size of common fields.
+  for (const FtraceEvent::Field& ftrace_field : ftrace_event.common_fields) {
+    uint16_t field_end = ftrace_field.offset + ftrace_field.size;
+    e->size = std::max(field_end, e->size);
+  }
+
+  // For every field in the ftrace event, make a field in the generic event.
+  for (const FtraceEvent::Field& ftrace_field : ftrace_event.fields)
+    e->size = std::max(CreateGenericEventField(ftrace_field, *e), e->size);
+
+  group_and_name_to_event_[group_and_name] = &events_.at(e->ftrace_event_id);
+  name_to_events_[e->name].push_back(&events_.at(e->ftrace_event_id));
+  group_to_events_[e->group].push_back(&events_.at(e->ftrace_event_id));
+
+  return e;
+};
+
+const char* ProtoTranslationTable::InternString(const std::string& str) {
+  auto it_and_inserted = interned_strings_.insert(str);
+  return it_and_inserted.first->c_str();
+};
+
+uint16_t ProtoTranslationTable::CreateGenericEventField(
+    const FtraceEvent::Field& ftrace_field,
+    Event& event) {
+  uint16_t field_end = ftrace_field.offset + ftrace_field.size;
+  std::string field_name = GetNameFromTypeAndName(ftrace_field.type_and_name);
+  if (field_name.empty()) {
+    PERFETTO_DLOG("Field: %s could not be added to the generic event.",
+                  ftrace_field.type_and_name.c_str());
+    return field_end;
+  }
+  event.fields.emplace_back();
+  Field* field = &event.fields.back();
+  field->ftrace_name = InternString(field_name);
+  if (!InferFtraceType(ftrace_field.type_and_name, ftrace_field.size,
+                       ftrace_field.is_signed, &field->ftrace_type)) {
+    PERFETTO_DLOG(
+        "Failed to infer ftrace field type for \"%s.%s\" (type:\"%s\" "
+        "size:%d "
+        "signed:%d)",
+        event.name, field->ftrace_name, ftrace_field.type_and_name.c_str(),
+        ftrace_field.size, ftrace_field.is_signed);
+    event.fields.pop_back();
+    return field_end;
+  }
+  SetProtoType(field->ftrace_type, &field->proto_field_type,
+               &field->proto_field_id);
+  field->ftrace_offset = ftrace_field.offset;
+  field->ftrace_size = ftrace_field.size;
+  // Proto type is set based on ftrace type so all fields should have a
+  // translation strategy.
+  bool success = SetTranslationStrategy(
+      field->ftrace_type, field->proto_field_type, &field->strategy);
+  PERFETTO_DCHECK(success);
+  return field_end;
+}
+
+EventFilter::EventFilter() = default;
+EventFilter::~EventFilter() = default;
+
+void EventFilter::AddEnabledEvent(size_t ftrace_event_id) {
+  if (ftrace_event_id >= enabled_ids_.size())
+    enabled_ids_.resize(ftrace_event_id + 1);
+  enabled_ids_[ftrace_event_id] = true;
+}
+
+void EventFilter::DisableEvent(size_t ftrace_event_id) {
+  if (ftrace_event_id >= enabled_ids_.size())
+    return;
+  enabled_ids_[ftrace_event_id] = false;
+}
+
+bool EventFilter::IsEventEnabled(size_t ftrace_event_id) const {
+  if (ftrace_event_id == 0 || ftrace_event_id >= enabled_ids_.size())
+    return false;
+  return enabled_ids_[ftrace_event_id];
+}
+
+std::set<size_t> EventFilter::GetEnabledEvents() const {
+  std::set<size_t> enabled;
+  for (size_t i = 0; i < enabled_ids_.size(); i++) {
+    if (enabled_ids_[i]) {
+      enabled.insert(i);
+    }
+  }
+  return enabled;
+}
+
+void EventFilter::EnableEventsFrom(const EventFilter& other) {
+  size_t max_length = std::max(enabled_ids_.size(), other.enabled_ids_.size());
+  enabled_ids_.resize(max_length);
+  for (size_t i = 0; i < other.enabled_ids_.size(); i++) {
+    if (other.enabled_ids_[i])
+      enabled_ids_[i] = true;
   }
 }
 

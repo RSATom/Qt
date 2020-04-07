@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <wrl/client.h>
 
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -20,8 +21,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "base/win/com_init_util.h"
 #include "base/win/scoped_bstr.h"
-#include "base/win/scoped_com_initializer.h"
 #include "base/win/scoped_variant.h"
 #include "content/browser/accessibility/accessibility_tree_formatter_utils_win.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
@@ -70,6 +71,8 @@ class AccessibilityTreeFormatterWin : public AccessibilityTreeFormatter {
       gfx::AcceleratedWidget hwnd) override;
   std::unique_ptr<base::DictionaryValue> BuildAccessibilityTreeForProcess(
       base::ProcessId pid) override;
+  std::unique_ptr<base::DictionaryValue> BuildAccessibilityTreeForPattern(
+      const base::StringPiece& pattern) override;
   std::unique_ptr<base::DictionaryValue> BuildAccessibilityTree(
       Microsoft::WRL::ComPtr<IAccessible> start,
       LONG window_x = 0,
@@ -113,14 +116,13 @@ class AccessibilityTreeFormatterWin : public AccessibilityTreeFormatter {
   base::string16 ProcessTreeForOutput(
       const base::DictionaryValue& node,
       base::DictionaryValue* filtered_dict_result = nullptr) override;
-
-  // Initializes COM services when standalone dump events tool is used.
-  base::win::ScopedCOMInitializer com_initializer;
 };
 
 // static
-AccessibilityTreeFormatter* AccessibilityTreeFormatter::Create() {
-  return new AccessibilityTreeFormatterWin();
+std::unique_ptr<AccessibilityTreeFormatter>
+AccessibilityTreeFormatter::Create() {
+  base::win::AssertComInitialized();
+  return std::make_unique<AccessibilityTreeFormatterWin>();
 }
 
 AccessibilityTreeFormatterWin::AccessibilityTreeFormatterWin() {
@@ -283,6 +285,14 @@ AccessibilityTreeFormatterWin::BuildAccessibilityTreeForProcess(
   return BuildAccessibilityTreeForWindow(hwnd);
 }
 
+std::unique_ptr<base::DictionaryValue>
+AccessibilityTreeFormatterWin::BuildAccessibilityTreeForPattern(
+    const base::StringPiece& pattern) {
+  LOG(ERROR) << "Windows does not yet support building accessibility trees for "
+                "patterns";
+  return nullptr;
+}
+
 void AccessibilityTreeFormatterWin::RecursiveBuildAccessibilityTree(
     const Microsoft::WRL::ComPtr<IAccessible> node,
     base::DictionaryValue* dict,
@@ -431,10 +441,7 @@ void AccessibilityTreeFormatterWin::AddMSAAProperties(
   // If S_FALSE it means there is no name
   if (S_OK == node->get_accName(variant_self, temp_bstr.Receive())) {
     base::string16 name = base::string16(temp_bstr, temp_bstr.Length());
-
-    // Ignore a JAWS workaround where the name of a document is " ".
-    if (name != L" " || ia_role != ROLE_SYSTEM_DOCUMENT)
-      dict->SetString("name", name);
+    dict->SetString("name", name);
   }
   temp_bstr.Reset();
 

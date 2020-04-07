@@ -8,7 +8,8 @@
  * Native input attributes that are currently supported by cr-inputs are:
  *   autofocus
  *   disabled
- *   incremental (only applicable when type="search")
+ *   max (only applicable when type="number")
+ *   min (only applicable when type="number")
  *   maxlength
  *   minlength
  *   pattern
@@ -16,7 +17,7 @@
  *   readonly
  *   required
  *   tabindex
- *   type (only 'text', 'password', and 'search' supported)
+ *   type (only 'text', 'password', 'number', and 'search' supported)
  *   value
  *
  * Additional attributes that you can use with cr-input:
@@ -70,11 +71,19 @@ Polymer({
       reflectToAttribute: true,
     },
 
-    incremental: Boolean,
-
     invalid: {
       type: Boolean,
       value: false,
+      reflectToAttribute: true,
+    },
+
+    max: {
+      type: Number,
+      reflectToAttribute: true,
+    },
+
+    min: {
+      type: Number,
       reflectToAttribute: true,
     },
 
@@ -138,11 +147,7 @@ Polymer({
   },
 
   listeners: {
-    'input.focus': 'onInputFocus_',
-    'input.blur': 'onInputBlur_',
-    'input.change': 'onInputChange_',
-    'input.keydown': 'onInputKeydown_',
-    'focus': 'focusInput_',
+    'focus': 'onFocus_',
     'pointerdown': 'onPointerDown_',
   },
 
@@ -152,13 +157,15 @@ Polymer({
   /** @override */
   attached: function() {
     const ariaLabel = this.ariaLabel || this.label || this.placeholder;
-    if (ariaLabel)
+    if (ariaLabel) {
       this.inputElement.setAttribute('aria-label', ariaLabel);
+    }
 
     // Run this for the first time in attached instead of in disabledChanged_
     // since this.tabindex might not be set yet then.
-    if (this.disabled)
+    if (this.disabled) {
       this.reconcileTabindex_();
+    }
   },
 
   /** @return {!HTMLInputElement} */
@@ -174,8 +181,9 @@ Polymer({
 
     // Don't change tabindex until after finished attaching, since this.tabindex
     // might not be intialized yet.
-    if (previous !== undefined)
+    if (previous !== undefined) {
       this.reconcileTabindex_();
+    }
   },
 
   /**
@@ -200,23 +208,42 @@ Polymer({
    * @private
    */
   placeholderChanged_: function() {
-    if (this.placeholder || this.placeholder == '')
+    if (this.placeholder || this.placeholder == '') {
       this.inputElement.setAttribute('placeholder', this.placeholder);
-    else
+    } else {
       this.inputElement.removeAttribute('placeholder');
+    }
   },
 
   /** @private */
+  onFocus_: function() {
+    if (!this.focusInput_()) {
+      return;
+    }
+    // Always select the <input> element on focus. TODO(stevenjb/scottchen):
+    // Native <input> elements only do this for keyboard focus, not when
+    // focus() is called directly. Fix this? https://crbug.com/882612.
+    this.inputElement.select();
+  },
+
+  /**
+   * @return {boolean} Whether the <input> element was focused.
+   * @private
+   */
   focusInput_: function() {
-    if (this.shadowRoot.activeElement != this.inputElement)
-      this.inputElement.focus();
+    if (this.shadowRoot.activeElement == this.inputElement) {
+      return false;
+    }
+    this.inputElement.focus();
+    return true;
   },
 
   /** @private */
   recordAndUnsetTabIndex_: function() {
     // Don't change originalTabIndex_ if it just got changed.
-    if (this.originalTabIndex_ === null)
+    if (this.originalTabIndex_ === null) {
       this.originalTabIndex_ = this.tabindex;
+    }
 
     this.tabindex = null;
   },
@@ -235,8 +262,9 @@ Polymer({
    */
   onPointerDown_: function(e) {
     // Don't need to manipulate tabindex if cr-input is already disabled.
-    if (this.disabled)
+    if (this.disabled) {
       return;
+    }
 
     // Should not mess with tabindex when <input> is clicked, otherwise <input>
     // will lose and regain focus, and replay the focus animation.
@@ -244,8 +272,9 @@ Polymer({
       this.recordAndUnsetTabIndex_();
       setTimeout(() => {
         // Restore tabindex, unless disabled in the same cycle as pointerdown.
-        if (!this.disabled)
+        if (!this.disabled) {
           this.restoreTabIndex_();
+        }
       }, 0);
     }
   },
@@ -260,14 +289,23 @@ Polymer({
    * @private
    */
   onInputKeydown_: function(e) {
-    if (e.shiftKey && e.key === 'Tab')
+    if (e.shiftKey && e.key === 'Tab') {
       this.focus();
+    }
   },
 
-  /** @private */
-  onValueChanged_: function() {
-    if (this.autoValidate)
+  /**
+   * @param {string} newValue
+   * @param {string} oldValue
+   * @private
+   */
+  onValueChanged_: function(newValue, oldValue) {
+    if (!newValue && !oldValue) {
+      return;
+    }
+    if (this.autoValidate) {
       this.validate();
+    }
   },
 
   /**

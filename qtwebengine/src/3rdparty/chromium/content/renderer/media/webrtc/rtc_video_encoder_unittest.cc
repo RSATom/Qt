@@ -16,6 +16,7 @@
 #include "third_party/webrtc/api/video/i420_buffer.h"
 #include "third_party/webrtc/api/video_codecs/video_encoder.h"
 #include "third_party/webrtc/modules/video_coding/include/video_codec_interface.h"
+#include "third_party/webrtc/rtc_base/time_utils.h"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -77,7 +78,7 @@ class RTCVideoEncoderTest
 
     EXPECT_CALL(*mock_gpu_factories_.get(), DoCreateVideoEncodeAccelerator())
         .WillRepeatedly(Return(mock_vea));
-    EXPECT_CALL(*mock_vea, Initialize(_, _, _, _, _))
+    EXPECT_CALL(*mock_vea, Initialize(_, _))
         .WillOnce(Invoke(this, &RTCVideoEncoderTest::Initialize));
     EXPECT_CALL(*mock_vea, UseOutputBitstreamBuffer(_)).Times(AtLeast(3));
     EXPECT_CALL(*mock_vea, Destroy()).Times(1);
@@ -129,15 +130,12 @@ class RTCVideoEncoderTest
   }
 
   // media::VideoEncodeAccelerator implementation.
-  bool Initialize(media::VideoPixelFormat input_format,
-                  const gfx::Size& input_visible_size,
-                  media::VideoCodecProfile output_profile,
-                  uint32_t initial_bitrate,
+  bool Initialize(const media::VideoEncodeAccelerator::Config& config,
                   media::VideoEncodeAccelerator::Client* client) {
     DVLOG(3) << __func__;
     client_ = client;
-    client_->RequireBitstreamBuffers(0, input_visible_size,
-                                     input_visible_size.GetArea());
+    client_->RequireBitstreamBuffers(0, config.input_visible_size,
+                                     config.input_visible_size.GetArea());
     return true;
   }
 
@@ -191,7 +189,7 @@ class RTCVideoEncoderTest
                        const webrtc::CodecSpecificInfo* codec_specific_info,
                        const webrtc::RTPFragmentationHeader* fragmentation) {
     DVLOG(3) << __func__;
-    EXPECT_EQ(rtp_timestamp, encoded_image._timeStamp);
+    EXPECT_EQ(rtp_timestamp, encoded_image.Timestamp());
     EXPECT_EQ(capture_time_ms, encoded_image.capture_time_ms_);
   }
 

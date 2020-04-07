@@ -244,6 +244,9 @@ QPlatformServices *QPlatformIntegration::services() const
     \value TopStackedNativeChildWindows The platform supports native child windows via
     QWindowContainer without having to punch a transparent hole in the
     backingstore. (since 5.10)
+
+    \value OpenGLOnRasterSurface The platform supports making a QOpenGLContext current
+    in combination with a QWindow of type RasterSurface.
  */
 
 /*!
@@ -291,7 +294,7 @@ QPlatformPixmap *QPlatformIntegration::createPlatformPixmap(QPlatformPixmap::Pix
     platform implementation is responsible for querying the configuriation from the provided
     native context.
 
-    Returns a pointer to a QPlatformOpenGLContext instance or \c NULL if the context could
+    Returns a pointer to a QPlatformOpenGLContext instance or \nullptr if the context could
     not be created.
 
     \sa QOpenGLContext
@@ -462,42 +465,6 @@ QList<int> QPlatformIntegration::possibleKeys(const QKeyEvent *) const
     return QList<int>();
 }
 
-/*!
-  \deprecated Use QWindowSystemInterface::handleScreenAdded instead.
-*/
-void QPlatformIntegration::screenAdded(QPlatformScreen *ps, bool isPrimary)
-{
-    QWindowSystemInterface::handleScreenAdded(ps, isPrimary);
-}
-
-/*!
-  \deprecated Use QWindowSystemInterface::handleScreenRemoved instead.
-*/
-void QPlatformIntegration::removeScreen(QScreen *screen)
-{
-    const bool wasPrimary = (!QGuiApplicationPrivate::screen_list.isEmpty() && QGuiApplicationPrivate::screen_list.at(0) == screen);
-    QGuiApplicationPrivate::screen_list.removeOne(screen);
-
-    if (wasPrimary && qGuiApp && !QGuiApplicationPrivate::screen_list.isEmpty())
-        emit qGuiApp->primaryScreenChanged(QGuiApplicationPrivate::screen_list.at(0));
-}
-
-/*!
-  \deprecated Use QWindowSystemInterface::handleScreenRemoved instead.
-*/
-void QPlatformIntegration::destroyScreen(QPlatformScreen *platformScreen)
-{
-    QWindowSystemInterface::handleScreenRemoved(platformScreen);
-}
-
-/*!
-  \deprecated Use QWindowSystemInterface::handlePrimaryScreenChanged instead.
-*/
-void QPlatformIntegration::setPrimaryScreen(QPlatformScreen *newPrimary)
-{
-    QWindowSystemInterface::handlePrimaryScreenChanged(newPrimary);
-}
-
 QStringList QPlatformIntegration::themeNames() const
 {
     return QStringList();
@@ -602,7 +569,7 @@ void QPlatformIntegration::setApplicationIcon(const QIcon &icon) const
     pointer to the instance for which a platform-specific backend needs to be
     created.
 
-    Returns a pointer to a QPlatformOpenGLContext instance or \c NULL if the context could
+    Returns a pointer to a QPlatformOpenGLContext instance or \nullptr if the context could
     not be created.
 
     \sa QVulkanInstance

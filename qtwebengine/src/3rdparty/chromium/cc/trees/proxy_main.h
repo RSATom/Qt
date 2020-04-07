@@ -11,6 +11,10 @@
 #include "cc/trees/proxy.h"
 #include "cc/trees/proxy_common.h"
 
+namespace viz {
+class LocalSurfaceIdAllocation;
+}
+
 namespace cc {
 
 class MutatorEvents;
@@ -18,6 +22,7 @@ class CompletionEvent;
 class LayerTreeFrameSink;
 class LayerTreeHost;
 class LayerTreeMutator;
+class PaintWorkletLayerPainter;
 class ProxyImpl;
 class RenderFrameMetadataObserver;
 
@@ -56,6 +61,8 @@ class CC_EXPORT ProxyMain : public Proxy {
       uint32_t frame_token,
       std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
       const gfx::PresentationFeedback& feedback);
+  void DidGenerateLocalSurfaceIdAllocation(
+      const viz::LocalSurfaceIdAllocation& allocation);
 
   CommitPipelineStage max_requested_pipeline_stage() const {
     return max_requested_pipeline_stage_;
@@ -81,12 +88,14 @@ class CC_EXPORT ProxyMain : public Proxy {
   void SetNextCommitWaitsForActivation() override;
   bool RequestedAnimatePending() override;
   void NotifyInputThrottledUntilCommit() override;
-  void SetDeferCommits(bool defer_commits) override;
+  void SetDeferMainFrameUpdate(bool defer_main_frame_update) override;
   bool CommitRequested() const override;
   void Start() override;
   void Stop() override;
   bool SupportsImplScrolling() const override;
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
+  void SetPaintWorkletLayerPainter(
+      std::unique_ptr<PaintWorkletLayerPainter> painter) override;
   bool MainFrameWillHappenForTesting() override;
   void ReleaseLayerTreeFrameSink() override;
   void UpdateBrowserControlsState(BrowserControlsState constraints,
@@ -134,7 +143,7 @@ class CC_EXPORT ProxyMain : public Proxy {
   // stopped using Proxy::Stop().
   bool started_;
 
-  bool defer_commits_;
+  bool defer_main_frame_update_;
 
   // ProxyImpl is created and destroyed on the impl thread, and should only be
   // accessed on the impl thread.

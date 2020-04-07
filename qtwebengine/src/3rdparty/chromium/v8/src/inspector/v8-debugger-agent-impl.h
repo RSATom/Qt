@@ -96,8 +96,6 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
   Response stepOver() override;
   Response stepInto(Maybe<bool> inBreakOnAsyncCall) override;
   Response stepOut() override;
-  void scheduleStepIntoAsync(
-      std::unique_ptr<ScheduleStepIntoAsyncCallback> callback) override;
   Response pauseOnAsyncCall(std::unique_ptr<protocol::Runtime::StackTraceId>
                                 inParentStackTraceId) override;
   Response setPauseOnExceptions(const String16& pauseState) override;
@@ -142,8 +140,8 @@ class V8DebuggerAgentImpl : public protocol::Debugger::Backend {
   // Interface for V8InspectorImpl
   void didPause(int contextId, v8::Local<v8::Value> exception,
                 const std::vector<v8::debug::BreakpointId>& hitBreakpoints,
-                bool isPromiseRejection, bool isUncaught, bool isOOMBreak,
-                bool isAssert);
+                v8::debug::ExceptionType exceptionType, bool isUncaught,
+                bool isOOMBreak, bool isAssert);
   void didContinue();
   void didParseSource(std::unique_ptr<V8DebuggerScript>, bool success);
 

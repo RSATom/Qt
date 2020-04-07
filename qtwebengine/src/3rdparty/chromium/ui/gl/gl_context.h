@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/cancellation_flag.h"
+#include "build/build_config.h"
 #include "ui/gfx/extension_set.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_share_group.h"
@@ -96,7 +97,7 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
 
   // Initializes the GL context to be compatible with the given surface. The GL
   // context can be made with other surface's of the same type. The compatible
-  // surface is only needed for certain platforms like WGL, OSMesa and GLX. It
+  // surface is only needed for certain platforms like WGL and GLX. It
   // should be specific for all platforms though.
   virtual bool Initialize(GLSurface* compatible_surface,
                           const GLContextAttribs& attribs) = 0;
@@ -158,7 +159,12 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   // Returns the last GLContext made current, virtual or real.
   static GLContext* GetCurrent();
 
-  virtual bool WasAllocatedUsingRobustnessExtension();
+  // Returns the 'sticky' value of glGetGraphicsResetStatus, if available.
+  // 'sticky' implies that if glGetGraphicsResetStatus ever returns a value
+  // other than GL_NO_ERROR, that value is returned until the context is
+  // destroyed.
+  // The context must be current.
+  virtual unsigned int CheckStickyGraphicsResetStatus();
 
   // Make this context current when used for context virtualization.
   bool MakeVirtuallyCurrent(GLContext* virtual_context, GLSurface* surface);
@@ -193,7 +199,19 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   // current.
   virtual void ForceReleaseVirtuallyCurrent();
 
+  // Indicates that some GL state was modified that was not tracked by virtual
+  // contexts. Forces full reset from unknown state the next time a virtual
+  // context is made current.
+  void DirtyVirtualContextState();
+
 #if defined(OS_MACOSX)
+  // Create a fence for all work submitted to this context so far, and return a
+  // monotonically increasing handle to it. This returned handle never needs to
+  // be freed. This method is used to create backpressure to throttle GL work
+  // on macOS, so that we do not starve CoreAnimation.
+  virtual uint64_t BackpressureFenceCreate();
+  // Perform a client-side wait on a previously-created fence.
+  virtual void BackpressureFenceWait(uint64_t fence);
   // Flush the underlying context to avoid crashes due to driver bugs on macOS.
   // https://crbug.com/863817
   virtual void FlushForDriverCrashWorkaround();

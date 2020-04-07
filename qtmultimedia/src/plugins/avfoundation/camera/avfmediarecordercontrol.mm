@@ -294,6 +294,8 @@ void AVFMediaRecorderControl::setState(QMediaRecorder::State state)
             m_recordingFinished = false;
 
             Q_EMIT actualLocationChanged(actualLocation);
+            updateStatus();
+            Q_EMIT stateChanged(m_state);
         } else {
             Q_EMIT error(QMediaRecorder::FormatError, tr("Recorder not configured"));
         }
@@ -312,10 +314,6 @@ void AVFMediaRecorderControl::setState(QMediaRecorder::State state)
         unapplySettings();
     }
     }
-
-    updateStatus();
-    if (state != m_state)
-        Q_EMIT stateChanged(m_state);
 }
 
 void AVFMediaRecorderControl::setMuted(bool muted)
@@ -394,7 +392,7 @@ void AVFMediaRecorderControl::setupSessionForCapture()
                 qWarning() << "Failed to create audio device input";
             } else if (![captureSession canAddInput:m_audioInput]) {
                 qWarning() << "Could not connect the audio input";
-                m_audioInput = 0;
+                m_audioInput = nullptr;
             } else {
                 [m_audioInput retain];
                 [captureSession addInput:m_audioInput];

@@ -7,22 +7,26 @@
 #ifndef FXJS_XFA_CJX_WSDLCONNECTION_H_
 #define FXJS_XFA_CJX_WSDLCONNECTION_H_
 
-#include "fxjs/cjx_define.h"
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_WsdlConnection;
 
-class CJX_WsdlConnection : public CJX_Node {
+class CJX_WsdlConnection final : public CJX_Node {
  public:
   explicit CJX_WsdlConnection(CXFA_WsdlConnection* connection);
   ~CJX_WsdlConnection() override;
 
-  JS_METHOD(execute, CJX_WsdlConnection);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
 
-  JS_PROP(dataDescription);
-  JS_PROP(execute);
+  JSE_METHOD(execute);
 
  private:
+  using Type__ = CJX_WsdlConnection;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::WsdlConnection;
   static const CJX_MethodSpec MethodSpecs[];
 };
 

@@ -41,9 +41,7 @@
 namespace blink {
 
 HTMLImportsController::HTMLImportsController(Document& master)
-    : root_(HTMLImportTreeRoot::Create(&master)) {
-  UseCounter::Count(master, WebFeature::kHTMLImports);
-}
+    : root_(HTMLImportTreeRoot::Create(&master)) {}
 
 void HTMLImportsController::Dispose() {
   // TODO(tkent): We copy loaders_ before iteration to avoid crashes.
@@ -86,7 +84,8 @@ HTMLImportChild* HTMLImportsController::CreateChild(
                       WebFeature::kHTMLImportsAsyncAttribute);
   }
 
-  HTMLImportChild* child = new HTMLImportChild(url, loader, client, mode);
+  HTMLImportChild* child =
+      MakeGarbageCollected<HTMLImportChild>(url, loader, client, mode);
   parent->AppendImport(child);
   loader->AddImport(child);
   return root_->Add(child);
@@ -149,7 +148,7 @@ HTMLImportLoader* HTMLImportsController::LoaderFor(
   return nullptr;
 }
 
-void HTMLImportsController::Trace(blink::Visitor* visitor) {
+void HTMLImportsController::Trace(Visitor* visitor) {
   visitor->Trace(root_);
   visitor->Trace(loaders_);
 }

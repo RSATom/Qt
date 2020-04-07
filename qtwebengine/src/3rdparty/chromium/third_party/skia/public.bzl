@@ -5,68 +5,69 @@
 is_bazel = not hasattr(native, "genmpm")
 
 def portable_select(select_dict, bazel_condition, default_condition):
-  """Replaces select() with a Bazel-friendly wrapper.
+    """Replaces select() with a Bazel-friendly wrapper.
 
-  Args:
-    select_dict: Dictionary in the same format as select().
-  Returns:
-    If Blaze platform, returns select() using select_dict.
-    If Bazel platform, returns dependencies for condition
-        bazel_condition, or empty list if none specified.
-  """
-  if is_bazel:
-    return select_dict.get(bazel_condition, select_dict[default_condition])
-  else:
-    return select(select_dict)
+    Args:
+      select_dict: Dictionary in the same format as select().
+    Returns:
+      If Blaze platform, returns select() using select_dict.
+      If Bazel platform, returns dependencies for condition
+          bazel_condition, or empty list if none specified.
+    """
+    if is_bazel:
+        return select_dict.get(bazel_condition, select_dict[default_condition])
+    else:
+        return select(select_dict)
 
 def skia_select(conditions, results):
-  """Replaces select() for conditions [UNIX, ANDROID, IOS]
+    """Replaces select() for conditions [UNIX, ANDROID, IOS]
 
-  Args:
-    conditions: [CONDITION_UNIX, CONDITION_ANDROID, CONDITION_IOS]
-    results: [RESULT_UNIX, RESULT_ANDROID, RESULT_IOS]
-  Returns:
-    The result matching the platform condition.
-  """
-  if len(conditions) != 3 or len(results) != 3:
-    fail("Must provide exactly 3 conditions and 3 results")
+    Args:
+      conditions: [CONDITION_UNIX, CONDITION_ANDROID, CONDITION_IOS]
+      results: [RESULT_UNIX, RESULT_ANDROID, RESULT_IOS]
+    Returns:
+      The result matching the platform condition.
+    """
+    if len(conditions) != 3 or len(results) != 3:
+        fail("Must provide exactly 3 conditions and 3 results")
 
-  selector = {}
-  for i in range(3):
-    selector[conditions[i]] = results[i]
-  return portable_select(selector, conditions[2], conditions[0])
+    selector = {}
+    for i in range(3):
+        selector[conditions[i]] = results[i]
+    return portable_select(selector, conditions[2], conditions[0])
 
 def skia_glob(srcs):
-  """Replaces glob() with a version that accepts a struct.
+    """Replaces glob() with a version that accepts a struct.
 
-  Args:
-    srcs: struct(include=[], exclude=[])
-  Returns:
-    Equivalent of glob(srcs.include, exclude=srcs.exclude)
-  """
-  if hasattr(srcs, 'include'):
-    if hasattr(srcs, 'exclude'):
-      return native.glob(srcs.include, exclude=srcs.exclude)
-    else:
-      return native.glob(srcs.include)
-  return []
+    Args:
+      srcs: struct(include=[], exclude=[])
+    Returns:
+      Equivalent of glob(srcs.include, exclude=srcs.exclude)
+    """
+    if hasattr(srcs, "include"):
+        if hasattr(srcs, "exclude"):
+            return native.glob(srcs.include, exclude = srcs.exclude)
+        else:
+            return native.glob(srcs.include)
+    return []
 
 ################################################################################
 ## skia_{all,public}_hdrs()
 ################################################################################
 def skia_all_hdrs():
-  return native.glob([
-      "src/**/*.h",
-      "include/**/*.h",
-      "third_party/**/*.h",
-  ])
+    return native.glob([
+        "src/**/*.h",
+        "include/**/*.h",
+        "third_party/**/*.h",
+    ])
 
 def skia_public_hdrs():
-  return native.glob(["include/**/*.h"],
-                     exclude=[
-                         "include/private/**/*",
-                         "include/views/**/*",  # Not used.
-                     ])
+    return native.glob(
+        ["include/**/*.h"],
+        exclude = [
+            "include/private/**/*",
+        ],
+    )
 
 ################################################################################
 ## skia_opts_srcs()
@@ -90,64 +91,64 @@ SKIA_OPTS_NEON = "NEON"
 SKIA_OPTS_CRC32 = "CRC32"  # arm64
 
 def opts_srcs(opts):
-  if opts == SKIA_OPTS_SSE2:
-    return native.glob([
-        "src/opts/*_SSE2.cpp",
-        "src/opts/*_sse2.cpp",  # No matches currently.
-    ])
-  elif opts == SKIA_OPTS_SSSE3:
-    return native.glob([
-        "src/opts/*_SSSE3.cpp",
-        "src/opts/*_ssse3.cpp",
-    ])
-  elif opts == SKIA_OPTS_SSE41:
-    return native.glob([
-        "src/opts/*_sse41.cpp",
-    ])
-  elif opts == SKIA_OPTS_SSE42:
-    return native.glob([
-        "src/opts/*_sse42.cpp",
-    ])
-  elif opts == SKIA_OPTS_AVX:
-    return native.glob([
-        "src/opts/*_avx.cpp",
-    ])
-  elif opts == SKIA_OPTS_HSW:
-    return native.glob([
-        "src/opts/*_hsw.cpp",
-    ])
-  elif opts == SKIA_OPTS_NEON:
-    return native.glob([
-        "src/opts/*_neon.cpp",
-    ])
-  elif opts == SKIA_OPTS_CRC32:
-    return native.glob([
-        "src/opts/*_crc32.cpp",
-    ])
-  else:
-    fail("skia_opts_srcs parameter 'opts' must be one of SKIA_OPTS_*.")
+    if opts == SKIA_OPTS_SSE2:
+        return native.glob([
+            "src/opts/*_SSE2.cpp",
+            "src/opts/*_sse2.cpp",  # No matches currently.
+        ])
+    elif opts == SKIA_OPTS_SSSE3:
+        return native.glob([
+            "src/opts/*_SSSE3.cpp",
+            "src/opts/*_ssse3.cpp",
+        ])
+    elif opts == SKIA_OPTS_SSE41:
+        return native.glob([
+            "src/opts/*_sse41.cpp",
+        ])
+    elif opts == SKIA_OPTS_SSE42:
+        return native.glob([
+            "src/opts/*_sse42.cpp",
+        ])
+    elif opts == SKIA_OPTS_AVX:
+        return native.glob([
+            "src/opts/*_avx.cpp",
+        ])
+    elif opts == SKIA_OPTS_HSW:
+        return native.glob([
+            "src/opts/*_hsw.cpp",
+        ])
+    elif opts == SKIA_OPTS_NEON:
+        return native.glob([
+            "src/opts/*_neon.cpp",
+        ])
+    elif opts == SKIA_OPTS_CRC32:
+        return native.glob([
+            "src/opts/*_crc32.cpp",
+        ])
+    else:
+        fail("skia_opts_srcs parameter 'opts' must be one of SKIA_OPTS_*.")
 
 def opts_cflags(opts):
-  if opts == SKIA_OPTS_SSE2:
-    return ["-msse2"]
-  elif opts == SKIA_OPTS_SSSE3:
-    return ["-mssse3"]
-  elif opts == SKIA_OPTS_SSE41:
-    return ["-msse4.1"]
-  elif opts == SKIA_OPTS_SSE42:
-    return ["-msse4.2"]
-  elif opts == SKIA_OPTS_AVX:
-    return ["-mavx"]
-  elif opts == SKIA_OPTS_HSW:
-    return ["-mavx2", "-mf16c", "-mfma"]
-  elif opts == SKIA_OPTS_NEON:
-    return ["-mfpu=neon"]
-  elif opts == SKIA_OPTS_CRC32:
-    # NDK r11's Clang (3.8) doesn't pass along this -march setting correctly to an external
-    # assembler, so we do it manually with -Wa.  This is just a bug, fixed in later Clangs.
-    return ["-march=armv8-a+crc", "-Wa,-march=armv8-a+crc"]
-  else:
-    return []
+    if opts == SKIA_OPTS_SSE2:
+        return ["-msse2"]
+    elif opts == SKIA_OPTS_SSSE3:
+        return ["-mssse3"]
+    elif opts == SKIA_OPTS_SSE41:
+        return ["-msse4.1"]
+    elif opts == SKIA_OPTS_SSE42:
+        return ["-msse4.2"]
+    elif opts == SKIA_OPTS_AVX:
+        return ["-mavx"]
+    elif opts == SKIA_OPTS_HSW:
+        return ["-mavx2", "-mf16c", "-mfma"]
+    elif opts == SKIA_OPTS_NEON:
+        return ["-mfpu=neon"]
+    elif opts == SKIA_OPTS_CRC32:
+        # NDK r11's Clang (3.8) doesn't pass along this -march setting correctly to an external
+        # assembler, so we do it manually with -Wa.  This is just a bug, fixed in later Clangs.
+        return ["-march=armv8-a+crc", "-Wa,-march=armv8-a+crc"]
+    else:
+        return []
 
 SKIA_CPU_ARM = "ARM"
 
@@ -158,50 +159,50 @@ SKIA_CPU_X86 = "X86"
 SKIA_CPU_OTHER = "OTHER"
 
 def opts_rest_srcs(cpu):
-  srcs = []
-  if cpu == SKIA_CPU_ARM or cpu == SKIA_CPU_ARM64:
-    srcs += native.glob([
-        "src/opts/*_arm.cpp",
-        "src/opts/SkBitmapProcState_opts_none.cpp",
-    ])
-    if cpu == SKIA_CPU_ARM64:
-      # NEON doesn't need special flags to compile on ARM64.
-      srcs += native.glob([
-          "src/opts/*_neon.cpp",
-      ])
-  elif cpu == SKIA_CPU_X86:
-    srcs += native.glob([
-        "src/opts/*_x86.cpp",
-    ])
-  elif cpu == SKIA_CPU_OTHER:
-    srcs += native.glob([
-        "src/opts/*_none.cpp",
-    ])
-  else:
-    fail("opts_rest_srcs parameter 'cpu' must be one of " +
-         "SKIA_CPU_{ARM,ARM64,X86,OTHER}.")
-  return srcs
+    srcs = []
+    if cpu == SKIA_CPU_ARM or cpu == SKIA_CPU_ARM64:
+        srcs += native.glob([
+            "src/opts/*_arm.cpp",
+            "src/opts/SkBitmapProcState_opts_none.cpp",
+        ])
+        if cpu == SKIA_CPU_ARM64:
+            # NEON doesn't need special flags to compile on ARM64.
+            srcs += native.glob([
+                "src/opts/*_neon.cpp",
+            ])
+    elif cpu == SKIA_CPU_X86:
+        srcs += native.glob([
+            "src/opts/*_x86.cpp",
+        ])
+    elif cpu == SKIA_CPU_OTHER:
+        srcs += native.glob([
+            "src/opts/*_none.cpp",
+        ])
+    else:
+        fail("opts_rest_srcs parameter 'cpu' must be one of " +
+             "SKIA_CPU_{ARM,ARM64,X86,OTHER}.")
+    return srcs
 
 def skia_opts_deps(cpu):
-  res = [":opts_rest"]
+    res = [":opts_rest"]
 
-  if cpu == SKIA_CPU_ARM:
-    res += [":opts_neon"]
+    if cpu == SKIA_CPU_ARM:
+        res += [":opts_neon"]
 
-  if cpu == SKIA_CPU_ARM64:
-    res += [":opts_crc32"]
+    if cpu == SKIA_CPU_ARM64:
+        res += [":opts_crc32"]
 
-  if cpu == SKIA_CPU_X86:
-    res += [
-        ":opts_sse2",
-        ":opts_ssse3",
-        ":opts_sse41",
-        ":opts_sse42",
-        ":opts_avx",
-        ":opts_hsw",
-    ]
+    if cpu == SKIA_CPU_X86:
+        res += [
+            ":opts_sse2",
+            ":opts_ssse3",
+            ":opts_sse41",
+            ":opts_sse42",
+            ":opts_avx",
+            ":opts_hsw",
+        ]
 
-  return res
+    return res
 
 ################################################################################
 ## BASE_SRCS
@@ -214,11 +215,6 @@ BASE_SRCS_ALL = struct(
         "src/**/*.h",
         "src/**/*.cpp",
         "src/**/*.inc",
-        "src/jumper/SkJumper_generated.S",
-
-        # Third Party
-        "third_party/gif/*.cpp",
-        "third_party/gif/*.h",
     ],
     exclude = [
         # Exclude platform-dependent files.
@@ -237,14 +233,13 @@ BASE_SRCS_ALL = struct(
         "src/utils/android/**/*",
         "src/utils/mac/**/*",
         "src/utils/win/**/*",
-        "src/views/sdl/*",
-        "src/views/win/*",
-        "src/views/unix/*",
 
         # Exclude multiple definitions.
-        # TODO(mtklein): Move to opts?
-        "src/pdf/SkDocument_PDF_None.cpp",  # We use src/pdf/SkPDFDocument.cpp.
+        "src/core/SkPicture_none.cpp",
+        "src/gpu/GrPathRendering_none.cpp",
+        "src/gpu/ccpr/GrCoverageCountingPathRenderer_none.cpp",
         "src/gpu/gl/GrGLMakeNativeInterface_none.cpp",
+        "src/pdf/SkDocument_PDF_None.cpp",  # We use src/pdf/SkPDFDocument.cpp.
 
         # Exclude files that don't compile everywhere.
         "src/svg/**/*",  # Depends on xml, SkJpegCodec, and SkPngCodec.
@@ -252,9 +247,6 @@ BASE_SRCS_ALL = struct(
 
         # Conflicting dependencies among Lua versions. See cl/107087297.
         "src/utils/SkLua*",
-
-        # Not used.
-        "src/views/**/*",
 
         # Currently exclude all vulkan specific files
         "src/gpu/vk/*",
@@ -268,25 +260,23 @@ BASE_SRCS_ALL = struct(
         # Atlas text
         "src/atlastext/*",
 
-        # Not time for skcms in Google3 yet.
-        "src/core/SkColorSpaceXform_skcms.cpp",
-
         # Compute backend not yet even hooked into Skia.
-	"src/compute/**/*",
+        "src/compute/**/*",
     ],
 )
 
 def codec_srcs(limited):
-  """Sources for the codecs. Excludes Ico, Webp, Png, and Raw if limited."""
-  exclude = []
-  if limited:
-    exclude += [
-        "src/codec/*Ico*.cpp",
-        "src/codec/*Webp*.cpp",
-        "src/codec/*Png*",
-        "src/codec/*Raw*.cpp",
-    ]
-  return native.glob(["src/codec/*.cpp"], exclude = exclude)
+    """Sources for the codecs. Excludes Raw, and Ico, Webp, and Png if limited."""
+
+    # TODO: Enable wuffs in Google3
+    exclude = ["src/codec/SkWuffsCodec.cpp", "src/codec/*Raw*.cpp"]
+    if limited:
+        exclude += [
+            "src/codec/*Ico*.cpp",
+            "src/codec/*Webp*.cpp",
+            "src/codec/*Png*",
+        ]
+    return native.glob(["src/codec/*.cpp", "third_party/etc1/*.cpp", "third_party/gif/*.cpp"], exclude = exclude)
 
 # Platform-dependent SRCS for google3-default platform.
 BASE_SRCS_UNIX = struct(
@@ -310,8 +300,7 @@ BASE_SRCS_UNIX = struct(
         "src/ports/SkFontMgr_empty_factory.cpp",
         "src/ports/SkFontMgr_fontconfig.cpp",
         "src/ports/SkFontMgr_fontconfig_factory.cpp",
-        "src/ports/SkGlobalInitialization_none.cpp",
-        "src/ports/SkGlobalInitialization_none_imagefilters.cpp",
+        "src/ports/SkFontMgr_fuchsia.cpp",
         "src/ports/SkImageGenerator_none.cpp",
         "src/ports/SkTLS_none.cpp",
     ],
@@ -320,8 +309,7 @@ BASE_SRCS_UNIX = struct(
 # Platform-dependent SRCS for google3-default Android.
 BASE_SRCS_ANDROID = struct(
     include = [
-        "src/gpu/gl/GrGLMakeNativeInterface_none.cpp",
-        # TODO(benjaminwagner): Figure out how to compile with EGL.
+        "src/gpu/gl/android/*.cpp",
         "src/ports/**/*.cpp",
         "src/ports/**/*.h",
     ],
@@ -340,8 +328,7 @@ BASE_SRCS_ANDROID = struct(
         "src/ports/SkFontMgr_custom_embedded_factory.cpp",
         "src/ports/SkFontMgr_custom_empty_factory.cpp",
         "src/ports/SkFontMgr_empty_factory.cpp",
-        "src/ports/SkGlobalInitialization_none.cpp",
-        "src/ports/SkGlobalInitialization_none_imagefilters.cpp",
+        "src/ports/SkFontMgr_fuchsia.cpp",
         "src/ports/SkImageGenerator_none.cpp",
         "src/ports/SkTLS_none.cpp",
     ],
@@ -373,8 +360,7 @@ BASE_SRCS_IOS = struct(
         "src/ports/SkFontMgr_custom_embedded_factory.cpp",
         "src/ports/SkFontMgr_custom_empty_factory.cpp",
         "src/ports/SkFontMgr_empty_factory.cpp",
-        "src/ports/SkGlobalInitialization_none.cpp",
-        "src/ports/SkGlobalInitialization_none_imagefilters.cpp",
+        "src/ports/SkFontMgr_fuchsia.cpp",
         "src/ports/SkImageGenerator_none.cpp",
         "src/ports/SkTLS_none.cpp",
     ],
@@ -384,15 +370,15 @@ BASE_SRCS_IOS = struct(
 ## skia_srcs()
 ################################################################################
 def skia_srcs(os_conditions):
-  """Sources to be compiled into the skia library."""
-  return skia_glob(BASE_SRCS_ALL) + skia_select(
-      os_conditions,
-      [
-          skia_glob(BASE_SRCS_UNIX),
-          skia_glob(BASE_SRCS_ANDROID),
-          skia_glob(BASE_SRCS_IOS),
-      ],
-  )
+    """Sources to be compiled into the skia library."""
+    return skia_glob(BASE_SRCS_ALL) + skia_select(
+        os_conditions,
+        [
+            skia_glob(BASE_SRCS_UNIX),
+            skia_glob(BASE_SRCS_ANDROID),
+            skia_glob(BASE_SRCS_IOS),
+        ],
+    )
 
 ################################################################################
 ## INCLUDES
@@ -405,6 +391,7 @@ INCLUDES = [
     "include/codec",
     "include/config",
     "include/core",
+    "include/docs",
     "include/effects",
     "include/encode",
     "include/gpu",
@@ -424,8 +411,10 @@ INCLUDES = [
     "src/ports",
     "src/sfnt",
     "src/shaders",
+    "src/shaders/gradients",
     "src/sksl",
     "src/utils",
+    "third_party/etc1",
     "third_party/gif",
 ]
 
@@ -437,6 +426,8 @@ DM_SRCS_ALL = struct(
     include = [
         "dm/*.cpp",
         "dm/*.h",
+        "experimental/pipe/*.cpp",
+        "experimental/pipe/*.h",
         "experimental/svg/model/*.cpp",
         "experimental/svg/model/*.h",
         "gm/*.cpp",
@@ -481,8 +472,6 @@ DM_SRCS_ALL = struct(
         "tools/fonts/test_font_index.inc",
         "tools/gpu/**/*.cpp",
         "tools/gpu/**/*.h",
-        "tools/picture_utils.cpp",
-        "tools/picture_utils.h",
         "tools/random_parse_path.cpp",
         "tools/random_parse_path.h",
         "tools/sk_pixel_iter.h",
@@ -515,15 +504,15 @@ DM_SRCS_ALL = struct(
 ################################################################################
 
 def dm_srcs(os_conditions):
-  """Sources for the dm binary for the specified os."""
-  return skia_glob(DM_SRCS_ALL) + skia_select(
-      os_conditions,
-      [
-          [],
-          ["tests/FontMgrAndroidParserTest.cpp"],
-          [],
-      ],
-  )
+    """Sources for the dm binary for the specified os."""
+    return skia_glob(DM_SRCS_ALL) + skia_select(
+        os_conditions,
+        [
+            [],
+            ["tests/FontMgrAndroidParserTest.cpp"],
+            [],
+        ],
+    )
 
 ################################################################################
 ## DM_INCLUDES
@@ -532,6 +521,7 @@ def dm_srcs(os_conditions):
 DM_INCLUDES = [
     "dm",
     "gm",
+    "experimental/pipe",
     "experimental/svg/model",
     "src/codec",
     "src/core",
@@ -559,111 +549,152 @@ DM_INCLUDES = [
 ################################################################################
 
 def DM_ARGS(asan):
-  source = ["tests", "gm", "image"]
-  # TODO(benjaminwagner): f16, pic-8888, serialize-8888, and tiles_rt-8888 fail.
-  config = ["565", "8888", "pdf"]
-  match = ["~Codec_78329453"]
-  return (["--src"] + source + ["--config"] + config + ["--nonativeFonts"] +
-          ["--match"] + match)
+    source = ["gm", "image", "lottie"]
+
+    # TODO(benjaminwagner): f16, pic-8888, serialize-8888, and tiles_rt-8888 fail.
+    config = ["565", "8888", "pdf"]
+    match = ["~Codec_78329453"]
+    return (["--src"] + source + ["--config"] + config + ["--nonativeFonts"] +
+            ["--match"] + match)
 
 ################################################################################
 ## COPTS
 ################################################################################
 
 def base_copts(os_conditions):
-  return skia_select(
-      os_conditions,
-      [
-          # UNIX
-          [
-              "-Wno-implicit-fallthrough",  # Some intentional fallthrough.
-              # Internal use of deprecated methods. :(
-              "-Wno-deprecated-declarations",
-              # TODO(kjlubick)
-              "-Wno-self-assign",  # Spurious warning in tests/PathOpsDVectorTest.cpp?
-          ],
-          # ANDROID
-          [
-              # 'GrResourceCache' declared with greater visibility than the
-              # type of its field 'GrResourceCache::fPurgeableQueue'... bogus.
-              "-Wno-error=attributes",
-          ],
-          # IOS
-          [],
-      ],
-  )
+    return skia_select(
+        os_conditions,
+        [
+            # UNIX
+            [
+                "-Wno-implicit-fallthrough",  # Some intentional fallthrough.
+                # Internal use of deprecated methods. :(
+                "-Wno-deprecated-declarations",
+                # TODO(kjlubick)
+                "-Wno-self-assign",  # Spurious warning in tests/PathOpsDVectorTest.cpp?
+            ],
+            # ANDROID
+            [
+                "-Wno-implicit-fallthrough",  # Some intentional fallthrough.
+                # 'GrResourceCache' declared with greater visibility than the
+                # type of its field 'GrResourceCache::fPurgeableQueue'... bogus.
+                "-Wno-error=attributes",
+            ],
+            # IOS
+            [
+                "-Wno-implicit-fallthrough",  # Some intentional fallthrough.
+            ],
+        ],
+    )
 
 ################################################################################
 ## DEFINES
 ################################################################################
 
 def base_defines(os_conditions):
-  return [
-      # Chrome DEFINES.
-      "SK_USE_FREETYPE_EMBOLDEN",
-      # Turn on a few Google3-specific build fixes.
-      "SK_BUILD_FOR_GOOGLE3",
-      # Required for building dm.
-      "GR_TEST_UTILS",
-      # Staging flags for API changes
-      # Should remove after we update golden images
-      "SK_WEBP_ENCODER_USE_DEFAULT_METHOD",
-      # Experiment to diagnose image diffs in Google3
-      "SK_JUMPER_DISABLE_8BIT",
-      # JPEG is in codec_limited
-      "SK_HAS_JPEG_LIBRARY",
-  ] + skia_select(
-      os_conditions,
-      [
-          # UNIX
-          [
-              "PNG_SKIP_SETJMP_CHECK",
-              "SK_BUILD_FOR_UNIX",
-              "SK_SAMPLES_FOR_X",
-              "SK_PDF_USE_SFNTLY",
-              "SK_CODEC_DECODES_RAW",
-              "SK_HAS_PNG_LIBRARY",
-              "SK_HAS_WEBP_LIBRARY",
-          ],
-          # ANDROID
-          [
-              "SK_BUILD_FOR_ANDROID",
-              "SK_CODEC_DECODES_RAW",
-              "SK_HAS_PNG_LIBRARY",
-              "SK_HAS_WEBP_LIBRARY",
-          ],
-          # IOS
-          [
-              "SK_BUILD_FOR_IOS",
-              "SK_BUILD_NO_OPTS",
-              "SKNX_NO_SIMD",
-          ],
-      ],
-  )
+    return [
+        # Chrome DEFINES.
+        "SK_USE_FREETYPE_EMBOLDEN",
+        # Turn on a few Google3-specific build fixes.
+        "SK_BUILD_FOR_GOOGLE3",
+        # Required for building dm.
+        "GR_TEST_UTILS",
+        # Staging flags for API changes
+        # Should remove after we update golden images
+        "SK_WEBP_ENCODER_USE_DEFAULT_METHOD",
+        # Experiment to diagnose image diffs in Google3
+        "SK_DISABLE_LOWP_RASTER_PIPELINE",
+        # JPEG is in codec_limited
+        "SK_HAS_JPEG_LIBRARY",
+    ] + skia_select(
+        os_conditions,
+        [
+            # UNIX
+            [
+                "PNG_SKIP_SETJMP_CHECK",
+                "SK_BUILD_FOR_UNIX",
+                "SK_SAMPLES_FOR_X",
+                "SK_PDF_USE_SFNTLY",
+                "SK_HAS_PNG_LIBRARY",
+                "SK_HAS_WEBP_LIBRARY",
+            ],
+            # ANDROID
+            [
+                "SK_BUILD_FOR_ANDROID",
+                "SK_HAS_PNG_LIBRARY",
+                "SK_HAS_WEBP_LIBRARY",
+            ],
+            # IOS
+            [
+                "SK_BUILD_FOR_IOS",
+                "SK_BUILD_NO_OPTS",
+                "SKNX_NO_SIMD",
+            ],
+        ],
+    )
 
 ################################################################################
 ## LINKOPTS
 ################################################################################
 
 def base_linkopts(os_conditions):
-  return [
-      "-ldl",
-  ] + skia_select(
-      os_conditions,
-      [
-          # UNIX
-          [],
-          # ANDROID
-          [
-              "-lEGL",
-          ],
-          # IOS
-          [
-              "-framework CoreFoundation",
-              "-framework CoreGraphics",
-              "-framework CoreText",
-              "-framework ImageIO",
-              "-framework MobileCoreServices",
-          ],
-      ]
-  )
+    return [
+        "-ldl",
+    ] + skia_select(
+        os_conditions,
+        [
+            # UNIX
+            [],
+            # ANDROID
+            [
+                "-lEGL",
+                "-lGLESv2",
+            ],
+            # IOS
+            [
+                "-framework CoreFoundation",
+                "-framework CoreGraphics",
+                "-framework CoreText",
+                "-framework ImageIO",
+                "-framework MobileCoreServices",
+            ],
+        ],
+    )
+
+################################################################################
+## skottie_tool
+################################################################################
+
+SKOTTIE_TOOL_INCLUDES = [
+    "modules/skottie/utils",
+    "tools/flags",
+]
+
+SKOTTIE_TOOL_SRCS = [
+    "modules/skottie/src/SkottieTool.cpp",
+    "modules/skottie/utils/SkottieUtils.cpp",
+    "modules/skottie/utils/SkottieUtils.h",
+    # TODO(benjaminwagner): Add "flags" target.
+    "tools/flags/SkCommandLineFlags.cpp",
+    "tools/flags/SkCommandLineFlags.h",
+]
+
+################################################################################
+## SkShaper
+################################################################################
+
+SKSHAPER_INCLUDES = [
+    "modules/skshaper/include",
+]
+
+SKSHAPER_HARFBUZZ_SRCS = [
+    "modules/skshaper/include/SkShaper.h",
+    "modules/skshaper/src/SkShaper.cpp",
+    "modules/skshaper/src/SkShaper_harfbuzz.cpp",
+]
+
+SKSHAPER_PRIMITIVE_SRCS = [
+    "modules/skshaper/include/SkShaper.h",
+    "modules/skshaper/src/SkShaper.cpp",
+    "modules/skshaper/src/SkShaper_primitive.cpp",
+]

@@ -27,7 +27,7 @@ class Device final : public LabeledObject, angle::NonCopyable
 {
   public:
     Device(Display *owningDisplay, rx::DeviceImpl *impl);
-    virtual ~Device();
+    ~Device() override;
 
     void setLabel(EGLLabelKHR label) override;
     EGLLabelKHR getLabel() const override;
@@ -55,6 +55,6 @@ class Device final : public LabeledObject, angle::NonCopyable
     DeviceExtensions mDeviceExtensions;
     std::string mDeviceExtensionString;
 };
-}
+}  // namespace egl
 
 #endif  // LIBANGLE_DEVICE_H_

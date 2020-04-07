@@ -292,12 +292,13 @@ IN_PROC_BROWSER_TEST_F(NotificationsApiTest, TestPartialUpdate) {
   EXPECT_EQ(base::ASCIIToUTF16(kNewTitle), notification->title());
   EXPECT_EQ(base::ASCIIToUTF16(kNewMessage), notification->message());
   EXPECT_EQ(kNewPriority, notification->priority());
+  EXPECT_TRUE(notification->silent());
   EXPECT_EQ(1u, notification->buttons().size());
   EXPECT_EQ(base::ASCIIToUTF16(kButtonTitle), notification->buttons()[0].title);
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationsApiTest, TestGetPermissionLevel) {
-  scoped_refptr<Extension> empty_extension(
+  scoped_refptr<const Extension> empty_extension(
       extensions::ExtensionBuilder("Test").Build());
 
   // Get permission level for the extension whose notifications are enabled.
@@ -329,8 +330,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsApiTest, TestGetPermissionLevel) {
     notification_function->set_has_callback(true);
 
     message_center::NotifierId notifier_id(
-        message_center::NotifierId::APPLICATION,
-        empty_extension->id());
+        message_center::NotifierType::APPLICATION, empty_extension->id());
     GetNotifierStateTracker()->SetNotifierEnabled(notifier_id, false);
 
     std::unique_ptr<base::Value> result(utils::RunFunctionAndReturnSingleResult(
@@ -354,8 +354,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsApiTest, TestOnPermissionLevelChanged) {
     ResultCatcher catcher;
 
     message_center::NotifierId notifier_id(
-        message_center::NotifierId::APPLICATION,
-        extension->id());
+        message_center::NotifierType::APPLICATION, extension->id());
     GetNotifierStateTracker()->SetNotifierEnabled(notifier_id, false);
 
     EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
@@ -366,8 +365,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsApiTest, TestOnPermissionLevelChanged) {
     ResultCatcher catcher;
 
     message_center::NotifierId notifier_id(
-        message_center::NotifierId::APPLICATION,
-        extension->id());
+        message_center::NotifierType::APPLICATION, extension->id());
     GetNotifierStateTracker()->SetNotifierEnabled(notifier_id, true);
 
     EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();

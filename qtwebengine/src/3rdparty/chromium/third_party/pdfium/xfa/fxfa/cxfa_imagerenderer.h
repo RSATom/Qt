@@ -12,10 +12,9 @@
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
-#include "core/fxge/fx_dib.h"
 
 class CFX_RenderDevice;
-class CFX_DIBSource;
+class CFX_DIBBase;
 class CFX_DIBitmap;
 class CFX_ImageTransformer;
 class CFX_ImageRenderer;
@@ -23,7 +22,7 @@ class CFX_ImageRenderer;
 class CXFA_ImageRenderer {
  public:
   CXFA_ImageRenderer(CFX_RenderDevice* pDevice,
-                     const RetainPtr<CFX_DIBSource>& pDIBSource,
+                     const RetainPtr<CFX_DIBBase>& pDIBBase,
                      const CFX_Matrix* pImage2Device);
   ~CXFA_ImageRenderer();
 
@@ -38,7 +37,7 @@ class CXFA_ImageRenderer {
   UnownedPtr<CFX_RenderDevice> m_pDevice;
   int m_Status = 0;
   CFX_Matrix m_ImageMatrix;
-  RetainPtr<CFX_DIBSource> m_pDIBSource;
+  RetainPtr<CFX_DIBBase> m_pDIBBase;
   RetainPtr<CFX_DIBitmap> m_pCloneConvert;
   std::unique_ptr<CFX_ImageTransformer> m_pTransformer;
   std::unique_ptr<CFX_ImageRenderer> m_DeviceHandle;

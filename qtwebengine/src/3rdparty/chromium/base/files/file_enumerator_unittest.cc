@@ -11,6 +11,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -53,7 +54,7 @@ TEST(FileEnumerator, NotExistingPath) {
 
   for (auto policy : kFolderSearchPolicies) {
     const auto files = RunEnumerator(
-        path, true, FileEnumerator::FILES & FileEnumerator::DIRECTORIES,
+        path, true, FileEnumerator::FILES | FileEnumerator::DIRECTORIES,
         FILE_PATH_LITERAL(""), policy);
     EXPECT_THAT(files, IsEmpty());
   }
@@ -66,7 +67,7 @@ TEST(FileEnumerator, EmptyFolder) {
   for (auto policy : kFolderSearchPolicies) {
     const auto files =
         RunEnumerator(temp_dir.GetPath(), true,
-                      FileEnumerator::FILES & FileEnumerator::DIRECTORIES,
+                      FileEnumerator::FILES | FileEnumerator::DIRECTORIES,
                       kEmptyPattern, policy);
     EXPECT_THAT(files, IsEmpty());
   }
@@ -308,5 +309,36 @@ TEST(FileEnumerator, FilesInSubfoldersWithFiltering) {
                         FileEnumerator::FolderSearchPolicy::ALL);
   EXPECT_THAT(files, UnorderedElementsAre(subdir_foo, foo_foo, bar_foo));
 }
+
+#if defined(OS_POSIX)
+TEST(FileEnumerator, SymLinkLoops) {
+  ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  const FilePath subdir = temp_dir.GetPath().AppendASCII("subdir");
+  ASSERT_TRUE(CreateDirectory(subdir));
+
+  const FilePath file = subdir.AppendASCII("test.txt");
+  ASSERT_TRUE(CreateDummyFile(file));
+
+  const FilePath link = subdir.AppendASCII("link");
+  ASSERT_TRUE(CreateSymbolicLink(temp_dir.GetPath(), link));
+
+  auto files = RunEnumerator(
+      temp_dir.GetPath(), true,
+      FileEnumerator::FILES | FileEnumerator::DIRECTORIES, kEmptyPattern,
+      FileEnumerator::FolderSearchPolicy::MATCH_ONLY);
+
+  EXPECT_THAT(files, UnorderedElementsAre(subdir, link, file));
+
+  files = RunEnumerator(subdir, true,
+                        FileEnumerator::FILES | FileEnumerator::DIRECTORIES |
+                            FileEnumerator::SHOW_SYM_LINKS,
+                        kEmptyPattern,
+                        FileEnumerator::FolderSearchPolicy::MATCH_ONLY);
+
+  EXPECT_THAT(files, UnorderedElementsAre(link, file));
+}
+#endif
 
 }  // namespace base

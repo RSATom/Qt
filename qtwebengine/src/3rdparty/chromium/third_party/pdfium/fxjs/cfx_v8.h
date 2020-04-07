@@ -7,12 +7,10 @@
 #ifndef FXJS_CFX_V8_H_
 #define FXJS_CFX_V8_H_
 
-#include <map>
 #include <vector>
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/unowned_ptr.h"
-#include "v8/include/v8-util.h"
 #include "v8/include/v8.h"
 
 class CFX_V8 {
@@ -30,8 +28,8 @@ class CFX_V8 {
   v8::Local<v8::Number> NewNumber(double number);
   v8::Local<v8::Number> NewNumber(float number);
   v8::Local<v8::Boolean> NewBoolean(bool b);
-  v8::Local<v8::String> NewString(const ByteStringView& str);
-  v8::Local<v8::String> NewString(const WideStringView& str);
+  v8::Local<v8::String> NewString(ByteStringView str);
+  v8::Local<v8::String> NewString(WideStringView str);
   v8::Local<v8::Date> NewDate(double d);
 
   int ToInt32(v8::Local<v8::Value> pValue);
@@ -53,9 +51,9 @@ class CFX_V8 {
   // Objects.
   std::vector<WideString> GetObjectPropertyNames(v8::Local<v8::Object> pObj);
   v8::Local<v8::Value> GetObjectProperty(v8::Local<v8::Object> pObj,
-                                         const WideString& PropertyName);
+                                         ByteStringView bsUTF8PropertyName);
   void PutObjectProperty(v8::Local<v8::Object> pObj,
-                         const WideString& PropertyName,
+                         ByteStringView bsUTF8PropertyName,
                          v8::Local<v8::Value> pValue);
 
  protected:
@@ -66,7 +64,7 @@ class CFX_V8 {
   UnownedPtr<v8::Isolate> m_pIsolate;
 };
 
-class CFX_V8ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+class CFX_V8ArrayBufferAllocator final : public v8::ArrayBuffer::Allocator {
   static const size_t kMaxAllowedBytes = 0x10000000;
   void* Allocate(size_t length) override;
   void* AllocateUninitialized(size_t length) override;

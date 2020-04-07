@@ -13,29 +13,35 @@
 #include "common/angleutils.h"
 #include "libANGLE/Error.h"
 
+namespace gl
+{
+class Context;
+}  // namespace gl
+
 namespace rx
 {
-
 class QueryImpl : angle::NonCopyable
 {
   public:
-    explicit QueryImpl(gl::QueryType type) { mType = type; }
+    explicit QueryImpl(gl::QueryType type) : mType(type) {}
     virtual ~QueryImpl() {}
 
-    virtual gl::Error begin()                            = 0;
-    virtual gl::Error end()                              = 0;
-    virtual gl::Error queryCounter()                     = 0;
-    virtual gl::Error getResult(GLint *params)           = 0;
-    virtual gl::Error getResult(GLuint *params)          = 0;
-    virtual gl::Error getResult(GLint64 *params)         = 0;
-    virtual gl::Error getResult(GLuint64 *params)        = 0;
-    virtual gl::Error isResultAvailable(bool *available) = 0;
+    virtual void onDestroy(const gl::Context *context);
+
+    virtual angle::Result begin(const gl::Context *context)                              = 0;
+    virtual angle::Result end(const gl::Context *context)                                = 0;
+    virtual angle::Result queryCounter(const gl::Context *context)                       = 0;
+    virtual angle::Result getResult(const gl::Context *context, GLint *params)           = 0;
+    virtual angle::Result getResult(const gl::Context *context, GLuint *params)          = 0;
+    virtual angle::Result getResult(const gl::Context *context, GLint64 *params)         = 0;
+    virtual angle::Result getResult(const gl::Context *context, GLuint64 *params)        = 0;
+    virtual angle::Result isResultAvailable(const gl::Context *context, bool *available) = 0;
 
     gl::QueryType getType() const { return mType; }
 
   private:
     gl::QueryType mType;
 };
-}
+}  // namespace rx
 
 #endif  // LIBANGLE_RENDERER_QUERYIMPL_H_

@@ -20,20 +20,13 @@
 
 namespace {
 
-enum {
-  FX_CONTEXT_None = 0,
-  FX_CONTEXT_Device,
-};
-
-#define FX_HATCHSTYLE_Total 53
-
 struct FX_HATCHDATA {
   int32_t width;
   int32_t height;
   uint8_t maskBits[64];
 };
 
-const FX_HATCHDATA hatchBitmapData[FX_HATCHSTYLE_Total] = {
+const FX_HATCHDATA kHatchBitmapData[] = {
     {16,  // Horizontal
      16,
      {
@@ -96,31 +89,40 @@ const FX_HATCHDATA hatchBitmapData[FX_HATCHSTYLE_Total] = {
      }},
 };
 
+const FX_HATCHDATA kHatchPlaceHolder = {
+    0,
+    0,
+    {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    }};
+
+const FX_HATCHDATA& GetHatchBitmapData(size_t index) {
+  return index < FX_ArraySize(kHatchBitmapData) ? kHatchBitmapData[index]
+                                                : kHatchPlaceHolder;
+}
+
 }  // namespace
 
 CXFA_Graphics::CXFA_Graphics(CFX_RenderDevice* renderDevice)
-    : m_type(FX_CONTEXT_None), m_renderDevice(renderDevice) {
-  if (!renderDevice)
-    return;
-  m_type = FX_CONTEXT_Device;
+    : m_renderDevice(renderDevice) {
+  ASSERT(m_renderDevice);
 }
 
-CXFA_Graphics::~CXFA_Graphics() {}
+CXFA_Graphics::~CXFA_Graphics() = default;
 
 void CXFA_Graphics::SaveGraphState() {
-  if (m_type != FX_CONTEXT_Device || !m_renderDevice)
-    return;
-
   m_renderDevice->SaveState();
   m_infoStack.push_back(pdfium::MakeUnique<TInfo>(m_info));
 }
 
 void CXFA_Graphics::RestoreGraphState() {
-  if (m_type != FX_CONTEXT_Device || !m_renderDevice)
-    return;
-
   m_renderDevice->RestoreState(false);
-  if (m_infoStack.empty() || !m_infoStack.back())
+  if (m_infoStack.empty())
     return;
 
   m_info = *m_infoStack.back();
@@ -129,100 +131,72 @@ void CXFA_Graphics::RestoreGraphState() {
 }
 
 void CXFA_Graphics::SetLineCap(CFX_GraphStateData::LineCap lineCap) {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice) {
-    m_info.graphState.m_LineCap = lineCap;
-  }
+  m_info.graphState.m_LineCap = lineCap;
 }
 
 void CXFA_Graphics::SetLineDash(float dashPhase,
-                                float* dashArray,
-                                int32_t dashCount) {
-  if (dashCount > 0 && !dashArray)
-    return;
+                                const float* dashArray,
+                                size_t dashCount) {
+  ASSERT(dashArray);
+  ASSERT(dashCount);
 
-  dashCount = dashCount < 0 ? 0 : dashCount;
-  if (m_type == FX_CONTEXT_Device && m_renderDevice) {
-    float scale = 1.0;
-    if (m_info.isActOnDash) {
-      scale = m_info.graphState.m_LineWidth;
-    }
-    m_info.graphState.m_DashPhase = dashPhase;
-    m_info.graphState.SetDashCount(dashCount);
-    for (int32_t i = 0; i < dashCount; i++) {
-      m_info.graphState.m_DashArray[i] = dashArray[i] * scale;
-    }
-  }
+  float scale = m_info.isActOnDash ? m_info.graphState.m_LineWidth : 1.0;
+  m_info.graphState.m_DashPhase = dashPhase;
+  m_info.graphState.m_DashArray.resize(dashCount);
+  for (size_t i = 0; i < dashCount; i++)
+    m_info.graphState.m_DashArray[i] = dashArray[i] * scale;
 }
 
 void CXFA_Graphics::SetSolidLineDash() {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
-    m_info.graphState.SetDashCount(0);
+  m_info.graphState.m_DashArray.clear();
 }
 
 void CXFA_Graphics::SetLineWidth(float lineWidth) {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
-    m_info.graphState.m_LineWidth = lineWidth;
+  m_info.graphState.m_LineWidth = lineWidth;
 }
 
 void CXFA_Graphics::EnableActOnDash() {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
-    m_info.isActOnDash = true;
+  m_info.isActOnDash = true;
 }
 
 void CXFA_Graphics::SetStrokeColor(const CXFA_GEColor& color) {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
-    m_info.strokeColor = color;
+  m_info.strokeColor = color;
 }
 
 void CXFA_Graphics::SetFillColor(const CXFA_GEColor& color) {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
     m_info.fillColor = color;
 }
 
 void CXFA_Graphics::StrokePath(CXFA_GEPath* path, const CFX_Matrix* matrix) {
-  if (!path)
-    return;
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
+  if (path)
     RenderDeviceStrokePath(path, matrix);
 }
 
 void CXFA_Graphics::FillPath(CXFA_GEPath* path,
                              FX_FillMode fillMode,
                              const CFX_Matrix* matrix) {
-  if (!path)
-    return;
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
+  if (path)
     RenderDeviceFillPath(path, fillMode, matrix);
 }
 
 void CXFA_Graphics::ConcatMatrix(const CFX_Matrix* matrix) {
-  if (!matrix)
-    return;
-  if (m_type == FX_CONTEXT_Device && m_renderDevice) {
+  if (matrix)
     m_info.CTM.Concat(*matrix);
-  }
 }
 
 const CFX_Matrix* CXFA_Graphics::GetMatrix() const {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice)
-    return &m_info.CTM;
-  return nullptr;
+  return &m_info.CTM;
 }
 
 CFX_RectF CXFA_Graphics::GetClipRect() const {
-  if (m_type != FX_CONTEXT_Device || !m_renderDevice)
-    return CFX_RectF();
-
   FX_RECT r = m_renderDevice->GetClipBox();
   return CFX_RectF(r.left, r.top, r.Width(), r.Height());
 }
 
 void CXFA_Graphics::SetClipRect(const CFX_RectF& rect) {
-  if (m_type == FX_CONTEXT_Device && m_renderDevice) {
-    m_renderDevice->SetClip_Rect(
-        FX_RECT(FXSYS_round(rect.left), FXSYS_round(rect.top),
-                FXSYS_round(rect.right()), FXSYS_round(rect.bottom())));
-  }
+  m_renderDevice->SetClip_Rect(
+      FX_RECT(FXSYS_round(rect.left), FXSYS_round(rect.top),
+              FXSYS_round(rect.right()), FXSYS_round(rect.bottom())));
 }
 
 CFX_RenderDevice* CXFA_Graphics::GetRenderDevice() {
@@ -268,7 +242,6 @@ void CXFA_Graphics::RenderDeviceFillPath(const CXFA_GEPath* path,
 void CXFA_Graphics::FillPathWithPattern(const CXFA_GEPath* path,
                                         FX_FillMode fillMode,
                                         const CFX_Matrix& matrix) {
-  CXFA_GEPattern* pattern = m_info.fillColor.GetPattern();
   RetainPtr<CFX_DIBitmap> bitmap = m_renderDevice->GetBitmap();
   int32_t width = bitmap->GetWidth();
   int32_t height = bitmap->GetHeight();
@@ -277,7 +250,8 @@ void CXFA_Graphics::FillPathWithPattern(const CXFA_GEPath* path,
   m_renderDevice->GetDIBits(bmp, 0, 0);
 
   FX_HatchStyle hatchStyle = m_info.fillColor.GetPattern()->m_hatchStyle;
-  const FX_HATCHDATA& data = hatchBitmapData[static_cast<int>(hatchStyle)];
+  const FX_HATCHDATA& data =
+      GetHatchBitmapData(static_cast<size_t>(hatchStyle));
 
   auto mask = pdfium::MakeRetain<CFX_DIBitmap>();
   mask->Create(data.width, data.height, FXDIB_1bppMask);
@@ -295,7 +269,7 @@ void CXFA_Graphics::FillPathWithPattern(const CXFA_GEPath* path,
   }
   CFX_RenderDevice::StateRestorer restorer(m_renderDevice);
   m_renderDevice->SetClip_PathFill(path->GetPathData(), &matrix, fillMode);
-  SetDIBitsWithMatrix(bmp, pattern->m_matrix);
+  SetDIBitsWithMatrix(bmp, CFX_Matrix());
 }
 
 void CXFA_Graphics::FillPathWithShading(const CXFA_GEPath* path,
@@ -416,7 +390,7 @@ void CXFA_Graphics::FillPathWithShading(const CXFA_GEPath* path,
   }
 }
 
-void CXFA_Graphics::SetDIBitsWithMatrix(const RetainPtr<CFX_DIBSource>& source,
+void CXFA_Graphics::SetDIBitsWithMatrix(const RetainPtr<CFX_DIBBase>& source,
                                         const CFX_Matrix& matrix) {
   if (matrix.IsIdentity()) {
     m_renderDevice->SetDIBits(source, 0, 0);
@@ -427,7 +401,7 @@ void CXFA_Graphics::SetDIBitsWithMatrix(const RetainPtr<CFX_DIBSource>& source,
     int32_t left;
     int32_t top;
     RetainPtr<CFX_DIBitmap> bmp1 = source->FlipImage(false, true);
-    RetainPtr<CFX_DIBitmap> bmp2 = bmp1->TransformTo(&m, &left, &top);
+    RetainPtr<CFX_DIBitmap> bmp2 = bmp1->TransformTo(m, &left, &top);
     m_renderDevice->SetDIBits(bmp2, left, top);
   }
 }
@@ -443,7 +417,7 @@ CXFA_Graphics::TInfo::TInfo(const TInfo& info)
       fillColor(info.fillColor) {}
 
 CXFA_Graphics::TInfo& CXFA_Graphics::TInfo::operator=(const TInfo& other) {
-  graphState.Copy(other.graphState);
+  graphState = other.graphState;
   CTM = other.CTM;
   isActOnDash = other.isActOnDash;
   strokeColor = other.strokeColor;

@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/supports_user_data.h"
 #include "base/values.h"
 #include "content/public/renderer/v8_value_converter.h"
@@ -73,7 +74,7 @@ void DispatchEvent(const v8::FunctionCallbackInfo<v8::Value>& info) {
   APIEventPerContextData* data =
       APIEventPerContextData::GetFrom(context, kDontCreateIfMissing);
   DCHECK(data);
-  std::string event_name = gin::V8ToString(info.Data());
+  std::string event_name = gin::V8ToString(isolate, info.Data());
   auto iter = data->emitters.find(event_name);
   if (iter == data->emitters.end())
     return;
@@ -87,14 +88,19 @@ void DispatchEvent(const v8::FunctionCallbackInfo<v8::Value>& info) {
   gin::Converter<EventEmitter*>::FromV8(isolate, v8_emitter.Get(isolate),
                                         &emitter);
   CHECK(emitter);
-  emitter->Fire(context, &args, nullptr, JSRunner::ResultCallback());
+  // Note: It's safe to use EventEmitter::FireSync() here because this should
+  // only be triggered from a JS call, so we know JS is running.
+  // TODO(devlin): It looks like the return result that requires this to be sync
+  // is only used by the InputIME custom bindings; it would be kind of nice to
+  // remove the dependency.
+  info.GetReturnValue().Set(emitter->FireSync(context, &args, nullptr));
 }
 
 }  // namespace
 
 APIEventHandler::APIEventHandler(
     const APIEventListeners::ListenersUpdated& listeners_changed,
-    const ContextOwnerIdGetter& context_owner_id_getter,
+    const APIEventListeners::ContextOwnerIdGetter& context_owner_id_getter,
     ExceptionHandler* exception_handler)
     : listeners_changed_(listeners_changed),
       context_owner_id_getter_(context_owner_id_getter),
@@ -114,8 +120,6 @@ v8::Local<v8::Object> APIEventHandler::CreateEventInstance(
   // context directly.
   v8::Context::Scope context_scope(context);
 
-  std::string context_owner = context_owner_id_getter_.Run(context);
-
   APIEventPerContextData* data =
       APIEventPerContextData::GetFrom(context, kCreateIfMissing);
   DCHECK(data->emitters.find(event_name) == data->emitters.end());
@@ -125,11 +129,11 @@ v8::Local<v8::Object> APIEventHandler::CreateEventInstance(
   std::unique_ptr<APIEventListeners> listeners;
   if (supports_filters) {
     listeners = std::make_unique<FilteredEventListeners>(
-        updated, event_name, context_owner, max_listeners,
+        updated, event_name, context_owner_id_getter_, max_listeners,
         supports_lazy_listeners, &listener_tracker_);
   } else {
     listeners = std::make_unique<UnfilteredEventListeners>(
-        updated, event_name, context_owner, max_listeners,
+        updated, event_name, context_owner_id_getter_, max_listeners,
         supports_lazy_listeners, &listener_tracker_);
   }
 
@@ -157,13 +161,13 @@ v8::Local<v8::Object> APIEventHandler::CreateAnonymousEventInstance(
 
   // Anonymous events are not tracked, and thus don't need a name or a context
   // owner.
-  std::string empty_context_owner;
   std::string empty_event_name;
   ListenerTracker* anonymous_listener_tracker = nullptr;
   std::unique_ptr<APIEventListeners> listeners =
       std::make_unique<UnfilteredEventListeners>(
-          base::DoNothing(), empty_context_owner, empty_event_name,
-          binding::kNoListenerMax, false, anonymous_listener_tracker);
+          base::DoNothing(), empty_event_name,
+          APIEventListeners::ContextOwnerIdGetter(), binding::kNoListenerMax,
+          false, anonymous_listener_tracker);
   gin::Handle<EventEmitter> emitter_handle =
       gin::CreateHandle(context->GetIsolate(),
                         new EventEmitter(supports_filters, std::move(listeners),
@@ -278,12 +282,14 @@ void APIEventHandler::FireEventInContext(
     // We don't store this in a template because the Data (event name) is
     // different for each instance. Luckily, this is called during dispatching
     // an event, rather than e.g. at initialization time.
-    v8::Local<v8::Function> dispatch_event = v8::Function::New(
-        isolate, &DispatchEvent, gin::StringToSymbol(isolate, event_name));
+    v8::Local<v8::Function> dispatch_event =
+        v8::Function::New(context, &DispatchEvent,
+                          gin::StringToSymbol(isolate, event_name))
+            .ToLocalChecked();
 
     v8::Local<v8::Value> massager_args[] = {args_array, dispatch_event};
     JSRunner::Get(context)->RunJSFunction(
-        massager, context, arraysize(massager_args), massager_args);
+        massager, context, base::size(massager_args), massager_args);
   }
 }
 

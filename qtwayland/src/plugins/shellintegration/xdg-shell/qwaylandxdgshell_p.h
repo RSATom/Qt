@@ -62,8 +62,6 @@
 #include <QtCore/QSize>
 #include <QtGui/QRegion>
 
-#include <wayland-client.h>
-
 QT_BEGIN_NAMESPACE
 
 class QWindow;
@@ -82,9 +80,9 @@ public:
     QWaylandXdgSurface(QWaylandXdgShell *shell, ::xdg_surface *surface, QWaylandWindow *window);
     ~QWaylandXdgSurface() override;
 
-    void resize(QWaylandInputDevice *inputDevice, enum xdg_toplevel_resize_edge edges);
-    void resize(QWaylandInputDevice *inputDevice, enum wl_shell_surface_resize edges) override;
+    void resize(QWaylandInputDevice *inputDevice, Qt::Edges edges) override;
     bool move(QWaylandInputDevice *inputDevice) override;
+    bool showWindowMenu(QWaylandInputDevice *seat) override;
     void setTitle(const QString &title) override;
     void setAppId(const QString &appId) override;
     void setWindowFlags(Qt::WindowFlags flags) override;
@@ -94,6 +92,10 @@ public:
     bool handlesActiveState() const { return m_toplevel; }
     void applyConfigure() override;
     bool wantsDecorations() const override;
+    void propagateSizeHints() override;
+    void setWindowGeometry(const QRect &rect) override;
+
+    void setSizeHints();
 
 protected:
     void requestWindowStates(Qt::WindowStates states) override;
@@ -114,6 +116,9 @@ private:
 
         void requestWindowFlags(Qt::WindowFlags flags);
         void requestWindowStates(Qt::WindowStates states);
+
+        static resize_edge convertToResizeEdges(Qt::Edges edges);
+
         struct {
             QSize size = {0, 0};
             Qt::WindowStates states = Qt::WindowNoState;

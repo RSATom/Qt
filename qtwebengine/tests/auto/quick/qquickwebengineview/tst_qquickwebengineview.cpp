@@ -31,6 +31,7 @@
 
 #include <QScopedPointer>
 #include <QtCore/qelapsedtimer.h>
+#include <QtCore/qregularexpression.h>
 #include <QtGui/qclipboard.h>
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qpa/qwindowsysteminterface.h>
@@ -40,6 +41,7 @@
 #include <QtGui/private/qinputmethod_p.h>
 #include <QtWebEngine/private/qquickwebengineview_p.h>
 #include <QtWebEngine/private/qquickwebenginesettings_p.h>
+#include <QtWebEngineCore/private/qtwebenginecore-config_p.h>
 #include <qpa/qplatforminputcontext.h>
 
 #include <functional>
@@ -89,6 +91,7 @@ private Q_SLOTS:
     void userScripts();
     void javascriptClipboard_data();
     void javascriptClipboard();
+    void setProfile();
 
 private:
     inline QQuickWebEngineView *newWebEngineView();
@@ -876,7 +879,7 @@ public:
         setAcceptHoverEvents(true);
     }
 
-    bool event(QEvent *event) Q_DECL_OVERRIDE
+    bool event(QEvent *event) override
     {
         switch (event->type()) {
         case QEvent::TabletPress:
@@ -999,8 +1002,9 @@ void tst_QQuickWebEngineView::changeLocale()
     viewDE->setUrl(url);
     QVERIFY(waitForLoadFailed(viewDE.data()));
 
+    QTRY_VERIFY(!evaluateJavaScriptSync(viewDE.data(), "document.body").isNull());
     QTRY_VERIFY(!evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").isNull());
-    errorLines = evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").toString().split(QRegExp("[\r\n]"), QString::SkipEmptyParts);
+    errorLines = evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").toString().split(QRegularExpression("[\r\n]"), QString::SkipEmptyParts);
     QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("Die Website ist nicht erreichbar"));
 
     QLocale::setDefault(QLocale("en"));
@@ -1008,8 +1012,9 @@ void tst_QQuickWebEngineView::changeLocale()
     viewEN->setUrl(url);
     QVERIFY(waitForLoadFailed(viewEN.data()));
 
+    QTRY_VERIFY(!evaluateJavaScriptSync(viewEN.data(), "document.body").isNull());
     QTRY_VERIFY(!evaluateJavaScriptSync(viewEN.data(), "document.body.innerText").isNull());
-    errorLines = evaluateJavaScriptSync(viewEN.data(), "document.body.innerText").toString().split(QRegExp("[\r\n]"), QString::SkipEmptyParts);
+    errorLines = evaluateJavaScriptSync(viewEN.data(), "document.body.innerText").toString().split(QRegularExpression("[\r\n]"), QString::SkipEmptyParts);
     QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("This site can\xE2\x80\x99t be reached"));
 
     // Reset error page
@@ -1020,8 +1025,9 @@ void tst_QQuickWebEngineView::changeLocale()
     viewDE->setUrl(url);
     QVERIFY(waitForLoadFailed(viewDE.data()));
 
+    QTRY_VERIFY(!evaluateJavaScriptSync(viewDE.data(), "document.body").isNull());
     QTRY_VERIFY(!evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").isNull());
-    errorLines = evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").toString().split(QRegExp("[\r\n]"), QString::SkipEmptyParts);
+    errorLines = evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").toString().split(QRegularExpression("[\r\n]"), QString::SkipEmptyParts);
     QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("Die Website ist nicht erreichbar"));
 }
 
@@ -1141,6 +1147,19 @@ void tst_QQuickWebEngineView::javascriptClipboard()
     QTRY_COMPARE(evaluateJavaScriptSync(view, "accessGranted").toBool(), pasteResult);
     QTRY_COMPARE(evaluateJavaScriptSync(view, "accessDenied").toBool(), !javascriptCanAccessClipboard || !javascriptCanPaste);
     QTRY_COMPARE(evaluateJavaScriptSync(view, "accessPrompt").toBool(), false);
+}
+
+void tst_QQuickWebEngineView::setProfile() {
+    QSignalSpy loadSpy(webEngineView(), SIGNAL(loadingChanged(QQuickWebEngineLoadRequest*)));
+    webEngineView()->setUrl(urlFromTestPath("html/basic_page.html"));
+    QVERIFY(waitForLoadSucceeded(webEngineView()));
+    QCOMPARE(loadSpy.size(), 2);
+    webEngineView()->setUrl(urlFromTestPath("html/basic_page2.html"));
+    QVERIFY(waitForLoadSucceeded(webEngineView()));
+    QCOMPARE(loadSpy.size(), 4);
+    QQuickWebEngineProfile *profile = new QQuickWebEngineProfile();
+    webEngineView()->setProfile(profile);
+    QTRY_COMPARE(webEngineView()->url() ,urlFromTestPath("html/basic_page2.html"));
 }
 
 QTEST_MAIN(tst_QQuickWebEngineView)

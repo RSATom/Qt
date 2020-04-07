@@ -35,7 +35,7 @@ Components.JSPresentationUtils = {};
  * @param {!Components.Linkifier} linkifier
  * @param {!Protocol.Runtime.StackTrace=} stackTrace
  * @param {function()=} contentUpdated
- * @return {!Element}
+ * @return {{element: !Element, links: !Array<!Element>}}
  */
 Components.JSPresentationUtils.buildStackTracePreviewContents = function(
     target, linkifier, stackTrace, contentUpdated) {
@@ -43,8 +43,10 @@ Components.JSPresentationUtils.buildStackTracePreviewContents = function(
   element.style.display = 'inline-block';
   const shadowRoot = UI.createShadowRootWithCoreStyles(element, 'components/jsUtils.css');
   const contentElement = shadowRoot.createChild('table', 'stack-preview-container');
-  const debuggerModel = target ? target.model(SDK.DebuggerModel) : null;
   let totalHiddenCallFramesCount = 0;
+  let totalCallFramesCount = 0;
+  /** @type {!Array<!Element>} */
+  const links = [];
 
   /**
    * @param {!Protocol.Runtime.StackTrace} stackTrace
@@ -53,23 +55,24 @@ Components.JSPresentationUtils.buildStackTracePreviewContents = function(
   function appendStackTrace(stackTrace) {
     let hiddenCallFrames = 0;
     for (const stackFrame of stackTrace.callFrames) {
+      totalCallFramesCount++;
+      let shouldHide = totalCallFramesCount > 30 && stackTrace.callFrames.length > 31;
       const row = createElement('tr');
       row.createChild('td').textContent = '\n';
       row.createChild('td', 'function-name').textContent = UI.beautifyFunctionName(stackFrame.functionName);
       const link = linkifier.maybeLinkifyConsoleCallFrame(target, stackFrame);
       if (link) {
         link.addEventListener('contextmenu', populateContextMenu.bind(null, link));
-        if (debuggerModel) {
-          const location = debuggerModel.createRawLocationByScriptId(
-              stackFrame.scriptId, stackFrame.lineNumber, stackFrame.columnNumber);
-          if (location && Bindings.blackboxManager.isBlackboxedRawLocation(location)) {
-            row.classList.add('blackboxed');
-            ++hiddenCallFrames;
-          }
-        }
-
+        const uiLocation = Components.Linkifier.uiLocation(link);
+        if (uiLocation && Bindings.blackboxManager.isBlackboxedUISourceCode(uiLocation.uiSourceCode))
+          shouldHide = true;
         row.createChild('td').textContent = ' @ ';
         row.createChild('td').appendChild(link);
+        links.push(link);
+      }
+      if (shouldHide) {
+        row.classList.add('blackboxed');
+        ++hiddenCallFrames;
       }
       contentElement.appendChild(row);
     }
@@ -99,7 +102,7 @@ Components.JSPresentationUtils.buildStackTracePreviewContents = function(
   }
 
   if (!stackTrace)
-    return element;
+    return {element, links};
 
   appendStackTrace(stackTrace);
 
@@ -127,9 +130,9 @@ Components.JSPresentationUtils.buildStackTracePreviewContents = function(
     cell.colSpan = 4;
     const showAllLink = cell.createChild('span', 'link');
     if (totalHiddenCallFramesCount === 1)
-      showAllLink.textContent = ls`Show 1 more blackboxed frame`;
+      showAllLink.textContent = ls`Show 1 more frame`;
     else
-      showAllLink.textContent = ls`Show ${totalHiddenCallFramesCount} more blackboxed frames`;
+      showAllLink.textContent = ls`Show ${totalHiddenCallFramesCount} more frames`;
     showAllLink.addEventListener('click', () => {
       contentElement.classList.add('show-blackboxed');
       if (contentUpdated)
@@ -137,5 +140,5 @@ Components.JSPresentationUtils.buildStackTracePreviewContents = function(
     }, false);
   }
 
-  return element;
+  return {element, links};
 };

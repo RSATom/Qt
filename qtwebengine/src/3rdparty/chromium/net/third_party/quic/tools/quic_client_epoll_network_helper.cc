@@ -13,13 +13,13 @@
 
 #include "base/run_loop.h"
 #include "net/third_party/quic/core/crypto/quic_random.h"
+#include "net/third_party/quic/core/http/spdy_utils.h"
 #include "net/third_party/quic/core/quic_connection.h"
 #include "net/third_party/quic/core/quic_data_reader.h"
 #include "net/third_party/quic/core/quic_epoll_alarm_factory.h"
 #include "net/third_party/quic/core/quic_epoll_connection_helper.h"
 #include "net/third_party/quic/core/quic_packets.h"
 #include "net/third_party/quic/core/quic_server_id.h"
-#include "net/third_party/quic/core/spdy_utils.h"
 #include "net/third_party/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quic/platform/api/quic_logging.h"
 #include "net/third_party/quic/platform/api/quic_ptr_util.h"
@@ -31,7 +31,6 @@
 
 // TODO(rtenneti): Add support for MMSG_MORE.
 #define MMSG_MORE 0
-using std::string;
 
 namespace quic {
 
@@ -59,7 +58,7 @@ QuicClientEpollNetworkHelper::~QuicClientEpollNetworkHelper() {
   CleanUpAllUDPSockets();
 }
 
-string QuicClientEpollNetworkHelper::Name() const {
+QuicString QuicClientEpollNetworkHelper::Name() const {
   return "QuicClientEpollNetworkHelper";
 }
 

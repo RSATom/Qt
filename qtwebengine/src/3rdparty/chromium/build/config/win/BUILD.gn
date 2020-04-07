@@ -2,14 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/chrome_build.gni")
 import("//build/config/c++/c++.gni")
+import("//build/config/chrome_build.gni")
 import("//build/config/clang/clang.gni")
 import("//build/config/compiler/compiler.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/win/visual_studio_version.gni")
+import("//build/timestamp.gni")
 import("//build/toolchain/goma.gni")
 import("//build/toolchain/toolchain.gni")
+import("//buildtools/deps_revisions.gni")
 
 assert(is_win)
 
@@ -38,6 +40,15 @@ declare_args() {
   #   "server" - Windows Server Applications
   #   "desktop" - Windows Desktop Applications
   target_winuwp_family = "app"
+
+  # Set this to use clang-style diagnostics format instead of MSVC-style, which
+  # is useful in e.g. Emacs compilation mode.
+  # E.g.:
+  #  Without this, clang emits a diagnostic message like this:
+  #    foo/bar.cc(12,34): error: something went wrong
+  #  and with this switch, clang emits it like this:
+  #    foo/bar.cc:12:34: error: something went wrong
+  use_clang_diagnostics_format = false
 }
 
 # This is included by reference in the //build/config/compiler config that
@@ -79,6 +90,14 @@ config("compiler") {
   if (is_clang) {
     cflags += [ "-fmsc-version=1911" ]
 
+    if (is_component_build) {
+      cflags += [
+        # Do not export inline member functions. This makes component builds
+        # faster. This is similar to -fvisibility-inlines-hidden.
+        "/Zc:dllexportInlines-",
+      ]
+    }
+
     if (current_cpu == "x86") {
       cflags += [ "-m32" ]
     } else {
@@ -91,6 +110,15 @@ config("compiler") {
         # cmd.exe doesn't understand ANSI escape codes by default,
         # so only enable them if something emulating them is around.
         "-fansi-escape-codes",
+      ]
+    }
+
+    if (use_clang_diagnostics_format) {
+      cflags += [
+        "-Xclang",
+        "-fdiagnostics-format",
+        "-Xclang",
+        "clang",
       ]
     }
 
@@ -108,12 +136,23 @@ config("compiler") {
     cflags += [ "/Brepro" ]
   }
 
+  ldflags = []
+
+  if (use_lld) {
+    # lld defaults to writing the current time in the pe/coff header.
+    # For build reproducibility, pass an explicit timestamp. See
+    # build/compute_build_timestamp.py for how the timestamp is chosen.
+    # (link.exe also writes the current time, but it doesn't have a flag to
+    # override that behavior.)
+    ldflags += [ "/TIMESTAMP:" + build_timestamp ]
+  }
+
   if (!is_debug && !is_component_build) {
     # Enable standard linker optimizations like GC (/OPT:REF) and ICF in static
     # release builds. These are implied by /PROFILE below, but /PROFILE is
-    # incompatible with /debug:fastlink and LLD ignores it as of this writing.
+    # incompatible with /debug:fastlink.
     # Release builds always want these optimizations, so enable them explicitly.
-    ldflags = [
+    ldflags += [
       "/OPT:REF",
       "/OPT:ICF",
       "/INCREMENTAL:NO",
@@ -210,7 +249,7 @@ config("runtime_library") {
     "_ATL_NO_OPENGL",
     "_WINDOWS",
     "CERT_CHAIN_PARA_HAS_EXTRA_FIELDS",
-    "PSAPI_VERSION=1",
+    "PSAPI_VERSION=2",
     "WIN32",
     "_SECURE_ATL",
   ]
@@ -221,18 +260,30 @@ config("runtime_library") {
     defines += [ "_USING_V110_SDK71_" ]
   }
 
+  # TODO(thomasanderson): Move this into a target in //build/config/c++ and
+  # deduplicate with //build/config/posix/BUILD.gn.
   if (use_custom_libcxx) {
     cflags_cc +=
         [ "-I" + rebase_path("$libcxx_prefix/include", root_build_dir) ]
-    if (libcpp_is_static) {
+    if (!is_component_build) {
+      # Don't leak any symbols on a static build.
       defines += [ "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS" ]
     }
 
-    # Prevent libc++ from embedding linker flags to try to automatically link
-    # against its runtime library. This is unnecessary with our build system,
-    # and can also result in build failures if libc++'s name for a library does
-    # not match ours.
-    defines += [ "_LIBCPP_NO_AUTO_LINK" ]
+    # Windows doesn't need to set _LIBCPP_ABI_VERSION since there's no system
+    # C++ library we could conflict with.
+    defines += [
+      "CR_LIBCXX_REVISION=$libcxx_svn_revision",
+      "CR_LIBCXXABI_REVISION=$libcxxabi_svn_revision",
+      "_LIBCPP_ABI_UNSTABLE",
+      "_LIBCPP_ENABLE_NODISCARD",
+
+      # Prevent libc++ from embedding linker flags to try to automatically link
+      # against its runtime library. This is unnecessary with our build system,
+      # and can also result in build failures if libc++'s name for a library
+      # does not match ours.
+      "_LIBCPP_NO_AUTO_LINK",
+    ]
   }
 
   if (current_os == "winuwp") {
@@ -445,6 +496,9 @@ if (current_cpu == "x64") {
   # The number after the comma is the minimum required OS version.
   # 5.02 = Windows Server 2003.
   subsystem_version_suffix = ",5.02"
+} else if (current_cpu == "arm64") {
+  # Windows ARM64 requires Windows 10.
+  subsystem_version_suffix = ",10.0"
 } else {
   # 5.01 = Windows XP.
   subsystem_version_suffix = ",5.01"
@@ -460,7 +514,7 @@ config("windowed") {
 # Incremental linking ----------------------------------------------------------
 
 incremental_linking_on_switch = [ "/INCREMENTAL" ]
-if ((!is_debug && !is_component_build) || !use_lld) {
+if (!use_incremental_linking || !use_lld) {
   incremental_linking_off_switch = [ "/INCREMENTAL:NO" ]
 }
 if (use_lld) {

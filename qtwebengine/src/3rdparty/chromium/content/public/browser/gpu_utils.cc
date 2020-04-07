@@ -10,10 +10,15 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
+#include "cc/base/switches.h"
+#include "components/viz/common/features.h"
+#include "content/browser/browser_main_loop.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/service_utils.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_switches.h"
 #include "media/media_buildflags.h"
 
@@ -45,6 +50,19 @@ void StopGpuProcessImpl(const base::Closure& callback,
 }  // namespace
 
 namespace content {
+
+bool ShouldEnableAndroidSurfaceControl(const base::CommandLine& cmd_line) {
+#if !defined(OS_ANDROID)
+  return false;
+#else
+  if (!base::FeatureList::IsEnabled(features::kVizDisplayCompositor))
+    return false;
+  if (!base::FeatureList::IsEnabled(features::kAImageReaderMediaPlayer))
+    return false;
+
+  return base::FeatureList::IsEnabled(features::kAndroidSurfaceControl);
+#endif
+}
 
 const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
   DCHECK(base::CommandLine::InitializedForCurrentProcess());
@@ -80,6 +98,10 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
       command_line->HasSwitch(switches::kDisableSoftwareRasterizer);
   gpu_preferences.log_gpu_control_list_decisions =
       command_line->HasSwitch(switches::kLogGpuControlListDecisions);
+#if defined(OS_WIN)
+  gpu_preferences.enable_trace_export_events_to_etw =
+      command_line->HasSwitch(switches::kTraceExportEventsToETW);
+#endif
   GetUintFromSwitch(command_line, switches::kMaxActiveWebGLContexts,
                     &gpu_preferences.max_active_webgl_contexts);
   gpu_preferences.gpu_startup_dialog =
@@ -95,8 +117,19 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
   gpu_preferences.disable_oop_rasterization =
       command_line->HasSwitch(switches::kDisableOopRasterization);
 
+  gpu_preferences.enable_oop_rasterization_ddl =
+      command_line->HasSwitch(switches::kEnableOopRasterizationDDL);
+  gpu_preferences.enable_passthrough_raster_decoder =
+      command_line->HasSwitch(switches::kEnablePassthroughRasterDecoder);
+
   gpu_preferences.enable_vulkan =
       command_line->HasSwitch(switches::kEnableVulkan);
+
+  gpu_preferences.enable_gpu_benchmarking_extension =
+      command_line->HasSwitch(cc::switches::kEnableGpuBenchmarking);
+
+  gpu_preferences.enable_android_surface_control =
+      ShouldEnableAndroidSurfaceControl(*command_line);
 
   // Some of these preferences are set or adjusted in
   // GpuDataManagerImplPrivate::AppendGpuCommandLine.
@@ -110,6 +143,11 @@ void StopGpuProcess(const base::Closure& callback) {
       base::Bind(&StopGpuProcessImpl,
                  base::Bind(RunTaskOnTaskRunner,
                             base::ThreadTaskRunnerHandle::Get(), callback)));
+}
+
+gpu::GpuChannelEstablishFactory* GetGpuChannelEstablishFactory() {
+  return content::BrowserMainLoop::GetInstance()
+      ->gpu_channel_establish_factory();
 }
 
 }  // namespace content

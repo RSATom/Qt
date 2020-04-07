@@ -82,6 +82,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.view.ViewTreeObserver;
 import android.widget.ImageView;
 import android.widget.PopupMenu;
+import android.hardware.display.DisplayManager;
 
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
@@ -161,15 +162,13 @@ public class QtActivityDelegate
             m_activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             m_activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
             try {
-                if (Build.VERSION.SDK_INT >= 19) {
-                    int flags = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
-                    flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-                    flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-                    flags |= View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
-                    flags |= View.SYSTEM_UI_FLAG_FULLSCREEN;
-                    flags |= View.class.getDeclaredField("SYSTEM_UI_FLAG_IMMERSIVE_STICKY").getInt(null);
-                    m_activity.getWindow().getDecorView().setSystemUiVisibility(flags | View.INVISIBLE);
-                }
+                int flags = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+                flags |= View.SYSTEM_UI_FLAG_FULLSCREEN;
+                flags |= View.class.getDeclaredField("SYSTEM_UI_FLAG_IMMERSIVE_STICKY").getInt(null);
+                m_activity.getWindow().getDecorView().setSystemUiVisibility(flags | View.INVISIBLE);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -661,6 +660,28 @@ public class QtActivityDelegate
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) { }
+
+            @Override
+            public void onDisplayChanged(int displayId) {
+                m_currentRotation = m_activity.getWindowManager().getDefaultDisplay().getRotation();
+                QtNative.handleOrientationChanged(m_currentRotation, m_nativeOrientation);
+            }
+
+            @Override
+            public void onDisplayRemoved(int displayId) { }
+        };
+
+        try {
+            DisplayManager displayManager = (DisplayManager) m_activity.getSystemService(Context.DISPLAY_SERVICE);
+            displayManager.registerDisplayListener(displayListener, null);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         m_mainLib = QtNative.loadMainLibrary(m_mainLib, nativeLibsDir);
         return m_mainLib != null;
     }
@@ -857,13 +878,6 @@ public class QtActivityDelegate
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-        int rotation = m_activity.getWindowManager().getDefaultDisplay().getRotation();
-        if (rotation != m_currentRotation) {
-            QtNative.handleOrientationChanged(rotation, m_nativeOrientation);
-        }
-
-        m_currentRotation = rotation;
     }
 
     public void onDestroy()

@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
@@ -20,8 +20,8 @@
 #include "SkRegion.h"
 #include "SkShader.h"
 #include "SkString.h"
-#include "SkUtils.h"
-#include "SkView.h"
+#include "SkTextUtils.h"
+#include "SkUTF.h"
 #include "Sk1DPathEffect.h"
 
 #include "SkParsePath.h"
@@ -37,7 +37,7 @@ static void testparse() {
     SkParsePath::ToSVGString(p2, &str2);
 }
 
-class ArcsView : public SampleView {
+class ArcsView : public Sample {
     class MyDrawable : public SkDrawable {
         SkRect   fR;
         SkScalar fSweep;
@@ -84,25 +84,12 @@ public:
     sk_sp<MyDrawable> fAnimatingDrawable;
     sk_sp<SkDrawable> fRootDrawable;
 
-    ArcsView() {
-        testparse();
-        fSweep = SkIntToScalar(100);
-        this->setBGColor(0xFFDDDDDD);
-
-        fRect.set(0, 0, SkIntToScalar(200), SkIntToScalar(200));
-        fRect.offset(SkIntToScalar(20), SkIntToScalar(20));
-        fAnimatingDrawable = sk_make_sp<MyDrawable>(fRect);
-
-        SkPictureRecorder recorder;
-        this->drawRoot(recorder.beginRecording(SkRect::MakeWH(800, 500)));
-        fRootDrawable = recorder.finishRecordingAsDrawable();
-    }
+    ArcsView() { }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Arcs");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Arcs");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -117,18 +104,14 @@ protected:
     }
 
     static void DrawLabel(SkCanvas* canvas, const SkRect& rect, SkScalar start, SkScalar sweep) {
-        SkPaint paint;
-
-        paint.setAntiAlias(true);
-        paint.setTextAlign(SkPaint::kCenter_Align);
-
+        SkFont font;
         SkString    str;
-
         str.appendScalar(start);
         str.append(", ");
         str.appendScalar(sweep);
-        canvas->drawString(str, rect.centerX(),
-                         rect.fBottom + paint.getTextSize() * 5/4, paint);
+        SkTextUtils::DrawString(canvas, str.c_str(), rect.centerX(),
+                         rect.fBottom + font.getSize() * 5/4, font, SkPaint(),
+                                SkTextUtils::kCenter_Align);
     }
 
     static void DrawArcs(SkCanvas* canvas) {
@@ -186,6 +169,20 @@ protected:
         DrawArcs(canvas);
     }
 
+    void onOnceBeforeDraw() override {
+        testparse();
+        fSweep = SkIntToScalar(100);
+        this->setBGColor(0xFFDDDDDD);
+
+        fRect.set(0, 0, SkIntToScalar(200), SkIntToScalar(200));
+        fRect.offset(SkIntToScalar(20), SkIntToScalar(20));
+        fAnimatingDrawable = sk_make_sp<MyDrawable>(fRect);
+
+        SkPictureRecorder recorder;
+        this->drawRoot(recorder.beginRecording(SkRect::MakeWH(800, 500)));
+        fRootDrawable = recorder.finishRecordingAsDrawable();
+    }
+
     void onDrawContent(SkCanvas* canvas) override {
         canvas->drawDrawable(fRootDrawable.get());
     }
@@ -199,10 +196,9 @@ protected:
 private:
     SkScalar fSweep;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new ArcsView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new ArcsView(); )

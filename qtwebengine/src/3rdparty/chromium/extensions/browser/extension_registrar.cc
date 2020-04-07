@@ -16,7 +16,8 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/browser/lazy_background_task_queue.h"
+#include "extensions/browser/lazy_context_id.h"
+#include "extensions/browser/lazy_context_task_queue.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/renderer_startup_helper.h"
@@ -27,13 +28,6 @@
 using content::DevToolsAgentHost;
 
 namespace extensions {
-
-namespace {
-
-// For binding.
-void DoNothingWithExtensionHost(ExtensionHost* host) {}
-
-}  // namespace
 
 ExtensionRegistrar::ExtensionRegistrar(content::BrowserContext* browser_context,
                                        Delegate* delegate)
@@ -410,15 +404,14 @@ bool ExtensionRegistrar::IsExtensionEnabled(
 
 void ExtensionRegistrar::DidCreateRenderViewForBackgroundPage(
     ExtensionHost* host) {
-  OrphanedDevTools::iterator iter =
-      orphaned_dev_tools_.find(host->extension_id());
+  auto iter = orphaned_dev_tools_.find(host->extension_id());
   if (iter == orphaned_dev_tools_.end())
     return;
-
   // Keepalive count is reset on extension reload. This re-establishes the
   // keepalive that was added when the DevTools agent was initially attached.
   ProcessManager::Get(browser_context_)
-      ->IncrementLazyKeepaliveCount(host->extension());
+      ->IncrementLazyKeepaliveCount(host->extension(), Activity::DEV_TOOLS,
+                                    std::string());
   iter->second->ConnectWebContents(host->host_contents());
   orphaned_dev_tools_.erase(iter);
 }
@@ -528,10 +521,8 @@ void ExtensionRegistrar::MaybeSpinUpLazyBackgroundPage(
     return;
 
   // Wake up the event page by posting a dummy task.
-  LazyBackgroundTaskQueue* queue =
-      LazyBackgroundTaskQueue::Get(browser_context_);
-  queue->AddPendingTask(browser_context_, extension->id(),
-                        base::BindOnce(&DoNothingWithExtensionHost));
+  const LazyContextId context_id(browser_context_, extension->id());
+  context_id.GetTaskQueue()->AddPendingTask(context_id, base::DoNothing());
 }
 
 }  // namespace extensions

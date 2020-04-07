@@ -12,188 +12,130 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import '../tracks/all_frontend';
+
 import * as m from 'mithril';
 
-import {createEmptyState} from '../common/state';
-import {warmupWasmEngineWorker} from '../controller/wasm_engine_proxy';
+import {forwardRemoteCalls} from '../base/remote';
+import {Actions} from '../common/actions';
+import {State} from '../common/state';
 
-import {CanvasController} from './canvas_controller';
-import {CanvasWrapper} from './canvas_wrapper';
-import {ChildVirtualContext} from './child_virtual_context';
-import {globals} from './globals';
+import {globals, QuantizedLoad, ThreadDesc} from './globals';
 import {HomePage} from './home_page';
-import {createPage} from './pages';
-import {QueryPage} from './query_page';
-import {ScrollableContainer} from './scrollable_container';
-import {Track} from './track';
+import {openBufferWithLegacyTraceViewer} from './legacy_trace_viewer';
+import {RecordPage} from './record_page';
+import {Router} from './router';
+import {ViewerPage} from './viewer_page';
 
-export const Frontend = {
-  oninit() {
-    this.width = 0;
-    this.height = 0;
-    this.canvasController = new CanvasController();
-  },
-  oncreate(vnode) {
-    this.onResize = () => {
-      const rect = vnode.dom.getBoundingClientRect();
-      this.width = rect.width;
-      this.height = rect.height;
-      this.canvasController.setDimensions(this.width, this.height);
-      m.redraw();
-    };
-    // Have to redraw after initialization to provide dimensions to view().
-    setTimeout(() => this.onResize());
+/**
+ * The API the main thread exposes to the controller.
+ */
+class FrontendApi {
+  constructor(private router: Router) {}
 
-    // Once ResizeObservers are out, we can stop accessing the window here.
-    window.addEventListener('resize', this.onResize);
-  },
-  onremove() {
-    window.removeEventListener('resize', this.onResize);
-  },
-  view({}) {
-    const canvasTopOffset = this.canvasController.getCanvasTopOffset();
-    const ctx = this.canvasController.getContext();
-
-    this.canvasController.clear();
-
-    return m(
-        '.frontend',
-        {
-          style: {
-            position: 'relative',
-            width: '100%',
-            height: 'calc(100% - 100px)',
-            overflow: 'hidden'
-          }
-        },
-        m(ScrollableContainer,
-          {
-            width: this.width,
-            height: this.height,
-            contentHeight: 1000,
-            onPassiveScroll: (scrollTop: number) => {
-              this.canvasController.updateScrollOffset(scrollTop);
-              m.redraw();
-            },
-          },
-          m(CanvasWrapper, {
-            topOffset: canvasTopOffset,
-            canvasElement: this.canvasController.getCanvasElement()
-          }),
-          m(Track, {
-            name: 'Track 1',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 0, x: 0, width: this.width, height: 90}),
-            top: 0,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 2',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 100, x: 0, width: this.width, height: 90}),
-            top: 100,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 3',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 200, x: 0, width: this.width, height: 90}),
-            top: 200,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 4',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 300, x: 0, width: this.width, height: 90}),
-            top: 300,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 5',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 400, x: 0, width: this.width, height: 90}),
-            top: 400,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 6',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 500, x: 0, width: this.width, height: 90}),
-            top: 500,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 7',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 600, x: 0, width: this.width, height: 90}),
-            top: 600,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 8',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 700, x: 0, width: this.width, height: 90}),
-            top: 700,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 9',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 800, x: 0, width: this.width, height: 90}),
-            top: 800,
-            width: this.width
-          }),
-          m(Track, {
-            name: 'Track 10',
-            trackContext: new ChildVirtualContext(
-                ctx, {y: 900, x: 0, width: this.width, height: 90}),
-            top: 900,
-            width: this.width
-          }), ), );
-  },
-} as m.Component<{width: number, height: number}, {
-  canvasController: CanvasController,
-  width: number,
-  height: number,
-  onResize: () => void
-}>;
-
-export const FrontendPage = createPage({
-  view() {
-    return m(Frontend, {width: 1000, height: 300});
+  updateState(state: State) {
+    globals.state = state;
+    // If the visible time in the global state has been updated more recently
+    // than the visible time handled by the frontend @ 60fps, update it. This
+    // typically happens when restoring the state from a permalink.
+    globals.frontendLocalState.mergeState(state.frontendLocalState);
+    this.redraw();
   }
-});
 
-function createController(): Worker {
-  const worker = new Worker('controller_bundle.js');
-  worker.onerror = e => {
-    console.error(e);
-  };
-  worker.onmessage = msg => {
-    globals.state = msg.data;
-    m.redraw();
-  };
-  return worker;
+  // TODO: we can't have a publish method for each batch of data that we don't
+  // want to keep in the global state. Figure out a more generic and type-safe
+  // mechanism to achieve this.
+
+  publishOverviewData(data: {[key: string]: QuantizedLoad | QuantizedLoad[]}) {
+    for (const [key, value] of Object.entries(data)) {
+      if (!globals.overviewStore.has(key)) {
+        globals.overviewStore.set(key, []);
+      }
+      if (value instanceof Array) {
+        globals.overviewStore.get(key)!.push(...value);
+      } else {
+        globals.overviewStore.get(key)!.push(value);
+      }
+    }
+    globals.rafScheduler.scheduleRedraw();
+  }
+
+  publishTrackData(args: {id: string, data: {}}) {
+    globals.trackDataStore.set(args.id, args.data);
+    globals.rafScheduler.scheduleRedraw();
+  }
+
+  publishQueryResult(args: {id: string, data: {}}) {
+    globals.queryResults.set(args.id, args.data);
+    this.redraw();
+  }
+
+  publishThreads(data: ThreadDesc[]) {
+    globals.threads.clear();
+    data.forEach(thread => {
+      globals.threads.set(thread.utid, thread);
+    });
+    this.redraw();
+  }
+
+  // For opening JSON/HTML traces with the legacy catapult viewer.
+  publishLegacyTrace(args: {data: ArrayBuffer, size: number}) {
+    const arr = new Uint8Array(args.data, 0, args.size);
+    const str = (new TextDecoder('utf-8')).decode(arr);
+    openBufferWithLegacyTraceViewer('trace.json', str, 0);
+  }
+
+  private redraw(): void {
+    if (globals.state.route &&
+        globals.state.route !== this.router.getRouteFromHash()) {
+      this.router.setRouteOnHash(globals.state.route);
+    }
+
+    globals.rafScheduler.scheduleFullRedraw();
+  }
 }
 
 function main() {
-  globals.state = createEmptyState();
-  const worker = createController();
-  // tslint:disable-next-line deprecation
-  globals.dispatch = action => worker.postMessage(action);
-  warmupWasmEngineWorker();
+  const controller = new Worker('controller_bundle.js');
+  controller.onerror = e => {
+    console.error(e);
+  };
+  const channel = new MessageChannel();
+  controller.postMessage(channel.port1, [channel.port1]);
+  const dispatch = controller.postMessage.bind(controller);
+  const router = new Router(
+      '/',
+      {
+        '/': HomePage,
+        '/viewer': ViewerPage,
+        '/record': RecordPage,
+      },
+      dispatch);
+  forwardRemoteCalls(channel.port2, new FrontendApi(router));
+  globals.initialize(dispatch, controller);
 
-  const root = document.getElementById('frontend');
-  if (!root) {
-    console.error('root element not found.');
-    return;
+  globals.rafScheduler.domRedraw = () =>
+      m.render(document.body, m(router.resolve(globals.state.route)));
+
+
+  // Put these variables in the global scope for better debugging.
+  (window as {} as {m: {}}).m = m;
+  (window as {} as {globals: {}}).globals = globals;
+
+  // /?s=xxxx for permalinks.
+  const stateHash = router.param('s');
+  if (stateHash) {
+    globals.dispatch(Actions.loadPermalink({
+      hash: stateHash,
+    }));
   }
 
-  m.route(root, '/', {
-    '/': HomePage,
-    '/viewer': FrontendPage,
-    '/query/:trace': QueryPage,
+  // Prevent pinch zoom.
+  document.body.addEventListener('wheel', (e: MouseEvent) => {
+    if (e.ctrlKey) e.preventDefault();
   });
+
+  router.navigateToCurrentHash();
 }
 
 main();

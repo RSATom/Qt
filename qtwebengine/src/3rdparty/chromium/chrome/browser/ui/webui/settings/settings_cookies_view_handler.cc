@@ -12,22 +12,9 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/i18n/number_formatting.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browsing_data/browsing_data_appcache_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_cache_storage_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_channel_id_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_cookie_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_database_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_file_system_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_indexed_db_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_local_storage_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_media_license_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_quota_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_service_worker_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_shared_worker_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/cookies_tree_model_util.h"
 #include "chrome/grit/generated_resources.h"
@@ -77,11 +64,6 @@ int GetCategoryLabelID(CookieTreeNode::DetailedInfo::NodeType node_type) {
       {CookieTreeNode::DetailedInfo::TYPE_FILE_SYSTEM,
        IDS_SETTINGS_COOKIES_FILE_SYSTEM},
 
-      {CookieTreeNode::DetailedInfo::TYPE_CHANNEL_IDS,
-       IDS_SETTINGS_COOKIES_CHANNEL_ID},
-      {CookieTreeNode::DetailedInfo::TYPE_CHANNEL_ID,
-       IDS_SETTINGS_COOKIES_CHANNEL_ID},
-
       {CookieTreeNode::DetailedInfo::TYPE_SERVICE_WORKERS,
        IDS_SETTINGS_COOKIES_SERVICE_WORKER},
       {CookieTreeNode::DetailedInfo::TYPE_SERVICE_WORKER,
@@ -107,7 +89,7 @@ int GetCategoryLabelID(CookieTreeNode::DetailedInfo::NodeType node_type) {
   };
   // Before optimizing, consider the data size and the cost of L2 cache misses.
   // A linear search over a couple dozen integers is very fast.
-  for (size_t i = 0; i < arraysize(kCategoryLabels); ++i) {
+  for (size_t i = 0; i < base::size(kCategoryLabels); ++i) {
     if (kCategoryLabels[i].node_type == node_type) {
       return kCategoryLabels[i].id;
     }
@@ -257,34 +239,7 @@ void CookiesViewHandler::TreeModelEndBatch(CookiesTreeModel* model) {
 void CookiesViewHandler::EnsureCookiesTreeModelCreated() {
   if (!cookies_tree_model_.get()) {
     Profile* profile = Profile::FromWebUI(web_ui());
-    content::StoragePartition* storage_partition =
-        content::BrowserContext::GetDefaultStoragePartition(profile);
-    content::IndexedDBContext* indexed_db_context =
-        storage_partition->GetIndexedDBContext();
-    content::ServiceWorkerContext* service_worker_context =
-        storage_partition->GetServiceWorkerContext();
-    content::CacheStorageContext* cache_storage_context =
-        storage_partition->GetCacheStorageContext();
-    storage::FileSystemContext* file_system_context =
-        storage_partition->GetFileSystemContext();
-    auto container = std::make_unique<LocalDataContainer>(
-        new BrowsingDataCookieHelper(storage_partition),
-        new BrowsingDataDatabaseHelper(profile),
-        new BrowsingDataLocalStorageHelper(profile),
-        /*session_storage_helper=*/nullptr,
-        new BrowsingDataAppCacheHelper(profile),
-        new BrowsingDataIndexedDBHelper(indexed_db_context),
-        BrowsingDataFileSystemHelper::Create(file_system_context),
-        BrowsingDataQuotaHelper::Create(profile),
-        BrowsingDataChannelIDHelper::Create(profile->GetRequestContext()),
-        new BrowsingDataServiceWorkerHelper(service_worker_context),
-        new BrowsingDataSharedWorkerHelper(storage_partition,
-                                           profile->GetResourceContext()),
-        new BrowsingDataCacheStorageHelper(cache_storage_context),
-        BrowsingDataFlashLSOHelper::Create(profile),
-        BrowsingDataMediaLicenseHelper::Create(file_system_context));
-    cookies_tree_model_ = std::make_unique<CookiesTreeModel>(
-        std::move(container), profile->GetExtensionSpecialStoragePolicy());
+    cookies_tree_model_ = CookiesTreeModel::CreateForProfile(profile);
     cookies_tree_model_->AddCookiesTreeObserver(this);
   }
 }
@@ -314,48 +269,10 @@ void CookiesViewHandler::HandleGetNumCookiesString(
   CHECK_EQ(2U, args->GetSize());
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
-  base::string16 etld_plus1;
-  CHECK(args->GetString(1, &etld_plus1));
+  int num_cookies;
+  CHECK(args->GetInteger(1, &num_cookies));
 
   AllowJavascript();
-  CHECK(cookies_tree_model_.get());
-  // This method is only interested in the number of cookies, so don't save the
-  // filter and keep the existing |sorted_sites_| list.
-  if (etld_plus1 != filter_)
-    cookies_tree_model_->UpdateSearchResults(etld_plus1);
-
-  int num_cookies = 0;
-  const CookieTreeNode* root = cookies_tree_model_->GetRoot();
-  for (int i = 0; i < root->child_count(); ++i) {
-    const CookieTreeNode* site = root->GetChild(i);
-    const base::string16& title = site->GetTitle();
-    if (!base::EndsWith(title, etld_plus1,
-                        base::CompareCase::INSENSITIVE_ASCII)) {
-      continue;
-    }
-
-    for (int j = 0; j < site->child_count(); ++j) {
-      const CookieTreeNode* category = site->GetChild(j);
-      if (category->GetDetailedInfo().node_type !=
-          CookieTreeNode::DetailedInfo::TYPE_COOKIES) {
-        continue;
-      }
-
-      for (int k = 0; k < category->child_count(); ++k) {
-        if (category->GetChild(k)->GetDetailedInfo().node_type !=
-            CookieTreeNode::DetailedInfo::TYPE_COOKIE) {
-          continue;
-        }
-
-        ++num_cookies;
-      }
-    }
-  }
-
-  if (etld_plus1 != filter_) {
-    // Restore the original |filter_|.
-    cookies_tree_model_->UpdateSearchResults(filter_);
-  }
   const base::string16 string =
       num_cookies > 0 ? l10n_util::GetPluralStringFUTF16(
                             IDS_SETTINGS_SITE_SETTINGS_NUM_COOKIES, num_cookies)
@@ -465,7 +382,7 @@ void CookiesViewHandler::SendLocalDataList(const CookieTreeNode* parent) {
   // The layers in the CookieTree are:
   //   root - Top level.
   //   site - www.google.com, example.com, etc.
-  //   category - Cookies, Channel ID, Local Storage, etc.
+  //   category - Cookies, Local Storage, etc.
   //   item - Info on the actual thing.
   // Gather list of sites with some highlights of the categories and items.
   std::unique_ptr<base::ListValue> site_list(new base::ListValue);

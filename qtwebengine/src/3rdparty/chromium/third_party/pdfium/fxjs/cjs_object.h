@@ -7,14 +7,12 @@
 #ifndef FXJS_CJS_OBJECT_H_
 #define FXJS_CJS_OBJECT_H_
 
-#include <memory>
-#include <utility>
-
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fxjs/cfxjs_engine.h"
 #include "fxjs/cjs_runtime.h"
 #include "third_party/base/span.h"
+
+class CFXJS_Engine;
 
 struct JSConstSpec {
   enum Type { Number = 0, String = 1 };

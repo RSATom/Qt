@@ -101,9 +101,6 @@ extern const char kCloudPrintLearnMoreURL[];
 // "Learn more" URL for the Cloud Print Preview certificate error.
 extern const char kCloudPrintCertificateErrorLearnMoreURL[];
 
-// "Learn more" URL for the Cloud Print Preview No Destinations Promotion.
-extern const char kCloudPrintNoDestinationsLearnMoreURL[];
-
 extern const char kContentSettingsExceptionsLearnMoreURL[];
 
 // "Learn more" URL for "Aw snap" page when showing "Reload" button.
@@ -131,6 +128,12 @@ extern const char kExtensionInvalidRequestURL[];
 // URL of the 'Activity controls' section of the privacy settings page.
 extern const char kGoogleAccountActivityControlsURL[];
 
+// URL of the Google Account.
+extern const char kGoogleAccountURL[];
+
+// URL of the Google Password Manager.
+extern const char kGooglePasswordManagerURL[];
+
 // The URL for the "Learn more" page for the usage/crash reporting option in the
 // first run dialog.
 extern const char kLearnMoreReportingURL[];
@@ -141,6 +144,9 @@ extern const char kLegacySupervisedUserManagementDisplayURL[];
 
 // Management URL for Chrome Supervised Users.
 extern const char kLegacySupervisedUserManagementURL[];
+
+// The URL for the Learn More page about policies and enterprise enrollment.
+extern const char kManagedUiLearnMoreUrl[];
 
 // "myactivity.google.com" URL for the history checkbox in ClearBrowsingData.
 extern const char kMyActivityUrlInClearBrowsingData[];
@@ -153,6 +159,8 @@ extern const char kPageInfoHelpCenterURL[];
 
 extern const char kPasswordManagerLearnMoreURL[];
 
+extern const char kPaymentMethodsLearnMoreURL[];
+
 // "Learn more" URL for the Privacy section under Options.
 extern const char kPrivacyLearnMoreURL[];
 
@@ -162,14 +170,8 @@ extern const char kRemoveNonCWSExtensionURL[];
 // "Learn more" URL for resetting profile preferences.
 extern const char kResetProfileSettingsLearnMoreURL[];
 
-// Parameters that get appended to force SafeSearch.
-extern const char kSafeSearchSafeParameter[];
-extern const char kSafeSearchSsuiParameter[];
-
 // Help URL for the settings page's search feature.
 extern const char kSettingsSearchHelpURL[];
-
-extern const char kSmartLockHelpPage[];
 
 // The URL for the Learn More page about Sync and Google services.
 extern const char kSyncAndGoogleServicesLearnMoreURL[];
@@ -218,7 +220,16 @@ extern const char kCupsPrintLearnMoreURL[];
 // The URL for the "Learn more" link the the Easy Unlock settings.
 extern const char kEasyUnlockLearnMoreUrl[];
 
+// The path to the offline Chrome OS EULA.
 extern const char kEULAPathFormat[];
+
+// The path format to the localized offline ARC++ Terms of Service.
+// Relative to |kChromeOSAssetPath|.
+extern const char kArcTermsPathFormat[];
+
+// The path format to the localized offline ARC++ Privacy Policy.
+// Relative to |kChromeOSAssetPath|.
+extern const char kArcPrivacyPolicyPathFormat[];
 
 // The URL for EOL notification
 extern const char kEolNotificationURL[];
@@ -231,6 +242,9 @@ extern const char kInstantTetheringLearnMoreURL[];
 
 // The URL for the "Learn more" link in the connected devices.
 extern const char kMultiDeviceLearnMoreURL[];
+
+// The URL for the "Learn more" link for Android Messages.
+extern const char kAndroidMessagesLearnMoreURL[];
 
 // The URL for the "Learn more" link in the language settings.
 extern const char kLanguageSettingsLearnMoreUrl[];
@@ -247,7 +261,14 @@ extern const char kLinuxCreditsPath[];
 // The URL for the "Learn more" link for natural scrolling on ChromeOS.
 extern const char kNaturalScrollHelpURL[];
 
+// The URL path to offline OEM EULA.
 extern const char kOemEulaURLPath[];
+
+// The URL path to offline ARC++ Terms of Service.
+extern const char kArcTermsURLPath[];
+
+// The URL path to offline ARC++ Privacy Policy.
+extern const char kArcPrivacyPolicyURLPath[];
 
 extern const char kOnlineEulaURLPath[];
 
@@ -256,6 +277,9 @@ extern const char kTPMFirmwareUpdateLearnMoreURL[];
 
 // The URL for the "Learn more" page for the time zone settings page.
 extern const char kTimeZoneSettingsLearnMoreURL[];
+
+// The URL for the "Learn more" page for the network file shares settings page.
+extern const char kSmbSharesLearnMoreURL[];
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_MACOSX)

@@ -8,6 +8,7 @@
 #include "base/feature_list.h"
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
 #include "content/browser/web_package/signed_exchange_loader.h"
+#include "content/browser/web_package/signed_exchange_prefetch_metric_recorder.h"
 #include "content/browser/web_package/signed_exchange_url_loader_factory_for_non_network_service.h"
 #include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -20,19 +21,16 @@ namespace content {
 
 SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
     base::RepeatingCallback<int(void)> frame_tree_node_id_getter,
-    bool report_raw_headers,
-    int load_flags,
-    const base::Optional<base::UnguessableToken>& throttling_profile_id,
+    const network::ResourceRequest& resource_request,
     const network::ResourceResponseHead& response,
     network::mojom::URLLoaderPtr network_loader,
     network::mojom::URLLoaderClientRequest network_client_request,
     scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory,
-    url::Origin request_initiator,
-    const GURL& outer_request_url,
     URLLoaderThrottlesGetter loader_throttles_getter,
     ResourceContext* resource_context,
     scoped_refptr<net::URLRequestContextGetter> request_context_getter,
-    network::mojom::URLLoaderClient* forwarding_client)
+    network::mojom::URLLoaderClient* forwarding_client,
+    scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder)
     : loader_client_binding_(this), forwarding_client_(forwarding_client) {
   network::mojom::URLLoaderClientEndpointsPtr endpoints =
       network::mojom::URLLoaderClientEndpoints::New(
@@ -49,14 +47,15 @@ SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
     url_loader_factory = std::move(network_loader_factory);
   }
   signed_exchange_loader_ = std::make_unique<SignedExchangeLoader>(
-      outer_request_url, response, std::move(client), std::move(endpoints),
-      std::move(request_initiator), network::mojom::kURLLoadOptionNone,
-      load_flags, throttling_profile_id,
+      resource_request, response, std::move(client), std::move(endpoints),
+      network::mojom::kURLLoadOptionNone,
+      false /* should_redirect_to_fallback */,
       std::make_unique<SignedExchangeDevToolsProxy>(
-          outer_request_url, response, std::move(frame_tree_node_id_getter),
-          base::nullopt /* devtools_navigation_token */, report_raw_headers),
+          resource_request.url, response, frame_tree_node_id_getter,
+          base::nullopt /* devtools_navigation_token */,
+          resource_request.report_raw_headers),
       std::move(url_loader_factory), loader_throttles_getter,
-      request_context_getter);
+      frame_tree_node_id_getter, std::move(metric_recorder));
 }
 
 SignedExchangePrefetchHandler::~SignedExchangePrefetchHandler() = default;
@@ -108,6 +107,10 @@ void SignedExchangePrefetchHandler::OnStartLoadingResponseBody(
 
 void SignedExchangePrefetchHandler::OnComplete(
     const network::URLLoaderCompletionStatus& status) {
+  // We only reach here on error, since successful completion of the
+  // outer sxg load should trigger redirect and land on ::OnReceiveRedirect.
+  DCHECK_NE(net::OK, status.error_code);
+
   forwarding_client_->OnComplete(status);
 }
 

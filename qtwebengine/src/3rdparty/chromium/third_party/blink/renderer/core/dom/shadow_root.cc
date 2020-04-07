@@ -45,20 +45,17 @@
 #include "third_party/blink/renderer/core/html/html_shadow_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
-#include "third_party/blink/renderer/core/trustedtypes/trusted_html.h"
+#include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
 namespace blink {
 
 void ShadowRoot::Distribute() {
-  if (IsV1())
-    DistributeV1();
-  else
+  if (!IsV1())
     V0().Distribute();
 }
 
 struct SameSizeAsShadowRoot : public DocumentFragment, public TreeScope {
-  char empty_class_fields_due_to_gc_mixin_marker[1];
   Member<void*> member[3];
   unsigned counters_and_flags[1];
 };
@@ -74,10 +71,11 @@ ShadowRoot::ShadowRoot(Document& document, ShadowRootType type)
       type_(static_cast<unsigned short>(type)),
       registered_with_parent_shadow_root_(false),
       delegates_focus_(false),
+      slotting_(static_cast<unsigned short>(ShadowRootSlotting::kAuto)),
       needs_distribution_recalc_(false),
       unused_(0) {
   if (IsV0())
-    shadow_root_v0_ = new ShadowRootV0(*this);
+    shadow_root_v0_ = MakeGarbageCollected<ShadowRootV0>(*this);
 }
 
 ShadowRoot::~ShadowRoot() = default;
@@ -111,6 +109,10 @@ Node* ShadowRoot::Clone(Document&, CloneChildrenFlag) const {
   return nullptr;
 }
 
+void ShadowRoot::SetSlotting(ShadowRootSlotting slotting) {
+  slotting_ = static_cast<unsigned short>(slotting);
+}
+
 String ShadowRoot::InnerHTMLAsString() const {
   return CreateMarkup(this, kChildrenOnly);
 }
@@ -129,20 +131,11 @@ void ShadowRoot::SetInnerHTMLFromString(const String& markup,
 
 void ShadowRoot::setInnerHTML(const StringOrTrustedHTML& stringOrHtml,
                               ExceptionState& exception_state) {
-  DCHECK(stringOrHtml.IsString() ||
-         RuntimeEnabledFeatures::TrustedDOMTypesEnabled());
-
-  if (stringOrHtml.IsString() && GetDocument().RequireTrustedTypes()) {
-    exception_state.ThrowTypeError(
-        "This document requires `TrustedHTML` assignment.");
-    return;
+  String html =
+      GetStringFromTrustedHTML(stringOrHtml, &GetDocument(), exception_state);
+  if (!exception_state.HadException()) {
+    SetInnerHTMLFromString(html, exception_state);
   }
-
-  String html = stringOrHtml.IsString()
-                    ? stringOrHtml.GetAsString()
-                    : stringOrHtml.GetAsTrustedHTML()->toString();
-
-  SetInnerHTMLFromString(html, exception_state);
 }
 
 void ShadowRoot::RecalcStyle(StyleRecalcChange change) {
@@ -170,35 +163,21 @@ void ShadowRoot::RebuildLayoutTree(WhitespaceAttacher& whitespace_attacher) {
   ClearChildNeedsReattachLayoutTree();
 }
 
-void ShadowRoot::AttachLayoutTree(AttachContext& context) {
-  Node::AttachContext children_context(context);
-  DocumentFragment::AttachLayoutTree(children_context);
-}
-
-void ShadowRoot::DetachLayoutTree(const AttachContext& context) {
-  Node::AttachContext children_context(context);
-  children_context.clear_invalidation = true;
-  GetDocument()
-      .GetStyleEngine()
-      .GetPendingNodeInvalidations()
-      .ClearInvalidation(*this);
-  DocumentFragment::DetachLayoutTree(children_context);
-}
-
 Node::InsertionNotificationRequest ShadowRoot::InsertedInto(
-    ContainerNode* insertion_point) {
+    ContainerNode& insertion_point) {
   DocumentFragment::InsertedInto(insertion_point);
 
-  if (!insertion_point->isConnected())
+  if (!insertion_point.isConnected())
     return kInsertionDone;
 
-  if (RuntimeEnabledFeatures::IncrementalShadowDOMEnabled())
-    GetDocument().GetSlotAssignmentEngine().Connected(*this);
+  GetDocument().GetStyleEngine().ShadowRootInsertedToDocument(*this);
 
-  // FIXME: When parsing <video controls>, insertedInto() is called many times
-  // without invoking removedFrom.  For now, we check
-  // m_registeredWithParentShadowroot. We would like to
-  // DCHECK(!m_registeredShadowRoot) here.
+  GetDocument().GetSlotAssignmentEngine().Connected(*this);
+
+  // FIXME: When parsing <video controls>, InsertedInto() is called many times
+  // without invoking RemovedFrom().  For now, we check
+  // registered_with_parent_shadow_root. We would like to
+  // DCHECK(!registered_with_parent_shadow_root) here.
   // https://bugs.webkit.org/show_bug.cig?id=101316
   if (registered_with_parent_shadow_root_)
     return kInsertionDone;
@@ -211,24 +190,18 @@ Node::InsertionNotificationRequest ShadowRoot::InsertedInto(
   return kInsertionDone;
 }
 
-void ShadowRoot::RemovedFrom(ContainerNode* insertion_point) {
-  if (insertion_point->isConnected()) {
+void ShadowRoot::RemovedFrom(ContainerNode& insertion_point) {
+  if (insertion_point.isConnected()) {
     if (NeedsSlotAssignmentRecalc())
       GetDocument().GetSlotAssignmentEngine().Disconnected(*this);
     GetDocument().GetStyleEngine().ShadowRootRemovedFromDocument(this);
     if (registered_with_parent_shadow_root_) {
       ShadowRoot* root = host().ContainingShadowRoot();
       if (!root)
-        root = insertion_point->ContainingShadowRoot();
+        root = insertion_point.ContainingShadowRoot();
       if (root)
         root->RemoveChildShadowRoot();
       registered_with_parent_shadow_root_ = false;
-    }
-    if (NeedsStyleInvalidation()) {
-      GetDocument()
-          .GetStyleEngine()
-          .GetPendingNodeInvalidations()
-          .ClearInvalidation(*this);
     }
   }
 
@@ -236,7 +209,6 @@ void ShadowRoot::RemovedFrom(ContainerNode* insertion_point) {
 }
 
 void ShadowRoot::SetNeedsAssignmentRecalc() {
-  DCHECK(RuntimeEnabledFeatures::IncrementalShadowDOMEnabled());
   DCHECK(IsV1());
   if (!slot_assignment_)
     return;
@@ -266,14 +238,14 @@ StyleSheetList& ShadowRoot::StyleSheets() {
 }
 
 void ShadowRoot::SetNeedsDistributionRecalcWillBeSetNeedsAssignmentRecalc() {
-  if (RuntimeEnabledFeatures::IncrementalShadowDOMEnabled() && IsV1())
+  if (IsV1())
     SetNeedsAssignmentRecalc();
   else
     SetNeedsDistributionRecalc();
 }
 
 void ShadowRoot::SetNeedsDistributionRecalc() {
-  DCHECK(!(RuntimeEnabledFeatures::IncrementalShadowDOMEnabled() && IsV1()));
+  DCHECK(!IsV1());
   if (needs_distribution_recalc_)
     return;
   needs_distribution_recalc_ = true;
@@ -282,11 +254,7 @@ void ShadowRoot::SetNeedsDistributionRecalc() {
     V0().ClearDistribution();
 }
 
-void ShadowRoot::DistributeV1() {
-  EnsureSlotAssignment().RecalcDistribution();
-}
-
-void ShadowRoot::Trace(blink::Visitor* visitor) {
+void ShadowRoot::Trace(Visitor* visitor) {
   visitor->Trace(style_sheet_list_);
   visitor->Trace(slot_assignment_);
   visitor->Trace(shadow_root_v0_);

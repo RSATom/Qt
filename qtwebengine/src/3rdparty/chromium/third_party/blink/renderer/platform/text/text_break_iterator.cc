@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/platform/text/text_break_iterator.h"
 
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/platform/text/character.h"
 #include "third_party/blink/renderer/platform/wtf/ascii_ctype.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -53,17 +54,13 @@ unsigned NumGraphemeClusters(const String& string) {
   return num;
 }
 
-void GraphemesClusterList(String text,
-                          unsigned start,
-                          unsigned length,
-                          Vector<unsigned>* graphemes) {
+void GraphemesClusterList(const StringView& text, Vector<unsigned>* graphemes) {
+  const unsigned length = text.length();
   graphemes->resize(length);
   if (!length)
     return;
 
-  String substring = text.Substring(start, length);
-  NonSharedCharacterBreakIterator it(substring);
-
+  NonSharedCharacterBreakIterator it(text);
   int cursor_pos = it.Next();
   unsigned count = 0;
   unsigned pos = 0;
@@ -227,11 +224,11 @@ static const unsigned char kBreakAllLineBreakClassTable[][BA_LB_COUNT / 8 + 1] =
 #undef DI
 #undef AL
 
-static_assert(arraysize(kAsciiLineBreakTable) ==
+static_assert(base::size(kAsciiLineBreakTable) ==
                   kAsciiLineBreakTableLastChar - kAsciiLineBreakTableFirstChar +
                       1,
               "asciiLineBreakTable should be consistent");
-static_assert(arraysize(kBreakAllLineBreakClassTable) == BA_LB_COUNT,
+static_assert(base::size(kBreakAllLineBreakClassTable) == BA_LB_COUNT,
               "breakAllLineBreakClassTable should be consistent");
 
 static inline bool ShouldBreakAfter(UChar last_ch, UChar ch, UChar next_ch) {
@@ -288,9 +285,9 @@ static inline bool ShouldKeepAfterKeepAll(UChar last_ch,
                                           UChar next_ch) {
   UChar pre_ch = U_MASK(u_charType(ch)) & U_GC_M_MASK ? last_ch : ch;
   return U_MASK(u_charType(pre_ch)) & (U_GC_L_MASK | U_GC_N_MASK) &&
-         !WTF::Unicode::HasLineBreakingPropertyComplexContext(pre_ch) &&
+         !WTF::unicode::HasLineBreakingPropertyComplexContext(pre_ch) &&
          U_MASK(u_charType(next_ch)) & (U_GC_L_MASK | U_GC_N_MASK) &&
-         !WTF::Unicode::HasLineBreakingPropertyComplexContext(next_ch);
+         !WTF::unicode::HasLineBreakingPropertyComplexContext(next_ch);
 }
 
 inline bool NeedsLineBreakIterator(UChar ch) {
@@ -304,6 +301,8 @@ inline int LazyLineBreakIterator::NextBreakablePosition(
     int pos,
     const CharacterType* str,
     int len) const {
+  DCHECK_GE(pos, 0);
+  DCHECK_GE(static_cast<unsigned>(pos), start_offset_);
   int next_break = -1;
   UChar last_last_ch = pos > 1 ? str[pos - 2] : SecondToLastCharacter();
   UChar last_ch = pos > 0 ? str[pos - 1] : LastCharacter();
@@ -311,7 +310,7 @@ inline int LazyLineBreakIterator::NextBreakablePosition(
   ULineBreak last_line_break;
   if (lineBreakType == LineBreakType::kBreakAll)
     last_line_break = LineBreakPropertyValue(last_last_ch, last_ch);
-  unsigned prior_context_length = PriorContextLength();
+  PriorContext prior_context = GetPriorContext();
   CharacterType ch;
   bool is_space;
   for (int i = pos; i < len;
@@ -357,13 +356,15 @@ inline int LazyLineBreakIterator::NextBreakablePosition(
       if (next_break < i) {
         // Don't break if positioned at start of primary context and there is no
         // prior context.
-        if (i || prior_context_length) {
-          TextBreakIterator* break_iterator = Get(prior_context_length);
-          if (break_iterator) {
-            next_break =
-                break_iterator->following(i - 1 + prior_context_length);
+        if (i || prior_context.length) {
+          if (TextBreakIterator* break_iterator = GetIterator(prior_context)) {
+            // Adjust the offset by |start_offset_| because |break_iterator| has
+            // text after |start_offset_|.
+            DCHECK_GE(i + prior_context.length, start_offset_);
+            next_break = break_iterator->following(
+                i - 1 + prior_context.length - start_offset_);
             if (next_break >= 0) {
-              next_break -= prior_context_length;
+              next_break = next_break + start_offset_ - prior_context.length;
             }
           }
         }
@@ -411,9 +412,13 @@ inline int LazyLineBreakIterator::NextBreakablePosition(int pos,
 }
 
 int LazyLineBreakIterator::NextBreakablePositionBreakCharacter(int pos) const {
-  NonSharedCharacterBreakIterator iterator(string_);
+  DCHECK_LE(start_offset_, string_.length());
+  NonSharedCharacterBreakIterator iterator(StringView(string_, start_offset_));
+  DCHECK_GE(pos, 0);
+  DCHECK_GE(static_cast<unsigned>(pos), start_offset_);
+  pos -= start_offset_;
   int next = iterator.Following(std::max(pos - 1, 0));
-  return next != kTextBreakDone ? next : string_.length();
+  return next != kTextBreakDone ? next + start_offset_ : string_.length();
 }
 
 int LazyLineBreakIterator::NextBreakablePosition(int pos,
@@ -442,6 +447,14 @@ int LazyLineBreakIterator::NextBreakablePosition(
 
 unsigned LazyLineBreakIterator::NextBreakOpportunity(unsigned offset) const {
   int next_break = NextBreakablePosition(offset, break_type_);
+  DCHECK_GE(next_break, 0);
+  return next_break;
+}
+
+unsigned LazyLineBreakIterator::NextBreakOpportunity(unsigned offset,
+                                                     unsigned len) const {
+  DCHECK_LE(len, string_.length());
+  int next_break = NextBreakablePosition(offset, break_type_, len);
   DCHECK_GE(next_break, 0);
   return next_break;
 }

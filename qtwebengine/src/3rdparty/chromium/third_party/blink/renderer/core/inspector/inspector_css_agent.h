@@ -101,13 +101,24 @@ class CORE_EXPORT InspectorCSSAgent final
       InspectorNetworkAgent* network_agent,
       InspectorResourceContentLoader* resource_content_loader,
       InspectorResourceContainer* resource_container) {
-    return new InspectorCSSAgent(dom_agent, inspected_frames, network_agent,
-                                 resource_content_loader, resource_container);
+    return MakeGarbageCollected<InspectorCSSAgent>(
+        dom_agent, inspected_frames, network_agent, resource_content_loader,
+        resource_container);
   }
 
   static void CollectAllDocumentStyleSheets(Document*,
                                             HeapVector<Member<CSSStyleSheet>>&);
 
+  static void GetBackgroundColors(Element* element,
+                                  Vector<Color>* background_colors,
+                                  String* computed_font_size,
+                                  String* computed_font_weight);
+
+  InspectorCSSAgent(InspectorDOMAgent*,
+                    InspectedFrames*,
+                    InspectorNetworkAgent*,
+                    InspectorResourceContentLoader*,
+                    InspectorResourceContainer*);
   ~InspectorCSSAgent() override;
   void Trace(blink::Visitor*) override;
 
@@ -198,8 +209,7 @@ class CORE_EXPORT InspectorCSSAgent final
       int node_id,
       protocol::Maybe<protocol::Array<String>>* background_colors,
       protocol::Maybe<String>* computed_font_size,
-      protocol::Maybe<String>* computed_font_weight,
-      protocol::Maybe<String>* computed_body_font_size) override;
+      protocol::Maybe<String>* computed_font_weight) override;
 
   protocol::Response startRuleUsageTracking() override;
   protocol::Response takeCoverageDelta(
@@ -238,12 +248,6 @@ class CORE_EXPORT InspectorCSSAgent final
   static void CollectStyleSheets(CSSStyleSheet*,
                                  HeapVector<Member<CSSStyleSheet>>&);
 
-  InspectorCSSAgent(InspectorDOMAgent*,
-                    InspectedFrames*,
-                    InspectorNetworkAgent*,
-                    InspectorResourceContentLoader*,
-                    InspectorResourceContainer*);
-
   typedef HeapHashMap<String, Member<InspectorStyleSheet>>
       IdToInspectorStyleSheet;
   typedef HeapHashMap<String, Member<InspectorStyleSheetForInlineStyle>>
@@ -254,7 +258,7 @@ class CORE_EXPORT InspectorCSSAgent final
   typedef HashMap<int, unsigned> NodeIdToForcedPseudoState;
 
   void ResourceContentLoaded(std::unique_ptr<EnableCallback>);
-  void WasEnabled();
+  void CompleteEnabled();
   void ResetNonPersistentData();
   InspectorStyleSheetForInlineStyle* AsInspectorStyleSheet(Element* element);
 
@@ -274,7 +278,8 @@ class CORE_EXPORT InspectorCSSAgent final
 
   void CollectPlatformFontsForLayoutObject(
       LayoutObject*,
-      HashCountedSet<std::pair<int, String>>*);
+      HashCountedSet<std::pair<int, String>>*,
+      unsigned descendants_depth);
 
   InspectorStyleSheet* BindStyleSheet(CSSStyleSheet*);
   String UnbindStyleSheet(InspectorStyleSheet*);
@@ -334,7 +339,9 @@ class CORE_EXPORT InspectorCSSAgent final
   Member<CSSStyleSheet> inspector_user_agent_style_sheet_;
 
   int resource_content_loader_client_id_;
-  bool was_enabled_ = false;
+  InspectorAgentState::Boolean enable_requested_;
+  bool enable_completed_;
+  InspectorAgentState::Boolean coverage_enabled_;
 
   friend class InspectorResourceContentLoaderCallback;
   friend class StyleSheetBinder;

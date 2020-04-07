@@ -20,10 +20,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
 
-#ifdef PDF_ENABLE_V8
-#include "v8/include/v8.h"
-#endif  // PDF_ENABLE_v8
-
 class TestLoader;
 
 // This class is used to load a PDF document, and then run programatic
@@ -39,7 +35,7 @@ class EmbedderTest : public ::testing::Test,
 
   class Delegate {
    public:
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
 
     // Equivalent to UNSUPPORT_INFO::FSDK_UnSupport_Handler().
     virtual void UnsupportedHandler(int type) {}
@@ -75,17 +71,15 @@ class EmbedderTest : public ::testing::Test,
 
 #ifdef PDF_ENABLE_V8
   // Call before SetUp to pass shared isolate, otherwise PDFium creates one.
-  void SetExternalIsolate(void* isolate) {
-    external_isolate_ = static_cast<v8::Isolate*>(isolate);
-  }
+  void SetExternalIsolate(void* isolate);
 #endif  // PDF_ENABLE_V8
 
   void SetDelegate(Delegate* delegate) {
     delegate_ = delegate ? delegate : default_delegate_.get();
   }
 
-  FPDF_DOCUMENT document() { return document_; }
-  FPDF_FORMHANDLE form_handle() { return form_handle_; }
+  FPDF_DOCUMENT document() const { return document_; }
+  FPDF_FORMHANDLE form_handle() const { return form_handle_; }
 
   // Create an empty document, and its form fill environment. Returns true
   // on success or false on failure.
@@ -125,9 +119,15 @@ class EmbedderTest : public ::testing::Test,
   // holds the page handle for that page.
   FPDF_PAGE LoadPage(int page_number);
 
+  // Same as LoadPage(), but does not fire form events.
+  FPDF_PAGE LoadPageNoEvents(int page_number);
+
   // Fire form unload events and release the resources for a |page| obtained
   // from LoadPage(). Further use of |page| is prohibited after calling this.
   void UnloadPage(FPDF_PAGE page);
+
+  // Same as UnloadPage(), but does not fire form events.
+  void UnloadPageNoEvents(FPDF_PAGE page);
 
   // RenderLoadedPageWithFlags() with no flags.
   ScopedFPDFBitmap RenderLoadedPage(FPDF_PAGE page);
@@ -195,7 +195,7 @@ class EmbedderTest : public ::testing::Test,
                                 unsigned long size);
 
   // See comments in the respective non-Saved versions of these methods.
-  FPDF_DOCUMENT OpenSavedDocument(const char* password = nullptr);
+  FPDF_DOCUMENT OpenSavedDocument(const char* password);
   void CloseSavedDocument();
   FPDF_PAGE LoadSavedPage(int page_number);
   void CloseSavedPage(FPDF_PAGE page);
@@ -263,6 +263,9 @@ class EmbedderTest : public ::testing::Test,
 
   // Same as GetPageNumberForLoadedPage(), but with |saved_page_map_|.
   int GetPageNumberForSavedPage(FPDF_PAGE page) const;
+
+  void UnloadPageCommon(FPDF_PAGE page, bool do_events);
+  FPDF_PAGE LoadPageCommon(int page_number, bool do_events);
 
   std::string data_string_;
   std::string saved_document_file_data_;

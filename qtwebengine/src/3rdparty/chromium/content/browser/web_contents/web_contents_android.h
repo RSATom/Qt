@@ -243,12 +243,6 @@ class CONTENT_EXPORT WebContentsAndroid
   bool IsBeingDestroyed(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& obj);
 
-  // Returns the amount of the top controls height if controls are in the state
-  // of shrinking Blink's view size, otherwise 0.
-  int GetTopControlsShrinkBlinkHeightPixForTesting(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& obj);
-
   void SetDisplayCutoutSafeArea(JNIEnv* env,
                                 const base::android::JavaParamRef<jobject>& obj,
                                 int top,
@@ -256,9 +250,9 @@ class CONTENT_EXPORT WebContentsAndroid
                                 int bottom,
                                 int right);
 
- private:
   RenderWidgetHostViewAndroid* GetRenderWidgetHostViewAndroid();
 
+ private:
   void OnFinishGetContentBitmap(const base::android::JavaRef<jobject>& obj,
                                 const base::android::JavaRef<jobject>& callback,
                                 const std::string& path,
@@ -271,6 +265,9 @@ class CONTENT_EXPORT WebContentsAndroid
                              const GURL& url,
                              const std::vector<SkBitmap>& bitmaps,
                              const std::vector<gfx::Size>& sizes);
+  void SelectWordAroundCaretAck(bool did_select,
+                                int start_adjust,
+                                int end_adjust);
 
   WebContentsImpl* web_contents_;
 

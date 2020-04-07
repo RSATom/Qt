@@ -39,6 +39,7 @@ bool SelectionController::OnMousePressed(
     return true;
 
   if (event.IsOnlyLeftMouseButton()) {
+    first_drag_location_ = event.location();
     if (delegate_->SupportsDrag())
       delegate_->SetTextBeingDragged(false);
 
@@ -75,7 +76,8 @@ bool SelectionController::OnMousePressed(
         initial_focus_state == InitialFocusStateOnMousePress::UNFOCUSED) {
       SelectAll();
     } else if (PlatformStyle::kSelectWordOnRightClick &&
-               !render_text->IsPointInSelection(event.location())) {
+               !render_text->IsPointInSelection(event.location()) &&
+               IsInsideText(event.location())) {
       SelectWord(event.location());
     }
   }
@@ -205,7 +207,10 @@ void SelectionController::SelectThroughLastDragLocation() {
 
   delegate_->OnBeforePointerAction();
 
-  render_text->MoveCursorToPoint(last_drag_location_, true);
+  // Note that |first_drag_location_| is only used when
+  // RenderText::kDragToEndIfOutsideVerticalBounds, which is platform-specific.
+  render_text->MoveCursorToPoint(last_drag_location_, true,
+                                 first_drag_location_);
 
   if (aggregated_clicks_ == 1) {
     render_text->SelectWord();
@@ -221,6 +226,18 @@ void SelectionController::SelectThroughLastDragLocation() {
     render_text->SelectRange(selection);
   }
   delegate_->OnAfterPointerAction(false, true);
+}
+
+bool SelectionController::IsInsideText(const gfx::Point& point) {
+  gfx::RenderText* render_text = GetRenderText();
+  std::vector<gfx::Rect> bounds_rects = render_text->GetSubstringBounds(
+      gfx::Range(0, render_text->text().length()));
+
+  for (const auto& bounds : bounds_rects)
+    if (bounds.Contains(point))
+      return true;
+
+  return false;
 }
 
 }  // namespace views

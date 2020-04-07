@@ -27,7 +27,7 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "net/base/net_export.h"
@@ -42,10 +42,15 @@
 #include "net/third_party/quic/core/quic_packets.h"
 #include "net/url_request/url_request_job_factory.h"
 
+namespace base {
+namespace android {
+class ApplicationStatusListener;
+}
+}  // namespace base
+
 namespace net {
 
 class CertVerifier;
-class ChannelIDService;
 class CookieStore;
 class CTPolicyEnforcer;
 class CTVerifier;
@@ -119,6 +124,12 @@ class NET_EXPORT URLRequestContextBuilder {
 
     // The cache path (when type is DISK).
     base::FilePath path;
+
+#if defined(OS_ANDROID)
+    // If this is set, will override the default ApplicationStatusListener. This
+    // is useful if the cache will not be in the main process.
+    base::android::ApplicationStatusListener* app_status_listener = nullptr;
+#endif
   };
 
   URLRequestContextBuilder();
@@ -302,6 +313,10 @@ class NET_EXPORT URLRequestContextBuilder {
       std::unique_ptr<CTPolicyEnforcer> ct_policy_enforcer);
 
   void SetCertVerifier(std::unique_ptr<CertVerifier> cert_verifier);
+  // Same as above, but does not take ownership. The CertVerifier must outlive
+  // the created URLRequestContext.
+  // TODO(mmenke): Remove once no longer needed.
+  void SetSharedCertVerifier(CertVerifier* shared_cert_verifier);
 
 #if BUILDFLAG(ENABLE_REPORTING)
   void set_reporting_policy(std::unique_ptr<ReportingPolicy> reporting_policy);
@@ -321,18 +336,9 @@ class NET_EXPORT URLRequestContextBuilder {
   void set_create_intercepting_job_factory(
       CreateInterceptingJobFactory create_intercepting_job_factory);
 
-  // Override the default in-memory cookie store and channel id service.
-  // If both |cookie_store| and |channel_id_service| are NULL, CookieStore and
-  // ChannelIDService will be disabled for this context.
-  // If |cookie_store| is not NULL and |channel_id_service| is NULL,
-  // only ChannelIdService is disabled for this context.
-  // Note that a persistent cookie store should not be used with an in-memory
-  // channel id service, and one cookie store should not be shared between
-  // multiple channel-id stores (or used both with and without a channel id
-  // store).
-  void SetCookieAndChannelIdStores(
-      std::unique_ptr<CookieStore> cookie_store,
-      std::unique_ptr<ChannelIDService> channel_id_service);
+  // Override the default in-memory cookie store. If |cookie_store| is NULL,
+  // CookieStore will be disabled for this context.
+  void SetCookieStore(std::unique_ptr<CookieStore> cookie_store);
 
   // Sets a specific HttpServerProperties for use in the
   // URLRequestContext rather than creating a default HttpServerPropertiesImpl.
@@ -394,7 +400,6 @@ class NET_EXPORT URLRequestContextBuilder {
   NetLog* net_log_;
   std::unique_ptr<HostResolver> host_resolver_;
   HostResolver* shared_host_resolver_;
-  std::unique_ptr<ChannelIDService> channel_id_service_;
   std::unique_ptr<ProxyConfigService> proxy_config_service_;
   bool pac_quick_check_enabled_;
   ProxyResolutionService::SanitizeUrlPolicy pac_sanitize_url_policy_;
@@ -408,6 +413,7 @@ class NET_EXPORT URLRequestContextBuilder {
   std::unique_ptr<HttpAuthHandlerFactory> http_auth_handler_factory_;
   HttpAuthHandlerFactory* shared_http_auth_handler_factory_;
   std::unique_ptr<CertVerifier> cert_verifier_;
+  CertVerifier* shared_cert_verifier_;
   std::unique_ptr<CTVerifier> ct_verifier_;
   std::unique_ptr<CTPolicyEnforcer> ct_policy_enforcer_;
 #if BUILDFLAG(ENABLE_REPORTING)

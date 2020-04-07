@@ -1,5 +1,5 @@
 /*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,23 +11,9 @@
 #ifndef RTC_BASE_SOCKETFACTORY_H_
 #define RTC_BASE_SOCKETFACTORY_H_
 
-#include "rtc_base/asyncsocket.h"
-#include "rtc_base/socket.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
-
-class SocketFactory {
- public:
-  virtual ~SocketFactory() {}
-
-  // Returns a new socket for blocking communication.  The type can be
-  // SOCK_DGRAM and SOCK_STREAM.
-  virtual Socket* CreateSocket(int family, int type) = 0;
-  // Returns a new socket for nonblocking communication.  The type can be
-  // SOCK_DGRAM and SOCK_STREAM.
-  virtual AsyncSocket* CreateAsyncSocket(int family, int type) = 0;
-};
-
-}  // namespace rtc
+#include "rtc_base/socket_factory.h"
 
 #endif  // RTC_BASE_SOCKETFACTORY_H_

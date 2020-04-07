@@ -17,9 +17,10 @@
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
+#include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
+#include "ui/ozone/platform/drm/gpu/drm_gpu_util.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_plane_atomic.h"
 #include "ui/ozone/platform/drm/gpu/page_flip_request.h"
-#include "ui/ozone/platform/drm/gpu/scanout_buffer.h"
 
 namespace ui {
 
@@ -50,8 +51,9 @@ std::unique_ptr<gfx::GpuFence> CreateMergedGpuFenceFromFDs(
 
 }  // namespace
 
-HardwareDisplayPlaneManagerAtomic::HardwareDisplayPlaneManagerAtomic() {
-}
+HardwareDisplayPlaneManagerAtomic::HardwareDisplayPlaneManagerAtomic(
+    DrmDevice* drm)
+    : HardwareDisplayPlaneManager(drm) {}
 
 HardwareDisplayPlaneManagerAtomic::~HardwareDisplayPlaneManagerAtomic() {
 }
@@ -81,6 +83,26 @@ bool HardwareDisplayPlaneManagerAtomic::Commit(
       crtcs.push_back(atomic_plane->crtc());
   }
 
+  drmModeAtomicReqPtr request = plane_list->atomic_property_set.get();
+  for (auto* const crtc : crtcs) {
+    int idx = LookupCrtcIndex(crtc->crtc());
+
+#if defined(COMMIT_PROPERTIES_ON_PAGE_FLIP)
+    // Apply all CRTC properties in the page-flip so we don't block the
+    // swap chain for a vsync.
+    // TODO(dnicoara): See if we can apply these properties async using
+    // DRM_MODE_ATOMIC_ASYNC_UPDATE flag when committing.
+    AddPropertyIfValid(request, crtc->crtc(),
+                       crtc_state_[idx].properties.degamma_lut);
+    AddPropertyIfValid(request, crtc->crtc(),
+                       crtc_state_[idx].properties.gamma_lut);
+    AddPropertyIfValid(request, crtc->crtc(), crtc_state_[idx].properties.ctm);
+#endif
+
+    AddPropertyIfValid(request, crtc->crtc(),
+                       crtc_state_[idx].properties.background_color);
+  }
+
   if (test_only) {
     for (HardwareDisplayPlane* plane : plane_list->plane_list) {
       plane->set_in_use(false);
@@ -99,26 +121,33 @@ bool HardwareDisplayPlaneManagerAtomic::Commit(
   // After we perform the atomic commit, and if the caller has requested an
   // out-fence, the out_fence_fds vector will contain any provided out-fence
   // fds for the crtcs, therefore the scope of out_fence_fds needs to outlive
-  // the CommitProperties call.
+  // the CommitProperties call. CommitProperties will write into the Receiver,
+  // and the Receiver's destructor writes into ScopedFD, so we need to ensure
+  // that the Receivers are destructed before we attempt to use their
+  // corresponding ScopedFDs.
   std::vector<base::ScopedFD> out_fence_fds;
-  if (out_fence) {
-    if (!AddOutFencePtrProperties(plane_list->atomic_property_set.get(), crtcs,
-                                  &out_fence_fds)) {
+  {
+    std::vector<base::ScopedFD::Receiver> out_fence_fd_receivers;
+    if (out_fence) {
+      if (!AddOutFencePtrProperties(plane_list->atomic_property_set.get(),
+                                    crtcs, &out_fence_fds,
+                                    &out_fence_fd_receivers)) {
+        ResetCurrentPlaneList(plane_list);
+        return false;
+      }
+    }
+
+    if (!drm_->CommitProperties(plane_list->atomic_property_set.get(), flags,
+                                crtcs.size(), page_flip_request)) {
+      if (!test_only) {
+        PLOG(ERROR) << "Failed to commit properties for page flip.";
+      } else {
+        VPLOG(2) << "Failed to commit properties for MODE_ATOMIC_TEST_ONLY.";
+      }
+
       ResetCurrentPlaneList(plane_list);
       return false;
     }
-  }
-
-  if (!drm_->CommitProperties(plane_list->atomic_property_set.get(), flags,
-                              crtcs.size(), page_flip_request)) {
-    if (!test_only) {
-      PLOG(ERROR) << "Failed to commit properties for page flip.";
-    } else {
-      VPLOG(2) << "Failed to commit properties for MODE_ATOMIC_TEST_ONLY.";
-    }
-
-    ResetCurrentPlaneList(plane_list);
-    return false;
   }
 
   if (out_fence)
@@ -204,8 +233,8 @@ bool HardwareDisplayPlaneManagerAtomic::SetPlaneData(
   HardwareDisplayPlaneAtomic* atomic_plane =
       static_cast<HardwareDisplayPlaneAtomic*>(hw_plane);
   uint32_t framebuffer_id = overlay.enable_blend
-                                ? overlay.buffer->GetFramebufferId()
-                                : overlay.buffer->GetOpaqueFramebufferId();
+                                ? overlay.buffer->framebuffer_id()
+                                : overlay.buffer->opaque_framebuffer_id();
   int fence_fd = base::kInvalidPlatformFile;
 
   if (overlay.gpu_fence) {
@@ -229,6 +258,24 @@ bool HardwareDisplayPlaneManagerAtomic::SetPlaneData(
   return true;
 }
 
+bool HardwareDisplayPlaneManagerAtomic::InitializePlanes() {
+  ScopedDrmPlaneResPtr plane_resources = drm_->GetPlaneResources();
+  if (!plane_resources) {
+    PLOG(ERROR) << "Failed to get plane resources.";
+    return false;
+  }
+
+  for (uint32_t i = 0; i < plane_resources->count_planes; ++i) {
+    std::unique_ptr<HardwareDisplayPlane> plane(
+        CreatePlane(plane_resources->planes[i]));
+
+    if (plane->Initialize(drm_))
+      planes_.push_back(std::move(plane));
+  }
+
+  return true;
+}
+
 std::unique_ptr<HardwareDisplayPlane>
 HardwareDisplayPlaneManagerAtomic::CreatePlane(uint32_t plane_id) {
   return std::make_unique<HardwareDisplayPlaneAtomic>(plane_id);
@@ -236,6 +283,8 @@ HardwareDisplayPlaneManagerAtomic::CreatePlane(uint32_t plane_id) {
 
 bool HardwareDisplayPlaneManagerAtomic::CommitColorMatrix(
     const CrtcProperties& crtc_props) {
+  DCHECK(crtc_props.ctm.id);
+#if !defined(COMMIT_PROPERTIES_ON_PAGE_FLIP)
   ScopedDrmAtomicReqPtr property_set(drmModeAtomicAlloc());
   int ret = drmModeAtomicAddProperty(property_set.get(), crtc_props.id,
                                      crtc_props.ctm.id, crtc_props.ctm.value);
@@ -250,12 +299,15 @@ bool HardwareDisplayPlaneManagerAtomic::CommitColorMatrix(
   // TODO(dnicoara): Should cache these values locally and aggregate them with
   // the page flip event otherwise this "steals" a vsync to apply the property.
   return drm_->CommitProperties(property_set.get(), 0, 0, nullptr);
+#else
+  return true;
+#endif
 }
 
 bool HardwareDisplayPlaneManagerAtomic::CommitGammaCorrection(
     const CrtcProperties& crtc_props) {
   DCHECK(crtc_props.degamma_lut.id || crtc_props.gamma_lut.id);
-
+#if !defined(COMMIT_PROPERTIES_ON_PAGE_FLIP)
   ScopedDrmAtomicReqPtr property_set(drmModeAtomicAlloc());
   if (crtc_props.degamma_lut.id) {
     int ret = drmModeAtomicAddProperty(property_set.get(), crtc_props.id,
@@ -285,24 +337,32 @@ bool HardwareDisplayPlaneManagerAtomic::CommitGammaCorrection(
   // TODO(dnicoara): Should cache these values locally and aggregate them with
   // the page flip event otherwise this "steals" a vsync to apply the property.
   return drm_->CommitProperties(property_set.get(), 0, 0, nullptr);
+#else
+  return true;
+#endif
 }
 
 bool HardwareDisplayPlaneManagerAtomic::AddOutFencePtrProperties(
     drmModeAtomicReqPtr property_set,
     const std::vector<CrtcController*>& crtcs,
-    std::vector<base::ScopedFD>* out_fence_fds) {
+    std::vector<base::ScopedFD>* out_fence_fds,
+    std::vector<base::ScopedFD::Receiver>* out_fence_fd_receivers) {
   // Reserve space in vector to ensure no reallocation will take place
   // and thus all pointers to elements will remain valid
   DCHECK(out_fence_fds->empty());
+  DCHECK(out_fence_fd_receivers->empty());
   out_fence_fds->reserve(crtcs.size());
+  out_fence_fd_receivers->reserve(crtcs.size());
 
   for (auto* crtc : crtcs) {
     const auto crtc_index = LookupCrtcIndex(crtc->crtc());
     DCHECK_GE(crtc_index, 0);
-    const auto out_fence_ptr_id = crtc_properties_[crtc_index].out_fence_ptr.id;
+    const auto out_fence_ptr_id =
+        crtc_state_[crtc_index].properties.out_fence_ptr.id;
 
     if (out_fence_ptr_id > 0) {
       out_fence_fds->push_back(base::ScopedFD());
+      out_fence_fd_receivers->emplace_back(out_fence_fds->back());
       // Add the OUT_FENCE_PTR property pointing to the memory location
       // to save the out-fence fd into for this crtc. Note that
       // the out-fence fd is produced only after we perform the atomic
@@ -310,10 +370,11 @@ bool HardwareDisplayPlaneManagerAtomic::AddOutFencePtrProperties(
       // until then.
       int ret = drmModeAtomicAddProperty(
           property_set, crtc->crtc(), out_fence_ptr_id,
-          reinterpret_cast<uint64_t>(out_fence_fds->back().receive()));
+          reinterpret_cast<uint64_t>(out_fence_fd_receivers->back().get()));
       if (ret < 0) {
         LOG(ERROR) << "Failed to set OUT_FENCE_PTR property for crtc="
                    << crtc->crtc() << " error=" << -ret;
+        out_fence_fd_receivers->pop_back();
         out_fence_fds->pop_back();
         return false;
       }

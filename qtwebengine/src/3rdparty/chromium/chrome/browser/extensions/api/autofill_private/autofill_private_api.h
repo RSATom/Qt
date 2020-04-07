@@ -174,6 +174,82 @@ class AutofillPrivateGetCreditCardListFunction
   DISALLOW_COPY_AND_ASSIGN(AutofillPrivateGetCreditCardListFunction);
 };
 
+class AutofillPrivateGetLocalCreditCardListFunction
+    : public UIThreadExtensionFunction {
+ public:
+  AutofillPrivateGetLocalCreditCardListFunction();
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.getLocalCreditCardList",
+                             AUTOFILLPRIVATE_GETLOCALCREDITCARDLIST);
+
+ protected:
+  ~AutofillPrivateGetLocalCreditCardListFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+
+  DISALLOW_COPY_AND_ASSIGN(AutofillPrivateGetLocalCreditCardListFunction);
+};
+
+class AutofillPrivateGetServerCreditCardListFunction
+    : public UIThreadExtensionFunction {
+ public:
+  AutofillPrivateGetServerCreditCardListFunction();
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.getServerCreditCardList",
+                             AUTOFILLPRIVATE_GETSERVERCREDITCARDLIST);
+
+ protected:
+  ~AutofillPrivateGetServerCreditCardListFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+
+  DISALLOW_COPY_AND_ASSIGN(AutofillPrivateGetServerCreditCardListFunction);
+};
+
+class AutofillPrivateMigrateCreditCardsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  AutofillPrivateMigrateCreditCardsFunction();
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.migrateCreditCards",
+                             AUTOFILLPRIVATE_MIGRATECREDITCARDS);
+
+ protected:
+  ~AutofillPrivateMigrateCreditCardsFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+
+  DISALLOW_COPY_AND_ASSIGN(AutofillPrivateMigrateCreditCardsFunction);
+};
+
+class AutofillPrivateLogServerCardLinkClickedFunction
+    : public UIThreadExtensionFunction {
+ public:
+  AutofillPrivateLogServerCardLinkClickedFunction();
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.logServerCardLinkClicked",
+                             AUTOFILLPRIVATE_SERVERCARDLINKCLICKED);
+
+ protected:
+  ~AutofillPrivateLogServerCardLinkClickedFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+
+  DISALLOW_COPY_AND_ASSIGN(AutofillPrivateLogServerCardLinkClickedFunction);
+};
+
 }  // namespace extensions
 
 #endif  // CHROME_BROWSER_EXTENSIONS_API_AUTOFILL_PRIVATE_AUTOFILL_PRIVATE_API_H_

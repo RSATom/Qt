@@ -38,19 +38,19 @@ scoped_refptr<ResourceResponse> ResourceResponse::DeepCopy() const {
   new_response->head.connection_info = head.connection_info;
   new_response->head.alpn_negotiated_protocol = head.alpn_negotiated_protocol;
   new_response->head.socket_address = head.socket_address;
+  new_response->head.was_fetched_via_cache = head.was_fetched_via_cache;
+  new_response->head.proxy_server = head.proxy_server;
   new_response->head.was_fetched_via_service_worker =
       head.was_fetched_via_service_worker;
   new_response->head.was_fallback_required_by_service_worker =
       head.was_fallback_required_by_service_worker;
   new_response->head.url_list_via_service_worker =
       head.url_list_via_service_worker;
-  new_response->head.response_type_via_service_worker =
-      head.response_type_via_service_worker;
+  new_response->head.response_type = head.response_type;
   new_response->head.service_worker_start_time = head.service_worker_start_time;
   new_response->head.service_worker_ready_time = head.service_worker_ready_time;
   new_response->head.is_in_cache_storage = head.is_in_cache_storage;
   new_response->head.cache_storage_cache_name = head.cache_storage_cache_name;
-  new_response->head.previews_state = head.previews_state;
   new_response->head.effective_connection_type = head.effective_connection_type;
   new_response->head.cert_status = head.cert_status;
   new_response->head.ssl_info = head.ssl_info;
@@ -61,6 +61,11 @@ scoped_refptr<ResourceResponse> ResourceResponse::DeepCopy() const {
       head.should_report_corb_blocking;
   new_response->head.async_revalidation_requested =
       head.async_revalidation_requested;
+  new_response->head.did_mime_sniff = head.did_mime_sniff;
+  new_response->head.is_signed_exchange_inner_response =
+      head.is_signed_exchange_inner_response;
+  new_response->head.intercepted_by_plugin = head.intercepted_by_plugin;
+  new_response->head.is_legacy_tls_version = head.is_legacy_tls_version;
   return new_response;
 }
 

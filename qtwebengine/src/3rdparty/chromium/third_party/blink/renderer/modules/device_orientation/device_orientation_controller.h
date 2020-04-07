@@ -12,7 +12,7 @@
 namespace blink {
 
 class DeviceOrientationData;
-class DeviceOrientationDispatcher;
+class DeviceOrientationEventPump;
 class Event;
 
 class MODULES_EXPORT DeviceOrientationController
@@ -23,6 +23,7 @@ class MODULES_EXPORT DeviceOrientationController
  public:
   static const char kSupplementName[];
 
+  explicit DeviceOrientationController(Document&);
   ~DeviceOrientationController() override;
 
   static DeviceOrientationController& From(Document&);
@@ -42,12 +43,12 @@ class MODULES_EXPORT DeviceOrientationController
       const AtomicString& event_name);
 
  protected:
-  explicit DeviceOrientationController(Document&);
+  void RegisterWithOrientationEventPump(bool absolute);
 
-  virtual DeviceOrientationDispatcher& DispatcherInstance() const;
+  Member<DeviceOrientationEventPump> orientation_event_pump_;
 
  private:
-  // Inherited from DeviceEventControllerBase.
+  // Inherited from PlatformEventController.
   void RegisterWithDispatcher() override;
   void UnregisterWithDispatcher() override;
   bool HasLastData() override;

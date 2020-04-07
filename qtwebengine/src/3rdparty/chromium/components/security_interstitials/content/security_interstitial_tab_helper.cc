@@ -8,9 +8,6 @@
 #include "components/security_interstitials/core/controller_client.h"
 #include "content/public/browser/navigation_handle.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(
-    security_interstitials::SecurityInterstitialTabHelper);
-
 namespace security_interstitials {
 
 SecurityInterstitialTabHelper::~SecurityInterstitialTabHelper() {}
@@ -156,5 +153,7 @@ void SecurityInterstitialTabHelper::ReportPhishingError() {
   // SSL error pages do not implement this.
   NOTREACHED();
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SecurityInterstitialTabHelper)
 
 }  //  namespace security_interstitials

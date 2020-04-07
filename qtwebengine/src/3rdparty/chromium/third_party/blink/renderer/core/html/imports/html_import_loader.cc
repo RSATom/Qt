@@ -69,7 +69,7 @@ void HTMLImportLoader::ResponseReceived(
   // Resource may already have been loaded with the import loader
   // being added as a client later & now being notified. Fail early.
   if (resource->LoadFailedOrCanceled() || response.HttpStatusCode() >= 400 ||
-      !response.HttpHeaderField(HTTPNames::Content_Disposition).IsNull()) {
+      !response.HttpHeaderField(http_names::kContentDisposition).IsNull()) {
     SetState(kStateError);
     return;
   }
@@ -100,7 +100,7 @@ HTMLImportLoader::State HTMLImportLoader::StartWritingAndParsing(
   DCHECK(!imports_.IsEmpty());
   document_ = HTMLDocument::Create(
       DocumentInit::CreateWithImportsController(controller_)
-          .WithURL(response.Url()));
+          .WithURL(response.CurrentRequestUrl()));
   document_->OpenForNavigation(kAllowAsynchronousParsing, response.MimeType(),
                                "UTF-8");
 
@@ -173,7 +173,7 @@ void HTMLImportLoader::DidFinishLoading() {
 }
 
 void HTMLImportLoader::MoveToFirst(HTMLImportChild* import) {
-  size_t position = imports_.Find(import);
+  wtf_size_t position = imports_.Find(import);
   DCHECK_NE(kNotFound, position);
   imports_.EraseAt(position);
   imports_.insert(0, import);
@@ -201,7 +201,7 @@ V0CustomElementSyncMicrotaskQueue* HTMLImportLoader::MicrotaskQueue() const {
   return microtask_queue_;
 }
 
-void HTMLImportLoader::Trace(blink::Visitor* visitor) {
+void HTMLImportLoader::Trace(Visitor* visitor) {
   visitor->Trace(controller_);
   visitor->Trace(imports_);
   visitor->Trace(document_);

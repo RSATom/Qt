@@ -9,7 +9,10 @@ endfunction(shaderc_use_gmock)
 
 function(shaderc_default_c_compile_options TARGET)
   if (NOT "${MSVC}")
-    target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+    target_compile_options(${TARGET} PRIVATE -Wall -Werror -fvisibility=hidden)
+    if (NOT "${MINGW}")
+      target_compile_options(${TARGET} PRIVATE -fPIC)
+    endif()
     if (ENABLE_CODE_COVERAGE)
       # The --coverage option is a synonym for -fprofile-arcs -ftest-coverage
       # when compiling.
@@ -19,6 +22,14 @@ function(shaderc_default_c_compile_options TARGET)
       # requires clang to be built with compiler-rt.
       target_link_libraries(${TARGET} PRIVATE --coverage)
     endif()
+    if (NOT SHADERC_ENABLE_SHARED_CRT)
+      if (WIN32)
+        # For MinGW cross compile, statically link to the libgcc runtime.
+        # But it still depends on MSVCRT.dll.
+        set_target_properties(${TARGET} PROPERTIES
+          LINK_FLAGS "-static -static-libgcc")
+      endif(WIN32)
+    endif(NOT SHADERC_ENABLE_SHARED_CRT)
   else()
     # disable warning C4800: 'int' : forcing value to bool 'true' or 'false'
     # (performance warning)
@@ -31,12 +42,12 @@ function(shaderc_default_compile_options TARGET)
   if (NOT "${MSVC}")
     target_compile_options(${TARGET} PRIVATE -std=c++11)
     if (NOT SHADERC_ENABLE_SHARED_CRT)
-      if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-	# For MinGW cross compile, statically link to the C++ runtime
-	# But it still depends on MSVCRT.dll.
-	set_target_properties(${TARGET} PROPERTIES LINK_FLAGS
-			      -static -static-libgcc -static-libstdc++)
-      endif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+      if (WIN32)
+        # For MinGW cross compile, statically link to the C++ runtime.
+        # But it still depends on MSVCRT.dll.
+        set_target_properties(${TARGET} PROPERTIES
+          LINK_FLAGS "-static -static-libgcc -static-libstdc++")
+      endif(WIN32)
     endif(NOT SHADERC_ENABLE_SHARED_CRT)
   endif()
 endfunction(shaderc_default_compile_options)
@@ -51,7 +62,10 @@ function(shaderc_add_asciidoc TARGET FILE)
         ${CMAKE_CURRENT_SOURCE_DIR}/${FILE}.asciidoc
       DEPENDS ${FILE}.asciidoc ${ARGN}
       OUTPUT ${DEST})
-    add_custom_target(${TARGET} ALL DEPENDS ${DEST})
+    # Create the target, but the default build target does not depend on it.
+    # Some Asciidoctor installations are mysteriously broken, and it's hard
+    # to detect those cases.  Generating HTML is not critical by default.
+    add_custom_target(${TARGET} DEPENDS ${DEST})
   endif(ASCIIDOCTOR_EXE)
 endfunction()
 
@@ -59,7 +73,7 @@ endfunction()
 # and functions whose names start with "nosetest". The test name will be
 # ${PREFIX}_nosetests.
 function(shaderc_add_nosetests PREFIX)
-  if(NOSETESTS_EXE)
+  if("${SHADERC_ENABLE_TESTS}" AND NOSETESTS_EXE)
     add_test(
       NAME ${PREFIX}_nosetests
       COMMAND ${NOSETESTS_EXE} -m "^[Nn]ose[Tt]est" -v
@@ -94,6 +108,11 @@ function(shaderc_add_tests)
       shaderc_default_compile_options(${TEST_NAME})
       if (MINGW)
         target_compile_options(${TEST_NAME} PRIVATE -DSHADERC_DISABLE_THREADED_TESTS)
+      endif()
+      if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        # Disable this warning, which is useless in test code.
+        # Fixes https://github.com/google/shaderc/issues/334
+        target_compile_options(${TEST_NAME} PRIVATE -Wno-noexcept-type)
       endif()
       if (PARSED_ARGS_LINK_LIBS)
         target_link_libraries(${TEST_NAME} PRIVATE

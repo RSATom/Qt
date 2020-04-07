@@ -89,12 +89,59 @@ class NET_EXPORT NetworkErrorLoggingService {
   static const char kPhaseKey[];
   static const char kTypeKey[];
 
+  // Histograms.  These are mainly used in test cases to verify that interesting
+  // events occurred.
+
+  static const char kHeaderOutcomeHistogram[];
+  static const char kRequestOutcomeHistogram[];
+
+  enum class HeaderOutcome {
+    DISCARDED_NO_NETWORK_ERROR_LOGGING_SERVICE = 0,
+    DISCARDED_INVALID_SSL_INFO = 1,
+    DISCARDED_CERT_STATUS_ERROR = 2,
+
+    DISCARDED_INSECURE_ORIGIN = 3,
+
+    DISCARDED_JSON_TOO_BIG = 4,
+    DISCARDED_JSON_INVALID = 5,
+    DISCARDED_NOT_DICTIONARY = 6,
+    DISCARDED_TTL_MISSING = 7,
+    DISCARDED_TTL_NOT_INTEGER = 8,
+    DISCARDED_TTL_NEGATIVE = 9,
+    DISCARDED_REPORT_TO_MISSING = 10,
+    DISCARDED_REPORT_TO_NOT_STRING = 11,
+
+    REMOVED = 12,
+    SET = 13,
+
+    DISCARDED_MISSING_REMOTE_ENDPOINT = 14,
+
+    MAX
+  };
+
+  enum class RequestOutcome {
+    DISCARDED_NO_NETWORK_ERROR_LOGGING_SERVICE = 0,
+
+    DISCARDED_NO_REPORTING_SERVICE = 1,
+    DISCARDED_INSECURE_ORIGIN = 2,
+    DISCARDED_NO_ORIGIN_POLICY = 3,
+    DISCARDED_UNMAPPED_ERROR = 4,
+    DISCARDED_REPORTING_UPLOAD = 5,
+    DISCARDED_UNSAMPLED_SUCCESS = 6,
+    DISCARDED_UNSAMPLED_FAILURE = 7,
+    QUEUED = 8,
+    DISCARDED_NON_DNS_SUBDOMAIN_REPORT = 9,
+
+    MAX
+  };
+
   static void RecordHeaderDiscardedForNoNetworkErrorLoggingService();
   static void RecordHeaderDiscardedForInvalidSSLInfo();
   static void RecordHeaderDiscardedForCertStatusError();
   static void RecordHeaderDiscardedForMissingRemoteEndpoint();
 
   static void RecordRequestDiscardedForNoNetworkErrorLoggingService();
+  static void RecordRequestDiscardedForInsecureOrigin();
 
   static std::unique_ptr<NetworkErrorLoggingService> Create(
       std::unique_ptr<NetworkErrorLoggingDelegate> delegate);
@@ -117,7 +164,8 @@ class NET_EXPORT NetworkErrorLoggingService {
   //
   // Note that Network Error Logging can report a fraction of successful
   // requests as well (to calculate error rates), so this should be called on
-  // *all* requests.
+  // *all* secure requests. NEL is only available to secure origins, so this is
+  // not called on any insecure requests.
   virtual void OnRequest(RequestDetails details) = 0;
 
   // Removes browsing data (origin policies) associated with any origin for

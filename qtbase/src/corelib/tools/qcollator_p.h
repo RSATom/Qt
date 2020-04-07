@@ -122,7 +122,7 @@ public:
     void cleanup();
 
 private:
-    Q_DISABLE_COPY(QCollatorPrivate)
+    Q_DISABLE_COPY_MOVE(QCollatorPrivate)
 };
 
 class QCollatorSortKeyPrivate : public QSharedData
@@ -139,7 +139,7 @@ public:
     CollatorKeyType m_key;
 
 private:
-    Q_DISABLE_COPY(QCollatorSortKeyPrivate)
+    Q_DISABLE_COPY_MOVE(QCollatorSortKeyPrivate)
 };
 
 

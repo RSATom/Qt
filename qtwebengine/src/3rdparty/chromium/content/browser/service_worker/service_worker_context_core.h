@@ -93,9 +93,9 @@ class CONTENT_EXPORT ServiceWorkerContextCore
    private:
     friend class ServiceWorkerContextCore;
     using ProviderHostPredicate =
-        base::Callback<bool(ServiceWorkerProviderHost*)>;
+        base::RepeatingCallback<bool(ServiceWorkerProviderHost*)>;
     ProviderHostIterator(ProcessToProviderMap* map,
-                         const ProviderHostPredicate& predicate);
+                         ProviderHostPredicate predicate);
     void Initialize();
     bool ForwardUntilMatchingProviderHost();
 
@@ -152,6 +152,7 @@ class CONTENT_EXPORT ServiceWorkerContextCore
                          const ServiceWorkerClientInfo& client_info) override;
   void OnControlleeRemoved(ServiceWorkerVersion* version,
                            const std::string& client_uuid) override;
+  void OnNoControllees(ServiceWorkerVersion* version) override;
 
   ServiceWorkerContextWrapper* wrapper() const { return wrapper_; }
   ServiceWorkerStorage* storage() { return storage_.get(); }
@@ -202,13 +203,19 @@ class CONTENT_EXPORT ServiceWorkerContextCore
       const GURL& script_url,
       const blink::mojom::ServiceWorkerRegistrationOptions& options,
       RegistrationCallback callback);
-  void UnregisterServiceWorker(const GURL& pattern,
+  void UnregisterServiceWorker(const GURL& scope,
                                UnregistrationCallback callback);
 
   // Callback is called after all deletions occured. The status code is
   // blink::ServiceWorkerStatusCode::kOk if all succeed, or
   // SERVICE_WORKER_FAILED if any did not succeed.
   void DeleteForOrigin(const GURL& origin, StatusCallback callback);
+
+  // Performs internal storage cleanup. Operations to the storage in the past
+  // (e.g. deletion) are usually recorded in disk for a certain period until
+  // compaction happens. This method wipes them out to ensure that the deleted
+  // entries and other traces like log files are removed.
+  void PerformStorageCleanup(base::OnceClosure callback);
 
   // Updates the service worker. If |force_bypass_cache| is true or 24 hours
   // have passed since the last update, bypasses the browser cache.
@@ -278,7 +285,7 @@ class CONTENT_EXPORT ServiceWorkerContextCore
   int GetVersionFailureCount(int64_t version_id);
 
   // Called by ServiceWorkerStorage when StoreRegistration() succeeds.
-  void NotifyRegistrationStored(int64_t registration_id, const GURL& pattern);
+  void NotifyRegistrationStored(int64_t registration_id, const GURL& scope);
 
   URLLoaderFactoryGetter* loader_factory_getter() {
     return loader_factory_getter_.get();
@@ -302,7 +309,7 @@ class CONTENT_EXPORT ServiceWorkerContextCore
 
   ProviderMap* GetProviderMapForProcess(int process_id);
 
-  void RegistrationComplete(const GURL& pattern,
+  void RegistrationComplete(const GURL& scope,
                             RegistrationCallback callback,
                             blink::ServiceWorkerStatusCode status,
                             const std::string& status_message,
@@ -313,10 +320,14 @@ class CONTENT_EXPORT ServiceWorkerContextCore
                       const std::string& status_message,
                       ServiceWorkerRegistration* registration);
 
-  void UnregistrationComplete(const GURL& pattern,
+  void UnregistrationComplete(const GURL& scope,
                               UnregistrationCallback callback,
                               int64_t registration_id,
                               blink::ServiceWorkerStatusCode status);
+
+  bool IsValidRegisterRequest(const GURL& script_url,
+                              const GURL& scope_url,
+                              std::string* out_error) const;
 
   void DidGetRegistrationsForDeleteForOrigin(
       base::OnceCallback<void(blink::ServiceWorkerStatusCode)> callback,

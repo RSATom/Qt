@@ -69,6 +69,20 @@ cr.define('extensions', function() {
      * @return {!Promise<string>}
      */
     getExtensionSize(id) {}
+
+    /**
+     * @param {string} id
+     * @param {string} host
+     * @return {!Promise<void>}
+     */
+    addRuntimeHostPermission(id, host) {}
+
+    /**
+     * @param {string} id
+     * @param {string} host
+     * @return {!Promise<void>}
+     */
+    removeRuntimeHostPermission(id, host) {}
   }
 
   const Item = Polymer({
@@ -145,8 +159,9 @@ cr.define('extensions', function() {
       // When the error console is disabled (happens when
       // --disable-error-console command line flag is used or when in the
       // Stable/Beta channel), |installWarnings| is populated.
-      if (this.data.installWarnings && this.data.installWarnings.length > 0)
+      if (this.data.installWarnings && this.data.installWarnings.length > 0) {
         return true;
+      }
 
       // When error console is enabled |installedWarnings| is not populated.
       // Instead |manifestErrors| and |runtimeErrors| are used.
@@ -257,8 +272,9 @@ cr.define('extensions', function() {
      */
     computeClasses_: function() {
       let classes = this.isEnabled_() ? 'enabled' : 'disabled';
-      if (this.inDevMode)
+      if (this.inDevMode) {
         classes += ' dev-mode';
+      }
       return classes;
     },
 
@@ -288,8 +304,9 @@ cr.define('extensions', function() {
      * @private
      */
     computeSourceIndicatorText_: function() {
-      if (this.data.locationText)
+      if (this.data.locationText) {
         return this.data.locationText;
+      }
 
       const sourceType = extensions.getItemSource(this.data);
       return sourceType == SourceType.WEBSTORE ?
@@ -325,7 +342,7 @@ cr.define('extensions', function() {
      * @private
      */
     computeFirstInspectLabel_: function() {
-      let label = this.computeFirstInspectTitle_();
+      const label = this.computeFirstInspectTitle_();
       return label && this.data.views.length > 1 ? label + ',' : label;
     },
 

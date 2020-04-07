@@ -35,14 +35,15 @@ class ShellAppDelegate : public AppDelegate {
   content::ColorChooser* ShowColorChooser(content::WebContents* web_contents,
                                           SkColor initial_color) override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
-                      const content::FileChooserParams& params) override;
+                      std::unique_ptr<content::FileSelectListener> listener,
+                      const blink::mojom::FileChooserParams& params) override;
   void RequestMediaAccessPermission(content::WebContents* web_contents,
                                     const content::MediaStreamRequest& request,
                                     content::MediaResponseCallback callback,
                                     const Extension* extension) override;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
-                                  content::MediaStreamType type,
+                                  blink::MediaStreamType type,
                                   const Extension* extension) override;
   int PreferredIconSize() const override;
   void SetWebContentsBlocked(content::WebContents* web_contents,
@@ -52,6 +53,10 @@ class ShellAppDelegate : public AppDelegate {
   void OnHide() override {}
   void OnShow() override {}
   bool TakeFocus(content::WebContents* web_contents, bool reverse) override;
+  gfx::Size EnterPictureInPicture(content::WebContents* web_contents,
+                                  const viz::SurfaceId& surface_id,
+                                  const gfx::Size& natural_size) override;
+  void ExitPictureInPicture() override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShellAppDelegate);

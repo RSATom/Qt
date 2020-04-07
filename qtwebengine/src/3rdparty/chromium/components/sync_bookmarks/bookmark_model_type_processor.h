@@ -24,6 +24,10 @@ namespace bookmarks {
 class BookmarkModel;
 }
 
+namespace favicon {
+class FaviconService;
+}
+
 namespace sync_bookmarks {
 
 class BookmarkModelObserverImpl;
@@ -53,13 +57,13 @@ class BookmarkModelTypeProcessor : public syncer::ModelTypeProcessor,
   void OnSyncStopping(syncer::SyncStopMetadataFate metadata_fate) override;
   void GetAllNodesForDebugging(AllNodesCallback callback) override;
   void GetStatusCountersForDebugging(StatusCountersCallback callback) override;
-  void RecordMemoryUsageHistogram() override;
+  void RecordMemoryUsageAndCountsHistograms() override;
 
   // Encodes all sync metadata into a string, representing a state that can be
   // restored via ModelReadyToSync() below.
   std::string EncodeSyncMetadata() const;
 
-  // It mainly decodes a BookmarkModelMetadata proto seralized in
+  // It mainly decodes a BookmarkModelMetadata proto serialized in
   // |metadata_str|, and uses it to fill in the tracker and the model type state
   // objects. |model| must not be null and must outlive this object. It is used
   // to the retrieve the local node ids, and is stored in the processor to be
@@ -70,7 +74,16 @@ class BookmarkModelTypeProcessor : public syncer::ModelTypeProcessor,
                         const base::RepeatingClosure& schedule_save_closure,
                         bookmarks::BookmarkModel* model);
 
+  // Sets the favicon service used when processing remote updates. It must be
+  // called before the processor is ready to receive remote updates, and hence
+  // before OnSyncStarting() is called. |favicon_service| must not be null.
+  void SetFaviconService(favicon::FaviconService* favicon_service);
+
+  // Returns the estimate of dynamically allocated memory in bytes.
+  size_t EstimateMemoryUsage() const;
+
   const SyncedBookmarkTracker* GetTrackerForTest() const;
+  bool IsConnectedForTest() const;
 
   base::WeakPtr<syncer::ModelTypeControllerDelegate> GetWeakPtr();
 
@@ -85,11 +98,24 @@ class BookmarkModelTypeProcessor : public syncer::ModelTypeProcessor,
   // entities.
   void NudgeForCommitIfNeeded();
 
+  // Performs the required clean up when bookmark model is being deleted.
+  void OnBookmarkModelBeingDeleted();
+
   // Instantiates the required objects to track metadata and starts observing
   // changes from the bookmark model.
   void StartTrackingMetadata(
       std::vector<NodeMetadataPair> nodes_metadata,
       std::unique_ptr<sync_pb::ModelTypeState> model_type_state);
+  void StopTrackingMetadata();
+
+  // Creates a DictionaryValue for local and remote debugging information about
+  // |node| and appends it to |all_nodes|. It does the same for child nodes
+  // recursively. |index| is the index of |node| within its parent. |index|
+  // could computed from |node|, however it's much cheaper to pass from outside
+  // since we iterate over child nodes already in the calling sites.
+  void AppendNodeAndChildrenForDebugging(const bookmarks::BookmarkNode* node,
+                                         int index,
+                                         base::ListValue* all_nodes) const;
 
   // Stores the start callback in between OnSyncStarting() and
   // ModelReadyToSync().
@@ -99,6 +125,11 @@ class BookmarkModelTypeProcessor : public syncer::ModelTypeProcessor,
   // remote changes to. It is set during ModelReadyToSync(), which is called
   // during startup, as part of the bookmark-loading process.
   bookmarks::BookmarkModel* bookmark_model_ = nullptr;
+
+  // Used to when processing remote updates to apply favicon information. It's
+  // not set at start up because it's only avialable after the bookmark model
+  // has been loaded.
+  favicon::FaviconService* favicon_service_ = nullptr;
 
   // Used to suspend bookmark undo when processing remote changes.
   BookmarkUndoService* const bookmark_undo_service_;
@@ -127,6 +158,8 @@ class BookmarkModelTypeProcessor : public syncer::ModelTypeProcessor,
   // GUID string that identifies the sync client and is received from the sync
   // engine.
   std::string cache_guid_;
+
+  syncer::ModelErrorHandler error_handler_;
 
   std::unique_ptr<BookmarkModelObserverImpl> bookmark_model_observer_;
 

@@ -8,20 +8,14 @@
 #define FXJS_XFA_CJX_EXOBJECT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_ExObject;
 
-class CJX_ExObject : public CJX_Node {
+class CJX_ExObject final : public CJX_Node {
  public:
   explicit CJX_ExObject(CXFA_ExObject* node);
   ~CJX_ExObject() override;
-
-  JS_PROP(archive);
-  JS_PROP(classId);
-  JS_PROP(codeBase);
-  JS_PROP(codeType);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_EXOBJECT_H_

@@ -120,8 +120,6 @@ class PLATFORM_EXPORT Visitor {
     static_assert(IsGarbageCollectedType<T>::value,
                   "T needs to be a garbage collected object");
 
-    if (!backing_store)
-      return;
     VisitBackingStoreStrongly(reinterpret_cast<void*>(backing_store),
                               reinterpret_cast<void**>(backing_store_slot),
                               TraceDescriptorFor(backing_store));
@@ -136,8 +134,6 @@ class PLATFORM_EXPORT Visitor {
     static_assert(IsGarbageCollectedType<T>::value,
                   "T needs to be a garbage collected object");
 
-    if (!backing_store)
-      return;
     VisitBackingStoreWeakly(reinterpret_cast<void*>(backing_store),
                             reinterpret_cast<void**>(backing_store_slot),
                             TraceTrait<T>::GetTraceDescriptor(
@@ -151,8 +147,6 @@ class PLATFORM_EXPORT Visitor {
     static_assert(IsGarbageCollectedType<T>::value,
                   "T needs to be a garbage collected object");
 
-    if (!backing_store)
-      return;
     VisitBackingStoreOnly(reinterpret_cast<void*>(backing_store),
                           reinterpret_cast<void**>(backing_store_slot));
   }
@@ -270,7 +264,7 @@ class PLATFORM_EXPORT Visitor {
 
   // Registers backing store pointers so that they can be moved and properly
   // updated.
-  virtual void RegisterBackingStoreCallback(void* backing_store,
+  virtual void RegisterBackingStoreCallback(void** slot,
                                             MovingObjectCallback,
                                             void* callback_data) = 0;
 

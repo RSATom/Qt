@@ -15,26 +15,12 @@
 #include "SkImageEncoderPriv.h"
 #include "SkJpegEncoder.h"
 #include "SkPngEncoder.h"
-#include "SkPM4f.h"
-#include "SkSRGB.h"
 #include "SkWebpEncoder.h"
 
 namespace skiagm {
 
 static const int imageWidth = 128;
 static const int imageHeight = 128;
-
-sk_sp<SkColorSpace> fix_for_colortype(sk_sp<SkColorSpace> colorSpace, SkColorType colorType) {
-    if (kRGBA_F16_SkColorType == colorType) {
-        if (!colorSpace) {
-            return SkColorSpace::MakeSRGBLinear();
-        }
-
-        return colorSpace->makeLinearGamma();
-    }
-
-    return colorSpace;
-}
 
 static void make(SkBitmap* bitmap, SkColorType colorType, SkAlphaType alphaType,
                  sk_sp<SkColorSpace> colorSpace) {
@@ -55,10 +41,13 @@ static void make(SkBitmap* bitmap, SkColorType colorType, SkAlphaType alphaType,
     }
 
     sk_sp<SkData> data = GetResourceAsData(resource);
+    if (!data) {
+        return;
+    }
     std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(data);
     SkImageInfo dstInfo = codec->getInfo().makeColorType(colorType)
                                           .makeAlphaType(alphaType)
-                                          .makeColorSpace(fix_for_colortype(colorSpace, colorType));
+                                          .makeColorSpace(colorSpace);
     bitmap->allocPixels(dstInfo);
     codec->getPixels(dstInfo, bitmap->getPixels(), bitmap->rowBytes());
 }

@@ -76,6 +76,7 @@ void U2fRegisterOperation::OnRegisterResponseReceived(
 
       auto response =
           AuthenticatorMakeCredentialResponse::CreateFromU2fRegisterResponse(
+              device()->DeviceTransport(),
               fido_parsing_utils::CreateSHA256Hash(request().rp().rp_id()),
               apdu_response->data());
       std::move(callback())
@@ -122,6 +123,7 @@ void U2fRegisterOperation::OnCheckForExcludedKeyHandle(
     }
 
     case apdu::ApduResponse::Status::SW_WRONG_DATA:
+    case apdu::ApduResponse::Status::SW_WRONG_LENGTH:
       // Continue to iterate through the provided key handles in the exclude
       // list and check for already registered keys.
       if (++it != request().exclude_list()->cend()) {

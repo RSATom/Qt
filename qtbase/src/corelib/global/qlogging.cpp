@@ -240,7 +240,7 @@ static bool systemHasStderr()
 
     \note Qt Creator does not implement a pseudo TTY, nor does it launch apps with
     the override environment variable set, but it will read stderr and print it to
-    the user, so in effect this function can not be used to conclude that stderr
+    the user, so in effect this function cannot be used to conclude that stderr
     output will _not_ be visible to the user, as even if this function returns false,
     the output might still end up visible to the user. For this reason, we don't guard
     the stderr output in the default message handler with stderrHasConsoleAttached().
@@ -1512,9 +1512,9 @@ static void qDefaultMsgHandler(QtMsgType type, const char *buf);
 static void qDefaultMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &buf);
 
 // pointer to QtMsgHandler debug handler (without context)
-static QBasicAtomicPointer<void (QtMsgType, const char*)> msgHandler = Q_BASIC_ATOMIC_INITIALIZER(qDefaultMsgHandler);
+static QBasicAtomicPointer<void (QtMsgType, const char*)> msgHandler = Q_BASIC_ATOMIC_INITIALIZER(nullptr);
 // pointer to QtMessageHandler debug handler (with context)
-static QBasicAtomicPointer<void (QtMsgType, const QMessageLogContext &, const QString &)> messageHandler = Q_BASIC_ATOMIC_INITIALIZER(qDefaultMessageHandler);
+static QBasicAtomicPointer<void (QtMsgType, const QMessageLogContext &, const QString &)> messageHandler = Q_BASIC_ATOMIC_INITIALIZER(nullptr);
 
 // ------------------------ Alternate logging sinks -------------------------
 
@@ -1814,8 +1814,8 @@ static void qt_message_print(QtMsgType msgType, const QMessageLogContext &contex
 #ifndef QT_BOOTSTRAPPED
     Q_TRACE(qt_message_print, msgType, context.category, context.function, context.file, context.line, message);
 
-    // qDebug, qWarning, ... macros do not check whether category is enabled
-    if (isDefaultCategory(context.category)) {
+    // qDebug, qWarning, ... macros do not check whether category is enabledgc
+    if (msgType != QtFatalMsg && isDefaultCategory(context.category)) {
         if (QLoggingCategory *defaultCategory = QLoggingCategory::defaultCategory()) {
             if (!defaultCategory->isEnabled(msgType))
                 return;
@@ -1826,14 +1826,17 @@ static void qt_message_print(QtMsgType msgType, const QMessageLogContext &contex
     // prevent recursion in case the message handler generates messages
     // itself, e.g. by using Qt API
     if (grabMessageHandler()) {
+        struct Ungrabber {
+            ~Ungrabber() { ungrabMessageHandler(); }
+        } ungrabber;
+        auto oldStyle = msgHandler.loadAcquire();
+        auto newStye = messageHandler.loadAcquire();
         // prefer new message handler over the old one
-        if (msgHandler.load() == qDefaultMsgHandler
-                || messageHandler.load() != qDefaultMessageHandler) {
-            (*messageHandler.load())(msgType, context, message);
+        if (newStye || !oldStyle) {
+            (newStye ? newStye : qDefaultMessageHandler)(msgType, context, message);
         } else {
-            (*msgHandler.load())(msgType, message.toLocal8Bit().constData());
+            (oldStyle ? oldStyle : qDefaultMsgHandler)(msgType, message.toLocal8Bit().constData());
         }
-        ungrabMessageHandler();
     } else {
         fprintf(stderr, "%s\n", message.toLocal8Bit().constData());
     }
@@ -1920,12 +1923,14 @@ void qErrnoWarning(const char *msg, ...)
 {
     // qt_error_string() will allocate anyway, so we don't have
     // to be careful here (like we do in plain qWarning())
+    QString error_string = qt_error_string(-1);  // before vasprintf changes errno/GetLastError()
+
     va_list ap;
     va_start(ap, msg);
     QString buf = QString::vasprintf(msg, ap);
     va_end(ap);
 
-    buf += QLatin1String(" (") + qt_error_string(-1) + QLatin1Char(')');
+    buf += QLatin1String(" (") + error_string + QLatin1Char(')');
     QMessageLogContext context;
     qt_message_output(QtCriticalMsg, context, buf);
 }
@@ -2084,18 +2089,20 @@ void qErrnoWarning(int code, const char *msg, ...)
 
 QtMessageHandler qInstallMessageHandler(QtMessageHandler h)
 {
-    if (!h)
-        h = qDefaultMessageHandler;
-    //set 'h' and return old message handler
-    return messageHandler.fetchAndStoreRelaxed(h);
+    const auto old = messageHandler.fetchAndStoreOrdered(h);
+    if (old)
+        return old;
+    else
+        return qDefaultMessageHandler;
 }
 
 QtMsgHandler qInstallMsgHandler(QtMsgHandler h)
 {
-    if (!h)
-        h = qDefaultMsgHandler;
-    //set 'h' and return old message handler
-    return msgHandler.fetchAndStoreRelaxed(h);
+    const auto old = msgHandler.fetchAndStoreOrdered(h);
+    if (old)
+        return old;
+    else
+        return qDefaultMsgHandler;
 }
 
 void qSetMessagePattern(const QString &pattern)

@@ -6,13 +6,12 @@
 
 #include <algorithm>
 #include <iterator>
+#include <unordered_set>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "content/public/browser/browser_context.h"
@@ -122,7 +121,7 @@ void PopulateCharacteristic(
   if (value.empty())
     return;
 
-  out->value.reset(new std::vector<char>(value.begin(), value.end()));
+  out->value.reset(new std::vector<uint8_t>(value));
 }
 
 void PopulateDescriptor(const BluetoothRemoteGattDescriptor* descriptor,
@@ -140,7 +139,7 @@ void PopulateDescriptor(const BluetoothRemoteGattDescriptor* descriptor,
   if (value.empty())
     return;
 
-  out->value.reset(new std::vector<char>(value.begin(), value.end()));
+  out->value.reset(new std::vector<uint8_t>(value));
 }
 
 void PopulateDevice(const device::BluetoothDevice* device,
@@ -282,18 +281,18 @@ bool BluetoothLowEnergyEventRouter::IsBluetoothSupported() const {
 }
 
 bool BluetoothLowEnergyEventRouter::InitializeAdapterAndInvokeCallback(
-    const base::Closure& callback) {
+    base::OnceClosure callback) {
   if (!IsBluetoothSupported())
     return false;
 
   if (adapter_.get()) {
-    callback.Run();
+    std::move(callback).Run();
     return true;
   }
 
   BluetoothAdapterFactory::GetAdapter(
-      base::Bind(&BluetoothLowEnergyEventRouter::OnGetAdapter,
-                 weak_ptr_factory_.GetWeakPtr(), callback));
+      base::BindOnce(&BluetoothLowEnergyEventRouter::OnGetAdapter,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   return true;
 }
 
@@ -1131,8 +1130,7 @@ void BluetoothLowEnergyEventRouter::OnCharacteristicWriteRequest(
   request.request_id = StoreSentRequest(
       extension_id,
       std::make_unique<AttributeValueRequest>(callback, error_callback));
-  request.value =
-      std::make_unique<std::vector<char>>(value.begin(), value.end());
+  request.value = std::make_unique<std::vector<uint8_t>>(value);
   PopulateDevice(device, &request);
   DispatchEventToExtension(
       extension_id,
@@ -1207,8 +1205,7 @@ void BluetoothLowEnergyEventRouter::OnDescriptorWriteRequest(
   request.request_id = StoreSentRequest(
       extension_id,
       std::make_unique<AttributeValueRequest>(callback, error_callback));
-  request.value =
-      std::make_unique<std::vector<char>>(value.begin(), value.end());
+  request.value = std::make_unique<std::vector<uint8_t>>(value);
   PopulateDevice(device, &request);
   DispatchEventToExtension(
       extension_id,
@@ -1394,7 +1391,7 @@ void BluetoothLowEnergyEventRouter::HandleRequestResponse(
 }
 
 void BluetoothLowEnergyEventRouter::OnGetAdapter(
-    const base::Closure& callback,
+    base::OnceClosure callback,
     scoped_refptr<device::BluetoothAdapter> adapter) {
   adapter_ = adapter;
 
@@ -1403,7 +1400,7 @@ void BluetoothLowEnergyEventRouter::OnGetAdapter(
   InitializeIdentifierMappings();
   adapter_->AddObserver(this);
 
-  callback.Run();
+  std::move(callback).Run();
 }
 
 void BluetoothLowEnergyEventRouter::InitializeIdentifierMappings() {
@@ -1413,16 +1410,13 @@ void BluetoothLowEnergyEventRouter::InitializeIdentifierMappings() {
 
   // Devices
   BluetoothAdapter::DeviceList devices = adapter_->GetDevices();
-  for (BluetoothAdapter::DeviceList::iterator iter = devices.begin();
-       iter != devices.end(); ++iter) {
+  for (auto iter = devices.begin(); iter != devices.end(); ++iter) {
     BluetoothDevice* device = *iter;
 
     // Services
     std::vector<BluetoothRemoteGattService*> services =
         device->GetGattServices();
-    for (std::vector<BluetoothRemoteGattService*>::iterator siter =
-             services.begin();
-         siter != services.end(); ++siter) {
+    for (auto siter = services.begin(); siter != services.end(); ++siter) {
       BluetoothRemoteGattService* service = *siter;
 
       const std::string& service_id = service->GetIdentifier();
@@ -1431,9 +1425,8 @@ void BluetoothLowEnergyEventRouter::InitializeIdentifierMappings() {
       // Characteristics
       const std::vector<BluetoothRemoteGattCharacteristic*>& characteristics =
           service->GetCharacteristics();
-      for (std::vector<BluetoothRemoteGattCharacteristic*>::const_iterator
-               citer = characteristics.begin();
-           citer != characteristics.end(); ++citer) {
+      for (auto citer = characteristics.cbegin();
+           citer != characteristics.cend(); ++citer) {
         BluetoothRemoteGattCharacteristic* characteristic = *citer;
 
         const std::string& chrc_id = characteristic->GetIdentifier();
@@ -1442,9 +1435,8 @@ void BluetoothLowEnergyEventRouter::InitializeIdentifierMappings() {
         // Descriptors
         const std::vector<BluetoothRemoteGattDescriptor*>& descriptors =
             characteristic->GetDescriptors();
-        for (std::vector<BluetoothRemoteGattDescriptor*>::const_iterator diter =
-                 descriptors.begin();
-             diter != descriptors.end(); ++diter) {
+        for (auto diter = descriptors.cbegin(); diter != descriptors.cend();
+             ++diter) {
           BluetoothRemoteGattDescriptor* descriptor = *diter;
 
           const std::string& desc_id = descriptor->GetIdentifier();
@@ -1499,9 +1491,8 @@ void BluetoothLowEnergyEventRouter::DispatchEventToExtensionsWithPermission(
       continue;
 
     // Send the event.
-    std::unique_ptr<base::ListValue> args_copy(args->DeepCopy());
-    std::unique_ptr<Event> event(
-        new Event(histogram_value, event_name, std::move(args_copy)));
+    auto event = std::make_unique<Event>(histogram_value, event_name,
+                                         args->CreateDeepCopy());
     EventRouter::Get(browser_context_)
         ->DispatchEventToExtension(extension_id, std::move(event));
   }
@@ -1522,17 +1513,15 @@ void BluetoothLowEnergyEventRouter::DispatchEventToExtension(
     return;
 
   // Send the event.
-  std::unique_ptr<base::ListValue> args_copy(args->DeepCopy());
-  std::unique_ptr<Event> event(
-      new Event(histogram_value, event_name, std::move(args_copy)));
+  auto event = std::make_unique<Event>(histogram_value, event_name,
+                                       args->CreateDeepCopy());
   EventRouter::Get(browser_context_)
       ->DispatchEventToExtension(extension_id, std::move(event));
 }
 
 BluetoothRemoteGattService* BluetoothLowEnergyEventRouter::FindServiceById(
     const std::string& instance_id) const {
-  InstanceIdMap::const_iterator iter =
-      service_id_to_device_address_.find(instance_id);
+  auto iter = service_id_to_device_address_.find(instance_id);
   if (iter == service_id_to_device_address_.end()) {
     VLOG(1) << "GATT service identifier unknown: " << instance_id;
     return NULL;
@@ -1559,7 +1548,7 @@ BluetoothRemoteGattService* BluetoothLowEnergyEventRouter::FindServiceById(
 BluetoothRemoteGattCharacteristic*
 BluetoothLowEnergyEventRouter::FindCharacteristicById(
     const std::string& instance_id) const {
-  InstanceIdMap::const_iterator iter = chrc_id_to_service_id_.find(instance_id);
+  auto iter = chrc_id_to_service_id_.find(instance_id);
   if (iter == chrc_id_to_service_id_.end()) {
     VLOG(1) << "GATT characteristic identifier unknown: " << instance_id;
     return NULL;
@@ -1587,7 +1576,7 @@ BluetoothLowEnergyEventRouter::FindCharacteristicById(
 BluetoothRemoteGattDescriptor*
 BluetoothLowEnergyEventRouter::FindDescriptorById(
     const std::string& instance_id) const {
-  InstanceIdMap::const_iterator iter = desc_id_to_chrc_id_.find(instance_id);
+  auto iter = desc_id_to_chrc_id_.find(instance_id);
   if (iter == desc_id_to_chrc_id_.end()) {
     VLOG(1) << "GATT descriptor identifier unknown: " << instance_id;
     return NULL;
@@ -1792,12 +1781,13 @@ BluetoothLowEnergyConnection* BluetoothLowEnergyEventRouter::FindConnection(
   ConnectionResourceManager* manager =
       GetConnectionResourceManager(browser_context_);
 
-  base::hash_set<int>* connection_ids = manager->GetResourceIds(extension_id);
+  std::unordered_set<int>* connection_ids =
+      manager->GetResourceIds(extension_id);
   if (!connection_ids)
     return NULL;
 
-  for (base::hash_set<int>::const_iterator iter = connection_ids->begin();
-       iter != connection_ids->end(); ++iter) {
+  for (auto iter = connection_ids->cbegin(); iter != connection_ids->cend();
+       ++iter) {
     extensions::BluetoothLowEnergyConnection* conn =
         manager->Get(extension_id, *iter);
     if (!conn)
@@ -1816,12 +1806,13 @@ bool BluetoothLowEnergyEventRouter::RemoveConnection(
   ConnectionResourceManager* manager =
       GetConnectionResourceManager(browser_context_);
 
-  base::hash_set<int>* connection_ids = manager->GetResourceIds(extension_id);
+  std::unordered_set<int>* connection_ids =
+      manager->GetResourceIds(extension_id);
   if (!connection_ids)
     return false;
 
-  for (base::hash_set<int>::const_iterator iter = connection_ids->begin();
-       iter != connection_ids->end(); ++iter) {
+  for (auto iter = connection_ids->cbegin(); iter != connection_ids->cend();
+       ++iter) {
     extensions::BluetoothLowEnergyConnection* conn =
         manager->Get(extension_id, *iter);
     if (!conn || conn->GetConnection()->GetDeviceAddress() != device_address)
@@ -1841,12 +1832,11 @@ BluetoothLowEnergyEventRouter::FindNotifySession(
   NotifySessionResourceManager* manager =
       GetNotifySessionResourceManager(browser_context_);
 
-  base::hash_set<int>* ids = manager->GetResourceIds(extension_id);
+  std::unordered_set<int>* ids = manager->GetResourceIds(extension_id);
   if (!ids)
     return NULL;
 
-  for (base::hash_set<int>::const_iterator iter = ids->begin();
-       iter != ids->end(); ++iter) {
+  for (auto iter = ids->cbegin(); iter != ids->cend(); ++iter) {
     BluetoothLowEnergyNotifySession* session =
         manager->Get(extension_id, *iter);
     if (!session)
@@ -1866,12 +1856,11 @@ bool BluetoothLowEnergyEventRouter::RemoveNotifySession(
   NotifySessionResourceManager* manager =
       GetNotifySessionResourceManager(browser_context_);
 
-  base::hash_set<int>* ids = manager->GetResourceIds(extension_id);
+  std::unordered_set<int>* ids = manager->GetResourceIds(extension_id);
   if (!ids)
     return false;
 
-  for (base::hash_set<int>::const_iterator iter = ids->begin();
-       iter != ids->end(); ++iter) {
+  for (auto iter = ids->cbegin(); iter != ids->cend(); ++iter) {
     BluetoothLowEnergyNotifySession* session =
         manager->Get(extension_id, *iter);
     if (!session ||
@@ -1893,8 +1882,7 @@ size_t BluetoothLowEnergyEventRouter::StoreSentRequest(
   RequestIdToRequestMap* request_id_map = nullptr;
   const auto& iter = requests_.find(extension_id);
   if (iter == requests_.end()) {
-    std::unique_ptr<RequestIdToRequestMap> new_request_id_map =
-        base::WrapUnique(new RequestIdToRequestMap);
+    auto new_request_id_map = std::make_unique<RequestIdToRequestMap>();
     request_id_map = new_request_id_map.get();
     requests_[extension_id] = std::move(new_request_id_map);
   } else {

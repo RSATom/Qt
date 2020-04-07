@@ -41,7 +41,7 @@ class BaseCheckableInputType : public InputType, public InputTypeView {
   USING_GARBAGE_COLLECTED_MIXIN(BaseCheckableInputType);
 
  public:
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   using InputType::GetElement;
 
  protected:
@@ -49,7 +49,7 @@ class BaseCheckableInputType : public InputType, public InputTypeView {
       : InputType(element),
         InputTypeView(element),
         is_in_click_handler_(false) {}
-  void HandleKeydownEvent(KeyboardEvent*) override;
+  void HandleKeydownEvent(KeyboardEvent&) override;
   bool NeedsShadowSubtree() const override { return false; }
 
   bool is_in_click_handler_;
@@ -59,7 +59,7 @@ class BaseCheckableInputType : public InputType, public InputTypeView {
   FormControlState SaveFormControlState() const final;
   void RestoreFormControlState(const FormControlState&) final;
   void AppendToFormData(FormData&) const final;
-  void HandleKeypressEvent(KeyboardEvent*) final;
+  void HandleKeypressEvent(KeyboardEvent&) final;
   bool CanSetStringValue() const final;
   void AccessKeyAction(bool send_mouse_events) final;
   bool MatchesDefaultPseudoClass() override;

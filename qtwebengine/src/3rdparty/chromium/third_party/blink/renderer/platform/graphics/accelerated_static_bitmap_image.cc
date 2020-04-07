@@ -13,7 +13,7 @@
 #include "third_party/blink/renderer/platform/graphics/mailbox_texture_holder.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/graphics/skia_texture_holder.h"
-#include "third_party/blink/renderer/platform/web_task_runner.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/gpu/GrTexture.h"
 
@@ -125,8 +125,7 @@ void AcceleratedStaticBitmapImage::RetainOriginalSkImage() {
   original_skia_image_context_provider_wrapper_ = ContextProviderWrapper();
   DCHECK(original_skia_image_);
 
-  WebThread* thread = Platform::Current()->CurrentThread();
-  original_skia_image_task_runner_ = thread->GetTaskRunner();
+  original_skia_image_task_runner_ = Thread::Current()->GetTaskRunner();
 }
 
 IntSize AcceleratedStaticBitmapImage::Size() const {
@@ -290,9 +289,5 @@ bool AcceleratedStaticBitmapImage::CurrentFrameKnownToBeOpaque() {
   return texture_holder_->CurrentFrameKnownToBeOpaque();
 }
 
-void AcceleratedStaticBitmapImage::Abandon() {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  texture_holder_->Abandon();
-}
 
 }  // namespace blink

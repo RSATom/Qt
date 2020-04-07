@@ -436,7 +436,7 @@ void URLFetcherCore::OnResponseStarted(URLRequest* request, int net_error) {
 
   DCHECK(!buffer_);
   if (request_type_ != URLFetcher::HEAD)
-    buffer_ = new IOBuffer(kBufferSize);
+    buffer_ = base::MakeRefCounted<IOBuffer>(kBufferSize);
   ReadResponse();
 }
 
@@ -469,8 +469,8 @@ void URLFetcherCore::OnReadCompleted(URLRequest* request,
     current_response_bytes_ += bytes_read;
     InformDelegateDownloadProgress();
 
-    const int result =
-        WriteBuffer(new DrainableIOBuffer(buffer_.get(), bytes_read));
+    const int result = WriteBuffer(
+        base::MakeRefCounted<DrainableIOBuffer>(buffer_, bytes_read));
     if (result < 0) {
       // Write failed or waiting for write completion.
       return;
@@ -574,7 +574,7 @@ void URLFetcherCore::StartURLRequest() {
   request_->SetReferrer(referrer_);
   request_->set_referrer_policy(referrer_policy_);
   request_->set_site_for_cookies(initiator_.has_value() &&
-                                         !initiator_.value().unique()
+                                         !initiator_.value().opaque()
                                      ? initiator_.value().GetURL()
                                      : original_url_);
   request_->set_initiator(initiator_);

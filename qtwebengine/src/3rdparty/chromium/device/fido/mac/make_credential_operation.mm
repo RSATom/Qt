@@ -11,12 +11,16 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_logging.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/strings/utf_string_conversions.h"
 #include "device/fido/attestation_statement_formats.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_parsing_utils.h"
+#include "device/fido/fido_transport_protocol.h"
 #include "device/fido/mac/credential_metadata.h"
 #include "device/fido/mac/keychain.h"
 #include "device/fido/mac/util.h"
+#include "device/fido/strings/grit/fido_strings.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace device {
 namespace fido {
@@ -65,9 +69,9 @@ void MakeCredentialOperation::Run() {
     return;
   }
 
-  // Prompt the user for consent.
-  // TODO(martinkr): Localize reason strings.
-  PromptTouchId("register with " + RpId());
+  // Display the macOS Touch ID prompt.
+  PromptTouchId(l10n_util::GetStringFUTF16(IDS_WEBAUTHN_TOUCH_ID_PROMPT_REASON,
+                                           base::UTF8ToUTF16(RpId())));
 }
 
 void MakeCredentialOperation::PromptTouchIdDone(bool success) {
@@ -199,11 +203,13 @@ void MakeCredentialOperation::PromptTouchIdDone(bool success) {
     return;
   }
   std::vector<std::vector<uint8_t>> no_certificates;
-  AuthenticatorMakeCredentialResponse response(AttestationObject(
-      std::move(*authenticator_data),
-      std::make_unique<PackedAttestationStatement>(
-          CoseAlgorithmIdentifier::kCoseEs256, std::move(*signature),
-          std::move(no_certificates))));
+  AuthenticatorMakeCredentialResponse response(
+      FidoTransportProtocol::kInternal,
+      AttestationObject(
+          std::move(*authenticator_data),
+          std::make_unique<PackedAttestationStatement>(
+              CoseAlgorithmIdentifier::kCoseEs256, std::move(*signature),
+              std::move(no_certificates))));
   std::move(callback())
       .Run(CtapDeviceResponseCode::kSuccess, std::move(response));
 }

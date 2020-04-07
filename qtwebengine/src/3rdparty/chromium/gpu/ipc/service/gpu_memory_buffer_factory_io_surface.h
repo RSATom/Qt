@@ -5,11 +5,11 @@
 #ifndef GPU_IPC_SERVICE_GPU_MEMORY_BUFFER_FACTORY_IO_SURFACE_H_
 #define GPU_IPC_SERVICE_GPU_MEMORY_BUFFER_FACTORY_IO_SURFACE_H_
 
+#include <unordered_map>
 #include <utility>
 
 #include <IOSurface/IOSurface.h>
 
-#include "base/containers/hash_tables.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -48,32 +48,28 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
 
   // Overridden from ImageFactory:
   scoped_refptr<gl::GLImage> CreateImageForGpuMemoryBuffer(
-      const gfx::GpuMemoryBufferHandle& handle,
+      gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
-      unsigned internalformat,
       int client_id,
       SurfaceHandle surface_handle) override;
   bool SupportsCreateAnonymousImage() const override;
   scoped_refptr<gl::GLImage> CreateAnonymousImage(const gfx::Size& size,
                                                   gfx::BufferFormat format,
                                                   gfx::BufferUsage usage,
-                                                  unsigned internalformat,
                                                   bool* is_cleared) override;
   unsigned RequiredTextureType() override;
   bool SupportsFormatRGB() override;
 
  private:
   typedef std::pair<gfx::IOSurfaceId, int> IOSurfaceMapKey;
-  typedef base::hash_map<IOSurfaceMapKey, base::ScopedCFTypeRef<IOSurfaceRef>>
+  typedef std::unordered_map<IOSurfaceMapKey,
+                             base::ScopedCFTypeRef<IOSurfaceRef>>
       IOSurfaceMap;
   // TODO(reveman): Remove |io_surfaces_| and allow IOSurface backed GMBs to be
   // used with any GPU process by passing a mach_port to CreateImageCHROMIUM.
   IOSurfaceMap io_surfaces_;
   base::Lock io_surfaces_lock_;
-
-  // Assign unique ids to anonymous images to differentiate in memory dumps.
-  int next_anonymous_image_id_ = 1;
 
   DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferFactoryIOSurface);
 };

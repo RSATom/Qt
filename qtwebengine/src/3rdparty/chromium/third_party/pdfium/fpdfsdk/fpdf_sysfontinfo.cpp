@@ -16,7 +16,6 @@
 #include "core/fxge/fx_font.h"
 #include "core/fxge/systemfontinfo_iface.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
-#include "fpdfsdk/pwl/cpwl_font_map.h"
 #include "third_party/base/ptr_util.h"
 
 static_assert(FXFONT_ANSI_CHARSET == FX_CHARSET_ANSI, "Charset must match");
@@ -128,7 +127,7 @@ FPDF_EXPORT const FPDF_CharsetFontMap* FPDF_CALLCONV FPDF_GetDefaultTTFMap() {
   return reinterpret_cast<const FPDF_CharsetFontMap*>(CFX_Font::defaultTTFMap);
 }
 
-struct FPDF_SYSFONTINFO_DEFAULT : public FPDF_SYSFONTINFO {
+struct FPDF_SYSFONTINFO_DEFAULT final : public FPDF_SYSFONTINFO {
   UnownedPtr<SystemFontInfoIface> m_pFontInfo;
 };
 

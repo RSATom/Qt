@@ -26,8 +26,8 @@ value: "<serialized content::proto::BackgroundFetchMetadata>"
 ```
 
 ```
-key: "bgfetch_title_<unique_id>"
-value: "<ui_title>"
+key: "bgfetch_ui_options_<unique_id>"
+value: "<serialized content::proto::BackgroundFetchUIOptions>"
 ```
 
 ```
@@ -43,6 +43,11 @@ value: "<serialized content::proto::BackgroundFetchActiveRequest>"
 ```
 key: "bgfetch_completed_request_<unique_id>_<request_index>"
 value: "<serialized content::proto::BackgroundFetchCompletedRequest>"
+```
+
+```
+key: "bgfetch_storage_version_<unique_id>"
+value: "<content::proto::BackgroundFetchStorageVersion>"
 ```
 
 ## Cache Storage UserData schema

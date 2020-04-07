@@ -23,7 +23,8 @@
 #include "content/browser/compositor/image_transport_factory.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
 #include "gpu/vulkan/buildflags.h"
-#include "services/ui/public/cpp/gpu/command_buffer_metrics.h"
+#include "services/ws/public/cpp/gpu/command_buffer_metrics.h"
+#include "services/ws/public/cpp/gpu/shared_worker_context_provider_factory.h"
 #include "ui/compositor/compositor.h"
 
 namespace base {
@@ -40,17 +41,17 @@ class GpuChannelEstablishFactory;
 class VulkanImplementation;
 }
 
-namespace ui {
-class ContextProviderCommandBuffer;
-}
-
 namespace viz {
 class CompositingModeReporterImpl;
 class OutputDeviceBacking;
+class RasterContextProvider;
 class ServerSharedBitmapManager;
 class SoftwareOutputDevice;
 class VulkanInProcessContextProvider;
-class RasterContextProvider;
+}
+
+namespace ws {
+class ContextProviderCommandBuffer;
 }
 
 namespace content {
@@ -73,7 +74,6 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
       base::WeakPtr<ui::Compositor> compositor) override;
   scoped_refptr<viz::ContextProvider> SharedMainThreadContextProvider()
       override;
-  double GetRefreshRate() const override;
   gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   void AddObserver(ui::ContextFactoryObserver* observer) override;
@@ -96,8 +96,6 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
   void SetDisplayColorSpace(ui::Compositor* compositor,
                             const gfx::ColorSpace& blending_color_space,
                             const gfx::ColorSpace& output_color_space) override;
-  void SetAuthoritativeVSyncInterval(ui::Compositor* compositor,
-                                     base::TimeDelta interval) override;
   void SetDisplayVSyncParameters(ui::Compositor* compositor,
                                  base::TimeTicks timebase,
                                  base::TimeDelta interval) override;
@@ -111,10 +109,11 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
   ui::ContextFactory* GetContextFactory() override;
   ui::ContextFactoryPrivate* GetContextFactoryPrivate() override;
   viz::FrameSinkManagerImpl* GetFrameSinkManager() override;
-  viz::GLHelper* GetGLHelper() override;
 
  private:
   struct PerCompositorData;
+
+  scoped_refptr<viz::RasterContextProvider> shared_worker_context_provider();
 
   PerCompositorData* CreatePerCompositorData(ui::Compositor* compositor);
   std::unique_ptr<viz::SoftwareOutputDevice> CreateSoftwareOutputDevice(
@@ -137,7 +136,7 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
   // viz::ContextLostObserver implementation.
   void OnContextLost() override;
 
-  scoped_refptr<ui::ContextProviderCommandBuffer> CreateContextCommon(
+  scoped_refptr<ws::ContextProviderCommandBuffer> CreateContextCommon(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
       gpu::SurfaceHandle surface_handle,
       bool need_alpha_channel,
@@ -146,7 +145,7 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
       bool support_gles2_interface,
       bool support_raster_interface,
       bool support_grcontext,
-      ui::command_buffer_metrics::ContextType type);
+      ws::command_buffer_metrics::ContextType type);
 
   viz::FrameSinkIdAllocator frame_sink_id_allocator_;
 
@@ -165,12 +164,12 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
   PerCompositorDataMap per_compositor_data_;
 
   const viz::RendererSettings renderer_settings_;
-  scoped_refptr<ui::ContextProviderCommandBuffer> shared_main_thread_contexts_;
-  std::unique_ptr<viz::GLHelper> gl_helper_;
-  base::ObserverList<ui::ContextFactoryObserver> observer_list_;
+  scoped_refptr<ws::ContextProviderCommandBuffer> shared_main_thread_contexts_;
+  base::ObserverList<ui::ContextFactoryObserver>::Unchecked observer_list_;
   scoped_refptr<base::SingleThreadTaskRunner> resize_task_runner_;
   std::unique_ptr<cc::SingleThreadTaskGraphRunner> task_graph_runner_;
-  scoped_refptr<viz::RasterContextProvider> shared_worker_context_provider_;
+  ws::SharedWorkerContextProviderFactory
+      shared_worker_context_provider_factory_;
 
   bool is_gpu_compositing_disabled_ = false;
   bool disable_frame_rate_limit_ = false;

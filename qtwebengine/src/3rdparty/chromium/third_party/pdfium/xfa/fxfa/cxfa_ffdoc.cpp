@@ -11,18 +11,19 @@
 #include <vector>
 
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
-#include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfdoc/cpdf_nametree.h"
-#include "core/fxcrt/cfx_memorystream.h"
+#include "core/fxcrt/cfx_readonlymemorystream.h"
 #include "core/fxcrt/cfx_seekablemultistream.h"
 #include "core/fxcrt/fx_extension.h"
-#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/xml/cfx_xmldocument.h"
 #include "core/fxcrt/xml/cfx_xmlelement.h"
 #include "core/fxcrt/xml/cfx_xmlnode.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
 #include "fxjs/xfa/cjx_object.h"
 #include "third_party/base/ptr_util.h"
+#include "xfa/fgas/font/cfgas_pdffontmgr.h"
 #include "xfa/fwl/cfwl_notedriver.h"
 #include "xfa/fxfa/cxfa_ffapp.h"
 #include "xfa/fxfa/cxfa_ffdocview.h"
@@ -37,6 +38,17 @@
 #include "xfa/fxfa/parser/cxfa_dynamicrender.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 
+FX_IMAGEDIB_AND_DPI::FX_IMAGEDIB_AND_DPI() = default;
+FX_IMAGEDIB_AND_DPI::FX_IMAGEDIB_AND_DPI(const FX_IMAGEDIB_AND_DPI& that) =
+    default;
+
+FX_IMAGEDIB_AND_DPI::FX_IMAGEDIB_AND_DPI(const RetainPtr<CFX_DIBBase>& pDib,
+                                         int32_t xDpi,
+                                         int32_t yDpi)
+    : pDibSource(pDib), iImageXDpi(xDpi), iImageYDpi(yDpi) {}
+
+FX_IMAGEDIB_AND_DPI::~FX_IMAGEDIB_AND_DPI() = default;
+
 CXFA_FFDoc::CXFA_FFDoc(CXFA_FFApp* pApp, IXFA_DocEnvironment* pDocEnvironment)
     : m_pDocEnvironment(pDocEnvironment), m_pApp(pApp) {}
 
@@ -48,7 +60,7 @@ bool CXFA_FFDoc::ParseDoc(const CPDF_Object* pElementXFA) {
   std::vector<const CPDF_Stream*> xfaStreams;
   if (pElementXFA->IsArray()) {
     const CPDF_Array* pXFAArray = pElementXFA->AsArray();
-    for (size_t i = 0; i < pXFAArray->GetCount() / 2; i++) {
+    for (size_t i = 0; i < pXFAArray->size() / 2; i++) {
       if (const CPDF_Stream* pStream = pXFAArray->GetStreamAt(i * 2 + 1))
         xfaStreams.push_back(pStream);
     }
@@ -146,7 +158,7 @@ bool CXFA_FFDoc::OpenDoc(CPDF_Document* pPDFDoc) {
     return true;
 
   WideString wsType = pDynamicRender->JSObject()->GetContent(false);
-  if (wsType == L"required")
+  if (wsType.EqualsASCII("required"))
     m_FormType = FormType::kXFAFull;
 
   return true;
@@ -168,10 +180,9 @@ void CXFA_FFDoc::CloseDoc() {
   m_pApp->ClearEventTargets();
 }
 
-RetainPtr<CFX_DIBitmap> CXFA_FFDoc::GetPDFNamedImage(
-    const WideStringView& wsName,
-    int32_t& iImageXDpi,
-    int32_t& iImageYDpi) {
+RetainPtr<CFX_DIBitmap> CXFA_FFDoc::GetPDFNamedImage(WideStringView wsName,
+                                                     int32_t& iImageXDpi,
+                                                     int32_t& iImageYDpi) {
   if (!m_pPDFDoc)
     return nullptr;
 
@@ -215,9 +226,8 @@ RetainPtr<CFX_DIBitmap> CXFA_FFDoc::GetPDFNamedImage(
   auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
   pAcc->LoadAllDataFiltered();
 
-  RetainPtr<IFX_SeekableStream> pImageFileRead =
-      pdfium::MakeRetain<CFX_MemoryStream>(
-          const_cast<uint8_t*>(pAcc->GetData()), pAcc->GetSize(), false);
+  auto pImageFileRead =
+      pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(pAcc->GetSpan());
 
   RetainPtr<CFX_DIBitmap> pDibSource = XFA_LoadImageFromBuffer(
       pImageFileRead, FXCODEC_IMAGE_UNKNOWN, iImageXDpi, iImageYDpi);

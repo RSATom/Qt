@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "gpu/command_buffer/common/context_creation_attribs.h"
+#include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/gles2_cmd_validation.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
@@ -35,6 +36,11 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
   struct FeatureFlags {
     FeatureFlags();
 
+    GpuMemoryBufferFormatSet gpu_memory_buffer_formats = {
+        gfx::BufferFormat::BGR_565,   gfx::BufferFormat::RGBA_4444,
+        gfx::BufferFormat::RGBA_8888, gfx::BufferFormat::RGBX_8888,
+        gfx::BufferFormat::YVU_420,
+    };
     // Use glBlitFramebuffer() and glRenderbufferStorageMultisample() with
     // GL_EXT_framebuffer_multisample-style semantics (as opposed to
     // GL_EXT_multisampled_render_to_texture semantics).
@@ -117,10 +123,8 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
     bool angle_client_arrays = false;
     bool angle_request_extension = false;
     bool ext_debug_marker = false;
-    bool arb_robustness = false;
-    bool khr_robustness = false;
-    bool ext_robustness = false;
     bool ext_pixel_buffer_object = false;
+    bool ext_unpack_subimage = false;
     bool oes_rgb8_rgba8 = false;
     bool angle_robust_resource_initialization = false;
     bool nv_fence = false;
@@ -129,6 +133,13 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
     bool chromium_gpu_fence = false;
     bool unpremultiply_and_dither_copy = false;
     bool separate_stencil_ref_mask_writemask = false;
+    bool mesa_framebuffer_flip_y = false;
+    bool angle_multiview = false;
+    bool khr_parallel_shader_compile = false;
+    bool android_surface_control = false;
+    bool khr_robust_buffer_access_behavior = false;
+    bool webgl_multi_draw = false;
+    bool webgl_multi_draw_instanced = false;
   };
 
   FeatureInfo();
@@ -140,7 +151,8 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
   // Initializes the feature information. Needs a current GL context.
   void Initialize(ContextType context_type,
                   bool is_passthrough_cmd_decoder,
-                  const DisallowedFeatures& disallowed_features);
+                  const DisallowedFeatures& disallowed_features,
+                  bool force_reinitialize = false);
 
   // Helper that defaults to no disallowed features and a GLES2 context.
   void InitializeForTesting();
@@ -217,6 +229,8 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
   void InitializeBasicState(const base::CommandLine* command_line);
   void InitializeFeatures();
   void InitializeFloatAndHalfFloatFeatures(const gfx::ExtensionSet& extensions);
+
+  bool initialized_ = false;
 
   Validators validators_;
 

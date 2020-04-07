@@ -35,32 +35,58 @@ namespace {
 // resolved with Desktop Aura and WindowTreeHost.
 ScreenWin* g_screen_win_instance = nullptr;
 
-float GetMonitorScaleFactor(HMONITOR monitor) {
+// Gets the DPI for a particular monitor, or 0 if per-monitor DPI is nuot
+// supported or can't be read.
+int GetPerMonitorDPI(HMONITOR monitor) {
+  // Most versions of Windows we will encounter are DPI-aware.
+  if (!base::win::IsProcessPerMonitorDpiAware())
+    return 0;
+
+  static auto get_dpi_for_monitor_func = []() {
+    using GetDpiForMonitorPtr = decltype(::GetDpiForMonitor)*;
+    HMODULE shcore_dll = ::LoadLibrary(L"shcore.dll");
+    if (shcore_dll) {
+      return reinterpret_cast<GetDpiForMonitorPtr>(
+          ::GetProcAddress(shcore_dll, "GetDpiForMonitor"));
+    }
+    return static_cast<GetDpiForMonitorPtr>(nullptr);
+  }();
+
+  if (!get_dpi_for_monitor_func)
+    return 0;
+
+  UINT dpi_x;
+  UINT dpi_y;
+  if (!SUCCEEDED(get_dpi_for_monitor_func(monitor, MDT_EFFECTIVE_DPI, &dpi_x,
+                                          &dpi_y))) {
+    return 0;
+  }
+
+  DCHECK_EQ(dpi_x, dpi_y);
+  return int(dpi_x);
+}
+
+// Gets the raw monitor scale factor.
+//
+// Respects the forced device scale factor, and will fall back to the global
+// scale factor if per-monitor DPI is not supported.
+float GetMonitorScaleFactor(HMONITOR monitor,
+                            bool include_accessibility = true) {
   DCHECK(monitor);
   if (Display::HasForceDeviceScaleFactor())
     return Display::GetForcedDeviceScaleFactor();
 
-  if (base::win::IsProcessPerMonitorDpiAware()) {
-    static auto get_dpi_for_monitor_func = [](){
-      using GetDpiForMonitorPtr = decltype(::GetDpiForMonitor)*;
-      HMODULE shcore_dll = ::LoadLibrary(L"shcore.dll");
-      if (shcore_dll) {
-        return reinterpret_cast<GetDpiForMonitorPtr>(
-                   ::GetProcAddress(shcore_dll, "GetDpiForMonitor"));
-      }
-      return static_cast<GetDpiForMonitorPtr>(nullptr);
-    }();
+  int dpi = GetPerMonitorDPI(monitor);
+  if (!dpi)
+    return GetDPIScale();
 
-    UINT dpi_x;
-    UINT dpi_y;
-    if (get_dpi_for_monitor_func &&
-        SUCCEEDED(get_dpi_for_monitor_func(monitor, MDT_EFFECTIVE_DPI,
-                                           &dpi_x, &dpi_y))) {
-      DCHECK_EQ(dpi_x, dpi_y);
-      return GetScalingFactorFromDPI(dpi_x);
-    }
+  float scale_factor = display::win::internal::GetScalingFactorFromDPI(dpi);
+  if (include_accessibility) {
+    float text_scale_factor =
+        UwpTextScaleFactor::Instance()->GetTextScaleFactor();
+    scale_factor *= text_scale_factor;
   }
-  return GetDPIScale();
+  return scale_factor;
 }
 
 bool GetPathInfo(HMONITOR monitor, DISPLAYCONFIG_PATH_INFO* path_info) {
@@ -133,16 +159,14 @@ std::vector<DisplayInfo> FindAndRemoveTouchingDisplayInfos(
     const DisplayInfo& ref_display_info,
     std::vector<DisplayInfo>* display_infos) {
   std::vector<DisplayInfo> touching_display_infos;
-  display_infos->erase(
-      std::remove_if(display_infos->begin(), display_infos->end(),
-          [&touching_display_infos, ref_display_info](
-              const DisplayInfo& display_info) {
-            if (DisplayInfosTouch(ref_display_info, display_info)) {
-              touching_display_infos.push_back(display_info);
-              return true;
-            }
-            return false;
-          }), display_infos->end());
+  base::EraseIf(*display_infos, [&touching_display_infos, ref_display_info](
+      const DisplayInfo& display_info) {
+    if (DisplayInfosTouch(ref_display_info, display_info)) {
+      touching_display_infos.push_back(display_info);
+      return true;
+    }
+    return false;
+  });
   return touching_display_infos;
 }
 
@@ -158,7 +182,7 @@ Display CreateDisplayFromDisplayInfo(const DisplayInfo& display_info,
   display.set_bounds(gfx::ScaleToEnclosingRect(display_info.screen_rect(),
                      1.0f / scale_factor));
   display.set_rotation(display_info.rotation());
-  if (!Display::HasForceColorProfile()) {
+  if (!Display::HasForceDisplayColorProfile()) {
     if (hdr_enabled) {
       display.SetColorSpaceAndDepth(
           gfx::ColorSpace::CreateSCRGBLinear().GetScaledColorSpace(
@@ -299,7 +323,38 @@ ScreenWin::ScreenWin(bool initialize)
 
 ScreenWin::~ScreenWin() {
   DCHECK_EQ(g_screen_win_instance, this);
+  if (uwp_text_scale_factor_)
+    uwp_text_scale_factor_->RemoveObserver(this);
+
   g_screen_win_instance = nullptr;
+}
+
+// static
+int ScreenWin::GetSystemMetricsForScaleFactor(float scale_factor, int metric) {
+  if (base::win::IsProcessPerMonitorDpiAware()) {
+    static auto get_metric_for_dpi_func = []() {
+      using GetSystemMetricsForDpiPtr = decltype(::GetSystemMetricsForDpi)*;
+      HMODULE user32_dll = ::LoadLibrary(L"user32.dll");
+      if (user32_dll) {
+        return reinterpret_cast<GetSystemMetricsForDpiPtr>(
+            ::GetProcAddress(user32_dll, "GetSystemMetricsForDpi"));
+      }
+      return static_cast<GetSystemMetricsForDpiPtr>(nullptr);
+    }();
+
+    if (get_metric_for_dpi_func) {
+      return get_metric_for_dpi_func(metric,
+                                     GetDPIFromScalingFactor(scale_factor));
+    }
+  }
+
+  // Fallback for when we're running Windows 8.1, which doesn't support
+  // GetSystemMetricsForDpi and yet does support per-process dpi awareness.
+  Display primary_display(g_screen_win_instance->GetPrimaryDisplay());
+  int system_metrics_result = g_screen_win_instance->GetSystemMetrics(metric);
+
+  return static_cast<int>(std::round(scale_factor * system_metrics_result /
+                                     primary_display.device_scale_factor()));
 }
 
 // static
@@ -391,20 +446,35 @@ gfx::Size ScreenWin::DIPToScreenSize(HWND hwnd, const gfx::Size& dip_size) {
 }
 
 // static
-int ScreenWin::GetSystemMetricsForHwnd(HWND hwnd, int metric) {
-  // GetSystemMetrics returns screen values based off of the primary monitor's
-  // DPI. This will further scale based off of the DPI for |hwnd|.
+int ScreenWin::GetSystemMetricsForMonitor(HMONITOR monitor, int metric) {
   if (!g_screen_win_instance)
     return ::GetSystemMetrics(metric);
 
-  Display primary_display(g_screen_win_instance->GetPrimaryDisplay());
-  int system_metrics_result = g_screen_win_instance->GetSystemMetrics(metric);
+  // We don't include fudge factors stemming from accessiblility features when
+  // dealing with system metrics associated with window elements drawn by the
+  // operating system, since we will not be doing scaling of those metrics
+  // ourselves.
+  bool include_accessibility;
+  switch (metric) {
+    case SM_CXSIZEFRAME:
+    case SM_CYSIZEFRAME:
+    case SM_CXPADDEDBORDER:
+      include_accessibility = false;
+      break;
+    default:
+      include_accessibility = true;
+      break;
+  }
 
-  float metrics_relative_scale_factor = hwnd
-      ? GetScaleFactorForHWND(hwnd) / primary_display.device_scale_factor()
-      : 1.0f;
-  return static_cast<int>(std::round(
-      system_metrics_result * metrics_relative_scale_factor));
+  // We'll want to use GetSafeMonitorScaleFactor(), so if the monitor is not
+  // specified pull up the primary display's HMONITOR.
+  if (!monitor)
+    monitor = MonitorFromWindow(nullptr, MONITOR_DEFAULTTOPRIMARY);
+
+  float scale_factor = GetMonitorScaleFactor(monitor, include_accessibility);
+
+  // We'll then pull up the system metrics scaled by the appropriate amount.
+  return GetSystemMetricsForScaleFactor(scale_factor, metric);
 }
 
 // static
@@ -412,12 +482,7 @@ int ScreenWin::GetSystemMetricsInDIP(int metric) {
   if (!g_screen_win_instance)
     return ::GetSystemMetrics(metric);
 
-  // GetSystemMetrics returns screen values based off of the primary monitor's
-  // DPI.
-  Display primary_display(g_screen_win_instance->GetPrimaryDisplay());
-  int system_metrics_result = g_screen_win_instance->GetSystemMetrics(metric);
-  return static_cast<int>(std::round(
-      system_metrics_result / primary_display.device_scale_factor()));
+  return GetSystemMetricsForScaleFactor(1.0f, metric);
 }
 
 // static
@@ -433,8 +498,24 @@ float ScreenWin::GetScaleFactorForHWND(HWND hwnd) {
 }
 
 // static
+int ScreenWin::GetDPIForHWND(HWND hwnd) {
+  if (Display::HasForceDeviceScaleFactor())
+    return GetDPIFromScalingFactor(Display::GetForcedDeviceScaleFactor());
+
+  HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+  int dpi = GetPerMonitorDPI(monitor);
+  return dpi ? dpi : display::win::internal::GetDefaultSystemDPI();
+}
+
+// static
+float ScreenWin::GetScaleFactorForDPI(int dpi) {
+  return display::win::internal::GetScalingFactorFromDPI(dpi) *
+         UwpTextScaleFactor::Instance()->GetTextScaleFactor();
+}
+
+// static
 float ScreenWin::GetSystemScaleFactor() {
-  return GetUnforcedDeviceScaleFactor();
+  return display::win::internal::GetUnforcedDeviceScaleFactor();
 }
 
 // static
@@ -470,6 +551,17 @@ gfx::NativeWindow ScreenWin::GetNativeWindowFromHWND(HWND hwnd) const {
   NOTREACHED();
 #endif
   return nullptr;
+}
+
+void ScreenWin::OnUwpTextScaleFactorChanged() {
+  UpdateAllDisplaysAndNotify();
+}
+
+void ScreenWin::OnUwpTextScaleFactorCleanup(UwpTextScaleFactor* source) {
+  if (source == uwp_text_scale_factor_)
+    uwp_text_scale_factor_ = nullptr;
+
+  UwpTextScaleFactor::Observer::OnUwpTextScaleFactorCleanup(source);
 }
 
 gfx::Point ScreenWin::GetCursorScreenPoint() {
@@ -565,6 +657,12 @@ void ScreenWin::Initialize() {
           base::Bind(&ScreenWin::OnWndProc, base::Unretained(this))));
   UpdateFromDisplayInfos(GetDisplayInfosFromSystem());
   RecordDisplayScaleFactors();
+
+  // We want to remember that we've observed a screen metrics object so that we
+  // can remove ourselves as an observer at some later point (either when the
+  // metrics object notifies us it's going away or when we are destructed).
+  uwp_text_scale_factor_ = UwpTextScaleFactor::Instance();
+  uwp_text_scale_factor_->AddObserver(this);
 }
 
 MONITORINFOEX ScreenWin::MonitorInfoFromScreenPoint(

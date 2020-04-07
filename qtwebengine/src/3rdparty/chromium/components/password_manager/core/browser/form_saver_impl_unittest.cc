@@ -10,16 +10,17 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
+using autofill::FormFieldData;
 using autofill::PasswordForm;
 using base::ASCIIToUTF16;
 using base::StringPiece;
@@ -51,19 +52,6 @@ PasswordForm CreatePending(StringPiece username, StringPiece password) {
   return form;
 }
 
-// Creates a dummy pending (for saving) GAIA form with |username| and
-// |password| values as specified.
-PasswordForm CreatePendingGAIA(StringPiece username, StringPiece password) {
-  PasswordForm form;
-  form.origin = GURL("https://accounts.google.com");
-  form.signon_realm = form.origin.spec();
-  form.action = form.origin;
-  form.username_value = ASCIIToUTF16(username);
-  form.password_value = ASCIIToUTF16(password);
-  form.preferred = true;
-  return form;
-}
-
 }  // namespace
 
 class FormSaverImplTest : public testing::Test {
@@ -75,7 +63,8 @@ class FormSaverImplTest : public testing::Test {
   ~FormSaverImplTest() override { mock_store_->ShutdownOnUIThread(); }
 
  protected:
-  base::MessageLoop message_loop_;  // For the MockPasswordStore.
+  // For the MockPasswordStore.
+  base::test::ScopedTaskEnvironment task_environment_;
   scoped_refptr<StrictMock<MockPasswordStore>> mock_store_;
   FormSaverImpl form_saver_;
 
@@ -518,84 +507,6 @@ TEST_F(FormSaverImplTest, RemovePresavedPassword_AndPresaveAgain) {
   EXPECT_EQ(ASCIIToUTF16("newgenpwd"), saved.password_value);
 }
 
-// Check that wiping updates the preferred match.
-TEST_F(FormSaverImplTest, WipeOutdatedCopies_Preferred) {
-  PasswordForm pending = CreatePendingGAIA("nameofuser", "wordToP4a55");
-
-  std::map<base::string16, const PasswordForm*> best_matches;
-  PasswordForm other = pending;
-  other.password_value = ASCIIToUTF16("oldpwd");
-  best_matches[other.username_value] = &other;
-
-  const PasswordForm* preferred = best_matches[other.username_value];
-
-  EXPECT_CALL(*mock_store_, RemoveLogin(other));
-  form_saver_.WipeOutdatedCopies(pending, &best_matches, &preferred);
-  EXPECT_FALSE(preferred);
-}
-
-// Check that wiping does not crash if the preferred match is null.
-TEST_F(FormSaverImplTest, WipeOutdatedCopies_NullPreferred) {
-  PasswordForm pending = CreatePendingGAIA("nameofuser", "wordToP4a55");
-
-  std::map<base::string16, const PasswordForm*> best_matches;
-  PasswordForm other = pending;
-  other.password_value = ASCIIToUTF16("oldpwd");
-  best_matches[other.username_value] = &other;
-
-  const PasswordForm* preferred = nullptr;
-
-  EXPECT_CALL(*mock_store_, RemoveLogin(other));
-  form_saver_.WipeOutdatedCopies(pending, &best_matches, &preferred);
-}
-
-// Check that equivalent names of GAIA accounts are recognised.
-TEST_F(FormSaverImplTest, WipeOutdatedCopies_EquivalentNames) {
-  PasswordForm pending = CreatePendingGAIA("nameofuser", "wordToP4a55");
-
-  std::map<base::string16, const PasswordForm*> best_matches;
-  PasswordForm old = pending;
-  old.password_value = ASCIIToUTF16("oldpwd");
-  best_matches[old.username_value] = &old;
-  // For GAIA authentication, the first two other usernames are equivalent to
-  // |pending| but the third is not.
-  PasswordForm eq1 = old;
-  eq1.username_value = ASCIIToUTF16("nameofuser@gmail.com");
-  best_matches[eq1.username_value] = &eq1;
-  PasswordForm eq2 = old;
-  eq2.username_value = ASCIIToUTF16("name.of.user");
-  best_matches[eq2.username_value] = &eq2;
-  PasswordForm non_eq = old;
-  non_eq.username_value = ASCIIToUTF16("other.user");
-  best_matches[non_eq.username_value] = &non_eq;
-
-  const PasswordForm* preferred = nullptr;
-
-  EXPECT_CALL(*mock_store_, RemoveLogin(old));
-  EXPECT_CALL(*mock_store_, RemoveLogin(eq1));
-  EXPECT_CALL(*mock_store_, RemoveLogin(eq2));
-  form_saver_.WipeOutdatedCopies(pending, &best_matches, &preferred);
-}
-
-// Check that not outdated copies of the pending GAIA credential are not wiped.
-TEST_F(FormSaverImplTest, WipeOutdatedCopies_NotOutdated) {
-  PasswordForm pending = CreatePendingGAIA("nameofuser", "wordToP4a55");
-
-  std::map<base::string16, const PasswordForm*> best_matches;
-  best_matches[pending.username_value] = &pending;
-  PasswordForm eq1 = pending;
-  eq1.username_value = ASCIIToUTF16("nameofuser@gmail.com");
-  best_matches[eq1.username_value] = &eq1;
-  PasswordForm eq2 = pending;
-  eq2.username_value = ASCIIToUTF16("name.of.user");
-  best_matches[eq2.username_value] = &eq2;
-
-  const PasswordForm* preferred = nullptr;
-
-  EXPECT_CALL(*mock_store_, RemoveLogin(_)).Times(0);
-  form_saver_.WipeOutdatedCopies(pending, &best_matches, &preferred);
-}
-
 // Check that presaving a password once in original and then once in clone
 // results in the clone calling update, not a fresh save.
 TEST_F(FormSaverImplTest, PresaveGeneratedPassword_CloneUpdates) {
@@ -619,6 +530,41 @@ TEST_F(FormSaverImplTest, PresaveGeneratedPassword_CloneSurvives) {
   original.reset();
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _));
   clone->PresaveGeneratedPassword(generated);
+}
+
+// Check that on saving the pending form |form_data| is sanitized.
+TEST_F(FormSaverImplTest, FormDataSanitized) {
+  PasswordForm pending = CreatePending("nameofuser", "wordToP4a55");
+  FormFieldData field;
+  field.name = ASCIIToUTF16("name");
+  field.form_control_type = "password";
+  field.value = ASCIIToUTF16("value");
+  field.label = ASCIIToUTF16("label");
+  field.placeholder = ASCIIToUTF16("placeholder");
+  field.id_attribute = ASCIIToUTF16("id");
+  field.name_attribute = field.name;
+  field.css_classes = ASCIIToUTF16("css_classes");
+  pending.form_data.fields.push_back(field);
+
+  for (bool presave : {false, true}) {
+    PasswordForm saved;
+    EXPECT_CALL(*mock_store_, AddLogin(_)).WillOnce(SaveArg<0>(&saved));
+    if (presave)
+      form_saver_.PresaveGeneratedPassword(pending);
+    else
+      form_saver_.Save(pending, {});
+
+    ASSERT_EQ(1u, saved.form_data.fields.size());
+    const FormFieldData& saved_field = saved.form_data.fields[0];
+    EXPECT_EQ(ASCIIToUTF16("name"), saved_field.name);
+    EXPECT_EQ("password", saved_field.form_control_type);
+    EXPECT_TRUE(saved_field.value.empty());
+    EXPECT_TRUE(saved_field.label.empty());
+    EXPECT_TRUE(saved_field.placeholder.empty());
+    EXPECT_TRUE(saved_field.id_attribute.empty());
+    EXPECT_TRUE(saved_field.name_attribute.empty());
+    EXPECT_TRUE(saved_field.css_classes.empty());
+  }
 }
 
 }  // namespace password_manager

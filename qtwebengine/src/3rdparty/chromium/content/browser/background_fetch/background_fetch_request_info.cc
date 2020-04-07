@@ -18,11 +18,13 @@ namespace content {
 
 BackgroundFetchRequestInfo::BackgroundFetchRequestInfo(
     int request_index,
-    const ServiceWorkerFetchRequest& fetch_request)
+    blink::mojom::FetchAPIRequestPtr fetch_request,
+    uint64_t request_body_size)
     : RefCountedDeleteOnSequence<BackgroundFetchRequestInfo>(
           base::SequencedTaskRunnerHandle::Get()),
       request_index_(request_index),
-      fetch_request_(fetch_request) {}
+      fetch_request_(std::move(fetch_request)),
+      request_body_size_(request_body_size) {}
 
 BackgroundFetchRequestInfo::~BackgroundFetchRequestInfo() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -42,9 +44,33 @@ void BackgroundFetchRequestInfo::SetDownloadGuid(
   download_guid_ = download_guid;
 }
 
+void BackgroundFetchRequestInfo::SetResult(
+    std::unique_ptr<BackgroundFetchResult> result) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(result);
+
+  result_ = std::move(result);
+  // The BackgroundFetchResponse was extracted when the download started.
+  // This is sent over again when the download was complete in case the
+  // browser was restarted.
+  if (response_headers_.empty())
+    PopulateWithResponse(std::move(result_->response));
+  else
+    result_->response.reset();
+}
+
+void BackgroundFetchRequestInfo::SetEmptyResultWithFailureReason(
+    BackgroundFetchResult::FailureReason failure_reason) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  result_ = std::make_unique<BackgroundFetchResult>(
+      /* response= */ nullptr, base::Time::Now(), failure_reason);
+}
+
 void BackgroundFetchRequestInfo::PopulateWithResponse(
     std::unique_ptr<BackgroundFetchResponse> response) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(response);
 
   url_chain_ = response->url_chain;
 
@@ -61,13 +87,6 @@ void BackgroundFetchRequestInfo::PopulateWithResponse(
   std::string name, value;
   while (response->headers->EnumerateHeaderLines(&iter, &name, &value))
     response_headers_[base::ToLowerASCII(name)] = value;
-}
-
-void BackgroundFetchRequestInfo::SetResult(
-    std::unique_ptr<BackgroundFetchResult> result) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  result_ = std::move(result);
 }
 
 int BackgroundFetchRequestInfo::GetResponseCode() const {

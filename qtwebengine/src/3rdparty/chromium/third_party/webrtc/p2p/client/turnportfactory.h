@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,25 +11,9 @@
 #ifndef P2P_CLIENT_TURNPORTFACTORY_H_
 #define P2P_CLIENT_TURNPORTFACTORY_H_
 
-#include <memory>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "p2p/client/relayportfactoryinterface.h"
-
-namespace cricket {
-
-// This is a RelayPortFactory that produces TurnPorts.
-class TurnPortFactory : public RelayPortFactoryInterface {
- public:
-  ~TurnPortFactory() override;
-
-  std::unique_ptr<Port> Create(const CreateRelayPortArgs& args,
-                               rtc::AsyncPacketSocket* udp_socket) override;
-
-  std::unique_ptr<Port> Create(const CreateRelayPortArgs& args,
-                               int min_port,
-                               int max_port) override;
-};
-
-}  // namespace cricket
+#include "p2p/client/turn_port_factory.h"
 
 #endif  // P2P_CLIENT_TURNPORTFACTORY_H_

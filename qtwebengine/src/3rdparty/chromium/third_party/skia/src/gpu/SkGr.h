@@ -19,7 +19,6 @@
 #include "SkFilterQuality.h"
 #include "SkImageInfo.h"
 #include "SkMatrix.h"
-#include "SkPM4f.h"
 #include "SkVertices.h"
 
 class GrCaps;
@@ -58,31 +57,12 @@ static inline GrColor SkColorToUnpremulGrColor(SkColor c) {
     return GrColorPackRGBA(r, g, b, a);
 }
 
-/** Transform an SkColor (sRGB bytes) to GrColor4f for the specified color space info. */
-GrColor4f SkColorToPremulGrColor4f(SkColor, const GrColorSpaceInfo&);
-GrColor4f SkColorToPremulGrColor4fLegacy(SkColor);
-GrColor4f SkColorToUnpremulGrColor4f(SkColor, const GrColorSpaceInfo&);
+/** Similar, but using SkPMColor4f. */
+SkPMColor4f SkColorToPMColor4f(SkColor, const GrColorSpaceInfo&);
 
-/** Replicates the SkColor's alpha to all four channels of the GrColor. */
-static inline GrColor SkColorAlphaToGrColor(SkColor c) {
-    U8CPU a = SkColorGetA(c);
-    return GrColorPackRGBA(a, a, a, a);
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-static inline SkPM4f GrColor4fToSkPM4f(const GrColor4f& c) {
-    SkPM4f pm4f;
-    pm4f.fVec[SkPM4f::R] = c.fRGBA[0];
-    pm4f.fVec[SkPM4f::G] = c.fRGBA[1];
-    pm4f.fVec[SkPM4f::B] = c.fRGBA[2];
-    pm4f.fVec[SkPM4f::A] = c.fRGBA[3];
-    return pm4f;
-}
-
-static inline GrColor4f SkPM4fToGrColor4f(const SkPM4f& c) {
-    return GrColor4f{c.r(), c.g(), c.b(), c.a()};
-}
+/** Converts an SkColor4f to the destination color space. Pins the color if the destination is
+    normalized, or the device does not support half-float vertex attributes. */
+SkColor4f SkColor4fPrepForDst(SkColor4f, const GrColorSpaceInfo&, const GrCaps&);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Paint conversion
@@ -183,8 +163,6 @@ GR_STATIC_ASSERT((int)kISA_GrBlendCoeff == (int)SkBlendModeCoeff::kISA);
 GR_STATIC_ASSERT((int)kDA_GrBlendCoeff == (int)SkBlendModeCoeff::kDA);
 GR_STATIC_ASSERT((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA);
 //GR_STATIC_ASSERT(SkXfermode::kCoeffCount == 10);
-
-#define SkXfermodeCoeffToGrBlendCoeff(X) ((GrBlendCoeff)(X))
 
 ////////////////////////////////////////////////////////////////////////////////
 // Texture management

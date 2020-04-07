@@ -14,13 +14,13 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
-#include "core/fxcrt/cfx_memorystream.h"
+#include "core/fxcrt/cfx_readonlymemorystream.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/span.h"
 
-CFDF_Document::CFDF_Document()
-    : CPDF_IndirectObjectHolder(), m_pRootDict(nullptr) {}
+CFDF_Document::CFDF_Document() = default;
 
-CFDF_Document::~CFDF_Document() {}
+CFDF_Document::~CFDF_Document() = default;
 
 std::unique_ptr<CFDF_Document> CFDF_Document::CreateNewDoc() {
   auto pDoc = pdfium::MakeUnique<CFDF_Document>();
@@ -29,18 +29,17 @@ std::unique_ptr<CFDF_Document> CFDF_Document::CreateNewDoc() {
   return pDoc;
 }
 
-std::unique_ptr<CFDF_Document> CFDF_Document::ParseMemory(uint8_t* pData,
-                                                          uint32_t size) {
+std::unique_ptr<CFDF_Document> CFDF_Document::ParseMemory(
+    pdfium::span<const uint8_t> span) {
   auto pDoc = pdfium::MakeUnique<CFDF_Document>();
-  pDoc->ParseStream(pdfium::MakeRetain<CFX_MemoryStream>(pData, size, false));
+  pDoc->ParseStream(pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(span));
   return pDoc->m_pRootDict ? std::move(pDoc) : nullptr;
 }
 
 void CFDF_Document::ParseStream(
     const RetainPtr<IFX_SeekableReadStream>& pFile) {
   m_pFile = pFile;
-  CPDF_SyntaxParser parser;
-  parser.InitParser(m_pFile, 0);
+  CPDF_SyntaxParser parser(m_pFile);
   while (1) {
     bool bNumber;
     ByteString word = parser.GetNextWord(&bNumber);

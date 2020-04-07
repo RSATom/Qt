@@ -3,63 +3,69 @@
 // found in the LICENSE file.
 
 /**
- * Requests the list of uploads from the backend.
+ * Requests the list of WebRTC logs from the backend.
  */
-function requestUploads() {
+function requestWebRtcLogsList() {
   chrome.send('requestWebRtcLogsList');
 }
 
 /**
- * Callback from backend with the list of uploads. Builds the UI.
- * @param {array} uploads The list of uploads.
+ * Callback from backend with the list of WebRTC logs. Builds the UI.
+ * @param {array} textLogsList The list of WebRTC text logs.
+ * @param {array} eventLogsList The list of WebRTC event logs.
  * @param {string} version The browser version.
  */
-function updateWebRtcLogsList(uploads, version) {
-  $('log-banner').textContent =
-      loadTimeData.getStringF('webrtcLogCountFormat', uploads.length);
+function updateWebRtcLogsList(textLogsList, eventLogsList, version) {
+  updateWebRtcTextLogsList(textLogsList, version);
+  updateWebRtcEventLogsList(eventLogsList);
+}
 
-  var logSection = $('log-list');
+function updateWebRtcTextLogsList(textLogsList, version) {
+  $('text-log-banner').textContent =
+      loadTimeData.getStringF('webrtcTextLogCountFormat', textLogsList.length);
+
+  const textLogSection = $('text-log-list');
 
   // Clear any previous list.
-  logSection.textContent = '';
+  textLogSection.textContent = '';
 
-  for (var i = 0; i < uploads.length; i++) {
-    var upload = uploads[i];
+  for (let i = 0; i < textLogsList.length; i++) {
+    const textLog = textLogsList[i];
 
-    var logBlock = document.createElement('div');
+    const logBlock = document.createElement('div');
 
-    var title = document.createElement('h3');
+    const title = document.createElement('h3');
     title.textContent = loadTimeData.getStringF(
-        'webrtcLogHeaderFormat', upload['capture_time']);
+        'webrtcLogHeaderFormat', textLog['capture_time']);
     logBlock.appendChild(title);
 
-    var localFileLine = document.createElement('p');
-    if (upload['local_file'].length == 0) {
+    const localFileLine = document.createElement('p');
+    if (textLog['local_file'].length == 0) {
       localFileLine.textContent =
           loadTimeData.getString('noLocalLogFileMessage');
     } else {
       localFileLine.textContent =
           loadTimeData.getString('webrtcLogLocalFileLabelFormat') + ' ';
-      var localFileLink = document.createElement('a');
-      localFileLink.href = 'file://' + upload['local_file'];
-      localFileLink.textContent = upload['local_file'];
+      const localFileLink = document.createElement('a');
+      localFileLink.href = 'file://' + textLog['local_file'];
+      localFileLink.textContent = textLog['local_file'];
       localFileLine.appendChild(localFileLink);
     }
     logBlock.appendChild(localFileLine);
 
-    var uploadLine = document.createElement('p');
-    if (upload['id'].length == 0) {
+    const uploadLine = document.createElement('p');
+    if (textLog['id'].length == 0) {
       uploadLine.textContent =
           loadTimeData.getString('webrtcLogNotUploadedMessage');
     } else {
       uploadLine.textContent =
           loadTimeData.getStringF(
-              'webrtcLogUploadTimeFormat', upload['upload_time']) +
+              'webrtcLogUploadTimeFormat', textLog['upload_time']) +
           '. ' +
-          loadTimeData.getStringF('webrtcLogReportIdFormat', upload['id']) +
+          loadTimeData.getStringF('webrtcLogReportIdFormat', textLog['id']) +
           '. ';
-      var link = document.createElement('a');
-      var commentLines = [
+      const link = document.createElement('a');
+      const commentLines = [
         'Chrome Version: ' + version,
         // TODO(tbreisacher): fill in the OS automatically?
         'Operating System: e.g., "Windows 7", "Mac OSX 10.6"', '',
@@ -70,14 +76,14 @@ function updateWebRtcLogsList(uploads, version) {
         '', '1.', '2.', '3.', '',
         '*Please note that issues filed with no information filled in ' +
             'above will be marked as WontFix*',
-        '', '****DO NOT CHANGE BELOW THIS LINE****', 'report_id:' + upload.id
+        '', '****DO NOT CHANGE BELOW THIS LINE****', 'report_id:' + textLog.id
       ];
-      var params = {
+      const params = {
         template: 'Defect report from user',
         comment: commentLines.join('\n'),
       };
-      var href = 'http://code.google.com/p/chromium/issues/entry';
-      for (var param in params) {
+      let href = 'http://code.google.com/p/chromium/issues/entry';
+      for (const param in params) {
         href = appendParam(href, param, params[param]);
       }
       link.href = href;
@@ -87,10 +93,176 @@ function updateWebRtcLogsList(uploads, version) {
     }
     logBlock.appendChild(uploadLine);
 
-    logSection.appendChild(logBlock);
+    textLogSection.appendChild(logBlock);
   }
 
-  $('no-logs').hidden = uploads.length != 0;
+  $('text-no-logs').hidden = (textLogsList.length != 0);
 }
 
-document.addEventListener('DOMContentLoaded', requestUploads);
+function updateWebRtcEventLogsList(eventLogsList) {
+  const eventLogSection = $('event-log-list');
+
+  eventLogSection.textContent = '';  // Clear any previous list.
+
+  let entries = 0;
+
+  for (let i = 0; i < eventLogsList.length; i++) {
+    const entry = createEventLogEntryElement(eventLogsList[i]);
+    if (entry) {
+      eventLogSection.appendChild(entry);
+      entries += 1;
+    }
+  }
+
+  $('event-log-banner').textContent =
+      loadTimeData.getStringF('webrtcEventLogCountFormat', entries);
+
+  $('event-no-logs').hidden = (entries != 0);
+}
+
+function createEventLogEntryElement(eventLogEntry) {
+  // See LogHistory in webrtc_event_log_manager_remote.cc for an explanation
+  // of the various states.
+  const state = eventLogEntry['state'];
+  if (!state) {
+    console.error('Unknown state.');
+    return;
+  } else if (state == 'pending' || state == 'actively_uploaded') {
+    return createPendingOrActivelyUploadedEventLogEntryElement(eventLogEntry);
+  } else if (state == 'not_uploaded') {
+    return createNotUploadedEventLogEntryElement(eventLogEntry);
+  } else if (state == 'upload_unsuccessful') {
+    return createUploadUnsuccessfulEventLogEntryElement(eventLogEntry);
+  } else if (state == 'upload_successful') {
+    return createUploadSuccessfulEventLogEntryElement(eventLogEntry);
+  } else {
+    console.error('Unrecognized state.');
+  }
+}
+
+function createPendingOrActivelyUploadedEventLogEntryElement(eventLogEntry) {
+  const expectedFields = ['capture_time', 'local_file'];
+  if (!verifyExpectedFields(eventLogEntry, expectedFields)) {
+    return;
+  }
+
+  const logBlock = document.createElement('div');
+
+  appendCaptureTime(logBlock, eventLogEntry);
+  appendLocalFile(logBlock, eventLogEntry);
+
+  const uploadLine = document.createElement('p');
+  if (eventLogEntry['state'] == 'pending') {
+    uploadLine.textContent = loadTimeData.getString('webrtcLogPendingMessage');
+  } else {
+    uploadLine.textContent =
+        loadTimeData.getString('webrtcLogActivelyUploadedMessage');
+  }
+  logBlock.appendChild(uploadLine);
+
+  return logBlock;
+}
+
+function createNotUploadedEventLogEntryElement(eventLogEntry) {
+  const expectedFields = ['capture_time', 'local_id'];
+  if (!verifyExpectedFields(eventLogEntry, expectedFields)) {
+    return;
+  }
+
+  const logBlock = document.createElement('div');
+
+  appendCaptureTime(logBlock, eventLogEntry);
+  appendLocalLogId(logBlock, eventLogEntry);
+
+  const uploadLine = document.createElement('p');
+  uploadLine.textContent =
+      loadTimeData.getString('webrtcLogNotUploadedMessage');
+  logBlock.appendChild(uploadLine);
+
+  return logBlock;
+}
+
+function createUploadUnsuccessfulEventLogEntryElement(eventLogEntry) {
+  const expectedFields = ['capture_time', 'local_id', 'upload_time'];
+  if (!verifyExpectedFields(eventLogEntry, expectedFields)) {
+    return;
+  }
+
+  const logBlock = document.createElement('div');
+
+  appendCaptureTime(logBlock, eventLogEntry);
+  appendLocalLogId(logBlock, eventLogEntry);
+
+  const uploadLine = document.createElement('p');
+  uploadLine.textContent = loadTimeData.getStringF(
+      'webrtcLogFailedUploadTimeFormat', eventLogEntry['upload_time']);
+  logBlock.appendChild(uploadLine);
+
+  return logBlock;
+}
+
+function createUploadSuccessfulEventLogEntryElement(eventLogEntry) {
+  const expectedFields =
+      ['capture_time', 'local_id', 'upload_id', 'upload_time'];
+  if (!verifyExpectedFields(eventLogEntry, expectedFields)) {
+    return;
+  }
+
+  const logBlock = document.createElement('div');
+
+  appendCaptureTime(logBlock, eventLogEntry);
+  appendLocalLogId(logBlock, eventLogEntry);
+
+  const uploadLine = document.createElement('p');
+  uploadLine.textContent =
+      loadTimeData.getStringF(
+          'webrtcLogUploadTimeFormat', eventLogEntry['upload_time']) +
+      '. ' +
+      loadTimeData.getStringF(
+          'webrtcLogReportIdFormat', eventLogEntry['upload_id']) +
+      '. ';
+  logBlock.appendChild(uploadLine);
+
+  return logBlock;
+}
+
+function verifyExpectedFields(entry, expectedFields) {
+  for (const fieldIdx in expectedFields) {
+    const field = expectedFields[fieldIdx];
+    if (!entry[field]) {
+      console.error('|' + field + '| expected.');
+      return false;
+    }
+  }
+  return true;
+}
+
+function appendCaptureTime(logBlock, eventLogEntry) {
+  const title = document.createElement('h3');
+  title.textContent = loadTimeData.getStringF(
+      'webrtcLogHeaderFormat', eventLogEntry['capture_time']);
+  logBlock.appendChild(title);
+}
+
+function appendLocalFile(logBlock, eventLogEntry) {
+  // Local file on disk, if still on disk.
+  const localFileLine = document.createElement('p');
+  localFileLine.textContent =
+      loadTimeData.getString('webrtcLogLocalFileLabelFormat') + ' ';
+  const localFileLink = document.createElement('a');
+  localFileLink.href = 'file://' + eventLogEntry['local_file'];
+  localFileLink.textContent = eventLogEntry['local_file'];
+  localFileLine.appendChild(localFileLink);
+  logBlock.appendChild(localFileLine);
+}
+
+function appendLocalLogId(logBlock, eventLogEntry) {
+  const localIdLine = document.createElement('p');
+  localIdLine.textContent =
+      loadTimeData.getStringF(
+          'webrtcEventLogLocalLogIdFormat', eventLogEntry['local_id']) +
+      '';
+  logBlock.appendChild(localIdLine);
+}
+
+document.addEventListener('DOMContentLoaded', requestWebRtcLogsList);

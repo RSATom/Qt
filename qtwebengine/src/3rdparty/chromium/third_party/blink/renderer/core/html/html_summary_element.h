@@ -30,16 +30,17 @@ class HTMLDetailsElement;
 class HTMLSummaryElement final : public HTMLElement {
  public:
   static HTMLSummaryElement* Create(Document&);
+
+  explicit HTMLSummaryElement(Document&);
+
   bool IsMainSummary() const;
   bool WillRespondToMouseClickEvents() override;
 
   Element* MarkerControl();
 
  private:
-  explicit HTMLSummaryElement(Document&);
-
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
-  void DefaultEventHandler(Event*) override;
+  void DefaultEventHandler(Event&) override;
   bool HasActivationBehavior() const override;
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
   HTMLDetailsElement* DetailsElement() const;

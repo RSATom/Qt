@@ -16,15 +16,14 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
+#include "device/usb/scoped_libusb_device_handle.h"
 #include "device/usb/usb_device_handle.h"
 #include "third_party/libusb/src/libusb/libusb.h"
 
 namespace base {
 class RefCountedBytes;
 class SequencedTaskRunner;
-class SingleThreadTaskRunner;
-class TaskRunner;
 }
 
 namespace device {
@@ -34,10 +33,8 @@ struct EndpointMapValue {
   const UsbEndpointDescriptor* endpoint;
 };
 
-class UsbContext;
 class UsbDeviceImpl;
 
-typedef libusb_device_handle* PlatformUsbDeviceHandle;
 typedef libusb_iso_packet_descriptor* PlatformUsbIsoPacketDescriptor;
 typedef libusb_transfer* PlatformUsbTransferHandle;
 
@@ -90,35 +87,33 @@ class UsbDeviceHandleImpl : public UsbDeviceHandle {
 
   // This constructor is called by UsbDeviceImpl.
   UsbDeviceHandleImpl(
-      scoped_refptr<UsbContext> context,
       scoped_refptr<UsbDeviceImpl> device,
-      PlatformUsbDeviceHandle handle,
+      ScopedLibusbDeviceHandle handle,
       scoped_refptr<base::SequencedTaskRunner> blocking_task_runner);
 
   ~UsbDeviceHandleImpl() override;
 
-  PlatformUsbDeviceHandle handle() const { return handle_; }
+  libusb_device_handle* handle() const { return handle_.get(); }
 
  private:
   class InterfaceClaimer;
   class Transfer;
 
-  void SetConfigurationOnBlockingThread(int configuration_value,
-                                        ResultCallback callback);
+  void SetConfigurationBlocking(int configuration_value,
+                                ResultCallback callback);
   void SetConfigurationComplete(bool success, ResultCallback callback);
-  void ClaimInterfaceOnBlockingThread(int interface_number,
-                                      ResultCallback callback);
+  void ClaimInterfaceBlocking(int interface_number, ResultCallback callback);
   void ClaimInterfaceComplete(scoped_refptr<InterfaceClaimer> interface_claimer,
                               ResultCallback callback);
-  void SetInterfaceAlternateSettingOnBlockingThread(int interface_number,
-                                                    int alternate_setting,
-                                                    ResultCallback callback);
+  void SetInterfaceAlternateSettingBlocking(int interface_number,
+                                            int alternate_setting,
+                                            ResultCallback callback);
   void SetInterfaceAlternateSettingComplete(int interface_number,
                                             int alternate_setting,
                                             bool success,
                                             ResultCallback callback);
-  void ResetDeviceOnBlockingThread(ResultCallback callback);
-  void ClearHaltOnBlockingThread(uint8_t endpoint, ResultCallback callback);
+  void ResetDeviceBlocking(ResultCallback callback);
+  void ClearHaltBlocking(uint8_t endpoint, ResultCallback callback);
 
   // Refresh endpoint_map_ after ClaimInterface, ReleaseInterface and
   // SetInterfaceAlternateSetting.
@@ -129,39 +124,10 @@ class UsbDeviceHandleImpl : public UsbDeviceHandle {
   scoped_refptr<InterfaceClaimer> GetClaimedInterfaceForEndpoint(
       uint8_t endpoint);
 
-  void ControlTransferInternal(
-      UsbTransferDirection direction,
-      UsbControlTransferType request_type,
-      UsbControlTransferRecipient recipient,
-      uint8_t request,
-      uint16_t value,
-      uint16_t index,
-      scoped_refptr<base::RefCountedBytes> buffer,
-      unsigned int timeout,
-      scoped_refptr<base::TaskRunner> callback_task_runner,
-      TransferCallback callback);
-
-  void IsochronousTransferInInternal(
-      uint8_t endpoint_address,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      scoped_refptr<base::TaskRunner> callback_task_runner,
-      IsochronousTransferCallback callback);
-
-  void IsochronousTransferOutInternal(
-      uint8_t endpoint_address,
-      scoped_refptr<base::RefCountedBytes> buffer,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      scoped_refptr<base::TaskRunner> callback_task_runner,
-      IsochronousTransferCallback callback);
-
-  void GenericTransferInternal(
-      uint8_t endpoint_address,
-      scoped_refptr<base::RefCountedBytes> buffer,
-      unsigned int timeout,
-      scoped_refptr<base::TaskRunner> callback_task_runner,
-      TransferCallback callback);
+  void ReportIsochronousTransferError(
+      UsbDeviceHandle::IsochronousTransferCallback callback,
+      const std::vector<uint32_t> packet_lengths,
+      UsbTransferStatus status);
 
   // Submits a transfer and starts tracking it. Retains the buffer and copies
   // the completion callback until the transfer finishes, whereupon it invokes
@@ -174,7 +140,7 @@ class UsbDeviceHandleImpl : public UsbDeviceHandle {
 
   scoped_refptr<UsbDeviceImpl> device_;
 
-  PlatformUsbDeviceHandle handle_;
+  ScopedLibusbDeviceHandle handle_;
 
   typedef std::map<int, scoped_refptr<InterfaceClaimer>> ClaimedInterfaceMap;
   ClaimedInterfaceMap claimed_interfaces_;
@@ -186,14 +152,10 @@ class UsbDeviceHandleImpl : public UsbDeviceHandle {
   typedef std::map<int, EndpointMapValue> EndpointMap;
   EndpointMap endpoint_map_;
 
-  // Retain the UsbContext so that the platform context will not be destroyed
-  // before this handle.
-  scoped_refptr<UsbContext> context_;
-
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(UsbDeviceHandleImpl);
 };

@@ -137,59 +137,14 @@
 #include <qpa/qplatformtheme.h>
 #include <QtGui/private/qcoregraphics_p.h>
 
+#include <cmath>
+
 QT_USE_NAMESPACE
 
 static QWindow *qt_getWindow(const QWidget *widget)
 {
     return widget ? widget->window()->windowHandle() : 0;
 }
-
-@interface QT_MANGLE_NAMESPACE(NotificationReceiver) : NSObject
-@end
-
-QT_NAMESPACE_ALIAS_OBJC_CLASS(NotificationReceiver);
-
-@implementation NotificationReceiver
-{
-    QMacStylePrivate *privateStyle;
-}
-
-- (instancetype)initWithPrivateStyle:(QMacStylePrivate *)style
-{
-    if (self = [super init])
-        privateStyle = style;
-    return self;
-}
-
-- (void)scrollBarStyleDidChange:(NSNotification *)notification
-{
-    Q_UNUSED(notification);
-
-    // purge destroyed scroll bars:
-    QMacStylePrivate::scrollBars.removeAll(QPointer<QObject>());
-
-    QEvent event(QEvent::StyleChange);
-    for (const auto &o : QMacStylePrivate::scrollBars)
-        QCoreApplication::sendEvent(o, &event);
-}
-
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
-        change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context
-{
-    Q_UNUSED(keyPath);
-    Q_UNUSED(object);
-    Q_UNUSED(change);
-    Q_UNUSED(context);
-
-    Q_ASSERT([keyPath isEqualToString:@"effectiveAppearance"]);
-    Q_ASSERT(object == NSApp);
-
-    for (NSView *b : privateStyle->cocoaControls)
-        [b release];
-    privateStyle->cocoaControls.clear();
-}
-
-@end
 
 @interface QT_MANGLE_NAMESPACE(QIndeterminateProgressIndicator) : NSProgressIndicator
 
@@ -559,6 +514,37 @@ static bool setupSlider(NSSlider *slider, const QStyleOptionSlider *sl)
     }
 
     return true;
+}
+
+static void fixStaleGeometry(NSSlider *slider)
+{
+    // If it's later fixed in AppKit, this function is not needed.
+    // On macOS Mojave we suddenly have NSSliderCell with a cached
+    // (and stale) geometry, thus its -drawKnob, -drawBarInside:flipped:,
+    // -drawTickMarks fail to render the slider properly. Setting the number
+    // of tickmarks triggers an update in geometry.
+
+    Q_ASSERT(slider);
+
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::MacOSMojave)
+        return;
+
+    NSSliderCell *cell = slider.cell;
+    const NSRect barRect = [cell barRectFlipped:NO];
+    const NSSize sliderSize = slider.frame.size;
+    CGFloat difference = 0.;
+    if (slider.vertical)
+        difference = std::abs(sliderSize.height - barRect.size.height);
+    else
+        difference = std::abs(sliderSize.width - barRect.size.width);
+
+    if (difference > 6.) {
+        // Stale ...
+        const auto nOfTicks = slider.numberOfTickMarks;
+        // Non-zero, different from nOfTicks to force update
+        slider.numberOfTickMarks = nOfTicks + 10;
+        slider.numberOfTickMarks = nOfTicks;
+    }
 }
 
 static bool isInMacUnifiedToolbarArea(QWindow *window, int windowY)
@@ -2092,33 +2078,34 @@ void QMacStylePrivate::resolveCurrentNSView(QWindow *window) const
 QMacStyle::QMacStyle()
     : QCommonStyle(*new QMacStylePrivate)
 {
-    Q_D(QMacStyle);
     QMacAutoReleasePool pool;
 
-    d->receiver = [[NotificationReceiver alloc] initWithPrivateStyle:d];
-    [[NSNotificationCenter defaultCenter] addObserver:d->receiver
-                                             selector:@selector(scrollBarStyleDidChange:)
-                                                 name:NSPreferredScrollerStyleDidChangeNotification
-                                               object:nil];
+    static QMacNotificationObserver scrollbarStyleObserver(nil,
+        NSPreferredScrollerStyleDidChangeNotification, []() {
+            // Purge destroyed scroll bars
+            QMacStylePrivate::scrollBars.removeAll(QPointer<QObject>());
+
+            QEvent event(QEvent::StyleChange);
+            for (const auto &o : QMacStylePrivate::scrollBars)
+                QCoreApplication::sendEvent(o, &event);
+    });
+
 #if QT_MACOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_14)
+    Q_D(QMacStyle);
+    // FIXME: Tie this logic into theme change, or even polish/unpolish
     if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSMojave) {
-        [NSApplication.sharedApplication addObserver:d->receiver forKeyPath:@"effectiveAppearance"
-         options:NSKeyValueObservingOptionNew context:nullptr];
+        d->appearanceObserver = QMacKeyValueObserver(NSApp, @"effectiveAppearance", [this] {
+            Q_D(QMacStyle);
+            for (NSView *b : d->cocoaControls)
+                [b release];
+            d->cocoaControls.clear();
+        });
     }
 #endif
 }
 
 QMacStyle::~QMacStyle()
 {
-    Q_D(QMacStyle);
-    QMacAutoReleasePool pool;
-
-    [[NSNotificationCenter defaultCenter] removeObserver:d->receiver];
-#if QT_MACOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_14)
-    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSMojave)
-        [NSApplication.sharedApplication removeObserver:d->receiver forKeyPath:@"effectiveAppearance"];
-#endif
-    [d->receiver release];
 }
 
 void QMacStyle::polish(QPalette &)
@@ -2185,10 +2172,9 @@ void QMacStyle::unpolish(QWidget* w)
 #if QT_CONFIG(menu)
         qobject_cast<QMenu*>(w) &&
 #endif
-        !w->testAttribute(Qt::WA_SetPalette)) {
-        QPalette pal = qApp->palette(w);
-        w->setPalette(pal);
-        w->setAttribute(Qt::WA_SetPalette, false);
+        !w->testAttribute(Qt::WA_SetPalette))
+    {
+        w->setPalette(QPalette());
         w->setWindowOpacity(1.0);
     }
 
@@ -2204,9 +2190,9 @@ void QMacStyle::unpolish(QWidget* w)
 #if QT_CONFIG(tabbar)
     if (qobject_cast<QTabBar*>(w)) {
         if (!w->testAttribute(Qt::WA_SetFont))
-            w->setFont(qApp->font(w));
+            w->setFont(QFont());
         if (!w->testAttribute(Qt::WA_SetPalette))
-            w->setPalette(qApp->palette(w));
+            w->setPalette(QPalette());
     }
 #endif
 
@@ -2602,11 +2588,12 @@ int QMacStyle::pixelMetric(PixelMetric metric, const QStyleOption *opt, const QW
 
 QPalette QMacStyle::standardPalette() const
 {
-    QPalette pal = QCommonStyle::standardPalette();
-    pal.setColor(QPalette::Disabled, QPalette::Dark, QColor(191, 191, 191));
-    pal.setColor(QPalette::Active, QPalette::Dark, QColor(191, 191, 191));
-    pal.setColor(QPalette::Inactive, QPalette::Dark, QColor(191, 191, 191));
-    return pal;
+    auto platformTheme = QGuiApplicationPrivate::platformTheme();
+    auto styleNames = platformTheme->themeHint(QPlatformTheme::StyleNames);
+    if (styleNames.toStringList().contains("macintosh"))
+        return *platformTheme->palette();
+    else
+        return QStyle::standardPalette();
 }
 
 int QMacStyle::styleHint(StyleHint sh, const QStyleOption *opt, const QWidget *w,
@@ -3152,7 +3139,9 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
             theStroker.setCapStyle(Qt::FlatCap);
             theStroker.setDashPattern(QVector<qreal>() << 1 << 2);
             path = theStroker.createStroke(path);
-            p->fillPath(path, QColor(0, 0, 0, 119));
+            const auto dark = qt_mac_applicationIsInDarkMode() ? opt->palette.dark().color().darker()
+                                                               : QColor(0, 0, 0, 119);
+            p->fillPath(path, dark);
         }
         break;
     case PE_FrameWindow:
@@ -3955,6 +3944,7 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
                         CGContextScaleCTM(ctx, -1, 1);
                         CGContextTranslateCTM(ctx, -frameRect.left(), 0);
                     } else if (tabDirection == QMacStylePrivate::West && tp == QStyleOptionTab::Beginning) {
+                        CGContextTranslateCTM(ctx, 0, opt->rect.top());
                         CGContextScaleCTM(ctx, 1, -1);
                         CGContextTranslateCTM(ctx, 0, -frameRect.right());
                     } else if (tabDirection == QMacStylePrivate::East && tp == QStyleOptionTab::End) {
@@ -4124,7 +4114,7 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
                                       titleRect.width());
 
                 const auto text = p->fontMetrics().elidedText(dwOpt->title, Qt::ElideRight, titleRect.width());
-                proxy()->drawItemText(p, titleRect, Qt::AlignCenter | Qt::TextShowMnemonic, dwOpt->palette,
+                proxy()->drawItemText(p, titleRect, Qt::AlignCenter, dwOpt->palette,
                                       dwOpt->state & State_Enabled, text, QPalette::WindowText);
             }
             p->restore();
@@ -5362,6 +5352,8 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
 #endif
                 {
                     [slider calcSize];
+                    if (!hasDoubleTicks)
+                        fixStaleGeometry(slider);
                     NSSliderCell *cell = slider.cell;
 
                     const int numberOfTickMarks = slider.numberOfTickMarks;
@@ -5371,10 +5363,10 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
 
                     const CGRect barRect = [cell barRectFlipped:hasTicks];
                     if (drawBar) {
+                        [cell drawBarInside:barRect flipped:!verticalFlip];
                         // This ain't HIG kosher: force unfilled bar look.
                         if (hasDoubleTicks)
                             slider.numberOfTickMarks = numberOfTickMarks;
-                        [cell drawBarInside:barRect flipped:!verticalFlip];
                     }
 
                     if (hasTicks && drawTicks) {
@@ -6166,8 +6158,9 @@ QSize QMacStyle::sizeFromContents(ContentsType ct, const QStyleOption *opt,
     switch (ct) {
 #if QT_CONFIG(spinbox)
     case CT_SpinBox:
-        if (qstyleoption_cast<const QStyleOptionSpinBox *>(opt)) {
-            const int buttonWidth = 20; // FIXME Use subControlRect()
+        if (const QStyleOptionSpinBox *vopt = qstyleoption_cast<const QStyleOptionSpinBox *>(opt)) {
+            const bool hasButtons = (vopt->buttonSymbols != QAbstractSpinBox::NoButtons);
+            const int buttonWidth = hasButtons ? proxy()->subControlRect(CC_SpinBox, vopt, SC_SpinBoxUp, widget).width() : 0;
             sz += QSize(buttonWidth, 0);
         }
         break;

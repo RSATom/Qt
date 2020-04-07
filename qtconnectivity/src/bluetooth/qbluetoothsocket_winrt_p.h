@@ -57,6 +57,19 @@
 
 QT_FORWARD_DECLARE_CLASS(SocketWorker)
 
+namespace ABI {
+    namespace Windows {
+        namespace  Networking {
+            struct IHostName;
+        }
+    }
+}
+
+namespace Microsoft {
+    namespace WRL {
+        template <typename T> class ComPtr;
+    }
+}
 QT_BEGIN_NAMESPACE
 
 class QBluetoothSocketPrivateWinRT final: public QBluetoothSocketBasePrivate
@@ -125,6 +138,8 @@ private slots:
     void handleError(QBluetoothSocket::SocketError error);
 
 private:
+    void connectToService(Microsoft::WRL::ComPtr<ABI::Windows::Networking::IHostName> hostName,
+                          const QString &serviceName, QIODevice::OpenMode openMode);
     HRESULT handleConnectOpFinished(ABI::Windows::Foundation::IAsyncAction *action,
                                     ABI::Windows::Foundation::AsyncStatus status);
 

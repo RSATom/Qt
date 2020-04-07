@@ -16,10 +16,10 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/md5.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
@@ -149,6 +149,7 @@ class ZipReaderTest : public PlatformTest {
     ASSERT_TRUE(GetTestDataDirectory(&test_data_dir_));
 
     test_zip_file_ = test_data_dir_.AppendASCII("test.zip");
+    encrypted_zip_file_ = test_data_dir_.AppendASCII("test_encrypted.zip");
     evil_zip_file_ = test_data_dir_.AppendASCII("evil.zip");
     evil_via_invalid_utf8_zip_file_ = test_data_dir_.AppendASCII(
         "evil_via_invalid_utf8.zip");
@@ -201,6 +202,8 @@ class ZipReaderTest : public PlatformTest {
   base::FilePath test_data_dir_;
   // The path to test.zip in the test data directory.
   base::FilePath test_zip_file_;
+  // The path to test_encrypted.zip in the test data directory.
+  base::FilePath encrypted_zip_file_;
   // The path to evil.zip in the test data directory.
   base::FilePath evil_zip_file_;
   // The path to evil_via_invalid_utf8.zip in the test data directory.
@@ -366,6 +369,20 @@ TEST_F(ZipReaderTest, current_entry_info_Directory) {
   EXPECT_TRUE(current_entry_info->is_directory());
 }
 
+TEST_F(ZipReaderTest, current_entry_info_EncryptedFile) {
+  ZipReader reader;
+  base::FilePath target_path(FILE_PATH_LITERAL("foo/bar/quux.txt"));
+
+  ASSERT_TRUE(reader.Open(encrypted_zip_file_));
+  ASSERT_TRUE(LocateAndOpenEntry(&reader, target_path));
+  EXPECT_TRUE(reader.current_entry_info()->is_encrypted());
+  reader.Close();
+
+  ASSERT_TRUE(reader.Open(test_zip_file_));
+  ASSERT_TRUE(LocateAndOpenEntry(&reader, target_path));
+  EXPECT_FALSE(reader.current_entry_info()->is_encrypted());
+}
+
 // Verifies that the ZipReader class can extract a file from a zip archive
 // stored in memory. This test opens a zip archive in a std::string object,
 // extracts its content, and verifies the content is the same as the expected
@@ -386,7 +403,7 @@ TEST_F(ZipReaderTest, OpenFromString) {
       "\x50\x75\x78\x0b\x00\x01\x04\x8e\xf0\x00\x00\x04\x88\x13\x00\x00"
       "\x50\x4b\x05\x06\x00\x00\x00\x00\x01\x00\x01\x00\x4e\x00\x00\x00"
       "\x52\x00\x00\x00\x00\x00";
-  std::string data(kTestData, arraysize(kTestData));
+  std::string data(kTestData, base::size(kTestData));
   ZipReader reader;
   ASSERT_TRUE(reader.OpenFromString(data));
   base::FilePath target_path(FILE_PATH_LITERAL("test.txt"));

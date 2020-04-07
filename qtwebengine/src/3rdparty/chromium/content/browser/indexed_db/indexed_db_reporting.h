@@ -47,6 +47,7 @@ enum IndexedDBBackingStoreErrorSource {
   GET_BLOB_KEY_GENERATOR_CURRENT_NUMBER = 28,
   GET_BLOB_INFO_FOR_RECORD = 29,
   UPGRADING_SCHEMA_CORRUPTED_BLOBS = 30,
+  REVERT_SCHEMA_TO_V2 = 31,
   INTERNAL_ERROR_MAX,
 };
 
@@ -72,8 +73,8 @@ enum IndexedDBBackingStoreOpenResult {
   INDEXED_DB_BACKING_STORE_OPEN_MAX,
 };
 
-void HistogramOpenStatus(IndexedDBBackingStoreOpenResult result,
-                         const url::Origin& origin);
+void ReportOpenStatus(IndexedDBBackingStoreOpenResult result,
+                      const url::Origin& origin);
 
 void ReportInternalError(const char* type,
                          IndexedDBBackingStoreErrorSource location);
@@ -81,6 +82,9 @@ void ReportInternalError(const char* type,
 void ReportSchemaVersion(int version, const url::Origin& origin);
 
 void ReportV2Schema(bool has_broken_blobs, const url::Origin& origin);
+
+void ReportLevelDBError(const std::string& histogram_name,
+                        const leveldb::Status& s);
 
 // Use to signal conditions caused by data corruption.
 // A macro is used instead of an inline function so that the assert and log

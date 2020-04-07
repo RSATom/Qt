@@ -10,6 +10,8 @@
 
 #include "core/fxcrt/fx_string.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/base/span.h"
+#include "third_party/base/stl_util.h"
 
 namespace fxcrt {
 
@@ -393,6 +395,31 @@ TEST(WideString, OperatorNE) {
   EXPECT_TRUE(c_string1 != wide_string);
   EXPECT_TRUE(c_string2 != wide_string);
   EXPECT_TRUE(c_string3 != wide_string);
+}
+
+TEST(WideString, OperatorPlus) {
+  EXPECT_EQ(L"I like dogs", L"I like " + WideString(L"dogs"));
+  EXPECT_EQ(L"Dogs like me", WideString(L"Dogs") + L" like me");
+  EXPECT_EQ(L"Oh no, error number 42",
+            L"Oh no, error number " + WideString::Format(L"%d", 42));
+
+  {
+    // Make sure operator+= and Concat() increases string memory allocation
+    // geometrically.
+    int allocations = 0;
+    WideString str(L"ABCDEFGHIJKLMN");
+    const wchar_t* buffer = str.c_str();
+    for (size_t i = 0; i < 10000; ++i) {
+      str += L"!";
+      const wchar_t* new_buffer = str.c_str();
+      if (new_buffer != buffer) {
+        buffer = new_buffer;
+        ++allocations;
+      }
+    }
+    EXPECT_LT(allocations, 25);
+    EXPECT_GT(allocations, 10);
+  }
 }
 
 TEST(WideString, ConcatInPlace) {
@@ -972,7 +999,7 @@ TEST(WideString, MultiCharReverseIterator) {
   EXPECT_TRUE(iter == multi_str.rbegin());
 }
 
-TEST(WideString, UTF16LE_Encode) {
+TEST(WideString, ToUTF16LE) {
   struct UTF16LEEncodeCase {
     WideString ws;
     ByteString bs;
@@ -987,9 +1014,142 @@ TEST(WideString, UTF16LE_Encode) {
 
   for (size_t i = 0; i < FX_ArraySize(utf16le_encode_cases); ++i) {
     EXPECT_EQ(utf16le_encode_cases[i].bs,
-              utf16le_encode_cases[i].ws.UTF16LE_Encode())
+              utf16le_encode_cases[i].ws.ToUTF16LE())
         << " for case number " << i;
   }
+}
+
+TEST(WideString, IsASCII) {
+  EXPECT_TRUE(WideString(L"xy\u007fz").IsASCII());
+  EXPECT_FALSE(WideString(L"xy\u0080z").IsASCII());
+  EXPECT_FALSE(WideString(L"xy\u2041z").IsASCII());
+}
+
+TEST(WideString, EqualsASCII) {
+  EXPECT_TRUE(WideString(L"").EqualsASCII(""));
+  EXPECT_FALSE(WideString(L"A").EqualsASCII(""));
+  EXPECT_FALSE(WideString(L"").EqualsASCII("A"));
+  EXPECT_FALSE(WideString(L"A").EqualsASCII("B"));
+  EXPECT_TRUE(WideString(L"ABC").EqualsASCII("ABC"));
+  EXPECT_FALSE(WideString(L"ABC").EqualsASCII("AEC"));
+  EXPECT_FALSE(WideString(L"\u00c1").EqualsASCII("\x41"));
+  EXPECT_FALSE(WideString(L"\u0141").EqualsASCII("\x41"));
+}
+
+TEST(WideString, EqualsASCIINoCase) {
+  EXPECT_TRUE(WideString(L"").EqualsASCIINoCase(""));
+  EXPECT_FALSE(WideString(L"A").EqualsASCIINoCase("b"));
+  EXPECT_TRUE(WideString(L"AbC").EqualsASCIINoCase("aBc"));
+  EXPECT_FALSE(WideString(L"ABc").EqualsASCIINoCase("AeC"));
+  EXPECT_FALSE(WideString(L"\u00c1").EqualsASCIINoCase("\x41"));
+  EXPECT_FALSE(WideString(L"\u0141").EqualsASCIINoCase("\x41"));
+}
+
+TEST(WideString, ToASCII) {
+  const char* kResult =
+      "x"
+      "\x02"
+      "\x7f"
+      "\x22"
+      "\x0c"
+      "y";
+  EXPECT_EQ(kResult, WideString(L"x"
+                                L"\u0082"
+                                L"\u00ff"
+                                L"\u0122"
+                                L"\u208c"
+                                L"y")
+                         .ToASCII());
+}
+
+TEST(WideString, ToLatin1) {
+  const char* kResult =
+      "x"
+      "\x82"
+      "\xff"
+      "\x22"
+      "\x8c"
+      "y";
+  EXPECT_EQ(kResult, WideString(L"x"
+                                L"\u0082"
+                                L"\u00ff"
+                                L"\u0122"
+                                L"\u208c"
+                                L"y")
+                         .ToLatin1());
+}
+
+TEST(WideString, ToDefANSI) {
+  EXPECT_EQ("", WideString().ToDefANSI());
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+  const char* kResult =
+      "x"
+      "?"
+      "\xff"
+      "A"
+      "?"
+      "y";
+#else
+  const char* kResult =
+      "x"
+      "\x80"
+      "\xff"
+      "y";
+#endif
+  EXPECT_EQ(kResult, WideString(L"x"
+                                L"\u0080"
+                                L"\u00ff"
+                                L"\u0100"
+                                L"\u208c"
+                                L"y")
+                         .ToDefANSI());
+}
+
+TEST(WideString, FromASCII) {
+  EXPECT_EQ(L"", WideString::FromASCII(ByteStringView()));
+  const wchar_t* kResult =
+      L"x"
+      L"\u0002"
+      L"\u007f"
+      L"y";
+  EXPECT_EQ(kResult, WideString::FromASCII("x"
+                                           "\x82"
+                                           "\xff"
+                                           "y"));
+}
+
+TEST(WideString, FromLatin1) {
+  EXPECT_EQ(L"", WideString::FromLatin1(ByteStringView()));
+  const wchar_t* kResult =
+      L"x"
+      L"\u0082"
+      L"\u00ff"
+      L"y";
+  EXPECT_EQ(kResult, WideString::FromLatin1("x"
+                                            "\x82"
+                                            "\xff"
+                                            "y"));
+}
+
+TEST(WideString, FromDefANSI) {
+  EXPECT_EQ(L"", WideString::FromDefANSI(ByteStringView()));
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+  const wchar_t* kResult =
+      L"x"
+      L"\u20ac"
+      L"\u00ff"
+      L"y";
+#else
+  const wchar_t* kResult =
+      L"x"
+      L"\u0080"
+      L"\u00ff"
+      L"y";
+#endif
+  EXPECT_EQ(kResult, WideString::FromDefANSI("x"
+                                             "\x80"
+                                             "\xff"
+                                             "y"));
 }
 
 TEST(WideStringView, FromVector) {
@@ -1381,6 +1541,22 @@ TEST(WideString, FormatOutOfRangeChar) {
   EXPECT_NE(L"", WideString::Format(L"unsupported char '%c'", 0x00FF00FF));
 }
 
+TEST(WideString, FormatString) {
+  // %ls and wide characters are the reliable combination across platforms.
+  EXPECT_EQ(L"", WideString::Format(L"%ls", L""));
+  EXPECT_EQ(L"", WideString::Format(L"%ls", WideString().c_str()));
+  EXPECT_EQ(L"clams", WideString::Format(L"%ls", L"clams"));
+  EXPECT_EQ(L"cla", WideString::Format(L"%.3ls", L"clams"));
+  EXPECT_EQ(L"\u043e\u043f", WideString(L"\u043e\u043f"));
+
+#if _FX_OS_ != _FX_OS_MACOSX_
+  // See https://bugs.chromium.org/p/pdfium/issues/detail?id=1132
+  EXPECT_EQ(L"\u043e\u043f", WideString::Format(L"\u043e\u043f"));
+  EXPECT_EQ(L"\u043e\u043f", WideString::Format(L"%ls", L"\u043e\u043f"));
+  EXPECT_EQ(L"\u043e", WideString::Format(L"%.1ls", L"\u043e\u043f"));
+#endif
+}
+
 TEST(WideString, Empty) {
   WideString empty_str;
   EXPECT_TRUE(empty_str.IsEmpty());
@@ -1737,6 +1913,17 @@ TEST(WideStringView, WideOStreamOverload) {
     stream << str1 << str2;
     EXPECT_EQ(L"abcdef", stream.str());
   }
+}
+
+TEST(WideString, FX_HashCode_Wide) {
+  EXPECT_EQ(0u, FX_HashCode_GetW(L"", false));
+  EXPECT_EQ(65u, FX_HashCode_GetW(L"A", false));
+  EXPECT_EQ(97u, FX_HashCode_GetW(L"A", true));
+  EXPECT_EQ(1313 * 65u + 66u, FX_HashCode_GetW(L"AB", false));
+  EXPECT_EQ(FX_HashCode_GetAsIfW("AB\xff", false),
+            FX_HashCode_GetW(L"AB\xff", false));
+  EXPECT_EQ(FX_HashCode_GetAsIfW("AB\xff", true),
+            FX_HashCode_GetW(L"AB\xff", true));
 }
 
 }  // namespace fxcrt

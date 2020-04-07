@@ -2,19 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/runtime/runtime-utils.h"
-
-#include "src/arguments.h"
+#include "src/arguments-inl.h"
+#include "src/counters.h"
 #include "src/elements.h"
 #include "src/heap/factory.h"
-#include "src/messages.h"
+#include "src/heap/heap-inl.h"
+#include "src/message-template.h"
 #include "src/objects-inl.h"
+#include "src/objects/js-array-buffer-inl.h"
+#include "src/runtime/runtime-utils.h"
 #include "src/runtime/runtime.h"
 
 namespace v8 {
 namespace internal {
 
-RUNTIME_FUNCTION(Runtime_ArrayBufferNeuter) {
+RUNTIME_FUNCTION(Runtime_ArrayBufferDetach) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
   Handle<Object> argument = args.at(0);
@@ -25,21 +27,21 @@ RUNTIME_FUNCTION(Runtime_ArrayBufferNeuter) {
         isolate, NewTypeError(MessageTemplate::kNotTypedArray));
   }
   Handle<JSArrayBuffer> array_buffer = Handle<JSArrayBuffer>::cast(argument);
-  if (!array_buffer->is_neuterable()) {
+  if (!array_buffer->is_detachable()) {
     return ReadOnlyRoots(isolate).undefined_value();
   }
   if (array_buffer->backing_store() == nullptr) {
-    CHECK_EQ(Smi::kZero, array_buffer->byte_length());
+    CHECK_EQ(0, array_buffer->byte_length());
     return ReadOnlyRoots(isolate).undefined_value();
   }
-  // Shared array buffers should never be neutered.
+  // Shared array buffers should never be detached.
   CHECK(!array_buffer->is_shared());
   DCHECK(!array_buffer->is_external());
   void* backing_store = array_buffer->backing_store();
-  size_t byte_length = NumberToSize(array_buffer->byte_length());
+  size_t byte_length = array_buffer->byte_length();
   array_buffer->set_is_external(true);
   isolate->heap()->UnregisterArrayBuffer(*array_buffer);
-  array_buffer->Neuter();
+  array_buffer->Detach();
   isolate->array_buffer_allocator()->Free(backing_store, byte_length);
   return ReadOnlyRoots(isolate).undefined_value();
 }
@@ -65,10 +67,10 @@ RUNTIME_FUNCTION(Runtime_TypedArrayGetLength) {
   return holder->length();
 }
 
-RUNTIME_FUNCTION(Runtime_ArrayBufferViewWasNeutered) {
+RUNTIME_FUNCTION(Runtime_ArrayBufferViewWasDetached) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
-  return isolate->heap()->ToBoolean(JSTypedArray::cast(args[0])->WasNeutered());
+  return isolate->heap()->ToBoolean(JSTypedArray::cast(args[0])->WasDetached());
 }
 
 RUNTIME_FUNCTION(Runtime_TypedArrayGetBuffer) {
@@ -114,8 +116,8 @@ RUNTIME_FUNCTION(Runtime_TypedArraySortFast) {
       isolate, array, JSTypedArray::Validate(isolate, target_obj, method));
 
   // This line can be removed when JSTypedArray::Validate throws
-  // if array.[[ViewedArrayBuffer]] is neutered(v8:4648)
-  if (V8_UNLIKELY(array->WasNeutered())) return *array;
+  // if array.[[ViewedArrayBuffer]] is detached(v8:4648)
+  if (V8_UNLIKELY(array->WasDetached())) return *array;
 
   size_t length = array->length_value();
   if (length <= 1) return *array;
@@ -123,7 +125,7 @@ RUNTIME_FUNCTION(Runtime_TypedArraySortFast) {
   Handle<FixedTypedArrayBase> elements(
       FixedTypedArrayBase::cast(array->elements()), isolate);
   switch (array->type()) {
-#define TYPED_ARRAY_SORT(Type, type, TYPE, ctype, size)     \
+#define TYPED_ARRAY_SORT(Type, type, TYPE, ctype)           \
   case kExternal##Type##Array: {                            \
     ctype* data = static_cast<ctype*>(elements->DataPtr()); \
     if (kExternal##Type##Array == kExternalFloat64Array ||  \
@@ -154,7 +156,7 @@ RUNTIME_FUNCTION(Runtime_TypedArraySet) {
   Handle<Object> obj = args.at(1);
   Handle<Smi> offset = args.at<Smi>(2);
 
-  DCHECK(!target->WasNeutered());  // Checked in TypedArrayPrototypeSet.
+  DCHECK(!target->WasDetached());  // Checked in TypedArrayPrototypeSet.
   DCHECK(!obj->IsJSTypedArray());  // Should be handled by CSA.
   DCHECK_LE(0, offset->value());
 

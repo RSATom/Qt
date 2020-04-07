@@ -1384,7 +1384,7 @@ void tst_QQuickTreeModelAdaptor::hasChildrenEmit()
     QModelIndex root = model.index(0,0);
     QVERIFY(root.isValid());
 
-    QModelIndex child = root.child(0,0);
+    QModelIndex child = model.index(0, 0, root);
     QVERIFY(child.isValid());
 
     // Root not expanded , child not expanded, insert in child, expect no datachanged

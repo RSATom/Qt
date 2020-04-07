@@ -8,10 +8,10 @@
 
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/test/scoped_task_environment.h"
 #include "content/child/child_process.h"
 #include "content/renderer/media/webrtc/mock_peer_connection_dependency_factory.h"
 #include "content/renderer/media/webrtc/mock_peer_connection_impl.h"
@@ -22,8 +22,8 @@
 #include "third_party/blink/public/platform/web_rtc_stats.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_heap.h"
+#include "third_party/webrtc/api/stats/rtc_stats_report.h"
 #include "third_party/webrtc/api/stats/rtcstats_objects.h"
-#include "third_party/webrtc/api/stats/rtcstatsreport.h"
 #include "third_party/webrtc/api/test/mock_rtpreceiver.h"
 
 namespace content {
@@ -82,7 +82,8 @@ class RTCRtpReceiverTest : public ::testing::Test {
   scoped_refptr<WebRTCStatsReportObtainer> GetStats() {
     scoped_refptr<WebRTCStatsReportObtainer> obtainer =
         new WebRTCStatsReportObtainer();
-    receiver_->GetStats(obtainer->GetStatsCallbackWrapper());
+    receiver_->GetStats(obtainer->GetStatsCallbackWrapper(),
+                        blink::RTCStatsFilter::kIncludeOnlyStandardMembers);
     return obtainer;
   }
 
@@ -97,9 +98,10 @@ class RTCRtpReceiverTest : public ::testing::Test {
     run_loop->Quit();
   }
 
-  // Message loop and child processes is needed for task queues and threading to
-  // work, as is necessary to create tracks and adapters.
-  base::MessageLoop message_loop_;
+  // Code under test expects to be run in a process with an initialized
+  // ChildProcess, which requires TaskScheduler, and a main-thread MessageLoop,
+  // which the ScopedTaskEnvironment also provides.
+  base::test::ScopedTaskEnvironment task_environment_;
   ChildProcess child_process_;
 
   std::unique_ptr<MockPeerConnectionDependencyFactory> dependency_factory_;

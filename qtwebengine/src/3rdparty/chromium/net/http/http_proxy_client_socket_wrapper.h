@@ -18,14 +18,14 @@
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_timing_info.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_auth_controller.h"
 #include "net/http/proxy_client_socket.h"
 #include "net/log/net_log_with_source.h"
-#include "net/quic/chromium/quic_stream_factory.h"
+#include "net/quic/quic_stream_factory.h"
 #include "net/socket/next_proto.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/ssl_client_socket_pool.h"
-#include "net/socket/transport_client_socket_pool.h"
 #include "net/spdy/spdy_session.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
@@ -37,9 +37,11 @@ class HttpAuthCache;
 class HttpResponseInfo;
 class HttpStream;
 class IOBuffer;
+class ProxyDelegate;
 class SpdySessionPool;
 class SSLClientSocketPool;
 class TransportClientSocketPool;
+class TransportSocketParams;
 
 // Class that establishes connections by calling into the lower layer socket
 // pools, creates a HttpProxyClientSocket, SpdyProxyClientSocket, or
@@ -75,6 +77,7 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
       QuicStreamFactory* quic_stream_factory,
       bool is_trusted_proxy,
       bool tunnel,
+      ProxyDelegate* proxy_delegate,
       const NetworkTrafficAnnotationTag& traffic_annotation,
       const NetLogWithSource& net_log);
 
@@ -86,6 +89,8 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
   LoadState GetConnectLoadState() const;
 
   std::unique_ptr<HttpResponseInfo> GetAdditionalErrorState();
+
+  void SetPriority(RequestPriority priority);
 
   // ProxyClientSocket implementation.
   const HttpResponseInfo* GetConnectResponseInfo() const override;
@@ -115,6 +120,10 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
   int Read(IOBuffer* buf,
            int buf_len,
            CompletionOnceCallback callback) override;
+  int ReadIfReady(IOBuffer* buf,
+                  int buf_len,
+                  CompletionOnceCallback callback) override;
+  int CancelReadIfReady() override;
   int Write(IOBuffer* buf,
             int buf_len,
             CompletionOnceCallback callback,
@@ -144,6 +153,8 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
     STATE_RESTART_WITH_AUTH_COMPLETE,
     STATE_NONE,
   };
+
+  ProxyServer::Scheme GetProxyServerScheme() const;
 
   void OnIOComplete(int result);
 
@@ -199,6 +210,7 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
 
   bool has_restarted_;
   const bool tunnel_;
+  ProxyDelegate* const proxy_delegate_;
 
   bool using_spdy_;
   bool is_trusted_proxy_;
@@ -214,9 +226,10 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
   // if necessary.
   CompletionOnceCallback connect_callback_;
 
-  SpdyStreamRequest spdy_stream_request_;
+  std::unique_ptr<SpdyStreamRequest> spdy_stream_request_;
 
-  QuicStreamRequest quic_stream_request_;
+  QuicStreamFactory* const quic_stream_factory_;
+  std::unique_ptr<QuicStreamRequest> quic_stream_request_;
   std::unique_ptr<QuicChromiumClientSession::Handle> quic_session_;
 
   scoped_refptr<HttpAuthController> http_auth_controller_;

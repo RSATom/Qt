@@ -10,6 +10,7 @@
 
 #include "base/callback.h"
 #include "base/containers/queue.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "content/common/content_export.h"
@@ -44,6 +45,17 @@ namespace content {
 // Does nothing except calls the abort callbacks upon destruction.
 class CONTENT_EXPORT ServiceWorkerTimeoutTimer {
  public:
+  // A token to keep the timeout timer from going into the idle state if any of
+  // them are alive.
+  class CONTENT_EXPORT StayAwakeToken {
+   public:
+    explicit StayAwakeToken(base::WeakPtr<ServiceWorkerTimeoutTimer> timer);
+    ~StayAwakeToken();
+
+   private:
+    base::WeakPtr<ServiceWorkerTimeoutTimer> timer_;
+  };
+
   explicit ServiceWorkerTimeoutTimer(base::RepeatingClosure idle_callback);
   // For testing.
   ServiceWorkerTimeoutTimer(base::RepeatingClosure idle_callback,
@@ -51,8 +63,9 @@ class CONTENT_EXPORT ServiceWorkerTimeoutTimer {
   ~ServiceWorkerTimeoutTimer();
 
   // StartEvent() should be called at the beginning of an event. It returns an
-  // event id. The event id should be passed to EndEvent() when the event has
-  // finished. If there are pending tasks queued by PushPendingTask(), they will
+  // event id, which is unique among threads in the same process.
+  // The event id should be passed to EndEvent() when the event has finished.
+  // If there are pending tasks queued by PushPendingTask(), they will
   // run in order synchronouslly in StartEvent().
   // See the class comment to know when |abort_callback| runs.
   int StartEvent(base::OnceCallback<void(int /* event_id */)> abort_callback);
@@ -62,6 +75,10 @@ class CONTENT_EXPORT ServiceWorkerTimeoutTimer {
       base::OnceCallback<void(int /* event_id */)> abort_callback,
       base::TimeDelta timeout);
   void EndEvent(int event_id);
+
+  // Creates a StayAwakeToken to ensure that the idle timer won't be triggered
+  // while any of these are alive.
+  std::unique_ptr<StayAwakeToken> CreateStayAwakeToken();
 
   // Pushes a task which is expected to run after any event starts again to a
   // pending task queue. The tasks will run at the next StartEvent() call.
@@ -99,6 +116,13 @@ class CONTENT_EXPORT ServiceWorkerTimeoutTimer {
   // the idle callback is called.
   bool MaybeTriggerIdleTimer();
 
+  // Sets the |idle_time_| and maybe calls |idle_callback_| immediately if the
+  // timeout delay is set to zero.
+  void OnNoInflightEvent();
+
+  // Returns true if there are running events.
+  bool HasInflightEvent() const;
+
   struct EventInfo {
     EventInfo(int id,
               base::TimeTicks expiration_time,
@@ -135,15 +159,27 @@ class CONTENT_EXPORT ServiceWorkerTimeoutTimer {
   // StartEvent() is called.
   bool did_idle_timeout_ = false;
 
-  // Tasks waiting for the timer getting the next request to start an event
-  // by StartEvent().
+  // Tasks that are to be run after the next StartEvent() call. In practice, the
+  // caller adds pending tasks after the service worker requested the browser to
+  // terminate it due to idleness. These tasks run once StartEvent() is called
+  // due to a new event from the browser, signalling that the browser decided
+  // not to terminate the worker.
   base::queue<base::OnceClosure> pending_tasks_;
+
+  // Set to true during running |pending_tasks_|. This is used for avoiding to
+  // invoke |idle_callback_| when running |pending_tasks_|.
+  bool running_pending_tasks_ = false;
+
+  // The number of the living StayAwakeToken. See also class comments.
+  int num_of_stay_awake_tokens_ = 0;
 
   // |timer_| invokes UpdateEventStatus() periodically.
   base::RepeatingTimer timer_;
 
   // |tick_clock_| outlives |this|.
   const base::TickClock* const tick_clock_;
+
+  base::WeakPtrFactory<ServiceWorkerTimeoutTimer> weak_factory_;
 };
 
 }  // namespace content

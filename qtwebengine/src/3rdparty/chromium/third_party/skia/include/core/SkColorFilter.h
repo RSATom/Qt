@@ -78,7 +78,7 @@ public:
     virtual uint32_t getFlags() const { return 0; }
 
     SkColor filterColor(SkColor) const;
-    SkColor4f filterColor4f(const SkColor4f&) const;
+    SkColor4f filterColor4f(const SkColor4f&, SkColorSpace*) const;
 
     /** Create a colorfilter that uses the specified color and mode.
         If the Mode is DST, this function will return NULL (since that
@@ -138,7 +138,7 @@ public:
         return this->filterColor(SK_ColorTRANSPARENT) != SK_ColorTRANSPARENT;
     }
 
-    static void InitializeFlattenables();
+    static void RegisterFlattenables();
 
     static SkFlattenable::Type GetFlattenableType() {
         return kSkColorFilter_Type;

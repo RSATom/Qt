@@ -343,6 +343,45 @@
         "glGetTranslatedShaderSourceANGLE"
     ],
 
+    "GL_CHROMIUM_framebuffer_mixed_samples": [
+         "glMatrixLoadfCHROMIUM",
+         "glMatrixLoadIdentityCHROMIUM",
+         "glCoverageModulationCHROMIUM"
+    ],
+
+    "GL_CHROMIUM_path_rendering": [
+         "glGenPathsCHROMIUM",
+         "glDeletePathsCHROMIUM",
+         "glIsPathCHROMIUM",
+         "glPathCommandsCHROMIUM",
+         "glPathParameterfCHROMIUM",
+         "glPathParameteriCHROMIUM",
+         "glGetPathParameterfvCHROMIUM",
+         "glGetPathParameterivCHROMIUM",
+         "glPathStencilFuncCHROMIUM",
+         "glStencilFillPathCHROMIUM",
+         "glStencilStrokePathCHROMIUM",
+         "glCoverFillPathCHROMIUM",
+         "glCoverStrokePathCHROMIUM",
+         "glStencilThenCoverFillPathCHROMIUM",
+         "glStencilThenCoverStrokePathCHROMIUM",
+         "glCoverFillPathInstancedCHROMIUM",
+         "glCoverStrokePathInstancedCHROMIUM",
+         "glStencilFillPathInstancedCHROMIUM",
+         "glStencilStrokePathInstancedCHROMIUM",
+         "glStencilThenCoverFillPathInstancedCHROMIUM",
+         "glStencilThenCoverStrokePathInstancedCHROMIUM",
+         "glBindFragmentInputLocationCHROMIUM",
+         "glProgramPathFragmentInputGenCHROMIUM"
+    ],
+
+    "GL_EXT_blend_func_extended": [
+        "glBindFragDataLocationIndexedEXT",
+        "glBindFragDataLocationEXT",
+        "glGetProgramResourceLocationIndexEXT",
+        "glGetFragDataIndexEXT"
+    ],
+
     "GL_EXT_texture_storage": [
         "glTexStorage2DEXT",
         "glTexStorage3DEXT"
@@ -450,6 +489,11 @@
         "glCompressedCopyTextureCHROMIUM"
     ],
 
+    "GL_ANGLE_copy_texture_3D":[
+        "glCopyTexture3DANGLE",
+        "glCopySubTexture3DANGLE"
+    ],
+
     "GL_ANGLE_request_extension": [
         "glRequestExtensionANGLE"
     ],
@@ -521,6 +565,13 @@
         "glGetQueryObjectui64vRobustANGLE"
     ],
 
+    "GL_ANGLE_multi_draw": [
+      "glMultiDrawArraysANGLE",
+      "glMultiDrawArraysInstancedANGLE",
+      "glMultiDrawElementsANGLE",
+      "glMultiDrawElementsInstancedANGLE"
+    ],
+
     "GL_ANGLE_multiview": [
         "glFramebufferTextureMultiviewLayeredANGLE",
         "glFramebufferTextureMultiviewSideBySideANGLE"
@@ -528,6 +579,21 @@
 
     "GL_KHR_parallel_shader_compile": [
         "glMaxShaderCompilerThreadsKHR"
+    ],
+
+    "GL_OES_texture_storage_multisample_2d_array": [
+        "glTexStorage3DMultisampleOES"
+    ],
+
+    "GL_OES_texture_border_clamp": [
+        "glTexParameterIivOES",
+        "glTexParameterIuivOES",
+        "glGetTexParameterIivOES",
+        "glGetTexParameterIuivOES",
+        "glSamplerParameterIivOES",
+        "glSamplerParameterIuivOES",
+        "glGetSamplerParameterIivOES",
+        "glGetSamplerParameterIuivOES"
     ],
 
     "GLES3 core": [
@@ -712,6 +778,18 @@
         "glFramebufferTextureEXT"
     ],
 
+    "GL_ANGLE_texture_multisample": [
+      "glTexStorage2DMultisampleANGLE",
+      "glGetTexLevelParameterfvANGLE",
+      "glGetTexLevelParameterivANGLE",
+      "glGetMultisamplefvANGLE",
+      "glSampleMaskiANGLE"
+    ],
+
+    "GL_ANGLE_provoking_vertex": [
+      "glProvokingVertexANGLE"
+    ],
+
     "EGL 1.0": [
         "eglChooseConfig",
         "eglCopyBuffers",
@@ -824,6 +902,15 @@
         "eglStreamPostD3DTextureANGLE"
     ],
 
+    "EGL_KHR_fence_sync": [
+        "eglCreateSyncKHR",
+        "eglDestroySyncKHR",
+        "eglClientWaitSyncKHR",
+        "eglGetSyncAttribKHR"
+    ],
+    "EGL_KHR_wait_sync": [
+        "eglWaitSyncKHR"
+    ],
     "EGL_CHROMIUM_get_sync_values": [
         "eglGetSyncValuesCHROMIUM"
     ],
@@ -834,6 +921,10 @@
 
     "EGL_ANDROID_presentation_time": [
         "eglPresentationTimeANDROID"
+    ],
+
+    "EGL_ANDROID_blob_cache": [
+        "eglSetBlobCacheFuncsANDROID"
     ],
 
     "EGL_ANGLE_program_cache_control": [
@@ -847,6 +938,14 @@
         "eglDebugMessageControlKHR",
         "eglQueryDebugKHR",
         "eglLabelObjectKHR"
+    ],
+
+    "EGL_ANDROID_get_frame_timestamps": [
+        "eglGetCompositorTimingSupportedANDROID",
+        "eglGetCompositorTimingANDROID",
+        "eglGetNextFrameIdANDROID",
+        "eglGetFrameTimestampSupportedANDROID",
+        "eglGetFrameTimestampsANDROID"
     ],
 
     "angle::Platform related entry points": [

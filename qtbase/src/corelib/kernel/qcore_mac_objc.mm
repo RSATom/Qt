@@ -501,7 +501,7 @@ void qt_apple_check_os_version()
         if (!applicationName)
             applicationName = NSProcessInfo.processInfo.processName;
 
-        fprintf(stderr, "Sorry, \"%s\" can not be run on this version of %s. "
+        fprintf(stderr, "Sorry, \"%s\" cannot be run on this version of %s. "
             "Qt requires %s %ld.%ld.%ld or later, you have %s %ld.%ld.%ld.\n",
             applicationName.UTF8String, os,
             os, long(required.majorVersion), long(required.minorVersion), long(required.patchVersion),
@@ -513,6 +513,36 @@ void qt_apple_check_os_version()
 Q_CONSTRUCTOR_FUNCTION(qt_apple_check_os_version);
 
 // -------------------------------------------------------------------------
+
+void QMacKeyValueObserver::addObserver(NSKeyValueObservingOptions options)
+{
+    [object addObserver:observer forKeyPath:keyPath options:options context:callback.get()];
+}
+
+void QMacKeyValueObserver::removeObserver() {
+    if (object)
+        [object removeObserver:observer forKeyPath:keyPath context:callback.get()];
+    object = nil;
+}
+
+KeyValueObserver *QMacKeyValueObserver::observer = [[KeyValueObserver alloc] init];
+
+QT_END_NAMESPACE
+@implementation KeyValueObserver
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
+        change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context
+{
+    Q_UNUSED(keyPath);
+    Q_UNUSED(object);
+    Q_UNUSED(change);
+
+    (*reinterpret_cast<QMacKeyValueObserver::Callback*>(context))();
+}
+@end
+QT_BEGIN_NAMESPACE
+
+// -------------------------------------------------------------------------
+
 
 QT_END_NAMESPACE
 

@@ -5,11 +5,13 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
+#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
 
 void ScriptFunction::Trace(blink::Visitor* visitor) {
   visitor->Trace(script_state_);
+  CustomWrappableAdapter::Trace(visitor);
 }
 
 v8::Local<v8::Function> ScriptFunction::BindToV8Function() {
@@ -18,24 +20,31 @@ v8::Local<v8::Function> ScriptFunction::BindToV8Function() {
   bind_to_v8_function_already_called_ = true;
 #endif
 
-  v8::Isolate* isolate = script_state_->GetIsolate();
-  v8::Local<v8::External> wrapper = v8::External::New(isolate, this);
-  script_state_->World().RegisterDOMObjectHolder(isolate, this, wrapper);
+  v8::Local<v8::Object> wrapper = CreateAndInitializeWrapper(script_state_);
+  // The wrapper is held alive by the CallHandlerInfo internally in V8 as long
+  // as the function is alive.
   return v8::Function::New(script_state_->GetContext(), CallCallback, wrapper,
                            0, v8::ConstructorBehavior::kThrow)
       .ToLocalChecked();
 }
 
+ScriptValue ScriptFunction::Call(ScriptValue) {
+  NOTREACHED();
+  return ScriptValue();
+}
+
+void ScriptFunction::CallRaw(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  ScriptValue result = Call(ScriptValue(GetScriptState(), args[0]));
+  V8SetReturnValue(args, result.V8Value());
+}
+
 void ScriptFunction::CallCallback(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
-  DCHECK(args.Data()->IsExternal());
   RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(args.GetIsolate(),
                                                "Blink_CallCallback");
   ScriptFunction* script_function = static_cast<ScriptFunction*>(
-      v8::Local<v8::External>::Cast(args.Data())->Value());
-  ScriptValue result = script_function->Call(
-      ScriptValue(script_function->GetScriptState(), args[0]));
-  V8SetReturnValue(args, result.V8Value());
+      ToCustomWrappable(v8::Local<v8::Object>::Cast(args.Data())));
+  script_function->CallRaw(args);
 }
 
 }  // namespace blink

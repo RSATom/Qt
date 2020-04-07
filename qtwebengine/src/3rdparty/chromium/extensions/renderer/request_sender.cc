@@ -13,6 +13,7 @@
 #include "extensions/renderer/bindings/api_binding_types.h"
 #include "extensions/renderer/ipc_message_sender.h"
 #include "extensions/renderer/script_context.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_scoped_user_gesture.h"
@@ -47,7 +48,7 @@ void RequestSender::InsertRequest(
 }
 
 std::unique_ptr<PendingRequest> RequestSender::RemoveRequest(int request_id) {
-  PendingRequestMap::iterator i = pending_requests_.find(request_id);
+  auto i = pending_requests_.find(request_id);
   if (i == pending_requests_.end())
     return std::unique_ptr<PendingRequest>();
   std::unique_ptr<PendingRequest> result = std::move(i->second);
@@ -113,7 +114,8 @@ bool RequestSender::StartRequest(Source* source,
 
   // Set Service Worker specific params to default values.
   params->worker_thread_id = -1;
-  params->service_worker_version_id = kInvalidServiceWorkerVersionId;
+  params->service_worker_version_id =
+      blink::mojom::kInvalidServiceWorkerVersionId;
 
   binding::RequestThread thread =
       for_io_thread ? binding::RequestThread::IO : binding::RequestThread::UI;
@@ -143,8 +145,7 @@ void RequestSender::HandleResponse(int request_id,
 }
 
 void RequestSender::InvalidateSource(Source* source) {
-  for (PendingRequestMap::iterator it = pending_requests_.begin();
-       it != pending_requests_.end();) {
+  for (auto it = pending_requests_.begin(); it != pending_requests_.end();) {
     if (it->second->source == source)
       pending_requests_.erase(it++);
     else

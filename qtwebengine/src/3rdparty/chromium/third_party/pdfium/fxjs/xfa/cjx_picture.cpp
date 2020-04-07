@@ -12,26 +12,18 @@ CJX_Picture::CJX_Picture(CXFA_Picture* node) : CJX_Node(node) {}
 
 CJX_Picture::~CJX_Picture() = default;
 
-void CJX_Picture::use(CFXJSE_Value* pValue,
-                      bool bSetting,
-                      XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+bool CJX_Picture::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
 void CJX_Picture::defaultValue(CFXJSE_Value* pValue,
                                bool bSetting,
                                XFA_Attribute eAttribute) {
-  Script_Som_DefaultValue(pValue, bSetting, eAttribute);
-}
-
-void CJX_Picture::usehref(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+  ScriptSomDefaultValue(pValue, bSetting, eAttribute);
 }
 
 void CJX_Picture::value(CFXJSE_Value* pValue,
                         bool bSetting,
                         XFA_Attribute eAttribute) {
-  Script_Som_DefaultValue(pValue, bSetting, eAttribute);
+  ScriptSomDefaultValue(pValue, bSetting, eAttribute);
 }

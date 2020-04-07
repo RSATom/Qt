@@ -12,10 +12,11 @@
 #include "core/fxcrt/css/cfx_css.h"
 #include "core/fxcrt/css/cfx_csscustomproperty.h"
 #include "core/fxcrt/fx_string.h"
+#include "core/fxge/fx_dib.h"
 
 class CFX_CSSValueList;
 
-class CFX_CSSComputedStyle : public Retainable {
+class CFX_CSSComputedStyle final : public Retainable {
  public:
   class InheritedData {
    public:
@@ -94,7 +95,7 @@ class CFX_CSSComputedStyle : public Retainable {
   void SetLetterSpacing(const CFX_CSSLength& letterSpacing);
   void AddCustomStyle(const CFX_CSSCustomProperty& prop);
 
-  bool GetCustomStyle(const WideString& wsName, WideString& wsValue) const;
+  bool GetCustomStyle(const WideString& wsName, WideString* pValue) const;
 
   InheritedData m_InheritedData;
   NonInheritedData m_NonInheritedData;

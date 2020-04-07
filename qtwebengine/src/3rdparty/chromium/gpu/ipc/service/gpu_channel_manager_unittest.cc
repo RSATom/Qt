@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "gpu/ipc/common/command_buffer_id.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "gpu/ipc/service/gpu_channel.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
@@ -26,7 +27,8 @@ class GpuChannelManagerTest : public GpuChannelTestCommon {
     GpuChannel* channel = CreateChannel(kClientId, true);
     EXPECT_TRUE(channel);
 
-    int32_t kRouteId = 1;
+    int32_t kRouteId =
+        static_cast<int32_t>(GpuChannelReservedRoutes::kMaxValue) + 1;
     const SurfaceHandle kFakeSurfaceHandle = 1;
     SurfaceHandle surface_handle = kFakeSurfaceHandle;
     GPUCreateCommandBufferConfig init_params;
@@ -45,7 +47,7 @@ class GpuChannelManagerTest : public GpuChannelTestCommon {
     EXPECT_EQ(result, gpu::ContextResult::kSuccess);
 
     auto raster_decoder_state =
-        channel_manager()->GetRasterDecoderContextState(&result);
+        channel_manager()->GetSharedContextState(&result);
     EXPECT_EQ(result, ContextResult::kSuccess);
     ASSERT_TRUE(raster_decoder_state);
 
@@ -62,7 +64,7 @@ class GpuChannelManagerTest : public GpuChannelTestCommon {
     }
 
     // We should always clear the shared raster state on background cleanup.
-    ASSERT_NE(channel_manager()->GetRasterDecoderContextState(&result).get(),
+    ASSERT_NE(channel_manager()->GetSharedContextState(&result).get(),
               raster_decoder_state.get());
   }
 #endif
@@ -73,8 +75,8 @@ TEST_F(GpuChannelManagerTest, EstablishChannel) {
   uint64_t kClientTracingId = 1;
 
   ASSERT_TRUE(channel_manager());
-  GpuChannel* channel =
-      channel_manager()->EstablishChannel(kClientId, kClientTracingId, false);
+  GpuChannel* channel = channel_manager()->EstablishChannel(
+      kClientId, kClientTracingId, false, true);
   EXPECT_TRUE(channel);
   EXPECT_EQ(channel_manager()->LookupChannel(kClientId), channel);
 }

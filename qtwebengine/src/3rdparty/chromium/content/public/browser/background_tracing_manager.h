@@ -34,7 +34,7 @@ class BackgroundTracingManager {
   // void Upload(const scoped_refptr<base::RefCountedString>& data,
   //             FinishedProcessingCallback done_callback) {
   //   base::PostTaskWithTraitsAndReply(
-  //       FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+  //       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
   //       base::BindOnce(&DoUploadInBackground, data),
   //       std::move(done_callback));
   // }
@@ -90,6 +90,8 @@ class BackgroundTracingManager {
 
   virtual bool HasActiveScenario() = 0;
 
+  // For tests
+  virtual void AbortScenario() = 0;
   virtual void InvalidateTriggerHandlesForTesting() = 0;
   virtual void FireTimerForTesting() = 0;
 

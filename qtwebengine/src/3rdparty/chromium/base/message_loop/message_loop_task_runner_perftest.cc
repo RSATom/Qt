@@ -12,10 +12,10 @@
 #include "base/debug/task_annotator.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/message_loop/incoming_task_queue.h"
 #include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_loop_task_runner.h"
 #include "base/message_loop/message_pump.h"
+#include "base/message_loop/sequenced_task_source.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
@@ -28,14 +28,13 @@ namespace {
 
 // Tests below will post tasks in a loop until |kPostTaskPerfTestDuration| has
 // elapsed.
-constexpr TimeDelta kPostTaskPerfTestDuration =
-    base::TimeDelta::FromSeconds(30);
+constexpr TimeDelta kPostTaskPerfTestDuration = base::TimeDelta::FromSeconds(5);
 
 }  // namespace
 
-class FakeObserver : public internal::IncomingTaskQueue::Observer {
+class FakeObserver : public SequencedTaskSource::Observer {
  public:
-  // IncomingTaskQueue::Observer
+  // SequencedTaskSource::Observer
   void WillQueueTask(PendingTask* task) override {}
   void DidQueueTask(bool was_empty) override {}
 
@@ -51,24 +50,21 @@ class BasicPostTaskPerfTest : public testing::Test {
     base::TimeTicks start = base::TimeTicks::Now();
     base::TimeTicks now;
     FakeObserver* task_source_observer_raw = task_source_observer.get();
-    scoped_refptr<internal::IncomingTaskQueue> queue(
-        base::MakeRefCounted<internal::IncomingTaskQueue>(
-            std::move(task_source_observer)));
-    scoped_refptr<SingleThreadTaskRunner> task_runner(
-        base::MakeRefCounted<internal::MessageLoopTaskRunner>(queue));
+    auto message_loop_task_runner =
+        MakeRefCounted<internal::MessageLoopTaskRunner>(
+            std::move(task_source_observer));
     uint32_t num_posted = 0;
     do {
       for (int i = 0; i < batch_size; ++i) {
         for (int j = 0; j < tasks_per_reload; ++j) {
-          task_runner->PostTask(FROM_HERE, DoNothing());
+          message_loop_task_runner->PostTask(FROM_HERE, DoNothing());
           num_posted++;
         }
-        TaskQueue loop_local_queue;
-        queue->ReloadWorkQueue(&loop_local_queue);
-        while (!loop_local_queue.empty()) {
-          PendingTask t = std::move(loop_local_queue.front());
-          loop_local_queue.pop();
-          task_source_observer_raw->RunTask(&t);
+        // The outgoing queue will only be reloaded when first entering this
+        // loop.
+        while (message_loop_task_runner->HasTasks()) {
+          auto task = message_loop_task_runner->TakeTask();
+          task_source_observer_raw->RunTask(&task);
         }
       }
 
@@ -160,7 +156,7 @@ class IntegratedPostTaskPerfTest : public testing::Test {
     do {
       for (int i = 0; i < batch_size; ++i) {
         for (int j = 0; j < tasks_per_reload; ++j) {
-          loop->task_runner()->PostTask(FROM_HERE, DoNothing());
+          loop.task_runner()->PostTask(FROM_HERE, DoNothing());
           num_posted++;
         }
         RunLoop().RunUntilIdle();

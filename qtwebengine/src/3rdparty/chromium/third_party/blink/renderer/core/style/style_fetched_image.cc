@@ -25,18 +25,23 @@
 
 #include "third_party/blink/renderer/core/css/css_image_value.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
+#include "third_party/blink/renderer/platform/graphics/placeholder_image.h"
 
 namespace blink {
 
 StyleFetchedImage::StyleFetchedImage(const Document& document,
-                                     FetchParameters& params)
+                                     FetchParameters& params,
+                                     bool is_lazyload_possibly_deferred)
     : document_(&document), url_(params.Url()) {
   is_image_resource_ = true;
+  is_lazyload_possibly_deferred_ = is_lazyload_possibly_deferred;
+
   image_ = ImageResourceContent::Fetch(params, document_->Fetcher());
   image_->AddObserver(this);
   // ResourceFetcher is not determined from StyleFetchedImage and it is
@@ -49,6 +54,15 @@ StyleFetchedImage::~StyleFetchedImage() = default;
 void StyleFetchedImage::Dispose() {
   image_->RemoveObserver(this);
   image_ = nullptr;
+}
+
+bool StyleFetchedImage::IsEqual(const StyleImage& other) const {
+  if (!other.IsImageResource())
+    return false;
+  const auto& other_image = ToStyleFetchedImage(other);
+  if (image_ != other_image.image_)
+    return false;
+  return url_ == other_image.url_;
 }
 
 WrappedImagePtr StyleFetchedImage::Data() const {
@@ -119,6 +133,8 @@ void StyleFetchedImage::ImageNotifyFinished(ImageResourceContent*) {
 
     if (document_ && image.IsSVGImage())
       ToSVGImage(image).UpdateUseCounters(*document_);
+
+    image_->UpdateImageAnimationPolicy();
   }
 
   // Oilpan: do not prolong the Document's lifetime.
@@ -131,6 +147,11 @@ scoped_refptr<Image> StyleFetchedImage::GetImage(
     const ComputedStyle& style,
     const FloatSize& target_size) const {
   Image* image = image_->GetImage();
+  if (image->IsPlaceholderImage()) {
+    static_cast<PlaceholderImage*>(image)->SetIconAndTextScaleFactor(
+        style.EffectiveZoom());
+  }
+
   if (!image->IsSVGImage())
     return image;
   return SVGImageForContainer::Create(ToSVGImage(image), target_size,
@@ -140,6 +161,21 @@ scoped_refptr<Image> StyleFetchedImage::GetImage(
 bool StyleFetchedImage::KnownToBeOpaque(const Document&,
                                         const ComputedStyle&) const {
   return image_->GetImage()->CurrentFrameKnownToBeOpaque();
+}
+
+void StyleFetchedImage::LoadDeferredImage(const Document& document) {
+  DCHECK(is_lazyload_possibly_deferred_);
+  is_lazyload_possibly_deferred_ = false;
+  document_ = &document;
+  image_->LoadDeferredImage(document_->Fetcher());
+}
+
+bool StyleFetchedImage::GetImageAnimationPolicy(ImageAnimationPolicy& policy) {
+  if (!document_ || !document_->GetSettings()) {
+    return false;
+  }
+  policy = document_->GetSettings()->GetImageAnimationPolicy();
+  return true;
 }
 
 void StyleFetchedImage::Trace(blink::Visitor* visitor) {

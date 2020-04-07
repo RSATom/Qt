@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import "ui/views/cocoa/bridged_native_widget.h"
+#import "ui/views_bridge_mac/bridged_native_widget_impl.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -15,7 +15,7 @@
 #include "ui/base/test/ui_controls.h"
 #import "ui/base/test/windowed_nsnotification_observer.h"
 #import "ui/events/test/cocoa_test_event_utils.h"
-#include "ui/views/test/views_interactive_ui_test_base.h"
+#include "ui/views/cocoa/bridged_native_widget_host_impl.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/widget/native_widget_mac.h"
 #include "ui/views/window/native_frame_view.h"
@@ -40,14 +40,15 @@ class ResizableDelegateView : public WidgetDelegateView {
 
 }  // namespace
 
-class BridgedNativeWidgetUITest : public test::WidgetTest {
+class BridgedNativeWidgetUITest : public WidgetTest {
  public:
   BridgedNativeWidgetUITest() = default;
 
   // testing::Test:
   void SetUp() override {
-    ViewsInteractiveUITestBase::InteractiveSetUp();
+    SetUpForInteractiveTests();
     WidgetTest::SetUp();
+
     Widget::InitParams init_params =
         CreateParams(Widget::InitParams::TYPE_WINDOW);
     init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
@@ -65,7 +66,7 @@ class BridgedNativeWidgetUITest : public test::WidgetTest {
   }
 
   NSWindow* test_window() {
-    return widget_->GetNativeWindow();
+    return widget_->GetNativeWindow().GetNativeNSWindow();
   }
 
  protected:
@@ -250,13 +251,13 @@ void WaitForEvent(NSUInteger mask) {
 }  // namespace
 
 // This is used to inject test versions of NativeFrameView and
-// BridgedNativeWidget.
+// BridgedNativeWidgetImpl.
 class HitTestNativeWidgetMac : public NativeWidgetMac {
  public:
   HitTestNativeWidgetMac(internal::NativeWidgetDelegate* delegate,
                          NativeFrameView* native_frame_view)
       : NativeWidgetMac(delegate), native_frame_view_(native_frame_view) {
-    NativeWidgetMac::bridge_.reset(new BridgedNativeWidget(this));
+    bridge_host_ = std::make_unique<BridgedNativeWidgetHostImpl>(this);
   }
 
   // internal::NativeWidgetPrivate:
@@ -295,7 +296,7 @@ TEST_F(BridgedNativeWidgetUITest, DISABLED_HitTest) {
   const NSPoint bottom_right_point = {398, 2};
   const NSPoint right_of_bottom_right = {398 + 10, 2};
 
-  NSWindow* window = widget.GetNativeWindow();
+  NSWindow* window = widget.GetNativeWindow().GetNativeNSWindow();
 
   EXPECT_FALSE([window ignoresMouseEvents]);
   // OSX uses both the alpha value of the window and the underlying CALayer to

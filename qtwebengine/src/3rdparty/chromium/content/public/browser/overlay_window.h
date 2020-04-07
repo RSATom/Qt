@@ -9,6 +9,10 @@
 
 #include "ui/gfx/native_widget_types.h"
 
+namespace blink {
+struct PictureInPictureControlInfo;
+}
+
 namespace gfx {
 class Rect;
 class Size;
@@ -30,7 +34,7 @@ class OverlayWindow {
   enum PlaybackState {
     kPlaying = 0,
     kPaused,
-    kNoVideo,
+    kEndOfVideo,
   };
 
   OverlayWindow() = default;
@@ -52,6 +56,10 @@ class OverlayWindow {
   virtual gfx::Rect GetBounds() const = 0;
   virtual void UpdateVideoSize(const gfx::Size& natural_size) = 0;
   virtual void SetPlaybackState(PlaybackState playback_state) = 0;
+  virtual void SetPictureInPictureCustomControls(
+      const std::vector<blink::PictureInPictureControlInfo>& controls) = 0;
+  virtual void SetAlwaysHidePlayPauseButton(bool is_visible) = 0;
+  virtual void SetSkipAdButtonVisibility(bool is_visible) = 0;
 
   // Retrieves the ui::Layers corresponding to the window and video.
   virtual ui::Layer* GetWindowBackgroundLayer() = 0;

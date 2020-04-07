@@ -11,7 +11,7 @@
 #include "api/video/video_frame.h"
 
 #include "rtc_base/checks.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -20,7 +20,7 @@ VideoFrame::Builder::Builder() = default;
 VideoFrame::Builder::~Builder() = default;
 
 VideoFrame VideoFrame::Builder::build() {
-  return VideoFrame(video_frame_buffer_, timestamp_us_, timestamp_rtp_,
+  return VideoFrame(id_, video_frame_buffer_, timestamp_us_, timestamp_rtp_,
                     ntp_time_ms_, rotation_, color_space_);
 }
 
@@ -64,6 +64,18 @@ VideoFrame::Builder& VideoFrame::Builder::set_color_space(
   return *this;
 }
 
+VideoFrame::Builder& VideoFrame::Builder::set_color_space(
+    const ColorSpace* color_space) {
+  color_space_ =
+      color_space ? absl::make_optional(*color_space) : absl::nullopt;
+  return *this;
+}
+
+VideoFrame::Builder& VideoFrame::Builder::set_id(uint16_t id) {
+  id_ = id;
+  return *this;
+}
+
 VideoFrame::VideoFrame(const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
                        webrtc::VideoRotation rotation,
                        int64_t timestamp_us)
@@ -85,13 +97,15 @@ VideoFrame::VideoFrame(const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
   RTC_DCHECK(buffer);
 }
 
-VideoFrame::VideoFrame(const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
+VideoFrame::VideoFrame(uint16_t id,
+                       const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
                        int64_t timestamp_us,
                        uint32_t timestamp_rtp,
                        int64_t ntp_time_ms,
                        VideoRotation rotation,
                        const absl::optional<ColorSpace>& color_space)
-    : video_frame_buffer_(buffer),
+    : id_(id),
+      video_frame_buffer_(buffer),
       timestamp_rtp_(timestamp_rtp),
       ntp_time_ms_(ntp_time_ms),
       timestamp_us_(timestamp_us),

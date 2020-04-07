@@ -24,7 +24,9 @@
 #endif
 #include <atomic>
 
+#include "perfetto/base/export.h"
 #include "perfetto/base/logging.h"
+#include "perfetto/base/utils.h"
 
 namespace perfetto {
 namespace base {
@@ -35,13 +37,13 @@ using ThreadID = unsigned long;
 using ThreadID = pthread_t;
 #endif
 
-class ThreadChecker {
+class PERFETTO_EXPORT ThreadChecker {
  public:
   ThreadChecker();
   ~ThreadChecker();
   ThreadChecker(const ThreadChecker&);
   ThreadChecker& operator=(const ThreadChecker&);
-  bool CalledOnValidThread() const __attribute__((warn_unused_result));
+  bool CalledOnValidThread() const PERFETTO_WARN_UNUSED_RESULT;
   void DetachFromThread();
 
  private:

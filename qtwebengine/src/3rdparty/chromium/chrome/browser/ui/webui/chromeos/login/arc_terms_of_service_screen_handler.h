@@ -77,6 +77,7 @@ class ArcTermsOfServiceScreenHandler
   void HandleSkip(const std::string& tos_content);
   void HandleAccept(bool enable_backup_restore,
                     bool enable_location_services,
+                    bool review_arc_settings,
                     const std::string& tos_content);
   // Loads Play Store ToS content in case default network exists. If
   // |ignore_network_state| is set then network state is not checked.
@@ -101,7 +102,8 @@ class ArcTermsOfServiceScreenHandler
   void OnBackupAndRestoreModeChanged(bool enabled, bool managed) override;
   void OnLocationServicesModeChanged(bool enabled, bool managed) override;
 
-  base::ObserverList<ArcTermsOfServiceScreenViewObserver, true> observer_list_;
+  base::ObserverList<ArcTermsOfServiceScreenViewObserver, true>::Unchecked
+      observer_list_;
 
   // Whether the screen should be shown right after initialization.
   bool show_on_init_ = false;
@@ -118,6 +120,9 @@ class ArcTermsOfServiceScreenHandler
   // To track if optional features are managed preferences.
   bool backup_restore_managed_ = false;
   bool location_services_managed_ = false;
+
+  // To track if a child account is being set up.
+  bool is_child_account_;
 
   std::unique_ptr<arc::ArcOptInPreferenceHandler> pref_handler_;
 

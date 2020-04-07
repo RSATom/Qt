@@ -220,6 +220,16 @@ QGeoMap *QGeoMapObject::map() const
     return d_ptr->m_map;
 }
 
+QGeoShape QGeoMapObject::geoShape() const
+{
+    return d_ptr->geoShape();
+}
+
+void QGeoMapObject::setGeoShape(const QGeoShape &shape)
+{
+    d_ptr->setGeoShape(shape);
+}
+
 
 //
 // QGeoMapObjectPrivate

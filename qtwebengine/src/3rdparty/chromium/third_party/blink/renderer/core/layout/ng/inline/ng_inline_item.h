@@ -6,6 +6,7 @@
 #define NGInlineItem_h
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_segment.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_style_variant.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
@@ -26,6 +27,8 @@ class LayoutObject;
 // In this representation TextNodes are merged up into their parent inline
 // element where possible.
 class CORE_EXPORT NGInlineItem {
+  DISALLOW_NEW();
+
  public:
   enum NGInlineItemType {
     kText,
@@ -51,12 +54,12 @@ class CORE_EXPORT NGInlineItem {
   enum NGCollapseType {
     // No collapsible spaces.
     kNotCollapsible,
-    // A collapsible space run that does not contain segment breaks.
-    kCollapsibleSpace,
-    // A collapsible space run that contains segment breaks.
-    kCollapsibleNewline,
     // This item is opaque to whitespace collapsing.
-    kOpaqueToCollapsing
+    kOpaqueToCollapsing,
+    // This item ends with collapsible spaces.
+    kCollapsible,
+    // Collapsible spaces at the end of this item were collapsed.
+    kCollapsed,
   };
 
   // The constructor and destructor can't be implicit or inlined, because they
@@ -65,8 +68,7 @@ class CORE_EXPORT NGInlineItem {
                unsigned start,
                unsigned end,
                const ComputedStyle* style = nullptr,
-               LayoutObject* layout_object = nullptr,
-               bool end_may_collapse = false);
+               LayoutObject* layout_object = nullptr);
   ~NGInlineItem();
 
   // Copy constructor adjusting start/end and shape results.
@@ -90,7 +92,8 @@ class CORE_EXPORT NGInlineItem {
 
   // If this item should create a box fragment. Box fragments can be omitted for
   // optimization if this is false.
-  bool ShouldCreateBoxFragment() const { return should_create_box_fragment_; }
+  bool ShouldCreateBoxFragment() const;
+  void SetShouldCreateBoxFragment();
 
   unsigned StartOffset() const { return start_offset_; }
   unsigned EndOffset() const { return end_offset_; }
@@ -123,33 +126,31 @@ class CORE_EXPORT NGInlineItem {
   NGCollapseType EndCollapseType() const {
     return static_cast<NGCollapseType>(end_collapse_type_);
   }
-  void SetEndCollapseType(NGCollapseType type) { end_collapse_type_ = type; }
+  void SetEndCollapseType(NGCollapseType type);
 
-  // Whether the item may be affected by whitespace collapsing. Unlike the
-  // EndCollapseType() method this returns true even if a trailing space has
-  // been removed.
-  bool EndMayCollapse() const { return end_may_collapse_; }
+  // True if this item was generated (not in DOM).
+  // NGInlineItemsBuilder may generate break opportunitites to express the
+  // context that are lost during the whitespace collapsing. This item is used
+  // during the line breaking and layout, but is not supposed to generate
+  // fragments.
+  bool IsGenerated() const { return is_generated_; }
+  void SetIsGenerated() { is_generated_ = true; }
+
+  // Whether the end collapsible space run contains a newline.
+  // Valid only when kCollapsible or kCollapsed.
+  bool IsEndCollapsibleNewline() const { return is_end_collapsible_newline_; }
+  void SetEndCollapseType(NGCollapseType type, bool is_newline);
 
   static void Split(Vector<NGInlineItem>&, unsigned index, unsigned offset);
 
-  // Get RunSegmenter properties.
-  UScriptCode Script() const;
-  FontFallbackPriority GetFontFallbackPriority() const;
-  OrientationIterator::RenderOrientation RenderOrientation() const;
+  // RunSegmenter properties.
+  unsigned SegmentData() const { return segment_data_; }
+  void SetSegmentData(unsigned segment_data);
+  static void SetSegmentData(const RunSegmenter::RunSegmenterRange& range,
+                             Vector<NGInlineItem>* items);
   RunSegmenter::RunSegmenterRange CreateRunSegmenterRange() const;
   // Whether the other item has the same RunSegmenter properties or not.
   bool EqualsRunSegment(const NGInlineItem&) const;
-  // Set RunSegmenter properties.
-  static unsigned PopulateItemsFromRun(Vector<NGInlineItem>&,
-                                       unsigned index,
-                                       const RunSegmenter::RunSegmenterRange&);
-  void SetRunSegment(const RunSegmenter::RunSegmenterRange&);
-  static unsigned PopulateItemsFromFontOrientation(
-      Vector<NGInlineItem>&,
-      unsigned index,
-      unsigned end_offset,
-      OrientationIterator::RenderOrientation);
-  void SetFontOrientation(OrientationIterator::RenderOrientation);
 
   void SetBidiLevel(UBiDiLevel);
   static unsigned SetBidiLevel(Vector<NGInlineItem>&,
@@ -174,23 +175,16 @@ class CORE_EXPORT NGInlineItem {
   scoped_refptr<const ComputedStyle> style_;
   LayoutObject* layout_object_;
 
-  // UScriptCode is -1 (USCRIPT_INVALID_CODE) to 177 as of ICU 60.
-  // This can be packed to 8 bits, by handling -1 separately.
-  static constexpr unsigned kScriptBits = 8;
-  static constexpr unsigned kInvalidScript = (1 << kScriptBits) - 1;
-
   unsigned type_ : 4;
-  unsigned script_ : kScriptBits;
-  unsigned font_fallback_priority_ : 2;  // FontFallbackPriority.
-  unsigned render_orientation_ : 1;      // RenderOrientation (excl. kInvalid.)
+  unsigned segment_data_ : NGInlineItemSegment::kSegmentDataBits;
   unsigned bidi_level_ : 8;              // UBiDiLevel is defined as uint8_t.
   unsigned shape_options_ : 2;
   unsigned is_empty_item_ : 1;
-  unsigned should_create_box_fragment_ : 1;
   unsigned style_variant_ : 2;
   unsigned end_collapse_type_ : 2;  // NGCollapseType
-  unsigned end_may_collapse_ : 1;
+  unsigned is_end_collapsible_newline_ : 1;
   unsigned is_symbol_marker_ : 1;
+  unsigned is_generated_ : 1;
   friend class NGInlineNode;
 };
 
@@ -207,10 +201,19 @@ inline void NGInlineItem::AssertEndOffset(unsigned offset) const {
 // Represents a text content with a list of NGInlineItem. A node may have an
 // additional NGInlineItemsData for ::first-line pseudo element.
 struct CORE_EXPORT NGInlineItemsData {
+  USING_FAST_MALLOC(NGInlineItemsData);
+
+ public:
   // Text content for all inline items represented by a single NGInlineNode.
   // Encoded either as UTF-16 or latin-1 depending on the content.
   String text_content;
   Vector<NGInlineItem> items;
+
+  // Cache RunSegmenter segments when at least one item has multiple runs.
+  // Set to nullptr when all items has only single run, which is common case for
+  // most writing systems. However, in multi-script writing systems such as
+  // Japanese, almost every item has multiple runs.
+  std::unique_ptr<NGInlineItemSegments> segments;
 
   // The DOM to text content offset mapping of this inline node.
   std::unique_ptr<NGOffsetMapping> offset_mapping;

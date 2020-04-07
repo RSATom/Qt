@@ -54,6 +54,7 @@
 #include <QtWaylandClient/private/qtwaylandclientglobal_p.h>
 #include <QtWaylandClient/private/qwaylandwindow_p.h>
 
+#include <QtCore/QScopedPointer>
 #include <QSocketNotifier>
 #include <QObject>
 #include <QTimer>
@@ -61,13 +62,10 @@
 #include <qpa/qplatformscreen.h>
 #include <qpa/qwindowsysteminterface.h>
 
-#include <wayland-client.h>
-
 #include <QtWaylandClient/private/qwayland-wayland.h>
 
 #if QT_CONFIG(xkbcommon)
-#include <xkbcommon/xkbcommon.h>
-#include <xkbcommon/xkbcommon-keysyms.h>
+#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
 #endif
 
 #include <QtCore/QDebug>
@@ -75,11 +73,6 @@
 
 #if QT_CONFIG(cursor)
 struct wl_cursor_image;
-#endif
-
-#if QT_CONFIG(xkbcommon)
-struct xkb_compose_state;
-struct xkb_compose_table;
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -90,6 +83,10 @@ class QWaylandWindow;
 class QWaylandDisplay;
 class QWaylandDataDevice;
 class QWaylandTextInput;
+#if QT_CONFIG(cursor)
+class QWaylandCursorTheme;
+class CursorSurface;
+#endif
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandInputDevice
                             : public QObject
@@ -109,12 +106,8 @@ public:
     struct ::wl_seat *wl_seat() { return QtWayland::wl_seat::object(); }
 
 #if QT_CONFIG(cursor)
-    void setCursor(const QCursor &cursor, QWaylandScreen *screen);
-    void setCursor(struct wl_buffer *buffer, struct ::wl_cursor_image *image, int bufferScale);
-    void setCursor(struct wl_buffer *buffer, const QPoint &hotSpot, const QSize &size, int bufferScale);
-    void setCursor(const QSharedPointer<QWaylandBuffer> &buffer, const QPoint &hotSpot, int bufferScale);
+    void setCursor(const QCursor *cursor, const QSharedPointer<QWaylandBuffer> &cachedBuffer = {}, int fallbackOutputScale = 1);
 #endif
-    void handleWindowDestroyed(QWaylandWindow *window);
     void handleEndDrag();
 
 #if QT_CONFIG(wayland_datadevice)
@@ -131,25 +124,34 @@ public:
     QWaylandWindow *keyboardFocus() const;
     QWaylandWindow *touchFocus() const;
 
+    QList<int> possibleKeys(const QKeyEvent *event) const;
+
+    QPointF pointerSurfacePosition() const;
+
     Qt::KeyboardModifiers modifiers() const;
 
     uint32_t serial() const;
-    uint32_t cursorSerial() const;
 
     virtual Keyboard *createKeyboard(QWaylandInputDevice *device);
     virtual Pointer *createPointer(QWaylandInputDevice *device);
     virtual Touch *createTouch(QWaylandInputDevice *device);
 
 private:
-    void setCursor(Qt::CursorShape cursor, QWaylandScreen *screen);
-
     QWaylandDisplay *mQDisplay = nullptr;
     struct wl_display *mDisplay = nullptr;
 
     int mVersion;
     uint32_t mCaps = 0;
 
-    struct wl_surface *pointerSurface = nullptr;
+#if QT_CONFIG(cursor)
+    struct CursorState {
+        QSharedPointer<QWaylandBuffer> bitmapBuffer; // not used with shape cursors
+        int bitmapScale = 1;
+        Qt::CursorShape shape = Qt::ArrowCursor;
+        int fallbackOutputScale = 1;
+        QPoint hotspot;
+    } mCursor;
+#endif
 
 #if QT_CONFIG(wayland_datadevice)
     QWaylandDataDevice *mDataDevice = nullptr;
@@ -159,17 +161,15 @@ private:
     Pointer *mPointer = nullptr;
     Touch *mTouch = nullptr;
 
-    QWaylandTextInput *mTextInput = nullptr;
+    QScopedPointer<QWaylandTextInput> mTextInput;
 
     uint32_t mTime = 0;
     uint32_t mSerial = 0;
 
     void seat_capabilities(uint32_t caps) override;
-    void handleTouchPoint(int id, double x, double y, Qt::TouchPointState state);
+    void handleTouchPoint(int id, Qt::TouchPointState state, const QPointF &surfacePosition = QPoint());
 
     QTouchDevice *mTouchDevice = nullptr;
-
-    QSharedPointer<QWaylandBuffer> mPixmapCursor;
 
     friend class QWaylandTouchExtension;
     friend class QWaylandQtKeyExtension;
@@ -189,7 +189,7 @@ public:
     Keyboard(QWaylandInputDevice *p);
     ~Keyboard() override;
 
-    void stopRepeat();
+    QWaylandWindow *focusWindow() const;
 
     void keyboard_keymap(uint32_t format,
                          int32_t fd,
@@ -206,49 +206,67 @@ public:
                             uint32_t mods_latched,
                             uint32_t mods_locked,
                             uint32_t group) override;
+    void keyboard_repeat_info(int32_t rate, int32_t delay) override;
 
     QWaylandInputDevice *mParent = nullptr;
-    QPointer<QWaylandWindow> mFocus;
-#if QT_CONFIG(xkbcommon)
-    xkb_context *mXkbContext = nullptr;
-    xkb_keymap *mXkbMap = nullptr;
-    xkb_state *mXkbState = nullptr;
-    xkb_compose_table *mXkbComposeTable = nullptr;
-    xkb_compose_state *mXkbComposeState = nullptr;
-#endif
+    ::wl_surface *mFocus = nullptr;
+
     uint32_t mNativeModifiers = 0;
 
-    int mRepeatKey;
-    uint32_t mRepeatCode;
-    uint32_t mRepeatTime;
-    QString mRepeatText;
-#if QT_CONFIG(xkbcommon)
-    xkb_keysym_t mRepeatSym;
-#endif
+    struct repeatKey {
+        int key;
+        uint32_t code;
+        uint32_t time;
+        QString text;
+        Qt::KeyboardModifiers modifiers;
+        uint32_t nativeVirtualKey;
+        uint32_t nativeModifiers;
+    } mRepeatKey;
+
     QTimer mRepeatTimer;
+    int mRepeatRate = 25;
+    int mRepeatDelay = 400;
+
+    uint32_t mKeymapFormat = WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1;
 
     Qt::KeyboardModifiers modifiers() const;
 
 private slots:
-    void repeatKey();
+    void handleFocusDestroyed();
+    void handleFocusLost();
 
 private:
 #if QT_CONFIG(xkbcommon)
-    bool createDefaultKeyMap();
-    void releaseKeyMap();
-    void createComposeState();
-    void releaseComposeState();
+    bool createDefaultKeymap();
 #endif
+    void handleKey(ulong timestamp, QEvent::Type type, int key, Qt::KeyboardModifiers modifiers,
+                   quint32 nativeScanCode, quint32 nativeVirtualKey, quint32 nativeModifiers,
+                   const QString &text, bool autorepeat = false, ushort count = 1);
 
+#if QT_CONFIG(xkbcommon)
+    QXkbCommon::ScopedXKBKeymap mXkbKeymap;
+    QXkbCommon::ScopedXKBState mXkbState;
+#endif
+    friend class QWaylandInputDevice;
 };
 
-class Q_WAYLAND_CLIENT_EXPORT QWaylandInputDevice::Pointer : public QtWayland::wl_pointer
+class Q_WAYLAND_CLIENT_EXPORT QWaylandInputDevice::Pointer : public QObject, public QtWayland::wl_pointer
 {
-
+    Q_OBJECT
 public:
-    Pointer(QWaylandInputDevice *p);
+    explicit Pointer(QWaylandInputDevice *seat);
     ~Pointer() override;
+#if QT_CONFIG(cursor)
+    QString cursorThemeName() const;
+    int cursorSize() const; // in surface coordinates
+    int idealCursorScale() const;
+    void updateCursorTheme();
+    void updateCursor();
+    CursorSurface *getOrCreateCursorSurface();
+#endif
+    QWaylandInputDevice *seat() const { return mParent; }
 
+protected:
     void pointer_enter(uint32_t serial, struct wl_surface *surface,
                        wl_fixed_t sx, wl_fixed_t sy) override;
     void pointer_leave(uint32_t time, struct wl_surface *surface) override;
@@ -260,13 +278,24 @@ public:
                       uint32_t axis,
                       wl_fixed_t value) override;
 
+private slots:
+    void handleFocusDestroyed() { invalidateFocus(); }
+
+private:
+    void invalidateFocus();
+
+public:
     void releaseButtons();
 
     QWaylandInputDevice *mParent = nullptr;
     QPointer<QWaylandWindow> mFocus;
     uint32_t mEnterSerial = 0;
 #if QT_CONFIG(cursor)
-    uint32_t mCursorSerial = 0;
+    struct {
+        QWaylandCursorTheme *theme = nullptr;
+        int themeBufferScale = 0;
+        QScopedPointer<CursorSurface> surface;
+    } mCursor;
 #endif
     QPointF mSurfacePos;
     QPointF mGlobalPos;
@@ -304,8 +333,7 @@ public:
 
     QWaylandInputDevice *mParent = nullptr;
     QPointer<QWaylandWindow> mFocus;
-    QList<QWindowSystemInterface::TouchPoint> mTouchPoints;
-    QList<QWindowSystemInterface::TouchPoint> mPrevTouchPoints;
+    QList<QWindowSystemInterface::TouchPoint> mPendingTouchPoints;
 };
 
 class QWaylandPointerEvent

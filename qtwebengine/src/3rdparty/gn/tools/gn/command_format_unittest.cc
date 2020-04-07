@@ -23,14 +23,19 @@ using FormatTest = TestWithScheduler;
         GetExePath().DirName().Append(FILE_PATH_LITERAL(".."));             \
     base::SetCurrentDirectory(src_dir);                                     \
     EXPECT_TRUE(commands::FormatFileToString(                               \
-        &setup, SourceFile("//tools/gn/format_test_data/" #n ".gn"), false, \
-        &out));                                                             \
+        &setup, SourceFile("//tools/gn/format_test_data/" #n ".gn"),        \
+        commands::TreeDumpMode::kInactive, &out));                          \
     ASSERT_TRUE(base::ReadFileToString(                                     \
         base::FilePath(FILE_PATH_LITERAL("tools/gn/format_test_data/")      \
                            FILE_PATH_LITERAL(#n)                            \
                                FILE_PATH_LITERAL(".golden")),               \
         &expected));                                                        \
     EXPECT_EQ(expected, out);                                               \
+    /* Make sure formatting the output doesn't cause further changes. */    \
+    std::string out_again;                                                  \
+    EXPECT_TRUE(commands::FormatStringToString(out,                         \
+        commands::TreeDumpMode::kInactive, &out_again));                    \
+    ASSERT_EQ(out, out_again);                                              \
   }
 
 // These are expanded out this way rather than a runtime loop so that
@@ -106,3 +111,8 @@ FORMAT_TEST(067)
 FORMAT_TEST(068)
 FORMAT_TEST(069)
 FORMAT_TEST(070)
+FORMAT_TEST(071)
+FORMAT_TEST(072)
+FORMAT_TEST(073)
+FORMAT_TEST(074)
+FORMAT_TEST(075)

@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2018 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,19 +11,9 @@
 #ifndef SDK_ANDROID_SRC_JNI_NATIVECAPTUREROBSERVER_H_
 #define SDK_ANDROID_SRC_JNI_NATIVECAPTUREROBSERVER_H_
 
-#include <jni.h>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "sdk/android/native_api/jni/scoped_java_ref.h"
-#include "sdk/android/src/jni/androidvideotracksource.h"
-
-namespace webrtc {
-namespace jni {
-
-ScopedJavaLocalRef<jobject> CreateJavaNativeCapturerObserver(
-    JNIEnv* env,
-    rtc::scoped_refptr<AndroidVideoTrackSource> native_source);
-
-}  // namespace jni
-}  // namespace webrtc
+#include "sdk/android/src/jni/native_capturer_observer.h"
 
 #endif  // SDK_ANDROID_SRC_JNI_NATIVECAPTUREROBSERVER_H_

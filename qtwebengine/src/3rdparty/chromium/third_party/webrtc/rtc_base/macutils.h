@@ -1,5 +1,5 @@
 /*
- *  Copyright 2007 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,12 +11,9 @@
 #ifndef RTC_BASE_MACUTILS_H_
 #define RTC_BASE_MACUTILS_H_
 
-#include <CoreFoundation/CoreFoundation.h>
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
-bool ToUtf8(const CFStringRef str16, std::string* str8);
-bool ToUtf16(const std::string& str8, CFStringRef* str16);
-}  // namespace rtc
+#include "rtc_base/mac_utils.h"
 
 #endif  // RTC_BASE_MACUTILS_H_

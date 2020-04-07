@@ -21,6 +21,8 @@ SUBPROGRAMS = \
      exceptionthrow \
      expectfail \
      failcleanup \
+     faildatatype \
+     failfetchtype \
      failinit \
      failinitdata \
      fetchbogus \
@@ -43,11 +45,13 @@ SUBPROGRAMS = \
      sleep \
      strcmp \
      subtest \
+     testlib \
      tuplediagnostics \
      verbose1 \
      verbose2 \
      verifyexceptionthrown \
      warnings \
+     watchdog \
      xunit
 
 qtHaveModule(gui): SUBPROGRAMS += \

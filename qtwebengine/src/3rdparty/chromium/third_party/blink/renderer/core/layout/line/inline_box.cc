@@ -96,11 +96,11 @@ String InlineBox::DebugName() const {
 }
 
 LayoutRect InlineBox::VisualRect() const {
-  return GetLineLayoutItem().VisualRect();
+  return GetLineLayoutItem().VisualRectForInlineBox();
 }
 
 LayoutRect InlineBox::PartialInvalidationVisualRect() const {
-  return GetLineLayoutItem().PartialInvalidationVisualRect();
+  return GetLineLayoutItem().PartialInvalidationVisualRectForInlineBox();
 }
 
 #ifndef NDEBUG
@@ -303,8 +303,8 @@ InlineBox* InlineBox::PrevLeafChildIgnoringLineBreak() const {
   return (leaf && leaf->IsLineBreak()) ? nullptr : leaf;
 }
 
-SelectionState InlineBox::GetSelectionState() const {
-  return GetLineLayoutItem().GetSelectionState();
+bool InlineBox::IsSelected() const {
+  return GetLineLayoutItem().IsSelected();
 }
 
 bool InlineBox::CanAccommodateEllipsis(bool ltr,
@@ -389,7 +389,7 @@ void InlineBox::SetLineLayoutItemShouldDoFullPaintInvalidationIfNeeded() {
 bool CanUseInlineBox(const LayoutObject& node) {
   DCHECK(node.IsText() || node.IsInline() || node.IsLayoutBlockFlow());
   return !RuntimeEnabledFeatures::LayoutNGEnabled() ||
-         !node.EnclosingNGBlockFlow();
+         !node.ContainingNGBlockFlow();
 }
 
 }  // namespace blink

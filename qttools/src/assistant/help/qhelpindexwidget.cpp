@@ -65,10 +65,10 @@ private:
     void run() override;
 
     QHelpEnginePrivate *m_helpEngine;
-    QStringList m_indices;
+    QString m_currentFilter;
     QStringList m_filterAttributes;
+    QStringList m_indices;
     mutable QMutex m_mutex;
-    bool m_abort = false;
 };
 
 class QHelpIndexModelPrivate
@@ -99,25 +99,20 @@ QHelpIndexProvider::~QHelpIndexProvider()
 void QHelpIndexProvider::collectIndices(const QString &customFilterName)
 {
     m_mutex.lock();
+    m_currentFilter = customFilterName;
     m_filterAttributes = m_helpEngine->q->filterAttributes(customFilterName);
     m_mutex.unlock();
-    if (!isRunning()) {
-        start(LowPriority);
-    } else {
+
+    if (isRunning())
         stopCollecting();
-        start(LowPriority);
-    }
+    start(LowPriority);
 }
 
 void QHelpIndexProvider::stopCollecting()
 {
     if (!isRunning())
         return;
-    m_mutex.lock();
-    m_abort = true;
-    m_mutex.unlock();
     wait();
-    m_abort = false;
 }
 
 QStringList QHelpIndexProvider::indices() const
@@ -129,9 +124,10 @@ QStringList QHelpIndexProvider::indices() const
 void QHelpIndexProvider::run()
 {
     m_mutex.lock();
-    m_indices.clear();
+    const QString currentFilter = m_currentFilter;
     const QStringList attributes = m_filterAttributes;
     const QString collectionFile = m_helpEngine->collectionHandler->collectionFile();
+    m_indices = QStringList();
     m_mutex.unlock();
 
     if (collectionFile.isEmpty())
@@ -141,7 +137,9 @@ void QHelpIndexProvider::run()
     if (!collectionHandler.openCollectionFile())
         return;
 
-    const QStringList result = collectionHandler.indicesForFilter(attributes);
+    const QStringList result = m_helpEngine->usesFilterEngine
+            ? collectionHandler.indicesForFilter(currentFilter)
+            : collectionHandler.indicesForFilter(attributes);
 
     m_mutex.lock();
     m_indices = result;
@@ -188,23 +186,27 @@ QHelpIndexModel::~QHelpIndexModel()
     delete d;
 }
 
-void QHelpIndexModel::invalidateIndex(bool onShutDown)
-{
-    Q_UNUSED(onShutDown)
-}
-
 /*!
     Creates a new index by querying the help system for
     keywords for the specified \a customFilterName.
 */
 void QHelpIndexModel::createIndex(const QString &customFilterName)
 {
+    const bool running = d->indexProvider->isRunning();
     d->indexProvider->collectIndices(customFilterName);
+    if (running)
+        return;
+
+    d->indices = QStringList();
+    filter(QString());
     emit indexCreationStarted();
 }
 
 void QHelpIndexModel::insertIndices()
 {
+    if (d->indexProvider->isRunning())
+        return;
+
     d->indices = d->indexProvider->indices();
     filter(QString());
     emit indexCreated();

@@ -11,14 +11,14 @@
 #include "base/files/file_path.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/md5.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_scheduler/task_scheduler.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "net/base/io_buffer.h"
 #include "net/base/test_completion_callback.h"
 #include "net/disk_cache/disk_cache.h"
@@ -101,7 +101,7 @@ class CommandMarshal {
     return index;
   }
 
-  // Reads the next parameter as an string.
+  // Reads the next parameter as a string.
   virtual std::string ReadString() = 0;
 
   // Reads the next parameter from stdin as string.
@@ -109,6 +109,9 @@ class CommandMarshal {
 
   // Communicates back an integer.
   virtual void ReturnInt(int integer) = 0;
+
+  // Communicates back a 64-bit integer.
+  virtual void ReturnInt64(int64_t integer) = 0;
 
   // Communicates back a string.
   virtual void ReturnString(const std::string& string) = 0;
@@ -186,6 +189,12 @@ class ProgramArgumentCommandMarshal final : public CommandMarshal {
   }
 
   // Implements CommandMarshal.
+  void ReturnInt64(int64_t integer) override {
+    DCHECK(!has_failed());
+    std::cout << integer << std::endl;
+  }
+
+  // Implements CommandMarshal.
   void ReturnString(const std::string& string) override {
     DCHECK(!has_failed());
     std::cout << string << std::endl;
@@ -223,7 +232,7 @@ class StreamCommandMarshal final : public CommandMarshal {
       return "";
     std::cout.flush();
     size_t command_id = static_cast<size_t>(std::cin.get());
-    if (command_id >= arraysize(kCommandNames)) {
+    if (command_id >= base::size(kCommandNames)) {
       ReturnFailure("Unknown command.");
       return "";
     }
@@ -265,6 +274,12 @@ class StreamCommandMarshal final : public CommandMarshal {
   }
 
   // Implements CommandMarshal.
+  void ReturnInt64(int64_t integer) override {
+    DCHECK(!has_failed());
+    std::cout.write(reinterpret_cast<char*>(&integer), sizeof(integer));
+  }
+
+  // Implements CommandMarshal.
   void ReturnString(const std::string& string) override {
     ReturnInt(string.size());
     std::cout.write(string.c_str(), string.size());
@@ -288,14 +303,14 @@ class StreamCommandMarshal final : public CommandMarshal {
 
 // Gets the cache's size.
 void GetSize(CommandMarshal* command_marshal) {
-  net::TestCompletionCallback cb;
-  int rv = command_marshal->cache_backend()->CalculateSizeOfAllEntries(
+  net::TestInt64CompletionCallback cb;
+  int64_t rv = command_marshal->cache_backend()->CalculateSizeOfAllEntries(
       cb.callback());
   rv = cb.GetResult(rv);
   if (rv < 0)
     return command_marshal->ReturnFailure("Couldn't get cache size.");
   command_marshal->ReturnSuccess();
-  command_marshal->ReturnInt(rv);
+  command_marshal->ReturnInt64(rv);
 }
 
 // Prints all of a cache's keys to stdout.
@@ -322,7 +337,8 @@ bool GetResponseInfoForEntry(disk_cache::Entry* entry,
   int size = entry->GetDataSize(kResponseInfoIndex);
   if (size == 0)
     return false;
-  scoped_refptr<net::IOBuffer> buffer = new net::IOBufferWithSize(size);
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBufferWithSize>(size);
   net::TestCompletionCallback cb;
 
   int bytes_read = 0;
@@ -357,7 +373,7 @@ std::string GetMD5ForResponseBody(disk_cache::Entry* entry) {
 
   const int kInitBufferSize = 80 * 1024;
   scoped_refptr<net::IOBuffer> buffer =
-      new net::IOBufferWithSize(kInitBufferSize);
+      base::MakeRefCounted<net::IOBufferWithSize>(kInitBufferSize);
   net::TestCompletionCallback cb;
 
   base::MD5Context ctx;
@@ -392,7 +408,7 @@ void ListDups(CommandMarshal* command_marshal) {
       command_marshal->cache_backend()->CreateIterator();
   Entry* entry = nullptr;
   net::TestCompletionCallback cb;
-  int rv = entry_iterator->OpenNextEntry(&entry, cb.callback());
+  int64_t rv = entry_iterator->OpenNextEntry(&entry, cb.callback());
   command_marshal->ReturnSuccess();
 
   std::unordered_map<std::string, std::vector<EntryData>> md5_entries;
@@ -456,9 +472,10 @@ void ListDups(CommandMarshal* command_marshal) {
   }
 
   // Print the stats.
+  net::TestInt64CompletionCallback size_cb;
   rv = command_marshal->cache_backend()->CalculateSizeOfAllEntries(
-      cb.callback());
-  rv = cb.GetResult(rv);
+      size_cb.callback());
+  rv = size_cb.GetResult(rv);
   LOG(ERROR) << "Wasted bytes = " << total_duped_bytes;
   LOG(ERROR) << "Wasted entries = " << total_duped_entries;
   LOG(ERROR) << "Total entries = " << total_entries;
@@ -482,7 +499,8 @@ scoped_refptr<net::GrowableIOBuffer> GetStreamForKeyBuffer(
   }
 
   const int kInitBufferSize = 8192;
-  scoped_refptr<net::GrowableIOBuffer> buffer(new net::GrowableIOBuffer());
+  scoped_refptr<net::GrowableIOBuffer> buffer =
+      base::MakeRefCounted<net::GrowableIOBuffer>();
   buffer->SetCapacity(kInitBufferSize);
   while (true) {
     rv = cache_entry->ReadData(index, buffer->offset(), buffer.get(),
@@ -555,7 +573,8 @@ void UpdateRawResponseHeaders(CommandMarshal* command_marshal) {
     std::cerr << "WARNING: Truncated HTTP response." << std::endl;
 
   response_info.headers = new net::HttpResponseHeaders(raw_headers);
-  scoped_refptr<net::PickledIOBuffer> data(new net::PickledIOBuffer());
+  scoped_refptr<net::PickledIOBuffer> data =
+      base::MakeRefCounted<net::PickledIOBuffer>();
   response_info.Persist(data->pickle(), false, false);
   data->Done();
   Entry* cache_entry;
@@ -585,7 +604,8 @@ void DeleteStreamForKey(CommandMarshal* command_marshal) {
   if (cb.GetResult(rv) != net::OK)
     return command_marshal->ReturnFailure("Couldn't find key's entry.");
 
-  scoped_refptr<net::StringIOBuffer> buffer(new net::StringIOBuffer(""));
+  scoped_refptr<net::StringIOBuffer> buffer =
+      base::MakeRefCounted<net::StringIOBuffer>("");
   rv = cache_entry->WriteData(index, 0, buffer.get(), 0, cb.callback(), true);
   if (cb.GetResult(rv) != net::OK)
     return command_marshal->ReturnFailure("Couldn't delete key stream.");

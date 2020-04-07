@@ -12,15 +12,19 @@
 class CXFA_Script;
 class CXFA_Submit;
 
-class CXFA_Event : public CXFA_Node {
+class CXFA_Event final : public CXFA_Node {
  public:
   CXFA_Event(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_Event() override;
 
-  XFA_AttributeEnum GetActivity();
+  XFA_AttributeValue GetActivity();
   XFA_Element GetEventType() const;
   CXFA_Script* GetScriptIfExists();
+
+#ifdef PDF_XFA_ELEMENT_SUBMIT_ENABLED
   CXFA_Submit* GetSubmitIfExists();
+#endif  // PDF_XFA_ELEMENT_SUBMIT_ENABLED
+
   WideString GetRef();
 };
 

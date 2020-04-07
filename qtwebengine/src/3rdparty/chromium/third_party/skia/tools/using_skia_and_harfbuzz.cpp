@@ -17,7 +17,7 @@
 #include <vector>
 
 #include "SkCanvas.h"
-#include "SkDocument.h"
+#include "SkPDFDocument.h"
 #include "SkShaper.h"
 #include "SkStream.h"
 #include "SkTextBlob.h"
@@ -42,8 +42,8 @@ struct BaseOption {
 template <class T>
 struct Option : BaseOption {
     T value;
-    Option(std::string selector, std::string description, T defaultValue)
-        : BaseOption(selector, description), value(defaultValue) {}
+    Option(std::string _selector, std::string _description, T defaultValue)
+        : BaseOption(_selector, _description), value(defaultValue) {}
 };
 
 void BaseOption::Init(const std::vector<BaseOption*> &option_list,
@@ -83,19 +83,19 @@ struct DoubleOption : Option<double> {
         stm << value;
         return stm.str();
     }
-    DoubleOption(std::string selector,
-                 std::string description,
+    DoubleOption(std::string _selector,
+                 std::string _description,
                  double defaultValue)
-        : Option<double>(selector, description, defaultValue) {}
+        : Option<double>(_selector, _description, defaultValue) {}
 };
 
 struct StringOption : Option<std::string> {
     virtual void set(std::string _value) { value = _value; }
     virtual std::string valueToString() { return value; }
-    StringOption(std::string selector,
-                 std::string description,
+    StringOption(std::string _selector,
+                 std::string _description,
                  std::string defaultValue)
-        : Option<std::string>(selector, description, defaultValue) {}
+        : Option<std::string>(_selector, _description, defaultValue) {}
 };
 
 // Config //////////////////////////////////////////////////////////////////////
@@ -132,17 +132,18 @@ public:
         : config(conf), document(doc), pageCanvas(nullptr) {
         white_paint.setColor(SK_ColorWHITE);
         glyph_paint.setColor(SK_ColorBLACK);
-        glyph_paint.setFlags(SkPaint::kAntiAlias_Flag |
-                             SkPaint::kSubpixelText_Flag);
-        glyph_paint.setTextSize(SkDoubleToScalar(config->font_size.value));
+        glyph_paint.setAntiAlias(true);
+        font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+        font.setSubpixel(true);
+        font.setSize(SkDoubleToScalar(config->font_size.value));
     }
 
     void WriteLine(const SkShaper& shaper, const char *text, size_t textBytes) {
-        SkTextBlobBuilder textBlobBuilder;
-        SkPoint endPoint = shaper.shape(&textBlobBuilder, glyph_paint, text, textBytes, true,
+        SkTextBlobBuilderRunHandler textBlobBuilder;
+        SkPoint endPoint = shaper.shape(&textBlobBuilder, font, text, textBytes, true,
                                         SkPoint{0, 0},
                                         config->page_width.value - 2*config->left_margin.value);
-        sk_sp<const SkTextBlob> blob = textBlobBuilder.make();
+        sk_sp<const SkTextBlob> blob = textBlobBuilder.makeBlob();
         // If we don't have a page, or if we're not at the start of the page and the blob won't fit
         if (!pageCanvas ||
               (current_y > config->line_spacing_ratio.value * config->font_size.value &&
@@ -171,6 +172,7 @@ private:
     SkCanvas *pageCanvas;
     SkPaint white_paint;
     SkPaint glyph_paint;
+    SkFont font;
     double current_x;
     double current_y;
 };
@@ -178,7 +180,7 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 
 static sk_sp<SkDocument> MakePDFDocument(const Config &config, SkWStream *wStream) {
-    SkDocument::PDFMetadata pdf_info;
+    SkPDF::Metadata pdf_info;
     pdf_info.fTitle = config.title.value.c_str();
     pdf_info.fAuthor = config.author.value.c_str();
     pdf_info.fSubject = config.subject.value.c_str();
@@ -187,13 +189,11 @@ static sk_sp<SkDocument> MakePDFDocument(const Config &config, SkWStream *wStrea
     #if 0
         SkTime::DateTime now;
         SkTime::GetDateTime(&now);
-        pdf_info.fCreation.fEnabled = true;
-        pdf_info.fCreation.fDateTime = now;
-        pdf_info.fModified.fEnabled = true;
-        pdf_info.fModified.fDateTime = now;
+        pdf_info.fCreation = now;
+        pdf_info.fModified = now;
         pdf_info.fPDFA = true;
     #endif
-    return SkDocument::MakePDF(wStream, pdf_info);
+    return SkPDF::MakeDocument(wStream, pdf_info);
 }
 
 int main(int argc, char **argv) {

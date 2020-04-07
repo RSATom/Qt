@@ -7,22 +7,21 @@
 
 namespace password_manager {
 
-bool PasswordManagerClient::IsSavingAndFillingEnabledForCurrentPage() const {
+bool PasswordManagerClient::IsSavingAndFillingEnabled(const GURL& url) const {
   return true;
 }
 
-bool PasswordManagerClient::IsFillingEnabledForCurrentPage() const {
+bool PasswordManagerClient::IsFillingEnabled(const GURL& url) const {
   return true;
 }
 
-bool PasswordManagerClient::IsFillingFallbackEnabledForCurrentPage() const {
+bool PasswordManagerClient::IsFillingFallbackEnabled(const GURL& url) const {
   return true;
 }
 
-void PasswordManagerClient::PostHSTSQueryForHost(
-    const GURL& origin,
-    const HSTSCallback& callback) const {
-  callback.Run(false);
+void PasswordManagerClient::PostHSTSQueryForHost(const GURL& origin,
+                                                 HSTSCallback callback) const {
+  std::move(callback).Run(HSTSResult::kError);
 }
 
 bool PasswordManagerClient::OnCredentialManagerUsed() {
@@ -38,10 +37,6 @@ void PasswordManagerClient::PasswordWasAutofilled(
 }
 
 SyncState PasswordManagerClient::GetPasswordSyncState() const {
-  return NOT_SYNCING;
-}
-
-SyncState PasswordManagerClient::GetHistorySyncState() const {
   return NOT_SYNCING;
 }
 
@@ -66,8 +61,8 @@ PasswordManager* PasswordManagerClient::GetPasswordManager() {
       static_cast<const PasswordManagerClient*>(this)->GetPasswordManager());
 }
 
-autofill::AutofillManager*
-PasswordManagerClient::GetAutofillManagerForMainFrame() {
+autofill::AutofillDownloadManager*
+PasswordManagerClient::GetAutofillDownloadManager() {
   return nullptr;
 }
 
@@ -85,6 +80,10 @@ const LogManager* PasswordManagerClient::GetLogManager() const {
 
 void PasswordManagerClient::AnnotateNavigationEntry(bool has_password_field) {}
 
+std::string PasswordManagerClient::GetPageLanguage() const {
+  return std::string();
+}
+
 PasswordRequirementsService*
 PasswordManagerClient::GetPasswordRequirementsService() {
   // Not impemented but that is a valid state as per interface definition.
@@ -94,6 +93,10 @@ PasswordManagerClient::GetPasswordRequirementsService() {
 
 favicon::FaviconService* PasswordManagerClient::GetFaviconService() {
   return nullptr;
+}
+
+bool PasswordManagerClient::IsUnderAdvancedProtection() const {
+  return false;
 }
 
 }  // namespace password_manager

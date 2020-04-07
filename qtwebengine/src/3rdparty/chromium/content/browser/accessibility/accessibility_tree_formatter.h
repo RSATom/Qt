@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/process/process_handle.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "content/browser/accessibility/browser_accessibility.h"
@@ -50,7 +51,7 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
   };
 
   // Create the appropriate native subclass of AccessibilityTreeFormatter.
-  static AccessibilityTreeFormatter* Create();
+  static std::unique_ptr<AccessibilityTreeFormatter> Create();
 
   static bool MatchesFilters(
       const std::vector<Filter>& filters,
@@ -89,6 +90,11 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
   virtual std::unique_ptr<base::DictionaryValue>
   BuildAccessibilityTreeForWindow(gfx::AcceleratedWidget widget) = 0;
 
+  // Build an accessibility tree for an application with a name matching the
+  // given pattern.
+  virtual std::unique_ptr<base::DictionaryValue>
+  BuildAccessibilityTreeForPattern(const base::StringPiece& pattern) = 0;
+
   // Returns a filtered accesibility tree using the current filters.
   std::unique_ptr<base::DictionaryValue> FilterAccessibilityTree(
       const base::DictionaryValue& dict);
@@ -98,6 +104,10 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
       BrowserAccessibility* root, base::string16* contents);
   void FormatAccessibilityTree(const base::DictionaryValue& tree_node,
                                base::string16* contents);
+
+  static base::string16 DumpAccessibilityTreeFromManager(
+      BrowserAccessibilityManager* ax_mgr,
+      bool internal);
 
   // Set regular expression filters that apply to each component of every
   // line before it's output.

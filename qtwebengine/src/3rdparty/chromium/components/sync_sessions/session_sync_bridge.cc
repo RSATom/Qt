@@ -18,6 +18,8 @@
 #include "base/time/time.h"
 #include "components/sync/base/hash_util.h"
 #include "components/sync/base/time.h"
+#include "components/sync/device_info/device_info.h"
+#include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/entity_change.h"
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/mutable_data_batch.h"
@@ -99,31 +101,24 @@ class LocalSessionWriteBatch : public LocalSessionEventHandlerImpl::WriteBatch {
 }  // namespace
 
 SessionSyncBridge::SessionSyncBridge(
+    const base::RepeatingClosure& notify_foreign_session_updated_cb,
     SyncSessionsClient* sessions_client,
-    syncer::SessionSyncPrefs* sync_prefs,
-    syncer::LocalDeviceInfoProvider* local_device_info_provider,
-    const syncer::RepeatingModelTypeStoreFactory& store_factory,
-    const base::RepeatingClosure& foreign_sessions_updated_callback,
     std::unique_ptr<syncer::ModelTypeChangeProcessor> change_processor)
     : ModelTypeSyncBridge(std::move(change_processor)),
+      notify_foreign_session_updated_cb_(notify_foreign_session_updated_cb),
       sessions_client_(sessions_client),
       local_session_event_router_(
           sessions_client->GetLocalSessionEventRouter()),
-      foreign_sessions_updated_callback_(foreign_sessions_updated_callback),
       favicon_cache_(sessions_client->GetFaviconService(),
                      sessions_client->GetHistoryService(),
                      kMaxSyncFavicons),
       session_store_factory_(SessionStore::CreateFactory(
           sessions_client,
-          sync_prefs,
-          local_device_info_provider,
-          store_factory,
           base::BindRepeating(&FaviconCache::UpdateMappingsFromForeignTab,
                               base::Unretained(&favicon_cache_)))),
       weak_ptr_factory_(this) {
   DCHECK(sessions_client_);
   DCHECK(local_session_event_router_);
-  DCHECK(foreign_sessions_updated_callback_);
 }
 
 SessionSyncBridge::~SessionSyncBridge() {
@@ -154,14 +149,6 @@ OpenTabsUIDelegate* SessionSyncBridge::GetOpenTabsUIDelegate() {
     return nullptr;
   }
   return syncing_->open_tabs_ui_delegate.get();
-}
-
-syncer::SyncableService* SessionSyncBridge::GetSyncableService() {
-  return nullptr;
-}
-
-syncer::ModelTypeSyncBridge* SessionSyncBridge::GetModelTypeSyncBridge() {
-  return this;
 }
 
 std::unique_ptr<MetadataChangeList>
@@ -224,7 +211,16 @@ base::Optional<syncer::ModelError> SessionSyncBridge::ApplySyncChanges(
                         << "local navigation event.";
           syncing_->local_data_out_of_sync = true;
         } else {
-          batch->DeleteForeignEntityAndUpdateTracker(change.storage_key());
+          // Deleting an entity (if it's a header entity) may cascade other
+          // deletions, so let's assume that whoever initiated remote deletions
+          // must have taken care of deleting them all. We don't have to commit
+          // these deletions, simply delete all local sync metadata (untrack).
+          for (const std::string& deleted_storage_key :
+               batch->DeleteForeignEntityAndUpdateTracker(
+                   change.storage_key())) {
+            change_processor()->UntrackEntityForStorageKey(deleted_storage_key);
+            metadata_change_list->ClearMetadata(deleted_storage_key);
+          }
         }
         break;
       case syncer::EntityChange::ACTION_ADD:
@@ -241,12 +237,14 @@ base::Optional<syncer::ModelError> SessionSyncBridge::ApplySyncChanges(
           continue;
         }
 
-        if (!SessionStore::AreValidSpecifics(specifics) ||
-            change.data().client_tag_hash !=
-                GenerateSyncableHash(syncer::SESSIONS,
-                                     SessionStore::GetClientTag(specifics))) {
+        if (!SessionStore::AreValidSpecifics(specifics)) {
           continue;
         }
+
+        // Guaranteed by the processor.
+        DCHECK_EQ(change.data().client_tag_hash,
+                  GenerateSyncableHash(syncer::SESSIONS,
+                                       SessionStore::GetClientTag(specifics)));
 
         batch->PutAndUpdateTracker(specifics, change.data().modification_time);
         // If a favicon or favicon urls are present, load the URLs and visit
@@ -265,7 +263,7 @@ base::Optional<syncer::ModelError> SessionSyncBridge::ApplySyncChanges(
   SessionStore::WriteBatch::Commit(std::move(batch));
 
   if (!entity_changes.empty()) {
-    foreign_sessions_updated_callback_.Run();
+    notify_foreign_session_updated_cb_.Run();
   }
 
   return base::nullopt;
@@ -284,6 +282,9 @@ void SessionSyncBridge::GetAllDataForDebugging(DataCallback callback) {
 
 std::string SessionSyncBridge::GetClientTag(
     const syncer::EntityData& entity_data) {
+  if (!SessionStore::AreValidSpecifics(entity_data.specifics.session())) {
+    return std::string();
+  }
   return SessionStore::GetClientTag(entity_data.specifics.session());
 }
 
@@ -326,6 +327,12 @@ SessionSyncBridge::CreateLocalSessionWriteBatch() {
       change_processor());
 }
 
+bool SessionSyncBridge::IsTabNodeUnsynced(int tab_node_id) {
+  const std::string storage_key = SessionStore::GetTabStorageKey(
+      syncing_->store->local_session_info().session_tag, tab_node_id);
+  return change_processor()->IsEntityUnsynced(storage_key);
+}
+
 void SessionSyncBridge::TrackLocalNavigationId(base::Time timestamp,
                                                int unique_id) {
   global_id_mapper_.TrackNavigationId(timestamp, unique_id);
@@ -344,8 +351,17 @@ void SessionSyncBridge::OnSyncStarting(
     const syncer::DataTypeActivationRequest& request) {
   DCHECK(!syncing_);
 
-  session_store_factory_.Run(base::BindOnce(
-      &SessionSyncBridge::OnStoreInitialized, weak_ptr_factory_.GetWeakPtr()));
+  const syncer::DeviceInfo* device_info =
+      sessions_client_->GetLocalDeviceInfo();
+
+  // DeviceInfo must be available by the time sync starts, because there's no
+  // task posting involved in the sessions controller.
+  DCHECK(device_info);
+  DCHECK_EQ(device_info->guid(), request.cache_guid);
+
+  session_store_factory_.Run(
+      *device_info, base::BindOnce(&SessionSyncBridge::OnStoreInitialized,
+                                   weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SessionSyncBridge::OnStoreInitialized(
@@ -427,23 +443,16 @@ void SessionSyncBridge::DeleteForeignSessionWithBatch(
     return;
   }
 
-  // Delete tabs.
-  for (int tab_node_id :
-       syncing_->store->tracker()->LookupTabNodeIds(session_tag)) {
-    const std::string tab_storage_key =
-        SessionStore::GetTabStorageKey(session_tag, tab_node_id);
-    batch->DeleteForeignEntityAndUpdateTracker(tab_storage_key);
-    change_processor()->Delete(tab_storage_key, batch->GetMetadataChangeList());
-  }
-
-  // Delete header.
+  // Deleting the header entity cascades the deletions of tabs as well.
   const std::string header_storage_key =
       SessionStore::GetHeaderStorageKey(session_tag);
-  batch->DeleteForeignEntityAndUpdateTracker(header_storage_key);
-  change_processor()->Delete(header_storage_key,
-                             batch->GetMetadataChangeList());
+  for (const std::string& deleted_storage_key :
+       batch->DeleteForeignEntityAndUpdateTracker(header_storage_key)) {
+    change_processor()->Delete(deleted_storage_key,
+                               batch->GetMetadataChangeList());
+  }
 
-  foreign_sessions_updated_callback_.Run();
+  notify_foreign_session_updated_cb_.Run();
 }
 
 std::unique_ptr<SessionStore::WriteBatch>

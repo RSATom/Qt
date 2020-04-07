@@ -60,6 +60,7 @@
 QT_BEGIN_NAMESPACE
 
 class QSurface;
+class QScreen;
 
 namespace Qt3DRender {
 
@@ -75,7 +76,7 @@ namespace Render {
 class OffscreenSurfaceHelper;
 }
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QRenderAspectPrivate : public Qt3DCore::QAbstractAspectPrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QRenderAspectPrivate : public Qt3DCore::QAbstractAspectPrivate
 {
 public:
     QRenderAspectPrivate(QRenderAspect::RenderType type);
@@ -104,6 +105,7 @@ public:
     QVector<Render::QRenderPlugin *> m_renderPlugins;
     QRenderAspect::RenderType m_renderType;
     Render::OffscreenSurfaceHelper *m_offscreenHelper;
+    QScreen *m_screen = nullptr;
 
     static QMutex m_pluginLock;
     static QVector<QString> m_pluginConfig;

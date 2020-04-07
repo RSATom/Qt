@@ -21,13 +21,12 @@ class Slide : public SkRefCnt {
 public:
     virtual ~Slide() {}
 
-    virtual SkISize getDimensions() const {
-        return SkISize::Make(0, 0);
-    }
+    virtual SkISize getDimensions() const = 0;
 
     virtual void draw(SkCanvas* canvas) = 0;
     virtual bool animate(const SkAnimTimer&) { return false;  }
     virtual void load(SkScalar winWidth, SkScalar winHeight) {}
+    virtual void resize(SkScalar winWidth, SkScalar winHeight) {}
     virtual void unload() {}
 
     virtual bool onChar(SkUnichar c) { return false; }

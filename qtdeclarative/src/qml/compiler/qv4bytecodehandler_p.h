@@ -75,6 +75,12 @@ namespace Moth {
     int arg2, \
     int arg3, \
     int arg4
+#define BYTECODE_HANDLER_DEFINE_ARGS5(arg1, arg2, arg3, arg4, arg5) \
+    int arg1, \
+    int arg2, \
+    int arg3, \
+    int arg4, \
+    int arg5
 
 #define BYTECODE_HANDLER_DEFINE_VIRTUAL_BYTECODE_HANDLER_INSTRUCTION(name, nargs, ...) \
     virtual void generate_##name( \
@@ -93,8 +99,8 @@ public:
 
     int currentInstructionOffset() const { return _currentOffset; }
     int nextInstructionOffset() const { return _nextOffset; }
-
-    static std::vector<int> collectLabelsInBytecode(const char *code, uint len);
+    int absoluteOffset(int relativeOffset) const
+    { return nextInstructionOffset() + relativeOffset; }
 
 protected:
     FOR_EACH_MOTH_INSTR(BYTECODE_HANDLER_DEFINE_VIRTUAL_BYTECODE_HANDLER)

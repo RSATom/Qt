@@ -16,11 +16,14 @@
 #include "SkTDynamicHash.h"
 #include "SkTMultiMap.h"
 
+class GrDeinstantiateProxyTracker;
 class GrResourceProvider;
-class GrUninstantiateProxyTracker;
 
 // Print out explicit allocation information
 #define GR_ALLOCATION_SPEW 0
+
+// Print out information about interval creation
+#define GR_TRACK_INTERVAL_CREATION 0
 
 /*
  * The ResourceAllocator explicitly distributes GPU resources at flush time. It operates by
@@ -39,9 +42,8 @@ class GrUninstantiateProxyTracker;
  */
 class GrResourceAllocator {
 public:
-    GrResourceAllocator(GrResourceProvider* resourceProvider)
-            : fResourceProvider(resourceProvider) {
-    }
+    GrResourceAllocator(GrResourceProvider* resourceProvider, GrDeinstantiateProxyTracker* tracker)
+            : fResourceProvider(resourceProvider), fDeinstantiateTracker(tracker) {}
 
     ~GrResourceAllocator();
 
@@ -72,8 +74,7 @@ public:
     // If this happens, the caller should remove all ops which reference an uninstantiated proxy.
     // This is used to execute a portion of the queued opLists in order to reduce the total
     // amount of GPU resources required.
-    bool assign(int* startIndex, int* stopIndex, GrUninstantiateProxyTracker*,
-                AssignError* outError);
+    bool assign(int* startIndex, int* stopIndex, AssignError* outError);
 
     void markEndOfOpList(int opListIndex);
 
@@ -112,16 +113,27 @@ private:
             , fEnd(end)
             , fNext(nullptr) {
             SkASSERT(proxy);
+#if GR_TRACK_INTERVAL_CREATION
+            fUniqueID = CreateUniqueID();
+            SkDebugf("New intvl %d: proxyID: %d [ %d, %d ]\n",
+                     fUniqueID, proxy->uniqueID().asUInt(), start, end);
+#endif
         }
 
         void resetTo(GrSurfaceProxy* proxy, unsigned int start, unsigned int end) {
             SkASSERT(proxy);
+            SkASSERT(!fNext);
 
             fProxy = proxy;
             fProxyID = proxy->uniqueID().asUInt();
             fStart = start;
             fEnd = end;
             fNext = nullptr;
+#if GR_TRACK_INTERVAL_CREATION
+            fUniqueID = CreateUniqueID();
+            SkDebugf("New intvl %d: proxyID: %d [ %d, %d ]\n",
+                     fUniqueID, proxy->uniqueID().asUInt(), start, end);
+#endif
         }
 
         ~Interval() {
@@ -140,6 +152,9 @@ private:
         void extendEnd(unsigned int newEnd) {
             if (newEnd > fEnd) {
                 fEnd = newEnd;
+#if GR_TRACK_INTERVAL_CREATION
+                SkDebugf("intvl %d: extending from %d to %d\n", fUniqueID, fEnd, newEnd);
+#endif
             }
         }
 
@@ -160,6 +175,12 @@ private:
         unsigned int     fStart;
         unsigned int     fEnd;
         Interval*        fNext;
+
+#if GR_TRACK_INTERVAL_CREATION
+        uint32_t        fUniqueID;
+
+        uint32_t CreateUniqueID();
+#endif
     };
 
     class IntervalList {
@@ -170,7 +191,10 @@ private:
             // Since the arena allocator will clean up for us we don't bother here.
         }
 
-        bool empty() const { return !SkToBool(fHead); }
+        bool empty() const {
+            SkASSERT(SkToBool(fHead) == SkToBool(fTail));
+            return !SkToBool(fHead);
+        }
         const Interval* peekHead() const { return fHead; }
         Interval* popHead();
         void insertByIncreasingStart(Interval*);
@@ -178,29 +202,33 @@ private:
         Interval* detachAll();
 
     private:
+        SkDEBUGCODE(void validate() const;)
+
         Interval* fHead = nullptr;
+        Interval* fTail = nullptr;
     };
 
-    // Gathered statistics indicate that 99% of flushes will be covered by <= 12 Intervals
-    static const int kInitialArenaSize = 12 * sizeof(Interval);
+    // Compositing use cases can create > 80 intervals.
+    static const int kInitialArenaSize = 128 * sizeof(Interval);
 
-    GrResourceProvider*    fResourceProvider;
-    FreePoolMultiMap       fFreePool;          // Recently created/used GrSurfaces
-    IntvlHash              fIntvlHash;         // All the intervals, hashed by proxyID
+    GrResourceProvider*          fResourceProvider;
+    GrDeinstantiateProxyTracker* fDeinstantiateTracker;
+    FreePoolMultiMap             fFreePool;          // Recently created/used GrSurfaces
+    IntvlHash                    fIntvlHash;         // All the intervals, hashed by proxyID
 
-    IntervalList           fIntvlList;         // All the intervals sorted by increasing start
-    IntervalList           fActiveIntvls;      // List of live intervals during assignment
+    IntervalList                 fIntvlList;         // All the intervals sorted by increasing start
+    IntervalList                 fActiveIntvls;      // List of live intervals during assignment
                                                // (sorted by increasing end)
-    unsigned int           fNumOps = 1;        // op # 0 is reserved for uploads at the start
+    unsigned int                 fNumOps = 1;        // op # 0 is reserved for uploads at the start
                                                // of a flush
-    SkTArray<unsigned int> fEndOfOpListOpIndices;
-    int                    fCurOpListIndex = 0;
+    SkTArray<unsigned int>       fEndOfOpListOpIndices;
+    int                          fCurOpListIndex = 0;
 
-    SkDEBUGCODE(bool       fAssigned = false;)
+    SkDEBUGCODE(bool             fAssigned = false;)
 
-    char                   fStorage[kInitialArenaSize];
-    SkArenaAlloc           fIntervalAllocator { fStorage, kInitialArenaSize, 0 };
-    Interval*              fFreeIntervalList = nullptr;
+    char                         fStorage[kInitialArenaSize];
+    SkArenaAlloc                 fIntervalAllocator{fStorage, kInitialArenaSize, kInitialArenaSize};
+    Interval*                    fFreeIntervalList = nullptr;
 };
 
 #endif // GrResourceAllocator_DEFINED

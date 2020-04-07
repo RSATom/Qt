@@ -331,11 +331,11 @@ QDataStream &operator<<(QDataStream &out, const QNetworkCacheMetaData &metaData)
 static inline QDataStream &operator<<(QDataStream &out, const QNetworkCacheMetaData::AttributesMap &hash)
 {
     out << quint32(hash.size());
-    QNetworkCacheMetaData::AttributesMap::ConstIterator it = hash.end();
-    QNetworkCacheMetaData::AttributesMap::ConstIterator begin = hash.begin();
-    while (it != begin) {
-        --it;
+    QNetworkCacheMetaData::AttributesMap::ConstIterator it = hash.begin();
+    QNetworkCacheMetaData::AttributesMap::ConstIterator end = hash.end();
+    while (it != end) {
         out << int(it.key()) << it.value();
+        ++it;
     }
     return out;
 }
@@ -383,7 +383,7 @@ static inline QDataStream &operator>>(QDataStream &in, QNetworkCacheMetaData::At
         int k;
         QVariant t;
         in >> k >> t;
-        hash.insertMulti(QNetworkRequest::Attribute(k), t);
+        hash.insert(QNetworkRequest::Attribute(k), t);
     }
 
     if (in.status() != QDataStream::Ok)
@@ -475,7 +475,7 @@ QAbstractNetworkCache::~QAbstractNetworkCache()
     the QIODevice when done with it.
 
     If there is no cache for \a url, the url is invalid, or if there
-    is an internal cache error 0 is returned.
+    is an internal cache error \nullptr is returned.
 
     In the base class this is a pure virtual function.
 
@@ -496,7 +496,7 @@ QAbstractNetworkCache::~QAbstractNetworkCache()
     Returns the device that should be populated with the data for
     the cache item \a metaData.  When all of the data has been written
     insert() should be called.  If metaData is invalid or the url in
-    the metadata is invalid 0 is returned.
+    the metadata is invalid \nullptr is returned.
 
     The cache owns the device and will take care of deleting it when
     it is inserted or removed.

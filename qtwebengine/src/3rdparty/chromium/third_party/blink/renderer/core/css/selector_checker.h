@@ -132,6 +132,8 @@ class SelectorChecker {
 
   struct MatchResult {
     STACK_ALLOCATED();
+
+   public:
     MatchResult() : dynamic_pseudo(kPseudoIdNone), specificity(0) {}
 
     PseudoId dynamic_pseudo;
@@ -151,6 +153,7 @@ class SelectorChecker {
 
   static bool MatchesFocusPseudoClass(const Element&);
   static bool MatchesFocusVisiblePseudoClass(const Element&);
+  static bool MatchesSpatialNavigationFocusPseudoClass(const Element&);
 
  private:
   // Does the work of checking whether the simple selector and element pointed

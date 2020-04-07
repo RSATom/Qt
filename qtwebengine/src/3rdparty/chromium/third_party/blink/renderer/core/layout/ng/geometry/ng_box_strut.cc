@@ -4,19 +4,10 @@
 
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_box_strut.h"
 
+#include "third_party/blink/renderer/platform/geometry/layout_rect_outsets.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
-
-bool NGBoxStrut::IsEmpty() const {
-  return *this == NGBoxStrut();
-}
-
-bool NGBoxStrut::operator==(const NGBoxStrut& other) const {
-  return std::tie(other.inline_start, other.inline_end, other.block_start,
-                  other.block_end) ==
-         std::tie(inline_start, inline_end, block_start, block_end);
-}
 
 NGPhysicalBoxStrut NGBoxStrut::ConvertToPhysical(
     WritingMode writing_mode,
@@ -45,8 +36,6 @@ NGPhysicalBoxStrut NGBoxStrut::ConvertToPhysical(
   }
 }
 
-// Converts physical dimensions to logical ones per
-// https://drafts.csswg.org/css-writing-modes-3/#logical-to-physical
 NGBoxStrut NGPhysicalBoxStrut::ConvertToLogical(WritingMode writing_mode,
                                                 TextDirection direction) const {
   NGBoxStrut strut;
@@ -102,9 +91,14 @@ NGLineBoxStrut::NGLineBoxStrut(const NGBoxStrut& flow_relative,
   }
 }
 
-NGPixelSnappedPhysicalBoxStrut NGPhysicalBoxStrut::SnapToDevicePixels() const {
-  return NGPixelSnappedPhysicalBoxStrut(top.Round(), right.Round(),
-                                        bottom.Round(), left.Round());
+LayoutRectOutsets NGPhysicalBoxStrut::ToLayoutRectOutsets() const {
+  return LayoutRectOutsets(top, right, bottom, left);
+}
+
+std::ostream& operator<<(std::ostream& stream, const NGLineBoxStrut& value) {
+  return stream << "Inline: (" << value.inline_start << " " << value.inline_end
+                << ") Line: (" << value.line_over << " " << value.line_under
+                << ") ";
 }
 
 }  // namespace blink

@@ -112,6 +112,13 @@ QT_BEGIN_NAMESPACE
     are returned by classInfo(), and you can search for pairs with
     indexOfClassInfo().
 
+    \note Operations that use the meta object system are generally thread-
+    safe, as QMetaObjects are typically static read-only instances
+    generated at compile time. However, if meta objects are dynamically
+    modified by the application (for instance, when using QQmlPropertyMap),
+    then the application has to explicitly synchronize access to the
+    respective meta object.
+
     \sa QMetaClassInfo, QMetaEnum, QMetaMethod, QMetaProperty, QMetaType,
         {Meta-Object System}
 */
@@ -216,8 +223,8 @@ private:
 
     Constructs a new instance of this class. You can pass up to ten arguments
     (\a val0, \a val1, \a val2, \a val3, \a val4, \a val5, \a val6, \a val7,
-    \a val8, and \a val9) to the constructor. Returns the new object, or 0 if
-    no suitable constructor is available.
+    \a val8, and \a val9) to the constructor. Returns the new object, or
+    \nullptr if no suitable constructor is available.
 
     Note that only constructors that are declared with the Q_INVOKABLE
     modifier are made available through the meta-object system.
@@ -327,8 +334,8 @@ const char *QMetaObject::className() const
 /*!
     \fn QMetaObject *QMetaObject::superClass() const
 
-    Returns the meta-object of the superclass, or 0 if there is no
-    such object.
+    Returns the meta-object of the superclass, or \nullptr if there is
+    no such object.
 
     \sa className()
 */
@@ -2263,9 +2270,9 @@ bool QMetaMethod::invoke(QObject *object,
         return false;
 
     // check connection type
-    QThread *currentThread = QThread::currentThread();
-    QThread *objectThread = object->thread();
     if (connectionType == Qt::AutoConnection) {
+        QThread *currentThread = QThread::currentThread();
+        QThread *objectThread = object->thread();
         connectionType = currentThread == objectThread
                          ? Qt::DirectConnection
                          : Qt::QueuedConnection;
@@ -2348,6 +2355,8 @@ bool QMetaMethod::invoke(QObject *object,
                                                         0, -1, nargs, types, args));
     } else { // blocking queued connection
 #if QT_CONFIG(thread)
+        QThread *currentThread = QThread::currentThread();
+        QThread *objectThread = object->thread();
         if (currentThread == objectThread) {
             qWarning("QMetaMethod::invoke: Dead lock detected in "
                         "BlockingQueuedConnection: Receiver is %s(%p)",
@@ -2619,7 +2628,7 @@ int QMetaEnum::keyCount() const
 }
 
 /*!
-    Returns the key with the given \a index, or 0 if no such key exists.
+    Returns the key with the given \a index, or \nullptr if no such key exists.
 
     \sa keyCount(), value(), valueToKey()
 */
@@ -2741,7 +2750,7 @@ int QMetaEnum::keyToValue(const char *key, bool *ok) const
 
 /*!
     Returns the string that is used as the name of the given
-    enumeration \a value, or 0 if \a value is not defined.
+    enumeration \a value, or \nullptr if \a value is not defined.
 
     For flag types, use valueToKeys().
 
@@ -3526,7 +3535,7 @@ bool QMetaProperty::isStored(const QObject *object) const
     false. e.g., the \c text property is the \c USER editable property
     of a QLineEdit.
 
-    If \a object is null, the function returns \c false if the \c
+    If \a object is \nullptr, the function returns \c false if the \c
     {Q_PROPERTY()}'s \c USER attribute is false. Otherwise it returns
     true.
 

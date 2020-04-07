@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <string>
 
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "gpu/command_buffer/service/buffer_manager.h"
 #include "gpu/command_buffer/service/error_state_mock.h"
@@ -130,7 +131,7 @@ void TestHelper::SetupTextureInitializationExpectations(
     kServiceBlackRectangleTextureId,
     kServiceDefaultRectangleTextureId };
 
-  const GLuint* texture_ids = NULL;
+  const GLuint* texture_ids = nullptr;
   switch (target) {
     case GL_TEXTURE_2D:
       texture_ids = &texture_2d_ids[0];
@@ -174,7 +175,7 @@ void TestHelper::SetupTextureInitializationExpectations(
           GL_TEXTURE_CUBE_MAP_POSITIVE_Z,
           GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
         };
-        for (size_t ii = 0; ii < arraysize(faces); ++ii) {
+        for (size_t ii = 0; ii < base::size(faces); ++ii) {
           EXPECT_CALL(*gl, TexImage2D(faces[ii], 0, GL_RGBA, 1, 1, 0, GL_RGBA,
                                       GL_UNSIGNED_BYTE, _))
               .Times(1)
@@ -517,7 +518,8 @@ void TestHelper::SetupFeatureInfoInitExpectationsWithGLVersion(
       .WillOnce(Return(reinterpret_cast<const uint8_t*>(gl_renderer)))
       .RetiresOnSaturation();
 
-  if (enable_es3 ||
+  if (gl_info.is_es3 || gl_info.is_desktop_core_profile ||
+      gfx::HasExtension(extension_set, "GL_ARB_pixel_buffer_object") ||
       gfx::HasExtension(extension_set, "GL_NV_pixel_buffer_object")) {
     EXPECT_CALL(*gl, GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, _))
       .WillOnce(SetArgPointee<1>(0))
@@ -953,7 +955,7 @@ void TestHelper::SetupProgramSuccessExpectations(
 
         static const GLenum kPropsArray[] = {GL_LOCATION, GL_TYPE,
                                              GL_ARRAY_SIZE};
-        static const size_t kPropsSize = arraysize(kPropsArray);
+        static const size_t kPropsSize = base::size(kPropsArray);
         EXPECT_CALL(
             *gl, GetProgramResourceiv(
                      service_id, GL_FRAGMENT_INPUT_NV, ii, kPropsSize,
@@ -1149,7 +1151,7 @@ void TestHelper::SetShaderStates(
       .WillOnce(Return(options_affecting_compilation))
       .RetiresOnSaturation();
   if (expected_valid) {
-    EXPECT_CALL(*gl, ShaderSource(shader->service_id(), 1, _, NULL))
+    EXPECT_CALL(*gl, ShaderSource(shader->service_id(), 1, _, nullptr))
         .Times(1)
         .RetiresOnSaturation();
     EXPECT_CALL(*gl, CompileShader(shader->service_id()))

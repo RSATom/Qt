@@ -225,14 +225,6 @@
 
     Declare a standard constructor taking a parent object, and functions,
     signals and slots like for any QObject subclass.
-    \footnote
-    If a standard constructor is not present the compiler will issue
-    an error "no overloaded function takes 2 parameters" when using
-    the default factory through the QAXFACTORY_DEFAULT() macro. If you
-    cannot provide a standard constructor you must implement a
-    QAxFactory custom factory and call the constructor you have in
-    your implementation of \l {QAxFactory::createObject}.
-    \endfootnote
 
     \snippet doc_src_qaxserver.cpp 6
 

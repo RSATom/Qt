@@ -64,6 +64,14 @@ bool ServiceWorkerURLJobWrapper::ShouldFallbackToNetwork() {
   }
 }
 
+bool ServiceWorkerURLJobWrapper::ShouldForwardToServiceWorker() {
+  if (url_loader_job_) {
+    return url_loader_job_->ShouldForwardToServiceWorker();
+  } else {
+    return url_request_job_->ShouldForwardToServiceWorker();
+  }
+}
+
 void ServiceWorkerURLJobWrapper::FailDueToLostController() {
   // This function is only called for subresource requests, so it can't
   // be called for |url_loader_job_|, which is for navigations.
@@ -71,12 +79,8 @@ void ServiceWorkerURLJobWrapper::FailDueToLostController() {
   url_request_job_->FailDueToLostController();
 }
 
-bool ServiceWorkerURLJobWrapper::WasCanceled() const {
-  if (url_loader_job_) {
-    return url_loader_job_->WasCanceled();
-  } else {
-    return !url_request_job_;
-  }
+bool ServiceWorkerURLJobWrapper::IsAlive() const {
+  return url_loader_job_ || url_request_job_;
 }
 
 }  // namespace content

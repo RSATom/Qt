@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,60 +11,9 @@
 #ifndef P2P_CLIENT_RELAYPORTFACTORYINTERFACE_H_
 #define P2P_CLIENT_RELAYPORTFACTORYINTERFACE_H_
 
-#include <memory>
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "p2p/base/portinterface.h"
-#include "rtc_base/refcount.h"
-
-namespace rtc {
-class AsyncPacketSocket;
-class Network;
-class PacketSocketFactory;
-class Thread;
-}  // namespace rtc
-
-namespace webrtc {
-class TurnCustomizer;
-}  // namespace webrtc
-
-namespace cricket {
-class Port;
-struct ProtocolAddress;
-struct RelayServerConfig;
-
-// A struct containing arguments to RelayPortFactory::Create()
-struct CreateRelayPortArgs {
-  CreateRelayPortArgs();
-  rtc::Thread* network_thread;
-  rtc::PacketSocketFactory* socket_factory;
-  rtc::Network* network;
-  const ProtocolAddress* server_address;
-  const RelayServerConfig* config;
-  std::string username;
-  std::string password;
-  std::string origin;
-  webrtc::TurnCustomizer* turn_customizer;
-};
-
-inline CreateRelayPortArgs::CreateRelayPortArgs() {}
-
-// A factory for creating RelayPort's.
-class RelayPortFactoryInterface {
- public:
-  virtual ~RelayPortFactoryInterface() {}
-
-  // This variant is used for UDP connection to the relay server
-  // using a already existing shared socket.
-  virtual std::unique_ptr<Port> Create(const CreateRelayPortArgs& args,
-                                       rtc::AsyncPacketSocket* udp_socket) = 0;
-
-  // This variant is used for the other cases.
-  virtual std::unique_ptr<Port> Create(const CreateRelayPortArgs& args,
-                                       int min_port,
-                                       int max_port) = 0;
-};
-
-}  // namespace cricket
+#include "p2p/client/relay_port_factory_interface.h"
 
 #endif  // P2P_CLIENT_RELAYPORTFACTORYINTERFACE_H_

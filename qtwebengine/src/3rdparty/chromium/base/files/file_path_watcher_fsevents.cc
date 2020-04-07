@@ -13,7 +13,9 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 
 namespace base {
@@ -110,6 +112,7 @@ void FilePathWatcherFSEvents::Cancel() {
   set_cancelled();
   callback_.Reset();
 
+  ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
   // Switch to the dispatch queue to tear down the event stream. As the queue is
   // owned by |this|, and this method is called from the destructor, execute the
   // block synchronously.
@@ -219,9 +222,9 @@ void FilePathWatcherFSEvents::UpdateEventStream(
       NULL, resolved_target_.DirName().value().c_str(),
       kCFStringEncodingMacHFS));
   CFStringRef paths_array[] = { cf_path.get(), cf_dir_path.get() };
-  ScopedCFTypeRef<CFArrayRef> watched_paths(CFArrayCreate(
-      NULL, reinterpret_cast<const void**>(paths_array), arraysize(paths_array),
-      &kCFTypeArrayCallBacks));
+  ScopedCFTypeRef<CFArrayRef> watched_paths(
+      CFArrayCreate(NULL, reinterpret_cast<const void**>(paths_array),
+                    base::size(paths_array), &kCFTypeArrayCallBacks));
 
   FSEventStreamContext context;
   context.version = 0;

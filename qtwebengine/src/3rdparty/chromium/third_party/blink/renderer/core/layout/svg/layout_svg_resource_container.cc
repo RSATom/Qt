@@ -115,7 +115,7 @@ void LayoutSVGResourceContainer::MarkClientForInvalidation(
     // if the client is one that could have a LayoutSVGInlineText use a
     // paint invalidation reason that will force paint invalidation of the
     // entire <text>/<tspan>/... subtree.
-    client.SetShouldDoFullPaintInvalidation(
+    client.SetSubtreeShouldDoFullPaintInvalidation(
         PaintInvalidationReason::kSVGResource);
     client.InvalidateClipPathCache();
     // Invalidate paint properties to update effects if any.
@@ -142,7 +142,7 @@ void LayoutSVGResourceContainer::InvalidateCacheAndMarkForLayout(
 void LayoutSVGResourceContainer::InvalidateCacheAndMarkForLayout(
     SubtreeLayoutScope* layout_scope) {
   InvalidateCacheAndMarkForLayout(
-      LayoutInvalidationReason::kSvgResourceInvalidated, layout_scope);
+      layout_invalidation_reason::kSvgResourceInvalidated, layout_scope);
 }
 
 static inline void RemoveFromCacheAndInvalidateDependencies(
@@ -174,9 +174,10 @@ void LayoutSVGResourceContainer::MarkForLayoutAndParentResourceInvalidation(
     bool needs_layout) {
   DCHECK(object.GetNode());
 
-  if (needs_layout && !object.DocumentBeingDestroyed())
+  if (needs_layout && !object.DocumentBeingDestroyed()) {
     object.SetNeedsLayoutAndFullPaintInvalidation(
-        LayoutInvalidationReason::kSvgResourceInvalidated);
+        layout_invalidation_reason::kSvgResourceInvalidated);
+  }
 
   RemoveFromCacheAndInvalidateDependencies(object, needs_layout);
 

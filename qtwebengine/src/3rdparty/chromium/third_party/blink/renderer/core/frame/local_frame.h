@@ -33,8 +33,10 @@
 
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/strong_binding_set.h"
+#include "third_party/blink/public/mojom/ad_tagging/ad_frame.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/previews_resource_loading_hints.mojom-blink.h"
+#include "third_party/blink/public/platform/reporting.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/accessibility/axid.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -42,6 +44,7 @@
 #include "third_party/blink/renderer/core/dom/weak_identifier_map.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
+#include "third_party/blink/renderer/core/frame/frame_types.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/platform/graphics/touch_action.h"
@@ -65,15 +68,15 @@ class AdTracker;
 class AssociatedInterfaceProvider;
 class Color;
 class ComputedAccessibleNode;
-class ContentSettingsClient;
+class ContentSecurityPolicy;
 class Document;
 class Editor;
 class Element;
 class EventHandler;
 class EventHandlerRegistry;
-class FetchParameters;
 class FloatSize;
 class FrameConsole;
+class FrameOverlay;
 class FrameResourceCoordinator;
 // class FrameScheduler;
 class FrameSelection;
@@ -93,17 +96,27 @@ class Node;
 class NodeTraversal;
 class PerformanceMonitor;
 class PluginData;
+class ResourceRequest;
 class ScriptController;
 class SharedBuffer;
+class SmoothScrollSequencer;
 class SpellChecker;
 class TextSuggestionController;
 class WebComputedAXTree;
+class WebContentSettingsClient;
 class WebPluginContainerImpl;
 class WebURLLoaderFactory;
+
+namespace mojom {
+namespace blink {
+class DocumentInterfaceBroker;
+}  // namespace blink
+}  // namespace mojom
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT Supplement<LocalFrame>;
 
 class CORE_EXPORT LocalFrame final : public Frame,
+                                     public FrameScheduler::Delegate,
                                      public Supplementable<LocalFrame> {
   USING_GARBAGE_COLLECTED_MIXIN(LocalFrame);
 
@@ -112,6 +125,8 @@ class CORE_EXPORT LocalFrame final : public Frame,
                             Page&,
                             FrameOwner*,
                             InterfaceRegistry* = nullptr);
+
+  LocalFrame(LocalFrameClient*, Page&, FrameOwner*, InterfaceRegistry*);
 
   void Init();
   void SetView(LocalFrameView*);
@@ -122,11 +137,9 @@ class CORE_EXPORT LocalFrame final : public Frame,
   void Trace(blink::Visitor*) override;
   void ScheduleNavigation(Document& origin_document,
                           const KURL&,
-                          bool replace_current_item,
+                          WebFrameLoadType,
                           UserGestureStatus) override;
-  void Navigate(const FrameLoadRequest&) override;
-  void Reload(WebFrameLoadType, ClientRedirectPolicy) override;
-  void Detach(FrameDetachType) override;
+  void Navigate(const FrameLoadRequest&, WebFrameLoadType) override;
   bool ShouldClose() override;
   SecurityContext* GetSecurityContext() const override;
   void PrintNavigationErrorMessage(const Frame&, const char* reason);
@@ -145,11 +158,14 @@ class CORE_EXPORT LocalFrame final : public Frame,
                                          Frame* child) override;
 
   void DetachChildren();
-  void DocumentAttached();
+  // After Document is attached, resets state related to document, and sets
+  // context to the current document.
+  void DidAttachDocument();
 
   Frame* FindFrameForNavigation(const AtomicString& name,
                                 LocalFrame& active_frame,
                                 const KURL& destination_url);
+  void Reload(WebFrameLoadType, ClientRedirectPolicy);
 
   // Note: these two functions are not virtual but intentionally shadow the
   // corresponding method in the Frame base class to return the
@@ -194,6 +210,38 @@ class CORE_EXPORT LocalFrame final : public Frame,
   CoreProbeSink* GetProbeSink() { return probe_sink_.Get(); }
   scoped_refptr<InspectorTaskRunner> GetInspectorTaskRunner();
 
+  // Activates the user activation states of the |LocalFrame| (provided it's
+  // non-null) and all its ancestors.  Also creates a |UserGestureIndicator|
+  // that contains a |UserGestureToken| with the given status.
+  static std::unique_ptr<UserGestureIndicator> NotifyUserActivation(
+      LocalFrame*,
+      UserGestureToken::Status = UserGestureToken::kPossiblyExistingGesture);
+
+  // Similar to above, but used only in old UAv1-specific code.
+  static std::unique_ptr<UserGestureIndicator> NotifyUserActivation(
+      LocalFrame*,
+      UserGestureToken*);
+
+  // Returns the transient user activation state of the |LocalFrame|, provided
+  // it is non-null.  Otherwise returns |false|.
+  //
+  // The |check_if_main_thread| parameter determines if the token based gestures
+  // (legacy UAv1 code) must be used in a thread-safe manner.
+  static bool HasTransientUserActivation(LocalFrame*,
+                                         bool check_if_main_thread = false);
+
+  // Consumes the transient user activation state of the |LocalFrame|, provided
+  // the frame pointer is non-null and the state hasn't been consumed since
+  // activation.  Returns |true| if successfully consumed the state.
+  //
+  // The |check_if_main_thread| parameter determines if the token based gestures
+  // (legacy code) must be used in a thread-safe manner.
+  static bool ConsumeTransientUserActivation(
+      LocalFrame*,
+      bool check_if_main_thread = false,
+      UserActivationUpdateSource update_source =
+          UserActivationUpdateSource::kRenderer);
+
   // =========================================================================
   // All public functions below this point are candidates to move out of
   // LocalFrame into another class.
@@ -203,13 +251,11 @@ class CORE_EXPORT LocalFrame final : public Frame,
 
   // Begin printing with the given page size information.
   // The frame content will fit to the page size with specified shrink ratio.
-  void StartPrinting(const FloatSize& page_size,
-                     const FloatSize& original_page_size,
-                     float maximum_shrink_ratio);
-
-  // Begin printing without changing the the frame's layout. This is used for
-  // child frames because they don't need to fit to a page size.
-  void StartPrintingWithoutPrintingLayout();
+  // If this frame doesn't need to fit into a page size, default values are
+  // used.
+  void StartPrinting(const FloatSize& page_size = FloatSize(),
+                     const FloatSize& original_page_size = FloatSize(),
+                     float maximum_shrink_ratio = 0);
 
   void EndPrinting();
   bool ShouldUsePrintingLayout() const;
@@ -256,6 +302,7 @@ class CORE_EXPORT LocalFrame final : public Frame,
   bool CanNavigate(const Frame&, const KURL& destination_url = KURL());
 
   service_manager::InterfaceProvider& GetInterfaceProvider();
+  mojom::blink::DocumentInterfaceBroker& GetDocumentInterfaceBroker();
   InterfaceRegistry* GetInterfaceRegistry() { return interface_registry_; }
 
   // Returns an AssociatedInterfaceProvider the frame can use to request
@@ -273,7 +320,7 @@ class CORE_EXPORT LocalFrame final : public Frame,
 
   LocalFrameClient* Client() const;
 
-  ContentSettingsClient* GetContentSettingsClient();
+  WebContentSettingsClient* GetContentSettingsClient();
 
   // GetFrameResourceCoordinator may return nullptr when it can not hook up to
   // services/resource_coordinator.
@@ -286,10 +333,11 @@ class CORE_EXPORT LocalFrame final : public Frame,
   AdTracker* GetAdTracker() { return ad_tracker_; }
   void SetAdTrackerForTesting(AdTracker* ad_tracker);
 
-  // Convenience function to allow loading image placeholders for the request if
-  // either the flag in Settings() for using image placeholders is set, or if
-  // the embedder decides that Client Lo-Fi should be used for this request.
-  void MaybeAllowImagePlaceholder(FetchParameters&) const;
+  // Returns true if Client Lo-Fi should be used for this request.
+  bool IsClientLoFiAllowed(const ResourceRequest&) const;
+
+  // Returns true if lazyloading the image is possible.
+  bool IsLazyLoadingImageAllowed() const;
 
   // The returned value is a off-heap raw-ptr and should not be stored.
   WebURLLoaderFactory* GetURLLoaderFactory();
@@ -305,10 +353,15 @@ class CORE_EXPORT LocalFrame final : public Frame,
   WebPluginContainerImpl* GetWebPluginContainer(Node* = nullptr) const;
 
   // Called on a view for a LocalFrame with a RemoteFrame parent. This makes
-  // viewport intersection available that accounts for remote ancestor frames
-  // and their respective scroll positions, clips, etc.
-  void SetViewportIntersectionFromParent(const IntRect&);
-  IntRect RemoteViewportIntersection() { return remote_viewport_intersection_; }
+  // viewport intersection and occlusion/obscuration available that accounts for
+  // remote ancestor frames and their respective scroll positions, clips, etc.
+  void SetViewportIntersectionFromParent(const IntRect&, bool);
+  IntRect RemoteViewportIntersection() const {
+    return remote_viewport_intersection_;
+  }
+  bool MayBeOccludedOrObscuredByRemoteAncestor() const {
+    return occluded_or_obscured_by_ancestor_;
+  }
 
   // Replaces the initial empty document with a Document suitable for
   // |mime_type| and populated with the contents of |data|. Only intended for
@@ -338,15 +391,12 @@ class CORE_EXPORT LocalFrame final : public Frame,
   // Calculated in the constructor but LocalFrames created on behalf of OOPIF
   // aren't set until just before commit (ReadyToCommitNavigation time) by the
   // embedder.
-  bool IsAdSubframe() const { return is_ad_subframe_; }
-  void SetIsAdSubframe() {
-    DCHECK(!IsMainFrame());
-    if (is_ad_subframe_)
-      return;
-    is_ad_subframe_ = true;
-    frame_scheduler_->SetIsAdFrame();
-    InstanceCounters::IncrementCounter(InstanceCounters::kAdSubframeCounter);
-  }
+  bool IsAdSubframe() const;
+  bool IsAdRoot() const;
+  void SetIsAdSubframe(blink::mojom::AdFrameType ad_frame_type);
+
+  // Updates the frame color overlay to match the highlight ad setting.
+  void UpdateAdHighlight();
 
   // Binds |request| and prevents resource loading until either the frame is
   // navigated or the request pipe is closed.
@@ -364,10 +414,30 @@ class CORE_EXPORT LocalFrame final : public Frame,
   void BindPreviewsResourceLoadingHintsRequest(
       blink::mojom::blink::PreviewsResourceLoadingHintsReceiverRequest request);
 
+  SmoothScrollSequencer& GetSmoothScrollSequencer();
+
+  const mojom::blink::ReportingServiceProxyPtr& GetReportingService() const;
+
+  // Overlays a color on top of this LocalFrameView if it is associated with
+  // the main frame. Should not have multiple consumers.
+  void SetMainFrameColorOverlay(SkColor color);
+
+  // Overlays a color on top of this LocalFrameView if it is associated with
+  // a subframe. Should not have multiple consumers.
+  void SetSubframeColorOverlay(SkColor color);
+  void PaintFrameColorOverlay();
+
+  // For CompositeAfterPaint.
+  void PaintFrameColorOverlay(GraphicsContext&);
+
+  // To be called from OomInterventionImpl.
+  void ForciblyPurgeV8Memory();
+
  private:
   friend class FrameNavigationDisabler;
 
-  LocalFrame(LocalFrameClient*, Page&, FrameOwner*, InterfaceRegistry*);
+  // Frame protected overrides:
+  void DetachImpl(FrameDetachType) override;
 
   // Intentionally private to prevent redundant checks when the type is
   // already LocalFrame.
@@ -386,13 +456,27 @@ class CORE_EXPORT LocalFrame final : public Frame,
   // Internal implementation for starting or ending printing.
   // |printing| is true when printing starts, false when printing ends.
   // |page_size|, |original_page_size|, and |maximum_shrink_ratio| are only
-  // meaningful when starting to print with printing layout -- both |printing|
-  // and |use_printing_layout| are true.
+  // meaningful when we should use printing layout for this frame.
   void SetPrinting(bool printing,
-                   bool use_printing_layout,
                    const FloatSize& page_size,
                    const FloatSize& original_page_size,
                    float maximum_shrink_ratio);
+
+  // FrameScheduler::Delegate overrides:
+  ukm::UkmRecorder* GetUkmRecorder() override;
+  ukm::SourceId GetUkmSourceId() override;
+
+  // Activates the user activation states of this frame and all its ancestors.
+  void NotifyUserActivation();
+
+  // Returns the transient user activation state of this frame
+  bool HasTransientUserActivation();
+
+  // Consumes and returns the transient user activation state of this frame,
+  // after updating all ancestor/descendant frames.
+  bool ConsumeTransientUserActivation(UserActivationUpdateSource update_source);
+
+  void SetFrameColorOverlay(SkColor color);
 
   std::unique_ptr<FrameScheduler> frame_scheduler_;
 
@@ -431,11 +515,11 @@ class CORE_EXPORT LocalFrame final : public Frame,
 
   bool in_view_source_mode_;
 
-  // True if this frame is heuristically determined to have been created for
-  // advertising purposes. It's per-frame (as opposed to per-document) because
-  // when an iframe is created on behalf of ad script that same frame is not
-  // typically reused for non-ad purposes.
-  bool is_ad_subframe_ = false;
+  // Type of frame detected by heuristics checking if the frame was created
+  // for advertising purposes. It's per-frame (as opposed to per-document)
+  // because when an iframe is created on behalf of ad script that same frame is
+  // not typically reused for non-ad purposes.
+  blink::mojom::AdFrameType ad_frame_type_ = blink::mojom::AdFrameType::kNonAd;
 
   Member<CoreProbeSink> probe_sink_;
   scoped_refptr<InspectorTaskRunner> inspector_task_runner_;
@@ -443,10 +527,17 @@ class CORE_EXPORT LocalFrame final : public Frame,
   Member<AdTracker> ad_tracker_;
   Member<IdlenessDetector> idleness_detector_;
   Member<InspectorTraceEvents> inspector_trace_events_;
+  // SmoothScrollSequencer is only populated for local roots; all local frames
+  // use the instance owned by their local root.
+  Member<SmoothScrollSequencer> smooth_scroll_sequencer_;
 
   InterfaceRegistry* const interface_registry_;
+  // This is declared mutable so that the service endpoint can be cached by
+  // const methods.
+  mutable mojom::blink::ReportingServiceProxyPtr reporting_service_;
 
   IntRect remote_viewport_intersection_;
+  bool occluded_or_obscured_by_ancestor_ = false;
   std::unique_ptr<FrameResourceCoordinator> frame_resource_coordinator_;
 
   // Used to keep track of which ComputedAccessibleNodes have already been
@@ -460,6 +551,18 @@ class CORE_EXPORT LocalFrame final : public Frame,
       previews_resource_loading_hints_receiver_;
 
   ClientHintsPreferences client_hints_preferences_;
+
+  // The value of |is_save_data_enabled_| is read once per frame from
+  // NetworkStateNotifier, which is guarded by a mutex lock, and cached locally
+  // here for performance.
+  // TODO(sclittle): This field doesn't really belong here - we should find some
+  // way to make the state of NetworkStateNotifier accessible without needing to
+  // acquire a mutex, such as by adding thread-local objects to hold the network
+  // state that get updated whenever the network state changes. That way, this
+  // field would be no longer necessary.
+  const bool is_save_data_enabled_;
+
+  std::unique_ptr<FrameOverlay> frame_color_overlay_;
 };
 
 inline FrameLoader& LocalFrame::Loader() const {

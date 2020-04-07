@@ -17,6 +17,7 @@ enum ShelfAction {
   WINDOW_ACTIVATED,  // An existing inactive window was activated.
   WINDOW_MINIMIZED,  // The currently active window was minimized.
   APP_LIST_SHOWN,    // The app list launcher menu was shown.
+  APP_LIST_DISMISSED,// The app list launcher menu was dismissed.
 };
 
 // Represents the status of items in the shelf.
@@ -30,7 +31,6 @@ enum ShelfItemStatus {
 // The type of a shelf item.
 // These values match ash::ShelfItemType.
 enum ShelfItemType {
-  PANEL,       // A running app panel.
   PINNED_APP,  // A pinned app, which may be running or not.
   APP_LIST,    // An item that toggles visiblity of the app list.
   BROWSER,     // The browser shortcut, the browser may be running or not.
@@ -141,7 +141,6 @@ struct ShelfItem {
   ShelfItemStatus status;      // The running/closed/etc. status of the item.
   ShelfID shelf_id;            // The id for the shelf item and its windows.
   mojo_base.mojom.String16 title;  // The title to display for tooltips, etc.
-  bool shows_tooltip;          // Whether the tooltip should be shown on hover.
   bool pinned_by_policy;       // Whether the item is pinned by policy prefs,
                                // the user cannot un-pin these items.
 };

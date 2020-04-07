@@ -22,7 +22,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/device_event_log/device_event_log.h"
 #include "services/device/hid/hid_connection_win.h"
@@ -50,7 +50,7 @@ HidServiceWin::~HidServiceWin() {}
 
 void HidServiceWin::Connect(const std::string& device_guid,
                             const ConnectCallback& callback) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   const auto& map_entry = devices().find(device_guid);
   if (map_entry == devices().end()) {
     task_runner_->PostTask(FROM_HERE, base::BindOnce(callback, nullptr));

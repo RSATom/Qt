@@ -91,7 +91,7 @@ class RenderViewObserverHostQt;
 class WebChannelIPCTransportHost;
 class WebEngineContext;
 
-class QWEBENGINECORE_PRIVATE_EXPORT WebContentsAdapter : public QEnableSharedFromThis<WebContentsAdapter> {
+class Q_WEBENGINECORE_PRIVATE_EXPORT WebContentsAdapter : public QEnableSharedFromThis<WebContentsAdapter> {
 public:
     static QSharedPointer<WebContentsAdapter> createFromSerializedNavigationHistory(QDataStream &input, WebContentsAdapterClient *adapterClient);
     WebContentsAdapter();
@@ -183,8 +183,8 @@ public:
     void grantMediaAccessPermission(const QUrl &securityOrigin, WebContentsAdapterClient::MediaRequestFlags flags);
     void runGeolocationRequestCallback(const QUrl &securityOrigin, bool allowed);
     void grantMouseLockPermission(bool granted);
+    void runUserNotificationRequestCallback(const QUrl &securityOrigin, bool allowed);
 
-    void dpiScaleChanged();
     void setBackgroundColor(const QColor &color);
     QAccessibleInterface *browserAccessible();
     ProfileQt* profile();
@@ -217,6 +217,7 @@ public:
     bool canViewSource();
     void focusIfNecessary();
     bool isFindTextInProgress() const;
+    bool hasFocusedFrame() const;
 
     // meant to be used within WebEngineCore only
     void initialize(content::SiteInstance *site);

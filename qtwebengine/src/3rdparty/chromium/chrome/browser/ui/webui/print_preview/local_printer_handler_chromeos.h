@@ -23,6 +23,8 @@ class WebContents;
 
 class Profile;
 
+namespace printing {
+
 class LocalPrinterHandlerChromeos : public PrinterHandler {
  public:
   LocalPrinterHandlerChromeos(Profile* profile,
@@ -49,6 +51,7 @@ class LocalPrinterHandlerChromeos : public PrinterHandler {
                           GetCapabilityCallback cb,
                           chromeos::PrinterSetupResult result);
 
+  Profile* const profile_;
   content::WebContents* const preview_web_contents_;
   chromeos::CupsPrintersManager* printers_manager_;
   scoped_refptr<chromeos::PpdProvider> ppd_provider_;
@@ -57,5 +60,7 @@ class LocalPrinterHandlerChromeos : public PrinterHandler {
 
   DISALLOW_COPY_AND_ASSIGN(LocalPrinterHandlerChromeos);
 };
+
+}  // namespace printing
 
 #endif  // CHROME_BROWSER_UI_WEBUI_PRINT_PREVIEW_LOCAL_PRINTER_HANDLER_CHROMEOS_H_

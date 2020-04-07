@@ -43,7 +43,7 @@ enum DroppedReason {
   DROPPED_REASON_MAX
 };
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 // Binds/reads the given file path to the given column of the given statement.
 void BindFilePath(sql::Statement& statement,
@@ -413,7 +413,6 @@ bool DownloadDatabase::DropDownloadTable() {
 }
 
 void DownloadDatabase::QueryDownloads(std::vector<DownloadRow>* results) {
-  SCOPED_UMA_HISTOGRAM_TIMER("Download.Database.QueryDownloadDuration");
   EnsureInProgressEntriesCleanedUp();
 
   results->clear();
@@ -488,11 +487,7 @@ void DownloadDatabase::QueryDownloads(std::vector<DownloadRow>* results) {
     } else if (info->danger_type == DownloadDangerType::INVALID) {
       dropped_reason = DROPPED_REASON_BAD_DANGER_TYPE;
     }
-    if (dropped_reason != DROPPED_REASON_MAX) {
-      UMA_HISTOGRAM_ENUMERATION("Download.DatabaseRecordDropped",
-                                dropped_reason,
-                                DROPPED_REASON_MAX + 1);
-    } else {
+    if (dropped_reason == DROPPED_REASON_MAX) {
       DCHECK(!base::ContainsKey(info_map, info->id));
       uint32_t id = info->id;
       info_map[id] = info.release();
@@ -541,8 +536,7 @@ void DownloadDatabase::QueryDownloads(std::vector<DownloadRow>* results) {
 
   QueryDownloadSlices(&info_map);
 
-  for (DownloadRowMap::iterator it = info_map.begin(); it != info_map.end();
-       ++it) {
+  for (auto it = info_map.begin(); it != info_map.end(); ++it) {
     DownloadRow* row = it->second;
     bool empty_url_chain = row->url_chain.empty();
     UMA_HISTOGRAM_BOOLEAN("Download.DatabaseEmptyUrlChain", empty_url_chain);
@@ -559,7 +553,6 @@ void DownloadDatabase::QueryDownloads(std::vector<DownloadRow>* results) {
 
 bool DownloadDatabase::UpdateDownload(const DownloadRow& data) {
   // UpdateDownload() is called fairly frequently.
-  SCOPED_UMA_HISTOGRAM_TIMER("Download.Database.UpdateDownloadDuration");
   EnsureInProgressEntriesCleanedUp();
 
   DCHECK_NE(kInvalidDownloadId, data.id);
@@ -644,7 +637,6 @@ void DownloadDatabase::EnsureInProgressEntriesCleanedUp() {
 bool DownloadDatabase::CreateDownload(const DownloadRow& info) {
   DCHECK_NE(kInvalidDownloadId, info.id);
   DCHECK(!info.guid.empty());
-  SCOPED_UMA_HISTOGRAM_TIMER("Download.Database.CreateDownloadDuration");
   EnsureInProgressEntriesCleanedUp();
 
   if (info.url_chain.empty())
@@ -851,7 +843,7 @@ void DownloadDatabase::QueryDownloadSlices(DownloadRowMap* download_row_map) {
 
     // Confirm the download_id has already been seen--if it hasn't, discard the
     // record.
-    DownloadRowMap::iterator it = download_row_map->find(info.download_id);
+    auto it = download_row_map->find(info.download_id);
     bool found = (it != download_row_map->end());
     UMA_HISTOGRAM_BOOLEAN(
         "Download.DatabaseDownloadExistsForDownloadSlice", found);

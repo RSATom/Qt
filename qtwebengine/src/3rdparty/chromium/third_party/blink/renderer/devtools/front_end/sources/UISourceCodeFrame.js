@@ -323,6 +323,8 @@ Sources.UISourceCodeFrame = class extends SourceFrame.SourceFrame {
       this._plugins.push(new Sources.JavaScriptCompilerPlugin(this.textEditor, pluginUISourceCode));
     if (Sources.SnippetsPlugin.accepts(pluginUISourceCode))
       this._plugins.push(new Sources.SnippetsPlugin(this.textEditor, pluginUISourceCode));
+    if (Sources.ScriptOriginPlugin.accepts(pluginUISourceCode))
+      this._plugins.push(new Sources.ScriptOriginPlugin(this.textEditor, pluginUISourceCode));
     if (!this.pretty && Runtime.experiments.isEnabled('sourceDiff') &&
         Sources.GutterDiffPlugin.accepts(pluginUISourceCode))
       this._plugins.push(new Sources.GutterDiffPlugin(this.textEditor, pluginUISourceCode));
@@ -582,7 +584,7 @@ Sources.UISourceCodeFrame.RowMessage = class {
     this._icon = this.element.createChild('label', '', 'dt-icon-label');
     this._icon.type = Sources.UISourceCodeFrame._iconClassPerLevel[message.level()];
     this._repeatCountElement =
-        this.element.createChild('label', 'text-editor-row-message-repeat-count hidden', 'dt-small-bubble');
+        this.element.createChild('span', 'text-editor-row-message-repeat-count hidden', 'dt-small-bubble');
     this._repeatCountElement.type = Sources.UISourceCodeFrame._bubbleTypePerLevel[message.level()];
     const linesContainer = this.element.createChild('div');
     const lines = this._message.text().split('\n');
@@ -634,7 +636,7 @@ Sources.UISourceCodeFrame.RowMessageBucket = class {
     this._decoration = createElementWithClass('div', 'text-editor-line-decoration');
     this._decoration._messageBucket = this;
     this._wave = this._decoration.createChild('div', 'text-editor-line-decoration-wave');
-    this._icon = this._wave.createChild('label', 'text-editor-line-decoration-icon', 'dt-icon-label');
+    this._icon = this._wave.createChild('span', 'text-editor-line-decoration-icon', 'dt-icon-label');
     /** @type {?number} */
     this._decorationStartColumn = null;
 

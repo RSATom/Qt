@@ -27,7 +27,7 @@ Rect::Rect(const RECT& r)
     : origin_(r.left, r.top),
       size_(std::abs(r.right - r.left), std::abs(r.bottom - r.top)) {
 }
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
 Rect::Rect(const CGRect& r)
     : origin_(r.origin.x, r.origin.y), size_(r.size.width, r.size.height) {
 }
@@ -42,7 +42,7 @@ RECT Rect::ToRECT() const {
   r.bottom = bottom();
   return r;
 }
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
 CGRect Rect::ToCGRect() const {
   return CGRectMake(x(), y(), width(), height());
 }
@@ -255,6 +255,10 @@ void Rect::ClampToCenteredSize(const Size& size) {
   int new_x = x() + (width() - new_width) / 2;
   int new_y = y() + (height() - new_height) / 2;
   SetRect(new_x, new_y, new_width, new_height);
+}
+
+void Rect::Transpose() {
+  SetRect(y(), x(), height(), width());
 }
 
 void Rect::SplitVertically(Rect* left_half, Rect* right_half) const {

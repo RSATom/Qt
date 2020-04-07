@@ -67,8 +67,6 @@ class PictureLayer;
 // from parents to children.
 class CC_EXPORT Layer : public base::RefCounted<Layer> {
  public:
-  using LayerListType = LayerList;
-
   // An invalid layer id, as all layer ids are positive.
   enum LayerIdLabels {
     INVALID_ID = -1,
@@ -118,6 +116,9 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // Removes all children from this layer's list of children, removing ownership
   // of those children.
   void RemoveAllChildren();
+  // Sets the children while minimizing changes to layers that are already
+  // children of this layer.
+  void SetChildLayerList(LayerList children);
   // Returns true if |ancestor| is this layer's parent or higher ancestor.
   bool HasAncestor(const Layer* ancestor) const;
 
@@ -162,7 +163,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // specified in layer space, which excludes device scale and page scale
   // factors, and ignoring transforms for this layer or ancestor layers. The
   // root layer's position is not used as it always appears at the origin of
-  // the viewport.
+  // the viewport. When property trees are built by cc (when IsUsingLayerLists
+  // is false), position is used to update |offset_to_transform_parent|.
   void SetPosition(const gfx::PointF& position);
   const gfx::PointF& position() const { return inputs_.position; }
 
@@ -177,6 +179,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
 
   // Set and get the behaviour to be applied for compositor-thread scrolling of
   // this layer beyond the beginning or end of the layer's content.
+  // TODO(bokan): With blink-gen-property-trees this is stored on the
+  // ScrollNode and can be removed here.
   void SetOverscrollBehavior(const OverscrollBehavior& behavior);
   OverscrollBehavior overscroll_behavior() const {
     return inputs_.overscroll_behavior;
@@ -185,6 +189,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // Set and get the snapping behaviour for compositor-thread scrolling of
   // this layer. The default value of null means there is no snapping for the
   // layer.
+  // TODO(crbug.com/836884) With blink-gen-property-trees this is stored on the
+  // ScrollNode and can be removed here.
   void SetSnapContainerData(base::Optional<SnapContainerData> data);
   const base::Optional<SnapContainerData>& snap_container_data() const {
     return inputs_.snap_container_data;
@@ -271,11 +277,21 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   gfx::PointF filters_origin() const { return inputs_.filters_origin; }
 
   // Set or get the list of filters that should be applied to the content this
-  // layer and its subtree will be drawn into. The effect is clipped to only
-  // apply directly behind this layer and its subtree.
-  void SetBackgroundFilters(const FilterOperations& filters);
-  const FilterOperations& background_filters() const {
-    return inputs_.background_filters;
+  // layer and its subtree will be drawn into. The effect is clipped by
+  // backdrop_filter_bounds.
+  void SetBackdropFilters(const FilterOperations& filters);
+  const FilterOperations& backdrop_filters() const {
+    return inputs_.backdrop_filters;
+  }
+
+  void SetBackdropFilterBounds(const gfx::RectF& backdrop_filter_bounds);
+  const gfx::RectF& backdrop_filter_bounds() const {
+    return inputs_.backdrop_filter_bounds;
+  }
+
+  void SetBackdropFilterQuality(const float quality);
+  float backdrop_filter_quality() const {
+    return inputs_.backdrop_filter_quality;
   }
 
   // Set or get an optimization hint that the contents of this layer are fully
@@ -390,8 +406,11 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     return inputs_.scroll_container_bounds;
   }
 
+  void SetIsScrollbar(bool is_scrollbar);
+  bool is_scrollbar() const { return inputs_.is_scrollbar; }
+
   // Set or get if this layer is able to be scrolled along each axis. These are
-  // independant of the scrollable state, or size of the scrollable area
+  // independent of the scrollable state, or size of the scrollable area
   // specified in SetScrollable(), as these may be enabled or disabled
   // dynamically, while SetScrollable() defines what would be possible if these
   // are enabled.
@@ -400,12 +419,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // the scrollbars will be shown when the scroll offset changes if these are
   // set to true.
   void SetUserScrollable(bool horizontal, bool vertical);
-  bool user_scrollable_horizontal() const {
-    return inputs_.user_scrollable_horizontal;
-  }
-  bool user_scrollable_vertical() const {
-    return inputs_.user_scrollable_vertical;
-  }
+  bool GetUserScrollableHorizontal() const;
+  bool GetUserScrollableVertical() const;
 
   // Set or get if this layer is able to be scrolled on the compositor thread.
   // This only applies for layers that are marked as scrollable, not for layers
@@ -418,9 +433,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   void AddMainThreadScrollingReasons(uint32_t main_thread_scrolling_reasons);
   void ClearMainThreadScrollingReasons(
       uint32_t main_thread_scrolling_reasons_to_clear);
-  uint32_t main_thread_scrolling_reasons() const {
-    return inputs_.main_thread_scrolling_reasons;
-  }
+  uint32_t GetMainThreadScrollingReasons() const;
 
   // Set or get an area of this layer within which initiating a scroll can not
   // be done from the compositor thread. Within this area, if the user attempts
@@ -696,10 +709,9 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   void SetEffectTreeIndex(int index);
   void SetScrollTreeIndex(int index);
 
-  // Internal to property tree construction. Set or get the position of this
-  // layer relative to the origin after transforming according to this layer's
-  // index into the transform tree. This translation is appended to the
-  // transform that comes from the transform tree for this layer.
+  // The position of this layer after transforming by the layer's transform
+  // node. When property trees are built by cc (when IsUsingLayerLists is false)
+  // this is set by property_tree_builder.cc.
   void SetOffsetToTransformParent(gfx::Vector2dF offset);
   gfx::Vector2dF offset_to_transform_parent() const {
     return offset_to_transform_parent_;
@@ -751,6 +763,34 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     return should_flatten_screen_space_transform_from_property_tree_;
   }
 
+  std::string ToString() const;
+
+  // Called when a property has been modified in a way that the layer knows
+  // immediately that a commit is required.  This implies SetNeedsPushProperties
+  // to push that property.
+  // This is public, so that it can be called directly when needed, for example
+  // in PropertyTreeManager when handling scroll offsets.
+  void SetNeedsCommit();
+
+  // The following data are for profiling and debugging. They will be displayed
+  // e.g. in the Layers panel of DevTools.
+
+  // The compositing reasons of the layer. The values are defined in
+  // third_party/blink/renderer/platform/graphics/compositing_reasons.h.
+  void set_compositing_reasons(uint64_t compositing_reasons) {
+    compositing_reasons_ = compositing_reasons;
+  }
+  uint64_t compositing_reasons() const { return compositing_reasons_; }
+
+  // The id of the DOM node that owns this layer.
+  void set_owner_node_id(int node_id) { owner_node_id_ = node_id; }
+  int owner_node_id() const { return owner_node_id_; }
+
+  // How many times this layer has been repainted.
+  int paint_count() const { return paint_count_; }
+
+  // End of data for profiling and debugging.
+
  protected:
   friend class LayerImpl;
   friend class TreeSynchronizer;
@@ -759,11 +799,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   virtual ~Layer();
 
   // These SetNeeds functions are in order of severity of update:
-  //
-  // Called when a property has been modified in a way that the layer knows
-  // immediately that a commit is required.  This implies SetNeedsPushProperties
-  // to push that property.
-  void SetNeedsCommit();
+
+  // See SetNeedsCommit() above - it belongs here in the order of severity.
 
   // Called when there's been a change in layer structure.  Implies
   // SetNeedsCommit and property tree rebuld, but not SetNeedsPushProperties
@@ -795,6 +832,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // When true, the layer is about to perform an update. Any commit requests
   // will be handled implicitly after the update completes.
   bool ignore_set_needs_commit_;
+
+  int paint_count_;
 
  private:
   friend class base::RefCounted<Layer>;
@@ -834,9 +873,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   void UpdateScrollOffset(const gfx::ScrollOffset&);
 
   // Encapsulates all data, callbacks or interfaces received from the embedder.
-  // TODO(khushalsagar): This is only valid when PropertyTrees are built
-  // internally in cc. Update this for the SPv2 path where blink generates
-  // PropertyTrees.
   struct Inputs {
     explicit Inputs(int layer_id);
     ~Inputs();
@@ -883,8 +919,10 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     SkColor background_color;
 
     FilterOperations filters;
-    FilterOperations background_filters;
+    FilterOperations backdrop_filters;
+    gfx::RectF backdrop_filter_bounds;
     gfx::PointF filters_origin;
+    float backdrop_filter_quality;
 
     gfx::ScrollOffset scroll_offset;
 
@@ -895,6 +933,9 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
     // layer's bounds correspond to the scroll node's bounds (both |bounds| and
     // |scroll_container_bounds|).
     bool scrollable : 1;
+
+    // Indicates that this layer is a scrollbar.
+    bool is_scrollbar : 1;
 
     bool user_scrollable_horizontal : 1;
     bool user_scrollable_vertical : 1;
@@ -970,6 +1011,8 @@ class CC_EXPORT Layer : public base::RefCounted<Layer> {
   // This value is valid only when LayerTreeHost::has_copy_request() is true
   bool subtree_has_copy_request_ : 1;
   SkColor safe_opaque_background_color_;
+  uint64_t compositing_reasons_;
+  int owner_node_id_;
 
   std::unique_ptr<std::set<Layer*>> clip_children_;
 

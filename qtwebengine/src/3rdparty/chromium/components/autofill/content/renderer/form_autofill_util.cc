@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -19,14 +20,17 @@
 #include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "components/autofill/content/renderer/field_data_manager.h"
 #include "components/autofill/core/common/autofill_data_validation.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_regexes.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/autofill_util.h"
+#include "components/autofill/core/common/button_title_type.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "third_party/blink/public/platform/url_conversion.h"
@@ -67,6 +71,18 @@ const size_t kMaxParseableFields = 200;
 
 namespace {
 
+// Maximal length of a button's title.
+const int kMaxLengthForSingleButtonTitle = 30;
+// Maximal length of all button titles.
+const int kMaxLengthForAllButtonTitles = 200;
+
+// Text features to detect form submission buttons. Features are selected based
+// on analysis of real forms and their buttons.
+// TODO(crbug.com/910546): Consider to add more features (e.g. non-English
+// features).
+const char* const kButtonFeatures[] = {"button", "btn", "submit",
+                                       "boton" /* "button" in Spanish */};
+
 // A bit field mask for FillForm functions to not fill some fields.
 enum FieldFilterMask {
   FILTER_NONE                      = 0,
@@ -88,18 +104,18 @@ void TruncateString(base::string16* str, size_t max_length) {
 }
 
 bool IsOptionElement(const WebElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kOption, ("option"));
-  return element.HasHTMLTagName(kOption);
+  static base::NoDestructor<WebString> kOption("option");
+  return element.HasHTMLTagName(*kOption);
 }
 
 bool IsScriptElement(const WebElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kScript, ("script"));
-  return element.HasHTMLTagName(kScript);
+  static base::NoDestructor<WebString> kScript("script");
+  return element.HasHTMLTagName(*kScript);
 }
 
 bool IsNoScriptElement(const WebElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kNoScript, ("noscript"));
-  return element.HasHTMLTagName(kNoScript);
+  static base::NoDestructor<WebString> kNoScript("noscript");
+  return element.HasHTMLTagName(*kNoScript);
 }
 
 bool HasTagName(const WebNode& node, const blink::WebString& tag) {
@@ -116,7 +132,8 @@ bool IsElementInControlElementSet(
   return base::ContainsValue(control_elements, form_control_element);
 }
 
-bool IsElementInsideFormOrFieldSet(const WebElement& element) {
+bool IsElementInsideFormOrFieldSet(const WebElement& element,
+                                   bool consider_fieldset_tags) {
   for (WebNode parent_node = element.ParentNode(); !parent_node.IsNull();
        parent_node = parent_node.ParentNode()) {
     if (!parent_node.IsElementNode())
@@ -124,7 +141,7 @@ bool IsElementInsideFormOrFieldSet(const WebElement& element) {
 
     WebElement cur_element = parent_node.To<WebElement>();
     if (cur_element.HasHTMLTagName("form") ||
-        cur_element.HasHTMLTagName("fieldset")) {
+        (consider_fieldset_tags && cur_element.HasHTMLTagName("fieldset"))) {
       return true;
     }
   }
@@ -300,13 +317,13 @@ bool InferLabelFromSibling(const WebFormControlElement& element,
     // Coalesce any text contained in multiple consecutive
     //  (a) plain text nodes or
     //  (b) inline HTML elements that are essentially equivalent to text nodes.
-    CR_DEFINE_STATIC_LOCAL(WebString, kBold, ("b"));
-    CR_DEFINE_STATIC_LOCAL(WebString, kStrong, ("strong"));
-    CR_DEFINE_STATIC_LOCAL(WebString, kSpan, ("span"));
-    CR_DEFINE_STATIC_LOCAL(WebString, kFont, ("font"));
-    if (sibling.IsTextNode() || HasTagName(sibling, kBold) ||
-        HasTagName(sibling, kStrong) || HasTagName(sibling, kSpan) ||
-        HasTagName(sibling, kFont)) {
+    static base::NoDestructor<WebString> kBold("b");
+    static base::NoDestructor<WebString> kStrong("strong");
+    static base::NoDestructor<WebString> kSpan("span");
+    static base::NoDestructor<WebString> kFont("font");
+    if (sibling.IsTextNode() || HasTagName(sibling, *kBold) ||
+        HasTagName(sibling, *kStrong) || HasTagName(sibling, *kSpan) ||
+        HasTagName(sibling, *kFont)) {
       base::string16 value = FindChildText(sibling);
       // A text node's value will be empty if it is for a line break.
       bool add_space = sibling.IsTextNode() && value.empty();
@@ -327,16 +344,16 @@ bool InferLabelFromSibling(const WebFormControlElement& element,
 
     // <img> and <br> tags often appear between the input element and its
     // label text, so skip over them.
-    CR_DEFINE_STATIC_LOCAL(WebString, kImage, ("img"));
-    CR_DEFINE_STATIC_LOCAL(WebString, kBreak, ("br"));
-    if (HasTagName(sibling, kImage) || HasTagName(sibling, kBreak))
+    static base::NoDestructor<WebString> kImage("img");
+    static base::NoDestructor<WebString> kBreak("br");
+    if (HasTagName(sibling, *kImage) || HasTagName(sibling, *kBreak))
       continue;
 
     // We only expect <p> and <label> tags to contain the full label text.
-    CR_DEFINE_STATIC_LOCAL(WebString, kPage, ("p"));
-    CR_DEFINE_STATIC_LOCAL(WebString, kLabel, ("label"));
-    bool has_label_tag = HasTagName(sibling, kLabel);
-    if (HasTagName(sibling, kPage) || has_label_tag) {
+    static base::NoDestructor<WebString> kPage("p");
+    static base::NoDestructor<WebString> kLabel("label");
+    bool has_label_tag = HasTagName(sibling, *kLabel);
+    if (HasTagName(sibling, *kPage) || has_label_tag) {
       inferred_label = FindChildText(sibling);
       inferred_label_source = has_label_tag
                                   ? FormFieldData::LabelSource::LABEL_TAG
@@ -353,6 +370,68 @@ bool InferLabelFromSibling(const WebFormControlElement& element,
     return true;
   }
   return false;
+}
+
+// Helper function to add a button's |title| to the |list|.
+void AddButtonTitleToList(base::string16 title,
+                          ButtonTitleType button_type,
+                          ButtonTitleList* list) {
+  title = base::CollapseWhitespace(std::move(title), false);
+  if (title.empty())
+    return;
+  TruncateString(&title, kMaxLengthForSingleButtonTitle);
+  list->push_back(std::make_pair(std::move(title), button_type));
+}
+
+// Returns true iff |attribute| contains one of |kButtonFeatures|.
+bool AttributeHasButtonFeature(const WebString& attribute) {
+  if (attribute.IsNull())
+    return false;
+  std::string value = attribute.Utf8();
+  std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+  for (const char* const button_feature : kButtonFeatures) {
+    if (value.find(button_feature, 0) != std::string::npos)
+      return true;
+  }
+  return false;
+}
+
+// Returns true if |element|'s id, name or css class contain |kButtonFeatures|.
+bool ElementAttributesHasButtonFeature(const WebElement& element) {
+  return AttributeHasButtonFeature(element.GetAttribute("id")) ||
+         AttributeHasButtonFeature(element.GetAttribute("name")) ||
+         AttributeHasButtonFeature(element.GetAttribute("class"));
+}
+
+// Finds elements from |elements| that contains |kButtonFeatures|, adds them to
+// |list| and updates the |total_length| of the |list|'s items.
+// If |extract_value_attribute|, the "value" attribute is extracted as a button
+// title. Otherwise, |WebElement::TextContent| (aka innerText in Javascript) is
+// extracted as a title.
+void FindElementsWithButtonFeatures(const WebElementCollection& elements,
+                                    bool only_formless_elements,
+                                    ButtonTitleType button_type,
+                                    bool extract_value_attribute,
+                                    ButtonTitleList* list) {
+  static base::NoDestructor<WebString> kValue("value");
+  for (WebElement item = elements.FirstItem(); !item.IsNull();
+       item = elements.NextItem()) {
+    if (!ElementAttributesHasButtonFeature(item))
+      continue;
+    if (only_formless_elements &&
+        IsElementInsideFormOrFieldSet(item,
+                                      false /* consider_fieldset_tags */)) {
+      continue;
+    }
+    base::string16 title =
+        extract_value_attribute
+            ? (item.HasAttribute(*kValue) ? item.GetAttribute(*kValue).Utf16()
+                                          : base::string16())
+            : item.TextContent().Utf16();
+    if (extract_value_attribute && title.empty())
+      title = item.TextContent().Utf16();
+    AddButtonTitleToList(std::move(title), button_type, list);
+  }
 }
 
 // Helper for |InferLabelForElement()| that infers a label, if possible, from
@@ -384,9 +463,9 @@ bool InferLabelFromNext(const WebFormControlElement& element,
 // Helper for |InferLabelForElement()| that infers a label, if possible, from
 // the placeholder text. e.g. <input placeholder="foo">
 base::string16 InferLabelFromPlaceholder(const WebFormControlElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kPlaceholder, ("placeholder"));
-  if (element.HasAttribute(kPlaceholder))
-    return element.GetAttribute(kPlaceholder).Utf16();
+  static base::NoDestructor<WebString> kPlaceholder("placeholder");
+  if (element.HasAttribute(*kPlaceholder))
+    return element.GetAttribute(*kPlaceholder).Utf16();
 
   return base::string16();
 }
@@ -405,10 +484,10 @@ base::string16 InferLabelFromAriaLabel(const WebFormControlElement& element) {
 // the value attribute when it is present and user has not typed in (if
 // element's value attribute is same as the element's value).
 base::string16 InferLabelFromValueAttr(const WebFormControlElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kValue, ("value"));
-  if (element.HasAttribute(kValue) &&
-      element.GetAttribute(kValue) == element.Value()) {
-    return element.GetAttribute(kValue).Utf16();
+  static base::NoDestructor<WebString> kValue("value");
+  if (element.HasAttribute(*kValue) &&
+      element.GetAttribute(*kValue) == element.Value()) {
+    return element.GetAttribute(*kValue).Utf16();
   }
 
   return base::string16();
@@ -419,13 +498,13 @@ base::string16 InferLabelFromValueAttr(const WebFormControlElement& element) {
 // e.g. <li>Some Text<input ...><input ...><input ...></li>
 base::string16 InferLabelFromListItem(const WebFormControlElement& element) {
   WebNode parent = element.ParentNode();
-  CR_DEFINE_STATIC_LOCAL(WebString, kListItem, ("li"));
+  static base::NoDestructor<WebString> kListItem("li");
   while (!parent.IsNull() && parent.IsElementNode() &&
-         !parent.To<WebElement>().HasHTMLTagName(kListItem)) {
+         !parent.To<WebElement>().HasHTMLTagName(*kListItem)) {
     parent = parent.ParentNode();
   }
 
-  if (!parent.IsNull() && HasTagName(parent, kListItem))
+  if (!parent.IsNull() && HasTagName(parent, *kListItem))
     return FindChildText(parent);
 
   return base::string16();
@@ -437,13 +516,13 @@ base::string16 InferLabelFromListItem(const WebFormControlElement& element) {
 base::string16 InferLabelFromEnclosingLabel(
     const WebFormControlElement& element) {
   WebNode parent = element.ParentNode();
-  CR_DEFINE_STATIC_LOCAL(WebString, kLabel, ("label"));
+  static base::NoDestructor<WebString> kLabel("label");
   while (!parent.IsNull() && parent.IsElementNode() &&
-         !parent.To<WebElement>().HasHTMLTagName(kLabel)) {
+         !parent.To<WebElement>().HasHTMLTagName(*kLabel)) {
     parent = parent.ParentNode();
   }
 
-  if (!parent.IsNull() && HasTagName(parent, kLabel))
+  if (!parent.IsNull() && HasTagName(parent, *kLabel))
     return FindChildText(parent);
 
   return base::string16();
@@ -456,10 +535,10 @@ base::string16 InferLabelFromEnclosingLabel(
 // or   <tr><td><b>Some Text</b></td><td><b><input ...></b></td></tr>
 // or   <tr><th><b>Some Text</b></th><td><b><input ...></b></td></tr>
 base::string16 InferLabelFromTableColumn(const WebFormControlElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kTableCell, ("td"));
+  static base::NoDestructor<WebString> kTableCell("td");
   WebNode parent = element.ParentNode();
   while (!parent.IsNull() && parent.IsElementNode() &&
-         !parent.To<WebElement>().HasHTMLTagName(kTableCell)) {
+         !parent.To<WebElement>().HasHTMLTagName(*kTableCell)) {
     parent = parent.ParentNode();
   }
 
@@ -470,9 +549,10 @@ base::string16 InferLabelFromTableColumn(const WebFormControlElement& element) {
   // non-empty text block.
   base::string16 inferred_label;
   WebNode previous = parent.PreviousSibling();
-  CR_DEFINE_STATIC_LOCAL(WebString, kTableHeader, ("th"));
+  static base::NoDestructor<WebString> kTableHeader("th");
   while (inferred_label.empty() && !previous.IsNull()) {
-    if (HasTagName(previous, kTableCell) || HasTagName(previous, kTableHeader))
+    if (HasTagName(previous, *kTableCell) ||
+        HasTagName(previous, *kTableHeader))
       inferred_label = FindChildText(previous);
 
     previous = previous.PreviousSibling();
@@ -492,14 +572,14 @@ base::string16 InferLabelFromTableColumn(const WebFormControlElement& element) {
 // Otherwise, just look in the entire previous row.
 // e.g. <tr><td>Some Text</td></tr><tr><td><input ...></td></tr>
 base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kTableCell, ("td"));
+  static base::NoDestructor<WebString> kTableCell("td");
   base::string16 inferred_label;
 
   // First find the <td> that contains |element|.
   WebNode cell = element.ParentNode();
   while (!cell.IsNull()) {
     if (cell.IsElementNode() &&
-        cell.To<WebElement>().HasHTMLTagName(kTableCell)) {
+        cell.To<WebElement>().HasHTMLTagName(*kTableCell)) {
       break;
     }
     cell = cell.ParentNode();
@@ -518,7 +598,7 @@ base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
   for (WebNode cell_it = cell.PreviousSibling(); !cell_it.IsNull();
        cell_it = cell_it.PreviousSibling()) {
     if (cell_it.IsElementNode() &&
-        cell_it.To<WebElement>().HasHTMLTagName(kTableCell)) {
+        cell_it.To<WebElement>().HasHTMLTagName(*kTableCell)) {
       cell_position += CalculateTableCellColumnSpan(cell_it.To<WebElement>());
     }
   }
@@ -527,7 +607,7 @@ base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
   for (WebNode cell_it = cell.NextSibling(); !cell_it.IsNull();
        cell_it = cell_it.NextSibling()) {
     if (cell_it.IsElementNode() &&
-        cell_it.To<WebElement>().HasHTMLTagName(kTableCell)) {
+        cell_it.To<WebElement>().HasHTMLTagName(*kTableCell)) {
       cell_count += CalculateTableCellColumnSpan(cell_it.To<WebElement>());
     }
   }
@@ -537,10 +617,10 @@ base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
   cell_position_end += cell_position;
 
   // Find the current row.
-  CR_DEFINE_STATIC_LOCAL(WebString, kTableRow, ("tr"));
+  static base::NoDestructor<WebString> kTableRow("tr");
   WebNode parent = element.ParentNode();
   while (!parent.IsNull() && parent.IsElementNode() &&
-         !parent.To<WebElement>().HasHTMLTagName(kTableRow)) {
+         !parent.To<WebElement>().HasHTMLTagName(*kTableRow)) {
     parent = parent.ParentNode();
   }
 
@@ -551,7 +631,7 @@ base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
   WebNode row_it = parent.PreviousSibling();
   while (!row_it.IsNull()) {
     if (row_it.IsElementNode() &&
-        row_it.To<WebElement>().HasHTMLTagName(kTableRow)) {
+        row_it.To<WebElement>().HasHTMLTagName(*kTableRow)) {
       break;
     }
     row_it = row_it.PreviousSibling();
@@ -563,12 +643,12 @@ base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
     WebNode matching_cell;
     size_t prev_row_count = 0;
     WebNode prev_row_it = row_it.FirstChild();
-    CR_DEFINE_STATIC_LOCAL(WebString, kTableHeader, ("th"));
+    static base::NoDestructor<WebString> kTableHeader("th");
     while (!prev_row_it.IsNull()) {
       if (prev_row_it.IsElementNode()) {
         WebElement prev_row_element = prev_row_it.To<WebElement>();
-        if (prev_row_element.HasHTMLTagName(kTableCell) ||
-            prev_row_element.HasHTMLTagName(kTableHeader)) {
+        if (prev_row_element.HasHTMLTagName(*kTableCell) ||
+            prev_row_element.HasHTMLTagName(*kTableHeader)) {
           size_t span = CalculateTableCellColumnSpan(prev_row_element);
           size_t prev_row_count_end = prev_row_count + span - 1;
           if (prev_row_count == cell_position &&
@@ -592,7 +672,7 @@ base::string16 InferLabelFromTableRow(const WebFormControlElement& element) {
   // find a non-empty text block.
   WebNode previous = parent.PreviousSibling();
   while (inferred_label.empty() && !previous.IsNull()) {
-    if (HasTagName(previous, kTableRow))
+    if (HasTagName(previous, *kTableRow))
       inferred_label = FindChildText(previous);
 
     previous = previous.PreviousSibling();
@@ -615,10 +695,10 @@ base::string16 InferLabelFromDivTable(const WebFormControlElement& element) {
 
   // Search the sibling and parent <div>s until we find a candidate label.
   base::string16 inferred_label;
-  CR_DEFINE_STATIC_LOCAL(WebString, kDiv, ("div"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kLabel, ("label"));
+  static base::NoDestructor<WebString> kDiv("div");
+  static base::NoDestructor<WebString> kLabel("label");
   while (inferred_label.empty() && !node.IsNull()) {
-    if (HasTagName(node, kDiv)) {
+    if (HasTagName(node, *kDiv)) {
       if (looking_for_parent)
         inferred_label = FindChildTextWithIgnoreList(node, divs_to_skip);
       else
@@ -626,9 +706,9 @@ base::string16 InferLabelFromDivTable(const WebFormControlElement& element) {
 
       // Avoid sibling DIVs that contain autofillable fields.
       if (!looking_for_parent && !inferred_label.empty()) {
-        CR_DEFINE_STATIC_LOCAL(WebString, kSelector,
-                               ("input, select, textarea"));
-        WebElement result_element = node.QuerySelector(kSelector);
+        static base::NoDestructor<WebString> kSelector(
+            "input, select, textarea");
+        WebElement result_element = node.QuerySelector(*kSelector);
         if (!result_element.IsNull()) {
           inferred_label.clear();
           divs_to_skip.insert(node);
@@ -636,7 +716,7 @@ base::string16 InferLabelFromDivTable(const WebFormControlElement& element) {
       }
 
       looking_for_parent = false;
-    } else if (!looking_for_parent && HasTagName(node, kLabel)) {
+    } else if (!looking_for_parent && HasTagName(node, *kLabel)) {
       WebLabelElement label_element = node.To<WebLabelElement>();
       if (label_element.CorrespondingControl().IsNull())
         inferred_label = FindChildText(node);
@@ -662,13 +742,13 @@ base::string16 InferLabelFromDivTable(const WebFormControlElement& element) {
 // e.g. <dl><dt><b>Some Text</b></dt><dd><b><input ...></b></dd></dl>
 base::string16 InferLabelFromDefinitionList(
     const WebFormControlElement& element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kDefinitionData, ("dd"));
+  static base::NoDestructor<WebString> kDefinitionData("dd");
   WebNode parent = element.ParentNode();
   while (!parent.IsNull() && parent.IsElementNode() &&
-         !parent.To<WebElement>().HasHTMLTagName(kDefinitionData))
+         !parent.To<WebElement>().HasHTMLTagName(*kDefinitionData))
     parent = parent.ParentNode();
 
-  if (parent.IsNull() || !HasTagName(parent, kDefinitionData))
+  if (parent.IsNull() || !HasTagName(parent, *kDefinitionData))
     return base::string16();
 
   // Skip by any intervening text nodes.
@@ -676,8 +756,8 @@ base::string16 InferLabelFromDefinitionList(
   while (!previous.IsNull() && previous.IsTextNode())
     previous = previous.PreviousSibling();
 
-  CR_DEFINE_STATIC_LOCAL(WebString, kDefinitionTag, ("dt"));
-  if (previous.IsNull() || !HasTagName(previous, kDefinitionTag))
+  static base::NoDestructor<WebString> kDefinitionTag("dt");
+  if (previous.IsNull() || !HasTagName(previous, *kDefinitionTag))
     return base::string16();
 
   return FindChildText(previous);
@@ -777,6 +857,109 @@ bool InferLabelForElement(const WebFormControlElement& element,
   return false;
 }
 
+// Removes the duplicate titles and limits totals length. The order of the list
+// is preserved as first elements are more reliable features than following
+// ones.
+void RemoveDuplicatesAndLimitTotalLength(ButtonTitleList* result) {
+  std::set<ButtonTitleInfo> already_added;
+  ButtonTitleList unique_titles;
+  int total_length = 0;
+  for (auto title : *result) {
+    if (already_added.find(title) != already_added.end())
+      continue;
+    already_added.insert(title);
+
+    total_length += title.first.length();
+    if (total_length > kMaxLengthForAllButtonTitles) {
+      int new_length =
+          title.first.length() - (total_length - kMaxLengthForAllButtonTitles);
+      TruncateString(&title.first, new_length);
+    }
+    unique_titles.push_back(std::move(title));
+
+    if (total_length >= kMaxLengthForAllButtonTitles)
+      break;
+  }
+  *result = std::move(unique_titles);
+}
+
+// Infer button titles enclosed by |root_element|. |root_element| may be a
+// <form> or a <body> if there are <input>s that are not enclosed in a <form>
+// element.
+ButtonTitleList InferButtonTitlesForForm(const WebElement& root_element) {
+  static base::NoDestructor<WebString> kA("a");
+  static base::NoDestructor<WebString> kButton("button");
+  static base::NoDestructor<WebString> kDiv("div");
+  static base::NoDestructor<WebString> kForm("form");
+  static base::NoDestructor<WebString> kInput("input");
+  static base::NoDestructor<WebString> kSpan("span");
+  static base::NoDestructor<WebString> kSubmit("submit");
+
+  // If the |root_element| is not a <form>, ignore the elements inclosed in a
+  // <form>.
+  bool only_formless_elements = !root_element.HasHTMLTagName(*kForm);
+
+  ButtonTitleList result;
+  WebElementCollection input_elements =
+      root_element.GetElementsByHTMLTagName(*kInput);
+  int total_length = 0;
+  for (WebElement item = input_elements.FirstItem();
+       !item.IsNull() && total_length < kMaxLengthForAllButtonTitles;
+       item = input_elements.NextItem()) {
+    DCHECK(item.IsFormControlElement());
+    WebFormControlElement control_element =
+        item.ToConst<WebFormControlElement>();
+    if (only_formless_elements && !control_element.Form().IsNull())
+      continue;
+    bool is_submit_input =
+        control_element.FormControlTypeForAutofill() == *kSubmit;
+    bool is_button_input =
+        control_element.FormControlTypeForAutofill() == *kButton;
+    if (!is_submit_input && !is_button_input)
+      continue;
+    base::string16 title = control_element.Value().Utf16();
+    AddButtonTitleToList(std::move(title),
+                         is_submit_input
+                             ? ButtonTitleType::INPUT_ELEMENT_SUBMIT_TYPE
+                             : ButtonTitleType::INPUT_ELEMENT_BUTTON_TYPE,
+                         &result);
+  }
+  WebElementCollection buttons =
+      root_element.GetElementsByHTMLTagName(*kButton);
+  for (WebElement item = buttons.FirstItem(); !item.IsNull();
+       item = buttons.NextItem()) {
+    WebString type_attribute = item.GetAttribute("type");
+    if (!type_attribute.IsNull() && type_attribute != *kButton &&
+        type_attribute != *kSubmit) {
+      // Neither type='submit' nor type='button'. Skip this button.
+      continue;
+    }
+    if (only_formless_elements &&
+        IsElementInsideFormOrFieldSet(item,
+                                      false /* consider_fieldset_tags */)) {
+      continue;
+    }
+    bool is_submit_type = type_attribute.IsNull() || type_attribute == *kSubmit;
+    base::string16 title = item.TextContent().Utf16();
+    AddButtonTitleToList(std::move(title),
+                         is_submit_type
+                             ? ButtonTitleType::BUTTON_ELEMENT_SUBMIT_TYPE
+                             : ButtonTitleType::BUTTON_ELEMENT_BUTTON_TYPE,
+                         &result);
+  }
+  FindElementsWithButtonFeatures(
+      root_element.GetElementsByHTMLTagName(*kA), only_formless_elements,
+      ButtonTitleType::HYPERLINK, true /* extract_value_attribute */, &result);
+  FindElementsWithButtonFeatures(root_element.GetElementsByHTMLTagName(*kDiv),
+                                 only_formless_elements, ButtonTitleType::DIV,
+                                 false /* extract_value_attribute */, &result);
+  FindElementsWithButtonFeatures(root_element.GetElementsByHTMLTagName(*kSpan),
+                                 only_formless_elements, ButtonTitleType::SPAN,
+                                 false /* extract_value_attribute */, &result);
+  RemoveDuplicatesAndLimitTotalLength(&result);
+  return result;
+}
+
 // Fills |option_strings| with the values of the <option> elements present in
 // |select_element|.
 void GetOptionStringsFromElement(const WebSelectElement& select_element,
@@ -843,14 +1026,16 @@ void ForEachMatchingFormFieldCommon(
   // are appended to the end of the form and are not visible.
   for (size_t i = 0; i < control_elements->size(); ++i) {
     WebFormControlElement* element = &(*control_elements)[i];
+    element->SetAutofillSection(WebString::FromUTF8(data.fields[i].section));
+
     bool is_initiating_element = (*element == initiating_element);
 
     // Only autofill empty fields (or those with the field's default value
     // attribute) and the field that initiated the filling, i.e. the field the
     // user is currently editing and interacting with.
     const WebInputElement* input_element = ToWebInputElement(element);
-    CR_DEFINE_STATIC_LOCAL(WebString, kValue, ("value"));
-    CR_DEFINE_STATIC_LOCAL(WebString, kPlaceholder, ("placeholder"));
+    static base::NoDestructor<WebString> kValue("value");
+    static base::NoDestructor<WebString> kPlaceholder("placeholder");
 
     if (!is_initiating_element &&
         element->GetAutofillState() == WebAutofillState::kAutofilled)
@@ -869,11 +1054,18 @@ void ForEachMatchingFormFieldCommon(
         (element->UserHasEditedTheField() ||
          !base::FeatureList::IsEnabled(features::kAutofillPrefilledFields)) &&
         !SanitizedFieldIsEmpty(element->Value().Utf16()) &&
-        (!element->HasAttribute(kValue) ||
-         element->GetAttribute(kValue) != element->Value()) &&
-        (!element->HasAttribute(kPlaceholder) ||
-         base::i18n::ToLower(element->GetAttribute(kPlaceholder).Utf16()) !=
+        (!element->HasAttribute(*kValue) ||
+         element->GetAttribute(*kValue) != element->Value()) &&
+        (!element->HasAttribute(*kPlaceholder) ||
+         base::i18n::ToLower(element->GetAttribute(*kPlaceholder).Utf16()) !=
              base::i18n::ToLower(element->Value().Utf16())))
+      continue;
+
+    // Check if we should autofill/preview/clear a select element or leave it.
+    if (!force_override && !is_initiating_element &&
+        IsSelectElement(*element) && element->UserHasEditedTheField() &&
+        base::FeatureList::IsEnabled(features::kAutofillPrefilledFields) &&
+        !SanitizedFieldIsEmpty(element->Value().Utf16()))
       continue;
 
     if (((filters & FILTER_DISABLED_ELEMENTS) && !element->IsEnabled()) ||
@@ -954,7 +1146,6 @@ void FillFormField(const FormFieldData& data,
     return;
 
   field->SetAutofillState(WebAutofillState::kAutofilled);
-  field->SetAutofillSection(WebString::FromUTF8(data.section));
 
   if (is_initiating_node &&
       ((IsTextInput(input_element) || IsMonthInput(input_element)) ||
@@ -1010,7 +1201,7 @@ void PreviewFormField(const FormFieldData& data,
 // [1, kMaxParseableFields].
 bool ExtractFieldsFromControlElements(
     const WebVector<WebFormControlElement>& control_elements,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     std::vector<std::unique_ptr<FormFieldData>>* form_fields,
     std::vector<bool>* fields_extracted,
@@ -1027,8 +1218,7 @@ bool ExtractFieldsFromControlElements(
 
     // Create a new FormFieldData, fill it out and map it to the field's name.
     auto form_field = std::make_unique<FormFieldData>();
-    WebFormControlElementToFormField(control_element,
-                                     field_value_and_properties_map,
+    WebFormControlElementToFormField(control_element, field_data_manager,
                                      extract_mask, form_field.get());
     (*element_map)[control_element] = form_field.get();
     form_fields->push_back(std::move(form_field));
@@ -1052,8 +1242,8 @@ bool ExtractFieldsFromControlElements(
 void MatchLabelsAndFields(
     const WebElementCollection& labels,
     std::map<WebFormControlElement, FormFieldData*>* element_map) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kFor, ("for"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kHidden, ("hidden"));
+  static base::NoDestructor<WebString> kFor("for");
+  static base::NoDestructor<WebString> kHidden("hidden");
 
   for (WebElement item = labels.FirstItem(); !item.IsNull();
        item = labels.NextItem()) {
@@ -1064,7 +1254,7 @@ void MatchLabelsAndFields(
     if (control.IsNull()) {
       // Sometimes site authors will incorrectly specify the corresponding
       // field element's name rather than its id, so we compensate here.
-      base::string16 element_name = label.GetAttribute(kFor).Utf16();
+      base::string16 element_name = label.GetAttribute(*kFor).Utf16();
       if (element_name.empty())
         continue;
       // Look through the list for elements with this name. There can actually
@@ -1081,7 +1271,7 @@ void MatchLabelsAndFields(
       }
     } else if (control.IsFormControlElement()) {
       WebFormControlElement form_control = control.To<WebFormControlElement>();
-      if (form_control.FormControlTypeForAutofill() == kHidden)
+      if (form_control.FormControlTypeForAutofill() == *kHidden)
         continue;
       // Typical case: look up |field_data| in |element_map|.
       auto iter = element_map->find(form_control);
@@ -1115,11 +1305,11 @@ bool FormOrFieldsetsToFormData(
     const blink::WebFormControlElement* form_control_element,
     const std::vector<blink::WebElement>& fieldsets,
     const WebVector<WebFormControlElement>& control_elements,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kLabel, ("label"));
+  static base::NoDestructor<WebString> kLabel("label");
 
   if (form_element)
     DCHECK(fieldsets.empty());
@@ -1137,9 +1327,9 @@ bool FormOrFieldsetsToFormData(
   // requirements and thus will be in the resulting |form|.
   std::vector<bool> fields_extracted(control_elements.size(), false);
 
-  if (!ExtractFieldsFromControlElements(
-          control_elements, field_value_and_properties_map, extract_mask,
-          &form_fields, &fields_extracted, &element_map)) {
+  if (!ExtractFieldsFromControlElements(control_elements, field_data_manager,
+                                        extract_mask, &form_fields,
+                                        &fields_extracted, &element_map)) {
     return false;
   }
 
@@ -1150,14 +1340,14 @@ bool FormOrFieldsetsToFormData(
     // previously created FormFieldData and set the FormFieldData's label to the
     // label.firstChild().nodeValue() of the label element.
     WebElementCollection labels =
-        form_element->GetElementsByHTMLTagName(kLabel);
+        form_element->GetElementsByHTMLTagName(*kLabel);
     DCHECK(!labels.IsNull());
     MatchLabelsAndFields(labels, &element_map);
   } else {
     // Same as the if block, but for all the labels in fieldsets.
     for (size_t i = 0; i < fieldsets.size(); ++i) {
       WebElementCollection labels =
-          fieldsets[i].GetElementsByHTMLTagName(kLabel);
+          fieldsets[i].GetElementsByHTMLTagName(*kLabel);
       DCHECK(!labels.IsNull());
       MatchLabelsAndFields(labels, &element_map);
     }
@@ -1220,7 +1410,7 @@ bool UnownedFormElementsAndFieldSetsToFormData(
     const std::vector<blink::WebFormControlElement>& control_elements,
     const blink::WebFormControlElement* element,
     const blink::WebDocument& document,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field) {
@@ -1234,9 +1424,9 @@ bool UnownedFormElementsAndFieldSetsToFormData(
 
   form->is_form_tag = false;
 
-  return FormOrFieldsetsToFormData(
-      nullptr, element, fieldsets, control_elements,
-      field_value_and_properties_map, extract_mask, form, field);
+  return FormOrFieldsetsToFormData(nullptr, element, fieldsets,
+                                   control_elements, field_data_manager,
+                                   extract_mask, form, field);
 }
 
 // Check if a script modified username is suitable for Password Manager to
@@ -1244,7 +1434,7 @@ bool UnownedFormElementsAndFieldSetsToFormData(
 bool ScriptModifiedUsernameAcceptable(
     const base::string16& value,
     const base::string16& typed_value,
-    const FieldValueAndPropertiesMaskMap& field_value_and_properties_map) {
+    const FieldDataManager* field_data_manager) {
   // The minimal size of a field value that will be substring-matched.
   constexpr size_t kMinMatchSize = 3u;
   const auto lowercase = base::i18n::ToLower(value);
@@ -1262,18 +1452,7 @@ bool ScriptModifiedUsernameAcceptable(
 
   // If the page-generated value comes from user typed or autofilled values in
   // other fields, that's also likely OK.
-  for (const auto& map_key : field_value_and_properties_map) {
-    const base::string16* typed_from_key = map_key.second.first.get();
-    if (!typed_from_key)
-      continue;
-    if (typed_from_key->size() >= kMinMatchSize &&
-        lowercase.find(base::i18n::ToLower(*typed_from_key)) !=
-            base::string16::npos) {
-      return true;
-    }
-  }
-
-  return false;
+  return field_data_manager->FindMachedValue(value);
 }
 
 }  // namespace
@@ -1378,9 +1557,9 @@ GURL GetCanonicalOriginForDocument(const WebDocument& document) {
 }
 
 bool IsMonthInput(const WebInputElement* element) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kMonth, ("month"));
+  static base::NoDestructor<WebString> kMonth("month");
   return element && !element->IsNull() &&
-         element->FormControlTypeForAutofill() == kMonth;
+         element->FormControlTypeForAutofill() == *kMonth;
 }
 
 // All text fields, including password fields, should be extracted.
@@ -1390,15 +1569,16 @@ bool IsTextInput(const WebInputElement* element) {
 
 bool IsSelectElement(const WebFormControlElement& element) {
   // Static for improved performance.
-  CR_DEFINE_STATIC_LOCAL(WebString, kSelectOne, ("select-one"));
+  static base::NoDestructor<WebString> kSelectOne("select-one");
   return !element.IsNull() &&
-         element.FormControlTypeForAutofill() == kSelectOne;
+         element.FormControlTypeForAutofill() == *kSelectOne;
 }
 
 bool IsTextAreaElement(const WebFormControlElement& element) {
   // Static for improved performance.
-  CR_DEFINE_STATIC_LOCAL(WebString, kTextArea, ("textarea"));
-  return !element.IsNull() && element.FormControlTypeForAutofill() == kTextArea;
+  static base::NoDestructor<WebString> kTextArea("textarea");
+  return !element.IsNull() &&
+         element.FormControlTypeForAutofill() == *kTextArea;
 }
 
 bool IsCheckableElement(const WebInputElement* element) {
@@ -1424,11 +1604,11 @@ bool IsWebElementVisible(const blink::WebElement& element) {
   return element.IsFocusable();
 }
 
-const base::string16 GetFormIdentifier(const WebFormElement& form) {
+base::string16 GetFormIdentifier(const WebFormElement& form) {
   base::string16 identifier = form.GetName().Utf16();
-  CR_DEFINE_STATIC_LOCAL(WebString, kId, ("id"));
+  static base::NoDestructor<WebString> kId("id");
   if (identifier.empty())
-    identifier = form.GetAttribute(kId).Utf16();
+    identifier = form.GetAttribute(*kId).Utf16();
 
   return identifier;
 }
@@ -1470,48 +1650,48 @@ std::vector<WebFormControlElement> ExtractAutofillableElementsInForm(
 
 void WebFormControlElementToFormField(
     const WebFormControlElement& element,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormFieldData* field) {
   DCHECK(field);
   DCHECK(!element.IsNull());
-  CR_DEFINE_STATIC_LOCAL(WebString, kAutocomplete, ("autocomplete"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kId, ("id"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kRole, ("role"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kPlaceholder, ("placeholder"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kClass, ("class"));
+  static base::NoDestructor<WebString> kAutocomplete("autocomplete");
+  static base::NoDestructor<WebString> kId("id");
+  static base::NoDestructor<WebString> kName("name");
+  static base::NoDestructor<WebString> kRole("role");
+  static base::NoDestructor<WebString> kPlaceholder("placeholder");
+  static base::NoDestructor<WebString> kClass("class");
 
   // Save both id and name attributes, if present. If there is only one of them,
   // it will be saved to |name|. See HTMLFormControlElement::nameForAutofill.
   field->name = element.NameForAutofill().Utf16();
-  base::string16 id = element.GetAttribute(kId).Utf16();
-  if (id != field->name)
-    field->id = id;
-
+  field->id_attribute = element.GetAttribute(*kId).Utf16();
+  field->name_attribute = element.GetAttribute(*kName).Utf16();
   field->unique_renderer_id = element.UniqueRendererFormControlId();
   field->form_control_type = element.FormControlTypeForAutofill().Utf8();
-  field->autocomplete_attribute = element.GetAttribute(kAutocomplete).Utf8();
+  field->autocomplete_attribute = element.GetAttribute(*kAutocomplete).Utf8();
   if (field->autocomplete_attribute.size() > kMaxDataLength) {
     // Discard overly long attribute values to avoid DOS-ing the browser
     // process.  However, send over a default string to indicate that the
     // attribute was present.
     field->autocomplete_attribute = "x-max-data-length-exceeded";
   }
-  if (base::LowerCaseEqualsASCII(element.GetAttribute(kRole).Utf16(),
+  if (base::LowerCaseEqualsASCII(element.GetAttribute(*kRole).Utf16(),
                                  "presentation"))
     field->role = FormFieldData::ROLE_ATTRIBUTE_PRESENTATION;
 
-  field->placeholder = element.GetAttribute(kPlaceholder).Utf16();
-  if (element.HasAttribute(kClass))
-    field->css_classes = element.GetAttribute(kClass).Utf16();
+  field->placeholder = element.GetAttribute(*kPlaceholder).Utf16();
+  if (element.HasAttribute(*kClass))
+    field->css_classes = element.GetAttribute(*kClass).Utf16();
 
-  if (field_value_and_properties_map) {
-    FieldValueAndPropertiesMaskMap::const_iterator it =
-        field_value_and_properties_map->find(
-            element.UniqueRendererFormControlId());
-    if (it != field_value_and_properties_map->end())
-      field->properties_mask = it->second.second;
+  if (field_data_manager &&
+      field_data_manager->HasFieldData(element.UniqueRendererFormControlId())) {
+    field->properties_mask = field_data_manager->GetFieldPropertiesMask(
+        element.UniqueRendererFormControlId());
   }
+
+  field->aria_label = GetAriaLabel(element.GetDocument(), element);
+  field->aria_description = GetAriaDescription(element.GetDocument(), element);
 
   if (!IsAutofillableElement(element))
     return;
@@ -1528,7 +1708,6 @@ void WebFormControlElementToFormField(
     field->text_direction = GetTextDirectionForElement(element);
     field->is_enabled = element.IsEnabled();
     field->is_readonly = element.IsReadOnly();
-    field->is_default = element.GetAttribute("value") == element.Value();
   }
 
   if (IsAutofillableInputElement(input_element)) {
@@ -1576,24 +1755,22 @@ void WebFormControlElementToFormField(
   field->value = value;
 
   // If the field was autofilled or the user typed into it, check the value
-  // stored in |field_value_and_properties_map| against the value property of
-  // the DOM element. If they differ, then the scripts on the website modified
-  // the value afterwards. Store the original value as the |typed_value|, unless
+  // stored in |field_data_manager| against the value property of the DOM
+  // element. If they differ, then the scripts on the website modified the
+  // value afterwards. Store the original value as the |typed_value|, unless
   // this is one of recognised situations when the site-modified value is more
   // useful for filling.
-  if (field_value_and_properties_map &&
+  if (field_data_manager &&
       field->properties_mask & (FieldPropertiesFlags::USER_TYPED |
                                 FieldPropertiesFlags::AUTOFILLED)) {
-    const base::string16 typed_value =
-        *field_value_and_properties_map
-             ->at(element.UniqueRendererFormControlId())
-             .first;
+    const base::string16 typed_value = field_data_manager->GetUserTypedValue(
+        element.UniqueRendererFormControlId());
 
     // The typed value is preserved for all passwords. It is also preserved for
     // potential usernames, as long as the |value| is not deemed acceptable.
     if (field->form_control_type == "password" ||
         !ScriptModifiedUsernameAcceptable(value, typed_value,
-                                          *field_value_and_properties_map)) {
+                                          field_data_manager)) {
       field->typed_value = typed_value;
     }
   }
@@ -1602,7 +1779,7 @@ void WebFormControlElementToFormField(
 bool WebFormElementToFormData(
     const blink::WebFormElement& form_element,
     const blink::WebFormControlElement& form_control_element,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field) {
@@ -1631,7 +1808,7 @@ bool WebFormElementToFormData(
   std::vector<blink::WebElement> dummy_fieldset;
   return FormOrFieldsetsToFormData(
       &form_element, &form_control_element, dummy_fieldset, control_elements,
-      field_value_and_properties_map, extract_mask, form, field);
+      field_data_manager, extract_mask, form, field);
 }
 
 std::vector<WebFormControlElement> GetUnownedFormFieldElements(
@@ -1647,7 +1824,8 @@ std::vector<WebFormControlElement> GetUnownedFormFieldElements(
     }
 
     if (fieldsets && element.HasHTMLTagName("fieldset") &&
-        !IsElementInsideFormOrFieldSet(element)) {
+        !IsElementInsideFormOrFieldSet(element,
+                                       true /* consider_fieldset_tags */)) {
       fieldsets->push_back(element);
     }
   }
@@ -1732,13 +1910,13 @@ bool UnownedCheckoutFormElementsAndFieldSetsToFormData(
 
   // Since it's not a checkout flow, only add fields that have a non-"off"
   // autocomplete attribute to the formless autofill.
-  CR_DEFINE_STATIC_LOCAL(WebString, kOffAttribute, ("off"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kFalseAttribute, ("false"));
+  static base::NoDestructor<WebString> kOffAttribute("off");
+  static base::NoDestructor<WebString> kFalseAttribute("false");
   std::vector<WebFormControlElement> elements_with_autocomplete;
   for (const WebFormControlElement& element : control_elements) {
     blink::WebString autocomplete = element.GetAttribute("autocomplete");
-    if (autocomplete.length() && autocomplete != kOffAttribute &&
-        autocomplete != kFalseAttribute) {
+    if (autocomplete.length() && autocomplete != *kOffAttribute &&
+        autocomplete != *kFalseAttribute) {
       elements_with_autocomplete.push_back(element);
     }
   }
@@ -1765,13 +1943,13 @@ bool UnownedPasswordFormElementsAndFieldSetsToFormData(
     const std::vector<blink::WebFormControlElement>& control_elements,
     const blink::WebFormControlElement* element,
     const blink::WebDocument& document,
-    const FieldValueAndPropertiesMaskMap* field_value_and_properties_map,
+    const FieldDataManager* field_data_manager,
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field) {
   return UnownedFormElementsAndFieldSetsToFormData(
-      fieldsets, control_elements, element, document,
-      field_value_and_properties_map, extract_mask, form, field);
+      fieldsets, control_elements, element, document, field_data_manager,
+      extract_mask, form, field);
 }
 
 
@@ -1928,9 +2106,9 @@ bool IsWebpageEmpty(const blink::WebLocalFrame* frame) {
 }
 
 bool IsWebElementEmpty(const blink::WebElement& root) {
-  CR_DEFINE_STATIC_LOCAL(WebString, kScript, ("script"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kMeta, ("meta"));
-  CR_DEFINE_STATIC_LOCAL(WebString, kTitle, ("title"));
+  static base::NoDestructor<WebString> kScript("script");
+  static base::NoDestructor<WebString> kMeta("meta");
+  static base::NoDestructor<WebString> kTitle("title");
 
   if (root.IsNull())
     return true;
@@ -1945,8 +2123,8 @@ bool IsWebElementEmpty(const blink::WebElement& root) {
       continue;
 
     WebElement element = child.To<WebElement>();
-    if (!element.HasHTMLTagName(kScript) && !element.HasHTMLTagName(kMeta) &&
-        !element.HasHTMLTagName(kTitle))
+    if (!element.HasHTMLTagName(*kScript) && !element.HasHTMLTagName(*kMeta) &&
+        !element.HasHTMLTagName(*kTitle))
       return false;
   }
   return true;
@@ -1983,6 +2161,10 @@ bool InferLabelForElementForTesting(const WebFormControlElement& element,
   return InferLabelForElement(element, stop_words, label, label_source);
 }
 
+ButtonTitleList InferButtonTitlesForTesting(const WebElement& form_element) {
+  return InferButtonTitlesForForm(form_element);
+}
+
 WebFormElement FindFormByUniqueRendererId(WebDocument doc,
                                           uint32_t form_renderer_id) {
   blink::WebVector<WebFormElement> forms;
@@ -1993,6 +2175,23 @@ WebFormElement FindFormByUniqueRendererId(WebDocument doc,
       return form;
   }
   return WebFormElement();
+}
+
+WebFormControlElement FindFormControlElementsByUniqueRendererId(
+    WebDocument doc,
+    uint32_t form_control_renderer_id) {
+  WebElementCollection elements = doc.All();
+
+  for (WebElement element = elements.FirstItem(); !element.IsNull();
+       element = elements.NextItem()) {
+    if (!element.IsFormControlElement())
+      continue;
+    WebFormControlElement control = element.To<WebFormControlElement>();
+    if (form_control_renderer_id == control.UniqueRendererFormControlId())
+      return control;
+  }
+
+  return WebFormControlElement();
 }
 
 std::vector<WebFormControlElement> FindFormControlElementsByUniqueRendererId(
@@ -2045,5 +2244,73 @@ std::vector<WebFormControlElement> FindFormControlElementsByUniqueRendererId(
   return result;
 }
 
+namespace {
+
+// Returns the coalesced child of the elements who's ids are founc in |id_list|.
+//
+// For example, given this document...
+//
+//      <div id="billing">Billing</div>
+//      <div>
+//        <div id="name">Name</div>
+//        <input id="field1" type="text" aria-labelledby="billing name"/>
+//     </div>
+//     <div>
+//       <div id="address">Address</div>
+//       <input id="field2" type="text" aria-labelledby="billing address"/>
+//     </div>
+//
+// The coalesced text by the id_list found in the aria-labelledby attribute
+// of the field1 input element would be "Billing Name" and for field2 it would
+// be "Billing Address".
+base::string16 CoalesceTextByIdList(const WebDocument& document,
+                                    const WebString& id_list) {
+  const base::string16 kSpace = base::ASCIIToUTF16(" ");
+
+  base::string16 text;
+  base::string16 id_list_utf16 = id_list.Utf16();
+  for (const auto& id : base::SplitStringPiece(
+           id_list_utf16, base::kWhitespaceUTF16, base::KEEP_WHITESPACE,
+           base::SPLIT_WANT_NONEMPTY)) {
+    auto node = document.GetElementById(WebString(id.data(), id.length()));
+    if (!node.IsNull()) {
+      base::string16 child_text = FindChildText(node);
+      if (!child_text.empty()) {
+        if (!text.empty())
+          text.append(kSpace);
+        text.append(child_text);
+      }
+    }
+  }
+  base::TrimWhitespace(text, base::TRIM_ALL, &text);
+  return text;
+}
+
+}  // namespace
+
+base::string16 GetAriaLabel(const blink::WebDocument& document,
+                            const WebFormControlElement& element) {
+  static const base::NoDestructor<WebString> kAriaLabelledBy("aria-labelledby");
+  if (element.HasAttribute(*kAriaLabelledBy)) {
+    base::string16 text =
+        CoalesceTextByIdList(document, element.GetAttribute(*kAriaLabelledBy));
+    if (!text.empty())
+      return text;
+  }
+
+  static const base::NoDestructor<WebString> kAriaLabel("aria-label");
+  if (element.HasAttribute(*kAriaLabel))
+    return element.GetAttribute(*kAriaLabel).Utf16();
+
+  return base::string16();
+}
+
+base::string16 GetAriaDescription(const blink::WebDocument& document,
+                                  const WebFormControlElement& element) {
+  static const base::NoDestructor<WebString> kAriaDescribedBy(
+      "aria-describedby");
+  return CoalesceTextByIdList(document,
+                              element.GetAttribute(*kAriaDescribedBy));
+}
 }  // namespace form_util
 }  // namespace autofill

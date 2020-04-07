@@ -54,8 +54,6 @@ const char* GrGLSLTypeString(const GrShaderCaps* shaderCaps, GrSLType t) {
             return "samplerExternalOES";
         case kTexture2DRectSampler_GrSLType:
             return "sampler2DRect";
-        case kBufferSampler_GrSLType:
-            return "samplerBuffer";
         case kBool_GrSLType:
             return "bool";
         case kInt_GrSLType:
@@ -73,14 +71,7 @@ const char* GrGLSLTypeString(const GrShaderCaps* shaderCaps, GrSLType t) {
         case kUShort_GrSLType:
             return "ushort";
         case kUShort2_GrSLType:
-            if (shaderCaps->integerSupport()) {
-                return "ushort2";
-            } else {
-                // uint2 (aka uvec2) isn't supported in GLSL ES 1.00/GLSL 1.20
-                // FIXME: this should be handled by the client code rather than relying on
-                // unconventional ushort2 behavior.
-                return "float2";
-            }
+            return "ushort2";
         case kUShort3_GrSLType:
             return "ushort3";
         case kUShort4_GrSLType:
@@ -101,10 +92,6 @@ const char* GrGLSLTypeString(const GrShaderCaps* shaderCaps, GrSLType t) {
             return "ubyte3";
         case kUByte4_GrSLType:
             return "ubyte4";
-        case kTexture2D_GrSLType:
-            return "texture2D";
-        case kSampler_GrSLType:
-            return "sampler";
     }
     SK_ABORT("Unknown shader var type.");
     return ""; // suppress warning

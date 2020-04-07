@@ -365,7 +365,8 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
       return 1;
     if (aRequest.cached() && !bRequest.cached())
       return -1;
-    return (aRequest.transferSize - bRequest.transferSize) || aRequest.indentityCompare(bRequest);
+    return (aRequest.transferSize - bRequest.transferSize) || (aRequest.resourceSize - bRequest.resourceSize) ||
+        aRequest.indentityCompare(bRequest);
   }
 
   /**
@@ -546,7 +547,7 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
   showingInitiatorChainChanged() {
     const showInitiatorChain = this.showingInitiatorChain();
 
-    const initiatorGraph = BrowserSDK.networkLog.initiatorGraphForRequest(this._request);
+    const initiatorGraph = SDK.networkLog.initiatorGraphForRequest(this._request);
     for (const request of initiatorGraph.initiators) {
       if (request === this._request)
         continue;
@@ -636,7 +637,7 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
    * @return {boolean}
    */
   isNavigationRequest() {
-    const pageLoad = BrowserSDK.PageLoad.forRequest(this._request);
+    const pageLoad = SDK.NetworkLog.PageLoad.forRequest(this._request);
     return pageLoad ? pageLoad.mainRequest === this._request : false;
   }
 
@@ -780,7 +781,8 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
    * @return {boolean}
    */
   _isFailed() {
-    return (this._request.failed && !this._request.statusCode) || (this._request.statusCode >= 400);
+    return (this._request.failed && !this._request.statusCode) || (this._request.statusCode >= 400) ||
+        (!!this._request.signedExchangeInfo() && !!this._request.signedExchangeInfo().errors);
   }
 
   /**
@@ -882,7 +884,7 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
   _renderInitiatorCell(cell) {
     this._initiatorCell = cell;
     const request = this._request;
-    const initiator = BrowserSDK.networkLog.initiatorInfoForRequest(request);
+    const initiator = SDK.networkLog.initiatorInfoForRequest(request);
 
     const timing = request.timing;
     if (timing && timing.pushStart)
@@ -951,17 +953,19 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
    * @param {!Element} cell
    */
   _renderSizeCell(cell) {
-    if (this._request.fetchedViaServiceWorker) {
+    if (this._request.cachedInMemory()) {
+      this._setTextAndTitle(cell, Common.UIString('(from memory cache)'));
+      cell.classList.add('network-dim-cell');
+    } else if (this._request.fetchedViaServiceWorker) {
       this._setTextAndTitle(cell, Common.UIString('(from ServiceWorker)'));
       cell.classList.add('network-dim-cell');
-    } else if (this._request.redirectSource() && this._request.redirectSource().signedExchangeInfo()) {
+    } else if (
+        this._request.redirectSource() && this._request.redirectSource().signedExchangeInfo() &&
+        !this._request.redirectSource().signedExchangeInfo().errors) {
       this._setTextAndTitle(cell, Common.UIString('(from signed-exchange)'));
       cell.classList.add('network-dim-cell');
     } else if (this._request.cached()) {
-      if (this._request.cachedInMemory())
-        this._setTextAndTitle(cell, Common.UIString('(from memory cache)'));
-      else
-        this._setTextAndTitle(cell, Common.UIString('(from disk cache)'));
+      this._setTextAndTitle(cell, Common.UIString('(from disk cache)'));
       cell.classList.add('network-dim-cell');
     } else {
       const resourceSize = Number.bytesToString(this._request.resourceSize);

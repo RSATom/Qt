@@ -37,9 +37,9 @@ jumbo_component("touch_selection") {
     "//ui/gfx/geometry",
   ]
 
-  if (use_aura) {
+  if (use_aura && toolkit_views) {
     deps += [
-      "//services/ui/public/interfaces",
+      "//services/ws/public/mojom",
       "//skia:skia",
       "//ui/aura",
       "//ui/aura_extra",
@@ -91,7 +91,7 @@ test("ui_touch_selection_unittests") {
   ]
 
   data_deps = [
-    "//third_party/mesa:osmesa",
+    "//third_party/mesa_headers",
   ]
 }
 

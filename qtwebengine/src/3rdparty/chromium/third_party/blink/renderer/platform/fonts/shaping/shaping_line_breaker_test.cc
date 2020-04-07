@@ -10,8 +10,8 @@
 #include "third_party/blink/renderer/platform/fonts/font.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
 #include "third_party/blink/renderer/platform/fonts/font_test_utilities.h"
-#include "third_party/blink/renderer/platform/fonts/shaping/shape_result_inline_headers.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_test_info.h"
+#include "third_party/blink/renderer/platform/fonts/shaping/shape_result_view.h"
 #include "third_party/blink/renderer/platform/text/text_break_iterator.h"
 #include "third_party/blink/renderer/platform/text/text_run.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -20,12 +20,26 @@ namespace blink {
 
 namespace {
 
-scoped_refptr<const ShapeResult> ShapeLine(ShapingLineBreaker* breaker,
-                                           unsigned start_offset,
-                                           LayoutUnit available_space,
-                                           unsigned* break_offset) {
+struct HarfBuzzShaperCallbackContext {
+  const HarfBuzzShaper* shaper;
+  const Font* font;
+  TextDirection direction;
+};
+
+scoped_refptr<ShapeResult> HarfBuzzShaperCallback(void* untyped_context,
+                                                  unsigned start,
+                                                  unsigned end) {
+  HarfBuzzShaperCallbackContext* context =
+      static_cast<HarfBuzzShaperCallbackContext*>(untyped_context);
+  return context->shaper->Shape(context->font, context->direction, start, end);
+}
+
+scoped_refptr<const ShapeResultView> ShapeLine(ShapingLineBreaker* breaker,
+                                               unsigned start_offset,
+                                               LayoutUnit available_space,
+                                               unsigned* break_offset) {
   ShapingLineBreaker::Result result;
-  scoped_refptr<const ShapeResult> shape_result =
+  scoped_refptr<const ShapeResultView> shape_result =
       breaker->ShapeLine(start_offset, available_space, &result);
   *break_offset = result.break_offset;
   return shape_result;
@@ -48,7 +62,8 @@ class ShapingLineBreakerTest : public testing::Test {
                                         const String& string) {
     Vector<unsigned> break_positions;
     for (unsigned i = 0; i <= string.length(); i++) {
-      unsigned next = breaker.NextBreakOpportunity(i, 0).offset;
+      unsigned next =
+          breaker.NextBreakOpportunity(i, 0, string.length()).offset;
       if (break_positions.IsEmpty() || break_positions.back() != next)
         break_positions.push_back(next);
     }
@@ -108,8 +123,10 @@ TEST_F(ShapingLineBreakerTest, ShapeLineLatin) {
       shaper.Shape(&font, direction, 0, 4);
   ASSERT_LT(first1->SnappedWidth(), first2->SnappedWidth());
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
-  scoped_refptr<const ShapeResult> line;
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
+  scoped_refptr<const ShapeResultView> line;
   unsigned break_offset = 0;
 
   // Test the case where the entire string fits.
@@ -167,7 +184,9 @@ TEST_F(ShapingLineBreakerTest, ShapeLineLatinMultiLine) {
   scoped_refptr<const ShapeResult> mid_third =
       shaper.Shape(&font, direction, 0, 16);
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
   unsigned break_offset = 0;
 
   ShapeLine(&breaker, 0, result->SnappedWidth() - 1, &break_offset);
@@ -194,8 +213,10 @@ TEST_F(ShapingLineBreakerTest, ShapeLineLatinBreakAll) {
   scoped_refptr<const ShapeResult> midpoint =
       shaper.Shape(&font, direction, 0, 16);
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
-  scoped_refptr<const ShapeResult> line;
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
+  scoped_refptr<const ShapeResultView> line;
   unsigned break_offset = 0;
 
   line = ShapeLine(&breaker, 0, midpoint->SnappedWidth(), &break_offset);
@@ -215,8 +236,10 @@ TEST_F(ShapingLineBreakerTest, ShapeLineZeroAvailableWidth) {
   HarfBuzzShaper shaper(string);
   scoped_refptr<const ShapeResult> result = shaper.Shape(&font, direction);
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
-  scoped_refptr<const ShapeResult> line;
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
+  scoped_refptr<const ShapeResultView> line;
   unsigned break_offset = 0;
   LayoutUnit zero(0);
 
@@ -258,7 +281,9 @@ TEST_F(ShapingLineBreakerTest, DISABLED_ShapeLineArabicThaiHanLatin) {
                        });
   LayoutUnit longest_word_width = (*longest_word)->SnappedWidth();
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
   scoped_refptr<const ShapeResult> line;
   unsigned break_offset = 0;
 
@@ -287,8 +312,10 @@ TEST_F(ShapingLineBreakerTest, ShapeLineRangeEndMidWord) {
   scoped_refptr<const ShapeResult> result =
       shaper.Shape(&font, direction, 0, 2);
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
-  scoped_refptr<const ShapeResult> line;
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
+  scoped_refptr<const ShapeResultView> line;
   unsigned break_offset = 0;
 
   line = ShapeLine(&breaker, 0, LayoutUnit::Max(), &break_offset);
@@ -324,7 +351,9 @@ TEST_P(BreakOpportunityTest, Next) {
   scoped_refptr<const ShapeResult> result =
       shaper.Shape(&font, TextDirection::kLtr);
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
   EXPECT_THAT(BreakPositionsByNext(breaker, string),
               testing::ElementsAreArray(data.break_positions));
 
@@ -344,7 +373,9 @@ TEST_P(BreakOpportunityTest, Previous) {
   scoped_refptr<const ShapeResult> result =
       shaper.Shape(&font, TextDirection::kLtr);
 
-  ShapingLineBreaker breaker(&shaper, &font, result.get(), &break_iterator);
+  HarfBuzzShaperCallbackContext context{&shaper, &font, result->Direction()};
+  ShapingLineBreaker breaker(result, &break_iterator, nullptr,
+                             HarfBuzzShaperCallback, &context);
   EXPECT_THAT(BreakPositionsByPrevious(breaker, string),
               testing::ElementsAreArray(data.break_positions));
 

@@ -421,7 +421,7 @@ String KURL::GetPath() const {
 
 bool KURL::SetProtocol(const String& protocol) {
   // Firefox and IE remove everything after the first ':'.
-  int separator_position = protocol.find(':');
+  wtf_size_t separator_position = protocol.find(':');
   String new_protocol = protocol.Substring(0, separator_position);
   StringUTF8Adaptor new_protocol_utf8(new_protocol);
 
@@ -477,7 +477,7 @@ static String ParsePortFromStringPosition(const String& value,
 }
 
 void KURL::SetHostAndPort(const String& host_and_port) {
-  size_t separator = host_and_port.find(':');
+  wtf_size_t separator = host_and_port.find(':');
   if (!separator)
     return;
 
@@ -619,21 +619,18 @@ void KURL::SetPath(const String& path) {
   ReplaceComponents(replacements);
 }
 
-String DecodeURLEscapeSequences(const String& string,
-                                DecodeURLResult* optional_result) {
+String DecodeURLEscapeSequences(const String& string, DecodeURLMode mode) {
   StringUTF8Adaptor string_utf8(string);
   url::RawCanonOutputT<base::char16> unescaped;
-  DecodeURLResult result = url::DecodeURLEscapeSequences(
-      string_utf8.Data(), string_utf8.length(), &unescaped);
-  if (optional_result)
-    *optional_result = result;
+  url::DecodeURLEscapeSequences(string_utf8.Data(), string_utf8.length(), mode,
+                                &unescaped);
   return StringImpl::Create8BitIfPossible(
       reinterpret_cast<UChar*>(unescaped.data()), unescaped.length());
 }
 
 String EncodeWithURLEscapeSequences(const String& not_encoded_string) {
-  CString utf8 = UTF8Encoding().Encode(not_encoded_string,
-                                       WTF::kURLEncodedEntitiesForUnencodables);
+  CString utf8 =
+      UTF8Encoding().Encode(not_encoded_string, WTF::kNoUnencodables);
 
   url::RawCanonOutputT<char> buffer;
   int input_length = utf8.length();
@@ -874,7 +871,31 @@ bool KURL::IsSafeToSendToAnotherThread() const {
 }
 
 KURL::operator GURL() const {
-  return GURL(string_.Utf8().data(), parsed_, is_valid_);
+  StringUTF8Adaptor utf8(string_);
+  return GURL(utf8.Data(), utf8.length(), parsed_, is_valid_);
+}
+bool operator==(const KURL& a, const KURL& b) {
+  return a.GetString() == b.GetString();
+}
+
+bool operator==(const KURL& a, const String& b) {
+  return a.GetString() == b;
+}
+
+bool operator==(const String& a, const KURL& b) {
+  return a == b.GetString();
+}
+
+bool operator!=(const KURL& a, const KURL& b) {
+  return a.GetString() != b.GetString();
+}
+
+bool operator!=(const KURL& a, const String& b) {
+  return a.GetString() != b;
+}
+
+bool operator!=(const String& a, const KURL& b) {
+  return a != b.GetString();
 }
 
 }  // namespace blink

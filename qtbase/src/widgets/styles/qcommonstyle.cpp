@@ -100,6 +100,9 @@
 #if QT_CONFIG(wizard)
 #include <qwizard.h>
 #endif
+#if QT_CONFIG(filedialog)
+#include <qsidebar_p.h>
+#endif
 #include <qfileinfo.h>
 #include <qdir.h>
 #if QT_CONFIG(settings)
@@ -191,12 +194,12 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
                         opt->state & (State_Sunken | State_On), 1,
                         &opt->palette.brush(QPalette::Button));
         break;
-    case PE_IndicatorViewItemCheck:
+    case PE_IndicatorItemViewItemCheck:
         proxy()->drawPrimitive(PE_IndicatorCheckBox, opt, p, widget);
         break;
     case PE_IndicatorCheckBox:
         if (opt->state & State_NoChange) {
-            p->setPen(opt->palette.foreground().color());
+            p->setPen(opt->palette.windowText().color());
             p->fillRect(opt->rect, opt->palette.brush(QPalette::Button));
             p->drawRect(opt->rect);
             p->drawLine(opt->rect.topLeft(), opt->rect.bottomRight());
@@ -212,7 +215,7 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
         p->drawArc(opt->rect, 0, 5760);
         if (opt->state & (State_Sunken | State_On)) {
             ir.adjust(2, 2, -2, -2);
-            p->setBrush(opt->palette.foreground());
+            p->setBrush(opt->palette.windowText());
             bool oldQt4CompatiblePainting = p->testRenderHint(QPainter::Qt4CompatiblePainting);
             p->setRenderHint(QPainter::Qt4CompatiblePainting);
             p->drawEllipse(ir);
@@ -231,7 +234,7 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
                 else
                     p->setPen(Qt::white);
             } else {
-                p->setPen(opt->palette.foreground().color());
+                p->setPen(opt->palette.windowText().color());
             }
             QRect focusRect = opt->rect.adjusted(1, 1, -1, -1);
             p->drawRect(focusRect.adjusted(0, 0, -1, -1)); //draw pen inclusive
@@ -278,7 +281,7 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
                 qDrawShadePanel(p, frame->rect, frame->palette, frame->state & State_Sunken,
                                 frame->lineWidth);
             } else {
-                qDrawPlainRect(p, frame->rect, frame->palette.foreground().color(), frame->lineWidth);
+                qDrawPlainRect(p, frame->rect, frame->palette.windowText().color(), frame->lineWidth);
             }
         }
         break;
@@ -615,7 +618,7 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
             }
 
             p->setPen(QPen(tab->palette.dark(), qreal(.8)));
-            p->setBrush(tab->palette.background());
+            p->setBrush(tab->palette.window());
             p->setRenderHint(QPainter::Antialiasing);
             p->drawPath(path);
         }
@@ -748,7 +751,7 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
             QString pixmapName = QStyleHelper::uniqueName(QLatin1String("$qt_ia-")
                                                           % QLatin1String(metaObject()->className()), opt, QSize(size, size))
                                  % HexString<uint>(pe);
-            if (!QPixmapCache::find(pixmapName, pixmap)) {
+            if (!QPixmapCache::find(pixmapName, &pixmap)) {
                 qreal pixelRatio = p->device()->devicePixelRatioF();
                 int border = qRound(pixelRatio*(size/5));
                 int sqsize = qRound(pixelRatio*(2*(size/2)));
@@ -1249,8 +1252,9 @@ void QCommonStylePrivate::tabLayout(const QStyleOptionTab *opt, const QWidget *w
         // High-dpi icons do not need adjustment; make sure tabIconSize is not larger than iconSize
         tabIconSize = QSize(qMin(tabIconSize.width(), iconSize.width()), qMin(tabIconSize.height(), iconSize.height()));
 
-        *iconRect = QRect(tr.left(), tr.center().y() - tabIconSize.height() / 2,
-                    tabIconSize.width(), tabIconSize.height());
+        const int offsetX = (iconSize.width() - tabIconSize.width()) / 2;
+        *iconRect = QRect(tr.left() + offsetX, tr.center().y() - tabIconSize.height() / 2,
+                          tabIconSize.width(), tabIconSize.height());
         if (!verticalTabs)
             *iconRect = proxyStyle->visualRect(opt->direction, opt->rect, *iconRect);
         tr.setLeft(tr.left() + tabIconSize.width() + 4);
@@ -1565,7 +1569,7 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
 
             QPalette pal2 = pb->palette;
             // Correct the highlight color if it is the same as the background
-            if (pal2.highlight() == pal2.background())
+            if (pal2.highlight() == pal2.window())
                 pal2.setColor(QPalette::Highlight, pb->palette.color(QPalette::Active,
                                                                      QPalette::Highlight));
             bool reverse = ((!vertical && (pb->direction == Qt::RightToLeft)) || vertical);
@@ -1853,14 +1857,14 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
                 }
             }
 
-            p->setPen(QPen(tab->palette.foreground(), 0));
+            p->setPen(QPen(tab->palette.windowText(), 0));
             if (selected) {
                 p->setBrush(tab->palette.base());
             } else {
                 if (widget && widget->parentWidget())
-                    p->setBrush(widget->parentWidget()->palette().background());
+                    p->setBrush(widget->parentWidget()->palette().window());
                 else
-                    p->setBrush(tab->palette.background());
+                    p->setBrush(tab->palette.window());
             }
 
             int y;
@@ -2157,7 +2161,7 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
 
                 const int indent = p->fontMetrics().descent();
                 proxy()->drawItemText(p, r.adjusted(indent + 1, 1, -indent - 1, -1),
-                              Qt::AlignLeft | Qt::AlignVCenter | Qt::TextShowMnemonic, dwOpt->palette,
+                              Qt::AlignLeft | Qt::AlignVCenter, dwOpt->palette,
                               dwOpt->state & State_Enabled, dwOpt->title,
                               QPalette::WindowText);
 
@@ -2184,7 +2188,7 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
         }
         break;
     case CE_FocusFrame:
-            p->fillRect(opt->rect, opt->palette.foreground());
+            p->fillRect(opt->rect, opt->palette.windowText());
         break;
     case CE_HeaderSection:
             qDrawShadePanel(p, opt->rect, opt->palette,
@@ -2192,7 +2196,7 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
                         &opt->palette.brush(QPalette::Button));
         break;
     case CE_HeaderEmptyArea:
-            p->fillRect(opt->rect, opt->palette.background());
+            p->fillRect(opt->rect, opt->palette.window());
         break;
 #if QT_CONFIG(combobox)
     case CE_ComboBoxLabel:
@@ -2296,7 +2300,7 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
                     option.state |= QStyle::State_On;
                     break;
                 }
-                proxy()->drawPrimitive(QStyle::PE_IndicatorViewItemCheck, &option, p, widget);
+                proxy()->drawPrimitive(QStyle::PE_IndicatorItemViewItemCheck, &option, p, widget);
             }
 
             // draw the icon
@@ -3137,7 +3141,7 @@ QRect QCommonStyle::subElementRect(SubElement sr, const QStyleOption *opt,
                 }
                 d->cachedOption = new QStyleOptionViewItem(*vopt);
             }
-            if (sr == SE_ViewItemCheckIndicator)
+            if (sr == SE_ItemViewItemCheckIndicator)
                 r = d->checkRect;
             else if (sr == SE_ItemViewItemDecoration)
                 r = d->decorationRect;
@@ -3153,13 +3157,17 @@ QRect QCommonStyle::subElementRect(SubElement sr, const QStyleOption *opt,
                 ///we need to access the widget here because the style option doesn't
                 //have all the information we need (ie. the layout's margin)
                 const QToolBar *tb = qobject_cast<const QToolBar*>(widget);
-                const int margin = tb && tb->layout() ? tb->layout()->margin() : 2;
+                const QMargins margins = tb && tb->layout() ? tb->layout()->contentsMargins() : QMargins(2, 2, 2, 2);
                 const int handleExtent = proxy()->pixelMetric(QStyle::PM_ToolBarHandleExtent, opt, tb);
                 if (tbopt->state & QStyle::State_Horizontal) {
-                    r = QRect(margin, margin, handleExtent, tbopt->rect.height() - 2*margin);
+                    r = QRect(margins.left(), margins.top(),
+                              handleExtent,
+                              tbopt->rect.height() - (margins.top() + margins.bottom()));
                     r = QStyle::visualRect(tbopt->direction, tbopt->rect, r);
                 } else {
-                    r = QRect(margin, margin, tbopt->rect.width() - 2*margin, handleExtent);
+                    r = QRect(margins.left(), margins.top(),
+                              tbopt->rect.width() - (margins.left() + margins.right()),
+                              handleExtent);
                 }
             }
         }
@@ -3256,7 +3264,7 @@ void QCommonStyle::drawComplexControl(ComplexControl cc, const QStyleOptionCompl
                 // Since there is no subrect for tickmarks do a translation here.
                 p->save();
                 p->translate(slider->rect.x(), slider->rect.y());
-                p->setPen(slider->palette.foreground().color());
+                p->setPen(slider->palette.windowText().color());
                 int v = slider->minimum;
                 while (v <= slider->maximum + 1) {
                     if (v == slider->maximum + 1 && interval == 1)
@@ -3702,7 +3710,7 @@ void QCommonStyle::drawComplexControl(ComplexControl cc, const QStyleOptionCompl
             QPalette pal = opt->palette;
             // draw notches
             if (dial->subControls & QStyle::SC_DialTickmarks) {
-                p->setPen(pal.foreground().color());
+                p->setPen(pal.windowText().color());
                 p->drawLines(QStyleHelper::calcLines(dial));
             }
 
@@ -4359,8 +4367,10 @@ QRect QCommonStyle::subControlRect(ComplexControl cc, const QStyleOptionComplex 
                 int topMargin = 0;
                 int topHeight = 0;
                 int verticalAlignment = proxy()->styleHint(SH_GroupBox_TextLabelVerticalAlignment, groupBox, widget);
-                if (groupBox->text.size() || (groupBox->subControls & QStyle::SC_GroupBoxCheckBox)) {
-                    topHeight = groupBox->fontMetrics.height();
+                bool hasCheckBox = groupBox->subControls & QStyle::SC_GroupBoxCheckBox;
+                if (groupBox->text.size() || hasCheckBox) {
+                    int checkBoxHeight = hasCheckBox ? proxy()->pixelMetric(PM_IndicatorHeight, groupBox, widget) : 0;
+                    topHeight = qMax(groupBox->fontMetrics.height(), checkBoxHeight);
                     if (verticalAlignment & Qt::AlignVCenter)
                         topMargin = topHeight / 2;
                     else if (verticalAlignment & Qt::AlignTop)
@@ -4385,20 +4395,24 @@ QRect QCommonStyle::subControlRect(ComplexControl cc, const QStyleOptionComplex 
             case SC_GroupBoxCheckBox:
             case SC_GroupBoxLabel: {
                 QFontMetrics fontMetrics = groupBox->fontMetrics;
-                int h = fontMetrics.height();
+                int th = fontMetrics.height();
                 int tw = fontMetrics.size(Qt::TextShowMnemonic, groupBox->text + QLatin1Char(' ')).width();
                 int marg = (groupBox->features & QStyleOptionFrame::Flat) ? 0 : 8;
                 ret = groupBox->rect.adjusted(marg, 0, -marg, 0);
-                ret.setHeight(h);
 
                 int indicatorWidth = proxy()->pixelMetric(PM_IndicatorWidth, opt, widget);
+                int indicatorHeight = proxy()->pixelMetric(PM_IndicatorHeight, opt, widget);
                 int indicatorSpace = proxy()->pixelMetric(PM_CheckBoxLabelSpacing, opt, widget) - 1;
                 bool hasCheckBox = groupBox->subControls & QStyle::SC_GroupBoxCheckBox;
-                int checkBoxSize = hasCheckBox ? (indicatorWidth + indicatorSpace) : 0;
+                int checkBoxWidth = hasCheckBox ? (indicatorWidth + indicatorSpace) : 0;
+                int checkBoxHeight = hasCheckBox ? indicatorHeight : 0;
+
+                int h = qMax(th, checkBoxHeight);
+                ret.setHeight(h);
 
                 // Adjusted rect for label + indicatorWidth + indicatorSpace
                 QRect totalRect = alignedRect(groupBox->direction, groupBox->textAlignment,
-                                              QSize(tw + checkBoxSize, h), ret);
+                                              QSize(tw + checkBoxWidth, h), ret);
 
                 // Adjust totalRect if checkbox is set
                 if (hasCheckBox) {
@@ -4406,15 +4420,14 @@ QRect QCommonStyle::subControlRect(ComplexControl cc, const QStyleOptionComplex 
                     int left = 0;
                     // Adjust for check box
                     if (sc == SC_GroupBoxCheckBox) {
-                        int indicatorHeight = proxy()->pixelMetric(PM_IndicatorHeight, opt, widget);
                         left = ltr ? totalRect.left() : (totalRect.right() - indicatorWidth);
-                        int top = totalRect.top() + qMax(0, fontMetrics.height() - indicatorHeight) / 2;
+                        int top = totalRect.top() + (h - checkBoxHeight) / 2;
                         totalRect.setRect(left, top, indicatorWidth, indicatorHeight);
                     // Adjust for label
                     } else {
-                        left = ltr ? (totalRect.left() + checkBoxSize - 2) : totalRect.left();
-                        totalRect.setRect(left, totalRect.top(),
-                                          totalRect.width() - checkBoxSize, totalRect.height());
+                        left = ltr ? (totalRect.left() + checkBoxWidth - 2) : totalRect.left();
+                        int top = totalRect.top() + (h - th) / 2;
+                        totalRect.setRect(left, top, totalRect.width() - checkBoxWidth, th);
                     }
                 }
                 ret = totalRect;
@@ -4790,8 +4803,15 @@ int QCommonStyle::pixelMetric(PixelMetric m, const QStyleOption *opt, const QWid
         break;
 
     case PM_TabBarIconSize:
-    case PM_ListViewIconSize:
         ret = proxy()->pixelMetric(PM_SmallIconSize, opt, widget);
+        break;
+    case PM_ListViewIconSize:
+#if QT_CONFIG(filedialog)
+        if (qobject_cast<const QSidebar *>(widget))
+            ret = int(QStyleHelper::dpiScaled(24.));
+        else
+#endif
+            ret = proxy()->pixelMetric(PM_SmallIconSize, opt, widget);
         break;
 
     case PM_ButtonIconSize:
@@ -4972,8 +4992,8 @@ QSize QCommonStyle::sizeFromContents(ContentsType ct, const QStyleOption *opt,
         break;
 #if QT_CONFIG(groupbox)
     case CT_GroupBox:
-        if (const QGroupBox *grb = static_cast<const QGroupBox *>(widget))
-            sz += QSize(!grb->isFlat() ? 16 : 0, 0);
+        if (const QStyleOptionGroupBox *styleOpt = qstyleoption_cast<const QStyleOptionGroupBox *>(opt))
+            sz += QSize(styleOpt->features.testFlag(QStyleOptionFrame::Flat) ? 0 : 16, 0);
         break;
 #endif // QT_CONFIG(groupbox)
     case CT_MdiControls:
@@ -5009,7 +5029,8 @@ QSize QCommonStyle::sizeFromContents(ContentsType ct, const QStyleOption *opt,
     case CT_SpinBox:
         if (const QStyleOptionSpinBox *vopt = qstyleoption_cast<const QStyleOptionSpinBox *>(opt)) {
             // Add button + frame widths
-            const int buttonWidth = (vopt->subControls & (QStyle::SC_SpinBoxUp | QStyle::SC_SpinBoxDown)) != 0 ? 20 : 0;
+            const bool hasButtons = (vopt->buttonSymbols != QAbstractSpinBox::NoButtons);
+            const int buttonWidth = hasButtons ? proxy()->subControlRect(CC_SpinBox, vopt, SC_SpinBoxUp, widget).width() : 0;
             const int fw = vopt->frame ? proxy()->pixelMetric(PM_SpinBoxFrameWidth, vopt, widget) : 0;
             sz += QSize(buttonWidth + 2*fw, 2*fw);
         }

@@ -38,6 +38,9 @@ enum ErrorType {
   ERROR_DBUS_PARSE_FAILED = 50;
   ERROR_COPY_PENDING = 51;
   ERROR_COPY_FAILED = 52;
+  ERROR_SMB1_UNSUPPORTED = 53;
+  ERROR_OPERATION_PENDING = 54;
+  ERROR_OPERATION_FAILED = 55;
 }
 
 message DirectoryEntryProto {
@@ -61,6 +64,15 @@ message MountOptionsProto {
   // Authentication parameters.
   optional string workgroup = 2;
   optional string username = 3;
+
+  // Mount options set by the client.
+  optional MountConfigProto mount_config = 4;
+}
+
+message MountConfigProto {
+  // Boolean indication whether or not to enable NTLM protocol. False
+  // disables the NTLM protocol.
+  optional bool enable_ntlm = 1;
 }
 
 // Used for passing inputs into SmbProvider.Unmount().
@@ -224,9 +236,31 @@ message RemountOptionsProto {
   // Authentication parameters.
   optional string workgroup = 3;
   optional string username = 4;
+
+  // Mount options set by the client.
+  optional MountConfigProto mount_config = 5;
 }
 
 // Used for returning a list of hostnames from a parsed NetBios response packet.
 message HostnamesProto {
   repeated string hostnames = 1;
+}
+
+// Used for passing inputs into Smbprovider.UpdateMountCredentials().
+message UpdateMountCredentialsOptionsProto {
+  // Mount ID of the mount to be updated.
+  optional int32 mount_id = 1;
+  // Updated workgroup.
+  optional string workgroup = 2;
+  // Updated username.
+  optional string username = 3;
+}
+
+// Used for passing inputs into Smbprovider.Premount().
+message PremountOptionsProto {
+  // Share path URL of the mount.
+  optional string path = 1;
+
+  // Mount options set by the client.
+  optional MountConfigProto mount_config = 2;
 }

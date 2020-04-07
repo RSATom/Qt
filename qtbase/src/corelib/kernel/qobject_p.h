@@ -407,7 +407,7 @@ private:
 
 class QBoolBlocker
 {
-    Q_DISABLE_COPY(QBoolBlocker)
+    Q_DISABLE_COPY_MOVE(QBoolBlocker)
 public:
     explicit inline QBoolBlocker(bool &b, bool value=true):block(b), reset(b){block = value;}
     inline ~QBoolBlocker(){block = reset; }
@@ -432,9 +432,9 @@ struct Q_CORE_EXPORT QAbstractDynamicMetaObject : public QDynamicMetaObjectData,
 {
     ~QAbstractDynamicMetaObject();
 
-    virtual QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *) override { return this; }
+    QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *) override { return this; }
     virtual int createProperty(const char *, const char *) { return -1; }
-    virtual int metaCall(QObject *, QMetaObject::Call c, int _id, void **a) override
+    int metaCall(QObject *, QMetaObject::Call c, int _id, void **a) override
     { return metaCall(c, _id, a); }
     virtual int metaCall(QMetaObject::Call, int _id, void **) { return _id; } // Compat overload
 };

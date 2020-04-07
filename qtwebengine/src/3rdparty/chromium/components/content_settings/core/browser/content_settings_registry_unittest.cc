@@ -150,13 +150,10 @@ TEST_F(ContentSettingsRegistryTest, Inheritance) {
                 ContentSettingsInfo::INHERIT_IN_INCOGNITO);
       continue;
     }
-    ContentSettingsType type = info->website_settings_info()->type();
     if (info->incognito_behavior() ==
             ContentSettingsInfo::INHERIT_IN_INCOGNITO &&
-        std::find(std::begin(whitelist), std::end(whitelist), type) ==
-            std::end(whitelist)) {
+        !base::ContainsValue(whitelist, info->website_settings_info()->type()))
       FAIL() << "Content setting not whitelisted.";
-    }
   }
 }
 
@@ -173,7 +170,7 @@ TEST_F(ContentSettingsRegistryTest, IsDefaultSettingValid) {
   EXPECT_FALSE(info->IsDefaultSettingValid(CONTENT_SETTING_ALLOW));
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS)
   info = registry()->Get(CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER);
   EXPECT_FALSE(info->IsDefaultSettingValid(CONTENT_SETTING_ALLOW));
 #endif

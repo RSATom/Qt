@@ -377,7 +377,6 @@ Example
   action("myscript") {
     # Pass the output dir to the script.
     args = [ "-o", rebase_path(target_out_dir, root_build_dir) ]"
-
   }
 )";
 
@@ -517,7 +516,7 @@ const char kArgs[] = "args";
 const char kArgs_HelpShort[] =
     "args: [string list] Arguments passed to an action.";
 const char kArgs_Help[] =
-    R"(args: Arguments passed to an action.
+    R"(args: (target variable) Arguments passed to an action.
 
   For action and action_foreach targets, args is the list of arguments to pass
   to the script. Typically you would use source expansion (see "gn help
@@ -593,7 +592,6 @@ Example
     bundle_contents_dir = "${bundle_root_dir}/Contents"
     bundle_resources_dir = "${bundle_contents_dir}/Resources"
     bundle_executable_dir = "${bundle_contents_dir}/MacOS"
-    bundle_plugins_dir = "${bundle_contents_dir}/PlugIns"
   }
 )";
 
@@ -619,8 +617,10 @@ const char kBundleResourcesDir_HelpShort[] =
     "bundle_resources_dir: "
     "Expansion of {{bundle_resources_dir}} in create_bundle.";
 const char kBundleResourcesDir_Help[] =
-    R"(bundle_resources_dir: Expansion of {{bundle_resources_dir}} in
-                             create_bundle.
+    R"(bundle_resources_dir
+
+  bundle_resources_dir: Expansion of {{bundle_resources_dir}} in
+                        create_bundle.
 
   A string corresponding to a path in $root_build_dir.
 
@@ -669,30 +669,16 @@ const char kBundleExecutableDir_HelpShort[] =
     "bundle_executable_dir: "
     "Expansion of {{bundle_executable_dir}} in create_bundle";
 const char kBundleExecutableDir_Help[] =
-    R"(bundle_executable_dir: Expansion of {{bundle_executable_dir}} in
-                              create_bundle.
+    R"(bundle_executable_dir
+
+  bundle_executable_dir: Expansion of {{bundle_executable_dir}} in
+                         create_bundle.
 
   A string corresponding to a path in $root_build_dir.
 
   This string is used by the "create_bundle" target to expand the
   {{bundle_executable_dir}} of the "bundle_data" target it depends on. This
   must correspond to a path under "bundle_root_dir".
-
-  See "gn help bundle_root_dir" for examples.
-)";
-
-const char kBundlePlugInsDir[] = "bundle_plugins_dir";
-const char kBundlePlugInsDir_HelpShort[] =
-    "bundle_plugins_dir: "
-    "Expansion of {{bundle_plugins_dir}} in create_bundle.";
-const char kBundlePlugInsDir_Help[] =
-    R"(bundle_plugins_dir: Expansion of {{bundle_plugins_dir}} in create_bundle.
-
-  A string corresponding to a path in $root_build_dir.
-
-  This string is used by the "create_bundle" target to expand the
-  {{bundle_plugins_dir}} of the "bundle_data" target it depends on. This must
-  correspond to a path under "bundle_root_dir".
 
   See "gn help bundle_root_dir" for examples.
 )";
@@ -999,6 +985,19 @@ Example
     deps = [ "//base" ]
     data_deps = [ "//plugins:my_runtime_plugin" ]
   }
+)";
+
+const char kDataKeys[] = "data_keys";
+const char kDataKeys_HelpShort[] =
+    "data_keys: [string list] Keys from which to collect metadata.";
+const char kDataKeys_Help[] =
+    R"(data_keys: Keys from which to collect metadata.
+
+  These keys are used to identify metadata to collect. If a walked target
+  defines this key in its metadata, its value will be appended to the resulting
+  collection.
+
+  See "gn help generated_file".
 )";
 
 const char kDefines[] = "defines";
@@ -1336,6 +1335,32 @@ Examples
 
   On Linux:
     libs = [ "ld" ]
+)";
+
+const char kMetadata[] = "metadata";
+const char kMetadata_HelpShort[] = "metadata: [scope] Metadata of this target.";
+const char kMetadata_Help[] =
+    R"(metadata: Metadata of this target.
+
+  Metadata is a collection of keys and values relating to a particular target.
+  Values must be lists, allowing for sane and predictable collection behavior.
+  Generally, these keys will include three types of lists: lists of ordinary
+  strings, lists of filenames intended to be rebased according to their
+  particular source directory, and lists of target labels intended to be used
+  as barriers to the walk. Verfication of these categories occurs at walk time,
+  not creation time (since it is not clear until the walk which values are
+  intended for which purpose).
+
+Example
+
+  group("doom_melon") {
+    metadata = {
+      # These keys are not built in to GN but are interpreted when consuming
+      # metadata.
+      my_barrier = []
+      my_files = [ "a.txt", "b.txt" ]
+    }
+  }
 )";
 
 const char kOutputExtension[] = "output_extension";
@@ -1798,6 +1823,26 @@ Example
   }
 )";
 
+const char kRebase[] = "rebase";
+const char kRebase_HelpShort[] =
+    "rebase: [boolean] Rebase collected metadata as files.";
+const char kRebase_Help[] =
+    R"(rebase: Rebase collected metadata as files.
+
+  A boolean that triggers a rebase of collected metadata strings based on their
+  declared file. Defaults to false.
+
+  Metadata generally declares files as strings relative to the local build file.
+  However, this data is often used in other contexts, and so setting this flag
+  will force the metadata collection to be rebased according to the local build
+  file's location and thus allow the filename to be used anywhere.
+
+  Setting this flag will raise an error if any target's specified metadata is
+  not a string value.
+
+  See also "gn help generated_file".
+)";
+
 const char kResponseFileContents[] = "response_file_contents";
 const char kResponseFileContents_HelpShort[] =
     "response_file_contents: [string list] Contents of .rsp file for actions.";
@@ -1888,10 +1933,9 @@ Sources for non-binary targets
 
 const char kXcodeTestApplicationName[] = "xcode_test_application_name";
 const char kXcodeTestApplicationName_HelpShort[] =
-    "test_application_name: [string] Test application name for unit or ui test "
-    "target.";
+    "xcode_test_application_name: [string] Name for Xcode test target.";
 const char kXcodeTestApplicationName_Help[] =
-    R"(test_application_name: Test application name for unit or ui test target.
+    R"(xcode_test_application_name: Name for Xcode test target.
 
   Each unit and ui test target must have a test application target, and this
   value is used to specify the relationship. Only meaningful to Xcode (used as
@@ -2003,6 +2047,45 @@ Examples
     visibility = [ "./*", "//bar/*" ]
 )";
 
+const char kWalkKeys[] = "walk_keys";
+const char kWalkKeys_HelpShort[] =
+    "walk_keys: [string list] Key(s) for managing the metadata collection "
+    "walk.";
+const char kWalkKeys_Help[] =
+    R"(walk_keys: Key(s) for managing the metadata collection walk.
+
+  Defaults to [].
+
+  These keys are used to control the next step in a collection walk, acting as
+  barriers. If a specified key is defined in a target's metadata, the walk will
+  use the targets listed in that value to determine which targets are walked.
+
+  If no walk_keys are specified for a generated_file target (i.e. "[]"), the
+  walk will touch all deps and data_deps of the specified target recursively.
+
+  See "gn help generated_file".
+)";
+
+const char kWriteValueContents[] = "contents";
+const char kWriteValueContents_HelpShort[] =
+    "contents: Contents to write to file.";
+const char kWriteValueContents_Help[] =
+    R"(contents: Contents to write to file.
+
+  The contents of the file for a generated_file target.
+  See "gn help generated_file".
+)";
+
+const char kWriteOutputConversion[] = "output_conversion";
+const char kWriteOutputConversion_HelpShort[] =
+    "output_conversion: Data format for generated_file targets.";
+const char kWriteOutputConversion_Help[] =
+    R"("output_conversion: Data format for generated_file targets.
+
+  Controls how the "contents" of a generated_file target is formatted.
+  See "gn help output_conversion".
+)";
+
 const char kWriteRuntimeDeps[] = "write_runtime_deps";
 const char kWriteRuntimeDeps_HelpShort[] =
     "write_runtime_deps: Writes the target's runtime_deps to the given path.";
@@ -2087,7 +2170,6 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(BundleResourcesDir)
     INSERT_VARIABLE(BundleDepsFilter)
     INSERT_VARIABLE(BundleExecutableDir)
-    INSERT_VARIABLE(BundlePlugInsDir)
     INSERT_VARIABLE(Cflags)
     INSERT_VARIABLE(CflagsC)
     INSERT_VARIABLE(CflagsCC)
@@ -2102,6 +2184,7 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(Configs)
     INSERT_VARIABLE(Data)
     INSERT_VARIABLE(DataDeps)
+    INSERT_VARIABLE(DataKeys)
     INSERT_VARIABLE(Defines)
     INSERT_VARIABLE(Depfile)
     INSERT_VARIABLE(Deps)
@@ -2111,6 +2194,7 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(Ldflags)
     INSERT_VARIABLE(Libs)
     INSERT_VARIABLE(LibDirs)
+    INSERT_VARIABLE(Metadata)
     INSERT_VARIABLE(OutputDir)
     INSERT_VARIABLE(OutputExtension)
     INSERT_VARIABLE(OutputName)
@@ -2125,12 +2209,16 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(Public)
     INSERT_VARIABLE(PublicConfigs)
     INSERT_VARIABLE(PublicDeps)
+    INSERT_VARIABLE(Rebase)
     INSERT_VARIABLE(ResponseFileContents)
     INSERT_VARIABLE(Script)
     INSERT_VARIABLE(Sources)
     INSERT_VARIABLE(XcodeTestApplicationName)
     INSERT_VARIABLE(Testonly)
     INSERT_VARIABLE(Visibility)
+    INSERT_VARIABLE(WalkKeys)
+    INSERT_VARIABLE(WriteOutputConversion)
+    INSERT_VARIABLE(WriteValueContents)
     INSERT_VARIABLE(WriteRuntimeDeps)
     INSERT_VARIABLE(XcodeExtraAttributes)
   }

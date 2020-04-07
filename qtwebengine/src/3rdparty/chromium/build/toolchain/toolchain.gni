@@ -5,8 +5,8 @@
 # Toolchain-related configuration that may be needed outside the context of the
 # toolchain() rules themselves.
 
-import("//build_overrides/build.gni")
 import("//build/config/chrome_build.gni")
+import("//build_overrides/build.gni")
 
 declare_args() {
   # If this is set to true, or if LLVM_FORCE_HEAD_REVISION is set to 1
@@ -23,8 +23,6 @@ declare_args() {
   use_xcode_clang = is_ios && is_official_build
 
   # Used for binary size analysis.
-  # Currently disabled on LLD because of a bug (fixed upstream).
-  # See https://crbug.com/716209.
   generate_linker_map = is_android && is_official_build
 
   # Use absolute file paths in the compiler diagnostics and __FILE__ macro
@@ -48,7 +46,7 @@ hermetic_xcode_path =
 declare_args() {
   if (is_clang) {
     # Clang compiler version. Clang files are placed at version-dependent paths.
-    clang_version = "7.0.0"
+    clang_version = "9.0.0"
   }
 }
 
@@ -57,18 +55,6 @@ declare_args() {
 # all toolchains.
 assert(!use_xcode_clang || target_os == "ios",
        "Using Xcode's clang is only supported in iOS builds")
-
-# Subdirectory within root_out_dir for shared library files.
-# TODO(agrieve): GYP sets this to "lib" for Linux & Android, but this won't work
-#     in GN until support for loadable_module() is added.
-#     See: https://codereview.chromium.org/1236503002/
-shlib_subdir = "."
-
-# Root out dir for shared library files.
-root_shlib_dir = root_out_dir
-if (shlib_subdir != ".") {
-  root_shlib_dir += "/$shlib_subdir"
-}
 
 # Extension for shared library files (including leading dot).
 if (is_mac || is_ios) {

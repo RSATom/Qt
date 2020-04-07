@@ -851,10 +851,12 @@ static QSize toNativeSizeConstrained(QSize dip, const QWindow *w)
 {
     if (QHighDpiScaling::isActive()) {
         const qreal factor = QHighDpiScaling::factor(w);
-        if (dip.width() > 0 && dip.width() < QWINDOWSIZE_MAX)
-            dip.rwidth() *= factor;
-        if (dip.height() > 0 && dip.height() < QWINDOWSIZE_MAX)
-            dip.rheight() *= factor;
+        if (!qFuzzyCompare(factor, qreal(1))) {
+            if (dip.width() > 0 && dip.width() < QWINDOWSIZE_MAX)
+                dip.setWidth(qRound(qreal(dip.width()) * factor));
+            if (dip.height() > 0 && dip.height() < QWINDOWSIZE_MAX)
+                dip.setHeight(qRound(qreal(dip.height()) * factor));
+        }
     }
     return dip;
 }
@@ -1256,6 +1258,7 @@ void QWindowCreationContext::applyToMinMaxInfo(MINMAXINFO *mmi) const
 
 const char *QWindowsWindow::embeddedNativeParentHandleProperty = "_q_embedded_native_parent_handle";
 const char *QWindowsWindow::hasBorderInFullScreenProperty = "_q_has_border_in_fullscreen";
+bool QWindowsWindow::m_borderInFullScreenDefault = false;
 
 QWindowsWindow::QWindowsWindow(QWindow *aWindow, const QWindowsWindowData &data) :
     QWindowsBaseWindow(aWindow),
@@ -1293,7 +1296,7 @@ QWindowsWindow::QWindowsWindow(QWindow *aWindow, const QWindowsWindowData &data)
 
     if (aWindow->isTopLevel())
         setWindowIcon(aWindow->icon());
-    if (aWindow->property(hasBorderInFullScreenProperty).toBool())
+    if (m_borderInFullScreenDefault || aWindow->property(hasBorderInFullScreenProperty).toBool())
         setFlag(HasBorderInFullScreen);
     clearFlag(WithinCreate);
 }
@@ -1894,8 +1897,10 @@ void QWindowsWindow::handleGeometryChange()
 {
     const QRect previousGeometry = m_data.geometry;
     m_data.geometry = geometry_sys();
-    if (testFlag(WithinDpiChanged))
-        return;  // QGuiApplication will send resize
+    if (testFlag(WithinDpiChanged)
+        && QWindowsContext::instance()->screenManager().screenForHwnd(m_data.hwnd) != screen()) {
+        return; // QGuiApplication will send resize when screen actually changes
+    }
     QWindowSystemInterface::handleGeometryChange(window(), m_data.geometry);
     // QTBUG-32121: OpenGL/normal windows (with exception of ANGLE) do not receive
     // expose events when shrinking, synthesize.
@@ -2619,7 +2624,8 @@ bool QWindowsWindow::handleNonClientHitTest(const QPoint &globalPos, LRESULT *re
     // QTBUG-32663, suppress resize cursor for fixed size windows.
     const QWindow *w = window();
     if (!w->isTopLevel() // Task 105852, minimized windows need to respond to user input.
-        || !(m_windowState & ~Qt::WindowActive)
+        || (m_windowState != Qt::WindowNoState)
+        || !isActive()
         || (m_data.flags & Qt::FramelessWindowHint)) {
         return false;
     }
@@ -2639,8 +2645,12 @@ bool QWindowsWindow::handleNonClientHitTest(const QPoint &globalPos, LRESULT *re
             return true;
         }
         if (localPos.y() < 0) {
-            const QMargins margins = frameMargins();
-            const int topResizeBarPos = margins.left() - margins.top();
+            // We want to return HTCAPTION/true only over the outer sizing frame, not the entire title bar,
+            // otherwise the title bar buttons (close, etc.) become unresponsive on Windows 7 (QTBUG-78262).
+            // However, neither frameMargins() nor GetSystemMetrics(SM_CYSIZEFRAME), etc., give the correct
+            // sizing frame height in all Windows versions/scales. This empirical constant seems to work, though.
+            const int sizingHeight = 9;
+            const int topResizeBarPos = sizingHeight - frameMargins().top();
             if (localPos.y() < topResizeBarPos) {
                 *result = HTCAPTION; // Extend caption over top resize bar, let's user move the window.
                 return true;
@@ -2950,6 +2960,11 @@ void QWindowsWindow::setHasBorderInFullScreenStatic(QWindow *window, bool border
         static_cast<QWindowsWindow *>(handle)->setHasBorderInFullScreen(border);
     else
         window->setProperty(hasBorderInFullScreenProperty, QVariant(border));
+}
+
+void QWindowsWindow::setHasBorderInFullScreenDefault(bool border)
+{
+    m_borderInFullScreenDefault = border;
 }
 
 void QWindowsWindow::setHasBorderInFullScreen(bool border)

@@ -41,7 +41,7 @@ namespace blink {
 namespace {
 
 void CopyToActiveInterpolationsMap(
-    const Vector<scoped_refptr<Interpolation>>& source,
+    const HeapVector<Member<Interpolation>>& source,
     EffectStack::PropertyHandleFilter property_handle_filter,
     ActiveInterpolationsMap& target) {
   for (const auto& interpolation : source) {
@@ -57,9 +57,9 @@ void CopyToActiveInterpolationsMap(
         interpolation->IsInvalidatableInterpolation() &&
         ToInvalidatableInterpolation(*interpolation)
             .DependsOnUnderlyingValue()) {
-      active_interpolations.push_back(interpolation.get());
+      active_interpolations.push_back(interpolation);
     } else {
-      active_interpolations.at(0) = interpolation.get();
+      active_interpolations.at(0) = interpolation;
     }
   }
 }
@@ -75,7 +75,7 @@ void CopyNewAnimationsToActiveInterpolationsMap(
     EffectStack::PropertyHandleFilter property_handle_filter,
     ActiveInterpolationsMap& result) {
   for (const auto& new_animation : new_animations) {
-    Vector<scoped_refptr<Interpolation>> sample;
+    HeapVector<Member<Interpolation>> sample;
     new_animation->Sample(sample);
     if (!sample.IsEmpty())
       CopyToActiveInterpolationsMap(sample, property_handle_filter, result);
@@ -143,7 +143,7 @@ ActiveInterpolationsMap EffectStack::ActiveInterpolations(
 
 void EffectStack::RemoveRedundantSampledEffects() {
   HashSet<PropertyHandle> replaced_properties;
-  for (size_t i = sampled_effects_.size(); i--;) {
+  for (wtf_size_t i = sampled_effects_.size(); i--;) {
     SampledEffect& sampled_effect = *sampled_effects_[i];
     if (sampled_effect.WillNeverChange()) {
       sampled_effect.RemoveReplacedInterpolations(replaced_properties);
@@ -151,7 +151,7 @@ void EffectStack::RemoveRedundantSampledEffects() {
     }
   }
 
-  size_t new_size = 0;
+  wtf_size_t new_size = 0;
   for (auto& sampled_effect : sampled_effects_) {
     if (!sampled_effect->Interpolations().IsEmpty())
       sampled_effects_[new_size++].Swap(sampled_effect);

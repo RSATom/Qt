@@ -30,7 +30,7 @@ class CAgg_PathData {
   agg::path_storage m_PathData;
 };
 
-class CFX_AggDeviceDriver : public RenderDeviceDriverIface {
+class CFX_AggDeviceDriver final : public RenderDeviceDriverIface {
  public:
   CFX_AggDeviceDriver(const RetainPtr<CFX_DIBitmap>& pBitmap,
                       bool bRgbByteOrder,
@@ -57,38 +57,38 @@ class CFX_AggDeviceDriver : public RenderDeviceDriverIface {
                 uint32_t fill_color,
                 uint32_t stroke_color,
                 int fill_mode,
-                int blend_type) override;
+                BlendMode blend_type) override;
   bool SetPixel(int x, int y, uint32_t color) override;
   bool FillRectWithBlend(const FX_RECT& rect,
                          uint32_t fill_color,
-                         int blend_type) override;
+                         BlendMode blend_type) override;
   bool GetClipBox(FX_RECT* pRect) override;
   bool GetDIBits(const RetainPtr<CFX_DIBitmap>& pBitmap,
                  int left,
                  int top) override;
   RetainPtr<CFX_DIBitmap> GetBackDrop() override;
-  bool SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
-                 const FX_RECT* pSrcRect,
+                 const FX_RECT& src_rect,
                  int left,
                  int top,
-                 int blend_type) override;
-  bool StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                 BlendMode blend_type) override;
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
                      const FX_RECT* pClipRect,
-                     uint32_t flags,
-                     int blend_type) override;
-  bool StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                     const FXDIB_ResampleOptions& options,
+                     BlendMode blend_type) override;
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                    int bitmap_alpha,
                    uint32_t color,
-                   const CFX_Matrix* pMatrix,
-                   uint32_t flags,
+                   const CFX_Matrix& matrix,
+                   const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
-                   int blend_type) override;
+                   BlendMode blend_type) override;
   bool ContinueDIBits(CFX_ImageRenderer* handle,
                       PauseIndicatorIface* pPause) override;
   bool DrawDeviceText(int nChars,

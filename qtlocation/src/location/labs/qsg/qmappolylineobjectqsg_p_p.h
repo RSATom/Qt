@@ -54,10 +54,11 @@
 #include <QtLocation/private/qmappolylineobject_p.h>
 #include <QtLocation/private/qqsgmapobject_p.h>
 #include <QtCore/qscopedvaluerollback.h>
+#include <QtPositioning/private/qgeopath_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_LOCATION_PRIVATE_EXPORT QMapPolylineObjectPrivateQSG : public QMapPolylineObjectPrivate, public QQSGMapObject
+class Q_LOCATION_PRIVATE_EXPORT QMapPolylineObjectPrivateQSG : public QMapPolylineObjectPrivateDefault, public QQSGMapObject
 {
 public:
     QMapPolylineObjectPrivateQSG(QGeoMapObject *q);
@@ -75,22 +76,17 @@ public:
 
     // QGeoMapPolylinePrivate interface
     QList<QGeoCoordinate> path() const override;
-    QColor color() const override;
-    qreal width() const override;
-
     void setPath(const QList<QGeoCoordinate> &path) override;
     void setColor(const QColor &color) override;
     void setWidth(qreal width) override;
 
     // QGeoMapObjectPrivate
     QGeoMapObjectPrivate *clone() override;
+    virtual QGeoShape geoShape() const override;
 
     // Data Members
+    QGeoPathEager m_geoPath;
     QGeoMapPolylineGeometry m_geometry;
-    QGeoPath m_geoPath;
-
-    QColor m_color;
-    qreal m_width = 0;
     bool m_updatingGeometry = false;
 };
 

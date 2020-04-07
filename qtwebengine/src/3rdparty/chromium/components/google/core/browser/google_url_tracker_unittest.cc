@@ -21,6 +21,7 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "services/network/test/test_network_connection_tracker.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -145,9 +146,6 @@ class GoogleURLTrackerTest : public testing::Test {
   TestingPrefServiceSimple prefs_;
   network::TestURLLoaderFactory test_url_loader_factory_;
 
-  // Creating this allows us to call
-  // net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests().
-  std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   GoogleURLTrackerClient* client_;
 
   std::unique_ptr<GoogleURLTracker> google_url_tracker_;
@@ -166,13 +164,13 @@ GoogleURLTrackerTest::~GoogleURLTrackerTest() {
 }
 
 void GoogleURLTrackerTest::SetUp() {
-  network_change_notifier_.reset(net::NetworkChangeNotifier::CreateMock());
   // Ownership is passed to google_url_tracker_, but a weak pointer is kept;
   // this is safe since GoogleURLTracker keeps the client for its lifetime.
   client_ = new TestGoogleURLTrackerClient(&prefs_, &test_url_loader_factory_);
   std::unique_ptr<GoogleURLTrackerClient> client(client_);
   google_url_tracker_.reset(new GoogleURLTracker(
-      std::move(client), GoogleURLTracker::ALWAYS_DOT_COM_MODE));
+      std::move(client), GoogleURLTracker::ALWAYS_DOT_COM_MODE,
+      network::TestNetworkConnectionTracker::GetInstance()));
 }
 
 void GoogleURLTrackerTest::TearDown() {
@@ -203,10 +201,8 @@ void GoogleURLTrackerTest::FinishSleep() {
 }
 
 void GoogleURLTrackerTest::NotifyNetworkChanged() {
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_UNKNOWN);
-  // For thread safety, the NCN queues tasks to do the actual notifications, so
-  // we need to spin the message loop so the tracker will actually be notified.
+  network::TestNetworkConnectionTracker::GetInstance()->SetConnectionType(
+      network::mojom::ConnectionType::CONNECTION_UNKNOWN);
   base::RunLoop().RunUntilIdle();
 }
 

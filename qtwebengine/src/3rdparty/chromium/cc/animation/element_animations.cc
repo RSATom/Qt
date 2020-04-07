@@ -22,6 +22,22 @@
 
 namespace cc {
 
+namespace {
+
+// After BlinkGenPropertyTrees, the targeted ElementId depends on the property
+// being mutated. If an ElementId is set on the KeyframeModel, we should apply
+// the mutation to the specific element.
+// TODO(flackr): Remove ElementId from ElementAnimations once all element
+// tracking is done on the KeyframeModel - https://crbug.com/900241
+ElementId CalculateTargetElementId(const ElementAnimations* element_animations,
+                                   const KeyframeModel* keyframe_model) {
+  if (LIKELY(keyframe_model->element_id()))
+    return keyframe_model->element_id();
+  return element_animations->element_id();
+}
+
+}  // namespace
+
 scoped_refptr<ElementAnimations> ElementAnimations::Create() {
   return base::WrapRefCounted(new ElementAnimations());
 }
@@ -68,7 +84,8 @@ TargetProperties ElementAnimations::GetPropertiesMaskForAnimationState() {
   return properties;
 }
 
-void ElementAnimations::ClearAffectedElementTypes() {
+void ElementAnimations::ClearAffectedElementTypes(
+    const PropertyToElementIdMap& element_id_map) {
   DCHECK(animation_host_);
 
   TargetProperties disable_properties = GetPropertiesMaskForAnimationState();
@@ -76,16 +93,19 @@ void ElementAnimations::ClearAffectedElementTypes() {
   disabled_state_mask.currently_running = disable_properties;
   disabled_state_mask.potentially_animating = disable_properties;
 
-  if (has_element_in_active_list()) {
+  // This method may get called from AnimationHost dtor so it is possible for
+  // mutator_host_client() to be null.
+  if (has_element_in_active_list() && animation_host()->mutator_host_client()) {
     animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
-        element_id(), ElementListType::ACTIVE, disabled_state_mask,
+        element_id_map, ElementListType::ACTIVE, disabled_state_mask,
         disabled_state);
   }
   set_has_element_in_active_list(false);
 
-  if (has_element_in_pending_list()) {
+  if (has_element_in_pending_list() &&
+      animation_host()->mutator_host_client()) {
     animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
-        element_id(), ElementListType::PENDING, disabled_state_mask,
+        element_id_map, ElementListType::PENDING, disabled_state_mask,
         disabled_state);
   }
   set_has_element_in_pending_list(false);
@@ -259,9 +279,9 @@ void ElementAnimations::NotifyClientFloatAnimated(
   DCHECK(keyframe_model->target_property_id() == TargetProperty::OPACITY);
   opacity = base::ClampToRange(opacity, 0.0f, 1.0f);
   if (KeyframeModelAffectsActiveElements(keyframe_model))
-    OnOpacityAnimated(ElementListType::ACTIVE, opacity);
+    OnOpacityAnimated(ElementListType::ACTIVE, opacity, keyframe_model);
   if (KeyframeModelAffectsPendingElements(keyframe_model))
-    OnOpacityAnimated(ElementListType::PENDING, opacity);
+    OnOpacityAnimated(ElementListType::PENDING, opacity, keyframe_model);
 }
 
 void ElementAnimations::NotifyClientFilterAnimated(
@@ -269,9 +289,9 @@ void ElementAnimations::NotifyClientFilterAnimated(
     int target_property_id,
     KeyframeModel* keyframe_model) {
   if (KeyframeModelAffectsActiveElements(keyframe_model))
-    OnFilterAnimated(ElementListType::ACTIVE, filters);
+    OnFilterAnimated(ElementListType::ACTIVE, filters, keyframe_model);
   if (KeyframeModelAffectsPendingElements(keyframe_model))
-    OnFilterAnimated(ElementListType::PENDING, filters);
+    OnFilterAnimated(ElementListType::PENDING, filters, keyframe_model);
 }
 
 void ElementAnimations::NotifyClientTransformOperationsAnimated(
@@ -280,9 +300,9 @@ void ElementAnimations::NotifyClientTransformOperationsAnimated(
     KeyframeModel* keyframe_model) {
   gfx::Transform transform = operations.Apply();
   if (KeyframeModelAffectsActiveElements(keyframe_model))
-    OnTransformAnimated(ElementListType::ACTIVE, transform);
+    OnTransformAnimated(ElementListType::ACTIVE, transform, keyframe_model);
   if (KeyframeModelAffectsPendingElements(keyframe_model))
-    OnTransformAnimated(ElementListType::PENDING, transform);
+    OnTransformAnimated(ElementListType::PENDING, transform, keyframe_model);
 }
 
 void ElementAnimations::NotifyClientScrollOffsetAnimated(
@@ -290,9 +310,11 @@ void ElementAnimations::NotifyClientScrollOffsetAnimated(
     int target_property_id,
     KeyframeModel* keyframe_model) {
   if (KeyframeModelAffectsActiveElements(keyframe_model))
-    OnScrollOffsetAnimated(ElementListType::ACTIVE, scroll_offset);
+    OnScrollOffsetAnimated(ElementListType::ACTIVE, scroll_offset,
+                           keyframe_model);
   if (KeyframeModelAffectsPendingElements(keyframe_model))
-    OnScrollOffsetAnimated(ElementListType::PENDING, scroll_offset);
+    OnScrollOffsetAnimated(ElementListType::PENDING, scroll_offset,
+                           keyframe_model);
 }
 
 void ElementAnimations::UpdateClientAnimationState() {
@@ -328,15 +350,17 @@ void ElementAnimations::UpdateClientAnimationState() {
   DCHECK(pending_state_.IsValid());
   DCHECK(active_state_.IsValid());
 
+  PropertyToElementIdMap element_id_map = GetPropertyToElementIdMap();
+
   if (has_element_in_active_list() && prev_active != active_state_) {
     PropertyAnimationState diff_active = prev_active ^ active_state_;
     animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
-        element_id(), ElementListType::ACTIVE, diff_active, active_state_);
+        element_id_map, ElementListType::ACTIVE, diff_active, active_state_);
   }
   if (has_element_in_pending_list() && prev_pending != pending_state_) {
     PropertyAnimationState diff_pending = prev_pending ^ pending_state_;
     animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
-        element_id(), ElementListType::PENDING, diff_pending, pending_state_);
+        element_id_map, ElementListType::PENDING, diff_pending, pending_state_);
   }
 }
 
@@ -392,40 +416,48 @@ bool ElementAnimations::IsCurrentlyAnimatingProperty(
 }
 
 void ElementAnimations::OnFilterAnimated(ElementListType list_type,
-                                         const FilterOperations& filters) {
-  DCHECK(element_id());
+                                         const FilterOperations& filters,
+                                         KeyframeModel* keyframe_model) {
+  ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
+  DCHECK(target_element_id);
   DCHECK(animation_host());
   DCHECK(animation_host()->mutator_host_client());
   animation_host()->mutator_host_client()->SetElementFilterMutated(
-      element_id(), list_type, filters);
+      target_element_id, list_type, filters);
 }
 
 void ElementAnimations::OnOpacityAnimated(ElementListType list_type,
-                                          float opacity) {
-  DCHECK(element_id());
+                                          float opacity,
+                                          KeyframeModel* keyframe_model) {
+  ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
+  DCHECK(target_element_id);
   DCHECK(animation_host());
   DCHECK(animation_host()->mutator_host_client());
   animation_host()->mutator_host_client()->SetElementOpacityMutated(
-      element_id(), list_type, opacity);
+      target_element_id, list_type, opacity);
 }
 
 void ElementAnimations::OnTransformAnimated(ElementListType list_type,
-                                            const gfx::Transform& transform) {
-  DCHECK(element_id());
+                                            const gfx::Transform& transform,
+                                            KeyframeModel* keyframe_model) {
+  ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
+  DCHECK(target_element_id);
   DCHECK(animation_host());
   DCHECK(animation_host()->mutator_host_client());
   animation_host()->mutator_host_client()->SetElementTransformMutated(
-      element_id(), list_type, transform);
+      target_element_id, list_type, transform);
 }
 
 void ElementAnimations::OnScrollOffsetAnimated(
     ElementListType list_type,
-    const gfx::ScrollOffset& scroll_offset) {
-  DCHECK(element_id());
+    const gfx::ScrollOffset& scroll_offset,
+    KeyframeModel* keyframe_model) {
+  ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
+  DCHECK(target_element_id);
   DCHECK(animation_host());
   DCHECK(animation_host()->mutator_host_client());
   animation_host()->mutator_host_client()->SetElementScrollOffsetMutated(
-      element_id(), list_type, scroll_offset);
+      target_element_id, list_type, scroll_offset);
 }
 
 gfx::ScrollOffset ElementAnimations::ScrollOffsetForAnimation() const {
@@ -436,6 +468,60 @@ gfx::ScrollOffset ElementAnimations::ScrollOffsetForAnimation() const {
   }
 
   return gfx::ScrollOffset();
+}
+
+PropertyToElementIdMap ElementAnimations::GetPropertyToElementIdMap() const {
+  // As noted in the header documentation, this method assumes that each
+  // property type maps to at most one ElementId. This is not conceptually true
+  // for cc/animations, but it is true for the current clients:
+  //
+  //   * ui/ does not set per-keyframe-model ElementIds, so this map will be
+  //   each property type mapping to the same ElementId (i.e. element_id()).
+  //
+  //   * blink guarantees that any two keyframe models that it creates which
+  //   target the same property on the same target will have the same ElementId.
+  //
+  // In order to make this as little of a footgun as possible for future-us,
+  // this method DCHECKs that the assumption holds.
+
+  std::vector<PropertyToElementIdMap::value_type> entries;
+  for (int property_index = TargetProperty::FIRST_TARGET_PROPERTY;
+       property_index <= TargetProperty::LAST_TARGET_PROPERTY;
+       ++property_index) {
+    TargetProperty::Type property =
+        static_cast<TargetProperty::Type>(property_index);
+    ElementId element_id_for_property;
+    for (auto& keyframe_effect : keyframe_effects_list_) {
+      KeyframeModel* model = keyframe_effect.GetKeyframeModel(property);
+      if (model) {
+        // We deliberately use two branches here so that the DCHECK can
+        // differentiate between models with different element ids, and the case
+        // where some models don't have an element id.
+        // TODO(crbug.com/900241): All KeyframeModels should have an ElementId.
+        if (model->element_id()) {
+          DCHECK(!element_id_for_property ||
+                 element_id_for_property == model->element_id())
+              << "Different KeyframeModels for the same target must have the "
+              << "same ElementId";
+          element_id_for_property = model->element_id();
+        } else {
+          // This DCHECK isn't perfect; you could have a case where one model
+          // has an ElementId and the other doesn't, but model->element_id() ==
+          // this->element_id() and so the DCHECK passes. That is unlikely
+          // enough that we don't bother guarding against it specifically.
+          DCHECK(!element_id_for_property ||
+                 element_id_for_property == element_id())
+              << "Either all models should have an ElementId or none should";
+          element_id_for_property = element_id();
+        }
+      }
+    }
+
+    if (element_id_for_property)
+      entries.emplace_back(property, element_id_for_property);
+  }
+
+  return PropertyToElementIdMap(std::move(entries));
 }
 
 bool ElementAnimations::KeyframeModelAffectsActiveElements(

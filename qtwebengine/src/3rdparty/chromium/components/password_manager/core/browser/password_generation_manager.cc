@@ -17,6 +17,7 @@
 #include "components/password_manager/core/browser/password_manager_driver.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_requirements_service.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 
 using autofill::AutofillField;
 using autofill::FieldSignature;
@@ -38,8 +39,7 @@ PasswordGenerationManager::PasswordGenerationManager(
 PasswordGenerationManager::~PasswordGenerationManager() {
 }
 
-void PasswordGenerationManager::ProcessPasswordRequirements(
-    const std::vector<autofill::FormStructure*>& forms) {
+void PasswordGenerationManager::PrefetchSpec(const GURL& origin) {
   // IsGenerationEnabled is called multiple times and it is sufficient to
   // log debug data once.
   if (!IsGenerationEnabled(/*log_debug_data=*/false))
@@ -53,10 +53,22 @@ void PasswordGenerationManager::ProcessPasswordRequirements(
     return;
 
   // Fetch password requirements for the domain.
-  if (IsRequirementsFetchingEnabled()) {
-    password_requirements_service->PrefetchSpec(
-        client_->GetLastCommittedEntryURL().GetOrigin());
-  }
+  password_requirements_service->PrefetchSpec(origin);
+}
+
+void PasswordGenerationManager::ProcessPasswordRequirements(
+    const std::vector<autofill::FormStructure*>& forms) {
+  // IsGenerationEnabled is called multiple times and it is sufficient to
+  // log debug data once.
+  if (!IsGenerationEnabled(/*log_debug_data=*/false))
+    return;
+
+  // It is legit to have no PasswordRequirementsService on some platforms where
+  // it has not been implemented.
+  PasswordRequirementsService* password_requirements_service =
+      client_->GetPasswordRequirementsService();
+  if (!password_requirements_service)
+    return;
 
   // Store password requirements from the autofill server.
   for (const autofill::FormStructure* form : forms) {
@@ -72,6 +84,10 @@ void PasswordGenerationManager::ProcessPasswordRequirements(
 
 void PasswordGenerationManager::DetectFormsEligibleForGeneration(
     const std::vector<autofill::FormStructure*>& forms) {
+  if (base::FeatureList::IsEnabled(features::kNewPasswordFormParsing)) {
+    // NewPasswordFormManager sends this information to the renderer.
+    return;
+  }
   // IsGenerationEnabled is called multiple times and it is sufficient to
   // log debug data once. This is it!
   if (!IsGenerationEnabled(/*log_debug_data=*/true))
@@ -114,7 +130,7 @@ bool PasswordGenerationManager::IsGenerationEnabled(bool log_debug_data) const {
         new BrowserSavePasswordProgressLogger(client_->GetLogManager()));
   }
 
-  if (!client_->IsSavingAndFillingEnabledForCurrentPage()) {
+  if (!client_->IsSavingAndFillingEnabled(driver_->GetLastCommittedURL())) {
     if (logger)
       logger->LogMessage(Logger::STRING_GENERATION_DISABLED_SAVING_DISABLED);
     return false;
@@ -126,15 +142,6 @@ bool PasswordGenerationManager::IsGenerationEnabled(bool log_debug_data) const {
     logger->LogMessage(Logger::STRING_GENERATION_DISABLED_NO_SYNC);
 
   return false;
-}
-
-bool PasswordGenerationManager::IsRequirementsFetchingEnabled() const {
-  return client_->GetHistorySyncState() == SYNCING_NORMAL_ENCRYPTION;
-}
-
-void PasswordGenerationManager::CheckIfFormClassifierShouldRun() {
-  if (autofill::FormStructure::IsAutofillFieldMetadataEnabled())
-    driver_->AllowToRunFormClassifier();
 }
 
 base::string16 PasswordGenerationManager::GeneratePassword(

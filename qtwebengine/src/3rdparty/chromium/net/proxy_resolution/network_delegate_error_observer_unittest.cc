@@ -12,7 +12,6 @@
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "net/base/completion_callback.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_delegate_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -66,13 +65,15 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
     return AUTH_REQUIRED_RESPONSE_NO_ACTION;
   }
   bool OnCanGetCookies(const URLRequest& request,
-                       const CookieList& cookie_list) override {
-    return true;
+                       const CookieList& cookie_list,
+                       bool allowed_from_caller) override {
+    return allowed_from_caller;
   }
   bool OnCanSetCookie(const URLRequest& request,
                       const net::CanonicalCookie& cookie,
-                      CookieOptions* options) override {
-    return true;
+                      CookieOptions* options,
+                      bool allowed_from_caller) override {
+    return allowed_from_caller;
   }
   bool OnCanAccessFile(const URLRequest& request,
                        const base::FilePath& original_path,

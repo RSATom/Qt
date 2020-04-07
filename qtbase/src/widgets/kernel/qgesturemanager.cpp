@@ -136,13 +136,14 @@ Qt::GestureType QGestureManager::registerGestureRecognizer(QGestureRecognizer *r
         ++m_lastCustomGestureId;
         type = Qt::GestureType(m_lastCustomGestureId);
     }
-    m_recognizers.insertMulti(type, recognizer);
+    m_recognizers.insert(type, recognizer);
     return type;
 }
 
 void QGestureManager::unregisterGestureRecognizer(Qt::GestureType type)
 {
     QList<QGestureRecognizer *> list = m_recognizers.values(type);
+    m_recognizers.remove(type);
     foreach (QGesture *g, m_gestureToRecognizer.keys()) {
         QGestureRecognizer *recognizer = m_gestureToRecognizer.value(g);
         if (list.contains(recognizer)) {
@@ -517,7 +518,7 @@ bool QGestureManager::filterEvent(QWidget *receiver, QEvent *event)
         for(ContextIterator it = w->d_func()->gestureContext.constBegin(),
             e = w->d_func()->gestureContext.constEnd(); it != e; ++it) {
             types.insert(it.key(), 0);
-            contexts.insertMulti(w, it.key());
+            contexts.insert(w, it.key());
         }
     }
     // find all gesture contexts for the widget tree
@@ -529,7 +530,7 @@ bool QGestureManager::filterEvent(QWidget *receiver, QEvent *event)
             if (!(it.value() & Qt::DontStartGestureOnChildren)) {
                 if (!types.contains(it.key())) {
                     types.insert(it.key(), 0);
-                    contexts.insertMulti(w, it.key());
+                    contexts.insert(w, it.key());
                 }
             }
         }
@@ -551,7 +552,7 @@ bool QGestureManager::filterEvent(QGraphicsObject *receiver, QEvent *event)
         for(ContextIterator it = item->QGraphicsItem::d_func()->gestureContext.constBegin(),
             e = item->QGraphicsItem::d_func()->gestureContext.constEnd(); it != e; ++it) {
             types.insert(it.key(), 0);
-            contexts.insertMulti(item, it.key());
+            contexts.insert(item, it.key());
         }
     }
     // find all gesture contexts for the graphics object tree
@@ -564,7 +565,7 @@ bool QGestureManager::filterEvent(QGraphicsObject *receiver, QEvent *event)
             if (!(it.value() & Qt::DontStartGestureOnChildren)) {
                 if (!types.contains(it.key())) {
                     types.insert(it.key(), 0);
-                    contexts.insertMulti(item, it.key());
+                    contexts.insert(item, it.key());
                 }
             }
         }

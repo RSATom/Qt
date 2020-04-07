@@ -17,11 +17,11 @@ CPDF_ContentMarkItem::~CPDF_ContentMarkItem() {}
 
 const CPDF_Dictionary* CPDF_ContentMarkItem::GetParam() const {
   switch (m_ParamType) {
-    case PropertiesDict:
+    case kPropertiesDict:
       return m_pPropertiesHolder->GetDictFor(m_PropertyName);
-    case DirectDict:
+    case kDirectDict:
       return m_pDirectDict.get();
-    case None:
+    case kNone:
     default:
       return nullptr;
   }
@@ -39,14 +39,14 @@ bool CPDF_ContentMarkItem::HasMCID() const {
 
 void CPDF_ContentMarkItem::SetDirectDict(
     std::unique_ptr<CPDF_Dictionary> pDict) {
-  m_ParamType = DirectDict;
+  m_ParamType = kDirectDict;
   m_pDirectDict = std::move(pDict);
 }
 
 void CPDF_ContentMarkItem::SetPropertiesHolder(
     CPDF_Dictionary* pHolder,
     const ByteString& property_name) {
-  m_ParamType = PropertiesDict;
+  m_ParamType = kPropertiesDict;
   m_pPropertiesHolder = pHolder;
   m_PropertyName = property_name;
 }

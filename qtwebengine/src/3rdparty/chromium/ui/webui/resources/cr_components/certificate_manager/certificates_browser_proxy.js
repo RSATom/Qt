@@ -13,12 +13,13 @@
  *   id: string,
  *   name: string,
  *   policy: boolean,
+ *   webTrustAnchor: boolean,
  *   readonly: boolean,
  *   untrusted: boolean,
  * }}
  * @see chrome/browser/ui/webui/settings/certificates_handler.cc
  */
-var CertificateSubnode;
+let CertificateSubnode;
 
 /**
  * A data structure describing a certificate that is currently being imported,
@@ -27,17 +28,22 @@ var CertificateSubnode;
  *   name: string,
  * }}
  */
-var NewCertificateSubNode;
+let NewCertificateSubNode;
 
 /**
+ * Top-level grouping node in a certificate list, representing an organization
+ * and containing certs that belong to the organization in |subnodes|. If a
+ * certificate does not have an organization name, it will be grouped under its
+ * own CertificatesOrgGroup with |name| set to its display name.
  * @typedef {{
  *   id: string,
  *   name: string,
+ *   containsPolicyCerts: boolean,
  *   subnodes: !Array<!CertificateSubnode>
  * }}
  * @see chrome/browser/ui/webui/settings/certificates_handler.cc
  */
-var Certificate;
+let CertificatesOrgGroup;
 
 /**
  * @typedef {{
@@ -46,7 +52,7 @@ var Certificate;
  *   objSign: boolean
  * }}
  */
-var CaTrustInfo;
+let CaTrustInfo;
 
 /**
  * Generic error returned from C++ via a Promise reject callback.
@@ -56,13 +62,13 @@ var CaTrustInfo;
  * }}
  * @see chrome/browser/ui/webui/settings/certificates_handler.cc
  */
-var CertificatesError;
+let CertificatesError;
 
 /**
  * Enumeration of all possible certificate types.
  * @enum {string}
  */
-var CertificateType = {
+const CertificateType = {
   CA: 'ca',
   OTHER: 'other',
   PERSONAL: 'personal',
@@ -80,7 +86,7 @@ var CertificateType = {
  * }}
  * @see chrome/browser/ui/webui/settings/certificates_handler.cc
  */
-var CertificatesImportError;
+let CertificatesImportError;
 
 cr.define('certificate_manager', function() {
   /** @interface */

@@ -16,6 +16,7 @@ bool StructTraits<gpu::mojom::GpuDeviceDataView, gpu::GPUInfo::GPUDevice>::Read(
   out->vendor_id = data.vendor_id();
   out->device_id = data.device_id();
   out->active = data.active();
+  out->cuda_compute_capability_major = data.cuda_compute_capability_major();
   return data.ReadVendorString(&out->vendor_string) &&
          data.ReadDeviceString(&out->device_string) &&
          data.ReadDriverVendor(&out->driver_vendor) &&
@@ -223,38 +224,30 @@ gpu::mojom::OverlayFormat
 EnumTraits<gpu::mojom::OverlayFormat, gpu::OverlayFormat>::ToMojom(
     gpu::OverlayFormat format) {
   switch (format) {
-    case gpu::OverlayFormat::UNKNOWN:
-      return gpu::mojom::OverlayFormat::UNKNOWN;
-    case gpu::OverlayFormat::BGRA:
+    case gpu::OverlayFormat::kBGRA:
       return gpu::mojom::OverlayFormat::BGRA;
-    case gpu::OverlayFormat::YUY2:
+    case gpu::OverlayFormat::kYUY2:
       return gpu::mojom::OverlayFormat::YUY2;
-    case gpu::OverlayFormat::NV12:
+    case gpu::OverlayFormat::kNV12:
       return gpu::mojom::OverlayFormat::NV12;
   }
-  NOTREACHED() << "Unknown overlay format: " << static_cast<int>(format);
-  return gpu::mojom::OverlayFormat::UNKNOWN;
 }
 
 bool EnumTraits<gpu::mojom::OverlayFormat, gpu::OverlayFormat>::FromMojom(
     gpu::mojom::OverlayFormat input,
     gpu::OverlayFormat* out) {
   switch (input) {
-    case gpu::mojom::OverlayFormat::UNKNOWN:
-      *out = gpu::OverlayFormat::UNKNOWN;
-      return true;
     case gpu::mojom::OverlayFormat::BGRA:
-      *out = gpu::OverlayFormat::BGRA;
-      return true;
+      *out = gpu::OverlayFormat::kBGRA;
+      break;
     case gpu::mojom::OverlayFormat::YUY2:
-      *out = gpu::OverlayFormat::YUY2;
-      return true;
+      *out = gpu::OverlayFormat::kYUY2;
+      break;
     case gpu::mojom::OverlayFormat::NV12:
-      *out = gpu::OverlayFormat::NV12;
-      return true;
+      *out = gpu::OverlayFormat::kNV12;
+      break;
   }
-  NOTREACHED() << "Unknown overlay format: " << input;
-  return false;
+  return true;
 }
 
 // static
@@ -264,6 +257,18 @@ bool StructTraits<
                                   gpu::OverlayCapability* out) {
   out->is_scaling_supported = data.is_scaling_supported();
   return data.ReadFormat(&out->format);
+}
+
+// static
+bool StructTraits<gpu::mojom::Dx12VulkanVersionInfoDataView,
+                  gpu::Dx12VulkanVersionInfo>::
+    Read(gpu::mojom::Dx12VulkanVersionInfoDataView data,
+         gpu::Dx12VulkanVersionInfo* out) {
+  out->supports_dx12 = data.supports_dx12();
+  out->supports_vulkan = data.supports_vulkan();
+  out->d3d12_feature_level = data.d3d12_feature_level();
+  out->vulkan_version = data.vulkan_version();
+  return true;
 }
 #endif
 
@@ -292,10 +297,6 @@ bool StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo>::Read(
 #if defined(OS_WIN)
   out->direct_composition = data.direct_composition();
   out->supports_overlays = data.supports_overlays();
-  out->supports_dx12 = data.supports_dx12();
-  out->supports_vulkan = data.supports_vulkan();
-  out->d3d12_feature_level = data.d3d12_feature_level();
-  out->vulkan_version = data.vulkan_version();
 #endif
 
   return data.ReadInitializationTime(&out->initialization_time) &&
@@ -316,6 +317,7 @@ bool StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo>::Read(
 #if defined(OS_WIN)
          data.ReadOverlayCapabilities(&out->overlay_capabilities) &&
          data.ReadDxDiagnostics(&out->dx_diagnostics) &&
+         data.ReadDx12VulkanVersionInfo(&out->dx12_vulkan_version_info) &&
 #endif
          data.ReadVideoDecodeAcceleratorCapabilities(
              &out->video_decode_accelerator_capabilities) &&

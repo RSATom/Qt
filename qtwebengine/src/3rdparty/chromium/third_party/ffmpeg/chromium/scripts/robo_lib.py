@@ -13,6 +13,17 @@ import subprocess
 def log(msg):
   print "[ %s ]" % msg
 
+class UserInstructions(Exception):
+  """Handy exception subclass that just prints very verbose instructions to the
+  user.  Normal exceptions tend to lose the message in the stack trace, which we
+  probably don't care about."""
+  def __init__ (self, msg):
+    self._msg = msg
+
+  def __str__(self):
+    sep = "=" * 78
+    return "\n\n%s\n%s\n%s\n\n" % (sep, self._msg, sep)
+
 class RoboConfiguration:
   def __init__(self):
     """Ensure that our config has basic fields fill in, and passes some sanity
@@ -21,13 +32,36 @@ class RoboConfiguration:
     Important: We might be doing --setup, so these sanity checks should only be
     for things that we don't plan for fix as part of that.
     """
+    # This is the prefix that our branches start with.
+    self._sushi_branch_prefix = "sushi-"
+    # This is the title that we use for the commit with GN configs.
+    self._gn_commit_title = "GN Configuration"
+    # Title of the commit with chromium/patches/README.
+    self._patches_commit_title = "Chromium patches file"
     self.EnsureHostInfo()
     self.EnsureChromeSrc()
+
+    # Directory where llvm lives.
+    self._llvm_path = os.path.join(self.chrome_src(), "third_party",
+            "llvm-build", "Release+Asserts", "bin")
+
     self.EnsurePathContainsLLVM()
     log("Using chrome src: %s" % self.chrome_src())
     self.EnsureFFmpegHome()
     log("Using ffmpeg home: %s" % self.ffmpeg_home())
     self.EnsureASANConfig()
+    self.ComputeBranchName()
+    log("On branch: %s" % self.branch_name())
+    if self.sushi_branch_name():
+      log("On sushi branch: %s" % self.sushi_branch_name())
+
+    # Filename that we'll ask generate_gn.py to write git commands to.
+    self._autorename_git_file = os.path.join(
+                                  self.ffmpeg_home(),
+                                  "chromium",
+                                  "scripts",
+                                  ".git_commands.sh")
+
 
   def chrome_src(self):
     """Return /path/to/chromium/src"""
@@ -56,6 +90,29 @@ class RoboConfiguration:
 
   def chdir_to_ffmpeg_home(self):
     os.chdir(self.ffmpeg_home())
+
+  def branch_name(self):
+    """Return the current workspace's branch name, or None.  This might be any
+    branch (e.g., "master"), not just one that we've created."""
+    return self._branch_name
+
+  def sushi_branch_name(self):
+    """If the workspace is currently on a branch that we created (a "sushi
+    branch"), return it.  Else return None."""
+    return self._sushi_branch_name
+
+  def sushi_branch_prefix(self):
+    """Return the branch name that indicates that this is a "sushi branch"."""
+    return self._sushi_branch_prefix
+
+  def gn_commit_title(self):
+    return self._gn_commit_title
+
+  def patches_commit_title(self):
+    return self._patches_commit_title
+
+  def nasm_path(self):
+    return self._nasm_path
 
   def EnsureHostInfo(self):
     """Ensure that the host architecture and platform are set."""
@@ -94,6 +151,27 @@ class RoboConfiguration:
 
     llvm_path = os.path.join(self.chrome_src(), "third_party",
             "llvm-build", "Release+Asserts", "bin")
-    if llvm_path not in os.environ["PATH"]:
-      raise Exception("Please add %s to the beginning of $PATH" % llvm_path)
+    if self.llvm_path() not in os.environ["PATH"]:
+      raise UserInstructions(
+                          "Please add:\n%s\nto the beginning of $PATH" %
+                          self.llvm_path())
+  def llvm_path(self):
+    return self._llvm_path
 
+  def ComputeBranchName(self):
+    """Get the current branch name and set it."""
+    self.chdir_to_ffmpeg_home()
+    branch_name = subprocess.Popen(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+          stdout=subprocess.PIPE).communicate()[0].strip()
+    self.SetBranchName(branch_name)
+
+  def SetBranchName(self, name):
+    """Set our branch name, which may be a sushi branch or not."""
+    self._branch_name = name
+    # If this is one of our branches, then record that too.
+    if name and not name.startswith(self.sushi_branch_prefix()):
+      name = None
+    self._sushi_branch_name = name
+
+  def autorename_git_file(self):
+    return self._autorename_git_file

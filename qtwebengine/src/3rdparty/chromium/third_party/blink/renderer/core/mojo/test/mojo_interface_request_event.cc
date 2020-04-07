@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/mojo/test/mojo_interface_request_event.h"
 
+#include "third_party/blink/renderer/core/event_type_names.h"
 #include "third_party/blink/renderer/core/mojo/mojo_handle.h"
 #include "third_party/blink/renderer/core/mojo/test/mojo_interface_request_event_init.h"
 
@@ -17,13 +18,13 @@ void MojoInterfaceRequestEvent::Trace(blink::Visitor* visitor) {
 }
 
 MojoInterfaceRequestEvent::MojoInterfaceRequestEvent(MojoHandle* handle)
-    : Event(EventTypeNames::interfacerequest, Bubbles::kNo, Cancelable::kNo),
+    : Event(event_type_names::kInterfacerequest, Bubbles::kNo, Cancelable::kNo),
       handle_(handle) {}
 
 MojoInterfaceRequestEvent::MojoInterfaceRequestEvent(
     const AtomicString& type,
-    const MojoInterfaceRequestEventInit& initializer)
+    const MojoInterfaceRequestEventInit* initializer)
     : Event(type, Bubbles::kNo, Cancelable::kNo),
-      handle_(initializer.handle()) {}
+      handle_(initializer->handle()) {}
 
 }  // namespace blink

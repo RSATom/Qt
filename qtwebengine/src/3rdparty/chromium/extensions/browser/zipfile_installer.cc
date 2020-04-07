@@ -6,8 +6,8 @@
 
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
 #include "components/services/unzip/public/cpp/unzip.h"
 #include "components/services/unzip/public/interfaces/unzipper.mojom.h"
 #include "extensions/browser/extension_file_task_runner.h"
@@ -35,8 +35,6 @@ constexpr const base::FilePath::CharType* kAllowedThemeFiletypes[] = {
 
 base::Optional<base::FilePath> PrepareAndGetUnzipDir(
     const base::FilePath& zip_file) {
-  base::AssertBlockingAllowed();
-
   base::FilePath dir_temp;
   base::PathService::Get(base::DIR_TEMP, &dir_temp);
 
@@ -51,8 +49,6 @@ base::Optional<base::FilePath> PrepareAndGetUnzipDir(
 }
 
 base::Optional<std::string> ReadFileContent(const base::FilePath& path) {
-  base::AssertBlockingAllowed();
-
   std::string content;
   return base::ReadFileToString(path, &content) ? content
                                                 : base::Optional<std::string>();

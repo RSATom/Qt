@@ -27,10 +27,9 @@
 #include "net/socket/next_proto.h"
 #include "net/socket/socket_bio_adapter.h"
 #include "net/socket/ssl_client_socket.h"
-#include "net/ssl/channel_id_service.h"
 #include "net/ssl/openssl_ssl_util.h"
 #include "net/ssl/ssl_client_cert_type.h"
-#include "net/ssl/ssl_config_service.h"
+#include "net/ssl/ssl_config.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "third_party/boringssl/src/include/openssl/base.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
@@ -52,10 +51,6 @@ class CTVerifier;
 class SSLCertRequestInfo;
 class SSLInfo;
 class SSLKeyLogger;
-
-using TokenBindingSignatureMap =
-    base::MRUCache<std::pair<TokenBindingType, std::string>,
-                   std::vector<uint8_t>>;
 
 class SSLClientSocketImpl : public SSLClientSocket,
                             public SocketBIOAdapter::Delegate {
@@ -106,11 +101,6 @@ class SSLClientSocketImpl : public SSLClientSocket,
   void DumpMemoryStats(SocketMemoryStats* stats) const override;
   void GetSSLCertRequestInfo(
       SSLCertRequestInfo* cert_request_info) const override;
-  ChannelIDService* GetChannelIDService() const override;
-  Error GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                 TokenBindingType tb_type,
-                                 std::vector<uint8_t>* out) override;
-  crypto::ECPrivateKey* GetChannelIDKey() const override;
 
   void ApplySocketTag(const SocketTag& tag) override;
 
@@ -125,6 +115,7 @@ class SSLClientSocketImpl : public SSLClientSocket,
   int ReadIfReady(IOBuffer* buf,
                   int buf_len,
                   CompletionOnceCallback callback) override;
+  int CancelReadIfReady() override;
   int Write(IOBuffer* buf,
             int buf_len,
             CompletionOnceCallback callback,
@@ -148,12 +139,9 @@ class SSLClientSocketImpl : public SSLClientSocket,
 
   int DoHandshake();
   int DoHandshakeComplete(int result);
-  int DoChannelIDLookup();
-  int DoChannelIDLookupComplete(int result);
-  int DoVerifyCert(int result);
-  int DoVerifyCertComplete(int result);
   void DoConnectCallback(int result);
 
+  void OnVerifyComplete(int result);
   void OnHandshakeIOComplete(int result);
 
   int DoHandshakeLoop(int last_io_result);
@@ -165,18 +153,17 @@ class SSLClientSocketImpl : public SSLClientSocket,
   // and, if complete, runs the respective callbacks.
   void RetryAllOperations();
 
+  // Callback from the SSL layer when a certificate needs to be verified. This
+  // is called when establishing new (fresh) connections and when evaluating
+  // whether an existing session can be resumed.
+  static ssl_verify_result_t VerifyCertCallback(SSL* ssl, uint8_t* out_alert);
+  ssl_verify_result_t VerifyCert();
+  ssl_verify_result_t HandleVerifyResult();
   int VerifyCT();
 
   // Callback from the SSL layer that indicates the remote server is requesting
   // a certificate for this client.
   int ClientCertRequestCallback(SSL* ssl);
-
-  // Called after the initial handshake completes and after the server
-  // certificate has been verified. The order of handshake completion and
-  // certificate verification depends on whether the connection was false
-  // started. After both have happened (thus calling this twice), the session is
-  // safe to cache and will be cached.
-  void MaybeCacheSession();
 
   // Called from the SSL layer whenever a new session is established.
   int NewSessionCallback(SSL_SESSION* session);
@@ -218,21 +205,11 @@ class SSLClientSocketImpl : public SSLClientSocket,
                        const void* buf,
                        size_t len);
 
-  int TokenBindingAdd(const uint8_t** out,
-                      size_t* out_len,
-                      int* out_alert_value);
-  int TokenBindingParse(const uint8_t* contents,
-                        size_t contents_len,
-                        int* out_alert_value);
-
   void LogConnectEndEvent(int rv);
 
   // Record whether ALPN was used, and if so, the negotiated protocol,
   // in a UMA histogram.
   void RecordNegotiatedProtocol() const;
-
-  // Returns whether TLS channel ID is enabled.
-  bool IsChannelIDEnabled() const;
 
   // Returns the net error corresponding to the most recent OpenSSL
   // error. ssl_error is the output of SSL_get_error.
@@ -251,6 +228,7 @@ class SSLClientSocketImpl : public SSLClientSocket,
   // Used by Write function.
   scoped_refptr<IOBuffer> user_write_buf_;
   int user_write_buf_len_;
+  bool first_post_handshake_write_ = true;
 
   // Used by DoPayloadRead() when attempting to fill the caller's buffer with
   // as much data as possible without blocking.
@@ -280,13 +258,12 @@ class SSLClientSocketImpl : public SSLClientSocket,
   std::unique_ptr<CertVerifier::Request> cert_verifier_request_;
   base::TimeTicks start_cert_verification_time_;
 
+  // Result from Cert Verifier.
+  int cert_verification_result_;
+
   // Certificate Transparency: Verifier and result holder.
   ct::CTVerifyResult ct_verify_result_;
   CTVerifier* cert_transparency_verifier_;
-
-  // The service for retrieving Channel ID keys.  May be NULL.
-  ChannelIDService* channel_id_service_;
-  TokenBindingSignatureMap tb_signature_map_;
 
   // OpenSSL stuff
   bssl::UniquePtr<SSL> ssl_;
@@ -304,10 +281,6 @@ class SSLClientSocketImpl : public SSLClientSocket,
     STATE_NONE,
     STATE_HANDSHAKE,
     STATE_HANDSHAKE_COMPLETE,
-    STATE_CHANNEL_ID_LOOKUP,
-    STATE_CHANNEL_ID_LOOKUP_COMPLETE,
-    STATE_VERIFY_CERT,
-    STATE_VERIFY_CERT_COMPLETE,
   };
   State next_handshake_state_;
 
@@ -318,19 +291,8 @@ class SSLClientSocketImpl : public SSLClientSocket,
   bool disconnected_;
 
   NextProto negotiated_protocol_;
-  // Written by the |channel_id_service_|.
-  std::unique_ptr<crypto::ECPrivateKey> channel_id_key_;
-  // True if a channel ID was sent.
-  bool channel_id_sent_;
-  // If non-null, the newly-established to be inserted into the session cache
-  // once certificate verification is done.
-  bssl::UniquePtr<SSL_SESSION> pending_session_;
-  // True if the initial handshake's certificate has been verified.
-  bool certificate_verified_;
   // Set to true if a CertificateRequest was received.
   bool certificate_requested_;
-  // The request handle for |channel_id_service_|.
-  ChannelIDService::Request channel_id_request_;
 
   int signature_result_;
   std::vector<uint8_t> signature_;

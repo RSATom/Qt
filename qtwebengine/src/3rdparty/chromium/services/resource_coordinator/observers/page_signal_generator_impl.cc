@@ -234,12 +234,15 @@ void PageSignalGeneratorImpl::OnSystemEventReceived(
       PageData* data = &entry.second;
       // TODO(siggi): Figure "recency" here, to avoid firing a measurement event
       //     for state transitions that happened "too long" before a
-      //     measurement started.
+      //     measurement started. Alternatively perhaps this bit of policy is
+      //     better done in the observer, in which case it needs the time stamps
+      //     involved.
       if (data->GetLoadIdleState() == kLoadedAndIdle &&
           !data->performance_estimate_issued &&
           data->last_state_change < measurement_start) {
         DispatchPageSignal(
             page, &mojom::PageSignalReceiver::OnLoadTimePerformanceEstimate,
+            page->TimeSinceLastNavigation(),
             page->cumulative_cpu_usage_estimate(),
             page->private_footprint_kb_estimate());
         data->performance_estimate_issued = true;

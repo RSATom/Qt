@@ -298,7 +298,7 @@ bool QGeoRouteSegmentPrivate::valid() const
 
 void QGeoRouteSegmentPrivate::setValid(bool valid)
 {
-    Q_UNUSED(valid)
+    Q_UNUSED(valid);
 }
 
 bool QGeoRouteSegmentPrivate::isLegLastSegment() const
@@ -308,7 +308,7 @@ bool QGeoRouteSegmentPrivate::isLegLastSegment() const
 
 void QGeoRouteSegmentPrivate::setLegLastSegment(bool lastSegment)
 {
-    Q_UNUSED(lastSegment)
+    Q_UNUSED(lastSegment);
 }
 
 int QGeoRouteSegmentPrivate::travelTime() const
@@ -318,7 +318,7 @@ int QGeoRouteSegmentPrivate::travelTime() const
 
 void QGeoRouteSegmentPrivate::setTravelTime(int travelTime)
 {
-    Q_UNUSED(travelTime)
+    Q_UNUSED(travelTime);
 }
 
 qreal QGeoRouteSegmentPrivate::distance() const
@@ -328,7 +328,7 @@ qreal QGeoRouteSegmentPrivate::distance() const
 
 void QGeoRouteSegmentPrivate::setDistance(qreal distance)
 {
-    Q_UNUSED(distance)
+    Q_UNUSED(distance);
 }
 
 QList<QGeoCoordinate> QGeoRouteSegmentPrivate::path() const
@@ -338,7 +338,7 @@ QList<QGeoCoordinate> QGeoRouteSegmentPrivate::path() const
 
 void QGeoRouteSegmentPrivate::setPath(const QList<QGeoCoordinate> &path)
 {
-    Q_UNUSED(path)
+    Q_UNUSED(path);
 }
 
 QGeoManeuver QGeoRouteSegmentPrivate::maneuver() const
@@ -348,7 +348,7 @@ QGeoManeuver QGeoRouteSegmentPrivate::maneuver() const
 
 void QGeoRouteSegmentPrivate::setManeuver(const QGeoManeuver &maneuver)
 {
-    Q_UNUSED(maneuver)
+    Q_UNUSED(maneuver);
 }
 
 QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> QGeoRouteSegmentPrivate::nextRouteSegment() const

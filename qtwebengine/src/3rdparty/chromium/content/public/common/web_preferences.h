@@ -14,7 +14,7 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "net/nqe/effective_connection_type.h"
-#include "ui/base/touch/touch_device.h"
+#include "ui/base/pointer/pointer_device.h"
 #include "url/gurl.h"
 
 namespace blink {
@@ -57,19 +57,11 @@ enum ImageAnimationPolicy {
 
 enum class ViewportStyle { DEFAULT, MOBILE, TELEVISION, LAST = TELEVISION };
 
-enum class SavePreviousDocumentResources {
-  NEVER,
-  UNTIL_ON_DOM_CONTENT_LOADED,
-  UNTIL_ON_LOAD,
-  LAST = UNTIL_ON_LOAD
-};
-
 // Defines the autoplay policy to be used. Should match the class in
 // WebSettings.h.
 enum class AutoplayPolicy {
   kNoUserGestureRequired,
   kUserGestureRequired,
-  kUserGestureRequiredForCrossOrigin,
   kDocumentUserActivationRequired,
 };
 
@@ -122,16 +114,12 @@ struct CONTENT_EXPORT WebPreferences {
   // appears as disabled to the web consumers even if it has been actually
   // enabled by the user.
   bool data_saver_holdback_web_api_enabled;
-  // Whether data saver holdback is enabled when queried by the media APIs
-  // within Blink. If enabled, data saver appears as disabled to the media APIs
-  // even if it has been actually enabled by the user.
-  bool data_saver_holdback_media_api_enabled;
   bool local_storage_enabled;
   bool databases_enabled;
   bool application_cache_enabled;
   bool tabs_to_links;
   bool history_entry_requires_user_gesture;
-  bool disable_pushstate_throttle;
+  bool disable_ipc_flooding_protection;
   bool hyperlink_auditing_enabled;
   bool allow_universal_access_from_file_urls;
   bool allow_file_access_from_file_urls;
@@ -173,6 +161,7 @@ struct CONTENT_EXPORT WebPreferences {
   bool should_print_backgrounds;
   bool should_clear_document_background;
   bool enable_scroll_animator;
+  bool prefers_reduced_motion;
   bool touch_event_feature_detection_enabled;
   bool enable_error_page;
   bool touch_adjustment_enabled;
@@ -189,7 +178,12 @@ struct CONTENT_EXPORT WebPreferences {
   bool supports_multiple_windows;
   bool viewport_enabled;
   bool viewport_meta_enabled;
+
+  // If true - Blink will clamp the minimum scale factor to the content width,
+  // preventing zoom beyond the visible content. This is really only needed if
+  // viewport_enabled is on.
   bool shrinks_viewport_contents_to_fit;
+
   ViewportStyle viewport_style;
   bool always_show_context_menu_on_touch;
   bool smooth_scroll_for_find_enabled;
@@ -201,7 +195,6 @@ struct CONTENT_EXPORT WebPreferences {
   bool navigate_on_drag_drop;
   V8CacheOptions v8_cache_options;
   bool record_whole_document;
-  SavePreviousDocumentResources save_previous_document_resources;
 
   // This flags corresponds to a Page's Settings' setCookieEnabled state. It
   // only controls whether or not the "document.cookie" field is properly
@@ -218,6 +211,11 @@ struct CONTENT_EXPORT WebPreferences {
 
   bool user_gesture_required_for_presentation;
 
+  // These fields specify the foreground and background color for WebVTT text
+  // tracks. Their values can be any legal CSS color descriptor.
+  std::string text_track_background_color;
+  std::string text_track_text_color;
+
   // Specifies the margin for WebVTT text tracks as a percentage of media
   // element height/width (for horizontal/vertical text respectively).
   // Cues will not be placed in this margin area.
@@ -225,16 +223,18 @@ struct CONTENT_EXPORT WebPreferences {
 
   bool immersive_mode_enabled;
 
+  bool double_tap_to_zoom_enabled;
+
   bool text_autosizing_enabled;
 
-  bool double_tap_to_zoom_enabled;
+  // Representation of the Web App Manifest scope if any.
+  GURL web_app_scope;
 
 #if defined(OS_ANDROID)
   float font_scale_factor;
   float device_scale_adjustment;
   bool force_enable_zoom;
   bool fullscreen_supported;
-  std::string media_playback_gesture_whitelist_scope;
   GURL default_video_poster_url;
   bool support_deprecated_target_density_dpi;
   bool use_legacy_background_size_shorthand_behavior;
@@ -283,9 +283,6 @@ struct CONTENT_EXPORT WebPreferences {
   // Whether download UI should be hidden on this page.
   bool hide_download_ui;
 
-  // If enabled, disabled video track when the video is in the background.
-  bool background_video_track_optimization_enabled;
-
   // Whether it is a presentation receiver.
   bool presentation_receiver;
 
@@ -302,18 +299,35 @@ struct CONTENT_EXPORT WebPreferences {
   AutoplayPolicy autoplay_policy;
 
   // Network quality threshold below which resources from iframes are assigned
-  // lowest priority.
+  // either kVeryLow or kVeryLow Blink priority.
   net::EffectiveConnectionType low_priority_iframes_threshold;
 
   // Whether Picture-in-Picture is enabled.
   bool picture_in_picture_enabled;
 
-  // Specifies how close a lazily loaded iframe should be from the viewport
-  // before it should start being loaded in, depending on the effective
+  // Whether a translate service is available.
+  // blink's hrefTranslate attribute existence relies on the result.
+  // See https://github.com/dtapuska/html-translate
+  bool translate_service_available;
+
+  // A value other than net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN implies that the
+  // network quality estimate related Web APIs are in the holdback mode. When
+  // the holdback is enabled, the related Web APIs return network quality
+  // estimate corresponding to |network_quality_estimator_web_holdback|
+  // regardless of the actual quality.
+  net::EffectiveConnectionType network_quality_estimator_web_holdback;
+
+  // Whether lazy loading of frames and images is enabled.
+  bool lazy_load_enabled = true;
+
+  // Specifies how close a lazily loaded iframe or image should be from the
+  // viewport before it should start being loaded in, depending on the effective
   // connection type of the current network. Blink will use the default distance
   // threshold for effective connection types that aren't specified here.
   std::map<net::EffectiveConnectionType, int>
       lazy_frame_loading_distance_thresholds_px;
+  std::map<net::EffectiveConnectionType, int>
+      lazy_image_loading_distance_thresholds_px;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

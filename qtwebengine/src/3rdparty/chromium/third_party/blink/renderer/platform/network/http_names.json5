@@ -1,6 +1,6 @@
 {
   metadata: {
-    namespace: "HTTP",
+    namespace: "http_names",
     export: "PLATFORM_EXPORT",
   },
 
@@ -35,6 +35,7 @@
     "Expires",
     "Date",
     "Feature-Policy",
+    "Feature-Policy-Report-Only",
     "If-Match",
     "If-Modified-Since",
     "If-None-Match",
@@ -51,6 +52,7 @@
     "Pragma",
     "Purpose",
     "Range",
+    // TODO(domfarolino): Remove "Referer" as part of https://crbug.com/850813.
     "Referer",
     "Referrer-Policy",
     "Refresh",

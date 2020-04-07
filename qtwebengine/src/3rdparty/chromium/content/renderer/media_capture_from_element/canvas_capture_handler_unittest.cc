@@ -7,11 +7,13 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "content/child/child_process.h"
 #include "content/renderer/media/stream/media_stream_video_capturer_source.h"
 #include "media/base/limits.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/public/platform/web_media_stream_source.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/platform/web_size.h"
@@ -56,7 +58,7 @@ class CanvasCaptureHandlerTest
     canvas_capture_handler_ = CanvasCaptureHandler::CreateCanvasCaptureHandler(
         blink::WebSize(kTestCanvasCaptureWidth, kTestCanvasCaptureHeight),
         kTestCanvasCaptureFramesPerSecond,
-        scoped_task_environment_.GetMainThreadTaskRunner(), &track_);
+        blink::scheduler::GetSingleThreadTaskRunnerForTesting(), &track_);
   }
 
   void TearDown() override {
@@ -83,7 +85,7 @@ class CanvasCaptureHandlerTest
   static sk_sp<SkImage> GenerateTestImage(bool opaque, int width, int height) {
     SkBitmap testBitmap;
     testBitmap.allocN32Pixels(width, height, opaque);
-    testBitmap.eraseARGB(kTestAlphaValue, 30, 60, 200);
+    testBitmap.eraseARGB(opaque ? 255 : kTestAlphaValue, 30, 60, 200);
     return SkImage::MakeFromBitmap(testBitmap);
   }
 
@@ -164,7 +166,7 @@ TEST_P(CanvasCaptureHandlerTest, GetFormatsStartAndStop) {
   EXPECT_FALSE(web_media_stream_source.IsNull());
   MediaStreamVideoCapturerSource* const ms_source =
       static_cast<MediaStreamVideoCapturerSource*>(
-          web_media_stream_source.GetExtraData());
+          web_media_stream_source.GetPlatformSource());
   EXPECT_TRUE(ms_source != nullptr);
   media::VideoCapturerSource* source = GetVideoCapturerSource(ms_source);
   EXPECT_TRUE(source != nullptr);
@@ -204,7 +206,7 @@ TEST_P(CanvasCaptureHandlerTest, VerifyFrame) {
   InSequence s;
   media::VideoCapturerSource* const source =
       GetVideoCapturerSource(static_cast<MediaStreamVideoCapturerSource*>(
-          track_.Source().GetExtraData()));
+          track_.Source().GetPlatformSource()));
   EXPECT_TRUE(source != nullptr);
 
   base::RunLoop run_loop;
@@ -225,7 +227,7 @@ TEST_F(CanvasCaptureHandlerTest, CheckNeedsNewFrame) {
   InSequence s;
   media::VideoCapturerSource* source =
       GetVideoCapturerSource(static_cast<MediaStreamVideoCapturerSource*>(
-          track_.Source().GetExtraData()));
+          track_.Source().GetPlatformSource()));
   EXPECT_TRUE(source != nullptr);
   EXPECT_TRUE(canvas_capture_handler_->NeedsNewFrame());
   source->StopCapture();

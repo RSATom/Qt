@@ -17,15 +17,16 @@
 #include "components/viz/common/surfaces/surface_id.h"
 #include "content/browser/renderer_host/browser_compositor_view_mac.h"
 #include "content/browser/renderer_host/input/mouse_wheel_phase_handler.h"
-#include "content/browser/renderer_host/render_widget_host_ns_view_client.h"
+#include "content/browser/renderer_host/render_widget_host_ns_view_client_helper.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/text_input_manager.h"
 #include "content/common/content_export.h"
 #include "content/common/render_widget_host_ns_view.mojom.h"
 #include "ipc/ipc_sender.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
 #include "ui/accelerated_widget_mac/accelerated_widget_mac.h"
-#include "ui/accelerated_widget_mac/ca_transaction_observer.h"
 #include "ui/accelerated_widget_mac/display_link_mac.h"
+#include "ui/base/cocoa/accessibility_focus_overrider.h"
 #include "ui/base/cocoa/remote_layer_api.h"
 #include "ui/events/gesture_detection/filtered_gesture_provider.h"
 
@@ -36,11 +37,13 @@ class ScopedPasswordInputEnabler;
 
 @protocol RenderWidgetHostViewMacDelegate;
 
+@class NSAccessibilityRemoteUIElement;
 @class RenderWidgetHostViewCocoa;
 
 namespace content {
 
 class CursorManager;
+class NSViewBridgeFactoryHost;
 class RenderWidgetHost;
 class RenderWidgetHostNSViewBridgeLocal;
 class RenderWidgetHostViewMac;
@@ -65,13 +68,13 @@ class WebCursor;
 // RenderWidgetHostView class hierarchy described in render_widget_host_view.h.
 class CONTENT_EXPORT RenderWidgetHostViewMac
     : public RenderWidgetHostViewBase,
-      public RenderWidgetHostNSViewLocalClient,
+      public RenderWidgetHostNSViewClientHelper,
       public mojom::RenderWidgetHostNSViewClient,
       public BrowserCompositorMacClient,
       public TextInputManager::Observer,
-      public ui::CATransactionCoordinator::PreCommitObserver,
       public ui::GestureProviderClient,
       public ui::AcceleratedWidgetMacNSView,
+      public ui::AccessibilityFocusOverrider::Client,
       public IPC::Sender {
  public:
   // The view will associate itself with the given widget. The native view must
@@ -91,7 +94,6 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // |delegate| should be set at most once.
   CONTENT_EXPORT void SetDelegate(
     NSObject<RenderWidgetHostViewMacDelegate>* delegate);
-  void SetAllowPauseForResizeOrRepaint(bool allow);
 
   // RenderWidgetHostView implementation.
   void InitAsChild(gfx::NativeView parent_view) override;
@@ -137,7 +139,7 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       const gfx::Rect& src_rect,
       const gfx::Size& output_size,
       base::OnceCallback<void(const SkBitmap&)> callback) override;
-  void EnsureSurfaceSynchronizedForLayoutTest() override;
+  void EnsureSurfaceSynchronizedForWebTest() override;
   void FocusedNodeChanged(bool is_editable_node,
                           const gfx::Rect& node_bounds_in_screen) override;
   void DidCreateNewRendererCompositorFrameSink(
@@ -149,11 +151,13 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       base::Optional<viz::HitTestRegionList> hit_test_region_list) override;
   void OnDidNotProduceFrame(const viz::BeginFrameAck& ack) override;
   void ClearCompositorFrame() override;
+  void ResetFallbackToFirstNavigationSurface() override;
   bool RequestRepaintForTesting() override;
   BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
       BrowserAccessibilityDelegate* delegate, bool for_root_frame) override;
-  gfx::Point AccessibilityOriginInScreen(const gfx::Rect& bounds) override;
   gfx::NativeViewAccessible AccessibilityGetNativeViewAccessible() override;
+  gfx::NativeViewAccessible AccessibilityGetNativeViewAccessibleForWindow()
+      override;
   base::Optional<SkColor> GetBackgroundColor() const override;
 
   void SetParentUiLayer(ui::Layer* parent_ui_layer) override;
@@ -180,17 +184,19 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       override;
 
   const viz::FrameSinkId& GetFrameSinkId() const override;
-  const viz::LocalSurfaceId& GetLocalSurfaceId() const override;
-  // Returns true when we can do SurfaceHitTesting for the event type.
-  bool ShouldRouteEvent(const blink::WebInputEvent& event) const;
-  // This method checks |event| to see if a GesturePinch event can be routed
-  // according to ShouldRouteEvent, and if not, sends it directly to the view's
-  // RenderWidgetHost.
-  // By not just defaulting to sending the GesturePinch events to the mainframe,
-  // we allow the events to be targeted to an oopif subframe, in case some
-  // consumer, such as PDF or maps, wants to intercept them and implement a
-  // custom behavior.
-  void SendGesturePinchEvent(blink::WebGestureEvent* event);
+  const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
+      const override;
+  // Returns true when we can hit test input events with location data to be
+  // sent to the targeted RenderWidgetHost.
+  bool ShouldRouteEvents() const;
+  // This method checks |event| to see if a GesturePinch or double tap event
+  // can be routed according to ShouldRouteEvent, and if not, sends it directly
+  // to the view's RenderWidgetHost.
+  // By not just defaulting to sending events that change the page scale to the
+  // main frame, we allow the events to be targeted to an oopif subframe, in
+  // case some consumer, such as PDF or maps, wants to intercept them and
+  // implement a custom behavior.
+  void SendTouchpadZoomEvent(const blink::WebGestureEvent* event);
 
   // Inject synthetic touch events.
   void InjectTouchEvent(const blink::WebTouchEvent& event,
@@ -222,10 +228,6 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       RenderWidgetHostViewBase* updated_view) override;
   void OnTextSelectionChanged(TextInputManager* text_input_manager,
                               RenderWidgetHostViewBase* updated_view) override;
-
-  // ui::CATransactionCoordinator::PreCommitObserver implementation
-  bool ShouldWaitInPreCommit() override;
-  base::TimeDelta PreCommitTimeout() override;
 
   // ui::GestureProviderClient implementation.
   void OnGestureEvent(const ui::GestureEventData& gesture) override;
@@ -299,8 +301,10 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // RenderWidgetHostImpl as well.
   void UpdateNSViewAndDisplayProperties();
 
-  // RenderWidgetHostNSViewLocalClient implementation.
-  BrowserAccessibilityManager* GetRootBrowserAccessibilityManager() override;
+  // RenderWidgetHostNSViewClientHelper implementation.
+  id GetRootBrowserAccessibilityElement() override;
+  id GetFocusedBrowserAccessibilityElement() override;
+  void SetAccessibilityWindow(NSWindow* window) override;
   void ForwardKeyboardEvent(const NativeWebKeyboardEvent& key_event,
                             const ui::LatencyInfo& latency_info) override;
   void ForwardKeyboardEventWithCommands(
@@ -308,6 +312,7 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       const ui::LatencyInfo& latency_info,
       const std::vector<EditCommand>& commands) override;
   void RouteOrProcessMouseEvent(const blink::WebMouseEvent& web_event) override;
+  void RouteOrProcessTouchEvent(const blink::WebTouchEvent& web_event) override;
   void RouteOrProcessWheelEvent(
       const blink::WebMouseWheelEvent& web_event) override;
   void ForwardMouseEvent(const blink::WebMouseEvent& web_event) override;
@@ -319,8 +324,9 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   void SmartMagnify(const blink::WebGestureEvent& smart_magnify_event) override;
 
   // mojom::RenderWidgetHostNSViewClient implementation.
-  void SyncIsRenderViewHost(SyncIsRenderViewHostCallback callback) override;
-  bool SyncIsRenderViewHost(bool* is_render_view) override;
+  void SyncIsWidgetForMainFrame(
+      SyncIsWidgetForMainFrameCallback callback) override;
+  bool SyncIsWidgetForMainFrame(bool* is_for_main_frame) override;
   void RequestShutdown() override;
   void OnFirstResponderChanged(bool is_first_responder) override;
   void OnWindowIsKeyChanged(bool is_key) override;
@@ -339,6 +345,7 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       bool skip_in_browser,
       const std::vector<EditCommand>& commands) override;
   void RouteOrProcessMouseEvent(std::unique_ptr<InputEvent> event) override;
+  void RouteOrProcessTouchEvent(std::unique_ptr<InputEvent> event) override;
   void RouteOrProcessWheelEvent(std::unique_ptr<InputEvent> event) override;
   void ForwardMouseEvent(std::unique_ptr<InputEvent> event) override;
   void ForwardWheelEvent(std::unique_ptr<InputEvent> event) override;
@@ -387,19 +394,24 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   void StopSpeaking() override;
   bool SyncIsSpeaking(bool* is_speaking) override;
   void SyncIsSpeaking(SyncIsSpeakingCallback callback) override;
+  void SyncGetRootAccessibilityElement(
+      SyncGetRootAccessibilityElementCallback callback) override;
+  void SetRemoteAccessibilityWindowToken(
+      const std::vector<uint8_t>& window_token) override;
 
   // BrowserCompositorMacClient implementation.
   SkColor BrowserCompositorMacGetGutterColor() const override;
   void BrowserCompositorMacOnBeginFrame(base::TimeTicks frame_time) override;
   void OnFrameTokenChanged(uint32_t frame_token) override;
-  void DidReceiveFirstFrameAfterNavigation() override;
   void DestroyCompositorForShutdown() override;
-  bool SynchronizeVisualProperties(
-      const base::Optional<viz::LocalSurfaceId>&
-          child_allocated_local_surface_id) override;
+  bool OnBrowserCompositorSurfaceIdChanged() override;
+  std::vector<viz::SurfaceId> CollectSurfaceIdsForEviction() override;
 
   // AcceleratedWidgetMacNSView implementation.
   void AcceleratedWidgetCALayerParamsUpdated() override;
+
+  // ui::AccessibilityFocusOverrider::Client:
+  id GetAccessibilityFocusedUIElement() override;
 
   void SetShowingContextMenu(bool showing) override;
 
@@ -445,6 +457,12 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // https://crbug.com/831843
   RenderWidgetHostImpl* GetWidgetForKeyboardEvent();
 
+  // Migrate the NSView for this RenderWidgetHostView to be in the process
+  // hosted by |bridge_factory_host|, and make it a child view of the NSView
+  // referred to by |parent_ns_view_id|.
+  void MigrateNSViewBridge(NSViewBridgeFactoryHost* bridge_factory_host,
+                           uint64_t parent_ns_view_id);
+
  protected:
   // This class is to be deleted through the Destroy method.
   ~RenderWidgetHostViewMac() override;
@@ -488,6 +506,7 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
 
   // RenderWidgetHostViewBase:
   void UpdateBackgroundColor() override;
+  bool HasFallbackSurface() const override;
 
   // Gets a textual view of the page's contents, and passes it to the callback
   // provided.
@@ -503,6 +522,13 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // used for |this|. Any functionality that uses |new_view_bridge_local_| will
   // not work when the RenderWidgetHostViewCocoa is hosted in an app process.
   std::unique_ptr<RenderWidgetHostNSViewBridgeLocal> ns_view_bridge_local_;
+
+  // If the NSView is hosted in a remote process and accessed via mojo then
+  // - |ns_view_bridge_| will point to |ns_view_bridge_remote_|
+  // - |ns_view_client_binding_| is the binding provided to the bridge.
+  mojom::RenderWidgetHostNSViewBridgeAssociatedPtr ns_view_bridge_remote_;
+  mojo::AssociatedBinding<mojom::RenderWidgetHostNSViewClient>
+      ns_view_client_binding_;
 
   // State tracked by Show/Hide/IsShowing.
   bool is_visible_ = false;
@@ -522,6 +548,9 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // Cached copy of the display information pushed to us from the NSView.
   display::Display display_;
 
+  // Whether or not the NSView's NSWindow is the key window.
+  bool is_window_key_ = false;
+
   // Whether or not the NSView is first responder.
   bool is_first_responder_ = false;
 
@@ -532,13 +561,14 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // RenderWidgetHostViewGuest.
   bool is_guest_view_hack_;
 
+  // Our parent host view, if this is a popup.  NULL otherwise.
+  RenderWidgetHostViewMac* popup_parent_host_view_;
+
+  // Our child popup host. NULL if we do not have a child popup.
+  RenderWidgetHostViewMac* popup_child_host_view_;
+
   // Display link for getting vsync info.
   scoped_refptr<ui::DisplayLinkMac> display_link_;
-
-  // The current VSync timebase and interval. This is zero until the first call
-  // to SendVSyncParametersToRenderer(), and refreshed regularly thereafter.
-  base::TimeTicks vsync_timebase_;
-  base::TimeDelta vsync_interval_;
 
   // Whether a request for begin frames has been issued.
   bool needs_begin_frames_;
@@ -604,8 +634,18 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
 
   // Latest capture sequence number which is incremented when the caller
   // requests surfaces be synchronized via
-  // EnsureSurfaceSynchronizedForLayoutTest().
+  // EnsureSurfaceSynchronizedForWebTest().
   uint32_t latest_capture_sequence_number_ = 0u;
+
+  // Remote accessibility objects corresponding to the NSWindow that this is
+  // displayed to the user in.
+  base::scoped_nsobject<NSAccessibilityRemoteUIElement>
+      remote_window_accessible_;
+
+  // Used to force the NSApplication's focused accessibility element to be the
+  // content::BrowserAccessibilityCocoa accessibility tree when the NSView for
+  // this is focused.
+  ui::AccessibilityFocusOverrider accessibility_focus_overrider_;
 
   // Factory used to safely scope delayed calls to ShutdownHost().
   base::WeakPtrFactory<RenderWidgetHostViewMac> weak_factory_;

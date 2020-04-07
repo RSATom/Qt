@@ -32,7 +32,7 @@
 namespace blink {
 
 WebGLProgram* WebGLProgram::Create(WebGLRenderingContextBase* ctx) {
-  return new WebGLProgram(ctx);
+  return MakeGarbageCollected<WebGLProgram>(ctx);
 }
 
 WebGLProgram::WebGLProgram(WebGLRenderingContextBase* ctx)
@@ -62,12 +62,24 @@ void WebGLProgram::DeleteObjectImpl(gpu::gles2::GLES2Interface* gl) {
       fragment_shader_->OnDetached(gl);
       fragment_shader_ = nullptr;
     }
+    if (compute_shader_) {
+      compute_shader_->OnDetached(gl);
+      compute_shader_ = nullptr;
+    }
   }
 }
 
 bool WebGLProgram::LinkStatus(WebGLRenderingContextBase* context) {
   CacheInfoIfNeeded(context);
   return link_status_;
+}
+
+bool WebGLProgram::CompletionStatus(WebGLRenderingContextBase* context) {
+  GLint completed = 0;
+  gpu::gles2::GLES2Interface* gl = context->ContextGL();
+  gl->GetProgramiv(object_, GL_COMPLETION_STATUS_KHR, &completed);
+
+  return completed;
 }
 
 void WebGLProgram::IncreaseLinkCount() {
@@ -89,6 +101,8 @@ WebGLShader* WebGLProgram::GetAttachedShader(GLenum type) {
       return vertex_shader_;
     case GL_FRAGMENT_SHADER:
       return fragment_shader_;
+    case GL_COMPUTE_SHADER:
+      return compute_shader_;
     default:
       return nullptr;
   }
@@ -108,6 +122,11 @@ bool WebGLProgram::AttachShader(WebGLShader* shader) {
         return false;
       fragment_shader_ = shader;
       return true;
+    case GL_COMPUTE_SHADER:
+      if (compute_shader_)
+        return false;
+      compute_shader_ = shader;
+      return true;
     default:
       return false;
   }
@@ -126,6 +145,11 @@ bool WebGLProgram::DetachShader(WebGLShader* shader) {
       if (fragment_shader_ != shader)
         return false;
       fragment_shader_ = nullptr;
+      return true;
+    case GL_COMPUTE_SHADER:
+      if (compute_shader_ != shader)
+        return false;
+      compute_shader_ = nullptr;
       return true;
     default:
       return false;
@@ -150,6 +174,7 @@ void WebGLProgram::CacheInfoIfNeeded(WebGLRenderingContextBase* context) {
 void WebGLProgram::Trace(blink::Visitor* visitor) {
   visitor->Trace(vertex_shader_);
   visitor->Trace(fragment_shader_);
+  visitor->Trace(compute_shader_);
   WebGLSharedPlatform3DObject::Trace(visitor);
 }
 

@@ -5,7 +5,7 @@
 #include "extensions/browser/api/document_scan/document_scan_api.h"
 
 #include "base/stl_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_system.h"
 
@@ -30,7 +30,7 @@ DocumentScanScanFunction::~DocumentScanScanFunction() {}
 
 bool DocumentScanScanFunction::Prepare() {
   set_work_task_runner(base::CreateSequencedTaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::BACKGROUND}));
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT}));
   params_ = document_scan::Scan::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params_.get());
   return true;
@@ -56,8 +56,7 @@ void DocumentScanScanFunction::OnScannerListReceived(
     const std::vector<DocumentScanInterface::ScannerDescription>&
         scanner_descriptions,
     const std::string& error) {
-  std::vector<DocumentScanInterface::ScannerDescription>::const_iterator
-      scanner_i = scanner_descriptions.begin();
+  auto scanner_i = scanner_descriptions.cbegin();
 
   // If no |scanner_descriptions| is empty, this is an error.  If no
   // MIME types are specified, the first scanner is chosen.  If MIME

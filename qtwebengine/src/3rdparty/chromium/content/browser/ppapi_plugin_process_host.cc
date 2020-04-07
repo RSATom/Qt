@@ -12,8 +12,8 @@
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/metrics/field_trial.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -23,14 +23,15 @@
 #include "content/common/child_process_host_impl.h"
 #include "content/common/content_switches_internal.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/network_service_instance.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "content/public/common/service_names.mojom.h"
-#include "net/base/network_change_notifier.h"
 #include "ppapi/proxy/ppapi_messages.h"
+#include "services/network/public/cpp/network_connection_tracker.h"
 #include "services/service_manager/sandbox/sandbox_type.h"
 #include "services/service_manager/sandbox/switches.h"
 #include "services/service_manager/zygote/common/zygote_buildflags.h"
@@ -129,25 +130,38 @@ class PpapiPluginSandboxedProcessLauncherDelegate
 };
 
 class PpapiPluginProcessHost::PluginNetworkObserver
-    : public net::NetworkChangeNotifier::NetworkChangeObserver {
+    : public network::NetworkConnectionTracker::NetworkConnectionObserver {
  public:
   explicit PluginNetworkObserver(PpapiPluginProcessHost* process_host)
-      : process_host_(process_host) {
-    net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
+      : process_host_(process_host),
+        network_connection_tracker_(nullptr),
+        weak_factory_(this) {
+    GetNetworkConnectionTrackerFromUIThread(
+        base::BindOnce(&PluginNetworkObserver::SetNetworkConnectionTracker,
+                       weak_factory_.GetWeakPtr()));
+  }
+
+  void SetNetworkConnectionTracker(
+      network::NetworkConnectionTracker* network_connection_tracker) {
+    DCHECK(network_connection_tracker);
+    network_connection_tracker_ = network_connection_tracker;
+    network_connection_tracker_->AddNetworkConnectionObserver(this);
   }
 
   ~PluginNetworkObserver() override {
-    net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
+    if (network_connection_tracker_)
+      network_connection_tracker_->RemoveNetworkConnectionObserver(this);
   }
 
-  void OnNetworkChanged(
-      net::NetworkChangeNotifier::ConnectionType type) override {
+  void OnConnectionChanged(network::mojom::ConnectionType type) override {
     process_host_->Send(new PpapiMsg_SetNetworkState(
-        type != net::NetworkChangeNotifier::CONNECTION_NONE));
+        type != network::mojom::ConnectionType::CONNECTION_NONE));
   }
 
  private:
   PpapiPluginProcessHost* const process_host_;
+  network::NetworkConnectionTracker* network_connection_tracker_;
+  base::WeakPtrFactory<PluginNetworkObserver> weak_factory_;
 };
 
 PpapiPluginProcessHost::~PpapiPluginProcessHost() {
@@ -358,7 +372,7 @@ bool PpapiPluginProcessHost::Init(const PepperPluginInfo& info) {
     switches::kVModule
   };
   cmd_line->CopySwitchesFrom(browser_command_line, kCommonForwardSwitches,
-                             arraysize(kCommonForwardSwitches));
+                             base::size(kCommonForwardSwitches));
 
   if (!is_broker_) {
     static const char* const kPluginForwardSwitches[] = {
@@ -370,7 +384,7 @@ bool PpapiPluginProcessHost::Init(const PepperPluginInfo& info) {
       switches::kPpapiStartupDialog,
     };
     cmd_line->CopySwitchesFrom(browser_command_line, kPluginForwardSwitches,
-                               arraysize(kPluginForwardSwitches));
+                               base::size(kPluginForwardSwitches));
 
     // Copy any flash args over if necessary.
     // TODO(vtl): Stop passing flash args in the command line, or windows is
@@ -509,7 +523,7 @@ void PpapiPluginProcessHost::OnRendererPluginChannelCreated(
   sent_requests_.pop();
 
   const ChildProcessData& data = process_->GetData();
-  client->OnPpapiChannelOpened(channel_handle, base::GetProcId(data.handle),
+  client->OnPpapiChannelOpened(channel_handle, data.GetProcess().Pid(),
                                data.id);
 }
 

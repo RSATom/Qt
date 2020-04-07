@@ -277,7 +277,7 @@ protected:
                const QStyleOptionViewItem &option,
                const QModelIndex &index) const override {
         QStyleOptionMenuItem opt = getStyleOption(option, index);
-        painter->fillRect(option.rect, opt.palette.background());
+        painter->fillRect(option.rect, opt.palette.window());
         mCombo->style()->drawControl(QStyle::CE_MenuItem, &opt, painter, mCombo);
     }
     QSize sizeHint(const QStyleOptionViewItem &option,
@@ -293,6 +293,7 @@ private:
     QComboBox *mCombo;
 };
 
+// ### Qt6: QStyledItemDelegate ?
 // Note that this class is intentionally not using QStyledItemDelegate
 // Vista does not use the new theme for combo boxes and there might
 // be other side effects from using the new class

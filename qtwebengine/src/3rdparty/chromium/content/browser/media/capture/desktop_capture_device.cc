@@ -19,12 +19,14 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/tick_clock.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "content/browser/media/capture/desktop_capture_device_uma_types.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_capture.h"
 #include "content/public/browser/desktop_media_id.h"
@@ -45,10 +47,6 @@
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
 #include "third_party/webrtc/modules/desktop_capture/fake_desktop_capturer.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor_monitor.h"
-
-#if defined(TOOLKIT_QT) && defined(OS_MACOSX)
-#include "base/message_loop/message_pump_mac.h"
-#endif
 
 namespace content {
 
@@ -258,8 +256,8 @@ void DesktopCaptureDevice::Core::AllocateAndStart(
   // TODO(https://crbug.com/823869): Fix DesktopCaptureDeviceTest and remove
   // this conditional.
   if (BrowserThread::IsThreadInitialized(BrowserThread::UI)) {
-    BrowserThread::PostTaskAndReplyWithResult(
-        BrowserThread::UI, FROM_HERE, base::BindOnce(&GetServiceConnector),
+    base::PostTaskWithTraitsAndReplyWithResult(
+        FROM_HERE, {BrowserThread::UI}, base::BindOnce(&GetServiceConnector),
         base::BindOnce(&DesktopCaptureDevice::Core::RequestWakeLock,
                        weak_factory_.GetWeakPtr()));
   }
@@ -317,7 +315,9 @@ void DesktopCaptureDevice::Core::OnCaptureResult(
           IncrementDesktopCaptureCounter(WINDOW_CAPTURER_PERMANENT_ERROR);
         }
       }
-      client_->OnError(FROM_HERE, "The desktop capturer has failed.");
+      client_->OnError(media::VideoCaptureError::
+                           kDesktopCaptureDeviceWebrtcDesktopCapturerHasFailed,
+                       FROM_HERE, "The desktop capturer has failed.");
     }
     return;
   }
@@ -364,8 +364,6 @@ void DesktopCaptureDevice::Core::OnCaptureResult(
     // last frame.
     if (!black_frame_ || !black_frame_->size().equals(output_size)) {
       black_frame_.reset(new webrtc::BasicDesktopFrame(output_size));
-      memset(black_frame_->data(), 0,
-             black_frame_->stride() * black_frame_->size().height());
     }
     output_data = black_frame_->data();
   } else {
@@ -396,7 +394,6 @@ void DesktopCaptureDevice::Core::OnCaptureResult(
       // letterboxed areas.
       if (!output_frame_) {
         output_frame_.reset(new webrtc::BasicDesktopFrame(output_size));
-        memset(output_frame_->data(), 0, output_bytes);
       }
       DCHECK(output_frame_->size().equals(output_size));
 
@@ -418,7 +415,6 @@ void DesktopCaptureDevice::Core::OnCaptureResult(
       // crbug.com/437740).
       if (!output_frame_) {
         output_frame_.reset(new webrtc::BasicDesktopFrame(output_size));
-        memset(output_frame_->data(), 0, output_bytes);
       }
 
       output_frame_->CopyPixelsFrom(
@@ -562,7 +558,9 @@ void DesktopCaptureDevice::AllocateAndStart(
 
 void DesktopCaptureDevice::StopAndDeAllocate() {
   if (core_) {
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    // This thread should mostly be an idle observer. Stopping it should be
+    // fast.
+    base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_thread_join;
     thread_.task_runner()->DeleteSoon(FROM_HERE, core_.release());
     thread_.Stop();
   }
@@ -582,12 +580,6 @@ DesktopCaptureDevice::DesktopCaptureDevice(
     std::unique_ptr<webrtc::DesktopCapturer> capturer,
     DesktopMediaID::Type type)
     : thread_("desktopCaptureThread") {
-#if defined(TOOLKIT_QT) && defined(OS_MACOSX)
-  // Desktop capture needs a CFRunLoop-based message pump.
-  base::Thread::Options options;
-  options.message_pump_factory = base::BindRepeating(&base::MessagePumpMac::Create);
-  CHECK(thread_.StartWithOptions(options));
-#else
 #if defined(OS_WIN) || defined(OS_MACOSX)
   // On Windows/OSX the thread must be a UI thread.
   base::MessageLoop::Type thread_type = base::MessageLoop::TYPE_UI;
@@ -596,7 +588,6 @@ DesktopCaptureDevice::DesktopCaptureDevice(
 #endif
 
   thread_.StartWithOptions(base::Thread::Options(thread_type, 0));
-#endif
 
   core_.reset(new Core(thread_.task_runner(), std::move(capturer), type));
 }

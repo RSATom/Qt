@@ -11,13 +11,13 @@
 #ifndef COMMON_AUDIO_INCLUDE_AUDIO_UTIL_H_
 #define COMMON_AUDIO_INCLUDE_AUDIO_UTIL_H_
 
+#include <stdint.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
 
 #include "rtc_base/checks.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 

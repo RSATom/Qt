@@ -35,16 +35,17 @@
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/pausable_object.h"
+#include "third_party/blink/renderer/core/execution_context/pausable_object.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html/media/media_controls.h"
+#include "third_party/blink/renderer/core/intersection_observer/intersection_observer.h"
 #include "third_party/blink/renderer/platform/audio/audio_source_provider.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/timer.h"
-#include "third_party/blink/renderer/platform/web_task_runner.h"
 
 namespace cc {
 class Layer;
@@ -58,6 +59,7 @@ class AudioTrackList;
 class AutoplayPolicy;
 class ContentType;
 class CueTimeline;
+class ElementVisibilityObserver;
 class EnumerationHistogram;
 class Event;
 class EventQueue;
@@ -75,7 +77,6 @@ class TextTrack;
 class TextTrackContainer;
 class TextTrackList;
 class TimeRanges;
-class URLRegistry;
 class VideoTrack;
 class VideoTrackList;
 class WebAudioSourceProvider;
@@ -93,12 +94,13 @@ class CORE_EXPORT HTMLMediaElement
   USING_PRE_FINALIZER(HTMLMediaElement, Dispose);
 
  public:
+  // Returns attributes that should be checked against Trusted Types
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override;
+
   static MIMETypeRegistry::SupportsType GetSupportsType(const ContentType&);
 
   enum class RecordMetricsBehavior { kDoNotRecord, kDoRecord };
 
-  static void SetMediaStreamRegistry(URLRegistry*);
-  static bool IsMediaStreamURL(const String& url);
   static bool IsHLSURL(const KURL&);
 
   // If HTMLMediaElement is using MediaTracks (either placeholder or provided
@@ -109,7 +111,7 @@ class CORE_EXPORT HTMLMediaElement
   // for the given document.
   static void OnMediaControlsEnabledChange(Document*);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   void ClearWeakMembers(Visitor*);
   WebMediaPlayer* GetWebMediaPlayer() const { return web_media_player_.get(); }
@@ -122,6 +124,8 @@ class CORE_EXPORT HTMLMediaElement
   bool HasAudio() const;
 
   bool SupportsSave() const;
+
+  bool SupportsLoop() const;
 
   cc::Layer* CcLayer() const;
 
@@ -200,8 +204,8 @@ class CORE_EXPORT HTMLMediaElement
   void FlingingStopped();
 
   // statistics
-  unsigned webkitAudioDecodedByteCount() const;
-  unsigned webkitVideoDecodedByteCount() const;
+  uint64_t webkitAudioDecodedByteCount() const;
+  uint64_t webkitVideoDecodedByteCount() const;
 
   // media source extensions
   void CloseMediaSource();
@@ -217,8 +221,6 @@ class CORE_EXPORT HTMLMediaElement
   bool muted() const;
   void setMuted(bool);
   virtual bool SupportsPictureInPicture() const { return false; }
-  void enterPictureInPicture(WebMediaPlayer::PipWindowOpenedCallback callback);
-  void exitPictureInPicture(WebMediaPlayer::PipWindowClosedCallback callback);
 
   void TogglePlayState();
 
@@ -267,8 +269,6 @@ class CORE_EXPORT HTMLMediaElement
   using HTMLElement::GetExecutionContext;
 
   bool IsFullscreen() const;
-  void DidEnterFullscreen();
-  void DidExitFullscreen();
   virtual bool UsesOverlayFullscreenVideo() const { return false; }
 
   bool HasClosedCaptions() const;
@@ -301,9 +301,8 @@ class CORE_EXPORT HTMLMediaElement
   enum InvalidURLAction { kDoNothing, kComplain };
   bool IsSafeToLoadURL(const KURL&, InvalidURLAction);
 
-  // Checks to see if current media data is CORS-same-origin as the
-  // specified origin.
-  bool IsMediaDataCORSSameOrigin(const SecurityOrigin*) const;
+  // Checks to see if current media data is CORS-same-origin.
+  bool IsMediaDataCorsSameOrigin() const;
 
   // Returns this media element is in a cross-origin frame.
   bool IsInCrossOriginFrame() const;
@@ -330,6 +329,10 @@ class CORE_EXPORT HTMLMediaElement
 
   bool HasMediaSource() const { return media_source_; }
 
+  // Return true if element is paused and won't resume automatically if it
+  // becomes visible again.
+  bool PausedWhenVisible() const;
+
  protected:
   HTMLMediaElement(const QualifiedName&, Document&);
   ~HTMLMediaElement() override;
@@ -343,8 +346,8 @@ class CORE_EXPORT HTMLMediaElement
   void CloneNonAttributePropertiesFrom(const Element&,
                                        CloneChildrenFlag) override;
 
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
 
   // Return true if media is cross origin from the current document
   // and has not passed a cors check, meaning that we should return
@@ -363,7 +366,9 @@ class CORE_EXPORT HTMLMediaElement
 
  private:
   // Friend class for testing.
+  friend class ContextMenuControllerTest;
   friend class MediaElementFillingViewportTest;
+  friend class VideoWakeLockTest;
 
   void ResetMediaPlayerAndMediaSource();
 
@@ -382,6 +387,8 @@ class CORE_EXPORT HTMLMediaElement
   bool IsInteractiveContent() const final;
 
   // PausableObject functions.
+  void ContextPaused(PauseState) override;
+  void ContextUnpaused() override;
   void ContextDestroyed(ExecutionContext*) override;
 
   virtual void UpdateDisplayState() {}
@@ -442,7 +449,8 @@ class CORE_EXPORT HTMLMediaElement
   void ProgressEventTimerFired(TimerBase*);
   void PlaybackProgressTimerFired(TimerBase*);
   void ScheduleTimeupdateEvent(bool periodic_event);
-  void CheckViewportIntersectionTimerFired(TimerBase*);
+  void OnViewportIntersectionChanged(
+      const HeapVector<Member<IntersectionObserverEntry>>& entries);
   void StartPlaybackProgressTimer();
   void StartProgressEventTimer();
   void StopPeriodicTimers();
@@ -496,8 +504,6 @@ class CORE_EXPORT HTMLMediaElement
   // This does not stop autoplay visibility observation.
   void PauseInternal();
 
-  void AllowVideoRendering();
-
   void UpdateVolume();
   void UpdatePlayState();
   bool PotentiallyPlaying() const;
@@ -526,7 +532,7 @@ class CORE_EXPORT HTMLMediaElement
 
   void ChangeNetworkStateFromLoadingToIdle();
 
-  WebMediaPlayer::CORSMode CorsMode() const;
+  WebMediaPlayer::CorsMode CorsMode() const;
 
   // Returns the "direction of playback" value as specified in the HTML5 spec.
   enum DirectionOfPlayback { kBackward, kForward };
@@ -553,11 +559,17 @@ class CORE_EXPORT HTMLMediaElement
 
   EnumerationHistogram& ShowControlsHistogram() const;
 
+  void OnVisibilityChangedForLazyLoad(bool);
+
+  void OnRemovedFromDocumentTimerFired(TimerBase*);
+
   TaskRunnerTimer<HTMLMediaElement> load_timer_;
   TaskRunnerTimer<HTMLMediaElement> progress_event_timer_;
   TaskRunnerTimer<HTMLMediaElement> playback_progress_timer_;
   TaskRunnerTimer<HTMLMediaElement> audio_tracks_timer_;
-  TaskRunnerTimer<HTMLMediaElement> check_viewport_intersection_timer_;
+  TaskRunnerTimer<HTMLMediaElement> removed_from_document_timer_;
+
+  Member<IntersectionObserver> viewport_intersection_observer_;
 
   Member<TimeRanges> played_time_ranges_;
   Member<EventQueue> async_event_queue_;
@@ -618,7 +630,14 @@ class CORE_EXPORT HTMLMediaElement
 
   DisplayMode display_mode_;
 
-  Member<HTMLMediaSource> media_source_;
+  // If any portion of an attached HTMLMediaElement (HTMLME) and the MediaSource
+  // Extensions (MSE) API is alive (having pending activity or traceable from a
+  // GC root), the whole group is not GC'ed. Here, using TraceWrapperMember,
+  // instead of Member, because |media_source_|'s wrapper needs to remain alive
+  // at least to successfully dispatch any events enqueued by behavior of the
+  // HTMLME+MSE API. It makes |media_source_|'s wrapper remain alive as long as
+  // this HTMLMediaElement's wrapper is alive.
+  TraceWrapperMember<HTMLMediaSource> media_source_;
 
   // Stores "official playback position", updated periodically from "current
   // playback position". Official playback position should not change while
@@ -639,6 +658,7 @@ class CORE_EXPORT HTMLMediaElement
   bool muted_ : 1;
   bool paused_ : 1;
   bool seeking_ : 1;
+  bool paused_by_context_paused_ : 1;
 
   // data has not been loaded since sending a "stalled" event
   bool sent_stalled_event_ : 1;
@@ -651,9 +671,9 @@ class CORE_EXPORT HTMLMediaElement
   bool tracks_are_ready_ : 1;
   bool processing_preference_change_ : 1;
   bool playing_remotely_ : 1;
-  // Whether this element is in overlay fullscreen mode.
-  bool in_overlay_fullscreen_video_ : 1;
 
+  // The following is always false unless viewport intersection monitoring is
+  // turned on via ActivateViewportIntersectionMonitoring().
   bool mostly_filling_viewport_ : 1;
 
   bool was_always_muted_ : 1;
@@ -690,9 +710,9 @@ class CORE_EXPORT HTMLMediaElement
     ~AudioClientImpl() override = default;
 
     // WebAudioSourceProviderClient
-    void SetFormat(size_t number_of_channels, float sample_rate) override;
+    void SetFormat(uint32_t number_of_channels, float sample_rate) override;
 
-    void Trace(blink::Visitor*);
+    void Trace(Visitor*);
 
    private:
     Member<AudioSourceProviderClient> client_;
@@ -713,9 +733,9 @@ class CORE_EXPORT HTMLMediaElement
 
     // AudioSourceProvider
     void SetClient(AudioSourceProviderClient*) override;
-    void ProvideInput(AudioBus*, size_t frames_to_process) override;
+    void ProvideInput(AudioBus*, uint32_t frames_to_process) override;
 
-    void Trace(blink::Visitor*);
+    void Trace(Visitor*);
 
    private:
     WebAudioSourceProvider* web_audio_source_provider_;
@@ -744,12 +764,10 @@ class CORE_EXPORT HTMLMediaElement
 
   WebRemotePlaybackClient* remote_playback_client_;
 
-  IntRect current_intersect_rect_;
-
   Member<MediaControls> media_controls_;
   Member<HTMLMediaElementControlsList> controls_list_;
 
-  static URLRegistry* media_stream_registry_;
+  Member<ElementVisibilityObserver> lazy_load_visibility_observer_;
 };
 
 inline bool IsHTMLMediaElement(const HTMLElement& element) {

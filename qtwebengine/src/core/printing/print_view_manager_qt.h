@@ -56,6 +56,8 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents_user_data.h"
 
+#include <QSharedPointer>
+
 struct PrintHostMsg_RequestPrintPreview_Params;
 struct PrintHostMsg_DidPreviewDocument_Params;
 
@@ -83,7 +85,7 @@ class PrintViewManagerQt
 {
 public:
     ~PrintViewManagerQt() override;
-    typedef base::Callback<void(const std::vector<char> &result)> PrintToPDFCallback;
+    typedef base::Callback<void(QSharedPointer<QByteArray> result)> PrintToPDFCallback;
     typedef base::Callback<void(bool success)> PrintToPDFFileCallback;
 
     // Method to print a page to a Pdf document with page size \a pageSize in location \a filePath.
@@ -135,6 +137,7 @@ private:
     void PrintPreviewDone();
 
 private:
+    WEB_CONTENTS_USER_DATA_KEY_DECL()
     content::RenderFrameHost *m_printPreviewRfh;
     base::FilePath m_pdfOutputPath;
     PrintToPDFCallback m_pdfPrintCallback;

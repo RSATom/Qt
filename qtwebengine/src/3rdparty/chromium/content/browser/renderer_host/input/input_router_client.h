@@ -40,9 +40,6 @@ class CONTENT_EXPORT InputRouterClient {
   // Called each time a WebInputEvent ACK IPC is received.
   virtual void DecrementInFlightEventCount(InputEventAckSource ack_source) = 0;
 
-  // Called when the renderer notifies that it has touch event handlers.
-  virtual void OnHasTouchEventHandlers(bool has_handlers) = 0;
-
   // Called when the router has received an overscroll notification from the
   // renderer.
   virtual void DidOverscroll(const ui::DidOverscrollParams& params) = 0;
@@ -50,9 +47,6 @@ class CONTENT_EXPORT InputRouterClient {
   // Called when the router has received a whitelisted touch action notification
   // from the renderer.
   virtual void OnSetWhiteListedTouchAction(cc::TouchAction touch_action) = 0;
-
-  // Called when a renderer fling has terminated.
-  virtual void DidStopFlinging() = 0;
 
   // Called when a GSB has started scrolling a viewport.
   virtual void DidStartScrollingViewport() = 0;

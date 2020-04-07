@@ -137,11 +137,19 @@ qint64 QWebSocketPrivate::sendTextMessage(const QString &message)
 
 qint64 QWebSocketPrivate::sendBinaryMessage(const QByteArray &data)
 {
-    socketContext.call<void>("send",
-                             val(typed_memory_view(data.size(),
-                                                   reinterpret_cast<const unsigned char *>
-                                                   (data.constData()))));
+    // Make a copy of the payload data; we don't know how long WebSocket.send() will
+    // retain the memory view, while the QByteArray passed to this function may be
+    // destroyed as soon as this function returns. In addition, the WebSocket.send()
+    // API does not accept data from a view backet by a SharedArrayBuffer, which will
+    // be the case for the view produced by typed_memory_view() when threads are enabled.
+    val Uint8Array = val::global("Uint8Array");
+    val dataCopy = Uint8Array.new_(data.size());
+    val dataView = val(typed_memory_view(data.size(),
+                       reinterpret_cast<const unsigned char *>
+                       (data.constData())));
+    dataCopy.call<void>("set", dataView);
 
+    socketContext.call<void>("send", dataCopy);
     return data.length();
 }
 
@@ -186,4 +194,10 @@ void QWebSocketPrivate::open(const QNetworkRequest &request, bool mask)
     socketContext.set("onopen", val::module_property("QWebSocketPrivate_onOpenCallback"));
     socketContext.set("onmessage", val::module_property("QWebSocketPrivate_onIncomingMessageCallback"));
     socketContext.set("data-context", val(quintptr(reinterpret_cast<void *>(this))));
+}
+
+bool QWebSocketPrivate::isValid() const
+{
+    return (!socketContext.isUndefined() &&
+            (m_socketState == QAbstractSocket::ConnectedState));
 }

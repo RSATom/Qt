@@ -107,6 +107,8 @@ int MapOpenSSLErrorSSL(uint32_t error_code) {
       return ERR_SSL_SERVER_CERT_CHANGED;
     case SSL_R_WRONG_VERSION_ON_EARLY_DATA:
       return ERR_WRONG_VERSION_ON_EARLY_DATA;
+    case SSL_R_TLS13_DOWNGRADE:
+      return ERR_TLS13_DOWNGRADE_DETECTED;
     // SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE may be returned from the server after
     // receiving ClientHello if there's no common supported cipher. Map that
     // specific case to ERR_SSL_VERSION_OR_CIPHER_MISMATCH to match the NSS
@@ -174,9 +176,9 @@ int MapOpenSSLErrorWithDetails(int err,
     case SSL_ERROR_EARLY_DATA_REJECTED:
       return ERR_EARLY_DATA_REJECTED;
     case SSL_ERROR_SYSCALL:
-      LOG(ERROR) << "OpenSSL SYSCALL error, earliest error code in "
-                    "error queue: " << ERR_peek_error() << ", errno: "
-                 << errno;
+      PLOG(ERROR) << "OpenSSL SYSCALL error, earliest error code in "
+                     "error queue: "
+                  << ERR_peek_error();
       return ERR_FAILED;
     case SSL_ERROR_SSL:
       // Walk down the error stack to find an SSL or net error.

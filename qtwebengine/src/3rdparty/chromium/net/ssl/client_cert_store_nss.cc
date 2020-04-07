@@ -17,7 +17,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "crypto/nss_crypto_module_delegate.h"
 #include "crypto/nss_util.h"
@@ -169,9 +169,9 @@ void ClientCertStoreNSS::GetPlatformCertsOnWorkerThread(
     ClientCertIdentityList* identities) {
   crypto::EnsureNSSInit();
 
-  CERTCertList* found_certs =
-      CERT_FindUserCertsByUsage(CERT_GetDefaultCertDB(), certUsageSSLClient,
-                                PR_FALSE, PR_FALSE, password_delegate.get());
+  CERTCertList* found_certs = CERT_FindUserCertsByUsage(
+      CERT_GetDefaultCertDB(), certUsageSSLClient, PR_FALSE, PR_FALSE,
+      password_delegate ? password_delegate->wincx() : nullptr);
   if (!found_certs) {
     DVLOG(2) << "No client certs found.";
     return;

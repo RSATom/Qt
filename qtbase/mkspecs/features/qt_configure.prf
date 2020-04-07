@@ -380,8 +380,12 @@ defineTest(qtConfTest_compilerSupportsFlag) {
 defineTest(qtConfTest_linkerSupportsFlag) {
     flag = $$eval($${1}.flag)
 
+    use_bfd_linker: \
+        LFLAGS = -fuse-ld=bfd
     use_gold_linker: \
         LFLAGS = -fuse-ld=gold
+    use_lld_linker: \
+        LFLAGS = -fuse-ld=lld
 
     return($$qtConfToolchainSupportsFlag($$LFLAGS "-Wl,$$flag"))
 }
@@ -821,9 +825,7 @@ defineTest(qtConfLibrary_pkgConfig) {
     !qtConfResolveLibs($${1}.libs, $$libs): \
         return(false)
     contains($${1}.libs, ".*\\.$${QMAKE_EXTENSION_STATICLIB}$") {
-        qtRunLoggedCommand("$$pkg_config --static --libs-only-L $$args", libpaths)|return(false)
-        qtRunLoggedCommand("$$pkg_config --static --libs-only-l $$args", libs)|return(false)
-        eval(libs = $$libpaths $$libs)
+        qtRunLoggedCommand("$$pkg_config --static --libs $$args", libs)|return(false)
         !qtConfResolveLibs($${1}.libs, $$libs): \
             return(false)
     }
@@ -1262,8 +1264,12 @@ defineTest(qtConfTest_compile) {
     else: \
         qmake_configs = "static"
 
+    use_bfd_linker: \
+        qmake_configs += "use_bfd_linker"
     use_gold_linker: \
         qmake_configs += "use_gold_linker"
+    use_lld_linker: \
+        qmake_configs += "use_lld_linker"
 
     # disable warnings from the builds, since they're just noise at this point.
     qmake_configs += "warn_off"
@@ -2502,17 +2508,19 @@ logn("Configure summary:")
 logn()
 qtConfPrintReport()
 
+load(qt_prefix_build_check)
+
 # final notes for the user
 logn()
 logn("Qt is now configured for building. Just run '$$QMAKE_MAKE_NAME'.")
 pfx = $$[QT_INSTALL_PREFIX]
-exists($$pfx/.qmake.cache) {
+qtIsPrefixBuild($$pfx) {
+    logn("Once everything is built, you must run '$$QMAKE_MAKE_NAME install'.")
+    logn("Qt will be installed into '$$system_path($$pfx)'.")
+} else {
     logn("Once everything is built, Qt is installed.")
     logn("You should NOT run '$$QMAKE_MAKE_NAME install'.")
     logn("Note that this build cannot be deployed to other machines or devices.")
-} else {
-    logn("Once everything is built, you must run '$$QMAKE_MAKE_NAME install'.")
-    logn("Qt will be installed into '$$system_path($$pfx)'.")
 }
 logn()
 logn("Prior to reconfiguration, make sure you remove any leftovers from")

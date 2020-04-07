@@ -46,6 +46,8 @@
 #include <QtWaylandClient/private/qwaylandscreen_p.h>
 #include <QtWaylandClient/private/qwaylandabstractdecoration_p.h>
 
+#include <QtGui/private/qwindow_p.h>
+
 QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
@@ -102,15 +104,16 @@ void QWaylandXdgSurface::Toplevel::applyConfigure()
         m_xdgSurface->m_window->resizeFromApplyConfigure(m_pending.size);
     }
 
-    QSize windowGeometrySize = m_xdgSurface->m_window->window()->frameGeometry().size();
-    m_xdgSurface->set_window_geometry(0, 0, windowGeometrySize.width(), windowGeometrySize.height());
+    m_xdgSurface->setSizeHints();
+
     m_applied = m_pending;
     qCDebug(lcQpaWayland) << "Applied pending xdg_toplevel configure event:" << m_applied.size << m_applied.states;
 }
 
 bool QWaylandXdgSurface::Toplevel::wantsDecorations()
 {
-    if (m_decoration && m_decoration->pending() == QWaylandXdgToplevelDecorationV1::mode_server_side)
+    if (m_decoration && (m_decoration->pending() == QWaylandXdgToplevelDecorationV1::mode_server_side
+                         || !m_decoration->isConfigured()))
         return false;
 
     return !(m_pending.states & Qt::WindowFullScreen);
@@ -185,6 +188,15 @@ void QWaylandXdgSurface::Toplevel::requestWindowStates(Qt::WindowStates states)
     }
 }
 
+QtWayland::xdg_toplevel::resize_edge QWaylandXdgSurface::Toplevel::convertToResizeEdges(Qt::Edges edges)
+{
+    return static_cast<enum resize_edge>(
+                ((edges & Qt::TopEdge) ? resize_edge_top : 0)
+                | ((edges & Qt::BottomEdge) ? resize_edge_bottom : 0)
+                | ((edges & Qt::LeftEdge) ? resize_edge_left : 0)
+                | ((edges & Qt::RightEdge) ? resize_edge_right : 0));
+}
+
 QWaylandXdgSurface::Popup::Popup(QWaylandXdgSurface *xdgSurface, QWaylandXdgSurface *parent,
                                  QtWayland::xdg_positioner *positioner)
     : xdg_popup(xdgSurface->get_popup(parent->object(), positioner->object()))
@@ -254,23 +266,27 @@ QWaylandXdgSurface::~QWaylandXdgSurface()
     destroy();
 }
 
-void QWaylandXdgSurface::resize(QWaylandInputDevice *inputDevice, xdg_toplevel_resize_edge edges)
+void QWaylandXdgSurface::resize(QWaylandInputDevice *inputDevice, Qt::Edges edges)
 {
     Q_ASSERT(m_toplevel && m_toplevel->isInitialized());
-    m_toplevel->resize(inputDevice->wl_seat(), inputDevice->serial(), edges);
+    auto resizeEdges = Toplevel::convertToResizeEdges(edges);
+    m_toplevel->resize(inputDevice->wl_seat(), inputDevice->serial(), resizeEdges);
 }
-
-void QWaylandXdgSurface::resize(QWaylandInputDevice *inputDevice, enum wl_shell_surface_resize edges)
-{
-    auto xdgEdges = reinterpret_cast<enum xdg_toplevel_resize_edge const *>(&edges);
-    resize(inputDevice, *xdgEdges);
-}
-
 
 bool QWaylandXdgSurface::move(QWaylandInputDevice *inputDevice)
 {
     if (m_toplevel && m_toplevel->isInitialized()) {
         m_toplevel->move(inputDevice->wl_seat(), inputDevice->serial());
+        return true;
+    }
+    return false;
+}
+
+bool QWaylandXdgSurface::showWindowMenu(QWaylandInputDevice *seat)
+{
+    if (m_toplevel && m_toplevel->isInitialized()) {
+        QPoint position = seat->pointerSurfacePosition().toPoint();
+        m_toplevel->show_window_menu(seat->wl_seat(), seat->serial(), position.x(), position.y());
         return true;
     }
     return false;
@@ -326,12 +342,42 @@ bool QWaylandXdgSurface::wantsDecorations() const
     return m_toplevel && m_toplevel->wantsDecorations();
 }
 
+void QWaylandXdgSurface::propagateSizeHints()
+{
+    setSizeHints();
+
+    if (m_toplevel && m_window)
+        m_window->commit();
+}
+
+void QWaylandXdgSurface::setWindowGeometry(const QRect &rect)
+{
+    set_window_geometry(rect.x(), rect.y(), rect.width(), rect.height());
+}
+
+void QWaylandXdgSurface::setSizeHints()
+{
+    if (m_toplevel && m_window) {
+        const int minWidth = qMax(0, m_window->windowMinimumSize().width());
+        const int minHeight = qMax(0, m_window->windowMinimumSize().height());
+        m_toplevel->set_min_size(minWidth, minHeight);
+
+        int maxWidth = qMax(0, m_window->windowMaximumSize().width());
+        if (maxWidth == QWINDOWSIZE_MAX)
+            maxWidth = 0;
+        int maxHeight = qMax(0, m_window->windowMaximumSize().height());
+        if (maxHeight == QWINDOWSIZE_MAX)
+            maxHeight = 0;
+        m_toplevel->set_max_size(maxWidth, maxHeight);
+    }
+}
+
 void QWaylandXdgSurface::requestWindowStates(Qt::WindowStates states)
 {
     if (m_toplevel)
         m_toplevel->requestWindowStates(states);
     else
-        qCWarning(lcQpaWayland) << "Non-toplevel surfaces can't request window states";
+        qCDebug(lcQpaWayland) << "Ignoring window states requested by non-toplevel zxdg_surface_v6.";
 }
 
 void QWaylandXdgSurface::setToplevel()

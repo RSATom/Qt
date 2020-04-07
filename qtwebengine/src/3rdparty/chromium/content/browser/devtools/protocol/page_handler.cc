@@ -10,7 +10,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/base64.h"
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
@@ -20,13 +19,13 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
-#include "components/viz/common/features.h"
-#include "content/browser/devtools/devtools_session.h"
+#include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/devtools/protocol/devtools_download_manager_delegate.h"
 #include "content/browser/devtools/protocol/devtools_download_manager_helper.h"
+#include "content/browser/devtools/protocol/devtools_mhtml_helper.h"
 #include "content/browser/devtools/protocol/emulation_handler.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/navigator.h"
@@ -35,7 +34,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view.h"
-#include "content/common/view_messages.h"
+#include "content/common/widget_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
@@ -46,8 +45,6 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "content/public/common/browser_side_navigation_policy.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
@@ -61,11 +58,16 @@
 #include "ui/gfx/skbitmap_operations.h"
 #include "ui/snapshot/snapshot.h"
 
+#ifdef OS_ANDROID
+#include "content/browser/renderer_host/compositor_impl_android.h"
+#endif
+
 namespace content {
 namespace protocol {
 
 namespace {
 
+constexpr const char* kMhtml = "mhtml";
 constexpr const char* kPng = "png";
 constexpr const char* kJpeg = "jpeg";
 constexpr int kDefaultScreenshotQuality = 80;
@@ -73,9 +75,9 @@ constexpr int kFrameRetryDelayMs = 100;
 constexpr int kCaptureRetryLimit = 2;
 constexpr int kMaxScreencastFramesInFlight = 2;
 
-std::string EncodeImage(const gfx::Image& image,
-                        const std::string& format,
-                        int quality) {
+Binary EncodeImage(const gfx::Image& image,
+                   const std::string& format,
+                   int quality) {
   DCHECK(!image.IsEmpty());
 
   scoped_refptr<base::RefCountedMemory> data;
@@ -88,20 +90,14 @@ std::string EncodeImage(const gfx::Image& image,
   }
 
   if (!data || !data->front())
-    return std::string();
+    return protocol::Binary();
 
-  std::string base_64_data;
-  base::Base64Encode(
-      base::StringPiece(reinterpret_cast<const char*>(data->front()),
-                        data->size()),
-      &base_64_data);
-
-  return base_64_data;
+  return Binary::fromRefCounted(data);
 }
 
-std::string EncodeSkBitmap(const SkBitmap& image,
-                           const std::string& format,
-                           int quality) {
+Binary EncodeSkBitmap(const SkBitmap& image,
+                      const std::string& format,
+                      int quality) {
   return EncodeImage(gfx::Image::CreateFrom1xBitmap(image), format, quality);
 }
 
@@ -118,16 +114,19 @@ std::unique_ptr<Page::ScreencastFrameMetadata> BuildScreencastFrameMetadata(
   const gfx::SizeF content_size_dip =
       gfx::ScaleSize(gfx::SizeF(surface_size), 1 / device_scale_factor);
   float top_offset_dip = top_controls_height * top_controls_shown_ratio;
-  if (IsUseZoomForDSFEnabled())
+  gfx::Vector2dF root_scroll_offset_dip = root_scroll_offset;
+  if (IsUseZoomForDSFEnabled()) {
     top_offset_dip /= device_scale_factor;
+    root_scroll_offset_dip.Scale(1 / device_scale_factor);
+  }
   std::unique_ptr<Page::ScreencastFrameMetadata> page_metadata =
       Page::ScreencastFrameMetadata::Create()
           .SetPageScaleFactor(page_scale_factor)
           .SetOffsetTop(top_offset_dip)
           .SetDeviceWidth(content_size_dip.width())
           .SetDeviceHeight(content_size_dip.height())
-          .SetScrollOffsetX(root_scroll_offset.x())
-          .SetScrollOffsetY(root_scroll_offset.y())
+          .SetScrollOffsetX(root_scroll_offset_dip.x())
+          .SetScrollOffsetY(root_scroll_offset_dip.y())
           .SetTimestamp(base::Time::Now().ToDoubleT())
           .Build();
   return page_metadata;
@@ -183,7 +182,8 @@ void GetMetadataFromFrame(const media::VideoFrame& frame,
 
 }  // namespace
 
-PageHandler::PageHandler(EmulationHandler* emulation_handler)
+PageHandler::PageHandler(EmulationHandler* emulation_handler,
+                         bool allow_set_download_behavior)
     : DevToolsDomainHandler(Page::Metainfo::domainName),
       enabled_(false),
       screencast_enabled_(false),
@@ -200,11 +200,16 @@ PageHandler::PageHandler(EmulationHandler* emulation_handler)
       last_surface_size_(gfx::Size()),
       host_(nullptr),
       emulation_handler_(emulation_handler),
+      allow_set_download_behavior_(allow_set_download_behavior),
       observer_(this),
       weak_factory_(this) {
-  if (base::FeatureList::IsEnabled(features::kVizDisplayCompositor) ||
-      base::FeatureList::IsEnabled(
-          features::kUseVideoCaptureApiForDevToolsSnapshots)) {
+  bool create_video_consumer = true;
+#ifdef OS_ANDROID
+  // Video capture doesn't work on Android WebView. Use CopyFromSurface instead.
+  if (!CompositorImpl::IsInitialized())
+    create_video_consumer = false;
+#endif
+  if (create_video_consumer) {
     video_consumer_ = std::make_unique<DevToolsVideoConsumer>(
         base::BindRepeating(&PageHandler::OnFrameFromVideoConsumer,
                             weak_factory_.GetWeakPtr()));
@@ -233,8 +238,7 @@ std::vector<PageHandler*> PageHandler::EnabledForWebContents(
 // static
 std::vector<PageHandler*> PageHandler::ForAgentHost(
     DevToolsAgentHostImpl* host) {
-  return DevToolsSession::HandlersForAgentHost<PageHandler>(
-      host, Page::Metainfo::domainName);
+  return host->HandlersByName<PageHandler>(Page::Metainfo::domainName);
 }
 
 void PageHandler::SetRenderer(int process_host_id,
@@ -262,18 +266,6 @@ void PageHandler::SetRenderer(int process_host_id,
 void PageHandler::Wire(UberDispatcher* dispatcher) {
   frontend_.reset(new Page::Frontend(dispatcher->channel()));
   Page::Dispatcher::wire(dispatcher, this);
-}
-
-void PageHandler::OnSwapCompositorFrame(
-    viz::CompositorFrameMetadata frame_metadata) {
-  if (video_consumer_)
-    return;
-
-  last_compositor_frame_metadata_ = std::move(frame_metadata);
-  has_compositor_frame_metadata_ = true;
-
-  if (screencast_enabled_)
-    InnerSwapCompositorFrame();
 }
 
 void PageHandler::OnSynchronousSwapCompositorFrame(
@@ -402,28 +394,25 @@ Response PageHandler::Close() {
   WebContentsImpl* web_contents = GetWebContents();
   if (!web_contents)
     return Response::Error("Not attached to a page");
-  web_contents->DispatchBeforeUnload();
+  web_contents->DispatchBeforeUnload(false /* auto_cancel */);
   return Response::OK();
 }
 
-Response PageHandler::Reload(Maybe<bool> bypassCache,
-                             Maybe<std::string> script_to_evaluate_on_load) {
+void PageHandler::Reload(Maybe<bool> bypassCache,
+                         Maybe<std::string> script_to_evaluate_on_load,
+                         std::unique_ptr<ReloadCallback> callback) {
   WebContentsImpl* web_contents = GetWebContents();
-  if (!web_contents)
-    return Response::InternalError();
-  if (web_contents->IsCrashed() ||
-      web_contents->GetURL().scheme() == url::kDataScheme ||
-      (web_contents->GetController().GetVisibleEntry() &&
-       web_contents->GetController().GetVisibleEntry()->IsViewSourceMode())) {
-    web_contents->GetController().Reload(bypassCache.fromMaybe(false)
-                                             ? ReloadType::BYPASSING_CACHE
-                                             : ReloadType::NORMAL,
-                                         false);
-    return Response::OK();
-  } else {
-    // Handle reload in renderer except for crashed and view source mode.
-    return Response::FallThrough();
+  if (!web_contents) {
+    callback->sendFailure(Response::InternalError());
+    return;
   }
+  // It is important to fallback before triggering reload, so that
+  // renderer could prepare beforehand.
+  callback->fallThrough();
+  web_contents->GetController().Reload(bypassCache.fromMaybe(false)
+                                           ? ReloadType::BYPASSING_CACHE
+                                           : ReloadType::NORMAL,
+                                       false);
 }
 
 void PageHandler::Navigate(const std::string& url,
@@ -449,6 +438,8 @@ void PageHandler::Navigate(const std::string& url,
     type = ui::PAGE_TRANSITION_LINK;
   else if (transition_type == Page::TransitionTypeEnum::Typed)
     type = ui::PAGE_TRANSITION_TYPED;
+  else if (transition_type == Page::TransitionTypeEnum::Address_bar)
+    type = ui::PAGE_TRANSITION_FROM_ADDRESS_BAR;
   else if (transition_type == Page::TransitionTypeEnum::Auto_bookmark)
     type = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
   else if (transition_type == Page::TransitionTypeEnum::Auto_subframe)
@@ -491,8 +482,8 @@ void PageHandler::Navigate(const std::string& url,
   }
 
   NavigationController::LoadURLParams params(gurl);
-  params.referrer =
-      Referrer(GURL(referrer.fromMaybe("")), blink::kWebReferrerPolicyDefault);
+  params.referrer = Referrer(GURL(referrer.fromMaybe("")),
+                             network::mojom::ReferrerPolicy::kDefault);
   params.transition_type = type;
   params.frame_tree_node_id = frame_tree_node->frame_tree_node_id();
   frame_tree_node->navigator()->GetController()->LoadURLWithParams(params);
@@ -600,15 +591,53 @@ Response PageHandler::NavigateToHistoryEntry(int entry_id) {
   return Response::InvalidParams("No entry with passed id");
 }
 
+static bool ReturnTrue(NavigationEntry* entry) {
+  return true;
+}
+
+Response PageHandler::ResetNavigationHistory() {
+  WebContentsImpl* web_contents = GetWebContents();
+  if (!web_contents)
+    return Response::InternalError();
+
+  NavigationController& controller = web_contents->GetController();
+  controller.DeleteNavigationEntries(base::BindRepeating(&ReturnTrue));
+  return Response::OK();
+}
+
+void PageHandler::CaptureSnapshot(
+    Maybe<std::string> format,
+    std::unique_ptr<CaptureSnapshotCallback> callback) {
+  std::string snapshot_format = format.fromMaybe(kMhtml);
+  if (snapshot_format != kMhtml) {
+    callback->sendFailure(Response::Error("Unsupported snapshot format"));
+    return;
+  }
+  DevToolsMHTMLHelper::Capture(weak_factory_.GetWeakPtr(), std::move(callback));
+}
+
 void PageHandler::CaptureScreenshot(
     Maybe<std::string> format,
     Maybe<int> quality,
     Maybe<Page::Viewport> clip,
     Maybe<bool> from_surface,
     std::unique_ptr<CaptureScreenshotCallback> callback) {
-  if (!host_ || !host_->GetRenderWidgetHost()) {
+  if (!host_ || !host_->GetRenderWidgetHost() ||
+      !host_->GetRenderWidgetHost()->GetView()) {
     callback->sendFailure(Response::InternalError());
     return;
+  }
+  if (clip.isJust()) {
+    if (clip.fromJust()->GetWidth() == 0) {
+      callback->sendFailure(
+          Response::Error("Cannot take screenshot with 0 width."));
+      return;
+    }
+    if (clip.fromJust()->GetHeight() == 0) {
+      callback->sendFailure(
+          Response::Error("Cannot take screenshot with 0 height."));
+      return;
+    }
   }
 
   RenderWidgetHostImpl* widget_host = host_->GetRenderWidgetHost();
@@ -683,6 +712,10 @@ void PageHandler::CaptureScreenshot(
     modified_params.viewport_offset.x = clip.fromJust()->GetX();
     modified_params.viewport_offset.y = clip.fromJust()->GetY();
     modified_params.viewport_scale = clip.fromJust()->GetScale() * dpfactor;
+    if (IsUseZoomForDSFEnabled()) {
+      modified_params.viewport_offset.x *= screen_info.device_scale_factor;
+      modified_params.viewport_offset.y *= screen_info.device_scale_factor;
+    }
   }
 
   // We use WebDeviceEmulationParams to either emulate, set viewport or both.
@@ -792,7 +825,8 @@ Response PageHandler::StartScreencast(Maybe<std::string> format,
   if (has_compositor_frame_metadata_) {
     InnerSwapCompositorFrame();
   } else {
-    widget_host->Send(new ViewMsg_ForceRedraw(widget_host->GetRoutingID(), 0));
+    widget_host->Send(
+        new WidgetMsg_ForceRedraw(widget_host->GetRoutingID(), 0));
   }
   return Response::FallThrough();
 }
@@ -838,14 +872,6 @@ Response PageHandler::HandleJavaScriptDialog(bool accept,
   return Response::OK();
 }
 
-Response PageHandler::RequestAppBanner() {
-  WebContentsImpl* web_contents = GetWebContents();
-  if (!web_contents || !web_contents->GetDelegate())
-    return Response::InternalError();
-  web_contents->GetDelegate()->RequestAppBannerFromDevTools(web_contents);
-  return Response::OK();
-}
-
 Response PageHandler::BringToFront() {
   WebContentsImpl* wc = GetWebContents();
   if (wc) {
@@ -858,6 +884,9 @@ Response PageHandler::BringToFront() {
 
 Response PageHandler::SetDownloadBehavior(const std::string& behavior,
                                           Maybe<std::string> download_path) {
+  if (!allow_set_download_behavior_)
+    return Response::Error("Not allowed.");
+
   WebContentsImpl* web_contents = GetWebContents();
   if (!web_contents)
     return Response::InternalError();
@@ -946,13 +975,17 @@ void PageHandler::InnerSwapCompositorFrame() {
   if (snapshot_size.IsEmpty())
     return;
 
+  double top_controls_height =
+      last_compositor_frame_metadata_.top_controls_height;
+  double top_controls_shown_ratio =
+      last_compositor_frame_metadata_.top_controls_shown_ratio;
+
   std::unique_ptr<Page::ScreencastFrameMetadata> page_metadata =
       BuildScreencastFrameMetadata(
           surface_size, last_compositor_frame_metadata_.device_scale_factor,
           last_compositor_frame_metadata_.page_scale_factor,
           last_compositor_frame_metadata_.root_scroll_offset,
-          last_compositor_frame_metadata_.top_controls_height,
-          last_compositor_frame_metadata_.top_controls_shown_ratio);
+          top_controls_height, top_controls_shown_ratio);
   if (!page_metadata)
     return;
 
@@ -1030,8 +1063,8 @@ void PageHandler::ScreencastFrameCaptured(
 
 void PageHandler::ScreencastFrameEncoded(
     std::unique_ptr<Page::ScreencastFrameMetadata> page_metadata,
-    const std::string& data) {
-  if (data.empty()) {
+    const protocol::Binary& data) {
+  if (data.size() == 0) {
     --frames_in_flight_;
     return;  // Encode failed.
   }

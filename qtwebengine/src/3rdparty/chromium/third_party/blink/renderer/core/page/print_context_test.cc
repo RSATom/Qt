@@ -14,12 +14,12 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_painter.h"
+#include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
-#include "third_party/blink/renderer/platform/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/platform/testing/paint_test_configurations.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_stream.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -72,26 +72,27 @@ class PrintContextTest : public PaintTestConfigurations, public RenderingTest {
 
   void SetUp() override {
     RenderingTest::SetUp();
-    print_context_ = new PrintContext(GetDocument().GetFrame(),
-                                      /*use_printing_layout=*/true);
+    print_context_ =
+        MakeGarbageCollected<PrintContext>(GetDocument().GetFrame(),
+                                           /*use_printing_layout=*/true);
   }
 
   PrintContext& GetPrintContext() { return *print_context_.Get(); }
 
   void SetBodyInnerHTML(String body_content) {
-    GetDocument().body()->setAttribute(HTMLNames::styleAttr, "margin: 0");
+    GetDocument().body()->setAttribute(html_names::kStyleAttr, "margin: 0");
     GetDocument().body()->SetInnerHTMLFromString(body_content);
   }
 
   void PrintSinglePage(MockPageContextCanvas& canvas) {
     IntRect page_rect(0, 0, kPageWidth, kPageHeight);
     GetPrintContext().BeginPrintMode(page_rect.Width(), page_rect.Height());
-    GetDocument().View()->UpdateAllLifecyclePhases();
+    UpdateAllLifecyclePhasesForTest();
     PaintRecordBuilder builder;
     GraphicsContext& context = builder.Context();
     context.SetPrinting(true);
-    GetDocument().View()->PaintContents(context, kGlobalPaintPrinting,
-                                        page_rect);
+    GetDocument().View()->PaintContentsOutsideOfLifecycle(
+        context, kGlobalPaintPrinting, CullRect(page_rect));
     {
       DrawingRecorder recorder(
           context, *GetDocument().GetLayoutView(),
@@ -424,7 +425,7 @@ TEST_P(PrintContextFrameTest, DISABLED_SubframePrintPageLayout) {
   EXPECT_EQ(child->OffsetWidth(), 800);
   EXPECT_EQ(target->OffsetWidth(), 800);
 
-  GetDocument().GetFrame()->StartPrintingWithoutPrintingLayout();
+  GetDocument().GetFrame()->StartPrinting();
   EXPECT_EQ(parent->OffsetWidth(), 800);
   EXPECT_EQ(child->OffsetWidth(), 800);
   EXPECT_EQ(target->OffsetWidth(), 800);

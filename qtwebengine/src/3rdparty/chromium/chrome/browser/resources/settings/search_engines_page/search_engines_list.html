@@ -38,8 +38,8 @@
       }
 
       .icon-placeholder {
-        -webkit-margin-end: 0;
-        -webkit-margin-start: var(--cr-icon-button-margin-start);
+        margin-inline-end: 0;
+        margin-inline-start: var(--cr-icon-button-margin-start);
         width: var(--cr-icon-ripple-size);
       }
     </style>
@@ -57,7 +57,7 @@
           <template>
             <settings-search-engine-entry engine="[[item]]"
                 tabindex$="[[tabIndex]]" iron-list-tab-index="[[tabIndex]]"
-                last-focused="{{lastFocused_}}">
+                last-focused="{{lastFocused_}}" list-blurred="{{listBlurred_}}">
             </settings-search-engine-entry>
           </template>
         </iron-list>

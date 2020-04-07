@@ -8,8 +8,8 @@
 
 #include <vector>
 
-#include "fxjs/cfxjse_value.h"
 #include "fxjs/js_resources.h"
+#include "fxjs/xfa/cfxjse_value.h"
 #include "xfa/fxfa/parser/cxfa_source.h"
 
 const CJX_MethodSpec CJX_Source::MethodSpecs[] = {
@@ -37,143 +37,152 @@ CJX_Source::CJX_Source(CXFA_Source* src) : CJX_Node(src) {
 
 CJX_Source::~CJX_Source() {}
 
-CJS_Return CJX_Source::next(CFX_V8* runtime,
+bool CJX_Source::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
+}
+
+CJS_Result CJX_Source::next(CFX_V8* runtime,
                             const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::cancelBatch(
+CJS_Result CJX_Source::cancelBatch(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::first(CFX_V8* runtime,
+CJS_Result CJX_Source::first(CFX_V8* runtime,
                              const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::updateBatch(
+CJS_Result CJX_Source::updateBatch(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::previous(
+CJS_Result CJX_Source::previous(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::isBOF(CFX_V8* runtime,
+CJS_Result CJX_Source::isBOF(CFX_V8* runtime,
                              const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::isEOF(CFX_V8* runtime,
+CJS_Result CJX_Source::isEOF(CFX_V8* runtime,
                              const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::cancel(CFX_V8* runtime,
+CJS_Result CJX_Source::cancel(CFX_V8* runtime,
                               const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::update(CFX_V8* runtime,
+CJS_Result CJX_Source::update(CFX_V8* runtime,
                               const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::open(CFX_V8* runtime,
+CJS_Result CJX_Source::open(CFX_V8* runtime,
                             const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::deleteItem(
+CJS_Result CJX_Source::deleteItem(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::addNew(CFX_V8* runtime,
+CJS_Result CJX_Source::addNew(CFX_V8* runtime,
                               const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::requery(
+CJS_Result CJX_Source::requery(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::resync(CFX_V8* runtime,
+CJS_Result CJX_Source::resync(CFX_V8* runtime,
                               const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::close(CFX_V8* runtime,
+CJS_Result CJX_Source::close(CFX_V8* runtime,
                              const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::last(CFX_V8* runtime,
+CJS_Result CJX_Source::last(CFX_V8* runtime,
                             const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_Source::hasDataChanged(
+CJS_Result CJX_Source::hasDataChanged(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!params.empty())
-    return CJS_Return(JSGetStringFromID(JSMessage::kParamError));
-  return CJS_Return();
+    return CJS_Result::Failure(JSMessage::kParamError);
+
+  return CJS_Result::Success();
 }
 
 void CJX_Source::db(CFXJSE_Value* pValue,
                     bool bSetting,
                     XFA_Attribute eAttribute) {}
-
-void CJX_Source::use(CFXJSE_Value* pValue,
-                     bool bSetting,
-                     XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Source::usehref(CFXJSE_Value* pValue,
-                         bool bSetting,
-                         XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}

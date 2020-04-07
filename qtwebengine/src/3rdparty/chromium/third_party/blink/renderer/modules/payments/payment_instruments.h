@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PAYMENTS_PAYMENT_INSTRUMENTS_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PAYMENTS_PAYMENT_INSTRUMENTS_H_
 
-#include "third_party/blink/public/platform/modules/payments/payment_app.mojom-blink.h"
+#include "third_party/blink/public/mojom/payments/payment_app.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -20,6 +20,7 @@ class PaymentInstrument;
 class ScriptPromise;
 class ScriptPromiseResolver;
 class ScriptState;
+class PaymentInstrumentParameter;
 
 class MODULES_EXPORT PaymentInstruments final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -34,7 +35,7 @@ class MODULES_EXPORT PaymentInstruments final : public ScriptWrappable {
   ScriptPromise has(ScriptState*, const String& instrument_key);
   ScriptPromise set(ScriptState*,
                     const String& instrument_key,
-                    const PaymentInstrument& details,
+                    const PaymentInstrument* details,
                     ExceptionState&);
   ScriptPromise clear(ScriptState*);
 
@@ -42,7 +43,7 @@ class MODULES_EXPORT PaymentInstruments final : public ScriptWrappable {
   mojom::blink::PermissionService* GetPermissionService(ScriptState*);
   void OnRequestPermission(ScriptPromiseResolver*,
                            const String&,
-                           const PaymentInstrument&,
+                           PaymentInstrumentParameter*,
                            mojom::blink::PermissionStatus);
 
   void onDeletePaymentInstrument(ScriptPromiseResolver*,

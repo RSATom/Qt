@@ -36,7 +36,7 @@
 
     Below are optional defines that add, subtract, or change default behavior
     in Skia. Your port can locally edit this file to enable/disable flags as
-    you choose, or these can be delared on your command line (i.e. -Dfoo).
+    you choose, or these can be declared on your command line (i.e. -Dfoo).
 
     By default, this include file will always default to having all of the flags
     commented out, so including it will have no effect.
@@ -130,7 +130,6 @@ SK_API void SkDebugf_FileLine(const char* file, int line, bool fatal,
 // until we update our call-sites (typically these are for API changes).
 //
 // Remove these as we update our sites.
-//
 
 // Workaround for poor anisotropic mipmap quality,
 // pending Skia ripmap support.
@@ -151,52 +150,18 @@ SK_API void SkDebugf_FileLine(const char* file, int line, bool fatal,
 #define SK_DISABLE_EXPLICIT_GPU_RESOURCE_ALLOCATION
 #endif
 
-// Skia is enabling this feature soon. Chrome probably does
-// not want it for M64
-#ifndef SK_DISABLE_RENDER_TARGET_SORTING
-#define SK_DISABLE_RENDER_TARGET_SORTING
-#endif
-
-#ifndef SK_SUPPORT_LEGACY_TILED_BITMAPS
-#define SK_SUPPORT_LEGACY_TILED_BITMAPS
-#endif
-
-// The matrix image filter imperceptibly alters the following two layout tests:
-//   fast/css/transformed-mask.html
-//   fast/reflections/opacity-reflection-transform.html
-// and changes the following cc_unittests:
-//   LayerTreeHostCommonTest.VisibleRectWithScalingClippingAndFilters
-//   LayerTreeHostCommonTest.VisibleRectWithClippingAndFilters
-// Landing the fix in Skia behind this flag will allow those all to be updated
-// together in Chrome (along with the removal of this flag).
-#ifndef SK_IGNORE_MATRIX_IMAGE_FILTER_FIX
-#define SK_IGNORE_MATRIX_IMAGE_FILTER_FIX
-#endif
-
-// convert from text blob to glyph run
-#ifndef SK_SUPPORT_LEGACY_TEXT_BLOB
-#define SK_SUPPORT_LEGACY_TEXT_BLOB
-#endif
-
-// remove after rebaselining svg layout tests
-#ifndef SK_SUPPORT_LEGACY_SVG_ARC_TO
-#define SK_SUPPORT_LEGACY_SVG_ARC_TO
+#ifndef SK_IGNORE_LINEONLY_AA_CONVEX_PATH_OPTS
+#define SK_IGNORE_LINEONLY_AA_CONVEX_PATH_OPTS
 #endif
 
 // Max. verb count for paths rendered by the edge-AA tessellating path renderer.
 #define GR_AA_TESSELLATOR_MAX_VERB_COUNT 100
 
-// Remove this and rebaseline affected layout tests.
-#define SK_DONT_DROP_UNNECESSARY_AA_IN_TEXTURE_OP
-
-#ifndef SK_SUPPORT_LEGACY_THREADED_DAA_BUGS
-#define SK_SUPPORT_LEGACY_THREADED_DAA_BUGS
+#ifndef SK_SUPPORT_LEGACY_AAA_CHOICE
+#define SK_SUPPORT_LEGACY_AAA_CHOICE
 #endif
 
-// Here while the skia's public vulkan interface is getting updated
-#ifndef SK_SUPPORT_LEGACY_VULKAN_INTERFACE
-#define SK_SUPPORT_LEGACY_VULKAN_INTERFACE
-#endif
+#define SK_LEGACY_SRGB_STAGE_CHOICE
 
 ///////////////////////// Imported from BUILD.gn and skia_common.gypi
 
@@ -213,7 +178,5 @@ SK_API void SkDebugf_FileLine(const char* file, int line, bool fatal,
 
 #define SK_ATTR_DEPRECATED          SK_NOTHING_ARG1
 #define GR_GL_CUSTOM_SETUP_HEADER   "GrGLConfig_chrome.h"
-
-// ===== End Chrome-specific definitions =====
 
 #endif

@@ -643,7 +643,7 @@ QString QQuickTextPrivate::elidedText(qreal lineWidth, const QTextLine &line, QT
             // Appending the elide character may push the line over the maximum width
             // in which case the elided text will need to be elided.
             QFontMetricsF metrics(layout.font());
-            if (metrics.width(elideChar) + line.naturalTextWidth() >= lineWidth)
+            if (metrics.horizontalAdvance(elideChar) + line.naturalTextWidth() >= lineWidth)
                 elideText = metrics.elidedText(elideText, Qt::TextElideMode(elideMode), lineWidth);
         }
         return elideText;
@@ -754,6 +754,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
     bool once = true;
     int elideStart = 0;
     int elideEnd = 0;
+    bool noBreakLastLine = multilineElide && (wrapMode == QQuickText::Wrap || wrapMode == QQuickText::WordWrap);
 
     int eos = multilengthEos;
 
@@ -786,11 +787,15 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
         QRectF unelidedRect;
         QTextLine line = layout.createLine();
         for (visibleCount = 1; ; ++visibleCount) {
+            if (noBreakLastLine && visibleCount == maxLineCount)
+                layout.engine()->option.setWrapMode(QTextOption::WrapAnywhere);
             if (customLayout) {
                 setupCustomLineGeometry(line, naturalHeight);
             } else {
                 setLineGeometry(line, lineWidth, naturalHeight);
             }
+            if (noBreakLastLine && visibleCount == maxLineCount)
+                layout.engine()->option.setWrapMode(QTextOption::WrapMode(wrapMode));
 
             unelidedRect = br.united(line.naturalTextRect());
 

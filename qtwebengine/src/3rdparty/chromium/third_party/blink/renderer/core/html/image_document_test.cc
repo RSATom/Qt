@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_init.h"
 #include "third_party/blink/renderer/core/dom/document_parser.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
@@ -98,14 +99,15 @@ void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
                                                           int view_height) {
   Page::PageClients page_clients;
   FillWithEmptyClients(page_clients);
-  chrome_client_ = new WindowToViewportScalingChromeClient();
+  chrome_client_ = MakeGarbageCollected<WindowToViewportScalingChromeClient>();
   page_clients.chrome_client = chrome_client_;
   dummy_page_holder_ =
       DummyPageHolder::Create(IntSize(view_width, view_height), &page_clients);
 
   LocalFrame& frame = dummy_page_holder_->GetFrame();
   frame.GetDocument()->Shutdown();
-  DocumentInit init = DocumentInit::Create().WithFrame(&frame);
+  DocumentInit init = DocumentInit::Create().WithDocumentLoader(
+      frame.Loader().GetDocumentLoader());
   frame.DomWindow()->InstallNewDocument("image/jpeg", init, false);
 }
 
@@ -210,6 +212,11 @@ TEST_F(ImageDocumentTest, ImageCenteredWithoutForceZeroLayoutHeight) {
   EXPECT_EQ(10, GetDocument().ImageElement()->OffsetTop());
   EXPECT_EQ(50, ImageWidth());
   EXPECT_EQ(50, ImageHeight());
+}
+
+TEST_F(ImageDocumentTest, DomInteractive) {
+  CreateDocument(25, 30);
+  EXPECT_FALSE(GetDocument().GetTiming().DomInteractive().is_null());
 }
 
 #if defined(OS_ANDROID)
@@ -319,7 +326,7 @@ TEST_F(ImageDocumentViewportTest, ZoomForDSFScaleImage) {
   HTMLImageElement* img = GetDocument().ImageElement();
 
   // no zoom
-  WebView().Resize(IntSize(100, 100));
+  WebView().MainFrameWidget()->Resize(IntSize(100, 100));
   WebView().SetZoomFactorForDeviceScaleFactor(1.f);
   Compositor().BeginFrame();
   EXPECT_EQ(50u, img->width());
@@ -333,7 +340,7 @@ TEST_F(ImageDocumentViewportTest, ZoomForDSFScaleImage) {
   // visual viewport should be same in CSS pixel, as no dsf applied.
   // This simulates running on two phones with different screen densities but
   // same (physical) screen size, image document should displayed the same.
-  WebView().Resize(IntSize(400, 400));
+  WebView().MainFrameWidget()->Resize(IntSize(400, 400));
   WebView().SetZoomFactorForDeviceScaleFactor(4.f);
   Compositor().BeginFrame();
   EXPECT_EQ(50u, img->width());
@@ -362,7 +369,7 @@ TEST_F(ImageDocumentViewportTest, DivWidthWithZoomForDSF) {
 
   // Image smaller then webview size, visual viewport is not zoomed, and image
   // will be centered in the viewport.
-  WebView().Resize(IntSize(200, 200));
+  WebView().MainFrameWidget()->Resize(IntSize(200, 200));
   Compositor().BeginFrame();
   EXPECT_EQ(50u, img->width());
   EXPECT_EQ(50u, img->height());
@@ -376,7 +383,7 @@ TEST_F(ImageDocumentViewportTest, DivWidthWithZoomForDSF) {
 
   // Image wider than webview size, image should fill the visual viewport, and
   // visual viewport zoom out to 0.5.
-  WebView().Resize(IntSize(50, 50));
+  WebView().MainFrameWidget()->Resize(IntSize(50, 50));
   Compositor().BeginFrame();
   EXPECT_EQ(50u, img->width());
   EXPECT_EQ(50u, img->height());
@@ -387,7 +394,7 @@ TEST_F(ImageDocumentViewportTest, DivWidthWithZoomForDSF) {
 
   // When image is more than 10X wider than webview, shrink the image to fit the
   // width of the screen.
-  WebView().Resize(IntSize(4, 20));
+  WebView().MainFrameWidget()->Resize(IntSize(4, 20));
   Compositor().BeginFrame();
   EXPECT_EQ(20u, img->width());
   EXPECT_EQ(20u, img->height());

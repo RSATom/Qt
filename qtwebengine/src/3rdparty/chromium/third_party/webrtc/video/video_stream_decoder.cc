@@ -10,16 +10,9 @@
 
 #include "video/video_stream_decoder.h"
 
-#include <algorithm>
-#include <map>
-#include <vector>
-
-#include "call/payload_router.h"
+#include "modules/video_coding/include/video_coding.h"
 #include "modules/video_coding/video_coding_impl.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/logging.h"
-#include "system_wrappers/include/metrics.h"
-#include "video/call_stats.h"
 #include "video/receive_statistics_proxy.h"
 
 namespace webrtc {
@@ -48,9 +41,7 @@ VideoStreamDecoder::VideoStreamDecoder(
       enable_nack ? (enable_fec ? kProtectionNackFEC : kProtectionNack)
                   : kProtectionNone;
 
-  VCMDecodeErrorMode decode_error_mode = enable_nack ? kNoErrors : kWithErrors;
   video_receiver_->SetVideoProtection(video_protection, true);
-  video_receiver_->SetDecodeErrorMode(decode_error_mode);
   VCMPacketRequestCallback* packet_request_callback =
       enable_nack ? vcm_packet_request_callback : nullptr;
   video_receiver_->RegisterPacketRequestCallback(packet_request_callback);
@@ -75,8 +66,7 @@ VideoStreamDecoder::~VideoStreamDecoder() {
 int32_t VideoStreamDecoder::FrameToRender(VideoFrame& video_frame,
                                           absl::optional<uint8_t> qp,
                                           VideoContentType content_type) {
-  receive_stats_callback_->OnDecodedFrame(qp, video_frame.width(),
-                                          video_frame.height(), content_type);
+  receive_stats_callback_->OnDecodedFrame(video_frame, qp, content_type);
   incoming_video_stream_->OnFrame(video_frame);
   return 0;
 }

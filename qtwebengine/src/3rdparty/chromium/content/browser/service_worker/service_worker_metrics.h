@@ -128,7 +128,7 @@ class ServiceWorkerMetrics {
     DETACH_BY_REGISTRY,
     TIMEOUT,
     // Add new types here.
-    NUM_TYPES
+    kMaxValue = TIMEOUT,
   };
 
   // Used for UMA. Append-only.
@@ -168,13 +168,15 @@ class ServiceWorkerMetrics {
     BACKGROUND_FETCH_ABORT = 23,
     BACKGROUND_FETCH_CLICK = 24,
     BACKGROUND_FETCH_FAIL = 25,
-    BACKGROUND_FETCHED = 26,
+    // BACKGROUND_FETCHED = 26,  // Obsolete
     NAVIGATION_HINT = 27,
     CAN_MAKE_PAYMENT = 28,
     ABORT_PAYMENT = 29,
     COOKIE_CHANGE = 30,
+    LONG_RUNNING_MESSAGE = 31,
+    BACKGROUND_FETCH_SUCCESS = 32,
     // Add new events to record here.
-    NUM_TYPES
+    kMaxValue = BACKGROUND_FETCH_SUCCESS,
   };
 
   // Used for UMA. Append only.
@@ -187,7 +189,7 @@ class ServiceWorkerMetrics {
     PLUS,
     INBOX,
     DOCS,
-    NUM_TYPES
+    kMaxValue = DOCS,
   };
 
   // Not used for UMA.
@@ -234,7 +236,7 @@ class ServiceWorkerMetrics {
     // existing ready process.
     START_IN_EXISTING_READY_PROCESS = 8,
     // Add new types here.
-    NUM_TYPES
+    kMaxValue = START_IN_EXISTING_READY_PROCESS,
   };
 
   // Used for UMA. Append only.
@@ -244,7 +246,7 @@ class ServiceWorkerMetrics {
     NEGATIVE,
     INACCURATE_CLOCK,
     // Add new types here.
-    NUM_TYPES
+    kMaxValue = INACCURATE_CLOCK,
   };
 
   // These are prefixed with "local" or "remote" to indicate whether the browser
@@ -364,12 +366,6 @@ class ServiceWorkerMetrics {
                                   base::TimeDelta time,
                                   bool was_handled);
 
-  // Records the time taken between sending an event IPC from the browser
-  // process to a Service Worker and executing the event handler in the Service
-  // Worker.
-  static void RecordEventDispatchingDelay(EventType event,
-                                          base::TimeDelta time);
-
   // Records the result of dispatching a fetch event to a service worker.
   static void RecordFetchEventStatus(bool is_main_resource,
                                      blink::ServiceWorkerStatusCode status);
@@ -430,11 +426,6 @@ class ServiceWorkerMetrics {
       bool is_main_script);
 
   static void RecordRuntime(base::TimeDelta time);
-
-  // Records when an installed service worker imports a script that was not
-  // previously installed.
-  // TODO(falken): Remove after this is deprecated. https://crbug.com/737044
-  static void RecordUninstalledScriptImport(const GURL& url);
 
   // Records the result of starting service worker for a navigation hint.
   static void RecordStartServiceWorkerForNavigationHintResult(

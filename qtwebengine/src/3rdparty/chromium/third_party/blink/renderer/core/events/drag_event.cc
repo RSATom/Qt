@@ -7,17 +7,18 @@
 #include "third_party/blink/renderer/core/clipboard/data_transfer.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
+#include "third_party/blink/renderer/core/dom/events/event_path.h"
 
 namespace blink {
 
 DragEvent::DragEvent() : data_transfer_(nullptr) {}
 
 DragEvent::DragEvent(const AtomicString& type,
-                     const DragEventInit& initializer,
+                     const DragEventInit* initializer,
                      TimeTicks platform_time_stamp,
                      SyntheticEventType synthetic_event_type)
     : MouseEvent(type, initializer, platform_time_stamp, synthetic_event_type),
-      data_transfer_(initializer.getDataTransfer()) {}
+      data_transfer_(initializer->getDataTransfer()) {}
 
 bool DragEvent::IsDragEvent() const {
   return true;

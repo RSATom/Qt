@@ -8,19 +8,14 @@
 #define FXJS_XFA_CJX_KEEP_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Keep;
 
-class CJX_Keep : public CJX_Node {
+class CJX_Keep final : public CJX_Node {
  public:
   explicit CJX_Keep(CXFA_Keep* node);
   ~CJX_Keep() override;
-
-  JS_PROP(intact);
-  JS_PROP(next);
-  JS_PROP(previous);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_KEEP_H_

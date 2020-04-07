@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>rec_pos_col_opa.json</file>
+        <file>tst_main.qml</file>
+    </qresource>
+</RCC>

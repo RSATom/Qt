@@ -7,6 +7,7 @@
 
 #include "third_party/blink/public/platform/modules/notifications/notification_service.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/permissions/permission.mojom-blink.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_notification_permission_callback.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/wtf/noncopyable.h"
@@ -17,8 +18,6 @@ namespace blink {
 class ScriptPromise;
 class ScriptPromiseResolver;
 class ScriptState;
-class WebServiceWorkerRegistration;
-struct WebNotificationData;
 
 // The notification manager, unique to the execution context, is responsible for
 // connecting and communicating with the Mojo notification service.
@@ -35,6 +34,7 @@ class NotificationManager final
 
   static NotificationManager* From(ExecutionContext* context);
 
+  explicit NotificationManager(ExecutionContext& context);
   ~NotificationManager();
 
   // Returns the notification permission status of the current origin. This
@@ -52,8 +52,8 @@ class NotificationManager final
   // else displays a new notification.
   void DisplayNonPersistentNotification(
       const String& token,
-      const WebNotificationData& notification_data,
-      std::unique_ptr<WebNotificationResources> notification_resources,
+      mojom::blink::NotificationDataPtr notification_data,
+      mojom::blink::NotificationResourcesPtr notification_resources,
       mojom::blink::NonPersistentNotificationListenerPtr event_listener);
 
   // Closes the notification that was most recently displayed with this token.
@@ -61,9 +61,9 @@ class NotificationManager final
 
   // Shows a notification from a service worker.
   void DisplayPersistentNotification(
-      blink::WebServiceWorkerRegistration* service_worker_registration,
-      const blink::WebNotificationData& notification_data,
-      std::unique_ptr<blink::WebNotificationResources> notification_resources,
+      int64_t service_worker_registration_id,
+      mojom::blink::NotificationDataPtr notification_data,
+      mojom::blink::NotificationResourcesPtr notification_resources,
       ScriptPromiseResolver* resolver);
 
   // Closes a persistent notification identified by its notification id.
@@ -71,18 +71,14 @@ class NotificationManager final
 
   // Asynchronously gets the persistent notifications belonging to the Service
   // Worker Registration. If |filter_tag| is not an empty string, only the
-  // notification with the given tag will be considered. Will take ownership of
-  // the WebNotificationGetCallbacks object.
-  void GetNotifications(
-      WebServiceWorkerRegistration* service_worker_registration,
-      const WebString& filter_tag,
-      ScriptPromiseResolver* resolver);
+  // notification with the given tag will be considered.
+  void GetNotifications(int64_t service_worker_registration_id,
+                        const WebString& filter_tag,
+                        ScriptPromiseResolver* resolver);
 
   void Trace(blink::Visitor* visitor) override;
 
  private:
-  explicit NotificationManager(ExecutionContext& context);
-
   void DidDisplayPersistentNotification(
       ScriptPromiseResolver* resolver,
       mojom::blink::PersistentNotificationError error);
@@ -90,7 +86,7 @@ class NotificationManager final
   void DidGetNotifications(
       ScriptPromiseResolver* resolver,
       const Vector<String>& notification_ids,
-      const Vector<WebNotificationData>& notification_datas);
+      Vector<mojom::blink::NotificationDataPtr> notification_datas);
 
   // Returns an initialized NotificationServicePtr. A connection will be
   // established the first time this method is called.

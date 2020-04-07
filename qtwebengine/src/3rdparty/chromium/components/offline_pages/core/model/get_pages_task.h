@@ -13,7 +13,7 @@
 #include "components/offline_pages/core/offline_page_item.h"
 #include "components/offline_pages/core/offline_page_metadata_store.h"
 #include "components/offline_pages/core/offline_page_types.h"
-#include "components/offline_pages/core/task.h"
+#include "components/offline_pages/task/task.h"
 
 class GURL;
 
@@ -29,7 +29,7 @@ class GetPagesTask : public Task {
     ReadResult(const ReadResult& other);
     ~ReadResult();
 
-    bool success;
+    bool success = false;
     std::vector<OfflinePageItem> pages;
   };
 

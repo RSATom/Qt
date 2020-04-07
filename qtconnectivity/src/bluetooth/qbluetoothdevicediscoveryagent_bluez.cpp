@@ -365,12 +365,12 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_deviceFound(const QString &addres
     QBluetoothDeviceInfo device(btAddress, btName, btClass);
     if (dict.value(QStringLiteral("RSSI")).isValid())
         device.setRssi(dict.value(QStringLiteral("RSSI")).toInt());
-    QList<QBluetoothUuid> uuids;
+    QVector<QBluetoothUuid> uuids;
     const QStringList uuidStrings
             = dict.value(QLatin1String("UUIDs")).toStringList();
     for (const QString &u : uuidStrings)
         uuids.append(QBluetoothUuid(u));
-    device.setServiceUuids(uuids, QBluetoothDeviceInfo::DataIncomplete);
+    device.setServiceUuids(uuids);
     device.setCached(dict.value(QStringLiteral("Cached")).toBool());
 
 
@@ -444,7 +444,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
     QBluetoothDeviceInfo deviceInfo(btAddress, btName, btClass);
     deviceInfo.setRssi(device.rSSI());
 
-    QList<QBluetoothUuid> uuids;
+    QVector<QBluetoothUuid> uuids;
     bool foundLikelyLowEnergyUuid = false;
     for (const auto &u: device.uUIDs()) {
         const QBluetoothUuid id(u);
@@ -460,7 +460,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
         }
         uuids.append(id);
     }
-    deviceInfo.setServiceUuids(uuids, QBluetoothDeviceInfo::DataIncomplete);
+    deviceInfo.setServiceUuids(uuids);
 
     if (!btClass) {
         deviceInfo.setCoreConfigurations(QBluetoothDeviceInfo::LowEnergyCoreConfiguration);

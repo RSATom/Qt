@@ -43,7 +43,7 @@
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
-#include "base/task_scheduler/task_scheduler.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "net/base/net_errors.h"
 #include "net/base/privacy_mode.h"
 #include "net/cert/cert_verifier.h"
@@ -51,7 +51,7 @@
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/multi_log_ct_verifier.h"
 #include "net/http/transport_security_state.h"
-#include "net/quic/chromium/crypto/proof_verifier_chromium.h"
+#include "net/quic/crypto/proof_verifier_chromium.h"
 #include "net/third_party/quic/core/quic_packets.h"
 #include "net/third_party/quic/core/quic_server_id.h"
 #include "net/third_party/quic/platform/api/quic_flags.h"
@@ -60,9 +60,9 @@
 #include "net/third_party/quic/platform/api/quic_str_cat.h"
 #include "net/third_party/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quic/platform/api/quic_text_utils.h"
-#include "net/third_party/quic/platform/api/quic_url.h"
 #include "net/third_party/quic/tools/quic_client.h"
-#include "net/third_party/spdy/core/spdy_header_block.h"
+#include "net/third_party/quic/tools/quic_url.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 #include "net/tools/epoll_server/epoll_server.h"
 #include "net/tools/quic/synchronous_host_resolver.h"
 
@@ -134,6 +134,9 @@ class FakeProofVerifier : public ProofVerifier {
       std::unique_ptr<quic::ProofVerifyDetails>* /*verify_details*/,
       std::unique_ptr<quic::ProofVerifierCallback> /*callback*/) override {
     return quic::QUIC_SUCCESS;
+  }
+  std::unique_ptr<quic::ProofVerifyContext> CreateDefaultContext() override {
+    return nullptr;
   }
 };
 

@@ -12,12 +12,10 @@
 #include "SkGr.h"
 #include "SkRectPriv.h"
 
-static constexpr int kNumFloatsPerSkMatrix = 9;
-
 std::unique_ptr<GrDrawOp> GrDrawVerticesOp::Make(GrContext* context,
                                                  GrPaint&& paint,
                                                  sk_sp<SkVertices> vertices,
-                                                 const SkMatrix bones[],
+                                                 const SkVertices::Bone bones[],
                                                  int boneCount,
                                                  const SkMatrix& viewMatrix,
                                                  GrAAType aaType,
@@ -31,8 +29,8 @@ std::unique_ptr<GrDrawOp> GrDrawVerticesOp::Make(GrContext* context,
                                                    std::move(colorSpaceXform), viewMatrix);
 }
 
-GrDrawVerticesOp::GrDrawVerticesOp(const Helper::MakeArgs& helperArgs, GrColor color,
-                                   sk_sp<SkVertices> vertices, const SkMatrix bones[],
+GrDrawVerticesOp::GrDrawVerticesOp(const Helper::MakeArgs& helperArgs, const SkPMColor4f& color,
+                                   sk_sp<SkVertices> vertices, const SkVertices::Bone bones[],
                                    int boneCount, GrPrimitiveType primitiveType, GrAAType aaType,
                                    sk_sp<GrColorSpaceXform> colorSpaceXform,
                                    const SkMatrix& viewMatrix)
@@ -51,25 +49,22 @@ GrDrawVerticesOp::GrDrawVerticesOp(const Helper::MakeArgs& helperArgs, GrColor c
     mesh.fColor = color;
     mesh.fViewMatrix = viewMatrix;
     mesh.fVertices = std::move(vertices);
-    if (bones) {
-        // Copy the bone data over in the format that the GPU would upload.
-        mesh.fBones.reserve(boneCount * kNumFloatsPerSkMatrix);
-        for (int i = 0; i < boneCount; i ++) {
-            const SkMatrix& matrix = bones[i];
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMScaleX));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMSkewY));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMPersp0));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMSkewX));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMScaleY));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMPersp1));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMTransX));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMTransY));
-            mesh.fBones.push_back(matrix.get(SkMatrix::kMPersp2));
-        }
-    }
     mesh.fIgnoreTexCoords = false;
     mesh.fIgnoreColors = false;
     mesh.fIgnoreBones = false;
+
+    if (mesh.fVertices->hasBones() && bones) {
+        // Perform the transformations on the CPU instead of the GPU.
+        mesh.fVertices = mesh.fVertices->applyBones(bones, boneCount);
+    } else {
+        if (bones && boneCount > 1) {
+            // NOTE: This should never be used. All bone transforms are being done on the CPU
+            // instead of the GPU.
+
+            // Copy the bone data.
+            fBones.assign(bones, bones + boneCount);
+        }
+    }
 
     fFlags = 0;
     if (mesh.hasPerVertexColors()) {
@@ -85,7 +80,9 @@ GrDrawVerticesOp::GrDrawVerticesOp(const Helper::MakeArgs& helperArgs, GrColor c
     // Special case for meshes with a world transform but no bone weights.
     // These will be considered normal vertices draws without bones.
     if (!mesh.fVertices->hasBones() && boneCount == 1) {
-        mesh.fViewMatrix.preConcat(bones[0]);
+        SkMatrix worldTransform;
+        worldTransform.setAffine(bones[0].values);
+        mesh.fViewMatrix.preConcat(worldTransform);
     }
 
     IsZeroArea zeroArea;
@@ -101,7 +98,7 @@ GrDrawVerticesOp::GrDrawVerticesOp(const Helper::MakeArgs& helperArgs, GrColor c
         SkRect bounds = SkRect::MakeEmpty();
         const SkRect originalBounds = bones[0].mapRect(mesh.fVertices->bounds());
         for (int i = 1; i < boneCount; i++) {
-            const SkMatrix& matrix = bones[i];
+            const SkVertices::Bone& matrix = bones[i];
             bounds.join(matrix.mapRect(originalBounds));
         }
 
@@ -117,6 +114,7 @@ GrDrawVerticesOp::GrDrawVerticesOp(const Helper::MakeArgs& helperArgs, GrColor c
     }
 }
 
+#ifdef SK_DEBUG
 SkString GrDrawVerticesOp::dumpInfo() const {
     SkString string;
     string.appendf("PrimType: %d, MeshCount %d, VCount: %d, ICount: %d\n", (int)fPrimitiveType,
@@ -125,21 +123,21 @@ SkString GrDrawVerticesOp::dumpInfo() const {
     string += INHERITED::dumpInfo();
     return string;
 }
+#endif
 
 GrDrawOp::FixedFunctionFlags GrDrawVerticesOp::fixedFunctionFlags() const {
     return fHelper.fixedFunctionFlags();
 }
 
-GrDrawOp::RequiresDstTexture GrDrawVerticesOp::finalize(const GrCaps& caps,
-                                                        const GrAppliedClip* clip) {
+GrProcessorSet::Analysis GrDrawVerticesOp::finalize(const GrCaps& caps, const GrAppliedClip* clip) {
     GrProcessorAnalysisColor gpColor;
     if (this->requiresPerVertexColors()) {
         gpColor.setToUnknown();
     } else {
         gpColor.setToConstant(fMeshes.front().fColor);
     }
-    auto result = fHelper.xpRequiresDstTexture(caps, clip, GrProcessorAnalysisCoverage::kNone,
-                                               &gpColor);
+    auto result = fHelper.finalizeProcessors(caps, clip, GrProcessorAnalysisCoverage::kNone,
+                                             &gpColor);
     if (gpColor.isConstant(&fMeshes.front().fColor)) {
         fMeshes.front().fIgnoreColors = true;
         fFlags &= ~kRequiresPerVertexColors_Flag;
@@ -184,11 +182,13 @@ sk_sp<GrGeometryProcessor> GrDrawVerticesOp::makeGP(const GrShaderCaps* shaderCa
         *hasColorAttribute = true;
     } else {
         *hasColorAttribute = false;
-    };
+    }
 
     const SkMatrix& vm = this->hasMultipleViewMatrices() ? SkMatrix::I() : fMeshes[0].fViewMatrix;
 
-    Bones bones(fMeshes[0].fBones.data(), fMeshes[0].fBones.size() / kNumFloatsPerSkMatrix);
+    // The bones are packed as 6 floats in column major order, so we can directly upload them to
+    // the GPU as groups of 3 vec2s.
+    Bones bones(reinterpret_cast<const float*>(fBones.data()), fBones.size());
     *hasBoneAttribute = this->hasBones();
 
     if (this->hasBones()) {
@@ -225,14 +225,8 @@ void GrDrawVerticesOp::drawVolatile(Target* target) {
                                                  &hasLocalCoordsAttribute,
                                                  &hasBoneAttribute);
 
-    // Calculate the stride.
-    size_t vertexStride = sizeof(SkPoint) +
-                          (hasColorAttribute ? sizeof(uint32_t) : 0) +
-                          (hasLocalCoordsAttribute ? sizeof(SkPoint) : 0) +
-                          (hasBoneAttribute ? 4 * (sizeof(int8_t) + sizeof(uint8_t)) : 0);
-    SkASSERT(vertexStride == gp->debugOnly_vertexStride());
-
     // Allocate buffers.
+    size_t vertexStride = gp->vertexStride();
     const GrBuffer* vertexBuffer = nullptr;
     int firstVertex = 0;
     void* verts = target->makeVertexSpace(vertexStride, fVertexCount, &vertexBuffer, &firstVertex);
@@ -261,7 +255,7 @@ void GrDrawVerticesOp::drawVolatile(Target* target) {
                       indices);
 
     // Draw the vertices.
-    this->drawVertices(target, gp.get(), vertexBuffer, firstVertex, indexBuffer, firstIndex);
+    this->drawVertices(target, std::move(gp), vertexBuffer, firstVertex, indexBuffer, firstIndex);
 }
 
 void GrDrawVerticesOp::drawNonVolatile(Target* target) {
@@ -298,22 +292,16 @@ void GrDrawVerticesOp::drawNonVolatile(Target* target) {
 
     // Draw using the cached buffers if possible.
     if (vertexBuffer && (!this->isIndexed() || indexBuffer)) {
-        this->drawVertices(target, gp.get(), vertexBuffer.get(), 0, indexBuffer.get(), 0);
+        this->drawVertices(target, std::move(gp), vertexBuffer.get(), 0, indexBuffer.get(), 0);
         return;
     }
 
-    // Calculate the stride.
-    size_t vertexStride = sizeof(SkPoint) +
-                          (hasColorAttribute ? sizeof(uint32_t) : 0) +
-                          (hasLocalCoordsAttribute ? sizeof(SkPoint) : 0) +
-                          (hasBoneAttribute ? 4 * (sizeof(int8_t) + sizeof(uint8_t)) : 0);
-    SkASSERT(vertexStride == gp->debugOnly_vertexStride());
-
     // Allocate vertex buffer.
+    size_t vertexStride = gp->vertexStride();
     vertexBuffer.reset(rp->createBuffer(fVertexCount * vertexStride,
                                         kVertex_GrBufferType,
                                         kStatic_GrAccessPattern,
-                                        0));
+                                        GrResourceProvider::Flags::kNone));
     void* verts = vertexBuffer ? vertexBuffer->map() : nullptr;
     if (!verts) {
         SkDebugf("Could not allocate vertices\n");
@@ -326,7 +314,7 @@ void GrDrawVerticesOp::drawNonVolatile(Target* target) {
         indexBuffer.reset(rp->createBuffer(fIndexCount * sizeof(uint16_t),
                                            kIndex_GrBufferType,
                                            kStatic_GrAccessPattern,
-                                           0));
+                                           GrResourceProvider::Flags::kNone));
         indices = indexBuffer ? static_cast<uint16_t*>(indexBuffer->map()) : nullptr;
         if (!indices) {
             SkDebugf("Could not allocate indices\n");
@@ -353,7 +341,7 @@ void GrDrawVerticesOp::drawNonVolatile(Target* target) {
     rp->assignUniqueKeyToResource(indexKey, indexBuffer.get());
 
     // Draw the vertices.
-    this->drawVertices(target, gp.get(), vertexBuffer.get(), 0, indexBuffer.get(), 0);
+    this->drawVertices(target, std::move(gp), vertexBuffer.get(), 0, indexBuffer.get(), 0);
 }
 
 void GrDrawVerticesOp::fillBuffers(bool hasColorAttribute,
@@ -427,6 +415,9 @@ void GrDrawVerticesOp::fillBuffers(bool hasColorAttribute,
             }
             size_t boneWeightOffset = offset;
 
+            // TODO4F: Preserve float colors
+            GrColor color = mesh.fColor.toBytes_RGBA();
+
             for (int j = 0; j < vertexCount; ++j) {
                 if (this->hasMultipleViewMatrices()) {
                     mesh.fViewMatrix.mapPoints(((SkPoint*)verts), &positions[j], 1);
@@ -437,7 +428,7 @@ void GrDrawVerticesOp::fillBuffers(bool hasColorAttribute,
                     if (mesh.hasPerVertexColors()) {
                         *(uint32_t*)((intptr_t)verts + kColorOffset) = colors[j];
                     } else {
-                        *(uint32_t*)((intptr_t)verts + kColorOffset) = mesh.fColor;
+                        *(uint32_t*)((intptr_t)verts + kColorOffset) = color;
                     }
                 }
                 if (hasLocalCoordsAttribute) {
@@ -465,59 +456,58 @@ void GrDrawVerticesOp::fillBuffers(bool hasColorAttribute,
 }
 
 void GrDrawVerticesOp::drawVertices(Target* target,
-                                    GrGeometryProcessor* gp,
+                                    sk_sp<const GrGeometryProcessor> gp,
                                     const GrBuffer* vertexBuffer,
                                     int firstVertex,
                                     const GrBuffer* indexBuffer,
                                     int firstIndex) {
-    GrMesh mesh(this->primitiveType());
+    GrMesh* mesh = target->allocMesh(this->primitiveType());
     if (this->isIndexed()) {
-        mesh.setIndexed(indexBuffer, fIndexCount,
-                        firstIndex, 0, fVertexCount - 1,
-                        GrPrimitiveRestart::kNo);
+        mesh->setIndexed(indexBuffer, fIndexCount, firstIndex, 0, fVertexCount - 1,
+                         GrPrimitiveRestart::kNo);
     } else {
-        mesh.setNonIndexedNonInstanced(fVertexCount);
+        mesh->setNonIndexedNonInstanced(fVertexCount);
     }
-    mesh.setVertexData(vertexBuffer, firstVertex);
+    mesh->setVertexData(vertexBuffer, firstVertex);
     auto pipe = fHelper.makePipeline(target);
-    target->draw(gp, pipe.fPipeline, pipe.fFixedDynamicState, mesh);
+    target->draw(std::move(gp), pipe.fPipeline, pipe.fFixedDynamicState, mesh);
 }
 
-bool GrDrawVerticesOp::onCombineIfPossible(GrOp* t, const GrCaps& caps) {
+GrOp::CombineResult GrDrawVerticesOp::onCombineIfPossible(GrOp* t, const GrCaps& caps) {
     GrDrawVerticesOp* that = t->cast<GrDrawVerticesOp>();
 
     if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     // Meshes with bones cannot be combined because different meshes use different bones, so to
     // combine them, the matrices would have to be combined, and the bone indices on each vertex
     // would change, thus making the vertices uncacheable.
     if (this->hasBones() || that->hasBones()) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     // Non-volatile meshes cannot batch, because if a non-volatile mesh batches with another mesh,
     // then on the next frame, if that non-volatile mesh is drawn, it will draw the other mesh
     // that was saved in its vertex buffer, which is not necessarily there anymore.
     if (!this->fMeshes[0].fVertices->isVolatile() || !that->fMeshes[0].fVertices->isVolatile()) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     if (!this->combinablePrimitive() || this->primitiveType() != that->primitiveType()) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     if (fMeshes[0].fVertices->hasIndices() != that->fMeshes[0].fVertices->hasIndices()) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     if (fColorArrayType != that->fColorArrayType) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     if (fVertexCount + that->fVertexCount > SkTo<int>(UINT16_MAX)) {
-        return false;
+        return CombineResult::kCannotCombine;
     }
 
     // NOTE: For SkColor vertex colors, the source color space is always sRGB, and the destination
@@ -541,8 +531,7 @@ bool GrDrawVerticesOp::onCombineIfPossible(GrOp* t, const GrCaps& caps) {
     fVertexCount += that->fVertexCount;
     fIndexCount += that->fIndexCount;
 
-    this->joinBounds(*that);
-    return true;
+    return CombineResult::kMerged;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

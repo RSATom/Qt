@@ -33,6 +33,8 @@
     The Qt XML Patterns module provides support for XPath,
     XQuery, XSLT, and XML Schema validation.
 
+    \note This module is deprecated since Qt 5.13.
+
     \section1 Getting Started
 
     To include the definitions of the module's classes, use the

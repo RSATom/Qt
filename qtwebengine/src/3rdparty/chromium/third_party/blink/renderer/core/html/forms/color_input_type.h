@@ -46,8 +46,9 @@ class ColorInputType final : public InputType,
 
  public:
   static InputType* Create(HTMLInputElement&);
+  explicit ColorInputType(HTMLInputElement&);
   ~ColorInputType() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   using InputType::GetElement;
 
   // ColorChooserClient implementation.
@@ -61,7 +62,6 @@ class ColorInputType final : public InputType,
   ColorChooserClient* GetColorChooserClient() override;
 
  private:
-  explicit ColorInputType(HTMLInputElement&);
   InputTypeView* CreateView() override;
   ValueMode GetValueMode() const override;
   void ValueAttributeChanged() override;
@@ -71,7 +71,7 @@ class ColorInputType final : public InputType,
   String SanitizeValue(const String&) const override;
   void CreateShadowSubtree() override;
   void DidSetValue(const String&, bool value_changed) override;
-  void HandleDOMActivateEvent(Event*) override;
+  void HandleDOMActivateEvent(Event&) override;
   void ClosePopupView() override;
   bool ShouldRespectListAttribute() override;
   bool TypeMismatchFor(const String&) const override;

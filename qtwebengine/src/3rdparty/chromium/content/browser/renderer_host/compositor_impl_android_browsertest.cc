@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/android/application_status_listener.h"
+#include "base/android/build_info.h"
 #include "base/base_switches.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/viz/common/features.h"
@@ -10,8 +12,8 @@
 #include "content/browser/renderer_host/compositor_impl_android.h"
 #include "content/browser/renderer_host/render_widget_host_view_android.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/gpu_stream_constants.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/gpu_stream_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -19,6 +21,7 @@
 #include "content/test/content_browser_test_utils_internal.h"
 #include "content/test/gpu_browsertest_helpers.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/android/window_android.h"
@@ -50,8 +53,8 @@ class CompositorImplBrowserTest
         break;
       case CompositorImplMode::kVizSkDDL:
         scoped_feature_list_.InitWithFeatures(
-            {features::kVizDisplayCompositor,
-             features::kUseSkiaDeferredDisplayList, features::kUseSkiaRenderer},
+            {features::kVizDisplayCompositor, features::kUseSkiaRenderer,
+             features::kDefaultEnableOopRasterization},
             {});
         break;
     }
@@ -198,6 +201,8 @@ IN_PROC_BROWSER_TEST_P(CompositorImplLowEndBrowserTest,
 
   ContextLostRunLoop run_loop(context.get());
   compositor->SetVisibleForTesting(false);
+  base::android::ApplicationStatusListener::NotifyApplicationStateChange(
+      base::android::APPLICATION_STATE_HAS_STOPPED_ACTIVITIES);
   rwhva->OnRootWindowVisibilityChanged(false);
   rwhva->Hide();
 
@@ -208,6 +213,8 @@ IN_PROC_BROWSER_TEST_P(CompositorImplLowEndBrowserTest,
 
   // Become visible again:
   compositor->SetVisibleForTesting(true);
+  base::android::ApplicationStatusListener::NotifyApplicationStateChange(
+      base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES);
   rwhva->Show();
   rwhva->OnRootWindowVisibilityChanged(true);
 
@@ -248,6 +255,13 @@ class CompositorSwapRunLoop {
 
 IN_PROC_BROWSER_TEST_P(CompositorImplBrowserTest,
                        CompositorImplReceivesSwapCallbacks) {
+  // OOP-R is required for this test to succeed with SkDDL, but is disabled on
+  // Android L and lower.
+  if (GetParam() == CompositorImplMode::kVizSkDDL &&
+      base::android::BuildInfo::GetInstance()->sdk_int() <
+          base::android::SDK_VERSION_MARSHMALLOW) {
+    return;
+  }
   CompositorSwapRunLoop(compositor_impl()).RunUntilSwap();
 }
 

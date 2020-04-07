@@ -6,10 +6,9 @@
 
 #include "core/fxcrt/cfx_utf8decoder.h"
 
-void CFX_UTF8Decoder::Clear() {
-  m_Buffer.Clear();
-  m_PendingBytes = 0;
-}
+CFX_UTF8Decoder::CFX_UTF8Decoder() = default;
+
+CFX_UTF8Decoder::~CFX_UTF8Decoder() = default;
 
 void CFX_UTF8Decoder::AppendCodePoint(uint32_t ch) {
   m_Buffer.AppendChar(static_cast<wchar_t>(ch));
@@ -43,5 +42,7 @@ void CFX_UTF8Decoder::Input(uint8_t byte) {
   } else if (byte < 0xfe) {
     m_PendingBytes = 5;
     m_PendingChar = (byte & 0x01) << 30;
+  } else {
+    m_PendingBytes = 0;
   }
 }

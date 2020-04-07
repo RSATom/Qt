@@ -61,9 +61,9 @@ cast_source_set("cast_crash_client") {
 
   if (is_android) {
     deps += [
+      "//chromecast/base:cast_sys_info",
       "//chromecast/base:cast_version",
       "//chromecast/browser:jni_headers",
-      "//third_party/breakpad:client",
     ]
   }
 }
@@ -98,7 +98,10 @@ cast_source_set("unittests") {
     "//testing/gtest",
   ]
 
-  if (!is_fuchsia) {
+  if (is_fuchsia) {
+    sources += [ "cast_main_delegate_unittest.cc" ]
+    deps += [ ":app" ]
+  } else {
     deps += [
       # TODO(crbug.com/753619): Enable crash reporting on Fuchsia.
       ":cast_crash_client",

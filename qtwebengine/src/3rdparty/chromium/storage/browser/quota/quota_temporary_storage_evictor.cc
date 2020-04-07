@@ -10,15 +10,10 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
+#include "storage/browser/quota/quota_macros.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
-
-#define UMA_HISTOGRAM_MBYTES(name, sample)          \
-  UMA_HISTOGRAM_CUSTOM_COUNTS(                      \
-      (name), static_cast<int>((sample) / kMBytes), \
-      1, 10 * 1024 * 1024 /* 10TB */, 100)
 
 #define UMA_HISTOGRAM_MINUTES(name, sample) \
   UMA_HISTOGRAM_CUSTOM_TIMES(             \
@@ -229,19 +224,21 @@ void QuotaTemporaryStorageEvictor::OnGotEvictionRoundInfo(
   OnEvictionRoundFinished();
 }
 
-void QuotaTemporaryStorageEvictor::OnGotEvictionOrigin(const GURL& origin) {
+void QuotaTemporaryStorageEvictor::OnGotEvictionOrigin(
+    const base::Optional<url::Origin>& origin) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (origin.is_empty()) {
+  if (!origin.has_value()) {
     StartEvictionTimerWithDelay(interval_ms_);
     OnEvictionRoundFinished();
     return;
   }
 
-  in_progress_eviction_origins_.insert(origin);
+  DCHECK(!origin->GetURL().is_empty());
+  in_progress_eviction_origins_.insert(*origin);
 
   quota_eviction_handler_->EvictOriginData(
-      origin, blink::mojom::StorageType::kTemporary,
+      *origin, blink::mojom::StorageType::kTemporary,
       base::BindOnce(&QuotaTemporaryStorageEvictor::OnEvictionComplete,
                      weak_factory_.GetWeakPtr()));
 }

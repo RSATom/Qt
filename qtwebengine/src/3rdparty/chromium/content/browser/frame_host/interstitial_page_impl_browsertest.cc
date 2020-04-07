@@ -14,7 +14,7 @@
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/interstitial_page_delegate.h"
-#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/navigation_policy.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -199,6 +199,15 @@ class InterstitialPageImplTest : public ContentBrowserTest {
     EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
   }
 
+  void PerformBack() {
+    RenderFrameHostImpl* rfh =
+        static_cast<RenderFrameHostImpl*>(interstitial_->GetMainFrame());
+    rfh->GetRenderWidgetHost()->ForwardMouseEvent(blink::WebMouseEvent(
+        blink::WebInputEvent::Type::kMouseUp, blink::WebFloatPoint(),
+        blink::WebFloatPoint(), blink::WebPointerProperties::Button::kBack, 0,
+        0, base::TimeTicks::Now()));
+  }
+
  private:
   std::unique_ptr<InterstitialPageImpl> interstitial_;
 
@@ -309,12 +318,6 @@ IN_PROC_BROWSER_TEST_F(InterstitialPageImplTest, FocusAfterDetaching) {
 // commits in the original page while an interstitial is showing.
 // See https://crbug.com/729105.
 IN_PROC_BROWSER_TEST_F(InterstitialPageImplTest, UnderlyingSubframeCommit) {
-  // This test doesn't apply in PlzNavigate, since the subframe does not
-  // succesfully commit in that mode.
-  // TODO(creis, clamy): Determine if this is a bug that should be fixed.
-  if (IsBrowserSideNavigationEnabled())
-    return;
-
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // Load an initial page and inject an iframe that won't commit yet.
@@ -347,6 +350,21 @@ IN_PROC_BROWSER_TEST_F(InterstitialPageImplTest, UnderlyingSubframeCommit) {
   // The underlying RenderWidgetHostView should still not be showing.
   EXPECT_FALSE(web_contents->GetMainFrame()->GetView()->IsShowing());
   EXPECT_TRUE(web_contents->GetMainFrame()->GetRenderWidgetHost()->is_hidden());
+
+  TearDownInterstitialPage();
+}
+
+IN_PROC_BROWSER_TEST_F(InterstitialPageImplTest, BackMouseButton) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Load something into the WebContents.
+  EXPECT_TRUE(NavigateToURL(
+      shell(), GURL(embedded_test_server()->GetURL("/title1.html"))));
+  SetUpInterstitialPage();
+
+  EXPECT_TRUE(shell()->web_contents()->ShowingInterstitialPage());
+  PerformBack();
+  EXPECT_FALSE(shell()->web_contents()->ShowingInterstitialPage());
 
   TearDownInterstitialPage();
 }

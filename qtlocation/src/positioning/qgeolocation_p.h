@@ -55,6 +55,7 @@
 #include <QtPositioning/QGeoAddress>
 #include <QtPositioning/QGeoCoordinate>
 #include <QtPositioning/QGeoRectangle>
+#include <QVariantMap>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,6 +74,7 @@ public:
     QGeoAddress address;
     QGeoCoordinate coordinate;
     QGeoRectangle viewport;
+    QVariantMap extendedAttributes;
 };
 
 QT_END_NAMESPACE

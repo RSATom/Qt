@@ -8,19 +8,14 @@
 #define FXJS_XFA_CJX_EXECUTE_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Execute;
 
-class CJX_Execute : public CJX_Node {
+class CJX_Execute final : public CJX_Node {
  public:
   explicit CJX_Execute(CXFA_Execute* node);
   ~CJX_Execute() override;
-
-  JS_PROP(connection);
-  JS_PROP(executeType);
-  JS_PROP(runAt);
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_EXECUTE_H_

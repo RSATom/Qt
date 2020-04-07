@@ -56,13 +56,16 @@ class SVGLengthTearOff final : public SVGPropertyTearOff<SVGLength> {
   };
 
   static SVGLengthTearOff* Create(SVGLength* target,
-                                  SVGElement* context_element,
-                                  PropertyIsAnimValType property_is_anim_val,
-                                  const QualifiedName& attribute_name) {
-    return new SVGLengthTearOff(target, context_element, property_is_anim_val,
-                                attribute_name);
+                                  SVGAnimatedPropertyBase* binding,
+                                  PropertyIsAnimValType property_is_anim_val) {
+    return MakeGarbageCollected<SVGLengthTearOff>(target, binding,
+                                                  property_is_anim_val);
   }
   static SVGLengthTearOff* CreateDetached();
+
+  SVGLengthTearOff(SVGLength*,
+                   SVGAnimatedPropertyBase* binding,
+                   PropertyIsAnimValType);
 
   unsigned short unitType();
   SVGLengthMode UnitMode();
@@ -78,12 +81,6 @@ class SVGLengthTearOff final : public SVGPropertyTearOff<SVGLength> {
   void convertToSpecifiedUnits(unsigned short unit_type, ExceptionState&);
 
   bool HasExposedLengthUnit();
-
- private:
-  SVGLengthTearOff(SVGLength*,
-                   SVGElement* context_element,
-                   PropertyIsAnimValType,
-                   const QualifiedName& attribute_name);
 };
 
 }  // namespace blink

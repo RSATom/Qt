@@ -82,18 +82,24 @@ void AndroidAccelerometer::applyAccelerationMode(QAccelerometer::AccelerationMod
 {
     switch (accelerationMode) {
     case QAccelerometer::Gravity:
-        if (!(m_accelerationModes & Gravity))
+        if (!(m_accelerationModes & Gravity)) {
             qWarning() << "Gravity sensor missing";
+            return;
+        }
         setSensorType(ASENSOR_TYPE_GRAVITY);
         break;
     case QAccelerometer::User:
-        if (!(m_accelerationModes & LinearAcceleration))
+        if (!(m_accelerationModes & LinearAcceleration)) {
             qWarning() << "Linear acceleration sensor missing";
+            return;
+        }
         setSensorType(ASENSOR_TYPE_LINEAR_ACCELERATION);
         break;
     case QAccelerometer::Combined:
-        if (!(m_accelerationModes & Accelerometer))
+        if (!(m_accelerationModes & Accelerometer)) {
             qWarning() << "Accelerometer sensor missing";
+            return;
+        }
         setSensorType(ASENSOR_TYPE_ACCELEROMETER);
         break;
     }

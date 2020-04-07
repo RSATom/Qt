@@ -77,45 +77,25 @@ static IDeckLinkIterator *decklink_create_iterator(AVFormatContext *avctx)
     return iter;
 }
 
-#ifdef _WIN32
-static char *dup_wchar_to_utf8(wchar_t *w)
+static int decklink_get_attr_string(IDeckLink *dl, BMDDeckLinkAttributeID cfg_id, const char **s)
 {
-    char *s = NULL;
-    int l = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
-    s = (char *) av_malloc(l);
-    if (s)
-        WideCharToMultiByte(CP_UTF8, 0, w, -1, s, l, 0, 0);
-    return s;
-}
-#define DECKLINK_STR    OLECHAR *
-#define DECKLINK_STRDUP dup_wchar_to_utf8
-#define DECKLINK_FREE(s) SysFreeString(s)
-#elif defined(__APPLE__)
-static char *dup_cfstring_to_utf8(CFStringRef w)
-{
-    char s[256];
-    CFStringGetCString(w, s, 255, kCFStringEncodingUTF8);
-    return av_strdup(s);
-}
-#define DECKLINK_STR    const __CFString *
-#define DECKLINK_STRDUP dup_cfstring_to_utf8
-#define DECKLINK_FREE(s) CFRelease(s)
-#else
-#define DECKLINK_STR    const char *
-#define DECKLINK_STRDUP av_strdup
-/* free() is needed for a string returned by the DeckLink SDL. */
-#define DECKLINK_FREE(s) free((void *) s)
-#endif
-
-HRESULT ff_decklink_get_display_name(IDeckLink *This, const char **displayName)
-{
-    DECKLINK_STR tmpDisplayName;
-    HRESULT hr = This->GetDisplayName(&tmpDisplayName);
-    if (hr != S_OK)
-        return hr;
-    *displayName = DECKLINK_STRDUP(tmpDisplayName);
-    DECKLINK_FREE(tmpDisplayName);
-    return hr;
+    DECKLINK_STR tmp;
+    HRESULT hr;
+    IDeckLinkAttributes *attr;
+    *s = NULL;
+    if (dl->QueryInterface(IID_IDeckLinkAttributes, (void **)&attr) != S_OK)
+        return AVERROR_EXTERNAL;
+    hr = attr->GetString(cfg_id, &tmp);
+    attr->Release();
+    if (hr == S_OK) {
+        *s = DECKLINK_STRDUP(tmp);
+        DECKLINK_FREE(tmp);
+        if (!*s)
+            return AVERROR(ENOMEM);
+    } else if (hr == E_FAIL) {
+        return AVERROR_EXTERNAL;
+    }
+    return 0;
 }
 
 static int decklink_select_input(AVFormatContext *avctx, BMDDeckLinkConfigurationID cfg_id)
@@ -269,10 +249,18 @@ int ff_decklink_set_format(AVFormatContext *avctx,
                                            &support, NULL) != S_OK)
             return -1;
     } else {
-        if (ctx->dlo->DoesSupportVideoMode(ctx->bmd_mode, bmdFormat8BitYUV,
-                                           bmdVideoOutputFlagDefault,
-                                           &support, NULL) != S_OK)
-        return -1;
+        if (!ctx->supports_vanc || ctx->dlo->DoesSupportVideoMode(ctx->bmd_mode, ctx->raw_format,
+                                                                  bmdVideoOutputVANC,
+                                                                  &support, NULL) != S_OK) {
+            /* Try without VANC enabled */
+            if (ctx->dlo->DoesSupportVideoMode(ctx->bmd_mode, ctx->raw_format,
+                                               bmdVideoOutputFlagDefault,
+                                               &support, NULL) != S_OK) {
+                return -1;
+            }
+            ctx->supports_vanc = 0;
+        }
+
     }
     if (support == bmdDisplayModeSupported)
         return 0;
@@ -298,11 +286,17 @@ int ff_decklink_list_devices(AVFormatContext *avctx,
     while (ret == 0 && iter->Next(&dl) == S_OK) {
         IDeckLinkOutput *output_config;
         IDeckLinkInput *input_config;
-        const char *displayName;
+        const char *display_name = NULL;
+        const char *unique_name = NULL;
         AVDeviceInfo *new_device = NULL;
         int add = 0;
 
-        ff_decklink_get_display_name(dl, &displayName);
+        ret = decklink_get_attr_string(dl, BMDDeckLinkDisplayName, &display_name);
+        if (ret < 0)
+            goto next;
+        ret = decklink_get_attr_string(dl, BMDDeckLinkDeviceHandle, &unique_name);
+        if (ret < 0)
+            goto next;
 
         if (show_outputs) {
             if (dl->QueryInterface(IID_IDeckLinkOutput, (void **)&output_config) == S_OK) {
@@ -325,8 +319,8 @@ int ff_decklink_list_devices(AVFormatContext *avctx,
                 goto next;
             }
 
-            new_device->device_name = av_strdup(displayName);
-            new_device->device_description = av_strdup(displayName);
+            new_device->device_name = av_strdup(unique_name ? unique_name : display_name);
+            new_device->device_description = av_strdup(display_name);
 
             if (!new_device->device_name ||
                 !new_device->device_description ||
@@ -340,7 +334,8 @@ int ff_decklink_list_devices(AVFormatContext *avctx,
         }
 
     next:
-        av_freep(&displayName);
+        av_freep(&display_name);
+        av_freep(&unique_name);
         dl->Release();
     }
     iter->Release();
@@ -365,7 +360,7 @@ void ff_decklink_list_devices_legacy(AVFormatContext *avctx,
         av_log(avctx, AV_LOG_INFO, "Blackmagic DeckLink %s devices:\n",
                show_inputs ? "input" : "output");
         for (int i = 0; i < device_list->nb_devices; i++) {
-            av_log(avctx, AV_LOG_INFO, "\t'%s'\n", device_list->devices[i]->device_name);
+            av_log(avctx, AV_LOG_INFO, "\t'%s'\n", device_list->devices[i]->device_description);
         }
     }
     avdevice_free_list_devices(&device_list);
@@ -449,14 +444,18 @@ int ff_decklink_init_device(AVFormatContext *avctx, const char* name)
         return AVERROR_EXTERNAL;
 
     while (iter->Next(&dl) == S_OK) {
-        const char *displayName;
-        ff_decklink_get_display_name(dl, &displayName);
-        if (!strcmp(name, displayName)) {
-            av_free((void *)displayName);
+        const char *display_name = NULL;
+        const char *unique_name = NULL;
+        decklink_get_attr_string(dl, BMDDeckLinkDisplayName, &display_name);
+        decklink_get_attr_string(dl, BMDDeckLinkDeviceHandle, &unique_name);
+        if (display_name && !strcmp(name, display_name) || unique_name && !strcmp(name, unique_name)) {
+            av_free((void *)unique_name);
+            av_free((void *)display_name);
             ctx->dl = dl;
             break;
         }
-        av_free((void *)displayName);
+        av_free((void *)display_name);
+        av_free((void *)unique_name);
         dl->Release();
     }
     iter->Release();

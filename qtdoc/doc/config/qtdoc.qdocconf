@@ -11,6 +11,7 @@ moduleheader =
 
 depends += \
     activeqt \
+    qtcmake \
     qdoc \
     qmake \
     qtandroidextras \
@@ -27,6 +28,7 @@ depends += \
     qtgui \
     qtlinguist \
     qtlocation \
+    qtlottieanimation \
     qtmacextras \
     qtmultimedia \
     qtnetwork \
@@ -60,7 +62,6 @@ depends += \
     qtxml \
     qtxmlpatterns \
     qt3d \
-    qtcanvas3d \
     qtwebview \
     qtquickcontrols1 \
     qtwaylandcompositor \
@@ -85,9 +86,10 @@ exampledirs += \
     ../snippets \
     ../../examples
 
-# Don't parse files in snippets directory
+# Don't parse files in snippets and cmake directories
 excludedirs += \
-    ../src/snippets
+    ../src/snippets \
+    ../src/cmake
 
 examplesinstallpath =
 

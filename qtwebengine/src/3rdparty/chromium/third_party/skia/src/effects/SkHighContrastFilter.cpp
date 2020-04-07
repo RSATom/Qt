@@ -6,13 +6,12 @@
 */
 
 #include "SkHighContrastFilter.h"
-#include "SkPM4f.h"
 #include "SkArenaAlloc.h"
+#include "SkColorData.h"
 #include "SkRasterPipeline.h"
 #include "SkReadBuffer.h"
 #include "SkString.h"
 #include "SkWriteBuffer.h"
-#include "../jumper/SkJumper.h"
 
 #if SK_SUPPORT_GPU
 #include "GrColorSpaceInfo.h"
@@ -45,12 +44,12 @@ public:
                         SkArenaAlloc* scratch,
                         bool shaderIsOpaque) const override;
 
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkHighContrast_Filter)
-
 protected:
     void flatten(SkWriteBuffer&) const override;
 
 private:
+    SK_FLATTENABLE_HOOKS(SkHighContrast_Filter)
+
     SkHighContrastConfig fConfig;
 
     friend class SkHighContrastFilter;
@@ -69,7 +68,7 @@ void SkHighContrast_Filter::onAppendStages(SkRasterPipeline* p,
     if (!dstCS) {
         // In legacy draws this effect approximately linearizes by squaring.
         // When non-legacy, we're already (better) linearized.
-        auto square = alloc->make<SkJumper_ParametricTransferFunction>();
+        auto square = alloc->make<SkRasterPipeline_ParametricTransferFunction>();
         square->G = 2.0f; square->A = 1.0f;
         square->B = square->C = square->D = square->E = square->F = 0;
 
@@ -116,7 +115,7 @@ void SkHighContrast_Filter::onAppendStages(SkRasterPipeline* p,
 
     if (!dstCS) {
         // See the previous if(!dstCS) { ... }
-        auto sqrt = alloc->make<SkJumper_ParametricTransferFunction>();
+        auto sqrt = alloc->make<SkRasterPipeline_ParametricTransferFunction>();
         sqrt->G = 0.5f; sqrt->A = 1.0f;
         sqrt->B = sqrt->C = sqrt->D = sqrt->E = sqrt->F = 0;
 
@@ -151,9 +150,9 @@ sk_sp<SkColorFilter> SkHighContrastFilter::Make(
     return sk_make_sp<SkHighContrast_Filter>(config);
 }
 
-SK_DEFINE_FLATTENABLE_REGISTRAR_GROUP_START(SkHighContrastFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkHighContrast_Filter)
-SK_DEFINE_FLATTENABLE_REGISTRAR_GROUP_END
+void SkHighContrastFilter::RegisterFlattenables() {
+    SK_REGISTER_FLATTENABLE(SkHighContrast_Filter);
+}
 
 #if SK_SUPPORT_GPU
 class HighContrastFilterEffect : public GrFragmentProcessor {
@@ -177,8 +176,7 @@ private:
     HighContrastFilterEffect(const SkHighContrastConfig& config, bool linearize)
         : INHERITED(kHighContrastFilterEffect_ClassID, kNone_OptimizationFlags)
         , fConfig(config)
-        , fLinearize(linearize) {
-    }
+        , fLinearize(linearize) {}
 
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
@@ -244,10 +242,6 @@ void GLHighContrastFilterEffect::emitCode(EmitArgs& args) {
     fContrastUni = args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kHalf_GrSLType,
                                                     "contrast", &contrast);
 
-    if (nullptr == args.fInputColor) {
-        args.fInputColor = "half4(1)";
-    }
-
     GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
 
     fragBuilder->codeAppendf("half4 color = %s;", args.fInputColor);
@@ -304,7 +298,7 @@ void GLHighContrastFilterEffect::emitCode(EmitArgs& args) {
         fragBuilder->codeAppendf("l = 1.0 - l;");
         // Convert back from HSL to RGB.
         SkString hue2rgbFuncName;
-        static const GrShaderVar gHue2rgbArgs[] = {
+        const GrShaderVar gHue2rgbArgs[] = {
             GrShaderVar("p", kHalf_GrSLType),
             GrShaderVar("q", kHalf_GrSLType),
             GrShaderVar("t", kHalf_GrSLType),
@@ -344,7 +338,7 @@ void GLHighContrastFilterEffect::emitCode(EmitArgs& args) {
     fragBuilder->codeAppendf("}");
 
     // Clamp.
-    fragBuilder->codeAppendf("color = clamp(color, 0, 1);");
+    fragBuilder->codeAppendf("color = saturate(color);");
 
     if (hcfe.linearize()) {
         fragBuilder->codeAppend("color.rgb = sqrt(color.rgb);");

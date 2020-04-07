@@ -24,6 +24,8 @@
 namespace media {
 
 class VaapiEncodeJob;
+class VaapiPictureFactory;
+
 // A VideoEncodeAccelerator implementation that uses VA-API
 // (https://01.org/vaapi) for HW-accelerated video encode.
 class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
@@ -34,11 +36,7 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
 
   // VideoEncodeAccelerator implementation.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles() override;
-  bool Initialize(VideoPixelFormat format,
-                  const gfx::Size& input_visible_size,
-                  VideoCodecProfile output_profile,
-                  uint32_t initial_bitrate,
-                  Client* client) override;
+  bool Initialize(const Config& config, Client* client) override;
   void Encode(const scoped_refptr<VideoFrame>& frame,
               bool force_keyframe) override;
   void UseOutputBitstreamBuffer(const BitstreamBuffer& buffer) override;
@@ -49,6 +47,7 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
       uint32_t framerate) override;
   void Destroy() override;
   void Flush(FlushCallback flush_callback) override;
+  bool IsFlushSupported() override;
 
  private:
   class H264Accelerator;
@@ -66,13 +65,16 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
   // Holds output buffers coming from the client ready to be filled.
   struct BitstreamBufferRef;
 
+  // one surface for input data.
+  // one surface for reconstructed picture, which is later used for reference.
+  static constexpr size_t kNumSurfacesPerInputVideoFrame = 1;
+  static constexpr size_t kNumSurfacesForOutputPicture = 1;
+
   //
   // Tasks for each of the VEA interface calls to be executed on the
   // encoder thread.
   //
-  void InitializeTask(const gfx::Size& visible_size,
-                      VideoCodecProfile profile,
-                      uint32_t bitrate);
+  void InitializeTask(const Config& config);
 
   // Enqueues |frame| onto the queue of pending inputs and attempts to continue
   // encoding.
@@ -151,11 +153,27 @@ class MEDIA_GPU_EXPORT VaapiVideoEncodeAccelerator
   // Size in bytes required for output bitstream buffers.
   size_t output_buffer_byte_size_;
 
+  // This flag signals when the client is sending NV12 + DmaBuf-backed
+  // VideoFrames to encode, which allows for skipping a copy-adaptation on
+  // input.
+  bool native_input_mode_ = false;
+
+  // The number of va surfaces required for one video frame on Encode().
+  // In |native_input_mode_|, one surface for input data is created from DmaBufs
+  // of incoming VideoFrame. One surface for reconstructed picture is always
+  // needed, which is later used for reference.
+  // Therefore, |va_surfaces_per_video_frame| is one in |native_input_mode_|,
+  // and two otherwise.
+  size_t va_surfaces_per_video_frame_;
+
   // All of the members below must be accessed on the encoder_thread_,
   // while it is running.
 
   // Encoder state. Encode tasks will only run in kEncoding state.
   State state_;
+
+  // Creates VaapiPictures to wrap incoming DmaBufs in |native_input_mode_|.
+  std::unique_ptr<VaapiPictureFactory> vaapi_picture_factory_;
 
   // Encoder instance managing video codec state and preparing encode jobs.
   std::unique_ptr<AcceleratedVideoEncoder> encoder_;

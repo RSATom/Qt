@@ -77,159 +77,59 @@ ResourceResponse::SignedCertificateTimestamp::IsolatedCopy() const {
       signature_data_.IsolatedCopy());
 }
 
-ResourceResponse::ResourceResponse()
-    : expected_content_length_(0), is_null_(true) {}
+ResourceResponse::ResourceResponse() : is_null_(true) {}
 
-ResourceResponse::ResourceResponse(const KURL& url,
-                                   const AtomicString& mime_type,
-                                   long long expected_length,
-                                   const AtomicString& text_encoding_name)
-    : url_(url),
-      mime_type_(mime_type),
-      expected_content_length_(expected_length),
-      text_encoding_name_(text_encoding_name),
-      is_null_(false) {}
-
-ResourceResponse::ResourceResponse(CrossThreadResourceResponseData* data)
-    : ResourceResponse() {
-  SetURL(data->url_);
-  SetMimeType(AtomicString(data->mime_type_));
-  SetExpectedContentLength(data->expected_content_length_);
-  SetTextEncodingName(AtomicString(data->text_encoding_name_));
-
-  SetHTTPStatusCode(data->http_status_code_);
-  SetHTTPStatusText(AtomicString(data->http_status_text_));
-
-  http_header_fields_.Adopt(std::move(data->http_headers_));
-  SetResourceLoadTiming(std::move(data->resource_load_timing_));
-  remote_ip_address_ = AtomicString(data->remote_ip_address_);
-  remote_port_ = data->remote_port_;
-  has_major_certificate_errors_ = data->has_major_certificate_errors_;
-  ct_policy_compliance_ = data->ct_policy_compliance_;
-  is_legacy_symantec_cert_ = data->is_legacy_symantec_cert_;
-  cert_validity_start_ = data->cert_validity_start_;
-  was_fetched_via_spdy_ = data->was_fetched_via_spdy_;
-  was_fetched_via_proxy_ = data->was_fetched_via_proxy_;
-  was_fetched_via_service_worker_ = data->was_fetched_via_service_worker_;
-  was_fallback_required_by_service_worker_ =
-      data->was_fallback_required_by_service_worker_;
-  did_service_worker_navigation_preload_ =
-      data->did_service_worker_navigation_preload_;
-  async_revalidation_requested_ = data->async_revalidation_requested_;
-  response_type_via_service_worker_ = data->response_type_via_service_worker_;
-  security_style_ = data->security_style_;
-  security_details_.protocol = data->security_details_.protocol;
-  security_details_.cipher = data->security_details_.cipher;
-  security_details_.key_exchange = data->security_details_.key_exchange;
-  security_details_.key_exchange_group =
-      data->security_details_.key_exchange_group;
-  security_details_.mac = data->security_details_.mac;
-  security_details_.subject_name = data->security_details_.subject_name;
-  security_details_.san_list = data->security_details_.san_list;
-  security_details_.issuer = data->security_details_.issuer;
-  security_details_.valid_from = data->security_details_.valid_from;
-  security_details_.valid_to = data->security_details_.valid_to;
-  for (auto& cert : data->certificate_)
-    security_details_.certificate.push_back(AtomicString(cert));
-  security_details_.sct_list = data->security_details_.sct_list;
-  http_version_ = data->http_version_;
-  app_cache_id_ = data->app_cache_id_;
-  app_cache_manifest_url_ = data->app_cache_manifest_url_.Copy();
-  multipart_boundary_ = data->multipart_boundary_;
-  url_list_via_service_worker_ = data->url_list_via_service_worker_;
-  cache_storage_cache_name_ = data->cache_storage_cache_name_;
-  response_time_ = data->response_time_;
-  encoded_data_length_ = data->encoded_data_length_;
-  encoded_body_length_ = data->encoded_body_length_;
-  decoded_body_length_ = data->decoded_body_length_;
-
-  // Bug https://bugs.webkit.org/show_bug.cgi?id=60397 this doesn't support
-  // whatever values may be present in the opaque m_extraData structure.
-}
+ResourceResponse::ResourceResponse(const KURL& current_request_url)
+    : current_request_url_(current_request_url), is_null_(false) {}
 
 ResourceResponse::ResourceResponse(const ResourceResponse&) = default;
 ResourceResponse& ResourceResponse::operator=(const ResourceResponse&) =
     default;
 
-std::unique_ptr<CrossThreadResourceResponseData> ResourceResponse::CopyData()
-    const {
-  std::unique_ptr<CrossThreadResourceResponseData> data =
-      std::make_unique<CrossThreadResourceResponseData>();
-  data->url_ = Url().Copy();
-  data->mime_type_ = MimeType().GetString().IsolatedCopy();
-  data->expected_content_length_ = ExpectedContentLength();
-  data->text_encoding_name_ = TextEncodingName().GetString().IsolatedCopy();
-  data->http_status_code_ = HttpStatusCode();
-  data->http_status_text_ = HttpStatusText().GetString().IsolatedCopy();
-  data->http_headers_ = HttpHeaderFields().CopyData();
-  if (resource_load_timing_)
-    data->resource_load_timing_ = resource_load_timing_->DeepCopy();
-  data->remote_ip_address_ = remote_ip_address_.GetString().IsolatedCopy();
-  data->remote_port_ = remote_port_;
-  data->has_major_certificate_errors_ = has_major_certificate_errors_;
-  data->ct_policy_compliance_ = ct_policy_compliance_;
-  data->is_legacy_symantec_cert_ = is_legacy_symantec_cert_;
-  data->cert_validity_start_ = cert_validity_start_;
-  data->was_fetched_via_spdy_ = was_fetched_via_spdy_;
-  data->was_fetched_via_proxy_ = was_fetched_via_proxy_;
-  data->was_fetched_via_service_worker_ = was_fetched_via_service_worker_;
-  data->was_fallback_required_by_service_worker_ =
-      was_fallback_required_by_service_worker_;
-  data->did_service_worker_navigation_preload_ =
-      did_service_worker_navigation_preload_;
-  data->async_revalidation_requested_ = async_revalidation_requested_;
-  data->response_type_via_service_worker_ = response_type_via_service_worker_;
-  data->security_style_ = security_style_;
-  data->security_details_.protocol = security_details_.protocol.IsolatedCopy();
-  data->security_details_.cipher = security_details_.cipher.IsolatedCopy();
-  data->security_details_.key_exchange =
-      security_details_.key_exchange.IsolatedCopy();
-  data->security_details_.key_exchange_group =
-      security_details_.key_exchange_group.IsolatedCopy();
-  data->security_details_.mac = security_details_.mac.IsolatedCopy();
-  data->security_details_.subject_name =
-      security_details_.subject_name.IsolatedCopy();
-  data->security_details_.san_list = IsolatedCopy(security_details_.san_list);
-  data->security_details_.issuer = security_details_.issuer.IsolatedCopy();
-  data->security_details_.valid_from = security_details_.valid_from;
-  data->security_details_.valid_to = security_details_.valid_to;
-  for (auto& cert : security_details_.certificate)
-    data->certificate_.push_back(cert.GetString().IsolatedCopy());
-  data->security_details_.sct_list = IsolatedCopy(security_details_.sct_list);
-  data->http_version_ = http_version_;
-  data->app_cache_id_ = app_cache_id_;
-  data->app_cache_manifest_url_ = app_cache_manifest_url_.Copy();
-  data->multipart_boundary_ = multipart_boundary_;
-  data->url_list_via_service_worker_.resize(
-      url_list_via_service_worker_.size());
-  std::transform(url_list_via_service_worker_.begin(),
-                 url_list_via_service_worker_.end(),
-                 data->url_list_via_service_worker_.begin(),
-                 [](const KURL& url) { return url.Copy(); });
-  data->cache_storage_cache_name_ = CacheStorageCacheName().IsolatedCopy();
-  data->response_time_ = response_time_;
-  data->encoded_data_length_ = encoded_data_length_;
-  data->encoded_body_length_ = encoded_body_length_;
-  data->decoded_body_length_ = decoded_body_length_;
-
-  // Bug https://bugs.webkit.org/show_bug.cgi?id=60397 this doesn't support
-  // whatever values may be present in the opaque m_extraData structure.
-
-  return data;
-}
-
 bool ResourceResponse::IsHTTP() const {
-  return url_.ProtocolIsInHTTPFamily();
+  return current_request_url_.ProtocolIsInHTTPFamily();
 }
 
-const KURL& ResourceResponse::Url() const {
-  return url_;
+const KURL& ResourceResponse::CurrentRequestUrl() const {
+  return current_request_url_;
 }
 
-void ResourceResponse::SetURL(const KURL& url) {
+void ResourceResponse::SetCurrentRequestUrl(const KURL& url) {
   is_null_ = false;
 
-  url_ = url;
+  current_request_url_ = url;
+}
+
+KURL ResourceResponse::ResponseUrl() const {
+  // Ideally ResourceResponse would have a |url_list_| to match Fetch
+  // specification's URL list concept
+  // (https://fetch.spec.whatwg.org/#concept-response-url-list), and its
+  // last element would be returned here.
+  //
+  // Instead it has |url_list_via_service_worker_| which is only populated when
+  // the response came from a service worker, and that response was not created
+  // through `new Response()`. Use it when available.
+  if (!url_list_via_service_worker_.IsEmpty()) {
+    DCHECK(WasFetchedViaServiceWorker());
+    return url_list_via_service_worker_.back();
+  }
+
+  // Otherwise, use the current request URL. This is OK because the Fetch
+  // specification's "main fetch" algorithm[1] sets the response URL list to the
+  // request's URL list when the list isn't present. That step can't be
+  // implemented now because there is no |url_list_| memeber, but effectively
+  // the same thing happens by returning CurrentRequestUrl() here.
+  //
+  // [1] "If internalResponse’s URL list is empty, then set it to a clone of
+  // request’s URL list." at
+  // https://fetch.spec.whatwg.org/#ref-for-concept-response-url-list%E2%91%A4
+  return CurrentRequestUrl();
+}
+
+bool ResourceResponse::IsServiceWorkerPassThrough() const {
+  return cache_storage_cache_name_.IsEmpty() &&
+         !url_list_via_service_worker_.IsEmpty() &&
+         ResponseUrl() == CurrentRequestUrl();
 }
 
 const AtomicString& ResourceResponse::MimeType() const {
@@ -244,12 +144,12 @@ void ResourceResponse::SetMimeType(const AtomicString& mime_type) {
   mime_type_ = mime_type;
 }
 
-long long ResourceResponse::ExpectedContentLength() const {
+int64_t ResourceResponse::ExpectedContentLength() const {
   return expected_content_length_;
 }
 
 void ResourceResponse::SetExpectedContentLength(
-    long long expected_content_length) {
+    int64_t expected_content_length) {
   is_null_ = false;
 
   // FIXME: Content length is determined by HTTP Content-Length header. We
@@ -474,8 +374,8 @@ double ResourceResponse::LastModified() const {
 
 bool ResourceResponse::IsAttachment() const {
   static const char kAttachmentString[] = "attachment";
-  String value = http_header_fields_.Get(HTTPNames::Content_Disposition);
-  size_t loc = value.find(';');
+  String value = http_header_fields_.Get(http_names::kContentDisposition);
+  wtf_size_t loc = value.find(';');
   if (loc != kNotFound)
     value = value.Left(loc);
   value = value.StripWhiteSpace();
@@ -484,7 +384,7 @@ bool ResourceResponse::IsAttachment() const {
 
 AtomicString ResourceResponse::HttpContentType() const {
   return ExtractMIMETypeFromMediaType(
-      HttpHeaderField(HTTPNames::Content_Type).DeprecatedLower());
+      HttpHeaderField(http_names::kContentType).DeprecatedLower());
 }
 
 bool ResourceResponse::WasCached() const {
@@ -533,27 +433,6 @@ void ResourceResponse::SetCTPolicyCompliance(CTPolicyCompliance compliance) {
   ct_policy_compliance_ = compliance;
 }
 
-bool ResourceResponse::IsOpaqueResponseFromServiceWorker() const {
-  switch (response_type_via_service_worker_) {
-    case network::mojom::FetchResponseType::kBasic:
-    case network::mojom::FetchResponseType::kCORS:
-    case network::mojom::FetchResponseType::kDefault:
-    case network::mojom::FetchResponseType::kError:
-      return false;
-    case network::mojom::FetchResponseType::kOpaque:
-    case network::mojom::FetchResponseType::kOpaqueRedirect:
-      return true;
-  }
-  NOTREACHED();
-  return false;
-}
-
-KURL ResourceResponse::OriginalURLViaServiceWorker() const {
-  if (url_list_via_service_worker_.IsEmpty())
-    return KURL();
-  return url_list_via_service_worker_.back();
-}
-
 AtomicString ResourceResponse::ConnectionInfoString() const {
   std::string connection_info_string =
       net::HttpResponseInfo::ConnectionInfoToString(connection_info_);
@@ -562,51 +441,16 @@ AtomicString ResourceResponse::ConnectionInfoString() const {
       connection_info_string.length());
 }
 
-void ResourceResponse::SetEncodedDataLength(long long value) {
+void ResourceResponse::SetEncodedDataLength(int64_t value) {
   encoded_data_length_ = value;
 }
 
-void ResourceResponse::SetEncodedBodyLength(long long value) {
+void ResourceResponse::SetEncodedBodyLength(int64_t value) {
   encoded_body_length_ = value;
 }
 
-void ResourceResponse::SetDecodedBodyLength(long long value) {
+void ResourceResponse::SetDecodedBodyLength(int64_t value) {
   decoded_body_length_ = value;
-}
-
-void ResourceResponse::AppendRedirectResponse(
-    const ResourceResponse& response) {
-  redirect_responses_.push_back(response);
-}
-
-bool ResourceResponse::Compare(const ResourceResponse& a,
-                               const ResourceResponse& b) {
-  if (a.IsNull() != b.IsNull())
-    return false;
-  if (a.Url() != b.Url())
-    return false;
-  if (a.MimeType() != b.MimeType())
-    return false;
-  if (a.ExpectedContentLength() != b.ExpectedContentLength())
-    return false;
-  if (a.TextEncodingName() != b.TextEncodingName())
-    return false;
-  if (a.HttpStatusCode() != b.HttpStatusCode())
-    return false;
-  if (a.HttpStatusText() != b.HttpStatusText())
-    return false;
-  if (a.HttpHeaderFields() != b.HttpHeaderFields())
-    return false;
-  if (a.GetResourceLoadTiming() && b.GetResourceLoadTiming() &&
-      *a.GetResourceLoadTiming() == *b.GetResourceLoadTiming())
-    return true;
-  if (a.GetResourceLoadTiming() != b.GetResourceLoadTiming())
-    return false;
-  if (a.EncodedBodyLength() != b.EncodedBodyLength())
-    return false;
-  if (a.DecodedBodyLength() != b.DecodedBodyLength())
-    return false;
-  return true;
 }
 
 STATIC_ASSERT_ENUM(WebURLResponse::kHTTPVersionUnknown,

@@ -376,7 +376,8 @@
     which references HTML pages via URL.
 
     External objects, such as stylesheets or images referenced in the HTML
-    document, should be located relative to \a baseUrl. For example, if \a html
+    document, should be located relative to \a baseUrl. For external objects to
+    be loaded, \c baseUrl cannot be empty. For example, if \a html
     is retrieved from \c http://www.example.com/documents/overview.html, which
     is the base URL, then an image referenced with the relative URL, \c diagram.png,
     should be at \c{http://www.example.com/documents/diagram.png}.
@@ -395,7 +396,7 @@
     runJavaScript("document.title", function(result) { console.log(result); });
     \endcode
 
-    Only "plain data" can be returned from JavaScript as the result value.
+    Only plain data can be returned from JavaScript as the result value.
     Supported data types include all of the JSON data types as well as, for
     example, \c{Date} and \c{ArrayBuffer}. Unsupported data types include, for
     example, \c{Function} and \c{Promise}.
@@ -406,7 +407,8 @@
     \warning Do not execute lengthy routines in the callback function, because it might block the
     rendering of the web content.
 
-    See WebEngineView::userScripts for an alternative API to inject scripts.
+    For more information about injecting scripts, see \l {Script Injection}.
+    For an alternative way to inject scripts, see WebEngineView::userScripts.
 */
 
 /*!
@@ -436,14 +438,13 @@
 
     To clear the search highlight, just pass an empty string.
 
-    The \a resultCallback must take a boolean parameter. It will be called with
-    a value of true if the \a subString was found; otherwise the callback value
-    will be false.
+    The \a resultCallback must take an integer parameter. It will be called with
+    the number of found occurrences of the \a subString.
 
     \code
-    findText("Qt", WebEngineView.FindCaseSensitively, function(success) {
-        if (success)
-            console.log("Qt was found!");
+    findText("Qt", WebEngineView.FindCaseSensitively, function(matchCount) {
+        if (matchCount > 0)
+            console.log("'Qt' tokens found:", matchCount);
     });
     \endcode
 */
@@ -756,6 +757,10 @@
             Redo the last editing action.
     \value  WebEngineView.SelectAll
             Select all content.
+            This action is only enabled when the page's content is focused.
+            The focus can be forced by the JavaScript \c{window.focus()} call, or the
+            \l{WebEngineSettings::focusOnNavigationEnabled} {focusOnNavigationEnabled} setting
+            should be enabled to get automatic focus.
     \value  WebEngineView.PasteAndMatchStyle
             Paste content from the clipboard with current style.
     \value  WebEngineView.OpenLinkInThisWindow
@@ -865,6 +870,8 @@
             (Added in Qt 5.10)
     \value  DesktopAudioVideoCapture
             Both audio and video output capture. (Added in Qt 5.10)
+    \value  WebEnginView.Notifications
+            Web notifications for the end-user.
 
     \sa featurePermissionRequested(), grantFeaturePermission()
 */
@@ -1482,4 +1489,20 @@
     Typically, the signal handler can simply call printToPdf().
 
     \sa printToPdf
+*/
+
+/*!
+    \qmlsignal WebEngineView::selectClientCertificate(WebEngineClientCertificateSelection clientCertificateSelection)
+    \since QtWebEngine 1.9
+
+    This signal is emitted when a web site requests an SSL client certificate, and one or more were
+    found in the system's client certificate store.
+
+    Handling the signal is asynchronous, and loading will be waiting until a certificate is selected,
+    or the last copy of \a clientCertificateSelection is destroyed.
+
+    If the signal is not handled, \a clientCertificateSelection is automatically destroyed, and loading
+    will continue without a client certificate.
+
+    \sa WebEngineClientCertificateSelection
 */

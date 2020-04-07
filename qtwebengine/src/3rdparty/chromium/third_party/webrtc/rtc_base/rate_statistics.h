@@ -11,10 +11,11 @@
 #ifndef RTC_BASE_RATE_STATISTICS_H_
 #define RTC_BASE_RATE_STATISTICS_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
 
 #include "absl/types/optional.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -28,6 +29,11 @@ class RateStatistics {
   // scale = coefficient to convert counts/ms to desired unit
   //         ex: kBpsScale (8000) for bits/s if count represents bytes.
   RateStatistics(int64_t max_window_size_ms, float scale);
+
+  RateStatistics(const RateStatistics& other);
+
+  RateStatistics(RateStatistics&& other);
+
   ~RateStatistics();
 
   // Reset instance to original state.

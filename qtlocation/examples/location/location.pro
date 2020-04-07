@@ -7,5 +7,6 @@ qtHaveModule(quick) {
                mapviewer \
                minimal_map \
                itemview_transitions \
-               planespotter
+               planespotter \
+               geojson_viewer
 }

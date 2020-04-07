@@ -39,6 +39,7 @@
 ****************************************************************************/
 
 #include "quicktestresult_p.h"
+#include "quicktest.h"
 #include <QtTest/qtestcase.h>
 #include <QtTest/qtestsystem.h>
 #include <QtTest/private/qtestblacklist_p.h>
@@ -787,6 +788,16 @@ QObject *QuickTestResult::findChild(QObject *parent, const QString &objectName)
     return parent ? parent->findChild<QObject*>(objectName) : 0;
 }
 
+bool QuickTestResult::isPolishScheduled(QQuickItem *item) const
+{
+    return QQuickTest::qIsPolishScheduled(item);
+}
+
+bool QuickTestResult::waitForItemPolished(QQuickItem *item, int timeout)
+{
+    return QQuickTest::qWaitForItemPolished(item, timeout);
+}
+
 namespace QTest {
     void qtest_qParseArgs(int argc, char *argv[], bool qml);
 };
@@ -802,7 +813,6 @@ void QuickTestResult::setProgramName(const char *name)
 {
     if (name) {
         QTestPrivate::parseBlackList();
-        QTestPrivate::parseGpuBlackList();
         QTestResult::reset();
     } else if (!name && loggingStarted) {
         QTestResult::setCurrentTestObject(globalProgramName);
@@ -829,7 +839,7 @@ int QuickTestResult::exitCode()
 #endif
 }
 
+QT_END_NAMESPACE
+
 #include "quicktestresult.moc"
 #include "moc_quicktestresult_p.cpp"
-
-QT_END_NAMESPACE

@@ -1,4 +1,4 @@
-/****************************************************************************
+﻿/****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
@@ -511,10 +511,10 @@ void QWidget::setAutoFillBackground(bool enabled)
     Every widget's constructor accepts one or two standard arguments:
 
     \list 1
-        \li  \c{QWidget *parent = 0} is the parent of the new widget. If it is 0
-            (the default), the new widget will be a window. If not, it will be
-            a child of \e parent, and be constrained by \e parent's geometry
-            (unless you specify Qt::Window as window flag).
+        \li  \c{QWidget *parent = \nullptr} is the parent of the new widget.
+            If it is \nullptr (the default), the new widget will be a window.
+            If not, it will be a child of \e parent, and be constrained by
+            \e parent's geometry (unless you specify Qt::Window as window flag).
         \li  \c{Qt::WindowFlags f = 0} (where available) sets the window flags;
             the default is suitable for almost all widgets, but to get, for
             example, a window without a window system frame, you must use
@@ -1003,14 +1003,14 @@ struct QWidgetExceptionCleaner
     Constructs a widget which is a child of \a parent, with  widget
     flags set to \a f.
 
-    If \a parent is 0, the new widget becomes a window. If
+    If \a parent is \nullptr, the new widget becomes a window. If
     \a parent is another widget, this widget becomes a child window
     inside \a parent. The new widget is deleted when its \a parent is
     deleted.
 
     The widget flags argument, \a f, is normally 0, but it can be set
-    to customize the frame of a window (i.e. \a
-    parent must be 0). To customize the frame, use a value composed
+    to customize the frame of a window (i.e. \a parent must be
+    \nullptr). To customize the frame, use a value composed
     from the bitwise OR of any of the \l{Qt::WindowFlags}{window flags}.
 
     If you add a child widget to an already visible widget you must
@@ -1190,7 +1190,7 @@ void QWidgetPrivate::init(QWidget *parentWidget, Qt::WindowFlags f)
     q->setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea);
     q->setAttribute(Qt::WA_WState_Hidden);
 
-    //give potential windows a bigger "pre-initial" size; create_sys() will give them a new size later
+    //give potential windows a bigger "pre-initial" size; create() will give them a new size later
     data.crect = parentWidget ? QRect(0,0,100,30) : QRect(0,0,640,480);
     focus_next = focus_prev = q;
 
@@ -1255,27 +1255,19 @@ void QWidgetPrivate::createRecursively()
 /*!
     Creates a new widget window.
 
-    The parameter \a window is ignored in Qt 5. Please use
-    QWindow::fromWinId() to create a QWindow wrapping a foreign
-    window and pass it to QWidget::createWindowContainer() instead.
-
-    Initializes the window (sets the geometry etc.) if \a
-    initializeWindow is true. If \a initializeWindow is false, no
-    initialization is performed. This parameter only makes sense if \a
-    window is a valid window.
-
-    Destroys the old window if \a destroyOldWindow is true. If \a
-    destroyOldWindow is false, you are responsible for destroying the
-    window yourself (using platform native code).
-
-    The QWidget constructor calls create(0,true,true) to create a
-    window for this widget.
+    The parameters \a window, \a initializeWindow, and \a destroyOldWindow
+    are ignored in Qt 5. Please use QWindow::fromWinId() to create a
+    QWindow wrapping a foreign window and pass it to
+    QWidget::createWindowContainer() instead.
 
     \sa createWindowContainer(), QWindow::fromWinId()
 */
 
 void QWidget::create(WId window, bool initializeWindow, bool destroyOldWindow)
 {
+    Q_UNUSED(initializeWindow);
+    Q_UNUSED(destroyOldWindow);
+
     Q_D(QWidget);
     if (Q_UNLIKELY(window))
         qWarning("QWidget::create(): Parameter 'window' does not have any effect.");
@@ -1335,7 +1327,7 @@ void QWidget::create(WId window, bool initializeWindow, bool destroyOldWindow)
     d->updateIsOpaque();
 
     setAttribute(Qt::WA_WState_Created);                        // set created flag
-    d->create_sys(window, initializeWindow, destroyOldWindow);
+    d->create();
 
     // a real toplevel window needs a backing store
     if (isWindow() && windowType() != Qt::Desktop) {
@@ -1404,13 +1396,9 @@ void q_createNativeChildrenAndSetParent(const QWidget *parentWidget)
 
 }
 
-void QWidgetPrivate::create_sys(WId window, bool initializeWindow, bool destroyOldWindow)
+void QWidgetPrivate::create()
 {
     Q_Q(QWidget);
-
-    Q_UNUSED(window);
-    Q_UNUSED(initializeWindow);
-    Q_UNUSED(destroyOldWindow);
 
     if (!q->testAttribute(Qt::WA_NativeWindow) && !q->isWindow())
         return; // we only care about real toplevels
@@ -2418,29 +2406,34 @@ static inline void fillRegion(QPainter *painter, const QRegion &rgn, const QBrus
     }
 }
 
-void QWidgetPrivate::paintBackground(QPainter *painter, const QRegion &rgn, int flags) const
+bool QWidgetPrivate::updateBrushOrigin(QPainter *painter, const QBrush &brush) const
 {
-    Q_Q(const QWidget);
-
 #if QT_CONFIG(scrollarea)
-    bool resetBrushOrigin = false;
-    QPointF oldBrushOrigin;
+    Q_Q(const QWidget);
     //If we are painting the viewport of a scrollarea, we must apply an offset to the brush in case we are drawing a texture
+    if (brush.style() == Qt::NoBrush || brush.style() == Qt::SolidPattern)
+        return false;
     QAbstractScrollArea *scrollArea = qobject_cast<QAbstractScrollArea *>(parent);
     if (scrollArea && scrollArea->viewport() == q) {
         QObjectData *scrollPrivate = static_cast<QWidget *>(scrollArea)->d_ptr.data();
         QAbstractScrollAreaPrivate *priv = static_cast<QAbstractScrollAreaPrivate *>(scrollPrivate);
-        oldBrushOrigin = painter->brushOrigin();
-        resetBrushOrigin = true;
         painter->setBrushOrigin(-priv->contentsOffset());
-
     }
 #endif // QT_CONFIG(scrollarea)
+    return true;
+}
 
+void QWidgetPrivate::paintBackground(QPainter *painter, const QRegion &rgn, int flags) const
+{
+    Q_Q(const QWidget);
+
+    bool brushOriginSet = false;
     const QBrush autoFillBrush = q->palette().brush(q->backgroundRole());
 
     if ((flags & DrawAsRoot) && !(q->autoFillBackground() && autoFillBrush.isOpaque())) {
         const QBrush bg = q->palette().brush(QPalette::Window);
+        if (!brushOriginSet)
+            brushOriginSet = updateBrushOrigin(painter, bg);
         if (!(flags & DontSetCompositionMode)) {
             //copy alpha straight in
             QPainter::CompositionMode oldMode = painter->compositionMode();
@@ -2452,8 +2445,11 @@ void QWidgetPrivate::paintBackground(QPainter *painter, const QRegion &rgn, int 
         }
     }
 
-    if (q->autoFillBackground())
+    if (q->autoFillBackground()) {
+        if (!brushOriginSet)
+            brushOriginSet = updateBrushOrigin(painter, autoFillBrush);
         fillRegion(painter, rgn, autoFillBrush);
+    }
 
     if (q->testAttribute(Qt::WA_StyledBackground)) {
         painter->setClipRegion(rgn);
@@ -2461,11 +2457,6 @@ void QWidgetPrivate::paintBackground(QPainter *painter, const QRegion &rgn, int 
         opt.initFrom(q);
         q->style()->drawPrimitive(QStyle::PE_Widget, &opt, painter, q);
     }
-
-#if QT_CONFIG(scrollarea)
-    if (resetBrushOrigin)
-        painter->setBrushOrigin(oldBrushOrigin);
-#endif // QT_CONFIG(scrollarea)
 }
 
 /*
@@ -2499,12 +2490,12 @@ void QWidgetPrivate::deactivateWidgetCleanup()
 
     The window identifier type depends on the underlying window
     system, see \c qwindowdefs.h for the actual definition. If there
-    is no widget with this identifier, 0 is returned.
+    is no widget with this identifier, \nullptr is returned.
 */
 
 QWidget *QWidget::find(WId id)
 {
-    return QWidgetPrivate::mapper ? QWidgetPrivate::mapper->value(id, 0) : 0;
+    return QWidgetPrivate::mapper ? QWidgetPrivate::mapper->value(id, 0) : nullptr;
 }
 
 
@@ -2589,14 +2580,27 @@ bool QWidgetPrivate::setScreenForPoint(const QPoint &pos)
     Q_Q(QWidget);
     if (!q->isWindow())
         return false;
-    // Find the screen for pos and make the widget undertand it is on that screen.
+    // Find the screen for pos and make the widget understand it is on that screen.
+    return setScreen(QGuiApplication::screenAt(pos));
+}
+
+/*!
+\internal
+Ensures that the widget's QWindow is set to be on the given \a screen.
+Returns true if the screen was changed.
+*/
+
+bool QWidgetPrivate::setScreen(QScreen *screen)
+{
+    Q_Q(QWidget);
+    if (!screen || !q->isWindow())
+        return false;
     const QScreen *currentScreen = windowHandle() ? windowHandle()->screen() : nullptr;
-    QScreen *actualScreen = QGuiApplication::screenAt(pos);
-    if (actualScreen && currentScreen != actualScreen) {
+    if (currentScreen != screen) {
         if (!windowHandle()) // Try to create a window handle if not created.
             createWinId();
         if (windowHandle())
-            windowHandle()->setScreen(actualScreen);
+            windowHandle()->setScreen(screen);
         return true;
     }
     return false;
@@ -3284,7 +3288,7 @@ void QWidget::addActions(QList<QAction*> actions)
 
 /*!
     Inserts the action \a action to this widget's list of actions,
-    before the action \a before. It appends the action if \a before is 0 or
+    before the action \a before. It appends the action if \a before is \nullptr or
     \a before is not a valid action for this widget.
 
     A QWidget should only have one of each action.
@@ -3318,7 +3322,7 @@ void QWidget::insertAction(QAction *before, QAction *action)
 
 /*!
     Inserts the actions \a actions to this widget's list of actions,
-    before the action \a before. It appends the action if \a before is 0 or
+    before the action \a before. It appends the action if \a before is \nullptr or
     \a before is not a valid action for this widget.
 
     A QWidget can have at most one of each action.
@@ -4237,7 +4241,7 @@ void QWidget::setFixedHeight(int h)
 
 /*!
     Translates the widget coordinate \a pos to the coordinate system
-    of \a parent. The \a parent must not be 0 and must be a parent
+    of \a parent. The \a parent must not be \nullptr and must be a parent
     of the calling widget.
 
     \sa mapFrom(), mapToParent(), mapToGlobal(), underMouse()
@@ -4262,7 +4266,7 @@ QPoint QWidget::mapTo(const QWidget * parent, const QPoint & pos) const
 /*!
     Translates the widget coordinate \a pos from the coordinate system
     of \a parent to this widget's coordinate system. The \a parent
-    must not be 0 and must be a parent of the calling widget.
+    must not be \nullptr and must be a parent of the calling widget.
 
     \sa mapTo(), mapFromParent(), mapFromGlobal(), underMouse()
 */
@@ -4341,7 +4345,8 @@ QWidget *QWidget::window() const
     \since 4.4
 
     Returns the native parent for this widget, i.e. the next ancestor widget
-    that has a system identifier, or 0 if it does not have any native parent.
+    that has a system identifier, or \nullptr if it does not have any native
+    parent.
 
     \sa effectiveWinId()
 */
@@ -4962,9 +4967,9 @@ void QWidget::unsetLayoutDirection()
     Some underlying window implementations will reset the cursor if it
     leaves a widget even if the mouse is grabbed. If you want to have
     a cursor set for all widgets, even when outside the window, consider
-    QApplication::setOverrideCursor().
+    QGuiApplication::setOverrideCursor().
 
-    \sa QApplication::setOverrideCursor()
+    \sa QGuiApplication::setOverrideCursor()
 */
 
 #ifndef QT_NO_CURSOR
@@ -5277,7 +5282,7 @@ QPixmap QWidget::grab(const QRect &rectangle)
     \brief The graphicsEffect function returns a pointer to the
     widget's graphics effect.
 
-    If the widget has no graphics effect, 0 is returned.
+    If the widget has no graphics effect, \nullptr is returned.
 
     \since 4.6
 
@@ -5321,7 +5326,7 @@ void QWidget::setGraphicsEffect(QGraphicsEffect *effect)
         return;
 
     if (d->graphicsEffect) {
-        d->invalidateBuffer(rect());
+        d->invalidateBackingStore(rect());
         delete d->graphicsEffect;
         d->graphicsEffect = 0;
     }
@@ -5741,12 +5746,10 @@ void QWidgetPrivate::render(QPaintDevice *target, const QPoint &targetOffset,
     QPoint offset = targetOffset;
     offset -= paintRegion.boundingRect().topLeft();
     QPoint redirectionOffset;
-    QPaintDevice *redirected = 0;
+    QPaintDevice *redirected = nullptr;
 
     if (target->devType() == QInternal::Widget)
         redirected = static_cast<QWidget *>(target)->d_func()->redirected(&redirectionOffset);
-    if (!redirected)
-        redirected = QPainter::redirected(target, &redirectionOffset);
 
     if (redirected) {
         target = redirected;
@@ -5923,10 +5926,10 @@ QPixmap QWidgetEffectSourcePrivate::pixmap(Qt::CoordinateSystem system, QPoint *
 
     Finds the nearest widget embedded in a graphics proxy widget along the chain formed by this
     widget and its ancestors. The search starts at \a origin (inclusive).
-    If successful, the function returns the proxy that embeds the widget, or 0 if no embedded
-    widget was found.
+    If successful, the function returns the proxy that embeds the widget, or \nullptr if no
+    embedded widget was found.
 */
-QGraphicsProxyWidget * QWidgetPrivate::nearestGraphicsProxyWidget(const QWidget *origin)
+QGraphicsProxyWidget *QWidgetPrivate::nearestGraphicsProxyWidget(const QWidget *origin)
 {
     if (origin) {
         QWExtra *extra = origin->d_func()->extra;
@@ -5934,7 +5937,7 @@ QGraphicsProxyWidget * QWidgetPrivate::nearestGraphicsProxyWidget(const QWidget 
             return extra->proxyWidget;
         return nearestGraphicsProxyWidget(origin->parentWidget());
     }
-    return 0;
+    return nullptr;
 }
 #endif
 
@@ -6406,7 +6409,7 @@ void QWidget::setWindowRole(const QString &role)
 
 
 /*!
-    Sets the widget's focus proxy to widget \a w. If \a w is 0, the
+    Sets the widget's focus proxy to widget \a w. If \a w is \nullptr, the
     function resets this widget to have no focus proxy.
 
     Some widgets can "have focus", but create a child widget, such as
@@ -6433,21 +6436,31 @@ void QWidget::setFocusProxy(QWidget * w)
         }
     }
 
+    QWidget *oldDeepestFocusProxy = d_func()->deepestFocusProxy();
+    if (!oldDeepestFocusProxy)
+        oldDeepestFocusProxy = this;
+    const bool changingAppFocusWidget = (QApplicationPrivate::focus_widget == oldDeepestFocusProxy);
+
     d->createExtra();
     d->extra->focus_proxy = w;
+
+    if (changingAppFocusWidget) {
+        QWidget *newDeepestFocusProxy = d_func()->deepestFocusProxy();
+        QApplicationPrivate::setFocusWidget(newDeepestFocusProxy ? newDeepestFocusProxy : this, Qt::NoFocusReason);
+    }
 }
 
 
 /*!
-    Returns the focus proxy, or 0 if there is no focus proxy.
+    Returns the focus proxy, or \nullptr if there is no focus proxy.
 
     \sa setFocusProxy()
 */
 
-QWidget * QWidget::focusProxy() const
+QWidget *QWidget::focusProxy() const
 {
     Q_D(const QWidget);
-    return d->extra ? (QWidget *)d->extra->focus_proxy : 0;
+    return d->extra ? (QWidget *)d->extra->focus_proxy : nullptr;
 }
 
 
@@ -7004,37 +7017,41 @@ void QWidget::setTabOrder(QWidget* first, QWidget *second)
                 lastFocusChild = focusNext;
         }
     };
+    auto setPrev = [](QWidget *w, QWidget *prev)
+    {
+        w->d_func()->focus_prev = prev;
+    };
+    auto setNext = [](QWidget *w, QWidget *next)
+    {
+        w->d_func()->focus_next = next;
+    };
 
-    QWidget *lastFocusChildOfFirst, *lastFocusChildOfSecond;
-    determineLastFocusChild(first, lastFocusChildOfFirst);
+    // remove the second widget from the chain
+    QWidget *lastFocusChildOfSecond;
     determineLastFocusChild(second, lastFocusChildOfSecond);
-
-    // If the tab order is already correct, exit early
-    if (lastFocusChildOfFirst == second ||
-        lastFocusChildOfFirst->d_func()->focus_next == second) {
-        return;
+    {
+        QWidget *oldPrev = second->d_func()->focus_prev;
+        QWidget *prevWithFocus = oldPrev;
+        while (prevWithFocus->focusPolicy() == Qt::NoFocus)
+            prevWithFocus = prevWithFocus->d_func()->focus_prev;
+        // only widgets between first and second -> all is fine
+        if (prevWithFocus == first)
+            return;
+        QWidget *oldNext = lastFocusChildOfSecond->d_func()->focus_next;
+        setPrev(oldNext, oldPrev);
+        setNext(oldPrev, oldNext);
     }
 
-    // Note that we need to handle two different sections in the tab chain; The section
-    // that 'first' belongs to (firstSection), where we are about to insert 'second', and
-    // the section that 'second' used be a part of (secondSection). When we pull 'second'
-    // out of the second section and insert it into the first, we also need to ensure
-    // that we leave the second section in a connected state.
-    QWidget *firstChainOldSecond = lastFocusChildOfFirst->d_func()->focus_next;
-    QWidget *secondChainNewFirst = second->d_func()->focus_prev;
-    QWidget *secondChainNewSecond = lastFocusChildOfSecond->d_func()->focus_next;
-
-    // Insert 'second' after 'first'
-    lastFocusChildOfFirst->d_func()->focus_next = second;
-    second->d_func()->focus_prev = lastFocusChildOfFirst;
-
-    // The widget that used to be 'second' in the first section, should now become 'third'
-    lastFocusChildOfSecond->d_func()->focus_next = firstChainOldSecond;
-    firstChainOldSecond->d_func()->focus_prev = lastFocusChildOfSecond;
-
-    // Repair the second section after we pulled 'second' out of it
-    secondChainNewFirst->d_func()->focus_next = secondChainNewSecond;
-    secondChainNewSecond->d_func()->focus_prev = secondChainNewFirst;
+    // insert the second widget into the chain
+    QWidget *lastFocusChildOfFirst;
+    determineLastFocusChild(first, lastFocusChildOfFirst);
+    {
+        QWidget *oldNext = lastFocusChildOfFirst->d_func()->focus_next;
+        setPrev(second, lastFocusChildOfFirst);
+        setNext(lastFocusChildOfFirst, second);
+        setPrev(oldNext, lastFocusChildOfSecond);
+        setNext(lastFocusChildOfSecond, oldNext);
+    }
 }
 
 /*!\internal
@@ -7346,11 +7363,11 @@ void QWidgetPrivate::setGeometry_sys(int x, int y, int w, int h, bool isMove)
                 if (renderToTexture) {
                     QRegion updateRegion(q->geometry());
                     updateRegion += QRect(oldPos, olds);
-                    q->parentWidget()->d_func()->invalidateBuffer(updateRegion);
+                    q->parentWidget()->d_func()->invalidateBackingStore(updateRegion);
                 } else if (isMove && !isResize) {
                     moveRect(QRect(oldPos, olds), x - oldPos.x(), y - oldPos.y());
                 } else {
-                    invalidateBuffer_resizeHelper(oldPos, olds);
+                    invalidateBackingStore_resizeHelper(oldPos, olds);
                 }
             }
         }
@@ -7434,6 +7451,17 @@ QByteArray QWidget::saveGeometry() const
     return array;
 }
 
+static void checkRestoredGeometry(const QRect &availableGeometry, QRect *restoredGeometry,
+                                  int frameHeight)
+{
+    if (!restoredGeometry->intersects(availableGeometry)) {
+        restoredGeometry->moveBottom(qMin(restoredGeometry->bottom(), availableGeometry.bottom()));
+        restoredGeometry->moveLeft(qMax(restoredGeometry->left(), availableGeometry.left()));
+        restoredGeometry->moveRight(qMin(restoredGeometry->right(), availableGeometry.right()));
+    }
+    restoredGeometry->moveTop(qMax(restoredGeometry->top(), availableGeometry.top() + frameHeight));
+}
+
 /*!
     \since 4.2
 
@@ -7488,7 +7516,7 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
     quint8 fullScreen;
     qint32 restoredScreenWidth = 0;
 
-    stream >> restoredFrameGeometry
+    stream >> restoredFrameGeometry // Only used for sanity checks in version 0
            >> restoredNormalGeometry
            >> restoredScreenNumber
            >> maximized
@@ -7518,8 +7546,6 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
     }
 
     const int frameHeight = 20;
-    if (!restoredFrameGeometry.isValid())
-        restoredFrameGeometry = QRect(QPoint(0,0), sizeHint());
 
     if (!restoredNormalGeometry.isValid())
         restoredNormalGeometry = QRect(QPoint(0, frameHeight), sizeHint());
@@ -7539,23 +7565,11 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
     // - (Mac only) The window is higher than the available geometry. It must
     //   be possible to bring the size grip on screen by moving the window.
 #if 0 // Used to be included in Qt4 for Q_WS_MAC
-    restoredFrameGeometry.setHeight(qMin(restoredFrameGeometry.height(), availableGeometry.height()));
     restoredNormalGeometry.setHeight(qMin(restoredNormalGeometry.height(), availableGeometry.height() - frameHeight));
 #endif
 
-    if (!restoredFrameGeometry.intersects(availableGeometry)) {
-        restoredFrameGeometry.moveBottom(qMin(restoredFrameGeometry.bottom(), availableGeometry.bottom()));
-        restoredFrameGeometry.moveLeft(qMax(restoredFrameGeometry.left(), availableGeometry.left()));
-        restoredFrameGeometry.moveRight(qMin(restoredFrameGeometry.right(), availableGeometry.right()));
-    }
-    restoredFrameGeometry.moveTop(qMax(restoredFrameGeometry.top(), availableGeometry.top()));
-
-    if (!restoredNormalGeometry.intersects(availableGeometry)) {
-        restoredNormalGeometry.moveBottom(qMin(restoredNormalGeometry.bottom(), availableGeometry.bottom()));
-        restoredNormalGeometry.moveLeft(qMax(restoredNormalGeometry.left(), availableGeometry.left()));
-        restoredNormalGeometry.moveRight(qMin(restoredNormalGeometry.right(), availableGeometry.right()));
-    }
-    restoredNormalGeometry.moveTop(qMax(restoredNormalGeometry.top(), availableGeometry.top() + frameHeight));
+    checkRestoredGeometry(availableGeometry, &restoredGeometry, frameHeight);
+    checkRestoredGeometry(availableGeometry, &restoredNormalGeometry, frameHeight);
 
     if (maximized || fullScreen) {
         // set geometry before setting the window state to make
@@ -8112,7 +8126,7 @@ void QWidgetPrivate::show_sys()
     QWidgetWindow *window = windowHandle();
 
     if (q->testAttribute(Qt::WA_DontShowOnScreen)) {
-        invalidateBuffer(q->rect());
+        invalidateBackingStore(q->rect());
         q->setAttribute(Qt::WA_Mapped);
         // add our window the modal window list (native dialogs)
         if (window && q->isWindow()
@@ -8155,7 +8169,7 @@ void QWidgetPrivate::show_sys()
 #ifndef QT_NO_CURSOR
         qt_qpa_set_cursor(q, false); // Needed in case cursor was set before show
 #endif
-        invalidateBuffer(q->rect());
+        invalidateBackingStore(q->rect());
         window->setNativeWindowVisibility(true);
         // Was the window moved by the Window system or QPlatformWindow::initialGeometry() ?
         if (window->isTopLevel()) {
@@ -8269,12 +8283,12 @@ void QWidgetPrivate::hide_sys()
         QWidget *p = q->parentWidget();
         if (p &&p->isVisible()) {
             if (renderToTexture)
-                p->d_func()->invalidateBuffer(q->geometry());
+                p->d_func()->invalidateBackingStore(q->geometry());
             else
-                invalidateBuffer(q->rect());
+                invalidateBackingStore(q->rect());
         }
     } else {
-        invalidateBuffer(q->rect());
+        invalidateBackingStore(q->rect());
     }
 
     if (window)
@@ -8828,7 +8842,7 @@ QSize QWidget::minimumSizeHint() const
 /*!
     \fn QWidget *QWidget::parentWidget() const
 
-    Returns the parent of this widget, or 0 if it does not have any
+    Returns the parent of this widget, or \nullptr if it does not have any
     parent widget.
 */
 
@@ -9368,12 +9382,6 @@ bool QWidget::event(QEvent *event)
         d->renderToTextureReallyDirty = 1;
 #endif
         break;
-    case QEvent::PlatformSurface: {
-        auto surfaceEvent = static_cast<QPlatformSurfaceEvent*>(event);
-        if (surfaceEvent->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed)
-            d->setWinId(0);
-        break;
-    }
 #ifndef QT_NO_PROPERTIES
     case QEvent::DynamicPropertyChange: {
         const QByteArray &propName = static_cast<QDynamicPropertyChangeEvent *>(event)->propertyName();
@@ -10244,7 +10252,7 @@ QRegion QWidget::mask() const
 }
 
 /*!
-    Returns the layout manager that is installed on this widget, or 0
+    Returns the layout manager that is installed on this widget, or \nullptr
     if no layout manager is installed.
 
     The layout manager sets the geometry of the widget's children
@@ -11332,7 +11340,7 @@ void QWidget::setAttribute(Qt::WidgetAttribute attribute, bool on)
             // windowModality property and then reshown.
         }
         if (testAttribute(Qt::WA_WState_Created)) {
-            // don't call setModal_sys() before create_sys()
+            // don't call setModal_sys() before create()
             d->setModal_sys();
         }
         break;
@@ -11457,10 +11465,9 @@ void QWidget::setAttribute(Qt::WidgetAttribute attribute, bool on)
         }
         break;
     case Qt::WA_TranslucentBackground:
-        if (on) {
+        if (on)
             setAttribute(Qt::WA_NoSystemBackground);
-            d->updateIsTranslucent();
-        }
+        d->updateIsTranslucent();
 
         break;
     case Qt::WA_AcceptTouchEvents:
@@ -11916,7 +11923,7 @@ void QWidget::raise()
 
         QRegion region(rect());
         d->subtractOpaqueSiblings(region);
-        d->invalidateBuffer(region);
+        d->invalidateBackingStore(region);
     }
     if (testAttribute(Qt::WA_WState_Created))
         d->raise_sys();
@@ -11936,7 +11943,7 @@ void QWidgetPrivate::raise_sys()
     } else if (renderToTexture) {
         if (QWidget *p = q->parentWidget()) {
             setDirtyOpaqueRegion();
-            p->d_func()->invalidateBuffer(effectiveRectFor(q->geometry()));
+            p->d_func()->invalidateBackingStore(effectiveRectFor(q->geometry()));
         }
     }
 }
@@ -11986,7 +11993,7 @@ void QWidgetPrivate::lower_sys()
         q->windowHandle()->lower();
     } else if (QWidget *p = q->parentWidget()) {
         setDirtyOpaqueRegion();
-        p->d_func()->invalidateBuffer(effectiveRectFor(q->geometry()));
+        p->d_func()->invalidateBackingStore(effectiveRectFor(q->geometry()));
     }
 }
 
@@ -12030,7 +12037,7 @@ void QWidgetPrivate::stackUnder_sys(QWidget*)
     Q_Q(QWidget);
     if (QWidget *p = q->parentWidget()) {
         setDirtyOpaqueRegion();
-        p->d_func()->invalidateBuffer(effectiveRectFor(q->geometry()));
+        p->d_func()->invalidateBackingStore(effectiveRectFor(q->geometry()));
     }
 }
 
@@ -12132,14 +12139,14 @@ bool QWidgetPrivate::navigateToDirection(Direction direction)
     Searches for a widget that is positioned in the \a direction, starting
     from the current focusWidget.
 
-    Returns the pointer to a found widget or 0, if there was no widget in
-    that direction.
+    Returns the pointer to a found widget or \nullptr, if there was no widget
+    in that direction.
 */
 QWidget *QWidgetPrivate::widgetInNavigationDirection(Direction direction)
 {
     const QWidget *sourceWidget = QApplication::focusWidget();
     if (!sourceWidget)
-        return 0;
+        return nullptr;
     const QRect sourceRect = sourceWidget->rect().translated(sourceWidget->mapToGlobal(QPoint()));
     const int sourceX =
             (direction == DirectionNorth || direction == DirectionSouth) ?
@@ -12153,7 +12160,7 @@ QWidget *QWidgetPrivate::widgetInNavigationDirection(Direction direction)
     const QPoint sourceCenter = sourceRect.center();
     const QWidget *sourceWindow = sourceWidget->window();
 
-    QWidget *targetWidget = 0;
+    QWidget *targetWidget = nullptr;
     int shortestDistance = INT_MAX;
 
     const auto targetCandidates = QApplication::allWidgets();
@@ -12472,7 +12479,7 @@ void QWidget::destroy(bool destroyWindow, bool destroySubWindows)
 
     d->aboutToDestroy();
     if (!isWindow() && parentWidget())
-        parentWidget()->d_func()->invalidateBuffer(d->effectiveRectFor(geometry()));
+        parentWidget()->d_func()->invalidateBackingStore(d->effectiveRectFor(geometry()));
     d->deactivateWidgetCleanup();
 
     if ((windowType() == Qt::Popup) && qApp)
@@ -12820,7 +12827,7 @@ void QWidget::releaseKeyboard()
     Returns the widget that is currently grabbing the mouse input.
 
     If no widget in this application is currently grabbing the mouse,
-    0 is returned.
+    \nullptr is returned.
 
     \sa grabMouse(), keyboardGrabber()
 */
@@ -12837,7 +12844,7 @@ QWidget *QWidget::mouseGrabber()
     Returns the widget that is currently grabbing the keyboard input.
 
     If no widget in this application is currently grabbing the
-    keyboard, 0 is returned.
+    keyboard, \nullptr is returned.
 
     \sa grabMouse(), mouseGrabber()
 */

@@ -50,7 +50,7 @@ class DefaultAudioDestinationHandler final : public AudioDestinationHandler,
   void Dispose() override;
   void Initialize() override;
   void Uninitialize() override;
-  void SetChannelCount(unsigned long, ExceptionState&) override;
+  void SetChannelCount(unsigned, ExceptionState&) override;
   double LatencyTime() const override { return 0; }
   double TailTime() const override { return 0; }
   bool RequiresTailProcessing() const final { return false; }
@@ -58,19 +58,22 @@ class DefaultAudioDestinationHandler final : public AudioDestinationHandler,
   // For AudioDestinationHandler.
   void StartRendering() override;
   void StopRendering() override;
+  void Pause() override;
+  void Resume() override;
   void RestartRendering() override;
-  unsigned long MaxChannelCount() const override;
+  uint32_t MaxChannelCount() const override;
   double SampleRate() const override;
 
   // For AudioIOCallback. This is invoked by the platform audio destination to
   // get the next render quantum into |destination_bus| and update
   // |output_position|.
   void Render(AudioBus* destination_bus,
-              size_t number_of_frames,
-              const AudioIOPosition& output_position) final;
+              uint32_t number_of_frames,
+              const AudioIOPosition& output_position,
+              const AudioIOCallbackMetric& metric) final;
 
   // Returns a hadrware callback buffer size from audio infra.
-  size_t GetCallbackBufferSize() const;
+  uint32_t GetCallbackBufferSize() const;
 
   // Returns a given frames-per-buffer size from audio infra.
   int GetFramesPerBuffer() const;
@@ -79,12 +82,14 @@ class DefaultAudioDestinationHandler final : public AudioDestinationHandler,
   explicit DefaultAudioDestinationHandler(AudioNode&,
                                           const WebAudioLatencyHint&);
 
-  void CreateDestination();
-  void StartDestination();
-  void StopDestination();
+  void CreatePlatformDestination();
+  void StartPlatformDestination();
+  void StopPlatformDestination();
 
   const WebAudioLatencyHint latency_hint_;
-  scoped_refptr<AudioDestination> destination_;
+
+  // Holds the audio device thread that runs the real time audio context.
+  scoped_refptr<AudioDestination> platform_destination_;
 };
 
 // -----------------------------------------------------------------------------
@@ -94,7 +99,6 @@ class DefaultAudioDestinationNode final : public AudioDestinationNode {
   static DefaultAudioDestinationNode* Create(BaseAudioContext*,
                                              const WebAudioLatencyHint&);
 
- private:
   explicit DefaultAudioDestinationNode(BaseAudioContext&,
                                        const WebAudioLatencyHint&);
 };

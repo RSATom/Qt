@@ -11,8 +11,8 @@ callback ResizeObserverCallback = void (sequence<ResizeObserverEntry> entries, R
 [
     ActiveScriptWrappable,
     Constructor(ResizeObserverCallback callback),
-    ConstructorCallWith=Document,
-    RuntimeEnabled=ResizeObserver
+    MeasureAs=ResizeObserver_Constructor,
+    ConstructorCallWith=Document
 ] interface ResizeObserver {
     void observe(Element target);
     void unobserve(Element target);

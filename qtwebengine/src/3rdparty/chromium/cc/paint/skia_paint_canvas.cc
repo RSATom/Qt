@@ -26,8 +26,11 @@ SkiaPaintCanvas::SkiaPaintCanvas(SkCanvas* canvas,
       image_provider_(image_provider),
       context_flushes_(context_flushes) {}
 
-SkiaPaintCanvas::SkiaPaintCanvas(const SkBitmap& bitmap)
-    : canvas_(new SkCanvas(bitmap)), owned_(canvas_) {}
+SkiaPaintCanvas::SkiaPaintCanvas(const SkBitmap& bitmap,
+                                 ImageProvider* image_provider)
+    : canvas_(new SkCanvas(bitmap)),
+      owned_(canvas_),
+      image_provider_(image_provider) {}
 
 SkiaPaintCanvas::SkiaPaintCanvas(const SkBitmap& bitmap,
                                  const SkSurfaceProps& props)
@@ -78,14 +81,7 @@ int SkiaPaintCanvas::saveLayer(const SkRect* bounds, const PaintFlags* flags) {
   return canvas_->saveLayer(bounds, &paint);
 }
 
-int SkiaPaintCanvas::saveLayerAlpha(const SkRect* bounds,
-                                    uint8_t alpha,
-                                    bool preserve_lcd_text_requests) {
-  if (preserve_lcd_text_requests) {
-    SkPaint paint;
-    paint.setAlpha(alpha);
-    return canvas_->saveLayerPreserveLCDTextRequests(bounds, &paint);
-  }
+int SkiaPaintCanvas::saveLayerAlpha(const SkRect* bounds, uint8_t alpha) {
   return canvas_->saveLayerAlpha(bounds, alpha);
 }
 
@@ -300,7 +296,13 @@ void SkiaPaintCanvas::drawImageRect(const PaintImage& image,
   FlushAfterDrawIfNeeded();
 }
 
-void SkiaPaintCanvas::drawTextBlob(scoped_refptr<PaintTextBlob> blob,
+void SkiaPaintCanvas::drawSkottie(scoped_refptr<SkottieWrapper> skottie,
+                                  const SkRect& dst,
+                                  float t) {
+  skottie->Draw(canvas_, t, dst);
+}
+
+void SkiaPaintCanvas::drawTextBlob(sk_sp<SkTextBlob> blob,
                                    SkScalar x,
                                    SkScalar y,
                                    const PaintFlags& flags) {
@@ -309,7 +311,7 @@ void SkiaPaintCanvas::drawTextBlob(scoped_refptr<PaintTextBlob> blob,
   if (!raster_flags.flags())
     return;
   SkPaint paint = raster_flags.flags()->ToSkPaint();
-  canvas_->drawTextBlob(blob->ToSkTextBlob(), x, y, paint);
+  canvas_->drawTextBlob(blob, x, y, paint);
   FlushAfterDrawIfNeeded();
 }
 

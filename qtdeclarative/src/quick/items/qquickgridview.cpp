@@ -191,7 +191,7 @@ public:
     void resetFirstItemPosition(qreal pos = 0.0) override;
     void adjustFirstItem(qreal forwards, qreal backwards, int changeBeforeVisible) override;
 
-    void createHighlight() override;
+    void createHighlight(bool onDestruction = false) override;
     void updateHighlight() override;
     void resetHighlightPosition() override;
 
@@ -696,9 +696,8 @@ void QQuickGridViewPrivate::adjustFirstItem(qreal forwards, qreal backwards, int
     gridItem->setPosition(gridItem->colPos(), gridItem->rowPos() + ((moveCount / columns) * rowSize()));
 }
 
-void QQuickGridViewPrivate::createHighlight()
+void QQuickGridViewPrivate::createHighlight(bool onDestruction)
 {
-    Q_Q(QQuickGridView);
     bool changed = false;
     if (highlight) {
         if (trackedItem == highlight)
@@ -714,6 +713,10 @@ void QQuickGridViewPrivate::createHighlight()
         changed = true;
     }
 
+    if (onDestruction)
+        return;
+
+    Q_Q(QQuickGridView);
     if (currentItem) {
         QQuickItem *item = createHighlightItem();
         if (item) {
@@ -1758,7 +1761,7 @@ void QQuickGridView::setSnapMode(SnapMode mode)
 
     \list
     \li The view is first created
-    \li The view's \l model changes
+    \li The view's \l model changes in such a way that the visible delegates are completely replaced
     \li The view's \l model is \l {QAbstractItemModel::reset()}{reset}, if the model is a QAbstractItemModel subclass
     \endlist
 
@@ -1775,6 +1778,28 @@ void QQuickGridView::setSnapMode(SnapMode mode)
 
     When the view is initialized, the view will create all the necessary items for the view,
     then animate them to their correct positions within the view over one second.
+
+    However when scrolling the view later, the populate transition does not
+    run, even though delegates are being instantiated as they become visible.
+    When the model changes in a way that new delegates become visible, the
+    \l add transition is the one that runs. So you should not depend on the
+    \c populate transition to initialize properties in the delegate, because it
+    does not apply to every delegate. If your animation sets the \c to value of
+    a property, the property should initially have the \c to value, and the
+    animation should set the \c from value in case it is animated:
+
+    \code
+    GridView {
+        ...
+        delegate: Rectangle {
+            opacity: 1 // not necessary because it's the default; but don't set 0
+            ...
+        }
+        populate: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 1000 }
+        }
+    }
+    \endcode
 
     For more details and examples on how to use view transitions, see the ViewTransition
     documentation.
@@ -2636,6 +2661,19 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
     \b Note: methods should only be called after the Component has completed.
 */
 
+/*!
+    \qmlmethod Item QtQuick::GridView::itemAtIndex(int index)
+
+    Returns the item for \a index. If there is no item for that index, for example
+    because it has not been created yet, or because it has been panned out of
+    the visible area and removed from the cache, null is returned.
+
+    \b Note: this method should only be called after the Component has completed.
+    The returned value should also not be stored since it can turn to null
+    as soon as control goes out of the calling scope, if the view releases that item.
+
+    \since 5.13
+*/
 
 /*!
     \qmlmethod QtQuick::GridView::forceLayout()

@@ -28,7 +28,7 @@ to see
 4. how to use it in blink
 [[1](https://chromium-review.googlesource.com/c/554510/8/third_party/blnk/renderere/core/workers/worker_thread.cc)]
 
-Also, this patch added a virtual test for running layout tests with the flag.
+Also, this patch added a virtual test for running web tests with the flag.
 When you add a flag, you can consider to use that.
 
 ## Step 2: Adding the feature flag to the chrome://flags UI.
@@ -44,9 +44,11 @@ __flag_descriptions.cc__ and __flag_descriptions.h__. After that, try running th
 
 ```bash
 # Build unit_tests
-ninja -C out/Default unit_tests
+autoninja -C out/Default unit_tests
 # Run AboutFlagsHistogramTest.CheckHistograms
 ./out/Default/unit_tests --gtest_filter=AboutFlagsHistogramTest.CheckHistograms
+# Run AboutFlagsHistogramTest.CheckHistograms on Android
+./out/Default/bin/run_unit_tests --gtest_filter=AboutFlagsHistogramTest.CheckHistograms
 ```
 
 That test will ask you to add several entries to enums.xml.

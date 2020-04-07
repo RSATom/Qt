@@ -37,6 +37,7 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
 
@@ -59,10 +60,7 @@ RTCDataChannel* RTCDataChannel::Create(
     ExecutionContext* context,
     std::unique_ptr<WebRTCDataChannelHandler> handler) {
   DCHECK(handler);
-  RTCDataChannel* channel = new RTCDataChannel(context, std::move(handler));
-  channel->PauseIfNeeded();
-
-  return channel;
+  return MakeGarbageCollected<RTCDataChannel>(context, std::move(handler));
 }
 
 RTCDataChannel* RTCDataChannel::Create(
@@ -78,16 +76,13 @@ RTCDataChannel* RTCDataChannel::Create(
                                       "RTCDataChannel is not supported");
     return nullptr;
   }
-  RTCDataChannel* channel = new RTCDataChannel(context, std::move(handler));
-  channel->PauseIfNeeded();
-
-  return channel;
+  return MakeGarbageCollected<RTCDataChannel>(context, std::move(handler));
 }
 
 RTCDataChannel::RTCDataChannel(
     ExecutionContext* context,
     std::unique_ptr<WebRTCDataChannelHandler> handler)
-    : PausableObject(context),
+    : ContextLifecycleObserver(context),
       handler_(std::move(handler)),
       ready_state_(kReadyStateConnecting),
       binary_type_(kBinaryTypeArrayBuffer),
@@ -164,7 +159,7 @@ String RTCDataChannel::readyState() const {
 }
 
 unsigned RTCDataChannel::bufferedAmount() const {
-  return handler_->BufferedAmount();
+  return SafeCast<unsigned>(handler_->BufferedAmount());
 }
 
 unsigned RTCDataChannel::bufferedAmountLowThreshold() const {
@@ -258,10 +253,10 @@ void RTCDataChannel::DidChangeReadyState(
 
   switch (ready_state_) {
     case kReadyStateOpen:
-      ScheduleDispatchEvent(Event::Create(EventTypeNames::open));
+      ScheduleDispatchEvent(Event::Create(event_type_names::kOpen));
       break;
     case kReadyStateClosed:
-      ScheduleDispatchEvent(Event::Create(EventTypeNames::close));
+      ScheduleDispatchEvent(Event::Create(event_type_names::kClose));
       break;
     default:
       break;
@@ -271,7 +266,7 @@ void RTCDataChannel::DidChangeReadyState(
 void RTCDataChannel::DidDecreaseBufferedAmount(unsigned previous_amount) {
   if (previous_amount > buffered_amount_low_threshold_ &&
       bufferedAmount() <= buffered_amount_low_threshold_) {
-    ScheduleDispatchEvent(Event::Create(EventTypeNames::bufferedamountlow));
+    ScheduleDispatchEvent(Event::Create(event_type_names::kBufferedamountlow));
   }
 }
 
@@ -285,7 +280,8 @@ void RTCDataChannel::DidReceiveRawData(const char* data, size_t data_length) {
     return;
   }
   if (binary_type_ == kBinaryTypeArrayBuffer) {
-    DOMArrayBuffer* buffer = DOMArrayBuffer::Create(data, data_length);
+    DOMArrayBuffer* buffer =
+        DOMArrayBuffer::Create(data, SafeCast<unsigned>(data_length));
     ScheduleDispatchEvent(MessageEvent::Create(buffer));
     return;
   }
@@ -293,25 +289,15 @@ void RTCDataChannel::DidReceiveRawData(const char* data, size_t data_length) {
 }
 
 void RTCDataChannel::DidDetectError() {
-  ScheduleDispatchEvent(Event::Create(EventTypeNames::error));
+  ScheduleDispatchEvent(Event::Create(event_type_names::kError));
 }
 
 const AtomicString& RTCDataChannel::InterfaceName() const {
-  return EventTargetNames::RTCDataChannel;
+  return event_target_names::kRTCDataChannel;
 }
 
 ExecutionContext* RTCDataChannel::GetExecutionContext() const {
-  return PausableObject::GetExecutionContext();
-}
-
-// PausableObject
-void RTCDataChannel::Pause() {
-  scheduled_event_timer_.Stop();
-}
-
-void RTCDataChannel::Unpause() {
-  if (!scheduled_events_.IsEmpty() && !scheduled_event_timer_.IsActive())
-    scheduled_event_timer_.StartOneShot(TimeDelta(), FROM_HERE);
+  return ContextLifecycleObserver::GetExecutionContext();
 }
 
 void RTCDataChannel::ContextDestroyed(ExecutionContext*) {
@@ -341,14 +327,14 @@ bool RTCDataChannel::HasPendingActivity() const {
   bool has_valid_listeners = false;
   switch (ready_state_) {
     case kReadyStateConnecting:
-      has_valid_listeners |= HasEventListeners(EventTypeNames::open);
+      has_valid_listeners |= HasEventListeners(event_type_names::kOpen);
       FALLTHROUGH;
     case kReadyStateOpen:
-      has_valid_listeners |= HasEventListeners(EventTypeNames::message);
+      has_valid_listeners |= HasEventListeners(event_type_names::kMessage);
       FALLTHROUGH;
     case kReadyStateClosing:
-      has_valid_listeners |= HasEventListeners(EventTypeNames::error) ||
-                             HasEventListeners(EventTypeNames::close);
+      has_valid_listeners |= HasEventListeners(event_type_names::kError) ||
+                             HasEventListeners(event_type_names::kClose);
       break;
     default:
       break;
@@ -373,7 +359,7 @@ void RTCDataChannel::ScheduledEventTimerFired(TimerBase*) {
 
   HeapVector<Member<Event>>::iterator it = events.begin();
   for (; it != events.end(); ++it)
-    DispatchEvent((*it).Release());
+    DispatchEvent(*it->Release());
 
   events.clear();
 }
@@ -381,7 +367,7 @@ void RTCDataChannel::ScheduledEventTimerFired(TimerBase*) {
 void RTCDataChannel::Trace(blink::Visitor* visitor) {
   visitor->Trace(scheduled_events_);
   EventTargetWithInlineData::Trace(visitor);
-  PausableObject::Trace(visitor);
+  ContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

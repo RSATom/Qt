@@ -39,8 +39,17 @@ class tst_AbstractOAuth : public QObject
     Q_OBJECT
 
 private:
+    struct AbstractOAuthPrivate : public QAbstractOAuthPrivate {
+        AbstractOAuthPrivate() : QAbstractOAuthPrivate("", QUrl(), QString(), nullptr)
+        {}
+
+        void prepareRequestImpl(QNetworkRequest *,
+                                const QByteArray &,
+                                const QByteArray &) override {}
+    };
+
     struct AbstractOAuth : QAbstractOAuth {
-        AbstractOAuth() : QAbstractOAuth(*new QAbstractOAuthPrivate("", QUrl(), QString(), nullptr),
+        AbstractOAuth() : QAbstractOAuth(*new AbstractOAuthPrivate(),
                                          nullptr)
         {}
 

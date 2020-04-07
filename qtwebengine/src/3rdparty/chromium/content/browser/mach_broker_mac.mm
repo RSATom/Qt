@@ -8,21 +8,15 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/task/post_task.h"
+#include "content/common/content_constants_internal.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
 
 namespace content {
-
-namespace {
-const char kBootstrapName[] = "rohitfork";
-}
-
-// static
-bool MachBroker::ChildSendTaskPortToParent() {
-  return base::MachPortBroker::ChildSendTaskPortToParent(kBootstrapName);
-}
 
 MachBroker* MachBroker::GetInstance() {
   return base::Singleton<MachBroker,
@@ -42,8 +36,8 @@ void MachBroker::EnsureRunning() {
   // Do not attempt to reinitialize in the event of failure.
   initialized_ = true;
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::Bind(&MachBroker::RegisterNotifications, base::Unretained(this)));
 
   if (!broker_.Init()) {
@@ -88,10 +82,10 @@ std::string MachBroker::GetMachPortName() {
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
   const bool is_child = command_line->HasSwitch(switches::kProcessType);
-  return base::MachPortBroker::GetMachPortName(kBootstrapName, is_child);
+  return base::MachPortBroker::GetMachPortName(kMachBootstrapName, is_child);
 }
 
-MachBroker::MachBroker() : initialized_(false), broker_(kBootstrapName) {
+MachBroker::MachBroker() : initialized_(false), broker_(kMachBootstrapName) {
   broker_.AddObserver(this);
 }
 

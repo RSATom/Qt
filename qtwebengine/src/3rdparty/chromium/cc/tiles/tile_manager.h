@@ -32,6 +32,7 @@
 #include "cc/tiles/tile_draw_info.h"
 #include "cc/tiles/tile_manager_settings.h"
 #include "cc/tiles/tile_task_manager.h"
+#include "url/gurl.h"
 
 namespace base {
 namespace trace_event {
@@ -138,6 +139,9 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   ~TileManager() override;
 
   // Assigns tile memory and schedules work to prepare tiles for drawing.
+  // This step occurs after Commit and at most once per BeginFrame. It can be
+  // called on its own, that is, outside of Commit.
+  //
   // - Runs client_->NotifyReadyToActivate() when all tiles required for
   // activation are prepared, or failed to prepare due to OOM.
   // - Runs client_->NotifyReadyToDraw() when all tiles required draw are
@@ -200,10 +204,12 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
       // The raster here never really happened, cuz tests. So just add an
       // arbitrary sync token.
       if (resource.gpu_backing()) {
+        resource.gpu_backing()->mailbox = gpu::Mailbox::Generate();
         resource.gpu_backing()->mailbox_sync_token.Set(
             gpu::GPU_IO, gpu::CommandBufferId::FromUnsafeValue(1), 1);
       }
-      resource_pool_->PrepareForExport(resource);
+      bool exported = resource_pool_->PrepareForExport(resource);
+      DCHECK(exported);
       draw_info.SetResource(std::move(resource), false, false, false);
       draw_info.set_resource_ready_for_draw();
     }
@@ -284,6 +290,11 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
     return scheduled_draw_images_[id];
   }
 
+  void set_active_url(const GURL& url) { active_url_ = url; }
+
+  void SetPaintWorkletLayerPainter(
+      std::unique_ptr<PaintWorkletLayerPainter> painter);
+
  protected:
   friend class Tile;
   // Must be called by tile during destruction.
@@ -342,7 +353,6 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   void FreeResourcesForTileAndNotifyClientIfTileWasReadyToDraw(Tile* tile);
   scoped_refptr<TileTask> CreateRasterTask(
       const PrioritizedTile& prioritized_tile,
-      const RasterColorSpace& raster_color_space,
       PrioritizedWorkToSchedule* work_to_schedule);
 
   std::unique_ptr<EvictionTilePriorityQueue>
@@ -366,7 +376,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
 
   void DidFinishRunningTileTasksRequiredForActivation();
   void DidFinishRunningTileTasksRequiredForDraw();
-  void DidFinishRunningAllTileTasks();
+  void DidFinishRunningAllTileTasks(bool has_pending_queries);
 
   scoped_refptr<TileTask> CreateTaskSetFinishedTask(
       void (TileManager::*callback)());
@@ -375,14 +385,12 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
 
   void PartitionImagesForCheckering(
       const PrioritizedTile& prioritized_tile,
-      const gfx::ColorSpace& raster_color_space,
       std::vector<DrawImage>* sync_decoded_images,
       std::vector<PaintImage>* checkered_images,
       const gfx::Rect* invalidated_rect,
       base::flat_map<PaintImage::Id, size_t>* image_to_frame_index = nullptr);
   void AddCheckeredImagesToDecodeQueue(
       const PrioritizedTile& prioritized_tile,
-      const gfx::ColorSpace& raster_color_space,
       CheckerImageTracker::DecodeType decode_type,
       CheckerImageTracker::ImageDecodeQueue* image_decode_queue);
 
@@ -394,6 +402,8 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   void FlushAndIssueSignals();
   void CheckPendingGpuWorkAndIssueSignals();
   void IssueSignals();
+  void ScheduleCheckRasterFinishedQueries();
+  void CheckRasterFinishedQueries();
 
   TileManagerClient* client_;
   base::SequencedTaskRunner* task_runner_;
@@ -446,6 +456,13 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   // Number of tiles with a checker-imaged resource or active raster tasks which
   // will create a checker-imaged resource.
   int num_of_tiles_with_checker_images_ = 0;
+
+  GURL active_url_;
+
+  // The callback scheduled to poll whether the GPU side work for pending tiles
+  // has completed.
+  bool has_pending_queries_ = false;
+  base::CancelableOnceClosure check_pending_tile_queries_callback_;
 
   // We need two WeakPtrFactory objects as the invalidation pattern of each is
   // different. The |task_set_finished_weak_ptr_factory_| is invalidated any

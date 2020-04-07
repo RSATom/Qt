@@ -71,6 +71,7 @@ TouchEmulator::TouchEmulator(TouchEmulatorClient* client,
           ui::GestureProviderConfigType::CURRENT_PLATFORM),
       double_tap_enabled_(true),
       use_2x_cursors_(false),
+      pinch_gesture_mode_for_testing_(false),
       emulated_stream_active_sequence_count_(0),
       native_stream_active_sequence_count_(0),
       last_emulated_start_target_(nullptr),
@@ -363,14 +364,7 @@ void TouchEmulator::OnGestureEvent(const ui::GestureEventData& gesture) {
   WebGestureEvent gesture_event =
       ui::CreateWebGestureEventFromGestureEventData(gesture);
 
-  if (!gesture_event.unique_touch_event_id) {
-    // TODO(wjmaclean): Find out why the local GestureProvider puts id=0 on
-    // kGestureShowPress. This is a problem for RWHIER as it will cause it to
-    // attempt to re-target the event. There must be a nicer solution than
-    // setting the id to -1.
-    DCHECK(gesture_event.GetType() == blink::WebInputEvent::kGestureShowPress);
-    gesture_event.unique_touch_event_id = -1;
-  }
+  DCHECK(gesture_event.unique_touch_event_id);
 
   switch (gesture_event.GetType()) {
     case WebInputEvent::kUndefined:
@@ -523,16 +517,18 @@ void TouchEmulator::ScrollEnd(const WebGestureEvent& event) {
   WebGestureEvent scroll_event(
       WebInputEvent::kGestureScrollEnd, ModifiersWithoutMouseButtons(event),
       event.TimeStamp(), blink::kWebGestureDeviceTouchscreen);
+  scroll_event.unique_touch_event_id = event.unique_touch_event_id;
   client_->ForwardEmulatedGestureEvent(scroll_event);
 }
 
 WebGestureEvent TouchEmulator::GetPinchGestureEvent(
     WebInputEvent::Type type,
-    const WebInputEvent& original_event) {
+    const WebGestureEvent& original_event) {
   WebGestureEvent event(type, ModifiersWithoutMouseButtons(original_event),
                         original_event.TimeStamp(),
                         blink::kWebGestureDeviceTouchscreen);
   event.SetPositionInWidget(pinch_anchor_);
+  event.unique_touch_event_id = original_event.unique_touch_event_id;
   return event;
 }
 
@@ -577,7 +573,11 @@ void TouchEmulator::FillTouchEventAndPoint(const WebMouseEvent& mouse_event,
 }
 
 bool TouchEmulator::InPinchGestureMode() const {
-  return shift_pressed_;
+  return shift_pressed_ || pinch_gesture_mode_for_testing_;
+}
+
+void TouchEmulator::SetPinchGestureModeForTesting(bool pinch_gesture_mode) {
+  pinch_gesture_mode_for_testing_ = pinch_gesture_mode;
 }
 
 }  // namespace content

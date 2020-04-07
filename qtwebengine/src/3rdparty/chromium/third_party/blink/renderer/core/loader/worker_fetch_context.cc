@@ -33,83 +33,18 @@
 
 namespace blink {
 
-namespace {
-
-// WorkerFetchContextHolder is used to pass the WebWorkerFetchContext from the
-// main thread to the worker thread by attaching to the WorkerClients as a
-// Supplement.
-class WorkerFetchContextHolder final
-    : public GarbageCollectedFinalized<WorkerFetchContextHolder>,
-      public Supplement<WorkerClients> {
-  USING_GARBAGE_COLLECTED_MIXIN(WorkerFetchContextHolder);
-
- public:
-  static WorkerFetchContextHolder* From(WorkerClients& clients) {
-    return Supplement<WorkerClients>::From<WorkerFetchContextHolder>(clients);
-  }
-  static const char kSupplementName[];
-
-  explicit WorkerFetchContextHolder(
-      std::unique_ptr<WebWorkerFetchContext> web_context)
-      : web_context_(std::move(web_context)) {}
-  virtual ~WorkerFetchContextHolder() = default;
-
-  std::unique_ptr<WebWorkerFetchContext> TakeContext() {
-    return std::move(web_context_);
-  }
-
-  void Trace(blink::Visitor* visitor) override {
-    Supplement<WorkerClients>::Trace(visitor);
-  }
-
- private:
-  std::unique_ptr<WebWorkerFetchContext> web_context_;
-};
-
-}  // namespace
-
-// static
-const char WorkerFetchContextHolder::kSupplementName[] =
-    "WorkerFetchContextHolder";
-
 WorkerFetchContext::~WorkerFetchContext() = default;
-
-WorkerFetchContext* WorkerFetchContext::Create(
-    WorkerOrWorkletGlobalScope& global_scope) {
-  DCHECK(global_scope.IsContextThread());
-  WorkerClients* worker_clients = global_scope.Clients();
-  DCHECK(worker_clients);
-  WorkerFetchContextHolder* holder =
-      Supplement<WorkerClients>::From<WorkerFetchContextHolder>(
-          *worker_clients);
-  if (!holder)
-    return nullptr;
-  std::unique_ptr<WebWorkerFetchContext> web_context = holder->TakeContext();
-  DCHECK(web_context);
-  return new WorkerFetchContext(global_scope, std::move(web_context));
-}
 
 WorkerFetchContext::WorkerFetchContext(
     WorkerOrWorkletGlobalScope& global_scope,
-    std::unique_ptr<WebWorkerFetchContext> web_context)
+    scoped_refptr<WebWorkerFetchContext> web_context,
+    SubresourceFilter* subresource_filter)
     : global_scope_(global_scope),
       web_context_(std::move(web_context)),
-      loading_task_runner_(
-          global_scope_->GetTaskRunner(TaskType::kInternalLoading)),
-      fetch_client_settings_object_(
-          new FetchClientSettingsObjectImpl(*global_scope_)),
+      subresource_filter_(subresource_filter),
       save_data_enabled_(GetNetworkStateNotifier().SaveDataEnabled()) {
-  web_context_->InitializeOnWorkerThread();
-  std::unique_ptr<blink::WebDocumentSubresourceFilter> web_filter =
-      web_context_->TakeSubresourceFilter();
-  if (web_filter) {
-    subresource_filter_ =
-        SubresourceFilter::Create(global_scope, std::move(web_filter));
-  }
-}
-const FetchClientSettingsObjectImpl*
-WorkerFetchContext::GetFetchClientSettingsObject() const {
-  return fetch_client_settings_object_.Get();
+  DCHECK(global_scope.IsContextThread());
+  DCHECK(web_context_);
 }
 
 KURL WorkerFetchContext::GetSiteForCookies() const {
@@ -118,6 +53,11 @@ KURL WorkerFetchContext::GetSiteForCookies() const {
 
 SubresourceFilter* WorkerFetchContext::GetSubresourceFilter() const {
   return subresource_filter_.Get();
+}
+
+PreviewsResourceLoadingHints*
+WorkerFetchContext::GetPreviewsResourceLoadingHints() const {
+  return nullptr;
 }
 
 bool WorkerFetchContext::AllowScriptFromSource(const KURL& url) const {
@@ -130,7 +70,7 @@ bool WorkerFetchContext::AllowScriptFromSource(const KURL& url) const {
 
 bool WorkerFetchContext::ShouldBlockRequestByInspector(const KURL& url) const {
   bool should_block_request = false;
-  probe::shouldBlockRequest(global_scope_, url, &should_block_request);
+  probe::shouldBlockRequest(Probe(), url, &should_block_request);
   return should_block_request;
 }
 
@@ -138,7 +78,7 @@ void WorkerFetchContext::DispatchDidBlockRequest(
     const ResourceRequest& resource_request,
     const FetchInitiatorInfo& fetch_initiator_info,
     ResourceRequestBlockedReason blocked_reason,
-    Resource::Type resource_type) const {
+    ResourceType resource_type) const {
   probe::didBlockRequest(global_scope_, resource_request, nullptr,
                          fetch_initiator_info, blocked_reason, resource_type);
 }
@@ -162,6 +102,10 @@ void WorkerFetchContext::CountDeprecation(WebFeature feature) const {
   Deprecation::CountDeprecation(global_scope_, feature);
 }
 
+CoreProbeSink* WorkerFetchContext::Probe() const {
+  return probe::ToCoreProbeSink(static_cast<ExecutionContext*>(global_scope_));
+}
+
 bool WorkerFetchContext::ShouldBlockWebSocketByMixedContentCheck(
     const KURL& url) const {
   // Worklets don't support WebSocket.
@@ -175,7 +119,7 @@ WorkerFetchContext::CreateWebSocketHandshakeThrottle() {
 }
 
 bool WorkerFetchContext::ShouldBlockFetchByMixedContentCheck(
-    WebURLRequest::RequestContext request_context,
+    mojom::RequestContextType request_context,
     network::mojom::RequestContextFrameType frame_type,
     ResourceRequest::RedirectStatus redirect_status,
     const KURL& url,
@@ -190,7 +134,7 @@ bool WorkerFetchContext::ShouldBlockFetchAsCredentialedSubresource(
     const KURL& url) const {
   if ((!url.User().IsEmpty() || !url.Pass().IsEmpty()) &&
       resource_request.GetRequestContext() !=
-          WebURLRequest::kRequestContextXMLHttpRequest) {
+          mojom::RequestContextType::XML_HTTP_REQUEST) {
     if (Url().User() != url.User() || Url().Pass() != url.Pass()) {
       CountDeprecation(
           WebFeature::kRequestedSubresourceWithEmbeddedCredentials);
@@ -230,10 +174,6 @@ void WorkerFetchContext::AddConsoleMessage(ConsoleMessage* message) const {
   return global_scope_->AddConsoleMessage(message);
 }
 
-const SecurityOrigin* WorkerFetchContext::GetSecurityOrigin() const {
-  return GetFetchClientSettingsObject()->GetSecurityOrigin();
-}
-
 std::unique_ptr<WebURLLoader> WorkerFetchContext::CreateURLLoader(
     const ResourceRequest& request,
     const ResourceLoaderOptions& options) {
@@ -261,34 +201,32 @@ std::unique_ptr<WebURLLoader> WorkerFetchContext::CreateURLLoader(
         ->CreateURLLoader(wrapped, CreateResourceLoadingTaskRunnerHandle());
   }
 
-  if (request.GetRequestContext() == WebURLRequest::kRequestContextScript) {
-    if (!script_loader_factory_)
-      script_loader_factory_ = web_context_->CreateScriptLoaderFactory();
-    if (script_loader_factory_) {
-      return script_loader_factory_->CreateURLLoader(
+  // Use |script_loader_factory_| to load types SCRIPT (classic imported
+  // scripts) and SERVICE_WORKER (module main scripts and module imported
+  // scripts). Note that classic main scripts are also SERVICE_WORKER but loaded
+  // by the shadow page on the main thread, not here.
+  if (request.GetRequestContext() == mojom::RequestContextType::SCRIPT ||
+      request.GetRequestContext() ==
+          mojom::RequestContextType::SERVICE_WORKER) {
+    if (web_context_->GetScriptLoaderFactory()) {
+      return web_context_->GetScriptLoaderFactory()->CreateURLLoader(
           wrapped, CreateResourceLoadingTaskRunnerHandle());
     }
   }
 
-  if (!url_loader_factory_)
-    url_loader_factory_ = web_context_->CreateURLLoaderFactory();
-  return url_loader_factory_->CreateURLLoader(
+  return web_context_->GetURLLoaderFactory()->CreateURLLoader(
       wrapped, CreateResourceLoadingTaskRunnerHandle());
 }
 
-blink::mojom::ControllerServiceWorkerMode
-WorkerFetchContext::IsControlledByServiceWorker() const {
-  return web_context_->IsControlledByServiceWorker();
-}
-
-int WorkerFetchContext::ApplicationCacheHostID() const {
-  return web_context_->ApplicationCacheHostID();
+std::unique_ptr<CodeCacheLoader> WorkerFetchContext::CreateCodeCacheLoader() {
+  return web_context_->CreateCodeCacheLoader();
 }
 
 void WorkerFetchContext::PrepareRequest(ResourceRequest& request,
+                                        WebScopedVirtualTimePauser&,
                                         RedirectType) {
   String user_agent = global_scope_->UserAgent();
-  probe::applyUserAgentOverride(global_scope_, &user_agent);
+  probe::applyUserAgentOverride(Probe(), &user_agent);
   DCHECK(!user_agent.IsNull());
   request.SetHTTPUserAgent(AtomicString(user_agent));
 
@@ -305,14 +243,14 @@ void WorkerFetchContext::AddAdditionalRequestHeaders(ResourceRequest& request,
     return;
 
   if (save_data_enabled_)
-    request.SetHTTPHeaderField(HTTPNames::Save_Data, "on");
+    request.SetHTTPHeaderField(http_names::kSaveData, "on");
 }
 
 void WorkerFetchContext::DispatchWillSendRequest(
     unsigned long identifier,
     ResourceRequest& request,
     const ResourceResponse& redirect_response,
-    Resource::Type resource_type,
+    ResourceType resource_type,
     const FetchInitiatorInfo& initiator_info) {
   probe::willSendRequest(global_scope_, identifier, nullptr, request,
                          redirect_response, initiator_info, resource_type);
@@ -320,35 +258,35 @@ void WorkerFetchContext::DispatchWillSendRequest(
 
 void WorkerFetchContext::DispatchDidReceiveResponse(
     unsigned long identifier,
+    const ResourceRequest& request,
     const ResourceResponse& response,
-    network::mojom::RequestContextFrameType frame_type,
-    WebURLRequest::RequestContext request_context,
     Resource* resource,
     ResourceResponseType) {
   if (response.HasMajorCertificateErrors()) {
     WebMixedContentContextType context_type =
         WebMixedContent::ContextTypeFromRequestContext(
-            request_context, false /* strictMixedContentCheckingForPlugin */);
+            request.GetRequestContext(),
+            false /* strictMixedContentCheckingForPlugin */);
     if (context_type == WebMixedContentContextType::kBlockable) {
       web_context_->DidRunContentWithCertificateErrors();
     } else {
       web_context_->DidDisplayContentWithCertificateErrors();
     }
   }
-  probe::didReceiveResourceResponse(global_scope_, identifier, nullptr,
-                                    response, resource);
+  probe::didReceiveResourceResponse(Probe(), identifier, nullptr, response,
+                                    resource);
 }
 
 void WorkerFetchContext::DispatchDidReceiveData(unsigned long identifier,
                                                 const char* data,
-                                                int data_length) {
-  probe::didReceiveData(global_scope_, identifier, nullptr, data, data_length);
+                                                uint64_t data_length) {
+  probe::didReceiveData(Probe(), identifier, nullptr, data, data_length);
 }
 
 void WorkerFetchContext::DispatchDidReceiveEncodedData(
     unsigned long identifier,
-    int encoded_data_length) {
-  probe::didReceiveEncodedDataLength(global_scope_, nullptr, identifier,
+    size_t encoded_data_length) {
+  probe::didReceiveEncodedDataLength(Probe(), nullptr, identifier,
                                      encoded_data_length);
 }
 
@@ -358,7 +296,7 @@ void WorkerFetchContext::DispatchDidFinishLoading(
     int64_t encoded_data_length,
     int64_t decoded_body_length,
     bool should_report_corb_blocking) {
-  probe::didFinishLoading(global_scope_, identifier, nullptr, finish_time,
+  probe::didFinishLoading(Probe(), identifier, nullptr, finish_time,
                           encoded_data_length, decoded_body_length,
                           should_report_corb_blocking);
 }
@@ -368,8 +306,9 @@ void WorkerFetchContext::DispatchDidFail(const KURL& url,
                                          const ResourceError& error,
                                          int64_t encoded_data_length,
                                          bool is_internal_request) {
-  probe::didFailLoading(global_scope_, identifier, nullptr, error);
-  if (NetworkUtils::IsCertificateTransparencyRequiredError(error.ErrorCode())) {
+  probe::didFailLoading(Probe(), identifier, nullptr, error);
+  if (network_utils::IsCertificateTransparencyRequiredError(
+          error.ErrorCode())) {
     CountUsage(WebFeature::kCertificateTransparencyRequiredErrorOnResourceLoad);
   }
 }
@@ -379,30 +318,23 @@ void WorkerFetchContext::AddResourceTiming(const ResourceTimingInfo& info) {
   // worklets.
   if (global_scope_->IsWorkletGlobalScope())
     return;
-  WorkerGlobalScopePerformance::performance(*ToWorkerGlobalScope(global_scope_))
+  WorkerGlobalScopePerformance::performance(
+      To<WorkerGlobalScope>(*global_scope_))
       ->GenerateAndAddResourceTiming(info);
 }
 
 void WorkerFetchContext::PopulateResourceRequest(
-    Resource::Type type,
+    ResourceType type,
     const ClientHintsPreferences& hints_preferences,
     const FetchParameters::ResourceWidth& resource_width,
     ResourceRequest& out_request) {
   FrameLoader::UpgradeInsecureRequest(out_request, global_scope_);
-  SetFirstPartyCookieAndRequestorOrigin(out_request);
+  SetFirstPartyCookie(out_request);
 }
 
-void WorkerFetchContext::SetFirstPartyCookieAndRequestorOrigin(
-    ResourceRequest& out_request) {
+void WorkerFetchContext::SetFirstPartyCookie(ResourceRequest& out_request) {
   if (out_request.SiteForCookies().IsNull())
     out_request.SetSiteForCookies(GetSiteForCookies());
-  if (!out_request.RequestorOrigin())
-    out_request.SetRequestorOrigin(GetSecurityOrigin());
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
-WorkerFetchContext::GetLoadingTaskRunner() {
-  return loading_task_runner_;
 }
 
 std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
@@ -416,9 +348,8 @@ SecurityContext& WorkerFetchContext::GetSecurityContext() const {
 }
 
 WorkerSettings* WorkerFetchContext::GetWorkerSettings() const {
-  if (!global_scope_->IsWorkerGlobalScope())
-    return nullptr;
-  return ToWorkerGlobalScope(global_scope_)->GetWorkerSettings();
+  auto* scope = DynamicTo<WorkerGlobalScope>(*global_scope_);
+  return scope ? scope->GetWorkerSettings() : nullptr;
 }
 
 WorkerContentSettingsClient*
@@ -429,19 +360,7 @@ WorkerFetchContext::GetWorkerContentSettingsClient() const {
 void WorkerFetchContext::Trace(blink::Visitor* visitor) {
   visitor->Trace(global_scope_);
   visitor->Trace(subresource_filter_);
-  visitor->Trace(fetch_client_settings_object_);
   BaseFetchContext::Trace(visitor);
-}
-
-void ProvideWorkerFetchContextToWorker(
-    WorkerClients* clients,
-    std::unique_ptr<WebWorkerFetchContext> web_context) {
-  DCHECK(clients);
-  // web_context should only be nullptr in unit tests.
-  if (!web_context)
-    return;
-  WorkerFetchContextHolder::ProvideTo(
-      *clients, new WorkerFetchContextHolder(std::move(web_context)));
 }
 
 }  // namespace blink

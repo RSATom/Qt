@@ -49,9 +49,9 @@ class DrmNativeDisplayDelegate : public display::NativeDisplayDelegate {
   display::FakeDisplayController* GetFakeDisplayController() override;
 
  private:
-  DrmDisplayHostManager* display_manager_;  // Not owned.
+  DrmDisplayHostManager* const display_manager_;  // Not owned.
 
-  base::ObserverList<display::NativeDisplayObserver> observers_;
+  base::ObserverList<display::NativeDisplayObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DrmNativeDisplayDelegate);
 };

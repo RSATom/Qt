@@ -103,8 +103,6 @@ protected:
     void flushDelegateModel();
     void flushUserAddedMapObjects();
 
-    QVariant m_model;
-    QQmlComponent *m_delegate = nullptr;
     QQmlDelegateModel *m_delegateModel = nullptr;
     QVector<QPointer<QGeoMapObject>> m_instantiatedMapObjects;
     QVector<QPointer<QGeoMapObject>> m_pendingMapObjects; // for items instantiated before the map is set

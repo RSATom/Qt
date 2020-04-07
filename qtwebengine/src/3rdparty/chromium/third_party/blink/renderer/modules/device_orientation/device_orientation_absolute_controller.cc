@@ -6,7 +6,7 @@
 
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/modules/device_orientation/device_orientation_dispatcher.h"
+#include "third_party/blink/renderer/modules/device_orientation/device_orientation_event_pump.h"
 
 namespace blink {
 
@@ -25,7 +25,8 @@ DeviceOrientationAbsoluteController& DeviceOrientationAbsoluteController::From(
   DeviceOrientationAbsoluteController* controller =
       Supplement<Document>::From<DeviceOrientationAbsoluteController>(document);
   if (!controller) {
-    controller = new DeviceOrientationAbsoluteController(document);
+    controller =
+        MakeGarbageCollected<DeviceOrientationAbsoluteController>(document);
     Supplement<Document>::ProvideTo(document, controller);
   }
   return *controller;
@@ -66,17 +67,16 @@ void DeviceOrientationAbsoluteController::DidAddEventListener(
   DeviceSingleWindowEventController::DidAddEventListener(window, event_type);
 }
 
-DeviceOrientationDispatcher&
-DeviceOrientationAbsoluteController::DispatcherInstance() const {
-  return DeviceOrientationDispatcher::Instance(true);
-}
-
 const AtomicString& DeviceOrientationAbsoluteController::EventTypeName() const {
-  return EventTypeNames::deviceorientationabsolute;
+  return event_type_names::kDeviceorientationabsolute;
 }
 
 void DeviceOrientationAbsoluteController::Trace(blink::Visitor* visitor) {
   DeviceOrientationController::Trace(visitor);
+}
+
+void DeviceOrientationAbsoluteController::RegisterWithDispatcher() {
+  RegisterWithOrientationEventPump(true /* absolute */);
 }
 
 }  // namespace blink

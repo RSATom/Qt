@@ -26,8 +26,8 @@ PermissionStatus* PermissionStatus::CreateAndListen(
     ExecutionContext* execution_context,
     MojoPermissionStatus status,
     MojoPermissionDescriptor descriptor) {
-  PermissionStatus* permission_status =
-      new PermissionStatus(execution_context, status, std::move(descriptor));
+  PermissionStatus* permission_status = MakeGarbageCollected<PermissionStatus>(
+      execution_context, status, std::move(descriptor));
   permission_status->PauseIfNeeded();
   permission_status->StartListening();
   return permission_status;
@@ -48,7 +48,7 @@ void PermissionStatus::Dispose() {
 }
 
 const AtomicString& PermissionStatus::InterfaceName() const {
-  return EventTargetNames::PermissionStatus;
+  return event_target_names::kPermissionStatus;
 }
 
 ExecutionContext* PermissionStatus::GetExecutionContext() const {
@@ -59,11 +59,11 @@ bool PermissionStatus::HasPendingActivity() const {
   return binding_.is_bound();
 }
 
-void PermissionStatus::Unpause() {
+void PermissionStatus::ContextUnpaused() {
   StartListening();
 }
 
-void PermissionStatus::Pause() {
+void PermissionStatus::ContextPaused(PauseState) {
   StopListening();
 }
 
@@ -88,11 +88,13 @@ String PermissionStatus::state() const {
 void PermissionStatus::StartListening() {
   DCHECK(!binding_.is_bound());
   mojom::blink::PermissionObserverPtr observer;
-  binding_.Bind(mojo::MakeRequest(&observer));
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      GetExecutionContext()->GetTaskRunner(TaskType::kPermission);
+  binding_.Bind(mojo::MakeRequest(&observer, task_runner), task_runner);
 
   mojom::blink::PermissionServicePtr service;
   ConnectToPermissionService(GetExecutionContext(),
-                             mojo::MakeRequest(&service));
+                             mojo::MakeRequest(&service, task_runner));
   service->AddPermissionObserver(descriptor_->Clone(), status_,
                                  std::move(observer));
 }
@@ -106,7 +108,7 @@ void PermissionStatus::OnPermissionStatusChange(MojoPermissionStatus status) {
     return;
 
   status_ = status;
-  DispatchEvent(Event::Create(EventTypeNames::change));
+  DispatchEvent(*Event::Create(event_type_names::kChange));
 }
 
 void PermissionStatus::Trace(blink::Visitor* visitor) {

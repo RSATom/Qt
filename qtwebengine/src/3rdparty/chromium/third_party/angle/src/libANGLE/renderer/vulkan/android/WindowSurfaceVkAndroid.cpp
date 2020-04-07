@@ -21,15 +21,13 @@ WindowSurfaceVkAndroid::WindowSurfaceVkAndroid(const egl::SurfaceState &surfaceS
                                                EGLint width,
                                                EGLint height)
     : WindowSurfaceVk(surfaceState, window, width, height)
-{
-}
+{}
 
 angle::Result WindowSurfaceVkAndroid::createSurfaceVk(vk::Context *context, gl::Extents *extentsOut)
 {
-    VkAndroidSurfaceCreateInfoKHR createInfo;
+    VkAndroidSurfaceCreateInfoKHR createInfo = {};
 
     createInfo.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-    createInfo.pNext  = nullptr;
     createInfo.flags  = 0;
     createInfo.window = mNativeWindowType;
     ANGLE_VK_TRY(context, vkCreateAndroidSurfaceKHR(context->getRenderer()->getInstance(),
@@ -40,7 +38,7 @@ angle::Result WindowSurfaceVkAndroid::createSurfaceVk(vk::Context *context, gl::
     ANGLE_VK_CHECK(context, width > 0 && height > 0, VK_ERROR_INITIALIZATION_FAILED);
 
     *extentsOut = gl::Extents(width, height, 0);
-    return angle::Result::Continue();
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

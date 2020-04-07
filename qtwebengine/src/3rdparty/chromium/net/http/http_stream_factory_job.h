@@ -24,7 +24,7 @@
 #include "net/http/http_stream_request.h"
 #include "net/log/net_log_with_source.h"
 #include "net/proxy_resolution/proxy_resolution_service.h"
-#include "net/quic/chromium/quic_stream_factory.h"
+#include "net/quic/quic_stream_factory.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/client_socket_pool_manager.h"
 #include "net/socket/next_proto.h"
@@ -83,15 +83,18 @@ class HttpStreamFactory::Job {
                                 int status,
                                 const SSLConfig& used_ssl_config) = 0;
 
+    // Invoked when |job| fails on the default network.
+    virtual void OnFailedOnDefaultNetwork(Job* job) = 0;
+
     // Invoked when |job| has a certificate error for the HttpStreamRequest.
     virtual void OnCertificateError(Job* job,
                                     int status,
                                     const SSLConfig& used_ssl_config,
                                     const SSLInfo& ssl_info) = 0;
 
-    // Invoked when |job| has a failure of the CONNECT request through an HTTPS
-    // proxy.
-    virtual void OnHttpsProxyTunnelResponse(
+    // Invoked when |job| has a failure of the CONNECT request (due to a 302
+    // redirect) through an HTTPS proxy.
+    virtual void OnHttpsProxyTunnelResponseRedirect(
         Job* job,
         const HttpResponseInfo& response_info,
         const SSLConfig& used_ssl_config,
@@ -299,8 +302,9 @@ class HttpStreamFactory::Job {
   void OnNeedsProxyAuthCallback(const HttpResponseInfo& response_info,
                                 HttpAuthController* auth_controller);
   void OnNeedsClientAuthCallback(SSLCertRequestInfo* cert_info);
-  void OnHttpsProxyTunnelResponseCallback(const HttpResponseInfo& response_info,
-                                          std::unique_ptr<HttpStream> stream);
+  void OnHttpsProxyTunnelResponseRedirectCallback(
+      const HttpResponseInfo& response_info,
+      std::unique_ptr<HttpStream> stream);
   void OnPreconnectsComplete();
 
   void OnIOComplete(int result);
@@ -315,6 +319,9 @@ class HttpStreamFactory::Job {
   // resolution completes. It's called with the next result after host
   // resolution, not the result of host resolution itself.
   void OnQuicHostResolution(int result);
+
+  // Invoked when the underlying connection fails on the default network.
+  void OnFailedOnDefaultNetwork(int result);
 
   // Each of these methods corresponds to a State value.  Those with an input
   // argument receive the result from the previous state.  If a method returns
@@ -375,8 +382,7 @@ class HttpStreamFactory::Job {
   int ReconsiderProxyAfterError(int error);
 
   // Called to handle a certificate error.  Stores the certificate in the
-  // allowed_bad_certs list, and checks if the error can be ignored.  Returns
-  // OK if it can be ignored, or the error code otherwise.
+  // allowed_bad_certs list. Returns the error code.
   int HandleCertificateError(int error);
 
   // Called to handle a client certificate request.

@@ -18,25 +18,15 @@ class CXFA_LayoutItem {
  public:
   virtual ~CXFA_LayoutItem();
 
-  bool IsContainerLayoutItem() const { return !m_bIsContentLayoutItem; }
-  bool IsContentLayoutItem() const { return m_bIsContentLayoutItem; }
+  bool IsContainerLayoutItem() const { return m_ItemType == kContainerItem; }
+  bool IsContentLayoutItem() const { return m_ItemType == kContentItem; }
   CXFA_ContainerLayoutItem* AsContainerLayoutItem();
   CXFA_ContentLayoutItem* AsContentLayoutItem();
 
   CXFA_ContainerLayoutItem* GetPage() const;
-  CFX_RectF GetRect(bool bRelative) const;
-
+  CXFA_LayoutItem* GetParent() const { return m_pParent; }
   CXFA_Node* GetFormNode() const { return m_pFormNode.Get(); }
   void SetFormNode(CXFA_Node* pNode) { m_pFormNode = pNode; }
-
-  int32_t GetIndex() const;
-  int32_t GetCount() const;
-
-  CXFA_LayoutItem* GetParent() const { return m_pParent; }
-  CXFA_LayoutItem* GetFirst();
-  const CXFA_LayoutItem* GetLast() const;
-  CXFA_LayoutItem* GetPrev() const;
-  CXFA_LayoutItem* GetNext() const;
 
   void AddChild(CXFA_LayoutItem* pChildItem);
   void AddHeadChild(CXFA_LayoutItem* pChildItem);
@@ -48,11 +38,20 @@ class CXFA_LayoutItem {
   CXFA_LayoutItem* m_pFirstChild = nullptr;   // Raw, intra-tree pointer.
 
  protected:
-  CXFA_LayoutItem(CXFA_Node* pNode, bool bIsContentLayoutItem);
+  enum ItemType { kContainerItem, kContentItem };
+  CXFA_LayoutItem(CXFA_Node* pNode, ItemType type);
 
-  bool m_bIsContentLayoutItem;
+  const ItemType m_ItemType;
   UnownedPtr<CXFA_Node> m_pFormNode;
 };
+
+inline CXFA_ContainerLayoutItem* ToContainerLayoutItem(CXFA_LayoutItem* item) {
+  return item ? item->AsContainerLayoutItem() : nullptr;
+}
+
+inline CXFA_ContentLayoutItem* ToContentLayoutItem(CXFA_LayoutItem* item) {
+  return item ? item->AsContentLayoutItem() : nullptr;
+}
 
 void XFA_ReleaseLayoutItem(CXFA_LayoutItem* pLayoutItem);
 

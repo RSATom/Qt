@@ -48,6 +48,8 @@
 
 #include <private/qmodbusserver_p.h>
 
+#include <memory>
+
 //
 //  W A R N I N G
 //  -------------
@@ -113,9 +115,9 @@ public:
 
     void setupTcpServer()
     {
-        Q_Q(QModbusTcpServer);
-        m_tcpServer = new QTcpServer(q);
-        QObject::connect(m_tcpServer, &QTcpServer::newConnection, [this]() {
+        m_tcpServer = new QTcpServer(q_func());
+        QObject::connect(m_tcpServer, &QTcpServer::newConnection, q_func(), [this]() {
+            Q_Q(QModbusTcpServer);
             auto *socket = m_tcpServer->nextPendingConnection();
             if (!socket)
                 return;
@@ -123,19 +125,29 @@ public:
             qCDebug(QT_MODBUS) << "(TCP server) Incoming socket from" << socket->peerAddress()
                                << socket->peerName() << socket->peerPort();
 
+            if (m_observer && !m_observer->acceptNewConnection(socket)) {
+                qCDebug(QT_MODBUS) << "(TCP server) Connection rejected by observer";
+                socket->close();
+                socket->deleteLater();
+                return;
+            }
+
             connections.append(socket);
 
             auto buffer = new QByteArray();
 
-            QObject::connect(socket, &QObject::destroyed, [buffer]() {
+            QObject::connect(socket, &QObject::destroyed, q, [buffer]() {
                 // cleanup buffer
                 delete buffer;
             });
-            QObject::connect(socket, &QTcpSocket::disconnected, [socket, this]() {
+            QObject::connect(socket, &QTcpSocket::disconnected, q, [socket, this]() {
                 connections.removeAll(socket);
+
+                Q_Q(QModbusTcpServer);
+                emit q->modbusClientDisconnected(socket);
                 socket->deleteLater();
             });
-            QObject::connect(socket, &QTcpSocket::readyRead, [buffer, socket, this]() {
+            QObject::connect(socket, &QTcpSocket::readyRead, q, [buffer, socket, this]() {
                 if (!socket)
                     return;
 
@@ -193,7 +205,7 @@ public:
                         return;
                     }
 
-                    int writtenBytes = socket->write(result);
+                    qint64 writtenBytes = socket->write(result);
                     if (writtenBytes == -1 || writtenBytes < result.size()) {
                         qCDebug(QT_MODBUS) << "(TCP server) Cannot write requested response to socket.";
                         forwardError(QModbusTcpServer::tr("Could not write response to client"),
@@ -202,7 +214,8 @@ public:
                 }
             });
         });
-        QObject::connect(m_tcpServer, &QTcpServer::acceptError,
+
+        QObject::connect(m_tcpServer, &QTcpServer::acceptError, q_func(),
                          [this](QAbstractSocket::SocketError /*sError*/) {
             Q_Q(QModbusTcpServer);
 
@@ -213,6 +226,8 @@ public:
 
     QTcpServer *m_tcpServer;
     QVector<QTcpSocket *> connections;
+
+    std::unique_ptr<QModbusTcpConnectionObserver> m_observer;
 
     static const qint8 mbpaHeaderSize = 7;
     static const qint16 maxBytesModbusADU = 260;

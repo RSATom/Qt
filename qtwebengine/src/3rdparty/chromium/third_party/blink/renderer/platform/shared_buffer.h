@@ -27,6 +27,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SHARED_BUFFER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SHARED_BUFFER_H_
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -34,6 +35,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
+#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -61,7 +63,9 @@ class PLATFORM_EXPORT SharedBuffer : public RefCounted<SharedBuffer> {
       return temp;
     }
     bool operator==(const Iterator& that) const {
-      return value_ == that.value_ && buffer_ == that.buffer_;
+      return std::equal(value_.begin(), value_.end(), that.value_.begin(),
+                        that.value_.end()) &&
+             buffer_ == that.buffer_;
     }
     bool operator!=(const Iterator& that) const { return !(*this == that); }
     const base::span<const char>& operator*() const {
@@ -80,14 +84,16 @@ class PLATFORM_EXPORT SharedBuffer : public RefCounted<SharedBuffer> {
     // for the consecutive part
     Iterator(size_t offset, const SharedBuffer* buffer);
     // for the rest
-    Iterator(size_t segment_index, size_t offset, const SharedBuffer* buffer);
+    Iterator(wtf_size_t segment_index,
+             size_t offset,
+             const SharedBuffer* buffer);
 
     void Init(size_t offset);
     bool IsEnd() const { return index_ == buffer_->segments_.size() + 1; }
 
     // It represents |buffer_->buffer| if |index_| is 0, and
     // |buffer_->segments[index_ - 1]| otherwise.
-    size_t index_;
+    wtf_size_t index_;
     base::span<const char> value_;
     const SharedBuffer* buffer_;
   };
@@ -100,22 +106,22 @@ class PLATFORM_EXPORT SharedBuffer : public RefCounted<SharedBuffer> {
 
   HAS_STRICTLY_TYPED_ARG
   static scoped_refptr<SharedBuffer> Create(STRICTLY_TYPED_ARG(size)) {
-    STRICT_ARG_TYPE(size_t);
-    return base::AdoptRef(new SharedBuffer(size));
+    ALLOW_NUMERIC_ARG_TYPES_PROMOTABLE_TO(size_t);
+    return base::AdoptRef(new SharedBuffer(SafeCast<wtf_size_t>(size)));
   }
 
   HAS_STRICTLY_TYPED_ARG
   static scoped_refptr<SharedBuffer> Create(const char* data,
                                             STRICTLY_TYPED_ARG(size)) {
-    STRICT_ARG_TYPE(size_t);
-    return base::AdoptRef(new SharedBuffer(data, size));
+    ALLOW_NUMERIC_ARG_TYPES_PROMOTABLE_TO(size_t);
+    return base::AdoptRef(new SharedBuffer(data, SafeCast<wtf_size_t>(size)));
   }
 
   HAS_STRICTLY_TYPED_ARG
   static scoped_refptr<SharedBuffer> Create(const unsigned char* data,
                                             STRICTLY_TYPED_ARG(size)) {
-    STRICT_ARG_TYPE(size_t);
-    return base::AdoptRef(new SharedBuffer(data, size));
+    ALLOW_NUMERIC_ARG_TYPES_PROMOTABLE_TO(size_t);
+    return base::AdoptRef(new SharedBuffer(data, SafeCast<wtf_size_t>(size)));
   }
 
   static scoped_refptr<SharedBuffer> AdoptVector(Vector<char>&);
@@ -168,7 +174,7 @@ class PLATFORM_EXPORT SharedBuffer : public RefCounted<SharedBuffer> {
   HAS_STRICTLY_TYPED_ARG
   WARN_UNUSED_RESULT
   bool GetBytes(void* dest, STRICTLY_TYPED_ARG(byte_length)) const {
-    STRICT_ARG_TYPE(size_t);
+    ALLOW_NUMERIC_ARG_TYPES_PROMOTABLE_TO(size_t);
     return GetBytesInternal(dest, byte_length);
   }
 
@@ -200,9 +206,9 @@ class PLATFORM_EXPORT SharedBuffer : public RefCounted<SharedBuffer> {
   class Segment;
 
   SharedBuffer();
-  explicit SharedBuffer(size_t);
-  SharedBuffer(const char*, size_t);
-  SharedBuffer(const unsigned char*, size_t);
+  explicit SharedBuffer(wtf_size_t);
+  SharedBuffer(const char*, wtf_size_t);
+  SharedBuffer(const unsigned char*, wtf_size_t);
 
   // See SharedBuffer::data().
   void MergeSegmentsIntoBuffer();
@@ -224,10 +230,24 @@ class PLATFORM_EXPORT SharedBuffer : public RefCounted<SharedBuffer> {
 template <>
 inline Vector<char> SharedBuffer::CopyAs() const {
   Vector<char> buffer;
-  buffer.ReserveInitialCapacity(size_);
+  buffer.ReserveInitialCapacity(SafeCast<wtf_size_t>(size_));
 
   for (const auto& span : *this)
-    buffer.Append(span.data(), span.size());
+    buffer.Append(span.data(), static_cast<wtf_size_t>(span.size()));
+
+  DCHECK_EQ(buffer.size(), size_);
+  return buffer;
+}
+
+template <>
+inline Vector<uint8_t> SharedBuffer::CopyAs() const {
+  Vector<uint8_t> buffer;
+  buffer.ReserveInitialCapacity(SafeCast<wtf_size_t>(size_));
+
+  for (const auto& span : *this) {
+    buffer.Append(reinterpret_cast<const uint8_t*>(span.data()),
+                  static_cast<wtf_size_t>(span.size()));
+  }
 
   DCHECK_EQ(buffer.size(), size_);
   return buffer;

@@ -55,7 +55,7 @@ More information
 const char kCheck[] = "check";
 const char kCheck_HelpShort[] = "check: Check header dependencies.";
 const char kCheck_Help[] =
-    R"(gn check <out_dir> [<label_pattern>] [--force]
+    R"(gn check <out_dir> [<label_pattern>] [--force] [--check-generated]
 
   GN's include header checker validates that the includes for C-like source
   files match the build dependency graph.
@@ -74,11 +74,16 @@ Command-specific switches
       Ignores specifications of "check_includes = false" and checks all
       target's files that match the target label.
 
+  --check-generated
+      Generated files are normally not checked since they do not exist
+      until after a build. With this flag, those generated files that
+      can be found on disk are also checked.
+
 What gets checked
 
-  The .gn file may specify a list of targets to be checked. Only these targets
-  will be checked if no label_pattern is specified on the command line.
-  Otherwise, the command-line list is used instead. See "gn help dotfile".
+  The .gn file may specify a list of targets to be checked in the list
+  check_targets (see "gn help dotfile"). If a label pattern is specified
+  on the command line, check_targets is not used.
 
   Targets can opt-out from checking with "check_includes = false" (see
   "gn help check_includes").
@@ -87,6 +92,9 @@ What gets checked
 
     - GN opens all C-like source files in the targets to be checked and scans
       the top for includes.
+
+    - Generated files (that might not exist yet) are ignored unless
+      the --check-generated flag is provided.
 
     - Includes with a "nogncheck" annotation are skipped (see
       "gn help nogncheck").
@@ -215,9 +223,10 @@ int RunCheck(const std::vector<std::string>& args) {
 
   const base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
   bool force = cmdline->HasSwitch("force");
+  bool check_generated = cmdline->HasSwitch("check-generated");
 
   if (!CheckPublicHeaders(&setup->build_settings(), all_targets,
-                          targets_to_check, force))
+                          targets_to_check, force, check_generated))
     return 1;
 
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kQuiet)) {
@@ -237,11 +246,11 @@ int RunCheck(const std::vector<std::string>& args) {
 bool CheckPublicHeaders(const BuildSettings* build_settings,
                         const std::vector<const Target*>& all_targets,
                         const std::vector<const Target*>& to_check,
-                        bool force_check) {
+                        bool force_check, bool check_generated) {
   ScopedTrace trace(TraceItem::TRACE_CHECK_HEADERS, "Check headers");
 
   scoped_refptr<HeaderChecker> header_checker(
-      new HeaderChecker(build_settings, all_targets));
+      new HeaderChecker(build_settings, all_targets, check_generated));
 
   std::vector<Err> header_errors;
   header_checker->Run(to_check, force_check, &header_errors);

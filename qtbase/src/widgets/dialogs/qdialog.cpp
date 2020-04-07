@@ -148,7 +148,7 @@ bool QDialogPrivate::canBeNativeDialog() const
 /*!
     \internal
 
-    Properly hides dialog and sets the \p resultCode
+    Properly hides dialog and sets the \a resultCode.
  */
 void QDialogPrivate::hide(int resultCode)
 {
@@ -164,8 +164,8 @@ void QDialogPrivate::hide(int resultCode)
 /*!
     \internal
 
-    Emits finished() signal with \p resultCode. If the \p dialogCode
-    is equal to 0 emits rejected(), if the \p dialogCode is equal to
+    Emits finished() signal with \a resultCode. If the \a dialogCode
+    is equal to 0 emits rejected(), if the \a dialogCode is equal to
     1 emits accepted().
  */
 void QDialogPrivate::finalize(int resultCode, int dialogCode)
@@ -429,7 +429,7 @@ QDialog::~QDialog()
 /*!
   \internal
   This function is called by the push button \a pushButton when it
-  becomes the default button. If \a pushButton is 0, the dialogs
+  becomes the default button. If \a pushButton is \nullptr, the dialogs
   default default button becomes the default button. This is what a
   push button calls when it loses focus.
 */
@@ -767,12 +767,31 @@ void QDialog::setVisible(bool visible)
     if (!testAttribute(Qt::WA_DontShowOnScreen) && d->canBeNativeDialog() && d->setNativeDialogVisible(visible))
         return;
 
+    // We should not block windows by the invisible modal dialog
+    // if a platform-specific dialog is implemented as an in-process
+    // Qt window, because in this case it will also be blocked.
+    const bool dontBlockWindows = testAttribute(Qt::WA_DontShowOnScreen)
+            && d->styleHint(QPlatformDialogHelper::DialogIsQtWindow).toBool();
+    Qt::WindowModality oldModality;
+    bool wasModalitySet;
+
+    if (dontBlockWindows) {
+        oldModality = windowModality();
+        wasModalitySet = testAttribute(Qt::WA_SetWindowModality);
+        setWindowModality(Qt::NonModal);
+    }
+
     if (visible) {
         if (testAttribute(Qt::WA_WState_ExplicitShowHide) && !testAttribute(Qt::WA_WState_Hidden))
             return;
 
         QWidget::setVisible(visible);
+#if QT_DEPRECATED_SINCE(5, 13)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         showExtension(d->doShowExtension);
+QT_WARNING_POP
+#endif
         QWidget *fw = window()->focusWidget();
         if (!fw)
             fw = this;
@@ -831,6 +850,11 @@ void QDialog::setVisible(bool visible)
         QWidget::setVisible(visible);
         if (d->eventLoop)
             d->eventLoop->exit();
+    }
+
+    if (dontBlockWindows) {
+        setWindowModality(oldModality);
+        setAttribute(Qt::WA_SetWindowModality, wasModalitySet);
     }
 
 #if QT_CONFIG(pushbutton)
@@ -934,6 +958,7 @@ void QDialog::adjustPosition(QWidget* w)
     move(p);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -1002,7 +1027,7 @@ void QDialog::setExtension(QWidget* extension)
 /*!
     \obsolete
 
-    Returns the dialog's extension or 0 if no extension has been
+    Returns the dialog's extension or \nullptr if no extension has been
     defined.
 
     Instead of using this functionality, we recommend that you simply call
@@ -1078,7 +1103,7 @@ void QDialog::showExtension(bool showIt)
 #endif
     }
 }
-
+#endif
 
 /*! \reimp */
 QSize QDialog::sizeHint() const

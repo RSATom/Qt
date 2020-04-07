@@ -5,24 +5,28 @@
 #ifndef COMPONENTS_VIZ_SERVICE_MAIN_VIZ_MAIN_IMPL_H_
 #define COMPONENTS_VIZ_SERVICE_MAIN_VIZ_MAIN_IMPL_H_
 
+#include <string>
+
 #include "base/power_monitor/power_monitor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "components/discardable_memory/client/client_discardable_shared_memory_manager.h"
+#include "components/viz/service/main/viz_compositor_thread_runner.h"
 #include "gpu/ipc/in_process_command_buffer.h"
-#include "gpu/ipc/service/gpu_init.h"
 #include "mojo/public/cpp/bindings/associated_binding_set.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/viz/privileged/interfaces/gl/gpu_service.mojom.h"
 #include "services/viz/privileged/interfaces/viz_main.mojom.h"
 #include "ui/gfx/font_render_params.h"
 
-#if defined(OS_ANDROID)
-#include "base/android/java_handler_thread.h"
+#if defined(USE_OZONE)
+#include "mojo/public/cpp/system/message_pipe.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
 #endif
 
 namespace gpu {
+class GpuInit;
 class SyncPointManager;
 }  // namespace gpu
 
@@ -35,10 +39,7 @@ class MojoUkmRecorder;
 }
 
 namespace viz {
-class DisplayProvider;
-class FrameSinkManagerImpl;
 class GpuServiceImpl;
-class ServerSharedBitmapManager;
 
 #if defined(OS_ANDROID)
 using CompositorThreadType = base::android::JavaHandlerThread;
@@ -46,7 +47,7 @@ using CompositorThreadType = base::android::JavaHandlerThread;
 using CompositorThreadType = base::Thread;
 #endif
 
-class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
+class VizMainImpl : public mojom::VizMain {
  public:
   struct LogMessage {
     int severity;
@@ -63,6 +64,7 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
     virtual void OnGpuServiceConnection(GpuServiceImpl* gpu_service) = 0;
     virtual void PostCompositorThreadCreated(
         base::SingleThreadTaskRunner* task_runner) = 0;
+    virtual void QuitMainMessageLoop() = 0;
   };
 
   struct ExternalDependencies {
@@ -83,11 +85,9 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
     DISALLOW_COPY_AND_ASSIGN(ExternalDependencies);
   };
 
-  // TODO(kylechar): Provide a quit closure for the appropriate RunLoop instance
-  // to stop the thread and remove base::RunLoop::QuitCurrentDeprecated() usage.
   VizMainImpl(Delegate* delegate,
               ExternalDependencies dependencies,
-              std::unique_ptr<gpu::GpuInit> gpu_init = nullptr);
+              std::unique_ptr<gpu::GpuInit> gpu_init);
   // Destruction must happen on the GPU thread.
   ~VizMainImpl() override;
 
@@ -95,6 +95,12 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
 
   void Bind(mojom::VizMainRequest request);
   void BindAssociated(mojom::VizMainAssociatedRequest request);
+
+#if defined(USE_OZONE)
+  bool CanBindInterface(const std::string& interface_name) const;
+  void BindInterface(const std::string& interface_name,
+                     mojo::ScopedMessagePipeHandle interface_pipe);
+#endif
 
   // mojom::VizMain implementation:
   void CreateGpuService(
@@ -105,6 +111,7 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
       mojo::ScopedSharedBufferHandle activity_flags,
       gfx::FontRenderParams::SubpixelRendering subpixel_rendering) override;
   void CreateFrameSinkManager(mojom::FrameSinkManagerParamsPtr params) override;
+  void CreateVizDevTools(mojom::VizDevToolsParamsPtr params) override;
 
   GpuServiceImpl* gpu_service() { return gpu_service_.get(); }
   const GpuServiceImpl* gpu_service() const { return gpu_service_.get(); }
@@ -116,29 +123,14 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
     return discardable_shared_memory_manager_.get();
   }
 
+  // Cleanly exits the process.
+  void ExitProcess();
+
  private:
   // Initializes GPU's UkmRecorder if GPU is running in it's own process.
   void CreateUkmRecorderIfNeeded(service_manager::Connector* connector);
 
   void CreateFrameSinkManagerInternal(mojom::FrameSinkManagerParamsPtr params);
-  void CreateFrameSinkManagerOnCompositorThread(
-      mojom::FrameSinkManagerParamsPtr params);
-
-  void TearDownOnCompositorThread();
-
-  // Performs necessary cleanup on the compositor thread to allow for a clean
-  // process exit.
-  void CleanupForShutdownOnCompositorThread();
-
-  // Cleanly exits the process. This is only used with OOP-D when there is a
-  // compositor thread.
-  void ExitProcess();
-
-  // gpu::GpuSandboxHelper:
-  void PreSandboxStartup() override;
-  bool EnsureSandboxInitialized(gpu::GpuWatchdogThread* watchdog_thread,
-                                const gpu::GPUInfo* gpu_info,
-                                const gpu::GpuPreferences& gpu_prefs) override;
 
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner() const {
     return io_thread_ ? io_thread_->task_runner()
@@ -162,23 +154,23 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
   // This is created for OOP-D only. It allows the display compositor to use
   // InProcessCommandBuffer to send GPU commands to the GPU thread from the
   // compositor thread.
+  // TODO(kylechar): The only reason this member variable exists is so the last
+  // reference is released and the object is destroyed on the GPU thread. This
+  // works because |task_executor_| is destroyed after the VizCompositorThread
+  // has been shutdown. All usage of CommandBufferTaskExecutor has the same
+  // pattern, where the last scoped_refptr is released on the GPU thread after
+  // all InProcessCommandBuffers are destroyed, so the class doesn't need to be
+  // RefCountedThreadSafe.
   scoped_refptr<gpu::CommandBufferTaskExecutor> task_executor_;
 
   // If the gpu service is not yet ready then we stash pending
   // FrameSinkManagerParams.
   mojom::FrameSinkManagerParamsPtr pending_frame_sink_manager_params_;
 
-  // Provides mojo interfaces for creating and managing FrameSinks. These live
-  // on the compositor thread.
-  std::unique_ptr<ServerSharedBitmapManager> server_shared_bitmap_manager_;
-  std::unique_ptr<DisplayProvider> display_provider_;
-  std::unique_ptr<FrameSinkManagerImpl> frame_sink_manager_;
+  // Runs the VizCompositorThread for the display compositor with OOP-D.
+  std::unique_ptr<VizCompositorThreadRunner> viz_compositor_thread_runner_;
 
   const scoped_refptr<base::SingleThreadTaskRunner> gpu_thread_task_runner_;
-
-  // The main thread for the display compositor.
-  std::unique_ptr<CompositorThreadType> compositor_thread_;
-  scoped_refptr<base::SingleThreadTaskRunner> compositor_thread_task_runner_;
 
   std::unique_ptr<ukm::MojoUkmRecorder> ukm_recorder_;
   std::unique_ptr<base::PowerMonitor> power_monitor_;
@@ -187,6 +179,11 @@ class VizMainImpl : public gpu::GpuSandboxHelper, public mojom::VizMain {
 
   std::unique_ptr<discardable_memory::ClientDiscardableSharedMemoryManager>
       discardable_shared_memory_manager_;
+
+#if defined(USE_OZONE)
+  // Registry for gpu-related interfaces needed by ozone.
+  service_manager::BinderRegistry registry_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(VizMainImpl);
 };

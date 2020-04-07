@@ -12,9 +12,3 @@ CJX_XmlConnection::CJX_XmlConnection(CXFA_XmlConnection* node)
     : CJX_Node(node) {}
 
 CJX_XmlConnection::~CJX_XmlConnection() = default;
-
-void CJX_XmlConnection::dataDescription(CFXJSE_Value* pValue,
-                                        bool bSetting,
-                                        XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}

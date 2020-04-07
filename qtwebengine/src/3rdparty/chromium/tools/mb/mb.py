@@ -145,6 +145,15 @@ class MetaBuildWrapper(object):
                       help='path to generate build into')
     subp.set_defaults(func=self.CmdGen)
 
+    subp = subps.add_parser('isolate-everything',
+                            help='generates a .isolate for all targets. '
+                                 'Requires that mb.py gen has already been '
+                                 'run.')
+    AddCommonOptions(subp)
+    subp.set_defaults(func=self.CmdIsolateEverything)
+    subp.add_argument('path',
+                      help='path build was generated into')
+
     subp = subps.add_parser('isolate',
                             help='generate the .isolate files for a given'
                                  'binary')
@@ -299,6 +308,10 @@ class MetaBuildWrapper(object):
     vals = self.Lookup()
     return self.RunGNGen(vals)
 
+  def CmdIsolateEverything(self):
+    vals = self.Lookup()
+    return self.RunGNGenAllIsolates(vals)
+
   def CmdHelp(self):
     if self.args.subcommand:
       self.ParseArgs([self.args.subcommand, '--help'])
@@ -355,6 +368,7 @@ class MetaBuildWrapper(object):
             self.PathJoin(self.chromium_src_dir, 'tools', 'swarming_client',
                           'isolate.py'),
             'remap',
+            '--collapse_symlinks',
             '-s', self.PathJoin(self.args.path, self.args.target + '.isolated'),
             '-o', zip_dir
           ]
@@ -385,9 +399,9 @@ class MetaBuildWrapper(object):
       ('infra/tools/luci/logdog/butler/${platform}',
        'git_revision:e1abc57be62d198b5c2f487bfb2fa2d2eb0e867c'),
       ('infra/tools/luci/vpython-native/${platform}',
-       'git_revision:b9c4670197dcefd8762d6e509302acd3efc6e303'),
+       'git_revision:b6cdec8586c9f8d3d728b1bc0bd4331330ba66fc'),
       ('infra/tools/luci/vpython/${platform}',
-       'git_revision:b9c4670197dcefd8762d6e509302acd3efc6e303'),
+       'git_revision:b6cdec8586c9f8d3d728b1bc0bd4331330ba66fc'),
     ]
     for pkg, vers in cipd_packages:
       cmd.append('--cipd-package=.swarming_module:%s:%s' % (pkg, vers))
@@ -739,10 +753,13 @@ class MetaBuildWrapper(object):
         self.FlattenMixins(mixin_vals['mixins'], vals, visited)
     return vals
 
-  def RunGNGen(self, vals, compute_inputs_for_analyze=False):
+  def RunGNGen(self, vals, compute_inputs_for_analyze=False, check=True):
     build_dir = self.args.path
 
-    cmd = self.GNCmd('gen', build_dir, '--check')
+    if check:
+      cmd = self.GNCmd('gen', build_dir, '--check')
+    else:
+      cmd = self.GNCmd('gen', build_dir)
     gn_args = self.GNArgs(vals)
     if compute_inputs_for_analyze:
       gn_args += ' compute_inputs_for_analyze=true'
@@ -753,7 +770,6 @@ class MetaBuildWrapper(object):
     gn_args_path = self.ToAbsPath(build_dir, 'args.gn')
     self.WriteFile(gn_args_path, gn_args, force_verbose=True)
 
-    swarming_targets = []
     if getattr(self.args, 'swarming_targets_file', None):
       # We need GN to generate the list of runtime dependencies for
       # the compile targets listed (one per line) in the file so
@@ -764,10 +780,10 @@ class MetaBuildWrapper(object):
         self.WriteFailureAndRaise('"%s" does not exist' % path,
                                   output_path=None)
       contents = self.ReadFile(path)
-      swarming_targets = set(contents.splitlines())
+      isolate_targets = set(contents.splitlines())
 
       isolate_map = self.ReadIsolateMap()
-      err, labels = self.MapTargetsToLabels(isolate_map, swarming_targets)
+      err, labels = self.MapTargetsToLabels(isolate_map, isolate_targets)
       if err:
           raise MBErr(err)
 
@@ -782,11 +798,85 @@ class MetaBuildWrapper(object):
         self.Print('GN gen failed: %d' % ret)
         return ret
 
+    if getattr(self.args, 'swarming_targets_file', None):
+      return self.GenerateIsolates(vals, isolate_targets, isolate_map,
+                                   build_dir)
+
+    return 0
+
+  def RunGNGenAllIsolates(self, vals):
+    """
+    This command generates all .isolate files.
+
+    This command assumes that "mb.py gen" has already been run, as it relies on
+    "gn ls" to fetch all gn targets. If uses that output, combined with the
+    isolate_map, to determine all isolates that can be generated for the current
+    gn configuration.
+    """
+    build_dir = self.args.path
+    ret, output, _ = self.Run(self.GNCmd('ls', build_dir),
+                              force_verbose=False)
+    if ret:
+        # If `gn ls` failed, we should exit early rather than trying to
+        # generate isolates.
+        self.Print('GN ls failed: %d' % ret)
+        return ret
+
+    # Create a reverse map from isolate label to isolate dict.
+    isolate_map = self.ReadIsolateMap()
+    isolate_dict_map = {}
+    for key, isolate_dict in isolate_map.iteritems():
+      isolate_dict_map[isolate_dict['label']] = isolate_dict
+      isolate_dict_map[isolate_dict['label']]['isolate_key'] = key
+
+    runtime_deps = []
+
+    isolate_targets = []
+    # For every GN target, look up the isolate dict.
+    for line in output.splitlines():
+      target = line.strip()
+      if target in isolate_dict_map:
+        if isolate_dict_map[target]['type'] == 'additional_compile_target':
+          # By definition, additional_compile_targets are not tests, so we
+          # shouldn't generate isolates for them.
+          continue
+
+        isolate_targets.append(isolate_dict_map[target]['isolate_key'])
+        runtime_deps.append(target)
+
+    # Now we need to run "gn gen" again with --runtime-deps-list-file
+    gn_runtime_deps_path = self.ToAbsPath(build_dir, 'runtime_deps')
+    self.WriteFile(gn_runtime_deps_path, '\n'.join(runtime_deps) + '\n')
+    cmd = self.GNCmd('gen', build_dir)
+    cmd.append('--runtime-deps-list-file=%s' % gn_runtime_deps_path)
+    self.Run(cmd)
+
+    return self.GenerateIsolates(vals, isolate_targets, isolate_map, build_dir)
+
+  def GenerateIsolates(self, vals, ninja_targets, isolate_map, build_dir):
+    """
+    Generates isolates for a list of ninja targets.
+
+    Ninja targets are transformed to GN targets via isolate_map.
+
+    This function assumes that a previous invocation of "mb.py gen" has
+    generated runtime deps for all targets.
+    """
     android = 'target_os="android"' in vals['gn_args']
     fuchsia = 'target_os="fuchsia"' in vals['gn_args']
     win = self.platform == 'win32' or 'target_os="win"' in vals['gn_args']
-    for target in swarming_targets:
-      if android:
+    for target in ninja_targets:
+      # TODO(https://crbug.com/876065): 'official_tests' use
+      # type='additional_compile_target' to isolate tests. This is not the
+      # intended use for 'additional_compile_target'.
+      if (isolate_map[target]['type'] == 'additional_compile_target' and
+          target != 'official_tests'):
+        # By definition, additional_compile_targets are not tests, so we
+        # shouldn't generate isolates for them.
+        self.Print('Cannot generate isolate for %s since it is an '
+                   'additional_compile_target.' % target)
+        return 1
+      elif android:
         # Android targets may be either android_apk or executable. The former
         # will result in runtime_deps associated with the stamp file, while the
         # latter will result in runtime_deps associated with the executable.
@@ -800,6 +890,7 @@ class MetaBuildWrapper(object):
         runtime_deps_targets = [
           'obj/%s.stamp.runtime_deps' % label.replace(':', '/')]
       elif (isolate_map[target]['type'] == 'script' or
+            isolate_map[target]['type'] == 'fuzzer' or
             isolate_map[target].get('label_type') == 'group'):
         # For script targets, the build target is usually a group,
         # for which gn generates the runtime_deps next to the stamp file
@@ -826,10 +917,10 @@ class MetaBuildWrapper(object):
                     ', '.join(runtime_deps_targets))
 
       command, extra_files = self.GetIsolateCommand(target, vals)
-
       runtime_deps = self.ReadFile(runtime_deps_path).splitlines()
 
-      self.WriteIsolateFiles(build_dir, command, target, runtime_deps,
+      canonical_target = target.replace(':','_').replace('/','_')
+      self.WriteIsolateFiles(build_dir, command, canonical_target, runtime_deps,
                              extra_files)
 
     return 0
@@ -958,6 +1049,17 @@ class MetaBuildWrapper(object):
     # the last instance of each arg is listed.
     gn_args = gn_helpers.ToGNString(gn_helpers.FromGNArgs(gn_args))
 
+    # If we're using the Simple Chrome SDK, add a comment at the top that
+    # points to the doc. This must happen after the gn_helpers.ToGNString()
+    # call above since gn_helpers strips comments.
+    if vals['cros_passthrough']:
+      simplechrome_comment = [
+          '# These args are generated via the Simple Chrome SDK. See the link',
+          '# below for more details:',
+          '# https://chromium.googlesource.com/chromiumos/docs/+/master/simple_chrome_workflow.md',  # pylint: disable=line-too-long
+      ]
+      gn_args = '%s\n%s' % ('\n'.join(simplechrome_comment), gn_args)
+
     args_file = vals.get('args_file', None)
     if args_file:
       gn_args = ('import("%s")\n' % vals['args_file']) + gn_args
@@ -1000,7 +1102,14 @@ class MetaBuildWrapper(object):
       self.WriteFailureAndRaise('We should not be isolating %s.' % target,
                                 output_path=None)
 
-    if is_android and test_type != "script":
+    if test_type == 'fuzzer':
+      cmdline = [
+        '../../testing/test_env.py',
+        '../../tools/code_coverage/run_fuzz_target.py',
+        '--fuzzer', './' + target,
+        '--output-dir', '${ISOLATED_OUTDIR}',
+        '--timeout', '3600']
+    elif is_android and test_type != "script":
       cmdline = [
           '../../testing/test_env.py',
           '../../build/android/test_wrapper/logdog_wrapper.py',
@@ -1011,6 +1120,7 @@ class MetaBuildWrapper(object):
       cmdline = [
           '../../testing/test_env.py',
           os.path.join('bin', 'run_%s' % target),
+          '--test-launcher-bot-mode',
       ]
     elif is_simplechrome and test_type != 'script':
       cmdline = [
@@ -1022,7 +1132,6 @@ class MetaBuildWrapper(object):
       cmdline = [
         '../../testing/xvfb.py',
         './' + str(executable) + executable_suffix,
-        '--brave-new-test-launcher',
         '--test-launcher-bot-mode',
         '--asan=%d' % asan,
         '--msan=%d' % msan,
@@ -1033,7 +1142,6 @@ class MetaBuildWrapper(object):
       cmdline = [
           '../../testing/test_env.py',
           './' + str(executable) + executable_suffix,
-          '--brave-new-test-launcher',
           '--test-launcher-bot-mode',
           '--asan=%d' % asan,
           '--msan=%d' % msan,
@@ -1082,7 +1190,7 @@ class MetaBuildWrapper(object):
   def RunGNAnalyze(self, vals):
     # Analyze runs before 'gn gen' now, so we need to run gn gen
     # in order to ensure that we have a build directory.
-    ret = self.RunGNGen(vals, compute_inputs_for_analyze=True)
+    ret = self.RunGNGen(vals, compute_inputs_for_analyze=True, check=False)
     if ret:
       return ret
 

@@ -14,6 +14,8 @@
 <link rel="import" href="icons.html">
 <link rel="import" href="item_behavior.html">
 <link rel="import" href="item_util.html">
+<link rel="import" href="shared_style.html">
+<link rel="import" href="shared_vars.html">
 <link rel="import" href="strings.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout-classes.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
@@ -23,8 +25,7 @@
 
 <dom-module id="extensions-item">
   <template>
-    <style include=
-        "iron-flex cr-hidden-style cr-icons action-link paper-button-style">
+    <style include="iron-flex cr-hidden-style cr-icons action-link paper-button-style shared-style">
       .bounded-text,
       .multiline-clippable-text,
       .clippable-flex-text {
@@ -60,7 +61,7 @@
 
       #card {
         @apply --cr-card-elevation;
-        background: white;
+        background-color: var(--cr-card-background-color);
         border-radius: var(--cr-card-border-radius);
         display: flex;
         flex-direction: column;
@@ -76,14 +77,15 @@
       #main {
         display: flex;
         flex: 1;
+        min-height: 0;
         padding: 16px 20px;
       }
 
       #content {
-        -webkit-margin-start: 24px;
         display: flex;
         flex: 1;
         flex-direction: column;
+        margin-inline-start: 24px;
         overflow: hidden;
       }
 
@@ -93,7 +95,7 @@
       }
 
       #name {
-        -webkit-margin-end: 8px;
+        margin-inline-end: 8px;
       }
 
       #description {
@@ -101,15 +103,15 @@
       }
 
       #warnings {
-        color: var(--google-red-700);
+        color: var(--error-color);
         flex: 1;
         margin-bottom: 8px;
       }
 
       #error-icon {
-        --iron-icon-fill-color: var(--google-red-700);
-        -webkit-margin-end: 4px;
+        --iron-icon-fill-color: var(--error-color);
         height: 18px;
+        margin-inline-end: 4px;
         width: 18px;
       }
 
@@ -131,29 +133,24 @@
       }
 
       #inspect-views > span {
-        -webkit-margin-end: 4px;
+        margin-inline-end: 4px;
       }
 
       #button-strip {
-        -webkit-padding-end: 20px;
         box-sizing: border-box;
         flex-shrink: 0;
         height: var(--cr-section-min-height);
         padding-bottom: 8px;
+        padding-inline-end: 20px;
         padding-top: 8px;
       }
 
       #button-strip paper-button {
-        -webkit-margin-start: 8px;
-      }
-
-      #learn-more-link {
-        color: var(--google-blue-700);
-        text-decoration: none;
+        margin-inline-start: 8px;
       }
 
       #source-indicator {
-        -webkit-margin-start: 24px;
+        margin-inline-start: 24px;
         margin-top: 24px;
         position: absolute;
       }
@@ -183,16 +180,12 @@
         };
       }
 
-      .action-button {
-        color: var(--google-blue-500);
-      }
-
       #errors-button {
-        color: var(--google-red-700);
+        color: var(--error-color);
       }
 
       #dev-reload-button-container {
-        -webkit-margin-end: 12px;
+        margin-inline-end: 12px;
       }
 
       #blacklisted-warning:empty {
@@ -269,8 +262,7 @@
               <span id="suspicious-warning" aria-describedby="a11yAssociation"
                   hidden$="[[!data.disableReasons.suspiciousInstall]]">
                 $i18n{itemSuspiciousInstall}
-                <a target="_blank" id="learn-more-link"
-                    href="$i18n{suspiciousInstallHelpUrl}">
+                <a target="_blank" href="$i18n{suspiciousInstallHelpUrl}">
                   $i18n{learnMore}
                 </a>
               </span>
@@ -319,7 +311,7 @@
           <paper-button id="remove-button" on-click="onRemoveTap_"
               aria-describedby="a11yAssociation"
               hidden="[[isControlled_(data.controlledInfo)]]">
-            $i18n{itemRemove}
+            $i18n{remove}
           </paper-button>
           <template is="dom-if" if="[[shouldShowErrorsButton_(data.*)]]">
             <paper-button id="errors-button" on-click="onErrorsTap_"

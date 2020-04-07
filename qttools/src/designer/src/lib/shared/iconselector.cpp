@@ -273,7 +273,7 @@ void IconSelectorPrivate::slotSetActivated()
 // Choose a pixmap from resource; use language-dependent resource browser if present
 QString IconSelector::choosePixmapResource(QDesignerFormEditorInterface *core, QtResourceModel *resourceModel, const QString &oldPath, QWidget *parent)
 {
-    Q_UNUSED(resourceModel)
+    Q_UNUSED(resourceModel);
     QString rc;
 
     if (LanguageResourceDialog* ldlg = LanguageResourceDialog::create(core, parent)) {
@@ -430,7 +430,7 @@ IconSelector::IconSelector(QWidget *parent) :
     d_ptr->m_iconButton->setPopupMode(QToolButton::MenuButtonPopup);
     l->addWidget(d_ptr->m_stateComboBox);
     l->addWidget(d_ptr->m_iconButton);
-    l->setMargin(0);
+    l->setContentsMargins(QMargins());
 
     d_ptr->m_stateToName << qMakePair(qMakePair(QIcon::Normal,   QIcon::Off), tr("Normal Off")   );
     d_ptr->m_stateToName << qMakePair(qMakePair(QIcon::Normal,   QIcon::On),  tr("Normal On")    );
@@ -556,14 +556,14 @@ IconThemeEditor::IconThemeEditor(QWidget *parent, bool wantResetButton) :
     QWidget (parent), d(new IconThemeEditorPrivate)
 {
     QHBoxLayout *mainHLayout = new QHBoxLayout;
-    mainHLayout->setMargin(0);
+    mainHLayout->setContentsMargins(QMargins());
 
     // Vertically center theme preview label
     d->m_themeLabel->setPixmap(d->m_emptyPixmap);
 
     QVBoxLayout *themeLabelVLayout = new QVBoxLayout;
     d->m_themeLabel->setMargin(1);
-    themeLabelVLayout->setMargin(0);
+    themeLabelVLayout->setContentsMargins(QMargins());
     themeLabelVLayout->addSpacerItem(new QSpacerItem(0, 0, QSizePolicy::Ignored, QSizePolicy::MinimumExpanding));
     themeLabelVLayout->addWidget(d->m_themeLabel);
     themeLabelVLayout->addSpacerItem(new QSpacerItem(0, 0, QSizePolicy::Ignored, QSizePolicy::MinimumExpanding));

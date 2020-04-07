@@ -12,7 +12,7 @@ namespace device {
 const base::Feature kNewUsbBackend{"NewUsbBackend",
                                    base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kNewBLEWinImplementation{"NewBLEWinImplementation",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // defined(OS_WIN)
 
 #if defined(OS_CHROMEOS)
@@ -25,15 +25,5 @@ const base::Feature kNewblueDaemon{"Newblue",
 const base::Feature kUnfilteredBluetoothDevices{
     "UnfilteredBluetoothDevices", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif  // defined(OS_CHROMEOS)
-
-#if defined(OS_MACOSX)
-// Controls whether the CTAP2 implementation should use a built-in platform
-// authenticator, where available.
-const base::Feature kWebAuthTouchId{"WebAuthenticationTouchId",
-                                    base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_MACOSX)
-
-const base::Feature kNewCtap2Device{"WebAuthenticationCtap2",
-                                    base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace device

@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcrt/fx_stream.h"
 #include "third_party/base/logging.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Array::CPDF_Array() {}
@@ -32,7 +33,7 @@ CPDF_Array::~CPDF_Array() {
 }
 
 CPDF_Object::Type CPDF_Array::GetType() const {
-  return ARRAY;
+  return kArray;
 }
 
 bool CPDF_Array::IsArray() const {
@@ -79,7 +80,6 @@ CFX_FloatRect CPDF_Array::GetRect() const {
 }
 
 CFX_Matrix CPDF_Array::GetMatrix() const {
-  CFX_Matrix matrix;
   if (!IsArray() || m_Objects.size() != 6)
     return CFX_Matrix();
 
@@ -174,16 +174,19 @@ const CPDF_Array* CPDF_Array::GetArrayAt(size_t i) const {
 }
 
 void CPDF_Array::Clear() {
+  CHECK(!IsLocked());
   m_Objects.clear();
 }
 
 void CPDF_Array::RemoveAt(size_t i) {
+  CHECK(!IsLocked());
   if (i < m_Objects.size())
     m_Objects.erase(m_Objects.begin() + i);
 }
 
 void CPDF_Array::ConvertToIndirectObjectAt(size_t i,
                                            CPDF_IndirectObjectHolder* pHolder) {
+  CHECK(!IsLocked());
   if (i >= m_Objects.size())
     return;
 
@@ -195,6 +198,7 @@ void CPDF_Array::ConvertToIndirectObjectAt(size_t i,
 }
 
 CPDF_Object* CPDF_Array::SetAt(size_t i, std::unique_ptr<CPDF_Object> pObj) {
+  CHECK(!IsLocked());
   ASSERT(IsArray());
   ASSERT(!pObj || pObj->IsInline());
   if (i >= m_Objects.size()) {
@@ -208,6 +212,7 @@ CPDF_Object* CPDF_Array::SetAt(size_t i, std::unique_ptr<CPDF_Object> pObj) {
 
 CPDF_Object* CPDF_Array::InsertAt(size_t index,
                                   std::unique_ptr<CPDF_Object> pObj) {
+  CHECK(!IsLocked());
   ASSERT(IsArray());
   CHECK(!pObj || pObj->IsInline());
   CPDF_Object* pRet = pObj.get();
@@ -223,6 +228,7 @@ CPDF_Object* CPDF_Array::InsertAt(size_t index,
 }
 
 CPDF_Object* CPDF_Array::Add(std::unique_ptr<CPDF_Object> pObj) {
+  CHECK(!IsLocked());
   ASSERT(IsArray());
   CHECK(!pObj || pObj->IsInline());
   CPDF_Object* pRet = pObj.get();
@@ -230,13 +236,23 @@ CPDF_Object* CPDF_Array::Add(std::unique_ptr<CPDF_Object> pObj) {
   return pRet;
 }
 
-bool CPDF_Array::WriteTo(IFX_ArchiveStream* archive) const {
+bool CPDF_Array::WriteTo(IFX_ArchiveStream* archive,
+                         const CPDF_Encryptor* encryptor) const {
   if (!archive->WriteString("["))
     return false;
 
-  for (size_t i = 0; i < GetCount(); ++i) {
-    if (!GetObjectAt(i)->WriteTo(archive))
+  for (size_t i = 0; i < size(); ++i) {
+    if (!GetObjectAt(i)->WriteTo(archive, encryptor))
       return false;
   }
   return archive->WriteString("]");
+}
+
+CPDF_ArrayLocker::CPDF_ArrayLocker(const CPDF_Array* pArray)
+    : m_pArray(pArray) {
+  m_pArray->m_LockCount++;
+}
+
+CPDF_ArrayLocker::~CPDF_ArrayLocker() {
+  m_pArray->m_LockCount--;
 }

@@ -33,6 +33,21 @@ namespace {
 
 static int g_next_request_id = 0;
 
+// The histogram counts the number of calls to the JS API
+// getUserMedia or getDisplayMedia().
+void UpdateAPICount(blink::WebUserMediaRequest::MediaType media_type) {
+  blink::WebRTCAPIName api_name = blink::WebRTCAPIName::kGetUserMedia;
+  switch (media_type) {
+    case blink::WebUserMediaRequest::MediaType::kUserMedia:
+      api_name = blink::WebRTCAPIName::kGetUserMedia;
+      break;
+    case blink::WebUserMediaRequest::MediaType::kDisplayMedia:
+      api_name = blink::WebRTCAPIName::kGetDisplayMedia;
+      break;
+  }
+  UpdateWebRTCMethodCount(api_name);
+}
+
 }  // namespace
 
 UserMediaClientImpl::Request::Request(std::unique_ptr<UserMediaRequest> request)
@@ -111,7 +126,8 @@ UserMediaClientImpl::UserMediaClientImpl(
               std::move(media_stream_device_observer),
               base::BindRepeating(
                   &UserMediaClientImpl::GetMediaDevicesDispatcher,
-                  base::Unretained(this))),
+                  base::Unretained(this)),
+              render_frame->GetTaskRunner(blink::TaskType::kInternalMedia)),
           std::move(task_runner)) {}
 
 UserMediaClientImpl::~UserMediaClientImpl() {
@@ -124,10 +140,6 @@ UserMediaClientImpl::~UserMediaClientImpl() {
 
 void UserMediaClientImpl::RequestUserMedia(
     const blink::WebUserMediaRequest& web_request) {
-  // Save histogram data so we can see how much GetUserMedia is used.
-  // The histogram counts the number of calls to the JS API
-  // webGetUserMedia.
-  UpdateWebRTCMethodCount(blink::WebRTCAPIName::kGetUserMedia);
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!web_request.IsNull());
   DCHECK(web_request.Audio() || web_request.Video());
@@ -137,6 +149,9 @@ void UserMediaClientImpl::RequestUserMedia(
          render_frame()->GetWebFrame() ==
              static_cast<blink::WebFrame*>(
                  web_request.OwnerDocument().GetFrame()));
+
+  // Save histogram data so we can see how much GetUserMedia is used.
+  UpdateAPICount(web_request.MediaRequestType());
 
   if (RenderThreadImpl::current()) {
     RenderThreadImpl::current()->peer_connection_tracker()->TrackGetUserMedia(
@@ -167,7 +182,7 @@ void UserMediaClientImpl::RequestUserMedia(
 void UserMediaClientImpl::ApplyConstraints(
     const blink::WebApplyConstraintsRequest& web_request) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // TODO(guidou): Implement applyConstraints(). http://crbug.com/338503
+
   pending_request_infos_.push_back(Request(web_request));
   if (!is_processing_request_)
     MaybeProcessNextRequestInfo();
@@ -178,6 +193,10 @@ void UserMediaClientImpl::StopTrack(
   pending_request_infos_.push_back(Request(web_track));
   if (!is_processing_request_)
     MaybeProcessNextRequestInfo();
+}
+
+bool UserMediaClientImpl::IsCapturing() {
+  return user_media_processor_->HasActiveSources();
 }
 
 void UserMediaClientImpl::MaybeProcessNextRequestInfo() {
@@ -203,8 +222,9 @@ void UserMediaClientImpl::MaybeProcessNextRequestInfo() {
                        base::Unretained(this)));
   } else {
     DCHECK(current_request.IsStopTrack());
-    MediaStreamTrack* track =
-        MediaStreamTrack::GetTrack(current_request.web_track_to_stop());
+    blink::WebPlatformMediaStreamTrack* track =
+        blink::WebPlatformMediaStreamTrack::GetTrack(
+            current_request.web_track_to_stop());
     if (track) {
       track->StopAndNotify(
           base::BindOnce(&UserMediaClientImpl::CurrentRequestCompleted,
@@ -232,7 +252,7 @@ void UserMediaClientImpl::CancelUserMediaRequest(
     const blink::WebUserMediaRequest& web_request) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   {
-    // TODO(guidou): Remove this conditional logging. http://crbug.com/764293
+    // TODO(guidou): Remove this conditional logging. https://crbug.com/764293
     UserMediaRequest* request = user_media_processor_->CurrentRequest();
     if (request && request->web_request == web_request) {
       WebRtcLogMessage(base::StringPrintf(

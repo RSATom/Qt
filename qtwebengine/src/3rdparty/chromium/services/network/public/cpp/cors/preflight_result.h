@@ -11,6 +11,7 @@
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
 #include "base/optional.h"
+#include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/mojom/cors.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 
@@ -41,23 +42,22 @@ class COMPONENT_EXPORT(NETWORK_CPP) PreflightResult final {
       const base::Optional<std::string>& allow_methods_header,
       const base::Optional<std::string>& allow_headers_header,
       const base::Optional<std::string>& max_age_header,
-      base::Optional<mojom::CORSError>* detected_error);
+      base::Optional<mojom::CorsError>* detected_error);
   ~PreflightResult();
 
   // Checks if the given |method| is allowed by the CORS-preflight response.
-  base::Optional<mojom::CORSError> EnsureAllowedCrossOriginMethod(
+  base::Optional<CorsErrorStatus> EnsureAllowedCrossOriginMethod(
       const std::string& method) const;
 
   // Checks if the given all |headers| are allowed by the CORS-preflight
-  // response. |detected_header| indicates the disallowed header name if the
-  // pointer is valid.
+  // response.
   // This does not reject when the headers contain forbidden headers
   // (https://fetch.spec.whatwg.org/#forbidden-header-name) because they may be
   // added by the user agent. They must be checked separately and rejected for
   // JavaScript-initiated requests.
-  base::Optional<mojom::CORSError> EnsureAllowedCrossOriginHeaders(
+  base::Optional<CorsErrorStatus> EnsureAllowedCrossOriginHeaders(
       const net::HttpRequestHeaders& headers,
-      std::string* detected_header) const;
+      bool is_revalidating) const;
 
   // Checks if the given combination of |credentials_mode|, |method|, and
   // |headers| is allowed by the CORS-preflight response.
@@ -65,7 +65,8 @@ class COMPONENT_EXPORT(NETWORK_CPP) PreflightResult final {
   // EnsureAllowCrossOriginHeaders does not.
   bool EnsureAllowedRequest(mojom::FetchCredentialsMode credentials_mode,
                             const std::string& method,
-                            const net::HttpRequestHeaders& headers) const;
+                            const net::HttpRequestHeaders& headers,
+                            bool is_revalidating) const;
 
   // Refers the cache expiry time.
   base::TimeTicks absolute_expiry_time() const { return absolute_expiry_time_; }
@@ -73,7 +74,7 @@ class COMPONENT_EXPORT(NETWORK_CPP) PreflightResult final {
  protected:
   explicit PreflightResult(const mojom::FetchCredentialsMode credentials_mode);
 
-  base::Optional<mojom::CORSError> Parse(
+  base::Optional<mojom::CorsError> Parse(
       const base::Optional<std::string>& allow_methods_header,
       const base::Optional<std::string>& allow_headers_header,
       const base::Optional<std::string>& max_age_header);

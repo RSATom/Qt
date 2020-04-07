@@ -16,7 +16,7 @@ NavigatorUserActivation& NavigatorUserActivation::From(Navigator& navigator) {
   NavigatorUserActivation* supplement =
       Supplement<Navigator>::From<NavigatorUserActivation>(navigator);
   if (!supplement) {
-    supplement = new NavigatorUserActivation(navigator);
+    supplement = MakeGarbageCollected<NavigatorUserActivation>(navigator);
     ProvideTo(navigator, supplement);
   }
   return *supplement;
@@ -36,7 +36,7 @@ void NavigatorUserActivation::Trace(blink::Visitor* visitor) {
 }
 
 NavigatorUserActivation::NavigatorUserActivation(Navigator& navigator) {
-  user_activation_ = new UserActivation(navigator.DomWindow());
+  user_activation_ = UserActivation::CreateLive(navigator.DomWindow());
 }
 
 }  // namespace blink

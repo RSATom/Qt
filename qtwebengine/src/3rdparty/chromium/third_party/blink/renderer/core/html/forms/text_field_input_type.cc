@@ -56,12 +56,10 @@
 
 namespace blink {
 
-using namespace HTMLNames;
+using namespace html_names;
 
 class DataListIndicatorElement final : public HTMLDivElement {
  private:
-  inline DataListIndicatorElement(Document& document)
-      : HTMLDivElement(document) {}
   inline HTMLInputElement* HostInput() const {
     return ToHTMLInputElement(OwnerShadowHost());
   }
@@ -70,24 +68,24 @@ class DataListIndicatorElement final : public HTMLDivElement {
     return new LayoutDetailsMarker(this);
   }
 
-  EventDispatchHandlingState* PreDispatchEventHandler(Event* event) override {
+  EventDispatchHandlingState* PreDispatchEventHandler(Event& event) override {
     // Chromium opens autofill popup in a mousedown event listener
     // associated to the document. We don't want to open it in this case
     // because we opens a datalist chooser later.
     // FIXME: We should dispatch mousedown events even in such case.
-    if (event->type() == EventTypeNames::mousedown)
-      event->stopPropagation();
+    if (event.type() == event_type_names::kMousedown)
+      event.stopPropagation();
     return nullptr;
   }
 
-  void DefaultEventHandler(Event* event) override {
+  void DefaultEventHandler(Event& event) override {
     DCHECK(GetDocument().IsActive());
-    if (event->type() != EventTypeNames::click)
+    if (event.type() != event_type_names::kClick)
       return;
     HTMLInputElement* host = HostInput();
     if (host && !host->IsDisabledOrReadOnly()) {
       GetDocument().GetPage()->GetChromeClient().OpenTextDataListChooser(*host);
-      event->SetDefaultHandled();
+      event.SetDefaultHandled();
     }
   }
 
@@ -98,12 +96,16 @@ class DataListIndicatorElement final : public HTMLDivElement {
 
  public:
   static DataListIndicatorElement* Create(Document& document) {
-    DataListIndicatorElement* element = new DataListIndicatorElement(document);
+    DataListIndicatorElement* element =
+        MakeGarbageCollected<DataListIndicatorElement>(document);
     element->SetShadowPseudoId(
         AtomicString("-webkit-calendar-picker-indicator"));
-    element->setAttribute(idAttr, ShadowElementNames::PickerIndicator());
+    element->setAttribute(kIdAttr, shadow_element_names::PickerIndicator());
     return element;
   }
+
+  inline DataListIndicatorElement(Document& document)
+      : HTMLDivElement(document) {}
 };
 
 TextFieldInputType::TextFieldInputType(HTMLInputElement& element)
@@ -111,7 +113,7 @@ TextFieldInputType::TextFieldInputType(HTMLInputElement& element)
 
 TextFieldInputType::~TextFieldInputType() = default;
 
-void TextFieldInputType::Trace(blink::Visitor* visitor) {
+void TextFieldInputType::Trace(Visitor* visitor) {
   InputTypeView::Trace(visitor);
   InputType::Trace(visitor);
 }
@@ -127,7 +129,7 @@ InputType::ValueMode TextFieldInputType::GetValueMode() const {
 SpinButtonElement* TextFieldInputType::GetSpinButtonElement() const {
   return ToSpinButtonElementOrDie(
       GetElement().UserAgentShadowRoot()->getElementById(
-          ShadowElementNames::SpinButton()));
+          shadow_element_names::SpinButton()));
 }
 
 bool TextFieldInputType::MayTriggerVirtualKeyboard() const {
@@ -193,45 +195,45 @@ void TextFieldInputType::SetValue(const String& sanitized_value,
   }
 }
 
-void TextFieldInputType::HandleKeydownEvent(KeyboardEvent* event) {
+void TextFieldInputType::HandleKeydownEvent(KeyboardEvent& event) {
   if (!GetElement().IsFocused())
     return;
   if (ChromeClient* chrome_client = GetChromeClient()) {
-    chrome_client->HandleKeyboardEventOnTextField(GetElement(), *event);
+    chrome_client->HandleKeyboardEventOnTextField(GetElement(), event);
     return;
   }
-  event->SetDefaultHandled();
+  event.SetDefaultHandled();
 }
 
-void TextFieldInputType::HandleKeydownEventForSpinButton(KeyboardEvent* event) {
+void TextFieldInputType::HandleKeydownEventForSpinButton(KeyboardEvent& event) {
   if (GetElement().IsDisabledOrReadOnly())
     return;
-  const String& key = event->key();
+  const String& key = event.key();
   if (key == "ArrowUp")
     SpinButtonStepUp();
-  else if (key == "ArrowDown" && !event->altKey())
+  else if (key == "ArrowDown" && !event.altKey())
     SpinButtonStepDown();
   else
     return;
   GetElement().DispatchFormControlChangeEvent();
-  event->SetDefaultHandled();
+  event.SetDefaultHandled();
 }
 
-void TextFieldInputType::ForwardEvent(Event* event) {
+void TextFieldInputType::ForwardEvent(Event& event) {
   if (SpinButtonElement* spin_button = GetSpinButtonElement()) {
     spin_button->ForwardEvent(event);
-    if (event->DefaultHandled())
+    if (event.DefaultHandled())
       return;
   }
 
   if (GetElement().GetLayoutObject() &&
-      (event->IsMouseEvent() || event->IsDragEvent() ||
-       event->HasInterface(EventNames::WheelEvent) ||
-       event->type() == EventTypeNames::blur ||
-       event->type() == EventTypeNames::focus)) {
+      (event.IsMouseEvent() || event.IsDragEvent() ||
+       event.HasInterface(event_interface_names::kWheelEvent) ||
+       event.type() == event_type_names::kBlur ||
+       event.type() == event_type_names::kFocus)) {
     LayoutTextControlSingleLine* layout_text_control =
         ToLayoutTextControlSingleLine(GetElement().GetLayoutObject());
-    if (event->type() == EventTypeNames::blur) {
+    if (event.type() == event_type_names::kBlur) {
       if (LayoutBox* inner_editor_layout_object =
               GetElement().InnerEditorElement()->GetLayoutBox()) {
         // FIXME: This class has no need to know about PaintLayer!
@@ -245,7 +247,7 @@ void TextFieldInputType::ForwardEvent(Event* event) {
       }
 
       layout_text_control->CapsLockStateMayHaveChanged();
-    } else if (event->type() == EventTypeNames::focus) {
+    } else if (event.type() == event_type_names::kFocus) {
       layout_text_control->CapsLockStateMayHaveChanged();
     }
 
@@ -260,10 +262,10 @@ void TextFieldInputType::HandleBlurEvent() {
     spin_button->ReleaseCapture();
 }
 
-bool TextFieldInputType::ShouldSubmitImplicitly(Event* event) {
-  return (event->type() == EventTypeNames::textInput &&
-          event->HasInterface(EventNames::TextEvent) &&
-          ToTextEvent(event)->data() == "\n") ||
+bool TextFieldInputType::ShouldSubmitImplicitly(const Event& event) {
+  return (event.type() == event_type_names::kTextInput &&
+          event.HasInterface(event_interface_names::kTextEvent) &&
+          ToTextEvent(event).data() == "\n") ||
          InputTypeView::ShouldSubmitImplicitly(event);
 }
 
@@ -317,7 +319,7 @@ void TextFieldInputType::CreateShadowSubtree() {
 
 Element* TextFieldInputType::ContainerElement() const {
   return GetElement().UserAgentShadowRoot()->getElementById(
-      ShadowElementNames::TextFieldContainer());
+      shadow_element_names::TextFieldContainer());
 }
 
 void TextFieldInputType::DestroyShadowSubtree() {
@@ -330,7 +332,7 @@ void TextFieldInputType::ListAttributeTargetChanged() {
   if (ChromeClient* chrome_client = GetChromeClient())
     chrome_client->TextFieldDataListChanged(GetElement());
   Element* picker = GetElement().UserAgentShadowRoot()->getElementById(
-      ShadowElementNames::PickerIndicator());
+      shadow_element_names::PickerIndicator());
   bool did_have_picker_indicator = picker;
   bool will_have_picker_indicator = GetElement().HasValidDataListOptions();
   if (did_have_picker_indicator == will_have_picker_indicator)
@@ -377,11 +379,11 @@ void TextFieldInputType::DisabledOrReadonlyAttributeChanged(
 }
 
 void TextFieldInputType::DisabledAttributeChanged() {
-  DisabledOrReadonlyAttributeChanged(disabledAttr);
+  DisabledOrReadonlyAttributeChanged(kDisabledAttr);
 }
 
 void TextFieldInputType::ReadonlyAttributeChanged() {
-  DisabledOrReadonlyAttributeChanged(readonlyAttr);
+  DisabledOrReadonlyAttributeChanged(kReadonlyAttr);
 }
 
 bool TextFieldInputType::SupportsReadOnly() const {
@@ -407,7 +409,7 @@ String TextFieldInputType::SanitizeValue(const String& proposed_value) const {
 }
 
 void TextFieldInputType::HandleBeforeTextInsertedEvent(
-    BeforeTextInsertedEvent* event) {
+    BeforeTextInsertedEvent& event) {
   // Make sure that the text to be inserted will not violate the maxLength.
 
   // We use HTMLInputElement::innerEditorValue() instead of
@@ -447,7 +449,7 @@ void TextFieldInputType::HandleBeforeTextInsertedEvent(
 
   // Truncate the inserted text to avoid violating the maxLength and other
   // constraints.
-  String event_text = event->GetText();
+  String event_text = event.GetText();
   unsigned text_length = event_text.length();
   while (text_length > 0 && IsASCIILineBreak(event_text[text_length - 1]))
     text_length--;
@@ -456,7 +458,7 @@ void TextFieldInputType::HandleBeforeTextInsertedEvent(
   event_text.Replace('\r', ' ');
   event_text.Replace('\n', ' ');
 
-  event->SetText(LimitLength(event_text, appendable_length));
+  event.SetText(LimitLength(event_text, appendable_length));
 }
 
 bool TextFieldInputType::ShouldRespectListAttribute() {
@@ -482,7 +484,7 @@ void TextFieldInputType::UpdatePlaceholderText() {
         CSSPropertyDisplay,
         GetElement().IsPlaceholderVisible() ? CSSValueBlock : CSSValueNone,
         true);
-    placeholder->setAttribute(idAttr, ShadowElementNames::Placeholder());
+    placeholder->setAttribute(kIdAttr, shadow_element_names::Placeholder());
     Element* container = ContainerElement();
     Node* previous = container ? container : GetElement().InnerEditorElement();
     previous->parentNode()->InsertBefore(placeholder, previous);
@@ -494,7 +496,7 @@ void TextFieldInputType::UpdatePlaceholderText() {
 void TextFieldInputType::AppendToFormData(FormData& form_data) const {
   InputType::AppendToFormData(form_data);
   const AtomicString& dirname_attr_value =
-      GetElement().FastGetAttribute(dirnameAttr);
+      GetElement().FastGetAttribute(kDirnameAttr);
   if (!dirname_attr_value.IsNull()) {
     form_data.AppendFromElement(dirname_attr_value,
                                 GetElement().DirectionForFormData());

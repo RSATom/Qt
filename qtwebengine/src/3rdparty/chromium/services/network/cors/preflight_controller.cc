@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
 #include "services/network/public/cpp/cors/cors.h"
@@ -28,7 +30,7 @@ base::Optional<std::string> GetHeaderString(
     const scoped_refptr<net::HttpResponseHeaders>& headers,
     const std::string& header_name) {
   std::string header_value;
-  if (!headers->GetNormalizedHeader(header_name, &header_value))
+  if (!headers || !headers->GetNormalizedHeader(header_name, &header_value))
     return base::nullopt;
   return header_value;
 }
@@ -40,19 +42,14 @@ base::Optional<std::string> GetHeaderString(
 //  - sorted lexicographically
 //  - byte-lowercased
 std::string CreateAccessControlRequestHeadersHeader(
-    const net::HttpRequestHeaders& headers) {
-  std::vector<std::string> filtered_headers;
-  for (const auto& header : headers.GetHeaderVector()) {
-    // Exclude CORS-safelisted headers.
-    if (cors::IsCORSSafelistedHeader(header.key, header.value))
-      continue;
-    // Exclude the forbidden headers because they may be added by the user
-    // agent. They must be checked separately and rejected for
-    // JavaScript-initiated requests.
-    if (cors::IsForbiddenHeader(header.key))
-      continue;
-    filtered_headers.push_back(base::ToLowerASCII(header.key));
-  }
+    const net::HttpRequestHeaders& headers,
+    bool is_revalidating) {
+  // Exclude the forbidden headers because they may be added by the user
+  // agent. They must be checked separately and rejected for
+  // JavaScript-initiated requests.
+  std::vector<std::string> filtered_headers =
+      CorsUnsafeNotForbiddenRequestHeaderNames(headers.GetHeaderVector(),
+                                               is_revalidating);
   if (filtered_headers.empty())
     return std::string();
 
@@ -88,18 +85,18 @@ std::unique_ptr<ResourceRequest> CreatePreflightRequest(
   preflight_request->load_flags |= net::LOAD_DO_NOT_SEND_AUTH_DATA;
 
   preflight_request->headers.SetHeader(
-      cors::header_names::kAccessControlRequestMethod, request.method);
+      header_names::kAccessControlRequestMethod, request.method);
 
-  std::string request_headers =
-      CreateAccessControlRequestHeadersHeader(request.headers);
+  std::string request_headers = CreateAccessControlRequestHeadersHeader(
+      request.headers, request.is_revalidating);
   if (!request_headers.empty()) {
     preflight_request->headers.SetHeader(
-        cors::header_names::kAccessControlRequestHeaders, request_headers);
+        header_names::kAccessControlRequestHeaders, request_headers);
   }
 
   if (request.is_external_request) {
     preflight_request->headers.SetHeader(
-        cors::header_names::kAccessControlRequestExternal, "true");
+        header_names::kAccessControlRequestExternal, "true");
   }
 
   DCHECK(request.request_initiator);
@@ -124,26 +121,23 @@ std::unique_ptr<PreflightResult> CreatePreflightResult(
     const ResourceResponseHead& head,
     const ResourceRequest& original_request,
     bool tainted,
-    base::Optional<CORSErrorStatus>* detected_error_status) {
+    base::Optional<CorsErrorStatus>* detected_error_status) {
   DCHECK(detected_error_status);
 
-  // TODO(toyoshim): Reflect --allow-file-access-from-files flag.
   *detected_error_status = CheckPreflightAccess(
       final_url, head.headers->response_code(),
+      GetHeaderString(head.headers, header_names::kAccessControlAllowOrigin),
       GetHeaderString(head.headers,
-                      cors::header_names::kAccessControlAllowOrigin),
-      GetHeaderString(head.headers,
-                      cors::header_names::kAccessControlAllowCredentials),
+                      header_names::kAccessControlAllowCredentials),
       original_request.fetch_credentials_mode,
-      tainted ? url::Origin() : *original_request.request_initiator,
-      false /* allow_file_origin */);
+      tainted ? url::Origin() : *original_request.request_initiator);
   if (*detected_error_status)
     return nullptr;
 
-  base::Optional<mojom::CORSError> error;
+  base::Optional<mojom::CorsError> error;
   error = CheckPreflight(head.headers->response_code());
   if (error) {
-    *detected_error_status = CORSErrorStatus(*error);
+    *detected_error_status = CorsErrorStatus(*error);
     return nullptr;
   }
 
@@ -162,25 +156,20 @@ std::unique_ptr<PreflightResult> CreatePreflightResult(
       &error);
 
   if (error)
-    *detected_error_status = CORSErrorStatus(*error);
+    *detected_error_status = CorsErrorStatus(*error);
   return result;
 }
 
-base::Optional<CORSErrorStatus> CheckPreflightResult(
+base::Optional<CorsErrorStatus> CheckPreflightResult(
     PreflightResult* result,
     const ResourceRequest& original_request) {
-  base::Optional<mojom::CORSError> error =
+  base::Optional<CorsErrorStatus> status =
       result->EnsureAllowedCrossOriginMethod(original_request.method);
-  if (error)
-    return CORSErrorStatus(*error, original_request.method);
+  if (status)
+    return status;
 
-  std::string detected_error_header;
-  error = result->EnsureAllowedCrossOriginHeaders(original_request.headers,
-                                                  &detected_error_header);
-  if (error)
-    return CORSErrorStatus(*error, detected_error_header);
-
-  return base::nullopt;
+  return result->EnsureAllowedCrossOriginHeaders(
+      original_request.headers, original_request.is_revalidating);
 }
 
 // TODO(toyoshim): Remove this class once the Network Service is enabled.
@@ -190,8 +179,8 @@ base::Optional<CORSErrorStatus> CheckPreflightResult(
 class WrappedLegacyURLLoaderFactory final : public mojom::URLLoaderFactory {
  public:
   static WrappedLegacyURLLoaderFactory* GetSharedInstance() {
-    static WrappedLegacyURLLoaderFactory factory;
-    return &factory;
+    static base::NoDestructor<WrappedLegacyURLLoaderFactory> factory;
+    return &*factory;
   }
 
   ~WrappedLegacyURLLoaderFactory() override = default;
@@ -283,7 +272,8 @@ class PreflightController::PreflightLoader final {
 
     std::move(completion_callback_)
         .Run(net::ERR_FAILED,
-             CORSErrorStatus(mojom::CORSError::kPreflightDisallowedRedirect));
+             CorsErrorStatus(mojom::CorsError::kPreflightDisallowedRedirect),
+             base::nullopt);
 
     RemoveFromController();
     // |this| is deleted here.
@@ -293,7 +283,17 @@ class PreflightController::PreflightLoader final {
                             const ResourceResponseHead& head) {
     FinalizeLoader();
 
-    base::Optional<CORSErrorStatus> detected_error_status;
+    timing_info_.start_time = head.request_start;
+    timing_info_.finish_time = base::TimeTicks::Now();
+    timing_info_.alpn_negotiated_protocol = head.alpn_negotiated_protocol;
+    timing_info_.connection_info = head.connection_info;
+    auto timing_allow_origin =
+        GetHeaderString(head.headers, "Timing-Allow-Origin");
+    if (timing_allow_origin)
+      timing_info_.timing_allow_origin = *timing_allow_origin;
+    timing_info_.transfer_size = head.encoded_data_length;
+
+    base::Optional<CorsErrorStatus> detected_error_status;
     std::unique_ptr<PreflightResult> result = CreatePreflightResult(
         final_url, head, original_request_, tainted_, &detected_error_status);
 
@@ -311,9 +311,12 @@ class PreflightController::PreflightLoader final {
                                  original_request_.url, std::move(result));
     }
 
+    base::Optional<PreflightTimingInfo> timing_info;
+    if (!detected_error_status)
+      timing_info = std::move(timing_info_);
     std::move(completion_callback_)
         .Run(detected_error_status ? net::ERR_FAILED : net::OK,
-             detected_error_status);
+             detected_error_status, std::move(timing_info));
 
     RemoveFromController();
     // |this| is deleted here.
@@ -327,7 +330,7 @@ class PreflightController::PreflightLoader final {
     const int error = loader_->NetError();
     DCHECK_NE(error, net::OK);
     FinalizeLoader();
-    std::move(completion_callback_).Run(error, base::nullopt);
+    std::move(completion_callback_).Run(error, base::nullopt, base::nullopt);
     RemoveFromController();
     // |this| is deleted here.
   }
@@ -348,6 +351,8 @@ class PreflightController::PreflightLoader final {
 
   // Holds SimpleURLLoader instance for the CORS-preflight request.
   std::unique_ptr<SimpleURLLoader> loader_;
+
+  PreflightTimingInfo timing_info_;
 
   // Holds caller's information.
   PreflightController::CompletionCallback completion_callback_;
@@ -371,12 +376,6 @@ PreflightController::CreatePreflightRequestForTesting(
   return CreatePreflightRequest(request, tainted);
 }
 
-// static
-PreflightController* PreflightController::GetDefaultController() {
-  static PreflightController controller;
-  return &controller;
-}
-
 PreflightController::PreflightController() = default;
 
 PreflightController::~PreflightController() = default;
@@ -394,8 +393,9 @@ void PreflightController::PerformPreflightCheck(
   if (!request.is_external_request &&
       cache_.CheckIfRequestCanSkipPreflight(
           request.request_initiator->Serialize(), request.url,
-          request.fetch_credentials_mode, request.method, request.headers)) {
-    std::move(callback).Run(net::OK, base::nullopt);
+          request.fetch_credentials_mode, request.method, request.headers,
+          request.is_revalidating)) {
+    std::move(callback).Run(net::OK, base::nullopt, base::nullopt);
     return;
   }
 

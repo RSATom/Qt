@@ -17,6 +17,18 @@
 
 namespace zucchini {
 
+// A vacuous ReferenceReader that produces no references.
+class EmptyReferenceReader : public ReferenceReader {
+ public:
+  base::Optional<Reference> GetNext() override;
+};
+
+// A vacuous EmptyReferenceWriter that does not write.
+class EmptyReferenceWriter : public ReferenceWriter {
+ public:
+  void PutNext(Reference reference) override;
+};
+
 // Disassembler needs to be declared before ReferenceGroup because the latter
 // contains member pointers based on the former, and we use a compiler flag,
 // -fcomplete-member-pointers, which enforces that member pointer base types are
@@ -90,8 +102,6 @@ class ReferenceGroup {
   // Member function pointer used to obtain a ReferenceWriter.
   using WriterFactory = std::unique_ptr<ReferenceWriter> (Disassembler::*)(
       MutableBufferView image);
-
-  ReferenceGroup() = default;
 
   // RefinedGeneratorFactory and RefinedReceptorFactory don't have to be
   // identical to GeneratorFactory and ReceptorFactory, but they must be

@@ -8,8 +8,8 @@
 #include "base/path_service.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
@@ -225,7 +225,8 @@ std::unique_ptr<base::DictionaryValue> PolicyToolUITest::ExtractPolicyValues(
   if (need_status) {
     javascript +=
         "  var status = entries[i].getElementsByClassName('status-column')[0]"
-        "                         .getElementsByTagName('div')[0].textContent;"
+        "                         "
+        ".getElementsByClassName('status')[0].textContent;"
         "  policies.chromePolicies[name] = {'value': value, 'status': status};";
   } else {
     javascript += "  policies.chromePolicies[name] = {'value': value};";

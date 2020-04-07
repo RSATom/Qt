@@ -40,7 +40,7 @@
 #include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/web_task_runner.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 
 namespace blink {
 
@@ -64,14 +64,14 @@ AudioDestination::AudioDestination(AudioIOCallback& callback,
                                    unsigned number_of_output_channels,
                                    const WebAudioLatencyHint& latency_hint)
     : number_of_output_channels_(number_of_output_channels),
-      is_playing_(false),
+      play_state_(PlayState::kStopped),
       fifo_(
           std::make_unique<PushPullFIFO>(number_of_output_channels, kFIFOSize)),
       output_bus_(AudioBus::Create(number_of_output_channels,
-                                   AudioUtilities::kRenderQuantumFrames,
+                                   audio_utilities::kRenderQuantumFrames,
                                    false)),
       render_bus_(AudioBus::Create(number_of_output_channels,
-                                   AudioUtilities::kRenderQuantumFrames)),
+                                   audio_utilities::kRenderQuantumFrames)),
       callback_(callback),
       frames_elapsed_(0) {
   // Create WebAudioDevice. blink::WebAudioDevice is designed to support the
@@ -88,7 +88,7 @@ AudioDestination::AudioDestination(AudioIOCallback& callback,
   // first FIFO pulls from causing "underflow" errors.
   const unsigned priming_render_quanta =
       ceil(callback_buffer_size_ /
-           static_cast<float>(AudioUtilities::kRenderQuantumFrames));
+           static_cast<float>(audio_utilities::kRenderQuantumFrames));
   for (unsigned i = 0; i < priming_render_quanta; ++i) {
     fifo_->Push(render_bus_.get());
   }
@@ -150,22 +150,6 @@ void AudioDestination::Render(const WebVector<float*>& destination_data,
                    delay_timestamp, "delay (s)", delay);
 }
 
-// Determine if the rendered data is audible.
-static bool IsAudible(const AudioBus* rendered_data) {
-  // Compute the energy in each channel and sum up the energy in each channel
-  // for the total energy.
-  float energy = 0;
-
-  unsigned data_size = rendered_data->length();
-  for (unsigned k = 0; k < rendered_data->NumberOfChannels(); ++k) {
-    const float* data = rendered_data->Channel(k)->Data();
-    float channel_energy;
-    VectorMath::Vsvesq(data, 1, &channel_energy, data_size);
-    energy += channel_energy;
-  }
-
-  return energy > 0;
-}
 
 void AudioDestination::RequestRender(size_t frames_requested,
                                      size_t frames_to_render,
@@ -182,15 +166,20 @@ void AudioDestination::RequestRender(size_t frames_requested,
       frames_elapsed_ / static_cast<double>(web_audio_device_->SampleRate()) -
       delay;
   output_position.timestamp = delay_timestamp;
-  base::TimeTicks received_timestamp = base::TimeTicks::Now();
+
+  base::TimeTicks callback_request = base::TimeTicks::Now();
+  AudioIOCallbackMetric metric;
+  metric.callback_interval =
+      (callback_request - previous_callback_request_).InSecondsF();
+  metric.render_duration = previous_render_duration_.InSecondsF();
 
   for (size_t pushed_frames = 0; pushed_frames < frames_to_render;
-       pushed_frames += AudioUtilities::kRenderQuantumFrames) {
+       pushed_frames += audio_utilities::kRenderQuantumFrames) {
     // If platform buffer is more than two times longer than |framesToProcess|
     // we do not want output position to get stuck so we promote it
     // using the elapsed time from the moment it was initially obtained.
-    if (callback_buffer_size_ > AudioUtilities::kRenderQuantumFrames * 2) {
-      double delta = (base::TimeTicks::Now() - received_timestamp).InSecondsF();
+    if (callback_buffer_size_ > audio_utilities::kRenderQuantumFrames * 2) {
+      double delta = (base::TimeTicks::Now() - callback_request).InSecondsF();
       output_position.position += delta;
       output_position.timestamp += delta;
     }
@@ -201,28 +190,16 @@ void AudioDestination::RequestRender(size_t frames_requested,
       output_position.position = 0.0;
 
     // Process WebAudio graph and push the rendered output to FIFO.
-    callback_.Render(render_bus_.get(),
-                     AudioUtilities::kRenderQuantumFrames, output_position);
-
-    // Detect silence (or not) for MEI
-    bool is_audible = IsAudible(render_bus_.get());
-
-    if (is_audible) {
-      ++total_audible_renders_;
-    }
-
-    if (was_audible_) {
-      if (!is_audible) {
-        was_audible_ = false;
-      }
-    } else {
-      if (is_audible) {
-        was_audible_ = true;
-      }
-    }
+    callback_.Render(render_bus_.get(), audio_utilities::kRenderQuantumFrames,
+                     output_position, metric);
 
     fifo_->Push(render_bus_.get());
   }
+
+  // Update the IO callback metric with information from the current iteration.
+  // They are will be picked up in the next render request.
+  previous_callback_request_ = callback_request;
+  previous_render_duration_ = base::TimeTicks::Now() - callback_request;
 
   frames_elapsed_ += frames_requested;
 }
@@ -231,10 +208,10 @@ void AudioDestination::Start() {
   DCHECK(IsMainThread());
 
   // Start the "audio device" after the rendering thread is ready.
-  if (web_audio_device_ && !is_playing_) {
+  if (web_audio_device_ && play_state_ == PlayState::kStopped) {
     TRACE_EVENT0("webaudio", "AudioDestination::Start");
     web_audio_device_->Start();
-    is_playing_ = true;
+    play_state_ = PlayState::kPlaying;
   }
 }
 
@@ -242,11 +219,11 @@ void AudioDestination::StartWithWorkletTaskRunner(
     scoped_refptr<base::SingleThreadTaskRunner> worklet_task_runner) {
   DCHECK(IsMainThread());
 
-  if (web_audio_device_ && !is_playing_) {
+  if (web_audio_device_ && play_state_ == PlayState::kStopped) {
     TRACE_EVENT0("webaudio", "AudioDestination::Start");
     worklet_task_runner_ = std::move(worklet_task_runner);
     web_audio_device_->Start();
-    is_playing_ = true;
+    play_state_ = PlayState::kPlaying;
   }
 }
 
@@ -255,22 +232,38 @@ void AudioDestination::Stop() {
 
   // This assumes stopping the "audio device" is synchronous and dumping the
   // rendering thread is safe after that.
-  if (web_audio_device_ && is_playing_) {
+  if (web_audio_device_ && play_state_ != PlayState::kStopped) {
     TRACE_EVENT0("webaudio", "AudioDestination::Stop");
     web_audio_device_->Stop();
     worklet_task_runner_ = nullptr;
-    is_playing_ = false;
+    play_state_ = PlayState::kStopped;
   }
 }
 
-size_t AudioDestination::CallbackBufferSize() const {
+void AudioDestination::Pause() {
+  DCHECK(IsMainThread());
+  if (web_audio_device_ && play_state_ == PlayState::kPlaying) {
+    web_audio_device_->Pause();
+    play_state_ = PlayState::kPaused;
+  }
+}
+
+void AudioDestination::Resume() {
+  DCHECK(IsMainThread());
+  if (web_audio_device_ && play_state_ == PlayState::kPaused) {
+    web_audio_device_->Resume();
+    play_state_ = PlayState::kPlaying;
+  }
+}
+
+uint32_t AudioDestination::CallbackBufferSize() const {
   DCHECK(IsMainThread());
   return callback_buffer_size_;
 }
 
 bool AudioDestination::IsPlaying() {
   DCHECK(IsMainThread());
-  return is_playing_;
+  return play_state_ == PlayState::kPlaying;
 }
 
 int AudioDestination::FramesPerBuffer() const {
@@ -286,9 +279,8 @@ float AudioDestination::HardwareSampleRate() {
   return static_cast<float>(Platform::Current()->AudioHardwareSampleRate());
 }
 
-unsigned long AudioDestination::MaxChannelCount() {
-  return static_cast<unsigned long>(
-      Platform::Current()->AudioHardwareOutputChannels());
+uint32_t AudioDestination::MaxChannelCount() {
+  return Platform::Current()->AudioHardwareOutputChannels();
 }
 
 bool AudioDestination::CheckBufferSize() {
@@ -308,8 +300,9 @@ bool AudioDestination::CheckBufferSize() {
 
   // Check if the requested buffer size is too large.
   bool is_buffer_size_valid =
-      callback_buffer_size_ + AudioUtilities::kRenderQuantumFrames <= kFIFOSize;
-  DCHECK_LE(callback_buffer_size_ + AudioUtilities::kRenderQuantumFrames,
+      callback_buffer_size_ + audio_utilities::kRenderQuantumFrames <=
+      kFIFOSize;
+  DCHECK_LE(callback_buffer_size_ + audio_utilities::kRenderQuantumFrames,
             kFIFOSize);
   return is_buffer_size_valid;
 }

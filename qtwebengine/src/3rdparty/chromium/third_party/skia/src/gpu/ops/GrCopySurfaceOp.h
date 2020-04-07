@@ -23,10 +23,9 @@ public:
 
     const char* name() const override { return "CopySurface"; }
 
-    void visitProxies(const VisitProxyFunc& func) const override {
-        func(fSrc.get());
-    }
+    void visitProxies(const VisitProxyFunc& func, VisitorType) const override { func(fSrc.get()); }
 
+#ifdef SK_DEBUG
     SkString dumpInfo() const override {
         SkString string;
         string.append(INHERITED::dumpInfo());
@@ -37,6 +36,7 @@ public:
                       fDstPoint.fX, fDstPoint.fY);
         return string;
     }
+#endif
 
 private:
     friend class GrOpMemoryPool; // for ctor
@@ -53,11 +53,9 @@ private:
         this->setBounds(bounds, HasAABloat::kNo, IsZeroArea::kNo);
     }
 
-    bool onCombineIfPossible(GrOp* that, const GrCaps& caps) override { return false; }
-
     void onPrepare(GrOpFlushState*) override {}
 
-    void onExecute(GrOpFlushState* state) override;
+    void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
     GrPendingIOResource<GrSurfaceProxy, kRead_GrIOType>  fSrc;
     SkIRect                                              fSrcRect;

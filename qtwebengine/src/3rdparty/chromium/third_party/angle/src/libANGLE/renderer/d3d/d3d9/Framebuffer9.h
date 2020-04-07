@@ -23,21 +23,23 @@ class Framebuffer9 : public FramebufferD3D
     Framebuffer9(const gl::FramebufferState &data, Renderer9 *renderer);
     ~Framebuffer9() override;
 
-    gl::Error discard(const gl::Context *context, size_t count, const GLenum *attachments) override;
-    gl::Error invalidate(const gl::Context *context,
-                         size_t count,
-                         const GLenum *attachments) override;
-    gl::Error invalidateSub(const gl::Context *context,
-                            size_t count,
-                            const GLenum *attachments,
-                            const gl::Rectangle &area) override;
+    angle::Result discard(const gl::Context *context,
+                          size_t count,
+                          const GLenum *attachments) override;
+    angle::Result invalidate(const gl::Context *context,
+                             size_t count,
+                             const GLenum *attachments) override;
+    angle::Result invalidateSub(const gl::Context *context,
+                                size_t count,
+                                const GLenum *attachments,
+                                const gl::Rectangle &area) override;
 
-    gl::Error getSamplePosition(const gl::Context *context,
-                                size_t index,
-                                GLfloat *xy) const override;
+    angle::Result getSamplePosition(const gl::Context *context,
+                                    size_t index,
+                                    GLfloat *xy) const override;
 
-    gl::Error syncState(const gl::Context *context,
-                        const gl::Framebuffer::DirtyBits &dirtyBits) override;
+    angle::Result syncState(const gl::Context *context,
+                            const gl::Framebuffer::DirtyBits &dirtyBits) override;
 
     const gl::AttachmentArray<RenderTarget9 *> &getCachedColorRenderTargets() const
     {
@@ -50,25 +52,26 @@ class Framebuffer9 : public FramebufferD3D
     }
 
   private:
-    gl::Error clearImpl(const gl::Context *context, const ClearParameters &clearParams) override;
+    angle::Result clearImpl(const gl::Context *context,
+                            const ClearParameters &clearParams) override;
 
-    gl::Error readPixelsImpl(const gl::Context *context,
-                             const gl::Rectangle &area,
-                             GLenum format,
-                             GLenum type,
-                             size_t outputPitch,
-                             const gl::PixelPackState &pack,
-                             uint8_t *pixels) override;
+    angle::Result readPixelsImpl(const gl::Context *context,
+                                 const gl::Rectangle &area,
+                                 GLenum format,
+                                 GLenum type,
+                                 size_t outputPitch,
+                                 const gl::PixelPackState &pack,
+                                 uint8_t *pixels) override;
 
-    gl::Error blitImpl(const gl::Context *context,
-                       const gl::Rectangle &sourceArea,
-                       const gl::Rectangle &destArea,
-                       const gl::Rectangle *scissor,
-                       bool blitRenderTarget,
-                       bool blitDepth,
-                       bool blitStencil,
-                       GLenum filter,
-                       const gl::Framebuffer *sourceFramebuffer) override;
+    angle::Result blitImpl(const gl::Context *context,
+                           const gl::Rectangle &sourceArea,
+                           const gl::Rectangle &destArea,
+                           const gl::Rectangle *scissor,
+                           bool blitRenderTarget,
+                           bool blitDepth,
+                           bool blitStencil,
+                           GLenum filter,
+                           const gl::Framebuffer *sourceFramebuffer) override;
 
     GLenum getRenderTargetImplementationFormat(RenderTargetD3D *renderTarget) const override;
 
@@ -79,4 +82,4 @@ class Framebuffer9 : public FramebufferD3D
 
 }  // namespace rx
 
-#endif // LIBANGLE_RENDERER_D3D_D3D9_FRAMBUFFER9_H_
+#endif  // LIBANGLE_RENDERER_D3D_D3D9_FRAMBUFFER9_H_

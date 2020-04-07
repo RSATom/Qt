@@ -18,8 +18,8 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_propvariant.h"
 #include "components/storage_monitor/removable_device_constants.h"
@@ -316,7 +316,7 @@ base::string16 GetDeviceNameOnBlockingThread(
     IPortableDeviceManager* portable_device_manager,
     const base::string16& pnp_device_id) {
   DCHECK(portable_device_manager);
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   base::string16 name;
   GetFriendlyName(pnp_device_id, portable_device_manager, &name) ||
       GetDeviceDescription(pnp_device_id, portable_device_manager, &name) ||
@@ -330,7 +330,7 @@ bool GetDeviceStorageObjectsOnBlockingThread(
     const base::string16& pnp_device_id,
     PortableDeviceWatcherWin::StorageObjects* storage_objects) {
   DCHECK(storage_objects);
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Microsoft::WRL::ComPtr<IPortableDevice> device;
   if (!SetUp(pnp_device_id, &device))
     return false;
@@ -370,7 +370,7 @@ bool GetDeviceInfoOnBlockingThread(
   DCHECK(portable_device_manager);
   DCHECK(device_details);
   DCHECK(!pnp_device_id.empty());
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   device_details->name = GetDeviceNameOnBlockingThread(portable_device_manager,
                                                        pnp_device_id);
   if (IsMassStoragePortableDevice(pnp_device_id, device_details->name))
@@ -386,7 +386,7 @@ bool GetDeviceInfoOnBlockingThread(
 // returns true and fills in |portable_device_mgr|. On failure, returns false.
 bool GetPortableDeviceManager(
     Microsoft::WRL::ComPtr<IPortableDeviceManager>* portable_device_mgr) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   HRESULT hr = ::CoCreateInstance(
       __uuidof(PortableDeviceManager), nullptr, CLSCTX_INPROC_SERVER,
       IID_PPV_ARGS(portable_device_mgr->GetAddressOf()));
@@ -405,7 +405,7 @@ bool GetPortableDeviceManager(
 bool EnumerateAttachedDevicesOnBlockingThread(
     PortableDeviceWatcherWin::Devices* devices) {
   DCHECK(devices);
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Microsoft::WRL::ComPtr<IPortableDeviceManager> portable_device_mgr;
   if (!GetPortableDeviceManager(&portable_device_mgr))
     return false;
@@ -440,7 +440,7 @@ bool HandleDeviceAttachedEventOnBlockingThread(
     const base::string16& pnp_device_id,
     PortableDeviceWatcherWin::DeviceDetails* device_details) {
   DCHECK(device_details);
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Microsoft::WRL::ComPtr<IPortableDeviceManager> portable_device_mgr;
   if (!GetPortableDeviceManager(&portable_device_mgr))
     return false;
@@ -501,7 +501,7 @@ void PortableDeviceWatcherWin::Init(HWND hwnd) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   notifications_ = RegisterPortableDeviceNotification(hwnd);
   media_task_runner_ = base::CreateCOMSTATaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
   EnumerateAttachedDevices();
 }

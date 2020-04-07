@@ -81,12 +81,10 @@ Sources.FilesNavigatorView = class extends Sources.NavigatorView {
   constructor() {
     super();
     const toolbar = new UI.Toolbar('navigator-toolbar');
-    const title = Common.UIString('Add folder to workspace');
-    const addButton = new UI.ToolbarButton(title, 'largeicon-add', title);
-    addButton.addEventListener(
-        UI.ToolbarButton.Events.Click, () => Persistence.isolatedFileSystemManager.addFileSystem());
-    toolbar.appendToolbarItem(addButton);
-    this.contentElement.insertBefore(toolbar.element, this.contentElement.firstChild);
+    toolbar.appendItemsAtLocation('files-navigator-toolbar').then(() => {
+      if (!toolbar.empty())
+        this.contentElement.insertBefore(toolbar.element, this.contentElement.firstChild);
+    });
   }
 
   /**
@@ -96,7 +94,8 @@ Sources.FilesNavigatorView = class extends Sources.NavigatorView {
    */
   acceptProject(project) {
     return project.type() === Workspace.projectTypes.FileSystem &&
-        Persistence.FileSystemWorkspaceBinding.fileSystemType(project) !== 'overrides';
+        Persistence.FileSystemWorkspaceBinding.fileSystemType(project) !== 'overrides' &&
+        !Snippets.isSnippetsProject(project);
   }
 
   /**
@@ -105,7 +104,7 @@ Sources.FilesNavigatorView = class extends Sources.NavigatorView {
    */
   handleContextMenu(event) {
     const contextMenu = new UI.ContextMenu(event);
-    Sources.NavigatorView.appendAddFolderItem(contextMenu);
+    contextMenu.defaultSection().appendAction('sources.add-folder-to-workspace', undefined, true);
     contextMenu.show();
   }
 };
@@ -208,7 +207,7 @@ Sources.SnippetsNavigatorView = class extends Sources.NavigatorView {
     super();
     const toolbar = new UI.Toolbar('navigator-toolbar');
     const newButton = new UI.ToolbarButton('', 'largeicon-add', Common.UIString('New snippet'));
-    newButton.addEventListener(UI.ToolbarButton.Events.Click, this._handleCreateSnippet.bind(this));
+    newButton.addEventListener(UI.ToolbarButton.Events.Click, () => this.create(Snippets.project, ''));
     toolbar.appendToolbarItem(newButton);
     this.contentElement.insertBefore(toolbar.element, this.contentElement.firstChild);
   }
@@ -219,7 +218,7 @@ Sources.SnippetsNavigatorView = class extends Sources.NavigatorView {
    * @return {boolean}
    */
   acceptProject(project) {
-    return project.type() === Workspace.projectTypes.Snippets;
+    return Snippets.isSnippetsProject(project);
   }
 
   /**
@@ -228,7 +227,7 @@ Sources.SnippetsNavigatorView = class extends Sources.NavigatorView {
    */
   handleContextMenu(event) {
     const contextMenu = new UI.ContextMenu(event);
-    contextMenu.headerSection().appendItem(Common.UIString('New'), this._handleCreateSnippet.bind(this));
+    contextMenu.headerSection().appendItem(Common.UIString('New'), () => this.create(Snippets.project, ''));
     contextMenu.show();
   }
 
@@ -240,12 +239,10 @@ Sources.SnippetsNavigatorView = class extends Sources.NavigatorView {
   handleFileContextMenu(event, node) {
     const uiSourceCode = node.uiSourceCode();
     const contextMenu = new UI.ContextMenu(event);
-
-    contextMenu.headerSection().appendItem(
-        Common.UIString('Run'), this._handleEvaluateSnippet.bind(this, uiSourceCode));
-    contextMenu.newSection().appendItem(Common.UIString('New'), this._handleCreateSnippet.bind(this));
-    contextMenu.editSection().appendItem(Common.UIString('Rename'), this.rename.bind(this, node));
-    contextMenu.editSection().appendItem(Common.UIString('Remove'), this._handleRemoveSnippet.bind(this, uiSourceCode));
+    contextMenu.headerSection().appendItem(Common.UIString('Run'), () => Snippets.evaluateScriptSnippet(uiSourceCode));
+    contextMenu.editSection().appendItem(Common.UIString('Rename\u2026'), () => this.rename(node, false));
+    contextMenu.editSection().appendItem(
+        Common.UIString('Remove'), () => uiSourceCode.project().deleteFile(uiSourceCode));
     contextMenu.saveSection().appendItem(Common.UIString('Save as...'), this._handleSaveAs.bind(this, uiSourceCode));
     contextMenu.show();
   }
@@ -253,51 +250,18 @@ Sources.SnippetsNavigatorView = class extends Sources.NavigatorView {
   /**
    * @param {!Workspace.UISourceCode} uiSourceCode
    */
-  _handleEvaluateSnippet(uiSourceCode) {
-    const executionContext = UI.context.flavor(SDK.ExecutionContext);
-    if (!executionContext)
-      return;
-    Snippets.scriptSnippetModel.evaluateScriptSnippet(executionContext, uiSourceCode);
-  }
-
-  /**
-   * @param {!Workspace.UISourceCode} uiSourceCode
-   */
   async _handleSaveAs(uiSourceCode) {
-    if (uiSourceCode.project().type() !== Workspace.projectTypes.Snippets)
-      return;
-
     uiSourceCode.commitWorkingCopy();
     const content = await uiSourceCode.requestContent();
     Workspace.fileManager.save(uiSourceCode.url(), content, true);
     Workspace.fileManager.close(uiSourceCode.url());
-  }
-
-  /**
-   * @param {!Workspace.UISourceCode} uiSourceCode
-   */
-  _handleRemoveSnippet(uiSourceCode) {
-    if (uiSourceCode.project().type() !== Workspace.projectTypes.Snippets)
-      return;
-    uiSourceCode.remove();
-  }
-
-  _handleCreateSnippet() {
-    this.create(Snippets.scriptSnippetModel.project(), '');
-  }
-
-  /**
-   * @override
-   */
-  sourceDeleted(uiSourceCode) {
-    this._handleRemoveSnippet(uiSourceCode);
   }
 };
 
 /**
  * @implements {UI.ActionDelegate}
  */
-Sources.SnippetsNavigatorView.CreatingActionDelegate = class {
+Sources.ActionDelegate = class {
   /**
    * @override
    * @param {!UI.Context} context
@@ -307,8 +271,7 @@ Sources.SnippetsNavigatorView.CreatingActionDelegate = class {
   handleAction(context, actionId) {
     switch (actionId) {
       case 'sources.create-snippet':
-        const uiSourceCode = Snippets.scriptSnippetModel.createScriptSnippet('');
-        Common.Revealer.reveal(uiSourceCode);
+        Snippets.project.createFile('', null, '').then(uiSourceCode => Common.Revealer.reveal(uiSourceCode));
         return true;
       case 'sources.add-folder-to-workspace':
         Persistence.isolatedFileSystemManager.addFileSystem();

@@ -19,7 +19,7 @@ class GrGLSLXferProcessor;
 class GrPipeline;
 class GrPrimitiveProcessor;
 class GrRenderTargetProxy;
-class GrResourceIOProcessor;
+class GrTextureProxy;
 
 /**
  * This class manages a GPU program and records per-program information. It also records the vertex
@@ -33,7 +33,8 @@ public:
      * Additionally, these store the attribute location.
      */
     struct Attribute {
-        GrVertexAttribType fType;
+        GrVertexAttribType fCPUType;
+        GrSLType fGPUType;
         size_t fOffset;
         GrGLint fLocation;
     };
@@ -111,18 +112,18 @@ public:
     };
 
     /**
-     * This function uploads uniforms, calls each GrGL*Processor's setData, and retrieves the
-     * textures that need to be bound on each unit. It is the caller's responsibility to ensure
-     * the program is bound before calling, and to bind the outgoing textures to their respective
-     * units upon return. (Each index in the array corresponds to its matching GL texture unit.)
+     * This function uploads uniforms, calls each GrGLSL*Processor's setData. It binds all fragment
+     * processor textures. Primitive process textures can be bound using this function or by
+     * calling updatePrimitiveProcessorTextureBindings.
+     *
+     * It is the caller's responsibility to ensure the program is bound before calling.
      */
-    void setData(const GrPrimitiveProcessor&, const GrPipeline&);
+    void updateUniformsAndTextureBindings(const GrPrimitiveProcessor&, const GrPipeline&,
+                                          const GrTextureProxy* const primitiveProcessorTextures[]);
 
-    /**
-     * This function retrieves the textures that need to be used by each GrGL*Processor, and
-     * ensures that any textures requiring mipmaps have their mipmaps correctly built.
-     */
-    void generateMipmaps(const GrPrimitiveProcessor&, const GrPipeline&);
+    void updatePrimitiveProcessorTextureBindings(const GrPrimitiveProcessor&,
+                                                 const GrTextureProxy* const[]);
+
     int vertexStride() const { return fVertexStride; }
     int instanceStride() const { return fInstanceStride; }
 
@@ -140,16 +141,10 @@ public:
 
 private:
     // A helper to loop over effects, set the transforms (via subclass) and bind textures
-    void setFragmentData(const GrPrimitiveProcessor&, const GrPipeline&, int* nextTexSamplerIdx);
+    void setFragmentData(const GrPipeline&, int* nextTexSamplerIdx);
 
     // Helper for setData() that sets the view matrix and loads the render target height uniform
     void setRenderTargetState(const GrPrimitiveProcessor&, const GrRenderTargetProxy*);
-
-    // Helper for setData() that binds textures to the appropriate texture units
-    void bindTextures(const GrResourceIOProcessor&, int* nextSamplerIdx);
-
-    // Helper for generateMipmaps() that ensures mipmaps are up to date
-    void generateMipmaps(const GrResourceIOProcessor&);
 
     // these reflect the current values of uniforms (GL uniform values travel with program)
     RenderTargetState fRenderTargetState;

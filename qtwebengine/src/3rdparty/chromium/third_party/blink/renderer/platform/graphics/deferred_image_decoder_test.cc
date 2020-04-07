@@ -31,7 +31,6 @@
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_thread.h"
 #include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/graphics/image_decoding_store.h"
 #include "third_party/blink/renderer/platform/graphics/image_frame_generator.h"
@@ -40,8 +39,9 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/test/mock_image_decoder.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
-#include "third_party/blink/renderer/platform/web_task_runner.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -115,15 +115,13 @@ class DeferredImageDecoderTest : public testing::Test,
 
   IntSize DecodedSize() const override { return decoded_size_; }
 
-  PaintImage CreatePaintImageAtIndex(
-      size_t index,
+  PaintImage CreatePaintImage(
       PaintImage::CompletionState state = PaintImage::CompletionState::DONE) {
-    return CreatePaintImageAtIndex(lazy_decoder_.get(), index, state);
+    return CreatePaintImage(lazy_decoder_.get(), state);
   }
 
-  PaintImage CreatePaintImageAtIndex(
+  PaintImage CreatePaintImage(
       DeferredImageDecoder* decoder,
-      size_t index,
       PaintImage::CompletionState state = PaintImage::CompletionState::DONE) {
     PaintImage::AnimationType type = FrameCount() > 1
                                          ? PaintImage::AnimationType::ANIMATED
@@ -133,8 +131,8 @@ class DeferredImageDecoderTest : public testing::Test,
         .set_id(paint_image_id_)
         .set_animation_type(type)
         .set_completion_state(state)
-        .set_paint_image_generator(decoder->CreateGenerator(index))
-        .set_frame_index(index)
+        .set_paint_image_generator(
+            decoder->CreateGenerator(PaintImage::kDefaultFrameIndex))
         .TakePaintImage();
   }
 
@@ -161,7 +159,7 @@ class DeferredImageDecoderTest : public testing::Test,
 
 TEST_F(DeferredImageDecoderTest, drawIntoPaintRecord) {
   lazy_decoder_->SetData(data_, true);
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_EQ(1, image.width());
   EXPECT_EQ(1, image.height());
@@ -186,13 +184,13 @@ TEST_F(DeferredImageDecoderTest, drawIntoPaintRecordProgressive) {
   PaintRecorder recorder;
   cc::PaintCanvas* temp_canvas = recorder.beginRecording(100, 100);
   PaintImage image =
-      CreatePaintImageAtIndex(0, PaintImage::CompletionState::PARTIALLY_DONE);
+      CreatePaintImage(PaintImage::CompletionState::PARTIALLY_DONE);
   temp_canvas->drawImage(image, 0, 0);
   canvas_->drawPicture(recorder.finishRecordingAsPicture());
 
   // Fully received the file and draw the PaintRecord again.
   lazy_decoder_->SetData(data_, true);
-  image = CreatePaintImageAtIndex(0);
+  image = CreatePaintImage();
   ASSERT_TRUE(image);
   temp_canvas = recorder.beginRecording(100, 100);
   temp_canvas->drawImage(image, 0, 0);
@@ -212,7 +210,7 @@ static void RasterizeMain(cc::PaintCanvas* canvas, sk_sp<PaintRecord> record) {
 #endif
 TEST_F(DeferredImageDecoderTest, MAYBE_decodeOnOtherThread) {
   lazy_decoder_->SetData(data_, true);
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_EQ(1, image.width());
   EXPECT_EQ(1, image.height());
@@ -224,8 +222,8 @@ TEST_F(DeferredImageDecoderTest, MAYBE_decodeOnOtherThread) {
   EXPECT_EQ(0, decode_request_count_);
 
   // Create a thread to rasterize PaintRecord.
-  std::unique_ptr<WebThread> thread = Platform::Current()->CreateThread(
-      WebThreadCreationParams(WebThreadType::kTestThread)
+  std::unique_ptr<Thread> thread = Platform::Current()->CreateThread(
+      ThreadCreationParams(WebThreadType::kTestThread)
           .SetThreadNameForTest("RasterThread"));
   PostCrossThreadTask(
       *thread->GetTaskRunner(), FROM_HERE,
@@ -240,7 +238,7 @@ TEST_F(DeferredImageDecoderTest, singleFrameImageLoading) {
   status_ = ImageFrame::kFramePartial;
   lazy_decoder_->SetData(data_, false);
   EXPECT_FALSE(lazy_decoder_->FrameIsReceivedAtIndex(0));
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_FALSE(lazy_decoder_->FrameIsReceivedAtIndex(0));
   EXPECT_TRUE(actual_decoder_);
@@ -251,7 +249,7 @@ TEST_F(DeferredImageDecoderTest, singleFrameImageLoading) {
   EXPECT_FALSE(actual_decoder_);
   EXPECT_TRUE(lazy_decoder_->FrameIsReceivedAtIndex(0));
 
-  image = CreatePaintImageAtIndex(0);
+  image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_FALSE(decode_request_count_);
 }
@@ -263,7 +261,7 @@ TEST_F(DeferredImageDecoderTest, multiFrameImageLoading) {
   status_ = ImageFrame::kFramePartial;
   lazy_decoder_->SetData(data_, false);
 
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_FALSE(lazy_decoder_->FrameIsReceivedAtIndex(0));
   // Anything <= 10ms is clamped to 100ms. See the implementaiton for details.
@@ -276,7 +274,7 @@ TEST_F(DeferredImageDecoderTest, multiFrameImageLoading) {
   data_->Append(" ", 1u);
   lazy_decoder_->SetData(data_, false);
 
-  image = CreatePaintImageAtIndex(0);
+  image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_TRUE(lazy_decoder_->FrameIsReceivedAtIndex(0));
   EXPECT_TRUE(lazy_decoder_->FrameIsReceivedAtIndex(1));
@@ -304,7 +302,7 @@ TEST_F(DeferredImageDecoderTest, multiFrameImageLoading) {
 TEST_F(DeferredImageDecoderTest, decodedSize) {
   decoded_size_ = IntSize(22, 33);
   lazy_decoder_->SetData(data_, true);
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_EQ(decoded_size_.Width(), image.width());
   EXPECT_EQ(decoded_size_.Height(), image.height());
@@ -352,8 +350,7 @@ TEST_F(DeferredImageDecoderTest, frameOpacity) {
     SkPixmap pixmap(pix_info, storage.data(), row_bytes);
 
     // Before decoding, the frame is not known to be opaque.
-    sk_sp<SkImage> frame =
-        CreatePaintImageAtIndex(decoder.get(), 0).GetSkImage();
+    sk_sp<SkImage> frame = CreatePaintImage(decoder.get()).GetSkImage();
     ASSERT_TRUE(frame);
     EXPECT_FALSE(frame->isOpaque());
     EXPECT_TRUE(decoder->FrameHasAlphaAtIndex(0));
@@ -363,7 +360,7 @@ TEST_F(DeferredImageDecoderTest, frameOpacity) {
 
     // After decoding, the frame is known to be opaque.
     EXPECT_FALSE(decoder->FrameHasAlphaAtIndex(0));
-    frame = CreatePaintImageAtIndex(decoder.get(), 0).GetSkImage();
+    frame = CreatePaintImage(decoder.get()).GetSkImage();
     ASSERT_TRUE(frame);
     EXPECT_TRUE(frame->isOpaque());
 
@@ -402,7 +399,7 @@ TEST_F(MultiFrameDeferredImageDecoderTest, PaintImage) {
   lazy_decoder_->SetData(data_, false);
 
   // Only the first frame is complete.
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_EQ(image.GetFrameMetadata().size(), 2u);
   EXPECT_TRUE(image.GetFrameMetadata()[0].complete);
@@ -417,7 +414,7 @@ TEST_F(MultiFrameDeferredImageDecoderTest, PaintImage) {
   // Send some more data but the frame status remains the same.
   last_complete_frame_ = 0u;
   lazy_decoder_->SetData(data_, false);
-  PaintImage updated_image = CreatePaintImageAtIndex(0);
+  PaintImage updated_image = CreatePaintImage();
   ASSERT_TRUE(updated_image);
   EXPECT_EQ(updated_image.GetFrameMetadata().size(), 2u);
   EXPECT_TRUE(updated_image.GetFrameMetadata()[0].complete);
@@ -434,7 +431,7 @@ TEST_F(MultiFrameDeferredImageDecoderTest, PaintImage) {
   // Mark all frames complete.
   last_complete_frame_ = 1u;
   lazy_decoder_->SetData(data_, true);
-  PaintImage complete_image = CreatePaintImageAtIndex(0);
+  PaintImage complete_image = CreatePaintImage();
   ASSERT_TRUE(complete_image);
   EXPECT_EQ(complete_image.GetFrameMetadata().size(), 2u);
   EXPECT_TRUE(complete_image.GetFrameMetadata()[0].complete);
@@ -455,7 +452,7 @@ TEST_F(MultiFrameDeferredImageDecoderTest, FrameDurationOverride) {
 
   // If the frame duration is below a threshold, we override it to a constant
   // value of 100 ms.
-  PaintImage image = CreatePaintImageAtIndex(0);
+  PaintImage image = CreatePaintImage();
   EXPECT_EQ(image.GetFrameMetadata()[0].duration,
             base::TimeDelta::FromMilliseconds(100));
   EXPECT_EQ(image.GetFrameMetadata()[1].duration,

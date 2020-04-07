@@ -76,7 +76,8 @@ class HostContentSettingsMap : public content_settings::Observer,
   HostContentSettingsMap(PrefService* prefs,
                          bool is_incognito_profile,
                          bool is_guest_profile,
-                         bool store_last_modified);
+                         bool store_last_modified,
+                         bool migrate_requesting_and_top_level_origin_settings);
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
@@ -230,6 +231,10 @@ class HostContentSettingsMap : public content_settings::Observer,
       const GURL& secondary_url,
       ContentSettingsType type) const;
 
+  // Checks whether the specified |type| controls a feature that is restricted
+  // to secure origins.
+  bool IsRestrictedToSecureOrigins(ContentSettingsType type) const;
+
   // Sets the most specific rule that currently defines the setting for the
   // given content type. TODO(raymes): Remove this once all content settings
   // are scoped to origin scope. There is no scope more narrow than origin
@@ -308,6 +313,11 @@ class HostContentSettingsMap : public content_settings::Observer,
  private:
   friend class base::RefCountedThreadSafe<HostContentSettingsMap>;
   friend class content_settings::TestUtils;
+  FRIEND_TEST_ALL_PREFIXES(HostContentSettingsMapTest,
+                           MigrateRequestingAndTopLevelOriginSettings);
+  FRIEND_TEST_ALL_PREFIXES(
+      HostContentSettingsMapTest,
+      MigrateRequestingAndTopLevelOriginSettingsResetsEmbeddedSetting);
 
   ~HostContentSettingsMap() override;
 
@@ -380,6 +390,16 @@ class HostContentSettingsMap : public content_settings::Observer,
   // TODO(patricialor): Remove after m66 (migration code).
   void InitializePluginsDataSettings();
 
+  // Migrate requesting and top level origin content settings to remove all
+  // settings that have a top level pattern. If there is a pattern set for
+  // (http://x.com, http://y.com) this will remove that pattern and also remove
+  // (http://y.com, *). The reason the second pattern is removed is to ensure
+  // that permission won't automatically be granted to x.com when it's embedded
+  // in y.com when permission delegation is enabled.
+  // TODO(raymes): Remove 2 milestones after permission delegation ships.
+  // https://crbug.com/818004.
+  void MigrateRequestingAndTopLevelOriginSettings();
+
 #ifndef NDEBUG
   // This starts as the thread ID of the thread that constructs this
   // object, and remains until used by a different thread, at which
@@ -417,7 +437,7 @@ class HostContentSettingsMap : public content_settings::Observer,
 
   base::ThreadChecker thread_checker_;
 
-  base::ObserverList<content_settings::Observer> observers_;
+  base::ObserverList<content_settings::Observer>::Unchecked observers_;
 
   base::WeakPtrFactory<HostContentSettingsMap> weak_ptr_factory_;
 

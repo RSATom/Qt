@@ -8,17 +8,25 @@
 #define FXJS_XFA_CJX_ENCRYPT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Encrypt;
 
-class CJX_Encrypt : public CJX_Node {
+class CJX_Encrypt final : public CJX_Node {
  public:
   explicit CJX_Encrypt(CXFA_Encrypt* node);
   ~CJX_Encrypt() override;
 
-  JS_PROP(format);
-  JS_PROP(use);
-  JS_PROP(usehref);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(format);
+
+ private:
+  using Type__ = CJX_Encrypt;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::Encrypt;
 };
 
 #endif  // FXJS_XFA_CJX_ENCRYPT_H_

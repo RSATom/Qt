@@ -44,6 +44,7 @@ struct DomainRule {
 9guacu.br, 0
 a.bg, 0
 a.prod.fastly.net, 4
+a.run.app, 4
 a.se, 0
 a.ssl.fastly.net, 4
 aa.no, 0
@@ -90,6 +91,7 @@ ac.ke, 0
 ac.kr, 0
 ac.leg.br, 4
 ac.lk, 0
+ac.ls, 0
 ac.ma, 0
 ac.me, 0
 ac.mu, 0
@@ -128,7 +130,6 @@ achi.nagano.jp, 0
 aco, 0
 act.au, 0
 act.edu.au, 0
-active, 0
 actor, 0
 ad, 0
 ad.jp, 0
@@ -336,12 +337,15 @@ ap.it, 0
 ap.leg.br, 4
 aparecida.br, 0
 apartments, 0
+api.stdlib.com, 4
+apigee.io, 4
 app, 0
 app.lmpm.com, 4
 app.os.fedoraproject.org, 4
 app.os.stg.fedoraproject.org, 4
 appchizi.com, 4
 apple, 0
+applicationcloud.io, 4
 applinzi.com, 4
 apps.fbsbx.com, 4
 apps.lair.io, 4
@@ -706,6 +710,7 @@ biz.dk, 4
 biz.et, 0
 biz.id, 0
 biz.ki, 0
+biz.ls, 0
 biz.mv, 0
 biz.mw, 0
 biz.ni, 0
@@ -729,7 +734,6 @@ bl.it, 0
 black, 0
 blackbaudcdn.net, 4
 blackfriday, 0
-blanco, 0
 blockbuster, 0
 blog, 0
 blog.bo, 0
@@ -822,7 +826,7 @@ bmd.br, 0
 bmoattachments.org, 4
 bms, 0
 bmw, 0
-bn, 2
+bn, 0
 bn.it, 0
 bnl, 0
 bnpparibas, 0
@@ -907,6 +911,7 @@ bryne.no, 0
 bs, 0
 bs.it, 0
 bsb.br, 0
+bss.design, 4
 bt, 0
 bt.it, 0
 bu.no, 0
@@ -933,7 +938,6 @@ buyshouses.net, 4
 buzen.fukuoka.jp, 0
 buzz, 0
 bv, 0
-bv.nl, 0
 bw, 0
 by, 0
 bydgoszcz.pl, 0
@@ -944,6 +948,7 @@ bytom.pl, 0
 bz, 0
 bz.it, 0
 bzh, 0
+bzz.dapps.earth, 6
 c.bg, 0
 c.cdn77.org, 4
 c.la, 4
@@ -1248,6 +1253,7 @@ cloudns.org, 4
 cloudns.pro, 4
 cloudns.pw, 4
 cloudns.us, 4
+cloudycluster.net, 4
 club, 0
 club.aero, 0
 club.tw, 0
@@ -1255,11 +1261,13 @@ clubmed, 0
 cm, 0
 cn, 0
 cn-north-1.eb.amazonaws.com.cn, 4
+cn-northwest-1.eb.amazonaws.com.cn, 4
 cn.com, 4
 cn.eu.org, 4
 cn.it, 0
 cn.ua, 0
 cng.br, 0
+cnpy.gdn, 4
 cns.joyent.com, 6
 cnt.br, 0
 co, 0
@@ -1269,6 +1277,7 @@ co.ao, 0
 co.at, 0
 co.bb, 0
 co.bi, 0
+co.business, 4
 co.bw, 0
 co.ca, 4
 co.ci, 0
@@ -1278,6 +1287,9 @@ co.com, 4
 co.cr, 0
 co.cz, 4
 co.dk, 4
+co.education, 4
+co.events, 4
+co.financial, 4
 co.gg, 0
 co.gl, 0
 co.gy, 0
@@ -1302,18 +1314,21 @@ co.mu, 0
 co.mw, 0
 co.mz, 0
 co.na, 0
+co.network, 4
 co.ni, 0
 co.nl, 4
 co.no, 4
 co.nz, 0
 co.om, 0
 co.pl, 4
+co.place, 4
 co.pn, 0
 co.pw, 0
 co.rs, 0
 co.rw, 0
 co.st, 0
 co.sz, 0
+co.technology, 4
 co.th, 0
 co.tj, 0
 co.tm, 0
@@ -1361,6 +1376,7 @@ com.bb, 0
 com.bh, 0
 com.bi, 0
 com.bm, 0
+com.bn, 0
 com.bo, 0
 com.br, 0
 com.bs, 0
@@ -1392,6 +1408,7 @@ com.gn, 0
 com.gp, 0
 com.gr, 0
 com.gt, 0
+com.gu, 0
 com.gy, 0
 com.hk, 0
 com.hn, 0
@@ -1406,6 +1423,7 @@ com.kg, 0
 com.ki, 0
 com.km, 0
 com.kp, 0
+com.kw, 0
 com.ky, 0
 com.kz, 0
 com.la, 0
@@ -1616,6 +1634,7 @@ dallas.museum, 0
 damnserver.com, 4
 dance, 0
 daplie.me, 4
+dapps.earth, 6
 data, 0
 database.museum, 0
 date, 0
@@ -1692,6 +1711,7 @@ devices.resinstaging.io, 4
 df.gov.br, 0
 df.leg.br, 4
 dgca.aero, 0
+dh.bytemark.co.uk, 4
 dhl, 0
 diamonds, 0
 dielddanuorri.no, 0
@@ -1791,6 +1811,7 @@ dvr, 0
 dvrcam.info, 4
 dvrdns.org, 4
 dy.fi, 4
+dyn-berlin.de, 4
 dyn-ip24.de, 4
 dyn-o-saur.com, 4
 dyn-vpn.de, 4
@@ -1873,6 +1894,7 @@ edu.bb, 0
 edu.bh, 0
 edu.bi, 0
 edu.bm, 0
+edu.bn, 0
 edu.bo, 0
 edu.br, 0
 edu.bs, 0
@@ -1900,6 +1922,7 @@ edu.gn, 0
 edu.gp, 0
 edu.gr, 0
 edu.gt, 0
+edu.gu, 0
 edu.gy, 0
 edu.hk, 0
 edu.hn, 0
@@ -1915,6 +1938,7 @@ edu.km, 0
 edu.kn, 0
 edu.kp, 0
 edu.krd, 4
+edu.kw, 0
 edu.ky, 0
 edu.kz, 0
 edu.la, 0
@@ -1922,6 +1946,7 @@ edu.lb, 0
 edu.lc, 0
 edu.lk, 0
 edu.lr, 0
+edu.ls, 0
 edu.lv, 0
 edu.ly, 0
 edu.me, 0
@@ -2010,6 +2035,7 @@ elk.pl, 0
 elvendrell.museum, 0
 elverum.no, 0
 email, 0
+emb.kw, 0
 embaixada.st, 0
 embetsu.hokkaido.jp, 0
 embroidery.museum, 0
@@ -2046,7 +2072,6 @@ entomology.museum, 0
 environment.museum, 0
 environmentalconservation.museum, 0
 epilepsy.museum, 0
-epost, 0
 epson, 0
 equipment, 0
 equipment.aero, 0
@@ -2141,6 +2166,7 @@ farmstead.museum, 0
 farsund.no, 0
 fashion, 0
 fast, 0
+fastly-terrarium.com, 4
 fastlylb.net, 4
 fastpanel.direct, 4
 fastvps-server.com, 4
@@ -2181,6 +2207,12 @@ fie.ee, 0
 field.museum, 0
 figueres.museum, 0
 filatelia.museum, 0
+filegear-au.me, 4
+filegear-de.me, 4
+filegear-gb.me, 4
+filegear-ie.me, 4
+filegear-jp.me, 4
+filegear-sg.me, 4
 filegear.me, 4
 film, 0
 film.hu, 0
@@ -2297,6 +2329,7 @@ freeboxos.com, 4
 freeboxos.fr, 4
 freeddns.org, 4
 freeddns.us, 4
+freedesktop.org, 4
 freemasonry.museum, 0
 freesite.host, 4
 freetls.fastly.net, 4
@@ -2568,6 +2601,7 @@ gmo, 0
 gmx, 0
 gn, 0
 gniezno.pl, 0
+go-vip.co, 4
 go.ci, 0
 go.cr, 0
 go.dyndns.org, 4
@@ -2614,7 +2648,6 @@ golffan.us, 4
 gon.pk, 0
 gonohe.aomori.jp, 0
 goo, 0
-goodhands, 0
 goodyear, 0
 goog, 0
 google, 0
@@ -2659,6 +2692,7 @@ gov.bb, 0
 gov.bf, 0
 gov.bh, 0
 gov.bm, 0
+gov.bn, 0
 gov.br, 0
 gov.bs, 0
 gov.bt, 0
@@ -2684,6 +2718,7 @@ gov.gh, 0
 gov.gi, 0
 gov.gn, 0
 gov.gr, 0
+gov.gu, 0
 gov.gy, 0
 gov.hk, 0
 gov.ie, 0
@@ -2699,6 +2734,7 @@ gov.ki, 0
 gov.km, 0
 gov.kn, 0
 gov.kp, 0
+gov.kw, 0
 gov.ky, 0
 gov.kz, 0
 gov.la, 0
@@ -2706,6 +2742,7 @@ gov.lb, 0
 gov.lc, 0
 gov.lk, 0
 gov.lr, 0
+gov.ls, 0
 gov.lt, 0
 gov.lv, 0
 gov.ly, 0
@@ -2829,8 +2866,9 @@ gs.va.no, 0
 gs.vf.no, 0
 gsm.pl, 0
 gt, 0
-gu, 2
+gu, 0
 gu.us, 0
+guam.gu, 0
 guardian, 0
 gub.uy, 0
 gucci, 0
@@ -2923,6 +2961,7 @@ hashima.gifu.jp, 0
 hashimoto.wakayama.jp, 0
 hasuda.saitama.jp, 0
 hasura-app.io, 4
+hasura.app, 4
 hasvik.no, 0
 hatogaya.saitama.jp, 0
 hatoyama.saitama.jp, 0
@@ -3246,7 +3285,16 @@ immobilien, 0
 imperia.it, 0
 in, 0
 in-addr.arpa, 0
+in-berlin.de, 4
+in-brb.de, 4
+in-butter.de, 4
+in-dsl.de, 4
+in-dsl.net, 4
+in-dsl.org, 4
 in-the-band.net, 4
+in-vpn.de, 4
+in-vpn.net, 4
+in-vpn.org, 4
 in.eu.org, 4
 in.futurecms.at, 6
 in.na, 0
@@ -3274,6 +3322,7 @@ incheon.kr, 0
 ind.br, 0
 ind.gt, 0
 ind.in, 0
+ind.kw, 0
 ind.tn, 0
 inderoy.no, 0
 indian.museum, 0
@@ -3299,11 +3348,13 @@ info.co, 0
 info.cx, 4
 info.ec, 0
 info.et, 0
+info.gu, 0
 info.ht, 0
 info.hu, 0
 info.ke, 0
 info.ki, 0
 info.la, 0
+info.ls, 0
 info.mv, 0
 info.na, 0
 info.nf, 0
@@ -3326,6 +3377,7 @@ ing.pa, 0
 ingatlan.hu, 0
 ink, 0
 ino.kochi.jp, 0
+instantcloud.cn, 4
 institute, 0
 insurance, 0
 insurance.aero, 0
@@ -3513,7 +3565,6 @@ iwata.shizuoka.jp, 0
 iwate.iwate.jp, 0
 iwate.jp, 0
 iwatsuki.saitama.jp, 0
-iwc, 0
 iwi.nz, 0
 iyo.ehime.jp, 0
 iz.hr, 0
@@ -3560,7 +3611,6 @@ jgora.pl, 0
 jinsekikogen.hiroshima.jp, 0
 jio, 0
 jl.cn, 0
-jlc, 0
 jll, 0
 jm, 2
 jmp, 0
@@ -3985,6 +4035,7 @@ kr.ua, 0
 kraanghke.no, 0
 kragero.no, 0
 krakow.pl, 4
+krasnik.pl, 4
 krasnodar.su, 4
 krd, 0
 kred, 0
@@ -4058,7 +4109,7 @@ kvinesdal.no, 0
 kvinnherad.no, 0
 kviteseid.no, 0
 kvitsoy.no, 0
-kw, 2
+kw, 0
 kwp.gov.pl, 0
 kwpsp.gov.pl, 0
 ky, 0
@@ -4128,6 +4179,7 @@ lc.it, 0
 lcube-server.de, 4
 lds, 0
 le.it, 0
+leadpages.co, 4
 leangaviika.no, 0
 lease, 0
 leasing.aero, 0
@@ -4137,6 +4189,7 @@ lebtimnetz.de, 4
 lecce.it, 0
 lecco.it, 0
 leclerc, 0
+leczna.pl, 4
 lefrak, 0
 leg.br, 0
 legal, 0
@@ -4296,8 +4349,10 @@ louvre.museum, 0
 love, 0
 lowicz.pl, 0
 loyalist.museum, 0
+lpages.co, 4
 lpl, 0
 lplfinancial, 0
+lpusercontent.com, 4
 lr, 0
 ls, 0
 lt, 0
@@ -4316,7 +4371,9 @@ ltda, 0
 lu, 0
 lu.eu.org, 4
 lu.it, 0
+lubartow.pl, 4
 lubin.pl, 0
+lublin.pl, 4
 lucania.it, 0
 lucca.it, 0
 lucerne.museum, 0
@@ -4503,7 +4560,6 @@ memorial.museum, 0
 memset.net, 4
 men, 0
 menu, 0
-meo, 0
 meraker.no, 0
 merckmsd, 0
 merseine.nu, 4
@@ -4873,6 +4929,7 @@ mydatto.com, 4
 mydatto.net, 4
 myddns.rocks, 4
 mydissent.net, 4
+mydobiss.com, 4
 mydrobo.com, 4
 myds.me, 4
 myeffect.net, 4
@@ -5084,6 +5141,7 @@ net.ba, 0
 net.bb, 0
 net.bh, 0
 net.bm, 0
+net.bn, 0
 net.bo, 0
 net.br, 0
 net.bs, 0
@@ -5110,6 +5168,7 @@ net.gn, 0
 net.gp, 0
 net.gr, 0
 net.gt, 0
+net.gu, 0
 net.gy, 0
 net.hk, 0
 net.hn, 0
@@ -5126,6 +5185,7 @@ net.jo, 0
 net.kg, 0
 net.ki, 0
 net.kn, 0
+net.kw, 0
 net.ky, 0
 net.kz, 0
 net.la, 0
@@ -5133,6 +5193,7 @@ net.lb, 0
 net.lc, 0
 net.lk, 0
 net.lr, 0
+net.ls, 0
 net.lv, 0
 net.ly, 0
 net.ma, 0
@@ -5586,12 +5647,14 @@ on.ca, 0
 onagawa.miyagi.jp, 0
 one, 0
 ong, 0
+ong.br, 0
 onga.fukuoka.jp, 0
 onion, 0
 onjuku.chiba.jp, 0
 onl, 0
 online, 0
 online.museum, 0
+online.th, 4
 onna.okinawa.jp, 0
 ono.fukui.jp, 0
 ono.fukushima.jp, 0
@@ -5649,6 +5712,7 @@ org.bb, 0
 org.bh, 0
 org.bi, 0
 org.bm, 0
+org.bn, 0
 org.bo, 0
 org.br, 0
 org.bs, 0
@@ -5678,6 +5742,7 @@ org.gn, 0
 org.gp, 0
 org.gr, 0
 org.gt, 0
+org.gu, 0
 org.gy, 0
 org.hk, 0
 org.hn, 0
@@ -5696,6 +5761,7 @@ org.ki, 0
 org.km, 0
 org.kn, 0
 org.kp, 0
+org.kw, 0
 org.ky, 0
 org.kz, 0
 org.la, 0
@@ -5880,7 +5946,6 @@ palmas.br, 0
 palmsprings.museum, 0
 panama.museum, 0
 panasonic, 0
-panerai, 0
 pantheonsite.io, 4
 parachuting.aero, 0
 paragliding.aero, 0
@@ -6026,6 +6091,8 @@ polkowice.pl, 0
 poltava.ua, 0
 pomorskie.pl, 0
 pomorze.pl, 0
+poniatowa.pl, 4
+ponpes.id, 0
 pordenone.it, 0
 porn, 0
 porsanger.no, 0
@@ -6195,6 +6262,7 @@ re.kr, 0
 read, 0
 read-books.org, 4
 readmyblog.org, 4
+readthedocs.io, 4
 realestate, 0
 realestate.pl, 0
 realm.cz, 4
@@ -6339,6 +6407,7 @@ ru.net, 4
 rugby, 0
 ruhr, 0
 run, 0
+run.app, 4
 ruovat.no, 0
 russia.museum, 0
 rv.ua, 0
@@ -6505,7 +6574,6 @@ saobernardo.br, 0
 saogonca.br, 0
 saotome.st, 0
 sap, 0
-sapo, 0
 sapporo.jp, 2
 sar.it, 0
 sardegna.it, 0
@@ -6544,10 +6612,12 @@ sc.gov.br, 0
 sc.ke, 0
 sc.kr, 0
 sc.leg.br, 4
+sc.ls, 0
 sc.tz, 0
 sc.ug, 0
 sc.us, 0
 sca, 0
+scapp.io, 4
 scb, 0
 sch.ae, 0
 sch.id, 0
@@ -6793,6 +6863,7 @@ shop.ht, 0
 shop.hu, 0
 shop.pl, 0
 shop.ro, 4
+shop.th, 4
 shopping, 0
 shouji, 0
 show, 0
@@ -6823,6 +6894,7 @@ singles, 0
 siracusa.it, 0
 sirdal.no, 0
 site, 0
+siteleaf.net, 4
 sites.static.land, 4
 sj, 0
 sjc.br, 0
@@ -6938,7 +7010,6 @@ spdns.de, 4
 spdns.eu, 4
 spdns.org, 4
 spectrum.myjino.ru, 6
-spiegel, 0
 spjelkavik.no, 0
 sport, 0
 sport.hu, 0
@@ -6960,7 +7031,6 @@ ss.it, 0
 ssl.origin.cdn77-secure.org, 4
 st, 0
 st.no, 0
-stackspace.space, 4
 stada, 0
 stadt.museum, 0
 stage.nodeart.io, 4
@@ -6984,7 +7054,6 @@ static-access.net, 4
 static.land, 4
 statics.cloud, 6
 station.museum, 0
-statoil, 0
 stavanger.no, 0
 stavern.no, 0
 stc, 0
@@ -7075,6 +7144,7 @@ swatch, 0
 sweden.museum, 0
 sweetpepper.org, 4
 swidnica.pl, 0
+swidnik.pl, 4
 swiebodzin.pl, 0
 swiftcover, 0
 swinoujscie.pl, 0
@@ -7227,7 +7297,9 @@ tecnologia.bo, 0
 tel, 0
 tel.tr, 0
 tele.amune.org, 4
-telecity, 0
+telebit.app, 4
+telebit.io, 4
+telebit.xyz, 6
 telefonica, 0
 telekommunikation.museum, 0
 television.museum, 0
@@ -7804,7 +7876,6 @@ virtueeldomein.nl, 4
 virtuel.museum, 0
 visa, 0
 vision, 0
-vista, 0
 vistaprint, 0
 viterbo.it, 0
 viva, 0
@@ -7817,6 +7888,7 @@ vladikavkaz.su, 4
 vladimir.ru, 4
 vladimir.su, 4
 vlog.br, 0
+vm.bytemark.co.uk, 4
 vn, 0
 vn.ua, 0
 voagat.no, 0
@@ -7890,6 +7962,7 @@ weatherchannel, 0
 web.bo, 0
 web.co, 0
 web.do, 0
+web.gu, 0
 web.id, 0
 web.lk, 0
 web.nf, 0
@@ -7964,6 +8037,7 @@ workshop.museum, 0
 world, 0
 worse-than.tv, 4
 wow, 0
+wpcomstaging.com, 4
 wpdevcloud.com, 4
 writesthisblog.com, 4
 wroc.pl, 4
@@ -8439,7 +8513,6 @@ xn--zf0ao64a.tw, 0
 xn--zf0avx.hk, 0
 xn--zfr164b, 0
 xnbay.com, 4
-xperia, 0
 xs4all.space, 4
 xxx, 0
 xyz, 0
@@ -8596,7 +8669,6 @@ zgorzelec.pl, 0
 zhitomir.ua, 0
 zhytomyr.ua, 0
 zip, 0
-zippo, 0
 zj.cn, 0
 zlg.br, 0
 zm, 0

@@ -17,8 +17,11 @@
 #include <GL/gl.h>
 #endif
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "api/video/video_frame.h"
 #include "test/video_renderer.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 namespace test {

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "components/ntp_snippets/contextual/contextual_suggestions_fetcher_impl.h"
 
 #include "services/network/public/cpp/shared_url_loader_factory.h"

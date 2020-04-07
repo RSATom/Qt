@@ -9,7 +9,6 @@
 // This is a GNU header that is not present on Apple platforms
 #include <features.h>
 #endif
-#include <netinet/in.h>
 #include <string.h>
 #include <sys/socket.h>
 
@@ -17,6 +16,8 @@
 #include "net/third_party/quic/core/quic_process_packet_interface.h"
 #include "net/third_party/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quic/platform/api/quic_bug_tracker.h"
+#include "net/third_party/quic/platform/api/quic_flag_utils.h"
+#include "net/third_party/quic/platform/api/quic_flags.h"
 #include "net/third_party/quic/platform/api/quic_logging.h"
 #include "net/third_party/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quic/platform/impl/quic_socket_utils.h"
@@ -38,7 +39,7 @@ void QuicPacketReader::Initialize() {
 
   for (int i = 0; i < kNumPacketsPerReadMmsgCall; ++i) {
     packets_[i].iov.iov_base = packets_[i].buf;
-    packets_[i].iov.iov_len = kMaxPacketSize;
+    packets_[i].iov.iov_len = sizeof(packets_[i].buf);
     memset(&packets_[i].raw_address, 0, sizeof(packets_[i].raw_address));
     memset(packets_[i].cbuf, 0, sizeof(packets_[i].cbuf));
     memset(packets_[i].buf, 0, sizeof(packets_[i].buf));
@@ -81,7 +82,7 @@ bool QuicPacketReader::ReadAndDispatchManyPackets(
 #if MMSG_MORE
   // Re-set the length fields in case recvmmsg has changed them.
   for (int i = 0; i < kNumPacketsPerReadMmsgCall; ++i) {
-    DCHECK_EQ(kMaxPacketSize, packets_[i].iov.iov_len);
+    DCHECK_LE(kMaxPacketSize, packets_[i].iov.iov_len);
     msghdr* hdr = &mmsg_hdr_[i].msg_hdr;
     hdr->msg_namelen = sizeof(sockaddr_storage);
     DCHECK_EQ(1, hdr->msg_iovlen);
@@ -90,12 +91,15 @@ bool QuicPacketReader::ReadAndDispatchManyPackets(
   }
 
   int packets_read =
-      recvmmsg(fd, mmsg_hdr_, kNumPacketsPerReadMmsgCall, 0, nullptr);
+      recvmmsg(fd, mmsg_hdr_, kNumPacketsPerReadMmsgCall, MSG_TRUNC, nullptr);
 
   if (packets_read <= 0) {
     return false;  // recvmmsg failed.
   }
 
+  bool use_quic_time =
+      GetQuicReloadableFlag(quic_use_quic_time_for_received_timestamp);
+  QuicTime fallback_timestamp(QuicTime::Zero());
   QuicWallTime fallback_walltimestamp = QuicWallTime::Zero();
   for (int i = 0; i < packets_read; ++i) {
     if (mmsg_hdr_[i].msg_len == 0) {
@@ -109,34 +113,61 @@ bool QuicPacketReader::ReadAndDispatchManyPackets(
       continue;
     }
 
-    QuicSocketAddress client_address =
-        QuicSocketAddress(packets_[i].raw_address);
-    QuicIpAddress server_ip;
+    if (QUIC_PREDICT_FALSE(mmsg_hdr_[i].msg_hdr.msg_flags & MSG_TRUNC)) {
+      QUIC_LOG_FIRST_N(ERROR, 10)
+          << "Dropping truncated QUIC packet: buffer size:"
+          << packets_[i].iov.iov_len << " packet size:" << mmsg_hdr_[i].msg_len;
+      continue;
+    }
+
+    QuicSocketAddress peer_address(packets_[i].raw_address);
+    QuicIpAddress self_ip;
     QuicWallTime packet_walltimestamp = QuicWallTime::Zero();
     QuicSocketUtils::GetAddressAndTimestampFromMsghdr(
-        &mmsg_hdr_[i].msg_hdr, &server_ip, &packet_walltimestamp);
-    if (!server_ip.IsInitialized()) {
-      QUIC_BUG << "Unable to get server address.";
+        &mmsg_hdr_[i].msg_hdr, &self_ip, &packet_walltimestamp);
+    if (!self_ip.IsInitialized()) {
+      QUIC_BUG << "Unable to get self IP address.";
       continue;
     }
 
     // This isn't particularly desirable, but not all platforms support socket
     // timestamping.
-    if (packet_walltimestamp.IsZero()) {
-      if (fallback_walltimestamp.IsZero()) {
-        fallback_walltimestamp = clock.WallNow();
+    QuicTime timestamp(QuicTime::Zero());
+    if (!use_quic_time) {
+      if (packet_walltimestamp.IsZero()) {
+        if (fallback_walltimestamp.IsZero()) {
+          fallback_walltimestamp = clock.WallNow();
+        }
+        packet_walltimestamp = fallback_walltimestamp;
       }
-      packet_walltimestamp = fallback_walltimestamp;
+      timestamp = clock.ConvertWallTimeToQuicTime(packet_walltimestamp);
+
+    } else {
+      QUIC_RELOADABLE_FLAG_COUNT(quic_use_quic_time_for_received_timestamp);
+      if (packet_walltimestamp.IsZero()) {
+        if (!fallback_timestamp.IsInitialized()) {
+          fallback_timestamp = clock.Now();
+        }
+        timestamp = fallback_timestamp;
+      } else {
+        timestamp = clock.ConvertWallTimeToQuicTime(packet_walltimestamp);
+      }
     }
-    QuicTime timestamp = clock.ConvertWallTimeToQuicTime(packet_walltimestamp);
     int ttl = 0;
     bool has_ttl =
         QuicSocketUtils::GetTtlFromMsghdr(&mmsg_hdr_[i].msg_hdr, &ttl);
+    char* headers = nullptr;
+    size_t headers_length = 0;
+    if (GetQuicReloadableFlag(quic_get_recv_headers)) {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_get_recv_headers, 1, 3);
+      QuicSocketUtils::GetPacketHeadersFromMsghdr(&mmsg_hdr_[i].msg_hdr,
+                                                  &headers, &headers_length);
+    }
     QuicReceivedPacket packet(reinterpret_cast<char*>(packets_[i].iov.iov_base),
                               mmsg_hdr_[i].msg_len, timestamp, false, ttl,
-                              has_ttl);
-    QuicSocketAddress server_address(server_ip, port);
-    processor->ProcessPacket(server_address, client_address, packet);
+                              has_ttl, headers, headers_length, false);
+    QuicSocketAddress self_address(self_ip, port);
+    processor->ProcessPacket(self_address, peer_address, packet);
   }
 
   if (packets_dropped != nullptr) {
@@ -159,20 +190,20 @@ bool QuicPacketReader::ReadAndDispatchSinglePacket(
     const QuicClock& clock,
     ProcessPacketInterface* processor,
     QuicPacketCount* packets_dropped) {
-  char buf[kMaxPacketSize];
+  char buf[kMaxV4PacketSize];
 
-  QuicSocketAddress client_address;
-  QuicIpAddress server_ip;
+  QuicSocketAddress peer_address;
+  QuicIpAddress self_ip;
   QuicWallTime walltimestamp = QuicWallTime::Zero();
   int bytes_read =
       QuicSocketUtils::ReadPacket(fd, buf, QUIC_ARRAYSIZE(buf), packets_dropped,
-                                  &server_ip, &walltimestamp, &client_address);
+                                  &self_ip, &walltimestamp, &peer_address);
   if (bytes_read < 0) {
     return false;  // ReadPacket failed.
   }
 
-  if (!server_ip.IsInitialized()) {
-    QUIC_BUG << "Unable to get server address.";
+  if (!self_ip.IsInitialized()) {
+    QUIC_BUG << "Unable to get self IP address.";
     return false;
   }
   // This isn't particularly desirable, but not all platforms support socket
@@ -183,8 +214,8 @@ bool QuicPacketReader::ReadAndDispatchSinglePacket(
   QuicTime timestamp = clock.ConvertWallTimeToQuicTime(walltimestamp);
 
   QuicReceivedPacket packet(buf, bytes_read, timestamp, false);
-  QuicSocketAddress server_address(server_ip, port);
-  processor->ProcessPacket(server_address, client_address, packet);
+  QuicSocketAddress self_address(self_ip, port);
+  processor->ProcessPacket(self_address, peer_address, packet);
 
   // The socket read was successful, so return true even if packet dispatch
   // failed.

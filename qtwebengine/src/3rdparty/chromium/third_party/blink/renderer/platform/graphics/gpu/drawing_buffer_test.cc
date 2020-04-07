@@ -31,7 +31,9 @@
 #include "third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.h"
 
 #include <memory>
+
 #include "base/memory/scoped_refptr.h"
+#include "base/stl_util.h"
 #include "components/viz/common/resources/single_release_callback.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "components/viz/test/test_gpu_memory_buffer_manager.h"
@@ -42,27 +44,14 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/drawing_buffer_test_helpers.h"
+#include "third_party/blink/renderer/platform/graphics/test/gpu_memory_buffer_test_platform.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
-#include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "v8/include/v8.h"
 
 using testing::Test;
 using testing::_;
 
 namespace blink {
-
-namespace {
-
-class FakePlatformSupport : public TestingPlatformSupport {
-  gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override {
-    return &test_gpu_memory_buffer_manager_;
-  }
-
- private:
-  viz::TestGpuMemoryBufferManager test_gpu_memory_buffer_manager_;
-};
-
-}  // anonymous namespace
 
 class DrawingBufferTest : public Test {
  protected:
@@ -217,8 +206,6 @@ TEST_F(DrawingBufferTest, VerifyDestructionCompleteAfterAllResourceReleased) {
   std::unique_ptr<viz::SingleReleaseCallback> release_callback2;
   viz::TransferableResource resource3;
   std::unique_ptr<viz::SingleReleaseCallback> release_callback3;
-
-  IntSize initial_size(kInitialWidth, kInitialHeight);
 
   // Produce resources.
   EXPECT_FALSE(drawing_buffer_->MarkContentsChanged());
@@ -396,7 +383,8 @@ class DrawingBufferImageChromiumTest : public DrawingBufferTest,
 
  protected:
   void SetUp() override {
-    platform_.reset(new ScopedTestingPlatformSupport<FakePlatformSupport>);
+    platform_.reset(
+        new ScopedTestingPlatformSupport<GpuMemoryBufferTestPlatform>);
 
     IntSize initial_size(kInitialWidth, kInitialHeight);
     auto gl = std::make_unique<GLES2InterfaceForTests>();
@@ -420,7 +408,8 @@ class DrawingBufferImageChromiumTest : public DrawingBufferTest,
   }
 
   GLuint image_id0_;
-  std::unique_ptr<ScopedTestingPlatformSupport<FakePlatformSupport>> platform_;
+  std::unique_ptr<ScopedTestingPlatformSupport<GpuMemoryBufferTestPlatform>>
+      platform_;
 };
 
 TEST_F(DrawingBufferImageChromiumTest, VerifyResizingReallocatesImages) {
@@ -521,7 +510,6 @@ TEST_F(DrawingBufferImageChromiumTest, AllocationFailure) {
   // Request a resource. An image should already be created. Everything works
   // as expected.
   EXPECT_CALL(*gl_, BindTexImage2DMock(_)).Times(1);
-  IntSize initial_size(kInitialWidth, kInitialHeight);
   EXPECT_FALSE(drawing_buffer_->MarkContentsChanged());
   EXPECT_TRUE(drawing_buffer_->PrepareTransferableResource(nullptr, &resource1,
                                                            &release_callback1));
@@ -649,7 +637,7 @@ TEST(DrawingBufferDepthStencilTest, packedDepthStencilSupported) {
       DepthStencilTestCase(true, true, 1, "both"),
   };
 
-  for (size_t i = 0; i < arraysize(cases); i++) {
+  for (size_t i = 0; i < base::size(cases); i++) {
     SCOPED_TRACE(cases[i].test_case_name);
     auto gl = std::make_unique<DepthStencilTrackingGLES2Interface>();
     DepthStencilTrackingGLES2Interface* tracking_gl = gl.get();

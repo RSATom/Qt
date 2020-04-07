@@ -47,15 +47,22 @@ bool ReadFile(const std::string& input_file_name,
 
 // Returns and initializes the file_stream parameter if the output_filename
 // refers to a file, or returns &std::cout if the output_filename is "-".
-// Returns nullptr and emits an error message to std::cout if the file could
+// Returns nullptr and emits an error message to err if the file could
 // not be opened for writing.  If the output refers to a file, and the open
 // failed for writing, file_stream is left with its fail_bit set.
 std::ostream* GetOutputStream(const string_piece& output_filename,
-                              std::ofstream* file_stream);
+                              std::ofstream* file_stream, std::ostream* err);
 
 // Writes output_data to a file, overwriting if it exists.  If output_file_name
 // is "-", writes to std::cout.
 bool WriteFile(std::ostream* output_stream, const string_piece& output_data);
+
+// Flush the standard output stream and set it to binary mode.  Subsequent
+// output will not translate newlines to carriage-return newline pairs.
+void FlushAndSetBinaryModeOnStdout();
+// Flush the standard output stream and set it to text mode.  Subsequent
+// output will translate newlines to carriage-return newline pairs.
+void FlushAndSetTextModeOnStdout();
 
 }  // namespace shaderc_util
 

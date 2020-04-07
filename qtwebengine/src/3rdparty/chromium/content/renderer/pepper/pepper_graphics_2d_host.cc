@@ -44,7 +44,7 @@
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/ppb_view_shared.h"
 #include "ppapi/thunk/enter.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
@@ -753,6 +753,8 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
     *release_callback = viz::SingleReleaseCallback::Create(
         base::BindOnce(&ReleaseTextureCallback, this->AsWeakPtr(),
                        main_thread_context_, texture_id));
+    transferable_resource->format =
+        upload_bgra ? viz::BGRA_8888 : viz::RGBA_8888;
     composited_output_modified_ = false;
     return true;
   }

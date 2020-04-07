@@ -11,7 +11,7 @@
 
 class CFDE_TextEditEngineTest : public testing::Test {
  public:
-  class Delegate : public CFDE_TextEditEngine::Delegate {
+  class Delegate final : public CFDE_TextEditEngine::Delegate {
    public:
     void Reset() {
       text_is_full = false;
@@ -39,7 +39,7 @@ class CFDE_TextEditEngineTest : public testing::Test {
   void SetUp() override {
     font_ =
         CFGAS_GEFont::LoadFont(L"Arial Black", 0, 0, GetGlobalFontManager());
-    ASSERT(font_.Get() != nullptr);
+    ASSERT_TRUE(font_.Get() != nullptr);
 
     engine_ = pdfium::MakeUnique<CFDE_TextEditEngine>();
     engine_->SetFont(font_);

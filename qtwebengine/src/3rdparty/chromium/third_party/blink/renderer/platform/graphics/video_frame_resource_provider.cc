@@ -6,6 +6,7 @@
 
 #include <memory>
 #include "base/bind.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/gpu/context_provider.h"
@@ -19,8 +20,9 @@
 namespace blink {
 
 VideoFrameResourceProvider::VideoFrameResourceProvider(
-    const cc::LayerTreeSettings& settings)
-    : settings_(settings) {}
+    const cc::LayerTreeSettings& settings,
+    bool use_sync_primitives)
+    : settings_(settings), use_sync_primitives_(use_sync_primitives) {}
 
 VideoFrameResourceProvider::~VideoFrameResourceProvider() {
   // Drop all resources before closing the ClientResourceProvider.
@@ -70,44 +72,51 @@ void VideoFrameResourceProvider::AppendQuads(
   DCHECK(resource_updater_);
   DCHECK(resource_provider_);
 
+  // When obtaining frame resources, we end up having to wait. See
+  // https://crbug/878070.
+  // Unfortunately, we have no idea if blocking is allowed on the current thread
+  // or not.  If we're on the cc impl thread, the answer is yes, and further
+  // the thread is marked as not allowing blocking primitives.  On the various
+  // media threads, however, blocking is not allowed but the blocking scopes
+  // are.  So, we use ScopedAllow only if we're told that we should do so.
+  if (use_sync_primitives_) {
+    base::ScopedAllowBaseSyncPrimitives allow_base_sync_primitives;
+    resource_updater_->ObtainFrameResources(frame);
+  } else {
+    resource_updater_->ObtainFrameResources(frame);
+  }
+
   gfx::Transform transform = gfx::Transform();
-  gfx::Size rotated_size = frame->coded_size();
+  // The quad's rect is in pre-transform space so that applying the transform on
+  // it will produce the bounds in target space.
+  gfx::Rect quad_rect = gfx::Rect(frame->natural_size());
 
   switch (rotation) {
     case media::VIDEO_ROTATION_90:
-      rotated_size = gfx::Size(rotated_size.height(), rotated_size.width());
       transform.Rotate(90.0);
-      transform.Translate(0.0, -rotated_size.height());
+      transform.Translate(0.0, -quad_rect.height());
       break;
     case media::VIDEO_ROTATION_180:
       transform.Rotate(180.0);
-      transform.Translate(-rotated_size.width(), -rotated_size.height());
+      transform.Translate(-quad_rect.width(), -quad_rect.height());
       break;
     case media::VIDEO_ROTATION_270:
-      rotated_size = gfx::Size(rotated_size.height(), rotated_size.width());
       transform.Rotate(270.0);
-      transform.Translate(-rotated_size.width(), 0);
+      transform.Translate(-quad_rect.width(), 0);
       break;
     case media::VIDEO_ROTATION_0:
       break;
   }
 
-  resource_updater_->ObtainFrameResources(frame);
-  // TODO(lethalantidote) : update with true value;
-  gfx::Rect visible_layer_rect = gfx::Rect(rotated_size);
-  gfx::Rect clip_rect = gfx::Rect(frame->coded_size());
+  gfx::Rect visible_quad_rect = quad_rect;
+  gfx::Rect clip_rect;
   bool is_clipped = false;
   float draw_opacity = 1.0f;
   int sorting_context_id = 0;
 
-  // Internal to this compositor frame, this video quad is never occluded,
-  // thus the full quad is visible.
-  gfx::Rect visible_quad_rect = gfx::Rect(rotated_size);
-
-  resource_updater_->AppendQuads(render_pass, std::move(frame), transform,
-                                 rotated_size, visible_layer_rect, clip_rect,
-                                 is_clipped, is_opaque, draw_opacity,
-                                 sorting_context_id, visible_quad_rect);
+  resource_updater_->AppendQuads(
+      render_pass, std::move(frame), transform, quad_rect, visible_quad_rect,
+      clip_rect, is_clipped, is_opaque, draw_opacity, sorting_context_id);
 }
 
 void VideoFrameResourceProvider::ReleaseFrameResources() {

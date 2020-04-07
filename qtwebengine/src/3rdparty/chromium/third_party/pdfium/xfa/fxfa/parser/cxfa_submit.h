@@ -10,13 +10,13 @@
 #include "core/fxcrt/widestring.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Submit : public CXFA_Node {
+class CXFA_Submit final : public CXFA_Node {
  public:
   CXFA_Submit(CXFA_Document* doc, XFA_PacketType packet);
   ~CXFA_Submit() override;
 
   bool IsSubmitEmbedPDF();
-  XFA_AttributeEnum GetSubmitFormat();
+  XFA_AttributeValue GetSubmitFormat();
   WideString GetSubmitTarget();
   WideString GetSubmitXDPContent();
 };

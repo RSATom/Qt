@@ -1495,7 +1495,11 @@ bool QQmlTypeLoader::Blob::addImport(const QV4::CompiledData::Import *import, QL
 
         bool incomplete = false;
 
-        QUrl qmldirUrl = finalUrl().resolved(QUrl(importUri + QLatin1String("/qmldir")));
+        QUrl importUrl(importUri);
+        QString path = importUrl.path();
+        path.append(QLatin1String(path.endsWith(QLatin1Char('/')) ? "qmldir" : "/qmldir"));
+        importUrl.setPath(path);
+        QUrl qmldirUrl = finalUrl().resolved(importUrl);
         if (!QQmlImports::isLocal(qmldirUrl)) {
             // This is a remote file; the import is currently incomplete
             incomplete = true;
@@ -1821,6 +1825,11 @@ QString QQmlTypeLoader::absoluteFilePath(const QString &path)
         // assets resource url
         QFileInfo fileInfo(QQmlFile::urlToLocalFileOrQrc(path));
         return fileInfo.isFile() ? fileInfo.absoluteFilePath() : QString();
+    } else if (path.count() > 8 && path.at(7) == QLatin1Char(':') && path.at(8) == QLatin1Char('/') &&
+           path.startsWith(QLatin1String("content"), Qt::CaseInsensitive)) {
+        // content url
+        QFileInfo fileInfo(QQmlFile::urlToLocalFileOrQrc(path));
+        return fileInfo.isFile() ? fileInfo.absoluteFilePath() : QString();
     }
 #endif
 
@@ -1878,6 +1887,11 @@ bool QQmlTypeLoader::fileExists(const QString &path, const QString &file)
         // assets resource url
         QFileInfo fileInfo(QQmlFile::urlToLocalFileOrQrc(path + file));
         return fileInfo.isFile();
+    } else if (path.count() > 8 && path.at(7) == QLatin1Char(':') && path.at(8) == QLatin1Char('/') &&
+           path.startsWith(QLatin1String("content"), Qt::CaseInsensitive)) {
+        // content url
+        QFileInfo fileInfo(QQmlFile::urlToLocalFileOrQrc(path + file));
+        return fileInfo.isFile();
     }
 #endif
 
@@ -1890,8 +1904,6 @@ bool QQmlTypeLoader::fileExists(const QString &path, const QString &file)
     QCache<QString, bool> *fileSet = m_importDirCache.object(path);
     if (!fileSet)
         return false;
-
-    QString absoluteFilePath;
 
     bool *value = fileSet->object(file);
     if (value) {
@@ -1915,7 +1927,7 @@ bool QQmlTypeLoader::directoryExists(const QString &path)
 
     bool isResource = path.at(0) == QLatin1Char(':');
 #if defined(Q_OS_ANDROID)
-    isResource = isResource || path.startsWith(QLatin1String("assets:/"));
+    isResource = isResource || path.startsWith(QLatin1String("assets:/")) || path.startsWith(QLatin1String("content:/"));
 #endif
 
     if (isResource) {

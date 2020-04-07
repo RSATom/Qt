@@ -1,21 +1,39 @@
 # Shaderc
 
-[![Linux and Mac Build Status](https://travis-ci.org/google/shaderc.svg)](https://travis-ci.org/google/shaderc "Linux and Mac Build Status")
-[![Windows Build status](https://ci.appveyor.com/api/projects/status/g6c372blna7vnk1l?svg=true)](https://ci.appveyor.com/project/dneto0/shaderc "Windows Build Status")
-[![Coverage Status](https://coveralls.io/repos/google/shaderc/badge.svg?branch=master&service=github)](https://coveralls.io/github/google/shaderc?branch=master)
+<img alt="Linux" src="kokoro/img/linux.png" width="20px" height="20px" hspace="2px"/>![Linux Build Status](https://storage.googleapis.com/shaderc/badges/build_status_linux_release.svg)
+<img alt="MacOS" src="kokoro/img/macos.png" width="20px" height="20px" hspace="2px"/>![MacOS Build Status](https://storage.googleapis.com/shaderc/badges/build_status_macos_release.svg)
+<img alt="Windows" src="kokoro/img/windows.png" width="20px" height="20px" hspace="2px"/>![Windows Build Status](https://storage.googleapis.com/shaderc/badges/build_status_windows_release.svg)
 
 A collection of tools, libraries and tests for shader compilation.
 At the moment it includes:
 
-- `glslc`, a command line compiler for GLSL to SPIR-V, and
-- `libshaderc` a library API for doing the same.
+- [`glslc`](glslc), a command line compiler for GLSL/HLSL to SPIR-V, and
+- [`libshaderc`](libshaderc), a library API for doing the same.
+
+Shaderc wraps around core functionality in [glslang][khr-glslang]
+and [SPIRV-Tools][spirv-tools].  Shaderc aims to
+to provide:
+* a command line compiler with GCC- and Clang-like usage, for better
+  integration with build systems
+* an API where functionality can be added without breaking existing clients
+* an API supporting standard concurrency patterns across multiple
+  operating systems
+* increased functionality such as file `#include` support
 
 ## Status
 
-Shaderc is experimental, and subject to significant incompatible changes.
+Shaderc has maintained backward compatibility for quite some time, and we
+don't anticipate any breaking changes.
+Ongoing enhancements are described in the [CHANGES](CHANGES) file.
+
+Shaderc has been shipping in the
+[Android NDK](https://developer.android.com/ndk/index.html) since version r12b.
+(The NDK build uses sources from https://android.googlesource.com/platform/external/shaderc/.
+Those repos are downstream from GitHub.)
+We currently require r18b.
 
 For licensing terms, please see the [`LICENSE`](LICENSE) file.  If interested in
-contributing to this project, please see [`CONTRIBUTING.md`](CONTRIBUTING.md)
+contributing to this project, please see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 This is not an official Google product (experimental or otherwise), it is just
 code that happens to be owned by Google.  That may change if Shaderc gains
@@ -34,18 +52,10 @@ for more information. See also the [`AUTHORS`](AUTHORS) and
 - `third_party/`: third party open source packages; see below
 - `utils/`: utility scripts for Shaderc
 
-Shaderc depends on `glslang`, the Khronos reference compiler for GLSL.
-Sometimes a change updates both Shaderc and glslang.  In that case the
-glslang change will appear in [google/glslang](https://github.com/google/glslang)
-before it appears upstream in
-[KhronosGroup/glslang](https://github.com/KhronosGroup/glslang).
-We intend to upstream all changes to glslang. We maintain the separate
-copy only to stage those changes for review, and to provide something for
-Shaderc to build against in the meantime.  Please see
-[DEVELOPMENT.howto.md](DEVELOPMENT.howto.md) for more details.
+Shaderc depends on glslang, the Khronos reference compiler for GLSL.
 
-Shaderc depends on [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools)
-for assembling and disassembling SPIR-V binaries.
+Shaderc depends on [SPIRV-Tools][spirv-tools] for assembling, disassembling,
+and transforming SPIR-V binaries.
 
 Shaderc depends on the [Google Test](https://github.com/google/googletest)
 testing framework.
@@ -55,16 +65,29 @@ Shaderc into.
 
 ## Getting and building Shaderc
 
+**Experimental:** On Windows, instead of building from source, you can get the
+artifacts built by [Appveyor][appveyor] for the top of the tree of the master
+branch under the "Artifacts" tab of a certain job.
+
 1) Check out the source code:
 
 ```sh
 git clone https://github.com/google/shaderc $SOURCE_DIR
-cd $SOURCE_DIR/third_party
-git clone https://github.com/google/googletest.git
-git clone https://github.com/google/glslang.git
-git clone https://github.com/KhronosGroup/SPIRV-Tools.git spirv-tools
+cd $SOURCE_DIR
+./utils/git-sync-deps
 cd $SOURCE_DIR/
 ```
+
+**Note:** The [known-good](https://github.com/google/shaderc/tree/known-good)
+branch of the repository contains a
+[known_good.json](https://github.com/google/shaderc/blob/known-good/known_good.json)
+file describing a set of repo URLs and specific commits that have been
+tested together.  This information is updated periodically, and typically
+matches the latest update of these sources in the development branch
+of the Android NDK.
+The `known-good` branch also contains a
+[update_shaderc.py](https://github.com/google/shaderc/blob/known-good/update_shaderc_sources.py)
+script that will read the JSON file and checkout those specific commits for you.
 
 2) Ensure you have the requisite tools -- see the tools subsection below.
 
@@ -143,12 +166,12 @@ On Windows, the following tools should be installed and available on your path:
 
 Optionally, the following tools may be installed on any OS:
 
- - [`asciidoctor`](http://asciidoctor.org/): for generating documenation.
+ - [`asciidoctor`](http://asciidoctor.org/): for generating documentation.
    - [`pygments.rb`](https://rubygems.org/gems/pygments.rb) required by
      `asciidoctor` for syntax highlighting.
- - [`nosetests`](https://nose.readthedocs.org): for testing the Python code.
+ - [`nosetests`](https://nose.readthedocs.io): for testing the Python code.
 
-### Building and running Shderc using Docker
+### Building and running Shaderc using Docker
 
 Please make sure you have the Docker engine
 [installed](https://docs.docker.com/engine/installation/) on your machine.
@@ -156,7 +179,7 @@ Please make sure you have the Docker engine
 To create a Docker image containing Shaderc command line tools, issue the
 following command in `${SOURCE_DIR}`: `docker build -t <IMAGE-NAME> .`.
 The created image will have all the command line tools installed at
-`/usr/local` interally, and a data volume mounted at `/code`.
+`/usr/local` internally, and a data volume mounted at `/code`.
 
 Assume `<IMAGE-NAME>` is `shaderc/shaderc` from now on.
 
@@ -195,3 +218,18 @@ ninja report-coverage
 
 Then the coverage report can be found under the `$BUILD_DIR/coverage-report`
 directory.
+
+## Bindings
+
+Bindings are maintained by third parties, may contain content
+offered under a different license, and may reference or contain
+older versions of Shaderc and its dependencies.
+
+* **Python:** [pyshaderc][pyshaderc]
+* **Rust:** [shaderc-rs][shaderc-rs]
+
+[khr-glslang]: https://github.com/KhronosGroup/glslang
+[spirv-tools]: https://github.com/KhronosGroup/SPIRV-Tools
+[pyshaderc]: https://github.com/realitix/pyshaderc
+[shaderc-rs]: https://github.com/google/shaderc-rs
+[appveyor]: https://ci.appveyor.com/project/dneto0/shaderc

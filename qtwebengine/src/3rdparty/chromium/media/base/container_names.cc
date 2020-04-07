@@ -10,8 +10,8 @@
 #include <limits>
 
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "media/base/bit_reader.h"
 
 namespace media {
@@ -311,7 +311,7 @@ static bool CheckDts(const uint8_t* buffer, int buffer_size) {
 
     // Verify core audio sampling frequency is an allowed value.
     size_t sampling_freq_index = ReadBits(&reader, 4);
-    RCHECK(sampling_freq_index < arraysize(kSamplingFrequencyValid));
+    RCHECK(sampling_freq_index < base::size(kSamplingFrequencyValid));
     RCHECK(kSamplingFrequencyValid[sampling_freq_index]);
 
     // Verify transmission bit rate is valid.
@@ -325,7 +325,7 @@ static bool CheckDts(const uint8_t* buffer, int buffer_size) {
 
     // Verify extension audio descriptor flag is an allowed value.
     size_t audio_id_index = ReadBits(&reader, 3);
-    RCHECK(audio_id_index < arraysize(kExtAudioIdValid));
+    RCHECK(audio_id_index < base::size(kExtAudioIdValid));
     RCHECK(kExtAudioIdValid[audio_id_index]);
 
     // Skip extended coding flag and audio sync word insertion flag.
@@ -385,7 +385,7 @@ static bool CheckDV(const uint8_t* buffer, int buffer_size) {
       reader.SkipBits(3);
       RCHECK(ReadBits(&reader, 24) == 0xffffff);
       current_sequence_number = sequence_number;
-      for (size_t i = 0; i < arraysize(last_block_number); ++i)
+      for (size_t i = 0; i < base::size(last_block_number); ++i)
         last_block_number[i] = -1;
     } else {
       // Sequence number must match (this will also fail if no header seen).

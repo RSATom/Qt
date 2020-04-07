@@ -186,7 +186,7 @@ enum {
                             UMA_ACCESSIBILITYSERVICEINFO_MAX)
 
 using SearchKeyToPredicateMap =
-    base::hash_map<base::string16, AccessibilityMatchPredicate>;
+    std::unordered_map<base::string16, AccessibilityMatchPredicate>;
 base::LazyInstance<SearchKeyToPredicateMap>::Leaky
     g_search_key_to_predicate_map = LAZY_INSTANCE_INITIALIZER;
 base::LazyInstance<base::string16>::Leaky g_all_search_keys =
@@ -350,6 +350,7 @@ WebContentsAccessibilityAndroid::WebContentsAccessibilityAndroid(
     : java_ref_(env, obj),
       web_contents_(static_cast<WebContentsImpl*>(web_contents)),
       frame_info_initialized_(false),
+      use_zoom_for_dsf_enabled_(IsUseZoomForDSFEnabled()),
       root_manager_(nullptr),
       connector_(new Connector(web_contents, this)) {
   CollectStats();
@@ -550,7 +551,7 @@ bool WebContentsAccessibilityAndroid::OnHoverEvent(
   if (event.GetAction() != ui::MotionEvent::Action::HOVER_EXIT &&
       root_manager_) {
     gfx::PointF point =
-        IsUseZoomForDSFEnabled() ? event.GetPointPix() : event.GetPoint();
+        use_zoom_for_dsf_enabled_ ? event.GetPointPix() : event.GetPoint();
     point.Scale(1 / page_scale_);
     root_manager_->HitTest(gfx::ToFlooredPoint(point));
   }
@@ -694,10 +695,15 @@ jboolean WebContentsAccessibilityAndroid::PopulateAccessibilityNodeInfo(
         base::android::ConvertUTF16ToJavaString(env, element_id));
   }
 
-  gfx::Rect absolute_rect = node->GetPageBoundsRect();
+  float dip_scale = use_zoom_for_dsf_enabled_
+                        ? 1 / root_manager_->device_scale_factor()
+                        : 1.0;
+  gfx::Rect absolute_rect = gfx::ScaleToEnclosingRect(node->GetPageBoundsRect(),
+                                                      dip_scale, dip_scale);
   gfx::Rect parent_relative_rect = absolute_rect;
   if (node->PlatformGetParent()) {
-    gfx::Rect parent_rect = node->PlatformGetParent()->GetPageBoundsRect();
+    gfx::Rect parent_rect = gfx::ScaleToEnclosingRect(
+        node->PlatformGetParent()->GetPageBoundsRect(), dip_scale, dip_scale);
     parent_relative_rect.Offset(-parent_rect.OffsetFromOrigin());
   }
   bool is_root = node->PlatformGetParent() == NULL;
@@ -1090,7 +1096,8 @@ void WebContentsAccessibilityAndroid::OnAutofillPopupDisplayed(
   DeleteAutofillPopupProxy();
 
   g_autofill_popup_proxy_node = BrowserAccessibility::Create();
-  g_autofill_popup_proxy_node_ax_node = new ui::AXNode(nullptr, -1, -1);
+  g_autofill_popup_proxy_node_ax_node =
+      new ui::AXNode(nullptr, nullptr, -1, -1);
   ui::AXNodeData ax_node_data;
   ax_node_data.role = ax::mojom::Role::kMenu;
   ax_node_data.SetName("Autofill");
@@ -1189,7 +1196,7 @@ WebContentsAccessibilityAndroid::GetCharacterBoundingBoxes(
   gfx::Rect object_bounds = node->GetPageBoundsRect();
   int coords[4 * len];
   for (int i = 0; i < len; i++) {
-    gfx::Rect char_bounds = node->GetPageBoundsForRange(start + i, 1);
+    gfx::Rect char_bounds = node->GetPageBoundsForRange(start + i, 1, false);
     if (char_bounds.IsEmpty())
       char_bounds = object_bounds;
     coords[4 * i + 0] = char_bounds.x();

@@ -10,14 +10,17 @@
 
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/hash.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/strings/strcat.h"
+#include "base/strings/stringprintf.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
+#include "components/url_pattern_index/url_pattern_index.h"
 #include "extensions/browser/api/declarative_net_request/constants.h"
 #include "extensions/browser/api/declarative_net_request/flat/extension_ruleset_generated.h"
 #include "extensions/browser/api/declarative_net_request/flat_ruleset_indexer.h"
@@ -26,6 +29,7 @@
 #include "extensions/common/api/declarative_net_request.h"
 #include "extensions/common/api/declarative_net_request/dnr_manifest_data.h"
 #include "extensions/common/api/declarative_net_request/utils.h"
+#include "extensions/common/error_utils.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/install_warning.h"
 #include "extensions/common/manifest_constants.h"
@@ -39,36 +43,89 @@ namespace {
 
 namespace dnr_api = extensions::api::declarative_net_request;
 
-// Returns the checksum of the given serialized |data|.
-int GetChecksum(const FlatRulesetIndexer::SerializedData& data) {
-  uint32_t hash = base::PersistentHash(data.first, data.second);
+// The ruleset format version of the flatbuffer schema. Increment this whenever
+// making an incompatible change to the schema at extension_ruleset.fbs or
+// url_pattern_index.fbs. Whenever an extension with an indexed ruleset format
+// version different from the one currently used by Chrome is loaded, the
+// extension ruleset will be reindexed.
+constexpr int kIndexedRulesetFormatVersion = 4;
+
+// This static assert is meant to catch cases where
+// url_pattern_index::kUrlPatternIndexFormatVersion is incremented without
+// updating kIndexedRulesetFormatVersion.
+static_assert(url_pattern_index::kUrlPatternIndexFormatVersion == 4,
+              "kUrlPatternIndexFormatVersion has changed, make sure you've "
+              "also updated kIndexedRulesetFormatVersion above.");
+
+constexpr int kInvalidIndexedRulesetFormatVersion = -1;
+
+int g_indexed_ruleset_format_version_for_testing =
+    kInvalidIndexedRulesetFormatVersion;
+
+int GetIndexedRulesetFormatVersion() {
+  return g_indexed_ruleset_format_version_for_testing ==
+                 kInvalidIndexedRulesetFormatVersion
+             ? kIndexedRulesetFormatVersion
+             : g_indexed_ruleset_format_version_for_testing;
+}
+
+// Returns the header to be used for indexed rulesets. This depends on the
+// current ruleset format version.
+std::string GetVersionHeader() {
+  return base::StringPrintf("---------Version=%d",
+                            GetIndexedRulesetFormatVersion());
+}
+
+// Returns the checksum of the given serialized |data|. |data| must not include
+// the version header.
+int GetChecksum(base::span<const uint8_t> data) {
+  uint32_t hash = base::PersistentHash(data.data(), data.size());
 
   // Strip off the sign bit since this needs to be persisted in preferences
   // which don't support unsigned ints.
   return static_cast<int>(hash & 0x7fffffff);
 }
 
-// Helper function to persist the indexed ruleset |data| for |extension|.
+// Helper function to persist the indexed ruleset |data| for |extension|. The
+// ruleset is composed of a version header corresponding to the current ruleset
+// format version, followed by the actual ruleset data. Note: The checksum only
+// corresponds to this ruleset data and does not include the version header.
 bool PersistRuleset(const Extension& extension,
-                    const FlatRulesetIndexer::SerializedData& data,
+                    base::span<const uint8_t> data,
                     int* ruleset_checksum) {
   DCHECK(ruleset_checksum);
 
   const base::FilePath path =
       file_util::GetIndexedRulesetPath(extension.path());
 
-  // Create the directory corresponding to |path| if it does not exist and then
-  // persist the ruleset.
-  const int data_size = base::checked_cast<int>(data.second);
-  const bool success =
-      base::CreateDirectory(path.DirName()) &&
-      base::WriteFile(path, reinterpret_cast<const char*>(data.first),
-                      data_size) == data_size;
+  // Create the directory corresponding to |path| if it does not exist.
+  if (!base::CreateDirectory(path.DirName()))
+    return false;
 
-  if (success)
-    *ruleset_checksum = GetChecksum(data);
+  base::File ruleset_file(
+      path, base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
+  if (!ruleset_file.IsValid())
+    return false;
 
-  return success;
+  // Write the version header.
+  std::string version_header = GetVersionHeader();
+  int version_header_size = static_cast<int>(version_header.size());
+  if (ruleset_file.WriteAtCurrentPos(
+          version_header.data(), version_header_size) != version_header_size) {
+    return false;
+  }
+
+  // Write the flatbuffer ruleset.
+  if (!base::IsValueInRangeForNumericType<int>(data.size()))
+    return false;
+  int data_size = static_cast<int>(data.size());
+  if (ruleset_file.WriteAtCurrentPos(reinterpret_cast<const char*>(data.data()),
+                                     data_size) != data_size) {
+    return false;
+  }
+
+  *ruleset_checksum = GetChecksum(data);
+  return true;
 }
 
 // Helper to retrieve the ruleset ExtensionResource for |extension|.
@@ -79,8 +136,12 @@ const ExtensionResource* GetRulesetResource(const Extension& extension) {
 
 // Helper to retrieve the filename of the JSON ruleset provided by |extension|.
 std::string GetJSONRulesetFilename(const Extension& extension) {
-  base::AssertBlockingAllowed();
   return GetRulesetResource(extension)->GetFilePath().BaseName().AsUTF8Unsafe();
+}
+
+InstallWarning CreateInstallWarning(const std::string& message) {
+  return InstallWarning(message, manifest_keys::kDeclarativeNetRequestKey,
+                        manifest_keys::kDeclarativeRuleResourcesKey);
 }
 
 // Helper function to index |rules| and persist them to the
@@ -89,7 +150,6 @@ ParseInfo IndexAndPersistRulesImpl(const base::Value& rules,
                                    const Extension& extension,
                                    std::vector<InstallWarning>* warnings,
                                    int* ruleset_checksum) {
-  base::AssertBlockingAllowed();
   DCHECK(warnings);
   DCHECK(ruleset_checksum);
 
@@ -97,7 +157,16 @@ ParseInfo IndexAndPersistRulesImpl(const base::Value& rules,
     return ParseInfo(ParseResult::ERROR_LIST_NOT_PASSED);
 
   FlatRulesetIndexer indexer;
-  bool all_rules_parsed = true;
+
+  const size_t kRuleCountLimit = dnr_api::MAX_NUMBER_OF_RULES;
+  bool rule_count_exceeded = false;
+
+  // Limit the maximum number of rule unparsed warnings to 5.
+  const size_t kMaxUnparsedRulesWarnings = 5;
+  std::vector<int> unparsed_indices;
+  unparsed_indices.reserve(kMaxUnparsedRulesWarnings);
+  bool unparsed_warnings_limit_exeeded = false;
+
   base::ElapsedTimer timer;
   {
     std::set<int> id_set;  // Ensure all ids are distinct.
@@ -108,9 +177,13 @@ ParseInfo IndexAndPersistRulesImpl(const base::Value& rules,
       parsed_rule = dnr_api::Rule::FromValue(rules_list[i]);
 
       // Ignore rules which can't be successfully parsed and show an install
-      // warning for them.
+      // warning for them. A hard error is not thrown to maintain backwards
+      // compatibility.
       if (!parsed_rule) {
-        all_rules_parsed = false;
+        if (unparsed_indices.size() < kMaxUnparsedRulesWarnings)
+          unparsed_indices.push_back(i);
+        else
+          unparsed_warnings_limit_exeeded = true;
         continue;
       }
 
@@ -124,21 +197,33 @@ ParseInfo IndexAndPersistRulesImpl(const base::Value& rules,
       if (parse_result != ParseResult::SUCCESS)
         return ParseInfo(parse_result, i);
 
+      if (indexer.indexed_rules_count() >= kRuleCountLimit) {
+        rule_count_exceeded = true;
+        break;
+      }
+
       indexer.AddUrlRule(indexed_rule);
     }
   }
   indexer.Finish();
   UMA_HISTOGRAM_TIMES(kIndexRulesTimeHistogram, timer.Elapsed());
 
-  // The actual data buffer is still owned by |indexer|.
-  const FlatRulesetIndexer::SerializedData data = indexer.GetData();
-  if (!PersistRuleset(extension, data, ruleset_checksum))
+  if (!PersistRuleset(extension, indexer.GetData(), ruleset_checksum))
     return ParseInfo(ParseResult::ERROR_PERSISTING_RULESET);
 
-  if (!all_rules_parsed) {
-    warnings->push_back(InstallWarning(
-        kRulesNotParsedWarning, manifest_keys::kDeclarativeNetRequestKey,
-        manifest_keys::kDeclarativeRuleResourcesKey));
+  if (rule_count_exceeded)
+    warnings->push_back(CreateInstallWarning(kRuleCountExceeded));
+
+  if (unparsed_warnings_limit_exeeded) {
+    DCHECK_EQ(kMaxUnparsedRulesWarnings, unparsed_indices.size());
+    warnings->push_back(CreateInstallWarning(ErrorUtils::FormatErrorMessage(
+        kTooManyParseFailuresWarning,
+        std::to_string(kMaxUnparsedRulesWarnings))));
+  }
+
+  for (int rule_index : unparsed_indices) {
+    warnings->push_back(CreateInstallWarning(ErrorUtils::FormatErrorMessage(
+        kRuleNotParsedWarning, std::to_string(rule_index))));
   }
 
   UMA_HISTOGRAM_TIMES(kIndexAndPersistRulesTimeHistogram, timer.Elapsed());
@@ -169,9 +254,16 @@ void OnSafeJSONParserSuccess(const Extension* extension,
       IndexAndPersistRulesResult::CreateErrorResult(std::move(error)));
 }
 
+std::string GetJSONParseError(const std::string& json_ruleset_filename,
+                              const std::string& json_parse_error) {
+  return base::StrCat({json_ruleset_filename, ": ", json_parse_error});
+}
+
 void OnSafeJSONParserError(IndexAndPersistRulesCallback callback,
-                           const std::string& error) {
-  std::move(callback).Run(IndexAndPersistRulesResult::CreateErrorResult(error));
+                           const std::string& json_ruleset_filename,
+                           const std::string& json_parse_error) {
+  std::move(callback).Run(IndexAndPersistRulesResult::CreateErrorResult(
+      GetJSONParseError(json_ruleset_filename, json_parse_error)));
 }
 
 }  // namespace
@@ -206,7 +298,6 @@ IndexAndPersistRulesResult::IndexAndPersistRulesResult() = default;
 IndexAndPersistRulesResult IndexAndPersistRulesUnsafe(
     const Extension& extension) {
   DCHECK(IsAPIAvailable());
-  base::AssertBlockingAllowed();
 
   const ExtensionResource* resource = GetRulesetResource(extension);
   DCHECK(resource);
@@ -215,8 +306,10 @@ IndexAndPersistRulesResult IndexAndPersistRulesUnsafe(
   std::string error;
   std::unique_ptr<base::Value> root = deserializer.Deserialize(
       nullptr /*error_code*/, &error /*error_message*/);
-  if (!root)
-    return IndexAndPersistRulesResult::CreateErrorResult(std::move(error));
+  if (!root) {
+    return IndexAndPersistRulesResult::CreateErrorResult(
+        GetJSONParseError(GetJSONRulesetFilename(extension), error));
+  }
 
   std::vector<InstallWarning> warnings;
   int ruleset_checksum;
@@ -232,11 +325,10 @@ IndexAndPersistRulesResult IndexAndPersistRulesUnsafe(
 }
 
 void IndexAndPersistRules(service_manager::Connector* connector,
-                          service_manager::Identity* identity,
+                          const base::Optional<base::Token>& decoder_batch_id,
                           const Extension& extension,
                           IndexAndPersistRulesCallback callback) {
   DCHECK(IsAPIAvailable());
-  base::AssertBlockingAllowed();
 
   const ExtensionResource* resource = GetRulesetResource(extension);
   DCHECK(resource);
@@ -256,25 +348,50 @@ void IndexAndPersistRules(service_manager::Connector* connector,
       base::BindRepeating(&OnSafeJSONParserSuccess,
                           base::RetainedRef(&extension), repeating_callback);
   auto error_callback =
-      base::BindRepeating(&OnSafeJSONParserError, repeating_callback);
+      base::BindRepeating(&OnSafeJSONParserError, repeating_callback,
+                          GetJSONRulesetFilename(extension));
 
-  if (identity) {
+  if (decoder_batch_id) {
     data_decoder::SafeJsonParser::ParseBatch(connector, json_contents,
                                              success_callback, error_callback,
-                                             identity->instance());
+                                             *decoder_batch_id);
   } else {
     data_decoder::SafeJsonParser::Parse(connector, json_contents,
                                         success_callback, error_callback);
   }
 }
 
-bool IsValidRulesetData(const uint8_t* data,
-                        size_t size,
-                        int expected_checksum) {
-  flatbuffers::Verifier verifier(data, size);
-  FlatRulesetIndexer::SerializedData serialized_data(data, size);
-  return expected_checksum == GetChecksum(serialized_data) &&
+bool IsValidRulesetData(base::span<const uint8_t> data, int expected_checksum) {
+  flatbuffers::Verifier verifier(data.data(), data.size());
+  return expected_checksum == GetChecksum(data) &&
          flat::VerifyExtensionIndexedRulesetBuffer(verifier);
+}
+
+std::string GetVersionHeaderForTesting() {
+  return GetVersionHeader();
+}
+
+int GetIndexedRulesetFormatVersionForTesting() {
+  return GetIndexedRulesetFormatVersion();
+}
+
+void SetIndexedRulesetFormatVersionForTesting(int version) {
+  DCHECK_NE(kInvalidIndexedRulesetFormatVersion, version);
+  g_indexed_ruleset_format_version_for_testing = version;
+}
+
+bool StripVersionHeaderAndParseVersion(std::string* ruleset_data) {
+  DCHECK(ruleset_data);
+  const std::string version_header = GetVersionHeader();
+
+  if (!base::StartsWith(*ruleset_data, version_header,
+                        base::CompareCase::SENSITIVE)) {
+    return false;
+  }
+
+  // Strip the header from |ruleset_data|.
+  ruleset_data->erase(0, version_header.size());
+  return true;
 }
 
 }  // namespace declarative_net_request

@@ -153,6 +153,18 @@ private Q_SLOTS:
     void implicitValueType();
     void implicitDocumentType();
 
+    void streamSerializationQJsonDocument_data();
+    void streamSerializationQJsonDocument();
+    void streamSerializationQJsonArray_data();
+    void streamSerializationQJsonArray();
+    void streamSerializationQJsonObject_data();
+    void streamSerializationQJsonObject();
+    void streamSerializationQJsonValue_data();
+    void streamSerializationQJsonValue();
+    void streamSerializationQJsonValueEmpty();
+    void streamVariantSerialization();
+    void escapeSurrogateCodePoints_data();
+    void escapeSurrogateCodePoints();
 private:
     QString testDataDir;
 };
@@ -3009,6 +3021,189 @@ void tst_QtJson::implicitDocumentType()
     QCOMPARE(arrayDocument[-1], QJsonValue(QJsonValue::Undefined));
     QCOMPARE(arrayDocument["asObject"], QJsonValue(QJsonValue::Undefined));
     QCOMPARE(arrayDocument[-1].toInt(123), 123);
+}
+
+void tst_QtJson::streamSerializationQJsonDocument_data()
+{
+    QTest::addColumn<QJsonDocument>("document");
+    QTest::newRow("empty") << QJsonDocument();
+    QTest::newRow("object") << QJsonDocument(QJsonObject{{"value", 42}});
+}
+
+void tst_QtJson::streamSerializationQJsonDocument()
+{
+    // Check interface only, implementation is tested through to and from
+    // json functions.
+    QByteArray buffer;
+    QFETCH(QJsonDocument, document);
+    QJsonDocument output;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    save << document;
+    QDataStream load(buffer);
+    load >> output;
+    QCOMPARE(output, document);
+}
+
+void tst_QtJson::streamSerializationQJsonArray_data()
+{
+    QTest::addColumn<QJsonArray>("array");
+    QTest::newRow("empty") << QJsonArray();
+    QTest::newRow("values") << QJsonArray{665, 666, 667};
+}
+
+void tst_QtJson::streamSerializationQJsonArray()
+{
+    // Check interface only, implementation is tested through to and from
+    // json functions.
+    QByteArray buffer;
+    QFETCH(QJsonArray, array);
+    QJsonArray output;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    save << array;
+    QDataStream load(buffer);
+    load >> output;
+    QCOMPARE(output, array);
+}
+
+void tst_QtJson::streamSerializationQJsonObject_data()
+{
+    QTest::addColumn<QJsonObject>("object");
+    QTest::newRow("empty") << QJsonObject();
+    QTest::newRow("non-empty") << QJsonObject{{"foo", 665}, {"bar", 666}};
+}
+
+void tst_QtJson::streamSerializationQJsonObject()
+{
+    // Check interface only, implementation is tested through to and from
+    // json functions.
+    QByteArray buffer;
+    QFETCH(QJsonObject, object);
+    QJsonObject output;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    save << object;
+    QDataStream load(buffer);
+    load >> output;
+    QCOMPARE(output, object);
+}
+
+void tst_QtJson::streamSerializationQJsonValue_data()
+{
+    QTest::addColumn<QJsonValue>("value");
+    QTest::newRow("double") << QJsonValue{665};
+    QTest::newRow("bool") << QJsonValue{true};
+    QTest::newRow("string") << QJsonValue{QStringLiteral("bum")};
+    QTest::newRow("array") << QJsonValue{QJsonArray{12,1,5,6,7}};
+    QTest::newRow("object") << QJsonValue{QJsonObject{{"foo", 665}, {"bar", 666}}};
+    // test json escape sequence
+    QTest::newRow("array with 0xD800") << QJsonValue(QJsonArray{QString(0xD800)});
+    QTest::newRow("array with 0xDF06,0xD834") << QJsonValue(QJsonArray{QString(0xDF06).append(0xD834)});
+}
+
+void tst_QtJson::streamSerializationQJsonValue()
+{
+    QByteArray buffer;
+    QFETCH(QJsonValue, value);
+    QJsonValue output;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    save << value;
+    QDataStream load(buffer);
+    load >> output;
+    QCOMPARE(output, value);
+}
+
+void tst_QtJson::streamSerializationQJsonValueEmpty()
+{
+    QByteArray buffer;
+    {
+        QJsonValue undef{QJsonValue::Undefined};
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << undef;
+        QDataStream load(buffer);
+        QJsonValue output;
+        load >> output;
+        QVERIFY(output.isUndefined());
+    }
+    {
+        QJsonValue null{QJsonValue::Null};
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << null;
+        QDataStream load(buffer);
+        QJsonValue output;
+        load >> output;
+        QVERIFY(output.isNull());
+    }
+}
+
+void tst_QtJson::streamVariantSerialization()
+{
+    // Check interface only, implementation is tested through to and from
+    // json functions.
+    QByteArray buffer;
+    {
+        QJsonDocument objectDoc(QJsonArray{665, 666, 667});
+        QVariant output;
+        QVariant variant(objectDoc);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QJsonDocument);
+        QCOMPARE(output.toJsonDocument(), objectDoc);
+    }
+    {
+        QJsonArray array{665, 666, 667};
+        QVariant output;
+        QVariant variant(array);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QJsonArray);
+        QCOMPARE(output.toJsonArray(), array);
+    }
+    {
+        QJsonObject obj{{"foo", 42}};
+        QVariant output;
+        QVariant variant(obj);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QJsonObject);
+        QCOMPARE(output.toJsonObject(), obj);
+    }
+    {
+        QJsonValue value{42};
+        QVariant output;
+        QVariant variant(value);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QJsonValue);
+        QCOMPARE(output.toJsonValue(), value);
+    }
+}
+
+void tst_QtJson::escapeSurrogateCodePoints_data()
+{
+    QTest::addColumn<QString>("str");
+    QTest::addColumn<QByteArray>("escStr");
+    QTest::newRow("0xD800") << QString(0xD800) << QByteArray("\\ud800");
+    QTest::newRow("0xDF06,0xD834") << QString(0xDF06).append(0xD834) << QByteArray("\\udf06\\ud834");
+}
+
+void tst_QtJson::escapeSurrogateCodePoints()
+{
+    QFETCH(QString, str);
+    QFETCH(QByteArray, escStr);
+    QJsonArray array;
+    array.append(str);
+    QByteArray buffer;
+    QDataStream save(&buffer, QIODevice::WriteOnly);
+    save << array;
+    // verify the buffer has escaped values
+    QVERIFY(buffer.contains(escStr));
 }
 
 QTEST_MAIN(tst_QtJson)

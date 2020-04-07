@@ -9,6 +9,8 @@
 #include "core/fpdfapi/page/cpdf_colorspace.h"
 #include "core/fpdfapi/page/cpdf_function.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/span.h"
 
 namespace {
@@ -140,7 +142,7 @@ bool CPDF_MeshStream::Load() {
 
   m_nComponents = m_funcs.empty() ? nComponents : 1;
   const CPDF_Array* pDecode = pDict->GetArrayFor("Decode");
-  if (!pDecode || pDecode->GetCount() != 4 + m_nComponents * 2)
+  if (!pDecode || pDecode->size() != 4 + m_nComponents * 2)
     return false;
 
   m_xmin = pDecode->GetNumberAt(0);

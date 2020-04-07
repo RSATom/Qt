@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
 
 project                 = QtPlatformHeaders
 description             = Qt Platform Headers Reference Documentation
@@ -34,6 +35,8 @@ headerdirs  += ..
 sourcedirs  += ..
 exampledirs += snippets
 imagedirs   += images
+
+tagfile = qtplatformheaders.tags
 
 navigation.landingpage = "Qt Platform Headers"
 navigation.cppclassespage = "Qt Platform Headers C++ Classes"

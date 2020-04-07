@@ -18,21 +18,28 @@
 #include "chrome/browser/chromeos/settings/shutdown_policy_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
-#include "content/public/browser/web_ui_controller.h"
+#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
+#include "ui/webui/mojo_web_ui_controller.h"
 
 namespace base {
 class DictionaryValue;
 }  // namespace base
+
+namespace service_manager {
+class Connector;
+}  // namespace service_manager
 
 namespace chromeos {
 class AppDownloadingScreenView;
 class AppLaunchSplashScreenView;
 class ArcKioskSplashScreenView;
 class ArcTermsOfServiceScreenView;
+class AssistantOptInFlowScreenView;
 class AutoEnrollmentCheckScreenView;
 class BaseScreenHandler;
-class ControllerPairingScreenView;
 class CoreOobeView;
+class DemoPreferencesScreenView;
+class DemoSetupScreenView;
 class DeviceDisabledScreenView;
 class EnableDebuggingScreenView;
 class EncryptionMigrationScreenView;
@@ -40,50 +47,50 @@ class EnrollmentScreenView;
 class EulaView;
 class ErrorScreen;
 class DiscoverScreenView;
+class FingerprintSetupScreenView;
 class GaiaView;
 class HIDDetectionView;
-class HostPairingScreenView;
 class KioskAppMenuHandler;
 class KioskAutolaunchScreenView;
 class KioskEnableScreenView;
 class LoginScreenContext;
+class MarketingOptInScreenView;
+class MultiDeviceSetupScreenView;
 class NativeWindowDelegate;
+class NetworkScreenView;
 class NetworkStateInformer;
-class WelcomeView;
 class OobeDisplayChooser;
 class RecommendAppsScreenView;
+class ResetView;
 class SigninScreenHandler;
 class SigninScreenHandlerDelegate;
-class SupervisedUserCreationScreenHandler;
-class ResetView;
-class DemoSetupScreenView;
-class DemoPreferencesScreenView;
 class SyncConsentScreenView;
 class TermsOfServiceScreenView;
 class UserBoardView;
 class UserImageView;
 class UpdateView;
 class UpdateRequiredView;
-class VoiceInteractionValuePropScreenView;
-class WaitForContainerReadyScreenView;
+class SupervisionTransitionScreenView;
+class WelcomeView;
 class WrongHWIDScreenView;
 
 // A custom WebUI that defines datasource for out-of-box-experience (OOBE) UI:
 // - welcome screen (setup language/keyboard/network).
 // - eula screen (CrOS (+ OEM) EULA content/TPM password/crash reporting).
 // - update screen.
-class OobeUI : public content::WebUIController,
+class OobeUI : public ui::MojoWebUIController,
                public ShutdownPolicyHandler::Delegate {
  public:
   // List of known types of OobeUI. Type added as path in chrome://oobe url, for
   // example chrome://oobe/user-adding.
-  static const char kOobeDisplay[];
-  static const char kLoginDisplay[];
-  static const char kLockDisplay[];
-  static const char kUserAddingDisplay[];
   static const char kAppLaunchSplashDisplay[];
   static const char kArcKioskSplashDisplay[];
+  static const char kDiscoverDisplay[];
   static const char kGaiaSigninDisplay[];
+  static const char kLockDisplay[];
+  static const char kLoginDisplay[];
+  static const char kOobeDisplay[];
+  static const char kUserAddingDisplay[];
 
   class Observer {
    public:
@@ -110,6 +117,7 @@ class OobeUI : public content::WebUIController,
   ResetView* GetResetView();
   DemoSetupScreenView* GetDemoSetupScreenView();
   DemoPreferencesScreenView* GetDemoPreferencesScreenView();
+  FingerprintSetupScreenView* GetFingerprintSetupScreenView();
   KioskAutolaunchScreenView* GetKioskAutolaunchScreenView();
   KioskEnableScreenView* GetKioskEnableScreenView();
   TermsOfServiceScreenView* GetTermsOfServiceScreenView();
@@ -121,20 +129,20 @@ class OobeUI : public content::WebUIController,
   ErrorScreen* GetErrorScreen();
   WrongHWIDScreenView* GetWrongHWIDScreenView();
   AutoEnrollmentCheckScreenView* GetAutoEnrollmentCheckScreenView();
-  SupervisedUserCreationScreenHandler* GetSupervisedUserCreationScreenView();
   AppLaunchSplashScreenView* GetAppLaunchSplashScreenView();
   ArcKioskSplashScreenView* GetArcKioskSplashScreenView();
   HIDDetectionView* GetHIDDetectionView();
-  ControllerPairingScreenView* GetControllerPairingScreenView();
-  HostPairingScreenView* GetHostPairingScreenView();
   DeviceDisabledScreenView* GetDeviceDisabledScreenView();
   EncryptionMigrationScreenView* GetEncryptionMigrationScreenView();
-  VoiceInteractionValuePropScreenView* GetVoiceInteractionValuePropScreenView();
-  WaitForContainerReadyScreenView* GetWaitForContainerReadyScreenView();
+  SupervisionTransitionScreenView* GetSupervisionTransitionScreenView();
   UpdateRequiredView* GetUpdateRequiredScreenView();
+  AssistantOptInFlowScreenView* GetAssistantOptInFlowScreenView();
+  MultiDeviceSetupScreenView* GetMultiDeviceSetupScreenView();
   GaiaView* GetGaiaScreenView();
   UserBoardView* GetUserBoardView();
   DiscoverScreenView* GetDiscoverScreenView();
+  NetworkScreenView* GetNetworkScreenView();
+  MarketingOptInScreenView* GetMarketingOptInScreenView();
 
   // ShutdownPolicyHandler::Delegate
   void OnShutdownPolicyChanged(bool reboot_on_shutdown) override;
@@ -215,6 +223,17 @@ class OobeUI : public content::WebUIController,
   void AddWebUIHandler(std::unique_ptr<BaseWebUIHandler> handler);
   void AddScreenHandler(std::unique_ptr<BaseScreenHandler> handler);
 
+  // Configures all the relevant screen shandlers and resources for OOBE/Login
+  // display type.
+  void ConfigureOobeDisplay();
+
+  // Adds Mojo bindings for this WebUIController.
+  service_manager::Connector* GetLoggedInUserMojoConnector();
+  void BindMultiDeviceSetup(
+      multidevice_setup::mojom::MultiDeviceSetupRequest request);
+  void BindPrivilegedHostDeviceSetter(
+      multidevice_setup::mojom::PrivilegedHostDeviceSetterRequest request);
+
   // Type of UI.
   std::string display_type_;
 
@@ -225,8 +244,6 @@ class OobeUI : public content::WebUIController,
   // Reference to CoreOobeHandler that handles common requests of Oobe page.
   CoreOobeHandler* core_handler_ = nullptr;
 
-  SupervisedUserCreationScreenHandler* supervised_user_creation_screen_view_ =
-      nullptr;
   // Reference to SigninScreenHandler that handles sign-in screen requests and
   // forwards calls from native code to JS side.
   SigninScreenHandler* signin_screen_handler_ = nullptr;
@@ -254,7 +271,7 @@ class OobeUI : public content::WebUIController,
   std::vector<base::Closure> ready_callbacks_;
 
   // List of registered observers.
-  base::ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer>::Unchecked observer_list_;
 
   // Observer of CrosSettings watching the kRebootOnShutdown policy.
   std::unique_ptr<ShutdownPolicyHandler> shutdown_policy_handler_;

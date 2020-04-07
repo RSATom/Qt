@@ -24,10 +24,9 @@ class MODULES_EXPORT AudioWorklet final : public Worklet {
   WTF_MAKE_NONCOPYABLE(AudioWorklet);
 
  public:
-  // When the AudioWorklet runtime flag is not enabled, this constructor returns
-  // |nullptr|.
   static AudioWorklet* Create(BaseAudioContext*);
 
+  explicit AudioWorklet(BaseAudioContext*);
   ~AudioWorklet() override = default;
 
   void CreateProcessor(scoped_refptr<AudioWorkletHandler>,
@@ -57,8 +56,6 @@ class MODULES_EXPORT AudioWorklet final : public Worklet {
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit AudioWorklet(BaseAudioContext*);
-
   // Implements Worklet
   bool NeedsToCreateGlobalScope() final;
   WorkletGlobalScopeProxy* CreateGlobalScope() final;

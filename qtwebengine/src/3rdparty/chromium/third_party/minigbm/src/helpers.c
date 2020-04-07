@@ -183,8 +183,7 @@ uint32_t drv_stride_from_format(uint32_t format, uint32_t width, size_t plane)
 	const struct planar_layout *layout = layout_from_format(format);
 	assert(plane < layout->num_planes);
 
-	uint32_t plane_width =
-		DIV_ROUND_UP(width, layout->horizontal_subsampling[plane]);
+	uint32_t plane_width = DIV_ROUND_UP(width, layout->horizontal_subsampling[plane]);
 	uint32_t stride = plane_width * layout->bytes_per_pixel[plane];
 
 	/*
@@ -367,12 +366,6 @@ int drv_prime_bo_import(struct bo *bo, struct drv_import_fd_data *data)
 		}
 
 		bo->handles[plane].u32 = prime_handle.handle;
-	}
-
-	for (plane = 0; plane < bo->num_planes; plane++) {
-		pthread_mutex_lock(&bo->drv->driver_lock);
-		drv_increment_reference_count(bo->drv, bo, plane);
-		pthread_mutex_unlock(&bo->drv->driver_lock);
 	}
 
 	return 0;

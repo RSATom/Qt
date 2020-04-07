@@ -613,10 +613,9 @@ void sqlite3DropTriggerPtr(Parse *pParse, Trigger *pTrigger){
   iDb = sqlite3SchemaToIndex(pParse->db, pTrigger->pSchema);
   assert( iDb>=0 && iDb<db->nDb );
   pTable = tableOfTrigger(pTrigger);
-  assert( pTable );
-  assert( pTable->pSchema==pTrigger->pSchema || iDb==1 );
+  assert( (pTable && pTable->pSchema==pTrigger->pSchema) || iDb==1 );
 #ifndef SQLITE_OMIT_AUTHORIZATION
-  {
+  if( pTable ){
     int code = SQLITE_DROP_TRIGGER;
     const char *zDb = db->aDb[iDb].zDbSName;
     const char *zTab = SCHEMA_TABLE(iDb);
@@ -630,7 +629,6 @@ void sqlite3DropTriggerPtr(Parse *pParse, Trigger *pTrigger){
 
   /* Generate code to destroy the database record of the trigger.
   */
-  assert( pTable!=0 );
   if( (v = sqlite3GetVdbe(pParse))!=0 ){
     sqlite3NestedParse(pParse,
        "DELETE FROM %Q.%s WHERE name=%Q AND type='trigger'",
@@ -654,9 +652,11 @@ void sqlite3UnlinkAndDeleteTrigger(sqlite3 *db, int iDb, const char *zName){
   if( ALWAYS(pTrigger) ){
     if( pTrigger->pSchema==pTrigger->pTabSchema ){
       Table *pTab = tableOfTrigger(pTrigger);
-      Trigger **pp;
-      for(pp=&pTab->pTrigger; *pp!=pTrigger; pp=&((*pp)->pNext));
-      *pp = (*pp)->pNext;
+      if( pTab ){
+        Trigger **pp;
+        for(pp=&pTab->pTrigger; *pp!=pTrigger; pp=&((*pp)->pNext));
+        *pp = (*pp)->pNext;
+      }
     }
     sqlite3DeleteTrigger(db, pTrigger);
     db->mDbFlags |= DBFLAG_SchemaChange;
@@ -731,7 +731,7 @@ static SrcList *targetSrcList(
   int iDb;             /* Index of the database to use */
   SrcList *pSrc;       /* SrcList to be returned */
 
-  pSrc = sqlite3SrcListAppend(db, 0, 0, 0);
+  pSrc = sqlite3SrcListAppend(pParse, 0, 0, 0);
   if( pSrc ){
     assert( pSrc->nSrc>0 );
     pSrc->a[pSrc->nSrc-1].zName = sqlite3DbStrDup(db, pStep->zTarget);
@@ -916,6 +916,7 @@ static TriggerPrg *codeRowTrigger(
   pSubParse->zAuthContext = pTrigger->zName;
   pSubParse->eTriggerOp = pTrigger->op;
   pSubParse->nQueryLoop = pParse->nQueryLoop;
+  pSubParse->disableVtab = pParse->disableVtab;
 
   v = sqlite3GetVdbe(pSubParse);
   if( v ){
@@ -943,7 +944,7 @@ static TriggerPrg *codeRowTrigger(
       if( SQLITE_OK==sqlite3ResolveExprNames(&sNC, pWhen)
        && db->mallocFailed==0
       ){
-        iEndTrigger = sqlite3VdbeMakeLabel(v);
+        iEndTrigger = sqlite3VdbeMakeLabel(pSubParse);
         sqlite3ExprIfFalse(pSubParse, pWhen, iEndTrigger, SQLITE_JUMPIFNULL);
       }
       sqlite3ExprDelete(db, pWhen);

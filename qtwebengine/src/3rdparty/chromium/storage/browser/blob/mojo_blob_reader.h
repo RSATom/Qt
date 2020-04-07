@@ -6,13 +6,15 @@
 #define STORAGE_BROWSER_BLOB_MOJO_BLOB_READER_H_
 
 #include <memory>
+
+#include "base/component_export.h"
 #include "base/memory/ref_counted.h"
+#include "base/sequence_checker.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_byte_range.h"
 #include "storage/browser/blob/blob_reader.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace net {
 class IOBufferWithSize;
@@ -27,7 +29,7 @@ class BlobDataHandle;
 
 // Reads a blob into a data pipe. Owns itself, and owns its delegate. Self
 // destructs when reading is complete.
-class STORAGE_EXPORT MojoBlobReader {
+class COMPONENT_EXPORT(STORAGE_BROWSER) MojoBlobReader {
  public:
   // Methods on this delegate are called in the order they are defined here.
   // With the exception of DidRead, each method is called at most once.
@@ -38,7 +40,7 @@ class STORAGE_EXPORT MojoBlobReader {
    public:
     enum RequestSideData { REQUEST_SIDE_DATA, DONT_REQUEST_SIDE_DATA };
 
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
 
     // Called when the blob being read has been fully constructed and its size
     // is known. |total_size| is the total size of the blob, while
@@ -57,11 +59,6 @@ class STORAGE_EXPORT MojoBlobReader {
     // data this method is called with null.
     virtual void DidReadSideData(net::IOBufferWithSize* data) {}
 
-    // Called when the MojoBlobReader actually starts reading data from the
-    // blob. Should return a data pipe to which all the data read from the blob
-    // should be written.
-    virtual mojo::ScopedDataPipeProducerHandle PassDataPipe() = 0;
-
     // Called whenever some amount of data is read from the blob and about to be
     // written to the data pipe.
     virtual void DidRead(int num_bytes) {}
@@ -79,12 +76,14 @@ class STORAGE_EXPORT MojoBlobReader {
 
   static void Create(const BlobDataHandle* handle,
                      const net::HttpByteRange& range,
-                     std::unique_ptr<Delegate> delegate);
+                     std::unique_ptr<Delegate> delegate,
+                     mojo::ScopedDataPipeProducerHandle response_body_stream);
 
  private:
   MojoBlobReader(const BlobDataHandle* handle,
                  const net::HttpByteRange& range,
-                 std::unique_ptr<Delegate> delegate);
+                 std::unique_ptr<Delegate> delegate,
+                 mojo::ScopedDataPipeProducerHandle response_body_stream);
   ~MojoBlobReader();
 
   void Start();
@@ -96,10 +95,12 @@ class STORAGE_EXPORT MojoBlobReader {
   void StartReading();
   void ReadMore();
   void DidRead(bool completed_synchronously, int num_bytes);
-  void OnResponseBodyStreamClosed(MojoResult result);
-  void OnResponseBodyStreamReady(MojoResult result);
+  void OnResponseBodyStreamClosed(MojoResult result,
+                                  const mojo::HandleSignalsState& state);
+  void OnResponseBodyStreamReady(MojoResult result,
+                                 const mojo::HandleSignalsState& state);
 
-  std::unique_ptr<Delegate> delegate_;
+  const std::unique_ptr<Delegate> delegate_;
 
   // The range of the blob that should be read. Could be unbounded if the entire
   // blob is being read.
@@ -129,6 +130,8 @@ class STORAGE_EXPORT MojoBlobReader {
   // Set to true when the delegate's OnComplete has been called. Used to make
   // sure OnComplete isn't called more than once.
   bool notified_completed_ = false;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<MojoBlobReader> weak_factory_;
 

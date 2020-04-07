@@ -55,7 +55,9 @@
             <cr-input value="{{item}}" on-change="onFingerprintLabelChanged_">
             </cr-input>
             <paper-icon-button-light class="icon-delete-gray">
-              <button on-click="onFingerprintDeleteTapped_"></button>
+              <button on-click="onFingerprintDeleteTapped_"
+                  aria-label$="[[getButtonAriaLabel_(item)]]">
+              </button>
             </paper-icon-button-light>
           </div>
         </template>
@@ -72,7 +74,8 @@
     <template is="dom-if" if="[[showSetupFingerprintDialog_]]" restamp>
       <settings-setup-fingerprint-dialog
           on-add-fingerprint="updateFingerprintsList_"
-          on-close="onSetupFingerprintDialogClose_">
+          on-close="onSetupFingerprintDialogClose_"
+          allow-add-another-finger="[[allowAddAnotherFinger_]]">
       </settings-setup-fingerprint-dialog>
     </template>
   </template>

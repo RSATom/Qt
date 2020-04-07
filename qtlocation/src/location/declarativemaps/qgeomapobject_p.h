@@ -50,6 +50,8 @@
 
 #include <QtLocation/private/qparameterizableobject_p.h>
 #include <QExplicitlySharedDataPointer>
+#include <QtPositioning/qgeoshape.h>
+#include <qqml.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,6 +64,7 @@ class Q_LOCATION_PRIVATE_EXPORT QGeoMapObject : public QParameterizableObject, p
 
     Q_PROPERTY(bool visible READ visible WRITE setVisible NOTIFY visibleChanged)
     Q_PROPERTY(Type type READ type CONSTANT)
+    Q_PROPERTY(QGeoShape geoShape READ geoShape WRITE setGeoShape STORED false) // non-NOTIFYable
     Q_INTERFACES(QQmlParserStatus)
 
 public:
@@ -107,6 +110,9 @@ public:
     virtual void setMap(QGeoMap *map);
     QGeoMap *map() const;
 
+    QGeoShape geoShape() const;
+    void setGeoShape(const QGeoShape &shape);
+
 Q_SIGNALS:
     void visibleChanged();
     void selected();
@@ -128,6 +134,9 @@ protected:
     friend class QGeoMapLayer;
     friend class QDeclarativeNavigator;
 };
+
 QT_END_NAMESPACE
+
+QML_DECLARE_TYPE(QGeoMapObject)
 
 #endif // QGEOMAPOBJECTBASE_H

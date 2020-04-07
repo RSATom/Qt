@@ -34,7 +34,6 @@
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/network/network_utils.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
 
@@ -49,8 +48,7 @@ ResourceRequest::ResourceRequest(const String& url_string)
 ResourceRequest::ResourceRequest(const KURL& url)
     : url_(url),
       timeout_interval_(default_timeout_interval_),
-      requestor_origin_(nullptr),
-      http_method_(HTTPNames::GET),
+      http_method_(http_names::kGET),
       allow_stored_credentials_(true),
       report_upload_progress_(false),
       report_raw_headers_(false),
@@ -60,72 +58,30 @@ ResourceRequest::ResourceRequest(const KURL& url)
       keepalive_(false),
       should_reset_app_cache_(false),
       allow_stale_response_(false),
+      stale_revalidate_candidate_(false),
       cache_mode_(mojom::FetchCacheMode::kDefault),
       skip_service_worker_(false),
+      download_to_cache_only_(false),
       priority_(ResourceLoadPriority::kLowest),
       intra_priority_value_(0),
       requestor_id_(0),
       plugin_child_id_(-1),
       app_cache_host_id_(0),
       previews_state_(WebURLRequest::kPreviewsUnspecified),
-      request_context_(WebURLRequest::kRequestContextUnspecified),
+      request_context_(mojom::RequestContextType::UNSPECIFIED),
       frame_type_(network::mojom::RequestContextFrameType::kNone),
-      fetch_request_mode_(network::mojom::FetchRequestMode::kNoCORS),
+      fetch_request_mode_(network::mojom::FetchRequestMode::kNoCors),
       fetch_importance_mode_(mojom::FetchImportanceMode::kImportanceAuto),
       fetch_credentials_mode_(network::mojom::FetchCredentialsMode::kInclude),
       fetch_redirect_mode_(network::mojom::FetchRedirectMode::kFollow),
-      referrer_policy_(kReferrerPolicyDefault),
+      referrer_string_(Referrer::ClientReferrerString()),
+      referrer_policy_(network::mojom::ReferrerPolicy::kDefault),
       did_set_http_referrer_(false),
-      check_for_browser_side_navigation_(true),
       was_discarded_(false),
       is_external_request_(false),
       cors_preflight_policy_(
-          network::mojom::CORSPreflightPolicy::kConsiderPreflight),
+          network::mojom::CorsPreflightPolicy::kConsiderPreflight),
       redirect_status_(RedirectStatus::kNoRedirect) {}
-
-ResourceRequest::ResourceRequest(CrossThreadResourceRequestData* data)
-    : ResourceRequest(data->url_) {
-  SetTimeoutInterval(data->timeout_interval_);
-  SetSiteForCookies(data->site_for_cookies_);
-  SetRequestorOrigin(data->requestor_origin_);
-  SetHTTPMethod(AtomicString(data->http_method_));
-  SetPriority(data->priority_, data->intra_priority_value_);
-
-  http_header_fields_.Adopt(std::move(data->http_headers_));
-
-  SetHTTPBody(data->http_body_);
-  SetAllowStoredCredentials(data->allow_stored_credentials_);
-  SetReportUploadProgress(data->report_upload_progress_);
-  SetHasUserGesture(data->has_user_gesture_);
-  SetDownloadToBlob(data->download_to_blob_);
-  SetUseStreamOnResponse(data->use_stream_on_response_);
-  SetKeepalive(data->keepalive_);
-  SetCacheMode(data->cache_mode_);
-  SetSkipServiceWorker(data->skip_service_worker_);
-  SetShouldResetAppCache(data->should_reset_app_cache_);
-  SetRequestorID(data->requestor_id_);
-  SetPluginChildID(data->plugin_child_id_);
-  SetAppCacheHostID(data->app_cache_host_id_);
-  SetPreviewsState(data->previews_state_);
-  SetRequestContext(data->request_context_);
-  SetFrameType(data->frame_type_);
-  SetFetchRequestMode(data->fetch_request_mode_);
-  SetFetchImportanceMode(data->fetch_importance_mode_);
-  SetFetchCredentialsMode(data->fetch_credentials_mode_);
-  SetFetchRedirectMode(data->fetch_redirect_mode_);
-  SetFetchIntegrity(data->fetch_integrity_.IsolatedCopy());
-  referrer_policy_ = data->referrer_policy_;
-  did_set_http_referrer_ = data->did_set_http_referrer_;
-  check_for_browser_side_navigation_ = data->check_for_browser_side_navigation_;
-  is_external_request_ = data->is_external_request_;
-  cors_preflight_policy_ = data->cors_preflight_policy_;
-  redirect_status_ = data->redirect_status_;
-  suggested_filename_ = data->suggested_filename_;
-  is_ad_resource_ = data->is_ad_resource_;
-  SetInitiatorCSP(data->navigation_csp_);
-  upgrade_if_insecure_ = data->upgrade_if_insecure_;
-  devtools_token_ = data->devtools_token_;
-}
 
 ResourceRequest::ResourceRequest(const ResourceRequest&) = default;
 
@@ -137,17 +93,21 @@ std::unique_ptr<ResourceRequest> ResourceRequest::CreateRedirectRequest(
     const KURL& new_url,
     const AtomicString& new_method,
     const KURL& new_site_for_cookies,
+    scoped_refptr<const SecurityOrigin> new_top_frame_origin,
     const String& new_referrer,
-    ReferrerPolicy new_referrer_policy,
+    network::mojom::ReferrerPolicy new_referrer_policy,
     bool skip_service_worker) const {
   std::unique_ptr<ResourceRequest> request =
       std::make_unique<ResourceRequest>(new_url);
+  request->SetRequestorOrigin(RequestorOrigin());
   request->SetHTTPMethod(new_method);
   request->SetSiteForCookies(new_site_for_cookies);
+  request->SetTopFrameOrigin(std::move(new_top_frame_origin));
   String referrer =
       new_referrer.IsEmpty() ? Referrer::NoReferrer() : String(new_referrer);
-  request->SetHTTPReferrer(
-      Referrer(referrer, static_cast<ReferrerPolicy>(new_referrer_policy)));
+  // TODO(domfarolino): Stop storing ResourceRequest's generated referrer as a
+  // header and instead use a separate member. See https://crbug.com/850813.
+  request->SetHTTPReferrer(Referrer(referrer, new_referrer_policy));
   request->SetSkipServiceWorker(skip_service_worker);
   request->SetRedirectStatus(RedirectStatus::kFollowedRedirect);
 
@@ -164,66 +124,17 @@ std::unique_ptr<ResourceRequest> ResourceRequest::CreateRedirectRequest(
 
   if (request->HttpMethod() == HttpMethod())
     request->SetHTTPBody(HttpBody());
-  request->SetCheckForBrowserSideNavigation(CheckForBrowserSideNavigation());
   request->SetWasDiscarded(WasDiscarded());
-  request->SetCORSPreflightPolicy(CORSPreflightPolicy());
+  request->SetCorsPreflightPolicy(CorsPreflightPolicy());
   if (IsAdResource())
     request->SetIsAdResource();
-  request->SetInitiatorCSP(GetInitiatorCSP());
   request->SetUpgradeIfInsecure(UpgradeIfInsecure());
+  request->SetIsAutomaticUpgrade(IsAutomaticUpgrade());
+  request->SetRequestedWithHeader(GetRequestedWithHeader());
+  request->SetClientDataHeader(GetClientDataHeader());
+  request->SetUkmSourceId(GetUkmSourceId());
 
   return request;
-}
-
-std::unique_ptr<CrossThreadResourceRequestData> ResourceRequest::CopyData()
-    const {
-  std::unique_ptr<CrossThreadResourceRequestData> data =
-      std::make_unique<CrossThreadResourceRequestData>();
-  data->url_ = Url().Copy();
-  data->timeout_interval_ = TimeoutInterval();
-  data->site_for_cookies_ = SiteForCookies().Copy();
-  data->requestor_origin_ =
-      RequestorOrigin() ? RequestorOrigin()->IsolatedCopy() : nullptr;
-  data->http_method_ = HttpMethod().GetString().IsolatedCopy();
-  data->http_headers_ = HttpHeaderFields().CopyData();
-  data->priority_ = Priority();
-  data->intra_priority_value_ = intra_priority_value_;
-
-  if (http_body_)
-    data->http_body_ = http_body_->DeepCopy();
-  data->allow_stored_credentials_ = allow_stored_credentials_;
-  data->report_upload_progress_ = report_upload_progress_;
-  data->has_user_gesture_ = has_user_gesture_;
-  data->download_to_blob_ = download_to_blob_;
-  data->use_stream_on_response_ = use_stream_on_response_;
-  data->keepalive_ = keepalive_;
-  data->cache_mode_ = GetCacheMode();
-  data->skip_service_worker_ = skip_service_worker_;
-  data->should_reset_app_cache_ = should_reset_app_cache_;
-  data->requestor_id_ = requestor_id_;
-  data->plugin_child_id_ = plugin_child_id_;
-  data->app_cache_host_id_ = app_cache_host_id_;
-  data->previews_state_ = previews_state_;
-  data->request_context_ = request_context_;
-  data->frame_type_ = frame_type_;
-  data->fetch_request_mode_ = fetch_request_mode_;
-  data->fetch_importance_mode_ = fetch_importance_mode_;
-  data->fetch_credentials_mode_ = fetch_credentials_mode_;
-  data->fetch_redirect_mode_ = fetch_redirect_mode_;
-  data->fetch_integrity_ = fetch_integrity_.IsolatedCopy();
-  data->referrer_policy_ = referrer_policy_;
-  data->did_set_http_referrer_ = did_set_http_referrer_;
-  data->check_for_browser_side_navigation_ = check_for_browser_side_navigation_;
-  data->is_external_request_ = is_external_request_;
-  data->cors_preflight_policy_ = cors_preflight_policy_;
-  data->redirect_status_ = redirect_status_;
-  data->suggested_filename_ = suggested_filename_;
-  data->is_ad_resource_ = is_ad_resource_;
-  data->navigation_csp_ = initiator_csp_;
-
-  data->upgrade_if_insecure_ = upgrade_if_insecure_;
-  data->devtools_token_ = devtools_token_;
-  return data;
 }
 
 bool ResourceRequest::IsNull() const {
@@ -236,6 +147,14 @@ const KURL& ResourceRequest::Url() const {
 
 void ResourceRequest::SetURL(const KURL& url) {
   url_ = url;
+}
+
+const KURL& ResourceRequest::GetInitialUrlForResourceTiming() const {
+  return initial_url_for_resource_timing_;
+}
+
+void ResourceRequest::SetInitialUrlForResourceTiming(const KURL& url) {
+  initial_url_for_resource_timing_ = url;
 }
 
 void ResourceRequest::RemoveUserAndPassFromURL() {
@@ -271,13 +190,13 @@ void ResourceRequest::SetSiteForCookies(const KURL& site_for_cookies) {
   site_for_cookies_ = site_for_cookies;
 }
 
-scoped_refptr<const SecurityOrigin> ResourceRequest::RequestorOrigin() const {
-  return requestor_origin_;
+const SecurityOrigin* ResourceRequest::TopFrameOrigin() const {
+  return top_frame_origin_.get();
 }
 
-void ResourceRequest::SetRequestorOrigin(
-    scoped_refptr<const SecurityOrigin> requestor_origin) {
-  requestor_origin_ = std::move(requestor_origin);
+void ResourceRequest::SetTopFrameOrigin(
+    scoped_refptr<const SecurityOrigin> origin) {
+  top_frame_origin_ = std::move(origin);
 }
 
 const AtomicString& ResourceRequest::HttpMethod() const {
@@ -304,25 +223,25 @@ void ResourceRequest::SetHTTPHeaderField(const AtomicString& name,
 
 void ResourceRequest::SetHTTPReferrer(const Referrer& referrer) {
   if (referrer.referrer.IsEmpty())
-    http_header_fields_.Remove(HTTPNames::Referer);
+    http_header_fields_.Remove(http_names::kReferer);
   else
-    SetHTTPHeaderField(HTTPNames::Referer, referrer.referrer);
+    SetHTTPHeaderField(http_names::kReferer, referrer.referrer);
   referrer_policy_ = referrer.referrer_policy;
   did_set_http_referrer_ = true;
 }
 
 void ResourceRequest::ClearHTTPReferrer() {
-  http_header_fields_.Remove(HTTPNames::Referer);
-  referrer_policy_ = kReferrerPolicyDefault;
+  http_header_fields_.Remove(http_names::kReferer);
+  referrer_policy_ = network::mojom::ReferrerPolicy::kDefault;
   did_set_http_referrer_ = false;
 }
 
 void ResourceRequest::SetHTTPOrigin(const SecurityOrigin* origin) {
-  SetHTTPHeaderField(HTTPNames::Origin, origin->ToAtomicString());
+  SetHTTPHeaderField(http_names::kOrigin, origin->ToAtomicString());
 }
 
 void ResourceRequest::ClearHTTPOrigin() {
-  http_header_fields_.Remove(HTTPNames::Origin);
+  http_header_fields_.Remove(http_names::kOrigin);
 }
 
 void ResourceRequest::SetHTTPOriginIfNeeded(const SecurityOrigin* origin) {
@@ -333,13 +252,13 @@ void ResourceRequest::SetHTTPOriginIfNeeded(const SecurityOrigin* origin) {
 void ResourceRequest::SetHTTPOriginToMatchReferrerIfNeeded() {
   if (NeedsHTTPOrigin()) {
     SetHTTPOrigin(
-        SecurityOrigin::CreateFromString(HttpHeaderField(HTTPNames::Referer))
+        SecurityOrigin::CreateFromString(HttpHeaderField(http_names::kReferer))
             .get());
   }
 }
 
 void ResourceRequest::ClearHTTPUserAgent() {
-  http_header_fields_.Remove(HTTPNames::User_Agent);
+  http_header_fields_.Remove(http_names::kUserAgent);
 }
 
 EncodedFormData* ResourceRequest::HttpBody() const {
@@ -409,7 +328,7 @@ void ResourceRequest::SetExternalRequestStateFromRequestorAddressSpace(
   }
 
   mojom::IPAddressSpace target_space = mojom::IPAddressSpace::kPublic;
-  if (NetworkUtils::IsReservedIPAddress(url_.Host()))
+  if (network_utils::IsReservedIPAddress(url_.Host()))
     target_space = mojom::IPAddressSpace::kPrivate;
   if (SecurityOrigin::Create(url_)->IsLocalhost())
     target_space = mojom::IPAddressSpace::kLocal;
@@ -417,16 +336,12 @@ void ResourceRequest::SetExternalRequestStateFromRequestorAddressSpace(
   is_external_request_ = requestor_space > target_space;
 }
 
-void ResourceRequest::SetNavigationStartTime(TimeTicks navigation_start) {
-  navigation_start_ = navigation_start;
-}
-
 bool ResourceRequest::IsConditional() const {
-  return (http_header_fields_.Contains(HTTPNames::If_Match) ||
-          http_header_fields_.Contains(HTTPNames::If_Modified_Since) ||
-          http_header_fields_.Contains(HTTPNames::If_None_Match) ||
-          http_header_fields_.Contains(HTTPNames::If_Range) ||
-          http_header_fields_.Contains(HTTPNames::If_Unmodified_Since));
+  return (http_header_fields_.Contains(http_names::kIfMatch) ||
+          http_header_fields_.Contains(http_names::kIfModifiedSince) ||
+          http_header_fields_.Contains(http_names::kIfNoneMatch) ||
+          http_header_fields_.Contains(http_names::kIfRange) ||
+          http_header_fields_.Contains(http_names::kIfUnmodifiedSince));
 }
 
 void ResourceRequest::SetHasUserGesture(bool has_user_gesture) {
@@ -436,8 +351,8 @@ void ResourceRequest::SetHasUserGesture(bool has_user_gesture) {
 const CacheControlHeader& ResourceRequest::GetCacheControlHeader() const {
   if (!cache_control_header_cache_.parsed) {
     cache_control_header_cache_ = ParseCacheControlDirectives(
-        http_header_fields_.Get(HTTPNames::Cache_Control),
-        http_header_fields_.Get(HTTPNames::Pragma));
+        http_header_fields_.Get(http_names::kCacheControl),
+        http_header_fields_.Get(http_names::kPragma));
   }
   return cache_control_header_cache_;
 }
@@ -451,8 +366,8 @@ bool ResourceRequest::CacheControlContainsNoStore() const {
 }
 
 bool ResourceRequest::HasCacheValidatorFields() const {
-  return !http_header_fields_.Get(HTTPNames::Last_Modified).IsEmpty() ||
-         !http_header_fields_.Get(HTTPNames::ETag).IsEmpty();
+  return !http_header_fields_.Get(http_names::kLastModified).IsEmpty() ||
+         !http_header_fields_.Get(http_names::kETag).IsEmpty();
 }
 
 bool ResourceRequest::NeedsHTTPOrigin() const {
@@ -465,16 +380,12 @@ bool ResourceRequest::NeedsHTTPOrigin() const {
   // will leak the internal host name. Similar privacy concerns have lead
   // to the widespread suppression of the Referer header at the network
   // layer.
-  if (HttpMethod() == HTTPNames::GET || HttpMethod() == HTTPNames::HEAD)
+  if (HttpMethod() == http_names::kGET || HttpMethod() == http_names::kHEAD)
     return false;
 
   // For non-GET and non-HEAD methods, always send an Origin header so the
   // server knows we support this feature.
   return true;
 }
-
-CrossThreadResourceRequestData::CrossThreadResourceRequestData() = default;
-
-CrossThreadResourceRequestData::~CrossThreadResourceRequestData() = default;
 
 }  // namespace blink

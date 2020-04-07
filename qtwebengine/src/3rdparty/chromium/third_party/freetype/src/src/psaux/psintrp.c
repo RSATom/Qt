@@ -59,7 +59,7 @@
    * messages during execution.
    */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_cf2interp
+#define FT_COMPONENT  cf2interp
 
 
   FT_LOCAL_DEF( void )
@@ -287,7 +287,7 @@
   {
     CF2_UInt  i;
     CF2_UInt  count       = cf2_stack_count( opStack );
-    FT_Bool   hasWidthArg = (FT_Bool)( count & 1 );
+    FT_Bool   hasWidthArg = FT_BOOL( count & 1 );
 
     /* variable accumulates delta values from operand stack */
     CF2_Fixed  position = hintOffset;
@@ -364,7 +364,7 @@
 
     if ( doConditionalLastRead )
     {
-      FT_Bool    lastIsX = (FT_Bool)(
+      FT_Bool    lastIsX = FT_BOOL(
                              cf2_fixedAbs( SUB_INT32( vals[10], *curX ) ) >
                              cf2_fixedAbs( SUB_INT32( vals[11], *curY ) ) );
       CF2_Fixed  lastVal = cf2_stack_getReal( opStack, idx );
@@ -663,6 +663,7 @@
           /* Skip outline commands first time round.       */
           /* `endchar' will trigger initial hintmap build  */
           /* and rewind the charstring.                    */
+          FT_TRACE4(( " <outline command skipped>\n" ));
           cf2_stack_clear( opStack );
           continue;
         }
@@ -775,7 +776,8 @@
 
       case cf2_cmdHSTEMHM:
       case cf2_cmdHSTEM:
-        FT_TRACE4(( op1 == cf2_cmdHSTEMHM ? " hstemhm\n" : " hstem\n" ));
+        FT_TRACE4(( "%s\n", op1 == cf2_cmdHSTEMHM ? " hstemhm"
+                                                  : " hstem" ));
 
         if ( !font->isT1 )
         {
@@ -805,7 +807,8 @@
 
       case cf2_cmdVSTEMHM:
       case cf2_cmdVSTEM:
-        FT_TRACE4(( op1 == cf2_cmdVSTEMHM ? " vstemhm\n" : " vstem\n" ));
+        FT_TRACE4(( "%s\n", op1 == cf2_cmdVSTEMHM ? " vstemhm"
+                                                  : " vstem" ));
 
         if ( !font->isT1 )
         {
@@ -888,7 +891,7 @@
           FT_Bool  isX = FT_BOOL( op1 == cf2_cmdHLINETO );
 
 
-          FT_TRACE4(( isX ? " hlineto\n" : " vlineto\n" ));
+          FT_TRACE4(( "%s\n", isX ? " hlineto" : " vlineto" ));
 
           for ( idx = 0; idx < count; idx++ )
           {
@@ -916,8 +919,8 @@
           CF2_UInt  idx   = 0;
 
 
-          FT_TRACE4(( op1 == cf2_cmdRCURVELINE ? " rcurveline\n"
-                                               : " rrcurveto\n" ));
+          FT_TRACE4(( "%s\n", op1 == cf2_cmdRCURVELINE ? " rcurveline"
+                                                       : " rrcurveto" ));
 
           while ( idx + 6 <= count )
           {
@@ -957,10 +960,10 @@
           FT_TRACE4(( " unknown op (%d)\n", op1 ));
         else
         {
-          FT_TRACE4(( " closepath" ));
+          FT_TRACE4(( " closepath\n" ));
 
           /* if there is no path, `closepath' is a no-op */
-          ps_builder_close_contour( &decoder->builder );
+          cf2_glyphpath_closeOpenPath( &glyphPath );
 
           haveWidth = TRUE;
         }
@@ -972,8 +975,8 @@
           CF2_Int  subrNum;
 
 
-          FT_TRACE4(( op1 == cf2_cmdCALLGSUBR ? " callgsubr"
-                                              : " callsubr" ));
+          FT_TRACE4(( "%s", op1 == cf2_cmdCALLGSUBR ? " callgsubr"
+                                                    : " callsubr" ));
 
           if ( ( !font->isT1 && charstringIndex > CF2_MAX_SUBR )       ||
                (  font->isT1 && charstringIndex > T1_MAX_SUBRS_CALLS ) )
@@ -1212,8 +1215,8 @@
                       FT_Bool  isV = FT_BOOL( op2 == cf2_escVSTEM3 );
 
 
-                      FT_TRACE4(( isV ? " vstem3\n"
-                                      : " hstem3\n" ));
+                      FT_TRACE4(( "%s\n", isV ? " vstem3"
+                                              : " hstem3" ));
 
                       FT_ASSERT( cf2_stack_count( opStack ) == 6 );
 
@@ -2417,7 +2420,7 @@
           PS_Builder*  builder;
 
 
-          FT_TRACE4(( " hsbw" ));
+          FT_TRACE4(( " hsbw\n" ));
 
           builder = &decoder->builder;
 
@@ -2563,7 +2566,7 @@
       case cf2_cmdHINTMASK:
         /* the final \n in the tracing message gets added in      */
         /* `cf2_hintmask_read' (which also traces the mask bytes) */
-        FT_TRACE4(( op1 == cf2_cmdCNTRMASK ? " cntrmask" : " hintmask" ));
+        FT_TRACE4(( "%s", op1 == cf2_cmdCNTRMASK ? " cntrmask" : " hintmask" ));
 
         /* never add hints after the mask is computed */
         if ( cf2_stack_count( opStack ) > 1    &&
@@ -2829,7 +2832,7 @@
           count = count1 & ~2U;
           idx  += count1 - count;
 
-          FT_TRACE4(( alternate ? " hvcurveto\n" : " vhcurveto\n" ));
+          FT_TRACE4(( "%s\n", alternate ? " hvcurveto" : " vhcurveto" ));
 
           while ( idx < count )
           {

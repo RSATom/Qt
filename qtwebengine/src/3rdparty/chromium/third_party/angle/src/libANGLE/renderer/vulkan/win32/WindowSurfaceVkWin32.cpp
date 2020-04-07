@@ -19,15 +19,13 @@ WindowSurfaceVkWin32::WindowSurfaceVkWin32(const egl::SurfaceState &surfaceState
                                            EGLint width,
                                            EGLint height)
     : WindowSurfaceVk(surfaceState, window, width, height)
-{
-}
+{}
 
 angle::Result WindowSurfaceVkWin32::createSurfaceVk(vk::Context *context, gl::Extents *extentsOut)
 {
-    VkWin32SurfaceCreateInfoKHR createInfo;
+    VkWin32SurfaceCreateInfoKHR createInfo = {};
 
     createInfo.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-    createInfo.pNext     = nullptr;
     createInfo.flags     = 0;
     createInfo.hinstance = GetModuleHandle(nullptr);
     createInfo.hwnd      = mNativeWindowType;
@@ -39,7 +37,7 @@ angle::Result WindowSurfaceVkWin32::createSurfaceVk(vk::Context *context, gl::Ex
                    VK_ERROR_INITIALIZATION_FAILED);
 
     *extentsOut = gl::Extents(rect.right - rect.left, rect.bottom - rect.top, 0);
-    return angle::Result::Continue();
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

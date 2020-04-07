@@ -11,14 +11,15 @@
 #ifndef MODULES_VIDEO_CODING_UTILITY_IVF_FILE_WRITER_H_
 #define MODULES_VIDEO_CODING_UTILITY_IVF_FILE_WRITER_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
-#include <string>
 
-#include "common_video/include/video_frame.h"
-#include "modules/include/module_common_types.h"
-#include "rtc_base/constructormagic.h"
+#include "api/video/encoded_image.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "rtc_base/constructor_magic.h"
 #include "rtc_base/file.h"
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 

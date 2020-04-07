@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 Intel Corporation.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -421,7 +421,7 @@ QJsonArray QCborArray::toJsonArray() const
 }
 
 /*!
-    Recursively converts every \l QCborValue value in this array to JSON using
+    Recursively converts every \l QCborValue value in this map to JSON using
     QCborValue::toJsonValue() and creates a string key for all keys that aren't
     strings, then returns the corresponding QJsonObject composed of those
     associations.
@@ -598,10 +598,12 @@ QCborValue QCborValue::fromJsonValue(const QJsonValue &v)
     switch (v.type()) {
     case QJsonValue::Bool:
         return v.b;
-    case QJsonValue::Double:
-        if (v.dbl == qint64(v.dbl))
-            return qint64(v.dbl);
+    case QJsonValue::Double: {
+        qint64 i;
+        if (convertDoubleTo(v.dbl, &i))
+            return i;
         return v.dbl;
+    }
     case QJsonValue::String:
         return v.toString();
     case QJsonValue::Array:
@@ -824,7 +826,7 @@ QCborArray QCborArray::fromJsonArray(const QJsonArray &array)
 {
     QCborArray a;
     a.detach(array.size());
-    for (const QJsonValue v : array) {
+    for (const QJsonValue &v : array) {
         if (v.isString())
             a.d->append(v.toString());
         else

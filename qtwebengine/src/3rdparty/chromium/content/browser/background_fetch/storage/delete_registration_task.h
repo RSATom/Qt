@@ -10,7 +10,7 @@
 
 #include "content/browser/background_fetch/storage/database_task.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
-#include "third_party/blink/public/platform/modules/cache_storage/cache_storage.mojom.h"
+#include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom.h"
 #include "url/origin.h"
 
 namespace content {
@@ -43,14 +43,12 @@ class DeleteRegistrationTask : public background_fetch::DatabaseTask {
 
   void FinishWithError(blink::mojom::BackgroundFetchError error) override;
 
+  std::string HistogramName() const override;
+
   int64_t service_worker_registration_id_;
   url::Origin origin_;
   std::string unique_id_;
   HandleBackgroundFetchErrorCallback callback_;
-
-  // The error to report once all async work is completed.
-  blink::mojom::BackgroundFetchError error_ =
-      blink::mojom::BackgroundFetchError::NONE;
 
   base::WeakPtrFactory<DeleteRegistrationTask> weak_factory_;  // Keep as last.
 

@@ -16,9 +16,10 @@
 #define DEPENDENT_CONFIG_VARS \
   "  Dependent configs: all_dependent_configs, public_configs\n"
 #define DEPS_VARS "  Deps: data_deps, deps, public_deps\n"
-#define GENERAL_TARGET_VARS                                                  \
-  "  General: check_includes, configs, data, friend, inputs, output_name,\n" \
-  "           output_extension, public, sources, testonly, visibility\n"
+#define GENERAL_TARGET_VARS                                                \
+  "  General: check_includes, configs, data, friend, inputs, metadata,\n"  \
+  "           output_name, output_extension, public, sources, testonly,\n" \
+  "           visibility\n"
 
 namespace functions {
 
@@ -138,7 +139,7 @@ File name handling
     R"(
 Variables
 
-  args, data, data_deps, depfile, deps, inputs, outputs*, pool,
+  args, data, data_deps, depfile, deps, inputs, metadata, outputs*, pool,
   response_file_contents, script*, sources
   * = required
 
@@ -208,7 +209,7 @@ File name handling
     R"(
 Variables
 
-  args, data, data_deps, depfile, deps, inputs, outputs*, pool,
+  args, data, data_deps, depfile, deps, inputs, metadata, outputs*, pool,
   response_file_contents, script*, sources*
   * = required
 
@@ -272,7 +273,7 @@ const char kBundleData_Help[] =
 
 Variables
 
-  sources*, outputs*, deps, data_deps, public_deps, visibility
+  sources*, outputs*, deps, data_deps, metadata, public_deps, visibility
   * = required
 
 Examples
@@ -326,8 +327,9 @@ const char kCreateBundle_Help[] =
   are computed from all "bundle_data" target this one depends on transitively
   (the recursion stops at "create_bundle" targets).
 
-  The "bundle_*_dir" properties must be defined. They will be used for the
-  expansion of {{bundle_*_dir}} rules in "bundle_data" outputs.
+  The "bundle_*_dir" are be used for the expansion of {{bundle_*_dir}} rules in
+  "bundle_data" outputs. The properties are optional but must be defined if any
+  of the "bundle_data" target use them.
 
   This target can be used on all platforms though it is designed only to
   generate iOS or macOS bundle. In cross-platform projects, it is advised to put
@@ -357,12 +359,11 @@ Code signing
 
 Variables
 
-  bundle_root_dir*, bundle_contents_dir*, bundle_resources_dir*,
-  bundle_executable_dir*, bundle_plugins_dir*, bundle_deps_filter, deps,
-  data_deps, public_deps, visibility, product_type, code_signing_args,
-  code_signing_script, code_signing_sources, code_signing_outputs,
-  xcode_extra_attributes, xcode_test_application_name, partial_info_plist
-  * = required
+  bundle_root_dir, bundle_contents_dir, bundle_resources_dir,
+  bundle_executable_dir, bundle_deps_filter, deps, data_deps, public_deps,
+  visibility, product_type, code_signing_args, code_signing_script,
+  code_signing_sources, code_signing_outputs, xcode_extra_attributes,
+  xcode_test_application_name, partial_info_plist, metadata
 
 Example
 
@@ -387,7 +388,7 @@ Example
       }
 
       bundle_data("${app_name}_bundle_info_plist") {
-        deps = [ ":${app_name}_generate_info_plist" ]
+        public_deps = [ ":${app_name}_generate_info_plist" ]
         sources = [ "$gen_path/Info.plist" ]
         outputs = [ "{{bundle_contents_dir}}/Info.plist" ]
       }
@@ -404,34 +405,32 @@ Example
       code_signing =
           defined(invoker.code_signing) && invoker.code_signing
 
-      if (is_ios && !code_signing) {
+      if (!is_ios || !code_signing) {
         bundle_data("${app_name}_bundle_executable") {
-          deps = [ ":${app_name}_generate_executable" ]
+          public_deps = [ ":${app_name}_generate_executable" ]
           sources = [ "$gen_path/$app_name" ]
           outputs = [ "{{bundle_executable_dir}}/$app_name" ]
         }
       }
 
-      create_bundle("${app_name}.app") {
+      create_bundle("$app_name.app") {
         product_type = "com.apple.product-type.application"
 
         if (is_ios) {
-          bundle_root_dir = "${root_build_dir}/$target_name"
+          bundle_root_dir = "$root_build_dir/$target_name"
           bundle_contents_dir = bundle_root_dir
           bundle_resources_dir = bundle_contents_dir
           bundle_executable_dir = bundle_contents_dir
-          bundle_plugins_dir = "${bundle_contents_dir}/Plugins"
 
           extra_attributes = {
             ONLY_ACTIVE_ARCH = "YES"
             DEBUG_INFORMATION_FORMAT = "dwarf"
           }
         } else {
-          bundle_root_dir = "${root_build_dir}/target_name"
-          bundle_contents_dir  = "${bundle_root_dir}/Contents"
-          bundle_resources_dir = "${bundle_contents_dir}/Resources"
-          bundle_executable_dir = "${bundle_contents_dir}/MacOS"
-          bundle_plugins_dir = "${bundle_contents_dir}/Plugins"
+          bundle_root_dir = "$root_build_dir/$target_name"
+          bundle_contents_dir  = "$bundle_root_dir/Contents"
+          bundle_resources_dir = "$bundle_contents_dir/Resources"
+          bundle_executable_dir = "$bundle_contents_dir/MacOS"
         }
         deps = [ ":${app_name}_bundle_info_plist" ]
         if (is_ios && code_signing) {
@@ -767,6 +766,147 @@ Value RunTarget(Scope* scope,
 
   // Otherwise, assume the target is a built-in target type.
   return ExecuteGenericTarget(target_type.c_str(), scope, function, sub_args,
+                              block, err);
+}
+
+const char kGeneratedFile[] = "generated_file";
+const char kGeneratedFile_HelpShort[] =
+    "generated_file: Declare a generated_file target.";
+const char kGeneratedFile_Help[] =
+    R"(generated_file: Declare a generated_file target.
+
+  Writes data value(s) to disk on resolution. This target type mirrors some
+  functionality of the write_file() function, but also provides the ability to
+  collect metadata from its dependencies on resolution rather than writing out
+  parse time.
+
+  The `outputs` variable is required to be a list with a single element,
+  specifying the intended location of the output file.
+
+  The `output_conversion` variable specified the format to write the
+  value. See `gn help output_conversion`.
+
+  One of `contents` or `data_keys` must be specified; use of `data` will write
+  the contents of that value to file, while use of `data_keys` will trigger a
+  metadata collection walk based on the dependencies of the target and the
+  optional values of the `rebase` and `walk_keys` variables. See
+  `gn help metadata`.
+
+  Collected metadata, if specified, will be returned in postorder of
+  dependencies. See the example for details.
+
+Example (metadata collection)
+
+  Given the following targets defined in //base/BUILD.gn, where A depends on B
+  and B depends on C and D:
+
+    group("a") {
+      metadata = {
+        doom_melon = [ "enable" ]
+        my_files = [ "foo.cpp" ]
+
+        // Note: this is functionally equivalent to not defining `my_barrier`
+        // at all in this target's metadata.
+        my_barrier = [ "" ]
+      }
+
+      deps = [ ":b" ]
+    }
+
+    group("b") {
+      metadata = {
+        my_files = [ "bar.cpp" ]
+        my_barrier = [ ":c" ]
+      }
+
+      deps = [ ":c", ":d" ]
+    }
+
+    group("c") {
+      metadata = {
+        doom_melon = [ "disable" ]
+        my_files = [ "baz.cpp" ]
+      }
+    }
+
+    group("d") {
+      metadata = {
+        my_files = [ "missing.cpp" ]
+      }
+    }
+
+  If the following generated_file target is defined:
+
+    generated_file("my_files_metadata") {
+      outputs = [ "$root_build_dir/my_files.json" ]
+      data_keys = [ "my_files" ]
+
+      deps = [ "//base:a" ]
+    }
+
+  The following will be written to "$root_build_dir/my_files.json" (less the
+  comments):
+    [
+      "baz.cpp",  // from //base:c via //base:b
+      "missing.cpp"  // from //base:d via //base:b
+      "bar.cpp",  // from //base:b via //base:a
+      "foo.cpp",  // from //base:a
+    ]
+
+  Alternatively, as an example of using walk_keys, if the following
+  generated_file target is defined:
+
+  generated_file("my_files_metadata") {
+    outputs = [ "$root_build_dir/my_files.json" ]
+    data_keys = [ "my_files" ]
+    walk_keys = [ "my_barrier" ]
+
+    deps = [ "//base:a" ]
+  }
+
+  The following will be written to "$root_build_dir/my_files.json" (again less
+  the comments):
+    [
+      "baz.cpp",  // from //base:c via //base:b
+      "bar.cpp",  // from //base:b via //base:a
+      "foo.cpp",  // from //base:a
+    ]
+
+  If `rebase` is used in the following generated_file target:
+
+  generated_file("my_files_metadata") {
+    outputs = [ "$root_build_dir/my_files.json" ]
+    data_keys = [ "my_files" ]
+    walk_keys = [ "my_barrier" ]
+    rebase = root_build_dir
+
+    deps = [ "//base:a" ]
+  }
+
+  The following will be written to "$root_build_dir/my_files.json" (again less
+  the comments) (assuming root_build_dir = "//out"):
+    [
+      "../base/baz.cpp",  // from //base:c via //base:b
+      "../base/bar.cpp",  // from //base:b via //base:a
+      "../base/foo.cpp",  // from //base:a
+    ]
+
+
+Variables
+
+  contents
+  data_keys
+  rebase
+  walk_keys
+  output_conversion
+)" DEPS_VARS DEPENDENT_CONFIG_VARS;
+
+Value RunGeneratedFile(Scope* scope,
+                       const FunctionCallNode* function,
+                       const std::vector<Value>& args,
+                       BlockNode* block,
+                       Err* err) {
+  return ExecuteGenericTarget(functions::kGeneratedFile, scope, function, args,
                               block, err);
 }
 

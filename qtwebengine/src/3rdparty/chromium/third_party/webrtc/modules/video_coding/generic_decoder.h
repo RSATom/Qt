@@ -18,7 +18,7 @@
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/timestamp_map.h"
 #include "modules/video_coding/timing.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/critical_section.h"
 #include "rtc_base/thread_checker.h"
 
 namespace webrtc {
@@ -97,7 +97,6 @@ class VCMGenericDecoder {
    */
   int32_t RegisterDecodeCompleteCallback(VCMDecodedFrameCallback* callback);
 
-  bool External() const;
   bool PrefersLateDecoding() const;
   bool IsSameDecoder(VideoDecoder* decoder) const {
     return decoder_.get() == decoder;

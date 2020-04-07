@@ -7,12 +7,11 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 #include "net/base/completion_once_callback.h"
-#include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/load_timing_info_test_util.h"
@@ -26,6 +25,7 @@
 #include "net/socket/socket_test_util.h"
 #include "net/socket/stream_socket.h"
 #include "net/socket/transport_client_socket_pool_test_util.h"
+#include "net/socket/transport_connect_job.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_with_scoped_task_environment.h"
@@ -51,11 +51,12 @@ class TransportClientSocketPoolTest : public TestWithScopedTaskEnvironment {
   TransportClientSocketPoolTest()
       : connect_backup_jobs_enabled_(
             ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(true)),
-        params_(new TransportSocketParams(
-            HostPortPair("www.google.com", 80),
-            false,
-            OnHostResolutionCallback(),
-            TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT)),
+        params_(TransportClientSocketPool::SocketParams::
+                    CreateFromTransportSocketParams(
+                        base::MakeRefCounted<TransportSocketParams>(
+                            HostPortPair("www.google.com", 80),
+                            false,
+                            OnHostResolutionCallback()))),
         host_resolver_(new MockHostResolver),
         client_socket_factory_(&net_log_),
         pool_(kMaxSockets,
@@ -70,16 +71,13 @@ class TransportClientSocketPoolTest : public TestWithScopedTaskEnvironment {
         connect_backup_jobs_enabled_);
   }
 
-  scoped_refptr<TransportSocketParams> CreateParamsForTCPFastOpen() {
-    return new TransportSocketParams(
-        HostPortPair("www.google.com", 80), false, OnHostResolutionCallback(),
-        TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DESIRED);
-  }
-
   int StartRequest(const std::string& group_name, RequestPriority priority) {
-    scoped_refptr<TransportSocketParams> params(new TransportSocketParams(
-        HostPortPair("www.google.com", 80), false, OnHostResolutionCallback(),
-        TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT));
+    scoped_refptr<TransportClientSocketPool::SocketParams> params(
+        TransportClientSocketPool::SocketParams::
+            CreateFromTransportSocketParams(
+                base::MakeRefCounted<TransportSocketParams>(
+                    HostPortPair("www.google.com", 80), false,
+                    OnHostResolutionCallback())));
     return test_base_.StartRequestUsingPool(
         &pool_, group_name, priority, ClientSocketPool::RespectLimits::ENABLED,
         params);
@@ -104,7 +102,7 @@ class TransportClientSocketPoolTest : public TestWithScopedTaskEnvironment {
 
   bool connect_backup_jobs_enabled_;
   TestNetLog net_log_;
-  scoped_refptr<TransportSocketParams> params_;
+  scoped_refptr<TransportClientSocketPool::SocketParams> params_;
   std::unique_ptr<MockHostResolver> host_resolver_;
   MockTransportClientSocketFactory client_socket_factory_;
   TransportClientSocketPool pool_;
@@ -113,75 +111,6 @@ class TransportClientSocketPoolTest : public TestWithScopedTaskEnvironment {
  private:
   DISALLOW_COPY_AND_ASSIGN(TransportClientSocketPoolTest);
 };
-
-TEST(TransportConnectJobTest, MakeAddrListStartWithIPv4) {
-  IPEndPoint addrlist_v4_1(IPAddress(192, 168, 1, 1), 80);
-  IPEndPoint addrlist_v4_2(IPAddress(192, 168, 1, 2), 80);
-  IPAddress ip_address;
-  ASSERT_TRUE(ip_address.AssignFromIPLiteral("2001:4860:b006::64"));
-  IPEndPoint addrlist_v6_1(ip_address, 80);
-  ASSERT_TRUE(ip_address.AssignFromIPLiteral("2001:4860:b006::66"));
-  IPEndPoint addrlist_v6_2(ip_address, 80);
-
-  AddressList addrlist;
-
-  // Test 1: IPv4 only.  Expect no change.
-  addrlist.clear();
-  addrlist.push_back(addrlist_v4_1);
-  addrlist.push_back(addrlist_v4_2);
-  TransportConnectJob::MakeAddressListStartWithIPv4(&addrlist);
-  ASSERT_EQ(2u, addrlist.size());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[0].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[1].GetFamily());
-
-  // Test 2: IPv6 only.  Expect no change.
-  addrlist.clear();
-  addrlist.push_back(addrlist_v6_1);
-  addrlist.push_back(addrlist_v6_2);
-  TransportConnectJob::MakeAddressListStartWithIPv4(&addrlist);
-  ASSERT_EQ(2u, addrlist.size());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[0].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[1].GetFamily());
-
-  // Test 3: IPv4 then IPv6.  Expect no change.
-  addrlist.clear();
-  addrlist.push_back(addrlist_v4_1);
-  addrlist.push_back(addrlist_v4_2);
-  addrlist.push_back(addrlist_v6_1);
-  addrlist.push_back(addrlist_v6_2);
-  TransportConnectJob::MakeAddressListStartWithIPv4(&addrlist);
-  ASSERT_EQ(4u, addrlist.size());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[0].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[1].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[2].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[3].GetFamily());
-
-  // Test 4: IPv6, IPv4, IPv6, IPv4.  Expect first IPv6 moved to the end.
-  addrlist.clear();
-  addrlist.push_back(addrlist_v6_1);
-  addrlist.push_back(addrlist_v4_1);
-  addrlist.push_back(addrlist_v6_2);
-  addrlist.push_back(addrlist_v4_2);
-  TransportConnectJob::MakeAddressListStartWithIPv4(&addrlist);
-  ASSERT_EQ(4u, addrlist.size());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[0].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[1].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[2].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[3].GetFamily());
-
-  // Test 5: IPv6, IPv6, IPv4, IPv4.  Expect first two IPv6's moved to the end.
-  addrlist.clear();
-  addrlist.push_back(addrlist_v6_1);
-  addrlist.push_back(addrlist_v6_2);
-  addrlist.push_back(addrlist_v4_1);
-  addrlist.push_back(addrlist_v4_2);
-  TransportConnectJob::MakeAddressListStartWithIPv4(&addrlist);
-  ASSERT_EQ(4u, addrlist.size());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[0].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, addrlist[1].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[2].GetFamily());
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, addrlist[3].GetFamily());
-}
 
 TEST_F(TransportClientSocketPoolTest, Basic) {
   TestCompletionCallback callback;
@@ -215,14 +144,267 @@ TEST_F(TransportClientSocketPoolTest, SetResolvePriorityOnInit) {
   }
 }
 
+TEST_F(TransportClientSocketPoolTest, ReprioritizeRequests) {
+  host_resolver_->set_ondemand_mode(true);
+
+  TestCompletionCallback callback1;
+  ClientSocketHandle handle1;
+  int rv1 = handle1.Init("a", params_, LOW, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback1.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv1, IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback callback2;
+  ClientSocketHandle handle2;
+  int rv2 = handle2.Init("a", params_, HIGHEST, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback2.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv2, IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback callback3;
+  ClientSocketHandle handle3;
+  int rv3 = handle3.Init("a", params_, LOWEST, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback3.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv3, IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback callback4;
+  ClientSocketHandle handle4;
+  int rv4 = handle4.Init("a", params_, MEDIUM, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback4.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv4, IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback callback5;
+  ClientSocketHandle handle5;
+  int rv5 = handle5.Init("a", params_, HIGHEST, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback5.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv5, IsError(ERR_IO_PENDING));
+
+  TestCompletionCallback callback6;
+  ClientSocketHandle handle6;
+  int rv6 = handle6.Init("a", params_, LOW, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback6.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv6, IsError(ERR_IO_PENDING));
+
+  // New jobs are created for each of the first 6 requests with the
+  // corresponding priority.
+  //
+  // Queue of pending requests:
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    2      2   HIGHEST
+  //    5      5   HIGHEST
+  //    4      4   MEDIUM
+  //    1      1   LOW
+  //    6      6   LOW
+  //    3      3   LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(2));
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(3));
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(4));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(5));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(6));
+
+  // Inserting a highest-priority request steals the job from the lowest
+  // priority request and reprioritizes it to match the new request.
+  TestCompletionCallback callback7;
+  ClientSocketHandle handle7;
+  int rv7 = handle7.Init("a", params_, HIGHEST, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback7.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv7, IsError(ERR_IO_PENDING));
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    2      2   HIGHEST
+  //    5      5   HIGHEST
+  //    7      3   HIGHEST
+  //    4      4   MEDIUM
+  //    1      1   LOW
+  //    6      6   LOW
+  //    3          LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(2));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(3));  // reprioritized
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(4));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(5));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(6));
+
+  TestCompletionCallback callback8;
+  ClientSocketHandle handle8;
+  int rv8 = handle8.Init("a", params_, HIGHEST, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback8.callback(), &pool_, NetLogWithSource());
+  EXPECT_THAT(rv8, IsError(ERR_IO_PENDING));
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    2      2   HIGHEST
+  //    5      5   HIGHEST
+  //    7      3   HIGHEST
+  //    8      6   HIGHEST
+  //    4      4   MEDIUM
+  //    1      1   LOW
+  //    6          LOW
+  //    3          LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(2));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(3));
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(4));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(5));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(6));  // reprioritized
+
+  // A request completes, then the socket is returned to the socket pool and
+  // goes to the highest remaining request. The job from the highest request
+  // should then be reassigned to the first request without a job.
+  host_resolver_->ResolveNow(2);
+  EXPECT_THAT(callback2.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle2.is_initialized());
+  EXPECT_TRUE(handle2.socket());
+  handle2.Reset();
+  EXPECT_THAT(callback5.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle5.is_initialized());
+  EXPECT_TRUE(handle5.socket());
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    7      3   HIGHEST
+  //    8      6   HIGHEST
+  //    4      4   MEDIUM
+  //    1      1   LOW
+  //    6      5   LOW
+  //    3          LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(3));
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(4));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(5));  // reprioritized
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(6));
+
+  // Cancelling a request with a job reassigns the job to a lower request.
+  handle7.Reset();
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    8      6   HIGHEST
+  //    4      4   MEDIUM
+  //    1      1   LOW
+  //    6      5   LOW
+  //    3      3   LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(3));  // reprioritized
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(4));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(5));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(6));
+
+  // Reprioritizing a request changes its job's priority.
+  pool_.SetPriority("a", &handle4, LOWEST);
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    8      6   HIGHEST
+  //    1      1   LOW
+  //    6      5   LOW
+  //    3      3   LOWEST
+  //    4      4   LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(3));
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(4));  // reprioritized
+  EXPECT_EQ(LOW, host_resolver_->request_priority(5));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(6));
+
+  pool_.SetPriority("a", &handle3, MEDIUM);
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    8      6   HIGHEST
+  //    3      3   MEDIUM
+  //    1      1   LOW
+  //    6      5   LOW
+  //    4      4   LOWEST
+  EXPECT_EQ(LOW, host_resolver_->request_priority(1));
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(3));  // reprioritized
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(4));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(5));
+  EXPECT_EQ(HIGHEST, host_resolver_->request_priority(6));
+
+  // Host resolution finishes for a lower-down request. The highest request
+  // should get the socket and its job should be reassigned to the lower
+  // request.
+  host_resolver_->ResolveNow(1);
+  EXPECT_THAT(callback8.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle8.is_initialized());
+  EXPECT_TRUE(handle8.socket());
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    3      3   MEDIUM
+  //    1      6   LOW
+  //    6      5   LOW
+  //    4      4   LOWEST
+  EXPECT_EQ(MEDIUM, host_resolver_->request_priority(3));
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(4));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(5));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(6));  // reprioritized
+
+  // Host resolution finishes for the highest request. Nothing gets
+  // reprioritized.
+  host_resolver_->ResolveNow(3);
+  EXPECT_THAT(callback3.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle3.is_initialized());
+  EXPECT_TRUE(handle3.socket());
+  // Request  Job  Priority
+  // =======  ===  ========
+  //    1      6   LOW
+  //    6      5   LOW
+  //    4      4   LOWEST
+  EXPECT_EQ(LOWEST, host_resolver_->request_priority(4));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(5));
+  EXPECT_EQ(LOW, host_resolver_->request_priority(6));
+
+  host_resolver_->ResolveAllPending();
+  EXPECT_THAT(callback1.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle1.is_initialized());
+  EXPECT_TRUE(handle1.socket());
+  EXPECT_THAT(callback4.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle4.is_initialized());
+  EXPECT_TRUE(handle4.socket());
+  EXPECT_THAT(callback6.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle6.is_initialized());
+  EXPECT_TRUE(handle6.socket());
+}
+
+TEST_F(TransportClientSocketPoolTest, RequestIgnoringLimitsIsNotReprioritized) {
+  TransportClientSocketPool pool(kMaxSockets, 1, host_resolver_.get(),
+                                 &client_socket_factory_, nullptr, nullptr);
+
+  // Creates a job which ignores limits whose priority is MAXIMUM_PRIORITY
+  TestCompletionCallback callback1;
+  ClientSocketHandle handle1;
+  int rv1 = handle1.Init("a", params_, MAXIMUM_PRIORITY, SocketTag(),
+                         ClientSocketPool::RespectLimits::DISABLED,
+                         callback1.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(rv1, IsError(ERR_IO_PENDING));
+
+  EXPECT_EQ(MAXIMUM_PRIORITY, host_resolver_->request_priority(1));
+
+  TestCompletionCallback callback2;
+  ClientSocketHandle handle2;
+  int rv2 = handle2.Init("a", params_, LOW, SocketTag(),
+                         ClientSocketPool::RespectLimits::ENABLED,
+                         callback2.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(rv2, IsError(ERR_IO_PENDING));
+
+  // handle2 gets assigned the job, but it is not changed to match the request
+  // priority because it ignores limits.
+  handle1.Reset();
+  EXPECT_EQ(MAXIMUM_PRIORITY, host_resolver_->request_priority(1));
+}
+
 TEST_F(TransportClientSocketPoolTest, InitHostResolutionFailure) {
   host_resolver_->rules()->AddSimulatedFailure("unresolvable.host.name");
   TestCompletionCallback callback;
   ClientSocketHandle handle;
   HostPortPair host_port_pair("unresolvable.host.name", 80);
-  scoped_refptr<TransportSocketParams> dest(new TransportSocketParams(
-      host_port_pair, false, OnHostResolutionCallback(),
-      TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT));
+  scoped_refptr<TransportClientSocketPool::SocketParams> dest(
+      TransportClientSocketPool::SocketParams::CreateFromTransportSocketParams(
+          base::MakeRefCounted<TransportSocketParams>(
+              host_port_pair, false, OnHostResolutionCallback())));
   EXPECT_EQ(ERR_IO_PENDING,
             handle.Init("a", dest, kDefaultPriority, SocketTag(),
                         ClientSocketPool::RespectLimits::ENABLED,
@@ -511,9 +693,12 @@ class RequestSocketCallback : public TestCompletionCallbackBase {
       handle_->Reset();
       base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).RunUntilIdle();
       within_callback_ = true;
-      scoped_refptr<TransportSocketParams> dest(new TransportSocketParams(
-          HostPortPair("www.google.com", 80), false, OnHostResolutionCallback(),
-          TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT));
+      scoped_refptr<TransportClientSocketPool::SocketParams> dest(
+          TransportClientSocketPool::SocketParams::
+              CreateFromTransportSocketParams(
+                  base::MakeRefCounted<TransportSocketParams>(
+                      HostPortPair("www.google.com", 80), false,
+                      OnHostResolutionCallback())));
       int rv = handle_->Init("a", dest, LOWEST, SocketTag(),
                              ClientSocketPool::RespectLimits::ENABLED,
                              callback(), pool_, NetLogWithSource());
@@ -531,9 +716,11 @@ class RequestSocketCallback : public TestCompletionCallbackBase {
 TEST_F(TransportClientSocketPoolTest, RequestTwice) {
   ClientSocketHandle handle;
   RequestSocketCallback callback(&handle, &pool_);
-  scoped_refptr<TransportSocketParams> dest(new TransportSocketParams(
-      HostPortPair("www.google.com", 80), false, OnHostResolutionCallback(),
-      TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT));
+  scoped_refptr<TransportClientSocketPool::SocketParams> dest(
+      TransportClientSocketPool::SocketParams::CreateFromTransportSocketParams(
+          base::MakeRefCounted<TransportSocketParams>(
+              HostPortPair("www.google.com", 80), false,
+              OnHostResolutionCallback())));
   int rv = handle.Init("a", dest, LOWEST, SocketTag(),
                        ClientSocketPool::RespectLimits::ENABLED,
                        callback.callback(), &pool_, NetLogWithSource());
@@ -679,7 +866,7 @@ TEST_F(TransportClientSocketPoolTest, BackupSocketConnect) {
     case2_types
   };
 
-  for (size_t index = 0; index < arraysize(cases); ++index) {
+  for (size_t index = 0; index < base::size(cases); ++index) {
     client_socket_factory_.set_client_socket_types(cases[index], 2);
 
     EXPECT_EQ(0, pool_.IdleSocketCount());
@@ -855,292 +1042,6 @@ TEST_F(TransportClientSocketPoolTest, BackupSocketFailAfterDelay) {
   handle.Reset();
 }
 
-// Test the case of the IPv6 address stalling, and falling back to the IPv4
-// socket which finishes first.
-TEST_F(TransportClientSocketPoolTest, IPv6FallbackSocketIPv4FinishesFirst) {
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &client_socket_factory_,
-                                 NULL, NULL);
-
-  MockTransportClientSocketFactory::ClientSocketType case_types[] = {
-      // This is the IPv6 socket. It stalls, but presents one failed connection
-      // attempt on GetConnectionAttempts.
-      MockTransportClientSocketFactory::MOCK_STALLED_FAILING_CLIENT_SOCKET,
-      // This is the IPv4 socket.
-      MockTransportClientSocketFactory::MOCK_PENDING_CLIENT_SOCKET};
-
-  client_socket_factory_.set_client_socket_types(case_types, 2);
-
-  // Resolve an AddressList with a IPv6 address first and then a IPv4 address.
-  host_resolver_->rules()
-      ->AddIPLiteralRule("*", "2:abcd::3:4:ff,2.2.2.2", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", params_, LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(handle.is_initialized());
-  EXPECT_TRUE(handle.socket());
-  IPEndPoint endpoint;
-  handle.socket()->GetLocalAddress(&endpoint);
-  EXPECT_TRUE(endpoint.address().IsIPv4());
-
-  // Check that the failed connection attempt on the main socket is collected.
-  ConnectionAttempts attempts;
-  handle.socket()->GetConnectionAttempts(&attempts);
-  ASSERT_EQ(1u, attempts.size());
-  EXPECT_THAT(attempts[0].result, IsError(ERR_CONNECTION_FAILED));
-  EXPECT_TRUE(attempts[0].endpoint.address().IsIPv6());
-
-  EXPECT_EQ(2, client_socket_factory_.allocation_count());
-}
-
-// Test the case of the IPv6 address being slow, thus falling back to trying to
-// connect to the IPv4 address, but having the connect to the IPv6 address
-// finish first.
-TEST_F(TransportClientSocketPoolTest, IPv6FallbackSocketIPv6FinishesFirst) {
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &client_socket_factory_,
-                                 NULL, NULL);
-
-  MockTransportClientSocketFactory::ClientSocketType case_types[] = {
-      // This is the IPv6 socket.
-      MockTransportClientSocketFactory::MOCK_DELAYED_CLIENT_SOCKET,
-      // This is the IPv4 socket. It stalls, but presents one failed connection
-      // attempt on GetConnectionATtempts.
-      MockTransportClientSocketFactory::MOCK_STALLED_FAILING_CLIENT_SOCKET};
-
-  client_socket_factory_.set_client_socket_types(case_types, 2);
-  client_socket_factory_.set_delay(base::TimeDelta::FromMilliseconds(
-      TransportConnectJob::kIPv6FallbackTimerInMs + 50));
-
-  // Resolve an AddressList with a IPv6 address first and then a IPv4 address.
-  host_resolver_->rules()
-      ->AddIPLiteralRule("*", "2:abcd::3:4:ff,2.2.2.2", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", params_, LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(handle.is_initialized());
-  EXPECT_TRUE(handle.socket());
-  IPEndPoint endpoint;
-  handle.socket()->GetLocalAddress(&endpoint);
-  EXPECT_TRUE(endpoint.address().IsIPv6());
-
-  // Check that the failed connection attempt on the fallback socket is
-  // collected.
-  ConnectionAttempts attempts;
-  handle.socket()->GetConnectionAttempts(&attempts);
-  ASSERT_EQ(1u, attempts.size());
-  EXPECT_THAT(attempts[0].result, IsError(ERR_CONNECTION_FAILED));
-  EXPECT_TRUE(attempts[0].endpoint.address().IsIPv4());
-
-  EXPECT_EQ(2, client_socket_factory_.allocation_count());
-}
-
-TEST_F(TransportClientSocketPoolTest, IPv6NoIPv4AddressesToFallbackTo) {
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &client_socket_factory_,
-                                 NULL, NULL);
-
-  client_socket_factory_.set_default_client_socket_type(
-      MockTransportClientSocketFactory::MOCK_DELAYED_CLIENT_SOCKET);
-
-  // Resolve an AddressList with only IPv6 addresses.
-  host_resolver_->rules()
-      ->AddIPLiteralRule("*", "2:abcd::3:4:ff,3:abcd::3:4:ff", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", params_, LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(handle.is_initialized());
-  EXPECT_TRUE(handle.socket());
-  IPEndPoint endpoint;
-  handle.socket()->GetLocalAddress(&endpoint);
-  EXPECT_TRUE(endpoint.address().IsIPv6());
-  EXPECT_EQ(0u, handle.connection_attempts().size());
-  EXPECT_EQ(1, client_socket_factory_.allocation_count());
-}
-
-TEST_F(TransportClientSocketPoolTest, IPv4HasNoFallback) {
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &client_socket_factory_,
-                                 NULL, NULL);
-
-  client_socket_factory_.set_default_client_socket_type(
-      MockTransportClientSocketFactory::MOCK_DELAYED_CLIENT_SOCKET);
-
-  // Resolve an AddressList with only IPv4 addresses.
-  host_resolver_->rules()->AddIPLiteralRule("*", "1.1.1.1", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  int rv = handle.Init("a", params_, LOW, SocketTag(),
-                       ClientSocketPool::RespectLimits::ENABLED,
-                       callback.callback(), &pool, NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(handle.is_initialized());
-  EXPECT_TRUE(handle.socket());
-  IPEndPoint endpoint;
-  handle.socket()->GetLocalAddress(&endpoint);
-  EXPECT_TRUE(endpoint.address().IsIPv4());
-  EXPECT_EQ(0u, handle.connection_attempts().size());
-  EXPECT_EQ(1, client_socket_factory_.allocation_count());
-}
-
-// Test that if TCP FastOpen is enabled, it is set on the socket
-// when we have only an IPv4 address.
-TEST_F(TransportClientSocketPoolTest, TCPFastOpenOnIPv4WithNoFallback) {
-  SequencedSocketData socket_data;
-  MockClientSocketFactory factory;
-  factory.AddSocketDataProvider(&socket_data);
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &factory, NULL, NULL);
-  // Resolve an AddressList with only IPv4 addresses.
-  host_resolver_->rules()->AddIPLiteralRule("*", "1.1.1.1", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  // Enable TCP FastOpen in TransportSocketParams.
-  scoped_refptr<TransportSocketParams> params = CreateParamsForTCPFastOpen();
-  handle.Init("a", params, LOW, SocketTag(),
-              ClientSocketPool::RespectLimits::ENABLED, callback.callback(),
-              &pool, NetLogWithSource());
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(socket_data.IsUsingTCPFastOpen());
-}
-
-// Test that if TCP FastOpen is enabled, it is set on the socket
-// when we have only IPv6 addresses.
-TEST_F(TransportClientSocketPoolTest, TCPFastOpenOnIPv6WithNoFallback) {
-  SequencedSocketData socket_data;
-  MockClientSocketFactory factory;
-  factory.AddSocketDataProvider(&socket_data);
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &factory, NULL, NULL);
-  client_socket_factory_.set_default_client_socket_type(
-      MockTransportClientSocketFactory::MOCK_DELAYED_CLIENT_SOCKET);
-  // Resolve an AddressList with only IPv6 addresses.
-  host_resolver_->rules()
-      ->AddIPLiteralRule("*", "2:abcd::3:4:ff,3:abcd::3:4:ff", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  // Enable TCP FastOpen in TransportSocketParams.
-  scoped_refptr<TransportSocketParams> params = CreateParamsForTCPFastOpen();
-  handle.Init("a", params, LOW, SocketTag(),
-              ClientSocketPool::RespectLimits::ENABLED, callback.callback(),
-              &pool, NetLogWithSource());
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(socket_data.IsUsingTCPFastOpen());
-}
-
-// Test that if TCP FastOpen is enabled, it does not do anything when there
-// is a IPv6 address with fallback to an IPv4 address. This test tests the case
-// when the IPv6 connect fails and the IPv4 one succeeds.
-TEST_F(TransportClientSocketPoolTest,
-       NoTCPFastOpenOnIPv6FailureWithIPv4Fallback) {
-  SequencedSocketData socket_data_1;
-  socket_data_1.set_connect_data(MockConnect(SYNCHRONOUS, ERR_IO_PENDING));
-  SequencedSocketData socket_data_2;
-
-  MockClientSocketFactory factory;
-  factory.AddSocketDataProvider(&socket_data_1);
-  factory.AddSocketDataProvider(&socket_data_2);
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &factory, NULL, NULL);
-
-  // Resolve an AddressList with a IPv6 address first and then a IPv4 address.
-  host_resolver_->rules()
-      ->AddIPLiteralRule("*", "2:abcd::3:4:ff,2.2.2.2", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  // Enable TCP FastOpen in TransportSocketParams.
-  scoped_refptr<TransportSocketParams> params = CreateParamsForTCPFastOpen();
-  handle.Init("a", params, LOW, SocketTag(),
-              ClientSocketPool::RespectLimits::ENABLED, callback.callback(),
-              &pool, NetLogWithSource());
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  // Verify that the socket used is connected to the fallback IPv4 address.
-  IPEndPoint endpoint;
-  handle.socket()->GetPeerAddress(&endpoint);
-  EXPECT_TRUE(endpoint.address().IsIPv4());
-  // Verify that TCP FastOpen was not turned on for the socket.
-  EXPECT_FALSE(socket_data_1.IsUsingTCPFastOpen());
-}
-
-// Test that if TCP FastOpen is enabled, it does not do anything when there
-// is a IPv6 address with fallback to an IPv4 address. This test tests the case
-// when the IPv6 connect succeeds.
-TEST_F(TransportClientSocketPoolTest,
-       NoTCPFastOpenOnIPv6SuccessWithIPv4Fallback) {
-  SequencedSocketData socket_data;
-  MockClientSocketFactory factory;
-  factory.AddSocketDataProvider(&socket_data);
-  // Create a pool without backup jobs.
-  ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(false);
-  TransportClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
-                                 host_resolver_.get(), &factory, NULL, NULL);
-
-  // Resolve an AddressList with a IPv6 address first and then a IPv4 address.
-  host_resolver_->rules()
-      ->AddIPLiteralRule("*", "2:abcd::3:4:ff,2.2.2.2", std::string());
-
-  TestCompletionCallback callback;
-  ClientSocketHandle handle;
-  // Enable TCP FastOpen in TransportSocketParams.
-  scoped_refptr<TransportSocketParams> params = CreateParamsForTCPFastOpen();
-  handle.Init("a", params, LOW, SocketTag(),
-              ClientSocketPool::RespectLimits::ENABLED, callback.callback(),
-              &pool, NetLogWithSource());
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  IPEndPoint endpoint;
-  handle.socket()->GetPeerAddress(&endpoint);
-  // Verify that the socket used is connected to the IPv6 address.
-  EXPECT_TRUE(endpoint.address().IsIPv6());
-  // Verify that TCP FastOpen was not turned on for the socket.
-  EXPECT_FALSE(socket_data.IsUsingTCPFastOpen());
-}
-
 // Test that SocketTag passed into TransportClientSocketPool is applied to
 // returned sockets.
 #if defined(OS_ANDROID)
@@ -1161,9 +1062,10 @@ TEST_F(TransportClientSocketPoolTest, Tag) {
 
   // Test socket is tagged before connected.
   uint64_t old_traffic = GetTaggedBytes(tag_val1);
-  scoped_refptr<TransportSocketParams> params(new TransportSocketParams(
-      test_server.host_port_pair(), false, OnHostResolutionCallback(),
-      TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT));
+  scoped_refptr<TransportClientSocketPool::SocketParams> params =
+      TransportClientSocketPool::SocketParams::CreateFromTransportSocketParams(
+          base::MakeRefCounted<TransportSocketParams>(
+              test_server.host_port_pair(), false, OnHostResolutionCallback()));
   TestCompletionCallback callback;
   int rv = handle.Init("a", params, LOW, tag1,
                        ClientSocketPool::RespectLimits::ENABLED,
@@ -1185,7 +1087,8 @@ TEST_F(TransportClientSocketPoolTest, Tag) {
   EXPECT_TRUE(handle.socket()->IsConnected());
   EXPECT_EQ(handle.socket(), socket);
   const char kRequest[] = "GET / HTTP/1.0\n\n";
-  scoped_refptr<IOBuffer> write_buffer(new StringIOBuffer(kRequest));
+  scoped_refptr<IOBuffer> write_buffer =
+      base::MakeRefCounted<StringIOBuffer>(kRequest);
   rv =
       handle.socket()->Write(write_buffer.get(), strlen(kRequest),
                              callback.callback(), TRAFFIC_ANNOTATION_FOR_TESTS);

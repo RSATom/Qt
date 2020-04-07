@@ -110,7 +110,7 @@ CreateOPMProtectedOutputsTest(PUNICODE_STRING device_name,
   return STATUS_SUCCESS;
 }
 
-ULONG CalculateCertLength(ULONG monitor) {
+ULONG CalculateCertLength(DWORD monitor) {
   return (monitor * 0x800) + 0xabc;
 }
 
@@ -356,12 +356,14 @@ bool RunTestsOnVideoOutputConfigure(uintptr_t monitor_index,
 bool RunTestsOnVideoOutputFinishInitialization(uintptr_t monitor_index,
                                                IOPMVideoOutput* video_output) {
   OPM_ENCRYPTED_INITIALIZATION_PARAMETERS init_params = {};
-  memset(init_params.abEncryptedInitializationParameters, 'a' + monitor_index,
+  memset(init_params.abEncryptedInitializationParameters,
+         'a' + static_cast<DWORD>(monitor_index),
          sizeof(init_params.abEncryptedInitializationParameters));
   HRESULT hr = video_output->FinishInitialization(&init_params);
   if (FAILED(hr))
     return false;
-  memset(init_params.abEncryptedInitializationParameters, 'Z' + monitor_index,
+  memset(init_params.abEncryptedInitializationParameters,
+         'Z' + static_cast<DWORD>(monitor_index),
          sizeof(init_params.abEncryptedInitializationParameters));
   hr = video_output->FinishInitialization(&init_params);
   if (SUCCEEDED(hr))
@@ -380,7 +382,8 @@ bool RunTestsOnVideoOutputStartInitialization(uintptr_t monitor_index,
   if (FAILED(hr))
     return false;
 
-  if (certificate_length != CalculateCertLength(monitor_index))
+  if (certificate_length !=
+      CalculateCertLength(static_cast<DWORD>(monitor_index)))
     return false;
 
   for (ULONG i = 0; i < certificate_length; ++i) {
@@ -629,21 +632,12 @@ TEST(ProcessMitigationsWin32kTest, CheckWin8LockDownFailure) {
   EXPECT_NE(SBOX_TEST_SUCCEEDED, runner.RunTest(test_policy_command.c_str()));
 }
 
-// Flaky in Debug. https://crbug.com/840335
-#if !defined(NDEBUG)
-#define MAYBE_CheckWin8LockDownSuccess DISABLED_CheckWin8LockDownSuccess
-#define MAYBE_CheckWin8Redirection DISABLED_CheckWin8Redirection
-#else
-#define MAYBE_CheckWin8LockDownSuccess CheckWin8LockDownSuccess
-#define MAYBE_CheckWin8Redirection CheckWin8Redirection
-#endif
-
 // This test validates that setting the MITIGATION_WIN32K_DISABLE mitigation
 // along with the policy to fake user32 and gdi32 initialization successfully
 // launches the target process.
 // The test process itself links against user32/gdi32.
 
-TEST(ProcessMitigationsWin32kTest, MAYBE_CheckWin8LockDownSuccess) {
+TEST(ProcessMitigationsWin32kTest, CheckWin8LockDownSuccess) {
   if (base::win::GetVersion() < base::win::VERSION_WIN8)
     return;
 
@@ -670,7 +664,7 @@ TEST(ProcessMitigationsWin32kTest, MAYBE_CheckWin8LockDownSuccess) {
 // This test validates the even though we're running under win32k lockdown
 // we can use the IPC redirection to enumerate the list of monitors.
 // Flaky. https://crbug.com/840335
-TEST(ProcessMitigationsWin32kTest, MAYBE_CheckWin8Redirection) {
+TEST(ProcessMitigationsWin32kTest, CheckWin8Redirection) {
   if (base::win::GetVersion() < base::win::VERSION_WIN8)
     return;
 

@@ -88,4 +88,3 @@ void BarAnimation::setup(const QVector<QRectF> &oldLayout, const QVector<QRectF>
 QT_CHARTS_END_NAMESPACE
 
 #include "moc_baranimation_p.cpp"
-

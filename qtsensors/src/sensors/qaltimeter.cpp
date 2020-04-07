@@ -146,5 +146,6 @@ QAltimeterReading *QAltimeter::reading() const
     return static_cast<QAltimeterReading*>(QSensor::reading());
 }
 
-#include "moc_qaltimeter.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qaltimeter.cpp"

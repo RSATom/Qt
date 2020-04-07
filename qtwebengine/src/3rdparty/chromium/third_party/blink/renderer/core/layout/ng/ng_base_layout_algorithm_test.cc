@@ -28,19 +28,17 @@ void NGBaseLayoutAlgorithmTest::AdvanceToLayoutPhase() {
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInPerformLayout);
 }
 
-std::pair<scoped_refptr<NGPhysicalBoxFragment>,
-          scoped_refptr<NGConstraintSpace>>
+std::pair<scoped_refptr<const NGPhysicalBoxFragment>, NGConstraintSpace>
 NGBaseLayoutAlgorithmTest::RunBlockLayoutAlgorithmForElement(Element* element) {
   LayoutBlockFlow* block_flow = ToLayoutBlockFlow(element->GetLayoutObject());
   NGBlockNode node(block_flow);
-  scoped_refptr<NGConstraintSpace> space =
+  NGConstraintSpace space =
       NGConstraintSpace::CreateFromLayoutObject(*block_flow);
 
   scoped_refptr<NGLayoutResult> result =
-      NGBlockLayoutAlgorithm(node, *space).Layout();
-  return std::make_pair(
-      ToNGPhysicalBoxFragment(result->PhysicalFragment().get()),
-      std::move(space));
+      NGBlockLayoutAlgorithm(node, space).Layout();
+  return std::make_pair(ToNGPhysicalBoxFragment(result->PhysicalFragment()),
+                        std::move(space));
 }
 
 scoped_refptr<const NGPhysicalBoxFragment>
@@ -58,7 +56,8 @@ const NGPhysicalBoxFragment* NGBaseLayoutAlgorithmTest::CurrentFragmentFor(
   return block_flow->CurrentFragment();
 }
 
-const NGPhysicalBoxFragment* FragmentChildIterator::NextChild() {
+const NGPhysicalBoxFragment* FragmentChildIterator::NextChild(
+    NGPhysicalOffset* fragment_offset) {
   if (!parent_)
     return nullptr;
   if (index_ >= parent_->Children().size())
@@ -69,10 +68,13 @@ const NGPhysicalBoxFragment* FragmentChildIterator::NextChild() {
     if (index_ >= parent_->Children().size())
       return nullptr;
   }
-  return ToNGPhysicalBoxFragment(parent_->Children()[index_++].get());
+  auto& child = parent_->Children()[index_++];
+  if (fragment_offset)
+    *fragment_offset = child.Offset();
+  return ToNGPhysicalBoxFragment(child.get());
 }
 
-scoped_refptr<NGConstraintSpace> ConstructBlockLayoutTestConstraintSpace(
+NGConstraintSpace ConstructBlockLayoutTestConstraintSpace(
     WritingMode writing_mode,
     TextDirection direction,
     NGLogicalSize size,
@@ -84,17 +86,15 @@ scoped_refptr<NGConstraintSpace> ConstructBlockLayoutTestConstraintSpace(
           ? NGFragmentationType::kFragmentColumn
           : NGFragmentationType::kFragmentNone;
 
-  return NGConstraintSpaceBuilder(
-             writing_mode,
-             /* icb_size */ size.ConvertToPhysical(writing_mode))
+  return NGConstraintSpaceBuilder(writing_mode, writing_mode,
+                                  is_new_formatting_context)
       .SetAvailableSize(size)
       .SetPercentageResolutionSize(size)
       .SetTextDirection(direction)
       .SetIsShrinkToFit(shrink_to_fit)
-      .SetIsNewFormattingContext(is_new_formatting_context)
       .SetFragmentainerSpaceAtBfcStart(fragmentainer_space_available)
       .SetFragmentationType(block_fragmentation)
-      .ToConstraintSpace(writing_mode);
+      .ToConstraintSpace();
 }
 
 }  // namespace blink

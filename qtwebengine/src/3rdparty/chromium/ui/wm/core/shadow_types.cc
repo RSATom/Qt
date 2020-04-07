@@ -14,4 +14,25 @@ void SetShadowElevation(aura::Window* window, int elevation) {
   window->SetProperty(kShadowElevationKey, elevation);
 }
 
+int GetDefaultShadowElevationForWindow(const aura::Window* window) {
+  switch (window->type()) {
+    case aura::client::WINDOW_TYPE_NORMAL:
+      return kShadowElevationInactiveWindow;
+
+    case aura::client::WINDOW_TYPE_MENU:
+    case aura::client::WINDOW_TYPE_TOOLTIP:
+      return kShadowElevationMenuOrTooltip;
+
+    default:
+      return kShadowElevationNone;
+  }
+}
+
+int GetShadowElevationConvertDefault(const aura::Window* window) {
+  int elevation = window->GetProperty(kShadowElevationKey);
+  return elevation == kShadowElevationDefault
+             ? GetDefaultShadowElevationForWindow(window)
+             : elevation;
+}
+
 }  // namespace wm

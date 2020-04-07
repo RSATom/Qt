@@ -12,44 +12,75 @@ import "mojo/public/mojom/base/time.mojom";
 
 // Interface to communicate with assistant backend.
 interface Assistant {
+  // Starts a cached screen context interaction. Results related to the screen
+  // context will be returned through the |AssistantInteractionSubscriber|
+  // interface to registered subscribers. It is illegal to call this method
+  // without having first cached screen context (see CacheScreenContext()).
+  StartCachedScreenContextInteraction();
+
+  // Starts a metalayer interaction for the selected screen |region|. Results
+  // related to the selected region will be returned through the
+  // |AssistantInteractionSubscriber| interface to registered subscribers.
+  StartMetalayerInteraction(gfx.mojom.Rect region);
+
+  // Starts a new Assistant text interaction. If |allow_tts| is true, the
+  // result will contain TTS. Otherwise TTS will not be present in the
+  // generated server response. Results will be returned through registered
+  // |AssistantInteractionSubscriber|.
+  StartTextInteraction(string query, bool allow_tts);
+
   // Starts a new Assistant voice interaction.
   StartVoiceInteraction();
 
-  // Stops the active Assistant interaction. If there is no active interaction,
-  // this method is a no-op.
-  StopActiveInteraction();
+  // Starts a warmer welcome interaction for Assistant launch.
+  // |num_warmer_welcome_triggered| is the count of warmer welcomes
+  // already triggered. If |allow_tts| is true, the result may contain TTS.
+  // Otherwise TTS will not be present in the generated server response.
+  StartWarmerWelcomeInteraction(int32 num_warmer_welcome_triggered,
+      bool allow_tts);
 
-  // Send text query to assistant. Result will be returned through registered
-  // |AssistantInteractionSubscriber|.
-  SendTextQuery(string query);
+  // Stops the active Assistant interaction and cancel the conversation if
+  // |cancel_conversation|. If there is no active interaction, this method
+  // is a no-op.
+  StopActiveInteraction(bool cancel_conversation);
 
   // Registers assistant interaction event subscriber. Subscribers'
   // implementation is responsible for selecting events of interest.
   AddAssistantInteractionSubscriber(AssistantInteractionSubscriber subscriber);
 
-  // Registers assistant notification event subscriber. Subscribers'
-  // implementation is responsible for selecting events of interest.
-  AddAssistantNotificationSubscriber(
-      AssistantNotificationSubscriber subscriber);
-
   // Retrieves a notification. A voiceless interaction will be sent to server to
-  // retrieve the notification payload, which can trigger other assistant's
-  // events such as OnTextResponse to show the result in the UI. The reteived
-  // notification will be removed from the UI.
+  // retrieve the notification of |action_index|, which can trigger other
+  // Assistant events such as OnTextResponse to show the result in the UI. The
+  // retrieved notification will be removed from the UI.
+  // |action_index| is the index of the tapped action. The main UI in the
+  // notification contains the top level action, which index is 0. The buttons
+  // have the additional actions, which are indexed starting from 1.
   RetrieveNotification(AssistantNotification notification, int32 action_index);
 
   // Dismisses a notification.
   DismissNotification(AssistantNotification notification);
 
-  // Asks assistant to grab screen context. |region| controls the part of the
-  // screen to snapshot. If |region| is empty, it takes fullscreen screenshot.
-  // After grabbing completion, the callback will be invoked.
-  RequestScreenContext(gfx.mojom.Rect region) => ();
+  // Caches screen context, made up of view hierarchy and screenshot data.
+  // Screen context is used to provide additional context alongside text and
+  // voice queries, and may also be used in standalone screen context
+  // interactions (see StartCachedScreenContextInteraction()).
+  CacheScreenContext() => ();
+
+  // Clears the screen context cached by calling CacheScreenContext().
+  ClearScreenContextCache();
+
+  // Invoked when accessibility status is changed. Note that though
+  // accessibility status has changed, |spoken_feedback_enabled| may not have.
+  OnAccessibilityStatusChanged(bool spoken_feedback_enabled);
+
+  // Send Assistant feedback to Assistant server.
+  SendAssistantFeedback(AssistantFeedback feedback);
 };
 
-// Subscribes to assistant's interaction event. Responses from the assistant may
-// contain untrusted third-party content. Subscriber implementations must be
-// sure to handle the response data appropriately.
+// Subscribes to Assistant's interaction event. These events are server driven
+// in response to the user's direct interaction with the assistant. Responses
+// from the assistant may contain untrusted third-party content. Subscriber
+// implementations must be sure to handle the response data appropriately.
 interface AssistantInteractionSubscriber {
   // Assistant interaction has started. In the event of a voice interaction,
   // |is_voice_interaction| will be true. This implies that the mic is open.
@@ -58,8 +89,8 @@ interface AssistantInteractionSubscriber {
   // Assistant interaction has ended with the specified |resolution|.
   OnInteractionFinished(AssistantInteractionResolution resolution);
 
-  // Assistant got Html response from server.
-  OnHtmlResponse(string response);
+  // Assistant got Html response with fallback text from server.
+  OnHtmlResponse(string response, string fallback);
 
   // Assistant got suggestions response from server.
   OnSuggestionsResponse(array<AssistantSuggestion> response);
@@ -85,16 +116,10 @@ interface AssistantInteractionSubscriber {
 
   // Assistant got an instantaneous speech level update in dB.
   OnSpeechLevelUpdated(float speech_level);
-};
 
-// Subscribes to assistant's notification event.
-interface AssistantNotificationSubscriber {
-  // Assistant got notification from server.
-  OnShowNotification(AssistantNotification notification);
-
-  // Notifies UI to remove the notification with the |grouping_key|.
-  // If |grouping_key| is empty, remove all notifications.
-  OnRemoveNotification(string grouping_key);
+  // Assistant has started speaking. When TTS is started due to an error that
+  // occurred during the interaction, |due_to_error| is true.
+  OnTtsStarted(bool due_to_error);
 };
 
 // Interface for browser to bind and start assistant.
@@ -116,30 +141,31 @@ interface Client {
     ax.mojom.AssistantTree? structure);
 };
 
-// Interface for assistant to call into browser for audio input related
-// functions.
-interface AudioInput {
-  // Registers audio input observer. We assume dual-channel, 16kHz and signed
-  // 32-bit int interleaved format. Audio stream starts recording as soon as
-  // the first observer is added. And will stop recording if last observer is
-  // closed.
-  AddObserver(AudioInputObserver observer);
-};
-
-// Observer for assistant to receive audio input data.
-interface AudioInputObserver {
-  // Notifies that audio frames are available.
-  // TODO(muyuanli): Use data pipe.
-  OnAudioInputFramesAvailable(array<int32> buffer, uint32 frame_count,
-                              mojo_base.mojom.TimeTicks timestamp);
-  // Notifies that audio input stream is closed.
-  OnAudioInputClosed();
-};
-
 // Interface for assistant to call into browser to perform device actions.
 interface DeviceActions {
   // Enables or disables WiFi.
   SetWifiEnabled(bool enabled);
+
+  // Enables or disables Bluetooth.
+  SetBluetoothEnabled(bool enabled);
+
+  // Gets the current screen brightness level (0-1.0).
+  // The level is set to 0 in the event of an error.
+  GetScreenBrightnessLevel() => (bool success, double level);
+
+  // Sets the screen brightness level (0-1.0).  If |gradual| is true, the
+  // transition will be animated.
+  SetScreenBrightnessLevel(double level, bool gradual);
+
+  // Enables or disables Night Light.
+  SetNightLightEnabled(bool enabled);
+
+  // Open the Android app if the app is available.
+  OpenAndroidApp(AndroidAppInfo app_info) => (bool app_opened);
+
+  // Verify the status of the Android apps.
+  VerifyAndroidApp(array<AndroidAppInfo> apps_info) => (array<AndroidAppInfo>
+                                                        apps_info);
 };
 
 // Enumeration of possible completions for an Assistant interaction.
@@ -150,6 +176,8 @@ enum AssistantInteractionResolution {
   kInterruption,
   // Assistant interaction completed due to error.
   kError,
+  // Assistant interaction completed due to mic timeout.
+  kMicTimeout,
   // Assistant interaction completed due to multi-device hotword loss.
   kMultiDeviceHotwordLoss,
 };
@@ -165,6 +193,15 @@ struct AssistantSuggestion {
   url.mojom.Url action_url;
 };
 
+// Models a notification button.
+struct AssistantNotificationButton {
+  // Display text of the button.
+  string label;
+
+  // Optional URL to open when the tap action is invoked on the button.
+  url.mojom.Url action_url;
+};
+
 // Models an Assistant notification.
 struct AssistantNotification {
   // Title of the notification.
@@ -173,11 +210,18 @@ struct AssistantNotification {
   // Body text of the notification.
   string message;
 
-  // URL to open when the tap action is invoked on the notification.
+  // Optional URL to open when the tap action is invoked on the notification
+  // main UI.
   url.mojom.Url action_url;
 
-  // An id that uniquely identifies a notification.
-  string notification_id;
+  // List of buttons in the notification.
+  array<AssistantNotificationButton> buttons;
+
+  // An id that uniquely identifies a notification on the client.
+  string client_id;
+
+  // An id that uniquely identifies a notification on the server.
+  string server_id;
 
   // Used to fetch notification contents.
   string consistency_token;
@@ -188,4 +232,25 @@ struct AssistantNotification {
 
   // Obfuscated Gaia id of the intended recipient of the user.
   string obfuscated_gaia_id;
+};
+
+// Models status of an app.
+enum AppStatus { UNKNOWN, AVAILABLE, UNAVAILABLE, VERSION_MISMATCH, DISABLED };
+
+// Models an Android app.
+struct AndroidAppInfo {
+  string package_name;
+  int32 version;
+  string localized_app_name;
+  string intent;
+  AppStatus status;
+};
+
+//  Details for Assistant feedback.
+struct AssistantFeedback {
+  // User input to be sent with the feedback report.
+  string description;
+
+  // Whether user consent to send debug info.
+  bool assistant_debug_info_allowed;
 };

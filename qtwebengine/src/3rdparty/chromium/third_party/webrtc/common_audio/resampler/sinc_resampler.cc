@@ -88,13 +88,13 @@
 #include "common_audio/resampler/sinc_resampler.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
-
 #include <limits>
 
 #include "rtc_base/checks.h"
-#include "system_wrappers/include/cpu_features_wrapper.h"
-#include "typedefs.h"  // NOLINT(build/include)
+#include "rtc_base/system/arch.h"
+#include "system_wrappers/include/cpu_features_wrapper.h"  // kSSE2, WebRtc_G...
 
 namespace webrtc {
 

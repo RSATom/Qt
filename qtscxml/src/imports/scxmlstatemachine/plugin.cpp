@@ -74,6 +74,10 @@ public:
         qmlRegisterType<QScxmlInvokedServices>(uri, major, minor, "InvokedServices");
         qmlRegisterExtendedUncreatableType<QScxmlStateMachine, QScxmlStateMachineExtended>(
                     uri, major, minor, "StateMachine", "Only created through derived types");
+
+        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions
+        qmlRegisterModule(uri, major, QT_VERSION_MINOR);
+
         qmlProtectModule(uri, 1);
     }
 };

@@ -5,8 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_CUSTOM_CSS_LAYOUT_DEFINITION_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_CUSTOM_CSS_LAYOUT_DEFINITION_H_
 
+#include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/cssom/css_style_value.h"
-#include "third_party/blink/renderer/core/css_property_names.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/bindings/scoped_persistent.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
@@ -43,7 +43,7 @@ class CSSLayoutDefinition final
   // CSSLayoutDefinition.
   class Instance final : public GarbageCollectedFinalized<Instance> {
    public:
-    Instance(CSSLayoutDefinition*, v8::Local<v8::Object> instance);
+    Instance(CSSLayoutDefinition*, v8::Local<v8::Value> instance);
 
     // Runs the web developer defined layout, returns true if everything
     // succeeded. It populates the FragmentResultOptions dictionary, and
@@ -58,7 +58,7 @@ class CSSLayoutDefinition final
     void ReportException(ExceptionState*);
 
     Member<CSSLayoutDefinition> definition_;
-    ScopedPersistent<v8::Object> instance_;
+    ScopedPersistent<v8::Value> instance_;
   };
 
   // Creates an instance of the web developer defined class. May return a

@@ -162,6 +162,12 @@
       <message desc='The description of the nextGranularity key.  Navigation granularity can be e.g. "sentence level", "word level".  Granularity is also referred as "level of detail".  c.f. http://chromevox.com/tutorial/text_navigation.html Displayed in the Options page.' name="IDS_CHROMEVOX_NEXT_GRANULARITY">
         Increase navigation granularity
       </message>
+      <message desc="The description of the previousAtGranularity gesture. Displayed in the Options page." name="IDS_CHROMEVOX_PREVIOUS_AT_GRANULARITY">
+        Move to previous at granularity
+      </message>
+      <message desc='The description of the nextGranularity gesture.  Navigation granularity can be e.g. "word level".  Granularity is also referred as "level of detail".  c.f. http://chromevox.com/tutorial/text_navigation.html Displayed in the Options page.' name="IDS_CHROMEVOX_NEXT_AT_GRANULARITY">
+        Move to next at granularity
+      </message>
       <message desc="The description of the actOnCurrentItem key. The current item is the HTML element which has focus.  Taking action is similar to using the mouse to click on the element. Displayed in the Options page." name="IDS_CHROMEVOX_ACT_ON_CURRENT_ITEM">
         Take action on current item
       </message>
@@ -508,6 +514,9 @@
       <message desc="An option to show the cursor between characters." name="IDS_CHROMEVOX_OPTIONS_CURSOR_BETWEEN_CHARACTERS">
         Place cursor between characters when editing text (like Mac OS X).
       </message>
+      <message desc="An option to speak text under the mouse." name="IDS_CHROMEVOX_OPTIONS_SPEAK_MOUSE">
+        Speak text under the mouse.
+      </message>
       <message desc="An options page section header for options about the ChromeVox voice. This section lets users change the voice by selecting a different voice from a listbox." name="IDS_CHROMEVOX_OPTIONS_VOICES">
         Voices
       </message>
@@ -559,8 +568,32 @@
       <message desc="An option for setting the key combination that will be used as the ChromeVox modifier key (aka, the 'Cvox' key)." name="IDS_CHROMEVOX_OPTIONS_CVOX_MODIFIER_KEY">
         ChromeVox modifier key
       </message>
+      <message desc="List of chromevox developer options." name="IDS_CHROMEVOX_OPTIONS_DEVELOPER_OPTIONS">
+        Developer Options
+      </message>
+      <message desc="Enable chromevox earcon logging." name="IDS_CHROMEVOX_OPTIONS_DEVELOPER_EARCON_LOGGING">
+        Enable earcon logging
+      </message>
+      <message desc="Enable chromevox speech logging." name="IDS_CHROMEVOX_OPTIONS_DEVELOPER_SPEECH_LOGGING">
+        Enable speech logging
+      </message>
+      <message desc="Enable event stream logging in chromevox for developer options." name="IDS_CHROMEVOX_OPTIONS_EVENT_STREAM_LOGGING">
+        Enable event stream logging
+      </message>
+      <message desc="Show event stream filters options for event stream logging." name="IDS_CHROMEVOX_OPTIONS_SHOW_EVENT_STREAM_FILTERS">
+        Show event stream filters
+      </message>
+      <message desc="Hide event stream filters options for event stream logging." name="IDS_CHROMEVOX_OPTIONS_HIDE_EVENT_STREAM_FILTERS">
+        Hide event stream filters
+      </message>
+      <message desc="Enable chromevox braille logging." name="IDS_CHROMEVOX_OPTIONS_DEVELOPER_BRAILLE_LOGGING">
+        Enable braille logging
+      </message>
       <message desc="The title of ChromeVox Learn Mode page.  The keyboard explorer voices the name of each key when the user presses it." name="IDS_CHROMEVOX_KBEXPLORER_TITLE">
         ChromeVox Learn Mode
+      </message>
+      <message desc="The title of ChromeVox Log page." name="IDS_CHROMEVOX_LOG_TITLE">
+        ChromeVox Log
       </message>
       <message desc="The instructions for ChromeVox Learn Mode.  The keyboard explorer voices the name of each key when the user presses it. * These instructions describe how to use the keyboard explorer." name="IDS_CHROMEVOX_KBEXPLORER_INSTRUCTIONS">
         Press any key to learn its name. Ctrl+W will close learn mode.
@@ -788,10 +821,10 @@
         tbl <ph name="tableName">$1</ph> <ph name="tableRows">$2</ph>x<ph name="tableCols">$3</ph>
       </message>
       <message desc="summarizes a table cell." name="IDS_CHROMEVOX_CELL_SUMMARY">
-        row $1 column $2
+        row <ph name="tableCellRowIndex">$1</ph> column <ph name="tableCellColumnIndex">$2</ph>
       </message>
       <message desc="summarizes a table cell for braille; for example, r1c2 means row 1, column 2. Try to localize the 'r' and 'c' to the first letter of something that would be recognizable." name="IDS_CHROMEVOX_CELL_SUMMARY_BRL">
-        r$1c$2
+        r<ph name="tableCellRowIndex">$1</ph>c<ph name="tableCellColumnIndex">$2</ph>
       </message>
       <message desc="Spoken if the user attempts to jump to the next checkbox when none exists." name="IDS_CHROMEVOX_NO_NEXT_CHECKBOX">
         No next checkbox.
@@ -1169,13 +1202,13 @@
         Q&amp;A
       </message>
       <message desc="Accessibility role description for subtitle" name="IDS_CHROMEVOX_ROLE_DOC_SUBTITLE">
-        subti
+        Subtitle
       </message>
       <message desc="Accessibility role description for tip" name="IDS_CHROMEVOX_ROLE_DOC_TIP">
-        tip
+        Tip
       </message>
       <message desc="Accessibility role description for table of contents" name="IDS_CHROMEVOX_ROLE_DOC_TOC">
-        toc
+        Table of contents
       </message>
       <message desc="Accessibility role description for graphics document" name="IDS_CHROMEVOX_ROLE_GRAPHICS_DOCUMENT">
         Graphics document
@@ -1452,6 +1485,12 @@
       </message>
       <message desc="This is the name of an ARIA document structure role shown on a braille display. When translating, try to find a contracted form of the translation for 'list' according to local conventions. If reasonable, use all lowercase and avoid punctuation to keep the number of characters as low as possible." name="IDS_CHROMEVOX_ROLE_LIST_BRL">
         lst
+      </message>
+      <message desc="Describes an element with the internal role of listGrid. This is similar to an ARIA grid." name="IDS_CHROMEVOX_ROLE_LIST_GRID">
+        List grid
+      </message>
+      <message desc="This is the name of an internal role shown on a braille display. When translating, try to find a contracted form of the translation for 'list grid' according to local conventions. If reasonable, use all lowercase and avoid punctuation to keep the number of characters as low as possible." name="IDS_CHROMEVOX_ROLE_LIST_GRID_BRL">
+        lstgrd
       </message>
       <message desc="Describes an element with the ARIA role listitem." name="IDS_CHROMEVOX_ROLE_LISTITEM">
         List item
@@ -2072,13 +2111,13 @@
         Start or end selection.
       </message>
       <message desc="Spoken when the browser's copy command is invoked." name="IDS_CHROMEVOX_COPY">
-        copy $1.
+        copy <ph name="TEXT">$1</ph>.
       </message>
       <message desc="Spoken when the browser's cut command is invoked." name="IDS_CHROMEVOX_CUT">
-        cut $1.
+        cut <ph name="TEXT">$1</ph>.
       </message>
       <message desc="Spoken when the browser's paste command is invoked." name="IDS_CHROMEVOX_PASTE">
-        paste $1.
+        paste <ph name="TEXT">$1</ph>.
       </message>
       <message desc="Spoken when additional characters are selected in editable text." name="IDS_CHROMEVOX_SELECTED">
         selected
@@ -2229,6 +2268,12 @@
       </message>
       <message desc="Describes nodes or anything describing them as a landmark." name="IDS_CHROMEVOX_ROLE_LANDMARK">
         Landmark
+      </message>
+      <message desc="Describes a button that can be pressed/toggled." name="IDS_CHROMEVOX_ROLE_TOGGLE_BUTTON">
+        Toggle Button
+      </message>
+      <message desc="Brailles a button that can be pressed/toggled." name="IDS_CHROMEVOX_ROLE_TOGGLE_BUTTON_BRL">
+        tgl btn
       </message>
       <message desc="Spoken when user types invalid keys into the modifier selection field." name="IDS_CHROMEVOX_MODIFIER_ENTRY_ERROR">
         No modifier pressed; please press and hold one or more modifiers; lift your fingers once done and you will hear the keys set. Tab to exit.
@@ -2480,7 +2525,7 @@
         {COUNT, plural, =1 {bullet}other {# bullets}}
       </message>
       <message desc="Describes the braille click command. Displayed in the options page." name="IDS_CHROMEVOX_BRAILLE_ROUTING">
-        Click the item under routing key $1
+        Click the item under routing key <ph name="ROUTING_KEY_NUMBER">$1</ph>
       </message>
       <message desc="Describes the braille pan backward command. Displayed in the options page." name="IDS_CHROMEVOX_BRAILLE_PAN_LEFT">
         Pan backward
@@ -2507,7 +2552,7 @@
         dots <ph name="dot">$1</ph>
       </message>
       <message desc="Describes dots on a refreshable braille display pressed with the space key. For example, dots 1 2 3 4 8 chord" name="IDS_CHROMEVOX_BRAILLE_CHORD">
-        $1 chord
+        <ph name="dot">$1</ph> chord
       </message>
       <message desc="The description of the command that allows the user to view a graphic as a dot pattern on a refreshable braille display." name="IDS_CHROMEVOX_VIEW_GRAPHIC_AS_BRAILLE">
         View Graphic As Braille
@@ -2520,44 +2565,85 @@
       </message>
       <message desc="A dictionary mapping locale identifiers to their corresponding language names. The format is the following: { ..., 'en_US': 'English (United States)', ...}. Translation only needed for the language and country names (e.g. English (United States)). All other strings must be kept as is." name="IDS_CHROMEVOX_LOCALE_DICT">
         {"ar": "Arabic",
+        "as": "Assamese",
+        "aw": "Awadhi",
+        "be": "Bengali",
         "bg": "Bulgarian",
+        "bh": "Bihari",
+        "bo": "Tibetan",
+        "br": "Braj",
         "ca": "Catalan",
+        "ckb": "Sorani",
         "cs": "Czech",
+        "cy": "Welsh",
         "da": "Danish",
         "de": "German",
         "de_CH": "German (Switzerland)",
         "de_DE": "German (Germany)",
+        "dra": "Dravidian",
         "el": "Greek",
         "en": "English",
         "en_CA": "English (Canada)",
         "en_GB": "English (United Kingdom)",
         "en_US": "English (United States)",
+        "eo": "Esperanto",
         "es": "Spanish",
         "et": "Estonian",
+        "fa": "Persian",
         "fr": "French",
         "fr_CA": "French (Canada)",
         "fr_FR": "French (France)",
         "fi": "Finnish",
+        "ga": "Irish",
+        "gd": "Gaelic",
+        "gon": "Gondi",
+        "gu": "Gujarati",
         "he": "Hebrew",
         "hi": "Hindi",
         "hr": "Croatian",
         "hu": "Hungarian",
+        "hy": "Armenian",
         "is": "Icelandic",
         "it": "Italian",
+        "iu": "Inuktitut",
+        "ka": "Kannada",
+        "kh": "Khasi",
         "ko": "Korean",
+        "kok": "Konkani",
+        "kru": "Kurukh",
+        "ks": "Kashmiri",
         "lt": "Lithuanian",
         "lv": "Latvian",
+        "mao": "Maori",
+        "ml": "Malayalam",
+        "mt": "Maltese",
+        "mwr": "Marwari",
+        "mn": "Mongolian",
+        "mun": "Munda",
         "nb": "Norwegian Bokmål",
+        "ne": "Nepali",
         "nl": "Dutch",
+        "no": "Norwegian",
+        "or": "Oriya",
+        "pi": "Pali",
         "pl": "Polish",
         "pt": "Portuguese",
+        "pu": "Punjabi",
         "ro": "Romanian",
         "ru": "Russian",
+        "sa": "Sanskrit",
+        "si": "Sindhi",
+        "sin": "Sinhala",
         "sk": "Slovak",
         "sl": "Slovenian",
         "sr": "Serbian",
         "sv": "Swedish",
+        "ta": "Tamil",
+        "te": "Telugu",
         "tr": "Turkish",
+        "tsn": "Afrikaans",
+        "uk": "Ukrainian",
+        "ur": "Urdu",
         "vi": "Vietnamese",
         "zh": "Chinese",
         "zh_TW": "Chinese (Traditional Han)"}
@@ -2629,6 +2715,9 @@
       </message>
       <message desc="Describes the volume up key in the ChromeVox keyboard explorer." name="IDS_CHROMEVOX_VOLUME_UP_KEY">
         volume up
+      </message>
+      <message desc="Describes the Assistant key in the ChromeVox keyboard explorer." name="IDS_CHROMEVOX_ASSISTANT_KEY">
+        Google Assistant
       </message>
 
       <!-- Panel -->
@@ -2995,6 +3084,125 @@ If you're done with the tutorial, use ChromeVox to navigate to the Close button 
       </message>
       <message desc="A hint to the user for how to interact with math content using the keyboard." name="IDS_CHROMEVOX_HINT_MATH_KEYBOARD">
         Press up, down, left, or right to explore math.
+      </message>
+      <message desc="Voice name for the system default Text-to-Speech voice" name="IDS_CHROMEVOX_SYSTEM_VOICE">
+        System Text-to-Speech voice
+      </message>
+      <message desc="Menu item text for a command to open the text to speech settings page" name="IDS_CHROMEVOX_SHOW_TTS_SETTINGS">
+        Open text-to-speech settings
+      </message>
+      <message desc="A hint to the user on how to interact with the virtual on screen keyboard." name="IDS_CHROMEVOX_HINT_TOUCH_TYPE">
+        Find a key, then lift to type
+      </message>
+      <message desc="Hint for how to start editing a text field while exploring the screen using touch exploration." name="IDS_CHROMEVOX_HINT_DOUBLE_TAP_TO_EDIT">
+        Double tap to start editing
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPEUP1_GESTURE">
+        Swipe one finger up
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPEDOWN1_GESTURE">
+        Swipe one finger down
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPELEFT1_GESTURE">
+        Swipe one finger left
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPERIGHT1_GESTURE">
+        Swipe one finger right
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPEUP2_GESTURE">
+        Swipe two fingers up
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPEDOWN2_GESTURE">
+        Swipe two fingers down
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPELEFT2_GESTURE">
+        Swipe two fingers left
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPERIGHT2_GESTURE">
+        Swipe two fingers right
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPEUP3_GESTURE">
+        Swipe three fingers up
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPEDOWN3_GESTURE">
+        Swipe three fingers down
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPELEFT3_GESTURE">
+        Swipe three fingers left
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_SWIPERIGHT3_GESTURE">
+        Swipe three fingers right
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_TAP2_GESTURE">
+        Tap with two fingers
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_TAP4_GESTURE">
+        Tap with four fingers
+      </message>
+      <message desc="Describes a gesture to be performed on a touch screen." name="IDS_CHROMEVOX_CLICK_GESTURE">
+        Double tap with one finger
+      </message>
+      <message desc="Describes Learn Mode when the mode is initially entered." name="IDS_CHROMEVOX_LEARN_MODE_INTRO">
+        Starting Learn Mode. Press a qwerty key, refreshable braille key, or touch gesture to learn its function. Press control with w or escape to exit.
+      </message>
+      <message desc="Output when leaving Learn Mode." name="IDS_CHROMEVOX_LEARN_MODE_OUTTRO">
+        Stopping Learn Mode.
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Title of the tutorial page for touch support." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_HEADING">
+        Touch
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Introduces this page." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_INTRO">
+        You can use ChromeVox with the touchscreen.
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Describes dragging a finger on the touch screen to get spoken feedback." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_DRAG_ONE_FINGER">
+        Drag one finger to hear what you touch
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Describes swiping left or right with one finger to move item by item." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_SWIPE_LEFT_RIGHT">
+        Swipe left or right to move by item
+      </message>
+
+      <message desc="Part of the ChromeVox touch tutorial page. Describes swiping up or down with one finger to move line by line." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_SWIPE_UP_DOWN">
+        Swipe up or down to move by line
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Describes double tapping with one finger to activate an item." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_DOUBLE_TAP">
+        Double-tap to activate what is focused
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Describes a single tap of four fingers to enter the ChromeVox menus." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_FOUR_FINGER_TAP">
+        Tap with 4 fingers to enter the ChromeVox menus
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Describes a two finger tap to stop speech." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_TWO_FINGER_TAP">
+        Tap with 2 fingers to temporarily stop speech
+      </message>
+      <message desc="Part of the ChromeVox touch tutorial page. Concludes this page." name="IDS_CHROMEVOX_TUTORIAL_TOUCH_LEARN_MORE">
+        Explore more gestures in Learn Mode and the Chromebook Help Center
+      </message>
+      <message desc="Title of the bluetooth braille display section in ChromeVox options." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_TITLE">
+        Bluetooth Braille Display
+      </message>
+      <message desc="Labels a button which when pressed, connects to a selected braille display." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_CONNECT">
+        Connect
+      </message>
+      <message desc="Labels a button which when pressed, disconnects from a selected braille display." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_DISCONNECT">
+        Disconnect
+      </message>
+      <message desc="Labels a button which is disabled and indicates the system is connecting to a braille display." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_CONNECTING">
+        Connecting
+      </message>
+      <message desc="Labels a button which when pressed, forgets the selected braille display." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_FORGET">
+        Forget
+      </message>
+      <message desc="Labels a text field which prompts the user for a pincode when pairing a braille display." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_PINCODE_LABEL">
+        Please enter a pin
+      </message>
+      <message desc="Labels a select control which lists all bluetooth braille displays." name="IDS_CHROMEVOX_OPTIONS_BLUETOOTH_BRAILLE_DISPLAY_SELECT_LABEL">
+        Select a bluetooth braille display
+      </message>
+      <message desc="Describes web content that has no title." name="IDS_CHROMEVOX_WEB_CONTENT">
+        Web Content
+      </message>
+      <message desc="The text label for ChromeVox language switching checkbox."
+        name="IDS_CHROMEVOX_OPTIONS_LANG_SWITCHING_CHECKBOX_LABEL">
+        Automatically detect and switch ChromeVox language.
       </message>
     </messages>
   </release>

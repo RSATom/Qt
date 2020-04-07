@@ -10,7 +10,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/numerics/math_constants.h"
 #include "build/build_config.h"
-#include "device/vr/openvr/openvr_gamepad_data_fetcher.h"
 #include "device/vr/openvr/openvr_render_loop.h"
 #include "device/vr/openvr/openvr_type_converters.h"
 #include "third_party/openvr/src/headers/openvr.h"
@@ -21,7 +20,8 @@ namespace device {
 namespace {
 
 constexpr float kDefaultIPD = 0.06f;  // Default average IPD.
-constexpr double kTimeBetweenPollingEventsSeconds = 0.25;
+constexpr base::TimeDelta kPollingInterval =
+    base::TimeDelta::FromSecondsD(0.25);
 
 mojom::VRFieldOfViewPtr OpenVRFovToWebVRFov(vr::IVRSystem* vr_system,
                                             vr::Hmd_Eye eye) {
@@ -63,9 +63,9 @@ std::vector<float> HmdMatrix34ToWebVRTransformMatrix(
 }
 
 mojom::VRDisplayInfoPtr CreateVRDisplayInfo(vr::IVRSystem* vr_system,
-                                            unsigned int id) {
+                                            device::mojom::XRDeviceId id) {
   mojom::VRDisplayInfoPtr display_info = mojom::VRDisplayInfo::New();
-  display_info->index = id;
+  display_info->id = id;
   display_info->displayName =
       GetOpenVRString(vr_system, vr::Prop_ManufacturerName_String) + " " +
       GetOpenVRString(vr_system, vr::Prop_ModelNumber_String);
@@ -129,33 +129,35 @@ mojom::VRDisplayInfoPtr CreateVRDisplayInfo(vr::IVRSystem* vr_system,
 }  // namespace
 
 OpenVRDevice::OpenVRDevice()
-    : VRDeviceBase(VRDeviceId::OPENVR_DEVICE_ID),
+    : VRDeviceBase(device::mojom::XRDeviceId::OPENVR_DEVICE_ID),
       main_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       exclusive_controller_binding_(this),
+      gamepad_provider_factory_binding_(this),
+      compositor_host_binding_(this),
       weak_ptr_factory_(this) {
-  // Initialize OpenVR.
-  openvr_ = std::make_unique<OpenVRWrapper>(false /* presenting */);
-  if (!openvr_->IsInitialized()) {
-    openvr_ = nullptr;
-    return;
-  }
-
-  SetVRDisplayInfo(CreateVRDisplayInfo(openvr_->GetSystem(), GetId()));
-
-  render_loop_ = std::make_unique<OpenVRRenderLoop>(base::BindRepeating(
-      &OpenVRDevice::OnGamepadUpdated, weak_ptr_factory_.GetWeakPtr()));
+  render_loop_ = std::make_unique<OpenVRRenderLoop>();
 
   OnPollingEvents();
 }
 
-void OpenVRDevice::OnGamepadUpdated(OpenVRGamepadState state) {
-  if (gamepad_data_fetcher_) {
-    gamepad_data_fetcher_->UpdateGamepadData(state);
-  }
+bool OpenVRDevice::IsHwAvailable() {
+  return vr::VR_IsHmdPresent();
 }
 
-void OpenVRDevice::RegisterDataFetcher(OpenVRGamepadDataFetcher* fetcher) {
-  gamepad_data_fetcher_ = fetcher;
+bool OpenVRDevice::IsApiAvailable() {
+  return vr::VR_IsRuntimeInstalled();
+}
+
+mojom::IsolatedXRGamepadProviderFactoryPtr OpenVRDevice::BindGamepadFactory() {
+  mojom::IsolatedXRGamepadProviderFactoryPtr ret;
+  gamepad_provider_factory_binding_.Bind(mojo::MakeRequest(&ret));
+  return ret;
+}
+
+mojom::XRCompositorHostPtr OpenVRDevice::BindCompositorHost() {
+  mojom::XRCompositorHostPtr ret;
+  compositor_host_binding_.Bind(mojo::MakeRequest(&ret));
+  return ret;
 }
 
 OpenVRDevice::~OpenVRDevice() {
@@ -171,14 +173,39 @@ void OpenVRDevice::Shutdown() {
 }
 
 void OpenVRDevice::RequestSession(
-    mojom::XRDeviceRuntimeSessionOptionsPtr options,
+    mojom::XRRuntimeSessionOptionsPtr options,
     mojom::XRRuntime::RequestSessionCallback callback) {
-  if (!render_loop_->IsRunning())
-    render_loop_->Start();
-
-  if (!render_loop_->IsRunning()) {
+  if (!EnsureValidDisplayInfo()) {
     std::move(callback).Run(nullptr, nullptr);
     return;
+  }
+
+  if (!options->immersive) {
+    ReturnNonImmersiveSession(std::move(callback));
+    return;
+  }
+
+  if (!render_loop_->IsRunning()) {
+    render_loop_->Start();
+
+    if (!render_loop_->IsRunning()) {
+      std::move(callback).Run(nullptr, nullptr);
+      return;
+    }
+
+    if (provider_request_) {
+      render_loop_->task_runner()->PostTask(
+          FROM_HERE, base::BindOnce(&XRCompositorCommon::RequestGamepadProvider,
+                                    base::Unretained(render_loop_.get()),
+                                    std::move(provider_request_)));
+    }
+
+    if (overlay_request_) {
+      render_loop_->task_runner()->PostTask(
+          FROM_HERE, base::BindOnce(&XRCompositorCommon::RequestOverlay,
+                                    base::Unretained(render_loop_.get()),
+                                    std::move(overlay_request_)));
+    }
   }
 
   // We are done using OpenVR until the presentation session ends.
@@ -192,10 +219,34 @@ void OpenVRDevice::RequestSession(
       &OpenVRDevice::OnPresentationEnded, weak_ptr_factory_.GetWeakPtr());
 
   render_loop_->task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&OpenVRRenderLoop::RequestSession,
-                                render_loop_->GetWeakPtr(),
+      FROM_HERE, base::BindOnce(&XRCompositorCommon::RequestSession,
+                                base::Unretained(render_loop_.get()),
                                 std::move(on_presentation_ended),
                                 std::move(options), std::move(my_callback)));
+}
+
+void OpenVRDevice::EnsureInitialized(int render_process_id,
+                                     int render_frame_id,
+                                     EnsureInitializedCallback callback) {
+  EnsureValidDisplayInfo();
+  std::move(callback).Run();
+}
+
+bool OpenVRDevice::EnsureValidDisplayInfo() {
+  // Ensure we have had a valid display_info set at least once.
+  if (!have_real_display_info_) {
+    DCHECK(!openvr_);
+    // Initialize OpenVR.
+    openvr_ = std::make_unique<OpenVRWrapper>(false /* presenting */);
+    if (!openvr_->IsInitialized()) {
+      openvr_ = nullptr;
+      return false;
+    }
+
+    SetVRDisplayInfo(CreateVRDisplayInfo(openvr_->GetSystem(), GetId()));
+    have_real_display_info_ = true;
+  }
+  return have_real_display_info_;
 }
 
 void OpenVRDevice::OnPresentationEnded() {
@@ -211,9 +262,7 @@ void OpenVRDevice::OnPresentationEnded() {
 void OpenVRDevice::OnRequestSessionResult(
     mojom::XRRuntime::RequestSessionCallback callback,
     bool result,
-    mojom::VRSubmitFrameClientRequest request,
-    mojom::VRPresentationProviderPtrInfo provider_info,
-    mojom::VRDisplayFrameTransportOptionsPtr transport_options) {
+    mojom::XRSessionPtr session) {
   if (!result) {
     OnPresentationEnded();
     std::move(callback).Run(nullptr, nullptr);
@@ -221,11 +270,6 @@ void OpenVRDevice::OnRequestSessionResult(
   }
 
   OnStartPresenting();
-
-  auto connection = mojom::XRPresentationConnection::New();
-  connection->client_request = std::move(request);
-  connection->provider = std::move(provider_info);
-  connection->transport_options = std::move(transport_options);
 
   mojom::XRSessionControllerPtr session_controller;
   exclusive_controller_binding_.Bind(mojo::MakeRequest(&session_controller));
@@ -236,7 +280,37 @@ void OpenVRDevice::OnRequestSessionResult(
       base::BindOnce(&OpenVRDevice::OnPresentingControllerMojoConnectionError,
                      base::Unretained(this)));
 
-  std::move(callback).Run(std::move(connection), std::move(session_controller));
+  session->display_info = display_info_.Clone();
+
+  std::move(callback).Run(std::move(session), std::move(session_controller));
+}
+
+bool OpenVRDevice::IsAvailable() {
+  return vr::VR_IsRuntimeInstalled() && vr::VR_IsHmdPresent();
+}
+
+void OpenVRDevice::GetIsolatedXRGamepadProvider(
+    mojom::IsolatedXRGamepadProviderRequest provider_request) {
+  if (render_loop_->IsRunning()) {
+    render_loop_->task_runner()->PostTask(
+        FROM_HERE, base::BindOnce(&XRCompositorCommon::RequestGamepadProvider,
+                                  base::Unretained(render_loop_.get()),
+                                  std::move(provider_request)));
+  } else {
+    provider_request_ = std::move(provider_request);
+  }
+}
+
+void OpenVRDevice::CreateImmersiveOverlay(
+    mojom::ImmersiveOverlayRequest overlay_request) {
+  if (render_loop_->IsRunning()) {
+    render_loop_->task_runner()->PostTask(
+        FROM_HERE, base::BindOnce(&XRCompositorCommon::RequestOverlay,
+                                  base::Unretained(render_loop_.get()),
+                                  std::move(overlay_request)));
+  } else {
+    overlay_request_ = std::move(overlay_request);
+  }
 }
 
 // XRSessionController
@@ -247,15 +321,18 @@ void OpenVRDevice::SetFrameDataRestricted(bool restricted) {
 
 void OpenVRDevice::OnPresentingControllerMojoConnectionError() {
   render_loop_->task_runner()->PostTask(
-      FROM_HERE,
-      base::Bind(&OpenVRRenderLoop::ExitPresent, render_loop_->GetWeakPtr()));
-  render_loop_->Stop();
+      FROM_HERE, base::BindOnce(&XRCompositorCommon::ExitPresent,
+                                base::Unretained(render_loop_.get())));
+  // Don't stop the render loop here. We need to keep the gamepad provider alive
+  // so that we don't lose a pending mojo gamepad_callback_.
+  // TODO(https://crbug.com/875187): Alternatively, we could recreate the
+  // provider on the next session, or look into why the callback gets lost.
   OnExitPresent();
   exclusive_controller_binding_.Close();
 }
 
-void OpenVRDevice::OnMagicWindowFrameDataRequest(
-    mojom::VRPresentationProvider::GetFrameDataCallback callback) {
+void OpenVRDevice::OnGetInlineFrameData(
+    mojom::XRFrameDataProvider::GetFrameDataCallback callback) {
   if (!openvr_) {
     std::move(callback).Run(nullptr);
     return;
@@ -273,6 +350,12 @@ void OpenVRDevice::OnMagicWindowFrameDataRequest(
 
 // Only deal with events that will cause displayInfo changes for now.
 void OpenVRDevice::OnPollingEvents() {
+  main_thread_task_runner_->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&OpenVRDevice::OnPollingEvents,
+                     weak_ptr_factory_.GetWeakPtr()),
+      kPollingInterval);
+
   if (!openvr_)
     return;
 
@@ -300,12 +383,6 @@ void OpenVRDevice::OnPollingEvents() {
 
   if (is_changed)
     SetVRDisplayInfo(CreateVRDisplayInfo(openvr_->GetSystem(), GetId()));
-
-  main_thread_task_runner_->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&OpenVRDevice::OnPollingEvents,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSecondsD(kTimeBetweenPollingEventsSeconds));
 }
 
 }  // namespace device

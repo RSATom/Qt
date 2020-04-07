@@ -35,10 +35,11 @@ TEST_F(ApplyStyleCommandTest, RemoveRedundantBlocksWithStarEditableStyle) {
   Element* li = GetDocument().QuerySelector("li");
 
   LocalFrame* frame = GetDocument().GetFrame();
-  frame->Selection().SetSelectionAndEndTyping(
+  frame->Selection().SetSelection(
       SelectionInDOMTree::Builder()
           .Collapse(Position(li, PositionAnchorType::kBeforeAnchor))
-          .Build());
+          .Build(),
+      SetSelectionOptions());
 
   MutableCSSPropertyValueSet* style =
       MutableCSSPropertyValueSet::Create(kHTMLQuirksMode);
@@ -65,7 +66,7 @@ TEST_F(ApplyStyleCommandTest, JustifyRightDetachesDestination) {
       "</ruby");
   Element* body = GetDocument().body();
   // The bug does't reproduce with a contenteditable <div> as container.
-  body->setAttribute(HTMLNames::contenteditableAttr, "true");
+  body->setAttribute(html_names::kContenteditableAttr, "true");
   GetDocument().UpdateStyleAndLayout();
   Selection().SelectAll();
 
@@ -82,8 +83,10 @@ TEST_F(ApplyStyleCommandTest, JustifyRightDetachesDestination) {
 
 // This is a regression test for https://crbug.com/726992
 TEST_F(ApplyStyleCommandTest, FontSizeDeltaWithSpanElement) {
-  Selection().SetSelectionAndEndTyping(SetSelectionTextToBody(
-      "<div contenteditable>^<div></div>a<span></span>|</div>"));
+  Selection().SetSelection(
+      SetSelectionTextToBody(
+          "<div contenteditable>^<div></div>a<span></span>|</div>"),
+      SetSelectionOptions());
 
   MutableCSSPropertyValueSet* style =
       MutableCSSPropertyValueSet::Create(kHTMLQuirksMode);

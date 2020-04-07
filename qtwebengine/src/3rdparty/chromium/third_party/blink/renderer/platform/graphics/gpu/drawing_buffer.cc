@@ -57,7 +57,7 @@
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer_contents.h"
-#include "third_party/skia/include/core/SkColorSpaceXform.h"
+#include "third_party/skia/include/core/SkPixmap.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/gpu/GrContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLTypes.h"
@@ -180,7 +180,9 @@ DrawingBuffer::DrawingBuffer(
       sampler_color_space_(color_params.GetSamplerGfxColorSpace()),
       use_half_float_storage_(color_params.PixelFormat() ==
                               kF16CanvasPixelFormat),
-      chromium_image_usage_(chromium_image_usage) {
+      chromium_image_usage_(chromium_image_usage),
+      opengl_flip_y_extension_(
+          ContextProvider()->GetCapabilities().mesa_framebuffer_flip_y) {
   // Used by browser tests to detect the use of a DrawingBuffer.
   TRACE_EVENT_INSTANT0("test_gpu", "DrawingBufferCreation",
                        TRACE_EVENT_SCOPE_GLOBAL);
@@ -188,7 +190,6 @@ DrawingBuffer::DrawingBuffer(
 
 DrawingBuffer::~DrawingBuffer() {
   DCHECK(destruction_in_progress_);
-  SwapPreviousFrameCallback(nullptr);
   if (layer_) {
     layer_->ClearClient();
     layer_ = nullptr;
@@ -449,10 +450,10 @@ void DrawingBuffer::FinishPrepareTransferableResourceGpu(
     // there are implicit flushes between contexts at the lowest level.
     gl_->GenUnverifiedSyncTokenCHROMIUM(
         color_buffer_for_mailbox->produce_sync_token.GetData());
-#if defined(OS_MACOSX)
-    // Needed for GPU back-pressure on macOS. Used to be in the middle
-    // of the commands above; try to move it to the bottom to allow
-    // them to be treated atomically.
+#if defined(OS_MACOSX) || defined(OS_ANDROID)
+    // Needed for GPU back-pressure on macOS and Android. Used to be in the
+    // middle of the commands above; try to move it to the bottom to allow them
+    // to be treated atomically.
     gl_->DescheduleUntilFinishedCHROMIUM();
 #endif
   }
@@ -465,9 +466,15 @@ void DrawingBuffer::FinishPrepareTransferableResourceGpu(
         color_buffer_for_mailbox->produce_sync_token, gfx::Size(size_),
         is_overlay_candidate);
     out_resource->color_space = sampler_color_space_;
-    out_resource->format = viz::RGBA_8888;
-    if (use_half_float_storage_)
-      out_resource->format = viz::RGBA_F16;
+    if (allocate_alpha_channel_) {
+      if (use_half_float_storage_)
+        out_resource->format = viz::RGBA_F16;
+      else
+        out_resource->format = viz::RGBA_8888;
+    } else {
+      DCHECK(!use_half_float_storage_);
+      out_resource->format = viz::RGBX_8888;
+    }
 
     // This holds a ref on the DrawingBuffer that will keep it alive until the
     // mailbox is released (and while the release callback is running).
@@ -710,7 +717,9 @@ bool DrawingBuffer::Initialize(const IntSize& size, bool use_multisampling) {
       webgl_preferences.max_active_webgl_contexts_on_worker;
 
   int max_sample_count = 0;
-  gl_->GetIntegerv(GL_MAX_SAMPLES_ANGLE, &max_sample_count);
+  if (use_multisampling) {
+    gl_->GetIntegerv(GL_MAX_SAMPLES_ANGLE, &max_sample_count);
+  }
   if (webgl_preferences.anti_aliasing_mode ==
       gpu::kAntialiasingModeUnspecified) {
     if (use_multisampling) {
@@ -726,7 +735,6 @@ bool DrawingBuffer::Initialize(const IntSize& size, bool use_multisampling) {
       }
     } else {
       anti_aliasing_mode_ = gpu::kAntialiasingModeNone;
-      max_sample_count = 0;
     }
   } else {
     if ((webgl_preferences.anti_aliasing_mode ==
@@ -804,10 +812,15 @@ bool DrawingBuffer::Initialize(const IntSize& size, bool use_multisampling) {
   state_restorer_->SetFramebufferBindingDirty();
   gl_->GenFramebuffers(1, &fbo_);
   gl_->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
+  if (opengl_flip_y_extension_)
+    gl_->FramebufferParameteri(GL_FRAMEBUFFER, GL_FRAMEBUFFER_FLIP_Y_MESA, 1);
+
   if (WantExplicitResolve()) {
     gl_->GenFramebuffers(1, &multisample_fbo_);
     gl_->BindFramebuffer(GL_FRAMEBUFFER, multisample_fbo_);
     gl_->GenRenderbuffers(1, &multisample_renderbuffer_);
+    if (opengl_flip_y_extension_)
+      gl_->FramebufferParameteri(GL_FRAMEBUFFER, GL_FRAMEBUFFER_FLIP_Y_MESA, 1);
   }
   if (!ResizeFramebufferInternal(size)) {
     DLOG(ERROR) << "Initialization failed to allocate backbuffer.";
@@ -925,6 +938,9 @@ cc::Layer* DrawingBuffer::CcLayer() {
     layer_->SetPremultipliedAlpha(premultiplied_alpha_ ||
                                   premultiplied_alpha_false_texture_);
     layer_->SetNearestNeighbor(filter_quality_ == kNone_SkFilterQuality);
+
+    if (opengl_flip_y_extension_)
+      layer_->SetFlipped(false);
 
     GraphicsLayer::RegisterContentsLayer(layer_.get());
   }
@@ -1358,15 +1374,15 @@ void DrawingBuffer::ReadBackFramebuffer(unsigned char* pixels,
   }
 
   if (op == WebGLImageConversion::kAlphaDoPremultiply) {
-    std::unique_ptr<SkColorSpaceXform> xform =
-        SkColorSpaceXform::New(SkColorSpace::MakeSRGBLinear().get(),
-                               SkColorSpace::MakeSRGBLinear().get());
-    SkColorSpaceXform::ColorFormat color_format =
-        SkColorSpaceXform::ColorFormat::kRGBA_8888_ColorFormat;
+    auto color_type = kRGBA_8888_SkColorType;
     if (data_type != GL_UNSIGNED_BYTE)
-      color_format = SkColorSpaceXform::ColorFormat::kRGBA_F16_ColorFormat;
-    xform->apply(color_format, pixels, color_format, pixels, width * height,
-                 kPremul_SkAlphaType);
+      color_type = kRGBA_F16_SkColorType;
+    const auto src =
+        SkImageInfo::Make(width, height, color_type, kUnpremul_SkAlphaType);
+    const auto dst =
+        SkImageInfo::Make(width, height, color_type, kPremul_SkAlphaType);
+    SkPixmap{src, pixels, src.minRowBytes()}.readPixels(
+        SkPixmap{dst, pixels, dst.minRowBytes()});
   } else if (op != WebGLImageConversion::kAlphaDoNothing) {
     NOTREACHED();
   }
@@ -1405,25 +1421,25 @@ scoped_refptr<DrawingBuffer::ColorBuffer> DrawingBuffer::CreateColorBuffer(
       Platform::Current()->GetGpuMemoryBufferManager();
   if (ShouldUseChromiumImage()) {
     gfx::BufferFormat buffer_format;
-    GLenum gl_format = GL_NONE;
     if (allocate_alpha_channel_) {
       buffer_format = use_half_float_storage_ ? gfx::BufferFormat::RGBA_F16
                                               : gfx::BufferFormat::RGBA_8888;
-      gl_format = GL_RGBA;
     } else {
       DCHECK(!use_half_float_storage_);
       buffer_format = gfx::BufferFormat::RGBX_8888;
       if (gpu::IsImageFromGpuMemoryBufferFormatSupported(
               gfx::BufferFormat::BGRX_8888,
-              ContextProvider()->GetCapabilities()))
+              ContextProvider()->GetCapabilities())) {
         buffer_format = gfx::BufferFormat::BGRX_8888;
-      gl_format = GL_RGB;
+      }
     }
     gpu_memory_buffer = gpu_memory_buffer_manager->CreateGpuMemoryBuffer(
         gfx::Size(size), buffer_format, gfx::BufferUsage::SCANOUT,
         gpu::kNullSurfaceHandle);
     if (gpu_memory_buffer) {
       gpu_memory_buffer->SetColorSpace(storage_color_space_);
+      const GLenum gl_format = allocate_alpha_channel_ ? GL_RGBA : GL_RGB;
+
       image_id =
           gl_->CreateImageCHROMIUM(gpu_memory_buffer->AsClientBuffer(),
                                    size.Width(), size.Height(), gl_format);
@@ -1641,15 +1657,6 @@ DrawingBuffer::ScopedStateRestorer::~ScopedStateRestorer() {
     client->DrawingBufferClientRestorePixelUnpackBufferBinding();
   if (pixel_pack_buffer_binding_dirty_)
     client->DrawingBufferClientRestorePixelPackBufferBinding();
-}
-
-void DrawingBuffer::SwapPreviousFrameCallback(
-    std::unique_ptr<viz::SingleReleaseCallback> release_callback) {
-  if (previous_image_release_callback_) {
-    previous_image_release_callback_->Run(gpu::SyncToken(), false);
-  }
-
-  previous_image_release_callback_ = std::move(release_callback);
 }
 
 bool DrawingBuffer::ShouldUseChromiumImage() {

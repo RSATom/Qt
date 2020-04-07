@@ -9,6 +9,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
+#include "third_party/base/ptr_util.h"
 
 #ifdef PDF_ENABLE_V8
 #include "v8/include/v8-platform.h"
@@ -26,7 +27,7 @@ namespace {
 // The loading time of the CFGAS_FontMgr is linear in the number of times it is
 // loaded. So, if a test suite has a lot of tests that need a font manager they
 // can end up executing very, very slowly.
-class Environment : public testing::Environment {
+class Environment final : public testing::Environment {
  public:
   void SetUp() override {
     // TODO(dsinclair): This font loading is slow. We should make a test font

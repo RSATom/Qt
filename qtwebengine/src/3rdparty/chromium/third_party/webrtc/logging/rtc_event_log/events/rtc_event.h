@@ -13,7 +13,7 @@
 
 #include <memory>
 
-#include "rtc_base/timeutils.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -37,6 +37,8 @@ class RtcEvent {
     AudioSendStreamConfig,
     BweUpdateDelayBased,
     BweUpdateLossBased,
+    DtlsTransportState,
+    DtlsWritableState,
     IceCandidatePairConfig,
     IceCandidatePairEvent,
     ProbeClusterCreated,
@@ -57,12 +59,13 @@ class RtcEvent {
 
   virtual bool IsConfigEvent() const = 0;
 
-  virtual std::unique_ptr<RtcEvent> Copy() const = 0;
-
-  const int64_t timestamp_us_;
+  int64_t timestamp_ms() const { return timestamp_us_ / 1000; }
+  int64_t timestamp_us() const { return timestamp_us_; }
 
  protected:
   explicit RtcEvent(int64_t timestamp_us) : timestamp_us_(timestamp_us) {}
+
+  const int64_t timestamp_us_;
 };
 
 }  // namespace webrtc

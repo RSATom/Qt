@@ -18,7 +18,7 @@
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfdoc/cpvt_word.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_interform.h"
+#include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/formfiller/cba_fontmap.h"
@@ -26,6 +26,7 @@
 #include "fpdfsdk/pwl/cpwl_edit_impl.h"
 #include "fpdfsdk/pwl/cpwl_icon.h"
 #include "fpdfsdk/pwl/cpwl_wnd.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -68,7 +69,6 @@ const char kSetNonZeroWindingClipOperator[] = "W";
 const char kSetRGBOperator[] = "rg";
 const char kSetRGBStrokedOperator[] = "RG";
 const char kSetTextFontAndSizeOperator[] = "Tf";
-const char kSetTextScaleHorizontalOperator[] = "Tz";
 const char kShowTextOperator[] = "Tj";
 const char kStateRestoreOperator[] = "Q";
 const char kStateSaveOperator[] = "q";
@@ -92,7 +92,7 @@ class AutoClosedCommand {
   ByteString close_;
 };
 
-class AutoClosedQCommand : public AutoClosedCommand {
+class AutoClosedQCommand final : public AutoClosedCommand {
  public:
   explicit AutoClosedQCommand(std::ostringstream* stream)
       : AutoClosedCommand(stream, kStateSaveOperator, kStateRestoreOperator) {}
@@ -667,16 +667,9 @@ ByteString GetEditAppStream(CPWL_EditImpl* pEdit,
 
   std::ostringstream sAppStream;
   if (sEditStream.tellp() > 0) {
-    int32_t nHorzScale = pEdit->GetHorzScale();
-    if (nHorzScale != 100) {
-      sAppStream << nHorzScale << " " << kSetTextScaleHorizontalOperator
-                 << "\n";
-    }
-
     float fCharSpace = pEdit->GetCharSpace();
-    if (!IsFloatZero(fCharSpace)) {
+    if (!IsFloatZero(fCharSpace))
       sAppStream << fCharSpace << " " << kSetCharacterSpacingOperator << "\n";
-    }
 
     sAppStream << sEditStream.str();
   }
@@ -690,10 +683,11 @@ ByteString GenerateIconAppStream(CPDF_IconFit& fit,
   if (rcIcon.IsEmpty() || !pIconStream)
     return ByteString();
 
-  CPWL_Icon icon;
   CPWL_Wnd::CreateParams cp;
   cp.dwFlags = PWS_VISIBLE;
-  icon.Create(cp);
+
+  CPWL_Icon icon(cp, nullptr);
+  icon.Realize();
   icon.SetIconFit(&fit);
   icon.SetPDFStream(pIconStream);
   if (!icon.Move(rcIcon, false, false))
@@ -1239,7 +1233,7 @@ void CPWL_AppStream::SetAsPushButton() {
   CPDF_IconFit iconFit = pControl->GetIconFit();
   CBA_FontMap font_map(
       widget_.Get(),
-      widget_->GetInterForm()->GetFormFillEnv()->GetSysHandler());
+      widget_->GetInteractiveForm()->GetFormFillEnv()->GetSysHandler());
   font_map.SetAPType("N");
 
   ByteString csAP =
@@ -1250,7 +1244,7 @@ void CPWL_AppStream::SetAsPushButton() {
                              &font_map, pNormalIcon, iconFit, csNormalCaption,
                              crText, fFontSize, nLayout);
 
-  Write("N", csAP, "");
+  Write("N", csAP, ByteString());
   if (pNormalIcon)
     AddImage("N", pNormalIcon);
 
@@ -1271,7 +1265,7 @@ void CPWL_AppStream::SetAsPushButton() {
                                &font_map, pRolloverIcon, iconFit,
                                csRolloverCaption, crText, fFontSize, nLayout);
 
-    Write("R", csAP, "");
+    Write("R", csAP, ByteString());
     if (pRolloverIcon)
       AddImage("R", pRolloverIcon);
 
@@ -1306,7 +1300,7 @@ void CPWL_AppStream::SetAsPushButton() {
                                &font_map, pDownIcon, iconFit, csDownCaption,
                                crText, fFontSize, nLayout);
 
-    Write("D", csAP, "");
+    Write("D", csAP, ByteString());
     if (pDownIcon)
       AddImage("D", pDownIcon);
   } else {
@@ -1583,7 +1577,7 @@ void CPWL_AppStream::SetAsRadioButton() {
     widget_->SetAppState("Off");
 }
 
-void CPWL_AppStream::SetAsComboBox(const WideString* sValue) {
+void CPWL_AppStream::SetAsComboBox(Optional<WideString> sValue) {
   CPDF_FormControl* pControl = widget_->GetFormControl();
   CPDF_FormField* pField = pControl->GetField();
   std::ostringstream sBody;
@@ -1593,12 +1587,13 @@ void CPWL_AppStream::SetAsComboBox(const WideString* sValue) {
   rcButton.left = rcButton.right - 13;
   rcButton.Normalize();
 
-  auto pEdit = pdfium::MakeUnique<CPWL_EditImpl>();
-  pEdit->EnableRefresh(false);
-
+  // Font map must outlive |pEdit|.
   CBA_FontMap font_map(
       widget_.Get(),
-      widget_->GetInterForm()->GetFormFillEnv()->GetSysHandler());
+      widget_->GetInteractiveForm()->GetFormFillEnv()->GetSysHandler());
+
+  auto pEdit = pdfium::MakeUnique<CPWL_EditImpl>();
+  pEdit->EnableRefresh(false);
   pEdit->SetFontMap(&font_map);
 
   CFX_FloatRect rcEdit = rcClient;
@@ -1616,8 +1611,8 @@ void CPWL_AppStream::SetAsComboBox(const WideString* sValue) {
 
   pEdit->Initialize();
 
-  if (sValue) {
-    pEdit->SetText(*sValue);
+  if (sValue.has_value()) {
+    pEdit->SetText(sValue.value());
   } else {
     int32_t nCurSel = pField->GetSelectedIndex(0);
     if (nCurSel < 0)
@@ -1650,7 +1645,7 @@ void CPWL_AppStream::SetAsComboBox(const WideString* sValue) {
   sBody << GetDropButtonAppStream(rcButton);
   Write("N",
         GetBackgroundAppStream() + GetBorderAppStream() + ByteString(sBody),
-        "");
+        ByteString());
 }
 
 void CPWL_AppStream::SetAsListBox() {
@@ -1659,12 +1654,13 @@ void CPWL_AppStream::SetAsListBox() {
   CFX_FloatRect rcClient = widget_->GetClientRect();
   std::ostringstream sBody;
 
-  auto pEdit = pdfium::MakeUnique<CPWL_EditImpl>();
-  pEdit->EnableRefresh(false);
-
+  // Font map must outlive |pEdit|.
   CBA_FontMap font_map(
       widget_.Get(),
-      widget_->GetInterForm()->GetFormFillEnv()->GetSysHandler());
+      widget_->GetInteractiveForm()->GetFormFillEnv()->GetSysHandler());
+
+  auto pEdit = pdfium::MakeUnique<CPWL_EditImpl>();
+  pEdit->EnableRefresh(false);
   pEdit->SetFontMap(&font_map);
   pEdit->SetPlateRect(CFX_FloatRect(rcClient.left, 0.0f, rcClient.right, 0.0f));
 
@@ -1734,21 +1730,22 @@ void CPWL_AppStream::SetAsListBox() {
   }
   Write("N",
         GetBackgroundAppStream() + GetBorderAppStream() + ByteString(sBody),
-        "");
+        ByteString());
 }
 
-void CPWL_AppStream::SetAsTextField(const WideString* sValue) {
+void CPWL_AppStream::SetAsTextField(Optional<WideString> sValue) {
   CPDF_FormControl* pControl = widget_->GetFormControl();
   CPDF_FormField* pField = pControl->GetField();
   std::ostringstream sBody;
   std::ostringstream sLines;
 
-  auto pEdit = pdfium::MakeUnique<CPWL_EditImpl>();
-  pEdit->EnableRefresh(false);
-
+  // Font map must outlive |pEdit|.
   CBA_FontMap font_map(
       widget_.Get(),
-      widget_->GetInterForm()->GetFormFillEnv()->GetSysHandler());
+      widget_->GetInteractiveForm()->GetFormFillEnv()->GetSysHandler());
+
+  auto pEdit = pdfium::MakeUnique<CPWL_EditImpl>();
+  pEdit->EnableRefresh(false);
   pEdit->SetFontMap(&font_map);
 
   CFX_FloatRect rcClient = widget_->GetClientRect();
@@ -1775,11 +1772,8 @@ void CPWL_AppStream::SetAsTextField(const WideString* sValue) {
   float fFontSize = widget_->GetFontSize();
 
 #ifdef PDF_ENABLE_XFA
-  WideString sValueTmp;
-  if (!sValue && widget_->GetMixXFAWidget()) {
-    sValueTmp = widget_->GetValue();
-    sValue = &sValueTmp;
-  }
+  if (!sValue.has_value() && widget_->GetMixXFAWidget())
+    sValue = widget_->GetValue();
 #endif  // PDF_ENABLE_XFA
 
   if (nMaxLen > 0) {
@@ -1791,8 +1785,8 @@ void CPWL_AppStream::SetAsTextField(const WideString* sValue) {
                                                         rcClient, nMaxLen);
       }
     } else {
-      if (sValue)
-        nMaxLen = sValue->GetLength();
+      if (sValue.has_value())
+        nMaxLen = sValue.value().GetLength();
       pEdit->SetLimitChar(nMaxLen);
     }
   }
@@ -1803,7 +1797,7 @@ void CPWL_AppStream::SetAsTextField(const WideString* sValue) {
     pEdit->SetFontSize(fFontSize);
 
   pEdit->Initialize();
-  pEdit->SetText(sValue ? *sValue : pField->GetValue());
+  pEdit->SetText(sValue.value_or(pField->GetValue()));
 
   CFX_FloatRect rcContent = pEdit->GetContentRect();
   ByteString sEdit =
@@ -1886,7 +1880,7 @@ void CPWL_AppStream::SetAsTextField(const WideString* sValue) {
   Write("N",
         GetBackgroundAppStream() + GetBorderAppStream() + ByteString(sLines) +
             ByteString(sBody),
-        "");
+        ByteString());
 }
 
 void CPWL_AppStream::AddImage(const ByteString& sAPType, CPDF_Stream* pImage) {
@@ -1935,21 +1929,22 @@ void CPWL_AppStream::Write(const ByteString& sAPType,
 
   CPDF_Dictionary* pStreamDict = pStream->GetDict();
   if (!pStreamDict) {
-    auto pNewDict = pdfium::MakeUnique<CPDF_Dictionary>(
-        widget_->GetPDFAnnot()->GetDocument()->GetByteStringPool());
+    auto pNewDict =
+        widget_->GetPDFAnnot()->GetDocument()->New<CPDF_Dictionary>();
     pStreamDict = pNewDict.get();
     pStreamDict->SetNewFor<CPDF_Name>("Type", "XObject");
     pStreamDict->SetNewFor<CPDF_Name>("Subtype", "Form");
     pStreamDict->SetNewFor<CPDF_Number>("FormType", 1);
-    pStream->InitStream(nullptr, 0, std::move(pNewDict));
+    pStream->InitStream({}, std::move(pNewDict));
   }
   pStreamDict->SetMatrixFor("Matrix", widget_->GetMatrix());
   pStreamDict->SetRectFor("BBox", widget_->GetRotatedRect());
-  pStream->SetDataAndRemoveFilter(sContents.raw_str(), sContents.GetLength());
+  pStream->SetDataAndRemoveFilter(sContents.AsRawSpan());
 }
 
 void CPWL_AppStream::Remove(const ByteString& sAPType) {
-  dict_->RemoveFor(sAPType);
+  CPDF_Document* doc = widget_->GetPageView()->GetPDFDocument();
+  doc->AddOrphan(dict_->RemoveFor(sAPType));
 }
 
 ByteString CPWL_AppStream::GetBackgroundAppStream() const {

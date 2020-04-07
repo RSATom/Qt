@@ -4,15 +4,13 @@
 
 #include "net/third_party/quic/test_tools/mock_quic_client_promised_info.h"
 
-using std::string;
-
 namespace quic {
 namespace test {
 
 MockQuicClientPromisedInfo::MockQuicClientPromisedInfo(
     QuicSpdyClientSessionBase* session,
     QuicStreamId id,
-    string url)
+    QuicString url)
     : QuicClientPromisedInfo(session, id, url) {}
 
 MockQuicClientPromisedInfo::~MockQuicClientPromisedInfo() {}

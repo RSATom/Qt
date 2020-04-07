@@ -15,7 +15,8 @@ namespace device {
 
 bool IsConvertibleToU2fRegisterCommand(
     const CtapMakeCredentialRequest& request) {
-  if (request.user_verification_required() || request.resident_key_supported())
+  if (request.user_verification() == UserVerificationRequirement::kRequired ||
+      request.resident_key_required())
     return false;
 
   const auto& public_key_credential_info =
@@ -40,9 +41,12 @@ base::Optional<std::vector<uint8_t>> ConvertToU2fRegisterCommand(
   if (!IsConvertibleToU2fRegisterCommand(request))
     return base::nullopt;
 
+  const bool is_invidual_attestation =
+      request.attestation_preference() ==
+      AttestationConveyancePreference::ENTERPRISE;
   return ConstructU2fRegisterCommand(
       fido_parsing_utils::CreateSHA256Hash(request.rp().rp_id()),
-      request.client_data_hash(), request.is_individual_attestation());
+      request.client_data_hash(), is_invidual_attestation);
 }
 
 base::Optional<std::vector<uint8_t>> ConvertToU2fCheckOnlySignCommand(

@@ -26,12 +26,7 @@ namespace sw
 	VertexProgram::VertexProgram(const VertexProcessor::State &state, const VertexShader *shader)
 		: VertexRoutine(state, shader), shader(shader), r(shader->indirectAddressableTemporaries)
 	{
-		ifDepth = 0;
-		loopRepDepth = 0;
-		currentLabel = -1;
-		whileTest = false;
-
-		for(int i = 0; i < 2048; i++)
+		for(int i = 0; i < MAX_SHADER_CALL_SITES; i++)
 		{
 			labelBlock[i] = 0;
 		}
@@ -296,6 +291,7 @@ namespace sw
 			case Shader::OPCODE_BREAKP:     BREAKP(src0);                   break;
 			case Shader::OPCODE_CONTINUE:   CONTINUE();                     break;
 			case Shader::OPCODE_TEST:       TEST();                         break;
+			case Shader::OPCODE_SCALAR:     SCALAR();                       break;
 			case Shader::OPCODE_CALL:       CALL(dst.label, dst.callSite);  break;
 			case Shader::OPCODE_CALLNZ:     CALLNZ(dst.label, dst.callSite, src0); break;
 			case Shader::OPCODE_ELSE:       ELSE();                         break;
@@ -978,24 +974,26 @@ namespace sw
 
 	Int4 VertexProgram::enableMask(const Shader::Instruction *instruction)
 	{
-		Int4 enable = instruction->analysisBranch ? Int4(enableStack[enableIndex]) : Int4(0xFFFFFFFF);
-
-		if(!whileTest)
+		if(scalar)
 		{
-			if(shader->containsBreakInstruction() && instruction->analysisBreak)
-			{
-				enable &= enableBreak;
-			}
+			return Int4(0xFFFFFFFF);
+		}
 
-			if(shader->containsContinueInstruction() && instruction->analysisContinue)
-			{
-				enable &= enableContinue;
-			}
+		Int4 enable = instruction->analysisBranch ? Int4(enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))]) : Int4(0xFFFFFFFF);
 
-			if(shader->containsLeaveInstruction() && instruction->analysisLeave)
-			{
-				enable &= enableLeave;
-			}
+		if(shader->containsBreakInstruction() && instruction->analysisBreak)
+		{
+			enable &= enableBreak;
+		}
+
+		if(shader->containsContinueInstruction() && instruction->analysisContinue)
+		{
+			enable &= enableContinue;
+		}
+
+		if(shader->containsLeaveInstruction() && instruction->analysisLeave)
+		{
+			enable &= enableLeave;
 		}
 
 		return enable;
@@ -1060,7 +1058,7 @@ namespace sw
 
 	void VertexProgram::BREAK()
 	{
-		enableBreak = enableBreak & ~enableStack[enableIndex];
+		enableBreak = enableBreak & ~enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 	}
 
 	void VertexProgram::BREAKC(Vector4f &src0, Vector4f &src1, Control control)
@@ -1096,19 +1094,25 @@ namespace sw
 
 	void VertexProgram::BREAK(Int4 &condition)
 	{
-		condition &= enableStack[enableIndex];
+		condition &= enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 
 		enableBreak = enableBreak & ~condition;
 	}
 
 	void VertexProgram::CONTINUE()
 	{
-		enableContinue = enableContinue & ~enableStack[enableIndex];
+		enableContinue = enableContinue & ~enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 	}
 
 	void VertexProgram::TEST()
 	{
-		whileTest = true;
+		enableContinue = restoreContinue.back();
+		restoreContinue.pop_back();
+	}
+
+	void VertexProgram::SCALAR()
+	{
+		scalar = true;
 	}
 
 	void VertexProgram::CALL(int labelIndex, int callSiteIndex)
@@ -1120,7 +1124,7 @@ namespace sw
 
 		if(callRetBlock[labelIndex].size() > 1)
 		{
-			callStack[stackIndex++] = UInt(callSiteIndex);
+			callStack[Min(stackIndex++, Int(MAX_SHADER_CALL_STACK_SIZE))] = UInt(callSiteIndex);
 		}
 
 		Int4 restoreLeave = enableLeave;
@@ -1160,7 +1164,7 @@ namespace sw
 
 		if(callRetBlock[labelIndex].size() > 1)
 		{
-			callStack[stackIndex++] = UInt(callSiteIndex);
+			callStack[Min(stackIndex++, Int(MAX_SHADER_CALL_STACK_SIZE))] = UInt(callSiteIndex);
 		}
 
 		Int4 restoreLeave = enableLeave;
@@ -1180,7 +1184,7 @@ namespace sw
 			condition = ~condition;
 		}
 
-		condition &= enableStack[enableIndex];
+		condition &= enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 
 		if(!labelBlock[labelIndex])
 		{
@@ -1189,11 +1193,11 @@ namespace sw
 
 		if(callRetBlock[labelIndex].size() > 1)
 		{
-			callStack[stackIndex++] = UInt(callSiteIndex);
+			callStack[Min(stackIndex++, Int(MAX_SHADER_CALL_STACK_SIZE))] = UInt(callSiteIndex);
 		}
 
 		enableIndex++;
-		enableStack[enableIndex] = condition;
+		enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))] = condition;
 		Int4 restoreLeave = enableLeave;
 
 		Bool notAllFalse = SignMask(condition) != 0;
@@ -1213,12 +1217,12 @@ namespace sw
 
 		if(isConditionalIf[ifDepth])
 		{
-			Int4 condition = ~enableStack[enableIndex] & enableStack[enableIndex - 1];
+			Int4 condition = ~enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))] & enableStack[Min(enableIndex - 1, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 			Bool notAllFalse = SignMask(condition) != 0;
 
 			branch(notAllFalse, falseBlock, endBlock);
 
-			enableStack[enableIndex] = ~enableStack[enableIndex] & enableStack[enableIndex - 1];
+			enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))] = ~enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))] & enableStack[Min(enableIndex - 1, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 		}
 		else
 		{
@@ -1287,7 +1291,7 @@ namespace sw
 		Nucleus::setInsertBlock(endBlock);
 
 		enableIndex--;
-		whileTest = false;
+		scalar = false;
 	}
 
 	void VertexProgram::ENDSWITCH()
@@ -1372,10 +1376,10 @@ namespace sw
 
 	void VertexProgram::IF(Int4 &condition)
 	{
-		condition &= enableStack[enableIndex];
+		condition &= enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 
 		enableIndex++;
-		enableStack[enableIndex] = condition;
+		enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))] = condition;
 
 		BasicBlock *trueBlock = Nucleus::createBasicBlock();
 		BasicBlock *falseBlock = Nucleus::createBasicBlock();
@@ -1472,19 +1476,18 @@ namespace sw
 		loopRepEndBlock[loopRepDepth] = endBlock;
 
 		Int4 restoreBreak = enableBreak;
-		Int4 restoreContinue = enableContinue;
+		restoreContinue.push_back(enableContinue);
 
 		// TODO: jump(testBlock)
 		Nucleus::createBr(testBlock);
 		Nucleus::setInsertBlock(testBlock);
-		enableContinue = restoreContinue;
 
 		const Vector4f &src = fetchRegister(temporaryRegister);
 		Int4 condition = As<Int4>(src.x);
-		condition &= enableStack[enableIndex - 1];
+		condition &= enableStack[Min(enableIndex - 1, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 		if(shader->containsLeaveInstruction()) condition &= enableLeave;
 		if(shader->containsBreakInstruction()) condition &= enableBreak;
-		enableStack[enableIndex] = condition;
+		enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))] = condition;
 
 		Bool notAllFalse = SignMask(condition) != 0;
 		branch(notAllFalse, loopBlock, endBlock);
@@ -1495,6 +1498,7 @@ namespace sw
 		Nucleus::setInsertBlock(loopBlock);
 
 		loopRepDepth++;
+		scalar = false;
 	}
 
 	void VertexProgram::SWITCH()
@@ -1556,7 +1560,7 @@ namespace sw
 
 	void VertexProgram::LEAVE()
 	{
-		enableLeave = enableLeave & ~enableStack[enableIndex];
+		enableLeave = enableLeave & ~enableStack[Min(enableIndex, Int(MAX_SHADER_ENABLE_STACK_SIZE))];
 
 		// FIXME: Return from function if all instances left
 		// FIXME: Use enableLeave in other control-flow constructs
@@ -1604,7 +1608,10 @@ namespace sw
 
 	void VertexProgram::TEXSIZE(Vector4f &dst, Float4 &lod, const Src &src1)
 	{
-		Pointer<Byte> texture = data + OFFSET(DrawData, mipmap[TEXTURE_IMAGE_UNITS]) + src1.index * sizeof(Texture);
+		bool uniformSampler = (src1.type == Shader::PARAMETER_SAMPLER && src1.rel.type == Shader::PARAMETER_VOID);
+		Int offset = uniformSampler ? src1.index * sizeof(Texture) : As<Int>(Float(fetchRegister(src1).x.x)) * sizeof(Texture);
+		Pointer<Byte> texture = data + OFFSET(DrawData, mipmap[TEXTURE_IMAGE_UNITS]) + offset;
+
 		dst = SamplerCore::textureSize(texture, lod);
 	}
 

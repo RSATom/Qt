@@ -1060,8 +1060,8 @@ void QDeclarativePlace::copyFrom(QDeclarativePlace *original)
     \qmlmethod void Place::initializeFavorite(Plugin destinationPlugin)
 
     Creates a favorite instance for the place which is to be saved into the
-    \a destination plugin.  This method does nothing if the favorite property is
-    not null.
+    destination plugin \a destinationPlugin. This method does nothing if the
+    favorite property is not \c null.
 */
 void QDeclarativePlace::initializeFavorite(QDeclarativeGeoServiceProvider *plugin)
 {

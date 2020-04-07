@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "base/command_line.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "gpu/command_buffer/common/gles2_cmd_format.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
@@ -299,7 +300,7 @@ TEST_P(GLES2DecoderTest, CreateAbstractTexture) {
                                           GL_RGBA, GL_UNSIGNED_BYTE);
   EXPECT_EQ(abstract_texture->GetTextureBase()->target(), target);
   EXPECT_EQ(abstract_texture->service_id(), service_id);
-  Texture* texture = static_cast<Texture*>(abstract_texture->GetTextureBase());
+  Texture* texture = Texture::CheckedCast(abstract_texture->GetTextureBase());
   EXPECT_EQ(texture->SafeToRenderFrom(), false);
 
   // Set some parameters, and verify that we set them.
@@ -325,7 +326,7 @@ TEST_P(GLES2DecoderTest, CreateAbstractTexture) {
   EXPECT_EQ(texture->GetLevelImage(target, 0), image.get());
 
   // Unbinding should make it not renderable.
-  abstract_texture->ReleaseImage();
+  abstract_texture->BindImage(nullptr, false);
   EXPECT_EQ(texture->SafeToRenderFrom(), false);
   EXPECT_EQ(abstract_texture->GetImage(), nullptr);
 
@@ -443,7 +444,7 @@ TEST_P(GLES2DecoderTest, TestAbstractTextureSetClearedWorks) {
                                           1,                    /* depth */
                                           0,                    /* border */
                                           GL_RGBA, GL_UNSIGNED_BYTE);
-  Texture* texture = static_cast<Texture*>(abstract_texture->GetTextureBase());
+  Texture* texture = Texture::CheckedCast(abstract_texture->GetTextureBase());
 
   // Texture should start off unrenderable.
   EXPECT_EQ(texture->SafeToRenderFrom(), false);
@@ -581,6 +582,14 @@ TEST_P(GLES3DecoderTest, WaitSyncValidArgs) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
 
+TEST_P(GLES2DecoderManualInitTest, InitFailsIfLostContext) {
+  InitState init;
+  init.extensions = "GL_KHR_robustness";
+  init.lose_context_on_init = true;
+  EXPECT_EQ(ContextResult::kTransientFailure,
+            MaybeInitDecoderWithWorkarounds(init, GpuDriverBugWorkarounds()));
+}
+
 TEST_P(GLES2DecoderManualInitTest, BindGeneratesResourceFalse) {
   InitState init;
   InitDecoder(init);
@@ -632,7 +641,7 @@ TEST_P(GLES2DecoderTest, GenQueriesEXTImmediateValidArgs) {
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(*cmd, sizeof(temp)));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   EXPECT_TRUE(query_manager->IsValidQuery(kNewClientId));
 }
 
@@ -643,7 +652,7 @@ TEST_P(GLES2DecoderTest, GenQueriesEXTImmediateDuplicateOrNullIds) {
   cmd->Init(3, temp);
   EXPECT_EQ(error::kInvalidArguments, ExecuteImmediateCmd(*cmd, sizeof(temp)));
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   EXPECT_FALSE(query_manager->IsValidQuery(kNewClientId));
   EXPECT_FALSE(query_manager->IsValidQuery(kNewClientId + 1));
   GLuint null_id[2] = {kNewClientId, 0};
@@ -697,9 +706,9 @@ TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXT) {
 
   // Query object should not be created untill BeginQueriesEXT.
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   QueryManager::Query* query = query_manager->GetQuery(kNewClientId);
-  EXPECT_TRUE(query == NULL);
+  EXPECT_TRUE(query == nullptr);
 
   // BeginQueryEXT should fail  if id is not generated from GenQueriesEXT.
   begin_cmd.Init(GL_ANY_SAMPLES_PASSED_EXT, kInvalidClientId, shared_memory_id_,
@@ -714,7 +723,7 @@ TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXT) {
 
   // After BeginQueriesEXT id name should have query object associated with it.
   query = query_manager->GetQuery(kNewClientId);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   EXPECT_FALSE(query->IsPending());
 
   // Test trying begin again fails
@@ -925,7 +934,7 @@ static void CheckBeginEndQueryBadMemoryFails(GLES2DecoderTestBase* test,
 }
 
 TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXTBadMemoryIdFails) {
-  for (size_t i = 0; i < arraysize(kQueryTypes); ++i) {
+  for (size_t i = 0; i < base::size(kQueryTypes); ++i) {
     CheckBeginEndQueryBadMemoryFails(this, kNewClientId, kQueryTypes[i],
                                      kInvalidSharedMemoryId,
                                      kSharedMemoryOffset);
@@ -933,7 +942,7 @@ TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXTBadMemoryIdFails) {
 }
 
 TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXTBadMemoryOffsetFails) {
-  for (size_t i = 0; i < arraysize(kQueryTypes); ++i) {
+  for (size_t i = 0; i < base::size(kQueryTypes); ++i) {
     // Out-of-bounds.
     CheckBeginEndQueryBadMemoryFails(this, kNewClientId, kQueryTypes[i],
                                      shared_memory_id_,
@@ -945,7 +954,7 @@ TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXTBadMemoryOffsetFails) {
 }
 
 TEST_P(GLES2DecoderManualInitTest, QueryReuseTest) {
-  for (size_t i = 0; i < arraysize(kQueryTypes); ++i) {
+  for (size_t i = 0; i < base::size(kQueryTypes); ++i) {
     const QueryType& query_type = kQueryTypes[i];
 
     GLES2DecoderTestBase::InitState init;
@@ -1019,9 +1028,9 @@ TEST_P(GLES2DecoderTest, BeginEndQueryEXTCommandsIssuedCHROMIUM) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   QueryManager::Query* query = query_manager->GetQuery(kNewClientId);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   EXPECT_FALSE(query->IsPending());
 
   // Test end succeeds
@@ -1044,9 +1053,9 @@ TEST_P(GLES2DecoderTest, BeginEndQueryEXTGetErrorQueryCHROMIUM) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   QueryManager::Query* query = query_manager->GetQuery(kNewClientId);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   EXPECT_FALSE(query->IsPending());
 
   // Test end succeeds
@@ -1102,9 +1111,9 @@ TEST_P(GLES2DecoderManualInitTest, BeginEndQueryEXTCommandsCompletedCHROMIUM) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   QueryManager::Query* query = query_manager->GetQuery(kNewClientId);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   EXPECT_FALSE(query->IsPending());
 
   EXPECT_CALL(*gl_, Flush()).RetiresOnSaturation();
@@ -1221,9 +1230,9 @@ TEST_P(GLES2DecoderManualInitTest, QueryCounterEXTTimeStamp) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
   QueryManager* query_manager = decoder_->GetQueryManager();
-  ASSERT_TRUE(query_manager != NULL);
+  ASSERT_TRUE(query_manager != nullptr);
   QueryManager::Query* query = query_manager->GetQuery(kNewClientId);
-  ASSERT_TRUE(query != NULL);
+  ASSERT_TRUE(query != nullptr);
   EXPECT_TRUE(query->IsPending());
 }
 
@@ -1256,7 +1265,7 @@ TEST_P(GLES2DecoderTest, IsEnabledReturnsCachedValue) {
   static const GLenum kStates[] = {
       GL_DEPTH_TEST, GL_STENCIL_TEST,
   };
-  for (size_t ii = 0; ii < arraysize(kStates); ++ii) {
+  for (size_t ii = 0; ii < base::size(kStates); ++ii) {
     Enable enable_cmd;
     GLenum state = kStates[ii];
     enable_cmd.Init(state);
@@ -1297,7 +1306,7 @@ class SizeOnlyMemoryTracker : public MemoryTracker {
 
   uint64_t ClientTracingId() const override { return 0; }
   int ClientId() const override { return 0; }
-  uint64_t ShareGroupTracingGUID() const override { return 0; }
+  uint64_t ContextGroupTracingId() const override { return 0; }
 
  private:
   struct PoolInfo {

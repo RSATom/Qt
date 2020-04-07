@@ -1,5 +1,5 @@
 /*
- *  Copyright 2012 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,26 +11,9 @@
 #ifndef RTC_BASE_NULLSOCKETSERVER_H_
 #define RTC_BASE_NULLSOCKETSERVER_H_
 
-#include "rtc_base/event.h"
-#include "rtc_base/socketserver.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
-
-class NullSocketServer : public SocketServer {
- public:
-  NullSocketServer();
-  ~NullSocketServer() override;
-
-  bool Wait(int cms, bool process_io) override;
-  void WakeUp() override;
-
-  Socket* CreateSocket(int family, int type) override;
-  AsyncSocket* CreateAsyncSocket(int family, int type) override;
-
- private:
-  Event event_;
-};
-
-}  // namespace rtc
+#include "rtc_base/null_socket_server.h"
 
 #endif  // RTC_BASE_NULLSOCKETSERVER_H_

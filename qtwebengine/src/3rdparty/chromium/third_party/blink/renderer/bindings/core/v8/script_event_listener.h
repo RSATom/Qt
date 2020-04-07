@@ -33,37 +33,26 @@
 
 #include <memory>
 
-#include "third_party/blink/renderer/bindings/core/v8/v8_lazy_event_listener.h"
+#include "third_party/blink/renderer/bindings/core/v8/js_event_handler.h"
 
 namespace blink {
 
-class EventListener;
-class ExecutionContext;
 class LocalFrame;
-class Node;
 class QualifiedName;
-class SourceLocation;
 
-V8LazyEventListener* CreateAttributeEventListener(
+// TODO(bindings): consider to remove these functions.
+EventListener* CreateAttributeEventListener(
     Node*,
-    const QualifiedName&,
+    const QualifiedName& name,
     const AtomicString& value,
-    const AtomicString& event_parameter_name);
-V8LazyEventListener* CreateAttributeEventListener(
+    JSEventHandler::HandlerType type =
+        JSEventHandler::HandlerType::kEventHandler);
+EventListener* CreateAttributeEventListener(
     LocalFrame*,
-    const QualifiedName&,
+    const QualifiedName& name,
     const AtomicString& value,
-    const AtomicString& event_parameter_name);
-v8::Local<v8::Object> EventListenerHandler(ExecutionContext*, EventListener*);
-v8::Local<v8::Function> EventListenerEffectiveFunction(
-    v8::Isolate*,
-    v8::Local<v8::Object> handler);
-void GetFunctionLocation(v8::Local<v8::Function>,
-                         String& script_id,
-                         int& line_number,
-                         int& column_number);
-std::unique_ptr<SourceLocation> GetFunctionLocation(ExecutionContext*,
-                                                    EventListener*);
+    JSEventHandler::HandlerType type =
+        JSEventHandler::HandlerType::kEventHandler);
 
 }  // namespace blink
 

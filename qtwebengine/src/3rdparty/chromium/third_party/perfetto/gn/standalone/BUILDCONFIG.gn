@@ -15,6 +15,12 @@
 declare_args() {
   is_debug = true
   is_clang = true
+  is_system_compiler = false
+  is_lto = false
+
+  extra_cflags = ""
+  extra_cxxflags = ""
+  extra_ldflags = ""
 }
 
 declare_args() {
@@ -33,9 +39,11 @@ is_android = current_os == "android"
 is_linux = current_os == "linux"
 is_linux_host = host_os == "linux"
 is_mac = current_os == "mac"
-# Building with Windows is currently only supported in the Chromium tree so
-# always set this to false.
+
+# Building with Windows/Fuchsia is currently only supported in the Chromium
+# tree so always set this to false.
 is_win = false
+is_fuchsia = false
 
 if (target_cpu == "") {
   target_cpu = host_cpu
@@ -50,6 +58,7 @@ if (current_cpu == "") {
 default_configs = [
   "//gn/standalone:debug_symbols",
   "//gn/standalone:default",
+  "//gn/standalone:c++11",
   "//gn/standalone:extra_warnings",
   "//gn/standalone:no_exceptions",
   "//gn/standalone:no_rtti",

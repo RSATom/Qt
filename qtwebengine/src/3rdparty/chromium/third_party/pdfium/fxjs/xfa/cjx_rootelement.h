@@ -8,16 +8,14 @@
 #define FXJS_XFA_CJX_ROOTELEMENT_H_
 
 #include "fxjs/xfa/cjx_textnode.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_RootElement;
 
-class CJX_RootElement : public CJX_TextNode {
+class CJX_RootElement final : public CJX_TextNode {
  public:
   explicit CJX_RootElement(CXFA_RootElement* node);
   ~CJX_RootElement() override;
-
-  JS_PROP(use);
-  JS_PROP(usehref);
 };
 
 #endif  // FXJS_XFA_CJX_ROOTELEMENT_H_

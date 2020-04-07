@@ -6,7 +6,6 @@
  */
 
 #include "gm.h"
-#include "sk_tool_utils.h"
 #include "SkCanvas.h"
 #include "SkImage.h"
 #include "SkRandom.h"
@@ -16,7 +15,7 @@ static sk_sp<SkImage> make_image() {
     const SkImageInfo info = SkImageInfo::MakeN32Premul(319, 52);
     auto surface(SkSurface::MakeRaster(info));
     SkCanvas* canvas = surface->getCanvas();
-    canvas->drawColor(sk_tool_utils::color_to_565(0xFFF8F8F8));
+    canvas->drawColor(0xFFF8F8F8);
 
     SkPaint paint;
     paint.setAntiAlias(true);
@@ -35,10 +34,9 @@ DEF_SIMPLE_GM(mipmap, canvas, 400, 200) {
     SkPaint paint;
     const SkRect dst = SkRect::MakeWH(177, 15);
 
-    paint.setTextSize(30);
     SkString str;
     str.printf("scale %g %g", dst.width() / img->width(), dst.height() / img->height());
-//    canvas->drawString(str, 300, 100, paint);
+//    canvas->drawString(str, 300, 100, SkFont(nullptr, 30), paint);
 
     canvas->translate(20, 20);
     for (int i = 0; i < 4; ++i) {

@@ -656,7 +656,6 @@ QScriptDebuggerCommand QScriptDebuggerCommand::clearExceptionsCommand()
 }
 
 /*!
-  \fn QDataStream &operator<<(QDataStream &stream, const QScriptDebuggerCommand &command)
   \relates QScriptDebuggerCommand
 
   Writes the given \a command to the specified \a stream.
@@ -675,7 +674,6 @@ QDataStream &operator<<(QDataStream &out, const QScriptDebuggerCommand &command)
 }
 
 /*!
-  \fn QDataStream &operator>>(QDataStream &stream, QScriptDebuggerCommand &command)
   \relates QScriptDebuggerCommand
 
   Reads a QScriptDebuggerCommand from the specified \a stream into the

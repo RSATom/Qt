@@ -1,5 +1,5 @@
 TARGET = QtLocation
-QT = core-private positioning-private
+QT = core-private positioning-private positioningquick-private
 android {
     # adding qtconcurrent dependency here for the osm plugin
     QT += concurrent

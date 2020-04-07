@@ -115,8 +115,9 @@ static QList<QVariantMap> waypointMetadata(const QList<QDeclarativeGeoWaypoint *
     geographic routes from a backend provider. Routes include data about driving
     directions between two points, walking directions with multiple waypoints,
     and various other similar concepts. It functions much like other Model
-    types in QML (see for example \l {Models and Views in Qt Quick#Models}{ListModel} and
-    \l XmlListModel), and interacts with views such as \l MapItemView, and \l{ListView}.
+    types in QML (see for example \l {Models and Views in Qt Quick#Models}{ListModel}
+    and \l {QtQuick.XmlListModel::XmlListModel}{XmlListModel}), and interacts with
+    views such as \l MapItemView, and \l{ListView}.
 
     Like \l Map and \l GeocodeModel, all the data for a RouteModel to work comes
     from a services plugin. This is contained in the \l{plugin} property, and
@@ -239,13 +240,14 @@ void QDeclarativeGeoRouteModel::cancel()
 }
 
 /*!
-    \qmlmethod Route QtLocation::RouteModel::get(int)
+    \qmlmethod Route QtLocation::RouteModel::get(int index)
 
-    Returns the Route at given index. Use \l count property to check the
-    amount of routes available. The routes are indexed from zero, so the accessible range
-    is 0...(count - 1).
+    Returns the Route at the specified index \a int. Use the \l count
+    property to check the amount of routes available. The routes
+    are indexed from zero, so the accessible range is 0...(count - 1).
 
-    If you access out of bounds, a zero (null object) is returned and a warning is issued.
+    If you access out of bounds, a zero (null object) is returned and
+    a warning is issued.
 */
 
 QDeclarativeGeoRoute *QDeclarativeGeoRouteModel::get(int index)
@@ -273,7 +275,7 @@ void QDeclarativeGeoRouteModel::componentComplete()
 */
 int QDeclarativeGeoRouteModel::rowCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return routes_.count();
 }
 
@@ -345,9 +347,9 @@ void QDeclarativeGeoRouteModel::pluginReady()
     QGeoServiceProvider *serviceProvider = plugin_->sharedGeoServiceProvider();
     QGeoRoutingManager *routingManager = serviceProvider->routingManager();
 
-    if (serviceProvider->error() != QGeoServiceProvider::NoError) {
+    if (serviceProvider->routingError() != QGeoServiceProvider::NoError) {
         QDeclarativeGeoRouteModel::RouteError newError = UnknownError;
-        switch (serviceProvider->error()) {
+        switch (serviceProvider->routingError()) {
         case QGeoServiceProvider::NotSupportedError:
             newError = EngineNotSetError; break;
         case QGeoServiceProvider::UnknownParameterError:
@@ -360,7 +362,7 @@ void QDeclarativeGeoRouteModel::pluginReady()
             break;
         }
 
-        setError(newError, serviceProvider->errorString());
+        setError(newError, serviceProvider->routingErrorString());
         return;
     }
 
@@ -989,10 +991,11 @@ void QDeclarativeGeoRouteQuery::setExcludedAreas(const QJSValue &value)
 }
 
 /*!
-    \qmlmethod void QtLocation::RouteQuery::addExcludedArea(georectangle)
+    \qmlmethod void QtLocation::RouteQuery::addExcludedArea(georectangle area)
 
-    Adds the given area to excluded areas (areas that the route must not cross).
-    Same area can only be added once.
+    Adds the specified \a georectangle from the excluded areas
+    (areas that the route must not cross).
+    The same area can only be added once.
 
     \sa removeExcludedArea, clearExcludedAreas
 */
@@ -1019,9 +1022,9 @@ void QDeclarativeGeoRouteQuery::addExcludedArea(const QGeoRectangle &area)
 }
 
 /*!
-    \qmlmethod void QtLocation::RouteQuery::removeExcludedArea(georectangle)
+    \qmlmethod void QtLocation::RouteQuery::removeExcludedArea(georectangle area)
 
-    Removes the given area to excluded areas (areas that the route must not cross).
+    Removes the given \a area from excluded areas (areas that the route must not cross).
 
     \sa addExcludedArea, clearExcludedAreas
 */
@@ -1115,9 +1118,9 @@ void QDeclarativeGeoRouteQuery::addWaypoint(const QVariant &waypoint)
 /*!
     \qmlmethod void QtLocation::RouteQuery::removeWaypoint(coordinate)
 
-    Removes the given from the list of waypoints. In case same coordinate
-    appears multiple times, the most recently added coordinate instance is
-    removed.
+    Removes the given \a coordinate from the list of waypoints. If the
+    same coordinate appears multiple times, the most recently added
+    coordinate instance is removed.
 
     \sa addWaypoint, clearWaypoints
 */
@@ -1193,10 +1196,10 @@ void QDeclarativeGeoRouteQuery::flushWaypoints(QList<QDeclarativeGeoWaypoint *> 
 }
 
 /*!
-    \qmlmethod void QtLocation::RouteQuery::setFeatureWeight(FeatureType, FeatureWeight)
+    \qmlmethod void QtLocation::RouteQuery::setFeatureWeight(FeatureType feature, FeatureWeight weight)
 
-    Defines the weight to associate with a feature during the planning of a
-    route.
+    Defines the weight (\a FeatureWeight) to associate with a feature
+    (\a FeatureType) during the planning of a route.
 
     Following lists the possible feature weights:
 
@@ -1444,6 +1447,31 @@ QDeclarativeGeoRouteQuery::RouteOptimizations QDeclarativeGeoRouteQuery::routeOp
         optimization |= QDeclarativeGeoRouteQuery::MostScenicRoute;
 
     return optimization;
+}
+
+/*!
+    \qmlproperty date RouteQuery::departureTime
+
+    The departure time to be used when querying for the route.
+    The default value is an invalid date, meaning no departure time will be used in the query.
+
+    \since 5.13
+*/
+void QDeclarativeGeoRouteQuery::setDepartureTime(const QDateTime &departureTime)
+{
+    if (departureTime == request_.departureTime())
+        return;
+
+    request_.setDepartureTime(departureTime);
+    if (complete_) {
+        emit departureTimeChanged();
+        emit queryDetailsChanged();
+    }
+}
+
+QDateTime QDeclarativeGeoRouteQuery::departureTime() const
+{
+    return request_.departureTime();
 }
 
 void QDeclarativeGeoRouteQuery::setRouteOptimizations(QDeclarativeGeoRouteQuery::RouteOptimizations optimization)

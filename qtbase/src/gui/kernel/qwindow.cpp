@@ -166,7 +166,7 @@ QWindow::QWindow(QScreen *targetScreen)
 static QWindow *nonDesktopParent(QWindow *parent)
 {
     if (parent && parent->type() == Qt::Desktop) {
-        qWarning("QWindows can not be reparented into desktop windows");
+        qWarning("QWindows cannot be reparented into desktop windows");
         return nullptr;
     }
 
@@ -218,6 +218,12 @@ QWindow::~QWindow()
     QGuiApplicationPrivate::window_list.removeAll(this);
     if (!QGuiApplicationPrivate::is_app_closing)
         QGuiApplicationPrivate::instance()->modalWindowList.removeOne(this);
+
+    // focus_window is normally cleared in destroy(), but the window may in
+    // some cases end up becoming the focus window again. Clear it again
+    // here as a workaround. See QTBUG-75326.
+    if (QGuiApplicationPrivate::focus_window == this)
+        QGuiApplicationPrivate::focus_window = 0;
 }
 
 void QWindowPrivate::init(QScreen *targetScreen)
@@ -688,7 +694,8 @@ QWindow *QWindow::parent() const
     Sets the \a parent Window. This will lead to the windowing system managing
     the clip of the window, so it will be clipped to the \a parent window.
 
-    Setting \a parent to be 0 will make the window become a top level window.
+    Setting \a parent to be \nullptr will make the window become a top level
+    window.
 
     If \a parent is a window created by fromWinId(), then the current window
     will be embedded inside \a parent, if the platform supports it.
@@ -1330,16 +1337,18 @@ Qt::WindowStates QWindow::windowStates() const
 */
 
 /*!
-    Sets the transient \a parent
+    \property QWindow::transientParent
+    \brief the window for which this window is a transient pop-up
+    \since 5.13
 
     This is a hint to the window manager that this window is a dialog or pop-up
-    on behalf of the given window.
+    on behalf of the transient parent.
 
     In order to cause the window to be centered above its transient parent by
     default, depending on the window manager, it may also be necessary to call
     setFlags() with a suitable \l Qt::WindowType (such as \c Qt::Dialog).
 
-    \sa transientParent(), parent()
+    \sa parent()
 */
 void QWindow::setTransientParent(QWindow *parent)
 {
@@ -1349,24 +1358,33 @@ void QWindow::setTransientParent(QWindow *parent)
         return;
     }
     if (parent == this) {
-        qWarning() << "transient parent" << parent << "can not be same as window";
+        qWarning() << "transient parent" << parent << "cannot be same as window";
         return;
     }
 
     d->transientParent = parent;
 
     QGuiApplicationPrivate::updateBlockedStatus(this);
+    emit transientParentChanged(parent);
 }
 
-/*!
-    Returns the transient parent of the window.
-
-    \sa setTransientParent(), parent()
-*/
 QWindow *QWindow::transientParent() const
 {
     Q_D(const QWindow);
     return d->transientParent.data();
+}
+
+/*
+    The setter for the QWindow::transientParent property.
+    The only reason this exists is to set the transientParentPropertySet flag
+    so that Qt Quick knows whether it was set programmatically (because of
+    Window declaration context) or because the user set the property.
+*/
+void QWindowPrivate::setTransientParent(QWindow *parent)
+{
+    Q_Q(QWindow);
+    q->setTransientParent(parent);
+    transientParentPropertySet = true;
 }
 
 /*!
@@ -2858,7 +2876,7 @@ void QWindow::setVulkanInstance(QVulkanInstance *instance)
 }
 
 /*!
-    \return the associated Vulkan instance or \c null if there is none.
+    \return the associated Vulkan instance if any was set, otherwise \nullptr.
  */
 QVulkanInstance *QWindow::vulkanInstance() const
 {

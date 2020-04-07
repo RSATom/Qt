@@ -60,22 +60,25 @@
 #include <QString>
 #include <QVector>
 
+#include "api/qwebengineclientcertificatestore.h"
 #include "api/qwebenginecookiestore.h"
 #include "api/qwebengineurlrequestinterceptor.h"
 #include "api/qwebengineurlschemehandler.h"
+#include "net/qrc_url_scheme_handler.h"
 
 QT_FORWARD_DECLARE_CLASS(QObject)
 
 namespace QtWebEngineCore {
 
-class ProfileAdapterClient;
+class UserNotificationController;
 class DownloadManagerDelegateQt;
+class ProfileAdapterClient;
 class ProfileQt;
 class UserResourceControllerHost;
 class VisitedLinksManagerQt;
 class WebContentsAdapterClient;
 
-class QWEBENGINECORE_PRIVATE_EXPORT ProfileAdapter : public QObject
+class Q_WEBENGINECORE_PRIVATE_EXPORT ProfileAdapter : public QObject
 {
 public:
     explicit ProfileAdapter(const QString &storagePrefix = QString());
@@ -112,6 +115,9 @@ public:
 
     QString dataPath() const;
     void setDataPath(const QString &path);
+
+    QString downloadPath() const { return m_downloadPath; }
+    void setDownloadPath(const QString &path);
 
     QString cachePath() const;
     void setCachePath(const QString &path);
@@ -153,8 +159,7 @@ public:
     enum PermissionType {
         UnsupportedPermission = 0,
         GeolocationPermission = 1,
-// Reserved:
-//        NotificationPermission = 2,
+        NotificationPermission = 2,
         AudioCapturePermission = 3,
         VideoCapturePermission = 4,
         ClipboardRead = 5,
@@ -174,14 +179,14 @@ public:
     void setHttpCacheMaxSize(int maxSize);
 
     bool trackVisitedLinks() const;
-    bool persistVisitedLinks() const;
 
-    const QHash<QByteArray, QWebEngineUrlSchemeHandler *> &customUrlSchemeHandlers() const;
+    QWebEngineUrlSchemeHandler *urlSchemeHandler(const QByteArray &scheme);
+    void installUrlSchemeHandler(const QByteArray &scheme, QWebEngineUrlSchemeHandler *handler);
+    void removeUrlScheme(const QByteArray &scheme);
+    void removeUrlSchemeHandler(QWebEngineUrlSchemeHandler *handler);
+    void removeAllUrlSchemeHandlers();
+
     const QList<QByteArray> customUrlSchemes() const;
-    void clearCustomUrlSchemeHandlers();
-    bool addCustomUrlSchemeHandler(const QByteArray &, QWebEngineUrlSchemeHandler *);
-    bool removeCustomUrlSchemeHandler(QWebEngineUrlSchemeHandler *);
-    QWebEngineUrlSchemeHandler *takeCustomUrlSchemeHandler(const QByteArray &);
     UserResourceControllerHost *userResourceController();
 
     void permissionRequestReply(const QUrl &origin, PermissionType type, bool reply);
@@ -193,30 +198,57 @@ public:
 
     void clearHttpCache();
 
+    void setUseForGlobalCertificateVerification(bool enable = true);
+    bool isUsedForGlobalCertificateVerification() const;
+
+    void addPageRequestInterceptor();
+    void removePageRequestInterceptor();
+    bool hasPageRequestInterceptor() const { return m_pageRequestInterceptors > 0; }
+
+#if QT_CONFIG(ssl)
+    QWebEngineClientCertificateStore *clientCertificateStore();
+#endif
+
+    QHash<QByteArray, QWeakPointer<UserNotificationController>> &ephemeralNotifications()
+    {   return m_ephemeralNotifications; }
+    QHash<QByteArray, QSharedPointer<UserNotificationController>> &persistentNotifications()
+    {   return m_persistentNotifications; }
+
 private:
     void updateCustomUrlSchemeHandlers();
     void resetVisitedLinksManager();
+    bool persistVisitedLinks() const;
 
     QString m_name;
     bool m_offTheRecord;
+    bool m_usedForGlobalCertificateVerification = false;
     QScopedPointer<ProfileQt> m_profile;
     QScopedPointer<VisitedLinksManagerQt> m_visitedLinksManager;
     QScopedPointer<DownloadManagerDelegateQt> m_downloadManagerDelegate;
     QScopedPointer<UserResourceControllerHost> m_userResourceController;
     QScopedPointer<QWebEngineCookieStore> m_cookieStore;
+#if QT_CONFIG(ssl)
+    QWebEngineClientCertificateStore *m_clientCertificateStore = nullptr;
+#endif
     QPointer<QWebEngineUrlRequestInterceptor> m_requestInterceptor;
 
     QString m_dataPath;
+    QString m_downloadPath;
     QString m_cachePath;
     QString m_httpUserAgent;
     HttpCacheType m_httpCacheType;
     QString m_httpAcceptLanguage;
     PersistentCookiesPolicy m_persistentCookiesPolicy;
     VisitedLinksPolicy m_visitedLinksPolicy;
-    QHash<QByteArray, QWebEngineUrlSchemeHandler *> m_customUrlSchemeHandlers;
+    QHash<QByteArray, QPointer<QWebEngineUrlSchemeHandler>> m_customUrlSchemeHandlers;
+    QHash<QByteArray, QWeakPointer<UserNotificationController>> m_ephemeralNotifications;
+    QHash<QByteArray, QSharedPointer<UserNotificationController>> m_persistentNotifications;
+
     QList<ProfileAdapterClient*> m_clients;
     QVector<WebContentsAdapterClient *> m_webContentsAdapterClients;
     int m_httpCacheMaxSize;
+    int m_pageRequestInterceptors;
+    QrcUrlSchemeHandler m_qrcHandler;
 
     Q_DISABLE_COPY(ProfileAdapter)
 };

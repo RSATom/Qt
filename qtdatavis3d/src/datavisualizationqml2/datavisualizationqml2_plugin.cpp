@@ -143,6 +143,8 @@ void QtDataVisualizationQml2Plugin::registerTypes(const char *uri)
 
     // New revisions
     qmlRegisterType<Q3DLight, 1>(uri, 1, 3, "Light3D");
+
+    qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
 }
 
 QT_END_NAMESPACE_DATAVISUALIZATION

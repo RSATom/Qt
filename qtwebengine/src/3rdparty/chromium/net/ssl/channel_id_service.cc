@@ -21,8 +21,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/task_runner.h"
-#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "crypto/ec_private_key.h"
 #include "net/base/net_errors.h"
@@ -146,8 +146,7 @@ class ChannelIDServiceJob {
     std::vector<ChannelIDService::Request*> requests;
     requests_.swap(requests);
 
-    for (std::vector<ChannelIDService::Request*>::iterator i = requests.begin();
-         i != requests.end(); i++) {
+    for (auto i = requests.begin(); i != requests.end(); i++) {
       std::unique_ptr<crypto::ECPrivateKey> key_copy;
       if (key)
         key_copy = key->Copy();

@@ -83,6 +83,10 @@
         <translation>無法註冊虛擬資料夾「%1」。</translation>
     </message>
     <message>
+        <source>Version %1</source>
+        <translation>版本 %1</translation>
+    </message>
+    <message>
         <source>The collection file is not set up yet!</source>
         <translation>收集檔尚未設定！</translation>
     </message>

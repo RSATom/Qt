@@ -3880,12 +3880,9 @@ void QGLContext::doneCurrent()
 */
 
 QGLWidget::QGLWidget(QWidget *parent, const QGLWidget* shareWidget, Qt::WindowFlags f)
-    : QWidget(*(new QGLWidgetPrivate), parent, f | Qt::MSWindowsOwnDC)
+    : QWidget(*(new QGLWidgetPrivate), parent, f)
 {
     Q_D(QGLWidget);
-    setAttribute(Qt::WA_PaintOnScreen);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAutoFillBackground(true); // for compatibility
     d->init(new QGLContext(QGLFormat::defaultFormat(), this), shareWidget);
 }
 
@@ -3893,12 +3890,9 @@ QGLWidget::QGLWidget(QWidget *parent, const QGLWidget* shareWidget, Qt::WindowFl
   \internal
  */
 QGLWidget::QGLWidget(QGLWidgetPrivate &dd, const QGLFormat &format, QWidget *parent, const QGLWidget *shareWidget, Qt::WindowFlags f)
-    : QWidget(dd, parent, f | Qt::MSWindowsOwnDC)
+    : QWidget(dd, parent, f)
 {
     Q_D(QGLWidget);
-    setAttribute(Qt::WA_PaintOnScreen);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAutoFillBackground(true); // for compatibility
     d->init(new QGLContext(format, this), shareWidget);
 
 }
@@ -3935,12 +3929,9 @@ QGLWidget::QGLWidget(QGLWidgetPrivate &dd, const QGLFormat &format, QWidget *par
 
 QGLWidget::QGLWidget(const QGLFormat &format, QWidget *parent, const QGLWidget* shareWidget,
                      Qt::WindowFlags f)
-    : QWidget(*(new QGLWidgetPrivate), parent, f | Qt::MSWindowsOwnDC)
+    : QWidget(*(new QGLWidgetPrivate), parent, f)
 {
     Q_D(QGLWidget);
-    setAttribute(Qt::WA_PaintOnScreen);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAutoFillBackground(true); // for compatibility
     d->init(new QGLContext(format, this), shareWidget);
 }
 
@@ -3971,12 +3962,9 @@ QGLWidget::QGLWidget(const QGLFormat &format, QWidget *parent, const QGLWidget* 
 */
 QGLWidget::QGLWidget(QGLContext *context, QWidget *parent, const QGLWidget *shareWidget,
                      Qt::WindowFlags f)
-    : QWidget(*(new QGLWidgetPrivate), parent, f | Qt::MSWindowsOwnDC)
+    : QWidget(*(new QGLWidgetPrivate), parent, f)
 {
     Q_D(QGLWidget);
-    setAttribute(Qt::WA_PaintOnScreen);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAutoFillBackground(true); // for compatibility
     d->init(context, shareWidget);
 }
 
@@ -4035,7 +4023,7 @@ QGLWidget::~QGLWidget()
     \fn QFunctionPointer QGLContext::getProcAddress(const QString &proc) const
 
     Returns a function pointer to the GL extension function passed in
-    \a proc. 0 is returned if a pointer to the function could not be
+    \a proc. \nullptr is returned if a pointer to the function could not be
     obtained.
 */
 QFunctionPointer QGLContext::getProcAddress(const QString &procName) const
@@ -4131,14 +4119,14 @@ void QGLWidget::swapBuffers()
 /*!
     \fn const QGLContext* QGLWidget::overlayContext() const
 
-    Returns the overlay context of this widget, or 0 if this widget
-    has no overlay.
+    Returns the overlay context of this widget, or \nullptr if this
+    widget has no overlay.
 
     \sa context()
 */
 const QGLContext* QGLWidget::overlayContext() const
 {
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -5169,6 +5157,15 @@ QPaintEngine *QGLWidget::paintEngine() const
 
 void QGLWidgetPrivate::init(QGLContext *context, const QGLWidget *shareWidget)
 {
+    Q_Q(QGLWidget);
+    q->setAttribute(Qt::WA_PaintOnScreen);
+    q->setAttribute(Qt::WA_NoSystemBackground);
+    q->setAutoFillBackground(true); // for compatibility
+
+    mustHaveWindowHandle = 1;
+    q->setAttribute(Qt::WA_NativeWindow);
+    q->setWindowFlag(Qt::MSWindowsOwnDC);
+
     initContext(context, shareWidget);
 }
 

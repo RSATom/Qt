@@ -35,8 +35,8 @@
 #include <memory>
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
@@ -60,11 +60,17 @@ class SubtreeLayoutScope;
 class CORE_EXPORT TextAutosizer final
     : public GarbageCollectedFinalized<TextAutosizer> {
  public:
+  explicit TextAutosizer(const Document*);
   ~TextAutosizer();
+
   static TextAutosizer* Create(const Document* document) {
-    return new TextAutosizer(document);
+    return MakeGarbageCollected<TextAutosizer>(document);
   }
-  static float ComputeAutosizedFontSize(float specified_size, float multiplier);
+
+  // computed_size should include zoom.
+  static float ComputeAutosizedFontSize(float computed_size,
+                                        float multiplier,
+                                        float effective_zoom);
 
   void UpdatePageInfoInAllFrames();
   void UpdatePageInfo();
@@ -212,6 +218,8 @@ class CORE_EXPORT TextAutosizer final
 
   struct FingerprintSourceData {
     STACK_ALLOCATED();
+
+   public:
     FingerprintSourceData()
         : parent_hash_(0),
           qualified_name_hash_(0),
@@ -290,8 +298,6 @@ class CORE_EXPORT TextAutosizer final
     bool setting_enabled_;
   };
 
-  explicit TextAutosizer(const Document*);
-
   void BeginLayout(LayoutBlock*, SubtreeLayoutScope*);
   void EndLayout(LayoutBlock*);
   void InflateAutoTable(LayoutTable*);
@@ -354,6 +360,8 @@ class CORE_EXPORT TextAutosizer final
   // Mark the nearest non-inheritance supercluser
   void MarkSuperclusterForConsistencyCheck(LayoutObject*);
 
+  void ReportIfCrossSiteFrame();
+
   Member<const Document> document_;
   const LayoutBlock* first_block_to_begin_layout_;
 #if DCHECK_IS_ON()
@@ -369,6 +377,11 @@ class CORE_EXPORT TextAutosizer final
   // FIXME: All frames should share the same m_pageInfo instance.
   PageInfo page_info_;
   bool update_page_info_deferred_;
+
+  // Inflate reports a use counter if we're autosizing a cross site iframe.
+  // This flag makes sure we only check it once per layout pass.
+  bool did_check_cross_site_use_count_;
+
   DISALLOW_COPY_AND_ASSIGN(TextAutosizer);
 };
 

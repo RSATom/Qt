@@ -5,20 +5,23 @@
 #ifndef COMPONENTS_CRASH_CONTENT_BROWSER_CHILD_EXIT_OBSERVER_ANDROID_H_
 #define COMPONENTS_CRASH_CONTENT_BROWSER_CHILD_EXIT_OBSERVER_ANDROID_H_
 
+#include <map>
 #include <memory>
 #include <vector>
 
 #include "base/android/application_status_listener.h"
 #include "base/android/child_process_binding_types.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ref_counted.h"
 #include "base/process/process.h"
+#include "base/scoped_observer.h"
+#include "base/synchronization/lock.h"
+#include "components/crash/content/browser/crash_handler_host_linux.h"
 #include "content/public/browser/browser_child_process_observer.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/posix_file_descriptor_info.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/process_type.h"
+#include "third_party/blink/public/common/oom_intervention/oom_intervention_types.h"
 
 namespace content {
 struct ChildProcessTerminationInfo;
@@ -30,18 +33,27 @@ namespace crash_reporter {
 // purpose of reacting to child process crashes.
 // The ChildExitObserver instance exists on the browser main thread.
 class ChildExitObserver : public content::BrowserChildProcessObserver,
-                          public content::NotificationObserver {
+                          public content::NotificationObserver,
+                          public crashpad::CrashHandlerHost::Observer {
  public:
   struct TerminationInfo {
+    // Used to indicate the child did not receive a crash signal.
+    static constexpr int kInvalidSigno = -1;
+
     TerminationInfo();
     TerminationInfo(const TerminationInfo& other);
     TerminationInfo& operator=(const TerminationInfo& other);
+
+    bool is_crashed() const { return crash_signo != kInvalidSigno; }
 
     int process_host_id = content::ChildProcessHost::kInvalidUniqueID;
     base::ProcessHandle pid = base::kNullProcessHandle;
     content::ProcessType process_type = content::PROCESS_TYPE_UNKNOWN;
     base::android::ApplicationState app_state =
         base::android::APPLICATION_STATE_UNKNOWN;
+
+    // The crash signal the child process received before it exited.
+    int crash_signo = kInvalidSigno;
 
     // True if this is intentional shutdown of the child process, e.g. when a
     // tab is closed. Some fields below may not be populated if this is true.
@@ -73,6 +85,11 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
     // edge cases, eg if an invisible main frame and a visible sub frame from
     // different tabs are sharing the same renderer, then this is false.
     bool renderer_was_subframe = false;
+
+    // Applies to renderer process only. This metrics contains the information
+    // about virtual address space OOM situation, private memory footprint,
+    // swap size, vm size and the estimation of blink memory usage.
+    blink::OomInterventionMetrics blink_oom_metrics;
   };
 
   // ChildExitObserver client interface.
@@ -88,9 +105,6 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
   // process type.
   class Client {
    public:
-    // OnChildStart is called on the launcher thread.
-    virtual void OnChildStart(int process_host_id,
-                              content::PosixFileDescriptorInfo* mappings) = 0;
     // OnChildExit is called on the UI thread.
     // OnChildExit may be called twice for the same process.
     virtual void OnChildExit(const TerminationInfo& info) = 0;
@@ -110,13 +124,8 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
 
   void RegisterClient(std::unique_ptr<Client> client);
 
-  // BrowserChildProcessStarted must be called from
-  // ContentBrowserClient::GetAdditionalMappedFilesForChildProcess
-  // overrides, to notify the ChildExitObserver of child process
-  // creation, and to allow clients to register any fd mappings they
-  // need.
-  void BrowserChildProcessStarted(int process_host_id,
-                                  content::PosixFileDescriptorInfo* mappings);
+  // crashpad::CrashHandlerHost::Observer
+  void ChildReceivedCrashSignal(base::ProcessId pid, int signo) override;
 
  private:
   friend struct base::LazyInstanceTraitsBase<ChildExitObserver>;
@@ -137,18 +146,25 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
                const content::NotificationDetails& details) override;
 
   // Called on child process exit (including crash).
-  void OnChildExit(const TerminationInfo& info);
+  void OnChildExit(TerminationInfo* info);
 
   content::NotificationRegistrar notification_registrar_;
 
   base::Lock registered_clients_lock_;
   std::vector<std::unique_ptr<Client>> registered_clients_;
 
-  // process_host_id to process id.
+  // process_host_id to process id. Only accessed on the UI thread.
   std::map<int, base::ProcessHandle> process_host_id_to_pid_;
 
-  // Key is process_host_id. Only used for BrowserChildProcessHost.
+  // Key is process_host_id. Only used for BrowserChildProcessHost. Only
+  // accessed on the UI thread.
   std::map<int, TerminationInfo> browser_child_process_info_;
+
+  base::Lock crash_signals_lock_;
+  std::map<base::ProcessId, int> child_pid_to_crash_signal_;
+  ScopedObserver<crashpad::CrashHandlerHost,
+                 crashpad::CrashHandlerHost::Observer>
+      scoped_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(ChildExitObserver);
 };

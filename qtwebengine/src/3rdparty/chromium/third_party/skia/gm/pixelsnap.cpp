@@ -36,17 +36,13 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         SkPaint bgPaint;
         bgPaint.setShader(
-                sk_tool_utils::create_checkerboard_shader(
-                sk_tool_utils::color_to_565(0xFFAAAAAA),
-                sk_tool_utils::color_to_565(0xFF777777), 1));
+                sk_tool_utils::create_checkerboard_shader(0xFFAAAAAA, 0xFF777777, 1));
         canvas->drawPaint(bgPaint);
 
         SkString offset;
         SkPaint labelPaint;
-        labelPaint.setAntiAlias(true);
         labelPaint.setColor(SK_ColorWHITE);
-        labelPaint.setTextSize(SkIntToScalar(kLabelTextSize));
-        sk_tool_utils::set_portable_typeface(&labelPaint);
+        SkFont font(sk_tool_utils::create_portable_typeface(), SkIntToScalar(kLabelTextSize));
         SkPaint linePaint;
         linePaint.setColor(SK_ColorWHITE);
 
@@ -55,9 +51,8 @@ protected:
             canvas->translate(0, SkIntToScalar(kLabelOffsetY));
             for (int i = 0; i <= kSubPixelSteps; ++i) {
                 offset.printf("%d", i);
-                canvas->drawString(offset,
-                                    0, i * kTrans + labelPaint.getTextSize(),
-                                    labelPaint);
+                canvas->drawString(offset, 0, i * kTrans + SkIntToScalar(kLabelTextSize),
+                                   font, labelPaint);
             }
         canvas->restore();
 
@@ -66,9 +61,8 @@ protected:
             canvas->translate(SkIntToScalar(kLabelOffsetX), 0);
             for (int i = 0; i <= kSubPixelSteps; ++i) {
                 offset.printf("%d", i);
-                canvas->drawString(offset,
-                                    i * SkIntToScalar(kTrans), labelPaint.getTextSize(),
-                                    labelPaint);
+                canvas->drawString(offset, i * SkIntToScalar(kTrans), SkIntToScalar(kLabelTextSize),
+                                   font, labelPaint);
             }
         canvas->restore();
 

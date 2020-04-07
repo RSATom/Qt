@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/stl_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_items_collection/core/offline_content_aggregator.h"
 #include "components/offline_items_collection/core/offline_item.h"
@@ -32,9 +33,20 @@ OfflineContentAggregator::OfflineContentAggregator()
 
 OfflineContentAggregator::~OfflineContentAggregator() = default;
 
+std::string OfflineContentAggregator::CreateUniqueNameSpace(
+    const std::string& prefix,
+    bool is_off_the_record) {
+  if (!is_off_the_record)
+    return prefix;
+
+  static int num_registrations = 0;
+  return prefix + "_" + base::IntToString(++num_registrations);
+}
+
 void OfflineContentAggregator::RegisterProvider(
     const std::string& name_space,
     OfflineContentProvider* provider) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Validate that this is the first OfflineContentProvider registered that is
   // associated with |name_space|.
   DCHECK(providers_.find(name_space) == providers_.end());
@@ -49,6 +61,7 @@ void OfflineContentAggregator::RegisterProvider(
 
 void OfflineContentAggregator::UnregisterProvider(
     const std::string& name_space) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto provider_it = providers_.find(name_space);
 
   OfflineContentProvider* provider = provider_it->second;
@@ -62,16 +75,19 @@ void OfflineContentAggregator::UnregisterProvider(
   }
 }
 
-void OfflineContentAggregator::OpenItem(const ContentId& id) {
+void OfflineContentAggregator::OpenItem(LaunchLocation location,
+                                        const ContentId& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
 
   if (it == providers_.end())
     return;
 
-  it->second->OpenItem(id);
+  it->second->OpenItem(location, id);
 }
 
 void OfflineContentAggregator::RemoveItem(const ContentId& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
 
   if (it == providers_.end())
@@ -81,6 +97,7 @@ void OfflineContentAggregator::RemoveItem(const ContentId& id) {
 }
 
 void OfflineContentAggregator::CancelDownload(const ContentId& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
 
   if (it == providers_.end())
@@ -90,6 +107,7 @@ void OfflineContentAggregator::CancelDownload(const ContentId& id) {
 }
 
 void OfflineContentAggregator::PauseDownload(const ContentId& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
 
   if (it == providers_.end())
@@ -100,6 +118,7 @@ void OfflineContentAggregator::PauseDownload(const ContentId& id) {
 
 void OfflineContentAggregator::ResumeDownload(const ContentId& id,
                                               bool has_user_gesture) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
 
   if (it == providers_.end())
@@ -110,6 +129,7 @@ void OfflineContentAggregator::ResumeDownload(const ContentId& id,
 
 void OfflineContentAggregator::GetItemById(const ContentId& id,
                                            SingleItemCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
   if (it == providers_.end()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -125,10 +145,12 @@ void OfflineContentAggregator::GetItemById(const ContentId& id,
 void OfflineContentAggregator::OnGetItemByIdDone(
     SingleItemCallback callback,
     const base::Optional<OfflineItem>& item) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::move(callback).Run(item);
 }
 
 void OfflineContentAggregator::GetAllItems(MultipleItemCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // If there is already a call in progress, queue up the callback and wait for
   // the results.
   if (!multiple_item_get_callbacks_.empty()) {
@@ -158,6 +180,7 @@ void OfflineContentAggregator::GetAllItems(MultipleItemCallback callback) {
 void OfflineContentAggregator::OnGetAllItemsDone(
     OfflineContentProvider* provider,
     const OfflineItemList& items) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   aggregated_items_.insert(aggregated_items_.end(), items.begin(), items.end());
   pending_providers_.erase(provider);
   if (!pending_providers_.empty()) {
@@ -171,22 +194,36 @@ void OfflineContentAggregator::OnGetAllItemsDone(
     std::move(callback).Run(item_vec);
 }
 
-void OfflineContentAggregator::GetVisualsForItem(
-    const ContentId& id,
-    const VisualsCallback& callback) {
+void OfflineContentAggregator::GetVisualsForItem(const ContentId& id,
+                                                 VisualsCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = providers_.find(id.name_space);
 
   if (it == providers_.end()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, id, nullptr));
+        FROM_HERE, base::BindOnce(std::move(callback), id, nullptr));
     return;
   }
 
-  it->second->GetVisualsForItem(id, callback);
+  it->second->GetVisualsForItem(id, std::move(callback));
+}
+
+void OfflineContentAggregator::GetShareInfoForItem(const ContentId& id,
+                                                   ShareCallback callback) {
+  auto it = providers_.find(id.name_space);
+
+  if (it == providers_.end()) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), id, nullptr));
+    return;
+  }
+
+  it->second->GetShareInfoForItem(id, std::move(callback));
 }
 
 void OfflineContentAggregator::AddObserver(
     OfflineContentProvider::Observer* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(observer);
   if (observers_.HasObserver(observer))
     return;
@@ -196,6 +233,7 @@ void OfflineContentAggregator::AddObserver(
 
 void OfflineContentAggregator::RemoveObserver(
     OfflineContentProvider::Observer* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(observer);
   if (!observers_.HasObserver(observer))
     return;
@@ -204,16 +242,19 @@ void OfflineContentAggregator::RemoveObserver(
 }
 
 void OfflineContentAggregator::OnItemsAdded(const OfflineItemList& items) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   for (auto& observer : observers_)
     observer.OnItemsAdded(items);
 }
 
 void OfflineContentAggregator::OnItemRemoved(const ContentId& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   for (auto& observer : observers_)
     observer.OnItemRemoved(id);
 }
 
 void OfflineContentAggregator::OnItemUpdated(const OfflineItem& item) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   for (auto& observer : observers_)
     observer.OnItemUpdated(item);
 }

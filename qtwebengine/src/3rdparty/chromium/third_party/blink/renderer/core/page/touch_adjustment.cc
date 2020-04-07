@@ -19,20 +19,23 @@
 
 #include "third_party/blink/renderer/core/page/touch_adjustment.h"
 
+#include "third_party/blink/public/platform/web_screen_info.h"
 #include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
-#include "third_party/blink/renderer/core/layout/api/selection_state.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
+#include "third_party/blink/renderer/core/page/chrome_client.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
@@ -41,15 +44,16 @@
 
 namespace blink {
 
-namespace TouchAdjustment {
+namespace touch_adjustment {
 
 const float kZeroTolerance = 1e-6f;
-constexpr float kMaxAdjustmentSizeDips = 32.f;
+// The maximum adjustment range (diameters) in dip.
+constexpr float kMaxAdjustmentSizeDip = 32.f;
 
 // Class for remembering absolute quads of a target node and what node they
 // represent.
 class SubtargetGeometry {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   SubtargetGeometry(Node* node, const FloatQuad& quad)
@@ -65,16 +69,16 @@ class SubtargetGeometry {
   FloatQuad quad_;
 };
 
-}  // namespace TouchAdjustment
+}  // namespace touch_adjustment
 
 }  // namespace blink
 
 WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
-    blink::TouchAdjustment::SubtargetGeometry)
+    blink::touch_adjustment::SubtargetGeometry)
 
 namespace blink {
 
-namespace TouchAdjustment {
+namespace touch_adjustment {
 
 typedef HeapVector<SubtargetGeometry> SubtargetGeometryList;
 typedef bool (*NodeFilter)(Node*);
@@ -142,7 +146,7 @@ bool ProvidesContextMenuItems(Node* node) {
       return true;
     // Only the selected part of the layoutObject is a valid target, but this
     // will be corrected in appendContextSubtargetsForNode.
-    if (node->GetLayoutObject()->GetSelectionState() != SelectionState::kNone)
+    if (node->GetLayoutObject()->IsSelected())
       return true;
   }
   return false;
@@ -204,35 +208,16 @@ static inline void AppendContextSubtargetsForNode(
       last_offset = offset;
     }
   } else {
-    if (text_layout_object->GetSelectionState() == SelectionState::kNone)
+    if (!text_layout_object->IsSelected())
       return AppendBasicSubtargetsForNode(node, subtargets);
     const FrameSelection& frame_selection =
         text_layout_object->GetFrame()->Selection();
+    const LayoutTextSelectionStatus& selection_status =
+        frame_selection.ComputeLayoutSelectionStatus(*text_layout_object);
     // If selected, make subtargets out of only the selected part of the text.
-    int start_pos, end_pos;
-    switch (text_layout_object->GetSelectionState()) {
-      case SelectionState::kInside:
-        start_pos = 0;
-        end_pos = text_layout_object->TextLength();
-        break;
-      case SelectionState::kStart:
-        start_pos = frame_selection.LayoutSelectionStart().value();
-        end_pos = text_layout_object->TextLength();
-        break;
-      case SelectionState::kEnd:
-        start_pos = 0;
-        end_pos = frame_selection.LayoutSelectionEnd().value();
-        break;
-      case SelectionState::kStartAndEnd:
-        start_pos = frame_selection.LayoutSelectionStart().value();
-        end_pos = frame_selection.LayoutSelectionEnd().value();
-        break;
-      default:
-        NOTREACHED();
-        return;
-    }
     Vector<FloatQuad> quads;
-    text_layout_object->AbsoluteQuadsForRange(quads, start_pos, end_pos);
+    text_layout_object->AbsoluteQuadsForRange(quads, selection_status.start,
+                                              selection_status.end);
     AppendQuadsToSubtargetList(quads, text_node, subtargets);
   }
 }
@@ -240,8 +225,8 @@ static inline void AppendContextSubtargetsForNode(
 static inline Node* ParentShadowHostOrOwner(const Node* node) {
   if (Node* ancestor = node->ParentOrShadowHostNode())
     return ancestor;
-  if (node->IsDocumentNode())
-    return ToDocument(node)->LocalOwner();
+  if (auto* document = DynamicTo<Document>(node))
+    return document->LocalOwner();
   return nullptr;
 }
 
@@ -500,7 +485,7 @@ bool FindNodeWithLowestDistanceMetric(Node*& target_node,
   return (target_node);
 }
 
-}  // namespace TouchAdjustment
+}  // namespace touch_adjustment
 
 bool FindBestClickableCandidate(Node*& target_node,
                                 IntPoint& target_point,
@@ -508,13 +493,13 @@ bool FindBestClickableCandidate(Node*& target_node,
                                 const IntRect& touch_area,
                                 const HeapVector<Member<Node>>& nodes) {
   IntRect target_area;
-  TouchAdjustment::SubtargetGeometryList subtargets;
-  TouchAdjustment::CompileSubtargetList(
-      nodes, subtargets, TouchAdjustment::NodeRespondsToTapGesture,
-      TouchAdjustment::AppendBasicSubtargetsForNode);
-  return TouchAdjustment::FindNodeWithLowestDistanceMetric(
+  touch_adjustment::SubtargetGeometryList subtargets;
+  touch_adjustment::CompileSubtargetList(
+      nodes, subtargets, touch_adjustment::NodeRespondsToTapGesture,
+      touch_adjustment::AppendBasicSubtargetsForNode);
+  return touch_adjustment::FindNodeWithLowestDistanceMetric(
       target_node, target_point, target_area, touch_hotspot, touch_area,
-      subtargets, TouchAdjustment::HybridDistanceFunction);
+      subtargets, touch_adjustment::HybridDistanceFunction);
 }
 
 bool FindBestContextMenuCandidate(Node*& target_node,
@@ -523,19 +508,32 @@ bool FindBestContextMenuCandidate(Node*& target_node,
                                   const IntRect& touch_area,
                                   const HeapVector<Member<Node>>& nodes) {
   IntRect target_area;
-  TouchAdjustment::SubtargetGeometryList subtargets;
-  TouchAdjustment::CompileSubtargetList(
-      nodes, subtargets, TouchAdjustment::ProvidesContextMenuItems,
-      TouchAdjustment::AppendContextSubtargetsForNode);
-  return TouchAdjustment::FindNodeWithLowestDistanceMetric(
+  touch_adjustment::SubtargetGeometryList subtargets;
+  touch_adjustment::CompileSubtargetList(
+      nodes, subtargets, touch_adjustment::ProvidesContextMenuItems,
+      touch_adjustment::AppendContextSubtargetsForNode);
+  return touch_adjustment::FindNodeWithLowestDistanceMetric(
       target_node, target_point, target_area, touch_hotspot, touch_area,
-      subtargets, TouchAdjustment::HybridDistanceFunction);
+      subtargets, touch_adjustment::HybridDistanceFunction);
 }
 
-LayoutSize GetHitTestRectForAdjustment(const LayoutSize& touch_area) {
-  const LayoutSize max_size(TouchAdjustment::kMaxAdjustmentSizeDips,
-                            TouchAdjustment::kMaxAdjustmentSizeDips);
-  return touch_area.ShrunkTo(max_size);
+LayoutSize GetHitTestRectForAdjustment(const LocalFrame& frame,
+                                       const LayoutSize& touch_area) {
+  float device_scale_factor =
+      frame.GetPage()->GetChromeClient().GetScreenInfo().device_scale_factor;
+  // Check if zoom-for-dsf is enabled. If not, touch_area is in dip, so we don't
+  // need to convert max_size_in_dip to physical pixel.
+  if (frame.GetPage()->DeviceScaleFactorDeprecated() != 1)
+    device_scale_factor = 1;
+
+  float page_scale_factor = frame.GetPage()->PageScaleFactor();
+  const LayoutSize max_size_in_dip(touch_adjustment::kMaxAdjustmentSizeDip,
+                                   touch_adjustment::kMaxAdjustmentSizeDip);
+
+  // (when use-zoom-for-dsf enabled) touch_area is in physical pixel scaled,
+  // max_size_in_dip should be converted to physical pixel and scale too.
+  return touch_area.ShrunkTo(max_size_in_dip *
+                             (device_scale_factor / page_scale_factor));
 }
 
 }  // namespace blink

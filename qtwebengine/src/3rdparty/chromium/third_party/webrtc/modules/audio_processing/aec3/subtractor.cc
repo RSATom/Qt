@@ -11,12 +11,12 @@
 #include "modules/audio_processing/aec3/subtractor.h"
 
 #include <algorithm>
-#include <numeric>
+#include <utility>
 
 #include "api/array_view.h"
+#include "modules/audio_processing/aec3/fft_data.h"
 #include "modules/audio_processing/logging/apm_data_dumper.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_minmax.h"
 #include "system_wrappers/include/field_trial.h"
 
@@ -128,12 +128,6 @@ Subtractor::Subtractor(const EchoCanceller3Config& config,
       G_shadow_(config_.filter.shadow_initial,
                 config.filter.config_change_duration_blocks) {
   RTC_DCHECK(data_dumper_);
-  // Currently, the rest of AEC3 requires the main and shadow filter lengths to
-  // be identical.
-  RTC_DCHECK_EQ(config_.filter.main.length_blocks,
-                config_.filter.shadow.length_blocks);
-  RTC_DCHECK_EQ(config_.filter.main_initial.length_blocks,
-                config_.filter.shadow_initial.length_blocks);
 }
 
 Subtractor::~Subtractor() = default;
@@ -159,8 +153,6 @@ void Subtractor::HandleEchoPathChange(
   }
 
   if (echo_path_variability.gain_change && enable_agc_gain_change_response_) {
-    RTC_LOG(LS_WARNING) << "Resetting main filter adaptation speed due to "
-                           "microphone gain change";
     G_main_.HandleEchoPathChange(echo_path_variability);
   }
 }
@@ -199,7 +191,7 @@ void Subtractor::Process(const RenderBuffer& render_buffer,
                   adaptation_during_saturation_, &shadow_saturation);
 
   // Compute the signal powers in the subtractor output.
-  output->UpdatePowers(y);
+  output->ComputeMetrics(y);
 
   // Adjust the filter if needed.
   bool main_filter_adjusted = false;
@@ -222,11 +214,28 @@ void Subtractor::Process(const RenderBuffer& render_buffer,
   E_shadow.Spectrum(optimization_, output->E2_shadow);
   E_main.Spectrum(optimization_, output->E2_main);
 
+  // Compute the render powers.
+  std::array<float, kFftLengthBy2Plus1> X2_main;
+  std::array<float, kFftLengthBy2Plus1> X2_shadow_data;
+  std::array<float, kFftLengthBy2Plus1>& X2_shadow =
+      main_filter_.SizePartitions() == shadow_filter_.SizePartitions()
+          ? X2_main
+          : X2_shadow_data;
+  if (main_filter_.SizePartitions() == shadow_filter_.SizePartitions()) {
+    render_buffer.SpectralSum(main_filter_.SizePartitions(), &X2_main);
+  } else if (main_filter_.SizePartitions() > shadow_filter_.SizePartitions()) {
+    render_buffer.SpectralSums(shadow_filter_.SizePartitions(),
+                               main_filter_.SizePartitions(), &X2_shadow,
+                               &X2_main);
+  } else {
+    render_buffer.SpectralSums(main_filter_.SizePartitions(),
+                               shadow_filter_.SizePartitions(), &X2_main,
+                               &X2_shadow);
+  }
+
   // Update the main filter.
-  std::array<float, kFftLengthBy2Plus1> X2;
-  render_buffer.SpectralSum(main_filter_.SizePartitions(), &X2);
   if (!main_filter_adjusted) {
-    G_main_.Compute(X2, render_signal_analyzer, *output, main_filter_,
+    G_main_.Compute(X2_main, render_signal_analyzer, *output, main_filter_,
                     aec_state.SaturatedCapture() || main_saturation, &G);
   } else {
     G.re.fill(0.f);
@@ -244,19 +253,15 @@ void Subtractor::Process(const RenderBuffer& render_buffer,
        (poor_shadow_filter_counter_ < 10 &&
         !enable_early_shadow_filter_jumpstart_)) ||
       !enable_shadow_filter_jumpstart_) {
-    if (shadow_filter_.SizePartitions() != main_filter_.SizePartitions()) {
-      render_buffer.SpectralSum(shadow_filter_.SizePartitions(), &X2);
-    }
-    G_shadow_.Compute(X2, render_signal_analyzer, E_shadow,
+    G_shadow_.Compute(X2_shadow, render_signal_analyzer, E_shadow,
                       shadow_filter_.SizePartitions(),
                       aec_state.SaturatedCapture() || shadow_saturation, &G);
     shadow_filter_.Adapt(render_buffer, G);
   } else {
     poor_shadow_filter_counter_ = 0;
-
     if (enable_shadow_filter_boosted_jumpstart_) {
       shadow_filter_.SetFilter(main_filter_.GetFilter());
-      G_shadow_.Compute(X2, render_signal_analyzer, E_main,
+      G_shadow_.Compute(X2_shadow, render_signal_analyzer, E_main,
                         shadow_filter_.SizePartitions(),
                         aec_state.SaturatedCapture() || main_saturation, &G);
       shadow_filter_.Adapt(render_buffer, G);
@@ -277,6 +282,11 @@ void Subtractor::Process(const RenderBuffer& render_buffer,
     std::for_each(e_main.begin(), e_main.end(),
                   [](float& a) { a = rtc::SafeClamp(a, -32768.f, 32767.f); });
   }
+
+  data_dumper_->DumpWav("aec3_main_filter_output", kBlockSize, &e_main[0],
+                        16000, 1);
+  data_dumper_->DumpWav("aec3_shadow_filter_output", kBlockSize, &e_shadow[0],
+                        16000, 1);
 }
 
 void Subtractor::FilterMisadjustmentEstimator::Update(

@@ -72,7 +72,9 @@ void GrGLProgram::abandon() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void GrGLProgram::setData(const GrPrimitiveProcessor& primProc, const GrPipeline& pipeline) {
+void GrGLProgram::updateUniformsAndTextureBindings(const GrPrimitiveProcessor& primProc,
+                                                   const GrPipeline& pipeline,
+                                                   const GrTextureProxy* const primProcTextures[]) {
     this->setRenderTargetState(primProc, pipeline.proxy());
 
     // we set the textures, and uniforms for installed processors in a generic way, but subclasses
@@ -81,12 +83,14 @@ void GrGLProgram::setData(const GrPrimitiveProcessor& primProc, const GrPipeline
     // We must bind to texture units in the same order in which we set the uniforms in
     // GrGLProgramDataManager. That is, we bind textures for processors in this order:
     // primProc, fragProcs, XP.
-    int nextTexSamplerIdx = 0;
     fPrimitiveProcessor->setData(fProgramDataManager, primProc,
                                  GrFragmentProcessor::CoordTransformIter(pipeline));
-    this->bindTextures(primProc, &nextTexSamplerIdx);
+    if (primProcTextures) {
+        this->updatePrimitiveProcessorTextureBindings(primProc, primProcTextures);
+    }
+    int nextTexSamplerIdx = primProc.numTextureSamplers();
 
-    this->setFragmentData(primProc, pipeline, &nextTexSamplerIdx);
+    this->setFragmentData(pipeline, &nextTexSamplerIdx);
 
     const GrXferProcessor& xp = pipeline.getXferProcessor();
     SkIPoint offset;
@@ -100,37 +104,40 @@ void GrGLProgram::setData(const GrPrimitiveProcessor& primProc, const GrPipeline
     SkASSERT(nextTexSamplerIdx == fNumTextureSamplers);
 }
 
-void GrGLProgram::generateMipmaps(const GrPrimitiveProcessor& primProc,
-                                  const GrPipeline& pipeline) {
-    this->generateMipmaps(primProc);
-
-    GrFragmentProcessor::Iter iter(pipeline);
-    while (const GrFragmentProcessor* fp  = iter.next()) {
-        this->generateMipmaps(*fp);
+void GrGLProgram::updatePrimitiveProcessorTextureBindings(const GrPrimitiveProcessor& primProc,
+                                                          const GrTextureProxy* const proxies[]) {
+    for (int i = 0; i < primProc.numTextureSamplers(); ++i) {
+        auto* tex = static_cast<GrGLTexture*>(proxies[i]->peekTexture());
+        fGpu->bindTexture(i, primProc.textureSampler(i).samplerState(), tex);
     }
 }
 
-void GrGLProgram::setFragmentData(const GrPrimitiveProcessor& primProc,
-                                  const GrPipeline& pipeline,
-                                  int* nextTexSamplerIdx) {
+void GrGLProgram::setFragmentData(const GrPipeline& pipeline, int* nextTexSamplerIdx) {
     GrFragmentProcessor::Iter iter(pipeline);
     GrGLSLFragmentProcessor::Iter glslIter(fFragmentProcessors.get(), fFragmentProcessorCnt);
     const GrFragmentProcessor* fp = iter.next();
     GrGLSLFragmentProcessor* glslFP = glslIter.next();
     while (fp && glslFP) {
         glslFP->setData(fProgramDataManager, *fp);
-        this->bindTextures(*fp, nextTexSamplerIdx);
+        for (int i = 0; i < fp->numTextureSamplers(); ++i) {
+            const GrFragmentProcessor::TextureSampler& sampler = fp->textureSampler(i);
+            fGpu->bindTexture((*nextTexSamplerIdx)++, sampler.samplerState(),
+                              static_cast<GrGLTexture*>(sampler.peekTexture()));
+        }
         fp = iter.next();
         glslFP = glslIter.next();
     }
     SkASSERT(!fp && !glslFP);
 }
 
-
 void GrGLProgram::setRenderTargetState(const GrPrimitiveProcessor& primProc,
                                        const GrRenderTargetProxy* proxy) {
-    GrRenderTarget* rt = proxy->priv().peekRenderTarget();
-    // Load the RT height uniform if it is needed to y-flip gl_FragCoord.
+    GrRenderTarget* rt = proxy->peekRenderTarget();
+    // Load the RT size uniforms if they are needed
+    if (fBuiltinUniformHandles.fRTWidthUni.isValid() &&
+        fRenderTargetState.fRenderTargetSize.fWidth != rt->width()) {
+        fProgramDataManager.set1f(fBuiltinUniformHandles.fRTWidthUni, SkIntToScalar(rt->width()));
+    }
     if (fBuiltinUniformHandles.fRTHeightUni.isValid() &&
         fRenderTargetState.fRenderTargetSize.fHeight != rt->height()) {
         fProgramDataManager.set1f(fBuiltinUniformHandles.fRTHeightUni, SkIntToScalar(rt->height()));
@@ -154,27 +161,5 @@ void GrGLProgram::setRenderTargetState(const GrPrimitiveProcessor& primProc,
         const GrPathProcessor& pathProc = primProc.cast<GrPathProcessor>();
         fGpu->glPathRendering()->setProjectionMatrix(pathProc.viewMatrix(),
                                                      size, proxy->origin());
-    }
-}
-
-void GrGLProgram::bindTextures(const GrResourceIOProcessor& processor,
-                               int* nextTexSamplerIdx) {
-    for (int i = 0; i < processor.numTextureSamplers(); ++i) {
-        const GrResourceIOProcessor::TextureSampler& sampler = processor.textureSampler(i);
-        fGpu->bindTexture((*nextTexSamplerIdx)++, sampler.samplerState(),
-                          static_cast<GrGLTexture*>(sampler.peekTexture()));
-    }
-}
-
-void GrGLProgram::generateMipmaps(const GrResourceIOProcessor& processor) {
-    for (int i = 0; i < processor.numTextureSamplers(); ++i) {
-        const GrResourceIOProcessor::TextureSampler& sampler = processor.textureSampler(i);
-        auto* tex = sampler.peekTexture();
-        if (sampler.samplerState().filter() == GrSamplerState::Filter::kMipMap &&
-            tex->texturePriv().mipMapped() == GrMipMapped::kYes &&
-            tex->texturePriv().mipMapsAreDirty()) {
-            SkASSERT(fGpu->caps()->mipMapSupport());
-            fGpu->regenerateMipMapLevels(static_cast<GrGLTexture*>(sampler.peekTexture()));
-        }
     }
 }

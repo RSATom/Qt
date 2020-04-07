@@ -77,17 +77,20 @@ std::unique_ptr<GrOp> GrCopySurfaceOp::Make(GrContext* context,
                                      &clippedSrcRect, &clippedDstPoint)) {
         return nullptr;
     }
+    if (GrPixelConfigIsCompressed(dstProxy->config())) {
+        return nullptr;
+    }
 
     GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
 
     return pool->allocate<GrCopySurfaceOp>(dstProxy, srcProxy, clippedSrcRect, clippedDstPoint);
 }
 
-void GrCopySurfaceOp::onExecute(GrOpFlushState* state) {
+void GrCopySurfaceOp::onExecute(GrOpFlushState* state, const SkRect& chainBounds) {
     if (!fSrc.get()->instantiate(state->resourceProvider())) {
         return;
     }
 
-    state->commandBuffer()->copy(fSrc.get()->priv().peekSurface(), fSrc.get()->origin(),
-                                 fSrcRect, fDstPoint);
+    state->commandBuffer()->copy(fSrc.get()->peekSurface(), fSrc.get()->origin(), fSrcRect,
+                                 fDstPoint);
 }

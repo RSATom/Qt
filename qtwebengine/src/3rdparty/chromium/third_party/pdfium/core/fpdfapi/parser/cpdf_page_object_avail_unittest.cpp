@@ -21,15 +21,14 @@
 
 namespace {
 
-
-class TestReadValidator : public CPDF_ReadValidator {
+class TestReadValidator final : public CPDF_ReadValidator {
  public:
   template <typename T, typename... Args>
   friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
-  void SimulateReadError() { ReadBlock(nullptr, 0, 1); }
+  void SimulateReadError() { ReadBlockAtOffset(nullptr, 0, 1); }
 
- protected:
+ private:
   TestReadValidator()
       : CPDF_ReadValidator(
             pdfium::MakeRetain<CFX_InvalidSeekableReadStream>(100),
@@ -37,7 +36,7 @@ class TestReadValidator : public CPDF_ReadValidator {
   ~TestReadValidator() override {}
 };
 
-class TestHolder : public CPDF_IndirectObjectHolder {
+class TestHolder final : public CPDF_IndirectObjectHolder {
  public:
   enum class ObjectState {
     Unavailable,

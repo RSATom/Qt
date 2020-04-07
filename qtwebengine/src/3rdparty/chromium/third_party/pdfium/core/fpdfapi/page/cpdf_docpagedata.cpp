@@ -11,7 +11,7 @@
 #include <set>
 #include <utility>
 
-#include "core/fdrm/crypto/fx_crypt.h"
+#include "core/fdrm/fx_crypt.h"
 #include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/font/cpdf_type1font.h"
 #include "core/fpdfapi/page/cpdf_iccprofile.h"
@@ -25,11 +25,12 @@
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_DocPageData::CPDF_DocPageData(CPDF_Document* pPDFDoc)
     : m_bForceClear(false), m_pPDFDoc(pPDFDoc) {
-  assert(m_pPDFDoc);
+  ASSERT(m_pPDFDoc);
 }
 
 CPDF_DocPageData::~CPDF_DocPageData() {
@@ -277,7 +278,7 @@ CPDF_ColorSpace* CPDF_DocPageData::GetColorSpaceInternal(
   if (!pArray || pArray->IsEmpty())
     return nullptr;
 
-  if (pArray->GetCount() == 1) {
+  if (pArray->size() == 1) {
     return GetColorSpaceInternal(pArray->GetDirectObjectAt(0), pResources,
                                  pVisited, pVisitedInternal);
   }
@@ -470,7 +471,7 @@ RetainPtr<CPDF_StreamAcc> CPDF_DocPageData::GetFontFileStreamAcc(
   org_size = std::max(org_size, 0);
 
   auto pFontAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pFontStream);
-  pFontAcc->LoadAllData(false, org_size, false);
+  pFontAcc->LoadAllDataFilteredWithEstimatedSize(org_size);
   m_FontFileMap[pFontStream] = pFontAcc;
   return pFontAcc;
 }

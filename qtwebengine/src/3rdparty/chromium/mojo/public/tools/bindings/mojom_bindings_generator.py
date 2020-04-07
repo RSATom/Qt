@@ -173,7 +173,8 @@ class MojomProcessor(object):
           MakeImportStackMessage(imported_filename_stack + [rel_filename.path])
       sys.exit(1)
 
-    tree = _UnpickleAST(_GetPicklePath(rel_filename, args.output_dir))
+    tree = _UnpickleAST(_FindPicklePath(rel_filename, args.gen_directories +
+                                        [args.output_dir]))
     dirname = os.path.dirname(rel_filename.path)
 
     # Process all our imports first and collect the module object for each.
@@ -205,7 +206,6 @@ class MojomProcessor(object):
             module, args.output_dir, typemap=self._typemap.get(language, {}),
             variant=args.variant, bytecode_path=args.bytecode_path,
             for_blink=args.for_blink,
-            use_once_callback=args.use_once_callback,
             js_bindings_mode=args.js_bindings_mode,
             export_attribute=args.export_attribute,
             export_header=args.export_header,
@@ -253,6 +253,17 @@ def _Generate(args, remaining_args):
                               RelativePath(filename, args.depth), [])
 
   return 0
+
+
+def _FindPicklePath(rel_filename, search_dirs):
+  filename, _ = os.path.splitext(rel_filename.relative_path())
+  pickle_path = filename + '.p'
+  for search_dir in search_dirs:
+    path = os.path.join(search_dir, pickle_path)
+    if os.path.isfile(path):
+      return path
+  raise Exception("%s: Error: Could not find file in %r" %
+                  (pickle_path, search_dirs))
 
 
 def _GetPicklePath(rel_filename, output_dir):
@@ -314,6 +325,24 @@ def _Precompile(args, _):
   template_expander.PrecompileTemplates(generator_modules, args.output_dir)
   return 0
 
+def GetSourcesList(target_prefix, sources_list, gen_dir):
+  deps_list_path = target_prefix + ".deps_sources_list"
+  f_deps_list = open(deps_list_path, 'r')
+  for deps_sources_path in f_deps_list:
+    target_name_with_dir = deps_sources_path.split(".sources_list")[0]
+    if (target_name_with_dir == target_prefix):
+      # add files from the target itself
+      deps_sources_path = deps_sources_path.rstrip('\n')
+      f_sources = open(deps_sources_path, 'r')
+      for source_file in f_sources:
+        full_source_path = os.path.dirname(target_name_with_dir.split(gen_dir \
+        + "/", 1)[1]) + "/" + source_file
+        sources_list.add(full_source_path.rstrip('\n'))
+    else:
+      # recurse into target's dependencies to get their lists of files
+      sources_list = GetSourcesList(target_name_with_dir, sources_list, gen_dir)
+  return sources_list
+
 def _VerifyImportDeps(args, __):
   fileutil.EnsureDirectoryExists(args.gen_dir)
 
@@ -329,23 +358,22 @@ def _VerifyImportDeps(args, __):
       parsed_imp.import_filename for parsed_imp in tree.import_list
       )
 
-    # read the paths from the file
-    f_deps = open(args.deps_file, 'r')
-    deps_sources = set()
-    for deps_path in f_deps:
-      deps_path = deps_path.rstrip('\n')
-      f_sources = open(deps_path, 'r')
+    sources = set()
 
-      for source_file in f_sources:
-        source_dir = deps_path.split(args.gen_dir + "/", 1)[1]
-        full_source_path = os.path.dirname(source_dir) + "/" +  \
-          source_file
-        deps_sources.add(full_source_path.rstrip('\n'))
+    target_prefix = args.deps_file.split(".deps_sources_list")[0]
+    sources = GetSourcesList(target_prefix, sources, args.gen_dir)
 
-    if (not deps_sources.issuperset(mojom_imports)):
-      print ">>> [%s] Missing dependencies for the following imports: %s" % ( \
-        args.filename[0], \
-        list(mojom_imports.difference(deps_sources)))
+    if (not sources.issuperset(mojom_imports)):
+      target_name = target_prefix.rsplit("/", 1)[1]
+      target_prefix_without_gen_dir = target_prefix.split(
+        args.gen_dir + "/", 1)[1]
+      full_target_name = "//" + target_prefix_without_gen_dir.rsplit(
+        "/", 1)[0] + ":" + target_name
+
+      print ">>> File \"%s\"" % (filename)
+      print ">>> from target \"%s\"" % (full_target_name)
+      print ">>> is missing dependencies for the following imports:\n%s" % \
+        list(mojom_imports.difference(sources))
       sys.exit(1)
 
     source_filename, _ = os.path.splitext(rel_path.relative_path())
@@ -402,6 +430,9 @@ def main():
                                default="c++,javascript",
                                help="comma-separated list of generators")
   generate_parser.add_argument(
+      "--gen_dir", dest="gen_directories", action="append", metavar="directory",
+      default=[], help="add a directory to be searched for the syntax trees.")
+  generate_parser.add_argument(
       "-I", dest="import_directories", action="append", metavar="directory",
       default=[],
       help="add a directory to be searched for import files. The depth from "
@@ -421,15 +452,10 @@ def main():
                                help="Use WTF types as generated types for mojo "
                                "string/array/map.")
   generate_parser.add_argument(
-      "--use_once_callback", action="store_true",
-      help="Use base::OnceCallback instead of base::RepeatingCallback.")
-  generate_parser.add_argument(
-      "--js_bindings_mode", choices=["new", "both", "old"], default="new",
+      "--js_bindings_mode", choices=["new", "old"], default="old",
       help="This option only affects the JavaScript bindings. The value could "
-      "be: \"new\" - generate only the new-style JS bindings, which use the "
-      "new module loading approach and the core api exposed by Web IDL; "
-      "\"both\" - generate both the old- and new-style bindings; \"old\" - "
-      "generate only the old-style bindings.")
+      "be \"new\" to generate new-style lite JS bindings in addition to the "
+      "old, or \"old\" to only generate old bindings.")
   generate_parser.add_argument(
       "--export_attribute", default="",
       help="Optional attribute to specify on class declaration to export it "

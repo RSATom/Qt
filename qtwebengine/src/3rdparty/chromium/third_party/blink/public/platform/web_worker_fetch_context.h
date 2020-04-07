@@ -7,10 +7,14 @@
 
 #include <memory>
 
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-shared.h"
+#include "third_party/blink/public/platform/code_cache_loader.h"
 #include "third_party/blink/public/platform/web_application_cache_host.h"
 #include "third_party/blink/public/platform/web_document_subresource_filter.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_loader_factory.h"
 #include "third_party/blink/public/platform/websocket_handshake_throttle.h"
@@ -24,17 +28,35 @@ namespace blink {
 class WebURLRequest;
 class WebDocumentSubresourceFilter;
 
+// Helper class allowing WebWorkerFetchContextImpl to notify blink upon an
+// accept languages update. This class will be extended by WorkerNavigator.
+class AcceptLanguagesWatcher {
+ public:
+  virtual void NotifyUpdate() = 0;
+};
+
 // WebWorkerFetchContext is a per-worker object created on the main thread,
 // passed to a worker (dedicated, shared and service worker) and initialized on
 // the worker thread by InitializeOnWorkerThread(). It contains information
 // about the resource fetching context (ex: service worker provider id), and is
 // used to create a new WebURLLoader instance in the worker thread.
-class WebWorkerFetchContext {
+//
+// A single WebWorkerFetchContext is used for both worker
+// subresource fetch (i.e. "insideSettings") and off-the-main-thread top-level
+// worker script fetch (i.e. fetch as "outsideSettings"), as they both should be
+// e.g. controlled by the same ServiceWorker (if any) and thus can share a
+// single WebURLLoaderFactory.
+//
+// Note that WebWorkerFetchContext and WorkerFetchContext do NOT correspond 1:1
+// as multiple WorkerFetchContext can be created after crbug.com/880027.
+class WebWorkerFetchContext : public base::RefCounted<WebWorkerFetchContext> {
  public:
+  REQUIRE_ADOPTION_FOR_REFCOUNTED_TYPE();
+
   virtual ~WebWorkerFetchContext() = default;
 
   // Used to copy a worker fetch context between worker threads.
-  virtual std::unique_ptr<WebWorkerFetchContext> CloneForNestedWorker() {
+  virtual scoped_refptr<WebWorkerFetchContext> CloneForNestedWorker() {
     return nullptr;
   }
 
@@ -44,23 +66,28 @@ class WebWorkerFetchContext {
   // pointer is valid throughout the lifetime of this context.
   virtual void SetTerminateSyncLoadEvent(base::WaitableEvent*) = 0;
 
-  virtual void InitializeOnWorkerThread() = 0;
+  virtual void InitializeOnWorkerThread(AcceptLanguagesWatcher*) = 0;
 
-  // Returns a new WebURLLoaderFactory which is associated with the worker
-  // context. It can be called only once.
-  virtual std::unique_ptr<WebURLLoaderFactory> CreateURLLoaderFactory() = 0;
+  // Returns a WebURLLoaderFactory which is associated with the worker context.
+  // The returned WebURLLoaderFactory is owned by |this|.
+  virtual WebURLLoaderFactory* GetURLLoaderFactory() = 0;
 
   // Returns a new WebURLLoaderFactory that wraps the given
   // network::mojom::URLLoaderFactory.
   virtual std::unique_ptr<WebURLLoaderFactory> WrapURLLoaderFactory(
       mojo::ScopedMessagePipeHandle url_loader_factory_handle) = 0;
 
-  // Returns a new WebURLLoaderFactory for loading scripts in this worker
-  // context. Unlike CreateURLLoaderFactory(), this may return nullptr even on
-  // the first call.
-  virtual std::unique_ptr<WebURLLoaderFactory> CreateScriptLoaderFactory() {
+  // Returns a CodeCacheLoader that fetches data from code caches. If
+  // a nullptr is returned then data would not be fetched from the code
+  // cache.
+  virtual std::unique_ptr<CodeCacheLoader> CreateCodeCacheLoader() {
     return nullptr;
-  }
+  };
+
+  // Returns a WebURLLoaderFactory for loading scripts in this worker context.
+  // Unlike GetURLLoaderFactory(), this may return nullptr.
+  // The returned WebURLLoaderFactory is owned by |this|.
+  virtual WebURLLoaderFactory* GetScriptLoaderFactory() { return nullptr; }
 
   // Called when a request is about to be sent out to modify the request to
   // handle the request correctly in the loading stack later. (Example: service
@@ -91,9 +118,6 @@ class WebWorkerFetchContext {
                                      const WebURL& insecure_url) {}
 
   virtual void SetApplicationCacheHostID(int id) {}
-  virtual int ApplicationCacheHostID() const {
-    return WebApplicationCacheHost::kAppCacheNoHostId;
-  }
 
   // Sets the builder object of WebDocumentSubresourceFilter on the main thread
   // which will be used in TakeSubresourceFilter() to create a
@@ -114,6 +138,9 @@ class WebWorkerFetchContext {
   CreateWebSocketHandshakeThrottle() {
     return nullptr;
   }
+
+  // Returns the current list of user prefered languages.
+  virtual blink::WebString GetAcceptLanguages() const = 0;
 };
 
 }  // namespace blink

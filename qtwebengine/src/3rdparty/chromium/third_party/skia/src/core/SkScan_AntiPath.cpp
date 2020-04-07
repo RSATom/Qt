@@ -599,30 +599,17 @@ static SkIRect safeRoundOut(const SkRect& src) {
     return dst;
 }
 
-static bool ShouldUseDAA(const SkPath& path) {
-    if (gSkForceDeltaAA) {
-        return true;
-    }
-    if (!gSkUseDeltaAA || SkPathPriv::IsBadForDAA(path)) {
-        return false;
-    }
-
-#ifdef SK_SUPPORT_LEGACY_AA_CHOICE
-    const SkRect& bounds = path.getBounds();
-    return !path.isConvex() && path.countPoints() >= SkTMax(bounds.width(), bounds.height()) / 8;
-#else
-    constexpr int kSampleSize = 8;
+constexpr int kSampleSize = 8;
+#if !defined(SK_DISABLE_DAA) || !defined(SK_DISABLE_AAA)
     constexpr SkScalar kComplexityThreshold = 0.25;
-    constexpr SkScalar kSmallCubicThreshold = 16;
+#endif
 
+static void compute_complexity(const SkPath& path, SkScalar& avgLength, SkScalar& complexity) {
     int n = path.countPoints();
-    if (path.isConvex() || n < kSampleSize || path.getBounds().isEmpty()) {
-        return false;
-    }
-
-    // DAA is fast with mask
-    if (SkCoverageDeltaMask::CanHandle(safeRoundOut(path.getBounds()))) {
-        return true;
+    if (n < kSampleSize || path.getBounds().isEmpty()) {
+        // set to invalid value to indicate that we failed to compute
+        avgLength = complexity = -1;
+        return;
     }
 
     SkScalar sumLength = 0;
@@ -632,41 +619,73 @@ static bool ShouldUseDAA(const SkPath& path) {
         sumLength += SkPoint::Distance(lastPoint, point);
         lastPoint = point;
     }
-    SkScalar avgLength = sumLength / (kSampleSize - 1);
+    avgLength = sumLength / (kSampleSize - 1);
 
-    // DAA is much faster in small cubics (since we don't have to chop them).
-    // If there are many cubics, and the average length if small, use DAA.
-    if (avgLength < kSmallCubicThreshold) {
-        uint8_t sampleVerbs[kSampleSize];
-        int verbCount = SkTMin(kSampleSize, path.getVerbs(sampleVerbs, kSampleSize));
-        int cubicCount = 0;
-        for(int i = 0; i < verbCount; ++i) {
-            cubicCount += (sampleVerbs[i] == SkPath::kCubic_Verb);
-        }
-        if (cubicCount * 2 >= verbCount) {
-            return true;
-        }
-    }
+    auto sqr = [](SkScalar x) { return x*x; };
 
-    SkScalar diagonal = SkPoint::Length(path.getBounds().width(), path.getBounds().height());
+    SkScalar diagonalSqr = sqr(path.getBounds().width()) + sqr(path.getBounds().height());
 
-    // On average, what's the distance between two consecutive points; the number is normalized
-    // to a range of [0, 1] where 1 corresponds to the maximum length of the diagonal.
-    SkScalar sampleSpan = avgLength / diagonal;
-
-
-    // If the path is consist of random line segments, the number of intersections should be
-    // proportional to (n * sampleSpan)^2
-    SkScalar intersections = (n * sampleSpan) * (n * sampleSpan);
+    // If the path consists of random line segments, the number of intersections should be
+    // proportional to this.
+    SkScalar intersections = sk_ieee_float_divide(sqr(n) * sqr(avgLength), diagonalSqr);
 
     // The number of intersections per scanline should be proportional to this number.
-    SkScalar complexity = intersections / path.getBounds().height();
+    complexity = sk_ieee_float_divide(intersections, path.getBounds().height());
 
-    return complexity >= kComplexityThreshold;
+    if (sk_float_isnan(complexity)) {  // it may be possible to have 0.0 / 0.0; inf is fine for us.
+        complexity = -1;
+    }
+}
+
+static bool ShouldUseDAA(const SkPath& path, SkScalar avgLength, SkScalar complexity) {
+#if defined(SK_DISABLE_DAA)
+    return false;
+#else
+    if (gSkForceDeltaAA) {
+        return true;
+    }
+    if (!gSkUseDeltaAA || SkPathPriv::IsBadForDAA(path)) {
+        return false;
+    }
+
+    #ifdef SK_SUPPORT_LEGACY_AA_CHOICE
+        const SkRect& bounds = path.getBounds();
+        return !path.isConvex()
+            && path.countPoints() >= SkTMax(bounds.width(), bounds.height()) / 8;
+    #else
+        if (avgLength < 0 || complexity < 0 || path.getBounds().isEmpty() || path.isConvex()) {
+            return false;
+        }
+
+        // DAA is fast with mask
+        if (SkCoverageDeltaMask::CanHandle(safeRoundOut(path.getBounds()))) {
+            return true;
+        }
+
+        // DAA is much faster in small cubics (since we don't have to chop them).
+        // If there are many cubics, and the average length if small, use DAA.
+        constexpr SkScalar kSmallCubicThreshold = 16;
+        if (avgLength < kSmallCubicThreshold) {
+            uint8_t sampleVerbs[kSampleSize];
+            int verbCount = SkTMin(kSampleSize, path.getVerbs(sampleVerbs, kSampleSize));
+            int cubicCount = 0;
+            for(int i = 0; i < verbCount; ++i) {
+                cubicCount += (sampleVerbs[i] == SkPath::kCubic_Verb);
+            }
+            if (cubicCount * 2 >= verbCount) {
+                return true;
+            }
+        }
+
+        return complexity >= kComplexityThreshold;
+    #endif
 #endif
 }
 
-static bool ShouldUseAAA(const SkPath& path) {
+static bool ShouldUseAAA(const SkPath& path, SkScalar avgLength, SkScalar complexity) {
+#if defined(SK_DISABLE_AAA)
+    return false;
+#else
     if (gSkForceAnalyticAA) {
         return true;
     }
@@ -676,13 +695,27 @@ static bool ShouldUseAAA(const SkPath& path) {
     if (path.isRect(nullptr)) {
         return true;
     }
-    const SkRect& bounds = path.getBounds();
-    // When the path have so many points compared to the size of its bounds/resolution,
-    // it indicates that the path is not quite smooth in the current resolution:
-    // the expected number of turning points in every pixel row/column is significantly greater than
-    // zero. Hence Aanlytic AA is not likely to produce visible quality improvements, and Analytic
-    // AA might be slower than supersampling.
-    return path.countPoints() < SkTMax(bounds.width(), bounds.height()) / 2 - 10;
+
+    #ifdef SK_SUPPORT_LEGACY_AAA_CHOICE
+        const SkRect& bounds = path.getBounds();
+        // When the path have so many points compared to the size of its
+        // bounds/resolution, it indicates that the path is not quite smooth in
+        // the current resolution: the expected number of turning points in
+        // every pixel row/column is significantly greater than zero. Hence
+        // Aanlytic AA is not likely to produce visible quality improvements,
+        // and Analytic AA might be slower than supersampling.
+        return path.countPoints() < SkTMax(bounds.width(), bounds.height()) / 2 - 10;
+    #else
+        if (path.countPoints() >= path.getBounds().height()) {
+            // SAA is faster than AAA in this case even if there are no
+            // intersections because AAA will have too many scan lines. See
+            // skbug.com/8272
+            return false;
+        }
+        // We will use AAA if the number of verbs < kSampleSize and therefore complexity < 0
+        return complexity < kComplexityThreshold;
+    #endif
+#endif
 }
 
 void SkScan::SAAFillPath(const SkPath& path, SkBlitter* blitter, const SkIRect& ir,
@@ -800,9 +833,12 @@ void SkScan::AntiFillPath(const SkPath& path, const SkRegion& origClip,
         sk_blit_above(blitter, ir, *clipRgn);
     }
 
-    if (daaRecord || ShouldUseDAA(path)) {
+    SkScalar avgLength, complexity;
+    compute_complexity(path, avgLength, complexity);
+
+    if (daaRecord || ShouldUseDAA(path, avgLength, complexity)) {
         SkScan::DAAFillPath(path, blitter, ir, clipRgn->getBounds(), forceRLE, daaRecord);
-    } else if (ShouldUseAAA(path)) {
+    } else if (ShouldUseAAA(path, avgLength, complexity)) {
         // Do not use AAA if path is too complicated:
         // there won't be any speedup or significant visual improvement.
         SkScan::AAAFillPath(path, blitter, ir, clipRgn->getBounds(), forceRLE);

@@ -165,7 +165,7 @@ int QModbusClient::timeout() const
 
 /*!
     Sets the \a newTimeout for this QModbusClient instance. The minimum timeout
-    is 50 ms.
+    is 10 ms.
 
     The timeout is used by the client to determine how long it waits for
     a response from the server. If the response is not received within the
@@ -178,7 +178,7 @@ int QModbusClient::timeout() const
 */
 void QModbusClient::setTimeout(int newTimeout)
 {
-    if (newTimeout < 50)
+    if (newTimeout < 10)
         return;
 
     Q_D(QModbusClient);
@@ -351,6 +351,9 @@ QModbusRequest QModbusClientPrivate::createRWRequest(const QModbusDataUnit &read
 void QModbusClientPrivate::processQueueElement(const QModbusResponse &pdu,
                                                const QueueElement &element)
 {
+    if (element.reply.isNull())
+        return;
+
     element.reply->setRawResult(pdu);
     if (pdu.isException()) {
         element.reply->setError(QModbusDevice::ProtocolError,
@@ -358,7 +361,7 @@ void QModbusClientPrivate::processQueueElement(const QModbusResponse &pdu,
         return;
     }
 
-    if (element.reply->type() == QModbusReply::Raw) {
+    if (element.reply->type() != QModbusReply::Common) {
         element.reply->setFinished(true);
         return;
     }

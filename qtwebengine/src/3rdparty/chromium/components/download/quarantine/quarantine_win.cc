@@ -16,121 +16,30 @@
 
 #include <vector>
 
+#include "base/enterprise_util.h"
+#include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/string_piece.h"
-#include "base/strings/string_split.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/win/scoped_handle.h"
+#include "base/win/win_util.h"
+#include "components/download/quarantine/common_win.h"
+#include "components/download/quarantine/quarantine_features_win.h"
 #include "url/gurl.h"
 
 namespace download {
 namespace {
 
-// [MS-FSCC] Section 5.6.1
-const base::FilePath::CharType kZoneIdentifierStreamSuffix[] =
-    FILE_PATH_LITERAL(":Zone.Identifier");
-
-// UMA enumeration for recording Download.AttachmentServicesResult.
-enum class AttachmentServicesResult : int {
-  SUCCESS_WITH_MOTW = 0,
-  SUCCESS_WITHOUT_MOTW = 1,
-  SUCCESS_WITHOUT_FILE = 2,
-  NO_ATTACHMENT_SERVICES = 3,
-  FAILED_TO_SET_PARAMETER = 4,
-  BLOCKED_WITH_FILE = 5,
-  BLOCKED_WITHOUT_FILE = 6,
-  INFECTED_WITH_FILE = 7,
-  INFECTED_WITHOUT_FILE = 8,
-  ACCESS_DENIED_WITH_FILE = 9,
-  ACCESS_DENIED_WITHOUT_FILE = 10,
-  OTHER_WITH_FILE = 11,
-  OTHER_WITHOUT_FILE = 12,
-};
-
-void RecordAttachmentServicesResult(AttachmentServicesResult type) {
-  base::UmaHistogramSparse("Download.AttachmentServices.Result",
-                           static_cast<int>(type));
-}
-
-bool ZoneIdentifierPresentForFile(const base::FilePath& path) {
-  const DWORD kShare = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-  base::FilePath::StringType zone_identifier_path =
-      path.value() + kZoneIdentifierStreamSuffix;
-  base::win::ScopedHandle file(
-      CreateFile(zone_identifier_path.c_str(), GENERIC_READ, kShare, nullptr,
-                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
-  if (!file.IsValid())
-    return false;
-
-  // The zone identifier contents is expected to be:
-  // "[ZoneTransfer]\r\nZoneId=3\r\n". The actual ZoneId can be different. A
-  // buffer of 32 bytes is sufficient for verifying the contents.
-  std::vector<char> zone_identifier_contents_buffer(32);
-  DWORD actual_length = 0;
-  if (!ReadFile(file.Get(), &zone_identifier_contents_buffer.front(),
-                zone_identifier_contents_buffer.size(), &actual_length,
-                nullptr))
-    return false;
-  zone_identifier_contents_buffer.resize(actual_length);
-
-  std::string zone_identifier_contents(zone_identifier_contents_buffer.begin(),
-                                       zone_identifier_contents_buffer.end());
-
-  std::vector<base::StringPiece> lines =
-      base::SplitStringPiece(zone_identifier_contents, "\n",
-                             base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-  return lines.size() > 1 && lines[0] == "[ZoneTransfer]" &&
-         lines[1].find("ZoneId=") == 0;
-}
-
-void RecordAttachmentServicesSaveResult(const base::FilePath& file,
-                                        HRESULT hr) {
-  bool file_exists = base::PathExists(file);
-  switch (hr) {
-    case INET_E_SECURITY_PROBLEM:
-      RecordAttachmentServicesResult(
-          file_exists ? AttachmentServicesResult::BLOCKED_WITH_FILE
-                      : AttachmentServicesResult::BLOCKED_WITHOUT_FILE);
-      break;
-
-    case E_FAIL:
-      RecordAttachmentServicesResult(
-          file_exists ? AttachmentServicesResult::INFECTED_WITH_FILE
-                      : AttachmentServicesResult::INFECTED_WITHOUT_FILE);
-      break;
-
-    case E_ACCESSDENIED:
-    case ERROR_ACCESS_DENIED:
-      // ERROR_ACCESS_DENIED is not a valid HRESULT. However,
-      // IAttachmentExecute::Save() is known to return it and other system error
-      // codes in practice.
-      RecordAttachmentServicesResult(
-          file_exists ? AttachmentServicesResult::ACCESS_DENIED_WITH_FILE
-                      : AttachmentServicesResult::ACCESS_DENIED_WITHOUT_FILE);
-      break;
-
-    default:
-      if (SUCCEEDED(hr)) {
-        bool motw_exists = file_exists && ZoneIdentifierPresentForFile(file);
-        RecordAttachmentServicesResult(
-            file_exists ? motw_exists
-                              ? AttachmentServicesResult::SUCCESS_WITH_MOTW
-                              : AttachmentServicesResult::SUCCESS_WITHOUT_MOTW
-                        : AttachmentServicesResult::SUCCESS_WITHOUT_FILE);
-        return;
-      }
-
-      // Failure codes.
-      RecordAttachmentServicesResult(
-          file_exists ? AttachmentServicesResult::OTHER_WITH_FILE
-                      : AttachmentServicesResult::OTHER_WITHOUT_FILE);
-  }
+// Returns true for a valid |url| whose length does not exceed
+// INTERNET_MAX_URL_LENGTH.
+bool IsValidUrlForAttachmentServices(const GURL& url) {
+  return url.is_valid() && url.spec().size() <= INTERNET_MAX_URL_LENGTH;
 }
 
 // Sets the Zone Identifier on the file to "Internet" (3). Returns true if the
@@ -138,26 +47,47 @@ void RecordAttachmentServicesSaveResult(const base::FilePath& file,
 // streams are not supported, like a file on a FAT32 filesystem.  This function
 // does not invoke Windows Attachment Execution Services.
 //
+// If the AugmentedZoneIdentifier feature is enabled, the ReferrerUrl and
+// HostUrl values are set according to the behavior of the IAttachmentExecute
+// interface on Windows 10.
+//
 // |full_path| is the path to the downloaded file.
 QuarantineFileResult SetInternetZoneIdentifierDirectly(
-    const base::FilePath& full_path) {
+    const base::FilePath& full_path,
+    const GURL& source_url,
+    const GURL& referrer_url) {
   const DWORD kShare = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
   std::wstring path = full_path.value() + kZoneIdentifierStreamSuffix;
-  HANDLE file = CreateFile(path.c_str(), GENERIC_WRITE, kShare, nullptr,
-                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (INVALID_HANDLE_VALUE == file)
+  base::win::ScopedHandle file(::CreateFile(path.c_str(), GENERIC_WRITE, kShare,
+                                            nullptr, OPEN_ALWAYS,
+                                            FILE_ATTRIBUTE_NORMAL, nullptr));
+  if (!file.IsValid())
     return QuarantineFileResult::ANNOTATION_FAILED;
 
-  static const char kIdentifier[] = "[ZoneTransfer]\r\nZoneId=3\r\n";
-  // Don't include trailing null in data written.
-  static const DWORD kIdentifierSize = arraysize(kIdentifier) - 1;
-  DWORD written = 0;
-  BOOL write_result =
-      WriteFile(file, kIdentifier, kIdentifierSize, &written, nullptr);
-  BOOL flush_result = FlushFileBuffers(file);
-  CloseHandle(file);
+  static const char kReferrerUrlFormat[] = "ReferrerUrl=%s\r\n";
+  static const char kHostUrlFormat[] = "HostUrl=%s\r\n";
 
-  return write_result && flush_result && written == kIdentifierSize
+  std::string identifier = "[ZoneTransfer]\r\nZoneId=3\r\n";
+  if (base::FeatureList::IsEnabled(kAugmentedZoneIdentifier)) {
+    // Match what the InvokeAttachmentServices() function will output, including
+    // the order of the values.
+    if (IsValidUrlForAttachmentServices(referrer_url)) {
+      identifier.append(
+          base::StringPrintf(kReferrerUrlFormat, referrer_url.spec().c_str()));
+    }
+    identifier.append(base::StringPrintf(
+        kHostUrlFormat, IsValidUrlForAttachmentServices(source_url)
+                            ? source_url.spec().c_str()
+                            : "about:internet"));
+  }
+
+  // Don't include trailing null in data written.
+  DWORD written = 0;
+  BOOL write_result = ::WriteFile(file.Get(), identifier.c_str(),
+                                  identifier.length(), &written, nullptr);
+  BOOL flush_result = FlushFileBuffers(file.Get());
+
+  return write_result && flush_result && written == identifier.length()
              ? QuarantineFileResult::OK
              : QuarantineFileResult::ANNOTATION_FAILED;
 }
@@ -193,8 +123,8 @@ QuarantineFileResult SetInternetZoneIdentifierDirectly(
 //                Used to identify the app to the system AV function.
 // |save_result|: Receives the result of invoking IAttachmentExecute::Save().
 bool InvokeAttachmentServices(const base::FilePath& full_path,
-                              const std::string& source_url,
-                              const std::string& referrer_url,
+                              const GURL& source_url,
+                              const GURL& referrer_url,
                               const GUID& client_guid,
                               HRESULT* save_result) {
   Microsoft::WRL::ComPtr<IAttachmentExecute> attachment_services;
@@ -205,8 +135,6 @@ bool InvokeAttachmentServices(const base::FilePath& full_path,
   if (FAILED(hr)) {
     // The thread must have COM initialized.
     DCHECK_NE(CO_E_NOTINITIALIZED, hr);
-    RecordAttachmentServicesResult(
-        AttachmentServicesResult::NO_ATTACHMENT_SERVICES);
     return false;
   }
 
@@ -215,48 +143,36 @@ bool InvokeAttachmentServices(const base::FilePath& full_path,
   // where the final Save() call will also fail.
 
   hr = attachment_services->SetClientGuid(client_guid);
-  if (FAILED(hr)) {
-    RecordAttachmentServicesResult(
-        AttachmentServicesResult::FAILED_TO_SET_PARAMETER);
+  if (FAILED(hr))
     return false;
-  }
 
   hr = attachment_services->SetLocalPath(full_path.value().c_str());
-  if (FAILED(hr)) {
-    RecordAttachmentServicesResult(
-        AttachmentServicesResult::FAILED_TO_SET_PARAMETER);
+  if (FAILED(hr))
     return false;
-  }
 
   // The source URL could be empty if it was not a valid URL, or was not HTTP/S,
-  // or the download was off-the-record. If so, user "about:internet" as a
+  // or the download was off-the-record. If so, use "about:internet" as a
   // fallback URL. The latter is known to reliably map to the Internet zone.
   //
   // In addition, URLs that are longer than INTERNET_MAX_URL_LENGTH are also
   // known to cause problems for URLMon. Hence also use "about:internet" in
   // these cases. See http://crbug.com/601538.
   hr = attachment_services->SetSource(
-      source_url.empty() || source_url.size() > INTERNET_MAX_URL_LENGTH
-          ? L"about:internet"
-          : base::UTF8ToWide(source_url).c_str());
-  if (FAILED(hr)) {
-    RecordAttachmentServicesResult(
-        AttachmentServicesResult::FAILED_TO_SET_PARAMETER);
+      IsValidUrlForAttachmentServices(source_url)
+          ? base::UTF8ToWide(source_url.spec()).c_str()
+          : L"about:internet");
+  if (FAILED(hr))
     return false;
-  }
 
   // Only set referrer if one is present and shorter than
   // INTERNET_MAX_URL_LENGTH. Also, the source_url is authoritative for
   // determining the relative danger of |full_path| so we don't consider it an
   // error if we have to skip the |referrer_url|.
-  if (!referrer_url.empty() && referrer_url.size() < INTERNET_MAX_URL_LENGTH) {
+  if (IsValidUrlForAttachmentServices(referrer_url)) {
     hr = attachment_services->SetReferrer(
-        base::UTF8ToWide(referrer_url).c_str());
-    if (FAILED(hr)) {
-      RecordAttachmentServicesResult(
-          AttachmentServicesResult::FAILED_TO_SET_PARAMETER);
+        base::UTF8ToWide(referrer_url.spec()).c_str());
+    if (FAILED(hr))
       return false;
-    }
   }
 
   {
@@ -265,7 +181,6 @@ bool InvokeAttachmentServices(const base::FilePath& full_path,
     SCOPED_UMA_HISTOGRAM_LONG_TIMER("Download.AttachmentServices.Duration");
     *save_result = attachment_services->Save();
   }
-  RecordAttachmentServicesSaveResult(full_path, *save_result);
   return true;
 }
 
@@ -301,7 +216,7 @@ QuarantineFileResult QuarantineFile(const base::FilePath& file,
                                     const GURL& source_url,
                                     const GURL& referrer_url,
                                     const std::string& client_guid) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   int64_t file_size = 0;
   if (!base::PathExists(file) || !base::GetFileSize(file, &file_size))
@@ -319,14 +234,29 @@ QuarantineFileResult QuarantineFile(const base::FilePath& file,
     // Calling InvokeAttachmentServices on an empty file can result in the file
     // being deleted.  Also an anti-virus scan doesn't make a lot of sense to
     // perform on an empty file.
-    return SetInternetZoneIdentifierDirectly(file);
+    return SetInternetZoneIdentifierDirectly(file, source_url, referrer_url);
   }
 
   HRESULT save_result = S_OK;
-  bool attachment_services_available = InvokeAttachmentServices(
-      file, source_url.spec(), referrer_url.spec(), guid, &save_result);
+
+  // Check if the attachment services should be invoked based on the experiment
+  // state. Not invoking the attachment services means that the Zone Identifier
+  // will always be set to 3 (Internet), regardless of URL zones configurations.
+  //
+  // Note: The attachment services must always be invoked on domain-joined
+  // machines.
+  // TODO(pmonette): Move the InvokeAttachmentServices() call to a utility
+  //                 process and remove the feature.
+  bool should_invoke_attachment_services =
+      base::IsMachineExternallyManaged() ||
+      base::FeatureList::IsEnabled(kInvokeAttachmentServices);
+
+  bool attachment_services_available =
+      should_invoke_attachment_services &&
+      InvokeAttachmentServices(file, source_url, referrer_url, guid,
+                               &save_result);
   if (!attachment_services_available)
-    return SetInternetZoneIdentifierDirectly(file);
+    return SetInternetZoneIdentifierDirectly(file, source_url, referrer_url);
 
   // If the download file is missing after the call, then treat this as an
   // interrupted download.
@@ -342,12 +272,6 @@ QuarantineFileResult QuarantineFile(const base::FilePath& file,
   if (!base::PathExists(file))
     return FailedSaveResultToQuarantineResult(save_result);
   return QuarantineFileResult::OK;
-}
-
-bool IsFileQuarantined(const base::FilePath& file,
-                       const GURL& source_url,
-                       const GURL& referrer_url) {
-  return ZoneIdentifierPresentForFile(file);
 }
 
 }  // namespace download

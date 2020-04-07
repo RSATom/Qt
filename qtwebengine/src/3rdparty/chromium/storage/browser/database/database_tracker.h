@@ -12,6 +12,7 @@
 #include <set>
 #include <utility>
 
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
@@ -21,8 +22,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
-#include "net/base/completion_callback.h"
-#include "storage/browser/storage_browser_export.h"
+#include "net/base/completion_once_callback.h"
 #include "storage/common/database/database_connections.h"
 
 namespace content {
@@ -31,7 +31,7 @@ class MockDatabaseTracker;
 }
 
 namespace sql {
-class Connection;
+class Database;
 class MetaTable;
 }
 
@@ -42,15 +42,15 @@ class SpecialStoragePolicy;
 
 namespace storage {
 
-STORAGE_EXPORT extern const base::FilePath::CharType
-    kDatabaseDirectoryName[];
-STORAGE_EXPORT extern const base::FilePath::CharType
-    kTrackerDatabaseFileName[];
+COMPONENT_EXPORT(STORAGE_BROWSER)
+extern const base::FilePath::CharType kDatabaseDirectoryName[];
+COMPONENT_EXPORT(STORAGE_BROWSER)
+extern const base::FilePath::CharType kTrackerDatabaseFileName[];
 
 class DatabasesTable;
 
 // This class is used to store information about all databases in an origin.
-class STORAGE_EXPORT OriginInfo {
+class COMPONENT_EXPORT(STORAGE_BROWSER) OriginInfo {
  public:
   OriginInfo();
   OriginInfo(const OriginInfo& origin_info);
@@ -64,14 +64,11 @@ class STORAGE_EXPORT OriginInfo {
       const base::string16& database_name) const;
 
  protected:
-  typedef std::map<base::string16, std::pair<int64_t, base::string16>>
-      DatabaseInfoMap;
-
   OriginInfo(const std::string& origin_identifier, int64_t total_size);
 
   std::string origin_identifier_;
   int64_t total_size_;
-  DatabaseInfoMap database_info_;
+  std::map<base::string16, std::pair<int64_t, base::string16>> database_info_;
 };
 
 // This class manages the main database and keeps track of open databases.
@@ -80,7 +77,7 @@ class STORAGE_EXPORT OriginInfo {
 // should be called on the task runner returned by |task_runner()|. The only
 // exceptions are the ctor(), the dtor() and the database_directory() and
 // quota_manager_proxy() getters.
-class STORAGE_EXPORT DatabaseTracker
+class COMPONENT_EXPORT(STORAGE_BROWSER) DatabaseTracker
     : public base::RefCountedThreadSafe<DatabaseTracker> {
  public:
   class Observer {
@@ -145,7 +142,7 @@ class STORAGE_EXPORT DatabaseTracker
   // if non-null.
   int DeleteDatabase(const std::string& origin_identifier,
                      const base::string16& database_name,
-                     const net::CompletionCallback& callback);
+                     net::CompletionOnceCallback callback);
 
   // Delete any databases that have been touched since the cutoff date that's
   // supplied, omitting any that match IDs within |protected_origins|.
@@ -154,14 +151,14 @@ class STORAGE_EXPORT DatabaseTracker
   // if non-null. Protected origins, according the the SpecialStoragePolicy,
   // are not deleted by this method.
   int DeleteDataModifiedSince(const base::Time& cutoff,
-                              const net::CompletionCallback& callback);
+                              net::CompletionOnceCallback callback);
 
   // Delete all databases that belong to the given origin. Returns net::OK on
   // success, net::FAILED if not all databases could be deleted, and
   // net::ERR_IO_PENDING and |callback| is invoked upon completion, if non-null.
   // virtual for unit testing only
   virtual int DeleteDataForOrigin(const std::string& origin_identifier,
-                                  const net::CompletionCallback& callback);
+                                  net::CompletionOnceCallback callback);
 
   bool IsIncognitoProfile() const { return is_incognito_; }
 
@@ -179,16 +176,18 @@ class STORAGE_EXPORT DatabaseTracker
 
   base::SequencedTaskRunner* task_runner() const { return task_runner_.get(); }
 
+  // TODO(jsbell): Remove this; tests should use the normal task runner.
+  void set_task_runner_for_testing(
+      scoped_refptr<base::SequencedTaskRunner> task_runner) {
+    task_runner_ = std::move(task_runner);
+  }
+
  private:
   friend class base::RefCountedThreadSafe<DatabaseTracker>;
   friend class content::DatabaseTracker_TestHelper_Test;
   friend class content::MockDatabaseTracker; // for testing
 
-  typedef std::map<std::string, std::set<base::string16> > DatabaseSet;
-  typedef std::vector<std::pair<net::CompletionCallback, DatabaseSet> >
-      PendingDeletionCallbacks;
-  typedef std::map<base::string16, base::File*> FileHandlesMap;
-  typedef std::map<std::string, base::string16> OriginDirectoriesMap;
+  using DatabaseSet = std::map<std::string, std::set<base::string16>>;
 
   class CachedOriginInfo : public OriginInfo {
    public:
@@ -267,16 +266,10 @@ class STORAGE_EXPORT DatabaseTracker
   // Schedule a set of open databases for deletion. If non-null, callback is
   // invoked upon completion.
   void ScheduleDatabasesForDeletion(const DatabaseSet& databases,
-                                    const net::CompletionCallback& callback);
+                                    net::CompletionOnceCallback callback);
 
   // Returns the directory where all DB files for the given origin are stored.
-  base::string16 GetOriginDirectory(const std::string& origin_identifier);
-
-  // TODO(jsbell): Remove this; tests should use the normal task runner.
-  void set_task_runner_for_testing(
-      scoped_refptr<base::SequencedTaskRunner> task_runner) {
-    task_runner_ = std::move(task_runner);
-  }
+  base::FilePath GetOriginDirectory(const std::string& origin_identifier);
 
   bool is_initialized_ = false;
   const bool is_incognito_;
@@ -289,16 +282,17 @@ class STORAGE_EXPORT DatabaseTracker
   // Thread-safety argument: The member is immutable.
   const base::FilePath db_dir_;
 
-  std::unique_ptr<sql::Connection> db_;
+  std::unique_ptr<sql::Database> db_;
   std::unique_ptr<DatabasesTable> databases_table_;
   std::unique_ptr<sql::MetaTable> meta_table_;
-  base::ObserverList<Observer, true> observers_;
+  base::ObserverList<Observer, true>::Unchecked observers_;
   std::map<std::string, CachedOriginInfo> origins_info_map_;
   DatabaseConnections database_connections_;
 
   // The set of databases that should be deleted but are still opened
   DatabaseSet dbs_to_be_deleted_;
-  PendingDeletionCallbacks deletion_callbacks_;
+  std::vector<std::pair<net::CompletionOnceCallback, DatabaseSet>>
+      deletion_callbacks_;
 
   // Apps and Extensions can have special rights.
   const scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
@@ -315,14 +309,14 @@ class STORAGE_EXPORT DatabaseTracker
   // main DB and journal file that was accessed. When the incognito profile
   // goes away (or when the browser crashes), all these handles will be
   // closed, and the files will be deleted.
-  FileHandlesMap incognito_file_handles_;
+  std::map<base::string16, base::File*> incognito_file_handles_;
 
   // In a non-incognito profile, all DBs in an origin are stored in a directory
   // named after the origin. In an incognito profile though, we do not want the
   // directory structure to reveal the origins visited by the user (in case the
   // browser process crashes and those directories are not deleted). So we use
   // this map to assign directory names that do not reveal this information.
-  OriginDirectoriesMap incognito_origin_directories_;
+  std::map<std::string, base::string16> incognito_origin_directories_;
   int incognito_origin_directories_generator_ = 0;
 
   FRIEND_TEST_ALL_PREFIXES(DatabaseTracker, TestHelper);

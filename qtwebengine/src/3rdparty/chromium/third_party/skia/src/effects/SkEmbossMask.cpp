@@ -9,6 +9,7 @@
 
 #include "SkFixed.h"
 #include "SkMath.h"
+#include "SkMathPriv.h"
 #include "SkTo.h"
 
 static inline int nonzero_to_one(int x) {
@@ -80,7 +81,7 @@ void SkEmbossMask::Emboss(SkMask* mask, const SkEmbossMaskFilter::Light& light) 
                 int denom = SkSqrt32(nx * nx + ny * ny + kDelta*kDelta);
                 SkFixed dot = numer / denom;
                 dot >>= 8;  // now dot is 2^8 instead of 2^16
-                mul = SkFastMin32(mul + dot, 255);
+                mul = SkMin32(mul + dot, 255);
 
                 // now for the reflection
 

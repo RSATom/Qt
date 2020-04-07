@@ -9,7 +9,6 @@
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
@@ -42,7 +41,7 @@ const CommandLine::CharType* const kSwitchPrefixes[] = {L"--", L"-", L"/"};
 // Unixes don't use slash as a switch.
 const CommandLine::CharType* const kSwitchPrefixes[] = {"--", "-"};
 #endif
-size_t switch_prefix_count = arraysize(kSwitchPrefixes);
+size_t switch_prefix_count = base::size(kSwitchPrefixes);
 
 size_t GetSwitchPrefixLength(const CommandLine::StringType& string) {
   for (size_t i = 0; i < switch_prefix_count; ++i) {
@@ -186,8 +185,8 @@ CommandLine::~CommandLine() = default;
 // static
 void CommandLine::set_slash_is_not_a_switch() {
   // The last switch prefix should be slash, so adjust the size to skip it.
-  DCHECK_EQ(wcscmp(kSwitchPrefixes[arraysize(kSwitchPrefixes) - 1], L"/"), 0);
-  switch_prefix_count = arraysize(kSwitchPrefixes) - 1;
+  DCHECK_EQ(wcscmp(kSwitchPrefixes[base::size(kSwitchPrefixes) - 1], L"/"), 0);
+  switch_prefix_count = base::size(kSwitchPrefixes) - 1;
 }
 
 // static
@@ -366,6 +365,11 @@ void CommandLine::AppendSwitchASCII(const std::string& switch_string,
 #endif
 }
 
+void CommandLine::RemoveSwitch(const StringPiece& switch_string) {
+  DCHECK_EQ(ToLowerASCII(switch_string), switch_string);
+  switches_.erase(switch_string.as_string());
+}
+
 void CommandLine::CopySwitchesFrom(const CommandLine& source,
                                    const char* const switches[],
                                    size_t count) {
@@ -379,7 +383,7 @@ CommandLine::StringVector CommandLine::GetArgs() const {
   // Gather all arguments after the last switch (may include kSwitchTerminator).
   StringVector args(argv_.begin() + begin_args_, argv_.end());
   // Erase only the first kSwitchTerminator (maybe "--" is a legitimate page?)
-  StringVector::iterator switch_terminator =
+  auto switch_terminator =
       std::find(args.begin(), args.end(), kSwitchTerminator);
   if (switch_terminator != args.end())
     args.erase(switch_terminator);

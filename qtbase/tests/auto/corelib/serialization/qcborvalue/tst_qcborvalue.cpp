@@ -91,12 +91,22 @@ private slots:
 
     void toCbor_data();
     void toCbor();
+    void toCborStreamWriter_data() { toCbor_data(); }
+    void toCborStreamWriter();
     void fromCbor_data();
     void fromCbor();
+    void fromCborStreamReaderByteArray_data() { fromCbor_data(); }
+    void fromCborStreamReaderByteArray();
+    void fromCborStreamReaderIODevice_data() { fromCbor_data(); }
+    void fromCborStreamReaderIODevice();
     void validation_data();
     void validation();
     void toDiagnosticNotation_data();
     void toDiagnosticNotation();
+
+    void datastreamSerialization_data();
+    void datastreamSerialization();
+    void streamVariantSerialization();
 };
 
 // Get the validation data from TinyCBOR (see src/3rdparty/tinycbor/tests/parser/data.cpp)
@@ -380,11 +390,17 @@ void tst_QCborValue::arrayDefaultInitialization()
     QVERIFY(v.isArray());
     QVERIFY(!v.isMap());
     QVERIFY(!v.isTag());
-    QVERIFY(v[0].isUndefined());
 
     QCborArray a2 = v.toArray();
     QVERIFY(a2.isEmpty());
     QCOMPARE(a2, a);
+    auto front = v[0];
+    QVERIFY(front.isUndefined());
+    front = 1;
+    QCOMPARE(v[0], 1);
+    QVERIFY(a2.isEmpty());
+    a2 = v.toArray();
+    QCOMPARE(a2.size(), 1);
 }
 
 void tst_QCborValue::mapDefaultInitialization()
@@ -421,7 +437,7 @@ void tst_QCborValue::mapDefaultInitialization()
     QVERIFY(m == QCborMap{});
     QVERIFY(QCborMap{} == m);
 
-    QCborValue v(m);
+    const QCborValue v(m);
     QVERIFY(v.isMap());
     QVERIFY(!v.isArray());
     QVERIFY(!v.isTag());
@@ -723,6 +739,31 @@ void tst_QCborValue::arrayMutation()
     QCOMPARE(a.at(1), QCborValue(-1));
     QCOMPARE(a2.at(1), QCborValue(nullptr));
     QCOMPARE(++it, end);
+
+    // Array accessed via value:
+    QCborValue val(a);
+    val[2] = QCborArray{2, 3, 5, 7};
+    QCOMPARE(a.size(), 2); // Unchanged
+    QVERIFY(val.isArray());
+    QCOMPARE(val.toArray().size(), 3);
+    val[2][4] = 17;
+    QVERIFY(val.isArray());
+    QVERIFY(val[2].isArray());
+    QCOMPARE(val[2].toArray().size(), 5);
+    QCOMPARE(val[2][4], 17);
+    QCOMPARE(val.toArray().size(), 3);
+    val[3] = 42;
+    QVERIFY(val.isArray());
+    QCOMPARE(val.toArray().size(), 4);
+    QCOMPARE(val[3], 42);
+
+    // Coerce to map on string key:
+    const QLatin1String any("any");
+    val[any] = any;
+    QVERIFY(val.isMap());
+    QCOMPARE(val.toMap().size(), 5);
+    QVERIFY(val[2].isArray());
+    QCOMPARE(val[2].toArray().size(), 5);
 }
 
 void tst_QCborValue::mapMutation()
@@ -778,6 +819,30 @@ void tst_QCborValue::mapMutation()
     QCOMPARE((m.end() - 1)->toInteger(), -1);
     QVERIFY((m2.end() - 1)->isNull());
     QCOMPARE(++it, end);
+
+    // Map accessed via value:
+    QCborValue val(m);
+    val[7] = QCborMap({{0, 2}, {1, 3}, {2, 5}});
+    QCOMPARE(m.size(), 2); // Unchanged
+    QVERIFY(val.isMap());
+    QCOMPARE(val.toMap().size(), 3);
+    val[7][3] = 11;
+    QVERIFY(val.isMap());
+    QVERIFY(val[7].isMap());
+    QCOMPARE(val[7].toMap().size(), 4);
+    val[14] = 42;
+    QVERIFY(val.isMap());
+    QCOMPARE(val.toMap().size(), 4);
+
+    const QLatin1String any("any");
+    const QString hello(QStringLiteral("Hello World"));
+    val[any][3][hello] = any;
+    QVERIFY(val.isMap());
+    QCOMPARE(val.toMap().size(), 5);
+    QVERIFY(val[any].isMap());
+    QCOMPARE(val[any].toMap().size(), 1);
+    QVERIFY(val[any][3].isMap());
+    QCOMPARE(val[any][3].toMap().size(), 1);
 }
 
 void tst_QCborValue::arrayPrepend()
@@ -1395,6 +1460,22 @@ void tst_QCborValue::toCbor()
              "\xa1\x01\xd9\xd9\xf7" + result);
 }
 
+void tst_QCborValue::toCborStreamWriter()
+{
+    QFETCH(QCborValue, v);
+    QFETCH(QByteArray, result);
+    QFETCH(QCborValue::EncodingOptions, options);
+
+    QByteArray output;
+    QBuffer buffer(&output);
+    buffer.open(QIODevice::WriteOnly);
+    QCborStreamWriter writer(&buffer);
+
+    v.toCbor(writer, options);
+    QCOMPARE(buffer.pos(), result.size());
+    QCOMPARE(output, result);
+}
+
 void tst_QCborValue::fromCbor_data()
 {
     addCommonCborData();
@@ -1425,19 +1506,10 @@ void tst_QCborValue::fromCbor_data()
                                    << raw("\xd8\x25\x51" "\1\2\3\4""\4\3\2\0""\0\0\0\0""\0\0\0\1""\2");
 }
 
-void tst_QCborValue::fromCbor()
+void fromCbor_common(void (*doCheck)(const QCborValue &, const QByteArray &))
 {
     QFETCH(QCborValue, v);
     QFETCH(QByteArray, result);
-
-    auto doCheck = [](const QCborValue &v, const QByteArray &result) {
-        QCborParserError error;
-        QCborValue decoded = QCborValue::fromCbor(result, &error);
-        QVERIFY2(error.error == QCborError(), qPrintable(error.errorString()));
-        QCOMPARE(error.offset, result.size());
-        QVERIFY(decoded == v);
-        QVERIFY(v == decoded);
-    };
 
     doCheck(v, result);
     if (QTest::currentTestFailed())
@@ -1487,6 +1559,52 @@ void tst_QCborValue::fromCbor()
     doCheck(QCborMap{{1, t}}, "\xa1\1\xd9\xd9\xf7" + result);
     if (QTest::currentTestFailed())
         return;
+}
+
+void tst_QCborValue::fromCbor()
+{
+    auto doCheck = [](const QCborValue &v, const QByteArray &result) {
+        QCborParserError error;
+        QCborValue decoded = QCborValue::fromCbor(result, &error);
+        QVERIFY2(error.error == QCborError(), qPrintable(error.errorString()));
+        QCOMPARE(error.offset, result.size());
+        QVERIFY(decoded == v);
+        QVERIFY(v == decoded);
+    };
+
+    fromCbor_common(doCheck);
+}
+
+void tst_QCborValue::fromCborStreamReaderByteArray()
+{
+    auto doCheck = [](const QCborValue &expected, const QByteArray &data) {
+        QCborStreamReader reader(data);
+        QCborValue decoded = QCborValue::fromCbor(reader);
+        QCOMPARE(reader.lastError(), QCborError());
+        QCOMPARE(reader.currentOffset(), data.size());
+        QVERIFY(decoded == expected);
+        QVERIFY(expected == decoded);
+    };
+
+    fromCbor_common(doCheck);
+}
+
+void tst_QCborValue::fromCborStreamReaderIODevice()
+{
+    auto doCheck = [](const QCborValue &expected, const QByteArray &data) {
+        QBuffer buffer;
+        buffer.setData(data);
+        buffer.open(QIODevice::ReadOnly);
+        QCborStreamReader reader(&buffer);
+        QCborValue decoded = QCborValue::fromCbor(reader);
+        QCOMPARE(reader.lastError(), QCborError());
+        QCOMPARE(reader.currentOffset(), data.size());
+        QVERIFY(decoded == expected);
+        QVERIFY(expected == decoded);
+        QCOMPARE(buffer.pos(), reader.currentOffset());
+    };
+
+    fromCbor_common(doCheck);
 }
 
 void tst_QCborValue::validation_data()
@@ -1688,6 +1806,83 @@ void tst_QCborValue::toDiagnosticNotation()
 
     QString result = v.toDiagnosticNotation(QCborValue::DiagnosticNotationOptions(opts));
     QCOMPARE(result, expected);
+}
+
+
+void tst_QCborValue::datastreamSerialization_data()
+{
+    addCommonCborData();
+}
+
+void tst_QCborValue::datastreamSerialization()
+{
+    QFETCH(QCborValue, v);
+    QByteArray buffer;
+    {
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << v;
+        QDataStream load(buffer);
+        QCborValue output;
+        load >> output;
+        QCOMPARE(output, v);
+    }
+    if (v.isArray()) {
+        QCborArray array = v.toArray();
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << array;
+        QDataStream load(buffer);
+        QCborValue output;
+        load >> output;
+        QCOMPARE(output, array);
+    } else if (v.isMap()) {
+        QCborMap map = v.toMap();
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << map;
+        QDataStream load(buffer);
+        QCborValue output;
+        load >> output;
+        QCOMPARE(output, map);
+    }
+}
+
+void tst_QCborValue::streamVariantSerialization()
+{
+    // Check interface only, implementation is tested through to and from
+    // cbor functions.
+    QByteArray buffer;
+    {
+        QCborArray array{665, 666, 667};
+        QVariant output;
+        QVariant variant = QVariant::fromValue(array);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QCborArray);
+        QCOMPARE(qvariant_cast<QCborArray>(output), array);
+    }
+    {
+        QCborMap obj{{"foo", 42}};
+        QVariant output;
+        QVariant variant = QVariant::fromValue(obj);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QCborMap);
+        QCOMPARE(qvariant_cast<QCborMap>(output), obj);
+    }
+    {
+        QCborValue value{42};
+        QVariant output;
+        QVariant variant = QVariant::fromValue(value);
+        QDataStream save(&buffer, QIODevice::WriteOnly);
+        save << variant;
+        QDataStream load(buffer);
+        load >> output;
+        QCOMPARE(output.userType(), QMetaType::QCborValue);
+        QCOMPARE(qvariant_cast<QCborValue>(output), value);
+    }
 }
 
 QTEST_MAIN(tst_QCborValue)

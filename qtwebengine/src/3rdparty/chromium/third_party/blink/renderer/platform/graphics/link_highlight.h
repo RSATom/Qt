@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_LINK_HIGHLIGHT_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_LINK_HIGHLIGHT_H_
 
+#include "third_party/blink/renderer/platform/graphics/paint/display_item_client.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 
 namespace cc {
@@ -13,14 +14,23 @@ class Layer;
 
 namespace blink {
 
-class PLATFORM_EXPORT LinkHighlight {
+class EffectPaintPropertyNode;
+
+class PLATFORM_EXPORT LinkHighlight : public DisplayItemClient {
  public:
+  ~LinkHighlight() override {}
+
   virtual void Invalidate() = 0;
   virtual void ClearCurrentGraphicsLayer() = 0;
   virtual cc::Layer* Layer() = 0;
 
- protected:
-  virtual ~LinkHighlight() = default;
+  virtual const EffectPaintPropertyNode* effect() const = 0;
+
+  // DisplayItemClient methods
+  // TODO(wangxianzhu): This class doesn't need to be a DisplayItemClient in
+  // CompositeAfterPaint.
+  String DebugName() const final { return "LinkHighlight"; }
+  LayoutRect VisualRect() const final { return LayoutRect(); }
 };
 
 }  // namespace blink

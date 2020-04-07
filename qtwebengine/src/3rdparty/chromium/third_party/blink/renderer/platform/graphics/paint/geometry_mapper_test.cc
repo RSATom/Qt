@@ -53,16 +53,16 @@ class GeometryMapperTest : public testing::Test,
 
 INSTANTIATE_PAINT_TEST_CASE_P(GeometryMapperTest);
 
-#define EXPECT_FLOAT_RECT_NEAR(expected, actual)                            \
-  do {                                                                      \
-    EXPECT_PRED_FORMAT2(GeometryTest::AssertAlmostEqual, (actual).X(),      \
-                        (expected).X());                                    \
-    EXPECT_PRED_FORMAT2(GeometryTest::AssertAlmostEqual, (actual).Y(),      \
-                        (expected).Y());                                    \
-    EXPECT_PRED_FORMAT2(GeometryTest::AssertAlmostEqual, (actual).Width(),  \
-                        (expected).Width());                                \
-    EXPECT_PRED_FORMAT2(GeometryTest::AssertAlmostEqual, (actual).Height(), \
-                        (expected).Height());                               \
+#define EXPECT_FLOAT_RECT_NEAR(expected, actual)                             \
+  do {                                                                       \
+    EXPECT_PRED_FORMAT2(geometry_test::AssertAlmostEqual, (actual).X(),      \
+                        (expected).X());                                     \
+    EXPECT_PRED_FORMAT2(geometry_test::AssertAlmostEqual, (actual).Y(),      \
+                        (expected).Y());                                     \
+    EXPECT_PRED_FORMAT2(geometry_test::AssertAlmostEqual, (actual).Width(),  \
+                        (expected).Width());                                 \
+    EXPECT_PRED_FORMAT2(geometry_test::AssertAlmostEqual, (actual).Height(), \
+                        (expected).Height());                                \
   } while (false)
 
 #define EXPECT_CLIP_RECT_EQ(expected, actual)                       \
@@ -113,22 +113,21 @@ INSTANTIATE_PAINT_TEST_CASE_P(GeometryMapperTest);
     EXPECT_EQ(expected_transform, actual_transform_to_ancestor);  \
   } while (false)
 
-#define CHECK_CACHED_CLIP()                                       \
-  do {                                                            \
-    if (ancestor_state.Effect() != local_state.Effect())          \
-      break;                                                      \
-    SCOPED_TRACE("Check cached clip");                            \
-    const auto* cached_clip =                                     \
-        GetCachedClip(local_state.Clip(), ancestor_state);        \
-    if (ancestor_state.Clip() == local_state.Clip() ||            \
-        (ancestor_state.Clip() == local_state.Clip()->Parent() && \
-         ancestor_state.Transform() ==                            \
-             local_state.Clip()->LocalTransformSpace())) {        \
-      EXPECT_EQ(nullptr, cached_clip);                            \
-      break;                                                      \
-    }                                                             \
-    ASSERT_NE(nullptr, cached_clip);                              \
-    EXPECT_CLIP_RECT_EQ(expected_clip, *cached_clip);             \
+#define CHECK_CACHED_CLIP()                                                  \
+  do {                                                                       \
+    if (ancestor_state.Effect() != local_state.Effect())                     \
+      break;                                                                 \
+    SCOPED_TRACE("Check cached clip");                                       \
+    auto* local_clip = local_state.Clip()->Unalias();                        \
+    const auto* cached_clip = GetCachedClip(local_clip, ancestor_state);     \
+    if (ancestor_state.Clip() == local_clip ||                               \
+        (ancestor_state.Clip() == local_clip->Parent() &&                    \
+         ancestor_state.Transform() == local_clip->LocalTransformSpace())) { \
+      EXPECT_EQ(nullptr, cached_clip);                                       \
+      break;                                                                 \
+    }                                                                        \
+    ASSERT_NE(nullptr, cached_clip);                                         \
+    EXPECT_CLIP_RECT_EQ(expected_clip, *cached_clip);                        \
   } while (false)
 
 // See the data fields of GeometryMapperTest for variables that will be used in
@@ -181,9 +180,38 @@ TEST_P(GeometryMapperTest, TranslationTransform) {
   EXPECT_FLOAT_RECT_NEAR(input_rect, rect);
 }
 
+TEST_P(GeometryMapperTest, TranslationTransformWithAlias) {
+  expected_transform = TransformationMatrix().Translate(20, 10);
+  auto real_transform = CreateTransform(t0(), expected_transform);
+  auto transform = TransformPaintPropertyNode::CreateAlias(*real_transform);
+  local_state.SetTransform(transform.get());
+
+  input_rect = FloatRect(0, 0, 100, 100);
+  expected_transformed_rect = expected_transform.MapRect(input_rect);
+  expected_visual_rect = FloatClipRect(expected_transformed_rect);
+  CHECK_MAPPINGS();
+
+  FloatRect rect = expected_transformed_rect;
+  GeometryMapper::SourceToDestinationRect(&t0(), local_state.Transform(), rect);
+  EXPECT_FLOAT_RECT_NEAR(input_rect, rect);
+}
+
 TEST_P(GeometryMapperTest, RotationAndScaleTransform) {
   expected_transform = TransformationMatrix().Rotate(45).Scale(2);
   auto transform = CreateTransform(t0(), expected_transform);
+  local_state.SetTransform(transform.get());
+
+  input_rect = FloatRect(0, 0, 100, 100);
+  expected_transformed_rect = expected_transform.MapRect(input_rect);
+  expected_visual_rect = FloatClipRect(expected_transformed_rect);
+  expected_visual_rect.ClearIsTight();
+  CHECK_MAPPINGS();
+}
+
+TEST_P(GeometryMapperTest, RotationAndScaleTransformWithAlias) {
+  expected_transform = TransformationMatrix().Rotate(45).Scale(2);
+  auto real_transform = CreateTransform(t0(), expected_transform);
+  auto transform = TransformPaintPropertyNode::CreateAlias(*real_transform);
   local_state.SetTransform(transform.get());
 
   input_rect = FloatRect(0, 0, 100, 100);
@@ -294,6 +322,18 @@ TEST_P(GeometryMapperTest, SimpleClip) {
   CHECK_MAPPINGS();
 }
 
+TEST_P(GeometryMapperTest, SimpleClipWithAlias) {
+  auto real_clip = CreateClip(c0(), &t0(), FloatRoundedRect(10, 10, 50, 50));
+  auto clip = ClipPaintPropertyNode::CreateAlias(*real_clip);
+  local_state.SetClip(clip.get());
+
+  input_rect = FloatRect(0, 0, 100, 100);
+  expected_transformed_rect = input_rect;  // not clipped.
+  expected_clip = FloatClipRect(clip->Unalias()->ClipRect());
+  expected_visual_rect = expected_clip;
+  CHECK_MAPPINGS();
+}
+
 TEST_P(GeometryMapperTest, SimpleClipOverlayScrollbars) {
   ClipPaintPropertyNode::State clip_state;
   clip_state.local_transform_space = &t0();
@@ -352,6 +392,37 @@ TEST_P(GeometryMapperTest, SimpleClipInclusiveIntersect) {
       local_state, ancestor_state, actual_clip_rect,
       kIgnorePlatformOverlayScrollbarSize, kNonInclusiveIntersect);
   EXPECT_CLIP_RECT_EQ(FloatClipRect(FloatRect()), actual_clip_rect);
+}
+
+TEST_P(GeometryMapperTest, SimpleClipPlusOpacity) {
+  auto clip = CreateClip(c0(), &t0(), FloatRoundedRect(10, 10, 50, 50));
+  local_state.SetClip(clip.get());
+
+  auto opacity = CreateOpacityEffect(e0(), 0.99);
+  local_state.SetEffect(opacity.get());
+
+  FloatClipRect actual_clip_rect(FloatRect(60, 10, 10, 10));
+  auto intersects = GeometryMapper::LocalToAncestorVisualRect(
+      local_state, ancestor_state, actual_clip_rect);
+
+  EXPECT_TRUE(actual_clip_rect.Rect().IsEmpty());
+  EXPECT_FALSE(intersects);
+}
+
+TEST_P(GeometryMapperTest, SimpleClipPlusOpacityInclusiveIntersect) {
+  auto clip = CreateClip(c0(), &t0(), FloatRoundedRect(10, 10, 50, 50));
+  local_state.SetClip(clip.get());
+
+  auto opacity = CreateOpacityEffect(e0(), 0.99);
+  local_state.SetEffect(opacity.get());
+
+  FloatClipRect actual_clip_rect(FloatRect(10, 10, 10, 0));
+  auto intersects = GeometryMapper::LocalToAncestorVisualRect(
+      local_state, ancestor_state, actual_clip_rect,
+      kIgnorePlatformOverlayScrollbarSize, kInclusiveIntersect);
+
+  EXPECT_TRUE(actual_clip_rect.Rect().IsEmpty());
+  EXPECT_TRUE(intersects);
 }
 
 TEST_P(GeometryMapperTest, RoundedClip) {
@@ -536,8 +607,8 @@ TEST_P(GeometryMapperTest, SiblingTransforms) {
   GeometryMapper::LocalToAncestorVisualRect(transform1_state, transform2_state,
                                             result_clip);
   FloatClipRect expected_clip(FloatRect(-100, 0, 100, 100));
-  // This is because the combined Rotate(45) and Rotate(-45) is not exactly a
-  // translation-only transform due to calculation errors.
+  // We convervatively treat any rotated clip rect as not tight, even if it's
+  // rotated by 90 degrees.
   expected_clip.ClearIsTight();
   EXPECT_CLIP_RECT_EQ(expected_clip, result_clip);
 
@@ -585,7 +656,7 @@ TEST_P(GeometryMapperTest, SiblingTransformsWithClip) {
   // Fails, because the clip of the destination state is not an ancestor of the
   // clip of the source state. A known bug in SPv1 would make such query,
   // in such case, no clips are applied.
-  if (RuntimeEnabledFeatures::SlimmingPaintV2Enabled()) {
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     EXPECT_FALSE(success);
   } else {
     EXPECT_TRUE(success);
@@ -652,9 +723,58 @@ TEST_P(GeometryMapperTest, FilterWithClipsAndTransforms) {
   CHECK_MAPPINGS();
 }
 
+TEST_P(GeometryMapperTest, FilterWithClipsAndTransformsWithAlias) {
+  auto transform_above_effect =
+      CreateTransform(t0(), TransformationMatrix().Translate(40, 50));
+  auto transform_below_effect = CreateTransform(
+      *transform_above_effect, TransformationMatrix().Translate(20, 30));
+
+  // This clip is between transformAboveEffect and the effect.
+  auto clip_above_effect = CreateClip(c0(), transform_above_effect.get(),
+                                      FloatRoundedRect(-100, -100, 200, 200));
+  // This clip is between the effect and transformBelowEffect.
+  auto clip_below_effect =
+      CreateClip(*clip_above_effect, transform_above_effect.get(),
+                 FloatRoundedRect(10, 10, 100, 100));
+
+  CompositorFilterOperations filters;
+  filters.AppendBlurFilter(20);
+  auto real_effect = CreateFilterEffect(e0(), transform_above_effect.get(),
+                                        clip_above_effect.get(), filters);
+  auto effect = EffectPaintPropertyNode::CreateAlias(*real_effect);
+
+  local_state = PropertyTreeState(transform_below_effect.get(),
+                                  clip_below_effect.get(), effect.get());
+
+  input_rect = FloatRect(0, 0, 100, 100);
+  // 1. transformBelowEffect
+  auto output = transform_below_effect->Matrix().MapRect(input_rect);
+  // 2. clipBelowEffect
+  output.Intersect(clip_below_effect->ClipRect().Rect());
+  EXPECT_EQ(FloatRect(20, 30, 90, 80), output);
+  // 3. effect (the outset is 3 times of blur amount).
+  output = filters.MapRect(output);
+  EXPECT_EQ(FloatRect(-40, -30, 210, 200), output);
+  // 4. clipAboveEffect
+  output.Intersect(clip_above_effect->ClipRect().Rect());
+  EXPECT_EQ(FloatRect(-40, -30, 140, 130), output);
+  // 5. transformAboveEffect
+  output = transform_above_effect->Matrix().MapRect(output);
+  EXPECT_EQ(FloatRect(0, 20, 140, 130), output);
+
+  expected_transform =
+      transform_above_effect->Matrix() * transform_below_effect->Matrix();
+  expected_transformed_rect = expected_transform.MapRect(input_rect);
+  expected_visual_rect = FloatClipRect(output);
+  expected_visual_rect.ClearIsTight();
+  expected_clip = FloatClipRect(FloatRect(50, 60, 90, 90));
+  expected_clip.ClearIsTight();
+  CHECK_MAPPINGS();
+}
+
 TEST_P(GeometryMapperTest, ReflectionWithPaintOffset) {
   CompositorFilterOperations filters;
-  filters.AppendReferenceFilter(PaintFilterBuilder::BuildBoxReflectFilter(
+  filters.AppendReferenceFilter(paint_filter_builder::BuildBoxReflectFilter(
       BoxReflection(BoxReflection::kHorizontalReflection, 0), nullptr));
   auto effect = CreateFilterEffect(e0(), filters, FloatPoint(100, 100));
   local_state.SetEffect(effect.get());
@@ -669,8 +789,8 @@ TEST_P(GeometryMapperTest, ReflectionWithPaintOffset) {
 }
 
 TEST_P(GeometryMapperTest, InvertedClip) {
-  // This test is invalid for SPv2.
-  if (RuntimeEnabledFeatures::SlimmingPaintV2Enabled())
+  // This test is invalid for CAP.
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
     return;
 
   auto clip = CreateClip(c0(), &t0(), FloatRoundedRect(10, 10, 50, 50));
@@ -798,6 +918,27 @@ TEST_P(GeometryMapperTest, PointVisibleInAncestorSpaceClipPathWithTransform) {
 
   EXPECT_FALSE(GeometryMapper::PointVisibleInAncestorSpace(
       local_state, ancestor_state, FloatPoint(5, 5)));
+}
+
+TEST_P(GeometryMapperTest, Precision) {
+  auto t1 = CreateTransform(t0(), TransformationMatrix().Scale(32767));
+  auto t2 = CreateTransform(*t1, TransformationMatrix().Rotate(1));
+  auto t3 = CreateTransform(*t2, TransformationMatrix());
+  auto t4 = CreateTransform(*t3, TransformationMatrix());
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t4.get(), t4.get()));
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t3.get(), t4.get()));
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t2.get(), t4.get()));
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t3.get(), t2.get()));
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t4.get(), t2.get()));
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t4.get(), t3.get()));
+  EXPECT_EQ(TransformationMatrix(),
+            GeometryMapper::SourceToDestinationProjection(t2.get(), t3.get()));
 }
 
 }  // namespace blink

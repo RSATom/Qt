@@ -11,26 +11,17 @@
 #include "modules/desktop_capture/mac/desktop_configuration_monitor.h"
 
 #include "modules/desktop_capture/mac/desktop_configuration.h"
-#include "rtc_base/event.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/trace_event.h"
-#include "system_wrappers/include/event_wrapper.h"
 
 namespace webrtc {
 
-// The amount of time allowed for displays to reconfigure.
-static const int64_t kDisplayConfigurationEventTimeoutMs = 10 * 1000;
-
-DesktopConfigurationMonitor::DesktopConfigurationMonitor()
-    : display_configuration_capture_event_(EventWrapper::Create()) {
+DesktopConfigurationMonitor::DesktopConfigurationMonitor() {
   CGError err = CGDisplayRegisterReconfigurationCallback(
       DesktopConfigurationMonitor::DisplaysReconfiguredCallback, this);
-  if (err != kCGErrorSuccess) {
+  if (err != kCGErrorSuccess)
     RTC_LOG(LS_ERROR) << "CGDisplayRegisterReconfigurationCallback " << err;
-    abort();
-  }
-  display_configuration_capture_event_->Set();
-
+  rtc::CritScope cs(&desktop_configuration_lock_);
   desktop_configuration_ = MacDesktopConfiguration::GetCurrent(
       MacDesktopConfiguration::TopLeftOrigin);
 }
@@ -42,22 +33,13 @@ DesktopConfigurationMonitor::~DesktopConfigurationMonitor() {
     RTC_LOG(LS_ERROR) << "CGDisplayRemoveReconfigurationCallback " << err;
 }
 
-void DesktopConfigurationMonitor::Lock() {
-  // TODO(crbug.com/796889, crbug.com/795340): Fix how synchronization is being
-  // done and avoid blocking waits.
-  rtc::ScopedAllowBaseSyncPrimitives allow_event_wait;
-  if (!display_configuration_capture_event_->Wait(
-          kDisplayConfigurationEventTimeoutMs)) {
-    RTC_LOG_F(LS_ERROR) << "Event wait timed out.";
-    abort();
-  }
-}
-
-void DesktopConfigurationMonitor::Unlock() {
-  display_configuration_capture_event_->Set();
+MacDesktopConfiguration DesktopConfigurationMonitor::desktop_configuration() {
+  rtc::CritScope crit(&desktop_configuration_lock_);
+  return desktop_configuration_;
 }
 
 // static
+// This method may be called on any system thread.
 void DesktopConfigurationMonitor::DisplaysReconfiguredCallback(
     CGDirectDisplayID display,
     CGDisplayChangeSummaryFlags flags,
@@ -76,28 +58,15 @@ void DesktopConfigurationMonitor::DisplaysReconfigured(
                    << flags;
 
   if (flags & kCGDisplayBeginConfigurationFlag) {
-    if (reconfiguring_displays_.empty()) {
-      // If this is the first display to start reconfiguring then wait on
-      // |display_configuration_capture_event_| to block the capture thread
-      // from accessing display memory until the reconfiguration completes.
-
-      // TODO(crbug.com/796889, crbug.com/795340): Fix how synchronization is
-      // being done and avoid blocking waits.
-      rtc::ScopedAllowBaseSyncPrimitives allow_event_wait;
-      if (!display_configuration_capture_event_->Wait(
-              kDisplayConfigurationEventTimeoutMs)) {
-        RTC_LOG_F(LS_ERROR) << "Event wait timed out.";
-        abort();
-      }
-    }
     reconfiguring_displays_.insert(display);
-  } else {
-    reconfiguring_displays_.erase(display);
-    if (reconfiguring_displays_.empty()) {
-      desktop_configuration_ = MacDesktopConfiguration::GetCurrent(
-          MacDesktopConfiguration::TopLeftOrigin);
-      display_configuration_capture_event_->Set();
-    }
+    return;
+  }
+
+  reconfiguring_displays_.erase(display);
+  if (reconfiguring_displays_.empty()) {
+    rtc::CritScope cs(&desktop_configuration_lock_);
+    desktop_configuration_ = MacDesktopConfiguration::GetCurrent(
+        MacDesktopConfiguration::TopLeftOrigin);
   }
 }
 

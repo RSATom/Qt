@@ -126,11 +126,11 @@ WatchTimeRecorder::WatchTimeUkmRecord::WatchTimeUkmRecord(
 WatchTimeRecorder::WatchTimeUkmRecord::~WatchTimeUkmRecord() = default;
 
 WatchTimeRecorder::WatchTimeRecorder(mojom::PlaybackPropertiesPtr properties,
-                                     const url::Origin& untrusted_top_origin,
+                                     ukm::SourceId source_id,
                                      bool is_top_frame,
                                      uint64_t player_id)
     : properties_(std::move(properties)),
-      untrusted_top_origin_(untrusted_top_origin),
+      source_id_(source_id),
       is_top_frame_(is_top_frame),
       player_id_(player_id),
       extended_metrics_keys_(
@@ -245,7 +245,9 @@ void WatchTimeRecorder::UpdateSecondaryProperties(
       return;
 
     // If a property just changes from an unknown to a known value, allow the
-    // update without creating a whole new record.
+    // update without creating a whole new record. Not checking
+    // audio_encryption_scheme and video_encryption_scheme as we want to
+    // capture changes in encryption schemes.
     if (last_record.secondary_properties->audio_codec == kUnknownAudioCodec ||
         last_record.secondary_properties->video_codec == kUnknownVideoCodec ||
         last_record.secondary_properties->audio_decoder_name.empty() ||
@@ -344,11 +346,7 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
   }
 
   for (auto& ukm_record : ukm_records_) {
-    const int32_t source_id = ukm_recorder->GetNewSourceID();
-
-    // TODO(crbug.com/787209): Stop getting origin from the renderer.
-    ukm_recorder->UpdateSourceURL(source_id, untrusted_top_origin_.GetURL());
-    ukm::builders::Media_BasicPlayback builder(source_id);
+    ukm::builders::Media_BasicPlayback builder(source_id_);
 
     builder.SetIsTopFrame(is_top_frame_);
     builder.SetIsBackground(properties_->is_background);
@@ -444,6 +442,10 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
         static_cast<int64_t>(ConvertVideoDecoderNameToEnum(
             ukm_record.secondary_properties->video_decoder_name)));
 
+    builder.SetAudioEncryptionScheme(static_cast<int64_t>(
+        ukm_record.secondary_properties->audio_encryption_scheme));
+    builder.SetVideoEncryptionScheme(static_cast<int64_t>(
+        ukm_record.secondary_properties->video_encryption_scheme));
     builder.SetIsEME(properties_->is_eme);
     builder.SetIsMSE(properties_->is_mse);
     builder.SetLastPipelineStatus(pipeline_status_);

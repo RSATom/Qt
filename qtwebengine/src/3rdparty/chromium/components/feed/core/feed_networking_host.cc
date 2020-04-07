@@ -6,9 +6,14 @@
 
 #include <utility>
 
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/stringprintf.h"
+#include "base/time/tick_clock.h"
+#include "base/time/time.h"
 #include "base/values.h"
+#include "components/feed/feed_feature_list.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/load_flags.h"
@@ -31,6 +36,8 @@ namespace {
 constexpr char kApiKeyQueryParam[] = "key";
 constexpr char kAuthenticationScope[] =
     "https://www.googleapis.com/auth/googlenow";
+constexpr char kAuthorizationRequestHeaderFormat[] = "Bearer %s";
+
 constexpr char kContentEncoding[] = "Content-Encoding";
 constexpr char kContentType[] = "application/octet-stream";
 constexpr char kGzip[] = "gzip";
@@ -51,7 +58,8 @@ class NetworkFetch {
                std::vector<uint8_t> request_body,
                IdentityManager* identity_manager,
                network::SharedURLLoaderFactory* loader_factory,
-               const std::string& api_key);
+               const std::string& api_key,
+               const base::TickClock* tick_clock);
 
   void Start(FeedNetworkingHost::ResponseCallback done_callback);
 
@@ -59,15 +67,15 @@ class NetworkFetch {
   void StartAccessTokenFetch();
   void AccessTokenFetchFinished(GoogleServiceAuthError error,
                                 identity::AccessTokenInfo access_token_info);
-  void StartLoader(const std::string& access_token);
-  std::unique_ptr<network::SimpleURLLoader> MakeLoader(
-      const std::string& access_token);
+  void StartLoader();
+  std::unique_ptr<network::SimpleURLLoader> MakeLoader();
   net::HttpRequestHeaders MakeHeaders(const std::string& auth_header) const;
   void PopulateRequestBody(network::SimpleURLLoader* loader);
   void OnSimpleLoaderComplete(std::unique_ptr<std::string> response);
 
   const GURL url_;
   const std::string request_type_;
+  std::string access_token_;
   const std::vector<uint8_t> request_body_;
   IdentityManager* const identity_manager_;
   std::unique_ptr<identity::PrimaryAccountAccessTokenFetcher> token_fetcher_;
@@ -75,6 +83,8 @@ class NetworkFetch {
   FeedNetworkingHost::ResponseCallback done_callback_;
   network::SharedURLLoaderFactory* loader_factory_;
   const std::string api_key_;
+  const base::TickClock* tick_clock_;
+  base::TimeTicks start_ticks_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkFetch);
 };
@@ -84,19 +94,22 @@ NetworkFetch::NetworkFetch(const GURL& url,
                            std::vector<uint8_t> request_body,
                            IdentityManager* identity_manager,
                            network::SharedURLLoaderFactory* loader_factory,
-                           const std::string& api_key)
+                           const std::string& api_key,
+                           const base::TickClock* tick_clock)
     : url_(url),
       request_type_(request_type),
       request_body_(std::move(request_body)),
       identity_manager_(identity_manager),
       loader_factory_(loader_factory),
-      api_key_(api_key) {}
+      api_key_(api_key),
+      tick_clock_(tick_clock),
+      start_ticks_(tick_clock_->NowTicks()) {}
 
 void NetworkFetch::Start(FeedNetworkingHost::ResponseCallback done_callback) {
   done_callback_ = std::move(done_callback);
 
   if (!identity_manager_->HasPrimaryAccount()) {
-    StartLoader(std::string());
+    StartLoader();
     return;
   }
 
@@ -104,7 +117,7 @@ void NetworkFetch::Start(FeedNetworkingHost::ResponseCallback done_callback) {
 }
 
 void NetworkFetch::StartAccessTokenFetch() {
-  OAuth2TokenService::ScopeSet scopes{kAuthenticationScope};
+  identity::ScopeSet scopes{kAuthenticationScope};
   // It's safe to pass base::Unretained(this) since deleting the token fetcher
   // will prevent the callback from being completed.
   token_fetcher_ = std::make_unique<identity::PrimaryAccountAccessTokenFetcher>(
@@ -117,21 +130,26 @@ void NetworkFetch::StartAccessTokenFetch() {
 void NetworkFetch::AccessTokenFetchFinished(
     GoogleServiceAuthError error,
     identity::AccessTokenInfo access_token_info) {
-  UMA_HISTOGRAM_ENUMERATION("ContentSuggestions.Feed.TokenFetchStatus",
+  UMA_HISTOGRAM_ENUMERATION("ContentSuggestions.Feed.Network.TokenFetchStatus",
                             error.state(), GoogleServiceAuthError::NUM_STATES);
-  StartLoader(access_token_info.token);
+  access_token_ = access_token_info.token;
+  StartLoader();
 }
 
-void NetworkFetch::StartLoader(const std::string& access_token) {
-  simple_loader_ = MakeLoader(access_token);
+void NetworkFetch::StartLoader() {
+  simple_loader_ = MakeLoader();
   simple_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       loader_factory_, base::BindOnce(&NetworkFetch::OnSimpleLoaderComplete,
                                       base::Unretained(this)));
 }
 
-std::unique_ptr<network::SimpleURLLoader> NetworkFetch::MakeLoader(
-    const std::string& access_token) {
-  net::HttpRequestHeaders headers = MakeHeaders(access_token);
+std::unique_ptr<network::SimpleURLLoader> NetworkFetch::MakeLoader() {
+  std::string auth_header =
+      access_token_.empty()
+          ? std::string()
+          : base::StringPrintf(kAuthorizationRequestHeaderFormat,
+                               access_token_.c_str());
+  net::HttpRequestHeaders headers = MakeHeaders(auth_header);
   // TODO(pnoland): Add data use measurement once it's supported for simple
   // url loader.
   net::NetworkTrafficAnnotationTag traffic_annotation =
@@ -160,21 +178,22 @@ std::unique_ptr<network::SimpleURLLoader> NetworkFetch::MakeLoader(
           }
         })");
   GURL url(url_);
-  if (access_token.empty() && !api_key_.empty())
+  if (access_token_.empty() && !api_key_.empty())
     url = net::AppendQueryParameter(url_, kApiKeyQueryParam, api_key_);
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = url;
 
-  resource_request->load_flags =
-      net::LOAD_BYPASS_CACHE | net::LOAD_DO_NOT_SAVE_COOKIES |
-      net::LOAD_DO_NOT_SEND_COOKIES | net::LOAD_DO_NOT_SEND_AUTH_DATA;
+  resource_request->load_flags = net::LOAD_BYPASS_CACHE;
+  resource_request->allow_credentials = false;
   resource_request->headers = headers;
   resource_request->method = request_type_;
 
   auto simple_loader = network::SimpleURLLoader::Create(
       std::move(resource_request), traffic_annotation);
   simple_loader->SetAllowHttpErrorResults(true);
+  simple_loader->SetTimeoutDuration(
+      base::TimeDelta::FromSeconds(kTimeoutDurationSeconds.Get()));
   PopulateRequestBody(simple_loader.get());
   return simple_loader;
 }
@@ -211,7 +230,7 @@ void NetworkFetch::PopulateRequestBody(network::SimpleURLLoader* loader) {
   }
 
   UMA_HISTOGRAM_COUNTS_1M(
-      "ContentSuggestions.Feed.RequestSizeKB.Compressed",
+      "ContentSuggestions.Feed.Network.RequestSizeKB.Compressed",
       static_cast<int>(compressed_request_body.size() / 1024));
 }
 
@@ -223,18 +242,29 @@ void NetworkFetch::OnSimpleLoaderComplete(
   if (response) {
     status_code = simple_loader_->ResponseInfo()->headers->response_code();
 
+    if (status_code == net::HTTP_UNAUTHORIZED) {
+      identity::ScopeSet scopes{kAuthenticationScope};
+      std::string account_id = identity_manager_->GetPrimaryAccountId();
+      identity_manager_->RemoveAccessTokenFromCache(account_id, scopes,
+                                                    access_token_);
+    }
+
     const uint8_t* begin = reinterpret_cast<const uint8_t*>(response->data());
     const uint8_t* end = begin + response->size();
     response_body.assign(begin, end);
   }
 
-  base::UmaHistogramSparse("ContentSuggestions.Feed.NetworkRequestStatusCode",
+  base::TimeDelta duration = tick_clock_->NowTicks() - start_ticks_;
+  UMA_HISTOGRAM_MEDIUM_TIMES("ContentSuggestions.Feed.Network.Duration",
+                             duration);
+
+  base::UmaHistogramSparse("ContentSuggestions.Feed.Network.RequestStatusCode",
                            status_code);
 
   // The below is true even if there is a protocol error, so this will
   // record response size as long as the request completed.
   if (status_code >= 200) {
-    UMA_HISTOGRAM_COUNTS_1M("ContentSuggestions.Feed.ResponseSizeKB",
+    UMA_HISTOGRAM_COUNTS_1M("ContentSuggestions.Feed.Network.ResponseSizeKB",
                             static_cast<int>(response_body.size() / 1024));
   }
 
@@ -244,10 +274,12 @@ void NetworkFetch::OnSimpleLoaderComplete(
 FeedNetworkingHost::FeedNetworkingHost(
     identity::IdentityManager* identity_manager,
     const std::string& api_key,
-    scoped_refptr<network::SharedURLLoaderFactory> loader_factory)
+    scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
+    const base::TickClock* tick_clock)
     : identity_manager_(identity_manager),
       api_key_(api_key),
-      loader_factory_(std::move(loader_factory)) {}
+      loader_factory_(std::move(loader_factory)),
+      tick_clock_(tick_clock) {}
 
 FeedNetworkingHost::~FeedNetworkingHost() = default;
 
@@ -262,7 +294,7 @@ void FeedNetworkingHost::Send(
     ResponseCallback callback) {
   auto fetch = std::make_unique<NetworkFetch>(
       url, request_type, std::move(request_body), identity_manager_,
-      loader_factory_.get(), api_key_);
+      loader_factory_.get(), api_key_, tick_clock_);
   NetworkFetch* fetch_unowned = fetch.get();
   pending_requests_.emplace(std::move(fetch));
 

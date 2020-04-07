@@ -26,7 +26,7 @@ class CFX_Barcode {
 
   static std::unique_ptr<CFX_Barcode> Create(BC_TYPE type);
   BC_TYPE GetType();
-  bool Encode(const WideStringView& contents);
+  bool Encode(WideStringView contents);
 
   bool RenderDevice(CFX_RenderDevice* device, const CFX_Matrix* matrix);
 
@@ -52,7 +52,6 @@ class CFX_Barcode {
   bool SetStartChar(char start);
   bool SetEndChar(char end);
   bool SetErrorCorrectionLevel(int32_t level);
-  bool SetTruncated(bool truncated);
 
  private:
   CFX_Barcode();

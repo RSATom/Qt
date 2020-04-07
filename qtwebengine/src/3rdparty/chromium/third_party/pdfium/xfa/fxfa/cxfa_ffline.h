@@ -9,7 +9,7 @@
 
 #include "xfa/fxfa/cxfa_ffwidget.h"
 
-class CXFA_FFLine : public CXFA_FFWidget {
+class CXFA_FFLine final : public CXFA_FFWidget {
  public:
   explicit CXFA_FFLine(CXFA_Node* pNode);
   ~CXFA_FFLine() override;
@@ -21,7 +21,7 @@ class CXFA_FFLine : public CXFA_FFWidget {
 
  private:
   void GetRectFromHand(CFX_RectF& rect,
-                       XFA_AttributeEnum iHand,
+                       XFA_AttributeValue iHand,
                        float fLineWidth);
 };
 

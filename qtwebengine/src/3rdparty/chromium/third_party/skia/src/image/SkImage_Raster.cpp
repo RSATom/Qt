@@ -9,7 +9,6 @@
 #include "SkBitmap.h"
 #include "SkBitmapProcShader.h"
 #include "SkCanvas.h"
-#include "SkColorSpaceXformPriv.h"
 #include "SkColorTable.h"
 #include "SkConvertPixels.h"
 #include "SkData.h"
@@ -18,7 +17,6 @@
 #include "SkPixelRef.h"
 #include "SkSurface.h"
 #include "SkTLazy.h"
-#include "SkUnPreMultiplyPriv.h"
 
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
@@ -77,24 +75,17 @@ public:
     SkImageInfo onImageInfo() const override {
         return fBitmap.info();
     }
-    SkColorType onColorType() const override {
-        return fBitmap.colorType();
-    }
-    SkAlphaType onAlphaType() const override {
-        return fBitmap.alphaType();
-    }
 
     bool onReadPixels(const SkImageInfo&, void*, size_t, int srcX, int srcY, CachingHint) const override;
     bool onPeekPixels(SkPixmap*) const override;
     const SkBitmap* onPeekBitmap() const override { return &fBitmap; }
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrTextureProxy> asTextureProxyRef(GrContext*, const GrSamplerState&, SkColorSpace*,
-                                            sk_sp<SkColorSpace>*,
+    sk_sp<GrTextureProxy> asTextureProxyRef(GrContext*, const GrSamplerState&,
                                             SkScalar scaleAdjust[2]) const override;
 #endif
 
-    bool getROPixels(SkBitmap*, SkColorSpace* dstColorSpace, CachingHint) const override;
+    bool getROPixels(SkBitmap*, CachingHint) const override;
     sk_sp<SkImage> onMakeSubset(const SkIRect&) const override;
 
     SkPixelRef* getPixelRef() const { return fBitmap.pixelRef(); }
@@ -110,9 +101,16 @@ public:
         SkASSERT(bitmapMayBeMutable || fBitmap.isImmutable());
     }
 
-    sk_sp<SkImage> onMakeColorSpace(sk_sp<SkColorSpace>, SkColorType) const override;
+    sk_sp<SkImage> onMakeColorTypeAndColorSpace(SkColorType, sk_sp<SkColorSpace>) const override;
 
     bool onIsValid(GrContext* context) const override { return true; }
+    void notifyAddedToRasterCache() const override {
+        // We explicitly DON'T want to call INHERITED::notifyAddedToRasterCache. That ties the
+        // lifetime of derived/cached resources to the image. In this case, we only want cached
+        // data (eg mips) tied to the lifetime of the underlying pixelRef.
+        SkASSERT(fBitmap.pixelRef());
+        fBitmap.pixelRef()->notifyAddedToCache();
+    }
 
 #if SK_SUPPORT_GPU
     sk_sp<GrTextureProxy> refPinnedTextureProxy(uint32_t* uniqueID) const override;
@@ -165,7 +163,7 @@ bool SkImage_Raster::onPeekPixels(SkPixmap* pm) const {
     return fBitmap.peekPixels(pm);
 }
 
-bool SkImage_Raster::getROPixels(SkBitmap* dst, SkColorSpace* dstColorSpace, CachingHint) const {
+bool SkImage_Raster::getROPixels(SkBitmap* dst, CachingHint) const {
     *dst = fBitmap;
     return true;
 }
@@ -173,8 +171,6 @@ bool SkImage_Raster::getROPixels(SkBitmap* dst, SkColorSpace* dstColorSpace, Cac
 #if SK_SUPPORT_GPU
 sk_sp<GrTextureProxy> SkImage_Raster::asTextureProxyRef(GrContext* context,
                                                         const GrSamplerState& params,
-                                                        SkColorSpace* dstColorSpace,
-                                                        sk_sp<SkColorSpace>* texColorSpace,
                                                         SkScalar scaleAdjust[2]) const {
     if (!context) {
         return nullptr;
@@ -185,7 +181,7 @@ sk_sp<GrTextureProxy> SkImage_Raster::asTextureProxyRef(GrContext* context,
     if (tex) {
         GrTextureAdjuster adjuster(context, fPinnedProxy, fBitmap.alphaType(), fPinnedUniqueID,
                                    fBitmap.colorSpace());
-        return adjuster.refTextureProxyForParams(params, dstColorSpace, texColorSpace, scaleAdjust);
+        return adjuster.refTextureProxyForParams(params, scaleAdjust);
     }
 
     return GrRefCachedBitmapTextureProxy(context, fBitmap, params, scaleAdjust);
@@ -341,25 +337,15 @@ bool SkImage_Raster::onAsLegacyBitmap(SkBitmap* bitmap) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-sk_sp<SkImage> SkImage_Raster::onMakeColorSpace(sk_sp<SkColorSpace> target,
-                                                SkColorType targetColorType) const {
+sk_sp<SkImage> SkImage_Raster::onMakeColorTypeAndColorSpace(SkColorType targetCT,
+                                                            sk_sp<SkColorSpace> targetCS) const {
     SkPixmap src;
     SkAssertResult(fBitmap.peekPixels(&src));
 
-    // Treat nullptr srcs as sRGB.
-    if (!src.colorSpace()) {
-        if (target->isSRGB()) {
-            return sk_ref_sp(const_cast<SkImage*>((SkImage*)this));
-        }
-
-        src.setColorSpace(SkColorSpace::MakeSRGB());
-    }
-
-    SkImageInfo dstInfo = fBitmap.info().makeColorType(targetColorType).makeColorSpace(target);
     SkBitmap dst;
-    dst.allocPixels(dstInfo);
+    dst.allocPixels(fBitmap.info().makeColorType(targetCT).makeColorSpace(targetCS));
 
-    SkAssertResult(dst.writePixels(src, 0, 0));
+    SkAssertResult(dst.writePixels(src));
     dst.setImmutable();
     return SkImage::MakeFromBitmap(dst);
 }

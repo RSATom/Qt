@@ -25,12 +25,15 @@ namespace blink {
 
 // VideoFrameResourceProvider obtains required GPU resources for the video
 // frame.
-// VideoFrameResourceProvider methods are currently called on the media thread.
-// TODO(lethalantidote): Move the usage of this class off media thread
-// https://crbug.com/753605
+// This class is called from the thread to which |context_provider_| is bound.
 class PLATFORM_EXPORT VideoFrameResourceProvider {
  public:
-  explicit VideoFrameResourceProvider(const cc::LayerTreeSettings&);
+  // |use_sync_primitives| controls whether we ScopedAllowBaseSyncPrimitives
+  // when calling into |resource_updater_|.  It waits, but the cc impl thread
+  // doesn't seem to mind.  It does mind, however, the ScopedAllow.  When this
+  // is run on the media thread, we need to ScopedAllow first.
+  VideoFrameResourceProvider(const cc::LayerTreeSettings&,
+                             bool use_sync_primitives);
 
   virtual ~VideoFrameResourceProvider();
 
@@ -56,10 +59,10 @@ class PLATFORM_EXPORT VideoFrameResourceProvider {
  private:
   const cc::LayerTreeSettings settings_;
 
-  WebContextProviderCallback context_provider_callback_;
   viz::ContextProvider* context_provider_;
   std::unique_ptr<viz::ClientResourceProvider> resource_provider_;
   std::unique_ptr<media::VideoResourceUpdater> resource_updater_;
+  bool use_sync_primitives_ = false;
 };
 
 }  // namespace blink

@@ -6,19 +6,19 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/triggers/trigger_manager.h"
 #include "components/safe_browsing/triggers/trigger_throttler.h"
 #include "components/security_interstitials/content/unsafe_resource.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
-
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(safe_browsing::SuspiciousSiteTrigger);
 
 namespace safe_browsing {
 
@@ -65,8 +65,8 @@ SuspiciousSiteTrigger::SuspiciousSiteTrigger(
       prefs_(prefs),
       url_loader_factory_(url_loader_factory),
       history_service_(history_service),
-      task_runner_(content::BrowserThread::GetTaskRunnerForThread(
-          content::BrowserThread::UI)),
+      task_runner_(base::CreateSingleThreadTaskRunnerWithTraits(
+          {content::BrowserThread::UI})),
       weak_ptr_factory_(this) {}
 
 SuspiciousSiteTrigger::~SuspiciousSiteTrigger() {}
@@ -89,7 +89,7 @@ void SuspiciousSiteTrigger::CreateForWebContents(
 
 bool SuspiciousSiteTrigger::MaybeStartReport() {
   SBErrorOptions error_options =
-      TriggerManager::GetSBErrorDisplayOptions(*prefs_, *web_contents());
+      TriggerManager::GetSBErrorDisplayOptions(*prefs_, web_contents());
 
   security_interstitials::UnsafeResource resource;
   resource.threat_type = SB_THREAT_TYPE_SUSPICIOUS_SITE;
@@ -124,7 +124,7 @@ bool SuspiciousSiteTrigger::MaybeStartReport() {
 
 void SuspiciousSiteTrigger::FinishReport() {
   SBErrorOptions error_options =
-      TriggerManager::GetSBErrorDisplayOptions(*prefs_, *web_contents());
+      TriggerManager::GetSBErrorDisplayOptions(*prefs_, web_contents());
   if (trigger_manager_->FinishCollectingThreatDetails(
           TriggerType::SUSPICIOUS_SITE, web_contents(), base::TimeDelta(),
           /*did_proceed=*/false, /*num_visits=*/0, error_options)) {
@@ -139,7 +139,7 @@ void SuspiciousSiteTrigger::FinishReport() {
 void SuspiciousSiteTrigger::SuspiciousSiteDetectedWhenMonitoring() {
   DCHECK_EQ(TriggerState::MONITOR_MODE, current_state_);
   SBErrorOptions error_options =
-      TriggerManager::GetSBErrorDisplayOptions(*prefs_, *web_contents());
+      TriggerManager::GetSBErrorDisplayOptions(*prefs_, web_contents());
   TriggerManagerReason reason;
   if (trigger_manager_->CanStartDataCollectionWithReason(
           error_options, TriggerType::SUSPICIOUS_SITE, &reason) ||
@@ -287,5 +287,7 @@ void SuspiciousSiteTrigger::SetTaskRunnerForTest(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   task_runner_ = task_runner;
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(SuspiciousSiteTrigger)
 
 }  // namespace safe_browsing

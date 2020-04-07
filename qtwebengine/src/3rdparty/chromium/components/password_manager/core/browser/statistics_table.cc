@@ -10,7 +10,7 @@
 #include <limits>
 #include <set>
 
-#include "sql/connection.h"
+#include "sql/database.h"
 #include "sql/statement.h"
 
 namespace password_manager {
@@ -41,8 +41,6 @@ std::vector<InteractionsStats> StatementToInteractionsStats(sql::Statement* s) {
 
 }  // namespace
 
-InteractionsStats::InteractionsStats() = default;
-
 bool operator==(const InteractionsStats& lhs, const InteractionsStats& rhs) {
   return lhs.origin_domain == rhs.origin_domain &&
          lhs.username_value == rhs.username_value &&
@@ -65,7 +63,7 @@ StatisticsTable::StatisticsTable() : db_(nullptr) {
 
 StatisticsTable::~StatisticsTable() = default;
 
-void StatisticsTable::Init(sql::Connection* db) {
+void StatisticsTable::Init(sql::Database* db) {
   db_ = db;
 }
 

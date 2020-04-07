@@ -10,6 +10,7 @@
 
 #include "SkData.h"
 #include "SkMatrix.h"
+#include "SkNoncopyable.h"
 #include "SkPath.h"
 #include "SkPoint.h"
 #include "SkPoint3.h"
@@ -41,9 +42,6 @@ public:
     // Returns true iff all of the bytes written so far are stored in the initial storage
     // buffer provided in the constructor or the most recent call to reset.
     bool usingInitialStorage() const { return fData == fExternal; }
-
-    SK_ATTR_DEPRECATED("use bytesWritten")
-    size_t size() const { return this->bytesWritten(); }
 
     void reset(void* external = nullptr, size_t externalBytes = 0) {
         // we cast this pointer to int* and float* at times, so assert that it is aligned.
@@ -113,7 +111,9 @@ public:
     }
 
     void writePtr(void* value) {
-        *(void**)this->reserve(sizeof(value)) = value;
+        // this->reserve() only returns 4-byte aligned pointers,
+        // so this may be an under-aligned write if we were to do this like the others.
+        memcpy(this->reserve(sizeof(value)), &value, sizeof(value));
     }
 
     void writeScalar(SkScalar value) {

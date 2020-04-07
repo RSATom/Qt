@@ -200,6 +200,7 @@ void tst_QApplication::staticSetup()
     QVERIFY(style);
     QApplication::setStyle(style);
 
+    bool palette_changed = false;
     QPalette pal;
     QApplication::setPalette(pal);
 
@@ -208,6 +209,10 @@ void tst_QApplication::staticSetup()
 
     int argc = 0;
     QApplication app(argc, nullptr);
+    QObject::connect(&app, &QApplication::paletteChanged, [&palette_changed]{ palette_changed = true; });
+    QVERIFY(!palette_changed);
+    qApp->setPalette(QPalette(Qt::red));
+    QVERIFY(palette_changed);
 }
 
 
@@ -486,7 +491,7 @@ void tst_QApplication::lastWindowClosed()
     QPointer<QDialog> dialog = new QDialog;
     dialog->setWindowTitle(QLatin1String(QTest::currentTestFunction()) + QLatin1String("Dialog"));
     QVERIFY(dialog->testAttribute(Qt::WA_QuitOnClose));
-    QTimer::singleShot(1000, dialog, &QDialog::accept);
+    QTimer::singleShot(1000, dialog.data(), &QDialog::accept);
     dialog->exec();
     QVERIFY(dialog);
     QCOMPARE(spy.count(), 0);
@@ -2166,8 +2171,6 @@ void tst_QApplication::abortQuitOnShow()
 void tst_QApplication::staticFunctions()
 {
     QApplication::setStyle(QStringLiteral("blub"));
-    QApplication::colorSpec();
-    QApplication::setColorSpec(42);
     QApplication::allWidgets();
     QApplication::topLevelWidgets();
     QApplication::desktop();

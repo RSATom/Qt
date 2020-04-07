@@ -27,14 +27,14 @@ TEST_F(TypingCommandTest, insertLineBreakWithIllFormedHTML) {
   SetBodyContent("<div contenteditable></div>");
 
   // <input><form></form></input>
-  Element* input1 = GetDocument().CreateRawElement(HTMLNames::inputTag);
-  Element* form = GetDocument().CreateRawElement(HTMLNames::formTag);
+  Element* input1 = GetDocument().CreateRawElement(html_names::kInputTag);
+  Element* form = GetDocument().CreateRawElement(html_names::kFormTag);
   input1->AppendChild(form);
 
   // <tr><input><header></header></input><rbc></rbc></tr>
-  Element* tr = GetDocument().CreateRawElement(HTMLNames::trTag);
-  Element* input2 = GetDocument().CreateRawElement(HTMLNames::inputTag);
-  Element* header = GetDocument().CreateRawElement(HTMLNames::headerTag);
+  Element* tr = GetDocument().CreateRawElement(html_names::kTrTag);
+  Element* input2 = GetDocument().CreateRawElement(html_names::kInputTag);
+  Element* header = GetDocument().CreateRawElement(html_names::kHeaderTag);
   Element* rbc = GetDocument().CreateElementForBinding("rbc");
   input2->AppendChild(header);
   tr->AppendChild(input2);
@@ -45,10 +45,11 @@ TEST_F(TypingCommandTest, insertLineBreakWithIllFormedHTML) {
   div->AppendChild(tr);
 
   LocalFrame* frame = GetDocument().GetFrame();
-  frame->Selection().SetSelectionAndEndTyping(SelectionInDOMTree::Builder()
-                                                  .Collapse(Position(form, 0))
-                                                  .Extend(Position(header, 0))
-                                                  .Build());
+  frame->Selection().SetSelection(SelectionInDOMTree::Builder()
+                                      .Collapse(Position(form, 0))
+                                      .Extend(Position(header, 0))
+                                      .Build(),
+                                  SetSelectionOptions());
 
   // Inserting line break should not crash or hit assertion.
   TypingCommand::InsertLineBreak(GetDocument());
@@ -57,8 +58,9 @@ TEST_F(TypingCommandTest, insertLineBreakWithIllFormedHTML) {
 // http://crbug.com/767599
 TEST_F(TypingCommandTest,
        DontCrashWhenReplaceSelectionCommandLeavesBadSelection) {
-  Selection().SetSelectionAndEndTyping(
-      SetSelectionTextToBody("<div contenteditable>^<h1>H1</h1>ello|</div>"));
+  Selection().SetSelection(
+      SetSelectionTextToBody("<div contenteditable>^<h1>H1</h1>ello|</div>"),
+      SetSelectionOptions());
 
   // This call shouldn't crash.
   TypingCommand::InsertText(
@@ -71,13 +73,15 @@ TEST_F(TypingCommandTest,
 // crbug.com/794397
 TEST_F(TypingCommandTest, ForwardDeleteInvalidatesSelection) {
   GetDocument().setDesignMode("on");
-  Selection().SetSelectionAndEndTyping(SetSelectionTextToBody(
-      "<blockquote>^"
-      "<q>"
-      "<table contenteditable=\"false\"><colgroup width=\"-1\">\n</table>|"
-      "</q>"
-      "</blockquote>"
-      "<q>\n<svg></svg></q>"));
+  Selection().SetSelection(
+      SetSelectionTextToBody(
+          "<blockquote>^"
+          "<q>"
+          "<table contenteditable=\"false\"><colgroup width=\"-1\">\n</table>|"
+          "</q>"
+          "</blockquote>"
+          "<q>\n<svg></svg></q>"),
+      SetSelectionOptions());
 
   EditingState editing_state;
   TypingCommand::ForwardDeleteKeyPressed(GetDocument(), &editing_state);

@@ -37,14 +37,21 @@ class FirstLetterPseudoElement;
 // We cache offsets so that text transformations can be applied in such a way
 // that we can recover the original unaltered string from our corresponding DOM
 // node.
-class CORE_EXPORT LayoutTextFragment final : public LayoutText {
+class CORE_EXPORT LayoutTextFragment : public LayoutText {
  public:
-  LayoutTextFragment(Node*, StringImpl*, int start_offset, int length);
-  LayoutTextFragment(Node*, StringImpl*);
   ~LayoutTextFragment() override;
 
-  static LayoutTextFragment* CreateAnonymous(PseudoElement&, StringImpl*);
-  static LayoutTextFragment* CreateAnonymous(PseudoElement&,
+  // |style| is used for checking |ForceLegacyLayout()|.
+  static LayoutTextFragment* Create(const ComputedStyle& style,
+                                    Node*,
+                                    StringImpl*,
+                                    int start_offset,
+                                    int length);
+  static LayoutTextFragment* CreateAnonymous(const ComputedStyle& style,
+                                             PseudoElement&,
+                                             StringImpl*);
+  static LayoutTextFragment* CreateAnonymous(const ComputedStyle& style,
+                                             PseudoElement&,
                                              StringImpl*,
                                              unsigned start,
                                              unsigned length);
@@ -70,7 +77,9 @@ class CORE_EXPORT LayoutTextFragment final : public LayoutText {
 
   scoped_refptr<StringImpl> OriginalText() const override;
 
-  void SetText(scoped_refptr<StringImpl>, bool force = false) override;
+  void SetText(scoped_refptr<StringImpl>,
+               bool force = false,
+               bool avoid_layout_and_only_paint = false) override;
   void SetTextFragment(scoped_refptr<StringImpl>,
                        unsigned start,
                        unsigned length);
@@ -97,6 +106,7 @@ class CORE_EXPORT LayoutTextFragment final : public LayoutText {
   LayoutText* GetFirstLetterPart() const override;
 
  protected:
+  LayoutTextFragment(Node*, StringImpl*, int start_offset, int length);
   void WillBeDestroyed() override;
 
  private:

@@ -1,7 +1,7 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
+
 // A toy server, which listens on a specified address for QUIC traffic and
 // handles incoming responses.
 //
@@ -14,7 +14,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "net/quic/chromium/quic_chromium_connection_helper.h"
+#include "net/quic/quic_chromium_connection_helper.h"
 #include "net/third_party/quic/core/crypto/quic_crypto_server_config.h"
 #include "net/third_party/quic/core/quic_config.h"
 #include "net/third_party/quic/core/quic_framer.h"
@@ -42,10 +42,12 @@ class QuicServer : public net::EpollCallbackInterface {
              const QuicCryptoServerConfig::ConfigOptions& server_config_options,
              const ParsedQuicVersionVector& supported_versions,
              QuicSimpleServerBackend* quic_simple_server_backend);
+  QuicServer(const QuicServer&) = delete;
+  QuicServer& operator=(const QuicServer&) = delete;
 
   ~QuicServer() override;
 
-  std::string Name() const override { return "QuicServer"; }
+  QuicString Name() const override { return "QuicServer"; }
 
   // Start listening on the specified address.
   bool CreateUDPSocketAndListen(const QuicSocketAddress& address);
@@ -148,8 +150,6 @@ class QuicServer : public net::EpollCallbackInterface {
   QuicSimpleServerBackend* quic_simple_server_backend_;  // unowned.
 
   base::WeakPtrFactory<QuicServer> weak_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(QuicServer);
 };
 
 }  // namespace quic

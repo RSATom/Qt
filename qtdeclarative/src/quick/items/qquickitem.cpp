@@ -4444,6 +4444,8 @@ void QQuickItem::update()
 
     When the scene graph processes the request, it will call updatePolish()
     on this item.
+
+    \sa updatePolish(), QQuickTest::qIsPolishScheduled()
   */
 void QQuickItem::polish()
 {
@@ -8453,7 +8455,7 @@ void QQuickItemLayer::setMipmap(bool mipmap)
 
     \note ShaderEffectSource.RGB and ShaderEffectSource.Alpha should
     be used with caution, as support for these formats in the underlying
-    hardare and driver is often not present.
+    hardware and driver is often not present.
 
     \sa {Item Layers}
  */

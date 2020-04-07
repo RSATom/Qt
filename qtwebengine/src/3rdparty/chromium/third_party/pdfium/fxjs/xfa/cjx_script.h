@@ -8,22 +8,27 @@
 #define FXJS_XFA_CJX_SCRIPT_H_
 
 #include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/jse_define.h"
 
 class CXFA_Script;
 
-class CJX_Script : public CJX_Node {
+class CJX_Script final : public CJX_Node {
  public:
   explicit CJX_Script(CXFA_Script* node);
   ~CJX_Script() override;
 
-  JS_PROP(defaultValue); /* {default} */
-  JS_PROP(binding);
-  JS_PROP(contentType);
-  JS_PROP(runAt);
-  JS_PROP(stateless);
-  JS_PROP(use);
-  JS_PROP(usehref);
-  JS_PROP(value);
+  // CJX_Object:
+  bool DynamicTypeIs(TypeTag eType) const override;
+
+  JSE_PROP(defaultValue); /* {default} */
+  JSE_PROP(stateless);
+  JSE_PROP(value);
+
+ private:
+  using Type__ = CJX_Script;
+  using ParentType__ = CJX_Node;
+
+  static const TypeTag static_type__ = TypeTag::Script;
 };
 
 #endif  // FXJS_XFA_CJX_SCRIPT_H_

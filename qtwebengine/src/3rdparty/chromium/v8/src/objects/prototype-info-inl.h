@@ -7,6 +7,8 @@
 
 #include "src/objects/prototype-info.h"
 
+#include "src/heap/heap-write-barrier-inl.h"
+#include "src/objects/map.h"
 #include "src/objects/maybe-object.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -15,10 +17,12 @@
 namespace v8 {
 namespace internal {
 
+OBJECT_CONSTRUCTORS_IMPL(PrototypeInfo, Struct)
+
 CAST_ACCESSOR(PrototypeInfo)
 
-Map* PrototypeInfo::ObjectCreateMap() {
-  return Map::cast(object_create_map()->ToWeakHeapObject());
+Map PrototypeInfo::ObjectCreateMap() {
+  return Map::cast(object_create_map()->GetHeapObjectAssumeWeak());
 }
 
 // static
@@ -28,18 +32,18 @@ void PrototypeInfo::SetObjectCreateMap(Handle<PrototypeInfo> info,
 }
 
 bool PrototypeInfo::HasObjectCreateMap() {
-  MaybeObject* cache = object_create_map();
-  return cache->IsWeakHeapObject();
+  MaybeObject cache = object_create_map();
+  return cache->IsWeak();
 }
 
-ACCESSORS(PrototypeInfo, weak_cell, Object, kWeakCellOffset)
+ACCESSORS(PrototypeInfo, module_namespace, Object, kJSModuleNamespaceOffset)
 ACCESSORS(PrototypeInfo, prototype_users, Object, kPrototypeUsersOffset)
 WEAK_ACCESSORS(PrototypeInfo, object_create_map, kObjectCreateMapOffset)
 SMI_ACCESSORS(PrototypeInfo, registry_slot, kRegistrySlotOffset)
 SMI_ACCESSORS(PrototypeInfo, bit_field, kBitFieldOffset)
 BOOL_ACCESSORS(PrototypeInfo, bit_field, should_be_fast_map, kShouldBeFastBit)
 
-void PrototypeUsers::MarkSlotEmpty(WeakArrayList* array, int index) {
+void PrototypeUsers::MarkSlotEmpty(WeakArrayList array, int index) {
   DCHECK_GT(index, 0);
   DCHECK_LT(index, array->length());
   // Chain the empty slots into a linked list (each empty slot contains the
@@ -48,11 +52,11 @@ void PrototypeUsers::MarkSlotEmpty(WeakArrayList* array, int index) {
   set_empty_slot_index(array, index);
 }
 
-Smi* PrototypeUsers::empty_slot_index(WeakArrayList* array) {
-  return array->Get(kEmptySlotIndex)->ToSmi();
+Smi PrototypeUsers::empty_slot_index(WeakArrayList array) {
+  return array->Get(kEmptySlotIndex).ToSmi();
 }
 
-void PrototypeUsers::set_empty_slot_index(WeakArrayList* array, int index) {
+void PrototypeUsers::set_empty_slot_index(WeakArrayList array, int index) {
   array->Set(kEmptySlotIndex, MaybeObject::FromObject(Smi::FromInt(index)));
 }
 

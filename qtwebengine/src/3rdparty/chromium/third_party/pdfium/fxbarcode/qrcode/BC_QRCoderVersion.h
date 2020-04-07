@@ -8,7 +8,6 @@
 #define FXBARCODE_QRCODE_BC_QRCODERVERSION_H_
 
 #include <memory>
-#include <vector>
 
 #include "fxbarcode/qrcode/BC_QRCoderECBlocks.h"
 
@@ -26,7 +25,6 @@ class CBC_QRCoderVersion {
   static void Finalize();
 
   static const CBC_QRCoderVersion* GetVersionForNumber(int32_t versionNumber);
-  static void Destroy();
 
   int32_t GetVersionNumber() const;
   int32_t GetTotalCodeWords() const;

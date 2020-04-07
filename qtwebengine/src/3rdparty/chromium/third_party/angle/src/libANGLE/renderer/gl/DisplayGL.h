@@ -32,13 +32,16 @@ class DisplayGL : public DisplayImpl
     void terminate() override;
 
     ImageImpl *createImage(const egl::ImageState &state,
+                           const gl::Context *context,
                            EGLenum target,
                            const egl::AttributeMap &attribs) override;
 
     StreamProducerImpl *createStreamProducerD3DTexture(egl::Stream::ConsumerType consumerType,
                                                        const egl::AttributeMap &attribs) override;
 
-    egl::Error makeCurrent(egl::Surface *drawSurface, egl::Surface *readSurface, gl::Context *context) override;
+    egl::Error makeCurrent(egl::Surface *drawSurface,
+                           egl::Surface *readSurface,
+                           gl::Context *context) override;
 
   protected:
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;
@@ -49,6 +52,6 @@ class DisplayGL : public DisplayImpl
     egl::Surface *mCurrentDrawSurface;
 };
 
-}
+}  // namespace rx
 
-#endif // LIBANGLE_RENDERER_GL_DISPLAYGL_H_
+#endif  // LIBANGLE_RENDERER_GL_DISPLAYGL_H_

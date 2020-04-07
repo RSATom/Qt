@@ -10,6 +10,10 @@
 
 #include "api/video_codecs/video_encoder.h"
 
+#include <string.h>
+
+#include "rtc_base/checks.h"
+
 namespace webrtc {
 
 // TODO(mflodman): Add default complexity for VP9 and VP9.
@@ -78,6 +82,23 @@ VideoEncoder::ScalingSettings::~ScalingSettings() {}
 // static
 constexpr VideoEncoder::ScalingSettings::KOff
     VideoEncoder::ScalingSettings::kOff;
+// static
+constexpr uint8_t VideoEncoder::EncoderInfo::kMaxFramerateFraction;
+
+VideoEncoder::EncoderInfo::EncoderInfo()
+    : scaling_settings(VideoEncoder::ScalingSettings::kOff),
+      supports_native_handle(false),
+      implementation_name("unknown"),
+      has_trusted_rate_controller(false),
+      is_hardware_accelerated(true),
+      has_internal_source(false),
+      fps_allocation{absl::InlinedVector<uint8_t, kMaxTemporalStreams>(
+          1,
+          kMaxFramerateFraction)} {}
+
+VideoEncoder::EncoderInfo::EncoderInfo(const EncoderInfo&) = default;
+
+VideoEncoder::EncoderInfo::~EncoderInfo() = default;
 
 int32_t VideoEncoder::SetRates(uint32_t bitrate, uint32_t framerate) {
   RTC_NOTREACHED() << "SetRate(uint32_t, uint32_t) is deprecated.";
@@ -90,15 +111,9 @@ int32_t VideoEncoder::SetRateAllocation(
   return SetRates(allocation.get_sum_kbps(), framerate);
 }
 
-VideoEncoder::ScalingSettings VideoEncoder::GetScalingSettings() const {
-  return ScalingSettings::kOff;
+// TODO(webrtc:9722): Remove and make pure virtual.
+VideoEncoder::EncoderInfo VideoEncoder::GetEncoderInfo() const {
+  return EncoderInfo();
 }
 
-bool VideoEncoder::SupportsNativeHandle() const {
-  return false;
-}
-
-const char* VideoEncoder::ImplementationName() const {
-  return "unknown";
-}
 }  // namespace webrtc

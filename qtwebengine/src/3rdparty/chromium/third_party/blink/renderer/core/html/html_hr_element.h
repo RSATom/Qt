@@ -35,10 +35,11 @@ class HTMLHRElement final : public HTMLElement {
  public:
   DECLARE_NODE_FACTORY(HTMLHRElement);
 
+  explicit HTMLHRElement(Document&);
+
   bool CanContainRangeEndPoint() const override { return HasChildren(); }
 
  private:
-  explicit HTMLHRElement(Document&);
   HTMLSelectElement* OwnerSelectElement() const;
 
   bool IsPresentationAttribute(const QualifiedName&) const override;
@@ -46,8 +47,8 @@ class HTMLHRElement final : public HTMLElement {
       const QualifiedName&,
       const AtomicString&,
       MutableCSSPropertyValueSet*) override;
-  InsertionNotificationRequest InsertedInto(ContainerNode*) override;
-  void RemovedFrom(ContainerNode*) override;
+  InsertionNotificationRequest InsertedInto(ContainerNode&) override;
+  void RemovedFrom(ContainerNode&) override;
 };
 
 }  // namespace blink

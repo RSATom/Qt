@@ -56,6 +56,7 @@ public:
     QGeoMap::Capabilities capabilities() const override;
     bool createMapObjectImplementation(QGeoMapObject *obj) override;
     void removeMapObject(QGeoMapObject *obj) override;
+    QList<QObject *> mapObjectsAt(const QGeoCoordinate &coordinate) const override;
 
 protected:
     QSGNode *updateSceneGraph(QSGNode *node, QQuickWindow *window) override;

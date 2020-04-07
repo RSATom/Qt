@@ -165,14 +165,6 @@ QDeclarativeBluetoothDiscoveryModel::QDeclarativeBluetoothDiscoveryModel(QObject
             this,
             &QDeclarativeBluetoothDiscoveryModel::errorDiscovery);
     d->m_serviceAgent->setObjectName(QStringLiteral("ServiceDiscoveryAgent"));
-
-    QHash<int, QByteArray> roleNames;
-    roleNames = QAbstractItemModel::roleNames();
-    roleNames.insert(Name, "name");
-    roleNames.insert(ServiceRole, "service");
-    roleNames.insert(RemoteAddress, "remoteAddress");
-    roleNames.insert(DeviceName, "deviceName");
-    setRoleNames(roleNames);
 }
 
 QDeclarativeBluetoothDiscoveryModel::~QDeclarativeBluetoothDiscoveryModel()
@@ -312,6 +304,14 @@ QVariant QDeclarativeBluetoothDiscoveryModel::data(const QModelIndex &index, int
     }
 
     return QVariant();
+}
+
+QHash<int,QByteArray> QDeclarativeBluetoothDiscoveryModel::roleNames() const
+{
+    return {{Name, "name"},
+            {ServiceRole, "service"},
+            {RemoteAddress, "remoteAddress"},
+            {DeviceName, "deviceName"}};
 }
 
 /*!

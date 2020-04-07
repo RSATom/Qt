@@ -41,7 +41,7 @@ bool LayoutIFrame::IsInlineBlockOrInlineTable() const {
 }
 
 PaintLayerType LayoutIFrame::LayerTypeRequired() const {
-  if (Style()->Resize() != EResize::kNone)
+  if (StyleRef().Resize() != EResize::kNone)
     return kNormalPaintLayer;
   return LayoutEmbeddedContent::LayerTypeRequired();
 }
@@ -54,8 +54,7 @@ void LayoutIFrame::UpdateLayout() {
   // No kids to layout as a replaced element.
   UpdateLogicalHeight();
 
-  overflow_.reset();
-  AddVisualEffectOverflow();
+  ClearLayoutOverflow();
   UpdateAfterLayout();
 
   ClearNeedsLayout();

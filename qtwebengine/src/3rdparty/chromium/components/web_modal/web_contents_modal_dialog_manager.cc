@@ -10,14 +10,10 @@
 #include "base/logging.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/render_view_host.h"
-#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 
 using content::WebContents;
-
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(web_modal::WebContentsModalDialogManager);
 
 namespace web_modal {
 
@@ -65,11 +61,10 @@ content::WebContents* WebContentsModalDialogManager::GetWebContents() const {
 }
 
 void WebContentsModalDialogManager::WillClose(gfx::NativeWindow dialog) {
-  WebContentsModalDialogList::iterator dlg =
-      std::find_if(child_dialogs_.begin(), child_dialogs_.end(),
-                   [dialog](const DialogState& child_dialog) {
-                     return child_dialog.dialog == dialog;
-                   });
+  auto dlg = std::find_if(child_dialogs_.begin(), child_dialogs_.end(),
+                          [dialog](const DialogState& child_dialog) {
+                            return child_dialog.dialog == dialog;
+                          });
 
   // The Views tab contents modal dialog calls WillClose twice.  Ignore the
   // second invocation.
@@ -116,10 +111,7 @@ void WebContentsModalDialogManager::BlockWebContentsInteraction(bool blocked) {
     return;
   }
 
-  // RenderViewHost may be null during shutdown.
-  content::RenderViewHost* host = contents->GetRenderViewHost();
-  if (host)
-    host->GetWidget()->SetIgnoreInputEvents(blocked);
+  contents->SetIgnoreInputEvents(blocked);
   if (delegate_)
     delegate_->SetWebContentsBlocked(contents, blocked);
 }
@@ -181,5 +173,7 @@ void WebContentsModalDialogManager::WebContentsDestroyed() {
 void WebContentsModalDialogManager::DidAttachInterstitialPage() {
   CloseAllDialogs();
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(WebContentsModalDialogManager)
 
 }  // namespace web_modal

@@ -7,10 +7,12 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_mapping_rules.h"
 #include "net/base/net_export.h"
+#include "net/dns/dns_config.h"
 #include "net/dns/host_resolver.h"
 
 namespace net {
@@ -46,6 +48,11 @@ class NET_EXPORT MappedHostResolver : public HostResolver {
   }
 
   // HostResolver methods:
+  std::unique_ptr<ResolveHostRequest> CreateRequest(
+      const HostPortPair& host,
+      const NetLogWithSource& net_log,
+      const base::Optional<ResolveHostParameters>& optional_parameters)
+      override;
   int Resolve(const RequestInfo& info,
               RequestPriority priority,
               AddressList* addresses,
@@ -60,17 +67,21 @@ class NET_EXPORT MappedHostResolver : public HostResolver {
                             HostCache::EntryStaleness* stale_info,
                             const NetLogWithSource& source_net_log) override;
   void SetDnsClientEnabled(bool enabled) override;
-
   HostCache* GetHostCache() override;
   bool HasCached(base::StringPiece hostname,
                  HostCache::Entry::Source* source_out,
                  HostCache::EntryStaleness* stale_out) const override;
-
   std::unique_ptr<base::Value> GetDnsConfigAsValue() const override;
   void SetNoIPv6OnWifi(bool no_ipv6_on_wifi) override;
   bool GetNoIPv6OnWifi() override;
+  void SetDnsConfigOverrides(const DnsConfigOverrides& overrides) override;
+  void SetRequestContext(URLRequestContext* request_context) override;
+  const std::vector<DnsConfig::DnsOverHttpsServerConfig>*
+  GetDnsOverHttpsServersForTesting() const override;
 
  private:
+  class AlwaysErrorRequestImpl;
+
   // Modify the request |info| according to |rules_|. Returns either OK or
   // the network error code that the hostname's resolution mapped to.
   int ApplyRules(RequestInfo* info) const;

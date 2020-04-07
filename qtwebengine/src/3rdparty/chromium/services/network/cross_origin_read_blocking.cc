@@ -7,20 +7,25 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <set>
 #include <string>
 #include <unordered_set>
 
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "net/base/mime_sniffer.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
+#include "services/network/cross_origin_resource_policy.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/resource_response_info.h"
 
@@ -153,19 +158,17 @@ SniffingResult MaybeSkipHtmlComment(StringPiece* data) {
   return CrossOriginReadBlocking::kYes;
 }
 
-// Headers from
-// https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name.
+// Removes headers that should be blocked in cross-origin case.
 //
-// Note that XSDB doesn't block responses allowed through CORS - this means
+// Note that corbSanitizedResponse in https://fetch.spec.whatwg.org/#main-fetch
+// has an empty list of headers, but the code below doesn't remove all the
+// headers for improved user experience - for better error messages for CORS.
+// See also https://github.com/whatwg/fetch/pull/686#issuecomment-383711732 and
+// the http/tests/xmlhttprequest/origin-exact-matching/07.html layout test.
+//
+// Note that CORB doesn't block responses allowed through CORS - this means
 // that the list of allowed headers below doesn't have to consider header
 // names listed in the Access-Control-Expose-Headers header.
-const char* const kCorsSafelistedHeaders[] = {
-    "cache-control", "content-language", "content-type",
-    "expires",       "last-modified",    "pragma",
-};
-
-// Removes headers that should be blocked in cross-origin case.
-// See https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name.
 void BlockResponseHeaders(
     const scoped_refptr<net::HttpResponseHeaders>& headers) {
   DCHECK(headers);
@@ -186,16 +189,30 @@ void BlockResponseHeaders(
       continue;
     }
 
-    // Remove all other headers (but note the final exclusion below).
+    // Remove all other headers.
     names_of_headers_to_remove.insert(base::ToLowerASCII(name));
   }
 
-  // Exclude from removals headers from
-  // https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name.
-  for (const char* header : kCorsSafelistedHeaders)
-    names_of_headers_to_remove.erase(header);
-
   headers->RemoveHeaders(names_of_headers_to_remove);
+}
+
+std::set<int>& GetPluginProxyingProcesses() {
+  static base::NoDestructor<std::set<int>> set;
+  return *set;
+}
+
+bool ShouldEnforceInitiatorLock() {
+  return base::FeatureList::IsEnabled(network::features::kNetworkService) &&
+         base::FeatureList::IsEnabled(
+             network::features::kEnforceRequestInitiatorLockForCorb);
+}
+
+void RecordCorbResultVsInitiatorLockCompatibility(
+    CrossOriginReadBlocking::CorbResultVsInitiatorLockCompatibility value) {
+  if (ShouldEnforceInitiatorLock()) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "SiteIsolation.XSD.NetworkService.InitiatorLockCompatibility", value);
+  }
 }
 
 }  // namespace
@@ -301,7 +318,7 @@ SniffingResult CrossOriginReadBlocking::SniffForHTML(StringPiece data) {
     AdvancePastWhitespace(&data);
 
     SniffingResult signature_match =
-        MatchesSignature(&data, kHtmlSignatures, arraysize(kHtmlSignatures),
+        MatchesSignature(&data, kHtmlSignatures, base::size(kHtmlSignatures),
                          base::CompareCase::INSENSITIVE_ASCII);
     if (signature_match != kNo)
       return signature_match;
@@ -321,7 +338,7 @@ SniffingResult CrossOriginReadBlocking::SniffForXML(base::StringPiece data) {
   // initializer.
   AdvancePastWhitespace(&data);
   static const StringPiece kXmlSignatures[] = {StringPiece("<?xml")};
-  return MatchesSignature(&data, kXmlSignatures, arraysize(kXmlSignatures),
+  return MatchesSignature(&data, kXmlSignatures, base::size(kXmlSignatures),
                           base::CompareCase::SENSITIVE);
 }
 
@@ -426,7 +443,7 @@ SniffingResult CrossOriginReadBlocking::SniffForFetchOnlyResource(
       StringPiece("while (1);"),
   };
   SniffingResult has_parser_breaker = MatchesSignature(
-      &data, kScriptBreakingPrefixes, arraysize(kScriptBreakingPrefixes),
+      &data, kScriptBreakingPrefixes, base::size(kScriptBreakingPrefixes),
       base::CompareCase::SENSITIVE);
   if (has_parser_breaker != kNo)
     return has_parser_breaker;
@@ -442,14 +459,6 @@ void CrossOriginReadBlocking::SanitizeBlockedResponse(
   response->head.content_length = 0;
   if (response->head.headers)
     BlockResponseHeaders(response->head.headers);
-}
-
-// static
-std::vector<std::string>
-CrossOriginReadBlocking::GetCorsSafelistedHeadersForTesting() {
-  return std::vector<std::string>(
-      kCorsSafelistedHeaders,
-      kCorsSafelistedHeaders + arraysize(kCorsSafelistedHeaders));
 }
 
 // static
@@ -557,13 +566,15 @@ class CrossOriginReadBlocking::ResponseAnalyzer::FetchOnlyResourceSniffer
 CrossOriginReadBlocking::ResponseAnalyzer::ResponseAnalyzer(
     const net::URLRequest& request,
     const ResourceResponse& response,
-    base::StringPiece excluded_initiator_scheme) {
+    base::Optional<url::Origin> request_initiator_site_lock,
+    mojom::FetchRequestMode fetch_request_mode) {
   content_length_ = response.head.content_length;
   http_response_code_ =
       response.head.headers ? response.head.headers->response_code() : 0;
+  request_initiator_site_lock_ = request_initiator_site_lock;
 
   should_block_based_on_headers_ =
-      ShouldBlockBasedOnHeaders(request, response, excluded_initiator_scheme);
+      ShouldBlockBasedOnHeaders(fetch_request_mode, request, response);
   if (should_block_based_on_headers_ == kNeedToSniffMore)
     CreateSniffers();
 }
@@ -572,18 +583,32 @@ CrossOriginReadBlocking::ResponseAnalyzer::~ResponseAnalyzer() = default;
 
 CrossOriginReadBlocking::ResponseAnalyzer::BlockingDecision
 CrossOriginReadBlocking::ResponseAnalyzer::ShouldBlockBasedOnHeaders(
+    mojom::FetchRequestMode fetch_request_mode,
     const net::URLRequest& request,
-    const ResourceResponse& response,
-    base::StringPiece excluded_initiator_scheme) {
+    const ResourceResponse& response) {
   // The checks in this method are ordered to rule out blocking in most cases as
   // quickly as possible.  Checks that are likely to lead to returning false or
   // that are inexpensive should be near the top.
   url::Origin target_origin = url::Origin::Create(request.url());
 
+  // Check if |target_origin| seems to match the factory lock in
+  // |request_initiator_site_lock_|.  If so, then treat this request as
+  // same-origin (even if |request.initiator()| might be cross-origin).  See
+  // also https://crbug.com/918660.
+  if (VerifyRequestInitiatorLock(request_initiator_site_lock_, target_origin) ==
+      InitiatorLockCompatibility::kCompatibleLock) {
+    return kAllow;
+  }
+
   // Treat a missing initiator as an empty origin to be safe, though we don't
   // expect this to happen.  Unfortunately, this requires a copy.
   url::Origin initiator;
-  if (request.initiator().has_value())
+  initiator_compatibility_ = VerifyRequestInitiatorLock(
+      request_initiator_site_lock_, request.initiator());
+  bool block_untrustworthy_initiator =
+      ShouldEnforceInitiatorLock() &&
+      initiator_compatibility_ == InitiatorLockCompatibility::kIncorrectLock;
+  if (request.initiator().has_value() && !block_untrustworthy_initiator)
     initiator = request.initiator().value();
 
   // Don't block same-origin documents.
@@ -602,20 +627,22 @@ CrossOriginReadBlocking::ResponseAnalyzer::ShouldBlockBasedOnHeaders(
   if (initiator.scheme() == url::kFileScheme)
     return kAllow;
 
-  // Give embedder a chance to skip document blocking of some initiator schemes
-  // (e.g. chrome-extension to avoid blocking requests initiated by content
-  // scripts).
-  if (!excluded_initiator_scheme.empty() &&
-      initiator.scheme() == excluded_initiator_scheme) {
-    return kAllow;
-  }
+  // Allow the response through if this is a CORS request and the response has
+  // valid CORS headers.
+  switch (fetch_request_mode) {
+    case mojom::FetchRequestMode::kNavigate:
+    case mojom::FetchRequestMode::kNoCors:
+    case mojom::FetchRequestMode::kSameOrigin:
+      break;
 
-  // Allow the response through if it has valid CORS headers.
-  std::string cors_header;
-  response.head.headers->GetNormalizedHeader("access-control-allow-origin",
-                                             &cors_header);
-  if (IsValidCorsHeaderSet(initiator, cors_header)) {
-    return kAllow;
+    case mojom::FetchRequestMode::kCors:
+    case mojom::FetchRequestMode::kCorsWithForcedPreflight:
+      std::string cors_header;
+      response.head.headers->GetNormalizedHeader("access-control-allow-origin",
+                                                 &cors_header);
+      if (IsValidCorsHeaderSet(initiator, cors_header))
+        return kAllow;
+      break;
   }
 
   // Requests from foo.example.com will consult foo.example.com's service worker
@@ -625,9 +652,9 @@ CrossOriginReadBlocking::ResponseAnalyzer::ShouldBlockBasedOnHeaders(
   // unless the initiator opted out of CORS / opted into receiving an opaque
   // response.  See also https://crbug.com/803672.
   if (response.head.was_fetched_via_service_worker) {
-    switch (response.head.response_type_via_service_worker) {
+    switch (response.head.response_type) {
       case network::mojom::FetchResponseType::kBasic:
-      case network::mojom::FetchResponseType::kCORS:
+      case network::mojom::FetchResponseType::kCors:
       case network::mojom::FetchResponseType::kDefault:
       case network::mojom::FetchResponseType::kError:
         // Non-opaque responses shouldn't be blocked.
@@ -666,6 +693,40 @@ CrossOriginReadBlocking::ResponseAnalyzer::ShouldBlockBasedOnHeaders(
   // the checks during the SniffForFetchOnlyResource() phase.
   canonical_mime_type_ =
       network::CrossOriginReadBlocking::GetCanonicalMimeType(mime_type);
+
+  // CORS is currently implemented in the renderer process, so it's useful for
+  // CORB to filter failed "cors" mode fetches to avoid leaking the responses to
+  // the renderer when possible (e.g., depending on MIME type and sniffing).
+  // This will eventually be fixed with OOR-CORS.
+  //
+  // In the mean time, we can try to filter a few additional failed CORS
+  // fetches, treating the Cross-Origin-Resource-Policy (CORP) header as an
+  // opt-in to CORB.  CORP headers are enforced elsewhere and normally only
+  // apply to "no-cors" mode fetches.  If such a header happens to be on the
+  // response during other fetch modes, and if the same-origin and
+  // IsValidCorsHeaderSet checks above have failed (and thus the request will
+  // fail in the renderer), then we can let CORB filter the response without
+  // caring about MIME type or sniffing.
+  //
+  // To make CrossOriginResourcePolicy::Verify apply to all fetch modes in this
+  // case and not just "no-cors", we pass kNoCors as a hard-coded value.  This
+  // does not affect the usual enforcement of CORP headers.
+  //
+  // TODO(lukasza): Once OOR-CORS launches (https://crbug.com/736308), this code
+  // block will no longer be necessary since all failed CORS requests will be
+  // blocked before reaching the renderer process (even without CORB's help).
+  // Of course this assumes that OOR-CORS will use trustworthy
+  // |request_initiator| (i.e. vetted against |request_initiator|site_lock|).
+  constexpr mojom::FetchRequestMode kOverreachingFetchMode =
+      mojom::FetchRequestMode::kNoCors;
+  if (CrossOriginResourcePolicy::kBlock ==
+      CrossOriginResourcePolicy::Verify(request, response,
+                                        kOverreachingFetchMode,
+                                        request_initiator_site_lock_)) {
+    // Ignore mime types and/or sniffing and have CORB block all responses with
+    // COR*P* header.
+    return kBlock;
+  }
 
   // If this is a partial response, sniffing is not possible, so allow the
   // response if it's not a protected mime type.
@@ -837,8 +898,8 @@ bool CrossOriginReadBlocking::ResponseAnalyzer::ShouldReportBlockedResponse()
 
 void CrossOriginReadBlocking::ResponseAnalyzer::LogBytesReadForSniffing() {
   if (bytes_read_for_sniffing_ >= 0) {
-    UMA_HISTOGRAM_COUNTS("SiteIsolation.XSD.Browser.BytesReadForSniffing",
-                         bytes_read_for_sniffing_);
+    UMA_HISTOGRAM_COUNTS_1M("SiteIsolation.XSD.Browser.BytesReadForSniffing",
+                            bytes_read_for_sniffing_);
   }
 }
 
@@ -861,6 +922,9 @@ void CrossOriginReadBlocking::ResponseAnalyzer::LogAllowedResponse() {
           : network::CrossOriginReadBlocking::Action::kAllowedWithoutSniffing);
 
   LogBytesReadForSniffing();
+
+  RecordCorbResultVsInitiatorLockCompatibility(
+      CorbResultVsInitiatorLockCompatibility::kNoBlocking);
 }
 
 void CrossOriginReadBlocking::ResponseAnalyzer::LogBlockedResponse() {
@@ -883,6 +947,46 @@ void CrossOriginReadBlocking::ResponseAnalyzer::LogBlockedResponse() {
   }
 
   LogBytesReadForSniffing();
+
+  if (!ShouldReportBlockedResponse()) {
+    RecordCorbResultVsInitiatorLockCompatibility(
+        CorbResultVsInitiatorLockCompatibility::kBenignBlocking);
+  } else {
+    switch (initiator_compatibility_) {
+      case InitiatorLockCompatibility::kIncorrectLock:
+        RecordCorbResultVsInitiatorLockCompatibility(
+            CorbResultVsInitiatorLockCompatibility::kBlockingWhenIncorrectLock);
+        break;
+      case InitiatorLockCompatibility::kCompatibleLock:
+        RecordCorbResultVsInitiatorLockCompatibility(
+            CorbResultVsInitiatorLockCompatibility::
+                kBlockingWhenCompatibleLock);
+        break;
+      default:
+        RecordCorbResultVsInitiatorLockCompatibility(
+            CorbResultVsInitiatorLockCompatibility::kBlockingWhenOtherLock);
+        break;
+    }
+  }
+}
+
+// static
+void CrossOriginReadBlocking::AddExceptionForPlugin(int process_id) {
+  std::set<int>& plugin_proxies = GetPluginProxyingProcesses();
+  plugin_proxies.insert(process_id);
+}
+
+// static
+bool CrossOriginReadBlocking::ShouldAllowForPlugin(int process_id) {
+  std::set<int>& plugin_proxies = GetPluginProxyingProcesses();
+  return base::ContainsKey(plugin_proxies, process_id);
+}
+
+// static
+void CrossOriginReadBlocking::RemoveExceptionForPlugin(int process_id) {
+  std::set<int>& plugin_proxies = GetPluginProxyingProcesses();
+  size_t number_of_elements_removed = plugin_proxies.erase(process_id);
+  DCHECK_EQ(1u, number_of_elements_removed);
 }
 
 }  // namespace network

@@ -70,7 +70,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     // Registered keys. Keyed on key handle (a.k.a. "credential ID").
     std::map<std::vector<uint8_t>,
              RegistrationData,
-             fido_parsing_utils::SpanLess>
+             fido_parsing_utils::RangeLess>
         registrations;
 
     // If set, this callback is called whenever a "press" is required. It allows
@@ -79,6 +79,18 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
 
     // If true, causes the response from the device to be invalid.
     bool simulate_invalid_response = false;
+
+    // If true, return a packed self-attestation rather than a generated
+    // certificate. This only has an effect for a CTAP2 device as
+    // self-attestation is not defined for CTAP1.
+    bool self_attestation = false;
+
+    // Only valid if |self_attestation| is true. Causes the AAGUID to be non-
+    // zero, in violation of the rules for self-attestation.
+    bool non_zero_aaguid_with_self_attestation = false;
+
+    FidoTransportProtocol transport =
+        FidoTransportProtocol::kUsbHumanInterfaceDevice;
 
     // Adds a registration for the specified credential ID with the application
     // parameter set to be valid for the given relying party ID (which would
@@ -133,6 +145,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
   // FidoDevice:
   void TryWink(WinkCallback cb) override;
   std::string GetId() const override;
+  FidoTransportProtocol DeviceTransport() const override;
 
  private:
   scoped_refptr<State> state_ = base::MakeRefCounted<State>();

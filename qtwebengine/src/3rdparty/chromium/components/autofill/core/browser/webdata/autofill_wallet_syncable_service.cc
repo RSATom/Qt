@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <map>
 #include <utility>
 
@@ -18,6 +19,8 @@
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_backend.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
+#include "components/autofill/core/common/autofill_util.h"
+#include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_error_factory.h"
 #include "components/sync/protocol/sync.pb.h"
 
@@ -25,18 +28,14 @@ namespace autofill {
 
 namespace {
 
-// The length of the GUIDs used for local autofill data. It is different than
-// the length used for server autofill data.
-const int kLocalGuidSize = 36;
-
-void* UserDataKey() {
+void* AutofillWalletSyncableServiceUserDataKey() {
   // Use the address of a static so that COMDAT folding won't ever fold
   // with something else.
   static int user_data_key = 0;
   return reinterpret_cast<void*>(&user_data_key);
 }
 
-const char* CardNetworkFromWalletCardType(
+const char* CardNetworkFromAutofillWalletCardType(
     sync_pb::WalletMaskedCreditCard::WalletCardType type) {
   switch (type) {
     case sync_pb::WalletMaskedCreditCard::AMEX:
@@ -61,7 +60,7 @@ const char* CardNetworkFromWalletCardType(
   }
 }
 
-CreditCard::CardType CardTypeFromWalletCardClass(
+CreditCard::CardType CardTypeFromAutofillWalletCardClass(
     sync_pb::WalletMaskedCreditCard::WalletCardClass card_class) {
   switch (card_class) {
     case sync_pb::WalletMaskedCreditCard::CREDIT:
@@ -75,7 +74,7 @@ CreditCard::CardType CardTypeFromWalletCardClass(
   }
 }
 
-CreditCard::ServerStatus ServerToLocalStatus(
+CreditCard::ServerStatus ServerToLocalWalletCardStatus(
     sync_pb::WalletMaskedCreditCard::WalletCardStatus status) {
   switch (status) {
     case sync_pb::WalletMaskedCreditCard::VALID:
@@ -87,12 +86,14 @@ CreditCard::ServerStatus ServerToLocalStatus(
   }
 }
 
-CreditCard CardFromSpecifics(const sync_pb::WalletMaskedCreditCard& card) {
+CreditCard CardFromWalletCardSpecifics(
+    const sync_pb::WalletMaskedCreditCard& card) {
   CreditCard result(CreditCard::MASKED_SERVER_CARD, card.id());
   result.SetNumber(base::UTF8ToUTF16(card.last_four()));
-  result.SetServerStatus(ServerToLocalStatus(card.status()));
-  result.SetNetworkForMaskedCard(CardNetworkFromWalletCardType(card.type()));
-  result.set_card_type(CardTypeFromWalletCardClass(card.card_class()));
+  result.SetServerStatus(ServerToLocalWalletCardStatus(card.status()));
+  result.SetNetworkForMaskedCard(
+      CardNetworkFromAutofillWalletCardType(card.type()));
+  result.set_card_type(CardTypeFromAutofillWalletCardClass(card.card_class()));
   result.SetRawInfo(CREDIT_CARD_NAME_FULL,
                     base::UTF8ToUTF16(card.name_on_card()));
   result.SetExpirationMonth(card.exp_month());
@@ -102,7 +103,7 @@ CreditCard CardFromSpecifics(const sync_pb::WalletMaskedCreditCard& card) {
   return result;
 }
 
-AutofillProfile ProfileFromSpecifics(
+AutofillProfile ProfileFromWalletCardSpecifics(
     const sync_pb::WalletPostalAddress& address) {
   AutofillProfile profile(AutofillProfile::SERVER_PROFILE, std::string());
 
@@ -138,6 +139,11 @@ AutofillProfile ProfileFromSpecifics(
   profile.GenerateServerProfileIdentifier();
 
   return profile;
+}
+
+PaymentsCustomerData CustomerDataFromSyncSpecifics(
+    const sync_pb::PaymentsCustomerData& customer_data) {
+  return PaymentsCustomerData{/*customer_id=*/customer_data.id()};
 }
 
 }  // namespace
@@ -208,7 +214,7 @@ syncer::SyncMergeResult AutofillWalletSyncableService::MergeDataAndStartSyncing(
   DCHECK(thread_checker_.CalledOnValidThread());
   sync_processor_ = std::move(sync_processor);
   syncer::SyncMergeResult result =
-      SetSyncData(initial_sync_data, /*is_initial_data=*/true);
+      SetSyncData(initial_sync_data, /*is_initial_merge=*/true);
   if (webdata_backend_)
     webdata_backend_->NotifyThatSyncHasStarted(type);
   return result;
@@ -235,7 +241,7 @@ syncer::SyncError AutofillWalletSyncableService::ProcessSyncChanges(
   // Don't bother handling incremental updates. Wallet data changes very rarely
   // and has few items. Instead, just get all the current data and save it.
   SetSyncData(sync_processor_->GetAllSyncData(syncer::AUTOFILL_WALLET_DATA),
-              /*is_initial_data=*/false);
+              /*is_initial_merge=*/false);
   return syncer::SyncError();
 }
 
@@ -245,8 +251,9 @@ void AutofillWalletSyncableService::CreateForWebDataServiceAndBackend(
     AutofillWebDataBackend* webdata_backend,
     const std::string& app_locale) {
   web_data_service->GetDBUserData()->SetUserData(
-      UserDataKey(), base::WrapUnique(new AutofillWalletSyncableService(
-                         webdata_backend, app_locale)));
+      AutofillWalletSyncableServiceUserDataKey(),
+      std::make_unique<AutofillWalletSyncableService>(webdata_backend,
+                                                      app_locale));
 }
 
 // static
@@ -254,7 +261,8 @@ AutofillWalletSyncableService*
 AutofillWalletSyncableService::FromWebDataService(
     AutofillWebDataService* web_data_service) {
   return static_cast<AutofillWalletSyncableService*>(
-      web_data_service->GetDBUserData()->GetUserData(UserDataKey()));
+      web_data_service->GetDBUserData()->GetUserData(
+          AutofillWalletSyncableServiceUserDataKey()));
 }
 
 void AutofillWalletSyncableService::InjectStartSyncFlare(
@@ -263,10 +271,11 @@ void AutofillWalletSyncableService::InjectStartSyncFlare(
 }
 
 // static
-void AutofillWalletSyncableService::PopulateWalletCardsAndAddresses(
+void AutofillWalletSyncableService::PopulateWalletTypesFromSyncData(
     const syncer::SyncDataList& data_list,
     std::vector<CreditCard>* wallet_cards,
-    std::vector<AutofillProfile>* wallet_addresses) {
+    std::vector<AutofillProfile>* wallet_addresses,
+    std::vector<PaymentsCustomerData>* customer_data) {
   std::map<std::string, std::string> ids;
 
   for (const syncer::SyncData& data : data_list) {
@@ -276,15 +285,19 @@ void AutofillWalletSyncableService::PopulateWalletCardsAndAddresses(
     switch (autofill_specifics.type()) {
       case sync_pb::AutofillWalletSpecifics::MASKED_CREDIT_CARD:
         wallet_cards->push_back(
-            CardFromSpecifics(autofill_specifics.masked_card()));
+            CardFromWalletCardSpecifics(autofill_specifics.masked_card()));
         break;
       case sync_pb::AutofillWalletSpecifics::POSTAL_ADDRESS:
         wallet_addresses->push_back(
-            ProfileFromSpecifics(autofill_specifics.address()));
+            ProfileFromWalletCardSpecifics(autofill_specifics.address()));
 
         // Map the sync billing address id to the profile's id.
         ids[autofill_specifics.address().id()] =
             wallet_addresses->back().server_id();
+        break;
+      case sync_pb::AutofillWalletSpecifics::CUSTOMER_DATA:
+        customer_data->push_back(
+            CustomerDataFromSyncSpecifics(autofill_specifics.customer_data()));
         break;
       case sync_pb::AutofillWalletSpecifics::UNKNOWN:
         // Just ignore new entry types that the client doesn't know about.
@@ -330,10 +343,12 @@ void AutofillWalletSyncableService::CopyRelevantMetadataFromDisk(
 
 syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
     const syncer::SyncDataList& data_list,
-    bool is_initial_data) {
+    bool is_initial_merge) {
   std::vector<CreditCard> wallet_cards;
   std::vector<AutofillProfile> wallet_addresses;
-  PopulateWalletCardsAndAddresses(data_list, &wallet_cards, &wallet_addresses);
+  std::vector<PaymentsCustomerData> customer_data;
+  PopulateWalletTypesFromSyncData(data_list, &wallet_cards, &wallet_addresses,
+                                  &customer_data);
 
   // Users can set billing address of the server credit card locally, but that
   // information does not propagate to either Chrome Sync or Google Payments
@@ -347,6 +362,7 @@ syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
   // to the database will require at least one DB page write and will schedule
   // a fsync. To avoid this I/O, it should be more efficient to do a read and
   // only do the writes if something changed.
+
   std::vector<std::unique_ptr<CreditCard>> existing_cards;
   table->GetServerCreditCards(&existing_cards);
   Diff cards_diff = ComputeDiff(existing_cards, wallet_cards);
@@ -365,20 +381,53 @@ syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
   merge_result.set_num_items_after_association(
       static_cast<int>(wallet_cards.size() + wallet_addresses.size()));
 
-  if (!is_initial_data) {
-    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletCardsAdded",
+  // We report the diff to metrics only if this is an incremental change where
+  // the user had sync set-up (having PaymentsCustomerData is a pre-requisite
+  // for having any other data) and continues to have sync set-up (continuing
+  // having a PaymentsCustomerData entity). As a side effect, this excludes
+  // reporting diffs for users that newly got a GPay account and sync
+  // PaymentsCustomerData for the first time but this is the best we can do to
+  // have the metrics consistent with USS implementation.
+  bool should_report_diff;
+
+  if (customer_data.empty()) {
+    // Clears the data only.
+    table->SetPaymentsCustomerData(nullptr);
+    should_report_diff = false;
+  } else {
+    std::unique_ptr<PaymentsCustomerData> existing_entry;
+    table->GetPaymentsCustomerData(&existing_entry);
+    should_report_diff = existing_entry != nullptr;
+
+    // In case there were multiple entries (and there shouldn't!), we take the
+    // first entry in the vector.
+    DCHECK_EQ(1u, customer_data.size());
+    table->SetPaymentsCustomerData(&customer_data.front());
+  }
+
+  if (is_initial_merge && cards_diff.IsEmpty() && addresses_diff.IsEmpty()) {
+    // Skip reporting the diff on startup if there is no change. It can happen
+    // that new updates come into the directory before
+    // MergeDataAndStartSyncing() gets called; such updates should get reported.
+    // We cannot distinguish them precisely so we at least report the non-empty
+    // diffs which _must_ be caused by an update from the server.
+    should_report_diff = false;
+  }
+
+  if (should_report_diff) {
+    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletCards2.Added",
                              cards_diff.items_added);
-    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletCardsRemoved",
+    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletCards2.Removed",
                              cards_diff.items_removed);
-    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletCardsAddedOrRemoved",
+    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletCards2.AddedOrRemoved",
                              cards_diff.items_added + cards_diff.items_removed);
 
-    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletAddressesAdded",
+    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletAddresses2.Added",
                              addresses_diff.items_added);
-    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletAddressesRemoved",
+    UMA_HISTOGRAM_COUNTS_100("Autofill.WalletAddresses2.Removed",
                              addresses_diff.items_removed);
     UMA_HISTOGRAM_COUNTS_100(
-        "Autofill.WalletAddressesAddedOrRemoved",
+        "Autofill.WalletAddresses2.AddedOrRemoved",
         addresses_diff.items_added + addresses_diff.items_removed);
   }
 

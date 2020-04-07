@@ -48,7 +48,7 @@ class SwapChain11 final : public SwapChainD3D
 
     const TextureHelper11 &getOffscreenTexture();
     const d3d11::RenderTargetView &getRenderTarget();
-    const d3d11::SharedSRV &getRenderTargetShaderResource();
+    const d3d11::SharedSRV &getRenderTargetShaderResource(d3d::Context *context);
 
     const TextureHelper11 &getDepthStencilTexture();
     const d3d11::DepthStencilView &getDepthStencil();
@@ -63,7 +63,7 @@ class SwapChain11 final : public SwapChainD3D
 
   private:
     void release();
-    void initPassThroughResources();
+    angle::Result initPassThroughResources(DisplayD3D *displayD3D);
 
     void releaseOffscreenColorBuffer();
     void releaseOffscreenDepthBuffer();
@@ -71,7 +71,9 @@ class SwapChain11 final : public SwapChainD3D
     EGLint resetOffscreenColorBuffer(DisplayD3D *displayD3D,
                                      int backbufferWidth,
                                      int backbufferHeight);
-    EGLint resetOffscreenDepthBuffer(int backbufferWidth, int backbufferHeight);
+    EGLint resetOffscreenDepthBuffer(DisplayD3D *displayD3D,
+                                     int backbufferWidth,
+                                     int backbufferHeight);
 
     DXGI_FORMAT getSwapChainNativeFormat() const;
 
@@ -117,7 +119,7 @@ class SwapChain11 final : public SwapChainD3D
     d3d11::SamplerState mPassThroughSampler;
     d3d11::InputLayout mPassThroughIL;
     d3d11::VertexShader mPassThroughVS;
-    d3d11::PixelShader mPassThroughPS;
+    d3d11::PixelShader mPassThroughOrResolvePS;
     d3d11::RasterizerState mPassThroughRS;
 
     SurfaceRenderTarget11 mColorRenderTarget;
@@ -128,4 +130,4 @@ class SwapChain11 final : public SwapChainD3D
 };
 
 }  // namespace rx
-#endif // LIBANGLE_RENDERER_D3D_D3D11_SWAPCHAIN11_H_
+#endif  // LIBANGLE_RENDERER_D3D_D3D11_SWAPCHAIN11_H_

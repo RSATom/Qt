@@ -26,6 +26,7 @@
 **
 ****************************************************************************/
 
+#include "../../../shared/highdpi.h"
 
 #include <QtTest/QtTest>
 
@@ -50,6 +51,8 @@
 #include <QTextEdit>
 #include <QPlainTextEdit>
 #include <QDialog>
+
+#include <qscreen.h>
 
 #include <QtWidgets/private/qabstractitemdelegate_p.h>
 
@@ -223,8 +226,8 @@ private slots:
     void dateTextForRole_data();
     void dateTextForRole();
 
-#ifdef QT_BUILD_INTERNAL
 private:
+#ifdef QT_BUILD_INTERNAL
     struct RoleDelegate : public QItemDelegate
     {
         QString textForRole(Qt::ItemDataRole role, const QVariant &value, const QLocale &locale)
@@ -234,6 +237,8 @@ private:
         }
     };
 #endif
+
+    const int m_fuzz = int(QGuiApplication::primaryScreen()->devicePixelRatio());
 };
 
 
@@ -286,8 +291,8 @@ void tst_QItemDelegate::textRectangle()
     QFont font;
     TestItemDelegate delegate;
     QRect result = delegate.textRectangle(0, rect, font, text);
-
-    QCOMPARE(result, expected);
+    QVERIFY2(HighDpi::fuzzyCompare(result, expected, m_fuzz),
+             HighDpi::msgRectMismatch(result, expected).constData());
 }
 
 void tst_QItemDelegate::sizeHint_data()
@@ -1228,7 +1233,7 @@ void tst_QItemDelegate::editorEvent()
     option.checkState = Qt::CheckState(checkState);
 
     const int checkMargin = qApp->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, 0) + 1;
-    QPoint pos = inCheck ? qApp->style()->subElementRect(QStyle::SE_ViewItemCheckIndicator, &option, 0).center() + QPoint(checkMargin, 0) : QPoint(200,200);
+    QPoint pos = inCheck ? qApp->style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator, &option, 0).center() + QPoint(checkMargin, 0) : QPoint(200,200);
 
     QEvent *event = new QMouseEvent((QEvent::Type)type,
                                     pos,
@@ -1384,7 +1389,7 @@ void tst_QItemDelegate::QTBUG4435_keepSelectionOnCheck()
     option.features = QStyleOptionViewItem::HasDisplay | QStyleOptionViewItem::HasCheckIndicator;
     option.checkState = Qt::CheckState(model.index(0, 0).data(Qt::CheckStateRole).toInt());
     const int checkMargin = qApp->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, 0) + 1;
-    QPoint pos = qApp->style()->subElementRect(QStyle::SE_ViewItemCheckIndicator, &option, 0).center()
+    QPoint pos = qApp->style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator, &option, 0).center()
                  + QPoint(checkMargin, 0);
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::ControlModifier, pos);
     QTRY_VERIFY(view.selectionModel()->isColumnSelected(0, QModelIndex()));

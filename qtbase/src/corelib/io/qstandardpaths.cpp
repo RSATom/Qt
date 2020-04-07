@@ -232,7 +232,7 @@ QT_BEGIN_NAMESPACE
     \row \li DocumentsLocation
          \li "~/Documents"
     \row \li FontsLocation
-         \li "~/.fonts"
+         \li "~/.fonts", "~/.local/share/fonts", "/usr/local/share/fonts", "/usr/share/fonts"
     \row \li ApplicationsLocation
          \li "~/.local/share/applications", "/usr/local/share/applications", "/usr/share/applications"
     \row \li MusicLocation
@@ -297,7 +297,7 @@ QT_BEGIN_NAMESPACE
          \li "<APPROOT>/tmp"
     \row \li HomeLocation
          \li "<APPROOT>/files"
-         \li "<APPROOT>" (not writable)
+         \li system defined
     \row \li DataLocation
          \li "<APPROOT>/files", "<USER>/<APPNAME>/files"
          \li "<APPROOT>/Library/Application Support"

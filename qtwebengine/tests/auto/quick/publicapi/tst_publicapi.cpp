@@ -35,11 +35,13 @@
 #include <QtTest/QtTest>
 #include <QtWebEngine/QQuickWebEngineProfile>
 #include <QtWebEngine/QQuickWebEngineScript>
+#include <QtWebEngineCore/QWebEngineNotification>
 #include <QtWebEngineCore/QWebEngineQuotaRequest>
 #include <QtWebEngineCore/QWebEngineRegisterProtocolHandlerRequest>
 #include <private/qquickwebengineview_p.h>
 #include <private/qquickwebengineaction_p.h>
 #include <private/qquickwebenginecertificateerror_p.h>
+#include <private/qquickwebengineclientcertificateselection_p.h>
 #include <private/qquickwebenginedialogrequests_p.h>
 #include <private/qquickwebenginedownloaditem_p.h>
 #include <private/qquickwebenginehistory_p.h>
@@ -60,6 +62,8 @@ static const QList<const QMetaObject *> typesToCheck = QList<const QMetaObject *
     << &QQuickWebEngineView::staticMetaObject
     << &QQuickWebEngineAction::staticMetaObject
     << &QQuickWebEngineCertificateError::staticMetaObject
+    << &QQuickWebEngineClientCertificateOption::staticMetaObject
+    << &QQuickWebEngineClientCertificateSelection::staticMetaObject
     << &QQuickWebEngineDownloadItem::staticMetaObject
     << &QQuickWebEngineHistory::staticMetaObject
     << &QQuickWebEngineHistoryListModel::staticMetaObject
@@ -79,6 +83,7 @@ static const QList<const QMetaObject *> typesToCheck = QList<const QMetaObject *
     << &QQuickWebEngineContextMenuRequest::staticMetaObject
     << &QWebEngineQuotaRequest::staticMetaObject
     << &QWebEngineRegisterProtocolHandlerRequest::staticMetaObject
+    << &QWebEngineNotification::staticMetaObject
     ;
 
 static QList<const char *> knownEnumNames = QList<const char *>();
@@ -86,12 +91,15 @@ static QList<const char *> knownEnumNames = QList<const char *>();
 static const QStringList hardcodedTypes = QStringList()
     << "QJSValue"
     << "QQmlListProperty<QQuickWebEngineScript>"
+    << "QQmlListProperty<QQuickWebEngineClientCertificateOption>"
+    << "const QQuickWebEngineClientCertificateOption*"
     << "QQmlWebChannel*"
     // Ignore the testSupport types without making a fuss.
     << "QQuickWebEngineTestSupport*"
     << "QQuickWebEngineErrorPage*"
     << "const QQuickWebEngineContextMenuData*"
     << "QWebEngineCookieStore*"
+    << "Qt::LayoutDirection"
     ;
 
 static const QStringList expectedAPI = QStringList()
@@ -132,6 +140,17 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineCertificateError.overridable --> bool"
     << "QQuickWebEngineCertificateError.rejectCertificate() --> void"
     << "QQuickWebEngineCertificateError.url --> QUrl"
+    << "QQuickWebEngineClientCertificateOption.issuer --> QString"
+    << "QQuickWebEngineClientCertificateOption.subject --> QString"
+    << "QQuickWebEngineClientCertificateOption.effectiveDate --> QDateTime"
+    << "QQuickWebEngineClientCertificateOption.expiryDate --> QDateTime"
+    << "QQuickWebEngineClientCertificateOption.isSelfSigned --> bool"
+    << "QQuickWebEngineClientCertificateOption.select() --> void"
+    << "QQuickWebEngineClientCertificateSelection.host --> QUrl"
+    << "QQuickWebEngineClientCertificateSelection.certificates --> QQmlListProperty<QQuickWebEngineClientCertificateOption>"
+    << "QQuickWebEngineClientCertificateSelection.select(int) --> void"
+    << "QQuickWebEngineClientCertificateSelection.select(const QQuickWebEngineClientCertificateOption*) --> void"
+    << "QQuickWebEngineClientCertificateSelection.selectNone() --> void"
     << "QQuickWebEngineColorDialogRequest.accepted --> bool"
     << "QQuickWebEngineColorDialogRequest.color --> QColor"
     << "QQuickWebEngineContextMenuRequest.CanUndo --> EditFlags"
@@ -303,6 +322,9 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineProfile.clearHttpCache() --> void"
     << "QQuickWebEngineProfile.downloadFinished(QQuickWebEngineDownloadItem*) --> void"
     << "QQuickWebEngineProfile.downloadRequested(QQuickWebEngineDownloadItem*) --> void"
+    << "QQuickWebEngineProfile.downloadPath --> QString"
+    << "QQuickWebEngineProfile.downloadPathChanged() --> void"
+    << "QQuickWebEngineProfile.presentNotification(QWebEngineNotification*) --> void"
     << "QQuickWebEngineProfile.httpAcceptLanguage --> QString"
     << "QQuickWebEngineProfile.httpAcceptLanguageChanged() --> void"
     << "QQuickWebEngineProfile.httpCacheMaximumSize --> int"
@@ -323,6 +345,8 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineProfile.spellCheckLanguagesChanged() --> void"
     << "QQuickWebEngineProfile.storageName --> QString"
     << "QQuickWebEngineProfile.storageNameChanged() --> void"
+    << "QQuickWebEngineProfile.useForGlobalCertificateVerification --> bool"
+    << "QQuickWebEngineProfile.useForGlobalCertificateVerificationChanged() --> void"
     << "QQuickWebEngineProfile.userScripts --> QQmlListProperty<QQuickWebEngineScript>"
     << "QQuickWebEngineScript.ApplicationWorld --> ScriptWorldId"
     << "QQuickWebEngineScript.Deferred --> InjectionPoint"
@@ -392,6 +416,8 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineSettings.localContentCanAccessRemoteUrlsChanged() --> void"
     << "QQuickWebEngineSettings.localStorageEnabled --> bool"
     << "QQuickWebEngineSettings.localStorageEnabledChanged() --> void"
+    << "QQuickWebEngineSettings.pdfViewerEnabled --> bool"
+    << "QQuickWebEngineSettings.pdfViewerEnabledChanged() --> void"
     << "QQuickWebEngineSettings.playbackRequiresUserGesture --> bool"
     << "QQuickWebEngineSettings.playbackRequiresUserGestureChanged() --> void"
     << "QQuickWebEngineSettings.pluginsEnabled --> bool"
@@ -585,6 +611,7 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.NewViewInTab --> NewViewDestination"
     << "QQuickWebEngineView.NewViewInWindow --> NewViewDestination"
     << "QQuickWebEngineView.NoErrorDomain --> ErrorDomain"
+    << "QQuickWebEngineView.Notifications --> Feature"
     << "QQuickWebEngineView.NoWebAction --> WebAction"
     << "QQuickWebEngineView.NormalTerminationStatus --> RenderProcessTerminationStatus"
     << "QQuickWebEngineView.Note --> PrintedPageSizeId"
@@ -699,6 +726,7 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.runJavaScript(QString,uint,QJSValue) --> void"
     << "QQuickWebEngineView.scrollPosition --> QPointF"
     << "QQuickWebEngineView.scrollPositionChanged(QPointF) --> void"
+    << "QQuickWebEngineView.selectClientCertificate(QQuickWebEngineClientCertificateSelection*) --> void"
     << "QQuickWebEngineView.setActiveFocusOnPress(bool) --> void"
     << "QQuickWebEngineView.settings --> QQuickWebEngineSettings*"
     << "QQuickWebEngineView.stop() --> void"
@@ -727,6 +755,16 @@ static const QStringList expectedAPI = QStringList()
     << "QWebEngineRegisterProtocolHandlerRequest.origin --> QUrl"
     << "QWebEngineRegisterProtocolHandlerRequest.reject() --> void"
     << "QWebEngineRegisterProtocolHandlerRequest.scheme --> QString"
+    << "QWebEngineNotification.origin --> QUrl"
+    << "QWebEngineNotification.title --> QString"
+    << "QWebEngineNotification.message --> QString"
+    << "QWebEngineNotification.tag --> QString"
+    << "QWebEngineNotification.language --> QString"
+    << "QWebEngineNotification.direction --> Qt::LayoutDirection"
+    << "QWebEngineNotification.show() --> void"
+    << "QWebEngineNotification.click() --> void"
+    << "QWebEngineNotification.close() --> void"
+    << "QWebEngineNotification.closed() --> void"
     ;
 
 static bool isCheckedEnum(const QByteArray &typeName)

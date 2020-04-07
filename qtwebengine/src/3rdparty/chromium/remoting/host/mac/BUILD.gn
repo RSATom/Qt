@@ -73,6 +73,11 @@ target("mac_app_bundle", "remoting_me2me_host") {
   #   defines = [ "REMOTING_ENABLE_BREAKPAD" ]
   # }
 
+  sources = [
+    "permission_utils.h",
+    "permission_utils.mm",
+  ]
+
   deps = [
     "//remoting/base:breakpad",
     "//remoting/host:main",
@@ -165,6 +170,7 @@ target("mac_app_bundle", "remoting_native_messaging_host") {
     "//remoting/host:remoting_infoplist_strings",
     "//remoting/host/native_messaging",
     "//remoting/host/setup",
+    "//services/network/public/mojom",
   ]
   foreach(locale, remoting_locales_with_underscores) {
     deps += [

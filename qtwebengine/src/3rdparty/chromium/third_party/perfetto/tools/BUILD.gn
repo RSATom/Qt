@@ -33,14 +33,14 @@ group("protoc_helper") {
 }
 
 if (is_linux) {
-  executable("pipestats") {
-    testonly = true
+  executable("profiling_sample_distribution") {
     sources = [
-      "pipestats.cc",
+      "profiling_sample_distribution.cc",
     ]
     deps = [
       "../gn:default_deps",
       "../src/base",
+      "../src/profiling/memory:client",
     ]
   }
 }

@@ -15,7 +15,7 @@
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/base/test/test_clipboard.h"
+#include "ui/base/clipboard/test/test_clipboard.h"
 #include "ui/gfx/skia_util.h"
 
 namespace content {
@@ -55,9 +55,10 @@ TEST_F(ClipboardHostImplTest, SimpleImage) {
   EXPECT_NE(sequence_number, system_clipboard()->GetSequenceNumber(
                                  ui::CLIPBOARD_TYPE_COPY_PASTE));
   EXPECT_FALSE(system_clipboard()->IsFormatAvailable(
-      ui::Clipboard::GetPlainTextFormatType(), ui::CLIPBOARD_TYPE_COPY_PASTE));
+      ui::ClipboardFormatType::GetPlainTextType(),
+      ui::CLIPBOARD_TYPE_COPY_PASTE));
   EXPECT_TRUE(system_clipboard()->IsFormatAvailable(
-      ui::Clipboard::GetBitmapFormatType(), ui::CLIPBOARD_TYPE_COPY_PASTE));
+      ui::ClipboardFormatType::GetBitmapType(), ui::CLIPBOARD_TYPE_COPY_PASTE));
 
   SkBitmap actual =
       system_clipboard()->ReadImage(ui::CLIPBOARD_TYPE_COPY_PASTE);
@@ -73,18 +74,16 @@ TEST_F(ClipboardHostImplTest, ReentrancyInSyncCall) {
 
   // ReadText() is a sync method, so normally, one wouldn't call this method
   // directly. These are not normal times though...
-  base::RunLoop run_loop;
-  mojo_clipboard()->ReadText(
-      ui::CLIPBOARD_TYPE_COPY_PASTE,
-      base::BindLambdaForTesting(
-          [&run_loop](const base::string16& ignored) { run_loop.Quit(); }));
+  mojo_clipboard()->ReadText(ui::CLIPBOARD_TYPE_COPY_PASTE, base::DoNothing());
 
   // Now purposely write a raw message which (hopefully) won't deserialize to
   // anything valid. The receiver side should still be in the midst of
   // dispatching ReadText() when Mojo attempts to deserialize this message,
   // which should cause a validation failure that signals a connection error.
+  base::RunLoop run_loop;
   mojo::WriteMessageRaw(mojo_clipboard().internal_state()->handle(), "moo", 3,
                         nullptr, 0, MOJO_WRITE_MESSAGE_FLAG_NONE);
+  mojo_clipboard().set_connection_error_handler(run_loop.QuitClosure());
   run_loop.Run();
 
   EXPECT_TRUE(mojo_clipboard().encountered_error());

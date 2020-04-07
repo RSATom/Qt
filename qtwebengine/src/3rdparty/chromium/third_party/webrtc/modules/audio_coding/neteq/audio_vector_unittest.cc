@@ -10,14 +10,12 @@
 
 #include "modules/audio_coding/neteq/audio_vector.h"
 
-#include <assert.h>
 #include <stdlib.h>
 
 #include <string>
 
 #include "rtc_base/numerics/safe_conversions.h"
 #include "test/gtest.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 

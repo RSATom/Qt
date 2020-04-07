@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/paint/paint_property_tree_builder.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
+#include "third_party/blink/renderer/platform/graphics/paint_invalidation_reason.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -16,20 +17,20 @@ class NGPaintFragment;
 class PrePaintTreeWalk;
 
 struct CORE_EXPORT PaintInvalidatorContext {
-  DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+  DISALLOW_NEW();
 
  public:
   class ParentContextAccessor {
    public:
     ParentContextAccessor() = default;
     ParentContextAccessor(PrePaintTreeWalk* tree_walk,
-                          size_t parent_context_index)
+                          wtf_size_t parent_context_index)
         : tree_walk_(tree_walk), parent_context_index_(parent_context_index) {}
     const PaintInvalidatorContext* ParentContext() const;
 
    private:
     PrePaintTreeWalk* tree_walk_ = nullptr;
-    size_t parent_context_index_ = 0u;
+    wtf_size_t parent_context_index_ = 0u;
   };
 
   PaintInvalidatorContext() = default;
@@ -50,6 +51,8 @@ struct CORE_EXPORT PaintInvalidatorContext {
     if (force_visual_rect_update_for_checking_)
       return true;
 #endif
+    // If an ancestor needed a visual rect update and any subtree flag was set,
+    // then we require that the subtree also needs a visual rect update.
     return object.NeedsPaintOffsetAndVisualRectUpdate() ||
            (subtree_flags & PaintInvalidatorContext::kSubtreeVisualRectUpdate);
   }
@@ -58,8 +61,7 @@ struct CORE_EXPORT PaintInvalidatorContext {
     return subtree_flags &
            (kSubtreeInvalidationChecking | kSubtreeVisualRectUpdate |
             kSubtreeFullInvalidation |
-            kSubtreeFullInvalidationForStackedContents |
-            kSubtreeSVGResourceChange);
+            kSubtreeFullInvalidationForStackedContents);
   }
 
   const PaintInvalidatorContext* ParentContext() const {
@@ -78,10 +80,9 @@ struct CORE_EXPORT PaintInvalidatorContext {
     kSubtreeVisualRectUpdate = 1 << 1,
     kSubtreeFullInvalidation = 1 << 2,
     kSubtreeFullInvalidationForStackedContents = 1 << 3,
-    kSubtreeSVGResourceChange = 1 << 4,
 
     // For repeated objects inside multicolumn.
-    kSubtreeSlowPathRect = 1 << 5,
+    kSubtreeSlowPathRect = 1 << 4,
 
     // When this flag is set, no paint or raster invalidation will be issued
     // for the subtree.
@@ -137,10 +138,8 @@ struct CORE_EXPORT PaintInvalidatorContext {
 
 class PaintInvalidator {
  public:
-  void InvalidatePaint(LocalFrameView&,
-                       const PaintPropertyTreeBuilderContext*,
-                       PaintInvalidatorContext&);
-  void InvalidatePaint(const LayoutObject&,
+  // Returns true if the object is invalidated.
+  bool InvalidatePaint(const LayoutObject&,
                        const PaintPropertyTreeBuilderContext*,
                        PaintInvalidatorContext&);
 

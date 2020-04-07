@@ -6,21 +6,18 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SHAPING_SHAPING_LINE_BREAKER_H_
 
 #include "third_party/blink/renderer/platform/fonts/shaping/run_segmenter.h"
-#include "third_party/blink/renderer/platform/layout_unit.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
 
-class Font;
 class ShapeResult;
-class HarfBuzzShaper;
+class ShapeResultView;
 class Hyphenation;
 class LazyLineBreakIterator;
 enum class LineBreakType;
-template <typename TextContainerType>
-class ShapeResultSpacing;
 
 // Shapes a line of text by finding the ideal break position as indicated by the
 // available space and the shape results for the entire paragraph. Once an ideal
@@ -36,23 +33,26 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
   STACK_ALLOCATED();
 
  public:
-  // Construct a ShapingLineBreaker.
+  // Callback function to reshape line edges.
   //
-  // When the ShapeResult is from a RunSegmenterRange, giving it can skip
-  // running RunSegmenter for much better performance.
-  ShapingLineBreaker(const HarfBuzzShaper*,
-                     const Font*,
-                     scoped_refptr<const ShapeResult>,
-                     const LazyLineBreakIterator*,
-                     const RunSegmenter::RunSegmenterRange* = nullptr,
-                     ShapeResultSpacing<String>* = nullptr,
-                     const Hyphenation* = nullptr);
-  ~ShapingLineBreaker() = default;
+  // std::function is forbidden in Chromium and base::Callback is way too
+  // expensive so we resort to a good old function pointer instead.
+  using ShapeCallback = scoped_refptr<ShapeResult> (*)(void* context,
+                                                       unsigned start,
+                                                       unsigned end);
+
+  // Construct a ShapingLineBreaker.
+  ShapingLineBreaker(scoped_refptr<const ShapeResult> result,
+                     const LazyLineBreakIterator* break_iterator,
+                     const Hyphenation* hyphenation,
+                     ShapeCallback shape_callback,
+                     void* shape_callback_context);
 
   // Represents details of the result of |ShapeLine()|.
   struct Result {
     STACK_ALLOCATED();
 
+   public:
     // Indicates the resulting break offset.
     unsigned break_offset;
 
@@ -75,13 +75,13 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
     // suppress if ShapeResult is not needed when this line overflows.
     kNoResultIfOverflow = 2,
   };
-  scoped_refptr<const ShapeResult> ShapeLine(unsigned start_offset,
-                                             LayoutUnit available_space,
-                                             unsigned options,
-                                             Result* result_out);
-  scoped_refptr<const ShapeResult> ShapeLine(unsigned start_offset,
-                                             LayoutUnit available_space,
-                                             Result* result_out) {
+  scoped_refptr<const ShapeResultView> ShapeLine(unsigned start_offset,
+                                                 LayoutUnit available_space,
+                                                 unsigned options,
+                                                 Result* result_out);
+  scoped_refptr<const ShapeResultView> ShapeLine(unsigned start_offset,
+                                                 LayoutUnit available_space,
+                                                 Result* result_out) {
     return ShapeLine(start_offset, available_space, kDefaultOptions,
                      result_out);
   }
@@ -97,12 +97,15 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
   struct BreakOpportunity {
     STACK_ALLOCATED();
 
+   public:
     unsigned offset;
     bool is_hyphenated;
   };
   BreakOpportunity PreviousBreakOpportunity(unsigned offset,
                                             unsigned start) const;
-  BreakOpportunity NextBreakOpportunity(unsigned offset, unsigned start) const;
+  BreakOpportunity NextBreakOpportunity(unsigned offset,
+                                        unsigned start,
+                                        unsigned len) const;
   BreakOpportunity Hyphenate(unsigned offset,
                              unsigned start,
                              bool backwards) const;
@@ -111,20 +114,18 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
                      unsigned word_end,
                      bool backwards) const;
 
-  scoped_refptr<ShapeResult> Shape(TextDirection, unsigned start, unsigned end);
-  scoped_refptr<const ShapeResult> ShapeToEnd(unsigned start,
-                                              unsigned first_safe,
-                                              unsigned range_start,
-                                              unsigned range_end);
+  scoped_refptr<ShapeResult> Shape(unsigned start, unsigned end) {
+    return (*shape_callback_)(shape_callback_context_, start, end);
+  }
+  scoped_refptr<const ShapeResultView> ShapeToEnd(unsigned start,
+                                                  unsigned first_safe,
+                                                  unsigned range_start,
+                                                  unsigned range_end);
 
-  const HarfBuzzShaper* shaper_;
-  const Font* font_;
+  const ShapeCallback shape_callback_;
+  void* shape_callback_context_;
   scoped_refptr<const ShapeResult> result_;
-  const RunSegmenter::RunSegmenterRange* pre_segmented_;
   const LazyLineBreakIterator* break_iterator_;
-  // TODO(kojii): ShapeResultSpacing is not const because it's stateful when it
-  // has expansions. Split spacing and expansions to make this const.
-  ShapeResultSpacing<String>* spacing_;
   const Hyphenation* hyphenation_;
   bool is_soft_hyphen_enabled_;
 

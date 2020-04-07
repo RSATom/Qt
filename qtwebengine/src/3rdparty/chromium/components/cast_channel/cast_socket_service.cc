@@ -5,9 +5,10 @@
 #include "components/cast_channel/cast_socket_service.h"
 
 #include "base/memory/ptr_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "components/cast_channel/cast_socket.h"
 #include "components/cast_channel/logger.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
@@ -22,8 +23,8 @@ CastSocketService::CastSocketService()
       // (1) ChromeURLRequestContextGetter::GetURLRequestContext, which is
       // called by CastMediaSinkServiceImpl, must run on IO thread. (2) Parts of
       // CastChannel extension API functions run on IO thread.
-      task_runner_(content::BrowserThread::GetTaskRunnerForThread(
-          content::BrowserThread::IO)) {}
+      task_runner_(base::CreateSingleThreadTaskRunnerWithTraits(
+          {content::BrowserThread::IO})) {}
 
 // This is a leaky singleton and the dtor won't be called.
 CastSocketService::~CastSocketService() = default;
@@ -81,7 +82,8 @@ CastSocket* CastSocketService::GetSocket(
   return it == sockets_.end() ? nullptr : it->second.get();
 }
 
-void CastSocketService::OpenSocket(const CastSocketOpenParams& open_params,
+void CastSocketService::OpenSocket(NetworkContextGetter network_context_getter,
+                                   const CastSocketOpenParams& open_params,
                                    CastSocket::OnOpenCallback open_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
@@ -92,7 +94,7 @@ void CastSocketService::OpenSocket(const CastSocketOpenParams& open_params,
     if (socket_for_test_) {
       socket = AddSocket(std::move(socket_for_test_));
     } else {
-      socket = new CastSocketImpl(open_params, logger_);
+      socket = new CastSocketImpl(network_context_getter, open_params, logger_);
       AddSocket(base::WrapUnique(socket));
     }
   }

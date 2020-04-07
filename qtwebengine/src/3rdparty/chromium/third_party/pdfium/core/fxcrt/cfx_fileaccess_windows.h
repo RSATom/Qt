@@ -8,16 +8,20 @@
 #define CORE_FXCRT_CFX_FILEACCESS_WINDOWS_H_
 
 #include "core/fxcrt/fileaccess_iface.h"
+#include "core/fxcrt/fx_system.h"
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
-class CFX_FileAccess_Windows : public FileAccessIface {
+#if _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
+#error "Included on the wrong platform"
+#endif
+
+class CFX_FileAccess_Windows final : public FileAccessIface {
  public:
   CFX_FileAccess_Windows();
   ~CFX_FileAccess_Windows() override;
 
   // FileAccessIface
-  bool Open(const ByteStringView& fileName, uint32_t dwMode) override;
-  bool Open(const WideStringView& fileName, uint32_t dwMode) override;
+  bool Open(ByteStringView fileName, uint32_t dwMode) override;
+  bool Open(WideStringView fileName, uint32_t dwMode) override;
   void Close() override;
   FX_FILESIZE GetSize() const override;
   FX_FILESIZE GetPosition() const override;
@@ -31,9 +35,8 @@ class CFX_FileAccess_Windows : public FileAccessIface {
   bool Flush() override;
   bool Truncate(FX_FILESIZE szFile) override;
 
- protected:
+ private:
   void* m_hFile;
 };
-#endif
 
 #endif  // CORE_FXCRT_CFX_FILEACCESS_WINDOWS_H_

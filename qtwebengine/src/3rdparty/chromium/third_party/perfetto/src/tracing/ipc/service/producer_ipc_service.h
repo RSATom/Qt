@@ -49,8 +49,15 @@ class ProducerIPCService : public protos::ProducerPort {
                           DeferredRegisterDataSourceResponse) override;
   void UnregisterDataSource(const protos::UnregisterDataSourceRequest&,
                             DeferredUnregisterDataSourceResponse) override;
+  void RegisterTraceWriter(const protos::RegisterTraceWriterRequest&,
+                           DeferredRegisterTraceWriterResponse) override;
+  void UnregisterTraceWriter(const protos::UnregisterTraceWriterRequest&,
+                             DeferredUnregisterTraceWriterResponse) override;
   void CommitData(const protos::CommitDataRequest&,
                   DeferredCommitDataResponse) override;
+  void NotifyDataSourceStopped(
+      const protos::NotifyDataSourceStoppedRequest&,
+      DeferredNotifyDataSourceStoppedResponse) override;
   void GetAsyncCommand(const protos::GetAsyncCommandRequest&,
                        DeferredGetAsyncCommandResponse) override;
   void OnClientDisconnected() override;
@@ -68,9 +75,11 @@ class ProducerIPCService : public protos::ProducerPort {
     // no connection here, these methods are posted straight away.
     void OnConnect() override;
     void OnDisconnect() override;
-    void CreateDataSourceInstance(DataSourceInstanceID,
-                                  const DataSourceConfig&) override;
-    void TearDownDataSourceInstance(DataSourceInstanceID) override;
+    void SetupDataSource(DataSourceInstanceID,
+                         const DataSourceConfig&) override;
+    void StartDataSource(DataSourceInstanceID,
+                         const DataSourceConfig&) override;
+    void StopDataSource(DataSourceInstanceID) override;
     void OnTracingSetup() override;
     void Flush(FlushRequestID,
                const DataSourceInstanceID* data_source_ids,

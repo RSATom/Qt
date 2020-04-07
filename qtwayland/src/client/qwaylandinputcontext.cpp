@@ -50,7 +50,6 @@
 #include "qwaylandinputdevice_p.h"
 #include "qwaylandinputmethodeventbuilder_p.h"
 #include "qwaylandwindow_p.h"
-#include "qwaylandxkb_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -120,7 +119,8 @@ void QWaylandTextInput::updateState(Qt::InputMethodQueries queries, uint32_t fla
     if (!QGuiApplication::focusWindow() || !QGuiApplication::focusWindow()->handle())
         return;
 
-    struct ::wl_surface *surface = static_cast<QWaylandWindow *>(QGuiApplication::focusWindow()->handle())->object();
+    auto *window = static_cast<QWaylandWindow *>(QGuiApplication::focusWindow()->handle());
+    auto *surface = window->object();
     if (!surface || (surface != m_surface))
         return;
 
@@ -158,8 +158,10 @@ void QWaylandTextInput::updateState(Qt::InputMethodQueries queries, uint32_t fla
 
     if (queries & Qt::ImCursorRectangle) {
         const QRect &cRect = event.value(Qt::ImCursorRectangle).toRect();
-        const QRect &tRect = QGuiApplication::inputMethod()->inputItemTransform().mapRect(cRect);
-        set_cursor_rectangle(tRect.x(), tRect.y(), tRect.width(), tRect.height());
+        const QRect &windowRect = QGuiApplication::inputMethod()->inputItemTransform().mapRect(cRect);
+        const QMargins margins = window->frameMargins();
+        const QRect &surfaceRect = windowRect.translated(margins.left(), margins.top());
+        set_cursor_rectangle(surfaceRect.x(), surfaceRect.y(), surfaceRect.width(), surfaceRect.height());
     }
 
     if (queries & Qt::ImPreferredLanguage) {
@@ -315,6 +317,7 @@ void QWaylandTextInput::zwp_text_input_v2_delete_surrounding_text(uint32_t befor
 
 void QWaylandTextInput::zwp_text_input_v2_keysym(uint32_t time, uint32_t sym, uint32_t state, uint32_t modifiers)
 {
+#if QT_CONFIG(xkbcommon)
     if (m_resetCallback) {
         qCDebug(qLcQpaInputMethods()) << "discard keysym: reset not confirmed";
         return;
@@ -325,13 +328,18 @@ void QWaylandTextInput::zwp_text_input_v2_keysym(uint32_t time, uint32_t sym, ui
 
     Qt::KeyboardModifiers qtModifiers = modifiersToQtModifiers(modifiers);
 
-    QEvent::Type type = QWaylandXkb::toQtEventType(state);
-    QString text;
-    int qtkey;
-    std::tie(qtkey, text) = QWaylandXkb::keysymToQtKey(sym, qtModifiers);
+    QEvent::Type type = state == WL_KEYBOARD_KEY_STATE_PRESSED ? QEvent::KeyPress : QEvent::KeyRelease;
+    QString text = QXkbCommon::lookupStringNoKeysymTransformations(sym);
+    int qtkey = QXkbCommon::keysymToQtKey(sym, qtModifiers);
 
     QWindowSystemInterface::handleKeyEvent(QGuiApplication::focusWindow(),
                                            time, type, qtkey, qtModifiers, text);
+#else
+    Q_UNUSED(time);
+    Q_UNUSED(sym);
+    Q_UNUSED(state);
+    Q_UNUSED(modifiers);
+#endif
 }
 
 void QWaylandTextInput::zwp_text_input_v2_language(const QString &language)

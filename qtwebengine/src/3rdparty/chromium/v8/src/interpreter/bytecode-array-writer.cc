@@ -4,7 +4,7 @@
 
 #include "src/interpreter/bytecode-array-writer.h"
 
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/interpreter/bytecode-jump-table.h"
 #include "src/interpreter/bytecode-label.h"
 #include "src/interpreter/bytecode-node.h"
@@ -42,7 +42,7 @@ Handle<BytecodeArray> BytecodeArrayWriter::ToBytecodeArray(
   DCHECK_EQ(0, unbound_jumps_);
 
   int bytecode_size = static_cast<int>(bytecodes()->size());
-  int frame_size = register_count * kPointerSize;
+  int frame_size = register_count * kSystemPointerSize;
   Handle<FixedArray> constant_pool =
       constant_array_builder()->ToFixedArray(isolate);
   Handle<ByteArray> source_position_table =

@@ -436,6 +436,11 @@ public:
         Cantonese = 357,
         Osage = 358,
         Tangut = 359,
+        Ido = 360,
+        Lojban = 361,
+        Sicilian = 362,
+        SouthernKurdish = 363,
+        WesternBalochi = 364,
 
         Afan = Oromo,
         Bhutani = Dzongkha,
@@ -452,7 +457,7 @@ public:
         Twi = Akan,
         Uigur = Uighur,
 
-        LastLanguage = Tangut
+        LastLanguage = WesternBalochi
     };
 
     enum Script {
@@ -956,6 +961,8 @@ public:
     ushort toUShort(const QString &s, bool *ok = nullptr) const;
     int toInt(const QString &s, bool *ok = nullptr) const;
     uint toUInt(const QString &s, bool *ok = nullptr) const;
+    long toLong(const QString &s, bool *ok = nullptr) const;
+    ulong toULong(const QString &s, bool *ok = nullptr) const;
     qlonglong toLongLong(const QString &s, bool *ok = nullptr) const;
     qulonglong toULongLong(const QString &s, bool *ok = nullptr) const;
     float toFloat(const QString &s, bool *ok = nullptr) const;
@@ -965,6 +972,8 @@ public:
     ushort toUShort(const QStringRef &s, bool *ok = nullptr) const;
     int toInt(const QStringRef &s, bool *ok = nullptr) const;
     uint toUInt(const QStringRef &s, bool *ok = nullptr) const;
+    long toLong(const QStringRef &s, bool *ok = nullptr) const;
+    ulong toULong(const QStringRef &s, bool *ok = nullptr) const;
     qlonglong toLongLong(const QStringRef &s, bool *ok = nullptr) const;
     qulonglong toULongLong(const QStringRef &s, bool *ok = nullptr) const;
     float toFloat(const QStringRef &s, bool *ok = nullptr) const;
@@ -975,6 +984,8 @@ public:
     ushort toUShort(QStringView s, bool *ok = nullptr) const;
     int toInt(QStringView s, bool *ok = nullptr) const;
     uint toUInt(QStringView s, bool *ok = nullptr) const;
+    long toLong(QStringView s, bool *ok = nullptr) const;
+    ulong toULong(QStringView s, bool *ok = nullptr) const;
     qlonglong toLongLong(QStringView s, bool *ok = nullptr) const;
     qulonglong toULongLong(QStringView s, bool *ok = nullptr) const;
     float toFloat(QStringView s, bool *ok = nullptr) const;
@@ -982,6 +993,8 @@ public:
 
     QString toString(qlonglong i) const;
     QString toString(qulonglong i) const;
+    inline QString toString(long i) const;
+    inline QString toString(ulong i) const;
     inline QString toString(short i) const;
     inline QString toString(ushort i) const;
     inline QString toString(int i) const;
@@ -1061,7 +1074,10 @@ public:
     { return toCurrencyString(double(i), symbol, precision); }
 #endif
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QString formattedDataSize(qint64 bytes, int precision = 2, DataSizeFormats format = DataSizeIecFormat);
+#endif
+    QString formattedDataSize(qint64 bytes, int precision = 2, DataSizeFormats format = DataSizeIecFormat) const;
 
     QStringList uiLanguages() const;
 
@@ -1091,6 +1107,7 @@ public:
 private:
     QLocale(QLocalePrivate &dd);
     friend class QLocalePrivate;
+    friend class QSystemLocale;
     friend Q_CORE_EXPORT uint qHash(const QLocale &key, uint seed) Q_DECL_NOTHROW;
 
     QSharedDataPointer<QLocalePrivate> d;
@@ -1098,6 +1115,10 @@ private:
 Q_DECLARE_SHARED(QLocale)
 Q_DECLARE_OPERATORS_FOR_FLAGS(QLocale::NumberOptions)
 
+inline QString QLocale::toString(long i) const
+    { return toString(qlonglong(i)); }
+inline QString QLocale::toString(ulong i) const
+    { return toString(qulonglong(i)); }
 inline QString QLocale::toString(short i) const
     { return toString(qlonglong(i)); }
 inline QString QLocale::toString(ushort i) const

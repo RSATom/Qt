@@ -23,6 +23,7 @@
 
 namespace blink {
 enum class WebFullscreenVideoStatus;
+struct PictureInPictureControlInfo;
 }  // namespace blink
 
 namespace media {
@@ -38,6 +39,8 @@ class SurfaceId;
 }  // namespace viz
 
 namespace content {
+
+class AudibleMetrics;
 
 // This class manages all RenderFrame based media related managers at the
 // browser side. It receives IPC messages from media RenderFrameObservers and
@@ -73,12 +76,16 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
   const base::Optional<MediaPlayerId>& GetPictureInPictureVideoMediaPlayerId()
       const;
 
+  // Reset the MediaPlayerId of the picture in picture video when user closes
+  // Picture-in-Picture window manually.
+  void ResetPictureInPictureVideoMediaPlayerId();
+
   // WebContentsObserver implementation.
   void WebContentsDestroyed() override;
   void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
   bool OnMessageReceived(const IPC::Message& message,
                          RenderFrameHost* render_frame_host) override;
-  void OnVisibilityChanged(content::Visibility visibility) override;
+  void DidUpdateAudioMutingState(bool muted) override;
 
   // TODO(zqzhang): this method is temporarily in MediaWebContentsObserver as
   // the effectively fullscreen video code is also here. We need to consider
@@ -98,7 +105,9 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
     return has_audio_wake_lock_for_testing_;
   }
 
-  bool has_video_wake_lock_for_testing() const { return has_video_wake_lock_; }
+  void SetAudibleMetricsForTest(AudibleMetrics* audible_metrics) {
+    audible_metrics_ = audible_metrics;
+  }
 
  protected:
   MediaSessionControllersManager* session_controllers_manager() {
@@ -130,20 +139,25 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
                                      int delegate_id,
                                      const viz::SurfaceId&,
                                      const gfx::Size& natural_size,
-                                     int request_id);
+                                     int request_id,
+                                     bool show_play_pause_button);
   void OnPictureInPictureModeEnded(RenderFrameHost* render_frame_host,
                                    int delegate_id,
                                    int request_id);
+  void OnSetPictureInPictureCustomControls(
+      RenderFrameHost* render_frame_host,
+      int delegate_id,
+      const std::vector<blink::PictureInPictureControlInfo>& controls);
   void OnPictureInPictureSurfaceChanged(RenderFrameHost*,
                                         int delegate_id,
                                         const viz::SurfaceId&,
-                                        const gfx::Size&);
+                                        const gfx::Size&,
+                                        bool show_play_pause_button);
 
   // Clear |render_frame_host|'s tracking entry for its WakeLocks.
   void ClearWakeLocks(RenderFrameHost* render_frame_host);
 
   device::mojom::WakeLock* GetAudioWakeLock();
-  device::mojom::WakeLock* GetVideoWakeLock();
 
   // WakeLock related methods for audio and video.
   void LockAudio();
@@ -169,16 +183,17 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
   // Convenience method that casts web_contents() to a WebContentsImpl*.
   WebContentsImpl* web_contents_impl() const;
 
+  // Helper class for recording audible metrics.
+  AudibleMetrics* audible_metrics_;
+
   // Tracking variables and associated wake locks for media playback.
   ActiveMediaPlayerMap active_audio_players_;
   ActiveMediaPlayerMap active_video_players_;
   device::mojom::WakeLockPtr audio_wake_lock_;
-  device::mojom::WakeLockPtr video_wake_lock_;
   base::Optional<MediaPlayerId> fullscreen_player_;
   base::Optional<MediaPlayerId> pip_player_;
   base::Optional<bool> picture_in_picture_allowed_in_fullscreen_;
   bool has_audio_wake_lock_for_testing_ = false;
-  bool has_video_wake_lock_ = false;
 
   MediaSessionControllersManager session_controllers_manager_;
 

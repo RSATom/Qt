@@ -773,6 +773,7 @@ QAnimationDriver::~QAnimationDriver()
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     Sets the time at which an animation driver should start at.
 
@@ -799,6 +800,7 @@ qint64 QAnimationDriver::startTime() const
 {
     return 0;
 }
+#endif
 
 
 /*!
@@ -1061,10 +1063,12 @@ QAbstractAnimation::~QAbstractAnimation()
     if (d->state != Stopped) {
         QAbstractAnimation::State oldState = d->state;
         d->state = Stopped;
-        emit stateChanged(oldState, d->state);
+        emit stateChanged(d->state, oldState);
         if (oldState == QAbstractAnimation::Running)
             QAnimationTimer::unregisterAnimation(this);
     }
+    if (d->group)
+        d->group->removeAnimation(this);
 }
 
 /*!

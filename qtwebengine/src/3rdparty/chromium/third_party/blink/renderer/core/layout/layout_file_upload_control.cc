@@ -25,7 +25,6 @@
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 #include "third_party/blink/renderer/core/fileapi/file_list.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
-#include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/paint/file_upload_control_painter.h"
@@ -35,9 +34,8 @@
 
 namespace blink {
 
-using namespace HTMLNames;
-
 const int kDefaultWidthNumChars = 34;
+const int kButtonShadowHeight = 2;
 
 LayoutFileUploadControl::LayoutFileUploadControl(HTMLInputElement* input)
     : LayoutBlockFlow(input),
@@ -47,7 +45,7 @@ LayoutFileUploadControl::~LayoutFileUploadControl() = default;
 
 void LayoutFileUploadControl::UpdateFromElement() {
   HTMLInputElement* input = ToHTMLInputElement(GetNode());
-  DCHECK_EQ(input->type(), InputTypeNames::file);
+  DCHECK_EQ(input->type(), input_type_names::kFile);
 
   if (HTMLInputElement* button = UploadButton()) {
     bool new_can_receive_dropped_files_state = input->CanReceiveDroppedFiles();
@@ -70,7 +68,7 @@ int LayoutFileUploadControl::MaxFilenameWidth() const {
       (UploadButton() && UploadButton()->GetLayoutBox())
           ? UploadButton()->GetLayoutBox()->PixelSnappedWidth()
           : 0;
-  return std::max(0, ContentBoxRect().PixelSnappedWidth() -
+  return std::max(0, PhysicalContentBoxRect().PixelSnappedWidth() -
                          upload_button_width - kAfterButtonSpacing);
 }
 
@@ -87,7 +85,7 @@ void LayoutFileUploadControl::ComputeIntrinsicLogicalWidths(
   // characters (using "0" as the nominal character).
   const UChar kCharacter = '0';
   const String character_as_string = String(&kCharacter, 1);
-  const Font& font = Style()->GetFont();
+  const Font& font = StyleRef().GetFont();
   float min_default_label_width =
       kDefaultWidthNumChars *
       font.Width(ConstructTextRun(font, character_as_string, StyleRef(),
@@ -105,7 +103,7 @@ void LayoutFileUploadControl::ComputeIntrinsicLogicalWidths(
   max_logical_width =
       LayoutUnit(ceilf(std::max(min_default_label_width, default_label_width)));
 
-  if (!Style()->Width().IsPercentOrCalc())
+  if (!StyleRef().Width().IsPercentOrCalc())
     min_logical_width = max_logical_width;
 }
 
@@ -177,8 +175,24 @@ String LayoutFileUploadControl::FileTextValue() const {
   HTMLInputElement* input = ToHTMLInputElement(GetNode());
   DCHECK(input->files());
   return LayoutTheme::GetTheme().FileListNameForWidth(
-      input->GetLocale(), input->files(), Style()->GetFont(),
+      input->GetLocale(), input->files(), StyleRef().GetFont(),
       MaxFilenameWidth());
+}
+
+LayoutRect LayoutFileUploadControl::ControlClipRect(
+    const LayoutPoint& additional_offset) const {
+  LayoutRect rect(additional_offset, Size());
+  rect.Expand(BorderInsets());
+  rect.Expand(LayoutUnit(), LayoutUnit(kButtonShadowHeight));
+  return rect;
+}
+
+// Override to allow effective ControlClipRect to be bigger than the padding
+// box because of kButtonShadowHeight.
+LayoutRect LayoutFileUploadControl::OverflowClipRect(
+    const LayoutPoint& additional_offset,
+    OverlayScrollbarClipBehavior) const {
+  return ControlClipRect(additional_offset);
 }
 
 }  // namespace blink

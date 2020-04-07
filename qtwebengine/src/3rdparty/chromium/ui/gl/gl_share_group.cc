@@ -45,9 +45,7 @@ void* GLShareGroup::GetHandle() {
 }
 
 GLContext* GLShareGroup::GetContext() {
-  for (ContextSet::iterator it = contexts_.begin();
-       it != contexts_.end();
-       ++it) {
+  for (auto it = contexts_.begin(); it != contexts_.end(); ++it) {
     if ((*it)->GetHandle())
       return *it;
   }

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2018 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,32 +11,9 @@
 #ifndef P2P_BASE_TRANSPORTFACTORYINTERFACE_H_
 #define P2P_BASE_TRANSPORTFACTORYINTERFACE_H_
 
-#include <memory>
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "p2p/base/dtlstransportinternal.h"
-#include "p2p/base/icetransportinternal.h"
-
-namespace cricket {
-
-// This interface is used to create DTLS/ICE transports. The external transports
-// can be injected into the JsepTransportController through it. For example, the
-// FakeIceTransport/FakeDtlsTransport can be injected by setting a
-// FakeTransportFactory which implements this interface to the
-// JsepTransportController.
-class TransportFactoryInterface {
- public:
-  virtual ~TransportFactoryInterface() {}
-
-  virtual std::unique_ptr<IceTransportInternal> CreateIceTransport(
-      const std::string& transport_name,
-      int component) = 0;
-
-  virtual std::unique_ptr<DtlsTransportInternal> CreateDtlsTransport(
-      std::unique_ptr<IceTransportInternal> ice,
-      const rtc::CryptoOptions& crypto_options) = 0;
-};
-
-}  // namespace cricket
+#include "p2p/base/transport_factory_interface.h"
 
 #endif  // P2P_BASE_TRANSPORTFACTORYINTERFACE_H_

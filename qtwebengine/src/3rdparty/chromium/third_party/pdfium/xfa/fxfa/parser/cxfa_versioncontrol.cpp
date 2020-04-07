@@ -10,15 +10,13 @@ namespace {
 
 const CXFA_Node::AttributeData kVersionControlAttributeData[] = {
     {XFA_Attribute::SourceBelow, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Update},
+     (void*)XFA_AttributeValue::Update},
     {XFA_Attribute::OutputBelow, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Warn},
+     (void*)XFA_AttributeValue::Warn},
     {XFA_Attribute::SourceAbove, XFA_AttributeType::Enum,
-     (void*)XFA_AttributeEnum::Warn},
+     (void*)XFA_AttributeValue::Warn},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
     {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
-
-constexpr wchar_t kVersionControlName[] = L"versionControl";
 
 }  // namespace
 
@@ -30,7 +28,6 @@ CXFA_VersionControl::CXFA_VersionControl(CXFA_Document* doc,
                 XFA_ObjectType::Node,
                 XFA_Element::VersionControl,
                 nullptr,
-                kVersionControlAttributeData,
-                kVersionControlName) {}
+                kVersionControlAttributeData) {}
 
-CXFA_VersionControl::~CXFA_VersionControl() {}
+CXFA_VersionControl::~CXFA_VersionControl() = default;

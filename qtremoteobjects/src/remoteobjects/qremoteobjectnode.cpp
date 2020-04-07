@@ -383,6 +383,8 @@ void QRemoteObjectNode::registerExternalSchema(const QString &schema, QRemoteObj
     configured with the provided address. If no \a hostUrl is provided, the
     internal node will be a QRemoteObjectNode (not HostNode).
 
+    Returns \c true if the object is acquired from the internal node.
+
     \sa reverseProxy()
 */
 bool QRemoteObjectHostBase::proxy(const QUrl &registryUrl, const QUrl &hostUrl, RemoteObjectNameFilter filter)
@@ -465,8 +467,8 @@ bool QRemoteObjectHostBase::proxy(const QUrl &registryUrl, const QUrl &hostUrl, 
     network to be acquired(), reverseProxy() allows \l Source objects to be
     "pushed" to an otherwise inaccessible network.
 
-    Note: \l proxy() needs to be called before \l reverseProxy(), and a
-    \a hostUrl needs to be provided to \l proxy for \l reverseProxy() to work. The
+    \note proxy() needs to be called before \l reverseProxy(), and a
+    hostUrl needs to be provided to \l proxy for \l reverseProxy() to work. The
     \l reverseProxy() method allows a separate \a filter to be applied. This
     reverseProxy specific filter will receive notifications of new \l Source
     objects on proxyNode and acquire them on the internal node if they pass the
@@ -1249,7 +1251,7 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         }
         case Handshake:
             if (rxName != QtRemoteObjects::protocolVersion) {
-                qWarning() << "*** Protocol Mismatch, closing connection ***. Got" << rxObjects << "expected" << QtRemoteObjects::protocolVersion;
+                qWarning() << "*** Protocol Mismatch, closing connection ***. Got" << rxName << "expected" << QtRemoteObjects::protocolVersion;
                 setLastError(QRemoteObjectNode::ProtocolMismatch);
                 connection->close();
             } else {
@@ -1643,9 +1645,9 @@ QRemoteObjectHostBase::QRemoteObjectHostBase(QRemoteObjectHostBasePrivate &d, QO
     Constructs a new QRemoteObjectHost Node (i.e., a Node that supports
     exposing \l Source objects on the QtRO network) with the given \a parent.
     This constructor is meant specific to support QML in the future as it will
-    not be available to connect to until \l {QRemoteObjectHost::}{setHostUrl}() is called.
+    not be available to connect to until \l {QRemoteObjectHost::}{setHostUrl} is called.
 
-    \sa {QRemoteObjectHost::}{setHostUrl}(), setRegistryUrl()
+    \sa setHostUrl(), setRegistryUrl()
 */
 QRemoteObjectHost::QRemoteObjectHost(QObject *parent)
     : QRemoteObjectHostBase(*new QRemoteObjectHostPrivate, parent)
@@ -1661,7 +1663,7 @@ QRemoteObjectHost::QRemoteObjectHost(QObject *parent)
     {AllowExternalRegistration}) if the schema of the url should be used as an
     \l {External Schemas} {External Schema} by the registry.
 
-    \sa {QRemoteObjectHost::}{setHostUrl}(), setRegistryUrl()
+    \sa setHostUrl(), setRegistryUrl()
 */
 QRemoteObjectHost::QRemoteObjectHost(const QUrl &address, const QUrl &registryAddress,
                                      AllowedSchemas allowedSchemas, QObject *parent)
@@ -1811,7 +1813,7 @@ bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress, AllowedSchemas a
     Returns the host address for the QRemoteObjectNode as a QUrl. If the Node
     is not a Host node, it return an empty QUrl.
 
-    \sa {QRemoteObjectHost}{setHostUrl}()
+    \sa setHostUrl()
 */
 QUrl QRemoteObjectHost::hostUrl() const
 {
@@ -1840,6 +1842,8 @@ bool QRemoteObjectHost::setHostUrl(const QUrl &hostAddress, AllowedSchemas allow
     method causes this Node to use the url as the host address. All other
     Node's use the \l {QRemoteObjectNode::setRegistryUrl} method initiate a
     connection to the Registry.
+
+    Returns \c true if the registry address is set, otherwise \c false.
 
     \sa QRemoteObjectRegistryHost(), QRemoteObjectNode::setRegistryUrl
 */
@@ -2084,7 +2088,7 @@ void QRemoteObjectNode::addClientSideConnection(QIODevice *ioDevice)
     loc parameter contains the information about the added Source, including
     name, type and the QUrl of the hosting Node.
 
-    \sa remoteObjectRemoved, instances
+    \sa remoteObjectRemoved(), instances()
 */
 
 /*!
@@ -2255,8 +2259,9 @@ bool QRemoteObjectHostBase::enableRemoting(QAbstractItemModel *model, const QStr
 */
 
 /*!
-    \internal Enables a host node to provide remote access to a QObject \a
-    object with the API defined by \a api. Client nodes connected to the node
+    \internal
+    Enables a host node to provide remote access to a QObject \a object
+    with the API defined by \a api. Client nodes connected to the node
     hosting this object may obtain Replicas of this Source.
 
     Returns \c false if the current node is a client node, or if the QObject is

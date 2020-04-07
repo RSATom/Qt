@@ -11,7 +11,7 @@
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 
-class CFX_WideTextBuf : public CFX_BinaryBuf {
+class CFX_WideTextBuf final : public CFX_BinaryBuf {
  public:
   void AppendChar(wchar_t wch);
   size_t GetLength() const override;
@@ -35,8 +35,9 @@ class CFX_WideTextBuf : public CFX_BinaryBuf {
 
   CFX_WideTextBuf& operator<<(int i);
   CFX_WideTextBuf& operator<<(double f);
+  CFX_WideTextBuf& operator<<(ByteStringView ascii);
   CFX_WideTextBuf& operator<<(const wchar_t* lpsz);
-  CFX_WideTextBuf& operator<<(const WideStringView& str);
+  CFX_WideTextBuf& operator<<(WideStringView str);
   CFX_WideTextBuf& operator<<(const WideString& str);
   CFX_WideTextBuf& operator<<(const CFX_WideTextBuf& buf);
 };

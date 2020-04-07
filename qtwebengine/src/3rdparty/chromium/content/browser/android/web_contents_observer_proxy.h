@@ -44,6 +44,7 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void TitleWasSet(NavigationEntry* entry) override;
 
   void DidStartNavigation(NavigationHandle* navigation_handle) override;
+  void DidRedirectNavigation(NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
 
   void DidFinishLoad(RenderFrameHost* render_frame_host,
@@ -59,6 +60,7 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override;
   void SetToBaseURLForDataURLIfNeeded(std::string* url);
   void ViewportFitChanged(blink::mojom::ViewportFit value) override;
+  void DidReloadLoFiImages() override;
 
   base::android::ScopedJavaGlobalRef<jobject> java_observer_;
   GURL base_url_of_last_started_data_url_;

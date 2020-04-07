@@ -8,12 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <string.h>
+#include <algorithm>
 #include <memory>
+#include <utility>
 
+#include "api/rtp_headers.h"
+#include "common_types.h"  // NOLINT(build/include)
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "modules/rtp_rtcp/source/byte_io.h"
 #include "modules/rtp_rtcp/source/rtp_format.h"
 #include "modules/rtp_rtcp/source/rtp_utility.h"
+#include "modules/rtp_rtcp/source/rtp_video_header.h"
+#include "modules/video_coding/codecs/interface/common_constants.h"
+#include "modules/video_coding/codecs/vp8/include/vp8_globals.h"
+#include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "rtc_base/checks.h"
 #include "test/layer_filtering_transport.h"
 
@@ -22,27 +30,7 @@ namespace test {
 
 LayerFilteringTransport::LayerFilteringTransport(
     SingleThreadedTaskQueueForTesting* task_queue,
-    const FakeNetworkPipe::Config& config,
-    Call* send_call,
-    uint8_t vp8_video_payload_type,
-    uint8_t vp9_video_payload_type,
-    int selected_tl,
-    int selected_sl,
-    const std::map<uint8_t, MediaType>& payload_type_map,
-    uint32_t ssrc_to_filter_min,
-    uint32_t ssrc_to_filter_max)
-    : DirectTransport(task_queue, config, send_call, payload_type_map),
-      vp8_video_payload_type_(vp8_video_payload_type),
-      vp9_video_payload_type_(vp9_video_payload_type),
-      selected_tl_(selected_tl),
-      selected_sl_(selected_sl),
-      discarded_last_packet_(false),
-      ssrc_to_filter_min_(ssrc_to_filter_min),
-      ssrc_to_filter_max_(ssrc_to_filter_max) {}
-
-LayerFilteringTransport::LayerFilteringTransport(
-    SingleThreadedTaskQueueForTesting* task_queue,
-    std::unique_ptr<FakeNetworkPipe> pipe,
+    std::unique_ptr<SimulatedPacketReceiverInterface> pipe,
     Call* send_call,
     uint8_t vp8_video_payload_type,
     uint8_t vp9_video_payload_type,
@@ -62,25 +50,7 @@ LayerFilteringTransport::LayerFilteringTransport(
 
 LayerFilteringTransport::LayerFilteringTransport(
     SingleThreadedTaskQueueForTesting* task_queue,
-    const FakeNetworkPipe::Config& config,
-    Call* send_call,
-    uint8_t vp8_video_payload_type,
-    uint8_t vp9_video_payload_type,
-    int selected_tl,
-    int selected_sl,
-    const std::map<uint8_t, MediaType>& payload_type_map)
-    : DirectTransport(task_queue, config, send_call, payload_type_map),
-      vp8_video_payload_type_(vp8_video_payload_type),
-      vp9_video_payload_type_(vp9_video_payload_type),
-      selected_tl_(selected_tl),
-      selected_sl_(selected_sl),
-      discarded_last_packet_(false),
-      ssrc_to_filter_min_(0),
-      ssrc_to_filter_max_(0xFFFFFFFF) {}
-
-LayerFilteringTransport::LayerFilteringTransport(
-    SingleThreadedTaskQueueForTesting* task_queue,
-    std::unique_ptr<FakeNetworkPipe> pipe,
+    std::unique_ptr<SimulatedPacketReceiverInterface> pipe,
     Call* send_call,
     uint8_t vp8_video_payload_type,
     uint8_t vp9_video_payload_type,
@@ -135,32 +105,44 @@ bool LayerFilteringTransport::SendRtp(const uint8_t* packet,
         RtpDepacketizer::Create(is_vp8 ? kVideoCodecVP8 : kVideoCodecVP9));
     RtpDepacketizer::ParsedPayload parsed_payload;
     if (depacketizer->Parse(&parsed_payload, payload, payload_data_length)) {
-      const int temporal_idx = static_cast<int>(
-          is_vp8 ? parsed_payload.video_header().vp8().temporalIdx
-                 : parsed_payload.video_header().vp9().temporal_idx);
-      const int spatial_idx = static_cast<int>(
-          is_vp8 ? kNoSpatialIdx
-                 : parsed_payload.video_header().vp9().spatial_idx);
-      const bool non_ref_for_inter_layer_pred =
-          is_vp8 ? false
-                 : parsed_payload.video_header()
-                       .vp9()
-                       .non_ref_for_inter_layer_pred;
-      // The number of spatial layers is sent in ssData, which is included only
-      // in the first packet of the first spatial layer of a key frame.
-      if (!parsed_payload.video_header().vp9().inter_pic_predicted &&
-          parsed_payload.video_header().vp9().beginning_of_frame == 1 &&
-          spatial_idx == 0) {
-        num_active_spatial_layers_ =
-            parsed_payload.video_header().vp9().num_spatial_layers;
-      } else if (spatial_idx == kNoSpatialIdx)
+      int temporal_idx;
+      int spatial_idx;
+      bool non_ref_for_inter_layer_pred;
+      bool end_of_frame;
+
+      if (is_vp8) {
+        temporal_idx = absl::get<RTPVideoHeaderVP8>(
+                           parsed_payload.video_header().video_type_header)
+                           .temporalIdx;
+        spatial_idx = kNoSpatialIdx;
         num_active_spatial_layers_ = 1;
+        non_ref_for_inter_layer_pred = false;
+        end_of_frame = true;
+      } else {
+        const auto& vp9_header = absl::get<RTPVideoHeaderVP9>(
+            parsed_payload.video_header().video_type_header);
+        temporal_idx = vp9_header.temporal_idx;
+        spatial_idx = vp9_header.spatial_idx;
+        non_ref_for_inter_layer_pred = vp9_header.non_ref_for_inter_layer_pred;
+        end_of_frame = vp9_header.end_of_frame;
+        if (vp9_header.ss_data_available) {
+          RTC_DCHECK(vp9_header.temporal_idx == kNoTemporalIdx ||
+                     vp9_header.temporal_idx == 0);
+          RTC_DCHECK(vp9_header.spatial_idx == kNoSpatialIdx ||
+                     vp9_header.spatial_idx == 0);
+          num_active_spatial_layers_ = vp9_header.num_spatial_layers;
+        }
+      }
+
+      if (spatial_idx == kNoSpatialIdx)
+        num_active_spatial_layers_ = 1;
+
       RTC_CHECK_GT(num_active_spatial_layers_, 0);
 
       if (selected_sl_ >= 0 &&
           spatial_idx ==
               std::min(num_active_spatial_layers_ - 1, selected_sl_) &&
-          parsed_payload.video_header().vp9().end_of_frame) {
+          end_of_frame) {
         // This layer is now the last in the superframe.
         set_marker_bit = true;
       } else {

@@ -5,11 +5,9 @@
 #ifndef CORE_FXCRT_MAYBE_OWNED_H_
 #define CORE_FXCRT_MAYBE_OWNED_H_
 
-#include <algorithm>
 #include <memory>
 #include <utility>
 
-#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/unowned_ptr.h"
 
@@ -22,8 +20,9 @@ namespace fxcrt {
 template <typename T, typename D = std::default_delete<T>>
 class MaybeOwned {
  public:
-  MaybeOwned() : m_pObj(nullptr) {}
+  MaybeOwned() = default;
   explicit MaybeOwned(T* ptr) : m_pObj(ptr) {}
+  explicit MaybeOwned(const UnownedPtr<T>& ptr) : m_pObj(ptr.Get()) {}
   explicit MaybeOwned(std::unique_ptr<T, D> ptr)
       : m_pOwnedObj(std::move(ptr)), m_pObj(m_pOwnedObj.get()) {}
 
@@ -72,6 +71,10 @@ class MaybeOwned {
   }
   MaybeOwned& operator=(T* ptr) {
     Reset(ptr);
+    return *this;
+  }
+  MaybeOwned& operator=(const UnownedPtr<T>& ptr) {
+    Reset(ptr.Get());
     return *this;
   }
   MaybeOwned& operator=(std::unique_ptr<T, D> ptr) {

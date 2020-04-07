@@ -4,6 +4,7 @@
 
 #include "components/subresource_filter/tools/filter_tool.h"
 
+#include <algorithm>
 #include <istream>
 #include <ostream>
 #include <string>
@@ -14,10 +15,9 @@
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/values.h"
-#include "components/subresource_filter/core/common/activation_level.h"
-#include "components/subresource_filter/core/common/activation_state.h"
 #include "components/subresource_filter/core/common/document_subresource_filter.h"
 #include "components/subresource_filter/core/common/load_policy.h"
+#include "components/subresource_filter/core/mojom/subresource_filter.mojom.h"
 #include "components/url_pattern_index/flat/url_pattern_index_generated.h"
 #include "components/url_pattern_index/proto/rules.pb.h"
 #include "components/url_pattern_index/url_rule_util.h"
@@ -78,11 +78,10 @@ const url_pattern_index::flat::UrlRule* FindMatchingUrlRule(
     const url::Origin& document_origin,
     const GURL& request_url,
     url_pattern_index::proto::ElementType type) {
-  subresource_filter::DocumentSubresourceFilter filter(
-      document_origin,
-      subresource_filter::ActivationState(
-          subresource_filter::ActivationLevel::ENABLED),
-      ruleset);
+  subresource_filter::mojom::ActivationState state;
+  state.activation_level = subresource_filter::mojom::ActivationLevel::kEnabled;
+  subresource_filter::DocumentSubresourceFilter filter(document_origin, state,
+                                                       ruleset);
 
   return filter.FindMatchingUrlRule(request_url, type);
 }
@@ -186,13 +185,27 @@ void FilterTool::MatchBatchImpl(std::istream* request_stream,
   if (print_each_request)
     return;
 
+  // Sort the rules in descending order by match count.
+  std::vector<std::pair<std::string, int>> vector_rules;
   for (auto rule_and_count : matched_rules) {
-    if (rule_and_count.second >= min_match_count) {
-      *output_ << url_pattern_index::FlatUrlRuleToFilterlistString(
-                      rule_and_count.first)
-                      .c_str()
-               << std::endl;
-    }
+    if (rule_and_count.second < min_match_count)
+      continue;
+
+    vector_rules.push_back(std::make_pair(
+        url_pattern_index::FlatUrlRuleToFilterlistString(rule_and_count.first)
+            .c_str(),
+        rule_and_count.second));
+  }
+
+  std::sort(vector_rules.begin(), vector_rules.end(),
+            [](const std::pair<std::string, int>& left,
+               const std::pair<std::string, int>& right) {
+              return left.second > right.second;
+            });
+
+  for (auto rule_and_count : vector_rules) {
+    *output_ << rule_and_count.second << " " << rule_and_count.first
+             << std::endl;
   }
 }
 

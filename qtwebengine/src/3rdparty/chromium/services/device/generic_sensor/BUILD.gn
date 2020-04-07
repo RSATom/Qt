@@ -104,6 +104,16 @@ source_set("generic_sensor") {
   }
 
   if (is_win) {
+    # Windows doesn't use these, and their file-name length can make them break Windows builds
+    # depending on starting depth.
+    sources -= [
+      "absolute_orientation_euler_angles_fusion_algorithm_using_accelerometer_and_magnetometer.cc",
+      "absolute_orientation_euler_angles_fusion_algorithm_using_accelerometer_and_magnetometer.h",
+      "relative_orientation_euler_angles_fusion_algorithm_using_accelerometer.cc",
+      "relative_orientation_euler_angles_fusion_algorithm_using_accelerometer.h",
+      "relative_orientation_euler_angles_fusion_algorithm_using_accelerometer_and_gyroscope.cc",
+      "relative_orientation_euler_angles_fusion_algorithm_using_accelerometer_and_gyroscope.h",
+    ]
     libs = [
       "portabledeviceguids.lib",
       "sensorsapi.lib",

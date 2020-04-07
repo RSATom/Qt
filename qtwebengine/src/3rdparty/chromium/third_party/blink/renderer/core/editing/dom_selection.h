@@ -52,8 +52,10 @@ class CORE_EXPORT DOMSelection final : public ScriptWrappable,
 
  public:
   static DOMSelection* Create(const TreeScope* tree_scope) {
-    return new DOMSelection(tree_scope);
+    return MakeGarbageCollected<DOMSelection>(tree_scope);
   }
+
+  explicit DOMSelection(const TreeScope*);
 
   void ClearTreeScope();
 
@@ -105,14 +107,12 @@ class CORE_EXPORT DOMSelection final : public ScriptWrappable,
   void Trace(blink::Visitor*) override;
 
  private:
-  explicit DOMSelection(const TreeScope*);
-
   bool IsAvailable() const;
 
   void UpdateFrameSelection(const SelectionInDOMTree&,
                             Range*,
                             const SetSelectionOptions&) const;
-  // Convenience methods for accessors, does not check m_frame present.
+  // Convenience methods for accessors, does not check owner Frame presence.
   VisibleSelection GetVisibleSelection() const;
   bool IsBaseFirstInSelection() const;
   const Position& AnchorPosition() const;
@@ -122,7 +122,7 @@ class CORE_EXPORT DOMSelection final : public ScriptWrappable,
 
   bool IsValidForPosition(Node*) const;
 
-  void AddConsoleError(const String& message);
+  void AddConsoleWarning(const String& message);
   Range* PrimaryRangeOrNull() const;
   EphemeralRange CreateRangeFromSelectionEditor() const;
 

@@ -6,16 +6,13 @@
 
 #include <algorithm>
 
-#include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
-
-#define UMA_HISTOGRAM_MBYTES(name, sample)                                     \
-  UMA_HISTOGRAM_CUSTOM_COUNTS((name), static_cast<int>((sample) / kMBytes), 1, \
-                              10 * 1024 * 1024 /* 10TB */, 100)
+#include "storage/browser/quota/quota_features.h"
+#include "storage/browser/quota/quota_macros.h"
 
 namespace storage {
 
@@ -30,7 +27,7 @@ int64_t RandomizeByPercent(int64_t value, int percent) {
 base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
     const base::FilePath& partition_path,
     bool is_incognito) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   const int64_t kMBytes = 1024 * 1024;
   const int kRandomizedPercentage = 10;
 
@@ -51,18 +48,13 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
     return settings;
   }
 
-// The fraction of the device's storage the browser is willing to
-// use for temporary storage.
-#if defined(OS_CHROMEOS)
-  // Chrome OS is given a larger fraction, as web content is the considered
-  // the primary use of the platform. Chrome OS itself maintains free space by
-  // starting to evict data (old profiles) when less than 1GB remains,
-  // stopping eviction once 2GB is free.
-  // Prior to M66 this was 1/3, same as other platforms.
-  const double kTemporaryPoolSizeRatio = 2.0 / 3.0;  // 66%
-#else
-  const double kTemporaryPoolSizeRatio = 1.0 / 3.0;  // 33%
-#endif
+  // The fraction of the device's storage the browser is willing to
+  // use for temporary storage.
+  // Check Finch for an experimental value to use as temporary pool size ratio
+  // if experiment is enabled, otherwise fallback to ~66% for chromeOS and
+  // ~33% otherwise.
+  const double kTemporaryPoolSizeRatio =
+      features::kExperimentalPoolSizeRatio.Get();
 
   // The amount of the device's storage the browser attempts to
   // keep free. If there is less than this amount of storage free
@@ -97,7 +89,7 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
 
   // Determines the portion of the temp pool that can be
   // utilized by a single host (ie. 5 for 20%).
-  const int kPerHostTemporaryPortion = 5;
+  const double kPerHostTemporaryRatio = features::kPerHostRatio.Get();
 
   // SessionOnly (or ephemeral) origins are allotted a fraction of what
   // normal origins are provided, and the amount is capped to a hard limit.
@@ -121,7 +113,7 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
   settings.must_remain_available =
       std::min(kMustRemainAvailableFixed,
                static_cast<int64_t>(total * kMustRemainAvailableRatio));
-  settings.per_host_quota = pool_size / kPerHostTemporaryPortion;
+  settings.per_host_quota = pool_size * kPerHostTemporaryRatio;
   settings.session_only_per_host_quota = std::min(
       RandomizeByPercent(kMaxSessionOnlyHostQuota, kRandomizedPercentage),
       static_cast<int64_t>(settings.per_host_quota *
@@ -137,7 +129,7 @@ void GetNominalDynamicSettings(const base::FilePath& partition_path,
                                OptionalQuotaSettingsCallback callback) {
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&CalculateNominalDynamicSettings, partition_path,
                      is_incognito),

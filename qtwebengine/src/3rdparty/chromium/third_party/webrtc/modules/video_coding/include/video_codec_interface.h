@@ -19,7 +19,6 @@
 #include "common_types.h"  // NOLINT(build/include)
 #include "modules/include/module_common_types.h"
 #include "modules/video_coding/include/video_error_codes.h"
-#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -29,7 +28,6 @@ class RTPFragmentationHeader;  // forward declaration
 // with a copy-constructor. See below.
 struct CodecSpecificInfoVP8 {
   bool nonReference;
-  uint8_t simulcastIdx;
   uint8_t temporalIdx;
   bool layerSync;
   int8_t keyIdx;  // Negative value to skip keyIdx.
@@ -44,7 +42,6 @@ struct CodecSpecificInfoVP9 {
   bool non_ref_for_inter_layer_pred;
 
   uint8_t temporal_idx;
-  uint8_t spatial_idx;
   bool temporal_up_switch;
   bool inter_layer_predicted;  // Frame is dependent on directly lower spatial
                                // layer frame.
@@ -64,17 +61,11 @@ struct CodecSpecificInfoVP9 {
   bool end_of_picture;
 };
 
-struct CodecSpecificInfoGeneric {
-  uint8_t simulcast_idx;
-};
-
 struct CodecSpecificInfoH264 {
   H264PacketizationMode packetization_mode;
-  uint8_t simulcast_idx;
 };
 
 union CodecSpecificInfoUnion {
-  CodecSpecificInfoGeneric generic;
   CodecSpecificInfoVP8 VP8;
   CodecSpecificInfoVP9 VP9;
   CodecSpecificInfoH264 H264;
@@ -84,11 +75,10 @@ union CodecSpecificInfoUnion {
 // must be fitted with a copy-constructor. This is because it is copied
 // in the copy-constructor of VCMEncodedFrame.
 struct CodecSpecificInfo {
-  CodecSpecificInfo() : codecType(kVideoCodecUnknown), codec_name(nullptr) {
+  CodecSpecificInfo() : codecType(kVideoCodecGeneric) {
     memset(&codecSpecific, 0, sizeof(codecSpecific));
   }
   VideoCodecType codecType;
-  const char* codec_name;
   CodecSpecificInfoUnion codecSpecific;
 };
 

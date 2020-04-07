@@ -16,11 +16,12 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/supports_user_data.h"
+#include "base/task/post_task.h"
 #include "base/task_runner.h"
-#include "base/task_scheduler/post_task.h"
 #include "content/browser/resource_context_impl.h"
 #include "content/public/browser/blob_handle.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
 #include "services/network/public/cpp/resource_request_body.h"
@@ -117,7 +118,7 @@ ChromeBlobStorageContext* ChromeBlobStorageContext::GetFor(
     // disk on the storage context.
     if (!context->IsOffTheRecord() && io_thread_valid) {
       file_task_runner = base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
       // Removes our old blob directories if they exist.
       BrowserThread::PostAfterStartupTask(
@@ -127,8 +128,8 @@ ChromeBlobStorageContext* ChromeBlobStorageContext::GetFor(
     }
 
     if (io_thread_valid) {
-      BrowserThread::PostTask(
-          BrowserThread::IO, FROM_HERE,
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::IO},
           base::BindOnce(&ChromeBlobStorageContext::InitializeOnIOThread, blob,
                          std::move(blob_storage_dir),
                          std::move(file_task_runner)));
@@ -148,7 +149,8 @@ void ChromeBlobStorageContext::InitializeOnIOThread(
   // Signal the BlobMemoryController when it's appropriate to calculate its
   // storage limits.
   BrowserThread::PostAfterStartupTask(
-      FROM_HERE, BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
+      FROM_HERE,
+      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}),
       base::BindOnce(&storage::BlobMemoryController::CalculateBlobStorageLimits,
                      context_->mutable_memory_controller()->GetWeakPtr()));
 }
@@ -181,8 +183,8 @@ ChromeBlobStorageContext::URLLoaderFactoryForToken(
     blink::mojom::BlobURLTokenPtr token) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   network::mojom::URLLoaderFactoryPtr blob_url_loader_factory_ptr;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
           [](scoped_refptr<ChromeBlobStorageContext> context,
              network::mojom::URLLoaderFactoryRequest request,
@@ -204,8 +206,8 @@ ChromeBlobStorageContext::URLLoaderFactoryForUrl(
     const GURL& url) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   network::mojom::URLLoaderFactoryPtr blob_url_loader_factory_ptr;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
           [](scoped_refptr<ChromeBlobStorageContext> context,
              network::mojom::URLLoaderFactoryRequest request, const GURL& url) {
@@ -226,8 +228,8 @@ blink::mojom::BlobPtr ChromeBlobStorageContext::GetBlobPtr(
     const std::string& uuid) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   blink::mojom::BlobPtr blob_ptr;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
           [](scoped_refptr<ChromeBlobStorageContext> context,
              blink::mojom::BlobRequest request, const std::string& uuid) {
@@ -269,7 +271,7 @@ bool GetBodyBlobDataHandles(network::ResourceRequestBody* body,
   DCHECK(blob_context);
   for (size_t i = 0; i < body->elements()->size(); ++i) {
     const network::DataElement& element = (*body->elements())[i];
-    if (element.type() != network::DataElement::TYPE_BLOB)
+    if (element.type() != network::mojom::DataElementType::kBlob)
       continue;
     std::unique_ptr<storage::BlobDataHandle> handle =
         blob_context->GetBlobDataFromUUID(element.blob_uuid());

@@ -51,7 +51,8 @@ AsyncTask::AsyncTask(ExecutionContext* context,
                      void* task,
                      const char* step,
                      bool enabled)
-    : debugger_(enabled ? ThreadDebugger::From(ToIsolate(context)) : nullptr),
+    : debugger_(enabled && context ? ThreadDebugger::From(context->GetIsolate())
+                                   : nullptr),
       task_(AsyncId(task)),
       recurring_(step) {
   if (recurring_) {
@@ -79,9 +80,11 @@ void AsyncTaskScheduled(ExecutionContext* context,
                         void* task) {
   TRACE_EVENT_FLOW_BEGIN1("devtools.timeline.async", "AsyncTask",
                           TRACE_ID_LOCAL(reinterpret_cast<uintptr_t>(task)),
-                          "data", InspectorAsyncTask::Data(name));
-  if (ThreadDebugger* debugger = ThreadDebugger::From(ToIsolate(context)))
-    debugger->AsyncTaskScheduled(name, AsyncId(task), true);
+                          "data", inspector_async_task::Data(name));
+  if (context) {
+    if (ThreadDebugger* debugger = ThreadDebugger::From(context->GetIsolate()))
+      debugger->AsyncTaskScheduled(name, AsyncId(task), true);
+  }
 }
 
 void AsyncTaskScheduledBreakable(ExecutionContext* context,
@@ -92,7 +95,7 @@ void AsyncTaskScheduledBreakable(ExecutionContext* context,
 }
 
 void AsyncTaskCanceled(ExecutionContext* context, void* task) {
-  AsyncTaskCanceled(ToIsolate(context), task);
+  AsyncTaskCanceled(context ? context->GetIsolate() : nullptr, task);
 }
 
 void AsyncTaskCanceled(v8::Isolate* isolate, void* task) {
@@ -110,8 +113,10 @@ void AsyncTaskCanceledBreakable(ExecutionContext* context,
 }
 
 void AllAsyncTasksCanceled(ExecutionContext* context) {
-  if (ThreadDebugger* debugger = ThreadDebugger::From(ToIsolate(context)))
-    debugger->AllAsyncTasksCanceled();
+  if (context) {
+    if (ThreadDebugger* debugger = ThreadDebugger::From(context->GetIsolate()))
+      debugger->AllAsyncTasksCanceled();
+  }
 }
 
 }  // namespace probe

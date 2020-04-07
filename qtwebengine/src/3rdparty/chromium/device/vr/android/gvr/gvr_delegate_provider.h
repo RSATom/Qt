@@ -19,16 +19,15 @@ class DEVICE_VR_EXPORT GvrDelegateProvider {
  public:
   GvrDelegateProvider() = default;
   virtual bool ShouldDisableGvrDevice() = 0;
-  virtual void SetDeviceId(unsigned int device_id) = 0;
   virtual void StartWebXRPresentation(
       mojom::VRDisplayInfoPtr display_info,
-      mojom::XRDeviceRuntimeSessionOptionsPtr options,
+      mojom::XRRuntimeSessionOptionsPtr options,
       base::OnceCallback<void(device::mojom::XRSessionPtr)> callback) = 0;
   virtual void ExitWebVRPresent() = 0;
   virtual void OnListeningForActivateChanged(bool listening) = 0;
 
  protected:
-  virtual ~GvrDelegateProvider() {}
+  virtual ~GvrDelegateProvider() = default;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(GvrDelegateProvider);

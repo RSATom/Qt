@@ -65,17 +65,16 @@ FWL_Type CFWL_DateTimePicker::GetClassID() const {
 void CFWL_DateTimePicker::Update() {
   if (m_iLock)
     return;
+
   if (!m_pProperties->m_pThemeProvider)
     m_pProperties->m_pThemeProvider = GetAvailableTheme();
-
-  m_pEdit->SetThemeProvider(m_pProperties->m_pThemeProvider);
+  m_pEdit->SetThemeProvider(m_pProperties->m_pThemeProvider.Get());
   m_rtClient = GetClientRect();
   m_pEdit->SetWidgetRect(m_rtClient);
   ResetEditAlignment();
   m_pEdit->Update();
-
   if (!m_pMonthCal->GetThemeProvider())
-    m_pMonthCal->SetThemeProvider(m_pProperties->m_pThemeProvider);
+    m_pMonthCal->SetThemeProvider(m_pProperties->m_pThemeProvider.Get());
 
   IFWL_ThemeProvider* theme = GetAvailableTheme();
   if (!theme)
@@ -109,10 +108,11 @@ void CFWL_DateTimePicker::DrawWidget(CXFA_Graphics* pGraphics,
                                      const CFX_Matrix& matrix) {
   if (!pGraphics)
     return;
-  if (!m_pProperties->m_pThemeProvider)
+
+  IFWL_ThemeProvider* pTheme = m_pProperties->m_pThemeProvider.Get();
+  if (!pTheme)
     return;
 
-  IFWL_ThemeProvider* pTheme = m_pProperties->m_pThemeProvider;
   if (HasBorder())
     DrawBorder(pGraphics, CFWL_Part::Border, pTheme, matrix);
   if (!m_rtBtn.IsEmpty())
@@ -175,7 +175,7 @@ void CFWL_DateTimePicker::SetEditText(const WideString& wsText) {
 }
 
 WideString CFWL_DateTimePicker::GetEditText() const {
-  return m_pEdit ? m_pEdit->GetText() : L"";
+  return m_pEdit ? m_pEdit->GetText() : WideString();
 }
 
 int32_t CFWL_DateTimePicker::GetEditTextLength() const {
@@ -211,7 +211,7 @@ void CFWL_DateTimePicker::DrawDropDownButton(CXFA_Graphics* pGraphics,
   param.m_rtPart = m_rtBtn;
   if (pMatrix)
     param.m_matrix.Concat(*pMatrix);
-  pTheme->DrawBackground(&param);
+  pTheme->DrawBackground(param);
 }
 
 WideString CFWL_DateTimePicker::FormatDateString(int32_t iYear,
@@ -268,7 +268,7 @@ void CFWL_DateTimePicker::ShowMonthCalendar(bool bActivate) {
 }
 
 bool CFWL_DateTimePicker::IsMonthCalendarVisible() const {
-  return (m_pMonthCal && !(m_pMonthCal->GetStates() & FWL_WGTSTATE_Invisible));
+  return m_pMonthCal && m_pMonthCal->IsVisible();
 }
 
 void CFWL_DateTimePicker::ResetEditAlignment() {
@@ -403,8 +403,7 @@ void CFWL_DateTimePicker::OnFocusChanged(CFWL_Message* pMsg, bool bSet) {
     m_pEdit->GetDelegate()->OnProcessMessage(pMsg);
   } else {
     m_pProperties->m_dwStates &= ~FWL_WGTSTATE_Focused;
-    m_rtBtn.Reset();
-
+    m_rtBtn = CFX_RectF();
     if (IsMonthCalendarVisible())
       ShowMonthCalendar(false);
     if (m_pEdit->GetStates() & FWL_WGTSTATE_Focused) {

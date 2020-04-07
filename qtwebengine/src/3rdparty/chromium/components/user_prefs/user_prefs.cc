@@ -38,6 +38,15 @@ void UserPrefs::Set(base::SupportsUserData* context, PrefService* prefs) {
   context->SetUserData(UserDataKey(), base::WrapUnique(new UserPrefs(prefs)));
 }
 
+// static
+// TODO: Remove in Qt6 when contexts are only set once
+void UserPrefs::Remove(base::SupportsUserData* context) {
+  DCHECK(context);
+  DCHECK(context->GetUserData(UserDataKey()));
+  context->RemoveUserData(UserDataKey());
+}
+
+
 UserPrefs::UserPrefs(PrefService* prefs) : prefs_(prefs) {
 }
 

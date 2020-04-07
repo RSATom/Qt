@@ -19,11 +19,16 @@ option optimize_for = LITE_RUNTIME;
 
 package perfetto.protos;
 
+import "perfetto/config/android/android_log_config.proto";
 import "perfetto/config/chrome/chrome_config.proto";
 import "perfetto/config/ftrace/ftrace_config.proto";
 import "perfetto/config/inode_file/inode_file_config.proto";
+import "perfetto/config/power/android_power_config.proto";
 import "perfetto/config/process_stats/process_stats_config.proto";
+import "perfetto/config/profiling/heapprofd_config.proto";
+import "perfetto/config/sys_stats/sys_stats_config.proto";
 import "perfetto/config/test_config.proto";
+
 // When editing this file run ./tools/gen_tracing_cpp_headers_from_protos.py
 // to reflect changes in the corresponding C++ headers.
 
@@ -42,9 +47,16 @@ message DataSourceConfig {
   // without expensive lookups on its fastpath.
   optional uint32 target_buffer = 2;
 
-  // Gets set by the service to indicate the duration of the trace.
+  // Set by the service to indicate the duration of the trace.
   // DO NOT SET in consumer as this will be overridden by the service.
   optional uint32 trace_duration_ms = 3;
+
+  // Set by the service to indicate which tracing session the data source
+  // belongs to. The intended use case for this is checking if two data sources,
+  // one of which produces metadata for the other one, belong to the same trace
+  // session and hence should be linked together.
+  // This field was introduced in Aug 2018 after Android P.
+  optional uint64 tracing_session_id = 4;
 
   // Keeep the lower IDs (up to 99) for fields that are *not* specific to
   // data-sources and needs to be processed by the traced daemon.
@@ -53,6 +65,10 @@ message DataSourceConfig {
   optional ChromeConfig chrome_config = 101;
   optional InodeFileConfig inode_file_config = 102;
   optional ProcessStatsConfig process_stats_config = 103;
+  optional SysStatsConfig sys_stats_config = 104;
+  optional HeapprofdConfig heapprofd_config = 105;
+  optional AndroidPowerConfig android_power_config = 106;
+  optional AndroidLogConfig android_log_config = 107;
 
   // This is a fallback mechanism to send a free-form text config to the
   // producer. In theory this should never be needed. All the code that
@@ -65,5 +81,5 @@ message DataSourceConfig {
 
   // This field is only used for testing.
   optional TestConfig for_testing =
-      536870911;  // 2^29 - 1, max field id for protos.
+      268435455;  // 2^28 - 1, max field id for protos supported by Java.
 }

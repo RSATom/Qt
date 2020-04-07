@@ -4,17 +4,16 @@
 
 #include "ui/accessibility/platform/ax_platform_node.h"
 
-#include "base/containers/hash_tables.h"
 #include "base/lazy_instance.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate.h"
-#include "ui/base/ui_features.h"
+#include "ui/base/buildflags.h"
 
 namespace ui {
 
 // static
-base::LazyInstance<base::ObserverList<AXModeObserver>>::Leaky
+base::LazyInstance<base::ObserverList<AXModeObserver>::Unchecked>::Leaky
     AXPlatformNode::ax_mode_observers_ = LAZY_INSTANCE_INITIALIZER;
 
 // static
@@ -61,7 +60,7 @@ void AXPlatformNode::Destroy() {
 }
 
 int32_t AXPlatformNode::GetUniqueId() const {
-  DCHECK(GetDelegate());  // Must be called after Init()
+  DCHECK(GetDelegate()) << "|GetUniqueId| must be called after |Init|.";
   return GetDelegate() ? GetDelegate()->GetUniqueId().Get() : -1;
 }
 
@@ -93,6 +92,7 @@ void AXPlatformNode::OnInputSuggestionsUnavailable() {
 }
 
 // static
+// TODO(crbug.com/865101) Remove this once the autofill state works.
 bool AXPlatformNode::HasInputSuggestions() {
   return has_input_suggestions_;
 }

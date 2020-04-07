@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGPU_WEBGPU_ADAPTER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGPU_WEBGPU_ADAPTER_H_
 
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -19,13 +20,13 @@ class WebGPUAdapter final : public ScriptWrappable {
  public:
   static WebGPUAdapter* Create(const String& name);
 
-  const String& name() const;
-
-  WebGPUDevice* createDevice();
-
- private:
   WebGPUAdapter(const String& name);
 
+  const String& name() const;
+
+  WebGPUDevice* createDevice(ExecutionContext*);
+
+ private:
   String name_;
 };
 

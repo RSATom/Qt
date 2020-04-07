@@ -73,11 +73,10 @@ class CONTENT_EXPORT TrackAudioRenderer
   void Play() override;
   void Pause() override;
   void SetVolume(float volume) override;
-  media::OutputDeviceInfo GetOutputDeviceInfo() override;
-  base::TimeDelta GetCurrentRenderTime() const override;
-  bool IsLocalRenderer() const override;
+  base::TimeDelta GetCurrentRenderTime() override;
+  bool IsLocalRenderer() override;
   void SwitchOutputDevice(const std::string& device_id,
-                          const media::OutputDeviceStatusCB& callback) override;
+                          media::OutputDeviceStatusCB callback) override;
 
  protected:
   ~TrackAudioRenderer() override;

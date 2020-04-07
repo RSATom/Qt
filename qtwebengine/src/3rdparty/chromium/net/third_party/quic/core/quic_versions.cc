@@ -58,14 +58,14 @@ QuicVersionLabel CreateQuicVersionLabel(ParsedQuicVersion parsed_version) {
       return MakeVersionLabel(proto, '0', '3', '5');
     case QUIC_VERSION_39:
       return MakeVersionLabel(proto, '0', '3', '9');
-    case QUIC_VERSION_41:
-      return MakeVersionLabel(proto, '0', '4', '1');
-    case QUIC_VERSION_42:
-      return MakeVersionLabel(proto, '0', '4', '2');
     case QUIC_VERSION_43:
       return MakeVersionLabel(proto, '0', '4', '3');
     case QUIC_VERSION_44:
       return MakeVersionLabel(proto, '0', '4', '4');
+    case QUIC_VERSION_45:
+      return MakeVersionLabel(proto, '0', '4', '5');
+    case QUIC_VERSION_46:
+      return MakeVersionLabel(proto, '0', '4', '6');
     case QUIC_VERSION_99:
       return MakeVersionLabel(proto, '0', '9', '9');
     default:
@@ -158,7 +158,22 @@ ParsedQuicVersionVector FilterSupportedVersions(
   filtered_versions.reserve(versions.size());
   for (ParsedQuicVersion version : versions) {
     if (version.transport_version == QUIC_VERSION_99) {
-      if (GetQuicFlag(FLAGS_quic_enable_version_99) &&
+      if (GetQuicReloadableFlag(quic_enable_version_99) &&
+          GetQuicReloadableFlag(quic_enable_version_46) &&
+          GetQuicReloadableFlag(quic_enable_version_45) &&
+          GetQuicReloadableFlag(quic_enable_version_44) &&
+          GetQuicReloadableFlag(quic_enable_version_43)) {
+        filtered_versions.push_back(version);
+      }
+    } else if (version.transport_version == QUIC_VERSION_46) {
+      if (GetQuicReloadableFlag(quic_enable_version_46) &&
+          GetQuicReloadableFlag(quic_enable_version_45) &&
+          GetQuicReloadableFlag(quic_enable_version_44) &&
+          GetQuicReloadableFlag(quic_enable_version_43)) {
+        filtered_versions.push_back(version);
+      }
+    } else if (version.transport_version == QUIC_VERSION_45) {
+      if (GetQuicReloadableFlag(quic_enable_version_45) &&
           GetQuicReloadableFlag(quic_enable_version_44) &&
           GetQuicReloadableFlag(quic_enable_version_43)) {
         filtered_versions.push_back(version);
@@ -172,12 +187,8 @@ ParsedQuicVersionVector FilterSupportedVersions(
       if (GetQuicReloadableFlag(quic_enable_version_43)) {
         filtered_versions.push_back(version);
       }
-    } else if (version.transport_version == QUIC_VERSION_42) {
-      if (!GetQuicReloadableFlag(quic_disable_version_42)) {
-        filtered_versions.push_back(version);
-      }
-    } else if (version.transport_version == QUIC_VERSION_41) {
-      if (!GetQuicReloadableFlag(quic_disable_version_41_2)) {
+    } else if (version.transport_version == QUIC_VERSION_35) {
+      if (!GetQuicReloadableFlag(quic_disable_version_35)) {
         filtered_versions.push_back(version);
       }
     } else {
@@ -271,10 +282,10 @@ QuicString QuicVersionToString(QuicTransportVersion transport_version) {
   switch (transport_version) {
     RETURN_STRING_LITERAL(QUIC_VERSION_35);
     RETURN_STRING_LITERAL(QUIC_VERSION_39);
-    RETURN_STRING_LITERAL(QUIC_VERSION_41);
-    RETURN_STRING_LITERAL(QUIC_VERSION_42);
     RETURN_STRING_LITERAL(QUIC_VERSION_43);
     RETURN_STRING_LITERAL(QUIC_VERSION_44);
+    RETURN_STRING_LITERAL(QUIC_VERSION_45);
+    RETURN_STRING_LITERAL(QUIC_VERSION_46);
     RETURN_STRING_LITERAL(QUIC_VERSION_99);
     default:
       return "QUIC_VERSION_UNSUPPORTED";
@@ -313,6 +324,12 @@ QuicString ParsedQuicVersionVectorToString(
     result.append(ParsedQuicVersionToString(versions[i]));
   }
   return result;
+}
+
+ParsedQuicVersion UnsupportedQuicVersion() {
+  static const ParsedQuicVersion kUnsupportedQuicVersion(
+      PROTOCOL_UNSUPPORTED, QUIC_VERSION_UNSUPPORTED);
+  return kUnsupportedQuicVersion;
 }
 
 #undef RETURN_STRING_LITERAL  // undef for jumbo builds

@@ -15,10 +15,10 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_math.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -28,11 +28,11 @@
 #include "gpu/command_buffer/service/decoder_context.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/program_cache.h"
-#include "gpu/command_buffer/service/progress_reporter.h"
 #include "gpu/command_buffer/service/shader_manager.h"
 #include "gpu/config/gpu_preferences.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "ui/gl/gl_version_info.h"
+#include "ui/gl/progress_reporter.h"
 
 using base::TimeDelta;
 using base::TimeTicks;
@@ -99,7 +99,7 @@ bool IsBuiltInFragmentVarying(const std::string& name) {
       "gl_FrontFacing",
       "gl_PointCoord"
   };
-  for (size_t ii = 0; ii < arraysize(kBuiltInVaryings); ++ii) {
+  for (size_t ii = 0; ii < base::size(kBuiltInVaryings); ++ii) {
     if (name == kBuiltInVaryings[ii])
       return true;
   }
@@ -399,6 +399,7 @@ Program::Program(ProgramManager* manager, GLuint service_id)
       valid_(false),
       link_status_(false),
       uniforms_cleared_(false),
+      draw_id_uniform_location_(-1),
       transform_feedback_buffer_mode_(GL_NONE),
       effective_transform_feedback_buffer_mode_(GL_NONE),
       fragment_output_type_mask_(0u),
@@ -426,6 +427,7 @@ void Program::Reset() {
   attrib_location_to_index_map_.clear();
   fragment_output_type_mask_ = 0u;
   fragment_output_written_mask_ = 0u;
+  draw_id_uniform_location_ = -1;
   ClearVertexInputMasks();
 }
 
@@ -560,6 +562,15 @@ void Program::UpdateTransformFeedbackInfo() {
     transform_feedback_data_size_per_vertex_[0] =
         total.ValueOrDefault(std::numeric_limits<GLsizeiptr>::max());
   }
+}
+
+void Program::UpdateDrawIDUniformLocation() {
+  DCHECK(IsValid());
+  GLint fake_location = GetUniformFakeLocation("gl_DrawID");
+  draw_id_uniform_location_ = -1;
+  GLint array_index;
+  GetUniformInfoByFakeLocation(fake_location, &draw_id_uniform_location_,
+                               &array_index);
 }
 
 std::string Program::ProcessLogInfo(const std::string& log) {
@@ -1048,14 +1059,14 @@ void Program::UpdateFragmentInputs() {
     // Unlike when binding uniforms, we expect the driver to give correct
     // names: "name" for simple variable, "name[0]" for an array.
     GLsizei query_length = 0;
-    GLint query_results[arraysize(kQueryProperties)] = {
+    GLint query_results[base::size(kQueryProperties)] = {
         0,
     };
     glGetProgramResourceiv(service_id_, GL_FRAGMENT_INPUT_NV, ii,
-                           arraysize(kQueryProperties), kQueryProperties,
-                           arraysize(query_results), &query_length,
+                           base::size(kQueryProperties), kQueryProperties,
+                           base::size(query_results), &query_length,
                            query_results);
-    DCHECK(query_length == arraysize(kQueryProperties));
+    DCHECK(query_length == base::size(kQueryProperties));
 
     GLenum type = static_cast<GLenum>(query_results[1]);
     GLsizei size = static_cast<GLsizei>(query_results[2]);
@@ -1735,7 +1746,7 @@ const Program::UniformInfo*
     Program::GetUniformInfo(
         GLint index) const {
   if (static_cast<size_t>(index) >= uniform_infos_.size()) {
-    return NULL;
+    return nullptr;
   }
   return &uniform_infos_[index];
 }
@@ -1814,7 +1825,7 @@ bool Program::AttachShader(
   DCHECK(shader_manager);
   DCHECK(shader);
   int index = ShaderTypeToIndex(shader->shader_type());
-  if (attached_shaders_[index].get() != NULL) {
+  if (attached_shaders_[index].get() != nullptr) {
     return false;
   }
   attached_shaders_[index] = scoped_refptr<Shader>(shader);
@@ -1833,7 +1844,7 @@ void Program::DetachShader(
   DCHECK(shader_manager);
   DCHECK(shader);
   DCHECK(IsShaderAttached(shader));
-  attached_shaders_[ShaderTypeToIndex(shader->shader_type())] = NULL;
+  attached_shaders_[ShaderTypeToIndex(shader->shader_type())] = nullptr;
   shader_manager->UnuseShader(shader);
 }
 
@@ -1891,7 +1902,7 @@ bool Program::DetectAttribLocationBindingConflicts() const {
   std::set<GLint> location_binding_used;
   for (const auto& key_value : bind_attrib_location_map_) {
     // Find out if an attribute is statically used in this program's shaders.
-    const sh::Attribute* attrib = NULL;
+    const sh::Attribute* attrib = nullptr;
     const std::string* mapped_name = GetAttribMappedName(key_value.first);
     if (!mapped_name)
       continue;
@@ -1900,10 +1911,10 @@ bool Program::DetectAttribLocationBindingConflicts() const {
         continue;
       attrib = shader->GetAttribInfo(*mapped_name);
       if (attrib) {
-        if (attrib->staticUse)
+        if (shader->shader_version() >= 300 || attrib->staticUse)
           break;
         else
-          attrib = NULL;
+          attrib = nullptr;
       }
     }
     if (attrib) {
@@ -2540,7 +2551,7 @@ bool Program::GetUniformsES3(CommonDecoder::Bucket* bucket) const {
     GL_UNIFORM_IS_ROW_MAJOR,
   };
   const GLint kDefaultValue[] = { -1, -1, -1, -1, 0 };
-  const size_t kNumPnames = arraysize(kPname);
+  const size_t kNumPnames = base::size(kPname);
   std::vector<GLuint> indices(count);
   for (GLsizei ii = 0; ii < count; ++ii) {
     indices[ii] = ii;
@@ -2605,7 +2616,7 @@ Program::~Program() {
       glDeleteProgram(service_id());
     }
     manager_->StopTracking(this);
-    manager_ = NULL;
+    manager_ = nullptr;
   }
 }
 
@@ -2616,7 +2627,7 @@ ProgramManager::ProgramManager(ProgramCache* program_cache,
                                uint32_t max_vertex_attribs,
                                const GpuPreferences& gpu_preferences,
                                FeatureInfo* feature_info,
-                               ProgressReporter* progress_reporter)
+                               gl::ProgressReporter* progress_reporter)
     : program_count_(0),
       have_context_(true),
       program_cache_(program_cache),
@@ -2663,7 +2674,7 @@ Program* ProgramManager::CreateProgram(
 
 Program* ProgramManager::GetProgram(GLuint client_id) {
   ProgramMap::iterator it = programs_.find(client_id);
-  return it != programs_.end() ? it->second.get() : NULL;
+  return it != programs_.end() ? it->second.get() : nullptr;
 }
 
 bool ProgramManager::GetClientId(GLuint service_id, GLuint* client_id) const {
@@ -2737,6 +2748,11 @@ void ProgramManager::UnuseProgram(
 void ProgramManager::ClearUniforms(Program* program) {
   DCHECK(program);
   program->ClearUniforms(&zero_);
+}
+
+void ProgramManager::UpdateDrawIDUniformLocation(Program* program) {
+  DCHECK(program);
+  program->UpdateDrawIDUniformLocation();
 }
 
 int32_t ProgramManager::MakeFakeLocation(int32_t index, int32_t element) {

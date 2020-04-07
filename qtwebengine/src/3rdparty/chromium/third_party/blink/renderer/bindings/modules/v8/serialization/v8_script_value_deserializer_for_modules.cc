@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/bindings/modules/v8/serialization/v8_script_value_deserializer_for_modules.h"
 
+#include "third_party/blink/public/mojom/filesystem/file_system.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_crypto.h"
 #include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
@@ -13,16 +14,19 @@
 #include "third_party/blink/renderer/modules/crypto/crypto_key.h"
 #include "third_party/blink/renderer/modules/filesystem/dom_file_system.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_certificate.h"
-#include "third_party/blink/renderer/platform/file_system_type.h"
+#include "third_party/blink/renderer/modules/shapedetection/detected_barcode.h"
+#include "third_party/blink/renderer/modules/shapedetection/detected_face.h"
+#include "third_party/blink/renderer/modules/shapedetection/detected_text.h"
 
 namespace blink {
 
 ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
-    SerializationTag tag) {
+    SerializationTag tag,
+    ExceptionState& exception_state) {
   // Give the core/ implementation a chance to try first.
   // If it didn't recognize the kind of wrapper, try the modules types.
   if (ScriptWrappable* wrappable =
-          V8ScriptValueDeserializer::ReadDOMObject(tag))
+          V8ScriptValueDeserializer::ReadDOMObject(tag, exception_state))
     return wrappable;
 
   switch (tag) {
@@ -32,12 +36,14 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
       uint32_t raw_type;
       String name;
       String root_url;
-      if (!ReadUint32(&raw_type) || raw_type > kFileSystemTypeLast ||
+      if (!ReadUint32(&raw_type) ||
+          raw_type >
+              static_cast<int32_t>(mojom::blink::FileSystemType::kMaxValue) ||
           !ReadUTF8String(&name) || !ReadUTF8String(&root_url))
         return nullptr;
-      return DOMFileSystem::Create(ExecutionContext::From(GetScriptState()),
-                                   name, static_cast<FileSystemType>(raw_type),
-                                   KURL(root_url));
+      return DOMFileSystem::Create(
+          ExecutionContext::From(GetScriptState()), name,
+          static_cast<mojom::blink::FileSystemType>(raw_type), KURL(root_url));
     }
     case kRTCCertificateTag: {
       String pem_private_key;
@@ -49,11 +55,65 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
           Platform::Current()->CreateRTCCertificateGenerator());
       if (!certificate_generator)
         return nullptr;
-      std::unique_ptr<WebRTCCertificate> certificate =
+      rtc::scoped_refptr<rtc::RTCCertificate> certificate =
           certificate_generator->FromPEM(pem_private_key, pem_certificate);
       if (!certificate)
         return nullptr;
-      return new RTCCertificate(std::move(certificate));
+      return MakeGarbageCollected<RTCCertificate>(std::move(certificate));
+    }
+    case kDetectedBarcodeTag: {
+      String raw_value;
+      if (!ReadUTF8String(&raw_value))
+        return nullptr;
+      DOMRectReadOnly* bounding_box = ReadDOMRectReadOnly();
+      if (!bounding_box)
+        return nullptr;
+      uint32_t corner_points_length;
+      if (!ReadUint32(&corner_points_length))
+        return nullptr;
+      HeapVector<Member<Point2D>> corner_points;
+      for (uint32_t i = 0; i < corner_points_length; i++) {
+        Point2D* point = Point2D::Create();
+        if (!ReadPoint2D(point))
+          return nullptr;
+        corner_points.push_back(point);
+      }
+      return DetectedBarcode::Create(raw_value, bounding_box, corner_points);
+    }
+    case kDetectedFaceTag: {
+      DOMRectReadOnly* bounding_box = ReadDOMRectReadOnly();
+      if (!bounding_box)
+        return nullptr;
+      uint32_t landmarks_length;
+      if (!ReadUint32(&landmarks_length))
+        return nullptr;
+      HeapVector<Member<Landmark>> landmarks;
+      for (uint32_t i = 0; i < landmarks_length; i++) {
+        Landmark* landmark = Landmark::Create();
+        if (!ReadLandmark(landmark))
+          return nullptr;
+        landmarks.push_back(landmark);
+      }
+      return DetectedFace::Create(bounding_box, landmarks);
+    }
+    case kDetectedTextTag: {
+      String raw_value;
+      if (!ReadUTF8String(&raw_value))
+        return nullptr;
+      DOMRectReadOnly* bounding_box = ReadDOMRectReadOnly();
+      if (!bounding_box)
+        return nullptr;
+      uint32_t corner_points_length;
+      if (!ReadUint32(&corner_points_length))
+        return nullptr;
+      HeapVector<Member<Point2D>> corner_points;
+      for (uint32_t i = 0; i < corner_points_length; i++) {
+        Point2D* point = Point2D::Create();
+        if (!ReadPoint2D(point))
+          return nullptr;
+        corner_points.push_back(point);
+      }
+      return DetectedText::Create(raw_value, bounding_box, corner_points);
     }
     default:
       break;
@@ -287,6 +347,34 @@ CryptoKey* V8ScriptValueDeserializerForModules::ReadCryptoKey() {
     return nullptr;
 
   return CryptoKey::Create(key);
+}
+
+bool V8ScriptValueDeserializerForModules::ReadLandmark(Landmark* landmark) {
+  String type;
+  if (!ReadUTF8String(&type))
+    return false;
+  uint32_t locations_length;
+  if (!ReadUint32(&locations_length))
+    return false;
+  HeapVector<Member<Point2D>> locations;
+  for (uint32_t i = 0; i < locations_length; i++) {
+    Point2D* location = Point2D::Create();
+    if (!ReadPoint2D(location))
+      return false;
+    locations.push_back(location);
+  }
+  landmark->setType(type);
+  landmark->setLocations(locations);
+  return true;
+}
+
+bool V8ScriptValueDeserializerForModules::ReadPoint2D(Point2D* point) {
+  double x = 0, y = 0;
+  if (!ReadDouble(&x) || !ReadDouble(&y))
+    return false;
+  point->setX(x);
+  point->setY(y);
+  return true;
 }
 
 }  // namespace blink

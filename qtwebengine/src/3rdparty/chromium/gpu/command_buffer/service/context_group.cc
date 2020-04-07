@@ -15,18 +15,20 @@
 #include "gpu/command_buffer/service/decoder_context.h"
 #include "gpu/command_buffer/service/framebuffer_manager.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_passthrough.h"
+#include "gpu/command_buffer/service/passthrough_discardable_manager.h"
 #include "gpu/command_buffer/service/path_manager.h"
 #include "gpu/command_buffer/service/program_manager.h"
-#include "gpu/command_buffer/service/progress_reporter.h"
 #include "gpu/command_buffer/service/renderbuffer_manager.h"
 #include "gpu/command_buffer/service/sampler_manager.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "gpu/command_buffer/service/shader_manager.h"
+#include "gpu/command_buffer/service/shared_image_factory.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "gpu/command_buffer/service/transfer_buffer_manager.h"
 #include "gpu/config/gpu_preferences.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_version_info.h"
+#include "ui/gl/progress_reporter.h"
 
 namespace gpu {
 namespace gles2 {
@@ -70,9 +72,11 @@ ContextGroup::ContextGroup(
     bool bind_generates_resource,
     ImageManager* image_manager,
     gpu::ImageFactory* image_factory,
-    ProgressReporter* progress_reporter,
+    gl::ProgressReporter* progress_reporter,
     const GpuFeatureInfo& gpu_feature_info,
-    ServiceDiscardableManager* discardable_manager)
+    ServiceDiscardableManager* discardable_manager,
+    PassthroughDiscardableManager* passthrough_discardable_manager,
+    SharedImageManager* shared_image_manager)
     : gpu_preferences_(gpu_preferences),
       mailbox_manager_(mailbox_manager),
       memory_tracker_(std::move(memory_tracker)),
@@ -113,9 +117,14 @@ ContextGroup::ContextGroup(
       image_factory_(image_factory),
       use_passthrough_cmd_decoder_(false),
       passthrough_resources_(new PassthroughResources),
+      passthrough_discardable_manager_(passthrough_discardable_manager),
       progress_reporter_(progress_reporter),
       gpu_feature_info_(gpu_feature_info),
-      discardable_manager_(discardable_manager) {
+      discardable_manager_(discardable_manager),
+      shared_image_representation_factory_(
+          std::make_unique<SharedImageRepresentationFactory>(
+              shared_image_manager,
+              memory_tracker.get())) {
   DCHECK(discardable_manager);
   DCHECK(feature_info_);
   DCHECK(mailbox_manager_);
@@ -421,27 +430,6 @@ gpu::ContextResult ContextGroup::Initialize(
                     : gpu::ContextResult::kFatalFailure;
   }
 
-  // Some shaders in Skia need more than the min available vertex and
-  // fragment shader uniform vectors in case of OSMesa GL Implementation
-  if (feature_info_->workarounds().max_fragment_uniform_vectors) {
-    max_fragment_uniform_vectors_ = std::min(
-        max_fragment_uniform_vectors_,
-        static_cast<uint32_t>(
-            feature_info_->workarounds().max_fragment_uniform_vectors));
-  }
-  if (feature_info_->workarounds().max_varying_vectors) {
-    max_varying_vectors_ =
-        std::min(max_varying_vectors_,
-                 static_cast<uint32_t>(
-                     feature_info_->workarounds().max_varying_vectors));
-  }
-  if (feature_info_->workarounds().max_vertex_uniform_vectors) {
-    max_vertex_uniform_vectors_ =
-        std::min(max_vertex_uniform_vectors_,
-                 static_cast<uint32_t>(
-                     feature_info_->workarounds().max_vertex_uniform_vectors));
-  }
-
   if (context_type != CONTEXT_TYPE_WEBGL1 &&
       context_type != CONTEXT_TYPE_OPENGLES2) {
     const GLuint kMinVertexOutputComponents = 64;
@@ -548,8 +536,7 @@ class WeakPtrEquals {
 }  // namespace anonymous
 
 bool ContextGroup::HaveContexts() {
-  decoders_.erase(std::remove_if(decoders_.begin(), decoders_.end(), IsNull),
-                  decoders_.end());
+  base::EraseIf(decoders_, IsNull);
   return !decoders_.empty();
 }
 
@@ -559,9 +546,8 @@ void ContextGroup::ReportProgress() {
 }
 
 void ContextGroup::Destroy(DecoderContext* decoder, bool have_context) {
-  decoders_.erase(std::remove_if(decoders_.begin(), decoders_.end(),
-                                 WeakPtrEquals<DecoderContext>(decoder)),
-                  decoders_.end());
+  base::EraseIf(decoders_, WeakPtrEquals<DecoderContext>(decoder));
+
   // If we still have contexts do nothing.
   if (HaveContexts()) {
     return;
@@ -576,13 +562,13 @@ void ContextGroup::Destroy(DecoderContext* decoder, bool have_context) {
     ReportProgress();
   }
 
-  if (renderbuffer_manager_ != NULL) {
+  if (renderbuffer_manager_ != nullptr) {
     renderbuffer_manager_->Destroy(have_context);
     renderbuffer_manager_.reset();
     ReportProgress();
   }
 
-  if (texture_manager_ != NULL) {
+  if (texture_manager_ != nullptr) {
     if (!have_context)
       texture_manager_->MarkContextLost();
     texture_manager_->Destroy();
@@ -590,31 +576,35 @@ void ContextGroup::Destroy(DecoderContext* decoder, bool have_context) {
     ReportProgress();
   }
 
-  if (path_manager_ != NULL) {
+  if (path_manager_ != nullptr) {
     path_manager_->Destroy(have_context);
     path_manager_.reset();
     ReportProgress();
   }
 
-  if (program_manager_ != NULL) {
+  if (program_manager_ != nullptr) {
     program_manager_->Destroy(have_context);
     program_manager_.reset();
     ReportProgress();
   }
 
-  if (shader_manager_ != NULL) {
+  if (shader_manager_ != nullptr) {
     shader_manager_->Destroy(have_context);
     shader_manager_.reset();
     ReportProgress();
   }
 
-  if (sampler_manager_ != NULL) {
+  if (sampler_manager_ != nullptr) {
     sampler_manager_->Destroy(have_context);
     sampler_manager_.reset();
     ReportProgress();
   }
 
-  memory_tracker_ = NULL;
+  memory_tracker_ = nullptr;
+
+  if (passthrough_discardable_manager_) {
+    passthrough_discardable_manager_->DeleteContextGroup(this);
+  }
 
   if (passthrough_resources_) {
     gl::GLApi* api = have_context ? gl::g_current_gl_context : nullptr;

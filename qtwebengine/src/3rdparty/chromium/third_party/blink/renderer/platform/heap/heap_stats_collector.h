@@ -99,14 +99,11 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
 
   static constexpr int kNumScopeIds = kLastScopeId + 1;
 
-  enum TraceDefaultBehavior {
-    kEnabled,
-    kDisabled,
-  };
+  enum TraceCategory { kEnabled, kDisabled, kDevTools };
 
   // Trace a particular scope. Will emit a trace event and record the time in
   // the corresponding ThreadHeapStatsCollector.
-  template <TraceDefaultBehavior default_behavior = kDisabled>
+  template <TraceCategory trace_category = kDisabled>
   class PLATFORM_EXPORT InternalScope {
     DISALLOW_NEW();
     DISALLOW_COPY_AND_ASSIGN(InternalScope);
@@ -115,32 +112,45 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
     template <typename... Args>
     inline InternalScope(ThreadHeapStatsCollector* tracer, Id id, Args... args)
         : tracer_(tracer), start_time_(WTF::CurrentTimeTicks()), id_(id) {
-      StartTrace(args...);
+      StartTrace(id, args...);
     }
 
     inline ~InternalScope() {
-      TRACE_EVENT_END0(TraceCategory(), ToString(id_));
+      StopTrace(id_);
       tracer_->IncreaseScopeTime(id_, WTF::CurrentTimeTicks() - start_time_);
     }
 
    private:
     constexpr static const char* TraceCategory() {
-      return default_behavior == kEnabled
-                 ? "blink_gc"
-                 : TRACE_DISABLED_BY_DEFAULT("blink_gc");
+      switch (trace_category) {
+        case kEnabled:
+          return "blink_gc";
+        case kDisabled:
+          return TRACE_DISABLED_BY_DEFAULT("blink_gc");
+        case kDevTools:
+          return "blink_gc,devtools.timeline";
+      }
     }
 
-    void StartTrace() { TRACE_EVENT_BEGIN0(TraceCategory(), ToString(id_)); }
+    void StartTrace(Id id) {
+      TRACE_EVENT_BEGIN0(TraceCategory(), ToString(id));
+    }
 
     template <typename Value1>
-    void StartTrace(const char* k1, Value1 v1) {
-      TRACE_EVENT_BEGIN1(TraceCategory(), ToString(id_), k1, v1);
+    void StartTrace(Id id, const char* k1, Value1 v1) {
+      TRACE_EVENT_BEGIN1(TraceCategory(), ToString(id), k1, v1);
     }
 
     template <typename Value1, typename Value2>
-    void StartTrace(const char* k1, Value1 v1, const char* k2, Value2 v2) {
-      TRACE_EVENT_BEGIN2(TraceCategory(), ToString(id_), k1, v1, k2, v2);
+    void StartTrace(Id id,
+                    const char* k1,
+                    Value1 v1,
+                    const char* k2,
+                    Value2 v2) {
+      TRACE_EVENT_BEGIN2(TraceCategory(), ToString(id), k1, v1, k2, v2);
     }
+
+    void StopTrace(Id id) { TRACE_EVENT_END0(TraceCategory(), ToString(id)); }
 
     ThreadHeapStatsCollector* const tracer_;
     const TimeTicks start_time_;
@@ -149,6 +159,26 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
 
   using Scope = InternalScope<kDisabled>;
   using EnabledScope = InternalScope<kEnabled>;
+  using DevToolsScope = InternalScope<kDevTools>;
+
+  class PLATFORM_EXPORT BlinkGCInV8Scope {
+    DISALLOW_NEW();
+    DISALLOW_COPY_AND_ASSIGN(BlinkGCInV8Scope);
+
+   public:
+    template <typename... Args>
+    BlinkGCInV8Scope(ThreadHeapStatsCollector* tracer)
+        : tracer_(tracer), start_time_(WTF::CurrentTimeTicks()) {}
+
+    ~BlinkGCInV8Scope() {
+      if (tracer_)
+        tracer_->gc_nested_in_v8_ += WTF::CurrentTimeTicks() - start_time_;
+    }
+
+   private:
+    ThreadHeapStatsCollector* const tracer_;
+    const TimeTicks start_time_;
+  };
 
   // POD to hold interesting data accumulated during a garbage collection cycle.
   // The event is always fully polulated when looking at previous events but
@@ -170,6 +200,7 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
     size_t partition_alloc_bytes_before_sweeping = 0;
     double live_object_rate = 0;
     size_t wrapper_count_before_sweeping = 0;
+    TimeDelta gc_nested_in_v8_;
   };
 
   // Indicates a new garbage collection cycle.
@@ -246,6 +277,10 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
   size_t collected_wrapper_count_ = 0;
 
   bool is_started_ = false;
+
+  // TimeDelta for RawScope. These don't need to be nested within a garbage
+  // collection cycle to make them easier to use.
+  TimeDelta gc_nested_in_v8_;
 
   FRIEND_TEST_ALL_PREFIXES(ThreadHeapStatsCollectorTest, InitialEmpty);
   FRIEND_TEST_ALL_PREFIXES(ThreadHeapStatsCollectorTest, IncreaseScopeTime);

@@ -10,13 +10,16 @@
 
 #include "modules/audio_coding/neteq/tools/neteq_input.h"
 
-#include <sstream>
+#include "rtc_base/strings/string_builder.h"
 
 namespace webrtc {
 namespace test {
 
+NetEqInput::PacketData::PacketData() = default;
+NetEqInput::PacketData::~PacketData() = default;
+
 std::string NetEqInput::PacketData::ToString() const {
-  std::stringstream ss;
+  rtc::StringBuilder ss;
   ss << "{"
      << "time_ms: " << static_cast<int64_t>(time_ms) << ", "
      << "header: {"
@@ -25,7 +28,7 @@ std::string NetEqInput::PacketData::ToString() const {
      << "ts: " << header.timestamp << ", "
      << "ssrc: " << header.ssrc << "}, "
      << "payload bytes: " << payload.size() << "}";
-  return ss.str();
+  return ss.Release();
 }
 
 TimeLimitedNetEqInput::TimeLimitedNetEqInput(std::unique_ptr<NetEqInput> input,
@@ -33,6 +36,8 @@ TimeLimitedNetEqInput::TimeLimitedNetEqInput(std::unique_ptr<NetEqInput> input,
     : input_(std::move(input)),
       start_time_ms_(input_->NextEventTime()),
       duration_ms_(duration_ms) {}
+
+TimeLimitedNetEqInput::~TimeLimitedNetEqInput() = default;
 
 absl::optional<int64_t> TimeLimitedNetEqInput::NextPacketTime() const {
   return ended_ ? absl::nullopt : input_->NextPacketTime();

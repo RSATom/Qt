@@ -6,10 +6,13 @@
 
 #include "fpdfsdk/formfiller/cffl_textfield.h"
 
+#include <utility>
+
 #include "fpdfsdk/cpdfsdk_common.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/formfiller/cba_fontmap.h"
+#include "public/fpdf_fwlevent.h"
 #include "third_party/base/ptr_util.h"
 
 CFFL_TextField::CFFL_TextField(CPDFSDK_FormFillEnvironment* pApp,
@@ -67,11 +70,12 @@ CPWL_Wnd::CreateParams CFFL_TextField::GetCreateParam() {
   return cp;
 }
 
-std::unique_ptr<CPWL_Wnd> CFFL_TextField::NewPDFWindow(
-    const CPWL_Wnd::CreateParams& cp) {
-  auto pWnd = pdfium::MakeUnique<CPWL_Edit>();
+std::unique_ptr<CPWL_Wnd> CFFL_TextField::NewPWLWindow(
+    const CPWL_Wnd::CreateParams& cp,
+    std::unique_ptr<CPWL_Wnd::PrivateData> pAttachedData) {
+  auto pWnd = pdfium::MakeUnique<CPWL_Edit>(cp, std::move(pAttachedData));
   pWnd->AttachFFLData(this);
-  pWnd->Create(cp);
+  pWnd->Realize();
   pWnd->SetFillerNotify(m_pFormFillEnv->GetInteractiveFormFiller());
 
   int32_t nMaxLen = m_pWidget->GetMaxLen();
@@ -79,7 +83,7 @@ std::unique_ptr<CPWL_Wnd> CFFL_TextField::NewPDFWindow(
   if (nMaxLen > 0) {
     if (pWnd->HasFlag(PES_CHARARRAY)) {
       pWnd->SetCharArray(nMaxLen);
-      pWnd->SetAlignFormatV(PEAV_CENTER);
+      pWnd->SetAlignFormatVerticalCenter();
     } else {
       pWnd->SetLimitChar(nMaxLen);
     }
@@ -137,19 +141,20 @@ void CFFL_TextField::SaveData(CPDFSDK_PageView* pPageView) {
 
   WideString sOldValue = m_pWidget->GetValue();
   WideString sNewValue = pWnd->GetText();
-
   CPDFSDK_Widget::ObservedPtr observed_widget(m_pWidget.Get());
   CFFL_TextField::ObservedPtr observed_this(this);
-
-  m_pWidget->SetValue(sNewValue, false);
+  m_pWidget->SetValue(sNewValue, NotificationOption::kDoNotNotify);
   if (!observed_widget)
     return;
+
   m_pWidget->ResetFieldAppearance(true);
   if (!observed_widget)
     return;
+
   m_pWidget->UpdateField();
   if (!observed_widget || !observed_this)
     return;
+
   SetChangeMark();
 }
 
@@ -157,25 +162,25 @@ void CFFL_TextField::GetActionData(CPDFSDK_PageView* pPageView,
                                    CPDF_AAction::AActionType type,
                                    CPDFSDK_FieldAction& fa) {
   switch (type) {
-    case CPDF_AAction::KeyStroke:
+    case CPDF_AAction::kKeyStroke:
       if (CPWL_Edit* pWnd = GetEdit(pPageView, false)) {
         fa.bFieldFull = pWnd->IsTextFull();
 
         fa.sValue = pWnd->GetText();
 
         if (fa.bFieldFull) {
-          fa.sChange = L"";
-          fa.sChangeEx = L"";
+          fa.sChange.clear();
+          fa.sChangeEx.clear();
         }
       }
       break;
-    case CPDF_AAction::Validate:
+    case CPDF_AAction::kValidate:
       if (CPWL_Edit* pWnd = GetEdit(pPageView, false)) {
         fa.sValue = pWnd->GetText();
       }
       break;
-    case CPDF_AAction::LoseFocus:
-    case CPDF_AAction::GetFocus:
+    case CPDF_AAction::kLoseFocus:
+    case CPDF_AAction::kGetFocus:
       fa.sValue = m_pWidget->GetValue();
       break;
     default:
@@ -187,7 +192,7 @@ void CFFL_TextField::SetActionData(CPDFSDK_PageView* pPageView,
                                    CPDF_AAction::AActionType type,
                                    const CPDFSDK_FieldAction& fa) {
   switch (type) {
-    case CPDF_AAction::KeyStroke:
+    case CPDF_AAction::kKeyStroke:
       if (CPWL_Edit* pEdit = GetEdit(pPageView, false)) {
         pEdit->SetFocus();
         pEdit->SetSelection(fa.nSelStart, fa.nSelEnd);
@@ -203,7 +208,7 @@ bool CFFL_TextField::IsActionDataChanged(CPDF_AAction::AActionType type,
                                          const CPDFSDK_FieldAction& faOld,
                                          const CPDFSDK_FieldAction& faNew) {
   switch (type) {
-    case CPDF_AAction::KeyStroke:
+    case CPDF_AAction::kKeyStroke:
       return (!faOld.bFieldFull && faOld.nSelEnd != faNew.nSelEnd) ||
              faOld.nSelStart != faNew.nSelStart ||
              faOld.sChange != faNew.sChange;
@@ -249,7 +254,7 @@ void CFFL_TextField::OnSetFocus(CPWL_Edit* pEdit) {
 
   WideString wsText = pEdit->GetText();
   int nCharacters = wsText.GetLength();
-  ByteString bsUTFText = wsText.UTF16LE_Encode();
+  ByteString bsUTFText = wsText.ToUTF16LE();
   auto* pBuffer = reinterpret_cast<const unsigned short*>(bsUTFText.c_str());
   m_pFormFillEnv->OnSetFieldInputFocus(pBuffer, nCharacters, true);
 }

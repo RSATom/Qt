@@ -21,6 +21,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/inspector/worker_devtools_params.h"
 #include "third_party/blink/renderer/core/messaging/message_channel.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
@@ -28,7 +29,6 @@
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_backing_thread.h"
-#include "third_party/blink/renderer/core/workers/worker_inspector_proxy.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
@@ -39,7 +39,6 @@
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
-#include "third_party/blink/renderer/platform/loader/fetch/access_control_status.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
@@ -55,7 +54,7 @@ static const size_t kRenderQuantumFrames = 128;
 class AudioWorkletGlobalScopeTest : public PageTestBase {
  public:
   void SetUp() override {
-    AudioWorkletThread::CreateSharedBackingThreadForTest();
+    AudioWorkletThread::EnsureSharedBackingThread();
     PageTestBase::SetUp(IntSize());
     Document* document = &GetDocument();
     document->SetURL(KURL("https://example.com/"));
@@ -65,19 +64,22 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
 
   std::unique_ptr<AudioWorkletThread> CreateAudioWorkletThread() {
     std::unique_ptr<AudioWorkletThread> thread =
-        AudioWorkletThread::Create(nullptr, *reporting_proxy_);
+        AudioWorkletThread::Create(*reporting_proxy_);
     Document* document = &GetDocument();
     thread->Start(
         std::make_unique<GlobalScopeCreationParams>(
-            document->Url(), ScriptType::kModule, document->UserAgent(),
+            document->Url(), mojom::ScriptType::kModule,
+            OffMainThreadWorkerScriptFetchOption::kEnabled,
+            document->UserAgent(), nullptr /* web_worker_fetch_context */,
             Vector<CSPHeaderAndType>(), document->GetReferrerPolicy(),
             document->GetSecurityOrigin(), document->IsSecureContext(),
             document->GetHttpsState(), nullptr /* worker_clients */,
             document->AddressSpace(),
             OriginTrialContext::GetTokens(document).get(),
             base::UnguessableToken::Create(), nullptr /* worker_settings */,
-            kV8CacheOptionsDefault, new WorkletModuleResponsesMap),
-        base::nullopt, WorkerInspectorProxy::PauseOnWorkerStart::kDontPause,
+            kV8CacheOptionsDefault,
+            MakeGarbageCollected<WorkletModuleResponsesMap>()),
+        base::nullopt, std::make_unique<WorkerDevToolsParams>(),
         ParentExecutionContextTaskRunners::Create());
     return thread;
   }
@@ -137,8 +139,8 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
     KURL js_url("https://example.com/worklet.js");
     ScriptModule module = ScriptModule::Compile(
         script_state->GetIsolate(), source_code, js_url, js_url,
-        ScriptFetchOptions(), kSharableCrossOrigin,
-        TextPosition::MinimumPosition(), ASSERT_NO_EXCEPTION);
+        ScriptFetchOptions(), TextPosition::MinimumPosition(),
+        ASSERT_NO_EXCEPTION);
     EXPECT_FALSE(module.IsNull());
     ScriptValue exception = module.Instantiate(script_state);
     EXPECT_TRUE(exception.IsEmpty());
@@ -154,7 +156,7 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
                                    WaitableEvent* wait_event) {
     EXPECT_TRUE(thread->IsCurrentThread());
 
-    auto* global_scope = ToAudioWorkletGlobalScope(thread->GlobalScope());
+    auto* global_scope = To<AudioWorkletGlobalScope>(thread->GlobalScope());
 
     ScriptState* script_state =
         global_scope->ScriptController()->GetScriptState();
@@ -202,7 +204,7 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
                                      WaitableEvent* wait_event) {
     EXPECT_TRUE(thread->IsCurrentThread());
 
-    auto* global_scope = ToAudioWorkletGlobalScope(thread->GlobalScope());
+    auto* global_scope = To<AudioWorkletGlobalScope>(thread->GlobalScope());
 
     ScriptState* script_state =
         global_scope->ScriptController()->GetScriptState();
@@ -257,7 +259,7 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
                                            WaitableEvent* wait_event) {
     EXPECT_TRUE(thread->IsCurrentThread());
 
-    auto* global_scope = ToAudioWorkletGlobalScope(thread->GlobalScope());
+    auto* global_scope = To<AudioWorkletGlobalScope>(thread->GlobalScope());
     ScriptState* script_state =
         global_scope->ScriptController()->GetScriptState();
 
@@ -323,7 +325,7 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
       WaitableEvent* wait_event) {
     EXPECT_TRUE(thread->IsCurrentThread());
 
-    auto* global_scope = ToAudioWorkletGlobalScope(thread->GlobalScope());
+    auto* global_scope = To<AudioWorkletGlobalScope>(thread->GlobalScope());
     ScriptState* script_state =
         global_scope->ScriptController()->GetScriptState();
 

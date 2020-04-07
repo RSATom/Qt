@@ -60,7 +60,7 @@ CPDF_Stream* CPDF_PageContentManager::GetStreamByIndex(size_t stream_index) {
 
 size_t CPDF_PageContentManager::AddStream(std::ostringstream* buf) {
   CPDF_Stream* new_stream = doc_->NewIndirect<CPDF_Stream>();
-  new_stream->SetData(buf);
+  new_stream->SetDataFromStringstream(buf);
 
   // If there is one Content stream (not in an array), now there will be two, so
   // create an array with the old and the new one. The new one's index is 1.
@@ -80,7 +80,7 @@ size_t CPDF_PageContentManager::AddStream(std::ostringstream* buf) {
   // If there is an array, just add the new stream to it, at the last position.
   if (contents_array_) {
     contents_array_->Add(new_stream->MakeReference(doc_.Get()));
-    return contents_array_->GetCount() - 1;
+    return contents_array_->size() - 1;
   }
 
   // There were no Contents, so add the new stream as the single Content stream.
@@ -113,7 +113,7 @@ void CPDF_PageContentManager::ExecuteScheduledRemovals() {
   } else if (contents_array_) {
     // Initialize a vector with the old stream indexes. This will be used to
     // build a map from the old to the new indexes.
-    std::vector<size_t> streams_left(contents_array_->GetCount());
+    std::vector<size_t> streams_left(contents_array_->size());
     std::iota(streams_left.begin(), streams_left.end(), 0);
 
     // In reverse order so as to not change the indexes in the middle of the

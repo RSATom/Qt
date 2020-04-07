@@ -77,6 +77,7 @@
 #include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/qsysinfo.h>
 #include <QtCore/qscopedpointer.h>
+#include <QtCore/quuid.h>
 #include <QtCore/private/qsystemlibrary_p.h>
 
 #include <QtEventDispatcherSupport/private/qwindowsguieventdispatcher_p.h>
@@ -317,6 +318,8 @@ QWindowsContext::~QWindowsContext()
         OleUninitialize();
 
     d->m_screenManager.clearScreens(); // Order: Potentially calls back to the windows.
+    if (d->m_displayContext)
+        ReleaseDC(nullptr, d->m_displayContext);
     m_instance = nullptr;
 }
 
@@ -542,7 +545,7 @@ QString QWindowsContext::registerWindowClass(QString cname,
     // each one has to have window class names with a unique name
     // The first instance gets the unmodified name; if the class
     // has already been registered by another instance of Qt then
-    // add an instance-specific ID, the address of the window proc.
+    // add a UUID.
     static int classExists = -1;
 
     const HINSTANCE appInstance = static_cast<HINSTANCE>(GetModuleHandle(nullptr));
@@ -553,7 +556,7 @@ QString QWindowsContext::registerWindowClass(QString cname,
     }
 
     if (classExists)
-        cname += QString::number(reinterpret_cast<quintptr>(proc));
+        cname += QUuid::createUuid().toString();
 
     if (d->m_registeredWindowClassNames.contains(cname))        // already registered in our list
         return cname;
@@ -749,6 +752,12 @@ QWindowsWindow *QWindowsContext::findPlatformWindowAt(HWND parent,
     QWindowsWindow *result = nullptr;
     const POINT screenPoint = { screenPointIn.x(), screenPointIn.y() };
     while (findPlatformWindowHelper(screenPoint, cwex_flags, this, &parent, &result)) {}
+    // QTBUG-40815: ChildWindowFromPointEx() can hit on special windows from
+    // screen recorder applications like ScreenToGif. Fall back to WindowFromPoint().
+    if (result == nullptr) {
+        if (const HWND window = WindowFromPoint(screenPoint))
+            result = findPlatformWindow(window);
+    }
     return result;
 }
 
@@ -925,7 +934,7 @@ bool QWindowsContext::systemParametersInfo(unsigned action, unsigned param, void
 bool QWindowsContext::systemParametersInfoForScreen(unsigned action, unsigned param, void *out,
                                                     const QPlatformScreen *screen)
 {
-    return systemParametersInfo(action, param, out, screen ? screen->logicalDpi().first : 0);
+    return systemParametersInfo(action, param, out, screen ? unsigned(screen->logicalDpi().first) : 0u);
 }
 
 bool QWindowsContext::systemParametersInfoForWindow(unsigned action, unsigned param, void *out,
@@ -944,7 +953,8 @@ bool QWindowsContext::nonClientMetrics(NONCLIENTMETRICS *ncm, unsigned dpi)
 bool QWindowsContext::nonClientMetricsForScreen(NONCLIENTMETRICS *ncm,
                                                 const QPlatformScreen *screen)
 {
-    return nonClientMetrics(ncm, screen ? screen->logicalDpi().first : 0);
+    const int dpi = screen ? qRound(screen->logicalDpi().first) : 0;
+    return nonClientMetrics(ncm, unsigned(dpi));
 }
 
 bool QWindowsContext::nonClientMetricsForWindow(NONCLIENTMETRICS *ncm, const QPlatformWindow *win)

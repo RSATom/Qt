@@ -31,5 +31,6 @@ Module {
             Parameter { name: "key"; type: "string" }
             Parameter { name: "value"; type: "QVariant" }
         }
+        Method { name: "sync" }
     }
 }

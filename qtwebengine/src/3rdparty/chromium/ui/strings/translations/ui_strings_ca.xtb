@@ -5,10 +5,13 @@
 <translation id="1127811143501539442">{DAYS,plural, =1{fa 1 dia}other{fa # dies}}</translation>
 <translation id="1156623771253174079">{SECONDS,plural, =1{Fa 1 minut}other{Fa # minuts}}</translation>
 <translation id="1169783199079129864">{MINUTES,plural, =1{1 m}other{# m}}</translation>
+<translation id="1181037720776840403">Suprimeix</translation>
 <translation id="1243314992276662751">Penja</translation>
+<translation id="1269641567813814718">Win</translation>
 <translation id="1293699935367580298">Esc</translation>
 <translation id="1306549533752902673">APLICACIONS RECOMANADES</translation>
 <translation id="1368832886055348810">D'esquerra a dreta</translation>
+<translation id="1383876407941801731">Cerca</translation>
 <translation id="1398853756734560583">Maximitza</translation>
 <translation id="1413622004203049571">Desactiva les notificacions de <ph name="NOTIFIER_NAME" /></translation>
 <translation id="1591184457164800433">{MINUTES,plural, =1{1 minut i }other{# minuts i }}</translation>
@@ -28,18 +31,22 @@
 <translation id="1871244248791675517">Ins</translation>
 <translation id="1884435127456172652"><ph name="NUMBER" />%</translation>
 <translation id="1901303067676059328">Selecciona-ho &amp;tot</translation>
+<translation id="1938451708255335766">Per ajustar la densitat de visualització de la finestra, reinicia l'aplicació.</translation>
 <translation id="2141853158323869627">{DAYS,plural, =1{1 d}other{# d}}</translation>
 <translation id="2148716181193084225">Avui</translation>
 <translation id="2168039046890040389">Re Pàg</translation>
 <translation id="2190355936436201913">(buit)</translation>
+<translation id="2192232475740621500">Utilitza una densitat baixa</translation>
 <translation id="219905428774326614">Menú d'aplicacions, totes les aplicacions</translation>
 <translation id="2267918077332197517">Bloqueja totes les notificacions d'aquest lloc web</translation>
 <translation id="2289052229480071835">Toca els elements tàctils a la pantalla.</translation>
 <translation id="2295140143284145483">Enquesta</translation>
 <translation id="2297836609126180313"><ph name="QUANTITY" /> TB/s</translation>
 <translation id="24452542372838207">Desplega la notificació</translation>
+<translation id="2445449901874883781">Utilitza una densitat alta</translation>
 <translation id="2482878487686419369">Notificacions</translation>
 <translation id="2497284189126895209">Tots els fitxers</translation>
+<translation id="2515586267016047495">Alt</translation>
 <translation id="2522350507219695259">S'ha acabat de calibrar</translation>
 <translation id="252373100621549798">Pantalla desconeguda</translation>
 <translation id="2583543531130364912">Calibra la pantalla tàctil</translation>
@@ -57,12 +64,16 @@
 <translation id="3234408098842461169">Fletxa avall</translation>
 <translation id="3291688615589870984">{DAYS,plural, =1{1 dia}other{# dies}}</translation>
 <translation id="335581015389089642">Veu</translation>
+<translation id="3462241349431650993">Si amagues aquest suggeriment, no es tornarà a mostrar des del teu del compte en tots els dispositius.</translation>
+<translation id="3479552764303398839">Ara no</translation>
 <translation id="3600566671520689681">{DAYS,plural, =1{1 dia restant}other{# dies restants}}</translation>
+<translation id="3608915363409716668">Més de <ph name="MAXIMUM_VALUE" /></translation>
 <translation id="3618849550573277856">Cerca "<ph name="LOOKUP_STRING" />"</translation>
 <translation id="364720409959344976">Selecció d'una carpeta per penjar</translation>
 <translation id="3660179305079774227">Fletxa amunt</translation>
 <translation id="3740362395218339114"><ph name="QUANTITY" /> GB/s</translation>
 <translation id="3757388668994797779"><ph name="QUANTITY" /> GB</translation>
+<translation id="3842239759367498783">Continua la lectura des del dispositiu mòbil <ph name="TITLE" /></translation>
 <translation id="385051799172605136">Enrere</translation>
 <translation id="3889424535448813030">Fletxa dreta</translation>
 <translation id="3892641579809465218">Pantalla interna</translation>
@@ -78,14 +89,12 @@
 <translation id="4724120544754982507">Centre de notificacions, <ph name="UNREAD_NOTIFICATION_COUNT" /> notificacions no llegides</translation>
 <translation id="4730374152663651037">UTILITZADES FREQÜENTMENT</translation>
 <translation id="4788285488841504513">{MONTHS,plural, =1{D'aquí a 1 mes}other{D'aquí a # mesos}}</translation>
-<translation id="4820616160060340806">Ordre+<ph name="KEY_COMBO_NAME" /></translation>
 <translation id="4841881773802181781">Inserció</translation>
 <translation id="4968171027979920686">{SECONDS,plural, =1{1 segon}other{# segons}}</translation>
 <translation id="4971687151119236543">Fitxer multimèdia: pista anterior</translation>
-<translation id="4999762576397546063">Ctrl+<ph name="KEY_COMBO_NAME" /></translation>
 <translation id="5046499563572181734">Toca aquí</translation>
 <translation id="5076340679995252485">Engan&amp;xa</translation>
-<translation id="5120799197269191491">Cerca + <ph name="KEY_COMBO_NAME" /></translation>
+<translation id="5137751499640340777">Inicia l'Assistent de Google</translation>
 <translation id="520299402983819650"><ph name="QUANTITY" /> PB</translation>
 <translation id="5266161281976477809">Triangle desplegable</translation>
 <translation id="528468243742722775">Fi</translation>
@@ -97,10 +106,10 @@
 <translation id="5613020302032141669">Fletxa esquerra</translation>
 <translation id="5754277640426581776">{MINUTES,plural, =1{1 min}other{# min}}</translation>
 <translation id="5768079895599174203">{DAYS,plural, =1{1 dia i }other{# dies i }}</translation>
+<translation id="5895138241574237353">Reinicia</translation>
 <translation id="5906667377645263094">{SECONDS,plural, =1{1 segon restant}other{# segons restants}}</translation>
 <translation id="5941711191222866238">Minimitza</translation>
 <translation id="5943826764092288734">{HOURS,plural, =1{1 hora}other{# hores}}</translation>
-<translation id="5948410903763073882">Alt+<ph name="KEY_COMBO_NAME" /></translation>
 <translation id="6012623610530968780">Pàgina <ph name="SELECTED_PAGE" /> de <ph name="TOTAL_PAGE_NUM" /></translation>
 <translation id="6022924867608035986">Esborra el text del quadre de cerca</translation>
 <translation id="6040143037577758943">Tanca</translation>
@@ -119,6 +128,7 @@
 <translation id="6483402905448010557">{SECONDS,plural, =1{Fa 1 segon}other{Fa # segons}}</translation>
 <translation id="654149438358937226">Bloqueja totes les notificacions</translation>
 <translation id="6567071839949112727">fes clic a l'antecedent</translation>
+<translation id="6578407462441924264">Sense nom</translation>
 <translation id="6612467943526193239">Prem Esc per sortir del calibratge.</translation>
 <translation id="6620110761915583480">Desa el fitxer</translation>
 <translation id="6699343763173986273">Fitxer multimèdia: pista següent</translation>
@@ -149,19 +159,23 @@
 <translation id="7814458197256864873">&amp;Copia</translation>
 <translation id="7879499977785298635">No bloquegis</translation>
 <translation id="7907591526440419938">Obre un fitxer</translation>
+<translation id="7969046989155602842">Ordre</translation>
+<translation id="8087772101393322318"><ph name="KEY_MODIFIER_NAME" />+<ph name="KEY_COMBO_NAME" /></translation>
 <translation id="8106081041558092062">{HOURS,plural, =1{fa 1 hora}other{fa # hores}}</translation>
 <translation id="8131263257437993507">{SECONDS,plural, =1{1 s restant}other{# s restants}}</translation>
+<translation id="8152264887680882389"><ph name="TEXT" />, compleció automàtica</translation>
 <translation id="815598010540052116">Desplaçament avall</translation>
 <translation id="8179976553408161302">Retorn</translation>
 <translation id="8210608804940886430">Av Pàg</translation>
 <translation id="8245914219290430011">Tabulador</translation>
+<translation id="8259556432390118667">Valor del color hexadecimal</translation>
 <translation id="8328145009876646418">Extrem esquerre</translation>
 <translation id="8331626408530291785">Desplaçament amunt</translation>
 <translation id="8352146631962686268">{YEARS,plural, =1{1 any}other{# anys}}</translation>
 <translation id="838869780401515933">marca</translation>
 <translation id="8393700583063109961">Envia el missatge</translation>
 <translation id="8394908167088220973">Fitxer multimèdia: reprodueix/posa en pausa</translation>
-<translation id="8400147561352026160">Maj+<ph name="KEY_COMBO_NAME" /></translation>
+<translation id="8420205633584771378">Vols suprimir aquest suggeriment?</translation>
 <translation id="8458811141851741261">{YEARS,plural, =1{1 a}other{# a}}</translation>
 <translation id="8602707065186045623">Fitxer <ph name="SAVEAS_EXTENSION_TYPE" /> (.<ph name="SAVEAS_EXTENSION_NAME" />)</translation>
 <translation id="8677655579646609597"><ph name="QUANTITY" /> KB/s</translation>
@@ -171,9 +185,9 @@
 <translation id="8798099450830957504">Predeterminat</translation>
 <translation id="8806053966018712535">Carpeta <ph name="FOLDER_NAME" /></translation>
 <translation id="883911313571074303">Afegeix una anotació a la imatge</translation>
+<translation id="8841375032071747811">Botó Enrere</translation>
 <translation id="8901569739625249689"><ph name="QUANTITY" /> KB</translation>
 <translation id="9002566407876343676">obrir</translation>
-<translation id="9038489124413477075">Carpeta sense nom</translation>
 <translation id="9044832324875206639">{SECONDS,plural, =1{1 s}other{# s}}</translation>
 <translation id="9059834730836941392">Replega la notificació</translation>
 <translation id="9150735707954472829">Pestanya</translation>

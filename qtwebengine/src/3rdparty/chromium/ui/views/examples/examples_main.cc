@@ -15,6 +15,7 @@
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/test/test_discardable_memory_allocator.h"
+#include "base/test/test_timeouts.h"
 #include "build/build_config.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
@@ -68,6 +69,10 @@ int main(int argc, char** argv) {
 
   gl::init::InitializeGLOneOff();
 
+  // The use of base::test::ScopedTaskEnvironment below relies on the timeout
+  // values from TestTimeouts. This ensures they're properly initialized.
+  TestTimeouts::Initialize();
+
   // The ContextFactory must exist before any Compositors are created.
   viz::HostFrameSinkManager host_frame_sink_manager;
   viz::ServerSharedBitmapManager shared_bitmap_manager;
@@ -118,9 +123,10 @@ int main(int argc, char** argv) {
     display::Screen::SetScreenInstance(desktop_screen.get());
 #endif
 
-    views::examples::ShowExamplesWindow(views::examples::QUIT_ON_CLOSE);
+    base::RunLoop run_loop;
+    views::examples::ShowExamplesWindow(run_loop.QuitClosure());
 
-    base::RunLoop().Run();
+    run_loop.Run();
 
     ui::ResourceBundle::CleanupSharedInstance();
   }

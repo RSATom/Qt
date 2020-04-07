@@ -32,6 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBMIDI_MIDI_MESSAGE_EVENT_H_
 
 #include "base/time/time.h"
+#include "third_party/blink/renderer/core/event_type_names.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
 
@@ -45,18 +46,27 @@ class MIDIMessageEvent final : public Event {
  public:
   static MIDIMessageEvent* Create(base::TimeTicks time_stamp,
                                   DOMUint8Array* data) {
-    return new MIDIMessageEvent(time_stamp, data);
+    return MakeGarbageCollected<MIDIMessageEvent>(time_stamp, data);
   }
 
   static MIDIMessageEvent* Create(const AtomicString& type,
-                                  const MIDIMessageEventInit& initializer) {
-    return new MIDIMessageEvent(type, initializer);
+                                  const MIDIMessageEventInit* initializer) {
+    return MakeGarbageCollected<MIDIMessageEvent>(type, initializer);
   }
+
+  MIDIMessageEvent(base::TimeTicks time_stamp, DOMUint8Array* data)
+      : Event(event_type_names::kMidimessage,
+              Bubbles::kYes,
+              Cancelable::kNo,
+              time_stamp),
+        data_(data) {}
+  MIDIMessageEvent(const AtomicString& type,
+                   const MIDIMessageEventInit* initializer);
 
   DOMUint8Array* data() { return data_; }
 
   const AtomicString& InterfaceName() const override {
-    return EventNames::MIDIMessageEvent;
+    return event_interface_names::kMIDIMessageEvent;
   }
 
   void Trace(blink::Visitor* visitor) override {
@@ -65,16 +75,6 @@ class MIDIMessageEvent final : public Event {
   }
 
  private:
-  MIDIMessageEvent(base::TimeTicks time_stamp, DOMUint8Array* data)
-      : Event(EventTypeNames::midimessage,
-              Bubbles::kYes,
-              Cancelable::kNo,
-              time_stamp),
-        data_(data) {}
-
-  MIDIMessageEvent(const AtomicString& type,
-                   const MIDIMessageEventInit& initializer);
-
   Member<DOMUint8Array> data_;
 };
 

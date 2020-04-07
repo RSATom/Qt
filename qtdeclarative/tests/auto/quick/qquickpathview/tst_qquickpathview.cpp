@@ -38,6 +38,7 @@
 #include <QtQuick/private/qquickpath_p.h>
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
+#include <QtQuickTest/QtQuickTest>
 #include <QtQml/private/qqmllistmodel_p.h>
 #include <QtQml/private/qqmlvaluetype_p.h>
 #include <QtGui/qstandarditemmodel.h>
@@ -119,6 +120,7 @@ private slots:
     void undefinedPath();
     void mouseDrag();
     void nestedMouseAreaDrag();
+    void flickNClick();
     void treeModel();
     void changePreferredHighlight();
     void missingPercent();
@@ -715,13 +717,13 @@ void tst_QQuickPathView::consecutiveModelChanges()
                 pathview->setCurrentIndex(changes[i].index);
                 break;
         case ListChange::Polish:
-                QQUICK_VERIFY_POLISH(pathview);
+                QQuickTest::qWaitForItemPolished(pathview);
                 break;
             default:
                 continue;
         }
     }
-    QQUICK_VERIFY_POLISH(pathview);
+    QQuickTest::qWaitForItemPolished(pathview);
 
     QCOMPARE(findItems<QQuickItem>(pathview, "wrapper").count(), count);
     QCOMPARE(pathview->count(), count);
@@ -1394,7 +1396,7 @@ void tst_QQuickPathView::package()
     QSKIP("QTBUG-27170 view does not reliably receive polish without a running animation");
 #endif
 
-    QQUICK_VERIFY_POLISH(pathView);
+    QQuickTest::qWaitForItemPolished(pathView);
     QQuickItem *item = findItem<QQuickItem>(pathView, "pathItem");
     QVERIFY(item);
     QVERIFY(item->scale() != 1.0);
@@ -1490,11 +1492,11 @@ void tst_QQuickPathView::undefinedPath()
 
     // QPainterPath warnings are only received if QT_NO_DEBUG is not defined
     if (QLibraryInfo::isDebugBuild()) {
-        QString warning1("QPainterPath::moveTo: Adding point where x or y is NaN or Inf, ignoring call");
-        QTest::ignoreMessage(QtWarningMsg,qPrintable(warning1));
+        QRegularExpression warning1("^QPainterPath::moveTo:.*ignoring call$");
+        QTest::ignoreMessage(QtWarningMsg, warning1);
 
-        QString warning2("QPainterPath::lineTo: Adding point where x or y is NaN or Inf, ignoring call");
-        QTest::ignoreMessage(QtWarningMsg,qPrintable(warning2));
+        QRegularExpression warning2("^QPainterPath::lineTo:.*ignoring call$");
+        QTest::ignoreMessage(QtWarningMsg, warning2);
     }
 
     QQmlComponent c(&engine, testFileUrl("undefinedpath.qml"));
@@ -1598,6 +1600,71 @@ void tst_QQuickPathView::nestedMouseAreaDrag()
     // Dragging outside the mouse are should animate the PathView.
     flick(window.data(), QPoint(75,75), QPoint(175,75), 200);
     QVERIFY(pathview->isMoving());
+}
+
+void tst_QQuickPathView::flickNClick() // QTBUG-77173
+{
+    QScopedPointer<QQuickView> window(createView());
+    QQuickViewTestUtil::moveMouseAway(window.data());
+    window->setSource(testFileUrl("nestedmousearea2.qml"));
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+    QCOMPARE(window.data(), qGuiApp->focusWindow());
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
+    QVERIFY(pathview != nullptr);
+    QSignalSpy movingChangedSpy(pathview, SIGNAL(movingChanged()));
+    QSignalSpy draggingSpy(pathview, SIGNAL(draggingChanged()));
+    QSignalSpy dragStartedSpy(pathview, SIGNAL(dragStarted()));
+    QSignalSpy dragEndedSpy(pathview, SIGNAL(dragEnded()));
+    QSignalSpy currentIndexSpy(pathview, SIGNAL(currentIndexChanged()));
+    QSignalSpy moveStartedSpy(pathview, SIGNAL(movementStarted()));
+    QSignalSpy moveEndedSpy(pathview, SIGNAL(movementEnded()));
+    QSignalSpy flickingSpy(pathview, SIGNAL(flickingChanged()));
+    QSignalSpy flickStartedSpy(pathview, SIGNAL(flickStarted()));
+    QSignalSpy flickEndedSpy(pathview, SIGNAL(flickEnded()));
+
+    for (int duration = 100; duration > 0; duration -= 20) {
+        movingChangedSpy.clear();
+        draggingSpy.clear();
+        dragStartedSpy.clear();
+        dragEndedSpy.clear();
+        currentIndexSpy.clear();
+        moveStartedSpy.clear();
+        moveEndedSpy.clear();
+        flickingSpy.clear();
+        flickStartedSpy.clear();
+        flickEndedSpy.clear();
+        // Dragging the child mouse area should animate the PathView (MA has no drag target)
+        flick(window.data(), QPoint(200,200), QPoint(400,200), duration);
+        QVERIFY(pathview->isMoving());
+        QCOMPARE(movingChangedSpy.count(), 1);
+        QCOMPARE(draggingSpy.count(), 2);
+        QCOMPARE(dragStartedSpy.count(), 1);
+        QCOMPARE(dragEndedSpy.count(), 1);
+        QVERIFY(currentIndexSpy.count() > 0);
+        QCOMPARE(moveStartedSpy.count(), 1);
+        QCOMPARE(moveEndedSpy.count(), 0);
+        QCOMPARE(flickingSpy.count(), 1);
+        QCOMPARE(flickStartedSpy.count(), 1);
+        QCOMPARE(flickEndedSpy.count(), 0);
+
+        // Now while it's still moving, click it.
+        // The PathView should stop at a position such that offset is a whole number.
+        QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, QPoint(200, 200));
+        QTRY_VERIFY(!pathview->isMoving());
+        QCOMPARE(movingChangedSpy.count(), 2); // QTBUG-78926
+        QCOMPARE(draggingSpy.count(), 2);
+        QCOMPARE(dragStartedSpy.count(), 1);
+        QCOMPARE(dragEndedSpy.count(), 1);
+        QCOMPARE(moveStartedSpy.count(), 1);
+        QCOMPARE(moveEndedSpy.count(), 1);
+        QCOMPARE(flickingSpy.count(), 2);
+        QCOMPARE(flickStartedSpy.count(), 1);
+        QCOMPARE(flickEndedSpy.count(), 1);
+        QVERIFY(qFuzzyIsNull(pathview->offset() - int(pathview->offset())));
+    }
 }
 
 void tst_QQuickPathView::treeModel()

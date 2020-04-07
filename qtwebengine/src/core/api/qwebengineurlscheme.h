@@ -46,13 +46,15 @@
 #include <QtCore/qobjectdefs.h>
 #include <QtCore/qshareddata.h>
 
-namespace QtWebEngineCore { class WebEngineContext; }
+namespace QtWebEngineCore {
+class WebEngineContext;
+}
 
 QT_BEGIN_NAMESPACE
 
 class QWebEngineUrlSchemePrivate;
 
-class QWEBENGINECORE_EXPORT QWebEngineUrlScheme {
+class Q_WEBENGINECORE_EXPORT QWebEngineUrlScheme {
     Q_GADGET
 public:
     enum class Syntax {

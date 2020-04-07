@@ -12,7 +12,6 @@
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/default_style.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/animation/animation_delegate.h"
@@ -158,7 +157,7 @@ Tab::Tab(TabbedPane* tabbed_pane, const base::string16& title, View* contents)
 
   // Use leaf so that name is spoken by screen reader without exposing the
   // children.
-  GetViewAccessibility().OverrideIsLeaf();
+  GetViewAccessibility().OverrideIsLeaf(true);
 }
 
 Tab::~Tab() {}
@@ -384,6 +383,13 @@ void MdTab::OnFocus() {
                         ui::NativeTheme::kColorId_FocusedBorderColor),
                     0x66)));
   }
+
+  // When the tab gains focus, send an accessibility event indicating that the
+  // contents are focused. When the tab loses focus, whichever new View ends up
+  // with focus will send an ax::mojom::Event::kFocus of its own, so there's no
+  // need to send one in OnBlur().
+  if (contents())
+    contents()->NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
   SchedulePaint();
 }
 
@@ -408,7 +414,7 @@ TabStrip::TabStrip(TabbedPane::Orientation orientation,
     layout->set_cross_axis_alignment(BoxLayout::CROSS_AXIS_ALIGNMENT_END);
   } else {
     const int kTabStripEdgePadding = 8;
-    const int kTabSpacing = 16;
+    const int kTabSpacing = 8;
     layout = std::make_unique<BoxLayout>(
         BoxLayout::kVertical, gfx::Insets(kTabStripEdgePadding, 0, 0, 0),
         kTabSpacing);
@@ -667,9 +673,7 @@ TabbedPane::TabbedPane(TabbedPane::Orientation orientation,
     : listener_(NULL), contents_(new View()) {
   DCHECK(orientation != TabbedPane::Orientation::kHorizontal ||
          style != TabbedPane::TabStripStyle::kHighlight);
-  tab_strip_ = ui::MaterialDesignController::IsSecondaryUiMaterial()
-                   ? new MdTabStrip(orientation, style)
-                   : new TabStrip(orientation, style);
+  tab_strip_ = new MdTabStrip(orientation, style);
   AddChildView(tab_strip_);
   AddChildView(contents_);
 }
@@ -695,11 +699,7 @@ void TabbedPane::AddTabAtIndex(int index,
   DCHECK(index >= 0 && index <= GetTabCount());
   contents->SetVisible(false);
 
-  tab_strip_->AddChildViewAt(
-      ui::MaterialDesignController::IsSecondaryUiMaterial()
-          ? new MdTab(this, title, contents)
-          : new Tab(this, title, contents),
-      index);
+  tab_strip_->AddChildViewAt(new MdTab(this, title, contents), index);
   contents_->AddChildViewAt(contents, index);
   if (!GetSelectedTab())
     SelectTabAt(index);

@@ -21,6 +21,7 @@ namespace webrtc {
 // asyncpacketsocket.h.
 struct PacketOptions {
   PacketOptions();
+  PacketOptions(const PacketOptions&);
   ~PacketOptions();
 
   // A 16 bits positive id. Negative ids are invalid and should be interpreted
@@ -31,6 +32,8 @@ struct PacketOptions {
   std::vector<uint8_t> application_data;
   // Whether this is a retransmission of an earlier packet.
   bool is_retransmit = false;
+  bool included_in_feedback = false;
+  bool included_in_allocation = false;
 };
 
 class Transport {

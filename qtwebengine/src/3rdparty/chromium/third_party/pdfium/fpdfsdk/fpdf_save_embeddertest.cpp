@@ -82,7 +82,7 @@ TEST_F(FPDFSaveEmbedderTest, SaveLinearizedDoc) {
   EXPECT_EQ(8219u, GetString().length());
 
   // Make sure new document renders the same as the old one.
-  EXPECT_TRUE(OpenSavedDocument());
+  EXPECT_TRUE(OpenSavedDocument(nullptr));
   for (int i = 0; i < kPageCount; ++i) {
     FPDF_PAGE page = LoadSavedPage(i);
     ASSERT_TRUE(page);
@@ -99,4 +99,10 @@ TEST_F(FPDFSaveEmbedderTest, BUG_342) {
   EXPECT_THAT(GetString(), testing::HasSubstr("0000000000 65535 f\r\n"));
   EXPECT_THAT(GetString(),
               testing::Not(testing::HasSubstr("0000000000 65536 f\r\n")));
+}
+
+TEST_F(FPDFSaveEmbedderTest, BUG_905142) {
+  EXPECT_TRUE(OpenDocument("bug_905142.pdf"));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  EXPECT_THAT(GetString(), testing::HasSubstr("/Length 0"));
 }

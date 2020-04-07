@@ -121,13 +121,7 @@ class VirtualObject : public Dependable {
   typedef ZoneVector<Variable>::const_iterator const_iterator;
   VirtualObject(VariableTracker* var_states, Id id, int size);
   Maybe<Variable> FieldAt(int offset) const {
-    if (offset % kPointerSize != 0) {
-      // We do not support fields that are not word-aligned. Bail out by
-      // treating the object as escaping. This can only happen for
-      // {Name::kHashFieldOffset} on 64bit big endian architectures.
-      DCHECK_EQ(Name::kHashFieldOffset, offset);
-      return Nothing<Variable>();
-    }
+    CHECK(IsAligned(offset, kTaggedSize));
     CHECK(!HasEscaped());
     if (offset >= size()) {
       // TODO(tebbi): Reading out-of-bounds can only happen in unreachable
@@ -136,10 +130,10 @@ class VirtualObject : public Dependable {
       // once we can handle dead nodes everywhere.
       return Nothing<Variable>();
     }
-    return Just(fields_.at(offset / kPointerSize));
+    return Just(fields_.at(offset / kTaggedSize));
   }
   Id id() const { return id_; }
-  int size() const { return static_cast<int>(kPointerSize * fields_.size()); }
+  int size() const { return static_cast<int>(kTaggedSize * fields_.size()); }
   // Escaped might mean that the object escaped to untracked memory or that it
   // is used in an operation that requires materialization.
   void SetEscaped() { escaped_ = true; }

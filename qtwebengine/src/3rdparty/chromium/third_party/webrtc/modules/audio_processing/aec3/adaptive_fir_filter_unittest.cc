@@ -10,14 +10,17 @@
 
 #include "modules/audio_processing/aec3/adaptive_fir_filter.h"
 
+// Defines WEBRTC_ARCH_X86_FAMILY, used below.
+#include "rtc_base/system/arch.h"
+
 #include <math.h>
 #include <algorithm>
 #include <numeric>
 #include <string>
-#include "typedefs.h"  // NOLINT(build/include)
 #if defined(WEBRTC_ARCH_X86_FAMILY)
 #include <emmintrin.h>
 #endif
+
 #include "modules/audio_processing/aec3/aec3_fft.h"
 #include "modules/audio_processing/aec3/aec_state.h"
 #include "modules/audio_processing/aec3/cascaded_biquad_filter.h"
@@ -29,6 +32,7 @@
 #include "rtc_base/arraysize.h"
 #include "rtc_base/numerics/safe_minmax.h"
 #include "rtc_base/random.h"
+#include "rtc_base/strings/string_builder.h"
 #include "system_wrappers/include/cpu_features_wrapper.h"
 #include "test/gtest.h"
 
@@ -37,9 +41,9 @@ namespace aec3 {
 namespace {
 
 std::string ProduceDebugText(size_t delay) {
-  std::ostringstream ss;
+  rtc::StringBuilder ss;
   ss << ", Delay: " << delay;
-  return ss.str();
+  return ss.Release();
 }
 
 }  // namespace

@@ -1036,6 +1036,7 @@ void TextureDownloadRequest::onCompleted()
 
 /*!
     \class Qt3DRender::QTexture1D
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target1D target format.
@@ -1056,6 +1057,7 @@ QTexture1D::~QTexture1D()
 
 /*!
     \class Qt3DRender::QTexture1DArray
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target1DArray target format.
@@ -1076,6 +1078,7 @@ QTexture1DArray::~QTexture1DArray()
 
 /*!
     \class Qt3DRender::QTexture2D
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target2D target format.
@@ -1096,6 +1099,7 @@ QTexture2D::~QTexture2D()
 
 /*!
     \class Qt3DRender::QTexture2DArray
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target2DArray target format.
@@ -1116,6 +1120,7 @@ QTexture2DArray::~QTexture2DArray()
 
 /*!
     \class Qt3DRender::QTexture3D
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target3D target format.
@@ -1136,6 +1141,7 @@ QTexture3D::~QTexture3D()
 
 /*!
     \class Qt3DRender::QTextureCubeMap
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a TargetCubeMap target format.
@@ -1156,6 +1162,7 @@ QTextureCubeMap::~QTextureCubeMap()
 
 /*!
     \class Qt3DRender::QTextureCubeMapArray
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a TargetCubeMapArray target format.
@@ -1176,6 +1183,7 @@ QTextureCubeMapArray::~QTextureCubeMapArray()
 
 /*!
     \class Qt3DRender::QTexture2DMultisample
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target2DMultisample target format.
@@ -1196,6 +1204,7 @@ QTexture2DMultisample::~QTexture2DMultisample()
 
 /*!
     \class Qt3DRender::QTexture2DMultisampleArray
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target2DMultisampleArray target format.
@@ -1216,6 +1225,7 @@ QTexture2DMultisampleArray::~QTexture2DMultisampleArray()
 
 /*!
     \class Qt3DRender::QTextureRectangle
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a TargetRectangle target format.
@@ -1236,6 +1246,7 @@ QTextureRectangle::~QTextureRectangle()
 
 /*!
     \class Qt3DRender::QTextureBuffer
+    \inheaderfile Qt3DRender/QTexture
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a TargetBuffer target format.
@@ -1275,6 +1286,7 @@ void QTextureLoaderPrivate::updateGenerator()
 
 /*!
    \class Qt3DRender::QTextureLoader
+   \inheaderfile Qt3DRender/QTexture
    \inmodule Qt3DRender
    \brief Handles the texture loading and setting the texture's properties.
 */
@@ -1485,6 +1497,79 @@ QUrl QTextureFromSourceGenerator::url() const
 bool QTextureFromSourceGenerator::isMirrored() const
 {
     return m_mirrored;
+}
+
+/*!
+ * \class Qt3DRender::QSharedGLTexture
+ * \inmodule Qt3DRender
+ * \inheaderfile Qt3DRender/QTexture
+ * \brief Allows to use a textureId from a separate OpenGL context in a Qt 3D scene.
+ *
+ * Depending on the rendering mode used by Qt 3D, the shared context will either be:
+ * \list
+ * \li qt_gl_global_share_context when letting Qt 3D drive the rendering. When
+ * setting the attribute Qt::AA_ShareOpenGLContexts on the QApplication class,
+ * this will automatically make QOpenGLWidget instances have their context shared
+ * with qt_gl_global_share_context.
+ * \li the shared context from the QtQuick scene. You might have to subclass
+ * QWindow or use QtQuickRenderControl to have control over what that shared
+ * context is though as of 5.13 it is qt_gl_global_share_context.
+ * \endlist
+ *
+ * \since 5.13
+ *
+ * Any 3rd party engine that shares its context with the Qt 3D renderer can now
+ * provide texture ids that will be referenced by the Qt 3D texture.
+ *
+ * You can omit specifying the texture properties, Qt 3D will try at runtime to
+ * determine what they are. If you know them, you can of course provide them,
+ * avoid additional work for Qt 3D.
+ *
+ * Keep in mind that if you are using custom materials and shaders, you need to
+ * specify the correct sampler type to be used.
+ */
+
+/*!
+    \qmltype SharedGLTexture
+    \instantiates Qt3DRender::QSharedGLTexture
+    \inqmlmodule Qt3D.Render
+    \brief Allows to use a textureId from a separate OpenGL context in a Qt 3D scene.
+    \since 5.13
+*/
+
+QSharedGLTexture::QSharedGLTexture(Qt3DCore::QNode *parent)
+    : QAbstractTexture(parent)
+{
+    QAbstractTexturePrivate *d = static_cast<QAbstractTexturePrivate *>(Qt3DCore::QNodePrivate::get(this));
+    d->m_target = TargetAutomatic;
+}
+
+QSharedGLTexture::~QSharedGLTexture()
+{
+}
+
+/*!
+ * \qmlproperty int SharedGLTexture::textureId
+ *
+ * The OpenGL texture id value that you want Qt3D to gain access to.
+ */
+/*!
+ *\property Qt3DRender::QSharedGLTexture::textureId
+ *
+ * The OpenGL texture id value that you want Qt3D to gain access to.
+ */
+int QSharedGLTexture::textureId() const
+{
+    return static_cast<QAbstractTexturePrivate *>(d_ptr.get())->m_sharedTextureId;
+}
+
+void QSharedGLTexture::setTextureId(int id)
+{
+    QAbstractTexturePrivate *d = static_cast<QAbstractTexturePrivate *>(Qt3DCore::QNodePrivate::get(this));
+    if (d->m_sharedTextureId != id) {
+        d->m_sharedTextureId = id;
+        emit textureIdChanged(id);
+    }
 }
 
 } // namespace Qt3DRender

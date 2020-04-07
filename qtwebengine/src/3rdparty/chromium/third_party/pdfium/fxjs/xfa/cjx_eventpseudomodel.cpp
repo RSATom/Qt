@@ -9,8 +9,8 @@
 #include <algorithm>
 #include <vector>
 
-#include "fxjs/cfxjse_engine.h"
-#include "fxjs/cfxjse_value.h"
+#include "fxjs/xfa/cfxjse_engine.h"
+#include "fxjs/xfa/cfxjse_value.h"
 #include "xfa/fxfa/cxfa_eventparam.h"
 #include "xfa/fxfa/cxfa_ffnotify.h"
 #include "xfa/fxfa/cxfa_ffwidgethandler.h"
@@ -24,7 +24,7 @@ void StringProperty(CFXJSE_Value* pReturn, WideString* wsValue, bool bSetting) {
     return;
   }
 
-  pReturn->SetString(wsValue->UTF8Encode().AsStringView());
+  pReturn->SetString(wsValue->ToUTF8().AsStringView());
 }
 
 void InterProperty(CFXJSE_Value* pReturn, int32_t* iValue, bool bSetting) {
@@ -55,6 +55,10 @@ CJX_EventPseudoModel::CJX_EventPseudoModel(CScript_EventPseudoModel* model)
 }
 
 CJX_EventPseudoModel::~CJX_EventPseudoModel() {}
+
+bool CJX_EventPseudoModel::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
+}
 
 void CJX_EventPseudoModel::cancelAction(CFXJSE_Value* pValue,
                                         bool bSetting,
@@ -112,7 +116,7 @@ void CJX_EventPseudoModel::newText(CFXJSE_Value* pValue,
   if (!pEventParam)
     return;
 
-  pValue->SetString(pEventParam->GetNewText().UTF8Encode().AsStringView());
+  pValue->SetString(pEventParam->GetNewText().ToUTF8().AsStringView());
 }
 
 void CJX_EventPseudoModel::prevContentType(CFXJSE_Value* pValue,
@@ -169,42 +173,41 @@ void CJX_EventPseudoModel::target(CFXJSE_Value* pValue,
   Property(pValue, XFA_Event::Target, bSetting);
 }
 
-CJS_Return CJX_EventPseudoModel::emit(
+CJS_Result CJX_EventPseudoModel::emit(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
   if (!pScriptContext)
-    return CJS_Return();
+    return CJS_Result::Success();
 
   CXFA_EventParam* pEventParam = pScriptContext->GetEventParam();
   if (!pEventParam)
-    return CJS_Return();
+    return CJS_Result::Success();
 
   CXFA_FFNotify* pNotify = GetDocument()->GetNotify();
   if (!pNotify)
-    return CJS_Return();
+    return CJS_Result::Success();
 
   CXFA_FFWidgetHandler* pWidgetHandler = pNotify->GetWidgetHandler();
   if (!pWidgetHandler)
-    return CJS_Return();
+    return CJS_Result::Success();
 
   pWidgetHandler->ProcessEvent(pEventParam->m_pTarget.Get(), pEventParam);
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
-CJS_Return CJX_EventPseudoModel::reset(
+CJS_Result CJX_EventPseudoModel::reset(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
   if (!pScriptContext)
-    return CJS_Return();
+    return CJS_Result::Success();
 
   CXFA_EventParam* pEventParam = pScriptContext->GetEventParam();
-  if (!pEventParam)
-    return CJS_Return();
+  if (pEventParam)
+    *pEventParam = CXFA_EventParam();
 
-  pEventParam->Reset();
-  return CJS_Return();
+  return CJS_Result::Success();
 }
 
 void CJX_EventPseudoModel::Property(CFXJSE_Value* pValue,

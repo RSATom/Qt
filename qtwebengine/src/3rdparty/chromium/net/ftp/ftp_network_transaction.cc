@@ -4,6 +4,8 @@
 
 #include "net/ftp/ftp_network_transaction.h"
 
+#include <vector>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
@@ -222,7 +224,7 @@ FtpNetworkTransaction::FtpNetworkTransaction(
                                        base::Unretained(this))),
       request_(nullptr),
       resolver_(resolver),
-      read_ctrl_buf_(new IOBuffer(kCtrlBufLen)),
+      read_ctrl_buf_(base::MakeRefCounted<IOBuffer>(kCtrlBufLen)),
       read_data_buf_len_(0),
       last_error_(OK),
       system_type_(SYSTEM_TYPE_UNKNOWN),
@@ -350,7 +352,7 @@ void FtpNetworkTransaction::ResetStateForRestart() {
   command_sent_ = COMMAND_NONE;
   user_callback_.Reset();
   response_ = FtpResponseInfo();
-  read_ctrl_buf_ = new IOBuffer(kCtrlBufLen);
+  read_ctrl_buf_ = base::MakeRefCounted<IOBuffer>(kCtrlBufLen);
   ctrl_response_buffer_ = std::make_unique<FtpCtrlResponseBuffer>(net_log_);
   read_data_buf_ = nullptr;
   read_data_buf_len_ = 0;
@@ -479,9 +481,10 @@ int FtpNetworkTransaction::SendFtpCommand(const std::string& command,
 
   command_sent_ = cmd;
 
-  write_command_buf_ = new IOBufferWithSize(command.length() + 2);
-  write_buf_ = new DrainableIOBuffer(write_command_buf_.get(),
-                                     write_command_buf_->size());
+  write_command_buf_ =
+      base::MakeRefCounted<IOBufferWithSize>(command.length() + 2);
+  write_buf_ = base::MakeRefCounted<DrainableIOBuffer>(
+      write_command_buf_, write_command_buf_->size());
   memcpy(write_command_buf_->data(), command.data(), command.length());
   memcpy(write_command_buf_->data() + command.length(), kCRLF, 2);
 
@@ -658,12 +661,10 @@ int FtpNetworkTransaction::DoLoop(int result) {
 int FtpNetworkTransaction::DoCtrlResolveHost() {
   next_state_ = STATE_CTRL_RESOLVE_HOST_COMPLETE;
 
-  HostResolver::RequestInfo info(HostPortPair::FromURL(request_->url));
-  // No known referrer.
-  return resolver_->Resolve(
-      info, DEFAULT_PRIORITY, &addresses_,
-      base::Bind(&FtpNetworkTransaction::OnIOComplete, base::Unretained(this)),
-      &resolve_request_, net_log_);
+  resolve_request_ = resolver_->CreateRequest(
+      HostPortPair::FromURL(request_->url), net_log_, base::nullopt);
+  return resolve_request_->Start(base::BindOnce(
+      &FtpNetworkTransaction::OnIOComplete, base::Unretained(this)));
 }
 
 int FtpNetworkTransaction::DoCtrlResolveHostComplete(int result) {
@@ -674,8 +675,10 @@ int FtpNetworkTransaction::DoCtrlResolveHostComplete(int result) {
 
 int FtpNetworkTransaction::DoCtrlConnect() {
   next_state_ = STATE_CTRL_CONNECT_COMPLETE;
+  DCHECK(resolve_request_ && resolve_request_->GetAddressResults());
   ctrl_socket_ = socket_factory_->CreateTransportClientSocket(
-      addresses_, nullptr, net_log_.net_log(), net_log_.source());
+      resolve_request_->GetAddressResults().value(), nullptr,
+      net_log_.net_log(), net_log_.source());
   net_log_.AddEvent(
       NetLogEventType::FTP_CONTROL_CONNECTION,
       ctrl_socket_->NetLog().source().ToEventParametersCallback());
@@ -1363,7 +1366,7 @@ void FtpNetworkTransaction::RecordDataConnectionError(int result) {
     default:
       type = NET_ERROR_OTHER;
       break;
-  };
+  }
   static bool had_error_type[NUM_OF_NET_ERROR_TYPES];
 
   DCHECK(type >= 0 && type < NUM_OF_NET_ERROR_TYPES);

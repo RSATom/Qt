@@ -104,7 +104,9 @@ void TextureSubmissionContext::endDrawing()
             TextureExtRendererLocker::unlock(m_activeTextures[i].texture);
 }
 
-int TextureSubmissionContext::activateTexture(TextureSubmissionContext::TextureScope scope, GLTexture *tex)
+int TextureSubmissionContext::activateTexture(TextureSubmissionContext::TextureScope scope,
+                                              QOpenGLContext *m_gl,
+                                              GLTexture *tex)
 {
     // Returns the texture unit to use for the texture
     // This always return a valid unit, unless there are more textures than
@@ -115,11 +117,20 @@ int TextureSubmissionContext::activateTexture(TextureSubmissionContext::TextureS
     if (onUnit == -1)
         return -1;
 
-    // Texture must have been created and updated at this point
-    QOpenGLTexture *glTex = tex->getGLTexture();
-    if (glTex == nullptr)
-        return -1;
-    glTex->bind(uint(onUnit));
+    const int sharedTextureId = tex->sharedTextureId();
+    // We have a valid texture id provided by a shared context
+    if (sharedTextureId > 0) {
+        m_gl->functions()->glActiveTexture(GL_TEXTURE0 + onUnit);
+        const QAbstractTexture::Target target = tex->properties().target;
+        // For now we know that target values correspond to the GL values
+        m_gl->functions()->glBindTexture(target, tex->sharedTextureId());
+    } else {
+        // Texture must have been created and updated at this point
+        QOpenGLTexture *glTex = tex->getGLTexture();
+        if (glTex == nullptr)
+            return -1;
+        glTex->bind(uint(onUnit));
+    }
     if (m_activeTextures[onUnit].texture != tex) {
         if (m_activeTextures[onUnit].texture)
             TextureExtRendererLocker::unlock(m_activeTextures[onUnit].texture);

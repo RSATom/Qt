@@ -149,6 +149,14 @@ const AltFontFamily g_AltFontFamilies[] = {
     {"ForteMT", "Forte"},
 };
 
+#if _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
+const char kNarrowFamily[] = "LiberationSansNarrow";
+#elif _FX_PLATFORM_ == _FX_PLATFORM_ANDROID_
+const char kNarrowFamily[] = "RobotoCondensed";
+#else
+const char kNarrowFamily[] = "ArialNarrow";
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
+
 ByteString TT_NormalizeName(const char* family) {
   ByteString norm(family);
   norm.Remove(' ');
@@ -349,10 +357,10 @@ FXFT_Face CFX_FontMapper::UseInternalSubst(CFX_SubstFont* pSubstFont,
   if (iBaseFont < kNumStandardFonts) {
     if (m_FoxitFaces[iBaseFont])
       return m_FoxitFaces[iBaseFont];
-    const uint8_t* pFontData = nullptr;
-    uint32_t size = 0;
-    if (m_pFontMgr->GetBuiltinFont(iBaseFont, &pFontData, &size)) {
-      m_FoxitFaces[iBaseFont] = m_pFontMgr->GetFixedFace(pFontData, size, 0);
+    Optional<pdfium::span<const uint8_t>> font_data =
+        m_pFontMgr->GetBuiltinFont(iBaseFont);
+    if (font_data.has_value()) {
+      m_FoxitFaces[iBaseFont] = m_pFontMgr->GetFixedFace(font_data.value(), 0);
       return m_FoxitFaces[iBaseFont];
     }
   }
@@ -363,21 +371,17 @@ FXFT_Face CFX_FontMapper::UseInternalSubst(CFX_SubstFont* pSubstFont,
   if (FontFamilyIsRoman(pitch_family)) {
     pSubstFont->m_Weight = pSubstFont->m_Weight * 4 / 5;
     pSubstFont->m_Family = "Chrome Serif";
-    if (m_MMFaces[1])
-      return m_MMFaces[1];
-    const uint8_t* pFontData = nullptr;
-    uint32_t size = 0;
-    m_pFontMgr->GetBuiltinFont(14, &pFontData, &size);
-    m_MMFaces[1] = m_pFontMgr->GetFixedFace(pFontData, size, 0);
+    if (!m_MMFaces[1]) {
+      m_MMFaces[1] =
+          m_pFontMgr->GetFixedFace(m_pFontMgr->GetBuiltinFont(14).value(), 0);
+    }
     return m_MMFaces[1];
   }
   pSubstFont->m_Family = "Chrome Sans";
-  if (m_MMFaces[0])
-    return m_MMFaces[0];
-  const uint8_t* pFontData = nullptr;
-  uint32_t size = 0;
-  m_pFontMgr->GetBuiltinFont(15, &pFontData, &size);
-  m_MMFaces[0] = m_pFontMgr->GetFixedFace(pFontData, size, 0);
+  if (!m_MMFaces[0]) {
+    m_MMFaces[0] =
+        m_pFontMgr->GetFixedFace(m_pFontMgr->GetBuiltinFont(15).value(), 0);
+  }
   return m_MMFaces[0];
 }
 
@@ -415,14 +419,16 @@ FXFT_Face CFX_FontMapper::FindSubstFont(const ByteString& name,
   ByteString style;
   bool bHasComma = false;
   bool bHasHyphen = false;
-  auto pos = SubstName.Find(",", 0);
-  if (pos.has_value()) {
-    family = SubstName.Left(pos.value());
-    PDF_GetStandardFontName(&family);
-    style = SubstName.Right(SubstName.GetLength() - (pos.value() + 1));
-    bHasComma = true;
-  } else {
-    family = SubstName;
+  {
+    Optional<size_t> pos = SubstName.Find(",", 0);
+    if (pos.has_value()) {
+      family = SubstName.Left(pos.value());
+      PDF_GetStandardFontName(&family);
+      style = SubstName.Right(SubstName.GetLength() - (pos.value() + 1));
+      bHasComma = true;
+    } else {
+      family = SubstName;
+    }
   }
   for (; iBaseFont < 12; iBaseFont++) {
     if (family == ByteStringView(g_Base14FontNames[iBaseFont]))
@@ -443,7 +449,7 @@ FXFT_Face CFX_FontMapper::FindSubstFont(const ByteString& name,
   } else {
     iBaseFont = kNumStandardFonts;
     if (!bHasComma) {
-      pos = family.ReverseFind('-');
+      Optional<size_t> pos = family.ReverseFind('-');
       if (pos.has_value()) {
         style = family.Right(family.GetLength() - (pos.value() + 1));
         family = family.Left(pos.value());
@@ -540,19 +546,12 @@ FXFT_Face CFX_FontMapper::FindSubstFont(const ByteString& name,
         bItalic = italic_angle != 0;
         weight = old_weight;
       }
-#if _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
-      const char* narrow_family = "LiberationSansNarrow";
-#elif _FX_PLATFORM_ == _FX_PLATFORM_ANDROID_
-      const char* narrow_family = "RobotoCondensed";
-#else
-      const char* narrow_family = "ArialNarrow";
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
-      auto pos = SubstName.Find("Narrow");
+      Optional<size_t> pos = SubstName.Find("Narrow");
       if (pos.has_value() && pos.value() != 0)
-        family = narrow_family;
+        family = kNarrowFamily;
       pos = SubstName.Find("Condensed");
       if (pos.has_value() && pos.value() != 0)
-        family = narrow_family;
+        family = kNarrowFamily;
     } else {
       pSubstFont->m_bSubstCJK = true;
       if (nStyle)

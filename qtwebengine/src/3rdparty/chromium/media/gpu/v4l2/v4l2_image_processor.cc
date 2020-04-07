@@ -4,7 +4,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/videodev2.h>
 #include <poll.h>
 #include <string.h>
 #include <sys/eventfd.h>
@@ -14,15 +13,13 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "media/base/bind_to_current_loop.h"
 #include "media/base/scopedfd_helper.h"
+#include "media/base/video_types.h"
+#include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_image_processor.h"
-
-#define DVLOGF(level) DVLOG(level) << __func__ << "(): "
-#define VLOGF(level) VLOG(level) << __func__ << "(): "
-#define VPLOGF(level) VPLOG(level) << __func__ << "(): "
 
 #define IOCTL_OR_ERROR_RETURN_VALUE(type, arg, value, type_str) \
   do {                                                          \
@@ -63,18 +60,28 @@ V4L2ImageProcessor::JobRecord::JobRecord() : output_buffer_index(-1) {}
 
 V4L2ImageProcessor::JobRecord::~JobRecord() {}
 
-V4L2ImageProcessor::V4L2ImageProcessor(const scoped_refptr<V4L2Device>& device,
-                                       v4l2_memory input_memory_type,
-                                       v4l2_memory output_memory_type)
-    : input_format_(PIXEL_FORMAT_UNKNOWN),
-      output_format_(PIXEL_FORMAT_UNKNOWN),
+V4L2ImageProcessor::V4L2ImageProcessor(
+    scoped_refptr<V4L2Device> device,
+    VideoFrame::StorageType input_storage_type,
+    VideoFrame::StorageType output_storage_type,
+    v4l2_memory input_memory_type,
+    v4l2_memory output_memory_type,
+    OutputMode output_mode,
+    const VideoFrameLayout& input_layout,
+    const VideoFrameLayout& output_layout,
+    gfx::Size input_visible_size,
+    gfx::Size output_visible_size,
+    size_t num_buffers,
+    ErrorCB error_cb)
+    : ImageProcessor(input_layout,
+                     input_storage_type,
+                     output_layout,
+                     output_storage_type,
+                     output_mode),
+      input_visible_size_(input_visible_size),
       input_memory_type_(input_memory_type),
+      output_visible_size_(output_visible_size),
       output_memory_type_(output_memory_type),
-      input_format_fourcc_(0),
-      output_format_fourcc_(0),
-      input_planes_count_(0),
-      output_planes_count_(0),
-      child_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       device_(device),
       device_thread_("V4L2ImageProcessorThread"),
       device_poll_thread_("V4L2ImageProcessorDevicePollThread"),
@@ -82,17 +89,11 @@ V4L2ImageProcessor::V4L2ImageProcessor(const scoped_refptr<V4L2Device>& device,
       input_buffer_queued_count_(0),
       output_streamon_(false),
       output_buffer_queued_count_(0),
-      num_buffers_(0),
-      weak_this_factory_(this) {
-  DCHECK(input_memory_type == V4L2_MEMORY_USERPTR ||
-         input_memory_type == V4L2_MEMORY_DMABUF);
-  DCHECK(output_memory_type == V4L2_MEMORY_MMAP ||
-         output_memory_type == V4L2_MEMORY_DMABUF);
-  weak_this_ = weak_this_factory_.GetWeakPtr();
-}
+      num_buffers_(num_buffers),
+      error_cb_(error_cb) {}
 
 V4L2ImageProcessor::~V4L2ImageProcessor() {
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
 
   Destroy();
 
@@ -105,55 +106,185 @@ V4L2ImageProcessor::~V4L2ImageProcessor() {
 
 void V4L2ImageProcessor::NotifyError() {
   VLOGF(1);
-  DCHECK(!child_task_runner_->BelongsToCurrentThread());
-  child_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&V4L2ImageProcessor::NotifyErrorOnChildThread,
-                            weak_this_, error_cb_));
-}
-
-void V4L2ImageProcessor::NotifyErrorOnChildThread(
-    const base::Closure& error_cb) {
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
   error_cb_.Run();
 }
 
-bool V4L2ImageProcessor::Initialize(VideoPixelFormat input_format,
-                                    VideoPixelFormat output_format,
-                                    gfx::Size input_visible_size,
-                                    gfx::Size input_allocated_size,
-                                    gfx::Size output_visible_size,
-                                    gfx::Size output_allocated_size,
-                                    int num_buffers,
-                                    const base::Closure& error_cb) {
+namespace {
+
+v4l2_memory InputStorageTypeToV4L2Memory(VideoFrame::StorageType storage_type) {
+  switch (storage_type) {
+    case VideoFrame::STORAGE_OWNED_MEMORY:
+    case VideoFrame::STORAGE_UNOWNED_MEMORY:
+    case VideoFrame::STORAGE_SHMEM:
+    case VideoFrame::STORAGE_MOJO_SHARED_BUFFER:
+      return V4L2_MEMORY_USERPTR;
+    case VideoFrame::STORAGE_DMABUFS:
+      return V4L2_MEMORY_DMABUF;
+    default:
+      return static_cast<v4l2_memory>(0);
+  }
+}
+
+}  // namespace
+
+// static
+std::unique_ptr<V4L2ImageProcessor> V4L2ImageProcessor::Create(
+    scoped_refptr<V4L2Device> device,
+    const ImageProcessor::PortConfig& input_config,
+    const ImageProcessor::PortConfig& output_config,
+    const ImageProcessor::OutputMode output_mode,
+    size_t num_buffers,
+    ErrorCB error_cb) {
   VLOGF(2);
-  DCHECK(!error_cb.is_null());
-  DCHECK_GT(num_buffers, 0);
-  error_cb_ = error_cb;
-
-  input_format_ = input_format;
-  output_format_ = output_format;
-  input_format_fourcc_ = V4L2Device::VideoPixelFormatToV4L2PixFmt(input_format);
-  output_format_fourcc_ =
-      V4L2Device::VideoPixelFormatToV4L2PixFmt(output_format);
-  num_buffers_ = num_buffers;
-
-  if (!input_format_fourcc_ || !output_format_fourcc_) {
-    VLOGF(1) << "Unrecognized format(s)";
-    return false;
+  DCHECK_GT(num_buffers, 0u);
+  if (!device) {
+    VLOGF(2) << "Failed creating V4L2Device";
+    return nullptr;
   }
 
-  input_visible_size_ = input_visible_size;
-  input_allocated_size_ = input_allocated_size;
-  output_visible_size_ = output_visible_size;
-  output_allocated_size_ = output_allocated_size;
+  // V4L2ImageProcessor supports either DmaBuf-backed or memory-based video
+  // frame for input.
+  VideoFrame::StorageType input_storage_type = VideoFrame::STORAGE_UNKNOWN;
+  for (auto input_type : input_config.preferred_storage_types) {
+    if (input_type == VideoFrame::STORAGE_DMABUFS ||
+        VideoFrame::IsStorageTypeMappable(input_type)) {
+      input_storage_type = input_type;
+      break;
+    }
+  }
+  if (input_storage_type == VideoFrame::STORAGE_UNKNOWN) {
+    VLOGF(2) << "Unsupported input storage type";
+    return nullptr;
+  }
 
-  if (!device_->Open(V4L2Device::Type::kImageProcessor, input_format_fourcc_)) {
+  // V4L2ImageProcessor only supports DmaBuf-backed video frame for output.
+  VideoFrame::StorageType output_storage_type = VideoFrame::STORAGE_UNKNOWN;
+  for (auto output_type : output_config.preferred_storage_types) {
+    if (output_type == VideoFrame::STORAGE_DMABUFS) {
+      output_storage_type = output_type;
+      break;
+    }
+  }
+  if (output_storage_type == VideoFrame::STORAGE_UNKNOWN) {
+    VLOGF(2) << "Unsupported output storage type";
+    return nullptr;
+  }
+
+  const v4l2_memory input_memory_type = InputStorageTypeToV4L2Memory(
+      input_storage_type);
+  if (input_memory_type == 0) {
+    VLOGF(1) << "Unsupported input storage type: " << input_storage_type;
+    return nullptr;
+  }
+
+  const v4l2_memory output_memory_type =
+      output_mode == ImageProcessor::OutputMode::ALLOCATE ? V4L2_MEMORY_MMAP
+                                                          : V4L2_MEMORY_DMABUF;
+
+  if (!device->IsImageProcessingSupported()) {
+    VLOGF(1) << "V4L2ImageProcessor not supported in this platform";
+    return nullptr;
+  }
+
+  const VideoFrameLayout& input_layout = input_config.layout;
+  const uint32_t input_format_fourcc =
+      V4L2Device::VideoFrameLayoutToV4L2PixFmt(input_layout);
+  if (!input_format_fourcc) {
+    VLOGF(1) << "Invalid VideoFrameLayout: " << input_layout;
+    return nullptr;
+  }
+  if (!device->Open(V4L2Device::Type::kImageProcessor, input_format_fourcc)) {
     VLOGF(1) << "Failed to open device for input format: "
-             << VideoPixelFormatToString(input_format)
-             << " fourcc: " << std::hex << "0x" << input_format_fourcc_;
-    return false;
+             << VideoPixelFormatToString(input_layout.format())
+             << " fourcc: " << FourccToString(input_format_fourcc);
+    return nullptr;
   }
 
+  // Try to set input format.
+  struct v4l2_format format;
+  memset(&format, 0, sizeof(format));
+  format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+  format.fmt.pix_mp.width = input_layout.coded_size().width();
+  format.fmt.pix_mp.height = input_layout.coded_size().height();
+  format.fmt.pix_mp.pixelformat = input_format_fourcc;
+  if (device->Ioctl(VIDIOC_S_FMT, &format) != 0 ||
+      format.fmt.pix_mp.pixelformat != input_format_fourcc) {
+    VLOGF(1) << "Failed to negotiate input format";
+    return nullptr;
+  }
+
+  base::Optional<VideoFrameLayout> negotiated_input_layout =
+      V4L2Device::V4L2FormatToVideoFrameLayout(format);
+  if (!negotiated_input_layout) {
+    VLOGF(1) << "Failed to negotiate input VideoFrameLayout";
+    return nullptr;
+  }
+  DCHECK_LE(negotiated_input_layout->num_buffers(),
+            static_cast<size_t>(VIDEO_MAX_PLANES));
+  if (!gfx::Rect(negotiated_input_layout->coded_size())
+           .Contains(gfx::Rect(input_config.visible_size))) {
+    VLOGF(1) << "Negotiated input allocated size: "
+             << negotiated_input_layout->coded_size().ToString()
+             << " should contain visible size: "
+             << input_config.visible_size.ToString();
+    return nullptr;
+  }
+
+  const VideoFrameLayout& output_layout = output_config.layout;
+  const uint32_t output_format_fourcc =
+      V4L2Device::VideoFrameLayoutToV4L2PixFmt(output_layout);
+  if (!output_format_fourcc) {
+    VLOGF(1) << "Invalid VideoFrameLayout: " << output_layout;
+    return nullptr;
+  }
+
+  // Try to set output format.
+  memset(&format, 0, sizeof(format));
+  format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  format.fmt.pix_mp.width = output_layout.coded_size().width();
+  format.fmt.pix_mp.height = output_layout.coded_size().height();
+  format.fmt.pix_mp.pixelformat = output_format_fourcc;
+  for (size_t i = 0; i < output_layout.num_buffers(); ++i) {
+    format.fmt.pix_mp.plane_fmt[i].sizeimage = output_layout.buffer_sizes()[i];
+    format.fmt.pix_mp.plane_fmt[i].bytesperline =
+        output_layout.planes()[i].stride;
+  }
+  if (device->Ioctl(VIDIOC_S_FMT, &format) != 0 ||
+      format.fmt.pix_mp.pixelformat != output_format_fourcc) {
+    VLOGF(1) << "Failed to negotiate output format";
+    return nullptr;
+  }
+  base::Optional<VideoFrameLayout> negotiated_output_layout =
+      V4L2Device::V4L2FormatToVideoFrameLayout(format);
+  if (!negotiated_output_layout) {
+    VLOGF(1) << "Failed to negotiate output VideoFrameLayout";
+    return nullptr;
+  }
+  DCHECK_LE(negotiated_output_layout->num_buffers(),
+            static_cast<size_t>(VIDEO_MAX_PLANES));
+  if (!gfx::Rect(negotiated_output_layout->coded_size())
+           .Contains(gfx::Rect(output_layout.coded_size()))) {
+    VLOGF(1) << "Negotiated output allocated size: "
+             << negotiated_output_layout->coded_size().ToString()
+             << " should contain original output allocated size: "
+             << output_layout.coded_size().ToString();
+    return nullptr;
+  }
+
+  auto processor = base::WrapUnique(new V4L2ImageProcessor(
+      std::move(device), input_storage_type, output_storage_type,
+      input_memory_type, output_memory_type, output_mode,
+      *negotiated_input_layout, *negotiated_output_layout,
+      input_config.visible_size, output_config.visible_size, num_buffers,
+      media::BindToCurrentLoop(std::move(error_cb))));
+  if (!processor->Initialize()) {
+    VLOGF(1) << "Failed to initialize V4L2ImageProcessor";
+    return nullptr;
+  }
+  return processor;
+}
+
+bool V4L2ImageProcessor::Initialize() {
   // Capabilities check.
   struct v4l2_capability caps;
   memset(&caps, 0, sizeof(caps));
@@ -179,14 +310,10 @@ bool V4L2ImageProcessor::Initialize(VideoPixelFormat input_format,
       base::Bind(&V4L2ImageProcessor::StartDevicePoll, base::Unretained(this)));
 
   VLOGF(2) << "V4L2ImageProcessor initialized for "
-           << " input_format:" << VideoPixelFormatToString(input_format)
-           << ", output_format:" << VideoPixelFormatToString(output_format)
-           << ", input_visible_size: " << input_visible_size.ToString()
-           << ", input_allocated_size: " << input_allocated_size_.ToString()
-           << ", input_planes_count: " << input_planes_count_
-           << ", output_visible_size: " << output_visible_size.ToString()
-           << ", output_allocated_size: " << output_allocated_size_.ToString()
-           << ", output_planes_count: " << output_planes_count_;
+           << "input_layout: " << input_layout_
+           << ", output_layout: " << output_layout_
+           << ", input_visible_size: " << input_visible_size_.ToString()
+           << ", output_visible_size: " << output_visible_size_.ToString();
 
   return true;
 }
@@ -241,24 +368,17 @@ bool V4L2ImageProcessor::TryOutputFormat(uint32_t input_pixelformat,
     return false;
 
   *num_planes = format.fmt.pix_mp.num_planes;
-  *size = V4L2Device::CodedSizeFromV4L2Format(format);
+  *size = V4L2Device::AllocatedSizeFromV4L2Format(format);
   VLOGF(2) << "adjusted output coded size=" << size->ToString()
            << ", num_planes=" << *num_planes;
   return true;
 }
 
-gfx::Size V4L2ImageProcessor::input_allocated_size() const {
-  return input_allocated_size_;
-}
-
-gfx::Size V4L2ImageProcessor::output_allocated_size() const {
-  return output_allocated_size_;
-}
-
-bool V4L2ImageProcessor::Process(const scoped_refptr<VideoFrame>& frame,
-                                 int output_buffer_index,
-                                 std::vector<base::ScopedFD> output_dmabuf_fds,
-                                 FrameReadyCB cb) {
+bool V4L2ImageProcessor::ProcessInternal(
+    scoped_refptr<VideoFrame> frame,
+    int output_buffer_index,
+    std::vector<base::ScopedFD> output_dmabuf_fds,
+    FrameReadyCB cb) {
   DVLOGF(4) << "ts=" << frame->timestamp().InMilliseconds();
 
   switch (output_memory_type_) {
@@ -279,9 +399,10 @@ bool V4L2ImageProcessor::Process(const scoped_refptr<VideoFrame>& frame,
       return false;
   }
 
-  if (output_dmabuf_fds.size() != output_planes_count_) {
-    VLOGF(1) << "wrong number of output fds. Expected " << output_planes_count_
-             << ", actual " << output_dmabuf_fds.size();
+  if (output_dmabuf_fds.size() != output_layout_.num_buffers()) {
+    VLOGF(1) << "wrong number of output fds. Expected "
+             << output_layout_.num_buffers() << ", actual "
+             << output_dmabuf_fds.size();
     return false;
   }
 
@@ -292,17 +413,26 @@ bool V4L2ImageProcessor::Process(const scoped_refptr<VideoFrame>& frame,
 
   // Create the output frame
   job_record->output_frame = VideoFrame::WrapExternalDmabufs(
-      output_format_, output_allocated_size_, gfx::Rect(output_visible_size_),
-      output_visible_size_, std::move(output_dmabuf_fds),
-      job_record->input_frame->timestamp());
+      output_layout_, gfx::Rect(output_visible_size_), output_visible_size_,
+      std::move(output_dmabuf_fds), job_record->input_frame->timestamp());
 
   if (!job_record->output_frame)
     return false;
 
-  device_thread_.task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&V4L2ImageProcessor::ProcessTask,
-                                base::Unretained(this), std::move(job_record)));
+  // Since device_thread_ is owned by this class. base::Unretained(this) and the
+  // raw pointer of that task runner are safe.
+  process_task_tracker_.PostTask(
+      device_thread_.task_runner().get(), FROM_HERE,
+      base::BindOnce(&V4L2ImageProcessor::ProcessTask, base::Unretained(this),
+                     std::move(job_record)));
   return true;
+}
+
+bool V4L2ImageProcessor::ProcessInternal(scoped_refptr<VideoFrame> input_frame,
+                                         scoped_refptr<VideoFrame> output_frame,
+                                         FrameReadyCB cb) {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 void V4L2ImageProcessor::ProcessTask(std::unique_ptr<JobRecord> job_record) {
@@ -317,37 +447,24 @@ void V4L2ImageProcessor::ProcessTask(std::unique_ptr<JobRecord> job_record) {
 
 bool V4L2ImageProcessor::Reset() {
   VLOGF(2);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
   DCHECK(device_thread_.IsRunning());
 
-  weak_this_factory_.InvalidateWeakPtrs();
-  device_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::Bind(&V4L2ImageProcessor::StopDevicePoll, base::Unretained(this)));
-  device_thread_.Stop();
-
-  weak_this_ = weak_this_factory_.GetWeakPtr();
-  if (!device_thread_.Start()) {
-    VLOGF(1) << "device thread failed to start";
-    return false;
-  }
-  device_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::Bind(&V4L2ImageProcessor::StartDevicePoll, base::Unretained(this)));
+  process_task_tracker_.TryCancelAll();
   return true;
 }
 
 void V4L2ImageProcessor::Destroy() {
   VLOGF(2);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
-
-  weak_this_factory_.InvalidateWeakPtrs();
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
 
   // If the device thread is running, destroy using posted task.
   if (device_thread_.IsRunning()) {
+    process_task_tracker_.TryCancelAll();
+
     device_thread_.task_runner()->PostTask(
-        FROM_HERE, base::Bind(&V4L2ImageProcessor::StopDevicePoll,
-                              base::Unretained(this)));
+        FROM_HERE, base::BindOnce(&V4L2ImageProcessor::StopDevicePoll,
+                                  base::Unretained(this)));
     // Wait for tasks to finish/early-exit.
     device_thread_.Stop();
   } else {
@@ -358,7 +475,8 @@ void V4L2ImageProcessor::Destroy() {
 
 bool V4L2ImageProcessor::CreateInputBuffers() {
   VLOGF(2);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
+
   DCHECK(!input_streamon_);
 
   struct v4l2_control control;
@@ -381,20 +499,6 @@ bool V4L2ImageProcessor::CreateInputBuffers() {
   control.id = V4L2_CID_ALPHA_COMPONENT;
   control.value = 255;
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_S_CTRL, &control);
-
-  struct v4l2_format format;
-  memset(&format, 0, sizeof(format));
-  format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-  format.fmt.pix_mp.width = input_allocated_size_.width();
-  format.fmt.pix_mp.height = input_allocated_size_.height();
-  format.fmt.pix_mp.pixelformat = input_format_fourcc_;
-  IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_S_FMT, &format);
-
-  input_planes_count_ = format.fmt.pix_mp.num_planes;
-  DCHECK_LE(input_planes_count_, static_cast<size_t>(VIDEO_MAX_PLANES));
-  input_allocated_size_ = V4L2Device::CodedSizeFromV4L2Format(format);
-  DCHECK(gfx::Rect(input_allocated_size_)
-             .Contains(gfx::Rect(input_visible_size_)));
 
   struct v4l2_rect visible_rect;
   visible_rect.left = 0;
@@ -422,7 +526,7 @@ bool V4L2ImageProcessor::CreateInputBuffers() {
   reqbufs.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
   reqbufs.memory = input_memory_type_;
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_REQBUFS, &reqbufs);
-  if (static_cast<int>(reqbufs.count) != num_buffers_) {
+  if (reqbufs.count != num_buffers_) {
     VLOGF(1) << "Failed to allocate input buffers. reqbufs.count="
              << reqbufs.count << ", num_buffers=" << num_buffers_;
     return false;
@@ -439,24 +543,8 @@ bool V4L2ImageProcessor::CreateInputBuffers() {
 
 bool V4L2ImageProcessor::CreateOutputBuffers() {
   VLOGF(2);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
   DCHECK(!output_streamon_);
-
-  struct v4l2_format format;
-  memset(&format, 0, sizeof(format));
-  format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  format.fmt.pix_mp.width = output_allocated_size_.width();
-  format.fmt.pix_mp.height = output_allocated_size_.height();
-  format.fmt.pix_mp.pixelformat = output_format_fourcc_;
-  IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_S_FMT, &format);
-
-  output_planes_count_ = format.fmt.pix_mp.num_planes;
-  DCHECK_LE(output_planes_count_, static_cast<size_t>(VIDEO_MAX_PLANES));
-  gfx::Size adjusted_allocated_size =
-      V4L2Device::CodedSizeFromV4L2Format(format);
-  DCHECK(gfx::Rect(adjusted_allocated_size)
-             .Contains(gfx::Rect(output_allocated_size_)));
-  output_allocated_size_ = adjusted_allocated_size;
 
   struct v4l2_rect visible_rect;
   visible_rect.left = 0;
@@ -485,7 +573,7 @@ bool V4L2ImageProcessor::CreateOutputBuffers() {
   reqbufs.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   reqbufs.memory = output_memory_type_;
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_REQBUFS, &reqbufs);
-  if (static_cast<int>(reqbufs.count) != num_buffers_) {
+  if (reqbufs.count != num_buffers_) {
     VLOGF(1) << "Failed to allocate output buffers. reqbufs.count="
              << reqbufs.count << ", num_buffers=" << num_buffers_;
     return false;
@@ -499,7 +587,7 @@ bool V4L2ImageProcessor::CreateOutputBuffers() {
     for (unsigned int i = 0; i < output_buffer_map_.size(); i++) {
       OutputRecord& output_record = output_buffer_map_[i];
       output_record.dmabuf_fds = device_->GetDmabufsForV4L2Buffer(
-          i, output_planes_count_, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
+          i, output_layout_.num_buffers(), V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
       if (output_record.dmabuf_fds.empty()) {
         VLOGF(1) << "failed to get fds of output buffer";
         return false;
@@ -512,7 +600,7 @@ bool V4L2ImageProcessor::CreateOutputBuffers() {
 
 void V4L2ImageProcessor::DestroyInputBuffers() {
   VLOGF(2);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
   DCHECK(!input_streamon_);
 
   struct v4l2_requestbuffers reqbufs;
@@ -528,7 +616,7 @@ void V4L2ImageProcessor::DestroyInputBuffers() {
 
 void V4L2ImageProcessor::DestroyOutputBuffers() {
   VLOGF(2);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_THREAD(client_thread_checker_);
   DCHECK(!output_streamon_);
 
   output_buffer_map_.clear();
@@ -554,8 +642,8 @@ void V4L2ImageProcessor::DevicePollTask(bool poll_device) {
   // All processing should happen on ServiceDeviceTask(), since we shouldn't
   // touch processor state from this thread.
   device_thread_.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&V4L2ImageProcessor::ServiceDeviceTask,
-                            base::Unretained(this)));
+      FROM_HERE, base::BindOnce(&V4L2ImageProcessor::ServiceDeviceTask,
+                                base::Unretained(this)));
 }
 
 void V4L2ImageProcessor::ServiceDeviceTask() {
@@ -566,7 +654,7 @@ void V4L2ImageProcessor::ServiceDeviceTask() {
   // * device_poll_thread_ is running normally
   // * device_poll_thread_ scheduled us, but then a DestroyTask() shut it down,
   //   in which case we should early-out.
-  if (!device_poll_thread_.message_loop())
+  if (!device_poll_thread_.task_runner())
     return;
 
   Dequeue();
@@ -581,8 +669,8 @@ void V4L2ImageProcessor::ServiceDeviceTask() {
       (input_buffer_queued_count_ > 0 || output_buffer_queued_count_ > 0);
 
   device_poll_thread_.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&V4L2ImageProcessor::DevicePollTask,
-                            base::Unretained(this), poll_device));
+      FROM_HERE, base::BindOnce(&V4L2ImageProcessor::DevicePollTask,
+                                base::Unretained(this), poll_device));
 
   DVLOGF(3) << __func__ << ": buffer counts: INPUT[" << input_queue_.size()
             << "] => DEVICE[" << free_input_buffers_.size() << "+"
@@ -656,7 +744,7 @@ void V4L2ImageProcessor::Dequeue() {
     dqbuf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     dqbuf.memory = input_memory_type_;
     dqbuf.m.planes = planes;
-    dqbuf.length = input_planes_count_;
+    dqbuf.length = input_layout_.num_buffers();
     if (device_->Ioctl(VIDIOC_DQBUF, &dqbuf) != 0) {
       if (errno == EAGAIN) {
         // EAGAIN if we're just out of buffers to dequeue.
@@ -673,7 +761,6 @@ void V4L2ImageProcessor::Dequeue() {
     free_input_buffers_.push_back(dqbuf.index);
     input_buffer_queued_count_--;
   }
-
   // Dequeue completed output (VIDEO_CAPTURE) buffers, recycle to the free list.
   // Return the finished buffer to the client via the job ready callback.
   while (output_buffer_queued_count_ > 0) {
@@ -683,7 +770,7 @@ void V4L2ImageProcessor::Dequeue() {
     dqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     dqbuf.memory = output_memory_type_;
     dqbuf.m.planes = planes;
-    dqbuf.length = output_planes_count_;
+    dqbuf.length = output_layout_.num_buffers();
     if (device_->Ioctl(VIDIOC_DQBUF, &dqbuf) != 0) {
       if (errno == EAGAIN) {
         // EAGAIN if we're just out of buffers to dequeue.
@@ -705,10 +792,7 @@ void V4L2ImageProcessor::Dequeue() {
 
     DVLOGF(4) << "Processing finished, returning frame, index=" << dqbuf.index;
 
-    child_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&V4L2ImageProcessor::FrameReady, weak_this_,
-                                  std::move(job_record->ready_cb),
-                                  job_record->output_frame));
+    std::move(job_record->ready_cb).Run(std::move(job_record->output_frame));
   }
 }
 
@@ -732,20 +816,22 @@ bool V4L2ImageProcessor::EnqueueInputRecord() {
   qbuf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
   qbuf.memory = input_memory_type_;
   qbuf.m.planes = qbuf_planes;
-  qbuf.length = input_planes_count_;
+  qbuf.length = input_layout_.num_buffers();
 
   std::vector<int> fds;
   if (input_memory_type_ == V4L2_MEMORY_DMABUF) {
-    fds = input_record.frame->DmabufFds();
-    if (fds.size() != input_planes_count_) {
+    auto& scoped_fds = input_record.frame->DmabufFds();
+    if (scoped_fds.size() != input_layout_.num_buffers()) {
       VLOGF(1) << "Invalid number of planes in the frame";
       return false;
     }
+    for (auto& fd : scoped_fds)
+      fds.push_back(fd.get());
   }
-  for (size_t i = 0; i < input_planes_count_; ++i) {
+  for (size_t i = 0; i < input_layout_.num_buffers(); ++i) {
     qbuf.m.planes[i].bytesused =
         VideoFrame::PlaneSize(input_record.frame->format(), i,
-                              input_allocated_size_)
+                              input_layout_.coded_size())
             .GetArea();
     qbuf.m.planes[i].length = qbuf.m.planes[i].bytesused;
     switch (input_memory_type_) {
@@ -761,6 +847,7 @@ bool V4L2ImageProcessor::EnqueueInputRecord() {
         return false;
     }
   }
+  DVLOGF(4) << "Calling VIDIOC_QBUF: " << V4L2Device::V4L2BufferToString(qbuf);
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_QBUF, &qbuf);
   input_record.at_device = true;
 
@@ -791,16 +878,18 @@ bool V4L2ImageProcessor::EnqueueOutputRecord(const JobRecord* job_record) {
   qbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   qbuf.memory = output_memory_type_;
   if (output_memory_type_ == V4L2_MEMORY_DMABUF) {
-    std::vector<int> fds = job_record->output_frame->DmabufFds();
-    if (fds.size() != output_planes_count_) {
+    auto& fds = job_record->output_frame->DmabufFds();
+    if (fds.size() != output_layout_.num_buffers()) {
       VLOGF(1) << "Invalid number of FDs in output record";
       return false;
     }
     for (size_t i = 0; i < fds.size(); ++i)
-      qbuf_planes[i].m.fd = fds[i];
+      qbuf_planes[i].m.fd = fds[i].get();
   }
   qbuf.m.planes = qbuf_planes;
-  qbuf.length = output_planes_count_;
+  qbuf.length = output_layout_.num_buffers();
+
+  DVLOGF(4) << "Calling VIDIOC_QBUF: " << V4L2Device::V4L2BufferToString(qbuf);
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_QBUF, &qbuf);
   output_record.at_device = true;
   output_buffer_queued_count_++;
@@ -821,8 +910,8 @@ void V4L2ImageProcessor::StartDevicePoll() {
   // Enqueue a poll task with no devices to poll on - will wait only for the
   // poll interrupt
   device_poll_thread_.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&V4L2ImageProcessor::DevicePollTask,
-                            base::Unretained(this), false));
+      FROM_HERE, base::BindOnce(&V4L2ImageProcessor::DevicePollTask,
+                                base::Unretained(this), false));
 }
 
 void V4L2ImageProcessor::StopDevicePoll() {
@@ -874,12 +963,6 @@ void V4L2ImageProcessor::StopDevicePoll() {
   for (auto& output_buffer : output_buffer_map_)
     output_buffer.at_device = false;
   output_buffer_queued_count_ = 0;
-}
-
-void V4L2ImageProcessor::FrameReady(FrameReadyCB cb,
-                                    scoped_refptr<VideoFrame> frame) {
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
-  std::move(cb).Run(frame);
 }
 
 }  // namespace media

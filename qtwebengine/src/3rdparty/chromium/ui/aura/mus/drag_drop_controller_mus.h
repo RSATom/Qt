@@ -17,14 +17,20 @@
 #include "ui/aura/window_tracker.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 
-namespace ui {
-class DropTargetEvent;
-class OSExchangeData;
+namespace gfx {
+class PointF;
+}
 
+namespace ws {
 namespace mojom {
 class WindowTree;
 }
 }
+
+namespace ui {
+class DropTargetEvent;
+class OSExchangeData;
+}  // namespace ui
 
 namespace aura {
 
@@ -37,7 +43,7 @@ class WindowMus;
 class AURA_EXPORT DragDropControllerMus : public client::DragDropClient {
  public:
   DragDropControllerMus(DragDropControllerHost* drag_drop_controller_host,
-                        ui::mojom::WindowTree* window_tree);
+                        ws::mojom::WindowTree* window_tree);
   ~DragDropControllerMus() override;
 
   // Returns true if a drag was initiated and |id| identifies the change if of
@@ -45,20 +51,23 @@ class AURA_EXPORT DragDropControllerMus : public client::DragDropClient {
   bool DoesChangeIdMatchDragChangeId(uint32_t id) const;
 
   // Forwarded from WindowTreeClient. These correspond to the functions of the
-  // same name defined in ui::mojom::WindowTreeClient.
+  // same name defined in ws::mojom::WindowTreeClient.
   void OnDragDropStart(std::map<std::string, std::vector<uint8_t>> data);
   uint32_t OnDragEnter(WindowMus* window,
                        uint32_t event_flags,
-                       const gfx::Point& screen_location,
+                       const gfx::PointF& location_in_root,
+                       const gfx::PointF& location,
                        uint32_t effect_bitmask);
   uint32_t OnDragOver(WindowMus* window,
                       uint32_t event_flags,
-                      const gfx::Point& screen_location,
+                      const gfx::PointF& location_in_root,
+                      const gfx::PointF& location,
                       uint32_t effect_bitmask);
   void OnDragLeave(WindowMus* window);
   uint32_t OnCompleteDrop(WindowMus* window,
                           uint32_t event_flags,
-                          const gfx::Point& screen_location,
+                          const gfx::PointF& location_in_root,
+                          const gfx::PointF& location,
                           uint32_t effect_bitmask);
   void OnPerformDragDropCompleted(uint32_t action_taken);
   void OnDragDropDone();
@@ -81,19 +90,21 @@ class AURA_EXPORT DragDropControllerMus : public client::DragDropClient {
   // Called from OnDragEnter() and OnDragOver().
   uint32_t HandleDragEnterOrOver(WindowMus* window,
                                  uint32_t event_flags,
-                                 const gfx::Point& screen_location,
+                                 const gfx::PointF& location_in_root,
+                                 const gfx::PointF& location,
                                  uint32_t effect_bitmask,
                                  bool is_enter);
 
   std::unique_ptr<ui::DropTargetEvent> CreateDropTargetEvent(
       Window* window,
       uint32_t event_flags,
-      const gfx::Point& screen_location,
+      const gfx::PointF& location_in_root,
+      const gfx::PointF& location,
       uint32_t effect_bitmask);
 
   DragDropControllerHost* drag_drop_controller_host_;
 
-  ui::mojom::WindowTree* window_tree_;
+  ws::mojom::WindowTree* window_tree_;
 
   // State related to being the initiator of a drag started with
   // PerformDragDrop(). If non-null a drag was started by this client and is
@@ -109,7 +120,7 @@ class AURA_EXPORT DragDropControllerMus : public client::DragDropClient {
   // Used to track the current drop target.
   WindowTracker drop_target_window_tracker_;
 
-  base::ObserverList<client::DragDropClientObserver> observers_;
+  base::ObserverList<client::DragDropClientObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DragDropControllerMus);
 };

@@ -12,26 +12,12 @@ CJX_Value::CJX_Value(CXFA_Value* node) : CJX_Node(node) {}
 
 CJX_Value::~CJX_Value() = default;
 
-void CJX_Value::use(CFXJSE_Value* pValue,
-                    bool bSetting,
-                    XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Value::relevant(CFXJSE_Value* pValue,
-                         bool bSetting,
-                         XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
-}
-
-void CJX_Value::usehref(CFXJSE_Value* pValue,
-                        bool bSetting,
-                        XFA_Attribute eAttribute) {
-  Script_Attribute_String(pValue, bSetting, eAttribute);
+bool CJX_Value::DynamicTypeIs(TypeTag eType) const {
+  return eType == static_type__ || ParentType__::DynamicTypeIs(eType);
 }
 
 void CJX_Value::override(CFXJSE_Value* pValue,
                          bool bSetting,
                          XFA_Attribute eAttribute) {
-  Script_Attribute_BOOL(pValue, bSetting, eAttribute);
+  ScriptAttributeBool(pValue, bSetting, eAttribute);
 }

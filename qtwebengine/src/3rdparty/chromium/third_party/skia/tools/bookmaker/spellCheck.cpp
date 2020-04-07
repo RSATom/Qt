@@ -5,8 +5,9 @@
  * found in the LICENSE file.
  */
 
-#include "bookmaker.h"
+#include "bmhParser.h"
 
+#include "SkCommandLineFlags.h"
 #include "SkOSFile.h"
 #include "SkOSPath.h"
 
@@ -22,6 +23,8 @@ when function crosses lines, whole thing isn't seen as a 'word' e.g., search for
 words in external not seen
 
 look for x-bit but allow x bits
+
+don't treat 'pos' or 'glyphs' as spell-checkable as in 'RunBuffer.pos' or 'RunBuffer.glyphs'
  */
 
 struct CheckEntry {
@@ -109,6 +112,8 @@ void BmhParser::spellCheck(const char* match, SkCommandLineFlags::StringArray re
 void BmhParser::spellStatus(const char* statusFile, SkCommandLineFlags::StringArray report) const {
     SpellCheck checker(*this);
     StatusIter iter(statusFile, ".bmh", StatusFilter::kInProgress);
+    string file;
+    iter.next(&file, nullptr);
     string match = iter.baseDir();
     checker.check(match.c_str());
     checker.report(report);
@@ -175,8 +180,6 @@ bool SpellCheck::check(Definition* def) {
         } break;
         case MarkType::kDefine:
             break;
-        case MarkType::kDeprecated:
-            break;
         case MarkType::kDescription:
             fInDescription = true;
             break;
@@ -190,11 +193,11 @@ bool SpellCheck::check(Definition* def) {
             break;
         case MarkType::kExample:
             break;
-        case MarkType::kExperimental:
-            break;
         case MarkType::kExternal:
             break;
         case MarkType::kFile:
+            break;
+        case MarkType::kFilter:
             break;
         case MarkType::kFormula:
             fInFormula = true;
@@ -262,8 +265,6 @@ bool SpellCheck::check(Definition* def) {
         case MarkType::kPlatform:
             break;
         case MarkType::kPopulate:
-            break;
-        case MarkType::kPrivate:
             break;
         case MarkType::kReturn:
             break;
@@ -363,7 +364,7 @@ bool SpellCheck::check(Definition* def) {
 }
 
 bool SpellCheck::checkable(MarkType markType) {
-    return BmhParser::Resolvable::kYes == fBmhParser.kMarkProps[(int) markType].fResolve;
+    return Resolvable::kYes == fBmhParser.kMarkProps[(int) markType].fResolve;
 }
 
 void SpellCheck::childCheck(Definition* def, const char* start) {
@@ -468,6 +469,11 @@ void SpellCheck::leafCheck(const char* start, const char* end) {
             case '_':
                 allLower = false;
             case '-':  // note that dash doesn't clear allLower
+                break;
+            case '!':
+                if (!inQuotes) {
+                    wordEnd = chPtr;
+                }
                 break;
             case '\n':
                 ++fLocalLine;
@@ -663,9 +669,6 @@ void SpellCheck::wordCheck(string str) {
         }
         iter->second.fCount += 1;
     } else {
-    if ("e" == str) {
-        SkDebugf("");
-    }
         CheckEntry* entry = &mappy[str];
         entry->fFile = fFileName;
         entry->fLine = fLineCount + fLocalLine;

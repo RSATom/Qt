@@ -17,7 +17,7 @@
 #ifndef COMMON_DEBUG_H_
 #define COMMON_DEBUG_H_
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && !defined(ANDROID_HOST_BUILD)
 #include "../../Common/DebugAndroid.hpp"
 #else
 #include <stdio.h>
@@ -29,8 +29,9 @@
 
 namespace es
 {
-	// Outputs text to the debugging log
-	void trace(const char *format, ...);
+// Outputs text to the debugging log
+void trace(const char *format, ...);
+inline void trace() {}
 }
 
 // A macro to output a trace of a function call and its arguments to the debugging log
@@ -69,12 +70,14 @@ namespace es
 // A macro to indicate unimplemented functionality
 #undef UNIMPLEMENTED
 #if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
-#define UNIMPLEMENTED() do { \
-	FIXME("\t! Unimplemented: %s(%d)\n", __FUNCTION__, __LINE__); \
+#define UNIMPLEMENTED(...) do { \
+	es::trace("\t! Unimplemented: %s(%d): ", __FUNCTION__, __LINE__); \
+	es::trace(__VA_ARGS__); \
+	es::trace("\n"); \
 	assert(false); \
 	} while(0)
 #else
-	#define UNIMPLEMENTED() FIXME("\t! Unimplemented: %s(%d)\n", __FUNCTION__, __LINE__)
+	#define UNIMPLEMENTED(...) FIXME("\t! Unimplemented: %s(%d)\n", __FUNCTION__, __LINE__)
 #endif
 
 // A macro for code which is not expected to be reached under valid assumptions

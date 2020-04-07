@@ -42,26 +42,16 @@
 #define FUTEX_WAKE 1
 #define FUTEX_PRIVATE_FLAG 128
 
-static bool have_futex;
-static int futex_private_flag = FUTEX_PRIVATE_FLAG;
-
-namespace {
-static struct InitModule {
-  InitModule() {
-    int x = 0;
-    // futexes are ints, so we can use them only when
-    // that's the same size as the lockword_ in SpinLock.
-    have_futex = (sizeof (Atomic32) == sizeof (int) &&
-                  sys_futex(&x, FUTEX_WAKE, 1, NULL, NULL, 0) >= 0);
-    if (have_futex &&
-        sys_futex(&x, FUTEX_WAKE | futex_private_flag, 1, NULL, NULL, 0) < 0) {
-      futex_private_flag = 0;
-    }
-  }
-} init_module;
-
-}  // anonymous namespace
-
+// Note: Instead of making direct system calls that are inlined, we rely
+//       on the syscall() function in glibc to do the right thing. This
+//       is necessary to make the code compatible with the seccomp sandbox,
+//       which needs to be able to find and patch all places where system
+//       calls are made. Scanning through and patching glibc is fast, but
+//       doing so on the entire Chrome binary would be prohibitively
+//       expensive.
+//       This is a notable change from the upstream version of tcmalloc,
+//       which prefers direct system calls in order to improve compatibility
+//       with older toolchains and runtime libraries.
 
 namespace base {
 namespace internal {
@@ -71,30 +61,18 @@ void SpinLockDelay(volatile Atomic32 *w, int32 value, int loop) {
     int save_errno = errno;
     struct timespec tm;
     tm.tv_sec = 0;
-    if (have_futex) {
-      tm.tv_nsec = base::internal::SuggestedDelayNS(loop);
-    } else {
-      tm.tv_nsec = 2000001;   // above 2ms so linux 2.4 doesn't spin
-    }
-    if (have_futex) {
-      tm.tv_nsec *= 16;  // increase the delay; we expect explicit wakeups
-      sys_futex(reinterpret_cast<int *>(const_cast<Atomic32 *>(w)),
-                FUTEX_WAIT | futex_private_flag,
-                value, reinterpret_cast<struct kernel_timespec *>(&tm),
-                NULL, 0);
-    } else {
-      nanosleep(&tm, NULL);
-    }
+    tm.tv_nsec = base::internal::SuggestedDelayNS(loop);
+    tm.tv_nsec *= 16;  // increase the delay; we expect explicit wakeups
+    syscall(__NR_futex, reinterpret_cast<int*>(const_cast<Atomic32*>(w)),
+            FUTEX_WAIT | FUTEX_PRIVATE_FLAG, value,
+            reinterpret_cast<struct kernel_timespec*>(&tm), NULL, 0);
     errno = save_errno;
   }
 }
 
 void SpinLockWake(volatile Atomic32 *w, bool all) {
-  if (have_futex) {
-    sys_futex(reinterpret_cast<int *>(const_cast<Atomic32 *>(w)),
-              FUTEX_WAKE | futex_private_flag, all? INT_MAX : 1,
-              NULL, NULL, 0);
-  }
+  syscall(__NR_futex, reinterpret_cast<int*>(const_cast<Atomic32*>(w)),
+          FUTEX_WAKE | FUTEX_PRIVATE_FLAG, all ? INT_MAX : 1, NULL, NULL, 0);
 }
 
 } // namespace internal

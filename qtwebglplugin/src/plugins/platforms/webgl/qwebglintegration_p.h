@@ -71,6 +71,7 @@ public:
 
     mutable QPlatformInputContext *inputContext = nullptr;
     quint16 httpPort = 0;
+    quint16 wssPort = 0;
 #if defined(Q_OS_WIN)
     mutable QWindowsFontDatabase fontDatabase;
 #elif defined(Q_OS_MACOS)

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <unordered_map>
 #include <utility>
 
 #include "base/bind.h"
@@ -210,7 +211,7 @@ class V4DatabaseTest : public PlatformTest {
   DatabaseUpdatedCallback callback_db_updated_;
   NewDatabaseReadyCallback callback_db_ready_;
   StoreStateMap expected_store_state_map_;
-  base::hash_map<ListIdentifier, V4Store*> old_stores_map_;
+  std::unordered_map<ListIdentifier, V4Store*> old_stores_map_;
   const ListIdentifier linux_malware_id_, win_malware_id_;
 };
 
@@ -450,6 +451,27 @@ TEST_F(V4DatabaseTest, VerifyChecksumCalledAsync) {
   EXPECT_FALSE(verify_checksum_called_back_);
   WaitForTasksOnTaskRunner();
   EXPECT_TRUE(verify_checksum_called_back_);
+}
+
+TEST_F(V4DatabaseTest, VerifyChecksumCancelled) {
+  bool hash_prefix_matches = true;
+  RegisterFactory(hash_prefix_matches);
+
+  V4Database::Create(task_runner_, database_dirname_, list_infos_,
+                     callback_db_ready_);
+  created_but_not_called_back_ = true;
+  WaitForTasksOnTaskRunner();
+  EXPECT_EQ(true, created_and_called_back_);
+
+  EXPECT_FALSE(verify_checksum_called_back_);
+  v4_database_->VerifyChecksum(base::Bind(
+      &V4DatabaseTest::VerifyChecksumCallback, base::Unretained(this)));
+  EXPECT_FALSE(verify_checksum_called_back_);
+  // Destroy database.
+  V4Database::Destroy(std::move(v4_database_));
+  WaitForTasksOnTaskRunner();
+  // Callback should not be called since database is destroyed.
+  EXPECT_FALSE(verify_checksum_called_back_);
 }
 
 // Test that we can properly check for unsupported stores

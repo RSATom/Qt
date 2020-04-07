@@ -12,11 +12,13 @@
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/autofill/core/common/signatures_util.h"
 #include "components/password_manager/core/browser/log_manager.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
 
 using autofill::AutofillUploadContents;
+using base::NumberToString;
 using base::UintToString;
 
 namespace password_manager {
@@ -52,20 +54,6 @@ std::string GenerationTypeToString(
     default:
       NOTREACHED();
   }
-  return std::string();
-}
-
-std::string ClassifierOutcomeToString(
-    AutofillUploadContents::Field::FormClassifierOutcome outcome) {
-  switch (outcome) {
-    case AutofillUploadContents::Field::NO_OUTCOME:
-      return std::string();
-    case AutofillUploadContents::Field::NON_GENERATION_ELEMENT:
-      return "Non generation element";
-    case AutofillUploadContents::Field::GENERATION_ELEMENT:
-      return "Generation element";
-  }
-  NOTREACHED();
   return std::string();
 }
 
@@ -204,11 +192,6 @@ std::string BrowserSavePasswordProgressLogger::FormStructureToFieldsLogString(
     if (!generation.empty())
       field_info += ", GENERATION_EVENT: " + generation;
 
-    std::string classifier_outcome =
-        ClassifierOutcomeToString(field->form_classifier_outcome());
-    if (!classifier_outcome.empty())
-      field_info += ", CLIENT_SIDE_CLASSIFIER: " + classifier_outcome;
-
     result += field_info + "\n";
   }
 
@@ -221,7 +204,7 @@ void BrowserSavePasswordProgressLogger::LogString(StringID label,
 }
 
 void BrowserSavePasswordProgressLogger::LogSuccessfulSubmissionIndicatorEvent(
-    autofill::PasswordForm::SubmissionIndicatorEvent event) {
+    autofill::SubmissionIndicatorEvent event) {
   std::ostringstream submission_event_string_stream;
   submission_event_string_stream << event;
   std::string message =
@@ -234,6 +217,8 @@ void BrowserSavePasswordProgressLogger::LogFormData(
     StringID label,
     const autofill::FormData& form) {
   std::string message = GetStringFromID(label) + ": {\n";
+  message += GetStringFromID(STRING_FORM_SIGNATURE) + ": " +
+             NumberToString(autofill::CalculateFormSignature(form)) + "\n";
   message +=
       GetStringFromID(STRING_ORIGIN) + ": " + ScrubURL(form.origin) + "\n";
   message +=

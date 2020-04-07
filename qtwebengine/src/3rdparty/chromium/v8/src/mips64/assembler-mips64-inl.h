@@ -79,9 +79,7 @@ Address RelocInfo::target_address() {
 }
 
 Address RelocInfo::target_address_address() {
-  DCHECK(IsCodeTarget(rmode_) || IsRuntimeEntry(rmode_) || IsWasmCall(rmode_) ||
-         IsEmbeddedObject(rmode_) || IsExternalReference(rmode_) ||
-         IsOffHeapTarget(rmode_));
+  DCHECK(HasTargetAddressAddress());
   // Read the address of the word containing the target_address in an
   // instruction stream.
   // The only architecture-independent user of this function is the serializer.
@@ -96,7 +94,7 @@ Address RelocInfo::target_address_address() {
   // place, ready to be patched with the target. After jump optimization,
   // that is the address of the instruction that follows J/JAL/JR/JALR
   // instruction.
-  return pc_ + Assembler::kInstructionsFor64BitConstant * Assembler::kInstrSize;
+  return pc_ + Assembler::kInstructionsFor64BitConstant * kInstrSize;
 }
 
 
@@ -114,10 +112,10 @@ Address Assembler::target_address_from_return_address(Address pc) {
 }
 
 void Assembler::deserialization_set_special_target_at(
-    Address instruction_payload, Code* code, Address target) {
+    Address instruction_payload, Code code, Address target) {
   set_target_address_at(
       instruction_payload - kInstructionsFor64BitConstant * kInstrSize,
-      code ? code->constant_pool() : kNullAddress, target);
+      !code.is_null() ? code->constant_pool() : kNullAddress, target);
 }
 
 int Assembler::deserialization_special_target_size(
@@ -128,7 +126,7 @@ int Assembler::deserialization_special_target_size(
 void Assembler::set_target_internal_reference_encoded_at(Address pc,
                                                          Address target) {
   // Encoded internal references are j/jal instructions.
-  Instr instr = Assembler::instr_at(pc + 0 * Assembler::kInstrSize);
+  Instr instr = Assembler::instr_at(pc + 0 * kInstrSize);
 
   uint64_t imm28 = target & static_cast<uint64_t>(kImm28Mask);
 
@@ -148,37 +146,32 @@ void Assembler::deserialization_set_target_internal_reference_at(
     set_target_internal_reference_encoded_at(pc, target);
   } else {
     DCHECK(mode == RelocInfo::INTERNAL_REFERENCE);
-    Memory::Address_at(pc) = target;
+    Memory<Address>(pc) = target;
   }
 }
 
-HeapObject* RelocInfo::target_object() {
+HeapObject RelocInfo::target_object() {
   DCHECK(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
-  return HeapObject::cast(reinterpret_cast<Object*>(
-      Assembler::target_address_at(pc_, constant_pool_)));
+  return HeapObject::cast(
+      Object(Assembler::target_address_at(pc_, constant_pool_)));
 }
 
 Handle<HeapObject> RelocInfo::target_object_handle(Assembler* origin) {
   DCHECK(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
-  return Handle<HeapObject>(reinterpret_cast<HeapObject**>(
+  return Handle<HeapObject>(reinterpret_cast<Address*>(
       Assembler::target_address_at(pc_, constant_pool_)));
 }
 
-void RelocInfo::set_target_object(Heap* heap, HeapObject* target,
+void RelocInfo::set_target_object(Heap* heap, HeapObject target,
                                   WriteBarrierMode write_barrier_mode,
                                   ICacheFlushMode icache_flush_mode) {
   DCHECK(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
-  Assembler::set_target_address_at(pc_, constant_pool_,
-                                   reinterpret_cast<Address>(target),
+  Assembler::set_target_address_at(pc_, constant_pool_, target->ptr(),
                                    icache_flush_mode);
-  if (write_barrier_mode == UPDATE_WRITE_BARRIER && host() != nullptr &&
-      target->IsHeapObject()) {
-    heap->incremental_marking()->RecordWriteIntoCode(host(), this,
-                                                     HeapObject::cast(target));
-    heap->RecordWriteIntoCode(host(), this, target);
+  if (write_barrier_mode == UPDATE_WRITE_BARRIER && !host().is_null()) {
+    WriteBarrierForCode(host(), this, target);
   }
 }
-
 
 Address RelocInfo::target_external_reference() {
   DCHECK(rmode_ == EXTERNAL_REFERENCE);
@@ -194,11 +187,11 @@ void RelocInfo::set_target_external_reference(
 
 Address RelocInfo::target_internal_reference() {
   if (rmode_ == INTERNAL_REFERENCE) {
-    return Memory::Address_at(pc_);
+    return Memory<Address>(pc_);
   } else {
     // Encoded internal references are j/jal instructions.
     DCHECK(rmode_ == INTERNAL_REFERENCE_ENCODED);
-    Instr instr = Assembler::instr_at(pc_ + 0 * Assembler::kInstrSize);
+    Instr instr = Assembler::instr_at(pc_ + 0 * kInstrSize);
     instr &= kImm26Mask;
     uint64_t imm28 = instr << 2;
     uint64_t segment = pc_ & ~static_cast<uint64_t>(kImm28Mask);
@@ -233,9 +226,10 @@ Address RelocInfo::target_off_heap_target() {
 void RelocInfo::WipeOut() {
   DCHECK(IsEmbeddedObject(rmode_) || IsCodeTarget(rmode_) ||
          IsRuntimeEntry(rmode_) || IsExternalReference(rmode_) ||
-         IsInternalReference(rmode_) || IsInternalReferenceEncoded(rmode_));
+         IsInternalReference(rmode_) || IsInternalReferenceEncoded(rmode_) ||
+         IsOffHeapTarget(rmode_));
   if (IsInternalReference(rmode_)) {
-    Memory::Address_at(pc_) = kNullAddress;
+    Memory<Address>(pc_) = kNullAddress;
   } else if (IsInternalReferenceEncoded(rmode_)) {
     Assembler::set_target_internal_reference_encoded_at(pc_, kNullAddress);
   } else {

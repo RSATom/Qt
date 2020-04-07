@@ -8,7 +8,6 @@
 #define CORE_FXCRT_CSS_CFX_CSSDECLARATION_H_
 
 #include <memory>
-#include <utility>
 #include <vector>
 
 #include "core/fxcrt/css/cfx_cssdata.h"
@@ -47,8 +46,7 @@ class CFX_CSSDeclaration {
 
   bool empty() const { return properties_.empty(); }
 
-  void AddProperty(const CFX_CSSData::Property* property,
-                   const WideStringView& value);
+  void AddProperty(const CFX_CSSData::Property* property, WideStringView value);
   void AddProperty(const WideString& prop, const WideString& value);
 
   size_t PropertyCountForTesting() const;

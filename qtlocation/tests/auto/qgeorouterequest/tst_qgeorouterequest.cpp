@@ -348,4 +348,20 @@ void tst_QGeoRouteRequest::extraParameters()
     QCOMPARE(qgeorouterequest->extraParameters(), emptyParams);
 }
 
+void tst_QGeoRouteRequest::departureTime_data()
+{
+    QTest::addColumn<QDateTime>("departureTime");
+
+    QTest::newRow("Invalid") << QDateTime();
+    QTest::newRow("date1") << QDateTime(QDate(2012, 7, 6), QTime(23, 55, 0));
+    QTest::newRow("date2") << QDateTime(QDate(2012, 7, 7), QTime(0, 5, 0));
+}
+
+void tst_QGeoRouteRequest::departureTime()
+{
+    QFETCH(QDateTime , departureTime);
+    qgeorouterequest->setDepartureTime(departureTime);
+    QCOMPARE(qgeorouterequest->departureTime(), departureTime);
+}
+
 QTEST_APPLESS_MAIN(tst_QGeoRouteRequest);

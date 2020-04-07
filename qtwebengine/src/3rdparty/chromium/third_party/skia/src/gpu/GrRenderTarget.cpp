@@ -25,7 +25,6 @@ GrRenderTarget::GrRenderTarget(GrGpu* gpu, const GrSurfaceDesc& desc,
         , fStencilAttachment(stencil) {
     SkASSERT(desc.fFlags & kRenderTarget_GrSurfaceFlag);
     SkASSERT(!this->hasMixedSamples() || fSampleCnt > 1);
-    SkASSERT(!this->supportsWindowRects() || gpu->caps()->maxWindowRectangles() > 0);
     fResolveRect = SkRectPriv::MakeILargestInverted();
 }
 
@@ -73,18 +72,16 @@ void GrRenderTarget::onAbandon() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool GrRenderTargetPriv::attachStencilAttachment(sk_sp<GrStencilAttachment> stencil) {
+void GrRenderTargetPriv::attachStencilAttachment(sk_sp<GrStencilAttachment> stencil) {
     if (!stencil && !fRenderTarget->fStencilAttachment) {
         // No need to do any work since we currently don't have a stencil attachment and
         // we're not actually adding one.
-        return true;
+        return;
     }
     fRenderTarget->fStencilAttachment = std::move(stencil);
     if (!fRenderTarget->completeStencilAttachment()) {
         fRenderTarget->fStencilAttachment = nullptr;
-        return false;
     }
-    return true;
 }
 
 int GrRenderTargetPriv::numStencilBits() const {

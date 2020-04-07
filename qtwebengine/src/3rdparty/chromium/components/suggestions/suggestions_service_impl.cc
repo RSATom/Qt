@@ -12,16 +12,16 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/suggestions/blacklist_store.h"
 #include "components/suggestions/features.h"
-#include "components/suggestions/image_manager.h"
 #include "components/suggestions/suggestions_store.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/variations/net/variations_http_headers.h"
@@ -38,6 +38,10 @@
 #include "net/url_request/url_request_status.h"
 #include "services/identity/public/cpp/identity_manager.h"
 #include "services/identity/public/cpp/primary_account_access_token_fetcher.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 
 using base::TimeDelta;
 
@@ -99,9 +103,6 @@ const char kDeviceType[] = "2";
 const char kDeviceType[] = "1";
 #endif
 
-// Format string for OAuth2 authentication headers.
-const char kAuthorizationHeaderFormat[] = "Authorization: Bearer %s";
-
 const char kFaviconURL[] =
     "https://s2.googleusercontent.com/s2/favicons?domain_url=%s&alt=s&sz=32";
 
@@ -119,18 +120,16 @@ int GetMinimumSuggestionsCount() {
 SuggestionsServiceImpl::SuggestionsServiceImpl(
     identity::IdentityManager* identity_manager,
     syncer::SyncService* sync_service,
-    net::URLRequestContextGetter* url_request_context,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     std::unique_ptr<SuggestionsStore> suggestions_store,
-    std::unique_ptr<ImageManager> thumbnail_manager,
     std::unique_ptr<BlacklistStore> blacklist_store,
     const base::TickClock* tick_clock)
     : identity_manager_(identity_manager),
       sync_service_(sync_service),
       sync_service_observer_(this),
       history_sync_state_(syncer::UploadState::INITIALIZING),
-      url_request_context_(url_request_context),
+      url_loader_factory_(url_loader_factory),
       suggestions_store_(std::move(suggestions_store)),
-      thumbnail_manager_(std::move(thumbnail_manager)),
       blacklist_store_(std::move(blacklist_store)),
       tick_clock_(tick_clock),
       blacklist_upload_backoff_(&kBlacklistBackoffPolicy, tick_clock_),
@@ -163,7 +162,6 @@ SuggestionsServiceImpl::GetSuggestionsDataFromCache() const {
   // In case of empty cache or error, return empty.
   if (!suggestions_store_->LoadSuggestions(&suggestions))
     return base::nullopt;
-  thumbnail_manager_->Initialize(suggestions);
   blacklist_store_->FilterSuggestions(&suggestions);
   return suggestions;
 }
@@ -171,19 +169,6 @@ SuggestionsServiceImpl::GetSuggestionsDataFromCache() const {
 std::unique_ptr<SuggestionsServiceImpl::ResponseCallbackList::Subscription>
 SuggestionsServiceImpl::AddCallback(const ResponseCallback& callback) {
   return callback_list_.Add(callback);
-}
-
-void SuggestionsServiceImpl::GetPageThumbnail(const GURL& url,
-                                              const BitmapCallback& callback) {
-  thumbnail_manager_->GetImageForURL(url, callback);
-}
-
-void SuggestionsServiceImpl::GetPageThumbnailWithURL(
-    const GURL& url,
-    const GURL& thumbnail_url,
-    const BitmapCallback& callback) {
-  thumbnail_manager_->AddImageURL(url, thumbnail_url);
-  GetPageThumbnail(url, callback);
 }
 
 bool SuggestionsServiceImpl::BlacklistURL(const GURL& candidate_url) {
@@ -243,24 +228,22 @@ bool SuggestionsServiceImpl::HasPendingRequestForTesting() const {
 }
 
 // static
-bool SuggestionsServiceImpl::GetBlacklistedUrl(const net::URLFetcher& request,
-                                               GURL* url) {
+bool SuggestionsServiceImpl::GetBlacklistedUrl(const GURL& original_url,
+                                               GURL* blacklisted_url) {
   bool is_blacklist_request = base::StartsWith(
-      request.GetOriginalURL().spec(), BuildSuggestionsBlacklistURLPrefix(),
+      original_url.spec(), BuildSuggestionsBlacklistURLPrefix(),
       base::CompareCase::SENSITIVE);
   if (!is_blacklist_request)
     return false;
 
   // Extract the blacklisted URL from the blacklist request.
   std::string blacklisted;
-  if (!net::GetValueForKeyInQuery(request.GetOriginalURL(),
-                                  kSuggestionsBlacklistURLParam,
+  if (!net::GetValueForKeyInQuery(original_url, kSuggestionsBlacklistURLParam,
                                   &blacklisted)) {
     return false;
   }
 
-  GURL blacklisted_url(blacklisted);
-  blacklisted_url.Swap(url);
+  *blacklisted_url = GURL(blacklisted);
   return true;
 }
 
@@ -377,7 +360,7 @@ void SuggestionsServiceImpl::IssueRequestIfNoneOngoing(const GURL& url) {
   if (token_fetcher_)
     return;
 
-  OAuth2TokenService::ScopeSet scopes{GaiaConstants::kChromeSyncOAuth2Scope};
+  identity::ScopeSet scopes{GaiaConstants::kChromeSyncOAuth2Scope};
   token_fetcher_ = std::make_unique<identity::PrimaryAccountAccessTokenFetcher>(
       "suggestions_service", identity_manager_, scopes,
       base::BindOnce(&SuggestionsServiceImpl::AccessTokenAvailable,
@@ -408,11 +391,16 @@ void SuggestionsServiceImpl::IssueSuggestionsRequest(
     const std::string& access_token) {
   DCHECK(!access_token.empty());
   pending_request_ = CreateSuggestionsRequest(url, access_token);
-  pending_request_->Start();
+  // Unretained is safe because the SimpleURLLoader in |pending_request_| will
+  // not call the callback after it is deleted.
+  auto callback = base::BindOnce(&SuggestionsServiceImpl::OnURLFetchComplete,
+                                 base::Unretained(this), url);
+  pending_request_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      url_loader_factory_.get(), std::move(callback));
   last_request_started_time_ = tick_clock_->NowTicks();
 }
 
-std::unique_ptr<net::URLFetcher>
+std::unique_ptr<network::SimpleURLLoader>
 SuggestionsServiceImpl::CreateSuggestionsRequest(
     const GURL& url,
     const std::string& access_token) {
@@ -447,52 +435,63 @@ SuggestionsServiceImpl::CreateSuggestionsRequest(
             }
           }
         })");
-  std::unique_ptr<net::URLFetcher> request = net::URLFetcher::Create(
-      0, url, net::URLFetcher::GET, this, traffic_annotation);
-  data_use_measurement::DataUseUserData::AttachToFetcher(
-      request.get(), data_use_measurement::DataUseUserData::SUGGESTIONS);
-  int load_flags = net::LOAD_DISABLE_CACHE | net::LOAD_DO_NOT_SEND_COOKIES |
-                   net::LOAD_DO_NOT_SAVE_COOKIES;
-
-  request->SetLoadFlags(load_flags);
-  request->SetRequestContext(url_request_context_);
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  resource_request->url = url;
+  resource_request->method = "GET";
+  resource_request->load_flags = net::LOAD_DISABLE_CACHE |
+                                 net::LOAD_DO_NOT_SEND_COOKIES |
+                                 net::LOAD_DO_NOT_SAVE_COOKIES;
   // Add Chrome experiment state to the request headers.
-  net::HttpRequestHeaders headers;
   // TODO: We should call AppendVariationHeaders with explicit
   // variations::SignedIn::kNo If the access_token is empty
   variations::AppendVariationHeadersUnknownSignedIn(
-      request->GetOriginalURL(), variations::InIncognito::kNo, &headers);
-  request->SetExtraRequestHeaders(headers.ToString());
+      url, variations::InIncognito::kNo, &resource_request->headers);
   if (!access_token.empty()) {
-    request->AddExtraRequestHeader(
-        base::StringPrintf(kAuthorizationHeaderFormat, access_token.c_str()));
+    resource_request->headers.SetHeader(
+        "Authorization", base::StrCat({"Bearer ", access_token}));
   }
-  return request;
+
+  // TODO(https://crbug.com/808498): re-add data use measurement once
+  // SimpleURLLoader supports it.
+  // ID=data_use_measurement::DataUseUserData::SUGGESTIONS
+  auto loader = network::SimpleURLLoader::Create(std::move(resource_request),
+                                                 traffic_annotation);
+
+  // We use non-200 error codes as a signal to clear the cache in
+  // OnURLFetchComplete.
+  loader->SetAllowHttpErrorResults(true);
+  return loader;
 }
 
-void SuggestionsServiceImpl::OnURLFetchComplete(const net::URLFetcher* source) {
+void SuggestionsServiceImpl::OnURLFetchComplete(
+    const GURL& original_url,
+    std::unique_ptr<std::string> suggestions_data) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK_EQ(pending_request_.get(), source);
 
-  // The fetcher will be deleted when the request is handled.
-  std::unique_ptr<const net::URLFetcher> request(std::move(pending_request_));
+  // The SimpleURLLoader will be deleted when the request is handled.
+  std::unique_ptr<const network::SimpleURLLoader> request =
+      std::move(pending_request_);
+  DCHECK(request);
 
-  const net::URLRequestStatus& request_status = request->GetStatus();
-  if (request_status.status() != net::URLRequestStatus::SUCCESS) {
+  bool valid_request = suggestions_data && request->NetError() == net::OK;
+  if (!valid_request) {
     // This represents network errors (i.e. the server did not provide a
     // response).
     base::UmaHistogramSparse("Suggestions.FailedRequestErrorCode",
-                             -request_status.error());
+                             -request->NetError());
     DVLOG(1) << "Suggestions server request failed with error: "
-             << request_status.error() << ": "
-             << net::ErrorToString(request_status.error());
+             << request->NetError() << ": "
+             << net::ErrorToString(request->NetError());
     blacklist_upload_backoff_.InformOfRequest(/*succeeded=*/false);
     ScheduleBlacklistUpload();
     return;
   }
 
-  const int response_code = request->GetResponseCode();
+  int response_code = 0;
+  if (request->ResponseInfo() && request->ResponseInfo()->headers)
+    response_code = request->ResponseInfo()->headers->response_code();
   base::UmaHistogramSparse("Suggestions.FetchResponseCode", response_code);
+
   if (response_code != net::HTTP_OK) {
     // A non-200 response code means that server has no (longer) suggestions for
     // this user. Aggressively clear the cache.
@@ -508,20 +507,17 @@ void SuggestionsServiceImpl::OnURLFetchComplete(const net::URLFetcher* source) {
 
   // Handle a successful blacklisting.
   GURL blacklisted_url;
-  if (GetBlacklistedUrl(*source, &blacklisted_url))
+  if (GetBlacklistedUrl(original_url, &blacklisted_url))
     blacklist_store_->RemoveUrl(blacklisted_url);
 
-  std::string suggestions_data;
-  bool success = request->GetResponseAsString(&suggestions_data);
-  DCHECK(success);
 
   // Parse the received suggestions and update the cache, or take proper action
   // in the case of invalid response.
   SuggestionsProfile suggestions;
-  if (suggestions_data.empty()) {
+  if (suggestions_data->empty()) {
     LogResponseState(RESPONSE_EMPTY);
     suggestions_store_->ClearSuggestions();
-  } else if (suggestions.ParseFromString(suggestions_data)) {
+  } else if (suggestions.ParseFromString(*suggestions_data)) {
     LogResponseState(RESPONSE_VALID);
     int64_t now_usec =
         (base::Time::NowFromSystemTime() - base::Time::UnixEpoch())
@@ -564,8 +560,8 @@ void SuggestionsServiceImpl::ScheduleBlacklistUpload() {
     // Blacklist cache is not empty: schedule.
     blacklist_upload_timer_.Start(
         FROM_HERE, time_delta + blacklist_upload_backoff_.GetTimeUntilRelease(),
-        base::Bind(&SuggestionsServiceImpl::UploadOneFromBlacklist,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&SuggestionsServiceImpl::UploadOneFromBlacklist,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 }
 

@@ -12,22 +12,17 @@
         "options": [
             {
                 "domain": "Target",
-                "include": ["createTarget", "closeTarget", "getBrowserContexts", "createBrowserContext", "disposeBrowserContext"],
+                "include": ["createTarget", "closeTarget"],
                 "include_events": []
             },
             {
                 "domain": "Browser",
-                "include": ["close", "getWindowForTarget", "getWindowBounds", "setWindowBounds" ],
+                "include": ["close", "getWindowForTarget", "getWindowBounds", "setWindowBounds", "setDockTile" ],
                 "include_events": []
             },
             {
                 "domain": "HeadlessExperimental",
                 "async": ["beginFrame"]
-            },
-            {
-                "domain": "Network",
-                "include": ["emulateNetworkConditions", "disable"],
-                "include_events": []
             },
             {
                 "domain": "Page",

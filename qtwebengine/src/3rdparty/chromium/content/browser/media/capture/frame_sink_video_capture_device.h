@@ -16,7 +16,6 @@
 #include "base/sequence_checker.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/host/client_frame_sink_video_capturer.h"
-#include "content/browser/media/capture/cursor_renderer.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_thread.h"
 #include "media/base/video_frame.h"
@@ -24,8 +23,12 @@
 #include "media/capture/video/video_frame_receiver.h"
 #include "media/capture/video_capture_types.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace content {
+
+class MouseCursorOverlayController;
 
 // A virtualized VideoCaptureDevice that captures the displayed contents of a
 // frame sink (see viz::CompositorFrameSink), such as the composited main view
@@ -72,8 +75,7 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
 
   // FrameSinkVideoConsumer implementation.
   void OnFrameCaptured(
-      mojo::ScopedSharedBufferHandle buffer,
-      uint32_t buffer_size,
+      base::ReadOnlySharedMemoryRegion data,
       media::mojom::VideoFrameInfoPtr info,
       const gfx::Rect& update_rect,
       const gfx::Rect& content_rect,
@@ -86,7 +88,9 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
   void OnTargetPermanentlyLost();
 
  protected:
-  CursorRenderer* cursor_renderer() const { return cursor_renderer_.get(); }
+  MouseCursorOverlayController* cursor_controller() const {
+    return cursor_controller_.get();
+  }
 
   // Subclasses override these to perform additional start/stop tasks.
   virtual void WillStart();
@@ -112,14 +116,16 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
   // If consuming, shut it down.
   void MaybeStopConsuming();
 
-  // Undoes mouse cursor rendering and notifies the capturer that consumption of
-  // the frame is complete.
-  void OnFramePropagationComplete(size_t slot_index,
-                                  scoped_refptr<media::VideoFrame> frame);
+  // Notifies the capturer that consumption of the frame is complete.
+  void OnFramePropagationComplete(BufferId buffer_id);
 
   // Helper that logs the given error |message| to the |receiver_| and then
   // stops capture and this VideoCaptureDevice.
   void OnFatalError(std::string message);
+
+  // Helper that requests wake lock to prevent the display from sleeping while
+  // capturing is going on.
+  void RequestWakeLock(std::unique_ptr<service_manager::Connector> connector);
 
   // Current capture target. This is cached to resolve a race where
   // OnTargetChanged() can be called before the |capturer_| is created in
@@ -140,18 +146,13 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
 
   std::unique_ptr<viz::ClientFrameSinkVideoCapturer> capturer_;
 
-  // A pool of structs that hold state relevant to frames currently being
-  // processed by VideoFrameReceiver. Each "slot" is re-used by later frames.
-  struct ConsumptionState {
-    viz::mojom::FrameSinkVideoConsumerFrameCallbacksPtr callbacks;
-    CursorRendererUndoer undoer;
-
-    ConsumptionState();
-    ~ConsumptionState();
-    ConsumptionState(ConsumptionState&& other) noexcept;
-    ConsumptionState& operator=(ConsumptionState&& other) noexcept;
-  };
-  std::vector<ConsumptionState> slots_;
+  // A vector that holds the "callbacks" mojo InterfacePtr for each frame while
+  // the frame is being processed by VideoFrameReceiver. The index corresponding
+  // to a particular frame is used as the BufferId passed to VideoFrameReceiver.
+  // Therefore, non-null pointers in this vector must never move to a different
+  // position.
+  std::vector<viz::mojom::FrameSinkVideoConsumerFrameCallbacksPtr>
+      frame_callbacks_;
 
   // Set when OnFatalError() is called. This prevents any future
   // AllocateAndStartWithReceiver() calls from succeeding.
@@ -159,9 +160,13 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  // Renders the mouse cursor on each video frame.
-  const std::unique_ptr<CursorRenderer, BrowserThread::DeleteOnUIThread>
-      cursor_renderer_;
+  // Controls the overlay that renders the mouse cursor onto each video frame.
+  const std::unique_ptr<MouseCursorOverlayController,
+                        BrowserThread::DeleteOnUIThread>
+      cursor_controller_;
+
+  // Prevent display sleeping while content capture is in progress.
+  device::mojom::WakeLockPtr wake_lock_;
 
   // Creates WeakPtrs for use on the device thread.
   base::WeakPtrFactory<FrameSinkVideoCaptureDevice> weak_factory_;

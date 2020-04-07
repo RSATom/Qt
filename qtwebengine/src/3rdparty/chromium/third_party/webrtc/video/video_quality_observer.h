@@ -12,11 +12,13 @@
 #define VIDEO_VIDEO_QUALITY_OBSERVER_H_
 
 #include <stdint.h>
+#include <set>
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/video/video_codec_type.h"
 #include "api/video/video_content_type.h"
-#include "common_types.h"  // NOLINT(build/include)
+#include "api/video/video_frame.h"
 #include "rtc_base/numerics/sample_counter.h"
 
 namespace webrtc {
@@ -30,11 +32,11 @@ class VideoQualityObserver {
   explicit VideoQualityObserver(VideoContentType content_type);
   ~VideoQualityObserver();
 
-  void OnDecodedFrame(absl::optional<uint8_t> qp,
-                      int width,
-                      int height,
-                      int64_t now_ms,
+  void OnDecodedFrame(const VideoFrame& frame,
+                      absl::optional<uint8_t> qp,
                       VideoCodecType codec);
+
+  void OnRenderedFrame(const VideoFrame& frame, int64_t now_ms);
 
   void OnStreamInactive();
 
@@ -47,14 +49,15 @@ class VideoQualityObserver {
     High = 2,
   };
 
-  int64_t last_frame_decoded_ms_;
-  int64_t num_frames_decoded_;
-  int64_t first_frame_decoded_ms_;
+  int64_t last_frame_rendered_ms_;
+  int64_t num_frames_rendered_;
+  int64_t first_frame_rendered_ms_;
   int64_t last_frame_pixels_;
-  uint8_t last_frame_qp_;
+  bool is_last_frame_blocky_;
   // Decoded timestamp of the last delayed frame.
   int64_t last_unfreeze_time_;
-  rtc::SampleCounter interframe_delays_;
+  rtc::SampleCounter render_interframe_delays_;
+  double sum_squared_interframe_delays_secs_;
   // An inter-frame delay is counted as a freeze if it's significantly longer
   // than average inter-frame delay.
   rtc::SampleCounter freezes_durations_;
@@ -72,6 +75,9 @@ class VideoQualityObserver {
   // Content type of the last decoded frame.
   VideoContentType content_type_;
   bool is_paused_;
+
+  // Set of decoded frames with high QP value.
+  std::set<int64_t> blocky_frames_;
 };
 
 }  // namespace webrtc

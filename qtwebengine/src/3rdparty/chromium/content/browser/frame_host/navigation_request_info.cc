@@ -14,6 +14,7 @@ NavigationRequestInfo::NavigationRequestInfo(
 #if defined(TOOLKIT_QT)
     const GURL& first_party_url,
 #endif
+    const base::Optional<url::Origin>& top_frame_origin,
     bool is_main_frame,
     bool parent_is_main_frame,
     bool are_ancestors_secure,
@@ -32,6 +33,7 @@ NavigationRequestInfo::NavigationRequestInfo(
 #if defined(TOOLKIT_QT)
       first_party_url(first_party_url),
 #endif
+      top_frame_origin(top_frame_origin),
       is_main_frame(is_main_frame),
       parent_is_main_frame(parent_is_main_frame),
       are_ancestors_secure(are_ancestors_secure),
@@ -51,6 +53,7 @@ NavigationRequestInfo::NavigationRequestInfo(const NavigationRequestInfo& other)
 #if defined(TOOLKIT_QT)
       first_party_url(other.first_party_url),
 #endif
+      top_frame_origin(other.top_frame_origin),
       is_main_frame(other.is_main_frame),
       parent_is_main_frame(other.parent_is_main_frame),
       are_ancestors_secure(other.are_ancestors_secure),

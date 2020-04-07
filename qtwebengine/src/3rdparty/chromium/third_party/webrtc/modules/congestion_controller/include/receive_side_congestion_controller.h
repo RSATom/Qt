@@ -15,8 +15,8 @@
 #include <vector>
 
 #include "modules/remote_bitrate_estimator/remote_estimator_proxy.h"
-#include "rtc_base/constructormagic.h"
-#include "rtc_base/criticalsection.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
 
 namespace webrtc {
 class RemoteBitrateEstimator;
@@ -33,7 +33,7 @@ class ReceiveSideCongestionController : public CallStatsObserver,
   ReceiveSideCongestionController(const Clock* clock,
                                   PacketRouter* packet_router);
 
-  virtual ~ReceiveSideCongestionController() {}
+  ~ReceiveSideCongestionController() override {}
 
   virtual void OnReceivedPacket(int64_t arrival_time_ms,
                                 size_t payload_size,
@@ -60,7 +60,7 @@ class ReceiveSideCongestionController : public CallStatsObserver,
     WrappingBitrateEstimator(RemoteBitrateObserver* observer,
                              const Clock* clock);
 
-    virtual ~WrappingBitrateEstimator() {}
+    ~WrappingBitrateEstimator() override;
 
     void IncomingPacket(int64_t arrival_time_ms,
                         size_t payload_size,
